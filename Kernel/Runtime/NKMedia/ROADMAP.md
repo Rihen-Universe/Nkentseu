@@ -1229,18 +1229,20 @@ brique 16 livrée 2026-07-26). Ce qui reste, par ordre d'utilité réelle :
    bit-exact SAUF sous-mode `INTER_MV_FOUR` (arrondi MV chroma 4:2:0, ~1% pixels chroma concernés,
    documenté). iDCT VP3 entière bit-exacte, filtre de boucle, 80 arbres Huffman. Harnais `--theora`.
    ⚠️ Oracle limité : le décodeur Theora natif de ffmpeg est bogué sur l'inter libtheora → inter validé
-   sur flux courts isolés. **AV1 : reconstruction PIXEL intra key frame LIVRÉE (2026-07-26)** — `NkAv1Decoder` from-scratch :
-   OBU parsing + sequence/frame headers + symbol decoder CDF §8.2 (fondation) **+ partition tree
-   complet + tous les modes intra (DC/8 angles directionnels/Smooth×3/Paeth/filter-intra/CfL) +
-   décodage coefficients (txb_skip/eob/coeff_base/coeff_br golomb/dc_sign) + transformées inverses
-   (DCT/ADST/IDTX/WHT lossless, 4×4→32×32) + déquantification + déblocage §7.14 — BIT-EXACT vs
-   ffmpeg sur 6 flux divers** (couleur plate, lossless WHT+palette, lossy DCT/ADST+déblocage,
-   contenu complexe, dimensions non alignées superbloc). Tables normatives (127, scan/CDF/quant/tx)
-   transcrites **mécaniquement depuis le TEXTE de la spec AOMedia** (`NkAv1Tables.inc`, script
-   dédié) — pas du code tiers, même pratique que les tables DCT/quant déjà transcrites pour
-   H264/HEVC/VP9. Bug latent trouvé+corrigé : `UpdateCdf` (adaptation CDF, sens inversé). Harnais
-   `--av1` compare les pixels automatiquement. Restes (refus propre, non exercés par les tests) :
-   couleurs de palette, Intra Block Copy, CDEF, loop restoration, superres, tout l'INTER.
+   sur flux courts isolés. **AV1 : DÉCODEUR INTRA+INTER COMPLET, BIT-EXACT sur 29 flux (2026-07-28)**
+   — `NkAv1Decoder` from-scratch (spec AOMedia texte, 183 tables extraites mécaniquement, zéro code
+   dav1d/libaom/ffmpeg) : fondation (OBU/headers/symbol CDF §8.2) + **INTRA complet** (partition,
+   13 modes+CfL/filter-intra, coeffs, DCT/ADST/IDTX/WHT 4×4→32×32, déblocage — bit-exact 6 flux,
+   2026-07-26) + **INTER complet (2026-07-28)** : frame header inter §5.9 (order hints, set_frame_refs,
+   global motion, gestion CDF par trame §7.20), modes NEAREST/NEAR/GLOBAL/NEW + 8 modes compound +
+   DRL + **pile de MV §7.10 complète** (scans spatiaux+temporel §7.9 projection motion field), MC
+   §7.11.3 (8-tap ×3 + 4-tap, compound average/distance/**wedge/diffwtd masqués**, **inter-intra**,
+   **OBMC**, **warp LOCAL et GLOBAL** §7.11.3.5/3.8), var-tx inter, déblocage inter, **CDEF §7.15**,
+   `NkAv1StreamDecoder` (DPB 8 slots, ordre d'affichage, show_existing/trames cachées altref) —
+   **29 flux libaom cpu-used 1→8 TOUS bit-exact maxdiff 0** (Release+Debug), dont warp mandelbrot,
+   2-tiles, segmentation, dimensions impaires. Bugs latents corrigés : `UpdateCdf` inversé, loop
+   filter à level 0, région CDEF=trame. Restes (refus propre via `LastError()`) : palette (couleurs),
+   IntraBC, loop restoration, superres, film grain, 10/12-bit, 4:2:2/4:4:4, monochrome, perf brute.
    ✅ **AMR-NB livré (2026-07-28, 3e tentative — politique de provenance raffinée validée par
    Rihen)** — `NkAmrDecoder` : **les 8 modes (4.75→12.2 kbit/s) décodent avec corr 0,966–0,996**
    (≥0,95 partout) vs l'oracle normatif (ffmpeg/opencore en boîte noire binaire), signaux complexes

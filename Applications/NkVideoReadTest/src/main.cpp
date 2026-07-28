@@ -1435,9 +1435,11 @@ int main(int argc, char **argv) {
 			if (!refFile)
 				printf("  [!!] reference introuvable : %s (comparaison pixels desactivee)\n", argv[3]);
 		}
-		bool reconTried = false, reconOk = false;
+		bool reconTried = false, reconOk = true;
 		int32 maxDiffY = -1, maxDiffU = -1, maxDiffV = -1;
-		long long sumAbsDiff = 0, nSamples = 0;
+		int32 framesDecoded = 0, framesBitExact = 0, firstBadFrame = -1;
+		bool refExhausted = false, streamFailed = false;
+		NkAv1StreamDecoder sdec; // decodeur de FLUX (DPB persistant, trames inter)
 		while (true) {
 			uint8 fhdr[12];
 			if (fread(fhdr, 1, 12, f) != 12)
@@ -1454,12 +1456,19 @@ int main(int argc, char **argv) {
 																  frame, st);
 			if (consumed && !st.overran)
 				++tuOk;
-			if (refFile && frame.valid && frame.frameType == kAv1KeyFrame && !reconTried) {
+			// Decodage de FLUX complet (intra + inter) : chaque TU peut sortir
+			// 0..n images en ordre d'affichage ; chacune est comparee a la
+			// reference YUV (lecture sequentielle).
+			if (refFile && !streamFailed) {
 				reconTried = true;
-				NkAv1Image img;
-				NkAv1ParseStats reconStats;
-				reconOk = NkAv1Decoder::DecodeKeyFrame(payload.Data(), (usize)payloadSize, img, &reconStats);
-				if (reconOk) {
+				NkVector<NkAv1Image> frames;
+				if (!sdec.DecodeTemporalUnit(payload.Data(), (usize)payloadSize, frames)) {
+					printf("  [RECON] TU %d : ECHEC decodage flux : %s\n", tu, sdec.LastError());
+					streamFailed = true;
+					reconOk = false;
+				}
+				for (usize fi = 0; fi < frames.Size() && !refExhausted; ++fi) {
+					const NkAv1Image &img = frames[fi];
 					NkVector<uint8> refY, refU, refV;
 					refY.Resize((usize)img.width * (usize)img.height);
 					refU.Resize((usize)img.uvWidth * (usize)img.uvHeight);
@@ -1468,71 +1477,55 @@ int main(int argc, char **argv) {
 									 fread(refU.Data(), 1, refU.Size(), refFile) == refU.Size() &&
 									 fread(refV.Data(), 1, refV.Size(), refFile) == refV.Size();
 					if (!rOk) {
-						printf("  [KO] reference YUV trop courte pour %dx%d (img %dx%d uv %dx%d, refYsz=%zu refUsz=%zu refVsz=%zu)\n",
-							   img.width, img.height, img.width, img.height, img.uvWidth, img.uvHeight,
-							   refY.Size(), refU.Size(), refV.Size());
-					} else {
-						maxDiffY = 0; maxDiffU = 0; maxDiffV = 0;
-						for (int32 y = 0; y < img.height; ++y)
-							for (int32 x = 0; x < img.width; ++x) {
-								const int32 a = img.y[(usize)y * (usize)img.yStride + (usize)x];
-								const int32 b = refY[(usize)y * (usize)img.width + (usize)x];
-								const int32 d = a > b ? a - b : b - a;
-								if (d > maxDiffY) maxDiffY = d;
-								sumAbsDiff += d; ++nSamples;
-							}
-						for (int32 y = 0; y < img.uvHeight; ++y)
-							for (int32 x = 0; x < img.uvWidth; ++x) {
-								const int32 au = img.u[(usize)y * (usize)img.uvStride + (usize)x];
-								const int32 bu = refU[(usize)y * (usize)img.uvWidth + (usize)x];
-								const int32 du = au > bu ? au - bu : bu - au;
-								if (du > maxDiffU) maxDiffU = du;
-								const int32 av = img.v[(usize)y * (usize)img.uvStride + (usize)x];
-								const int32 bv = refV[(usize)y * (usize)img.uvWidth + (usize)x];
-								const int32 dv = av > bv ? av - bv : bv - av;
-								if (dv > maxDiffV) maxDiffV = dv;
-							}
-						printf("  [RECON] key frame decodee : %dx%d  maxdiff Y=%d U=%d V=%d  avgAbsDiffY=%.3f\n",
-							   img.width, img.height, maxDiffY, maxDiffU, maxDiffV,
-							   nSamples ? (double)sumAbsDiff / (double)nSamples : 0.0);
-						// Diagnostic : en cas d'ecart, affiche un extrait pour localiser le
-						// premier pixel fautif (utile pour deboguer une regression future).
-						if (maxDiffY > 0) {
-							printf("  [DUMP] premiers 8x8 pixels Y (decode / ref):\n");
-							for (int32 y = 0; y < 8; ++y) {
-								printf("    dec: ");
-								for (int32 x = 0; x < 8; ++x)
-									printf("%3d ", img.y[(usize)y * (usize)img.yStride + (usize)x]);
-								printf("\n    ref: ");
-								for (int32 x = 0; x < 8; ++x)
-									printf("%3d ", refY[(usize)y * (usize)img.width + (usize)x]);
-								printf("\n");
-							}
+						refExhausted = true;
+						break;
+					}
+					int32 dY = 0, dU = 0, dV = 0;
+					int32 fbx = -1, fby = -1;
+					for (int32 y = 0; y < img.height; ++y)
+						for (int32 x = 0; x < img.width; ++x) {
+							const int32 a = img.y[(usize)y * (usize)img.yStride + (usize)x];
+							const int32 b = refY[(usize)y * (usize)img.width + (usize)x];
+							const int32 d = a > b ? a - b : b - a;
+							if (d > dY) { dY = d; if (fbx < 0) { fbx = x; fby = y; } }
 						}
-						if (maxDiffU > 0) {
-							int32 fy = -1, fx = -1;
-							for (int32 y = 0; y < img.uvHeight && fy < 0; ++y)
-								for (int32 x = 0; x < img.uvWidth; ++x) {
-									const int32 au = img.u[(usize)y * (usize)img.uvStride + (usize)x];
-									const int32 bu = refU[(usize)y * (usize)img.uvWidth + (usize)x];
-									if (au != bu) { fy = y; fx = x; break; }
+					for (int32 y = 0; y < img.uvHeight; ++y)
+						for (int32 x = 0; x < img.uvWidth; ++x) {
+							const int32 au = img.u[(usize)y * (usize)img.uvStride + (usize)x];
+							const int32 bu = refU[(usize)y * (usize)img.uvWidth + (usize)x];
+							const int32 du = au > bu ? au - bu : bu - au;
+							if (du > dU) dU = du;
+							const int32 av = img.v[(usize)y * (usize)img.uvStride + (usize)x];
+							const int32 bv = refV[(usize)y * (usize)img.uvWidth + (usize)x];
+							const int32 dv = av > bv ? av - bv : bv - av;
+							if (dv > dV) dV = dv;
+						}
+					if (dY > maxDiffY) maxDiffY = dY;
+					if (dU > maxDiffU) maxDiffU = dU;
+					if (dV > maxDiffV) maxDiffV = dV;
+					if (dY == 0 && dU == 0 && dV == 0) {
+						++framesBitExact;
+					} else {
+						reconOk = false;
+						if (firstBadFrame < 0) {
+							firstBadFrame = framesDecoded;
+							printf("  [DIFF] trame affichee %d : maxdiff Y=%d U=%d V=%d (1er ecart Y a x=%d,y=%d)\n",
+								   framesDecoded, dY, dU, dV, fbx, fby);
+							if (fbx >= 0) {
+								const int32 bx = fbx < 4 ? 0 : fbx - 4, by = fby < 4 ? 0 : fby - 4;
+								for (int32 y = by; y < by + 8 && y < img.height; ++y) {
+									printf("    dec: ");
+									for (int32 x = bx; x < bx + 8 && x < img.width; ++x)
+										printf("%3d ", img.y[(usize)y * (usize)img.yStride + (usize)x]);
+									printf("  ref: ");
+									for (int32 x = bx; x < bx + 8 && x < img.width; ++x)
+										printf("%3d ", refY[(usize)y * (usize)img.width + (usize)x]);
+									printf("\n");
 								}
-							printf("  [DUMP] premier ecart U a (x=%d,y=%d) -- 8x8 autour (decode / ref):\n", fx, fy);
-							const int32 by = fy < 4 ? 0 : fy - 4, bx = fx < 4 ? 0 : fx - 4;
-							for (int32 y = by; y < by + 8 && y < img.uvHeight; ++y) {
-								printf("    dec: ");
-								for (int32 x = bx; x < bx + 8 && x < img.uvWidth; ++x)
-									printf("%3d ", img.u[(usize)y * (usize)img.uvStride + (usize)x]);
-								printf("\n    ref: ");
-								for (int32 x = bx; x < bx + 8 && x < img.uvWidth; ++x)
-									printf("%3d ", refU[(usize)y * (usize)img.uvWidth + (usize)x]);
-								printf("\n");
 							}
 						}
 					}
-				} else {
-					printf("  [RECON] DecodeKeyFrame a echoue (stats: obu=%d tiles=%d)\n", reconStats.obuCount,
-						   reconStats.tilesParsed);
+					++framesDecoded;
 				}
 			}
 			if (seq.valid)
@@ -1570,10 +1563,12 @@ int main(int argc, char **argv) {
 		printf("  bilan : %d temporal units, %d parses exacts, seq vues=%d, frame headers=%d\n", tu, tuOk,
 			   seqSeen, framesSeen);
 		if (reconTried)
-			printf("  reconstruction pixel : %s (maxdiff Y=%d U=%d V=%d)\n", reconOk ? "OK (decoded)" : "ECHEC",
-				   maxDiffY, maxDiffU, maxDiffV);
+			printf("  reconstruction pixel : %d trames affichees, %d BIT-EXACT, maxdiff Y=%d U=%d V=%d%s%s\n",
+				   framesDecoded, framesBitExact,
+				   maxDiffY < 0 ? 0 : maxDiffY, maxDiffU < 0 ? 0 : maxDiffU, maxDiffV < 0 ? 0 : maxDiffV,
+				   streamFailed ? " [FLUX INTERROMPU]" : "", refExhausted ? " [REF EPUISEE]" : "");
 		printf("=== %s ===\n", (tu > 0 && tuOk == tu) ? "AV1 OBU + HEADERS OK (structurel)" : "AV1 PARSE INCOMPLET");
-		bool pixOk = !reconTried || (reconOk && maxDiffY == 0 && maxDiffU == 0 && maxDiffV == 0);
+		bool pixOk = !reconTried || (reconOk && !streamFailed && framesDecoded > 0 && framesBitExact == framesDecoded);
 		return (tu > 0 && tuOk == tu && pixOk) ? 0 : 1;
 	}
 

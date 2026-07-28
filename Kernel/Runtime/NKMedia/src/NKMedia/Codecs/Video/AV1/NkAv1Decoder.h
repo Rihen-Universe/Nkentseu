@@ -8,15 +8,16 @@
 // par un décodeur ARITHMÉTIQUE MULTI-SYMBOLE à CDF adaptatif (§8.2).
 //
 // MEGA-CHANTIER, construit brique par brique (comme VP8/VP9/HEVC de ce module) :
-//   Brique 1 (ICI) : OBU parsing (§5.2-5.6) — Open Bitstream Units : temporal
-//     delimiter, sequence header, frame header, tile group, metadata. Conteneur
-//     IVF brut (comme VP8/VP9). LEB128, uvlc, su(n), ns(n).
-//   Brique 2 : SYMBOL DECODER (§8.2) — init_symbol / decode_symbol / renorm /
-//     adaptation CDF. C'est le cœur entropique, différent du bool coder VP8/VP9.
-//   Brique 3 : Sequence header (§5.5) + Frame header (§5.9) complets.
-//   Brique 4 : Partition tree + modes intra (KEY FRAMES d'abord, §5.11).
-//   Briques suivantes : prédiction intra AV1, transformées inverses, reconstruction,
-//     déblocage, CDEF, loop restoration, puis inter/compound/warp/film grain.
+//   Briques 1-2 : OBU parsing (§5.2-5.6) + SYMBOL DECODER CDF (§8.2).
+//   Briques 3-4 : Sequence/Frame headers + partition tree + modes intra +
+//     coefficients + transformées inverses + déblocage — BIT-EXACT (keyframes).
+//   Briques INTER (2026-07-28) : frame header inter (§5.9), pile de MV (§7.10),
+//     champ de MV temporel (§7.9), modes inter single/compound (§5.11),
+//     compensation de mouvement 8-tap + compound average/distance/wedge/diffwtd +
+//     inter-intra + OBMC + warp local/global (§7.11.3), var-tx inter, CDEF (§7.15),
+//     DPB 8 slots + CDF persistantes -> NkAv1StreamDecoder, BIT-EXACT (voir rapport).
+//   Restes (refus propre) : palette, intrabc, loop restoration, superres,
+//     film grain, 10/12-bit, 4:4:4/4:2:2, monochrome.
 // Zero-STL strict (NkVector / NKMemory / NkMath). Namespace nkentseu::media.
 //
 // AUTEUR : Rihen — LICENCE : usage régi par le fichier LICENSE à la racine du dépôt.
@@ -181,10 +182,11 @@ namespace nkentseu {
 				bool usesLr = false;
 		};
 
-		// --- Frame header (§5.9) — sous-ensemble décodable pour keyframes intra. ---
+		// --- Frame header (§5.9) — keyframes intra + trames INTER (§5.9 complet). ---
 		struct NkAv1FrameHeader {
 				bool showExistingFrame = false;
 				int32 frameToShow = 0;
+				bool frameIsIntra = true;
 
 				int32 frameType = kAv1KeyFrame;
 				bool showFrame = true;
@@ -218,6 +220,14 @@ namespace nkentseu {
 
 				int32 refreshFrameFlags = 0;
 				int32 refFrameIdx[7] = {-1, -1, -1, -1, -1, -1, -1};
+
+				// --- Champs inter (§5.9 chemins non-keyframe). Indices de trame de
+				// référence : INTRA_FRAME=0, LAST=1..ALTREF=7 (NONE=-1). ---
+				int32 orderHints[8] = {0};       // OrderHints[refFrame] (1..7)
+				bool refFrameSignBias[8] = {false};
+				int32 gmType[8] = {0};           // GmType[ref] : 0=IDENTITY 1=TRANSLATION 2=ROTZOOM 3=AFFINE
+				int32 gmParams[8][6] = {{0}};
+				int32 skipModeFrame[2] = {0, 0};
 
 				bool codedLossless = false;
 				bool allLossless = false;
@@ -325,6 +335,33 @@ namespace nkentseu {
 										   NkAv1ParseStats *statsOut = nullptr);
 
 				static bool SelfTest();
+		};
+
+		// =====================================================================
+		// Décodeur de FLUX AV1 avec état persistant (DPB 8 slots, CDF sauvegardées,
+		// champ de MV, order hints) — nécessaire pour les trames INTER. Une instance
+		// par flux ; lui passer chaque temporal unit (une trame IVF) dans l'ordre.
+		// Les images sorties sont en ORDRE D'AFFICHAGE (show_frame /
+		// show_existing_frame gérés). From-scratch depuis la spec, comme le reste.
+		// =====================================================================
+		class NkAv1StreamDecoder {
+			public:
+				NkAv1StreamDecoder();
+				~NkAv1StreamDecoder();
+				NkAv1StreamDecoder(const NkAv1StreamDecoder &) = delete;
+				NkAv1StreamDecoder &operator=(const NkAv1StreamDecoder &) = delete;
+
+				// Décode une temporal unit. Ajoute 0..n images (ordre d'affichage) à
+				// outFrames. Renvoie false sur erreur ou feature non supportée (la
+				// raison est disponible via LastError()).
+				bool DecodeTemporalUnit(const uint8 *data, usize size, NkVector<NkAv1Image> &outFrames);
+
+				// Message court (statique) décrivant la dernière erreur / le refus.
+				const char *LastError() const;
+
+			private:
+				struct Impl;
+				Impl *mImpl = nullptr;
 		};
 
 	} // namespace media
