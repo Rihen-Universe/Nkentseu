@@ -327,6 +327,39 @@ namespace nkentseu {
 						mSelId = -1;
 				}
 
+				// AJOUTE une cible à la sélection sans vider les autres — l'équivalent
+				// programmatique de Shift+clic. Select() est EXCLUSIF : sans ce pendant,
+				// aucun moyen de construire une sélection multiple par API (tests,
+				// captures headless, futur éditeur qui restaure une sélection sauvegardée).
+				// La cible ajoutée devient l'ACTIVE, comme dans Blender.
+				void AddToSelection(int32 i) {
+					if (i >= 0 && i < kMax) {
+						mSel[i] = true;
+						mSelId = i;
+					}
+				}
+
+				// Bascule l'état d'une cible (Shift+clic sur un objet déjà sélectionné le
+				// retire). Si la cible active est retirée, l'index actif est réaffecté au
+				// premier sélectionné restant, ou -1 s'il n'en reste aucun.
+				void ToggleSelection(int32 i) {
+					if (i < 0 || i >= kMax)
+						return;
+					mSel[i] = !mSel[i];
+					if (mSel[i]) {
+						mSelId = i;
+						return;
+					}
+					if (mSelId == i) {
+						mSelId = -1;
+						for (int32 k = 0; k < kMax; k++)
+							if (mSel[k]) {
+								mSelId = k;
+								break;
+							}
+					}
+				}
+
 				void ResetSelected() {
 					for (int32 i = 0; i < kMax; i++)
 						if (mSel[i]) {
