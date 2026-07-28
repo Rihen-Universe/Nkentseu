@@ -160,7 +160,29 @@ namespace nkentseu {
 				int32 subdivCuts = 1;			// nb d'itérations de subdivision (Shift+W)
 				bool extrudeIndividual = false; // Extrude : région (0) vs faces individuelles (1) (Shift+E)
 				int32 mergeMode = 0;			// 0=CENTER 1=FIRST 2=LAST (Shift+M)
-				renderer::NkGizmo3D editGizmo;	// 1 seule cible = centroïde de la sélection
+				renderer::NkGizmo3D editGizmo;	// 1 seule cible = PIVOT courant de la sélection
+				// ── OMBRAGE FLAT / SMOOTH (façon Blender « Shade Flat / Shade Smooth ») ──
+				// Shift+F = FLAT · Shift+S = SMOOTH. S'applique aux FACES SÉLECTIONNÉES si
+				// la sélection en contient (mixte autorisé, comme Blender), sinon à TOUT le
+				// maillage. 0 = rien à faire, 1 = passer en SMOOTH, 2 = passer en FLAT.
+				int32 editShadePending = 0;
+				// Dernier ombrage posé sur l'OBJET ENTIER (aucune face sélectionnée) : les
+				// opérations qui RECONSTRUISENT la topologie (subdivide, loop cut, bisect…)
+				// repartent de faces neuves (donc FLAT) — on ré-applique alors cet état pour
+				// qu'un objet déclaré « smooth » le reste après une subdivision.
+				bool editShadeSmoothAll = false;
+				// ── CURSEUR 3D (façon Blender) ──────────────────────────────────────
+				// Position MONDE, pivot possible (PIVOT_CURSOR), dessiné en permanence.
+				// Placement : Shift + clic DROIT (raycast sous le curseur souris).
+				NkVec3f cursor3D = {0.f, 0.f, 0.f};
+				bool cursorPlacePending = false; // Shift+clic droit -> replacer le curseur 3D
+				float32 cursorPX = 0.f, cursorPY = 0.f;
+				// PILOTE HEADLESS : force l'application de la transform de groupe en Edit Mode
+				// SANS souris (NK_EDIT_SCALE) -> capture de la différence entre pivots.
+				bool editForceXform = false;
+				// Le mesh GPU d'affichage est-il aligné 1:1 sur editRest/editLive ? (faux dès
+				// qu'un modificateur tourne ou que l'ombrage FLAT a dédoublé des coins.)
+				bool editDisplay1to1 = true;
 		};
 
 		// Transform de BASE (repos, sans animation) d'un objet de la démo par son index
@@ -227,6 +249,15 @@ namespace nkentseu {
 		// Régénère le mesh de RENDU (triangulation de editHE) + cage + map tri->face n-gon,
 		// et recrée le mesh GPU dynamique.
 		static void Demo3D_SyncFromHE(Demo3DState *st, renderer::NkMeshSystem *ms) {
+			// OMBRAGE : les commandes qui RECONSTRUISENT la topologie (subdivide, loop cut,
+			// bisect…) recréent des faces neuves, donc FLAT par défaut. Si l'objet avait été
+			// déclaré SMOOTH dans son ensemble, on ré-applique cet état ici -> un objet lissé
+			// le reste après une subdivision (comportement attendu façon Blender).
+			// (Un ombrage MIXTE posé face par face n'est PAS reconstitué après une op de
+			// topologie : limite assumée — le flag vit sur la face, pas sur une couche
+			// persistante indexée autrement.)
+			if (st->editShadeSmoothAll && !st->editHE.AnyFaceSmooth())
+				st->editHE.SetShadeSmooth(true, false);
 			// BASE (editHE) -> pick + cage + overlay + sélection : on édite TOUJOURS la base,
 			// même quand des modificateurs sont affichés (façon cage Blender : la cage = la base).
 			st->editHE.Triangulate(st->editRest, st->editIdx, st->editTriFace);
@@ -237,22 +268,30 @@ namespace nkentseu {
 				st->vertSel.Resize(st->editHE.VertCount());
 			// AFFICHAGE SOLIDE = base, OU résultat des modificateurs (non-destructif : editHE
 			// n'est jamais modifiée ; on triangule le résultat juste pour le mesh GPU affiché).
-			const renderer::NkVertex3D *dvData = st->editRest.Data();
-			uint32 dvCount = (uint32)st->editRest.Size();
-			const uint32 *diData = st->editIdx.Data();
-			uint32 diCount = (uint32)st->editIdx.Size();
+			// La triangulation d'AFFICHAGE est OMBRAGE-CONSCIENTE (TriangulateShaded) : les
+			// coins des faces FLAT qui se disputent un sommet partagé y sont dédoublés, sans
+			// quoi une sphère (dont les sommets sont partagés entre faces) ne pourrait JAMAIS
+			// paraître facettée. La cage / le pick / la sélection, eux, restent sur la
+			// triangulation 1:1 ci-dessus.
 			renderer::NkEditMesh evalMesh;
 			NkVector<renderer::NkVertex3D> evV;
 			NkVector<uint32> evI;
 			NkVector<renderer::NkEmId> evTF;
 			if (!st->editModifiers.Empty()) {
 				st->editModifiers.Evaluate(st->editHE, evalMesh);
-				evalMesh.Triangulate(evV, evI, evTF);
-				dvData = evV.Data();
-				dvCount = (uint32)evV.Size();
-				diData = evI.Data();
-				diCount = (uint32)evI.Size();
+				evalMesh.TriangulateShaded(evV, evI, evTF);
+			} else {
+				st->editHE.TriangulateShaded(evV, evI, evTF);
 			}
+			const renderer::NkVertex3D *dvData = evV.Data();
+			uint32 dvCount = (uint32)evV.Size();
+			const uint32 *diData = evI.Data();
+			uint32 diCount = (uint32)evI.Size();
+			// Le mesh d'affichage est-il encore aligné 1:1 sur la cage éditable ? Si oui, le
+			// drag peut pousser directement editLive dans le VBO (chemin rapide) ; sinon
+			// (modificateurs, ou coins dédoublés par l'ombrage FLAT) le solide n'est recalculé
+			// qu'en FIN de drag — la cage, elle, suit toujours en temps réel.
+			st->editDisplay1to1 = st->editModifiers.Empty() && (dvCount == (uint32)st->editRest.Size());
 			// AABB LOCALE des vertices RÉELLEMENT affichés (base OU sortie des modificateurs).
 			// Indispensable : NkRender3D::Submit fait son frustum culling sur dc.aabb, qui doit
 			// être en espace MONDE -> on garde ici la boîte LOCALE et on la transforme par
@@ -1041,6 +1080,15 @@ namespace nkentseu {
 					st->pickX = e->GetX();
 					st->pickY = e->GetY();
 				}
+				// CURSEUR 3D façon Blender : Shift + clic DROIT le place sous la souris
+				// (raycast sur la surface visible, repli sur le plan du sol y=0). Le clic
+				// droit SEUL reste libre (regard de la caméra fly).
+				if (e->GetButton() == NkMouseButton::NK_MB_RIGHT &&
+					(NkInput.IsKeyDown(NkKey::NK_LSHIFT) || NkInput.IsKeyDown(NkKey::NK_RSHIFT))) {
+					st->cursorPlacePending = true;
+					st->cursorPX = (float32)e->GetX();
+					st->cursorPY = (float32)e->GetY();
+				}
 			});
 			// F : bascule caméra ÉDITEUR (orbit) <-> SIMULATION (fly). En EDIT MODE, F crée
 			// une face (n-gon) depuis la sélection -> ne pas basculer la caméra.
@@ -1184,6 +1232,39 @@ namespace nkentseu {
 				// cloner le mesh de l'objet sélectionné). Façon Blender.
 				if (k == NkKey::NK_TAB) {
 					st->editTogglePending = true;
+					return;
+				}
+				const bool shiftG = NkInput.IsKeyDown(NkKey::NK_LSHIFT) || NkInput.IsKeyDown(NkKey::NK_RSHIFT);
+				// ── OMBRAGE FLAT / SMOOTH (Blender : menu Object > Shade Flat/Smooth, ou
+				//    Mesh > Shading en Edit Mode). Blender n'a PAS de raccourci direct : on
+				//    prend Shift+S = SMOOTH et Shift+F = FLAT (S et F seules restent l'échelle
+				//    et « créer une face »). Traité côté frame (accès meshSys pour resync).
+				if (shiftG && (k == NkKey::NK_S || k == NkKey::NK_F)) {
+					if (!st->editMode) {
+						// LIMITE ASSUMÉE : hors édition, les objets partagent la MÊME primitive
+						// GPU — changer leur ombrage la modifierait pour tous. On passe donc par
+						// l'Edit Mode (le maillage y est cloné) ; le résultat PERSISTE ensuite en
+						// mode objet, l'objet adoptant son mesh édité à la sortie (TAB).
+						logger.Info("[Demo3D] Ombrage : entre en EDIT MODE (Tab) sur l'objet, puis "
+									"Shift+S (smooth) / Shift+F (flat)\n");
+					} else
+						st->editShadePending = (k == NkKey::NK_S) ? 1 : 2;
+					return;
+				}
+				// ── POINT DE PIVOT (Blender : touche `.`) — cycle les 5 modes ────────
+				//    Alt+`.` = remet le CURSEUR 3D à l'origine du monde.
+				//    (Le placement du curseur 3D = Shift + clic DROIT, cf. callback souris.)
+				if (k == NkKey::NK_PERIOD) {
+					if (alt) {
+						st->cursor3D = {0.f, 0.f, 0.f};
+						logger.Info("[Demo3D] Curseur 3D remis a l'origine\n");
+					} else {
+						// Les DEUX gizmos (objet + édition) partagent le mode : un seul réglage
+						// utilisateur, valable en mode OBJET comme en mode ÉDITION.
+						st->gizmo.CyclePivot();
+						st->editGizmo.SetPivotMode(st->gizmo.PivotMode());
+						logger.Info("[Demo3D] Point de pivot = {0}\n", st->gizmo.PivotName());
+					}
 					return;
 				}
 				// En EDIT MODE : touches 1/2/3 = sous-mode sélection VERTEX / EDGE / FACE.
@@ -1600,6 +1681,52 @@ namespace nkentseu {
 			// ⚠ NK_EDIT_MOVE n'est PAS le comportement de l'extrude : c'est un ARTEFACT DE
 			//   CAPTURE. E crée la géométrie à offset ZÉRO (donc invisible en image fixe) ;
 			//   NK_EDIT_MOVE la déplace APRÈS coup, uniquement pour la rendre visible.
+			// ── PILOTE HEADLESS : POINT DE PIVOT + CURSEUR 3D (captures agents/CI) ──────
+			//   NK_PIVOT=<0..4> ou <m|b|c|i|a> : median · boîte englobante · curseur 3D ·
+			//        origines individuelles · élément actif. Vaut pour les DEUX gizmos.
+			//   NK_CURSOR3D="x,y,z"            : place le curseur 3D (monde).
+			{
+				static bool gPivotInit = false;
+				if (!gPivotInit) {
+					gPivotInit = true;
+					if (const char *pv = getenv("NK_PIVOT")) {
+						const char c0 = pv[0];
+						int32 pm = 0;
+						if (c0 >= '0' && c0 <= '4')
+							pm = c0 - '0';
+						else if (c0 == 'b' || c0 == 'B')
+							pm = renderer::NkGizmo3D::PIVOT_BBOX;
+						else if (c0 == 'c' || c0 == 'C')
+							pm = renderer::NkGizmo3D::PIVOT_CURSOR;
+						else if (c0 == 'i' || c0 == 'I')
+							pm = renderer::NkGizmo3D::PIVOT_INDIVIDUAL;
+						else if (c0 == 'a' || c0 == 'A')
+							pm = renderer::NkGizmo3D::PIVOT_ACTIVE;
+						st->gizmo.SetPivotMode(pm);
+						st->editGizmo.SetPivotMode(pm);
+						logger.Info("[Demo3D] NK_PIVOT -> {0}\n", renderer::NkGizmo3D::PivotName(pm));
+					}
+					if (const char *cu = getenv("NK_CURSOR3D")) {
+						float32 cv[3] = {0.f, 0.f, 0.f};
+						int32 kk = 0;
+						const char *p = cu;
+						while (kk < 3 && *p) {
+							cv[kk++] = (float32)atof(p);
+							while (*p && *p != ',')
+								p++;
+							if (*p == ',')
+								p++;
+						}
+						st->cursor3D = {cv[0], cv[1], cv[2]};
+						logger.Info("[Demo3D] NK_CURSOR3D -> ({0}, {1}, {2})\n", cv[0], cv[1], cv[2]);
+					}
+				}
+			}
+			// Le curseur 3D est une donnée de la DÉMO : on le pousse dans les deux gizmos
+			// (il y sert de pivot en mode PIVOT_CURSOR).
+			st->gizmo.Set3DCursor(st->cursor3D);
+			st->editGizmo.Set3DCursor(st->cursor3D);
+
 			// Séquence multi-frames : frame0 entrer -> frame1 sélectionner -> frame2 (op).
 			{
 				static int32 gEditDrv = -2;
@@ -1782,6 +1909,11 @@ namespace nkentseu {
 						if (ea >= 0)
 							Demo3D_SelectLoop(st, (uint32)ea, (uint32)eb, (sl[0] == 'f' || sl[0] == 'F'), false);
 					}
+					// NK_SHADE=flat|smooth : ombrage (Shade Flat / Shade Smooth). S'applique
+					// aux FACES SÉLECTIONNÉES s'il y en a, sinon à TOUT le maillage — même
+					// règle que Shift+F / Shift+S.
+					if (const char *shd = getenv("NK_SHADE"))
+						st->editShadePending = (shd[0] == 's' || shd[0] == 'S') ? 1 : 2;
 					gEditDrv = 2;
 				} else if (gEditDrv == 2) {
 					if (const char *op = getenv("NK_EDIT_OP")) {
@@ -1809,7 +1941,23 @@ namespace nkentseu {
 						if (msMv)
 							Demo3D_SyncFromHE(st, msMv);
 					}
+					// NK_EDIT_SCALE=<d> : applique une ÉCHELLE de groupe (delta, ex. -0.5 =
+					// rétrécir de moitié) par le MÊME chemin que le drag du gizmo d'édition,
+					// SANS souris. Combiné à NK_PIVOT, c'est LA preuve visuelle de la
+					// différence entre points de pivot (Median vs Origines individuelles…).
+					if (const char *sc = getenv("NK_EDIT_SCALE")) {
+						const float32 d = (float32)atof(sc);
+						st->editGizmo.SetSelectedTransform({0.f, 0.f, 0.f}, NkMat4f::Identity(), {d, d, d});
+						st->editForceXform = true; // applique la transform de groupe chaque frame
+					}
 					gEditDrv = 4;
+				} else if (gEditDrv == 4) {
+					// NK_EDIT_EXIT=1 : ressort d'EDIT MODE (TAB) -> l'objet ADOPTE le mesh
+					// édité et se rend SANS la cage : capture « objet propre » qui prouve que
+					// le résultat (ex. ombrage smooth) persiste hors édition.
+					if (getenv("NK_EDIT_EXIT") && !st->editForceXform)
+						st->editTogglePending = true;
+					gEditDrv = 5;
 				}
 			}
 
@@ -2314,6 +2462,30 @@ namespace nkentseu {
 						st->editModCyclePending = false;
 						Demo3D_CycleActiveMod(st);
 					}
+					// ── OMBRAGE FLAT / SMOOTH (Shift+F / Shift+S) ─────────────────
+					// Pousse la sélection dans l'autorité (une face est « sélectionnée »
+					// quand TOUS ses sommets le sont), pose Face::smooth, recalcule les
+					// normales, puis régénère le mesh de rendu. Aucune topologie touchée
+					// -> la cage n-gon et les marqueurs d'édition sont intacts.
+					if (st->editShadePending != 0) {
+						const bool wantSmooth = (st->editShadePending == 1);
+						st->editShadePending = 0;
+						Demo3D_NormalizeSel(st);
+						// Y a-t-il une face ENTIÈREMENT sélectionnée ? Si oui -> ombrage
+						// PARTIEL (mixte, façon Blender) ; sinon -> objet entier.
+						bool anyFaceSel = false;
+						for (uint32 f = 0; f < (uint32)st->editHE.faces.Size() && !anyFaceSel; f++)
+							if (st->editHE.faces[f].alive && st->editHE.FaceIsSelected(f))
+								anyFaceSel = true;
+						st->editHE.SetShadeSmooth(wantSmooth, /*selectedOnly*/ true);
+						if (!anyFaceSel)
+							st->editShadeSmoothAll = wantSmooth; // état « objet » mémorisé
+						Demo3D_SyncFromHE(st, meshSysT);
+						logger.Info("[Demo3D] Shade {0} ({1}) -> {2} face(s) lissee(s)\n",
+									wantSmooth ? "SMOOTH" : "FLAT", anyFaceSel ? "faces selectionnees" : "objet entier",
+									st->editHE.AnyFaceSmooth() ? (st->editHE.AllFacesSmooth() ? "toutes" : "une partie")
+															   : "aucune");
+					}
 					if (st->editExtrudePending) {
 						st->editExtrudePending = false;
 						Demo3D_ExtrudeHE(st, meshSysT);
@@ -2388,20 +2560,49 @@ namespace nkentseu {
 				// (L'occlusion au pick est gérée par un test de PROFONDEUR par rayon curseur,
 				//  plus bas dans le bloc de sélection — indépendant de l'orientation caméra.)
 
-				// Centroïde monde de la sélection courante.
+				// Centroïde monde + BOÎTE ENGLOBANTE monde de la sélection courante.
 				NkVec3f cen = {0.f, 0.f, 0.f};
+				NkVec3f selMin{1e30f, 1e30f, 1e30f}, selMax{-1e30f, -1e30f, -1e30f};
 				int32 selCnt = 0;
 				for (int32 i = 0; i < nv; i++)
 					if (st->vertSel[i]) {
-						cen = cen + worldV(i);
+						const NkVec3f w = worldV(i);
+						cen = cen + w;
+						selMin.x = NkMin(selMin.x, w.x);
+						selMin.y = NkMin(selMin.y, w.y);
+						selMin.z = NkMin(selMin.z, w.z);
+						selMax.x = NkMax(selMax.x, w.x);
+						selMax.y = NkMax(selMax.y, w.y);
+						selMax.z = NkMax(selMax.z, w.z);
 						selCnt++;
 					}
 				if (selCnt > 0)
 					cen = cen * (1.f / (float32)selCnt);
 
-				// Cible unique du gizmo = centroïde.
+				// ── POINT DE PIVOT (façon Blender) en EDIT MODE ───────────────────────
+				// Le gizmo d'édition n'a qu'UNE cible : on lui donne directement le pivot
+				// choisi comme base, si bien que son pivot interne (barycentre d'une seule
+				// cible) EST le pivot demandé — rotation, échelle ET position d'affichage
+				// suivent donc tous le mode courant, sans cas particulier.
+				//   MEDIAN     : barycentre des sommets sélectionnés (défaut).
+				//   BBOX       : centre de la boîte englobante de la sélection.
+				//   CURSOR     : curseur 3D.
+				//   INDIVIDUAL : gizmo au barycentre (comme Blender) ; la transform, elle,
+				//                est appliquée par ÉLÉMENT (cf. plus bas).
+				//   ACTIVE     : sommet ACTIF (dernier sélectionné).
+				const int32 editPivotMode = st->editGizmo.PivotMode();
+				NkVec3f pivotW = cen;
+				if (selCnt > 0 && editPivotMode == renderer::NkGizmo3D::PIVOT_BBOX)
+					pivotW = (selMin + selMax) * 0.5f;
+				else if (editPivotMode == renderer::NkGizmo3D::PIVOT_CURSOR)
+					pivotW = st->cursor3D;
+				else if (editPivotMode == renderer::NkGizmo3D::PIVOT_ACTIVE && st->editActiveVert >= 0 &&
+						 st->editActiveVert < nv)
+					pivotW = worldV(st->editActiveVert);
+
+				// Cible unique du gizmo = le PIVOT courant.
 				renderer::NkGizmoTarget vt[1];
-				vt[0] = {NkMat4f::Translate(cen), {0.001f, 0.001f, 0.001f}, 0.0001f};
+				vt[0] = {NkMat4f::Translate(pivotW), {0.001f, 0.001f, 0.001f}, 0.0001f};
 				const int32 gcount = (selCnt > 0) ? 1 : 0;
 
 				st->editGizmo.SetCamera(camPos, camTgt, 60.f, VW, VH);
@@ -2765,19 +2966,71 @@ namespace nkentseu {
 					st->editDragSnap = st->editHE;
 					st->editDragSnapValid = true;
 				}
-				// Drag : applique la transform de groupe G (autour du centroïde) aux verts sélectionnés.
-				if (st->editGizmo.IsDragging() && selCnt > 0) {
-					NkMat4f G =
-						st->editGizmo.Apply(0, NkMat4f::Translate(cen)) * NkMat4f::Translate({-cen.x, -cen.y, -cen.z});
+				// Drag : applique la transform de groupe aux verts sélectionnés, AUTOUR DU
+				// POINT DE PIVOT courant (façon Blender). ApplyAbout() recompose le décalage
+				// utilisateur (translation + rotation + échelle) autour d'un point MONDE
+				// arbitraire -> un seul chemin pour les 5 modes.
+				if ((st->editGizmo.IsDragging() || st->editForceXform) && selCnt > 0) {
+					// ORIGINES INDIVIDUELLES : chaque FACE entièrement sélectionnée est
+					// transformée autour de SON PROPRE barycentre. Un sommet partagé par
+					// plusieurs faces sélectionnées prend la MOYENNE de leurs centres (cas
+					// des coins soudés) ; un sommet sélectionné n'appartenant à AUCUNE face
+					// entièrement sélectionnée (sélection de sommets/arêtes isolés) retombe
+					// sur le pivot commun — limite honnête, Blender y utilise ses « îlots ».
+					const bool individual = (editPivotMode == renderer::NkGizmo3D::PIVOT_INDIVIDUAL);
+					NkVector<NkVec3f> indOrg;
+					NkVector<uint32> indCnt;
+					if (individual) {
+						indOrg.Resize((uint32)nv);
+						indCnt.Resize((uint32)nv);
+						for (int32 i = 0; i < nv; i++) {
+							indOrg[(uint32)i] = {0.f, 0.f, 0.f};
+							indCnt[(uint32)i] = 0;
+						}
+						NkVector<renderer::NkEmId> fvi;
+						for (uint32 f = 0; f < (uint32)st->editHE.faces.Size(); f++) {
+							if (!st->editHE.faces[f].alive)
+								continue;
+							fvi.Clear();
+							st->editHE.GetFaceVerts(f, fvi);
+							const uint32 fn = (uint32)fvi.Size();
+							if (fn < 2)
+								continue;
+							bool allSel = true;
+							for (uint32 k = 0; k < fn && allSel; k++)
+								if (fvi[k] >= (uint32)st->vertSel.Size() || !st->vertSel[fvi[k]])
+									allSel = false;
+							if (!allSel)
+								continue;
+							NkVec3f fc{0.f, 0.f, 0.f};
+							for (uint32 k = 0; k < fn; k++)
+								fc = fc + worldV((int32)fvi[k]);
+							fc = fc * (1.f / (float32)fn);
+							for (uint32 k = 0; k < fn; k++) {
+								const uint32 vi = fvi[k];
+								if (vi < (uint32)nv) {
+									indOrg[vi] = indOrg[vi] + fc;
+									indCnt[vi]++;
+								}
+							}
+						}
+					}
+					const NkMat4f Gcommon = st->editGizmo.ApplyAbout(0, pivotW);
 					for (int32 i = 0; i < nv; i++) {
 						st->editLive[i] = st->editRest[i];
-						if (st->vertSel[i])
-							st->editLive[i].pos = st->editAnchorInv * (G * worldV(i));
+						if (!st->vertSel[i])
+							continue;
+						if (individual && indCnt[(uint32)i] > 0) {
+							const NkVec3f O = indOrg[(uint32)i] * (1.f / (float32)indCnt[(uint32)i]);
+							st->editLive[i].pos = st->editAnchorInv * (st->editGizmo.ApplyAbout(0, O) * worldV(i));
+						} else
+							st->editLive[i].pos = st->editAnchorInv * (Gcommon * worldV(i));
 					}
-					// Update rapide du mesh solide seulement SANS modificateurs (sinon le solide =
-					// résultat évalué, nb de sommets ≠ base -> on laisse la cage bouger, le résultat
-					// se recale en fin de drag). L'overlay (cage) suit toujours via editLive.
-					if (meshSysF && st->editModifiers.Empty())
+					// Update rapide du mesh solide seulement s'il est 1:1 avec la cage (ni
+					// modificateur, ni coins dédoublés par l'ombrage FLAT) : sinon le solide a un
+					// AUTRE nombre de sommets -> on laisse la cage bouger et le solide se recale en
+					// fin de drag. L'overlay (cage) suit toujours via editLive.
+					if (meshSysF && st->editDisplay1to1)
 						meshSysF->UpdateVertices(st->editMesh, st->editLive.Data(), (uint32)nv);
 					st->editOverlayDirty = true; // positions changées -> overlay suit le mesh
 				}
@@ -2795,9 +3048,10 @@ namespace nkentseu {
 					for (int32 i = 0; i < nv && (uint32)i < hv; i++)
 						st->editRest[i].normal = st->editHE.verts[i].normal;
 					st->editLive = st->editRest;
-					// Sans modificateurs : update rapide. Avec : re-évaluer la pile -> le résultat
-					// affiché se recale sur les nouvelles positions de la base.
-					if (st->editModifiers.Empty()) {
+					// Mesh d'affichage 1:1 : update rapide. Sinon (modificateurs / coins dédoublés
+					// par l'ombrage FLAT) : régénérer -> le résultat affiché se recale sur les
+					// nouvelles positions de la base.
+					if (st->editDisplay1to1) {
 						if (meshSysF)
 							meshSysF->UpdateVertices(st->editMesh, st->editLive.Data(), (uint32)nv);
 					} else if (meshSysF) {
@@ -3294,6 +3548,89 @@ namespace nkentseu {
 			// avaient des artefacts de projection sur l'axe Y. Étendus loin -> effet "infini".
 			// NK_GRID_CLEAN : on masque ces axes debug 3D épais (la grille du shader dessine
 			// alors ses PROPRES axes sol fins AA -> rendu épuré pour juger la grille).
+			// ── CURSEUR 3D façon Blender ─────────────────────────────────────────────
+			// Placement (Shift + clic DROIT) : rayon sous la souris -> 1) surface du mesh
+			// ÉDITÉ si l'on est en Edit Mode (intersection exacte des triangles), 2) sinon
+			// le plan du SOL (y=0), 3) sinon un plan face-caméra passant par la position
+			// actuelle du curseur (cas d'un rayon qui monte, jamais de « pas de résultat »).
+			// Dessin : petit cercle POINTILLÉ rouge/blanc + croix, taille écran-constante,
+			// en overlay (toujours visible) — comme dans Blender.
+			{
+				const NkVec3f ccPos = cam.GetPosition(), ccTgt = cam.GetTarget();
+				const NkVec3f cfwd = (ccTgt - ccPos).Normalized();
+				const NkVec3f crgt = cfwd.Cross(NkVec3f{0.f, 1.f, 0.f}).Normalized();
+				const NkVec3f cup = crgt.Cross(cfwd).Normalized();
+				const float32 cthY = tanf(60.f * 0.5f * 3.14159265f / 180.f);
+				const float32 cthX = cthY * ((float32)ctx.width / (float32)ctx.height);
+				if (st->cursorPlacePending) {
+					st->cursorPlacePending = false;
+					const float32 nx = st->cursorPX / (float32)ctx.width * 2.f - 1.f;
+					const float32 ny = 1.f - st->cursorPY / (float32)ctx.height * 2.f;
+					NkVec3f rd = cfwd + crgt * (nx * cthX) + cup * (ny * cthY);
+					const float32 rl = rd.Len();
+					if (rl > 1e-6f)
+						rd = rd * (1.f / rl);
+					float32 bestT = 1e30f;
+					if (st->editMode) { // surface du maillage édité (Möller–Trumbore)
+						for (uint32 t = 0; t + 2 < (uint32)st->editIdx.Size(); t += 3) {
+							const NkVec3f v0 = st->editAnchor * st->editLive[st->editIdx[t]].pos;
+							const NkVec3f v1 = st->editAnchor * st->editLive[st->editIdx[t + 1]].pos;
+							const NkVec3f v2 = st->editAnchor * st->editLive[st->editIdx[t + 2]].pos;
+							const NkVec3f e1 = v1 - v0, e2 = v2 - v0, h = rd.Cross(e2);
+							const float32 aa = e1.Dot(h);
+							if (fabsf(aa) < 1e-7f)
+								continue;
+							const float32 fi = 1.f / aa;
+							const NkVec3f s = ccPos - v0;
+							const float32 u = fi * s.Dot(h);
+							if (u < 0.f || u > 1.f)
+								continue;
+							const NkVec3f q = s.Cross(e1);
+							const float32 vvv = fi * rd.Dot(q);
+							if (vvv < 0.f || u + vvv > 1.f)
+								continue;
+							const float32 tt = fi * e2.Dot(q);
+							if (tt > 1e-4f && tt < bestT)
+								bestT = tt;
+						}
+					}
+					if (bestT > 1e29f && fabsf(rd.y) > 1e-5f) { // plan du sol y=0
+						const float32 tg = -ccPos.y / rd.y;
+						if (tg > 1e-4f)
+							bestT = tg;
+					}
+					if (bestT > 1e29f) { // repli : plan face-caméra passant par le curseur
+						const float32 dn = rd.Dot(cfwd);
+						if (fabsf(dn) > 1e-5f)
+							bestT = (st->cursor3D - ccPos).Dot(cfwd) / dn;
+					}
+					if (bestT > 1e-4f && bestT < 1e29f) {
+						st->cursor3D = ccPos + rd * bestT;
+						logger.Info("[Demo3D] Curseur 3D -> ({0}, {1}, {2})\n", st->cursor3D.x, st->cursor3D.y,
+									st->cursor3D.z);
+					}
+				}
+				// Dessin (taille ~14 px de rayon quelle que soit la distance).
+				const NkVec3f CC = st->cursor3D;
+				float32 depth = (CC - ccPos).Dot(cfwd);
+				if (depth < 0.05f)
+					depth = 0.05f;
+				const float32 Rw = 14.f * ((2.f * cthY) / (float32)ctx.height) * depth;
+				const NkVec4f colR{0.92f, 0.16f, 0.13f, 1.f}, colW{1.f, 1.f, 1.f, 1.f};
+				NkVec3f prevC = CC + crgt * Rw;
+				for (int32 kseg = 1; kseg <= 32; kseg++) {
+					const float32 a = (float32)kseg * 6.2831853f / 32.f;
+					const NkVec3f P = CC + (crgt * cosf(a) + cup * sinf(a)) * Rw;
+					r3d->DrawDebugLine(prevC, P, (kseg & 1) ? colR : colW, 0.f, true); // pointillés bicolores
+					prevC = P;
+				}
+				// Croix : 4 branches courtes qui dépassent du cercle (repère de placement).
+				r3d->DrawDebugLine(CC - crgt * (Rw * 2.0f), CC - crgt * (Rw * 0.7f), colW, 0.f, true);
+				r3d->DrawDebugLine(CC + crgt * (Rw * 0.7f), CC + crgt * (Rw * 2.0f), colW, 0.f, true);
+				r3d->DrawDebugLine(CC - cup * (Rw * 2.0f), CC - cup * (Rw * 0.7f), colW, 0.f, true);
+				r3d->DrawDebugLine(CC + cup * (Rw * 0.7f), CC + cup * (Rw * 2.0f), colW, 0.f, true);
+			}
+
 			if (!gridClean) {
 				const float32 A = 1000.f;
 				const float32 h = 0.02f; // légèrement au-dessus du sol/grille -> pas de z-fight (pointillés)
@@ -3374,13 +3711,22 @@ namespace nkentseu {
 									  "Alt+clic=boucle  |  outil: %s%s",
 									  stName[st->selTool & 3],
 									  (st->selTool == 3) ? "  (clic=peindre, Echap=sortir)" : "");
+					// Ombrage courant (Shift+S / Shift+F) + point de pivot (.) + curseur 3D.
+					const bool anySm = st->editHE.AnyFaceSmooth();
+					const bool allSm = st->editHE.AllFacesSmooth();
+					overlay->DrawText({20.f, 154.f},
+									  "Ombrage(Shift+S/Shift+F): %s  |  Pivot(.): %s  |  Curseur 3D: "
+									  "Shift+clic droit (Alt+. = origine)",
+									  allSm ? "SMOOTH" : (anySm ? "MIXTE" : "FLAT"),
+									  st->editGizmo.PivotName());
 				} else {
 					overlay->DrawText(
 						{20.f, 100.f},
-						"OBJET  |  Gizmo(G/R/S/C): %s  |  Orient(,): %s   |  TAB=editer l'objet selectionne",
-						gmName[st->gizmo.Mode() & 3], orName[st->gizmo.Orientation() % 3]);
+						"OBJET  |  Gizmo(G/R/S/C): %s  |  Orient(,): %s  |  Pivot(.): %s  |  TAB=editer l'objet "
+						"selectionne",
+						gmName[st->gizmo.Mode() & 3], orName[st->gizmo.Orientation() % 3], st->gizmo.PivotName());
 					overlay->DrawText({20.f, 118.f}, "clic=sel  Shift+clic=multi  A/Alt+A=tout/rien  Alt+G/R/S=clear  "
-													 "|  Ctrl=snap  X/Y/Z=verrou axe");
+													 "|  Ctrl=snap  X/Y/Z=verrou axe  |  Shift+clic droit=curseur 3D");
 				}
 
 				// ── Tracé des OUTILS DE SÉLECTION (overlay 2D, façon Blender) ──────
