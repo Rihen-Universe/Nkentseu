@@ -71,6 +71,16 @@ namespace nkentseu {
 				float64 wheelAccum = 0.0; // molette accumulée (callback -> frame)
 				// ── Sélection + gizmo (composant moteur réutilisable NkGizmo3D) ──
 				bool pickPending = false;	// front montant du clic gauche (callback)
+				// DIAGNOSTIC DE SELECTION (NK_PICK_DIAG=1) : journalise, a chaque clic, le nombre
+				// de candidats sommet/arete sous le curseur, l'arbitrage gizmo/maillage et l'element
+				// elu -> permet de PROUVER (et non deviner) pourquoi un element visible n'etait pas
+				// selectionnable sous un angle donne.
+				bool pickDiag = false;
+				// NK_PICK_AT="x,y" : clic de selection FORCE a ces pixels (capture headless, sans souris).
+				bool pickForcePending = false;
+				// NK_PICK_SCAN=1 : audit chiffre de selectabilite (ancienne vs nouvelle regle).
+				bool pickScanPending = false;
+				float32 pickForceX = 0.f, pickForceY = 0.f;
 				int32 pickX = 0, pickY = 0; // position écran du clic (pixels)
 				// Delta souris RÉEL par frame = (pos courante - pos précédente). NE PAS utiliser
 				// NkInput.MouseDelta*() : ce delta d'événement n'est PAS remis à 0 sans mouvement
@@ -83,6 +93,24 @@ namespace nkentseu {
 				// Mesh ÉDITÉ propre à un objet (persiste l'édition) : si valide, l'objet est
 				// rendu avec CE mesh au lieu de sa primitive partagée. Rempli à la SORTIE d'edit.
 				NkMeshHandle objMesh[kNumObj]{};
+				// ── WIREFRAME N-GON (mode d'affichage fil de fer sans diagonales) ────
+				// Le rasteriseur ne connait que des TRIANGLES : en fil de fer il trace donc la
+				// diagonale de chaque quad. On construit a la place un BATCH PERSISTANT d'aretes
+				// n-gon : les aretes d'une PRIMITIVE sont calculees UNE SEULE FOIS (BuildFromIndexed
+				// + quadify + aretes uniques) puis re-emises, transformees, pour chacune de ses
+				// instances. Le buffer GPU n'est reecrit que pour les objets dont la transform a
+				// change (ici : le cube central anime) -> cout par frame quasi nul.
+				NkMat4f objXform[kNumObj];        // transform MONDE capturee a la soumission
+				NkVector<NkVec3f> wireSphere;     // aretes LOCALES de la primitive sphere (partagees)
+				NkVector<NkVec3f> wireCube;       // aretes LOCALES de la primitive cube (partagees)
+				NkVector<NkVec3f> wireCustom[kNumObj]; // aretes d'un objet au maillage EDITE
+				NkVector<float32> wireVerts;      // batch MONDE : 7 float par vertex
+				uint32 wireOff[kNumObj] = {};     // tranche de chaque objet (en vertices)
+				uint32 wireCnt[kNumObj] = {};
+				NkMat4f wireXform[kNumObj];       // transform utilisee lors du dernier remplissage
+				uint32 wireTotalV = 0;
+				bool wireDirty = true;            // reconstruire toute la table
+				int32 wireStamp = -12345;         // signature topologique (objets edites)
 				// ── Volet 2 : EDIT MODE mesh (édition façon Blender, sur l'OBJET SÉLECTIONNÉ) ──
 				// TAB entre en édition de l'objet actif (gizmo.ActiveIndex). On CLONE ses
 				// données CPU (modèle Blender : le CPU est l'autorité) en un mesh dynamique
@@ -191,6 +219,39 @@ namespace nkentseu {
 				int32 subdivCuts = 1;			// nb d'itérations de subdivision (Shift+W)
 				bool extrudeIndividual = false; // Extrude : région (0) vs faces individuelles (1) (Shift+E)
 				int32 mergeMode = 0;			// 0=CENTER 1=FIRST 2=LAST (Shift+M)
+				// ── OPERATIONS MODALES INTERACTIVES (façon Blender) ──────────────────
+				// CADRE GENERIQUE, un seul mecanisme pour TOUTES les operations : on lance l'op,
+				// on la PREVISUALISE en temps reel en bougeant la souris/la molette, puis clic
+				// gauche = confirmer / Echap ou clic droit = annuler (retour a l'etat initial).
+				// Principe : `modalSnap` est l'etat AVANT l'operation ; a chaque changement de
+				// parametre on RESTAURE ce snapshot et on ré-applique l'op avec les parametres
+				// courants -> l'apercu est toujours exact, jamais cumulatif. La confirmation
+				// repart du meme snapshot et passe par Demo3D_ApplyCmd -> UN SEUL commit d'undo
+				// et UNE SEULE entree de journal pour toute l'operation.
+				//   modalOp : 0=aucune · 1=BEVEL ARETE · 2=BEVEL SOMMET · 3=INSET · 4=LOOP CUT ·
+				//             5=SPIN · 6=EXTRUDE
+				int32 modalOp = 0;
+				int32 modalStartPending = 0;      // demande de lancement (callback clavier -> frame)
+				bool modalCancelPending = false;  // Echap / clic droit
+				renderer::NkEditMesh modalSnap;   // etat AVANT l'operation (source de tout apercu)
+				NkVector<uint8> modalSelSnap;     // selection AVANT l'operation
+				float32 modalVal = 0.f;           // parametre CONTINU pilote a la SOURIS
+				float32 modalBase = 0.f;          // valeur au moment du lancement (ancre du drag)
+				int32 modalSeg = 1;               // parametre ENTIER pilote a la MOLETTE
+				float32 modalStartX = 0.f;        // position souris au lancement (pixels)
+				float32 modalScale = 0.01f;       // conversion pixels -> unites du parametre
+				bool modalDirty = true;           // les parametres ont change -> re-appliquer
+				int32 modalLoopA = -1, modalLoopB = -1; // LOOP CUT : arete survolee (apercu de l'anneau)
+				NkVector<uint32> modalSnapEdges; // aretes UNIQUES du snapshot (survol du loop cut)
+				// TO SPHERE : centre (espace MAILLAGE) fige au lancement = pivot courant.
+				NkVec3f modalCenterLocal = {0.f, 0.f, 0.f};
+				int32 modalFrames = 0;           // frames ecoulees depuis le lancement
+				bool modalEnvConfirm = false;    // NK_MODAL_CONFIRM=1 : confirme automatiquement
+				// Pilote headless : NK_MODAL_OP / NK_MODAL_VAL / NK_MODAL_SEG forcent les
+				// parametres au lancement (les ops modales n'ont pas de souris en capture).
+				bool modalEnvHasVal = false, modalEnvHasSeg = false;
+				float32 modalEnvVal = 0.f;
+				int32 modalEnvSeg = 1;
 				renderer::NkGizmo3D editGizmo;	// 1 seule cible = PIVOT courant de la sélection
 				// ── OMBRAGE FLAT / SMOOTH (façon Blender « Shade Flat / Shade Smooth ») ──
 				// Shift+F = FLAT · Shift+S = SMOOTH. S'applique aux FACES SÉLECTIONNÉES si
@@ -273,6 +334,115 @@ namespace nkentseu {
 			roughness = 0.7f;
 		}
 
+		// ── ARETES N-GON D'UNE PRIMITIVE (cache local, calcule UNE fois) ─────────────
+		// Reconstruit l'autorite demi-arete depuis les donnees CPU du mesh, QUADIFIE (ce
+		// qui fusionne les paires de triangles en quads et fait disparaitre la diagonale),
+		// puis extrait les aretes UNIQUES en espace LOCAL. Ces aretes servent ensuite a
+		// TOUTES les instances de la primitive (une seule construction pour 16 spheres).
+		static void Demo3D_NgonEdgesOf(renderer::NkMeshSystem *ms, NkMeshHandle h, NkVector<NkVec3f> &out) {
+			out.Clear();
+			if (!ms || !h.IsValid() || !ms->HasCPUData(h))
+				return;
+			const uint32 vc = ms->GetVertexCount(h), ic = ms->GetIndexCount(h);
+			const auto *sv = (const renderer::NkVertex3D *)ms->GetVertices(h);
+			const uint32 *si = ms->GetIndices(h);
+			if (!sv || !si || vc == 0 || ic == 0)
+				return;
+			renderer::NkEditMesh em;
+			em.BuildFromIndexed(sv, vc, si, ic, /*quadify*/ true);
+			NkVector<uint32> eu;
+			em.GetUniqueEdges(eu);
+			out.Reserve((uint32)eu.Size());
+			for (uint32 k = 0; k + 1 < (uint32)eu.Size(); k += 2) {
+				out.PushBack(em.verts[eu[k]].pos);
+				out.PushBack(em.verts[eu[k + 1]].pos);
+			}
+		}
+		
+		// Aretes locales a utiliser pour un objet : son maillage EDITE s'il en a un,
+		// sinon le cache partage de sa primitive (sphere pour 0..15, cube ailleurs).
+		static const NkVector<NkVec3f> *Demo3D_WireSrc(Demo3DState *st, renderer::NkMeshSystem *ms, int32 i) {
+			if (st->objMesh[i].IsValid()) {
+				if (st->wireCustom[i].Empty())
+					Demo3D_NgonEdgesOf(ms, st->objMesh[i], st->wireCustom[i]);
+				return &st->wireCustom[i];
+			}
+			return (i < 16) ? &st->wireSphere : &st->wireCube;
+		}
+		
+		// Remplit la tranche d'un objet dans le batch MONDE (7 float par vertex).
+		static void Demo3D_WireFillSlice(Demo3DState *st, int32 i, const NkVector<NkVec3f> *src) {
+			const NkVec4f col = {0.82f, 0.85f, 0.92f, 1.f};
+			const NkMat4f &X = st->objXform[i];
+			float32 *dst = st->wireVerts.Data() + (uint64)st->wireOff[i] * 7;
+			const uint32 n = st->wireCnt[i];
+			for (uint32 k = 0; k < n; k++) {
+				const NkVec3f w = X * (*src)[k];
+				dst[k * 7 + 0] = w.x;
+				dst[k * 7 + 1] = w.y;
+				dst[k * 7 + 2] = w.z;
+				dst[k * 7 + 3] = col.x;
+				dst[k * 7 + 4] = col.y;
+				dst[k * 7 + 5] = col.z;
+				dst[k * 7 + 6] = col.w;
+			}
+		}
+		
+		// Synchronise le batch d'aretes n-gon avec la scene. Reconstruction COMPLETE
+		// seulement quand la topologie change (un objet adopte un maillage edite, ou on
+		// entre/sort d'edition) ; sinon on ne reecrit que les tranches des objets qui ont
+		// REELLEMENT bouge (ici le seul cube central anime).
+		static void Demo3D_SyncWireBatch(Demo3DState *st, renderer::NkRender3D *r3d, renderer::NkMeshSystem *ms) {
+			int32 stamp = (st->editMode ? st->editObjIdx : -1) * 131 + 17;
+			for (int32 i = 0; i < Demo3DState::kNumObj; i++)
+				if (st->objMesh[i].IsValid())
+					stamp += (i + 1) * 7;
+			if (stamp != st->wireStamp) {
+				st->wireStamp = stamp;
+				st->wireDirty = true;
+				for (int32 i = 0; i < Demo3DState::kNumObj; i++)
+					if (!st->objMesh[i].IsValid())
+						st->wireCustom[i].Clear();
+			}
+			if (st->wireSphere.Empty())
+				Demo3D_NgonEdgesOf(ms, st->meshSphere, st->wireSphere);
+			if (st->wireCube.Empty())
+				Demo3D_NgonEdgesOf(ms, st->meshCube, st->wireCube);
+			if (st->wireDirty) {
+				uint32 off = 0;
+				for (int32 i = 0; i < Demo3DState::kNumObj; i++) {
+					st->wireOff[i] = off;
+					st->wireCnt[i] = 0;
+					if (st->editMode && st->editObjIdx == i)
+						continue; // objet en edition : sa cage n-gon est deja dessinee par l'overlay
+					const NkVector<NkVec3f> *src = Demo3D_WireSrc(st, ms, i);
+					st->wireCnt[i] = (uint32)src->Size();
+					off += st->wireCnt[i];
+				}
+				st->wireTotalV = off;
+				st->wireVerts.Resize(off * 7);
+				for (int32 i = 0; i < Demo3DState::kNumObj; i++) {
+					if (!st->wireCnt[i])
+						continue;
+					Demo3D_WireFillSlice(st, i, Demo3D_WireSrc(st, ms, i));
+					st->wireXform[i] = st->objXform[i];
+				}
+				r3d->SetNgonWireLines(st->wireVerts.Data(), off);
+				st->wireDirty = false;
+				logger.Info("[Demo3D] Wireframe n-gon : batch de {0} aretes ({1} vertices) pour {2} objets\n",
+							off / 2, off, (int32)Demo3DState::kNumObj);
+				return;
+			}
+			for (int32 i = 0; i < Demo3DState::kNumObj; i++) {
+				if (!st->wireCnt[i] || st->wireXform[i] == st->objXform[i])
+					continue;
+				Demo3D_WireFillSlice(st, i, Demo3D_WireSrc(st, ms, i));
+				st->wireXform[i] = st->objXform[i];
+				r3d->UpdateNgonWireLines(st->wireVerts.Data() + (uint64)st->wireOff[i] * 7, st->wireOff[i],
+										 st->wireCnt[i]);
+			}
+		}
+		
 		// ── Outils d'édition de topologie (Phase C) ──────────────────────────────────
 		// Recalcule les normales par vertex = moyenne (pondérée par l'aire) des normales
 		// de face. À appeler après toute déformation / changement de topologie.
@@ -492,10 +662,22 @@ namespace nkentseu {
 					st->vertSel[i] = 0;
 			const NkVec3f orgW = st->editAnchor * NkVec3f{0.f, 0.f, 0.f};
 			auto wpos = [&](uint32 i) { return st->editAnchor * st->editRest[i].pos; };
+			// FILTRE « DOS-CAMERA » ASSOUPLI : un element de SILHOUETTE a une normale
+			// ~perpendiculaire a la vue (produit scalaire NORMALISE ~= 0) ; avec le test
+			// strict `> 0` il basculait au hasard du bruit numerique et disparaissait des
+			// selections rectangle/lasso/cercle alors qu'il est parfaitement visible. On
+			// tolere desormais une legere inclinaison vers l'arriere (-0.2), ce qui couvre
+			// toute la bande de silhouette sans laisser passer les faces franchement
+			// tournees vers l'arriere.
 			auto faces = [&](NkVec3f w, NkVec3f nLocal) {
 				if (st->editXray)
 					return true;
-				return ((st->editAnchor * nLocal) - orgW).Dot(camPos - w) > 0.f;
+				NkVec3f nW = (st->editAnchor * nLocal) - orgW;
+				NkVec3f toCam = camPos - w;
+				const float32 ln = nW.Len(), lv = toCam.Len();
+				if (ln < 1e-6f || lv < 1e-6f)
+					return true;
+				return (nW.Dot(toCam) / (ln * lv)) > -0.2f;
 			};
 			auto hit = [&](NkVec3f w) {
 				float32 px, py;
@@ -761,6 +943,254 @@ namespace nkentseu {
 			Demo3D_ApplyCmd(st, ms, c);
 		}
 
+		// ══════════════════════════════════════════════════════════════════════════════
+		// CADRE MODAL GENERIQUE (façon Blender) — un seul mecanisme pour toutes les ops
+		// ══════════════════════════════════════════════════════════════════════════════
+		static const char *Demo3D_ModalName(int32 op) {
+			switch (op) {
+				case 1:
+					return "BEVEL ARETE";
+				case 2:
+					return "BEVEL SOMMET";
+				case 3:
+					return "INSET";
+				case 4:
+					return "LOOP CUT";
+				case 5:
+					return "SPIN";
+				case 6:
+					return "EXTRUDE";
+				case 7:
+					return "TO SPHERE";
+				case 8:
+					return "SHRINK/FATTEN";
+			}
+			return "-";
+		}
+		
+		// L'operation a-t-elle un effet avec les parametres courants ? (un bevel/inset de
+		// largeur nulle ne doit RIEN faire : la commande interpreterait 0 comme « AUTO ».)
+		static bool Demo3D_ModalHasEffect(const Demo3DState *st) {
+			if (st->modalOp == 1 || st->modalOp == 2 || st->modalOp == 3 || st->modalOp == 7)
+				return st->modalVal > 1e-4f;
+			if (st->modalOp == 8)
+				return fabsf(st->modalVal) > 1e-6f; // deplacement SIGNE (gonfler / retrecir)
+			return st->modalOp != 0;
+		}
+		
+		// Construit la COMMANDE correspondant a l'etat modal courant. Point unique :
+		// l'apercu et la confirmation utilisent exactement la meme commande.
+		static renderer::NkMeshEditCommand Demo3D_ModalCmd(Demo3DState *st) {
+			renderer::NkMeshEditCommand c;
+			switch (st->modalOp) {
+				case 1:
+				case 2:
+					c.op = renderer::NkMeshEditOp::Bevel;
+					c.bevel.offset = st->modalVal;
+					c.bevel.segments = st->modalSeg;
+					c.bevel.vertexOnly = (st->modalOp == 2);
+					break;
+				case 3:
+					c.op = renderer::NkMeshEditOp::Inset;
+					c.inset.thickness = st->modalVal;
+					c.inset.depth = st->insetDepth;
+					c.inset.individual = st->insetIndividual;
+					break;
+				case 4:
+					c.op = renderer::NkMeshEditOp::LoopCut;
+					c.loopcut.cuts = st->modalSeg;
+					break;
+				case 5:
+					c.op = renderer::NkMeshEditOp::Spin;
+					c.spin.center = st->cursor3D;
+					c.spin.axis = (st->spinAxis == 0)   ? NkVec3f{1.f, 0.f, 0.f}
+								: (st->spinAxis == 2) ? NkVec3f{0.f, 0.f, 1.f}
+													: NkVec3f{0.f, 1.f, 0.f};
+					c.spin.angle = st->modalVal * 0.01745329f;
+					c.spin.steps = st->modalSeg;
+					c.spin.duplicate = st->spinDuplicate;
+					c.spinXform = st->editAnchor;
+					break;
+				case 6:
+					c.op = (st->editSelMask & 4)   ? renderer::NkMeshEditOp::Extrude
+							 : (st->editSelMask & 2) ? renderer::NkMeshEditOp::ExtrudeEdges
+													 : renderer::NkMeshEditOp::ExtrudeVerts;
+					c.extrude.individual = st->extrudeIndividual;
+					c.extrude.offset = st->modalVal;
+					break;
+				case 7:
+					// TO SPHERE : centre = PIVOT courant ramene en espace maillage (les 5 modes
+					// de pivot sont donc reutilises tels quels) ; « origines individuelles »
+					// bascule la spherisation par ilot.
+					c.op = renderer::NkMeshEditOp::ToSphere;
+					c.tosphere.center = st->modalCenterLocal;
+					c.tosphere.factor = st->modalVal;
+					c.tosphere.individual =
+						(st->editGizmo.PivotMode() == renderer::NkGizmo3D::PIVOT_INDIVIDUAL);
+					break;
+				case 8:
+					c.op = renderer::NkMeshEditOp::ShrinkFatten;
+					c.shrinkfatten.offset = st->modalVal;
+					break;
+			}
+			return c;
+		}
+		
+		// Restaure le snapshot + la selection de depart. LOOP CUT : la selection est
+		// remplacee par l'ARETE SURVOLEE -> l'anneau previsualise suit la souris, comme
+		// le trait jaune de Blender avant confirmation.
+		static void Demo3D_ModalRestore(Demo3DState *st) {
+			st->editHE = st->modalSnap;
+			st->vertSel = st->modalSelSnap;
+			if (st->modalOp == 4 && st->modalLoopA >= 0 && st->modalLoopB >= 0) {
+				for (uint32 i = 0; i < (uint32)st->vertSel.Size(); i++)
+					st->vertSel[i] = 0;
+				if ((uint32)st->modalLoopA < (uint32)st->vertSel.Size())
+					st->vertSel[st->modalLoopA] = 1;
+				if ((uint32)st->modalLoopB < (uint32)st->vertSel.Size())
+					st->vertSel[st->modalLoopB] = 1;
+			}
+		}
+		
+		// APERCU : re-applique l'operation DEPUIS LE SNAPSHOT avec les parametres
+		// courants, SANS toucher a l'historique ni au journal (rien n'est encore
+		// confirme). Appele a chaque changement de parametre.
+		static void Demo3D_ModalPreview(Demo3DState *st, renderer::NkMeshSystem *ms) {
+			Demo3D_ModalRestore(st);
+			Demo3D_PushSel(st);
+			if (Demo3D_ModalHasEffect(st)) {
+				renderer::NkMeshEditCommand c = Demo3D_ModalCmd(st);
+				// NkMeshEditCommand::Apply REPOSE la selection depuis `c.selection` (la
+				// commande est une donnee rejouable). Sans la remplir, l'apercu appliquait
+				// l'operation sur une selection VIDE -> aucun effet visible.
+				c.selection.Clear();
+				for (uint32 i = 0; i < (uint32)st->vertSel.Size(); ++i)
+					if (st->vertSel[i])
+						c.selection.PushBack(i);
+				c.Apply(st->editHE);
+			}
+			Demo3D_PullSel(st);
+			Demo3D_SyncFromHE(st, ms);
+			st->editOverlayDirty = true;
+			logger.Info("[Demo3D] MODAL {0} APERCU (valeur={1} segments={2}) -> {3} sommets / {4} faces\n",
+					Demo3D_ModalName(st->modalOp), st->modalVal, st->modalSeg, (int32)st->editHE.VertCount(),
+					(int32)st->editHE.FaceCount());
+		}
+		
+		// CONFIRMATION (clic gauche) : on repart du snapshot et on rejoue l'operation par
+		// le chemin NORMAL (Demo3D_ApplyCmd) -> UN SEUL undo et UNE SEULE commande
+		// journalisee pour toute la manipulation modale.
+		static void Demo3D_ModalConfirm(Demo3DState *st, renderer::NkMeshSystem *ms) {
+			if (st->modalOp == 0)
+				return;
+			const int32 op = st->modalOp;
+			const float32 val = st->modalVal;
+			const int32 seg = st->modalSeg;
+			const bool eff = Demo3D_ModalHasEffect(st);
+			renderer::NkMeshEditCommand c = Demo3D_ModalCmd(st);
+			Demo3D_ModalRestore(st);
+			st->modalOp = 0;
+			st->modalLoopA = st->modalLoopB = -1;
+			if (eff)
+				Demo3D_ApplyCmd(st, ms, c);
+			else
+				Demo3D_SyncFromHE(st, ms);
+			st->editOverlayDirty = true;
+			logger.Info("[Demo3D] MODAL {0} CONFIRME (valeur={1} segments={2}) -> {3} sommets / {4} faces\n",
+						Demo3D_ModalName(op), val, seg, (int32)st->editHE.VertCount(), (int32)st->editHE.FaceCount());
+		}
+		
+		// ANNULATION (Echap / clic droit) : retour EXACT a l'etat initial.
+		static void Demo3D_ModalCancel(Demo3DState *st, renderer::NkMeshSystem *ms) {
+			if (st->modalOp == 0)
+				return;
+			const int32 op = st->modalOp;
+			st->modalLoopA = st->modalLoopB = -1;
+			st->modalOp = 0;
+			st->editHE = st->modalSnap;
+			st->vertSel = st->modalSelSnap;
+			Demo3D_PushSel(st);
+			Demo3D_SyncFromHE(st, ms);
+			st->editOverlayDirty = true;
+			logger.Info("[Demo3D] MODAL {0} ANNULE -> etat initial restaure\n", Demo3D_ModalName(op));
+		}
+		
+		// LANCEMENT : capture le snapshot, initialise les parametres et l'ancre souris.
+		static void Demo3D_ModalStart(Demo3DState *st, int32 op, renderer::NkMeshSystem *ms) {
+			if (st->modalOp != 0)
+				Demo3D_ModalCancel(st, ms); // une seule operation modale a la fois
+			st->modalOp = op;
+			st->modalSnap = st->editHE;
+			st->modalSelSnap = st->vertSel;
+			st->modalSnap.GetUniqueEdges(st->modalSnapEdges);
+			st->modalFrames = 0;
+			st->modalLoopA = st->modalLoopB = -1;
+			st->modalStartX = (float32)NkInput.MouseX();
+			// Echelle pixels -> unites du parametre : ~400 px de course couvrent la
+			// diagonale de la boite englobante -> le reglage « tombe juste » quelle que
+			// soit la taille du modele.
+			NkVec3f bmin{1e30f, 1e30f, 1e30f}, bmax{-1e30f, -1e30f, -1e30f};
+			for (uint32 i = 0; i < st->modalSnap.VertCount(); i++) {
+				const NkVec3f &q = st->modalSnap.verts[i].pos;
+				bmin.x = NkMin(bmin.x, q.x);
+				bmin.y = NkMin(bmin.y, q.y);
+				bmin.z = NkMin(bmin.z, q.z);
+				bmax.x = NkMax(bmax.x, q.x);
+				bmax.y = NkMax(bmax.y, q.y);
+				bmax.z = NkMax(bmax.z, q.z);
+			}
+			const float32 diag = (st->modalSnap.VertCount() > 0) ? (bmax - bmin).Len() : 1.f;
+			switch (op) {
+				case 1:
+				case 2:
+					st->modalVal = 0.f;
+					st->modalSeg = st->bevelSegments;
+					st->modalScale = diag / 400.f;
+					break;
+				case 3:
+					st->modalVal = 0.f;
+					st->modalSeg = 1;
+					st->modalScale = diag / 400.f;
+					break;
+				case 4:
+					st->modalVal = 0.f;
+					st->modalSeg = st->loopCuts;
+					st->modalScale = 0.f; // la position de coupe n'est pas parametrable (cf. limites)
+					break;
+				case 5:
+					st->modalVal = st->spinAngleDeg;
+					st->modalSeg = st->spinSteps;
+					st->modalScale = 1.f; // 1 degre par pixel
+					break;
+				case 6:
+					st->modalVal = 0.f; // Blender : la geometrie nait sur place, puis on tire
+					st->modalSeg = 1;
+					st->modalScale = diag / 400.f;
+					break;
+				case 7:
+					st->modalVal = 0.f;   // facteur 0 = inchange ; 1 = sphere parfaite
+					st->modalSeg = 1;
+					st->modalScale = 1.f / 300.f; // 300 px de course = facteur 1
+					break;
+				case 8:
+					st->modalVal = 0.f;   // deplacement SIGNE le long des normales
+					st->modalSeg = 1;
+					st->modalScale = diag / 400.f;
+					break;
+			}
+			if (st->modalEnvHasVal)
+				st->modalVal = st->modalEnvVal; // pilote headless (pas de souris en capture)
+			// L'ANCRE du drag est la valeur de depart : la souris ajoute son deplacement a
+			// partir de la (sinon la valeur forcee serait aussitot ecrasee a 0).
+			st->modalBase = st->modalVal;
+			if (st->modalEnvHasSeg)
+				st->modalSeg = st->modalEnvSeg;
+			st->modalDirty = true;
+			logger.Info("[Demo3D] MODAL {0} lance : souris=valeur · molette=segments · clic gauche=confirmer · "
+						"Echap/clic droit=annuler (valeur={1} segments={2})\n",
+						Demo3D_ModalName(op), st->modalVal, st->modalSeg);
+		}
+		
 		// REJEU (P) : reconstruit editHE depuis le maillage de BASE (capturé à l'entrée) et
 		// rejoue TOUTES les commandes enregistrées. Preuve que la couche de commandes est
 		// scriptable (fondation modificateurs non-destructifs + données d'imitation IA).
@@ -1172,6 +1602,10 @@ namespace nkentseu {
 				// CURSEUR 3D façon Blender : Shift + clic DROIT le place sous la souris
 				// (raycast sur la surface visible, repli sur le plan du sol y=0). Le clic
 				// droit SEUL reste libre (regard de la caméra fly).
+				// Clic DROIT pendant une operation MODALE : annulation (convention Blender).
+				if (e->GetButton() == NkMouseButton::NK_MB_RIGHT && st->modalOp != 0 &&
+					!(NkInput.IsKeyDown(NkKey::NK_LSHIFT) || NkInput.IsKeyDown(NkKey::NK_RSHIFT)))
+					st->modalCancelPending = true;
 				if (e->GetButton() == NkMouseButton::NK_MB_RIGHT &&
 					(NkInput.IsKeyDown(NkKey::NK_LSHIFT) || NkInput.IsKeyDown(NkKey::NK_RSHIFT))) {
 					st->cursorPlacePending = true;
@@ -1328,7 +1762,9 @@ namespace nkentseu {
 				//    Mesh > Shading en Edit Mode). Blender n'a PAS de raccourci direct : on
 				//    prend Shift+S = SMOOTH et Shift+F = FLAT (S et F seules restent l'échelle
 				//    et « créer une face »). Traité côté frame (accès meshSys pour resync).
-				if (shiftG && (k == NkKey::NK_S || k == NkKey::NK_F)) {
+				// !alt : Shift+ALT+S est reserve a TO SPHERE (edition spherique, cf. plus bas)
+				// -> sans ce garde, l'ombrage smooth avalerait la combinaison.
+				if (shiftG && !alt && (k == NkKey::NK_S || k == NkKey::NK_F)) {
 					if (!st->editMode) {
 						// LIMITE ASSUMÉE : hors édition, les objets partagent la MÊME primitive
 						// GPU — changer leur ombrage la modifierait pour tous. On passe donc par
@@ -1388,7 +1824,9 @@ namespace nkentseu {
 						const bool shiftB = NkInput.IsKeyDown(NkKey::NK_LSHIFT) || NkInput.IsKeyDown(NkKey::NK_RSHIFT);
 						const bool ctrlB = NkInput.IsKeyDown(NkKey::NK_LCTRL) || NkInput.IsKeyDown(NkKey::NK_RCTRL);
 						if (ctrlB) {
-							st->editBevelPending = shiftB ? 2 : 1;
+							// MODAL (façon Blender) : lance l'operation en APERCU ; la souris regle la
+							// largeur, la molette les segments, clic gauche confirme, Echap/clic droit annule.
+							st->modalStartPending = shiftB ? 2 : 1;
 							return;
 						}
 						if (alt) {
@@ -1431,6 +1869,11 @@ namespace nkentseu {
 						st->selDragging = false;
 						logger.Info("[Demo3D] Selection CERCLE : {0}\n",
 									st->selTool == 3 ? "ON (clic=peindre, molette=rayon)" : "off");
+						return;
+					}
+					// Echap pendant une operation MODALE : annulation (retour a l'etat initial).
+					if (k == NkKey::NK_ESCAPE && st->modalOp != 0) {
+						st->modalCancelPending = true;
 						return;
 					}
 					if (k == NkKey::NK_ESCAPE && st->selTool != 0) {
@@ -1530,7 +1973,7 @@ namespace nkentseu {
 								st->loopCuts = (st->loopCuts % 5) + 1;
 								logger.Info("[Demo3D] Loop cut : {0} coupe(s)\n", st->loopCuts);
 							} else
-								st->editLoopCutPending = true;
+								st->modalStartPending = 4; // MODAL : anneau previsualise au survol, molette = nb de coupes
 							return;
 						}
 						if (k == NkKey::NK_E) {
@@ -1539,7 +1982,7 @@ namespace nkentseu {
 								logger.Info("[Demo3D] Extrude = {0}\n",
 											st->extrudeIndividual ? "INDIVIDUEL" : "REGION");
 							} else
-								st->editExtrudePending = true;
+								st->modalStartPending = 6; // MODAL : la souris tire l'extrusion le long de la normale
 							return;
 						}
 						if (k == NkKey::NK_X) {
@@ -1585,7 +2028,7 @@ namespace nkentseu {
 								st->spinAngleDeg = cyc[(i + 1) % 3];
 								logger.Info("[Demo3D] Spin angle = {0} deg\n", st->spinAngleDeg);
 							} else
-								st->editSpinPending = true;
+								st->modalStartPending = 5; // MODAL : souris = angle, molette = nb de pas
 							return;
 						}
 						// V = EDGE SPLIT (Blender met « rip » sur V ; V était libre chez nous,
@@ -1620,7 +2063,18 @@ namespace nkentseu {
 								st->insetDepth = cyc[(i + 1) % 3];
 								logger.Info("[Demo3D] Inset profondeur = {0}\n", st->insetDepth);
 							} else
-								st->editInsetPending = true;
+								st->modalStartPending = 3; // MODAL : la souris regle l'epaisseur
+							return;
+						}
+						// ── EDITION SPHERIQUE / RADIALE (MODALES) ─────────────────────
+						// Shift+Alt+S = TO SPHERE (raccourci IDENTIQUE a Blender).
+						// Ctrl+Alt+S  = SHRINK/FATTEN. Blender utilise Alt+S, mais Alt+S est
+						// DEJA PRIS ici par « effacer l'echelle du gizmo » (et Shift+S par
+						// l'ombrage smooth) : on decale donc sur Ctrl+Alt+S plutot que de
+						// casser un raccourci existant. Les deux passent par le MEME cadre
+						// modal que bevel/inset/loop cut : aucun code specifique.
+						if (k == NkKey::NK_S && alt && (shiftK || ctrlK)) {
+							st->modalStartPending = shiftK ? 7 : 8;
 							return;
 						}
 						if (k == NkKey::NK_W) {
@@ -1894,6 +2348,27 @@ namespace nkentseu {
 						st->gizmo.SetPivotMode(pm);
 						st->editGizmo.SetPivotMode(pm);
 						logger.Info("[Demo3D] NK_PIVOT -> {0}\n", renderer::NkGizmo3D::PivotName(pm));
+					}
+					// ── PILOTE HEADLESS DES OPERATIONS MODALES ───────────────────────────
+					// Une op modale se pilote normalement a la SOURIS : en capture (headless) il
+					// n'y en a pas. Ces variables forcent donc les parametres au lancement, ce qui
+					// permet de PROUVER l'apercu temps reel sur une image fixe.
+					//   NK_MODAL_OP=bevel|bevelvert|inset|loopcut|spin|extrude
+					//   NK_MODAL_VAL=<parametre continu>  · NK_MODAL_SEG=<parametre entier>
+					//   NK_MODAL_CONFIRM=1 : confirme automatiquement (preuve du commit d'undo unique)
+					if (const char *mv = getenv("NK_MODAL_VAL")) {
+						st->modalEnvHasVal = true;
+						st->modalEnvVal = (float32)atof(mv);
+					}
+					if (const char *mg = getenv("NK_MODAL_SEG")) {
+						st->modalEnvHasSeg = true;
+						st->modalEnvSeg = atoi(mg);
+					}
+					if (getenv("NK_MODAL_CONFIRM"))
+						st->modalEnvConfirm = true;
+					if (getenv("NK_PICK_DIAG")) {
+						st->pickDiag = true;
+						logger.Info("[Demo3D] NK_PICK_DIAG actif : diagnostic de selection au clic\n");
 					}
 					if (const char *cu = getenv("NK_CURSOR3D")) {
 						float32 cv[3] = {0.f, 0.f, 0.f};
@@ -2189,6 +2664,36 @@ namespace nkentseu {
 						else if (op[0] == 'l' || op[0] == 'L')
 							st->editLoopCutPending = true; // Loop cut
 					}
+					// NK_MODAL_OP : lance l'operation en mode MODAL (apercu non confirme), au
+					// lieu de l'appliquer directement comme NK_EDIT_OP.
+					if (const char *mo = getenv("NK_MODAL_OP")) {
+						auto isM = [](const char *a, const char *pre) -> bool {
+							while (*pre) {
+								char x = *a++, y = *pre++;
+								if (x >= 'A' && x <= 'Z')
+									x = (char)(x - 'A' + 'a');
+								if (x != y)
+									return false;
+							}
+							return true;
+						};
+						if (isM(mo, "bevelvert"))
+							st->modalStartPending = 2;
+						else if (isM(mo, "bevel"))
+							st->modalStartPending = 1;
+						else if (isM(mo, "inset"))
+							st->modalStartPending = 3;
+						else if (isM(mo, "loopcut"))
+							st->modalStartPending = 4;
+						else if (isM(mo, "spin"))
+							st->modalStartPending = 5;
+						else if (isM(mo, "extrude"))
+							st->modalStartPending = 6;
+						else if (isM(mo, "tosphere") || isM(mo, "sphere"))
+							st->modalStartPending = 7;
+						else if (isM(mo, "shrink") || isM(mo, "fatten"))
+							st->modalStartPending = 8;
+					}
 					gEditDrv = 3;
 				} else if (gEditDrv == 3 && st->editMode) {
 					// NK_EDIT_MOVE=<dy> : après l'op, déplace la sélection le long de +Y (local)
@@ -2214,6 +2719,26 @@ namespace nkentseu {
 						const float32 d = (float32)atof(sc);
 						st->editGizmo.SetSelectedTransform({0.f, 0.f, 0.f}, NkMat4f::Identity(), {d, d, d});
 						st->editForceXform = true; // applique la transform de groupe chaque frame
+					}
+					// NK_PICK_AT="x,y" : arme un CLIC DE SELECTION a ces pixels ecran. Sert a
+					// prouver en headless (sans souris) que le pick attrape bien un sommet/une
+					// arete VISIBLE sous un angle de camera donne (NK_CAM_YAW/NK_CAM_PITCH).
+					if (getenv("NK_PICK_SCAN"))
+						st->pickScanPending = true;
+					if (const char *pa = getenv("NK_PICK_AT")) {
+						float32 pv[2] = {0.f, 0.f};
+						int32 kk = 0;
+						const char *pp = pa;
+						while (kk < 2 && *pp) {
+							pv[kk++] = (float32)atof(pp);
+							while (*pp && *pp != ',')
+								pp++;
+							if (*pp == ',')
+								pp++;
+						}
+						st->pickForceX = pv[0];
+						st->pickForceY = pv[1];
+						st->pickForcePending = true;
 					}
 					gEditDrv = 4;
 				} else if (gEditDrv == 4) {
@@ -2316,7 +2841,9 @@ namespace nkentseu {
 			st->wheelAccum = 0.0;
 			// En mode CERCLE de sélection, la molette règle le RAYON (façon Blender) et ne
 			// doit donc PAS zoomer la caméra : on la met de côté pour le bloc Edit Mode.
-			st->lastWheel = (st->editMode && st->selTool == 3) ? wheel : 0.f;
+			// La molette sert au RAYON du cercle de selection ET au parametre ENTIER d'une
+			// operation modale (segments du bevel, coupes du loop cut, pas du spin).
+			st->lastWheel = (st->editMode && (st->selTool == 3 || st->modalOp != 0)) ? wheel : 0.f;
 			if (!fixcam) {
 				// FIX drift caméra : delta RECALCULÉ par frame (frameMDX/MDY = pos courante -
 				// pos précédente, = 0 sans mouvement), et NON NkInput.MouseDelta*() qui reste
@@ -2384,7 +2911,7 @@ namespace nkentseu {
 					// Ctrl+molette = PAN HORIZONTAL. (mdx/mdy pixels ~10-20 ; une crantée de
 					// molette ~1 -> multiplier pour un pan comparable.)
 					// (En mode CERCLE de sélection, la molette est réservée au rayon.)
-					if (wheel != 0.f && !(st->editMode && st->selTool == 3)) {
+					if (wheel != 0.f && !(st->editMode && (st->selTool == 3 || st->modalOp != 0))) {
 						const float32 step = wheel * 22.f;
 						if (shift)
 							st->editorCam.Pan(0.f, step); // vertical
@@ -2559,6 +3086,7 @@ namespace nkentseu {
 					dc.mesh = meshFor(row * 4 + col, st->meshSphere);
 					dc.transform = userXform(row * 4 + col, // idx pick = row*4+col
 											 NkMat4f::Translate({x, 0.5f, z}) * NkMat4f::Scale({0.45f, 0.45f, 0.45f}));
+					st->objXform[row * 4 + col] = dc.transform;
 					dc.aabb = {{x - 0.25f, 0.25f, z - 0.25f}, {x + 0.25f, 0.75f, z + 0.25f}};
 					dc.tint = effTint({(float32)col / 3.f, (float32)row / 3.f, 0.7f});
 					dc.metallic = (float32)col / 3.f;				   // 0, 0.33, 0.66, 1
@@ -2583,6 +3111,7 @@ namespace nkentseu {
 						const float32 z = (gz - 3.5f) * 0.55f - 4.5f; // décalé derrière le sol
 						const NkMat4f xf =
 							userXform(idx, NkMat4f::Translate({x, 1.6f, z}) * NkMat4f::Scale({0.18f, 0.18f, 0.18f}));
+						st->objXform[idx] = xf;
 						const NkVec3f tint = effTint({(float32)gx / 7.f, 0.6f, (float32)gz / 7.f});
 						if (st->editMode && st->editObjIdx == idx)
 							continue;					  // édité -> via editMesh
@@ -2617,6 +3146,7 @@ namespace nkentseu {
 				NkDrawCall3D dc;
 				dc.mesh = meshFor(16, st->meshCube);
 				dc.transform = userXform(16, cubeXform); // idx pick cube central = 16
+				st->objXform[16] = dc.transform;
 				dc.aabb = {{-0.35f, 0.1f, -0.35f}, {0.35f, 0.9f, 0.35f}};
 				dc.tint = effTint({1.f, 0.8f, 0.3f}); // gold albedo (ou gris en edit/unlit)
 				dc.metallic = 1.f;
@@ -2640,6 +3170,7 @@ namespace nkentseu {
 				dc.transform = userXform(17 + c, // idx pick colonnes = 17,18
 										 NkMat4f::Translate({cx, 1.f, cz}) *
 											 NkMat4f::Scale({0.3f, 2.f, 0.3f})); // colonne 2m haute
+				st->objXform[17 + c] = dc.transform;
 				dc.aabb = {{cx - 0.2f, 0.f, cz - 0.2f}, {cx + 0.2f, 2.f, cz + 0.2f}};
 				dc.tint = effTint({0.7f, 0.7f, 0.7f});
 				dc.metallic = 0.f;
@@ -2662,6 +3193,20 @@ namespace nkentseu {
 				dc.material = st->maskedMat->GetInstHandle();
 				dc.castShadow = true;
 				r3d->Submit(dc);
+			}
+
+			// ── WIREFRAME N-GON : synchronise le batch d'aretes (mode d'affichage 2) ──
+			// Appele APRES toutes les soumissions : st->objXform[] contient les transforms
+			// MONDE reellement utilisees pour le rendu, donc le fil de fer colle pile aux
+			// objets (y compris le cube central anime). Hors mode wireframe, rien n'est fait.
+			{
+				const bool wireMode = (st->shadingMode == 2);
+				r3d->SetNgonWireframe(wireMode);
+				if (wireMode) {
+					if (auto *msW = ctx.renderer->GetMeshSystem())
+						Demo3D_SyncWireBatch(st, r3d, msW);
+				} else
+					st->wireDirty = true; // on rebatira au prochain passage en fil de fer
 			}
 
 			// ── Volet 2 : EDIT MODE — gizmo centroïde + pick VERTEX/EDGE/FACE + marqueurs ──
@@ -2750,6 +3295,13 @@ namespace nkentseu {
 									wantSmooth ? "SMOOTH" : "FLAT", anyFaceSel ? "faces selectionnees" : "objet entier",
 									st->editHE.AnyFaceSmooth() ? (st->editHE.AllFacesSmooth() ? "toutes" : "une partie")
 															   : "aucune");
+					}
+					// Lancement d'une OPERATION MODALE (le callback clavier n'a pas acces au
+					// systeme de meshes : il pose une demande, traitee ici).
+					if (st->modalStartPending != 0) {
+						const int32 mop = st->modalStartPending;
+						st->modalStartPending = 0;
+						Demo3D_ModalStart(st, mop, meshSysT);
 					}
 					if (st->editExtrudePending) {
 						st->editExtrudePending = false;
@@ -2853,7 +3405,9 @@ namespace nkentseu {
 
 			if (st->editMode && st->editMesh.IsValid()) {
 				auto *meshSysF = ctx.renderer->GetMeshSystem();
-				const int32 nv = (int32)st->editRest.Size();
+				// NON const : une operation MODALE peut changer le nombre de sommets EN COURS
+				// de frame (apercu applique / annule) -> on le reevalue juste apres.
+				int32 nv = (int32)st->editRest.Size();
 
 				// Projection monde->écran (même convention que le gizmo).
 				const NkVec3f camPos = cam.GetPosition(), camTgt = cam.GetTarget();
@@ -2874,6 +3428,114 @@ namespace nkentseu {
 					return true;
 				};
 				auto worldV = [&](int32 i) { return st->editAnchor * st->editRest[i].pos; };
+				// ── AUDIT DE SELECTABILITE (NK_PICK_SCAN=1) ──────────────────────────
+				// PREUVE INSTRUMENTEE, independante de toute coordonnee souris : pour CHAQUE
+				// sommet du maillage on simule un clic PILE DESSUS (rayon curseur passant par sa
+				// propre position ecran) et on compare deux verdicts de visibilite :
+				//   ANCIEN : le sommet est garde s'il est dans la MOITIE AVANT du segment
+				//            [entree, sortie] du rayon dans le maillage (depth < (tNear+tFar)/2) ;
+				//   NOUVEAU : occlusion REELLE (une face cache-t-elle le sommet ?), triangles
+				//            incidents ignores.
+				// Le compteur « visible mais rejete » chiffre exactement le bug rapporte :
+				// « meme directement visible, cliquer un sommet/une arete reste complexe sous
+				// certains angles ». Il doit tomber a 0 avec la nouvelle regle.
+				if (st->pickScanPending) {
+					st->pickScanPending = false;
+					auto rayTri = [&](NkVec3f ro, NkVec3f rd, int32 i0, int32 i1, int32 i2, float32 &tt) -> bool {
+						const NkVec3f v0 = worldV(i0), v1 = worldV(i1), v2 = worldV(i2);
+						NkVec3f e1 = v1 - v0, e2 = v2 - v0, h = rd.Cross(e2);
+						const float32 aa = e1.Dot(h);
+						if (fabsf(aa) < 1e-7f)
+							return false;
+						const float32 f = 1.f / aa;
+						NkVec3f sv = ro - v0;
+						const float32 u = f * sv.Dot(h);
+						if (u < 0.f || u > 1.f)
+							return false;
+						NkVec3f q = sv.Cross(e1);
+						const float32 vv = f * rd.Dot(q);
+						if (vv < 0.f || u + vv > 1.f)
+							return false;
+						tt = f * e2.Dot(q);
+						return tt > 1e-4f;
+					};
+					int32 nProj = 0, nOldKeep = 0, nNewKeep = 0, nVisibleButRejected = 0, nOldGhost = 0;
+					// Un utilisateur ne clique JAMAIS au pixel exact du sommet : il vise a quelques
+					// pixels pres. Or l'ancienne regle calculait son plan median sur le rayon du
+					// CURSEUR, pas sur celui du sommet -> c'est la que tout se joue. On simule donc
+					// un clic decale de kOffPx pixels dans les 4 directions (toujours dans le rayon
+					// de pick de 14 px), ce qui reproduit fidelement le geste reel.
+					const float32 kOffPx = 8.f;
+					const float32 offs[4][2] = {{kOffPx, 0.f}, {-kOffPx, 0.f}, {0.f, kOffPx}, {0.f, -kOffPx}};
+					for (int32 i = 0; i < nv; i++) {
+						const NkVec3f w = worldV(i);
+						float32 px, py;
+						if (!project(w, px, py))
+							continue;
+						if (px < 0.f || py < 0.f || px >= VW || py >= VH)
+							continue;
+						nProj++;
+						// Verdict NOUVEAU : occlusion REELLE (triangles incidents ignores).
+						bool occ = false;
+						NkVec3f dv = w - camPos;
+						const float32 dist = dv.Len();
+						if (dist > 1e-5f) {
+							dv = dv * (1.f / dist);
+							const float32 eps = NkMax(1e-4f, 3e-3f * dist);
+							for (uint32 t = 0; t + 2 < (uint32)st->editIdx.Size() && !occ; t += 3) {
+								const int32 a0 = (int32)st->editIdx[t], a1 = (int32)st->editIdx[t + 1],
+											a2 = (int32)st->editIdx[t + 2];
+								if (a0 == i || a1 == i || a2 == i)
+									continue;
+								float32 tt;
+								if (rayTri(camPos, dv, a0, a1, a2, tt) && tt < dist - eps)
+									occ = true;
+							}
+						}
+						const bool newKeep = !occ;
+						if (newKeep)
+							nNewKeep++;
+						// Verdict ANCIEN : plan median du rayon CURSEUR, pour 4 visees decalees.
+						bool oldKeepAll = true, oldKeepAny = false;
+						for (int32 o = 0; o < 4; o++) {
+							const float32 cx = px + offs[o][0], cy = py + offs[o][1];
+							const float32 nx = cx / VW * 2.f - 1.f, ny = 1.f - cy / VH * 2.f;
+							NkVec3f rd = fwd + rgt * (nx * thX) + upv * (ny * thY);
+							const float32 rl = rd.Len();
+							if (rl > 1e-6f)
+								rd = rd * (1.f / rl);
+							float32 tNear = 1e30f, tFar = -1e30f;
+							for (uint32 t = 0; t + 2 < (uint32)st->editIdx.Size(); t += 3) {
+								float32 tt;
+								if (!rayTri(camPos, rd, (int32)st->editIdx[t], (int32)st->editIdx[t + 1],
+											(int32)st->editIdx[t + 2], tt))
+									continue;
+								if (tt < tNear)
+									tNear = tt;
+								if (tt > tFar)
+									tFar = tt;
+							}
+							const float32 depthMid = (tNear < 1e29f) ? 0.5f * (tNear + tFar) : 1e30f;
+							const bool ok = (depthMid >= 1e29f) || (dist < depthMid + 1e-3f);
+							if (ok)
+								oldKeepAny = true;
+							else
+								oldKeepAll = false;
+						}
+						if (oldKeepAll)
+							nOldKeep++;
+						if (newKeep && !oldKeepAll)
+							nVisibleButRejected++;
+						if (!newKeep && oldKeepAny)
+							nOldGhost++;
+					}
+					logger.Info("[PickScan] {0} sommets a l'ecran | VISIBLES (occlusion reelle) : {1} · "
+								"fiables avec l'ANCIENNE regle (4 visees a 8 px) : {2}\n",
+								nProj, nNewKeep, nOldKeep);
+					logger.Info("[PickScan] VISIBLES MAIS PERDUS par l'ancienne regle sous au moins une "
+								"visee (= le bug rapporte) : {0} · caches pourtant acceptes (faux positifs) : {1}\n",
+								nVisibleButRejected, nOldGhost);
+				}
 				// (L'occlusion au pick est gérée par un test de PROFONDEUR par rayon curseur,
 				//  plus bas dans le bloc de sélection — indépendant de l'orientation caméra.)
 
@@ -2936,9 +3598,150 @@ namespace nkentseu {
 				// sinon le gizmo d'édition dérive à souris immobile (même bug que l'objet).
 				gin.mouseDX = frameMDX;
 				gin.mouseDY = frameMDY;
-				gin.leftPressed = st->pickPending;
+				// ── ARBITRAGE GIZMO <-> MAILLAGE (façon Blender) ─────────────────────
+				// Le gizmo etait PRIORITAIRE sur le clic : ses poignees de PLAN et ses
+				// RUBANS DE ROTATION sont de grandes courbes qui traversent le maillage,
+				// elles avalaient donc des clics destines a un sommet/arete visible juste
+				// dessous. Desormais on compare les DISTANCES ECRAN : le gizmo ne prend le
+				// clic que s'il est REELLEMENT plus proche du curseur que le meilleur
+				// candidat sommet/arete. (Les FACES ne participent pas a l'arbitrage : leur
+				// « distance » serait 0 des que le curseur est dans la silhouette, et le
+				// gizmo deviendrait inattrapable.)
+				bool clickNow = st->pickPending;
 				st->pickPending = false;
+				// Pilote headless : NK_PICK_AT="x,y" force un clic de selection a ces pixels.
+				if (st->pickForcePending) {
+					st->pickForcePending = false;
+					gin.mouseX = st->pickForceX;
+					gin.mouseY = st->pickForceY;
+					clickNow = true;
+					logger.Info("[Demo3D] NK_PICK_AT -> clic force en ({0}, {1})\n", gin.mouseX, gin.mouseY);
+				}
+				float32 meshPx = 1e30f;
+				if (clickNow && !st->editGizmo.IsDragging()) {
+					if (st->editSelMask & 1)
+						for (int32 i = 0; i < nv; i++) {
+							float32 px, py;
+							if (project(worldV(i), px, py)) {
+								const float32 d = sqrtf((px - gin.mouseX) * (px - gin.mouseX) +
+														(py - gin.mouseY) * (py - gin.mouseY));
+								if (d < 14.f && d < meshPx)
+									meshPx = d;
+							}
+						}
+					if (st->editSelMask & 2)
+						for (uint32 e = 0; e + 1 < (uint32)st->editEdges.Size(); e += 2) {
+							const uint32 ia = st->editEdges[e], ib = st->editEdges[e + 1];
+							if (ia >= (uint32)nv || ib >= (uint32)nv)
+								continue;
+							float32 ax, ay, bx, by;
+							if (!project(worldV((int32)ia), ax, ay) || !project(worldV((int32)ib), bx, by))
+								continue;
+							const float32 dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+							float32 tt = (l2 > 1e-6f) ? ((gin.mouseX - ax) * dx + (gin.mouseY - ay) * dy) / l2 : 0.f;
+							tt = tt < 0.f ? 0.f : (tt > 1.f ? 1.f : tt);
+							const float32 qx = ax + tt * dx, qy = ay + tt * dy;
+							const float32 d = sqrtf((gin.mouseX - qx) * (gin.mouseX - qx) +
+													(gin.mouseY - qy) * (gin.mouseY - qy));
+							if (d < 12.f && d < meshPx)
+								meshPx = d;
+						}
+				}
+				const float32 gizPx = st->editGizmo.HandlePickDistPx(gin.mouseX, gin.mouseY);
+				const bool meshWinsClick = (meshPx < gizPx);
+				if (st->pickDiag && clickNow)
+					logger.Info("[PickDiag] arbitrage : maillage={0} px · gizmo={1} px -> {2}\n", meshPx, gizPx,
+								meshWinsClick ? "MAILLAGE" : "GIZMO");
+				gin.leftPressed = clickNow && !meshWinsClick;
 				gin.leftDown = NkInput.IsMouseDown(NkMouseButton::NK_MB_LEFT);
+				// ══ OPERATION MODALE EN COURS : APERCU TEMPS REEL (façon Blender) ══════
+				// Un seul et meme mecanisme pour toutes les ops : on RESTAURE le snapshot puis
+				// on ré-applique la commande avec les parametres courants. Souris = parametre
+				// continu · molette = parametre entier · clic gauche = confirmer · Echap/clic
+				// droit = annuler. Rien n'entre dans l'historique tant que ce n'est pas confirme.
+				if (st->modalOp != 0) {
+					// TO SPHERE : le CENTRE est le PIVOT courant, fige au lancement (comme
+					// Blender) et ramene en espace maillage — sinon il deriverait a chaque
+					// apercu puisque la geometrie bouge.
+					if (st->modalFrames == 0)
+						st->modalCenterLocal = st->editAnchorInv * pivotW;
+					st->modalFrames++;
+					// MOLETTE -> parametre ENTIER (segments du bevel, coupes du loop cut, pas du spin).
+					if (st->lastWheel != 0.f) {
+						st->modalSeg += (st->lastWheel > 0.f) ? 1 : -1;
+						const int32 lo = (st->modalOp == 5) ? 3 : 1;
+						const int32 hi = (st->modalOp == 5) ? 64 : 16;
+						st->modalSeg = NkMax(lo, NkMin(hi, st->modalSeg));
+						st->lastWheel = 0.f;
+						st->modalDirty = true;
+					}
+					// SOURIS -> parametre CONTINU (largeur du bevel, epaisseur de l'inset, angle
+					// du spin, hauteur de l'extrusion). Course horizontale depuis le lancement.
+					if (st->modalScale != 0.f) {
+						float32 nvv = st->modalBase + (gin.mouseX - st->modalStartX) * st->modalScale;
+						if (st->modalOp == 5)
+							nvv = NkMax(1.f, NkMin(360.f, nvv));
+						else if (st->modalOp == 7)
+							nvv = NkMax(0.f, NkMin(2.f, nvv)); // facteur To Sphere (Blender autorise > 1)
+						else if (st->modalOp != 6 && st->modalOp != 8)
+							nvv = NkMax(0.f, nvv); // largeur/epaisseur : jamais negative
+						// (extrude et shrink/fatten sont SIGNES : on ne borne pas)
+						if (fabsf(nvv - st->modalVal) > 1e-6f) {
+							st->modalVal = nvv;
+							st->modalDirty = true;
+						}
+					}
+					// LOOP CUT : ANNEAU SOUS LE CURSEUR — l'apercu suit la souris AVANT
+					// confirmation (c'etait la demande initiale). Le survol est teste sur la
+					// topologie du SNAPSHOT, pas sur l'apercu (qui change a chaque frame).
+					if (st->modalOp == 4 && (frameMDX != 0.f || frameMDY != 0.f || st->modalLoopA >= 0)) {
+						int32 ha = -1, hb = -1;
+						float32 hbest = 1e30f;
+						const uint32 snv = st->modalSnap.VertCount();
+						for (uint32 e = 0; e + 1 < (uint32)st->modalSnapEdges.Size(); e += 2) {
+							const uint32 ia = st->modalSnapEdges[e], ib = st->modalSnapEdges[e + 1];
+							if (ia >= snv || ib >= snv)
+								continue;
+							const NkVec3f wa = st->editAnchor * st->modalSnap.verts[ia].pos;
+							const NkVec3f wb = st->editAnchor * st->modalSnap.verts[ib].pos;
+							float32 ax, ay, bx, by;
+							if (!project(wa, ax, ay) || !project(wb, bx, by))
+								continue;
+							const float32 dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+							float32 tt = (l2 > 1e-6f) ? ((gin.mouseX - ax) * dx + (gin.mouseY - ay) * dy) / l2 : 0.f;
+							tt = tt < 0.f ? 0.f : (tt > 1.f ? 1.f : tt);
+							const float32 qx = ax + tt * dx, qy = ay + tt * dy;
+							const float32 d = sqrtf((gin.mouseX - qx) * (gin.mouseX - qx) +
+													(gin.mouseY - qy) * (gin.mouseY - qy));
+							if (d < hbest) {
+								hbest = d;
+								ha = (int32)ia;
+								hb = (int32)ib;
+							}
+						}
+						if (ha >= 0 && (ha != st->modalLoopA || hb != st->modalLoopB)) {
+							st->modalLoopA = ha;
+							st->modalLoopB = hb;
+							st->modalDirty = true;
+						}
+					}
+					if (st->modalDirty) {
+						st->modalDirty = false;
+						Demo3D_ModalPreview(st, meshSysF);
+					}
+					// Pilote headless : confirmation automatique apres quelques frames d'apercu.
+					const bool autoConfirm = (st->modalEnvConfirm && st->modalFrames > 3);
+					if (st->modalCancelPending) {
+						st->modalCancelPending = false;
+						Demo3D_ModalCancel(st, meshSysF);
+					} else if (clickNow || autoConfirm) {
+						Demo3D_ModalConfirm(st, meshSysF);
+					}
+					// L'operation modale CONSOMME le clic : ni pick ni poignee de gizmo.
+					clickNow = false;
+					gin.leftPressed = false;
+					nv = (int32)st->editRest.Size(); // la topologie vient peut-etre de changer
+				}
 				gin.shiftDown = NkInput.IsKeyDown(NkKey::NK_LSHIFT) || NkInput.IsKeyDown(NkKey::NK_RSHIFT);
 				gin.ctrlDown = NkInput.IsKeyDown(NkKey::NK_LCTRL) || NkInput.IsKeyDown(NkKey::NK_RCTRL);
 				gin.lockAxis = -1;
@@ -2956,7 +3759,7 @@ namespace nkentseu {
 
 				// Clic qui n'a PAS attrapé une poignée -> pick VERTEX/EDGE/FACE en espace écran.
 				// COUTEAU/BISECT armé : les 2 clics tracent la ligne -> plan de coupe.
-				if (gin.leftPressed && !grabbedHandle && st->knifeArmed) {
+				if (clickNow && !grabbedHandle && st->knifeArmed) {
 					NkVec2f pc{gin.mouseX, gin.mouseY};
 					if (!st->knifeHasP0) {
 						st->knifeP0 = pc;
@@ -3002,7 +3805,7 @@ namespace nkentseu {
 							project);
 					}
 					zoneToolConsumed = true;
-				} else if (gin.leftPressed && !grabbedHandle && !st->knifeArmed && !altDown &&
+				} else if (clickNow && !grabbedHandle && !st->knifeArmed && !altDown &&
 						   (st->selTool == 1 || gin.ctrlDown)) {
 					// Démarre un tracé : RECTANGLE si armé par B, sinon LASSO (Ctrl+glisser).
 					st->selDragging = true;
@@ -3051,7 +3854,7 @@ namespace nkentseu {
 
 				// Pick sur la BASE (editRest/editIdx = editHE), même sous modificateurs -> on
 				// sélectionne/édite la cage de base et le résultat modifié se recalcule.
-				if (gin.leftPressed && !grabbedHandle && !st->knifeArmed && !zoneToolConsumed) {
+				if (clickNow && !grabbedHandle && !st->knifeArmed && !zoneToolConsumed) {
 					st->editOverlayDirty = true; // la sélection va changer -> reconstruire l'overlay
 					const float32 mx = gin.mouseX, my = gin.mouseY;
 					// TOGGLE façon Blender : on mémorise l'état AVANT le nettoyage pour savoir
@@ -3067,6 +3870,23 @@ namespace nkentseu {
 					// mesh. Un sommet est "devant" (visible) s'il est dans la moitié NEAR
 					// (depth < milieu). Test de PROFONDEUR (pas de normale) -> INDÉPENDANT de
 					// l'orientation caméra (corrige "impossible de sélectionner selon l'angle").
+					// ── VISIBILITE : OCCLUSION REELLE (remplace l'heuristique « moitie near ») ──
+					// CAUSE RACINE du « sous certains angles, impossible de cliquer un sommet/une
+					// arete pourtant visible » : on calculait les profondeurs d'ENTREE (tNear) et de
+					// SORTIE (tFar) du rayon curseur dans le maillage, puis on ne gardait que les
+					// elements situes dans la MOITIE AVANT (depth < (tNear+tFar)/2). Cette
+					// heuristique n'est vraie que si la surface est ~perpendiculaire a la vue : sur
+					// une face RASANTE (ou un maillage fin, ou un rayon qui frole la silhouette ->
+					// tNear ~= tFar), la profondeur varie enormement d'un bout a l'autre de la face
+					// et des sommets PARFAITEMENT VISIBLES tombaient derriere le plan median ->
+					// rejetes. Idem pour le filtre « dos-camera » par NORMALE : un sommet de
+					// SILHOUETTE a une normale ~perpendiculaire a la vue (produit scalaire ~= 0) et
+					// basculait au hasard du bruit numerique.
+					// MAINTENANT : le rayon curseur ne sert plus qu'au pick de FACE ; la visibilite
+					// d'un candidat sommet/arete est testee par un VRAI lancer de rayon
+					// camera -> candidat (les triangles INCIDENTS au candidat sont ignores, sans
+					// quoi un sommet de silhouette serait occulte par sa propre face). Comme le test
+					// ne tourne que sur les quelques candidats SOUS LE CURSEUR, il reste bon marche.
 					const float32 rNdcX = mx / VW * 2.f - 1.f, rNdcY = 1.f - my / VH * 2.f;
 					NkVec3f rDir = fwd + rgt * (rNdcX * thX) + upv * (rNdcY * thY);
 					{
@@ -3074,21 +3894,25 @@ namespace nkentseu {
 						if (l > 1e-6f)
 							rDir = rDir * (1.f / l);
 					}
-					float32 tNear = 1e30f, tFar = -1e30f;
+					float32 tNear = 1e30f;
+					// tFar / depthMid ne servent PLUS a filtrer : ils ne sont conserves que pour le
+					// DIAGNOSTIC (NK_PICK_DIAG), afin de montrer noir sur blanc ce que l'ANCIENNE
+					// heuristique « moitie near » aurait rejete.
+					float32 tFar = -1e30f;
 					int32 nearestTri = -1;
 					for (uint32 t = 0; t + 2 < (uint32)st->editIdx.Size(); t += 3) {
 						const NkVec3f v0 = worldV(st->editIdx[t]), v1 = worldV(st->editIdx[t + 1]),
-									  v2 = worldV(st->editIdx[t + 2]);
+										v2 = worldV(st->editIdx[t + 2]);
 						NkVec3f e1 = v1 - v0, e2 = v2 - v0, h = rDir.Cross(e2);
 						float32 aa = e1.Dot(h);
 						if (fabsf(aa) < 1e-7f)
 							continue;
 						float32 f = 1.f / aa;
-						NkVec3f s = camPos - v0;
-						float32 u = f * s.Dot(h);
+						NkVec3f sv = camPos - v0;
+						float32 u = f * sv.Dot(h);
 						if (u < 0.f || u > 1.f)
 							continue;
-						NkVec3f q = s.Cross(e1);
+						NkVec3f q = sv.Cross(e1);
 						float32 vv = f * rDir.Dot(q);
 						if (vv < 0.f || u + vv > 1.f)
 							continue;
@@ -3102,76 +3926,166 @@ namespace nkentseu {
 								tFar = tt;
 						}
 					}
-					const float32 depthMid = (tNear < 1e29f) ? 0.5f * (tNear + tFar) : 1e30f;
-					auto visibleD = [&](NkVec3f w) -> bool {
-						if (st->editXray || depthMid >= 1e29f)
-							return true;							  // x-ray ou pas de surface -> tout visible
-						return (w - camPos).Len() < depthMid + 1e-3f; // moitié near = devant
+					// Le point `w` est-il cache par une face ? `sa`/`sb` = indices a IGNORER
+					// (les triangles qui touchent le candidat lui-meme).
+					auto occluded = [&](NkVec3f w, int32 sa, int32 sb) -> bool {
+						if (st->editXray)
+							return false;
+						NkVec3f dv = w - camPos;
+						const float32 dist = dv.Len();
+						if (dist < 1e-5f)
+							return false;
+						dv = dv * (1.f / dist);
+						// Tolerance RELATIVE a la distance : les copies COINCIDENTES du meme coin
+						// (les primitives dupliquent leurs sommets par face) touchent le candidat a
+						// tt ~= dist et ne doivent pas compter comme occultantes.
+						const float32 eps = NkMax(1e-4f, 3e-3f * dist);
+						for (uint32 t = 0; t + 2 < (uint32)st->editIdx.Size(); t += 3) {
+							const int32 i0 = (int32)st->editIdx[t], i1 = (int32)st->editIdx[t + 1],
+										i2 = (int32)st->editIdx[t + 2];
+							if (i0 == sa || i1 == sa || i2 == sa || i0 == sb || i1 == sb || i2 == sb)
+								continue;
+							const NkVec3f v0 = worldV(i0), v1 = worldV(i1), v2 = worldV(i2);
+							NkVec3f e1 = v1 - v0, e2 = v2 - v0, h = dv.Cross(e2);
+							float32 aa = e1.Dot(h);
+							if (fabsf(aa) < 1e-7f)
+								continue;
+							float32 f = 1.f / aa;
+							NkVec3f sv = camPos - v0;
+							float32 u = f * sv.Dot(h);
+							if (u < 0.f || u > 1.f)
+								continue;
+							NkVec3f q = sv.Cross(e1);
+							float32 vv = f * dv.Dot(q);
+							if (vv < 0.f || u + vv > 1.f)
+								continue;
+							const float32 tt = f * e2.Dot(q);
+							if (tt > 1e-4f && tt < dist - eps)
+								return true;
+						}
+						return false;
 					};
-					// Modes combinables : on cherche le meilleur candidat de CHAQUE mode actif
-					// puis on sélectionne le plus proche du curseur (vertex/arête gagnent près
-					// d'eux, la face gagne au centre). Façon Blender (vertex/edge/face combinés).
-					// VERTEX : parmi les sommets SOUS le curseur (dans un rayon écran), on prend
-					// le plus PROCHE DE LA CAMÉRA (= celui devant, visible), pas le plus proche
-					// en 2D -> corrige la sélection d'un sommet DERRIÈRE.
+					// ── CANDIDATS : le plus proche du CURSEUR gagne (Blender), la PROFONDEUR ne
+					//    sert qu'a departager les quasi-ex aequo (fenetre de 1.5 px).
+					// AVANT : n'importe quel element dans le rayon l'emportait pourvu qu'il soit le
+					// plus proche de la camera -> un sommet a 13 px battait celui pile sous le
+					// curseur. Desormais l'ordre est : distance ecran, puis profondeur.
+					static const int32 kMaxCand = 32;
+					const float32 kTiePx = 1.5f;
+					int32 cI[kMaxCand], cJ[kMaxCand];
+					float32 cD[kMaxCand], cZ[kMaxCand];
+					NkVec3f cP[kMaxCand];
+					int32 nC = 0;
+					// Insertion TRIEE par distance ecran croissante (tableau borne : on garde les
+					// kMaxCand meilleurs). Zero STL, zero allocation.
+					auto pushCand = [&](int32 ia, int32 ib, float32 d, float32 z, NkVec3f pw) {
+						if (nC == kMaxCand && d >= cD[kMaxCand - 1])
+							return;
+						int32 pos = (nC < kMaxCand) ? nC : (kMaxCand - 1);
+						if (nC < kMaxCand)
+							nC++;
+						while (pos > 0 && cD[pos - 1] > d) {
+							cI[pos] = cI[pos - 1];
+							cJ[pos] = cJ[pos - 1];
+							cD[pos] = cD[pos - 1];
+							cZ[pos] = cZ[pos - 1];
+							cP[pos] = cP[pos - 1];
+							pos--;
+						}
+						cI[pos] = ia;
+						cJ[pos] = ib;
+						cD[pos] = d;
+						cZ[pos] = z;
+						cP[pos] = pw;
+					};
+					// Parcourt les candidats tries et retient le PREMIER non occulte, puis, dans
+					// la fenetre d'egalite, celui qui est le plus PROCHE DE LA CAMERA.
+					auto electCand = [&](int32 &oa, int32 &ob) {
+						oa = -1;
+						ob = -1;
+						float32 winD = 1e30f, winZ = 1e30f;
+						for (int32 k = 0; k < nC; k++) {
+							if (oa >= 0 && cD[k] > winD + kTiePx)
+								break;
+							if (occluded(cP[k], cI[k], cJ[k]))
+								continue;
+							if (oa < 0 || cZ[k] < winZ) {
+								if (oa < 0)
+									winD = cD[k];
+								winZ = cZ[k];
+								oa = cI[k];
+								ob = cJ[k];
+							}
+						}
+					};
+					// VERTEX : rayon de pick en PIXELS ECRAN (constant, independant du zoom).
 					const float32 kVertPx = 14.f;
-					int32 bestV = -1;
-					float32 bestVdepth = 1e30f;
+					int32 bestV = -1, bestVdummy = -1;
 					if (st->editSelMask & 1) {
+						nC = 0;
 						for (int32 i = 0; i < nv; i++) {
 							NkVec3f w = worldV(i);
-							if (!visibleD(w))
-								continue;
 							float32 px, py;
-							if (project(w, px, py)) {
-								float32 d = sqrtf((px - mx) * (px - mx) + (py - my) * (py - my));
-								if (d < kVertPx) {
-									float32 dep = (w - camPos).Len();
-									if (dep < bestVdepth) {
-										bestVdepth = dep;
-										bestV = i;
-									}
-								}
-							}
+							if (!project(w, px, py))
+								continue;
+							const float32 d = sqrtf((px - mx) * (px - mx) + (py - my) * (py - my));
+							if (d < kVertPx)
+								pushCand(i, i, d, (w - camPos).Len(), w);
 						}
+						if (st->pickDiag)
+							logger.Info("[PickDiag] VERTEX : {0} candidat(s) dans {1} px\n", nC, kVertPx);
+						electCand(bestV, bestVdummy);
 					}
-					// EDGE : idem, parmi les arêtes sous le curseur on prend celle dont le milieu
-					// est le plus proche de la caméra.
+					// EDGE : distance ecran au SEGMENT ; le point teste pour l'occlusion est le
+					// point de l'arete le plus proche du curseur (et non son milieu : sur une
+					// arete longue et rasante, le milieu peut etre cache alors que le bout
+					// cliquable est parfaitement visible).
 					const float32 kEdgePx = 12.f;
 					int32 bestEa = -1, bestEb = -1;
-					float32 bestEdepth = 1e30f;
 					if (st->editSelMask & 2) {
-						for (uint32 t = 0; t + 2 < (uint32)st->editIdx.Size(); t += 3) {
-							const uint32 e[3][2] = {{st->editIdx[t], st->editIdx[t + 1]},
-													{st->editIdx[t + 1], st->editIdx[t + 2]},
-													{st->editIdx[t + 2], st->editIdx[t]}};
-							for (int32 k = 0; k < 3; k++) {
-								NkVec3f wa = worldV(e[k][0]), wb = worldV(e[k][1]);
-								NkVec3f mid = (wa + wb) * 0.5f;
-								if (!visibleD(mid))
-									continue;
-								float32 ax, ay, bx, by;
-								if (project(wa, ax, ay) && project(wb, bx, by)) {
-									float32 dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy,
-											tt = (l2 > 1e-6f) ? ((mx - ax) * dx + (my - ay) * dy) / l2 : 0.f;
-									tt = tt < 0 ? 0 : (tt > 1 ? 1 : tt);
-									float32 cx = ax + tt * dx, cy = ay + tt * dy,
-											d = sqrtf((mx - cx) * (mx - cx) + (my - cy) * (my - cy));
-									if (d < kEdgePx) {
-										float32 dep = (mid - camPos).Len();
-										if (dep < bestEdepth) {
-											bestEdepth = dep;
-											bestEa = (int32)e[k][0];
-											bestEb = (int32)e[k][1];
-										}
-									}
-								}
-							}
+						nC = 0;
+						for (uint32 e = 0; e + 1 < (uint32)st->editEdges.Size(); e += 2) {
+							const int32 ia = (int32)st->editEdges[e], ib = (int32)st->editEdges[e + 1];
+							if (ia >= nv || ib >= nv)
+								continue;
+							const NkVec3f wa = worldV(ia), wb = worldV(ib);
+							float32 ax, ay, bx, by;
+							if (!project(wa, ax, ay) || !project(wb, bx, by))
+								continue;
+							const float32 dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+							float32 tt = (l2 > 1e-6f) ? ((mx - ax) * dx + (my - ay) * dy) / l2 : 0.f;
+							tt = tt < 0.f ? 0.f : (tt > 1.f ? 1.f : tt);
+							const float32 qx = ax + tt * dx, qy = ay + tt * dy;
+							const float32 d = sqrtf((mx - qx) * (mx - qx) + (my - qy) * (my - qy));
+							if (d >= kEdgePx)
+								continue;
+							const NkVec3f pw = wa + (wb - wa) * tt;
+							pushCand(ia, ib, d, (pw - camPos).Len(), pw);
+						}
+						if (st->pickDiag)
+							logger.Info("[PickDiag] EDGE : {0} candidat(s) dans {1} px\n", nC, kEdgePx);
+						electCand(bestEa, bestEb);
+					}
+					// FACE : le triangle le plus PROCHE touche par le rayon curseur (nearestTri).
+					const int32 bestFt = (st->editSelMask & 4) ? nearestTri : -1;
+					// PREUVE : verdict de l'ANCIENNE regle (« moitie near ») sur l'element elu.
+					if (st->pickDiag) {
+						const float32 depthMid = (tNear < 1e29f) ? 0.5f * (tNear + tFar) : 1e30f;
+						if (bestV >= 0) {
+							const float32 dep = (worldV(bestV) - camPos).Len();
+							logger.Info("[PickDiag] sommet elu #{0} : profondeur={1} · plan median ancien={2} -> ANCIENNE REGLE = {3}\n",
+									bestV, dep, depthMid, (dep < depthMid + 1e-3f) ? "gardait" : "REJETAIT (bug)");
+						}
+						if (bestEa >= 0) {
+							const NkVec3f midw = (worldV(bestEa) + worldV(bestEb)) * 0.5f;
+							const float32 dep = (midw - camPos).Len();
+							logger.Info("[PickDiag] arete elue ({0},{1}) : profondeur milieu={2} · plan median ancien={3} -> ANCIENNE REGLE = {4}\n",
+									bestEa, bestEb, dep, depthMid, (dep < depthMid + 1e-3f) ? "gardait" : "REJETAIT (bug)");
 						}
 					}
-					// FACE : le triangle le plus PROCHE touché par le rayon curseur (déjà calculé
-					// ci-dessus = nearestTri). C'est la face EXTERNE visible, jamais celle de derrière.
-					const int32 bestFt = (st->editSelMask & 4) ? nearestTri : -1;
+					if (st->pickDiag)
+						logger.Info("[PickDiag] clic ({0},{1}) -> vertex={2} arete=({3},{4}) face(tri)={5}\n", mx,
+									my, bestV, bestEa, bestEb, bestFt);
 					// Élection PAR PRIORITÉ façon Blender : vertex (près d'un sommet) > arête
 					// (près d'une arête) > face (rayon). Chacun n'est retenu que dans son seuil.
 					// ── ALT+CLIC : BOUCLE (edge loop / face loop) façon Blender ──────
@@ -4075,12 +4989,20 @@ namespace nkentseu {
 									  st->insetIndividual ? "indiv" : "region", st->insetDepth);
 					overlay->DrawText({20.f, 190.f},
 									  "V=edge split (Shift=ecart %s)  |  J=spin %d pas / %.0f deg "
-									  "(Shift=pas, Alt=angle, centre=curseur 3D)  |  Ctrl+X=dissolve %s",
+									  "(Shift=pas, Alt=angle, centre=curseur 3D)  |  Ctrl+X=dissolve %s  |  "
+									  "Shift+Alt+S=TO SPHERE  Ctrl+Alt+S=SHRINK/FATTEN",
 									  st->splitGap <= 0.f ? "AUTO" : "large", st->spinSteps, st->spinAngleDeg,
 									  (st->editSelMask & 4) ? "FACES" : ((st->editSelMask & 2) ? "ARETES" : "SOMMETS"));
 					// Ombrage courant (Shift+S / Shift+F) + point de pivot (.) + curseur 3D.
 					const bool anySm = st->editHE.AnyFaceSmooth();
 					const bool allSm = st->editHE.AllFacesSmooth();
+					// OPERATION MODALE EN COURS : bandeau facon Blender (op + valeurs + sortie).
+					if (st->modalOp != 0) {
+						overlay->DrawText({20.f, 208.f},
+											"[MODAL] %s  |  valeur(souris): %.4f  |  segments(molette): %d%s  |  clic gauche=CONFIRMER  ·  Echap/clic droit=ANNULER",
+											Demo3D_ModalName(st->modalOp), st->modalVal, st->modalSeg,
+											(st->modalOp == 4) ? "  |  anneau: survol souris" : "");
+					}
 					overlay->DrawText({20.f, 154.f},
 									  "Ombrage(Shift+S/Shift+F): %s  |  Pivot(.): %s  |  Curseur 3D: "
 									  "Shift+clic droit (Alt+. = origine)",
