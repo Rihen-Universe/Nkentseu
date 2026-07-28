@@ -451,9 +451,43 @@ namespace nkentseu {
 			return (i < 16) ? &st->wireSphere : &st->wireCube;
 		}
 		
+		// ── Couleur du fil de fer (mode d'affichage WIREFRAME), PARAMÉTRABLE ──────
+		// Défaut calé sur Blender : en mode objet, le fil de fer y est un gris
+		// SOMBRE, pas un blanc cassé. L'ancienne valeur {0.82,0.85,0.92} faisait
+		// saturer les maillages denses (une sphère = ~2000 arêtes) en une masse
+		// blanche illisible.
+		// Réglable sans recompiler :
+		//   NK_WIRE_COLOR="r,g,b"  composantes 0..1 (ex. "0.05,0.05,0.06" = quasi noir)
+		//   NK_WIRE_ALPHA=<a>      opacité 0..1 (défaut 1)
+		static NkVec4f gWireColor = {-1.f, 0.f, 0.f, 1.f}; // x<0 => pas encore résolu
+
+		static const NkVec4f &Demo3D_WireColor() {
+			if (gWireColor.x >= 0.f)
+				return gWireColor;
+			gWireColor = {0.28f, 0.29f, 0.33f, 1.f}; // gris sombre façon Blender
+			if (const char *c = getenv("NK_WIRE_COLOR")) {
+				float32 rgb[3] = {gWireColor.x, gWireColor.y, gWireColor.z};
+				int32 k = 0;
+				const char *p = c;
+				while (k < 3 && *p) {
+					rgb[k++] = (float32)atof(p);
+					while (*p && *p != ',')
+						p++;
+					if (*p == ',')
+						p++;
+				}
+				gWireColor.x = rgb[0];
+				gWireColor.y = rgb[1];
+				gWireColor.z = rgb[2];
+			}
+			if (const char *a = getenv("NK_WIRE_ALPHA"))
+				gWireColor.w = (float32)atof(a);
+			return gWireColor;
+		}
+
 		// Remplit la tranche d'un objet dans le batch MONDE (7 float par vertex).
 		static void Demo3D_WireFillSlice(Demo3DState *st, int32 i, const NkVector<NkVec3f> *src) {
-			const NkVec4f col = {0.82f, 0.85f, 0.92f, 1.f};
+			const NkVec4f col = Demo3D_WireColor();
 			const NkMat4f &X = st->objXform[i];
 			float32 *dst = st->wireVerts.Data() + (uint64)st->wireOff[i] * 7;
 			const uint32 n = st->wireCnt[i];
