@@ -66,6 +66,27 @@ namespace nkentseu {
 				Face fc;
 				fc.hedge = h0;
 				fc.alive = 1;
+				// OMBRAGE : on DEDUIT flat/smooth des normales SOURCE au lieu de retomber sur
+				// le defaut FLAT. Sans cela, entrer en mode edition puis en ressortir SANS
+				// RIEN MODIFIER applatissait le modele : la sphere lissee revenait facettee,
+				// parce que Face::smooth valait 0 pour toutes les faces reconstruites.
+				//
+				// Critere : une face est FLAT si ses coins portent la MEME normale dans la
+				// source — c'est la definition meme du plat (une normale par face, donc des
+				// coins dedoubles). Des qu'ils different, la source portait des normales
+				// moyennees, donc SMOOTH.
+				//
+				// Seuil serre a 0.99999 (~0,26 degre) : plus laxiste, une surface lissee tres
+				// dense — dont les coins voisins ne different que de quelques dixiemes de
+				// degre — passerait pour plate. LIMITE ASSUMEE : au-dela de la densite ou
+				// l'ecart tombe sous 0,26 degre la deduction bascule sur FLAT, mais a cette
+				// densite plat et lisse sont visuellement indiscernables.
+				{
+					const NkVec3f &na = v[a].normal, &nb = v[b].normal, &nc = v[c].normal;
+					const float32 kFlatDot = 0.99999f;
+					fc.smooth =
+						(na.Dot(nb) >= kFlatDot && nb.Dot(nc) >= kFlatDot && nc.Dot(na) >= kFlatDot) ? 0 : 1;
+				}
 				faces.PushBack(fc);
 				if (verts[a].hedge == NK_EM_INVALID)
 					verts[a].hedge = h0;
@@ -130,6 +151,10 @@ namespace nkentseu {
 				hedges[hC].face = f1;
 				hedges[hD].face = f1;
 				faces[f1].hedge = hA;
+				// f1 survit et absorbe f2 : l'ombrage doit suivre. Les deux triangles d'un
+				// meme quad source portent normalement le meme reglage, mais on prend le OU
+				// pour ne jamais perdre un lissage lors de la fusion.
+				faces[f1].smooth = (uint8)(faces[f1].smooth | faces[f2].smooth);
 				faces[f2].alive = 0;
 				const uint32 a = hedges[h].origin, b = hedges[tw].origin;
 				hedges[h].alive = 0;
