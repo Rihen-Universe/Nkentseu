@@ -3543,6 +3543,40 @@ namespace nkentseu {
 					r3d->SetEditOverlayTris(nullptr, 0);
 					r3d->SetEditOverlayXray(st->editXray);
 				}
+				// ── DIAG (NK_DIAG_BIGTRI=1) : détecte les triangles d'overlay qui EXPLOSENT
+				// à l'écran (« carrés blancs »). Projette les 3 sommets et loggue tout
+				// triangle dont la bbox écran dépasse le seuil (px) ou dont un sommet est
+				// derrière le plan near. Purement diagnostique, coût nul si l'env est absent.
+				static int32 gDiagBig = -2;
+				if (gDiagBig == -2) {
+					const char *dv = getenv("NK_DIAG_BIGTRI");
+					gDiagBig = (dv && dv[0] && dv[0] != '0') ? atoi(dv) : 0;
+				}
+				auto diagTri = [&](const char *tag, NkVec3f a, NkVec3f b, NkVec3f c, NkVec4f col) {
+					if (!gDiagBig)
+						return;
+					float32 mnx = 1e30f, mny = 1e30f, mxx = -1e30f, mxy = -1e30f;
+					int32 behind = 0;
+					const NkVec3f P[3] = {a, b, c};
+					for (int32 k = 0; k < 3; k++) {
+						const NkVec3f v = P[k] - camPos;
+						const float32 zc = v.Dot(fwd);
+						if (zc <= 1e-3f) {
+							behind++;
+							continue;
+						}
+						const float32 sx = (0.5f + (v.Dot(rgt) / (zc * thX)) * 0.5f) * VW;
+						const float32 sy = (0.5f - (v.Dot(upv) / (zc * thY)) * 0.5f) * VH;
+						mnx = NkMin(mnx, sx);
+						mny = NkMin(mny, sy);
+						mxx = NkMax(mxx, sx);
+						mxy = NkMax(mxy, sy);
+					}
+					const float32 w = (mxx > mnx) ? (mxx - mnx) : 0.f, h = (mxy > mny) ? (mxy - mny) : 0.f;
+					if (behind > 0 || w > (float32)gDiagBig || h > (float32)gDiagBig)
+						logger.Info("[DIAG] {0} behind={1} bbox={2}x{3} col=({4},{5},{6},{7}) a=({8},{9},{10})\n", tag,
+									behind, w, h, col.x, col.y, col.z, col.w, a.x, a.y, a.z);
+				};
 				// ── P1 — REMPLISSAGE ORANGE TRANSLUCIDE DES FACES SÉLECTIONNÉES ────────
 				// Façon Blender : TOUTE la surface de la face sélectionnée est teintée (pas
 				// un simple point au centre). On triangule la face N-GON en éventail sur sa
@@ -3575,9 +3609,11 @@ namespace nkentseu {
 						if (!allSel)
 							continue;
 						const NkVec3f p0 = liveWf((int32)fvf[0]);
-						for (uint32 k = 1; k + 1 < fn; k++) // éventail sur la boucle n-gon
+						for (uint32 k = 1; k + 1 < fn; k++) { // éventail sur la boucle n-gon
+							diagTri("facefill", p0, liveWf((int32)fvf[k]), liveWf((int32)fvf[k + 1]), faceFill);
 							r3d->DrawDebugTriangle(p0, liveWf((int32)fvf[k]), liveWf((int32)fvf[k + 1]), faceFill,
 												   0.f, st->editXray);
+						}
 					}
 				}
 				// ── Marqueurs VERTEX / centre-de-FACE façon Blender : petits QUADS PLEINS ──────
@@ -3613,6 +3649,7 @@ namespace nkentseu {
 						// OCCLUS par ce qui est devant (autre objet de la scène, ou le modèle
 						// lui-même). X-ray ON -> no-depth : on voit à travers (façon Blender).
 						// Le GIZMO, lui, reste no-depth dans TOUS les cas (dessiné plus bas).
+						diagTri("marker", c00, c10, c11, col);
 						r3d->DrawDebugTriangle(c00, c10, c11, col, 0.f, st->editXray);
 						r3d->DrawDebugTriangle(c00, c11, c01, col, 0.f, st->editXray);
 					};
@@ -3677,6 +3714,7 @@ namespace nkentseu {
 				st->editGizmo.Draw(
 					[&](NkVec3f a, NkVec3f b, NkVec4f c) { r3d->DrawDebugLine(a, b, c, 0.f, true); },
 					[&](NkVec3f a, NkVec3f b, NkVec3f c, NkVec4f col) {
+						diagTri("gizmo", a, b, c, col);
 						r3d->DrawDebugTriangle(a, b, c, col, 0.f, true);
 					});
 			}

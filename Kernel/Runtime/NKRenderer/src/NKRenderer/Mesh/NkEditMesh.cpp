@@ -9,6 +9,30 @@
 namespace nkentseu {
 	namespace renderer {
 
+		// ── Tangente ORTHOGONALE à la normale (anti-NaN) ──────────────────────────
+		// ⚠ BUG « carrés blancs » : la tangente était figée à (1,0,0) pour TOUS les
+		// sommets. Sur les faces ±X d'un cube (normale (±1,0,0)) la tangente est alors
+		// COLINÉAIRE à la normale : le vertex shader PBR fait un Gram-Schmidt
+		// T - dot(T,N)*N  == VECTEUR NUL  -> normalize(0) = NaN -> TBN NaN -> N NaN.
+		// En mode d'affichage NORMAL (viewMode 2) la couleur vaut N*0.5+0.5, donc NaN,
+		// et le NaN se propage dans la chaîne de bloom (down/up) : il ressort en un
+		// gros RECTANGLE BLANC aligné écran qui masque l'objet — identique sur TOUS
+		// les backends (c'est de l'arithmétique flottante, pas du RHI).
+		// On génère donc une tangente réellement perpendiculaire à la normale.
+		static NkVec3f NkEmOrthoTangent(const NkVec3f &n) {
+			const float32 l = n.Len();
+			if (l < 1e-6f)
+				return {1.f, 0.f, 0.f}; // normale dégénérée -> tangente arbitraire valide
+			const NkVec3f nn = n * (1.f / l);
+			// Axe de référence NON colinéaire à nn (seuil large : évite un cross ~nul).
+			const NkVec3f ref = (nn.y < 0.9f && nn.y > -0.9f) ? NkVec3f{0.f, 1.f, 0.f} : NkVec3f{1.f, 0.f, 0.f};
+			NkVec3f t = ref.Cross(nn);
+			const float32 tl = t.Len();
+			if (tl < 1e-6f)
+				return {1.f, 0.f, 0.f};
+			return t * (1.f / tl);
+		}
+
 		void NkEditMesh::BuildFromIndexed(const NkVertex3D *v, uint32 vc, const uint32 *idx, uint32 ic, bool quadify) {
 			Clear();
 			verts.Resize(vc);
@@ -648,6 +672,9 @@ namespace nkentseu {
 					outTriFace.PushBack((NkEmId)f);
 				}
 			}
+			// Tangentes ORTHOGONALES aux normales finales (cf. NkEmOrthoTangent).
+			for (uint32 i = 0; i < (uint32)outV.Size(); ++i)
+				outV[i].tangent = NkEmOrthoTangent(outV[i].normal);
 		}
 
 		void NkEditMesh::TriangulateShaded(NkVector<NkVertex3D> &outV, NkVector<uint32> &outIdx,
@@ -719,6 +746,10 @@ namespace nkentseu {
 					outTriFace.PushBack((NkEmId)f);
 				}
 			}
+			// Tangentes ORTHOGONALES : recalculées APRÈS coup, car les normales des coins
+			// (flat/smooth, sommets dédoublés) ne sont figées qu'ici. (cf. NkEmOrthoTangent)
+			for (uint32 i = 0; i < (uint32)outV.Size(); ++i)
+				outV[i].tangent = NkEmOrthoTangent(outV[i].normal);
 		}
 
 		void NkEditMesh::ToPolygons(NkVector<NkVertex3D> &ov, NkVector<uint32> &ofaceStart,
@@ -728,7 +759,7 @@ namespace nkentseu {
 				NkVertex3D nv{};
 				nv.pos = verts[i].pos;
 				nv.normal = verts[i].normal;
-				nv.tangent = {1.f, 0.f, 0.f};
+				nv.tangent = NkEmOrthoTangent(verts[i].normal);
 				nv.uv = verts[i].uv;
 				nv.uv2 = {0.f, 0.f};
 				nv.color = 0xFFFFFFFFu;
