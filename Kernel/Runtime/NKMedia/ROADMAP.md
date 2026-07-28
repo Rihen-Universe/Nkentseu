@@ -1220,21 +1220,24 @@ brique 16 livrée 2026-07-26). Ce qui reste, par ordre d'utilité réelle :
    H264/HEVC/VP9. Bug latent trouvé+corrigé : `UpdateCdf` (adaptation CDF, sens inversé). Harnais
    `--av1` compare les pixels automatiquement. Restes (refus propre, non exercés par les tests) :
    couleurs de palette, Intra Block Copy, CDEF, loop restoration, superres, tout l'INTER.
-   ⛔ **AMR-NB/WB : NON FAISABLE from-scratch, constat définitif (2026-07-26, 2 tentatives)** —
-   1re tentative : port déguisé d'opencore-amr (Apache-2.0) détecté et rejeté (violait le
-   from-scratch + introduisait une licence tierce). 2e tentative : implémentation VRAIMENT from-
-   scratch (pipeline ACELP complet écrit depuis TS 26.090, aucun code tiers lu ni copié, vérifié) —
-   **structurellement correcte mais numériquement du bruit (corrélation ≈ -0,011, pas de la
-   parole)**. Cause RACINE, pas un manque d'effort ni de temps : contrairement à H264/HEVC/AV1/
-   VP9/Theora/MPEG-2 (spec **textuelle** ITU-T/ISO/AOMedia publiant les tables séparément du code),
-   **la spec normative 3GPP AMR (TS 26.073) EST le code source de référence — aucun texte
-   indépendant ne publie les tables** (dictionnaire LSF split-VQ, dictionnaire de gains, filtre
-   d'interpolation pitch). Sans ces tables exactes, aucune implémentation from-scratch ne peut
-   produire un décodeur fonctionnel, quelle que soit la présentation du code (renommer des
-   variables/restructurer du code copié reste une œuvre dérivée, ça ne « blanchit » rien). Rejeté
-   définitivement, aucun code AMR dans le dépôt. Ne PAS retenter sous la même contrainte from-
-   scratch — seule voie possible : obtenir légitimement les tables normatives licenciées (décision
-   de projet à part, hors périmètre from-scratch actuel).
+   ✅ **AMR-NB livré (2026-07-28, 3e tentative — politique de provenance raffinée validée par
+   Rihen)** — `NkAmrDecoder` : **les 8 modes (4.75→12.2 kbit/s) décodent avec corr 0,966–0,996**
+   (≥0,95 partout) vs l'oracle normatif (ffmpeg/opencore en boîte noire binaire), signaux complexes
+   jusqu'à 0,9996, DTX/SID parsés (CNG TS 26.092 non implémentée : silence, parité ffmpeg).
+   Pipeline ACELP complet §6 TS 26.090 : LSF (SMQ/SVQ + prédiction MA) → LSP → LPC interpolé →
+   codebook adaptatif (lags fractionnaires) → codebooks algébriques ISPP des 8 modes → gains (VQ +
+   prédicteur MA d'énergie) → sharpening/lissage/anti-éparpillement → synthèse → post-filtre →
+   passe-haut. Harnais `--amr`. **Provenance (la clé du déblocage)** : algorithme écrit depuis le
+   TEXTE d'ETSI TS 126 090 ; **tables normatives extraites MÉCANIQUEMENT par scripts (conservés
+   dans `AMR/tools/` pour audit) depuis les fichiers de DONNÉES `.tab` de la livraison officielle
+   3GPP TS 26.073** — même pratique que les tables AV1/H.264 (données du standard ≠ code) ; les
+   encodages sous-spécifiés par le texte résolus par SONDES boîte noire (trames synthétiques →
+   oracle ffmpeg → analyse) ; AUCUN fichier .c d'algorithme lu (3GPP/opencore/ffmpeg). Historique :
+   tentative 1 = port opencore déguisé, REJETÉ ; tentative 2 = from-scratch avec tables inventées,
+   bruit (corr -0,011), REJETÉ — la leçon : la frontière est DONNÉES (extractibles du standard) vs
+   CODE (jamais). **Non bit-exact** (implémentation flottante, filtres b60/b30 recalculés depuis
+   leur définition, ordre fixed-point non textuel) — documenté ; bit-exact possible un jour via
+   arithmétique G.191. Restes : CNG (bruit de confort), AMR-WB, extraction `samr` depuis 3GP.
    **MPEG-2 vidéo ✅ livré (2026-07-26) + branché `NkVideoReader` (2026-07-27 : `.m2v` ES —
    détection `00 00 01 B3`, fps du sequence header, seek O(1) — ET TS `stream_type 0x02` via le
    réassemblage PES existant ; 25/25 trames ordre exact, maxPixDiff 3-4 = arrondi RGBA + ±1 IDCT)**
