@@ -268,19 +268,33 @@ namespace nkentseu {
 				// NS(n) équiprobable dans le domaine symbole (decode_unsigned_subexp helpers
 				// utilisent ReadLiteral — voir NkAv1Decoder.cpp).
 
-				// Adaptation de CDF (§8.3.2 update_cdf).
+				// Adaptation de CDF (§8.3.2 "Symbol decoding process" — update_cdf).
+				// BUG CORRIGE (audit 2026-07-28) : la version précédente inversait le sens
+				// de l'adaptation (if (i<symbol) incrémentait au lieu de décrémenter, et
+				// vice versa). Transcrit ICI mot-à-mot depuis la spec :
+				//   rate = 3 + (cdf[N]>15) + (cdf[N]>31) + Min(FloorLog2(N),2)
+				//   tmp = 0
+				//   for i in 0..N-2:
+				//     tmp = (i==symbol) ? (1<<15) : tmp   // tmp bascule à 32768 dès i>=symbol
+				//     if (tmp < cdf[i]) cdf[i] -= (cdf[i]-tmp) >> rate
+				//     else               cdf[i] += (tmp-cdf[i]) >> rate
+				//   cdf[N] += (cdf[N] < 32)
+				// Net : cdf[i] DECROIT vers 0 pour i<symbol, CROIT vers 32768 pour i>=symbol.
 				static void UpdateCdf(uint16 *cdf, int32 symbol, int32 nsymbs) {
 					const int32 N = nsymbs;
 					const uint32 count = cdf[N]; // compteur d'adaptation
-					// rate = 3 + (count>15) + (count>31) + Min(FloorLog2(N),2)
 					int32 rate = 3 + (count > 15 ? 1 : 0) + (count > 31 ? 1 : 0);
 					const int32 fl = NkAv1FloorLog2((uint32)N);
 					rate += (fl < 2 ? fl : 2);
+					int32 tmp = 0;
 					for (int32 i = 0; i < N - 1; ++i) {
-						if (i < symbol)
-							cdf[i] += ((1 << 15) - cdf[i]) >> rate;
+						if (i == symbol)
+							tmp = 1 << 15;
+						const int32 ci = (int32)cdf[i];
+						if (tmp < ci)
+							cdf[i] = (uint16)(ci - ((ci - tmp) >> rate));
 						else
-							cdf[i] -= cdf[i] >> rate;
+							cdf[i] = (uint16)(ci + ((tmp - ci) >> rate));
 					}
 					if (count < 32)
 						cdf[N] = (uint16)(count + 1);

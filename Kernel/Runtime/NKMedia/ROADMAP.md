@@ -1205,13 +1205,18 @@ brique 16 livrée 2026-07-26). Ce qui reste, par ordre d'utilité réelle :
    bit-exact SAUF sous-mode `INTER_MV_FOUR` (arrondi MV chroma 4:2:0, ~1% pixels chroma concernés,
    documenté). iDCT VP3 entière bit-exacte, filtre de boucle, 80 arbres Huffman. Harnais `--theora`.
    ⚠️ Oracle limité : le décodeur Theora natif de ffmpeg est bogué sur l'inter libtheora → inter validé
-   sur flux courts isolés. **AV1 : fondation posée (briques 1-2, 2026-07-26)** — `NkAv1Decoder` from-scratch (OBU parsing §5.2-5.6
-   `consume=exact`, sequence header, frame header keyframe, tile group qui partitionne exactement, +
-   **symbol decoder arithmétique multi-symbole CDF §8.2** `NkAv1Symbol.h` invariants tenus), validé
-   STRUCTURELLEMENT sur 4 flux libaom (10/10 TU parsés exacts). Harnais `--av1`. **PAS de pixels** :
-   `DecodeKeyFrame` retourne false. Suite (briques 3+, verrou = tables CDF par défaut à transcrire en
-   `cdf[N-1]=32768`) : partition tree + modes intra + coeffs + transformées inverses (DCT/ADST/IDTX) +
-   prédiction intra + filtres (déblocage/CDEF/loop restoration), puis inter. ⚠️ **AMR : NE PAS
+   sur flux courts isolés. **AV1 : reconstruction PIXEL intra key frame LIVRÉE (2026-07-26)** — `NkAv1Decoder` from-scratch :
+   OBU parsing + sequence/frame headers + symbol decoder CDF §8.2 (fondation) **+ partition tree
+   complet + tous les modes intra (DC/8 angles directionnels/Smooth×3/Paeth/filter-intra/CfL) +
+   décodage coefficients (txb_skip/eob/coeff_base/coeff_br golomb/dc_sign) + transformées inverses
+   (DCT/ADST/IDTX/WHT lossless, 4×4→32×32) + déquantification + déblocage §7.14 — BIT-EXACT vs
+   ffmpeg sur 6 flux divers** (couleur plate, lossless WHT+palette, lossy DCT/ADST+déblocage,
+   contenu complexe, dimensions non alignées superbloc). Tables normatives (127, scan/CDF/quant/tx)
+   transcrites **mécaniquement depuis le TEXTE de la spec AOMedia** (`NkAv1Tables.inc`, script
+   dédié) — pas du code tiers, même pratique que les tables DCT/quant déjà transcrites pour
+   H264/HEVC/VP9. Bug latent trouvé+corrigé : `UpdateCdf` (adaptation CDF, sens inversé). Harnais
+   `--av1` compare les pixels automatiquement. Restes (refus propre, non exercés par les tests) :
+   couleurs de palette, Intra Block Copy, CDEF, loop restoration, superres, tout l'INTER. ⚠️ **AMR : NE PAS
    porter/amalgamer opencore-amr** (tentative rejetée 2026-07-26 — viole le from-scratch + licence
    Apache-2.0 tierce) → à écrire à la main depuis 3GPP TS 26.073 (ACELP) si un jour. L'oracle ffmpeg
    sert UNIQUEMENT à valider, jamais à copier du code.
