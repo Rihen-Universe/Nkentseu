@@ -46,6 +46,12 @@ namespace nkentseu {
 				NkVideoCodec codec = NkVideoCodec::MJPEG;
 				NkVideoContainer container = NkVideoContainer::AVI;
 				int32 quality = 90; // qualité MJPEG (1..100)
+
+				// Piste audio PCM s16 entrelacé (optionnelle) — 0 = vidéo muette.
+				// Supportée par AVI (flux '01wb' WAVE_FORMAT_PCM) et MOV/MP4 ('sowt').
+				// Non supportée par ELEMENTARY/MPEG1 (Open échoue si demandée).
+				int32 audioSampleRate = 0;
+				int32 audioChannels = 0;
 		};
 
 		class NkVideoWriter {
@@ -55,6 +61,12 @@ namespace nkentseu {
 
 				// Écrit UNE trame. `pixels` = width*height dans `fmt` (haut-en-bas). Encode + muxe.
 				bool WriteFrame(const uint8 *pixels, NkVideoInputFormat fmt);
+
+				// Ajoute des échantillons audio PCM s16 ENTRELACÉS (frameCount trames de
+				// `audioChannels` échantillons). Appelable en flux, entrelacé avec WriteFrame
+				// (typiquement : une trame vidéo puis sampleRate/fps trames audio). Requiert
+				// audioSampleRate/audioChannels dans la config d'Open.
+				bool AddAudioSamples(const int16 *interleaved, usize frameCount);
 
 				// Termine (index + tailles) et ferme.
 				bool Close();
