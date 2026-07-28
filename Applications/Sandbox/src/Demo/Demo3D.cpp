@@ -3204,6 +3204,50 @@ namespace nkentseu {
 											(int32)st->editHE.FaceCount());
 							} else
 								st->editHE.BuildFromIndexed(sv, vc, si, ic, /*quadify*/ true);
+							// ── NK_EDIT_IDENTITY=1 : contrôle d'ALLER-RETOUR ──────────────
+							// Entrer en édition puis en ressortir SANS rien modifier doit être
+							// une IDENTITÉ. Ce contrôle compare le maillage re-trianguté au
+							// maillage SOURCE, attribut par attribut. Il vaut mieux qu'une
+							// comparaison de captures : celle-ci est polluée par le gizmo et le
+							// liseré de sélection, qui ne s'affichent QUE dans l'image « après »
+							// — j'ai d'abord conclu à tort à un changement de matériau sur cette
+							// base. Ici, aucune surcouche ne peut fausser le verdict.
+							if (getenv("NK_EDIT_IDENTITY")) {
+								NkVector<NkVertex3D> rv;
+								NkVector<uint32> ri;
+								NkVector<renderer::NkEmId> rtf;
+								st->editHE.Triangulate(rv, ri, rtf);
+								const uint32 n = (vc < (uint32)rv.Size()) ? vc : (uint32)rv.Size();
+								uint32 dPos = 0, dNrm = 0, dTan = 0, dUV = 0, dUV2 = 0, dCol = 0;
+								float32 maxPos = 0.f, maxTan = 0.f;
+								for (uint32 k = 0; k < n; k++) {
+									const NkVec3f dp = rv[k].pos - sv[k].pos;
+									const NkVec3f dt = rv[k].tangent - sv[k].tangent;
+									const float32 lp = dp.Len(), lt = dt.Len();
+									if (lp > 1e-5f) {
+										dPos++;
+										if (lp > maxPos)
+											maxPos = lp;
+									}
+									if ((rv[k].normal - sv[k].normal).Len() > 1e-4f)
+										dNrm++;
+									if (lt > 1e-4f) {
+										dTan++;
+										if (lt > maxTan)
+											maxTan = lt;
+									}
+									if ((rv[k].uv - sv[k].uv).Len() > 1e-5f)
+										dUV++;
+									if ((rv[k].uv2 - sv[k].uv2).Len() > 1e-5f)
+										dUV2++;
+									if (rv[k].color != sv[k].color)
+										dCol++;
+								}
+								logger.Info("[Demo3D][IDENTITE] objet #{0} : {1} sommets compares | "
+											"pos={2} (max {3}) normal={4} tangent={5} (max {6}) "
+											"uv={7} uv2={8} color={9}  <- 0 partout = aller-retour NEUTRE\n",
+											sel, n, dPos, maxPos, dNrm, dTan, maxTan, dUV, dUV2, dCol);
+							}
 							st->editHistory.Clear();   // nouvel objet en édition -> historique neuf
 							st->editRecorder.Clear();  // journal des commandes neuf
 							st->editModifiers.Clear(); // pile de modificateurs neuve
