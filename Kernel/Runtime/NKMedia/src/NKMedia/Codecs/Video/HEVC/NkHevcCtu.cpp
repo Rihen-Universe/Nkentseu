@@ -629,6 +629,45 @@ namespace nkentseu {
 					NkHevcSliceDataStats *stats = nullptr;
 					bool okFlag = true; // passe à false sur incohérence/dépassement
 
+					// ---- Tuiles (§6.5.1) : bornes de colonnes/rangées en CTB + carte
+					// d'appartenance par CTB. La disponibilité de TOUT voisin spatial
+					// (prédiction intra, fusion/AMVP, contextes CABAC, fusion SAO) exige la
+					// MÊME tuile (§6.4.1) — indépendamment de loop_filter_across_tiles, qui
+					// ne gate que le déblocage/SAO.
+					bool tilesOn = false;
+					bool lfAcrossTiles = true;
+					int32 numTileCols = 1, numTileRows = 1;
+					int32 colBd[26] = {0}; // bornes cumulées en CTB (numTileCols+1 valides)
+					int32 rowBd[26] = {0};
+					NkVector<int16> tileIdMap; // id de tuile par CTB (adresse raster)
+					int32 curTileId = 0;	   // tuile du CTB en cours de décodage
+
+					int32 TileIdAtLuma(int32 x, int32 y) const {
+						if (!tilesOn)
+							return 0;
+						return (int32)tileIdMap[(usize)((y >> ctbLog2) * picWidthInCtbs +
+														(x >> ctbLog2))];
+					}
+					bool SameTileLuma(int32 xA, int32 yA, int32 xB, int32 yB) const {
+						if (!tilesOn)
+							return true;
+						return TileIdAtLuma(xA, yA) == TileIdAtLuma(xB, yB);
+					}
+					// Frontière de tuile en pixels luma (x = début d'une colonne k>0) —
+					// consultée par le déblocage quand loop_filter_across_tiles=0.
+					bool IsTileColBoundaryLuma(int32 x) const {
+						for (int32 k = 1; k < numTileCols; ++k)
+							if (x == (colBd[k] << ctbLog2))
+								return true;
+						return false;
+					}
+					bool IsTileRowBoundaryLuma(int32 y) const {
+						for (int32 k = 1; k < numTileRows; ++k)
+							if (y == (rowBd[k] << ctbLog2))
+								return true;
+						return false;
+					}
+
 					// ---- Primitives CABAC --------------------------------------------
 					uint32 Bin(int32 ctxIdx) {
 						return eng.DecodeDecision(st.ctx[ctxIdx]);
@@ -650,9 +689,19 @@ namespace nkentseu {
 					void ParseSao(int32 rx, int32 ry) {
 						SaoCtb *cur = frame ? &saoCtb[(usize)(ry * picWidthInCtbs + rx)] : nullptr;
 						bool mergeLeft = false, mergeUp = false;
-						if (rx > 0)
+						// sao_merge_left/up (§7.3.8.3) : présents seulement si le CTB voisin
+						// est dans la MÊME tuile (leftCtbInTile / upCtbInTile).
+						const bool leftInTile =
+							rx > 0 && (!tilesOn ||
+									   tileIdMap[(usize)(ry * picWidthInCtbs + rx - 1)] ==
+										   tileIdMap[(usize)(ry * picWidthInCtbs + rx)]);
+						const bool upInTile =
+							ry > 0 && (!tilesOn ||
+									   tileIdMap[(usize)((ry - 1) * picWidthInCtbs + rx)] ==
+										   tileIdMap[(usize)(ry * picWidthInCtbs + rx)]);
+						if (leftInTile)
 							mergeLeft = Bin(kHevcCtxSaoMergeFlag) != 0;
-						if (!mergeLeft && ry > 0)
+						if (!mergeLeft && upInTile)
 							mergeUp = Bin(kHevcCtxSaoMergeFlag) != 0;
 						if (mergeLeft || mergeUp) {
 							if (cur)
@@ -739,7 +788,7 @@ namespace nkentseu {
 						// candA (gauche) / candB (dessus) — DC si indisponible ; le voisin du
 						// dessus hors de la rangée de CTB courante est remplacé par DC (§8.4.2).
 						int32 candA = 1, candB = 1;
-						if (xPb > 0)
+						if (xPb > 0 && SameTileLuma(xPb, yPb, xPb - 1, yPb))
 							candA = GetStoredMode(xPb - 1, yPb);
 						const int32 ctbTop = (yPb >> ctbLog2) << ctbLog2;
 						if (yPb > 0 && (yPb - 1) >= ctbTop)
@@ -830,12 +879,16 @@ namespace nkentseu {
 					bool SampleAvailLuma(int32 x, int32 y) const {
 						if (x < 0 || y < 0 || x >= picW || y >= picH)
 							return false;
+						if (tilesOn && TileIdAtLuma(x, y) != curTileId)
+							return false; // §6.4.1 : jamais de prédiction à travers une tuile
 						return lumaRecon[(usize)((y >> 2) * minPuWidth + (x >> 2))] != 0;
 					}
 					bool SampleAvailChroma(int32 x, int32 y) const {
 						const int32 cw = picW >> 1, ch = picH >> 1;
 						if (x < 0 || y < 0 || x >= cw || y >= ch)
 							return false;
+						if (tilesOn && TileIdAtLuma(x << 1, y << 1) != curTileId)
+							return false; // coordonnées chroma 4:2:0 -> luma
 						return chromaRecon[(usize)((y >> 2) * ((cw + 3) >> 2) + (x >> 2))] != 0;
 					}
 
@@ -1072,7 +1125,10 @@ namespace nkentseu {
 								for (int32 i = 0; i < n * n; ++i)
 									res[i] = Clip3i(-32768, 32767, res[i]);
 						} else {
-							const bool dst4 = (cIdx == 0 && log2Size == 2); // luma intra 4x4
+							// DST 4x4 (§8.6.4.2) : luma 4x4 des CU INTRA uniquement — un TU
+							// luma 4x4 INTER se transforme en DCT (x265 n'émet jamais de TU
+							// inter 4x4, le bug restait invisible ; exercé par les flux HM).
+							const bool dst4 = (cIdx == 0 && log2Size == 2 && cuIsIntra);
 							InverseTransform(d, res, n, bd, dst4);
 						}
 						nk_uint16 *plane;
@@ -1470,41 +1526,60 @@ namespace nkentseu {
 						// verticalement). Luma filtré si BS>=1 (tc dépend de BS) ; chroma
 						// filtré UNIQUEMENT si BS==2 (§8.7.2.5.5), à partir des MÊMES cartes
 						// de BS luma que la référence ffmpeg (grille 8-chroma = 16-luma).
+						// Arêtes de frontière de tuile : PAS filtrées si
+						// loop_filter_across_tiles_enabled_flag == 0 (§8.7.2).
+						const bool skipTileEdges = tilesOn && !lfAcrossTiles;
 						// Arêtes verticales luma (x 8-aligné, segment de 4 lignes).
-						for (int32 x = 8; x < picW; x += 8)
+						for (int32 x = 8; x < picW; x += 8) {
+							if (skipTileEdges && IsTileColBoundaryLuma(x))
+								continue;
 							for (int32 y = 0; y < picH; y += 4) {
 								const int32 bs = bsVert[(usize)((y >> 2) * w4L + (x >> 2))];
 								if (bs)
 									LumaDeblockSeg(true, x, y, bs);
 							}
+						}
 						// Arêtes horizontales luma (y 8-aligné, segment de 4 colonnes).
-						for (int32 y = 8; y < picH; y += 8)
+						for (int32 y = 8; y < picH; y += 8) {
+							if (skipTileEdges && IsTileRowBoundaryLuma(y))
+								continue;
 							for (int32 x = 0; x < picW; x += 4) {
 								const int32 bs = bsHoriz[(usize)((y >> 2) * w4L + (x >> 2))];
 								if (bs)
 									LumaDeblockSeg(false, x, y, bs);
 							}
+						}
 						// Arêtes verticales chroma (luma x 16-aligné ; 4 lignes chroma = 8 luma).
-						for (int32 x = 16; x < picW; x += 16)
+						for (int32 x = 16; x < picW; x += 16) {
+							if (skipTileEdges && IsTileColBoundaryLuma(x))
+								continue;
 							for (int32 y = 0; y < picH; y += 8)
 								if (bsVert[(usize)((y >> 2) * w4L + (x >> 2))] == 2) {
 									ChromaDeblockSeg(true, 1, x >> 1, y >> 1);
 									ChromaDeblockSeg(true, 2, x >> 1, y >> 1);
 								}
+						}
 						// Arêtes horizontales chroma (luma y 16-aligné ; 4 colonnes chroma = 8 luma).
-						for (int32 y = 16; y < picH; y += 16)
+						for (int32 y = 16; y < picH; y += 16) {
+							if (skipTileEdges && IsTileRowBoundaryLuma(y))
+								continue;
 							for (int32 x = 0; x < picW; x += 8)
 								if (bsHoriz[(usize)((y >> 2) * w4L + (x >> 2))] == 2) {
 									ChromaDeblockSeg(false, 1, x >> 1, y >> 1);
 									ChromaDeblockSeg(false, 2, x >> 1, y >> 1);
 								}
+						}
 					}
 
 					// ---- SAO d'application (§8.7.3) -----------------------------------
 					// Entrée = image DÉBLOQUÉE (copie source), sortie écrite dans les plans.
+					// `tx0..ty1` : rectangle (exclusif à droite/bas) hors duquel un voisin EO
+					// rend l'échantillon NON modifié — bornes de l'image, resserrées aux
+					// bornes de la TUILE quand loop_filter_across_tiles=0 (§8.7.3).
 					void ApplySaoComponent(int32 cIdx, const nk_uint16 *src, nk_uint16 *dst,
 										   int32 stride, int32 w, int32 h, const SaoCtb &s,
-										   int32 x0, int32 y0, int32 nW, int32 nH) {
+										   int32 x0, int32 y0, int32 nW, int32 nH, int32 tx0,
+										   int32 ty0, int32 tx1, int32 ty1) {
 						const int32 bd = (cIdx == 0) ? bitDepth : sps->bitDepthChroma;
 						const int32 mv = (1 << bd) - 1;
 						if (s.type[cIdx] == 1) { // bande
@@ -1526,9 +1601,11 @@ namespace nkentseu {
 							const int32 bx = kPos[eo][1][0], by = kPos[eo][1][1];
 							for (int32 y = y0; y < y0 + nH && y < h; ++y)
 								for (int32 x = x0; x < x0 + nW && x < w; ++x) {
-									// Voisin hors image -> échantillon non modifié (§8.7.3).
-									if (x + ax < 0 || x + ax >= w || y + ay < 0 || y + ay >= h ||
-										x + bx < 0 || x + bx >= w || y + by < 0 || y + by >= h)
+									// Voisin hors image OU hors tuile (si across-tiles
+									// désactivé) -> échantillon non modifié (§8.7.3).
+									if (x + ax < tx0 || x + ax >= tx1 || y + ay < ty0 ||
+										y + ay >= ty1 || x + bx < tx0 || x + bx >= tx1 ||
+										y + by < ty0 || y + by >= ty1)
 										continue;
 									const int32 c = src[y * stride + x];
 									const int32 a = src[(y + ay) * stride + (x + ax)];
@@ -1547,16 +1624,34 @@ namespace nkentseu {
 					void ApplySao(const NkVector<nk_uint16> &srcY, const NkVector<nk_uint16> &srcCb,
 								  const NkVector<nk_uint16> &srcCr) {
 						const int32 ctbSize = 1 << ctbLog2;
+						const bool clampTile = tilesOn && !lfAcrossTiles;
 						for (int32 ry = 0; ry < picHeightInCtbs; ++ry)
 							for (int32 rx = 0; rx < picWidthInCtbs; ++rx) {
 								const SaoCtb &s = saoCtb[(usize)(ry * picWidthInCtbs + rx)];
+								// Rectangle de disponibilité des voisins EO : l'image, ou la
+								// TUILE du CTB si le filtrage inter-tuiles est désactivé.
+								int32 tx0 = 0, ty0 = 0, tx1 = picW, ty1 = picH;
+								if (clampTile) {
+									int32 tc = 0, tr = 0;
+									while (tc + 1 < numTileCols && colBd[tc + 1] <= rx)
+										++tc;
+									while (tr + 1 < numTileRows && rowBd[tr + 1] <= ry)
+										++tr;
+									tx0 = colBd[tc] << ctbLog2;
+									tx1 = Min32(colBd[tc + 1] << ctbLog2, picW);
+									ty0 = rowBd[tr] << ctbLog2;
+									ty1 = Min32(rowBd[tr + 1] << ctbLog2, picH);
+								}
 								ApplySaoComponent(0, srcY.Data(), frame->y.Data(), frame->lumaW, picW,
-												  picH, s, rx * ctbSize, ry * ctbSize, ctbSize, ctbSize);
+												  picH, s, rx * ctbSize, ry * ctbSize, ctbSize, ctbSize,
+												  tx0, ty0, tx1, ty1);
 								const int32 cs = ctbSize >> 1;
 								ApplySaoComponent(1, srcCb.Data(), frame->cb.Data(), frame->chromaW,
-												  picW >> 1, picH >> 1, s, rx * cs, ry * cs, cs, cs);
+												  picW >> 1, picH >> 1, s, rx * cs, ry * cs, cs, cs,
+												  tx0 >> 1, ty0 >> 1, tx1 >> 1, ty1 >> 1);
 								ApplySaoComponent(2, srcCr.Data(), frame->cr.Data(), frame->chromaW,
-												  picW >> 1, picH >> 1, s, rx * cs, ry * cs, cs, cs);
+												  picW >> 1, picH >> 1, s, rx * cs, ry * cs, cs, cs,
+												  tx0 >> 1, ty0 >> 1, tx1 >> 1, ty1 >> 1);
 							}
 					}
 
@@ -2193,18 +2288,31 @@ namespace nkentseu {
 						const bool b1Excl = (partIdx == 1) && (partMode == kPart2NxN ||
 																partMode == kPart2NxnU ||
 																partMode == kPart2NxnD);
+						// §8.5.3.2.3 : l'exclusion MER (même région d'estimation de fusion,
+						// Log2ParMrgLevel) s'applique aux CINQ voisins spatiaux — A1/B1
+						// compris (sans effet au niveau 2 par défaut, les PU étant alignés
+						// sur 4 : décisif dès log2_parallel_merge_level > 2, cf. PMERGE).
 						const MvField a1 =
-							a1Excl ? MvField{} : GetCand(x0 - 1, y0 + nPbH - 1, CandLeft(x0));
+							a1Excl ? MvField{}
+								   : GetCand(x0 - 1, y0 + nPbH - 1,
+											 CandLeft(x0) && IsDiffMer(x0, y0, x0 - 1, y0 + nPbH - 1) &&
+												 SameTileLuma(x0, y0, x0 - 1, y0 + nPbH - 1));
 						const MvField b1 =
-							b1Excl ? MvField{} : GetCand(x0 + nPbW - 1, y0 - 1, CandUp(y0));
+							b1Excl ? MvField{}
+								   : GetCand(x0 + nPbW - 1, y0 - 1,
+											 CandUp(y0) && IsDiffMer(x0, y0, x0 + nPbW - 1, y0 - 1) &&
+												 SameTileLuma(x0, y0, x0 + nPbW - 1, y0 - 1));
 						const MvField b0 = GetCand(x0 + nPbW, y0 - 1,
 												   CandUpRight(x0, y0, nPbW) &&
-													   IsDiffMer(x0, y0, x0 + nPbW, y0 - 1));
+													   IsDiffMer(x0, y0, x0 + nPbW, y0 - 1) &&
+													   SameTileLuma(x0, y0, x0 + nPbW, y0 - 1));
 						const MvField a0 = GetCand(x0 - 1, y0 + nPbH,
 												   CandBottomLeft(x0, y0, nPbH) &&
-													   IsDiffMer(x0, y0, x0 - 1, y0 + nPbH));
+													   IsDiffMer(x0, y0, x0 - 1, y0 + nPbH) &&
+													   SameTileLuma(x0, y0, x0 - 1, y0 + nPbH));
 						const MvField b2 = GetCand(
-							x0 - 1, y0 - 1, CandUpLeft(x0, y0) && IsDiffMer(x0, y0, x0 - 1, y0 - 1));
+							x0 - 1, y0 - 1, CandUpLeft(x0, y0) && IsDiffMer(x0, y0, x0 - 1, y0 - 1) &&
+												SameTileLuma(x0, y0, x0 - 1, y0 - 1));
 
 						numCand = 0;
 						if (a1.avail)
@@ -2426,8 +2534,12 @@ namespace nkentseu {
 						const int32 targetPoc = RefPocL(listX, refIdxLx);
 						const int32 pL0 = listX, pL1 = 1 - listX;
 
-						const MvField a0 = GetCand(x0 - 1, y0 + nPbH, CandBottomLeft(x0, y0, nPbH));
-						const MvField a1 = GetCand(x0 - 1, y0 + nPbH - 1, CandLeft(x0));
+						const MvField a0 =
+							GetCand(x0 - 1, y0 + nPbH,
+									CandBottomLeft(x0, y0, nPbH) && SameTileLuma(x0, y0, x0 - 1, y0 + nPbH));
+						const MvField a1 =
+							GetCand(x0 - 1, y0 + nPbH - 1,
+									CandLeft(x0) && SameTileLuma(x0, y0, x0 - 1, y0 + nPbH - 1));
 						const bool isScaledFlagL0 = a0.avail || a1.avail;
 
 						bool availA = false;
@@ -2443,9 +2555,14 @@ namespace nkentseu {
 							availA = MpMxLt(a1, pL0, curPoc, targetPoc, ax, ay) ||
 									 MpMxLt(a1, pL1, curPoc, targetPoc, ax, ay);
 
-						const MvField b0 = GetCand(x0 + nPbW, y0 - 1, CandUpRight(x0, y0, nPbW));
-						const MvField b1 = GetCand(x0 + nPbW - 1, y0 - 1, CandUp(y0));
-						const MvField b2 = GetCand(x0 - 1, y0 - 1, CandUpLeft(x0, y0));
+						const MvField b0 =
+							GetCand(x0 + nPbW, y0 - 1,
+									CandUpRight(x0, y0, nPbW) && SameTileLuma(x0, y0, x0 + nPbW, y0 - 1));
+						const MvField b1 =
+							GetCand(x0 + nPbW - 1, y0 - 1,
+									CandUp(y0) && SameTileLuma(x0, y0, x0 + nPbW - 1, y0 - 1));
+						const MvField b2 = GetCand(
+							x0 - 1, y0 - 1, CandUpLeft(x0, y0) && SameTileLuma(x0, y0, x0 - 1, y0 - 1));
 						bool availB = false;
 						int32 bx = 0, by = 0;
 						if (b0.avail)
@@ -2948,7 +3065,15 @@ namespace nkentseu {
 							if (frame) {
 								MvField list[5];
 								int32 numCand;
-								DeriveMergeCandidates(x0, y0, pw, ph, partIdx, curPartMode, list, numCand);
+								// §8.5.3.2.1 : quand Log2ParMrgLevel > 2 et nCbS == 8, TOUS les
+								// PU du CU 8x8 partagent la MÊME liste de fusion, dérivée comme
+								// pour le PU 2Nx2N couvrant le CU (xCb, yCb, 8, 8, partIdx=0).
+								if (pps->log2ParallelMergeLevel > 2 && curCuLog2 == 3)
+									DeriveMergeCandidates(curCuX, curCuY, 8, 8, 0, kPart2Nx2N, list,
+														  numCand);
+								else
+									DeriveMergeCandidates(x0, y0, pw, ph, partIdx, curPartMode, list,
+														  numCand);
 								const int32 useIdx = Min32(idx, numCand - 1);
 								mvf = list[useIdx];
 								// Règle 8x4/4x8 (§8.5.3.2.2) : bi interdit -> forcé L0.
@@ -3032,9 +3157,9 @@ namespace nkentseu {
 						bool skipFlag = false;
 						if (sh->sliceType != kHevcSliceI) {
 							int32 inc = 0;
-							if (x0 > 0)
+							if (x0 > 0 && SameTileLuma(x0, y0, x0 - 1, y0))
 								inc += skipFlagMap[(usize)(yCb * minCbWidth + xCb - 1)];
-							if (y0 > 0)
+							if (y0 > 0 && SameTileLuma(x0, y0, x0, y0 - 1))
 								inc += skipFlagMap[(usize)((yCb - 1) * minCbWidth + xCb)];
 							skipFlag = Bin(kHevcCtxSkipFlag + inc) != 0;
 						}
@@ -3214,9 +3339,11 @@ namespace nkentseu {
 						if (x0 + size <= picW && y0 + size <= picH && log2CbSize > minCbLog2) {
 							int32 inc = 0;
 							const int32 xCb = x0 >> minCbLog2, yCb = y0 >> minCbLog2;
-							if (x0 > 0 && ctDepth[(usize)(yCb * minCbWidth + xCb - 1)] > depth)
+							if (x0 > 0 && SameTileLuma(x0, y0, x0 - 1, y0) &&
+								ctDepth[(usize)(yCb * minCbWidth + xCb - 1)] > depth)
 								++inc;
-							if (y0 > 0 && ctDepth[(usize)((yCb - 1) * minCbWidth + xCb)] > depth)
+							if (y0 > 0 && SameTileLuma(x0, y0, x0, y0 - 1) &&
+								ctDepth[(usize)((yCb - 1) * minCbWidth + xCb)] > depth)
 								++inc;
 							split = Bin(kHevcCtxSplitCuFlag + inc) != 0;
 						} else {
@@ -3269,16 +3396,19 @@ namespace nkentseu {
 						return false;
 					if (sh.sliceType == kHevcSliceB && (!refsL1 || numRefsL1 < sh.numRefIdxL1Active))
 						return false;
-					if (pps.log2ParallelMergeLevel > 2)
-						return false; // règle CU 8x8 forcé-2Nx2N (§7.3.8.6) non implémentée
+					// log2_parallel_merge_level > 2 : géré (liste de fusion partagée des CU
+					// 8x8 §8.5.3.2.1 + exclusion MER des 5 voisins §8.5.3.2.3) — validé
+					// bit-exact sur le flux de conformance JCT-VC PMERGE_B_TI_3.
 				}
-				// PCM (I_PCM) : le chemin de décodage EST implémenté (DecodePcm + pcm_flag,
-				// calqué sur le I_PCM H.264 validé bit-exact) mais reste GATÉ ici car
-				// INVÉRIFIABLE : aucun encodeur disponible (x265/libx265) n'émet de bloc
-				// I_PCM, donc impossible de prouver le bit-exact vs ffmpeg. Retirer ce refus
-				// dès qu'un flux de conformance I_PCM est disponible.
-				if (pps.tilesEnabled || sps.pcmEnabled || sps.chromaFormatIdc != 1 ||
-					sps.separateColourPlane)
+				// PCM (I_PCM) : chemin ACTIVÉ et validé bit-exact sur les flux de
+				// conformance JCT-VC ipcm_A/ipcm_B_NEC_3 (2026-07-28). Seul reste refusé
+				// pcm_loop_filter_disabled_flag=1 (il faudrait exclure les échantillons PCM
+				// du déblocage/SAO — aucun flux de test ne l'exerce ici).
+				if (sps.pcmEnabled && sps.pcmLoopFilterDisabled)
+					return false;
+				// Tuiles : gérées (balayage tile-scan, réinit CABAC par tuile, disponibilité
+				// §6.4.1, filtres gatés par loop_filter_across_tiles) — validé sur TILES_A.
+				if (sps.chromaFormatIdc != 1 || sps.separateColourPlane)
 					return false;
 
 				// RBSP dé-émulé + positions des octets retirés (pour convertir les entry
@@ -3417,17 +3547,69 @@ namespace nkentseu {
 					return false;
 				const usize emDataStart = deemToEm(sh.dataByteOffset);
 
+				// ---- Tuiles (§6.5.1) : bornes de colonnes/rangées + carte d'appartenance
+				// + ordre de balayage tuile par tuile (CtbAddrTsToRs). Uniforme :
+				// colBd[i] = (i * PicWidthInCtbsY) / (num + 1) ; explicite : largeurs
+				// cumulées du PPS, la dernière colonne/rangée prenant le reste.
+				NkVector<int32> tsToRs; // adresse raster du CTB pour chaque position tile-scan
+				if (pps.tilesEnabled) {
+					if (wpp)
+						return false; // combinaison interdite dans les profils v1
+					p.tilesOn = true;
+					p.lfAcrossTiles = pps.loopFilterAcrossTiles;
+					p.numTileCols = pps.numTileColumnsMinus1 + 1;
+					p.numTileRows = pps.numTileRowsMinus1 + 1;
+					if (p.numTileCols > 25 || p.numTileRows > 25)
+						return false;
+					if (pps.tileUniformSpacing) {
+						for (int32 i = 0; i <= p.numTileCols; ++i)
+							p.colBd[i] = (i * p.picWidthInCtbs) / p.numTileCols;
+						for (int32 i = 0; i <= p.numTileRows; ++i)
+							p.rowBd[i] = (i * p.picHeightInCtbs) / p.numTileRows;
+					} else {
+						p.colBd[0] = 0;
+						for (int32 i = 0; i < p.numTileCols - 1; ++i)
+							p.colBd[i + 1] = p.colBd[i] + pps.tileColWidth[i];
+						p.colBd[p.numTileCols] = p.picWidthInCtbs;
+						p.rowBd[0] = 0;
+						for (int32 i = 0; i < p.numTileRows - 1; ++i)
+							p.rowBd[i + 1] = p.rowBd[i] + pps.tileRowHeight[i];
+						p.rowBd[p.numTileRows] = p.picHeightInCtbs;
+						// Géométrie incohérente (somme des largeurs >= image) -> refus.
+						if (p.colBd[p.numTileCols - 1] >= p.picWidthInCtbs ||
+							p.rowBd[p.numTileRows - 1] >= p.picHeightInCtbs)
+							return false;
+					}
+					p.tileIdMap.Resize((usize)picSizeInCtbs);
+					tsToRs.Reserve((usize)picSizeInCtbs);
+					int32 tid = 0;
+					for (int32 tr = 0; tr < p.numTileRows; ++tr)
+						for (int32 tc = 0; tc < p.numTileCols; ++tc, ++tid)
+							for (int32 ry = p.rowBd[tr]; ry < p.rowBd[tr + 1]; ++ry)
+								for (int32 rx = p.colBd[tc]; rx < p.colBd[tc + 1]; ++rx) {
+									const int32 rs = ry * p.picWidthInCtbs + rx;
+									p.tileIdMap[(usize)rs] = (int16)tid;
+									tsToRs.PushBack(rs);
+								}
+					// Une tuile = un sous-ensemble : offsets d'entrée pour toutes sauf la 1re.
+					if (sh.numEntryPointOffsets != p.numTileCols * p.numTileRows - 1)
+						return false;
+				}
+
 				// Init CABAC de la 1re rangée.
 				p.st.Init(sh.sliceQp, NkHevcCabacState::InitTypeFor(sh.sliceType, sh.cabacInit));
 				p.eng.InitEngine(rbsp.Data(), (usize)rbsp.Size(), sh.dataByteOffset);
 				if (p.eng.codIOffset >= p.eng.codIRange)
 					return false;
 
-				int32 ctbAddr = 0;
+				int32 ctbAddr = 0; // position en ordre de BALAYAGE (tile-scan si tuiles)
 				usize emSubsetStart = emDataStart;
 				while (ctbAddr < picSizeInCtbs) {
-					const int32 rx = ctbAddr % p.picWidthInCtbs;
-					const int32 ry = ctbAddr / p.picWidthInCtbs;
+					const int32 rs = p.tilesOn ? tsToRs[(usize)ctbAddr] : ctbAddr;
+					const int32 rx = rs % p.picWidthInCtbs;
+					const int32 ry = rs / p.picWidthInCtbs;
+					if (p.tilesOn)
+						p.curTileId = (int32)p.tileIdMap[(usize)rs];
 
 					if (sh.saoLuma || sh.saoChroma)
 						p.ParseSao(rx, ry);
@@ -3448,13 +3630,19 @@ namespace nkentseu {
 					if (endOfSlice != (lastCtb ? 1u : 0u))
 						return false; // terminaison au mauvais endroit = désynchronisation
 
-					if (!lastCtb && wpp && (ctbAddr % p.picWidthInCtbs) == 0) {
-						// Fin de rangée : end_of_subset_one_bit (obligatoirement 1), puis
-						// nouvelle init moteur au point d'entrée + contextes restaurés.
+					const bool tileEnd =
+						!lastCtb && p.tilesOn &&
+						p.tileIdMap[(usize)tsToRs[(usize)ctbAddr]] != p.tileIdMap[(usize)rs];
+					if (tileEnd || (!lastCtb && wpp && (ctbAddr % p.picWidthInCtbs) == 0)) {
+						// Fin de rangée WPP OU de tuile : end_of_subset_one_bit (obligatoirement
+						// 1), puis nouvelle init moteur au point d'entrée. Contextes : restaurés
+						// (WPP) ou RÉINITIALISÉS À NEUF (tuile, §9.3.1).
 						if (p.Terminate() != 1)
 							return false;
-						const int32 row = ctbAddr / p.picWidthInCtbs; // rangée qui COMMENCE
-						emSubsetStart += (usize)sh.entryPointOffsets[(usize)(row - 1)];
+						const int32 subset = p.tilesOn
+												 ? (int32)p.tileIdMap[(usize)tsToRs[(usize)ctbAddr]]
+												 : ctbAddr / p.picWidthInCtbs;
+						emSubsetStart += (usize)sh.entryPointOffsets[(usize)(subset - 1)];
 						const usize deemStart = emToDeem(emSubsetStart);
 						nk_int64 dev = (nk_int64)deemStart - (nk_int64)p.eng.bytePos;
 						if (dev < 0)
@@ -3463,14 +3651,14 @@ namespace nkentseu {
 							out.maxSubsetDeviation = (int32)dev;
 						if (deemStart >= (usize)rbsp.Size())
 							return false;
-						if (p.wppSavedValid)
+						if (!p.tilesOn && p.wppSavedValid)
 							p.st = p.wppSaved;
 						else
 							p.st.Init(sh.sliceQp, NkHevcCabacState::InitTypeFor(sh.sliceType, sh.cabacInit));
 						p.eng.InitEngine(rbsp.Data(), (usize)rbsp.Size(), deemStart);
 						if (p.eng.codIOffset >= p.eng.codIRange)
 							return false;
-						p.qpYPrev = sh.sliceQp; // reset qPY_PREV en début de rangée WPP (§8.6.1)
+						p.qpYPrev = sh.sliceQp; // reset qPY_PREV en début de rangée/tuile (§8.6.1)
 						p.lastCuQpY = sh.sliceQp;
 						++out.rows;
 					}
