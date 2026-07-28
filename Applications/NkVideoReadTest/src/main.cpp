@@ -17,6 +17,7 @@
 #include "NKMedia/Codecs/Video/Theora/NkTheoraDecoder.h"
 #include "NKMedia/Audio/Containers/NkWavWriter.h"
 #include "NKMedia/Video/Containers/NkWebmWriter.h"
+#include "NKMedia/Video/NkVideoWriter.h" // [bloc ISOLÉ --avmux — à splicer]
 
 #include <cstdio>
 #include <cstring>
@@ -254,6 +255,106 @@ int main(int argc, char **argv) {
 		bool all = ok && okH264 && okCavlc && okVp9 && okAv1 && okHevc && okHevcCabac && okWav && okWebm;
 		printf("=== %s ===\n", all ? "LECTURE VIDEO OPERATIONNELLE" : "ECHEC");
 		return all ? 0 : 1;
+	}
+
+	// =========================================================================
+	// Mode AVMUX : --avmux <dossier_sortie>
+	// Valide l'ÉCRITURE A/V (piste audio PCM s16 de NkVideoWriter) : génère une
+	// vidéo procédurale 2 s + sinus 440 Hz (554 Hz à droite en stéréo) et muxe
+	// AVI (MJPEG mono 48k, RAW stéréo 44.1k) et MOV (MJPEG mono 48k + stéréo
+	// 44.1k) + témoins MUETS (non-régression). Écrit à côté de chaque fichier le
+	// PCM ATTENDU (<nom>.ref.pcm, s16le entrelacé) pour comparaison BIT-EXACTE
+	// via `ffmpeg -i out -map 0:a -f s16le back.pcm`. [bloc ISOLÉ — à splicer]
+	// =========================================================================
+	if (argc >= 3 && strcmp(argv[1], "--avmux") == 0) {
+		const char *dir = argv[2];
+		const int32 W = 160, H = 120, FPS = 30, FRAMES = 60; // 2.0 s
+		NkVector<uint8> rgb;
+		rgb.Resize((uint64)W * H * 3);
+		struct AvJob {
+				const char *name;
+				NkVideoContainer container;
+				NkVideoCodec codec;
+				int32 rate, ch;
+		};
+		const AvJob jobs[] = {
+			{"avmux_avi_mjpeg_m48.avi", NkVideoContainer::AVI, NkVideoCodec::MJPEG, 48000, 1},
+			{"avmux_avi_raw_s44.avi", NkVideoContainer::AVI, NkVideoCodec::RAW_BGR, 44100, 2},
+			{"avmux_mov_m48.mov", NkVideoContainer::MOV, NkVideoCodec::MJPEG, 48000, 1},
+			{"avmux_mov_s44.mov", NkVideoContainer::MOV, NkVideoCodec::MJPEG, 44100, 2},
+			{"avmux_mute.avi", NkVideoContainer::AVI, NkVideoCodec::MJPEG, 0, 0},
+			{"avmux_mute.mov", NkVideoContainer::MOV, NkVideoCodec::MJPEG, 0, 0},
+		};
+		bool allOk = true;
+		for (usize j = 0; j < sizeof(jobs) / sizeof(jobs[0]); ++j) {
+			const AvJob &jb = jobs[j];
+			char path[1024], pcmPath[1024];
+			snprintf(path, sizeof(path), "%s/%s", dir, jb.name);
+			snprintf(pcmPath, sizeof(pcmPath), "%s/%s.ref.pcm", dir, jb.name);
+			NkVideoConfig cfg;
+			cfg.width = W;
+			cfg.height = H;
+			cfg.fpsNum = FPS;
+			cfg.fpsDen = 1;
+			cfg.codec = jb.codec;
+			cfg.container = jb.container;
+			cfg.quality = 90;
+			cfg.audioSampleRate = jb.rate;
+			cfg.audioChannels = jb.ch;
+			NkVideoWriter wr;
+			if (!wr.Open(path, cfg)) {
+				printf("  [KO] Open %s\n", path);
+				allOk = false;
+				continue;
+			}
+			FILE *ref = (jb.rate > 0) ? fopen(pcmPath, "wb") : nullptr;
+			NkVector<int16> pcm;
+			int64 audioPos = 0;
+			bool ok = true;
+			for (int32 fr = 0; fr < FRAMES && ok; ++fr) {
+				// Image procédurale : dégradé + barre verticale mobile.
+				for (int32 y = 0; y < H; ++y) {
+					for (int32 x = 0; x < W; ++x) {
+						uint8 *p = rgb.Data() + ((usize)y * W + x) * 3;
+						const int32 bar = (fr * 5) % W;
+						p[0] = (uint8)(x * 255 / W);
+						p[1] = (uint8)(y * 255 / H);
+						p[2] = (x >= bar && x < bar + 8) ? 255 : (uint8)(fr * 4);
+					}
+				}
+				ok = wr.WriteFrame(rgb.Data(), NkVideoInputFormat::RGB24);
+				if (ok && jb.rate > 0) {
+					// Trames audio de CETTE trame vidéo (accumulateur : total exact).
+					const int64 next = ((int64)jb.rate * (fr + 1)) / FPS;
+					const int64 count = next - audioPos;
+					pcm.Resize((uint64)(count * jb.ch));
+					for (int64 k = 0; k < count; ++k) {
+						const double t = (double)(audioPos + k) / (double)jb.rate;
+						const double twoPi = 6.283185307179586476925;
+						pcm[(uint64)(k * jb.ch)] = (int16)(12000.0 * sin(twoPi * 440.0 * t));
+						if (jb.ch > 1)
+							pcm[(uint64)(k * jb.ch + 1)] = (int16)(12000.0 * sin(twoPi * 554.0 * t));
+					}
+					ok = wr.AddAudioSamples(pcm.Data(), (usize)count);
+					if (ok && ref) {
+						for (uint64 i = 0; i < pcm.Size(); ++i) {
+							const uint16 v = (uint16)pcm[i];
+							const uint8 b[2] = {(uint8)(v & 0xFF), (uint8)((v >> 8) & 0xFF)};
+							fwrite(b, 1, 2, ref);
+						}
+					}
+					audioPos = next;
+				}
+			}
+			if (ref)
+				fclose(ref);
+			const bool okClose = wr.Close();
+			printf("  [ %s ] %s (%d trames video, audio %d Hz x%d)\n", (ok && okClose) ? "OK " : "KO",
+				   path, FRAMES, jb.rate, jb.ch);
+			allOk = allOk && ok && okClose;
+		}
+		printf("=== AVMUX %s ===\n", allOk ? "OK" : "ECHEC");
+		return allOk ? 0 : 1;
 	}
 
 	// =========================================================================
