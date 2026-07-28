@@ -50,6 +50,15 @@ namespace nkentseu {
 			};
 
 			void IdctRow(int32 *row) {
+				// Cas « DC seul » : une ligne sans coefficient AC vaut exactement dc*8
+				// (raccourci du même IDCT de référence — W4/2^11 = 7,9995… ; sans ce cas,
+				// les grands |dc| dérivent d'une unité par rapport à l'oracle).
+				if ((row[1] | row[2] | row[3] | row[4] | row[5] | row[6] | row[7]) == 0) {
+					const int32 dc = row[0] * 8;
+					for (int32 i = 0; i < 8; ++i)
+						row[i] = dc;
+					return;
+				}
 				int32 a0, a1, a2, a3, b0, b1, b2, b3;
 				a0 = W4 * row[0] + (1 << (ROW_SHIFT - 1));
 				a1 = a0;
@@ -93,7 +102,10 @@ namespace nkentseu {
 			void IdctCol(int32 *blk, int32 col, int32 *out /*8 valeurs, stride 8*/) {
 				int32 a0, a1, a2, a3, b0, b1, b2, b3;
 				int32 *c = blk + col;
-				a0 = W4 * c[8 * 0] + (1 << (COL_SHIFT - 1));
+				// L'arrondi de la passe colonne est REPLIÉ DANS le produit W4 (dc + r) avec
+				// r = (1<<19)/W4 — et non ajouté après coup : l'écart de 32 dans
+				// l'accumulateur décale sinon certains pixels d'une unité vs l'oracle.
+				a0 = W4 * (c[8 * 0] + (1 << (COL_SHIFT - 1)) / W4);
 				a1 = a0;
 				a2 = a0;
 				a3 = a0;
@@ -220,6 +232,138 @@ namespace nkentseu {
 				1,  2,	1,	2,	1,	2,	1,	2,	1,	2,	1,	2,	1,	2,	1,	2,	1,	1,	1,	1,
 				1,  1,	1,	1,	1,	1,	1,	1,	1,	1,	1};
 
+			// Table B-15 — DCT coefficients Table one (intra_vlc_format=1). Transcrite du
+			// TEXTE d'ISO/IEC 13818-2:1995 (Annexe B, Table B-15, pages 166-169) : chaque
+			// entrée = {code MSB-first, nb de bits, run, level} ; le bit de signe « s » est
+			// lu séparément. End of Block = « 0110 » (4 bits) et Escape = « 0000 01 »
+			// (6 bits), gérés à part dans DecodeAcCoeffB15. Contrairement à B-14, PAS de
+			// règle spéciale « premier coefficient » (le code « 10s » vaut toujours
+			// run 0/level 1). Utilisée pour les blocs INTRA uniquement (7.2.2.1) ; les
+			// blocs non-intra restent sur B-14 quel que soit intra_vlc_format.
+			struct AcB15Entry {
+					uint16 code;
+					uint8 bits;
+					uint8 run;
+					uint8 level;
+			};
+			const AcB15Entry kAcB15[111] = {
+				// --- page 166 (Table B-15, 1re partie)
+				{0b10, 2, 0, 1},
+				{0b010, 3, 1, 1},
+				{0b110, 3, 0, 2},
+				{0b00101, 5, 2, 1},
+				{0b0111, 4, 0, 3},
+				{0b00111, 5, 3, 1},
+				{0b000110, 6, 4, 1},
+				{0b00110, 5, 1, 2},
+				{0b000111, 6, 5, 1},
+				{0b0000110, 7, 6, 1},
+				{0b0000100, 7, 7, 1},
+				{0b11100, 5, 0, 4},
+				{0b0000111, 7, 2, 2},
+				{0b0000101, 7, 8, 1},
+				{0b1111000, 7, 9, 1},
+				{0b11101, 5, 0, 5},
+				{0b000101, 6, 0, 6},
+				{0b1111001, 7, 1, 3},
+				{0b00100110, 8, 3, 2},
+				{0b1111010, 7, 10, 1},
+				{0b00100001, 8, 11, 1},
+				{0b00100101, 8, 12, 1},
+				{0b00100100, 8, 13, 1},
+				{0b000100, 6, 0, 7},
+				{0b00100111, 8, 1, 4},
+				{0b11111100, 8, 2, 3},
+				{0b11111101, 8, 4, 2},
+				{0b000000100, 9, 5, 2},
+				{0b000000101, 9, 14, 1},
+				{0b000000111, 9, 15, 1},
+				{0b0000001101, 10, 16, 1},
+				// --- page 167 (continued)
+				{0b1111011, 7, 0, 8},
+				{0b1111100, 7, 0, 9},
+				{0b00100011, 8, 0, 10},
+				{0b00100010, 8, 0, 11},
+				{0b00100000, 8, 1, 5},
+				{0b0000001100, 10, 2, 4},
+				{0b000000011100, 12, 3, 3},
+				{0b000000010010, 12, 4, 3},
+				{0b000000011110, 12, 6, 2},
+				{0b000000010101, 12, 7, 2},
+				{0b000000010001, 12, 8, 2},
+				{0b000000011111, 12, 17, 1},
+				{0b000000011010, 12, 18, 1},
+				{0b000000011001, 12, 19, 1},
+				{0b000000010111, 12, 20, 1},
+				{0b000000010110, 12, 21, 1},
+				{0b11111010, 8, 0, 12},
+				{0b11111011, 8, 0, 13},
+				{0b11111110, 8, 0, 14},
+				{0b11111111, 8, 0, 15},
+				{0b0000000010110, 13, 1, 6},
+				{0b0000000010101, 13, 1, 7},
+				{0b0000000010100, 13, 2, 5},
+				{0b0000000010011, 13, 3, 4},
+				{0b0000000010010, 13, 5, 3},
+				{0b0000000010001, 13, 9, 2},
+				{0b0000000010000, 13, 10, 2},
+				{0b0000000011111, 13, 22, 1},
+				{0b0000000011110, 13, 23, 1},
+				{0b0000000011101, 13, 24, 1},
+				{0b0000000011100, 13, 25, 1},
+				{0b0000000011011, 13, 26, 1},
+				// --- page 168 (continued — identique à B-14 sur ces longueurs)
+				{0b00000000011111, 14, 0, 16},
+				{0b00000000011110, 14, 0, 17},
+				{0b00000000011101, 14, 0, 18},
+				{0b00000000011100, 14, 0, 19},
+				{0b00000000011011, 14, 0, 20},
+				{0b00000000011010, 14, 0, 21},
+				{0b00000000011001, 14, 0, 22},
+				{0b00000000011000, 14, 0, 23},
+				{0b00000000010111, 14, 0, 24},
+				{0b00000000010110, 14, 0, 25},
+				{0b00000000010101, 14, 0, 26},
+				{0b00000000010100, 14, 0, 27},
+				{0b00000000010011, 14, 0, 28},
+				{0b00000000010010, 14, 0, 29},
+				{0b00000000010001, 14, 0, 30},
+				{0b00000000010000, 14, 0, 31},
+				{0b000000000011000, 15, 0, 32},
+				{0b000000000010111, 15, 0, 33},
+				{0b000000000010110, 15, 0, 34},
+				{0b000000000010101, 15, 0, 35},
+				{0b000000000010100, 15, 0, 36},
+				{0b000000000010011, 15, 0, 37},
+				{0b000000000010010, 15, 0, 38},
+				{0b000000000010001, 15, 0, 39},
+				{0b000000000010000, 15, 0, 40},
+				{0b000000000011111, 15, 1, 8},
+				{0b000000000011110, 15, 1, 9},
+				{0b000000000011101, 15, 1, 10},
+				{0b000000000011100, 15, 1, 11},
+				{0b000000000011011, 15, 1, 12},
+				{0b000000000011010, 15, 1, 13},
+				{0b000000000011001, 15, 1, 14},
+				// --- page 169 (concluded — identique à B-14 sur ces longueurs)
+				{0b0000000000010011, 16, 1, 15},
+				{0b0000000000010010, 16, 1, 16},
+				{0b0000000000010001, 16, 1, 17},
+				{0b0000000000010000, 16, 1, 18},
+				{0b0000000000010100, 16, 6, 3},
+				{0b0000000000011010, 16, 11, 2},
+				{0b0000000000011001, 16, 12, 2},
+				{0b0000000000011000, 16, 13, 2},
+				{0b0000000000010111, 16, 14, 2},
+				{0b0000000000010110, 16, 15, 2},
+				{0b0000000000010101, 16, 16, 2},
+				{0b0000000000011111, 16, 27, 1},
+				{0b0000000000011110, 16, 28, 1},
+				{0b0000000000011101, 16, 29, 1},
+				{0b0000000000011100, 16, 30, 1},
+				{0b0000000000011011, 16, 31, 1},
+			};
+
 			int32 MatchVlc(NkH264BitReader &br, const VlcEntry *tab, int32 n) {
 				for (int32 i = 0; i < n; ++i) {
 					if (br.Peek((int32)tab[i].bits) == tab[i].code) {
@@ -335,16 +479,57 @@ namespace nkentseu {
 				return false;
 			}
 
+			// Table B-15 — coefficients DCT « Table one » (blocs intra quand
+			// intra_vlc_format=1). Renvoie true si un coefficient est lu, false sur EOB.
+			// Pas de contexte « premier coefficient » (contrairement à B-14).
+			bool DecodeAcCoeffB15(NkH264BitReader &br, int32 &run, int32 &level) {
+				// End of Block : « 0110 » (4 bits).
+				if (br.Peek(4) == 0b0110) {
+					br.Skip(4);
+					return false;
+				}
+				// Escape : « 0000 01 » (6 bits) puis run(6) + level(12 signé, compl. à 2).
+				if (br.Peek(6) == 0b000001) {
+					br.Skip(6);
+					run = (int32)br.U(6);
+					int32 lv = (int32)br.U(12);
+					if (lv & 0x800)
+						lv -= 0x1000;
+					level = lv;
+					return true;
+				}
+				for (int32 i = 0; i < 111; ++i) {
+					const AcB15Entry &e = kAcB15[i];
+					if (br.Peek((int32)e.bits) == (uint32)e.code) {
+						br.Skip((int32)e.bits);
+						run = (int32)e.run;
+						const int32 sign = (int32)br.U1();
+						level = sign ? -(int32)e.level : (int32)e.level;
+						return true;
+					}
+				}
+				// Rien : forcer EOB pour éviter une boucle infinie (flux malformé).
+				return false;
+			}
+
 			// ---------------------------------------------------------------------
 			// État séquence / image
 			// ---------------------------------------------------------------------
 			struct SeqState {
 					int32 width = 0, height = 0;
 					int32 chromaFormat = 1; // 1=4:2:0, 2=4:2:2, 3=4:4:4
+					int32 progressiveSeq = 1; // progressive_sequence (sequence extension)
 					int32 mbW = 0, mbH = 0;
 					int32 intraMatrix[64];		// ordre raster
 					int32 nonIntraMatrix[64];	// ordre raster
 					bool haveSeq = false;
+
+					// mb_height (6.3.3) : trames progressives = ceil(h/16) ; séquence
+					// ENTRELACÉE (frame pictures) = 2*ceil(h/32) (arrondi par paire de champs).
+					void UpdateMbSize() {
+						mbW = (width + 15) / 16;
+						mbH = progressiveSeq ? (height + 15) / 16 : 2 * ((height + 31) / 32);
+					}
 			};
 
 			struct PicState {
@@ -388,10 +573,18 @@ namespace nkentseu {
 
 					// Prédicteurs par macrobloc (réinitialisés par tranche).
 					int32 dcPred[3];
-					int32 pmv[2][2]; // [fwd/bwd][x/y]
+					// PMV[r][s][t] (7.6.3, Table 7-7) : r = 1er/2e vecteur du MB (champ
+					// haut/bas en prédiction de champ), s = forward/backward, t = x/y.
+					int32 pmv[2][2][2];
 					int32 quantScaleCode = 1;
 					// Mémoire du dernier MB (pour le skip en B).
 					int32 lastMbFlags = 0;
+
+					void ResetPmv() {
+						for (int32 r = 0; r < 2; ++r)
+							for (int32 s = 0; s < 2; ++s)
+								pmv[r][s][0] = pmv[r][s][1] = 0;
+					}
 
 					void SetErr(const char *m) {
 						if (!refused) {
@@ -462,6 +655,52 @@ namespace nkentseu {
 						}
 					}
 
+					// Échantillonne un CHAMP (parité `par` : 0=haut, 1=bas) d'un plan de
+					// référence — coordonnées et clamp en espace CHAMP (les lignes du champ
+					// sont les lignes par, par+2, par+4… du plan). Demi-pel bilinéaire (7.6.4).
+					static int32 SampleFieldPlane(const uint8 *p, int32 w, int32 h, int32 par, int32 x,
+												  int32 y, int32 hx, int32 hy) {
+						const int32 fh = (h - par + 1) >> 1; // nb de lignes du champ
+						auto at = [&](int32 xx, int32 yy) -> int32 {
+							if (xx < 0)
+								xx = 0;
+							if (xx > w - 1)
+								xx = w - 1;
+							if (yy < 0)
+								yy = 0;
+							if (yy > fh - 1)
+								yy = fh - 1;
+							return (int32)p[(yy * 2 + par) * w + xx];
+						};
+						if (!hx && !hy)
+							return at(x, y);
+						if (hx && !hy)
+							return (at(x, y) + at(x + 1, y) + 1) >> 1;
+						if (!hx && hy)
+							return (at(x, y) + at(x, y + 1) + 1) >> 1;
+						return (at(x, y) + at(x + 1, y) + at(x, y + 1) + at(x + 1, y + 1) + 2) >> 2;
+					}
+
+					// Prédiction de CHAMP dans une image FRAME (7.6.2.1) : bloc bw x bhField
+					// pris dans le champ `refPar` de la référence (vecteur en coordonnées
+					// champ), écrit ENTRELACÉ dans le buffer de prédiction du MB — la ligne
+					// champ j va à la ligne (dstPar + 2*j) du bloc (organisation trame).
+					void PredictFieldBlock(const uint8 *ref, int32 rw, int32 rh, int32 refPar,
+										   int32 dstPar, int32 bx, int32 byField, int32 bw,
+										   int32 bhField, int32 mvx, int32 mvy, int32 *pred,
+										   int32 stride, bool average) {
+						const int32 ix = mvx >> 1, hx = mvx & 1;
+						const int32 iy = mvy >> 1, hy = mvy & 1;
+						for (int32 j = 0; j < bhField; ++j) {
+							for (int32 i = 0; i < bw; ++i) {
+								const int32 v = SampleFieldPlane(ref, rw, rh, refPar, bx + i + ix,
+																 byField + j + iy, hx, hy);
+								int32 &dst = pred[(dstPar + 2 * j) * stride + i];
+								dst = average ? ((dst + v + 1) >> 1) : v;
+							}
+						}
+					}
+
 					// Décode un bloc (coefficients F'' déquantifiés, ordre raster) → coef[64].
 					void DecodeBlock(NkH264BitReader &br, int32 blockIdx, bool intra, int32 *coef) {
 						for (int32 i = 0; i < 64; ++i)
@@ -484,11 +723,15 @@ namespace nkentseu {
 							coef[0] = dcPred[cc];
 							pos = 1;
 						}
-						// Coefficients AC (et 1er coeff pour non-intra).
+						// Coefficients AC (et 1er coeff pour non-intra). Blocs intra avec
+						// intra_vlc_format=1 -> Table B-15 ; sinon Table B-14 (7.2.2.1).
+						const bool useB15 = intra && pic.intraVlcFormat != 0;
 						bool firstNonIntra = !intra;
 						for (;;) {
 							int32 run, level;
-							if (!DecodeAcCoeff(br, firstNonIntra, run, level))
+							const bool got = useB15 ? DecodeAcCoeffB15(br, run, level)
+													: DecodeAcCoeff(br, firstNonIntra, run, level);
+							if (!got)
 								break; // EOB
 							firstNonIntra = false;
 							pos += run;
@@ -536,9 +779,11 @@ namespace nkentseu {
 						coef[63] ^= (mismatch & 1);
 					}
 
-					// Reconstruit un bloc 8x8 dans un plan (intra: remplace, inter: ajoute au pred).
-					void ReconBlock(int32 *coef, uint8 *plane, int32 pw, int32 x0, int32 y0, bool intra,
-									int32 *predBlock /* nullptr si intra */) {
+					// Reconstruit un bloc 8x8 dans un plan (intra: remplace, inter: ajoute au
+					// pred). `rowStep` = 1 (DCT trame) ou 2 (DCT de champ : les 8 lignes du
+					// bloc tombent une ligne de trame sur deux, 6.3.17.1 dct_type).
+					void ReconBlock(int32 *coef, uint8 *plane, int32 pw, int32 x0, int32 y0,
+									int32 rowStep, bool intra, int32 *predBlock /* nullptr si intra */) {
 						int32 res[64];
 						Idct8x8(coef, res);
 						for (int32 yy = 0; yy < 8; ++yy) {
@@ -548,7 +793,7 @@ namespace nkentseu {
 									v = Clip255(res[yy * 8 + xx]);
 								else
 									v = Clip255(predBlock[yy * 8 + xx] + res[yy * 8 + xx]);
-								plane[(y0 + yy) * pw + (x0 + xx)] = (uint8)v;
+								plane[(y0 + yy * rowStep) * pw + (x0 + xx)] = (uint8)v;
 							}
 						}
 					}
@@ -611,6 +856,42 @@ namespace nkentseu {
 						}
 					}
 
+					// Prédiction de champ d'un macrobloc COMPLET dans une image frame
+					// (frame_motion_type = « Field-based », Table 6-17) : pour chaque champ
+					// destination f (0=haut, 1=bas), le vecteur r=f (16x8 luma + 8x4 chroma
+					// 4:2:0, 7.6.7.2) est appliqué au champ de référence choisi par
+					// motion_vertical_field_select[f][s]. Vecteurs verticaux en coordonnées
+					// CHAMP. 4:2:0 uniquement (gate posé dans DecodeSlice).
+					void PredictMbFieldMode(int32 mbx, int32 mby, bool useFwd, bool useBwd,
+											const int32 mvs[2][2][2], const int32 fsel[2][2],
+											int32 *predY, int32 *predCb, int32 *predCr) {
+						const int32 lx = mbx * 16, ly = mby * 16;
+						const int32 cxo = lx * cur.chromaW / cur.lumaW;
+						const int32 cyo = ly * cur.chromaH / cur.lumaH;
+						for (int32 s = 0; s < 2; ++s) {
+							if (s == 0 && !useFwd)
+								continue;
+							if (s == 1 && !useBwd)
+								continue;
+							const NkMpeg2Frame *r = (s == 0) ? FwdRef() : BwdRef();
+							if (r->y.Size() == 0)
+								continue;
+							const bool avg = (s == 1) && useFwd;
+							for (int32 f = 0; f < 2; ++f) {
+								const int32 mvx = mvs[f][s][0], mvy = mvs[f][s][1];
+								int32 cmvx, cmvy;
+								ChromaMv(mvx, mvy, cmvx, cmvy);
+								const int32 par = fsel[f][s];
+								PredictFieldBlock(r->y.Data(), r->lumaW, r->lumaH, par, f, lx, ly >> 1,
+												  16, 8, mvx, mvy, predY, 16, avg);
+								PredictFieldBlock(r->cb.Data(), r->chromaW, r->chromaH, par, f, cxo,
+												  cyo >> 1, 8, 4, cmvx, cmvy, predCb, 8, avg);
+								PredictFieldBlock(r->cr.Data(), r->chromaW, r->chromaH, par, f, cxo,
+												  cyo >> 1, 8, 4, cmvx, cmvy, predCr, 8, avg);
+							}
+						}
+					}
+
 					// Écrit un macrobloc prédit (sans résidu — pour les blocs non codés / skip).
 					void WritePredMb(int32 mbx, int32 mby, const int32 *predY, const int32 *predCb,
 									 const int32 *predCr) {
@@ -636,12 +917,20 @@ namespace nkentseu {
 					// Décodage d'une tranche (slice)
 					// -------------------------------------------------------------
 					bool DecodeSlice(const uint8 *data, usize len, int32 sliceRow) {
-						// Périmètre : progressif, prédiction/DCT « frame-based » uniquement. Les flux
-						// entrelacés (image de champ, DCT de champ, mouvement field/dual-prime) sont
-						// refusés proprement (sinon désynchronisation → pixels aberrants).
-						if (pic.pictureStructure != 3 || pic.framePredFrameDct == 0) {
-							SetErr("flux entrelace (field picture / field DCT) non supporte "
-								   "- decodeur progressif frame-based uniquement");
+						// Périmètre : images FRAME uniquement (progressives, ou entrelacées avec
+						// DCT de champ / prédiction de champ / alternate_scan — 7.6.1/7.6.2.1).
+						// Les FIELD PICTURES (picture_structure 1/2 : deux passes de décodage par
+						// trame, sélection de champs de référence inter-trame) restent refusées
+						// proprement — non émises par l'encodeur mpeg2video de ffmpeg.
+						if (pic.pictureStructure != 3) {
+							SetErr("field pictures (picture_structure != frame) non supporte "
+								   "- images frame uniquement (progressives ou entrelacees)");
+							return false;
+						}
+						// Le chemin entrelacé (DCT de champ + prédiction de champ) n'est câblé
+						// que pour le 4:2:0 (organisation des blocs chroma 6.3.17.1).
+						if (pic.framePredFrameDct == 0 && seq.chromaFormat != 1) {
+							SetErr("frame_pred_frame_dct=0 avec chroma != 4:2:0 non supporte");
 							return false;
 						}
 						NkH264BitReader br(data, len);
@@ -663,7 +952,7 @@ namespace nkentseu {
 						// Prédicteurs réinitialisés en début de tranche.
 						const int32 dcReset = 1 << (7 + pic.intraDcPrecision);
 						dcPred[0] = dcPred[1] = dcPred[2] = dcReset;
-						pmv[0][0] = pmv[0][1] = pmv[1][0] = pmv[1][1] = 0;
+						ResetPmv();
 						lastMbFlags = 0;
 
 						int32 mbAddr = sliceRow * seq.mbW - 1;
@@ -711,20 +1000,20 @@ namespace nkentseu {
 							predCb[i] = 0;
 							predCr[i] = 0;
 						}
-						if (pic.pictType == 2) { // P
+						if (pic.pictType == 2) { // P : frame-based, mv 0, PMV remis à zéro (7.6.6.2)
 							if (!haveBwd)
 								return false;
-							pmv[0][0] = pmv[0][1] = 0;
+							ResetPmv();
 							PredictMb(mbx, mby, true, false, 0, 0, 0, 0, predY, predCb, predCr);
-						} else if (pic.pictType == 3) { // B
+						} else if (pic.pictType == 3) { // B : frame-based, MVs = PMV, direction du MB précédent (7.6.6.4)
 							const bool uf = (lastMbFlags & MB_FWD) != 0;
 							const bool ub = (lastMbFlags & MB_BWD) != 0;
 							if (!uf && !ub)
 								return false;
 							if ((uf && !haveFwd) || (ub && !haveBwd))
 								return false;
-							PredictMb(mbx, mby, uf, ub, pmv[0][0], pmv[0][1], pmv[1][0], pmv[1][1], predY,
-									  predCb, predCr);
+							PredictMb(mbx, mby, uf, ub, pmv[0][0][0], pmv[0][0][1], pmv[0][1][0],
+									  pmv[0][1][1], predY, predCb, predCr);
 						} else {
 							return false;
 						}
@@ -732,8 +1021,13 @@ namespace nkentseu {
 						return true;
 					}
 
-					// Lit un ensemble de vecteurs (frame-based) et met à jour PMV[s].
-					void DecodeMotionVector(NkH264BitReader &br, int32 s, int32 &mvx, int32 &mvy) {
+					// Lit un vecteur de mouvement motion_vector(r, s) et met à jour PMV[r][s]
+					// (7.6.3.1). `fieldInFrame` = vecteur de CHAMP dans une image frame
+					// (mv_format == field) : le prédicteur vertical est PMV DIV 2 (division
+					// entière vers -inf, réalisée par >> 1 arithmétique) et le PMV mis à jour
+					// vaut vector*2 — le vecteur vertical décodé est en coordonnées champ.
+					void DecodeMotionVector(NkH264BitReader &br, int32 r, int32 s, bool fieldInFrame,
+											int32 &mvx, int32 &mvy) {
 						for (int32 t = 0; t < 2; ++t) {
 							const int32 code = DecodeMotionCode(br);
 							const int32 rSize = pic.fCode[s][t] - 1;
@@ -752,12 +1046,14 @@ namespace nkentseu {
 							const int32 high = (16 * f) - 1;
 							const int32 low = -16 * f;
 							const int32 range = 32 * f;
-							int32 pred = pmv[s][t] + delta;
+							const bool halfPred = fieldInFrame && t == 1;
+							int32 pred = halfPred ? (pmv[r][s][t] >> 1) : pmv[r][s][t];
+							pred += delta;
 							if (pred < low)
 								pred += range;
 							if (pred > high)
 								pred -= range;
-							pmv[s][t] = pred;
+							pmv[r][s][t] = halfPred ? pred * 2 : pred;
 							if (t == 0)
 								mvx = pred;
 							else
@@ -788,11 +1084,28 @@ namespace nkentseu {
 						const bool hasPattern = (flags & MB_PAT) != 0;
 						const bool quant = (flags & MB_QUANT) != 0;
 
-						// frame_pred_frame_dct / field : on ne gère que le frame-based.
+						// frame_motion_type (6.2.5.1, Table 6-17) — présent si mouvement et
+						// frame_pred_frame_dct == 0. 10 = frame-based (1 vecteur/direction),
+						// 01 = field-based (2 vecteurs/direction, un par champ),
+						// 11 = dual-prime (refusé : jamais émis par l'encodeur ffmpeg, et
+						// l'oracle manque pour le valider), 00 = réservé.
+						int32 motionType = 2; // frame-based implicite (6.3.17.1)
 						if (!intra && (motionFwd || motionBwd) && pic.framePredFrameDct == 0) {
-							SetErr("MPEG-2 field/dual-prime motion non supporte (frame_pred_frame_dct=0)");
-							return false;
+							motionType = (int32)br.U(2);
+							if (motionType == 0)
+								return false; // réservé -> flux malformé
+							if (motionType == 3) {
+								SetErr("MPEG-2 dual-prime motion non supporte");
+								return false;
+							}
 						}
+						const bool fieldPred = !intra && (motionFwd || motionBwd) && motionType == 1;
+
+						// dct_type (6.2.5.1) : DCT de champ possible seulement si
+						// frame_pred_frame_dct == 0 et que le MB porte des coefficients.
+						int32 dctType = 0;
+						if (pic.framePredFrameDct == 0 && (intra || hasPattern))
+							dctType = (int32)br.U(1);
 
 						if (quant) {
 							quantScaleCode = (int32)br.U(5);
@@ -800,23 +1113,45 @@ namespace nkentseu {
 								quantScaleCode = 1;
 						}
 
-						int32 fmx = 0, fmy = 0, bmx = 0, bmy = 0;
+						// Vecteurs du MB : mvs[r][s][x/y] + sélection de champ fsel[r][s]
+						// (motion_vertical_field_select, 6.2.5.2 : 0=champ haut, 1=champ bas).
+						int32 mvs[2][2][2] = {{{0}}};
+						int32 fsel[2][2] = {{0}};
 						if (motionFwd || (intra && pic.concealmentMv)) {
-							DecodeMotionVector(br, 0, fmx, fmy);
+							if (fieldPred) {
+								for (int32 r = 0; r < 2; ++r) {
+									fsel[r][0] = (int32)br.U1();
+									DecodeMotionVector(br, r, 0, true, mvs[r][0][0], mvs[r][0][1]);
+								}
+							} else {
+								DecodeMotionVector(br, 0, 0, false, mvs[0][0][0], mvs[0][0][1]);
+								// Table 7-9 (frame-based) : PMV[1][0] = PMV[0][0].
+								pmv[1][0][0] = pmv[0][0][0];
+								pmv[1][0][1] = pmv[0][0][1];
+							}
 						}
 						if (motionBwd) {
-							DecodeMotionVector(br, 1, bmx, bmy);
+							if (fieldPred) {
+								for (int32 r = 0; r < 2; ++r) {
+									fsel[r][1] = (int32)br.U1();
+									DecodeMotionVector(br, r, 1, true, mvs[r][1][0], mvs[r][1][1]);
+								}
+							} else {
+								DecodeMotionVector(br, 0, 1, false, mvs[0][1][0], mvs[0][1][1]);
+								// Table 7-9 (frame-based) : PMV[1][1] = PMV[0][1].
+								pmv[1][1][0] = pmv[0][1][0];
+								pmv[1][1][1] = pmv[0][1][1];
+							}
 						}
 						if (intra && pic.concealmentMv)
 							br.Skip(1); // marker_bit
 
-						// Réinitialisation des prédicteurs de mouvement.
-						if (intra && !pic.concealmentMv) {
-							pmv[0][0] = pmv[0][1] = pmv[1][0] = pmv[1][1] = 0;
-						}
+						// Réinitialisation des prédicteurs de mouvement (7.6.3.4).
+						if (intra && !pic.concealmentMv)
+							ResetPmv();
 						if (pic.pictType == 2 && !motionFwd && !intra) {
 							// P : MB « pattern only » → mv 0 + reset PMV.
-							pmv[0][0] = pmv[0][1] = 0;
+							ResetPmv();
 						}
 
 						// Prédicteurs DC réinitialisés si non-intra.
@@ -844,43 +1179,54 @@ namespace nkentseu {
 							predCb[i] = 0;
 							predCr[i] = 0;
 						}
-						bool useFwd = false, useBwd = false, mvZero = false;
+						bool useFwd = false, useBwd = false;
 						if (!intra) {
 							if (pic.pictType == 2) {
-								useFwd = true; // P : toujours forward (mv0 si pattern-only)
-								if (!motionFwd) {
-									fmx = fmy = 0;
-									mvZero = true;
-								}
+								useFwd = true; // P : toujours forward (mv0 si pattern-only, 7.6.3.5)
 							} else if (pic.pictType == 3) {
 								useFwd = motionFwd;
 								useBwd = motionBwd;
 							}
-							(void)mvZero;
-							PredictMb(mbx, mby, useFwd, useBwd, fmx, fmy, bmx, bmy, predY, predCb, predCr);
+							if (fieldPred)
+								PredictMbFieldMode(mbx, mby, useFwd, useBwd, mvs, fsel, predY, predCb,
+												   predCr);
+							else
+								PredictMb(mbx, mby, useFwd, useBwd, mvs[0][0][0], mvs[0][0][1],
+										  mvs[0][1][0], mvs[0][1][1], predY, predCb, predCr);
 						}
 
-						// Blocs.
+						// Blocs. Avec dct_type=1 (DCT de champ, 6.3.17.1), les 4 blocs luma
+						// sont organisés par champ : blocs 0/1 = champ haut (lignes paires),
+						// blocs 2/3 = champ bas (lignes impaires), chacun gauche/droite —
+						// la ligne yy du bloc tombe sur la ligne de trame (b>>1) + 2*yy.
+						// Les blocs chroma 4:2:0 restent organisés trame.
 						const int32 lx = mbx * 16, ly = mby * 16;
 						const int32 cxo = lx * cur.chromaW / cur.lumaW;
 						const int32 cyo = ly * cur.chromaH / cur.lumaH;
 						int32 coef[64];
 						for (int32 b = 0; b < blockCount; ++b) {
 							const bool coded = (cbp & (1 << (blockCount - 1 - b))) != 0;
-							// position du bloc
-							int32 px, py, pw;
+							// position du bloc + organisation trame/champ
+							int32 px, py, pw, rowStep;
 							uint8 *plane;
-							int32 predOff;
 							int32 *predPtr;
-							int32 predStride;
+							int32 predStride, predRow0, predCol0;
 							if (b < 4) {
 								plane = cur.y.Data();
 								pw = cur.lumaW;
 								px = lx + (b & 1) * 8;
-								py = ly + (b >> 1) * 8;
 								predPtr = predY;
-								predOff = ((b >> 1) * 8) * 16 + (b & 1) * 8;
 								predStride = 16;
+								predCol0 = (b & 1) * 8;
+								if (dctType) {
+									py = ly + (b >> 1); // parité du champ
+									rowStep = 2;
+									predRow0 = (b >> 1);
+								} else {
+									py = ly + (b >> 1) * 8;
+									rowStep = 1;
+									predRow0 = (b >> 1) * 8;
+								}
 							} else {
 								// chroma : pour 4:2:0 un seul bloc 8x8 par composante.
 								const int32 comp = b - 4; // 0=Cb,1=Cr (4:2:0)
@@ -888,30 +1234,31 @@ namespace nkentseu {
 								pw = cur.chromaW;
 								px = cxo;
 								py = cyo;
+								rowStep = 1;
 								predPtr = (comp == 0) ? predCb : predCr;
-								predOff = 0;
+								predRow0 = 0;
+								predCol0 = 0;
 								predStride = (seq.chromaFormat == 3) ? 16 : 8;
 							}
 
 							if (intra) {
 								DecodeBlock(br, b, true, coef);
-								ReconBlock(coef, plane, pw, px, py, true, nullptr);
+								ReconBlock(coef, plane, pw, px, py, rowStep, true, nullptr);
 							} else if (coded) {
 								DecodeBlock(br, b, false, coef);
-								// extrait le pred 8x8 correspondant
+								// extrait le pred 8x8 correspondant (même organisation que le bloc)
 								int32 pblk[64];
 								for (int32 yy = 0; yy < 8; ++yy)
 									for (int32 xx = 0; xx < 8; ++xx)
-										pblk[yy * 8 + xx] = predPtr[(predOff / predStride + yy) * predStride +
-																	 (predOff % predStride) + xx];
-								ReconBlock(coef, plane, pw, px, py, false, pblk);
+										pblk[yy * 8 + xx] =
+											predPtr[(predRow0 + yy * rowStep) * predStride + predCol0 + xx];
+								ReconBlock(coef, plane, pw, px, py, rowStep, false, pblk);
 							} else {
 								// non codé : écrire la prédiction seule
 								for (int32 yy = 0; yy < 8; ++yy)
 									for (int32 xx = 0; xx < 8; ++xx)
-										plane[(py + yy) * pw + (px + xx)] = (uint8)Clip255(
-											predPtr[(predOff / predStride + yy) * predStride +
-													(predOff % predStride) + xx]);
+										plane[(py + yy * rowStep) * pw + (px + xx)] = (uint8)Clip255(
+											predPtr[(predRow0 + yy * rowStep) * predStride + predCol0 + xx]);
 							}
 						}
 
@@ -978,8 +1325,7 @@ namespace nkentseu {
 						s.nonIntraMatrix[kZigZag[i]] = v;
 					}
 				}
-				s.mbW = (s.width + 15) / 16;
-				s.mbH = (s.height + 15) / 16;
+				s.UpdateMbSize();
 				s.haveSeq = true;
 			}
 
@@ -987,14 +1333,13 @@ namespace nkentseu {
 				NkH264BitReader br(d, len);
 				br.Skip(4); // extension id (=1)
 				br.Skip(8); // profile_and_level
-				br.Skip(1); // progressive_sequence
+				s.progressiveSeq = (int32)br.U(1);
 				s.chromaFormat = (int32)br.U(2);
 				const int32 hExt = (int32)br.U(2);
 				const int32 vExt = (int32)br.U(2);
 				s.width |= (hExt << 12);
 				s.height |= (vExt << 12);
-				s.mbW = (s.width + 15) / 16;
-				s.mbH = (s.height + 15) / 16;
+				s.UpdateMbSize();
 			}
 
 			void ParsePictureHeader(const uint8 *d, usize len, PicState &p) {
@@ -1083,8 +1428,6 @@ namespace nkentseu {
 				len = (end > start) ? (end - start) : 0;
 			};
 
-			bool intraVlcWarned = false;
-
 			for (usize idx = 0; idx < nsc; ++idx) {
 				const uint8 code = scVal[idx];
 				const uint8 *d;
@@ -1100,11 +1443,6 @@ namespace nkentseu {
 							ParseSequenceExtension(d, len, dec.seq);
 						} else if (eid == 8) {
 							ParsePictureCodingExtension(d, len, dec.pic);
-							if (dec.pic.intraVlcFormat == 1 && !intraVlcWarned) {
-								intraVlcWarned = true;
-								// Table B-15 non implémentée : signaler mais tenter (échouera).
-								dec.SetErr("intra_vlc_format=1 (Table B-15) non implemente");
-							}
 						}
 					}
 				} else if (code == 0xB8) {

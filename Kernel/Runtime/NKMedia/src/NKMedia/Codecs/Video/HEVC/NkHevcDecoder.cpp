@@ -383,12 +383,14 @@ namespace nkentseu {
 			if (out.tilesEnabled) {
 				out.numTileColumnsMinus1 = (int32)br.UE();
 				out.numTileRowsMinus1 = (int32)br.UE();
-				const bool uniformSpacing = br.U1() != 0;
-				if (!uniformSpacing) {
+				if (out.numTileColumnsMinus1 >= 24 || out.numTileRowsMinus1 >= 24)
+					return false; // au-delà des bornes de stockage (cf. NkHevcPps)
+				out.tileUniformSpacing = br.U1() != 0;
+				if (!out.tileUniformSpacing) {
 					for (int32 i = 0; i < out.numTileColumnsMinus1; ++i)
-						br.UE(); // column_width_minus1[i] (pas stocké — brique 1)
+						out.tileColWidth[i] = (int32)br.UE() + 1; // column_width_minus1[i] + 1
 					for (int32 i = 0; i < out.numTileRowsMinus1; ++i)
-						br.UE(); // row_height_minus1[i]
+						out.tileRowHeight[i] = (int32)br.UE() + 1; // row_height_minus1[i] + 1
 				}
 				out.loopFilterAcrossTiles = br.U1() != 0;
 			}
