@@ -223,10 +223,15 @@ namespace nkentseu {
 		}
 
 		void NkEditMesh::RecomputeNormals() {
-			for (uint32 i = 0; i < (uint32)verts.Size(); ++i)
-				verts[i].normal = {0.f, 0.f, 0.f};
+			const uint32 nv = (uint32)verts.Size();
+			const uint32 nf = (uint32)faces.Size();
+			// 1) Normale de chaque face (vecteur NON normalisé = pondération par l'aire).
+			NkVector<NkVec3f> fn;
+			fn.Resize(nf);
+			bool anySmooth = false;
 			NkVector<NkEmId> loop;
-			for (uint32 f = 0; f < (uint32)faces.Size(); ++f) {
+			for (uint32 f = 0; f < nf; ++f) {
+				fn[f] = {0.f, 0.f, 0.f};
 				if (!faces[f].alive)
 					continue;
 				loop.Clear();
@@ -234,16 +239,114 @@ namespace nkentseu {
 				if (loop.Size() < 3)
 					continue;
 				const NkVec3f p0 = verts[loop[0]].pos, p1 = verts[loop[1]].pos, p2 = verts[loop[2]].pos;
-				NkVec3f n = NkEmFaceCross(p0, p1, p2); // pondéré par l'aire (non normalisé)
-				float32 l = n.Len();
+				NkVec3f n = NkEmFaceCross(p0, p1, p2);
+				const float32 l = n.Len();
 				faces[f].normal = (l > 1e-8f) ? n * (1.f / l) : NkVec3f{0.f, 1.f, 0.f};
-				for (uint32 k = 0; k < (uint32)loop.Size(); ++k)
-					verts[loop[k]].normal = verts[loop[k]].normal + n;
+				fn[f] = n;
+				if (faces[f].smooth)
+					anySmooth = true;
 			}
-			for (uint32 i = 0; i < (uint32)verts.Size(); ++i) {
-				float32 l = verts[i].normal.Len();
-				verts[i].normal = (l > 1e-8f) ? verts[i].normal * (1.f / l) : NkVec3f{0.f, 1.f, 0.f};
+			// 2) Accumulation FLAT (par index de sommet) — chemin historique, aucun coût
+			//    supplémentaire tant qu'aucune face n'est lissée.
+			NkVector<NkVec3f> flatAcc;
+			flatAcc.Resize(nv);
+			for (uint32 i = 0; i < nv; ++i)
+				flatAcc[i] = {0.f, 0.f, 0.f};
+			// 3) Accumulation SMOOTH (par sommet SOUDÉ) : seules les faces smooth y
+			//    contribuent, et toutes les copies coïncidentes partagent le résultat.
+			NkVector<uint32> canon;
+			NkVector<NkVec3f> smoothAcc;
+			NkVector<uint8> vertSmooth; // 1 = le sommet appartient à >=1 face lissée
+			if (anySmooth) {
+				BuildVertexMerge(canon);
+				smoothAcc.Resize(nv);
+				vertSmooth.Resize(nv);
+				for (uint32 i = 0; i < nv; ++i) {
+					smoothAcc[i] = {0.f, 0.f, 0.f};
+					vertSmooth[i] = 0;
+				}
 			}
+			auto C = [&](uint32 v) { return (anySmooth && v < (uint32)canon.Size()) ? canon[v] : v; };
+			for (uint32 f = 0; f < nf; ++f) {
+				if (!faces[f].alive)
+					continue;
+				loop.Clear();
+				GetFaceVerts(f, loop);
+				if (loop.Size() < 3)
+					continue;
+				const bool sm = anySmooth && faces[f].smooth != 0;
+				for (uint32 k = 0; k < (uint32)loop.Size(); ++k) {
+					const uint32 v = loop[k];
+					if (v >= nv)
+						continue;
+					if (sm) {
+						const uint32 c = C(v);
+						if (c < nv)
+							smoothAcc[c] = smoothAcc[c] + fn[f];
+						vertSmooth[v] = 1;
+					} else
+						flatAcc[v] = flatAcc[v] + fn[f];
+				}
+			}
+			// 4) Normale finale du sommet. Un sommet touché À LA FOIS par des faces flat et
+			//    des faces smooth (possible seulement si l'index est PARTAGÉ entre faces —
+			//    les primitives, elles, dupliquent les coins) mélange les deux contributions :
+			//    limite assumée de la structure, qui porte UNE normale par SOMMET et non par
+			//    COIN (comme Blender le ferait avec des « loops »).
+			for (uint32 i = 0; i < nv; ++i) {
+				NkVec3f n = flatAcc[i];
+				if (anySmooth && vertSmooth[i]) {
+					const uint32 c = C(i);
+					if (c < nv)
+						n = n + smoothAcc[c];
+				}
+				const float32 l = n.Len();
+				verts[i].normal = (l > 1e-8f) ? n * (1.f / l) : NkVec3f{0.f, 1.f, 0.f};
+			}
+		}
+
+		bool NkEditMesh::SetShadeSmooth(bool smooth, bool selectedOnly) {
+			const uint8 want = smooth ? (uint8)1 : (uint8)0;
+			// Y a-t-il au moins une face sélectionnée ? Sinon on traite TOUT le maillage
+			// (équivalent du « Shade Smooth » appliqué à l'objet entier).
+			bool anySel = false;
+			if (selectedOnly)
+				for (uint32 f = 0; f < (uint32)faces.Size() && !anySel; ++f)
+					if (faces[f].alive && FaceIsSelected(f))
+						anySel = true;
+			bool changed = false;
+			for (uint32 f = 0; f < (uint32)faces.Size(); ++f) {
+				if (!faces[f].alive)
+					continue;
+				if (anySel && !FaceIsSelected(f))
+					continue;
+				if (faces[f].smooth != want) {
+					faces[f].smooth = want;
+					changed = true;
+				}
+			}
+			if (changed)
+				RecomputeNormals();
+			return changed;
+		}
+
+		bool NkEditMesh::AnyFaceSmooth() const {
+			for (uint32 f = 0; f < (uint32)faces.Size(); ++f)
+				if (faces[f].alive && faces[f].smooth)
+					return true;
+			return false;
+		}
+
+		bool NkEditMesh::AllFacesSmooth() const {
+			bool any = false;
+			for (uint32 f = 0; f < (uint32)faces.Size(); ++f) {
+				if (!faces[f].alive)
+					continue;
+				any = true;
+				if (!faces[f].smooth)
+					return false;
+			}
+			return any;
 		}
 
 		// Demi-arête vivante correspondant à l'arête (a,b), comparée sur l'IDENTITÉ
@@ -540,6 +643,77 @@ namespace nkentseu {
 					outIdx.PushBack(loop[0]);
 					outIdx.PushBack(loop[i]);
 					outIdx.PushBack(loop[i + 1]);
+					outTriFace.PushBack((NkEmId)f);
+				}
+			}
+		}
+
+		void NkEditMesh::TriangulateShaded(NkVector<NkVertex3D> &outV, NkVector<uint32> &outIdx,
+										   NkVector<NkEmId> &outTriFace) const {
+			outV.Clear();
+			outIdx.Clear();
+			outTriFace.Clear();
+			const uint32 nv = (uint32)verts.Size();
+			outV.Resize(nv);
+			for (uint32 i = 0; i < nv; ++i) {
+				NkVertex3D nvx{};
+				nvx.pos = verts[i].pos;
+				nvx.normal = verts[i].normal;
+				nvx.tangent = {1.f, 0.f, 0.f};
+				nvx.uv = verts[i].uv;
+				nvx.uv2 = {0.f, 0.f};
+				nvx.color = 0xFFFFFFFFu;
+				outV[i] = nvx;
+			}
+			// claimed[v] = 1 -> le slot 1:1 du sommet v porte DÉJÀ la normale d'une face FLAT :
+			// tout autre coin (flat d'une autre face, ou smooth) doit être DÉDOUBLÉ.
+			NkVector<uint8> claimed;
+			claimed.Resize(nv);
+			for (uint32 i = 0; i < nv; ++i)
+				claimed[i] = 0;
+			NkVector<uint32> remap; // indice de sortie du coin, indexé par sommet d'origine
+			remap.Resize(nv);
+			NkVector<NkEmId> loop;
+			for (uint32 f = 0; f < (uint32)faces.Size(); ++f) {
+				if (!faces[f].alive)
+					continue;
+				loop.Clear();
+				GetFaceVerts(f, loop);
+				const uint32 fn = (uint32)loop.Size();
+				if (fn < 3)
+					continue;
+				const bool flat = (faces[f].smooth == 0);
+				for (uint32 k = 0; k < fn; ++k) {
+					const uint32 v = loop[k];
+					if (v >= nv)
+						continue;
+					uint32 o = v;
+					if (flat) {
+						if (!claimed[v]) {
+							claimed[v] = 1;
+							outV[v].normal = faces[f].normal;
+						} else {
+							NkVertex3D cp = outV[v];
+							cp.pos = verts[v].pos;
+							cp.uv = verts[v].uv;
+							cp.normal = faces[f].normal;
+							o = (uint32)outV.Size();
+							outV.PushBack(cp);
+						}
+					} else if (claimed[v]) { // sommet confisqué par une face flat -> copie lisse
+						NkVertex3D cp = outV[v];
+						cp.pos = verts[v].pos;
+						cp.uv = verts[v].uv;
+						cp.normal = verts[v].normal;
+						o = (uint32)outV.Size();
+						outV.PushBack(cp);
+					}
+					remap[v] = o; // un sommet n'apparaît qu'UNE fois dans la boucle d'une face
+				}
+				for (uint32 i = 1; i + 1 < fn; ++i) { // éventail
+					outIdx.PushBack(remap[loop[0]]);
+					outIdx.PushBack(remap[loop[i]]);
+					outIdx.PushBack(remap[loop[i + 1]]);
 					outTriFace.PushBack((NkEmId)f);
 				}
 			}

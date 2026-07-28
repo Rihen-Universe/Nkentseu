@@ -78,6 +78,13 @@ namespace nkentseu {
 						NkVec3f normal = {0.f, 1.f, 0.f};
 						uint8 sel = 0;
 						uint8 alive = 1; // 0 = supprimée (compactée plus tard)
+						// OMBRAGE PAR FACE façon Blender (« Shade Flat » / « Shade Smooth »).
+						// 0 = FLAT : les coins de la face portent la normale DE LA FACE -> arêtes
+						//     franches, facettes visibles (comportement historique, défaut).
+						// 1 = SMOOTH : les coins portent la normale MOYENNE des faces smooth
+						//     incidentes au sommet SOUDÉ (identité topologique de BuildVertexMerge)
+						//     -> surface lissée continue. Mixte autorisé (comme Blender).
+						uint8 smooth = 0;
 				};
 
 				NkVector<Vert> verts;
@@ -104,8 +111,26 @@ namespace nkentseu {
 
 				// Triangule toutes les faces (éventail) -> mesh de rendu. outTriFace[i] = id
 				// de la face n-gon d'origine du i-ème triangle (pour le pick).
+				// ⚠ CONTRAT 1:1 : outV[i] correspond EXACTEMENT à verts[i] (même nombre, même
+				// ordre). L'éditeur s'appuie dessus (sélection, cage, pick, marqueurs).
 				void Triangulate(NkVector<NkVertex3D> &outV, NkVector<uint32> &outIdx,
 								 NkVector<NkEmId> &outTriFace) const;
+
+				// Variante d'AFFICHAGE tenant compte de l'ombrage par face (Face::smooth).
+				// Problème résolu : la structure ne porte qu'UNE normale par SOMMET, alors
+				// qu'un ombrage FLAT en exige une par COIN. Quand des faces PARTAGENT un
+				// sommet (sphère, grille…), l'ombrage plat est donc impossible à représenter
+				// en 1:1 — on DÉDOUBLE ici les coins des faces FLAT qui se disputent un même
+				// sommet (exactement ce que fait un moteur avec des « loops » Blender).
+				//   • faces SMOOTH -> réutilisent le sommet 1:1 (normale moyenne soudée) ;
+				//   • faces FLAT   -> la 1re écrit la normale de face dans le slot 1:1, les
+				//     suivantes obtiennent une COPIE ajoutée en fin de tableau.
+				// Conséquence : si aucun sommet n'est disputé (cas des primitives, qui
+				// dupliquent déjà leurs coins par face) la sortie est STRICTEMENT identique à
+				// Triangulate(). Sinon outV est plus grand que verts — ce maillage est un
+				// PUR CACHE D'AFFICHAGE, jamais une source de sélection/topologie.
+				void TriangulateShaded(NkVector<NkVertex3D> &outV, NkVector<uint32> &outIdx,
+									   NkVector<NkEmId> &outTriFace) const;
 
 				// ── Représentation POLYGONES (n-gons) — CSR ─────────────────────────
 				// Extrait les faces vivantes : sommets + boucles (face i = outFaceVerts
@@ -170,8 +195,29 @@ namespace nkentseu {
 				// (primitives, grilles). coplanarDot ~0.9995 (cube) à 0.98 (sphère fine).
 				void Quadify(float32 coplanarDot = 0.985f);
 
-				// Normales par face (produit vectoriel) puis par sommet (moyenne).
+				// Normales par face (produit vectoriel) puis par sommet, EN RESPECTANT
+				// l'ombrage par face (Face::smooth) :
+				//   • FLAT   : le sommet n'accumule que les faces FLAT qui le référencent par
+				//     CE MÊME INDICE -> comme les primitives dupliquent leurs coins par face,
+				//     chaque coin garde la normale de sa face (facettes franches).
+				//   • SMOOTH : le sommet accumule les faces SMOOTH incidentes à son sommet
+				//     SOUDÉ (canon, cf. BuildVertexMerge) -> les copies coïncidentes d'un même
+				//     coin reçoivent la MÊME normale moyenne : surface lissée continue.
+				// Pondération : par l'AIRE (le produit vectoriel non normalisé porte 2*aire du
+				// triangle du coin) — choix classique, stable, insensible à la tessellation
+				// fine ; l'alternative « par l'angle au sommet » n'apporte rien sur des
+				// maillages quad/n-gon réguliers et coûte un acos par coin.
 				void RecomputeNormals();
+
+				// ── OMBRAGE FLAT / SMOOTH (façon Blender : Object > Shade Flat/Smooth, ou
+				//    Mesh > Shading en Edit Mode sur les faces sélectionnées) ───────────────
+				// Pose Face::smooth puis recalcule les normales. selectedOnly=true limite aux
+				// faces SÉLECTIONNÉES (toutes leurs extrémités marquées Vert::sel) ; s'il n'y
+				// en a aucune, l'appel retombe sur TOUTES les faces (comportement « objet »).
+				// Renvoie true si au moins une face a changé d'état.
+				bool SetShadeSmooth(bool smooth, bool selectedOnly = false);
+				bool AnyFaceSmooth() const; // au moins une face lissée
+				bool AllFacesSmooth() const; // toutes les faces vivantes lissées
 
 				// ── COUCHE DE COMMANDES D'ÉDITION (paramétrée, découplée de l'UI) ────
 				// Ces opérations agissent sur la SÉLECTION interne (Vert::sel, ou par
