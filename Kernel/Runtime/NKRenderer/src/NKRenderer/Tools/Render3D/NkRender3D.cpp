@@ -34,8 +34,21 @@ namespace nkentseu {
 			mShaderLib = shaderLib;
 			mResources = resources;
 
-			// Clamp [1,3]. Au-dela = 3 c'est gaspillage VRAM sans gain perceptible.
-			mFramesInFlight = framesInFlight < 1 ? 1 : (framesInFlight > 3 ? 3 : framesInFlight);
+			// PROFONDEUR DES RINGS = celle du DEVICE, imperativement.
+			// mFrameSlot est calcule par `mDevice->GetFrameIndex() % mFramesInFlight`
+			// et GetFrameIndex() cycle modulo la profondeur du device (MAX_FRAMES = 3
+			// sur GL/VK/DX11/DX12). Si mFramesInFlight est PLUS PETIT, le modulo n'est
+			// plus bijectif : la suite des slots devient 0,1,0 | 0,1,0 | ... et le slot 0
+			// revient sur DEUX FRAMES CONSECUTIVES -> le CPU reecrit un buffer que le GPU
+			// lit encore pour la frame precedente (la fence de BeginFrame ne couvre que
+			// N-devFIF) -> donnees dechirees -> clignotement. Voir NkRendererImpl.
+			{
+				const uint32 devFIF = mDevice ? mDevice->GetMaxFramesInFlight() : 0u;
+				uint32 want = framesInFlight < 1u ? 1u : framesInFlight;
+				if (devFIF > want)
+					want = devFIF;
+				mFramesInFlight = want;
+			}
 			mFrameSlot = 0;
 
 			// ── UBOs (matchent le shader pbr.vert/frag.gl.glsl) ──────────────────
@@ -1254,10 +1267,11 @@ namespace nkentseu {
 				mDevice->DestroyPipeline(mLinePipelineNoDepth);
 				mLinePipelineNoDepth = {};
 			}
-			if (mLineVBO.IsValid()) {
-				mDevice->DestroyBuffer(mLineVBO);
-				mLineVBO = {};
-			}
+			for (uint32 s = 0; s < (uint32)mLineVBORing.Size(); s++)
+				if (mLineVBORing[s].IsValid())
+					mDevice->DestroyBuffer(mLineVBORing[s]);
+			mLineVBORing.Clear();
+			mLineVBORingCap.Clear();
 			if (mTriPipeline.IsValid()) {
 				mDevice->DestroyPipeline(mTriPipeline);
 				mTriPipeline = {};
@@ -1266,10 +1280,11 @@ namespace nkentseu {
 				mDevice->DestroyPipeline(mTriPipelineNoDepth);
 				mTriPipelineNoDepth = {};
 			}
-			if (mTriVBO.IsValid()) {
-				mDevice->DestroyBuffer(mTriVBO);
-				mTriVBO = {};
-			}
+			for (uint32 s = 0; s < (uint32)mTriVBORing.Size(); s++)
+				if (mTriVBORing[s].IsValid())
+					mDevice->DestroyBuffer(mTriVBORing[s]);
+			mTriVBORing.Clear();
+			mTriVBORingCap.Clear();
 			for (uint32 s = 0; s < (uint32)mNgonWireRing.Size(); s++)
 				if (mNgonWireRing[s].IsValid())
 					mDevice->DestroyBuffer(mNgonWireRing[s]);
@@ -1279,17 +1294,23 @@ namespace nkentseu {
 			mNgonWireDirtyHi.Clear();
 			mNgonWireCPU.Clear();
 			mNgonWireN = 0;
-			if (mEditLineBuf.IsValid()) {
-				mDevice->DestroyBuffer(mEditLineBuf);
-				mEditLineBuf = {};
-			}
-			if (mEditTriBuf.IsValid()) {
-				mDevice->DestroyBuffer(mEditTriBuf);
-				mEditTriBuf = {};
-			}
-			if (mEditPointBuf.IsValid()) {
-				mDevice->DestroyBuffer(mEditPointBuf);
-				mEditPointBuf = {};
+			{
+				NkVector<NkBufferHandle> *rings[3] = {&mEditLineRing, &mEditTriRing, &mEditPointRing};
+				NkVector<uint32> *caps[3] = {&mEditLineRingCap, &mEditTriRingCap, &mEditPointRingCap};
+				NkVector<uint8> *dirt[3] = {&mEditLineDirty, &mEditTriDirty, &mEditPointDirty};
+				NkVector<float32> *cpus[3] = {&mEditLineCPU, &mEditTriCPU, &mEditPointCPU};
+				for (uint32 k = 0; k < 3u; k++) {
+					for (uint32 s = 0; s < (uint32)rings[k]->Size(); s++)
+						if ((*rings[k])[s].IsValid())
+							mDevice->DestroyBuffer((*rings[k])[s]);
+					rings[k]->Clear();
+					caps[k]->Clear();
+					dirt[k]->Clear();
+					cpus[k]->Clear();
+				}
+				mEditLineN = 0;
+				mEditTriN = 0;
+				mEditPointN = 0;
 			}
 			if (mEditPointPipeline.IsValid()) {
 				mDevice->DestroyPipeline(mEditPointPipeline);
@@ -1745,6 +1766,23 @@ namespace nkentseu {
 			// de fer triangulaire) ; seul le batch d'aretes n-gon est dessine (cf.
 			// FlushDebug). C'est la seule facon d'obtenir un fil de fer SANS diagonale :
 			// le rasteriseur, lui, ne connait que des triangles.
+			// DIAG (NK_WIRE_DRAWDIAG=1) : que reste-t-il RASTERISE en mode fil de fer ?
+			{
+				static int32 diag = -1;
+				if (diag == -1) {
+					const char *dv = getenv("NK_WIRE_DRAWDIAG");
+					diag = (dv && dv[0] && dv[0] != '0') ? 1 : 0;
+				}
+				if (diag) {
+					static uint32 nD = 0;
+					if (nD < 40u)
+						logger.Info("[WireRaster] n={0} ngonWire={1} opaque={2} instanced={3} skinned={4} "
+									"transparent={5}\n",
+									(int32)nD, mNgonWire ? 1 : 0, (int32)mOpaque.Size(), (int32)mInstanced.Size(),
+									(int32)mSkinned.Size(), (int32)mTransparent.Size());
+					nD++;
+				}
+			}
 			if (!mNgonWire) {
 				FlushOpaque(cmd);
 				FlushInstanced(cmd);
@@ -3055,6 +3093,25 @@ namespace nkentseu {
 		}
 
 		void NkRender3D::FlushDebug(NkICommandBuffer *cmd, NkRenderPassHandle currentRP, NkDescSetHandle gs) {
+			// DIAG (NK_WIRE_DRAWDIAG=1) : compte ce qui est REELLEMENT emis par frame.
+			// Sert a comparer mode OBJET vs mode EDITION (surdessin des aretes).
+			{
+				static int32 diag = -1;
+				if (diag == -1) {
+					const char *dv = getenv("NK_WIRE_DRAWDIAG");
+					diag = (dv && dv[0] && dv[0] != '0') ? 1 : 0;
+				}
+				if (diag) {
+					static uint32 nD = 0;
+					if (nD < 40u)
+						logger.Info("[WireDraw] n={0} ngonWire={1} ngonVerts={2} (={3} aretes) editLineV={4} "
+									"(={5} aretes) editTriV={6} editPointV={7} debugLines={8} debugTris={9}\n",
+									(int32)nD, mNgonWire ? 1 : 0, (int32)mNgonWireN, (int32)(mNgonWireN / 2),
+									(int32)mEditLineN, (int32)(mEditLineN / 2), (int32)mEditTriN,
+									(int32)mEditPointN, (int32)mDebugLines.Size(), (int32)mDebugTris.Size());
+					nD++;
+				}
+			}
 			// ── Batch persistant d'aretes N-GON (mode wireframe sans diagonales) ──
 			// Un seul draw, buffer garde d'une frame sur l'autre. Depth-teste : les
 			// aretes s'occultent correctement contre la grille/le sol.
@@ -3076,32 +3133,38 @@ namespace nkentseu {
 			// Faces (fill translucide) — pipeline triangles.
 			if (mEditTriN && EnsureDebugTriOverlayPipeline(currentRP)) {
 				NkPipelineHandle tp = mEditOverlayNoDepth ? mTriPipelineNoDepth : mTriPipeline;
-				if (tp.IsValid()) {
+				const NkBufferHandle b =
+					EditBufForFrame(mEditTriRing, mEditTriRingCap, mEditTriDirty, mEditTriCPU, mEditTriN, 7);
+				if (tp.IsValid() && b.IsValid()) {
 					cmd->BindGraphicsPipeline(tp);
 					if (gs.IsValid())
 						cmd->BindDescriptorSet(gs, 0);
-					cmd->BindVertexBuffer(0, mEditTriBuf, 0);
+					cmd->BindVertexBuffer(0, b, 0);
 					cmd->Draw(mEditTriN);
 				}
 			}
 			// Points (marqueurs de vertices) — pipeline POINT SPRITE écran-constant.
 			if (mEditPointN && EnsureEditPointPipeline(currentRP)) {
 				NkPipelineHandle pp = mEditOverlayNoDepth ? mEditPointPipelineNoDepth : mEditPointPipeline;
-				if (pp.IsValid()) {
+				const NkBufferHandle b =
+					EditBufForFrame(mEditPointRing, mEditPointRingCap, mEditPointDirty, mEditPointCPU, mEditPointN, 9);
+				if (pp.IsValid() && b.IsValid()) {
 					cmd->BindGraphicsPipeline(pp);
 					if (gs.IsValid())
 						cmd->BindDescriptorSet(gs, 0);
-					cmd->BindVertexBuffer(0, mEditPointBuf, 0);
+					cmd->BindVertexBuffer(0, b, 0);
 					cmd->Draw(mEditPointN);
 				}
 			}
 			if (mEditLineN && EnsureDebugLinePipeline(currentRP)) {
 				NkPipelineHandle lp = mEditOverlayNoDepth ? mLinePipelineNoDepth : mLinePipeline;
-				if (lp.IsValid()) {
+				const NkBufferHandle b =
+					EditBufForFrame(mEditLineRing, mEditLineRingCap, mEditLineDirty, mEditLineCPU, mEditLineN, 7);
+				if (lp.IsValid() && b.IsValid()) {
 					cmd->BindGraphicsPipeline(lp);
 					if (gs.IsValid())
 						cmd->BindDescriptorSet(gs, 0);
-					cmd->BindVertexBuffer(0, mEditLineBuf, 0);
+					cmd->BindVertexBuffer(0, b, 0);
 					cmd->Draw(mEditLineN);
 				}
 			}
@@ -3133,26 +3196,21 @@ namespace nkentseu {
 				const uint32 tcount = (uint32)tv.Size();
 				const uint32 tOverlay = tcount - tNormal;
 				if (tcount > 0) {
-					if (!mTriVBO.IsValid() || mTriVBOCapVerts < tcount) {
-						if (mTriVBO.IsValid())
-							mDevice->DestroyBuffer(mTriVBO);
-						const uint32 cap = tcount + 256;
-						mTriVBO = mDevice->CreateBuffer(NkBufferDesc::VertexDynamic((uint64)cap * sizeof(LV)));
-						mTriVBOCapVerts = cap;
-					}
-					mDevice->WriteBuffer(mTriVBO, tv.Data(), (uint64)tcount * sizeof(LV), 0);
-					if (tNormal > 0) {
+					// Ring par frame en vol (ce contenu est reecrit CHAQUE frame).
+					const NkBufferHandle tb =
+						DebugRingUpload(mTriVBORing, mTriVBORingCap, tv.Data(), tcount, (uint32)sizeof(LV));
+					if (tb.IsValid() && tNormal > 0) {
 						cmd->BindGraphicsPipeline(mTriPipeline);
 						if (gs.IsValid())
 							cmd->BindDescriptorSet(gs, 0);
-						cmd->BindVertexBuffer(0, mTriVBO, 0);
+						cmd->BindVertexBuffer(0, tb, 0);
 						cmd->Draw(tNormal);
 					}
-					if (tOverlay > 0 && mTriPipelineNoDepth.IsValid()) {
+					if (tb.IsValid() && tOverlay > 0 && mTriPipelineNoDepth.IsValid()) {
 						cmd->BindGraphicsPipeline(mTriPipelineNoDepth);
 						if (gs.IsValid())
 							cmd->BindDescriptorSet(gs, 0);
-						cmd->BindVertexBuffer(0, mTriVBO, (uint64)tNormal * sizeof(LV));
+						cmd->BindVertexBuffer(0, tb, (uint64)tNormal * sizeof(LV));
 						cmd->Draw(tOverlay);
 					}
 				}
@@ -3200,30 +3258,26 @@ namespace nkentseu {
 				const uint32 vOverlay = vcount - vNormal;
 				const uint64 bytes = (uint64)vcount * sizeof(LV);
 
-				// (Re)créer le VBO dynamique si trop petit, puis uploader.
-				if (!mLineVBO.IsValid() || mLineVBOCapVerts < vcount) {
-					if (mLineVBO.IsValid())
-						mDevice->DestroyBuffer(mLineVBO);
-					const uint32 cap = vcount + 256;
-					mLineVBO = mDevice->CreateBuffer(NkBufferDesc::VertexDynamic((uint64)cap * sizeof(LV)));
-					mLineVBOCapVerts = cap;
-				}
-				mDevice->WriteBuffer(mLineVBO, verts.Data(), bytes, 0);
+				// Ring par frame en vol (ce contenu est reecrit CHAQUE frame) :
+				// un buffer unique serait reecrit pendant que le GPU le lit encore.
+				(void)bytes;
+				const NkBufferHandle lb =
+					DebugRingUpload(mLineVBORing, mLineVBORingCap, verts.Data(), vcount, (uint32)sizeof(LV));
 
 				// Lot 1 : lignes normales (depth-test ON).
-				if (vNormal > 0) {
+				if (lb.IsValid() && vNormal > 0) {
 					cmd->BindGraphicsPipeline(mLinePipeline);
 					if (gs.IsValid())
 						cmd->BindDescriptorSet(gs, 0);
-					cmd->BindVertexBuffer(0, mLineVBO, 0);
+					cmd->BindVertexBuffer(0, lb, 0);
 					cmd->Draw(vNormal);
 				}
 				// Lot 2 : lignes OVERLAY (depth-test OFF) -> toujours au-dessus.
-				if (vOverlay > 0 && mLinePipelineNoDepth.IsValid()) {
+				if (lb.IsValid() && vOverlay > 0 && mLinePipelineNoDepth.IsValid()) {
 					cmd->BindGraphicsPipeline(mLinePipelineNoDepth);
 					if (gs.IsValid())
 						cmd->BindDescriptorSet(gs, 0);
-					cmd->BindVertexBuffer(0, mLineVBO, (uint64)vNormal * sizeof(LV));
+					cmd->BindVertexBuffer(0, lb, (uint64)vNormal * sizeof(LV));
 					cmd->Draw(vOverlay);
 				}
 			}
@@ -3296,33 +3350,108 @@ namespace nkentseu {
 		}
 
 		// ── Edit overlay persistant ────────────────────────────────────────────────
-		void NkRender3D::UploadEditBuf(NkBufferHandle &buf, uint32 &cap, const float *v, uint32 vcount,
-									   uint32 strideBytes) {
-			if (vcount == 0)
+		// La copie CPU est l'AUTORITE : on n'ecrit jamais dans un buffer GPU ici (une
+		// frame en vol pourrait le lire). Tous les slots sont marques perimes ; chacun
+		// sera remis a niveau par EditBufForFrame au moment ou il est dessine.
+		void NkRender3D::UploadEditBuf(NkVector<float32> &cpu, NkVector<uint8> &dirty, const float *v, uint32 vcount,
+									   uint32 floatsPerVertex) {
+			if (vcount == 0) {
+				cpu.Clear();
+				for (uint32 s = 0; s < (uint32)dirty.Size(); s++)
+					dirty[s] = 1;
 				return;
-			if (!buf.IsValid() || cap < vcount) {
-				if (buf.IsValid())
-					mDevice->DestroyBuffer(buf);
-				cap = vcount + 256;
-				buf = mDevice->CreateBuffer(NkBufferDesc::VertexDynamic((uint64)cap * strideBytes));
 			}
-			mDevice->WriteBuffer(buf, v, (uint64)vcount * strideBytes, 0);
+			cpu.Resize(vcount * floatsPerVertex);
+			if (v)
+				memcpy(cpu.Data(), v, (size_t)vcount * floatsPerVertex * sizeof(float));
+			for (uint32 s = 0; s < (uint32)dirty.Size(); s++)
+				dirty[s] = 1;
+		}
+
+		// Buffer du slot COURANT, remis a niveau depuis la copie CPU juste avant le draw.
+		NkBufferHandle NkRender3D::EditBufForFrame(NkVector<NkBufferHandle> &ring, NkVector<uint32> &caps,
+												   NkVector<uint8> &dirty, const NkVector<float32> &cpu, uint32 vcount,
+												   uint32 floatsPerVertex) {
+			const uint32 slots = (mFramesInFlight < 1u) ? 1u : mFramesInFlight;
+			if ((uint32)ring.Size() != slots) {
+				for (uint32 s = 0; s < (uint32)ring.Size(); s++)
+					if (ring[s].IsValid())
+						mDevice->DestroyBuffer(ring[s]);
+				ring.Clear();
+				caps.Clear();
+				dirty.Clear();
+				ring.Resize(slots);
+				caps.Resize(slots);
+				dirty.Resize(slots);
+				for (uint32 s = 0; s < slots; s++) {
+					ring[s] = NkBufferHandle{};
+					caps[s] = 0;
+					dirty[s] = 1;
+				}
+			}
+			const uint32 slot = (mFrameSlot < slots) ? mFrameSlot : 0u;
+			if (vcount == 0)
+				return NkBufferHandle{};
+			const uint32 strideBytes = floatsPerVertex * (uint32)sizeof(float);
+			if (!ring[slot].IsValid() || caps[slot] < vcount) {
+				if (ring[slot].IsValid())
+					mDevice->DestroyBuffer(ring[slot]);
+				caps[slot] = vcount + 256u;
+				ring[slot] = mDevice->CreateBuffer(NkBufferDesc::VertexDynamic((uint64)caps[slot] * strideBytes));
+				dirty[slot] = 1; // buffer neuf -> contenu complet a ecrire
+			}
+			if (dirty[slot] && (uint64)vcount * floatsPerVertex <= (uint64)cpu.Size()) {
+				mDevice->WriteBuffer(ring[slot], cpu.Data(), (uint64)vcount * strideBytes, 0);
+				dirty[slot] = 0;
+			}
+			return ring[slot];
 		}
 
 		void NkRender3D::SetEditOverlayLines(const float *v, uint32 n) {
-			UploadEditBuf(mEditLineBuf, mEditLineCap, v, n, 7 * sizeof(float));
+			UploadEditBuf(mEditLineCPU, mEditLineDirty, v, n, 7);
 			mEditLineN = n;
 		}
 
 		void NkRender3D::SetEditOverlayTris(const float *v, uint32 n) {
-			UploadEditBuf(mEditTriBuf, mEditTriCap, v, n, 7 * sizeof(float));
+			UploadEditBuf(mEditTriCPU, mEditTriDirty, v, n, 7);
 			mEditTriN = n;
 		}
 
 		// Points = sprites écran-constant : vertex = pos3 + corner2(px) + rgba4 = 9 float.
 		void NkRender3D::SetEditOverlayPoints(const float *v, uint32 n) {
-			UploadEditBuf(mEditPointBuf, mEditPointCap, v, n, 9 * sizeof(float));
+			UploadEditBuf(mEditPointCPU, mEditPointDirty, v, n, 9);
 			mEditPointN = n;
+		}
+
+		// Ring des VBO debug « une frame » (lignes/triangles de gizmo) : le contenu est
+		// entierement reconstruit chaque frame, il suffit donc d'ecrire le slot courant.
+		NkBufferHandle NkRender3D::DebugRingUpload(NkVector<NkBufferHandle> &ring, NkVector<uint32> &caps,
+												   const void *v, uint32 vcount, uint32 strideBytes) {
+			const uint32 slots = (mFramesInFlight < 1u) ? 1u : mFramesInFlight;
+			if ((uint32)ring.Size() != slots) {
+				for (uint32 s = 0; s < (uint32)ring.Size(); s++)
+					if (ring[s].IsValid())
+						mDevice->DestroyBuffer(ring[s]);
+				ring.Clear();
+				caps.Clear();
+				ring.Resize(slots);
+				caps.Resize(slots);
+				for (uint32 s = 0; s < slots; s++) {
+					ring[s] = NkBufferHandle{};
+					caps[s] = 0;
+				}
+			}
+			const uint32 slot = (mFrameSlot < slots) ? mFrameSlot : 0u;
+			if (vcount == 0 || !v)
+				return NkBufferHandle{};
+			if (!ring[slot].IsValid() || caps[slot] < vcount) {
+				if (ring[slot].IsValid())
+					mDevice->DestroyBuffer(ring[slot]);
+				caps[slot] = vcount + 256u;
+				ring[slot] = mDevice->CreateBuffer(NkBufferDesc::VertexDynamic((uint64)caps[slot] * strideBytes));
+			}
+			mDevice->WriteBuffer(ring[slot], v, (uint64)vcount * strideBytes, 0);
+			return ring[slot];
 		}
 
 		// ── Batch d'aretes n-gon — RING PAR FRAME EN VOL ──────────────────────────
@@ -3386,6 +3515,31 @@ namespace nkentseu {
 			if (hi > lo && (uint64)hi * 7 <= (uint64)mNgonWireCPU.Size())
 				mDevice->WriteBuffer(mNgonWireRing[slot], mNgonWireCPU.Data() + (uint64)lo * 7,
 									 (uint64)(hi - lo) * 7 * sizeof(float), (uint64)lo * 7 * sizeof(float));
+			// DIAG (NK_WIRE_SLOTDIAG=1) : trace la suite des slots reellement utilises.
+			// Sert a prouver que deux frames CONSECUTIVES ne retombent jamais sur le
+			// meme slot (sinon = ecriture d'un buffer encore lu par le GPU).
+			{
+				static int32 diag = -1;
+				if (diag == -1) {
+					const char *dv = getenv("NK_WIRE_SLOTDIAG");
+					diag = (dv && dv[0] && dv[0] != '0') ? 1 : 0;
+				}
+				if (diag) {
+					static uint32 nDiag = 0;
+					static uint32 prevSlot = 0xFFFFFFFFu;
+					static uint32 collisions = 0;
+					if (slot == prevSlot)
+						collisions++;
+					if (nDiag < 60u)
+						logger.Info("[WireSlot] n={0} devFrameIdx={1} devMaxFIF={2} slots={3} slot={4} "
+									"upload=[{5},{6}) verts={7} collisionsConsecutives={8}\n",
+									(int32)nDiag, (int32)mDevice->GetFrameIndex(),
+									(int32)mDevice->GetMaxFramesInFlight(), (int32)slots, (int32)slot, (int32)lo,
+									(int32)hi, (int32)mNgonWireN, (int32)collisions);
+					prevSlot = slot;
+					nDiag++;
+				}
+			}
 			mNgonWireDirtyLo[slot] = 0;
 			mNgonWireDirtyHi[slot] = 0; // slot a jour
 			return mNgonWireRing[slot];
