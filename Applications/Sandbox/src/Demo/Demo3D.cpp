@@ -5238,6 +5238,27 @@ namespace nkentseu {
 							st->gizmo.Select(gobj);
 							st->gizmo.SetMode(atoi(gv) & 3);
 						}
+						// NK_GIZMO_MULTI="a,b,c" : sélectionne PLUSIEURS objets pour une
+						// capture headless. Sans ce levier, impossible de tester en capture
+						// que le liseré marque bien TOUS les sélectionnés et pas seulement
+						// l'actif — c'était précisément le bug. Le premier index devient
+						// l'objet ACTIF (Select vide la sélection), les suivants s'ajoutent.
+						if (const char *gm = getenv("NK_GIZMO_MULTI")) {
+							const char *p = gm;
+							bool first = true;
+							while (*p) {
+								const int32 id = atoi(p);
+								if (first) {
+									st->gizmo.Select(id);
+									first = false;
+								} else
+									st->gizmo.AddToSelection(id);
+								while (*p && *p != ',')
+									p++;
+								if (*p == ',')
+									p++;
+							}
+						}
 						// NK_SEL_TEST_XFORM=1 : non-régression du FIX 1 (contour qui suit
 						// l'objet). Sélectionne un objet (NK_GIZMO_OBJ, défaut 14) et lui
 						// applique une transform NON-IDENTITÉ FIGÉE (translation + rotation Y
@@ -5315,18 +5336,36 @@ namespace nkentseu {
 					// instanciés (19+) n'ont pas de transform per-instance côté drawcall
 					// simple -> hors périmètre de cette démo.
 					if (r3d->IsSelectionOutlineEnabled() && st->gizmo.HasSelection()) {
-						const int32 sel = st->gizmo.ActiveIndex();
-						if (sel >= 0 && sel < 19) {
+						// TOUS les objets sélectionnés, pas seulement l'ACTIF. Le code ne
+						// soumettait que gizmo.ActiveIndex() : en sélection multiple, un seul
+						// objet recevait le liseré orange alors que le gizmo, lui, agissait
+						// bien sur tout le groupe — l'affichage mentait sur l'état réel.
+						// Blender entoure tous les sélectionnés, l'actif d'une teinte plus
+						// claire ; ici le masque de silhouette est monochrome, donc tous
+						// ressortent de la même couleur (distinction actif/sélectionné à
+						// faire plus tard, elle demande un second canal de masque).
+						int32 nOut = 0;
+						for (int32 i = 0; i < 19 && i < renderer::NkGizmo3D::kMax; i++) {
+							if (!st->gizmo.IsSelected(i))
+								continue;
 							NkDrawCall3D sdc;
-							sdc.mesh = meshFor(sel, (sel < 16) ? st->meshSphere : st->meshCube);
-							// FIX 1 : réutilise la matrice EXACTE ayant servi à dessiner l'objet
-							// actif (capturée AVANT gizmo.Update). Fallback (nouveau pick cette
-							// frame, indices désynchronisés) : recalcul depuis la base de repos.
-							sdc.transform = (selDrawValid && sel == selDrawIdx)
+							sdc.mesh = meshFor(i, (i < 16) ? st->meshSphere : st->meshCube);
+							// Matrice EXACTE ayant servi à dessiner l'objet cette frame
+							// (objXform est renseigné à la soumission). Sans ça, le liseré
+							// se décale de l'objet dès qu'une transformation est en cours.
+							// Repli : recalcul depuis la base de repos (objet pas encore
+							// soumis cette frame, ex. tout premier pick).
+							sdc.transform = (selDrawValid && i == selDrawIdx)
 												? selDrawXform
-												: userXform(sel, Demo3D_ObjBase(sel));
+												: ((i < (int32)Demo3DState::kNumObj) ? st->objXform[i]
+																					 : userXform(i, Demo3D_ObjBase(i)));
 							r3d->SubmitSelection(sdc);
+							nOut++;
 						}
+						// Les cubes INSTANCIÉS (19+) restent hors périmètre : ils n'ont pas de
+						// drawcall individuel porteur de transform, donc rien à soumettre au
+						// masque. À traiter avec le liseré des instances, pas ici.
+						(void)nOut;
 					}
 
 					// Rendu PLEIN (façon Blender solide) : lignes fines (tiges/liserés) via
