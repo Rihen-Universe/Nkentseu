@@ -111,6 +111,31 @@ Trois implémentations concurrentes de la même chose :
 
 **Cap applicatif décidé** : une fois cette base saine, **extraire le câblage viewport dans NKEditorKit** (composant réutilisable avec une **table de raccourcis** configurable, pas de raccourcis en dur), puis créer l'application **NK3DModeler** par-dessus, avec GUI et raccourcis identiques à Blender. NkAnima, PV3DE et Nogee héritent du même socle — pas de duplication.
 
+## ⭐ REFONTE DÉCIDÉE — arête de premier plan (modèle type BMesh) — 2026-07-28
+
+**Décision de l'auteur** : « chez Blender l'arête existe indépendamment des faces ; chez nous elle n'existe qu'à travers elles — on doit corriger ça. » Le contournement envisagé (paire de demi-arêtes avec `face = INVALID`) est **abandonné** : il aurait créé une structure temporaire sur laquelle les opérations se seraient appuyées, donc une dette de migration.
+
+**Constat.** `NkEditMesh` a trois entités — `Vert`, `Hedge`, `Face`. `Hedge` porte `origin / twin / next / face`, où `next` signifie « suivante **autour de la face** ». L'arête n'est donc pas une entité : c'est une paire de demi-arêtes qui n'existent qu'à travers leur face. Conséquences structurelles : pas d'arête libre (*wire edge*), pas de sommet isolé (*loose vert*), et **pas de non-manifold** (`twin` est unique, donc au plus 2 faces par arête).
+
+**Cible (modèle BMesh de Blender)** — quatre entités :
+
+| Aujourd'hui | Après |
+|---|---|
+| `Vert`, `Hedge`, `Face` | `Vert`, **`Edge`**, `Loop`, `Face` |
+| `Hedge` = arête ET coin de face confondus | `Edge` = liaison entre 2 sommets, autonome ; `Loop` = coin de face qui **référence** une arête |
+| `twin` unique | **cycle radial** : 0 (arête libre), 1 (bord), 2 (manifold), N (non-manifold) |
+
+**Ce que ça débloque** : `F` sur 2 sommets → arête (flux « tracer un profil puis fermer des faces », base du spin/extrude) ; sommets isolés ; non-manifold ; parité Blender sur les cas limites.
+
+**Surface d'impact** (tout repose aujourd'hui sur `Hedge.twin/next/face`) : `LinkTwins`, `BuildVertexMerge`, `Triangulate`/`TriangulateShaded`, `RecomputeNormals`, `GetEdgeLoop`/`GetFaceLoop`, `NkEmBuildVertAdj`, le picking, la cage d'édition, le batch d'arêtes n-gon, la sérialisation `.nkmec`, et **les 13 opérations** (extrude, subdivide, loop cut, bevel arête/sommet, inset, edge split, spin, dissolve, To Sphere, Shrink/Fatten, quadify, booléens, décimation).
+
+**MÉTHODE OBLIGATOIRE — dans cet ordre, ne pas inverser :**
+1. **Harnais de non-régression D'ABORD**, avant de toucher à la structure : exécuter chaque opération sur des cas connus (cube, cube subdivisé, sphère, colonne) et enregistrer les résultats de **référence** — compteurs sommets/arêtes/faces après chaque op, plus captures. C'est le seul filet qui permettra de détecter une régression silencieuse.
+2. **Refonte** de la structure, en conservant si possible une **façade compatible** pour ne pas réécrire les 13 opérations simultanément.
+3. **Rejouer le harnais** et exiger des chiffres **identiques**. Toute divergence est un bug de migration, jamais une « amélioration » — à investiguer, pas à entériner.
+
+⚠️ Ne pas entreprendre cette refonte en parallèle d'autres travaux sur `NkEditMesh` / `Demo3D.cpp` : conflit garanti. Mission dédiée, isolée.
+
 ## Comment travailler / vérifier
 
 - **Vérifier qu'un en-tête compile isolément** (utile pour les spec-headers jamais buildés) : extraire les flags d'un .cpp Noge depuis `.nkcode/compile_commands.json` (34 `-I`, 8 `-D` ; convertir les `\` en `/` pour un fichier-réponse clang), puis `clang++ -std=c++17 @rsp -fsyntax-only -x c++ <header>`. Racine d'include Noge = `Engine/Noge/src` → chemins `Noge/Sousdossier/Fichier.h`.
