@@ -2846,6 +2846,161 @@ namespace nkentseu {
 		// COMMANDE D'ÉDITION SÉRIALISABLE — pose la sélection puis dispatch l'op.
 		// C'est ce qui rend la couche de commandes SCRIPTABLE (modificateurs + IA).
 		// =====================================================================
+		// =====================================================================
+		// TO SPHERE / SHRINK-FATTEN — deformations RADIALES (façon Blender)
+		// =====================================================================
+		// Toutes deux operent sur l'IDENTITE SOUDEE (BuildVertexMerge) : les copies
+		// coincidentes d'un meme coin recoivent EXACTEMENT le meme deplacement, sinon
+		// la soudure (donc les jumeaux de demi-aretes) serait rompue au premier appel.
+		bool NkEditMesh::ToSphereSelected(const NkToSphereParams &p) {
+			const uint32 nv = (uint32)verts.Size();
+			if (nv == 0 || fabsf(p.factor) < 1e-6f)
+				return false;
+			NkVector<uint32> canon;
+			BuildVertexMerge(canon);
+			NkVector<NkVec3f> target;
+			NkVector<uint32> hits;
+			target.Resize(nv);
+			hits.Resize(nv);
+			for (uint32 i = 0; i < nv; ++i) {
+				target[i] = {0.f, 0.f, 0.f};
+				hits[i] = 0;
+			}
+			if (!p.individual) {
+				// RAYON MOYEN : moyenne des distances au centre, comptee UNE fois par
+				// sommet soude (sinon les coins dupliques pesent 3x et le rayon derive).
+				float64 sum = 0.0;
+				uint32 cnt = 0;
+				NkVector<uint8> seen;
+				seen.Resize(nv);
+				for (uint32 i = 0; i < nv; ++i)
+					seen[i] = 0;
+				for (uint32 i = 0; i < nv; ++i) {
+					if (!verts[i].sel)
+						continue;
+					const uint32 cv = canon[i];
+					if (seen[cv])
+						continue;
+					seen[cv] = 1;
+					sum += (float64)(verts[i].pos - p.center).Len();
+					cnt++;
+				}
+				if (cnt == 0)
+					return false;
+				const float32 R = (float32)(sum / (float64)cnt);
+				for (uint32 i = 0; i < nv; ++i) {
+					if (!verts[i].sel)
+						continue;
+					const NkVec3f d = verts[i].pos - p.center;
+					const float32 l = d.Len();
+					if (l < 1e-8f)
+						continue;
+					target[i] = p.center + d * (R / l);
+					hits[i] = 1;
+				}
+			} else {
+				// PAR ILOT : chaque face entierement selectionnee est spherisee autour de
+				// SON barycentre ; un sommet partage prend la MOYENNE de ses cibles.
+				NkVector<NkEmId> loop;
+				NkVector<NkVec3f> acc;
+				NkVector<uint32> acn;
+				acc.Resize(nv);
+				acn.Resize(nv);
+				for (uint32 i = 0; i < nv; ++i) {
+					acc[i] = {0.f, 0.f, 0.f};
+					acn[i] = 0;
+				}
+				for (uint32 f = 0; f < (uint32)faces.Size(); ++f) {
+					if (!faces[f].alive || !FaceIsSelected(f))
+						continue;
+					loop.Clear();
+					GetFaceVerts(f, loop);
+					const uint32 fn = (uint32)loop.Size();
+					if (fn < 3)
+						continue;
+					NkVec3f fc = {0.f, 0.f, 0.f};
+					for (uint32 k = 0; k < fn; ++k)
+						fc = fc + verts[loop[k]].pos;
+					fc = fc * (1.f / (float32)fn);
+					float64 sum = 0.0;
+					for (uint32 k = 0; k < fn; ++k)
+						sum += (float64)(verts[loop[k]].pos - fc).Len();
+					const float32 R = (float32)(sum / (float64)fn);
+					for (uint32 k = 0; k < fn; ++k) {
+						const uint32 vi = canon[loop[k]];
+						const NkVec3f d = verts[loop[k]].pos - fc;
+						const float32 l = d.Len();
+						if (l < 1e-8f)
+							continue;
+						acc[vi] = acc[vi] + (fc + d * (R / l));
+						acn[vi]++;
+					}
+				}
+				for (uint32 i = 0; i < nv; ++i) {
+					const uint32 cv = canon[i];
+					if (!verts[i].sel || acn[cv] == 0)
+						continue;
+					target[i] = acc[cv] * (1.f / (float32)acn[cv]);
+					hits[i] = 1;
+				}
+			}
+			bool changed = false;
+			for (uint32 i = 0; i < nv; ++i) {
+				if (!hits[i])
+					continue;
+				const NkVec3f np = verts[i].pos + (target[i] - verts[i].pos) * p.factor;
+				if ((np - verts[i].pos).Len() > 1e-7f)
+					changed = true;
+				verts[i].pos = np;
+			}
+			if (changed)
+				RecomputeNormals();
+			return changed;
+		}
+
+		bool NkEditMesh::ShrinkFattenSelected(const NkShrinkFattenParams &p) {
+			const uint32 nv = (uint32)verts.Size();
+			const uint32 nf = (uint32)faces.Size();
+			if (nv == 0 || fabsf(p.offset) < 1e-7f)
+				return false;
+			NkVector<uint32> canon;
+			BuildVertexMerge(canon);
+			// Normale par sommet SOUDE = somme des normales de face NON normalisees
+			// (donc ponderees par l'aire), accumulee sur le representant du groupe.
+			NkVector<NkVec3f> acc;
+			acc.Resize(nv);
+			for (uint32 i = 0; i < nv; ++i)
+				acc[i] = {0.f, 0.f, 0.f};
+			NkVector<NkEmId> loop;
+			for (uint32 f = 0; f < nf; ++f) {
+				if (!faces[f].alive)
+					continue;
+				loop.Clear();
+				GetFaceVerts(f, loop);
+				if (loop.Size() < 3)
+					continue;
+				const NkVec3f n = NkEmFaceCross(verts[loop[0]].pos, verts[loop[1]].pos, verts[loop[2]].pos);
+				for (uint32 k = 0; k < (uint32)loop.Size(); ++k) {
+					const uint32 cv = canon[loop[k]];
+					acc[cv] = acc[cv] + n;
+				}
+			}
+			bool changed = false;
+			for (uint32 i = 0; i < nv; ++i) {
+				if (!verts[i].sel)
+					continue;
+				const NkVec3f n = acc[canon[i]];
+				const float32 l = n.Len();
+				if (l < 1e-10f)
+					continue;
+				verts[i].pos = verts[i].pos + n * (p.offset / l);
+				changed = true;
+			}
+			if (changed)
+				RecomputeNormals();
+			return changed;
+		}
+
 		bool NkMeshEditCommand::Apply(NkEditMesh &m) const {
 			// Rejoue la sélection enregistrée sur le maillage courant.
 			for (uint32 i = 0; i < m.VertCount(); ++i)
@@ -2884,6 +3039,10 @@ namespace nkentseu {
 					return m.SpinSelected(spin, spinXform);
 				case NkMeshEditOp::Dissolve:
 					return m.DissolveSelected(dissolve);
+				case NkMeshEditOp::ToSphere:
+					return m.ToSphereSelected(tosphere);
+				case NkMeshEditOp::ShrinkFatten:
+					return m.ShrinkFattenSelected(shrinkfatten);
 				case NkMeshEditOp::Move: {
 					bool changed = false;
 					for (uint32 k = 0; k < (uint32)selection.Size() && k < (uint32)moveDeltas.Size(); ++k) {
@@ -2991,7 +3150,7 @@ namespace nkentseu {
 			out.Clear();
 			EmW w{out};
 			w.U32(NK_EMREC_MAGIC);
-			w.U32(7u); // v7 : + NkDissolveParams (v6 : spin · v5 : split · v4 : inset · v3 : bevel)
+			w.U32(8u); // v8 : + ToSphere/ShrinkFatten (v7 : dissolve · v6 : spin · v5 : split · v4 : inset)
 			w.U32((uint32)mCommands.Size());
 			for (uint32 i = 0; i < (uint32)mCommands.Size(); ++i) {
 				const NkMeshEditCommand &c = mCommands[i];
@@ -3039,6 +3198,12 @@ namespace nkentseu {
 					for (int32 row = 0; row < 4; ++row)
 						w.F32(c.spinXform[col][row]);
 				w.I32(c.dissolve.mode); // v7
+				w.F32(c.tosphere.center.x); // v8
+				w.F32(c.tosphere.center.y);
+				w.F32(c.tosphere.center.z);
+				w.F32(c.tosphere.factor);
+				w.U8((uint8)(c.tosphere.individual ? 1 : 0));
+				w.F32(c.shrinkfatten.offset);
 			}
 		}
 
@@ -3207,6 +3372,13 @@ namespace nkentseu {
 				}
 				if (ver >= 7u)
 					c.dissolve.mode = r.I32();
+				if (ver >= 8u) {
+					float32 sx = r.F32(), sy = r.F32(), sz = r.F32();
+					c.tosphere.center = {sx, sy, sz};
+					c.tosphere.factor = r.F32();
+					c.tosphere.individual = (r.U8() != 0);
+					c.shrinkfatten.offset = r.F32();
+				}
 				if (r.ok)
 					mCommands.PushBack(c);
 			}

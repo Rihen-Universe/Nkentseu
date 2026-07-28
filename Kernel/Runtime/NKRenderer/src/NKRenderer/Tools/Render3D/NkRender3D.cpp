@@ -1270,6 +1270,10 @@ namespace nkentseu {
 				mDevice->DestroyBuffer(mTriVBO);
 				mTriVBO = {};
 			}
+			if (mNgonWireBuf.IsValid()) {
+				mDevice->DestroyBuffer(mNgonWireBuf);
+				mNgonWireBuf = {};
+			}
 			if (mEditLineBuf.IsValid()) {
 				mDevice->DestroyBuffer(mEditLineBuf);
 				mEditLineBuf = {};
@@ -1731,10 +1735,16 @@ namespace nkentseu {
 			// Mode d'affichage wireframe : propage au material system (c'est lui qui binde
 			// le pipeline final par BindInstance -> il doit choisir la variante fil-de-fer).
 			if (mMat)
-				mMat->SetWireframe(mWireframe);
-			FlushOpaque(cmd);
-			FlushInstanced(cmd);
-			FlushSkinned(cmd);
+				mMat->SetWireframe(mWireframe && !mNgonWire);
+			// WIREFRAME N-GON : les maillages ne sont PAS rasterises (ni pleins, ni en fil
+			// de fer triangulaire) ; seul le batch d'aretes n-gon est dessine (cf.
+			// FlushDebug). C'est la seule facon d'obtenir un fil de fer SANS diagonale :
+			// le rasteriseur, lui, ne connait que des triangles.
+			if (!mNgonWire) {
+				FlushOpaque(cmd);
+				FlushInstanced(cmd);
+				FlushSkinned(cmd);
+			}
 			// Grille infinie : APRÈS l'opaque (occlusion correcte par les objets),
 			// AVANT le transparent (le transparent se blend par-dessus la grille).
 			if (mDrawGrid) {
@@ -3040,6 +3050,16 @@ namespace nkentseu {
 		}
 
 		void NkRender3D::FlushDebug(NkICommandBuffer *cmd, NkRenderPassHandle currentRP, NkDescSetHandle gs) {
+			// ── Batch persistant d'aretes N-GON (mode wireframe sans diagonales) ──
+			// Un seul draw, buffer garde d'une frame sur l'autre. Depth-teste : les
+			// aretes s'occultent correctement contre la grille/le sol.
+			if (mNgonWire && mNgonWireN && EnsureDebugLinePipeline(currentRP) && mLinePipeline.IsValid()) {
+				cmd->BindGraphicsPipeline(mLinePipeline);
+				if (gs.IsValid())
+					cmd->BindDescriptorSet(gs, 0);
+				cmd->BindVertexBuffer(0, mNgonWireBuf, 0);
+				cmd->Draw(mNgonWireN);
+			}
 			// ── Edit overlay PERSISTANT (cage/faces/points) : rendu chaque frame depuis
 			//    des buffers GPU gardés (aucune reconstruction CPU tant que rien ne
 			//    change). Faces/points d'abord (fill), puis la cage par-dessus. ────────
@@ -3293,6 +3313,26 @@ namespace nkentseu {
 		void NkRender3D::SetEditOverlayPoints(const float *v, uint32 n) {
 			UploadEditBuf(mEditPointBuf, mEditPointCap, v, n, 9 * sizeof(float));
 			mEditPointN = n;
+		}
+
+		// ── Batch d'aretes n-gon ───────────────────────────────────────────────────
+		void NkRender3D::SetNgonWireLines(const float *v, uint32 n) {
+			UploadEditBuf(mNgonWireBuf, mNgonWireCap, v, n, 7 * sizeof(float));
+			mNgonWireN = n;
+		}
+
+		// Reecrit UNIQUEMENT la tranche [firstVertex, firstVertex+count) : les aretes
+		// d'une primitive sont calculees une fois pour toutes, seule la transform d'un
+		// objet qui bouge oblige a re-transformer SA tranche.
+		void NkRender3D::UpdateNgonWireLines(const float *v, uint32 firstVertex, uint32 count) {
+			if (!mNgonWireBuf.IsValid() || count == 0 || firstVertex + count > mNgonWireCap)
+				return;
+			mDevice->WriteBuffer(mNgonWireBuf, v, (uint64)count * 7 * sizeof(float),
+								 (uint64)firstVertex * 7 * sizeof(float));
+		}
+
+		void NkRender3D::ClearNgonWire() {
+			mNgonWireN = 0;
 		}
 
 		void NkRender3D::SetEditOverlayXray(bool xray) {
