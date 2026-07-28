@@ -26,9 +26,10 @@ uniform CameraUBO {
     float iblStrength;
     float _p0;
     float viewMode;      // 0=RENDERED (PBR éclairé) ; >0.5 = SOLID/UNLIT (matcap)
-    float matcapId;      // preset matcap en mode SOLID/WIREFRAME : 0=Studio 1=Clay 2=Metal 3=Toon
+    float matcapId;      // matcap en mode SOLID/WIREFRAME : index 0..29 dans l'atlas
     mat4  mirrorViewProj;
     vec4  reflectionFlags;
+    vec4  viewOpts;      // .x=1 si matcap PERSONNALISEE (texture seule, pas l'atlas) ; .yzw reserve
 } uCam;
 
 @binding(set=1, binding=1)
@@ -397,34 +398,33 @@ void main() {
     // 1=SOLID/matcap, 2=NORMAL, 3=UV, 4=AO. Tous sans lumières de scène (débogage).
     if (uCam.viewMode > 0.5) {
         if (uCam.viewMode < 1.5) {
-            // 1 — SOLID/WIREFRAME : matcap procédural en ESPACE VUE (tourne avec la
-            // caméra), SANS lumières/ombres/IBL. Presets sélectionnables (matcapId).
-            // Borné (<0.85) -> pas de halo bloom. NB : mat3(mat4) INTERDIT HLSL (X3014).
+            // 1 — SOLID / WIREFRAME : MATCAP en ESPACE VUE, SANS lumieres de scene,
+            // sans ombres, sans IBL. L'eclairage est PEINT dans la texture : c'est ce
+            // qui rend le mode lisible quel que soit l'eclairage reel de la scene.
+            // NB : mat3(mat4) INTERDIT en HLSL (X3014) -> on reconstruit colonne par colonne.
             mat3  vRot = mat3(uCam.view[0].xyz, uCam.view[1].xyz, uCam.view[2].xyz);
             vec3  vn   = normalize(vRot * geomN);                 // normale en espace vue
-            float mc   = uCam.matcapId;
-            float shade;
-            if (mc < 0.5) {
-                float key  = max(dot(vn, vec3(0.32, 0.53, 0.78)), 0.0);
-                float fill = max(dot(vn, vec3(-0.60, 0.10, 0.79)), 0.0);
-                float rim  = pow(1.0 - max(vn.z, 0.0), 3.0);
-                shade = 0.25 + 0.50*key + 0.18*fill + 0.22*rim;
-            } else if (mc < 1.5) {
-                float up = vn.y * 0.5 + 0.5;
-                shade = 0.30 + 0.50*up;
-            } else if (mc < 2.5) {
-                float key  = max(dot(vn, vec3(0.30, 0.50, 0.80)), 0.0);
-                float spec = pow(key, 20.0);
-                float fres = pow(1.0 - max(vn.z, 0.0), 4.0);
-                shade = 0.14 + 0.42*key + 0.7*spec + 0.5*fres;
-            } else if (mc < 3.5) {
-                float key = max(dot(vn, vec3(0.30, 0.55, 0.78)), 0.0);
-                shade = (key > 0.62) ? 0.82 : ((key > 0.32) ? 0.55 : 0.30);
-            } else {
-                vec2 muv = vn.xy * 0.5 + 0.5;
-                shade = texture(tMatcap, muv).r;
-            }
-            color = albedo * uObj.tint.rgb * clamp(shade, 0.0, 0.85);
+            vec2  ball = clamp(vn.xy * 0.5 + 0.5, 0.0, 1.0);      // disque unite = la boule
+
+            // Atlas 6x5 de tuiles de 128 px, 4 px de marge (voir NkMatcapLibrary).
+            // La tuile est calculee ICI plutot que passee en uniformes : la geometrie
+            // de l'atlas est une constante partagee des deux cotes, un uniforme de plus
+            // n'apporterait rien qu'un risque de desynchronisation.
+            // La marge n'est pas cosmetique : sans elle le filtrage bilineaire au bord
+            // d'une tuile irait chercher des texels de la tuile VOISINE et dessinerait
+            // un lisere de la mauvaise matcap sur la silhouette.
+            // NB : pas de mod() ici — il se traduit mal vers HLSL (fmod a une semantique
+            // differente sur les negatifs). La forme id - 6*floor(id/6) est portable.
+            float id    = clamp(uCam.matcapId, 0.0, 29.0);
+            float cy    = floor(id / 6.0);
+            float cx    = id - 6.0 * cy;
+            vec2  tile  = vec2(128.0 / 768.0, 128.0 / 640.0);
+            vec2  inner = vec2(120.0 / 768.0, 120.0 / 640.0);
+            vec2  org   = vec2(cx, cy) * tile + vec2(4.0 / 768.0, 4.0 / 640.0);
+            // viewOpts.x = 1 : une matcap personnalisee a remplace l'atlas -> on
+            // echantillonne la texture entiere, pas une tuile.
+            vec2  muv   = (uCam.viewOpts.x > 0.5) ? ball : (org + ball * inner);
+            color = texture(tMatcap, muv).rgb * uObj.tint.rgb;
         } else if (uCam.viewMode < 2.5) {
             // 2 — NORMAL : normale MONDE (avec normal map) encodée RGB [0,1].
             color = N * 0.5 + vec3(0.5);

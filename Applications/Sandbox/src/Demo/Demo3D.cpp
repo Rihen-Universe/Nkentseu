@@ -20,6 +20,7 @@
 #include "NKRenderer/Tools/Shadow/NkVirtualShadowMaps.h"
 #include "NKRenderer/Core/NkCameraController.h" // NkOrbitCameraController3D / NkFlyCameraController3D
 #include "NKRenderer/Core/NkGizmo.h"			// NkGizmo3D (gizmo éditeur réutilisable)
+#include "NKRenderer/Materials/NkMatcapLibrary.h" // noms des 30 matcaps (source unique)
 #include "NKImage/NKImage.h"					// Phase H : test ecriture PNG procedural
 #include "NKContainers/Associative/NkHashMap.h" // dedup arêtes Edit Mode
 #include "NKRenderer/Mesh/NkEditMesh.h"			// structure demi-arête n-gon
@@ -2028,8 +2029,11 @@ namespace nkentseu {
 					// En EDIT MODE, M = Merge (soudure) -> ne pas cycler le matcap.
 					if (k == NkKey::NK_M && !st->editMode) {
 						r3d->SetMatcap(r3d->Matcap() + 1);
-						const char *mc[5] = {"Studio", "Clay", "Metal", "Toon", "Chrome(tex)"};
-						logger.Info("[Demo3D] MatCap = {0}\n", mc[r3d->Matcap() % 5]);
+						// Nom lu dans NkMatcapLibrary : source unique, pas de liste dupliquee
+						// ici qui se desynchroniserait du contenu reel de l'atlas.
+						logger.Info("[Demo3D] MatCap = {0} ({1}/{2})\n",
+									renderer::NkMatcapLibrary::Name(r3d->Matcap()), r3d->Matcap() + 1,
+									(int32)renderer::NkRender3D::kMatcapCount);
 					}
 					auto &g = r3d->GetInfiniteGridParams();
 					if (k == NkKey::NK_F1) {
@@ -5231,6 +5235,11 @@ namespace nkentseu {
 							r3d->SetWireframe(st->shadingMode == 2);
 							r3d->SetViewMode(vm[st->shadingMode]);
 						}
+						// NK_MATCAP=<0..29> : choisit la matcap dans l'atlas des 30, sans
+						// avoir a marteler M. Indispensable pour capturer une matcap donnee
+						// de facon reproductible (comparaison avant/apres).
+						if (const char *mcv = getenv("NK_MATCAP"))
+							r3d->SetMatcap(atoi(mcv));
 					}
 					st->gizmo.SetCamera(cam.GetPosition(), cam.GetTarget(), 60.f, (float32)ctx.width,
 										(float32)ctx.height);
@@ -5402,18 +5411,20 @@ namespace nkentseu {
 				overlay->DrawStats(ctx.renderer->GetStats());
 				{
 					const char *sm[6] = {"RENDERED", "SOLID", "WIREFRAME", "NORMAL", "UV", "AO"};
-					const char *mc[5] = {"Studio", "Clay", "Metal", "Toon", "Chrome(tex)"};
 					const char *cm[3] = {"MATERIAL", "GRIS", "CUSTOM"};
 					int32 mcId = 0;
 					if (auto *r3dh = ctx.renderer->GetRender3D())
 						mcId = r3dh->Matcap();
+					// Nom lu dans NkMatcapLibrary : source unique. Une liste recopiee ici
+					// se desynchroniserait du contenu reel de l'atlas au premier ajout.
+					const char *mcName = renderer::NkMatcapLibrary::Name(mcId);
 					// MatCap pertinent seulement en SOLID/WIREFRAME (modes 1 et 2).
 					if (st->shadingMode == 1 || st->shadingMode == 2)
 						overlay->DrawText(
 							{20.f, 35.f},
-							"Demo 3D  |  API : %s  |  Affichage(Z): %s  |  MatCap(M): %s  |  Couleur(B): %s",
-							NkGraphicsApiName(ctx.api), sm[st->shadingMode % 6], mc[mcId % 5],
-							cm[st->unlitColorMode % 3]);
+							"Demo 3D  |  API : %s  |  Affichage(Z): %s  |  MatCap(M): %s (%d/%d)  |  Couleur(B): %s",
+							NkGraphicsApiName(ctx.api), sm[st->shadingMode % 6], mcName, mcId + 1,
+							(int32)renderer::NkRender3D::kMatcapCount, cm[st->unlitColorMode % 3]);
 					else
 						overlay->DrawText({20.f, 35.f}, "Demo 3D  |  API : %s  |  Affichage(Z): %s  |  Couleur(B): %s",
 										  NkGraphicsApiName(ctx.api), sm[st->shadingMode % 6],
