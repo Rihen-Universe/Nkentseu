@@ -200,9 +200,12 @@ namespace nkentseu {
 					return mViewMode;
 				}
 
-				// Preset MatCap (mode SOLID/WIREFRAME) : 0=Studio 1=Clay 2=Metal 3=Toon (procéduraux)
-				// + 4=Chrome (TEXTURE, boule matcap échantillonnée par la normale-vue).
-				static const int32 kMatcapCount = 5;
+				// MatCap (mode SOLID/WIREFRAME) : index 0..29 dans l'ATLAS des 30 boules
+				// generees par NkMatcapLibrary (basiques, ceramiques, damiers de controle
+				// des normales et des reflexions, argiles, jade/resine/nacre/peau, metaux
+				// dont un anisotrope brosse, toon). NkMatcapLibrary::Name(id) donne le nom
+				// affichable, et GenerateBall() la vignette pour un selecteur d'interface.
+				static const int32 kMatcapCount = 30;
 
 				void SetMatcap(int32 id) {
 					mMatcapId = ((id % kMatcapCount) + kMatcapCount) % kMatcapCount;
@@ -412,7 +415,8 @@ namespace nkentseu {
 				bool mInScene = false;
 				bool mWireframe = false;
 				int32 mViewMode = 0;   // 0=rendered(lit) 1=solid(unlit)
-				int32 mMatcapId = 0;   // preset matcap (mode solid)
+				int32 mMatcapId = 0;		// index de matcap dans l'atlas (mode solid)
+				bool mMatcapCustom = false; // true = texture utilisateur (boule SEULE, pas l'atlas)
 				uint32 mW = 0, mH = 0; // taille courante (mise a jour par OnResize)
 				NkCullStats mCullStats; // stats frustum culling (reset par frame)
 
