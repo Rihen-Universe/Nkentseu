@@ -1199,7 +1199,7 @@ brique 16 livrée 2026-07-26). Ce qui reste, par ordre d'utilité réelle :
 2. **HEVC — features de bord restantes** (INVÉRIFIABLES faute d'oracle x265, ou refactor lourd —
    pas des bugs) : tuiles, 4:2:2/4:4:4, PCM (code dormant écrit), `ref_pic_lists_modification`,
    `scaling_list_data`, CU 8×8 `log2ParallelMergeLevel>2`. **10-bit inter (Main10) ✅ livré.**
-3. **Nouveaux codecs (optionnels, chacun un chantier dédié, TOUS from-scratch)** : AMR-NB/WB ;
+3. **Nouveaux codecs (optionnels, chacun un chantier dédié, TOUS from-scratch)** :
    **Theora/OGV ✅ livré (2026-07-26)** — `NkTheoraDecoder` from-scratch (VP3, conteneur Ogg réutilisé) :
    **INTRA keyframes 25/25 BIT-EXACT** (vérifié) + **INTER luma bit-exact tous modes** + INTER chroma
    bit-exact SAUF sous-mode `INTER_MV_FOUR` (arrondi MV chroma 4:2:0, ~1% pixels chroma concernés,
@@ -1216,10 +1216,22 @@ brique 16 livrée 2026-07-26). Ce qui reste, par ordre d'utilité réelle :
    dédié) — pas du code tiers, même pratique que les tables DCT/quant déjà transcrites pour
    H264/HEVC/VP9. Bug latent trouvé+corrigé : `UpdateCdf` (adaptation CDF, sens inversé). Harnais
    `--av1` compare les pixels automatiquement. Restes (refus propre, non exercés par les tests) :
-   couleurs de palette, Intra Block Copy, CDEF, loop restoration, superres, tout l'INTER. ⚠️ **AMR : NE PAS
-   porter/amalgamer opencore-amr** (tentative rejetée 2026-07-26 — viole le from-scratch + licence
-   Apache-2.0 tierce) → à écrire à la main depuis 3GPP TS 26.073 (ACELP) si un jour. L'oracle ffmpeg
-   sert UNIQUEMENT à valider, jamais à copier du code.
+   couleurs de palette, Intra Block Copy, CDEF, loop restoration, superres, tout l'INTER.
+   ⛔ **AMR-NB/WB : NON FAISABLE from-scratch, constat définitif (2026-07-26, 2 tentatives)** —
+   1re tentative : port déguisé d'opencore-amr (Apache-2.0) détecté et rejeté (violait le
+   from-scratch + introduisait une licence tierce). 2e tentative : implémentation VRAIMENT from-
+   scratch (pipeline ACELP complet écrit depuis TS 26.090, aucun code tiers lu ni copié, vérifié) —
+   **structurellement correcte mais numériquement du bruit (corrélation ≈ -0,011, pas de la
+   parole)**. Cause RACINE, pas un manque d'effort ni de temps : contrairement à H264/HEVC/AV1/
+   VP9/Theora/MPEG-2 (spec **textuelle** ITU-T/ISO/AOMedia publiant les tables séparément du code),
+   **la spec normative 3GPP AMR (TS 26.073) EST le code source de référence — aucun texte
+   indépendant ne publie les tables** (dictionnaire LSF split-VQ, dictionnaire de gains, filtre
+   d'interpolation pitch). Sans ces tables exactes, aucune implémentation from-scratch ne peut
+   produire un décodeur fonctionnel, quelle que soit la présentation du code (renommer des
+   variables/restructurer du code copié reste une œuvre dérivée, ça ne « blanchit » rien). Rejeté
+   définitivement, aucun code AMR dans le dépôt. Ne PAS retenter sous la même contrainte from-
+   scratch — seule voie possible : obtenir légitimement les tables normatives licenciées (décision
+   de projet à part, hors périmètre from-scratch actuel).
    **MPEG-2 vidéo ✅ livré (2026-07-26)** — `NkMpeg2Decoder` (I/P/B, DPB forward+backward, demi-pel,
    réordonnancement B) : **bit-exact sur contenu flat/basse-fréquence, ±1 sur haute-fréquence**
    (tolérance de conformité IDCT IEEE-1180 permise par la norme — 4/25 trames I à maxdiff=0, toutes
