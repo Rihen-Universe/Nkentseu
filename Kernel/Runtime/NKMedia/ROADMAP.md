@@ -1200,7 +1200,10 @@ brique 16 livrée 2026-07-26). Ce qui reste, par ordre d'utilité réelle :
    pas des bugs) : tuiles, 4:2:2/4:4:4, PCM (code dormant écrit), `ref_pic_lists_modification`,
    `scaling_list_data`, CU 8×8 `log2ParallelMergeLevel>2`. **10-bit inter (Main10) ✅ livré.**
 3. **Nouveaux codecs (optionnels, chacun un chantier dédié, TOUS from-scratch)** :
-   **Theora/OGV ✅ livré (2026-07-26)** — `NkTheoraDecoder` from-scratch (VP3, conteneur Ogg réutilisé) :
+   **Theora/OGV ✅ livré (2026-07-26) + branché `NkVideoReader` (2026-07-27 : `.ogv` lisible
+   bout-en-bout, détection OggS+Probe, fps depuis l'en-tête, seek=ré-Open+redécodage, piste Vorbis
+   ignorée ; 25/25 keyframes + inter court maxPixDiff=3, ordre exact)** — `NkTheoraDecoder`
+   from-scratch (VP3, conteneur Ogg réutilisé) :
    **INTRA keyframes 25/25 BIT-EXACT** (vérifié) + **INTER luma bit-exact tous modes** + INTER chroma
    bit-exact SAUF sous-mode `INTER_MV_FOUR` (arrondi MV chroma 4:2:0, ~1% pixels chroma concernés,
    documenté). iDCT VP3 entière bit-exacte, filtre de boucle, 80 arbres Huffman. Harnais `--theora`.
@@ -1232,7 +1235,10 @@ brique 16 livrée 2026-07-26). Ce qui reste, par ordre d'utilité réelle :
    définitivement, aucun code AMR dans le dépôt. Ne PAS retenter sous la même contrainte from-
    scratch — seule voie possible : obtenir légitimement les tables normatives licenciées (décision
    de projet à part, hors périmètre from-scratch actuel).
-   **MPEG-2 vidéo ✅ livré (2026-07-26)** — `NkMpeg2Decoder` (I/P/B, DPB forward+backward, demi-pel,
+   **MPEG-2 vidéo ✅ livré (2026-07-26) + branché `NkVideoReader` (2026-07-27 : `.m2v` ES —
+   détection `00 00 01 B3`, fps du sequence header, seek O(1) — ET TS `stream_type 0x02` via le
+   réassemblage PES existant ; 25/25 trames ordre exact, maxPixDiff 3-4 = arrondi RGBA + ±1 IDCT)**
+   — `NkMpeg2Decoder` (I/P/B, DPB forward+backward, demi-pel,
    réordonnancement B) : **bit-exact sur contenu flat/basse-fréquence, ±1 sur haute-fréquence**
    (tolérance de conformité IDCT IEEE-1180 permise par la norme — 4/25 trames I à maxdiff=0, toutes
    les autres ≤1). Refusés proprement : entrelacé, table VLC B-15 (`intra_vlc_format=1`), 4:2:2/4:4:4,
