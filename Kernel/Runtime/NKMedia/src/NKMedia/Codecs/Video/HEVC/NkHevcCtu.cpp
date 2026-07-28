@@ -27,6 +27,8 @@
 #include "NKMedia/Codecs/Video/HEVC/NkHevcDecoder.h"
 #include "NKMedia/Codecs/Video/HEVC/NkHevcCabac.h"
 #include "NKPlatform/NkCPUFeatures.h"
+#include "NKCore/NkAtomic.h"
+#include "NKThreading/NkThreadPool.h"
 
 namespace nkentseu {
 	namespace media {
@@ -236,6 +238,78 @@ namespace nkentseu {
 					acc[i] += coeff * rowPtr[i];
 			}
 #endif
+
+			// =====================================================================
+			// MULTITHREAD (SAO / déblocage / WPP) — décodage DÉTERMINISTE.
+			// Contrat ABSOLU : le multithread ne change AUCUN pixel et le résultat
+			// est identique quel que soit le nombre de threads/l'ordonnancement —
+			// chaque tâche opère sur des données DISJOINTES (ou gâtées par une
+			// porte de progression explicite, cf. WPP), jamais de réduction dont
+			// l'ordre importerait. Pool DÉDIÉ au décodage HEVC (un Join du pool
+			// global attendrait des tâches sans rapport).
+			// =====================================================================
+			int32 gHevcThreadCount = 0; // 0 = auto (cœurs logiques) ; 1 = séquentiel
+
+			threading::NkThreadPool &HevcPool() {
+				static threading::NkThreadPool pool(0u); // 0 = auto-détection cœurs
+				return pool;
+			}
+
+			inline void HevcCpuRelax() {
+#ifdef NK_HEVC_MC_SIMD_X86
+				_mm_pause();
+#endif
+			}
+
+			// Nombre TOTAL de threads à utiliser (thread appelant inclus).
+			int32 HevcResolvedThreads() {
+				const int32 workers = (int32)HevcPool().GetNumWorkers();
+				int32 n = gHevcThreadCount;
+				if (n <= 0)
+					n = workers; // auto = cœurs logiques
+				if (n < 1)
+					n = 1;
+				return Min32(n, workers + 1); // helpers du pool + thread appelant
+			}
+
+			// Exécute fn(0..count-1) sur au plus `threadsTotal` threads (l'appelant
+			// participe). ⚠ DÉTERMINISME : fn(i) doit produire un résultat
+			// indépendant de l'ordre d'exécution des indices (tâches disjointes) —
+			// c'est le contrat de toutes les utilisations ici. Les helpers capturent
+			// la pile de cet appel PAR RÉFÉRENCE : on attend leur SORTIE (`exited`),
+			// pas seulement la fin des items, avant de quitter la fonction.
+			template <typename F>
+			void HevcParallelRun(int32 count, int32 threadsTotal, F &&fn) {
+				if (count <= 0)
+					return;
+				const int32 helpers = Min32(threadsTotal, count) - 1;
+				if (helpers <= 0) {
+					for (int32 i = 0; i < count; ++i)
+						fn(i);
+					return;
+				}
+				NkAtomic<int32> next(0);
+				NkAtomic<int32> done(0);
+				NkAtomic<int32> exited(0);
+				auto work = [&]() {
+					for (;;) {
+						const int32 i = next.FetchAdd(1);
+						if (i >= count)
+							break;
+						fn(i);
+						done.FetchAdd(1);
+					}
+				};
+				for (int32 h = 0; h < helpers; ++h) {
+					HevcPool().Enqueue([&work, &exited]() {
+						work();
+						exited.FetchAdd(1);
+					});
+				}
+				work();
+				while (done.Load() < count || exited.Load() < helpers)
+					HevcCpuRelax();
+			}
 
 			// Filtre horizontal SEUL (yFrac==0, xFrac!=0), fenêtre INTÉRIEURE (aucun
 			// clamp — accès direct garanti dans les bornes par l'appelant). Écrit dans
@@ -574,10 +648,14 @@ namespace nkentseu {
 					int32 maxTrafoDepthIntra = 0;
 					int32 log2MinCuQpDeltaSize = 6;
 
-					// Voisinage (parse).
-					NkVector<uint8> ctDepth;	   // par min-CB
-					NkVector<uint8> intraModeY;	   // par bloc 4x4
-					NkVector<uint8> skipFlagMap;   // par min-CB (P/B, brique 8)
+					// Voisinage (parse). ⚠ Les CARTES partagées (voisinage/reconstruction/
+					// filtres) sont des POINTEURS vers un stockage possédé par
+					// RunSliceIntra (SliceMaps) : en WPP multithread, chaque rangée a SON
+					// CtuParser (état CABAC/QP/CU privés) mais toutes partagent les mêmes
+					// cartes — les accès croisés sont gâtés par la porte de progression.
+					uint8 *ctDepth = nullptr;	   // par min-CB
+					uint8 *intraModeY = nullptr;   // par bloc 4x4
+					uint8 *skipFlagMap = nullptr;  // par min-CB (P/B, brique 8)
 					bool isCuQpDeltaCoded = false; // par groupe de quantification
 
 					// CU courant.
@@ -596,28 +674,28 @@ namespace nkentseu {
 					int32 numRefsL0 = 0;
 					const NkHevcFrame *const *refsL1 = nullptr; // RefPicList1 (slices B) — nullptr en P
 					int32 numRefsL1 = 0;
-					NkVector<int16> mvL0x, mvL0y; // MV L0 par bloc 4x4 (grille minPuWidth x minPuHeight)
-					NkVector<int16> mvL1x, mvL1y; // MV L1 par bloc 4x4 (bi-prédiction)
-					NkVector<int8> refIdxL0;	   // index dans refsL0, par bloc 4x4
-					NkVector<int8> refIdxL1;	   // index dans refsL1, par bloc 4x4
-					NkVector<uint8> predFlag;	   // bit0=L0, bit1=L1 par bloc 4x4 (0=intra)
-					NkVector<uint8> mvValid;	   // 1 si le bloc 4x4 est INTER (predFlag != 0)
+					int16 *mvL0x = nullptr, *mvL0y = nullptr; // MV L0 par bloc 4x4 (grille minPuWidth x minPuHeight)
+					int16 *mvL1x = nullptr, *mvL1y = nullptr; // MV L1 par bloc 4x4 (bi-prédiction)
+					int8 *refIdxL0 = nullptr;	   // index dans refsL0, par bloc 4x4
+					int8 *refIdxL1 = nullptr;	   // index dans refsL1, par bloc 4x4
+					uint8 *predFlag = nullptr;	   // bit0=L0, bit1=L1 par bloc 4x4 (0=intra)
+					uint8 *mvValid = nullptr;	   // 1 si le bloc 4x4 est INTER (predFlag != 0)
 
 					// ---- Reconstruction (brique 6) — active si frame != nullptr ------
 					NkHevcFrame *frame = nullptr;
 					int32 bitDepth = 8, maxVal = 255;
 					int32 qpBdOffsetY = 0, qpBdOffsetC = 0;
-					NkVector<uint8> lumaRecon;	 // TU luma reconstruits (grille 4x4 luma)
-					NkVector<uint8> chromaRecon; // TU chroma reconstruits (grille 4x4 chroma)
-					NkVector<int8> qpMap;		 // QpY par min-CB (voisinage §8.6.1 + déblocage)
+					uint8 *lumaRecon = nullptr;	 // TU luma reconstruits (grille 4x4 luma)
+					uint8 *chromaRecon = nullptr; // TU chroma reconstruits (grille 4x4 chroma)
+					int8 *qpMap = nullptr;		 // QpY par min-CB (voisinage §8.6.1 + déblocage)
 					// Filtres en boucle (briques 7/14) : Boundary Strength §8.7.2.4 par
 					// segment 4×4 LUMA (0=aucune, 1=résidu/MV, 2=intra) + carte cbf_luma par
 					// min-TU 4×4 (dérivation BS inter). Le déblocage CHROMA réutilise ces
 					// mêmes cartes luma (filtré uniquement si BS==2, §8.7.2.5.5), comme la
 					// référence ffmpeg — pas de cartes chroma distinctes. + paramètres SAO/CTB.
-					NkVector<uint8> bsVert, bsHoriz; // BS de l'arête gauche/haute du 4×4 [y4*w4L + x4]
-					NkVector<uint8> cbfLuma4;		 // cbf_luma par min-TU 4×4 luma [y4*w4L + x4]
-					NkVector<SaoCtb> saoCtb;		 // par CTB (rx + ry*picWidthInCtbs)
+					uint8 *bsVert = nullptr, *bsHoriz = nullptr; // BS de l'arête gauche/haute du 4×4 [y4*w4L + x4]
+					uint8 *cbfLuma4 = nullptr;		 // cbf_luma par min-TU 4×4 luma [y4*w4L + x4]
+					SaoCtb *saoCtb = nullptr;		 // par CTB (rx + ry*picWidthInCtbs)
 					int32 w4L = 0;					 // stride grille 4×4 luma (= picW>>2)
 					int32 qpYPrev = 26;			 // qPY_PREV (reset slice/rangée WPP)
 					int32 lastCuQpY = 26;		 // QpY du dernier CU décodé
@@ -639,7 +717,7 @@ namespace nkentseu {
 					int32 numTileCols = 1, numTileRows = 1;
 					int32 colBd[26] = {0}; // bornes cumulées en CTB (numTileCols+1 valides)
 					int32 rowBd[26] = {0};
-					NkVector<int16> tileIdMap; // id de tuile par CTB (adresse raster)
+					const int16 *tileIdMap = nullptr; // id de tuile par CTB (adresse raster)
 					int32 curTileId = 0;	   // tuile du CTB en cours de décodage
 
 					int32 TileIdAtLuma(int32 x, int32 y) const {
@@ -1520,27 +1598,46 @@ namespace nkentseu {
 						}
 					}
 
-					void DeblockPicture() {
-						// Ordre normatif : TOUTES les arêtes verticales de l'image, PUIS
-						// toutes les horizontales (qui lisent les échantillons déjà filtrés
-						// verticalement). Luma filtré si BS>=1 (tc dépend de BS) ; chroma
-						// filtré UNIQUEMENT si BS==2 (§8.7.2.5.5), à partir des MÊMES cartes
-						// de BS luma que la référence ffmpeg (grille 8-chroma = 16-luma).
-						// Arêtes de frontière de tuile : PAS filtrées si
-						// loop_filter_across_tiles_enabled_flag == 0 (§8.7.2).
+					// Passe VERTICALE (luma + chroma) restreinte à la bande de lignes
+					// luma [y0, y1) — appelée en parallèle par bandes : au sein de la
+					// passe verticale, deux arêtes distinctes ne partagent AUCUN pixel
+					// (arêtes espacées de 8 ; empreinte par arête : écrit x−3..x+2, lit
+					// x−4..x+3 — l'arête voisine écrit à ≥ x+5), et deux segments de la
+					// même arête à des y différents sont disjoints par construction →
+					// tout ordre d'exécution produit le MÊME résultat (déterminisme).
+					void DeblockVertBand(int32 y0, int32 y1) {
 						const bool skipTileEdges = tilesOn && !lfAcrossTiles;
 						// Arêtes verticales luma (x 8-aligné, segment de 4 lignes).
 						for (int32 x = 8; x < picW; x += 8) {
 							if (skipTileEdges && IsTileColBoundaryLuma(x))
 								continue;
-							for (int32 y = 0; y < picH; y += 4) {
+							for (int32 y = y0; y < y1; y += 4) {
 								const int32 bs = bsVert[(usize)((y >> 2) * w4L + (x >> 2))];
 								if (bs)
 									LumaDeblockSeg(true, x, y, bs);
 							}
 						}
+						// Arêtes verticales chroma (luma x 16-aligné ; 4 lignes chroma = 8 luma).
+						for (int32 x = 16; x < picW; x += 16) {
+							if (skipTileEdges && IsTileColBoundaryLuma(x))
+								continue;
+							for (int32 y = y0; y < y1; y += 8)
+								if (bsVert[(usize)((y >> 2) * w4L + (x >> 2))] == 2) {
+									ChromaDeblockSeg(true, 1, x >> 1, y >> 1);
+									ChromaDeblockSeg(true, 2, x >> 1, y >> 1);
+								}
+						}
+					}
+
+					// Passe HORIZONTALE restreinte aux ARÊTES y ∈ [y0, y1) (y0 multiple
+					// de la taille de CTB, donc de 16). Une arête écrit les lignes
+					// y−3..y+2 (débordement possible dans la bande du dessus), mais
+					// l'arête précédente (y−8) écrit ≤ y−6 et lit ≤ y−5 : aucune ligne
+					// n'est touchée par deux tâches → parallèle sûr et déterministe.
+					void DeblockHorizBand(int32 y0, int32 y1) {
+						const bool skipTileEdges = tilesOn && !lfAcrossTiles;
 						// Arêtes horizontales luma (y 8-aligné, segment de 4 colonnes).
-						for (int32 y = 8; y < picH; y += 8) {
+						for (int32 y = Max32(y0, 8); y < y1; y += 8) {
 							if (skipTileEdges && IsTileRowBoundaryLuma(y))
 								continue;
 							for (int32 x = 0; x < picW; x += 4) {
@@ -1549,18 +1646,8 @@ namespace nkentseu {
 									LumaDeblockSeg(false, x, y, bs);
 							}
 						}
-						// Arêtes verticales chroma (luma x 16-aligné ; 4 lignes chroma = 8 luma).
-						for (int32 x = 16; x < picW; x += 16) {
-							if (skipTileEdges && IsTileColBoundaryLuma(x))
-								continue;
-							for (int32 y = 0; y < picH; y += 8)
-								if (bsVert[(usize)((y >> 2) * w4L + (x >> 2))] == 2) {
-									ChromaDeblockSeg(true, 1, x >> 1, y >> 1);
-									ChromaDeblockSeg(true, 2, x >> 1, y >> 1);
-								}
-						}
 						// Arêtes horizontales chroma (luma y 16-aligné ; 4 colonnes chroma = 8 luma).
-						for (int32 y = 16; y < picH; y += 16) {
+						for (int32 y = Max32(y0, 16); y < y1; y += 16) {
 							if (skipTileEdges && IsTileRowBoundaryLuma(y))
 								continue;
 							for (int32 x = 0; x < picW; x += 8)
@@ -1569,6 +1656,30 @@ namespace nkentseu {
 									ChromaDeblockSeg(false, 2, x >> 1, y >> 1);
 								}
 						}
+					}
+
+					void DeblockPicture(int32 threadsTotal) {
+						// Ordre normatif : TOUTES les arêtes verticales de l'image, PUIS
+						// toutes les horizontales (qui lisent les échantillons déjà filtrés
+						// verticalement). Luma filtré si BS>=1 (tc dépend de BS) ; chroma
+						// filtré UNIQUEMENT si BS==2 (§8.7.2.5.5), à partir des MÊMES cartes
+						// de BS luma que la référence ffmpeg (grille 8-chroma = 16-luma).
+						// Arêtes de frontière de tuile : PAS filtrées si
+						// loop_filter_across_tiles_enabled_flag == 0 (§8.7.2).
+						// MULTITHREAD : chaque passe est découpée en bandes d'une rangée de
+						// CTB (indépendantes, cf. DeblockVertBand/DeblockHorizBand) ; la
+						// BARRIÈRE entre les deux passes est le retour de HevcParallelRun
+						// (la passe horizontale lit les pixels filtrés verticalement).
+						const int32 bandH = 1 << ctbLog2; // multiple de 16 (CTB 16/32/64)
+						const int32 nBands = picHeightInCtbs;
+						HevcParallelRun(nBands, threadsTotal, [this, bandH](int32 b) {
+							const int32 b0 = b * bandH;
+							DeblockVertBand(b0, Min32(b0 + bandH, picH));
+						});
+						HevcParallelRun(nBands, threadsTotal, [this, bandH](int32 b) {
+							const int32 b0 = b * bandH;
+							DeblockHorizBand(b0, Min32(b0 + bandH, picH));
+						});
 					}
 
 					// ---- SAO d'application (§8.7.3) -----------------------------------
@@ -1621,38 +1732,51 @@ namespace nkentseu {
 						}
 					}
 
-					void ApplySao(const NkVector<nk_uint16> &srcY, const NkVector<nk_uint16> &srcCb,
-								  const NkVector<nk_uint16> &srcCr) {
+					// SAO d'UNE rangée de CTB — chaque CTB lit l'instantané PRÉ-SAO
+					// (src*) et écrit UNIQUEMENT son rectangle de sortie : les CTB sont
+					// indépendants entre eux → parallélisation par rangées triviale et
+					// déterministe (aucun partage de pixels de sortie).
+					void ApplySaoRow(int32 ry, const nk_uint16 *srcY, const nk_uint16 *srcCb,
+									 const nk_uint16 *srcCr) {
 						const int32 ctbSize = 1 << ctbLog2;
 						const bool clampTile = tilesOn && !lfAcrossTiles;
-						for (int32 ry = 0; ry < picHeightInCtbs; ++ry)
-							for (int32 rx = 0; rx < picWidthInCtbs; ++rx) {
-								const SaoCtb &s = saoCtb[(usize)(ry * picWidthInCtbs + rx)];
-								// Rectangle de disponibilité des voisins EO : l'image, ou la
-								// TUILE du CTB si le filtrage inter-tuiles est désactivé.
-								int32 tx0 = 0, ty0 = 0, tx1 = picW, ty1 = picH;
-								if (clampTile) {
-									int32 tc = 0, tr = 0;
-									while (tc + 1 < numTileCols && colBd[tc + 1] <= rx)
-										++tc;
-									while (tr + 1 < numTileRows && rowBd[tr + 1] <= ry)
-										++tr;
-									tx0 = colBd[tc] << ctbLog2;
-									tx1 = Min32(colBd[tc + 1] << ctbLog2, picW);
-									ty0 = rowBd[tr] << ctbLog2;
-									ty1 = Min32(rowBd[tr + 1] << ctbLog2, picH);
-								}
-								ApplySaoComponent(0, srcY.Data(), frame->y.Data(), frame->lumaW, picW,
-												  picH, s, rx * ctbSize, ry * ctbSize, ctbSize, ctbSize,
-												  tx0, ty0, tx1, ty1);
-								const int32 cs = ctbSize >> 1;
-								ApplySaoComponent(1, srcCb.Data(), frame->cb.Data(), frame->chromaW,
-												  picW >> 1, picH >> 1, s, rx * cs, ry * cs, cs, cs,
-												  tx0 >> 1, ty0 >> 1, tx1 >> 1, ty1 >> 1);
-								ApplySaoComponent(2, srcCr.Data(), frame->cr.Data(), frame->chromaW,
-												  picW >> 1, picH >> 1, s, rx * cs, ry * cs, cs, cs,
-												  tx0 >> 1, ty0 >> 1, tx1 >> 1, ty1 >> 1);
+						for (int32 rx = 0; rx < picWidthInCtbs; ++rx) {
+							const SaoCtb &s = saoCtb[(usize)(ry * picWidthInCtbs + rx)];
+							// Rectangle de disponibilité des voisins EO : l'image, ou la
+							// TUILE du CTB si le filtrage inter-tuiles est désactivé.
+							int32 tx0 = 0, ty0 = 0, tx1 = picW, ty1 = picH;
+							if (clampTile) {
+								int32 tc = 0, tr = 0;
+								while (tc + 1 < numTileCols && colBd[tc + 1] <= rx)
+									++tc;
+								while (tr + 1 < numTileRows && rowBd[tr + 1] <= ry)
+									++tr;
+								tx0 = colBd[tc] << ctbLog2;
+								tx1 = Min32(colBd[tc + 1] << ctbLog2, picW);
+								ty0 = rowBd[tr] << ctbLog2;
+								ty1 = Min32(rowBd[tr + 1] << ctbLog2, picH);
 							}
+							ApplySaoComponent(0, srcY, frame->y.Data(), frame->lumaW, picW,
+											  picH, s, rx * ctbSize, ry * ctbSize, ctbSize, ctbSize,
+											  tx0, ty0, tx1, ty1);
+							const int32 cs = ctbSize >> 1;
+							ApplySaoComponent(1, srcCb, frame->cb.Data(), frame->chromaW,
+											  picW >> 1, picH >> 1, s, rx * cs, ry * cs, cs, cs,
+											  tx0 >> 1, ty0 >> 1, tx1 >> 1, ty1 >> 1);
+							ApplySaoComponent(2, srcCr, frame->cr.Data(), frame->chromaW,
+											  picW >> 1, picH >> 1, s, rx * cs, ry * cs, cs, cs,
+											  tx0 >> 1, ty0 >> 1, tx1 >> 1, ty1 >> 1);
+						}
+					}
+
+					void ApplySao(const NkVector<nk_uint16> &srcY, const NkVector<nk_uint16> &srcCb,
+								  const NkVector<nk_uint16> &srcCr, int32 threadsTotal) {
+						const nk_uint16 *sy = srcY.Data();
+						const nk_uint16 *scb = srcCb.Data();
+						const nk_uint16 *scr = srcCr.Data();
+						HevcParallelRun(picHeightInCtbs, threadsTotal, [this, sy, scb, scr](int32 ry) {
+							ApplySaoRow(ry, sy, scb, scr);
+						});
 					}
 
 					// ---- residual_coding (§7.3.8.11) ----------------------------------
@@ -3376,6 +3500,21 @@ namespace nkentseu {
 					}
 			};
 
+			// Stockage POSSÉDÉ des cartes partagées entre les CtuParser (cf. membres
+			// pointeurs de CtuParser) — vit sur la pile de RunSliceIntra, survit donc
+			// à tous les threads de rangée WPP (joints avant le retour).
+			struct SliceMaps {
+					NkVector<uint8> ctDepth, intraModeY, skipFlagMap;
+					NkVector<int16> mvL0x, mvL0y, mvL1x, mvL1y;
+					NkVector<int8> refIdxL0, refIdxL1;
+					NkVector<uint8> predFlag, mvValid;
+					NkVector<uint8> lumaRecon, chromaRecon;
+					NkVector<int8> qpMap;
+					NkVector<uint8> bsVert, bsHoriz, cbfLuma4;
+					NkVector<SaoCtb> saoCtb;
+					NkVector<int16> tileIdMap;
+			};
+
 			// Boucle commune slice_segment_data() (parse seul OU parse+reconstruction).
 			bool RunSliceIntra(const uint8 *nal, usize size, const NkHevcSps &sps, const NkHevcPps &pps,
 							   const NkHevcSliceHeader &sh, NkHevcFrame *frame,
@@ -3448,6 +3587,11 @@ namespace nkentseu {
 					return em - cnt;
 				};
 
+				// Pré-chauffe les tables de scan (lazy-init NON atomique dans Scans())
+				// AVANT tout travail multithread — évite une construction concurrente.
+				(void)Scans();
+
+				SliceMaps maps;
 				CtuParser p;
 				p.sps = &sps;
 				p.pps = &pps;
@@ -3469,12 +3613,17 @@ namespace nkentseu {
 				p.minPuWidth = (p.picW + 3) >> 2;
 				p.minPuHeight = (p.picH + 3) >> 2;
 				p.log2MinCuQpDeltaSize = p.ctbLog2 - pps.diffCuQpDeltaDepth;
-				p.ctDepth.Resize((usize)(p.minCbWidth * p.minCbHeight));
-				p.intraModeY.Resize((usize)(p.minPuWidth * p.minPuHeight));
-				for (uint64 i = 0; i < p.intraModeY.Size(); ++i)
+				const usize minCbCount = (usize)(p.minCbWidth * p.minCbHeight);
+				const usize puCount = (usize)(p.minPuWidth * p.minPuHeight);
+				maps.ctDepth.Resize(minCbCount);
+				p.ctDepth = maps.ctDepth.Data();
+				maps.intraModeY.Resize(puCount);
+				p.intraModeY = maps.intraModeY.Data();
+				for (usize i = 0; i < puCount; ++i)
 					p.intraModeY[i] = 1; // DC par défaut
-				p.skipFlagMap.Resize((usize)(p.minCbWidth * p.minCbHeight));
-				for (uint64 i = 0; i < p.skipFlagMap.Size(); ++i)
+				maps.skipFlagMap.Resize(minCbCount);
+				p.skipFlagMap = maps.skipFlagMap.Data();
+				for (usize i = 0; i < minCbCount; ++i)
 					p.skipFlagMap[i] = 0;
 				const int32 picSizeInCtbs = p.picWidthInCtbs * p.picHeightInCtbs;
 
@@ -3488,16 +3637,23 @@ namespace nkentseu {
 					p.maxVal = (1 << p.bitDepth) - 1;
 					p.qpBdOffsetY = 6 * (sps.bitDepthLuma - 8);
 					p.qpBdOffsetC = 6 * (sps.bitDepthChroma - 8);
-					const usize puCount = (usize)(p.minPuWidth * p.minPuHeight);
-					p.mvL0x.Resize(puCount);
-					p.mvL0y.Resize(puCount);
-					p.mvL1x.Resize(puCount);
-					p.mvL1y.Resize(puCount);
-					p.refIdxL0.Resize(puCount);
-					p.refIdxL1.Resize(puCount);
-					p.predFlag.Resize(puCount);
-					p.mvValid.Resize(puCount);
-					for (uint64 i = 0; i < p.mvValid.Size(); ++i) {
+					maps.mvL0x.Resize(puCount);
+					maps.mvL0y.Resize(puCount);
+					maps.mvL1x.Resize(puCount);
+					maps.mvL1y.Resize(puCount);
+					maps.refIdxL0.Resize(puCount);
+					maps.refIdxL1.Resize(puCount);
+					maps.predFlag.Resize(puCount);
+					maps.mvValid.Resize(puCount);
+					p.mvL0x = maps.mvL0x.Data();
+					p.mvL0y = maps.mvL0y.Data();
+					p.mvL1x = maps.mvL1x.Data();
+					p.mvL1y = maps.mvL1y.Data();
+					p.refIdxL0 = maps.refIdxL0.Data();
+					p.refIdxL1 = maps.refIdxL1.Data();
+					p.predFlag = maps.predFlag.Data();
+					p.mvValid = maps.mvValid.Data();
+					for (usize i = 0; i < puCount; ++i) {
 						p.mvValid[i] = 0;
 						p.predFlag[i] = 0;
 					}
@@ -3513,14 +3669,18 @@ namespace nkentseu {
 					frame->y.Resize((usize)(frame->lumaW * frame->lumaH));
 					frame->cb.Resize((usize)(frame->chromaW * frame->chromaH));
 					frame->cr.Resize((usize)(frame->chromaW * frame->chromaH));
-					p.lumaRecon.Resize((usize)(p.minPuWidth * p.minPuHeight));
+					maps.lumaRecon.Resize(puCount);
+					p.lumaRecon = maps.lumaRecon.Data();
 					const int32 cw4 = ((p.picW >> 1) + 3) >> 2, ch4 = ((p.picH >> 1) + 3) >> 2;
-					p.chromaRecon.Resize((usize)(cw4 * ch4));
-					for (uint64 i = 0; i < p.lumaRecon.Size(); ++i)
+					const usize crCount = (usize)(cw4 * ch4);
+					maps.chromaRecon.Resize(crCount);
+					p.chromaRecon = maps.chromaRecon.Data();
+					for (usize i = 0; i < puCount; ++i)
 						p.lumaRecon[i] = 0;
-					for (uint64 i = 0; i < p.chromaRecon.Size(); ++i)
+					for (usize i = 0; i < crCount; ++i)
 						p.chromaRecon[i] = 0;
-					p.qpMap.Resize((usize)(p.minCbWidth * p.minCbHeight));
+					maps.qpMap.Resize(minCbCount);
+					p.qpMap = maps.qpMap.Data();
 					p.qpYPrev = sh.sliceQp;
 					p.lastCuQpY = sh.sliceQp;
 					p.qgQpYPred = sh.sliceQp;
@@ -3528,16 +3688,20 @@ namespace nkentseu {
 					// + cbf_luma par min-TU + paramètres SAO par CTB.
 					p.w4L = p.picW >> 2;
 					const usize bsCount = (usize)(p.w4L * (p.picH >> 2));
-					p.bsVert.Resize(bsCount);
-					p.bsHoriz.Resize(bsCount);
-					p.cbfLuma4.Resize(bsCount);
-					for (uint64 i = 0; i < bsCount; ++i) {
+					maps.bsVert.Resize(bsCount);
+					maps.bsHoriz.Resize(bsCount);
+					maps.cbfLuma4.Resize(bsCount);
+					p.bsVert = maps.bsVert.Data();
+					p.bsHoriz = maps.bsHoriz.Data();
+					p.cbfLuma4 = maps.cbfLuma4.Data();
+					for (usize i = 0; i < bsCount; ++i) {
 						p.bsVert[i] = 0;
 						p.bsHoriz[i] = 0;
 						p.cbfLuma4[i] = 0;
 					}
-					p.saoCtb.Resize((usize)(p.picWidthInCtbs * p.picHeightInCtbs));
-					for (uint64 i = 0; i < p.saoCtb.Size(); ++i)
+					maps.saoCtb.Resize((usize)picSizeInCtbs);
+					p.saoCtb = maps.saoCtb.Data();
+					for (usize i = 0; i < (usize)picSizeInCtbs; ++i)
 						p.saoCtb[i] = SaoCtb{};
 				}
 
@@ -3580,7 +3744,8 @@ namespace nkentseu {
 							p.rowBd[p.numTileRows - 1] >= p.picHeightInCtbs)
 							return false;
 					}
-					p.tileIdMap.Resize((usize)picSizeInCtbs);
+					maps.tileIdMap.Resize((usize)picSizeInCtbs);
+					p.tileIdMap = maps.tileIdMap.Data();
 					tsToRs.Reserve((usize)picSizeInCtbs);
 					int32 tid = 0;
 					for (int32 tr = 0; tr < p.numTileRows; ++tr)
@@ -3588,7 +3753,7 @@ namespace nkentseu {
 							for (int32 ry = p.rowBd[tr]; ry < p.rowBd[tr + 1]; ++ry)
 								for (int32 rx = p.colBd[tc]; rx < p.colBd[tc + 1]; ++rx) {
 									const int32 rs = ry * p.picWidthInCtbs + rx;
-									p.tileIdMap[(usize)rs] = (int16)tid;
+									maps.tileIdMap[(usize)rs] = (int16)tid;
 									tsToRs.PushBack(rs);
 								}
 					// Une tuile = un sous-ensemble : offsets d'entrée pour toutes sauf la 1re.
@@ -3596,6 +3761,147 @@ namespace nkentseu {
 						return false;
 				}
 
+				// ============================================================
+				// WPP MULTITHREAD — front d'onde (§9.3.1). Un thread par rangée de
+				// CTB : chaque rangée démarre son moteur CABAC à SON point d'entrée
+				// (déjà signalé par x265) et hérite l'état des contextes sauvegardé
+				// par la rangée du dessus après son 2e CTB. La rangée ry ne décode
+				// son CTB rx que lorsque la rangée ry−1 a TERMINÉ le CTB rx+1
+				// (compteur de progression atomique) : toutes les dépendances
+				// spatiales (référence intra jusqu'à x0+2·nTbS−1 ⊆ CTB rx+1 du
+				// dessus, MV merge/AMVP B0/B2, contextes split/skip du voisin haut,
+				// fusion SAO, cartes BS/cbf) sont alors satisfaites — EXACTEMENT
+				// les mêmes valeurs qu'en décodage raster séquentiel, quel que soit
+				// l'ordonnancement → bit-exact et déterministe par construction.
+				// L'état PRIVÉ par rangée (CABAC, QP de rangée, CU courant) vit dans
+				// une COPIE de CtuParser ; les cartes partagées sont des pointeurs
+				// vers SliceMaps, publiées par le FetchAdd (seq_cst) de progression.
+				// ============================================================
+				bool wppParallelDone = false;
+				const int32 wppThreads = HevcResolvedThreads();
+				if (wpp && !p.tilesOn && frame && wppThreads > 1 && p.picHeightInCtbs > 1 &&
+					p.picHeightInCtbs <= 256) {
+					const int32 rows = p.picHeightInCtbs;
+					const int32 W = p.picWidthInCtbs;
+					// Point de départ (RBSP dé-émulé) de chaque rangée.
+					NkVector<usize> rowStart;
+					rowStart.Resize((usize)rows);
+					rowStart[0] = sh.dataByteOffset;
+					{
+						usize em = emDataStart;
+						bool ok = true;
+						for (int32 r = 1; r < rows; ++r) {
+							em += (usize)sh.entryPointOffsets[(usize)(r - 1)];
+							rowStart[(usize)r] = emToDeem(em);
+							if (rowStart[(usize)r] >= (usize)rbsp.Size())
+								ok = false;
+						}
+						if (!ok)
+							return false;
+					}
+					NkVector<NkHevcCabacState> rowSaved;
+					rowSaved.Resize((usize)rows);
+					NkVector<NkHevcSliceDataStats> rowStats;
+					rowStats.Resize((usize)rows);
+					for (int32 r = 0; r < rows; ++r)
+						rowStats[(usize)r] = NkHevcSliceDataStats{};
+					NkAtomic<int32> progress[256]; // CTB terminés par rangée (init 0)
+					NkAtomic<int32> rowFail(0);
+					const int32 saveAt = Min32(1, W - 1); // CTB après lequel on sauve l'état
+
+					auto decodeRow = [&](int32 ry) {
+						CtuParser rp = p; // pointeurs partagés + état privé (CABAC/QP/CU)
+						rp.stats = &rowStats[(usize)ry];
+						rp.qpYPrev = sh.sliceQp; // reset qPY_PREV en début de rangée (§8.6.1)
+						rp.lastCuQpY = sh.sliceQp;
+						rp.qgQpYPred = sh.sliceQp;
+						if (ry == 0) {
+							rp.st.Init(sh.sliceQp,
+									   NkHevcCabacState::InitTypeFor(sh.sliceType, sh.cabacInit));
+						} else {
+							// Hérite l'état des contextes de la rangée du dessus (après
+							// son 2e CTB) — publié par son FetchAdd de progression.
+							const int32 needInit = Min32(saveAt + 1, W);
+							while (progress[ry - 1].Load() < needInit) {
+								if (rowFail.Load() != 0)
+									return;
+								HevcCpuRelax();
+							}
+							rp.st = rowSaved[(usize)(ry - 1)];
+						}
+						rp.eng.InitEngine(rbsp.Data(), (usize)rbsp.Size(), rowStart[(usize)ry]);
+						if (rp.eng.codIOffset >= rp.eng.codIRange) {
+							rowFail.Store(1);
+							return;
+						}
+						for (int32 rx = 0; rx < W; ++rx) {
+							if (ry > 0) {
+								// Front d'onde : rangée du dessus >= 2 CTB d'avance.
+								const int32 need = Min32(rx + 2, W);
+								while (progress[ry - 1].Load() < need) {
+									if (rowFail.Load() != 0)
+										return;
+									HevcCpuRelax();
+								}
+							}
+							if (sh.saoLuma || sh.saoChroma)
+								rp.ParseSao(rx, ry);
+							rp.ParseCodingQuadtree(rx << rp.ctbLog2, ry << rp.ctbLog2, rp.ctbLog2, 0);
+							if (!rp.okFlag) {
+								rowFail.Store(1);
+								return;
+							}
+							if (rx == saveAt)
+								rowSaved[(usize)ry] = rp.st; // AVANT le FetchAdd qui le publie
+							const uint32 endOfSlice = rp.Terminate();
+							++rowStats[(usize)ry].ctusParsed;
+							const bool lastCtbOfPic = (ry == rows - 1 && rx == W - 1);
+							if (endOfSlice != (lastCtbOfPic ? 1u : 0u)) {
+								rowFail.Store(1);
+								return; // terminaison au mauvais endroit = désynchronisation
+							}
+							// RMW seq_cst : publie pixels/cartes/rowSaved de ce CTB.
+							progress[ry].FetchAdd(1);
+						}
+						if (ry < rows - 1) {
+							if (rp.Terminate() != 1) { // end_of_subset_one_bit obligatoire
+								rowFail.Store(1);
+								return;
+							}
+							nk_int64 dev =
+								(nk_int64)rowStart[(usize)(ry + 1)] - (nk_int64)rp.eng.bytePos;
+							if (dev < 0)
+								dev = -dev;
+							if ((int32)dev > rowStats[(usize)ry].maxSubsetDeviation)
+								rowStats[(usize)ry].maxSubsetDeviation = (int32)dev;
+						}
+					};
+					// Le front d'onde ne peut occuper qu'environ rows/2 threads (chaque
+					// rangée est bridée à 2 CTB derrière celle du dessus) : au-delà, les
+					// threads surnuméraires ne font que spinner et VOLENT du CPU aux
+					// utiles (mesuré : 720p 12 rangées → optimum ≈ 6 threads). Cap
+					// déterministe (géométrie seule, jamais le timing).
+					const int32 wppUseT = Min32(wppThreads, Max32(2, (rows + 1) / 2));
+					HevcParallelRun(rows, wppUseT, decodeRow);
+					if (rowFail.Load() != 0)
+						return false;
+					// Agrégation des stats en ordre de rangée (déterministe).
+					for (int32 r = 0; r < rows; ++r) {
+						out.ctusParsed += rowStats[(usize)r].ctusParsed;
+						out.cuCount += rowStats[(usize)r].cuCount;
+						out.tuCount += rowStats[(usize)r].tuCount;
+						out.nonZeroCoeffs += rowStats[(usize)r].nonZeroCoeffs;
+						out.qpDeltaCount += rowStats[(usize)r].qpDeltaCount;
+						if (rowStats[(usize)r].maxSubsetDeviation > out.maxSubsetDeviation)
+							out.maxSubsetDeviation = rowStats[(usize)r].maxSubsetDeviation;
+					}
+					out.rows = rows;
+					if (out.ctusParsed != picSizeInCtbs)
+						return false;
+					wppParallelDone = true;
+				}
+
+				if (!wppParallelDone) {
 				// Init CABAC de la 1re rangée.
 				p.st.Init(sh.sliceQp, NkHevcCabacState::InitTypeFor(sh.sliceType, sh.cabacInit));
 				p.eng.InitEngine(rbsp.Data(), (usize)rbsp.Size(), sh.dataByteOffset);
@@ -3666,14 +3972,19 @@ namespace nkentseu {
 				out.rows += 1; // la dernière rangée (pas de end_of_subset après elle)
 				if (out.ctusParsed != picSizeInCtbs)
 					return false;
+				} // fin du chemin séquentiel (!wppParallelDone)
 				// Filtres en boucle (brique 14) : déblocage (2 passes image entière,
 				// Boundary Strength §8.7.2.4 dérivée pendant le parse pour I ET P/B via
 				// DeriveDeblockBs) PUIS SAO. Appliqué à I, P et B ; gaté UNIQUEMENT par les
 				// drapeaux normatifs (deblockingFilterDisabled / saoLuma / saoChroma) — les
 				// flux sans filtres portent ces drapeaux à 0, donc rien n''est filtré chez eux.
 				if (frame) {
+					// Threads pour les filtres en boucle. ⚠ `Scans()` (tables lazy-init
+					// non atomiques) est déjà construit à ce stade (le parse ci-dessus y
+					// a forcément accédé en séquentiel) — aucun risque d'init concurrente.
+					const int32 lfThreads = HevcResolvedThreads();
 					if (!sh.deblockingFilterDisabled)
-						p.DeblockPicture();
+						p.DeblockPicture(lfThreads);
 					if (sh.saoLuma || sh.saoChroma) {
 						// SAO lit les échantillons PRÉ-SAO (déblocés) et écrit `frame`. On en fait
 						// un instantané. Le copy-ctor de NkVector copie ÉLÉMENT PAR ÉLÉMENT
@@ -3691,7 +4002,7 @@ namespace nkentseu {
 									   (usize)frame->cb.Size() * sizeof(nk_uint16));
 						memory::NkCopy(saoSrcCr.Data(), frame->cr.Data(),
 									   (usize)frame->cr.Size() * sizeof(nk_uint16));
-						p.ApplySao(saoSrcY, saoSrcCb, saoSrcCr);
+						p.ApplySao(saoSrcY, saoSrcCb, saoSrcCr, lfThreads);
 					}
 				}
 				// Persistance du champ de MV bi-liste (§8.5.3.2.8/9) — cette trame devient
@@ -3704,14 +4015,14 @@ namespace nkentseu {
 					// `p` detruit juste apres : TRANSFERT (move O(1)) au lieu du copy-ctor NkVector
 					// (copie element par element). predFlag encore lu par la boucle refPoc
 					// ci-dessous -> deplace APRES la boucle.
-					frame->mvColX = traits::NkMove(p.mvL0x);
-					frame->mvColY = traits::NkMove(p.mvL0y);
-					frame->mvColL1X = traits::NkMove(p.mvL1x);
-					frame->mvColL1Y = traits::NkMove(p.mvL1y);
-					frame->mvColValid = traits::NkMove(p.mvValid);
-					frame->mvColRefPocL0.Resize(p.refIdxL0.Size());
-					frame->mvColRefPocL1.Resize(p.refIdxL0.Size());
-					for (uint64 i = 0; i < p.refIdxL0.Size(); ++i) {
+					frame->mvColX = traits::NkMove(maps.mvL0x);
+					frame->mvColY = traits::NkMove(maps.mvL0y);
+					frame->mvColL1X = traits::NkMove(maps.mvL1x);
+					frame->mvColL1Y = traits::NkMove(maps.mvL1y);
+					frame->mvColValid = traits::NkMove(maps.mvValid);
+					frame->mvColRefPocL0.Resize(puCount);
+					frame->mvColRefPocL1.Resize(puCount);
+					for (usize i = 0; i < puCount; ++i) {
 						const uint8 pf = p.predFlag[i];
 						int32 rp0 = 0, rp1 = 0;
 						if (pf & 1) {
@@ -3729,7 +4040,7 @@ namespace nkentseu {
 						frame->mvColRefPocL0[i] = rp0;
 						frame->mvColRefPocL1[i] = rp1;
 					}
-					frame->mvColPredFlag = traits::NkMove(p.predFlag);
+					frame->mvColPredFlag = traits::NkMove(maps.predFlag);
 				}
 				return true;
 			}
@@ -3762,6 +4073,14 @@ namespace nkentseu {
 										 NkHevcFrame &frame, NkHevcSliceDataStats &out) {
 			return RunSliceIntra(nal, size, sps, pps, sh, &frame, refsL0, numRefsL0, refsL1, numRefsL1,
 								 out);
+		}
+
+		void NkHevcDecoder::SetThreadCount(int32 n) {
+			gHevcThreadCount = n;
+		}
+
+		int32 NkHevcDecoder::GetThreadCount() {
+			return HevcResolvedThreads();
 		}
 
 	} // namespace media

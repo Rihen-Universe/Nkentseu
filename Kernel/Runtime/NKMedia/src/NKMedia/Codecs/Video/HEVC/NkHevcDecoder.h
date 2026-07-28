@@ -439,6 +439,16 @@ namespace nkentseu {
 											 int32 numRefIdxL0Active, int32 numRefIdxL1Active, bool isB,
 											 NkHevcRefPicLists &out);
 
+				// ---- Multithreading (SAO / déblocage / WPP wavefront) ----------------
+				// Nombre de threads de décodage : 0 = auto (cœurs logiques), 1 = chemin
+				// strictement séquentiel, N>1 = N threads au plus (thread appelant
+				// inclus). ⚠ Le multithread est DÉTERMINISTE et BIT-EXACT par
+				// construction (tâches disjointes / porte de progression WPP) : la
+				// valeur ne change jamais les pixels produits, seulement la vitesse.
+				static void SetThreadCount(int32 n);
+				// Nombre de threads réellement utilisés (résolu : bornes cœurs/config).
+				static int32 GetThreadCount();
+
 				static bool SelfTest();
 		};
 
