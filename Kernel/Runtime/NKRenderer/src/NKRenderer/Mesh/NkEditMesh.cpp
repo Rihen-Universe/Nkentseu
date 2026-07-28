@@ -1225,16 +1225,96 @@ namespace nkentseu {
 		}
 
 		// MAKE FACE : ajoute UNE face n-gon depuis les sommets sélectionnés (ordre d'index).
+		// F (« Make Face ») façon Blender : crée UNE face à partir des sommets sélectionnés.
+		// DEUX PIÈGES corrigés ici, tous deux invisibles en SOLIDE et flagrants en FIL DE FER :
+		//  1. COPIES COÏNCIDENTES. Les primitives dupliquent leurs coins PAR FACE (un coin de
+		//     cube = 3 sommets distincts au même endroit) et la sélection se propage aux
+		//     copies (« flushing »). Prendre bêtement tous les `verts[i].sel` transformait donc
+		//     « 4 sommets » en 12 -> face à 12 côtés. On ne garde qu'UN représentant par
+		//     sommet TOPOLOGIQUE (identité canonique BuildVertexMerge).
+		//  2. ORDRE DU CONTOUR. Les sommets étaient poussés dans l'ORDRE DES INDICES, qui n'a
+		//     aucune raison de suivre le contour : le polygone zigzaguait entre les coins et
+		//     ses arêtes traversaient la face — exactement l'aspect « la face est faite de deux
+		//     triangles » signalé. On les ORDONNE maintenant angulairement autour de leur
+		//     barycentre, dans le plan de meilleur ajustement -> contour simple, non croisé.
 		bool NkEditMesh::MakeFaceFromSelected() {
 			NkVector<NkVertex3D> pv;
 			NkVector<uint32> fs, fv;
 			ToPolygons(pv, fs, fv);
+			// ── 1) UN SEUL REPRÉSENTANT PAR SOMMET TOPOLOGIQUE ──────────────────────
+			NkVector<uint32> canon;
+			BuildVertexMerge(canon);
+			const uint32 ncv = (uint32)canon.Size();
+			NkHashMap<uint32, uint8> taken;
 			NkVector<uint32> sel;
-			for (uint32 i = 0; i < (uint32)verts.Size() && i < (uint32)pv.Size(); i++)
-				if (verts[i].sel)
-					sel.PushBack(i);
+			for (uint32 i = 0; i < (uint32)verts.Size() && i < (uint32)pv.Size(); i++) {
+				if (!verts[i].sel)
+					continue;
+				const uint32 c = (i < ncv) ? canon[i] : i;
+				if (taken.Find(c) != nullptr)
+					continue; // copie coïncidente du même sommet -> ignorée
+				taken.InsertOrAssign(c, (uint8)1);
+				sel.PushBack(i);
+			}
 			if (sel.Size() < 3)
 				return false;
+			// ── 2) ORDRE DU CONTOUR : tri angulaire dans le plan de meilleur ajustement ──
+			const uint32 sn = (uint32)sel.Size();
+			NkVec3f ctr{0.f, 0.f, 0.f};
+			for (uint32 k = 0; k < sn; k++)
+				ctr = ctr + pv[sel[k]].pos;
+			ctr = ctr * (1.f / (float32)sn);
+			// Normale du plan = le plus GRAND produit vectoriel trouvé entre deux rayons
+			// (robuste : une somme « à la Newell » sur un ordre arbitraire peut s'annuler).
+			// Recherche bornée aux 32 premiers sommets -> coût constant même sur « tout
+			// sélectionner puis F ».
+			NkVec3f nrm{0.f, 0.f, 0.f};
+			float32 bestA = 0.f;
+			const uint32 scan = (sn > 32u) ? 32u : sn;
+			for (uint32 a = 0; a < scan; a++)
+				for (uint32 b = a + 1; b < scan; b++) {
+					const NkVec3f cr = (pv[sel[a]].pos - ctr).Cross(pv[sel[b]].pos - ctr);
+					const float32 l = cr.Len();
+					if (l > bestA) {
+						bestA = l;
+						nrm = cr;
+					}
+				}
+			if (bestA > 1e-12f) {
+				nrm = nrm * (1.f / bestA);
+				// Base orthonormée du plan.
+				NkVec3f u = pv[sel[0]].pos - ctr;
+				u = u - nrm * u.Dot(nrm);
+				float32 ul = u.Len();
+				if (ul < 1e-8f) { // le 1er sommet est au barycentre : on prend n'importe quel axe
+					u = (fabsf(nrm.x) < 0.9f) ? NkVec3f{1.f, 0.f, 0.f} : NkVec3f{0.f, 1.f, 0.f};
+					u = u - nrm * u.Dot(nrm);
+					ul = u.Len();
+				}
+				if (ul > 1e-8f) {
+					u = u * (1.f / ul);
+					const NkVec3f v = nrm.Cross(u);
+					// Tri par insertion sur l'angle (zéro STL, zéro allocation).
+					NkVector<float32> ang;
+					ang.Resize(sn);
+					for (uint32 k = 0; k < sn; k++) {
+						const NkVec3f d = pv[sel[k]].pos - ctr;
+						ang[k] = atan2f(d.Dot(v), d.Dot(u));
+					}
+					for (uint32 k = 1; k < sn; k++) {
+						const float32 av = ang[k];
+						const uint32 iv = sel[k];
+						uint32 j = k;
+						while (j > 0 && ang[j - 1] > av) {
+							ang[j] = ang[j - 1];
+							sel[j] = sel[j - 1];
+							j--;
+						}
+						ang[j] = av;
+						sel[j] = iv;
+					}
+				}
+			}
 			for (uint32 k = 0; k < (uint32)sel.Size(); k++)
 				fv.PushBack(sel[k]);
 			fs.PushBack((uint32)fv.Size());
@@ -1373,6 +1453,9 @@ namespace nkentseu {
 		// posées aux fractions k/(cuts+1) de l'anneau, comme un Ctrl+R validé sans slide.
 		bool NkEditMesh::LoopCutFromSelectedEdge(const NkLoopCutParams &p) {
 			const int32 cuts = (p.cuts < 1) ? 1 : ((p.cuts > 32) ? 32 : p.cuts);
+			// SLIDE (edge slide de Blender) : glisse les boucles insérées le long de l'anneau.
+			// 0 = position médiane (comportement historique, strictement inchangé).
+			const float32 slide = (p.slide < -1.f) ? -1.f : ((p.slide > 1.f) ? 1.f : p.slide);
 			// Arête de départ = 1re demi-arête vivante dont les 2 extrémités sont sélectionnées.
 			NkEmId h0 = NK_EM_INVALID;
 			for (uint32 h = 0; h < (uint32)hedges.Size(); ++h) {
@@ -1393,25 +1476,36 @@ namespace nkentseu {
 			BuildVertexMerge(canon);
 			const uint32 ncv = (uint32)canon.Size();
 			auto CV = [&](uint32 v) -> uint32 { return (v < ncv) ? canon[v] : v; };
+			// Valeur stockée = ORIENTATION de l'arête dans l'anneau : 1 => le sens « positif »
+			// (celui du SLIDE) va de `lo` vers `hi` ; 2 => il va de `hi` vers `lo`.
+			// Nécessaire parce que l'ordre canonique lo->hi est arbitraire : sans cette
+			// mémoire, une arête sur deux glisserait à contresens et la boucle se tordrait.
 			NkHashMap<uint64, uint8> ring;
-			auto addE = [&](uint32 a0, uint32 b0) {
+			auto addE = [&](uint32 a0, uint32 b0, bool posIsAtoB) {
 				const uint32 a = CV(a0), b = CV(b0);
 				uint32 lo = a < b ? a : b, hi = a < b ? b : a;
-				ring.InsertOrAssign(((uint64)lo << 32) | hi, (uint8)1);
+				const bool posLoHi = posIsAtoB ? (a < b) : (b < a);
+				ring.InsertOrAssign(((uint64)lo << 32) | hi, (uint8)(posLoHi ? 1 : 2));
 			};
 			NkEmId h = h0;
 			uint32 guard = 0;
 			do {
 				uint32 o = hedges[h].origin, d = hedges[hedges[h].next].origin;
-				addE(o, d);
+				// Convention : le sens positif suit la demi-arête courante (o -> d). Le quad
+				// étant parcouru q0->q1->q2->q3 avec h = (q0,q1) et hOpp = (q2,q3), le sommet
+				// de coupe de `h` près de q0 fait face à celui de `hOpp` près de q3 : le sens
+				// positif sur hOpp est donc q3 -> q2, soit l'INVERSE de (origin -> dest).
+				addE(o, d, true);
 				if (FaceSize(hedges[h].face) != 4)
 					break;								   // anneau uniquement à travers des quads
 				NkEmId hOpp = hedges[hedges[h].next].next; // arête opposée du quad
-				addE(hedges[hOpp].origin, hedges[hedges[hOpp].next].origin);
+				addE(hedges[hOpp].origin, hedges[hedges[hOpp].next].origin, false);
 				NkEmId tw = hedges[hOpp].twin;
 				if (tw == NK_EM_INVALID)
 					break; // bord -> anneau ouvert
 				h = tw;
+				// (la prochaine itération réécrit l'orientation de hOpp via son twin, avec
+				//  EXACTEMENT la même valeur : twin(hOpp) va bien de q3 vers q2.)
 			} while (h != h0 && ++guard < 100000u);
 			NkVector<NkVertex3D> pv;
 			NkVector<uint32> fs, fv;
@@ -1434,9 +1528,23 @@ namespace nkentseu {
 				uint32 *q = emid.Find(key);
 				if (q)
 					return *q;
+				// SLIDE : le sens positif de CETTE arête vient de la table `ring` (établie en
+				// parcourant l'anneau). `sp` est le glissement ramené dans le repère lo->hi.
+				const uint8 *ro = ring.Find(key);
+				const bool posLoHi = (ro == nullptr) || (*ro != 2u);
+				const float32 sp = posLoHi ? slide : -slide;
 				const uint32 base = (uint32)pv.Size();
 				for (int32 c = 0; c < cuts; c++) {
-					const float32 t = (float32)(c + 1) / (float32)(cuts + 1);
+					float32 t = (float32)(c + 1) / (float32)(cuts + 1);
+					// Glissement vers la boucle bordante `hi` (sp > 0) ou `lo` (sp < 0) :
+					// t' = t + |sp| * (cible - t) -> à |sp| = 1 toutes les coupes se rabattent
+					// exactement sur la boucle visée, comme le edge slide de Blender.
+					if (sp != 0.f) {
+						const float32 target = (sp > 0.f) ? 1.f : 0.f;
+						const float32 a2 = (sp < 0.f) ? -sp : sp;
+						t = t + a2 * (target - t);
+						t = (t < 0.001f) ? 0.001f : ((t > 0.999f) ? 0.999f : t);
+					}
 					NkVertex3D nv = pv[lo];
 					nv.pos = pv[lo].pos + (pv[hi].pos - pv[lo].pos) * t;
 					nv.uv = pv[lo].uv + (pv[hi].uv - pv[lo].uv) * t;
@@ -3150,7 +3258,8 @@ namespace nkentseu {
 			out.Clear();
 			EmW w{out};
 			w.U32(NK_EMREC_MAGIC);
-			w.U32(8u); // v8 : + ToSphere/ShrinkFatten (v7 : dissolve · v6 : spin · v5 : split · v4 : inset)
+			w.U32(9u); // v9 : + loopcut.slide (v8 : ToSphere/ShrinkFatten · v7 : dissolve · v6 : spin
+					   //       v5 : split · v4 : inset · v3 : bevel · v2 : loopcut.cuts)
 			w.U32((uint32)mCommands.Size());
 			for (uint32 i = 0; i < (uint32)mCommands.Size(); ++i) {
 				const NkMeshEditCommand &c = mCommands[i];
@@ -3204,6 +3313,7 @@ namespace nkentseu {
 				w.F32(c.tosphere.factor);
 				w.U8((uint8)(c.tosphere.individual ? 1 : 0));
 				w.F32(c.shrinkfatten.offset);
+				w.F32(c.loopcut.slide); // v9
 			}
 		}
 
@@ -3379,6 +3489,8 @@ namespace nkentseu {
 					c.tosphere.individual = (r.U8() != 0);
 					c.shrinkfatten.offset = r.F32();
 				}
+				if (ver >= 9u)
+					c.loopcut.slide = r.F32();
 				if (r.ok)
 					mCommands.PushBack(c);
 			}
