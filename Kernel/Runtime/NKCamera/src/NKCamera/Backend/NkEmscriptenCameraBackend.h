@@ -282,8 +282,8 @@ namespace nkentseu {
 		Module.nkcam.ctx = Module.nkcam.canvas.getContext('2d', {willReadFrequently : true});
 		// Lazy enumerate devices (peut échouer si permission pas accordée).
 		navigator.mediaDevices.enumerateDevices()
-			.then((devs) = > { Module.nkcam.devices = devs.filter(d = > d.kind == = 'videoinput'); })
-			.catch(() = > { Module.nkcam.devices = []; });
+			.then((devs) => { Module.nkcam.devices = devs.filter(d => d.kind === 'videoinput'); })
+			.catch(() => { Module.nkcam.devices = []; });
 	});
 
 	EM_JS(int, nkentseu_emcam_enum_count, (), { return Module.nkcam ? Module.nkcam.devices.length : 0; });
@@ -313,7 +313,7 @@ namespace nkentseu {
 		if (devs[devIdx] && devs[devIdx].deviceId) {
 			constraints.video.deviceId = {exact : devs[devIdx].deviceId};
 		}
-		return Asyncify.handleAsync(async() = > {
+		return Asyncify.handleAsync(async() => {
 			try {
 				var stream = await navigator.mediaDevices.getUserMedia(constraints);
 				nk.stream = stream;

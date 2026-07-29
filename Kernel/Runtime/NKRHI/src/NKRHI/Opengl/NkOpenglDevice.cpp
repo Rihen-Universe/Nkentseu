@@ -49,6 +49,12 @@
 #include <glad/egl.h>
 #include <unistd.h> // usleep (repli eglCreateWindowSurface, cf. commentaire plus bas)
 extern "C" int gladLoadGLES2(GLADloadfunc load);
+// Loader glad "dlopen" (ouvre libGLESv2.so directement) : NKCanvas s'en sert
+// EXCLUSIVEMENT sur mobile car eglGetProcAddress ne resout PAS toujours les
+// fonctions GLES2 CORE de la MEME implementation que celle liee au swapchain
+// (couches d'emulation/trace). Utiliser ce loader = charger EXACTEMENT les
+// memes entrypoints que Mou/Pong (qui s'affichent).
+extern "C" int gladLoaderLoadGLES2(void);
 #endif
 
 #define NK_GL_LOG(...) logger_src.Infof("[NkRHI_GL] " __VA_ARGS__)
@@ -695,11 +701,41 @@ namespace nkentseu {
 		mEglConfig = eglConfig;
 		mEglNativeWindow = nativeWindow;
 		NK_GL_LOG("EGL surface creee sur ANativeWindow=%p\n", nativeWindow);
+		// DIAGNOSTIC (temporaire) : attributs REELS du config et de la surface
+		// obtenus. Compare a NKCanvas (qui s'affiche) : on cherche pourquoi un swap
+		// "reussi" sur cette surface n'atteint pas l'ecran (RENDER_BUFFER=SINGLE ?
+		// SURFACE_TYPE sans WINDOW_BIT ? NATIVE_VISUAL_ID != format fenetre RGBA_8888 ?
+		// mauvais config pris par le fallback d'enumeration ?). A retirer ensuite.
+		{
+			EGLint cfgId = -1, visId = -1, surfType = -1, renderable = -1, redS = -1, alphaS = -1;
+			eglGetConfigAttrib(eglDisplay, eglConfig, EGL_CONFIG_ID, &cfgId);
+			eglGetConfigAttrib(eglDisplay, eglConfig, EGL_NATIVE_VISUAL_ID, &visId);
+			eglGetConfigAttrib(eglDisplay, eglConfig, EGL_SURFACE_TYPE, &surfType);
+			eglGetConfigAttrib(eglDisplay, eglConfig, EGL_RENDERABLE_TYPE, &renderable);
+			eglGetConfigAttrib(eglDisplay, eglConfig, EGL_RED_SIZE, &redS);
+			eglGetConfigAttrib(eglDisplay, eglConfig, EGL_ALPHA_SIZE, &alphaS);
+			EGLint renderBuf = -1, swapBehav = -1;
+			eglQuerySurface(eglDisplay, eglSurface, EGL_RENDER_BUFFER, &renderBuf);
+			eglQuerySurface(eglDisplay, eglSurface, EGL_SWAP_BEHAVIOR, &swapBehav);
+			NK_GL_LOG("EGL cfg: id=%d visualId=%d surfType=0x%X renderable=0x%X R=%d A=%d | surf: "
+					  "renderBuffer=0x%X(back=0x%X) swapBehavior=0x%X\n",
+					  cfgId, visId, surfType, renderable, redS, alphaS, renderBuf, EGL_BACK_BUFFER, swapBehav);
+		}
 
 #ifndef NK_NO_GLAD2
-		// gladLoadGLES2 (défini dans gles2.c, forward-déclaré plus haut) remplit
-		// les MÊMES globaux glad_gl* que ceux déclarés par glad/gl.h.
-		if (!gladLoadGLES2((GLADloadfunc)eglGetProcAddress)) {
+		// Charge les entrypoints GLES via le loader dlopen (libGLESv2.so), comme
+		// NKCanvas (Mou/Pong qui s'affichent). AVANT on passait par
+		// gladLoadGLES2(eglGetProcAddress) : sur certains drivers (dont l'emulateur
+		// MEmu) eglGetProcAddress renvoie des pointeurs vers une implementation GLES
+		// distincte de celle reellement liee au swapchain -> le rendu "reussit" mais
+		// le back buffer poste par eglSwapBuffers n'est jamais compose (ecran noir,
+		// swap ok=1). Repli sur l'ancien chemin si le loader dlopen echoue.
+		int glesVer = gladLoaderLoadGLES2();
+		if (!glesVer) {
+			NK_GL_LOG("gladLoaderLoadGLES2 (dlopen) failed, repli sur eglGetProcAddress\n");
+			glesVer = gladLoadGLES2((GLADloadfunc)eglGetProcAddress);
+		}
+		if (!glesVer) {
 			NK_GL_ERR("gladLoadGLES2 failed\n");
 			eglMakeCurrent(eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
 			eglDestroyContext(eglDisplay, eglContext);
@@ -1301,7 +1337,12 @@ namespace nkentseu {
 		glSamplerParameteri(id, GL_TEXTURE_WRAP_S, (GLint)ToGLWrap(d.addressU));
 		glSamplerParameteri(id, GL_TEXTURE_WRAP_T, (GLint)ToGLWrap(d.addressV));
 		glSamplerParameteri(id, GL_TEXTURE_WRAP_R, (GLint)ToGLWrap(d.addressW));
+#if !defined(NK_OPENGL_ES)
+		// GL_TEXTURE_LOD_BIAS n'existe PAS en OpenGL ES (absent de ES 2.0/3.x) :
+		// l'appeler leve GL_INVALID_ENUM et laisse l'objet sampler partiellement
+		// initialise cote pilote.
 		glSamplerParameterf(id, GL_TEXTURE_LOD_BIAS, d.mipLodBias);
+#endif
 		glSamplerParameterf(id, GL_TEXTURE_MIN_LOD, d.minLod);
 		glSamplerParameterf(id, GL_TEXTURE_MAX_LOD, d.maxLod);
 		if (d.maxAnisotropy > 1.f)
@@ -1310,8 +1351,20 @@ namespace nkentseu {
 			glSamplerParameteri(id, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
 			glSamplerParameteri(id, GL_TEXTURE_COMPARE_FUNC, (GLint)ToGLCompareOp(d.compareOp));
 		}
+		GLSampler s{};
+		s.id = id;
+		s.magFilter = (GLint)ToGLFilter(d.magFilter, NkMipFilter::NK_NONE);
+		s.minFilter = (GLint)ToGLFilter(d.minFilter, d.mipFilter);
+		s.wrapS = (GLint)ToGLWrap(d.addressU);
+		s.wrapT = (GLint)ToGLWrap(d.addressV);
+		s.wrapR = (GLint)ToGLWrap(d.addressW);
+		s.minLod = d.minLod;
+		s.maxLod = d.maxLod;
+		s.maxAnisotropy = d.maxAnisotropy;
+		s.compareEnable = d.compareEnable;
+		s.compareFunc = (GLint)ToGLCompareOp(d.compareOp);
 		uint64 hid = NextId();
-		mSamplers[hid] = {id};
+		mSamplers[hid] = s;
 		NkSamplerHandle h;
 		h.id = hid;
 		return h;
@@ -1753,6 +1806,7 @@ namespace nkentseu {
 					b.bufferId = buffer->id;
 					b.bufferOffset = w.bufferOffset;
 					b.bufferRange = w.bufferRange;
+					b.bufferSize = buffer->size;
 				}
 			}
 			if (w.texture.IsValid()) {
@@ -1764,8 +1818,10 @@ namespace nkentseu {
 			}
 			if (w.sampler.IsValid()) {
 				GLSampler *sampler = mSamplers.Find(w.sampler.id);
-				if (sampler)
+				if (sampler) {
 					b.samplerId = sampler->id;
+					b.samplerState = *sampler;
+				}
 			}
 		}
 	}
@@ -1781,9 +1837,22 @@ namespace nkentseu {
 			switch (b.type) {
 				case NkDescriptorType::NK_UNIFORM_BUFFER:
 				case NkDescriptorType::NK_UNIFORM_BUFFER_DYNAMIC:
-					if (b.bufferId)
-						glBindBufferRange(GL_UNIFORM_BUFFER, lb.binding, b.bufferId, (GLintptr)b.bufferOffset,
-										  (GLsizeiptr)(b.bufferRange > 0 ? b.bufferRange : 65536));
+					if (b.bufferId) {
+						// glBindBufferRange EXIGE offset+size <= taille du buffer : sinon
+						// GL_INVALID_VALUE, le binding n'est PAS etabli et, sur les pilotes
+						// GLES emules (goldfish/MEmu), l'etat de presentation est corrompu
+						// -> ecran noir sans erreur remontee. L'ancien defaut 65536 quand
+						// bufferRange==0 depassait quasi toujours la taille reelle de l'UBO.
+						uint64 range = b.bufferRange;
+						const uint64 avail = (b.bufferSize > b.bufferOffset) ? (b.bufferSize - b.bufferOffset) : 0;
+						if (range == 0 || (avail > 0 && range > avail))
+							range = avail;
+						if (range > 0)
+							glBindBufferRange(GL_UNIFORM_BUFFER, lb.binding, b.bufferId, (GLintptr)b.bufferOffset,
+											  (GLsizeiptr)range);
+						else
+							glBindBufferBase(GL_UNIFORM_BUFFER, lb.binding, b.bufferId);
+					}
 					break;
 				case NkDescriptorType::NK_STORAGE_BUFFER:
 				case NkDescriptorType::NK_STORAGE_BUFFER_DYNAMIC:
@@ -1801,7 +1870,32 @@ namespace nkentseu {
 #endif
 					}
 					if (b.samplerId) {
+#if defined(NK_OPENGL_ES)
+						// PAS de glBindSampler sur OpenGL ES : sur les pilotes GLES emules
+						// (MEmu/goldfish), lier un objet sampler corrompt la presentation —
+						// le rendu continue sans la moindre erreur GL, eglSwapBuffers renvoie
+						// ok=1, mais le compositeur n'affiche plus que du NOIR (cause isolee
+						// par bisection de commandes, cf. rapport). On applique donc l'etat
+						// du sampler directement sur la texture liee, ce qui est le repli
+						// classique GLES2 et donne le meme resultat visuel.
+						const GLenum tgt = b.textureTarget ? b.textureTarget : GL_TEXTURE_2D;
+						const GLSampler &sst = b.samplerState;
+						glTexParameteri(tgt, GL_TEXTURE_MAG_FILTER, sst.magFilter);
+						glTexParameteri(tgt, GL_TEXTURE_MIN_FILTER, sst.minFilter);
+						glTexParameteri(tgt, GL_TEXTURE_WRAP_S, sst.wrapS);
+						glTexParameteri(tgt, GL_TEXTURE_WRAP_T, sst.wrapT);
+						glTexParameteri(tgt, GL_TEXTURE_WRAP_R, sst.wrapR);
+						glTexParameterf(tgt, GL_TEXTURE_MIN_LOD, sst.minLod);
+						glTexParameterf(tgt, GL_TEXTURE_MAX_LOD, sst.maxLod);
+						if (sst.maxAnisotropy > 1.f)
+							glTexParameterf(tgt, GL_TEXTURE_MAX_ANISOTROPY, sst.maxAnisotropy);
+						glTexParameteri(tgt, GL_TEXTURE_COMPARE_MODE,
+										sst.compareEnable ? GL_COMPARE_REF_TO_TEXTURE : GL_NONE);
+						if (sst.compareEnable)
+							glTexParameteri(tgt, GL_TEXTURE_COMPARE_FUNC, sst.compareFunc);
+#else
 						glBindSampler(lb.binding, b.samplerId);
+#endif
 					}
 					break;
 				case NkDescriptorType::NK_STORAGE_TEXTURE:
@@ -1862,13 +1956,10 @@ namespace nkentseu {
 		}
 #elif defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_PLATFORM_HARMONYOS)
 		if (mEglDisplay && mEglSurface) {
-			// Diagnostic temporaire (enquete ecran noir Tuto02Renderer) : la sonde
-			// readback prouve que le texte EST rasterise dans le back buffer du FBO 0
-			// — si l'ecran reste noir, c'est la PRESENTATION qui echoue. On verifie
-			// donc le retour d'eglSwapBuffers (jamais controle jusqu'ici : un swap
-			// sur une surface EGL liee a un ANativeWindow recree par Android echoue
-			// en silence, EGL_BAD_SURFACE/BAD_NATIVE_WINDOW) + la taille que EGL
-			// croit avoir pour la surface. A retirer une fois la cause confirmee.
+			// On controle le retour d'eglSwapBuffers : un swap sur une surface EGL
+			// liee a un ANativeWindow recree par l'OS echoue sinon en SILENCE
+			// (EGL_BAD_SURFACE / EGL_BAD_NATIVE_WINDOW) et l'ecran reste noir sans
+			// qu'aucune erreur GL ne soit levee.
 			EGLDisplay dpy = reinterpret_cast<EGLDisplay>(mEglDisplay);
 			EGLSurface surf = reinterpret_cast<EGLSurface>(mEglSurface);
 			EGLBoolean swapOk = eglSwapBuffers(dpy, surf);
