@@ -5529,9 +5529,32 @@ namespace nkentseu {
 					return NkString("nkcode_recent.cfg");
 				}
 
+				// Normalise un chemin de RECENT/EPINGLE : separateurs unifies en '/' et
+				// lettre de lecteur en MAJUSCULE. Sans ca, le MEME workspace atteint par
+				// deux chemins d'ecriture differents ("d:/..." via argument de ligne de
+				// commande ou picker, "D:/..." via ScanWorkspaces) donnait DEUX entrees
+				// dans le launcher — les comparaisons se faisaient avec StrEq (exact).
+				static NkString NormRecent(const char *p) {
+					NkString o;
+					if (!p || !*p)
+						return o;
+					if (p[1] == ':' && p[0] >= 'a' && p[0] <= 'z') { // "d:" -> "D:"
+						o += static_cast<char>(p[0] - 32);
+						++p;
+					}
+					for (; *p; ++p)
+						o += (*p == '\\') ? '/' : *p;
+					return o;
+				}
+
+				// Comparaison de chemins : normalisee ET insensible a la casse (Windows).
+				static bool SamePathRec(const char *a, const char *b) {
+					return StrEqI(NormRecent(a).CStr(), NormRecent(b).CStr());
+				}
+
 				static void RemoveFrom(NkVector<NkString> &v, const char *path) {
 					for (usize i = 0; i < v.Size();)
-						if (StrEq(v[i].CStr(), path))
+						if (SamePathRec(v[i].CStr(), path))
 							v.Erase(v.Begin() + i);
 						else
 							++i;
@@ -5539,7 +5562,7 @@ namespace nkentseu {
 
 				bool IsPinned(const char *path) const {
 					for (usize i = 0; i < pinned.Size(); ++i)
-						if (StrEq(pinned[i].CStr(), path))
+						if (SamePathRec(pinned[i].CStr(), path))
 							return true;
 					return false;
 				}
@@ -5549,15 +5572,36 @@ namespace nkentseu {
 					pinned.Clear();
 					NkString txt = NkFile::ReadAllText(NkPath(RecentsPath().CStr()));
 					NkString cur;
+					// Chaque entree est NORMALISEE a la lecture et ignoree si deja presente
+					// (dans les epingles OU les recents) -> nettoie les doublons ecrits par
+					// les versions precedentes, sans migration ni perte d'historique.
+					auto known = [&](const char *p) {
+						for (usize i = 0; i < pinned.Size(); ++i)
+							if (SamePathRec(pinned[i].CStr(), p))
+								return true;
+						for (usize i = 0; i < recents.Size(); ++i)
+							if (SamePathRec(recents[i].CStr(), p))
+								return true;
+						return false;
+					};
+					bool cleaned = false; // un doublon retire / un chemin renormalise ?
 					auto flush = [&]() {
 						if (cur.Empty())
 							return;
-						if (cur.CStr()[0] == 'P' && cur.CStr()[1] == ' ')
-							pinned.PushBack(NkString(cur.CStr() + 2));
-						else if (cur.CStr()[0] == 'R' && cur.CStr()[1] == ' ')
-							recents.PushBack(NkString(cur.CStr() + 2));
+						const bool isPin = (cur.CStr()[0] == 'P' && cur.CStr()[1] == ' ');
+						const bool isRec = (cur.CStr()[0] == 'R' && cur.CStr()[1] == ' ');
+						const char *raw = (isPin || isRec) ? cur.CStr() + 2 : cur.CStr();
+						const NkString p = NormRecent(raw);
+						if (!StrEq(p.CStr(), raw))
+							cleaned = true; // la forme sur disque n'etait pas canonique
+						if (p.Empty())
+							cleaned = true;
+						else if (known(p.CStr()))
+							cleaned = true; // doublon d'une entree deja retenue
+						else if (isPin)
+							pinned.PushBack(p);
 						else
-							recents.PushBack(cur); // ancien format (chemin nu)
+							recents.PushBack(p); // "R " ou ancien format (chemin nu)
 						cur.Clear();
 					};
 					for (const char *p = txt.CStr(); *p; ++p) {
@@ -5567,6 +5611,11 @@ namespace nkentseu {
 							cur += *p;
 					}
 					flush();
+					// Reecrit le fichier UNE SEULE FOIS si le disque contenait des doublons
+					// ou des chemins non canoniques -> l'utilisateur ne revoit jamais le
+					// doublon, meme sans ouvrir de workspace.
+					if (cleaned)
+						SaveRecents();
 					LoadNameOverrides();
 					RebuildRecentNames();
 				}
@@ -5587,12 +5636,13 @@ namespace nkentseu {
 				}
 
 				void AddRecent(const NkString &wsPath) {
-					if (IsPinned(wsPath.CStr()))
+					const NkString np = NormRecent(wsPath.CStr()); // forme CANONIQUE stockee
+					if (IsPinned(np.CStr()))
 						return; // deja epingle -> reste en tete
 					NkVector<NkString> nw;
-					nw.PushBack(wsPath); // en tete (le plus recent)
+					nw.PushBack(np); // en tete (le plus recent)
 					for (usize i = 0; i < recents.Size() && nw.Size() < 12; ++i)
-						if (!StrEq(recents[i].CStr(), wsPath.CStr()))
+						if (!SamePathRec(recents[i].CStr(), np.CStr()))
 							nw.PushBack(recents[i]);
 					recents = nw;
 					SaveRecents();
@@ -5600,17 +5650,19 @@ namespace nkentseu {
 				}
 
 				void PinRecent(const NkString &path) {
-					RemoveFrom(recents, path.CStr());
-					if (!IsPinned(path.CStr()))
-						pinned.PushBack(path);
+					const NkString np = NormRecent(path.CStr());
+					RemoveFrom(recents, np.CStr());
+					if (!IsPinned(np.CStr()))
+						pinned.PushBack(np);
 					SaveRecents();
 					RebuildRecentNames();
 				}
 
 				void UnpinRecent(const NkString &path) {
-					RemoveFrom(pinned, path.CStr());
-					RemoveFrom(recents, path.CStr());
-					recents.Insert(recents.Begin(), path);
+					const NkString np = NormRecent(path.CStr());
+					RemoveFrom(pinned, np.CStr());
+					RemoveFrom(recents, np.CStr());
+					recents.Insert(recents.Begin(), np);
 					SaveRecents();
 					RebuildRecentNames();
 				}
@@ -5895,6 +5947,18 @@ namespace nkentseu {
 					auto isW2 = [](char c) {
 						return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
 					};
+					// La ligne contenant `hit` est-elle COMMENTEE (DSL = Python, « # ») ?
+					// Sans ce test, un `# with project("Ancien")` mis de cote comptait
+					// comme un projet reel -> total affiche faux sur les cartes du launcher.
+					auto inComment = [](const char *base, const char *hit) {
+						const char *ls = hit;
+						while (ls > base && ls[-1] != '\n')
+							--ls;
+						for (const char *q = ls; q < hit; ++q)
+							if (*q == '#')
+								return true;
+						return false;
+					};
 					auto collect = [&](const char *src, const char *pat, bool boundary) {
 						const char *base = src;
 						const char *p = src;
@@ -5903,7 +5967,13 @@ namespace nkentseu {
 							p += Len(pat);
 							if (boundary && hit > base && isW2(hit[-1]))
 								continue; // « startproject( » ne doit pas matcher « project( »
-							while (*p && *p != '"')
+							if (inComment(base, hit))
+								continue; // ligne commentee -> pas un projet
+							// Le nom doit etre un LITTERAL sur LA MEME ligne : `project(var)`
+							// (nom calcule) n'en a pas. Sans la borne '\n', la recherche
+							// traversait les lignes et capturait la premiere chaine
+							// rencontree plus bas dans le fichier = faux projet.
+							while (*p && *p != '"' && *p != '\n')
 								++p;
 							if (*p == '"') {
 								++p;
@@ -5925,7 +5995,12 @@ namespace nkentseu {
 					NkVector<NkString> qTxt, qDir, seen;
 					qTxt.PushBack(NkString(txt));
 					qDir.PushBack(baseDir.ToString());
-					for (usize qi = 0; qi < qTxt.Size() && qTxt.Size() <= 300; ++qi) {
+					// Plafond = nombre de fichiers ENFILES (l'ancienne condition de boucle
+					// `qTxt.Size() <= 300` ARRETAIT tout le parcours des qu'on depassait
+					// 300 : sur un gros workspace comme Nkentseu — 152 includes rien qu'a
+					// la racine — les derniers projets n'etaient jamais comptes).
+					const usize kMaxFiles = 4000;
+					for (usize qi = 0; qi < qTxt.Size(); ++qi) {
 						const char *src = qTxt[qi].CStr();
 						collect(src, "project(", true); // couvre `with project(`
 						collect(src, "startproject(", true);
@@ -5935,6 +6010,8 @@ namespace nkentseu {
 							p += Len("include(\"");
 							if (hit > src && isW2(hit[-1]))
 								continue; // pas `xinclude(`
+							if (inComment(src, hit))
+								continue; // include commente -> ne pas suivre
 							NkString rel;
 							while (*p && *p != '"')
 								rel += *p++;
@@ -5947,7 +6024,7 @@ namespace nkentseu {
 									vis = true;
 									break;
 								}
-							if (vis || qTxt.Size() > 300)
+							if (vis || qTxt.Size() >= kMaxFiles)
 								continue;
 							seen.PushBack(full);
 							const NkString sub = NkFile::ReadAllText(NkPath(full.CStr()));

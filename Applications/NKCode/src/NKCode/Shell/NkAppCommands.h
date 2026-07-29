@@ -278,7 +278,8 @@ inline void DrawHelpModal(NkEditorFrameContext &ec, nkcode::NkCodeDialogs *d) {
 	const NkRect body = {box.x + u.s(24), box.y + tbH + u.s(6), box.w - u.s(48), box.h - tbH - u.s(30)};
 	if (about) {
 		// ── A PROPOS : identite produit/editeur, contact. ──
-		const char *L[] = {"NKCode 0.1.0-beta",
+		const NkString titleLine = NkString("NKCode ") + nkcode::NkCodeVersion(); // source unique (NkUi.h)
+		const char *L[] = {titleLine.CStr(),
 						   "",
 						   "IDE natif de l'ecosysteme Nkentseu (NKGui).",
 						   "Builds pilotes par Jenga (C, C++, ASM, Rust, Zig).",
