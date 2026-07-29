@@ -40,7 +40,16 @@ namespace nkentseu {
 				K_CHECK_NORMAL,	 // damier sur la normale : controle du lissage
 				K_CHECK_REFLECT, // damier sur la reflexion : controle des UV/reflets
 				K_ANISO,		 // metal brosse (speculaire etire)
-				K_SKIN			 // diffusion sous-surfacique approchee
+				K_SKIN,			 // diffusion sous-surfacique approchee
+				// ── FORMULES HISTORIQUES ──────────────────────────────────────────
+				// Reproduction EXACTE des 4 matcaps procedurales qui vivaient dans
+				// pbr.frag avant l'atlas (Studio/Clay/Metal/Toon). Elles avaient ete
+				// SUPPRIMEES au passage a l'atlas ; Rihen les voulait conservees.
+				// Formules recopiees a l'identique, pas reinterpretees.
+				K_OLD_STUDIO,
+				K_OLD_CLAY,
+				K_OLD_METAL,
+				K_OLD_TOON
 			};
 
 			struct Preset {
@@ -136,6 +145,17 @@ namespace nkentseu {
 				 {0.30f, 0.55f, 0.78f}, 0.90f, 0.f, 0.f, 0.f, 0.f, {0.f, 0.f, 0.f}, 0.f, 0.045f, 4.f},
 				{"blue_studio", K_STUDIO, {0.42f, 0.52f, 0.72f}, {0.72f, 0.84f, 1.00f}, {0.10f, 0.13f, 0.22f},
 				 {0.30f, 0.55f, 0.78f}, 0.62f, 0.45f, 40.f, 0.30f, 2.8f, {0.80f, 0.90f, 1.00f}, 0.12f, 0.038f, 0.f},
+
+				// ── Les 4 HISTORIQUES (ids 30..33), ajoutees en FIN pour ne pas
+				// decaler les 30 existantes (les indices sont une API : NK_MATCAP=n).
+				{"studio_ancien", K_OLD_STUDIO, {1.f, 1.f, 1.f}, {0.f, 0.f, 0.f}, {0.f, 0.f, 0.f},
+				 {0.32f, 0.53f, 0.78f}, 0.f, 0.f, 0.f, 0.f, 0.f, {0.f, 0.f, 0.f}, 0.f, 0.045f, 0.f},
+				{"clay_ancien", K_OLD_CLAY, {1.f, 1.f, 1.f}, {0.f, 0.f, 0.f}, {0.f, 0.f, 0.f},
+				 {0.f, 1.f, 0.f}, 0.f, 0.f, 0.f, 0.f, 0.f, {0.f, 0.f, 0.f}, 0.f, 0.045f, 0.f},
+				{"metal_ancien", K_OLD_METAL, {1.f, 1.f, 1.f}, {0.f, 0.f, 0.f}, {0.f, 0.f, 0.f},
+				 {0.30f, 0.50f, 0.80f}, 0.f, 0.f, 0.f, 0.f, 0.f, {0.f, 0.f, 0.f}, 0.f, 0.030f, 0.f},
+				{"toon_ancien", K_OLD_TOON, {1.f, 1.f, 1.f}, {0.f, 0.f, 0.f}, {0.f, 0.f, 0.f},
+				 {0.30f, 0.55f, 0.78f}, 0.f, 0.f, 0.f, 0.f, 0.f, {0.f, 0.f, 0.f}, 0.f, 0.045f, 0.f},
 			};
 
 			inline float32 Clamp01(float32 x) {
@@ -264,6 +284,29 @@ namespace nkentseu {
 						}
 						break;
 					}
+					case K_OLD_STUDIO: {
+						const float32 key = Clamp01(nx * 0.32f + ny * 0.53f + nz * 0.78f);
+						const float32 fill = Clamp01(nx * -0.60f + ny * 0.10f + nz * 0.79f);
+						const float32 rim = powf(1.f - Clamp01(nz), 3.f);
+						out[0] = out[1] = out[2] = Clamp01(0.25f + 0.50f * key + 0.18f * fill + 0.22f * rim);
+						break;
+					}
+					case K_OLD_CLAY: {
+						out[0] = out[1] = out[2] = Clamp01(0.30f + 0.50f * (ny * 0.5f + 0.5f));
+						break;
+					}
+					case K_OLD_METAL: {
+						const float32 key = Clamp01(nx * 0.30f + ny * 0.50f + nz * 0.80f);
+						const float32 spec = powf(key, 20.f);
+						const float32 fres = powf(1.f - Clamp01(nz), 4.f);
+						out[0] = out[1] = out[2] = Clamp01(0.14f + 0.42f * key + 0.7f * spec + 0.5f * fres);
+						break;
+					}
+					case K_OLD_TOON: {
+						const float32 key = Clamp01(nx * 0.30f + ny * 0.55f + nz * 0.78f);
+						out[0] = out[1] = out[2] = (key > 0.62f) ? 0.82f : ((key > 0.32f) ? 0.55f : 0.30f);
+						break;
+					}
 					case K_STUDIO:
 					default: {
 						const float32 spec = p.specPow > 0.f ? powf(ndl, p.specPow) : 0.f;
@@ -306,20 +349,19 @@ namespace nkentseu {
 						float32 rgb[3];
 						float32 a = 1.f;
 						if (r2 >= 1.f) {
-							rgb[0] = rgb[1] = rgb[2] = bg;
+							// LIGNE SOMBRE (bug signale par Rihen) : on fondait ici vers un
+							// fond sombre ; le filtrage bilineaire au bord du disque melangeait
+							// la teinte du bord avec ce fond -> anneau sombre sur la silhouette
+							// des objets. On PROLONGE desormais la teinte du bord au-dela du
+							// disque (direction clampee au rayon) : le voisinage echantillonne
+							// est continu. alpha=0 conserve pour les vignettes d'interface.
+							const float32 inv = 1.f / sqrtf(r2);
+							const float32 ex = nx * inv * 0.9995f, ey = ny * inv * 0.9995f;
+							const float32 ez2 = 1.f - ex * ex - ey * ey;
+							Shade(p, ex, ey, sqrtf(ez2 > 0.f ? ez2 : 0.f), rgb);
 							a = 0.f;
 						} else {
 							Shade(p, nx, ny, sqrtf(1.f - r2), rgb);
-							// antialiasing du contour sur ~1 texel : sans cela la silhouette
-							// de la boule est crenelee et se voit sur les objets tres lisses.
-							const float32 r = sqrtf(r2);
-							const float32 e = 1.f / (float32)diam * 1.5f;
-							if (r > 1.f - e) {
-								const float32 t = (1.f - r) / e;
-								for (int32 c = 0; c < 3; c++)
-									rgb[c] = bg + (rgb[c] - bg) * t;
-								a = t;
-							}
 						}
 						uint8 *o = dst + ((uint64)(oy + y) * stride + (ox + x)) * 4;
 						o[0] = ToU8(rgb[0]);
@@ -358,10 +400,14 @@ namespace nkentseu {
 				dst[i * 4 + 2] = 12;
 				dst[i * 4 + 3] = 0;
 			}
-			const uint32 inner = kTile - 2 * kPad;
+			// Chaque tuile est rendue PLEINE (marge comprise) : au-dela du disque la
+			// teinte du bord est prolongee (cf. RenderBall), donc la marge anti-bavure
+			// est CONTINUE avec la boule au lieu d'etre un fond sombre — c'est ce qui
+			// supprime la ligne sombre. TileTransform pointe toujours l'interieur :
+			// rien ne change cote echantillonnage.
 			for (int32 id = 0; id < kCount; id++) {
 				const uint32 cx = (uint32)id % kCols, cy = (uint32)id / kCols;
-				RenderBall(id, dst, kAtlasW, cx * kTile + kPad, cy * kTile + kPad, inner);
+				RenderBall(id, dst, kAtlasW, cx * kTile, cy * kTile, kTile);
 			}
 		}
 
