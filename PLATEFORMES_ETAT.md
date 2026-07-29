@@ -3,6 +3,94 @@
 > Fichier de reprise anti-coupure. Mis à jour après chaque palier prouvé.
 > Base : ecabc216 (MatCap). AUCUN commit effectué (consigne).
 
+## CHANTIER 5 — Demo3D (demo 2) sur Web : 🔄 EN COURS
+
+Objectif : scène 3D complète (sphères PBR + ombres + cubes instanciés) dans Chrome.
+
+Paliers PROUVÉS :
+- (a) Shaders embarqués : `--preload-file <abs>/Resources/NKRenderer/Shaders@/Resources/NKRenderer/Shaders`
+  ajouté via `emscriptenextraflags` (RendererSandbox.jenga, chemin absolu calculé en Python — emcc
+  résout depuis SON cwd). Build Web Debug ✓ : `renderdemo.data` 830 Ko, 455 fichiers ; manifeste JS
+  contient l'arborescence `Resources/NKRenderer/Shaders/...`. MEMFS cwd = "/" → les chemins C++
+  relatifs matchent sans changement moteur.
+- (b) Sélection demo : DÉJÀ câblée de bout en bout — le shell HTML
+  (`web/emscripten_fullscreen_nofavicon.html`) transforme `?demo=2` en `Module.arguments =
+  ["--demo=2"]` → argv de main() (NkEmscripten.h) → ParseDemo. PREUVE (console Chrome headless) :
+  `NkRenderer v5.0 - Demo 2 (3D) - Backend : OpenGL` + shaders lus depuis le preload
+  (`CompileVF 'Render2D' vsGlsl=734 fsGlsl=7353`).
+- (c) BLOQUEUR DÉCOUVERT et MESURÉ (page de sonde `webgl_probe.html`, Chrome headless SwiftShader) :
+  WebGL2 = GLSL ES 3.00 STRICT. Résultats sonde : `#version 300 es` OK ; 310/320 es et `430 core`
+  REJETÉS ; `layout(binding=N)` REJETÉ (samplers ET UBO) ; `layout(std140)` sans binding OK ;
+  22 samplers statiques OK (MAX_TEXTURE_IMAGE_UNITS=32, UBO bindings=72). Or NOS générateurs
+  (NkSL codegen `#version 430 core` + SPIRV-Cross ES `320 es`) émettent tous des bindings
+  explicites (contrat du backend GL). Les 18 CompileVF échouaient donc TOUS
+  (`'core' : invalid version directive`). Android/MEmu passait car le driver GLES de MEmu
+  (translation desktop) tolère le GLSL desktop.
+- (d) FIX implémenté (à prouver après rebuild) : shim d'adaptation WebGL2 dans
+  `NkOpenglDevice.cpp` (`NkWebGL2AdaptGLSL`, sous NKENTSEU_PLATFORM_EMSCRIPTEN uniquement) :
+  en-tête → `300 es` + précisions par défaut (samplers shadow/array SANS défaut en ES),
+  `binding`/`set` retirés du texte mais COLLECTÉS (nom → binding), `location` retiré des
+  varyings (gardé sur VS in / FS out — matching par NOM, identique dans nos générateurs),
+  puis ré-application après glLinkProgram : `glUniformBlockBinding` (UBO) + `glUniform1i`
+  (samplers). Vérifié : scène 3D = UBO + samplers uniquement (pas de SSBO/imageLoad/
+  textureGather ; InstanceUBO 10 Ko < 16 Ko min WebGL2) → représentable.
+- Note perf preuve : wasm DEBUG (O0 + SAFE_HEAP) sous SwiftShader met >5 min à passer
+  InitEnvironment (IBL) → prendre la capture sur le build RELEASE.
+- (e) Shim PROUVÉ côté compilation shader (build Debug rebuildé, Chrome headless) :
+  `CompileVF 'Render2D' 734/7353` et `'Glow2D' 651/652` passent SANS AUCUN
+  "Shader compile error" (avant le shim : échec `'core' : invalid version directive` sur
+  chaque programme). Deux incompatibilités WebGL2 supplémentaires corrigées au passage
+  (découvertes au run Release) :
+  1. `glVertexAttribFormat/Binding/BindingDivisor` (modèle attrib-binding ES 3.1) N'EXISTENT
+     PAS en WebGL2 → pointeurs glad NULS → "RuntimeError: null function" au 1er pipeline.
+     FIX : sous Emscripten, le vertex layout est appliqué AU BIND du buffer via
+     `glVertexAttrib(I)Pointer` + `glVertexAttribDivisor` (ES 3.0) — nouvelle fonction
+     `NkOpenglWebBindVertexBuffer` (NkOpenglDevice.cpp) appelée par GL_BindVertexBuffer.
+  2. WebGL2 fige la "classe" d'un buffer au premier bind (index vs autre) → INVALID_OPERATION
+     "buffers bound to non ELEMENT_ARRAY_BUFFER targets..." (nos descs ont type=NK_INDEX mais
+     bindFlags=NONE → mauvaise cible). FIX : sous Emscripten, create/write/read/map passent par
+     les cibles NEUTRES `GL_COPY_READ/COPY_WRITE_BUFFER` (exemptées) ; la classe est fixée par
+     le premier bind réel (draw).
+  Note logging : en Release-Web les logs moteur n'apparaissent qu'au flush (batch/exit) —
+  l'absence de logs pendant l'init N'EST PAS un crash (les appels GL continuent).
+
+Fichiers modifiés (Web) :
+- `Applications/Sandbox/RendererSandbox.jenga` : `_NK_SHADERS_DIR` (abs) + `--preload-file` (filtre Web).
+- `Kernel/Runtime/NKRHI/src/NKRHI/Opengl/NkOpenglDevice.cpp` : shim WebGL2 (adaptation GLSL +
+  ré-application des bindings par nom dans CreateShader). Zéro impact hors Emscripten.
+
+## CHANTIER 4 — Demo3D (demo 2) sur HarmonyOS : 🔄 EN COURS (code écrit, build/preuve à faire)
+
+- (a) Shaders dans le HAP : `harmonyassets(["../../Resources/NKRenderer/Shaders"])`
+  (RendererSandbox.jenga, filtre HarmonyOS — l'API jenga existait déjà : copie dans
+  entry/src/main/resources/rawfile/) + lien `rawfile.z` (librawfile.z.so, présente dans le
+  sysroot OHOS x86_64 — vérifié).
+- (b) Repli lecteur rawfile dans NkFile (MÊME MOTIF que l'AAssetManager Android) :
+  `NkFile::SetHarmonyResourceManager/GetHarmonyResourceManager` (NkFile.h) + branches
+  HarmonyOS dans Open/Close/Read/Tell/Seek/GetSize/IsEOF/Exists (NkFile.cpp,
+  OH_ResourceManager_*RawFile64) + `TryOpenHarmonyRawFile` (mêmes variantes de chemin :
+  brut, strip "Resources/<SubFolder>/", strip "Resources/" — sous-dossier PARTAGÉ avec
+  Android via SetAndroidAssetSubFolder).
+- (c) Pont ResourceManager ArkTS → natif : hook FAIBLE `NkHarmonyOnNapiInitExtra(env, exports)`
+  appelé par NkHarmonyNapiInit (NkHarmonyOS.h, avant la garde anti double-init) ; renderdemo
+  (main.cpp) le définit et exporte `nkSetResMgr` (OH_ResourceManager_InitNativeResourceManager →
+  NkFile). Index.ets : `.onLoad((context) => (context as ESObject).nkSetResMgr(
+  getContext(this).resourceManager))`. nkmain attend le resMgr (borné 10 s, log).
+- (d) Sélection demo sans réinstaller (équivalent du setprop Android) : fichier
+  `nk_demo.txt` lu au démarrage dans le sandbox de l'app
+  (`/data/storage/el2/base/haps/entry/files/` puis `/data/storage/el2/base/files/`),
+  poussé côté hôte via `hdc shell "echo 2 > /data/app/el2/100/base/com.nkentseu.sandbox.render.demo/haps/entry/files/nk_demo.txt"`.
+- RESTE : build Debug+Release HarmonyOS, purge `harmony-build/entry/build` avant repackage
+  (cache hvigor !), émulateur (UN SEUL à la fois), install, push nk_demo.txt=2, preuve
+  snapshot_display scène 3D.
+
+Fichiers modifiés (HarmonyOS, en plus du .jenga ci-dessus) :
+- `Kernel/System/NKFileSystem/src/NKFileSystem/NkFile.{h,cpp}` : repli rawfile.
+- `Kernel/Runtime/NKWindow/src/NKWindow/EntryPoints/NkHarmonyOS.h` : hook faible NAPI.
+- `Applications/Sandbox/src/Demo/main.cpp` : nkSetResMgr + attente resMgr + nk_demo.txt +
+  SetAndroidAssetSubFolder (bloc HarmonyOS).
+- `Applications/Sandbox/harmony/ets/Index.ets` : onLoad → nkSetResMgr.
+
 ## CHANTIER 3 — Assets Android : ✅ TERMINÉ (prouvé)
 
 Palier atteint : scène 3D NON VIDE sur MEmu, 18 programmes shaders lus depuis l'APK.

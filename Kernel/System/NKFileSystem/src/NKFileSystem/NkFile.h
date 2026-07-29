@@ -498,6 +498,29 @@ namespace nkentseu {
 			///             desactiver ce strip supplementaire.
 			static void SetAndroidAssetSubFolder(const char *name);
 
+			// -------------------------------------------------------------
+			// SOUS-SECTION 2.3.13 : Support rawfile HarmonyOS (read-only)
+			// -------------------------------------------------------------
+			// Meme motif que l'AAssetManager Android : sur HarmonyOS, les
+			// fichiers packages dans resources/rawfile/ du HAP ne sont PAS
+			// accessibles via fopen — il faut passer par le NativeResourceManager
+			// (librawfile.z.so). Si Open()/Exists() echouent avec fopen/stat,
+			// NkFile tente le rawfile manager avec les memes variantes de path
+			// que sur Android (strip "Resources/<SubFolder>/" puis "Resources/",
+			// cf. SetAndroidAssetSubFolder — le sous-dossier est partage).
+			//
+			// Sur les autres plateformes, ces methodes sont no-op.
+
+			/// Enregistre le NativeResourceManager HarmonyOS global (obtenu via
+			/// OH_ResourceManager_InitNativeResourceManager cote NAPI — cf.
+			/// NkHarmonyOS.h / hook NkHarmonyOnNapiInitExtra). Non-owning.
+			/// @param manager Pointeur NativeResourceManager (void* pour eviter
+			///                une dependance NDK OHOS dans ce header).
+			static void SetHarmonyResourceManager(void *manager);
+
+			/// Retourne le NativeResourceManager enregistre (peut etre nullptr).
+			static void *GetHarmonyResourceManager();
+
 	}; // class NkFile
 
 	// -------------------------------------------------------------------------

@@ -4,7 +4,19 @@
 Variables graphiques/Wayland partagees via useconfig (graphics.jenga/wayland.jenga)."""
 from Jenga import *
 from jengaconfig import *
-from Jenga.Core.Api import androidallowrotation, harmonyets
+from Jenga.Core.Api import androidallowrotation, harmonyets, harmonyassets
+import os as _os
+
+# Chemin ABSOLU vers les shaders NKRenderer (pour --preload-file Emscripten :
+# emcc resout les chemins relatifs depuis SON cwd, pas depuis ce fichier).
+# Le loader Jenga chdir dans le dossier du .jenga pendant l'exec -> on fige
+# l'absolu ici, avec repli sur __file__ si le cwd n'est pas celui attendu.
+_NK_SHADERS_DIR = _os.path.abspath(_os.path.join("..", "..", "Resources", "NKRenderer", "Shaders"))
+if not _os.path.isdir(_NK_SHADERS_DIR):
+    _NK_SHADERS_DIR = _os.path.abspath(_os.path.join(
+        _os.path.dirname(str(globals().get('__file__', '.'))),
+        "..", "..", "Resources", "NKRenderer", "Shaders"))
+_NK_SHADERS_DIR = _NK_SHADERS_DIR.replace("\\", "/")
 
 
 def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: str, needs_camera: bool = False, use_nkimage: bool = False, use_nkfont: bool = False, use_nkui: bool = False, use_nkgen: bool = False):
@@ -236,6 +248,16 @@ def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: s
                 "-s", "NO_EXIT_RUNTIME=1",
                 "-s", "SAFE_HEAP=1",
             ])
+            # Shaders NKRenderer embarques dans le systeme de fichiers MEMFS
+            # (renderdemo.data + XHR au chargement). Monte a la racine sous
+            # /Resources/NKRenderer/Shaders : le cwd MEMFS est "/", donc les
+            # chemins C++ relatifs "Resources/NKRenderer/Shaders/<X>" matchent
+            # sans aucun changement cote moteur (equivalent Web de
+            # androidassets, cf. filtre Android ci-dessus).
+            if _os.path.isdir(_NK_SHADERS_DIR):
+                emscriptenextraflags([
+                    "--preload-file", f"{_NK_SHADERS_DIR}@/Resources/NKRenderer/Shaders",
+                ])
 
         # ===== HarmonyOS ==============================================================
         with filter("system:HarmonyOS"):
@@ -250,7 +272,9 @@ def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: s
             # "OH_NativeXComponent_GetXComponentId: symbol not found".
             # native_window : API OHNativeWindow (meme convention que NKRHI.jenga).
             # ace_napi.z : napi_module_register (macro NAPI_MODULE de NkHarmonyOS.h).
-            _HARMONY_LINKS = ["hilog_ndk.z", "EGL", "GLESv3", "ace_ndk.z", "ace_napi.z", "native_window"]
+            # rawfile.z : API OH_ResourceManager_* (lecture des shaders packages
+            # dans resources/rawfile/ du HAP — repli NkFile, cf. NkFile.cpp).
+            _HARMONY_LINKS = ["hilog_ndk.z", "EGL", "GLESv3", "ace_ndk.z", "ace_napi.z", "native_window", "rawfile.z"]
             if WANT_VULKAN:
                 _HARMONY_LINKS.append("vulkan")
             links(_HARMONY_LINKS)
@@ -261,6 +285,13 @@ def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: s
             # le Index.ets "Hello World" du template DevEco dans harmony-build.
             # Sans elle, rien ne charge la .so et l'app reste sur le template.
             harmonyets(["harmony/ets/Index.ets"])
+            # Shaders NKRenderer embarques dans le HAP (resources/rawfile/).
+            # Equivalent HAP de androidassets : contenu copie RELATIF au dossier
+            # declare -> rawfile/PBR/..., rawfile/Include/..., etc. Cote C++,
+            # NkFile::SetAndroidAssetSubFolder("NKRenderer/Shaders") + repli
+            # rawfile manager (NkFile.cpp) font matcher les chemins
+            # "Resources/NKRenderer/Shaders/<X>" -> rawfile "<X>".
+            harmonyassets(["../../Resources/NKRenderer/Shaders"])
 
         # ===== Xbox ===================================================================
         with filter("system:XboxSeries || system:XboxOne"):

@@ -159,11 +159,29 @@ namespace {
 } // anonymous namespace
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Hook applicatif OPTIONNEL (symbole faible) : permet a l'application d'ajouter
+// ses propres exports NAPI (fonctions appelables depuis ArkTS) sans modifier ce
+// header. Exemple (renderdemo) : export de `nkSetResMgr(resourceManager)` qui
+// transmet le ResourceManager ArkTS au repli rawfile de NkFile (lecture des
+// shaders packages dans resources/rawfile/ du HAP). Si l'app ne definit pas le
+// symbole, le pointeur est nul et rien ne change (aucune dependance ajoutee).
+// ─────────────────────────────────────────────────────────────────────────────
+extern "C" void NkHarmonyOnNapiInitExtra(napi_env env, napi_value exports) __attribute__((weak));
+
+// ─────────────────────────────────────────────────────────────────────────────
 // NAPI Init — appelé par le runtime HarmonyOS au chargement de la .so
 // ─────────────────────────────────────────────────────────────────────────────
 
 static napi_value NkHarmonyNapiInit(napi_env env, napi_value exports) {
 	NK_HARMONY_BOOTLOG("NkHarmonyNapiInit: enter");
+
+	// ── Exports applicatifs additionnels (hook faible, cf. ci-dessus) ────────
+	// Appele a CHAQUE chargement (avant la garde anti double-init) : les exports
+	// doivent exister sur l'objet retourne au XComponent, meme si nkmain tourne.
+	if (NkHarmonyOnNapiInitExtra) {
+		NkHarmonyOnNapiInitExtra(env, exports);
+		NK_HARMONY_BOOTLOG("NkHarmonyNapiInit: exports applicatifs enregistres (hook)");
+	}
 
 	// ── Récupérer l'OH_NativeXComponent depuis exports ───────────────────────
 	// Quand la .so est chargée par un XComponent ArkTS (libraryname), le
