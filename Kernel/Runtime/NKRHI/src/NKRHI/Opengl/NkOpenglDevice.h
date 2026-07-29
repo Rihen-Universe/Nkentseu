@@ -37,6 +37,13 @@ namespace nkentseu {
 	uint32 NkOpenglGetVertexStride(NkOpenGLDevice *dev, uint64 pipelineId, uint32 binding);
 	void NkOpenglApplyRenderState(NkOpenGLDevice *dev, uint64 pipelineId);
 	void NkOpenglApplyDescSet(NkOpenGLDevice *dev, uint64 setId, const NkVector<uint32> &dynOff);
+#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+	// WebGL2 (ES 3.0) : pas de modele attrib-binding (ES 3.1) — le vertex layout
+	// est applique au bind du buffer via glVertexAttrib(I)Pointer + divisor
+	// (cf. NkOpenglDevice.cpp, appele par GL_BindVertexBuffer).
+	void NkOpenglWebBindVertexBuffer(NkOpenGLDevice *dev, uint64 pipelineId, uint32 binding, GLuint bufId, GLintptr off,
+									 GLsizei stride);
+#endif
 
 	class NkOpenGLDevice final : public NkIDevice {
 		public:
@@ -184,6 +191,10 @@ namespace nkentseu {
 			friend uint32 NkOpenglGetVertexStride(NkOpenGLDevice *dev, uint64 pipelineId, uint32 binding);
 			friend void NkOpenglApplyRenderState(NkOpenGLDevice *dev, uint64 pipelineId);
 			friend void NkOpenglApplyDescSet(NkOpenGLDevice *dev, uint64 setId, const NkVector<uint32> &dynOff);
+#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+			friend void NkOpenglWebBindVertexBuffer(NkOpenGLDevice *dev, uint64 pipelineId, uint32 binding, GLuint bufId,
+													GLintptr off, GLsizei stride);
+#endif
 
 			void QueryCaps();
 

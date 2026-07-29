@@ -10,6 +10,14 @@
  * Fichier copié dans entry/src/main/ets/pages/ par Jenga (harmonyets()).
  */
 
+import resourceManager from '@ohos.resourceManager';
+
+// Surface typee des exports NAPI de librenderdemo.so (cf. NkHarmonyOnNapiInitExtra
+// dans main.cpp) — l'ArkTS strict interdit any/unknown/ESObject (arkts-no-any-unknown).
+interface NkNativeExports {
+  nkSetResMgr?: (mgr: resourceManager.ResourceManager) => void;
+}
+
 @Entry
 @Component
 struct Index {
@@ -20,6 +28,16 @@ struct Index {
         type: XComponentType.SURFACE,
         libraryname: 'renderdemo'
       })
+        .onLoad((context) => {
+          // `context` = objet exports du module natif (librenderdemo.so).
+          // On transmet le ResourceManager de l'app au natif pour que NkFile
+          // puisse lire les shaders packages dans resources/rawfile/ du HAP
+          // (repli rawfile — equivalent AAssetManager Android).
+          const nk = context as NkNativeExports;
+          if (nk.nkSetResMgr !== undefined) {
+            nk.nkSetResMgr(getContext(this).resourceManager);
+          }
+        })
         .width('100%')
         .height('100%')
     }
