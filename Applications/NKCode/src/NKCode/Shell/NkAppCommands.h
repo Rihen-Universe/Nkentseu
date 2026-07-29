@@ -31,6 +31,15 @@ inline void CmdSave(void *user) {
 		static_cast<NkCodeState *>(user)->SaveActive();
 }
 
+// « Enregistrer sous » — user = NkCodeDialogs* (pas juste l'etat : ouvre LE
+// PICKER, cf. Dialogs.h::OpenSaveAs). Le menu affichait deja le raccourci
+// "Ctrl+Shift+S" en LIBELLE mais rien ne l'enregistrait reellement aupres du
+// shell -> la touche ne faisait rien (issue beta #5).
+inline void CmdSaveAs(void *user) {
+	if (user)
+		static_cast<nkcode::NkCodeDialogs *>(user)->OpenSaveAs();
+}
+
 inline void CmdFormat(void *u) { // Formater le document actif (C/C++)
 	auto *st = static_cast<NkCodeState *>(u);
 	if (st && st->active >= 0 && st->active < static_cast<int32>(st->files.Size()))

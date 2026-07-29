@@ -1097,8 +1097,19 @@ namespace nkentseu {
 					!NkCodeState::ContainsI(e.platforms.CStr(), H->exSearch))
 					continue;
 				const NkRect er = {exList.x, ey, elw, u.s(40)};
-				if (!anyPopup && u.Hit(er))
+				const bool exHov = !anyPopup && u.Hit(er);
+				if (exHov)
 					u.Rect(er, NkCol::hover, NkR::sm * u.S);
+				// CLIC = cloner l'exemple : le picker maison demande l'EMPLACEMENT de
+				// destination, puis `jenga examples copy` (async) cree le clone et le
+				// clone s'ouvre comme workspace (RoutePickerResult/PollExampleCopy).
+				if (exHov && u.click && H->dlg && !H->dlg->exCopyBusy && !H->dlg->pickerOpen) {
+					H->dlg->exCopyId = e.id;
+					const char *homeDir = env::GetEnvVar("USERPROFILE");
+					if (!homeDir || !*homeDir)
+						homeDir = env::GetEnvVar("HOME");
+					H->dlg->OpenPicker(NkCodeDialogs::PK_ExampleCopy, (homeDir && *homeDir) ? homeDir : ".");
+				}
 				NkDrawIcon(u, H->icons.exemple, {exList.x + u.s(8), ey + u.s(7), u.s(14), u.s(14)}, NkCol::accent);
 				u.TextEllipsis(exList.x + u.s(28), ey + u.s(4), elw - u.s(34), e.id.CStr(), NkCol::foreground);
 				if (e.platforms.CStr()[0])

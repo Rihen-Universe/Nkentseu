@@ -4480,7 +4480,9 @@ namespace nkentseu {
 						raw += mRespLines[i].CStr();
 					mRespLines.Clear();
 					if (raw.Empty()) {
-						msgs.PushBack({2, NkString(NkT("ai.errnet"))});
+						// Ollama : message ACTIONNABLE (le cas le plus frequent = service pas
+						// lance) plutot que le "reseau/curl ?" generique — cf. issue beta #6.
+						msgs.PushBack({2, NkString(NkT(mProvider == 1 ? "ai.errollama" : "ai.errnet"))});
 						stick() = true;
 						return;
 					}
