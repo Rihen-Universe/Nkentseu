@@ -38,11 +38,11 @@ namespace nkentseu {
 
 		class NkMatcapLibrary {
 			public:
-				static const int32 kCount = 30;	   // nombre de matcaps
+				static const int32 kCount = 34;	   // 30 facon Blender + 4 HISTORIQUES (voir .cpp)
 				static const uint32 kTile = 128;   // cote d'une tuile, en pixels
 				static const uint32 kPad = 4;	   // marge anti-bavure, en pixels
 				static const uint32 kCols = 6;	   // colonnes de l'atlas
-				static const uint32 kRows = 5;	   // lignes de l'atlas (kCols*kRows >= kCount)
+				static const uint32 kRows = 6;	   // lignes de l'atlas (kCols*kRows >= kCount)
 				static const uint32 kAtlasW = kCols * kTile;
 				static const uint32 kAtlasH = kRows * kTile;
 

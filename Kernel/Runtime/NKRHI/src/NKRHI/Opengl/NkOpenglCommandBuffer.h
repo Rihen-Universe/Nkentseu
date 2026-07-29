@@ -260,56 +260,14 @@ namespace nkentseu {
 #endif
 					}
 #if defined(NK_OPENGL_ES)
-					// Diagnostic temporaire : les erreurs GL par-draw sont invisibles
-					// depuis qu'InstallGLDebugCallback s'auto-desactive sur ES (KHR_debug
-					// pas fiable sur certains drivers mobiles) — cf. enquete ecran noir
-					// Tuto02Renderer Android. A retirer une fois la cause confirmee.
+					// Diagnostic temporaire : erreur GL par-draw uniquement (leger). Le
+					// readback par-draw a ete RETIRE : glReadPixels au milieu d'un
+					// renderpass force un resolve du tile buffer sur GPU tile-based
+					// (Adreno) et pouvait fausser le diagnostic. A retirer a la fin.
 					GLenum ndErr = glGetError();
 					if (ndErr != GL_NO_ERROR)
 						logger.Errorf("[NkRHI_GL][ES] DrawIndexed idxCnt=%u vtxOff=%d error=0x%X\n", idxCnt, vtxOff,
 									  ndErr);
-					// Sondes readback (diagnostic temporaire, enquete ecran noir) : apres
-					// chaque draw des premieres frames, lire 3 pixels du framebuffer
-					// COURANT — 2 dans la zone du panneau overlay de Tuto02 (rect 330x70
-					// place a ~(20,20) coin haut-gauche => yGL = vpH-1-yEcran) + 1 au
-					// centre (controle). Tranche entre « rien ne se rasterise » (tout
-					// reste a la couleur de clear) et « ca se rasterise mais en noir »
-					// (rect visible a ~(0,0,0,153) sur fond different). A retirer.
-					else {
-						static int sProbeLog = 0;
-						if (sProbeLog < 12) {
-							sProbeLog++;
-							GLint vp[4] = {0, 0, 0, 0};
-							glGetIntegerv(GL_VIEWPORT, vp);
-							// Bloc 320x70 couvrant tout le panneau de Tuto02 (rect+texte,
-							// ecran (20,20)-(350,90) => yGL = vpH-90..vpH-20) : max par
-							// canal => un SEUL pixel de glyphe blanc rasterise suffit a
-							// faire monter maxRGB a ~255, ou qu'il soit tombe.
-							const GLint bx = 20, bw = 320, bh = 70;
-							GLint by = vp[3] - 90;
-							if (by < 0)
-								by = 0;
-							static GLubyte sBlock[320 * 70 * 4];
-							glReadPixels(bx, by, bw, bh, GL_RGBA, GL_UNSIGNED_BYTE, sBlock);
-							GLenum readErr = glGetError();
-							uint32 maxc[4] = {0, 0, 0, 0}, nonBlack = 0;
-							for (uint32 i = 0; i < (uint32)(bw * bh); ++i) {
-								const GLubyte *p = &sBlock[i * 4];
-								if (p[0] | p[1] | p[2])
-									++nonBlack;
-								for (int c = 0; c < 4; ++c)
-									if (p[c] > maxc[c])
-										maxc[c] = p[c];
-							}
-							GLubyte center[4] = {0};
-							glReadPixels(vp[2] / 2, vp[3] / 2, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, center);
-							logger.Infof("[NkRHI_GL][ES] post-draw idx=%u vp=%dx%d panelMax=(%u,%u,%u,%u) "
-										 "nonBlack=%u/%u center=(%u,%u,%u,%u) readErr=0x%X\n",
-										 idxCnt, vp[2], vp[3], maxc[0], maxc[1], maxc[2], maxc[3], nonBlack,
-										 (uint32)(bw * bh), center[0], center[1], center[2], center[3],
-										 (unsigned)readErr);
-						}
-					}
 #endif
 				});
 			}
