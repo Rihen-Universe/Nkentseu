@@ -5500,6 +5500,100 @@ namespace nkentseu {
 					NkFile::WriteAllText(NkPath(NamesPath().CStr()), out);
 				}
 
+				// ── Nombre EXACT de projets par workspace (~/.nkcode_projcount.cfg) ─────
+				// Le comptage des cartes du launcher venait d'un scan TEXTUEL des .jenga
+				// (CollectProjects) : structurellement approximatif des que le DSL calcule
+				// ses noms (boucles, variables, conditions) — le nombre affiche etait donc
+				// « pas toujours correct ». Ici on memorise le total AUTORITAIRE fourni par
+				// `jenga info` chaque fois qu'un workspace est charge ; les cartes s'en
+				// servent en priorite, le scan ne restant qu'un repli pour les workspaces
+				// jamais ouverts. Format : <chemin .jenga canonique>|<N> par ligne.
+				NkVector<NkString> projCntPath;
+				NkVector<int32> projCntVal;
+
+				static NkString ProjCountPath() {
+					const char *home = env::GetEnvVar("USERPROFILE");
+					if (!home || !*home)
+						home = env::GetEnvVar("HOME");
+					if (home && *home)
+						return NkString(home) + "/.nkcode_projcount.cfg";
+					return NkString("nkcode_projcount.cfg");
+				}
+
+				void LoadProjCounts() {
+					projCntPath.Clear();
+					projCntVal.Clear();
+					const NkString txt = NkFile::ReadAllText(NkPath(ProjCountPath().CStr()));
+					NkString line;
+					auto flush = [&]() {
+						if (line.Empty())
+							return;
+						const char *s = line.CStr();
+						const char *bar = nullptr;
+						for (const char *p = s; *p; ++p)
+							if (*p == '|') {
+								bar = p;
+								break;
+							}
+						if (bar) {
+							NkString p2;
+							for (const char *q = s; q < bar; ++q)
+								p2 += *q;
+							int32 v = 0;
+							for (const char *q = bar + 1; *q >= '0' && *q <= '9'; ++q)
+								v = v * 10 + (*q - '0');
+							projCntPath.PushBack(NormRecent(p2.CStr()));
+							projCntVal.PushBack(v);
+						}
+						line.Clear();
+					};
+					for (const char *p = txt.CStr(); *p; ++p) {
+						if (*p == '\n' || *p == '\r')
+							flush();
+						else
+							line += *p;
+					}
+					flush();
+				}
+
+				void SaveProjCounts() {
+					NkString out;
+					for (usize i = 0; i < projCntPath.Size(); ++i) {
+						out += projCntPath[i];
+						out += "|";
+						out += NkPrintf("%d", projCntVal[i]).CStr();
+						out += "\n";
+					}
+					NkFile::WriteAllText(NkPath(ProjCountPath().CStr()), out);
+				}
+
+				// Total exact connu pour ce .jenga, ou -1 si jamais mesure.
+				int32 KnownProjCount(const char *jengaPath) const {
+					for (usize i = 0; i < projCntPath.Size(); ++i)
+						if (SamePathRec(projCntPath[i].CStr(), jengaPath))
+							return projCntVal[i];
+					return -1;
+				}
+
+				void SetKnownProjCount(const NkString &jengaPath, int32 n) {
+					if (jengaPath.Empty() || n <= 0)
+						return; // 0 = probable echec de `jenga info` -> ne rien memoriser
+					const NkString np = NormRecent(jengaPath.CStr());
+					for (usize i = 0; i < projCntPath.Size(); ++i)
+						if (SamePathRec(projCntPath[i].CStr(), np.CStr())) {
+							if (projCntVal[i] == n)
+								return; // inchange -> pas de reecriture
+							projCntVal[i] = n;
+							SaveProjCounts();
+							mWsMeta.Clear(); // les cartes recalculent avec la nouvelle valeur
+							return;
+						}
+					projCntPath.PushBack(np);
+					projCntVal.PushBack(n);
+					SaveProjCounts();
+					mWsMeta.Clear();
+				}
+
 				void SetRecentName(const NkString &path, const NkString &name) {
 					for (usize i = 0; i < nameOvrPath.Size(); ++i)
 						if (StrEq(nameOvrPath[i].CStr(), path.CStr())) {
@@ -5617,6 +5711,7 @@ namespace nkentseu {
 					if (cleaned)
 						SaveRecents();
 					LoadNameOverrides();
+					LoadProjCounts(); // totaux exacts memorises (cartes du launcher)
 					RebuildRecentNames();
 				}
 
@@ -6101,6 +6196,14 @@ namespace nkentseu {
 						}
 					}
 					m.projects = CollectProjects(txt.CStr(), NkPath(path).GetParent(), &m.projCount);
+					// Si ce workspace a deja ete ouvert, `jenga info` en a donne le total
+					// EXACT : il prime sur le scan textuel (toujours approximatif des que
+					// le DSL calcule ses noms de projets).
+					{
+						const int32 exact = KnownProjCount(path);
+						if (exact >= 0)
+							m.projCount = exact;
+					}
 					m.activity = ActivityTime(NkPath(path).GetParent().ToString().CStr()); // derniere activite reelle
 					if (m.activity == 0)
 						m.activity = MTimeOf(path); // repli : mtime du .jenga
@@ -6689,6 +6792,13 @@ namespace nkentseu {
 							projIdx = static_cast<int32>(i);
 							break;
 						}
+					// Memorise le total AUTORITAIRE (projets + suites de tests, comme les
+					// declarations `project(` que comptait le scan textuel) pour que la
+					// carte de ce workspace affiche le bon nombre au prochain passage sur
+					// le launcher, sans relancer `jenga info`.
+					if (wsIdx >= 0 && wsIdx < static_cast<int32>(wsPaths.Size()))
+						SetKnownProjCount(wsPaths[wsIdx],
+										  static_cast<int32>(projects.Size() + tests.Size()));
 				}
 
 				// Decoupe jusqu'a `maxN` jetons separes par des espaces/tabs. Renvoie le nombre lu.
