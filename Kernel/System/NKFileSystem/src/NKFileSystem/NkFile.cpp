@@ -634,8 +634,22 @@ namespace nkentseu {
 #else
 		// POSIX : stat remplit une structure avec les métadonnées du fichier
 		struct stat st;
-		return (stat(path, &st) == 0)  // Succès de l'appel système
-			   && S_ISREG(st.st_mode); // Vérification que c'est un fichier régulier
+		if ((stat(path, &st) == 0) // Succès de l'appel système
+			&& S_ISREG(st.st_mode)) { // Vérification que c'est un fichier régulier
+			return true;
+		}
+#if defined(NKENTSEU_PLATFORM_ANDROID)
+		// Repli assets APK : meme contrat "transparent" que Open(). Sans lui,
+		// les appelants qui testent Exists() avant de lire (ex. NkShaderLibrary
+		// pour les overrides .vk.glsl) ne voient jamais les fichiers packages
+		// dans assets/ (non visibles par stat/fopen).
+		AAsset *asset = TryOpenAndroidAsset(path);
+		if (asset) {
+			AAsset_close(asset);
+			return true;
+		}
+#endif
+		return false;
 #endif
 	}
 

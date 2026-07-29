@@ -38,6 +38,7 @@
 #include "NKThreading/NkThread.h" // NK_RECORD : finalisation MP4 asynchrone (fix freeze F9)
 #include "NKRenderer/Streaming/NkStreamingSystem.h" // NK_STREAM_TEST : self-test streaming reel
 #include "NKMemory/NkAllocator.h" // NK_RECORD : recorder alloue (possede par le thread de finalisation)				  // NK_RECORD (encodage MP4/H.264 threade)
+#include "NKFileSystem/NkFile.h"  // Android : SetAndroidAssetSubFolder (shaders lus depuis assets/ de l'APK)
 
 namespace nkentseu {
 	struct NkEntryState;
@@ -383,6 +384,12 @@ int nkmain(const NkEntryState &state) {
 	NkGraphicsApi api = ParseBackend(state.GetArgs());
 	int demoIx = ParseDemo(state.GetArgs(), 0);
 #if defined(NKENTSEU_PLATFORM_ANDROID)
+	// Assets APK : les shaders sont packages par jenga (androidassets, cf.
+	// RendererSandbox.jenga) RELATIVEMENT a Resources/NKRenderer/Shaders/ ->
+	// assets/PBR/..., assets/Include/... Ce sous-dossier dit a NkFile de
+	// stripper "Resources/NKRenderer/Shaders/" des chemins C++ pour matcher
+	// les assets (meme pattern que Pong : SetAndroidAssetSubFolder("Pong")).
+	nkentseu::NkFile::SetAndroidAssetSubFolder("NKRenderer/Shaders");
 	// Android : une NativeActivity ne recoit AUCUN argument de ligne de commande
 	// (NkEntryState n'a que le nom de paquet). On lit donc le numero de demo dans
 	// une propriete systeme, reglable sans reinstaller :
@@ -1013,3 +1020,16 @@ int nkmain(const NkEntryState &state) {
 	logger.Info("[main] Bye\n");
 	return 0;
 }
+
+// =============================================================================
+// HarmonyOS : enregistrement du module NAPI
+//
+// Le nom du module DOIT correspondre au `libraryname` du XComponent dans
+// Index.ets (librenderdemo.so -> libraryname 'renderdemo'). C'est ce qui
+// declenche NkHarmonyNapiInit() au chargement de la .so par ArkTS, qui
+// enregistre les callbacks de surface puis lance nkmain() dans son thread.
+// (Equivalent du android_main genere par NkAndroid.h sur Android.)
+// =============================================================================
+#if defined(NKENTSEU_PLATFORM_HARMONYOS)
+NKENTSEU_HARMONY_DEFINE_MODULE(renderdemo)
+#endif

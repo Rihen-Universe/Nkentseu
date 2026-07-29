@@ -57,6 +57,17 @@ extern "C" int gladLoadGLES2(GLADloadfunc load);
 extern "C" int gladLoaderLoadGLES2(void);
 #endif
 
+// ── Contexte WebGL (Emscripten/WASM) ────────────────────────────────────────
+// Meme contrainte de header que le bloc EGL ci-dessus : glad/gles2.h est
+// inconciliable avec glad/gl.h deja inclus — on declare donc localement le
+// loader ES (defini dans gles2.c, seul glad compile sur Web). Le contexte est
+// cree via l'API HTML5 Emscripten (motif identique a NKWindow/Core/
+// NkContext.cpp, branche NKENTSEU_PLATFORM_EMSCRIPTEN).
+#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+#include <emscripten/html5.h>
+extern "C" int gladLoadGLES2(GLADloadfunc load);
+#endif
+
 #define NK_GL_LOG(...) logger_src.Infof("[NkRHI_GL] " __VA_ARGS__)
 #define NK_GL_ERR(...) logger_src.Infof("[NkRHI_GL][ERR] " __VA_ARGS__)
 #define NK_GL_CHECK()                                                                                                  \
@@ -747,6 +758,52 @@ namespace nkentseu {
 #endif
 		eglSwapInterval(eglDisplay, static_cast<EGLint>(init.context.opengl.swapInterval));
 		NK_GL_LOG("EGL OK (%d.%d)\n", (int)eglMaj, (int)eglMin);
+
+#elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+		// ── Contexte WebGL (Emscripten) ─────────────────────────────────────────
+		// Sans cette branche, AUCUN contexte n'etait cree sur Web : les pointeurs
+		// glad restaient nuls et le premier glGetIntegerv plantait le module WASM.
+		// Motif repris de NkContext.cpp (NKWindow) : emscripten_webgl_create_context
+		// + make_context_current + gladLoadGLES2(emscripten_webgl_get_proc_address).
+		EmscriptenWebGLContextAttributes webglAttrs;
+		emscripten_webgl_init_context_attributes(&webglAttrs);
+		webglAttrs.alpha = false;
+		webglAttrs.depth = true;
+		webglAttrs.stencil = true;
+		webglAttrs.antialias = false; // MSAA gere par le renderer (offscreen), pas par le canvas
+		webglAttrs.premultipliedAlpha = false;
+		webglAttrs.preserveDrawingBuffer = false;
+		webglAttrs.enableExtensionsByDefault = true;
+		// WebGL 2 obligatoire : le moteur exige ES 3.0+ (verification plus bas).
+		// Pas de repli WebGL 1 (= ES 2.0) : il echouerait de toute facon au check.
+		webglAttrs.majorVersion = 2;
+		webglAttrs.minorVersion = 0;
+
+		const char *canvasSelector = init.surface.canvasId ? init.surface.canvasId : "#canvas";
+		EMSCRIPTEN_WEBGL_CONTEXT_HANDLE webglCtx = emscripten_webgl_create_context(canvasSelector, &webglAttrs);
+		if (webglCtx <= 0) {
+			NK_GL_ERR("emscripten_webgl_create_context failed (canvas '%s', WebGL2 requis)\n", canvasSelector);
+			return false;
+		}
+		if (emscripten_webgl_make_context_current(webglCtx) != EMSCRIPTEN_RESULT_SUCCESS) {
+			NK_GL_ERR("emscripten_webgl_make_context_current failed\n");
+			emscripten_webgl_destroy_context(webglCtx);
+			return false;
+		}
+		mWebGLContext = static_cast<long>(webglCtx);
+
+#ifndef NK_NO_GLAD2
+		// emscripten_webgl_get_proc_address resout les symboles GLES2/3 exposes
+		// par la libGL Emscripten (linkee dans le module WASM).
+		if (!gladLoadGLES2((GLADloadfunc)emscripten_webgl_get_proc_address)) {
+			NK_GL_ERR("gladLoadGLES2 (emscripten_webgl_get_proc_address) failed\n");
+			emscripten_webgl_make_context_current(0);
+			emscripten_webgl_destroy_context(webglCtx);
+			mWebGLContext = 0;
+			return false;
+		}
+#endif
+		NK_GL_LOG("WebGL2 context OK (canvas '%s')\n", canvasSelector);
 #endif
 
 		// Vérifier GL 4.3 minimum (compute shaders) ou OpenGL ES 3.1+
@@ -897,6 +954,12 @@ namespace nkentseu {
 			// Le display EGL_DEFAULT_DISPLAY est un singleton process-wide : ne pas
 			// eglTerminate ici (d'autres devices/contextes peuvent le partager).
 			mEglDisplay = nullptr;
+		}
+#elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+		if (mWebGLContext) {
+			emscripten_webgl_make_context_current(0);
+			emscripten_webgl_destroy_context(static_cast<EMSCRIPTEN_WEBGL_CONTEXT_HANDLE>(mWebGLContext));
+			mWebGLContext = 0;
 		}
 #endif
 
@@ -1974,6 +2037,13 @@ namespace nkentseu {
 							 (int)swapOk, (unsigned)eglGetError(), mEglSurface, mEglNativeWindow, (int)sw, (int)sh,
 							 (void *)eglGetCurrentContext(), (void *)eglGetCurrentSurface(EGL_DRAW));
 			}
+		}
+#elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+		// Pas de swap explicite sur le Web : le navigateur compose le canvas a la
+		// fin du callback requestAnimationFrame. Un glFlush suffit pour pousser
+		// les commandes avant le retour au navigateur.
+		if (mWebGLContext) {
+			glFlush();
 		}
 #endif
 	}

@@ -66,7 +66,10 @@ namespace nkentseu {
 	  !defined(NKENTSEU_FORCE_WINDOWING_NOOP_ONLY)) &&                                                                 \
 	!(defined(NKENTSEU_PLATFORM_LINUX) && defined(NKENTSEU_WINDOWING_XLIB) &&                                          \
 	  !defined(NKENTSEU_FORCE_WINDOWING_NOOP_ONLY)) &&                                                                 \
-	!defined(NKENTSEU_PLATFORM_ANDROID) && !defined(NKENTSEU_PLATFORM_MACOS) && !defined(NKENTSEU_PLATFORM_IOS)
+	!defined(NKENTSEU_PLATFORM_ANDROID) && !defined(NKENTSEU_PLATFORM_MACOS) && !defined(NKENTSEU_PLATFORM_IOS) &&    \
+	!defined(NKENTSEU_PLATFORM_HARMONYOS)
+	// HarmonyOS : Shutdown() est fourni par NkHarmonyEventSystem.cpp (libère
+	// aussi mData, alloué par son Init()) — éviter le doublon au link.
 	// macOS/iOS : Shutdown() est fourni par le backend Cocoa/UIKit
 	// (NkCocoaEventSystem.mm / NkUIKitEventSystem.mm) — éviter le doublon au link.
 	void NkEventSystem::Shutdown() {

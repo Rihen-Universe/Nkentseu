@@ -4,7 +4,7 @@
 Variables graphiques/Wayland partagees via useconfig (graphics.jenga/wayland.jenga)."""
 from Jenga import *
 from jengaconfig import *
-from Jenga.Core.Api import androidallowrotation
+from Jenga.Core.Api import androidallowrotation, harmonyets
 
 
 def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: str, needs_camera: bool = False, use_nkimage: bool = False, use_nkfont: bool = False, use_nkui: bool = False, use_nkgen: bool = False):
@@ -194,6 +194,15 @@ def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: s
             androidnativeactivity(True)
             androidallowrotation(True)
             androidstl("c++_shared")
+            # Shaders NKRenderer embarques dans l'APK (assets/). Sans eux, les 16
+            # programmes de NkShaderLibrary sortent vides (scene 3D noire/vide).
+            # Contenu copie RELATIF au dossier declare : assets/PBR/..., assets/
+            # Include/..., etc. Cote C++, NkFile::SetAndroidAssetSubFolder(
+            # "NKRenderer/Shaders") fait matcher les chemins
+            # "Resources/NKRenderer/Shaders/<X>" -> asset "<X>" (cf. NkFile.cpp).
+            # Textures/ (216 Mo) volontairement exclues : seuls les shaders sont
+            # necessaires pour un rendu non vide.
+            androidassets(["../../Resources/NKRenderer/Shaders"])
             if needs_camera:
                 androidpermissions([
                     "android.permission.CAMERA",
@@ -236,13 +245,22 @@ def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: s
             # libhilog_ndk.z.so. Linker "log" faisait echouer le link avec
             # « ld.lld: error: unable to find library -llog » (meme convention que
             # Pong / NkImageDemo / NkCameraDemos).
-            _HARMONY_LINKS = ["hilog_ndk.z", "EGL", "GLESv3"]
+            # ace_ndk.z : API OH_NativeXComponent (pont surface, cf. NkHarmonyOS.h /
+            # NkHarmonyWindow.cpp) — sans elle, le dlopen NAPI echoue sur
+            # "OH_NativeXComponent_GetXComponentId: symbol not found".
+            # native_window : API OHNativeWindow (meme convention que NKRHI.jenga).
+            # ace_napi.z : napi_module_register (macro NAPI_MODULE de NkHarmonyOS.h).
+            _HARMONY_LINKS = ["hilog_ndk.z", "EGL", "GLESv3", "ace_ndk.z", "ace_napi.z", "native_window"]
             if WANT_VULKAN:
                 _HARMONY_LINKS.append("vulkan")
             links(_HARMONY_LINKS)
             harmonybundlename(f"com.nkentseu.{app_id_suffix}")
             harmonyminsdk(12)
             harmonytargetapi(12)
+            # Page ArkTS avec XComponent (libraryname = lib<projet>.so) : remplace
+            # le Index.ets "Hello World" du template DevEco dans harmony-build.
+            # Sans elle, rien ne charge la .so et l'app reste sur le template.
+            harmonyets(["harmony/ets/Index.ets"])
 
         # ===== Xbox ===================================================================
         with filter("system:XboxSeries || system:XboxOne"):
