@@ -231,7 +231,18 @@ def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: s
         # ===== HarmonyOS ==============================================================
         with filter("system:HarmonyOS"):
             windowedapp()
-            links(["log", "EGL", "GLESv3"])
+            usetoolchain("ohos-ndk")
+            # OHOS n'a PAS liblog (Android-only) : le logging natif passe par
+            # libhilog_ndk.z.so. Linker "log" faisait echouer le link avec
+            # « ld.lld: error: unable to find library -llog » (meme convention que
+            # Pong / NkImageDemo / NkCameraDemos).
+            _HARMONY_LINKS = ["hilog_ndk.z", "EGL", "GLESv3"]
+            if WANT_VULKAN:
+                _HARMONY_LINKS.append("vulkan")
+            links(_HARMONY_LINKS)
+            harmonybundlename(f"com.nkentseu.{app_id_suffix}")
+            harmonyminsdk(12)
+            harmonytargetapi(12)
 
         # ===== Xbox ===================================================================
         with filter("system:XboxSeries || system:XboxOne"):

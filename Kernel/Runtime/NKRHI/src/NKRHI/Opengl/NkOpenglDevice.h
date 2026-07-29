@@ -224,6 +224,20 @@ namespace nkentseu {
 
 			struct GLSampler {
 					GLuint id = 0;
+					// Etat du sampler conserve : sur OpenGL ES on N'UTILISE PAS les objets
+					// sampler (glBindSampler casse la presentation sur les pilotes GLES
+					// emules, cf. NkOpenglDevice.cpp) — on applique ces parametres
+					// directement sur la texture liee via glTexParameteri.
+					GLint magFilter = 0;
+					GLint minFilter = 0;
+					GLint wrapS = 0;
+					GLint wrapT = 0;
+					GLint wrapR = 0;
+					float minLod = 0.f;
+					float maxLod = 0.f;
+					float maxAnisotropy = 1.f;
+					bool compareEnable = false;
+					GLint compareFunc = 0;
 			};
 
 			struct GLShader {
@@ -257,9 +271,11 @@ namespace nkentseu {
 							GLuint bufferId = 0;
 							uint64 bufferOffset = 0;
 							uint64 bufferRange = 0;
+							uint64 bufferSize = 0; // taille REELLE du buffer GL (borne glBindBufferRange)
 							GLuint textureId = 0;
 							GLenum textureTarget = 0; // GL_TEXTURE_2D / GL_TEXTURE_CUBE_MAP etc.
 							GLuint samplerId = 0;
+							GLSampler samplerState{}; // ES : parametres appliques a la texture
 					} bindings[32];
 			};
 
