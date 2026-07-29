@@ -37,6 +37,13 @@ namespace nkentseu {
 	uint32 NkOpenglGetVertexStride(NkOpenGLDevice *dev, uint64 pipelineId, uint32 binding);
 	void NkOpenglApplyRenderState(NkOpenGLDevice *dev, uint64 pipelineId);
 	void NkOpenglApplyDescSet(NkOpenGLDevice *dev, uint64 setId, const NkVector<uint32> &dynOff);
+#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+	// WebGL2 (ES 3.0) : pas de modele attrib-binding (ES 3.1) — le vertex layout
+	// est applique au bind du buffer via glVertexAttrib(I)Pointer + divisor
+	// (cf. NkOpenglDevice.cpp, appele par GL_BindVertexBuffer).
+	void NkOpenglWebBindVertexBuffer(NkOpenGLDevice *dev, uint64 pipelineId, uint32 binding, GLuint bufId, GLintptr off,
+									 GLsizei stride);
+#endif
 
 	class NkOpenGLDevice final : public NkIDevice {
 		public:
@@ -184,6 +191,10 @@ namespace nkentseu {
 			friend uint32 NkOpenglGetVertexStride(NkOpenGLDevice *dev, uint64 pipelineId, uint32 binding);
 			friend void NkOpenglApplyRenderState(NkOpenGLDevice *dev, uint64 pipelineId);
 			friend void NkOpenglApplyDescSet(NkOpenGLDevice *dev, uint64 setId, const NkVector<uint32> &dynOff);
+#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+			friend void NkOpenglWebBindVertexBuffer(NkOpenGLDevice *dev, uint64 pipelineId, uint32 binding, GLuint bufId,
+													GLintptr off, GLsizei stride);
+#endif
 
 			void QueryCaps();
 
@@ -224,6 +235,20 @@ namespace nkentseu {
 
 			struct GLSampler {
 					GLuint id = 0;
+					// Etat du sampler conserve : sur OpenGL ES on N'UTILISE PAS les objets
+					// sampler (glBindSampler casse la presentation sur les pilotes GLES
+					// emules, cf. NkOpenglDevice.cpp) — on applique ces parametres
+					// directement sur la texture liee via glTexParameteri.
+					GLint magFilter = 0;
+					GLint minFilter = 0;
+					GLint wrapS = 0;
+					GLint wrapT = 0;
+					GLint wrapR = 0;
+					float minLod = 0.f;
+					float maxLod = 0.f;
+					float maxAnisotropy = 1.f;
+					bool compareEnable = false;
+					GLint compareFunc = 0;
 			};
 
 			struct GLShader {
@@ -257,9 +282,11 @@ namespace nkentseu {
 							GLuint bufferId = 0;
 							uint64 bufferOffset = 0;
 							uint64 bufferRange = 0;
+							uint64 bufferSize = 0; // taille REELLE du buffer GL (borne glBindBufferRange)
 							GLuint textureId = 0;
 							GLenum textureTarget = 0; // GL_TEXTURE_2D / GL_TEXTURE_CUBE_MAP etc.
 							GLuint samplerId = 0;
+							GLSampler samplerState{}; // ES : parametres appliques a la texture
 					} bindings[32];
 			};
 
@@ -319,6 +346,10 @@ namespace nkentseu {
 			// compare au NkSurfaceDesc courant dans RecreateSurface() pour detecter
 			// une fenetre native recreee par l'OS (cf. NkIDevice::RecreateSurface).
 			void *mEglNativeWindow = nullptr;
+#elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+			// Contexte WebGL (Emscripten). Handle opaque (long) pour NE PAS tirer
+			// <emscripten/html5.h> dans ce header — meme logique que GLX/EGL ci-dessus.
+			long mWebGLContext = 0; // EMSCRIPTEN_WEBGL_CONTEXT_HANDLE
 #endif
 
 			// Compile un shader GL stage

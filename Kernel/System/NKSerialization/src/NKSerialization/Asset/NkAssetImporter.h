@@ -180,7 +180,7 @@ namespace nkentseu {
 				meta.typeName = NkString(NkAssetTypeName(meta.type));
 				meta.sourceFilePath = NkString(sourcePath);
 				meta.assetVersion = 1u;
-				meta.importTimestamp = static_cast<nk_uint64>(time(nullptr));
+				meta.importTimestamp = static_cast<nk_uint64>(::time(nullptr));
 
 				// Tags automatiques
 				for (nk_size i = 0; i < opts.autoTags.Size(); ++i)

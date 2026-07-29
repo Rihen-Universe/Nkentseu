@@ -103,6 +103,16 @@ namespace nkentseu {
 	void NkHarmonyOnSurfaceChanged(OH_NativeXComponent *, OHNativeWindow *);
 	void NkHarmonyOnSurfaceDestroyed(OH_NativeXComponent *);
 
+	// ── Surface en attente ────────────────────────────────────────────────────
+	// Le XComponent ArkTS crée sa surface pendant le chargement de la page,
+	// AVANT que nkmain() (lancé dans un thread dédié par NkHarmonyOS.h) n'ait
+	// créé la NkWindow. Dans ce cas, OnSurfaceCreated ne trouve aucune fenêtre
+	// à laquelle rattacher la surface : elle est mise en attente et adoptée par
+	// la prochaine NkWindow::Create(). NkHarmonySurfaceReady() permet au thread
+	// d'entrée d'attendre la surface avant d'appeler nkmain() — équivalent
+	// HarmonyOS de l'attente APP_CMD_INIT_WINDOW d'Android (NkAndroid.h).
+	bool NkHarmonySurfaceReady();
+
 	// ── Callbacks système (appelés depuis ArkTS via NAPI bridge) ─────────────
 	// Orientation changée par le système (rotationDeg = 0/90/180/270)
 	void NkHarmonyOnOrientationChanged(int32 rotationDeg);

@@ -49,6 +49,23 @@
 #include <glad/egl.h>
 #include <unistd.h> // usleep (repli eglCreateWindowSurface, cf. commentaire plus bas)
 extern "C" int gladLoadGLES2(GLADloadfunc load);
+// Loader glad "dlopen" (ouvre libGLESv2.so directement) : NKCanvas s'en sert
+// EXCLUSIVEMENT sur mobile car eglGetProcAddress ne resout PAS toujours les
+// fonctions GLES2 CORE de la MEME implementation que celle liee au swapchain
+// (couches d'emulation/trace). Utiliser ce loader = charger EXACTEMENT les
+// memes entrypoints que Mou/Pong (qui s'affichent).
+extern "C" int gladLoaderLoadGLES2(void);
+#endif
+
+// ── Contexte WebGL (Emscripten/WASM) ────────────────────────────────────────
+// Meme contrainte de header que le bloc EGL ci-dessus : glad/gles2.h est
+// inconciliable avec glad/gl.h deja inclus — on declare donc localement le
+// loader ES (defini dans gles2.c, seul glad compile sur Web). Le contexte est
+// cree via l'API HTML5 Emscripten (motif identique a NKWindow/Core/
+// NkContext.cpp, branche NKENTSEU_PLATFORM_EMSCRIPTEN).
+#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+#include <emscripten/html5.h>
+extern "C" int gladLoadGLES2(GLADloadfunc load);
 #endif
 
 #define NK_GL_LOG(...) logger_src.Infof("[NkRHI_GL] " __VA_ARGS__)
@@ -695,11 +712,41 @@ namespace nkentseu {
 		mEglConfig = eglConfig;
 		mEglNativeWindow = nativeWindow;
 		NK_GL_LOG("EGL surface creee sur ANativeWindow=%p\n", nativeWindow);
+		// DIAGNOSTIC (temporaire) : attributs REELS du config et de la surface
+		// obtenus. Compare a NKCanvas (qui s'affiche) : on cherche pourquoi un swap
+		// "reussi" sur cette surface n'atteint pas l'ecran (RENDER_BUFFER=SINGLE ?
+		// SURFACE_TYPE sans WINDOW_BIT ? NATIVE_VISUAL_ID != format fenetre RGBA_8888 ?
+		// mauvais config pris par le fallback d'enumeration ?). A retirer ensuite.
+		{
+			EGLint cfgId = -1, visId = -1, surfType = -1, renderable = -1, redS = -1, alphaS = -1;
+			eglGetConfigAttrib(eglDisplay, eglConfig, EGL_CONFIG_ID, &cfgId);
+			eglGetConfigAttrib(eglDisplay, eglConfig, EGL_NATIVE_VISUAL_ID, &visId);
+			eglGetConfigAttrib(eglDisplay, eglConfig, EGL_SURFACE_TYPE, &surfType);
+			eglGetConfigAttrib(eglDisplay, eglConfig, EGL_RENDERABLE_TYPE, &renderable);
+			eglGetConfigAttrib(eglDisplay, eglConfig, EGL_RED_SIZE, &redS);
+			eglGetConfigAttrib(eglDisplay, eglConfig, EGL_ALPHA_SIZE, &alphaS);
+			EGLint renderBuf = -1, swapBehav = -1;
+			eglQuerySurface(eglDisplay, eglSurface, EGL_RENDER_BUFFER, &renderBuf);
+			eglQuerySurface(eglDisplay, eglSurface, EGL_SWAP_BEHAVIOR, &swapBehav);
+			NK_GL_LOG("EGL cfg: id=%d visualId=%d surfType=0x%X renderable=0x%X R=%d A=%d | surf: "
+					  "renderBuffer=0x%X(back=0x%X) swapBehavior=0x%X\n",
+					  cfgId, visId, surfType, renderable, redS, alphaS, renderBuf, EGL_BACK_BUFFER, swapBehav);
+		}
 
 #ifndef NK_NO_GLAD2
-		// gladLoadGLES2 (défini dans gles2.c, forward-déclaré plus haut) remplit
-		// les MÊMES globaux glad_gl* que ceux déclarés par glad/gl.h.
-		if (!gladLoadGLES2((GLADloadfunc)eglGetProcAddress)) {
+		// Charge les entrypoints GLES via le loader dlopen (libGLESv2.so), comme
+		// NKCanvas (Mou/Pong qui s'affichent). AVANT on passait par
+		// gladLoadGLES2(eglGetProcAddress) : sur certains drivers (dont l'emulateur
+		// MEmu) eglGetProcAddress renvoie des pointeurs vers une implementation GLES
+		// distincte de celle reellement liee au swapchain -> le rendu "reussit" mais
+		// le back buffer poste par eglSwapBuffers n'est jamais compose (ecran noir,
+		// swap ok=1). Repli sur l'ancien chemin si le loader dlopen echoue.
+		int glesVer = gladLoaderLoadGLES2();
+		if (!glesVer) {
+			NK_GL_LOG("gladLoaderLoadGLES2 (dlopen) failed, repli sur eglGetProcAddress\n");
+			glesVer = gladLoadGLES2((GLADloadfunc)eglGetProcAddress);
+		}
+		if (!glesVer) {
 			NK_GL_ERR("gladLoadGLES2 failed\n");
 			eglMakeCurrent(eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
 			eglDestroyContext(eglDisplay, eglContext);
@@ -711,6 +758,52 @@ namespace nkentseu {
 #endif
 		eglSwapInterval(eglDisplay, static_cast<EGLint>(init.context.opengl.swapInterval));
 		NK_GL_LOG("EGL OK (%d.%d)\n", (int)eglMaj, (int)eglMin);
+
+#elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+		// ── Contexte WebGL (Emscripten) ─────────────────────────────────────────
+		// Sans cette branche, AUCUN contexte n'etait cree sur Web : les pointeurs
+		// glad restaient nuls et le premier glGetIntegerv plantait le module WASM.
+		// Motif repris de NkContext.cpp (NKWindow) : emscripten_webgl_create_context
+		// + make_context_current + gladLoadGLES2(emscripten_webgl_get_proc_address).
+		EmscriptenWebGLContextAttributes webglAttrs;
+		emscripten_webgl_init_context_attributes(&webglAttrs);
+		webglAttrs.alpha = false;
+		webglAttrs.depth = true;
+		webglAttrs.stencil = true;
+		webglAttrs.antialias = false; // MSAA gere par le renderer (offscreen), pas par le canvas
+		webglAttrs.premultipliedAlpha = false;
+		webglAttrs.preserveDrawingBuffer = false;
+		webglAttrs.enableExtensionsByDefault = true;
+		// WebGL 2 obligatoire : le moteur exige ES 3.0+ (verification plus bas).
+		// Pas de repli WebGL 1 (= ES 2.0) : il echouerait de toute facon au check.
+		webglAttrs.majorVersion = 2;
+		webglAttrs.minorVersion = 0;
+
+		const char *canvasSelector = init.surface.canvasId ? init.surface.canvasId : "#canvas";
+		EMSCRIPTEN_WEBGL_CONTEXT_HANDLE webglCtx = emscripten_webgl_create_context(canvasSelector, &webglAttrs);
+		if (webglCtx <= 0) {
+			NK_GL_ERR("emscripten_webgl_create_context failed (canvas '%s', WebGL2 requis)\n", canvasSelector);
+			return false;
+		}
+		if (emscripten_webgl_make_context_current(webglCtx) != EMSCRIPTEN_RESULT_SUCCESS) {
+			NK_GL_ERR("emscripten_webgl_make_context_current failed\n");
+			emscripten_webgl_destroy_context(webglCtx);
+			return false;
+		}
+		mWebGLContext = static_cast<long>(webglCtx);
+
+#ifndef NK_NO_GLAD2
+		// emscripten_webgl_get_proc_address resout les symboles GLES2/3 exposes
+		// par la libGL Emscripten (linkee dans le module WASM).
+		if (!gladLoadGLES2((GLADloadfunc)emscripten_webgl_get_proc_address)) {
+			NK_GL_ERR("gladLoadGLES2 (emscripten_webgl_get_proc_address) failed\n");
+			emscripten_webgl_make_context_current(0);
+			emscripten_webgl_destroy_context(webglCtx);
+			mWebGLContext = 0;
+			return false;
+		}
+#endif
+		NK_GL_LOG("WebGL2 context OK (canvas '%s')\n", canvasSelector);
 #endif
 
 		// Vérifier GL 4.3 minimum (compute shaders) ou OpenGL ES 3.1+
@@ -862,6 +955,12 @@ namespace nkentseu {
 			// eglTerminate ici (d'autres devices/contextes peuvent le partager).
 			mEglDisplay = nullptr;
 		}
+#elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+		if (mWebGLContext) {
+			emscripten_webgl_make_context_current(0);
+			emscripten_webgl_destroy_context(static_cast<EMSCRIPTEN_WEBGL_CONTEXT_HANDLE>(mWebGLContext));
+			mWebGLContext = 0;
+		}
 #endif
 
 		mIsValid = false;
@@ -928,7 +1027,19 @@ namespace nkentseu {
 		threading::NkScopedLockMutex lock(mMutex);
 
 		GLuint id = 0;
-#if defined(NK_OPENGL_ES)
+#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+		// WebGL2 : le PREMIER bind non-COPY fige la "classe" du buffer (index vs
+		// autre) et tout bind ulterieur d'une autre classe est un INVALID_OPERATION
+		// ("buffers bound to non ELEMENT_ARRAY_BUFFER targets can not be bound...",
+		// constate — nos descs ont souvent type=NK_INDEX mais bindFlags=NONE).
+		// COPY_READ/COPY_WRITE sont EXEMPTES : upload initial via COPY_WRITE, la
+		// classe sera fixee par le premier bind reel (ARRAY / ELEMENT_ARRAY / UBO).
+		glGenBuffers(1, &id);
+		glBindBuffer(GL_COPY_WRITE_BUFFER, id);
+		GLenum usage = ToGLBufferUsage(desc.usage, desc.bindFlags);
+		glBufferData(GL_COPY_WRITE_BUFFER, (GLsizeiptr)desc.sizeBytes, desc.initialData, usage);
+		glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
+#elif defined(NK_OPENGL_ES)
 		glGenBuffers(1, &id);
 		GLenum target = (NkHasFlag(desc.bindFlags, NkBindFlags::NK_UNIFORM_BUFFER))	  ? GL_UNIFORM_BUFFER
 						: (NkHasFlag(desc.bindFlags, NkBindFlags::NK_STORAGE_BUFFER)) ? GL_SHADER_STORAGE_BUFFER
@@ -979,7 +1090,12 @@ namespace nkentseu {
 		GLBuffer *buffer = mBuffers.Find(buf.id);
 		if (!buffer || !data)
 			return false;
-#if defined(NK_OPENGL_ES)
+#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+		// WebGL2 : cible NEUTRE (ne fige pas la classe du buffer, cf. CreateBuffer).
+		glBindBuffer(GL_COPY_WRITE_BUFFER, buffer->id);
+		glBufferSubData(GL_COPY_WRITE_BUFFER, (GLintptr)offset, (GLsizeiptr)size, data);
+		glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
+#elif defined(NK_OPENGL_ES)
 		GLenum target = (NkHasFlag(buffer->bind, NkBindFlags::NK_UNIFORM_BUFFER))	? GL_UNIFORM_BUFFER
 						: (NkHasFlag(buffer->bind, NkBindFlags::NK_STORAGE_BUFFER)) ? GL_SHADER_STORAGE_BUFFER
 						: (NkHasFlag(buffer->bind, NkBindFlags::NK_VERTEX_BUFFER))	? GL_ARRAY_BUFFER
@@ -998,7 +1114,13 @@ namespace nkentseu {
 		GLBuffer *buffer = mBuffers.Find(buf.id);
 		if (!buffer || !data)
 			return false;
-#if defined(NK_OPENGL_ES)
+#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+		// WebGL2 : cible neutre + pas de vrai map (emulation Emscripten) — un
+		// simple glBufferSubData est equivalent et evite la classe de cible.
+		glBindBuffer(GL_COPY_WRITE_BUFFER, buffer->id);
+		glBufferSubData(GL_COPY_WRITE_BUFFER, (GLintptr)offset, (GLsizeiptr)size, data);
+		glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
+#elif defined(NK_OPENGL_ES)
 		GLenum target = (NkHasFlag(buffer->bind, NkBindFlags::NK_UNIFORM_BUFFER))	? GL_UNIFORM_BUFFER
 						: (NkHasFlag(buffer->bind, NkBindFlags::NK_STORAGE_BUFFER)) ? GL_SHADER_STORAGE_BUFFER
 						: (NkHasFlag(buffer->bind, NkBindFlags::NK_VERTEX_BUFFER))	? GL_ARRAY_BUFFER
@@ -1030,7 +1152,17 @@ namespace nkentseu {
 		if (!buffer)
 			return false;
 
-#if defined(NK_OPENGL_ES)
+#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+		// WebGL2 : cible neutre (classe du buffer non figee, cf. CreateBuffer).
+		glBindBuffer(GL_COPY_READ_BUFFER, buffer->id);
+		void *ptr = glMapBufferRange(GL_COPY_READ_BUFFER, (GLintptr)offset, (GLsizeiptr)size, GL_MAP_READ_BIT);
+		if (ptr) {
+			memcpy(out, ptr, (size_t)size);
+			glUnmapBuffer(GL_COPY_READ_BUFFER);
+		}
+		glBindBuffer(GL_COPY_READ_BUFFER, 0);
+		return ptr != nullptr;
+#elif defined(NK_OPENGL_ES)
 		GLenum target = NkHasFlag(buffer->bind, NkBindFlags::NK_UNIFORM_BUFFER)	  ? GL_UNIFORM_BUFFER
 						: NkHasFlag(buffer->bind, NkBindFlags::NK_STORAGE_BUFFER) ? GL_SHADER_STORAGE_BUFFER
 						: NkHasFlag(buffer->bind, NkBindFlags::NK_VERTEX_BUFFER)  ? GL_ARRAY_BUFFER
@@ -1064,7 +1196,13 @@ namespace nkentseu {
 		// (c'était le bug : MapBuffer échouait pour TOUS les buffers GL).
 		const GLbitfield access =
 			(buffer->usage == NkResourceUsage::NK_READBACK) ? GL_MAP_READ_BIT : GL_MAP_WRITE_BIT;
-#if defined(NK_OPENGL_ES)
+#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+		// WebGL2 : cible neutre (map emule par Emscripten, upload au Unmap).
+		glBindBuffer(GL_COPY_WRITE_BUFFER, buffer->id);
+		void *ptr = glMapBufferRange(GL_COPY_WRITE_BUFFER, (GLintptr)off, (GLsizeiptr)mapSz, access);
+		glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
+		return {ptr, mapSz};
+#elif defined(NK_OPENGL_ES)
 		GLenum target = (NkHasFlag(buffer->bind, NkBindFlags::NK_UNIFORM_BUFFER))	? GL_UNIFORM_BUFFER
 						: (NkHasFlag(buffer->bind, NkBindFlags::NK_STORAGE_BUFFER)) ? GL_SHADER_STORAGE_BUFFER
 						: (NkHasFlag(buffer->bind, NkBindFlags::NK_VERTEX_BUFFER))	? GL_ARRAY_BUFFER
@@ -1082,7 +1220,13 @@ namespace nkentseu {
 	void NkOpenGLDevice::UnmapBuffer(NkBufferHandle buf) {
 		GLBuffer *buffer = mBuffers.Find(buf.id);
 		if (buffer) {
-#if defined(NK_OPENGL_ES)
+#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+			// WebGL2 : meme cible neutre que MapBuffer (l'emulation Emscripten
+			// flush l'ecriture au Unmap via glBufferSubData sur cette cible).
+			glBindBuffer(GL_COPY_WRITE_BUFFER, buffer->id);
+			glUnmapBuffer(GL_COPY_WRITE_BUFFER);
+			glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
+#elif defined(NK_OPENGL_ES)
 			GLenum target = (NkHasFlag(buffer->bind, NkBindFlags::NK_UNIFORM_BUFFER))	? GL_UNIFORM_BUFFER
 							: (NkHasFlag(buffer->bind, NkBindFlags::NK_STORAGE_BUFFER)) ? GL_SHADER_STORAGE_BUFFER
 							: (NkHasFlag(buffer->bind, NkBindFlags::NK_VERTEX_BUFFER))	? GL_ARRAY_BUFFER
@@ -1301,7 +1445,12 @@ namespace nkentseu {
 		glSamplerParameteri(id, GL_TEXTURE_WRAP_S, (GLint)ToGLWrap(d.addressU));
 		glSamplerParameteri(id, GL_TEXTURE_WRAP_T, (GLint)ToGLWrap(d.addressV));
 		glSamplerParameteri(id, GL_TEXTURE_WRAP_R, (GLint)ToGLWrap(d.addressW));
+#if !defined(NK_OPENGL_ES)
+		// GL_TEXTURE_LOD_BIAS n'existe PAS en OpenGL ES (absent de ES 2.0/3.x) :
+		// l'appeler leve GL_INVALID_ENUM et laisse l'objet sampler partiellement
+		// initialise cote pilote.
 		glSamplerParameterf(id, GL_TEXTURE_LOD_BIAS, d.mipLodBias);
+#endif
 		glSamplerParameterf(id, GL_TEXTURE_MIN_LOD, d.minLod);
 		glSamplerParameterf(id, GL_TEXTURE_MAX_LOD, d.maxLod);
 		if (d.maxAnisotropy > 1.f)
@@ -1310,8 +1459,20 @@ namespace nkentseu {
 			glSamplerParameteri(id, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
 			glSamplerParameteri(id, GL_TEXTURE_COMPARE_FUNC, (GLint)ToGLCompareOp(d.compareOp));
 		}
+		GLSampler s{};
+		s.id = id;
+		s.magFilter = (GLint)ToGLFilter(d.magFilter, NkMipFilter::NK_NONE);
+		s.minFilter = (GLint)ToGLFilter(d.minFilter, d.mipFilter);
+		s.wrapS = (GLint)ToGLWrap(d.addressU);
+		s.wrapT = (GLint)ToGLWrap(d.addressV);
+		s.wrapR = (GLint)ToGLWrap(d.addressW);
+		s.minLod = d.minLod;
+		s.maxLod = d.maxLod;
+		s.maxAnisotropy = d.maxAnisotropy;
+		s.compareEnable = d.compareEnable;
+		s.compareFunc = (GLint)ToGLCompareOp(d.compareOp);
 		uint64 hid = NextId();
-		mSamplers[hid] = {id};
+		mSamplers[hid] = s;
 		NkSamplerHandle h;
 		h.id = hid;
 		return h;
@@ -1326,6 +1487,273 @@ namespace nkentseu {
 		mSamplers.Erase(h.id);
 		h.id = 0;
 	}
+
+	// =============================================================================
+	// Adaptation WebGL2 (Emscripten uniquement)
+	// =============================================================================
+	// WebGL2 = GLSL ES 3.00 STRICT (mesure sur Chrome/ANGLE, cf. PLATEFORMES_ETAT) :
+	//   - seul "#version 300 es" est accepte (310/320 es et tout profil desktop
+	//     "NNN core" sont rejetes : "invalid version directive") ;
+	//   - layout(binding = N) est INTERDIT partout (samplers ET blocs UBO :
+	//     "invalid layout qualifier: not supported") ;
+	//   - layout(location = N) n'est legal QUE sur les entrees du VS et les
+	//     sorties du FS (pas sur les varyings) — le matching varying se fait
+	//     alors PAR NOM (identiques cote VS/FS dans nos generateurs).
+	// Or nos generateurs (NkSL codegen GLSL "#version 430 core" et SPIRV-Cross
+	// ES "#version 320 es") produisent tous des bindings explicites — c'est le
+	// contrat du backend GL (il ne fait AUCUN cablage par nom). Ce shim adapte
+	// donc le GLSL a la volee au moment de CreateShader :
+	//   1. en-tete remplace par "#version 300 es" + precisions par defaut
+	//      (les samplers d'ombre/array n'ont PAS de precision par defaut en ES) ;
+	//   2. qualifiers binding retires du texte, MAIS collectes (nom -> binding) ;
+	//   3. qualifiers location retires des varyings (gardes sur VS in / FS out) ;
+	//   4. apres glLinkProgram : les bindings collectes sont re-appliques par nom
+	//      (glUniformBlockBinding pour les UBO, glUniform1i pour les samplers) —
+	//      le reste du backend (unites de texture, points UBO) est inchange.
+	// Zero impact hors Web : tout est sous NKENTSEU_PLATFORM_EMSCRIPTEN.
+#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+	namespace {
+
+		struct NkWebGLBindingFix {
+				char name[96] = {0};
+				int binding = 0;
+				bool isBlock = false; // true = bloc UBO, false = sampler
+		};
+
+		inline bool NkWebIsIdent(char c) {
+			return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+		}
+
+		// Cherche la sous-chaine `sub` dans [s,e) (strstr BORNE a la ligne :
+		// strstr classique lirait au-dela et matcherait les lignes suivantes).
+		const char *NkWebFindSub(const char *s, const char *e, const char *sub) {
+			const size_t sl = strlen(sub);
+			for (const char *p = s; p + sl <= e; ++p)
+				if (strncmp(p, sub, sl) == 0)
+					return p;
+			return nullptr;
+		}
+
+		// Cherche le mot entier `word` dans [s,e). Retourne le pointeur ou nullptr.
+		const char *NkWebFindWord(const char *s, const char *e, const char *word) {
+			const size_t wl = strlen(word);
+			for (const char *p = s; p + wl <= e; ++p) {
+				if (strncmp(p, word, wl) != 0)
+					continue;
+				const bool okL = (p == s) || !NkWebIsIdent(p[-1]);
+				const bool okR = (p + wl == e) || !NkWebIsIdent(p[wl]);
+				if (okL && okR)
+					return p;
+			}
+			return nullptr;
+		}
+
+		// Adapte UNE ligne de GLSL genere. Ajoute le resultat a `out` et collecte
+		// les bindings retires dans `fixes`.
+		void NkWebAdaptLine(const char *line, const char *lineEnd, GLenum stage, NkString &out,
+							NkVector<NkWebGLBindingFix> &fixes) {
+			const char *p = line;
+			while (p < lineEnd && (*p == ' ' || *p == '\t'))
+				++p;
+
+			// ── 1. En-tete #version -> 300 es + precisions par defaut ────────────
+			if (lineEnd - p >= 8 && strncmp(p, "#version", 8) == 0) {
+				out += "#version 300 es\n";
+				out += "precision highp float;\n";
+				out += "precision highp int;\n";
+				out += "precision highp sampler2D;\n";
+				out += "precision highp sampler3D;\n";
+				out += "precision highp samplerCube;\n";
+				out += "precision highp sampler2DArray;\n";
+				out += "precision highp sampler2DShadow;\n";
+				out += "precision highp samplerCubeShadow;\n";
+				out += "precision highp sampler2DArrayShadow;\n";
+				out += "precision highp isampler2D;\n";
+				out += "precision highp usampler2D;\n";
+				return;
+			}
+
+			// ── 2. Ligne sans layout(...) : copie telle quelle ───────────────────
+			const char *lay = NkWebFindWord(p, lineEnd, "layout");
+			const char *open = nullptr;
+			if (lay) {
+				open = lay + 6;
+				while (open < lineEnd && (*open == ' ' || *open == '\t'))
+					++open;
+				if (open >= lineEnd || *open != '(')
+					lay = nullptr;
+			}
+			if (!lay) {
+				out.Append(line, (uint32)(lineEnd - line));
+				out += "\n";
+				return;
+			}
+			const char *close = open;
+			while (close < lineEnd && *close != ')')
+				++close;
+			if (close >= lineEnd) { // layout( non ferme sur la ligne : inattendu
+				out.Append(line, (uint32)(lineEnd - line));
+				out += "\n";
+				return;
+			}
+
+			// Nature de la declaration (partie APRES la parenthese fermante).
+			const char *rest = close + 1;
+			const bool hasUniform = NkWebFindWord(rest, lineEnd, "uniform") != nullptr;
+			const bool hasSampler =
+				NkWebFindSub(rest, lineEnd, "sampler") != nullptr || NkWebFindSub(rest, lineEnd, "image") != nullptr;
+			const bool isIn = NkWebFindWord(rest, lineEnd, "in") != nullptr;
+			const bool isOut = NkWebFindWord(rest, lineEnd, "out") != nullptr;
+
+			// ── 3. Reconstruire la liste de qualifiers sans binding/location ─────
+			char kept[160] = {0};
+			size_t keptLen = 0;
+			int bindingVal = -1;
+			const char *q = open + 1;
+			while (q < close) {
+				// isole un qualifier [q, qe) (separe par des virgules)
+				const char *qe = q;
+				while (qe < close && *qe != ',')
+					++qe;
+				// trim
+				const char *ts = q;
+				while (ts < qe && (*ts == ' ' || *ts == '\t'))
+					++ts;
+				const char *te = qe;
+				while (te > ts && (te[-1] == ' ' || te[-1] == '\t'))
+					--te;
+				const size_t tl = (size_t)(te - ts);
+				const bool isBinding = tl >= 7 && strncmp(ts, "binding", 7) == 0 && !NkWebIsIdent(ts[7]);
+				const bool isLocation = tl >= 8 && strncmp(ts, "location", 8) == 0 && !NkWebIsIdent(ts[8]);
+				// "set = N" (dialecte Vulkan, jamais legal en GL/WebGL) : retire.
+				const bool isSet = tl >= 3 && strncmp(ts, "set", 3) == 0 && !NkWebIsIdent(ts[3]);
+				if (isSet) {
+					q = qe + 1;
+					continue;
+				}
+				if (isBinding) {
+					const char *v = ts + 7;
+					while (v < te && (*v == ' ' || *v == '=' || *v == '\t'))
+						++v;
+					bindingVal = atoi(v);
+				} else {
+					// location : retiree des varyings (VS out / FS in), gardee sur
+					// VS in (attributs) et FS out (cibles de rendu).
+					const bool dropLocation =
+						isLocation && !hasUniform &&
+						((stage == GL_VERTEX_SHADER && isOut && !isIn) || (stage == GL_FRAGMENT_SHADER && isIn));
+					if (!dropLocation && tl > 0 && keptLen + tl + 2 < sizeof(kept)) {
+						if (keptLen) {
+							kept[keptLen++] = ',';
+							kept[keptLen++] = ' ';
+						}
+						memcpy(kept + keptLen, ts, tl);
+						keptLen += tl;
+						kept[keptLen] = '\0';
+					}
+				}
+				q = qe + 1;
+			}
+
+			// ── 4. Collecte du binding retire (nom -> point de binding) ──────────
+			if (bindingVal >= 0 && hasUniform) {
+				NkWebGLBindingFix fix;
+				fix.binding = bindingVal;
+				if (hasSampler) {
+					// sampler : dernier identifiant avant ';' (ignore un eventuel [N])
+					fix.isBlock = false;
+					const char *semi = rest;
+					const char *lastSemi = nullptr;
+					while ((semi = (const char *)memchr(semi, ';', (size_t)(lineEnd - semi))) != nullptr) {
+						lastSemi = semi;
+						++semi;
+					}
+					const char *ne = lastSemi ? lastSemi : lineEnd;
+					while (ne > rest && !NkWebIsIdent(ne[-1]) && ne[-1] != ']')
+						--ne;
+					if (ne > rest && ne[-1] == ']') { // strip [N]
+						while (ne > rest && ne[-1] != '[')
+							--ne;
+						if (ne > rest)
+							--ne; // '['
+					}
+					const char *ns = ne;
+					while (ns > rest && NkWebIsIdent(ns[-1]))
+						--ns;
+					const size_t nl = (size_t)(ne - ns);
+					if (nl > 0 && nl < sizeof(fix.name)) {
+						memcpy(fix.name, ns, nl);
+						fix.name[nl] = '\0';
+						fixes.PushBack(fix);
+					}
+				} else {
+					// bloc UBO : premier identifiant apres le mot-cle "uniform"
+					// (en sautant les qualifiers de precision).
+					fix.isBlock = true;
+					const char *u = NkWebFindWord(rest, lineEnd, "uniform");
+					const char *ns = u ? u + 7 : rest;
+					const char *name = nullptr;
+					size_t nameLen = 0;
+					while (ns < lineEnd) {
+						while (ns < lineEnd && !NkWebIsIdent(*ns))
+							++ns;
+						const char *ne = ns;
+						while (ne < lineEnd && NkWebIsIdent(*ne))
+							++ne;
+						const size_t nl = (size_t)(ne - ns);
+						const bool isPrec = (nl == 5 && strncmp(ns, "highp", 5) == 0) ||
+											(nl == 4 && strncmp(ns, "lowp", 4) == 0) ||
+											(nl == 7 && strncmp(ns, "mediump", 7) == 0);
+						if (nl > 0 && !isPrec) {
+							name = ns;
+							nameLen = nl;
+							break;
+						}
+						ns = ne;
+					}
+					if (name && nameLen < sizeof(fix.name)) {
+						memcpy(fix.name, name, nameLen);
+						fix.name[nameLen] = '\0';
+						fixes.PushBack(fix);
+					}
+				}
+			}
+
+			// ── 5. Re-emission de la ligne ───────────────────────────────────────
+			out.Append(line, (uint32)(lay - line)); // avant "layout"
+			if (keptLen) {
+				out += "layout(";
+				out.Append(kept, (uint32)keptLen);
+				out += ") ";
+			}
+			// apres ')' : trim des espaces de tete pour eviter "  uniform"
+			const char *tail = close + 1;
+			while (tail < lineEnd && (*tail == ' ' || *tail == '\t'))
+				++tail;
+			out.Append(tail, (uint32)(lineEnd - tail));
+			out += "\n";
+		}
+
+		// Adapte une source complete. Retourne la source WebGL2 et remplit `fixes`.
+		NkString NkWebGL2AdaptGLSL(const char *src, GLenum stage, NkVector<NkWebGLBindingFix> &fixes) {
+			NkString out;
+			const char *p = src;
+			const char *end = src + strlen(src);
+			while (p < end) {
+				const char *nl = (const char *)memchr(p, '\n', (size_t)(end - p));
+				const char *lineEnd = nl ? nl : end;
+				// strip \r final (sources potentiellement CRLF)
+				const char *le = lineEnd;
+				if (le > p && le[-1] == '\r')
+					--le;
+				NkWebAdaptLine(p, le, stage, out, fixes);
+				p = nl ? nl + 1 : end;
+			}
+			return out;
+		}
+
+	} // namespace
+#endif // NKENTSEU_PLATFORM_EMSCRIPTEN
 
 	// =============================================================================
 	// Shaders
@@ -1351,6 +1779,12 @@ namespace nkentseu {
 		GLuint prog = glCreateProgram();
 		uint32 attachedCount = 0;
 
+#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+		// WebGL2 : bindings retires du GLSL par le shim (ES 3.00), re-appliques
+		// par nom apres le link (voir NkWebGL2AdaptGLSL ci-dessus).
+		NkVector<NkWebGLBindingFix> webFixes;
+#endif
+
 		for (uint32 i = 0; i < desc.stages.Size(); i++) {
 			auto &s = desc.stages[i];
 			const char *src = s.glslSource;
@@ -1358,6 +1792,10 @@ namespace nkentseu {
 				continue;
 			}
 			GLenum glStage = ToGLShaderStage(s.stage);
+#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+			NkString adapted = NkWebGL2AdaptGLSL(src, glStage, webFixes);
+			src = adapted.CStr();
+#endif
 			GLuint sh = CompileGLStage(glStage, src);
 			if (sh) {
 				glAttachShader(prog, sh);
@@ -1382,6 +1820,30 @@ namespace nkentseu {
 			glDeleteProgram(prog);
 			return {};
 		}
+
+#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+		// Re-application PAR NOM des bindings retires du GLSL (WebGL2 ne permet
+		// pas layout(binding=N)). Blocs UBO -> glUniformBlockBinding ; samplers
+		// -> glUniform1i (necessite le programme courant : sauve/restaure).
+		if (!webFixes.Empty()) {
+			GLint prevProg = 0;
+			glGetIntegerv(GL_CURRENT_PROGRAM, &prevProg);
+			glUseProgram(prog);
+			for (uint32 i = 0; i < webFixes.Size(); i++) {
+				const NkWebGLBindingFix &f = webFixes[i];
+				if (f.isBlock) {
+					const GLuint idx = glGetUniformBlockIndex(prog, f.name);
+					if (idx != GL_INVALID_INDEX)
+						glUniformBlockBinding(prog, idx, (GLuint)f.binding);
+				} else {
+					const GLint loc = glGetUniformLocation(prog, f.name);
+					if (loc >= 0)
+						glUniform1i(loc, f.binding);
+				}
+			}
+			glUseProgram((GLuint)prevProg);
+		}
+#endif
 #if !defined(NK_OPENGL_ES)
 		// Cf. commentaire de CreateBuffer : diagnostic seul, désactivé sur ES.
 		if (desc.debugName)
@@ -1520,6 +1982,21 @@ namespace nkentseu {
 			// et c'est glBindVertexBuffer (déjà correct, cf. NkOpenglCommandBuffer)
 			// qui fournit le buffer réel à chaque tirage. Exactement le pendant non-DSA
 			// du chemin desktop (glVertexArrayAttribFormat/Binding) juste en-dessous.
+#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+			// WebGL2 = ES 3.0 : le modele "vertex attrib binding" (glVertexAttribFormat/
+			// Binding/BindingDivisor, ES 3.1+) N'EXISTE PAS — les pointeurs glad sont
+			// NULS ("GLAD: ERROR glVertexAttribFormat is NULL!" puis RuntimeError:
+			// null function, constate sous Chrome headless). Sur Web, le format des
+			// attributs est donc applique AU MOMENT DU BIND du vertex buffer, via
+			// glVertexAttrib(I)Pointer classiques + glVertexAttribDivisor (tous ES 3.0),
+			// dans NkOpenglWebBindVertexBuffer (appelee par GL_BindVertexBuffer).
+			// Ici on a seulement active l'attribut dans le VAO du pipeline.
+			(void)compCount;
+			(void)compType;
+			(void)norm;
+			(void)isInteger;
+		}
+#else
 			if (isInteger) {
 #if defined(NK_OPENGL_ES)
 				glVertexAttribIFormat(a.location, compCount, compType, (GLuint)a.offset);
@@ -1549,6 +2026,7 @@ namespace nkentseu {
 #endif
 			}
 		}
+#endif // NKENTSEU_PLATFORM_EMSCRIPTEN
 #if defined(NK_OPENGL_ES)
 		glBindVertexArray(0);
 #endif
@@ -1559,6 +2037,111 @@ namespace nkentseu {
 		h.id = hid;
 		return h;
 	}
+
+#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+	// =============================================================================
+	// WebGL2 : application du vertex layout au bind du buffer (ES 3.0 pur)
+	// =============================================================================
+	// Pendant Web de glBindVertexBuffer : WebGL2 n'a pas le modele attrib-binding
+	// (ES 3.1). On applique donc, pour chaque attribut du binding, le pointeur
+	// classique (buffer ARRAY_BUFFER lie + glVertexAttrib(I)Pointer + divisor).
+	// Le VAO du pipeline courant est deja lie (GL_BindPipeline) : l'etat est
+	// capture dedans, comme sur les autres chemins.
+	void NkOpenglWebBindVertexBuffer(NkOpenGLDevice *dev, uint64 pipelineId, uint32 binding, GLuint bufId, GLintptr off,
+									 GLsizei stride) {
+		auto *pipeline = dev->mPipelines.Find(pipelineId);
+		if (!pipeline)
+			return;
+		const NkVertexLayout &vl = pipeline->vertexLayout;
+		bool perInstance = false;
+		for (uint32 i = 0; i < vl.bindings.Size(); ++i) {
+			if (vl.bindings[i].binding == binding) {
+				perInstance = vl.bindings[i].perInstance;
+				break;
+			}
+		}
+		glBindBuffer(GL_ARRAY_BUFFER, bufId);
+		for (uint32 i = 0; i < vl.attributes.Size(); ++i) {
+			const auto &a = vl.attributes[i];
+			if (a.binding != binding)
+				continue;
+			GLint compCount = 3;
+			GLenum compType = GL_FLOAT;
+			GLboolean norm = GL_FALSE;
+			bool isInteger = false;
+			switch (a.format) { // meme decodage que CreateGraphicsPipeline
+				case NkVertexFormat::NK_R32_UINT:
+					compCount = 1;
+					compType = GL_UNSIGNED_INT;
+					isInteger = true;
+					break;
+				case NkVertexFormat::NK_RG32_UINT:
+					compCount = 2;
+					compType = GL_UNSIGNED_INT;
+					isInteger = true;
+					break;
+				case NkVertexFormat::NK_RGBA32_UINT:
+					compCount = 4;
+					compType = GL_UNSIGNED_INT;
+					isInteger = true;
+					break;
+				case NkVertexFormat::NK_R32_SINT:
+					compCount = 1;
+					compType = GL_INT;
+					isInteger = true;
+					break;
+				case NkVertexFormat::NK_RG32_SINT:
+					compCount = 2;
+					compType = GL_INT;
+					isInteger = true;
+					break;
+				case NkVertexFormat::NK_RGBA32_SINT:
+					compCount = 4;
+					compType = GL_INT;
+					isInteger = true;
+					break;
+				case NkVertexFormat::NK_R32_FLOAT:
+					compCount = 1;
+					break;
+				case NkVertexFormat::NK_RG32_FLOAT:
+					compCount = 2;
+					break;
+				case NkVertexFormat::NK_RGB32_FLOAT:
+					compCount = 3;
+					break;
+				case NkVertexFormat::NK_RGBA32_FLOAT:
+					compCount = 4;
+					break;
+				case NkVertexFormat::NK_RGBA8_UNORM:
+				case NkVertexFormat::NK_R8G8B8A8_UNORM_PACKED:
+					compCount = 4;
+					compType = GL_UNSIGNED_BYTE;
+					norm = GL_TRUE;
+					break;
+				case NkVertexFormat::NK_RGBA8_SNORM:
+					compCount = 4;
+					compType = GL_BYTE;
+					norm = GL_TRUE;
+					break;
+				case NkVertexFormat::NK_A2B10G10R10_UNORM:
+					compCount = 4;
+					compType = GL_UNSIGNED_INT_2_10_10_10_REV;
+					norm = GL_TRUE;
+					break;
+				default:
+					break;
+			}
+			const void *ptr = (const void *)(size_t)((uint64)off + (uint64)a.offset);
+			if (isInteger)
+				glVertexAttribIPointer(a.location, compCount, compType, stride, ptr);
+			else
+				glVertexAttribPointer(a.location, compCount, compType, norm, stride, ptr);
+			// divisor par ATTRIBUT en ES 3.0 (le divisor par binding est ES 3.1)
+			glVertexAttribDivisor(a.location, perInstance ? 1u : 0u);
+			glEnableVertexAttribArray(a.location);
+		}
+	}
+#endif // NKENTSEU_PLATFORM_EMSCRIPTEN
 
 	NkPipelineHandle NkOpenGLDevice::CreateComputePipeline(const NkComputePipelineDesc &d) {
 		threading::NkScopedLockMutex lock(mMutex);
@@ -1753,6 +2336,7 @@ namespace nkentseu {
 					b.bufferId = buffer->id;
 					b.bufferOffset = w.bufferOffset;
 					b.bufferRange = w.bufferRange;
+					b.bufferSize = buffer->size;
 				}
 			}
 			if (w.texture.IsValid()) {
@@ -1764,8 +2348,10 @@ namespace nkentseu {
 			}
 			if (w.sampler.IsValid()) {
 				GLSampler *sampler = mSamplers.Find(w.sampler.id);
-				if (sampler)
+				if (sampler) {
 					b.samplerId = sampler->id;
+					b.samplerState = *sampler;
+				}
 			}
 		}
 	}
@@ -1781,9 +2367,22 @@ namespace nkentseu {
 			switch (b.type) {
 				case NkDescriptorType::NK_UNIFORM_BUFFER:
 				case NkDescriptorType::NK_UNIFORM_BUFFER_DYNAMIC:
-					if (b.bufferId)
-						glBindBufferRange(GL_UNIFORM_BUFFER, lb.binding, b.bufferId, (GLintptr)b.bufferOffset,
-										  (GLsizeiptr)(b.bufferRange > 0 ? b.bufferRange : 65536));
+					if (b.bufferId) {
+						// glBindBufferRange EXIGE offset+size <= taille du buffer : sinon
+						// GL_INVALID_VALUE, le binding n'est PAS etabli et, sur les pilotes
+						// GLES emules (goldfish/MEmu), l'etat de presentation est corrompu
+						// -> ecran noir sans erreur remontee. L'ancien defaut 65536 quand
+						// bufferRange==0 depassait quasi toujours la taille reelle de l'UBO.
+						uint64 range = b.bufferRange;
+						const uint64 avail = (b.bufferSize > b.bufferOffset) ? (b.bufferSize - b.bufferOffset) : 0;
+						if (range == 0 || (avail > 0 && range > avail))
+							range = avail;
+						if (range > 0)
+							glBindBufferRange(GL_UNIFORM_BUFFER, lb.binding, b.bufferId, (GLintptr)b.bufferOffset,
+											  (GLsizeiptr)range);
+						else
+							glBindBufferBase(GL_UNIFORM_BUFFER, lb.binding, b.bufferId);
+					}
 					break;
 				case NkDescriptorType::NK_STORAGE_BUFFER:
 				case NkDescriptorType::NK_STORAGE_BUFFER_DYNAMIC:
@@ -1801,7 +2400,32 @@ namespace nkentseu {
 #endif
 					}
 					if (b.samplerId) {
+#if defined(NK_OPENGL_ES)
+						// PAS de glBindSampler sur OpenGL ES : sur les pilotes GLES emules
+						// (MEmu/goldfish), lier un objet sampler corrompt la presentation —
+						// le rendu continue sans la moindre erreur GL, eglSwapBuffers renvoie
+						// ok=1, mais le compositeur n'affiche plus que du NOIR (cause isolee
+						// par bisection de commandes, cf. rapport). On applique donc l'etat
+						// du sampler directement sur la texture liee, ce qui est le repli
+						// classique GLES2 et donne le meme resultat visuel.
+						const GLenum tgt = b.textureTarget ? b.textureTarget : GL_TEXTURE_2D;
+						const GLSampler &sst = b.samplerState;
+						glTexParameteri(tgt, GL_TEXTURE_MAG_FILTER, sst.magFilter);
+						glTexParameteri(tgt, GL_TEXTURE_MIN_FILTER, sst.minFilter);
+						glTexParameteri(tgt, GL_TEXTURE_WRAP_S, sst.wrapS);
+						glTexParameteri(tgt, GL_TEXTURE_WRAP_T, sst.wrapT);
+						glTexParameteri(tgt, GL_TEXTURE_WRAP_R, sst.wrapR);
+						glTexParameterf(tgt, GL_TEXTURE_MIN_LOD, sst.minLod);
+						glTexParameterf(tgt, GL_TEXTURE_MAX_LOD, sst.maxLod);
+						if (sst.maxAnisotropy > 1.f)
+							glTexParameterf(tgt, GL_TEXTURE_MAX_ANISOTROPY, sst.maxAnisotropy);
+						glTexParameteri(tgt, GL_TEXTURE_COMPARE_MODE,
+										sst.compareEnable ? GL_COMPARE_REF_TO_TEXTURE : GL_NONE);
+						if (sst.compareEnable)
+							glTexParameteri(tgt, GL_TEXTURE_COMPARE_FUNC, sst.compareFunc);
+#else
 						glBindSampler(lb.binding, b.samplerId);
+#endif
 					}
 					break;
 				case NkDescriptorType::NK_STORAGE_TEXTURE:
@@ -1862,13 +2486,10 @@ namespace nkentseu {
 		}
 #elif defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_PLATFORM_HARMONYOS)
 		if (mEglDisplay && mEglSurface) {
-			// Diagnostic temporaire (enquete ecran noir Tuto02Renderer) : la sonde
-			// readback prouve que le texte EST rasterise dans le back buffer du FBO 0
-			// — si l'ecran reste noir, c'est la PRESENTATION qui echoue. On verifie
-			// donc le retour d'eglSwapBuffers (jamais controle jusqu'ici : un swap
-			// sur une surface EGL liee a un ANativeWindow recree par Android echoue
-			// en silence, EGL_BAD_SURFACE/BAD_NATIVE_WINDOW) + la taille que EGL
-			// croit avoir pour la surface. A retirer une fois la cause confirmee.
+			// On controle le retour d'eglSwapBuffers : un swap sur une surface EGL
+			// liee a un ANativeWindow recree par l'OS echoue sinon en SILENCE
+			// (EGL_BAD_SURFACE / EGL_BAD_NATIVE_WINDOW) et l'ecran reste noir sans
+			// qu'aucune erreur GL ne soit levee.
 			EGLDisplay dpy = reinterpret_cast<EGLDisplay>(mEglDisplay);
 			EGLSurface surf = reinterpret_cast<EGLSurface>(mEglSurface);
 			EGLBoolean swapOk = eglSwapBuffers(dpy, surf);
@@ -1883,6 +2504,13 @@ namespace nkentseu {
 							 (int)swapOk, (unsigned)eglGetError(), mEglSurface, mEglNativeWindow, (int)sw, (int)sh,
 							 (void *)eglGetCurrentContext(), (void *)eglGetCurrentSurface(EGL_DRAW));
 			}
+		}
+#elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+		// Pas de swap explicite sur le Web : le navigateur compose le canvas a la
+		// fin du callback requestAnimationFrame. Un glFlush suffit pour pousser
+		// les commandes avant le retour au navigateur.
+		if (mWebGLContext) {
+			glFlush();
 		}
 #endif
 	}

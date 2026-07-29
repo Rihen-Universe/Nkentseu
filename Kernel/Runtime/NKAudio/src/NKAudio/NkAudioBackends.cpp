@@ -1218,7 +1218,7 @@ namespace nkentseu {
 			}
 			var ctx = window.NkAudioCtx;
 			// Reveille le contexte si suspendu (politique autoplay nav).
-			if (ctx.state == = 'suspended')
+			if (ctx.state === 'suspended')
 				ctx.resume();
 			// Cree le ScriptProcessor : bufferSize doit etre puissance de 2
 			// entre 256 et 16384. On clamp au plus proche.
@@ -1264,13 +1264,13 @@ namespace nkentseu {
 		});
 
 		EM_JS(void, NkWebAudio_JSResume, (), {
-			if (window.NkAudioCtx &&window.NkAudioCtx.state == = 'suspended') {
+			if (window.NkAudioCtx &&window.NkAudioCtx.state === 'suspended') {
 				window.NkAudioCtx.resume();
 			}
 		});
 
 		EM_JS(void, NkWebAudio_JSSuspend, (), {
-			if (window.NkAudioCtx &&window.NkAudioCtx.state == = 'running') {
+			if (window.NkAudioCtx &&window.NkAudioCtx.state === 'running') {
 				window.NkAudioCtx.suspend();
 			}
 		});

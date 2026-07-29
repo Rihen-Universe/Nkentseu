@@ -1,0 +1,19 @@
+# Fichiers contenant du JavaScript embarque (blocs EM_ASM / EM_JS d'Emscripten).
+#
+# POURQUOI : clang-format decoupe ce JS comme du C++. Les operateurs JS stricts
+# ne sont pas des jetons C++ : `!==` se lit `!=` + `=` et `===` se lit `==` + `=`,
+# et la fleche `=>` se lit `=` + `>`. Le formateur insere alors une espace entre
+# les jetons, ce qui produit `!= =`, `== =`, `= >` -> JS invalide. L'edition de
+# liens Emscripten echoue ensuite au post-traitement JS avec un SyntaxError
+# ("Unexpected token"), et donc AUCUN binaire Web n'est produit.
+#
+# C'est exactement ce qui est arrive au commit bdda350a
+# ("style: reformatage clang-format repo-wide"), qui a casse le build Web.
+#
+# Ces fichiers sont donc exclus du formatage automatique. Les formater a la main.
+Kernel/Runtime/NKAudio/src/NKAudio/NkAudioBackends.cpp
+Kernel/Runtime/NKCamera/src/NKCamera/Backend/NkEmscriptenCameraBackend.h
+Kernel/Runtime/NKCanvas/src/NKCanvas/Backend/Software/NkSoftwareContext.cpp
+Kernel/Runtime/NKRHI/src/NKRHI/Software/NkSoftwareDevice.cpp
+Kernel/Runtime/NKWindow/src/NKWindow/Platform/Emscripten/NkEmscriptenWindow.cpp
+Kernel/Runtime/NKWindow/src/NKWindow/Platform/Emscripten/NkEmscriptenEventSystem.cpp

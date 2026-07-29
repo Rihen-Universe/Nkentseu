@@ -45,12 +45,27 @@ int nkmain(const NkEntryState &state) {
 	winCfg.height = 720;
 	winCfg.centered = true;
 	winCfg.resizable = true;
+	// Mobile : plein ecran + barres systeme masquees + orientation verrouillee,
+	// EXACTEMENT comme Mou/Pong (qui s'affichent). C'est la seule difference de
+	// config d'activite restante entre eux et ce tuto (piste ecran noir Android).
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_PLATFORM_HARMONYOS)
+	winCfg.fullscreen = true;
+	winCfg.hideSystemUI = true;
+	winCfg.screenOrientation = NkScreenOrientation::NK_SCREEN_ORIENTATION_LANDSCAPE;
+	winCfg.lockOrientation = true;
+#endif
 
 	NkWindow window(winCfg);
 	if (!window.IsValid()) {
 		logger.Error("[Tuto02] Creation fenetre KO");
 		return 1;
 	}
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_PLATFORM_HARMONYOS)
+	window.SetScreenOrientation(NkScreenOrientation::NK_SCREEN_ORIENTATION_LANDSCAPE);
+	window.SetLockOrientation(true);
+	window.SetFullscreen(true);
+	window.SetHideSystemUI(true);
+#endif
 
 	// ── 2) Device GPU : 4 lignes suffisent ────────────────────────────────────
 	NkDeviceInitInfo devInfo{};
@@ -115,10 +130,32 @@ int nkmain(const NkEntryState &state) {
 
 	// ── 5) Boucle de rendu ────────────────────────────────────────────────────
 	NkClock clock;
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_PLATFORM_HARMONYOS)
+	uint32 sDiagFrame = 0;
+#endif
 	while (running && window.IsOpen()) {
 		events.PollEvents();
 		if (!running)
 			break;
+
+		// Mobile : re-synchroniser la surface de presentation a CHAQUE frame comme
+		// Pong (qui draine la file d'events inline et rattrape le Shown initial).
+		// AddEventCallback peut RATER le NkWindowShownEvent emis pendant la
+		// creation fenetre/device (avant l'enregistrement du callback) -> le device
+		// resterait lie a un ANativeWindow obsolete et tout le rendu partirait dans
+		// une BufferQueue orpheline (ecran noir, swap "reussi"). RecreateSurface est
+		// un no-op si la fenetre native n'a pas change.
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_PLATFORM_HARMONYOS)
+		{
+			const NkSurfaceDesc sd = window.GetSurfaceDesc();
+			if (sDiagFrame < 3) {
+				logger.Info("[Tuto02][DIAG] frame={0} nativeWindow(courant)={1}", sDiagFrame,
+							(uint64)(uintptr_t)sd.nativeWindow);
+				sDiagFrame++;
+			}
+			device->RecreateSurface(sd);
+		}
+#endif
 
 		const float32 dt = clock.Tick().delta;
 
