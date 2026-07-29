@@ -205,7 +205,7 @@ namespace nkentseu {
 				// des normales et des reflexions, argiles, jade/resine/nacre/peau, metaux
 				// dont un anisotrope brosse, toon). NkMatcapLibrary::Name(id) donne le nom
 				// affichable, et GenerateBall() la vignette pour un selecteur d'interface.
-				static const int32 kMatcapCount = 30;
+				static const int32 kMatcapCount = 34; // 30 Blender + 4 historiques (fin d'atlas)
 
 				void SetMatcap(int32 id) {
 					mMatcapId = ((id % kMatcapCount) + kMatcapCount) % kMatcapCount;
