@@ -335,6 +335,10 @@ namespace nkentseu {
 			// compare au NkSurfaceDesc courant dans RecreateSurface() pour detecter
 			// une fenetre native recreee par l'OS (cf. NkIDevice::RecreateSurface).
 			void *mEglNativeWindow = nullptr;
+#elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+			// Contexte WebGL (Emscripten). Handle opaque (long) pour NE PAS tirer
+			// <emscripten/html5.h> dans ce header — meme logique que GLX/EGL ci-dessus.
+			long mWebGLContext = 0; // EMSCRIPTEN_WEBGL_CONTEXT_HANDLE
 #endif
 
 			// Compile un shader GL stage
