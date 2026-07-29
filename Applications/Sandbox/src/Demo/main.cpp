@@ -19,6 +19,13 @@
 #if defined(NKENTSEU_PLATFORM_ANDROID)
 #include <sys/system_properties.h> // selection de la demo via debug.nk.demo
 #endif
+#if defined(__EMSCRIPTEN__)
+#include <emscripten/emscripten.h>
+#endif
+#if defined(NKENTSEU_PLATFORM_HARMONYOS)
+#include <rawfile/raw_file_manager.h> // ResourceManager natif (shaders rawfile du HAP)
+#include <unistd.h>					  // usleep (attente du resourceManager ArkTS)
+#endif
 
 #include "NKPlatform/NkPlatformDetect.h"
 #include "NKWindow/NKMain.h"
@@ -398,6 +405,76 @@ int nkmain(const NkEntryState &state) {
 		char demoProp[PROP_VALUE_MAX] = {0};
 		if (__system_property_get("debug.nk.demo", demoProp) > 0 && demoProp[0])
 			demoIx = atoi(demoProp);
+	}
+#elif defined(NKENTSEU_PLATFORM_HARMONYOS)
+	// Rawfiles HAP : les shaders sont packages par jenga (harmonyassets, cf.
+	// RendererSandbox.jenga) RELATIVEMENT a Resources/NKRenderer/Shaders ->
+	// rawfile/PBR/..., rawfile/Include/... Meme strip de chemin qu'Android
+	// (le sous-dossier est partage par le repli rawfile de NkFile).
+	nkentseu::NkFile::SetAndroidAssetSubFolder("NKRenderer/Shaders");
+	// Le NativeResourceManager est pose par l'ArkTS (Index.ets, onLoad du
+	// XComponent -> nkSetResMgr, cf. NkHarmonyOnNapiInitExtra en fin de ce
+	// fichier). nkmain demarre des que la SURFACE est prete : l'appel ArkTS
+	// peut arriver quelques ms plus tard -> attente bornee (les shaders sont
+	// charges bien plus tard, mais autant etre deterministe).
+	{
+		int waitedMs = 0;
+		while (!nkentseu::NkFile::GetHarmonyResourceManager() && waitedMs < 10000) {
+			usleep(20000); // 20 ms
+			waitedMs += 20;
+		}
+		logger.Infof("[main] HarmonyOS: resourceManager=%p (attente %d ms)\n",
+					 nkentseu::NkFile::GetHarmonyResourceManager(), waitedMs);
+	}
+	// Selection de la demo SANS reinstaller (equivalent HarmonyOS du setprop
+	// Android) : fichier lu au demarrage. Le plus simple qui marche avec un hdc
+	// NON-root (les dossiers sandbox de l'app sont 0700 uid app -> interdits au
+	// shell) : /data/local/tmp, ecrivable par le shell et traversable (o+x) :
+	//   hdc shell "echo 2 > /data/local/tmp/nk_demo.txt && chmod 644 /data/local/tmp/nk_demo.txt"
+	// Les chemins sandbox restent en repli (utiles si hdc root un jour).
+	{
+		const char *kDemoFiles[] = {
+			"/data/local/tmp/nk_demo.txt",
+			"/data/storage/el2/base/haps/entry/files/nk_demo.txt",
+			"/data/storage/el2/base/files/nk_demo.txt",
+		};
+		for (size_t i = 0; i < sizeof(kDemoFiles) / sizeof(kDemoFiles[0]); ++i) {
+			FILE *f = fopen(kDemoFiles[i], "r");
+			if (!f)
+				continue;
+			char buf[16] = {0};
+			if (fgets(buf, sizeof(buf), f) && buf[0])
+				demoIx = atoi(buf);
+			fclose(f);
+			logger.Infof("[main] HarmonyOS: demo %d lue depuis %s\n", demoIx, kDemoFiles[i]);
+			break;
+		}
+	}
+#endif
+#if defined(__EMSCRIPTEN__)
+	// ââ SELECTION DE LA DEMO SUR LE WEB : ?demo=N dans l'URL âââââ
+	// Un module WASM ne recoit AUCUN argument de ligne de commande : argc vaut 1
+	// et --demo=N n'a pas de moyen d'arriver. On lit donc le parametre de requete
+	// de la page, equivalent naturel pour le Web (comme setprop sur Android et un
+	// fichier sous /data/local/tmp sur HarmonyOS).
+	//
+	// Le JavaScript ci-dessous n'utilise NI antislash, NI === , NI !== , NI => :
+	// ce fichier passe par clang-format, qui lit le JS embarque comme du C++ et
+	// tokenise "===" en "==" puis "=" en inserant une espace. C'est ce qui avait
+	// casse la compilation Web (33 sites corriges le 29/07). Le .clang-format-ignore
+	// protege maintenant les fichiers concernes, mais ecrire du JS qui ne PEUT PAS
+	// etre corrompu reste la vraie ceinture de securite. D'ou URLSearchParams
+	// plutot qu'une expression reguliere (qui exigerait un \\d).
+	{
+		char *q = emscripten_run_script_string(
+			"(function(){var v=new URLSearchParams(location.search).get('demo');return v?v:'';})()");
+		if (q && q[0]) {
+			const int32 wd = atoi(q);
+			if (wd >= 0) {
+				demoIx = wd;
+				logger.Infof("[main] Web: demo %d lue depuis l'URL (?demo=)\n", demoIx);
+			}
+		}
 	}
 #endif
 	// Alias : --demo=N -> index N-1 pour les demos numerotees (Demo4 -> 3, Demo5 -> 4).
@@ -1031,5 +1108,31 @@ int nkmain(const NkEntryState &state) {
 // (Equivalent du android_main genere par NkAndroid.h sur Android.)
 // =============================================================================
 #if defined(NKENTSEU_PLATFORM_HARMONYOS)
+// ── Exports NAPI applicatifs (hook faible de NkHarmonyOS.h) ──────────────────
+// nkSetResMgr(resourceManager) : appele par Index.ets (onLoad du XComponent).
+// Convertit le ResourceManager ArkTS en NativeResourceManager (librawfile.z.so)
+// et le donne au repli rawfile de NkFile -> les shaders packages dans
+// resources/rawfile/ du HAP deviennent lisibles (equivalent AAssetManager).
+static napi_value NkRenderdemoSetResMgr(napi_env env, napi_callback_info info) {
+	size_t argc = 1;
+	napi_value args[1] = {nullptr};
+	if (napi_get_cb_info(env, info, &argc, args, nullptr, nullptr) == napi_ok && argc >= 1 && args[0]) {
+		NativeResourceManager *mgr = OH_ResourceManager_InitNativeResourceManager(env, args[0]);
+		if (mgr) {
+			nkentseu::NkFile::SetHarmonyResourceManager(mgr);
+			logger.Infof("[main] HarmonyOS: NativeResourceManager initialise (%p)\n", (void *)mgr);
+		} else {
+			logger.Errorf("[main] HarmonyOS: OH_ResourceManager_InitNativeResourceManager a echoue\n");
+		}
+	}
+	return nullptr;
+}
+
+extern "C" void NkHarmonyOnNapiInitExtra(napi_env env, napi_value exports) {
+	napi_value fn = nullptr;
+	if (napi_create_function(env, "nkSetResMgr", NAPI_AUTO_LENGTH, NkRenderdemoSetResMgr, nullptr, &fn) == napi_ok)
+		napi_set_named_property(env, exports, "nkSetResMgr", fn);
+}
+
 NKENTSEU_HARMONY_DEFINE_MODULE(renderdemo)
 #endif
