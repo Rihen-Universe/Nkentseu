@@ -597,7 +597,7 @@ namespace nkentseu {
 				var id = UTF8ToString($0);
 				var canvas = null;
 				if (id && id.length > 0) {
-					canvas = document.getElementById(id.charAt(0) == = '#' ? id.substring(1) : id);
+					canvas = document.getElementById(id.charAt(0) === '#' ? id.substring(1) : id);
 				}
 				if (!canvas && Module['canvas']) {
 					canvas = Module['canvas'];

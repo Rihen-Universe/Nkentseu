@@ -16,6 +16,9 @@
 // =============================================================================
 #include "DemoCommon.h"
 #include <cstdlib> // getenv (diag opt-in NK_VK_VALIDATION)
+#if defined(NKENTSEU_PLATFORM_ANDROID)
+#include <sys/system_properties.h> // selection de la demo via debug.nk.demo
+#endif
 
 #include "NKPlatform/NkPlatformDetect.h"
 #include "NKWindow/NKMain.h"
@@ -379,6 +382,17 @@ int nkmain(const NkEntryState &state) {
 	// ── Parse args ───────────────────────────────────────────────────────────
 	NkGraphicsApi api = ParseBackend(state.GetArgs());
 	int demoIx = ParseDemo(state.GetArgs(), 0);
+#if defined(NKENTSEU_PLATFORM_ANDROID)
+	// Android : une NativeActivity ne recoit AUCUN argument de ligne de commande
+	// (NkEntryState n'a que le nom de paquet). On lit donc le numero de demo dans
+	// une propriete systeme, reglable sans reinstaller :
+	//     adb shell setprop debug.nk.demo 2
+	{
+		char demoProp[PROP_VALUE_MAX] = {0};
+		if (__system_property_get("debug.nk.demo", demoProp) > 0 && demoProp[0])
+			demoIx = atoi(demoProp);
+	}
+#endif
 	// Alias : --demo=N -> index N-1 pour les demos numerotees (Demo4 -> 3, Demo5 -> 4).
 	// Coherence avec le nom de fichier plutot que l'index zero-based.
 	if (demoIx == 4)
@@ -818,6 +832,16 @@ int nkmain(const NkEntryState &state) {
 		events.PollEvents();
 		if (!running)
 			break;
+		// Mobile : Android/HarmonyOS DETRUISENT puis RECREENT l'ANativeWindow
+		// (fin du splash system, relayout plein ecran, retour d'arriere-plan).
+		// Sans re-attachement, la surface EGL du device reste liee a la fenetre
+		// MORTE : chaque eglSwapBuffers retourne ok=1 mais les buffers partent dans
+		// une BufferQueue orpheline que le compositeur n'affiche jamais -> ECRAN
+		// NOIR sans la moindre erreur GL/EGL. RecreateSurface est un no-op si la
+		// fenetre native n'a pas change (cf. meme correctif dans Tutoriels3D/02).
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_PLATFORM_HARMONYOS)
+		device->RecreateSurface(window.GetSurfaceDesc());
+#endif
 		if (maxFrames && ctx.frame >= maxFrames) {
 			running = false;
 			break;
