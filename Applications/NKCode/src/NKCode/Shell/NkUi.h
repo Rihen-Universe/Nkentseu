@@ -12,6 +12,16 @@ namespace nkentseu {
 		using namespace nkentseu;
 		using namespace nkentseu::nkgui;
 
+		// ── Version de NKCode : SOURCE UNIQUE ────────────────────────────────────
+		// A modifier ICI et nulle part ailleurs (le footer du launcher et la fenetre
+		// « A propos » divergeaient : « 1.0.0 » d'un cote, « 0.1.0-beta » de l'autre).
+		// La version de JENGA n'est PAS ici : elle est detectee a l'execution
+		// (`jenga --version`, NkSettingsState::DetectSync) puisqu'elle depend de ce
+		// que l'utilisateur a installe.
+		inline const char *NkCodeVersion() {
+			return "0.1.0-beta";
+		}
+
 		// ── Palette (tokens Banani) ──────────────────────────────────────────────
 		// MUTABLE (pas constexpr) : le thème actif (Paramètres > Thème) réécrit ces
 		// valeurs à chaud via NkApplyTheme(). Tout le dessin lit NkCol::X chaque frame.
