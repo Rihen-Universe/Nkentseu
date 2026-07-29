@@ -404,7 +404,13 @@ void main() {
             // NB : mat3(mat4) INTERDIT en HLSL (X3014) -> on reconstruit colonne par colonne.
             mat3  vRot = mat3(uCam.view[0].xyz, uCam.view[1].xyz, uCam.view[2].xyz);
             vec3  vn   = normalize(vRot * geomN);                 // normale en espace vue
-            vec2  ball = clamp(vn.xy * 0.5 + 0.5, 0.0, 1.0);      // disque unite = la boule
+            // Rayon borne a 0.985 : au rasage (|vn.xy| -> 1) on echantillonnait le
+            // BORD exact du disque, la ou le filtrage melange boule et marge —
+            // l'autre moitie de la « ligne sombre » signalee. On reste a l'interieur.
+            vec2  vxy  = vn.xy;
+            float vl   = length(vxy);
+            if (vl > 0.985) vxy *= 0.985 / vl;
+            vec2  ball = clamp(vxy * 0.5 + 0.5, 0.0, 1.0);        // disque unite = la boule
 
             // Atlas 6x5 de tuiles de 128 px, 4 px de marge (voir NkMatcapLibrary).
             // La tuile est calculee ICI plutot que passee en uniformes : la geometrie
@@ -415,12 +421,12 @@ void main() {
             // un lisere de la mauvaise matcap sur la silhouette.
             // NB : pas de mod() ici — il se traduit mal vers HLSL (fmod a une semantique
             // differente sur les negatifs). La forme id - 6*floor(id/6) est portable.
-            float id    = clamp(uCam.matcapId, 0.0, 29.0);
+            float id    = clamp(uCam.matcapId, 0.0, 33.0);
             float cy    = floor(id / 6.0);
             float cx    = id - 6.0 * cy;
-            vec2  tile  = vec2(128.0 / 768.0, 128.0 / 640.0);
-            vec2  inner = vec2(120.0 / 768.0, 120.0 / 640.0);
-            vec2  org   = vec2(cx, cy) * tile + vec2(4.0 / 768.0, 4.0 / 640.0);
+            vec2  tile  = vec2(128.0 / 768.0, 128.0 / 768.0);
+            vec2  inner = vec2(120.0 / 768.0, 120.0 / 768.0);
+            vec2  org   = vec2(cx, cy) * tile + vec2(4.0 / 768.0, 4.0 / 768.0);
             // viewOpts.x = 1 : une matcap personnalisee a remplace l'atlas -> on
             // echantillonne la texture entiere, pas une tuile.
             vec2  muv   = (uCam.viewOpts.x > 0.5) ? ball : (org + ball * inner);

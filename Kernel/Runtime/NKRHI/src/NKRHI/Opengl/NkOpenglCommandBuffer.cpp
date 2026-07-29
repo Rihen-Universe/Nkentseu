@@ -133,7 +133,12 @@ namespace nkentseu {
 		uint32 stride = NkOpenglGetVertexStride(mDev, mBoundPipeline.id, binding);
 		if (stride == 0)
 			stride = 1;
-#if defined(NK_OPENGL_ES)
+#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+		// WebGL2 = ES 3.0 : glBindVertexBuffer (modele attrib-binding, ES 3.1)
+		// n'existe pas. Le vertex layout du pipeline courant est applique ICI,
+		// avec les pointeurs classiques (cf. NkOpenglWebBindVertexBuffer).
+		NkOpenglWebBindVertexBuffer(mDev, mBoundPipeline.id, binding, bufId, (GLintptr)off, (GLsizei)stride);
+#elif defined(NK_OPENGL_ES)
 		// Le format (composantes/type/relativeoffset) est fixé une fois dans le VAO
 		// à la création du pipeline (glVertexAttribFormat/IFormat + glVertexAttribBinding,
 		// cf. NkOpenGLDevice::CreateGraphicsPipeline) ; glBindVertexBuffer ici ne fournit

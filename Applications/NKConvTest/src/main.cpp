@@ -8,6 +8,7 @@
 #include "NKOptim/NkOptim.h"
 #include "NKAutograd/NkVar.h"
 #include "NKTensor/NkTensor.h"
+#include "NKLogger/NkLog.h"
 
 #include <cstdio>
 
@@ -117,6 +118,53 @@ int main() {
 	const bool ok = acc >= 0.95;
 	printf("\n  [ %s ] CNN : %d/%d = %.1f%% exactitude (perte finale %.5f)\n", ok ? "OK" : "KO", good, (int)N,
 		   acc * 100.0, loss);
-	printf("\n=== Résultat : %d OK, %d échec(s) ===\n", ok ? 1 : 0, ok ? 0 : 1);
-	return ok ? 0 : 1;
+
+	// =========================================================================
+	// NKNN : NkCNN prêt à l'emploi (NkSequential) — MÊME jeu de données (X/labels/
+	// Oh), architecture équivalente (Conv(1->4,3x3,pad1)->ReLU->MaxPool->Flatten->
+	// Dense) mais assemblée par la classe générique au lieu d'un forward écrit à la
+	// main. Résultat réel de convergence, indépendant du modèle manuel ci-dessus.
+	// =========================================================================
+	logger.Info("-- NKNN : NkCNN pret a l'emploi (NkSequential) --");
+	bool cnnOk = false;
+	{
+		nn::NkCNN cnn(NkVector<uint32>{1, 4}, /*kernel*/ 3, /*inputHW*/ WH, /*numClasses*/ NCLS, /*pool*/ true,
+					  555u);
+		NkVector<NkVar> cnnParams;
+		cnn.Parameters(cnnParams);
+		optim::NkAdam cnnAdam(cnnParams, 0.01f);
+
+		double cnnLoss = 0.0;
+		for (int e = 0; e <= 300; ++e) {
+			NkVar logitsCnn = cnn.Forward(xin);
+			NkVar lossCnn = nn::CrossEntropyLoss(logitsCnn, yoh);
+			lossCnn.Backward();
+			cnnAdam.Step();
+			cnnLoss = lossCnn.Value().GetItem(NkShape{(int64)0});
+		}
+
+		NkTensor logitsF = cnn.Forward(xin).Value().Contiguous();
+		const float *flp = logitsF.DataAs<float>();
+		int cnnGood = 0;
+		for (uint32 i = 0; i < N; ++i) {
+			int best = 0;
+			float bv = flp[i * NCLS];
+			for (uint32 c = 1; c < NCLS; ++c)
+				if (flp[i * NCLS + c] > bv) {
+					bv = flp[i * NCLS + c];
+					best = (int)c;
+				}
+			if (best == labels[i])
+				++cnnGood;
+		}
+		const double cnnAcc = (double)cnnGood / (double)N;
+		// 2 briques a parametres (Conv2D + Dense) -> 4 tenseurs (W+b chacune).
+		cnnOk = (cnnAcc >= 0.95) && (cnnParams.Size() == 4);
+		logger.Info("  [ {0} ] NkCNN({1} parametres) : {2}/{3} = {4:.4}% exactitude (perte finale {5:.6})",
+					cnnOk ? "OK" : "KO", cnnParams.Size(), cnnGood, (int)N, cnnAcc * 100.0, cnnLoss);
+	}
+
+	const int totalOk = (ok ? 1 : 0) + (cnnOk ? 1 : 0);
+	printf("\n=== Résultat : %d OK, %d échec(s) ===\n", totalOk, 2 - totalOk);
+	return (totalOk == 2) ? 0 : 1;
 }

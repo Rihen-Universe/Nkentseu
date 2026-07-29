@@ -42,6 +42,14 @@ namespace nkentseu {
 	/** @brief Pointeur vers la dernière fenêtre HarmonyOS créée */
 	static NkWindow *sHarmonyLastWindow = nullptr;
 
+	// ── Surface en attente (XComponent créé avant la NkWindow) ────────────────
+	// OnSurfaceCreated peut arriver AVANT que nkmain() n'ait créé la NkWindow
+	// (le XComponent est instancié par loadContent() côté ArkTS). La surface
+	// est alors mise en attente ici (protégée par sHarmonyWindowsMutex) et
+	// adoptée par la prochaine NkWindow::Create().
+	static OH_NativeXComponent *sPendingXComponent = nullptr;
+	static OHNativeWindow *sPendingNativeWindow = nullptr;
+
 	/**
 	 * @brief Retourne le vecteur global des fenêtres HarmonyOS
 	 * @return NkVector<NkWindow*>& Référence vers le vecteur statique des fenêtres
@@ -257,6 +265,22 @@ namespace nkentseu {
 	 * @param x Le composant XComponent
 	 * @param n La fenêtre native OHNativeWindow
 	 */
+	bool NkHarmonySurfaceReady() {
+		NkScopedSpinLock l(sHarmonyWindowsMutex);
+
+		if (sPendingNativeWindow) {
+			return true;
+		}
+
+		for (NkWindow *w : HarmonyWindows()) {
+			if (w && w->mData.mNativeWindow) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
 	void NkHarmonyOnSurfaceCreated(OH_NativeXComponent *x, OHNativeWindow *n) {
 		if (!x || !n) {
 			return;
@@ -265,7 +289,29 @@ namespace nkentseu {
 		NkWindow *win = _FindWindowByXComp(x);
 
 		if (!win) {
-			return;
+			// Aucune fenêtre ne correspond : soit l'id XComponent ne matche pas
+			// (mXComponentId jamais renseigné côté C++), soit nkmain() n'a pas
+			// encore créé la NkWindow. Deux replis, dans l'ordre :
+			//   1. adopter la première fenêtre sans surface (id vide) ;
+			//   2. mettre la surface en attente pour NkWindow::Create().
+			{
+				NkScopedSpinLock l(sHarmonyWindowsMutex);
+				for (NkWindow *w : HarmonyWindows()) {
+					if (w && !w->mData.mNativeWindow && w->mData.mXComponentId[0] == '\0') {
+						win = w;
+						break;
+					}
+				}
+				if (!win) {
+					sPendingXComponent = x;
+					sPendingNativeWindow = n;
+					logger.Infof("NkHarmonyOnSurfaceCreated: surface mise en attente (aucune NkWindow encore creee)");
+					return;
+				}
+			}
+			// Adopter l'id du XComponent pour que les callbacks suivants matchent.
+			uint64_t idLen = OH_XCOMPONENT_ID_LEN_MAX;
+			OH_NativeXComponent_GetXComponentId(x, win->mData.mXComponentId, &idLen);
 		}
 
 		win->mData.mXComponent = x;
@@ -578,8 +624,44 @@ namespace nkentseu {
 		mIsOpen = true;
 		NkHarmonyRegisterWindow(this);
 
+		// ── Adoption d'une surface XComponent en attente ─────────────────────
+		// Si le XComponent ArkTS a déjà créé sa surface (OnSurfaceCreated arrivé
+		// avant nous), on l'adopte immédiatement : fenêtre native, id, tailles.
+		bool adoptedPendingSurface = false;
+		{
+			OH_NativeXComponent *px = nullptr;
+			OHNativeWindow *pn = nullptr;
+			{
+				NkScopedSpinLock l(sHarmonyWindowsMutex);
+				px = sPendingXComponent;
+				pn = sPendingNativeWindow;
+				sPendingXComponent = nullptr;
+				sPendingNativeWindow = nullptr;
+			}
+			if (px && pn) {
+				mData.mXComponent = px;
+				mData.mNativeWindow = pn;
+
+				uint64_t idLen = OH_XCOMPONENT_ID_LEN_MAX;
+				OH_NativeXComponent_GetXComponentId(px, mData.mXComponentId, &idLen);
+
+				uint64_t sw = 0, sh = 0;
+				if (OH_NativeXComponent_GetXComponentSize(px, pn, &sw, &sh) == OH_NATIVEXCOMPONENT_RESULT_SUCCESS &&
+					sw > 0 && sh > 0) {
+					mData.mWidth = static_cast<uint32>(sw);
+					mData.mHeight = static_cast<uint32>(sh);
+				}
+				adoptedPendingSurface = true;
+			}
+		}
+
 		NkWindowCreateEvent ce(static_cast<uint32>(mData.mWidth), static_cast<uint32>(mData.mHeight));
 		NkWESystem::Events().Enqueue_Public(ce, mId);
+
+		if (adoptedPendingSurface) {
+			NkWindowSurfaceCreatedEvent sce(static_cast<uint32>(mData.mWidth), static_cast<uint32>(mData.mHeight));
+			NkWESystem::Events().Enqueue_Public(sce, mId);
+		}
 
 		if (config.visible) {
 			NkWindowShownEvent se;

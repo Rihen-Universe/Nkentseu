@@ -28,16 +28,11 @@ namespace nkentseu {
 		// coherent dans chaque langage).
 		// ─────────────────────────────────────────────────────────────────────────
 		static bool ReadFileToString(const char *path, NkString &out) {
-			FILE *f = fopen(path, "rb");
-			if (!f)
-				return false;
-			fseek(f, 0, SEEK_END);
-			long sz = ftell(f);
-			fseek(f, 0, SEEK_SET);
-			out.Resize((uint32)sz);
-			fread(out.Data(), 1, (size_t)sz, f);
-			fclose(f);
-			return true;
+			// NkFile plutot que fopen brut : sur Android les shaders packages dans
+			// assets/ de l'APK ne sont PAS visibles par fopen — NkFile::ReadAllText
+			// a le repli AAssetManager transparent (cf. NkFile.cpp).
+			out = NkFile::ReadAllText(path);
+			return !out.Empty();
 		}
 
 		static void WriteStringToFile(const char *path, const NkString &s) {
@@ -157,16 +152,11 @@ namespace nkentseu {
 		// conservee ici (sera re-extraite par l'UI editeur de materiaux a la
 		// demande, sur demande explicite via NkShaderAnnotationParser::Parse).
 		NkString NkShaderLibrary::ReadFile(const NkString &path) {
-			FILE *f = fopen(path.CStr(), "rb");
-			if (!f)
+			// NkFile plutot que fopen brut : repli AAssetManager sur Android (les
+			// shaders sont dans assets/ de l'APK, invisibles pour fopen).
+			NkString raw = NkFile::ReadAllText(path.CStr());
+			if (raw.Empty())
 				return "";
-			fseek(f, 0, SEEK_END);
-			long sz = ftell(f);
-			fseek(f, 0, SEEK_SET);
-			NkString raw;
-			raw.Resize((uint32)sz);
-			fread(raw.Data(), 1, (size_t)sz, f);
-			fclose(f);
 			// M.5 Material Functions : resoud les #include "Include/foo.glsli"
 			// AVANT le strip d'annotations (les .glsli ne sont pas censes contenir
 			// d'annotations, mais on prefere les stripper sur le tout au cas ou).
@@ -681,16 +671,10 @@ namespace nkentseu {
 				NkString nkFS = basePath + "NkSL/" + matLower + ".frag.nksl";
 				if (NkFile::Exists(nkVS.CStr()) && NkFile::Exists(nkFS.CStr())) {
 					auto readRaw = [](const NkString &p) -> NkString {
-						FILE *f = fopen(p.CStr(), "rb");
-						if (!f)
+						// NkFile : repli AAssetManager sur Android (cf. ReadFile).
+						NkString s = NkFile::ReadAllText(p.CStr());
+						if (s.Empty())
 							return NkString("");
-						fseek(f, 0, SEEK_END);
-						long sz = ftell(f);
-						fseek(f, 0, SEEK_SET);
-						NkString s;
-						s.Resize((uint32)sz);
-						fread(s.Data(), 1, (size_t)sz, f);
-						fclose(f);
 						// Résout les #include "Include/*.glsli" (BRDF/shadow/voxel partagés)
 						// SANS stripper les annotations @ : le compilateur NkSL en a besoin.
 						return NkShaderIncludeResolver::Resolve(s, p);
