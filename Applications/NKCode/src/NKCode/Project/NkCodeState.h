@@ -3853,6 +3853,12 @@ namespace nkentseu {
 				// affiche le picker, et repose le dossier choisi ici. ──
 				bool reqPickFolder = false;
 				NkString pickedFolder;
+				// Demande de rafraichissement de l'arborescence de l'explorateur : posee
+				// a chaque fin de commande de build (build/rebuild/clean/test) puisque
+				// Jenga peut creer/supprimer des fichiers/dossiers HORS de l'IDE (le
+				// process externe ne notifie rien) ; consommee par NkExplorer::OnUI.
+				// cf. issue beta #2 (arborescence pas a jour apres `jenga build`).
+				bool reqExplorerRefresh = false;
 				bool reqSearch = false;		// Entree dans la barre recherche toolbar -> ouvrir le panneau resultats
 				char tbSearch[256] = {};	// texte du champ « Recherche rapide » (toolbar, editable en place)
 				bool tbSearchFocus = false; // le champ recherche toolbar a le focus (saisie)
@@ -4964,6 +4970,10 @@ namespace nkentseu {
 					// .nkcode/last_build_fail.log) pour consultation et pour les agents IA.
 					if (BuildSlotDone() && !mBuildDoneHandled) {
 						mBuildDoneHandled = true;
+						// Jenga (process EXTERNE) peut avoir cree/supprime des fichiers/dossiers
+						// (Build/, .jenga caches...) sans que l'IDE en soit notifie -> demande a
+						// l'explorateur de re-scanner le disque a la prochaine frame.
+						reqExplorerRefresh = true;
 						Journal(NkPrintf("commande terminee (code %d)%s : %s", BuildSlotExit(),
 										 BuildSlotExit() != 0 ? " - ECHEC" : "", mCmdCur.CStr()));
 						if (BuildSlotExit() != 0 && !mCmdLog.Empty()) {
@@ -5065,6 +5075,17 @@ namespace nkentseu {
 				void LoadProjects() {
 					if (mInfoStarted && mInfoWsIdx == wsIdx)
 						return;
+					// Dossier SANS workspace Jenga (mode edition simple, cf. LoadFolder) :
+					// aucun `.jenga` a interroger -> etat "termine, 0 projet" directement,
+					// sans jamais lancer `jenga info` (qui echouerait de toute facon).
+					if (!HasWorkspace()) {
+						mInfoStarted = true;
+						mInfoParsed = true;
+						mInfoWsIdx = wsIdx;
+						mInfoLines.Clear();
+						projects.Clear();
+						return;
+					}
 					mInfoStarted = true;
 					mInfoParsed = false;
 					mInfoWsIdx = wsIdx;
@@ -5357,32 +5378,33 @@ namespace nkentseu {
 				}
 
 				// Charge `folder` comme racine de travail : re-scan des workspaces du dossier.
-				// REFUSE (renvoie false, racine inchangee) si aucun workspace (.jenga contenant
-				// "with workspace") n'y est trouve — qu'il ait ete cree par l'UI ou non.
+				// N'EXIGE PLUS de workspace Jenga : un dossier SANS `.jenga` s'ouvre quand
+				// meme (mode edition simple, a la VSCode — explorateur/editeur/terminal/git
+				// disponibles, build/run/etc. restent grises via les gardes HasWorkspace()
+				// deja presentes partout dans les menus). Ne renvoie false que si `folder`
+				// lui-meme n'existe pas. cf. issues beta #3/#11 (« impossible d'ouvrir un
+				// dossier qui n'est pas un workspace Jenga »).
 				bool LoadFolder(const NkPath &folder) {
-					const NkPath saved = root;
+					if (!NkDirectory::Exists(folder.ToString().CStr()))
+						return false;
 					root = folder;
 					wsIdx = 0;
 					mWsScanned = false;
 					ScanWorkspaces();
-					if (!HasWorkspace()) { // aucun workspace -> refus
-						root = saved;
-						mWsScanned = false;
-						ScanWorkspaces();
-						return false;
-					}
 					mLastJengaMtime = 0; // re-amorce le watch sur la nouvelle racine
 					files.Clear();
-					active = -1;			   // onglets repartent a zero
-					RequestReload();		   // recharge la liste des projets
-					AddRecent(wsPaths[wsIdx]); // memorise dans les recents
+					active = -1;	  // onglets repartent a zero
+					RequestReload(); // recharge la liste des projets (no-op silencieux si HasWorkspace()==false)
+					// Recents : le chemin du .jenga si workspace, sinon le dossier lui-meme.
+					AddRecent(HasWorkspace() ? wsPaths[wsIdx] : folder.ToString());
 					// Restaure la SESSION de ce workspace (onglets + contenu non sauvegardé). On N'OUVRE PAS
 					// le .jenga d'office : il ne réapparaît que s'il était un onglet de la session précédente.
 					LoadSession();
 					mSessionLoaded = true;
 					mSessionTimer = 0.f;
 					mSessionSig = SessionSig();
-					status = NkString("Workspace charge : ") + folder.ToString().CStr();
+					status = HasWorkspace() ? NkString("Workspace charge : ") + folder.ToString().CStr()
+											 : NkString("Dossier ouvert (sans workspace Jenga) : ") + folder.ToString().CStr();
 					return true;
 				}
 

@@ -53,6 +53,12 @@ namespace nkentseu {
 						AddRootPath(mS->pickedFolder);
 						mS->pickedFolder.Clear();
 					}
+					// Fin de build/rebuild/clean/test : Jenga a pu creer/supprimer des
+					// fichiers HORS de l'IDE -> re-scan (cf. issue beta #2).
+					if (mS->reqExplorerRefresh) {
+						mS->reqExplorerRefresh = false;
+						mRowsDirty = true;
+					}
 					if (mRowsDirty)
 						BuildRows();
 					// L'EN-TÊTE est FIXE (il ne défile pas) : l'espace est réservé dans le
@@ -401,11 +407,13 @@ namespace nkentseu {
 					r.open = mRootOpen;
 					r.root = true;
 					mRows.PushBack(r);
-					if (mRootOpen) {
-						if (mEditParent.Length() > 0 && SameStr(mEditParent.CStr(), mRootStr.CStr()))
-							PushEditRow(1);
+					// NOTE : pas de PushEditRow explicite ici pour la racine principale —
+					// AppendDir(mS->root, 1) ci-dessous fait DEJA cette verification en
+					// interne (meme chemin) ; la dupliquer ici créait DEUX lignes
+					// virtuelles identiques en édition (bug de "dédoublement" a la
+					// création d'un nouveau fichier a la racine, cf. issue #4).
+					if (mRootOpen)
 						AppendDir(mS->root, 1);
-					}
 					// ── RACINES SECONDAIRES (multi-racines, façon VSCode) ──
 					for (usize e = 0; e < mExtraRoots.Size(); ++e) {
 						const NkString &er = mExtraRoots[e];

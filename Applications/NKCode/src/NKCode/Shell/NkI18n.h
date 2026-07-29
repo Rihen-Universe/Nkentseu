@@ -781,6 +781,23 @@ namespace nkentseu {
 				 {"Aucune réponse (réseau/curl ?).", "No response (network/curl?).", "Sin respuesta (¿red/curl?).",
 				  "Sem resposta (rede/curl?).", "Keine Antwort (Netzwerk/curl?).", "Nessuna risposta (rete/curl?).",
 				  "Нет ответа (сеть/curl?).", "Aucune réponse (réseau/curl ?)."}},
+				{"ai.errollama",
+				 {"Ollama ne répond pas sur localhost:11434. Vérifiez qu'il est installé et lancé "
+				  "(commande : ollama serve), et que le modèle est récupéré (ollama pull llama3.2).",
+				  "Ollama is not responding on localhost:11434. Check that it is installed and running "
+				  "(command: ollama serve), and that the model is pulled (ollama pull llama3.2).",
+				  "Ollama no responde en localhost:11434. Verifique que esté instalado y en ejecución "
+				  "(comando: ollama serve), y que el modelo esté descargado (ollama pull llama3.2).",
+				  "Ollama não responde em localhost:11434. Verifique se está instalado e em execução "
+				  "(comando: ollama serve), e se o modelo foi baixado (ollama pull llama3.2).",
+				  "Ollama antwortet nicht auf localhost:11434. Prüfen Sie, ob es installiert und gestartet "
+				  "ist (Befehl: ollama serve) und das Modell geladen wurde (ollama pull llama3.2).",
+				  "Ollama non risponde su localhost:11434. Verifica che sia installato e avviato "
+				  "(comando: ollama serve) e che il modello sia scaricato (ollama pull llama3.2).",
+				  "Ollama не отвечает на localhost:11434. Проверьте, что он установлен и запущен "
+				  "(команда: ollama serve) и модель загружена (ollama pull llama3.2).",
+				  "Ollama ne répond pas sur localhost:11434. Vérifiez qu'il est installé et lancé "
+				  "(commande : ollama serve), et que le modèle est récupéré (ollama pull llama3.2)."}},
 				{"ai.errapi",
 				 {"Erreur API :", "API error:", "Error de API:", "Erro da API:", "API-Fehler:", "Errore API:",
 				  "Ошибка API:", "Erreur API :"}},

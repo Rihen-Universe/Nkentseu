@@ -21,6 +21,8 @@
 #include "NKCode/Shell/Dialogs.h"
 #include "NKContainers/String/NkFormat.h" // NkPrintf (formatage maison, ex-<cstdio>)
 #include "NKPlatform/NkEnv.h"			  // env::GetEnvVar (variables d'environnement maison, ex-<cstdlib>)
+#include "NKThreading/NkThread.h"		  // detection toolchains SUR THREAD DE FOND (l'UI ne gele pas)
+#include "NKCore/NkAtomic.h"			  // NkAtomicBool
 #include <cstdio> // _popen/fgetc UNIQUEMENT (pipe process, cf. wrapper désigné NkProcess.h)
 
 namespace nkentseu {
@@ -312,8 +314,16 @@ namespace nkentseu {
 						bool found = false;
 				};
 
-				NkVector<TcDet> tcDet; // rempli par DetectToolchains()
+				NkVector<TcDet> tcDet; // rempli par PollTcDetect() (thread UI uniquement)
 				bool tcDetDone = false;
+				// ── Detection ASYNCHRONE (thread de fond) : la version synchrone geait
+				// l'appli plusieurs secondes (voire dizaines de secondes si wsl.exe est
+				// present -> demarrage a froid d'une VM WSL2) a chaque ouverture de
+				// l'etape 3, Windows affichant "(Not Responding)" — cf. issue beta #7.
+				// Meme idiome que NkSettingsState::StartDetectAsync (NkSettings.h). ──
+				threading::NkThread tcThread;
+				NkAtomicBool tcBusy, tcAsyncDone;
+				NkVector<TcDet> tcDetStaging; // ecrit UNIQUEMENT par le thread de fond
 				bool tcSel[16] = {}; // toolchains coches (init = detecte)
 				const char *tcNamePtrs[16] = {};
 				int32 tcNameN = 0; // noms stables pour les combos
@@ -480,8 +490,12 @@ namespace nkentseu {
 					return false;
 				}
 
-				void DetectToolchains() {
-					tcDet = NkVector<TcDet>();
+				// Detection REELLE (PATH + env + WSL2, plusieurs _popen potentiellement
+				// lents — WSL2 en particulier peut demarrer une VM a froid). Ecrit dans
+				// `out`, jamais dans `this->tcDet` directement : appelable depuis le
+				// thread de fond (StartTcDetectAsync) SANS toucher l'etat UI.
+				void DetectToolchainsInto(NkVector<TcDet> &out) {
+					out = NkVector<TcDet>();
 					auto add = [&](const char *nm, const char *ver, const char *tgt, const NkString &pth, bool found) {
 						TcDet d;
 						d.name = nm;
@@ -489,7 +503,7 @@ namespace nkentseu {
 						d.target = tgt;
 						d.path = found ? pth : NkString("introuvable");
 						d.found = found;
-						tcDet.PushBack(d);
+						out.PushBack(d);
 					};
 #if defined(_WIN32)
 					const char *hostOs = "Windows x64";
@@ -654,10 +668,39 @@ namespace nkentseu {
 						}
 					}
 #endif
+				}
+
+				// Lance la detection sur un THREAD DE FOND (instance jetable) -> l'UI ne
+				// gele plus jamais, meme quand wsl.exe doit demarrer une VM a froid.
+				void StartTcDetectAsync() {
+					if (tcBusy.Load())
+						return;
+					if (tcThread.Joinable())
+						tcThread.Join();
+					tcAsyncDone.Store(false);
+					tcBusy.Store(true);
+					tcThread = threading::NkThread([this](void *) {
+						NkVector<TcDet> local;
+						DetectToolchainsInto(local);
+						tcDetStaging = local; // le thread de fond est seul a l'ecrire
+						tcAsyncDone.Store(true);
+					});
+				}
+
+				// A appeler CHAQUE FRAME (thread UI) tant que !tcDetDone : publie le
+				// resultat des que le thread de fond a fini, sans jamais bloquer.
+				void PollTcDetect() {
+					if (!tcAsyncDone.Load())
+						return;
+					if (tcThread.Joinable())
+						tcThread.Join();
+					tcDet = tcDetStaging;
 					for (int32 i = 0; i < (int32)tcDet.Size() && i < 16; ++i)
 						tcSel[i] = tcDet[i].found;
 					RefreshTcPtrs();
 					tcDetDone = true;
+					tcAsyncDone.Store(false);
+					tcBusy.Store(false);
 				}
 
 				// Recalcule les pointeurs de noms (combos/aperçu) depuis tcDet : a appeler a chaque frame
@@ -3283,9 +3326,11 @@ namespace nkentseu {
 		inline float32 NkWizStep3(const NkUi &u, const NkRect &body, NkNewWsState *w, float32 dt, bool blockBg,
 								  const NkIcons &ic) {
 			(void)dt;
-			if (!w->tcDetDone)
-				w->DetectToolchains(); // detection unique (PATH + env + WSL2)
-			else
+			if (!w->tcDetDone) {
+				w->PollTcDetect(); // publie si le thread de fond a fini cette frame
+				if (!w->tcDetDone && !w->tcBusy.Load())
+					w->StartTcDetectAsync(); // detection unique (PATH + env + WSL2), EN ARRIERE-PLAN
+			} else
 				w->RefreshTcPtrs(); // pointeurs toujours frais (anti-crash)
 			const float32 padL = u.s(28);
 			const float32 rightW = (body.w > u.s(760)) ? u.s(280) : u.s(240);
@@ -3303,8 +3348,8 @@ namespace nkentseu {
 
 			// ===== COLONNE GAUCHE =====
 			float32 y = body.y + u.s(20);
-			// DETECTION AUTOMATIQUE
-			NkWizLabel(u, cx, y, NkT("nws.autodetect"));
+			// DETECTION AUTOMATIQUE (suffixe "en cours..." tant que le thread de fond tourne)
+			NkWizLabel(u, cx, y, w->tcBusy.Load() ? "Detection automatique - analyse en cours..." : NkT("nws.autodetect"));
 			y += u.s(22);
 			{
 				const NkRect box = {cx, y, cw, u.s(48)};

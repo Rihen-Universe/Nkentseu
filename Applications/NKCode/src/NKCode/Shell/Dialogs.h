@@ -189,6 +189,14 @@ namespace nkentseu {
 				// Purpose APPLICATIF : « exporter le workspace » — choisir le dossier de
 				// DESTINATION du zip ; la confirmation lance tar dans le terminal integre.
 				static constexpr int32 PK_ExportZip = 201;
+				// Purpose APPLICATIF : « cloner un exemple du launcher » — choisir le
+				// dossier PARENT de destination ; la confirmation lance
+				// `jenga examples copy <id> <destination>` (async) puis ouvre le clone.
+				static constexpr int32 PK_ExampleCopy = 202;
+				NkString exCopyId;			  // id de l'exemple choisi (ex. "01_hello_console")
+				NkProcess exCopyProc;		  // copie async (jenga examples copy)
+				bool exCopyBusy = false;
+				NkString exCopyDestFull;	  // <destination>/<id> — ouvert automatiquement une fois copie
 
 				void OpenPicker(int32 purpose, const char *startDir, char *buf = nullptr, int32 cap = 0,
 								const char *confine = nullptr, const char *fileExt = nullptr) {
@@ -226,6 +234,8 @@ namespace nkentseu {
 						return "Creer le dossier";
 					if (pickerFor == PK_ExportZip)
 						return "Exporter ici";
+					if (pickerFor == PK_ExampleCopy)
+						return "Cloner ici";
 					return NkFilePickerState::PickerConfirmLabel();
 				}
 				void PickerClearExtraFocus() override { scafFocus = 0; }
@@ -234,6 +244,8 @@ namespace nkentseu {
 						return "Creer un dossier - choisir l'emplacement";
 					if (pickerFor == PK_ExportZip)
 						return "Exporter le workspace - choisir la destination";
+					if (pickerFor == PK_ExampleCopy)
+						return "Cloner l'exemple - choisir l'emplacement";
 					return NkFilePickerState::PickerTitle();
 				}
 
@@ -343,8 +355,47 @@ namespace nkentseu {
 						st->termOpenAt = st->root.ToString();
 						if (shell)
 							shell->FocusPanel("TERMINAL");
+					} else if (purpose == PK_ExampleCopy && !exCopyId.Empty() && !exCopyBusy) {
+						// « Cloner un exemple » (launcher) : copie ASYNC via
+						// `jenga examples copy <id> <destination>` ; a la fin (PollExampleCopy),
+						// le clone est ouvert comme workspace.
+						exCopyDestFull = chosen;
+						exCopyDestFull += "/";
+						exCopyDestFull += exCopyId;
+						NkString cmd("jenga examples copy ");
+						cmd += exCopyId;
+						cmd += " \"";
+						cmd += chosen;
+						cmd += "\"";
+						if (exCopyProc.Start(cmd)) {
+							exCopyBusy = true;
+							if (st)
+								st->status = NkString("Clonage de l'exemple ") + exCopyId.CStr() + "...";
+						} else if (st)
+							st->status = NkString("(clonage deja en cours)");
 					}
 					// PK_Buf / PK_File : le buffer cible est deja rempli par le moteur.
+				}
+
+				// A appeler chaque frame (launcher ET editeur) : draine la copie d'exemple
+				// en cours ; quand elle finit, ouvre le clone comme workspace.
+				void PollExampleCopy() {
+					if (!exCopyBusy)
+						return;
+					NkVector<NkString> sink;
+					exCopyProc.Drain(sink); // sortie ignoree (statut via exit code)
+					if (!exCopyProc.Done())
+						return;
+					exCopyBusy = false;
+					const NkString id = exCopyId;
+					exCopyId.Clear();
+					if (exCopyProc.ExitCode() == 0 && NkDirectory::Exists(exCopyDestFull.CStr())) {
+						if (st)
+							st->status = NkString("Exemple clone : ") + exCopyDestFull.CStr();
+						DoLoad(NkPath(exCopyDestFull.CStr())); // ouvre le clone (ecran de chargement)
+					} else if (st)
+						st->status = NkString("Echec du clonage de ") + id.CStr() +
+									 " (verifier `jenga examples copy` dans un terminal)";
 				}
 
 				// ── Génération de squelette (scaffolding) selon l'extension ──────────────────
@@ -887,6 +938,7 @@ namespace nkentseu {
 		inline void DrawAppFlags(NkEditorFrameContext &ec, NkCodeDialogs *d) {
 			if (!d)
 				return;
+			d->PollExampleCopy(); // clonage d'exemple en cours (launcher OU editeur)
 			auto &ctx = ec.Ui();
 			const bool appWin = d->showPrefs || d->showNewWs || d->showHelp != 0;
 			ctx.appModal = (d->mode != NkCodeDialogs::None) || d->pickerOpen || d->tcOpen || appWin;

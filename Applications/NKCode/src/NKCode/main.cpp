@@ -197,6 +197,7 @@ int nkmain(const NkEntryState &state) {
 	shell->RegisterCommand("Projet: Construire (jenga build)", &nkcode::CmdBuild, &g_state, "Ctrl+B");
 	shell->RegisterCommand("Projet: Demarrer (jenga run)", &nkcode::CmdRun, &g_state, "Ctrl+R");
 	shell->RegisterCommand("Fichier: Enregistrer", &nkcode::CmdSave, &g_state, "Ctrl+S");
+	shell->RegisterCommand("Fichier: Enregistrer sous...", &nkcode::CmdSaveAs, &g_dialogs, "Ctrl+Shift+S");
 	shell->RegisterCommand("Edition: Formater le document", &nkcode::CmdFormat, &g_state,
 						   "Ctrl+Shift+I"); // Ctrl+L libéré pour « sélectionner la ligne » (éditeur)
 	shell->RegisterCommand("Disposition: Reinitialiser", &nkcode::CmdResetLayout, shell.Get());

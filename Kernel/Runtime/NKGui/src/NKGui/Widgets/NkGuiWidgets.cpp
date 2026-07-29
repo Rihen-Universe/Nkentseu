@@ -3009,8 +3009,10 @@ namespace nkentseu {
 						if (node.vertical) {
 							// Split HORIZONTAL (panneaux latéraux) : largeur MINIMALE en pixels pour que
 							// les deux côtés restent utilisables (combos/onglets lisibles). Sinon un
-							// panneau latéral pouvait être réduit à ~80 px.
-							const float32 minPx = 380.f;
+							// panneau latéral pouvait être réduit à ~80 px. 380px était TROP genereux
+							// (empêchait de rétrécir l'Explorateur/l'IA à une largeur raisonnable,
+							// retour Rihen) — 220px suffit à garder les combos/onglets lisibles.
+							const float32 minPx = 220.f;
 							float32 minR = node.rect.w > 1.f ? minPx / node.rect.w : 0.08f;
 							if (minR > 0.45f)
 								minR = 0.45f; // garde-fou petits écrans
