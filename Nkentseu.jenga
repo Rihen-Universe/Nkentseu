@@ -1106,6 +1106,10 @@ with workspace("Nkentseu", location="."):
 
         pass
 
+    with include("Applications/NKEditMeshHarness/NKEditMeshHarness.jenga"):
+
+        pass
+
     with include("Applications/NkAnimPhysTest/NkAnimPhysTest.jenga"):
 
         pass
