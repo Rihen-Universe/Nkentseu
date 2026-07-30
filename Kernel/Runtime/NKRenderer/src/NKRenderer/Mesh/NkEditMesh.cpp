@@ -560,7 +560,11 @@ namespace nkentseu {
 					return NK_EM_INVALID; // bord du maillage -> Blender s'arrete
 				const uint16 val = adj.valence[v];
 				if (val == 4) {
-					const NkEmId tw = hedges[hn].twin; // w -> v, face voisine
+					// RadialTwin et non `twin` : sur une arete portee par plus de deux
+					// faces, `twin` en designe une ARBITRAIREMENT et la boucle basculait
+					// sur une branche que personne n'avait choisie, sans le dire. On
+					// s'arrete, comme Blender.
+					const NkEmId tw = RadialTwin(hn); // w -> v, face voisine
 					if (tw == NK_EM_INVALID)
 						return NK_EM_INVALID;
 					return hedges[tw].next; // v -> x : l'arete OPPOSEE a celle d'ou l'on vient
@@ -590,8 +594,9 @@ namespace nkentseu {
 			if (closed)
 				return;
 			// Sens ARRIERE (boucle ouverte : grille, bord de maillage) - on repart du jumeau,
-			// qui pointe dans l'autre sens.
-			NkEmId h = hedges[h0].twin;
+			// qui pointe dans l'autre sens. Meme regle : pas de jumeau unique, pas de
+			// sens arriere.
+			NkEmId h = RadialTwin(h0);
 			uint32 guard = 0;
 			while (h != NK_EM_INVALID && ++guard < 100000u) {
 				h = step(h);
@@ -1611,8 +1616,16 @@ namespace nkentseu {
 			auto cn = [&](uint32 v) { return (v < (uint32)canon.Size()) ? canon[v] : v; };
 
 			edges.Clear();
+			radialPool.Clear();
+			diskPool.Clear();
+			for (uint32 h = 0; h < (uint32)hedges.Size(); ++h)
+				hedges[h].edge = NK_EM_INVALID;
 			NkHashMap<uint64, uint32> seen;
 			NkVector<NkEmId> loop;
+			// Demi-aretes rattachees a chaque arete, collectees AVANT d'etre aplaties
+			// dans radialPool : on ne connait le nombre d'incidences qu'a la fin du
+			// balayage, et une tranche contigue exige de le savoir.
+			NkVector<NkVector<NkEmId>> radial;
 			for (uint32 f = 0; f < (uint32)faces.Size(); ++f) {
 				if (!faces[f].alive)
 					continue;
@@ -1630,9 +1643,11 @@ namespace nkentseu {
 						const uint64 lo = o < d ? o : d, hi = o < d ? d : o;
 						const uint64 key = (lo << 32) | hi;
 						uint32 *ex = seen.Find(key);
+						uint32 ei;
 						if (ex) {
-							if (edges[*ex].faceCount < 255)
-								edges[*ex].faceCount++;
+							ei = *ex;
+							if (edges[ei].faceCount < 255)
+								edges[ei].faceCount++;
 						} else {
 							Edge e{};
 							e.v0 = (NkEmId)lo;
@@ -1640,9 +1655,17 @@ namespace nkentseu {
 							e.hedge = hh;
 							e.faceCount = 1;
 							e.alive = 1;
-							seen.InsertOrAssign(key, (uint32)edges.Size());
+							ei = (uint32)edges.Size();
+							seen.InsertOrAssign(key, ei);
 							edges.PushBack(e);
+							radial.PushBack(NkVector<NkEmId>{});
 						}
+						// LIEN DEMI-ARETE -> ARETE et CYCLE RADIAL, poses ici parce que
+						// c'est le seul endroit qui voit chaque incidence exactement une
+						// fois. Les recalculer ailleurs reviendrait a re-deduire ce que ce
+						// balayage vient d'etablir.
+						hedges[hh].edge = (NkEmId)ei;
+						radial[ei].PushBack(hh);
 					}
 					hh = hedges[hh].next;
 				} while (hh != start && hh != NK_EM_INVALID && ++guard < 100000u);
@@ -1664,7 +1687,167 @@ namespace nkentseu {
 				e.faceCount = 0;
 				e.alive = 1;
 				edges.PushBack(e);
+				radial.PushBack(NkVector<NkEmId>{}); // filaire : cycle radial VIDE
 			}
+
+			// ── APLATISSEMENT DU CYCLE RADIAL ───────────────────────────────────
+			// `radialCount` fait desormais autorite sur le nombre de faces incidentes.
+			// `faceCount` est conserve (l'API et la serialisation l'utilisent) mais
+			// realigne dessus : deux compteurs qui divergent finissent toujours par se
+			// contredire, et c'est alors le mauvais qui est lu.
+			for (uint32 i = 0; i < (uint32)edges.Size(); ++i) {
+				edges[i].radialStart = (uint32)radialPool.Size();
+				const uint32 k = (i < (uint32)radial.Size()) ? (uint32)radial[i].Size() : 0u;
+				edges[i].radialCount = k;
+				for (uint32 j = 0; j < k; ++j)
+					radialPool.PushBack(radial[i][j]);
+				edges[i].faceCount = (uint8)(k > 255u ? 255u : k);
+			}
+
+			// ── CYCLE DISQUE ────────────────────────────────────────────────────
+			// Renseigne sur le sommet REPRESENTANT de l'identite soudee ; les copies
+			// coincidentes partagent la meme tranche. Sinon, sur une primitive qui
+			// duplique ses sommets par face, chaque copie ne verrait qu'une partie de
+			// ses aretes — exactement le piege deja rencontre sur le comptage d'aretes.
+			{
+				const uint32 nv = (uint32)verts.Size();
+				NkVector<uint32> cnt;
+				cnt.Resize(nv);
+				for (uint32 i = 0; i < nv; ++i)
+					cnt[i] = 0;
+				for (uint32 i = 0; i < (uint32)edges.Size(); ++i) {
+					if (!edges[i].alive)
+						continue;
+					if (edges[i].v0 < nv)
+						cnt[edges[i].v0]++;
+					if (edges[i].v1 < nv)
+						cnt[edges[i].v1]++;
+				}
+				NkVector<uint32> start;
+				start.Resize(nv);
+				uint32 acc = 0;
+				for (uint32 i = 0; i < nv; ++i) {
+					start[i] = acc;
+					acc += cnt[i];
+				}
+				diskPool.Resize(acc);
+				NkVector<uint32> fill;
+				fill.Resize(nv);
+				for (uint32 i = 0; i < nv; ++i)
+					fill[i] = start[i];
+				for (uint32 i = 0; i < (uint32)edges.Size(); ++i) {
+					if (!edges[i].alive)
+						continue;
+					if (edges[i].v0 < nv)
+						diskPool[fill[edges[i].v0]++] = (NkEmId)i;
+					if (edges[i].v1 < nv)
+						diskPool[fill[edges[i].v1]++] = (NkEmId)i;
+				}
+				for (uint32 i = 0; i < nv; ++i) {
+					const uint32 r = (i < (uint32)canon.Size()) ? canon[i] : i;
+					verts[i].diskStart = start[r < nv ? r : i];
+					verts[i].diskCount = cnt[r < nv ? r : i];
+				}
+			}
+		}
+
+		// ── ACCES AUX DEUX CYCLES ───────────────────────────────────────────────
+		NkEmId NkEditMesh::EdgeBetween(uint32 a, uint32 b) const {
+			NkVector<uint32> canon;
+			BuildVertexMerge(canon);
+			const uint32 nc = (uint32)canon.Size();
+			const uint32 ca = (a < nc) ? canon[a] : a, cb = (b < nc) ? canon[b] : b;
+			if (ca == cb)
+				return NK_EM_INVALID;
+			const uint32 lo = ca < cb ? ca : cb, hi = ca < cb ? cb : ca;
+			// Balayage du DISQUE du sommet plutot que de toutes les aretes : c'est
+			// precisement ce que le cycle disque apporte.
+			if (lo < (uint32)verts.Size()) {
+				const uint32 s0 = verts[lo].diskStart, n0 = verts[lo].diskCount;
+				for (uint32 k = 0; k < n0; ++k) {
+					const NkEmId e = diskPool[s0 + k];
+					if (e < (NkEmId)edges.Size() && edges[e].alive && edges[e].v0 == lo && edges[e].v1 == hi)
+						return e;
+				}
+			}
+			return NK_EM_INVALID;
+		}
+
+		uint32 NkEditMesh::EdgeHedges(NkEmId e, NkVector<NkEmId> &out) const {
+			out.Clear();
+			if (e >= (NkEmId)edges.Size() || !edges[e].alive)
+				return 0;
+			const uint32 s0 = edges[e].radialStart, n0 = edges[e].radialCount;
+			for (uint32 k = 0; k < n0; ++k)
+				if (s0 + k < (uint32)radialPool.Size())
+					out.PushBack(radialPool[s0 + k]);
+			return (uint32)out.Size();
+		}
+
+		uint32 NkEditMesh::EdgeFaces(NkEmId e, NkVector<NkEmId> &out) const {
+			out.Clear();
+			if (e >= (NkEmId)edges.Size() || !edges[e].alive)
+				return 0;
+			const uint32 s0 = edges[e].radialStart, n0 = edges[e].radialCount;
+			for (uint32 k = 0; k < n0; ++k) {
+				if (s0 + k >= (uint32)radialPool.Size())
+					break;
+				const NkEmId h = radialPool[s0 + k];
+				if (h >= (NkEmId)hedges.Size())
+					continue;
+				const NkEmId f = hedges[h].face;
+				if (f == NK_EM_INVALID)
+					continue;
+				bool dup = false;
+				for (uint32 j = 0; j < (uint32)out.Size(); ++j)
+					if (out[j] == f) {
+						dup = true;
+						break;
+					}
+				if (!dup)
+					out.PushBack(f);
+			}
+			return (uint32)out.Size();
+		}
+
+		NkEmId NkEditMesh::EdgeOtherFace(NkEmId e, NkEmId f) const {
+			// REFUS EXPLICITE sur une arete non manifold : « la face d'en face » n'y
+			// existe pas. En retourner une au hasard donnerait un parcours qui semble
+			// marcher et qui suit une branche arbitraire — le defaut precis que le
+			// cycle radial existe pour rendre visible.
+			if (e >= (NkEmId)edges.Size() || !edges[e].alive || edges[e].radialCount != 2)
+				return NK_EM_INVALID;
+			const uint32 s0 = edges[e].radialStart;
+			for (uint32 k = 0; k < 2; ++k) {
+				if (s0 + k >= (uint32)radialPool.Size())
+					break;
+				const NkEmId h = radialPool[s0 + k];
+				if (h >= (NkEmId)hedges.Size())
+					continue;
+				const NkEmId ff = hedges[h].face;
+				if (ff != f)
+					return ff;
+			}
+			return NK_EM_INVALID;
+		}
+
+		uint32 NkEditMesh::VertEdges(uint32 v, NkVector<NkEmId> &out) const {
+			out.Clear();
+			if (v >= (uint32)verts.Size())
+				return 0;
+			const uint32 s0 = verts[v].diskStart, n0 = verts[v].diskCount;
+			for (uint32 k = 0; k < n0; ++k)
+				if (s0 + k < (uint32)diskPool.Size())
+					out.PushBack(diskPool[s0 + k]);
+			return (uint32)out.Size();
+		}
+
+		uint32 NkEditMesh::NonManifoldEdgeCount() const {
+			uint32 n = 0;
+			for (uint32 i = 0; i < (uint32)edges.Size(); ++i)
+				if (edges[i].alive && edges[i].radialCount > 2)
+					n++;
+			return n;
 		}
 
 		uint32 NkEditMesh::EdgeCount() const {
@@ -1697,7 +1880,15 @@ namespace nkentseu {
 			e.faceCount = 0;
 			e.alive = 1;
 			edges.PushBack(e);
-			return (NkEmId)(edges.Size() - 1);
+			// RECONSTRUCTION APRES AJOUT. Empiler l'arete suffisait tant qu'`edges`
+			// n'etait qu'une liste ; avec les cycles de l'etape 2 elle ne suffit plus :
+			// le cycle DISQUE du sommet ne verrait pas la nouvelle arete. Defaut
+			// MESURE avant correction : disque(v) restait a 3 au lieu de 4 apres l'ajout
+			// de la diagonale d'un cube. RebuildEdges preserve les filaires — c'est sa
+			// raison d'etre — donc on peut la relancer sans perdre celle qu'on vient de
+			// creer, puis retrouver son index par le disque.
+			RebuildEdges();
+			return EdgeBetween(a, b);
 		}
 
 

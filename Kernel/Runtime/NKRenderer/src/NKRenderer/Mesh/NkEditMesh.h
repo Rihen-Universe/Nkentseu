@@ -271,6 +271,14 @@ namespace nkentseu {
 						// est correct — après un merge, « le premier cliqué » n'existe
 						// plus.
 						uint32 selOrder = 0;
+						// ── CYCLE DISQUE (etape 2) ────────────────────────────────
+						// Tranche dans `diskPool` : les aretes incidentes a ce sommet.
+						// Renseignee sur le sommet REPRESENTANT de l'identite soudee (les
+						// copies coincidentes pointent la meme tranche) — sinon, sur une
+						// primitive qui duplique ses sommets par face, chaque copie ne
+						// verrait qu'un tiers de ses aretes.
+						uint32 diskStart = 0;
+						uint32 diskCount = 0;
 				};
 
 				// ── ARETE DE PREMIER PLAN (etape 1 du modele BMesh) ──────────────
@@ -302,6 +310,24 @@ namespace nkentseu {
 						uint8 faceCount = 0; // 0 = filaire, 1 = bord, 2 = interieur, >2 = non manifold
 						uint8 sel = 0;
 						uint8 alive = 1;
+						// ── CYCLE RADIAL (etape 2) ────────────────────────────────
+						// Tranche dans `radialPool` : TOUTES les demi-aretes qui portent
+						// cette arete, donc toutes les faces incidentes.
+						//
+						// POURQUOI c'est necessaire : `Hedge::twin` ne peut designer
+						// QU'UNE opposee. Sur une arete partagee par TROIS faces (jonction
+						// en T, tres courante des qu'on colle une cloison sur un mur),
+						// l'appariement en retient deux et la troisieme devient invisible
+						// pour tout parcours. Le cycle radial les porte TOUTES, donc le
+						// non-manifold cesse d'etre un cas qu'on ignore pour devenir un cas
+						// qu'on peut CONSTATER et traiter.
+						//
+						// Tranche contigue plutot que liste chainee (BMesh en utilise une) :
+						// la structure est reconstruite en bloc par RebuildEdges, jamais
+						// modifiee arete par arete — une liste chainee n'apporterait ici que
+						// des indirections et des invariants supplementaires a maintenir.
+						uint32 radialStart = 0;
+						uint32 radialCount = 0;
 				};
 
 				struct Hedge {
@@ -309,6 +335,11 @@ namespace nkentseu {
 						NkEmId twin = NK_EM_INVALID;   // demi-arête opposée (autre face)
 						NkEmId next = NK_EM_INVALID;   // suivante autour de la face
 						NkEmId face = NK_EM_INVALID;   // face incidente
+						// Arete de premier plan portee par cette demi-arete (etape 2).
+						// Sans ce lien, passer d'une demi-arete a « son » arete demandait
+						// une recherche par cle spatiale a chaque fois — c'est-a-dire de
+						// RE-DEDUIRE une information que la structure connaissait deja.
+						NkEmId edge = NK_EM_INVALID;
 						uint8 alive = 1;			   // 0 = arête interne dissoute (quadify)
 				};
 
@@ -336,6 +367,10 @@ namespace nkentseu {
 				// Compteur monotone des rangs de selection (cf. Vert::selOrder). Jamais
 				// remis a zero en cours d'edition : c'est un ORDRE, pas un compte.
 				uint32 selCounter = 0;
+				// Reservoirs des deux cycles BMesh (etape 2). Reconstruits en meme temps
+				// que `edges` : ce sont des VUES sur la topologie, jamais une source.
+				NkVector<NkEmId> radialPool; // demi-aretes, groupees par arete
+				NkVector<NkEmId> diskPool;   // aretes, groupees par sommet representant
 
 				void Clear() {
 					verts.Clear();
@@ -525,6 +560,89 @@ namespace nkentseu {
 
 				// Nombre d'aretes vivantes (filaires comprises).
 				uint32 EdgeCount() const;
+
+				// ── ETAPE 2 : LES DEUX CYCLES DE BMESH ──────────────────────────────
+				// L'etape 1 avait fait de l'arete une ENTITE ; elle restait deduite des
+				// faces et ne savait rien de son voisinage. L'etape 2 lui donne son
+				// CYCLE RADIAL (les faces qui la portent) et donne au sommet son CYCLE
+				// DISQUE (les aretes qui en partent). Ce sont les deux parcours a partir
+				// desquels Blender exprime boucles, anneaux, dissolution et bord.
+				//
+				// Ce que cela change concretement :
+				//   - le NON-MANIFOLD devient representable et constatable. `twin` ne
+				//     designe qu'une opposee : au-dela de deux faces par arete, un
+				//     parcours fonde sur lui suit une branche ARBITRAIRE sans le dire ;
+				//   - « les faces autour de cette arete » et « les aretes autour de ce
+				//     sommet » sont en O(k) au lieu d'un balayage ou d'une table.
+				//
+				// Ces vues sont reconstruites par RebuildEdges(). Elles ne remplacent pas
+				// les demi-aretes : elles s'y ajoutent, l'API publique existante etant
+				// inchangee.
+
+				// Arete portee par une demi-arete. NK_EM_INVALID si inconnue.
+				NkEmId EdgeOfHedge(NkEmId h) const {
+					return (h < (NkEmId)hedges.Size()) ? hedges[h].edge : NK_EM_INVALID;
+				}
+				// Arete reliant deux sommets (indices bruts ; l'identite soudee est
+				// resolue en interne). NK_EM_INVALID si aucune.
+				NkEmId EdgeBetween(uint32 a, uint32 b) const;
+				// CYCLE RADIAL : demi-aretes portant l'arete (une par face incidente).
+				uint32 EdgeHedges(NkEmId e, NkVector<NkEmId> &out) const;
+				// CYCLE RADIAL, cote faces : faces incidentes, sans doublon.
+				uint32 EdgeFaces(NkEmId e, NkVector<NkEmId> &out) const;
+				// Face incidente a `e` AUTRE que `f`. NK_EM_INVALID si l'arete est un
+				// bord (une seule face) OU non manifold (le « de l'autre cote » n'a
+				// alors pas de sens, et en choisir un au hasard serait un mensonge).
+				NkEmId EdgeOtherFace(NkEmId e, NkEmId f) const;
+				// CYCLE DISQUE : aretes incidentes au sommet (identite soudee).
+				uint32 VertEdges(uint32 v, NkVector<NkEmId> &out) const;
+
+				uint32 RadialCount(NkEmId e) const {
+					return (e < (NkEmId)edges.Size() && edges[e].alive) ? edges[e].radialCount : 0u;
+				}
+				bool EdgeIsWire(NkEmId e) const {
+					return e < (NkEmId)edges.Size() && edges[e].alive && edges[e].radialCount == 0;
+				}
+				bool EdgeIsBoundary(NkEmId e) const {
+					return e < (NkEmId)edges.Size() && edges[e].alive && edges[e].radialCount == 1;
+				}
+				bool EdgeIsManifold(NkEmId e) const {
+					return e < (NkEmId)edges.Size() && edges[e].alive && edges[e].radialCount == 2;
+				}
+				bool EdgeIsNonManifold(NkEmId e) const {
+					return e < (NkEmId)edges.Size() && edges[e].alive && edges[e].radialCount > 2;
+				}
+				// JUMELLE RADIALE : l'opposee de `h` selon le cycle radial.
+				// Difference avec `Hedge::twin`, et raison d'etre de cette fonction : sur
+				// une arete portee par TROIS faces ou plus, `twin` designe une opposee
+				// ARBITRAIRE (celle que l'appariement a retenue) et tout parcours qui s'y
+				// fie bascule silencieusement sur une branche que l'utilisateur n'a pas
+				// choisie. Ici on REFUSE : NK_EM_INVALID, et le parcours s'arrete — ce que
+				// fait Blender sur une arete non manifold.
+				// Repli : si les aretes n'ont pas encore ete construites (edge == INVALID),
+				// on rend `twin`, pour ne rien casser chez un appelant qui n'a pas appele
+				// RebuildEdges().
+				NkEmId RadialTwin(NkEmId h) const {
+					if (h >= (NkEmId)hedges.Size())
+						return NK_EM_INVALID;
+					const NkEmId e = hedges[h].edge;
+					if (e == NK_EM_INVALID || e >= (NkEmId)edges.Size())
+						return hedges[h].twin;
+					if (edges[e].radialCount != 2)
+						return NK_EM_INVALID; // bord, filaire ou non manifold : pas d'oppose unique
+					const uint32 s0 = edges[e].radialStart;
+					for (uint32 k = 0; k < 2; ++k) {
+						if (s0 + k >= (uint32)radialPool.Size())
+							break;
+						if (radialPool[s0 + k] != h)
+							return radialPool[s0 + k];
+					}
+					return hedges[h].twin;
+				}
+
+				// Nombre d'aretes non manifold — un chiffre a surveiller apres toute
+				// operation topologique : il ne devrait jamais augmenter par accident.
+				uint32 NonManifoldEdgeCount() const;
 
 				// Cree une arete FILAIRE entre deux sommets, si elle n'existe pas deja.
 				// Renvoie l'index de l'arete, ou NK_EM_INVALID en cas d'echec.
