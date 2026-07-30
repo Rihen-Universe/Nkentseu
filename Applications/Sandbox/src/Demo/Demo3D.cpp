@@ -27,7 +27,9 @@
 #include "NKRenderer/Mesh/NkEditMesh.h"			// structure demi-arête n-gon
 #include "NKFileSystem/NkFile.h"				// save/load session d'édition (journal de commandes)
 #include "NKTime/NkChrono.h"					// mesure du coût des aperçus modaux (NK_MODAL_PERF)
+#include "NKRenderer/Tools/VoxelAO/NkVoxelAOSystem.h" // NK_GI_TEST : GI à un rebond
 #include <cstdio>
+#include <cstdlib> // getenv (override NK_GI_TEST)
 
 namespace nkentseu {
 	namespace demo {
@@ -36,6 +38,21 @@ namespace nkentseu {
 				NkMeshHandle meshSphere;
 				NkMeshHandle meshPlane;
 				NkMeshHandle meshCube;
+				// ── NK_GI_TEST : mur mobile pour éprouver le GI à un rebond ──────
+				// Bornes de base du mur ; `giWallOffset` s'y ajoute et le GI est
+				// recalculé à chaque déplacement — c'est la démonstration que
+				// l'indirect suit la géométrie au lieu d'être pré-cuit.
+				static constexpr float32 kGIWallMin[3] = {-1.6f, 0.f, 2.2f};
+				static constexpr float32 kGIWallMax[3] = {1.6f, 2.6f, 2.8f};
+				bool giTest = false;
+				bool giOn = true;
+				bool giAuto = false;
+				bool giDirty = true;
+				float32 giIntensity = 1.f;
+				float32 giPhase = 0.f;
+				NkVec3f giWallOffset = {0.f, 0.f, 0.f};
+				float32 giBuildMs = 0.f;
+				float32 giInjectMs = 0.f;
 				NkTexHandle cookieWindow; // E.6 : cookie 2D pour le spot
 				NkTexHandle cookieCube;	  // E.6b : cookie cube pour le point red
 				// NkVSM v2 : panneau "feuillage" alpha-teste (validation ombre trouee).
@@ -2071,6 +2088,29 @@ namespace nkentseu {
 					st->orthoView = !st->orthoView;
 					logger.Info("[Demo3D] Projection = {0}\n", st->orthoView ? "ORTHO" : "PERSPECTIVE");
 				} // pavé 5 = toggle ortho/persp
+				// ── NK_GI_TEST : pilotage du mur rouge et A/B de l'indirect ──────
+				// Touches actives UNIQUEMENT sous l'override, pour ne rien voler au
+				// keymap habituel de la démo.
+				else if (st->giTest && (k == NkKey::NK_NUMPAD_4 || k == NkKey::NK_NUMPAD_6 ||
+										k == NkKey::NK_NUMPAD_8 || k == NkKey::NK_NUMPAD_2)) {
+					const float32 step = 0.35f;
+					if (k == NkKey::NK_NUMPAD_4)
+						st->giWallOffset.x -= step;
+					else if (k == NkKey::NK_NUMPAD_6)
+						st->giWallOffset.x += step;
+					else if (k == NkKey::NK_NUMPAD_8)
+						st->giWallOffset.z -= step;
+					else
+						st->giWallOffset.z += step;
+					st->giDirty = true; // le GI est recalculé : l'indirect SUIT le mur
+				} else if (st->giTest && k == NkKey::NK_NUMPAD_0) {
+					st->giOn = !st->giOn;
+					st->giDirty = true;
+					logger.Info("[Demo3D] GI {0}\n", st->giOn ? "ON" : "OFF");
+				} else if (st->giTest && k == NkKey::NK_NUMPAD_9) {
+					st->giAuto = !st->giAuto;
+					logger.Info("[Demo3D] va-et-vient auto du mur : {0}\n", st->giAuto ? "ON" : "OFF");
+				}
 				if (axisView)
 					st->orthoView = true; // vue axiale -> ortho auto (façon Blender)
 			});
@@ -2655,9 +2695,62 @@ namespace nkentseu {
 			st->editorCam.SetCenter(camCenter, camRadius, camYaw, camPitch);
 			st->simCam.SetPose({0.f, 1.5f, 6.f}, -1.5708f, -0.15f);
 
+			{
+				const char *giEnv = getenv("NK_GI_TEST");
+				st->giTest = (giEnv && giEnv[0] && giEnv[0] != '0');
+				const char *giInt = getenv("NK_GI_INTENSITY");
+				if (giInt && giInt[0])
+					st->giIntensity = (float32)atof(giInt);
+				// NK_GI_AUTO : démarre le va-et-vient sans clavier — sert à mesurer
+				// le coût du GI en mouvement dans une capture automatisée.
+				const char *giAuto = getenv("NK_GI_AUTO");
+				st->giAuto = (giAuto && giAuto[0] && giAuto[0] != '0');
+				if (st->giTest) {
+					logger.Info("[Demo3D] === NK_GI_TEST : GI a un rebond (mur rouge mobile) ===\n");
+					logger.Info("[Demo3D] PAVE NUM 4/6 : deplacer le mur en X | 8/2 : en Z\n");
+					logger.Info("[Demo3D] PAVE NUM 0 : GI on/off (A/B)   9 : va-et-vient auto\n");
+					logger.Info("[Demo3D] La lumiere rouge de la scene est RETIREE : tout rouge = rebond\n");
+				}
+			}
+
 			logger.Info("[Demo3D] Init OK — meshes : sphere={0} plane={1} cube={2}\n", (uint64)st->meshSphere.id,
 						(uint64)st->meshPlane.id, (uint64)st->meshCube.id);
 			return true;
+		}
+
+		// ── NK_GI_TEST : (re)construction de la grille de GI ─────────────────────
+		// Re-voxelise le sol + le mur à sa position COURANTE, puis réinjecte
+		// l'éclairage. Appelée uniquement quand quelque chose a bougé : l'injection
+		// v1 est en CPU, donc on ne la paie pas à chaque frame pour rien. Les deux
+		// coûts sont relevés pour être affichés à l'écran — c'est ce qui permet de
+		// juger si l'indirect peut suivre une scène animée.
+		static void Demo3D_RebuildGI(Demo3DState *st, NkRenderer *renderer, const NkVector<NkLightDesc> &lights) {
+			auto *vao = renderer ? renderer->GetVoxelAO() : nullptr;
+			if (!vao)
+				return;
+			vao->Clear();
+			NkVoxelOccluder floorOcc;
+			floorOcc.minWorld = {-8.f, -0.6f, -8.f};
+			floorOcc.maxWorld = {8.f, 0.05f, 8.f};
+			floorOcc.opacity = 1.f;
+			floorOcc.albedo = {0.5f, 0.5f, 0.5f};
+			vao->RegisterOccluder(floorOcc);
+			const NkVec3f &o = st->giWallOffset;
+			NkVoxelOccluder wall;
+			wall.minWorld = {Demo3DState::kGIWallMin[0] + o.x, Demo3DState::kGIWallMin[1] + o.y,
+							 Demo3DState::kGIWallMin[2] + o.z};
+			wall.maxWorld = {Demo3DState::kGIWallMax[0] + o.x, Demo3DState::kGIWallMax[1] + o.y,
+							 Demo3DState::kGIWallMax[2] + o.z};
+			wall.opacity = 1.f;
+			wall.albedo = {0.9f, 0.05f, 0.05f};
+			vao->RegisterOccluder(wall);
+			vao->Build();
+			// GI éteint = injection de zéro : l'opacité (donc l'AO) reste, seul
+			// l'indirect disparaît. L'A/B ne change donc QUE ce qu'on veut mesurer.
+			vao->SetGIIntensity(st->giOn ? st->giIntensity : 0.f);
+			vao->InjectLighting(lights);
+			st->giBuildMs = vao->GetLastBuildMs();
+			st->giInjectMs = vao->GetLastInjectMs();
 		}
 
 		void Demo3D_Frame(DemoCtx &ctx, float32 dt) {
@@ -3600,6 +3693,34 @@ namespace nkentseu {
 			for (uint32 li = 0; li < (uint32)sctx.lights.Size(); li++)
 				st->frameLights.PushBack(sctx.lights[li]);
 
+			// ── NK_GI_TEST : GI à un rebond, avec mur ROUGE MOBILE ───────────────
+			// Cette scène contient déjà une lumière rouge : elle rendrait le test
+			// ambigu (le rouge observé viendrait-il du rebond ou d'elle ?). On la
+			// retire donc sous l'override, pour qu'AUCUNE source rouge n'existe et
+			// que toute teinte rouge ne puisse venir que du rebond sur le mur.
+			if (st->giTest) {
+				for (uint32 li = 0; li < (uint32)sctx.lights.Size();) {
+					const NkVec3f &c = sctx.lights[li].color;
+					if (c.x > 0.5f && c.y < 0.35f && c.z < 0.35f)
+						sctx.lights.Erase(sctx.lights.Begin() + li);
+					else
+						li++;
+				}
+				// Va-et-vient automatique : le mur balaie l'axe X et le GI suit.
+				if (st->giAuto) {
+					st->giPhase += dt;
+					const float32 nx = math::NkSin(st->giPhase * 0.6f) * 2.2f;
+					if (math::NkAbs(nx - st->giWallOffset.x) > 0.02f) {
+						st->giWallOffset.x = nx;
+						st->giDirty = true;
+					}
+				}
+				if (st->giDirty) {
+					Demo3D_RebuildGI(st, ctx.renderer, sctx.lights);
+					st->giDirty = false;
+				}
+			}
+
 			r3d->BeginScene(sctx);
 
 			// Transform utilisateur (décalage gizmo) appliqué à un objet : délégué au
@@ -3671,6 +3792,26 @@ namespace nkentseu {
 				dc.tint = effTint({0.12f, 0.12f, 0.13f});
 				dc.metallic = 0.f;
 				dc.roughness = 0.92f;
+				r3d->Submit(dc);
+			}
+
+			// ── NK_GI_TEST : le mur rouge, RENDU à la position qui sert au GI ────
+			// Même AABB que l'occluder injecté (source unique kGIWallMin/Max +
+			// offset) : la lumière rebondit exactement sur le mur qu'on voit.
+			if (st->giTest) {
+				const NkVec3f &o = st->giWallOffset;
+				const NkVec3f mn{Demo3DState::kGIWallMin[0] + o.x, Demo3DState::kGIWallMin[1] + o.y,
+								 Demo3DState::kGIWallMin[2] + o.z};
+				const NkVec3f mx{Demo3DState::kGIWallMax[0] + o.x, Demo3DState::kGIWallMax[1] + o.y,
+								 Demo3DState::kGIWallMax[2] + o.z};
+				NkDrawCall3D dc;
+				dc.mesh = st->meshCube;
+				dc.transform = NkMat4f::Translate({(mn.x + mx.x) * 0.5f, (mn.y + mx.y) * 0.5f, (mn.z + mx.z) * 0.5f}) *
+							   NkMat4f::Scale({mx.x - mn.x, mx.y - mn.y, mx.z - mn.z});
+				dc.aabb = {mn, mx};
+				dc.tint = effTint({0.9f, 0.05f, 0.05f});
+				dc.metallic = 0.f;
+				dc.roughness = 0.85f;
 				r3d->Submit(dc);
 			}
 

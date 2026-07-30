@@ -49,6 +49,16 @@ namespace nkentseu {
 				// reste dégagée au centre — c'est ce qui rend le rebond lisible.
 				static constexpr float32 kWallMin[3] = {-1.3f, 0.f, 1.5f};
 				static constexpr float32 kWallMax[3] = {1.3f, 2.2f, 2.1f};
+				// Décalage courant du mur (touches fléchées) : le GI le SUIT, ce qui
+				// est la démonstration que l'indirect est dynamique et non pré-calculé.
+				NkVec3f wallOffset = {0.f, 0.f, 0.f};
+				bool giOn = true;	   // G : A/B de l'indirect
+				bool giAuto = false;   // espace : va-et-vient automatique du mur
+				bool giDirty = true;   // recalcul du GI demandé (mur déplacé, A/B…)
+				float32 giIntensity = 1.f;
+				float32 giPhase = 0.f; // horloge du va-et-vient automatique
+				float32 lastBuildMs = 0.f;
+				float32 lastInjectMs = 0.f;
 				NkMeshHandle meshPlane;
 				DemoCamera camera;
 				int numLayers = 8;
@@ -149,6 +159,25 @@ namespace nkentseu {
 					inst->SetLayeredV1(state->initial);
 					state->numLayers = state->initial.numLayers;
 					logger.Info("[Demo8] reset config initiale\n");
+				} else if (state->giTest && k == NkKey::NK_G) {
+					state->giOn = !state->giOn;
+					state->giDirty = true;
+					logger.Info("[Demo8] GI {0}\n", state->giOn ? "ON" : "OFF");
+				} else if (state->giTest && (k == NkKey::NK_LEFT || k == NkKey::NK_RIGHT || k == NkKey::NK_UP ||
+											 k == NkKey::NK_DOWN)) {
+					const float32 step = 0.3f;
+					if (k == NkKey::NK_LEFT)
+						state->wallOffset.x -= step;
+					else if (k == NkKey::NK_RIGHT)
+						state->wallOffset.x += step;
+					else if (k == NkKey::NK_UP)
+						state->wallOffset.z -= step;
+					else
+						state->wallOffset.z += step;
+					state->giDirty = true; // l'indirect est recalculé : il SUIT le mur
+				} else if (state->giTest && k == NkKey::NK_SPACE) {
+					state->giAuto = !state->giAuto;
+					logger.Info("[Demo8] va-et-vient auto du mur : {0}\n", state->giAuto ? "ON" : "OFF");
 				}
 			});
 
@@ -172,31 +201,52 @@ namespace nkentseu {
 				st->giTest = (giEnv && giEnv[0] && giEnv[0] != '0');
 			}
 			if (st->giTest) {
-				if (auto *vao = ctx.renderer->GetVoxelAO()) {
-					vao->Clear();
-					// Sol (albédo neutre) : porte le rebond général.
-					NkVoxelOccluder floorOcc;
-					floorOcc.minWorld = {-6.f, -0.5f, -6.f};
-					floorOcc.maxWorld = {6.f, 0.1f, 6.f};
-					floorOcc.opacity = 1.f;
-					floorOcc.albedo = {0.55f, 0.55f, 0.55f};
-					vao->RegisterOccluder(floorOcc);
-					// Mur rouge vertical à droite des sphères.
-					NkVoxelOccluder wall;
-					wall.minWorld = {Demo8State::kWallMin[0], Demo8State::kWallMin[1], Demo8State::kWallMin[2]};
-					wall.maxWorld = {Demo8State::kWallMax[0], Demo8State::kWallMax[1], Demo8State::kWallMax[2]};
-					wall.opacity = 1.f;
-					wall.albedo = {0.9f, 0.05f, 0.05f};
-					vao->RegisterOccluder(wall);
-					vao->Build();
-					logger.Info("[Demo8] NK_GI_TEST : mur rouge + sol enregistres pour le GI\n");
-				}
+				logger.Info("[Demo8] === NK_GI_TEST : GI a un rebond ===\n");
+				logger.Info("[Demo8] Fleches : deplacer le mur rouge (le GI suit)\n");
+				logger.Info("[Demo8] G : GI on/off   ESPACE : va-et-vient auto   +/- : intensite\n");
 			}
 
 			logger.Info("[Demo8] === M.1 v1 Material Layering N=8 ===\n");
 			logger.Info("[Demo8] 1-8 : numLayers (1=base seule, 8=toutes les couches)\n");
 			logger.Info("[Demo8] R   : reset config initiale\n");
 			return true;
+		}
+
+		// ── Reconstruction de la grille GI ───────────────────────────────────────
+		// Re-voxelise la scène à la position COURANTE du mur puis réinjecte
+		// l'éclairage. C'est l'opération qui rend l'indirect dynamique : tant
+		// qu'elle est en CPU, on ne la paie que quand quelque chose a bougé — d'où
+		// l'appel piloté par `giDirty` et non à chaque frame.
+		static void Demo8_RebuildGI(Demo8State *st, NkRenderer *renderer, const NkVector<NkLightDesc> &lights) {
+			auto *vao = renderer ? renderer->GetVoxelAO() : nullptr;
+			if (!vao)
+				return;
+			vao->Clear();
+			// Sol (albédo neutre) : porte le rebond général.
+			NkVoxelOccluder floorOcc;
+			floorOcc.minWorld = {-6.f, -0.5f, -6.f};
+			floorOcc.maxWorld = {6.f, 0.1f, 6.f};
+			floorOcc.opacity = 1.f;
+			floorOcc.albedo = {0.55f, 0.55f, 0.55f};
+			vao->RegisterOccluder(floorOcc);
+			// Mur rouge, décalé par les flèches.
+			const NkVec3f &o = st->wallOffset;
+			NkVoxelOccluder wall;
+			wall.minWorld = {Demo8State::kWallMin[0] + o.x, Demo8State::kWallMin[1] + o.y,
+							 Demo8State::kWallMin[2] + o.z};
+			wall.maxWorld = {Demo8State::kWallMax[0] + o.x, Demo8State::kWallMax[1] + o.y,
+							 Demo8State::kWallMax[2] + o.z};
+			wall.opacity = 1.f;
+			wall.albedo = {0.9f, 0.05f, 0.05f};
+			vao->RegisterOccluder(wall);
+			vao->Build();
+			// GI éteint = on injecte zéro : la grille garde son opacité (donc l'AO
+			// reste), seul l'indirect disparaît. C'est un A/B propre, qui ne change
+			// rien d'autre dans la scène.
+			vao->SetGIIntensity(st->giOn ? st->giIntensity : 0.f);
+			vao->InjectLighting(lights);
+			st->lastBuildMs = vao->GetLastBuildMs();
+			st->lastInjectMs = vao->GetLastInjectMs();
 		}
 
 		void Demo8_LayeredV1_Frame(DemoCtx &ctx, float32 dt) {
@@ -252,13 +302,25 @@ namespace nkentseu {
 			// NK_GI_INTENSITY=0 éteint l'indirect sans rien changer d'autre : c'est
 			// le A/B qui prouve que la teinte observée vient bien du GI.
 			if (st->giTest) {
-				if (auto *vao = ctx.renderer->GetVoxelAO()) {
-					if (!st->giInjected) {
-						const char *gi = getenv("NK_GI_INTENSITY");
-						vao->SetGIIntensity(gi && gi[0] ? (float32)atof(gi) : 1.f);
+				if (!st->giInjected) {
+					const char *gi = getenv("NK_GI_INTENSITY");
+					if (gi && gi[0])
+						st->giIntensity = (float32)atof(gi);
+					st->giInjected = true;
+					st->giDirty = true;
+				}
+				// Va-et-vient automatique (ESPACE) : le mur balaie et le GI suit.
+				if (st->giAuto) {
+					st->giPhase += dt;
+					const float32 nx = math::NkSin(st->giPhase * 0.6f) * 1.8f;
+					if (math::NkAbs(nx - st->wallOffset.x) > 0.02f) {
+						st->wallOffset.x = nx;
+						st->giDirty = true;
 					}
-					if (vao->InjectLightingIfDirty(sctx.lights))
-						st->giInjected = true;
+				}
+				if (st->giDirty) {
+					Demo8_RebuildGI(st, ctx.renderer, sctx.lights);
+					st->giDirty = false;
 				}
 			}
 
@@ -283,8 +345,13 @@ namespace nkentseu {
 			// démonstration lisible : on voit le mur, on le voit éclairé, et on
 			// voit sa couleur rejaillir sur la sphère.
 			if (st->giTest) {
-				const NkVec3f mn{Demo8State::kWallMin[0], Demo8State::kWallMin[1], Demo8State::kWallMin[2]};
-				const NkVec3f mx{Demo8State::kWallMax[0], Demo8State::kWallMax[1], Demo8State::kWallMax[2]};
+				// L'offset des flèches est appliqué ICI AUSSI : le mur dessiné doit
+				// être exactement celui sur lequel la lumière rebondit.
+				const NkVec3f &wo = st->wallOffset;
+				const NkVec3f mn{Demo8State::kWallMin[0] + wo.x, Demo8State::kWallMin[1] + wo.y,
+								 Demo8State::kWallMin[2] + wo.z};
+				const NkVec3f mx{Demo8State::kWallMax[0] + wo.x, Demo8State::kWallMax[1] + wo.y,
+								 Demo8State::kWallMax[2] + wo.z};
 				const NkVec3f c{(mn.x + mx.x) * 0.5f, (mn.y + mx.y) * 0.5f, (mn.z + mx.z) * 0.5f};
 				NkDrawCall3D dc;
 				dc.mesh = st->meshCube;

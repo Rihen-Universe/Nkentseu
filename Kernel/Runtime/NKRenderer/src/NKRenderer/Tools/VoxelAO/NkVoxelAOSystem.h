@@ -153,6 +153,17 @@ namespace nkentseu {
 					return mHasGI;
 				}
 
+				// Coût CPU du dernier Build() / de la dernière injection, en ms.
+				// Exposé parce que c'est LUI qui décide si le GI peut suivre une
+				// géométrie qui bouge à chaque frame ou seulement à la demande.
+				float32 GetLastBuildMs() const {
+					return mLastBuildMs;
+				}
+
+				float32 GetLastInjectMs() const {
+					return mLastInjectMs;
+				}
+
 				// Accesseurs GPU pour le pipeline PBR.
 				NkTextureHandle GetVoxelTexture() const {
 					return mVoxelTex;
@@ -186,6 +197,8 @@ namespace nkentseu {
 				NkVector<NkLightDesc> mLastLights; // pour InjectLightingIfDirty
 				bool mHasGI = false;
 				float32 mGIIntensity = 1.f;
+				float32 mLastBuildMs = 0.f;
+				float32 mLastInjectMs = 0.f;
 
 				// Radiance réémise par un voxel sous l'éclairage donné. Isolée pour
 				// que le futur portage compute ait une référence CPU à comparer.
