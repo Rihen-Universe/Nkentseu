@@ -711,3 +711,8 @@ Applications/NKCode/data/fonts/NotoEmoji-Regular.ttf
 # Distribution testeur (assemblee par scripts/MakeNkCodeDist.py) + cache compilo
 dist/
 .cache/
+
+# Journal de reprise des chantiers plateformes : document de travail PRIVE
+# (etat par machine, chemins locaux, en cours de redaction par des agents).
+# Ne jamais le pousser — demande de Rihen du 2026-07-30.
+PLATEFORMES_ETAT.md
