@@ -198,6 +198,13 @@ namespace nkentseu {
 					}
 					if (mChats.Empty())
 						NewChat(); // 1re conversation (locale correcte : posée après construction)
+					// Compte & Usage : lance les requetes DES l'entree dans le panneau (pas
+					// besoin d'ouvrir le popover ni d'avoir ecrit un prompt) — le calcul est
+					// deja pret des que l'utilisateur regarde "Compte et utilisation".
+					if (!mAutoUsageFetched) {
+						mAutoUsageFetched = true;
+						EnsureUsageDataFetching();
+					}
 					// Sauvegarde debouncee (~1,5 s) sur changement d'empreinte, hors flux.
 					if (++mSaveTick >= 90) {
 						mSaveTick = 0;
@@ -623,7 +630,8 @@ namespace nkentseu {
 						NkString type;	// rateLimitType brut (cle) — ex "seven_day", "session"
 						NkString status; // "allowed", "allowed_warning", "rejected"...
 						float32 utilization = 0.f; // 0..1 (peut depasser 1 en depassement)
-						int64 resetsAt = 0;		   // epoch unix
+						int64 resetsAt = 0;		   // epoch unix (source rate_limit_event)
+						NkString resetsText;	   // texte brut deja forme (source /usage, pas d'epoch fourni)
 						bool overage = false;	   // isUsingOverage
 						bool surpassed = false;   // surpassedThreshold (avertissement seuil)
 				};
@@ -673,12 +681,20 @@ namespace nkentseu {
 					if (!mAcctProc.Done())
 						return;
 					mAcctRequested = false;
-					mAcctLoaded = true;
 					NkString raw;
 					for (usize i = 0; i < mAcctLines.Size(); ++i)
 						raw += mAcctLines[i].CStr();
 					mAcctLines.Clear();
 					const char *j = raw.CStr();
+					// Repli auto-reparable : si la sortie ne ressemble meme pas a du JSON
+					// "auth status" (CLI absent, erreur transitoire, sortie vide...), ne
+					// verrouille PAS mAcctLoaded -> un reessai reste possible au prochain
+					// affichage du popover, au lieu de rester bloque sur "Chargement..."
+					// pour le reste de la session (mAcctRequested est deja retombe a false,
+					// donc OpenUsagePopover() relancera normalement la requete).
+					if (NkFindSub(j, "loggedIn") == nullptr)
+						return;
+					mAcctLoaded = true;
 					mAcctLoggedIn = NkFindSub(j, "\"loggedIn\":true") != nullptr ||
 									NkFindSub(j, "\"loggedIn\": true") != nullptr;
 					mAcctMethod = JsonStr(j, "authMethod");
@@ -696,40 +712,86 @@ namespace nkentseu {
 				// your limits usage" — capture INTEGRALE du texte, aucun champ trie/invente. ──
 				NkPipeProc mQuickUsageProc;
 				NkString mQuickUsageBuf;
-				bool mQuickUsageRequested = false, mQuickUsageLoaded = false;
+				bool mQuickUsageRequested = false;
 				NkString mQuickUsageText; // texte brut renvoye par /usage (vide = jamais recu)
+				bool mAutoUsageFetched = false; // declenche EnsureUsageDataFetching() une fois a l'entree du panneau
+				int32 mUsagePeriod = 0;	  // bascule "contributing to your limits usage" : 0 Jour, 1 Semaine
 
-				// Ouvre le popover "Compte et utilisation" et lance les requetes REELLES qui
-				// l'alimentent (une seule fois par session) — factorise ici pour que les DEUX
-				// points d'entree (lien "Voir l'utilisation" de la banniere ET item du panneau
-				// Actions) declenchent bien les MEMES requetes (bug corrige : la banniere
-				// n'ouvrait que le popover vide, sans jamais lancer "claude auth status --json"
-				// ni "/usage").
-				void OpenUsagePopover() {
-					mUsageOpen = true;
-					mUsageJustOpened = true;
-					if (mKind == 1 && !mAcctLoaded && !mAcctRequested && !ClaudeExe().Empty()) {
+				// Decoupe mQuickUsageText en 3 : preambule (avant "Last 24h"), bloc Jour
+				// ("Last 24h" -> "Last 7d"), bloc Semaine ("Last 7d" -> fin). Repli honnete :
+				// si les marqueurs ne sont pas trouves (format different), preamble recoit le
+				// texte ENTIER tel quel (aucune donnee perdue, juste pas de bascule).
+				void SplitQuickUsageDetail(NkString &preamble, NkString &dayBlock, NkString &weekBlock) const {
+					preamble.Clear();
+					dayBlock.Clear();
+					weekBlock.Clear();
+					const char *base = mQuickUsageText.CStr();
+					const char *d = NkFindSub(base, "Last 24h");
+					if (!d) {
+						preamble = mQuickUsageText;
+						preamble.Trim();
+						return;
+					}
+					for (const char *q = base; q < d; ++q)
+						preamble += *q;
+					preamble.Trim();
+					const char *w = NkFindSub(d, "Last 7d");
+					if (w) {
+						for (const char *q = d; q < w; ++q)
+							dayBlock += *q;
+						dayBlock.Trim();
+						weekBlock = NkString(w);
+						weekBlock.Trim();
+					} else {
+						dayBlock = NkString(d);
+						dayBlock.Trim();
+					}
+				}
+
+				// Lance les requetes REELLES (compte + /usage) si pas deja en cours —
+				// factorise pour etre appelable SOIT au clic explicite "Voir l'utilisation"/
+				// "Compte et utilisation", SOIT en arriere-plan des l'entree dans le panneau
+				// (voir l'appel dans OnUI) : le temps que l'utilisateur ouvre le popover, les
+				// donnees sont deja pretes (plus de "Chargement..." ni d'attente au clic).
+				void EnsureUsageDataFetching() {
+					if (mKind != 1)
+						return;
+					if (!mAcctLoaded && !mAcctRequested && !ClaudeExe().Empty()) {
 						mAcctRequested = true;
 						mAcctLines.Clear();
 						mAcctProc.Start(NkWin32QuoteArg(ClaudeExe().CStr()) + " auth status --json");
 					}
-					if (mKind == 1)
-						TriggerQuickUsage();
+					TriggerQuickUsage();
+				}
+
+				// Ouvre le popover "Compte et utilisation" — les requetes qui l'alimentent sont
+				// normalement DEJA en cours/faites (declenchees a l'entree du panneau, cf.
+				// EnsureUsageDataFetching) ; ce rappel couvre le cas ou l'utilisateur rouvre le
+				// popover APRES un premier essai infructueux (pas de latch definitif en echec).
+				void OpenUsagePopover() {
+					mUsageOpen = true;
+					mUsageJustOpened = true;
+					EnsureUsageDataFetching();
 				}
 
 				void TriggerQuickUsage() {
-					if (mQuickUsageRequested || mQuickUsageLoaded || ClaudeExe().Empty())
+					if (mQuickUsageRequested || ClaudeExe().Empty())
 						return;
 					mQuickUsageRequested = true;
 					mQuickUsageBuf.Clear();
+					// --verbose est OBLIGATOIRE des que --output-format=stream-json est utilise
+					// avec -p (sinon le CLI refuse purement et simplement : "Error: When using
+					// --print, --output-format=stream-json requires --verbose") -> sans lui,
+					// TOUTE la requete /usage echouait silencieusement (mQuickUsageText jamais
+					// rempli, donc "Session" n'apparaissait JAMAIS, meme apres le parsing ajoute
+					// dans ParseQuickUsageBuckets).
 					const NkString cmd = NkWin32QuoteArg(ClaudeExe().CStr()) +
-										  " -p --input-format stream-json --output-format stream-json "
+										  " -p --verbose --input-format stream-json --output-format stream-json "
 										  "--permission-mode default";
 					const NkString cwd = (mS && mS->HasWorkspace()) ? mS->root.ToString() : NkString(".");
 					NkVector<NkString> noEnv;
 					if (!mQuickUsageProc.StartWithEnv(cmd, cwd, noEnv, /*mergeStderr=*/true)) {
-						mQuickUsageRequested = false;
-						mQuickUsageLoaded = true; // echec : pas de re-essai en boucle, section vide honnete
+						mQuickUsageRequested = false; // pas de latch : reessai possible au prochain ouverture
 						return;
 					}
 					const NkString um = "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":"
@@ -747,7 +809,6 @@ namespace nkentseu {
 					if (mQuickUsageProc.Running())
 						return;
 					mQuickUsageRequested = false;
-					mQuickUsageLoaded = true;
 					NkString rest = mQuickUsageBuf;
 					mQuickUsageBuf.Clear();
 					for (;;) {
@@ -762,6 +823,70 @@ namespace nkentseu {
 							break;
 						rest.Erase(0, nl + 1);
 					}
+					// Rien recu (erreur CLI, flag manquant, etc.) : mQuickUsageRequested est deja
+					// retombe a false plus haut -> reessai automatique a la prochaine ouverture.
+					if (mQuickUsageText.Empty())
+						return;
+					ParseQuickUsageBuckets();
+				}
+
+				// Extrait "Current session: X% used · resets ..." et "Current week (all
+				// models): X% used · resets ..." du texte /usage -> upsert dans mRlBuckets
+				// (types synthetiques "session"/"seven_day", reconnus par UsageBucketLabel)
+				// pour qu'ils apparaissent comme barres colorees dans la section USAGE
+				// principale, PAS seulement dans le detail texte brut plus bas — sinon la
+				// session (rarement rapportee par rate_limit_event, qui ne rapporte qu'UNE
+				// seule fenetre a la fois) n'apparaissait jamais tant qu'aucun evenement
+				// dedie ne l'avait fait remonter.
+				void ParseQuickUsageBuckets() {
+					EnsureUsageLoaded(); // fusionne les buckets deja connus (autres sessions) avant d'upserter
+					auto upsert = [&](const char *marker, const char *type) {
+						const char *m = NkFindSub(mQuickUsageText.CStr(), marker);
+						if (!m)
+							return;
+						int32 markerLen = 0;
+						while (marker[markerLen])
+							++markerLen;
+						const char *p = m + markerLen;
+						int32 pct = 0;
+						bool any = false;
+						while (*p >= '0' && *p <= '9') {
+							pct = pct * 10 + (*p - '0');
+							++p;
+							any = true;
+						}
+						if (!any || *p != '%')
+							return;
+						// avance jusqu'a "resets " (repli : garde le reste de la ligne tel quel).
+						const char *rp = NkFindSub(p, "resets ");
+						const char *le = p;
+						while (*le && *le != '\n')
+							++le;
+						NkString resetsTxt;
+						if (rp && rp < le)
+							for (const char *q = rp + 7; q < le; ++q)
+								resetsTxt += *q;
+						// Met a jour SEULEMENT utilization/resetsText si un bucket du meme type
+						// existe deja (ex. rate_limit_event, plus precis sur resetsAt/status/
+						// surpassed) — ne degrade jamais une donnee plus riche deja connue.
+						bool found = false;
+						for (usize i = 0; i < mRlBuckets.Size() && !found; ++i)
+							if (mRlBuckets[i].type == type) {
+								mRlBuckets[i].utilization = static_cast<float32>(pct) / 100.f;
+								mRlBuckets[i].resetsText = resetsTxt;
+								found = true;
+							}
+						if (!found) {
+							RlBucket b;
+							b.type = type;
+							b.utilization = static_cast<float32>(pct) / 100.f;
+							b.resetsText = resetsTxt;
+							mRlBuckets.PushBack(b);
+						}
+					};
+					upsert("Current session: ", "session");
+					upsert("Current week (all models): ", "seven_day");
+					SaveUsagePersist();
 				}
 
 				// Decoupe un texte libre en lignes ne depassant pas maxW (mots entiers jamais
@@ -2600,11 +2725,23 @@ namespace nkentseu {
 				// Contexte / Modèle / Personnaliser / Commandes slash / Réglages / Support. ──
 				void DrawActionsPalette(NkGuiContext &ctx, const NkRect &bounds, const NkColor &violet) {
 					(void)violet;
-					// ROUTEUR D'OCCLUSION UNIFIE : la palette est une surface de couche 50
-					// (rect declare plus bas via PushOcclusion) -> les panneaux/widgets de
-					// couche 0 derriere elle deviennent aveugles sous son rect, quel que
-					// soit leur ordre de dessin — fin des traversees de clics.
+					// ── DOUBLE PROTECTION, comme pour les dialogues modaux ──
+					// Les deux mecanismes sont conserves parce qu'ils ne couvrent PAS le meme
+					// cas, et que la traversee de clics de ce panneau a deja resiste a chacun
+					// pris isolement (bug remonte par Rihen, mecanisme exact jamais identifie).
+					//
+					// 1) ROUTEUR D'OCCLUSION : la palette est une surface de couche 50 (rect
+					//    declare plus bas via PushOcclusion) -> les widgets de couche 0
+					//    derriere elle deviennent aveugles sous son rect, quel que soit leur
+					//    ordre de dessin. Ne protege que ce qui est SOUS le rect.
+					// 2) MODALITE GLOBALE : force ctx.popupDepth > 0 tant que la palette est
+					//    ouverte -> bloque aussi ce qui est HORS du rect et ce qui est traite
+					//    AVANT ce panneau dans l'ordre de la frame (consommer le clic ici ne
+					//    suffisait pas si un autre panneau avait deja reagi plus tot).
+					//    Remis a 0 explicitement a la fermeture, plus bas.
 					NkGuiContext::NkInputLayerScope _layer(ctx, 50);
+					if (ctx.popupDepth == 0)
+						ctx.popupDepth = 1;
 					auto &dl = ctx.DL();
 					const NkGuiFont *font = ctx.font;
 					const NkVec2 mp = ctx.input.mousePos;
@@ -2854,8 +2991,20 @@ namespace nkentseu {
 						}
 						mActionsOpen = false;
 					}
-					if (ctx.input.mouseClicked[0] && !NkGuiRectContains(menu, mp) && !NkGuiRectContains(mActionsAnchor, mp))
+					// MODAL-LITE (comme NkCtxMenuDraw) : un clic DANS le rect du panneau — qu'il
+					// touche une ligne precise ou seulement le fond/padding/titre de groupe — ne
+					// doit JAMAIS traverser jusqu'a ce qu'il y a derriere (bug remonte par Rihen).
+					// Calcule AVANT de fermer sur clic exterieur (sinon un clic sur une ligne qui
+					// ferme le panneau ce meme instant echapperait a la consommation).
+					const bool clickedInMenu = ctx.input.mouseClicked[0] && NkGuiRectContains(menu, mp);
+					if (ctx.input.mouseClicked[0] && !clickedInMenu && !NkGuiRectContains(mActionsAnchor, mp))
 						mActionsOpen = false;
+					if (clickedInMenu) {
+						ctx.input.mouseClicked[0] = false;
+						ctx.input.mouseClicked[1] = false;
+					}
+					if (!mActionsOpen)
+						ctx.popupDepth = 0; // libere la modalite (voir le force en debut de fonction)
 				}
 
 				// ── Barre d'outils du BAS (façon Claude Code / VSCode) : combos Mode/Portée/Édition
@@ -2909,6 +3058,13 @@ namespace nkentseu {
 						mActionsAnchor = actionsBtn;
 						if (hov && ctx.input.mouseClicked[0]) {
 							mActionsOpen = !mActionsOpen;
+							// Ouvrir le panneau ne changeait pas le focus TEXTE global
+							// (ctx.inputId) : la saisie du chat (toujours "focus") continuait de
+							// recevoir chaque caractere tape alors que l'utilisateur croit ecrire
+							// dans le filtre du panneau qui vient d'apparaitre par-dessus (bug
+							// remonte par Rihen).
+							if (mActionsOpen)
+								ctx.inputId = NKGUI_ID_NONE;
 							ctx.input.mouseClicked[0] = false;
 						}
 					}
@@ -3383,9 +3539,25 @@ namespace nkentseu {
 					// seule source qui rapporte TOUJOURS session + semaine ensemble (bien plus
 					// fiable que les buckets rate_limit_event, qui n'en rapportent qu'un a la fois).
 					const bool hasQuickUsage = !mQuickUsageText.Empty();
-					NkVector<NkString> quickLines;
-					if (hasQuickUsage)
-						WrapTextLines(font, mQuickUsageText.CStr(), w - pad * 2.f, quickLines);
+					// Bascule Jour/Semaine (comme la reference VSCode fournie par Rihen) : le
+					// texte /usage contient un bloc "Last 24h" et un bloc "Last 7d" distincts —
+					// on n'affiche QUE celui selectionne, pas les deux empiles.
+					NkString qPreamble, qDayBlock, qWeekBlock;
+					NkVector<NkString> quickLines;		 // preambule (session/semaine deja couverts par
+														 // les barres ; garde juste l'intro + disclaimer)
+					NkVector<NkString> quickPeriodLines; // bloc Jour OU Semaine selon mUsagePeriod
+					bool hasPeriodToggle = false;
+					if (hasQuickUsage) {
+						SplitQuickUsageDetail(qPreamble, qDayBlock, qWeekBlock);
+						hasPeriodToggle = !qDayBlock.Empty() && !qWeekBlock.Empty();
+						if (!qPreamble.Empty())
+							WrapTextLines(font, qPreamble.CStr(), w - pad * 2.f, quickLines);
+						const NkString &sel =
+							hasPeriodToggle ? (mUsagePeriod == 0 ? qDayBlock : qWeekBlock)
+											: (qDayBlock.Empty() ? qWeekBlock : qDayBlock);
+						if (!sel.Empty())
+							WrapTextLines(font, sel.CStr(), w - pad * 2.f, quickPeriodLines);
+					}
 					// Section ACCOUNT ("claude auth status --json", cf. PollAccountStatus) :
 					// 4 lignes fixes (Auth method/Email/Organisation/Plan) si les identifiants
 					// sont bien charges ET valides — sinon 1 ligne d'etat honnete (chargement/
@@ -3397,8 +3569,12 @@ namespace nkentseu {
 					float32 h = pad * 2.f + it;
 					if (mKind == 1)
 						h += it + (hasAcct ? it * 4.f : it) + sepH;
-					if (hasQuickUsage)
-						h += it + static_cast<float32>(quickLines.Size()) * it + sepH;
+					if (hasQuickUsage) {
+						h += it + static_cast<float32>(quickLines.Size()) * it;
+						if (hasPeriodToggle)
+							h += it; // ligne des boutons Jour/Semaine
+						h += static_cast<float32>(quickPeriodLines.Size()) * it + sepH;
+					}
 					if (!hasBuckets && !hasModels && !hasQuickUsage)
 						h += it;
 					if (hasBuckets)
@@ -3467,13 +3643,40 @@ namespace nkentseu {
 						y += sepH;
 					}
 					// Detail "/usage" : capture INTEGRALE (session + semaine + repartition), texte
-					// libre du CLI reproduit tel quel, jamais reformule/invente.
+					// libre du CLI reproduit tel quel, jamais reformule/invente. Bascule Jour/
+					// Semaine (comme la reference VSCode) : n'affiche que le bloc selectionne.
 					if (hasQuickUsage) {
 						sectionHdr(y, NkT("ai.usage.section.detail"));
 						y += it;
 						for (usize i = 0; i < quickLines.Size(); ++i) {
 							if (!quickLines[i].Empty())
 								txt(menu.x + pad, y, quickLines[i].CStr(), ctx.theme.text, w - pad * 2.f);
+							y += it;
+						}
+						if (hasPeriodToggle) {
+							const char *tabs[2] = {NkT("ai.usage.day"), NkT("ai.usage.week")};
+							float32 tx = menu.x + pad;
+							for (int32 ti = 0; ti < 2; ++ti) {
+								const float32 tw =
+									(font && font->Valid() ? font->MeasureWidth(tabs[ti]) : 40.f) + ctx.S(16.f);
+								const NkRect tr = {tx, y, tw, it - ctx.S(4.f)};
+								const bool sel = (mUsagePeriod == ti);
+								const bool hov = NkGuiRectContains(tr, mp);
+								dl.AddRectFilled(tr, sel ? ctx.theme.buttonActive : (hov ? ctx.theme.buttonHover : ctx.theme.button),
+												 ctx.S(4.f));
+								if (font && font->Valid())
+									txt(tr.x + ctx.S(8.f), tr.y + ctx.S(2.f), tabs[ti], ctx.theme.text);
+								if (hov && ctx.input.mouseClicked[0]) {
+									mUsagePeriod = ti;
+									ctx.input.mouseClicked[0] = false;
+								}
+								tx += tw + ctx.S(6.f);
+							}
+							y += it;
+						}
+						for (usize i = 0; i < quickPeriodLines.Size(); ++i) {
+							if (!quickPeriodLines[i].Empty())
+								txt(menu.x + pad, y, quickPeriodLines[i].CStr(), ctx.theme.text, w - pad * 2.f);
 							y += it;
 						}
 						y += sepH;
@@ -3488,9 +3691,12 @@ namespace nkentseu {
 						for (usize i = 0; i < mRlBuckets.Size(); ++i) {
 							const RlBucket &b = mRlBuckets[i];
 							const float32 frac = b.utilization < 0.f ? 0.f : (b.utilization > 1.f ? 1.f : b.utilization);
-							const NkColor barC = b.utilization >= 1.f  ? NkColor{225, 70, 70, 255}
-												  : b.surpassed		  ? NkColor{230, 160, 50, 255}
-																	  : NkColor{88, 209, 143, 255};
+							// Repli honnete : sans "surpassed" (rate_limit_event uniquement), un seuil
+							// simple sur l'utilisation evite qu'un bucket a 90% affiche vert (source
+							// /usage, qui ne fournit pas ce flag).
+							const NkColor barC = b.utilization >= 1.f					? NkColor{225, 70, 70, 255}
+												  : (b.surpassed || b.utilization >= 0.75f) ? NkColor{230, 160, 50, 255}
+																						  : NkColor{88, 209, 143, 255};
 							const NkString label = UsageBucketLabel(b.type);
 							txt(menu.x + pad, y, label.CStr(), ctx.theme.text, w - pad * 2.f - ctx.S(50.f));
 							const NkString pct = NkPrintf("%d%%", (int32)(b.utilization * 100.f + 0.5f));
@@ -3501,9 +3707,12 @@ namespace nkentseu {
 							dl.AddRectFilled(trk, ctx.theme.button, ctx.S(3.f));
 							dl.AddRectFilled({trk.x, trk.y, trk.w * frac, trk.h}, barC, ctx.S(3.f));
 							y += ctx.S(12.f);
-							NkString sub = b.resetsAt > 0
-											   ? NkPrintf("%s %s", NkT("ai.usage.resetsin"), RelTimeFromNow(b.resetsAt).CStr())
-											   : NkString();
+							NkString sub = !b.resetsText.Empty()
+											   ? NkPrintf("%s %s", NkT("ai.usage.resetsin"), b.resetsText.CStr())
+											   : b.resetsAt > 0
+													 ? NkPrintf("%s %s", NkT("ai.usage.resetsin"),
+																RelTimeFromNow(b.resetsAt).CStr())
+													 : NkString();
 							if (b.overage)
 								sub += sub.Empty() ? NkString(NkT("ai.usage.overage"))
 												   : (NkString("  \xC2\xB7  ") + NkT("ai.usage.overage"));
