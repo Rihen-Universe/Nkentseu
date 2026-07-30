@@ -495,12 +495,14 @@ namespace nkentseu {
 				return;
 			const NkString path = H->ctxPath;
 			const bool isCur = H->ctxIsCurrent;
-			const NkString folder = NkPath(path.CStr()).GetParent().ToString();
+			// Dossier de l'entree : le chemin LUI-MEME si c'est un dossier (ouvert sans
+			// workspace), son parent si c'est un fichier « .jenga ». Voir RecentFolder.
+			const NkString folder = NkCodeState::RecentFolder(path.CStr()).ToString();
 			u.ctx->input.mouseClicked[0] = false; // consomme le clic (menu prioritaire)
 			H->ctxIdx = -2;						  // ferme le menu
 			switch (clicked) {
 				case 1:
-					dlg->DoLoad(NkPath(path.CStr()).GetParent());
+					dlg->DoLoad(NkCodeState::RecentFolder(path.CStr()));
 					break; // ecran de chargement (courant OU recent)
 				case 2:
 					NkHomeOpenNewWindow(H->exePath, folder);
@@ -813,7 +815,7 @@ namespace nkentseu {
 							else if (a == 3)
 								openMenu((int32)(1000 + i), cr, st->pinned[i], true, false);
 							else if (a == 4)
-								revealPath = NkPath(st->pinned[i].CStr()).GetParent().ToString(); // reveler
+								revealPath = NkCodeState::RecentFolder(st->pinned[i].CStr()).ToString(); // reveler
 						}
 						y += CSTEP;
 					}
@@ -991,7 +993,7 @@ namespace nkentseu {
 							else if (a == 3)
 								openMenu(idx, cr, st->recents[idx], false, false);
 							else if (a == 4)
-								revealPath = NkPath(st->recents[idx].CStr()).GetParent().ToString();
+								revealPath = NkCodeState::RecentFolder(st->recents[idx].CStr()).ToString();
 						}
 					}
 					y += CSTEP;
@@ -1008,14 +1010,14 @@ namespace nkentseu {
 				NkHomeOpenFolder(revealPath); // chemin clique -> revele dans l'explorateur
 			if (loadCur) {
 				if (dlg && !curWsPath.Empty())
-					dlg->DoLoad(NkPath(curWsPath.CStr()).GetParent());
+					dlg->DoLoad(NkCodeState::RecentFolder(curWsPath.CStr()));
 				return;
 			} // ecran de chargement
 			auto pathOf = [&](int32 idx) -> NkString {
 				return idx >= 2000 ? curWsPath : idx >= 1000 ? st->pinned[idx - 1000] : st->recents[idx];
 			};
 			if (doLoad >= 0) {
-				dlg->DoLoad(NkPath(pathOf(doLoad).CStr()).GetParent());
+				dlg->DoLoad(NkCodeState::RecentFolder(pathOf(doLoad).CStr()));
 				return;
 			}
 			if (doPin >= 0) { // (des)epingle : courant (2000) ou epingle (>=1000) -> retire ; recent -> epingle
