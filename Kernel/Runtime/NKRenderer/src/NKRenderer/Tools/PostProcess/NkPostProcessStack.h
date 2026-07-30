@@ -90,6 +90,31 @@ namespace nkentseu {
 				// Vrai si l'auto-exposure doit tourner cette frame (config ou override
 				// d'environnement NK_AUTOEXP). Consulte par le RenderGraph.
 				bool IsAutoExposureEnabled() const;
+
+				// ── Phase L : TAA — Temporal Anti-Aliasing (2026-07-30) ────────────
+				// Accumule les frames precedentes pour lisser les bords en escalier.
+				// Fonctionne de pair avec le jitter sub-pixel de la projection
+				// (NkRender3D::SetTAAJitterEnabled) : sans jitter, toutes les frames
+				// echantillonnent au meme endroit et le TAA n'apporte RIEN.
+				//
+				// Opere sur le LDR tonemappe (en alternative au FXAA) : evite les
+				// fireflies HDR et la perte de precision d'un historique HDR.
+				// Historique en ping-pong de deux cibles plein ecran persistantes ;
+				// la passe gere son propre render pass (cibles hors-graph, comme
+				// l'auto-exposure et les ombres).
+				//
+				// reproj = prevViewProj * invViewProj(courante) : l'appelant la
+				// construit depuis NkRender3D::GetRenderViewProj/InvViewProj (les
+				// matrices REELLES du rendu, jitter et clip-Z compris) et conserve la
+				// viewProj de la frame precedente.
+				void RunTAA(NkICommandBuffer *cmd, NkTextureHandle ldrIn, NkTextureHandle depth,
+							const NkMat4f &reproj, bool hasHistory);
+
+				// Handle RHI du resultat TAA le plus recent (a blitter vers l'ecran).
+				// Invalide tant que le TAA n'a pas tourne.
+				NkTextureHandle GetTAAResultRHI() const;
+
+				bool IsTAAEnabled() const;
 				NkTexHandle RunSSAO(NkICommandBuffer *cmd, NkTexHandle depth, NkTexHandle normal);
 				NkTexHandle RunBloom(NkICommandBuffer *cmd, NkTexHandle hdr);
 				NkTexHandle RunTonemap(NkICommandBuffer *cmd, NkTexHandle hdr);
@@ -165,6 +190,18 @@ namespace nkentseu {
 				// RunAutoExposure ; l'autre contient l'etat de la frame precedente.
 				NkRenderTarget mLumaRT[2];
 				int mLumaWrite = -1; // -1 = jamais execute
+
+				// ── TAA : historique ping-pong plein ecran (LDR RGBA8) ────────────
+				// Persistant (recree seulement a l'OnResize, ou la resolution change
+				// et l'historique n'est de toute facon plus valide).
+				NkRenderTarget mTAART[2];
+				int mTAAWrite = -1; // -1 = jamais execute (pas d'historique)
+				NkPipelineHandle mPipeTAA;
+				::nkentseu::NkShaderHandle mShaderTAA;
+				NkDescSetHandle mTAALayout; // 3 samplers : courant + historique + depth
+				static constexpr int kTAADescSets = 6;
+				NkDescSetHandle mTAASets[kTAADescSets];
+				int mTAASetCursor = 0;
 				NkPipelineHandle mPipeAutoExp;
 				::nkentseu::NkShaderHandle mShaderAutoExp;
 				// Layout 2 samplers (uHDR + uPrevLuma) — distinct de mInputTexLayout.

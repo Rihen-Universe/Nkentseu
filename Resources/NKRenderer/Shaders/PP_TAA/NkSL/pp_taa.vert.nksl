@@ -1,0 +1,33 @@
+// pp_taa.vert.nksl — NKRenderer — Temporal AA (VS)
+// Triangle plein écran (gl_VertexID), aucun input sommet → aucun Y-flip
+// automatique injecté par les générateurs.
+//
+// ⚠️ Le bloc push_constant doit être DÉCLARÉ À L'IDENTIQUE dans le VS et le FS,
+// sinon le link OpenGL sort « type mismatch between shaders for uniform
+// _PushConstants » — et si un seul des deux étages vient du cache disque,
+// l'erreur survit à la correction : purger <exe>/cache/shaders après toute
+// évolution de ce bloc.
+
+@location(0) out vec2 vUV;
+
+layout(push_constant) uniform PC {
+    // Matrice de REPROJECTION combinée = prevViewProj * invViewProj(courante).
+    // Un seul mat4 (80 octets au total avec p0) : deux matrices séparées
+    // feraient 144 octets, au-dessus de la garantie Vulkan de 128 et au-dessus
+    // des root constants DX12 (32 DWORDs). En prime c'est moins de calcul par
+    // pixel : un seul produit matrice-vecteur au lieu de deux.
+    mat4  reproj;
+    vec4  p0;            // (blendHistory, ndcYSign, invResW, invResH)
+} pc;
+
+@stage(vertex)
+@entry
+void main() {
+    vec2 pos = vec2((gl_VertexID == 1) ? 3.0 : -1.0,
+                    (gl_VertexID == 2) ? 3.0 : -1.0);
+    gl_Position = vec4(pos, 0.0, 1.0);
+
+    vec2 uvBase = pos * 0.5 + 0.5;
+    float yFlipUV = pc.p0.y;
+    vUV = (yFlipUV < 0.0) ? vec2(uvBase.x, 1.0 - uvBase.y) : uvBase;
+}
