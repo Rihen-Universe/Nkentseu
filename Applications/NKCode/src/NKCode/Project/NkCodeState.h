@@ -5854,6 +5854,20 @@ namespace nkentseu {
 					return StrEqI(NormRecent(a).CStr(), NormRecent(b).CStr());
 				}
 
+				// DOSSIER a ouvrir pour une entree de RECENT/EPINGLE.
+				// La liste est MIXTE depuis le mode edition simple : AddRecent stocke le
+				// fichier « .jenga » quand il y a un workspace, mais le DOSSIER quand on
+				// ouvre un dossier quelconque. Les appelants faisaient tous un
+				// GetParent() inconditionnel (valable pour un fichier) : sur une entree
+				// « dossier », ca ouvrait le PARENT, donc un AUTRE dossier que celui
+				// affiche sur la carte (bug remonte par Rihen). Ce helper tranche selon
+				// ce que le chemin DESIGNE reellement, au lieu de le supposer.
+				static NkPath RecentFolder(const char *rec) {
+					if (rec && *rec && NkDirectory::Exists(rec))
+						return NkPath(rec); // entree « dossier ouvert sans workspace »
+					return NkPath(rec ? rec : "").GetParent(); // entree « fichier .jenga »
+				}
+
 				static void RemoveFrom(NkVector<NkString> &v, const char *path) {
 					for (usize i = 0; i < v.Size();)
 						if (SamePathRec(v[i].CStr(), path))
@@ -6403,7 +6417,12 @@ namespace nkentseu {
 							m.jengaVer = t;
 						}
 					}
-					m.projects = CollectProjects(txt.CStr(), NkPath(path).GetParent(), &m.projCount);
+					// Dossier du workspace : le chemin lui-meme s'il DESIGNE un dossier
+					// (entree ouverte sans .jenga), son parent s'il designe le fichier.
+					// Sans ca, l'activite d'une entree « dossier » etait mesuree sur son
+					// PARENT -> date et tri faux sur la carte du launcher.
+					const NkPath wsDir = RecentFolder(path);
+					m.projects = CollectProjects(txt.CStr(), wsDir, &m.projCount);
 					// Si ce workspace a deja ete ouvert, `jenga info` en a donne le total
 					// EXACT : il prime sur le scan textuel (toujours approximatif des que
 					// le DSL calcule ses noms de projets).
@@ -6412,7 +6431,7 @@ namespace nkentseu {
 						if (exact >= 0)
 							m.projCount = exact;
 					}
-					m.activity = ActivityTime(NkPath(path).GetParent().ToString().CStr()); // derniere activite reelle
+					m.activity = ActivityTime(wsDir.ToString().CStr()); // derniere activite reelle
 					if (m.activity == 0)
 						m.activity = MTimeOf(path); // repli : mtime du .jenga
 					mWsMeta.PushBack(m);
