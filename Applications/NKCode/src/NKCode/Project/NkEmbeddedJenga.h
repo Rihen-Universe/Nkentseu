@@ -51,14 +51,27 @@ namespace nkentseu {
 
 		class NkEmbeddedJenga {
 			public:
-				// Une requete = un appel Embed.Build/Rebuild (kind "build"/"rebuild").
+				// Une requete = un appel a l'API Embed.
+				//   "build"/"rebuild"/"clean"/"test" -> Embed.Build/Rebuild/Clean/Test
+				//                                      (progression structuree)
+				//   "info"                           -> Embed.Info (tables texte comme le CLI)
+				//   "installcompiler"                -> Jenga.Core.CompilerFetch
+				//   "cli"                            -> Embed.RunCommand(args) : N'IMPORTE
+				//        QUELLE commande Jenga (run, package, deploy, config,
+				//        compile-flags, examples, gdb, publish...) via le MEME dispatcher
+				//        que la ligne de commande. Aucune liste a maintenir en double, et
+				//        rien ne retombe sur un `jenga` externe absent d'une machine sans
+				//        Python.
 				struct Request {
-						NkString kind;		// "build" | "rebuild"
+						NkString kind;		// voir ci-dessus
 						NkString jengaFile; // chemin absolu du .jenga workspace ("" = cwd)
 						NkString target;	// projet cible ("" = tout)
 						NkString config;	// "Debug"/"Release"
 						NkString platform;	// "Windows-x86_64"... ("" = hote)
 						NkString toolchain; // nom force ("" = auto)
+						// kind == "cli" : argv complet SANS le mot « jenga »
+						// (args[0] = nom de la commande).
+						NkVector<NkString> args;
 				};
 
 				static NkEmbeddedJenga &Get(); // singleton : UN interpreteur par process
