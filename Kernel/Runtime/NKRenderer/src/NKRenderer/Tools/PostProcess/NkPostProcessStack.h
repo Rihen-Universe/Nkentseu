@@ -7,6 +7,7 @@
 #include "NKRenderer/Core/NkRenderTarget.h" // Phase H.2 : bloom mipchain via NkRenderTarget
 #include "NKRHI/Commands/NkICommandBuffer.h"
 #include "NKRHI/Core/NkIDevice.h"
+#include "NKTime/NkChrono.h" // auto-exposure : dt d'adaptation mesure en interne
 
 namespace nkentseu {
 	namespace renderer {
@@ -65,6 +66,30 @@ namespace nkentseu {
 				// Phase H.5b : blur cross-bilateral / gaussian apres GTAO pour
 				// denoise le noise du random rotation per-pixel.
 				void DrawSSAOBlurPass(NkICommandBuffer *cmd, NkTextureHandle aoSrc, uint32 ssaoW, uint32 ssaoH);
+
+				// ── Phase L : AUTO-EXPOSURE V1 (2026-07-30) ────────────────────────
+				// Mesure la luminance moyenne logarithmique de hdrIn (256 echantillons
+				// ponderes vers le centre) dans une cible 1x1 persistante, avec
+				// adaptation temporelle (ping-pong de deux cibles 1x1 : on lit celle de
+				// la frame precedente, on ecrit l'autre). Le tonemap consomme ensuite
+				// GetAvgLumaTexRHI() au binding 4.
+				//
+				// Cette methode gere SON PROPRE render pass (BeginRender/EndRender sur
+				// une cible hors-graph, comme la passe d'ombres) : la passe RenderGraph
+				// correspondante declare Reads(hdr) + SetAlwaysExecute(true) et ne
+				// declare aucun attachement.
+				//
+				// dtSeconds <= 0 : le delta est mesure en interne (horloge propre).
+				void RunAutoExposure(NkICommandBuffer *cmd, NkTextureHandle hdrIn, float32 dtSeconds = -1.f);
+
+				// Handle RHI de la cible 1x1 contenant la luminance adaptee la plus
+				// recente (celle ecrite par le dernier RunAutoExposure). Invalide si
+				// l'auto-exposure n'a pas encore tourne.
+				NkTextureHandle GetAvgLumaTexRHI() const;
+
+				// Vrai si l'auto-exposure doit tourner cette frame (config ou override
+				// d'environnement NK_AUTOEXP). Consulte par le RenderGraph.
+				bool IsAutoExposureEnabled() const;
 				NkTexHandle RunSSAO(NkICommandBuffer *cmd, NkTexHandle depth, NkTexHandle normal);
 				NkTexHandle RunBloom(NkICommandBuffer *cmd, NkTexHandle hdr);
 				NkTexHandle RunTonemap(NkICommandBuffer *cmd, NkTexHandle hdr);
@@ -132,6 +157,27 @@ namespace nkentseu {
 				// template de render pass pour mPipeSSAO (compatible avec le
 				// transient ssaoTex du RG).
 				NkRenderTarget mSSAORT;
+
+				// ── Auto-exposure V1 : ping-pong 1x1 (RGBA16F) ────────────────────
+				// Deux cibles PERSISTANTES (jamais recreees a l'OnResize : la valeur
+				// adaptee doit survivre a un redimensionnement, sinon l'image
+				// clignoterait). mLumaWrite = index ecrit par le dernier
+				// RunAutoExposure ; l'autre contient l'etat de la frame precedente.
+				NkRenderTarget mLumaRT[2];
+				int mLumaWrite = -1; // -1 = jamais execute
+				NkPipelineHandle mPipeAutoExp;
+				::nkentseu::NkShaderHandle mShaderAutoExp;
+				// Layout 2 samplers (uHDR + uPrevLuma) — distinct de mInputTexLayout.
+				NkDescSetHandle mAutoExpLayout;
+				// Pool : 2 cibles x 3 frames en vol. Updater un set encore utilise par
+				// un draw en vol est un UB Vulkan (meme raison que le pool bloom).
+				static constexpr int kAutoExpDescSets = 6;
+				NkDescSetHandle mAutoExpSets[kAutoExpDescSets];
+				int mAutoExpSetCursor = 0;
+				// Horloge propre : le dt de l'adaptation ne doit dependre d'aucun
+				// appelant (le renderer n'expose pas de delta de frame).
+				NkChrono mAutoExpClock;
+				bool mAutoExpClockStarted = false;
 
 				NkPipelineHandle mPipeSSAO, mPipeTone, mPipeFXAA;
 				// Phase H.5b : blur post-GTAO pour denoise.
