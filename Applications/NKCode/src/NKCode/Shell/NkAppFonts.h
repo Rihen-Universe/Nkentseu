@@ -15,7 +15,14 @@ namespace nkentseu {
 		// Localise les polices de repli et les déclare à NKGui. À appeler AVANT
 		// l'Init du shell (l'atlas est construit à l'Init).
 		inline void NkLoadFallbackFonts() {
-			static const char *dirs[] = {"Applications/NKCode/data/fonts/", "data/fonts/", "NKCode/data/fonts/", ""};
+			// Candidats RELATIFS AU CWD (dev, lancement depuis la racine du repo)
+			// PUIS relatifs a l'EXECUTABLE : indispensable pour une distribution,
+			// ou l'utilisateur peut lancer NKCode.exe depuis n'importe quel dossier
+			// (raccourci, PATH, ligne de commande) — sinon aucune police trouvee.
+			const NkString ed = NkPath::GetExecutableDirectory().ToString();
+			const NkString exeFonts = ed.Empty() ? NkString() : (ed + "/data/fonts/");
+			const char *dirs[] = {"Applications/NKCode/data/fonts/", "data/fonts/", "NKCode/data/fonts/",
+								  exeFonts.Empty() ? "data/fonts/" : exeFonts.CStr(), ""};
 			auto find = [&](const char *const *names, char *out, nk_size cap) {
 				out[0] = '\0';
 				for (const char *const *np = names; *np; ++np)
