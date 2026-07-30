@@ -903,6 +903,26 @@ namespace nkentseu {
 					}
 				}
 
+				// ── Auto-exposure V1 (Phase L, 2026-07-30) ────────────────────
+				// Mesure la luminance moyenne de la scene HDR dans une cible 1x1
+				// AVANT le tonemap, qui la consomme au binding 4. La cible est
+				// hors-graph (ping-pong persistant possede par le post-process) :
+				// cette passe ne declare donc AUCUN attachement et ouvre son propre
+				// render pass — meme modele que la passe d'ombres. Reads(mainColor)
+				// reste necessaire pour que le RG insere la barriere
+				// COLOR_ATTACHMENT -> SHADER_READ sur le HDR avant l'echantillonnage.
+				if (mPostProcess && mPostProcess->IsAutoExposureEnabled()) {
+					auto &ae = g.AddPass("AutoExposure", NkPassType::NK_POST_PROCESS);
+					ae.Reads(mainColor);
+					ae.SetAlwaysExecute(true); // sortie hors-graph (cible 1x1 interne)
+					NkGraphResId aeHdrId = mainColor;
+					ae.Execute([this, aeHdrId](NkICommandBuffer *cmd) {
+						NkTextureHandle hdr = mRenderGraph->GetResourceTexture(aeHdrId);
+						if (mPostProcess && hdr.IsValid())
+							mPostProcess->RunAutoExposure(cmd, hdr);
+					});
+				}
+
 				auto &pp = g.AddPass("PostProcess", NkPassType::NK_POST_PROCESS);
 				pp.Reads(mainColor);
 				if (mainDepth != NK_INVALID_RES_ID)
