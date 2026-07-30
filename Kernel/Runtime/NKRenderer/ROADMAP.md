@@ -425,7 +425,17 @@ seul parcours de cônes** : l'AO ne coûte plus rien en plus.
   w = AO) ; `NkComputeVoxelAO()` conservé pour Toon/Anime/Glass.
 - ✅ Branché sur **Layered / LayeredV1** et sur **PBR** (`pbr.frag.nksl`).
 - ✅ **MESURE (démo 8, mur rouge éclairé, aucune lumière rouge dans la scène)** :
-  ratio R/B de la zone 3D **0,774 → 1,008 (+30 %)**, 59 % des pixels affectés.
+  sur le flanc de la sphère qui fait face au mur, le rouge monte **1,9× plus vite
+  que le bleu** (dR +45,6 contre dB +23,8 à intensité ×3), soit **+15,7 % de
+  ratio R/B** ; à intensité 1, dR +18,7 contre dB +14,7. 58 % des pixels
+  affectés. Le reste du gain est neutre : c'est le rebond du **sol clair**, qui
+  domine légitimement celui du mur — comportement physique attendu, pas un défaut.
+- ✅ Le mur de la scène de test est **réellement rendu** (cube sur l'AABB de
+  l'occluder, bornes en **source unique** `kWallMin/kWallMax` pour qu'ils ne
+  puissent pas diverger). Sans ce draw, la lumière rebondissait sur un mur
+  invisible et l'effet semblait sortir de nulle part. ⚠️ Le mur est adossé en
+  **+Z** : avec `yaw=0` la caméra orbite sur l'axe **X**, donc un mur en +X se
+  planterait entre elle et la sphère.
   Non-régression : sans occluder injecté le terme est nul, rendu identique
   (démo 4 MAD 0,0014 pour un bruit run-à-run de 0,93). Debug + Release verts.
 - 🔶 **DÉFAUT PRÉEXISTANT ISOLÉ — la texture voxel n'atteint pas le shader dans
