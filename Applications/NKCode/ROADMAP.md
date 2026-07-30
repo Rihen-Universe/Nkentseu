@@ -436,6 +436,31 @@ Détail technique granulaire : `Kernel/Runtime/NKUI/ROADMAP_UI_REWRITE.private.m
 
 ---
 
+## Backlog — demandes de Rihen à traiter plus tard
+
+- ⬜ **Saisie du chat IA sur le modèle de l'éditeur** (30 juil 2026). Le brouillon
+  de chat est un tableau C de taille fixe, imposé par le widget NKGui
+  `InputTextMultiline` (convention ImGui : il écrit dans un tampon fourni par
+  l'appelant). L'éditeur de code, lui, n'a aucune borne : stockage
+  `NkVector<NkVector<char>>` et rendu de la seule fenêtre visible
+  (`firstVis = (scrollY - topPad) / lineH`, `lastVis = firstVis + viewH / lineH + 2`
+  — `NkCodeEditor.h`). **Remarque de Rihen** : la saisie du chat devrait faire
+  pareil — texte illimité, on ne dessine que ce que le défilement montre. Cela
+  demande soit un widget NKGui acceptant un stockage dynamique, soit la
+  réutilisation du composant éditeur dans le champ de chat. Palliatif en place :
+  les prompts composés ne transitent plus par le tampon (voir `mOut` dans
+  `NkAiPanel.h`), tampon porté à 64 Ko, compteur de caractères visible.
+- ⬜ **Afficheurs de documents : PDF, Word, Excel, PowerPoint** (30 juil 2026,
+  demande explicite de Rihen, « pour plus tard »). Rien n'existe aujourd'hui :
+  aucun de ces formats n'est lisible dans l'IDE. À rapprocher des viewers déjà
+  faits (image, audio, vidéo, JSON, CSV) et de ceux prévus (Markdown WYSIWYG,
+  SVG). Chantier lourd : le rendu PDF suppose un moteur (police, tracé
+  vectoriel) ; les formats Office sont des archives ZIP d'XML (OOXML) — un
+  afficheur en lecture seule est atteignable, l'édition ne l'est pas à court
+  terme.
+
+---
+
 > **Note** : le **viewport 3D** n'est PAS dans NKCode — c'est une **démo autonome** dédiée
 > (`Applications/NKViewportDemo`).
 
