@@ -3853,6 +3853,12 @@ namespace nkentseu {
 				// affiche le picker, et repose le dossier choisi ici. ──
 				bool reqPickFolder = false;
 				NkString pickedFolder;
+				// Demande de rafraichissement de l'arborescence de l'explorateur : posee
+				// a chaque fin de commande de build (build/rebuild/clean/test) puisque
+				// Jenga peut creer/supprimer des fichiers/dossiers HORS de l'IDE (le
+				// process externe ne notifie rien) ; consommee par NkExplorer::OnUI.
+				// cf. issue beta #2 (arborescence pas a jour apres `jenga build`).
+				bool reqExplorerRefresh = false;
 				bool reqSearch = false;		// Entree dans la barre recherche toolbar -> ouvrir le panneau resultats
 				char tbSearch[256] = {};	// texte du champ « Recherche rapide » (toolbar, editable en place)
 				bool tbSearchFocus = false; // le champ recherche toolbar a le focus (saisie)
@@ -4964,6 +4970,10 @@ namespace nkentseu {
 					// .nkcode/last_build_fail.log) pour consultation et pour les agents IA.
 					if (BuildSlotDone() && !mBuildDoneHandled) {
 						mBuildDoneHandled = true;
+						// Jenga (process EXTERNE) peut avoir cree/supprime des fichiers/dossiers
+						// (Build/, .jenga caches...) sans que l'IDE en soit notifie -> demande a
+						// l'explorateur de re-scanner le disque a la prochaine frame.
+						reqExplorerRefresh = true;
 						Journal(NkPrintf("commande terminee (code %d)%s : %s", BuildSlotExit(),
 										 BuildSlotExit() != 0 ? " - ECHEC" : "", mCmdCur.CStr()));
 						if (BuildSlotExit() != 0 && !mCmdLog.Empty()) {
@@ -5065,6 +5075,17 @@ namespace nkentseu {
 				void LoadProjects() {
 					if (mInfoStarted && mInfoWsIdx == wsIdx)
 						return;
+					// Dossier SANS workspace Jenga (mode edition simple, cf. LoadFolder) :
+					// aucun `.jenga` a interroger -> etat "termine, 0 projet" directement,
+					// sans jamais lancer `jenga info` (qui echouerait de toute facon).
+					if (!HasWorkspace()) {
+						mInfoStarted = true;
+						mInfoParsed = true;
+						mInfoWsIdx = wsIdx;
+						mInfoLines.Clear();
+						projects.Clear();
+						return;
+					}
 					mInfoStarted = true;
 					mInfoParsed = false;
 					mInfoWsIdx = wsIdx;
@@ -5357,32 +5378,33 @@ namespace nkentseu {
 				}
 
 				// Charge `folder` comme racine de travail : re-scan des workspaces du dossier.
-				// REFUSE (renvoie false, racine inchangee) si aucun workspace (.jenga contenant
-				// "with workspace") n'y est trouve — qu'il ait ete cree par l'UI ou non.
+				// N'EXIGE PLUS de workspace Jenga : un dossier SANS `.jenga` s'ouvre quand
+				// meme (mode edition simple, a la VSCode — explorateur/editeur/terminal/git
+				// disponibles, build/run/etc. restent grises via les gardes HasWorkspace()
+				// deja presentes partout dans les menus). Ne renvoie false que si `folder`
+				// lui-meme n'existe pas. cf. issues beta #3/#11 (« impossible d'ouvrir un
+				// dossier qui n'est pas un workspace Jenga »).
 				bool LoadFolder(const NkPath &folder) {
-					const NkPath saved = root;
+					if (!NkDirectory::Exists(folder.ToString().CStr()))
+						return false;
 					root = folder;
 					wsIdx = 0;
 					mWsScanned = false;
 					ScanWorkspaces();
-					if (!HasWorkspace()) { // aucun workspace -> refus
-						root = saved;
-						mWsScanned = false;
-						ScanWorkspaces();
-						return false;
-					}
 					mLastJengaMtime = 0; // re-amorce le watch sur la nouvelle racine
 					files.Clear();
-					active = -1;			   // onglets repartent a zero
-					RequestReload();		   // recharge la liste des projets
-					AddRecent(wsPaths[wsIdx]); // memorise dans les recents
+					active = -1;	  // onglets repartent a zero
+					RequestReload(); // recharge la liste des projets (no-op silencieux si HasWorkspace()==false)
+					// Recents : le chemin du .jenga si workspace, sinon le dossier lui-meme.
+					AddRecent(HasWorkspace() ? wsPaths[wsIdx] : folder.ToString());
 					// Restaure la SESSION de ce workspace (onglets + contenu non sauvegardé). On N'OUVRE PAS
 					// le .jenga d'office : il ne réapparaît que s'il était un onglet de la session précédente.
 					LoadSession();
 					mSessionLoaded = true;
 					mSessionTimer = 0.f;
 					mSessionSig = SessionSig();
-					status = NkString("Workspace charge : ") + folder.ToString().CStr();
+					status = HasWorkspace() ? NkString("Workspace charge : ") + folder.ToString().CStr()
+											 : NkString("Dossier ouvert (sans workspace Jenga) : ") + folder.ToString().CStr();
 					return true;
 				}
 
@@ -5478,6 +5500,100 @@ namespace nkentseu {
 					NkFile::WriteAllText(NkPath(NamesPath().CStr()), out);
 				}
 
+				// ── Nombre EXACT de projets par workspace (~/.nkcode_projcount.cfg) ─────
+				// Le comptage des cartes du launcher venait d'un scan TEXTUEL des .jenga
+				// (CollectProjects) : structurellement approximatif des que le DSL calcule
+				// ses noms (boucles, variables, conditions) — le nombre affiche etait donc
+				// « pas toujours correct ». Ici on memorise le total AUTORITAIRE fourni par
+				// `jenga info` chaque fois qu'un workspace est charge ; les cartes s'en
+				// servent en priorite, le scan ne restant qu'un repli pour les workspaces
+				// jamais ouverts. Format : <chemin .jenga canonique>|<N> par ligne.
+				NkVector<NkString> projCntPath;
+				NkVector<int32> projCntVal;
+
+				static NkString ProjCountPath() {
+					const char *home = env::GetEnvVar("USERPROFILE");
+					if (!home || !*home)
+						home = env::GetEnvVar("HOME");
+					if (home && *home)
+						return NkString(home) + "/.nkcode_projcount.cfg";
+					return NkString("nkcode_projcount.cfg");
+				}
+
+				void LoadProjCounts() {
+					projCntPath.Clear();
+					projCntVal.Clear();
+					const NkString txt = NkFile::ReadAllText(NkPath(ProjCountPath().CStr()));
+					NkString line;
+					auto flush = [&]() {
+						if (line.Empty())
+							return;
+						const char *s = line.CStr();
+						const char *bar = nullptr;
+						for (const char *p = s; *p; ++p)
+							if (*p == '|') {
+								bar = p;
+								break;
+							}
+						if (bar) {
+							NkString p2;
+							for (const char *q = s; q < bar; ++q)
+								p2 += *q;
+							int32 v = 0;
+							for (const char *q = bar + 1; *q >= '0' && *q <= '9'; ++q)
+								v = v * 10 + (*q - '0');
+							projCntPath.PushBack(NormRecent(p2.CStr()));
+							projCntVal.PushBack(v);
+						}
+						line.Clear();
+					};
+					for (const char *p = txt.CStr(); *p; ++p) {
+						if (*p == '\n' || *p == '\r')
+							flush();
+						else
+							line += *p;
+					}
+					flush();
+				}
+
+				void SaveProjCounts() {
+					NkString out;
+					for (usize i = 0; i < projCntPath.Size(); ++i) {
+						out += projCntPath[i];
+						out += "|";
+						out += NkPrintf("%d", projCntVal[i]).CStr();
+						out += "\n";
+					}
+					NkFile::WriteAllText(NkPath(ProjCountPath().CStr()), out);
+				}
+
+				// Total exact connu pour ce .jenga, ou -1 si jamais mesure.
+				int32 KnownProjCount(const char *jengaPath) const {
+					for (usize i = 0; i < projCntPath.Size(); ++i)
+						if (SamePathRec(projCntPath[i].CStr(), jengaPath))
+							return projCntVal[i];
+					return -1;
+				}
+
+				void SetKnownProjCount(const NkString &jengaPath, int32 n) {
+					if (jengaPath.Empty() || n <= 0)
+						return; // 0 = probable echec de `jenga info` -> ne rien memoriser
+					const NkString np = NormRecent(jengaPath.CStr());
+					for (usize i = 0; i < projCntPath.Size(); ++i)
+						if (SamePathRec(projCntPath[i].CStr(), np.CStr())) {
+							if (projCntVal[i] == n)
+								return; // inchange -> pas de reecriture
+							projCntVal[i] = n;
+							SaveProjCounts();
+							mWsMeta.Clear(); // les cartes recalculent avec la nouvelle valeur
+							return;
+						}
+					projCntPath.PushBack(np);
+					projCntVal.PushBack(n);
+					SaveProjCounts();
+					mWsMeta.Clear();
+				}
+
 				void SetRecentName(const NkString &path, const NkString &name) {
 					for (usize i = 0; i < nameOvrPath.Size(); ++i)
 						if (StrEq(nameOvrPath[i].CStr(), path.CStr())) {
@@ -5507,9 +5623,32 @@ namespace nkentseu {
 					return NkString("nkcode_recent.cfg");
 				}
 
+				// Normalise un chemin de RECENT/EPINGLE : separateurs unifies en '/' et
+				// lettre de lecteur en MAJUSCULE. Sans ca, le MEME workspace atteint par
+				// deux chemins d'ecriture differents ("d:/..." via argument de ligne de
+				// commande ou picker, "D:/..." via ScanWorkspaces) donnait DEUX entrees
+				// dans le launcher — les comparaisons se faisaient avec StrEq (exact).
+				static NkString NormRecent(const char *p) {
+					NkString o;
+					if (!p || !*p)
+						return o;
+					if (p[1] == ':' && p[0] >= 'a' && p[0] <= 'z') { // "d:" -> "D:"
+						o += static_cast<char>(p[0] - 32);
+						++p;
+					}
+					for (; *p; ++p)
+						o += (*p == '\\') ? '/' : *p;
+					return o;
+				}
+
+				// Comparaison de chemins : normalisee ET insensible a la casse (Windows).
+				static bool SamePathRec(const char *a, const char *b) {
+					return StrEqI(NormRecent(a).CStr(), NormRecent(b).CStr());
+				}
+
 				static void RemoveFrom(NkVector<NkString> &v, const char *path) {
 					for (usize i = 0; i < v.Size();)
-						if (StrEq(v[i].CStr(), path))
+						if (SamePathRec(v[i].CStr(), path))
 							v.Erase(v.Begin() + i);
 						else
 							++i;
@@ -5517,7 +5656,7 @@ namespace nkentseu {
 
 				bool IsPinned(const char *path) const {
 					for (usize i = 0; i < pinned.Size(); ++i)
-						if (StrEq(pinned[i].CStr(), path))
+						if (SamePathRec(pinned[i].CStr(), path))
 							return true;
 					return false;
 				}
@@ -5527,15 +5666,36 @@ namespace nkentseu {
 					pinned.Clear();
 					NkString txt = NkFile::ReadAllText(NkPath(RecentsPath().CStr()));
 					NkString cur;
+					// Chaque entree est NORMALISEE a la lecture et ignoree si deja presente
+					// (dans les epingles OU les recents) -> nettoie les doublons ecrits par
+					// les versions precedentes, sans migration ni perte d'historique.
+					auto known = [&](const char *p) {
+						for (usize i = 0; i < pinned.Size(); ++i)
+							if (SamePathRec(pinned[i].CStr(), p))
+								return true;
+						for (usize i = 0; i < recents.Size(); ++i)
+							if (SamePathRec(recents[i].CStr(), p))
+								return true;
+						return false;
+					};
+					bool cleaned = false; // un doublon retire / un chemin renormalise ?
 					auto flush = [&]() {
 						if (cur.Empty())
 							return;
-						if (cur.CStr()[0] == 'P' && cur.CStr()[1] == ' ')
-							pinned.PushBack(NkString(cur.CStr() + 2));
-						else if (cur.CStr()[0] == 'R' && cur.CStr()[1] == ' ')
-							recents.PushBack(NkString(cur.CStr() + 2));
+						const bool isPin = (cur.CStr()[0] == 'P' && cur.CStr()[1] == ' ');
+						const bool isRec = (cur.CStr()[0] == 'R' && cur.CStr()[1] == ' ');
+						const char *raw = (isPin || isRec) ? cur.CStr() + 2 : cur.CStr();
+						const NkString p = NormRecent(raw);
+						if (!StrEq(p.CStr(), raw))
+							cleaned = true; // la forme sur disque n'etait pas canonique
+						if (p.Empty())
+							cleaned = true;
+						else if (known(p.CStr()))
+							cleaned = true; // doublon d'une entree deja retenue
+						else if (isPin)
+							pinned.PushBack(p);
 						else
-							recents.PushBack(cur); // ancien format (chemin nu)
+							recents.PushBack(p); // "R " ou ancien format (chemin nu)
 						cur.Clear();
 					};
 					for (const char *p = txt.CStr(); *p; ++p) {
@@ -5545,7 +5705,13 @@ namespace nkentseu {
 							cur += *p;
 					}
 					flush();
+					// Reecrit le fichier UNE SEULE FOIS si le disque contenait des doublons
+					// ou des chemins non canoniques -> l'utilisateur ne revoit jamais le
+					// doublon, meme sans ouvrir de workspace.
+					if (cleaned)
+						SaveRecents();
 					LoadNameOverrides();
+					LoadProjCounts(); // totaux exacts memorises (cartes du launcher)
 					RebuildRecentNames();
 				}
 
@@ -5565,12 +5731,13 @@ namespace nkentseu {
 				}
 
 				void AddRecent(const NkString &wsPath) {
-					if (IsPinned(wsPath.CStr()))
+					const NkString np = NormRecent(wsPath.CStr()); // forme CANONIQUE stockee
+					if (IsPinned(np.CStr()))
 						return; // deja epingle -> reste en tete
 					NkVector<NkString> nw;
-					nw.PushBack(wsPath); // en tete (le plus recent)
+					nw.PushBack(np); // en tete (le plus recent)
 					for (usize i = 0; i < recents.Size() && nw.Size() < 12; ++i)
-						if (!StrEq(recents[i].CStr(), wsPath.CStr()))
+						if (!SamePathRec(recents[i].CStr(), np.CStr()))
 							nw.PushBack(recents[i]);
 					recents = nw;
 					SaveRecents();
@@ -5578,17 +5745,19 @@ namespace nkentseu {
 				}
 
 				void PinRecent(const NkString &path) {
-					RemoveFrom(recents, path.CStr());
-					if (!IsPinned(path.CStr()))
-						pinned.PushBack(path);
+					const NkString np = NormRecent(path.CStr());
+					RemoveFrom(recents, np.CStr());
+					if (!IsPinned(np.CStr()))
+						pinned.PushBack(np);
 					SaveRecents();
 					RebuildRecentNames();
 				}
 
 				void UnpinRecent(const NkString &path) {
-					RemoveFrom(pinned, path.CStr());
-					RemoveFrom(recents, path.CStr());
-					recents.Insert(recents.Begin(), path);
+					const NkString np = NormRecent(path.CStr());
+					RemoveFrom(pinned, np.CStr());
+					RemoveFrom(recents, np.CStr());
+					recents.Insert(recents.Begin(), np);
 					SaveRecents();
 					RebuildRecentNames();
 				}
@@ -5873,6 +6042,18 @@ namespace nkentseu {
 					auto isW2 = [](char c) {
 						return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
 					};
+					// La ligne contenant `hit` est-elle COMMENTEE (DSL = Python, « # ») ?
+					// Sans ce test, un `# with project("Ancien")` mis de cote comptait
+					// comme un projet reel -> total affiche faux sur les cartes du launcher.
+					auto inComment = [](const char *base, const char *hit) {
+						const char *ls = hit;
+						while (ls > base && ls[-1] != '\n')
+							--ls;
+						for (const char *q = ls; q < hit; ++q)
+							if (*q == '#')
+								return true;
+						return false;
+					};
 					auto collect = [&](const char *src, const char *pat, bool boundary) {
 						const char *base = src;
 						const char *p = src;
@@ -5881,7 +6062,13 @@ namespace nkentseu {
 							p += Len(pat);
 							if (boundary && hit > base && isW2(hit[-1]))
 								continue; // « startproject( » ne doit pas matcher « project( »
-							while (*p && *p != '"')
+							if (inComment(base, hit))
+								continue; // ligne commentee -> pas un projet
+							// Le nom doit etre un LITTERAL sur LA MEME ligne : `project(var)`
+							// (nom calcule) n'en a pas. Sans la borne '\n', la recherche
+							// traversait les lignes et capturait la premiere chaine
+							// rencontree plus bas dans le fichier = faux projet.
+							while (*p && *p != '"' && *p != '\n')
 								++p;
 							if (*p == '"') {
 								++p;
@@ -5903,7 +6090,12 @@ namespace nkentseu {
 					NkVector<NkString> qTxt, qDir, seen;
 					qTxt.PushBack(NkString(txt));
 					qDir.PushBack(baseDir.ToString());
-					for (usize qi = 0; qi < qTxt.Size() && qTxt.Size() <= 300; ++qi) {
+					// Plafond = nombre de fichiers ENFILES (l'ancienne condition de boucle
+					// `qTxt.Size() <= 300` ARRETAIT tout le parcours des qu'on depassait
+					// 300 : sur un gros workspace comme Nkentseu — 152 includes rien qu'a
+					// la racine — les derniers projets n'etaient jamais comptes).
+					const usize kMaxFiles = 4000;
+					for (usize qi = 0; qi < qTxt.Size(); ++qi) {
 						const char *src = qTxt[qi].CStr();
 						collect(src, "project(", true); // couvre `with project(`
 						collect(src, "startproject(", true);
@@ -5913,6 +6105,8 @@ namespace nkentseu {
 							p += Len("include(\"");
 							if (hit > src && isW2(hit[-1]))
 								continue; // pas `xinclude(`
+							if (inComment(src, hit))
+								continue; // include commente -> ne pas suivre
 							NkString rel;
 							while (*p && *p != '"')
 								rel += *p++;
@@ -5925,7 +6119,7 @@ namespace nkentseu {
 									vis = true;
 									break;
 								}
-							if (vis || qTxt.Size() > 300)
+							if (vis || qTxt.Size() >= kMaxFiles)
 								continue;
 							seen.PushBack(full);
 							const NkString sub = NkFile::ReadAllText(NkPath(full.CStr()));
@@ -6002,6 +6196,14 @@ namespace nkentseu {
 						}
 					}
 					m.projects = CollectProjects(txt.CStr(), NkPath(path).GetParent(), &m.projCount);
+					// Si ce workspace a deja ete ouvert, `jenga info` en a donne le total
+					// EXACT : il prime sur le scan textuel (toujours approximatif des que
+					// le DSL calcule ses noms de projets).
+					{
+						const int32 exact = KnownProjCount(path);
+						if (exact >= 0)
+							m.projCount = exact;
+					}
 					m.activity = ActivityTime(NkPath(path).GetParent().ToString().CStr()); // derniere activite reelle
 					if (m.activity == 0)
 						m.activity = MTimeOf(path); // repli : mtime du .jenga
@@ -6590,6 +6792,13 @@ namespace nkentseu {
 							projIdx = static_cast<int32>(i);
 							break;
 						}
+					// Memorise le total AUTORITAIRE (projets + suites de tests, comme les
+					// declarations `project(` que comptait le scan textuel) pour que la
+					// carte de ce workspace affiche le bon nombre au prochain passage sur
+					// le launcher, sans relancer `jenga info`.
+					if (wsIdx >= 0 && wsIdx < static_cast<int32>(wsPaths.Size()))
+						SetKnownProjCount(wsPaths[wsIdx],
+										  static_cast<int32>(projects.Size() + tests.Size()));
 				}
 
 				// Decoupe jusqu'a `maxN` jetons separes par des espaces/tabs. Renvoie le nombre lu.

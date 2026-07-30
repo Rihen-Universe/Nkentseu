@@ -1,0 +1,70 @@
+# NKCode v0.1.0-beta.2 (Windows x64)
+
+Merci aux testeurs de la bêta.1 : **11 rapports de bugs** en huit jours, avec
+captures, étapes de reproduction et configurations. Cette version est presque
+entièrement faite de vos retours.
+
+## Ce que vos retours ont corrigé
+
+| Issue | Problème | État |
+|---|---|---|
+| [#3](https://github.com/Rihen-Universe/NKCode-Beta/issues/3) · [#11](https://github.com/Rihen-Universe/NKCode-Beta/issues/11) | Impossible d'ouvrir un dossier qui n'est pas un workspace Jenga | ✅ **N'importe quel dossier s'ouvre** en mode édition simple (explorateur, éditeur, terminal, git). Les fonctions de compilation restent réservées aux workspaces Jenga, mais elles n'empêchent plus d'éditer du code. |
+| [#7](https://github.com/Rihen-Universe/NKCode-Beta/issues/7) | Gel (« Not Responding ») au démarrage d'un projet | ✅ La détection des outils (PATH, variables d'environnement, WSL2) tournait sur le thread d'interface — le démarrage à froid d'une machine virtuelle WSL2 bloquait l'application plusieurs secondes. Déplacée en arrière-plan. |
+| [#9](https://github.com/Rihen-Universe/NKCode-Beta/issues/9) · [#10](https://github.com/Rihen-Universe/NKCode-Beta/issues/10) | Le Jenga inclus ne s'activait pas / boutons de build inopérants | ✅ Le dossier de l'exécutable était déduit de `argv[0]`, qui n'est pas fiable selon la façon de lancer le programme : NKCode ne trouvait alors pas son Python embarqué et retombait sur un `jenga` absent de votre machine. Corrigé (chemin demandé au système). |
+| [#2](https://github.com/Rihen-Universe/NKCode-Beta/issues/2) | L'explorateur ne se rafraîchit pas après compilation | ✅ Re-scan automatique à la fin de chaque build/rebuild/clean/test. |
+| [#4](https://github.com/Rihen-Universe/NKCode-Beta/issues/4) | Dédoublement à la création d'un nouveau fichier | ✅ Le champ de saisie était inséré deux fois à la racine du workspace. |
+| [#5](https://github.com/Rihen-Universe/NKCode-Beta/issues/5) | `Ctrl+Shift+S` (Enregistrer sous) sans effet | ✅ Le raccourci était affiché dans le menu mais n'avait jamais été enregistré. |
+| [#6](https://github.com/Rihen-Universe/NKCode-Beta/issues/6) | Modèle Ollama silencieux | ✅ Message d'erreur actionnable (vérifier `ollama serve`, `ollama pull llama3.2`) au lieu d'un « réseau/curl ? » générique. |
+| [#1](https://github.com/Rihen-Universe/NKCode-Beta/issues/1) | Boutons du dialogue de suppression inertes à la souris | ✅ Corrigé après la bêta.1 (dialogue modal réécrit + routeur d'occlusion des surfaces flottantes). **À re-tester.** |
+
+## Nouveautés
+
+- **Vrai installeur Windows** — plus d'archive à extraire à la main : raccourcis
+  Menu Démarrer/Bureau, désinstalleur, entrée « Programmes et fonctionnalités »,
+  français et anglais. **Aucun droit administrateur nécessaire** (installation
+  par utilisateur).
+- **Mise à jour depuis l'IDE** — *Aide → Rechercher les mises à jour* indique
+  s'il existe une version plus récente ; si vous acceptez, NKCode télécharge,
+  se met à jour **sans réinstallation manuelle** et redémarre.
+- **Diagnostic au démarrage** — le panneau *Sortie* indique désormais le dossier
+  de l'exécutable et si le Jenga embarqué est actif (ou pourquoi il ne l'est
+  pas). Merci de **coller ces deux lignes** dans vos futurs rapports de bugs :
+  ça permet de diagnostiquer à distance.
+- **Exemples cliquables** depuis l'écran d'accueil : un clic sur un exemple
+  demande où le cloner, puis l'ouvre.
+- **Barre de menus complète** (11 menus) : chaque entrée est fonctionnelle ou
+  visiblement grisée — aucun raccourci affiché qui ne fonctionne pas.
+- **Panneaux latéraux plus étroits** : la largeur minimale de l'Explorateur et
+  du panneau IA passe de 380 à 220 pixels.
+- **Conversations IA conservées par workspace** (messages, brouillons, réglages
+  et session de l'agent) — vous retrouvez vos échanges en réouvrant un projet.
+- Corrections diverses du launcher : plus de doublons dans les projets récents,
+  version de Jenga réellement détectée (au lieu d'un numéro figé), nombre de
+  projets exact.
+
+## Honnêteté
+
+- **Windows x64 uniquement.** Linux et macOS demandent un équivalent du paquet
+  Python embarqué : c'est prévu, ce n'est pas fait.
+- **C'est une bêta** : il reste des bugs. Le multi-chat IA et une partie de la
+  refonte de la gestion des clics sont encore en chantier.
+- **NKCode et Jenga ne sont pas open source** (licence propriétaire) : seuls des
+  binaires sont publiés ici.
+- La mise à jour in-app ne pourra s'automatiser **qu'à partir de cette version**
+  (la bêta.1 ne contenait pas d'installeur).
+
+## Installation
+
+1. Télécharger `NKCode-0.1.0-beta.2-win64-setup.exe`
+2. L'exécuter (Windows peut afficher un avertissement : l'exécutable n'est pas
+   encore signé — la signature de code est au programme)
+3. Lancer NKCode depuis le Menu Démarrer
+
+Rien d'autre à installer : Python et un compilateur Clang sont embarqués.
+
+## Retours
+
+Les [Issues](https://github.com/Rihen-Universe/NKCode-Beta/issues) sont
+ouvertes et lues. Un « ça plante au démarrage » est déjà une contribution
+utile — et si possible, joignez les deux lignes de diagnostic du panneau
+*Sortie*.

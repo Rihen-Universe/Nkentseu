@@ -12,6 +12,7 @@
 #include "NKCode/Shell/Panels.h"	  // SideLeftGroup/OpenSideExclusive (Recherche)
 #include "NKCode/Shell/NkHome.h"	  // NkHomeOpenNewWindow (Nouvelle fenetre)
 #include "NKCode/Shell/NkI18n.h"	  // NkT
+#include "NKCode/Shell/NkUpdate.h"	  // NkUpdateState (mises a jour in-app, menu Aide)
 #include "NKWindow/Core/NkLauncher.h" // OpenURL (Aide)
 
 namespace nkentseu {
@@ -25,6 +26,7 @@ namespace nkentseu {
 		struct NkMenuBarCtx {
 				NkCodeDialogs *dlg = nullptr;
 				NkEditorShell *shell = nullptr;
+				NkUpdateState *upd = nullptr; // mises a jour in-app (Phase 13, menu Aide)
 				NkHomeState *home = nullptr; // wizard « Nouveau Workspace » du launcher (nav==2)
 				NkString exePath;			 // pour « Nouvelle fenetre » (NkHomeOpenNewWindow)
 				// « Ouvrir un fichier »/« Aller au fichier » via le PICKER MAISON :
@@ -180,6 +182,21 @@ namespace nkentseu {
 			const bool hasWs = s && s->HasWorkspace();
 			const bool hasFile = s && s->HasActive();
 			NkCodeDoc *doc = hasFile ? &s->files[s->active].doc : nullptr;
+
+			// ── Mises a jour in-app (Phase 13) ──
+			// Verification une fois par session (curl asynchrone : ne ralentit pas le
+			// demarrage, silencieuse si la machine est hors ligne) puis pompage chaque
+			// frame. Poll() renvoie true quand l'installeur vient d'etre lance : il
+			// faut alors QUITTER pour qu'il puisse remplacer les fichiers en place
+			// (Inno relance NKCode ensuite via sa section [Run]).
+			if (mb->upd) {
+				mb->upd->AutoCheckOnce();
+				if (mb->upd->Poll()) {
+					if (s)
+						s->status = NkString("Mise a jour en cours - NKCode va redemarrer");
+					sh->RequestClose();
+				}
+			}
 
 			// Resultat ASYNCHRONE du picker « Ouvrir un fichier » (PK_File remplit le
 			// buffer a la confirmation, une frame plus tard) -> ouverture ici.
@@ -782,9 +799,26 @@ namespace nkentseu {
 				if (MenuItem(ctx, NkT("mb.help.reportissue")))
 					NkLauncher::OpenURL("https://github.com/Rihen-Universe/NKCode-Beta/issues");
 				Separator(ctx);
-				if (MenuItem(ctx, NkT("mb.help.updates"), nullptr, true) && s)
-					TermCmd(s, sh,
-							"curl -s https://api.github.com/repos/Rihen-Universe/NKCode-Beta/releases/latest | findstr /i \"tag_name name browser_download_url\"");
+				// Mises a jour in-app (Phase 13) : verification REELLE + notification,
+				// plus un curl brut jete dans le terminal. Le libelle porte l'etat.
+				if (mb->upd) {
+					const NkString lbl = mb->upd->StatusLabel();
+					const NkString item = lbl.Empty() ? NkString(NkT("mb.help.updates"))
+													  : (NkString(NkT("mb.help.updates")) + "  \xE2\x80\x94  " + lbl.CStr());
+					const bool busy = mb->upd->checking || mb->upd->downloading;
+					if (MenuItem(ctx, item.CStr(), nullptr, !busy)) {
+						if (mb->upd->available && !mb->upd->url.Empty())
+							mb->upd->reqInstall = true; // telecharge puis installe
+						else if (mb->upd->available)
+							// Version disponible mais publiee sans installeur (archives
+							// seules) : on ouvre la page des releases plutot que de ne
+							// rien faire.
+							NkLauncher::OpenURL("https://github.com/Rihen-Universe/NKCode-Beta/releases");
+						else
+							mb->upd->reqCheck = true; // (re)verifie
+					}
+				} else if (MenuItem(ctx, NkT("mb.help.updates")))
+					NkLauncher::OpenURL("https://github.com/Rihen-Universe/NKCode-Beta/releases");
 				if (MenuItem(ctx, NkT("mb.help.about")))
 					d->showHelp = 2; // fenetre DEDIEE in-app (produit/editeur/contact)
 				EndMenu(ctx);
