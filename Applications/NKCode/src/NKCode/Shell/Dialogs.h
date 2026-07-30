@@ -953,10 +953,20 @@ namespace nkentseu {
 				EndMenu(ctx);
 			}
 			if (BeginMenu(ctx, "Deploiement")) {
-				MenuItem(ctx, "Empaqueter (jenga package)", nullptr, false);   // TODO #3
-				MenuItem(ctx, "Deployer (jenga deploy)", nullptr, false);	   // TODO #3
-				MenuItem(ctx, "Creer un installateur (.jng)", nullptr, false); // TODO #3
-				MenuItem(ctx, "Gerer les emulateurs...", nullptr, false);	   // TODO #4
+				// Empaquetage : actif des qu'un workspace est charge et que la
+				// plateforme courante est empaquetable (XboxSeries ne l'est pas).
+				const bool canPkg = s && s->HasWorkspace() && s->PackagePlatformArg() != nullptr;
+				if (MenuItem(ctx, "Empaqueter (jenga package)", nullptr, canPkg) && s)
+					s->DoPackage(nullptr); // type par defaut de la plateforme (decide par Jenga)
+				// « Deployer » exige --device, et la detection d'appareils n'existe pas
+				// encore (roadmap #2) : activer l'entree livrerait un bouton qui echoue
+				// faute d'appareil. Reste grisee jusqu'a #2.
+				MenuItem(ctx, "Deployer (jenga deploy)", nullptr, false); // TODO #2 puis #3
+				if (MenuItem(ctx, "Creer un installateur (.jng)", nullptr,
+							 canPkg && s->SupportsJngInstaller()) &&
+					s)
+					s->DoPackage("jng");
+				MenuItem(ctx, "Gerer les emulateurs...", nullptr, false); // TODO #4
 				EndMenu(ctx);
 			}
 		}
