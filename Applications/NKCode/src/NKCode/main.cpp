@@ -49,6 +49,19 @@ static nkcode::NkHomeState g_home;
 int nkmain(const NkEntryState &state) {
 	(void)state;
 
+	// ── Dossier de l'EXECUTABLE, calcule EN PREMIER ──────────────────────────
+	// Demande a l'OS (GetModuleFileNameW / /proc/self/exe / _NSGetExecutablePath),
+	// PAS deduit de argv[0] : argv[0] n'a pas de dossier quand l'exe est lance
+	// via le PATH, et est relatif quand il est lance depuis un autre dossier.
+	// Doit etre pose AVANT le chargement des polices/icones (qui cherchent
+	// aussi a cote de l'exe) et avant NkEmbeddedJenga::Configure.
+	{
+		NkString exeDir = NkPath::GetExecutableDirectory().ToString();
+		if (exeDir.Empty() && state.args.Size() > 0)
+			exeDir = NkPath(state.args[0].CStr()).GetParent().ToString(); // repli
+		nkcode::NkOpenWsState::ExeDir() = exeDir;
+	}
+
 	nkcode::InstallLogSink(); // capture les logs NKLogger -> panneau OUTPUT
 
 	nkcode::NkSynInitDefaultLangs(); // coloration data-driven (CSS, JS, Lua, Rust…)
@@ -150,20 +163,29 @@ int nkmain(const NkEntryState &state) {
 	g_menuBar.dlg = &g_dialogs;
 	g_menuBar.shell = shell.Get();
 	g_menuBar.home = &g_home; // « Nouveau Workspace » -> wizard complet du launcher (nav==2)
-	g_menuBar.exePath = (state.args.Size() > 0) ? state.args[0] : NkString(); // « Nouvelle fenetre »
+	// (g_menuBar.exePath est pose plus bas, avec le chemin COMPLET de l'exe.)
 	shell->SetMenuBar(&nkcode::MainMenuBarThunk, &g_menuBar);
 	shell->SetOverlay(&nkcode::OverlayThunk, &g_dialogs);	// dialogues modaux (creation/enregistrement)
 
 	// ── Ecran d'accueil (Home) : nouvelle UI + logos/icones rasterises en texture ──
 	g_home.st = &g_state;
 	g_home.dlg = &g_dialogs;
-	g_home.exePath = (state.args.Size() > 0) ? state.args[0] : NkString(); // pour "Ouvrir dans une nouvelle fenetre"
-	if (state.args.Size() > 0) {
-		nkcode::NkOpenWsState::ExeDir() =
-			NkPath(state.args[0].CStr()).GetParent().ToString(); // pour trouver le Jenga embarque (tools/jenga)
+	// ExeDir() a ete pose en tete de main (chemin fiable donne par l'OS).
+	// Sans lui, NkEmbeddedJenga::Configure ne trouvait pas tools/python-embed
+	// -> gProdTools=false -> mode embarque DESACTIVE -> les boutons Construire/
+	// Executer retombaient sur un `jenga` du PATH absent chez un testeur sans
+	// Python : c'est la cause des retours beta #9/#10 (« le Jenga inclus n'est
+	// pas fonctionnel », « pas utilisable avec les boutons dedies »).
+	{
+		const NkString &exeDir = nkcode::NkOpenWsState::ExeDir();
+		// « Ouvrir dans une nouvelle fenetre » : chemin COMPLET de l'exe (argv[0]
+		// pouvait etre un simple nom -> relance impossible depuis un autre CWD).
+		g_home.exePath = exeDir.Empty() ? ((state.args.Size() > 0) ? state.args[0] : NkString())
+										: (exeDir + "/NKCode.exe");
+		g_menuBar.exePath = g_home.exePath; // « Nouvelle fenetre » du menu Fenetre
 		// Jenga IN-PROCESS (Phase 12) : memorise les chemins tools/python-embed +
 		// tools/jenga-src (init de l'interpreteur paresseuse, au premier build).
-		nkcode::NkEmbeddedJenga::Configure(nkcode::NkOpenWsState::ExeDir());
+		nkcode::NkEmbeddedJenga::Configure(exeDir);
 	}
 	// Argument : un dossier de workspace -> ouvre directement (cas "nouvelle fenetre").
 	bool g_openedArg = false;
