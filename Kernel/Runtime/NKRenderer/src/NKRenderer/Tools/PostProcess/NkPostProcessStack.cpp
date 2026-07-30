@@ -487,28 +487,16 @@ void main() {
 							mPipeAutoExp.IsValid() ? 1 : 0);
 			}
 
-			// ── Phase L : pipeline TAA (Temporal AA, post-tonemap) ─────────────
-			if (mShaderLib && mTAART[0].IsValid()) {
+			// ── Phase L : shader TAA (Temporal AA, post-tonemap) ───────────────
+			// Le SHADER est charge ici (IsTAAEnabled en depend : le graph doit savoir
+			// des sa construction s'il declare les passes TAA), mais le PIPELINE est
+			// cree en lazy dans EnsureTAAPipeline : il doit etre RP-compatible avec le
+			// framebuffer que le graph cree pour la passe, lequel n'existe pas encore.
+			if (mShaderLib) {
 				auto progTAA = mShaderLib->LoadOrCompileVF("PP_TAA", "", "");
 				if (progTAA.IsValid())
 					mShaderTAA = mShaderLib->GetRHIHandle(progTAA);
 				logger.Info("[NkPostProcessStack] TAA shader : valid={0}\n", mShaderTAA.IsValid() ? 1 : 0);
-			}
-			if (mShaderTAA.IsValid() && mTAART[0].IsValid()) {
-				NkGraphicsPipelineDesc pd;
-				pd.shader = mShaderTAA;
-				pd.depthStencil = NkDepthStencilDesc::NoDepth();
-				pd.rasterizer = NkRasterizerDesc::NoCull();
-				pd.blend = NkBlendDesc::Opaque();
-				pd.debugName = "PP_TAA";
-				pd.renderPass = mTAART[0].GetRenderPass();
-				// 80 octets : mat4 reproj (64) + vec4 p0 (16). Sous la garantie
-				// Vulkan (128) et sous les root constants DX12 (32 DWORDs).
-				pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, 80);
-				if (mTAALayout.IsValid())
-					pd.descriptorSetLayouts.PushBack(mTAALayout);
-				mPipeTAA = mDevice->CreateGraphicsPipeline(pd);
-				logger.Info("[NkPostProcessStack] TAA pipeline : valid={0}\n", mPipeTAA.IsValid() ? 1 : 0);
 			}
 
 			// ── Phase L : pipeline FXAA (Fast Approximate AA, post-tonemap) ────
@@ -587,14 +575,16 @@ void main() {
 				mDevice->DestroyPipeline(mPipeFXAA);
 			if (mPipeBlit.IsValid())
 				mDevice->DestroyPipeline(mPipeBlit);
-			// TAA
+			if (mPipeBlitRT.IsValid())
+				mDevice->DestroyPipeline(mPipeBlitRT);
+			mPipeBlitRT = {};
+			if (mBlitRTSet.IsValid())
+				mDevice->FreeDescriptorSet(mBlitRTSet);
+			mBlitRTSet = {};
+			// TAA (les cibles d'historique appartiennent au RenderGraph)
 			if (mPipeTAA.IsValid())
 				mDevice->DestroyPipeline(mPipeTAA);
-			for (int i = 0; i < 2; i++) {
-				if (mTAART[i].IsValid())
-					mTAART[i].Shutdown();
-			}
-			mTAAWrite = -1;
+			mPipeTAA = {};
 			for (int i = 0; i < kTAADescSets; i++) {
 				if (mTAASets[i].IsValid())
 					mDevice->FreeDescriptorSet(mTAASets[i]);
@@ -697,23 +687,10 @@ void main() {
 				mLumaRT[i].Init(mDevice, mTex, rtd);
 			}
 
-			// ── TAA : historique ping-pong plein ecran (LDR) ──────────────────────
-			// Recreees a chaque CreateTextures (donc a l'OnResize) : un historique
-			// d'une autre resolution n'est pas reutilisable. mTAAWrite repasse a -1
-			// pour que la premiere frame apres redimensionnement soit un passe-plat
-			// au lieu de melanger un historique perime.
-			for (int i = 0; i < 2; i++) {
-				if (mTAART[i].IsValid())
-					mTAART[i].Shutdown();
-				NkRenderTargetDesc rtd;
-				rtd.width = mW;
-				rtd.height = mH;
-				rtd.hdr = false; // le TAA opere sur le LDR tonemappe
-				rtd.depth = false;
-				rtd.name = (i == 0) ? NkString("TAAHistory0") : NkString("TAAHistory1");
-				mTAART[i].Init(mDevice, mTex, rtd);
-			}
-			mTAAWrite = -1;
+			// NB : l'historique ping-pong du TAA n'est PAS cree ici — ce sont deux
+			// transients du RenderGraph (cf. RunTAAInPass pour le pourquoi). Un
+			// OnResize reconstruit le graph, donc les recree a la bonne taille et
+			// repart sans historique : exactement le comportement voulu.
 
 			mToneTex = mTex->CreateRenderTarget(mW, mH, NkGPUFormat::NK_RGBA8_UNORM, false, true, "Tone");
 			mFinalTex = mTex->CreateRenderTarget(mW, mH, NkGPUFormat::NK_RGBA8_UNORM, false, true, "Final");
@@ -1021,6 +998,61 @@ void main() {
 			pc.invResW = 1.0f / (float)(mW > 0 ? mW : 1);
 			pc.invResH = 1.0f / (float)(mH > 0 ? mH : 1);
 			pc.yFlipUV = isVK ? -1.f : +1.f;
+			pc._pad = 0.f;
+			cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), &pc);
+			cmd->Draw(3, 1, 0, 0);
+		}
+
+		// Copie vers une cible off-screen du graph (passe TAA_Store) : meme shader
+		// et meme convention de flip qu'ExecuteBlit, mais pipeline RP-compatible
+		// avec le framebuffer transient et descriptor set distinct (deux blits
+		// coexistent dans la frame : ecran + historique).
+		void NkPostProcessStack::ExecuteBlitToRT(NkICommandBuffer *cmd, NkTextureHandle src,
+												 NkRenderPassHandle rp) {
+			if (!cmd || !src.IsValid() || !mShaderBlit.IsValid() || !mDevice)
+				return;
+			if (!mPipeBlitRT.IsValid()) {
+				NkGraphicsPipelineDesc pd;
+				pd.shader = mShaderBlit;
+				pd.depthStencil = NkDepthStencilDesc::NoDepth();
+				pd.rasterizer = NkRasterizerDesc::NoCull();
+				pd.blend = NkBlendDesc::Opaque();
+				pd.debugName = "Blit_RT";
+				pd.renderPass = rp;
+				pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, 16);
+				if (mInputTexLayout.IsValid())
+					pd.descriptorSetLayouts.PushBack(mInputTexLayout);
+				mPipeBlitRT = mDevice->CreateGraphicsPipeline(pd);
+				logger.Info("[NkPostProcessStack] Blit_RT pipeline (lazy) : valid={0}\n",
+							mPipeBlitRT.IsValid() ? 1 : 0);
+			}
+			if (!mPipeBlitRT.IsValid())
+				return;
+			if (!mBlitRTSet.IsValid() && mInputTexLayout.IsValid())
+				mBlitRTSet = mDevice->AllocateDescriptorSet(mInputTexLayout);
+			if (mBlitRTSet.IsValid() && mResources)
+				mDevice->BindTextureSampler(mBlitRTSet, 0, src, mResources->GetSamplerLinearClamp());
+			cmd->BindGraphicsPipeline(mPipeBlitRT);
+			if (mBlitRTSet.IsValid())
+				cmd->BindDescriptorSet(mBlitRTSet, 0);
+
+			struct PC {
+					float invResW, invResH, yFlipUV, _pad;
+			} pc;
+
+			pc.invResW = 1.0f / (float)(mW > 0 ? mW : 1);
+			pc.invResH = 1.0f / (float)(mH > 0 ? mH : 1);
+			// ⚠️ Cette copie doit PRESERVER l'orientation : l'historique est relu par
+			// la passe TAA avec la meme convention qu'elle applique au LDR, donc les
+			// deux doivent etre orientes pareil. La regle est celle de la LECTURE
+			// d'une cible off-screen (`isVK ? -1 : +1`), et NON celle du blit vers
+			// l'ECRAN (`api != GL ? -1 : +1`) : sur DX les deux divergent, et avoir
+			// pris la seconde inversait l'historique. Symptome mesure, instructif car
+			// silencieux : luminance correcte a 0,6 % pres (le clamp de voisinage
+			// ramenait l'historique inverse dans la plage locale) mais AUCUN
+			// antialiasing — l'indicateur d'escalier montait a 51,9 % au lieu de
+			// descendre a ~42 %, soit exactement le niveau du jitter sans accumulation.
+			pc.yFlipUV = (mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_VULKAN) ? -1.f : +1.f;
 			pc._pad = 0.f;
 			cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), &pc);
 			cmd->Draw(3, 1, 0, 0);
@@ -1379,82 +1411,133 @@ void main() {
 		}
 
 		bool NkPostProcessStack::IsTAAEnabled() const {
-			if (!mPipeTAA.IsValid() || !mTAART[0].IsValid() || !mTAART[1].IsValid())
+			// Depend du SHADER et non du pipeline : le graph appelle cette methode au
+			// moment ou il se construit, donc AVANT que le pipeline (lazy, RP-compatible
+			// avec le framebuffer de la passe) ne puisse exister.
+			if (!mShaderTAA.IsValid())
 				return false;
 			return NkTAAEnabledEnv(mCfg.taa);
 		}
 
-		NkTextureHandle NkPostProcessStack::GetTAAResultRHI() const {
-			if (mTAAWrite < 0 || !mTex)
-				return NkTextureHandle{};
-			return mTex->GetRHIHandle(mTAART[mTAAWrite].GetColorHandle());
+		bool NkPostProcessStack::EnsureTAAPipeline(NkRenderPassHandle rp) {
+			if (mPipeTAA.IsValid())
+				return true;
+			if (!mShaderTAA.IsValid() || !mDevice)
+				return false;
+
+			NkGraphicsPipelineDesc pd;
+			pd.shader = mShaderTAA;
+			pd.depthStencil = NkDepthStencilDesc::NoDepth();
+			pd.rasterizer = NkRasterizerDesc::NoCull();
+			pd.blend = NkBlendDesc::Opaque();
+			pd.debugName = "PP_TAA";
+			pd.renderPass = rp; // RP de la passe du graph (cf. GetPassRenderPass)
+			// 96 octets : mat4 reproj (64) + vec4 p0 (16) + vec4 p1 (16). Sous la
+			// garantie Vulkan (128) et sous les root constants DX12 (32 DWORDs).
+			// p1 existe pour DISSOCIER yFlipUV (VS) de ndcYSign (FS) : ces deux
+			// valeurs divergent par backend, les confondre cassait GL et DX.
+			pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, 96);
+			if (mTAALayout.IsValid())
+				pd.descriptorSetLayouts.PushBack(mTAALayout);
+			mPipeTAA = mDevice->CreateGraphicsPipeline(pd);
+			logger.Info("[NkPostProcessStack] TAA pipeline (lazy) : valid={0}\n", mPipeTAA.IsValid() ? 1 : 0);
+			return mPipeTAA.IsValid();
 		}
 
-		void NkPostProcessStack::RunTAA(NkICommandBuffer *cmd, NkTextureHandle ldrIn, NkTextureHandle depth,
-										const NkMat4f &reproj, bool hasHistory) {
-			// Diag one-shot : localise un eventuel retour anticipe. Un retour ici
-			// laisse mTAAWrite a -1 -> GetTAAResultRHI() invalide -> le blit de
-			// TAA_Present ne s'execute pas -> l'ecran garde son clear noir.
-			static int sDiag = 0;
-			const bool diag = (sDiag++ == 0);
-			if (diag)
-				logger.Info("[TAA-diag] cmd={0} ldrIn={1} enabled={2} pipe={3} rt0={4} rt1={5}\n", cmd ? 1 : 0,
-							ldrIn.IsValid() ? 1 : 0, IsTAAEnabled() ? 1 : 0, mPipeTAA.IsValid() ? 1 : 0,
-							mTAART[0].IsValid() ? 1 : 0, mTAART[1].IsValid() ? 1 : 0);
+		void NkPostProcessStack::RunTAAInPass(NkICommandBuffer *cmd, NkTextureHandle ldrIn, NkTextureHandle histIn,
+											  NkTextureHandle depth, const NkMat4f &reproj, bool useHistory,
+											  NkRenderPassHandle rp) {
 			if (!cmd || !ldrIn.IsValid() || !IsTAAEnabled())
 				return;
-			NkSamplerHandle samp = mResources ? mResources->GetSamplerLinearClamp() : NkSamplerHandle{};
-			if (!samp.IsValid()) {
-				if (diag)
-					logger.Info("[TAA-diag] ABANDON : sampler invalide\n");
+			if (!EnsureTAAPipeline(rp))
 				return;
-			}
-
-			const int write = (mTAAWrite < 0) ? 0 : (1 - mTAAWrite);
-			const int read = 1 - write;
-			// Historique exploitable seulement si une frame precedente existe ET si
-			// l'appelant a pu fournir une reprojection (matrices de la frame -1).
-			const bool useHistory = hasHistory && (mTAAWrite >= 0);
-
-			NkTextureHandle histTex = mTex ? mTex->GetRHIHandle(mTAART[read].GetColorHandle()) : NkTextureHandle{};
+			NkSamplerHandle samp = mResources ? mResources->GetSamplerLinearClamp() : NkSamplerHandle{};
+			if (!samp.IsValid())
+				return;
 
 			NkDescSetHandle set = mTAASets[mTAASetCursor % kTAADescSets];
 			mTAASetCursor++;
 			if (!set.IsValid())
 				return;
+			const bool histOk = useHistory && histIn.IsValid();
 			mDevice->BindTextureSampler(set, 0, ldrIn, samp);
-			mDevice->BindTextureSampler(set, 1, (useHistory && histTex.IsValid()) ? histTex : ldrIn, samp);
+			mDevice->BindTextureSampler(set, 1, histOk ? histIn : ldrIn, samp);
 			// Profondeur absente (config sans depth) : on binde le LDR pour ne pas
 			// laisser un slot non initialise ; le shader verra depth >= 0.9999 comme
 			// du ciel et retombera sur l'image courante (donc pas d'accumulation).
 			mDevice->BindTextureSampler(set, 2, depth.IsValid() ? depth : ldrIn, samp);
 
-			mTAART[write].BeginRender(cmd, NkVec4f{0.f, 0.f, 0.f, 1.f}, false);
 			cmd->BindGraphicsPipeline(mPipeTAA);
 			cmd->BindDescriptorSet(set, 0);
 
 			struct PC {
 					float32 reproj[16];
-					float32 blend, ndcYSign, invResW, invResH;
+					float32 blend, yFlipUV, invResW, invResH; // p0
+					float32 ndcYSign, clampOn, debugMode, _pad; // p1
 			} pc;
 
 			memcpy(pc.reproj, &reproj, sizeof(pc.reproj));
-			pc.blend = (useHistory && depth.IsValid()) ? NkTAABlend() : 0.f;
-			// Meme convention de signe NDC que le deferred lighting : le VS des
-			// passes plein ecran flippe l'UV sur DX, ce qui inverse le signe utile.
+			pc.blend = (histOk && depth.IsValid()) ? NkTAABlend() : 0.f;
+
+			// ── Conventions Y PAR BACKEND ─────────────────────────────────────────
+			// Ce sont DEUX quantites distinctes, et les confondre (un seul slot p0.y
+			// pour les deux) etait le bug qui cassait l'echantillonnage :
+			//   yFlipUV  (VS) : faut-il retourner l'UV pour echantillonner la cible
+			//                   LDR ? VK oui, GL et DX non.
+			//   ndcYSign (FS) : signe qui relie vUV.y au NDC Y de la frame courante,
+			//                   pour reconstruire la position ecran depuis la
+			//                   profondeur. DX +1, GL et VK -1.
+			//
+			// ⚠️ yFlipUV suit ExecuteFXAA (`isVK ? -1 : +1`) et NON le deferred
+			// lighting, bien que le deferred resolve un probleme voisin : ce qui
+			// compte est l'orientation de la TEXTURE LUE, et le FXAA lit exactement
+			// la meme (le transient ToneLDR ecrit par la passe PostProcess). Avoir
+			// extrapole depuis le deferred donnait -1 sur DX, MESURE FAUX : luminance
+			// 97,8 au lieu de 89,2 sur DX11 (image retournee), contre 88,7 avec +1.
+			// Verifie sur trois backends : GL +1 / VK -1 / DX +1.
 			const NkGraphicsApi api = mDevice ? mDevice->GetApi() : NkGraphicsApi::NK_GFX_API_OPENGL;
+			const bool isVK = (api == NkGraphicsApi::NK_GFX_API_VULKAN);
 			const bool isDX = (api == NkGraphicsApi::NK_GFX_API_DX11 || api == NkGraphicsApi::NK_GFX_API_DX12);
+			pc.yFlipUV = isVK ? -1.f : 1.f;
 			pc.ndcYSign = isDX ? 1.f : -1.f;
+			// Overrides de diagnostic : ces deux signes ne se VOIENT pas separement a
+			// l'oeil (le clamp de voisinage borne l'erreur), il faut pouvoir les
+			// mesurer en A/B. Servent surtout a valider un nouveau backend sans
+			// recompiler. Absents = valeurs ci-dessus.
+			if (const char *v = getenv("NK_TAA_YFLIP"))
+				if (v[0])
+					pc.yFlipUV = (float32)atof(v);
+			if (const char *v = getenv("NK_TAA_NDCY"))
+				if (v[0])
+					pc.ndcYSign = (float32)atof(v);
+			// Clamp de voisinage : actif par defaut (c'est lui qui tue le ghosting).
+			// NK_TAA_CLAMP=0 le desarme, ce qui EXPOSE les erreurs de reprojection
+			// qu'il masque autrement -> seul moyen de mesurer les conventions Y.
+			pc.clampOn = 1.f;
+			if (const char *v = getenv("NK_TAA_CLAMP"))
+				if (v[0] && v[0] == '0')
+					pc.clampOn = 0.f;
+			// Sondes de diagnostic (cf. pp_taa.frag.nksl) : 1 = historique brut
+			// reprojete, 2 = historique a l'UV courant, 3 = amplitude du decalage.
+			pc.debugMode = 0.f;
+			if (const char *v = getenv("NK_TAA_DEBUG"))
+				if (v[0])
+					pc.debugMode = (float32)atof(v);
 			pc.invResW = mW > 0 ? 1.f / (float32)mW : 0.f;
 			pc.invResH = mH > 0 ? 1.f / (float32)mH : 0.f;
+			pc._pad = 0.f;
 			cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), &pc);
 			cmd->Draw(3, 1, 0, 0);
-			mTAART[write].EndRender(cmd);
 
-			mTAAWrite = write;
-			if (diag)
-				logger.Info("[TAA-diag] DRAW ok : write={0} useHistory={1} blend={2} depth={3} ndcY={4}\n", write,
-							useHistory ? 1 : 0, pc.blend, depth.IsValid() ? 1 : 0, pc.ndcYSign);
+			// Trace one-shot : de quoi verifier d'un coup d'oeil, sur un nouveau
+			// backend, que l'historique est bien branche et quelles conventions Y
+			// s'appliquent. Les handles distincts confirment que les trois entrees
+			// ne pointent pas sur la meme cible.
+			static int sDiag = 0;
+			if (sDiag++ == 0)
+				logger.Info("[TAA] useHistory={0} blend={1} yFlip={2} ndcY={3} | ids ldr={4} hist={5} depth={6}\n",
+							histOk ? 1 : 0, pc.blend, pc.yFlipUV, pc.ndcYSign, (uint32)ldrIn.id, (uint32)histIn.id,
+							(uint32)depth.id);
 		}
 
 	} // namespace renderer

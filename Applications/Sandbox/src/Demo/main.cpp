@@ -787,6 +787,10 @@ int nkmain(const NkEntryState &state) {
 	uint64 captureFrame = capEnv ? (uint64)atoll(capEnv) : 0;
 	const char *capPathEnv = getenv("NK_CAPTURE_PATH");
 	const char *capturePath = capPathEnv ? capPathEnv : "nk_capture.png";
+	// NK_CAPTURE_LEAD : nombre de frames entre la redirection de la cible et la
+	// capture (cf. le commentaire au point de redirection). Defaut 3.
+	const char *capLeadEnv = getenv("NK_CAPTURE_LEAD");
+	const uint64 captureLead = capLeadEnv ? (uint64)atoll(capLeadEnv) : 3;
 	renderer::NkOffscreenTarget captureTarget;
 	bool captureArmed = false;
 
@@ -1045,7 +1049,13 @@ int nkmain(const NkEntryState &state) {
 
 		// ── NK_CAPTURE : redirection -> readback -> restauration ────────────
 		if (captureFrame > 0) {
-			if (!captureArmed && ctx.frame + 3 >= captureFrame) {
+			// Avance de la redirection sur la capture. 3 frames suffisent pour un
+			// rendu sans etat temporel, mais la redirection reconstruit le render
+			// graph : un effet qui ACCUMULE (TAA) repart alors de zero et n'a que
+			// ces 3 frames pour converger. NK_CAPTURE_LEAD permet de lui laisser le
+			// temps (~25 frames pour un blend de 0,9) afin de mesurer le regime
+			// etabli et non le transitoire.
+			if (!captureArmed && ctx.frame + captureLead >= captureFrame) {
 				renderer::NkOffscreenDesc od;
 				od.width = ctx.width;
 				od.height = ctx.height;

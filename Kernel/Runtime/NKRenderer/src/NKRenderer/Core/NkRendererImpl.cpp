@@ -468,6 +468,22 @@ namespace nkentseu {
 		void NkRendererImpl::RebuildRenderGraph() {
 			if (mRenderGraph)
 				mRenderGraph->Reset();
+			// L'historique du TAA est un transient DU GRAPH : le Reset ci-dessus le
+			// detruit, et BuildDefaultRenderGraph en recree un VIERGE. Il faut donc
+			// desarmer l'accumulation, sinon la premiere frame d'apres melange 90 %
+			// d'une cible neuve (noire) a l'image -> l'ecran s'assombrit puis remonte
+			// sur ~20 frames a chaque redimensionnement, changement d'option, ou
+			// redirection de cible (capture / enregistrement). Mesure a l'origine de
+			// ce constat : luminance 19,6 au lieu de 92,9 trois frames apres un
+			// rebuild, exactement 92,9*(1-0,9^3).
+			mTAAHasPrev = false;
+			// Compteur de rebuilds : un rebuild par frame passerait inapercu tout en
+			// desarmant en permanence les effets temporels (l'accumulation du TAA ne
+			// demarrerait jamais). On trace donc les premiers, puis par paliers.
+			static uint32 sRebuilds = 0;
+			++sRebuilds;
+			if (sRebuilds <= 8 || (sRebuilds % 100) == 0)
+				logger.Info("[NkRendererImpl] RebuildRenderGraph #{0}\n", sRebuilds);
 			BuildDefaultRenderGraph();
 		}
 
@@ -956,71 +972,141 @@ namespace nkentseu {
 					}
 				});
 
-				// ⚠️ CAUSE RACINE IDENTIFIEE (2026-07-30) — pourquoi le TAA sort NOIR.
-				// La passe TAA ci-dessous n'a AUCUN attachement (elle ouvre son propre
-				// render pass sur une cible hors-graph) et lit le transient ToneLDR.
-				// Or le RenderGraph ne transitionne un transient en SHADER_READ que
-				// pour une passe qui declare un vrai attachement : ToneLDR n'est donc
-				// jamais rendu lisible, et l'echantillonnage renvoie du noir.
-				// PREUVE : en forcant le fragment shader a sortir une couleur
-				// constante, l'ecran devient integralement rouge (luminance mesuree
-				// 53,9 = rouge pur) -> le draw ET le blit fonctionnent, seul
-				// l'echantillonnage de ToneLDR echoue. A l'inverse la passe
-				// AutoExposure lit mainColor de la meme facon SANS probleme, parce que
-				// mainColor est ensuite relu par PostProcess qui a un attachement :
-				// c'est cette passe-la qui declenche la transition.
-				// CORRECTIF CONCU (a implementer) : importer les deux cibles
-				// d'historique dans le graph via g.ImportTexture(), puis declarer la
-				// passe TAA normalement — SetColor(0, historiqueImporte) +
-				// Reads(toneTexId) — pour que le RG gere toutes les transitions. Le
-				// contournement consistant a ajouter Reads(toneTexId) sur TAA_Present
-				// ne marche PAS : la barriere serait posee apres la passe TAA.
-				// ── Pass 2a : TAA -> historique, puis recopie vers l'ecran ────────
-				// Le TAA ecrit dans SA cible (historique ping-pong hors-graph, comme
-				// l'auto-exposure) : cette passe ne declare donc pas d'attachement,
-				// mais lit le LDR tonemappe et la profondeur. Une seconde passe
-				// recopie le resultat vers la swapchain (le blit existe deja pour
-				// MirrorPresent, on le reutilise tel quel).
+				// ── TAA : historique ping-pong DANS le graph, puis blit ecran ─────
+				// ⚠️ POURQUOI LES CIBLES SONT DES RESSOURCES DU GRAPH (fix 2026-07-30).
+				// Version precedente : la passe TAA n'avait AUCUN attachement (elle
+				// ouvrait son propre render pass sur un historique hors-graph, sur le
+				// modele de la passe d'ombres) et lisait le transient ToneLDR. Elle
+				// sortait NOIR : le RenderGraph ne transitionne un transient en
+				// SHADER_READ que pour une passe declarant un VRAI attachement, donc
+				// ToneLDR n'etait jamais rendu lisible — `Reads(id)` seul ne suffit pas.
+				// Preuve d'alors : en forcant le fragment shader a une couleur
+				// constante, l'ecran devenait integralement rouge (le draw et le blit
+				// marchaient, seul l'echantillonnage echouait). La passe AutoExposure
+				// s'en sort de la meme position parce que PostProcess relit mainColor
+				// juste apres AVEC un attachement, et declenche la transition pour elle.
+				//
+				// Correctif : les deux moities de l'historique deviennent des transients
+				// du graph (ils PERSISTENT entre frames — le graph n'est reset qu'au
+				// rebuild/resize) et la passe declare un vrai attachement. Le graph pose
+				// alors toutes les barrieres : ToneLDR et la profondeur en SHADER_READ,
+				// la cible en RENDER_TARGET, l'historique lu en SHADER_READ.
+				//
+				// TROIS passes a cibles FIXES, et non deux passes qui alterneraient
+				// leur cible : le cache de framebuffers du graph est indexe PAR NOM DE
+				// PASSE, donc une cible qui change d'une frame a l'autre est hors du
+				// modele. La variante essayee (TAA_0/TAA_1 en ping-pong, une seule
+				// dessinant par frame, l'autre ouvrant son render pass en LOAD) a ete
+				// MESUREE DEFAILLANTE : l'historique relu etait noir (sonde
+				// NK_TAA_DEBUG=2 : 97 % de pixels noirs), le clamp de voisinage
+				// masquant le defaut en le ramenant au minimum local — l'image avait
+				// l'air correcte a 1,2 % pres alors qu'aucune accumulation n'avait lieu.
+				// Ici chaque passe a une cible fixe et s'execute a chaque frame :
+				//   TAA         : ToneLDR + historique -> TAAOut
+				//   TAA_Store   : TAAOut -> historique (pour la frame suivante)
+				//   TAA_Present : TAAOut -> ecran
+				// Cout : une copie plein ecran par frame (~0,1 ms en 1080p), en echange
+				// d'un comportement qui ne depend plus de la facon dont chaque backend
+				// honore un loadOp LOAD sur une passe qui ne dessine rien.
+				// Contournement ECARTE : ajouter Reads(toneTexId) sur TAA_Present — la
+				// barriere serait posee APRES le draw du TAA.
 				if (taaOn && toneTexId != NK_INVALID_RES_ID) {
-					auto &taa = g.AddPass("TAA", NkPassType::NK_POST_PROCESS);
-					taa.Reads(toneTexId);
-					if (mainDepth != NK_INVALID_RES_ID)
-						taa.Reads(mainDepth);
-					taa.SetAlwaysExecute(true); // sortie hors-graph (historique interne)
-					NkGraphResId taaToneId = toneTexId;
-					NkGraphResId taaDepthId = mainDepth;
-					taa.Execute([this, taaToneId, taaDepthId](NkICommandBuffer *cmd) {
-						if (!mPostProcess || !mRender3D)
-							return;
-						NkTextureHandle ldr = mRenderGraph->GetResourceTexture(taaToneId);
-						NkTextureHandle depth = (taaDepthId != NK_INVALID_RES_ID)
-													? mRenderGraph->GetResourceTexture(taaDepthId)
-													: NkTextureHandle{};
-						if (!ldr.IsValid())
-							return;
-						// Reprojection = viewProj de la frame PRECEDENTE composee avec
-						// l'inverse de la viewProj COURANTE. On utilise les matrices
-						// reellement utilisees au rendu (jitter + clip-Z compris),
-						// exposees par NkRender3D : les recalculer ici dupliquerait
-						// ces corrections et deriverait de la profondeur echantillonnee.
-						const NkMat4f cur = mRender3D->GetRenderViewProj();
-						NkMat4f reproj = NkMat4f::Identity();
-						if (mTAAHasPrev)
-							reproj = mTAAPrevViewProj * mRender3D->GetRenderInvViewProj();
-						mPostProcess->RunTAA(cmd, ldr, depth, reproj, mTAAHasPrev);
-						mTAAPrevViewProj = cur;
-						mTAAHasPrev = true;
-					});
+					auto hdesc = NkTextureDesc::RenderTarget(mCfg.width, mCfg.height, NkGPUFormat::NK_RGBA8_UNORM);
+					hdesc.debugName = "TAAOut";
+					NkGraphResId taaOutId = g.CreateTransient("TAAOut", hdesc);
+					hdesc.debugName = "TAAHistory";
+					NkGraphResId histId = g.CreateTransient("TAAHist", hdesc);
 
-					auto &taaOut = g.AddPass("TAA_Present", NkPassType::NK_POST_PROCESS);
-					taaOut.SetColor(0, colorId, NkLoadOp::NK_CLEAR, {0, 0, 0, 1});
-					taaOut.Execute([this](NkICommandBuffer *cmd) {
-						if (!mPostProcess)
-							return;
-						NkTextureHandle res = mPostProcess->GetTAAResultRHI();
-						if (res.IsValid())
-							mPostProcess->ExecuteBlit(cmd, res);
-					});
+					if (taaOutId != NK_INVALID_RES_ID && histId != NK_INVALID_RES_ID) {
+						const NkGraphResId taaToneId = toneTexId;
+						const NkGraphResId taaDepthId = mainDepth;
+
+						auto &taa = g.AddPass("TAA", NkPassType::NK_POST_PROCESS);
+						taa.Reads(taaToneId);
+						taa.Reads(histId); // resultat de la frame -1 (ecrit par TAA_Store)
+						if (taaDepthId != NK_INVALID_RES_ID)
+							taa.Reads(taaDepthId);
+						taa.SetColor(0, taaOutId, NkLoadOp::NK_CLEAR, {0, 0, 0, 1});
+						taa.Execute([this, taaToneId, histId, taaDepthId](NkICommandBuffer *cmd) {
+							if (!mPostProcess || !mRender3D)
+								return;
+							NkTextureHandle ldr = mRenderGraph->GetResourceTexture(taaToneId);
+							NkTextureHandle hist = mRenderGraph->GetResourceTexture(histId);
+							NkTextureHandle depth = (taaDepthId != NK_INVALID_RES_ID)
+														? mRenderGraph->GetResourceTexture(taaDepthId)
+														: NkTextureHandle{};
+							if (!ldr.IsValid())
+								return;
+							// Reprojection = viewProj de la frame PRECEDENTE composee
+							// avec l'inverse de la viewProj COURANTE. On utilise les
+							// matrices reellement utilisees au rendu (jitter et clip-Z
+							// compris), exposees par NkRender3D : les recalculer ici
+							// dupliquerait ces corrections et deriverait de la
+							// profondeur echantillonnee.
+							const NkMat4f cur = mRender3D->GetRenderViewProj();
+							NkMat4f reproj = NkMat4f::Identity();
+							if (mTAAHasPrev)
+								reproj = mTAAPrevViewProj * mRender3D->GetRenderInvViewProj();
+							mPostProcess->RunTAAInPass(cmd, ldr, hist, depth, reproj, mTAAHasPrev,
+													   mRenderGraph->GetPassRenderPass("TAA"));
+							// NK_TAA_PREVLAG=N : n'actualiser la matrice de la frame
+							// precedente qu'une frame sur N. Outil de MESURE, pas une
+							// option de rendu : quand la camera bouge lentement, reproj
+							// est quasi l'identite et les conventions Y s'annulent
+							// (ndcYSign^2 = 1), donc une erreur de signe est
+							// indetectable. Espacer les deux matrices amplifie le
+							// mouvement inter-frame et rend l'erreur mesurable.
+							static int sPrevLag = -1;
+							if (sPrevLag < 0) {
+								const char *v = getenv("NK_TAA_PREVLAG");
+								sPrevLag = (v && v[0]) ? atoi(v) : 1;
+								if (sPrevLag < 1)
+									sPrevLag = 1;
+							}
+							static int sLagCount = 0;
+							if ((sLagCount++ % sPrevLag) == 0)
+								mTAAPrevViewProj = cur;
+							mTAAHasPrev = true;
+						});
+
+						// Recopie du resultat dans l'historique. Declaree AVANT
+						// TAA_Present : elle lit TAAOut (donc s'ordonne apres TAA) et
+						// ecrit l'historique, que seule la passe TAA lit — le tri
+						// topologique reste acyclique car au moment ou TAA est traitee,
+						// l'historique n'a pas encore de producteur declare.
+						auto &taaStore = g.AddPass("TAA_Store", NkPassType::NK_POST_PROCESS);
+						taaStore.Reads(taaOutId);
+						taaStore.SetColor(0, histId, NkLoadOp::NK_CLEAR, {0, 0, 0, 1});
+						taaStore.Execute([this, taaOutId](NkICommandBuffer *cmd) {
+							if (!mPostProcess)
+								return;
+							NkTextureHandle src = mRenderGraph->GetResourceTexture(taaOutId);
+							if (src.IsValid())
+								mPostProcess->ExecuteBlitToRT(cmd, src,
+															  mRenderGraph->GetPassRenderPass("TAA_Store"));
+						});
+
+						auto &taaPresent = g.AddPass("TAA_Present", NkPassType::NK_POST_PROCESS);
+						taaPresent.Reads(taaOutId);
+						taaPresent.SetColor(0, colorId, NkLoadOp::NK_CLEAR, {0, 0, 0, 1});
+						taaPresent.Reads(histId); // cf. sonde NK_TAA_PRESENT_HIST
+						taaPresent.Execute([this, taaOutId, histId](NkICommandBuffer *cmd) {
+							if (!mPostProcess)
+								return;
+							// Sonde : presenter l'HISTORIQUE au lieu du resultat permet de
+							// trancher entre "la recopie n'ecrit pas" et "la relecture
+							// echoue" — les deux se manifestent par un historique noir.
+							static int sPresentHist = -1;
+							if (sPresentHist < 0) {
+								const char *v = getenv("NK_TAA_PRESENT_HIST");
+								sPresentHist = (v && v[0] && v[0] != '0') ? 1 : 0;
+							}
+							NkTextureHandle res =
+								mRenderGraph->GetResourceTexture(sPresentHist ? histId : taaOutId);
+							if (res.IsValid())
+								mPostProcess->ExecuteBlit(cmd, res);
+						});
+					}
 				}
 
 				// Pass 2 : FXAA -> swapchain. Active uniquement si fxaaOn.

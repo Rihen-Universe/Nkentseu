@@ -17,7 +17,8 @@ layout(push_constant) uniform PC {
     // des root constants DX12 (32 DWORDs). En prime c'est moins de calcul par
     // pixel : un seul produit matrice-vecteur au lieu de deux.
     mat4  reproj;
-    vec4  p0;            // (blendHistory, ndcYSign, invResW, invResH)
+    vec4  p0;            // (blendHistory, yFlipUV, invResW, invResH)
+    vec4  p1;            // (ndcYSign, clampOn, debugMode, _) — lu par le FS seul
 } pc;
 
 @stage(vertex)
@@ -27,6 +28,10 @@ void main() {
                     (gl_VertexID == 2) ? 3.0 : -1.0);
     gl_Position = vec4(pos, 0.0, 1.0);
 
+    // ⚠️ yFlipUV et ndcYSign sont DEUX quantités distinctes, et elles divergent
+    // par backend : elles occupaient le même slot p0.y, ce qui retournait
+    // l'échantillonnage sur GL et le laissait droit sur DX (les deux faux).
+    // yFlipUV = -1 sur VK et DX, +1 sur GL ; ndcYSign vit dans p1.x (cf. FS).
     vec2 uvBase = pos * 0.5 + 0.5;
     float yFlipUV = pc.p0.y;
     vUV = (yFlipUV < 0.0) ? vec2(uvBase.x, 1.0 - uvBase.y) : uvBase;
