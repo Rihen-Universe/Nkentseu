@@ -51,6 +51,9 @@ namespace nkentseu {
 				float32 giIntensity = 1.f;
 				float32 giPhase = 0.f;
 				NkVec3f giWallOffset = {0.f, 0.f, 0.f};
+				// Transform effective du mur (clavier + gizmo) réellement utilisée par
+				// le dernier calcul de GI : sert à détecter qu'il a bougé.
+				NkMat4f giWallXform = NkMat4f::Identity();
 				float32 giBuildMs = 0.f;
 				float32 giInjectMs = 0.f;
 				NkTexHandle cookieWindow; // E.6 : cookie 2D pour le spot
@@ -107,8 +110,13 @@ namespace nkentseu {
 				// (valeur périmée conservée) -> le gizmo continuait de transformer souris immobile.
 				float32 lastMouseX = 0.f, lastMouseY = 0.f;
 				bool mouseTracked = false; // 1re frame : pas de delta
-				// Indices des cibles : 16 sphères, 1 cube, 2 colonnes, 64 instanciés = 83.
-				static const int32 kNumObj = 16 + 1 + 2 + 64;
+				// Indices des cibles : 16 sphères, 1 cube, 2 colonnes, 64 instanciés,
+				// puis 3 éléments de décor longtemps NON sélectionnables — le sol (83),
+				// le panneau feuillage alpha-testé (84) et le mur rouge du GI (85).
+				// Ils étaient dessinés avec une transform EN DUR : aucun index gizmo, donc
+				// ni clic ni déplacement possibles.
+				static const int32 kIdxFloor = 83, kIdxFoliage = 84, kIdxGIWall = 85;
+				static const int32 kNumObj = 16 + 1 + 2 + 64 + 3;
 				renderer::NkGizmo3D gizmo; // sélection multiple + translate/rotate/scale/combiné
 				// Mesh ÉDITÉ propre à un objet (persiste l'édition) : si valide, l'objet est
 				// rendu avec CE mesh au lieu de sa primitive partagée. Rempli à la SORTIE d'edit.
@@ -371,6 +379,20 @@ namespace nkentseu {
 				return NkMat4f::Translate({(gx - 3.5f) * 0.55f, 1.6f, (gz - 3.5f) * 0.55f - 4.5f}) *
 					   NkMat4f::Scale({0.18f, 0.18f, 0.18f});
 			}
+			// Décor devenu sélectionnable — MÊMES transforms que les draw calls.
+			if (idx == Demo3DState::kIdxFloor)
+				return NkMat4f::Scale({40.f, 1.f, 40.f}); // sol 80x80
+			if (idx == Demo3DState::kIdxFoliage)
+				return NkMat4f::Translate({4.f, 1.6f, -1.f}) * NkMat4f::RotationY(NkAngle::FromRad(0.6f)) *
+					   NkMat4f::Scale({1.6f, 1.2f, 0.03f}); // panneau alpha-testé
+			if (idx == Demo3DState::kIdxGIWall) {
+				const NkVec3f c{(Demo3DState::kGIWallMin[0] + Demo3DState::kGIWallMax[0]) * 0.5f,
+								(Demo3DState::kGIWallMin[1] + Demo3DState::kGIWallMax[1]) * 0.5f,
+								(Demo3DState::kGIWallMin[2] + Demo3DState::kGIWallMax[2]) * 0.5f};
+				return NkMat4f::Translate(c) * NkMat4f::Scale({Demo3DState::kGIWallMax[0] - Demo3DState::kGIWallMin[0],
+															   Demo3DState::kGIWallMax[1] - Demo3DState::kGIWallMin[1],
+															   Demo3DState::kGIWallMax[2] - Demo3DState::kGIWallMin[2]});
+			}
 			return NkMat4f::Identity();
 		}
 
@@ -402,6 +424,18 @@ namespace nkentseu {
 				tint = {(float32)gx / 7.f, 0.6f, (float32)gz / 7.f};
 				metallic = 0.f;
 				roughness = 0.6f;
+				return;
+			}
+			if (idx == Demo3DState::kIdxFloor) {
+				tint = {0.12f, 0.12f, 0.13f};
+				metallic = 0.f;
+				roughness = 0.92f;
+				return;
+			}
+			if (idx == Demo3DState::kIdxGIWall) {
+				tint = {0.9f, 0.05f, 0.05f};
+				metallic = 0.f;
+				roughness = 0.85f;
 				return;
 			}
 			tint = {0.75f, 0.78f, 0.85f};
@@ -2724,6 +2758,24 @@ namespace nkentseu {
 		// v1 est en CPU, donc on ne la paie pas à chaque frame pour rien. Les deux
 		// coûts sont relevés pour être affichés à l'écran — c'est ce qui permet de
 		// juger si l'indirect peut suivre une scène animée.
+		// AABB MONDE d'un cube unitaire (±0,5) transformé : les 8 coins puis min/max.
+		// Sert à faire suivre l'occluder du GI quand le mur est déplacé AU GIZMO
+		// (translation, mais aussi rotation ou mise à l'échelle).
+		static void Demo3D_XformAABB(const NkMat4f &m, NkVec3f &outMin, NkVec3f &outMax) {
+			outMin = {1e30f, 1e30f, 1e30f};
+			outMax = {-1e30f, -1e30f, -1e30f};
+			for (int32 c = 0; c < 8; c++) {
+				const NkVec3f l{(c & 1) ? 0.5f : -0.5f, (c & 2) ? 0.5f : -0.5f, (c & 4) ? 0.5f : -0.5f};
+				const NkVec3f p = m * l;
+				outMin.x = NkMin(outMin.x, p.x);
+				outMin.y = NkMin(outMin.y, p.y);
+				outMin.z = NkMin(outMin.z, p.z);
+				outMax.x = NkMax(outMax.x, p.x);
+				outMax.y = NkMax(outMax.y, p.y);
+				outMax.z = NkMax(outMax.z, p.z);
+			}
+		}
+
 		static void Demo3D_RebuildGI(Demo3DState *st, NkRenderer *renderer, const NkVector<NkLightDesc> &lights) {
 			auto *vao = renderer ? renderer->GetVoxelAO() : nullptr;
 			if (!vao)
@@ -2735,12 +2787,10 @@ namespace nkentseu {
 			floorOcc.opacity = 1.f;
 			floorOcc.albedo = {0.5f, 0.5f, 0.5f};
 			vao->RegisterOccluder(floorOcc);
-			const NkVec3f &o = st->giWallOffset;
+			// L'occluder épouse la transform EFFECTIVE du mur (clavier + gizmo) : la
+			// lumière rebondit donc toujours exactement sur le mur qu'on voit bouger.
 			NkVoxelOccluder wall;
-			wall.minWorld = {Demo3DState::kGIWallMin[0] + o.x, Demo3DState::kGIWallMin[1] + o.y,
-							 Demo3DState::kGIWallMin[2] + o.z};
-			wall.maxWorld = {Demo3DState::kGIWallMax[0] + o.x, Demo3DState::kGIWallMax[1] + o.y,
-							 Demo3DState::kGIWallMax[2] + o.z};
+			Demo3D_XformAABB(st->giWallXform, wall.minWorld, wall.maxWorld);
 			wall.opacity = 1.f;
 			wall.albedo = {0.9f, 0.05f, 0.05f};
 			vao->RegisterOccluder(wall);
@@ -3715,7 +3765,21 @@ namespace nkentseu {
 						st->giDirty = true;
 					}
 				}
+				// Transform effective du mur = décalage clavier PUIS décalage gizmo.
+				// (On appelle gizmo.Apply directement : la lambda userXform n'est
+				// définie que plus bas, après BeginScene. Même résultat, le gizmo
+				// n'étant mis à jour qu'en fin de frame.)
+				const NkMat4f wallXform =
+					st->gizmo.Apply(Demo3DState::kIdxGIWall,
+									NkMat4f::Translate(st->giWallOffset) * Demo3D_ObjBase(Demo3DState::kIdxGIWall));
+				// Déplacé au gizmo ? On compare la transform à celle du dernier calcul :
+				// c'est ce qui fait que TIRER LE MUR À LA SOURIS met le GI à jour.
+				for (int32 e = 0; e < 16 && !st->giDirty; e++) {
+					if (math::NkAbs(((const float32 *)&wallXform)[e] - ((const float32 *)&st->giWallXform)[e]) > 1e-4f)
+						st->giDirty = true;
+				}
 				if (st->giDirty) {
+					st->giWallXform = wallXform;
 					Demo3D_RebuildGI(st, ctx.renderer, sctx.lights);
 					st->giDirty = false;
 				}
@@ -3786,7 +3850,8 @@ namespace nkentseu {
 			if (!gridClean) {
 				NkDrawCall3D dc;
 				dc.mesh = st->meshPlane;
-				dc.transform = NkMat4f::Scale({40.f, 1.f, 40.f}); // sol AGRANDI (80x80)
+				// Passe par userXform : le sol suit le gizmo comme n'importe quel objet.
+				dc.transform = userXform(Demo3DState::kIdxFloor, Demo3D_ObjBase(Demo3DState::kIdxFloor));
 				dc.aabb = {{-40, 0, -40}, {40, 0, 40}};
 				dc.castShadow = false; // reçoit les ombres (pas caster)
 				dc.tint = effTint({0.12f, 0.12f, 0.13f});
@@ -3799,15 +3864,15 @@ namespace nkentseu {
 			// Même AABB que l'occluder injecté (source unique kGIWallMin/Max +
 			// offset) : la lumière rebondit exactement sur le mur qu'on voit.
 			if (st->giTest) {
-				const NkVec3f &o = st->giWallOffset;
-				const NkVec3f mn{Demo3DState::kGIWallMin[0] + o.x, Demo3DState::kGIWallMin[1] + o.y,
-								 Demo3DState::kGIWallMin[2] + o.z};
-				const NkVec3f mx{Demo3DState::kGIWallMax[0] + o.x, Demo3DState::kGIWallMax[1] + o.y,
-								 Demo3DState::kGIWallMax[2] + o.z};
+				// EXACTEMENT la transform qui a servi à l'occluder (clavier + gizmo).
+				const NkMat4f wm =
+					userXform(Demo3DState::kIdxGIWall,
+							  NkMat4f::Translate(st->giWallOffset) * Demo3D_ObjBase(Demo3DState::kIdxGIWall));
+				NkVec3f mn, mx;
+				Demo3D_XformAABB(wm, mn, mx);
 				NkDrawCall3D dc;
 				dc.mesh = st->meshCube;
-				dc.transform = NkMat4f::Translate({(mn.x + mx.x) * 0.5f, (mn.y + mx.y) * 0.5f, (mn.z + mx.z) * 0.5f}) *
-							   NkMat4f::Scale({mx.x - mn.x, mx.y - mn.y, mx.z - mn.z});
+				dc.transform = wm;
 				dc.aabb = {mn, mx};
 				dc.tint = effTint({0.9f, 0.05f, 0.05f});
 				dc.metallic = 0.f;
@@ -3930,9 +3995,7 @@ namespace nkentseu {
 			if (st->maskedMat) {
 				NkDrawCall3D dc;
 				dc.mesh = st->meshCube;
-				dc.transform = NkMat4f::Translate({4.f, 1.6f, -1.f}) *
-							   NkMat4f::RotationY(NkAngle::FromRad(0.6f)) *
-							   NkMat4f::Scale({1.6f, 1.2f, 0.03f});
+				dc.transform = userXform(Demo3DState::kIdxFoliage, Demo3D_ObjBase(Demo3DState::kIdxFoliage));
 				dc.aabb = {{4.f - 1.7f, 0.3f, -1.f - 1.7f}, {4.f + 1.7f, 2.9f, -1.f + 1.7f}};
 				dc.material = st->maskedMat->GetInstHandle();
 				dc.castShadow = true;
@@ -5458,6 +5521,18 @@ namespace nkentseu {
 										  NkMat4f::Scale({0.18f, 0.18f, 0.18f}),
 									  0.2f);
 
+				// ── Décor sélectionnable (sol, feuillage, mur du GI) ─────────────
+				// Le pick du gizmo teste désormais la BOÎTE de l'objet (cf. NkGizmo.h) :
+				// un sol de 80×80 ne capte donc que les clics qui tombent réellement
+				// dessus, au lieu de voler ceux des objets posés sur lui — ce qui était
+				// impossible avec une sphère de pick.
+				targets[n++] = fitTarget(Demo3DState::kIdxFloor, Demo3D_ObjBase(Demo3DState::kIdxFloor), 0.5f);
+				targets[n++] = fitTarget(Demo3DState::kIdxFoliage, Demo3D_ObjBase(Demo3DState::kIdxFoliage), 1.2f);
+				targets[n++] = fitTarget(Demo3DState::kIdxGIWall,
+										 NkMat4f::Translate(st->giWallOffset) *
+											 Demo3D_ObjBase(Demo3DState::kIdxGIWall),
+										 1.4f);
+
 				// Gizmo OBJET actif UNIQUEMENT hors Edit Mode (sinon c'est le gizmo vertices).
 				if (!st->editMode) {
 					// NK_GIZMO_SHOW=<mode> : sélectionne le cube central + fixe le mode
@@ -5564,7 +5639,56 @@ namespace nkentseu {
 						else if (NkInput.IsKeyDown(NkKey::NK_Z))
 							gin.lockAxis = 2;
 					}
+					// NK_SEL_AT="x,y" : force UNE FOIS un clic de sélection OBJET à ces
+					// pixels et journalise l'index attrapé. Le levier NK_PICK_AT existant
+					// ne pilote que le pick de SOMMETS en Edit Mode ; sans équivalent ici,
+					// la sélection d'objets ne pouvait être vérifiée qu'à la souris — donc
+					// pas de façon reproductible.
+					static bool selAtDone = false;
+					if (!selAtDone) {
+						if (const char *sa = getenv("NK_SEL_AT")) {
+							selAtDone = true;
+							float32 sv[2] = {0.f, 0.f};
+							int32 sk = 0;
+							const char *sp = sa;
+							while (sk < 2 && *sp) {
+								sv[sk++] = (float32)atof(sp);
+								while (*sp && *sp != ',')
+									sp++;
+								if (*sp == ',')
+									sp++;
+							}
+							gin.mouseX = sv[0];
+							gin.mouseY = sv[1];
+							gin.leftPressed = true;
+						}
+					}
 					st->gizmo.Update(targets, n, gin);
+					if (getenv("NK_SEL_AT")) {
+						static int32 lastLogged = -2;
+						const int32 nowSel = st->gizmo.ActiveIndex();
+						if (nowSel != lastLogged) {
+							lastLogged = nowSel;
+							const char *what = "?";
+							if (nowSel < 0)
+								what = "rien";
+							else if (nowSel < 16)
+								what = "sphere";
+							else if (nowSel == 16)
+								what = "cube central";
+							else if (nowSel <= 18)
+								what = "colonne";
+							else if (nowSel < 83)
+								what = "cube instancie";
+							else if (nowSel == Demo3DState::kIdxFloor)
+								what = "SOL";
+							else if (nowSel == Demo3DState::kIdxFoliage)
+								what = "PANNEAU FEUILLAGE";
+							else if (nowSel == Demo3DState::kIdxGIWall)
+								what = "MUR GI";
+							logger.Info("[Demo3D] selection -> index {0} ({1})\n", nowSel, what);
+						}
+					}
 
 					// ── OUTILS DE SÉLECTION PAR ZONE, MODE OBJET ─────────────────────
 					// B = rectangle, Ctrl+glisser = lasso, C = cercle — exactement les
