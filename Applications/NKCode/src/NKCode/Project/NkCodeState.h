@@ -6971,14 +6971,30 @@ namespace nkentseu {
 					mWatchTimer = 0.f;
 					// Signature = max(date de modif) des .jenga racine. Si elle augmente -> reload.
 					int64 mx = 0;
+					int32 nJenga = 0;
 					NkVector<NkDirectoryEntry> entries =
 						NkDirectory::GetEntries(root, "*.jenga", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
 					for (usize i = 0; i < entries.Size(); ++i) {
 						if (entries[i].IsDirectory)
 							continue;
+						++nJenga;
 						const int64 t = static_cast<int64>(entries[i].ModificationTime);
 						if (t > mx)
 							mx = t;
+					}
+					// ── APPARITION d'un workspace dans un dossier ouvert SANS .jenga ──
+					// Un dossier quelconque peut etre ouvert en mode edition simple ; si
+					// l'utilisateur y cree ensuite un .jenga (a la main, par `jenga init`
+					// dans le terminal, ou via git), l'IDE doit REDEVENIR un IDE Jenga :
+					// re-scan des workspaces -> HasWorkspace() vrai -> la toolbar de build
+					// se ractive d'elle-meme (la toolbar appelle ScanWorkspaces + TickWatch
+					// a chaque frame). Ce cas ETAIT MANQUE : la branche « 1re mesure »
+					// ci-dessous absorbait l'apparition sans jamais recharger.
+					if (nJenga > 0 && !HasWorkspace()) {
+						mLastJengaMtime = mx;
+						RequestReload();
+						status = NkString("Workspace Jenga detecte - fonctions de construction activees");
+						return;
 					}
 					if (mLastJengaMtime == 0) {
 						mLastJengaMtime = mx;
