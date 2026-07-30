@@ -450,14 +450,40 @@ Détail technique granulaire : `Kernel/Runtime/NKUI/ROADMAP_UI_REWRITE.private.m
   réutilisation du composant éditeur dans le champ de chat. Palliatif en place :
   les prompts composés ne transitent plus par le tampon (voir `mOut` dans
   `NkAiPanel.h`), tampon porté à 64 Ko, compteur de caractères visible.
-- ⬜ **Afficheurs de documents : PDF, Word, Excel, PowerPoint** (30 juil 2026,
-  demande explicite de Rihen, « pour plus tard »). Rien n'existe aujourd'hui :
-  aucun de ces formats n'est lisible dans l'IDE. À rapprocher des viewers déjà
-  faits (image, audio, vidéo, JSON, CSV) et de ceux prévus (Markdown WYSIWYG,
-  SVG). Chantier lourd : le rendu PDF suppose un moteur (police, tracé
-  vectoriel) ; les formats Office sont des archives ZIP d'XML (OOXML) — un
-  afficheur en lecture seule est atteignable, l'édition ne l'est pas à court
-  terme.
+- ⬜ **Afficheur PDF en LECTURE** (30 juil 2026, demande de Rihen ; l'édition
+  ne l'intéresse pas, la lecture si). Rien n'existe aujourd'hui — vérifié, la
+  seule occurrence de « pdf » dans NKCode est un commentaire de mise en page
+  Markdown. **Priorité : après la bêta.2** (décision Rihen).
+
+  **Ce qu'on possède déjà** — l'inventaire change complètement l'estimation :
+
+  | Brique | État |
+  |---|---|
+  | `FlateDecode` (filtre de flux dominant) | ✅ `NkDeflate::Decompress` (codec PNG) |
+  | `DCTDecode` (images) | ✅ codec JPEG de NKImage |
+  | Polices embarquées | ✅ `NkFontParser` : TrueType `glyf` **et** CFF/Type 2 charstrings (interpréteur intégré), cmap 4 et 12 |
+  | Rastérisation de contours | ✅ `NkFontRasterizer` (Bézier quadratiques et cubiques) |
+
+  Le moteur de police — que j'avais annoncé comme l'obstacle principal — est
+  donc **déjà là**, et c'était la brique la plus coûteuse.
+
+  **Ce qui reste à écrire** : lexer/parseur d'objets PDF, tables `xref`
+  **y compris xref streams et object streams** (PDF ≥ 1.5, majoritaires
+  aujourd'hui), arbre de pages, interpréteur de flux de contenu (opérateurs
+  graphiques `q/Q/cm/re/m/l/c/f/S` + texte `BT/ET/Tf/Td/Tm/Tj/TJ`), pont
+  « `FontFile2`/`FontFile3` → `NkFontParser` », encodages (`Differences`) et
+  CMaps CID→GID, remplissage de chemins (winding non-zero et even-odd) et
+  clipping.
+
+  **Risques identifiés** (les parties non bornées) : les encodages/CMaps, les
+  espaces colorimétriques, la transparence, et surtout les **PDF réels mal
+  formés** — un afficheur qui échoue sur certains fichiers peut être pire que
+  pas d'afficheur. Prévoir un repli explicite « ce PDF n'est pas affichable »
+  plutôt qu'une page blanche.
+
+- ⬜ **Afficheurs Word / Excel / PowerPoint** — reportés, l'intérêt porte
+  d'abord sur le PDF. Ce sont des archives ZIP d'XML (OOXML) : la lecture seule
+  est atteignable, l'édition non à court terme.
 
 ---
 
