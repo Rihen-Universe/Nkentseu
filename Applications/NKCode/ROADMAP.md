@@ -273,7 +273,16 @@ Détail technique granulaire : `Kernel/Runtime/NKUI/ROADMAP_UI_REWRITE.private.m
 - 🟡 **Internationalisation (i18n)** : document de traductions multi-langue (démarré
   côté Paramètres › Général) ; 5 langues majeures + Ghomala' (bamiléké).
 
-## Phase 12 — Intégration Jenga « zéro-dépendance » (in-process) 🟢 ← quasi terminée (30 juil 2026)
+## Phase 12 — Intégration Jenga « zéro-dépendance » (in-process) 🟢 ← livrée dans la bêta.2 (30 juil 2026)
+> **Publiée** le 30/07/2026 : `v0.1.0-beta.2` en pré-release sur
+> `Rihen-Universe/NKCode-Beta`, setup Inno de 86 Mo. Validée par 21 tests
+> automatisés dans un environnement **neutralisé** (aucune variable `PYTHON*`,
+> `PATH` réduit à `System32`) : `import Jenga`, `python -m Jenga`, shim
+> `tools/jenga.cmd`, `jenga info`, puis un **`jenga build` réel** — compilateur
+> détecté, exe produit, lancé, arguments reçus — et l'ajout d'une **toolchain
+> utilisateur** avec un chemin contenant une espace.
+> Ne reste que le jalon final : une **VM sans Python**, seul environnement qui
+> élimine aussi ce qu'une installation Python laisse dans le registre.
 > Objectif : **Jenga totalement intégré et fiable** dans NKCode, sans imposer
 > l'installation de Python à l'utilisateur, **en gardant le DSL Python**.
 > **Décision Rihen (21 juil)** : Windows d'abord jusqu'au bout (le vrai cas
@@ -376,7 +385,7 @@ Détail technique granulaire : `Kernel/Runtime/NKUI/ROADMAP_UI_REWRITE.private.m
   téléchargée 15 fois, mais avec le bug `argv[0]` ci-dessus.)
   (Voir aussi Jenga `ROADMAP.md` § 6.5.)
 
-## Phase 13 — Mises à jour in-app (NKCode, Jenga, outils embarqués) 🟡 ← 1re tranche faite (30 juil 2026)
+## Phase 13 — Mises à jour in-app (NKCode, Jenga, outils embarqués) 🟢 ← livrée dans la bêta.2 (30 juil 2026)
 > Demande Rihen (21 juil 2026) : l'utilisateur doit être **notifié** quand une
 > mise à jour existe (NKCode lui-même, Jenga embarqué, runtime Python, futurs
 > compilateurs bundlés) ; s'il **accepte**, on met à jour **sans réinstaller**
@@ -415,9 +424,75 @@ Détail technique granulaire : `Kernel/Runtime/NKUI/ROADMAP_UI_REWRITE.private.m
 - ⬜ Multi-plateforme : équivalent Linux/macOS (paquet système ou AppImage
   auto-update), à traiter avec l'étape 6 de la Phase 12.
 - 🎯 **Jalon** : un testeur reçoit la notification, clique Accepter, NKCode
-  redémarre à jour — sans réinstallation manuelle. *(Chaîne implémentée ;
-  vérifiable de bout en bout seulement après publication de deux releases
-  successives portant un installeur.)*
+  redémarre à jour — sans réinstallation manuelle. *(Chaîne implémentée. La
+  bêta.2 étant publiée le 30/07/2026 avec un installeur, la condition est
+  désormais remplie côté serveur : vérifié que `/releases` renvoie bien la
+  bêta.2 en tête avec l'URL d'un asset se terminant par `setup.exe`, soit
+  exactement le critère de `NkUpdate`. Reste à confirmer chez un testeur de la
+  bêta.1 — c'est lui qui déclenche réellement la chaîne.)*
+
+---
+
+## État réel de la spécification d'interface (`important/interface.md`)
+
+> Relevé le **30 juillet 2026**, établi **en confrontant la spec au code**, pas
+> de mémoire. Critère retenu : un panneau déclaré `ScaffoldPanel` dans
+> `main.cpp` est une **maquette** — il s'affiche mais ne fait rien. La roadmap
+> en fin de `interface.md` datait et ne reflétait plus l'état du dépôt.
+
+### Fait depuis la rédaction de cette roadmap
+
+| Item | Spec | État réel |
+|---|---|---|
+| #13 i18n | §1 | ✅ `NkI18n.h`, 8 langues, `NkT()` dans 16 fichiers |
+| #16 Assistant IA | §6 | ✅ chat multi-fournisseurs, contexte, commandes slash, rendu Markdown, Compte & Usage |
+| #20 IntelliSense | §2 | ✅ clangd/LSP (`NkLsp.cpp`) : diagnostics temps réel, hover, aller-à-la-définition, renommage |
+| #7 Recherche/Remplacement | §13 | ✅ `Ctrl+F`/`Ctrl+H` non modaux |
+| #4 Émulateurs | §10 | ✅ lancement Android/HarmonyOS |
+| #2 Combo Appareil | §14 | 🟡 combo présent (`devIdx`) + détection des AVD ; pas de détection ADB d'appareils physiques |
+| #9 Git | §7 | 🟡 **statut réel** : `git status --porcelain` asynchrone dans l'explorateur + indicateurs de gouttière via `git diff`. Le **panneau** (commit/branches/historique) reste une maquette |
+| #10 Débogueur | §5 | 🟡 **`jenga gdb` réel** depuis le menu, points d'arrêt transmis, exécution dans le terminal intégré. Le **panneau visuel** (variables, pile, threads, mémoire) reste une maquette |
+| #5 Propriétés | §24 | 🟡 dialogues de création de workspace et d'édition de toolchain ; pas d'édition complète du `.jenga` |
+
+### Encore à l'état de maquette (`ScaffoldPanel`)
+
+Onze panneaux s'affichent sans rien faire — c'est la dette la plus visible pour
+un utilisateur, puisqu'ils sont accessibles depuis la barre d'activité :
+
+`Problèmes` (#8) · `Contrôle de version` (#9) · `Débogueur` (#10) ·
+`Build & Tâches` (#14) · `Console de débogage` · `Tests` · `Ports` ·
+`Profiler` (#19) · `Live Collab` (#18) · `Moteur` (#17) · `Extensions` (#12)
+
+### Jamais commencé
+
+- **#3 Déploiement** (§14) — les entrées « Empaqueter » / « Déployer » existent
+  dans le menu mais sont **grisées** (`// TODO #3` dans `Dialogs.h`).
+- **#6 Vue « solution »** (§3) — workspace → projets → cibles dans l'explorateur.
+- **#15 Vue split / multi-éditeurs** (§17) — aucune amorce.
+- **#11 Préférences étendues** (§16, §22) — notamment l'éditeur de raccourcis.
+
+### Ordre recommandé pour la suite
+
+Classement par **rapport valeur / coût**, pas par numéro de la spec :
+
+1. **#3 Déploiement** — presque gratuit désormais. Depuis que *toutes* les
+   commandes Jenga passent par l'interpréteur embarqué (`Embed.RunCommand` +
+   chemin générique `cli`), il ne reste qu'à dégriser deux entrées de menu et
+   les router. Quelques heures pour une fonctionnalité annoncée.
+2. **#8 Panneau Problèmes cliquables** — le meilleur rapport valeur/coût du
+   lot. Les données existent **déjà** (`buildErrFiles` peuplé par le build,
+   diagnostics LSP) ; il manque la vue et le saut `fichier:ligne`. C'est la
+   fonctionnalité la plus utilisée d'un IDE au quotidien, et aujourd'hui les
+   erreurs ne vivent que dans le texte de la console.
+3. **#9 Panneau Git** — le statut est déjà calculé ; ajouter commit/branches
+   réutilise l'existant.
+4. **#15 Vue split** — attendu par réflexe chez quiconque vient de VS Code.
+5. **#10 Panneau de débogage visuel** — gros morceau ; `jenga gdb` rend déjà le
+   service minimal en attendant.
+
+> Les panneaux Profiler, Live Collab, Engine Bridge et Extensions (#17–#19)
+> restent après un IDE C/C++ pleinement utilisable, comme le notait déjà
+> `interface.md`.
 
 ## Phase 10 — Extensions (NKCode devient une plateforme) ⬜
 - ⬜ **API d'extension** + **points de contribution** (commandes, panneaux, langages, **nœuds**, thèmes).
