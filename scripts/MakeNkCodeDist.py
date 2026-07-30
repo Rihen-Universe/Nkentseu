@@ -98,6 +98,118 @@ def DownloadCompiler(cache: Path) -> Path:
     return ext_dir
 
 
+def FindIscc() -> Path | None:
+    """Localise ISCC.exe (compilateur Inno Setup). Mêmes emplacements que la
+    détection de Jenga (Commands/Package.py) : installation winget en portée
+    utilisateur d'abord, puis installation MSI classique."""
+    candidates = [
+        Path(os.path.expandvars(r"%LOCALAPPDATA%\Programs\Inno Setup 6")),
+        Path(os.path.expandvars(r"%LOCALAPPDATA%\Programs\Inno Setup 5")),
+        Path(os.path.expandvars(r"%ProgramFiles(x86)%\Inno Setup 6")),
+        Path(os.path.expandvars(r"%ProgramFiles%\Inno Setup 6")),
+        Path(os.path.expandvars(r"%ProgramFiles(x86)%\Inno Setup 5")),
+    ]
+    for d in candidates:
+        exe = d / "ISCC.exe"
+        if exe.exists():
+            return exe
+    found = shutil.which("ISCC")
+    return Path(found) if found else None
+
+
+def ReadNkCodeVersion() -> str:
+    """Version affichée par l'IDE — lue dans la SOURCE UNIQUE
+    (NkUi.h::NkCodeVersion) pour que l'installeur ne puisse pas en diverger."""
+    src = REPO / "Applications/NKCode/src/NKCode/Shell/NkUi.h"
+    try:
+        txt = src.read_text(encoding="utf-8", errors="ignore")
+        i = txt.find("NkCodeVersion()")
+        if i >= 0:
+            j = txt.find('return "', i)
+            if j >= 0:
+                k = txt.find('"', j + 8)
+                if k > 0:
+                    return txt[j + 8:k]
+    except OSError:
+        pass
+    return "0.0.0"
+
+
+def MakeInnoInstaller(distDir: Path, outDir: Path, config: str) -> None:
+    """Écrit un script Inno Setup pour la distribution assemblée, puis le
+    compile si ISCC est disponible.
+
+    Choix : Inno Setup plutôt que l'installeur maison (Jenga Tools/Installer),
+    conformément à l'exigence « de vrais outils ». Ce qu'un vrai installeur
+    apporte et qu'une archive ne peut pas : entrée « Programmes et
+    fonctionnalités », désinstalleur, raccourcis Menu Démarrer/Bureau,
+    association du dossier d'installation par utilisateur (aucun droit
+    administrateur requis), et signature Authenticode possible ensuite.
+    """
+    version = ReadNkCodeVersion()
+    iss = outDir / "NKCode.iss"
+    setupBase = f"NKCode-{version}-win64-setup"
+    # PrivilegesRequired=lowest : installation par UTILISATEUR (pas d'UAC) ->
+    # un testeur sans droits admin peut installer. DisableProgramGroupPage :
+    # moins de questions, l'installation doit rester triviale.
+    iss.write_text(f"""; Script Inno Setup GENERE par scripts/MakeNkCodeDist.py — ne pas editer a la main.
+; NKCode {version} ({config}) — editeur : Rihen
+[Setup]
+AppId={{{{B7E4B4C1-3F2A-4E77-9C2E-6E4B3D1A7C05}}}}
+AppName=NKCode
+AppVersion={version}
+AppPublisher=Rihen
+AppPublisherURL=https://github.com/Rihen-Universe/NKCode-Beta
+DefaultDirName={{autopf}}\\NKCode
+DefaultGroupName=NKCode
+DisableProgramGroupPage=yes
+PrivilegesRequired=lowest
+OutputDir={outDir.as_posix()}
+OutputBaseFilename={setupBase}
+Compression=lzma2/max
+SolidCompression=yes
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
+WizardStyle=modern
+UninstallDisplayName=NKCode {version}
+UninstallDisplayIcon={{app}}\\NKCode.exe
+
+[Languages]
+Name: "french"; MessagesFile: "compiler:Languages\\French.isl"
+Name: "english"; MessagesFile: "compiler:Default.isl"
+
+[Tasks]
+Name: "desktopicon"; Description: "{{cm:CreateDesktopIcon}}"; GroupDescription: "{{cm:AdditionalIcons}}"; Flags: unchecked
+
+[Files]
+Source: "{distDir.as_posix()}\\*"; DestDir: "{{app}}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+[Icons]
+Name: "{{group}}\\NKCode"; Filename: "{{app}}\\NKCode.exe"; WorkingDir: "{{app}}"
+Name: "{{group}}\\{{cm:UninstallProgram,NKCode}}"; Filename: "{{uninstallexe}}"
+Name: "{{autodesktop}}\\NKCode"; Filename: "{{app}}\\NKCode.exe"; WorkingDir: "{{app}}"; Tasks: desktopicon
+
+[Run]
+; WorkingDir explicite : les ressources data/ et tools/ sont resolues a cote de
+; l'executable, mais on lance depuis {{app}} par coherence.
+Filename: "{{app}}\\NKCode.exe"; WorkingDir: "{{app}}"; Description: "{{cm:LaunchProgram,NKCode}}"; Flags: nowait postinstall skipifsilent
+""", encoding="utf-8")
+    Log(f"script Inno Setup -> {iss}")
+
+    iscc = FindIscc()
+    if not iscc:
+        Log("ISCC.exe introuvable : script .iss ecrit, installeur NON compile.")
+        Log("  Installer Inno Setup : winget install --id JRSoftware.InnoSetup --scope user")
+        return
+    Log(f"compilation de l'installeur avec {iscc}")
+    import subprocess
+    rc = subprocess.call([str(iscc), str(iss)])
+    if rc == 0:
+        Log(f"OK : {outDir / (setupBase + '.exe')}")
+    else:
+        Log(f"ERREUR : ISCC a retourne {rc}")
+
+
 def Main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default="Release", choices=["Release", "Debug"])
@@ -110,6 +222,11 @@ def Main() -> int:
     ap.add_argument("--xz", action="store_true",
                     help="archive .tar.xz (LZMA, bien plus petite que zip)")
     ap.add_argument("--out", default=str(REPO / "dist"))
+    ap.add_argument("--installer", action="store_true",
+                    help="genere un VRAI installeur Windows (Inno Setup) : "
+                         "raccourcis, desinstalleur, entree Programmes et "
+                         "fonctionnalites. Compile avec ISCC s'il est trouve, "
+                         "sinon ecrit seulement le script .iss.")
     args = ap.parse_args()
 
     exe = REPO / f"Build/Bin/{args.config}-Windows/NKCode/NKCode.exe"
@@ -191,6 +308,8 @@ def Main() -> int:
         xpath = Path(args.out) / f"NKCode-{args.config}-win64"
         Log(f"tar.xz (LZMA, ~2x plus petit que zip ; Windows 11/7-Zip l'ouvrent) -> {xpath}.tar.xz")
         shutil.make_archive(str(xpath), "xztar", Path(args.out), "NKCode")
+    if args.installer:
+        MakeInnoInstaller(out, Path(args.out), args.config)
 
     Log(f"OK : {out}")
     Log("Test : lancer dist/NKCode/NKCode.exe sur une machine SANS Python ni compilateur.")
