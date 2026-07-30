@@ -956,6 +956,25 @@ namespace nkentseu {
 					}
 				});
 
+				// ⚠️ CAUSE RACINE IDENTIFIEE (2026-07-30) — pourquoi le TAA sort NOIR.
+				// La passe TAA ci-dessous n'a AUCUN attachement (elle ouvre son propre
+				// render pass sur une cible hors-graph) et lit le transient ToneLDR.
+				// Or le RenderGraph ne transitionne un transient en SHADER_READ que
+				// pour une passe qui declare un vrai attachement : ToneLDR n'est donc
+				// jamais rendu lisible, et l'echantillonnage renvoie du noir.
+				// PREUVE : en forcant le fragment shader a sortir une couleur
+				// constante, l'ecran devient integralement rouge (luminance mesuree
+				// 53,9 = rouge pur) -> le draw ET le blit fonctionnent, seul
+				// l'echantillonnage de ToneLDR echoue. A l'inverse la passe
+				// AutoExposure lit mainColor de la meme facon SANS probleme, parce que
+				// mainColor est ensuite relu par PostProcess qui a un attachement :
+				// c'est cette passe-la qui declenche la transition.
+				// CORRECTIF CONCU (a implementer) : importer les deux cibles
+				// d'historique dans le graph via g.ImportTexture(), puis declarer la
+				// passe TAA normalement — SetColor(0, historiqueImporte) +
+				// Reads(toneTexId) — pour que le RG gere toutes les transitions. Le
+				// contournement consistant a ajouter Reads(toneTexId) sur TAA_Present
+				// ne marche PAS : la barriere serait posee apres la passe TAA.
 				// ── Pass 2a : TAA -> historique, puis recopie vers l'ecran ────────
 				// Le TAA ecrit dans SA cible (historique ping-pong hors-graph, comme
 				// l'auto-exposure) : cette passe ne declare donc pas d'attachement,
