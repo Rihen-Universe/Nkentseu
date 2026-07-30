@@ -194,13 +194,28 @@ namespace nkentseu {
 				y += u.s(36);
 			}
 
-			// Footer versions (bas de sidebar)
+			// ── Footer versions (bas de sidebar) ──
+			// Version IDE = constante UNIQUE (NkCodeVersion(), plus de litteral divergent
+			// entre ici et la fenetre « A propos »). Version Jenga = celle REELLEMENT
+			// detectee sur la machine (`jenga --version`, cf. NkSettingsState::DetectSync),
+			// plus un litteral code en dur qui mentait des que l'utilisateur mettait
+			// Jenga a jour (affichait 2.0.7 avec un Jenga 2.0.9 installe).
+			// Amorce la detection (thread de fond, idempotente) : sans cet appel elle
+			// ne demarrait QUE dans le panneau Parametres -> la version Jenga restait
+			// a « … » sur l'accueil jusqu'a ce que l'utilisateur y aille.
+			H->settings.EnsureDetected();
 			const float32 fy = r.y + r.h - u.s(44);
 			u.Rect({r.x, fy - u.s(8), r.w, 1.f}, NkCol::border);
 			u.Text(r.x + u.s(16), fy, "IDE", NkCol::mutedFg);
-			u.Text(r.x + r.w - u.s(16) - u.TextW("1.0.0"), fy, "1.0.0", NkCol::mutedFg);
+			const char *ideV = NkCodeVersion();
+			u.Text(r.x + r.w - u.s(16) - u.TextW(ideV), fy, ideV, NkCol::mutedFg);
 			u.Text(r.x + u.s(16), fy + u.s(16), "Jenga", NkCol::mutedFg);
-			u.Text(r.x + r.w - u.s(16) - u.TextW("2.0.7"), fy + u.s(16), "2.0.7", NkCol::accent);
+			// « … » tant que la detection asynchrone n'a pas repondu ; « n/d » si Jenga
+			// est introuvable (aucune version a afficher, on ne l'invente pas).
+			const NkString jv = H->settings.jengaVersion.Empty()
+									? (H->settings.detected ? NkString("n/d") : NkString("\xE2\x80\xA6"))
+									: H->settings.jengaVersion;
+			u.Text(r.x + r.w - u.s(16) - u.TextW(jv.CStr()), fy + u.s(16), jv.CStr(), NkCol::accent);
 		}
 
 		// Proprietes affichees sur la carte d'un workspace (cf. maquette).
@@ -1097,8 +1112,19 @@ namespace nkentseu {
 					!NkCodeState::ContainsI(e.platforms.CStr(), H->exSearch))
 					continue;
 				const NkRect er = {exList.x, ey, elw, u.s(40)};
-				if (!anyPopup && u.Hit(er))
+				const bool exHov = !anyPopup && u.Hit(er);
+				if (exHov)
 					u.Rect(er, NkCol::hover, NkR::sm * u.S);
+				// CLIC = cloner l'exemple : le picker maison demande l'EMPLACEMENT de
+				// destination, puis `jenga examples copy` (async) cree le clone et le
+				// clone s'ouvre comme workspace (RoutePickerResult/PollExampleCopy).
+				if (exHov && u.click && H->dlg && !H->dlg->exCopyBusy && !H->dlg->pickerOpen) {
+					H->dlg->exCopyId = e.id;
+					const char *homeDir = env::GetEnvVar("USERPROFILE");
+					if (!homeDir || !*homeDir)
+						homeDir = env::GetEnvVar("HOME");
+					H->dlg->OpenPicker(NkCodeDialogs::PK_ExampleCopy, (homeDir && *homeDir) ? homeDir : ".");
+				}
 				NkDrawIcon(u, H->icons.exemple, {exList.x + u.s(8), ey + u.s(7), u.s(14), u.s(14)}, NkCol::accent);
 				u.TextEllipsis(exList.x + u.s(28), ey + u.s(4), elw - u.s(34), e.id.CStr(), NkCol::foreground);
 				if (e.platforms.CStr()[0])
