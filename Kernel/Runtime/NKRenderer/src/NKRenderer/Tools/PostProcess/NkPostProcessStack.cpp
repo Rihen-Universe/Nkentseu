@@ -1392,11 +1392,23 @@ void main() {
 
 		void NkPostProcessStack::RunTAA(NkICommandBuffer *cmd, NkTextureHandle ldrIn, NkTextureHandle depth,
 										const NkMat4f &reproj, bool hasHistory) {
+			// Diag one-shot : localise un eventuel retour anticipe. Un retour ici
+			// laisse mTAAWrite a -1 -> GetTAAResultRHI() invalide -> le blit de
+			// TAA_Present ne s'execute pas -> l'ecran garde son clear noir.
+			static int sDiag = 0;
+			const bool diag = (sDiag++ == 0);
+			if (diag)
+				logger.Info("[TAA-diag] cmd={0} ldrIn={1} enabled={2} pipe={3} rt0={4} rt1={5}\n", cmd ? 1 : 0,
+							ldrIn.IsValid() ? 1 : 0, IsTAAEnabled() ? 1 : 0, mPipeTAA.IsValid() ? 1 : 0,
+							mTAART[0].IsValid() ? 1 : 0, mTAART[1].IsValid() ? 1 : 0);
 			if (!cmd || !ldrIn.IsValid() || !IsTAAEnabled())
 				return;
 			NkSamplerHandle samp = mResources ? mResources->GetSamplerLinearClamp() : NkSamplerHandle{};
-			if (!samp.IsValid())
+			if (!samp.IsValid()) {
+				if (diag)
+					logger.Info("[TAA-diag] ABANDON : sampler invalide\n");
 				return;
+			}
 
 			const int write = (mTAAWrite < 0) ? 0 : (1 - mTAAWrite);
 			const int read = 1 - write;
@@ -1440,6 +1452,9 @@ void main() {
 			mTAART[write].EndRender(cmd);
 
 			mTAAWrite = write;
+			if (diag)
+				logger.Info("[TAA-diag] DRAW ok : write={0} useHistory={1} blend={2} depth={3} ndcY={4}\n", write,
+							useHistory ? 1 : 0, pc.blend, depth.IsValid() ? 1 : 0, pc.ndcYSign);
 		}
 
 	} // namespace renderer
