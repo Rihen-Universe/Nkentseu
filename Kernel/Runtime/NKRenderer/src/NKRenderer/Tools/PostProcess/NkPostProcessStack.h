@@ -99,20 +99,32 @@ namespace nkentseu {
 				//
 				// Opere sur le LDR tonemappe (en alternative au FXAA) : evite les
 				// fireflies HDR et la perte de precision d'un historique HDR.
-				// Historique en ping-pong de deux cibles plein ecran persistantes ;
-				// la passe gere son propre render pass (cibles hors-graph, comme
-				// l'auto-exposure et les ombres).
+				//
+				// ⚠️ CIBLES POSSEDEES PAR LE RENDERGRAPH (correctif 2026-07-30).
+				// L'historique ping-pong etait initialement possede ICI, et la passe
+				// ouvrait son propre render pass (modele de la passe d'ombres). Cette
+				// forme sortait NOIR : une passe SANS attachement declare ne fait pas
+				// transitionner en SHADER_READ le transient qu'elle lit (ici le LDR
+				// tonemappe) — `Reads(id)` seul ne suffit pas au RenderGraph. Desormais
+				// les deux cibles d'historique sont des ressources DU GRAPH (transients
+				// persistants) et la passe declare un vrai attachement : le graph pose
+				// donc toutes les barrieres. Corollaire : cette fonction ne fait QUE
+				// bind + push-constants + draw, le render pass est deja ouvert par le
+				// graph, et le pipeline est cree en lazy pour etre RP-compatible avec le
+				// framebuffer de la passe (meme pattern que EnsureDeferredLightPipeline).
 				//
 				// reproj = prevViewProj * invViewProj(courante) : l'appelant la
 				// construit depuis NkRender3D::GetRenderViewProj/InvViewProj (les
 				// matrices REELLES du rendu, jitter et clip-Z compris) et conserve la
 				// viewProj de la frame precedente.
-				void RunTAA(NkICommandBuffer *cmd, NkTextureHandle ldrIn, NkTextureHandle depth,
-							const NkMat4f &reproj, bool hasHistory);
-
-				// Handle RHI du resultat TAA le plus recent (a blitter vers l'ecran).
-				// Invalide tant que le TAA n'a pas tourne.
-				NkTextureHandle GetTAAResultRHI() const;
+				//   ldrIn      : LDR tonemappe de cette frame (transient ToneLDR)
+				//   histIn     : resultat TAA de la frame -1 (autre moitie du ping-pong)
+				//   depth      : profondeur de la frame courante
+				//   useHistory : faux a la premiere frame (aucun historique exploitable)
+				//   rp         : render pass de la passe appelante (graph), pour le lazy
+				void RunTAAInPass(NkICommandBuffer *cmd, NkTextureHandle ldrIn, NkTextureHandle histIn,
+								  NkTextureHandle depth, const NkMat4f &reproj, bool useHistory,
+								  NkRenderPassHandle rp);
 
 				bool IsTAAEnabled() const;
 				NkTexHandle RunSSAO(NkICommandBuffer *cmd, NkTexHandle depth, NkTexHandle normal);
@@ -146,6 +158,14 @@ namespace nkentseu {
 				// cette passe garde la FENETRE vivante en recopiant la cible vers
 				// le swapchain. Cout : 1 draw plein-ecran.
 				void ExecuteBlit(NkICommandBuffer *cmd, NkTextureHandle src);
+
+				// Variante d'ExecuteBlit vers une cible OFF-SCREEN (framebuffer du
+				// graph) au lieu du swapchain : sert a recopier le resultat du TAA dans
+				// l'historique. Necessite son propre pipeline (RP-compatible avec le
+				// framebuffer transient) et son propre descriptor set, d'ou une methode
+				// distincte plutot qu'un parametre. rp = render pass de la passe
+				// appelante (cf. NkRenderGraph::GetPassRenderPass).
+				void ExecuteBlitToRT(NkICommandBuffer *cmd, NkTextureHandle src, NkRenderPassHandle rp);
 
 				// Phase L : upload une LUT 3D de color grading utilisateur.
 				// rgba = size^3 voxels RGBA8, voxel (i,j,k) a l'index
@@ -191,11 +211,13 @@ namespace nkentseu {
 				NkRenderTarget mLumaRT[2];
 				int mLumaWrite = -1; // -1 = jamais execute
 
-				// ── TAA : historique ping-pong plein ecran (LDR RGBA8) ────────────
-				// Persistant (recree seulement a l'OnResize, ou la resolution change
-				// et l'historique n'est de toute facon plus valide).
-				NkRenderTarget mTAART[2];
-				int mTAAWrite = -1; // -1 = jamais execute (pas d'historique)
+				// ── TAA ───────────────────────────────────────────────────────────
+				// Les deux cibles d'historique ping-pong appartiennent au RenderGraph
+				// (transients persistants declares par BuildDefaultRenderGraph), pas a
+				// cette classe : c'est ce qui permet au graph de poser les barrieres
+				// (cf. RunTAAInPass). Le pipeline est cree en lazy pour etre
+				// RP-compatible avec le framebuffer de la passe du graph.
+				bool EnsureTAAPipeline(NkRenderPassHandle rp);
 				NkPipelineHandle mPipeTAA;
 				::nkentseu::NkShaderHandle mShaderTAA;
 				NkDescSetHandle mTAALayout; // 3 samplers : courant + historique + depth
@@ -242,6 +264,13 @@ namespace nkentseu {
 				// descriptor au Submit : un set partage serait ecrase par le dernier
 				// bind et FXAA lirait la cible du blit -> feedback loop, image noire).
 				NkDescSetHandle mBlitTexSet;
+				// Set + pipeline DEDIES a la copie vers une cible OFF-SCREEN (passe
+				// TAA_Store). Distincts de mBlitTexSet pour la meme raison que ci-dessus
+				// (deux blits dans la MEME frame : ecran + historique), et pipeline
+				// distinct car il doit etre RP-compatible avec un framebuffer transient
+				// et non avec le swapchain.
+				NkDescSetHandle mBlitRTSet;
+				NkPipelineHandle mPipeBlitRT;
 
 				// Phase H.2 : pool de descriptor sets pour les sub-passes bloom.
 				// Vulkan interdit d'updater un descriptor set pendant qu'un draw
