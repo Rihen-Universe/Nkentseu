@@ -1241,7 +1241,11 @@ brique 16 livrée 2026-07-26). Ce qui reste, par ordre d'utilité réelle :
    `NkAv1StreamDecoder` (DPB 8 slots, ordre d'affichage, show_existing/trames cachées altref) —
    **29 flux libaom cpu-used 1→8 TOUS bit-exact maxdiff 0** (Release+Debug), dont warp mandelbrot,
    2-tiles, segmentation, dimensions impaires. Bugs latents corrigés : `UpdateCdf` inversé, loop
-   filter à level 0, région CDEF=trame. Restes (refus propre via `LastError()`) : palette (couleurs),
+   filter à level 0, région CDEF=trame. **Branché `NkVideoReader` (2026-07-30) : IVF `AV01` + WebM
+   `V_AV1` + MP4 `av01` lisibles bout-en-bout dans NkVideoPlayer** — via `NkAv1StreamDecoder`
+   (ordre d'affichage natif → chemin curseur), 25/25 trames sur les 3 conteneurs, maxPixDiff=3
+   (arrondi BT.601), altref/show_existing via lecteur OK, seek exact, non-régression tous codecs.
+   Restes (refus propre via `LastError()`) : palette (couleurs),
    IntraBC, loop restoration, superres, film grain, 10/12-bit, 4:2:2/4:4:4, monochrome, perf brute.
    ✅ **AMR-NB livré (2026-07-28, 3e tentative — politique de provenance raffinée validée par
    Rihen)** — `NkAmrDecoder` : **les 8 modes (4.75→12.2 kbit/s) décodent avec corr 0,966–0,996**
