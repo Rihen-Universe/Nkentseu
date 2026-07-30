@@ -18,6 +18,40 @@ voir « Multi-backend » plus bas). Metal + Software restent à valider.
 
 ---
 
+## ⚠️ Trois pièges du RenderGraph et des passes plein écran (mesurés, 2026-07-30)
+
+Découverts en finissant le TAA. Les trois produisaient une image **d'apparence
+plausible** : aucun ne se voit sans mesurer.
+
+1. **Une passe SANS attachement ne fait PAS transitionner les transients qu'elle
+   lit.** Le graph ne pose la barrière `COLOR_ATTACHMENT → SHADER_READ` que pour
+   une passe déclarant un vrai attachement ; `Reads(id)` seul ne suffit pas →
+   l'échantillonnage renvoie du **noir**, silencieusement. Ça semble marcher tant
+   qu'une AUTRE passe fait la transition à votre place (la passe `AutoExposure`
+   lit `mainColor` sans attachement et fonctionne, mais seulement parce que
+   `PostProcess` le relit juste après AVEC un attachement). **Règle** : toute
+   passe qui échantillonne un transient doit déclarer une vraie cible ; si sa
+   sortie est persistante, en faire un transient DU GRAPH plutôt qu'une cible
+   possédée par le sous-système.
+2. **Le cache de framebuffers est indexé par NOM DE PASSE, et le graph persiste
+   entre frames** → une passe ne peut pas changer de cible d'une frame à l'autre.
+   Un ping-pong se fait donc avec des cibles FIXES et une passe de copie, pas en
+   alternant l'attachement d'une même passe.
+3. **`yFlipUV` (échantillonnage) et `ndcYSign` (reconstruction écran) sont deux
+   quantités distinctes** qui divergent par backend : jamais les faire partager
+   un slot de push-constant. Et le `yFlipUV` à utiliser dépend de la TEXTURE
+   LUE : copier la convention d'une passe qui lit *autre chose* (ici le deferred
+   lighting au lieu du FXAA, qui lit le même `ToneLDR`) donne une image
+   retournée. Une copie entre deux cibles off-screen doit PRÉSERVER
+   l'orientation — ce n'est pas la convention du blit vers l'écran.
+
+Corollaire : **un effet temporel doit être désarmé à chaque rebuild du graph**
+(`mTAAHasPrev = false`), car le rebuild recrée ses transients vierges — sinon
+l'écran s'assombrit puis remonte sur ~20 frames à chaque resize, changement
+d'option ou redirection de cible (capture / enregistrement).
+
+---
+
 ## 🔎 Audit d'implémentation (2026-06-24) — état réel code vs roadmap
 
 **Cœur forward RÉELLEMENT implémenté et fonctionnel** : Render3D, RenderGraph, Shadow
@@ -439,7 +473,9 @@ NkPlanarReflectionSystem + reflets planaires complets sur sol mirror.
   VK+GL (cf. `memory/nkrhi_compute_support.md`). Déjà utilisé par NkML,
   NkAnimationSystem morph, NkComputeContext wrapper. Foundation prête pour
   Phase N GPU prefilter, auto-exposure V1, Voxel AO v1, Lumen-lite GI.
-- ❌ DOF/bokeh, Motion blur, TAA, vignette/grain chromatic, Lens flares
+- ✅ **TAA** (Temporal AA) livré V1 sur les 4 backends (2026-07-30) — détail et
+  mesures dans « Phase L — Finition post-process » plus bas
+- ❌ DOF/bokeh, Motion blur, vignette/grain chromatic, Lens flares
   — non implémentés
 
 ### Phase N — IBL pipeline
@@ -537,15 +573,39 @@ LIVRÉ dans `NkRender2D`, seul le glow reste un stub.)*
   4 backends — détail dans la section « Livré » Phase L ci-dessus
 - ✅ **API SetColorGradingLUT(data, size)** LIVRÉE (2026-07-12) + vraie LUT 3D
   sur GL (validé capture `NK_LUT_TEST=1` teal&orange)
-- **TAA** (Temporal AA) : remplacer FXAA par TAA moderne UE5-style.
-  Jittered proj + velocity buffer + history texture + neighborhood clamp.
-  ~4-5h, gros impact visuel "next gen".
-  ⚠️ **BLOQUÉ (2026-07-30)** par le verrou du chantier modélisation sur
-  `Tools/Render3D/*` (cf. `Engine/Noge/CONTINUATION.private.md`) : le jitter de
-  projection est faisable dans `Core/NkCamera` (libre), mais la reprojection
-  exige les matrices caméra de la frame courante ET précédente côté passe de
-  post-process — or le renderer n'a aucun accès caméra hors de `NkRender3D`
-  (aucun getter exposé). Débloquer = UN accesseur en lecture dans NkRender3D.
+- ✅ **TAA** (Temporal AA) **LIVRÉ V1 sur les 4 backends** (2026-07-30) —
+  opt-in (`postProcess.taa`, override `NK_TAA`), **exclusif du FXAA** (les
+  enchaîner flouterait deux fois). Jitter sub-pixel Halton(2,3) 8 phases dans
+  `NkRender3D` + reprojection par la profondeur + clamp de voisinage 3×3 contre
+  le ghosting. Pas de velocity buffer (v2) : la reprojection n'est exacte que
+  pour la géométrie statique, le clamp couvre les objets mobiles.
+  **MESURES (demo 2, régime établi, zone 3D)** — indicateur d'**escalier**
+  = part des pixels de bord au gradient purement axial, la signature de
+  l'aliasing (référence → TAA) : GL 47,7 → **42,2 %** · Vulkan 46,5 → **41,7 %**
+  · DX11 47,7 → **42,2 %** · DX12 47,6 → **42,4 %**, luminance préservée à
+  ≤1,9 % près sur les 4. **L'AA vient bien de l'accumulation et non d'un flou** :
+  le jitter SEUL (`NK_TAA_BLEND=0`) donne 53,7 %, soit PIRE que la référence.
+  Trois défauts trouvés et corrigés par la mesure, tous silencieux (image
+  d'apparence correcte) :
+  1. une passe sans attachement ne fait pas transitionner les transients qu'elle
+     lit → écran noir (cf. le piège en tête de ce fichier) ;
+  2. `p0.y` servait à la fois de `yFlipUV` (VS) et de `ndcYSign` (FS), deux
+     quantités qui divergent par backend → séparées en `p0.y` / `p1.x`
+     (push-constant 80 → 96 o, toujours sous les 128 o Vulkan et DX12) ;
+  3. la copie vers l'historique utilisait la convention du blit ÉCRAN au lieu de
+     celle de la lecture off-screen → historique inversé sur DX, masqué par le
+     clamp : luminance juste à 0,6 % près mais AUCUN antialiasing (escalier
+     51,9 % au lieu de 42,2 %).
+  Overrides de diagnostic : `NK_TAA_BLEND`, `NK_TAA_CLAMP=0` (le clamp masque
+  les erreurs de reprojection), `NK_TAA_YFLIP` / `NK_TAA_NDCY` (conventions Y),
+  `NK_TAA_DEBUG=1..4` (historique reprojeté / brut / décalage / profondeur),
+  `NK_TAA_PREVLAG=N` (amplifie le mouvement inter-frame), `NK_TAA_PRESENT_HIST`.
+  ⚠️ **`ndcYSign` NON validé par mesure** : à caméra fixe les deux signes
+  s'annulent exactement (`ndcYSign² = 1` quand `reproj` = identité), donc aucune
+  scène de démo actuelle ne les distingue. La valeur retenue suit le deferred
+  lighting (validé par capture) ; à trancher sur une scène à caméra mobile via
+  `NK_TAA_NDCY`.
+  Reste V2 : velocity buffer (objets mobiles), variance clipping, mip bias.
 - **DOF/bokeh** : profondeur de champ avec cercle de confusion
 - **Motion blur** : object + camera, vélocité buffer
 - **Vignette/grain/chromatic/Lens flares** : effets de lens

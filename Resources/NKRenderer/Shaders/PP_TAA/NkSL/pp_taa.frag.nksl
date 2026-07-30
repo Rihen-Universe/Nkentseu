@@ -38,17 +38,32 @@ layout(push_constant) uniform PC {
     // précédente. Un seul mat4 -> 80 octets de push-constant, sous la garantie
     // Vulkan (128) et sous les root constants DX12.
     mat4  reproj;
-    vec4  p0;            // (blendHistory, ndcYSign, invResW, invResH)
+    vec4  p0;            // (blendHistory, yFlipUV, invResW, invResH)
+    vec4  p1;            // (ndcYSign, clampOn, _, _)
 } pc;
 
 @stage(fragment)
 @entry
 void main() {
     float blendHistory = pc.p0.x;
-    float ndcYSign     = pc.p0.y;   // même signe que le flip d'échantillonnage
+    // ndcYSign relie vUV.y au NDC Y de la frame courante. Il est DISTINCT du
+    // yFlipUV d'échantillonnage du VS (p0.y) : sur DX il vaut +1 alors que le
+    // yFlipUV vaut -1. Les confondre miroitait la position monde reconstruite,
+    // donc lisait l'historique au mauvais endroit.
+    float ndcYSign     = pc.p1.x;
     vec2  invRes       = vec2(pc.p0.z, pc.p0.w);
 
     vec3 current = texture(uCurrent, vUV).rgb;
+
+    // Sonde 4 : PROFONDEUR brute en niveaux de gris. Placée AVANT tout early
+    // return, car c'est justement l'early return « ciel » (depth >= 0.9999) qui
+    // désactive silencieusement le TAA quand un backend ne rend pas le depth
+    // lisible : l'image reste correcte mais sans aucun antialiasing.
+    if (pc.p1.z > 3.5) {
+        float dz = texture(uDepth, vUV).r;
+        oColor = vec4(dz, dz, dz, 1.0);
+        return;
+    }
 
     // Historique désactivé (première frame, ou blend nul) : passe-plat.
     if (blendHistory < 0.001) {
@@ -95,9 +110,32 @@ void main() {
     }
 
     vec3 history = texture(uHistory, prevUV).rgb;
+
+    // ── Sondes de diagnostic (p1.z, via NK_TAA_DEBUG) ───────────────────────
+    // 1 = historique BRUT reprojeté : noir => l'historique n'arrive pas ;
+    //     correct mais décalé => la reprojection est en cause.
+    // 2 = historique lu à l'UV COURANT (sans reprojection) : isole la lecture
+    //     de la texture du calcul de reprojection.
+    // 3 = |prevUV - vUV| amplifié x20 (rouge=x, vert=y) : amplitude du décalage.
+    if (pc.p1.z > 0.5) {
+        if (pc.p1.z < 1.5) {
+            oColor = vec4(history, 1.0);
+        } else if (pc.p1.z < 2.5) {
+            oColor = vec4(texture(uHistory, vUV).rgb, 1.0);
+        } else {
+            vec2 d = abs(prevUV - vUV) * 20.0;
+            oColor = vec4(d.x, d.y, 0.0, 1.0);
+        }
+        return;
+    }
     // Clamp de voisinage : borne l'historique aux couleurs présentes autour du
     // pixel courant. C'est ce qui tue le ghosting des objets mobiles.
-    history = clamp(history, nMin, nMax);
+    // Désactivable (p1.y = 0, via NK_TAA_CLAMP=0) parce qu'il MASQUE aussi les
+    // erreurs de reprojection : c'est le seul moyen de mesurer en A/B si les
+    // conventions Y d'un backend sont bonnes, l'erreur devenant alors visible.
+    if (pc.p1.y > 0.5) {
+        history = clamp(history, nMin, nMax);
+    }
 
     oColor = vec4(mix(current, history, clamp(blendHistory, 0.0, 0.98)), 1.0);
 }
