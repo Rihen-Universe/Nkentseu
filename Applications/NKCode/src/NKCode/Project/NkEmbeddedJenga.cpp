@@ -133,6 +133,17 @@ namespace nkentseu {
 					_putenv_s("PATH", merged.CStr());
 				}
 			}
+			// `tools/` contient AUSSI le shim `jenga.cmd` (pose par
+			// scripts/MakeNkCodeDist.py) qui appelle le Python embarque. En
+			// prefixant le PATH, un `jenga ...` tape dans le TERMINAL INTEGRE — ou
+			// lance par une commande qui a besoin d'un vrai terminal, comme
+			// `jenga gdb` — fonctionne aussi sans Python installe. Sans ce shim,
+			// seules les commandes routees vers l'interpreteur marchaient.
+			if (gProdTools) {
+				const char *cur = std::getenv("PATH");
+				const NkString merged = (exeDir + "/tools") + ";" + (cur ? cur : "");
+				_putenv_s("PATH", merged.CStr());
+			}
 #endif
 			gConfigured = true;
 		}
