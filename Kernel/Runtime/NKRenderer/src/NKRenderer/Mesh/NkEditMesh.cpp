@@ -232,11 +232,26 @@ namespace nkentseu {
 			repSel.Resize(n);
 			for (uint32 i = 0; i < n; ++i)
 				repSel[i] = 0;
+			// Le rang est propage AVEC la selection : sans cela, une copie coincidente
+			// activee par propagation entrerait dans l'historique avec le rang 0 (ou,
+			// pire, un rang plus recent), et « le premier selectionne » pourrait
+			// designer une copie que l'utilisateur n'a jamais cliquee. On retient donc,
+			// par identite soudee, le PLUS PETIT rang non nul rencontre.
+			NkVector<uint32> repOrder;
+			repOrder.Resize(n);
 			for (uint32 i = 0; i < n; ++i)
-				if (verts[i].sel)
+				repOrder[i] = 0;
+			for (uint32 i = 0; i < n; ++i)
+				if (verts[i].sel) {
 					repSel[canon[i]] = 1;
-			for (uint32 i = 0; i < n; ++i)
+					const uint32 o = verts[i].selOrder;
+					if (o != 0 && (repOrder[canon[i]] == 0 || o < repOrder[canon[i]]))
+						repOrder[canon[i]] = o;
+				}
+			for (uint32 i = 0; i < n; ++i) {
 				verts[i].sel = repSel[canon[i]];
+				verts[i].selOrder = verts[i].sel ? repOrder[canon[i]] : 0u;
+			}
 		}
 
 		void NkEditMesh::LinkTwins() {
@@ -957,9 +972,66 @@ namespace nkentseu {
 			return e > s;
 		}
 
+		// ── SELECTION ORDONNEE ──────────────────────────────────────────────────
+		// L'ordre est deduit des TRANSITIONS, pas d'un appel par clic : l'editeur
+		// pousse son tableau ENTIER a chaque synchronisation, donc seuls les
+		// changements reels doivent consommer un rang.
+		void NkEditMesh::SetVertSelection(const uint8 *flags, uint32 count) {
+			const uint32 n = (uint32)verts.Size();
+			for (uint32 i = 0; i < n; ++i) {
+				const uint8 want = (flags && i < count) ? (flags[i] ? (uint8)1 : (uint8)0) : (uint8)0;
+				if (want && !verts[i].sel)
+					verts[i].selOrder = ++selCounter; // nouvelle entree dans l'historique
+				else if (!want)
+					verts[i].selOrder = 0; // deselectionne : il sort de l'historique
+				verts[i].sel = want;
+			}
+		}
+
+		int32 NkEditMesh::FirstSelected() const {
+			int32 best = -1, fallback = -1;
+			uint32 bestOrder = 0xFFFFFFFFu;
+			for (uint32 i = 0; i < (uint32)verts.Size(); ++i) {
+				if (!verts[i].sel)
+					continue;
+				if (fallback < 0)
+					fallback = (int32)i;
+				const uint32 o = verts[i].selOrder;
+				if (o != 0 && o < bestOrder) {
+					bestOrder = o;
+					best = (int32)i;
+				}
+			}
+			// Repli sur l'indice : une selection sans rang (script, chargement) doit
+			// rester operable. Refuser serait plus deroutant qu'un ordre arbitraire.
+			return (best >= 0) ? best : fallback;
+		}
+
+		int32 NkEditMesh::LastSelected() const {
+			int32 best = -1, fallback = -1;
+			uint32 bestOrder = 0;
+			for (uint32 i = 0; i < (uint32)verts.Size(); ++i) {
+				if (!verts[i].sel)
+					continue;
+				fallback = (int32)i;
+				const uint32 o = verts[i].selOrder;
+				if (o > bestOrder) {
+					bestOrder = o;
+					best = (int32)i;
+				}
+			}
+			return (best >= 0) ? best : fallback;
+		}
+
 		void NkEditMesh::ApplyVertSel(const NkVector<uint8> &vsel) {
-			for (uint32 i = 0; i < (uint32)verts.Size(); ++i)
+			// Reapplication a plat APRES une re-topologie : les rangs de l'ancien
+			// maillage ne designent plus rien (les sommets ont change d'identite), on
+			// les efface plutot que de les laisser mentir. L'ordre repartira du
+			// prochain geste.
+			for (uint32 i = 0; i < (uint32)verts.Size(); ++i) {
 				verts[i].sel = (i < (uint32)vsel.Size()) ? vsel[i] : (uint8)0;
+				verts[i].selOrder = 0;
+			}
 		}
 
 		// EXTRUDE FACES : duplique les faces sélectionnées (cap), crée des quads latéraux sur
@@ -1324,15 +1396,21 @@ namespace nkentseu {
 			NkVector<uint32> fs, fv;
 			ToPolygons(pv, fs, fv);
 			NkVec3f c{0.f, 0.f, 0.f};
-			int32 n = 0, first = -1, last = -1;
+			int32 n = 0;
 			for (uint32 i = 0; i < (uint32)pv.Size(); i++)
 				if (i < (uint32)verts.Size() && verts[i].sel) {
 					c = c + pv[i].pos;
 					n++;
-					if (first < 0)
-						first = (int32)i;
-					last = (int32)i;
 				}
+			// PREMIER / DERNIER SELECTIONNE au sens des GESTES, pas des indices.
+			// L'indice reflete l'ordre de construction du maillage ; sur un cube dont
+			// les sommets sont dupliques par face, « plus petit indice » designait une
+			// copie arbitraire, sans rapport avec le premier coin clique.
+			int32 first = FirstSelected(), last = LastSelected();
+			if (first < 0 || first >= (int32)pv.Size())
+				first = 0;
+			if (last < 0 || last >= (int32)pv.Size())
+				last = first;
 			if (n < 2)
 				return false;
 			c = c * (1.f / (float32)n);

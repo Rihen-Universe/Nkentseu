@@ -959,9 +959,12 @@ namespace nkentseu {
 		// récupèrent la sélection du démo (st->vertSel) autour de l'appel, puis
 		// Demo3D_SyncFromHE régénère le rendu (triangulation + cage + mesh GPU).
 		static void Demo3D_PushSel(Demo3DState *st) {
-			const uint32 n = st->editHE.VertCount();
-			for (uint32 i = 0; i < n && i < (uint32)st->vertSel.Size(); ++i)
-				st->editHE.verts[i].sel = st->vertSel[i];
+			// SetVertSelection au lieu d'écrire `sel` à la main : c'est ce qui fait
+			// vivre l'ORDRE DE SÉLECTION (Vert::selOrder), dont dépendent Merge At
+			// First / At Last. L'ordre se déduit des TRANSITIONS, donc pousser le
+			// tableau ENTIER à chaque synchronisation — ce que fait cette fonction —
+			// n'écrase rien : seuls les changements réels consomment un rang.
+			st->editHE.SetVertSelection(st->vertSel.Data(), (uint32)st->vertSel.Size());
 			// Les primitives dupliquent leurs sommets PAR FACE : un coin cliqué n'est qu'UNE
 			// des N copies coïncidentes. Sans propagation, la face/l'arête voisine ne se voit
 			// pas sélectionnée ET la copie retenue peut appartenir à une face qui tourne le

@@ -527,6 +527,101 @@ static void Lot5Battery() {
 	}
 }
 
+// ── ORDRE DE SELECTION : Merge At First / At Last ───────────────────────────
+// LE CAS QUI COMPTE : les MEMES deux sommets, selectionnes dans l'ORDRE INVERSE.
+// Avec l'ancien comportement (plus petit / plus grand INDICE), les deux scenarios
+// donnaient exactement la meme ligne — le harnais ne pouvait donc pas distinguer
+// « ca marche » de « ca ne regarde pas l'ordre ». Ici les deux lignes DOIVENT
+// differer, et l'une doit etre l'image de l'autre.
+static void SelOrderBattery() {
+	NkVector<NkVertex3D> v;
+	NkVector<uint32> idx;
+	MakeCube(v, idx);
+	// Deux coins opposes. Chacun existe en plusieurs COPIES (le cube duplique ses
+	// sommets par face) : un « clic » selectionne donc toutes les copies du coin,
+	// exactement comme le fait l'editeur apres propagation aux coincidents.
+	for (int32 rev = 0; rev < 2; rev++) {
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		const NkVec3f pa = m.verts[0].pos;
+		const NkVec3f pb = {-pa.x, -pa.y, -pa.z};
+		const NkVec3f p1 = rev ? pb : pa, p2 = rev ? pa : pb;
+		NkVector<uint8> flags;
+		flags.Resize(m.VertCount());
+		for (uint32 i = 0; i < m.VertCount(); i++)
+			flags[i] = 0;
+		// CLIC 1 puis CLIC 2 : deux appels successifs, chacun poussant le tableau
+		// ENTIER — c'est ce que fait l'editeur a chaque synchronisation. L'ordre
+		// doit survivre a cette repetition.
+		for (uint32 i = 0; i < m.VertCount(); i++)
+			if ((m.verts[i].pos - p1).Len() < 1e-6f)
+				flags[i] = 1;
+		m.SetVertSelection(flags.Data(), (uint32)flags.Size());
+		for (uint32 i = 0; i < m.VertCount(); i++)
+			if ((m.verts[i].pos - p2).Len() < 1e-6f)
+				flags[i] = 1;
+		m.SetVertSelection(flags.Data(), (uint32)flags.Size());
+		const int32 fi = m.FirstSelected(), li = m.LastSelected();
+		const NkVec3f fp = (fi >= 0) ? m.verts[(uint32)fi].pos : NkVec3f{0.f, 0.f, 0.f};
+		const NkVec3f lp = (li >= 0) ? m.verts[(uint32)li].pos : NkVec3f{0.f, 0.f, 0.f};
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s premier=(%.2f,%.2f,%.2f) dernier=(%.2f,%.2f,%.2f)",
+					 rev ? "ordre/cube-clic-B-puis-A" : "ordre/cube-clic-A-puis-B", (double)fp.x, (double)fp.y,
+					 (double)fp.z, (double)lp.x, (double)lp.y, (double)lp.z);
+			gLineCount++;
+		}
+		// Merge At First : tout converge vers le PREMIER CLIQUE. Le centre du
+		// maillage resultant en porte la trace, donc la signature suffit.
+		NkEditMesh mf = m;
+		NkMergeParams mp;
+		mp.mode = NkMergeParams::First;
+		const bool okF = mf.MergeSelectedVerts(mp);
+		char nm[96];
+		snprintf(nm, sizeof(nm), "ordre/merge-first-%s%s", rev ? "BA" : "AB", okF ? "" : " [REFUSE]");
+		Emit(nm, Signature(mf));
+		NkEditMesh ml = m;
+		mp.mode = NkMergeParams::Last;
+		const bool okL = ml.MergeSelectedVerts(mp);
+		snprintf(nm, sizeof(nm), "ordre/merge-last-%s%s", rev ? "BA" : "AB", okL ? "" : " [REFUSE]");
+		Emit(nm, Signature(ml));
+	}
+	// DESELECTION : un sommet retire puis reselectionne repasse EN DERNIER. Sans
+	// cela, « dernier selectionne » designerait un geste ancien et Merge At Last
+	// viserait un coin que l'utilisateur croit avoir abandonne.
+	{
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		const NkVec3f pa = m.verts[0].pos;
+		const NkVec3f pb = {-pa.x, -pa.y, -pa.z};
+		NkVector<uint8> flags;
+		flags.Resize(m.VertCount());
+		auto set = [&](NkVec3f p, uint8 on) {
+			for (uint32 i = 0; i < m.VertCount(); i++)
+				if ((m.verts[i].pos - p).Len() < 1e-6f)
+					flags[i] = on;
+		};
+		for (uint32 i = 0; i < m.VertCount(); i++)
+			flags[i] = 0;
+		set(pa, 1);
+		m.SetVertSelection(flags.Data(), (uint32)flags.Size()); // A : rang 1
+		set(pb, 1);
+		m.SetVertSelection(flags.Data(), (uint32)flags.Size()); // B : rang 2
+		set(pa, 0);
+		m.SetVertSelection(flags.Data(), (uint32)flags.Size()); // A retire
+		set(pa, 1);
+		m.SetVertSelection(flags.Data(), (uint32)flags.Size()); // A revient -> rang 3
+		const int32 fi = m.FirstSelected(), li = m.LastSelected();
+		const NkVec3f fp = (fi >= 0) ? m.verts[(uint32)fi].pos : NkVec3f{0.f, 0.f, 0.f};
+		const NkVec3f lp = (li >= 0) ? m.verts[(uint32)li].pos : NkVec3f{0.f, 0.f, 0.f};
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s premier=(%.2f,%.2f,%.2f) dernier=(%.2f,%.2f,%.2f)",
+					 "ordre/cube-A-retire-puis-remis", (double)fp.x, (double)fp.y, (double)fp.z, (double)lp.x,
+					 (double)lp.y, (double)lp.z);
+			gLineCount++;
+		}
+	}
+}
+
 int main(int argc, char **argv) {
 	bool baseline = false, check = false;
 	for (int32 i = 1; i < argc; i++) {
@@ -541,6 +636,9 @@ int main(int argc, char **argv) {
 	MergeBattery();
 	ExtrudeBattery();
 	Lot5Battery();
+	// AJOUTEE EN FIN : les 52 lignes precedentes gardent leur numero, donc une
+	// divergence ancienne reste comparable ligne a ligne avec l'ancienne reference.
+	SelOrderBattery();
 
 	const char *path = "editmesh_baseline.txt";
 	if (baseline) {

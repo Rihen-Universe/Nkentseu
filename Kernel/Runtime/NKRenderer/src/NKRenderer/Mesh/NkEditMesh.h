@@ -63,10 +63,13 @@ namespace nkentseu {
 				//              (un merge par region, pas un merge global) ;
 				//   ByDistance « Remove Doubles » : seuls les sommets selectionnes plus
 				//              proches que `distance` fusionnent, par grappes.
-				// NB Blender : First/Last y designent le premier/dernier SELECTIONNE
-				// (ordre de clic). Ici l'ordre de selection n'est pas encore memorise :
-				// First/Last = plus petit / plus grand INDICE — ecart documente, a
-				// resorber quand l'editeur portera l'historique de selection.
+				// First / Last designent bien, comme dans Blender, le PREMIER et le
+				// DERNIER SELECTIONNE (ordre des gestes), grace au rang porte par
+				// Vert::selOrder. Repli documente : si aucun sommet selectionne ne
+				// porte de rang — selection posee par un chemin qui ne passe pas par
+				// SetVertSelection (script, chargement) — on retombe sur le plus petit
+				// et le plus grand INDICE. Mieux vaut un ordre arbitraire mais defini
+				// qu'un refus d'operer.
 				enum Mode { Center = 0, First = 1, Last = 2, AtCursor = 3, Collapse = 4, ByDistance = 5 };
 
 				int32 mode = Center;
@@ -255,6 +258,19 @@ namespace nkentseu {
 						uint32 color = 0xFFFFFFFFu;
 						NkEmId hedge = NK_EM_INVALID; // une demi-arête SORTANTE
 						uint8 sel = 0;
+						// ── ORDRE DE SÉLECTION (rang de clic) ─────────────────────
+						// 0 = non sélectionné. Sinon : rang CROISSANT de sélection,
+						// donné par un compteur monotone. C'est ce qui permet à Merge
+						// At First / At Last de désigner le PREMIER et le DERNIER
+						// SÉLECTIONNÉ, comme Blender, et non le plus petit et le plus
+						// grand INDICE — deux choses qui n'ont aucune raison de
+						// coïncider : l'indice reflète l'ordre de construction du
+						// maillage, pas les gestes de l'utilisateur.
+						// Le rang n'est PAS un identifiant : il ne survit pas à une
+						// re-topologie (la sélection est réappliquée à plat), ce qui
+						// est correct — après un merge, « le premier cliqué » n'existe
+						// plus.
+						uint32 selOrder = 0;
 				};
 
 				// ── ARETE DE PREMIER PLAN (etape 1 du modele BMesh) ──────────────
@@ -317,6 +333,9 @@ namespace nkentseu {
 				// operation topologique ; les aretes FILAIRES y survivent (elles ne sont
 				// deduites d'aucune face, donc rien d'autre ne peut les recreer).
 				NkVector<Edge> edges;
+				// Compteur monotone des rangs de selection (cf. Vert::selOrder). Jamais
+				// remis a zero en cours d'edition : c'est un ORDRE, pas un compte.
+				uint32 selCounter = 0;
 
 				void Clear() {
 					verts.Clear();
@@ -475,6 +494,25 @@ namespace nkentseu {
 				// Arête sélectionnée -> nouvelle arête + FACE (quad) reliante.
 				bool ExtrudeSelectedEdges(const NkExtrudeParams &p = NkExtrudeParams{});
 				bool DeleteSelectedFaces();
+				// ── SELECTION ORDONNEE ──────────────────────────────────────────────
+				// Pose la selection COMPLETE en une passe, tout en enregistrant l'ORDRE.
+				// L'ordre est deduit des TRANSITIONS : un sommet qui passe de non
+				// selectionne a selectionne recoit le rang suivant ; un sommet deja
+				// selectionne garde le sien ; un sommet deselectionne perd le sien.
+				// C'est ce qui permet a l'editeur de continuer a pousser son tableau
+				// ENTIER a chaque frame (ce qu'il fait) sans ecraser l'historique :
+				// seuls les changements reels comptent. Demander a l'appelant de signaler
+				// chaque clic aurait disperse la responsabilite dans toute l'interface.
+				void SetVertSelection(const uint8 *flags, uint32 count);
+				// Rang courant du compteur (diagnostic / tests).
+				uint32 SelectionStamp() const {
+					return selCounter;
+				}
+				// Premier / dernier SELECTIONNE au sens de l'ordre des gestes. -1 si la
+				// selection est vide. Repli sur l'indice si aucun rang n'est pose.
+				int32 FirstSelected() const;
+				int32 LastSelected() const;
+
 				bool MergeSelectedVerts(const NkMergeParams &p = NkMergeParams{});
 				bool MakeFaceFromSelected();
 
