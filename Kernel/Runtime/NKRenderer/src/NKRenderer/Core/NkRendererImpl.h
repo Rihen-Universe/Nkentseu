@@ -220,6 +220,12 @@ namespace nkentseu {
 				NkUIOverlayCallback mUIOverlayCb{};	   // overlay UI applicatif (Overlay2D)
 				bool mMirrorToScreen = false; // MirrorPresent : recopie la cible redirigee vers le swapchain
 				uint32 mRenderOverrideW = 0, mRenderOverrideH = 0; // 0 = suit la fenetre
+				// TAA (Phase L) : viewProj de la frame PRECEDENTE, conservee ici car
+				// la reprojection a besoin de deux frames consecutives. mTAAHasPrev
+				// vaut false a la premiere frame (et apres un redimensionnement) :
+				// pas d'historique exploitable, la passe se comporte en passe-plat.
+				NkMat4f mTAAPrevViewProj = NkMat4f::Identity();
+				bool mTAAHasPrev = false;
 				void ApplyRenderSize(uint32 w, uint32 h, bool touchDevice);
 
 				bool InitRHI();
