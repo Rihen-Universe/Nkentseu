@@ -57,3 +57,8 @@ ordre/cube-clic-B-puis-A           premier=(-0.50,0.50,-0.50) dernier=(0.50,-0.5
 ordre/merge-first-BA               V=19     F=6      E=12     bord=0     nonmanif=0   tri=12     A=6.7321 C=(-0.0263,0.0263,-0.0263)
 ordre/merge-last-BA                V=19     F=6      E=12     bord=0     nonmanif=0   tri=12     A=6.7321 C=(0.0263,-0.0263,0.0263)
 ordre/cube-A-retire-puis-remis     premier=(-0.50,0.50,-0.50) dernier=(0.50,-0.50,0.50)
+bmesh2/cube-cycles                 aretes=12 radial2=12 autres=0 nonmanif=0 disque(v0)=3
+bmesh2/jonction-T                  radial=3 faces=3 nonmanif=1 autreface=REFUSEE
+bmesh2/boucle-arretee              boucle-cube=4 aretes  boucle-jonction=1 aretes
+bmesh2/jonction-T-signature        V=28     F=7      E=15     bord=3     nonmanif=1   tri=14     A=7.0000 C=(0.1429,-0.0714,0.0000)
+bmesh2/arete-filaire               aretes 12->13  radial=0 filaire=oui disque(v)=4

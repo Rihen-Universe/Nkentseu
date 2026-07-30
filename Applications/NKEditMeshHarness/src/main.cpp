@@ -622,6 +622,147 @@ static void SelOrderBattery() {
 	}
 }
 
+// ── BMESH ETAPE 2 : CYCLE RADIAL ET CYCLE DISQUE ────────────────────────────
+// Le cas qui compte est le NON-MANIFOLD : une arete portee par TROIS faces. La
+// structure ne savait pas la representer — `Hedge::twin` ne designe qu'UNE
+// opposee, donc l'appariement en retenait deux et la troisieme devenait
+// invisible pour tout parcours. On construit donc une jonction en T (un cube
+// plus une cloison collee sur une de ses aretes) et on verifie que :
+//   1. l'arete partagee est bien vue avec TROIS faces ;
+//   2. « la face d'en face » est REFUSEE la-bas, au lieu d'en rendre une au
+//      hasard ;
+//   3. la boucle d'aretes S'ARRETE a cette arete, comme dans Blender, au lieu
+//      de basculer sur une branche que personne n'a choisie.
+static void Bmesh2Battery() {
+	NkVector<NkVertex3D> v;
+	NkVector<uint32> idx;
+	MakeCube(v, idx);
+	// ── Reference : le cube seul ────────────────────────────────────────────
+	{
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		m.RebuildEdges();
+		// Disque : sur un cube, chaque coin porte exactement 3 aretes.
+		NkVector<NkEmId> disk;
+		const uint32 d0 = m.VertEdges(0, disk);
+		// Radial : toute arete d'un cube ferme porte exactement 2 faces.
+		uint32 rad2 = 0, radOther = 0;
+		for (uint32 e = 0; e < (uint32)m.edges.Size(); ++e) {
+			if (!m.edges[e].alive)
+				continue;
+			if (m.RadialCount((NkEmId)e) == 2)
+				rad2++;
+			else
+				radOther++;
+		}
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s aretes=%u radial2=%u autres=%u nonmanif=%u disque(v0)=%u",
+					 "bmesh2/cube-cycles", m.EdgeCount(), rad2, radOther, m.NonManifoldEdgeCount(), d0);
+			gLineCount++;
+		}
+	}
+	// ── Jonction en T : une cloison collee sur l'arete (0.5,-0.5,±0.5) ──────
+	// La cloison partage EXACTEMENT deux sommets du cube ; l'arete qui les relie
+	// se retrouve donc portee par 3 faces (2 du cube + 1 de la cloison).
+	NkVector<NkVertex3D> vt = v;
+	NkVector<uint32> it = idx;
+	{
+		const NkVec3f a = {0.5f, -0.5f, 0.5f}, b = {0.5f, -0.5f, -0.5f};
+		const NkVec3f c = {1.5f, -0.5f, -0.5f}, d = {1.5f, -0.5f, 0.5f};
+		const NkVec3f q[4] = {a, b, c, d};
+		const uint32 base = (uint32)vt.Size();
+		for (int32 k = 0; k < 4; k++) {
+			NkVertex3D x{};
+			x.pos = q[k];
+			x.normal = {0.f, 1.f, 0.f};
+			x.tangent = {1.f, 0.f, 0.f};
+			x.color = 0xFFFFFFFFu;
+			vt.PushBack(x);
+		}
+		it.PushBack(base);
+		it.PushBack(base + 1);
+		it.PushBack(base + 2);
+		it.PushBack(base);
+		it.PushBack(base + 2);
+		it.PushBack(base + 3);
+	}
+	{
+		NkEditMesh m;
+		m.BuildFromIndexed(vt.Data(), (uint32)vt.Size(), it.Data(), (uint32)it.Size(), true);
+		m.RebuildEdges();
+		// Retrouve l'arete partagee par ses deux sommets (indices bruts : les
+		// copies coincidentes sont resolues en interne).
+		int32 ia = -1, ib = -1;
+		const NkVec3f pa = {0.5f, -0.5f, 0.5f}, pb = {0.5f, -0.5f, -0.5f};
+		for (uint32 i = 0; i < m.VertCount(); ++i) {
+			if (ia < 0 && (m.verts[i].pos - pa).Len() < 1e-6f)
+				ia = (int32)i;
+			if (ib < 0 && (m.verts[i].pos - pb).Len() < 1e-6f)
+				ib = (int32)i;
+		}
+		const NkEmId e = (ia >= 0 && ib >= 0) ? m.EdgeBetween((uint32)ia, (uint32)ib) : NK_EM_INVALID;
+		NkVector<NkEmId> fs;
+		const uint32 nf = (e != NK_EM_INVALID) ? m.EdgeFaces(e, fs) : 0u;
+		const NkEmId other = (e != NK_EM_INVALID && nf > 0) ? m.EdgeOtherFace(e, fs[0]) : NK_EM_INVALID;
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s radial=%u faces=%u nonmanif=%u autreface=%s",
+					 "bmesh2/jonction-T", (e != NK_EM_INVALID) ? m.RadialCount(e) : 0u, nf,
+					 m.NonManifoldEdgeCount(), (other == NK_EM_INVALID) ? "REFUSEE" : "rendue");
+			gLineCount++;
+		}
+		// La boucle d'aretes partant de cette arete ne doit pas traverser la
+		// jonction. On compare au meme depart sur le cube SEUL.
+		NkVector<uint32> loopT;
+		if (ia >= 0 && ib >= 0)
+			m.GetEdgeLoop((uint32)ia, (uint32)ib, loopT);
+		NkEditMesh mc;
+		mc.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		mc.RebuildEdges();
+		int32 ja = -1, jb = -1;
+		for (uint32 i = 0; i < mc.VertCount(); ++i) {
+			if (ja < 0 && (mc.verts[i].pos - pa).Len() < 1e-6f)
+				ja = (int32)i;
+			if (jb < 0 && (mc.verts[i].pos - pb).Len() < 1e-6f)
+				jb = (int32)i;
+		}
+		NkVector<uint32> loopC;
+		if (ja >= 0 && jb >= 0)
+			mc.GetEdgeLoop((uint32)ja, (uint32)jb, loopC);
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s boucle-cube=%u aretes  boucle-jonction=%u aretes",
+					 "bmesh2/boucle-arretee", (uint32)(loopC.Size() / 2), (uint32)(loopT.Size() / 2));
+			gLineCount++;
+		}
+		Emit("bmesh2/jonction-T-signature", Signature(m));
+	}
+	// ── ARETE FILAIRE : cycle radial VIDE, et elle reste dans le disque ─────
+	{
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		m.RebuildEdges();
+		const uint32 before = m.EdgeCount();
+		// Deux coins OPPOSES du cube : la diagonale n'est bordee par aucune face.
+		int32 ia = -1, ib = -1;
+		const NkVec3f pa = m.verts[0].pos, pb = {-pa.x, -pa.y, -pa.z};
+		for (uint32 i = 0; i < m.VertCount(); ++i) {
+			if (ia < 0 && (m.verts[i].pos - pa).Len() < 1e-6f)
+				ia = (int32)i;
+			if (ib < 0 && (m.verts[i].pos - pb).Len() < 1e-6f)
+				ib = (int32)i;
+		}
+		const NkEmId we = (ia >= 0 && ib >= 0) ? m.AddWireEdge((uint32)ia, (uint32)ib) : NK_EM_INVALID;
+		NkVector<NkEmId> disk;
+		const uint32 dAfter = (ia >= 0) ? m.VertEdges((uint32)ia, disk) : 0u;
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s aretes %u->%u  radial=%u filaire=%s disque(v)=%u",
+					 "bmesh2/arete-filaire", before, m.EdgeCount(),
+					 (we != NK_EM_INVALID) ? m.RadialCount(we) : 99u,
+					 (we != NK_EM_INVALID && m.EdgeIsWire(we)) ? "oui" : "non", dAfter);
+			gLineCount++;
+		}
+	}
+}
+
 int main(int argc, char **argv) {
 	bool baseline = false, check = false;
 	for (int32 i = 1; i < argc; i++) {
@@ -639,6 +780,7 @@ int main(int argc, char **argv) {
 	// AJOUTEE EN FIN : les 52 lignes precedentes gardent leur numero, donc une
 	// divergence ancienne reste comparable ligne a ligne avec l'ancienne reference.
 	SelOrderBattery();
+	Bmesh2Battery();
 
 	const char *path = "editmesh_baseline.txt";
 	if (baseline) {
