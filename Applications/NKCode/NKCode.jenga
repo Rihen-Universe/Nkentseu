@@ -186,8 +186,64 @@ with project("NkPdfProbe"):
     # dependances TRANSITIVES, qu'il faut nommer EXPLICITEMENT — le premier
     # essai echouait sur « NKStream/NKIResource.h file not found ».
     nkentseudependson(
-        ["NKImage", "NKFileSystem", "NKStream", "NKThreading", "NKLogger", "NKMath",
-         "NKTime", "NKContainers", "NKMemory", "NKCore", "NKPlatform"],
+        ["NKFont", "NKImage", "NKFileSystem", "NKStream", "NKThreading", "NKLogger",
+         "NKMath", "NKTime", "NKContainers", "NKMemory", "NKCore", "NKPlatform"],
+    )
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)
+
+
+# Verification NUMERIQUE du rastériseur de traces : chaque forme a une aire
+# CONNUE, et la somme des couvertures doit la retrouver. Un rastériseur
+# anti-aliase correct conserve l'aire — propriete facile a violer sans que ca
+# se voie, et facile a mesurer.
+#
+#   jenga build --target NkPdfRasterTest --config Debug
+with project("NkPdfRasterTest"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    files(["src/NKCode/Pdf/NkPdfRaster.cpp", "tools/PdfRasterTest.cpp"])
+    includedirs(["src"])
+
+    # Le rastériseur ne depend QUE des conteneurs : aucun fichier, aucune image.
+    nkentseudependson(["NKContainers", "NKMemory", "NKCore", "NKPlatform"])
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)
+
+
+# Banc de RENDU : rend la 1re page de chaque PDF et MESURE le resultat
+# (proportion de pixels peints, teintes distinctes). Une page blanche est le
+# mode d'echec le plus vicieux d'un lecteur PDF — aucune erreur, rien a
+# l'ecran — et c'est precisement ce que ce banc detecte.
+with project("NkPdfRenderProbe"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    files(["src/NKCode/Pdf/**.cpp", "tools/PdfRenderProbe.cpp"])
+    includedirs(["src"])
+
+    nkentseudependson(
+        ["NKFont", "NKImage", "NKFileSystem", "NKStream", "NKThreading", "NKLogger",
+         "NKMath", "NKTime", "NKContainers", "NKMemory", "NKCore", "NKPlatform"],
     )
 
     with filter("config:Debug"):
