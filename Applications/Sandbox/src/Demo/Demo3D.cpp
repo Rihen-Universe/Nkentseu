@@ -207,6 +207,18 @@ namespace nkentseu {
 				float32 editObjRoughness = 0.7f;
 				int32 editSelMask = 1;			  // bits : 1=VERTEX 2=EDGE 4=FACE (touches 1/2/3 ; Shift+ = combiner)
 				int32 editActiveVert = -1;		  // sommet ACTIF (dernier sélectionné) = rendu BLANC façon Blender
+				// ── ÉLÉMENT ACTIF EN ARÊTE ET EN FACE ───────────────────────────────
+				// Blender distingue TROIS états, pas deux : non sélectionné (noir),
+				// sélectionné (orange) et ACTIF (blanc). L'actif n'est pas cosmétique :
+				// c'est lui que visent « pivot = élément actif », les opérations « depuis
+				// l'actif » et le futur Merge At Last. Le sommet actif existait déjà ;
+				// l'arête et la face, non — en mode ARÊTE ou FACE on ne pouvait donc pas
+				// savoir laquelle de plusieurs sélections servirait de référence.
+				// L'arête est mémorisée par ses DEUX SOMMETS et non par un indice dans
+				// `editEdges` : ce tableau est reconstruit à chaque changement de
+				// topologie, un indice y deviendrait silencieusement faux.
+				int32 editActiveEdgeA = -1, editActiveEdgeB = -1;
+				int32 editActiveFace = -1; // identifiant de face n-gon (demi-arêtes)
 				bool editXray = false;			  // Alt+Z : voir/sélectionner à travers (façon Blender)
 				bool editMode = false;			  // TAB : bascule objet <-> édition
 				bool editTogglePending = false;	  // TAB traité côté frame (accès meshSys)
@@ -670,6 +682,8 @@ namespace nkentseu {
 			st->editHE.Triangulate(st->editRest, st->editIdx, st->editTriFace);
 			st->editLive = st->editRest;
 			st->editActiveVert = -1; // la topologie a pu changer -> l'index actif n'est plus fiable
+			st->editActiveEdgeA = st->editActiveEdgeB = -1;
+			st->editActiveFace = -1;
 			st->editHE.GetUniqueEdges(st->editEdges);
 			if ((uint32)st->vertSel.Size() != st->editHE.VertCount())
 				st->vertSel.Resize(st->editHE.VertCount());
@@ -3215,6 +3229,8 @@ namespace nkentseu {
 					for (uint32 i = 0; i < vc && i < (uint32)st->vertSel.Size(); i++)
 						st->vertSel[i] = 0;
 					st->editActiveVert = -1;
+					st->editActiveEdgeA = st->editActiveEdgeB = -1;
+					st->editActiveFace = -1;
 					const uint32 fcnt = (uint32)st->editHE.faces.Size();
 					NkVector<renderer::NkEmId> fvv;
 					int32 nsel = 0;
@@ -5134,12 +5150,20 @@ namespace nkentseu {
 						const uint8 on = wasSel((uint32)bestV) ? (uint8)0 : (uint8)1;
 						st->vertSel[bestV] = on;
 						st->editActiveVert = on ? bestV : -1; // actif = dernier sélectionné (blanc)
+						// Un clic sur un SOMMET périme l'arête et la face actives : garder
+						// un ancien élément actif d'un autre type ferait cohabiter deux
+						// « références » blanches et on ne saurait plus laquelle fait foi.
+						st->editActiveEdgeA = st->editActiveEdgeB = -1;
+						st->editActiveFace = -1;
 					} else if (bestEa >= 0) {
 						// Une arête est « déjà sélectionnée » si ses DEUX extrémités l'étaient.
 						const uint8 on = (wasSel((uint32)bestEa) && wasSel((uint32)bestEb)) ? (uint8)0 : (uint8)1;
 						st->vertSel[bestEa] = on;
 						st->vertSel[bestEb] = on;
 						st->editActiveVert = on ? bestEb : -1;
+						st->editActiveEdgeA = on ? bestEa : -1;
+						st->editActiveEdgeB = on ? bestEb : -1;
+						st->editActiveFace = -1;
 					} else if (bestFt >= 0) {
 						// FACE N-GON : triangle touché -> sa face n-gon (quadify) -> tous ses sommets.
 						// Face « déjà sélectionnée » = TOUS ses sommets l'étaient (même convention
@@ -5165,6 +5189,11 @@ namespace nkentseu {
 						}
 						if (!on)
 							st->editActiveVert = -1;
+						// La FACE active est l'identifiant n-gon, pas le triangle touché :
+						// une face quadrangulaire couvre deux triangles, et retenir le
+						// triangle ferait clignoter l'actif selon la moitié cliquée.
+						st->editActiveFace = (on && f != renderer::NK_EM_INVALID) ? (int32)f : -1;
+						st->editActiveEdgeA = st->editActiveEdgeB = -1;
 					}
 					// Sélection étendue à tous les sommets COÏNCIDENTS : sans ça, le coin retenu
 					// peut appartenir à une face qui tourne le dos à la caméra -> son marqueur
@@ -5440,7 +5469,17 @@ namespace nkentseu {
 							const bool any = (selA || selB);
 							if (any != (pass == 1))
 								continue; // passe 0 = arêtes neutres, passe 1 = arêtes touchées
+							// ARÊTE ACTIVE : blanche sur TOUTE sa longueur, pas seulement à
+							// l'extrémité. Un dégradé n'aurait pas dit « cette arête est la
+							// référence » mais « cette extrémité est le sommet actif » — deux
+							// informations différentes qu'il ne faut pas confondre.
+							const bool actE =
+								(st->editActiveEdgeA >= 0 &&
+								 (((int32)a == st->editActiveEdgeA && (int32)b == st->editActiveEdgeB) ||
+								  ((int32)a == st->editActiveEdgeB && (int32)b == st->editActiveEdgeA)));
 							auto vcol = [&](uint32 v, bool s) {
+								if (actE)
+									return actVertCol; // arête ACTIVE -> blanche entièrement
 								if (s && (int32)v == st->editActiveVert)
 									return actVertCol; // extrémité ACTIVE -> blanc
 								return s ? selEdgeCol : cageCol;
@@ -5623,7 +5662,20 @@ namespace nkentseu {
 							cW = cW * (1.f / (float32)fn);
 							if (!facingCam(cW, st->editHE.faces[f].normal))
 								continue; // face du dos -> point caché (sauf X-ray)
-							if (allSel)
+							if ((int32)f == st->editActiveFace) {
+								// FACE ACTIVE : centre BLANC et contour blanc. Le seul point
+								// central ne suffisait pas — sur un n-gon large, un point de
+								// 4 px au barycentre ne dit pas QUELLE face est active quand
+								// plusieurs se touchent. Le contour lève l'ambiguïté.
+								dot(cW, 2.0f, NkVec4f{1.f, 1.f, 1.f, 1.f});
+								for (uint32 k = 0; k < fn; k++) {
+									const uint32 v0 = fvd[k], v1 = fvd[(k + 1) % fn];
+									if (v0 >= (uint32)st->editLive.Size() || v1 >= (uint32)st->editLive.Size())
+										continue;
+									r3d->DrawDebugLine(liveWv((int32)v0), liveWv((int32)v1),
+													   NkVec4f{1.f, 1.f, 1.f, 1.f}, 0.f, st->editXray);
+								}
+							} else if (allSel)
 								dot(cW, 1.8f, NkVec4f{1.f, 0.55f, 0.05f, 1.f}); // face sél. = ORANGE
 							else
 								dot(cW, 1.4f, NkVec4f{0.02f, 0.02f, 0.03f, 1.f}); // face = point NOIR
