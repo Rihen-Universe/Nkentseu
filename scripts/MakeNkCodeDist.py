@@ -38,7 +38,14 @@ LLVM_MINGW_URL = ("https://github.com/mstorsjo/llvm-mingw/releases/download/"
                   "20240619/llvm-mingw-20240619-ucrt-x86_64.zip")
 
 # Exclusions pour l'arbre Jenga embarque (sources utiles uniquement).
-JENGA_EXCLUDE_DIRS = {"Docs", "Exemples", "Unitest", "unused", "__pycache__",
+# ⚠️ N'exclure QUE des dossiers que `Jenga/__init__.py` n'importe PAS. `Unitest`
+# etait exclu a tort : `__init__.py` fait `from . import Unitest`, donc son
+# absence faisait echouer TOUT `import Jenga` dans la distribution
+# (« cannot import name 'Unitest' ... partially initialized module ») —
+# l'interpreteur embarque comme le shim en ligne de commande. Il ne pese que
+# 273 Ko : l'exclusion ne gagnait rien et cassait le paquet.
+# Verifier avec : grep "^from \. import" Jenga/__init__.py
+JENGA_EXCLUDE_DIRS = {"Docs", "Exemples", "unused", "__pycache__",
                       ".git", ".github", "Captures", "Tools"}
 JENGA_EXCLUDE_TOP = {"Tools"}  # Tools/Installer & co : packaging Jenga, pas le build
 
@@ -284,6 +291,42 @@ def Main() -> int:
     ver = jenga_repo / "Jenga" / "_version.py"
     if ver.exists():
         shutil.copy2(ver, tools / "jenga-src" / "Jenga" / "_version.py")
+
+    # ── Shim `jenga` en LIGNE DE COMMANDE ────────────────────────────────────
+    # NKCode route la plupart des commandes vers l'interpreteur embarque, mais
+    # certaines ont besoin d'un VRAI terminal (`jenga gdb`, session interactive)
+    # et l'utilisateur peut vouloir taper `jenga ...` lui-meme dans le terminal
+    # integre. Ce shim appelle le Python EMBARQUE avec les sources embarquees :
+    # aucun Python systeme requis. NkEmbeddedJenga::Configure prefixe `tools/`
+    # au PATH du process, donc le terminal integre le trouve.
+    Log("shim ligne de commande (tools/jenga.cmd + tools/jenga)")
+    # Le chemin des sources Jenga est declare dans le fichier `._pth` de la
+    # distribution *embeddable* : c'est LE mecanisme prevu par CPython pour ce
+    # cas. PYTHONPATH ne conviendrait pas — la presence d'un `._pth` fait
+    # ignorer les variables d'environnement (et `-I` les ignore de toute facon).
+    for pth in (tools / "python-embed").glob("python*._pth"):
+        txt = pth.read_text(encoding="ascii", errors="ignore")
+        if "jenga-src" not in txt:
+            pth.write_text(txt.rstrip("\n") + "\n../jenga-src\n", encoding="ascii", newline="")
+            Log(f"  {pth.name} : ajout de ../jenga-src")
+    (tools / "jenga.cmd").write_text(
+        "@echo off\r\n"
+        "rem Shim GENERE par scripts/MakeNkCodeDist.py : Jenga via le Python embarque.\r\n"
+        'rem (le chemin des sources vient du fichier python*._pth, pas de PYTHONPATH)\r\n'
+        '"%~dp0python-embed\\python.exe" -m Jenga %*\r\n', encoding="ascii", newline="")
+    # Variante POSIX (Phase 6 Linux/macOS) : ecrite des maintenant pour que le
+    # pipeline soit identique quand le runtime non-Windows arrivera.
+    sh = tools / "jenga"
+    sh.write_text(
+        "#!/bin/sh\n"
+        "# Shim GENERE par scripts/MakeNkCodeDist.py : Jenga via le Python embarque.\n"
+        'DIR="$(cd "$(dirname "$0")" && pwd)"\n'
+        'PYTHONPATH="$DIR/jenga-src" exec "$DIR/python-embed/python" -m Jenga "$@"\n',
+        encoding="ascii", newline="\n")
+    try:
+        sh.chmod(0o755)
+    except OSError:
+        pass
 
     if not args.skip_compiler:
         comp = DownloadCompiler(REPO / ".cache")
