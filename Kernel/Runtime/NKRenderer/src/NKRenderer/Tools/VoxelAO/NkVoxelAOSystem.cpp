@@ -4,6 +4,7 @@
 #include "NkVoxelAOSystem.h"
 #include "NKLogger/NkLog.h"
 #include "NKMath/NkFunctions.h" // NkSqrt / NkCos (pas de <math.h> : regle projet)
+#include "NKTime/NkChrono.h"	// mesure du cout de la re-voxelisation / injection
 #include <cstring>
 #include <cmath>
 #include <cstdlib> // getenv / atof (overrides de diagnostic NK_*)
@@ -127,6 +128,7 @@ namespace nkentseu {
 			// avec opacity max (un voxel touché par 2 occluders = max des deux).
 			// L'albedo suit l'occluder le plus opaque : c'est lui qui domine la
 			// couleur du rebond dans ce voxel.
+			const NkElapsedTime tBuild0 = NkChrono::Now();
 			uint32 voxelsMarked = 0;
 			for (uint32 oi = 0; oi < mOccluders.Size(); oi++) {
 				const auto &occ = mOccluders[oi];
@@ -163,6 +165,7 @@ namespace nkentseu {
 			mDevice->WriteTexture(mVoxelTex, mUpload.Data());
 			mDirty = false;
 
+			mLastBuildMs = (float32)(NkChrono::Now() - tBuild0).ToMilliseconds();
 			logger.Info("[NkVoxelAOSystem] Build OK : {0} occluders -> {1} voxels marques (sur {2})\n",
 						mOccluders.Size(), voxelsMarked, totalVoxels);
 			return true;
@@ -325,6 +328,7 @@ namespace nkentseu {
 			if (mUpload.Size() != totalVoxels * 4)
 				mUpload.Resize(totalVoxels * 4);
 
+			const NkElapsedTime tInj0 = NkChrono::Now();
 			const float32 scale = mCfg.giScale > 1e-3f ? mCfg.giScale : 1e-3f;
 			uint32 lit = 0;
 			for (uint32 z = 0; z < mCfg.resZ; z++) {
@@ -385,15 +389,18 @@ namespace nkentseu {
 				}
 			}
 
+			mLastInjectMs = (float32)(NkChrono::Now() - tInj0).ToMilliseconds();
 			mDevice->WriteTexture(mVoxelTex, mUpload.Data());
 			mHasGI = true;
 			mLastLights = lights;
 
+			// Les 5 premiers recalculs sont loggés AVEC leur coût : c'est ce chiffre
+			// qui dit si l'indirect peut suivre une géométrie qui bouge.
 			static int sLogged = 0;
-			if (sLogged++ == 0)
+			if (sLogged++ < 5)
 				logger.Info("[NkVoxelAOSystem] GI inject : {0} lumieres -> {1} voxels emetteurs (scale={2}, "
-							"shadowSteps={3})\n",
-							lights.Size(), lit, mCfg.giScale, mCfg.giShadowSteps);
+							"shadowSteps={3}) | bake {4} ms + injection {5} ms\n",
+							lights.Size(), lit, mCfg.giScale, mCfg.giShadowSteps, mLastBuildMs, mLastInjectMs);
 			return true;
 		}
 
