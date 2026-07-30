@@ -120,7 +120,23 @@ namespace nkentseu {
 				renderer::NkGizmo3D gizmo; // sélection multiple + translate/rotate/scale/combiné
 				// Mesh ÉDITÉ propre à un objet (persiste l'édition) : si valide, l'objet est
 				// rendu avec CE mesh au lieu de sa primitive partagée. Rempli à la SORTIE d'edit.
-					NkMeshHandle objMesh[kNumObj]{};
+					// ── LUMIERES PERSISTANTES (L1 etape 1) ──────────────────────────────
+				// VERROU LEVE ICI. Les 4 lumieres etaient reconstruites EN DUR a chaque
+				// frame dans Demo3D_Frame : tout deplacement au gizmo aurait ete ecrase a
+				// l'image suivante. Coder le pick avant cette etape aurait donne une
+				// manipulation qui marche a l'ecran et se reinitialise — pire que rien.
+				// Elles vivent desormais dans l'ETAT : initialisees une fois, modifiables,
+				// et seule leur animation reste optionnelle.
+				static const int32 kNumLights = 4;
+				renderer::NkLightDesc lights[kNumLights];
+				bool lightsInit = false;
+				// Le spot tournait via ctx.totalTime. On garde l'animation par DEFAUT (la
+				// demo montre la projection dynamique du cookie), mais des que
+				// l'utilisateur touche au spot elle DOIT s'arreter : sinon sa position
+				// serait recalculee et son deplacement perdu a la frame suivante.
+				bool spotAnimated = true;
+				float32 spotAngle = 0.f; // phase courante, avancee seulement si animee
+				NkMeshHandle objMesh[kNumObj]{};
 				// AUTORITE TOPOLOGIQUE de l'objet edite : la structure demi-arete n-gon
 				// TELLE QUELLE. Sans elle, on re-derivait la topologie depuis les TRIANGLES
 				// du mesh de rendu (BuildFromIndexed + quadify), heuristique qui ne
@@ -3700,57 +3716,89 @@ namespace nkentseu {
 			sctx.camera = cam;
 			sctx.time = ctx.totalTime;
 
-			// Soleil directionnel
-			NkLightDesc sun;
-			sun.type = NkLightType::NK_DIRECTIONAL;
-			sun.direction = {-0.4f, -1.f, -0.3f};
-			sun.color = {1.f, 0.95f, 0.85f};
-			sun.intensity = 3.f;
-			sun.castShadow = true;
-			sun.shadowStatic = true; // NkVSM v1 cache : sun ne bouge pas
-			sctx.lights.PushBack(sun);
+			// ── INITIALISATION UNIQUE DES LUMIERES ──────────────────────────────
+			// Auparavant ces 4 descripteurs etaient reecrits a CHAQUE frame : la scene
+			// etait donc figee par construction, et aucune manipulation n'aurait pu
+			// survivre. On ne les ecrit plus qu'une fois ; ensuite l'etat fait foi.
+			if (!st->lightsInit) {
+				st->lightsInit = true;
 
-			// Lumiere ponctuelle rouge — avec cube cookie "lantern" (E.6b).
-			// Boostee (intensity 12, range 10) pour que le pattern X soit clair
-			// meme face au sun + spot. Position legerement haute pour eviter
-			// d'etre dans le sol.
-			NkLightDesc redLight;
-			redLight.type = NkLightType::NK_POINT;
-			redLight.position = {3.f, 2.5f, 0.f};
-			redLight.color = {1.f, 0.2f, 0.1f};
-			redLight.intensity = 12.f;
-			redLight.range = 10.f;
-			redLight.cookieIdx = 0;		  // utilise le cube bind au slot 0
-			redLight.castShadow = true;	  // NkVSM : cubemap 6 faces shadow
-			redLight.shadowStatic = true; // position fixe
-			sctx.lights.PushBack(redLight);
+				// [0] Soleil directionnel
+				NkLightDesc &sun = st->lights[0];
+				sun = NkLightDesc{};
+				sun.type = NkLightType::NK_DIRECTIONAL;
+				sun.direction = {-0.4f, -1.f, -0.3f};
+				sun.color = {1.f, 0.95f, 0.85f};
+				sun.intensity = 3.f;
+				sun.castShadow = true;
+				sun.shadowStatic = true; // NkVSM v1 cache : le soleil ne bouge pas
 
-			// Fill bleue
-			NkLightDesc blue;
-			blue.type = NkLightType::NK_POINT;
-			blue.position = {-2.f, 1.f, 1.f};
-			blue.color = {0.2f, 0.5f, 1.f};
-			blue.intensity = 2.5f;
-			blue.range = 8.f;
-			blue.castShadow = true;	  // NkVSM : cubemap 6 faces shadow
-			blue.shadowStatic = true; // position fixe
-			sctx.lights.PushBack(blue);
+				// [1] Ponctuelle rouge — cube cookie « lantern » (E.6b). Boostee
+				// (intensite 12, portee 10) pour que le motif en X reste lisible face
+				// au soleil et au spot. Legerement haute pour ne pas etre dans le sol.
+				NkLightDesc &redLight = st->lights[1];
+				redLight = NkLightDesc{};
+				redLight.type = NkLightType::NK_POINT;
+				redLight.position = {3.f, 2.5f, 0.f};
+				redLight.color = {1.f, 0.2f, 0.1f};
+				redLight.intensity = 12.f;
+				redLight.range = 10.f;
+				redLight.cookieIdx = 0;
+				redLight.castShadow = true;
+				redLight.shadowStatic = true;
 
-			// E.6 : Spot light avec cookie procedural "window bars" projete au sol.
-			// Tournant lentement pour montrer la projection dynamique.
-			NkLightDesc spot;
-			spot.type = NkLightType::NK_SPOT;
-			spot.position = {3.f * cosf(ctx.totalTime * 0.3f), 4.f, 3.f * sinf(ctx.totalTime * 0.3f)};
-			spot.direction = NkVec3f{0.f, 0.f, 0.f} - spot.position; // pointe vers origine
-			spot.direction = spot.direction.Normalized();
-			spot.color = {1.f, 0.95f, 0.85f};
-			spot.intensity = 8.f;
-			spot.range = 10.f;
-			spot.innerAngle = 18.f;
-			spot.outerAngle = 28.f;
-			spot.cookieIdx = 0;		// utilise le slot bind par Init
-			spot.castShadow = true; // NkVSM : 1 tile shadow map per spot
-			sctx.lights.PushBack(spot);
+				// [2] Fill bleue
+				NkLightDesc &blue = st->lights[2];
+				blue = NkLightDesc{};
+				blue.type = NkLightType::NK_POINT;
+				blue.position = {-2.f, 1.f, 1.f};
+				blue.color = {0.2f, 0.5f, 1.f};
+				blue.intensity = 2.5f;
+				blue.range = 8.f;
+				blue.castShadow = true;
+				blue.shadowStatic = true;
+
+				// [3] Spot avec cookie procedural « barreaux » projete au sol.
+				NkLightDesc &spot = st->lights[3];
+				spot = NkLightDesc{};
+				spot.type = NkLightType::NK_SPOT;
+				spot.position = {3.f, 4.f, 0.f};
+				spot.direction = (NkVec3f{0.f, 0.f, 0.f} - spot.position).Normalized();
+				spot.color = {1.f, 0.95f, 0.85f};
+				spot.intensity = 8.f;
+				spot.range = 10.f;
+				spot.innerAngle = 18.f;
+				spot.outerAngle = 28.f;
+				spot.cookieIdx = 0;
+				spot.castShadow = true;
+			}
+
+			// ANIMATION DU SPOT — desormais OPTIONNELLE et pilotee par une phase
+			// PROPRE, pas par ctx.totalTime. Deux raisons : (1) des que l'utilisateur
+			// deplacera le spot il faudra couper l'animation sans figer le temps
+			// global ; (2) lire l'horloge globale rendait la scene non reproductible
+			// entre deux captures, ce qui fausse toute comparaison avant/apres.
+			// NK_LIGHT_ANIM=0 fige l'animation (captures deterministes).
+			{
+				static int32 sAnimEnv = -1;
+				if (sAnimEnv == -1) {
+					const char *v = getenv("NK_LIGHT_ANIM");
+					sAnimEnv = (v && v[0] == '0') ? 0 : 1;
+				}
+				if (sAnimEnv && st->spotAnimated && !fixcam) {
+					st->spotAngle += dt * 0.3f;
+					NkLightDesc &spot = st->lights[3];
+					spot.position = {3.f * cosf(st->spotAngle), 4.f, 3.f * sinf(st->spotAngle)};
+					spot.direction = (NkVec3f{0.f, 0.f, 0.f} - spot.position).Normalized();
+				}
+			}
+
+			// Soumission : l'ETAT est la source de verite, plus le code ci-dessus.
+			for (int32 li = 0; li < Demo3DState::kNumLights; li++)
+				sctx.lights.PushBack(st->lights[li]);
+
+
+
 
 			sctx.ambientIntensity = 0.15f;
 
