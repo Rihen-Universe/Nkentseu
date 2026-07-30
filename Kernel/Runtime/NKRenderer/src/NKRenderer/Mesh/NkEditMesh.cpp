@@ -120,6 +120,11 @@ namespace nkentseu {
 			// en edition reste neutre.
 			for (uint32 i = 0; i < vc && i < (uint32)verts.Size(); i++)
 				verts[i].normal = v[i].normal;
+			// Liste d'aretes de premier plan, construite DES l'entree : l'editeur peut
+			// ainsi compter/afficher les aretes sans dependre du premier AddWireEdge
+			// (qui, lui, garde un rebuild paresseux en filet). Une construction partant
+			// de zero n'a par definition aucune arete filaire a preserver.
+			RebuildEdges();
 		}
 
 		uint32 NkEditMesh::FaceSize(NkEmId f) const {
@@ -674,6 +679,16 @@ namespace nkentseu {
 
 		void NkEditMesh::GetUniqueEdges(NkVector<uint32> &outPairs) const {
 			outPairs.Clear();
+			// Aretes FILAIRES d'abord : elles n'ont AUCUNE demi-arete, donc la boucle
+			// ci-dessous ne peut pas les trouver. Sans ce premier passage, un segment
+			// cree avec F serait invisible en fil de fer — il existerait dans la
+			// structure sans jamais etre dessine.
+			for (uint32 e = 0; e < (uint32)edges.Size(); ++e) {
+				if (!edges[e].alive || edges[e].faceCount != 0)
+					continue;
+				outPairs.PushBack(edges[e].v0);
+				outPairs.PushBack(edges[e].v1);
+			}
 			for (uint32 h = 0; h < (uint32)hedges.Size(); ++h) {
 				if (!hedges[h].alive)
 					continue; // arête interne dissoute (quadify)
@@ -1326,6 +1341,136 @@ namespace nkentseu {
 		//     ses arêtes traversaient la face — exactement l'aspect « la face est faite de deux
 		//     triangles » signalé. On les ORDONNE maintenant angulairement autour de leur
 		//     barycentre, dans le plan de meilleur ajustement -> contour simple, non croisé.
+
+		// ── ARETES DE PREMIER PLAN (etape 1 BMesh) ──────────────────────────────
+		void NkEditMesh::RebuildEdges() {
+			// Les aretes FILAIRES sont conservees : elles ne sont incidentes a aucune
+			// face, donc aucune reconstruction depuis les demi-aretes ne pourrait les
+			// retrouver. C'est toute la raison d'etre de cette liste.
+			NkVector<Edge> wires;
+			for (uint32 i = 0; i < (uint32)edges.Size(); ++i)
+				if (edges[i].alive && edges[i].faceCount == 0 && edges[i].hedge == NK_EM_INVALID)
+					wires.PushBack(edges[i]);
+
+			// Identite SOUDEE : deux sommets exactement au meme endroit sont une seule
+			// identite topologique. Sans cela, un cube (24 sommets dupliques par face)
+			// donnerait 24 aretes distinctes la ou il n'y en a que 12.
+			NkVector<uint32> canon;
+			BuildVertexMerge(canon);
+			auto cn = [&](uint32 v) { return (v < (uint32)canon.Size()) ? canon[v] : v; };
+
+			edges.Clear();
+			NkHashMap<uint64, uint32> seen;
+			NkVector<NkEmId> loop;
+			for (uint32 f = 0; f < (uint32)faces.Size(); ++f) {
+				if (!faces[f].alive)
+					continue;
+				loop.Clear();
+				GetFaceVerts((NkEmId)f, loop);
+				if (loop.Size() < 3)
+					continue;
+				const NkEmId start = faces[f].hedge;
+				NkEmId hh = start;
+				uint32 guard = 0;
+				do {
+					const uint32 o = cn(hedges[hh].origin);
+					const uint32 d = cn(hedges[hedges[hh].next].origin);
+					if (o != d) {
+						const uint64 lo = o < d ? o : d, hi = o < d ? d : o;
+						const uint64 key = (lo << 32) | hi;
+						uint32 *ex = seen.Find(key);
+						if (ex) {
+							if (edges[*ex].faceCount < 255)
+								edges[*ex].faceCount++;
+						} else {
+							Edge e{};
+							e.v0 = (NkEmId)lo;
+							e.v1 = (NkEmId)hi;
+							e.hedge = hh;
+							e.faceCount = 1;
+							e.alive = 1;
+							seen.InsertOrAssign(key, (uint32)edges.Size());
+							edges.PushBack(e);
+						}
+					}
+					hh = hedges[hh].next;
+				} while (hh != start && hh != NK_EM_INVALID && ++guard < 100000u);
+			}
+
+			// Reinsere les filaires, sauf si une face les a entre-temps recouvertes
+			// (une arete filaire qui devient bord d'une face n'est plus filaire).
+			for (uint32 i = 0; i < (uint32)wires.Size(); ++i) {
+				const uint32 o = cn(wires[i].v0), d = cn(wires[i].v1);
+				if (o == d)
+					continue;
+				const uint64 lo = o < d ? o : d, hi = o < d ? d : o;
+				if (seen.Find((lo << 32) | hi))
+					continue;
+				Edge e{};
+				e.v0 = (NkEmId)lo;
+				e.v1 = (NkEmId)hi;
+				e.hedge = NK_EM_INVALID;
+				e.faceCount = 0;
+				e.alive = 1;
+				edges.PushBack(e);
+			}
+		}
+
+		uint32 NkEditMesh::EdgeCount() const {
+			uint32 n = 0;
+			for (uint32 i = 0; i < (uint32)edges.Size(); ++i)
+				if (edges[i].alive)
+					n++;
+			return n;
+		}
+
+		NkEmId NkEditMesh::AddWireEdge(uint32 a, uint32 b) {
+			if (a >= (uint32)verts.Size() || b >= (uint32)verts.Size())
+				return NK_EM_INVALID;
+			NkVector<uint32> canon;
+			BuildVertexMerge(canon);
+			const uint32 ca = (a < (uint32)canon.Size()) ? canon[a] : a;
+			const uint32 cb = (b < (uint32)canon.Size()) ? canon[b] : b;
+			if (ca == cb)
+				return NK_EM_INVALID; // meme sommet topologique : pas d'arete a creer
+			if (edges.Empty())
+				RebuildEdges();
+			const uint32 lo = ca < cb ? ca : cb, hi = ca < cb ? cb : ca;
+			for (uint32 i = 0; i < (uint32)edges.Size(); ++i)
+				if (edges[i].alive && edges[i].v0 == lo && edges[i].v1 == hi)
+					return (NkEmId)i; // deja presente (bord de face ou filaire)
+			Edge e{};
+			e.v0 = (NkEmId)lo;
+			e.v1 = (NkEmId)hi;
+			e.hedge = NK_EM_INVALID; // FILAIRE : aucune face incidente
+			e.faceCount = 0;
+			e.alive = 1;
+			edges.PushBack(e);
+			return (NkEmId)(edges.Size() - 1);
+		}
+
+		bool NkEditMesh::MakeEdgeFromSelected() {
+			// Un seul REPRESENTANT par sommet topologique : les primitives dupliquent
+			// leurs sommets par face, donc « deux sommets selectionnes » peut vouloir
+			// dire six indices bruts pointant deux positions.
+			NkVector<uint32> canon;
+			BuildVertexMerge(canon);
+			NkHashMap<uint32, uint8> taken;
+			NkVector<uint32> sel;
+			for (uint32 i = 0; i < (uint32)verts.Size(); ++i) {
+				if (!verts[i].sel)
+					continue;
+				const uint32 cc = (i < (uint32)canon.Size()) ? canon[i] : i;
+				if (taken.Find(cc))
+					continue;
+				taken.InsertOrAssign(cc, (uint8)1);
+				sel.PushBack(i);
+			}
+			if (sel.Size() != 2)
+				return false;
+			return AddWireEdge(sel[0], sel[1]) != NK_EM_INVALID;
+		}
+
 		bool NkEditMesh::MakeFaceFromSelected() {
 			NkVector<NkVertex3D> pv;
 			NkVector<uint32> fs, fv;
@@ -3219,6 +3364,14 @@ namespace nkentseu {
 				case NkMeshEditOp::Merge:
 					return m.MergeSelectedVerts(merge);
 				case NkMeshEditOp::MakeFace:
+					// F facon Blender : la MEME touche cree une ARETE avec deux sommets
+					// selectionnes, et une FACE a partir de trois. Cette bascule est le
+					// comportement de Blender, pas une commodite : avec deux sommets il
+					// n'y a pas de face a creer, il y a un segment.
+					// C'est ce que l'ancienne structure ne savait pas faire (une arete
+					// n'existait qu'a travers ses faces) — cf. Edge / AddWireEdge.
+					if (m.MakeEdgeFromSelected())
+						return true;
 					return m.MakeFaceFromSelected();
 				case NkMeshEditOp::Subdivide:
 					return m.SubdivideSelectedFaces(subdiv);
