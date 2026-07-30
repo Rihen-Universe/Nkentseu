@@ -397,6 +397,51 @@ static void WireBattery() {
 	}
 }
 
+// Cas MERGE ajoutes en fin de batterie (les 42 precedents gardent leurs lignes).
+static void MergeBattery() {
+	NkVector<NkVertex3D> v;
+	NkVector<uint32> idx;
+	MakeCube(v, idx);
+	// COLLAPSE sur DEUX ilots disjoints (2 coins opposes du cube, copies
+	// comprises) : chaque ilot doit fusionner vers SON centre -> il reste 2
+	// sommets topologiques la ou Center n'en laisserait qu'un.
+	{
+		NkEditMesh m2;
+		m2.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		NkVector<uint32> canon;
+		m2.BuildVertexMerge(canon);
+		// coin A = position de verts[0] ; coin B = son oppose. Selectionne toutes
+		// les copies de chaque coin (flushing simule).
+		const NkVec3f pa = m2.verts[0].pos;
+		const NkVec3f pb = {-pa.x, -pa.y, -pa.z};
+		for (uint32 i = 0; i < m2.VertCount(); i++) {
+			const NkVec3f q = m2.verts[i].pos;
+			if ((q - pa).Len() < 1e-6f || (q - pb).Len() < 1e-6f)
+				m2.verts[i].sel = 1;
+		}
+		NkMergeParams mp;
+		mp.mode = NkMergeParams::Collapse;
+		const bool ok = m2.MergeSelectedVerts(mp);
+		Emit("cube/merge-collapse-2ilots", Signature(m2));
+		(void)ok;
+	}
+	// BY DISTANCE avec un seuil couvrant un coin (les 3 copies co-localisees d'un
+	// coin sont deja soudees topologiquement : rien ne doit fusionner d'autre) —
+	// verifie que le seuil n'attrape pas les coins voisins a 1.0 d'ecart.
+	{
+		NkEditMesh m2;
+		m2.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		m2.SelectAll();
+		NkMergeParams mp;
+		mp.mode = NkMergeParams::ByDistance;
+		mp.distance = 0.1f; // < arete (1.0) : aucune fusion inter-coins attendue
+		const bool ok = m2.MergeSelectedVerts(mp);
+		char nm[96];
+		snprintf(nm, sizeof(nm), "cube/merge-bydistance-0.1%s", ok ? "" : " [REFUSE]");
+		Emit(nm, Signature(m2));
+	}
+}
+
 int main(int argc, char **argv) {
 	bool baseline = false, check = false;
 	for (int32 i = 1; i < argc; i++) {
@@ -408,6 +453,7 @@ int main(int argc, char **argv) {
 
 	Battery();
 	WireBattery();
+	MergeBattery();
 
 	const char *path = "editmesh_baseline.txt";
 	if (baseline) {

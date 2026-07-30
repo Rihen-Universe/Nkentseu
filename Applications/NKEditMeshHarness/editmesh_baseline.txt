@@ -40,3 +40,5 @@ grille4/selectall+shade-smooth     V=25     F=16     E=40     bord=16    nonmani
 cube/F-2sommets-diagonale          ok=1 E:12->13 filDeFer=13
 cube/F-2sommets-deja-relies        ok=1 E:12->12 (deja presente : rien cree)
 cube/filaire-survit-au-rebuild     E avant rebuild=13 apres=13 (identique attendu)
+cube/merge-collapse-2ilots         V=20     F=6      E=12     bord=0     nonmanif=0   tri=12     A=6.0000 C=(0.0000,0.0000,0.0000)
+cube/merge-bydistance-0.1          V=8      F=6      E=12     bord=0     nonmanif=0   tri=12     A=6.0000 C=(0.0000,0.0000,0.0000)

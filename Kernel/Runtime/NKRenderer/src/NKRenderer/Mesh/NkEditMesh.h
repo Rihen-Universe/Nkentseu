@@ -40,9 +40,21 @@ namespace nkentseu {
 		};
 
 		struct NkMergeParams {
-				enum Mode { Center = 0, First = 1, Last = 2 };
+				// Modes de M (Merge) facon Blender. AJOUTES EN FIN (l'op est serialisee).
+				//   AtCursor   fusionne au CURSEUR 3D (point fourni en espace maillage) ;
+				//   Collapse   chaque ILOT CONNEXE de la selection fusionne vers SON centre
+				//              (un merge par region, pas un merge global) ;
+				//   ByDistance « Remove Doubles » : seuls les sommets selectionnes plus
+				//              proches que `distance` fusionnent, par grappes.
+				// NB Blender : First/Last y designent le premier/dernier SELECTIONNE
+				// (ordre de clic). Ici l'ordre de selection n'est pas encore memorise :
+				// First/Last = plus petit / plus grand INDICE — ecart documente, a
+				// resorber quand l'editeur portera l'historique de selection.
+				enum Mode { Center = 0, First = 1, Last = 2, AtCursor = 3, Collapse = 4, ByDistance = 5 };
 
 				int32 mode = Center;
+				NkVec3f point = {0.f, 0.f, 0.f}; // cible AtCursor (espace du maillage)
+				float32 distance = 0.f;			 // ByDistance ; <= 0 => 0,1 % de la diagonale bbox
 		};
 
 		struct NkSubdivideParams {
