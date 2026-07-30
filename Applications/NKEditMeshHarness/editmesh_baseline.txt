@@ -37,3 +37,16 @@ grille4/selectall+dissolve         V=16     F=1      E=16     bord=16    nonmani
 grille4/selectall+tosphere         V=25     F=16     E=32     bord=8     nonmanif=8   tri=32     A=0.6848 C=(-0.0000,0.0000,0.0000)
 grille4/selectall+shrinkfatten [REFUSE] V=25     F=16     E=40     bord=16    nonmanif=0   tri=32     A=1.0000 C=(0.0000,0.0000,0.0000)
 grille4/selectall+shade-smooth     V=25     F=16     E=40     bord=16    nonmanif=0   tri=32     A=1.0000 C=(0.0000,0.0000,0.0000)
+cube/F-2sommets-diagonale          ok=1 E:12->13 filDeFer=13
+cube/F-2sommets-deja-relies        ok=1 E:12->12 (deja presente : rien cree)
+cube/filaire-survit-au-rebuild     E avant rebuild=13 apres=13 (identique attendu)
+cube/merge-collapse-2ilots         V=20     F=6      E=12     bord=0     nonmanif=0   tri=12     A=6.0000 C=(0.0000,0.0000,0.0000)
+cube/merge-bydistance-0.1          V=8      F=6      E=12     bord=0     nonmanif=0   tri=12     A=6.0000 C=(0.0000,0.0000,0.0000)
+sphere16/extrude-region            V=331    F=300    E=541    bord=0     nonmanif=47  tri=600    A=4.0328 C=(0.0454,-0.1637,-0.0000)
+sphere16/extrude-along-normals     V=331    F=300    E=541    bord=0     nonmanif=47  tri=600    A=7.4609 C=(0.0516,-0.0001,-0.0000)
+sphere16/extrude-to-cursor         V=331    F=300    E=541    bord=0     nonmanif=47  tri=600    A=3.6999 C=(0.0424,0.3275,0.0000)
+grille4/move-simple                V=25     F=16     E=40     bord=16    nonmanif=0   tri=32     A=1.0461 C=(0.0000,0.0160,0.0000)
+grille4/move-proportional-smooth   V=25     F=16     E=40     bord=16    nonmanif=0   tri=32     A=1.0584 C=(0.0000,0.0446,0.0000)
+grille4/move-proportional-sharp    V=25     F=16     E=40     bord=16    nonmanif=0   tri=32     A=1.0410 C=(0.0000,0.0306,0.0000)
+grille4/move-symetrie-X            V=25     F=16     E=40     bord=16    nonmanif=0   tri=32     A=1.1015 C=(0.0000,0.0320,0.0000)
+courbes/influence                  smooth(0,.25,.5,.75)=1.000/0.844/0.500/0.156 sphere(.5)=0.866 sharp(.5)=0.250 const(.9)=1.000

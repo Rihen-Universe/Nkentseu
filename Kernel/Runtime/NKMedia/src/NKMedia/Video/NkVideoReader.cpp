@@ -12,6 +12,7 @@
 #include "NKMedia/Codecs/Video/HEVC/NkHevcDecoder.h"
 #include "NKMedia/Codecs/Video/Mpeg2/NkMpeg2Decoder.h"
 #include "NKMedia/Codecs/Video/Theora/NkTheoraDecoder.h"
+#include "NKMedia/Codecs/Video/AV1/NkAv1Decoder.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKFileSystem/NkDirectory.h"
 #include "NKMemory/NKMemory.h"
@@ -106,7 +107,7 @@ namespace nkentseu {
 			}
 
 			enum class Backend { NONE, AVI, MOV, WEBM, TS, FLV, IVF, HEVC_ANNEXB, MPEG2_ES, OGV, SEQUENCE };
-			enum class Codec { NONE, MJPEG, RAWRGB, H264, VP8, VP9, HEVC, MPEG2, THEORA };
+			enum class Codec { NONE, MJPEG, RAWRGB, H264, VP8, VP9, HEVC, MPEG2, THEORA, AV1 };
 
 			// Table 6-4 ISO/IEC 13818-2 : frame_rate_code (sequence header) -> cadence.
 			double Mpeg2FrameRateFromCode(int32 code) {
@@ -584,6 +585,7 @@ namespace nkentseu {
 				Impl() = default;
 				~Impl() {
 					HevcPrefetchWait(); // la tâche référence cet Impl : la joindre AVANT destruction
+					Av1DestroyDecoder();
 				}
 
 				// ── MPEG-2 (ES .m2v ou piste vidéo TS stream_type 0x02) ─────────────
@@ -605,6 +607,146 @@ namespace nkentseu {
 				// (il ne suit que le flux logique Theora).
 				NkTheoraDecoder theoraDec;
 				int32 theoraNextIndex = 0; // prochaine image que DecodeNextFrame produira
+
+				// ── AV1 ───────────────────────────────────────────────────────────────────
+				// Contrairement à VP8/VP9 (DPB géré ICI), TOUT l'état persistant AV1
+				// (DPB 8 slots, CDF sauvegardées, champ de MV, order hints) vit dans
+				// `NkAv1StreamDecoder` : le reader lui passe chaque temporal unit
+				// (une trame IVF / un bloc WebM / un sample MP4) dans l'ordre et reçoit
+				// 0..n images DÉJÀ en ordre d'affichage (show_frame/show_existing_frame
+				// gérés, altref invisibles décodées mais non sorties). Le mapping
+				// affichage->TU est précalculé STRUCTURELLEMENT à l'ouverture
+				// (Av1ScanTus, sans décoder de pixels) : `av1DisplayTu[i]` = TU qui
+				// produit la i-ème image affichée, `av1Keyframe[i]` = point d'accès
+				// aléatoire (TU débutant par une KEY affichée). Seek = reset COMPLET
+				// du StreamDecoder (destroy+recreate) + rejeu des OBUs de config
+				// hors-bande (av1C, WebM/MP4) + redécodage depuis la clé précédente.
+				NkAv1StreamDecoder *av1Dec = nullptr; // reset = destroy + recreate (non copiable)
+				NkVector<nk_uint8> av1ConfigObus;     // OBUs de l'av1C (seq header hors-bande), rejoués après reset
+				NkVector<nk_int32> av1DisplayTu;      // index d'affichage -> index de TU dans `frames`
+				NkVector<bool> av1Keyframe;           // parallèle : point d'accès aléatoire ?
+				NkVector<NkAv1Image> av1Pending;      // images sorties par la dernière TU, pas encore consommées
+				uint64 av1PendingPos = 0;             // curseur dans av1Pending
+				int32 av1OutBase = 0;                 // index d'affichage de av1Pending[av1PendingPos]
+				int32 av1NextTu = 0;                  // prochaine TU à passer au StreamDecoder
+				int32 av1PrevIndex = -2;              // dernier index AFFICHÉ décodé (séquentialité)
+
+				void Av1DestroyDecoder() {
+					if (av1Dec) {
+						av1Dec->~NkAv1StreamDecoder();
+						memory::NkFree(av1Dec);
+						av1Dec = nullptr;
+					}
+				}
+
+				// (Re)crée le décodeur de flux (état vierge) et rejoue les OBUs de
+				// config hors-bande (av1C) — une TU sans trame est valide et pose le
+				// sequence header dans l'état du décodeur.
+				bool Av1ResetDecoder() {
+					Av1DestroyDecoder();
+					av1Dec = (NkAv1StreamDecoder *)memory::NkAlloc(sizeof(NkAv1StreamDecoder));
+					if (!av1Dec)
+						return false;
+					new (av1Dec) NkAv1StreamDecoder();
+					av1Pending.Clear();
+					av1PendingPos = 0;
+					if (av1ConfigObus.Size() > 0) {
+						NkVector<NkAv1Image> none;
+						if (!av1Dec->DecodeTemporalUnit(av1ConfigObus.Data(),
+														(usize)av1ConfigObus.Size(), none))
+							return false;
+					}
+					return true;
+				}
+
+				// Marche les OBU d'un buffer (en-tête + LEB128, §5.3) SANS décoder de
+				// pixels : met à jour le sequence header persistant et, si demandé,
+				// compte les trames AFFICHÉES (show_frame OU show_existing_frame) et
+				// détecte le point d'accès aléatoire (1er OBU de trame = KEY affichée).
+				// Sert au scan des TU ET au parse des OBUs de config av1C.
+				// ⚠️ On ne passe PAS par NkAv1Decoder::ParseFrameHeader ici : le parse
+				// structurel complet d'un en-tête INTER peut échouer sans l'état DPB
+				// (frame_size_with_refs…). Les 4 premiers bits de l'uncompressed_header
+				// (§5.9.2) suffisent au scan et ne dépendent d'aucun état :
+				//   show_existing_frame f(1) [ + frame_to_show, ignoré ]
+				//   frame_type f(2), show_frame f(1)
+				// (cas reduced_still_picture_header : KEY affichée, zéro bit à lire).
+				static bool Av1WalkObus(const uint8 *d, usize n, NkAv1SequenceHeader &seq, bool &haveSeq,
+										int32 *shownCount, bool *randomAccess) {
+					usize pos = 0;
+					bool seenFrame = false;
+					while (pos < n) {
+						NkAv1ObuHeader oh;
+						if (!NkAv1Decoder::ParseObuHeader(d + pos, n - pos, oh))
+							return false;
+						const uint8 *payload = d + pos + oh.payloadOffset;
+						const usize plen = oh.payloadSize;
+						if (oh.type == kAv1ObuSequenceHeader) {
+							NkAv1SequenceHeader s;
+							if (NkAv1Decoder::ParseSequenceHeader(payload, plen, s)) {
+								seq = s;
+								haveSeq = true;
+							}
+						} else if (oh.type == kAv1ObuFrame || oh.type == kAv1ObuFrameHeader) {
+							if (!haveSeq)
+								return false; // trame avant tout sequence header (in-band OU av1C)
+							bool showExisting = false, showFr = false;
+							int32 ftype = kAv1KeyFrame;
+							if (seq.reducedStillPictureHeader) {
+								showFr = true; // frame_type = KEY, show_frame = 1 (implicites)
+							} else {
+								if (plen < 1)
+									return false;
+								const uint8 b0 = payload[0]; // bits MSB->LSB
+								showExisting = ((b0 >> 7) & 1) != 0;
+								if (!showExisting) {
+									ftype = (int32)((b0 >> 5) & 3);
+									showFr = ((b0 >> 4) & 1) != 0;
+								}
+							}
+							if (showExisting) {
+								if (shownCount)
+									++(*shownCount);
+							} else {
+								if (!seenFrame && randomAccess)
+									*randomAccess = (ftype == kAv1KeyFrame && showFr);
+								seenFrame = true;
+								if (showFr && shownCount)
+									++(*shownCount);
+							}
+						}
+						pos += oh.payloadOffset + plen;
+					}
+					return true;
+				}
+
+				// Scan structurel des TU (`frames[]`) : construit le mapping
+				// affichage->TU + les points d'accès aléatoire. Le nombre de trames
+				// affichées peut différer du nombre de TU (trames cachées altref,
+				// show_existing_frame). `av1ConfigObus` est parcouru d'abord (seq
+				// header hors-bande WebM/MP4 ; vide pour IVF, seq en bande).
+				bool Av1ScanTus() {
+					NkAv1SequenceHeader seq;
+					bool haveSeq = false;
+					if (av1ConfigObus.Size() > 0 &&
+						!Av1WalkObus(av1ConfigObus.Data(), (usize)av1ConfigObus.Size(), seq, haveSeq,
+									 nullptr, nullptr))
+						return false;
+					av1DisplayTu.Clear();
+					av1Keyframe.Clear();
+					for (uint64 t = 0; t < frames.Size(); ++t) {
+						int32 shown = 0;
+						bool ra = false;
+						if (!Av1WalkObus(bytes.Data() + frames[t].offset, frames[t].size, seq, haveSeq,
+										 &shown, &ra))
+							return false;
+						for (int32 s = 0; s < shown; ++s) {
+							av1DisplayTu.PushBack((int32)t);
+							av1Keyframe.PushBack(ra && s == 0);
+						}
+					}
+					return av1DisplayTu.Size() > 0;
+				}
 
 				const NkHevcFrame *HevcFindByPoc(int32 poc) const {
 					for (uint64 k = 0; k < hevcDpb.Size(); ++k)
@@ -1194,7 +1336,8 @@ namespace nkentseu {
 										 Tag(etype, 'M', 'J', 'P', 'G');
 					const bool isAvc = Tag(etype, 'a', 'v', 'c', '1') || Tag(etype, 'a', 'v', 'c', '3');
 					const bool isHevc = Tag(etype, 'h', 'v', 'c', '1') || Tag(etype, 'h', 'e', 'v', '1');
-					if (!isMjpeg && !isAvc && !isHevc)
+					const bool isAv1 = Tag(etype, 'a', 'v', '0', '1');
+					if (!isMjpeg && !isAvc && !isHevc && !isAv1)
 						return false;
 
 					// H264 : extrait SPS/PPS de la box avcC (enfant de l'entrée avc1, après 78 octets fixes).
@@ -1214,6 +1357,18 @@ namespace nkentseu {
 						if (entS + 8 + 78 <= hvEnd && Box(d, entS + 8 + 78, hvEnd, "hvcC", hcS, hcE) &&
 							hcE - hcS >= 23)
 							ParseHvcCBytes(d + hcS, hcE - hcS);
+					}
+					// AV1 : OBUs de config de la box av1C (même position ; 4 octets d'en-tête
+					// AV1CodecConfigurationRecord puis les OBUs — sequence header). Rejoués au
+					// StreamDecoder après chaque reset (cf. Av1ResetDecoder).
+					if (isAv1) {
+						const uint32 entrySize = RdU32BE(d + entS);
+						const usize avEnd = entS + (usize)entrySize;
+						usize a1S, a1E;
+						if (entS + 8 + 78 <= avEnd && Box(d, entS + 8 + 78, avEnd, "av1C", a1S, a1E) &&
+							a1E - a1S > 4)
+							for (usize i = a1S + 4; i < a1E; ++i)
+								av1ConfigObus.PushBack(d[i]);
 					}
 
 					// Assemble la table des samples via stsz + stco/co64 + stsc.
@@ -1289,13 +1444,25 @@ namespace nkentseu {
 							fps = (double)timescale * (double)nsamp / (double)total;
 					}
 
-					codec = isMjpeg ? Codec::MJPEG : (isHevc ? Codec::HEVC : Codec::H264);
-					info.codec = NkString(isMjpeg ? "mjpeg" : (isHevc ? "hevc" : "h264"));
+					codec = isMjpeg ? Codec::MJPEG
+									: (isHevc ? Codec::HEVC : (isAv1 ? Codec::AV1 : Codec::H264));
+					info.codec =
+						NkString(isMjpeg ? "mjpeg" : (isHevc ? "hevc" : (isAv1 ? "av1" : "h264")));
 					info.container = NkString("mov");
 					info.width = w;
 					info.height = h;
 					info.frameCount = (int32)frames.Size();
 					info.fps = fps;
+					if (codec == Codec::AV1) {
+						// Un sample MP4 = une temporal unit AV1 en OBUs BRUTS (pas de préfixe
+						// de longueur façon AVCC ; le TD OBU, retiré au muxage, est de toute
+						// façon ignoré par le StreamDecoder). La table stsz/stco/stsc
+						// ci-dessus est donc directement la table des TU.
+						if (!Av1ScanTus())
+							return false;
+						info.frameCount = (int32)av1DisplayTu.Size();
+						return true;
+					}
 					if (codec == Codec::HEVC) {
 						// `frames[]` = échantillons (AU) : les remplacer par les NAL de slice VCL,
 						// puis précalculer POC + clés d'affichage (réordonnancement B).
@@ -1320,10 +1487,9 @@ namespace nkentseu {
 					return true;
 				}
 
-				// --- Parse WebM/Matroska (EBML) : piste vidéo H264 uniquement pour l'instant ---
-				// VP8/VP9/AV1 (les codecs vidéo natifs les plus courants en WebM) échouent proprement
-				// (pas de décodeur) — un H264-en-MKV (rips courants) se lit via le décodeur existant,
-				// AUCUN changement requis côté décodage (CodecPrivate EBML = mêmes octets que avcC).
+				// --- Parse WebM/Matroska (EBML) : pistes vidéo VP8/VP9/AV1/HEVC/H264 ---
+				// Un H264-en-MKV (rips courants) se lit via le décodeur existant, AUCUN changement
+				// requis côté décodage (CodecPrivate EBML = mêmes octets que avcC).
 				// Scan des blocs VP8 : repère les images AFFICHÉES (`show_frame`) et les clés
 				// via le frame tag non compressé de chaque bloc. `frames` reste la liste de
 				// TOUS les blocs (altref invisibles comprises, à décoder mais pas afficher).
@@ -1352,15 +1518,26 @@ namespace nkentseu {
 						return false;
 					const bool isVp8 = found.codecId.Contains("VP8");
 					const bool isVp9 = found.codecId.Contains("VP9");
+					const bool isAv1 = found.codecId.Contains("AV1"); // CodecID "V_AV1"
 					const bool isHevc = found.codecId.Contains("HEVC") || found.codecId.Contains("MPEGH");
-					if (!isVp8 && !isVp9 && !isHevc && !found.codecId.Contains("AVC") &&
+					if (!isVp8 && !isVp9 && !isAv1 && !isHevc && !found.codecId.Contains("AVC") &&
 						!found.codecId.Contains("MPEG4"))
-						return false; // AV1 etc. : pas de décodeur -> échec propre
+						return false; // codec sans décodeur -> échec propre
 					if (isHevc) {
 						if (found.codecPriv.Size() >= 23)
 							ParseHvcCBytes(found.codecPriv.Data(), (usize)found.codecPriv.Size());
 						// SPS/PPS peuvent aussi arriver en bande (hev1) -> résolus dans
 						// HevcSliceNalsFromSamples ci-dessous ; échec propre si toujours absents.
+					} else if (isAv1) {
+						// CodecPrivate = AV1CodecConfigurationRecord (mêmes octets que la box
+						// `av1C` ISOBMFF) : 4 octets d'en-tête puis les OBUs de config
+						// (sequence header). Le seq header est aussi en bande sur les flux
+						// libaom courants, mais on rejoue TOUJOURS les OBUs hors-bande après
+						// chaque reset du StreamDecoder (inoffensif, et couvre les flux qui
+						// ne le répètent pas).
+						if (found.codecPriv.Size() > 4)
+							for (uint64 i = 4; i < found.codecPriv.Size(); ++i)
+								av1ConfigObus.PushBack(found.codecPriv[i]);
 					} else if (!isVp8 && !isVp9) {
 						if (found.codecPriv.Size() < 7)
 							return false;
@@ -1402,6 +1579,14 @@ namespace nkentseu {
 						if (!Vp9ScanUnits())
 							return false;
 						info.frameCount = (int32)vp9DisplayUnits.Size();
+					} else if (isAv1) {
+						// Un bloc EBML = une temporal unit AV1 (le TD OBU est retiré au
+						// muxage, toléré par le StreamDecoder qui l'ignore de toute façon).
+						codec = Codec::AV1;
+						info.codec = NkString("av1");
+						if (!Av1ScanTus())
+							return false;
+						info.frameCount = (int32)av1DisplayTu.Size();
 					} else {
 						codec = Codec::H264;
 						info.codec = NkString("h264");
@@ -1411,7 +1596,7 @@ namespace nkentseu {
 					return true;
 				}
 
-				// --- Parse IVF : conteneur brut minimal (DKIF), VP8 (VP80) ou VP9 (VP90) ---
+				// --- Parse IVF : conteneur brut minimal (DKIF) — VP8 (VP80), VP9 (VP90), AV1 (AV01) ---
 				bool ParseIvf() {
 					const uint8 *d = bytes.Data();
 					const usize n = (usize)bytes.Size();
@@ -1419,8 +1604,9 @@ namespace nkentseu {
 						return false;
 					const bool isVp8 = Tag(d + 8, 'V', 'P', '8', '0');
 					const bool isVp9 = Tag(d + 8, 'V', 'P', '9', '0');
-					if (!isVp8 && !isVp9)
-						return false; // AV01… : pas de décodeur -> échec propre
+					const bool isAv1 = Tag(d + 8, 'A', 'V', '0', '1');
+					if (!isVp8 && !isVp9 && !isAv1)
+						return false; // fourcc inconnu -> échec propre
 					const int32 w = (int32)(d[12] | (d[13] << 8));
 					const int32 h = (int32)(d[14] | (d[15] << 8));
 					const uint32 rate = RdU32LE(d + 16);  // framerate numerator
@@ -1448,6 +1634,15 @@ namespace nkentseu {
 						codec = Codec::VP9;
 						info.codec = NkString("vp9");
 						info.frameCount = (int32)vp9DisplayUnits.Size();
+					} else if (isAv1) {
+						// Une trame IVF = une temporal unit AV1 (le StreamDecoder gère les
+						// TU multi-OBU et les trames cachées : le nombre de trames AFFICHÉES
+						// peut différer du nombre de TU — mapping construit par Av1ScanTus).
+						if (!Av1ScanTus())
+							return false;
+						codec = Codec::AV1;
+						info.codec = NkString("av1");
+						info.frameCount = (int32)av1DisplayTu.Size();
 					} else {
 						if (!Vp8ScanBlocks())
 							return false;
@@ -2364,6 +2559,89 @@ namespace nkentseu {
 						return true;
 					}
 
+					if (codec == Codec::AV1) {
+						if (index < 0 || index >= (int32)av1DisplayTu.Size())
+							return false;
+						// Séquentiel : continuer à consommer les images en attente / passer
+						// les TU suivantes au StreamDecoder (qui décode aussi les trames
+						// cachées altref et gère show_existing_frame — sortie en ordre
+						// d'affichage). Saut : repartir du dernier point d'accès aléatoire
+						// (TU débutant par une KEY affichée) <= la cible, avec reset COMPLET
+						// du décodeur de flux (DPB 8 slots + CDF persistantes) et rejeu des
+						// OBUs de config hors-bande (av1C, WebM/MP4).
+						const bool sequential = (index == av1PrevIndex + 1 && av1PrevIndex >= 0 &&
+												 av1Dec != nullptr);
+						if (!sequential) {
+							int32 kf = index;
+							while (kf > 0 && !av1Keyframe[(uint64)kf])
+								--kf;
+							if (!Av1ResetDecoder())
+								return false;
+							if (av1Keyframe[(uint64)kf]) {
+								av1NextTu = av1DisplayTu[(uint64)kf];
+								av1OutBase = kf; // la clé est la 1re image affichée de sa TU
+							} else {
+								// Pas de point d'accès <= cible (flux ne débutant pas par une
+								// KEY affichée) : redécoder depuis la toute 1re TU.
+								av1NextTu = 0;
+								av1OutBase = 0;
+							}
+						}
+						for (;;) {
+							// Jeter les images en attente AVANT la cible (saut en avant).
+							while (av1PendingPos < av1Pending.Size() && av1OutBase < index) {
+								++av1PendingPos;
+								++av1OutBase;
+							}
+							if (av1PendingPos < av1Pending.Size())
+								break; // av1OutBase == index : l'image cible est en tête
+							av1Pending.Clear();
+							av1PendingPos = 0;
+							if (av1NextTu >= (int32)frames.Size())
+								return false;
+							if (!av1Dec->DecodeTemporalUnit(bytes.Data() + frames[(uint64)av1NextTu].offset,
+															frames[(uint64)av1NextTu].size, av1Pending))
+								return false;
+							++av1NextTu;
+						}
+						const NkAv1Image &img = av1Pending[av1PendingPos];
+						const int32 w = img.width, h = img.height;
+						if (w <= 0 || h <= 0)
+							return false;
+						// YUV 4:2:0 -> RGBA (BT.601 limited-range, chroma nearest) — même
+						// conversion que les chemins H264/VP8/VP9/HEVC.
+						out.width = w;
+						out.height = h;
+						out.rgba.Resize((uint64)w * (uint64)h * 4u);
+						uint8 *o = out.rgba.Data();
+						for (int32 y = 0; y < h; ++y)
+							for (int32 x = 0; x < w; ++x) {
+								const int32 Y = img.y.Data()[(usize)y * (usize)img.yStride + (usize)x];
+								const int32 U =
+									img.u.Data()[(usize)(y >> 1) * (usize)img.uvStride + (usize)(x >> 1)];
+								const int32 V =
+									img.v.Data()[(usize)(y >> 1) * (usize)img.uvStride + (usize)(x >> 1)];
+								const int32 C = Y - 16, D = U - 128, E = V - 128;
+								auto cl = [](int32 v) -> uint8 {
+									return (uint8)(v < 0 ? 0 : (v > 255 ? 255 : v));
+								};
+								const usize oi = ((usize)y * (usize)w + (usize)x) * 4;
+								o[oi + 0] = cl((298 * C + 409 * E + 128) >> 8);
+								o[oi + 1] = cl((298 * C - 100 * D - 208 * E + 128) >> 8);
+								o[oi + 2] = cl((298 * C + 516 * D + 128) >> 8);
+								o[oi + 3] = 255;
+							}
+						++av1PendingPos;
+						++av1OutBase;
+						if (av1PendingPos >= av1Pending.Size()) {
+							av1Pending.Clear();
+							av1PendingPos = 0;
+						}
+						av1PrevIndex = index;
+						out.index = index;
+						return true;
+					}
+
 					if (codec == Codec::HEVC) {
 						// `frames[index]` = NAL de slice VCL (en-tête 2 octets inclus). Le décodeur
 						// ne stocke aucun DPB : on résout les références (POC->pointeur) dans
@@ -2577,8 +2855,8 @@ namespace nkentseu {
 				return false;
 			}
 
-			// EBML (Matroska/WebM), magie 0x1A45DFA3 : piste vidéo H264 uniquement pour l'instant
-			// (VP8/VP9/AV1 -> ParseWebm échoue proprement, pas de décodeur).
+			// EBML (Matroska/WebM), magie 0x1A45DFA3 : pistes vidéo VP8/VP9/AV1/HEVC/H264
+			// (autres codecs -> ParseWebm échoue proprement).
 			if (mImpl->bytes.Size() >= 4 && d[0] == 0x1A && d[1] == 0x45 && d[2] == 0xDF && d[3] == 0xA3) {
 				if (mImpl->ParseWebm()) {
 					mImpl->backend = Backend::WEBM;
@@ -2598,7 +2876,7 @@ namespace nkentseu {
 				return false;
 			}
 
-			// IVF (magie "DKIF") : conteneur brut minimal, VP8 géré (VP9/AV1 -> échec propre).
+			// IVF (magie "DKIF") : conteneur brut minimal — VP8, VP9 et AV1 gérés.
 			if (mImpl->bytes.Size() >= 32 && d[0] == 'D' && d[1] == 'K' && d[2] == 'I' &&
 				d[3] == 'F') {
 				if (mImpl->ParseIvf()) {
