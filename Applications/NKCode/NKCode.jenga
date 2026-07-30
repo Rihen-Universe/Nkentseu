@@ -158,3 +158,43 @@ with project("NKCode"):
         defines(["NDEBUG"])
         optimize("Speed")
         symbols(False)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Banc de test du lecteur PDF (cible CONSOLE, hors application).
+#
+# Confronte l'analyseur a un corpus de PDF reels et n'affiche que des donnees
+# STRUCTURELLES (nombre de pages, dimensions, etat). Volontairement separe de
+# NKCode : un banc doit pouvoir tourner sans fenetre ni contexte graphique, et
+# etre enchaine dans un script (son code de retour = le nombre d'echecs).
+#
+#   jenga build --target NkPdfProbe --config Debug
+#   ./NkPdfProbe <dossier de PDF>
+# ─────────────────────────────────────────────────────────────────────────────
+with project("NkPdfProbe"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    files(["src/NKCode/Pdf/**.cpp", "tools/PdfProbe.cpp"])
+    includedirs(["src"])
+
+    # L'analyseur PDF ne touche ni au rendu, ni a la fenetre, ni au son : on
+    # reprend la liste de NKCode SANS la pile graphique/audio. NKImage n'est la
+    # que pour NkDeflate (FlateDecode) ; NKStream et consorts sont ses
+    # dependances TRANSITIVES, qu'il faut nommer EXPLICITEMENT — le premier
+    # essai echouait sur « NKStream/NKIResource.h file not found ».
+    nkentseudependson(
+        ["NKImage", "NKFileSystem", "NKStream", "NKThreading", "NKLogger", "NKMath",
+         "NKTime", "NKContainers", "NKMemory", "NKCore", "NKPlatform"],
+    )
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)
