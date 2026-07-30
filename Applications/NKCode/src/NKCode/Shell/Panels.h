@@ -2293,9 +2293,12 @@ namespace nkentseu {
 					dl.AddRectFilled(clip, ctx.theme.bgPrimary); // fond terminal #0D1117
 					// ── CIBLE de DRAG & DROP global : déposer des fichiers/dossiers de
 					// l'explorateur COLLE leurs chemins (quotés) dans le shell actif. ──
-					if (mState && mState->dragActive && ctx.input.mouseReleased[0] &&
-						NkGuiRectContains(clip, ctx.input.mousePos) && mActive >= 0 && mActive < 8 &&
-						mTerm[mActive].alive) {
+					// Cible de depot : InputHits (routeur d'occlusion) et pas un
+					// NkGuiRectContains brut — sinon un depot fait SUR une surface
+					// flottante posee au-dessus du terminal (modale, menu, picker)
+					// serait quand meme colle dans le shell.
+					if (mState && mState->dragActive && ctx.input.mouseReleased[0] && ctx.InputHits(clip) &&
+						mActive >= 0 && mActive < 8 && mTerm[mActive].alive) {
 						Term &dt = mTerm[mActive];
 						for (usize di = 0; di < mState->dragPaths.Size(); ++di) {
 							NkString q = "\"";
@@ -3442,7 +3445,13 @@ namespace nkentseu {
 							mRenaming = -1;
 						} else if (ctx.input.KeyPressed(nkgui::NkGuiKey::Escape))
 							mRenaming = -1;
+						// « Clic en dehors du champ -> valider » : test NEGATIF, donc on
+						// exige d'abord que le clic ATTEIGNE notre couche
+						// (PointReachable). Sinon un clic destine a une surface
+						// flottante posee au-dessus (modale, menu) validait le
+						// renommage au passage.
 						else if (mRenameArmed && ctx.input.mouseClicked[0] && !ctx.input.mouseDoubleClicked[0] &&
+								 ctx.PointReachable(ctx.input.mousePos) &&
 								 !NkGuiRectContains(mRenameRect, ctx.input.mousePos)) {
 							if (mRenameBuf[0]) // clic HORS du champ -> valide
 								mTerm[mRenaming].label = NkString(mRenameBuf);
