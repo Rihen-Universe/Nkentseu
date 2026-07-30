@@ -26,6 +26,7 @@
 #include "DemoCamera.h"
 #include "NKRenderer/Materials/NkMaterial.h"
 #include "NKRenderer/Materials/NkMaterialSystem.h"
+#include "NKRenderer/Tools/VoxelAO/NkVoxelAOSystem.h" // NK_GI_TEST : GI un rebond
 #include "NKWindow/Core/NkWESystem.h"
 #include "NKEvent/NkEventSystem.h"
 #include "NKEvent/NkKeyboardEvent.h"
@@ -41,6 +42,8 @@ namespace nkentseu {
 				DemoCamera camera;
 				int numLayers = 8;
 				NkLayeredV1Params initial; // pour reset
+				bool giTest = false;	   // NK_GI_TEST : scene de validation du GI
+				bool giInjected = false;
 		};
 
 		// Construit la config initiale des 8 couches (cf. entete fichier).
@@ -145,6 +148,39 @@ namespace nkentseu {
 			st->camera.Controller().SetAutoOrbit(false);
 			st->camera.InstallEvents();
 
+			// ── NK_GI_TEST : scène de validation du GI à un rebond ───────────────
+			// Test canonique du « color bleeding » : un mur ROUGE éclairé placé à
+			// côté des sphères doit les teinter en rouge sur la face qui lui fait
+			// face, alors qu'aucune lumière rouge n'existe dans la scène. C'est la
+			// seule façon de prouver que l'indirect vient bien de la géométrie et
+			// non d'un ambiant constant — et c'est MESURABLE (canal rouge moyen).
+			// Hors override, la scène est strictement inchangée.
+			{
+				const char *giEnv = getenv("NK_GI_TEST");
+				st->giTest = (giEnv && giEnv[0] && giEnv[0] != '0');
+			}
+			if (st->giTest) {
+				if (auto *vao = ctx.renderer->GetVoxelAO()) {
+					vao->Clear();
+					// Sol (albédo neutre) : porte le rebond général.
+					NkVoxelOccluder floorOcc;
+					floorOcc.minWorld = {-6.f, -0.5f, -6.f};
+					floorOcc.maxWorld = {6.f, 0.1f, 6.f};
+					floorOcc.opacity = 1.f;
+					floorOcc.albedo = {0.55f, 0.55f, 0.55f};
+					vao->RegisterOccluder(floorOcc);
+					// Mur rouge vertical à droite des sphères.
+					NkVoxelOccluder wall;
+					wall.minWorld = {1.6f, 0.f, -2.5f};
+					wall.maxWorld = {2.2f, 3.f, 2.5f};
+					wall.opacity = 1.f;
+					wall.albedo = {0.9f, 0.05f, 0.05f};
+					vao->RegisterOccluder(wall);
+					vao->Build();
+					logger.Info("[Demo8] NK_GI_TEST : mur rouge + sol enregistres pour le GI\n");
+				}
+			}
+
 			logger.Info("[Demo8] === M.1 v1 Material Layering N=8 ===\n");
 			logger.Info("[Demo8] 1-8 : numLayers (1=base seule, 8=toutes les couches)\n");
 			logger.Info("[Demo8] R   : reset config initiale\n");
@@ -180,11 +216,37 @@ namespace nkentseu {
 			NkLightDesc sun;
 			sun.type = NkLightType::NK_DIRECTIONAL;
 			sun.direction = {-0.3f, -1.f, -0.4f};
+			// Sous NK_GI_TEST, le soleil vient de la DROITE pour frapper la face du
+			// mur rouge qui fait face aux sphères : avec l'éclairage par défaut
+			// (venant du dessus-arrière) seule la face SUPÉRIEURE du mur est
+			// éclairée, donc elle ne réémet rien vers les sphères et le test ne
+			// mesurerait rien. Un rebond ne se voit que si la surface qui rebondit
+			// est elle-même éclairée.
+			if (st->giTest)
+				sun.direction = {0.75f, -0.55f, 0.f};
 			sun.color = {1.f, 0.95f, 0.9f};
 			sun.intensity = 2.5f;
 			sun.castShadow = false;
 			sctx.lights.PushBack(sun);
 			sctx.ambientIntensity = 0.15f;
+
+			// ── Injection GI (un rebond) ─────────────────────────────────────────
+			// Déclenchée par l'APPLICATION et non par le renderer : l'injection v1
+			// est calculée en CPU, donc c'est à la scène de décider quand elle paie
+			// ce coût. IfDirty ne recalcule que si l'éclairage a réellement changé
+			// — ici une seule fois, la lumière étant fixe.
+			// NK_GI_INTENSITY=0 éteint l'indirect sans rien changer d'autre : c'est
+			// le A/B qui prouve que la teinte observée vient bien du GI.
+			if (st->giTest) {
+				if (auto *vao = ctx.renderer->GetVoxelAO()) {
+					if (!st->giInjected) {
+						const char *gi = getenv("NK_GI_INTENSITY");
+						vao->SetGIIntensity(gi && gi[0] ? (float32)atof(gi) : 1.f);
+					}
+					if (vao->InjectLightingIfDirty(sctx.lights))
+						st->giInjected = true;
+				}
+			}
 
 			r3d->BeginScene(sctx);
 

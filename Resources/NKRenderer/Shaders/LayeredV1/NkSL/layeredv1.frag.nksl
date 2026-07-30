@@ -67,6 +67,11 @@ uniform LayeredV1UBO {
     int   _pad2;
 } uMat;
 
+// Grille de voxels (set global) : rgb = radiance réémise, a = opacité. Portée
+// par le set 0, donc déjà remplie par le renderer pour tous les matériaux.
+@binding(set=0, binding=27) uniform sampler3D tVoxelOpacity;
+#include "Include/NkVoxelAO.glsli"
+
 // Helpers d'extraction par index dans les arrays packees ivec4/vec4 (lecture UBO,
 // autorise : un UBO est global). Pas de struct locale, pas de retour de struct.
 int maskSources0_at(int i) {
@@ -141,7 +146,13 @@ void main() {
 
     vec3 specColor = mix(vec3(1.0), accAlbedo, accMetallic);
 
-    vec3 diffuse = accAlbedo * (NdotL + 0.18);   // ambient = 0.18
+    // GI à un rebond : l'ambiant n'est plus une constante. La part indirecte
+    // vient de la lumière réellement rebondie par la géométrie voisine, collectée
+    // par cone-tracing dans la grille de voxels (xyz = irradiance, w = AO).
+    // Le 0.18 subsiste comme plancher : sans occluder injecté, l'irradiance est
+    // nulle et le matériau garde exactement son rendu d'avant.
+    vec4 voxGI = NkComputeVoxelGI(vWorldPos, N3);
+    vec3 diffuse = accAlbedo * (NdotL + 0.18 * voxGI.w + voxGI.xyz);
     vec3 specular = specColor * spec * (accMetallic * 0.7 + 0.3);
 
     vec3 final = diffuse + specular;

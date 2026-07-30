@@ -35,25 +35,78 @@ vec3 NkWorldToVoxelUV(vec3 worldPos) {
     return (worldPos - NK_VOXEL_MIN_BOUNDS) / (NK_VOXEL_MAX_BOUNDS - NK_VOXEL_MIN_BOUNDS);
 }
 
+// Echelle de quantification de la radiance stockee en RGBA8.
+// ⚠️ DOIT rester egale a NkVoxelAOConfig::giScale (NkVoxelAOSystem.h).
+#define NK_VOXEL_GI_SCALE 4.0
+
 // Cone tracing depuis 'origin' dans la direction 'dir' world space.
-// 8 samples exponentiels, Beer's law accumulation.
-// Retourne occlusion [0, 1] (0 = pas occlus, 1 = totalement occlus).
-float NkVoxelConeTrace(vec3 origin, vec3 dir) {
+// 8 samples exponentiels, accumulation front-to-back (Beer's law).
+//
+// La grille porte rgb = radiance PREMULTIPLIEE par l'opacite, a = opacite. Un
+// SEUL parcours donne donc l'occlusion ET la lumiere indirecte recue : l'AO
+// devient un produit derive du GI, sans parcours supplementaire.
+// Retour : xyz = radiance accumulee (avant remise a l'echelle), w = occlusion.
+vec4 NkVoxelConeTraceGI(vec3 origin, vec3 dir) {
+    vec3  radiance  = vec3(0.0);
     float occlusion = 0.0;
     float t = 0.15;       // offset initial (evite self-occlusion)
     for (int i = 0; i < 8; i++) {
         vec3 worldP = origin + dir * t;
         vec3 uv3    = NkWorldToVoxelUV(worldP);
         if (any(lessThan(uv3, vec3(0.0))) || any(greaterThan(uv3, vec3(1.0)))) break;
-        float o = texture(tVoxelOpacity, uv3).r;
-        occlusion = occlusion + o * (1.0 - occlusion);
+        vec4 s = texture(tVoxelOpacity, uv3);
+        // Front-to-back : ce qui est deja occlus masque ce qui vient apres.
+        radiance  = radiance + (1.0 - occlusion) * s.rgb;
+        occlusion = occlusion + s.a * (1.0 - occlusion);
         t *= 1.5;
     }
-    return occlusion;
+    return vec4(radiance, occlusion);
+}
+
+// Occlusion seule [0, 1] (0 = pas occlus, 1 = totalement occlus).
+float NkVoxelConeTrace(vec3 origin, vec3 dir) {
+    return NkVoxelConeTraceGI(origin, dir).w;
+}
+
+// GI À UN REBOND + AO en un seul balayage de 4 cones dans l'hemisphere normale.
+// Retour : xyz = irradiance indirecte (a multiplier par l'albedo de la surface
+//                receveuse), w = facteur d'AO (1 = degage, 0 = occlus).
+//
+// Les 4 cones echantillonnent l'hemisphere ; leur moyenne approche l'integrale
+// de la radiance incidente. C'est ce qui remplace l'ambiant uniforme : une
+// surface pres d'un mur rouge eclaire recoit reellement du rouge.
+vec4 NkComputeVoxelGI(vec3 worldPos, vec3 N) {
+    vec3 T = abs(N.y) < 0.99 ? normalize(cross(vec3(0.0, 1.0, 0.0), N))
+                              : vec3(1.0, 0.0, 0.0);
+    vec3 B = normalize(cross(N, T));
+
+    const vec3 kConeLocal0 = vec3( 0.0,    1.0,     0.0   );
+    const vec3 kConeLocal1 = vec3( 0.866,  0.5,     0.0   );
+    const vec3 kConeLocal2 = vec3(-0.433,  0.5,     0.75  );
+    const vec3 kConeLocal3 = vec3(-0.433,  0.5,    -0.75  );
+
+    vec3 origin = worldPos + N * 0.15;
+
+    vec4 acc = vec4(0.0);
+    vec3 lc;
+    lc = kConeLocal0;
+    acc += NkVoxelConeTraceGI(origin, normalize(T * lc.x + N * lc.y + B * lc.z));
+    lc = kConeLocal1;
+    acc += NkVoxelConeTraceGI(origin, normalize(T * lc.x + N * lc.y + B * lc.z));
+    lc = kConeLocal2;
+    acc += NkVoxelConeTraceGI(origin, normalize(T * lc.x + N * lc.y + B * lc.z));
+    lc = kConeLocal3;
+    acc += NkVoxelConeTraceGI(origin, normalize(T * lc.x + N * lc.y + B * lc.z));
+
+    vec3  irradiance = acc.xyz * 0.25 * NK_VOXEL_GI_SCALE;
+    float ao         = 1.0 - clamp(acc.w * 0.25, 0.0, 1.0);
+    return vec4(irradiance, ao);
 }
 
 // Compute AO factor via 4 cones dans l'hemisphere normale (cosine-weighted).
 // Retourne 1.0 = pas occlus, 0.0 = totalement occlus.
+// Conserve pour les materiaux qui ne veulent que l'AO (Toon, Anime, Glass...) :
+// meme parcours, on jette simplement la radiance.
 float NkComputeVoxelAO(vec3 worldPos, vec3 N) {
     // Base tangente locale (T, B, N).
     vec3 T = abs(N.y) < 0.99 ? normalize(cross(vec3(0.0, 1.0, 0.0), N))
