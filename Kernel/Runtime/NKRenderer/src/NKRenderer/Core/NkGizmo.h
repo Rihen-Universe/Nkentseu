@@ -1079,15 +1079,78 @@ namespace nkentseu {
 											  mFwd.z + mRgt.z * (ndcX * mThX) + mUp.z * (ndcY * mThY)});
 					float32 bestT = 1e30f;
 					int32 bestId = -1;
+					// 1) Pick sur la BOÎTE de l'objet (OBB monde = mComposed × mHalf).
+					// La sphère seule ne peut pas décrire un objet PLAT ou très allongé :
+					// un sol de 80×80 aurait un rayon englobant énorme et volerait tous
+					// les clics, y compris ceux des objets posés dessus. La boîte épouse
+					// la forme réelle, donc chaque objet ne capte que sa propre surface.
 					for (int32 i = 0; i < mCount; i++) {
-						NkVec3f c = Ctr(i);
-						NkVec3f oc = {mCamPos.x - c.x, mCamPos.y - c.y, mCamPos.z - c.z};
-						float32 b = Dot(oc, rd), cc = Dot(oc, oc) - mPickR[i] * mPickR[i], disc = b * b - cc;
-						if (disc >= 0.f) {
-							float32 t = -b - sqrtf(disc);
+						const NkVec3f h = mHalf[i];
+						if (h.x <= 0.f && h.y <= 0.f && h.z <= 0.f)
+							continue; // pas d'extent connu -> laissé à la sphère
+						const NkMat4f &M = mComposed[i];
+						const NkVec3f c = M * NkVec3f{0.f, 0.f, 0.f};
+						// Axes de l'OBB obtenus en transformant les axes unitaires : la
+						// longueur obtenue PORTE l'échelle, et on reste indépendant de la
+						// convention de stockage de NkMat4f (même opérateur que Corner()).
+						const NkVec3f ex = M * NkVec3f{1.f, 0.f, 0.f}, ey = M * NkVec3f{0.f, 1.f, 0.f},
+									  ez = M * NkVec3f{0.f, 0.f, 1.f};
+						const NkVec3f ax[3] = {{ex.x - c.x, ex.y - c.y, ex.z - c.z},
+											   {ey.x - c.x, ey.y - c.y, ey.z - c.z},
+											   {ez.x - c.x, ez.y - c.y, ez.z - c.z}};
+						const float32 hl[3] = {h.x, h.y, h.z};
+						const NkVec3f p{c.x - mCamPos.x, c.y - mCamPos.y, c.z - mCamPos.z};
+						float32 tMin = -1e30f, tMax = 1e30f;
+						bool hit = true;
+						for (int32 a = 0; a < 3; a++) {
+							const float32 len = sqrtf(Dot(ax[a], ax[a]));
+							if (len <= 1e-6f)
+								continue;
+							const NkVec3f n{ax[a].x / len, ax[a].y / len, ax[a].z / len};
+							const float32 e = hl[a] * len; // demi-extent MONDE de cet axe
+							const float32 s = Dot(n, p), f = Dot(n, rd);
+							if (f > 1e-6f || f < -1e-6f) {
+								float32 t1 = (s - e) / f, t2 = (s + e) / f;
+								if (t1 > t2) {
+									const float32 tmp = t1;
+									t1 = t2;
+									t2 = tmp;
+								}
+								if (t1 > tMin)
+									tMin = t1;
+								if (t2 < tMax)
+									tMax = t2;
+								if (tMin > tMax) {
+									hit = false;
+									break;
+								}
+							} else if (-s - e > 0.f || -s + e < 0.f) {
+								hit = false; // rayon parallèle et hors du slab
+								break;
+							}
+						}
+						if (hit && tMax >= 0.f) {
+							const float32 t = tMin > 0.f ? tMin : tMax;
 							if (t > 0.f && t < bestT) {
 								bestT = t;
 								bestId = i;
+							}
+						}
+					}
+					// 2) Repli SPHÈRE si le clic n'a touché aucune boîte : conserve la
+					// tolérance historique (viser à côté d'un petit objet le sélectionne
+					// quand même) sans laisser un objet plat capter ce qui ne le concerne pas.
+					if (bestId < 0) {
+						for (int32 i = 0; i < mCount; i++) {
+							NkVec3f c = Ctr(i);
+							NkVec3f oc = {mCamPos.x - c.x, mCamPos.y - c.y, mCamPos.z - c.z};
+							float32 b = Dot(oc, rd), cc = Dot(oc, oc) - mPickR[i] * mPickR[i], disc = b * b - cc;
+							if (disc >= 0.f) {
+								float32 t = -b - sqrtf(disc);
+								if (t > 0.f && t < bestT) {
+									bestT = t;
+									bestId = i;
+								}
 							}
 						}
 					}
