@@ -37,3 +37,6 @@ grille4/selectall+dissolve         V=16     F=1      E=16     bord=16    nonmani
 grille4/selectall+tosphere         V=25     F=16     E=32     bord=8     nonmanif=8   tri=32     A=0.6848 C=(-0.0000,0.0000,0.0000)
 grille4/selectall+shrinkfatten [REFUSE] V=25     F=16     E=40     bord=16    nonmanif=0   tri=32     A=1.0000 C=(0.0000,0.0000,0.0000)
 grille4/selectall+shade-smooth     V=25     F=16     E=40     bord=16    nonmanif=0   tri=32     A=1.0000 C=(0.0000,0.0000,0.0000)
+cube/F-2sommets-diagonale          ok=1 E:12->13 filDeFer=13
+cube/F-2sommets-deja-relies        ok=1 E:12->12 (deja presente : rien cree)
+cube/filaire-survit-au-rebuild     E avant rebuild=13 apres=13 (identique attendu)

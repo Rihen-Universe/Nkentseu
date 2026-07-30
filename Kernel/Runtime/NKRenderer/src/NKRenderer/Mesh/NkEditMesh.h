@@ -185,6 +185,37 @@ namespace nkentseu {
 						uint8 sel = 0;
 				};
 
+				// ── ARETE DE PREMIER PLAN (etape 1 du modele BMesh) ──────────────
+				// PROBLEME RESOLU : dans une structure purement demi-arete, une arete
+				// n'existe QU'A TRAVERS ses faces. Une arete « seule » (deux sommets
+				// relies, sans face) n'a donc aucun moyen d'exister — c'est pourquoi F
+				// sur deux sommets ne pouvait RIEN produire, alors que Blender cree un
+				// segment. Chez Blender (BMesh) l'arete est une entite a part entiere ;
+				// une arete sans face est simplement une arete a zero boucle radiale.
+				//
+				// CE QUE FAIT CETTE ETAPE : les aretes deviennent une LISTE PROPRE,
+				// reconstruite depuis les demi-aretes (RebuildEdges) ET capable de
+				// porter des aretes FILAIRES que rien ne deduit d'une face. Les faces
+				// continuent d'etre parcourues par les demi-aretes : la bascule complete
+				// (cycle radial, boucles BMLoop) viendra ensuite, sans rien changer a
+				// l'API publique deja utilisee par l'editeur.
+				//
+				// IDENTITE : v0/v1 sont des indices de sommets SOUDES (representants de
+				// BuildVertexMerge), pas des indices bruts. Sans cela, une primitive dont
+				// les faces dupliquent leurs sommets (cube = 24) produirait des aretes en
+				// double, chacune vue comme distincte.
+				struct Edge {
+						NkEmId v0 = NK_EM_INVALID;
+						NkEmId v1 = NK_EM_INVALID;
+						// Une demi-arete porteuse, ou NK_EM_INVALID pour une arete FILAIRE
+						// (aucune face incidente). C'est exactement le cas que l'ancienne
+						// structure ne savait pas representer.
+						NkEmId hedge = NK_EM_INVALID;
+						uint8 faceCount = 0; // 0 = filaire, 1 = bord, 2 = interieur, >2 = non manifold
+						uint8 sel = 0;
+						uint8 alive = 1;
+				};
+
 				struct Hedge {
 						NkEmId origin = NK_EM_INVALID; // sommet d'origine
 						NkEmId twin = NK_EM_INVALID;   // demi-arête opposée (autre face)
@@ -210,11 +241,16 @@ namespace nkentseu {
 				NkVector<Vert> verts;
 				NkVector<Hedge> hedges;
 				NkVector<Face> faces;
+				// Aretes de premier plan. Reconstruites par RebuildEdges() apres toute
+				// operation topologique ; les aretes FILAIRES y survivent (elles ne sont
+				// deduites d'aucune face, donc rien d'autre ne peut les recreer).
+				NkVector<Edge> edges;
 
 				void Clear() {
 					verts.Clear();
 					hedges.Clear();
 					faces.Clear();
+					edges.Clear();
 				}
 
 				uint32 VertCount() const {
@@ -369,6 +405,25 @@ namespace nkentseu {
 				bool DeleteSelectedFaces();
 				bool MergeSelectedVerts(const NkMergeParams &p = NkMergeParams{});
 				bool MakeFaceFromSelected();
+
+				// ── ARETES DE PREMIER PLAN ──────────────────────────────────────────
+				// (Re)construit la liste d'aretes depuis les demi-aretes vivantes, en
+				// PRESERVANT les aretes filaires existantes (rien d'autre ne pourrait les
+				// recreer : elles ne sont incidentes a aucune face). A appeler apres toute
+				// operation qui change la topologie.
+				void RebuildEdges();
+
+				// Nombre d'aretes vivantes (filaires comprises).
+				uint32 EdgeCount() const;
+
+				// Cree une arete FILAIRE entre deux sommets, si elle n'existe pas deja.
+				// Renvoie l'index de l'arete, ou NK_EM_INVALID en cas d'echec.
+				NkEmId AddWireEdge(uint32 a, uint32 b);
+
+				// F sur EXACTEMENT deux sommets selectionnes : cree le segment qui les
+				// relie, comme Blender. Renvoie false si la selection n'a pas exactement
+				// deux sommets topologiques distincts, ou si l'arete existe deja.
+				bool MakeEdgeFromSelected();
 				bool SubdivideSelectedFaces(const NkSubdivideParams &p = NkSubdivideParams{});
 				bool LoopCutFromSelectedEdge(const NkLoopCutParams &p = NkLoopCutParams{});
 

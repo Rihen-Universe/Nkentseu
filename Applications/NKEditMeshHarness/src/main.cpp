@@ -333,6 +333,70 @@ static void Battery() {
 	}
 }
 
+// ── BATTERIE ARETES FILAIRES (etape 1 BMesh : F sur 2 sommets) ──────────────
+// Cas AJOUTES EN FIN de batterie : les 39 signatures historiques restent aux
+// memes lignes, donc comparables a l'ancienne reference ligne a ligne.
+// La Signature() ne compte que les aretes PORTEES PAR DES FACES (c'est voulu :
+// elle mesure la topologie de surface) ; les aretes filaires sont donc mesurees
+// ici par EdgeCount() et GetUniqueEdges(), les deux chemins que l'editeur
+// utilise reellement (structure + affichage fil de fer).
+static void WireBattery() {
+	NkVector<NkVertex3D> v;
+	NkVector<uint32> idx;
+	MakeCube(v, idx);
+
+	// F sur deux sommets NON relies (coins opposes de la face 0 : verts 0 et 2,
+	// positions p[1] et p[3] — la diagonale n'existe pas apres quadify).
+	{
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		const uint32 e0 = m.EdgeCount();
+		m.verts[0].sel = 1;
+		m.verts[2].sel = 1;
+		const bool ok = m.MakeEdgeFromSelected();
+		NkVector<uint32> pairs;
+		m.GetUniqueEdges(pairs);
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256,
+					 "%-34s ok=%d E:%u->%u filDeFer=%u", "cube/F-2sommets-diagonale",
+					 ok ? 1 : 0, e0, m.EdgeCount(), (uint32)(pairs.Size() / 2));
+			gLineCount++;
+		}
+	}
+	// F sur deux sommets DEJA relies par une arete de face : rien de nouveau.
+	{
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		const uint32 e0 = m.EdgeCount();
+		m.verts[0].sel = 1;
+		m.verts[1].sel = 1; // arete du bord de la face 0 : existe deja
+		const bool ok = m.MakeEdgeFromSelected();
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256,
+					 "%-34s ok=%d E:%u->%u (deja presente : rien cree)",
+					 "cube/F-2sommets-deja-relies", ok ? 1 : 0, e0, m.EdgeCount());
+			gLineCount++;
+		}
+	}
+	// PERSISTANCE : l'arete filaire doit survivre a RebuildEdges — c'est la
+	// promesse centrale de l'entite (rien d'autre ne peut la recreer).
+	{
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		m.verts[0].sel = 1;
+		m.verts[2].sel = 1;
+		m.MakeEdgeFromSelected();
+		const uint32 avant = m.EdgeCount();
+		m.RebuildEdges();
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256,
+					 "%-34s E avant rebuild=%u apres=%u (identique attendu)",
+					 "cube/filaire-survit-au-rebuild", avant, m.EdgeCount());
+			gLineCount++;
+		}
+	}
+}
+
 int main(int argc, char **argv) {
 	bool baseline = false, check = false;
 	for (int32 i = 1; i < argc; i++) {
@@ -343,6 +407,7 @@ int main(int argc, char **argv) {
 	}
 
 	Battery();
+	WireBattery();
 
 	const char *path = "editmesh_baseline.txt";
 	if (baseline) {
