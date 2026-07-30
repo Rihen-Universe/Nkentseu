@@ -50,3 +50,10 @@ grille4/move-proportional-smooth   V=25     F=16     E=40     bord=16    nonmani
 grille4/move-proportional-sharp    V=25     F=16     E=40     bord=16    nonmanif=0   tri=32     A=1.0410 C=(0.0000,0.0306,0.0000)
 grille4/move-symetrie-X            V=25     F=16     E=40     bord=16    nonmanif=0   tri=32     A=1.1015 C=(0.0000,0.0320,0.0000)
 courbes/influence                  smooth(0,.25,.5,.75)=1.000/0.844/0.500/0.156 sphere(.5)=0.866 sharp(.5)=0.250 const(.9)=1.000
+ordre/cube-clic-A-puis-B           premier=(0.50,-0.50,0.50) dernier=(-0.50,0.50,-0.50)
+ordre/merge-first-AB               V=19     F=6      E=12     bord=0     nonmanif=0   tri=12     A=6.7321 C=(0.0263,-0.0263,0.0263)
+ordre/merge-last-AB                V=19     F=6      E=12     bord=0     nonmanif=0   tri=12     A=6.7321 C=(-0.0263,0.0263,-0.0263)
+ordre/cube-clic-B-puis-A           premier=(-0.50,0.50,-0.50) dernier=(0.50,-0.50,0.50)
+ordre/merge-first-BA               V=19     F=6      E=12     bord=0     nonmanif=0   tri=12     A=6.7321 C=(-0.0263,0.0263,-0.0263)
+ordre/merge-last-BA                V=19     F=6      E=12     bord=0     nonmanif=0   tri=12     A=6.7321 C=(0.0263,-0.0263,0.0263)
+ordre/cube-A-retire-puis-remis     premier=(-0.50,0.50,-0.50) dernier=(0.50,-0.50,0.50)
