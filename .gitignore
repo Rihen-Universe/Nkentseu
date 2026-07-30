@@ -716,3 +716,8 @@ dist/
 # (etat par machine, chemins locaux, en cours de redaction par des agents).
 # Ne jamais le pousser — demande de Rihen du 2026-07-30.
 PLATEFORMES_ETAT.md
+
+# Passation de travail parallele (Noge) : document INTERNE, etat par machine
+# et repartition des chantiers en cours entre agents. Rihen le veut PRIVE.
+# Demande du 2026-07-30 — meme regime que PLATEFORMES_ETAT.md.
+Engine/Noge/CONTINUATION.md
