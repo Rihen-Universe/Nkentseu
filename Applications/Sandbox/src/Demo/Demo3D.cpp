@@ -2758,6 +2758,17 @@ namespace nkentseu {
 		// v1 est en CPU, donc on ne la paie pas à chaque frame pour rien. Les deux
 		// coûts sont relevés pour être affichés à l'écran — c'est ce qui permet de
 		// juger si l'indirect peut suivre une scène animée.
+		// Transform de base COMPLÈTE d'un objet : celle de Demo3D_ObjBase, plus le
+		// décalage clavier du mur du GI. Toute la chaîne (cible du gizmo, ancre d'Edit
+		// Mode, draw, occluder) doit passer par ICI — sinon l'un d'eux travaille sur
+		// une position que les autres ignorent, et la cage d'édition se retrouve
+		// décalée par rapport à l'objet affiché.
+		static NkMat4f Demo3D_ObjBaseFull(const Demo3DState *st, int32 idx) {
+			if (st && idx == Demo3DState::kIdxGIWall)
+				return NkMat4f::Translate(st->giWallOffset) * Demo3D_ObjBase(idx);
+			return Demo3D_ObjBase(idx);
+		}
+
 		// AABB MONDE d'un cube unitaire (±0,5) transformé : les 8 coins puis min/max.
 		// Sert à faire suivre l'occluder du GI quand le mur est déplacé AU GIZMO
 		// (translation, mais aussi rotation ou mise à l'échelle).
@@ -3408,7 +3419,16 @@ namespace nkentseu {
 					} else {
 						// Source = le mesh DÉJÀ édité de l'objet s'il existe (on continue
 						// l'édition), sinon la primitive partagée.
-						const NkMeshHandle prim = (sel < 16) ? st->meshSphere : st->meshCube;
+						// ⚠️ La règle « <16 = sphère, sinon CUBE » supposait que tout objet
+						// non-sphère était un cube. Le sol est un PLAN : on entrait donc en
+						// édition sur une cage de cube étirée à 80×1×80, sans rapport avec
+						// la géométrie réellement affichée — d'où un « cube invisible » qu'on
+						// déplaçait et qui laissait le sol sur place.
+						NkMeshHandle prim = st->meshCube;
+						if (sel < 16)
+							prim = st->meshSphere;
+						else if (sel == Demo3DState::kIdxFloor)
+							prim = st->meshPlane;
 						const bool hadEdit = st->objMesh[sel].IsValid();
 						const NkMeshHandle src = hadEdit ? st->objMesh[sel] : prim;
 						if (!ms || !ms->HasCPUData(src)) {
@@ -3494,7 +3514,7 @@ namespace nkentseu {
 								st->objMesh[sel] = {};
 							}
 							// Ancre = transform MONDE de l'objet (base repos + delta gizmo).
-							st->editAnchor = st->gizmo.Apply(sel, Demo3D_ObjBase(sel));
+							st->editAnchor = st->gizmo.Apply(sel, Demo3D_ObjBaseFull(st, sel));
 							st->editAnchorInv = st->editAnchor.Inverse();
 							st->editObjIdx = sel;
 							// Capture le matériau de l'objet -> le mesh édité garde sa couleur PBR.
@@ -3770,8 +3790,7 @@ namespace nkentseu {
 				// définie que plus bas, après BeginScene. Même résultat, le gizmo
 				// n'étant mis à jour qu'en fin de frame.)
 				const NkMat4f wallXform =
-					st->gizmo.Apply(Demo3DState::kIdxGIWall,
-									NkMat4f::Translate(st->giWallOffset) * Demo3D_ObjBase(Demo3DState::kIdxGIWall));
+					st->gizmo.Apply(Demo3DState::kIdxGIWall, Demo3D_ObjBaseFull(st, Demo3DState::kIdxGIWall));
 				// Déplacé au gizmo ? On compare la transform à celle du dernier calcul :
 				// c'est ce qui fait que TIRER LE MUR À LA SOURIS met le GI à jour.
 				for (int32 e = 0; e < 16 && !st->giDirty; e++) {
@@ -3847,11 +3866,14 @@ namespace nkentseu {
 					g.cellColor = {0.10f, 0.11f, 0.13f, 0.0f}; // pas de remplissage opaque
 				}
 			}
-			if (!gridClean) {
+			// Objet en cours d'édition : sa cage remplace son rendu normal, comme pour
+			// tous les autres objets — sinon la primitive d'origine reste affichée PAR
+			// DESSUS la cage, et on croit déplacer une forme fantôme.
+			if (!gridClean && !(st->editMode && st->editObjIdx == Demo3DState::kIdxFloor)) {
 				NkDrawCall3D dc;
 				dc.mesh = st->meshPlane;
 				// Passe par userXform : le sol suit le gizmo comme n'importe quel objet.
-				dc.transform = userXform(Demo3DState::kIdxFloor, Demo3D_ObjBase(Demo3DState::kIdxFloor));
+				dc.transform = userXform(Demo3DState::kIdxFloor, Demo3D_ObjBaseFull(st, Demo3DState::kIdxFloor));
 				dc.aabb = {{-40, 0, -40}, {40, 0, 40}};
 				dc.castShadow = false; // reçoit les ombres (pas caster)
 				dc.tint = effTint({0.12f, 0.12f, 0.13f});
@@ -3863,11 +3885,10 @@ namespace nkentseu {
 			// ── NK_GI_TEST : le mur rouge, RENDU à la position qui sert au GI ────
 			// Même AABB que l'occluder injecté (source unique kGIWallMin/Max +
 			// offset) : la lumière rebondit exactement sur le mur qu'on voit.
-			if (st->giTest) {
+			if (st->giTest && !(st->editMode && st->editObjIdx == Demo3DState::kIdxGIWall)) {
 				// EXACTEMENT la transform qui a servi à l'occluder (clavier + gizmo).
 				const NkMat4f wm =
-					userXform(Demo3DState::kIdxGIWall,
-							  NkMat4f::Translate(st->giWallOffset) * Demo3D_ObjBase(Demo3DState::kIdxGIWall));
+					userXform(Demo3DState::kIdxGIWall, Demo3D_ObjBaseFull(st, Demo3DState::kIdxGIWall));
 				NkVec3f mn, mx;
 				Demo3D_XformAABB(wm, mn, mx);
 				NkDrawCall3D dc;
@@ -3992,10 +4013,10 @@ namespace nkentseu {
 			// ── NkVSM v2 : panneau feuillage ALPHA-TESTED (ombre trouee) ──────────
 			// Panneau vertical au-dessus du sol, entre le soleil et le sol : son
 			// ombre doit montrer les trous entre les disques (Shadow_AlphaTest).
-			if (st->maskedMat) {
+			if (st->maskedMat && !(st->editMode && st->editObjIdx == Demo3DState::kIdxFoliage)) {
 				NkDrawCall3D dc;
 				dc.mesh = st->meshCube;
-				dc.transform = userXform(Demo3DState::kIdxFoliage, Demo3D_ObjBase(Demo3DState::kIdxFoliage));
+				dc.transform = userXform(Demo3DState::kIdxFoliage, Demo3D_ObjBaseFull(st, Demo3DState::kIdxFoliage));
 				dc.aabb = {{4.f - 1.7f, 0.3f, -1.f - 1.7f}, {4.f + 1.7f, 2.9f, -1.f + 1.7f}};
 				dc.material = st->maskedMat->GetInstHandle();
 				dc.castShadow = true;
@@ -5567,13 +5588,11 @@ namespace nkentseu {
 				// Chaque cible reçoit SA primitive : le sol est un PLAN, son marqueur est
 				// donc plat et posé dessus, pas une boîte qui l'enveloppe.
 				targets[n++] =
-					fitTargetMesh(Demo3DState::kIdxFloor, Demo3D_ObjBase(Demo3DState::kIdxFloor), 0.5f, st->meshPlane);
-				targets[n++] = fitTargetMesh(Demo3DState::kIdxFoliage, Demo3D_ObjBase(Demo3DState::kIdxFoliage), 1.2f,
+					fitTargetMesh(Demo3DState::kIdxFloor, Demo3D_ObjBaseFull(st, Demo3DState::kIdxFloor), 0.5f, st->meshPlane);
+				targets[n++] = fitTargetMesh(Demo3DState::kIdxFoliage, Demo3D_ObjBaseFull(st, Demo3DState::kIdxFoliage), 1.2f,
 											 st->meshCube);
 				targets[n++] = fitTargetMesh(Demo3DState::kIdxGIWall,
-											 NkMat4f::Translate(st->giWallOffset) *
-												 Demo3D_ObjBase(Demo3DState::kIdxGIWall),
-											 1.4f, st->meshCube);
+											 Demo3D_ObjBaseFull(st, Demo3DState::kIdxGIWall), 1.4f, st->meshCube);
 
 				// Gizmo OBJET actif UNIQUEMENT hors Edit Mode (sinon c'est le gizmo vertices).
 				if (!st->editMode) {
