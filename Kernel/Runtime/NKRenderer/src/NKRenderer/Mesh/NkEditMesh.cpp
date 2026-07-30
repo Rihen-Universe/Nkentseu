@@ -1279,18 +1279,134 @@ namespace nkentseu {
 			if (n < 2)
 				return false;
 			c = c * (1.f / (float32)n);
-			const int32 rep = (p.mode == NkMergeParams::Last) ? last : first;
-			NkVec3f target = (p.mode == NkMergeParams::First)  ? pv[(uint32)first].pos
-							 : (p.mode == NkMergeParams::Last) ? pv[(uint32)last].pos
-															   : c;
-			pv[(uint32)rep].pos = target;
 			NkVector<int32> map;
 			map.Resize((uint32)pv.Size());
 			for (uint32 i = 0; i < (uint32)map.Size(); i++)
 				map[i] = (int32)i;
-			for (uint32 i = 0; i < (uint32)pv.Size(); i++)
-				if (i < (uint32)verts.Size() && verts[i].sel)
-					map[i] = rep;
+
+			if (p.mode == NkMergeParams::Collapse) {
+				// COLLAPSE : un merge PAR ILOT CONNEXE de la selection, chacun vers son
+				// propre centre — c'est ce qui le distingue de Center (merge global).
+				// Connexite etablie sur l'identite SOUDEE via les aretes : union-find.
+				NkVector<uint32> canon;
+				BuildVertexMerge(canon);
+				auto cn = [&](uint32 v) { return (v < (uint32)canon.Size()) ? canon[v] : v; };
+				NkVector<uint32> parent;
+				parent.Resize((uint32)pv.Size());
+				for (uint32 i = 0; i < (uint32)parent.Size(); i++)
+					parent[i] = i;
+				auto find = [&](uint32 x) {
+					while (parent[x] != x) {
+						parent[x] = parent[parent[x]];
+						x = parent[x];
+					}
+					return x;
+				};
+				NkVector<uint32> pairs;
+				GetUniqueEdges(pairs);
+				auto selC = [&](uint32 v) { return v < (uint32)verts.Size() && verts[v].sel != 0; };
+				for (uint32 e = 0; e + 1 < (uint32)pairs.Size(); e += 2) {
+					const uint32 a = pairs[e], b = pairs[e + 1];
+					if (selC(a) && selC(b)) {
+						const uint32 ra = find(cn(a)), rb = find(cn(b));
+						if (ra != rb)
+							parent[ra] = rb;
+					}
+				}
+				// Centre par ilot : chaque identite soudee comptee UNE fois (les copies
+				// coincidentes fausseraient la moyenne).
+				NkHashMap<uint32, uint32> repOf;   // racine -> sommet representant
+				NkHashMap<uint64, uint8> counted;  // (racine<<32|canonId) deja compte
+				NkHashMap<uint32, NkVec3f> sum;
+				NkHashMap<uint32, uint32> cnt;
+				for (uint32 i = 0; i < (uint32)pv.Size(); i++) {
+					if (!selC(i))
+						continue;
+					const uint32 r = find(cn(i));
+					if (!repOf.Find(r))
+						repOf.InsertOrAssign(r, i);
+					const uint64 key = ((uint64)r << 32) | cn(i);
+					if (!counted.Find(key)) {
+						counted.InsertOrAssign(key, (uint8)1);
+						NkVec3f *s = sum.Find(r);
+						if (s)
+							*s = *s + pv[i].pos;
+						else
+							sum.InsertOrAssign(r, pv[i].pos);
+						uint32 *k2 = cnt.Find(r);
+						if (k2)
+							(*k2)++;
+						else
+							cnt.InsertOrAssign(r, 1u);
+					}
+				}
+				for (uint32 i = 0; i < (uint32)pv.Size(); i++) {
+					if (!selC(i))
+						continue;
+					const uint32 r = find(cn(i));
+					const uint32 rep2 = *repOf.Find(r);
+					map[i] = (int32)rep2;
+					pv[rep2].pos = *sum.Find(r) * (1.f / (float32)(*cnt.Find(r)));
+				}
+			} else if (p.mode == NkMergeParams::ByDistance) {
+				// BY DISTANCE (« Remove Doubles ») : grappes de sommets selectionnes plus
+				// proches que le seuil, chaque grappe vers son centre. Quantification
+				// spatiale au pas du seuil — meme technique que BuildVertexMerge, mais au
+				// seuil UTILISATEUR et restreinte a la selection.
+				float32 eps = p.distance;
+				if (eps <= 0.f) {
+					NkVec3f mn = pv[0].pos, mx = pv[0].pos;
+					for (uint32 i = 1; i < (uint32)pv.Size(); i++) {
+						mn.x = NkMin(mn.x, pv[i].pos.x); mn.y = NkMin(mn.y, pv[i].pos.y); mn.z = NkMin(mn.z, pv[i].pos.z);
+						mx.x = NkMax(mx.x, pv[i].pos.x); mx.y = NkMax(mx.y, pv[i].pos.y); mx.z = NkMax(mx.z, pv[i].pos.z);
+					}
+					eps = (mx - mn).Len() * 0.001f; // 0,1 % de la diagonale
+					if (eps <= 0.f)
+						eps = 1e-4f;
+				}
+				const float32 inv = 1.f / eps;
+				NkHashMap<uint64, uint32> cell; // cle spatiale -> representant
+				NkHashMap<uint64, NkVec3f> csum;
+				NkHashMap<uint64, uint32> ccnt;
+				bool merged = false;
+				for (uint32 i = 0; i < (uint32)pv.Size(); i++) {
+					if (!(i < (uint32)verts.Size() && verts[i].sel))
+						continue;
+					const NkVec3f q = pv[i].pos;
+					const int64 qx = (int64)(q.x * inv + (q.x >= 0.f ? 0.5f : -0.5f));
+					const int64 qy = (int64)(q.y * inv + (q.y >= 0.f ? 0.5f : -0.5f));
+					const int64 qz = (int64)(q.z * inv + (q.z >= 0.f ? 0.5f : -0.5f));
+					const uint64 key = ((uint64)(qx & 0x1FFFFF)) | (((uint64)(qy & 0x1FFFFF)) << 21) |
+									   (((uint64)(qz & 0x1FFFFF)) << 42);
+					uint32 *rep2 = cell.Find(key);
+					if (rep2) {
+						map[i] = (int32)(*rep2);
+						merged = true;
+						NkVec3f *s = csum.Find(key);
+						*s = *s + q;
+						(*ccnt.Find(key))++;
+					} else {
+						cell.InsertOrAssign(key, i);
+						csum.InsertOrAssign(key, q);
+						ccnt.InsertOrAssign(key, 1u);
+					}
+				}
+				if (!merged)
+					return false; // aucun couple sous le seuil : rien a faire
+				for (auto it = cell.Begin(); it != cell.End(); ++it)
+					pv[it->Second].pos = (*csum.Find(it->First)) * (1.f / (float32)(*ccnt.Find(it->First)));
+			} else {
+				// Center / First / Last / AtCursor : UN seul representant global.
+				const int32 rep = (p.mode == NkMergeParams::Last) ? last : first;
+				NkVec3f target = (p.mode == NkMergeParams::First)	   ? pv[(uint32)first].pos
+								 : (p.mode == NkMergeParams::Last)	   ? pv[(uint32)last].pos
+								 : (p.mode == NkMergeParams::AtCursor) ? p.point
+																	   : c;
+				pv[(uint32)rep].pos = target;
+				for (uint32 i = 0; i < (uint32)pv.Size(); i++)
+					if (i < (uint32)verts.Size() && verts[i].sel)
+						map[i] = rep;
+			}
 			const uint32 fc = (fs.Size() > 0) ? (uint32)fs.Size() - 1 : 0;
 			NkVector<int32> remap;
 			remap.Resize((uint32)pv.Size());

@@ -1158,6 +1158,10 @@ namespace nkentseu {
 			renderer::NkMeshEditCommand c;
 			c.op = renderer::NkMeshEditOp::Merge;
 			c.merge.mode = (int32)st->mergeMode;
+			// AT CURSOR : le curseur 3D vit en MONDE, le merge opere en espace
+			// MAILLAGE -> on le ramene par l'ancre d'edition (meme convention que
+			// le spin et le pivot curseur).
+			c.merge.point = st->editAnchorInv * st->cursor3D;
 			Demo3D_ApplyCmd(st, ms, c);
 		}
 
@@ -2396,8 +2400,8 @@ namespace nkentseu {
 						}
 						if (k == NkKey::NK_M) {
 							if (shiftK) {
-								st->mergeMode = (st->mergeMode + 1) % 3;
-								const char *mm[3] = {"CENTER", "FIRST", "LAST"};
+								st->mergeMode = (st->mergeMode + 1) % 6; // 6 modes facon Blender
+								const char *mm[6] = {"CENTER", "FIRST", "LAST", "AT CURSOR", "COLLAPSE", "BY DISTANCE"};
 								logger.Info("[Demo3D] Merge = {0}\n", mm[st->mergeMode]);
 							} else
 								st->editMergePending = true;
