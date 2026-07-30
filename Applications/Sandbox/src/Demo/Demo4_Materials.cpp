@@ -72,6 +72,8 @@ namespace nkentseu {
 				NkMeshHandle meshPlane;
 				NkMeshHandle meshCube; // Phase M.8 : multi-material cube
 				DemoCamera camera;
+				bool giTest = false;	 // NK_GI_TEST : scene de validation du GI
+				bool giInjected = false; // l'injection CPU n'est faite qu'au besoin
 				int activeMat = 0;
 				MatParams params[5];
 
@@ -173,6 +175,10 @@ namespace nkentseu {
 			// l'IBL sky pour les sphères placées en dessous (belowY=-1.2).
 			// Le voxel grid bake CPU + upload une fois ici ; le PBR shader sample
 			// automatiquement chaque frame pour atténuer l'IBL irradiance/specular.
+			{
+				const char *giEnv = getenv("NK_GI_TEST");
+				st->giTest = (giEnv && giEnv[0] && giEnv[0] != '0');
+			}
 			if (auto *vao = ctx.renderer->GetVoxelAO()) {
 				vao->Clear();
 				// Sol épais (±0.5 Y = 1 unité d'épaisseur) pour que les cone-traces
@@ -180,6 +186,25 @@ namespace nkentseu {
 				// captent toujours plusieurs voxels au milieu. Un sol trop fin
 				// (±0.1) est sauté entre 2 samples successifs.
 				vao->RegisterAABB({-7.f, -0.5f, -7.f}, {7.f, 0.5f, 7.f}, 1.0f);
+				// ── NK_GI_TEST : scène de validation du GI à un rebond ───────────
+				// Mur ROUGE éclairé à côté des sphères : le test canonique du
+				// « color bleeding ». Si les sphères se teintent de rouge alors
+				// qu'aucune lumière rouge n'existe, l'indirect vient bien de la
+				// géométrie. Hors override, la scène est strictement inchangée
+				// (sans injection, la radiance reste nulle).
+				// NK_GI_TEST=2 : même éclairage mais SANS le mur — sert de témoin
+				// pour isoler ce que le mur seul change (AO comme GI).
+				const char *giMode = getenv("NK_GI_TEST");
+				const bool wallOn = st->giTest && !(giMode && giMode[0] == '2');
+				if (wallOn) {
+					NkVoxelOccluder wall;
+					wall.minWorld = {2.0f, 0.f, -3.f};
+					wall.maxWorld = {2.8f, 3.5f, 3.f};
+					wall.opacity = 1.f;
+					wall.albedo = {0.9f, 0.04f, 0.04f};
+					vao->RegisterOccluder(wall);
+					logger.Info("[Demo4] NK_GI_TEST : mur rouge enregistre pour le GI\n");
+				}
 				vao->Build();
 			}
 
@@ -533,6 +558,13 @@ namespace nkentseu {
 			NkLightDesc sun;
 			sun.type = NkLightType::NK_DIRECTIONAL;
 			sun.direction = {-0.5f, -1.f, -0.4f};
+			// Sous NK_GI_TEST, le soleil vient de la DROITE pour frapper la face du
+			// mur rouge tournée vers les sphères : un rebond ne se voit que si la
+			// surface qui rebondit est elle-même éclairée (avec l'éclairage par
+			// défaut, seule la face SUPÉRIEURE du mur le serait, et elle ne renvoie
+			// rien vers les sphères).
+			if (st->giTest)
+				sun.direction = {0.8f, -0.5f, 0.f};
 			sun.color = {1.f, 0.95f, 0.9f};
 			sun.intensity = 3.5f;
 			sun.castShadow = true;
@@ -548,6 +580,23 @@ namespace nkentseu {
 			sctx.lights.PushBack(fill);
 
 			sctx.ambientIntensity = 0.12f;
+
+			// ── Injection GI (un rebond) ─────────────────────────────────────────
+			// Déclenchée par l'APPLICATION : l'injection v1 est calculée en CPU,
+			// c'est donc à la scène de décider quand elle paie ce coût. IfDirty ne
+			// recalcule que si l'éclairage a réellement changé — ici une seule fois.
+			// NK_GI_INTENSITY=0 éteint l'indirect sans rien changer d'autre : c'est
+			// l'A/B qui prouve que la teinte observée vient bien du GI.
+			if (st->giTest) {
+				if (auto *vao = ctx.renderer->GetVoxelAO()) {
+					if (!st->giInjected) {
+						const char *gi = getenv("NK_GI_INTENSITY");
+						vao->SetGIIntensity(gi && gi[0] ? (float32)atof(gi) : 1.f);
+					}
+					if (vao->InjectLightingIfDirty(sctx.lights))
+						st->giInjected = true;
+				}
+			}
 
 			// ── Plus de passe miroir manuelle ! ─────────────────────────────────────
 			// NkPlanarReflectionSystem (declenche dans la passe Geometry de

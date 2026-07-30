@@ -363,8 +363,20 @@ void main() {
     float mirrorMix = 1.0 - smoothstep(0.05, 0.50, rog);
     vec3 pref       = mix(prefRough, prefMirror, mirrorMix);
     vec2 brdf       = texture(tBRDFLUT, vec2(max(dot(N,V),0.0), rog)).rg;
-    float voxAO = NkComputeVoxelAO(vWorldPos, N);
+    // GI à un rebond + AO en UN SEUL balayage de cônes : la grille de voxels
+    // porte rgb = radiance réémise et a = opacité (cf. Include/NkVoxelAO.glsli),
+    // donc l'AO est un produit dérivé du GI et ne coûte rien de plus.
+    vec4  voxGI = NkComputeVoxelGI(vWorldPos, N);
+    float voxAO = voxGI.w;
     vec3 amb  = (kDi*irr*albedo + pref*(Fi*brdf.x+brdf.y)) * ao * voxAO * uCam.iblStrength;
+    // L'indirect S'AJOUTE à l'ambiant IBL au lieu de le remplacer : l'IBL porte
+    // la lumière du ciel, le GI porte le rebond de la géométrie proche (c'est lui
+    // qui fait qu'un mur rouge éclairé teinte le sol voisin). Aucun uniform
+    // d'intensité : le réglage est appliqué CÔTÉ CPU à l'injection (radiance
+    // nulle = GI éteint), ce qui évite un binding de plus — les registres DX
+    // sont déjà contraints. Sans occluder injecté, voxGI.xyz vaut 0 et ce terme
+    // disparaît : le rendu par défaut est strictement inchangé.
+    amb += kDi * albedo * voxGI.xyz * ao * uCam.iblStrength;
 
     vec3 ccContrib = vec3(0.0);
     if (uObj.clearcoat > 0.0) {

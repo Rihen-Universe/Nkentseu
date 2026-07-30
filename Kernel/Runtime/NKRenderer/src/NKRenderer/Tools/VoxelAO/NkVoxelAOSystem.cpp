@@ -6,6 +6,7 @@
 #include "NKMath/NkFunctions.h" // NkSqrt / NkCos (pas de <math.h> : regle projet)
 #include <cstring>
 #include <cmath>
+#include <cstdlib> // getenv / atof (overrides de diagnostic NK_*)
 
 namespace nkentseu {
 	namespace renderer {
@@ -362,6 +363,25 @@ namespace nkentseu {
 						if (r || g || b)
 							lit++;
 					}
+				}
+			}
+
+			// Sonde de diagnostic : NK_GI_DEBUG_FILL remplit TOUTE la grille d'une
+			// radiance uniforme (et d'une opacité franche). Si le rendu ne bouge
+			// pas sous cette sonde, le défaut est dans la LECTURE du shader, pas
+			// dans l'injection ni dans la couverture des cônes — c'est le test qui
+			// sépare les deux moitiés de la chaîne.
+			{
+				const char *dbg = getenv("NK_GI_DEBUG_FILL");
+				if (dbg && dbg[0] && dbg[0] != '0') {
+					const uint8 v = (uint8)NkClamp((float32)atof(dbg) * 255.f, 0.f, 255.f);
+					for (uint32 i = 0; i < totalVoxels; i++) {
+						mUpload[i * 4 + 0] = v;
+						mUpload[i * 4 + 1] = 0;
+						mUpload[i * 4 + 2] = 0;
+						mUpload[i * 4 + 3] = 0;
+					}
+					logger.Warnf("[NkVoxelAOSystem] NK_GI_DEBUG_FILL actif : grille saturee R={0}\n", (uint32)v);
 				}
 			}
 

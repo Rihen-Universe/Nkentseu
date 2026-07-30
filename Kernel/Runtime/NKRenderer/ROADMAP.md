@@ -409,6 +409,39 @@ par `NkVirtualShadowMaps` (multi-lights). Style UE5 simplifié.
 - ✅ Application dans pbr.frag.vk.glsl : atténue IBL irradiance + specular
 - ⏳ V1 TODO : .glsli générique pour Layered/Toon réutilisable
 
+### Phase H.6 v1 — GI à UN REBOND ✅ (2026-07-30)
+La grille de voxels porte désormais la **radiance réémise**, pas seulement
+l'opacité : l'éclairage indirect vient de la géométrie réelle au lieu d'un
+ambiant constant. Structure canonique du cone tracing (Crassin) —
+`RGB` = radiance prémultipliée, `A` = opacité — donc **AO et GI partagent un
+seul parcours de cônes** : l'AO ne coûte plus rien en plus.
+
+- ✅ `NkVoxelOccluder::albedo` + `InjectLighting(lights)` / `InjectLightingIfDirty`
+  (CPU) : éclairage direct par voxel × albédo, normale par **gradient d'opacité**,
+  **visibilité par ray-march** dans la grille (c'est elle qui donne les ombres
+  portées de l'indirect). `SetGIIntensity` applique le réglage à l'injection —
+  aucun uniform ajouté au shader (registres DX contraints).
+- ✅ `Include/NkVoxelAO.glsli` : `NkComputeVoxelGI()` (xyz = irradiance,
+  w = AO) ; `NkComputeVoxelAO()` conservé pour Toon/Anime/Glass.
+- ✅ Branché sur **Layered / LayeredV1** et sur **PBR** (`pbr.frag.nksl`).
+- ✅ **MESURE (démo 8, mur rouge éclairé, aucune lumière rouge dans la scène)** :
+  ratio R/B de la zone 3D **0,774 → 1,008 (+30 %)**, 59 % des pixels affectés.
+  Non-régression : sans occluder injecté le terme est nul, rendu identique
+  (démo 4 MAD 0,0014 pour un bruit run-à-run de 0,93). Debug + Release verts.
+- 🔶 **DÉFAUT PRÉEXISTANT ISOLÉ — la texture voxel n'atteint pas le shader dans
+  la démo 4** : ni le GI ni l'AO n'y produisent d'effet. Prouvé par deux mesures
+  indépendantes : (1) un mur occluder massif (9064 voxels) ne change rien
+  (MAD 0,0013) ; (2) la sonde `NK_GI_DEBUG_FILL=1` (grille entièrement saturée)
+  ne change rien non plus (MAD 0,04), alors que la même sonde **sature l'écran
+  en démo 8** (MAD 153). Le binding 27 ne remonte donc pas jusqu'au shader de
+  cette démo — bug de binding antérieur au GI, à traiter à part.
+- ⏳ Suite : injection en **compute** (l'interface et le shader ne bougeront pas),
+  mips de la grille pour les cônes longue portée, bounds en uniform (aujourd'hui
+  `NK_VOXEL_MIN/MAX_BOUNDS` est codé en dur et doit suivre `NkVoxelAOConfig`),
+  et `giScale` synchronisé à la main entre CPU et `NK_VOXEL_GI_SCALE`.
+- 🔧 Overrides : `NK_GI_TEST` (1 = scène de validation, 2 = témoin sans mur),
+  `NK_GI_INTENSITY`, `NK_GI_DEBUG_FILL` (sonde de diagnostic).
+
 ### Phase Planar Reflection ✅ (2026-05-23) ⭐ FIXÉ
 NkPlanarReflectionSystem + reflets planaires complets sur sol mirror.
 
