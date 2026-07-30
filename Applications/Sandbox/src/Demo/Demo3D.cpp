@@ -21,6 +21,7 @@
 #include "NKRenderer/Core/NkCameraController.h" // NkOrbitCameraController3D / NkFlyCameraController3D
 #include "NKRenderer/Core/NkGizmo.h"			// NkGizmo3D (gizmo éditeur réutilisable)
 #include "NKRenderer/Materials/NkMatcapLibrary.h" // noms des 30 matcaps (source unique)
+#include "NKRenderer/Core/NkLightGizmo.h"   // widgets des lumieres (facon Blender)
 #include "NKImage/NKImage.h"					// Phase H : test ecriture PNG procedural
 #include "NKContainers/Associative/NkHashMap.h" // dedup arêtes Edit Mode
 #include "NKRenderer/Mesh/NkEditMesh.h"			// structure demi-arête n-gon
@@ -311,6 +312,11 @@ namespace nkentseu {
 				// Position MONDE, pivot possible (PIVOT_CURSOR), dessiné en permanence.
 				// Placement : Shift + clic DROIT (raycast sous le curseur souris).
 				NkVec3f cursor3D = {0.f, 0.f, 0.f};
+				// Lumieres soumises cette frame (copie) : sert a dessiner leurs widgets
+				// APRES le rendu de scene, et a les rendre selectionnables plus tard.
+				NkVector<NkLightDesc> frameLights;
+				int32 lightSel = -1;   // index de lumiere selectionnee (-1 = aucune)
+				bool showLightGizmos = true;
 				bool cursorPlacePending = false; // Shift+clic droit -> replacer le curseur 3D
 				float32 cursorPX = 0.f, cursorPY = 0.f;
 				// PILOTE HEADLESS : force l'application de la transform de groupe en Edit Mode
@@ -3585,6 +3591,15 @@ namespace nkentseu {
 
 			sctx.ambientIntensity = 0.15f;
 
+			// ── WIDGETS DES LUMIERES ────────────────────────────────────────────
+			// Une lumiere eclaire mais ne se voit pas : sans marqueur elle n'est ni
+			// cliquable ni manipulable. On memorise les descripteurs soumis pour les
+			// dessiner en surcouche apres le rendu (le widget doit passer PAR-DESSUS
+			// la scene, sinon il disparait dans la geometrie).
+			st->frameLights.Clear();
+			for (uint32 li = 0; li < (uint32)sctx.lights.Size(); li++)
+				st->frameLights.PushBack(sctx.lights[li]);
+
 			r3d->BeginScene(sctx);
 
 			// Transform utilisateur (décalage gizmo) appliqué à un objet : délégué au
@@ -5592,6 +5607,38 @@ namespace nkentseu {
 							[&](NkVec3f a, NkVec3f b, NkVec3f c, NkVec4f col) {
 								r3d->DrawDebugTriangle(a, b, c, col, 0.f, true);
 							});
+				}
+			}
+
+			// ── WIDGETS DES LUMIERES (facon Blender) ────────────────────────────────
+			// Dessines en OVERLAY (dernier argument true) : un widget masque par la
+			// geometrie ne sert a rien — on doit pouvoir attraper une lumiere placee
+			// derriere un objet. NK_LIGHT_GIZMOS=0 les masque pour une capture propre ;
+			// NK_LIGHT_SEL=<n> selectionne la n-ieme lumiere (teinte claire), ce qui
+			// rend la distinction actif/selectionne verifiable en capture.
+			{
+				static int lgShow = -1;
+				if (lgShow == -1) {
+					const char *v = getenv("NK_LIGHT_GIZMOS");
+					lgShow = (v && v[0] == '0') ? 0 : 1;
+					if (const char *ls = getenv("NK_LIGHT_SEL"))
+						st->lightSel = atoi(ls);
+				}
+				if (lgShow && st->showLightGizmos) {
+					const NkVec3f camP = cam.GetPosition();
+					for (uint32 li = 0; li < (uint32)st->frameLights.Size(); li++) {
+						const renderer::NkLightDesc &L = st->frameLights[li];
+						// Distance camera->lumiere : dimensionne le corps du widget pour
+						// qu'il reste lisible de loin sans ecraser la scene de pres.
+						const float32 dist = (L.position - camP).Len();
+						const bool sel = ((int32)li == st->lightSel);
+						renderer::NkLightGizmo::Draw(
+							L, sel, sel, dist,
+							[&](NkVec3f a, NkVec3f b, NkVec4f c) { r3d->DrawDebugLine(a, b, c, 0.f, true); },
+							[&](NkVec3f a, NkVec3f b, NkVec3f c, NkVec4f col) {
+								r3d->DrawDebugTriangle(a, b, c, col, 0.f, true);
+							});
+					}
 				}
 			}
 
