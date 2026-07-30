@@ -137,17 +137,9 @@ namespace nkentseu {
 
 		// ── Read raw (sans strip d'annotations) ───────────────────────────────
 		NkString NkShaderIncludeResolver::ReadRaw(const NkString &path) {
-			FILE *f = fopen(path.CStr(), "rb");
-			if (!f)
-				return "";
-			fseek(f, 0, SEEK_END);
-			long sz = ftell(f);
-			fseek(f, 0, SEEK_SET);
-			NkString raw;
-			raw.Resize((uint32)sz);
-			fread(raw.Data(), 1, (size_t)sz, f);
-			fclose(f);
-			return raw;
+			// NkFile plutot que fopen brut : sur Android les .glsli sont dans
+			// assets/ de l'APK — NkFile::ReadAllText a le repli AAssetManager.
+			return NkFile::ReadAllText(path.CStr());
 		}
 
 		// ── Récursion principale ──────────────────────────────────────────────

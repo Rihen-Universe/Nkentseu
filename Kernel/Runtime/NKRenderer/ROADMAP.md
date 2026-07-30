@@ -1,6 +1,9 @@
 # NKRenderer — Roadmap
 
-État actuel (2026-07-12) : Phases A → G + G.ext M.1..M.5 + M.8 livrées ;
+État actuel (2026-07-22) : Phases A → G + G.ext M.1..M.5 + M.8 livrées ; VSM v2
+(overrides + ombres alpha-testées **4 backends**), morph targets v1+skinnés,
+animation avancée v1+v2, streaming réel v1+v2, deferred v1+v2 (GL/VK validés)
+livrés — voir « Reste à faire priorisé » ;
 viewport d'édition (gizmo + 6 view modes + edit mode mesh) livré ; convolutions
 IBL sur GPU compute (Phase N v1) livrées (DX11 = CPU par défaut). Pipeline
 post-process avec **Bloom Dual-Kawase 11-pass AAA cross-API** + ACES tonemap.
@@ -12,6 +15,40 @@ Reflection bugs RÉSOLUS** (2026-05-23). **NkVirtualShadowMaps v0 livré**
 
 Cross-API validé sur **Vulkan + OpenGL + DX11 + DX12** (parité atteinte 2026-06-24,
 voir « Multi-backend » plus bas). Metal + Software restent à valider.
+
+---
+
+## ⚠️ Trois pièges du RenderGraph et des passes plein écran (mesurés, 2026-07-30)
+
+Découverts en finissant le TAA. Les trois produisaient une image **d'apparence
+plausible** : aucun ne se voit sans mesurer.
+
+1. **Une passe SANS attachement ne fait PAS transitionner les transients qu'elle
+   lit.** Le graph ne pose la barrière `COLOR_ATTACHMENT → SHADER_READ` que pour
+   une passe déclarant un vrai attachement ; `Reads(id)` seul ne suffit pas →
+   l'échantillonnage renvoie du **noir**, silencieusement. Ça semble marcher tant
+   qu'une AUTRE passe fait la transition à votre place (la passe `AutoExposure`
+   lit `mainColor` sans attachement et fonctionne, mais seulement parce que
+   `PostProcess` le relit juste après AVEC un attachement). **Règle** : toute
+   passe qui échantillonne un transient doit déclarer une vraie cible ; si sa
+   sortie est persistante, en faire un transient DU GRAPH plutôt qu'une cible
+   possédée par le sous-système.
+2. **Le cache de framebuffers est indexé par NOM DE PASSE, et le graph persiste
+   entre frames** → une passe ne peut pas changer de cible d'une frame à l'autre.
+   Un ping-pong se fait donc avec des cibles FIXES et une passe de copie, pas en
+   alternant l'attachement d'une même passe.
+3. **`yFlipUV` (échantillonnage) et `ndcYSign` (reconstruction écran) sont deux
+   quantités distinctes** qui divergent par backend : jamais les faire partager
+   un slot de push-constant. Et le `yFlipUV` à utiliser dépend de la TEXTURE
+   LUE : copier la convention d'une passe qui lit *autre chose* (ici le deferred
+   lighting au lieu du FXAA, qui lit le même `ToneLDR`) donne une image
+   retournée. Une copie entre deux cibles off-screen doit PRÉSERVER
+   l'orientation — ce n'est pas la convention du blit vers l'écran.
+
+Corollaire : **un effet temporel doit être désarmé à chaque rebuild du graph**
+(`mTAAHasPrev = false`), car le rebuild recrée ses transients vierges — sinon
+l'écran s'assombrit puis remonte sur ~20 frames à chaque resize, changement
+d'option ou redirection de cible (capture / enregistrement).
 
 ---
 
@@ -135,10 +172,18 @@ câblé). C'est ce qui tourne sur les 11 démos et les 4 backends GPU.
    savaient DÉJÀ faire du MRT). ✅ **GL = référence** (91,8 % parité, purger
    `cache/shaders` si le X rouge manque) ; ✅ **VULKAN VALIDÉ capture** (mêmes
    conventions que DX : sample flippé + ndcY négatif — l'essai « sample direct »
-   donnait l'image inversée) ; ⚠ **DX11 : rendu OK mais rayons parasites**
-   (bandes translucides radiant du spot, à affiner) ; ❌ **DX12 : DEVICE REMOVED**
-   (0x887A0001 pendant la frame différée — violation d'états de ressources
-   probable, session dédiée debug layer requise). Limites restantes : clearcoat/subsurface/velocity non portés,
+   donnait l'image inversée) ; ✅ **RAYONS PARASITES DX11/DX12 RÉSOLUS
+   (2026-07-23, a6c71299)** : le signe NDC Y de la reconstruction worldPos
+   était codé en dur (-1) alors que le VS flippe vUV sur DX → worldPos MIROITÉ
+   verticalement → le cône du spot à cookie touchait les positions miroir
+   (rayons en éventail) ; le shader consomme désormais pc.invResolution.x
+   (ndcYSign : +1 DX, -1 GL/VK). **DEFERRED CORRECT SUR LES 4 BACKENDS**
+   (captures : DX11+DX12 alignés sur GL, VK non régressé) ; ✅ **DX12 : DEVICE
+   REMOVED RÉSOLU (2026-07-23, 269207c9)** — 4 causes racines (root constants 64 o
+   débordés, release PSO immédiat → destruction différée, cache variantes
+   NkUnorderedMap défaillant → NkVector, RowPitch readback) — détail dans
+   « Bugs/quirks connus » ; le deferred DX12 tourne à 409 FPS avec capture
+   réelle. Limites restantes : clearcoat/subsurface/velocity non portés,
    passe miroir non différée, boucle 32 lumières (tiled/clustered = v3), DX12 à
    capturer.
    Ancien plan :
@@ -396,11 +441,41 @@ NkPlanarReflectionSystem + reflets planaires complets sur sol mirror.
   Limitations V0 : pas d'eye adaptation temporelle (V1 = compute reduction
   + SSBO double-buffer), précision moyenne (bloom threshold filtre les
   basses luminances).
+- ✅ **Auto-exposure V1 — MESURE RÉELLE + ADAPTATION** (2026-07-30) : la V0
+  échantillonnait **UN SEUL pixel** (le centre du RT de bloom) comme proxy du
+  niveau de la scène → l'exposition était pilotée par ce qui se trouvait au
+  milieu de l'écran, et le seuil de bloom écrasait les basses luminances.
+  V1 : nouvelle passe `PP_AutoExposure` (`Resources/.../PP_AutoExposure/NkSL/`)
+  qui calcule la **moyenne logarithmique** (moyenne géométrique, convention
+  Reinhard) de la luminance sur **256 échantillons** de l'image HDR, pondérée
+  vers le centre (métrage « center-weighted »), dans une cible **1×1 RGBA16F** ;
+  **adaptation temporelle** façon accommodation de l'œil
+  (`1 - exp(-dt·vitesse)`, indépendante du framerate) via **ping-pong de deux
+  cibles 1×1 persistantes** (conservées à l'OnResize : sinon redimensionner
+  provoquerait un flash). Le tonemap consomme la valeur au **binding 4**
+  (PC 48→64 o, `p3 = (expMin, expMax)`).
+  Config : `autoExposureSpeed/MinLuma/MaxLuma/MinExp/MaxExp` ; overrides de test
+  `NK_AUTOEXP`, `NK_AUTOEXP_SPEED`, `NK_EXPOSURE`.
+  Le shader n'a **aucune convention Y par backend** (la moyenne logarithmique
+  est invariante à l'orientation) — contrairement au bloom et au tonemap.
+  **MESURES (demo 2, luminance moyenne de la zone 3D, /255)** : référence
+  exposition 1 sans auto = 98,1. Base **0,25** (sous-exposée) : 42,4 → **147,20**
+  avec auto ; base **6** (surexposée, 81,7 % de pixels brûlés) : 204,9 →
+  **147,17**. Soit **0,02 % d'écart entre deux bases distantes d'un facteur 24**
+  = la boucle se ferme bien sur la mesure et non sur l'entrée.
+  **Parité 4 backends** : GL 147,20 · Vulkan 147,19 · DX11 147,20 · DX12 147,19.
+  Note d'usage : la cible 0,18 donne une image plus claire que l'exposition
+  manuelle historique (147 vs 98) — baisser `autoExposureKey` vers ~0,10 pour
+  retrouver le rendu d'avant.
+  Reste V2 : réduction en **compute** (au lieu de 256 taps dans un fragment) et
+  histogramme + percentiles pour ignorer les extrêmes.
 - ✅ **NkRHI compute audit** (2026-05-23) — compute support OK cross-API
   VK+GL (cf. `memory/nkrhi_compute_support.md`). Déjà utilisé par NkML,
   NkAnimationSystem morph, NkComputeContext wrapper. Foundation prête pour
   Phase N GPU prefilter, auto-exposure V1, Voxel AO v1, Lumen-lite GI.
-- ❌ DOF/bokeh, Motion blur, TAA, vignette/grain chromatic, Lens flares
+- ✅ **TAA** (Temporal AA) livré V1 sur les 4 backends (2026-07-30) — détail et
+  mesures dans « Phase L — Finition post-process » plus bas
+- ❌ DOF/bokeh, Motion blur, vignette/grain chromatic, Lens flares
   — non implémentés
 
 ### Phase N — IBL pipeline
@@ -444,10 +519,18 @@ NkPlanarReflectionSystem + reflets planaires complets sur sol mirror.
 - **ClearRect API au RHI** : caching per-tile au lieu d'all-or-nothing
 - **Dynamic offsets UBO** pour ObjectUBO : 1 buffer + per-draw dynamic offset,
   scale à 10k+ draws sans alloc descriptor sets supplémentaires
-- **Shadow override Layered/Toon/Anime** : ajouter `shadowOverrides` au
-  ObjectUBO de chaque shader (pour l'instant only PBR honore les overrides)
-- **Alpha-tested shadow** : shader Shadow avec sampling alpha texture pour
-  foliage/grilles (utilise `castShadowAlphaTest` actuellement reserved)
+- ✅ **Shadow override Layered/Toon/Anime** (2026-07-12)
+- ✅ **Alpha-tested shadow** (2026-07-12) : pipeline `ShadowAlpha` (VS+FS discard
+  albedo < 0.5, set=2 universel des instances) branché sur `castShadowAlphaTest`.
+  ✅ **Fix multi-backend (2026-07-22, 1ed4ea37)** — 2 causes racines DX :
+  (1) POSITION (DX11+DX12) : les générateurs HLSL négatent Y du VS dès qu'il a
+  inputs+varyings, mais ce VS rend dans l'atlas NON présenté → ombre déplacée ;
+  pragma `@gl-no-flip-y` étendu aux 2 générateurs HLSL
+  (`NkSLCompileOptions::disableAutoYFlip`, câblé NkShaderBackend).
+  (2) TROUS absents (DX12) : `BuildGraphicsPSO` n'attachait le PS que si
+  numRT>0 → en passe depth-only le FS discard ne tournait JAMAIS → ombre
+  pleine ; PS attaché dès qu'il existe (discard-only légal avec 0 RTV).
+  Validé capture DX11 = GL (position + trous) ; DX12 validé interactif.
 - **LOD tile size** adaptatif : tile petit pour lights loin/dim, gros pour proches
 - **Page-based VSM réel** UE5 (long terme, gros refactor 16k² atlas virtuel)
 
@@ -478,20 +561,51 @@ LIVRÉ dans `NkRender2D`, seul le glow reste un stub.)*
   `SetShadowCastersAABB2D` (32 AABB murs/plateformes, E.7a)
 - ✅ **Layer masks lumière/shape** (E.7b : `light.layerMask & shape.layerMask`)
 - ✅ **Normal maps 2D** (E.7c : binding 12, relief éclairé)
-- ⏳ `DrawSpriteGlow` : API stable mais effet non fonctionnel (fallback
-  DrawSprite — vérifié 2026-07-12). Refactor v1 : pipeline override par batch
-  + conflit bindings Render2D vs Overlay
+- ✅ `DrawSpriteGlow` **LIVRÉ (2026-07-12)** : batch dédié glow → pipeline
+  Glow2D + PC au Flush ; au passage fix du descriptor set 2D partagé écrasé
+  (pool 256 sets per-batch) — détail dans « Reste à faire priorisé » point 3
 
 ### Phase L — Finition post-process (TODO restants)
 - **FXAA wirage RenderGraph** : pipeline créé, manque split tonemap→mToneTex
   + nouvelle pass FXAA→swapchain (~30 min refactor RenderGraph)
-- **Auto-exposure** : adaptation luminance moyenne → exposure adapté
-  via mipmap chain HDR (1x1 fetch) OU compute reduction (~1-2h)
-- **API SetColorGradingLUT(data, size)** : permettre upload custom .cube/.3dl
-  LUT cinema. Identity LUT fonctionne déjà comme placeholder
-- **TAA** (Temporal AA) : remplacer FXAA par TAA moderne UE5-style.
-  Jittered proj + velocity buffer + history texture + neighborhood clamp.
-  ~4-5h, gros impact visuel "next gen"
+- ✅ **Auto-exposure** LIVRÉE V1 (2026-07-30) : mesure réelle (256 taps, moyenne
+  logarithmique, cible 1×1) + adaptation temporelle, validée par mesures sur les
+  4 backends — détail dans la section « Livré » Phase L ci-dessus
+- ✅ **API SetColorGradingLUT(data, size)** LIVRÉE (2026-07-12) + vraie LUT 3D
+  sur GL (validé capture `NK_LUT_TEST=1` teal&orange)
+- ✅ **TAA** (Temporal AA) **LIVRÉ V1 sur les 4 backends** (2026-07-30) —
+  opt-in (`postProcess.taa`, override `NK_TAA`), **exclusif du FXAA** (les
+  enchaîner flouterait deux fois). Jitter sub-pixel Halton(2,3) 8 phases dans
+  `NkRender3D` + reprojection par la profondeur + clamp de voisinage 3×3 contre
+  le ghosting. Pas de velocity buffer (v2) : la reprojection n'est exacte que
+  pour la géométrie statique, le clamp couvre les objets mobiles.
+  **MESURES (demo 2, régime établi, zone 3D)** — indicateur d'**escalier**
+  = part des pixels de bord au gradient purement axial, la signature de
+  l'aliasing (référence → TAA) : GL 47,7 → **42,2 %** · Vulkan 46,5 → **41,7 %**
+  · DX11 47,7 → **42,2 %** · DX12 47,6 → **42,4 %**, luminance préservée à
+  ≤1,9 % près sur les 4. **L'AA vient bien de l'accumulation et non d'un flou** :
+  le jitter SEUL (`NK_TAA_BLEND=0`) donne 53,7 %, soit PIRE que la référence.
+  Trois défauts trouvés et corrigés par la mesure, tous silencieux (image
+  d'apparence correcte) :
+  1. une passe sans attachement ne fait pas transitionner les transients qu'elle
+     lit → écran noir (cf. le piège en tête de ce fichier) ;
+  2. `p0.y` servait à la fois de `yFlipUV` (VS) et de `ndcYSign` (FS), deux
+     quantités qui divergent par backend → séparées en `p0.y` / `p1.x`
+     (push-constant 80 → 96 o, toujours sous les 128 o Vulkan et DX12) ;
+  3. la copie vers l'historique utilisait la convention du blit ÉCRAN au lieu de
+     celle de la lecture off-screen → historique inversé sur DX, masqué par le
+     clamp : luminance juste à 0,6 % près mais AUCUN antialiasing (escalier
+     51,9 % au lieu de 42,2 %).
+  Overrides de diagnostic : `NK_TAA_BLEND`, `NK_TAA_CLAMP=0` (le clamp masque
+  les erreurs de reprojection), `NK_TAA_YFLIP` / `NK_TAA_NDCY` (conventions Y),
+  `NK_TAA_DEBUG=1..4` (historique reprojeté / brut / décalage / profondeur),
+  `NK_TAA_PREVLAG=N` (amplifie le mouvement inter-frame), `NK_TAA_PRESENT_HIST`.
+  ⚠️ **`ndcYSign` NON validé par mesure** : à caméra fixe les deux signes
+  s'annulent exactement (`ndcYSign² = 1` quand `reproj` = identité), donc aucune
+  scène de démo actuelle ne les distingue. La valeur retenue suit le deferred
+  lighting (validé par capture) ; à trancher sur une scène à caméra mobile via
+  `NK_TAA_NDCY`.
+  Reste V2 : velocity buffer (objets mobiles), variance clipping, mip bias.
 - **DOF/bokeh** : profondeur de champ avec cercle de confusion
 - **Motion blur** : object + camera, vélocité buffer
 - **Vignette/grain/chromatic/Lens flares** : effets de lens
@@ -552,6 +666,20 @@ limité, DX12+Metal OK. Plan :
 - **Readback OpenGL de NkOffscreenTarget cassé** (GLAD 1282
   glMapNamedBufferRange) — la capture NK_CAPTURE ne marche que sur DX11
   (vérifié pixel-perfect) ; fix côté NKRHI GL à coordonner (module partagé).
+- ~~**DX12 : DEVICE REMOVED 0x887A0001**~~ **RÉSOLU (2026-07-23, 269207c9)** —
+  4 causes racines trouvées au debug layer : (1) root constants 64 o débordés
+  par GridPC/Glow2D 96 o → root sig passée à 32 DWORDs (128 o) + clamp ;
+  (2) release immédiat des PSO détruits en plein enregistrement → destruction
+  DIFFÉRÉE générale datée par fence (pipelines/textures/buffers) ;
+  (3) cache de variantes PSO `NkUnorderedMap<uint64,ComPtr>` imbriquée PERDAIT
+  la valeur stockée (⚠ bug conteneur à isoler côté NKContainERS — map imbriquée
+  déplacée + ComPtr) → variante PP_Tone reconstruite/relâchée CHAQUE frame →
+  remplacée par `NkVector<NkPsoVariant>` ; (4) readback NK_CAPTURE :
+  `CopyTextureToBuffer` passait RowPitch=0 au footprint (INVALID_CALL) → pitch
+  serré aligné 256 + staging NkOffscreenTarget dimensionné/lu au pitch aligné.
+  Validé : demo 2 DX12 zéro erreur, **capture NK_CAPTURE DX12 fonctionnelle**
+  (pixels réels, ombre alpha-testée confirmée), deferred DX12 REND (409 FPS),
+  non-régression GL/VK/DX11. PSO nommés (WKPDID) + env diag `NK_DX12_NODRAIN`.
 
 ---
 
@@ -564,26 +692,35 @@ limité, DX12+Metal OK. Plan :
 - ✅ **Mipmap generation** (audit 2026-07-12 : `NkIDevice::GenerateMipmaps`
   au RHI, utilisé par la chaîne matériaux — cf. fix mips DX12 2026-06-23)
 - ❌ Compression BC1-7 (desktop) + ASTC + ETC2 (mobile)
-- ❌ Texture streaming (LOD-mip selon distance)
+- ✅ Texture streaming (LOD-mip selon distance) — **LIVRÉ 2026-07-13** via
+  `NkStreamingSystem` v1+v2 (worker E/S réelles, low-res d'abord, raffinage par
+  distance, démo `--demo=19`) — détail « Reste à faire priorisé » point 5
 - ❌ Hot-reload des textures (les matériaux `.nkasset` l'ont, pas les textures)
 - ❌ Atlasing pour batching
 
 ### Phase M — Forward+ / Deferred
-- Forward+ : compute light culling tile-based (>32 lumières)
-- Ou Deferred : GBuffer + light pass (beaucoup de petites lights)
-- Bench scène 100+ lights
+- ✅ **Deferred v1+v2 LIVRÉ (2026-07-13)** : G-buffer MRT 3 RT + light pass
+  fullscreen + ForwardRest, opt-in `cfg.deferred`/`NK_DEFERRED=1` — GL référence
+  (91,8 % parité, 207 vs 140 FPS) + VULKAN validé capture ; DX11 fonctionnel
+  (✅ rayons parasites du spot cookie RÉSOLUS 2026-07-23, a6c71299 — signe
+  NDC Y par backend) ; DX12 ✅ device-removed RÉSOLU 2026-07-23 (269207c9) —
+  **deferred v2 VALIDÉ SUR LES 4 BACKENDS GL/VK/DX11/DX12**, détail
+  « Reste à faire priorisé » point 6 et « Bugs/quirks connus »
+- ❌ v3 : tiled/clustered light culling (>32 lumières) + bench scène 100+ lights
+- ❌ Forward+ (alternative tile-based si besoin)
 
 ---
 
 ## ❌ Priorité 3 — Animation & VFX
 
 ### Phase I (animation, ≠ Phase I IBL mirror) — Skeletal animation full
-- Bone hierarchies + skin matrices SSBO
-- Playback : linear, Hermite, cubic, additive
-- Blend trees + state machines
-- IK : FABRIK, CCD, two-bone
-- Morph targets / blend shapes
-- Retargeting
+- ✅ Bone hierarchies + skin matrices (skinning GPU 4 backends, bones UBO)
+- ✅ Playback : LINEAR/STEP/CUBICSPLINE glTF (additive à faire)
+- ✅ Blend trees (1D + 2D Shepard) + state machines (crossfade bone-local +
+  événements de transition) — **LIVRÉ v1+v2 2026-07-13**, points 8 du priorisé
+- ✅ IK : FABRIK, CCD, two-bone (NkIKSystem, requalifié — c'est l'IK de NkAnima)
+- ✅ Morph targets / blend shapes v1 CPU + skinnés (2026-07-13 ; v2 = GPU compute)
+- ❌ Retargeting ; ❌ blend additif
 
 ### Phase J — VFX particles
 - GPU compute particle system

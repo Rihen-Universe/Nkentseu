@@ -1,0 +1,222 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""Tutoriels3D — série d'apprentissage progressive (voir README.md) :
+5 projets, un par étape, du plus simple (fenêtre) au plus complet (meshes custom
++ sélection). Un helper unique déclare chaque étape avec les mêmes dépendances
+(pile NKWindow/NKEvent/NKRHI/NKRenderer), structure calquée sur
+Applications/DemoRW/demorw.jenga."""
+from Jenga import *
+from jengaconfig import *
+
+
+def tutoproject(name, sources):
+    with project(name):
+        useappdeps("platform", "core", "memory", "containers", "math", "threading", "logger", "time", "event", "window", "image", "font", "rhi", "stream", "filesystem", "renderer", "serialization", "reflection", "NKMedia")
+        windowedapp()
+        language("C++")
+        cppdialect("C++17")
+        location(".")
+
+        files(sources)
+
+        _INCLUDE_DIRS = [
+            ".",  # permet aux étapes de partager des headers (05 inclut 04-Camera/camera_input.h)
+            "%{wks.location}/Externals",
+            "%{NKGlad.location}/include",
+            "%{NKEvent.location}/src",
+            "%{NKWindow.location}/src",
+            "%{NKLogger.location}/src",
+            "%{NKCore.location}/src",
+            "%{NKPlatform.location}/src",
+            "%{NKMath.location}/src",
+            "%{NKTime.location}/src",
+            "%{NKStream.location}/src",
+            "%{NKFileSystem.location}/src",
+            "%{NKMemory.location}/src",
+            "%{NKContainers.location}/src",
+            "%{NKThreading.location}/src",
+            "%{NKRHI.location}/src",
+            "%{NKSL.location}/src",
+            "%{NKRenderer.location}/src",
+            "%{NKSerialization.location}/src",
+            "%{NKReflection.location}/src",
+            "%{NKMedia.location}/src",
+            "%{NKImage.location}/src",
+            "%{NKFont.location}/src",
+        ]
+        if VULKAN_INCLUDE:
+            _INCLUDE_DIRS.append(VULKAN_INCLUDE)
+        includedirs(_INCLUDE_DIRS)
+
+        _BASE_LINKS = [
+            "NKMedia",  # avant NKImage/NKThreading (le linker mono-passe résout les refs vers l'aval)
+            "NKEvent", "NKWindow", "NKGlad", "NKLogger",
+            "NKMath", "NKTime", "NKStream", "NKFileSystem",
+            "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKRHI", "NKRenderer", "NKSL",
+            "NKSerialization", "NKReflection", "NKImage", "NKFont",
+        ]
+        if USE_NKGLSLANG:
+            _BASE_LINKS.append("NKGLSlang")
+        if USE_NKSPIRVCROSS:
+            _BASE_LINKS.append("NKSPIRVCross")
+
+        links(_BASE_LINKS)
+        dependson(_BASE_LINKS)
+        defines([
+            f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if WANT_VULKAN else 0}",
+            "NKENTSEU_SERIALIZATION_STATIC_LIB",
+        ])
+
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+        targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+        # ===== Windows ============================================================
+        with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+            windowedapp()
+            usetoolchain(TC_WINDOWS)
+            defines([
+                "WIN32_LEAN_AND_MEAN",
+                "_UNICODE", "UNICODE",
+            ])
+            if VULKAN_LIB:
+                libdirs([VULKAN_LIB])
+            libdirs(["%{NKFont.location}/lib"])
+            _WIN_LINKS = [
+                "user32", "gdi32", "opengl32", "dwmapi", "shell32",
+                "mf", "mfplat", "mfreadwrite", "mfuuid",
+                "uuid", "ole32", "dinput8", "dxguid",
+                "d3d11", "d3d12", "dxgi", "d3dcompiler",
+                "winmm"   # timeBeginPeriod(1) : Sleep 1 ms pour le pacing FPS moteur
+            ]
+            _IS_MINGW = "mingw" in TC_WINDOWS.lower()
+            if WANT_VULKAN:
+                _WIN_LINKS.append("vulkan-1")
+                if not _IS_MINGW:
+                    # glslang.lib (Vulkan SDK) compilé MSVC — incompatible avec MinGW
+                    _WIN_LINKS.extend(GLSLANG_LIBS_WINDOWS)
+            # NKGLSlang / NKSPIRVCross compilés source → compatibles MinGW, requis par NKRHI
+            if USE_NKGLSLANG:    _WIN_LINKS.append("NKGLSlang")
+            if USE_NKSPIRVCROSS: _WIN_LINKS.append("NKSPIRVCross")
+            links(_WIN_LINKS)
+
+        # ===== Linux headless =====================================================
+        with filter("system:Linux && options:linux-backend=headless || system:Linux && options:headless"):
+            windowedapp()
+            usetoolchain("clang-native")
+            objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-headless/%{prj.name}")
+            targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}-headless/%{prj.name}")
+            defines(["NKENTSEU_FORCE_WINDOWING_NOOP_ONLY"])
+            links(["pthread"])
+
+        # ===== Linux XLib =========================================================
+        with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
+            windowedapp()
+            usetoolchain("clang-native")
+            defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
+            _LINUX_XLIB_LINKS = ["pthread", "X11", "Xrandr", "Xext", "GL", "asound", "m"]
+            if WANT_VULKAN:
+                _LINUX_XLIB_LINKS.append("vulkan")
+            links(_LINUX_XLIB_LINKS)
+
+        # ===== Linux XCB ==========================================================
+        with filter("system:Linux && options:linux-backend=xcb"):
+            windowedapp()
+            usetoolchain("clang-native")
+            objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-xcb/%{prj.name}")
+            targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}-xcb/%{prj.name}")
+            defines(["NKENTSEU_FORCE_WINDOWING_XCB_ONLY"])
+            _LINUX_XCB_LINKS = ["pthread", "xcb", "xcb-image", "xcb-icccm", "xcb-randr", "xcb-xfixes", "X11", "X11-xcb", "Xext", "xkbcommon", "xkbcommon-x11", "GL"]
+            if WANT_VULKAN:
+                _LINUX_XCB_LINKS.append("vulkan")
+            links(_LINUX_XCB_LINKS)
+            ldflags(["-fuse-ld=lld"])
+
+        # ===== Linux Wayland ======================================================
+        with filter("system:Linux && options:linux-backend=wayland"):
+            windowedapp()
+            usetoolchain("clang-native")
+            objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-wayland/%{prj.name}")
+            targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}-wayland/%{prj.name}")
+            defines(WAYLAND_DEFINES)
+            _LINUX_WL_LINKS = list(WAYLAND_LINKS)
+            if WANT_VULKAN:
+                _LINUX_WL_LINKS.append("vulkan")
+            links(_LINUX_WL_LINKS)
+
+        # ===== macOS ==============================================================
+        with filter("system:macOS"):
+            windowedapp()
+            usetoolchain("clang-native")
+            frameworks(["Cocoa", "QuartzCore", "OpenGL"])
+
+        # ===== Android ============================================================
+        with filter("system:Android"):
+            windowedapp()
+            usetoolchain("android-ndk")
+            _ANDROID_LINKS = ["android", "log", "EGL", "GLESv3"]
+            if WANT_VULKAN:
+                _ANDROID_LINKS.append("vulkan")
+            links(_ANDROID_LINKS)
+            androidapplicationid(f"com.nkentseu.{name.lower()}")
+            androidscreenorientation("landscape")  # apps 3D : toujours paysage (règle projet)
+            androidminsdk(24)
+            androidtargetsdk(34)
+            androidcompilesdk(34)
+            androidabis(["arm64-v8a", "x86_64"])
+            androidnativeactivity(True)
+            androidstl("c++_shared")
+
+        # ===== iOS ================================================================
+        with filter("system:iOS"):
+            windowedapp()
+            frameworks(["UIKit", "QuartzCore", "OpenGLES"])
+            iosbundleid(f"com.nkentseu.{name.lower()}")
+            iosversion("1.0")
+            iosminsdk("14.0")
+            iosbuildnumber(1)
+
+        # ===== Web ================================================================
+        with filter("system:Web"):
+            consoleapp()
+            usetoolchain("emscripten")
+            emscripteninitialmemory(32)
+            emscriptenextraflags([
+                "-s", "ASYNCIFY",
+                "-s", "INITIAL_MEMORY=67108864",
+                "-s", "ALLOW_MEMORY_GROWTH=1",
+                "-s", "FULL_ES3=1",
+                "-s", "USE_WEBGL2=1",
+                "-s", "NO_EXIT_RUNTIME=1",
+            ])
+
+        # ===== HarmonyOS ==========================================================
+        with filter("system:HarmonyOS"):
+            windowedapp()
+            # "log" (Android) n'existe pas sur HarmonyOS -> "hilog_ndk.z" (meme
+            # convention que NKRHI.jenga) ; sinon "unable to find library -llog"
+            # au link final de l'executable/.hap.
+            links(["hilog_ndk.z", "EGL", "GLESv3", "native_window"])
+            harmonyabis(["arm64-v8a", "x86_64"])  # .hap universel (memes 2 ABIs qu'Android)
+
+        # ===== Xbox ===============================================================
+        with filter("system:XboxSeries || system:XboxOne"):
+            windowedapp()
+            usetoolchain("xbox-clang")
+            links(["d3d12", "dxgi", "dxguid", "xgameruntime"])
+
+        with filter("config:Debug"):
+            defines(["_DEBUG"])
+            optimize("Off")
+            symbols(True)
+        with filter("config:Release"):
+            defines(["NDEBUG"])
+            optimize("Speed")
+            symbols(False)
+
+
+# ===== Les 5 étapes de la progression (voir README.md) ============================
+tutoproject("Tuto01Fenetre",  ["01-Fenetre/main.cpp"])
+tutoproject("Tuto02Renderer", ["02-Renderer/main.cpp"])
+tutoproject("Tuto03Scene",    ["03-Scene/main.cpp"])
+tutoproject("Tuto04Camera",   ["04-Camera/main.cpp"])
+tutoproject("Tuto05Meshes",   ["05-Meshes/main.cpp"])

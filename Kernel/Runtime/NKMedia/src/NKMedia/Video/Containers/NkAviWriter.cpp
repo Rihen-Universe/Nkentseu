@@ -33,6 +33,16 @@ namespace nkentseu {
 			mFile.Seek(cur, NkSeekOrigin::NK_BEGIN);
 		}
 
+		void NkAviWriter::SetAudio(int32 sampleRate, int32 channels) {
+			if (sampleRate > 0 && channels > 0) {
+				mAudioRate = sampleRate;
+				mAudioChannels = channels;
+			} else {
+				mAudioRate = 0;
+				mAudioChannels = 0;
+			}
+		}
+
 		bool NkAviWriter::Open(const char *path, int32 width, int32 height, int32 fpsNum, int32 fpsDen,
 							   uint32 fourccHandler, uint32 biCompression, int32 bitCount) {
 			if (width <= 0 || height <= 0 || fpsDen <= 0)
@@ -49,6 +59,13 @@ namespace nkentseu {
 			mIndex.Clear();
 			mChunkId = (biCompression == kAviCompressionRGB) ? NkFourCC('0', '0', 'd', 'b')
 															 : NkFourCC('0', '0', 'd', 'c');
+			const bool hasAudio = (mAudioRate > 0 && mAudioChannels > 0);
+			mAudioChunkId = NkFourCC('0', '1', 'w', 'b');
+			mAudioBytes = 0;
+			mAudioMaxChunk = 0;
+			mAudioChunkCount = 0;
+			mAudioStrhLengthPos = 0;
+			mAudioStrhBufSizePos = 0;
 
 			const uint32 microSecPerFrame = (uint32)((1000000ull * (uint64)fpsDen) / (uint64)fpsNum);
 
@@ -76,7 +93,7 @@ namespace nkentseu {
 			mAvihTotalFramesPos = mFile.Tell();
 			PutU32(0);						 // dwTotalFrames (rapiécé)
 			PutU32(0);						 // dwInitialFrames
-			PutU32(1);						 // dwStreams
+			PutU32(hasAudio ? 2u : 1u);		 // dwStreams
 			PutU32(0);						 // dwSuggestedBufferSize (rapiécé plus bas via BufSize)
 			PutU32((uint32)width);			 // dwWidth
 			PutU32((uint32)height);			 // dwHeight
@@ -130,10 +147,62 @@ namespace nkentseu {
 			PutU32(0);
 			PutU32(0); // pels/clr
 
-			// Rapièce les tailles hdrl/strl (connues maintenant).
+			// Rapièce la taille du strl vidéo (connue maintenant).
 			const nk_int64 afterStrl = mFile.Tell();
 			PatchU32(strlSizePos, (uint32)(afterStrl - strlStart));
-			PatchU32(hdrlSizePos, (uint32)(afterStrl - hdrlStart));
+
+			// ---- LIST 'strl' audio (PCM s16) — flux 1, chunks '01wb' ----
+			if (hasAudio) {
+				const uint32 blockAlign = (uint32)(mAudioChannels * 2); // s16
+				const uint32 avgBytesPerSec = (uint32)mAudioRate * blockAlign;
+
+				PutU32(NkFourCC('L', 'I', 'S', 'T'));
+				const nk_int64 aStrlSizePos = mFile.Tell();
+				PutU32(0);
+				const nk_int64 aStrlStart = mFile.Tell();
+				PutU32(NkFourCC('s', 't', 'r', 'l'));
+
+				// strh (56 octets). Convention PCM (comme ffmpeg) : Rate/Scale = octets/s sur
+				// blockAlign → Rate = avgBytesPerSec, Scale = blockAlign ; dwSampleSize = blockAlign.
+				PutU32(NkFourCC('s', 't', 'r', 'h'));
+				PutU32(56);
+				PutU32(NkFourCC('a', 'u', 'd', 's')); // fccType
+				PutU32(0);							  // fccHandler
+				PutU32(0);							  // dwFlags
+				PutU16(0);							  // wPriority
+				PutU16(0);							  // wLanguage
+				PutU32(0);							  // dwInitialFrames
+				PutU32(blockAlign);					  // dwScale
+				PutU32(avgBytesPerSec);				  // dwRate → Rate/Scale = échantillons/s
+				PutU32(0);							  // dwStart
+				mAudioStrhLengthPos = mFile.Tell();
+				PutU32(0);							  // dwLength (rapiécé = blocs PCM)
+				mAudioStrhBufSizePos = mFile.Tell();
+				PutU32(0);							  // dwSuggestedBufferSize (rapiécé)
+				PutU32(0xFFFFFFFFu);				  // dwQuality (-1 = défaut)
+				PutU32(blockAlign);					  // dwSampleSize (PCM = taille d'un bloc)
+				PutU16(0);
+				PutU16(0);
+				PutU16(0);
+				PutU16(0); // rcFrame (inutilisé pour l'audio)
+
+				// strf = WAVEFORMAT PCM (16 octets).
+				PutU32(NkFourCC('s', 't', 'r', 'f'));
+				PutU32(16);
+				PutU16(1);						// wFormatTag = WAVE_FORMAT_PCM
+				PutU16((uint16)mAudioChannels); // nChannels
+				PutU32((uint32)mAudioRate);		// nSamplesPerSec
+				PutU32(avgBytesPerSec);			// nAvgBytesPerSec
+				PutU16((uint16)blockAlign);		// nBlockAlign
+				PutU16(16);						// wBitsPerSample
+
+				const nk_int64 afterAStrl = mFile.Tell();
+				PatchU32(aStrlSizePos, (uint32)(afterAStrl - aStrlStart));
+			}
+
+			// Rapièce la taille de hdrl (couvre avih + tous les strl).
+			const nk_int64 afterHdrl = mFile.Tell();
+			PatchU32(hdrlSizePos, (uint32)(afterHdrl - hdrlStart));
 
 			// ---- LIST 'movi' ----
 			PutU32(NkFourCC('L', 'I', 'S', 'T'));
@@ -172,6 +241,36 @@ namespace nkentseu {
 			return true;
 		}
 
+		bool NkAviWriter::WriteAudio(const uint8 *data, uint32 size) {
+			if (!mFile.IsOpen() || data == nullptr || size == 0)
+				return false;
+			if (mAudioRate <= 0 || mAudioChannels <= 0)
+				return false; // SetAudio non appelé avant Open
+
+			const nk_int64 ckidPos = mFile.Tell();
+			PutU32(mAudioChunkId);
+			PutU32(size);
+			PutBytes(data, size);
+			// Alignement pair (padding requis par RIFF).
+			if (size & 1) {
+				const uint8 pad = 0;
+				mFile.Write(&pad, 1);
+			}
+
+			IndexEntry e;
+			e.ckid = mAudioChunkId;
+			e.flags = kAviifKeyframe; // les chunks PCM sont tous « clés »
+			e.offset = (uint32)(ckidPos - mMoviBasePos);
+			e.length = size;
+			mIndex.PushBack(e);
+
+			mAudioBytes += size;
+			if (size > mAudioMaxChunk)
+				mAudioMaxChunk = size;
+			mAudioChunkCount++;
+			return true;
+		}
+
 		bool NkAviWriter::Close() {
 			if (!mFile.IsOpen())
 				return false;
@@ -199,6 +298,11 @@ namespace nkentseu {
 			PatchU32(mStrhLengthPos, (uint32)mFrameCount);
 			PatchU32(mAvihBufSizePos, mMaxChunk);
 			PatchU32(mStrhBufSizePos, mMaxChunk);
+			if (mAudioStrhLengthPos != 0) {
+				const uint32 blockAlign = (uint32)(mAudioChannels * 2);
+				PatchU32(mAudioStrhLengthPos, (uint32)(mAudioBytes / blockAlign)); // blocs PCM
+				PatchU32(mAudioStrhBufSizePos, mAudioMaxChunk);
+			}
 
 			mFile.Close();
 			return true;

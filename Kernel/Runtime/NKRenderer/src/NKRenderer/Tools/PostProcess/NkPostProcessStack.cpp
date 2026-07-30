@@ -19,6 +19,15 @@
 namespace nkentseu {
 	namespace renderer {
 
+		// Declarations ANTICIPEES : ces deux helpers sont definis plus bas (section
+		// « Phase L V1 — AUTO-EXPOSURE ») mais utilises AVANT, dans ExecuteRHI.
+		// En C++ un identifiant doit etre visible au point d'appel : sans elles le
+		// fichier ne compile pas (« use of undeclared identifier »), ce qui bloque
+		// TOUTES les cibles, Web comprise. On declare ici plutot que de deplacer
+		// les definitions, pour garder la section auto-exposure d'un seul bloc.
+		static float32 NkAutoExpStrength(float32 fromConfig);
+		static float32 NkAutoExpSpeed(float32 fromConfig);
+
 		// =========================================================================
 		// SHADERS GLSL EMBARQUÉS — référence complète pour intégration future
 		// =========================================================================
@@ -251,13 +260,34 @@ void main() {
 			//   - binding 1 = uBloom   (mBloomRT[0].GetColorHandle() apres RunBloom)
 			//   - binding 2 = uSSAO    (Phase H.3 : ambient occlusion factor)
 			//   - binding 3 = uColorLUT (Phase L : 3D LUT cinema grading)
+			//   - binding 4 = uAvgLuma  (Phase L V1 : luminance moyenne 1x1 mesuree)
 			NkDescriptorSetLayoutDesc tonelay;
 			tonelay.Add(0, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
 			tonelay.Add(1, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
 			tonelay.Add(2, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
 			tonelay.Add(3, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
+			tonelay.Add(4, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
 			mToneLayout = mDevice->CreateDescriptorSetLayout(tonelay);
 			mToneSet = mDevice->AllocateDescriptorSet(mToneLayout);
+
+			// ── Auto-exposure V1 : layout dedie (uHDR + uPrevLuma) + pool de sets ──
+			NkDescriptorSetLayoutDesc aelay;
+			aelay.Add(0, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
+			aelay.Add(1, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
+			mAutoExpLayout = mDevice->CreateDescriptorSetLayout(aelay);
+			for (int i = 0; i < kAutoExpDescSets; i++)
+				mAutoExpSets[i] = mDevice->AllocateDescriptorSet(mAutoExpLayout);
+			mAutoExpSetCursor = 0;
+
+			// ── TAA : layout 3 samplers (courant LDR + historique + profondeur) ──
+			NkDescriptorSetLayoutDesc taalay;
+			taalay.Add(0, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
+			taalay.Add(1, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
+			taalay.Add(2, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
+			mTAALayout = mDevice->CreateDescriptorSetLayout(taalay);
+			for (int i = 0; i < kTAADescSets; i++)
+				mTAASets[i] = mDevice->AllocateDescriptorSet(mTAALayout);
+			mTAASetCursor = 0;
 
 			// Phase L : create identity LUT 16^3 par defaut (no color change).
 			// User upload son LUT custom via SetColorGradingLUT (accessible par
@@ -324,8 +354,11 @@ void main() {
 				pd.blend = NkBlendDesc::Opaque();
 				pd.debugName = "PP_Tone";
 				pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0,
-								   48); // PC[0]=(exposure,gamma,vignette,sat) PC[1]=(bloomStr,lutStr,yFlipUV,lutSize)
-										// PC[2]=(autoExpStr,autoExpKey,_,_) — VS+FS
+								   64); // PC[0]=(exposure,gamma,vignette,sat) PC[1]=(bloomStr,lutStr,yFlipUV,lutSize)
+										// PC[2]=(autoExpStr,autoExpKey,bloomYFlip,hdrClamp)
+										// PC[3]=(expMin,expMax,_,_) — VS+FS
+										// 64 o : sous la garantie Vulkan (128) et sous les root constants
+										// DX12 (32 DWORDs depuis le fix 269207c9).
 				// Phase H.2 : utilise le layout 2-bindings (uHDR + uBloom)
 				if (mToneLayout.IsValid())
 					pd.descriptorSetLayouts.PushBack(mToneLayout);
@@ -427,6 +460,45 @@ void main() {
 				mPipeSSAOBlur = mDevice->CreateGraphicsPipeline(pd);
 			}
 
+			// ── Phase L V1 : pipeline AUTO-EXPOSURE (mesure de luminance 1x1) ──
+			// Cible 1x1 RGBA16F : le HDR peut depasser 1.0, une cible UNORM ecraserait
+			// la mesure. Le render pass vient de mLumaRT[0] (meme format que [1]).
+			if (mShaderLib && mLumaRT[0].IsValid()) {
+				auto progAE = mShaderLib->LoadOrCompileVF("PP_AutoExposure", "", "");
+				if (progAE.IsValid())
+					mShaderAutoExp = mShaderLib->GetRHIHandle(progAE);
+				logger.Info("[NkPostProcessStack] AutoExposure shader : valid={0}\n",
+							mShaderAutoExp.IsValid() ? 1 : 0);
+			}
+			if (mShaderAutoExp.IsValid() && mLumaRT[0].IsValid()) {
+				NkGraphicsPipelineDesc pd;
+				pd.shader = mShaderAutoExp;
+				pd.depthStencil = NkDepthStencilDesc::NoDepth();
+				pd.rasterizer = NkRasterizerDesc::NoCull();
+				pd.blend = NkBlendDesc::Opaque();
+				pd.debugName = "PP_AutoExposure";
+				pd.renderPass = mLumaRT[0].GetRenderPass();
+				pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0,
+								   16); // (dtSeconds, adaptSpeed, minLuma, maxLuma) — VS+FS
+				if (mAutoExpLayout.IsValid())
+					pd.descriptorSetLayouts.PushBack(mAutoExpLayout);
+				mPipeAutoExp = mDevice->CreateGraphicsPipeline(pd);
+				logger.Info("[NkPostProcessStack] AutoExposure pipeline : valid={0}\n",
+							mPipeAutoExp.IsValid() ? 1 : 0);
+			}
+
+			// ── Phase L : shader TAA (Temporal AA, post-tonemap) ───────────────
+			// Le SHADER est charge ici (IsTAAEnabled en depend : le graph doit savoir
+			// des sa construction s'il declare les passes TAA), mais le PIPELINE est
+			// cree en lazy dans EnsureTAAPipeline : il doit etre RP-compatible avec le
+			// framebuffer que le graph cree pour la passe, lequel n'existe pas encore.
+			if (mShaderLib) {
+				auto progTAA = mShaderLib->LoadOrCompileVF("PP_TAA", "", "");
+				if (progTAA.IsValid())
+					mShaderTAA = mShaderLib->GetRHIHandle(progTAA);
+				logger.Info("[NkPostProcessStack] TAA shader : valid={0}\n", mShaderTAA.IsValid() ? 1 : 0);
+			}
+
 			// ── Phase L : pipeline FXAA (Fast Approximate AA, post-tonemap) ────
 			// Shader externalise dans Resources/NKRenderer/Shaders/PP_FXAA/VK/.
 			// Le wirage RenderGraph reste TODO (cf. ExecuteRHI : actuellement
@@ -503,6 +575,40 @@ void main() {
 				mDevice->DestroyPipeline(mPipeFXAA);
 			if (mPipeBlit.IsValid())
 				mDevice->DestroyPipeline(mPipeBlit);
+			if (mPipeBlitRT.IsValid())
+				mDevice->DestroyPipeline(mPipeBlitRT);
+			mPipeBlitRT = {};
+			if (mBlitRTSet.IsValid())
+				mDevice->FreeDescriptorSet(mBlitRTSet);
+			mBlitRTSet = {};
+			// TAA (les cibles d'historique appartiennent au RenderGraph)
+			if (mPipeTAA.IsValid())
+				mDevice->DestroyPipeline(mPipeTAA);
+			mPipeTAA = {};
+			for (int i = 0; i < kTAADescSets; i++) {
+				if (mTAASets[i].IsValid())
+					mDevice->FreeDescriptorSet(mTAASets[i]);
+				mTAASets[i] = {};
+			}
+			if (mTAALayout.IsValid())
+				mDevice->DestroyDescriptorSetLayout(mTAALayout);
+			mTAALayout = {};
+			// Auto-exposure V1
+			if (mPipeAutoExp.IsValid())
+				mDevice->DestroyPipeline(mPipeAutoExp);
+			for (int i = 0; i < 2; i++) {
+				if (mLumaRT[i].IsValid())
+					mLumaRT[i].Shutdown();
+			}
+			mLumaWrite = -1;
+			for (int i = 0; i < kAutoExpDescSets; i++) {
+				if (mAutoExpSets[i].IsValid())
+					mDevice->FreeDescriptorSet(mAutoExpSets[i]);
+				mAutoExpSets[i] = {};
+			}
+			if (mAutoExpLayout.IsValid())
+				mDevice->DestroyDescriptorSetLayout(mAutoExpLayout);
+			mAutoExpLayout = {};
 			if (mLUTTex.IsValid()) {
 				mDevice->DestroyTexture(mLUTTex);
 				mLUTTex = {};
@@ -564,6 +670,27 @@ void main() {
 					mBloomRT[i].Shutdown();
 				mBloomRT[i].Init(mDevice, mTex, rtd);
 			}
+
+			// ── Auto-exposure V1 : deux cibles 1x1 RGBA16F, PERSISTANTES ──────────
+			// Creees UNE SEULE FOIS (pas de Shutdown ici, contrairement au bloom) :
+			// l'etat adapte doit survivre a un OnResize, sinon redimensionner la
+			// fenetre remettrait l'exposition a zero et provoquerait un flash.
+			for (int i = 0; i < 2; i++) {
+				if (mLumaRT[i].IsValid())
+					continue;
+				NkRenderTargetDesc rtd;
+				rtd.width = 1;
+				rtd.height = 1;
+				rtd.hdr = true; // RGBA16F : la luminance HDR depasse 1.0
+				rtd.depth = false;
+				rtd.name = (i == 0) ? NkString("AvgLuma0") : NkString("AvgLuma1");
+				mLumaRT[i].Init(mDevice, mTex, rtd);
+			}
+
+			// NB : l'historique ping-pong du TAA n'est PAS cree ici — ce sont deux
+			// transients du RenderGraph (cf. RunTAAInPass pour le pourquoi). Un
+			// OnResize reconstruit le graph, donc les recree a la bonne taille et
+			// repart sans historique : exactement le comportement voulu.
 
 			mToneTex = mTex->CreateRenderTarget(mW, mH, NkGPUFormat::NK_RGBA8_UNORM, false, true, "Tone");
 			mFinalTex = mTex->CreateRenderTarget(mW, mH, NkGPUFormat::NK_RGBA8_UNORM, false, true, "Final");
@@ -709,6 +836,13 @@ void main() {
 			} else {
 				mDevice->BindTextureSampler(mToneSet, 3, hdrIn, samp);
 			}
+			// Auto-exposure V1 : cible 1x1 de luminance moyenne au binding 4. Si la
+			// passe n'a pas tourne (auto-exposure off), on binde le HDR : le shader
+			// ignore ce slot des que autoExpStrength vaut 0.
+			{
+				NkTextureHandle lumaTex = GetAvgLumaTexRHI();
+				mDevice->BindTextureSampler(mToneSet, 4, lumaTex.IsValid() ? lumaTex : hdrIn, samp);
+			}
 			cmd->BindGraphicsPipeline(mPipeTone);
 			cmd->BindDescriptorSet(mToneSet, 0);
 
@@ -742,8 +876,27 @@ void main() {
 			}
 			// <= 0 -> desactive : on passe une borne enorme que le shader traite comme "off".
 			const float32 hdrClampValue = (hdrClamp > 0.f) ? hdrClamp : 0.f;
-			float32 pc[12] = {// p0 = (exposure, gamma, vignetteIntens, saturation)
-							  mCfg.exposure, swapchainSrgb ? 1.0f : mCfg.gamma,
+			// Exposure de base : override runtime NK_EXPOSURE (sert a prouver l'effet de
+			// l'auto-exposure — une base volontairement fausse doit etre corrigee par
+			// la mesure ; cf. bloc de test dans la ROADMAP Phase L).
+			float32 baseExposure = mCfg.exposure;
+			{
+				static int sInit = 0;
+				static bool sHasEnv = false;
+				static float32 sEnv = 1.f;
+				if (!sInit) {
+					sInit = 1;
+					const char *v = getenv("NK_EXPOSURE");
+					if (v && v[0]) {
+						sHasEnv = true;
+						sEnv = (float32)atof(v);
+					}
+				}
+				if (sHasEnv)
+					baseExposure = sEnv;
+			}
+			float32 pc[16] = {// p0 = (exposure, gamma, vignetteIntens, saturation)
+							  baseExposure, swapchainSrgb ? 1.0f : mCfg.gamma,
 							  mCfg.vignette ? mCfg.vignetteIntens : 0.f, mCfg.colorGrading ? mCfg.saturation : 1.f,
 							  // p1 = (bloomStrength, lutStrength, yFlipUV, lutSize)
 							  mCfg.bloom ? mCfg.bloomStrength : 0.f, mCfg.colorGrading ? mCfg.lutStrength : 0.f,
@@ -753,8 +906,12 @@ void main() {
 							  // la convention storage Vulkan). Le top screen rendu = ligne 0
 							  // du storage -> UV.y = 0 pour sampler -> flip via VS.
 							  -1.f, float32(mLUTSize),
-							  // p2 = (autoExposureStrength, autoExposureKey, bloomYFlip, _)
-							  mCfg.autoExposureStrength, mCfg.autoExposureKey,
+							  // p2 = (autoExposureStrength, autoExposureKey, bloomYFlip, hdrClamp)
+							  // Force effective = config OU override NK_AUTOEXP, et 0 si la
+							  // passe de mesure n'a pas tourne (sinon le shader lirait le HDR
+							  // bindé en repli au binding 4 et calculerait une exposition folle).
+							  (mLumaWrite >= 0) ? NkAutoExpStrength(mCfg.autoExposureStrength) : 0.f,
+							  mCfg.autoExposureKey,
 							  // bloomYFlip : 1 sur DX (bloom/SSAO stockés Y-up vs HDR Y-down → V opposé),
 							  // 0 sur VK/GL (bloom/SSAO et HDR partagent la même convention V). Corrige le
 							  // glow "ghost" miroir vertical sur DX.
@@ -763,7 +920,10 @@ void main() {
 								   ? 1.f
 								   : 0.f),
 							  // p2.w = garde-fou HDR (0 = desactive). Le tonemap clampe le HDR avant ACES.
-							  hdrClampValue};
+							  hdrClampValue,
+							  // p3 = (exposureMin, exposureMax, _, _) : bornes de l'exposure
+							  // calculee par l'auto-exposure (key / luminance mesuree).
+							  mCfg.autoExposureMinExp, mCfg.autoExposureMaxExp, 0.f, 0.f};
 			// Push avec NK_ALL_GRAPHICS pour matcher la range pipeline (cf. fix
 			// VUID-vkCmdPushConstants-offset-01796 — VS lit yFlipUV au slot PC[1].z).
 			cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), pc);
@@ -838,6 +998,61 @@ void main() {
 			pc.invResW = 1.0f / (float)(mW > 0 ? mW : 1);
 			pc.invResH = 1.0f / (float)(mH > 0 ? mH : 1);
 			pc.yFlipUV = isVK ? -1.f : +1.f;
+			pc._pad = 0.f;
+			cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), &pc);
+			cmd->Draw(3, 1, 0, 0);
+		}
+
+		// Copie vers une cible off-screen du graph (passe TAA_Store) : meme shader
+		// et meme convention de flip qu'ExecuteBlit, mais pipeline RP-compatible
+		// avec le framebuffer transient et descriptor set distinct (deux blits
+		// coexistent dans la frame : ecran + historique).
+		void NkPostProcessStack::ExecuteBlitToRT(NkICommandBuffer *cmd, NkTextureHandle src,
+												 NkRenderPassHandle rp) {
+			if (!cmd || !src.IsValid() || !mShaderBlit.IsValid() || !mDevice)
+				return;
+			if (!mPipeBlitRT.IsValid()) {
+				NkGraphicsPipelineDesc pd;
+				pd.shader = mShaderBlit;
+				pd.depthStencil = NkDepthStencilDesc::NoDepth();
+				pd.rasterizer = NkRasterizerDesc::NoCull();
+				pd.blend = NkBlendDesc::Opaque();
+				pd.debugName = "Blit_RT";
+				pd.renderPass = rp;
+				pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, 16);
+				if (mInputTexLayout.IsValid())
+					pd.descriptorSetLayouts.PushBack(mInputTexLayout);
+				mPipeBlitRT = mDevice->CreateGraphicsPipeline(pd);
+				logger.Info("[NkPostProcessStack] Blit_RT pipeline (lazy) : valid={0}\n",
+							mPipeBlitRT.IsValid() ? 1 : 0);
+			}
+			if (!mPipeBlitRT.IsValid())
+				return;
+			if (!mBlitRTSet.IsValid() && mInputTexLayout.IsValid())
+				mBlitRTSet = mDevice->AllocateDescriptorSet(mInputTexLayout);
+			if (mBlitRTSet.IsValid() && mResources)
+				mDevice->BindTextureSampler(mBlitRTSet, 0, src, mResources->GetSamplerLinearClamp());
+			cmd->BindGraphicsPipeline(mPipeBlitRT);
+			if (mBlitRTSet.IsValid())
+				cmd->BindDescriptorSet(mBlitRTSet, 0);
+
+			struct PC {
+					float invResW, invResH, yFlipUV, _pad;
+			} pc;
+
+			pc.invResW = 1.0f / (float)(mW > 0 ? mW : 1);
+			pc.invResH = 1.0f / (float)(mH > 0 ? mH : 1);
+			// ⚠️ Cette copie doit PRESERVER l'orientation : l'historique est relu par
+			// la passe TAA avec la meme convention qu'elle applique au LDR, donc les
+			// deux doivent etre orientes pareil. La regle est celle de la LECTURE
+			// d'une cible off-screen (`isVK ? -1 : +1`), et NON celle du blit vers
+			// l'ECRAN (`api != GL ? -1 : +1`) : sur DX les deux divergent, et avoir
+			// pris la seconde inversait l'historique. Symptome mesure, instructif car
+			// silencieux : luminance correcte a 0,6 % pres (le clamp de voisinage
+			// ramenait l'historique inverse dans la plage locale) mais AUCUN
+			// antialiasing — l'indicateur d'escalier montait a 51,9 % au lieu de
+			// descendre a ~42 %, soit exactement le niveau du jitter sans accumulation.
+			pc.yFlipUV = (mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_VULKAN) ? -1.f : +1.f;
 			pc._pad = 0.f;
 			cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), &pc);
 			cmd->Draw(3, 1, 0, 0);
@@ -1042,6 +1257,287 @@ void main() {
 			cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), &pc);
 
 			cmd->Draw(3, 1, 0, 0);
+		}
+
+		// =====================================================================
+		// Phase L V1 — AUTO-EXPOSURE (2026-07-30)
+		// =====================================================================
+		// Force d'auto-exposure effective : config, ou override d'environnement
+		// NK_AUTOEXP (pratique pour un A/B sans recompiler ni modifier une app —
+		// meme motif que NK_HDR_CLAMP dans ExecuteRHI). Lu une seule fois.
+		static float32 NkAutoExpStrength(float32 fromConfig) {
+			static int sInit = 0;
+			static bool sHasEnv = false;
+			static float32 sEnv = 0.f;
+			if (!sInit) {
+				sInit = 1;
+				const char *v = getenv("NK_AUTOEXP");
+				if (v && v[0]) {
+					sHasEnv = true;
+					sEnv = (float32)atof(v);
+				}
+			}
+			return sHasEnv ? sEnv : fromConfig;
+		}
+
+		static float32 NkAutoExpSpeed(float32 fromConfig) {
+			static int sInit = 0;
+			static bool sHasEnv = false;
+			static float32 sEnv = 0.f;
+			if (!sInit) {
+				sInit = 1;
+				const char *v = getenv("NK_AUTOEXP_SPEED");
+				if (v && v[0]) {
+					sHasEnv = true;
+					sEnv = (float32)atof(v);
+				}
+			}
+			return sHasEnv ? sEnv : fromConfig;
+		}
+
+		bool NkPostProcessStack::IsAutoExposureEnabled() const {
+			if (!mPipeAutoExp.IsValid() || !mLumaRT[0].IsValid() || !mLumaRT[1].IsValid())
+				return false;
+			return NkAutoExpStrength(mCfg.autoExposureStrength) > 0.001f;
+		}
+
+		NkTextureHandle NkPostProcessStack::GetAvgLumaTexRHI() const {
+			if (mLumaWrite < 0 || !mTex)
+				return NkTextureHandle{};
+			return mTex->GetRHIHandle(mLumaRT[mLumaWrite].GetColorHandle());
+		}
+
+		void NkPostProcessStack::RunAutoExposure(NkICommandBuffer *cmd, NkTextureHandle hdrIn, float32 dtSeconds) {
+			if (!cmd || !hdrIn.IsValid() || !IsAutoExposureEnabled())
+				return;
+			NkSamplerHandle samp = mResources ? mResources->GetSamplerLinearClamp() : NkSamplerHandle{};
+			if (!samp.IsValid())
+				return;
+
+			// dt : mesure interne si l'appelant n'en fournit pas. La premiere frame
+			// n'a pas de delta significatif -> 0 (le shader prend alors la cible
+			// directement puisque l'etat precedent est nul).
+			float32 dt = dtSeconds;
+			if (dt < 0.f) {
+				if (!mAutoExpClockStarted) {
+					mAutoExpClock.Reset();
+					mAutoExpClockStarted = true;
+					dt = 0.f;
+				} else {
+					dt = (float32)mAutoExpClock.Reset().ToSeconds();
+					// Garde-fou : un hoquet (chargement, breakpoint) ne doit pas
+					// teleporter l'adaptation.
+					if (dt > 0.25f)
+						dt = 0.25f;
+				}
+			}
+
+			// Ping-pong : on ECRIT dans l'index libre, on LIT celui de la frame
+			// precedente. Premiere execution : la cible de lecture n'a jamais ete
+			// rendue, elle vaut 0 -> le shader detecte l'amorcage (prev <= 0).
+			const int write = (mLumaWrite < 0) ? 0 : (1 - mLumaWrite);
+			const int read = 1 - write;
+
+			NkTextureHandle prevTex = mTex ? mTex->GetRHIHandle(mLumaRT[read].GetColorHandle()) : NkTextureHandle{};
+
+			NkDescSetHandle set = mAutoExpSets[mAutoExpSetCursor % kAutoExpDescSets];
+			mAutoExpSetCursor++;
+			if (!set.IsValid())
+				return;
+			mDevice->BindTextureSampler(set, 0, hdrIn, samp);
+			// prevTex invalide au premier passage : on binde le HDR pour ne pas
+			// laisser un slot non initialise (UB sur certains backends). Le shader
+			// ignore la valeur puisqu'elle ne sera pas <= 0 dans ce cas ; d'ou le
+			// clear explicite ci-dessous a la premiere frame.
+			mDevice->BindTextureSampler(set, 1, prevTex.IsValid() ? prevTex : hdrIn, samp);
+
+			// La cible 1x1 n'est PAS un transient du RenderGraph : on gere son
+			// render pass ici (meme modele que la passe d'ombres).
+			// clear a 0 UNIQUEMENT au premier passage : sinon on effacerait l'etat
+			// precedent... qui est justement dans l'AUTRE cible, donc le clear est
+			// inoffensif — on le garde a 0 pour un demarrage deterministe.
+			mLumaRT[write].BeginRender(cmd, NkVec4f{0.f, 0.f, 0.f, 1.f}, false);
+			cmd->BindGraphicsPipeline(mPipeAutoExp);
+			cmd->BindDescriptorSet(set, 0);
+
+			struct PC {
+					float32 dt, speed, minLuma, maxLuma;
+			} pc;
+
+			pc.dt = (mLumaWrite < 0) ? 0.f : dt; // amorcage : saut direct sur la cible
+			pc.speed = NkAutoExpSpeed(mCfg.autoExposureSpeed);
+			pc.minLuma = mCfg.autoExposureMinLuma > 0.f ? mCfg.autoExposureMinLuma : 0.0001f;
+			pc.maxLuma = mCfg.autoExposureMaxLuma > pc.minLuma ? mCfg.autoExposureMaxLuma : 8.f;
+			cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), &pc);
+			cmd->Draw(3, 1, 0, 0);
+			mLumaRT[write].EndRender(cmd);
+
+			mLumaWrite = write;
+		}
+
+		// =====================================================================
+		// Phase L — TAA (Temporal Anti-Aliasing, 2026-07-30)
+		// =====================================================================
+		// Active par la config (postProcess.taa) ou l'override NK_TAA (A/B sans
+		// recompiler, meme motif que NK_AUTOEXP / NK_HDR_CLAMP).
+		static bool NkTAAEnabledEnv(bool fromConfig) {
+			static int sInit = 0;
+			static bool sHasEnv = false;
+			static bool sEnv = false;
+			if (!sInit) {
+				sInit = 1;
+				const char *v = getenv("NK_TAA");
+				if (v && v[0]) {
+					sHasEnv = true;
+					sEnv = (v[0] != '0');
+				}
+			}
+			return sHasEnv ? sEnv : fromConfig;
+		}
+
+		// Poids de l'historique : plus il est haut, plus l'image est lisse mais
+		// plus les objets mobiles trainent. 0.9 = compromis courant (10 % de
+		// nouveau par frame -> convergence en ~20 frames).
+		static float32 NkTAABlend() {
+			static int sInit = 0;
+			static float32 sVal = 0.9f;
+			if (!sInit) {
+				sInit = 1;
+				const char *v = getenv("NK_TAA_BLEND");
+				if (v && v[0])
+					sVal = (float32)atof(v);
+			}
+			return sVal;
+		}
+
+		bool NkPostProcessStack::IsTAAEnabled() const {
+			// Depend du SHADER et non du pipeline : le graph appelle cette methode au
+			// moment ou il se construit, donc AVANT que le pipeline (lazy, RP-compatible
+			// avec le framebuffer de la passe) ne puisse exister.
+			if (!mShaderTAA.IsValid())
+				return false;
+			return NkTAAEnabledEnv(mCfg.taa);
+		}
+
+		bool NkPostProcessStack::EnsureTAAPipeline(NkRenderPassHandle rp) {
+			if (mPipeTAA.IsValid())
+				return true;
+			if (!mShaderTAA.IsValid() || !mDevice)
+				return false;
+
+			NkGraphicsPipelineDesc pd;
+			pd.shader = mShaderTAA;
+			pd.depthStencil = NkDepthStencilDesc::NoDepth();
+			pd.rasterizer = NkRasterizerDesc::NoCull();
+			pd.blend = NkBlendDesc::Opaque();
+			pd.debugName = "PP_TAA";
+			pd.renderPass = rp; // RP de la passe du graph (cf. GetPassRenderPass)
+			// 96 octets : mat4 reproj (64) + vec4 p0 (16) + vec4 p1 (16). Sous la
+			// garantie Vulkan (128) et sous les root constants DX12 (32 DWORDs).
+			// p1 existe pour DISSOCIER yFlipUV (VS) de ndcYSign (FS) : ces deux
+			// valeurs divergent par backend, les confondre cassait GL et DX.
+			pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, 96);
+			if (mTAALayout.IsValid())
+				pd.descriptorSetLayouts.PushBack(mTAALayout);
+			mPipeTAA = mDevice->CreateGraphicsPipeline(pd);
+			logger.Info("[NkPostProcessStack] TAA pipeline (lazy) : valid={0}\n", mPipeTAA.IsValid() ? 1 : 0);
+			return mPipeTAA.IsValid();
+		}
+
+		void NkPostProcessStack::RunTAAInPass(NkICommandBuffer *cmd, NkTextureHandle ldrIn, NkTextureHandle histIn,
+											  NkTextureHandle depth, const NkMat4f &reproj, bool useHistory,
+											  NkRenderPassHandle rp) {
+			if (!cmd || !ldrIn.IsValid() || !IsTAAEnabled())
+				return;
+			if (!EnsureTAAPipeline(rp))
+				return;
+			NkSamplerHandle samp = mResources ? mResources->GetSamplerLinearClamp() : NkSamplerHandle{};
+			if (!samp.IsValid())
+				return;
+
+			NkDescSetHandle set = mTAASets[mTAASetCursor % kTAADescSets];
+			mTAASetCursor++;
+			if (!set.IsValid())
+				return;
+			const bool histOk = useHistory && histIn.IsValid();
+			mDevice->BindTextureSampler(set, 0, ldrIn, samp);
+			mDevice->BindTextureSampler(set, 1, histOk ? histIn : ldrIn, samp);
+			// Profondeur absente (config sans depth) : on binde le LDR pour ne pas
+			// laisser un slot non initialise ; le shader verra depth >= 0.9999 comme
+			// du ciel et retombera sur l'image courante (donc pas d'accumulation).
+			mDevice->BindTextureSampler(set, 2, depth.IsValid() ? depth : ldrIn, samp);
+
+			cmd->BindGraphicsPipeline(mPipeTAA);
+			cmd->BindDescriptorSet(set, 0);
+
+			struct PC {
+					float32 reproj[16];
+					float32 blend, yFlipUV, invResW, invResH; // p0
+					float32 ndcYSign, clampOn, debugMode, _pad; // p1
+			} pc;
+
+			memcpy(pc.reproj, &reproj, sizeof(pc.reproj));
+			pc.blend = (histOk && depth.IsValid()) ? NkTAABlend() : 0.f;
+
+			// ── Conventions Y PAR BACKEND ─────────────────────────────────────────
+			// Ce sont DEUX quantites distinctes, et les confondre (un seul slot p0.y
+			// pour les deux) etait le bug qui cassait l'echantillonnage :
+			//   yFlipUV  (VS) : faut-il retourner l'UV pour echantillonner la cible
+			//                   LDR ? VK oui, GL et DX non.
+			//   ndcYSign (FS) : signe qui relie vUV.y au NDC Y de la frame courante,
+			//                   pour reconstruire la position ecran depuis la
+			//                   profondeur. DX +1, GL et VK -1.
+			//
+			// ⚠️ yFlipUV suit ExecuteFXAA (`isVK ? -1 : +1`) et NON le deferred
+			// lighting, bien que le deferred resolve un probleme voisin : ce qui
+			// compte est l'orientation de la TEXTURE LUE, et le FXAA lit exactement
+			// la meme (le transient ToneLDR ecrit par la passe PostProcess). Avoir
+			// extrapole depuis le deferred donnait -1 sur DX, MESURE FAUX : luminance
+			// 97,8 au lieu de 89,2 sur DX11 (image retournee), contre 88,7 avec +1.
+			// Verifie sur trois backends : GL +1 / VK -1 / DX +1.
+			const NkGraphicsApi api = mDevice ? mDevice->GetApi() : NkGraphicsApi::NK_GFX_API_OPENGL;
+			const bool isVK = (api == NkGraphicsApi::NK_GFX_API_VULKAN);
+			const bool isDX = (api == NkGraphicsApi::NK_GFX_API_DX11 || api == NkGraphicsApi::NK_GFX_API_DX12);
+			pc.yFlipUV = isVK ? -1.f : 1.f;
+			pc.ndcYSign = isDX ? 1.f : -1.f;
+			// Overrides de diagnostic : ces deux signes ne se VOIENT pas separement a
+			// l'oeil (le clamp de voisinage borne l'erreur), il faut pouvoir les
+			// mesurer en A/B. Servent surtout a valider un nouveau backend sans
+			// recompiler. Absents = valeurs ci-dessus.
+			if (const char *v = getenv("NK_TAA_YFLIP"))
+				if (v[0])
+					pc.yFlipUV = (float32)atof(v);
+			if (const char *v = getenv("NK_TAA_NDCY"))
+				if (v[0])
+					pc.ndcYSign = (float32)atof(v);
+			// Clamp de voisinage : actif par defaut (c'est lui qui tue le ghosting).
+			// NK_TAA_CLAMP=0 le desarme, ce qui EXPOSE les erreurs de reprojection
+			// qu'il masque autrement -> seul moyen de mesurer les conventions Y.
+			pc.clampOn = 1.f;
+			if (const char *v = getenv("NK_TAA_CLAMP"))
+				if (v[0] && v[0] == '0')
+					pc.clampOn = 0.f;
+			// Sondes de diagnostic (cf. pp_taa.frag.nksl) : 1 = historique brut
+			// reprojete, 2 = historique a l'UV courant, 3 = amplitude du decalage.
+			pc.debugMode = 0.f;
+			if (const char *v = getenv("NK_TAA_DEBUG"))
+				if (v[0])
+					pc.debugMode = (float32)atof(v);
+			pc.invResW = mW > 0 ? 1.f / (float32)mW : 0.f;
+			pc.invResH = mH > 0 ? 1.f / (float32)mH : 0.f;
+			pc._pad = 0.f;
+			cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), &pc);
+			cmd->Draw(3, 1, 0, 0);
+
+			// Trace one-shot : de quoi verifier d'un coup d'oeil, sur un nouveau
+			// backend, que l'historique est bien branche et quelles conventions Y
+			// s'appliquent. Les handles distincts confirment que les trois entrees
+			// ne pointent pas sur la meme cible.
+			static int sDiag = 0;
+			if (sDiag++ == 0)
+				logger.Info("[TAA] useHistory={0} blend={1} yFlip={2} ndcY={3} | ids ldr={4} hist={5} depth={6}\n",
+							histOk ? 1 : 0, pc.blend, pc.yFlipUV, pc.ndcYSign, (uint32)ldrIn.id, (uint32)histIn.id,
+							(uint32)depth.id);
 		}
 
 	} // namespace renderer

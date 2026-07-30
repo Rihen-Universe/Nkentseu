@@ -42,6 +42,13 @@
 #include <android/asset_manager.h>
 #endif
 
+// En-têtes NDK OpenHarmony pour le rawfile manager (fallback resources/rawfile/
+// du HAP — même motif que l'AAssetManager Android). Lib : librawfile.z.so.
+#if defined(NKENTSEU_PLATFORM_HARMONYOS)
+#include <rawfile/raw_file_manager.h>
+#include <rawfile/raw_file.h>
+#endif
+
 // -------------------------------------------------------------------------
 // SECTION 2 : NAMESPACE PRINCIPAL
 // -------------------------------------------------------------------------
@@ -131,6 +138,74 @@ namespace nkentseu {
 			asset = AAssetManager_open(sAndroidAssetMgr, path + prefixLen, AASSET_MODE_BUFFER);
 			if (asset)
 				return asset;
+		}
+		return nullptr;
+	}
+#endif
+
+	// =============================================================================
+	//  Etat global — NativeResourceManager HarmonyOS (rawfile du HAP)
+	// =============================================================================
+	// Meme motif que l'AAssetManager Android : pointeur global non-owning pose
+	// au demarrage (cote NAPI, cf. NkHarmonyOS.h), utilise comme repli quand
+	// fopen/stat echouent sur un chemin "Resources/..." (les fichiers de
+	// resources/rawfile/ du HAP ne sont pas visibles par la libc).
+
+#if defined(NKENTSEU_PLATFORM_HARMONYOS)
+	static NativeResourceManager *sHarmonyResMgr = nullptr;
+#else
+	static void *sHarmonyResMgr = nullptr; ///< unused hors HarmonyOS
+#endif
+
+	void NkFile::SetHarmonyResourceManager(void *manager) {
+#if defined(NKENTSEU_PLATFORM_HARMONYOS)
+		sHarmonyResMgr = static_cast<NativeResourceManager *>(manager);
+#else
+		(void)manager; // no-op
+#endif
+	}
+
+	void *NkFile::GetHarmonyResourceManager() {
+		return static_cast<void *>(sHarmonyResMgr);
+	}
+
+#if defined(NKENTSEU_PLATFORM_HARMONYOS)
+	// -------------------------------------------------------------------------
+	// Helper : tente d'ouvrir un rawfile du HAP avec les memes variantes de
+	// path que TryOpenAndroidAsset (brut, strip "Resources/<SubFolder>/",
+	// strip "Resources/"). Retourne un RawFile64* (a fermer avec
+	// OH_ResourceManager_CloseRawFile64) ou nullptr.
+	// -------------------------------------------------------------------------
+	static RawFile64 *TryOpenHarmonyRawFile(const char *path) {
+		if (!sHarmonyResMgr || !path)
+			return nullptr;
+		// 1. Path tel quel.
+		RawFile64 *raw = OH_ResourceManager_OpenRawFile64(sHarmonyResMgr, path);
+		if (raw)
+			return raw;
+
+		const char *kPrefix = "Resources/";
+		const size_t prefixLen = 10;
+		const bool hasResPrefix = std::strncmp(path, kPrefix, prefixLen) == 0;
+
+		// 2. Strip "Resources/<SubFolder>/" (le sous-dossier est partage avec
+		// Android : SetAndroidAssetSubFolder — meme layout rawfile/ que assets/).
+		if (hasResPrefix && sAndroidAssetSubFolderLen > 0) {
+			const size_t subStart = prefixLen; // apres "Resources/"
+			if (std::strncmp(path + subStart, sAndroidAssetSubFolder, sAndroidAssetSubFolderLen) == 0 &&
+				path[subStart + sAndroidAssetSubFolderLen] == '/') {
+				const size_t fullStrip = subStart + sAndroidAssetSubFolderLen + 1; // '/'
+				raw = OH_ResourceManager_OpenRawFile64(sHarmonyResMgr, path + fullStrip);
+				if (raw)
+					return raw;
+			}
+		}
+
+		// 3. Strip "Resources/" seul, en dernier recours.
+		if (hasResPrefix) {
+			raw = OH_ResourceManager_OpenRawFile64(sHarmonyResMgr, path + prefixLen);
+			if (raw)
+				return raw;
 		}
 		return nullptr;
 	}
@@ -296,6 +371,20 @@ namespace nkentseu {
 				return true;
 			}
 		}
+#elif defined(NKENTSEU_PLATFORM_HARMONYOS)
+		// Fallback HarmonyOS : si fopen echoue ET qu'on est en lecture seule
+		// (les rawfiles du HAP sont read-only), tenter via le rawfile manager.
+		const bool isWriteMode = NkHasFlag(mode, NkFileMode::NK_WRITE) || NkHasFlag(mode, NkFileMode::NK_APPEND) ||
+								 NkHasFlag(mode, NkFileMode::NK_TRUNCATE);
+		if (!isWriteMode) {
+			RawFile64 *raw = TryOpenHarmonyRawFile(path);
+			if (raw) {
+				mHandle = raw;
+				mIsOpen = true;
+				mIsAsset = true; // mIsAsset = handle rawfile (lecture seule)
+				return true;
+			}
+		}
 #endif
 		return false;
 	}
@@ -310,6 +399,12 @@ namespace nkentseu {
 #if defined(NKENTSEU_PLATFORM_ANDROID)
 			if (mIsAsset) {
 				AAsset_close(static_cast<AAsset *>(mHandle));
+			} else {
+				fclose(static_cast<FILE *>(mHandle));
+			}
+#elif defined(NKENTSEU_PLATFORM_HARMONYOS)
+			if (mIsAsset) {
+				OH_ResourceManager_CloseRawFile64(static_cast<RawFile64 *>(mHandle));
 			} else {
 				fclose(static_cast<FILE *>(mHandle));
 			}
@@ -339,6 +434,12 @@ namespace nkentseu {
 #if defined(NKENTSEU_PLATFORM_ANDROID)
 		if (mIsAsset) {
 			const int r = AAsset_read(static_cast<AAsset *>(mHandle), buffer, static_cast<size_t>(size));
+			return (r < 0) ? 0 : static_cast<usize>(r);
+		}
+#elif defined(NKENTSEU_PLATFORM_HARMONYOS)
+		if (mIsAsset) {
+			const int64_t r = OH_ResourceManager_ReadRawFile64(static_cast<RawFile64 *>(mHandle), buffer,
+															   static_cast<int64_t>(size));
 			return (r < 0) ? 0 : static_cast<usize>(r);
 		}
 #endif
@@ -475,6 +576,37 @@ namespace nkentseu {
 	// =============================================================================
 	// Navigation dans le fichier via fseek/ftell.
 
+	// ---------------------------------------------------------------------
+	// Seek/tell 64-bit portables.
+	//
+	// BUG CORRIGÉ (2026-07-25, découvert en chargeant un blob GGUF Ollama de
+	// 4.68 Go pour NKInfer/NkGGUFLoader) : `fseek`/`ftell` standards prennent
+	// un `long`, qui vaut 32 bits sur Windows (MSVC ET MinGW/UCRT, même en
+	// build 64-bit) — donc plafonné à ~2 Go. Tout fichier plus gros
+	// (modèle ML, vidéo, gros paquet d'assets) faisait retourner un GetSize()
+	// erroné (silencieusement tronqué/négatif), qui cassait ensuite toute
+	// validation de taille en aval. Fix : primitives 64-bit dédiées par
+	// plateforme (`_fseeki64`/`_ftelli64` sur Windows, `fseeko`/`ftello` —
+	// déjà 64-bit via `off_t` — ailleurs).
+	// ---------------------------------------------------------------------
+	namespace {
+#if defined(_WIN32) || defined(_WIN64)
+		nk_int64 PortableFTell64(FILE *f) {
+			return static_cast<nk_int64>(_ftelli64(f));
+		}
+		bool PortableFSeek64(FILE *f, nk_int64 offset, int whence) {
+			return _fseeki64(f, static_cast<__int64>(offset), whence) == 0;
+		}
+#else
+		nk_int64 PortableFTell64(FILE *f) {
+			return static_cast<nk_int64>(ftello(f));
+		}
+		bool PortableFSeek64(FILE *f, nk_int64 offset, int whence) {
+			return fseeko(f, static_cast<off_t>(offset), whence) == 0;
+		}
+#endif
+	} // namespace
+
 	nk_int64 NkFile::Tell() const {
 		if (!mIsOpen) {
 			return -1;
@@ -486,8 +618,12 @@ namespace nkentseu {
 			const off_t remaining = AAsset_getRemainingLength(a);
 			return static_cast<nk_int64>(total - remaining);
 		}
+#elif defined(NKENTSEU_PLATFORM_HARMONYOS)
+		if (mIsAsset) {
+			return static_cast<nk_int64>(OH_ResourceManager_GetRawFileOffset64(static_cast<RawFile64 *>(mHandle)));
+		}
 #endif
-		return static_cast<nk_int64>(ftell(static_cast<FILE *>(mHandle)));
+		return PortableFTell64(static_cast<FILE *>(mHandle));
 	}
 
 	bool NkFile::Seek(nk_int64 offset, NkSeekOrigin origin) {
@@ -516,8 +652,13 @@ namespace nkentseu {
 			const off_t pos = AAsset_seek(static_cast<AAsset *>(mHandle), static_cast<off_t>(offset), whence);
 			return pos != (off_t)-1;
 		}
+#elif defined(NKENTSEU_PLATFORM_HARMONYOS)
+		if (mIsAsset) {
+			return OH_ResourceManager_SeekRawFile64(static_cast<RawFile64 *>(mHandle), static_cast<int64_t>(offset),
+													whence) == 0;
+		}
 #endif
-		return fseek(static_cast<FILE *>(mHandle), static_cast<long>(offset), whence) == 0;
+		return PortableFSeek64(static_cast<FILE *>(mHandle), offset, whence);
 	}
 
 	bool NkFile::SeekToBegin() {
@@ -538,11 +679,16 @@ namespace nkentseu {
 		if (mIsAsset) {
 			return static_cast<nk_int64>(AAsset_getLength(static_cast<AAsset *>(mHandle)));
 		}
+#elif defined(NKENTSEU_PLATFORM_HARMONYOS)
+		if (mIsAsset) {
+			return static_cast<nk_int64>(OH_ResourceManager_GetRawFileSize64(static_cast<RawFile64 *>(mHandle)));
+		}
 #endif
-		const nk_int64 current = Tell();
-		fseek(static_cast<FILE *>(mHandle), 0, SEEK_END);
-		const nk_int64 size = static_cast<nk_int64>(ftell(static_cast<FILE *>(mHandle)));
-		fseek(static_cast<FILE *>(mHandle), static_cast<long>(current), SEEK_SET);
+		FILE *fp = static_cast<FILE *>(mHandle);
+		const nk_int64 current = PortableFTell64(fp);
+		PortableFSeek64(fp, 0, SEEK_END);
+		const nk_int64 size = PortableFTell64(fp);
+		PortableFSeek64(fp, current, SEEK_SET);
 		return size;
 	}
 
@@ -580,6 +726,10 @@ namespace nkentseu {
 		if (mIsAsset) {
 			return AAsset_getRemainingLength(static_cast<AAsset *>(mHandle)) == 0;
 		}
+#elif defined(NKENTSEU_PLATFORM_HARMONYOS)
+		if (mIsAsset) {
+			return OH_ResourceManager_GetRawFileRemainingLength64(static_cast<RawFile64 *>(mHandle)) == 0;
+		}
 #endif
 		return feof(static_cast<FILE *>(mHandle)) != 0;
 	}
@@ -602,8 +752,33 @@ namespace nkentseu {
 #else
 		// POSIX : stat remplit une structure avec les métadonnées du fichier
 		struct stat st;
-		return (stat(path, &st) == 0)  // Succès de l'appel système
-			   && S_ISREG(st.st_mode); // Vérification que c'est un fichier régulier
+		if ((stat(path, &st) == 0) // Succès de l'appel système
+			&& S_ISREG(st.st_mode)) { // Vérification que c'est un fichier régulier
+			return true;
+		}
+#if defined(NKENTSEU_PLATFORM_ANDROID)
+		// Repli assets APK : meme contrat "transparent" que Open(). Sans lui,
+		// les appelants qui testent Exists() avant de lire (ex. NkShaderLibrary
+		// pour les overrides .vk.glsl) ne voient jamais les fichiers packages
+		// dans assets/ (non visibles par stat/fopen).
+		AAsset *asset = TryOpenAndroidAsset(path);
+		if (asset) {
+			AAsset_close(asset);
+			return true;
+		}
+#endif
+#if defined(NKENTSEU_PLATFORM_HARMONYOS)
+		// Repli rawfile HAP : meme contrat "transparent" que Open(). Sans lui,
+		// les appelants qui testent Exists() avant de lire (ex. NkShaderLibrary
+		// pour les overrides .vk.glsl/.nksl) ne voient jamais les fichiers
+		// packages dans resources/rawfile/ (non visibles par stat/fopen).
+		RawFile64 *raw = TryOpenHarmonyRawFile(path);
+		if (raw) {
+			OH_ResourceManager_CloseRawFile64(raw);
+			return true;
+		}
+#endif
+		return false;
 #endif
 	}
 

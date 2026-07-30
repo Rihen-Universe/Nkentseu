@@ -1,0 +1,72 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+NKNavigation — NavMesh + pathfinding A* (C++17, ZÉRO STL)
+===========================================================
+Bibliothèque de navigation PURE (sans ECS), posée sur NKCollision (raycast
+réel de walkable-surface) — même schéma que NKPhysics vis-à-vis de NKCollision :
+génère un maillage de navigation (triangles walkable, filtrés par pente +
+obstacles) depuis une géométrie de sol, puis calcule des chemins A* sur le
+graphe d'adjacence des triangles. L'intégration gameplay (composant ECS
+NkNavAgentComponent + NkNavigationSystem) se fait dans Noge, pas ici — même
+philosophie que NKPhysics/NkPhysicsSystem.
+
+Contenu (src/NKNavigation/) :
+  NkNavTypes.h  => NkNavObstacle, NkNavTriangle (types de données, zéro-STL)
+  NkNavMesh.*   => génération du NavMesh (Build) + FindTriangle + FindPath (A*)
+  NKNavigation.h => umbrella
+"""
+
+from Jenga import *
+from jengaconfig import *
+
+with project("NKNavigation"):
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    nkentseudependson(
+        ["NKPlatform", "NKCore", "NKMemory", "NKMath", "NKContainers", "NKLogger", "NKCollision"],
+        selfexport="NKNavigation",
+        extra_includes=["src"],
+    )
+
+    files(["src/**.cpp"])
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}")
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+
+    with filter("system:Linux"):
+        links(["pthread"])
+    with filter("system:macOS"):
+        usetoolchain("clang-native")
+    with filter("system:Android"):
+        usetoolchain("android-ndk")
+        links(["android", "log"])
+        androidabis(["armeabi-v7a", "arm64-v8a", "x86", "x86_64"])
+    with filter("system:HarmonyOS"):
+        pchheader("")
+        pchsource("")
+        usetoolchain("ohos-ndk")
+        links(["hilog_ndk.z"])
+    with filter("system:Web"):
+        usetoolchain("emscripten")
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)
+
+    # Tests unitaires (desktop uniquement).
+    with filter("(system:Linux || system:macOS || (system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne)) && !system:Android && !system:iOS && !system:Web"):
+        with test():
+            testfiles(["tests/**.cpp"])
+            links(["NKNavigation", "NKCollision", "NKContainers", "NKCore", "NKMemory", "NKLogger", "NKMath", "NKPlatform"])

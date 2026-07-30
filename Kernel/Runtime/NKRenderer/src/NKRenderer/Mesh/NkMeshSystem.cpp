@@ -561,30 +561,66 @@ namespace nkentseu {
 										   NkVector<uint32> &idx) {
 			uint32 white = PackColor(255, 255, 255);
 			for (uint32 i = 0; i <= stacks; i++) {
+				const bool pole = (i == 0 || i == stacks);
 				float32 phi = NK_PI * i / stacks;
+				// sinf(NK_PI) vaut 1.2e-16, pas 0 : au pole sud les sommets se retrouvent
+				// disperses sur ~6e-17 unite au lieu d'etre exactement confondus. C'est
+				// invisible a l'oeil mais cela met en echec toute soudure/comparaison
+				// exacte de positions (edition, deduplication). On force la valeur exacte.
+				float32 sp = pole ? 0.f : sinf(phi);
+				float32 cp = (i == 0) ? 1.f : ((i == stacks) ? -1.f : cosf(phi));
 				for (uint32 j = 0; j <= slices; j++) {
 					float32 theta = 2 * NK_PI * j / slices;
-					float32 x = sinf(phi) * cosf(theta);
-					float32 y = cosf(phi);
-					float32 z = sinf(phi) * sinf(theta);
+					float32 x = sp * cosf(theta);
+					float32 y = cp;
+					float32 z = sp * sinf(theta);
 					NkVertex3D vt;
 					vt.pos = {x * 0.5f, y * 0.5f, z * 0.5f};
-					vt.normal = {x, y, z};
+					vt.normal = pole ? NkVec3f{0.f, cp, 0.f} : NkVec3f{x, y, z};
 					vt.tangent = {-sinf(theta), 0, cosf(theta)};
-					vt.uv = {(float32)j / slices, 1.f - (float32)i / stacks};
+					// COUTURE : la colonne j=0 (u=0) et la colonne j=slices (u=1) occupent la
+					// MEME position -> le dedoublement est VOULU et obligatoire. Une sphere
+					// fermee ne peut pas porter un depliage UV continu (il faut couper quelque
+					// part) ; sans cette colonne dupliquee, u sauterait de 1 a 0 a l'interieur
+					// d'un triangle et les derivees d'UV feraient choisir le mip le plus grossier
+					// sur toute une bande -> trait flou visible. Blender fait exactement pareil.
+					//
+					// AUX POLES : u decale d'un demi-pas. Les deux sommets de base du triangle
+					// polaire portent u=j/slices et u=(j+1)/slices ; centrer le sommet du pole
+					// entre les deux evite l'etirement en eventail de la texture au sommet.
+					vt.uv = {pole ? ((float32)j + 0.5f) / slices : (float32)j / slices,
+							 1.f - (float32)i / stacks};
 					vt.color = white;
 					v.PushBack(vt);
 				}
 			}
+			// Les rangees polaires sont degenerees : leurs slices+1 sommets sont confondus.
+			// Emettre le quad complet y produit un triangle d'aire nulle (64 sur 2048 en
+			// 32x32, soit 3,1 % de la charge de sommets pour zero pixel). On emet un
+			// EVENTAIL au pole, comme le fait Blender.
+			const uint32 S1 = slices + 1;
 			for (uint32 i = 0; i < stacks; i++)
 				for (uint32 j = 0; j < slices; j++) {
-					uint32 b = i * (slices + 1) + j;
-					idx.PushBack(b);
-					idx.PushBack(b + slices + 1);
-					idx.PushBack(b + 1);
-					idx.PushBack(b + 1);
-					idx.PushBack(b + slices + 1);
-					idx.PushBack(b + slices + 2);
+					const uint32 b = i * S1 + j;
+					if (i == 0) {
+						// Eventail nord : (pole_j, base_j, base_j+1). Le sommet polaire
+						// choisi est b (u = (j+0.5)/slices), centre entre les deux bases.
+						idx.PushBack(b);
+						idx.PushBack(b + S1);
+						idx.PushBack(b + S1 + 1);
+					} else if (i + 1 == stacks) {
+						// Eventail sud : (haut_j, pole_j, haut_j+1).
+						idx.PushBack(b);
+						idx.PushBack(b + S1);
+						idx.PushBack(b + 1);
+					} else {
+						idx.PushBack(b);
+						idx.PushBack(b + S1);
+						idx.PushBack(b + 1);
+						idx.PushBack(b + 1);
+						idx.PushBack(b + S1);
+						idx.PushBack(b + S1 + 1);
+					}
 				}
 		}
 

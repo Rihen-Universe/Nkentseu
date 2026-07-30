@@ -1,10 +1,11 @@
 // -----------------------------------------------------------------------------
 // FICHIER: NKMath\NkColor.h
 // DESCRIPTION: Classes NkColor (RGBA 8-bit) et NkColorF (RGBA float [0,1])
-//              avec conversions bidirectionnelles et helpers HSV
+//              avec conversions bidirectionnelles, helpers HSV, et gestion
+//              colorimétrique étendue (HSL/HSV/LAB/LCH/XYZ/OKLab/OKLch/CMYK/Hex)
 // AUTEUR: Rihen
 // DATE: 2026-04-26
-// VERSION: 2.1.0
+// VERSION: 2.2.0
 // LICENCE: Proprietary - Free to use and modify
 // -----------------------------------------------------------------------------
 //
@@ -15,9 +16,36 @@
 //   Conversions bidirectionnelles automatiques, interpolation, HSV, et bibliothèque
 //   étendue de couleurs nommées prédéfinies.
 //
+// [FUSION 2026-07-25] NkColorF absorbe désormais la gestion colorimétrique
+// complète qui existait en DOUBLON dans Engine/Noge/src/Noge/Color/
+// NkColorManager.h (une seconde classe `nkentseu::NkColor`, supprimée) :
+//   - sRGB <-> Linéaire (FromSRGB/ToSRGB, FromLinearRGB/ToLinearRGB,
+//     SRGBToLinear/LinearToSRGB -- transfert standard IEC 61966-2-1)
+//   - HSL (FromHSL/ToHSL) et HSV en variante [0,1] (FromHSV/ToHSV, en plus de
+//     FromHSVf/ToHSVf préexistants qui utilisent la structure NkHSV [0,360]/[0,100])
+//   - CIE XYZ (FromXYZ/ToXYZ, D65) et CIE L*a*b* / L*C*h° (FromLAB/ToLAB,
+//     FromLCH/ToLCH)
+//   - OKLab / OKLCh, Björn Ottosson (FromOKLab/ToOKLab, FromOKLch/ToOKLch)
+//   - CMYK naïf sans profil ICC (FromCMYK/ToCMYK) et hexadécimal (FromHex/
+//     ToHexString) et 8-bit explicite (FromU8/ToU8)
+//   - Ajustements : WithHue/WithSaturation/WithLightness/WithValue/Brighten/
+//     Saturate/Desaturate/Complement/Invert (Darken/Lighten préexistants)
+//   - Métriques perceptuelles : Luminance (WCAG), DeltaE (CIE76), DeltaE2000
+//     (CIEDE2000), ContrastRatio/IsAccessible/BestContrast (WCAG 2.x)
+//   - Interpolation : Lerp (statique, en plus de l'instance préexistante),
+//     LerpLAB, LerpOKLab, Mix
+//   - Modes de fusion : Multiply, Screen, Overlay, HardLight, SoftLight
+//   Toutes ces méthodes sont RÉELLEMENT implémentées (contrairement à l'ancienne
+//   classe Noge dont seuls FromSRGB/SRGBToLinear/LinearToSRGB avaient un corps).
+//   Choisi sur NkColorF (flottant) plutôt que NkColor (8-bit) : NkColorF est déjà
+//   le type "calcul" du binôme, et la classe Noge fusionnée stockait elle-même en
+//   float -- voir le commentaire détaillé en tête de la section correspondante
+//   dans `struct NkColorF` plus bas pour le raisonnement complet.
+//
 // CARACTÉRISTIQUES:
 //   - NkColor : stockage compact (4 bytes), idéal pour rendu, UI, stockage
-//   - NkColorF : précision flottante, idéal pour calculs, shaders, interpolations
+//   - NkColorF : précision flottante, idéal pour calculs, shaders, interpolations,
+//     ET point d'entrée unique pour la gestion colorimétrique avancée (design)
 //   - Conversions implicites/explicites entre NkColor et NkColorF
 //   - Opérations HSV disponibles sur les deux types (via conversion si besoin)
 //   - Interpolation linéaire (Lerp) native sur les deux types
@@ -29,8 +57,10 @@
 // DÉPENDANCES:
 //   - NKCore/NkTypes.h          : Types fondamentaux (uint8, uint32, float32)
 //   - NKMath/NkMathApi.h        : Macros d'export NKENTSEU_MATH_API
-//   - NKMath/NkFunctions.h      : Fonctions mathématiques NkClamp, NkMin, NkMax
-//   - NKCore/NkString.h         : Chaîne de caractères pour ToString()
+//   - NKMath/NkFunctions.h      : Fonctions mathématiques NkClamp, NkMin, NkMax,
+//                                 NkSqrt, NkCbrt, NkPow, NkSin, NkCos, NkAtan2,
+//                                 NkExp, NkRadiansFromDegrees, NkDegreesFromRadians
+//   - NKCore/NkString.h         : Chaîne de caractères pour ToString()/ToHexString()
 //   - NKMath/NkVec.h            : Vecteurs NkVector3f/NkVector4f pour conversions
 //   - NKCore/NkRandom.h         : Générateur aléatoire pour RandomRGB/RandomRGBA
 //
@@ -611,6 +641,359 @@ namespace nkentseu {
 				 */
 				NKENTSEU_MATH_API
 				NkHSV ToHSVf() const noexcept;
+
+				// ====================================================================
+				// SECTION PUBLIQUE : ESPACES COLORIMÉTRIQUES ÉTENDUS
+				// ====================================================================
+				// [FUSION 2026-07-25] Rapatriement des capacités de l'ancienne classe
+				// dupliquée `nkentseu::NkColor` (Engine/Noge/src/Noge/Color/NkColorManager.h,
+				// supprimée) : conversions sRGB<->Linéaire, HSL, LAB/LCH, XYZ, OKLab/OKLch,
+				// CMYK, Hex, métriques perceptuelles (luminance, DeltaE, contraste WCAG),
+				// ajustements (teinte/saturation/luminosité, complément, inversion),
+				// modes de fusion (Multiply/Screen/Overlay/SoftLight/HardLight).
+				//
+				// Choix d'implantation : ces méthodes atterrissent sur NkColorF (flottant),
+				// pas sur NkColor (8-bit compact). Raisons :
+				//   1. NkColorF est déjà le type "calcul" du binôme NkColor/NkColorF (cf.
+				//      section BONNES PRATIQUES en fin de fichier) -- la classe Noge fusionnée
+				//      stockait elle-même en float (Linear RGB), sémantiquement plus proche
+				//      de NkColorF que du NkColor 8-bit.
+				//   2. NkColor (8-bit) reste utilisé tel quel dans tout le moteur (rendu,
+				//      UI, stockage compact) : ne pas alourdir sa surface d'API ni son
+				//      fichier objet pour des calculs colorimétriques avancés rarement
+				//      utilisés au chemin critique.
+				//   3. Passerelle existante : `color.ToColorF().ToLAB()` etc. couvre le
+				//      besoin depuis NkColor sans dupliquer le code.
+				//
+				// CONVENTION IMPORTANTE : les composantes (r,g,b) de NkColorF restent, comme
+				// avant cette fusion, des valeurs "display-referred" (même convention que
+				// NkColor 8-bit, pas de linéarisation implicite). `FromSRGB`/`ToLinearRGB`/
+				// `FromLinearRGB` rendent cette convention explicite pour les call sites qui
+				// ont besoin de basculer vers l'espace linéaire (shaders PBR, compositing
+				// physique) sans changer le sens des NkColorF existants ailleurs dans le
+				// moteur.
+				//
+				// Les conversions multi-composantes (HSL/LAB/LCH/XYZ/OKLab/OKLch/CMYK)
+				// renvoient un NkVector4f brut (comme le faisait l'API Noge d'origine) plutôt
+				// que d'introduire une nouvelle petite structure par espace : NkHSV/NkHSL
+				// restent le seul cas ayant une structure dédiée (héritage de l'API HSV
+				// préexistante).
+				// ====================================================================
+
+				// ---- sRGB <-> Linéaire (IEC 61966-2-1) ----
+
+				/**
+				 * @brief Construit une couleur depuis des composantes sRGB (display-referred)
+				 * @note Identité : NkColorF stocke déjà ses composantes en sRGB par
+				 *       convention (voir note de convention ci-dessus). Fournie pour
+				 *       l'auto-documentation des sites d'appel et la parité d'API avec
+				 *       l'ancienne classe Noge fusionnée.
+				 */
+				NKENTSEU_MATH_API_FORCE_INLINE
+				static NkColorF FromSRGB(float32 r, float32 g, float32 b, float32 a = 1.0f) noexcept {
+					return {r, g, b, a};
+				}
+
+				/**
+				 * @brief Convertit les composantes RGB courantes (sRGB) vers l'espace linéaire
+				 * @return Nouvelle couleur avec r,g,b linéarisés ; alpha inchangé
+				 * @note Implémentation dans NkColor.cpp (transfert standard IEC 61966-2-1)
+				 */
+				NKENTSEU_MATH_API
+				NkColorF ToLinearRGB() const noexcept;
+
+				/**
+				 * @brief Construit une couleur sRGB depuis des composantes linéaires
+				 * @note Implémentation dans NkColor.cpp (transfert standard IEC 61966-2-1)
+				 */
+				NKENTSEU_MATH_API
+				static NkColorF FromLinearRGB(float32 r, float32 g, float32 b, float32 a = 1.0f) noexcept;
+
+				/**
+				 * @brief Alias public de parité d'API Noge pour SRGBToLinearChannel
+				 * @note Identique à l'ancien `nkentseu::NkColor::SRGBToLinear` (privé dans
+				 *       la classe Noge fusionnée) ; exposé ici en public par commodité
+				 */
+				NKENTSEU_MATH_API_FORCE_INLINE
+				static float32 SRGBToLinear(float32 x) noexcept {
+					return SRGBToLinearChannel(x);
+				}
+
+				/** @brief Alias public de parité d'API Noge pour LinearToSRGBChannel */
+				NKENTSEU_MATH_API_FORCE_INLINE
+				static float32 LinearToSRGB(float32 x) noexcept {
+					return LinearToSRGBChannel(x);
+				}
+
+				/**
+				 * @brief Convertit la couleur courante en sRGB (identité, parité d'API Noge)
+				 * @return NkVector4f = {r, g, b, a} (NkColorF est déjà stockée en sRGB)
+				 */
+				NKENTSEU_MATH_API_FORCE_INLINE
+				NkVector4f ToSRGB() const noexcept {
+					return {r, g, b, a};
+				}
+
+				// ---- HSL ----
+
+				/**
+				 * @brief Construit une couleur depuis HSL (Teinte/Saturation/Luminosité)
+				 * @param h Teinte en degrés [0, 360)
+				 * @param s Saturation [0, 1]
+				 * @param l Luminosité [0, 1]
+				 */
+				NKENTSEU_MATH_API
+				static NkColorF FromHSL(float32 h, float32 s, float32 l, float32 a = 1.0f) noexcept;
+
+				/**
+				 * @brief Convertit la couleur courante en HSL
+				 * @return NkVector4f = {h[0,360), s[0,1], l[0,1], a[0,1]}
+				 */
+				NKENTSEU_MATH_API
+				NkVector4f ToHSL() const noexcept;
+
+				// ---- HSV (variante [0,1] de NkHSV/ToHSVf, parité d'API Noge) ----
+
+				/**
+				 * @brief Construit une couleur depuis HSV avec s,v ∈ [0,1] (convention Noge)
+				 * @note Diffère de NkColor::FromHSVf(const NkHSV&) qui utilise s,v ∈ [0,100] ;
+				 *       délègue en interne à FromHSVf après mise à l'échelle
+				 */
+				NKENTSEU_MATH_API
+				static NkColorF FromHSV(float32 h, float32 s, float32 v, float32 a = 1.0f) noexcept;
+
+				/**
+				 * @brief Convertit la couleur courante en HSV avec s,v ∈ [0,1]
+				 * @return NkVector4f = {h[0,360), s[0,1], v[0,1], a[0,1]}
+				 * @note Diffère de ToHSVf() (retourne NkHSV, s/v ∈ [0,100])
+				 */
+				NKENTSEU_MATH_API
+				NkVector4f ToHSV() const noexcept;
+
+				// ---- CIE XYZ / LAB / LCH (D65) ----
+
+				/** @brief Construit une couleur depuis CIE XYZ (D65) */
+				NKENTSEU_MATH_API
+				static NkColorF FromXYZ(float32 x, float32 y, float32 z, float32 a = 1.0f) noexcept;
+
+				/** @brief Convertit la couleur courante en CIE XYZ (D65) : {X, Y, Z, a} */
+				NKENTSEU_MATH_API
+				NkVector4f ToXYZ() const noexcept;
+
+				/** @brief Construit une couleur depuis CIE L*a*b* (D65) */
+				NKENTSEU_MATH_API
+				static NkColorF FromLAB(float32 L, float32 a, float32 b, float32 alpha = 1.0f) noexcept;
+
+				/** @brief Convertit la couleur courante en CIE L*a*b* : {L[0,100], a, b, alpha} */
+				NKENTSEU_MATH_API
+				NkVector4f ToLAB() const noexcept;
+
+				/** @brief Construit une couleur depuis L*C*h° (LAB en coordonnées cylindriques) */
+				NKENTSEU_MATH_API
+				static NkColorF FromLCH(float32 L, float32 C, float32 H, float32 a = 1.0f) noexcept;
+
+				/** @brief Convertit la couleur courante en L*C*h° : {L[0,100], C, H[0,360), alpha} */
+				NKENTSEU_MATH_API
+				NkVector4f ToLCH() const noexcept;
+
+				// ---- OKLab / OKLch (Björn Ottosson) ----
+
+				/** @brief Construit une couleur depuis OKLab */
+				NKENTSEU_MATH_API
+				static NkColorF FromOKLab(float32 L, float32 a, float32 b, float32 alpha = 1.0f) noexcept;
+
+				/** @brief Convertit la couleur courante en OKLab : {L, a, b, alpha} */
+				NKENTSEU_MATH_API
+				NkVector4f ToOKLab() const noexcept;
+
+				/** @brief Construit une couleur depuis OKLCh (OKLab en coordonnées cylindriques) */
+				NKENTSEU_MATH_API
+				static NkColorF FromOKLch(float32 L, float32 C, float32 H, float32 a = 1.0f) noexcept;
+
+				/** @brief Convertit la couleur courante en OKLCh : {L, C, H[0,360), alpha} */
+				NKENTSEU_MATH_API
+				NkVector4f ToOKLch() const noexcept;
+
+				// ---- CMYK (conversion naïve, sans profil ICC) ----
+
+				/**
+				 * @brief Construit une couleur depuis CMYK
+				 * @note Conversion naïve non calibrée (pas de profil ICC), suffisante pour
+				 *       aperçus/outils créatifs -- pas pour la séparation d'impression pro
+				 */
+				NKENTSEU_MATH_API
+				static NkColorF FromCMYK(float32 c, float32 m, float32 y, float32 k, float32 a = 1.0f) noexcept;
+
+				/** @brief Convertit la couleur courante en CMYK : {c, m, y, k} ∈ [0,1] (alpha non encodé) */
+				NKENTSEU_MATH_API
+				NkVector4f ToCMYK() const noexcept;
+
+				// ---- Hexadécimal ----
+
+				/**
+				 * @brief Construit une couleur depuis une chaîne hexadécimale
+				 * @param hex Format "#RRGGBB", "#RRGGBBAA", "RRGGBB" ou "RRGGBBAA" (# optionnel)
+				 * @note Chaîne invalide/trop courte -> composantes manquantes à 0, alpha à 1
+				 */
+				NKENTSEU_MATH_API
+				static NkColorF FromHex(const char *hex) noexcept;
+
+				/**
+				 * @brief Convertit la couleur courante en chaîne hexadécimale
+				 * @param withAlpha Si vrai, ajoute les 2 chiffres d'alpha ("#RRGGBBAA")
+				 */
+				NKENTSEU_MATH_API
+				NkString ToHexString(bool withAlpha = false) const noexcept;
+
+				// ---- U8 (parité d'API Noge : composantes exposées en [0,255] flottant) ----
+
+				/** @brief Construit une couleur depuis des composantes 8-bit [0,255] */
+				NKENTSEU_MATH_API
+				static NkColorF FromU8(uint8 r, uint8 g, uint8 b, uint8 a = 255) noexcept;
+
+				/** @brief Convertit la couleur courante en composantes [0,255] : {r, g, b, a} */
+				NKENTSEU_MATH_API
+				NkVector4f ToU8() const noexcept;
+
+				// ---- Ajustements (via HSL) ----
+
+				/** @brief Retourne une copie avec la teinte remplacée (degrés [0,360)) */
+				NKENTSEU_MATH_API
+				NkColorF WithHue(float32 h) const noexcept;
+
+				/** @brief Retourne une copie avec la saturation HSL remplacée [0,1] */
+				NKENTSEU_MATH_API
+				NkColorF WithSaturation(float32 s) const noexcept;
+
+				/** @brief Retourne une copie avec la luminosité HSL remplacée [0,1] */
+				NKENTSEU_MATH_API
+				NkColorF WithLightness(float32 l) const noexcept;
+
+				/** @brief Retourne une copie avec la valeur HSV remplacée [0,1] (distinct de WithLightness/HSL) */
+				NKENTSEU_MATH_API
+				NkColorF WithValue(float32 v) const noexcept;
+
+				/**
+				 * @brief Éclaircit via HSL (alias sémantique de Lighten, parité d'API Noge)
+				 * @param amount Quantité ajoutée à la luminosité HSL [0,1]
+				 */
+				NKENTSEU_MATH_API_FORCE_INLINE
+				NkColorF Brighten(float32 amount) const noexcept {
+					return Lighten(amount);
+				}
+
+				/** @brief Augmente la saturation HSL de `amount` [0,1] */
+				NKENTSEU_MATH_API
+				NkColorF Saturate(float32 amount) const noexcept;
+
+				/** @brief Diminue la saturation HSL de `amount` [0,1] */
+				NKENTSEU_MATH_API
+				NkColorF Desaturate(float32 amount) const noexcept;
+
+				/** @brief Retourne la couleur complémentaire (teinte + 180°) */
+				NKENTSEU_MATH_API
+				NkColorF Complement() const noexcept;
+
+				/** @brief Retourne la couleur inversée (1-r, 1-g, 1-b), alpha inchangé */
+				NKENTSEU_MATH_API_FORCE_INLINE
+				NkColorF Invert() const noexcept {
+					return {1.0f - r, 1.0f - g, 1.0f - b, a};
+				}
+
+				// ---- Métriques perceptuelles ----
+
+				/**
+				 * @brief Luminance relative WCAG (0=noir, 1=blanc de référence)
+				 * @note Calculée depuis les composantes linéarisées (poids 0.2126/0.7152/0.0722)
+				 */
+				NKENTSEU_MATH_API
+				float32 Luminance() const noexcept;
+
+				/** @brief Distance perceptuelle CIE76 (norme euclidienne en espace LAB) */
+				NKENTSEU_MATH_API
+				float32 DeltaE(const NkColorF &other) const noexcept;
+
+				/** @brief Distance perceptuelle CIEDE2000 (plus précise que DeltaE/CIE76) */
+				NKENTSEU_MATH_API
+				float32 DeltaE2000(const NkColorF &other) const noexcept;
+
+				/** @brief Ratio de contraste WCAG 2.x entre deux couleurs (1:1 à 21:1) */
+				NKENTSEU_MATH_API
+				float32 ContrastRatio(const NkColorF &other) const noexcept;
+
+				/** @brief Vrai si le contraste texte(this)/fond(bg) satisfait `minRatio` (défaut AA=4.5) */
+				NKENTSEU_MATH_API_FORCE_INLINE
+				bool IsAccessible(const NkColorF &bg, float32 minRatio = 4.5f) const noexcept {
+					return ContrastRatio(bg) >= minRatio;
+				}
+
+				/** @brief Retourne celle de `dark`/`light` offrant le meilleur contraste avec *this* */
+				NKENTSEU_MATH_API
+				NkColorF BestContrast(const NkColorF &dark, const NkColorF &light) const noexcept;
+
+				// ---- Interpolation perceptuelle ----
+
+				/** @brief Interpolation linéaire dans l'espace LAB (perceptuellement plus uniforme que RGB) */
+				NKENTSEU_MATH_API
+				static NkColorF LerpLAB(const NkColorF &from, const NkColorF &to, float32 t) noexcept;
+
+				/** @brief Interpolation linéaire dans l'espace OKLab */
+				NKENTSEU_MATH_API
+				static NkColorF LerpOKLab(const NkColorF &from, const NkColorF &to, float32 t) noexcept;
+
+				/**
+				 * @brief Interpolation linéaire RGB, forme statique (parité d'API Noge)
+				 * @note Équivalente à l'instance-method `a.Lerp(b, t)` déjà existante ;
+				 *       fournie aussi en statique pour coller à la signature Noge d'origine
+				 */
+				NKENTSEU_MATH_API_FORCE_INLINE
+				static NkColorF Lerp(const NkColorF &a, const NkColorF &b, float32 t) noexcept {
+					return a.Lerp(b, t);
+				}
+
+				/** @brief Alias de Lerp (terminologie outils de design), parité d'API Noge */
+				NKENTSEU_MATH_API_FORCE_INLINE
+				static NkColorF Mix(const NkColorF &a, const NkColorF &b, float32 t) noexcept {
+					return a.Lerp(b, t);
+				}
+
+				// ---- Modes de fusion (résultat en RGB ; alpha conservé de *this*) ----
+
+				/** @brief Mode de fusion Multiply (assombrit ; commutatif) */
+				NKENTSEU_MATH_API_FORCE_INLINE
+				NkColorF Multiply(const NkColorF &other) const noexcept {
+					return {r * other.r, g * other.g, b * other.b, a};
+				}
+
+				/** @brief Mode de fusion Screen (éclaircit ; commutatif) */
+				NKENTSEU_MATH_API_FORCE_INLINE
+				NkColorF Screen(const NkColorF &other) const noexcept {
+					return {1.0f - (1.0f - r) * (1.0f - other.r), 1.0f - (1.0f - g) * (1.0f - other.g),
+							1.0f - (1.0f - b) * (1.0f - other.b), a};
+				}
+
+				/** @brief Mode de fusion Overlay (*this* = fond, `other` = superposition) */
+				NKENTSEU_MATH_API
+				NkColorF Overlay(const NkColorF &other) const noexcept;
+
+				/** @brief Mode de fusion Hard Light (*this* = fond, `other` = superposition) */
+				NKENTSEU_MATH_API
+				NkColorF HardLight(const NkColorF &other) const noexcept;
+
+				/** @brief Mode de fusion Soft Light, formule W3C (*this* = fond, `other` = superposition) */
+				NKENTSEU_MATH_API
+				NkColorF SoftLight(const NkColorF &other) const noexcept;
+
+			private:
+				// ---- Helpers internes (non exposés dans l'API publique) ----
+				NKENTSEU_MATH_API
+				static float32 SRGBToLinearChannel(float32 x) noexcept;
+
+				NKENTSEU_MATH_API
+				static float32 LinearToSRGBChannel(float32 x) noexcept;
+
+				NKENTSEU_MATH_API
+				static int32 HexNibble(char c) noexcept;
 
 		}; // struct NkColorF
 

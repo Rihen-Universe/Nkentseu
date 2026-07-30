@@ -903,8 +903,9 @@ namespace nkentseu {
 
 			// Focus au clic. Changement de focus -> réinitialise la sélection/drag (pas hérités
 			// du champ précédent qui partageait ctx.inputAnchor/ctx.inputDrag).
-			const bool over =
-				NkGuiRectContains(rect, ctx.input.mousePos) && (ctx.activeId == NKGUI_ID_NONE || ctx.activeId == id);
+			const bool over = NkGuiRectContains(rect, ctx.input.mousePos) &&
+							  ctx.PointReachable(ctx.input.mousePos) && // routeur d'occlusion unifie
+							  (ctx.activeId == NKGUI_ID_NONE || ctx.activeId == id);
 			if (over)
 				ctx.hotId = id;
 			if (over && ctx.input.mouseClicked[0] && ctx.inputId != id) {
@@ -1305,6 +1306,12 @@ namespace nkentseu {
 		void Separator(NkGuiContext &ctx) noexcept {
 			const NkRect r = ctx.NextItemRect(0.f, 1.f);
 			ctx.DL().AddRectFilled({r.x, r.y, r.w, 1.f}, ctx.theme.border);
+			// Dans un menu deroulant auto-dimensionne : contribue a la hauteur
+			// mesuree — sinon chaque separateur « vole » sa hauteur consommee et
+			// le DERNIER item du menu sort du popup (partiellement invisible).
+			const int32 L = ctx.curPopupLevel;
+			if (L >= 0 && ctx.menuMeasureId[L] != NKGUI_ID_NONE)
+				ctx.menuMeasureH[L] += 1.f + ctx.layout.itemSpacingY;
 		}
 
 		// ════════════════════ CONTENEURS DE LAYOUT ════════════════════
@@ -3002,8 +3009,10 @@ namespace nkentseu {
 						if (node.vertical) {
 							// Split HORIZONTAL (panneaux latéraux) : largeur MINIMALE en pixels pour que
 							// les deux côtés restent utilisables (combos/onglets lisibles). Sinon un
-							// panneau latéral pouvait être réduit à ~80 px.
-							const float32 minPx = 380.f;
+							// panneau latéral pouvait être réduit à ~80 px. 380px était TROP genereux
+							// (empêchait de rétrécir l'Explorateur/l'IA à une largeur raisonnable,
+							// retour Rihen) — 220px suffit à garder les combos/onglets lisibles.
+							const float32 minPx = 220.f;
 							float32 minR = node.rect.w > 1.f ? minPx / node.rect.w : 0.08f;
 							if (minR > 0.45f)
 								minR = 0.45f; // garde-fou petits écrans

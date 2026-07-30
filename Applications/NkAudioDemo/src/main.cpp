@@ -40,7 +40,7 @@ static int RunStreamingTest(const char *path) {
 	AudioStreamPlayer player;
 	if (!player.Init(sampleRate, channels, 88200)) {
 		logger.Error("[NkAudioDemo] player.Init echec");
-		delete stream;
+		memory::NkGetDefaultAllocator().Delete(stream); // voir note c0000374 dans RunDirectPullTest
 		return 2;
 	}
 	if (!player.Play(stream, /*loop=*/false)) {
@@ -169,7 +169,10 @@ static int RunDirectPullTest(const char *path) {
 	s.mAllocator = nullptr;
 	if (AudioLoader::SaveWAV("Build/test_direct_pull.wav", s))
 		logger.Info("[NkAudioDemo] Sauve Build/test_direct_pull.wav");
-	delete stream;
+	// ⚠️ `stream` est alloué par OpenAudioStream() via memory::NkGetDefaultAllocator().New<T>() —
+	// PAS `new` du CRT. Un `delete` brut mélange l'allocateur custom et le heap CRT (corruption,
+	// c0000374). Doit être libéré par le même allocateur (règle dure NKMemory du projet).
+	memory::NkGetDefaultAllocator().Delete(stream);
 	return 0;
 }
 
