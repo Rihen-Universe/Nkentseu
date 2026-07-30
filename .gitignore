@@ -721,3 +721,7 @@ PLATEFORMES_ETAT.md
 # et repartition des chantiers en cours entre agents. Rihen le veut PRIVE.
 # Demande du 2026-07-30 — meme regime que PLATEFORMES_ETAT.md.
 Engine/Noge/CONTINUATION.md
+
+# Etat de travaux : document INTERNE de reprise (etat par machine, chantiers
+# en cours, chiffres du moment). Prive — meme regime que PLATEFORMES_ETAT.md.
+ETAT_TRAVAUX.md
