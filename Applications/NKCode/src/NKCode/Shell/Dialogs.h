@@ -194,8 +194,9 @@ namespace nkentseu {
 				// `jenga examples copy <id> <destination>` (async) puis ouvre le clone.
 				static constexpr int32 PK_ExampleCopy = 202;
 				NkString exCopyId;			  // id de l'exemple choisi (ex. "01_hello_console")
-				NkProcess exCopyProc;		  // copie async (jenga examples copy)
+				NkProcess exCopyProc;		  // copie async (jenga examples copy) — repli
 				bool exCopyBusy = false;
+				bool exCopyEmbedded = false; // copie via l'interpreteur embarque
 				NkString exCopyDestFull;	  // <destination>/<id> — ouvert automatiquement une fois copie
 
 				void OpenPicker(int32 purpose, const char *startDir, char *buf = nullptr, int32 cap = 0,
@@ -362,6 +363,24 @@ namespace nkentseu {
 						exCopyDestFull = chosen;
 						exCopyDestFull += "/";
 						exCopyDestFull += exCopyId;
+						// Jenga EMBARQUE en priorite : sans ca, cloner un exemple echouait
+						// sur une machine sans Python (cette copie etait le dernier appel
+						// `jenga` en sous-processus du launcher).
+						exCopyEmbedded = false;
+						if (st && NkCodeState::UseEmbeddedJenga() && !NkEmbeddedJenga::Get().Running()) {
+							NkEmbeddedJenga::Request req;
+							req.kind = "cli";
+							req.args.PushBack(NkString("examples"));
+							req.args.PushBack(NkString("copy"));
+							req.args.PushBack(exCopyId);
+							req.args.PushBack(chosen);
+							if (NkEmbeddedJenga::Get().Start(req)) {
+								exCopyEmbedded = true;
+								exCopyBusy = true;
+								st->status = NkString("Clonage de l'exemple ") + exCopyId.CStr() + "...";
+								return;
+							}
+						}
 						NkString cmd("jenga examples copy ");
 						cmd += exCopyId;
 						cmd += " \"";
@@ -383,13 +402,24 @@ namespace nkentseu {
 					if (!exCopyBusy)
 						return;
 					NkVector<NkString> sink;
-					exCopyProc.Drain(sink); // sortie ignoree (statut via exit code)
-					if (!exCopyProc.Done())
-						return;
+					int32 exit = 0;
+					if (exCopyEmbedded) {
+						NkVector<NkJengaProgressEvent> ignored;
+						NkEmbeddedJenga::Get().Drain(sink, ignored);
+						if (!NkEmbeddedJenga::Get().Done())
+							return;
+						exit = NkEmbeddedJenga::Get().ExitCode();
+						exCopyEmbedded = false;
+					} else {
+						exCopyProc.Drain(sink); // sortie ignoree (statut via exit code)
+						if (!exCopyProc.Done())
+							return;
+						exit = exCopyProc.ExitCode();
+					}
 					exCopyBusy = false;
 					const NkString id = exCopyId;
 					exCopyId.Clear();
-					if (exCopyProc.ExitCode() == 0 && NkDirectory::Exists(exCopyDestFull.CStr())) {
+					if (exit == 0 && NkDirectory::Exists(exCopyDestFull.CStr())) {
 						if (st)
 							st->status = NkString("Exemple clone : ") + exCopyDestFull.CStr();
 						DoLoad(NkPath(exCopyDestFull.CStr())); // ouvre le clone (ecran de chargement)
