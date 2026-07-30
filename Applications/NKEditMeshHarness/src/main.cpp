@@ -472,6 +472,61 @@ static void ExtrudeBattery() {
 	}
 }
 
+// Cas LOT 5 ajoutes en fin (les 47 precedents gardent leurs lignes).
+// Cible : la GRILLE 4x4 — surface plane et reguliere, donc l'effet du
+// proportional editing et de la symetrie se lit dans l'aire et le barycentre
+// sans etre masque par une courbure preexistante.
+static void Lot5Battery() {
+	NkVector<NkVertex3D> v;
+	NkVector<uint32> idx;
+	MakeGrid(4, v, idx);
+
+	// UN seul sommet (le coin 0) tire vers le haut, trois regimes.
+	struct Case {
+			const char *name;
+			bool prop;
+			int32 falloff;
+			bool symX;
+	};
+	const Case cs[4] = {{"move-simple", false, 0, false},
+						{"move-proportional-smooth", true, NkProportionalParams::Smooth, false},
+						{"move-proportional-sharp", true, NkProportionalParams::Sharp, false},
+						{"move-symetrie-X", false, 0, true}};
+	for (int32 i = 0; i < 4; i++) {
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		m.verts[0].sel = 1; // coin (-0.5, 0, -0.5)
+		NkProportionalParams pp;
+		pp.enabled = cs[i].prop;
+		pp.falloff = cs[i].falloff;
+		pp.radius = 0.6f;
+		NkSymmetryParams sy;
+		sy.x = cs[i].symX;
+		const bool ok = m.MoveSelected({0.f, 0.4f, 0.f}, pp, sy);
+		char nm[96];
+		snprintf(nm, sizeof(nm), "grille4/%s%s", cs[i].name, ok ? "" : " [REFUSE]");
+		Emit(nm, Signature(m));
+	}
+	// Courbe d'influence : valeurs a distances fixes, pour que toute modification
+	// de la formule se voie immediatement dans la reference.
+	{
+		char buf[256];
+		snprintf(buf, sizeof(buf),
+				 "smooth(0,.25,.5,.75)=%.3f/%.3f/%.3f/%.3f sphere(.5)=%.3f sharp(.5)=%.3f const(.9)=%.3f",
+				 (double)NkEditMesh::ProportionalWeight(0.f, 1.f, NkProportionalParams::Smooth),
+				 (double)NkEditMesh::ProportionalWeight(0.25f, 1.f, NkProportionalParams::Smooth),
+				 (double)NkEditMesh::ProportionalWeight(0.5f, 1.f, NkProportionalParams::Smooth),
+				 (double)NkEditMesh::ProportionalWeight(0.75f, 1.f, NkProportionalParams::Smooth),
+				 (double)NkEditMesh::ProportionalWeight(0.5f, 1.f, NkProportionalParams::Sphere),
+				 (double)NkEditMesh::ProportionalWeight(0.5f, 1.f, NkProportionalParams::Sharp),
+				 (double)NkEditMesh::ProportionalWeight(0.9f, 1.f, NkProportionalParams::Constant));
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s %s", "courbes/influence", buf);
+			gLineCount++;
+		}
+	}
+}
+
 int main(int argc, char **argv) {
 	bool baseline = false, check = false;
 	for (int32 i = 1; i < argc; i++) {
@@ -485,6 +540,7 @@ int main(int argc, char **argv) {
 	WireBattery();
 	MergeBattery();
 	ExtrudeBattery();
+	Lot5Battery();
 
 	const char *path = "editmesh_baseline.txt";
 	if (baseline) {
