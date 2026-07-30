@@ -4999,21 +4999,17 @@ namespace nkentseu {
 					if (UseEmbeddedJenga() && !BuildSlotRunning() && !mBuildEmbedded && !mInfoEmbedded &&
 						!mExEmbedded && !flagsEmbedded) {
 						NkEmbeddedJenga::Request req;
-						req.kind = "cli";
-						// `args` est une ligne (« config toolchain add ... ») -> jetons.
-						NkString cur;
-						for (const char *q = args.CStr();; ++q) {
-							if (*q == ' ' || !*q) {
-								if (!cur.Empty()) {
-									req.args.PushBack(cur);
-									cur.Clear();
-								}
-								if (!*q)
-									break;
-							} else if (*q != '"')
-								cur += *q;
-						}
-						if (NkEmbeddedJenga::Get().Start(req)) {
+						// `args` est une ligne (« config toolchain add <nom> "<chemin>" ») :
+						// on la decoupe avec le tokenizer de ParseJengaCmd, seul endroit qui
+						// gere les GUILLEMETS. Un decoupage naif coupait sur chaque espace :
+						// le chemin du JSON temporaire vit sous %USERPROFILE%, donc un nom
+						// d'utilisateur Windows compose (« Jean Pierre ») — ou un chemin en
+						// « C:/Program Files/... » — etait scinde en deux arguments et
+						// l'ajout de toolchain echouait. Uniquement sur le chemin EMBARQUE,
+						// donc precisement chez les utilisateurs sans Python, alors que le
+						// repli sous-processus (shell) honorait les guillemets.
+						if (ParseJengaCmd(NkString("jenga ") + args.CStr(), req) &&
+							NkEmbeddedJenga::Get().Start(req)) {
 							mCfgEmbedded = true;
 							mCfgPending = true;
 							return;
