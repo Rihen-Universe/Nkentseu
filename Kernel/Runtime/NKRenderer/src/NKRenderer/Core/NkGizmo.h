@@ -1107,7 +1107,14 @@ namespace nkentseu {
 							if (len <= 1e-6f)
 								continue;
 							const NkVec3f n{ax[a].x / len, ax[a].y / len, ax[a].z / len};
-							const float32 e = hl[a] * len; // demi-extent MONDE de cet axe
+							// Demi-extent MONDE, avec une épaisseur PLANCHER : un plan a un
+							// extent nul sur sa normale, et un slab d'épaisseur zéro rend le
+							// test dégénéré (t1 == t2) donc fragile en flottant. Ce plancher
+							// ne concerne QUE le pick — le marqueur garde l'extent réel et
+							// reste donc plat sur un plan.
+							float32 e = hl[a] * len;
+							if (e < 1e-3f)
+								e = 1e-3f;
 							const float32 s = Dot(n, p), f = Dot(n, rd);
 							if (f > 1e-6f || f < -1e-6f) {
 								float32 t1 = (s - e) / f, t2 = (s + e) / f;
