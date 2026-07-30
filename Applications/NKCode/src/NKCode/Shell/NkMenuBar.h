@@ -248,7 +248,7 @@ namespace nkentseu {
 						const char *nm = i < s->recentNames.Size() ? s->recentNames[i].CStr()
 																	: s->recents[i].CStr();
 						if (MenuItem(ctx, nm))
-							d->DoLoad(NkPath(s->recents[i].CStr()).GetParent());
+							d->DoLoad(NkCodeState::RecentFolder(s->recents[i].CStr()));
 					}
 					EndMenu(ctx);
 				}

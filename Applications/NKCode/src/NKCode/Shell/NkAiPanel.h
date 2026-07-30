@@ -513,7 +513,12 @@ namespace nkentseu {
 						NkVector<Msg> msgs;
 						float32 scroll = 0.f;
 						bool stick = true; // colle en bas tant qu'on n'a pas scrollé
-						char input[8192] = {0};	// brouillon de saisie, PROPRE a ce chat
+						// Brouillon de saisie, PROPRE a ce chat. Taille FIXE imposee par le
+						// widget NKGui (convention ImGui : il ecrit dans un tampon fourni).
+						// 8 Ko etait trop juste des qu'on collait un fichier ; 64 Ko couvre
+						// tres largement la saisie manuelle. Les prompts COMPOSES (Revue,
+						// Generation, Rejouer) ne passent plus par ici du tout, cf. mOut.
+						char input[65536] = {0};
 						int32 modelIdx = 0;			// index dans ModelsFor(mKind)
 						int32 mode = 0;				// 0 Agent, 1 Ask, 2 Edit (libellés varient par agent)
 						int32 scope = 0;			// 0 Fichier courant, 1 Sélection, 2 Workspace
@@ -528,6 +533,39 @@ namespace nkentseu {
 						// ── Backend CLI reel (mKind==1, Claude Code) ──
 						NkString claudeSessionId; // session_id retourne par system/init -> --resume au tour suivant
 				};
+
+				// ── SORTIE DECOUPLEE du brouillon de saisie ────────────────────────
+				// Le brouillon `input` est un tableau C de taille FIXE : le widget
+				// NKGui de saisie multiligne suit la convention ImGui
+				// (`InputTextMultiline(ctx, id, char *buf, int32 bufSize, ...)`) et
+				// ecrit dans un tampon fourni par l'appelant. Or trois actions
+				// composent un prompt qui embarque le contenu ENTIER d'un fichier —
+				// Revue de code, Generation, Rejouer — puis appellent Send() dans la
+				// foulee. Elles copiaient ce prompt dans le tampon : au-dela de la
+				// capacite, le texte etait coupe EN PLEIN CODE, silencieusement, et
+				// l'IA repondait sur un fichier ampute sans que personne le sache.
+				// Ces prompts ne transitent donc plus par le brouillon : ils passent
+				// par `mOut`, une NkString sans borne. Le tampon ne limite plus que ce
+				// que l'utilisateur tape a la main.
+				NkString mOut;		  // prompt COMPOSE en attente d'envoi
+				bool mOutOn = false;  // true = c'est `mOut` qui part, pas le brouillon
+
+				// Texte effectivement envoye.
+				NkString OutText() const { return mOutOn ? mOut : NkString(mInput); }
+
+				// Arme un envoi de prompt COMPOSE (jamais tronque).
+				void SendComposed(const NkString &prompt) {
+					mOut = prompt;
+					mOutOn = true;
+					Send();
+				}
+
+				// Vide la sortie ET le brouillon apres un envoi.
+				void ClearOut() {
+					mOut.Clear();
+					mOutOn = false;
+					mInput[0] = 0;
+				}
 
 				NkCodeState *mS;
 				NkEditorShell *mShell = nullptr; // pour focus terminal (onglet Agent)
@@ -1169,6 +1207,108 @@ namespace nkentseu {
 						NkVector<NkString> lines;
 				};
 
+				// ── Rend une ligne de PROSE lisible : le modele ecrit du Markdown, on
+				// n'affichait que sa syntaxe brute (« **texte** », « ### Titre », « - item »,
+				// « `code` »). On NORMALISE le texte AVANT l'habillage (WrapLines) — et non
+				// au dessin — pour que l'habillage, la SELECTION, les liens fichier et le
+				// copier travaillent tous sur EXACTEMENT le texte affiche. Styler par
+				// caractere au dessin desynchroniserait ces quatre mecanismes.
+				// Traite : **gras** / __gras__ / *ital* / _ital_ (marqueurs retires),
+				// `code` (guillemets retires), titres # (# retires), puces -/*/+ -> « • ».
+				// Les blocs ``` ne passent PAS ici (traites a part, texte brut preserve).
+				static NkString NormalizeProse(const char *s) {
+					NkString out;
+					bool atLineStart = true;
+					for (const char *p = s; *p;) {
+						if (atLineStart) {
+							const char *q = p;
+							int32 indent = 0;
+							while (*q == ' ' || *q == '\t') { // conserve l'indentation (listes imbriquees)
+								out += *q;
+								++q;
+								++indent;
+							}
+							if (*q == '#') { // titre : « ### Titre » -> « Titre »
+								while (*q == '#')
+									++q;
+								while (*q == ' ')
+									++q;
+								p = q;
+								atLineStart = false;
+								continue;
+							}
+							// puce : « - item », « * item », « + item » -> « • item »
+							if ((*q == '-' || *q == '*' || *q == '+') && q[1] == ' ') {
+								out += "\xE2\x80\xA2"; // •
+								out += ' ';
+								p = q + 2;
+								atLineStart = false;
+								continue;
+							}
+							// « --- » / « *** » : separateur horizontal -> ligne de tirets
+							if ((*q == '-' || *q == '*' || *q == '_') && q[1] == *q && q[2] == *q) {
+								const char rc = *q; // teste APRES les puces (« - item » a q[1]==' ')
+								while (*q == rc)
+									++q;
+								out += "\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80"; // ────
+								p = q;
+								atLineStart = false;
+								continue;
+							}
+							p = q;
+							atLineStart = false;
+							continue;
+						}
+						if (*p == '\n') {
+							out += *p++;
+							atLineStart = true;
+							continue;
+						}
+						// **gras** / __gras__ : marqueurs APPARIES uniquement (« a ** b » reste tel quel)
+						if ((p[0] == '*' && p[1] == '*') || (p[0] == '_' && p[1] == '_')) {
+							const char c = p[0];
+							const char *e = p + 2;
+							while (*e && *e != '\n' && !(e[0] == c && e[1] == c))
+								++e;
+							if (*e == c && e[1] == c) { // ferme sur la meme ligne -> on retire les 4 marqueurs
+								for (const char *k = p + 2; k < e; ++k)
+									out += *k;
+								p = e + 2;
+								continue;
+							}
+						}
+						// `code` en ligne : retire les backticks, garde le contenu
+						if (*p == '`') {
+							const char *e = p + 1;
+							while (*e && *e != '\n' && *e != '`')
+								++e;
+							if (*e == '`') {
+								for (const char *k = p + 1; k < e; ++k)
+									out += *k;
+								p = e + 1;
+								continue;
+							}
+						}
+						// *italique* / _italique_ : un seul marqueur, apparie sur la ligne.
+						// Prudence : on n'y touche que si le contenu ne contient pas d'espace
+						// avant la fermeture immediate (evite de manger « 3 * 4 = 12 »).
+						if ((*p == '*' || *p == '_') && p[1] && p[1] != ' ' && p[1] != *p) {
+							const char c = *p;
+							const char *e = p + 1;
+							while (*e && *e != '\n' && *e != c)
+								++e;
+							if (*e == c && e > p + 1 && e[-1] != ' ') {
+								for (const char *k = p + 1; k < e; ++k)
+									out += *k;
+								p = e + 1;
+								continue;
+							}
+						}
+						out += *p++;
+					}
+					return out;
+				}
+
 				// ── Détecte les fences ``` (même heuristique que NkMarkdown.h : une ligne qui,
 				// une fois les espaces de tête retirés, commence par ```) et découpe `text` en
 				// blocs prose/code alternés. La prose entre deux blocs de code est ré-enveloppée
@@ -1195,7 +1335,7 @@ namespace nkentseu {
 							return;
 						MsgBlock b;
 						b.code = false;
-						WrapLines(ctx, proseAcc.CStr(), maxW, b.lines);
+						WrapLines(ctx, NormalizeProse(proseAcc.CStr()).CStr(), maxW, b.lines);
 						out.PushBack(b);
 						proseAcc.Clear();
 					};
@@ -1235,7 +1375,7 @@ namespace nkentseu {
 					if (out.Empty()) { // texte vide ou sans fences reconnues : un seul bloc prose (comportement d'avant)
 						MsgBlock b;
 						b.code = false;
-						WrapLines(ctx, text, maxW, b.lines);
+						WrapLines(ctx, NormalizeProse(text).CStr(), maxW, b.lines);
 						out.PushBack(b);
 					}
 				}
@@ -1983,6 +2123,24 @@ namespace nkentseu {
 						dl.AddText(font->Face(), font->TexId(),
 								   {field.x + ctx.S(8.f), field.y + ctx.S(6.f) + font->Ascent()}, NkT("ai.ask"),
 								   ctx.theme.textDisabled);
+					// ── Compteur de caracteres ────────────────────────────────────────
+					// Le tampon est borne (contrainte du widget) et la coupure etait
+					// SILENCIEUSE : on ne s'en apercevait qu'a la reponse de l'IA. Le
+					// compteur n'apparait qu'a partir de 60 % pour ne pas encombrer, et
+					// vire au rouge une fois plein.
+					if (font && font->Valid() && mInput[0] != 0) {
+						const usize cap = sizeof(mInput) - 1;
+						const usize len = ::strlen(mInput);
+						if (len * 5 >= cap * 3) { // >= 60 %
+							const NkString lbl = NkPrintf("%llu / %llu", (unsigned long long)len,
+														  (unsigned long long)cap); // NkPrintf maison
+							const float32 tw = font->MeasureWidth(lbl.CStr());
+							dl.AddText(font->Face(), font->TexId(),
+									   {field.x + field.w - tw - ctx.S(8.f), field.y + field.h - ctx.S(6.f)},
+									   lbl.CStr(),
+									   len >= cap ? NkColor{232, 106, 106, 255} : ctx.theme.textDisabled);
+						}
+					}
 					if (enterSend && !mBusy && mInput[0] != 0)
 						Send();
 				}
@@ -2106,15 +2264,8 @@ namespace nkentseu {
 						prompt += NkString("- ") + NkT("ai.gen.opt.conventions") + ".\n";
 					if (mGenVerbose)
 						prompt += NkString("- ") + NkT("ai.gen.opt.verbose") + ".\n";
-					const char *s = prompt.CStr();
-					usize k = 0;
-					while (s[k] && k < sizeof(mInput) - 1) {
-						mInput[k] = s[k];
-						++k;
-					}
-					mInput[k] = 0;
 					mView = 0; // bascule sur Chat : la génération se déroule dans le fil normal
-					Send();
+					SendComposed(prompt); // integral : ne transite plus par le brouillon borne
 				}
 
 				// ── La Revue de Code IA a besoin d'une cible reelle avant de pouvoir analyser :
@@ -2229,15 +2380,10 @@ namespace nkentseu {
 					} else if (mRevScope == 2) {
 						prompt += "\n(Analyse au niveau du workspace : base-toi sur le contexte du projet.)\n";
 					}
-					const char *s = prompt.CStr();
-					usize k = 0;
-					while (s[k] && k < sizeof(mInput) - 1) {
-						mInput[k] = s[k];
-						++k;
-					}
-					mInput[k] = 0;
 					mView = 0;
-					Send();
+					// Le prompt embarque le contenu ENTIER du fichier relu : integral,
+					// sans passer par le brouillon (qui le coupait en plein code).
+					SendComposed(prompt);
 				}
 
 				// ── Glyphes vectoriels (pas d'asset) pour les combos icone-seule Portée/Édition. ──
@@ -3862,7 +4008,8 @@ namespace nkentseu {
 						auto containsI = [](const char *hay, const char *needle) {
 							return NkCodeState::ContainsI(hay, needle);
 						};
-						const char *q = mInput;
+						const NkString qs = OutText(); // brouillon OU prompt compose
+						const char *q = qs.CStr();
 						const bool wants = containsI(q, "build") || containsI(q, "compil") || containsI(q, "erreur") ||
 										   containsI(q, "error") || containsI(q, "link") || containsI(q, "warning");
 						if (wants) {
@@ -3879,9 +4026,10 @@ namespace nkentseu {
 						}
 					}
 
-					Msgs().PushBack({0, NkString(mInput)}); // bulle utilisateur : le texte TEL QUE TAPE (sans prefixe)
-					const NkString prompt = contextPrefix + mInput; // le prefixe part AVEC la requete au CLI
-					mInput[0] = 0;
+					const NkString sent = OutText();		   // brouillon tape OU prompt compose (integral)
+					Msgs().PushBack({0, sent});				   // bulle utilisateur : le texte TEL QUE TAPE (sans prefixe)
+					const NkString prompt = contextPrefix + sent.CStr(); // le prefixe part AVEC la requete au CLI
+					ClearOut();
 					mChats[static_cast<usize>(mActiveChat)].stick = true;
 					mBusyChat = mActiveChat;
 					mClaudeStarted = false;
@@ -4386,18 +4534,13 @@ namespace nkentseu {
 					const NkString userText = msgs[last - 1].text;
 					msgs.RemoveAt(last);
 					msgs.RemoveAt(last - 1);
-					const char *s = userText.CStr();
-					usize n = 0;
-					while (s[n] && n < sizeof(mInput) - 1) {
-						mInput[n] = s[n];
-						++n;
-					}
-					mInput[n] = 0;
-					Send();
+					// Rejouer un message : il peut etre long (il contenait peut-etre
+					// deja un fichier entier) -> envoi integral.
+					SendComposed(userText);
 				}
 
 				void Send() {
-					if (mBusy || mInput[0] == 0)
+					if (mBusy || OutText().Empty())
 						return;
 					if (mKind == 1) { // Claude Code : CLI reel (memoire/outils/permissions natifs), pas de curl
 						SendClaudeCli();
@@ -4405,21 +4548,21 @@ namespace nkentseu {
 					}
 					mProvider = ProviderForModel(); // dérivé de l'agent + du modèle choisi
 					if (mProvider == 5) {			// Codex / OpenAI : intégration à venir
-						Msgs().PushBack({0, NkString(mInput)});
-						mInput[0] = 0;
+						Msgs().PushBack({0, OutText()});
+						ClearOut();
 						Msgs().PushBack({2, NkString(NkT("ai.codexsoon"))});
 						mChats[static_cast<usize>(mActiveChat)].stick = true;
 						return;
 					}
 					if (mProvider == 2) { // IA maison (NkAI)
-						Msgs().PushBack({0, NkString(mInput)});
-						mInput[0] = 0;
+						Msgs().PushBack({0, OutText()});
+						ClearOut();
 						Msgs().PushBack({2, NkString(NkT("ai.homesoon"))});
 						mChats[static_cast<usize>(mActiveChat)].stick = true;
 						return;
 					}
-					Msgs().PushBack({0, NkString(mInput)});
-					mInput[0] = 0;
+					Msgs().PushBack({0, OutText()});
+					ClearOut();
 					mChats[static_cast<usize>(mActiveChat)].stick = true;
 					mBusyChat = mActiveChat; // le switch de chat pendant l'attente n'egare pas la reponse
 

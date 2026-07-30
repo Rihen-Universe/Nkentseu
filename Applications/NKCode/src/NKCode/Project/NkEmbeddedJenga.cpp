@@ -133,6 +133,17 @@ namespace nkentseu {
 					_putenv_s("PATH", merged.CStr());
 				}
 			}
+			// `tools/` contient AUSSI le shim `jenga.cmd` (pose par
+			// scripts/MakeNkCodeDist.py) qui appelle le Python embarque. En
+			// prefixant le PATH, un `jenga ...` tape dans le TERMINAL INTEGRE — ou
+			// lance par une commande qui a besoin d'un vrai terminal, comme
+			// `jenga gdb` — fonctionne aussi sans Python installe. Sans ce shim,
+			// seules les commandes routees vers l'interpreteur marchaient.
+			if (gProdTools) {
+				const char *cur = std::getenv("PATH");
+				const NkString merged = (exeDir + "/tools") + ";" + (cur ? cur : "");
+				_putenv_s("PATH", merged.CStr());
+			}
 #endif
 			gConfigured = true;
 		}
@@ -332,7 +343,120 @@ namespace nkentseu {
 							}
 							continue;
 						}
-						const char *fn = (req.kind == "rebuild") ? "Rebuild" : "Build";
+						if (req.kind == "exepath") {
+							// Chemin du binaire produit, SANS construire ni lancer. Sert a
+							// « Demarrer » : `jenga run` est un processus LONG (et il peut y
+							// en avoir plusieurs en parallele), il ne peut donc pas occuper
+							// l'interpreteur unique. L'hote construit via l'API embarquee
+							// puis lance l'executable NATIVEMENT avec ce chemin — plus
+							// aucun `jenga` externe requis.
+							py::object pr = embed.attr("ExecutablePath")(
+								py::arg("jenga_file") = (req.jengaFile.Empty()
+															 ? py::object(py::none())
+															 : py::object(py::str(req.jengaFile.CStr()))),
+								py::arg("target") = (req.target.Empty() ? py::object(py::none())
+																		: py::object(py::str(req.target.CStr()))),
+								py::arg("config") = py::str(req.config.Empty() ? "Debug" : req.config.CStr()),
+								py::arg("platform") = (req.platform.Empty() ? py::object(py::none())
+																			 : py::object(py::str(req.platform.CStr()))),
+								py::arg("toolchain") = (req.toolchain.Empty() ? py::object(py::none())
+																			   : py::object(py::str(req.toolchain.CStr()))));
+							const std::string path = pr.cast<std::string>();
+							// Emis comme UNE ligne prefixee : l'hote la reconnait sans
+							// nouveau canal de donnees.
+							PushLine(NkString("[jenga-exepath] ") + path.c_str());
+							exitCode = path.empty() ? 1 : 0;
+							threading::NkScopedLock<NkMutex> lk(mMutex);
+							mExit = exitCode;
+							mRunning = false;
+							mDone = true;
+							continue;
+						}
+						if (req.kind == "cli") {
+							// N'IMPORTE QUELLE commande Jenga, via le dispatcher de la CLI
+							// (Embed.RunCommand -> Jenga.Commands.execute_command). C'est ce
+							// qui garantit qu'AUCUNE commande ne retombe sur un `jenga`
+							// externe : sur une machine sans Python, elles echoueraient
+							// toutes. La sortie passe par le meme sink -> transcript
+							// identique a celui d'un sous-processus.
+							py::list argv;
+							for (usize i = 0; i < req.args.Size(); ++i)
+								argv.append(py::str(req.args[i].CStr()));
+							py::object r = embed.attr("RunCommand")(argv, py::arg("sink") = ns);
+							exitCode = r.attr("exitCode").cast<int>();
+							const std::string e2 = r.attr("errorMessage").cast<std::string>();
+							if (!e2.empty())
+								PushLine(NkString("[jenga-embed] erreur: ") + e2.c_str());
+							threading::NkScopedLock<NkMutex> lk(mMutex);
+							mExit = exitCode;
+							mRunning = false;
+							mDone = true;
+							continue;
+						}
+						if (req.kind == "info") {
+							// `jenga info` in-process. On REPRODUIT le format des tables
+							// du CLI (« Name / Kind » puis « Name / Family / Target OS /
+							// Arch / Env ») : NkCodeState::ParseProjects fonctionne alors
+							// SANS AUCUNE modification, et le meme code de parsing sert
+							// aux deux modes (aucune divergence possible).
+							py::object wi = embed.attr("Info")(
+								py::arg("jenga_file") = (req.jengaFile.Empty()
+															 ? py::object(py::none())
+															 : py::object(py::str(req.jengaFile.CStr()))));
+							const std::string err = wi.attr("errorMessage").cast<std::string>();
+							if (!err.empty()) {
+								PushLine(NkString("Error: ") + err.c_str());
+								exitCode = 1;
+							} else {
+								{ // Configurations: A, B
+									NkString line("Configurations: ");
+									bool first = true;
+									for (auto c : wi.attr("configurations")) {
+										if (!first)
+											line += ", ";
+										first = false;
+										line += c.cast<std::string>().c_str();
+									}
+									PushLine(line);
+								}
+								PushLine(NkString(""));
+								PushLine(NkString("Name                Kind"));
+								PushLine(NkString("----                ----"));
+								for (auto p : wi.attr("projects")) {
+									NkString l(p.attr("name").cast<std::string>().c_str());
+									l += "  ";
+									l += p.attr("kind").cast<std::string>().c_str();
+									PushLine(l);
+								}
+								PushLine(NkString(""));
+								PushLine(NkString("Name                Family    Target OS  Arch    Env"));
+								PushLine(NkString("----                ------    ---------  ----    ---"));
+								for (auto t : wi.attr("toolchains")) {
+									NkString l(t.attr("name").cast<std::string>().c_str());
+									l += "  ";
+									l += t.attr("family").cast<std::string>().c_str();
+									l += "  ";
+									l += t.attr("targetOs").cast<std::string>().c_str();
+									l += "  ";
+									l += t.attr("arch").cast<std::string>().c_str();
+									const std::string env = t.attr("env").cast<std::string>();
+									l += "  ";
+									l += env.empty() ? "-" : env.c_str();
+									PushLine(l);
+								}
+								PushLine(NkString(""));
+								exitCode = 0;
+							}
+							threading::NkScopedLock<NkMutex> lk(mMutex);
+							mExit = exitCode;
+							mRunning = false;
+							mDone = true;
+							continue;
+						}
+						const char *fn = (req.kind == "rebuild")  ? "Rebuild"
+										 : (req.kind == "clean") ? "Clean"
+										 : (req.kind == "test")	 ? "Test"
+																 : "Build";
 						py::object res = embed.attr(fn)(
 							py::arg("jenga_file") = (req.jengaFile.Empty() ? py::object(py::none())
 																		   : py::object(py::str(req.jengaFile.CStr()))),
