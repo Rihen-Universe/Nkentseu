@@ -6031,6 +6031,35 @@ namespace nkentseu {
 											kLName[ti], sqrtf(bestD2));
 							}
 						}
+						// NK_LIGHT_MOVE="dx,dy,dz" : deplace UNE FOIS la lumiere selectionnee,
+						// sans souris. Ce levier ne sert pas a piloter la demo : il sert a
+						// PROUVER que la manipulation change bien l'ECLAIRAGE et pas seulement
+						// le widget. Sans lui, une capture ne montrerait qu'un marqueur qui
+						// bouge — ce qui est precisement l'illusion contre laquelle
+						// Demo3D_LightEffective a ete ecrite.
+						static bool lmvDone = false;
+						if (!lmvDone && st->lightSel >= 0) {
+							if (const char *lm = getenv("NK_LIGHT_MOVE")) {
+								lmvDone = true;
+								float32 mv[3] = {0.f, 0.f, 0.f};
+								int32 mk = 0;
+								const char *pm = lm;
+								while (mk < 3 && *pm) {
+									mv[mk++] = (float32)atof(pm);
+									while (*pm && *pm != ',')
+										pm++;
+									if (*pm == ',')
+										pm++;
+								}
+								st->lightGizmo.SetSelectedTransform({mv[0], mv[1], mv[2]}, NkMat4f::Identity(),
+																	{0.f, 0.f, 0.f});
+								const renderer::NkLightDesc ef = Demo3D_LightEffective(st, st->lightSel);
+								logger.Info("[Demo3D][LUMIERE] NK_LIGHT_MOVE ({0}, {1}, {2}) -> lumiere {3} "
+											"effective en ({4}, {5}, {6})\n",
+											mv[0], mv[1], mv[2], st->lightSel, ef.position.x, ef.position.y,
+											ef.position.z);
+							}
+						}
 						const bool lwasDrag = st->lightGizmo.IsDragging();
 						st->lightGizmo.Update(ltg, Demo3DState::kNumLights, lin);
 						if (!lwasDrag && st->lightGizmo.IsDragging())
