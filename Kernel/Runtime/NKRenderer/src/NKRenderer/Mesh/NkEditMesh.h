@@ -150,6 +150,49 @@ namespace nkentseu {
 				bool duplicate = false;
 		};
 
+		// ── PROPORTIONAL EDITING (touche O dans Blender) ──────────────────────────
+		// Un deplacement de la selection ENTRAINE ses voisins, avec une influence qui
+		// decroit avec la distance. C'est ce qui permet de deformer une surface sans
+		// la plisser : sans lui, bouger un sommet cree un pic ; avec lui, on obtient
+		// une bosse continue.
+		//
+		// La distance est mesuree en DROITE LIGNE (euclidienne) depuis le sommet
+		// selectionne le plus proche, comme Blender par defaut. Une distance
+		// TOPOLOGIQUE (nombre d'aretes) donnerait un resultat different sur un
+		// maillage a densite variable ; ce n'est pas ce mode-ci.
+		struct NkProportionalParams {
+				// Courbes de Blender. Chacune repond a un besoin different : Smooth pour
+				// une bosse organique, Sphere pour un dome net, Root pour un effet qui
+				// s'attenue vite, Constant pour deplacer un bloc en bord franc.
+				enum Falloff { Smooth = 0, Sphere = 1, Root = 2, Sharp = 3, Linear = 4, Constant = 5 };
+
+				bool enabled = false;
+				float32 radius = 0.f; // <= 0 => 25 % de la diagonale de la bbox
+				int32 falloff = Smooth;
+				bool connectedOnly = false; // reserve (distance topologique) — non implemente
+		};
+
+		// ── SYMETRIE DE MAILLAGE (Mesh Symmetry, 1 a 3 axes) ──────────────────────
+		// Toute edition appliquee d'un cote est REJOUEE en miroir de l'autre. Blender
+		// l'expose comme trois cases X / Y / Z cumulables.
+		//
+		// Le miroir est etabli par APPARIEMENT DE POSITIONS : pour chaque sommet
+		// deplace, on cherche celui qui occupe (a `tolerance` pres) la position
+		// symetrique dans le maillage AVANT deplacement, et on lui applique le
+		// deplacement reflechi. On ne cree donc AUCUNE geometrie : la symetrie
+		// suppose un maillage deja symetrique, exactement comme dans Blender.
+		// Un sommet SUR le plan de symetrie est son propre miroir : son deplacement
+		// est projete DANS le plan, sinon il quitterait l'axe et casserait la symetrie.
+		struct NkSymmetryParams {
+				bool x = false, y = false, z = false;
+				float32 tolerance = 1e-4f; // appariement des positions miroir
+				NkVec3f center = {0.f, 0.f, 0.f}; // plan(s) de symetrie passant par ce point
+
+				bool Any() const {
+					return x || y || z;
+				}
+		};
+
 		// ── TO SPHERE (Shift+Alt+S) façon Blender ─────────────────────────────────
 		// Deforme progressivement la selection vers une SPHERE : chaque sommet est
 		// interpole entre sa position et sa projection sur la sphere centree sur
@@ -453,6 +496,21 @@ namespace nkentseu {
 				// relie, comme Blender. Renvoie false si la selection n'a pas exactement
 				// deux sommets topologiques distincts, ou si l'arete existe deja.
 				bool MakeEdgeFromSelected();
+
+				// ── LOT 5 : DEPLACEMENT AVEC INFLUENCE ET SYMETRIE ──────────────────
+				// Deplace la selection de `delta`, en propageant aux voisins selon
+				// `prop` et en rejouant en miroir selon `sym`. C'est le point d'entree
+				// unique du mouvement de sommets : l'editeur passe par lui pour que
+				// proportional editing et symetrie s'appliquent PARTOUT de la meme
+				// facon, plutot que d'etre reimplantes a chaque outil.
+				// Renvoie false si rien n'est selectionne.
+				bool MoveSelected(const NkVec3f &delta, const NkProportionalParams &prop = NkProportionalParams{},
+								  const NkSymmetryParams &sym = NkSymmetryParams{});
+
+				// Poids d'influence d'un sommet a la distance `d` pour un rayon `r`.
+				// Expose pour que l'editeur puisse DESSINER le cercle d'influence avec
+				// exactement la meme courbe que celle appliquee.
+				static float32 ProportionalWeight(float32 d, float32 r, int32 falloff);
 				bool SubdivideSelectedFaces(const NkSubdivideParams &p = NkSubdivideParams{});
 				bool LoopCutFromSelectedEdge(const NkLoopCutParams &p = NkLoopCutParams{});
 

@@ -1622,6 +1622,163 @@ namespace nkentseu {
 			return (NkEmId)(edges.Size() - 1);
 		}
 
+
+		// ── LOT 5 : PROPORTIONAL EDITING + SYMETRIE ─────────────────────────────
+		float32 NkEditMesh::ProportionalWeight(float32 d, float32 r, int32 falloff) {
+			if (r <= 0.f)
+				return d <= 0.f ? 1.f : 0.f;
+			float32 t = 1.f - (d / r); // 1 au centre, 0 au bord
+			if (t <= 0.f)
+				return 0.f;
+			if (t > 1.f)
+				t = 1.f;
+			switch (falloff) {
+				case NkProportionalParams::Sphere: return sqrtf(1.f - (1.f - t) * (1.f - t));
+				case NkProportionalParams::Root: return sqrtf(t);
+				case NkProportionalParams::Sharp: return t * t;
+				case NkProportionalParams::Linear: return t;
+				case NkProportionalParams::Constant: return 1.f;
+				case NkProportionalParams::Smooth:
+				default:
+					// Hermite 3t^2-2t^3 : tangente NULLE aux deux bouts, donc aucune
+					// cassure ni au sommet tire ni a la limite du rayon. C'est ce qui
+					// distingue une bosse propre d'un cone.
+					return t * t * (3.f - 2.f * t);
+			}
+		}
+
+		bool NkEditMesh::MoveSelected(const NkVec3f &delta, const NkProportionalParams &prop,
+									  const NkSymmetryParams &sym) {
+			const uint32 nv = (uint32)verts.Size();
+			if (nv == 0)
+				return false;
+
+			// Identite SOUDEE : un coin duplique par face doit se deplacer d'un seul
+			// bloc, sinon le maillage s'ouvre le long des coutures.
+			NkVector<uint32> canon;
+			BuildVertexMerge(canon);
+			auto cn = [&](uint32 v) { return (v < (uint32)canon.Size()) ? canon[v] : v; };
+
+			// Poids par sommet SOUDE. 1 = selectionne, 0 < w < 1 = entraine.
+			NkVector<float32> w;
+			w.Resize(nv);
+			for (uint32 i = 0; i < nv; i++)
+				w[i] = 0.f;
+			bool any = false;
+			for (uint32 i = 0; i < nv; i++)
+				if (verts[i].sel) {
+					w[cn(i)] = 1.f;
+					any = true;
+				}
+			if (!any)
+				return false;
+
+			if (prop.enabled) {
+				float32 r = prop.radius;
+				if (r <= 0.f) {
+					NkVec3f mn = verts[0].pos, mx = verts[0].pos;
+					for (uint32 i = 1; i < nv; i++) {
+						const NkVec3f q = verts[i].pos;
+						mn.x = NkMin(mn.x, q.x); mn.y = NkMin(mn.y, q.y); mn.z = NkMin(mn.z, q.z);
+						mx.x = NkMax(mx.x, q.x); mx.y = NkMax(mx.y, q.y); mx.z = NkMax(mx.z, q.z);
+					}
+					r = (mx - mn).Len() * 0.25f; // 25 % de la diagonale
+				}
+				// Distance EUCLIDIENNE au sommet selectionne le plus proche (mode par
+				// defaut de Blender). O(n x s) : suffisant pour une selection d'edition,
+				// et sans structure a maintenir — une accélération spatiale serait une
+				// optimisation prematuree ici.
+				NkVector<uint32> selIdx;
+				for (uint32 i = 0; i < nv; i++)
+					if (verts[i].sel)
+						selIdx.PushBack(i);
+				for (uint32 i = 0; i < nv; i++) {
+					const uint32 ci = cn(i);
+					if (w[ci] >= 1.f)
+						continue; // deja plein poids
+					float32 best = 1e30f;
+					const NkVec3f q = verts[i].pos;
+					for (uint32 k = 0; k < (uint32)selIdx.Size(); k++) {
+						const float32 d = (verts[selIdx[k]].pos - q).Len();
+						if (d < best)
+							best = d;
+					}
+					const float32 ww = ProportionalWeight(best, r, prop.falloff);
+					if (ww > w[ci])
+						w[ci] = ww;
+				}
+			}
+
+			// Positions AVANT deplacement : l'appariement miroir doit se faire sur le
+			// maillage d'origine. Le faire au fur et a mesure ferait apparier des
+			// sommets deja bouges et la symetrie deriverait.
+			NkVector<NkVec3f> before;
+			before.Resize(nv);
+			for (uint32 i = 0; i < nv; i++)
+				before[i] = verts[i].pos;
+
+			// Deplacement direct.
+			for (uint32 i = 0; i < nv; i++) {
+				const float32 ww = w[cn(i)];
+				if (ww > 0.f)
+					verts[i].pos = verts[i].pos + delta * ww;
+			}
+
+			// ── SYMETRIE ────────────────────────────────────────────────────────
+			if (sym.Any()) {
+				// Un axe actif -> 1 miroir ; deux -> 3 ; trois -> 7 (toutes les
+				// combinaisons non nulles de reflexions), comme Blender qui cumule les
+				// cases cochees.
+				const int32 combos[7][3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}, {1, 1, 0},
+											{1, 0, 1}, {0, 1, 1}, {1, 1, 1}};
+				for (int32 ci = 0; ci < 7; ci++) {
+					const bool useX = combos[ci][0] != 0, useY = combos[ci][1] != 0, useZ = combos[ci][2] != 0;
+					if ((useX && !sym.x) || (useY && !sym.y) || (useZ && !sym.z))
+						continue;
+					auto mirror = [&](NkVec3f p) {
+						NkVec3f d2 = p - sym.center;
+						if (useX) d2.x = -d2.x;
+						if (useY) d2.y = -d2.y;
+						if (useZ) d2.z = -d2.z;
+						return sym.center + d2;
+					};
+					for (uint32 i = 0; i < nv; i++) {
+						const float32 ww = w[cn(i)];
+						if (ww <= 0.f)
+							continue;
+						const NkVec3f src = before[i];
+						const NkVec3f tgt = mirror(src);
+						// Sommet SUR le plan de symetrie : il est son propre miroir. Son
+						// deplacement doit etre PROJETE dans le plan, sinon il quitte
+						// l'axe et casse la symetrie qu'on cherche a maintenir.
+						if ((tgt - src).Len() <= sym.tolerance) {
+							NkVec3f d3 = delta * ww;
+							if (useX) d3.x = 0.f;
+							if (useY) d3.y = 0.f;
+							if (useZ) d3.z = 0.f;
+							verts[i].pos = src + d3;
+							continue;
+						}
+						// Sinon : trouver le sommet a la position miroir dans le maillage
+						// AVANT deplacement, et lui appliquer le delta reflechi.
+						NkVec3f dm = delta;
+						if (useX) dm.x = -dm.x;
+						if (useY) dm.y = -dm.y;
+						if (useZ) dm.z = -dm.z;
+						for (uint32 j = 0; j < nv; j++) {
+							if (w[cn(j)] > 0.f)
+								continue; // deja deplace par la selection elle-meme
+							if ((before[j] - tgt).Len() <= sym.tolerance)
+								verts[j].pos = before[j] + dm * ww;
+						}
+					}
+				}
+			}
+
+			RecomputeNormals();
+			return true;
+		}
+
 		bool NkEditMesh::MakeEdgeFromSelected() {
 			// Un seul REPRESENTANT par sommet topologique : les primitives dupliquent
 			// leurs sommets par face, donc « deux sommets selectionnes » peut vouloir
