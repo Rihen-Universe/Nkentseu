@@ -2327,7 +2327,14 @@ namespace nkentseu {
 					// Changement de WORKSPACE : recycle les terminaux JAMAIS utilises (touched=false)
 					// pour que le defaut redemarre dans la NOUVELLE racine (celle du boot peut etre
 					// un faux workspace : le CWD de l exe). Ceux ou l on a tape restent en vie.
-					const bool wsReady = mState && mState->HasWorkspace() && !mState->root.ToString().Empty();
+					// Racine EXPLOITABLE = un dossier ouvert, workspace Jenga OU PAS.
+					// Le terminal n'a besoin que d'un repertoire de depart : l'exiger
+					// « workspace Jenga » privait de shell tous ceux qui ouvrent un
+					// dossier pour coder autre chose (retour Rihen). La toolbar, elle,
+					// reste bien conditionnee a HasWorkspace() : il n'y a rien a
+					// construire sans .jenga.
+					const bool wsReady = mState && !mState->root.ToString().Empty() &&
+										 NkDirectory::Exists(mState->root.ToString().CStr());
 					const NkString wsRoot = wsReady ? mState->root.ToString() : NkString();
 					if (wsReady && !StrEq(mSpawnedRoot.CStr(), wsRoot.CStr())) {
 						for (int32 i = 0; i < 8; ++i)
@@ -2348,7 +2355,7 @@ namespace nkentseu {
 							if (ctx.font && ctx.font->Valid())
 								dl.AddText(ctx.font->Face(), ctx.font->TexId(),
 										   {clip.x + ctx.S(12.f), clip.y + ctx.S(20.f)},
-										   "Ouvre un workspace pour demarrer le terminal...", ctx.theme.textDisabled);
+										   NkT("term.empty"), ctx.theme.textDisabled);
 							return;
 						}
 						EnsurePrefs();
@@ -2580,15 +2587,18 @@ namespace nkentseu {
 					if (t.started)
 						return;
 					t.started = true;
-					GlobalLogBuffer().Push(NkString("[term] demarre dans: ") + ((mState && mState->HasWorkspace())
-																					? mState->root.ToString()
-																					: NkString("(cwd exe)")));
+					// Repertoire de depart = le dossier OUVERT, qu'il soit un workspace
+					// Jenga ou non (un dossier de code quelconque merite un shell).
+					const NkString openRoot = (mState && !mState->root.ToString().Empty() &&
+											   NkDirectory::Exists(mState->root.ToString().CStr()))
+												  ? mState->root.ToString()
+												  : NkString();
+					GlobalLogBuffer().Push(NkString("[term] demarre dans: ") +
+										   (openRoot.Empty() ? NkString("(cwd exe)") : openRoot));
 					t.pty.Start(!t.cmdOverride.Empty() ? t.cmdOverride : PtyCommand(t.shell, t.distro), t.screen.Cols(),
 								t.screen.Rows(),
 								!t.cwd.Empty() ? t.cwd // « Ouvrir dans le terminal » : dossier demandé
-											   : ((mState && mState->HasWorkspace() && !mState->root.ToString().Empty())
-													  ? mState->root.ToString()
-													  : NkString()));
+											   : openRoot);
 				}
 
 				// Programme reel a lancer pour chaque type de shell.
