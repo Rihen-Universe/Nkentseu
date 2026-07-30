@@ -1169,6 +1169,108 @@ namespace nkentseu {
 						NkVector<NkString> lines;
 				};
 
+				// ── Rend une ligne de PROSE lisible : le modele ecrit du Markdown, on
+				// n'affichait que sa syntaxe brute (« **texte** », « ### Titre », « - item »,
+				// « `code` »). On NORMALISE le texte AVANT l'habillage (WrapLines) — et non
+				// au dessin — pour que l'habillage, la SELECTION, les liens fichier et le
+				// copier travaillent tous sur EXACTEMENT le texte affiche. Styler par
+				// caractere au dessin desynchroniserait ces quatre mecanismes.
+				// Traite : **gras** / __gras__ / *ital* / _ital_ (marqueurs retires),
+				// `code` (guillemets retires), titres # (# retires), puces -/*/+ -> « • ».
+				// Les blocs ``` ne passent PAS ici (traites a part, texte brut preserve).
+				static NkString NormalizeProse(const char *s) {
+					NkString out;
+					bool atLineStart = true;
+					for (const char *p = s; *p;) {
+						if (atLineStart) {
+							const char *q = p;
+							int32 indent = 0;
+							while (*q == ' ' || *q == '\t') { // conserve l'indentation (listes imbriquees)
+								out += *q;
+								++q;
+								++indent;
+							}
+							if (*q == '#') { // titre : « ### Titre » -> « Titre »
+								while (*q == '#')
+									++q;
+								while (*q == ' ')
+									++q;
+								p = q;
+								atLineStart = false;
+								continue;
+							}
+							// puce : « - item », « * item », « + item » -> « • item »
+							if ((*q == '-' || *q == '*' || *q == '+') && q[1] == ' ') {
+								out += "\xE2\x80\xA2"; // •
+								out += ' ';
+								p = q + 2;
+								atLineStart = false;
+								continue;
+							}
+							// « --- » / « *** » : separateur horizontal -> ligne de tirets
+							if ((*q == '-' || *q == '*' || *q == '_') && q[1] == *q && q[2] == *q) {
+								const char rc = *q; // teste APRES les puces (« - item » a q[1]==' ')
+								while (*q == rc)
+									++q;
+								out += "\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80"; // ────
+								p = q;
+								atLineStart = false;
+								continue;
+							}
+							p = q;
+							atLineStart = false;
+							continue;
+						}
+						if (*p == '\n') {
+							out += *p++;
+							atLineStart = true;
+							continue;
+						}
+						// **gras** / __gras__ : marqueurs APPARIES uniquement (« a ** b » reste tel quel)
+						if ((p[0] == '*' && p[1] == '*') || (p[0] == '_' && p[1] == '_')) {
+							const char c = p[0];
+							const char *e = p + 2;
+							while (*e && *e != '\n' && !(e[0] == c && e[1] == c))
+								++e;
+							if (*e == c && e[1] == c) { // ferme sur la meme ligne -> on retire les 4 marqueurs
+								for (const char *k = p + 2; k < e; ++k)
+									out += *k;
+								p = e + 2;
+								continue;
+							}
+						}
+						// `code` en ligne : retire les backticks, garde le contenu
+						if (*p == '`') {
+							const char *e = p + 1;
+							while (*e && *e != '\n' && *e != '`')
+								++e;
+							if (*e == '`') {
+								for (const char *k = p + 1; k < e; ++k)
+									out += *k;
+								p = e + 1;
+								continue;
+							}
+						}
+						// *italique* / _italique_ : un seul marqueur, apparie sur la ligne.
+						// Prudence : on n'y touche que si le contenu ne contient pas d'espace
+						// avant la fermeture immediate (evite de manger « 3 * 4 = 12 »).
+						if ((*p == '*' || *p == '_') && p[1] && p[1] != ' ' && p[1] != *p) {
+							const char c = *p;
+							const char *e = p + 1;
+							while (*e && *e != '\n' && *e != c)
+								++e;
+							if (*e == c && e > p + 1 && e[-1] != ' ') {
+								for (const char *k = p + 1; k < e; ++k)
+									out += *k;
+								p = e + 1;
+								continue;
+							}
+						}
+						out += *p++;
+					}
+					return out;
+				}
+
 				// ── Détecte les fences ``` (même heuristique que NkMarkdown.h : une ligne qui,
 				// une fois les espaces de tête retirés, commence par ```) et découpe `text` en
 				// blocs prose/code alternés. La prose entre deux blocs de code est ré-enveloppée
@@ -1195,7 +1297,7 @@ namespace nkentseu {
 							return;
 						MsgBlock b;
 						b.code = false;
-						WrapLines(ctx, proseAcc.CStr(), maxW, b.lines);
+						WrapLines(ctx, NormalizeProse(proseAcc.CStr()).CStr(), maxW, b.lines);
 						out.PushBack(b);
 						proseAcc.Clear();
 					};
@@ -1235,7 +1337,7 @@ namespace nkentseu {
 					if (out.Empty()) { // texte vide ou sans fences reconnues : un seul bloc prose (comportement d'avant)
 						MsgBlock b;
 						b.code = false;
-						WrapLines(ctx, text, maxW, b.lines);
+						WrapLines(ctx, NormalizeProse(text).CStr(), maxW, b.lines);
 						out.PushBack(b);
 					}
 				}
