@@ -54,7 +54,7 @@ namespace nkentseu {
 				bool changedOnDisk = false; // le fichier a ete modifie en dehors de NKCode
 				float32 codeZoom = 0.f;		// taille police PROPRE a cet onglet (0 = taille globale). Zoom par-fichier.
 				// ── Onglet MEDIA (image / video / audio) : pas de texte, viewer dedie ──
-				int32 mediaKind = 0;		 // 0 aucun (texte), 1 image, 2 video, 3 audio
+				int32 mediaKind = 0;		 // 0 aucun (texte), 1 image, 2 video, 3 audio, 4 PDF
 				bool mediaLoaded = false;	 // texture GPU chargee (image)
 				uint32 mediaTex = 0;		 // texture backend (image) via UploadRGBA
 				int32 mediaW = 0, mediaH = 0; // dimensions natives (px)
@@ -499,6 +499,11 @@ namespace nkentseu {
 						EndsWithI(name, ".flac") || EndsWithI(name, ".m4a") || EndsWithI(name, ".aac") ||
 						EndsWithI(name, ".opus"))
 						return 3;
+					// PDF : visionneuse dediee (lecture seule). L'ouvrir comme du TEXTE
+					// afficherait des octets compresses et ferait croire a un fichier
+					// corrompu — pire qu'un refus franc.
+					if (EndsWithI(name, ".pdf"))
+						return 4;
 					return 0;
 				}
 
