@@ -5,6 +5,8 @@
 namespace nkentseu {
 	namespace pv3de {
 
+		using namespace nkentseu::math;
+
 		void NkBreathController::_Reset() noexcept {
 			mCurrent = NkBreathParams{};
 			mTarget = mCurrent;
@@ -115,9 +117,9 @@ namespace nkentseu {
 		void NkBreathController::_UpdateNormal(nk_float32 dt) noexcept {
 			mInApnea = false;
 			nk_float32 freq = mCurrent.rate / 60.f;
-			mPhase += NkTwoPi * freq * dt;
-			if (mPhase > NkTwoPi)
-				mPhase -= NkTwoPi;
+			mPhase += (2.0f * (float32)NkPi) * freq * dt;
+			if (mPhase > (2.0f * (float32)NkPi))
+				mPhase -= (2.0f * (float32)NkPi);
 		}
 
 		void NkBreathController::_UpdateCheyneStokes(nk_float32 dt) noexcept {
@@ -133,7 +135,7 @@ namespace nkentseu {
 				// Phase apnée
 				mInApnea = true;
 				mCSEnvelope = 0.f;
-				mPhase = NkPiHalf; // tenir la position fermée
+				mPhase = ((float32)NkPis2); // tenir la position fermée
 			} else {
 				mInApnea = false;
 				nk_float32 t = (mCSEnvPhase - kApneaLen) / (kCycleLen - kApneaLen);
@@ -141,9 +143,9 @@ namespace nkentseu {
 				mCSEnvelope = (t < 0.5f) ? NkSin(t * NkPi) : NkSin((1.f - t) * NkPi);
 
 				nk_float32 freq = mCurrent.rate / 60.f;
-				mPhase += NkTwoPi * freq * dt;
-				if (mPhase > NkTwoPi)
-					mPhase -= NkTwoPi;
+				mPhase += (2.0f * (float32)NkPi) * freq * dt;
+				if (mPhase > (2.0f * (float32)NkPi))
+					mPhase -= (2.0f * (float32)NkPi);
 			}
 		}
 
@@ -162,9 +164,9 @@ namespace nkentseu {
 			}
 			if (!mInApnea) {
 				nk_float32 freq = mCurrent.rate / 60.f;
-				mPhase += NkTwoPi * freq * dt;
-				if (mPhase > NkTwoPi)
-					mPhase -= NkTwoPi;
+				mPhase += (2.0f * (float32)NkPi) * freq * dt;
+				if (mPhase > (2.0f * (float32)NkPi))
+					mPhase -= (2.0f * (float32)NkPi);
 			}
 		}
 
@@ -172,9 +174,9 @@ namespace nkentseu {
 			// Thorax et abdomen en opposition de phase
 			mInApnea = false;
 			nk_float32 freq = mCurrent.rate / 60.f;
-			mPhase += NkTwoPi * freq * dt;
-			if (mPhase > NkTwoPi)
-				mPhase -= NkTwoPi;
+			mPhase += (2.0f * (float32)NkPi) * freq * dt;
+			if (mPhase > (2.0f * (float32)NkPi))
+				mPhase -= (2.0f * (float32)NkPi);
 		}
 
 		// ── Résolution des sorties ────────────────────────────────────────────

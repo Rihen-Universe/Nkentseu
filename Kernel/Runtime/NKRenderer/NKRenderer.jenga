@@ -109,6 +109,13 @@ with project("NKRenderer"):
 
     with filter("system:Android"):
         usetoolchain("android-ndk")
+        # NK_OPENGL_ES manquait ici (present seulement dans NKRHI.jenga) : tout
+        # code NKRenderer testant ce define (ex. NkShaderBackendGL, conversion
+        # SPIRV->GLSL) ne savait jamais qu'il ciblait ES -> generait du GLSL
+        # desktop invalide sur mobile, echec de compilation shader AVALE
+        # SILENCIEUSEMENT (handle "valide" retourne quand meme) -> ecran noir
+        # sans la moindre erreur visible.
+        defines(["NK_OPENGL_ES"])
         _ANDROID_LINKS = ["android", "log", "EGL", "GLESv3"]
         if WANT_VULKAN:
             _ANDROID_LINKS.append("vulkan")
@@ -120,6 +127,7 @@ with project("NKRenderer"):
         pchheader("")
         pchsource("")
         usetoolchain("ohos-ndk")
+        defines(["NK_OPENGL_ES"])  # meme raison que le bloc Android ci-dessus
         _HARMONY_LINKS = ["hilog_ndk.z", "EGL", "GLESv3"]
         if WANT_VULKAN:
             _HARMONY_LINKS.append("vulkan")
@@ -130,6 +138,7 @@ with project("NKRenderer"):
 
     with filter("system:Web"):
         usetoolchain("emscripten")
+        defines(["NK_OPENGL_ES"])  # WebGL2 = GLES3, meme raison que ci-dessus
 
     with filter("system:XboxSeries || system:XboxOne"):
         usetoolchain("xbox-clang")

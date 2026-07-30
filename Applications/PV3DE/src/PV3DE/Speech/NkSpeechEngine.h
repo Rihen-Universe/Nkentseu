@@ -27,6 +27,7 @@ namespace nkentseu {
 			FF,			 // "for", "phone"
 			TH,			 // "the", "thin"
 			NN,			 // "nun"
+			SH,			 // "ch", "chat" — chuintante (utilisé par la règle digraphe "ch")
 			COUNT
 		};
 

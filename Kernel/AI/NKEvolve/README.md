@@ -1,7 +1,7 @@
 # NKEvolve — vie artificielle & évolution
 
-> ⚠️ Squelette : pas encore de code. Voir la [ROADMAP](ROADMAP.md) et l'[architecture de la
-> couche](../ARCHITECTURE.md).
+> 🟡 Jalon 1 (algorithme génétique) livré et prouvé — cf. [ROADMAP](ROADMAP.md) et
+> l'[architecture de la couche](../ARCHITECTURE.md).
 
 ## Rôle
 
@@ -24,6 +24,26 @@ ce qui se dérive mal (structures de réseaux, hyperparamètres, stratégies). C
 - **Croisement** et **mutation** → nouvelle génération.
 - Boucle évolutionnaire ; suivi de la diversité et de l'adaptation.
 - Neuroévolution (faire évoluer des réseaux NKNN).
+
+## État livré (2026-07-23)
+
+- `NkGenome` (`src/NKEvolve/NkGenome.h`) : gènes réels (`NkVector<float>`) + fitness.
+- `NkPopulation` (`NkPopulation.h/.cpp`) : population initialisée aléatoirement (LCG
+  déterministe, même schéma que `rl::NkQLearning`/`nn::NkDense`), `BestIndex`/`BestFitness`/
+  `MeanFitness`.
+- `NkEvolution` (`NkEvolution.h/.cpp`) : moteur générationnel — élitisme, **sélection par
+  tournoi**, **croisement arithmétique** (recombinaison pondérée par un `alpha` aléatoire),
+  **mutation gaussienne** (Box-Muller sur NKMath, bornée aux limites du génome). La fonction
+  de fitness est un **pointeur de fonction** (`NkFitnessFn`, pas de `std::function` —
+  convention zéro-STL) : le moteur est générique, indépendant du problème.
+- Prouvé par `NKEvolveTest` (`Applications/NKEvolveTest/`, build + run réels Debug/Windows) :
+  population de 80 individus / 6 gènes faisant évoluer un vecteur vers une cible fixe.
+  **Fitness moyen de la population 0,013 → 0,91** sur 200 générations, **meilleur génome
+  jamais vu → fitness 1,0** (erreur max par gène 0,0005). Preuve que la boucle
+  sélection+croisement+mutation fait *réellement* progresser une population, sans gradient.
+- Reste (Jalon 1 → 2) : neuroévolution (faire évoluer des poids `nn::NkDense`/topologies),
+  suivi de diversité, couplage à un problème d'agent (ex. hyperparamètres `NkAgent`/
+  `NkGridWorld`) plutôt que la fonction jouet actuelle.
 
 ## Place dans la couche
 

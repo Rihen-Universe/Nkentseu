@@ -39,6 +39,7 @@ namespace nkentseu {
 			NK_MAXPOOL2D,	   // max-pooling 2D (a=entrée) ; argmax mémorisé dans `aux`
 			NK_RESHAPE,		   // remodelage (flatten) ; backward = reshape inverse
 			NK_EXP,			   // exp(a)  (VAE : écart-type via exp(0.5·logvar))
+				NK_LOG,			   // log(max(a,eps)) élément par élément (NKRL/Jalon 3 : log-probabilité PPO)
 			NK_MULSCALAR,	   // a · s   (s = iparam encodé en float via aux? -> stocké dans fparam)
 			NK_ADDSCALAR,	   // a + s
 			NK_CONV3D,		   // convolution 3D : a=[B,Cin,D,H,W], b=[Cout,Cin,kD,kH,kW]
@@ -71,6 +72,12 @@ namespace nkentseu {
 				static NkVarNode *New();
 				static void Retain(NkVarNode *n);
 				static void Release(NkVarNode *n);
+
+				// Nombre de nœuds actuellement VIVANTS (alloués − libérés). Diagnostic/tests
+				// uniquement (ex. prouver que le mode sans-gradient ne fait pas grossir le
+				// graphe). Thread-UNSAFE comme le reste du module (compteur simple, pas
+				// atomique) — cohérent avec le graphe lui-même qui n'est pas thread-safe.
+				static int64 LiveCount();
 		};
 
 		// -------------------------------------------------------------------------
@@ -105,12 +112,24 @@ namespace nkentseu {
 				// l'identité du nœud, afin que le prochain forward réutilise le paramètre.
 				void SetValue(const NkTensor &v);
 
-				// Backward depuis CE nœud (doit être un scalaire, typiquement la perte).
-				// Remet à 1 le gradient du scalaire, propage jusqu'aux feuilles.
-				void Backward();
+					// Remplace le GRADIENT du nœud EN PLACE (même forme que Value()). Utilisé
+					// par NKOptim pour le clipping de gradient (norme globale/valeur, cf.
+					// Pascanu et al. 2013) AVANT le pas d'optimiseur. Point d'entrée additif.
+					void SetGrad(const NkTensor &g);
 
-				// Remet à zéro les gradients de tout le graphe atteignable.
-				void ZeroGrad();
+					// Backward depuis CE nœud (doit être un scalaire, typiquement la perte).
+					// Remet à 1 le gradient du scalaire, propage jusqu'aux feuilles.
+					void Backward();
+
+					// Remet à zéro les gradients de tout le graphe atteignable.
+					void ZeroGrad();
+
+					// Détache : nouvelle feuille portant la MÊME valeur (référence NkTensor
+					// partagée, copie légère) mais SANS lien vers ce nœud — le gradient ne
+					// remonte jamais au-delà de ce point (stop-gradient). requiresGrad=false.
+					// Cf. torch.Tensor.detach(). Usage : couper un résidu/une cible bootstrap
+					// (ex. réseau cible en RL) du graphe qui produit l'entrée.
+					NkVar Detach() const;
 
 			private:
 				explicit NkVar(NkVarNode *n) : mNode(n) {
@@ -118,6 +137,40 @@ namespace nkentseu {
 
 				NkVarNode *mNode = nullptr;
 				friend NkVar NkMakeOp(NkAutoOp, const NkTensor &, NkVarNode *, NkVarNode *);
+		};
+
+		// -------------------------------------------------------------------------
+		// Mode « sans gradient » (inférence pure) — façon torch.no_grad().
+		//
+		// Flag GLOBAL : quand actif, les opérations `autograd::*` calculent toujours le
+		// forward (valeur correcte) mais N'ENREGISTRENT PLUS le nœud dans le graphe —
+		// le résultat est une feuille isolée (requiresGrad=false, aucun parent retenu).
+		// Les nœuds intermédiaires ne sont donc plus maintenus vivants par la chaîne de
+		// parents et sont libérés dès que leur NkVar temporaire sort de portée : pas
+		// d'accumulation mémoire du graphe pendant un forward d'inférence. Backward()
+		// sur un résultat produit dans ce mode ne fait rien (pas de parents à remonter).
+		//
+		// ⚠️ Thread-UNSAFE : un seul flag process-wide, comme le reste du module (le
+		// graphe lui-même n'est pas thread-safe). Ne pas (dés)activer depuis plusieurs
+		// threads concurrents sans synchronisation externe.
+		// -------------------------------------------------------------------------
+		bool IsGradEnabled();
+		void SetGradEnabled(bool enabled);
+
+		// Garde RAII : désactive le gradient à la construction, restaure l'état
+		// précédent à la destruction (imbrication correcte). Équivalent de
+		// `with torch.no_grad():`.
+		//   { NkNoGradGuard guard; ...forward d'inférence... } // restauré ici
+		class NkNoGradGuard {
+			public:
+				NkNoGradGuard();
+				~NkNoGradGuard();
+
+				NkNoGradGuard(const NkNoGradGuard &) = delete;
+				NkNoGradGuard &operator=(const NkNoGradGuard &) = delete;
+
+			private:
+				bool mPrevEnabled;
 		};
 
 		// -------------------------------------------------------------------------
@@ -154,7 +207,11 @@ namespace nkentseu {
 			// [Cin,Cout,kH,kW] -> [B,Cout,(H-1)·stride-2·pad+kH, …]. Décodeurs génératifs.
 			NkVar ConvTranspose2D(const NkVar &input, const NkVar &weight, int32 stride = 1, int32 pad = 0);
 			// Élémentaires utiles au VAE.
-			NkVar Exp(const NkVar &a);				   // exp(a)
+			NkVar Exp(const NkVar &a);
+			// log(max(a,eps)) élément par élément (eps=1e-8) ; d/dx log(x) = 1/x. Ajouté pour
+			// NKRL/Jalon 3 (PPO) : permet log-softmax(logits) = Log(Softmax(logits)) — combiné à Softmax
+			// (déjà différentiable, Jacobien complet) pour la log-probabilité discrète EXACTE. Voir NkPolicyNet.h.
+			NkVar Log(const NkVar &a);				   // exp(a)
 			NkVar MulScalar(const NkVar &a, double s); // a · s
 			NkVar AddScalar(const NkVar &a, double s); // a + s
 			// Convolution 3D (voxels) : input [B,Cin,D,H,W] ⊛ weight [Cout,Cin,kD,kH,kW].

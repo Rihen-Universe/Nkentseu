@@ -10,6 +10,7 @@
 #include "NKAutograd/NkVar.h"
 #include "NKTensor/NkTensor.h"
 #include "NKTensor/NkTensorOps.h"
+#include "NKLogger/NkLog.h"
 
 #include <cstdio>
 #include <cmath>
@@ -357,6 +358,82 @@ int main() {
 	const bool xorOk = (correct == 4);
 	(xorOk ? g_pass : g_fail)++;
 	printf("  [ %s ] XOR appris (%d/4 prédictions correctes)\n", xorOk ? "OK" : "KO", correct);
+
+	// -----------------------------------------------------------------------
+	// Mode sans-gradient (no_grad, façon torch.no_grad()) : le forward reste
+	// correct mais AUCUN graphe n'est retenu -> le nombre de nœuds VIVANTS
+	// (NkVarNode::LiveCount()) reste PLAT quelle que soit la profondeur du
+	// calcul, alors qu'en mode normal la chaîne entière reste vivante tant que
+	// le résultat final est tenu (mesure réelle, pas une estimation).
+	// -----------------------------------------------------------------------
+	logger.Info("-- Mode sans-gradient (no_grad) : compteur de noeuds vivants --");
+	{
+		const int64 depth = 40;
+		NkTensor x0 = NkTensor::Full(NkShape{(int64)1000}, 1.0);
+		const int64 base = NkVarNode::LiveCount();
+
+		int64 liveWithGraph = base;
+		{
+			NkVar x = NkVar::Leaf(x0, true);
+			NkVar h2 = x;
+			for (int64 i = 0; i < depth; ++i)
+				h2 = autograd::Relu(autograd::MulScalar(h2, 1.0));
+			liveWithGraph = NkVarNode::LiveCount(); // chaîne ENTIÈRE retenue par h2 (jusqu'à x)
+		}											 // h2 sort de portée ici -> toute la chaîne libérée
+		const int64 afterGraph = NkVarNode::LiveCount();
+
+		int64 liveNoGrad = base;
+		{
+			NkNoGradGuard guard; // désactive l'enregistrement du graphe pour ce bloc
+			NkVar x = NkVar::Leaf(x0, true);
+			NkVar h2 = x;
+			for (int64 i = 0; i < depth; ++i)
+				h2 = autograd::Relu(autograd::MulScalar(h2, 1.0));
+			liveNoGrad = NkVarNode::LiveCount(); // SEULS x et h2 restent vivants, pas la chaîne
+		}
+		const int64 afterNoGrad = NkVarNode::LiveCount();
+
+		const int64 growthWithGraph = liveWithGraph - base; // ~2*depth+1 (une op par appel)
+		const int64 growthNoGrad = liveNoGrad - base;		 // reste petit (x + h2), PLAT malgré depth
+
+		const bool noGradOk = (growthNoGrad <= 4) && (growthWithGraph >= depth) && (afterGraph == base) &&
+							  (afterNoGrad == base);
+		(noGradOk ? g_pass : g_fail)++;
+		logger.Info("  [ {0} ] no_grad : croissance AVEC graphe = {1} noeuds vs SANS graphe (no_grad) = {2} noeuds "
+					"(profondeur {3} ops) ; vivants avant={4} apres_normal={5} apres_nograd={6}",
+					noGradOk ? "OK" : "KO", growthWithGraph, growthNoGrad, depth, base, afterGraph, afterNoGrad);
+	}
+
+	// -----------------------------------------------------------------------
+	// Detach() (stop-gradient) : y=a*b est détaché avant d'entrer dans z=yd*c.
+	// Le gradient DOIT être correct EN AVAL (dL/dc = y = 6) et ABSENT EN AMONT
+	// du point de détachement (dL/da et dL/db jamais accumulés : a et b ne sont
+	// même pas visités par le tri topologique du Backward).
+	// -----------------------------------------------------------------------
+	logger.Info("-- Detach() (stop-gradient) --");
+	{
+		float ad[1] = {2.0f}, bd[1] = {3.0f}, cd[1] = {4.0f};
+		NkVar a = NkVar::Leaf(Mat(NkShape{1}, ad), true);
+		NkVar b = NkVar::Leaf(Mat(NkShape{1}, bd), true);
+		NkVar c = NkVar::Leaf(Mat(NkShape{1}, cd), true);
+
+		NkVar y = autograd::Mul(a, b); // y = a*b = 6 (partie entraînable, PAS détachée elle-même)
+		NkVar yd = y.Detach();			// coupe le graphe ICI : yd porte la valeur 6, sans parent
+		NkVar z = autograd::Mul(yd, c); // z = yd*c = 24
+		NkVar loss = autograd::Sum(z);
+		loss.Backward();
+
+		const bool gradAAbsent = !a.Grad().IsValid();
+		const bool gradBAbsent = !b.Grad().IsValid();
+		const double gradC = c.Grad().IsValid() ? c.Grad().GetItem(NkShape{(int64)0}) : -999.0;
+		const bool downstreamOk = std::fabs(gradC - 6.0) < 1e-5; // dz/dc = yd.value = 6
+
+		const bool detachOk = gradAAbsent && gradBAbsent && downstreamOk;
+		(detachOk ? g_pass : g_fail)++;
+		logger.Info("  [ {0} ] Detach : dL/dc = {1} (attendu 6.0, en aval du detach) ; dL/da absent = {2}, dL/db "
+					"absent = {3} (en amont du detach)",
+					detachOk ? "OK" : "KO", gradC, gradAAbsent, gradBAbsent);
+	}
 
 	printf("\n=== Résultat : %d OK, %d échec(s) ===\n", g_pass, g_fail);
 	return g_fail == 0 ? 0 : 1;

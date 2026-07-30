@@ -37,43 +37,38 @@
 #include "NKECS/NkECSDefines.h"
 #include "NKMath/NKMath.h"
 #include "NKContainers/Sequential/NkVector.h"
-#include "NKRenderer/src/Tools/Render2D/NkRender2D.h"
+// [FIX 2026-07-24] Include manquant : `NkSpan<uint8>` (type de retour de
+// GetTilePixels() plus bas) est `nkentseu::NkSpan` de NKContainers -- jamais
+// inclus ici, seule `ecs::NkSpan` (interne NKECS) était visible, d'où
+// "no template named 'NkSpan'" à la compilation.
+#include "NKContainers/Views/NkSpan.h"
+// [FIX 2026-07-24] Include cassé : "src/" en trop (NKRenderer.location pointe
+// déjà sur .../NKRenderer/src, cf. Noge.jenga _INCLUDE_DIRS) -- ne résolvait
+// jamais.
+#include "NKRenderer/Tools/Render2D/NkRender2D.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"
+// [FIX 2026-07-24] NkIRect / NkIVec2 (utilisés ci-dessous par Fill/Erase/
+// FloodFill/Blit) n'existaient nulle part dans le repo -- voir
+// NkDesignGeomTypes.h pour le détail.
+#include "Noge/Design/NkDesignGeomTypes.h"
 
 namespace nkentseu {
-	using namespace math;
-
-	// =========================================================================
-	// NkColorRGBA — couleur raster 8-bit par canal
-	// =========================================================================
-	struct NkColorRGBA {
-			uint8 r = 0, g = 0, b = 0, a = 255;
-
-			NkColorRGBA() noexcept = default;
-
-			constexpr NkColorRGBA(uint8 r, uint8 g, uint8 b, uint8 a = 255) noexcept : r(r), g(g), b(b), a(a) {
-			}
-
-			[[nodiscard]] static NkColorRGBA FromFloat(float32 r, float32 g, float32 b, float32 a = 1.f) noexcept {
-				return {uint8(r * 255), uint8(g * 255), uint8(b * 255), uint8(a * 255)};
-			}
-
-			[[nodiscard]] static NkColorRGBA Black() noexcept {
-				return {0, 0, 0, 255};
-			}
-
-			[[nodiscard]] static NkColorRGBA White() noexcept {
-				return {255, 255, 255, 255};
-			}
-
-			[[nodiscard]] static NkColorRGBA Transparent() noexcept {
-				return {0, 0, 0, 0};
-			}
-
-			[[nodiscard]] NkVec4f ToFloat() const noexcept {
-				return {r / 255.f, g / 255.f, b / 255.f, a / 255.f};
-			}
-	};
+	// [FIX 2026-07-24, résolu 2026-07-25] `using namespace math;` remplacé
+	// par des `using` ciblés -- même raison que Noge/Design/Vector/
+	// NkVectorPath.h. La classe dupliquée `nkentseu::NkColor` (Color/
+	// NkColorManager.h) qui causait l'ambiguïté a été supprimée le
+	// 2026-07-25 ; les `using` ciblés sont conservés par choix de style.
+	using math::NkVec2f;
+	using math::NkVec4f;
+	using math::NkRectF;
+	using math::NkIRect;
+	using math::NkIVec2;
+	// [FUSION 2026-07-26] `NkColorRGBA` (motif "NkColor-bis" 8-bit local) remplace par le
+	// NkColor 8-bit RGBA canonique de NKMath. Meme layout (uint8 r,g,b,a ; defaut a=255),
+	// donc les initialiseurs `{r,g,b,a}` restent valides. Anciens helpers non appeles
+	// (FromFloat/Black/White/Transparent/ToFloat) : equivalents NKMath = constructeurs
+	// float/NkVec4f et operator NkVec4f()/ToColorF() pour l'ancien ToFloat()->NkVec4f.
+	using math::NkColor;
 
 	// =========================================================================
 	// NkPixelDepth — précision du canal
@@ -105,7 +100,7 @@ namespace nkentseu {
 			NkCanvasTile &operator=(const NkCanvasTile &) = delete;
 
 			void Allocate(NkPixelDepth depth) noexcept;
-			void Clear(NkColorRGBA color = {0, 0, 0, 0}) noexcept;
+			void Clear(NkColor color = {0, 0, 0, 0}) noexcept;
 	};
 
 	// =========================================================================
@@ -119,7 +114,7 @@ namespace nkentseu {
 			float32 angleDeg = 0.f;
 			float32 roundness = 1.f; ///< [0=plat, 1=rond]
 			float32 scatter = 0.f;
-			NkColorRGBA color = {0, 0, 0, 255};
+			NkColor color = {0, 0, 0, 255};
 			nk_uint64 stampTex = 0; ///< Texture de forme bitmap (0 = cercle)
 
 			// Blend mode pour ce dab
@@ -184,7 +179,7 @@ namespace nkentseu {
 			/**
 			 * @brief Remplit une région avec une couleur unie.
 			 */
-			void Fill(NkColorRGBA color, const NkIRect &region = {}) noexcept;
+			void Fill(NkColor color, const NkIRect &region = {}) noexcept;
 
 			/**
 			 * @brief Efface une région (met à transparent).
@@ -197,7 +192,7 @@ namespace nkentseu {
 			 * @param fillColor Couleur de remplissage.
 			 * @param tolerance Tolérance de couleur [0..255].
 			 */
-			void FloodFill(uint32 x, uint32 y, NkColorRGBA fillColor, uint32 tolerance = 32) noexcept;
+			void FloodFill(uint32 x, uint32 y, NkColor fillColor, uint32 tolerance = 32) noexcept;
 
 			/**
 			 * @brief Copie une région depuis un autre canvas.
@@ -213,8 +208,8 @@ namespace nkentseu {
 			void Crop(const NkIRect &region) noexcept;
 
 			// ── Accès aux pixels ──────────────────────────────────────────
-			[[nodiscard]] NkColorRGBA GetPixel(uint32 x, uint32 y) const noexcept;
-			void SetPixel(uint32 x, uint32 y, NkColorRGBA c) noexcept;
+			[[nodiscard]] NkColor GetPixel(uint32 x, uint32 y) const noexcept;
+			void SetPixel(uint32 x, uint32 y, NkColor c) noexcept;
 
 			/**
 			 * @brief Accès direct aux pixels d'un tile (pour peinture batch).
@@ -362,7 +357,7 @@ namespace nkentseu {
 				mPreset = p;
 			}
 
-			void SetColor(NkColorRGBA c) noexcept {
+			void SetColor(NkColor c) noexcept {
 				mColor = c;
 			}
 
@@ -399,7 +394,7 @@ namespace nkentseu {
 			void BuildDab(NkBrushDab &out, float32 pressure, float32 tiltDeg) const noexcept;
 
 			NkBrushPreset mPreset;
-			NkColorRGBA mColor = {0, 0, 0, 255};
+			NkColor mColor = {0, 0, 0, 255};
 			NkRasterCanvas *mCanvas = nullptr;
 
 			NkVec2f mLastPos = {};

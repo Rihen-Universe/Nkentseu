@@ -16,7 +16,7 @@ with project("NKTrain"):
 
     nkentseudependson(
         ["NKCore", "NKPlatform", "NKMemory", "NKContainers", "NKMath", "NKLogger",
-         "NKTensor", "NKAutograd", "NKNN", "NKData"],
+         "NKTensor", "NKAutograd", "NKNN", "NKData", "NKOptim"],
         selfexport="NKTrain",
         extra_includes=["src", "%{wks.location}/Externals"],
     )

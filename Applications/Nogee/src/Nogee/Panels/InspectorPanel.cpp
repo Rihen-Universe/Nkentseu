@@ -1,5 +1,7 @@
 #include "InspectorPanel.h"
 #include "NKUI/NkUIMenu.h"
+#include "Noge/ECS/NkEcsUtil.h"
+#include "Noge/ECS/Components/Core/NkCoreComponents.h"
 #include "NKMath/NKMath.h"
 #include "NKLogger/NkLog.h"
 #include <cstring>
@@ -13,7 +15,7 @@ namespace nkentseu {
 
 		void InspectorPanel::Render(NkUIContext &ctx, NkUIWindowManager &wm, NkUIDrawList &dl, NkUIFont &font,
 									NkUILayoutStack &ls, ecs::NkWorld &world, const NkSelectionManager &sel,
-									CommandHistory *hist, NkUIRect rect) noexcept {
+									CommandHistory *hist, NkRect rect) noexcept {
 			NkUIWindow::SetNextWindowPos({rect.x, rect.y});
 			NkUIWindow::SetNextWindowSize({rect.w, rect.h});
 
@@ -32,15 +34,15 @@ namespace nkentseu {
 
 			// ── En-tête : nom de l'entité ─────────────────────────────────────
 			{
-				auto *n = world.Get<ecs::NkNameComponent>(id);
+				auto *n = world.Get<ecs::NkName>(id);
 				char buf[128] = {};
 				if (n)
-					NkStrNCpy(buf, n->name, 127);
+					NkStrNCpy(buf, n->value, 127);
 				NkUI::BeginRow(ctx, ls, 26.f);
 				NkUI::SetNextGrow(ctx, ls);
 				if (NkUI::InputText(ctx, ls, dl, font, "##entityname", buf, 128)) {
 					if (n)
-						NkStrNCpy(n->name, buf, 127);
+						NkStrNCpy(n->value, buf, 127);
 				}
 				NkUI::EndRow(ctx, ls);
 				NkUI::Separator(ctx, ls, dl);

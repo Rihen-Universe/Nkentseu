@@ -18,9 +18,9 @@
 #include "NKCore/NkTypes.h"
 #include "NKEvent/NkKeyboardEvent.h"
 #include "NKEvent/NkMouseEvent.h"
-#include "NKEvent/NkTextEvent.h"
+// NkTextInputEvent est défini dans NkKeyboardEvent.h
 #include "NKUI/NKUI.h"
-#include "Noge/Core/EventBus.h"
+#include "Noge/Core/NkEventBus.h"
 
 namespace nkentseu {
 	namespace noge {
@@ -38,12 +38,12 @@ namespace nkentseu {
 					if (mAttached)
 						return;
 
-					mIds[0] = EventBus::Subscribe<NkMouseMoveEvent>([this](NkMouseMoveEvent *e) -> bool {
+					mIds[0] = NkEventBus::Subscribe<NkMouseMoveEvent>([this](NkMouseMoveEvent *e) -> bool {
 						mState.SetMousePos(static_cast<nk_float32>(e->GetX()), static_cast<nk_float32>(e->GetY()));
 						return false;
 					});
 
-					mIds[1] = EventBus::Subscribe<NkMouseButtonPressEvent>([this](NkMouseButtonPressEvent *e) -> bool {
+					mIds[1] = NkEventBus::Subscribe<NkMouseButtonPressEvent>([this](NkMouseButtonPressEvent *e) -> bool {
 						mState.SetMousePos(static_cast<nk_float32>(e->GetX()), static_cast<nk_float32>(e->GetY()));
 						int btn = ToUIButton(e->GetButton());
 						if (btn >= 0)
@@ -52,7 +52,7 @@ namespace nkentseu {
 					});
 
 					mIds[2] =
-						EventBus::Subscribe<NkMouseButtonReleaseEvent>([this](NkMouseButtonReleaseEvent *e) -> bool {
+						NkEventBus::Subscribe<NkMouseButtonReleaseEvent>([this](NkMouseButtonReleaseEvent *e) -> bool {
 							mState.SetMousePos(static_cast<nk_float32>(e->GetX()), static_cast<nk_float32>(e->GetY()));
 							int btn = ToUIButton(e->GetButton());
 							if (btn >= 0)
@@ -60,7 +60,7 @@ namespace nkentseu {
 							return false;
 						});
 
-					mIds[3] = EventBus::Subscribe<NkMouseDoubleClickEvent>([this](NkMouseDoubleClickEvent *e) -> bool {
+					mIds[3] = NkEventBus::Subscribe<NkMouseDoubleClickEvent>([this](NkMouseDoubleClickEvent *e) -> bool {
 						mState.SetMousePos(static_cast<nk_float32>(e->GetX()), static_cast<nk_float32>(e->GetY()));
 						int btn = ToUIButton(e->GetButton());
 						if (btn >= 0) {
@@ -71,40 +71,40 @@ namespace nkentseu {
 					});
 
 					mIds[4] =
-						EventBus::Subscribe<NkMouseWheelVerticalEvent>([this](NkMouseWheelVerticalEvent *e) -> bool {
+						NkEventBus::Subscribe<NkMouseWheelVerticalEvent>([this](NkMouseWheelVerticalEvent *e) -> bool {
 							mState.AddMouseWheel(static_cast<nk_float32>(e->GetOffsetY()),
 												 static_cast<nk_float32>(e->GetOffsetX()));
 							return false;
 						});
 
-					mIds[5] = EventBus::Subscribe<NkMouseWheelHorizontalEvent>(
+					mIds[5] = NkEventBus::Subscribe<NkMouseWheelHorizontalEvent>(
 						[this](NkMouseWheelHorizontalEvent *e) -> bool {
 							mState.AddMouseWheel(0.f, static_cast<nk_float32>(e->GetOffsetX()));
 							return false;
 						});
 
-					mIds[6] = EventBus::Subscribe<NkKeyPressEvent>([this](NkKeyPressEvent *e) -> bool {
+					mIds[6] = NkEventBus::Subscribe<NkKeyPressEvent>([this](NkKeyPressEvent *e) -> bool {
 						NkKey k = e->GetKey();
 						if (k != NkKey::NK_UNKNOWN)
 							mState.SetKey(k, true);
 						// Ctrl, Shift, Alt — mettre à jour les modifiers UI
-						mState.keyCtrl = e->IsCtrl();
-						mState.keyShift = e->IsShift();
-						mState.keyAlt = e->IsAlt();
+						mState.ctrl = e->HasCtrl();
+						mState.shift = e->HasShift();
+						mState.alt = e->HasAlt();
 						return false; // ne consomme pas — le layer éditeur peut l'intercepter
 					});
 
-					mIds[7] = EventBus::Subscribe<NkKeyReleaseEvent>([this](NkKeyReleaseEvent *e) -> bool {
+					mIds[7] = NkEventBus::Subscribe<NkKeyReleaseEvent>([this](NkKeyReleaseEvent *e) -> bool {
 						NkKey k = e->GetKey();
 						if (k != NkKey::NK_UNKNOWN)
 							mState.SetKey(k, false);
-						mState.keyCtrl = e->IsCtrl();
-						mState.keyShift = e->IsShift();
-						mState.keyAlt = e->IsAlt();
+						mState.ctrl = e->HasCtrl();
+						mState.shift = e->HasShift();
+						mState.alt = e->HasAlt();
 						return false;
 					});
 
-					mIds[8] = EventBus::Subscribe<NkTextInputEvent>([this](NkTextInputEvent *e) -> bool {
+					mIds[8] = NkEventBus::Subscribe<NkTextInputEvent>([this](NkTextInputEvent *e) -> bool {
 						AddUtf8ToInput(e->GetUtf8());
 						return false;
 					});
@@ -115,15 +115,15 @@ namespace nkentseu {
 				void Detach() {
 					if (!mAttached)
 						return;
-					EventBus::Unsubscribe<NkMouseMoveEvent>(mIds[0]);
-					EventBus::Unsubscribe<NkMouseButtonPressEvent>(mIds[1]);
-					EventBus::Unsubscribe<NkMouseButtonReleaseEvent>(mIds[2]);
-					EventBus::Unsubscribe<NkMouseDoubleClickEvent>(mIds[3]);
-					EventBus::Unsubscribe<NkMouseWheelVerticalEvent>(mIds[4]);
-					EventBus::Unsubscribe<NkMouseWheelHorizontalEvent>(mIds[5]);
-					EventBus::Unsubscribe<NkKeyPressEvent>(mIds[6]);
-					EventBus::Unsubscribe<NkKeyReleaseEvent>(mIds[7]);
-					EventBus::Unsubscribe<NkTextInputEvent>(mIds[8]);
+					NkEventBus::Unsubscribe<NkMouseMoveEvent>(mIds[0]);
+					NkEventBus::Unsubscribe<NkMouseButtonPressEvent>(mIds[1]);
+					NkEventBus::Unsubscribe<NkMouseButtonReleaseEvent>(mIds[2]);
+					NkEventBus::Unsubscribe<NkMouseDoubleClickEvent>(mIds[3]);
+					NkEventBus::Unsubscribe<NkMouseWheelVerticalEvent>(mIds[4]);
+					NkEventBus::Unsubscribe<NkMouseWheelHorizontalEvent>(mIds[5]);
+					NkEventBus::Unsubscribe<NkKeyPressEvent>(mIds[6]);
+					NkEventBus::Unsubscribe<NkKeyReleaseEvent>(mIds[7]);
+					NkEventBus::Unsubscribe<NkTextInputEvent>(mIds[8]);
 					mAttached = false;
 				}
 

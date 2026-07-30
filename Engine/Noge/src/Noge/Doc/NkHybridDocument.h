@@ -22,10 +22,17 @@
 #include "NKMath/NKMath.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
-#include "Nkentseu/Design/NkLayerStack.h"
-#include "Nkentseu/Design/Raster/NkRasterCanvas.h"
-#include "Nkentseu/Design/Vector/NkVectorPath.h"
-#include "Nkentseu/Design/Color/NkColorManager.h"
+// [FIX 2026-07-25] Includes cassés : préfixe "Nkentseu/" inexistant
+// (includedirs Noge.jenga = "src", fichiers réels sous "src/Noge/...") --
+// même bug que documenté dans NkVectorDocument.h/NkLayerStack.h/
+// NkRasterCanvas.h/NkTextPath.h.
+#include "Noge/Design/NkLayerStack.h"
+#include "Noge/Design/Raster/NkRasterCanvas.h"
+#include "Noge/Design/Vector/NkVectorPath.h"
+#include "Noge/Color/NkColorManager.h"
+// [FIX 2026-07-25] Include manquant : `undoStack` (membre par valeur plus bas)
+// est de type NkUndoStack, jamais inclus ici (même bug que NkVectorDocument.h).
+#include "Noge/Modeling/NkUndoStack.h"
 
 namespace nkentseu {
 	using namespace math;
@@ -76,7 +83,9 @@ namespace nkentseu {
 	// =========================================================================
 	struct NkVanishingPoint {
 			NkVec2f position;
-			NkColor color = NkColor::FromSRGB(0.3f, 0.7f, 1.f, 0.6f);
+			// [FUSION 2026-07-25] `NkColor` (ancienne classe dupliquée Noge) -> `NkColorF`
+			// (NKMath), désormais seule classe couleur du namespace `math` avec FromSRGB.
+			NkColorF color = NkColorF::FromSRGB(0.3f, 0.7f, 1.f, 0.6f);
 			bool enabled = true;
 			uint32 lineCount = 12; ///< Nombre de lignes rayonnantes
 	};
@@ -270,8 +279,11 @@ namespace nkentseu {
 
 			// ── Couleurs ──────────────────────────────────────────────────────
 			NkVector<NkPalette> palettes;
-			NkColor foreground = NkColor::Black();
-			NkColor background = NkColor::White();
+			// [FUSION 2026-07-25] `NkColor`/`NkColor::Black()`/`White()` (ancienne classe
+			// dupliquée Noge, factory methods) -> `NkColorF` (NKMath) + couleurs nommées
+			// `math::NkColor::Black`/`White` (8-bit, constantes statiques) converties.
+			NkColorF foreground = NkColor::Black.ToColorF();
+			NkColorF background = NkColor::White.ToColorF();
 
 			// ── Historique ───────────────────────────────────────────────────
 			NkUndoStack undoStack{200};

@@ -23,9 +23,21 @@
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
 #include "NKRenderer/Tools/Render2D/NkRender2D.h"
+// [FIX 2026-07-24] NkAABB2f (type de retour de GetBoundingBox()) n'existait
+// nulle part dans le repo -- voir NkDesignGeomTypes.h pour le détail.
+#include "Noge/Design/NkDesignGeomTypes.h"
 
 namespace nkentseu {
-	using namespace math;
+	// [FIX 2026-07-24, résolu 2026-07-25] `using namespace math;` remplacé
+	// par des `using` ciblés : la classe dupliquée `nkentseu::NkColor`
+	// (Color/NkColorManager.h) qui rendait `NkColor` ambigu avec
+	// `nkentseu::math::NkColor` a été supprimée le 2026-07-25. Les `using`
+	// ciblés sont conservés par choix de style (évite la pollution
+	// `using namespace` dans le reste de l'unité de compilation).
+	using math::NkVec2f;
+	using math::NkVec4f;
+	using math::NkMat3f;
+	using math::NkAABB2f;
 
 	// =========================================================================
 	// Enums de style

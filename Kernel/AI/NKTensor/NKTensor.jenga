@@ -21,9 +21,17 @@ with project("NKTensor"):
 
     # Backend GPU (Jalon 3) : NKRHI compute + NKSL (kernels écrits en NkSL,
     # convertis via glslang/SPIRV-Cross). Cf src/NKTensor/NkTensorGpu.{h,cpp}.
+    # NKGlad est indispensable ici : NKRHI expose NkDeviceInitInfo.h, qui inclut
+    # <glad/egl.h> sur Android/HarmonyOS. Sans le repertoire d'include de NKGlad,
+    # NkTensorGpu.cpp echoue en "fatal error: 'glad/egl.h' file not found" et tout
+    # build mobile d'une application qui tire NKTensor (dont renderdemo) est bloque.
+    _tensorDeps = ["NKCore", "NKPlatform", "NKMemory", "NKContainers", "NKMath", "NKLogger",
+                   "NKRHI", "NKSL", "NKGLSlang", "NKSPIRVCross"]
+    if USE_NKGLAD:
+        _tensorDeps.append("NKGlad")
+
     nkentseudependson(
-        ["NKCore", "NKPlatform", "NKMemory", "NKContainers", "NKMath", "NKLogger",
-         "NKRHI", "NKSL", "NKGLSlang", "NKSPIRVCross"],
+        _tensorDeps,
         selfexport="NKTensor",
         extra_includes=["src", "%{wks.location}/Externals"],
     )

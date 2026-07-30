@@ -1,5 +1,6 @@
 #include "SceneTreePanel.h"
 #include "NKUI/NkUIMenu.h"
+#include "Noge/ECS/NkEcsUtil.h"
 #include "NKLogger/NkLog.h"
 #include <cstring>
 #include <cstdio>
@@ -11,7 +12,7 @@ namespace nkentseu {
 
 		void SceneTreePanel::Render(NkUIContext &ctx, NkUIWindowManager &wm, NkUIDrawList &dl, NkUIFont &font,
 									NkUILayoutStack &ls, ecs::NkWorld &world, ecs::NkSceneGraph *scene,
-									NkSelectionManager &sel, CommandHistory *hist, NkUIRect rect) noexcept {
+									NkSelectionManager &sel, CommandHistory *hist, NkRect rect) noexcept {
 			NkUIWindow::SetNextWindowPos({rect.x, rect.y});
 			NkUIWindow::SetNextWindowSize({rect.w, rect.h});
 
@@ -40,7 +41,7 @@ namespace nkentseu {
 			// ── Arbre des entités ─────────────────────────────────────────────
 			// Collecter les racines (sans parent valide)
 			NkVector<ecs::NkEntityId> roots;
-			world.Query<const ecs::NkSceneNode>().Without<ecs::NkInactiveComponent>().ForEach(
+			world.Query<const ecs::NkSceneNode>().Without<ecs::NkInactive>().ForEach(
 				[&](ecs::NkEntityId id, const ecs::NkSceneNode &) {
 					const ecs::NkParent *p = world.Get<ecs::NkParent>(id);
 					if (!p || !p->entity.IsValid())
@@ -77,7 +78,7 @@ namespace nkentseu {
 
 			// Couleur de fond si sélectionné
 			if (isSelected) {
-				ctx.PushStyleColor(NkStyleVar::NK_STYLE_BG_ACTIVE, NkColor{60, 100, 160, 200});
+				ctx.PushStyleColor(NkStyleVar::NK_BUTTON_BG, NkColor{60, 100, 160, 200});
 			}
 
 			// Mode renommage
@@ -85,7 +86,7 @@ namespace nkentseu {
 				NkUI::SetNextWidth(ctx, ls, 0.f);
 				bool confirmed =
 					NkUI::InputText(ctx, ls, dl, font, "##rename", mRenameBuffer, (int32)sizeof(mRenameBuffer));
-				if (confirmed || ctx.input.IsKeyDown(NkKey::NK_RETURN) || ctx.input.IsKeyDown(NkKey::NK_ESCAPE)) {
+				if (confirmed || ctx.input.IsKeyDown(NkKey::NK_ENTER) || ctx.input.IsKeyDown(NkKey::NK_ESCAPE)) {
 					if (confirmed && strlen(mRenameBuffer) > 0) {
 						if (ecs::NkSceneNode *n = world.Get<ecs::NkSceneNode>(id))
 							NkStrNCpy(n->name, mRenameBuffer, 63);
@@ -120,16 +121,20 @@ namespace nkentseu {
 
 				// Sélection au clic
 				if (clicked) {
-					if (ctx.input.IsKeyDown(NkKey::NK_LEFT_CONTROL) || ctx.input.IsKeyDown(NkKey::NK_RIGHT_CONTROL))
+					if (ctx.input.IsKeyDown(NkKey::NK_LCTRL) || ctx.input.IsKeyDown(NkKey::NK_RCTRL))
 						sel.SelectToggle(id);
 					else
 						sel.Select(id);
 				}
 
-				// Clic droit → menu contextuel
-				if (ctx.IsHovered(NkUI::TreeNode ? NkRect{} : NkRect{}) && ctx.input.IsMouseClicked(1)) {
-					mContextMenuEntity = id;
-					NkUIMenu::OpenContextMenu(ctx, "##entity_ctx");
+				// Clic droit → menu contextuel (hover approximé sur la ligne courante)
+				{
+					NkVec2 cur = ctx.GetCursor();
+					NkRect rowRect{0.f, cur.y - ctx.GetItemHeight(), (float32)ctx.viewW, ctx.GetItemHeight()};
+					if (ctx.IsHovered(rowRect) && ctx.input.IsMouseClicked(1)) {
+						mContextMenuEntity = id;
+						NkUIMenu::OpenContextMenu(ctx, "##entity_ctx");
+					}
 				}
 			}
 

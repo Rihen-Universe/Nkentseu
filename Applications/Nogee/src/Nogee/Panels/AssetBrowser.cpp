@@ -1,13 +1,38 @@
 #include "AssetBrowser.h"
 #include "NKFileSystem/NkDirectory.h"
+#include "NKFileSystem/NkPath.h"
+#include "NKMath/NKMath.h"
 #include "NKLogger/NkLog.h"
 #include <cstring>
 #include <cstdio>
+#include <cctype>
 
 using namespace nkentseu::nkui;
 
 namespace nkentseu {
 	namespace noge {
+
+		// Recherche sous-chaîne insensible à la casse (ASCII) — NkString n'a
+		// qu'un Contains sensible à la casse.
+		static bool ContainsInsensitive(const NkString &haystack, const char *needle) noexcept {
+			if (!needle || !needle[0])
+				return true;
+			const char *h = haystack.CStr();
+			if (!h)
+				return false;
+			const nk_usize hLen = haystack.Length();
+			const nk_usize nLen = (nk_usize)strlen(needle);
+			if (nLen > hLen)
+				return false;
+			for (nk_usize i = 0; i + nLen <= hLen; ++i) {
+				nk_usize j = 0;
+				while (j < nLen && tolower((unsigned char)h[i + j]) == tolower((unsigned char)needle[j]))
+					++j;
+				if (j == nLen)
+					return true;
+			}
+			return false;
+		}
 
 		void AssetBrowser::Init(AssetManager *mgr, const char *projectDir) noexcept {
 			mAssetMgr = mgr;
@@ -23,50 +48,53 @@ namespace nkentseu {
 		void AssetBrowser::RefreshEntries() noexcept {
 			mEntries.Clear();
 
-			// Lister le contenu du dossier courant via NKFileSystem
-			NkDirectory directory;
-			if (!directory.Open(mCurrentDir.CStr())) {
+			// Lister le contenu du dossier courant via NKFileSystem (API statique)
+			if (!NkDirectory::Exists(mCurrentDir.CStr())) {
 				logger.Warnf("[AssetBrowser] Dossier inaccessible: {}\n", mCurrentDir.CStr());
 				return;
 			}
-
-			NkVector<NkString> names;
-			directory.GetEntries(names);
-			directory.Close();
 
 			// Dossier parent (..)
 			if (mCurrentDir != mProjectDir) {
 				NkAssetBrowserEntry parent;
 				parent.name = "..";
-				parent.fullPath = NkPath::GetDirectory(mCurrentDir.CStr());
+				parent.fullPath = NkPath(mCurrentDir.CStr()).GetDirectory();
 				parent.isDirectory = true;
 				parent.type = NkAssetType::Unknown;
 				mEntries.PushBack(parent);
 			}
 
-			for (nk_usize i = 0; i < names.Size(); ++i) {
-				const NkString &name = names[i];
-				NkString full = mCurrentDir + "/" + name;
+			NkVector<NkDirectoryEntry> found = NkDirectory::GetEntries(mCurrentDir.CStr());
+			for (nk_usize i = 0; i < found.Size(); ++i) {
+				const NkDirectoryEntry &d = found[i];
 
 				NkAssetBrowserEntry e;
-				e.name = name;
-				e.fullPath = full;
-				e.relativePath = mAssetMgr ? mAssetMgr->RelPath(full.CStr()) : name; // fallback
-				e.isDirectory = NkDirectory::Exists(full.CStr());
-				e.type = e.isDirectory ? NkAssetType::Unknown : AssetManager::DetectType(name.CStr());
+				e.name = d.Name;
+				e.fullPath = d.FullPath.ToString();
+				e.isDirectory = d.IsDirectory;
+				e.type = e.isDirectory ? NkAssetType::Unknown : AssetManager::DetectType(d.Name.CStr());
 
-				// Charger thumbnail pour les textures
-				if (!e.isDirectory && e.type == NkAssetType::Texture && mAssetMgr) {
-					NkTextureHandle th = mAssetMgr->GetThumbnail(e.relativePath.CStr());
-					e.thumbnailHandle = th.id;
+				// Chemin relatif au projet (clé du cache d'assets)
+				e.relativePath = e.fullPath;
+				if (e.relativePath.StartsWith(mProjectDir.CStr())) {
+					e.relativePath = e.relativePath.SubStr(mProjectDir.Length());
+					if (!e.relativePath.Empty() && (e.relativePath[0] == '/' || e.relativePath[0] == '\\'))
+						e.relativePath = e.relativePath.SubStr(1);
 				}
+
+				// [PERF 2026-07-25] Thumbnails PARESSEUX : plus aucun chargement
+				// ici. L'ancien code chargeait synchroneusement chaque texture du
+				// dossier (load disque + upload GPU) → l'attache de l'UILayer
+				// prenait plusieurs secondes sur un dossier riche en images.
+				// La génération se fait désormais au rendu, étalée par frame
+				// (cf. RenderEntry + THUMB_LOADS_PER_FRAME).
 
 				mEntries.PushBack(e);
 			}
 		}
 
 		void AssetBrowser::Render(NkUIContext &ctx, NkUIWindowManager &wm, NkUIDrawList &dl, NkUIFont &font,
-								  NkUILayoutStack &ls, NkUIRect rect) noexcept {
+								  NkUILayoutStack &ls, NkRect rect) noexcept {
 			NkUIWindow::SetNextWindowPos({rect.x, rect.y});
 			NkUIWindow::SetNextWindowSize({rect.w, rect.h});
 
@@ -79,7 +107,7 @@ namespace nkentseu {
 			// ── Barre de filtre + taille des thumbnails ───────────────────────
 			NkUI::BeginRow(ctx, ls, 22.f);
 			NkUI::SetNextGrow(ctx, ls);
-			if (NkUI::InputText(ctx, ls, dl, font, "##assetfilter", mFilterBuf, sizeof(mFilterBuf))) {
+			if (NkUI::InputText(ctx, ls, dl, font, "##assetfilter", mFilterBuf, (int32)sizeof(mFilterBuf))) {
 				// filtre actif — les entrées ne correspondant pas sont masquées
 			}
 			NkUI::SameLine(ctx, ls, 4.f);
@@ -93,14 +121,17 @@ namespace nkentseu {
 
 			// ── Grille d'assets ───────────────────────────────────────────────
 			float32 panelW = rect.w - ctx.GetPaddingX() * 2.f;
-			int32 columns = NkMax(1, (int32)(panelW / (mThumbnailSize + 8.f)));
+			int32 columns = math::NkMax(1, (int32)(panelW / (mThumbnailSize + 8.f)));
 
-			if (NkUI::BeginGrid(ctx, ls, dl, font, "##assetgrid", columns)) {
+			// Budget de thumbnails paresseux pour cette frame
+			mThumbBudget = THUMB_LOADS_PER_FRAME;
+
+			if (NkUI::BeginGrid(ctx, ls, columns)) {
 				for (nk_usize i = 0; i < mEntries.Size(); ++i) {
-					const auto &e = mEntries[i];
+					auto &e = mEntries[i];
 
 					// Filtre texte
-					if (mFilterBuf[0] != '\0' && !e.name.ContainsInsensitive(mFilterBuf))
+					if (mFilterBuf[0] != '\0' && !ContainsInsensitive(e.name, mFilterBuf))
 						continue;
 
 					RenderEntry(ctx, dl, font, ls, e, mThumbnailSize);
@@ -117,8 +148,8 @@ namespace nkentseu {
 
 			// Découper le chemin en segments
 			NkString rel = mCurrentDir;
-			if (rel.StartsWith(mProjectDir))
-				rel = rel.Substring(mProjectDir.Length());
+			if (rel.StartsWith(mProjectDir.CStr()))
+				rel = rel.SubStr(mProjectDir.Length());
 
 			// Bouton "Assets" → racine
 			if (NkUI::ButtonSmall(ctx, ls, dl, font, "Assets")) {
@@ -130,17 +161,17 @@ namespace nkentseu {
 			NkVector<NkString> parts;
 			// Découpage simple par '/'
 			NkString tmp = rel;
-			while (!tmp.IsEmpty()) {
+			while (!tmp.Empty()) {
 				nk_usize slash = tmp.Find('/');
 				if (slash == NkString::npos) {
-					if (!tmp.IsEmpty())
+					if (!tmp.Empty())
 						parts.PushBack(tmp);
 					break;
 				}
-				NkString seg = tmp.Substring(0, slash);
-				if (!seg.IsEmpty())
+				NkString seg = tmp.SubStr(0, slash);
+				if (!seg.Empty())
 					parts.PushBack(seg);
-				tmp = tmp.Substring(slash + 1);
+				tmp = tmp.SubStr(slash + 1);
 			}
 
 			for (nk_usize i = 0; i < parts.Size(); ++i) {
@@ -158,14 +189,26 @@ namespace nkentseu {
 		}
 
 		void AssetBrowser::RenderEntry(NkUIContext &ctx, NkUIDrawList &dl, NkUIFont &font, NkUILayoutStack &ls,
-									   const NkAssetBrowserEntry &entry, float32 ts) noexcept {
+									   NkAssetBrowserEntry &entry, float32 ts) noexcept {
+			(void)font;
+
+			// [PERF 2026-07-25] Génération paresseuse du thumbnail : uniquement
+			// pour les entrées effectivement rendues, avec budget par frame.
+			if (!entry.isDirectory && entry.type == NkAssetType::Texture && !entry.thumbnailTried && mAssetMgr &&
+				mThumbBudget > 0) {
+				--mThumbBudget;
+				entry.thumbnailTried = true;
+				NkTextureHandle th = mAssetMgr->GetThumbnail(entry.relativePath.CStr());
+				entry.thumbnailHandle = th.id;
+			}
+
 			bool isSelected = (mSelectedPath == entry.fullPath);
 
 			// Fond coloré si sélectionné
 			if (isSelected)
-				ctx.PushStyleColor(NkStyleVar::NK_STYLE_BG_ACTIVE, NkColor{60, 100, 160, 200});
+				ctx.PushStyleColor(NkStyleVar::NK_BUTTON_BG, NkColor{60, 100, 160, 200});
 
-			char btnId[128];
+			char btnId[192];
 			snprintf(btnId, sizeof(btnId), "##asset_%s", entry.name.CStr());
 
 			bool clicked = NkUI::InvisibleButton(ctx, ls, btnId, {ts, ts + 18.f});
@@ -177,7 +220,7 @@ namespace nkentseu {
 			NkRect iconRect = {p.x, p.y - ts - 18.f, ts, ts};
 
 			if (entry.thumbnailHandle) {
-				dl.AddImage((nk_uint32)entry.thumbnailHandle, iconRect);
+				dl.AddImage((uint32)entry.thumbnailHandle, iconRect);
 			} else {
 				// Icône colorée par type
 				NkColor iconCol = entry.isDirectory					   ? NkColor{220, 180, 60, 255}

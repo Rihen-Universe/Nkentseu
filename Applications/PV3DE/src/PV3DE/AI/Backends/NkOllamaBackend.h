@@ -17,7 +17,7 @@
 // API utilisée : POST /api/chat
 // =============================================================================
 
-#include "NkConversationEngine.h"
+#include "PV3DE/AI/Conversation/NkConversationEngine.h"
 #include "NKContainers/String/NkString.h"
 
 namespace nkentseu {

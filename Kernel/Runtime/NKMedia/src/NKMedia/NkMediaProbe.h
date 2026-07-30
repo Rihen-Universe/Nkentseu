@@ -42,6 +42,10 @@ namespace nkentseu {
 				// boutisme des échantillons. "twos" = big-endian, "sowt"/"lpcm" = little-endian.
 				int32 bitsPerSample = 0;
 				bool pcmBigEndian = false;
+				// EBML (Matroska/WebM) : CodecPrivate de la piste, tel quel. Pour l'Opus c'est la
+				// structure OpusHead (RFC 7845 §5.1 : magic + version + canaux + PRE-SKIP + taux
+				// d'origine + gain) — indispensable au pre-skip exact du décodage.
+				NkVector<nk_uint8> codecPrivate;
 		};
 
 		struct NkMediaInfo {

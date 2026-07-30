@@ -16,7 +16,7 @@
 //   └────────────────────────────────────────────────────────────┘
 // =============================================================================
 
-#include "Noge/Core/Layer.h"
+#include "Noge/Core/NkLayer.h"
 #include "NKRHI/Core/NkIDevice.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"
 #include "NKRHI/Core/NkGraphicsApi.h"
@@ -33,7 +33,7 @@ namespace nkentseu {
 
 		class PatientLayer;
 
-		class MedicalUILayer : public nkentseu::Overlay {
+		class MedicalUILayer : public nkentseu::NkOverlay {
 			public:
 				MedicalUILayer(const NkString &name, NkIDevice *device, NkICommandBuffer *cmd, NkGraphicsApi api,
 							   PatientLayer *patientLayer) noexcept;
@@ -71,12 +71,12 @@ namespace nkentseu {
 
 				// Layout
 				struct Layout {
-						nkui::NkUIRect menuBar;
-						nkui::NkUIRect viewport;
-						nkui::NkUIRect symptom;
-						nkui::NkUIRect diagnostic;
-						nkui::NkUIRect state;
-						nkui::NkUIRect report;
+						nkui::NkRect menuBar;
+						nkui::NkRect viewport;
+						nkui::NkRect symptom;
+						nkui::NkRect diagnostic;
+						nkui::NkRect state;
+						nkui::NkRect report;
 				} mLayout;
 
 				nkui::NkUIInputState mInput;

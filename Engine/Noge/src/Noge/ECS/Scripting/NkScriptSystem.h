@@ -7,6 +7,7 @@
 
 #include "NKECS/NkECSDefines.h"
 #include "NkScriptComponent.h"
+#include "../Components/Core/NkTag.h" // NkInactive (header auto-suffisant hors umbrella)
 
 namespace nkentseu {
 	namespace ecs {

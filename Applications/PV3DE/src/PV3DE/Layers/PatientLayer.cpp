@@ -5,7 +5,7 @@ namespace nkentseu {
 	namespace pv3de {
 
 		PatientLayer::PatientLayer(const NkString &name, NkIDevice *device, NkICommandBuffer *cmd) noexcept
-			: Layer(name), mDevice(device), mCmd(cmd) {
+			: NkLayer(name), mDevice(device), mCmd(cmd) {
 		}
 
 		PatientLayer::~PatientLayer() = default;

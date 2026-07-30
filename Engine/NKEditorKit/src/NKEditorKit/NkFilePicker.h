@@ -72,6 +72,7 @@ namespace nkentseu {
 				}
 
 				NkVector<NkString> pickerFiles; // fichiers du dossier selectionne (mode PK_File)
+				NkString pickerFileExt;			// filtre d'extension mode PK_File (ex ".jenga") ; vide = tous
 				int32 pickerFileSel = -1;		// fichier choisi (index dans pickerFiles)
 				bool pickerOpen = false;
 				int32 pickerFor = PK_None;
@@ -140,6 +141,16 @@ namespace nkentseu {
 					return "Selectionner ce dossier";
 				}
 				virtual void PickerClearExtraFocus() {} // l'app y remet le focus de SES champs a 0
+				// Titre de la fenetre — surchargable par l'app (purposes applicatifs).
+				virtual const char *PickerTitle() const {
+					if (pickerFor == PK_SaveFile)
+						return "Enregistrer le fichier - choisir le dossier";
+					if (pickerFor == PK_File)
+						return "Choisir un fichier";
+					if (pickerFor == PK_PickFolder)
+						return "Ajouter un dossier au workspace";
+					return "Choisir un dossier";
+				}
 
 				// ── Comparaison de chemins : `dir` est-il ancetre (ou egal) de `file` ? ──
 				static bool PathIsAncestor(const char *dir, const char *file) {
@@ -389,9 +400,11 @@ namespace nkentseu {
 
 				// ── Ouverture GENERIQUE : construit l'arbre a partir de `startDir`. L'app
 				//    (OpenPicker) fixe le `purpose`, le buffer cible et la zone `confine`. ──
-				void OpenPickerBase(int32 purpose, const char *startDir, char *buf, int32 cap, const char *confine) {
+				void OpenPickerBase(int32 purpose, const char *startDir, char *buf, int32 cap, const char *confine,
+									const char *fileExt = nullptr) {
 					pickerOpen = true;
 					pickerFor = purpose;
+					pickerFileExt = (fileExt && *fileExt) ? NkString(fileExt) : NkString();
 					pickerBuf = buf;
 					pickerBufCap = cap;
 					pickerScroll = 0.f;
@@ -435,6 +448,27 @@ namespace nkentseu {
 					pickerFiles.Clear();
 				}
 
+				// Fin de chaine insensible a la casse (filtre d'extension du mode PK_File).
+				static bool EndsWithI(const char *s, const char *suffix) {
+					usize ls = 0, lx = 0;
+					while (s[ls])
+						++ls;
+					while (suffix[lx])
+						++lx;
+					if (lx > ls)
+						return false;
+					for (usize i = 0; i < lx; ++i) {
+						char a = s[ls - lx + i], b = suffix[i];
+						if (a >= 'A' && a <= 'Z')
+							a += 32;
+						if (b >= 'A' && b <= 'Z')
+							b += 32;
+						if (a != b)
+							return false;
+					}
+					return true;
+				}
+
 				// Liste les FICHIERS (non-dossiers) du repertoire courant (mode PK_File).
 				void ScanPickerFiles(const char *dir) {
 					pickerFiles.Clear();
@@ -444,7 +478,8 @@ namespace nkentseu {
 					NkVector<NkDirectoryEntry> e =
 						NkDirectory::GetEntries(NkPath(dir), "*", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
 					for (usize i = 0; i < e.Size(); ++i)
-						if (!e[i].IsDirectory && e[i].Name.CStr()[0] != '.')
+						if (!e[i].IsDirectory && e[i].Name.CStr()[0] != '.' &&
+							(pickerFileExt.Empty() || EndsWithI(e[i].Name.CStr(), pickerFileExt.CStr())))
 							pickerFiles.PushBack(e[i].Name);
 				}
 		};
@@ -491,6 +526,18 @@ namespace nkentseu {
 			const bool hasExtra = extraH > 0.f;
 			const float32 pw = 580.f * S, ph = fp.PickerWindowHeight(S);
 			const float32 px = (W - pw) * 0.5f + fp.pickerWinOffX, py = (H - ph) * 0.5f + fp.pickerWinOffY;
+			// ── ROUTEUR D'OCCLUSION : le picker est une surface MODALE (couche 100).
+			// Il ne s'appuyait que sur `ctx.appModal`, qui neutralise le clavier et
+			// l'edition mais PAS les hit-tests : un clic sur une carte du launcher
+			// SOUS le picker etait quand meme pris en compte. Le voile plein ecran est
+			// declare (et non la seule fenetre) parce que rien derriere ne doit
+			// repondre tant que le picker est ouvert.
+			// Le NkInputLayerScope est OBLIGATOIRE : sans lui, les widgets natifs du
+			// picker LUI-MEME (champs de saisie, barres de defilement, boutons via
+			// ItemHoverable) seraient bloques par sa propre occlusion a la frame
+			// suivante (la liste lue est celle de la frame precedente).
+			ctx.PushOcclusion({0.f, 0.f, W, H}, 100);
+			NkGuiContext::NkInputLayerScope _pickerLayer(ctx, 100);
 			const bool down = ctx.input.mouseDown[0];
 			bool fieldClicked = false; // un champ de saisie a-t-il ete clique cette frame ?
 			dl.AddRectFilled({0.f, 0.f, W, H}, sty.backdrop);
@@ -499,12 +546,7 @@ namespace nkentseu {
 			// ── BARRE DE TITRE deplacable (lisere accent + drag) ──
 			const float32 tbH = 40.f * S;
 			dl.AddRectFilled({px, py, pw, 3.f * S}, sty.accent, 10.f * S);
-			text(px + 20.f * S, py + 16.f * S,
-				 saveMode		 ? "Enregistrer le fichier - choisir le dossier"
-				 : fileMode		 ? "Choisir un fichier (executable)"
-				 : pickFolderMode ? "Ajouter un dossier au workspace"
-								  : "Choisir un dossier",
-				 sty.text);
+			text(px + 20.f * S, py + 16.f * S, fp.PickerTitle(), sty.text);
 			{
 				const NkRect titleBar = {px, py, pw - 44.f * S, tbH}; // hors bouton ✕ (a droite)
 				if (click && hit(titleBar)) {

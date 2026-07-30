@@ -21,6 +21,7 @@
 #include "NKECS/NkECSDefines.h"
 #include "NKMath/NKMath.h"
 #include "NKContainers/Sequential/NkVector.h"
+#include "NKCollision/NkColTypes.h"
 
 namespace nkentseu {
 
@@ -42,16 +43,16 @@ namespace nkentseu {
 			 * @return t >= 0 si intersection devant, -1 sinon.
 			 */
 			[[nodiscard]] float32 IntersectPlane(const NkVec3f &planeNormal, float32 planeD) const noexcept {
-				const float32 denom = NkVec3f::Dot(planeNormal, direction);
+				const float32 denom = planeNormal.Dot(direction);
 				if (NkAbs(denom) < 1e-6f)
 					return -1.f;
-				return -(NkVec3f::Dot(planeNormal, origin) + planeD) / denom;
+				return -(planeNormal.Dot(origin) + planeD) / denom;
 			}
 
 			/**
 			 * @brief Intersection avec une AABB.
 			 */
-			[[nodiscard]] bool IntersectAABB(const NkAABB &aabb, float32 &tNear) const noexcept;
+			[[nodiscard]] bool IntersectAABB(const collision::NkAABB3D &aabb, float32 &tNear) const noexcept;
 	};
 
 	// =========================================================================
@@ -155,7 +156,7 @@ namespace nkentseu {
 			 * @brief Cadre la caméra sur une AABB (Frame Selection, touche F).
 			 * Ajuste la distance du pivot pour contenir l'AABB dans le frustum.
 			 */
-			void FrameAABB(const NkAABB &bbox, float32 padding = 1.2f) noexcept;
+			void FrameAABB(const collision::NkAABB3D &bbox, float32 padding = 1.2f) noexcept;
 
 			/**
 			 * @brief Cadre la caméra sur un point.

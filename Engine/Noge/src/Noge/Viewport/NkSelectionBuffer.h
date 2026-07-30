@@ -7,9 +7,12 @@
 // lit le pixel sous le curseur pour identifier l'objet cliqué.
 // =============================================================================
 #include "NKECS/NkECSDefines.h"
+#include "NKECS/World/NkWorld.h"				 // ecs::NkWorld
 #include "NKMath/NKMath.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKRenderer/NkRenderer.h"
+#include "NKRHI/Commands/NkICommandBuffer.h"	 // NkICommandBuffer
+#include "Noge/Viewport/NkViewportCamera.h"	 // NkViewportCamera
 
 namespace nkentseu {
 	using namespace math;
@@ -49,9 +52,9 @@ namespace nkentseu {
 
 		private:
 			NkIDevice *mDevice = nullptr;
-			NkRenderTargetHandle mColorRT; // R8G8B8A8 — ID couleur
-			NkRenderTargetHandle mDepthRT;
-			NkShaderHandle mIDShader;
+			NkTargetHandle mColorRT; // R8G8B8A8 — ID couleur
+			NkTargetHandle mDepthRT;
+			renderer::NkShaderHandle mIDShader;
 			uint32 mWidth = 0, mHeight = 0;
 
 			mutable NkVector<uint8> mReadback; // Buffer CPU pour readback

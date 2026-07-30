@@ -16,4 +16,18 @@ namespace nkentseu {
 		return std::strcmp(a, b) == 0;
 	}
 
+	// Copie bornée d'une chaine C avec terminaison NUL garantie. nullptr-safe.
+	// maxChars = nombre max de caracteres copiés (dst doit contenir maxChars+1).
+	// Utilisé par NkSequencer.h, NkSceneGraph.h et les panels éditeur (Nogee).
+	inline void NkStrNCpy(char *dst, const char *src, unsigned long long maxChars) noexcept {
+		if (!dst || maxChars == 0)
+			return;
+		if (!src) {
+			dst[0] = '\0';
+			return;
+		}
+		std::strncpy(dst, src, maxChars);
+		dst[maxChars] = '\0';
+	}
+
 } // namespace nkentseu

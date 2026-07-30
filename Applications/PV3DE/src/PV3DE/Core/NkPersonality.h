@@ -40,6 +40,17 @@
 #include "NKContainers/String/NkString.h"
 #include "NKContainers/Sequential/NkVector.h"
 
+// NOTE — NAMESPACE : ce fichier vit physiquement sous PV3DE/Core/ (à côté de
+// NkClinicalState.h, qui est dans nkentseu::pv3de) mais déclare volontairement
+// nkentseu::humanoid. Ce n'est pas une incohérence accidentelle : humanoid
+// regroupe le framework IA "humanoïde" générique et réutilisable (personnalité,
+// comportement, conversation, FaceControllerV2 — voir PV3DE/AI, PV3DE/Behavior,
+// PV3DE/Face/NkFaceControllerV2.h), destiné à terme à être extrait en module
+// indépendant de PV3DE, tandis que pv3de reste le code médical spécifique
+// (état clinique, émotions FSM, respiration, rendu). Les deux namespaces
+// coexistent sans collision (import via `using namespace nkentseu::humanoid;`
+// dans PatientLayer_v3.h) et le split n'a pas été uniformisé ici pour éviter
+// de renommer ~8 fichiers et tout le code appelant qui en dépend.
 namespace nkentseu {
 	namespace humanoid {
 

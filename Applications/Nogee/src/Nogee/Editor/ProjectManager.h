@@ -11,7 +11,7 @@
 #include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {
-	namespace Noge {
+	namespace noge {
 
 		struct NkProjectConfig {
 				NkString name = "NewProject";
@@ -95,5 +95,5 @@ namespace nkentseu {
 				bool mModified = false;
 		};
 
-	} // namespace Noge
+	} // namespace noge
 } // namespace nkentseu

@@ -11,7 +11,7 @@ namespace nkentseu {
 
 			if (config.enableConversation) {
 				mConversation.Init(config.backendType, config.modelName.CStr(), config.endpoint.CStr(),
-								   config.apiKey.IsEmpty() ? nullptr : config.apiKey.CStr());
+								   config.apiKey.Empty() ? nullptr : config.apiKey.CStr());
 			}
 
 			logger.Infof("[NkAIDriver] Init OK — async={} conversation={}\n", config.asyncResponse,
@@ -78,7 +78,9 @@ namespace nkentseu {
 				// Lancer dans un thread séparé (NkThread ou std::thread)
 				// Pour simplifier : ici on utilise NkThread du système threading
 				// En production : utiliser NkThreadPool
-				nkentseu::threading::NkThread workerThread([this, req]() {
+				// NkThread::ThreadFunc = NkFunction<void(void*)> — la lambda doit
+				// accepter le paramètre userData (inutilisé ici), pas void().
+				nkentseu::threading::NkThread workerThread([this, req](void * /*userData*/) {
 					NkConvResponse resp = mConversation.Ask(req);
 					mPending.response = resp;
 					mPending.ready = true;

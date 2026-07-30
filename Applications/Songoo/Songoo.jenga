@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # =============================================================================
-# Songo.jenga — Configuration de build du jeu Songo'o
-# Basé EXACTEMENT sur Applications/Songoo/Songoo.jenga du repo Nkentseu.
+# Songoo.jenga — Configuration de build du jeu Songo'o (Applications/Songoo/)
 # Stack : NkContext (OpenGL/GLES) + NKFont + NKImage + NKAudio
 # Plateformes : Windows, Linux (X11/Wayland), Android, macOS, iOS, Web
 # NB : SFML3 supprimée — audio géré par NKAudio natif Nkentseu
@@ -55,7 +54,7 @@ if _pkg_exists("libdecor-0"):
     _WAYLAND_DEFINES.append("NKENTSEU_WAYLAND_LIBDECOR")
 
 
-with project("Songo"):
+with project("Songoo"):
 
     windowedapp()
     language("C++")
@@ -65,7 +64,7 @@ with project("Songo"):
     # ── Sources ──────────────────────────────────────────────────────────────
     files(["src/**.cpp"])
 
-    # ── Dépendances Nkentseu (IDENTIQUES à Songoo.jenga) ────────────────────
+    # ── Dépendances Nkentseu ─────────────────────────────────────────────────
     nkentseudependson(
         ["NKEvent", "NKWindow", "NKCanvas", "NKGlad", "NKLogger",
          "NKMath", "NKTime", "NKStream", "NKFont", "NKImage", "NKUI",
@@ -87,10 +86,11 @@ with project("Songo"):
     targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
 
     # ── Icône et assets ───────────────────────────────────────────────────────
-    # L'icône et les assets sont référencés depuis Resources/Songo/
-    # (même convention que Resources/Songoo/ dans le projet Songoo)
-    appicon("../../Resources/Songo/assets/Icon.png")
-    dependfiles(["../../Resources/Songo"])
+    # L'icône et les assets sont référencés depuis Resources/Songoo/
+    # (dossier réellement présent sur disque : Nkentseu/Resources/Songoo/,
+    #  et Applications/Songoo/Resources/Songoo/ — "Songo" à un seul o n'existe pas)
+    appicon("../../Resources/Songoo/assets/Icon.png")
+    dependfiles(["../../Resources/Songoo"])
 
     apppublisher("Rihen Universe")
     appversion("1.0.0")
@@ -166,13 +166,13 @@ with project("Songo"):
     with filter("system:Android"):
         usetoolchain("android-ndk")
 
-        # ID de l'application (différent de Songoo)
-        androidapplicationid("com.rihen.songo")
+        # ID de l'application
+        androidapplicationid("com.rihen.songoo")
         androidisgame(True)
 
-        # Assets : dossier Resources/Songo/ (images PNG + audio MP3)
+        # Assets : dossier Resources/Songoo/ (images PNG + audio MP3)
         # Nkentseu embarque tout dans l'APK via AAssetManager
-        androidassets(["../../Resources/Songo"])
+        androidassets(["../../Resources/Songoo"])
 
         # SDK / NDK
         androidminsdk(24)        # Android 7.0 — OpenGL ES 3.0 garanti
@@ -186,7 +186,8 @@ with project("Songo"):
         androidscreenorientation("landscape")
         androidallowrotation(False)
 
-        # C++ STL partagée (requis pour std::thread + NKAudio)
+        # C++ runtime partagé (requis par NKThreading/NKAudio sur Android — pas par du
+        # std:: applicatif : la règle "pas de std::" du projet reste respectée côté Songoo)
         androidstl("c++_shared")
 
         # Permissions

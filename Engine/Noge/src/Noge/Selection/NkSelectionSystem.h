@@ -1,6 +1,6 @@
 #pragma once
 // =============================================================================
-// Nkentseu/Design/Raster/NkSelectionSystem.h
+// Nkentseu/Selection/NkSelectionSystem.h
 // =============================================================================
 // Système de sélection raster pour les applications de peinture numérique.
 //
@@ -23,7 +23,7 @@
 #include "NKECS/NkECSDefines.h"
 #include "NKMath/NKMath.h"
 #include "NKContainers/Sequential/NkVector.h"
-#include "NkRasterCanvas.h"
+#include "Noge/Design/Raster/NkRasterCanvas.h"
 
 namespace nkentseu {
 	using namespace math;

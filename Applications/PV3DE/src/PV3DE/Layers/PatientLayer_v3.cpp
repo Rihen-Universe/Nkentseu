@@ -1,12 +1,12 @@
 #include "PatientLayer_v3.h"
 #include "NKLogger/NkLog.h"
-#include "Noge/Components/Rendering/NkRenderComponents.h"
+#include "Noge/ECS/Components/Rendering/NkRenderComponents.h"
 
 namespace nkentseu {
 	namespace pv3de {
 
 		PatientLayerV3::PatientLayerV3(const NkString &name, NkIDevice *device, NkICommandBuffer *cmd) noexcept
-			: Layer(name), mDevice(device), mCmd(cmd), mPersonality(NkPersonality::CooperativePatient()) {
+			: NkLayer(name), mDevice(device), mCmd(cmd), mPersonality(NkPersonality::CooperativePatient()) {
 		}
 
 		PatientLayerV3::~PatientLayerV3() = default;

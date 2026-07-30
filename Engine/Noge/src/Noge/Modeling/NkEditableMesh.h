@@ -4,16 +4,45 @@
 // =============================================================================
 // Représentation CPU d'un mesh éditable pour la modélisation polygonale.
 //
-// DESIGN :
-//   • Données stockées côté CPU (pas de référence GPU directe)
-//   • Opérations non-destructives via NkMeshModifier stack
-//   • Conversion vers NkMeshDesc pour upload GPU via NkMeshUploader
-//   • Tout changement structurel (add/remove vertex/face) invalide les handles
+// [RÉVISION 2026-07-23] : NkEditableMesh est désormais une fine COUCHE
+// D'ADAPTATION au-dessus de renderer::NkEditMesh (Kernel/Runtime/NKRenderer/
+// src/NKRenderer/Mesh/NkEditMesh.h), et non plus une réimplémentation
+// indépendante de la topologie. Raison : NkEditMesh existe DÉJÀ en
+// production (utilisé par les commandes d'édition .nkmec, ExtrudeSelectedFaces,
+// MergeSelectedVerts, SubdivideSelectedFaces, LoopCutFromSelectedEdge,
+// BisectByPlane, Quadify, l'historique undo/redo NkEditHistory et la pile de
+// modificateurs NkModifierStack Mirror/Array/Subsurf) et supporte nativement
+// les N-GONS (faces à nombre de côtés quelconque) via une structure demi-arête
+// complète (Vert/Hedge/Face). La première version de ce fichier réimplémentait
+// sa PROPRE demi-arête avec des faces à TAILLE FIXE (NkEditFace::kMaxVerts=4)
+// — incapable de représenter un n-gon à 5+ côtés — ce qui dupliquait (en pire,
+// en plus limité) une structure déjà résolue côté NKRenderer.
 //
-// TOPOLOGIE :
-//   Vertex → référence des edges
-//   Edge   → half-edge pair (src → dst, et dst → src dans la même NkEdge)
-//   Face   → référence 3-4 vertices (triangle ou quad)
+// DESIGN ACTUEL :
+//   • Stockage unique : `renderer::NkEditMesh mEdit` (demi-arête, n-gons).
+//   • AddVertex/AddTri/AddQuad/AddPolygon reconstruisent mEdit via le
+//     round-trip public ToPolygons()/BuildFromPolygons() (coût O(taille du
+//     mesh) par appel — acceptable pour un outil d'édition interactif, PAS
+//     une boucle chaude runtime). Pas d'état de "staging" séparé à
+//     resynchroniser : mEdit est TOUJOURS la source de vérité unique.
+//   • Extrude/LoopCut/Subdivide DÉLÈGUENT aux commandes d'édition natives de
+//     NkEditMesh (ExtrudeSelectedFaces/LoopCutFromSelectedEdge/
+//     SubdivideSelectedFaces) via la sélection par sommet (Vert::sel).
+//   • FlipNormals/Triangulate/MergeByDistance n'ont PAS d'équivalent direct
+//     dans la couche de commandes de NkEditMesh : ils sont implémentés comme
+//     manipulations pures du CSR polygones (ToPolygons -> transforme la liste
+//     de faces -> BuildFromPolygons), ce qui délègue TOUJOURS le rechaînage
+//     demi-arête (twins, next, hedge) à NkEditMesh — Noge ne touche jamais
+//     directement les champs Hedge::twin/next.
+//   • ToMeshDesc délègue entièrement à `mEdit.Triangulate(...)`.
+//   • BevelEdges, SmartUVProject, CubeProject, CylindricalProject,
+//     GrowSelection, ShrinkSelection : AUCUN équivalent dans NkEditMesh —
+//     laissés en TODO honnête (voir NkEditableMesh.cpp), pas d'invention.
+//
+// TOPOLOGIE (déléguée à renderer::NkEditMesh) :
+//   Vertex → une demi-arête sortante (Vert::hedge)
+//   Hedge  → origin/twin/next/face (demi-arête classique)
+//   Face   → une demi-arête de bord + boucle via next (N sommets quelconque)
 //
 // USAGE TYPIQUE :
 //   NkEditableMesh em;
@@ -31,79 +60,29 @@
 #include "NKMath/NKMath.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
-#include "NKRenderer/src/Resources/NkResourceDescs.h"
+#include "NKContainers/Views/NkSpan.h"
+// NOTE [fix 2026-07-23] : "NKRenderer/src/Resources/NkResourceDescs.h" n'existe pas dans
+// l'arborescence NKRenderer actuelle (ce fichier n'a donc jamais été compilé — aucun .cpp
+// de Noge ne l'incluait avant NkEditableMesh.cpp). NkMeshDesc + NkAABB vivent réellement
+// dans NKRenderer/Mesh/NkMeshSystem.h. NkEditMesh.h (demi-arête n-gon) inclut lui-même
+// NkMeshSystem.h.
+#include "NKRenderer/Mesh/NkEditMesh.h"
 
 namespace nkentseu {
 
 	using namespace math;
 
 	// =========================================================================
-	// Types fondamentaux
+	// Alias de continuité d'API — les noms publics NkEditVertex/NkEditEdge/
+	// NkEditFace sont conservés (code appelant existant, docs), mais pointent
+	// maintenant directement vers les types demi-arête n-gon de NKRenderer au
+	// lieu d'une struct à taille fixe dupliquée.
 	// =========================================================================
+	using NkEditVertex = renderer::NkEditMesh::Vert; ///< pos, normal, uv, hedge (sortante), sel
+	using NkEditEdge = renderer::NkEditMesh::Hedge;  ///< origin, twin, next, face, alive
+	using NkEditFace = renderer::NkEditMesh::Face;	 ///< hedge (bord), normal, sel, alive — N sommets
 
-	static constexpr uint32 kNkInvalidIdx = 0xFFFFFFFFu;
-
-	// ── Vertex ────────────────────────────────────────────────────────────────
-	struct NkEditVertex {
-			NkVec3f position = {0, 0, 0};
-			NkVec3f normal = {0, 1, 0};	  ///< Recomputed par RecalcNormals()
-			NkVec2f uv = {0, 0};		  ///< UV channel 0
-			NkVec2f uv2 = {0, 0};		  ///< UV channel 1 (lightmap)
-			NkVec4f color = {1, 1, 1, 1}; ///< Vertex color
-
-			uint32 edgeStart = kNkInvalidIdx; ///< Premier edge adjacent (half-edge)
-
-			bool selected = false;
-			bool hidden = false;
-			uint8 _pad[2] = {};
-	};
-
-	// ── Edge (half-edge pair) ─────────────────────────────────────────────────
-	struct NkEditEdge {
-			uint32 v0 = kNkInvalidIdx;	 ///< Vertex source
-			uint32 v1 = kNkInvalidIdx;	 ///< Vertex destination
-			uint32 twin = kNkInvalidIdx; ///< Edge opposé (v1→v0)
-			uint32 next = kNkInvalidIdx; ///< Prochain half-edge sur la même face
-			uint32 face = kNkInvalidIdx; ///< Face adjacente
-
-			bool selected = false;
-			bool seam = false;	///< Couture UV (pour unwrap)
-			bool sharp = false; ///< Arête vive (pour normales)
-			uint8 _pad = 0;
-
-			[[nodiscard]] bool IsValid() const noexcept {
-				return v0 != kNkInvalidIdx && v1 != kNkInvalidIdx;
-			}
-	};
-
-	// ── Face ──────────────────────────────────────────────────────────────────
-	struct NkEditFace {
-			static constexpr uint32 kMaxVerts = 4u;
-
-			uint32 verts[kMaxVerts] = {kNkInvalidIdx, kNkInvalidIdx, kNkInvalidIdx, kNkInvalidIdx};
-			uint32 edges[kMaxVerts] = {kNkInvalidIdx, kNkInvalidIdx, kNkInvalidIdx, kNkInvalidIdx};
-			uint32 vertCount = 0; ///< 3 = triangle, 4 = quad
-
-			NkVec3f normal = {0, 1, 0};
-			uint32 materialId = 0;
-
-			bool selected = false;
-			bool hidden = false;
-			bool smooth = true; ///< Smooth vs flat shading
-			uint8 _pad = 0;
-
-			[[nodiscard]] bool IsTriangle() const noexcept {
-				return vertCount == 3;
-			}
-
-			[[nodiscard]] bool IsQuad() const noexcept {
-				return vertCount == 4;
-			}
-
-			[[nodiscard]] bool IsValid() const noexcept {
-				return vertCount >= 3;
-			}
-	};
+	static constexpr uint32 kNkInvalidIdx = renderer::NK_EM_INVALID;
 
 	// =========================================================================
 	// NkEditableMesh
@@ -124,10 +103,21 @@ namespace nkentseu {
 			// ── Création de topologie ─────────────────────────────────────
 
 			/**
-			 * @brief Ajoute un vertex et retourne son index.
+			 * @brief Ajoute un vertex ISOLÉ (sans face) et retourne son index.
+			 * @note Reconstruit mEdit via ToPolygons()/BuildFromPolygons() —
+			 *       O(taille du mesh). NkEditMesh ne stocke pas la couleur, le
+			 *       canal UV2 ni la tangente par sommet (struct Vert = pos +
+			 *       normal + uv uniquement) : ces paramètres sont acceptés
+			 *       pour compatibilité d'API mais ne sont PAS conservés.
 			 */
 			uint32 AddVertex(const NkVec3f &pos, const NkVec2f &uv = {}, const NkVec3f &normal = {0, 1, 0},
 							 const NkVec4f &color = {1, 1, 1, 1}) noexcept;
+
+			/**
+			 * @brief Ajoute une face à N sommets quelconque (n-gon), dans l'ordre CCW.
+			 * @return Index de la face créée.
+			 */
+			uint32 AddPolygon(NkSpan<const uint32> vertIds) noexcept;
 
 			/**
 			 * @brief Ajoute un triangle (v0, v1, v2 dans l'ordre CCW).
@@ -144,66 +134,88 @@ namespace nkentseu {
 			// ── Opérations de modélisation ────────────────────────────────
 
 			/**
-			 * @brief Extrude les faces sélectionnées dans une direction.
-			 * @param faceIds  Faces à extruder (vide = toutes les faces sélectionnées).
-			 * @param direction Vecteur d'extrusion dans l'espace local.
+			 * @brief Extrude les faces données le long de leur normale.
+			 * @param faceIds  Faces à extruder (vide = toutes les faces).
+			 * @param direction Utilisé uniquement pour sa NORME (distance
+			 *        d'extrusion) : délègue à NkEditMesh::ExtrudeSelectedFaces,
+			 *        qui n'extrude qu'un scalaire le long de la normale de
+			 *        chaque face — pas un vecteur de direction arbitraire.
 			 */
 			void ExtrudeFaces(NkSpan<const uint32> faceIds, const NkVec3f &direction) noexcept;
 
 			/**
-			 * @brief Biseaute les arêtes sélectionnées.
-			 * @param edgeIds  Arêtes à biseauter.
-			 * @param width    Largeur du biseau.
-			 * @param segments Nombre de subdivisions du biseau.
+			 * @brief NON IMPLÉMENTÉ — aucun équivalent dans renderer::NkEditMesh
+			 * (pas de commande "bevel edge"). Voir NkEditableMesh.cpp.
 			 */
 			void BevelEdges(NkSpan<const uint32> edgeIds, float32 width, uint32 segments = 1) noexcept;
 
 			/**
-			 * @brief Coupe une edge loop au point t [0..1].
-			 * @param edgeId   Edge de référence pour localiser la loop.
-			 * @param factor   Position de la coupe [0=v0, 1=v1].
+			 * @brief Coupe une edge loop passant par l'arête `edgeId`.
+			 * @param edgeId Index de demi-arête (Hedge) de référence.
+			 * @param factor NON SUPPORTÉ par NkEditMesh::LoopCutFromSelectedEdge
+			 *        (coupe toujours au milieu, 0.5) — ignoré si != 0.5 (log).
 			 */
 			void LoopCut(uint32 edgeId, float32 factor = 0.5f) noexcept;
 
 			/**
-			 * @brief Fusionne les vertices trop proches.
+			 * @brief Fusionne les vertices trop proches (soudure par proximité).
+			 * @note Pas d'équivalent direct : NkEditMesh::MergeSelectedVerts
+			 *       fusionne toute la sélection en UN point (Center/First/Last),
+			 *       ce n'est pas une fusion par PAIRES sous un seuil de distance.
+			 *       Implémenté ici via ToPolygons() -> soudure géométrique pure
+			 *       (aucune logique demi-arête dupliquée) -> BuildFromPolygons().
 			 * @param threshold Distance maximale entre vertices à fusionner.
 			 * @return Nombre de vertices fusionnés.
 			 */
 			uint32 MergeByDistance(float32 threshold = 0.0001f) noexcept;
 
 			/**
-			 * @brief Inverse la direction des normales des faces.
+			 * @brief Inverse la direction des normales des faces (et leur winding).
+			 * @note Pas de commande dédiée côté NkEditMesh : implémenté via
+			 *       ToPolygons() -> inversion de l'ordre des sommets par face ->
+			 *       BuildFromPolygons() (le rechaînage demi-arête reste délégué).
 			 * @param faceIds Faces à retourner (vide = toutes).
 			 */
 			void FlipNormals(NkSpan<const uint32> faceIds = {}) noexcept;
 
 			/**
-			 * @brief Triangule tous les quads.
-			 * @param method 0=Fan (rapide), 1=Beauty (optimal).
+			 * @brief Triangule TOUTES les faces à plus de 3 côtés (fan), en
+			 *        mutant la topologie de mEdit elle-même (contrairement à
+			 *        NkEditMesh::Triangulate() qui ne produit qu'un mesh de
+			 *        rendu temporaire sans modifier les n-gons stockés).
+			 * @param method 0=Fan (implémenté). 1=Beauty : NON IMPLÉMENTÉ,
+			 *        retombe sur Fan (log d'avertissement).
 			 */
 			void Triangulate(uint32 method = 1) noexcept;
 
 			/**
-			 * @brief Subdivise en appliquant Catmull-Clark.
-			 * @param levels Nombre de niveaux de subdivision.
+			 * @brief Subdivise (délègue à NkEditMesh::SubdivideSelectedFaces,
+			 *        "rien sélectionné" = tout le mesh, cf. doc NkEditMesh.h).
+			 * @param levels Nombre de passes de subdivision.
 			 */
 			void Subdivide(uint32 levels = 1) noexcept;
 
 			// ── Normales ──────────────────────────────────────────────────
 
 			/**
-			 * @brief Recalcule toutes les normales de faces et de vertices.
-			 * @param smooth true = moyennage des normales adjacentes (smooth shading).
+			 * @brief Recalcule les normales (délègue à NkEditMesh::RecomputeNormals).
+			 * @param smooth NkEditMesh ne calcule QUE des normales moyennées
+			 *        par sommet (pas de mode "flat") — smooth=false log un
+			 *        avertissement et retombe sur le comportement smooth.
 			 */
 			void RecalcNormals(bool smooth = true) noexcept;
 
 			/**
-			 * @brief Recalcule uniquement les normales des faces listées.
+			 * @brief Recalcule les normales — NkEditMesh::RecomputeNormals()
+			 *        est TOUJOURS global (pas de recalcul partiel par face) :
+			 *        `faceIds` non vide déclenche un avertissement puis un
+			 *        recalcul complet quand même.
 			 */
 			void RecalcFaceNormals(NkSpan<const uint32> faceIds = {}) noexcept;
 
 			// ── Sélection ─────────────────────────────────────────────────
+			// (déléguée à Vert::sel ; une face/arête est "sélectionnée" si
+			// TOUS ses sommets le sont, convention NkEditMesh::PolyFaceSelected)
 
 			void SelectAll() noexcept;
 			void DeselectAll() noexcept;
@@ -213,7 +225,7 @@ namespace nkentseu {
 			void SelectEdge(uint32 id, bool v) noexcept;
 
 			/**
-			 * @brief Étend la sélection aux voisins (un anneau).
+			 * @brief NON IMPLÉMENTÉ — aucun équivalent dans renderer::NkEditMesh.
 			 */
 			void GrowSelection() noexcept;
 			void ShrinkSelection() noexcept;
@@ -226,70 +238,74 @@ namespace nkentseu {
 			void GetSelectedEdges(NkVector<uint32> &out) const noexcept;
 
 			// ── UVs ──────────────────────────────────────────────────────
+			// NON IMPLÉMENTÉES — aucun équivalent dans renderer::NkEditMesh
+			// (pas de dépliage UV). Voir NkEditableMesh.cpp.
 
-			/**
-			 * @brief Projection Smart UV (angle limit pour séparer les îles).
-			 */
 			void SmartUVProject(float32 angleLimit = 66.f, float32 islandMargin = 0.02f) noexcept;
-
-			/**
-			 * @brief Projection cubique (6 faces, selon la normale dominante).
-			 */
 			void CubeProject(float32 scale = 1.f) noexcept;
-
-			/**
-			 * @brief Projection cylindrique autour de l'axe Y.
-			 */
 			void CylindricalProject(float32 scale = 1.f) noexcept;
 
 			// ── AABB ──────────────────────────────────────────────────────
 
-			[[nodiscard]] const NkAABB &GetBounds() const noexcept;
+			[[nodiscard]] const renderer::NkAABB &GetBounds() const noexcept;
 			void RecomputeBounds() noexcept;
 
 			// ── Accès aux données ─────────────────────────────────────────
+			// Accès direct à la demi-arête sous-jacente (NkEditMesh) — permet
+			// d'utiliser toute l'API NKRenderer (GetFaceVerts, FaceSize,
+			// GetUniqueEdges, Quadify...) sans que Noge n'ait à la redupliquer.
+
+			[[nodiscard]] renderer::NkEditMesh &Edit() noexcept {
+				return mEdit;
+			}
+
+			[[nodiscard]] const renderer::NkEditMesh &Edit() const noexcept {
+				return mEdit;
+			}
 
 			[[nodiscard]] NkVector<NkEditVertex> &Vertices() noexcept {
-				return mVerts;
+				return mEdit.verts;
 			}
 
 			[[nodiscard]] NkVector<NkEditEdge> &Edges() noexcept {
-				return mEdges;
+				return mEdit.hedges;
 			}
 
 			[[nodiscard]] NkVector<NkEditFace> &Faces() noexcept {
-				return mFaces;
+				return mEdit.faces;
 			}
 
 			[[nodiscard]] const NkVector<NkEditVertex> &Vertices() const noexcept {
-				return mVerts;
+				return mEdit.verts;
 			}
 
 			[[nodiscard]] const NkVector<NkEditEdge> &Edges() const noexcept {
-				return mEdges;
+				return mEdit.hedges;
 			}
 
 			[[nodiscard]] const NkVector<NkEditFace> &Faces() const noexcept {
-				return mFaces;
+				return mEdit.faces;
 			}
 
 			[[nodiscard]] uint32 VertexCount() const noexcept {
-				return static_cast<uint32>(mVerts.Size());
+				return mEdit.VertCount();
 			}
 
 			[[nodiscard]] uint32 FaceCount() const noexcept {
-				return static_cast<uint32>(mFaces.Size());
+				return mEdit.FaceCount();
 			}
 
 			[[nodiscard]] uint32 EdgeCount() const noexcept {
-				return static_cast<uint32>(mEdges.Size());
+				return static_cast<uint32>(mEdit.hedges.Size());
 			}
 
 			// ── Conversion GPU ────────────────────────────────────────────
 
 			/**
 			 * @brief Convertit vers NkMeshDesc pour upload GPU.
-			 * @note Les quads sont triangulés. Les normales sont générées si absentes.
+			 * @note Délègue entièrement à NkEditMesh::Triangulate() (fan) — la
+			 *       triangulation d'export existait déjà côté NKRenderer,
+			 *       Noge ne la redéfinit pas.
 			 */
 			void ToMeshDesc(renderer::NkMeshDesc &out) const noexcept;
 
@@ -302,36 +318,38 @@ namespace nkentseu {
 			 * @brief Vide complètement le mesh.
 			 */
 			void Clear() noexcept {
-				mVerts.Clear();
-				mEdges.Clear();
-				mFaces.Clear();
+				mEdit.Clear();
 				mBoundsDirty = true;
-				mNormalsDirty = true;
 			}
 
 			/**
-			 * @brief Génère un mesh à partir d'une NkMeshDesc (pour édition post-création GPU).
+			 * @brief Génère un mesh depuis un NkMeshDesc (indexé, triangles).
+			 * @note Suppose que desc.layout correspond à NkVertex3D (position/
+			 *       normal/tangent/uv/uv2/color) — c'est le layout produit par
+			 *       NkVertexLayout::Default3D(), le cas d'usage standard. Un
+			 *       layout custom n'est pas réinterprété (limitation connue).
 			 */
 			static NkEditableMesh FromMeshDesc(const renderer::NkMeshDesc &desc) noexcept;
 
 		private:
-			// ── Helpers topologie ─────────────────────────────────────────
-			uint32 FindOrCreateEdge(uint32 v0, uint32 v1) noexcept;
-			void LinkFaceEdges(uint32 faceId) noexcept;
-			void ComputeFaceNormal(uint32 faceId) noexcept;
-
-			// ── Algorithmes UV ────────────────────────────────────────────
-			void ComputeIslands(NkVector<NkVector<uint32>> &islands) const noexcept;
-			void PackIslands(NkVector<NkVector<uint32>> &islands, float32 margin) noexcept;
-
 			// ── Données ───────────────────────────────────────────────────
-			NkVector<NkEditVertex> mVerts;
-			NkVector<NkEditEdge> mEdges;
-			NkVector<NkEditFace> mFaces;
+			// Source de vérité UNIQUE : la demi-arête n-gon de NKRenderer.
+			// Plus de tableaux dupliqués côté Noge (voir note de révision en
+			// tête de fichier).
+			renderer::NkEditMesh mEdit;
 
-			mutable NkAABB mBounds;
+			mutable renderer::NkAABB mBounds;
 			mutable bool mBoundsDirty = true;
-			mutable bool mNormalsDirty = true;
+
+			// ── Cache GPU (ToMeshDesc) ──────────────────────────────────────
+			// NkMeshDesc ne POSSEDE pas ses buffers (vertices/indices sont des
+			// pointeurs bruts, cf. NkMeshSystem.h) : ils doivent rester valides
+			// tant que le NkMeshDesc est utilisé. mEdit.Triangulate() écrit ici
+			// plutôt que dans une variable locale de ToMeshDesc() qui
+			// deviendrait pendante dès le retour de la fonction.
+			mutable NkVector<renderer::NkVertex3D> mGpuVertexCache;
+			mutable NkVector<uint32> mGpuIndexCache;
+			mutable NkVector<renderer::NkEmId> mGpuTriFaceCache;
 	};
 
 } // namespace nkentseu

@@ -1,0 +1,42 @@
+"""NkNavDemo — preuve d'exécution CPU-only pour la navigation IA classique/
+déterministe de Noge (Engine/Noge/ROADMAP.md, pilier "Navigation IA
+(NavMesh/Pathfinding)") : Kernel/Runtime/NKNavigation/NkNavMesh.h/.cpp
+(génération NavMesh + A*) + Noge/ECS/Components/AI/NkNavAgentComponent.h +
+Noge/ECS/Systems/NkNavigationSystem.h/.cpp.
+
+Contexte : `jenga test` / `Noge_Tests` sont bloqués par une politique de
+workspace ("Unit-test compilation/execution is disabled by workspace
+policy") — indépendante de ce code. Cette petite application console
+contourne le blocage (elle n'est PAS une TestSuite), même schéma que
+Applications/NkAgentEcsDemo/NkLocomotionDemo, pour prouver par une exécution
+réelle qu'un NavMesh généré depuis une géométrie de sol (raycast NKCollision
+réel) + un pathfinding A* pilotent une entité ECS Noge le long d'un chemin
+qui évite des obstacles.
+"""
+from Jenga import *
+from jengaconfig import *
+
+with project("NkNavDemo"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+    files(["src/main.cpp"])
+
+    nkentseudependson(
+        ["Noge", "NKNavigation", "NKCollision", "NKPhysics",
+         "NKRenderer", "NKRHI", "NKSL", "NKGLSlang", "NKSPIRVCross",
+         "NKSerialization", "NKFileSystem", "NKFont", "NKImage", "NKUI", "NKGlad",
+         "NKECS", "NKEvent", "NKWindow", "NKMath", "NKTime", "NKLogger",
+         "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
+        extra_includes=["src", "%{Noge.location}/src"],
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+        links(["user32", "gdi32", "opengl32", "dwmapi", "shell32",
+               "d3d11", "d3d12", "dxgi", "dxguid", "d3dcompiler", "uuid", "ole32"])

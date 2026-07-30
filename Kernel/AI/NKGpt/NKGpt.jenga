@@ -17,7 +17,7 @@ with project("NKGpt"):
 
     nkentseudependson(
         ["NKCore", "NKPlatform", "NKMemory", "NKContainers", "NKMath", "NKLogger",
-         "NKTensor", "NKAutograd", "NKNN", "NKOptim", "NKFileSystem", "NKTime"],
+         "NKTensor", "NKAutograd", "NKNN", "NKOptim", "NKFileSystem", "NKTime", "NKData"],
         selfexport="NKGpt",
         extra_includes=["src", "%{wks.location}/Externals"],
     )

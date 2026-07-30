@@ -31,10 +31,17 @@ with project("PV3DE"):
     # Mode app : nkentseudependson emet includedirs + links + dependson + defines
     # _STATIC_LIB (transitifs) automatiquement. Includes propres a l'app + moteur
     # Noge + Vulkan SDK en extra ; le link des libs SDK + systeme reste en filtres.
+    # Fermeture transitive complete (meme schema que Nogee.jenga, Phase R0 2026-07-25) :
+    # PV3DE depend d'Engine/Noge (NkApplication, LayerStack, ECS) qui tire NKECS,
+    # NKRenderer, NKSerialization, NKFileSystem, NKAudio/NKMedia/NKNetwork,
+    # NKRL/NKAgent (cf. Noge.jenga _DEPS).
     nkentseudependson(
-        ["NKEvent", "NKWindow", "NKGlad", "NKLogger", "NKMath", "NKTime", "NKStream",
-         "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKRHI",
-         "NKImage", "NKFont", "NKUI", "NKGLSlang", "NKSPIRVCross"],
+        ["Noge", "NKAgent", "NKRL", "NKTensor", "NKAudio", "NKMedia", "NKNetwork",
+         "NKRenderer", "NKSL", "NKCollision", "NKPhysics", "NKNavigation",
+         "NKSerialization", "NKFileSystem", "NKECS", "NKRHI",
+         "NKGLSlang", "NKSPIRVCross", "NKGlad", "NKUI", "NKFont", "NKImage",
+         "NKEvent", "NKWindow", "NKLogger", "NKMath", "NKTime", "NKStream",
+         "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
         extra_includes=["src", "%{Noge.location}/src"]
                        + ([VULKAN_INCLUDE] if VULKAN_INCLUDE else []),
         extra_defines=[f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if WANT_VULKAN else 0}"],
@@ -61,7 +68,8 @@ with project("PV3DE"):
             "user32", "gdi32", "opengl32", "dwmapi", "shell32",
             "mf", "mfplat", "mfreadwrite", "mfuuid",
             "uuid", "ole32", "dinput8", "dxguid",
-            "d3d11", "d3d12", "dxgi", "d3dcompiler"
+            "d3d11", "d3d12", "dxgi", "d3dcompiler",
+            "winmm", "avrt", "ws2_32"  # NKRenderer (timeBeginPeriod), NKAudio, NKNetwork
         ]
         _IS_MINGW_R = "mingw" in TC_WINDOWS.lower()
         if WANT_VULKAN:

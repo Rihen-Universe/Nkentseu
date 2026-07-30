@@ -1,7 +1,14 @@
 # NKEmbodied — incarnation (robotique & objets intelligents)
 
-> ⚠️ Squelette : pas encore de code. Voir la [ROADMAP](ROADMAP.md) et l'[architecture de la
-> couche](../ARCHITECTURE.md).
+> ✅ Jalon 1 livré : abstraction capteurs/actionneurs + boucle perception → décision
+> (NKAgent) → action dans un corps simulé (grille), prouvée par `Applications/
+> NKEmbodiedTest` (100% de réussite/200 épisodes).
+> ✅ Jalon 2 livré : contrôle robuste — bruit capteur (dégradation réelle mesurée : 100%
+> à σ=0 → 22,6% à σ=0,5), limites actionneur (saturation d'amplitude + limite de
+> fréquence de commande, dégradation mesurée à N=128 ticks), boucle à fréquence fixe
+> (découplage décision/simulation vérifié), sécurité (watchdog déclenché sur 2 scénarios
+> construits exprès). Voir la [ROADMAP](ROADMAP.md) (détail + chiffres + limites
+> honnêtes) et l'[architecture de la couche](../ARCHITECTURE.md).
 
 ## Rôle
 

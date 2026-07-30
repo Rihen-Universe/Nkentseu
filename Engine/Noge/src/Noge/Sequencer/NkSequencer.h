@@ -49,6 +49,16 @@ namespace nkentseu {
 	using namespace math;
 	using namespace ecs;
 
+	// Copie bornée de chaîne C-style (remplace NkStrNCpy, zéro-STL).
+	inline void NkSeqStrNCpy(char *dst, const char *src, uint32 maxLen) noexcept {
+		uint32 i = 0;
+		while (i < maxLen && src[i] != '\0') {
+			dst[i] = src[i];
+			i++;
+		}
+		dst[i] = '\0';
+	}
+
 	// =========================================================================
 	// NkTrackType — type de piste
 	// =========================================================================
@@ -103,7 +113,7 @@ namespace nkentseu {
 			char propertyName[kMaxName] = {}; ///< "localPosition.x", "opacity", etc.
 			uint32 componentOffset = 0;		  ///< Offset dans le composant ECS cible
 
-			NkVector<NkKeyframe> keyframes;
+			NkVector<nkentseu::NkKeyframe> keyframes;
 
 			// Flags
 			bool locked = false;
@@ -177,7 +187,7 @@ namespace nkentseu {
 
 			NkAnimChannel &AddChannel(const char *propName) noexcept {
 				NkAnimChannel ch;
-				NkStrNCpy(ch.propertyName, propName, 63);
+				NkSeqStrNCpy(ch.propertyName, propName, 63);
 				channels.PushBack(static_cast<NkAnimChannel &&>(ch));
 				return channels.Back();
 			}
@@ -376,7 +386,7 @@ namespace nkentseu {
 				NkMarker m;
 				m.time = time;
 				m.type = type;
-				NkStrNCpy(m.label, label, 127);
+				NkSeqStrNCpy(m.label, label, 127);
 				markers.PushBack(static_cast<NkMarker &&>(m));
 				return markers.Back();
 			}

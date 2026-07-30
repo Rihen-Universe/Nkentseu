@@ -6,6 +6,8 @@
 namespace nkentseu {
 	namespace pv3de {
 
+		using namespace nkentseu::math;
+
 		// =====================================================================
 		// NkVisemeMapper
 		// =====================================================================
@@ -66,7 +68,7 @@ namespace nkentseu {
 
 		NkVector<NkVisemeFrame> NkVisemeMapper::Map(const NkString &text, nk_float32 durationMs) {
 			NkVector<NkVisemeFrame> frames;
-			if (text.IsEmpty() || durationMs <= 0.f)
+			if (text.Empty() || durationMs <= 0.f)
 				return frames;
 
 			const char *s = text.CStr();
@@ -152,7 +154,10 @@ namespace nkentseu {
 
 			// Blend entre visème courant et précédent
 			mBlendT = NkMin(mBlendT + dt * 8.f, 1.f); // ~125ms de transition
-			nk_float32 intensity = mFrames[mFrameIdx].intensity * NkSmoothStep(0.f, 1.f, mBlendT);
+			// NkSmoothStep n'existe pas dans NKMath — formule standard t²(3-2t)
+			// inlinée ici (mBlendT déjà clampé [0,1] par le NkMin ci-dessus).
+			nk_float32 smoothT = mBlendT * mBlendT * (3.f - 2.f * mBlendT);
+			nk_float32 intensity = mFrames[mFrameIdx].intensity * smoothT;
 			ApplyViseme(mCurrentViseme, intensity, fc);
 		}
 
@@ -190,6 +195,11 @@ namespace nkentseu {
 				case NkViseme::TH:
 					fc.SetAUTarget(NkActionUnitId::AU25, 0.15f * intensity);
 					break;
+				case NkViseme::SH:
+					// Chuintante : lèvres légèrement projetées/arrondies (proche WW/OO, moins marqué)
+					fc.SetAUTarget(NkActionUnitId::AU18, 0.5f * intensity);
+					fc.SetAUTarget(NkActionUnitId::AU25, 0.2f * intensity);
+					break;
 				case NkViseme::Silence:
 				default:
 					break;
@@ -205,7 +215,7 @@ namespace nkentseu {
 		}
 
 		void NkSpeechEngine::Speak(const NkSpeechRequest &req, NkFaceController &fc) {
-			if (req.text.IsEmpty())
+			if (req.text.Empty())
 				return;
 
 			// Estimation durée : ~150ms/syllabe, ~2.5 syllabes/mot

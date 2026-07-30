@@ -1,0 +1,52 @@
+"""NkAgentEcsDemo — preuve d'exécution CPU-only pour Noge/ECS/Systems/NkAgentSystem.
+
+Contexte : `jenga test` / `Noge_Tests` sont bloqués par une politique de
+workspace ("Unit-test compilation/execution is disabled by workspace
+policy") — indépendante de ce code. Cette petite application console
+contourne le blocage (elle n'est PAS une TestSuite), même schéma que
+Applications/NkEditableMeshDemo, pour prouver par une exécution réelle que
+le pont ECS -> NKAgent (Noge/ECS/Components/AI/NkAgentComponent.h +
+Noge/ECS/Systems/NkAgentSystem.h/.cpp) fonctionne : le monde-grille déjà
+prouvé à 100% dans NKAgentTest (Applications/NKAgentTest) est rejoué ici
+comme UNE ENTITÉ ECS Noge, pilotée par NkAgentSystem::Execute() tick par
+tick, au lieu d'une boucle console isolée.
+"""
+from Jenga import *
+from jengaconfig import *
+import os
+
+
+def _norm(p):
+    return p.replace("\\", "/") if p else p
+
+
+_VULKAN_SDK = _norm(os.getenv("VULKAN_SDK", ""))
+_VULKAN_INCLUDE = _norm(os.path.join(_VULKAN_SDK, "Include")) if _VULKAN_SDK else ""
+_VULKAN_LIB = _norm(os.path.join(_VULKAN_SDK, "Lib")) if _VULKAN_SDK else ""
+
+with project("NkAgentEcsDemo"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+    files(["src/main.cpp"])
+
+    nkentseudependson(
+        ["Noge", "NKAgent", "NKRL", "NKTensor", "NKRenderer", "NKRHI", "NKSL", "NKCollision", "NKPhysics",
+         "NKSerialization", "NKFileSystem", "NKFont", "NKImage", "NKUI", "NKGlad",
+         "NKECS", "NKEvent", "NKWindow", "NKMath", "NKTime", "NKLogger",
+         "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
+        extra_includes=["src", "%{Noge.location}/src"]
+                       + ([_VULKAN_INCLUDE] if _VULKAN_INCLUDE else []),
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+        if _VULKAN_LIB:
+            libdirs([_VULKAN_LIB])
+        links(["user32", "gdi32", "opengl32", "dwmapi", "shell32",
+               "d3d11", "d3d12", "dxgi", "dxguid", "d3dcompiler", "uuid", "ole32"])

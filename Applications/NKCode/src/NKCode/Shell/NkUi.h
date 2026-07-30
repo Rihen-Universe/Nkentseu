@@ -12,6 +12,20 @@ namespace nkentseu {
 		using namespace nkentseu;
 		using namespace nkentseu::nkgui;
 
+		// ── Version de NKCode : SOURCE UNIQUE ────────────────────────────────────
+		// A modifier ICI et nulle part ailleurs (le footer du launcher et la fenetre
+		// « A propos » divergeaient : « 1.0.0 » d'un cote, « 0.1.0-beta » de l'autre).
+		// La version de JENGA n'est PAS ici : elle est detectee a l'execution
+		// (`jenga --version`, NkSettingsState::DetectSync) puisqu'elle depend de ce
+		// que l'utilisateur a installe.
+		// ⚠️ DOIT correspondre au TAG de la release publiee (« v » en moins) :
+		// la verification de mise a jour compare cette valeur au tag GitHub. Avec
+		// « 0.1.0-beta » ici et un tag « v0.1.0-beta.1 » publie, l'IDE se croyait
+		// perime en permanence. Bumper ICI avant de taguer une release.
+		inline const char *NkCodeVersion() {
+			return "0.1.0-beta.2";
+		}
+
 		// ── Palette (tokens Banani) ──────────────────────────────────────────────
 		// MUTABLE (pas constexpr) : le thème actif (Paramètres > Thème) réécrit ces
 		// valeurs à chaud via NkApplyTheme(). Tout le dessin lit NkCol::X chaque frame.
@@ -260,8 +274,19 @@ namespace nkentseu {
 					return px * S;
 				}
 
+				// Survol — INSCRIT AU ROUTEUR D'OCCLUSION (cf. NkGuiContext::
+				// PushOcclusion / PointReachable). `NkUi::Hit` est LE point de
+				// hit-test de toute l'UI « maison » (launcher, wizard Nouveau
+				// Workspace, Paramètres, Toolchains, Plateformes, toolbar…) : le
+				// rendre conscient de l'occlusion migre ~180 points d'interaction
+				// d'un coup, au lieu de les protéger un par un.
+				// Une surface flottante déclare son rect via PushOcclusion(rect,
+				// couche) ; tout Hit() d'une couche INFÉRIEURE sous ce rect renvoie
+				// alors false — plus de clic qui « traverse » vers le panneau du
+				// dessous. Les surfaces qui dessinent leur propre contenu ouvrent un
+				// NkInputLayerScope, donc leurs propres Hit() passent normalement.
 				bool Hit(const NkRect &r) const {
-					return NkGuiRectContains(r, mp);
+					return NkGuiRectContains(r, mp) && (!ctx || ctx->PointReachable(mp));
 				}
 
 				float32 Asc() const {

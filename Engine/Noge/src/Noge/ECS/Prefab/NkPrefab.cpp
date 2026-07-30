@@ -96,10 +96,29 @@ namespace nkentseu {
 				if (buffer) {
 					std::memset(buffer, 0, info->size);
 					if (info->deserialize(buffer, data.jsonValue.CStr())) {
-						// Ajout au monde via AddImpl générique (simplifié ici)
-						// En production : utiliser un dispatcher par type
-						std::free(buffer);
+						// TODO [dispatcher générique manquant] : le composant est désérialisé
+						// avec succès dans `buffer` mais n'est PAS attaché à `rootId`. NkWorld::Add<T>()
+						// est un template qui exige le type concret à la compilation ; NkTypeInfo (voir
+						// NKECS/Reflect/NkReflect.h) n'expose aucun pointeur de fonction type-erased du
+						// genre `void(*)(NkWorld&, NkEntityId, const void*)` permettant d'insérer un
+						// composant à partir d'un NkComponentId + buffer brut, et NkWorld n'a pas non
+						// plus d'API `AddRaw(id, componentId, data)`. Pour compléter ce chemin il faut :
+						//   1. ajouter un tel champ (ex. `AddInstanceFn addInstance`) à NkTypeInfo,
+						//   2. le générer/enregistrer dans NK_REFLECT_END() (ou NK_COMPONENT) pour
+						//      chaque type réflexif,
+						//   3. l'appeler ici : info->addInstance(world, rootId, buffer);
+						// Tant que ce n'est pas fait, les composants d'un prefab ne sont PAS appliqués
+						// à l'entité instanciée (seuls NkName/NkTag/NkTransform/... ajoutés plus haut le
+						// sont). Ne pas supprimer ce commentaire sans avoir réellement câblé l'ajout.
 					}
+					// Le buffer est toujours libéré, que la désérialisation ait réussi ou non :
+					// avant ce correctif, le cas d'échec fuyait `buffer` (std::free() n'était
+					// appelé que dans le bloc de succès). NB : ni defaultCtor ni dtor ne sont
+					// invoqués ici (comportement préexistant) — `deserialize()` est supposé
+					// remplir directement la mémoire brute ; ne pas ajouter d'appel à info->dtor
+					// sans s'assurer d'abord que info->defaultCtor est appelé avant deserialize,
+					// sous peine de détruire un objet jamais construit pour les types non-POD.
+					std::free(buffer);
 				}
 			}
 		}

@@ -3,7 +3,6 @@
 #include "NKLogger/NkLog.h"
 #include "NKEvent/NkMouseEvent.h"
 #include "NKEvent/NkKeyboardEvent.h"
-#include "NKEvent/NkTextEvent.h"
 
 namespace nkentseu {
 	namespace pv3de {
@@ -12,7 +11,7 @@ namespace nkentseu {
 
 		MedicalUILayer::MedicalUILayer(const NkString &name, NkIDevice *device, NkICommandBuffer *cmd,
 									   NkGraphicsApi api, PatientLayer *patient) noexcept
-			: Overlay(name), mDevice(device), mCmd(cmd), mApi(api), mPatient(patient) {
+			: NkOverlay(name), mDevice(device), mCmd(cmd), mApi(api), mPatient(patient) {
 		}
 
 		MedicalUILayer::~MedicalUILayer() = default;
@@ -74,7 +73,7 @@ namespace nkentseu {
 			RenderMenuBar();
 			RenderViewport();
 
-			NkUIFont &font = *mCtx.fontManager.GetDefault();
+			NkUIFont &font = *mCtx.fontManager.Default();
 
 			// ── 4 panels du bas ───────────────────────────────────────────────
 			mSymptomPanel.Render(mCtx, mWM, mDL, font, mLS, *mPatient, mLayout.symptom);
@@ -100,16 +99,20 @@ namespace nkentseu {
 		void MedicalUILayer::UpdateInput(const NkEvent *e) noexcept {
 			if (auto *mm = e->As<NkMouseMoveEvent>()) {
 				mInput.SetMousePos((float32)mm->GetX(), (float32)mm->GetY());
-			} else if (auto *mb = e->As<NkMouseButtonEvent>()) {
-				int btn = (mb->GetButton() == NkMouseButton::NK_LEFT)	 ? 0
-						  : (mb->GetButton() == NkMouseButton::NK_RIGHT) ? 1
-																		 : 2;
-				mInput.SetMouseButton(btn, mb->IsPressed());
+			} else if (auto *mbp = e->As<NkMouseButtonPressEvent>()) {
+				// NkMouseButtonEvent est une base abstraite (pas de GetStaticType) —
+				// il faut tester les classes feuilles réelles (Press/Release), et
+				// NkMouseButton::NK_MB_LEFT/NK_MB_RIGHT (pas NK_LEFT/NK_RIGHT).
+				int btn = mbp->IsLeft() ? 0 : mbp->IsRight() ? 1 : 2;
+				mInput.SetMouseButton(btn, true);
+			} else if (auto *mbr = e->As<NkMouseButtonReleaseEvent>()) {
+				int btn = mbr->IsLeft() ? 0 : mbr->IsRight() ? 1 : 2;
+				mInput.SetMouseButton(btn, false);
 			} else if (auto *kp = e->As<NkKeyPressEvent>()) {
 				mInput.SetKey(static_cast<NkKey>(kp->GetKey()), true);
 			} else if (auto *kr = e->As<NkKeyReleaseEvent>()) {
 				mInput.SetKey(static_cast<NkKey>(kr->GetKey()), false);
-			} else if (auto *te = e->As<NkTextEvent>()) {
+			} else if (auto *te = e->As<NkTextInputEvent>()) {
 				mInput.AddInputChar(te->GetCodepoint());
 			}
 		}
@@ -137,7 +140,7 @@ namespace nkentseu {
 
 		// =====================================================================
 		void MedicalUILayer::RenderMenuBar() noexcept {
-			NkUIFont &font = *mCtx.fontManager.GetDefault();
+			NkUIFont &font = *mCtx.fontManager.Default();
 			if (!NkUIMenu::BeginMenuBar(mCtx, mDL, font, mLayout.menuBar))
 				return;
 
@@ -199,7 +202,7 @@ namespace nkentseu {
 		// =====================================================================
 		void MedicalUILayer::RenderViewport() noexcept {
 			auto &r = mLayout.viewport;
-			NkUIFont &font = *mCtx.fontManager.GetDefault();
+			NkUIFont &font = *mCtx.fontManager.Default();
 
 			NkUIWindow::SetNextWindowPos({r.x, r.y});
 			NkUIWindow::SetNextWindowSize({r.w, r.h});

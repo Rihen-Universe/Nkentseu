@@ -16,6 +16,31 @@ namespace nkentseu {
 		namespace optim {
 
 			// -----------------------------------------------------------------
+			// Clipping de gradient (Pascanu, Mikolov & Bengio, « On the difficulty of
+			// training Recurrent Neural Networks », ICML 2013 — arXiv:1211.5063).
+			// Modifie les gradients de `params` EN PLACE (via NkVar::SetGrad), typiquement
+			// juste AVANT le pas d'optimiseur (Step()).
+			//   NK_CLIP_NONE           : désactivé (comportement par défaut, inchangé).
+			//   NK_CLIP_BY_VALUE       : g_i = clamp(g_i, -clipValue, clipValue), élément
+			//                            par élément.
+			//   NK_CLIP_BY_GLOBAL_NORM : g_i *= min(1, clipValue / (‖g‖₂ + ε)) où ‖g‖₂ est
+			//                            la norme L2 GLOBALE (tous paramètres confondus,
+			//                            comme un unique vecteur concaténé) — préserve la
+			//                            DIRECTION du gradient global, contrairement au
+			//                            clipping par valeur.
+			// -----------------------------------------------------------------
+			enum class NkGradClipMode : uint8 {
+				NK_CLIP_NONE = 0,
+				NK_CLIP_BY_VALUE,
+				NK_CLIP_BY_GLOBAL_NORM,
+			};
+
+			// Applique le clipping. Renvoie la norme L2 globale mesurée AVANT clipping
+			// (0.0 en mode NK_CLIP_BY_VALUE ou NK_CLIP_NONE, ou si aucun paramètre n'a de
+			// gradient valide). Fonction libre réutilisable indépendamment d'un optimiseur.
+			double ClipGradients(NkVector<NkVar> &params, float clipValue, NkGradClipMode mode);
+
+			// -----------------------------------------------------------------
 			// SGD — descente de gradient stochastique, avec momentum optionnel.
 			//   sans momentum : p ← p − lr·g
 			//   avec momentum : v ← μ·v + g ; p ← p − lr·v
@@ -36,11 +61,29 @@ namespace nkentseu {
 						mLr = lr;
 					}
 
+					// Active/désactive le clipping de gradient appliqué EN DÉBUT de Step(),
+					// avant la mise à jour des paramètres. Désactivé par défaut (NK_CLIP_NONE)
+					// -> comportement de Step() STRICTEMENT inchangé sans appel explicite.
+					void SetGradClip(NkGradClipMode mode, float clipValue) {
+						mClipMode = mode;
+						mClipValue = clipValue;
+					}
+
+					NkGradClipMode GradClipMode() const {
+						return mClipMode;
+					}
+
+					float GradClipValue() const {
+						return mClipValue;
+					}
+
 				private:
 					NkVector<NkVar> mParams;
 					NkVector<NkTensor> mVelocity; // état momentum (par paramètre)
 					float mLr = 0.01f;
 					float mMomentum = 0.0f;
+					NkGradClipMode mClipMode = NkGradClipMode::NK_CLIP_NONE;
+					float mClipValue = 0.0f;
 			};
 
 			// -----------------------------------------------------------------
@@ -89,6 +132,23 @@ namespace nkentseu {
 					// Restaure les moments (déplacés sur le device de chaque paramètre).
 					void SetMoments(const NkVector<NkTensor> &m, const NkVector<NkTensor> &v);
 
+					// Active/désactive le clipping de gradient appliqué EN DÉBUT de Step(),
+					// avant la mise à jour des moments/paramètres. Désactivé par défaut
+					// (NK_CLIP_NONE) -> comportement de Step() STRICTEMENT inchangé sans
+					// appel explicite (y compris la voie GPU fusée, qui n'est pas touchée).
+					void SetGradClip(NkGradClipMode mode, float clipValue) {
+						mClipMode = mode;
+						mClipValue = clipValue;
+					}
+
+					NkGradClipMode GradClipMode() const {
+						return mClipMode;
+					}
+
+					float GradClipValue() const {
+						return mClipValue;
+					}
+
 				private:
 					NkVector<NkVar> mParams;
 					NkVector<NkTensor> mM; // 1er moment (par paramètre)
@@ -99,6 +159,8 @@ namespace nkentseu {
 					float mEps = 1e-8f;
 					float mWd = 0.0f; // weight decay (AdamW si > 0)
 					int64 mT = 0;	  // compteur de pas (pour la correction de biais)
+					NkGradClipMode mClipMode = NkGradClipMode::NK_CLIP_NONE;
+					float mClipValue = 0.0f;
 			};
 
 		} // namespace optim

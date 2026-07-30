@@ -20,9 +20,9 @@
 | Codec MP3 Layer 3 (decode) | Livré | — | — |
 | Codec MP3 Layer 1 / Layer 2 | TODO | M | P3 |
 | Codec MP3 streaming incrémental + seek | TODO | M | P2 |
-| Codec Opus (.opus Ogg-Opus, V1 mono via NKMedia, validé vs ffmpeg) | Livré | — | — |
-| Codec Opus : stéréo + mode hybride SILK+CELT | TODO | M | P2 |
-| Codec AIFF | TODO | M | P3 |
+| Codec Opus (.opus Ogg-Opus via NKMedia, validé vs ffmpeg) | Livré | — | — |
+| Codec Opus : stéréo (SILK MS→LR + CELT mid/side + hybride) — 2026-07-22 | Livré | — | — |
+| Codec AIFF (`AiffStream`, streaming, PCM 8/16/24/32-bit) | Livré | — | — |
 | Resampling LINEAR | Livré | — | — |
 | Resampling SINC_4 / SINC_8 (Kaiser) | Livré | — | — |
 | Channel conversion mono/stéréo/multi | Livré | — | — |
@@ -139,7 +139,24 @@ Légende : Livré · Partiel · En cours · TODO · Abandonné
 ### Phase 8 — Streaming
 - `IAudioStream` (pull-based : ReadFrames, Seek, IsEOF) — [NkAudioStream.h](src/NKAudio/Streaming/NkAudioStream.h)
 - `WavStream` : streaming chunked depuis fichier (faible RAM)
+- **`AiffStream` (2026-07-21)** : streaming chunked depuis fichier, miroir de `WavStream` en
+  big-endian (entête `FORM…AIFF` IFF, chunk `COMM` avec `sampleRate` en flottant étendu IEEE
+  80-bit décodé sans `<math.h>`, chunk `SSND`). PCM 8/16/24/32-bit — ⚠️ le 8-bit AIFF est **signé**
+  (le 8-bit WAV est non signé). AIFC (compressé) refusé proprement. Câblé dans `OpenAudioStream`
+  (`.aiff`/`.aif`). Validé vs ffmpeg (conversion commune 16-bit) : **maxdiff=1** sur tous les
+  échantillons (8/16/24-bit, mono/stéréo), cohérent avec la précision du reste du pipeline float32.
 - `MemoryStream` : wrap d'un AudioSample (FLAC/MP3/OGG en RAM)
+- `ContainerAudioStream` : piste audio d'un CONTENEUR VIDÉO décodée par paquets à la
+  demande (RAM bornée) — AAC-LC (MP4/MOV/3GP…), PCM twos/sowt/lpcm, et
+  **Opus-dans-WebM (2026-07-22)** : paquets Opus BRUTS des SimpleBlocks →
+  `NkOpusDecoder` (NKMedia, 48 kHz natif), pre-skip lu dans l'OpusHead du
+  CodecPrivate (RFC 7845, uint16 LE offset 10, repli 312) et consommé sur les premières
+  trames. **STÉRÉO géré (2026-07-22)** : le décodeur Opus NKMedia décode les 3 modes en
+  stéréo (SILK MS→LR, CELT mid/side/intensity/dual, hybride) — validé **corr 1.000000
+  lag 0 vs ffmpeg sur les DEUX canaux** d'un .webm VP8+Opus stéréo (384648/384648
+  frames), lecture bout-en-bout NkVideoPlayer image+son ; mono non régressé
+  (corr 1.000000). Limites : Opus multicanal >2 refusé proprement ; `DiscardPadding`
+  fin de flux non géré (~13 ms de queue).
 - `AudioStreamPlayer` : ring buffer SPSC + thread worker + loop + crossfade EOF
 
 ### Phase 9 — Backends natifs
@@ -265,6 +282,12 @@ Légende : Livré · Partiel · En cours · TODO · Abandonné
 - HRTF synthétique : moins précis qu'un dataset mesuré (MIT KEMAR), suffit pour MVP
 - WebAudio : latence élevée (~80ms) faute d'AudioWorklet
 - OpenSL ES Android : format int16 uniquement, conversion float32 -> int16 dans le callback
+- ✅ **CORRIGÉ (2026-07-21)** : `NkAudioDemo::RunDirectPullTest`/`RunStreamingTest` faisaient
+  `delete stream;` (CRT brut) sur un `IAudioStream*` alloué par `OpenAudioStream` via
+  `memory::NkGetDefaultAllocator().New<T>()` — mélange allocateur custom/CRT, **heap corruption
+  différée** (crash `c0000374` seulement à la toute fin du process, invisible sans `gdb` — trouvé
+  en testant `AiffStream`, mais préexistant et affectait TOUS les chemins passant par ce harnais).
+  Fix : `memory::NkGetDefaultAllocator().Delete(stream)`, conforme à la règle dure NKMemory.
 
 ---
 

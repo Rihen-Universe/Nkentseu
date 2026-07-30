@@ -30,6 +30,10 @@ namespace nkentseu {
 
 		struct NkAviWriter {
 			public:
+				// Active un SECOND flux audio PCM 16 bits (WAVE_FORMAT_PCM, chunks '01wb').
+				// À appeler AVANT Open (l'en-tête déclare les deux flux). 0/0 = pas d'audio.
+				void SetAudio(int32 sampleRate, int32 channels);
+
 				// Ouvre `path` et écrit l'en-tête. `fourccHandler`/`biCompression` = codec (0 = brut DIB,
 				// 'MJPG' = MJPEG). `bitCount` = bits par pixel (24 pour BGR/MJPEG). fps = num/den.
 				bool Open(const char *path, int32 width, int32 height, int32 fpsNum, int32 fpsDen,
@@ -38,6 +42,10 @@ namespace nkentseu {
 				// Écrit une trame déjà encodée (`data`/`size`). `keyframe` = image-clé (toutes le sont en
 				// MJPEG/brut). `chunkId` = '00dc' (compressé) ou '00db' (brut DIB).
 				bool WriteFrame(const uint8 *data, uint32 size, bool keyframe);
+
+				// Écrit un chunk audio '01wb' (PCM s16 entrelacé, octets BRUTS déjà little-endian).
+				// À entrelacer avec les WriteFrame (ordre du fichier = ordre d'appel). Requiert SetAudio.
+				bool WriteAudio(const uint8 *data, uint32 size);
 
 				// Termine : écrit l'index `idx1` et rapièce toutes les tailles. Ferme le fichier.
 				bool Close();
@@ -64,12 +72,22 @@ namespace nkentseu {
 				uint32 mMaxChunk = 0;
 				uint32 mChunkId = 0;
 
+				// Flux audio PCM optionnel (chunks '01wb').
+				int32 mAudioRate = 0;	  // 0 = pas d'audio
+				int32 mAudioChannels = 0;
+				uint32 mAudioChunkId = 0;
+				uint64 mAudioBytes = 0;	  // total d'octets PCM écrits
+				uint32 mAudioMaxChunk = 0;
+				int32 mAudioChunkCount = 0;
+
 				// Positions à rapiécer.
 				nk_int64 mRiffSizePos = 0;
 				nk_int64 mAvihTotalFramesPos = 0;
 				nk_int64 mAvihBufSizePos = 0;
 				nk_int64 mStrhLengthPos = 0;
 				nk_int64 mStrhBufSizePos = 0;
+				nk_int64 mAudioStrhLengthPos = 0;
+				nk_int64 mAudioStrhBufSizePos = 0;
 				nk_int64 mMoviListSizePos = 0;
 				nk_int64 mMoviBasePos = 0; // position du FourCC 'movi'
 

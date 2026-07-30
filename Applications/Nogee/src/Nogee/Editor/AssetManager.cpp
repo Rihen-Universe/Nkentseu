@@ -2,10 +2,11 @@
 #include "NKLogger/NkLog.h"
 #include "NKImage/NKImage.h"
 #include "NKFileSystem/NkPath.h"
+#include "NKRHI/Core/NkDescs.h"
 #include <cstring>
 
 namespace nkentseu {
-	namespace Noge {
+	namespace noge {
 
 		// =====================================================================
 		NkAssetType AssetManager::DetectType(const char *path) noexcept {
@@ -86,31 +87,27 @@ namespace nkentseu {
 			// Construire le chemin absolu
 			NkString absPath = mProjectDir + "/" + e.path;
 
-			// Charger via NKImage
-			NkImage *img = NkImageCodec::Load(absPath.CStr());
-			if (!img || !img->data || !img->width || !img->height) {
+			// Charger via NKImage (canaux forcés à 4 → NK_RGBA8_UNORM)
+			NkImage img;
+			if (!img.Load(absPath.CStr(), 4) || !img.Pixels() || img.Width() <= 0 || img.Height() <= 0) {
 				logger.Errorf("[AssetManager] NkImage::Load échec: {}\n", absPath.CStr());
-				if (img)
-					img->Free();
 				return false;
 			}
 
 			// Créer la texture GPU
 			NkTextureDesc td =
-				NkTextureDesc::Tex2D((nk_uint32)img->width, (nk_uint32)img->height,
-									 (img->channels == 4) ? NkGPUFormat::NK_RGBA8_UNORM : NkGPUFormat::NK_RGB8_UNORM);
+				NkTextureDesc::Tex2D((nk_uint32)img.Width(), (nk_uint32)img.Height(), NkGPUFormat::NK_RGBA8_UNORM);
 			td.bindFlags = NkBindFlags::NK_SHADER_RESOURCE;
 			td.debugName = e.path.CStr();
 
 			NkTextureHandle h = mDevice->CreateTexture(td);
 			if (h.IsValid()) {
-				mDevice->WriteTexture(h, img->data, (nk_uint32)img->width * (nk_uint32)img->channels);
+				mDevice->WriteTexture(h, img.Pixels(), (nk_uint32)img.Width() * 4u);
 				e.handle = h.id;
 				e.loaded = true;
 				e.dirty = false;
 				++e.refCount;
 			}
-			img->Free();
 			return h.IsValid();
 		}
 
@@ -136,14 +133,15 @@ namespace nkentseu {
 
 		// =====================================================================
 		NkTextureHandle AssetManager::GetThumbnail(const char *path) noexcept {
-			auto it = mThumbnails.Find(NkString(path));
-			if (it != mThumbnails.End())
-				return it->second;
+			// NkHashMap::Find retourne un pointeur vers la valeur (nullptr si absent)
+			NkTextureHandle *th = mThumbnails.Find(NkString(path));
+			if (th)
+				return *th;
 			// Générer (async Phase 5 — pour l'instant synchrone)
 			GenerateThumbnail(path);
-			it = mThumbnails.Find(NkString(path));
-			if (it != mThumbnails.End())
-				return it->second;
+			th = mThumbnails.Find(NkString(path));
+			if (th)
+				return *th;
 			return {};
 		}
 
@@ -188,9 +186,8 @@ namespace nkentseu {
 		// =====================================================================
 		NkAssetEntry *AssetManager::FindOrCreate(const char *path, NkAssetType type) noexcept {
 			NkString key(path);
-			auto it = mIndex.Find(key);
-			if (it != mIndex.End())
-				return &mEntries[it->second];
+			if (nk_uint32 *idxPtr = mIndex.Find(key))
+				return &mEntries[*idxPtr];
 
 			NkAssetEntry e;
 			e.path = key;
@@ -202,14 +199,14 @@ namespace nkentseu {
 		}
 
 		NkAssetEntry *AssetManager::Find(const char *path) noexcept {
-			auto it = mIndex.Find(NkString(path));
-			return it != mIndex.End() ? &mEntries[it->second] : nullptr;
+			nk_uint32 *idxPtr = mIndex.Find(NkString(path));
+			return idxPtr ? &mEntries[*idxPtr] : nullptr;
 		}
 
 		const NkAssetEntry *AssetManager::Find(const char *path) const noexcept {
-			auto it = mIndex.Find(NkString(path));
-			return it != mIndex.End() ? &mEntries[it->second] : nullptr;
+			const nk_uint32 *idxPtr = mIndex.Find(NkString(path));
+			return idxPtr ? &mEntries[*idxPtr] : nullptr;
 		}
 
-	} // namespace Noge
+	} // namespace noge
 } // namespace nkentseu

@@ -4,6 +4,9 @@
 namespace nkentseu {
 	namespace humanoid {
 
+		using namespace nkentseu::math;
+		using namespace nkentseu::pv3de;
+
 		void NkFaceControllerV2::ApplyBehaviorOutput(const NkBehaviorOutput &output, nk_float32 dt) noexcept {
 			(void)dt;
 

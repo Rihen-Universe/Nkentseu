@@ -21,7 +21,7 @@
 #include "NKContainers/String/NkString.h"
 
 namespace nkentseu {
-	namespace Noge {
+	namespace noge {
 
 		// =====================================================================
 		// NkEditorCommand — interface
@@ -115,5 +115,5 @@ namespace nkentseu {
 				nk_uint32 mMaxDepth;
 		};
 
-	} // namespace Noge
+	} // namespace noge
 } // namespace nkentseu

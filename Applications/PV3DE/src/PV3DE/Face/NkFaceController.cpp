@@ -2,9 +2,12 @@
 #include "NKMath/NKMath.h"
 #include "NKLogger/NkLog.h"
 #include <string.h>
+#include <stdlib.h>
 
 namespace nkentseu {
 	namespace pv3de {
+
+		using namespace nkentseu::math;
 
 		NkFaceController::NkFaceController() {
 			for (nk_uint32 i = 0; i < kAUCount; ++i) {
@@ -94,7 +97,10 @@ namespace nkentseu {
 				mBlinkPhase = 0.f;
 				mBlinkTimer = 0.f;
 				// Prochain intervalle : 3–7 secondes (pseudo-aléatoire simple)
-				mBlinkInterval = 3.f + NkFmod(mBlinkTimer * 1234.5f, 4.f);
+				// NOTE : l'ancienne formule utilisait `mBlinkTimer` APRÈS l'avoir remis
+				// à 0.f ci-dessus, donc NkFmod(0.f * 1234.5f, 4.f) valait toujours 0 —
+				// l'intervalle était figé à 3.f au lieu de varier entre 3 et 7s.
+				mBlinkInterval = 3.f + (nk_float32)(rand() % 400) * 0.01f;
 			}
 
 			if (mBlinking) {

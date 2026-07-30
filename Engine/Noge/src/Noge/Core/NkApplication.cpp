@@ -39,9 +39,10 @@ namespace nkentseu {
 
 		// ── Callbacks utilisateur ─────────────────────────────────────────────
 		OnInit();
-		for (NkLayer *layer : mLayerStack) {
-			layer->OnAttach(); // déjà appelé par PushLayer, sécurité supplémentaire optionnelle
-		}
+		// [FIX 2026-07-25] PAS de second passage OnAttach ici : PushLayer/
+		// PushOverlay (NkLayerStack) appellent DÉJÀ OnAttach à l'empilement.
+		// L'ancien re-parcours attachait chaque layer DEUX fois (double init
+		// NkUIContext, double création FBO → fuites GPU, cf. logs Nogee).
 		OnStart();
 		return true;
 	}

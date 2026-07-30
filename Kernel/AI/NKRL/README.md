@@ -1,7 +1,8 @@
 # NKRL — apprentissage par renforcement
 
-> ⚠️ Squelette : pas encore de code. Voir la [ROADMAP](ROADMAP.md) et l'[architecture de la
-> couche](../ARCHITECTURE.md).
+> Jalons 1 (Q-learning tabulaire), 2 (DQN : réseau + replay buffer + réseau cible) et 3 (PPO :
+> politique discrète/gaussienne + GAE + objectif clippé, actions continues, preuve multi-agent
+> minimale) faits. Voir la [ROADMAP](ROADMAP.md) et l'[architecture de la couche](../ARCHITECTURE.md).
 
 ## Rôle
 
@@ -26,7 +27,7 @@ C'est le cœur des êtres « décideurs » de la civilisation : chaque agent y a
 
 ## Place dans la couche
 
-- **Dépend de** : [NKNN](../NKNN/README.md), [NKOptim](../NKOptim/README.md), [NKTensor](../NKTensor/README.md).
+- **Dépend de** : [NKNN](../NKNN/README.md), [NKOptim](../NKOptim/README.md), [NKAutograd](../NKAutograd/README.md), [NKTensor](../NKTensor/README.md).
 - **Utilisé par** : [NKAgent](../NKAgent/README.md), [NKCivilization](../NKCivilization/README.md), [NKEmbodied](../NKEmbodied/README.md).
 
 [Roadmap du module](ROADMAP.md) · [Architecture](../ARCHITECTURE.md) · [Modules](../README.md)

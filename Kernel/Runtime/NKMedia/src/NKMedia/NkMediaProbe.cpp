@@ -325,6 +325,10 @@ namespace nkentseu {
 							cur->sampleRate = (int32)EbmlFloat(d, dl);
 						} else if (id == 0x9FULL) { // Channels
 							cur->channels = (int32)EbmlUint(d, dl);
+						} else if (id == 0x63A2ULL) { // CodecPrivate (OpusHead pour A_OPUS…)
+							cur->codecPrivate.Clear();
+							for (usize i = 0; i < dl; ++i)
+								cur->codecPrivate.PushBack(d[i]);
 						} else if (id == 0xB0ULL) { // PixelWidth
 							cur->width = (int32)EbmlUint(d, dl);
 						} else if (id == 0xBAULL) { // PixelHeight

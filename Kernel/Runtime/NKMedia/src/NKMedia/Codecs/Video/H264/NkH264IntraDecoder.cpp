@@ -16,6 +16,15 @@
 #include "NKMedia/Codecs/Video/H264/NkH264Transform.h"
 #include "NKMedia/Codecs/Video/H264/NkH264Cabac.h"
 
+// SIMD SSE2 (baseline garantie sur x86-64 ; pas de -march requis). Utilisé pour la
+// compensation de mouvement (chemins intérieurs sans écrêtage). Fallback scalaire conservé.
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
+#include <emmintrin.h>
+#define NKH264_HAS_SSE2 1
+#else
+#define NKH264_HAS_SSE2 0
+#endif
+
 namespace nkentseu {
 	namespace media {
 
@@ -475,19 +484,19 @@ namespace nkentseu {
 				return v < 0 ? 0 : (v > 255 ? 255 : v);
 			}
 
-			// MC luma quart-pel (§8.4.2.2.1) d'un rectangle w×h -> écrit dans predY[16*16] à (ox,oy).
-			void McLumaRect(const DecCtx &c, const RefList &L, int32 dx, int32 dy, int32 ox, int32 oy, int32 w, int32 h, int32 mvx,
-							int32 mvy, uint8 predY[256], int32 refIdx = 0,
-							bool applyWeight = true) {
-				const int32 W = c.lumaW, H = c.lumaH;
-				if (refIdx < 0)
-					refIdx = 0;
-				if (refIdx >= L.numRefs)
-					refIdx = L.numRefs > 0 ? L.numRefs - 1 : 0;
-				const uint8 *ref = L.y[refIdx];
+			// Cœur MC luma quart-pel (§8.4.2.2.1). CLAMP=true : accès bornés (bloc au bord de l'image) ;
+			// CLAMP=false : chemin rapide intérieur (l'appelant a prouvé que tout le support 6-tap est
+			// dans l'image), l'écrêtage devient un no-op → éliminé à la compilation. Arithmétique
+			// STRICTEMENT identique dans les deux cas (bit-exact).
+			template <bool CLAMP>
+			static void McLumaImpl(const uint8 *ref, int32 W, int32 H, int32 bx, int32 by, int32 fx, int32 fy, int32 w,
+								   int32 h, int32 ox, int32 oy, uint8 predY[256], bool doWeight, int32 lw, int32 lo,
+								   int32 logWD) {
 				auto R = [&](int32 x, int32 y) -> int32 {
-					x = x < 0 ? 0 : (x >= W ? W - 1 : x);
-					y = y < 0 ? 0 : (y >= H ? H - 1 : y);
+					if (CLAMP) {
+						x = x < 0 ? 0 : (x >= W ? W - 1 : x);
+						y = y < 0 ? 0 : (y >= H ? H - 1 : y);
+					}
 					return ref[(usize)y * W + x];
 				};
 				auto Hor = [&](int32 x, int32 y) -> int32 {
@@ -496,8 +505,6 @@ namespace nkentseu {
 				auto Ver = [&](int32 x, int32 y) -> int32 {
 					return R(x, y - 2) - 5 * R(x, y - 1) + 20 * R(x, y) + 20 * R(x, y + 1) - 5 * R(x, y + 2) + R(x, y + 3);
 				};
-				const int32 fx = mvx & 3, fy = mvy & 3;
-				const int32 bx = dx + (mvx >> 2), by = dy + (mvy >> 2);
 				int32 horBuf[21 * 16];
 				int32 rowLo = 0;
 				if (fx != 0) {
@@ -515,11 +522,16 @@ namespace nkentseu {
 									 5 * HorC(x, y + 2) + HorC(x, y + 3);
 					return ClampU8((j1 + 512) >> 10);
 				};
-				for (int32 y = 0; y < h; ++y)
+				// La sélection de position quart-pel est INVARIANTE sur tout le rectangle : on la hisse
+				// hors de la boucle par pixel (un seul cas par appel, boucles serrées vectorisables).
+				const int32 pos = fy * 4 + fx;
+				for (int32 y = 0; y < h; ++y) {
+					uint8 *out = &predY[(oy + y) * 16 + ox];
+					const int32 iy = by + y;
 					for (int32 x = 0; x < w; ++x) {
-						const int32 ix = bx + x, iy = by + y;
+						const int32 ix = bx + x;
 						int32 v;
-						switch (fy * 4 + fx) {
+						switch (pos) {
 							case 0: v = R(ix, iy); break;
 							case 1: v = (R(ix, iy) + Bh(ix, iy) + 1) >> 1; break;
 							case 2: v = Bh(ix, iy); break;
@@ -537,10 +549,85 @@ namespace nkentseu {
 							case 14: v = (Jj(ix, iy) + Bh(ix, iy + 1) + 1) >> 1; break;
 							default: v = (Hh(ix + 1, iy) + Bh(ix, iy + 1) + 1) >> 1; break;
 						}
-						if (c.weightedPred && applyWeight)
-							v = ApplyWeight(v, L.lumaWeight[refIdx], L.lumaOffset[refIdx], c.lumaLog2Denom);
-						predY[(oy + y) * 16 + (ox + x)] = (uint8)v;
+						if (doWeight)
+							v = ApplyWeight(v, lw, lo, logWD);
+						out[x] = (uint8)v;
 					}
+				}
+			}
+
+			// MC luma quart-pel (§8.4.2.2.1) d'un rectangle w×h -> écrit dans predY[16*16] à (ox,oy).
+			void McLumaRect(const DecCtx &c, const RefList &L, int32 dx, int32 dy, int32 ox, int32 oy, int32 w, int32 h, int32 mvx,
+							int32 mvy, uint8 predY[256], int32 refIdx = 0,
+							bool applyWeight = true) {
+				const int32 W = c.lumaW, H = c.lumaH;
+				if (refIdx < 0)
+					refIdx = 0;
+				if (refIdx >= L.numRefs)
+					refIdx = L.numRefs > 0 ? L.numRefs - 1 : 0;
+				const uint8 *ref = L.y[refIdx];
+				const int32 fx = mvx & 3, fy = mvy & 3;
+				const int32 bx = dx + (mvx >> 2), by = dy + (mvy >> 2);
+				const bool doWeight = c.weightedPred && applyWeight;
+				const int32 lw = L.lumaWeight[refIdx], lo = L.lumaOffset[refIdx], logWD = c.lumaLog2Denom;
+				// Support du filtre 6-tap : x ∈ [bx-2, bx+w+2], y ∈ [by-2, by+h+2]. S'il est
+				// entièrement dans l'image, l'écrêtage est inutile → chemin rapide sans clamp.
+				const bool inside = (bx >= 2 && by >= 2 && bx + w + 2 < W && by + h + 2 < H);
+				if (inside)
+					McLumaImpl<false>(ref, W, H, bx, by, fx, fy, w, h, ox, oy, predY, doWeight, lw, lo, logWD);
+				else
+					McLumaImpl<true>(ref, W, H, bx, by, fx, fy, w, h, ox, oy, predY, doWeight, lw, lo, logWD);
+			}
+
+			// Cœur MC chroma bilinéaire (§8.4.2.2.2). CLAMP=false : chemin rapide intérieur.
+			// Les 4 poids bilinéaires sont invariants sur le rectangle → hissés hors des boucles.
+			template <bool CLAMP>
+			static void McChromaImpl(const uint8 *ref, int32 W, int32 H, int32 bx0, int32 by0, int32 w00, int32 w10,
+									 int32 w01, int32 w11, int32 cw, int32 ch, int32 ox, int32 oy, uint8 cPred[64],
+									 bool doWeight, int32 cwgt, int32 coff, int32 logWD) {
+#if NKH264_HAS_SSE2
+				// Chemin SIMD : intérieur (pas de clamp), sans pondération, largeur 8 (cas dominant :
+				// bloc chroma 8×8). Les produits w·octet tiennent dans 16 bits (Σw=64, octet≤255 →
+				// Σ≤16320+32<32768) : arithmétique STRICTEMENT identique au scalaire (bit-exact).
+				if (!CLAMP && !doWeight && cw == 8 && ox == 0) {
+					const __m128i vw00 = _mm_set1_epi16((short)w00), vw10 = _mm_set1_epi16((short)w10);
+					const __m128i vw01 = _mm_set1_epi16((short)w01), vw11 = _mm_set1_epi16((short)w11);
+					const __m128i v32 = _mm_set1_epi16(32), z = _mm_setzero_si128();
+					for (int32 y = 0; y < ch; ++y) {
+						const uint8 *r0 = &ref[(usize)(by0 + y) * W + bx0];
+						const uint8 *r1 = r0 + W;
+						__m128i a = _mm_unpacklo_epi8(_mm_loadl_epi64((const __m128i *)r0), z);
+						__m128i b = _mm_unpacklo_epi8(_mm_loadl_epi64((const __m128i *)(r0 + 1)), z);
+						__m128i cc = _mm_unpacklo_epi8(_mm_loadl_epi64((const __m128i *)r1), z);
+						__m128i d = _mm_unpacklo_epi8(_mm_loadl_epi64((const __m128i *)(r1 + 1)), z);
+						__m128i acc = _mm_add_epi16(_mm_mullo_epi16(a, vw00), _mm_mullo_epi16(b, vw10));
+						acc = _mm_add_epi16(acc, _mm_mullo_epi16(cc, vw01));
+						acc = _mm_add_epi16(acc, _mm_mullo_epi16(d, vw11));
+						acc = _mm_srli_epi16(_mm_add_epi16(acc, v32), 6);
+						_mm_storel_epi64((__m128i *)&cPred[(oy + y) * 8], _mm_packus_epi16(acc, acc));
+					}
+					return;
+				}
+#endif
+				auto C = [&](int32 x, int32 y) -> int32 {
+					if (CLAMP) {
+						x = x < 0 ? 0 : (x >= W ? W - 1 : x);
+						y = y < 0 ? 0 : (y >= H ? H - 1 : y);
+					}
+					return ref[(usize)y * W + x];
+				};
+				for (int32 y = 0; y < ch; ++y) {
+					uint8 *out = &cPred[(oy + y) * 8 + ox];
+					const int32 ry = by0 + y;
+					for (int32 x = 0; x < cw; ++x) {
+						const int32 rx = bx0 + x;
+						const int32 A = C(rx, ry), Bb = C(rx + 1, ry), Cc = C(rx, ry + 1), D = C(rx + 1, ry + 1);
+						int32 v = (w00 * A + w10 * Bb + w01 * Cc + w11 * D + 32) >> 6;
+						if (doWeight)
+							v = ApplyWeight(v, cwgt, coff, logWD);
+						out[x] = (uint8)v;
+					}
+				}
 			}
 
 			// MC chroma 1/8-pel bilinéaire (§8.4.2.2.2) d'un rectangle cw×ch -> cPred[64] à (ox,oy).
@@ -554,23 +641,19 @@ namespace nkentseu {
 				const uint8 *ref = (comp == 0) ? L.cb[refIdx] : L.cr[refIdx];
 				const int32 W = c.chromaW, H = c.chromaH;
 				const int32 fx = mvx & 7, fy = mvy & 7, oxx = mvx >> 3, oyy = mvy >> 3;
-				auto C = [&](int32 x, int32 y) -> int32 {
-					x = x < 0 ? 0 : (x >= W ? W - 1 : x);
-					y = y < 0 ? 0 : (y >= H ? H - 1 : y);
-					return ref[(usize)y * W + x];
-				};
-				for (int32 y = 0; y < ch; ++y)
-					for (int32 x = 0; x < cw; ++x) {
-						const int32 rx = dx + x + oxx, ry = dy + y + oyy;
-						const int32 A = C(rx, ry), Bb = C(rx + 1, ry), Cc = C(rx, ry + 1), D = C(rx + 1, ry + 1);
-						int32 v = ((8 - fx) * (8 - fy) * A + fx * (8 - fy) * Bb + (8 - fx) * fy * Cc + fx * fy * D +
-								   32) >>
-								  6;
-						if (c.weightedPred && applyWeight)
-							v = ApplyWeight(v, L.chromaWeight[refIdx][comp], L.chromaOffset[refIdx][comp],
-											c.chromaLog2Denom);
-						cPred[(oy + y) * 8 + (ox + x)] = (uint8)v;
-					}
+				const int32 bx0 = dx + oxx, by0 = dy + oyy;
+				const int32 w00 = (8 - fx) * (8 - fy), w10 = fx * (8 - fy), w01 = (8 - fx) * fy, w11 = fx * fy;
+				const bool doWeight = c.weightedPred && applyWeight;
+				const int32 cwgt = L.chromaWeight[refIdx][comp], coff = L.chromaOffset[refIdx][comp];
+				const int32 logWD = c.chromaLog2Denom;
+				// Support bilinéaire : x ∈ [bx0, bx0+cw], y ∈ [by0, by0+ch]. Intérieur → sans clamp.
+				const bool inside = (bx0 >= 0 && by0 >= 0 && bx0 + cw < W && by0 + ch < H);
+				if (inside)
+					McChromaImpl<false>(ref, W, H, bx0, by0, w00, w10, w01, w11, cw, ch, ox, oy, cPred, doWeight, cwgt,
+										coff, logWD);
+				else
+					McChromaImpl<true>(ref, W, H, bx0, by0, w00, w10, w01, w11, cw, ch, ox, oy, cPred, doWeight, cwgt,
+									   coff, logWD);
 			}
 
 			// Voisin 4x4 pour la prédiction de MV : dispo + ref (-1 = intra/hors) + MV.
@@ -1315,40 +1398,47 @@ namespace nkentseu {
 							}
 						}
 						// Chroma 4:2:0 : bords ec=0/1 (↔ luma e=0/2) ; bS repris du segment luma cr/2.
-						for (int32 comp = 0; comp < 2; ++comp) {
-							uint8 *rec = (comp == 0) ? c.Cb : c.Cr;
-							for (int32 ec = 0; ec < 2; ++ec) {
-								if (ec == 0 && mbX == 0)
+						// bS/α/β/tc0 sont dérivés de la grille LUMA → IDENTIQUES pour Cb et Cr, et constants
+						// sur les 2 lignes chroma d'un segment. Calculés UNE fois par arête (au lieu de
+						// 4×), puis appliqués aux deux plans (plans indépendants → même ordre par plan).
+						const int32 qpcQ = chromaQpOf(qpQ);
+						// Bords verticaux chroma.
+						for (int32 ec = 0; ec < 2; ++ec) {
+							if (ec == 0 && mbX == 0)
+								continue;
+							const int32 e = ec * 2, cx = mbX * 8 + ec * 4;
+							const int32 qPavC = (ec == 0) ? ((chromaQpOf(mbQp[cur - 1]) + qpcQ + 1) >> 1) : qpcQ;
+							const int32 pxx = (e == 0) ? (mbX * 4 - 1) : (mbX * 4 + e - 1);
+							for (int32 seg = 0; seg < 4; ++seg) {
+								const int32 qx = mbX * 4 + e, qy = mbY * 4 + seg;
+								const int32 bS = bsOf(qx, qy, pxx, qy, e == 0);
+								if (!bS)
 									continue;
-								const int32 e = ec * 2, cx = mbX * 8 + ec * 4;
-								const int32 qpcQ = chromaQpOf(qpQ);
-								const int32 qPavC = (ec == 0) ? ((chromaQpOf(mbQp[cur - 1]) + qpcQ + 1) >> 1) : qpcQ;
-								for (int32 cr = 0; cr < 8; ++cr) {
-									const int32 seg = cr / 2;
-									const int32 qx = mbX * 4 + e, qy = mbY * 4 + seg;
-									const int32 pxx = (e == 0) ? (mbX * 4 - 1) : (mbX * 4 + e - 1);
-									const int32 bS = bsOf(qx, qy, pxx, qy, e == 0);
-									if (!bS)
-										continue;
-									lumaEdge(qPavC, bS);
-									FiltChroma(&rec[(usize)(mbY * 8 + cr) * c.chromaW + cx], 1, alpha, beta, bS, tc0);
+								lumaEdge(qPavC, bS);
+								for (int32 sub = 0; sub < 2; ++sub) {
+									const int32 cr = seg * 2 + sub;
+									FiltChroma(&c.Cb[(usize)(mbY * 8 + cr) * c.chromaW + cx], 1, alpha, beta, bS, tc0);
+									FiltChroma(&c.Cr[(usize)(mbY * 8 + cr) * c.chromaW + cx], 1, alpha, beta, bS, tc0);
 								}
 							}
-							for (int32 ec = 0; ec < 2; ++ec) {
-								if (ec == 0 && mbY == 0)
+						}
+						// Bords horizontaux chroma.
+						for (int32 ec = 0; ec < 2; ++ec) {
+							if (ec == 0 && mbY == 0)
+								continue;
+							const int32 e = ec * 2, cy = mbY * 8 + ec * 4;
+							const int32 qPavC = (ec == 0) ? ((chromaQpOf(mbQp[cur - mbW]) + qpcQ + 1) >> 1) : qpcQ;
+							const int32 pyy = (e == 0) ? (mbY * 4 - 1) : (mbY * 4 + e - 1);
+							for (int32 seg = 0; seg < 4; ++seg) {
+								const int32 qx = mbX * 4 + seg, qy = mbY * 4 + e;
+								const int32 bS = bsOf(qx, qy, qx, pyy, e == 0);
+								if (!bS)
 									continue;
-								const int32 e = ec * 2, cy = mbY * 8 + ec * 4;
-								const int32 qpcQ = chromaQpOf(qpQ);
-								const int32 qPavC = (ec == 0) ? ((chromaQpOf(mbQp[cur - mbW]) + qpcQ + 1) >> 1) : qpcQ;
-								for (int32 cc = 0; cc < 8; ++cc) {
-									const int32 seg = cc / 2;
-									const int32 qx = mbX * 4 + seg, qy = mbY * 4 + e;
-									const int32 pyy = (e == 0) ? (mbY * 4 - 1) : (mbY * 4 + e - 1);
-									const int32 bS = bsOf(qx, qy, qx, pyy, e == 0);
-									if (!bS)
-										continue;
-									lumaEdge(qPavC, bS);
-									FiltChroma(&rec[(usize)cy * c.chromaW + mbX * 8 + cc], c.chromaW, alpha, beta, bS, tc0);
+								lumaEdge(qPavC, bS);
+								for (int32 sub = 0; sub < 2; ++sub) {
+									const int32 cc = seg * 2 + sub;
+									FiltChroma(&c.Cb[(usize)cy * c.chromaW + mbX * 8 + cc], c.chromaW, alpha, beta, bS, tc0);
+									FiltChroma(&c.Cr[(usize)cy * c.chromaW + mbX * 8 + cc], c.chromaW, alpha, beta, bS, tc0);
 								}
 							}
 						}

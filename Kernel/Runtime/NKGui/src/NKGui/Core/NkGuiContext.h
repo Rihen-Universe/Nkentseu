@@ -160,6 +160,68 @@ namespace nkentseu {
 				NkVec2 popupPos = {0.f, 0.f};			   ///< ancrage (menu contextuel)
 				NkRect popupAnchor = {0.f, 0.f, 0.f, 0.f}; ///< zone déclencheur (ne ferme pas)
 
+				// ── ROUTEUR D'OCCLUSION UNIFIÉ (surfaces flottantes « maison ») ─────
+				// PROBLÈME DE FOND résolu ici : les overlays applicatifs (modals, palettes,
+				// popovers, peek…) faisaient des hit-tests BRUTS (rect + mouseClicked) qui
+				// ignoraient ce qui est dessiné AU-DESSUS d'eux → traversées de clics,
+				// boutons inertes, consommations manuelles fragiles dupliquées partout.
+				// PRINCIPE : chaque surface flottante déclare son rect + sa couche CHAQUE
+				// frame (PushOcclusion) pendant son dessin ; tous les hit-tests passent par
+				// InputHits/ClickIn qui refusent un point recouvert par une couche PLUS
+				// HAUTE que celle en cours de dessin (curInputLayer). Comme hotIdPrev, la
+				// liste lue est celle de la FRAME PRÉCÉDENTE (stable pour toute la frame,
+				// indépendante de l'ordre de dessin des panneaux). Couches conseillées :
+				// 0 fond/panneaux · 50 menus/palettes/popovers · 100 modals · 200 debug.
+				static constexpr int32 OcclMax = 16;
+				NkRect occlRects[OcclMax] = {};	   ///< frame PRÉCÉDENTE (lecture, stable)
+				int32 occlLayers[OcclMax] = {};
+				int32 occlCount = 0;
+				NkRect occlRectsNew[OcclMax] = {}; ///< frame COURANTE (écriture)
+				int32 occlLayersNew[OcclMax] = {};
+				int32 occlCountNew = 0;
+				int32 curInputLayer = 0; ///< couche de la surface en cours de dessin
+
+				// Déclare une surface flottante pour CETTE frame (lue à la suivante).
+				void PushOcclusion(const NkRect &r, int32 layer) noexcept {
+					if (occlCountNew < OcclMax) {
+						occlRectsNew[occlCountNew] = r;
+						occlLayersNew[occlCountNew] = layer;
+						++occlCountNew;
+					}
+				}
+
+				// Le point est-il ATTEIGNABLE par la surface de couche `curInputLayer` ?
+				// (refusé si un rect d'une couche STRICTEMENT supérieure le recouvre)
+				bool PointReachable(const NkVec2 &p) const noexcept {
+					for (int32 i = 0; i < occlCount; ++i)
+						if (occlLayers[i] > curInputLayer && NkGuiRectContains(occlRects[i], p))
+							return false;
+					return true;
+				}
+
+				// Hit-test UNIFIÉ : souris dans `r` ET non recouverte par une couche
+				// supérieure. À utiliser PARTOUT à la place de NkGuiRectContains(mousePos).
+				bool InputHits(const NkRect &r) const noexcept {
+					return NkGuiRectContains(r, input.mousePos) && PointReachable(input.mousePos);
+				}
+
+				// Clic gauche UNIFIÉ dans `r` (occlusion respectée).
+				bool ClickIn(const NkRect &r) const noexcept {
+					return input.mouseClicked[0] && InputHits(r);
+				}
+
+				// RAII : fixe la couche d'input pendant le dessin d'une surface flottante.
+				struct NkInputLayerScope {
+						NkGuiContext *c;
+						int32 saved;
+						NkInputLayerScope(NkGuiContext &ctx, int32 layer) : c(&ctx), saved(ctx.curInputLayer) {
+							ctx.curInputLayer = layer;
+						}
+						~NkInputLayerScope() {
+							c->curInputLayer = saved;
+						}
+				};
+
 				// ── Fenêtres flottantes (Begin/End) ───────────────────────────────
 				// Chaque fenêtre dessine dans SA draw-list (pool `winDL`), fusionnées dans
 				// `dl` triées par z-order à EndFrame → recouvrement correct + passage devant.

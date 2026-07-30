@@ -14,6 +14,11 @@
 #include "NKImage/Core/NkImage.h"
 #include <cstdio>
 
+// TODO (audit std:: — hors scope de cette correction) : std::snprintf reste utilise
+// ci-dessous pour formater le chemin "rihen_%05d.png" dans un char[256]. Fonction libc,
+// pas STL, mais viole quand meme la regle "pas de std::" du projet. Cf. meme remarque
+// dans GameplayScene.cpp.
+
 namespace nkentseu {
 	namespace songoo {
 
@@ -39,8 +44,8 @@ namespace nkentseu {
 			mFrameAccum = 0.f;
 			for (int i = 0; i < kFrameCount; ++i)
 				mPending[i] = nullptr;
-			mWorkerDone.store(false);
-			mWorkerLastAttempted.store(-1);
+			mWorkerDone.Store(false);
+			mWorkerLastAttempted.Store(-1);
 
 			// Logo statique pendant le chargement
 			mLoadingLogo.LoadFromFile("Resources/Songoo/assets/Icon.png");
@@ -66,21 +71,21 @@ namespace nkentseu {
 
 		// ── Worker ────────────────────────────────────────────────────────────────
 		void RihenIntroScene::StartWorker() {
-			mWorkerStop.store(false);
-			mWorker = std::thread(&RihenIntroScene::WorkerProc, this);
+			mWorkerStop.Store(false);
+			mWorker = threading::NkThread([this](void *) { WorkerProc(); });
 		}
 
 		void RihenIntroScene::StopWorker() {
-			mWorkerStop.store(true);
-			if (mWorker.joinable())
-				mWorker.join();
+			mWorkerStop.Store(true);
+			if (mWorker.Joinable())
+				mWorker.Join();
 		}
 
 		void RihenIntroScene::WorkerProc() {
 			char path[256];
 			int missing = 0;
 			for (int i = 0; i < kFrameCount; ++i) {
-				if (mWorkerStop.load())
+				if (mWorkerStop.Load())
 					break;
 
 				// Renommage : rihen_00000.png … rihen_00155.png
@@ -89,19 +94,19 @@ namespace nkentseu {
 				NkImage *img = Texture2D::DecodeFromFile(path);
 				if (!img) {
 					++missing;
-					mWorkerLastAttempted.store(i);
+					mWorkerLastAttempted.Store(i);
 					logger.Warn("[RihenIntro] Decode FAIL i={} path={}", i, path);
 					continue;
 				}
 				{
-					std::lock_guard<std::mutex> lk(mQueueMutex);
+					threading::NkLockGuard lk(mQueueMutex);
 					mPending[i] = img;
 				}
-				mWorkerLastAttempted.store(i);
+				mWorkerLastAttempted.Store(i);
 				if ((i + 1) % 30 == 0)
 					logger.Info("[RihenIntro] Worker {}/{} ({} miss)", i + 1, kFrameCount, missing);
 			}
-			mWorkerDone.store(true);
+			mWorkerDone.Store(true);
 			logger.Info("[RihenIntro] Worker done — {} miss / {}", missing, kFrameCount);
 		}
 
@@ -110,11 +115,11 @@ namespace nkentseu {
 			while (uploaded < maxUploads && mPendingNext < kFrameCount) {
 				NkImage *img = nullptr;
 				{
-					std::lock_guard<std::mutex> lk(mQueueMutex);
+					threading::NkLockGuard lk(mQueueMutex);
 					img = mPending[mPendingNext];
 				}
 				// Pas encore décodée et worker pas encore arrivé là
-				if (!img && !mWorkerDone.load() && mWorkerLastAttempted.load() < mPendingNext)
+				if (!img && !mWorkerDone.Load() && mWorkerLastAttempted.Load() < mPendingNext)
 					break;
 
 				if (img) {
@@ -127,7 +132,7 @@ namespace nkentseu {
 						++uploaded;
 					}
 					{
-						std::lock_guard<std::mutex> lk(mQueueMutex);
+						threading::NkLockGuard lk(mQueueMutex);
 						mPending[mPendingNext] = nullptr;
 					}
 				}

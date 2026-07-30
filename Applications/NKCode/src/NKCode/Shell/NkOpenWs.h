@@ -1919,8 +1919,11 @@ namespace nkentseu {
 				if (u.Hit(pathBar) && u.click && !blockBg)
 					ow->BeginPathEdit(false);
 			}
-			// bouton Ouvrir / Choisir (grise si erreur, sauf en mode pick)
-			const bool err = pickFolder ? false : ow->HasError();
+			// bouton Ouvrir / Choisir : plus jamais grise par l'absence de workspace
+			// Jenga — un dossier SANS `.jenga` s'ouvre desormais en mode edition
+			// simple (a la VSCode), cf. issues beta #3/#11. Le bandeau ci-dessous
+			// reste informatif dans ce cas (pas bloquant).
+			const bool err = false;
 			const char *openLbl = pickFolder ? NkT("ow.choosefolder") : NkT("ow.openfolder");
 			const NkRect openR = {bot.x + bot.w - u.s(14) - btnOpenW - btnCancelW - u.s(8),
 								  bot.y + (botH - u.s(32)) * 0.5f, btnOpenW, u.s(32)};
@@ -1953,12 +1956,15 @@ namespace nkentseu {
 				const float32 bannerY = bodyTop + bodyH - optH - bannerH + u.s(3);
 				const NkRect banner = {r.x + sbW + u.s(14), bannerY, r.w - sbW - u.s(28), u.s(28)};
 				if (ow->jengaCount == 0) {
-					u.Panel(banner, NkCol::surface, NkCol::danger, NkR::md * u.S);
+					// INFORMATIF (pas bloquant) : le dossier s'ouvrira quand meme, en mode
+					// edition simple (build/run/etc. indisponibles sans workspace Jenga).
+					u.Panel(banner, NkCol::surface, NkCol::accent, NkR::md * u.S);
 					u.Icon("alert-triangle",
 						   {banner.x + u.s(10), banner.y + (banner.h - u.s(13)) * 0.5f, u.s(13), u.s(13)},
-						   NkCol::danger);
-					u.TextV(banner.x + u.s(30), banner.y, banner.h, "Aucun fichier .jenga dans ce dossier.",
-							NkCol::danger);
+						   NkCol::accent);
+					u.TextV(banner.x + u.s(30), banner.y, banner.h,
+							"Aucun fichier .jenga — ouverture en mode edition simple (sans build/run).",
+							NkCol::accent);
 				} else if (ow->wsCount == 0) {
 					u.Panel(banner, NkCol::surface, NkCol::accent, NkR::md * u.S);
 					u.Icon("alert-triangle",

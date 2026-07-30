@@ -92,28 +92,54 @@ NKTensor sont écrits **en NkSL**, pas en GLSL. NkSL les convertit vers chaque A
   automatiquement vers le GPU (kernels NkSL) quand un opérande est sur GPU, sinon CPU.
   « **Même API, deux backends** » — validé : `ops::Matmul(gpuA, gpuB)` → [58 64 139 154].
   (`NkGpuAdd`/`NkGpuMatmul` déplacent au besoin les opérandes sur GPU.)
-- ⬜ Étendre le dispatch GPU à Sub/Mul/Div + activations + réductions (kernels NkSL).
-- ⬜ Metal (même chemin NkSL→MSL, à valider sur matériel Apple).
+- ✅ **Dispatch GPU étendu à Sub/Mul/Div + activations + réductions (kernels NkSL)** —
+  corrigé le 2026-07-26 (était listé ⬜ ici mais déjà livré dans le code, cf. « Plein
+  speedup GPU » plus bas dans ce même fichier pour le détail des symboles vérifiés).
+- ⬜ Metal (même chemin NkSL→MSL, à valider sur matériel Apple) — toujours vrai, cf. plus bas.
 - ⬜ Corriger le chemin **dxc SM6** (bug d'encodage source « not valid UTF-8 » ;
-  contourné par le fallback fxc cs_5_1, mais le SM6 natif serait préférable).
+  contourné par le fallback fxc cs_5_1, mais le SM6 natif serait préférable) — toujours vrai.
 - ✅ **Accélération GPU mesurée** (`NKGpuBenchTest`) : matmul GPU vs CPU, **résultats
   identiques** (err 0), speedup **20× (256²) → 124× (384²) → 162× (512²)** — croît avec
   la taille. Confirme le payoff : porter l'entraînement (Dense/conv) sur GPU = ~100× plus
   vite. (1er appel GPU = init device + compil kernel ~350 ms, puis 1-2 ms.)
-- 🟡 **GPU dans l'entraînement — 1re étape faite** : `ops::Matmul` route **auto** les
-  grandes matrices (M·N·K ≥ 8e6) vers le GPU (upload→NkSL→download, retombe CPU si indispo).
-  Comme l'autograd (forward + backward) passe par `ops::Matmul`, l'entraînement de gros
-  modèles accélère (VAE MNIST hidden 512 : ~1.3 s/époque vs 2.2 s CPU pour 4× moins gros ;
-  Vulkan confirmé actif). ⚠️ **Amdahl** : seuls les matmuls sont sur GPU ; les ops
-  élémentaires (Relu/Sigmoid/Add/Mul) restent CPU et deviennent le goulot.
+- ✅ **GPU dans l'entraînement** : `ops::Matmul` route **auto** les grandes matrices
+  (M·N·K ≥ 8e6) vers le GPU (upload→NkSL→download, retombe CPU si indispo). Comme l'autograd
+  (forward + backward) passe par `ops::Matmul`, l'entraînement de gros modèles accélère (VAE
+  MNIST hidden 512 : ~1.3 s/époque vs 2.2 s CPU pour 4× moins gros ; Vulkan confirmé actif).
+  ⚠️ **Amdahl, constat de l'époque (2026-07-05), depuis RÉSOLU** : à ce stade seuls les
+  matmuls étaient sur GPU et les ops élémentaires restaient le goulot — **cet avertissement
+  est aujourd'hui obsolète** (vérifié dans le code, audit 2026-07-26) :
+  `NKTensor/src/NKTensor/NkTensorOps.cpp` dispatche désormais Add/Sub/Mul/Div, Relu/Sigmoid/
+  Tanh/Exp/Sqrt, MulScalar/AddScalar **et** les réductions (Sum/Mean/Max/Argmax, globales et
+  par axe) vers des kernels GPU natifs quand un opérande réside sur GPU (`NkGpuAdd`,
+  `NkGpuSub`, `NkGpuMul`, `NkGpuDiv`, `NkGpuRelu`, `NkGpuSigmoid`, `NkGpuTanh`, `NkGpuExp`,
+  `NkGpuSqrt`, `NkGpuReduceAll`, `NkGpuReduceAxis`, etc.) — cf. l'item suivant.
 - ✅ **Conv GPU (im2col + matmul)** : `autograd::Conv2D` réécrite en **im2col → ops::Matmul**
   (le matmul auto-GPU). Correct (gradient-checks 19/19, err 0 vs naïve) et **93× plus vite**
   en régime sur une grosse conv `[8,64,32,32]*[128,64,3,3]` (`NKConvBenchTest` : 13379 ms CPU
   → 144 ms GPU). Rend les CNN pratiques à entraîner. (Overhead im2col/permute CPU → sous le
   162× du matmul pur, mais transparent : tout le code conv en profite.)
-- ⬜ **Plein speedup GPU restant** : (1) ops élémentaires sur GPU (kernels NkSL) ;
-  (2) tenseurs **résidents GPU** à travers le graphe autograd (éviter transferts) ;
-  (3) im2col/permute sur GPU aussi ; (4) Conv3D en im2col.
+- ✅ **Plein speedup GPU** — les 4 points étaient listés ⬜, tous vérifiés ✅ dans le code
+  (audit 2026-07-26), cohérent avec `Kernel/AI/ROADMAP.md` « RÉSIDENCE GPU 100% COMPLÈTE
+  (2026-07-05) : plus AUCUN repli CPU » :
+  1. **Ops élémentaires sur GPU** ✅ (kernels NkSL, cf. ci-dessus).
+  2. **Tenseurs résidents GPU à travers le graphe autograd** ✅ : `NKAutograd/src/NKAutograd/
+     NkVar.cpp` dispatche le **forward et le backward** sur GPU quand les opérandes y résident
+     (ex. `NkGpuConv3DBackwardX/W`, `NkGpuLayerNormStd`, `NkGpuSoftmaxCausal`, `NkGpuGelu`,
+     `NkGpuEmbedding`, MaxPool2D fwd+bwd GPU) — pas seulement le forward.
+  3. **im2col/permute sur GPU** ✅ : `NkTensor::Contiguous()` (`NkTensor.cpp`) matérialise une
+     vue strided GPU via un noyau de gather (`NkGpuContiguous`) au lieu de repasser CPU ; Im2Col/
+     Col2Im basculent sur GPU quand l'entrée est résidente (`NkVar.cpp` lignes ~345/373).
+  4. **Conv3D en GPU** ✅ (nuance : pas littéralement « im2col », mais l'objectif — Conv3D sans
+     repli CPU — est atteint) : noyaux natifs `conv3d`/`convt3d` voxel (fwd+dX+dW) en
+     formulation *gather*, dispatchés depuis `NkVar.cpp` (`autograd::Conv3D`/
+     `ConvTranspose3D`), exposés couche NN via `nn::NkConv3D`/`NkConvTranspose3D`
+     (`NKNN/NkConv.h`).
+- ⬜ **Metal** (même chemin NkSL→MSL) — toujours pas validé sur matériel Apple ; c'est le
+  **seul** repli restant selon `Kernel/AI/ROADMAP.md` (« Seul reste (matériel) : le backend
+  Metal (Apple) »). Reste légitimement ⬜.
+- ⬜ **Chemin dxc SM6 natif** — toujours contourné par le fallback fxc cs_5_1 (aucune trace de
+  correctif trouvée dans le code). Reste légitimement ⬜.
 
 ## Plus tard
 - ⬜ Types réduits (fp16/bf16/int8) pour la quantization.

@@ -37,10 +37,11 @@
 // =============================================================================
 
 #include "NKECS/NkECSDefines.h"
+#include "NKECS/World/NkWorld.h"					// NkWorld
 #include "../NkScriptComponent.h"
-#include <functional>
-#include <memory>
-#include <cstring>
+#include "Noge/ECS/Components/Core/NkTag.h"		// NkName, NkTag
+#include "Noge/ECS/Components/Core/NkTransform.h" // NkTransform
+#include "NKMemory/NkSharedPtr.h"					// NkSharedPtr, NkMakeShared (remplace <memory>)
 
 // Détection de Mono
 #ifdef NKECS_MONO_AVAILABLE
@@ -67,6 +68,27 @@ using NkMonoMethod = void;
 
 namespace nkentseu {
 	namespace ecs {
+
+		// Utilitaires C-string zéro-STL (remplacent strncpy / strrchr de la libc).
+		inline void NkCSStrNCpy(char *dst, const char *src, uint32 maxLen) noexcept {
+			uint32 i = 0;
+			while (i < maxLen && src[i] != '\0') {
+				dst[i] = src[i];
+				i++;
+			}
+			dst[i] = '\0';
+		}
+
+		inline const char *NkCSStrRChr(const char *s, char c) noexcept {
+			const char *last = nullptr;
+			uint32 i = 0;
+			while (s[i] != '\0') {
+				if (s[i] == c)
+					last = &s[i];
+				i++;
+			}
+			return last;
+		}
 
 		// =============================================================================
 		// NkCSContext — contexte C# (struct P/Invoke côté C++)
@@ -129,9 +151,9 @@ namespace nkentseu {
 					return;
 				auto id = NkEntityId::Unpack(entityPack);
 				if (auto *t = world->Get<NkTransform>(id)) {
-					*outX = t->position.x;
-					*outY = t->position.y;
-					*outZ = t->position.z;
+					*outX = t->localPosition.x;
+					*outY = t->localPosition.y;
+					*outZ = t->localPosition.z;
 				}
 			}
 
@@ -141,8 +163,8 @@ namespace nkentseu {
 					return;
 				auto id = NkEntityId::Unpack(entityPack);
 				if (auto *t = world->Get<NkTransform>(id)) {
-					t->position = {x, y, z};
-					t->dirty = true;
+					t->localPosition = {x, y, z};
+					t->MarkDirty();
 				}
 			}
 
@@ -152,10 +174,10 @@ namespace nkentseu {
 					return;
 				auto id = NkEntityId::Unpack(entityPack);
 				if (auto *t = world->Get<NkTransform>(id)) {
-					t->position.x += dx;
-					t->position.y += dy;
-					t->position.z += dz;
-					t->dirty = true;
+					t->localPosition.x += dx;
+					t->localPosition.y += dy;
+					t->localPosition.z += dz;
+					t->MarkDirty();
 				}
 			}
 
@@ -166,7 +188,7 @@ namespace nkentseu {
 					return;
 				auto id = NkEntityId::Unpack(entityPack);
 				if (auto *t = world->Get<NkTransform>(id)) {
-					t->Rotate({axX, axY, axZ}, angleDeg);
+					t->Rotate(nkentseu::math::NkQuatf(nkentseu::math::NkAngle(angleDeg), {axX, axY, axZ}));
 				}
 			}
 
@@ -176,7 +198,10 @@ namespace nkentseu {
 					return;
 				auto id = NkEntityId::Unpack(entityPack);
 				if (auto *t = world->Get<NkTransform>(id)) {
-					t->LookAt({tx, ty, tz});
+					// NkTransform n'a pas de LookAt : rotation "de l'avant courant vers la cible"
+					// via le constructeur quaternion from-to de NKMath (pas de maths réimplémentée).
+					const nkentseu::math::NkVec3f dir = nkentseu::math::NkVec3f{tx, ty, tz} - t->GetWorldPosition();
+					t->SetLocalRotation(nkentseu::math::NkQuatf(t->GetWorldForward(), dir));
 				}
 			}
 
@@ -185,8 +210,10 @@ namespace nkentseu {
 				if (!world)
 					return 0;
 				auto id = NkEntityId::Unpack(entityPack);
-				if (auto *t = world->Get<NkTransform>(id))
-					return t->parent.Pack();
+				// La hiérarchie parent/enfant n'est pas stockée sur le composant NkTransform
+				// (elle vit au niveau NkGameObject / scene graph) : pas de parent ici.
+				(void)world;
+				(void)id;
 				return 0;
 			}
 
@@ -275,7 +302,7 @@ namespace nkentseu {
 						return false;
 
 					mAssemblies[mAssemblyCount] = assembly;
-					std::strncpy(mAssemblyPaths[mAssemblyCount], path, 511);
+					NkCSStrNCpy(mAssemblyPaths[mAssemblyCount], path, 511);
 					++mAssemblyCount;
 					return true;
 #else
@@ -303,7 +330,7 @@ namespace nkentseu {
 
 				// ── Création d'instances ──────────────────────────────────────────────────
 
-				std::shared_ptr<NkScriptComponent> CreateCSharpScript(const char *fullClassName) noexcept {
+				memory::NkSharedPtr<NkScriptComponent> CreateCSharpScript(const char *fullClassName) noexcept {
 #ifdef NKECS_MONO_AVAILABLE
 					if (!mInitialized)
 						return nullptr;
@@ -313,13 +340,13 @@ namespace nkentseu {
 						MonoImage *image = mono_assembly_get_image(mAssemblies[i]);
 						// fullClassName = "MyNamespace.PlayerController"
 						char ns[128] = {}, cls[128] = {};
-						const char *dot = std::strrchr(fullClassName, '.');
+						const char *dot = NkCSStrRChr(fullClassName, '.');
 						if (dot) {
 							uint32 nsLen = static_cast<uint32>(dot - fullClassName);
-							std::strncpy(ns, fullClassName, nsLen);
-							std::strncpy(cls, dot + 1, 127);
+							NkCSStrNCpy(ns, fullClassName, nsLen);
+							NkCSStrNCpy(cls, dot + 1, 127);
 						} else {
-							std::strncpy(cls, fullClassName, 127);
+							NkCSStrNCpy(cls, fullClassName, 127);
 						}
 
 						MonoClass *monoClass = mono_class_from_name(image, ns, cls);
@@ -331,7 +358,7 @@ namespace nkentseu {
 							continue;
 						mono_runtime_object_init(obj);
 
-						return std::make_shared<NkCSharpScriptAdapter>(obj, monoClass, fullClassName);
+						return memory::NkMakeShared<NkCSharpScriptAdapter>(obj, monoClass, fullClassName);
 					}
 					return nullptr;
 #else
@@ -376,7 +403,7 @@ namespace nkentseu {
 			public:
 				NkCSharpScriptAdapter(NkMonoObject *obj, NkMonoClass *cls, const char *typeName) noexcept
 					: mObject(obj), mClass(cls) {
-					std::strncpy(mTypeName, typeName, 127);
+					NkCSStrNCpy(mTypeName, typeName, 127);
 #ifdef NKECS_MONO_AVAILABLE
 					// Pré-résout les méthodes pour éviter les lookups répétés
 					mOnStart = FindMethod("OnStart");
@@ -461,9 +488,9 @@ namespace nkentseu {
 					ctx.dt = dt;
 					// Remplit position depuis le transform
 					if (auto *t = world.Get<NkTransform>(self)) {
-						ctx.posX = t->position.x;
-						ctx.posY = t->position.y;
-						ctx.posZ = t->position.z;
+						ctx.posX = t->localPosition.x;
+						ctx.posY = t->localPosition.y;
+						ctx.posZ = t->localPosition.z;
 					}
 					// Invoque la méthode Mono
 					void *args[] = {&ctx};
@@ -480,8 +507,8 @@ namespace nkentseu {
 					// Applique les changements de position
 					if ((ctx.dirtyFlags & 1) && !(ctx.outPosX == 0 && ctx.outPosY == 0 && ctx.outPosZ == 0)) {
 						if (auto *t = world.Get<NkTransform>(self)) {
-							t->position = {ctx.outPosX, ctx.outPosY, ctx.outPosZ};
-							t->dirty = true;
+							t->localPosition = {ctx.outPosX, ctx.outPosY, ctx.outPosZ};
+							t->MarkDirty();
 						}
 					}
 #else
@@ -505,9 +532,9 @@ namespace nkentseu {
 			auto script = NkCSharpBridge::Global().CreateCSharpScript(fullClassName);
 			if (!script)
 				return false;
-			if (host.scriptCount >= NkScriptHost::kMaxScripts)
+			if (host.count >= NkScriptHost::kMaxScripts)
 				return false;
-			host.scripts[host.scriptCount++] = script;
+			host.scripts[host.count++] = script;
 			host.pendingStart = true;
 			return true;
 		}

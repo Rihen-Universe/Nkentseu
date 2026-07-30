@@ -703,6 +703,12 @@ with workspace("Nkentseu", location="."):
 
 
 
+    with include("Externals/Libs/pybind11/pybind11.jenga"):
+
+        pass
+
+
+
     with include("Kernel/Runtime/NKEvent/NKEvent.jenga"):
 
         pass
@@ -805,6 +811,15 @@ with workspace("Nkentseu", location="."):
 
 
 
+    # NKNavigation (NavMesh + pathfinding A*, sur NKCollision -- raycast reel
+    # de sondage walkable). Voir Engine/Noge/ROADMAP.md, pilier Navigation IA.
+
+    with include("Kernel/Runtime/NKNavigation/NKNavigation.jenga"):
+
+        pass
+
+
+
     with include("Applications/Sandbox/Sandbox.jenga"):
 
         pass
@@ -898,6 +913,30 @@ with workspace("Nkentseu", location="."):
 
 
     with include("Kernel/AI/NKRL/NKRL.jenga"):
+
+        pass
+
+
+
+    with include("Kernel/AI/NKAgent/NKAgent.jenga"):
+
+        pass
+
+
+
+    with include("Kernel/AI/NKEvolve/NKEvolve.jenga"):
+
+        pass
+
+
+
+    with include("Kernel/AI/NKCivilization/NKCivilization.jenga"):
+
+        pass
+
+
+
+    with include("Kernel/AI/NKEmbodied/NKEmbodied.jenga"):
 
         pass
 
@@ -1025,6 +1064,12 @@ with workspace("Nkentseu", location="."):
 
 
 
+    with include("Applications/NKFp16Test/NKFp16Test.jenga"):
+
+        pass
+
+
+
     with include("Applications/NKRnnCtcTest/NKRnnCtcTest.jenga"):
 
         pass
@@ -1041,7 +1086,27 @@ with workspace("Nkentseu", location="."):
 
         pass
 
+    with include("Applications/NkEditableMeshDemo/NkEditableMeshDemo.jenga"):
+
+        pass
+
+    with include("Applications/NkLocomotionDemo/NkLocomotionDemo.jenga"):
+
+        pass
+
+    with include("Applications/NkAssetIODemo/NkAssetIODemo.jenga"):
+
+        pass
+
+    with include("Applications/NkSVGImportDemo/NkSVGImportDemo.jenga"):
+
+        pass
+
     with include("Applications/NKMeshAITest/NKMeshAITest.jenga"):
+
+        pass
+
+    with include("Applications/NKEditMeshHarness/NKEditMeshHarness.jenga"):
 
         pass
 
@@ -1058,6 +1123,10 @@ with workspace("Nkentseu", location="."):
         pass
 
     with include("Applications/NKTTSTrain/NKTTSTrain.jenga"):
+
+        pass
+
+    with include("Applications/NkVoiceLoopDemo/NkVoiceLoopDemo.jenga"):
 
         pass
 
@@ -1097,7 +1166,72 @@ with workspace("Nkentseu", location="."):
 
 
 
+    with include("Applications/NKGGUFInspectTest/NKGGUFInspectTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKLLMInferTest/NKLLMInferTest.jenga"):
+
+        pass
+
+
+
     with include("Applications/NKRLTest/NKRLTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKAgentTest/NKAgentTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKAgentLLMTest/NKAgentLLMTest.jenga"):
+
+        pass
+
+
+    with include("Applications/NkAgentEcsDemo/NkAgentEcsDemo.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKEmbodiedTest/NKEmbodiedTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKEvolveTest/NKEvolveTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKEvolveNNTest/NKEvolveNNTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKCivilizationTest/NKCivilizationTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKCivilizationSocialTest/NKCivilizationSocialTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKCivilizationScaleTest/NKCivilizationScaleTest.jenga"):
 
         pass
 
@@ -1128,6 +1262,12 @@ with workspace("Nkentseu", location="."):
 
 
     with include("Applications/NKConvVAETest/NKConvVAETest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKDiffusionTest/NKDiffusionTest.jenga"):
 
         pass
 
@@ -1287,6 +1427,52 @@ with workspace("Nkentseu", location="."):
 
 
     with include("Applications/RihenDefi/RihenDefi.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NkAudioECSDemo/NkAudioECSDemo.jenga"):
+
+        pass
+
+    with include("Applications/NkNetWorldDemo/NkNetWorldDemo.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NkNavDemo/NkNavDemo.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NkNavCoreDemo/NkNavCoreDemo.jenga"):
+
+        pass
+
+
+    # Jalon G2.3 Noge : scripting C++ natif hot-reload (DLL) — démo console
+    # (compile un script en .dll a runtime, hot-reload avec etat preserve).
+    with include("Applications/NkHotReloadDemo/NkHotReloadDemo.jenga"):
+
+        pass
+
+
+    # Jalon G2.1 Noge : systeme ECS UI in-game (HUD) — demo console headless
+    # (NKCanvas backend Software CPU + NKFont embarque, assertions de pixels).
+    with include("Applications/NkUIHudDemo/NkUIHudDemo.jenga"):
+
+        pass
+
+
+
+    # Serie d'apprentissage : concevoir une app 3D avec NKRenderer pas a pas
+    # (5 etapes/projets : fenetre -> renderer -> scene -> camera -> meshes custom).
+    # Voir Tutoriels3D/README.md.
+
+    with include("Tutoriels3D/Tutoriels3D.jenga"):
 
         pass
 
