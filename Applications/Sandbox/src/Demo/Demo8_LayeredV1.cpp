@@ -38,6 +38,17 @@ namespace nkentseu {
 		struct Demo8State {
 				NkMaterial *mat = nullptr;
 				NkMeshHandle meshSphere;
+				NkMeshHandle meshCube;
+				// Bornes du mur rouge de NK_GI_TEST — SOURCE UNIQUE : l'occluder
+				// injecté dans la grille et le cube dessiné les partagent, sinon la
+				// lumière rebondirait sur un volume différent de celui qu'on voit.
+				// Le mur est adossé en +Z, PAS en +X : avec yaw=0 la caméra orbite
+				// sur l'axe X (elle est à x≈4 et regarde l'origine), donc un mur en
+				// +X se planterait pile entre elle et la sphère et boucherait tout.
+				// En +Z il apparaît sur le côté, éclairé et visible, et la sphère
+				// reste dégagée au centre — c'est ce qui rend le rebond lisible.
+				static constexpr float32 kWallMin[3] = {-1.3f, 0.f, 1.5f};
+				static constexpr float32 kWallMax[3] = {1.3f, 2.2f, 2.1f};
 				NkMeshHandle meshPlane;
 				DemoCamera camera;
 				int numLayers = 8;
@@ -102,6 +113,7 @@ namespace nkentseu {
 			}
 			st->meshSphere = meshSys->GetSphere();
 			st->meshPlane = meshSys->GetPlane();
+			st->meshCube = meshSys->GetCube(); // NK_GI_TEST : mur rouge visible
 
 			// Material : utilise le template builtin "Default_LayeredV1".
 			st->mat = NkMaterial::Create(matSys, NkMaterialType::NK_LAYERED_V1);
@@ -171,8 +183,8 @@ namespace nkentseu {
 					vao->RegisterOccluder(floorOcc);
 					// Mur rouge vertical à droite des sphères.
 					NkVoxelOccluder wall;
-					wall.minWorld = {1.6f, 0.f, -2.5f};
-					wall.maxWorld = {2.2f, 3.f, 2.5f};
+					wall.minWorld = {Demo8State::kWallMin[0], Demo8State::kWallMin[1], Demo8State::kWallMin[2]};
+					wall.maxWorld = {Demo8State::kWallMax[0], Demo8State::kWallMax[1], Demo8State::kWallMax[2]};
 					wall.opacity = 1.f;
 					wall.albedo = {0.9f, 0.05f, 0.05f};
 					vao->RegisterOccluder(wall);
@@ -222,8 +234,10 @@ namespace nkentseu {
 			// éclairée, donc elle ne réémet rien vers les sphères et le test ne
 			// mesurerait rien. Un rebond ne se voit que si la surface qui rebondit
 			// est elle-même éclairée.
+			// Le mur étant adossé en +Z, la lumière doit voyager VERS +Z pour
+			// frapper sa face -Z, celle qui regarde la sphère.
 			if (st->giTest)
-				sun.direction = {0.75f, -0.55f, 0.f};
+				sun.direction = {0.f, -0.55f, 0.75f};
 			sun.color = {1.f, 0.95f, 0.9f};
 			sun.intensity = 2.5f;
 			sun.castShadow = false;
@@ -258,6 +272,25 @@ namespace nkentseu {
 				dc.aabb = {{-5.f, -0.01f, -5.f}, {5.f, 0.01f, 5.f}};
 				dc.castShadow = false;
 				dc.tint = {0.55f, 0.55f, 0.55f};
+				r3d->Submit(dc);
+			}
+
+			// ── NK_GI_TEST : le mur rouge, RENDU cette fois ──────────────────────
+			// L'occluder ci-dessus n'existe que dans la grille de voxels : sans ce
+			// draw, la lumière rebondirait sur un mur INVISIBLE et la tache rouge
+			// sur la sphère semblerait sortir de nulle part. Le cube est placé
+			// exactement sur l'AABB de l'occluder — c'est ce qui rend la
+			// démonstration lisible : on voit le mur, on le voit éclairé, et on
+			// voit sa couleur rejaillir sur la sphère.
+			if (st->giTest) {
+				const NkVec3f mn{Demo8State::kWallMin[0], Demo8State::kWallMin[1], Demo8State::kWallMin[2]};
+				const NkVec3f mx{Demo8State::kWallMax[0], Demo8State::kWallMax[1], Demo8State::kWallMax[2]};
+				const NkVec3f c{(mn.x + mx.x) * 0.5f, (mn.y + mx.y) * 0.5f, (mn.z + mx.z) * 0.5f};
+				NkDrawCall3D dc;
+				dc.mesh = st->meshCube;
+				dc.transform = NkMat4f::Translate(c) * NkMat4f::Scale({mx.x - mn.x, mx.y - mn.y, mx.z - mn.z});
+				dc.aabb = {mn, mx};
+				dc.tint = {0.9f, 0.05f, 0.05f}; // même albédo que l'occluder injecté
 				r3d->Submit(dc);
 			}
 
