@@ -35,8 +35,25 @@ namespace nkentseu {
 		// est SÉLECTIONNÉE, et c'est l'utilisateur qui la déplace ensuite (gizmo G/R/S,
 		// axe normal par défaut ou contrainte X/Y/Z). Aucun déplacement automatique.
 		struct NkExtrudeParams {
+				// ── DIRECTION D'EXTRUSION (variantes de Blender) ─────────────────────
+				// Region      : une SEULE direction pour tout le bloc = moyenne des
+				//               normales des faces selectionnees (defaut, E dans Blender).
+				// AlongNormals: chaque sommet part le long de SA propre normale (moyenne
+				//               des faces selectionnees qui le touchent) — Alt+E « Extrude
+				//               Faces Along Normals ». Sur une surface courbe, Region
+				//               ecrase le relief alors qu'AlongNormals l'epaissit en
+				//               suivant la forme : ce n'est PAS un detail cosmetique.
+				// ToCursor    : chaque sommet va vers le point `target` (curseur 3D),
+				//               chacun de sa propre distance -> convergence en pointe.
+				// Individual (le booleen historique) reste orthogonal : il traite chaque
+				// face separement au lieu de la region. Blender l'expose comme une entree
+				// distincte du meme menu.
+				enum Direction { Region = 0, AlongNormals = 1, ToCursor = 2 };
+
 				bool individual = false;
 				float32 offset = 0.f;
+				int32 direction = Region;
+				NkVec3f target = {0.f, 0.f, 0.f}; // ToCursor : point de convergence
 		};
 
 		struct NkMergeParams {

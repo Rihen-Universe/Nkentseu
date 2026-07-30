@@ -1008,6 +1008,61 @@ namespace nkentseu {
 				off = (bmx - bmn).Len() * 0.08f;
 			}
 
+			// ── NORMALES PAR SOMMET, restreintes aux faces SELECTIONNEES ────────
+			// Necessaires a AlongNormals. Restreintes a la selection : inclure les
+			// faces voisines NON extrudees ferait pencher la direction vers
+			// l'exterieur de la region et tordrait le bord.
+			// Accumulees sur l'identite SOUDEE puis redistribuees : sans cela, un coin
+			// duplique par face partirait dans plusieurs directions et le maillage se
+			// dechirerait le long des coutures.
+			NkVector<NkVec3f> vertN;
+			if (p.direction == NkExtrudeParams::AlongNormals) {
+				NkVector<uint32> canon;
+				BuildVertexMerge(canon);
+				auto cn = [&](uint32 v) { return (v < (uint32)canon.Size()) ? canon[v] : v; };
+				NkVector<NkVec3f> acc;
+				acc.Resize((uint32)pv.Size());
+				for (uint32 i = 0; i < (uint32)acc.Size(); i++)
+					acc[i] = {0.f, 0.f, 0.f};
+				for (uint32 f = 0; f < fc; f++) {
+					if (!faceSel[f])
+						continue;
+					const uint32 s = fs[f];
+					// Normale NON normalisee = ponderation par l'aire : une grande face
+					// doit peser plus qu'un triangle degenere.
+					const NkVec3f fn = NkEmFaceCross(pv[fv[s]].pos, pv[fv[s + 1]].pos, pv[fv[s + 2]].pos);
+					for (uint32 k = fs[f]; k < fs[f + 1]; k++) {
+						const uint32 r = cn(fv[k]);
+						if (r < (uint32)acc.Size())
+							acc[r] = acc[r] + fn;
+					}
+				}
+				vertN.Resize((uint32)pv.Size());
+				for (uint32 i = 0; i < (uint32)pv.Size(); i++) {
+					const uint32 r = cn(i);
+					NkVec3f n = (r < (uint32)acc.Size()) ? acc[r] : NkVec3f{0.f, 0.f, 0.f};
+					const float32 l = n.Len();
+					// Repli sur la normale de region si l'accumulation s'annule (faces
+					// opposees de part et d'autre du sommet) : mieux vaut la direction
+					// commune qu'un deplacement nul silencieux.
+					vertN[i] = (l > 1e-6f) ? n * (1.f / l) : avgN;
+				}
+			}
+
+			// Deplacement d'UN sommet duplique, selon la variante demandee.
+			auto extrudePos = [&](const NkVec3f &base, uint32 srcIdx) -> NkVec3f {
+				if (p.direction == NkExtrudeParams::ToCursor) {
+					// Chacun rejoint le point cible : les sommets convergent, la region
+					// se ferme en pointe. offset sert de FRACTION du chemin (1 = au point).
+					const NkVec3f d = p.target - base;
+					const float32 t = (p.offset > 0.f) ? p.offset : 1.f;
+					return base + d * (t > 1.f ? 1.f : t);
+				}
+				if (p.direction == NkExtrudeParams::AlongNormals && srcIdx < (uint32)vertN.Size())
+					return base + vertN[srcIdx] * off;
+				return base + avgN * off;
+			};
+
 			if (p.individual) {
 				NkVector<uint32> nfs, nfv;
 				nfs.PushBack(0);
@@ -1036,7 +1091,9 @@ namespace nkentseu {
 					for (uint32 k = 0; k < n; k++) {
 						uint32 vi = fv[s + k];
 						NkVertex3D nv = pv[vi];
-						nv.pos = nv.pos + fn * off;
+						// ToCursor primes sur la normale de face : la cible est absolue.
+						nv.pos = (p.direction == NkExtrudeParams::ToCursor) ? extrudePos(nv.pos, vi)
+																						   : nv.pos + fn * off;
 						dup[k] = (uint32)pv.Size();
 						pv.PushBack(nv);
 						vsel.PushBack(1);
@@ -1084,7 +1141,7 @@ namespace nkentseu {
 					if (vmap[vi] < 0) {
 						vmap[vi] = (int32)pv.Size();
 						NkVertex3D nv = pv[vi];
-						nv.pos = nv.pos + avgN * off;
+						nv.pos = extrudePos(nv.pos, vi); // Region / AlongNormals / ToCursor
 						pv.PushBack(nv);
 						vsel.PushBack(1);
 					}

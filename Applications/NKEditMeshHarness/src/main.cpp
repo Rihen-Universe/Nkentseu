@@ -442,6 +442,36 @@ static void MergeBattery() {
 	}
 }
 
+// Cas EXTRUDE ajoutes en fin (les 44 precedents gardent leurs lignes).
+// Cible : la SPHERE, seule primitive assez courbe pour que Region et
+// AlongNormals divergent visiblement. Sur un cube les deux coincideraient face
+// par face et le test ne prouverait rien.
+static void ExtrudeBattery() {
+	NkVector<NkVertex3D> v;
+	NkVector<uint32> idx;
+	MakeSphere(16, 16, v, idx);
+	struct Case {
+			const char *name;
+			int32 dir;
+	};
+	const Case cs[3] = {{"region", NkExtrudeParams::Region},
+						{"along-normals", NkExtrudeParams::AlongNormals},
+						{"to-cursor", NkExtrudeParams::ToCursor}};
+	for (int32 i = 0; i < 3; i++) {
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		m.SelectAll();
+		NkExtrudeParams p;
+		p.direction = cs[i].dir;
+		p.offset = 0.2f;
+		p.target = {0.f, 2.f, 0.f}; // ToCursor : point au-dessus de la sphere
+		const bool ok = m.ExtrudeSelectedFaces(p);
+		char nm[96];
+		snprintf(nm, sizeof(nm), "sphere16/extrude-%s%s", cs[i].name, ok ? "" : " [REFUSE]");
+		Emit(nm, Signature(m));
+	}
+}
+
 int main(int argc, char **argv) {
 	bool baseline = false, check = false;
 	for (int32 i = 1; i < argc; i++) {
@@ -454,6 +484,7 @@ int main(int argc, char **argv) {
 	Battery();
 	WireBattery();
 	MergeBattery();
+	ExtrudeBattery();
 
 	const char *path = "editmesh_baseline.txt";
 	if (baseline) {
