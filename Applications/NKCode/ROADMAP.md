@@ -327,14 +327,53 @@ Détail technique granulaire : `Kernel/Runtime/NKUI/ROADMAP_UI_REWRITE.private.m
   `argv[0]` ou du CWD dans une application distribuée.
   Un **diagnostic de démarrage** (panneau Sortie) affiche désormais le dossier
   de l'exécutable et « Jenga EMBARQUÉ actif » / « INACTIF : raison ».
+- 🐛 **2ᵉ cause de #9/#10 : toutes les commandes ne passaient PAS par
+  l'interpréteur embarqué (30 juil)** — seuls *Construire* et *Recompiler* le
+  faisaient. `info` (donc **la liste des projets**), `clean`, `test`, `run`,
+  `compile-flags` et le clonage d'exemples repartaient en sous-processus sur un
+  `jenga` du PATH. Sans Python, le workspace s'ouvrait **sans aucun projet** :
+  plus rien n'était déclenchable, d'où « pas utilisable avec les boutons
+  dédiés ». Corrigé côté Jenga par `Embed.RunCommand(argv, sink)` qui délègue au
+  **même dispatcher que la CLI** (`Jenga.Commands.execute_command`) — donc
+  aucune liste à maintenir et aucune commande ne peut être oubliée (PR Jenga
+  #16) ; côté NKCode, `ParseJengaCmd` route les commandes connues vers leurs
+  entrées dédiées et **tout le reste** vers un `cli` générique. `jenga run`
+  transmet en plus des **arguments** à l'exécutable (champ *Arguments* de la
+  barre d'outils, mémorisé par workspace) et son chemin embarqué est décomposé
+  en 3 étapes, le worker n'ayant **qu'un créneau** (globals de `Core/Api.py`
+  non réentrants). Un **shim `tools/jenga`** rend enfin la commande utilisable
+  dans le terminal intégré sans Python — via le mécanisme `._pth` de CPython
+  embeddable, car `PYTHONPATH` et les variables d'environnement sont ignorés
+  dès qu'un `._pth` est présent (et `-I` les ignore aussi).
+- 🐛 **3ᵉ cause de #9/#10 : `import Jenga` était CASSÉ dans la distribution
+  (30 juil)** — `Unitest` était exclu du filtre de copie de
+  `scripts/MakeNkCodeDist.py`, alors que `Jenga/__init__.py` fait
+  `from . import Unitest`. **Aucun** `import Jenga` ne fonctionnait dans
+  l'archive publiée. Invisible en développement (le dépôt complet est là).
+  **Règle** : un filtre d'empaquetage doit être validé par un `import` réel
+  depuis la distribution, avec un environnement vidé des variables Python.
 - ⬜ **Étape 6 (multi-plateforme)** : Linux/macOS — pas d'équivalent officiel du
   package embeddable hors Windows ; approche à trancher (python-build-standalone
   vendorisé, ou repli détection Python système avec `python3-dev`).
 - ⬜ (Optionnel, côté Jenga) **cœur natif C++** pour le graphe de build/cache, le
   `.jenga` restant le frontend Python via l'interpréteur embarqué.
-- 🎯 **Jalon restant** : test sur une machine/VM **SANS Python ni compilateur**
-  — le seul essai qui prouve tout le montage (jamais réalisé ; la bêta.1 a été
-  téléchargée 15 fois mais avec le bug `argv[0]` ci-dessus).
+- ✅ **Chaîne complète vérifiée en environnement neutralisé (30 juil)** : la
+  distribution a été exercée avec **le seul** Python embarqué, dans un
+  processus dont l'environnement est **vidé** (aucune variable `PYTHON*`) et le
+  `PATH` réduit à `System32` + `tools/compilers/llvm-mingw/bin` + `tools/` —
+  soit exactement ce que `NkEmbeddedJenga::Configure` donne au terminal
+  intégré. `where python` ne trouve rien, et pourtant : `import Jenga` (2.0.9,
+  `sys.prefix` = `tools/python-embed`), `import Jenga.Core.Embed`,
+  `python -m Jenga --version`, le shim `tools/jenga.cmd`, `jenga info`, puis
+  **`jenga build` sur un workspace sans `usetoolchain()`** — le compilateur
+  embarqué est bien **détecté** (`Toolchain: clang-mingw`), `BUILD COMPLETED`,
+  l'exe produit s'exécute et **reçoit ses arguments**. Bancs de test :
+  `TestDistSansPython.ps1` / `TestBuildSansPython.ps1`.
+- 🎯 **Jalon restant** : test sur une machine/VM **réellement** sans Python ni
+  compilateur (registre, DLL système, `App Paths`…). L'essai ci-dessus élimine
+  la contamination par l'environnement et le `PATH`, mais pas ce qu'une
+  installation Python laisse ailleurs dans le système. (La bêta.1 a été
+  téléchargée 15 fois, mais avec le bug `argv[0]` ci-dessus.)
   (Voir aussi Jenga `ROADMAP.md` § 6.5.)
 
 ## Phase 13 — Mises à jour in-app (NKCode, Jenga, outils embarqués) 🟡 ← 1re tranche faite (30 juil 2026)
