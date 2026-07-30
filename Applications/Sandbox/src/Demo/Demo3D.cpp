@@ -5480,6 +5480,44 @@ namespace nkentseu {
 				auto *msG = ctx.renderer->GetMeshSystem();
 				// Pour un objet ÉDITÉ, le marqueur OBB épouse l'AABB LOCALE réelle du mesh
 				// modifié (centre + demi-extent), au lieu du demi-extent fixe de la primitive.
+				// Demi-extent réel d'un mesh (données CPU) : indispensable pour que le
+				// marqueur ÉPOUSE la forme. Un plan est PLAT — lui donner le demi-extent
+				// cubique {0.5,0.5,0.5} par défaut dessinait une boîte en volume autour
+				// d'un sol d'épaisseur nulle, au lieu d'un contour posé dessus.
+				auto meshHalf = [&](NkMeshHandle mh, NkVec3f &half, NkVec3f &center) -> bool {
+					if (!mh.IsValid() || !msG || !msG->HasCPUData(mh))
+						return false;
+					const auto *vv = (const renderer::NkVertex3D *)msG->GetVertices(mh);
+					const uint32 vc = msG->GetVertexCount(mh);
+					if (!vv || vc == 0)
+						return false;
+					NkVec3f mn{1e30f, 1e30f, 1e30f}, mx{-1e30f, -1e30f, -1e30f};
+					for (uint32 i = 0; i < vc; i++) {
+						const NkVec3f p = vv[i].pos;
+						mn.x = NkMin(mn.x, p.x);
+						mn.y = NkMin(mn.y, p.y);
+						mn.z = NkMin(mn.z, p.z);
+						mx.x = NkMax(mx.x, p.x);
+						mx.y = NkMax(mx.y, p.y);
+						mx.z = NkMax(mx.z, p.z);
+					}
+					center = (mn + mx) * 0.5f;
+					half = (mx - mn) * 0.5f;
+					return true;
+				};
+				// Variante qui connaît la PRIMITIVE de l'objet : le mesh édité prime, sinon
+				// on mesure la primitive elle-même (sphère, cube, plan) au lieu de supposer
+				// un cube. `prim` invalide = ancien comportement (demi-extent H).
+				auto fitTargetMesh = [&](int32 idx, const NkMat4f &base, float32 pickR,
+										 NkMeshHandle prim) -> renderer::NkGizmoTarget {
+					NkVec3f h, c;
+					if (idx >= 0 && idx < Demo3DState::kNumObj && st->objMesh[idx].IsValid() &&
+						meshHalf(st->objMesh[idx], h, c))
+						return {base * NkMat4f::Translate(c), h, pickR};
+					if (meshHalf(prim, h, c))
+						return {base * NkMat4f::Translate(c), h, pickR};
+					return {base, H, pickR};
+				};
 				auto fitTarget = [&](int32 idx, const NkMat4f &base, float32 pickR) -> renderer::NkGizmoTarget {
 					if (idx >= 0 && idx < Demo3DState::kNumObj && st->objMesh[idx].IsValid() && msG &&
 						msG->HasCPUData(st->objMesh[idx])) {
@@ -5526,12 +5564,16 @@ namespace nkentseu {
 				// un sol de 80×80 ne capte donc que les clics qui tombent réellement
 				// dessus, au lieu de voler ceux des objets posés sur lui — ce qui était
 				// impossible avec une sphère de pick.
-				targets[n++] = fitTarget(Demo3DState::kIdxFloor, Demo3D_ObjBase(Demo3DState::kIdxFloor), 0.5f);
-				targets[n++] = fitTarget(Demo3DState::kIdxFoliage, Demo3D_ObjBase(Demo3DState::kIdxFoliage), 1.2f);
-				targets[n++] = fitTarget(Demo3DState::kIdxGIWall,
-										 NkMat4f::Translate(st->giWallOffset) *
-											 Demo3D_ObjBase(Demo3DState::kIdxGIWall),
-										 1.4f);
+				// Chaque cible reçoit SA primitive : le sol est un PLAN, son marqueur est
+				// donc plat et posé dessus, pas une boîte qui l'enveloppe.
+				targets[n++] =
+					fitTargetMesh(Demo3DState::kIdxFloor, Demo3D_ObjBase(Demo3DState::kIdxFloor), 0.5f, st->meshPlane);
+				targets[n++] = fitTargetMesh(Demo3DState::kIdxFoliage, Demo3D_ObjBase(Demo3DState::kIdxFoliage), 1.2f,
+											 st->meshCube);
+				targets[n++] = fitTargetMesh(Demo3DState::kIdxGIWall,
+											 NkMat4f::Translate(st->giWallOffset) *
+												 Demo3D_ObjBase(Demo3DState::kIdxGIWall),
+											 1.4f, st->meshCube);
 
 				// Gizmo OBJET actif UNIQUEMENT hors Edit Mode (sinon c'est le gizmo vertices).
 				if (!st->editMode) {
