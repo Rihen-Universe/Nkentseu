@@ -1,0 +1,103 @@
+// pp_taa.frag.nksl — NKRenderer — Temporal AA (FS)
+//
+// PRINCIPE. Le rendu jitte la projection d'une fraction de pixel différente à
+// chaque frame (séquence de Halton, cf. NkRender3D). Chaque frame échantillonne
+// donc la scène à un endroit légèrement différent DANS le pixel ; en accumulant
+// ces frames on obtient un super-échantillonnage gratuit, qui lisse les bords en
+// escalier bien mieux que le FXAA (lequel ne fait que flouter des contrastes).
+//
+// REPROJECTION. Quand la caméra bouge, le pixel courant ne correspond plus au
+// même point du monde que dans l'historique. On reconstruit donc la position
+// MONDE du pixel depuis sa profondeur (invViewProj de la frame courante), puis
+// on la reprojette avec la viewProj de la frame PRÉCÉDENTE pour savoir où lire
+// l'historique. Les deux matrices sont DÉ-JITTRÉES : le jitter ne doit pas
+// entrer dans la correspondance géométrique, seulement dans l'échantillonnage.
+//
+// LIMITE ASSUMÉE (v1). Pas de velocity buffer : la reprojection n'est exacte que
+// pour la géométrie STATIQUE vue par une caméra qui bouge — c'est le cas
+// dominant. Un objet qui se déplace, lui, laisse une traînée ; c'est le clamp de
+// voisinage ci-dessous qui l'empêche (au prix de moins d'antialiasing sur cet
+// objet). Le velocity buffer est le travail de la v2.
+//
+// CLAMP DE VOISINAGE. L'historique est borné à l'intervalle des 9 voisins du
+// pixel courant (min/max 3x3). Dès que l'historique sort de cet intervalle il
+// est incohérent (occlusion, objet mobile, changement d'éclairage) : le clamp le
+// ramène dans la plage plausible, ce qui supprime le ghosting sans détecter
+// explicitement les cas problématiques.
+
+@location(0) in  vec2 vUV;
+@location(0) out vec4 oColor;
+
+@binding(set=0, binding=0) uniform sampler2D uCurrent;  // LDR tonemappé de cette frame
+@binding(set=0, binding=1) uniform sampler2D uHistory;  // résultat TAA de la frame -1
+@binding(set=0, binding=2) uniform sampler2D uDepth;    // profondeur de la frame courante
+
+layout(push_constant) uniform PC {
+    // Reprojection combinée = prevViewProj * invViewProj(courante) : envoie
+    // directement le NDC courant (avec sa profondeur) dans le clip de la frame
+    // précédente. Un seul mat4 -> 80 octets de push-constant, sous la garantie
+    // Vulkan (128) et sous les root constants DX12.
+    mat4  reproj;
+    vec4  p0;            // (blendHistory, ndcYSign, invResW, invResH)
+} pc;
+
+@stage(fragment)
+@entry
+void main() {
+    float blendHistory = pc.p0.x;
+    float ndcYSign     = pc.p0.y;   // même signe que le flip d'échantillonnage
+    vec2  invRes       = vec2(pc.p0.z, pc.p0.w);
+
+    vec3 current = texture(uCurrent, vUV).rgb;
+
+    // Historique désactivé (première frame, ou blend nul) : passe-plat.
+    if (blendHistory < 0.001) {
+        oColor = vec4(current, 1.0);
+        return;
+    }
+
+    // ── Voisinage 3x3 du pixel courant : intervalle de couleurs plausibles ──
+    vec3 nMin = current;
+    vec3 nMax = current;
+    for (int y = -1; y <= 1; y = y + 1) {
+        for (int x = -1; x <= 1; x = x + 1) {
+            vec2 o = vec2(float(x), float(y)) * invRes;
+            vec3 c = texture(uCurrent, vUV + o).rgb;
+            nMin = min(nMin, c);
+            nMax = max(nMax, c);
+        }
+    }
+
+    // ── Reprojection : uv courant + depth -> monde -> uv précédent ──────────
+    float depth = texture(uDepth, vUV).r;
+    // Ciel / rien écrit : aucune position monde exploitable, on garde l'image
+    // courante (le ciel ne bénéficie pas du TAA, il n'a pas de bord dur).
+    if (depth >= 0.9999) {
+        oColor = vec4(current, 1.0);
+        return;
+    }
+
+    vec4 ndc = vec4(vUV.x * 2.0 - 1.0, ndcYSign * (vUV.y * 2.0 - 1.0), depth, 1.0);
+    vec4 prevClip = pc.reproj * ndc;
+    if (prevClip.w <= 1e-6) {           // derrière la caméra d'avant
+        oColor = vec4(current, 1.0);
+        return;
+    }
+    vec3 prevNdc = prevClip.xyz / prevClip.w;
+    vec2 prevUV = vec2(prevNdc.x * 0.5 + 0.5,
+                       (ndcYSign * prevNdc.y) * 0.5 + 0.5);
+
+    // Hors écran : pas d'historique valide pour ce pixel (il vient d'entrer
+    // dans le champ) -> pas d'accumulation, sinon on lirait un bord étiré.
+    if (prevUV.x < 0.0 || prevUV.x > 1.0 || prevUV.y < 0.0 || prevUV.y > 1.0) {
+        oColor = vec4(current, 1.0);
+        return;
+    }
+
+    vec3 history = texture(uHistory, prevUV).rgb;
+    // Clamp de voisinage : borne l'historique aux couleurs présentes autour du
+    // pixel courant. C'est ce qui tue le ghosting des objets mobiles.
+    history = clamp(history, nMin, nMax);
+
+    oColor = vec4(mix(current, history, clamp(blendHistory, 0.0, 0.98)), 1.0);
+}

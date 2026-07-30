@@ -140,6 +140,34 @@ namespace nkentseu {
 					return mCtx;
 				}
 
+				// ── TAA (Phase L, 2026-07-30) ─────────────────────────────────
+				// Jitter de projection SUB-PIXEL : a chaque frame la projection est
+				// decalee d'une fraction de pixel (suite de Halton 2,3 sur 8 phases).
+				// Seul, ce decalage est invisible (il reste dans le pixel) ; combine
+				// a l'accumulation temporelle du TAA il realise un vrai
+				// super-echantillonnage, la ou le FXAA ne fait que flouter un
+				// contraste. Sans TAA actif, laisser a false.
+				void SetTAAJitterEnabled(bool e) noexcept {
+					mTAAJitter = e;
+				}
+
+				bool IsTAAJitterEnabled() const noexcept {
+					return mTAAJitter;
+				}
+
+				// Matrices EXACTEMENT celles utilisees pour rendre la frame courante
+				// (jitter TAA ET correction clip-Z [0,1] par backend comprises). Le
+				// TAA doit reprojeter avec ces matrices-la : les recalculer depuis la
+				// camera dupliquerait ces deux corrections et derivereait
+				// silencieusement (la profondeur lue vient de CETTE projection).
+				const NkMat4f &GetRenderViewProj() const noexcept {
+					return mRenderViewProj;
+				}
+
+				const NkMat4f &GetRenderInvViewProj() const noexcept {
+					return mRenderInvViewProj;
+				}
+
 				// Accesseurs pour NkVirtualShadowMaps (ring UBO multi-frame).
 				uint32 GetFrameSlot() const noexcept {
 					return mFrameSlot;
@@ -419,6 +447,13 @@ namespace nkentseu {
 				NkResources *mResources = nullptr;
 
 				NkSceneContext mCtx;
+
+				// TAA : etat du jitter + matrices de rendu de la frame courante
+				// (cf. SetTAAJitterEnabled / GetRenderViewProj).
+				bool mTAAJitter = false;
+				uint32 mTAAJitterIdx = 0;
+				NkMat4f mRenderViewProj = NkMat4f::Identity();
+				NkMat4f mRenderInvViewProj = NkMat4f::Identity();
 				bool mInScene = false;
 				bool mWireframe = false;
 				int32 mViewMode = 0;   // 0=rendered(lit) 1=solid(unlit)

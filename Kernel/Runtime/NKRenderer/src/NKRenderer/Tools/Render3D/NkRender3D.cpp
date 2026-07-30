@@ -1372,6 +1372,11 @@ namespace nkentseu {
 		void NkRender3D::BeginScene(const NkSceneContext &ctx) {
 			mCtx = ctx;
 			mInScene = true;
+			// TAA : une phase de jitter par FRAME (ici, pas dans UploadUBOs qui peut
+			// etre appele plusieurs fois — passe miroir — et jitterait alors chaque
+			// passe differemment, ce qui casserait la coherence de la profondeur).
+			if (mTAAJitter)
+				mTAAJitterIdx++;
 			mOpaque.Clear();
 			mTransparent.Clear();
 			mShadowCasters.Clear();
@@ -2006,7 +2011,48 @@ namespace nkentseu {
 				cb.proj = clipZ01 * cb.proj;
 				cb.viewProj = clipZ01 * cb.viewProj;
 			}
+
+			// ── TAA : jitter SUB-PIXEL de la projection ─────────────────────────
+			// Suite de Halton (bases 2 et 3), 8 phases : repartition
+			// low-discrepancy des positions d'echantillonnage a l'interieur du
+			// pixel, bien plus uniforme qu'un tirage aleatoire sur si peu de
+			// frames. Le decalage vaut au maximum un demi-pixel, donc invisible
+			// frame par frame ; c'est l'accumulation du TAA qui le transforme en
+			// super-echantillonnage. APRES la correction clip-Z pour que le jitter
+			// s'exprime bien en NDC de la projection finale.
+			if (mTAAJitter && mW > 0 && mH > 0) {
+				const uint32 n = (mTAAJitterIdx % 8u) + 1u;
+				float32 hx = 0.f;
+				float32 hy = 0.f;
+				for (uint32 i = n, f = 0; i != 0u; i >>= 1, ++f) {
+					float32 w = 1.f;
+					for (uint32 k = 0; k <= f; ++k)
+						w *= 0.5f;
+					hx += w * (float32)(i & 1u);
+				}
+				for (uint32 i = n, f = 0; i != 0u; i /= 3u, ++f) {
+					float32 w = 1.f;
+					for (uint32 k = 0; k <= f; ++k)
+						w /= 3.f;
+					hy += w * (float32)(i % 3u);
+				}
+				// Halton donne [0,1[ -> recentrer sur [-0.5, +0.5] pixel, puis
+				// convertir en NDC : un pixel vaut 2/resolution en NDC.
+				const float32 jx = (hx - 0.5f) * 2.f / (float32)mW;
+				const float32 jy = (hy - 0.5f) * 2.f / (float32)mH;
+				NkMat4f jit = NkMat4f::Identity();
+				jit[3][0] = jx; // column-major : [3][*] = colonne de translation
+				jit[3][1] = jy;
+				cb.proj = jit * cb.proj;
+				cb.viewProj = jit * cb.viewProj;
+			}
+
 			cb.invViewProj = cb.viewProj.Inverse();
+			// Memorise les matrices REELLEMENT utilisees (jitter + clip-Z compris) :
+			// le TAA reprojette avec elles, et la reconstruction de position monde
+			// du deferred lit une profondeur produite par cette meme projection.
+			mRenderViewProj = cb.viewProj;
+			mRenderInvViewProj = cb.invViewProj;
 			NkVec3f pos = mCtx.camera.GetPosition();
 			NkVec3f fwd = mCtx.camera.GetForward();
 			cb.camPos = {pos.x, pos.y, pos.z, mCtx.camera.GetNear()};

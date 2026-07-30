@@ -891,10 +891,18 @@ namespace nkentseu {
 				//   Pass 2 FXAA_Final   -> lit ToneLDR, ecrit dans colorId
 				// Le RG track auto les state transitions des transients
 				// (contraire aux ImportTexture). Transient sera GC apres le draw.
-				const bool fxaaOn = mPostProcess && mPostProcess->IsFXAAEnabled();
+				// TAA (Phase L) : ALTERNATIVE au FXAA, pas un cumul — enchainer les
+				// deux flouterait deux fois. Le TAA a priorite quand il est actif.
+				// Le jitter de projection est active au meme endroit : sans lui,
+				// toutes les frames echantillonnent au meme point dans le pixel et
+				// l'accumulation temporelle n'apporte STRICTEMENT rien.
+				const bool taaOn = mPostProcess && mPostProcess->IsTAAEnabled() && has3D;
+				if (mRender3D)
+					mRender3D->SetTAAJitterEnabled(taaOn);
+				const bool fxaaOn = !taaOn && mPostProcess && mPostProcess->IsFXAAEnabled();
 				NkGraphResId postTargetId = colorId;
 				NkGraphResId toneTexId = NK_INVALID_RES_ID;
-				if (fxaaOn) {
+				if (fxaaOn || taaOn) {
 					auto tdesc = NkTextureDesc::RenderTarget(mCfg.width, mCfg.height, NkGPUFormat::NK_RGBA8_UNORM);
 					tdesc.debugName = "ToneLDR_Transient";
 					toneTexId = g.CreateTransient("ToneLDR", tdesc);
@@ -947,6 +955,54 @@ namespace nkentseu {
 						mPostProcess->ExecuteRHI(cmd, hdr, bloom, ssao);
 					}
 				});
+
+				// ── Pass 2a : TAA -> historique, puis recopie vers l'ecran ────────
+				// Le TAA ecrit dans SA cible (historique ping-pong hors-graph, comme
+				// l'auto-exposure) : cette passe ne declare donc pas d'attachement,
+				// mais lit le LDR tonemappe et la profondeur. Une seconde passe
+				// recopie le resultat vers la swapchain (le blit existe deja pour
+				// MirrorPresent, on le reutilise tel quel).
+				if (taaOn && toneTexId != NK_INVALID_RES_ID) {
+					auto &taa = g.AddPass("TAA", NkPassType::NK_POST_PROCESS);
+					taa.Reads(toneTexId);
+					if (mainDepth != NK_INVALID_RES_ID)
+						taa.Reads(mainDepth);
+					taa.SetAlwaysExecute(true); // sortie hors-graph (historique interne)
+					NkGraphResId taaToneId = toneTexId;
+					NkGraphResId taaDepthId = mainDepth;
+					taa.Execute([this, taaToneId, taaDepthId](NkICommandBuffer *cmd) {
+						if (!mPostProcess || !mRender3D)
+							return;
+						NkTextureHandle ldr = mRenderGraph->GetResourceTexture(taaToneId);
+						NkTextureHandle depth = (taaDepthId != NK_INVALID_RES_ID)
+													? mRenderGraph->GetResourceTexture(taaDepthId)
+													: NkTextureHandle{};
+						if (!ldr.IsValid())
+							return;
+						// Reprojection = viewProj de la frame PRECEDENTE composee avec
+						// l'inverse de la viewProj COURANTE. On utilise les matrices
+						// reellement utilisees au rendu (jitter + clip-Z compris),
+						// exposees par NkRender3D : les recalculer ici dupliquerait
+						// ces corrections et deriverait de la profondeur echantillonnee.
+						const NkMat4f cur = mRender3D->GetRenderViewProj();
+						NkMat4f reproj = NkMat4f::Identity();
+						if (mTAAHasPrev)
+							reproj = mTAAPrevViewProj * mRender3D->GetRenderInvViewProj();
+						mPostProcess->RunTAA(cmd, ldr, depth, reproj, mTAAHasPrev);
+						mTAAPrevViewProj = cur;
+						mTAAHasPrev = true;
+					});
+
+					auto &taaOut = g.AddPass("TAA_Present", NkPassType::NK_POST_PROCESS);
+					taaOut.SetColor(0, colorId, NkLoadOp::NK_CLEAR, {0, 0, 0, 1});
+					taaOut.Execute([this](NkICommandBuffer *cmd) {
+						if (!mPostProcess)
+							return;
+						NkTextureHandle res = mPostProcess->GetTAAResultRHI();
+						if (res.IsValid())
+							mPostProcess->ExecuteBlit(cmd, res);
+					});
+				}
 
 				// Pass 2 : FXAA -> swapchain. Active uniquement si fxaaOn.
 				// Le RG insere auto la barrier COLOR_ATTACHMENT -> SHADER_READ

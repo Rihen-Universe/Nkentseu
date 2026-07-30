@@ -279,6 +279,16 @@ void main() {
 				mAutoExpSets[i] = mDevice->AllocateDescriptorSet(mAutoExpLayout);
 			mAutoExpSetCursor = 0;
 
+			// ── TAA : layout 3 samplers (courant LDR + historique + profondeur) ──
+			NkDescriptorSetLayoutDesc taalay;
+			taalay.Add(0, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
+			taalay.Add(1, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
+			taalay.Add(2, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
+			mTAALayout = mDevice->CreateDescriptorSetLayout(taalay);
+			for (int i = 0; i < kTAADescSets; i++)
+				mTAASets[i] = mDevice->AllocateDescriptorSet(mTAALayout);
+			mTAASetCursor = 0;
+
 			// Phase L : create identity LUT 16^3 par defaut (no color change).
 			// User upload son LUT custom via SetColorGradingLUT (accessible par
 			// renderer->GetPostProcess()). Format : RGBA8 UNORM, trilinear.
@@ -477,6 +487,30 @@ void main() {
 							mPipeAutoExp.IsValid() ? 1 : 0);
 			}
 
+			// ── Phase L : pipeline TAA (Temporal AA, post-tonemap) ─────────────
+			if (mShaderLib && mTAART[0].IsValid()) {
+				auto progTAA = mShaderLib->LoadOrCompileVF("PP_TAA", "", "");
+				if (progTAA.IsValid())
+					mShaderTAA = mShaderLib->GetRHIHandle(progTAA);
+				logger.Info("[NkPostProcessStack] TAA shader : valid={0}\n", mShaderTAA.IsValid() ? 1 : 0);
+			}
+			if (mShaderTAA.IsValid() && mTAART[0].IsValid()) {
+				NkGraphicsPipelineDesc pd;
+				pd.shader = mShaderTAA;
+				pd.depthStencil = NkDepthStencilDesc::NoDepth();
+				pd.rasterizer = NkRasterizerDesc::NoCull();
+				pd.blend = NkBlendDesc::Opaque();
+				pd.debugName = "PP_TAA";
+				pd.renderPass = mTAART[0].GetRenderPass();
+				// 80 octets : mat4 reproj (64) + vec4 p0 (16). Sous la garantie
+				// Vulkan (128) et sous les root constants DX12 (32 DWORDs).
+				pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, 80);
+				if (mTAALayout.IsValid())
+					pd.descriptorSetLayouts.PushBack(mTAALayout);
+				mPipeTAA = mDevice->CreateGraphicsPipeline(pd);
+				logger.Info("[NkPostProcessStack] TAA pipeline : valid={0}\n", mPipeTAA.IsValid() ? 1 : 0);
+			}
+
 			// ── Phase L : pipeline FXAA (Fast Approximate AA, post-tonemap) ────
 			// Shader externalise dans Resources/NKRenderer/Shaders/PP_FXAA/VK/.
 			// Le wirage RenderGraph reste TODO (cf. ExecuteRHI : actuellement
@@ -553,6 +587,22 @@ void main() {
 				mDevice->DestroyPipeline(mPipeFXAA);
 			if (mPipeBlit.IsValid())
 				mDevice->DestroyPipeline(mPipeBlit);
+			// TAA
+			if (mPipeTAA.IsValid())
+				mDevice->DestroyPipeline(mPipeTAA);
+			for (int i = 0; i < 2; i++) {
+				if (mTAART[i].IsValid())
+					mTAART[i].Shutdown();
+			}
+			mTAAWrite = -1;
+			for (int i = 0; i < kTAADescSets; i++) {
+				if (mTAASets[i].IsValid())
+					mDevice->FreeDescriptorSet(mTAASets[i]);
+				mTAASets[i] = {};
+			}
+			if (mTAALayout.IsValid())
+				mDevice->DestroyDescriptorSetLayout(mTAALayout);
+			mTAALayout = {};
 			// Auto-exposure V1
 			if (mPipeAutoExp.IsValid())
 				mDevice->DestroyPipeline(mPipeAutoExp);
@@ -646,6 +696,24 @@ void main() {
 				rtd.name = (i == 0) ? NkString("AvgLuma0") : NkString("AvgLuma1");
 				mLumaRT[i].Init(mDevice, mTex, rtd);
 			}
+
+			// ── TAA : historique ping-pong plein ecran (LDR) ──────────────────────
+			// Recreees a chaque CreateTextures (donc a l'OnResize) : un historique
+			// d'une autre resolution n'est pas reutilisable. mTAAWrite repasse a -1
+			// pour que la premiere frame apres redimensionnement soit un passe-plat
+			// au lieu de melanger un historique perime.
+			for (int i = 0; i < 2; i++) {
+				if (mTAART[i].IsValid())
+					mTAART[i].Shutdown();
+				NkRenderTargetDesc rtd;
+				rtd.width = mW;
+				rtd.height = mH;
+				rtd.hdr = false; // le TAA opere sur le LDR tonemappe
+				rtd.depth = false;
+				rtd.name = (i == 0) ? NkString("TAAHistory0") : NkString("TAAHistory1");
+				mTAART[i].Init(mDevice, mTex, rtd);
+			}
+			mTAAWrite = -1;
 
 			mToneTex = mTex->CreateRenderTarget(mW, mH, NkGPUFormat::NK_RGBA8_UNORM, false, true, "Tone");
 			mFinalTex = mTex->CreateRenderTarget(mW, mH, NkGPUFormat::NK_RGBA8_UNORM, false, true, "Final");
@@ -1273,6 +1341,105 @@ void main() {
 			mLumaRT[write].EndRender(cmd);
 
 			mLumaWrite = write;
+		}
+
+		// =====================================================================
+		// Phase L — TAA (Temporal Anti-Aliasing, 2026-07-30)
+		// =====================================================================
+		// Active par la config (postProcess.taa) ou l'override NK_TAA (A/B sans
+		// recompiler, meme motif que NK_AUTOEXP / NK_HDR_CLAMP).
+		static bool NkTAAEnabledEnv(bool fromConfig) {
+			static int sInit = 0;
+			static bool sHasEnv = false;
+			static bool sEnv = false;
+			if (!sInit) {
+				sInit = 1;
+				const char *v = getenv("NK_TAA");
+				if (v && v[0]) {
+					sHasEnv = true;
+					sEnv = (v[0] != '0');
+				}
+			}
+			return sHasEnv ? sEnv : fromConfig;
+		}
+
+		// Poids de l'historique : plus il est haut, plus l'image est lisse mais
+		// plus les objets mobiles trainent. 0.9 = compromis courant (10 % de
+		// nouveau par frame -> convergence en ~20 frames).
+		static float32 NkTAABlend() {
+			static int sInit = 0;
+			static float32 sVal = 0.9f;
+			if (!sInit) {
+				sInit = 1;
+				const char *v = getenv("NK_TAA_BLEND");
+				if (v && v[0])
+					sVal = (float32)atof(v);
+			}
+			return sVal;
+		}
+
+		bool NkPostProcessStack::IsTAAEnabled() const {
+			if (!mPipeTAA.IsValid() || !mTAART[0].IsValid() || !mTAART[1].IsValid())
+				return false;
+			return NkTAAEnabledEnv(mCfg.taa);
+		}
+
+		NkTextureHandle NkPostProcessStack::GetTAAResultRHI() const {
+			if (mTAAWrite < 0 || !mTex)
+				return NkTextureHandle{};
+			return mTex->GetRHIHandle(mTAART[mTAAWrite].GetColorHandle());
+		}
+
+		void NkPostProcessStack::RunTAA(NkICommandBuffer *cmd, NkTextureHandle ldrIn, NkTextureHandle depth,
+										const NkMat4f &reproj, bool hasHistory) {
+			if (!cmd || !ldrIn.IsValid() || !IsTAAEnabled())
+				return;
+			NkSamplerHandle samp = mResources ? mResources->GetSamplerLinearClamp() : NkSamplerHandle{};
+			if (!samp.IsValid())
+				return;
+
+			const int write = (mTAAWrite < 0) ? 0 : (1 - mTAAWrite);
+			const int read = 1 - write;
+			// Historique exploitable seulement si une frame precedente existe ET si
+			// l'appelant a pu fournir une reprojection (matrices de la frame -1).
+			const bool useHistory = hasHistory && (mTAAWrite >= 0);
+
+			NkTextureHandle histTex = mTex ? mTex->GetRHIHandle(mTAART[read].GetColorHandle()) : NkTextureHandle{};
+
+			NkDescSetHandle set = mTAASets[mTAASetCursor % kTAADescSets];
+			mTAASetCursor++;
+			if (!set.IsValid())
+				return;
+			mDevice->BindTextureSampler(set, 0, ldrIn, samp);
+			mDevice->BindTextureSampler(set, 1, (useHistory && histTex.IsValid()) ? histTex : ldrIn, samp);
+			// Profondeur absente (config sans depth) : on binde le LDR pour ne pas
+			// laisser un slot non initialise ; le shader verra depth >= 0.9999 comme
+			// du ciel et retombera sur l'image courante (donc pas d'accumulation).
+			mDevice->BindTextureSampler(set, 2, depth.IsValid() ? depth : ldrIn, samp);
+
+			mTAART[write].BeginRender(cmd, NkVec4f{0.f, 0.f, 0.f, 1.f}, false);
+			cmd->BindGraphicsPipeline(mPipeTAA);
+			cmd->BindDescriptorSet(set, 0);
+
+			struct PC {
+					float32 reproj[16];
+					float32 blend, ndcYSign, invResW, invResH;
+			} pc;
+
+			memcpy(pc.reproj, &reproj, sizeof(pc.reproj));
+			pc.blend = (useHistory && depth.IsValid()) ? NkTAABlend() : 0.f;
+			// Meme convention de signe NDC que le deferred lighting : le VS des
+			// passes plein ecran flippe l'UV sur DX, ce qui inverse le signe utile.
+			const NkGraphicsApi api = mDevice ? mDevice->GetApi() : NkGraphicsApi::NK_GFX_API_OPENGL;
+			const bool isDX = (api == NkGraphicsApi::NK_GFX_API_DX11 || api == NkGraphicsApi::NK_GFX_API_DX12);
+			pc.ndcYSign = isDX ? 1.f : -1.f;
+			pc.invResW = mW > 0 ? 1.f / (float32)mW : 0.f;
+			pc.invResH = mH > 0 ? 1.f / (float32)mH : 0.f;
+			cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), &pc);
+			cmd->Draw(3, 1, 0, 0);
+			mTAART[write].EndRender(cmd);
+
+			mTAAWrite = write;
 		}
 
 	} // namespace renderer
