@@ -1,13 +1,16 @@
 #include "NkConversationEngine.h"
-#include "NkOllamaBackend.h"
-#include "NkClaudeBackend.h"
-#include "NkRulesBackend.h"
+#include "PV3DE/AI/Backends/NkOllamaBackend.h"
+#include "PV3DE/AI/Backends/NkClaudeBackend.h"
+#include "PV3DE/AI/Backends/NkRulesBackend.h"
 #include "NKLogger/NkLog.h"
+#include "NKMath/NKMath.h"
 #include <cstdio>
 #include <cstring>
 
 namespace nkentseu {
 	namespace humanoid {
+
+		using namespace nkentseu::math;
 
 		NkConversationEngine::~NkConversationEngine() noexcept {
 			Shutdown();
@@ -83,7 +86,7 @@ namespace nkentseu {
 			// ── 2. Appel au backend ───────────────────────────────────────────
 			bool ok = mBackend->Complete(messages, req.temperature_llm, req.maxTokens, resp);
 
-			if (ok && !resp.text.IsEmpty()) {
+			if (ok && !resp.text.Empty()) {
 				// Sauvegarder dans l'historique
 				PushMessage(NkConvRole::User, req.userMessage);
 				PushMessage(NkConvRole::Assistant, resp.text);
@@ -191,7 +194,7 @@ namespace nkentseu {
 					 req.spo2);
 			prompt += stateBuf;
 
-			if (!req.topDiagnosis.IsEmpty()) {
+			if (!req.topDiagnosis.Empty()) {
 				char diagBuf[128];
 				snprintf(diagBuf, sizeof(diagBuf), "(Le médecin suspect: %s — mais tu ne le sais pas)\n",
 						 req.topDiagnosis.CStr());
@@ -225,7 +228,7 @@ namespace nkentseu {
 		void NkConversationEngine::PushMessage(NkConvRole role, const NkString &content) noexcept {
 			// Tronquer l'historique si trop long
 			while (mHistory.Size() >= kMaxHistory * 2)
-				mHistory.EraseAt(0);
+				mHistory.RemoveAt(0);
 
 			NkConvMessage msg;
 			msg.role = role;

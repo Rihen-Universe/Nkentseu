@@ -459,7 +459,9 @@ float4 PSMain(PSIn i) : SV_Target {
                     if (retired.entry.descSet.IsValid()) {
                         mDevice->FreeDescriptorSet(retired.entry.descSet);
                     }
-                    if (retired.entry.texture.IsValid()) {
+                    // Texture externe (RegisterExternalTexture) : possedee par
+                    // l'appelant, ne JAMAIS la detruire ici.
+                    if (retired.entry.texture.IsValid() && !retired.entry.external) {
                         mDevice->DestroyTexture(retired.entry.texture);
                     }
                     continue;
@@ -689,6 +691,61 @@ float4 PSMain(PSIn i) : SV_Target {
             return true;
         }
 
+        // [AJOUT 2026-07-25] Texture RHI externe (ex. couleur d'un FBO viewport
+        // editeur) : cree uniquement le descriptor set ; la texture reste la
+        // propriete de l'appelant (jamais detruite par le backend).
+        bool NkUIRHIBackend::RegisterExternalTexture(uint32 texId, NkTextureHandle texture, int32 width,
+                                                     int32 height) {
+            if (!mDevice || texId == 0 || !texture.IsValid()) {
+                return false;
+            }
+
+            TextureEntry* existing = mTextures.Find(texId);
+            if (existing && existing->external && existing->texture.id == texture.id) {
+                existing->width = width;
+                existing->height = height;
+                return true; // deja enregistree, rien a refaire
+            }
+
+            NkDescSetHandle descSet;
+            if (!CreateDescriptorSetForTexture(texture, descSet)) {
+                return false;
+            }
+
+            if (existing) {
+                RetireTextureEntry(*existing);
+                existing->texture = texture;
+                existing->descSet = descSet;
+                existing->width = width;
+                existing->height = height;
+                existing->external = true;
+            } else {
+                TextureEntry entry;
+                entry.texture = texture;
+                entry.descSet = descSet;
+                entry.width = width;
+                entry.height = height;
+                entry.external = true;
+                mTextures[texId] = entry;
+            }
+            if (mBoundTexId == texId) {
+                mBoundTexId = 0xFFFFFFFFu; // forcer un rebind au prochain draw
+            }
+            return true;
+        }
+
+        void NkUIRHIBackend::UnregisterExternalTexture(uint32 texId) {
+            TextureEntry* existing = mTextures.Find(texId);
+            if (!existing) {
+                return;
+            }
+            RetireTextureEntry(*existing);
+            mTextures.Erase(texId);
+            if (mBoundTexId == texId) {
+                mBoundTexId = 0xFFFFFFFFu;
+            }
+        }
+
         bool NkUIRHIBackend::UploadTextureRGBA8(uint32 texId, const uint8* data, int32 width, int32 height) {
             return UploadTextureInternal(texId, data, width, height, true);
         }
@@ -714,7 +771,8 @@ float4 PSMain(PSIn i) : SV_Target {
                 if (it.Second.descSet.IsValid()) {
                     mDevice->FreeDescriptorSet(it.Second.descSet);
                 }
-                if (it.Second.texture.IsValid()) {
+                // Textures externes : possedees par l'appelant, non detruites.
+                if (it.Second.texture.IsValid() && !it.Second.external) {
                     mDevice->DestroyTexture(it.Second.texture);
                 }
             }
@@ -724,7 +782,7 @@ float4 PSMain(PSIn i) : SV_Target {
                 if (retired.entry.descSet.IsValid()) {
                     mDevice->FreeDescriptorSet(retired.entry.descSet);
                 }
-                if (retired.entry.texture.IsValid()) {
+                if (retired.entry.texture.IsValid() && !retired.entry.external) {
                     mDevice->DestroyTexture(retired.entry.texture);
                 }
             }

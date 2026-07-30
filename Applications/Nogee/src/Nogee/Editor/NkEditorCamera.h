@@ -7,20 +7,19 @@
 //   Fly    : déplacement libre WASD + souris droite maintenue
 //
 // Produit view + proj matrices consommées par ViewportLayer::OnRender().
-// Alimentée par EventBus (NkKeyPressEvent, NkMouseMoveEvent, etc.)
-// ou par mise à jour manuelle depuis UILayer.
+// Alimentée par les événements du framework (NkKeyPressEvent, NkMouseMoveEvent)
+// relayés par UILayer/ViewportLayer (mise à jour manuelle).
 // =============================================================================
 
 #include "NKMath/NKMath.h"
 #include "NKCore/NkTypes.h"
 #include "NKEvent/NkKeyboardEvent.h"
 #include "NKEvent/NkMouseEvent.h"
-#include "Noge/Core/EventBus.h"
 
 using namespace nkentseu::math;
 
 namespace nkentseu {
-	namespace Noge {
+	namespace noge {
 
 		enum class NkEditorCameraMode : nk_uint8 { Orbit = 0, Fly };
 
@@ -89,5 +88,5 @@ namespace nkentseu {
 				bool mAltDown = false;
 		};
 
-	} // namespace Noge
+	} // namespace noge
 } // namespace nkentseu

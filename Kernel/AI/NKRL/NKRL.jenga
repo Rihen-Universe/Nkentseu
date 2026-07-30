@@ -2,7 +2,8 @@
 # -*- coding: utf-8 -*-
 """
 NKRL — apprentissage par renforcement (NKAI, C++17)
-Interface d'environnement + monde-grille + Q-learning tabulaire (Jalon 1).
+Interface d'environnement + monde-grille + Q-learning tabulaire (Jalon 1) +
+DQN (réseau de valeur + replay buffer + réseau cible, Jalon 2).
 Namespace : nkentseu::ai::rl. Cf Kernel/AI/ARCHITECTURE.md.
 """
 
@@ -16,7 +17,7 @@ with project("NKRL"):
 
     nkentseudependson(
         ["NKCore", "NKPlatform", "NKMemory", "NKContainers", "NKMath", "NKLogger",
-         "NKTensor"],
+         "NKTensor", "NKAutograd", "NKNN", "NKOptim"],
         selfexport="NKRL",
         extra_includes=["src", "%{wks.location}/Externals"],
     )

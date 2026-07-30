@@ -14,7 +14,15 @@
 #include "NKRHI/Opengl/NkOpenglDevice.h"
 #endif
 
-#if defined(NK_RHI_VK_ENABLED) && !defined(NKENTSEU_PLATFORM_IOS)
+// Vulkan reellement compile+linke : NK_RHI_VK_ENABLED vient du define GLOBAL
+// WANT_VULKAN (detection sur la machine HOTE, independante de la plateforme
+// ciblee) -> sur iOS et le Web (Emscripten), les sources NKRHI/Vulkan/** sont
+// exclues du build (NKRHI.jenga) meme si l'hote a un SDK Vulkan installe. Ce
+// macro capture la condition reelle, a utiliser PARTOUT dans ce fichier au
+// lieu de tester NK_RHI_VK_ENABLED seul (sinon : symboles Vulkan non definis
+// au link sur ces 2 plateformes).
+#if defined(NK_RHI_VK_ENABLED) && !defined(NKENTSEU_PLATFORM_IOS) && !defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+#define NK_RHI_VULKAN_COMPILED 1
 #include "NKRHI/Vulkan/NkVulkanDevice.h"
 #endif
 #ifdef NK_RHI_DX11_ENABLED
@@ -71,7 +79,7 @@ namespace nkentseu {
 				break;
 
 			case NkGraphicsApi::NK_GFX_API_VULKAN:
-#if defined(NK_RHI_VK_ENABLED) && !defined(NKENTSEU_PLATFORM_IOS)
+#if defined(NK_RHI_VULKAN_COMPILED)
 				dev = nkentseu::memory::NkGetDefaultAllocator().New<NkVulkanDevice>();
 #else
 				logger_src.Infof("[NkDeviceFactory] Vulkan non disponible (NK_RHI_VK_ENABLED non defini / iOS)\n");
@@ -155,7 +163,7 @@ namespace nkentseu {
 #endif
 			case NkGraphicsApi::NK_GFX_API_SOFTWARE:
 				return true;
-#if defined(NK_RHI_VK_ENABLED) && !defined(NKENTSEU_PLATFORM_IOS)
+#if defined(NK_RHI_VULKAN_COMPILED)
 			case NkGraphicsApi::NK_GFX_API_VULKAN:
 				return true;
 #endif
@@ -227,7 +235,7 @@ namespace nkentseu {
 	NkVector<NkGraphicsApi> NkDeviceFactory::GetSupportedApis() {
 		NkVector<NkGraphicsApi> apis;
 		apis.PushBack(NkGraphicsApi::NK_GFX_API_OPENGL);
-#ifdef NK_RHI_VK_ENABLED
+#if defined(NK_RHI_VULKAN_COMPILED)
 		apis.PushBack(NkGraphicsApi::NK_GFX_API_VULKAN);
 #endif
 #ifdef NK_RHI_DX11_ENABLED

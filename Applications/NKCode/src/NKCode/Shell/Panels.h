@@ -683,8 +683,9 @@ namespace nkentseu {
 					if (r.y + r.h > clip.y + clip.h)
 						r.h = clip.y + clip.h - r.y;
 
-					// ── Fil d'Ariane (workspace › dossier › … › fichier) ──
-					{
+					// ── Fil d'Ariane (workspace › dossier › … › fichier) — desactivable via
+					// le menu Affichage > Breadcrumbs. ──
+					if (mS->showBreadcrumb) {
 						const float32 bcH = DrawBreadcrumb(ctx, f, r);
 						r.y += bcH;
 						if (r.h > bcH)
@@ -1895,6 +1896,11 @@ namespace nkentseu {
 				// total, total connu D'AVANCE via l'en-tete "Build Order (N projects)" ->
 				// la barre globale ne peut plus afficher 100% avant la vraie fin).
 				void ParseProgress(const char *L) {
+					// Build IN-PROCESS (NkEmbeddedJenga) : la progression vient d'EVENEMENTS
+					// STRUCTURES (NkCodeState::ApplyEmbedEvent) — parser AUSSI le texte ici
+					// doublerait projDone (banniere "Build Successful" + evenement ProjectDone).
+					if (mS->buildStructured)
+						return;
 					// ── Detection d'ERREURS (voyants footer + icones rouges explorateur) —
 					// independante de la chaine de progression ci-dessous. ──
 					if (Find(L, "Link failed") || Find(L, "Link Failed")) {
@@ -2287,9 +2293,12 @@ namespace nkentseu {
 					dl.AddRectFilled(clip, ctx.theme.bgPrimary); // fond terminal #0D1117
 					// ── CIBLE de DRAG & DROP global : déposer des fichiers/dossiers de
 					// l'explorateur COLLE leurs chemins (quotés) dans le shell actif. ──
-					if (mState && mState->dragActive && ctx.input.mouseReleased[0] &&
-						NkGuiRectContains(clip, ctx.input.mousePos) && mActive >= 0 && mActive < 8 &&
-						mTerm[mActive].alive) {
+					// Cible de depot : InputHits (routeur d'occlusion) et pas un
+					// NkGuiRectContains brut — sinon un depot fait SUR une surface
+					// flottante posee au-dessus du terminal (modale, menu, picker)
+					// serait quand meme colle dans le shell.
+					if (mState && mState->dragActive && ctx.input.mouseReleased[0] && ctx.InputHits(clip) &&
+						mActive >= 0 && mActive < 8 && mTerm[mActive].alive) {
 						Term &dt = mTerm[mActive];
 						for (usize di = 0; di < mState->dragPaths.Size(); ++di) {
 							NkString q = "\"";
@@ -2318,7 +2327,14 @@ namespace nkentseu {
 					// Changement de WORKSPACE : recycle les terminaux JAMAIS utilises (touched=false)
 					// pour que le defaut redemarre dans la NOUVELLE racine (celle du boot peut etre
 					// un faux workspace : le CWD de l exe). Ceux ou l on a tape restent en vie.
-					const bool wsReady = mState && mState->HasWorkspace() && !mState->root.ToString().Empty();
+					// Racine EXPLOITABLE = un dossier ouvert, workspace Jenga OU PAS.
+					// Le terminal n'a besoin que d'un repertoire de depart : l'exiger
+					// « workspace Jenga » privait de shell tous ceux qui ouvrent un
+					// dossier pour coder autre chose (retour Rihen). La toolbar, elle,
+					// reste bien conditionnee a HasWorkspace() : il n'y a rien a
+					// construire sans .jenga.
+					const bool wsReady = mState && !mState->root.ToString().Empty() &&
+										 NkDirectory::Exists(mState->root.ToString().CStr());
 					const NkString wsRoot = wsReady ? mState->root.ToString() : NkString();
 					if (wsReady && !StrEq(mSpawnedRoot.CStr(), wsRoot.CStr())) {
 						for (int32 i = 0; i < 8; ++i)
@@ -2339,7 +2355,7 @@ namespace nkentseu {
 							if (ctx.font && ctx.font->Valid())
 								dl.AddText(ctx.font->Face(), ctx.font->TexId(),
 										   {clip.x + ctx.S(12.f), clip.y + ctx.S(20.f)},
-										   "Ouvre un workspace pour demarrer le terminal...", ctx.theme.textDisabled);
+										   NkT("term.empty"), ctx.theme.textDisabled);
 							return;
 						}
 						EnsurePrefs();
@@ -2571,15 +2587,18 @@ namespace nkentseu {
 					if (t.started)
 						return;
 					t.started = true;
-					GlobalLogBuffer().Push(NkString("[term] demarre dans: ") + ((mState && mState->HasWorkspace())
-																					? mState->root.ToString()
-																					: NkString("(cwd exe)")));
+					// Repertoire de depart = le dossier OUVERT, qu'il soit un workspace
+					// Jenga ou non (un dossier de code quelconque merite un shell).
+					const NkString openRoot = (mState && !mState->root.ToString().Empty() &&
+											   NkDirectory::Exists(mState->root.ToString().CStr()))
+												  ? mState->root.ToString()
+												  : NkString();
+					GlobalLogBuffer().Push(NkString("[term] demarre dans: ") +
+										   (openRoot.Empty() ? NkString("(cwd exe)") : openRoot));
 					t.pty.Start(!t.cmdOverride.Empty() ? t.cmdOverride : PtyCommand(t.shell, t.distro), t.screen.Cols(),
 								t.screen.Rows(),
 								!t.cwd.Empty() ? t.cwd // « Ouvrir dans le terminal » : dossier demandé
-											   : ((mState && mState->HasWorkspace() && !mState->root.ToString().Empty())
-													  ? mState->root.ToString()
-													  : NkString()));
+											   : openRoot);
 				}
 
 				// Programme reel a lancer pour chaque type de shell.
@@ -3436,7 +3455,13 @@ namespace nkentseu {
 							mRenaming = -1;
 						} else if (ctx.input.KeyPressed(nkgui::NkGuiKey::Escape))
 							mRenaming = -1;
+						// « Clic en dehors du champ -> valider » : test NEGATIF, donc on
+						// exige d'abord que le clic ATTEIGNE notre couche
+						// (PointReachable). Sinon un clic destine a une surface
+						// flottante posee au-dessus (modale, menu) validait le
+						// renommage au passage.
 						else if (mRenameArmed && ctx.input.mouseClicked[0] && !ctx.input.mouseDoubleClicked[0] &&
+								 ctx.PointReachable(ctx.input.mousePos) &&
 								 !NkGuiRectContains(mRenameRect, ctx.input.mousePos)) {
 							if (mRenameBuf[0]) // clic HORS du champ -> valide
 								mTerm[mRenaming].label = NkString(mRenameBuf);

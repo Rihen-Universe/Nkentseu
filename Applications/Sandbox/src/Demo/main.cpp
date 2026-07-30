@@ -16,6 +16,16 @@
 // =============================================================================
 #include "DemoCommon.h"
 #include <cstdlib> // getenv (diag opt-in NK_VK_VALIDATION)
+#if defined(NKENTSEU_PLATFORM_ANDROID)
+#include <sys/system_properties.h> // selection de la demo via debug.nk.demo
+#endif
+#if defined(__EMSCRIPTEN__)
+#include <emscripten/emscripten.h>
+#endif
+#if defined(NKENTSEU_PLATFORM_HARMONYOS)
+#include <rawfile/raw_file_manager.h> // ResourceManager natif (shaders rawfile du HAP)
+#include <unistd.h>					  // usleep (attente du resourceManager ArkTS)
+#endif
 
 #include "NKPlatform/NkPlatformDetect.h"
 #include "NKWindow/NKMain.h"
@@ -35,6 +45,7 @@
 #include "NKThreading/NkThread.h" // NK_RECORD : finalisation MP4 asynchrone (fix freeze F9)
 #include "NKRenderer/Streaming/NkStreamingSystem.h" // NK_STREAM_TEST : self-test streaming reel
 #include "NKMemory/NkAllocator.h" // NK_RECORD : recorder alloue (possede par le thread de finalisation)				  // NK_RECORD (encodage MP4/H.264 threade)
+#include "NKFileSystem/NkFile.h"  // Android : SetAndroidAssetSubFolder (shaders lus depuis assets/ de l'APK)
 
 namespace nkentseu {
 	struct NkEntryState;
@@ -379,6 +390,93 @@ int nkmain(const NkEntryState &state) {
 	// ── Parse args ───────────────────────────────────────────────────────────
 	NkGraphicsApi api = ParseBackend(state.GetArgs());
 	int demoIx = ParseDemo(state.GetArgs(), 0);
+#if defined(NKENTSEU_PLATFORM_ANDROID)
+	// Assets APK : les shaders sont packages par jenga (androidassets, cf.
+	// RendererSandbox.jenga) RELATIVEMENT a Resources/NKRenderer/Shaders/ ->
+	// assets/PBR/..., assets/Include/... Ce sous-dossier dit a NkFile de
+	// stripper "Resources/NKRenderer/Shaders/" des chemins C++ pour matcher
+	// les assets (meme pattern que Pong : SetAndroidAssetSubFolder("Pong")).
+	nkentseu::NkFile::SetAndroidAssetSubFolder("NKRenderer/Shaders");
+	// Android : une NativeActivity ne recoit AUCUN argument de ligne de commande
+	// (NkEntryState n'a que le nom de paquet). On lit donc le numero de demo dans
+	// une propriete systeme, reglable sans reinstaller :
+	//     adb shell setprop debug.nk.demo 2
+	{
+		char demoProp[PROP_VALUE_MAX] = {0};
+		if (__system_property_get("debug.nk.demo", demoProp) > 0 && demoProp[0])
+			demoIx = atoi(demoProp);
+	}
+#elif defined(NKENTSEU_PLATFORM_HARMONYOS)
+	// Rawfiles HAP : les shaders sont packages par jenga (harmonyassets, cf.
+	// RendererSandbox.jenga) RELATIVEMENT a Resources/NKRenderer/Shaders ->
+	// rawfile/PBR/..., rawfile/Include/... Meme strip de chemin qu'Android
+	// (le sous-dossier est partage par le repli rawfile de NkFile).
+	nkentseu::NkFile::SetAndroidAssetSubFolder("NKRenderer/Shaders");
+	// Le NativeResourceManager est pose par l'ArkTS (Index.ets, onLoad du
+	// XComponent -> nkSetResMgr, cf. NkHarmonyOnNapiInitExtra en fin de ce
+	// fichier). nkmain demarre des que la SURFACE est prete : l'appel ArkTS
+	// peut arriver quelques ms plus tard -> attente bornee (les shaders sont
+	// charges bien plus tard, mais autant etre deterministe).
+	{
+		int waitedMs = 0;
+		while (!nkentseu::NkFile::GetHarmonyResourceManager() && waitedMs < 10000) {
+			usleep(20000); // 20 ms
+			waitedMs += 20;
+		}
+		logger.Infof("[main] HarmonyOS: resourceManager=%p (attente %d ms)\n",
+					 nkentseu::NkFile::GetHarmonyResourceManager(), waitedMs);
+	}
+	// Selection de la demo SANS reinstaller (equivalent HarmonyOS du setprop
+	// Android) : fichier lu au demarrage. Le plus simple qui marche avec un hdc
+	// NON-root (les dossiers sandbox de l'app sont 0700 uid app -> interdits au
+	// shell) : /data/local/tmp, ecrivable par le shell et traversable (o+x) :
+	//   hdc shell "echo 2 > /data/local/tmp/nk_demo.txt && chmod 644 /data/local/tmp/nk_demo.txt"
+	// Les chemins sandbox restent en repli (utiles si hdc root un jour).
+	{
+		const char *kDemoFiles[] = {
+			"/data/local/tmp/nk_demo.txt",
+			"/data/storage/el2/base/haps/entry/files/nk_demo.txt",
+			"/data/storage/el2/base/files/nk_demo.txt",
+		};
+		for (size_t i = 0; i < sizeof(kDemoFiles) / sizeof(kDemoFiles[0]); ++i) {
+			FILE *f = fopen(kDemoFiles[i], "r");
+			if (!f)
+				continue;
+			char buf[16] = {0};
+			if (fgets(buf, sizeof(buf), f) && buf[0])
+				demoIx = atoi(buf);
+			fclose(f);
+			logger.Infof("[main] HarmonyOS: demo %d lue depuis %s\n", demoIx, kDemoFiles[i]);
+			break;
+		}
+	}
+#endif
+#if defined(__EMSCRIPTEN__)
+	// ââ SELECTION DE LA DEMO SUR LE WEB : ?demo=N dans l'URL âââââ
+	// Un module WASM ne recoit AUCUN argument de ligne de commande : argc vaut 1
+	// et --demo=N n'a pas de moyen d'arriver. On lit donc le parametre de requete
+	// de la page, equivalent naturel pour le Web (comme setprop sur Android et un
+	// fichier sous /data/local/tmp sur HarmonyOS).
+	//
+	// Le JavaScript ci-dessous n'utilise NI antislash, NI === , NI !== , NI => :
+	// ce fichier passe par clang-format, qui lit le JS embarque comme du C++ et
+	// tokenise "===" en "==" puis "=" en inserant une espace. C'est ce qui avait
+	// casse la compilation Web (33 sites corriges le 29/07). Le .clang-format-ignore
+	// protege maintenant les fichiers concernes, mais ecrire du JS qui ne PEUT PAS
+	// etre corrompu reste la vraie ceinture de securite. D'ou URLSearchParams
+	// plutot qu'une expression reguliere (qui exigerait un \\d).
+	{
+		char *q = emscripten_run_script_string(
+			"(function(){var v=new URLSearchParams(location.search).get('demo');return v?v:'';})()");
+		if (q && q[0]) {
+			const int32 wd = atoi(q);
+			if (wd >= 0) {
+				demoIx = wd;
+				logger.Infof("[main] Web: demo %d lue depuis l'URL (?demo=)\n", demoIx);
+			}
+		}
+	}
+#endif
 	// Alias : --demo=N -> index N-1 pour les demos numerotees (Demo4 -> 3, Demo5 -> 4).
 	// Coherence avec le nom de fichier plutot que l'index zero-based.
 	if (demoIx == 4)
@@ -689,6 +787,10 @@ int nkmain(const NkEntryState &state) {
 	uint64 captureFrame = capEnv ? (uint64)atoll(capEnv) : 0;
 	const char *capPathEnv = getenv("NK_CAPTURE_PATH");
 	const char *capturePath = capPathEnv ? capPathEnv : "nk_capture.png";
+	// NK_CAPTURE_LEAD : nombre de frames entre la redirection de la cible et la
+	// capture (cf. le commentaire au point de redirection). Defaut 3.
+	const char *capLeadEnv = getenv("NK_CAPTURE_LEAD");
+	const uint64 captureLead = capLeadEnv ? (uint64)atoll(capLeadEnv) : 3;
 	renderer::NkOffscreenTarget captureTarget;
 	bool captureArmed = false;
 
@@ -818,6 +920,16 @@ int nkmain(const NkEntryState &state) {
 		events.PollEvents();
 		if (!running)
 			break;
+		// Mobile : Android/HarmonyOS DETRUISENT puis RECREENT l'ANativeWindow
+		// (fin du splash system, relayout plein ecran, retour d'arriere-plan).
+		// Sans re-attachement, la surface EGL du device reste liee a la fenetre
+		// MORTE : chaque eglSwapBuffers retourne ok=1 mais les buffers partent dans
+		// une BufferQueue orpheline que le compositeur n'affiche jamais -> ECRAN
+		// NOIR sans la moindre erreur GL/EGL. RecreateSurface est un no-op si la
+		// fenetre native n'a pas change (cf. meme correctif dans Tutoriels3D/02).
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_PLATFORM_HARMONYOS)
+		device->RecreateSurface(window.GetSurfaceDesc());
+#endif
 		if (maxFrames && ctx.frame >= maxFrames) {
 			running = false;
 			break;
@@ -937,7 +1049,13 @@ int nkmain(const NkEntryState &state) {
 
 		// ── NK_CAPTURE : redirection -> readback -> restauration ────────────
 		if (captureFrame > 0) {
-			if (!captureArmed && ctx.frame + 3 >= captureFrame) {
+			// Avance de la redirection sur la capture. 3 frames suffisent pour un
+			// rendu sans etat temporel, mais la redirection reconstruit le render
+			// graph : un effet qui ACCUMULE (TAA) repart alors de zero et n'a que
+			// ces 3 frames pour converger. NK_CAPTURE_LEAD permet de lui laisser le
+			// temps (~25 frames pour un blend de 0,9) afin de mesurer le regime
+			// etabli et non le transitoire.
+			if (!captureArmed && ctx.frame + captureLead >= captureFrame) {
 				renderer::NkOffscreenDesc od;
 				od.width = ctx.width;
 				od.height = ctx.height;
@@ -989,3 +1107,42 @@ int nkmain(const NkEntryState &state) {
 	logger.Info("[main] Bye\n");
 	return 0;
 }
+
+// =============================================================================
+// HarmonyOS : enregistrement du module NAPI
+//
+// Le nom du module DOIT correspondre au `libraryname` du XComponent dans
+// Index.ets (librenderdemo.so -> libraryname 'renderdemo'). C'est ce qui
+// declenche NkHarmonyNapiInit() au chargement de la .so par ArkTS, qui
+// enregistre les callbacks de surface puis lance nkmain() dans son thread.
+// (Equivalent du android_main genere par NkAndroid.h sur Android.)
+// =============================================================================
+#if defined(NKENTSEU_PLATFORM_HARMONYOS)
+// ── Exports NAPI applicatifs (hook faible de NkHarmonyOS.h) ──────────────────
+// nkSetResMgr(resourceManager) : appele par Index.ets (onLoad du XComponent).
+// Convertit le ResourceManager ArkTS en NativeResourceManager (librawfile.z.so)
+// et le donne au repli rawfile de NkFile -> les shaders packages dans
+// resources/rawfile/ du HAP deviennent lisibles (equivalent AAssetManager).
+static napi_value NkRenderdemoSetResMgr(napi_env env, napi_callback_info info) {
+	size_t argc = 1;
+	napi_value args[1] = {nullptr};
+	if (napi_get_cb_info(env, info, &argc, args, nullptr, nullptr) == napi_ok && argc >= 1 && args[0]) {
+		NativeResourceManager *mgr = OH_ResourceManager_InitNativeResourceManager(env, args[0]);
+		if (mgr) {
+			nkentseu::NkFile::SetHarmonyResourceManager(mgr);
+			logger.Infof("[main] HarmonyOS: NativeResourceManager initialise (%p)\n", (void *)mgr);
+		} else {
+			logger.Errorf("[main] HarmonyOS: OH_ResourceManager_InitNativeResourceManager a echoue\n");
+		}
+	}
+	return nullptr;
+}
+
+extern "C" void NkHarmonyOnNapiInitExtra(napi_env env, napi_value exports) {
+	napi_value fn = nullptr;
+	if (napi_create_function(env, "nkSetResMgr", NAPI_AUTO_LENGTH, NkRenderdemoSetResMgr, nullptr, &fn) == napi_ok)
+		napi_set_named_property(env, exports, "nkSetResMgr", fn);
+}
+
+NKENTSEU_HARMONY_DEFINE_MODULE(renderdemo)
+#endif

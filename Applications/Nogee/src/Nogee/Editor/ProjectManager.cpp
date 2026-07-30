@@ -1,12 +1,14 @@
 #include "ProjectManager.h"
-#include "NKSerialization/NkSerializer.h"
+#include "NKSerialization/NkArchive.h"
 #include "NKSerialization/JSON/NkJSONWriter.h"
 #include "NKSerialization/JSON/NkJSONReader.h"
 #include "NKFileSystem/NkPath.h"
+#include "NKFileSystem/NkFile.h"
+#include "NKContainers/String/NkFormat.h"
 #include "NKLogger/NkLog.h"
 
 namespace nkentseu {
-	namespace Noge {
+	namespace noge {
 
 		void ProjectManager::NewProject(const char *name, const char *rootDir) noexcept {
 			mConfig = NkProjectConfig{};
@@ -35,14 +37,14 @@ namespace nkentseu {
 			archive.SetString("defaultBackend", mConfig.defaultBackend.CStr());
 
 			// Scènes
-			for (nk_uint32 i = 0; i < mConfig.scenes.Size(); ++i) {
+			for (nk_usize i = 0; i < mConfig.scenes.Size(); ++i) {
 				NkString key = NkFormat("scene_{}", i);
 				archive.SetString(key.CStr(), mConfig.scenes[i].CStr());
 			}
-			archive.SetInt("sceneCount", (nk_int64)mConfig.scenes.Size());
+			archive.SetInt64("sceneCount", (nk_int64)mConfig.scenes.Size());
 
-			NkJSONWriter writer;
-			bool ok = writer.Write(archive, savePath);
+			NkString json;
+			bool ok = NkJSONWriter::WriteArchive(archive, json) && NkFile::WriteAllText(savePath, json.CStr());
 			if (ok) {
 				mProjectPath = NkString(savePath);
 				mModified = false;
@@ -54,9 +56,9 @@ namespace nkentseu {
 		}
 
 		bool ProjectManager::Load(const char *path) noexcept {
-			NkJSONReader reader;
+			NkString json = NkFile::ReadAllText(path);
 			NkArchive archive;
-			if (!reader.Read(archive, path)) {
+			if (json.Empty() || !NkJSONReader::ReadArchive(json.CStr(), archive)) {
 				logger.Errorf("[ProjectManager] Lecture JSON échouée: {}\n", path);
 				return false;
 			}
@@ -76,7 +78,8 @@ namespace nkentseu {
 				mConfig.defaultBackend = s;
 
 			nk_int64 sceneCount = 0;
-			archive.GetInt("sceneCount", sceneCount);
+			if (!archive.GetInt64("sceneCount", sceneCount))
+				sceneCount = 0;
 			mConfig.scenes.Clear();
 			for (nk_int64 i = 0; i < sceneCount; ++i) {
 				NkString key = NkFormat("scene_{}", i);
@@ -87,7 +90,7 @@ namespace nkentseu {
 
 			mProjectPath = NkString(path);
 			// Extraire le dossier
-			mProjectDir = NkPath::GetDirectory(path);
+			mProjectDir = NkPath(path).GetDirectory();
 			mAssetsDir = mProjectDir + "/" + mConfig.assetsDir;
 			mOpen = true;
 			mModified = false;
@@ -106,10 +109,10 @@ namespace nkentseu {
 			if (!abs)
 				return "";
 			NkString s(abs);
-			if (s.StartsWith(mProjectDir)) {
-				NkString rel = s.Substring(mProjectDir.Length());
-				if (!rel.IsEmpty() && (rel[0] == '/' || rel[0] == '\\'))
-					rel = rel.Substring(1);
+			if (s.StartsWith(mProjectDir.CStr())) {
+				NkString rel = s.SubStr(mProjectDir.Length());
+				if (!rel.Empty() && (rel[0] == '/' || rel[0] == '\\'))
+					rel = rel.SubStr(1);
 				return rel;
 			}
 			return s;
@@ -124,14 +127,14 @@ namespace nkentseu {
 		}
 
 		void ProjectManager::RemoveScene(const NkString &scenePath) noexcept {
-			for (nk_isize i = (nk_isize)mConfig.scenes.Size() - 1; i >= 0; --i) {
-				if (mConfig.scenes[i] == scenePath) {
-					mConfig.scenes.EraseAt((nk_usize)i);
+			for (nk_int64 i = (nk_int64)mConfig.scenes.Size() - 1; i >= 0; --i) {
+				if (mConfig.scenes[(nk_usize)i] == scenePath) {
+					mConfig.scenes.Erase(mConfig.scenes.Begin() + i);
 					mModified = true;
 					break;
 				}
 			}
 		}
 
-	} // namespace Noge
+	} // namespace noge
 } // namespace nkentseu

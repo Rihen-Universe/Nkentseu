@@ -88,6 +88,195 @@ void main() {
 }
 )NKSL";
 
+// -----------------------------------------------------------------------------
+// FP16 (mixed precision, 2026-07-25) — historique : à l'origine NkSL n'avait AUCUN
+// type half/float16_t natif ici. C'est désormais livré (cf plus bas, section
+// « FP16 NATIF » + `NkSLBaseType::NK_HALF`, additif pur) : mot-clé `half`,
+// constructeur explicite `half(x)`/`float(x)`, codegen GLSL/GLSL-Vulkan
+// (`float16_t` + extension), SPIR-V (capacité Float16 via glslang), HLSL/MSL
+// (`half` natif). Le chemin PACKED ci-dessous reste documenté et testé tel quel
+// (stockage seul, calcul en float après dépack) — utile pour la bande passante
+// mémoire même quand le calcul natif half est disponible.
+//
+// Ce qui reste exploitable via le chemin STOCKAGE (indépendant du type half) : le
+// stockage PACKED f16 via les builtins `packHalf2x16`/`unpackHalf2x16` (déclarés
+// dans NkSLSymbolTable.cpp, typecheck OK — vec2<->uint). Ces deux noms sont de
+// VRAIS builtins natifs GLSL 4.20+/GLSL-Vulkan 4.50+ (donc valides pour GLSL,
+// GLSL-Vulkan, ET SPIR-V puisque ce dernier passe par le VRAI glslang -> preuve
+// de compilation réelle, pas juste texte). En revanche AUCUN mapping n'existe
+// vers HLSL (le vrai équivalent s'appelle f32tof16/f16tof32, signature différente)
+// ni vers MSL (type half natif, pas de pack/unpack par ce nom) : sur ces cibles,
+// NkSLCompiler ÉMET du texte (il ne fait QUE de la génération de texte pour ces
+// backends dans ce pipeline offline, aucun compilateur externe fxc/dxc/metal
+// n'est invoqué) mais ce texte n'est PAS un HLSL/MSL valide si on le compilait
+// réellement. La fonction ci-dessous distingue explicitement les deux garanties.
+// -----------------------------------------------------------------------------
+static const char *kFp16PackedAdd = R"NKSL(
+@binding(set=0, binding=0) buffer BufA { uint data[]; } A;
+@binding(set=0, binding=1) buffer BufB { uint data[]; } B;
+@binding(set=0, binding=2) buffer BufC { uint data[]; } C;
+
+@push_constant
+uniform Params { uint count; } pc; // count = nombre de PAIRES f16 (1 uint = 2 halves)
+
+layout(local_size_x = 64) in;
+
+@stage(compute)
+@entry
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i < pc.count) {
+        vec2 a = unpackHalf2x16(A.data[i]);
+        vec2 b = unpackHalf2x16(B.data[i]);
+        C.data[i] = packHalf2x16(a + b);
+    }
+}
+)NKSL";
+
+// Pas d'Adam avec PARAM/GRAD stockés PACKED f16 (bande passante mémoire divisée
+// par 2) mais moments m/v (état maître, cf pattern mixed-precision standard) et
+// arithmétique EN FLOAT — seul le stockage est demi-précision ici (PAS un calcul
+// natif f16 : NkSL n'a pas le type pour ça, cf remarque ci-dessus).
+static const char *kFp16PackedAdam = R"NKSL(
+@binding(set=0, binding=0) buffer BufP { uint data[]; } P;   // param, packé f16 (2/uint)
+@binding(set=0, binding=1) buffer BufG { uint data[]; } G;   // grad,  packé f16 (2/uint)
+@binding(set=0, binding=2) buffer BufM { float data[]; } M;  // 1er moment, F32 MAÎTRE
+@binding(set=0, binding=3) buffer BufV { float data[]; } V;  // 2e moment,  F32 MAÎTRE
+@binding(set=0, binding=4) uniform Params {
+    uint pairCount; float lr; float b1; float b2; float eps; float b1t; float b2t;
+} pc;
+
+layout(local_size_x = 64) in;
+
+@stage(compute)
+@entry
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i < pc.pairCount) {
+        vec2 p = unpackHalf2x16(P.data[i]);
+        vec2 g = unpackHalf2x16(G.data[i]);
+        uint m0 = 2u * i, m1 = 2u * i + 1u;
+        float m0v = pc.b1 * M.data[m0] + (1.0 - pc.b1) * g.x;
+        float m1v = pc.b1 * M.data[m1] + (1.0 - pc.b1) * g.y;
+        float v0v = pc.b2 * V.data[m0] + (1.0 - pc.b2) * g.x * g.x;
+        float v1v = pc.b2 * V.data[m1] + (1.0 - pc.b2) * g.y * g.y;
+        M.data[m0] = m0v; M.data[m1] = m1v;
+        V.data[m0] = v0v; V.data[m1] = v1v;
+        float p0 = p.x - pc.lr * (m0v / pc.b1t) / (sqrt(v0v / pc.b2t) + pc.eps);
+        float p1 = p.y - pc.lr * (m1v / pc.b1t) / (sqrt(v1v / pc.b2t) + pc.eps);
+        P.data[i] = packHalf2x16(vec2(p0, p1));
+    }
+}
+)NKSL";
+
+// -----------------------------------------------------------------------------
+// FP16 NATIF (2026-07-25, suite) — le préalable ci-dessus est maintenant livré :
+// NkSL a un vrai type `half` (NkSLBaseType::NK_HALF, additif pur, cf NkSLTypes.h)
+// reconnu par le lexer/parser (mot-clé `half`), typé par la sémantique (constructeur
+// explicite `half(x)`/`float(x)`, cf kConstructors dans NkSLSemantic.cpp — PAS de
+// conversion implicite float<->half, comme le vrai GLSL float16_t), et généré par
+// les 5 backends texte : GLSL/GLSL-Vulkan -> `float16_t` (+ #extension
+// GL_EXT_shader_explicit_arithmetic_types_float16 injectée seulement si utilisée),
+// HLSL-DX11/DX12 -> `half` (mot-clé HLSL natif), MSL -> `half` (mot-clé MSL natif).
+// Le kernel ci-dessous calcule RÉELLEMENT en demi-précision (contrairement au
+// pack/unpack ci-dessus qui ne fait QUE du stockage f16, calcul en float) :
+// lit deux floats, les convertit en half, additionne EN half, reconvertit en float.
+// -----------------------------------------------------------------------------
+static const char *kHalfNativeAdd = R"NKSL(
+@binding(set=0, binding=0) buffer BufA { float data[]; } A;
+@binding(set=0, binding=1) buffer BufB { float data[]; } B;
+@binding(set=0, binding=2) buffer BufC { float data[]; } C;
+
+@push_constant
+uniform Params { uint count; } pc;
+
+layout(local_size_x = 64) in;
+
+@stage(compute)
+@entry
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i < pc.count) {
+        half ha = half(A.data[i]);
+        half hb = half(B.data[i]);
+        half hc = ha + hb;
+        C.data[i] = float(hc);
+    }
+}
+)NKSL";
+
+// Vérifie le type `half` natif sur les 5 backends visés par la mission (GLSL,
+// GLSL-Vulkan, SPIR-V, HLSL, MSL). SPIR-V passe par le VRAI glslang embarqué
+// (NkGLSLToSPIRV -> NKGLSlang) : succès = preuve de compilation réelle, pas
+// seulement de génération de texte. GLSL/GLSL-Vulkan/HLSL/MSL : validation
+// textuelle honnête (présence des bons tokens, absence de résidu croisé) —
+// aucun compilateur HLSL/MSL n'est embarqué dans ce pipeline offline.
+static void CheckNativeHalf(NkSLCompiler &c, const char *kernelName, const char *src) {
+	printf("\n[FP16-NATIF] %s\n", kernelName);
+	const NkSLTarget targets3[] = {NkSLTarget::NK_GLSL, NkSLTarget::NK_GLSL_VULKAN, NkSLTarget::NK_SPIRV,
+									NkSLTarget::NK_HLSL_DX11, NkSLTarget::NK_HLSL_DX12, NkSLTarget::NK_MSL};
+	for (NkSLTarget t : targets3) {
+		const char *tn = NkSLTargetName(t);
+		printf("  ... %-16s : ", tn);
+		fflush(stdout);
+		NkSLCompileResult r = c.Compile(NkString(src), NkSLStage::NK_COMPUTE, t);
+		if (!r.success) {
+			printf("FAIL\n");
+			for (uint32 i = 0; i < r.errors.Size() && i < 5; i++)
+				printf("         ligne %u: %s\n", r.errors[i].line, r.errors[i].message.CStr());
+			continue;
+		}
+		if (t == NkSLTarget::NK_SPIRV) {
+			printf("OK, %u mots SPIR-V (VALIDÉ par le vrai glslang embarqué -> `half` natif réellement "
+				   "compilable, capacité Float16 émise par glslang lui-même)\n",
+				   (unsigned)(r.bytecode.Size() / 4));
+		} else if (t == NkSLTarget::NK_GLSL || t == NkSLTarget::NK_GLSL_VULKAN) {
+			bool hasType = r.source.Contains("float16_t");
+			bool hasExt = r.source.Contains("GL_EXT_shader_explicit_arithmetic_types_float16");
+			printf("OK, %u octets (TEXTE : float16_t present=%s, #extension presente=%s)\n",
+				   (unsigned)r.source.Size(), hasType ? "oui" : "NON", hasExt ? "oui" : "NON");
+		} else {
+			bool hasHalf = r.source.Contains("half ha") || r.source.Contains("half hb") || r.source.Contains("half hc");
+			bool residualF16 = r.source.Contains("float16_t");
+			printf("OK, %u octets (TEXTE SEUL, pas de compilateur %s embarqué ici : `half` present=%s, "
+				   "residu float16_t=%s)\n",
+				   (unsigned)r.source.Size(), tn, hasHalf ? "oui" : "NON", residualF16 ? "OUI(bug)" : "non");
+		}
+	}
+}
+
+static void CheckFp16(NkSLCompiler &c, const char *kernelName, const char *src) {
+	printf("\n[FP16-PACKED] %s\n", kernelName);
+	const NkSLTarget targets2[] = {
+		NkSLTarget::NK_GLSL, NkSLTarget::NK_GLSL_VULKAN, NkSLTarget::NK_SPIRV, NkSLTarget::NK_HLSL_DX11,
+		NkSLTarget::NK_HLSL_DX12, NkSLTarget::NK_MSL, NkSLTarget::NK_MSL_SPIRV_CROSS};
+	for (NkSLTarget t : targets2) {
+		const char *tn = NkSLTargetName(t);
+		printf("  ... %-16s : ", tn);
+		fflush(stdout);
+		NkSLCompileResult r = c.Compile(NkString(src), NkSLStage::NK_COMPUTE, t);
+		const bool realNative = (t == NkSLTarget::NK_GLSL || t == NkSLTarget::NK_GLSL_VULKAN ||
+								 t == NkSLTarget::NK_SPIRV); // packHalf2x16/unpackHalf2x16 EXISTENT vraiment ici
+		if (r.success) {
+			if (t == NkSLTarget::NK_SPIRV)
+				printf("OK, %u mots SPIR-V (VALIDÉ par glslang -> half packing réellement compilable)\n",
+					   (unsigned)(r.bytecode.Size() / 4));
+			else if (realNative)
+				printf("OK, %u octets (builtin natif de CETTE cible -> texte réellement valide)\n",
+					   (unsigned)r.source.Size());
+			else
+				printf("OK (TEXTE SEUL, %u octets) -- ATTENTION : packHalf2x16 n'existe PAS en %s "
+					   "(vrai équivalent : f32tof16/HLSL ou half/MSL) ; ce texte ne compilerait PAS "
+					   "avec un vrai compilateur %s\n",
+					   (unsigned)r.source.Size(), tn, tn);
+		} else {
+			printf("FAIL\n");
+			for (uint32 i = 0; i < r.errors.Size() && i < 3; i++)
+				printf("         ligne %u: %s\n", r.errors[i].line, r.errors[i].message.CStr());
+		}
+	}
+}
+
 static int g_ok = 0, g_fail = 0;
 
 static void Convert(NkSLCompiler &c, const char *shaderName, const char *src, NkSLStage stage, NkSLTarget t,
@@ -170,5 +359,21 @@ int main(int argc, char **argv) {
 	for (NkSLTarget t : targets)
 		Convert(c, "FS(frag)", kFS, NkSLStage::NK_FRAGMENT, t, false);
 	printf("\n=== Résultat : %d OK, %d échec(s) ===\n", g_ok, g_fail);
+
+	printf("\n\n=== FP16 (mixed precision) — stockage PACKED via packHalf2x16/unpackHalf2x16 ===\n");
+	printf("(Chemin STOCKAGE historique (packing manuel 2xf16 par uint, calcul en float après\n");
+	printf(" dépack) — conservé tel quel, non régressé. Depuis le type `half` natif livré plus\n");
+	printf(" bas, il existe désormais AUSSI un chemin CALCUL réel en demi-précision (cf section\n");
+	printf(" FP16 NATIF ci-dessous) ; celui-ci reste utile pour la bande passante mémoire seule.\n");
+	printf(" Packing réellement natif/validé sur GLSL, GLSL-Vulkan, SPIR-V ; texte SEULEMENT --\n");
+	printf(" non compilable tel quel -- sur HLSL-DX11/DX12 et MSL, cf détail ci-dessous.)\n");
+	CheckFp16(c, "fp16_packed_add (C = A+B, storage packé)", kFp16PackedAdd);
+	CheckFp16(c, "fp16_packed_adam (param/grad packés f16, moments F32 maîtres)", kFp16PackedAdam);
+	printf("\n=== FIN FP16 (packé) ===\n");
+
+	printf("\n\n=== FP16 NATIF — type `half` (nouveau, additif) sur les 5 backends ===\n");
+	CheckNativeHalf(c, "half_native_add (C = float(half(A)+half(B)), calcul REEL en half)", kHalfNativeAdd);
+	printf("\n=== FIN FP16 NATIF ===\n");
+
 	return g_fail;
 }

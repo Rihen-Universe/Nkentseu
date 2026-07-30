@@ -7,6 +7,8 @@
 namespace nkentseu {
 	namespace humanoid {
 
+		using namespace nkentseu::math;
+
 		void NkHumanoidBehavior::Init(const NkPersonality &p) noexcept {
 			mPersonality = p;
 			mOutput = NkBehaviorOutput{};
@@ -326,18 +328,18 @@ namespace nkentseu {
 		void NkHumanoidBehavior::FilterByRole() noexcept {
 			const auto &c = mPersonality.constraints;
 
-			for (nk_isize i = (nk_isize)mIntentions.Size() - 1; i >= 0; --i) {
+			for (isize i = (isize)mIntentions.Size() - 1; i >= 0; --i) {
 				auto &intent = mIntentions[i];
 
 				// Rôle ne permet pas les pleurs
 				if (!c.canCry && intent.type == NkIntentType::Cry) {
-					mIntentions.EraseAt((nk_usize)i);
+					mIntentions.RemoveAt((nk_usize)i);
 					continue;
 				}
 
 				// Rôle ne permet pas la panique
 				if (!c.canPanic && intent.type == NkIntentType::ExpressEmotion && intent.data == "panic") {
-					mIntentions.EraseAt((nk_usize)i);
+					mIntentions.RemoveAt((nk_usize)i);
 					continue;
 				}
 
@@ -347,7 +349,7 @@ namespace nkentseu {
 
 				// Supprimer si trop faible après filtrage
 				if (intent.intensity < 0.02f && !intent.isInvoluntary) {
-					mIntentions.EraseAt((nk_usize)i);
+					mIntentions.RemoveAt((nk_usize)i);
 				}
 			}
 		}
@@ -362,9 +364,9 @@ namespace nkentseu {
 			mOutput.avoidEyeContact = false;
 
 			// Trier les intentions par priorité décroissante
-			for (nk_isize i = 1; i < (nk_isize)mIntentions.Size(); ++i) {
+			for (isize i = 1; i < (isize)mIntentions.Size(); ++i) {
 				NkBehaviorIntent key = mIntentions[i];
-				nk_isize j = i - 1;
+				isize j = i - 1;
 				while (j >= 0 && mIntentions[j].priority < key.priority) {
 					mIntentions[j + 1] = mIntentions[j];
 					--j;
@@ -467,14 +469,15 @@ namespace nkentseu {
 		// =====================================================================
 		void NkHumanoidBehavior::RememberEvent(const char *key, nk_float32 valence) noexcept {
 			for (nk_uint32 i = 0; i < mMemoryCount; ++i) {
-				if (NkStrEqual(mMemories[i].key, key)) {
+				if (strcmp(mMemories[i].key, key) == 0) {
 					// Mise à jour par moyenne pondérée
 					mMemories[i].valence = NkLerp(mMemories[i].valence, valence, 0.5f);
 					return;
 				}
 			}
 			if (mMemoryCount < kMaxMemories) {
-				NkStrNCpy(mMemories[mMemoryCount].key, key, 63);
+				strncpy(mMemories[mMemoryCount].key, key, 63);
+				mMemories[mMemoryCount].key[63] = '\0';
 				mMemories[mMemoryCount].valence = NkClamp(valence, -1.f, 1.f);
 				mMemories[mMemoryCount].decay = 0.01f; // lent
 				++mMemoryCount;
@@ -483,7 +486,7 @@ namespace nkentseu {
 
 		nk_float32 NkHumanoidBehavior::RecallEvent(const char *key) const noexcept {
 			for (nk_uint32 i = 0; i < mMemoryCount; ++i)
-				if (NkStrEqual(mMemories[i].key, key))
+				if (strcmp(mMemories[i].key, key) == 0)
 					return mMemories[i].valence;
 			return 0.f;
 		}

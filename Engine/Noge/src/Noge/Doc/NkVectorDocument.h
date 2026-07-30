@@ -25,12 +25,38 @@
 #include "NKMath/NKMath.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
-#include "NkVectorPath.h"
-#include "Nkentseu/Design/NkLayerStack.h"
-#include "Nkentseu/Design/Color/NkColorManager.h"
+// [FIX 2026-07-24] Les 3 includes ci-dessous étaient cassés (chemins jamais
+// résolus par le compilateur -- includedirs Noge.jenga = "src", racine réelle
+// des fichiers = "src/Noge/...") :
+//   - "NkVectorPath.h" (relatif, mais le fichier n'est pas dans Doc/) ->
+//     "Noge/Design/Vector/NkVectorPath.h"
+//   - "Nkentseu/Design/NkLayerStack.h" (préfixe "Nkentseu/" inexistant) ->
+//     "Noge/Design/NkLayerStack.h"
+//   - "Nkentseu/Design/Color/NkColorManager.h" (double erreur : préfixe +
+//     "Design/Color/" alors que le fichier réel est sous "Noge/Color/") ->
+//     "Noge/Color/NkColorManager.h"
+#include "Noge/Design/Vector/NkVectorPath.h"
+#include "Noge/Design/NkLayerStack.h"
+#include "Noge/Color/NkColorManager.h"
+// [FIX 2026-07-24] Include manquant : `undoStack` (membre par valeur plus
+// bas) est de type NkUndoStack, jamais inclus nulle part dans ce fichier ni
+// dans sa chaîne d'includes -> type incomplet à la compilation sans cette
+// ligne.
+#include "Noge/Modeling/NkUndoStack.h"
 
 namespace nkentseu {
-	using namespace math;
+	// [FIX 2026-07-24, résolu 2026-07-25] `using namespace math;` avait été
+	// remplacé par des `using` ciblés car l'ancienne classe dupliquée
+	// `nkentseu::NkColor` (Color/NkColorManager.h) rendait `NkColor` ambigu
+	// avec `nkentseu::math::NkColor` dès qu'un using-directive namespace était
+	// actif (voir historique -- doublon supprimé le 2026-07-25, la classe
+	// couleur du moteur est maintenant uniquement `nkentseu::math::NkColor`/
+	// `NkColorF`). Les `using` ciblés sont conservés par choix de style (évite
+	// la pollution `using namespace`) : NkGuide/NkGrid/NkArtboard::background
+	// qualifient désormais explicitement `math::NkColorF`.
+	using math::NkVec2f;
+	using math::NkMat3f;
+	using math::NkAABB2f;
 
 	// =========================================================================
 	// NkVectorObject — objet vectoriel (chemin, texte, image)
@@ -150,7 +176,11 @@ namespace nkentseu {
 			enum class Orientation : uint8 { Horizontal, Vertical };
 			Orientation orientation = Orientation::Horizontal;
 			float32 position = 0.f; ///< Position en unités document
-			NkColor color = NkColor::FromSRGB(0.3f, 0.6f, 1.f);
+			// [FUSION 2026-07-25] L'ancienne classe dupliquée `nkentseu::NkColor`
+			// (Color/NkColorManager.h) a été supprimée -- plus d'ambiguïté avec
+			// `nkentseu::math::NkColor`. `FromSRGB()` vit maintenant sur
+			// `math::NkColorF` (seule classe couleur flottante du moteur).
+			math::NkColorF color = math::NkColorF::FromSRGB(0.3f, 0.6f, 1.f);
 			bool locked = false;
 			bool visible = true;
 	};
@@ -163,8 +193,9 @@ namespace nkentseu {
 			Type type = Type::Lines;
 			float32 spacing = 10.f; ///< Espacement en unités document
 			uint32 divisions = 4;	///< Subdivisions de la grille principale
-			NkColor color = NkColor::FromSRGB(0.7f, 0.7f, 0.9f, 0.5f);
-			NkColor subColor = NkColor::FromSRGB(0.8f, 0.8f, 0.95f, 0.3f);
+			// [FUSION 2026-07-25] Même raison que NkGuide::color ci-dessus.
+			math::NkColorF color = math::NkColorF::FromSRGB(0.7f, 0.7f, 0.9f, 0.5f);
+			math::NkColorF subColor = math::NkColorF::FromSRGB(0.8f, 0.8f, 0.95f, 0.3f);
 			bool visible = true;
 			bool snapEnabled = true;
 			float32 snapRadius = 8.f; ///< Rayon de snap en pixels écran
@@ -194,7 +225,9 @@ namespace nkentseu {
 			NkString name;
 			float32 width = 1920.f;
 			float32 height = 1080.f;
-			NkColor background = NkColor::White();
+			// [FUSION 2026-07-25] Même raison que NkGuide::color plus haut ;
+			// `White()` (factory Noge) -> `math::NkColor::White` (constante 8-bit) convertie.
+			math::NkColorF background = math::NkColor::White.ToColorF();
 			bool clipContent = true; ///< Écrête le contenu aux bords
 
 			// ── Calques ──────────────────────────────────────────────────────

@@ -1,5 +1,5 @@
 #pragma once
-#include "NkConversationEngine.h"
+#include "PV3DE/AI/Conversation/NkConversationEngine.h"
 
 namespace nkentseu {
 	namespace humanoid {

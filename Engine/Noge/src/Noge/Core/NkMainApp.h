@@ -14,17 +14,19 @@
 //       return new MyApp(cfg);
 //  }
 // =========================================================================
-NkApplication *NkMainApplication(const NkApplicationConfig &config);
 
 namespace nkentseu {
+	// Fonction fournie par l'utilisateur (voir exemple ci-dessus).
+	NkApplication *NkMainApplication(const NkApplicationConfig &config);
+
 	// =============================================================================
 	// nkmain — point d'entrée cross-platform
 	// Le framework appelle nkmain() depuis NkMain.h / NkEntry.h
 	// =============================================================================
 	int nkmain(const nkentseu::NkEntryState &state) {
-		// Construction de la config de base
-		nkentseu::NkApplicationConfig config;
-		config.entryState = state;
+		// Construction de la config de base (NkEntryState n'a pas de ctor par
+		// défaut sur toutes les plateformes → passage par le constructeur)
+		nkentseu::NkApplicationConfig config(state);
 
 		// L'utilisateur remplit le reste via CreateApplication
 		nkentseu::NkApplication *app = nkentseu::NkMainApplication(config);

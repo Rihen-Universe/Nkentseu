@@ -6,10 +6,15 @@
 #include "NKECS/NkECSDefines.h"
 #include "NKMath/NKMath.h"
 #include "NKContainers/Sequential/NkVector.h"
-#include "Nkentseu/Modeling/NkEditableMesh.h"
-#include "Nkentseu/Modeling/NkUndoStack.h"
+#include "Noge/Design/NkDesignGeomTypes.h" // NkAABB2f
+#include "Noge/Modeling/NkEditableMesh.h"
+#include "Noge/Modeling/NkUndoStack.h"
 
 namespace nkentseu {
+	namespace renderer {
+		class NkRender2D; // déclaration anticipée (utilisé par référence)
+	}
+
 	using namespace math;
 
 	struct NkUVIsland {

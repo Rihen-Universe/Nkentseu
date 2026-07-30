@@ -1,12 +1,11 @@
 #include "ViewportLayer.h"
 #include "NKLogger/NkLog.h"
-#include "NKRenderer/src/NKRenderer/Scene/NkRenderSystem.h"
 
 namespace nkentseu {
 	namespace noge {
 
 		ViewportLayer::ViewportLayer(const NkString &name, NkIDevice *device, NkICommandBuffer *cmd) noexcept
-			: Layer(name), mDevice(device), mCmd(cmd) {
+			: NkLayer(name), mDevice(device), mCmd(cmd) {
 		}
 
 		ViewportLayer::~ViewportLayer() {
@@ -70,8 +69,11 @@ namespace nkentseu {
 			mCmd->Reset();
 			mCmd->Begin();
 
+			mCmd->SetClearColor(0.13f, 0.13f, 0.13f, 1.f);
+			mCmd->SetClearDepth(1.f);
+
 			if (mCmd->BeginRenderPass(mRenderPass, mFramebuffer, area)) {
-				NkViewport vp{0.f, 0.f, (nk_float32)mVpWidth, (nk_float32)mVpHeight, 0.f, 1.f};
+				NkViewport vp{0.f, 0.f, (float32)mVpWidth, (float32)mVpHeight, 0.f, 1.f};
 				mCmd->SetViewport(vp);
 				mCmd->SetScissor(area);
 
@@ -92,27 +94,17 @@ namespace nkentseu {
 			if (!mWorld || !mCamera)
 				return;
 
-			// Injecter les matrices caméra dans NkRenderScene
-			mRenderScene.Clear();
-			mRenderScene.viewMatrix = mCamera->viewMatrix;
-			mRenderScene.projMatrix = mCamera->projMatrix;
-			mRenderScene.viewProjMatrix = mCamera->viewProjMatrix;
-			mRenderScene.cameraPosition = mCamera->position;
-
-			// NkRenderSystem peuple mRenderScene depuis le monde ECS
-			// (en production, NkRenderSystem tourne dans le NkScheduler)
-			// Ici on l'invoque directement pour la Phase 3
-			renderer::NkRenderSystem renderSys(&mRenderScene);
-			// renderSys.Execute(*mWorld, 0.f); // TODO : quand NkScheduler est connecté
-
-			// TODO Phase 3+ : NkRender3D::BeginScene(mRenderScene)
-			//                  NkRender3D::Flush(mCmd)
+			// TODO [reprise Nogee] : brancher le rendu de scène réel via
+			// NkApplication::GetRenderer() (renderer::NkRenderer — Render3D)
+			// alimenté par NkRenderSystem (Noge/ECS/Systems/NkRenderSystem.h).
+			// À cette étape (réhabilitation compilation), le FBO est simplement
+			// nettoyé à la couleur de fond de l'éditeur.
 		}
 
 		void ViewportLayer::RenderGizmos() noexcept {
 			if (!mGizmos)
 				return;
-			// TODO Phase 3+ : NkDebugRenderer::Submit(mGizmos->drawLines, mCmd)
+			// TODO [reprise Nogee] : NkDebugRenderer::Submit(mGizmos->drawLines, mCmd)
 			// Pour l'instant les lignes sont disponibles dans mGizmos->drawLines
 		}
 
@@ -156,10 +148,9 @@ namespace nkentseu {
 			// RenderPass
 			{
 				NkRenderPassDesc rpd;
-				rpd.colorAttachments.PushBack({NkGPUFormat::NK_RGBA8_UNORM, NkLoadOp::NK_CLEAR, NkStoreOp::NK_STORE});
-				rpd.depthAttachment = {NkGPUFormat::NK_D24_UNORM_S8_UINT, NkLoadOp::NK_CLEAR, NkStoreOp::NK_DONT_CARE};
-				rpd.clearColor = {0.13f, 0.13f, 0.13f, 1.f};
-				rpd.clearDepth = 1.f;
+				rpd.AddColor(NkAttachmentDesc::Color(NkGPUFormat::NK_RGBA8_UNORM));
+				rpd.SetDepth(NkAttachmentDesc::Depth(NkGPUFormat::NK_D24_UNORM_S8_UINT));
+				rpd.debugName = "ViewportPass";
 				mRenderPass = mDevice->CreateRenderPass(rpd);
 				if (!mRenderPass.IsValid())
 					return false;
@@ -170,8 +161,9 @@ namespace nkentseu {
 				fbd.renderPass = mRenderPass;
 				fbd.width = w;
 				fbd.height = h;
-				fbd.colorTargets.PushBack(mColorTarget);
-				fbd.depthTarget = mDepthTarget;
+				fbd.colorAttachments.PushBack(mColorTarget);
+				fbd.depthAttachment = mDepthTarget;
+				fbd.debugName = "ViewportFBO";
 				mFramebuffer = mDevice->CreateFramebuffer(fbd);
 				if (!mFramebuffer.IsValid())
 					return false;

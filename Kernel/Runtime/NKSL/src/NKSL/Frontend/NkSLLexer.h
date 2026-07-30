@@ -28,6 +28,7 @@ namespace nkentseu {
 		NK_KW_UINT,
 		NK_KW_FLOAT,
 		NK_KW_DOUBLE,
+		NK_KW_HALF, // FP16 natif (additif) — float16_t (GLSL/VK) / half (HLSL/MSL)
 		NK_KW_BVEC2,
 		NK_KW_BVEC3,
 		NK_KW_BVEC4,

@@ -1,6 +1,6 @@
 #pragma once
 // =============================================================================
-// Noge/Layers/UILayer.h  —  v2
+// Nogee/Layers/UILayer.h  —  v2
 // =============================================================================
 // Overlay NKUI de l'éditeur. Intègre :
 //   - MenuBar fonctionnel (Fichier, Édition, Affichage, Aide)
@@ -23,24 +23,24 @@
 //   └─────────────────────────────────────────────┘
 // =============================================================================
 
-#include "Noge/Core/Layer.h"
+#include "Noge/Core/NkLayer.h"
 #include "NKRHI/Core/NkIDevice.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"
 #include "NKRHI/Core/NkGraphicsApi.h"
 #include "NKUI/NKUI.h"
-#include "NKUI/NkUILayout2.h"
 #include "NKUI/NkUIMenu.h"
-#include "Noge/Panels/SceneTreePanel.h"
-#include "Noge/Panels/InspectorPanel.h"
-#include "Noge/Panels/AssetBrowser.h"
-#include "Noge/Panels/ConsolePanel.h"
-#include "Noge/Layers/EditorLayer.h"
-#include "Noge/Layers/ViewportLayer.h"
+#include "NKUI/NkUIRHIBackend.h" // Integrations/NKUI — rendu des draw lists via NKRHI
+#include "Nogee/Panels/SceneTreePanel.h"
+#include "Nogee/Panels/InspectorPanel.h"
+#include "Nogee/Panels/AssetBrowser.h"
+#include "Nogee/Panels/ConsolePanel.h"
+#include "EditorLayer.h"
+#include "ViewportLayer.h"
 
 namespace nkentseu {
 	namespace noge {
 
-		class UILayer : public Overlay {
+		class UILayer : public NkOverlay {
 			public:
 				UILayer(const NkString &name, NkIDevice *device, NkICommandBuffer *cmd, NkGraphicsApi api) noexcept;
 				~UILayer() override;
@@ -80,7 +80,6 @@ namespace nkentseu {
 
 				// ── Input bridge ──────────────────────────────────────────────────
 				void UpdateInputState(const NkEvent *event) noexcept;
-				nkui::NkUIInputState BuildInputState() const noexcept;
 
 				// ── Layout helpers ────────────────────────────────────────────────
 				void ComputeLayout() noexcept;
@@ -94,7 +93,21 @@ namespace nkentseu {
 				nkui::NkUIWindowManager mWM;
 				nkui::NkUIDockManager mDock;
 				nkui::NkUILayoutStack mLS;
-				nkui::NkUIDrawList mDL;
+
+				// [FIX 2026-07-25] Liste de dessin COURANTE du contexte
+				// (mCtx.layers[LAYER_WINDOWS], pointée par mCtx.dl après
+				// BeginFrame). L'ancienne NkUIDrawList membre était une liste
+				// ORPHELINE : NkUIRHIBackend::Submit ne rend QUE ctx.layers[]
+				// → l'UI était construite mais jamais dessinée (écran gris).
+				nkui::NkUIDrawList *mDL = nullptr;
+
+				// [FIX 2026-07-25] Backend NKUI→NKRHI (Integrations/NKUI) :
+				// soumet ctx.layers[] au device dans la passe Overlay2D du
+				// render graph, via renderer->SetUIOverlayCallback.
+				nkui::NkUIRHIBackend mBackend;
+				bool mBackendReady = false;
+				// Texture FBO viewport enregistrée auprès du backend (id RHI)
+				nk_uint64 mRegisteredViewportTex = 0;
 
 				// Panels
 				SceneTreePanel mSceneTree;
@@ -110,17 +123,23 @@ namespace nkentseu {
 
 				// Rects calculés chaque frame
 				struct Layout {
-						nkui::NkUIRect menuBar;
-						nkui::NkUIRect viewport;
-						nkui::NkUIRect sceneTree;
-						nkui::NkUIRect inspector;
-						nkui::NkUIRect assetBrowser;
-						nkui::NkUIRect console;
+						nkui::NkRect menuBar;
+						nkui::NkRect viewport;
+						nkui::NkRect sceneTree;
+						nkui::NkRect inspector;
+						nkui::NkRect assetBrowser;
+						nkui::NkRect console;
 				} mLayout;
 
 				// Input state accumulé
 				nkui::NkUIInputState mInput;
 				float32 mPrevMouseX = 0.f, mPrevMouseY = 0.f;
+
+				// Garde : NKUI initialisé avec succès (contexte + police par
+				// défaut garantie par NkUIFontManager::Init/AddBuiltin). Si
+				// l'init échoue, OnUIRender ne doit RIEN dessiner — sinon
+				// *fontManager.Default() serait un déréférencement de nullptr.
+				bool mUIReady = false;
 
 				// Visibilité des panels
 				bool mShowSceneTree = true;

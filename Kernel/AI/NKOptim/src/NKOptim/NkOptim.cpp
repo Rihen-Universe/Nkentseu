@@ -12,6 +12,70 @@ namespace nkentseu {
 	namespace ai {
 		namespace optim {
 
+			// --- Helpers résidence GPU (miroir de NkVar.cpp ToCpuT/ToDevOf) : le
+			// clipping élément-par-élément (NK_CLIP_BY_VALUE) n'a pas de noyau GPU dédié,
+			// il fait donc un aller-retour CPU pour les paramètres résidents GPU. La norme
+			// globale (NK_CLIP_BY_GLOBAL_NORM) passe par ops:: (déjà GPU-conscient).
+			static NkTensor ClipToCpu(const NkTensor &t) {
+				return (t.IsValid() && t.Device() == NkDevice::NK_GPU) ? t.ToCPU() : t;
+			}
+
+			static NkTensor ClipToDevOf(const NkTensor &r, const NkTensor &ref) {
+				return (ref.Device() == NkDevice::NK_GPU && r.IsValid() && r.Device() != NkDevice::NK_GPU)
+						   ? r.ToGPU()
+						   : r;
+			}
+
+			double ClipGradients(NkVector<NkVar> &params, float clipValue, NkGradClipMode mode) {
+				if (mode == NkGradClipMode::NK_CLIP_NONE || clipValue <= 0.0f)
+					return 0.0;
+
+				if (mode == NkGradClipMode::NK_CLIP_BY_VALUE) {
+					for (uint32 i = 0; i < params.Size(); ++i) {
+						NkVar &p = params[i];
+						const NkTensor &g = p.Grad();
+						if (!g.IsValid())
+							continue;
+						NkTensor gc = ClipToCpu(g).Contiguous().Clone();
+						float *gp = gc.DataAs<float>();
+						const int64 n = NkShapeNumel(gc.Shape());
+						for (int64 j = 0; j < n; ++j) {
+							if (gp[j] > clipValue)
+								gp[j] = clipValue;
+							else if (gp[j] < -clipValue)
+								gp[j] = -clipValue;
+						}
+						p.SetGrad(ClipToDevOf(gc, g));
+					}
+					return 0.0;
+				}
+
+				// NK_CLIP_BY_GLOBAL_NORM : norme L2 sur TOUS les paramètres concaténés.
+				double sumSq = 0.0;
+				for (uint32 i = 0; i < params.Size(); ++i) {
+					const NkTensor &g = params[i].Grad();
+					if (!g.IsValid())
+						continue;
+					NkTensor s = ops::Sum(ops::Mul(g, g)); // scalaire {1}, GPU-conscient
+					NkTensor sc = ClipToCpu(s);
+					sumSq += sc.IsValid() ? sc.GetItem(NkShape{(int64)0}) : 0.0;
+				}
+				const double norm = std::sqrt(sumSq);
+				if (norm <= (double)clipValue)
+					return norm; // déjà sous le seuil -> rien à faire (identique à un no-op)
+
+				const double eps = 1e-6;
+				const double scale = (double)clipValue / (norm + eps);
+				for (uint32 i = 0; i < params.Size(); ++i) {
+					NkVar &p = params[i];
+					const NkTensor &g = p.Grad();
+					if (!g.IsValid())
+						continue;
+					p.SetGrad(ops::MulScalar(g, scale));
+				}
+				return norm;
+			}
+
 			NkSGD::NkSGD(const NkVector<NkVar> &params, float lr, float momentum)
 				: mParams(params), mLr(lr), mMomentum(momentum) {
 				if (mMomentum != 0.0f) {
@@ -22,6 +86,8 @@ namespace nkentseu {
 			}
 
 			void NkSGD::Step() {
+				if (mClipMode != NkGradClipMode::NK_CLIP_NONE)
+					ClipGradients(mParams, mClipValue, mClipMode);
 				for (uint32 i = 0; i < mParams.Size(); ++i) {
 					NkVar &p = mParams[i];
 					const NkTensor &g = p.Grad();
@@ -62,6 +128,8 @@ namespace nkentseu {
 			}
 
 			void NkAdam::Step() {
+				if (mClipMode != NkGradClipMode::NK_CLIP_NONE)
+					ClipGradients(mParams, mClipValue, mClipMode);
 				++mT;
 				const double b1t = 1.0 - std::pow((double)mB1, (double)mT);
 				const double b2t = 1.0 - std::pow((double)mB2, (double)mT);

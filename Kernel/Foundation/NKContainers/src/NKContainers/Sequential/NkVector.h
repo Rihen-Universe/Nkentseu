@@ -558,8 +558,20 @@ namespace nkentseu {
 			 */
 			NkVector(const NkVector &other) : mData(nullptr), mSize(0), mCapacity(0), mAllocator(other.mAllocator) {
 				Reserve(other.mSize);
-				for (SizeType i = 0; i < other.mSize; ++i) {
-					PushBack(other.mData[i]);
+				// Chemin rapide pour les types trivialement copiables (plans de
+				// pixels POD, MV, indices…) : copie bloc memcpy (AVX2) au lieu de
+				// PushBack élément-par-élément (valait ~35% du décodage HEVC).
+				// memcpy ne mute PAS la source (contrairement à MoveOrCopyRange, qui
+				// déplace) → sûr en copie. Types non triviaux : copie par élément.
+				if (traits::NkIsTriviallyCopyable_v<T>) {
+					if (other.mSize > 0) {
+						memory::NkCopy(mData, other.mData, other.mSize * sizeof(T));
+					}
+					mSize = other.mSize;
+				} else {
+					for (SizeType i = 0; i < other.mSize; ++i) {
+						PushBack(other.mData[i]);
+					}
 				}
 			}
 
@@ -774,8 +786,16 @@ namespace nkentseu {
 				if (this != &other) {
 					Clear();
 					Reserve(other.mSize);
-					for (SizeType i = 0; i < other.mSize; ++i) {
-						PushBack(other.mData[i]);
+					// Chemin rapide POD (memcpy AVX2) — cf. constructeur de copie.
+					if (traits::NkIsTriviallyCopyable_v<T>) {
+						if (other.mSize > 0) {
+							memory::NkCopy(mData, other.mData, other.mSize * sizeof(T));
+						}
+						mSize = other.mSize;
+					} else {
+						for (SizeType i = 0; i < other.mSize; ++i) {
+							PushBack(other.mData[i]);
+						}
 					}
 				}
 				return *this;

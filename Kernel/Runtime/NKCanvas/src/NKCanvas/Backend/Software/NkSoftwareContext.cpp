@@ -272,8 +272,10 @@ namespace nkentseu {
 		mData.shmInfo = nullptr;
 
 		// Essayer XShm (shared memory â€” plus rapide)
+		// NB: int explicite (PAS `Bool`) â€” ici `Bool` se rÃ©sout en nkentseu::Bool
+		// (alias bool) qui masque le Bool X11 (= int) attendu par XShmQueryVersion.
 		int shmMajor, shmMinor;
-		Bool pixmaps;
+		int pixmaps = 0;
 		mData.useSHM = (XShmQueryVersion(display, &shmMajor, &shmMinor, &pixmaps) == True);
 		if (mData.useSHM) {
 			const char *wslInterop = std::getenv("WSL_INTEROP");
@@ -595,7 +597,7 @@ namespace nkentseu {
 				var id = UTF8ToString($0);
 				var canvas = null;
 				if (id && id.length > 0) {
-					canvas = document.getElementById(id.charAt(0) == = '#' ? id.substring(1) : id);
+					canvas = document.getElementById(id.charAt(0) === '#' ? id.substring(1) : id);
 				}
 				if (!canvas && Module['canvas']) {
 					canvas = Module['canvas'];

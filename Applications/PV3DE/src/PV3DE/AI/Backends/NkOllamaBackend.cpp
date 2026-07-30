@@ -1,5 +1,6 @@
 #include "NkOllamaBackend.h"
 #include "NKLogger/NkLog.h"
+#include "NKMath/NKMath.h"
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
@@ -20,6 +21,8 @@
 
 namespace nkentseu {
 	namespace humanoid {
+
+		using namespace nkentseu::math;
 
 		bool NkOllamaBackend::Init(const char *endpoint, const char *modelName, const char * /*apiKey*/) noexcept {
 			mEndpoint = endpoint ? NkString(endpoint) : "http://localhost:11434";
@@ -138,7 +141,7 @@ namespace nkentseu {
 			}
 
 			out.text = content;
-			out.success = !content.IsEmpty();
+			out.success = !content.Empty();
 			return out.success;
 		}
 

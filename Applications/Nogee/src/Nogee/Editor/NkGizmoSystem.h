@@ -11,17 +11,18 @@
 // =============================================================================
 
 #include "NKMath/NKMath.h"
+#include "NKContainers/Sequential/NkVector.h"
 #include "NKCore/NkTypes.h"
 #include "NKECS/NkECSDefines.h"
 #include "NKECS/World/NkWorld.h"
 #include "NkEditorCamera.h"
 #include "NkSelectionManager.h"
-#include "Editor/CommandHistory.h"
+#include "CommandHistory.h"
 
 using namespace nkentseu::math;
 
 namespace nkentseu {
-	namespace Noge {
+	namespace noge {
 
 		enum class NkGizmoMode : nk_uint8 { Translate = 0, Rotate, Scale, None };
 		enum class NkGizmoSpace : nk_uint8 { World = 0, Local };
@@ -80,5 +81,5 @@ namespace nkentseu {
 				NkVec4f AxisColor(NkGizmoAxis axis, bool hovered) const noexcept;
 		};
 
-	} // namespace Noge
+	} // namespace noge
 } // namespace nkentseu

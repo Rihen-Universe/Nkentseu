@@ -7,8 +7,13 @@
 #include "NKMath/NKMath.h"
 #include "NKContainers/String/NkString.h"
 #include "NKContainers/Sequential/NkVector.h"
-#include "Nkentseu/Design/Vector/NkVectorPath.h"
-#include "Nkentseu/Design/Color/NkColorManager.h"
+// [FIX 2026-07-25] Includes cassés : préfixe "Nkentseu/" inexistant
+// (includedirs Noge.jenga = "src", fichiers réels sous "src/Noge/...") --
+// même bug que documenté dans NkVectorDocument.h/NkLayerStack.h/
+// NkRasterCanvas.h (jamais détecté ici car ce header n'est inclus par aucun
+// .cpp du dépôt -- code mort non compilé jusqu'ici).
+#include "Noge/Design/Vector/NkVectorPath.h"
+#include "Noge/Color/NkColorManager.h"
 
 namespace nkentseu {
 	using namespace math;
@@ -25,7 +30,10 @@ namespace nkentseu {
 			NkTextDecoration decoration = NkTextDecoration::None;
 			float32 letterSpacing = 0.f; // em
 			float32 lineHeight = 1.2f;	 // em
-			NkColor color = NkColor::Black();
+			// [FUSION 2026-07-25] `NkColor::Black()` (ancienne classe dupliquée Noge,
+			// factory method) -> `NkColor::Black` (math::NkColor, constante 8-bit statique,
+			// visible ici via `using namespace math;` -- plus d'ambiguïté possible).
+			NkColor color = NkColor::Black;
 	};
 
 	struct NkTextRun {

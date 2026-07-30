@@ -135,7 +135,7 @@ namespace nkentseu {
 			{
 				var sel = UTF8ToString($0);
 				var target = document.querySelector(sel);
-				if (!target &&typeof Module != = 'undefined' && Module['canvas']) {
+				if (!target &&typeof Module !== 'undefined' && Module['canvas']) {
 					target = Module['canvas'];
 				}
 				if (!target) {
@@ -152,7 +152,7 @@ namespace nkentseu {
 			{
 				var sel = UTF8ToString($0);
 				var target = document.querySelector(sel);
-				if (!target &&typeof Module != = 'undefined' && Module['canvas']) {
+				if (!target &&typeof Module !== 'undefined' && Module['canvas']) {
 					target = Module['canvas'];
 				}
 				if (!target) {
@@ -179,7 +179,7 @@ namespace nkentseu {
 			{
 				var sel = UTF8ToString($0);
 				var target = document.querySelector(sel);
-				if (!target &&typeof Module != = 'undefined' && Module['canvas']) {
+				if (!target &&typeof Module !== 'undefined' && Module['canvas']) {
 					target = Module['canvas'];
 				}
 				if (!target) {
@@ -222,7 +222,7 @@ namespace nkentseu {
 			{
 				var sel = UTF8ToString($0);
 				var target = document.querySelector(sel);
-				if (!target &&typeof Module != = 'undefined' && Module['canvas']) {
+				if (!target &&typeof Module !== 'undefined' && Module['canvas']) {
 					target = Module['canvas'];
 				}
 				if (!target || !target.__nkFocusHandler) {
@@ -240,19 +240,19 @@ namespace nkentseu {
 		EM_ASM(
 			{
 				var o = $0;
-				var orientationApi = (typeof screen != = 'undefined') ? screen.orientation : null;
+				var orientationApi = (typeof screen !== 'undefined') ? screen.orientation : null;
 				if (!orientationApi) {
 					return;
 				}
 
-				if (o == = 0) {
+				if (o === 0) {
 					if (orientationApi.unlock) {
 						orientationApi.unlock();
 					}
 					return;
 				}
 
-				var mode = (o == = 1) ? 'portrait' : 'landscape';
+				var mode = (o === 1) ? 'portrait' : 'landscape';
 				if (orientationApi.lock) {
 					orientationApi.lock(mode).catch(function(){});
 				}
@@ -284,7 +284,7 @@ namespace nkentseu {
 			{
 				var sel = UTF8ToString($0);
 				var target = document.querySelector(sel);
-				if (!target &&typeof Module != = 'undefined' && Module['canvas']) {
+				if (!target &&typeof Module !== 'undefined' && Module['canvas']) {
 					target = Module['canvas'];
 				}
 				if (!target)
@@ -689,7 +689,7 @@ namespace nkentseu {
 			{
 				var sel = UTF8ToString($0);
 				var target = document.querySelector(sel);
-				if (!target &&typeof Module != = 'undefined' && Module['canvas']) {
+				if (!target &&typeof Module !== 'undefined' && Module['canvas']) {
 					target = Module['canvas'];
 				}
 				if (!target) {
@@ -796,7 +796,7 @@ namespace nkentseu {
 			{
 				var sel = UTF8ToString($0);
 				var target = document.querySelector(sel);
-				if (!target &&typeof Module != = 'undefined' && Module['canvas']) {
+				if (!target &&typeof Module !== 'undefined' && Module['canvas']) {
 					target = Module['canvas'];
 				}
 				if (!target) {

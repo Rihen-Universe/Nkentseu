@@ -567,7 +567,19 @@ namespace nkentseu {
 		VkPhysicalDeviceVulkan12Features feats12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
 		VkPhysicalDeviceFeatures2 feats2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
 		feats2.pNext = &feats12;
-		vkGetPhysicalDeviceFeatures2(mPhysicalDevice, &feats2);
+		// Résolution DYNAMIQUE : vkGetPhysicalDeviceFeatures2 (core 1.1) n'est pas
+		// exporté par le loader Android avant l'API 26 -> un appel direct casse le
+		// LINK des .so minSdk 24. On passe par vkGetInstanceProcAddr (core + suffixe
+		// KHR de l'extension VK_KHR_get_physical_device_properties2 en repli).
+		auto pGetFeatures2 =
+			(PFN_vkGetPhysicalDeviceFeatures2)vkGetInstanceProcAddr(mInstance, "vkGetPhysicalDeviceFeatures2");
+		if (!pGetFeatures2)
+			pGetFeatures2 =
+				(PFN_vkGetPhysicalDeviceFeatures2)vkGetInstanceProcAddr(mInstance, "vkGetPhysicalDeviceFeatures2KHR");
+		if (pGetFeatures2)
+			pGetFeatures2(mPhysicalDevice, &feats2);
+		// Sans features2 (loader trop vieux) : feats12 reste à zéro -> aucune feature
+		// 1.2 activée, chemin identique à un GPU qui ne les supporte pas.
 
 		VkPhysicalDeviceVulkan12Features enabled12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
 		// descriptorIndexing parent flag : requis par VUID-VkDeviceCreateInfo-ppEnabledExtensionNames-02833
@@ -661,6 +673,23 @@ namespace nkentseu {
 		if (mDebugMessenger != VK_NULL_HANDLE) {
 			DestroyVkDebugMessenger(mInstance, mDebugMessenger);
 			mDebugMessenger = VK_NULL_HANDLE;
+		}
+		// mSurface n'était JAMAIS détruit ici : sur Android, la connexion du
+		// producer natif (native_window_api_connect, API_EGL — le WSI Vulkan
+		// Android réutilise cet identifiant pour compat historique) restait
+		// active à vie sur l'ANativeWindow. Résultat : si l'auto-détection
+		// (Vulkan → OpenGL → Software) essayait Vulkan EN PREMIER et qu'il
+		// échouait plus loin (device logique, extensions...), la fenêtre native
+		// restait "already connected" -> eglCreateWindowSurface du backend
+		// OpenGL suivant échouait indéfiniment (EGL_BAD_ALLOC), même en
+		// réessayant : écran noir permanent, pas seulement un crash.
+		if (mSurface != VK_NULL_HANDLE) {
+			vkDestroySurfaceKHR(mInstance, mSurface, nullptr);
+			mSurface = VK_NULL_HANDLE;
+		}
+		if (mInstance != VK_NULL_HANDLE) {
+			vkDestroyInstance(mInstance, nullptr);
+			mInstance = VK_NULL_HANDLE;
 		}
 		mDevice = VK_NULL_HANDLE;
 		mGraphicsQueue = VK_NULL_HANDLE;
@@ -1653,7 +1682,29 @@ namespace nkentseu {
 		VkPipelineRasterizationStateCreateInfo rsci{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
 		rsci.polygonMode = ToVkPolygonMode(d.rasterizer.fillMode);
 		rsci.cullMode = ToVkCullMode(d.rasterizer.cullMode);
-		rsci.frontFace = ToVkFrontFace(d.rasterizer.frontFace);
+		// COMPENSATION Y VULKAN — coherence viewport / winding.
+		// Le moteur inverse Y sur Vulkan via un viewport a HAUTEUR NEGATIVE
+		// (NkViewport::flipY, cf. NkVulkanCommandBuffer::SetViewport). Vulkan
+		// determine le sens d'enroulement (winding) en coordonnees de FRAMEBUFFER,
+		// APRES la transformation viewport : une hauteur negative inverse le signe
+		// de l'aire signee, donc un triangle CCW en NDC devient CW a l'ecran.
+		// Sans compensation, `frontFace` transmis tel quel fait culler les faces
+		// AVANT au lieu des faces ARRIERE : on voit l'interieur des objets, donc
+		// des normales opposees -> le dessus du sol s'eclaire comme son dessous
+		// (bug d'eclairage Vulkan). GL/DX11/DX12 n'ont pas ce viewport inverse.
+		// On inverse donc frontFace ICI, dans l'etat de RASTERISATION uniquement :
+		// ni la projection, ni la vue, ni les normales ne sont touchees.
+		// NK_VK_NOFACEFIX=1 retablit l'ancien comportement (A/B sans recompiler).
+		static int32 sNoFaceFix = -1;
+		if (sNoFaceFix == -1) {
+			const char *vff = getenv("NK_VK_NOFACEFIX");
+			sNoFaceFix = (vff && vff[0] && vff[0] != '0') ? 1 : 0;
+		}
+		const NkFrontFace wantedFace = d.rasterizer.frontFace;
+		const NkFrontFace effectiveFace =
+			sNoFaceFix ? wantedFace
+					   : (wantedFace == NkFrontFace::NK_CCW ? NkFrontFace::NK_CW : NkFrontFace::NK_CCW);
+		rsci.frontFace = ToVkFrontFace(effectiveFace);
 		rsci.depthClampEnable = d.rasterizer.depthClip ? VK_FALSE : VK_TRUE;
 		rsci.depthBiasEnable = d.rasterizer.depthBiasConst != 0.f || d.rasterizer.depthBiasSlope != 0.f;
 		rsci.depthBiasConstantFactor = d.rasterizer.depthBiasConst;

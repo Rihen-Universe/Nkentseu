@@ -53,6 +53,11 @@ namespace nkentseu {
 				return false;
 			mCfg = cfg;
 
+			const bool wantAudio = (cfg.audioSampleRate > 0 && cfg.audioChannels > 0);
+			// L'audio n'a de sens que muxé dans un conteneur (AVI/MOV) — pas en flux élémentaire.
+			if (wantAudio && (cfg.codec == NkVideoCodec::MPEG1 || cfg.container == NkVideoContainer::ELEMENTARY))
+				return false;
+
 			if (cfg.codec == NkVideoCodec::MPEG1) {
 				// MPEG-1 : flux élémentaire (.m1v). `quality` 1..100 → qscale 1..31 (inversé).
 				int32 qscale = 32 - (cfg.quality * 31) / 100;
@@ -72,6 +77,8 @@ namespace nkentseu {
 					return false;
 				if (!mMov.Open(path, cfg.width, cfg.height, cfg.fpsNum, cfg.fpsDen))
 					return false;
+				if (wantAudio)
+					mMov.SetAudio(cfg.audioSampleRate, cfg.audioChannels);
 				mOpen = true;
 				return true;
 			}
@@ -86,10 +93,34 @@ namespace nkentseu {
 				fourcc = 0;
 				compression = kAviCompressionRGB;
 			}
+			if (wantAudio)
+				mAvi.SetAudio(cfg.audioSampleRate, cfg.audioChannels); // AVANT Open (en-tête 2 flux)
+			else
+				mAvi.SetAudio(0, 0);
 			if (!mAvi.Open(path, cfg.width, cfg.height, cfg.fpsNum, cfg.fpsDen, fourcc, compression, bitCount))
 				return false;
 			mOpen = true;
 			return true;
+		}
+
+		bool NkVideoWriter::AddAudioSamples(const int16 *interleaved, usize frameCount) {
+			if (!mOpen || interleaved == nullptr || frameCount == 0)
+				return false;
+			if (mCfg.audioSampleRate <= 0 || mCfg.audioChannels <= 0)
+				return false; // pas d'audio configuré à Open
+			if (mCfg.container == NkVideoContainer::MOV)
+				return mMov.WriteAudio(interleaved, (uint32)frameCount);
+
+			// AVI : sérialise en PCM s16 little-endian dans le scratch (indépendant de l'hôte).
+			const usize n = frameCount * (usize)mCfg.audioChannels;
+			if (!EnsureScratch(n * 2))
+				return false;
+			for (usize i = 0; i < n; ++i) {
+				const uint16 v = (uint16)interleaved[i];
+				mScratch[i * 2 + 0] = (uint8)(v & 0xFF);
+				mScratch[i * 2 + 1] = (uint8)((v >> 8) & 0xFF);
+			}
+			return mAvi.WriteAudio(mScratch, (uint32)(n * 2));
 		}
 
 		bool NkVideoWriter::WriteEncoded(const uint8 *data, uint32 size, uint32 /*chunkKind*/) {

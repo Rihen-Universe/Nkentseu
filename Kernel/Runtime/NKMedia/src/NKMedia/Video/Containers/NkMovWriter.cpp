@@ -64,6 +64,9 @@ namespace nkentseu {
 			mFpsDen = fpsDen;
 			mSizes.Clear();
 			mOffsets.Clear();
+			mAudioChunkOff.Clear();
+			mAudioChunkFrames.Clear();
+			mAudioFrames = 0;
 
 			// ---- ftyp ----
 			ByteBuf ftyp;
@@ -89,6 +92,39 @@ namespace nkentseu {
 			mFile.Write(data, size);
 			mOffsets.PushBack((uint32)off);
 			mSizes.PushBack(size);
+			return true;
+		}
+
+		void NkMovWriter::SetAudio(int32 sampleRate, int32 channels) {
+			if (sampleRate > 0 && channels > 0) {
+				mAudioRate = sampleRate;
+				mAudioChannels = channels;
+			} else {
+				mAudioRate = 0;
+				mAudioChannels = 0;
+			}
+		}
+
+		bool NkMovWriter::WriteAudio(const int16 *interleaved, uint32 frames) {
+			if (!mFile.IsOpen() || interleaved == nullptr || frames == 0)
+				return false;
+			if (mAudioRate <= 0 || mAudioChannels <= 0)
+				return false; // SetAudio non appelé
+
+			const nk_int64 off = mFile.Tell();
+			// PCM s16 little-endian ('sowt') — sérialisation explicite, indépendante de l'hôte.
+			const uint32 n = frames * (uint32)mAudioChannels;
+			NkVector<uint8> bytes;
+			bytes.Reserve((uint64)n * 2);
+			for (uint32 i = 0; i < n; ++i) {
+				const uint16 v = (uint16)interleaved[i];
+				bytes.PushBack((uint8)(v & 0xFF));
+				bytes.PushBack((uint8)((v >> 8) & 0xFF));
+			}
+			mFile.Write(bytes.Data(), (usize)bytes.Size());
+			mAudioChunkOff.PushBack((uint32)off);
+			mAudioChunkFrames.PushBack(frames);
+			mAudioFrames += frames;
 			return true;
 		}
 
@@ -253,13 +289,148 @@ namespace nkentseu {
 			Box(trak, 't', 'k', 'h', 'd', tkhd);
 			Box(trak, 'm', 'd', 'i', 'a', mdia);
 
+			// ---- trak audio PCM 'sowt' (optionnel) ----
+			const bool hasAudio = (mAudioRate > 0 && mAudioChannels > 0 && mAudioChunkOff.Size() > 0);
+			// Durée audio dans l'échelle du FILM (timescale vidéo).
+			const uint32 aDurMovie =
+				hasAudio ? (uint32)(mAudioFrames * (uint64)timescale / (uint64)mAudioRate) : 0;
+			const uint32 movieDur = (aDurMovie > duration) ? aDurMovie : duration;
+			ByteBuf atrak;
+			if (hasAudio) {
+				const uint32 nChunks = (uint32)mAudioChunkOff.Size();
+
+				// stsd : AudioSampleEntry v0 'sowt' (PCM s16 LE).
+				ByteBuf aud;
+				for (int i = 0; i < 6; ++i)
+					aud.u8(0);						// reserved
+				aud.u16(1);							// data_reference_index
+				aud.u16(0);							// version
+				aud.u16(0);							// revision
+				aud.u32(0);							// vendor
+				aud.u16((uint16)mAudioChannels);	// channel count
+				aud.u16(16);						// sample size (bits)
+				aud.u16(0);							// compression id
+				aud.u16(0);							// packet size
+				aud.u32((uint32)mAudioRate << 16);	// sample rate (16.16)
+				ByteBuf sowt;
+				Box(sowt, 's', 'o', 'w', 't', aud);
+				ByteBuf astsd;
+				astsd.u32(0);
+				astsd.u32(1);
+				astsd.append(sowt);
+
+				// stts : mAudioFrames échantillons de durée 1 (échelle piste = sampleRate).
+				ByteBuf astts;
+				astts.u32(0);
+				astts.u32(1);
+				astts.u32((uint32)mAudioFrames);
+				astts.u32(1);
+
+				// stsc : trames par chunk — une entrée par CHANGEMENT (runs compactés).
+				ByteBuf astscEntries;
+				uint32 nStscEntries = 0;
+				for (uint32 i = 0; i < nChunks; ++i) {
+					if (i == 0 || mAudioChunkFrames[i] != mAudioChunkFrames[i - 1]) {
+						astscEntries.u32(i + 1);			   // first_chunk (1-based)
+						astscEntries.u32(mAudioChunkFrames[i]); // samples_per_chunk
+						astscEntries.u32(1);				   // sample_description_index
+						++nStscEntries;
+					}
+				}
+				ByteBuf astsc;
+				astsc.u32(0);
+				astsc.u32(nStscEntries);
+				astsc.append(astscEntries);
+
+				// stsz : taille constante = un bloc PCM (channels*2 octets).
+				ByteBuf astsz;
+				astsz.u32(0);
+				astsz.u32((uint32)(mAudioChannels * 2));
+				astsz.u32((uint32)mAudioFrames);
+
+				// stco : offset de chaque chunk audio.
+				ByteBuf astco;
+				astco.u32(0);
+				astco.u32(nChunks);
+				for (uint32 i = 0; i < nChunks; ++i)
+					astco.u32(mAudioChunkOff[i]);
+
+				ByteBuf astbl;
+				Box(astbl, 's', 't', 's', 'd', astsd);
+				Box(astbl, 's', 't', 't', 's', astts);
+				Box(astbl, 's', 't', 's', 'c', astsc);
+				Box(astbl, 's', 't', 's', 'z', astsz);
+				Box(astbl, 's', 't', 'c', 'o', astco);
+
+				// minf audio : smhd + dinf + stbl.
+				ByteBuf smhd;
+				smhd.u32(0); // version+flags
+				smhd.u16(0); // balance
+				smhd.u16(0); // reserved
+				ByteBuf adrefUrl;
+				adrefUrl.u32(0x00000001);
+				ByteBuf adref;
+				adref.u32(0);
+				adref.u32(1);
+				Box(adref, 'u', 'r', 'l', ' ', adrefUrl);
+				ByteBuf adinf;
+				Box(adinf, 'd', 'r', 'e', 'f', adref);
+				ByteBuf aminf;
+				Box(aminf, 's', 'm', 'h', 'd', smhd);
+				Box(aminf, 'd', 'i', 'n', 'f', adinf);
+				Box(aminf, 's', 't', 'b', 'l', astbl);
+
+				// mdia audio : mdhd (échelle = sampleRate) + hdlr 'soun' + minf.
+				ByteBuf amdhd;
+				amdhd.u32(0);
+				amdhd.u32(0);
+				amdhd.u32(0);
+				amdhd.u32((uint32)mAudioRate);
+				amdhd.u32((uint32)mAudioFrames);
+				amdhd.u16(0x55C4); // language (und)
+				amdhd.u16(0);
+				ByteBuf ahdlr;
+				ahdlr.u32(0);
+				ahdlr.u32(0);
+				ahdlr.tag('s', 'o', 'u', 'n');
+				ahdlr.u32(0);
+				ahdlr.u32(0);
+				ahdlr.u32(0);
+				ahdlr.u8(0); // name (empty pascal)
+				ByteBuf amdia;
+				Box(amdia, 'm', 'd', 'h', 'd', amdhd);
+				Box(amdia, 'h', 'd', 'l', 'r', ahdlr);
+				Box(amdia, 'm', 'i', 'n', 'f', aminf);
+
+				// tkhd audio (durée en échelle film, volume plein).
+				ByteBuf atkhd;
+				atkhd.u32(0x00000007);
+				atkhd.u32(0);
+				atkhd.u32(0);
+				atkhd.u32(2); // track id
+				atkhd.u32(0);
+				atkhd.u32(aDurMovie);
+				atkhd.u32(0);
+				atkhd.u32(0);
+				atkhd.u16(0);	   // layer
+				atkhd.u16(0);	   // alternate group
+				atkhd.u16(0x0100); // volume
+				atkhd.u16(0);
+				for (int i = 0; i < 9; ++i)
+					atkhd.u32(mtx[i]);
+				atkhd.u32(0); // width
+				atkhd.u32(0); // height
+				Box(atrak, 't', 'k', 'h', 'd', atkhd);
+				Box(atrak, 'm', 'd', 'i', 'a', amdia);
+			}
+
 			// ---- mvhd ----
 			ByteBuf mvhd;
 			mvhd.u32(0);
 			mvhd.u32(0);
 			mvhd.u32(0);		 // creation/modification
 			mvhd.u32(timescale); // timescale
-			mvhd.u32(duration);	 // duration
+			mvhd.u32(movieDur);	 // duration (max de toutes les pistes)
 			mvhd.u32(0x00010000); // preferred rate
 			mvhd.u16(0x0100);	 // preferred volume
 			mvhd.u16(0);
@@ -268,12 +439,14 @@ namespace nkentseu {
 			for (int i = 0; i < 9; ++i)
 				mvhd.u32(mtx[i]);
 			for (int i = 0; i < 6; ++i)
-				mvhd.u32(0); // pre-defined
-			mvhd.u32(2);	 // next track id
+				mvhd.u32(0);				 // pre-defined
+			mvhd.u32(hasAudio ? 3u : 2u);	 // next track id
 
 			ByteBuf moov;
 			Box(moov, 'm', 'v', 'h', 'd', mvhd);
 			Box(moov, 't', 'r', 'a', 'k', trak);
+			if (hasAudio)
+				Box(moov, 't', 'r', 'a', 'k', atrak);
 
 			ByteBuf out;
 			Box(out, 'm', 'o', 'o', 'v', moov);

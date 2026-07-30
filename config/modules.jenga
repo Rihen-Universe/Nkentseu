@@ -47,7 +47,7 @@ _GLOBAL_KIND = ProjectKind.STATIC_LIB
 #   export   : prefixe macro d'export (NKENTSEU_XXX) ; None = pas de _STATIC_LIB
 #   deps     : dependances DIRECTES (noms de projet) ; transitif resolu en DFS
 #   includes : surcharge des includedirs (defaut [%{<cle>.location}/src])
-#   linkable : False = header-only / pas de lib a linker (include seul)
+#   linkable : False = hader-only / pas de lib a linker (include seul)
 # =============================================================================
 
 def _m(export, deps, includes=None, linkable=True) -> dict:
@@ -66,11 +66,26 @@ _REGISTRY: dict = {
     "NKNN"           : _m("NKENTSEU_NN",           ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor", "NKAutograd"]),
     "NKOptim"        : _m("NKENTSEU_OPTIM",         ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor", "NKAutograd"]),
     "NKData"         : _m("NKENTSEU_DATA",          ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor"]),
-    "NKTrain"        : _m("NKENTSEU_TRAIN",         ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor", "NKAutograd", "NKNN", "NKData"]),
+    "NKTrain"        : _m("NKENTSEU_TRAIN",         ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor", "NKAutograd", "NKNN", "NKData", "NKOptim"]),
     "NKInfer"        : _m("NKENTSEU_INFER",         ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor", "NKAutograd"]),
     "NKRL"           : _m("NKENTSEU_RL",            ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor"]),
+    # Jalon 4 (personnalite + raisonnement LLM) : ajoute NKInfer (NkAgentLLMReasoning
+    # pont vers NkQwen2Block/NkKVCache/NkGGUFDequant, poids GGUF reels). NKFileSystem
+    # (lecture selective de lignes de tenseur, cf NkAgentLLMReasoning.cpp) est un
+    # dep de BUILD de NKAgent (ajoute dans NKAgent.jenga) mais pas expose ici, meme
+    # asymetrie que l'entree NKInfer ci-dessus (ses headers publics n'exposent pas
+    # NkFile.h aux consommateurs).
+    "NKAgent"        : _m("NKENTSEU_AGENT",         ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor", "NKRL", "NKInfer"]),
+    "NKEvolve"       : _m("NKENTSEU_EVOLVE",        ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger"]),
+    # NKCivilization (Phase 5) : agents Phase 4 comme entites NKECS — depend de
+    # NKECS (Runtime) et NKAgent, JAMAIS d'Engine/Noge (pas de remontee de couche).
+    "NKCivilization" : _m("NKENTSEU_CIVILIZATION",  ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor", "NKRL", "NKAgent", "NKECS"]),
+    # NKEmbodied (Phase 6) : abstraction capteurs/actionneurs + corps simule,
+    # boucle perception -> decision (NKAgent) -> action. Ne depend PAS de
+    # Kernel/Bare au Jalon 1 (cf ROADMAP : Jalon 3 = branchement reel).
+    "NKEmbodied"     : _m("NKENTSEU_EMBODIED",      ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor", "NKRL", "NKAgent"]),
     "NKGen"          : _m("NKENTSEU_GEN",           ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor", "NKAutograd", "NKNN"]),
-    "NKGpt"          : _m("NKENTSEU_GPT",           ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor", "NKAutograd", "NKNN", "NKOptim", "NKFileSystem", "NKTime"]),
+    "NKGpt"          : _m("NKENTSEU_GPT",           ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKTensor", "NKAutograd", "NKNN", "NKOptim", "NKFileSystem", "NKTime", "NKData"]),
     "NKSpeech"       : _m("NKENTSEU_SPEECH",        ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger"]),
 
     # ---- System --------------------------------------------------------------
@@ -99,6 +114,7 @@ _REGISTRY: dict = {
     "NKCamera"       : _m("NKENTSEU_CAMERA",       ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath"]),
     "NKCollision"    : _m("NKENTSEU_COLLISION",    ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath"]),
     "NKPhysics"      : _m("NKENTSEU_PHYSICS",      ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKCollision"]),
+    "NKNavigation"   : _m("NKENTSEU_NAVIGATION",   ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKCollision"]),
     "NKUI"           : _m("NKENTSEU_UI",           ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKEvent", "NKFont", "NKImage"]),
     # NKGui : framework UI nouvelle génération (réécriture de NKUI, immédiat+retenu).
     "NKGui"          : _m("NKENTSEU_NKGUI",         ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKThreading", "NKEvent", "NKFont", "NKImage"]),
@@ -137,8 +153,8 @@ _ALIASES: dict = {
     "time": "NKTime", "reflection": "NKReflection", "serialization": "NKSerialization",
     "network": "NKNetwork", "event": "NKEvent", "window": "NKWindow", "canvas": "NKCanvas",
     "nksl": "NKSL", "rhi": "NKRHI", "renderer": "NKRenderer", "image": "NKImage",
-    "font": "NKFont", "ecs": "NKECS", "camera": "NKCamera", "collision": "NKCollision", "physics": "NKPhysics", "ui": "NKUI", "audio": "NKAudio",
-    "noge": "Noge", "engine": "Noge", "nkentseu": "Noge", "glad": "NKGlad",
+    "font": "NKFont", "ecs": "NKECS", "camera": "NKCamera", "collision": "NKCollision", "physics": "NKPhysics", "navigation": "NKNavigation", "ui": "NKUI", "audio": "NKAudio",
+    "noge": "Noge", "engine": "Noge", "nkentseu": "Noge", "glad": "NKGlad", "gui": "NKGui",
 }
 
 # =============================================================================

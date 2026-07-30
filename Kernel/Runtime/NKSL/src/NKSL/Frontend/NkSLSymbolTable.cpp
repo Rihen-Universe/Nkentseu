@@ -15,6 +15,7 @@ namespace nkentseu {
 			case NkSLBaseType::NK_UINT:
 			case NkSLBaseType::NK_FLOAT:
 			case NkSLBaseType::NK_DOUBLE:
+			case NkSLBaseType::NK_HALF: // FP16 natif (additif)
 				return 1;
 			case NkSLBaseType::NK_IVEC2:
 			case NkSLBaseType::NK_UVEC2:

@@ -5,6 +5,8 @@
 namespace nkentseu {
 	namespace pv3de {
 
+		using namespace nkentseu::math;
+
 		NkEmotionFSM::NkEmotionFSM() = default;
 
 		void NkEmotionFSM::Init() {

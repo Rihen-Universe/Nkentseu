@@ -19,7 +19,7 @@
 //   claude-3-5-sonnet-20241022 : meilleure qualité, plus lent
 // =============================================================================
 
-#include "NkConversationEngine.h"
+#include "PV3DE/AI/Conversation/NkConversationEngine.h"
 
 namespace nkentseu {
 	namespace humanoid {

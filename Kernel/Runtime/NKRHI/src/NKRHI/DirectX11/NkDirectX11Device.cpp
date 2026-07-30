@@ -658,6 +658,17 @@ namespace nkentseu {
 		NkDX11Buffer rec{};
 		rec.buf = buf;
 		rec.desc = desc;
+		// Miroir CPU pour les buffers dynamiques : cf. NkDX11Buffer::shadow et
+		// WriteBuffer (Map WRITE_DISCARD jette tout le contenu precedent).
+		// NK_STAGING exclu : toujours ecrit en entier a l'offset 0 (upload de
+		// texture), et potentiellement tres gros -> pas de miroir inutile.
+		if (desc.usage == NkResourceUsage::NK_UPLOAD && desc.sizeBytes > 0 &&
+			desc.type != NkBufferType::NK_STAGING) {
+			rec.shadow.Resize((size_t)desc.sizeBytes);
+			memset(rec.shadow.Data(), 0, (size_t)desc.sizeBytes);
+			if (desc.initialData)
+				memcpy(rec.shadow.Data(), desc.initialData, (size_t)desc.sizeBytes);
+		}
 		// Vues RAW pour les storage buffers (lecture SRV en VS/PS, UAV compute).
 		if (isStorage && buf) {
 			const UINT numWords = (UINT)(desc.sizeBytes / sizeof(uint32));
@@ -703,9 +714,71 @@ namespace nkentseu {
 			return false;
 		D3D11_MAPPED_SUBRESOURCE ms{};
 		if (it->desc.usage == NkResourceUsage::NK_UPLOAD) {
-			mContext->Map(it->buf, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
-			memcpy((uint8 *)ms.pData + off, data, (size_t)sz);
-			mContext->Unmap(it->buf, 0);
+			// ── DIAG (NK_DX11_WRITEDIAG=1) : compte les ecritures PARTIELLES, seul
+			//    cas ou l'ancien chemin (Map DISCARD + memcpy a l'offset) detruisait
+			//    le reste du buffer. `destructives` = ecritures dont la zone hors
+			//    [off, off+sz) etait deja significative (off>0 ou fin non couverte).
+			static int32 wdiag = -1;
+			if (wdiag == -1) {
+				const char *v = getenv("NK_DX11_WRITEDIAG");
+				wdiag = (v && v[0] && v[0] != '0') ? 1 : 0;
+			}
+			if (wdiag) {
+				static uint64 nTotal = 0;
+				static uint64 nPartial = 0;
+				static uint64 nOffset = 0;
+				nTotal++;
+				const bool partial = (off > 0) || (sz < it->desc.sizeBytes);
+				if (partial)
+					nPartial++;
+				if (off > 0)
+					nOffset++;
+				if (partial) {
+					static uint64 nDump = 0;
+					if (nDump < 30ull) {
+						nDump++;
+						logger.Infof("[DX11Write][PARTIELLE #%llu] bufId=%llu type=%d taille=%llu ecrit=[%llu,%llu) "
+									 "-> zone DETRUITE par DISCARD = [%llu,%llu) (%llu octets)\n",
+									 nDump, (unsigned long long)buf.id, (int)it->desc.type,
+									 (unsigned long long)it->desc.sizeBytes, (unsigned long long)off,
+									 (unsigned long long)(off + sz), (unsigned long long)(off + sz),
+									 (unsigned long long)it->desc.sizeBytes,
+									 (unsigned long long)(it->desc.sizeBytes - (off + sz)));
+					}
+				}
+				if ((nTotal % 2000ull) == 0ull) {
+					logger.Infof("[DX11Write] total=%llu partielles=%llu (off>0)=%llu -> ecritures qui "
+								 "DETRUISAIENT le reste du buffer avec Map(WRITE_DISCARD)\n",
+								 nTotal, nPartial, nOffset);
+				}
+			}
+			// NK_DX11_NOSHADOW=1 : retablit l'ancien comportement (destructif) pour
+			// mesurer l'ecart avant/apres sans recompiler.
+			static int32 noshadow = -1;
+			if (noshadow == -1) {
+				const char *v = getenv("NK_DX11_NOSHADOW");
+				noshadow = (v && v[0] && v[0] != '0') ? 1 : 0;
+			}
+			const bool full = (off == 0) && (sz >= it->desc.sizeBytes);
+			if (noshadow || full || it->shadow.Empty()) {
+				// Ecriture COMPLETE : DISCARD est exact, rien a preserver.
+				mContext->Map(it->buf, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+				memcpy((uint8 *)ms.pData + off, data, (size_t)sz);
+				mContext->Unmap(it->buf, 0);
+				if (!noshadow && !it->shadow.Empty() && off + sz <= (uint64)it->shadow.Size())
+					memcpy(it->shadow.Data() + off, data, (size_t)sz);
+			} else {
+				// Ecriture PARTIELLE : on patche le miroir CPU puis on reuploade le
+				// buffer COMPLET. Sans ca, tout ce qui est hors [off, off+sz) devient
+				// indefini (contenu jete par DISCARD) -> geometrie/matrices aleatoires
+				// une frame sur deux = le clignotement propre a DX11.
+				if (off + sz > (uint64)it->shadow.Size())
+					return false;
+				memcpy(it->shadow.Data() + off, data, (size_t)sz);
+				mContext->Map(it->buf, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+				memcpy(ms.pData, it->shadow.Data(), it->shadow.Size());
+				mContext->Unmap(it->buf, 0);
+			}
 		} else {
 			D3D11_BOX box{(UINT)off, 0, 0, (UINT)(off + sz), 1, 1};
 			mContext->UpdateSubresource(it->buf, 0, &box, data, 0, 0);

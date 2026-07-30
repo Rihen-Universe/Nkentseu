@@ -29,7 +29,10 @@ namespace nkentseu {
 			}
 
 			bool IsScalar() const {
-				return base >= NkSLBaseType::NK_BOOL && base <= NkSLBaseType::NK_DOUBLE;
+				// NK_HALF est en fin d'enum (additif pur, cf NkSLBaseType) donc hors de
+				// la plage BOOL..DOUBLE : case explicite nécessaire.
+				return (base >= NkSLBaseType::NK_BOOL && base <= NkSLBaseType::NK_DOUBLE) ||
+					   base == NkSLBaseType::NK_HALF;
 			}
 
 			bool IsVector() const {
@@ -53,7 +56,7 @@ namespace nkentseu {
 			}
 
 			bool IsFloat() const {
-				return base == NkSLBaseType::NK_FLOAT ||
+				return base == NkSLBaseType::NK_FLOAT || base == NkSLBaseType::NK_HALF ||
 					   (base >= NkSLBaseType::NK_VEC2 && base <= NkSLBaseType::NK_VEC4) || IsMatrix();
 			}
 

@@ -414,8 +414,10 @@ namespace nkentseu {
 		NkWString wTitle = NkUtf8ToWide(config.title);
 
 		if (config.fullscreen) {
-			DEVMODE dm = {};
-			dm.dmSize = sizeof(DEVMODE);
+			// [FIX 2026-07-25] DEVMODEW explicite (cf. NkWindowData::mDmScreen) —
+			// le macro DEVMODE dépend de UNICODE et cassait le layout partagé.
+			DEVMODEW dm = {};
+			dm.dmSize = sizeof(DEVMODEW);
 			dm.dmPelsWidth = GetSystemMetrics(SM_CXSCREEN);
 			dm.dmPelsHeight = GetSystemMetrics(SM_CYSCREEN);
 			dm.dmBitsPerPel = 32;

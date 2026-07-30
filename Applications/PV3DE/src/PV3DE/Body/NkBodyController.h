@@ -3,22 +3,24 @@
 #include "NKCore/NkTypes.h"
 #include "NKMath/NKMath.h"
 #include "PV3DE/Emotion/NkEmotionFSM.h"
+#include "PV3DE/Body/NkBreathController.h"
+
+using namespace nkentseu::math;
 
 namespace nkentseu {
 	namespace pv3de {
 
-		// =====================================================================
-		// Paramètres de respiration
-		// =====================================================================
-		struct NkBreathParams {
-				nk_float32 rate = 16.f;		  // respirations/min
-				nk_float32 amplitude = 0.30f; // amplitude cage thoracique (0–1)
-				nk_float32 phase = 0.f;		  // phase courante (radians)
-
-				// Types pathologiques
-				bool cheyneStokes = false; // apnée cyclique
-				bool paradoxical = false;  // respiration paradoxale (tirage)
-		};
+		// NOTE : NkBreathParams était auparavant redéfini ici (rate/amplitude/phase/
+		// cheyneStokes/paradoxical), en doublon de la définition canonique de
+		// NkBreathController.h (rate/amplitude/pattern/ratio) — les deux structs
+		// portaient le même nom dans le même namespace nkentseu::pv3de, ce qui
+		// provoquait une erreur de redéfinition dès qu'un même fichier incluait
+		// les deux headers (cas de PatientLayer.h / PatientLayer_v3.h).
+		// On réutilise désormais la définition de NkBreathController.h. Les champs
+		// `phase`, `cheyneStokes` et `paradoxical` de l'ancienne struct n'étaient
+		// lus/écrits nulle part dans NkBodyController — seule `phase` servait
+		// réellement (état d'intégration de la sinusoïde), déplacé ci-dessous en
+		// simple membre `mBreathPhase`.
 
 		// =====================================================================
 		// NkBodyPose — indices de poses prédéfinies
@@ -119,6 +121,7 @@ namespace nkentseu {
 				// ── État breath ───────────────────────────────────────────────────
 				NkBreathParams mBreath;		  // courant interpolé
 				NkBreathParams mBreathTarget; // cible
+				nk_float32 mBreathPhase = 0.f; // phase courante (radians) — hors struct partagée
 				nk_float32 mChestDisp = 0.f;
 
 				// ── Tremblements ──────────────────────────────────────────────────

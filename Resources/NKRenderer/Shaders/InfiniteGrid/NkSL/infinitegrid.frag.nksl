@@ -12,6 +12,13 @@
 //    (fade->0, pas ->gris) -> zéro moiré / zéro point de densité.
 //  - Sortie CLAMPÉE à [0,1] -> zéro valeur >1 -> zéro bloom.
 //  - Fondu distance PROPORTIONNEL à la hauteur caméra + fondu à l'angle rasant.
+//
+// TECHNIQUE (référence) : « analytic antialiased grid » basée sur les dérivées
+// d'écran fwidth() -> épaisseur de ligne ~constante en pixels, indépendante de la
+// distance/zoom (Ben Golus, « The Best Darn Grid Shader (Yet) », 2020 ;
+// bgolus.medium.com). Réglages ci-dessous VISENT UN RENDU ÉPURÉ façon Blender :
+// lignes fines (~1 px), gris subtil, majeures (tous les N carreaux) à peine plus
+// marquées — PAS de lignes épaisses/quasi-blanches (qui rendaient la grille grossière).
 // ============================================================================
 
 @binding(set=0, binding=0)
@@ -99,9 +106,11 @@ void main() {
         // Sous-grille FINE (cell/major) : incluse dans les "internes" (extra.y). Elle
         // n'apparaît QUE lorsqu'on s'approche (gridCoverage l'estompe dès qu'elle devient
         // dense) -> subdivisions visibles au zoom, sans maillage uniforme au loin.
-        float gSub   = gridCoverage(P, cell / major, 0.70) * pc.extra.y;
-        float gMinor = gridCoverage(P, cell,         1.10) * pc.extra.y; // mineure = bien visible
-        float gMajor = gridCoverage(P, cell * major, 2.60) * pc.extra.z; // MAJEURE épaisse++
+        // Demi-largeurs en PIXELS (façon Blender épuré) : lignes FINES ~1 px. Avant :
+        // 0.70 / 1.10 / 2.60 -> mineures épaisses et majeures quasi-blanches = grossier.
+        float gSub   = gridCoverage(P, cell / major, 0.55) * pc.extra.y; // sous-grille très fine
+        float gMinor = gridCoverage(P, cell,         0.75) * pc.extra.y; // mineure fine (~1 px)
+        float gMajor = gridCoverage(P, cell * major, 1.10) * pc.extra.z; // MAJEURE à peine + épaisse
 
         float axisX = (1.0 - smoothstep(0.0, dP.y * 2.0, abs(P.y))) * pc.extra.w; // ligne z=0
         float axisZ = (1.0 - smoothstep(0.0, dP.x * 2.0, abs(P.x))) * pc.extra.w; // ligne x=0
@@ -128,8 +137,9 @@ void main() {
         col.a = max(col.a, aSub);
         float aMinor = gMinor * pc.lineColor.a * fadeMinor;      // mineure = pleine (bien visible)
         col.rgb = mix(col.rgb, pc.lineColor.rgb, aMinor);  col.a = max(col.a, aMinor);
-        vec3  majRGB = min(pc.lineColor.rgb * 2.8, vec3(1.0, 1.0, 1.0)); // majeure quasi-blanche
-        float aMajor = gMajor * pc.lineColor.a * fadeMajor;             // + épaisse (lwPx 2.6) -> très marquée
+        // Majeure : gris un peu PLUS clair que la mineure, mais PAS blanc (subtil, Blender).
+        vec3  majRGB = min(pc.lineColor.rgb * 1.6, vec3(0.72, 0.72, 0.72));
+        float aMajor = gMajor * pc.lineColor.a * fadeMajor;             // fine, juste un peu marquée
         col.rgb = mix(col.rgb, majRGB, aMajor);            col.a = max(col.a, aMajor);
         // Axes X (rouge) / Z (bleu) : VIFS et SATURÉS -> PAS de fondu distance (sinon le mix
         // < 1 au centre de la ligne les dilue avec le gris = aspect "délavé"). On garde juste

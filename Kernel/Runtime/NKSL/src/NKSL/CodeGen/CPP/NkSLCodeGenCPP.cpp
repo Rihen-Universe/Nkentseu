@@ -67,6 +67,11 @@ namespace nkentseu {
 				return "const NkSWTexture2D*";
 			case NkSLBaseType::NK_SAMPLER_CUBE:
 				return "const NkSWTextureCube*";
+			// FP16 natif (additif) : pas de type half en C++ standard côté rasterizer
+			// logiciel — calculé en float32 (comme NK_DOUBLE côté MSL). Backend non
+			// couvert par la validation de cette passe (hors des 5 cibles GPU visées).
+			case NkSLBaseType::NK_HALF:
+				return "float32";
 			default:
 				return "float32";
 		}
@@ -87,6 +92,11 @@ namespace nkentseu {
 	}
 
 	NkString NkSLCodeGenCPP::IntrinsicToCPP(const NkString &name) {
+		// FP16 natif (additif) : pas de type `half` en C++ standard — le rasterizer
+		// logiciel calcule tout en float32 (cf BaseTypeToCPP). Backend non couvert
+		// par la validation de cette passe (hors des 5 cibles GPU visées).
+		if (name == "half")
+			return "float32";
 		// Mappages GLSL → NkMath / std
 		if (name == "dot")
 			return "NkDot";

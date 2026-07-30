@@ -283,8 +283,13 @@ namespace nkentseu {
 			NkString glslGL;
 			const char *stageName = (stage == NkShaderStage::NK_VERTEX) ? "VS" : "FS";
 			if (LooksLikeVulkanGlsl(src)) {
+#if defined(NK_OPENGL_ES)
+				const bool targetES = true;
+#else
+				const bool targetES = false;
+#endif
 				::nkentseu::NkShaderConvertResult conv =
-					::nkentseu::NkShaderConverter::GlslToGlsl(src, ToNkSLStage(stage), "shader");
+					::nkentseu::NkShaderConverter::GlslToGlsl(src, ToNkSLStage(stage), "shader", targetES);
 				if (!conv.success) {
 					res.success = false;
 					res.errors = NkString("VK->GL conversion failed: ") + conv.errors;
@@ -628,7 +633,11 @@ namespace nkentseu {
 			// atlas…) doit garder la convention non-flippée — le heuristique du
 			// générateur (inputs+varyings ⇒ flip) le classerait à tort (cf.
 			// ShadowAlpha : alpha-test d'ombre avec vUV).
-			slOpts.glFlipYPosition = (target == NkSLTarget::NK_GLSL) && !src.Contains("@gl-no-flip-y");
+			// Le même pragma s'applique aux générateurs HLSL (DX11/DX12) : leur
+			// negate Y du VS suit le même heuristique et déplacerait l'ombre
+			// alpha-testée dans l'atlas (bug DX11/DX12 « ombre pointillée déplacée »).
+			slOpts.disableAutoYFlip = src.Contains("@gl-no-flip-y");
+			slOpts.glFlipYPosition = (target == NkSLTarget::NK_GLSL) && !slOpts.disableAutoYFlip;
 			NkSLCompileResult r = nksl::GetCompiler().Compile(src, ToRHIStage(stage), target, slOpts, "nksl_renderer");
 
 			NkShaderCompileResult res;

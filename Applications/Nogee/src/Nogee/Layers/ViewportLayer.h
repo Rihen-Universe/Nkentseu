@@ -1,20 +1,19 @@
 #pragma once
 // =============================================================================
-// Noge/Layers/ViewportLayer.h  —  v2
+// Nogee/Layers/ViewportLayer.h  —  v2
 // =============================================================================
 // Rend la scène ECS dans un FBO offscreen.
-// Se connecte à NkWorld via NkRenderSystem pour produire les draw calls.
 // Intègre NkEditorCamera et NkGizmoSystem.
 // Resize automatique quand la fenêtre NKUI du viewport change de taille.
 // =============================================================================
 
-#include "Noge/Core/Layer.h"
+#include "Noge/Core/NkLayer.h"
 #include "NKRHI/Core/NkIDevice.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"
 #include "NKRHI/Core/NkTypes.h"
+#include "NKRHI/Core/NkDescs.h"
 #include "NKMath/NKMath.h"
 #include "NKECS/World/NkWorld.h"
-#include "NKRenderer/src/NKRenderer/Scene/NkRenderScene.h"
 #include "Nogee/Editor/NkEditorCamera.h"
 #include "Nogee/Editor/NkGizmoSystem.h"
 #include "Nogee/Editor/NkSelectionManager.h"
@@ -22,7 +21,7 @@
 namespace nkentseu {
 	namespace noge {
 
-		class ViewportLayer : public Layer {
+		class ViewportLayer : public NkLayer {
 			public:
 				ViewportLayer(const NkString &name, NkIDevice *device, NkICommandBuffer *cmd) noexcept;
 				~ViewportLayer() override;
@@ -104,7 +103,6 @@ namespace nkentseu {
 				NkSelectionManager *mSel = nullptr;
 				ecs::NkWorld *mWorld = nullptr;
 
-				renderer::NkRenderScene mRenderScene;
 				MouseState mMouse;
 		};
 

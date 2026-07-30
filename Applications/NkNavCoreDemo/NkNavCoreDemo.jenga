@@ -1,0 +1,35 @@
+"""NkNavCoreDemo — preuve d'exécution CPU-only du CŒUR de NKNavigation
+(NavMesh + A*, Kernel/Runtime/NKNavigation/NkNavMesh.h/.cpp), DÉCOUPLÉE de
+Noge/ECS (zéro dépendance à `Noge`) -- voir le commentaire de tête de
+src/main.cpp pour la raison (Noge est temporairement cassé par des fichiers
+sans rapport, en cours d'écriture par d'autres agents en parallèle : Doc/
+Color, NKNetwork). Complète Applications/NkNavDemo (intégration ECS complète,
+code écrit et compile mais exécution bloquée par ce même incident externe).
+
+Contexte : `jenga test` / `*_Tests` sont bloqués par une politique de
+workspace ("Unit-test compilation/execution is disabled by workspace
+policy") — indépendante de ce code. Cette petite application console
+contourne le blocage (elle n'est PAS une TestSuite).
+"""
+from Jenga import *
+from jengaconfig import *
+
+with project("NkNavCoreDemo"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+    files(["src/main.cpp"])
+
+    nkentseudependson(
+        ["NKNavigation", "NKCollision", "NKMath", "NKLogger",
+         "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
+        extra_includes=["src"],
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])

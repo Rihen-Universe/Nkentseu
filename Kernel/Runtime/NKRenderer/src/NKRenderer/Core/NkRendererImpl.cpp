@@ -71,6 +71,32 @@ namespace nkentseu {
 			}
 			logger.Info("[NkRendererImpl] Initialize start (api={0})\n", (int)mCfg.api);
 
+			// ── CORRECTIF course CPU/GPU (2026-07-28) : la PROFONDEUR DES RINGS DOIT
+			//    ÊTRE CELLE DU DEVICE, pas une valeur de config indépendante. ────────
+			// Tous les rings du renderer (UBO camera/lights/objets/bones/instances,
+			// descriptor sets, batch d'arêtes n-gon, UBO d'ombres) choisissent leur slot
+			// par `mDevice->GetFrameIndex() % framesInFlight`. Or GetFrameIndex() est
+			// CYCLIQUE MODULO LA PROFONDEUR DU DEVICE (MAX_FRAMES = 3 sur GL/VK/DX11/DX12)
+			// et c'est la fence de CE slot-là que BeginFrame attend.
+			// Avec framesInFlight = 2 et un device à 3, la suite de slots devient
+			// 0,1,0 | 0,1,0 | ... : le slot 0 revient sur DEUX FRAMES CONSÉCUTIVES.
+			// Une frame sur trois, le CPU réécrit donc (memcpy en mémoire mappée) le
+			// buffer que le GPU est encore en train de lire pour la frame précédente
+			// -> vertices/UBO déchirés -> CLIGNOTEMENT rapide (mesuré : 13 collisions
+			// sur 40 frames, exactement 1/3). Prendre la profondeur du device rend
+			// `GetFrameIndex() % framesInFlight` BIJECTIF : deux frames consécutives ne
+			// partagent plus jamais un slot, et chaque slot est couvert par sa fence.
+			{
+				const uint32 devFIF = mDevice->GetMaxFramesInFlight();
+				if (devFIF > 0 && mCfg.framesInFlight != devFIF) {
+					logger.Info("[NkRendererImpl] framesInFlight config={0} -> {1} (profondeur REELLE du "
+								"device : les rings doivent la suivre, sinon deux frames consecutives "
+								"partagent un slot)\n",
+								mCfg.framesInFlight, devFIF);
+					mCfg.framesInFlight = devFIF;
+				}
+			}
+
 			// Cap FPS par défaut = 0 (DESACTIVE). Le rythme + la protection thermique
 			// sont assurés par le VSYNC (GL wglSwapIntervalEXT / VK FIFO) : la présentation
 			// se cale sur le vblank de l'écran -> pas de tearing, pas de GPU 100%.
@@ -292,6 +318,13 @@ namespace nkentseu {
 				NkRSetLastError(NkRResult::NK_ERR_UNKNOWN, "NkRender3D::Init failed");
 				return false;
 			}
+			// Initialise la taille courante du Render3D à la résolution configurée :
+			// OnResize n'est appelé QUE sur un vrai changement de taille (cf. BeginFrame
+			// auto-resize) ; si la fenêtre s'ouvre pile à la taille config, mW/mH
+			// resteraient à 0. Or CompositeSelectionOutline dérive la taille du pixel
+			// (1/w, 1/h) de mW/mH pour l'edge-detect du liseré de sélection — à 0, les
+			// offsets d'échantillonnage explosent (1.0 en UV) et le liseré disparaît.
+			mRender3D->OnResize(mCfg.width, mCfg.height);
 			// Wire la connexion inverse : NkShadowSystem itere les opaques de
 			// mRender3D dans sa passe shadow. Necessaire pour D.3b.
 			if (mShadow)
@@ -418,11 +451,39 @@ namespace nkentseu {
 		}
 
 		// =====================================================================
+		// SetUIOverlayCallback — overlay UI applicatif (cf. NkRenderer.h).
+		// Reconstruit le graph : la passe Overlay2D dépend de la présence du
+		// callback quand ni Render2D ni OverlayRenderer ne sont actifs.
+		// [AJOUT 2026-07-25]
+		// =====================================================================
+		void NkRendererImpl::SetUIOverlayCallback(const NkUIOverlayCallback &cb) {
+			mUIOverlayCb = cb;
+			if (mInitialized)
+				RebuildRenderGraph();
+		}
+
+		// =====================================================================
 		// Reconstruction du render graph (apres enable/disable runtime ou resize).
 		// =====================================================================
 		void NkRendererImpl::RebuildRenderGraph() {
 			if (mRenderGraph)
 				mRenderGraph->Reset();
+			// L'historique du TAA est un transient DU GRAPH : le Reset ci-dessus le
+			// detruit, et BuildDefaultRenderGraph en recree un VIERGE. Il faut donc
+			// desarmer l'accumulation, sinon la premiere frame d'apres melange 90 %
+			// d'une cible neuve (noire) a l'image -> l'ecran s'assombrit puis remonte
+			// sur ~20 frames a chaque redimensionnement, changement d'option, ou
+			// redirection de cible (capture / enregistrement). Mesure a l'origine de
+			// ce constat : luminance 19,6 au lieu de 92,9 trois frames apres un
+			// rebuild, exactement 92,9*(1-0,9^3).
+			mTAAHasPrev = false;
+			// Compteur de rebuilds : un rebuild par frame passerait inapercu tout en
+			// desarmant en permanence les effets temporels (l'accumulation du TAA ne
+			// demarrerait jamais). On trace donc les premiers, puis par paliers.
+			static uint32 sRebuilds = 0;
+			++sRebuilds;
+			if (sRebuilds <= 8 || (sRebuilds % 100) == 0)
+				logger.Info("[NkRendererImpl] RebuildRenderGraph #{0}\n", sRebuilds);
 			BuildDefaultRenderGraph();
 		}
 
@@ -846,16 +907,44 @@ namespace nkentseu {
 				//   Pass 2 FXAA_Final   -> lit ToneLDR, ecrit dans colorId
 				// Le RG track auto les state transitions des transients
 				// (contraire aux ImportTexture). Transient sera GC apres le draw.
-				const bool fxaaOn = mPostProcess && mPostProcess->IsFXAAEnabled();
+				// TAA (Phase L) : ALTERNATIVE au FXAA, pas un cumul — enchainer les
+				// deux flouterait deux fois. Le TAA a priorite quand il est actif.
+				// Le jitter de projection est active au meme endroit : sans lui,
+				// toutes les frames echantillonnent au meme point dans le pixel et
+				// l'accumulation temporelle n'apporte STRICTEMENT rien.
+				const bool taaOn = mPostProcess && mPostProcess->IsTAAEnabled() && has3D;
+				if (mRender3D)
+					mRender3D->SetTAAJitterEnabled(taaOn);
+				const bool fxaaOn = !taaOn && mPostProcess && mPostProcess->IsFXAAEnabled();
 				NkGraphResId postTargetId = colorId;
 				NkGraphResId toneTexId = NK_INVALID_RES_ID;
-				if (fxaaOn) {
+				if (fxaaOn || taaOn) {
 					auto tdesc = NkTextureDesc::RenderTarget(mCfg.width, mCfg.height, NkGPUFormat::NK_RGBA8_UNORM);
 					tdesc.debugName = "ToneLDR_Transient";
 					toneTexId = g.CreateTransient("ToneLDR", tdesc);
 					if (toneTexId != NK_INVALID_RES_ID) {
 						postTargetId = toneTexId;
 					}
+				}
+
+				// ── Auto-exposure V1 (Phase L, 2026-07-30) ────────────────────
+				// Mesure la luminance moyenne de la scene HDR dans une cible 1x1
+				// AVANT le tonemap, qui la consomme au binding 4. La cible est
+				// hors-graph (ping-pong persistant possede par le post-process) :
+				// cette passe ne declare donc AUCUN attachement et ouvre son propre
+				// render pass — meme modele que la passe d'ombres. Reads(mainColor)
+				// reste necessaire pour que le RG insere la barriere
+				// COLOR_ATTACHMENT -> SHADER_READ sur le HDR avant l'echantillonnage.
+				if (mPostProcess && mPostProcess->IsAutoExposureEnabled()) {
+					auto &ae = g.AddPass("AutoExposure", NkPassType::NK_POST_PROCESS);
+					ae.Reads(mainColor);
+					ae.SetAlwaysExecute(true); // sortie hors-graph (cible 1x1 interne)
+					NkGraphResId aeHdrId = mainColor;
+					ae.Execute([this, aeHdrId](NkICommandBuffer *cmd) {
+						NkTextureHandle hdr = mRenderGraph->GetResourceTexture(aeHdrId);
+						if (mPostProcess && hdr.IsValid())
+							mPostProcess->RunAutoExposure(cmd, hdr);
+					});
 				}
 
 				auto &pp = g.AddPass("PostProcess", NkPassType::NK_POST_PROCESS);
@@ -882,6 +971,143 @@ namespace nkentseu {
 						mPostProcess->ExecuteRHI(cmd, hdr, bloom, ssao);
 					}
 				});
+
+				// ── TAA : historique ping-pong DANS le graph, puis blit ecran ─────
+				// ⚠️ POURQUOI LES CIBLES SONT DES RESSOURCES DU GRAPH (fix 2026-07-30).
+				// Version precedente : la passe TAA n'avait AUCUN attachement (elle
+				// ouvrait son propre render pass sur un historique hors-graph, sur le
+				// modele de la passe d'ombres) et lisait le transient ToneLDR. Elle
+				// sortait NOIR : le RenderGraph ne transitionne un transient en
+				// SHADER_READ que pour une passe declarant un VRAI attachement, donc
+				// ToneLDR n'etait jamais rendu lisible — `Reads(id)` seul ne suffit pas.
+				// Preuve d'alors : en forcant le fragment shader a une couleur
+				// constante, l'ecran devenait integralement rouge (le draw et le blit
+				// marchaient, seul l'echantillonnage echouait). La passe AutoExposure
+				// s'en sort de la meme position parce que PostProcess relit mainColor
+				// juste apres AVEC un attachement, et declenche la transition pour elle.
+				//
+				// Correctif : les deux moities de l'historique deviennent des transients
+				// du graph (ils PERSISTENT entre frames — le graph n'est reset qu'au
+				// rebuild/resize) et la passe declare un vrai attachement. Le graph pose
+				// alors toutes les barrieres : ToneLDR et la profondeur en SHADER_READ,
+				// la cible en RENDER_TARGET, l'historique lu en SHADER_READ.
+				//
+				// TROIS passes a cibles FIXES, et non deux passes qui alterneraient
+				// leur cible : le cache de framebuffers du graph est indexe PAR NOM DE
+				// PASSE, donc une cible qui change d'une frame a l'autre est hors du
+				// modele. La variante essayee (TAA_0/TAA_1 en ping-pong, une seule
+				// dessinant par frame, l'autre ouvrant son render pass en LOAD) a ete
+				// MESUREE DEFAILLANTE : l'historique relu etait noir (sonde
+				// NK_TAA_DEBUG=2 : 97 % de pixels noirs), le clamp de voisinage
+				// masquant le defaut en le ramenant au minimum local — l'image avait
+				// l'air correcte a 1,2 % pres alors qu'aucune accumulation n'avait lieu.
+				// Ici chaque passe a une cible fixe et s'execute a chaque frame :
+				//   TAA         : ToneLDR + historique -> TAAOut
+				//   TAA_Store   : TAAOut -> historique (pour la frame suivante)
+				//   TAA_Present : TAAOut -> ecran
+				// Cout : une copie plein ecran par frame (~0,1 ms en 1080p), en echange
+				// d'un comportement qui ne depend plus de la facon dont chaque backend
+				// honore un loadOp LOAD sur une passe qui ne dessine rien.
+				// Contournement ECARTE : ajouter Reads(toneTexId) sur TAA_Present — la
+				// barriere serait posee APRES le draw du TAA.
+				if (taaOn && toneTexId != NK_INVALID_RES_ID) {
+					auto hdesc = NkTextureDesc::RenderTarget(mCfg.width, mCfg.height, NkGPUFormat::NK_RGBA8_UNORM);
+					hdesc.debugName = "TAAOut";
+					NkGraphResId taaOutId = g.CreateTransient("TAAOut", hdesc);
+					hdesc.debugName = "TAAHistory";
+					NkGraphResId histId = g.CreateTransient("TAAHist", hdesc);
+
+					if (taaOutId != NK_INVALID_RES_ID && histId != NK_INVALID_RES_ID) {
+						const NkGraphResId taaToneId = toneTexId;
+						const NkGraphResId taaDepthId = mainDepth;
+
+						auto &taa = g.AddPass("TAA", NkPassType::NK_POST_PROCESS);
+						taa.Reads(taaToneId);
+						taa.Reads(histId); // resultat de la frame -1 (ecrit par TAA_Store)
+						if (taaDepthId != NK_INVALID_RES_ID)
+							taa.Reads(taaDepthId);
+						taa.SetColor(0, taaOutId, NkLoadOp::NK_CLEAR, {0, 0, 0, 1});
+						taa.Execute([this, taaToneId, histId, taaDepthId](NkICommandBuffer *cmd) {
+							if (!mPostProcess || !mRender3D)
+								return;
+							NkTextureHandle ldr = mRenderGraph->GetResourceTexture(taaToneId);
+							NkTextureHandle hist = mRenderGraph->GetResourceTexture(histId);
+							NkTextureHandle depth = (taaDepthId != NK_INVALID_RES_ID)
+														? mRenderGraph->GetResourceTexture(taaDepthId)
+														: NkTextureHandle{};
+							if (!ldr.IsValid())
+								return;
+							// Reprojection = viewProj de la frame PRECEDENTE composee
+							// avec l'inverse de la viewProj COURANTE. On utilise les
+							// matrices reellement utilisees au rendu (jitter et clip-Z
+							// compris), exposees par NkRender3D : les recalculer ici
+							// dupliquerait ces corrections et deriverait de la
+							// profondeur echantillonnee.
+							const NkMat4f cur = mRender3D->GetRenderViewProj();
+							NkMat4f reproj = NkMat4f::Identity();
+							if (mTAAHasPrev)
+								reproj = mTAAPrevViewProj * mRender3D->GetRenderInvViewProj();
+							mPostProcess->RunTAAInPass(cmd, ldr, hist, depth, reproj, mTAAHasPrev,
+													   mRenderGraph->GetPassRenderPass("TAA"));
+							// NK_TAA_PREVLAG=N : n'actualiser la matrice de la frame
+							// precedente qu'une frame sur N. Outil de MESURE, pas une
+							// option de rendu : quand la camera bouge lentement, reproj
+							// est quasi l'identite et les conventions Y s'annulent
+							// (ndcYSign^2 = 1), donc une erreur de signe est
+							// indetectable. Espacer les deux matrices amplifie le
+							// mouvement inter-frame et rend l'erreur mesurable.
+							static int sPrevLag = -1;
+							if (sPrevLag < 0) {
+								const char *v = getenv("NK_TAA_PREVLAG");
+								sPrevLag = (v && v[0]) ? atoi(v) : 1;
+								if (sPrevLag < 1)
+									sPrevLag = 1;
+							}
+							static int sLagCount = 0;
+							if ((sLagCount++ % sPrevLag) == 0)
+								mTAAPrevViewProj = cur;
+							mTAAHasPrev = true;
+						});
+
+						// Recopie du resultat dans l'historique. Declaree AVANT
+						// TAA_Present : elle lit TAAOut (donc s'ordonne apres TAA) et
+						// ecrit l'historique, que seule la passe TAA lit — le tri
+						// topologique reste acyclique car au moment ou TAA est traitee,
+						// l'historique n'a pas encore de producteur declare.
+						auto &taaStore = g.AddPass("TAA_Store", NkPassType::NK_POST_PROCESS);
+						taaStore.Reads(taaOutId);
+						taaStore.SetColor(0, histId, NkLoadOp::NK_CLEAR, {0, 0, 0, 1});
+						taaStore.Execute([this, taaOutId](NkICommandBuffer *cmd) {
+							if (!mPostProcess)
+								return;
+							NkTextureHandle src = mRenderGraph->GetResourceTexture(taaOutId);
+							if (src.IsValid())
+								mPostProcess->ExecuteBlitToRT(cmd, src,
+															  mRenderGraph->GetPassRenderPass("TAA_Store"));
+						});
+
+						auto &taaPresent = g.AddPass("TAA_Present", NkPassType::NK_POST_PROCESS);
+						taaPresent.Reads(taaOutId);
+						taaPresent.SetColor(0, colorId, NkLoadOp::NK_CLEAR, {0, 0, 0, 1});
+						taaPresent.Reads(histId); // cf. sonde NK_TAA_PRESENT_HIST
+						taaPresent.Execute([this, taaOutId, histId](NkICommandBuffer *cmd) {
+							if (!mPostProcess)
+								return;
+							// Sonde : presenter l'HISTORIQUE au lieu du resultat permet de
+							// trancher entre "la recopie n'ecrit pas" et "la relecture
+							// echoue" — les deux se manifestent par un historique noir.
+							static int sPresentHist = -1;
+							if (sPresentHist < 0) {
+								const char *v = getenv("NK_TAA_PRESENT_HIST");
+								sPresentHist = (v && v[0] && v[0] != '0') ? 1 : 0;
+							}
+							NkTextureHandle res =
+								mRenderGraph->GetResourceTexture(sPresentHist ? histId : taaOutId);
+							if (res.IsValid())
+								mPostProcess->ExecuteBlit(cmd, res);
+						});
+					}
+				}
 
 				// Pass 2 : FXAA -> swapchain. Active uniquement si fxaaOn.
 				// Le RG insere auto la barrier COLOR_ATTACHMENT -> SHADER_READ
@@ -913,9 +1139,44 @@ namespace nkentseu {
 				});
 			}
 
+			// ── Sélection « outline silhouette » façon Blender ────────────────
+			// Option DISTINCTE de l'AABB du gizmo. Deux passes, ajoutées seulement
+			// quand l'option est active (NkRender3D::SetSelectionOutline -> rebuild) :
+			//   1) SelectionMask : les objets sélectionnés rendus SEULS (blanc) dans une
+			//      cible R8 -> silhouette pleine.
+			//   2) SelectionOutline : plein écran, dilatation-différence du masque ->
+			//      fin liseré orange composité (LOAD) sur l'image finale (colorId).
+			// Placées APRÈS le post-process et AVANT l'overlay 2D : le liseré se dessine
+			// par-dessus la scène finale (façon Blender, overlay), sous l'UI.
+			if (has3D && mRender3D && mRender3D->IsSelectionOutlineEnabled()) {
+				NkGraphResId selMask = g.CreateTransient(
+					"SelMask", NkTextureDesc::RenderTarget(mCfg.width, mCfg.height, NkGPUFormat::NK_R8_UNORM));
+
+				// Color-only (pas de depth) : silhouette pleine, ordre de rasterisation
+				// indifférent -> type POST_PROCESS comme les autres passes color-only.
+				auto &mp = g.AddPass("SelectionMask", NkPassType::NK_POST_PROCESS);
+				mp.SetColor(0, selMask, NkLoadOp::NK_CLEAR, {0.f, 0.f, 0.f, 1.f});
+				mp.Execute([this](NkICommandBuffer *cmd) {
+					if (mRender3D)
+						mRender3D->RenderSelectionMask(cmd);
+				});
+
+				auto &op = g.AddPass("SelectionOutline", NkPassType::NK_UI_OVERLAY);
+				op.Reads(selMask);
+				op.SetColor(0, colorId, NkLoadOp::NK_LOAD);
+				NkGraphResId maskId = selMask;
+				op.Execute([this, maskId](NkICommandBuffer *cmd) {
+					if (mRender3D)
+						mRender3D->CompositeSelectionOutline(cmd, mRenderGraph->GetResourceTexture(maskId));
+				});
+			}
+
 			// ── 2D + UI overlay ───────────────────────────────────────────────
 			// Si aucune passe 3D ne clear le swapchain (config 2D-only), on clear ici.
-			if (has2D || hasOverlay) {
+			// [AJOUT 2026-07-25] La passe existe aussi si un callback UI applicatif
+			// est enregistré (SetUIOverlayCallback — ex. NKUI de l'éditeur Nogee) ;
+			// il est invoqué en fin de passe, render pass active sur la sortie finale.
+			if (has2D || hasOverlay || mUIOverlayCb.IsValid()) {
 				auto &ov = g.AddPass("Overlay2D", NkPassType::NK_UI_OVERLAY);
 				const auto loadOp = has3D ? NkLoadOp::NK_LOAD : NkLoadOp::NK_CLEAR;
 				ov.SetColor(0, colorId, loadOp, {0.05f, 0.05f, 0.07f, 1.f});
@@ -924,6 +1185,8 @@ namespace nkentseu {
 						mRender2D->FlushPending(cmd);
 					if (mOverlay)
 						mOverlay->FlushPending(cmd);
+					if (mUIOverlayCb.IsValid())
+						mUIOverlayCb(cmd);
 				});
 			}
 
@@ -964,6 +1227,12 @@ namespace nkentseu {
 				if ((sw != mCfg.width || sh != mCfg.height) && sw > 0 && sh > 0)
 					OnResize(sw, sh);
 			}
+
+			// Sélection « outline silhouette » : (dés)activer l'option ajoute/retire les
+			// passes SelectionMask + SelectionOutline du graph -> rebuild à l'aplomb de
+			// la frame (avant l'exécution du graph dans Present), comme pour un resize.
+			if (mRender3D.Get() && mRender3D->ConsumeSelOutlineGraphDirty())
+				RebuildRenderGraph();
 
 			// FlushCompilations() retire de BeginFrame : il compilait tous les
 			// pipelines avec mCurrentRP={} (avant le 1er Flush qui le set), donc

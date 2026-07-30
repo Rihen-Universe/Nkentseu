@@ -144,13 +144,28 @@ namespace nkentseu {
 				// User peut uploader son LUT custom via NkRenderer::SetColorGradingLUT().
 				float32 lutStrength = 0.f; // 0 = no grading, 1 = full LUT applied
 				uint32 lutSize = 16;	   // resolution du LUT 3D (16/32/64)
-				// Phase L : Auto-exposure V0 simple — le tonemap sample le centre
-				// du bloom RT (assume Dual-Kawase upsample = bonne moyenne) et adapte
-				// l'exposure pour que la moyenne mappe vers `autoExposureKey`.
+				// Phase L : Auto-exposure V1 (2026-07-30) — la passe PP_AutoExposure
+				// mesure la luminance moyenne LOGARITHMIQUE de la scene (256
+				// echantillons, ponderee vers le centre) dans une cible 1x1, avec
+				// adaptation temporelle facon accommodation de l'oeil ; le tonemap
+				// adapte l'exposure pour que cette moyenne tombe sur `autoExposureKey`.
+				// (La V0 echantillonnait UN pixel — le centre du bloom — d'ou une
+				// exposition pilotee par ce qui se trouvait au milieu de l'ecran.)
 				// 0 = no auto, 1 = full auto-exp (override user exposure).
-				// V1 future : compute reduction proper + eye adaptation temporelle.
+				// Override runtime pour test : NK_AUTOEXP=<0..1>, NK_AUTOEXP_SPEED=<v>.
 				float32 autoExposureStrength = 0.f;
 				float32 autoExposureKey = 0.18f; // mid-gray target (Reinhard standard)
+				// Vitesse d'adaptation (unites par seconde) : la valeur converge en
+				// 1 - exp(-dt * vitesse), donc independante du framerate. 2 = ~0.5 s
+				// pour 63 % du chemin, 0 = figee sur la premiere mesure.
+				float32 autoExposureSpeed = 2.f;
+				// Bornes de la LUMINANCE mesuree : evitent qu'une scene quasi noire
+				// (luma ~1e-5) fasse exploser l'exposure, ou qu'un flash la tue.
+				float32 autoExposureMinLuma = 0.002f;
+				float32 autoExposureMaxLuma = 8.f;
+				// Bornes de l'EXPOSURE resultante (key / luma), appliquees dans le tonemap.
+				float32 autoExposureMinExp = 0.05f;
+				float32 autoExposureMaxExp = 40.f;
 				// SSR
 				bool ssr = false;
 				// Vignette / grain

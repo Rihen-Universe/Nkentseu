@@ -6,6 +6,7 @@ namespace nkentseu {
 	namespace pv3de {
 
 		using namespace nkui;
+			using namespace nkentseu::math;
 
 		NkColor DiagnosticPanel::ProbabilityColor(nk_float32 p) noexcept {
 			// 0–30% gris, 30–60% orange, 60–80% orange-rouge, 80–100% rouge
@@ -28,7 +29,7 @@ namespace nkentseu {
 
 		// =====================================================================
 		void DiagnosticPanel::Render(NkUIContext &ctx, NkUIWindowManager &wm, NkUIDrawList &dl, NkUIFont &font,
-									 NkUILayoutStack &ls, const PatientLayer &patient, NkUIRect rect) noexcept {
+									 NkUILayoutStack &ls, const PatientLayer &patient, NkRect rect) noexcept {
 			NkUIWindow::SetNextWindowPos({rect.x, rect.y});
 			NkUIWindow::SetNextWindowSize({rect.w, rect.h});
 
@@ -66,7 +67,7 @@ namespace nkentseu {
 			nk_usize maxShow = mShowAll ? ranking.Size() : NkMin(ranking.Size(), (nk_usize)8);
 
 			float32 scrollY = 0.f;
-			NkUIRect scrollRect = {rect.x + 2.f, rect.y + 72.f, rect.w - 4.f, rect.h - 80.f};
+			NkRect scrollRect = {rect.x + 2.f, rect.y + 72.f, rect.w - 4.f, rect.h - 80.f};
 			if (NkUI::BeginScrollRegion(ctx, ls, "diag_scroll", scrollRect, nullptr, &scrollY)) {
 				for (nk_usize i = 0; i < maxShow; ++i) {
 					const auto &entry = ranking[i];
@@ -88,11 +89,11 @@ namespace nkentseu {
 					// ── Barre de probabilité ───────────────────────────────────
 					NkUI::BeginRow(ctx, ls, 14.f);
 					NkUI::SetNextGrow(ctx, ls);
-					ctx.PushStyleColor(NkStyleVar::ProgressFill, ProbabilityColor(entry.probability));
+					// NOTE (Phase R1) : NkStyleVar::ProgressFill n'existe pas dans NKUI réel
+					// (aucun hook de couleur par widget sur ProgressBar aujourd'hui).
 					char probBuf[16];
 					snprintf(probBuf, sizeof(probBuf), "%.0f%%", entry.probability * 100.f);
 					NkUI::ProgressBar(ctx, ls, dl, entry.probability, {0.f, 12.f}, probBuf);
-					ctx.PopStyle();
 					NkUI::EndRow(ctx, ls);
 
 					// ── Sévérité ──────────────────────────────────────────────

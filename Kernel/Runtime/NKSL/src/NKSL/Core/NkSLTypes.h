@@ -283,7 +283,23 @@ namespace nkentseu {
 		// Struct / Array
 		NK_STRUCT,
 		NK_ARRAY,
-		NK_UNKNOWN
+		NK_UNKNOWN,
+		// =====================================================================
+		// FP16 natif (2026-07-25) — AJOUT PUREMENT ADDITIF.
+		// Placé en tout dernier (après NK_UNKNOWN) pour ne DÉCALER AUCUNE valeur
+		// numérique existante de cet enum (les checks par plage ailleurs dans le
+		// codebase — IsScalar/IsVector/IsMatrix/NkSLTypeIsSampler/NkSLTypeIsImage —
+		// comparent des bornes explicites (ex. <= NK_DOUBLE, <= NK_DVEC4) : les
+		// décaler aurait pu inclure/exclure silencieusement d'autres types.
+		// NK_HALF est donc traité par des `case` explicites partout où c'est
+		// nécessaire, jamais par extension d'une plage existante.
+		// Scalaire uniquement (pas de NK_HVEC2/3/4 dans cette passe) : suffisant
+		// pour un kernel/shader utilisant `half` nativement (le cas d'usage
+		// demandé). GLSL/GLSL-Vulkan → float16_t, SPIR-V → capacité Float16 (via
+		// glslang, automatique depuis le texte GLSL-Vulkan), HLSL → half natif,
+		// MSL → half natif. Taille 2 octets (voir NkSLBaseTypeSize).
+		// =====================================================================
+		NK_HALF
 	};
 
 	inline bool NkSLTypeIsSampler(NkSLBaseType t) {
@@ -424,6 +440,12 @@ namespace nkentseu {
 			// (NDC Vulkan Y-bas → OpenGL Y-haut). Équivalent du flip_vert_y de SPIRV-Cross.
 			// Activé par le consommateur quand la source est en convention Vulkan (NKRenderer).
 			bool glFlipYPosition = false;
+			// Desactive TOUT flip/negate Y automatique du vertex (GL flip ci-dessus
+			// ET negate Y des generateurs HLSL) : pour les VS qui rendent dans une
+			// cible NON presentee (atlas d'ombre...) avec des varyings — le
+			// heuristique inputs+varyings les classerait a tort. Active par le
+			// consommateur via le pragma commentaire « @gl-no-flip-y » (NKRenderer).
+			bool disableAutoYFlip = false;
 			// NK_GLSL : ne pas émettre layout(set=) — aplatir vers layout(binding=)
 			bool flattenGLSLBindings = true;
 			bool preferSpirvCrossForMSL = true;

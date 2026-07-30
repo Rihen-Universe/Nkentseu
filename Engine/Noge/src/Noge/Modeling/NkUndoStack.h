@@ -32,6 +32,13 @@
 #include "NKECS/NkECSDefines.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
+// [FIX 2026-07-24] `NkFunction<void()>` (utilisé plus bas par NkLambdaCommand)
+// n'était jamais inclus -- identifiant inconnu à la compilation sans cette
+// ligne. Le vrai type (template, spécialisé pour les signatures R(Args...))
+// vit dans NKContainers/Functional/NkFunction.h (PAS NKMemory/NkFunction.h,
+// qui ne définit que des utilitaires mémoire bas niveau du même nom de
+// fichier).
+#include "NKContainers/Functional/NkFunction.h"
 
 namespace nkentseu {
 

@@ -167,6 +167,19 @@ namespace nkentseu {
 					mAppMenuUser = user;
 				}
 
+				// REMPLACE ENTIEREMENT les menus par defaut du shell (Fichier/Affichage/
+				// Fenetre/Preferences) : l'app dessine TOUTE la barre (BeginMenu/MenuItem)
+				// dans ce hook — appele entre BeginMenuBar et EndMenuBar, apres mAppMenuFn
+				// (flags launcher). Si non pose, comportement historique conserve.
+				void SetMenuBar(NkEditorAppMenuFn fn, void *user = nullptr) noexcept {
+					mMenuBarFn = fn;
+					mMenuBarUser = user;
+				}
+
+				// Items « un par panneau enregistre » (ouvrir/fermer via FocusPanel) — la
+				// boucle du menu Affichage historique, exposee pour le menu app (Open View).
+				void DrawPanelsMenuItems() noexcept;
+
 				// Items injectes DANS le menu « Fichier » (avant Palette/Quitter) : l'app
 				// y met Nouveau fichier/projet/workspace, Enregistrer(/sous/tout), Deploiement.
 				void SetFileMenu(NkEditorAppMenuFn fn, void *user = nullptr) noexcept {
@@ -421,6 +434,8 @@ namespace nkentseu {
 				int32 mNumCommands = 0;
 				NkEditorAppMenuFn mAppMenuFn = nullptr;
 				void *mAppMenuUser = nullptr;
+				NkEditorAppMenuFn mMenuBarFn = nullptr; // barre COMPLETE fournie par l'app (SetMenuBar)
+				void *mMenuBarUser = nullptr;
 				NkEditorAppMenuFn mFileMenuFn = nullptr;
 				void *mFileMenuUser = nullptr;
 				NkEditorAppMenuFn mToolbarFn = nullptr;

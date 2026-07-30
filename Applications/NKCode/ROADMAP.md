@@ -273,18 +273,151 @@ Détail technique granulaire : `Kernel/Runtime/NKUI/ROADMAP_UI_REWRITE.private.m
 - 🟡 **Internationalisation (i18n)** : document de traductions multi-langue (démarré
   côté Paramètres › Général) ; 5 langues majeures + Ghomala' (bamiléké).
 
-## Phase 12 — Intégration Jenga « zéro-dépendance » (in-process) ⬜
+## Phase 12 — Intégration Jenga « zéro-dépendance » (in-process) 🟢 ← quasi terminée (30 juil 2026)
 > Objectif : **Jenga totalement intégré et fiable** dans NKCode, sans imposer
 > l'installation de Python à l'utilisateur, **en gardant le DSL Python**.
-- ⬜ **Embarquer libpython dans NKCode** (in-process) : exécuter Jenga **dans**
-  l'IDE via `libpython`/`pybind`, **sans spawn de `jenga.exe`** → plus rapide,
-  ultra-fiable, remontée directe des erreurs/logs (fin des popen fragiles).
-- ⬜ **CPython embeddable** bundlé (~10–15 Mo) : zéro install côté utilisateur,
-  plus de conflits de version.
+> **Décision Rihen (21 juil)** : Windows d'abord jusqu'au bout (le vrai cas
+> bloquant pour un testeur externe), puis extension Linux/macOS avec le même
+> design une fois la mécanique prouvée.
+- ✅ **Étape 1 (Windows)** : pybind11 v2.13.6 vendorisé (`Externals/Libs/pybind11/`,
+  header-only) + CPython 3.12.7 embeddable vendorisé (`Externals/Libs/PythonEmbed/` :
+  `runtime/` = distribution embeddable officielle à copier près de NKCode.exe,
+  `sdk/` = Python.h + libs de lien, jamais distribués). Câblé dans `NKCode.jenga`
+  (includedirs/libdirs/links, même patron que le bloc Vulkan) — build/lien OK.
+  ⚠️ Piège résolu : la `python312.lib` officielle est au format MSVC ; pour la
+  toolchain clang-mingw il a fallu générer `libpython312.a` via `objdump`
+  (exports du DLL) + `dlltool` (le `.def` et le `.a` sont dans `sdk/libs/`).
+  ⚠️ Piège résolu : dans un `.jenga`, `__file__` est RELATIF et le loader a déjà
+  fait chdir() dans le dossier du fichier → utiliser `os.getcwd()`, jamais
+  `os.path.abspath(__file__)` (chemin doublé sinon).
+- ✅ **Étape 2** : `Jenga/Core/Embed.py` — API programmatique structurée
+  (build/clean/test/info/compile_flags + dataclasses de résultat + sink de
+  progression accroché dans `Utils/Reporter.py` : `BuildLogger.SetTotal/
+  LogCompile/LogLink`, `BuildCoordinator.PrintHeader/MarkProjectBuilt`).
+  (PR Jenga #13.) ⚠️ Piège : `from ..Utils import Reporter` renvoie la CLASSE
+  (re-export) → importer `from ..Utils.Reporter import SetBuildSink`.
+- ✅ **Étape 3** : `NkEmbeddedJenga.h/.cpp` (NKCode) — thread worker unique
+  possédant l'interpréteur (`pybind11::scoped_interpreter`, init paresseuse,
+  finalize sur le même thread), `PyConfig` isolé (`isolated=1`,
+  `home=<exe>/tools/python-embed`, jamais le Python système), surface
+  compatible `NkProcess` (Start/Running/Done/Drain). Sink = `SimpleNamespace`
+  + `py::cpp_function` (pas besoin de `PYBIND11_EMBEDDED_MODULE`).
+  ⚠️ Piège : en Debug, `_DEBUG` bascule `pyconfig.h` sur l'ABI Py_DEBUG →
+  `#undef _DEBUG` avant les includes Python.
+- ✅ **Étape 4** : activation AUTOMATIQUE quand `tools/` est présent à côté de
+  l'exe (`HasProdTools`), variable `NKCODE_EMBEDDED_JENGA` = `0`/`1` pour
+  forcer. `DoRun()` reste sur sous-processus (on ne peut pas exécuter un exe
+  natif dans l'interpréteur) ; l'onglet terminal garde le vrai CLI.
+- ✅ **Étape 5** : packaging `scripts/MakeNkCodeDist.py` (runtime →
+  `<exe>/tools/python-embed/`, arbre `Jenga/` → `<exe>/tools/jenga-src/`,
+  llvm-mingw téléchargé + mis en cache) et **installeur Inno Setup**
+  (`--installer`) : FR+EN, `PrivilegesRequired=lowest` (installation par
+  utilisateur, **aucun UAC**), raccourcis, désinstalleur, entrée « Programmes
+  et fonctionnalités ». Version lue dans la source unique
+  `NkUi.h::NkCodeVersion()`. Vérifié : setup 24 Mo (`--skip-compiler`),
+  installation silencieuse, exe installé lancé depuis un CWD étranger.
+- 🐛 **Cause racine des retours bêta #9/#10 corrigée (30 juil)** : `ExeDir()`
+  était **déduit de `argv[0]`** — qui n'a pas de dossier si l'exe est lancé via
+  le PATH, et est relatif s'il est lancé depuis un autre dossier. `tools/`
+  n'était alors pas trouvé → mode embarqué **désactivé** → repli sur un `jenga`
+  du PATH, absent chez un testeur sans Python. Remplacé par
+  `NkPath::GetExecutableDirectory()` (API OS, déjà multi-plateforme), calculé en
+  tête de `main` ; polices/textures/`icons.cfg` ont aussi reçu un candidat
+  relatif à l'exécutable. **Règle** : jamais de chemin de ressource déduit de
+  `argv[0]` ou du CWD dans une application distribuée.
+  Un **diagnostic de démarrage** (panneau Sortie) affiche désormais le dossier
+  de l'exécutable et « Jenga EMBARQUÉ actif » / « INACTIF : raison ».
+- 🐛 **2ᵉ cause de #9/#10 : toutes les commandes ne passaient PAS par
+  l'interpréteur embarqué (30 juil)** — seuls *Construire* et *Recompiler* le
+  faisaient. `info` (donc **la liste des projets**), `clean`, `test`, `run`,
+  `compile-flags` et le clonage d'exemples repartaient en sous-processus sur un
+  `jenga` du PATH. Sans Python, le workspace s'ouvrait **sans aucun projet** :
+  plus rien n'était déclenchable, d'où « pas utilisable avec les boutons
+  dédiés ». Corrigé côté Jenga par `Embed.RunCommand(argv, sink)` qui délègue au
+  **même dispatcher que la CLI** (`Jenga.Commands.execute_command`) — donc
+  aucune liste à maintenir et aucune commande ne peut être oubliée (PR Jenga
+  #16) ; côté NKCode, `ParseJengaCmd` route les commandes connues vers leurs
+  entrées dédiées et **tout le reste** vers un `cli` générique. `jenga run`
+  transmet en plus des **arguments** à l'exécutable (champ *Arguments* de la
+  barre d'outils, mémorisé par workspace) et son chemin embarqué est décomposé
+  en 3 étapes, le worker n'ayant **qu'un créneau** (globals de `Core/Api.py`
+  non réentrants). Un **shim `tools/jenga`** rend enfin la commande utilisable
+  dans le terminal intégré sans Python — via le mécanisme `._pth` de CPython
+  embeddable, car `PYTHONPATH` et les variables d'environnement sont ignorés
+  dès qu'un `._pth` est présent (et `-I` les ignore aussi).
+- 🐛 **3ᵉ cause de #9/#10 : `import Jenga` était CASSÉ dans la distribution
+  (30 juil)** — `Unitest` était exclu du filtre de copie de
+  `scripts/MakeNkCodeDist.py`, alors que `Jenga/__init__.py` fait
+  `from . import Unitest`. **Aucun** `import Jenga` ne fonctionnait dans
+  l'archive publiée. Invisible en développement (le dépôt complet est là).
+  **Règle** : un filtre d'empaquetage doit être validé par un `import` réel
+  depuis la distribution, avec un environnement vidé des variables Python.
+- ⬜ **Étape 6 (multi-plateforme)** : Linux/macOS — pas d'équivalent officiel du
+  package embeddable hors Windows ; approche à trancher (python-build-standalone
+  vendorisé, ou repli détection Python système avec `python3-dev`).
 - ⬜ (Optionnel, côté Jenga) **cœur natif C++** pour le graphe de build/cache, le
   `.jenga` restant le frontend Python via l'interpréteur embarqué.
-- 🎯 **Jalon** : `Construire` lance Jenga in-process, aucun Python système requis.
+- ✅ **Chaîne complète vérifiée en environnement neutralisé (30 juil)** : la
+  distribution a été exercée avec **le seul** Python embarqué, dans un
+  processus dont l'environnement est **vidé** (aucune variable `PYTHON*`) et le
+  `PATH` réduit à `System32` + `tools/compilers/llvm-mingw/bin` + `tools/` —
+  soit exactement ce que `NkEmbeddedJenga::Configure` donne au terminal
+  intégré. `where python` ne trouve rien, et pourtant : `import Jenga` (2.0.9,
+  `sys.prefix` = `tools/python-embed`), `import Jenga.Core.Embed`,
+  `python -m Jenga --version`, le shim `tools/jenga.cmd`, `jenga info`, puis
+  **`jenga build` sur un workspace sans `usetoolchain()`** — le compilateur
+  embarqué est bien **détecté** (`Toolchain: clang-mingw`), `BUILD COMPLETED`,
+  l'exe produit s'exécute et **reçoit ses arguments**. Bancs de test :
+  `TestDistSansPython.ps1` / `TestBuildSansPython.ps1`.
+- 🎯 **Jalon restant** : test sur une machine/VM **réellement** sans Python ni
+  compilateur (registre, DLL système, `App Paths`…). L'essai ci-dessus élimine
+  la contamination par l'environnement et le `PATH`, mais pas ce qu'une
+  installation Python laisse ailleurs dans le système. (La bêta.1 a été
+  téléchargée 15 fois, mais avec le bug `argv[0]` ci-dessus.)
   (Voir aussi Jenga `ROADMAP.md` § 6.5.)
+
+## Phase 13 — Mises à jour in-app (NKCode, Jenga, outils embarqués) 🟡 ← 1re tranche faite (30 juil 2026)
+> Demande Rihen (21 juil 2026) : l'utilisateur doit être **notifié** quand une
+> mise à jour existe (NKCode lui-même, Jenga embarqué, runtime Python, futurs
+> compilateurs bundlés) ; s'il **accepte**, on met à jour **sans réinstaller**
+> l'application complète, puis on **redémarre** NKCode proprement.
+>
+> **Choix d'implémentation** : on ne remplace **pas** les fichiers à la main.
+> NKCode étant distribué avec un vrai installeur Inno Setup (Phase 12), on
+> télécharge le nouveau `setup.exe` et on le lance : Inno reconnaît son `AppId`,
+> met à jour **en place** (sans désinstallation) puis relance NKCode via sa
+> section `[Run]`. C'est le patron des applications de bureau réelles et c'est
+> bien plus sûr qu'un remplacement à chaud (l'exe et les DLL sont **verrouillés**
+> par le processus en cours ; une coupure laisserait une installation partielle).
+- ✅ **Vérification de version distante** (`Shell/NkUpdate.h`) : appel à l'API
+  GitHub Releases du dépôt public `Rihen-Universe/NKCode-Beta` via `curl` lancé
+  par `NkProcess` → **asynchrone**, l'interface ne gèle jamais, `-m 20` borne
+  l'attente (machine hors ligne = échec silencieux, pas d'état bloqué).
+- ✅ **Comparaison de versions tolérante** (`CompareVersions`) : gère
+  `v0.1.0-beta`, `0.1.0-beta.2`, `1.2` ; une version finale est considérée plus
+  récente qu'une pré-version de mêmes nombres. Version locale lue dans la source
+  unique `NkUi.h::NkCodeVersion()`.
+- ✅ **Vérification automatique une fois par session** + entrée de menu
+  **Aide → Rechercher les mises à jour** qui porte l'état (« Recherche… »,
+  « Version X disponible », « NKCode est à jour (0.1.0-beta) », ou l'erreur).
+  Un clic quand une version existe lance téléchargement puis installation.
+- ✅ **Téléchargement + lancement de l'installeur** (`/SILENT /NORESTART`) puis
+  `RequestClose()` : NKCode se ferme pour libérer ses fichiers, Inno met à jour
+  et relance. La session (onglets, contenu non sauvegardé) est déjà persistée
+  dans `.nkcode/`, donc rien n'est perdu.
+- ⬜ **Notification visuelle** plus visible qu'une entrée de menu (bandeau ou
+  `NkModal` « Mise à jour disponible — Mettre à jour / Plus tard ») + affichage
+  des notes de version récupérées avec la release.
+- ⬜ **Mise à jour granulaire des composants** `tools/*` (Jenga, python-embed)
+  sans re-livrer NKCode.exe : versionnage indépendant (amorcé côté
+  `Externals/Libs/PythonEmbed/VERSION`, à faire pour `tools/jenga-src/`) — utile
+  pour pousser un correctif Jenga seul.
+- ⬜ Multi-plateforme : équivalent Linux/macOS (paquet système ou AppImage
+  auto-update), à traiter avec l'étape 6 de la Phase 12.
+- 🎯 **Jalon** : un testeur reçoit la notification, clique Accepter, NKCode
+  redémarre à jour — sans réinstallation manuelle. *(Chaîne implémentée ;
+  vérifiable de bout en bout seulement après publication de deux releases
+  successives portant un installeur.)*
 
 ## Phase 10 — Extensions (NKCode devient une plateforme) ⬜
 - ⬜ **API d'extension** + **points de contribution** (commandes, panneaux, langages, **nœuds**, thèmes).
@@ -314,6 +447,57 @@ Détail technique granulaire : `Kernel/Runtime/NKUI/ROADMAP_UI_REWRITE.private.m
 - ⬜ **Orchestration visuelle** : nœuds agent/outil/condition/boucle sur le substrat **Graph** (+ équivalent texte).
 - ⬜ Plus tard : **modèles LOCAUX** via **NKAI/NKInfer** (assistant 100 % local) ; permissions/garde-fous fins.
 - ⬜ 🎯 **Jalon** : décrire une tâche → l'assistant édite, build et corrige ; un pipeline d'agents câblé visuellement s'exécute.
+
+---
+
+## Backlog — demandes de Rihen à traiter plus tard
+
+- ⬜ **Saisie du chat IA sur le modèle de l'éditeur** (30 juil 2026). Le brouillon
+  de chat est un tableau C de taille fixe, imposé par le widget NKGui
+  `InputTextMultiline` (convention ImGui : il écrit dans un tampon fourni par
+  l'appelant). L'éditeur de code, lui, n'a aucune borne : stockage
+  `NkVector<NkVector<char>>` et rendu de la seule fenêtre visible
+  (`firstVis = (scrollY - topPad) / lineH`, `lastVis = firstVis + viewH / lineH + 2`
+  — `NkCodeEditor.h`). **Remarque de Rihen** : la saisie du chat devrait faire
+  pareil — texte illimité, on ne dessine que ce que le défilement montre. Cela
+  demande soit un widget NKGui acceptant un stockage dynamique, soit la
+  réutilisation du composant éditeur dans le champ de chat. Palliatif en place :
+  les prompts composés ne transitent plus par le tampon (voir `mOut` dans
+  `NkAiPanel.h`), tampon porté à 64 Ko, compteur de caractères visible.
+- ⬜ **Afficheur PDF en LECTURE** (30 juil 2026, demande de Rihen ; l'édition
+  ne l'intéresse pas, la lecture si). Rien n'existe aujourd'hui — vérifié, la
+  seule occurrence de « pdf » dans NKCode est un commentaire de mise en page
+  Markdown. **Priorité : après la bêta.2** (décision Rihen).
+
+  **Ce qu'on possède déjà** — l'inventaire change complètement l'estimation :
+
+  | Brique | État |
+  |---|---|
+  | `FlateDecode` (filtre de flux dominant) | ✅ `NkDeflate::Decompress` (codec PNG) |
+  | `DCTDecode` (images) | ✅ codec JPEG de NKImage |
+  | Polices embarquées | ✅ `NkFontParser` : TrueType `glyf` **et** CFF/Type 2 charstrings (interpréteur intégré), cmap 4 et 12 |
+  | Rastérisation de contours | ✅ `NkFontRasterizer` (Bézier quadratiques et cubiques) |
+
+  Le moteur de police — que j'avais annoncé comme l'obstacle principal — est
+  donc **déjà là**, et c'était la brique la plus coûteuse.
+
+  **Ce qui reste à écrire** : lexer/parseur d'objets PDF, tables `xref`
+  **y compris xref streams et object streams** (PDF ≥ 1.5, majoritaires
+  aujourd'hui), arbre de pages, interpréteur de flux de contenu (opérateurs
+  graphiques `q/Q/cm/re/m/l/c/f/S` + texte `BT/ET/Tf/Td/Tm/Tj/TJ`), pont
+  « `FontFile2`/`FontFile3` → `NkFontParser` », encodages (`Differences`) et
+  CMaps CID→GID, remplissage de chemins (winding non-zero et even-odd) et
+  clipping.
+
+  **Risques identifiés** (les parties non bornées) : les encodages/CMaps, les
+  espaces colorimétriques, la transparence, et surtout les **PDF réels mal
+  formés** — un afficheur qui échoue sur certains fichiers peut être pire que
+  pas d'afficheur. Prévoir un repli explicite « ce PDF n'est pas affichable »
+  plutôt qu'une page blanche.
+
+- ⬜ **Afficheurs Word / Excel / PowerPoint** — reportés, l'intérêt porte
+  d'abord sur le PDF. Ce sont des archives ZIP d'XML (OOXML) : la lecture seule
+  est atteignable, l'édition non à court terme.
 
 ---
 

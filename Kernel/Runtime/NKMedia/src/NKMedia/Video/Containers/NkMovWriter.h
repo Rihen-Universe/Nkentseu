@@ -25,8 +25,16 @@ namespace nkentseu {
 				// Ouvre `path` (.mov/.mp4). Piste vidéo MJPEG. fps = num/den.
 				bool Open(const char *path, int32 width, int32 height, int32 fpsNum, int32 fpsDen);
 
+				// Active une piste AUDIO PCM s16 little-endian (sample entry 'sowt'). À appeler
+				// avant le premier WriteAudio (Open ou après — la piste part dans moov à Close).
+				void SetAudio(int32 sampleRate, int32 channels);
+
 				// Écrit une image JPEG déjà encodée (`data`/`size`) comme un échantillon vidéo.
 				bool WriteFrame(const uint8 *data, uint32 size, bool keyframe);
+
+				// Écrit `frames` trames PCM s16 entrelacées comme UN chunk audio dans mdat
+				// (entrelacé avec les WriteFrame : ordre du fichier = ordre d'appel). Requiert SetAudio.
+				bool WriteAudio(const int16 *interleaved, uint32 frames);
 
 				// Écrit moov + tables et ferme.
 				bool Close();
@@ -45,6 +53,13 @@ namespace nkentseu {
 				int32 mWidth = 0, mHeight = 0, mFpsNum = 30, mFpsDen = 1;
 				nk_int64 mMdatSizePos = 0;
 				nk_int64 mMdatStart = 0;
+
+				// Piste audio PCM 'sowt' optionnelle (chunks entrelacés dans mdat).
+				int32 mAudioRate = 0; // 0 = pas d'audio
+				int32 mAudioChannels = 0;
+				NkVector<uint32> mAudioChunkOff;	// offset absolu de chaque chunk audio
+				NkVector<uint32> mAudioChunkFrames; // trames PCM par chunk
+				uint64 mAudioFrames = 0;			// total de trames PCM
 		};
 
 	} // namespace media

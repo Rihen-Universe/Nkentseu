@@ -82,29 +82,19 @@ namespace nkentseu {
 			const int32 channels = (int32)head[9];
 			const int32 preSkip = (int32)U16LE(head + 10);
 			const int16 gainQ8 = (int16)U16LE(head + 16);
-			if (channels != 1) {
-				// Le décodeur NkOpusDecoder est mono pour l'instant (V1).
-				SetError(outError, "Opus stereo pas encore supporte (decodeur mono)");
+			if (channels != 1 && channels != 2) {
+				// Mapping multicanal (>2) non géré.
+				SetError(outError, "Opus multicanal (>2) pas supporte");
 				return false;
 			}
 
 			// Paquet 1 : OpusTags (ignoré). Paquets 2.. : audio.
 			NkOpusDecoder dec;
-			dec.Init(1);
+			dec.Init(channels);
 
-			int16 frame[960 * 4]; // marge : paquets multi-trames (codes 1-3)
+			int16 frame[5760 * 2]; // marge : paquets multi-trames (codes 1-3, 120 ms) × 2 canaux
 			int64 lastGranule = -1;
 			for (usize p = 2; p < packets.Size(); ++p) {
-				// Mode hybride (TOC config 12-15) : pas encore décodé — refuser
-				// proprement plutôt que de sortir un signal faux en silence.
-				if (packets[p].size > 0) {
-					const uint8 config = (uint8)(data[packets[p].offset] >> 3);
-					if (config >= 12 && config <= 15) {
-						outPcm.Clear();
-						SetError(outError, "mode Opus hybride (SILK+CELT) pas encore supporte");
-						return false;
-					}
-				}
 				const int32 n = dec.DecodePacket(data + packets[p].offset, (int32)packets[p].size, frame);
 				for (int32 i = 0; i < n; ++i)
 					outPcm.PushBack(frame[i]);
@@ -112,23 +102,25 @@ namespace nkentseu {
 					lastGranule = packets[p].granule;
 			}
 			if (outPcm.IsEmpty()) {
-				SetError(outError, "aucun echantillon decode (mode hybride non supporte ?)");
+				SetError(outError, "aucun echantillon decode");
 				return false;
 			}
 
-			// Pre-skip : les preSkip premiers échantillons sont du warm-up.
-			if (preSkip > 0 && (usize)preSkip < outPcm.Size()) {
-				outPcm.Erase(outPcm.Begin(), outPcm.Begin() + preSkip);
+			// Pre-skip : les preSkip premières TRAMES (48 kHz, ×canaux en entrelacé)
+			// sont du warm-up d'encodeur.
+			const usize preVals = (usize)preSkip * (usize)channels;
+			if (preSkip > 0 && preVals < outPcm.Size()) {
+				outPcm.Erase(outPcm.Begin(), outPcm.Begin() + preVals);
 			} else if (preSkip > 0) {
 				outPcm.Clear();
 				SetError(outError, "pre-skip >= flux decode");
 				return false;
 			}
 
-			// Trim : la granulepos finale = nombre total d'échantillons (pre-skip
-			// inclus) — coupe le padding du dernier paquet.
+			// Trim : la granulepos finale = nombre total de TRAMES (pre-skip inclus)
+			// — coupe le padding du dernier paquet.
 			if (lastGranule > 0) {
-				const int64 valid = lastGranule - (int64)preSkip;
+				const int64 valid = (lastGranule - (int64)preSkip) * channels;
 				if (valid > 0 && (usize)valid < outPcm.Size())
 					outPcm.Resize((usize)valid);
 			}
@@ -142,7 +134,7 @@ namespace nkentseu {
 				}
 			}
 
-			outChannels = 1;
+			outChannels = channels;
 			outSampleRate = 48000;
 			return true;
 		}

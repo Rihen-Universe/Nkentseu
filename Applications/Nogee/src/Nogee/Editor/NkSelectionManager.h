@@ -1,21 +1,21 @@
 #pragma once
 // =============================================================================
-// Noge/Editor/NkSelectionManager.h
+// Nogee/Editor/NkSelectionManager.h
 // =============================================================================
 // Gère l'entité sélectionnée dans l'éditeur.
-// Notifie les panels via EventBus quand la sélection change.
+// Notifie via un callback direct quand la sélection change (le bus
+// d'événements Noge — NkEventBus — est réservé aux NkEvent du framework).
 // Support multi-sélection (Ctrl+clic).
 // =============================================================================
 
 #include "NKCore/NkTypes.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKECS/NkECSDefines.h"
-#include "Noge/Core/EventBus.h"
 
 namespace nkentseu {
-	namespace Noge {
+	namespace noge {
 
-		// Événement émis sur l'EventBus quand la sélection change
+		// Donnée transmise au callback quand la sélection change
 		struct NkSelectionChangedEvent {
 				ecs::NkEntityId primary; // entité principale (dernière sélectionnée)
 				nk_uint32 count;		 // nombre d'entités sélectionnées
@@ -23,7 +23,15 @@ namespace nkentseu {
 
 		class NkSelectionManager {
 			public:
+				using NkSelectionChangedFn = void (*)(void *user, const NkSelectionChangedEvent &e);
+
 				NkSelectionManager() = default;
+
+				// ── Notification ──────────────────────────────────────────────────
+				void SetOnChanged(NkSelectionChangedFn fn, void *user) noexcept {
+					mOnChanged = fn;
+					mUser = user;
+				}
 
 				// ── Sélection ─────────────────────────────────────────────────────
 				void Select(ecs::NkEntityId id) noexcept;		// sélection simple
@@ -54,12 +62,16 @@ namespace nkentseu {
 
 			private:
 				void Notify() noexcept {
-					EventBus::Dispatch(NkSelectionChangedEvent{mPrimary, Count()});
+					if (mOnChanged)
+						mOnChanged(mUser, NkSelectionChangedEvent{mPrimary, Count()});
 				}
 
 				NkVector<ecs::NkEntityId> mSelected;
 				ecs::NkEntityId mPrimary = ecs::NkEntityId::Invalid();
+
+				NkSelectionChangedFn mOnChanged = nullptr;
+				void *mUser = nullptr;
 		};
 
-	} // namespace Noge
+	} // namespace noge
 } // namespace nkentseu

@@ -178,11 +178,15 @@ with project("NKRHI"):
 
     with filter("system:Android"):
         usetoolchain("android-ndk")
+        # NK_OPENGL_ES est INDEPENDANT de Vulkan : le backend GL de NKRHI doit
+        # TOUJOURS prendre ses chemins GLES sur Android (sinon il reference les
+        # symboles glad desktop gl.c — glad_debug_* — jamais linkes ici).
+        defines(["NK_OPENGL_ES"])
         _ANDROID_LINKS = ["android", "log", "EGL", "GLESv3"]
         if WANT_VULKAN:
             _ANDROID_LINKS.append("vulkan")
             _ANDROID_LINKS.extend(GLSLANG_LIBS_UNIX)
-            defines(["VK_USE_PLATFORM_ANDROID_KHR", "NK_OPENGL_ES"] )
+            defines(["VK_USE_PLATFORM_ANDROID_KHR"])
         links(_ANDROID_LINKS)
 
     # ===== HarmonyOS ==============================================================
@@ -191,11 +195,13 @@ with project("NKRHI"):
         pchheader("")
         pchsource("")
         usetoolchain("ohos-ndk")
-        _HARMONY_LINKS = ["hilog_ndk.z", "EGL", "GLESv3"]
+        # Meme logique qu'Android : chemins GLES du backend GL toujours actifs.
+        defines(["NK_OPENGL_ES"])
+        _HARMONY_LINKS = ["hilog_ndk.z", "EGL", "GLESv3", "native_window"]
         if WANT_VULKAN:
             _HARMONY_LINKS.append("vulkan")
             _HARMONY_LINKS.extend(GLSLANG_LIBS_UNIX)
-            defines(["VK_USE_PLATFORM_OHOS_KHR", "NK_OPENGL_ES"] )
+            defines(["VK_USE_PLATFORM_OHOS_KHR"])
         links(_HARMONY_LINKS)
 
     with filter("system:iOS"):
@@ -207,6 +213,14 @@ with project("NKRHI"):
 
     with filter("system:Web"):
         usetoolchain("emscripten")
+        # WebGL2 = GLES3 : sans ce define, le backend GL compile ses chemins
+        # desktop (DSA, indirect, glPolygonMode...) et le link wasm echoue
+        # (NKGlad ne compile que gles2.c sur Web, pas gl.c).
+        defines(["NK_OPENGL_ES"])
+        # Pas de Vulkan dans un navigateur (aucun loader natif) : meme motif
+        # d'exclusion que iOS/Metal plus haut, sinon le backend Vulkan reference
+        # des symboles vk* jamais linkes sur wasm (undefined symbol au link).
+        excludefiles(["src/NKRHI/Vulkan/**"])
 
     with filter("system:XboxSeries || system:XboxOne"):
         usetoolchain("xbox-clang")

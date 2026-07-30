@@ -1,10 +1,10 @@
 #include "NkGizmoSystem.h"
-#include "NKECS/Components/Core/NkCoreComponents.h"
+#include "Noge/ECS/Components/Core/NkCoreComponents.h"
 
 using namespace nkentseu::math;
 
 namespace nkentseu {
-	namespace Noge {
+	namespace noge {
 
 		static const NkVec4f kColorX = {1.f, 0.2f, 0.2f, 1.f};
 		static const NkVec4f kColorY = {0.2f, 1.f, 0.2f, 1.f};
@@ -25,11 +25,11 @@ namespace nkentseu {
 			}
 
 			ecs::NkEntityId id = sel.Primary();
-			auto *t = world.Get<ecs::NkTransformComponent>(id);
+			auto *t = world.Get<ecs::NkTransform>(id);
 			if (!t)
 				return;
 
-			mEntityPos = t->WorldPosition();
+			mEntityPos = t->GetWorldPosition();
 
 			// Screen-space scale pour que le gizmo reste constant en pixels
 			NkVec4f clipPos = cam.viewProjMatrix * NkVec4f(mEntityPos.x, mEntityPos.y, mEntityPos.z, 1.f);
@@ -83,14 +83,14 @@ namespace nkentseu {
 						break;
 				}
 				// Distance le long de l'axe (projection du rayon)
-				float32 denom = NkDot(ray.dir, axisDir);
+				float32 denom = ray.dir.Dot(axisDir);
 				if (NkAbs(denom) > 1e-5f) {
-					float32 tHit = NkDot(mEntityPos - ray.origin, axisDir) / denom;
+					float32 tHit = (mEntityPos - ray.origin).Dot(axisDir) / denom;
 					NkVec3f hit = ray.origin + ray.dir * tHit;
 					NkVec3f delta = hit - mDragStart;
-					float32 proj = NkDot(delta, axisDir);
+					float32 proj = delta.Dot(axisDir);
 					if (mode == NkGizmoMode::Translate) {
-						t->SetPosition(mDragEntityOrigin + axisDir * proj);
+						t->SetLocalPosition(mDragEntityOrigin + axisDir * proj);
 					}
 				}
 			}
@@ -102,8 +102,8 @@ namespace nkentseu {
 				NkVec4f col = AxisColor(a, mHoveredAxis == a || mActiveAxis == a);
 				drawLines.PushBack({o, end, col, 2.f});
 				// Flèche (simplifiée : cone de 3 segments)
-				NkVec3f d = NkNormalize(end - o) * (s * 0.15f);
-				NkVec3f p = NkNormalize(end - o);
+				NkVec3f d = (end - o).Normalized() * (s * 0.15f);
+				NkVec3f p = (end - o).Normalized();
 				// On fait juste un X en bout pour symboliser la tête
 				drawArrows.PushBack({end, end + d, col, 3.f});
 			};
@@ -117,8 +117,8 @@ namespace nkentseu {
 			constexpr int N = 16;
 			auto addCircle = [&](NkGizmoAxis a, NkVec4f col) {
 				for (int i = 0; i < N; ++i) {
-					float32 a0 = (float32)i / N * NkTwoPi;
-					float32 a1 = (float32)(i + 1) / N * NkTwoPi;
+					float32 a0 = (float32)i / N * constants::kTauF;
+					float32 a1 = (float32)(i + 1) / N * constants::kTauF;
 					NkVec3f p0, p1;
 					switch (a) {
 						case NkGizmoAxis::X:
@@ -148,18 +148,18 @@ namespace nkentseu {
 
 		NkGizmoAxis NkGizmoSystem::HitTest(const NkEditorCamera::Ray &ray, const NkVec3f &o, float32 s) const noexcept {
 			auto distToLine = [&](NkVec3f end) -> float32 {
-				NkVec3f lineDir = NkNormalize(end - o);
+				NkVec3f lineDir = (end - o).Normalized();
 				NkVec3f w = o - ray.origin;
-				float32 b = NkDot(lineDir, ray.dir);
+				float32 b = lineDir.Dot(ray.dir);
 				float32 denom = 1.f - b * b;
 				if (NkAbs(denom) < 1e-6f)
 					return 1e9f;
-				float32 tRay = (NkDot(w, ray.dir) - b * NkDot(w, lineDir)) / denom;
-				float32 tLine = (NkDot(w, lineDir) - b * NkDot(w, ray.dir)) / denom;
+				float32 tRay = (w.Dot(ray.dir) - b * w.Dot(lineDir)) / denom;
+				float32 tLine = (w.Dot(lineDir) - b * w.Dot(ray.dir)) / denom;
 				tLine = NkClamp(tLine, 0.f, s);
 				NkVec3f closest = ray.origin + ray.dir * tRay;
 				NkVec3f linePt = o + lineDir * tLine;
-				return NkLength(closest - linePt);
+				return (closest - linePt).Len();
 			};
 
 			float32 dX = distToLine(o + NkVec3f(s, 0, 0));
@@ -191,5 +191,5 @@ namespace nkentseu {
 			}
 		}
 
-	} // namespace Noge
+	} // namespace noge
 } // namespace nkentseu

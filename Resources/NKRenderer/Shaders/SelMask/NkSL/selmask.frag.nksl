@@ -1,0 +1,25 @@
+// selmask.frag.nksl — NKRenderer — Passe MASQUE de sélection (silhouette).
+// Écrit du blanc plein : le canal rouge de la cible (R8) porte le masque
+// (1 = pixel sélectionné, 0 = fond). Consommé par seloutline.frag.nksl.
+@location(0) out vec4 oColor;
+
+// MEME bloc que dans selmask.vert, a l'IDENTIQUE. Sur le chemin OpenGL les deux
+// etages d'un meme programme doivent declarer un bloc uniforme de facon
+// rigoureusement identique, sinon le LINK echoue (« struct type mismatch »).
+// On lit le niveau ici plutot que de le faire transiter par un varying : pas
+// d'interpolation, pas de location a faire correspondre entre etages.
+layout(push_constant) uniform PC {
+    mat4 model;
+    vec4 level;
+} pc;
+
+@stage(fragment)
+@entry
+void main() {
+    // Le canal rouge porte le NIVEAU, plus seulement une presence :
+    //   1.0 = objet ACTIF (dernier selectionne)
+    //   0.5 = objet selectionne non actif
+    //   0.0 = fond
+    // seloutline.frag lit ce niveau pour choisir la couleur du lisere.
+    oColor = vec4(pc.level.x, pc.level.x, pc.level.x, 1.0);
+}

@@ -95,6 +95,15 @@ namespace nkentseu {
 						return;
 					anim += dt;
 					stepTimer += dt;
+					// Dossier SANS workspace Jenga (mode edition simple) : rien a analyser
+					// (LoadProjects() est deja no-op) -> on traverse juste les etapes
+					// jusqu'a la fin, sans jamais risquer le garde-fou 45s de l'etape 1
+					// (qui suppose un `jenga info` reellement lance).
+					if (!st->HasWorkspace()) {
+						if (stepTimer > 0.25f)
+							finished = true;
+						return;
+					}
 					st->LoadProjects(); // DEMARRE `jenga info` (idempotent) — sinon rien ne le lance pendant le
 										// chargement
 					st->PollProjects(); // puis draine chaque frame

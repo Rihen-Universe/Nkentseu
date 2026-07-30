@@ -161,7 +161,7 @@ namespace nkentseu {
 			{
 				var sel = UTF8ToString($0);
 				var target = document.querySelector(sel);
-				if (!target &&typeof Module != = 'undefined' && Module['canvas']) {
+				if (!target &&typeof Module !== 'undefined' && Module['canvas']) {
 					target = Module['canvas'];
 				}
 				if (!target || target.__nkDropBridgeInstalled) {
@@ -187,16 +187,16 @@ namespace nkentseu {
 
 						var types = ev.dataTransfer.types || [];
 						for (var i = 0; i < types.length; ++i) {
-							if (types[i] == = "text/plain" || types[i] == = "text/uri-list") {
+							if (types[i] === "text/plain" || types[i] === "text/uri-list") {
 								hasText = 1;
 							}
-							if (types[i].indexOf("image/") == = 0) {
+							if (types[i].indexOf("image/") === 0) {
 								hasImage = 1;
 							}
 						}
 					}
 
-					if (typeof Module != = 'undefined' && Module['_NkEmscriptenOnDragEnter']) {
+					if (typeof Module !== 'undefined' && Module['_NkEmscriptenOnDragEnter']) {
 						Module._NkEmscriptenOnDragEnter(ev.clientX, ev.clientY, count, hasText, hasImage);
 					}
 				};
@@ -204,7 +204,7 @@ namespace nkentseu {
 				target.__nkDragOverHandler = function(ev) {
 					ev.preventDefault();
 					ev.stopPropagation();
-					if (typeof Module != = 'undefined' && Module['_NkEmscriptenOnDragOver']) {
+					if (typeof Module !== 'undefined' && Module['_NkEmscriptenOnDragOver']) {
 						Module._NkEmscriptenOnDragOver(ev.clientX, ev.clientY);
 					}
 				};
@@ -212,7 +212,7 @@ namespace nkentseu {
 				target.__nkDragLeaveHandler = function(ev) {
 					ev.preventDefault();
 					ev.stopPropagation();
-					if (typeof Module != = 'undefined' && Module['_NkEmscriptenOnDragLeave']) {
+					if (typeof Module !== 'undefined' && Module['_NkEmscriptenOnDragLeave']) {
 						Module._NkEmscriptenOnDragLeave();
 					}
 				};
@@ -221,11 +221,11 @@ namespace nkentseu {
 					ev.preventDefault();
 					ev.stopPropagation();
 
-					if (typeof Module != = 'undefined' && Module['_NkEmscriptenOnDragLeave']) {
+					if (typeof Module !== 'undefined' && Module['_NkEmscriptenOnDragLeave']) {
 						Module._NkEmscriptenOnDragLeave();
 					}
 
-					var hasCcall = (typeof Module != = 'undefined' &&typeof Module.ccall == = 'function');
+					var hasCcall = (typeof Module !== 'undefined' &&typeof Module.ccall === 'function');
 
 					if (hasCcall && ev.dataTransfer) {
 						var text = ev.dataTransfer.getData("text/plain") || "";
@@ -260,7 +260,7 @@ namespace nkentseu {
 			{
 				var sel = UTF8ToString($0);
 				var target = document.querySelector(sel);
-				if (!target &&typeof Module != = 'undefined' && Module['canvas']) {
+				if (!target &&typeof Module !== 'undefined' && Module['canvas']) {
 					target = Module['canvas'];
 				}
 				if (!target || !target.__nkDropBridgeInstalled) {

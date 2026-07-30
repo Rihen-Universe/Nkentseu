@@ -140,6 +140,34 @@ namespace nkentseu {
 					return mCtx;
 				}
 
+				// ── TAA (Phase L, 2026-07-30) ─────────────────────────────────
+				// Jitter de projection SUB-PIXEL : a chaque frame la projection est
+				// decalee d'une fraction de pixel (suite de Halton 2,3 sur 8 phases).
+				// Seul, ce decalage est invisible (il reste dans le pixel) ; combine
+				// a l'accumulation temporelle du TAA il realise un vrai
+				// super-echantillonnage, la ou le FXAA ne fait que flouter un
+				// contraste. Sans TAA actif, laisser a false.
+				void SetTAAJitterEnabled(bool e) noexcept {
+					mTAAJitter = e;
+				}
+
+				bool IsTAAJitterEnabled() const noexcept {
+					return mTAAJitter;
+				}
+
+				// Matrices EXACTEMENT celles utilisees pour rendre la frame courante
+				// (jitter TAA ET correction clip-Z [0,1] par backend comprises). Le
+				// TAA doit reprojeter avec ces matrices-la : les recalculer depuis la
+				// camera dupliquerait ces deux corrections et derivereait
+				// silencieusement (la profondeur lue vient de CETTE projection).
+				const NkMat4f &GetRenderViewProj() const noexcept {
+					return mRenderViewProj;
+				}
+
+				const NkMat4f &GetRenderInvViewProj() const noexcept {
+					return mRenderInvViewProj;
+				}
+
 				// Accesseurs pour NkVirtualShadowMaps (ring UBO multi-frame).
 				uint32 GetFrameSlot() const noexcept {
 					return mFrameSlot;
@@ -164,6 +192,31 @@ namespace nkentseu {
 					return mWireframe;
 				}
 
+				// ── WIREFRAME N-GON (sans diagonales de triangulation) ──────────────
+				// Le wireframe RASTERISEUR (SetWireframe) ne connait que des triangles : il
+				// dessine donc la DIAGONALE de chaque quad, ce que Blender ne montre pas.
+				// Ce mode-ci remplace le rendu des maillages opaques/instancies/skinnes par
+				// un BATCH PERSISTANT d'aretes N-GON fourni par l'application
+				// (SetNgonWireLines) : les aretes d'une primitive sont calculees UNE fois
+				// (quadify) puis re-emises pour chacune de ses instances, et le buffer GPU
+				// n'est reecrit que pour les objets dont la transform a change.
+				// LIMITE INTRINSEQUE (vraie aussi dans Blender) : un maillage purement
+				// TRIANGULE n'a aucune diagonale a cacher — toutes ses aretes sont reelles.
+				void SetNgonWireframe(bool e) {
+					mNgonWire = e;
+				}
+
+				bool IsNgonWireframe() const {
+					return mNgonWire;
+				}
+
+				// Batch complet (vertices = { x,y,z, r,g,b,a }, stride 28) — (re)cree le buffer.
+				void SetNgonWireLines(const float *verts, uint32 vertexCount);
+				// Mise a jour PARTIELLE d'une tranche (un objet qui a bouge) : aucune
+				// reconstruction du reste du batch.
+				void UpdateNgonWireLines(const float *verts, uint32 firstVertex, uint32 vertexCount);
+				void ClearNgonWire();
+
 				// Mode de shading (indépendant du wireframe) : 0=RENDERED (PBR éclairé),
 				// 1=SOLID/UNLIT (plat, phare caméra, sans lumières de scène). Écrit dans
 				// le CameraUBO (uCam.viewMode) et consommé par pbr.frag.
@@ -175,9 +228,12 @@ namespace nkentseu {
 					return mViewMode;
 				}
 
-				// Preset MatCap (mode SOLID/WIREFRAME) : 0=Studio 1=Clay 2=Metal 3=Toon (procéduraux)
-				// + 4=Chrome (TEXTURE, boule matcap échantillonnée par la normale-vue).
-				static const int32 kMatcapCount = 5;
+				// MatCap (mode SOLID/WIREFRAME) : index 0..29 dans l'ATLAS des 30 boules
+				// generees par NkMatcapLibrary (basiques, ceramiques, damiers de controle
+				// des normales et des reflexions, argiles, jade/resine/nacre/peau, metaux
+				// dont un anisotrope brosse, toon). NkMatcapLibrary::Name(id) donne le nom
+				// affichable, et GenerateBall() la vignette pour un selecteur d'interface.
+				static const int32 kMatcapCount = 34; // 30 Blender + 4 historiques (fin d'atlas)
 
 				void SetMatcap(int32 id) {
 					mMatcapId = ((id % kMatcapCount) + kMatcapCount) % kMatcapCount;
@@ -309,6 +365,56 @@ namespace nkentseu {
 				void DrawDebugGrid(NkVec3f origin, float32 spacing, int32 lines, NkVec4f color);
 				void DrawDebugArrow(NkVec3f from, NkVec3f to, NkVec4f color);
 
+				// ── Sélection « outline silhouette » façon Blender ───────────────────
+				// OPTION DISTINCTE des marqueurs AABB du gizmo (SetDrawObjectBounds /
+				// NK_GIZMO_OBB, qui restent disponibles en parallèle). Un fin liseré
+				// (défaut orange ~{1,0.45,0.05}) SUIT LA SILHOUETTE des maillages soumis
+				// via SubmitSelection, obtenu par un post-process de détection de bord :
+				//   1) passe MASQUE : les objets sélectionnés sont rendus SEULS (blanc plein)
+				//      dans une cible offscreen R8 (silhouette) ;
+				//   2) passe PLEIN ÉCRAN : dilatation-différence du masque -> liseré composité
+				//      par-dessus l'image finale (alpha-blend), épaisseur constante en pixels.
+				// Les deux passes sont ajoutées au RenderGraph (SelectionMask + SelectionOutline)
+				// quand l'option est active ; un changement d'état déclenche un rebuild du graph
+				// (cf. ConsumeSelOutlineGraphDirty, consommé par NkRendererImpl::BeginFrame).
+				// color : teinte de BASE du liseré. Le shader en dérive deux nuances —
+				// l'objet ACTIF (dernier sélectionné) ressort plus clair, les autres plus
+				// sombres, comme dans Blender. La dérivation se fait côté shader et non
+				// par un second push-constant : au-delà de deux vec4, les push-constants
+				// ne sont pas livrés de façon fiable sur le chemin OpenGL.
+				void SetSelectionOutline(bool enabled, NkVec4f color = {1.f, 0.45f, 0.05f, 1.f},
+										 float32 thicknessPx = 2.5f);
+				bool IsSelectionOutlineEnabled() const {
+					return mSelOutline;
+				}
+				NkVec4f SelectionOutlineColor() const {
+					return mSelOutlineColor;
+				}
+				float32 SelectionOutlineThickness() const {
+					return mSelOutlineThickness;
+				}
+				// Soumet un mesh à la file de sélection de la frame (rendu SEUL dans le
+				// masque de silhouette). À rappeler chaque frame : la file est vidée par
+				// BeginScene comme les autres files de soumission.
+				// isActive : true pour l'objet ACTIF (dernier sélectionné) -> liseré de
+				// couleur distincte. Un seul actif à la fois, comme dans Blender.
+				void SubmitSelection(const NkDrawCall3D &dc, bool isActive = false);
+				bool HasSelection() const {
+					return !mSelection.Empty();
+				}
+				// true si l'état enable a changé depuis le dernier appel (consommé par
+				// NkRendererImpl::BeginFrame pour rebuild le RenderGraph au bon moment).
+				bool ConsumeSelOutlineGraphDirty() {
+					bool d = mSelOutlineGraphDirty;
+					mSelOutlineGraphDirty = false;
+					return d;
+				}
+				// Appelées par le RenderGraph (NkRendererImpl) :
+				//  - RenderSelectionMask : rend la file de sélection (blanc) dans la cible masque.
+				//  - CompositeSelectionOutline : liseré plein écran sur la cible finale (maskTex lu).
+				void RenderSelectionMask(NkICommandBuffer *cmd);
+				void CompositeSelectionOutline(NkICommandBuffer *cmd, NkTextureHandle maskTex);
+
 			private:
 				struct SortedDC {
 						NkDrawCall3D dc;
@@ -341,10 +447,18 @@ namespace nkentseu {
 				NkResources *mResources = nullptr;
 
 				NkSceneContext mCtx;
+
+				// TAA : etat du jitter + matrices de rendu de la frame courante
+				// (cf. SetTAAJitterEnabled / GetRenderViewProj).
+				bool mTAAJitter = false;
+				uint32 mTAAJitterIdx = 0;
+				NkMat4f mRenderViewProj = NkMat4f::Identity();
+				NkMat4f mRenderInvViewProj = NkMat4f::Identity();
 				bool mInScene = false;
 				bool mWireframe = false;
 				int32 mViewMode = 0;   // 0=rendered(lit) 1=solid(unlit)
-				int32 mMatcapId = 0;   // preset matcap (mode solid)
+				int32 mMatcapId = 0;		// index de matcap dans l'atlas (mode solid)
+				bool mMatcapCustom = false; // true = texture utilisateur (boule SEULE, pas l'atlas)
 				uint32 mW = 0, mH = 0; // taille courante (mise a jour par OnResize)
 				NkCullStats mCullStats; // stats frustum culling (reset par frame)
 
@@ -591,20 +705,53 @@ namespace nkentseu {
 				NkPipelineHandle mLinePipeline;
 				NkRenderPassHandle mLinePipelineRP{};
 				NkPipelineHandle mLinePipelineNoDepth; // depth-test OFF (overlay gizmo)
-				NkBufferHandle mLineVBO;			   // dynamique
-				uint32 mLineVBOCapVerts = 0;
+				// RING PAR FRAME EN VOL : ce VBO est reecrit A CHAQUE FRAME (les gizmos /
+				// marqueurs sont des primitives « une frame »). Un buffer unique = le CPU
+				// memcpy dans le buffer que le GPU lit encore pour une frame precedente
+				// (jusqu'a framesInFlight-1 frames en vol) -> lignes dechirees. Un buffer
+				// par slot supprime la course. Cf. NgonWireBufferForFrame.
+				NkVector<NkBufferHandle> mLineVBORing;
+				NkVector<uint32> mLineVBORingCap;
 				// Triangles debug pleins (alpha-blend) : mêmes shader/VBO logique que
 				// les lignes mais topologie TRIANGLE_LIST + blend.
 				NkPipelineHandle mTriPipeline;
 				NkPipelineHandle mTriPipelineNoDepth;
 				NkRenderPassHandle mTriPipelineRP{};
-				NkBufferHandle mTriVBO;
-				uint32 mTriVBOCapVerts = 0;
+				// Meme ring par frame en vol que mLineVBORing (reecrit chaque frame).
+				NkVector<NkBufferHandle> mTriVBORing;
+				NkVector<uint32> mTriVBORingCap;
 				bool EnsureDebugTriOverlayPipeline(NkRenderPassHandle currentRP);
+				// Helper commun aux deux rings ci-dessus : rend le buffer du SLOT COURANT,
+				// (re)cree si trop petit, puis y ecrit `vcount` vertices.
+				NkBufferHandle DebugRingUpload(NkVector<NkBufferHandle> &ring, NkVector<uint32> &caps, const void *v,
+											   uint32 vcount, uint32 strideBytes);
 				// Edit overlay persistant (uploadé seulement au changement).
-				NkBufferHandle mEditLineBuf, mEditTriBuf, mEditPointBuf;
+				// Egalement RINGE : pendant un drag/une operation modale il est reconstruit
+				// a chaque frame, donc soumis a la meme course que les VBO debug.
+				NkVector<NkBufferHandle> mEditLineRing, mEditTriRing, mEditPointRing;
+				NkVector<uint32> mEditLineRingCap, mEditTriRingCap, mEditPointRingCap;
+				NkVector<float32> mEditLineCPU, mEditTriCPU, mEditPointCPU; // copie CPU = autorite
+				NkVector<uint8> mEditLineDirty, mEditTriDirty, mEditPointDirty; // 1 = slot perime
 				uint32 mEditLineN = 0, mEditTriN = 0, mEditPointN = 0;		 // vertices actifs
-				uint32 mEditLineCap = 0, mEditTriCap = 0, mEditPointCap = 0; // capacité (vertices)
+				// ── Batch persistant d'aretes n-gon (wireframe sans diagonales) ──────────
+				// RING PAR FRAME EN VOL (même idiome que mUBOCameraRing / mUBOBonesRing /
+				// mGlobalSetRing). CAUSE DU CLIGNOTEMENT corrigée ici : le batch était UN
+				// SEUL buffer, réécrit CHAQUE FRAME (la scène contient un cube animé, donc sa
+				// tranche est retransformée à chaque image). Avec framesInFlight = 2, la frame
+				// N+1 écrivait dans le buffer que le GPU était encore en train de lire pour la
+				// frame N -> lignes corrompues une image sur deux = scintillement rapide.
+				// Désormais chaque frame en vol a SON buffer ; la copie CPU du batch est
+				// l'autorité, et chaque slot est remis à niveau (uniquement sur la PLAGE
+				// modifiée) juste avant d'être dessiné.
+				NkVector<NkBufferHandle> mNgonWireRing;
+				NkVector<uint32> mNgonWireRingCap; // capacité (vertices) par slot
+				NkVector<uint32> mNgonWireDirtyLo; // plage à re-uploader par slot (en vertices)
+				NkVector<uint32> mNgonWireDirtyHi; // hi <= lo => slot à jour
+				NkVector<float32> mNgonWireCPU;	   // copie CPU = autorité du batch
+				uint32 mNgonWireN = 0;
+				bool mNgonWire = false;
+				void NgonWireMarkDirty(uint32 firstVertex, uint32 count); // marque TOUS les slots
+				NkBufferHandle NgonWireBufferForFrame();				  // slot courant, remis à niveau
 				bool mEditOverlayNoDepth = false;							 // X-ray
 				// Point sprite écran-constant (marqueurs de vertices façon Blender).
 				::nkentseu::NkShaderHandle mEditPointShader;
@@ -612,8 +759,42 @@ namespace nkentseu {
 				NkRenderPassHandle mEditPointPipelineRP{};
 				bool EnsureEditPointPipeline(NkRenderPassHandle currentRP);
 				// stride en OCTETS d'un vertex (7*float lignes/tris, 9*float points sprite).
-				void UploadEditBuf(NkBufferHandle &buf, uint32 &cap, const float *v, uint32 vcount, uint32 strideBytes);
+				// Copie dans la copie CPU (autorite) et marque TOUS les slots perimes.
+				void UploadEditBuf(NkVector<float32> &cpu, NkVector<uint8> &dirty, const float *v, uint32 vcount,
+								   uint32 floatsPerVertex);
+				// Slot courant remis a niveau depuis la copie CPU, juste avant le draw.
+				NkBufferHandle EditBufForFrame(NkVector<NkBufferHandle> &ring, NkVector<uint32> &caps,
+											   NkVector<uint8> &dirty, const NkVector<float32> &cpu, uint32 vcount,
+											   uint32 floatsPerVertex);
 				bool EnsureDebugLinePipeline(NkRenderPassHandle currentRP);
+
+				// ── Sélection « outline silhouette » (post-process edge-detect) ──────
+				// DÉFAUT = true : le liseré silhouette est l'indicateur de sélection PAR
+				// DÉFAUT (à la place de l'AABB/OBB du gizmo, désormais opt-in). Ne coûte
+				// rien tant que rien n'est soumis via SubmitSelection (masque vide). Les
+				// passes SelectionMask/SelectionOutline sont ajoutées au graph tant que
+				// cette option est active (cf. NkRendererImpl::BuildDefaultRenderGraph).
+				bool mSelOutline = true;
+				bool mSelOutlineGraphDirty = false; // enable a changé -> rebuild du graph
+				NkVec4f mSelOutlineColor = {1.f, 0.45f, 0.05f, 1.f};
+				float32 mSelOutlineThickness = 2.5f;
+				NkVector<NkDrawCall3D> mSelection; // file de la frame (vidée par BeginScene)
+				// Parallele a mSelection : 1 = objet ACTIF. Tableau separe plutot qu'un champ
+				// dans NkDrawCall3D — « etre actif » est une propriete de la SELECTION, pas du
+				// drawcall, et NkDrawCall3D est partage par tous les chemins de rendu.
+				NkVector<uint8> mSelectionActive;
+				// Passe MASQUE : rend les objets sélectionnés en blanc (silhouette).
+				::nkentseu::NkShaderHandle mSelMaskShader;
+				NkPipelineHandle mSelMaskPipeline;
+				NkRenderPassHandle mSelMaskPipelineRP{};
+				// Passe OUTLINE : fullscreen edge-detect du masque -> liseré composité.
+				::nkentseu::NkShaderHandle mSelOutlineShader;
+				NkPipelineHandle mSelOutlinePipeline;
+				NkRenderPassHandle mSelOutlinePipelineRP{};
+				NkDescSetHandle mSelTexLayout; // 1 sampler (le masque)
+				NkDescSetHandle mSelTexSet;
+				bool EnsureSelMaskPipeline(NkRenderPassHandle currentRP);
+				bool EnsureSelOutlinePipeline(NkRenderPassHandle currentRP);
 		};
 
 	} // namespace renderer

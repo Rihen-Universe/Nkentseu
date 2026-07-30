@@ -84,6 +84,7 @@ with project("NkAnimaEditor"):
             "mf", "mfplat", "mfreadwrite", "mfuuid",
             "uuid", "ole32", "dinput8", "dxguid",
             "d3d11", "d3d12", "dxgi", "d3dcompiler",
+            "winmm",  # timeBeginPeriod/timeEndPeriod (NKRenderer NkRendererImpl)
         ]
         if USE_NKGLSLANG:    _WIN_LINKS.append("NKGLSlang")
         if USE_NKSPIRVCROSS: _WIN_LINKS.append("NKSPIRVCross")

@@ -40,6 +40,12 @@ namespace nkentseu {
 				float mFrameTimer = 0.f;
 				bool mDone = false;
 
+				// Index/accumulateur du sous-titre affiche, avance independamment de
+				// mCurrentFrame/mFrameTimer (cf. StoryScene::OnUpdate). Utilises dans
+				// StoryScene.cpp sans etre declares ici -- bug corrige.
+				int mSubtitleFrame = 0;
+				float mSubtitleAccum = 0.f;
+
 				float ComputeAlpha(int frameIdx, float elapsed) const;
 		};
 

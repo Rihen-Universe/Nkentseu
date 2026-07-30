@@ -11,6 +11,7 @@
 #include "NKContainers/String/NkString.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKCode/Project/NkProcess.h"
+#include "NKCode/Project/NkEmbeddedJenga.h" // Jenga IN-PROCESS (Phase 12) : CPython embarque
 #include "NKCode/Project/NkText.h"
 #include "NKCode/Project/NkLogSink.h" // GlobalLogBuffer : traces [ac] de la completion (panneau OUTPUT)
 #include "NKCode/Editor/NkCodeEditor.h"
@@ -891,6 +892,7 @@ namespace nkentseu {
 				NkVector<NkString> flagsAcc;
 				NkString flagsSig; // (plateforme|config) -> re-génère le .jcdb si change
 				bool flagsBusy = false;
+				bool flagsEmbedded = false; // compile-flags via l'interpreteur embarque
 				bool flagsStale = false; // un .jenga a changé -> forcer la régénération du .jcdb
 				NkProcess diagProc;
 				NkVector<NkString> diagAcc;
@@ -1019,19 +1021,55 @@ namespace nkentseu {
 						int32 nSys = 0;
 						const SysDef *sys = Systems(&nSys);
 						const char *plat = sys[(sysIdx >= 0 && sysIdx < nSys) ? sysIdx : 0].name;
-						NkString cmd = NkString("jenga compile-flags --platform ") + plat + " --config " +
-									   ConfigNameOf(cfgIdx >= 2 ? 0 : cfgIdx) + JengaFileArg();
+						const NkString cfgName = ConfigNameOf(cfgIdx >= 2 ? 0 : cfgIdx);
 						flagsAcc.Clear();
+						// Jenga EMBARQUE si le creneau est libre : sans ca, aucune
+						// IntelliSense/diagnostic sur une machine sans Python (le .jcdb
+						// n'etait jamais genere).
+						if (UseEmbeddedJenga() && !BuildSlotRunning() && !mBuildEmbedded && !mInfoEmbedded &&
+							!mExEmbedded) {
+							NkEmbeddedJenga::Request req;
+							req.kind = "cli";
+							req.args.PushBack(NkString("compile-flags"));
+							req.args.PushBack(NkString("--platform"));
+							req.args.PushBack(NkString(plat));
+							req.args.PushBack(NkString("--config"));
+							req.args.PushBack(cfgName);
+							if (wsIdx >= 0 && wsIdx < static_cast<int32>(wsPaths.Size())) {
+								req.args.PushBack(NkString("--jenga-file"));
+								req.args.PushBack(wsPaths[wsIdx]);
+							}
+							if (NkEmbeddedJenga::Get().Start(req)) {
+								flagsBusy = true;
+								flagsEmbedded = true;
+								flagsSig = sig;
+								flagsStale = false;
+							}
+							return;
+						}
+						NkString cmd = NkString("jenga compile-flags --platform ") + plat + " --config " +
+									   cfgName.CStr() + JengaFileArg();
 						if (flagsProc.Start(cmd)) {
 							flagsBusy = true;
+							flagsEmbedded = false;
 							flagsSig = sig;
 							flagsStale = false;
 						}
 						return;
 					}
 					if (flagsBusy) {
-						flagsProc.Drain(flagsAcc);
-						if (flagsProc.Done()) {
+						bool done = false;
+						if (flagsEmbedded) {
+							NkVector<NkJengaProgressEvent> ignored;
+							NkEmbeddedJenga::Get().Drain(flagsAcc, ignored);
+							done = NkEmbeddedJenga::Get().Done();
+							if (done)
+								flagsEmbedded = false;
+						} else {
+							flagsProc.Drain(flagsAcc);
+							done = flagsProc.Done();
+						}
+						if (done) {
 							flagsBusy = false;
 							ParseJcdb(NkFile::ReadAllText(root / ".jenga" / "compileflags.jcdb"));
 							macroSets.Clear(); // flags changés -> re-dumper les macros effectives par projet
@@ -3824,6 +3862,17 @@ namespace nkentseu {
 				// l'utilisateur (voir bouton "Emulateur" de la toolbar). Different de
 				// termOpenCmd (qui REMPLACE le shell par une commande, façon agent CLI).
 				NkString termOpenType;
+				// ── Pont barre de menus -> panneau IA (menu IA : Expliquer/Corriger/... la
+				// selection) : prompt depose ici, consomme par NkAiPanel::OnUI au prochain
+				// frame (copie dans la saisie ; aiSend=true = envoye immediatement).
+				NkString aiPrompt;
+				bool aiSend = false;
+				// ── Enregistrement automatique (menu Fichier > Auto Save) : 0 = off,
+				// 1 = apres delai (SaveAll periodique des fichiers modifies AVEC chemin).
+				int32 autoSave = 0;
+				uint32 autoSaveTick = 0; // compteur de frames (PollBuild)
+				// ── Fil d'Ariane au-dessus du code (menu Affichage > Breadcrumbs).
+				bool showBreadcrumb = true;
 				// FOCUS CLAVIER GLOBAL : l'EXPLORATEUR a le focus-clic -> l'éditeur ignore
 				// le clavier (sinon Ctrl+D/Suppr/Entrée tireraient des DEUX côtés).
 				bool explorerFocus = false;
@@ -3841,9 +3890,16 @@ namespace nkentseu {
 				// affiche le picker, et repose le dossier choisi ici. ──
 				bool reqPickFolder = false;
 				NkString pickedFolder;
+				// Demande de rafraichissement de l'arborescence de l'explorateur : posee
+				// a chaque fin de commande de build (build/rebuild/clean/test) puisque
+				// Jenga peut creer/supprimer des fichiers/dossiers HORS de l'IDE (le
+				// process externe ne notifie rien) ; consommee par NkExplorer::OnUI.
+				// cf. issue beta #2 (arborescence pas a jour apres `jenga build`).
+				bool reqExplorerRefresh = false;
 				bool reqSearch = false;		// Entree dans la barre recherche toolbar -> ouvrir le panneau resultats
 				char tbSearch[256] = {};	// texte du champ « Recherche rapide » (toolbar, editable en place)
 				bool tbSearchFocus = false; // le champ recherche toolbar a le focus (saisie)
+				bool tbArgsFocus = false;  // le champ « Arguments » (runArgs) a le focus
 				NkString wsPrefill;		 // sélection de l'éditeur préremplie dans le champ
 				NkString wsOpenFile;	 // clic sur un résultat : consommé par ProcessWsOpen (poll)
 				int32 wsOpenLine = -1;
@@ -4140,6 +4196,8 @@ namespace nkentseu {
 					mix(active);
 					mix(NkCodeTabRowsOn() ? 3 : 0); // toggles UI -> re-sauve la session
 					mix(NkCodeMinimapOn() ? 5 : 0);
+					for (const char *p = runArgs; *p; ++p) // arguments d'execution -> re-sauve
+						h = (h ^ (unsigned char)*p) * 1099511628211LL;
 					mix(static_cast<int64>(files.Size()));
 					for (usize i = 0; i < files.Size(); ++i) {
 						OpenFile &f = files[i];
@@ -4165,6 +4223,13 @@ namespace nkentseu {
 					s += " ";
 					s += IntToStr(NkCodeMinimapOn() ? 1 : 0).CStr();
 					s += "\n";
+					// Arguments d'execution (champ « Arguments » de la toolbar) : sur UNE
+					// ligne, en dernier, pour ne pas gener les lecteurs de l'ancien format.
+					if (runArgs[0]) {
+						s += "A ";
+						s += runArgs;
+						s += "\n";
+					}
 					for (usize i = 0; i < files.Size(); ++i) {
 						OpenFile &f = files[i];
 						const int32 dy = f.doc.dirty ? 1 : 0;
@@ -4240,6 +4305,11 @@ namespace nkentseu {
 							const char *q = line + 2;
 							NkCodeTabRowsOn() = nextField(q) != 0;
 							NkCodeMinimapOn() = nextField(q) != 0;
+						} else if (line[0] == 'A' && line[1] == ' ') { // arguments d'execution
+							usize k = 0;
+							for (const char *q = line + 2; *q && k + 1 < sizeof(runArgs); ++q)
+								runArgs[k++] = *q;
+							runArgs[k] = '\0';
 						} else if (line[0] == 'a' && line[1] == 'c') {
 							const char *q = line + 6;
 							savedActive = nextField(q);
@@ -4751,16 +4821,200 @@ namespace nkentseu {
 				}
 
 				NkProcess mBuild; // build ASYNCHRONE (ne gele pas l'UI)
+				// ── Jenga IN-PROCESS (Phase 12, feature-flag NKCODE_EMBEDDED_JENGA=1) ──
+				// true = la commande COURANTE du slot de build tourne dans l'interpreteur
+				// embarque (NkEmbeddedJenga) au lieu d'un sous-processus `jenga`.
+				bool mBuildEmbedded = false;
+				// `jenga info` en cours via l'interpreteur EMBARQUE (et non le
+				// sous-processus mInfo) : indispensable pour lister les projets sur une
+				// machine sans Python. Le worker n'a qu'un créneau, partage avec les
+				// builds -> LoadProjects ne le prend que s'il est libre.
+				bool mInfoEmbedded = false;
+				// true = la progression vient d'EVENEMENTS STRUCTURES (ApplyEmbedEvent) ;
+				// OutputPanel::ParseProgress DOIT alors s'abstenir (sinon double comptage
+				// projDone : banniere texte + evenement ProjectDone).
+				bool buildStructured = false;
+
+				static bool UseEmbeddedJenga() {
+					// "0" = force off, "1" = force on (dev). SANS variable : actif PAR
+					// DEFAUT si la distribution testeur (tools/ de prod a cote de l'exe,
+					// assemblee par scripts/MakeNkCodeDist.py) est presente — les
+					// testeurs n'ont ni Python ni `jenga` sur le PATH, aucune
+					// configuration ne doit leur etre demandee.
+					const char *v = env::GetEnvVar("NKCODE_EMBEDDED_JENGA");
+					if (v && v[0] == '0')
+						return false;
+					if (v && v[0] == '1')
+						return NkEmbeddedJenga::Available();
+					return NkEmbeddedJenga::HasProdTools() && NkEmbeddedJenga::Available();
+				}
+
+				// Etat unifie du slot de build (sous-processus OU embarque).
+				bool BuildSlotRunning() const {
+					return mBuildEmbedded ? NkEmbeddedJenga::Get().Running() : mBuild.Running();
+				}
+				bool BuildSlotDone() const {
+					return mBuildEmbedded ? NkEmbeddedJenga::Get().Done() : mBuild.Done();
+				}
+				int BuildSlotExit() const {
+					return mBuildEmbedded ? NkEmbeddedJenga::Get().ExitCode() : mBuild.ExitCode();
+				}
+
+				// "jenga build --target X --config Y --platform Z --toolchain T --jenga-file "F""
+				// -> Request. false si la commande n'est pas un build/rebuild embarquable.
+				static bool ParseJengaCmd(const NkString &cmd, NkEmbeddedJenga::Request &out) {
+					const char *p = cmd.CStr();
+					auto skipWs = [&]() { while (*p == ' ') ++p; };
+					auto token = [&]() -> NkString { // mot simple OU "chaine quotee"
+						NkString t;
+						if (*p == '"') {
+							++p;
+							while (*p && *p != '"') t += *p++;
+							if (*p == '"') ++p;
+						} else
+							while (*p && *p != ' ') t += *p++;
+						return t;
+					};
+					skipWs();
+					if (token() != "jenga")
+						return false;
+					skipWs();
+					const NkString verb = token();
+					if (verb == "installcompiler") { // dist legere : telecharge Clang (embarque only)
+						out.kind = verb;
+						out.target = NkEmbeddedJenga::CompilersDir();
+						return true;
+					}
+					// build/rebuild/clean/test passent par l'API structuree d'Embed
+					// (progression detaillee). TOUTE AUTRE commande part sur le chemin
+					// GENERIQUE « cli » (Embed.RunCommand -> dispatcher de la CLI) :
+					// plus rien ne retombe sur un `jenga` externe, qui serait absent
+					// d'une machine sans Python.
+					if (verb != "build" && verb != "rebuild" && verb != "clean" && verb != "test") {
+						out.kind = "cli";
+						out.args.PushBack(verb);
+						for (;;) { // le reste de la ligne, jeton par jeton (quotes gerees)
+							skipWs();
+							if (!*p)
+								break;
+							const NkString a = token();
+							if (!a.Empty())
+								out.args.PushBack(a);
+						}
+						return true;
+					}
+					out.kind = verb;
+					// Jetons restants, collectes AVANT interpretation : si l'un n'est pas
+					// reconnu, on bascule proprement sur le chemin generique « cli »
+					// plutot que de retomber sur un sous-processus (impossible sans
+					// Python installe).
+					NkVector<NkString> rest;
+					for (;;) {
+						skipWs();
+						if (!*p)
+							break;
+						const NkString t = token();
+						if (!t.Empty())
+							rest.PushBack(t);
+					}
+					auto toCli = [&]() { // conversion en requete generique
+						out.kind = "cli";
+						out.target.Clear();
+						out.config.Clear();
+						out.platform.Clear();
+						out.toolchain.Clear();
+						out.jengaFile.Clear();
+						out.args.Clear();
+						out.args.PushBack(verb);
+						for (usize i = 0; i < rest.Size(); ++i)
+							out.args.PushBack(rest[i]);
+						return true;
+					};
+					for (usize i = 0; i < rest.Size(); ++i) {
+						const NkString &flag = rest[i];
+						auto next = [&]() -> NkString { return (i + 1 < rest.Size()) ? rest[++i] : NkString(); };
+						// `--project` = alias de `--target` : c'est la forme utilisee par
+						// DoClean. Sans lui, « clean --project X » partait en
+						// sous-processus (et sur une machine sans Python, echouait).
+						if (flag == "--target" || flag == "--project")
+							out.target = next();
+						else if (flag == "--config")
+							out.config = next();
+						else if (flag == "--platform")
+							out.platform = next();
+						else if (flag == "--toolchain")
+							out.toolchain = next();
+						else if (flag == "--jenga-file")
+							out.jengaFile = next();
+						else if (flag.StartsWith("--"))
+							return toCli(); // flag inconnu (--verbose...) -> chemin generique
+						else if (out.target.Empty())
+							out.target = flag; // POSITIONNEL : « test <suite> » (cf. DoTest)
+						else
+							return toCli(); // positionnel en trop : on ne devine pas
+					}
+					return true;
+				}
+
+				// Applique un evenement de progression structure aux champs UI (remplace
+				// ParseProgress pour le chemin embarque — memes champs, zero scraping).
+				void ApplyEmbedEvent(const NkJengaProgressEvent &e) {
+					switch (e.kind) {
+						case NkJengaProgressEvent::PROJECT_TOTAL: projTotal = e.total; break;
+						case NkJengaProgressEvent::PROJECT_DONE: ++projDone; break;
+						case NkJengaProgressEvent::FILE_TOTAL:
+							buildTotal = e.total;
+							buildDone = 0;
+							break;
+						case NkJengaProgressEvent::FILE_DONE:
+							buildDone = e.index;
+							if (e.warned)
+								buildHasWarn = true;
+							break;
+						case NkJengaProgressEvent::COMPILE_ERROR: {
+							errCompile = true;
+							bool known = false;
+							for (usize i = 0; i < buildErrFiles.Size() && !known; ++i)
+								known = StrEq(buildErrFiles[i].CStr(), e.file.CStr());
+							if (!known)
+								buildErrFiles.PushBack(e.file);
+							break;
+						}
+						case NkJengaProgressEvent::LINK_ERROR: errLink = true; break;
+					}
+				}
 				NkProcess mCfg;	  // commandes `jenga config ...` (toolchains)
 				bool mCfgPending = false;
+				bool mCfgEmbedded = false; // `jenga config` via l'interpreteur embarque
 				NkString cfgStatus;
 
 				// Lance une commande `jenga config ...` (ex. toolchain add/remove) puis,
 				// a la fin, force la re-detection des toolchains (RequestReload).
 				void RunConfig(const NkString &args) {
-					if (mCfg.Running())
+					if (mCfg.Running() || mCfgEmbedded)
 						return;
 					cfgStatus = NkString("jenga ") + args.CStr();
+					// Jenga EMBARQUE si le creneau est libre : sans ca, ajouter/retirer une
+					// toolchain etait impossible sur une machine sans Python.
+					if (UseEmbeddedJenga() && !BuildSlotRunning() && !mBuildEmbedded && !mInfoEmbedded &&
+						!mExEmbedded && !flagsEmbedded) {
+						NkEmbeddedJenga::Request req;
+						// `args` est une ligne (« config toolchain add <nom> "<chemin>" ») :
+						// on la decoupe avec le tokenizer de ParseJengaCmd, seul endroit qui
+						// gere les GUILLEMETS. Un decoupage naif coupait sur chaque espace :
+						// le chemin du JSON temporaire vit sous %USERPROFILE%, donc un nom
+						// d'utilisateur Windows compose (« Jean Pierre ») — ou un chemin en
+						// « C:/Program Files/... » — etait scinde en deux arguments et
+						// l'ajout de toolchain echouait. Uniquement sur le chemin EMBARQUE,
+						// donc precisement chez les utilisateurs sans Python, alors que le
+						// repli sous-processus (shell) honorait les guillemets.
+						if (ParseJengaCmd(NkString("jenga ") + args.CStr(), req) &&
+							NkEmbeddedJenga::Get().Start(req)) {
+							mCfgEmbedded = true;
+							mCfgPending = true;
+							return;
+						}
+					}
 					mCfg.Start(cfgStatus);
 					mCfgPending = true;
 				}
@@ -4769,6 +5023,18 @@ namespace nkentseu {
 					if (!mCfgPending)
 						return;
 					NkVector<NkString> sink;
+					if (mCfgEmbedded) {
+						NkVector<NkJengaProgressEvent> ignored;
+						NkEmbeddedJenga::Get().Drain(sink, ignored);
+						if (NkEmbeddedJenga::Get().Done()) {
+							mCfgPending = false;
+							mCfgEmbedded = false;
+							cfgStatus = (NkEmbeddedJenga::Get().ExitCode() == 0) ? NkString("Toolchain : OK")
+																				 : NkString("Toolchain : echec");
+							RequestReload();
+						}
+						return;
+					}
 					mCfg.Drain(sink);
 					if (!mCfg.Running()) {
 						mCfgPending = false;
@@ -4813,9 +5079,25 @@ namespace nkentseu {
 
 				// A appeler CHAQUE FRAME : recupere la sortie + enchaine la file + statut.
 				void PollBuild() {
+					// Auto Save (menu Fichier) : toutes les ~600 frames (~10 s), sauvegarde
+					// silencieuse des fichiers modifies AYANT deja un chemin (SaveAll ignore
+					// les brouillons sans chemin - jamais de dialogue surprise).
+					if (autoSave == 1 && ++autoSaveTick >= 600) {
+						autoSaveTick = 0;
+						SaveAll();
+					}
+					PollRunStages(); // « Demarrer » embarque : build -> chemin -> lancement
 					{ // drain -> output (affichage) ET mCmdLog (transcript par commande, borne)
 						NkVector<NkString> fresh;
-						mBuild.Drain(fresh);
+						if (mBuildEmbedded) {
+							// Chemin IN-PROCESS : lignes (transcript identique au CLI) +
+							// evenements STRUCTURES (barres/voyants, sans scraping de texte).
+							NkVector<NkJengaProgressEvent> ev;
+							NkEmbeddedJenga::Get().Drain(fresh, ev);
+							for (usize i = 0; i < ev.Size(); ++i)
+								ApplyEmbedEvent(ev[i]);
+						} else
+							mBuild.Drain(fresh);
 						for (usize i = 0; i < fresh.Size(); ++i) {
 							output.PushBack(fresh[i]);
 							if (mCmdLog.Size() < 3000)
@@ -4824,11 +5106,15 @@ namespace nkentseu {
 					}
 					// Fin de commande : si ECHEC, memorise le transcript complet (memoire +
 					// .nkcode/last_build_fail.log) pour consultation et pour les agents IA.
-					if (mBuild.Done() && !mBuildDoneHandled) {
+					if (BuildSlotDone() && !mBuildDoneHandled) {
 						mBuildDoneHandled = true;
-						Journal(NkPrintf("commande terminee (code %d)%s : %s", mBuild.ExitCode(),
-										 mBuild.ExitCode() != 0 ? " - ECHEC" : "", mCmdCur.CStr()));
-						if (mBuild.ExitCode() != 0 && !mCmdLog.Empty()) {
+						// Jenga (process EXTERNE) peut avoir cree/supprime des fichiers/dossiers
+						// (Build/, .jenga caches...) sans que l'IDE en soit notifie -> demande a
+						// l'explorateur de re-scanner le disque a la prochaine frame.
+						reqExplorerRefresh = true;
+						Journal(NkPrintf("commande terminee (code %d)%s : %s", BuildSlotExit(),
+										 BuildSlotExit() != 0 ? " - ECHEC" : "", mCmdCur.CStr()));
+						if (BuildSlotExit() != 0 && !mCmdLog.Empty()) {
 							lastBuildFail = mCmdLog;
 							lastBuildFailCmd = mCmdCur;
 							NkString log;
@@ -4860,13 +5146,15 @@ namespace nkentseu {
 												  : NkString("Execution terminee");
 						}
 					}
-					if (!mBuild.Running()) {
+					if (!BuildSlotRunning()) {
+						const int lastExit = BuildSlotExit(); // AVANT le reset du mode (sinon mauvais slot lu)
+						mBuildEmbedded = false;				  // slot libere (le prochain PumpQueue rearbitre le mode)
 						if (!mQueue.Empty()) {
 							PumpQueue();
 							return;
 						} // commande suivante (rafale)
 						if (status.Size() > 0 && StrEq(status.CStr(), "Construction..."))
-							status = (mBuild.ExitCode() == 0) ? NkString("Termine (OK)") : NkString("Termine (echec)");
+							status = (lastExit == 0) ? NkString("Termine (OK)") : NkString("Termine (echec)");
 					}
 				}
 
@@ -4925,11 +5213,48 @@ namespace nkentseu {
 				void LoadProjects() {
 					if (mInfoStarted && mInfoWsIdx == wsIdx)
 						return;
+					// Dossier SANS workspace Jenga (mode edition simple, cf. LoadFolder) :
+					// aucun `.jenga` a interroger -> etat "termine, 0 projet" directement,
+					// sans jamais lancer `jenga info` (qui echouerait de toute facon).
+					if (!HasWorkspace()) {
+						mInfoStarted = true;
+						mInfoParsed = true;
+						mInfoWsIdx = wsIdx;
+						mInfoLines.Clear();
+						projects.Clear();
+						return;
+					}
+					// ── Jenga EMBARQUE pour `info` aussi ────────────────────────────
+					// Sans ca, un utilisateur SANS Python n'obtenait AUCUN projet : la
+					// liste vient de `jenga info`, qui etait toujours lance en
+					// sous-processus meme quand le mode embarque etait actif. Sans
+					// projet, aucun build n'est declenchable -> l'IDE paraissait
+					// « non fonctionnel » (retours beta #9/#10).
+					// Le worker embarque n'a QU'UN créneau, partage avec les builds :
+					// on ne lance `info` que s'il est libre, sinon on retente a la
+					// frame suivante (mInfoStarted reste faux).
+					if (UseEmbeddedJenga() && !BuildSlotRunning() && !mBuildEmbedded) {
+						NkEmbeddedJenga::Request req;
+						req.kind = "info";
+						if (wsIdx >= 0 && wsIdx < static_cast<int32>(wsPaths.Size()))
+							req.jengaFile = wsPaths[wsIdx];
+						if (NkEmbeddedJenga::Get().Start(req)) {
+							mInfoStarted = true;
+							mInfoParsed = false;
+							mInfoWsIdx = wsIdx;
+							mInfoLines.Clear();
+							projects.Clear();
+							mInfoEmbedded = true;
+							return;
+						}
+						return; // créneau occupe : nouvelle tentative a la frame suivante
+					}
 					mInfoStarted = true;
 					mInfoParsed = false;
 					mInfoWsIdx = wsIdx;
 					mInfoLines.Clear();
 					projects.Clear();
+					mInfoEmbedded = false;
 					mInfo.Start(NkString("jenga info") + JengaFileArg().CStr());
 				}
 
@@ -4937,6 +5262,18 @@ namespace nkentseu {
 				void PollProjects() {
 					if (!mInfoStarted || mInfoParsed)
 						return;
+					if (mInfoEmbedded) {
+						// Le worker embarque emet les MEMES tables texte que le CLI ->
+						// ParseProjects est partage, aucune divergence de parsing.
+						NkVector<NkJengaProgressEvent> ignored;
+						NkEmbeddedJenga::Get().Drain(mInfoLines, ignored);
+						if (NkEmbeddedJenga::Get().Done()) {
+							mInfoParsed = true;
+							mInfoEmbedded = false;
+							ParseProjects();
+						}
+						return;
+					}
 					mInfo.Drain(mInfoLines);
 					if (mInfo.Done()) {
 						mInfoParsed = true;
@@ -4997,21 +5334,49 @@ namespace nkentseu {
 
 				NkVector<Example> examples;
 				NkProcess mExamples;
+				bool mExEmbedded = false; // liste d'exemples via l'interpreteur embarque
 				bool mExStarted = false, mExParsed = false;
 				NkVector<NkString> mExLines;
 
 				void LoadExamples() {
 					if (mExStarted)
 						return;
+					// Jenga EMBARQUE quand il est disponible (creneau libre) : sans ca la
+					// liste d'exemples du launcher restait VIDE sur une machine sans
+					// Python. Sinon sous-processus, comme avant.
+					if (UseEmbeddedJenga() && !BuildSlotRunning() && !mBuildEmbedded && !mInfoEmbedded) {
+						NkEmbeddedJenga::Request req;
+						req.kind = "cli";
+						req.args.PushBack(NkString("examples"));
+						req.args.PushBack(NkString("list"));
+						if (NkEmbeddedJenga::Get().Start(req)) {
+							mExStarted = true;
+							mExParsed = false;
+							mExLines.Clear();
+							mExEmbedded = true;
+						}
+						return; // creneau occupe -> nouvelle tentative a la frame suivante
+					}
 					mExStarted = true;
 					mExParsed = false;
 					mExLines.Clear();
+					mExEmbedded = false;
 					mExamples.Start(NkString("jenga examples list"));
 				}
 
 				void PollExamples() {
 					if (!mExStarted || mExParsed)
 						return;
+					if (mExEmbedded) {
+						NkVector<NkJengaProgressEvent> ignored;
+						NkEmbeddedJenga::Get().Drain(mExLines, ignored);
+						if (NkEmbeddedJenga::Get().Done()) {
+							mExParsed = true;
+							mExEmbedded = false;
+							ParseExamples();
+						}
+						return;
+					}
 					mExamples.Drain(mExLines);
 					if (mExamples.Done()) {
 						mExParsed = true;
@@ -5217,32 +5582,33 @@ namespace nkentseu {
 				}
 
 				// Charge `folder` comme racine de travail : re-scan des workspaces du dossier.
-				// REFUSE (renvoie false, racine inchangee) si aucun workspace (.jenga contenant
-				// "with workspace") n'y est trouve — qu'il ait ete cree par l'UI ou non.
+				// N'EXIGE PLUS de workspace Jenga : un dossier SANS `.jenga` s'ouvre quand
+				// meme (mode edition simple, a la VSCode — explorateur/editeur/terminal/git
+				// disponibles, build/run/etc. restent grises via les gardes HasWorkspace()
+				// deja presentes partout dans les menus). Ne renvoie false que si `folder`
+				// lui-meme n'existe pas. cf. issues beta #3/#11 (« impossible d'ouvrir un
+				// dossier qui n'est pas un workspace Jenga »).
 				bool LoadFolder(const NkPath &folder) {
-					const NkPath saved = root;
+					if (!NkDirectory::Exists(folder.ToString().CStr()))
+						return false;
 					root = folder;
 					wsIdx = 0;
 					mWsScanned = false;
 					ScanWorkspaces();
-					if (!HasWorkspace()) { // aucun workspace -> refus
-						root = saved;
-						mWsScanned = false;
-						ScanWorkspaces();
-						return false;
-					}
 					mLastJengaMtime = 0; // re-amorce le watch sur la nouvelle racine
 					files.Clear();
-					active = -1;			   // onglets repartent a zero
-					RequestReload();		   // recharge la liste des projets
-					AddRecent(wsPaths[wsIdx]); // memorise dans les recents
+					active = -1;	  // onglets repartent a zero
+					RequestReload(); // recharge la liste des projets (no-op silencieux si HasWorkspace()==false)
+					// Recents : le chemin du .jenga si workspace, sinon le dossier lui-meme.
+					AddRecent(HasWorkspace() ? wsPaths[wsIdx] : folder.ToString());
 					// Restaure la SESSION de ce workspace (onglets + contenu non sauvegardé). On N'OUVRE PAS
 					// le .jenga d'office : il ne réapparaît que s'il était un onglet de la session précédente.
 					LoadSession();
 					mSessionLoaded = true;
 					mSessionTimer = 0.f;
 					mSessionSig = SessionSig();
-					status = NkString("Workspace charge : ") + folder.ToString().CStr();
+					status = HasWorkspace() ? NkString("Workspace charge : ") + folder.ToString().CStr()
+											 : NkString("Dossier ouvert (sans workspace Jenga) : ") + folder.ToString().CStr();
 					return true;
 				}
 
@@ -5338,6 +5704,100 @@ namespace nkentseu {
 					NkFile::WriteAllText(NkPath(NamesPath().CStr()), out);
 				}
 
+				// ── Nombre EXACT de projets par workspace (~/.nkcode_projcount.cfg) ─────
+				// Le comptage des cartes du launcher venait d'un scan TEXTUEL des .jenga
+				// (CollectProjects) : structurellement approximatif des que le DSL calcule
+				// ses noms (boucles, variables, conditions) — le nombre affiche etait donc
+				// « pas toujours correct ». Ici on memorise le total AUTORITAIRE fourni par
+				// `jenga info` chaque fois qu'un workspace est charge ; les cartes s'en
+				// servent en priorite, le scan ne restant qu'un repli pour les workspaces
+				// jamais ouverts. Format : <chemin .jenga canonique>|<N> par ligne.
+				NkVector<NkString> projCntPath;
+				NkVector<int32> projCntVal;
+
+				static NkString ProjCountPath() {
+					const char *home = env::GetEnvVar("USERPROFILE");
+					if (!home || !*home)
+						home = env::GetEnvVar("HOME");
+					if (home && *home)
+						return NkString(home) + "/.nkcode_projcount.cfg";
+					return NkString("nkcode_projcount.cfg");
+				}
+
+				void LoadProjCounts() {
+					projCntPath.Clear();
+					projCntVal.Clear();
+					const NkString txt = NkFile::ReadAllText(NkPath(ProjCountPath().CStr()));
+					NkString line;
+					auto flush = [&]() {
+						if (line.Empty())
+							return;
+						const char *s = line.CStr();
+						const char *bar = nullptr;
+						for (const char *p = s; *p; ++p)
+							if (*p == '|') {
+								bar = p;
+								break;
+							}
+						if (bar) {
+							NkString p2;
+							for (const char *q = s; q < bar; ++q)
+								p2 += *q;
+							int32 v = 0;
+							for (const char *q = bar + 1; *q >= '0' && *q <= '9'; ++q)
+								v = v * 10 + (*q - '0');
+							projCntPath.PushBack(NormRecent(p2.CStr()));
+							projCntVal.PushBack(v);
+						}
+						line.Clear();
+					};
+					for (const char *p = txt.CStr(); *p; ++p) {
+						if (*p == '\n' || *p == '\r')
+							flush();
+						else
+							line += *p;
+					}
+					flush();
+				}
+
+				void SaveProjCounts() {
+					NkString out;
+					for (usize i = 0; i < projCntPath.Size(); ++i) {
+						out += projCntPath[i];
+						out += "|";
+						out += NkPrintf("%d", projCntVal[i]).CStr();
+						out += "\n";
+					}
+					NkFile::WriteAllText(NkPath(ProjCountPath().CStr()), out);
+				}
+
+				// Total exact connu pour ce .jenga, ou -1 si jamais mesure.
+				int32 KnownProjCount(const char *jengaPath) const {
+					for (usize i = 0; i < projCntPath.Size(); ++i)
+						if (SamePathRec(projCntPath[i].CStr(), jengaPath))
+							return projCntVal[i];
+					return -1;
+				}
+
+				void SetKnownProjCount(const NkString &jengaPath, int32 n) {
+					if (jengaPath.Empty() || n <= 0)
+						return; // 0 = probable echec de `jenga info` -> ne rien memoriser
+					const NkString np = NormRecent(jengaPath.CStr());
+					for (usize i = 0; i < projCntPath.Size(); ++i)
+						if (SamePathRec(projCntPath[i].CStr(), np.CStr())) {
+							if (projCntVal[i] == n)
+								return; // inchange -> pas de reecriture
+							projCntVal[i] = n;
+							SaveProjCounts();
+							mWsMeta.Clear(); // les cartes recalculent avec la nouvelle valeur
+							return;
+						}
+					projCntPath.PushBack(np);
+					projCntVal.PushBack(n);
+					SaveProjCounts();
+					mWsMeta.Clear();
+				}
+
 				void SetRecentName(const NkString &path, const NkString &name) {
 					for (usize i = 0; i < nameOvrPath.Size(); ++i)
 						if (StrEq(nameOvrPath[i].CStr(), path.CStr())) {
@@ -5367,9 +5827,46 @@ namespace nkentseu {
 					return NkString("nkcode_recent.cfg");
 				}
 
+				// Normalise un chemin de RECENT/EPINGLE : separateurs unifies en '/' et
+				// lettre de lecteur en MAJUSCULE. Sans ca, le MEME workspace atteint par
+				// deux chemins d'ecriture differents ("d:/..." via argument de ligne de
+				// commande ou picker, "D:/..." via ScanWorkspaces) donnait DEUX entrees
+				// dans le launcher — les comparaisons se faisaient avec StrEq (exact).
+				static NkString NormRecent(const char *p) {
+					NkString o;
+					if (!p || !*p)
+						return o;
+					if (p[1] == ':' && p[0] >= 'a' && p[0] <= 'z') { // "d:" -> "D:"
+						o += static_cast<char>(p[0] - 32);
+						++p;
+					}
+					for (; *p; ++p)
+						o += (*p == '\\') ? '/' : *p;
+					return o;
+				}
+
+				// Comparaison de chemins : normalisee ET insensible a la casse (Windows).
+				static bool SamePathRec(const char *a, const char *b) {
+					return StrEqI(NormRecent(a).CStr(), NormRecent(b).CStr());
+				}
+
+				// DOSSIER a ouvrir pour une entree de RECENT/EPINGLE.
+				// La liste est MIXTE depuis le mode edition simple : AddRecent stocke le
+				// fichier « .jenga » quand il y a un workspace, mais le DOSSIER quand on
+				// ouvre un dossier quelconque. Les appelants faisaient tous un
+				// GetParent() inconditionnel (valable pour un fichier) : sur une entree
+				// « dossier », ca ouvrait le PARENT, donc un AUTRE dossier que celui
+				// affiche sur la carte (bug remonte par Rihen). Ce helper tranche selon
+				// ce que le chemin DESIGNE reellement, au lieu de le supposer.
+				static NkPath RecentFolder(const char *rec) {
+					if (rec && *rec && NkDirectory::Exists(rec))
+						return NkPath(rec); // entree « dossier ouvert sans workspace »
+					return NkPath(rec ? rec : "").GetParent(); // entree « fichier .jenga »
+				}
+
 				static void RemoveFrom(NkVector<NkString> &v, const char *path) {
 					for (usize i = 0; i < v.Size();)
-						if (StrEq(v[i].CStr(), path))
+						if (SamePathRec(v[i].CStr(), path))
 							v.Erase(v.Begin() + i);
 						else
 							++i;
@@ -5377,7 +5874,7 @@ namespace nkentseu {
 
 				bool IsPinned(const char *path) const {
 					for (usize i = 0; i < pinned.Size(); ++i)
-						if (StrEq(pinned[i].CStr(), path))
+						if (SamePathRec(pinned[i].CStr(), path))
 							return true;
 					return false;
 				}
@@ -5387,15 +5884,36 @@ namespace nkentseu {
 					pinned.Clear();
 					NkString txt = NkFile::ReadAllText(NkPath(RecentsPath().CStr()));
 					NkString cur;
+					// Chaque entree est NORMALISEE a la lecture et ignoree si deja presente
+					// (dans les epingles OU les recents) -> nettoie les doublons ecrits par
+					// les versions precedentes, sans migration ni perte d'historique.
+					auto known = [&](const char *p) {
+						for (usize i = 0; i < pinned.Size(); ++i)
+							if (SamePathRec(pinned[i].CStr(), p))
+								return true;
+						for (usize i = 0; i < recents.Size(); ++i)
+							if (SamePathRec(recents[i].CStr(), p))
+								return true;
+						return false;
+					};
+					bool cleaned = false; // un doublon retire / un chemin renormalise ?
 					auto flush = [&]() {
 						if (cur.Empty())
 							return;
-						if (cur.CStr()[0] == 'P' && cur.CStr()[1] == ' ')
-							pinned.PushBack(NkString(cur.CStr() + 2));
-						else if (cur.CStr()[0] == 'R' && cur.CStr()[1] == ' ')
-							recents.PushBack(NkString(cur.CStr() + 2));
+						const bool isPin = (cur.CStr()[0] == 'P' && cur.CStr()[1] == ' ');
+						const bool isRec = (cur.CStr()[0] == 'R' && cur.CStr()[1] == ' ');
+						const char *raw = (isPin || isRec) ? cur.CStr() + 2 : cur.CStr();
+						const NkString p = NormRecent(raw);
+						if (!StrEq(p.CStr(), raw))
+							cleaned = true; // la forme sur disque n'etait pas canonique
+						if (p.Empty())
+							cleaned = true;
+						else if (known(p.CStr()))
+							cleaned = true; // doublon d'une entree deja retenue
+						else if (isPin)
+							pinned.PushBack(p);
 						else
-							recents.PushBack(cur); // ancien format (chemin nu)
+							recents.PushBack(p); // "R " ou ancien format (chemin nu)
 						cur.Clear();
 					};
 					for (const char *p = txt.CStr(); *p; ++p) {
@@ -5405,7 +5923,13 @@ namespace nkentseu {
 							cur += *p;
 					}
 					flush();
+					// Reecrit le fichier UNE SEULE FOIS si le disque contenait des doublons
+					// ou des chemins non canoniques -> l'utilisateur ne revoit jamais le
+					// doublon, meme sans ouvrir de workspace.
+					if (cleaned)
+						SaveRecents();
 					LoadNameOverrides();
+					LoadProjCounts(); // totaux exacts memorises (cartes du launcher)
 					RebuildRecentNames();
 				}
 
@@ -5425,12 +5949,13 @@ namespace nkentseu {
 				}
 
 				void AddRecent(const NkString &wsPath) {
-					if (IsPinned(wsPath.CStr()))
+					const NkString np = NormRecent(wsPath.CStr()); // forme CANONIQUE stockee
+					if (IsPinned(np.CStr()))
 						return; // deja epingle -> reste en tete
 					NkVector<NkString> nw;
-					nw.PushBack(wsPath); // en tete (le plus recent)
+					nw.PushBack(np); // en tete (le plus recent)
 					for (usize i = 0; i < recents.Size() && nw.Size() < 12; ++i)
-						if (!StrEq(recents[i].CStr(), wsPath.CStr()))
+						if (!SamePathRec(recents[i].CStr(), np.CStr()))
 							nw.PushBack(recents[i]);
 					recents = nw;
 					SaveRecents();
@@ -5438,17 +5963,19 @@ namespace nkentseu {
 				}
 
 				void PinRecent(const NkString &path) {
-					RemoveFrom(recents, path.CStr());
-					if (!IsPinned(path.CStr()))
-						pinned.PushBack(path);
+					const NkString np = NormRecent(path.CStr());
+					RemoveFrom(recents, np.CStr());
+					if (!IsPinned(np.CStr()))
+						pinned.PushBack(np);
 					SaveRecents();
 					RebuildRecentNames();
 				}
 
 				void UnpinRecent(const NkString &path) {
-					RemoveFrom(pinned, path.CStr());
-					RemoveFrom(recents, path.CStr());
-					recents.Insert(recents.Begin(), path);
+					const NkString np = NormRecent(path.CStr());
+					RemoveFrom(pinned, np.CStr());
+					RemoveFrom(recents, np.CStr());
+					recents.Insert(recents.Begin(), np);
 					SaveRecents();
 					RebuildRecentNames();
 				}
@@ -5733,6 +6260,18 @@ namespace nkentseu {
 					auto isW2 = [](char c) {
 						return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
 					};
+					// La ligne contenant `hit` est-elle COMMENTEE (DSL = Python, « # ») ?
+					// Sans ce test, un `# with project("Ancien")` mis de cote comptait
+					// comme un projet reel -> total affiche faux sur les cartes du launcher.
+					auto inComment = [](const char *base, const char *hit) {
+						const char *ls = hit;
+						while (ls > base && ls[-1] != '\n')
+							--ls;
+						for (const char *q = ls; q < hit; ++q)
+							if (*q == '#')
+								return true;
+						return false;
+					};
 					auto collect = [&](const char *src, const char *pat, bool boundary) {
 						const char *base = src;
 						const char *p = src;
@@ -5741,7 +6280,13 @@ namespace nkentseu {
 							p += Len(pat);
 							if (boundary && hit > base && isW2(hit[-1]))
 								continue; // « startproject( » ne doit pas matcher « project( »
-							while (*p && *p != '"')
+							if (inComment(base, hit))
+								continue; // ligne commentee -> pas un projet
+							// Le nom doit etre un LITTERAL sur LA MEME ligne : `project(var)`
+							// (nom calcule) n'en a pas. Sans la borne '\n', la recherche
+							// traversait les lignes et capturait la premiere chaine
+							// rencontree plus bas dans le fichier = faux projet.
+							while (*p && *p != '"' && *p != '\n')
 								++p;
 							if (*p == '"') {
 								++p;
@@ -5763,7 +6308,12 @@ namespace nkentseu {
 					NkVector<NkString> qTxt, qDir, seen;
 					qTxt.PushBack(NkString(txt));
 					qDir.PushBack(baseDir.ToString());
-					for (usize qi = 0; qi < qTxt.Size() && qTxt.Size() <= 300; ++qi) {
+					// Plafond = nombre de fichiers ENFILES (l'ancienne condition de boucle
+					// `qTxt.Size() <= 300` ARRETAIT tout le parcours des qu'on depassait
+					// 300 : sur un gros workspace comme Nkentseu — 152 includes rien qu'a
+					// la racine — les derniers projets n'etaient jamais comptes).
+					const usize kMaxFiles = 4000;
+					for (usize qi = 0; qi < qTxt.Size(); ++qi) {
 						const char *src = qTxt[qi].CStr();
 						collect(src, "project(", true); // couvre `with project(`
 						collect(src, "startproject(", true);
@@ -5773,6 +6323,8 @@ namespace nkentseu {
 							p += Len("include(\"");
 							if (hit > src && isW2(hit[-1]))
 								continue; // pas `xinclude(`
+							if (inComment(src, hit))
+								continue; // include commente -> ne pas suivre
 							NkString rel;
 							while (*p && *p != '"')
 								rel += *p++;
@@ -5785,7 +6337,7 @@ namespace nkentseu {
 									vis = true;
 									break;
 								}
-							if (vis || qTxt.Size() > 300)
+							if (vis || qTxt.Size() >= kMaxFiles)
 								continue;
 							seen.PushBack(full);
 							const NkString sub = NkFile::ReadAllText(NkPath(full.CStr()));
@@ -5861,8 +6413,21 @@ namespace nkentseu {
 							m.jengaVer = t;
 						}
 					}
-					m.projects = CollectProjects(txt.CStr(), NkPath(path).GetParent(), &m.projCount);
-					m.activity = ActivityTime(NkPath(path).GetParent().ToString().CStr()); // derniere activite reelle
+					// Dossier du workspace : le chemin lui-meme s'il DESIGNE un dossier
+					// (entree ouverte sans .jenga), son parent s'il designe le fichier.
+					// Sans ca, l'activite d'une entree « dossier » etait mesuree sur son
+					// PARENT -> date et tri faux sur la carte du launcher.
+					const NkPath wsDir = RecentFolder(path);
+					m.projects = CollectProjects(txt.CStr(), wsDir, &m.projCount);
+					// Si ce workspace a deja ete ouvert, `jenga info` en a donne le total
+					// EXACT : il prime sur le scan textuel (toujours approximatif des que
+					// le DSL calcule ses noms de projets).
+					{
+						const int32 exact = KnownProjCount(path);
+						if (exact >= 0)
+							m.projCount = exact;
+					}
+					m.activity = ActivityTime(wsDir.ToString().CStr()); // derniere activite reelle
 					if (m.activity == 0)
 						m.activity = MTimeOf(path); // repli : mtime du .jenga
 					mWsMeta.PushBack(m);
@@ -5960,7 +6525,7 @@ namespace nkentseu {
 				}
 
 				void PumpQueue() {
-					if (mBuild.Running() || mQueue.Empty())
+					if (BuildSlotRunning() || mQueue.Empty())
 						return;
 					NkString next = mQueue[0];
 					mQueue.Erase(mQueue.Begin());
@@ -5981,7 +6546,22 @@ namespace nkentseu {
 					mCmdCur = next;
 					mBuildDoneHandled = false;
 					Journal(NkString("commande lancee : ") + next.CStr());
-					mBuild.Start(next);
+					// Jenga IN-PROCESS (flag NKCODE_EMBEDDED_JENGA=1 + runtime embarque
+					// present) : build/rebuild passent par l'interpreteur embarque. Toute
+					// commande non embarquable (clean/test/flags/flag inconnu) ou l'echec du
+					// depot retombent FIDELEMENT sur le sous-processus classique.
+					mBuildEmbedded = false;
+					buildStructured = false;
+					if (UseEmbeddedJenga()) {
+						NkEmbeddedJenga::Request req;
+						if (ParseJengaCmd(next, req) && NkEmbeddedJenga::Get().Start(req)) {
+							mBuildEmbedded = true;
+							buildStructured = true;
+							output.PushBack(NkString("[jenga-embed] execution in-process (CPython embarque)"));
+						}
+					}
+					if (!mBuildEmbedded)
+						mBuild.Start(next);
 					status = NkString("Construction...");
 				}
 
@@ -5990,6 +6570,16 @@ namespace nkentseu {
 					if (!HasWorkspace()) {
 						status = NkString("(aucun workspace)");
 						return;
+					}
+					// Distribution LEGERE (testeur) : compilateur par defaut absent ->
+					// enqueue son telechargement AVANT le build (la file existante
+					// enchaine naturellement ; progression dans le panneau Sortie).
+					if (UseEmbeddedJenga() && NkEmbeddedJenga::NeedsCompiler()) {
+						bool queued = false; // pas de doublon si deja en file
+						for (usize i = 0; i < mQueue.Size() && !queued; ++i)
+							queued = NkFindSub(mQueue[i].CStr(), "installcompiler") != nullptr;
+						if (!queued && !NkFindSub(mCmdCur.CStr(), "installcompiler"))
+							EnqueueJenga(NkString("installcompiler"), NkString("__compiler__"));
 					}
 					// Concurrence : un build DOUBLON (meme projet, ou "tous" pendant qu'un
 					// build tourne) est refuse ; un build d'un AUTRE projet est ACCEPTE et
@@ -6091,6 +6681,37 @@ namespace nkentseu {
 					int32 nSys = 0;
 					const SysDef *sys = Systems(&nSys);
 					const SysDef &S = sys[(sysIdx >= 0 && sysIdx < nSys) ? sysIdx : 0];
+					// ── Jenga EMBARQUE : on ne passe PAS par `jenga run` ────────────
+					// `jenga run` est un processus LONG (l'application de l'utilisateur,
+					// et PLUSIEURS instances peuvent tourner en parallele par
+					// conception) : il ne peut donc pas occuper l'interpreteur embarque,
+					// qui est unique et partage avec les builds. On decompose donc :
+					//   1) construire via la file (chemin embarque deja en place),
+					//   2) demander le CHEMIN du binaire (Embed.ExecutablePath, rapide),
+					//   3) le lancer NATIVEMENT avec NkProcess.
+					// Resultat : « Demarrer » fonctionne sans aucun `jenga` externe,
+					// donc sans Python installe, tout en gardant le parallelisme.
+					if (UseEmbeddedJenga()) {
+						mRunPendingProj = proj;
+						mRunPendingCfg = ConfigNameOf(cfgIdx >= 2 ? 0 : cfgIdx);
+						mRunPendingPlat = S.name;
+						mRunStage = 1; // 1 = construire, 2 = resoudre le chemin, 3 = lancer
+						NkString bcmd("build --target ");
+						bcmd += proj;
+						bcmd += " --config ";
+						bcmd += mRunPendingCfg;
+						bcmd += " --platform ";
+						bcmd += S.name;
+						if (!compilerName.Empty()) {
+							bcmd += " --toolchain ";
+							bcmd += compilerName;
+						}
+						bcmd += JengaFileArg();
+						EnqueueJenga(bcmd, NkString(proj));
+						PumpQueue();
+						status = NkString("Construction avant execution...");
+						return;
+					}
 					NkString cmd("jenga run ");
 					cmd += proj;
 					cmd += " --config ";
@@ -6103,10 +6724,108 @@ namespace nkentseu {
 					}
 					cmd += " --build";
 					cmd += JengaFileArg();
+					// `--args` doit rester EN DERNIER : argparse.REMAINDER avale tout ce
+					// qui suit (cf. Jenga/Commands/Run.py).
+					if (runArgs[0]) {
+						cmd += " --args ";
+						cmd += runArgs;
+					}
 					NkProcess *p = new NkProcess();
 					output.PushBack(NkString("$ ") + cmd.CStr());
 					Journal(NkString("execution lancee : ") + cmd.CStr());
 					p->Start(cmd);
+					mRuns.PushBack(p);
+					status = NkPrintf("Execution... (%d instance(s))", RunCount());
+				}
+
+				// ── Arguments passes a l'EXECUTABLE lance par « Demarrer » ──────────
+				// Equivalent de `jenga run <proj> --args ...`. Persistes avec la session
+				// du workspace (voir SessionSig/SaveSession) pour ne pas les retaper.
+				char runArgs[512] = {};
+
+				// Decoupe `runArgs` en jetons (guillemets respectes) : « --port 8080
+				// "mon fichier.txt" » -> 3 arguments.
+				NkVector<NkString> RunArgTokens() const {
+					NkVector<NkString> out;
+					NkString cur;
+					bool inQ = false;
+					for (const char *p = runArgs;; ++p) {
+						if (*p == '"') {
+							inQ = !inQ;
+							continue;
+						}
+						if ((*p == ' ' && !inQ) || !*p) {
+							if (!cur.Empty()) {
+								out.PushBack(cur);
+								cur.Clear();
+							}
+							if (!*p)
+								break;
+						} else
+							cur += *p;
+					}
+					return out;
+				}
+
+				// ── « Demarrer » en mode embarque : machine a etats (voir DoRun) ──
+				// 1 = build en cours · 2 = resolution du chemin en cours · 0 = inactif
+				int32 mRunStage = 0;
+				NkString mRunPendingProj, mRunPendingCfg, mRunPendingPlat;
+				NkVector<NkString> mRunPathLines;
+
+				// A appeler CHAQUE FRAME (depuis PollBuild) : enchaine build -> chemin ->
+				// lancement natif.
+				void PollRunStages() {
+					if (mRunStage == 0)
+						return;
+					if (mRunStage == 1) { // attend la fin du build mis en file
+						if (BuildSlotRunning() || !mQueue.Empty())
+							return;
+						if (BuildSlotExit() != 0) { // build echoue -> on ne lance rien
+							mRunStage = 0;
+							status = NkString("Execution annulee (construction en echec)");
+							return;
+						}
+						NkEmbeddedJenga::Request req;
+						req.kind = "exepath";
+						req.target = mRunPendingProj;
+						req.config = mRunPendingCfg;
+						req.platform = mRunPendingPlat;
+						req.toolchain = compilerName;
+						if (wsIdx >= 0 && wsIdx < static_cast<int32>(wsPaths.Size()))
+							req.jengaFile = wsPaths[wsIdx];
+						mRunPathLines.Clear();
+						if (NkEmbeddedJenga::Get().Start(req))
+							mRunStage = 2;
+						return; // creneau occupe -> nouvelle tentative a la frame suivante
+					}
+					// Etape 2 : recupere la ligne « [jenga-exepath] <chemin> » puis lance.
+					NkVector<NkJengaProgressEvent> ignored;
+					NkEmbeddedJenga::Get().Drain(mRunPathLines, ignored);
+					if (!NkEmbeddedJenga::Get().Done())
+						return;
+					mRunStage = 0;
+					NkString exe;
+					for (usize i = 0; i < mRunPathLines.Size(); ++i)
+						if (mRunPathLines[i].StartsWith("[jenga-exepath] "))
+							exe = NkString(mRunPathLines[i].CStr() + 16);
+					if (exe.Empty() || !NkFile::Exists(exe.CStr())) {
+						status = NkString("Executable introuvable pour ") + mRunPendingProj.CStr();
+						return;
+					}
+					// Arguments de l'utilisateur (champ « Arguments » de la toolbar) :
+					// chaque jeton est re-quote pour survivre au passage par le shell.
+					NkString line = NkString("\"") + exe.CStr() + "\"";
+					const NkVector<NkString> targs = RunArgTokens();
+					for (usize i = 0; i < targs.Size(); ++i) {
+						line += " \"";
+						line += targs[i];
+						line += "\"";
+					}
+					NkProcess *p = new NkProcess();
+					output.PushBack(NkString("$ ") + line.CStr());
+					Journal(NkString("execution lancee (embarque) : ") + line.CStr());
+					p->Start(line);
 					mRuns.PushBack(p);
 					status = NkPrintf("Execution... (%d instance(s))", RunCount());
 				}
@@ -6267,14 +6986,30 @@ namespace nkentseu {
 					mWatchTimer = 0.f;
 					// Signature = max(date de modif) des .jenga racine. Si elle augmente -> reload.
 					int64 mx = 0;
+					int32 nJenga = 0;
 					NkVector<NkDirectoryEntry> entries =
 						NkDirectory::GetEntries(root, "*.jenga", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
 					for (usize i = 0; i < entries.Size(); ++i) {
 						if (entries[i].IsDirectory)
 							continue;
+						++nJenga;
 						const int64 t = static_cast<int64>(entries[i].ModificationTime);
 						if (t > mx)
 							mx = t;
+					}
+					// ── APPARITION d'un workspace dans un dossier ouvert SANS .jenga ──
+					// Un dossier quelconque peut etre ouvert en mode edition simple ; si
+					// l'utilisateur y cree ensuite un .jenga (a la main, par `jenga init`
+					// dans le terminal, ou via git), l'IDE doit REDEVENIR un IDE Jenga :
+					// re-scan des workspaces -> HasWorkspace() vrai -> la toolbar de build
+					// se ractive d'elle-meme (la toolbar appelle ScanWorkspaces + TickWatch
+					// a chaque frame). Ce cas ETAIT MANQUE : la branche « 1re mesure »
+					// ci-dessous absorbait l'apparition sans jamais recharger.
+					if (nJenga > 0 && !HasWorkspace()) {
+						mLastJengaMtime = mx;
+						RequestReload();
+						status = NkString("Workspace Jenga detecte - fonctions de construction activees");
+						return;
 					}
 					if (mLastJengaMtime == 0) {
 						mLastJengaMtime = mx;
@@ -6425,6 +7160,13 @@ namespace nkentseu {
 							projIdx = static_cast<int32>(i);
 							break;
 						}
+					// Memorise le total AUTORITAIRE (projets + suites de tests, comme les
+					// declarations `project(` que comptait le scan textuel) pour que la
+					// carte de ce workspace affiche le bon nombre au prochain passage sur
+					// le launcher, sans relancer `jenga info`.
+					if (wsIdx >= 0 && wsIdx < static_cast<int32>(wsPaths.Size()))
+						SetKnownProjCount(wsPaths[wsIdx],
+										  static_cast<int32>(projects.Size() + tests.Size()));
 				}
 
 				// Decoupe jusqu'a `maxN` jetons separes par des espaces/tabs. Renvoie le nombre lu.

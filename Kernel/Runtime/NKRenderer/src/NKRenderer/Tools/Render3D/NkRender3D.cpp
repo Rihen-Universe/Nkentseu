@@ -10,6 +10,7 @@
 #include "NKRenderer/Core/NkResources.h"
 #include "NKRenderer/Core/NkRendererConfig.h" // NkUnits() pour triplanar
 #include "NKRenderer/Materials/NkMaterialCollection.h"
+#include "NKRenderer/Materials/NkMatcapLibrary.h"
 #include "NkRender3D_PBRShaders.inl"
 #include "NKLogger/NkLog.h"
 #include <cstring>
@@ -34,8 +35,21 @@ namespace nkentseu {
 			mShaderLib = shaderLib;
 			mResources = resources;
 
-			// Clamp [1,3]. Au-dela = 3 c'est gaspillage VRAM sans gain perceptible.
-			mFramesInFlight = framesInFlight < 1 ? 1 : (framesInFlight > 3 ? 3 : framesInFlight);
+			// PROFONDEUR DES RINGS = celle du DEVICE, imperativement.
+			// mFrameSlot est calcule par `mDevice->GetFrameIndex() % mFramesInFlight`
+			// et GetFrameIndex() cycle modulo la profondeur du device (MAX_FRAMES = 3
+			// sur GL/VK/DX11/DX12). Si mFramesInFlight est PLUS PETIT, le modulo n'est
+			// plus bijectif : la suite des slots devient 0,1,0 | 0,1,0 | ... et le slot 0
+			// revient sur DEUX FRAMES CONSECUTIVES -> le CPU reecrit un buffer que le GPU
+			// lit encore pour la frame precedente (la fence de BeginFrame ne couvre que
+			// N-devFIF) -> donnees dechirees -> clignotement. Voir NkRendererImpl.
+			{
+				const uint32 devFIF = mDevice ? mDevice->GetMaxFramesInFlight() : 0u;
+				uint32 want = framesInFlight < 1u ? 1u : framesInFlight;
+				if (devFIF > want)
+					want = devFIF;
+				mFramesInFlight = want;
+			}
 			mFrameSlot = 0;
 
 			// ── UBOs (matchent le shader pbr.vert/frag.gl.glsl) ──────────────────
@@ -154,55 +168,29 @@ namespace nkentseu {
 				}
 			}
 
-			// ── MatCap texture (boule chrome studio) ──────────────────────────────
-			// Génère une "boule matcap" 128x128 : chaque pixel = normale de sphère,
-			// colorée par un éclairage chrome/studio. Échantillonnée par la normale-vue
-			// en mode SOLID/WIREFRAME (matcap TEXTURE). Base pour charger de vrais
-			// matcaps .exr/.png plus tard (remplacer la génération par un Load).
+			// ── ATLAS MATCAP (30 boules, façon Blender) ──────────────────────────
+			// Une matcap est une image de BOULE éclairée, échantillonnée par la normale
+			// en ESPACE VUE : uv = normaleVue.xy * 0.5 + 0.5. L'éclairage est peint dans
+			// la texture — aucune lumière de scène, aucune ombre, aucun IBL.
+			//
+			// Les 30 boules tiennent dans UN atlas 6x5 (cf. NkMatcapLibrary) plutôt que
+			// dans 30 textures ou un tableau de textures : un seul binding, un seul
+			// sampler, aucun changement de descripteur quand l'utilisateur change de
+			// matcap. Le shader calcule lui-même l'offset de tuile depuis matcapId, donc
+			// AUCUN uniforme supplémentaire n'est nécessaire.
+			//
+			// UNE SEULE MIP : une matcap est déjà lisse à l'écran, et des mips
+			// mélangeraient les tuiles voisines entre elles.
 			{
-				const uint32 S = 128;
-				auto td = NkTextureDesc::Tex2D(S, S, NkGPUFormat::NK_RGBA8_UNORM, 1);
-				td.debugName = "MatcapChrome";
+				const uint32 W = NkMatcapLibrary::kAtlasW, H = NkMatcapLibrary::kAtlasH;
+				auto td = NkTextureDesc::Tex2D(W, H, NkGPUFormat::NK_RGBA8_UNORM, 1);
+				td.debugName = "MatcapAtlas30";
 				mMatcapTex = mDevice->CreateTexture(td);
 				if (mMatcapTex.IsValid()) {
 					NkVector<uint8> px;
-					px.Resize(S * S * 4);
-					auto norm3 = [](float a, float b, float c) {
-						float l = sqrtf(a * a + b * b + c * c);
-						return l > 1e-6f ? 1.f / l : 0.f;
-					};
-					const float kl = norm3(0.40f, 0.50f, 0.77f), fl = norm3(-0.5f, 0.15f, 0.85f);
-					for (uint32 y = 0; y < S; ++y)
-						for (uint32 x = 0; x < S; ++x) {
-							float nx = ((float)x / (float)(S - 1)) * 2.f - 1.f;
-							float ny = 1.f - ((float)y / (float)(S - 1)) * 2.f;
-							float r2 = nx * nx + ny * ny;
-							float s;
-							if (r2 > 1.f) {
-								s = 0.05f;
-							} // hors sphère : fond sombre
-							else {
-								float nz = sqrtf(1.f - r2);
-								float key = nx * 0.40f * kl + ny * 0.50f * kl + nz * 0.77f * kl;
-								if (key < 0.f)
-									key = 0.f;
-								float spec = powf(key, 42.f);
-								float fill = nx * (-0.5f) * fl + ny * 0.15f * fl + nz * 0.85f * fl;
-								if (fill < 0.f)
-									fill = 0.f;
-								float fres = powf(1.f - nz, 3.f);
-								s = 0.12f + 0.45f * key + 0.9f * spec + 0.22f * fill + 0.32f * fres;
-								if (s > 1.f)
-									s = 1.f;
-							}
-							uint8 v = (uint8)(s * 255.f);
-							uint32 i = (y * S + x) * 4;
-							px[i] = v;
-							px[i + 1] = v;
-							px[i + 2] = v;
-							px[i + 3] = 255; // chrome = niveaux de gris
-						}
-					mDevice->WriteTextureRegion(mMatcapTex, px.Data(), 0, 0, 0, S, S, 1, 0, 0);
+					px.Resize(W * H * 4);
+					NkMatcapLibrary::GenerateAtlas(px.Data());
+					mDevice->WriteTextureRegion(mMatcapTex, px.Data(), 0, 0, 0, W, H, 1, 0, 0);
 				}
 			}
 
@@ -948,6 +936,207 @@ namespace nkentseu {
 			cmd->Draw(3, 1, 0, 0); // 1 triangle plein-écran (reconstruction de rayon)
 		}
 
+		// ═════════════════════════════════════════════════════════════════════════
+		// Sélection « outline silhouette » façon Blender (post-process edge-detect).
+		// Passe 1 (RenderSelectionMask) : objets sélectionnés rendus SEULS en blanc
+		//   dans une cible offscreen R8 -> silhouette pleine.
+		// Passe 2 (CompositeSelectionOutline) : plein écran, dilatation-différence du
+		//   masque -> fin liseré orange composité par-dessus l'image finale.
+		// ═════════════════════════════════════════════════════════════════════════
+		void NkRender3D::SetSelectionOutline(bool enabled, NkVec4f color, float32 thicknessPx) {
+			if (enabled != mSelOutline)
+				mSelOutlineGraphDirty = true; // (dé)active les passes -> rebuild du graph
+			mSelOutline = enabled;
+			mSelOutlineColor = color;
+			mSelOutlineThickness = (thicknessPx > 0.f) ? thicknessPx : 1.f;
+			if (mSelOutlineThickness > 8.f)
+				mSelOutlineThickness = 8.f; // borne raisonnable (rayon de recherche en px)
+		}
+
+		void NkRender3D::SubmitSelection(const NkDrawCall3D &dc, bool isActive) {
+			if (!dc.mesh.IsValid())
+				return;
+			mSelection.PushBack(dc);
+			// Niveau ecrit dans le masque : 1.0 = ACTIF, 0.5 = selectionne. C'est ce
+			// niveau qui permet au shader de contour de distinguer les deux, comme
+			// Blender le fait. Un masque binaire ne pouvait pas porter l'information.
+			mSelectionActive.PushBack(isActive ? (uint8)1 : (uint8)0);
+		}
+
+		// Pipeline MASQUE : shader trivial (VS = viewProj*model, FS = blanc), sans
+		// depth (silhouette pleine), NoCull (les deux faces -> masque plein). Set 0 =
+		// CameraUBO (même UBO que la scène -> alignement exact) ; model en push const.
+		bool NkRender3D::EnsureSelMaskPipeline(NkRenderPassHandle currentRP) {
+			if (mSelMaskPipeline.IsValid() && mSelMaskPipelineRP == currentRP)
+				return true;
+			if (!mShaderLib)
+				return false;
+			if (!mSelMaskShader.IsValid()) {
+				auto prog = mShaderLib->LoadOrCompileVF("SelMask", "", "");
+				if (!prog.IsValid()) {
+					logger.Errorf("[NkR3D::SelMask] shader compile FAIL\n");
+					return false;
+				}
+				mSelMaskShader = mShaderLib->GetRHIHandle(prog);
+			}
+			if (!mSelMaskShader.IsValid())
+				return false;
+			if (mSelMaskPipeline.IsValid()) {
+				mDevice->DestroyPipeline(mSelMaskPipeline);
+				mSelMaskPipeline = {};
+			}
+			NkGraphicsPipelineDesc pd;
+			pd.shader = mSelMaskShader;
+			pd.depthStencil = NkDepthStencilDesc::NoDepth();
+			pd.rasterizer = NkRasterizerDesc::NoCull();
+			pd.blend = NkBlendDesc::Opaque();
+			pd.debugName = "SelMask";
+			pd.renderPass = currentRP;
+			// model (mat4) + level (vec4). La plage DOIT couvrir les deux : declaree a
+			// sizeof(NkMat4f) seul, le niveau pousse au-dela de la plage etait rejete et
+			// le masque ressortait VIDE — plus aucun lisere, sans le moindre message
+			// d'erreur. Toute evolution du push-constant d'un shader doit etre reportee
+			// ICI, sous peine d'une disparition silencieuse.
+			pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0,
+							   (uint32)(sizeof(NkMat4f) + sizeof(NkVec4f)));
+			pd.descriptorSetLayouts.PushBack(mGlobalLayout);								   // set 0 = CameraUBO
+			pd.vertexLayout.AddBinding(0, sizeof(NkVertex3D), false)
+				.AddAttribute(0, 0, NkVertexFormat::NK_RGB32_FLOAT, 0, "POSITION", 0);
+			mSelMaskPipeline = mDevice->CreateGraphicsPipeline(pd);
+			mSelMaskPipelineRP = currentRP;
+			logger.Info("[NkRender3D] SelMask pipeline create: shader_valid={0} pipeline_valid={1} rp.id={2}\n",
+						mSelMaskShader.IsValid() ? 1 : 0, mSelMaskPipeline.IsValid() ? 1 : 0, currentRP.id);
+			return mSelMaskPipeline.IsValid();
+		}
+
+		void NkRender3D::RenderSelectionMask(NkICommandBuffer *cmd) {
+			if (!cmd || !mSelOutline || mSelection.Empty() || !mMesh)
+				return;
+			NkRenderPassHandle rp{};
+			if (mGraph)
+				rp = mGraph->GetPassRenderPass("SelectionMask");
+			if (!EnsureSelMaskPipeline(rp))
+				return;
+			cmd->BindGraphicsPipeline(mSelMaskPipeline);
+			// set 0 = per-frame (CameraUBO). Même slot que le Flush principal (déjà
+			// uploadé cette frame) -> viewProj identique -> masque aligné pixel-exact.
+			NkDescSetHandle gs = (mFrameSlot < mGlobalSetRing.Size()) ? mGlobalSetRing[mFrameSlot] : NkDescSetHandle{};
+			if (gs.IsValid())
+				cmd->BindDescriptorSet(gs, 0);
+			for (auto &dc : mSelection) {
+				if (!dc.mesh.IsValid())
+					continue;
+				struct MaskPC {
+						NkMat4f model;
+						NkVec4f level; // .x = 1.0 (actif) ou 0.5 (selectionne)
+				} mpc;
+				mpc.model = dc.transform;
+				const uint32 di = (uint32)(&dc - mSelection.Data());
+				const bool act = (di < (uint32)mSelectionActive.Size()) && mSelectionActive[di] != 0;
+				mpc.level = {act ? 1.f : 0.5f, 0.f, 0.f, 0.f};
+				cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(mpc), &mpc);
+				mMesh->BindMesh(cmd, dc.mesh);
+				if (dc.subMeshIdx == 0xFFFFFFFFu)
+					mMesh->DrawAll(cmd, dc.mesh);
+				else
+					mMesh->DrawSubMesh(cmd, dc.mesh, dc.subMeshIdx);
+			}
+		}
+
+		// Pipeline OUTLINE : fullscreen triangle (comme Blit/FXAA), lit le masque au
+		// binding 0, alpha-blend du liseré sur la cible finale. Layout+set du sampler
+		// créés paresseusement ici (dédiés : pas de partage -> pas d'écrasement au
+		// Submit sur les backends à commandes différées, cf. NkPostProcessStack).
+		bool NkRender3D::EnsureSelOutlinePipeline(NkRenderPassHandle currentRP) {
+			if (mSelOutlinePipeline.IsValid() && mSelOutlinePipelineRP == currentRP)
+				return true;
+			if (!mShaderLib)
+				return false;
+			if (!mSelOutlineShader.IsValid()) {
+				auto prog = mShaderLib->LoadOrCompileVF("SelOutline", "", "");
+				if (!prog.IsValid()) {
+					logger.Errorf("[NkR3D::SelOutline] shader compile FAIL\n");
+					return false;
+				}
+				mSelOutlineShader = mShaderLib->GetRHIHandle(prog);
+			}
+			if (!mSelOutlineShader.IsValid())
+				return false;
+			if (!mSelTexLayout.IsValid()) {
+				NkDescriptorSetLayoutDesc layout;
+				layout.Add(0, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
+				mSelTexLayout = mDevice->CreateDescriptorSetLayout(layout);
+				mSelTexSet = mDevice->AllocateDescriptorSet(mSelTexLayout);
+			}
+			if (mSelOutlinePipeline.IsValid()) {
+				mDevice->DestroyPipeline(mSelOutlinePipeline);
+				mSelOutlinePipeline = {};
+			}
+			NkGraphicsPipelineDesc pd;
+			pd.shader = mSelOutlineShader;
+			pd.depthStencil = NkDepthStencilDesc::NoDepth();
+			pd.rasterizer = NkRasterizerDesc::NoCull();
+			pd.blend = NkBlendDesc::Alpha(); // liseré composité par dessus l'image finale
+			pd.debugName = "SelOutline";
+			pd.renderPass = currentRP;
+			// params + color : DEUX vec4, pas plus. Sur le chemin OpenGL, au-dela de
+			// cette taille les valeurs ne sont pas livrees de facon fiable — le shader
+			// derive donc lui-meme la teinte de l'objet actif.
+			pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(NkVec4f) * 2);
+			if (mSelTexLayout.IsValid())
+				pd.descriptorSetLayouts.PushBack(mSelTexLayout);
+			// Pas de vertex layout (triangle plein-écran généré via gl_VertexID).
+			mSelOutlinePipeline = mDevice->CreateGraphicsPipeline(pd);
+			mSelOutlinePipelineRP = currentRP;
+			logger.Info("[NkRender3D] SelOutline pipeline create: shader_valid={0} pipeline_valid={1} rp.id={2}\n",
+						mSelOutlineShader.IsValid() ? 1 : 0, mSelOutlinePipeline.IsValid() ? 1 : 0, currentRP.id);
+			return mSelOutlinePipeline.IsValid();
+		}
+
+		void NkRender3D::CompositeSelectionOutline(NkICommandBuffer *cmd, NkTextureHandle maskTex) {
+			if (!cmd || !mSelOutline || !maskTex.IsValid())
+				return;
+			NkRenderPassHandle rp{};
+			if (mGraph)
+				rp = mGraph->GetPassRenderPass("SelectionOutline");
+			if (!EnsureSelOutlinePipeline(rp))
+				return;
+			// Filet de sécurité : si aucune propagation de taille n'a eu lieu (mW/mH
+			// à 0), l'edge-detect diviserait par 1 -> offsets d'échantillonnage à
+			// l'échelle de tout l'écran -> liseré invisible. On retombe alors sur la
+			// taille swapchain (== taille de rendu hors mode SetRenderSizeOverride).
+			if ((mW == 0 || mH == 0) && mDevice) {
+				uint32 sw = mDevice->GetSwapchainWidth();
+				uint32 sh = mDevice->GetSwapchainHeight();
+				if (sw > 0 && sh > 0) {
+					mW = sw;
+					mH = sh;
+				}
+			}
+			if (mSelTexSet.IsValid() && mResources) {
+				NkSamplerHandle samp = mResources->GetSamplerLinearClamp();
+				if (samp.IsValid())
+					mDevice->BindTextureSampler(mSelTexSet, 0, maskTex, samp);
+			}
+			cmd->BindGraphicsPipeline(mSelOutlinePipeline);
+			if (mSelTexSet.IsValid())
+				cmd->BindDescriptorSet(mSelTexSet, 0);
+
+			// yFlipUV : le masque et la cible finale sont des offscreens de MÊME
+			// orientation. Sur GL (origine bas-gauche partout) l'UV direct aligne le
+			// masque sur la scène ; VK/DX rendent la cible Y-flippée -> flip vertical.
+			const bool isGL = mDevice && mDevice->GetApi() == ::nkentseu::NkGraphicsApi::NK_GFX_API_OPENGL;
+			struct OutlinePC {
+					NkVec4f params; // .x=invResW .y=invResH .z=thicknessPx .w=yFlipUV
+					NkVec4f color; // teinte de base ; le shader en derive l'actif
+			} pc;
+			pc.params = {1.f / (float32)(mW > 0 ? mW : 1), 1.f / (float32)(mH > 0 ? mH : 1), mSelOutlineThickness,
+						 isGL ? 1.f : -1.f};
+			pc.color = mSelOutlineColor;
+			cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), &pc);
+			cmd->Draw(3, 1, 0, 0);
+		}
+
 		void NkRender3D::Shutdown() {
 			if (mSkyboxPipeline.IsValid()) {
 				mDevice->DestroyPipeline(mSkyboxPipeline);
@@ -976,6 +1165,23 @@ namespace nkentseu {
 			if (mPBRPipeline.IsValid()) {
 				mDevice->DestroyPipeline(mPBRPipeline);
 				mPBRPipeline = {};
+			}
+			// Sélection outline silhouette : pipelines + layout/set du sampler masque.
+			if (mSelMaskPipeline.IsValid()) {
+				mDevice->DestroyPipeline(mSelMaskPipeline);
+				mSelMaskPipeline = {};
+			}
+			if (mSelOutlinePipeline.IsValid()) {
+				mDevice->DestroyPipeline(mSelOutlinePipeline);
+				mSelOutlinePipeline = {};
+			}
+			if (mSelTexSet.IsValid()) {
+				mDevice->FreeDescriptorSet(mSelTexSet);
+				mSelTexSet = {};
+			}
+			if (mSelTexLayout.IsValid()) {
+				mDevice->DestroyDescriptorSetLayout(mSelTexLayout);
+				mSelTexLayout = {};
 			}
 			// Les shader handles sont detenus par NkShaderLibrary, pas a detruire ici.
 			for (auto &s : mGlobalSetRing)
@@ -1057,10 +1263,11 @@ namespace nkentseu {
 				mDevice->DestroyPipeline(mLinePipelineNoDepth);
 				mLinePipelineNoDepth = {};
 			}
-			if (mLineVBO.IsValid()) {
-				mDevice->DestroyBuffer(mLineVBO);
-				mLineVBO = {};
-			}
+			for (uint32 s = 0; s < (uint32)mLineVBORing.Size(); s++)
+				if (mLineVBORing[s].IsValid())
+					mDevice->DestroyBuffer(mLineVBORing[s]);
+			mLineVBORing.Clear();
+			mLineVBORingCap.Clear();
 			if (mTriPipeline.IsValid()) {
 				mDevice->DestroyPipeline(mTriPipeline);
 				mTriPipeline = {};
@@ -1069,21 +1276,37 @@ namespace nkentseu {
 				mDevice->DestroyPipeline(mTriPipelineNoDepth);
 				mTriPipelineNoDepth = {};
 			}
-			if (mTriVBO.IsValid()) {
-				mDevice->DestroyBuffer(mTriVBO);
-				mTriVBO = {};
-			}
-			if (mEditLineBuf.IsValid()) {
-				mDevice->DestroyBuffer(mEditLineBuf);
-				mEditLineBuf = {};
-			}
-			if (mEditTriBuf.IsValid()) {
-				mDevice->DestroyBuffer(mEditTriBuf);
-				mEditTriBuf = {};
-			}
-			if (mEditPointBuf.IsValid()) {
-				mDevice->DestroyBuffer(mEditPointBuf);
-				mEditPointBuf = {};
+			for (uint32 s = 0; s < (uint32)mTriVBORing.Size(); s++)
+				if (mTriVBORing[s].IsValid())
+					mDevice->DestroyBuffer(mTriVBORing[s]);
+			mTriVBORing.Clear();
+			mTriVBORingCap.Clear();
+			for (uint32 s = 0; s < (uint32)mNgonWireRing.Size(); s++)
+				if (mNgonWireRing[s].IsValid())
+					mDevice->DestroyBuffer(mNgonWireRing[s]);
+			mNgonWireRing.Clear();
+			mNgonWireRingCap.Clear();
+			mNgonWireDirtyLo.Clear();
+			mNgonWireDirtyHi.Clear();
+			mNgonWireCPU.Clear();
+			mNgonWireN = 0;
+			{
+				NkVector<NkBufferHandle> *rings[3] = {&mEditLineRing, &mEditTriRing, &mEditPointRing};
+				NkVector<uint32> *caps[3] = {&mEditLineRingCap, &mEditTriRingCap, &mEditPointRingCap};
+				NkVector<uint8> *dirt[3] = {&mEditLineDirty, &mEditTriDirty, &mEditPointDirty};
+				NkVector<float32> *cpus[3] = {&mEditLineCPU, &mEditTriCPU, &mEditPointCPU};
+				for (uint32 k = 0; k < 3u; k++) {
+					for (uint32 s = 0; s < (uint32)rings[k]->Size(); s++)
+						if ((*rings[k])[s].IsValid())
+							mDevice->DestroyBuffer((*rings[k])[s]);
+					rings[k]->Clear();
+					caps[k]->Clear();
+					dirt[k]->Clear();
+					cpus[k]->Clear();
+				}
+				mEditLineN = 0;
+				mEditTriN = 0;
+				mEditPointN = 0;
 			}
 			if (mEditPointPipeline.IsValid()) {
 				mDevice->DestroyPipeline(mEditPointPipeline);
@@ -1149,11 +1372,18 @@ namespace nkentseu {
 		void NkRender3D::BeginScene(const NkSceneContext &ctx) {
 			mCtx = ctx;
 			mInScene = true;
+			// TAA : une phase de jitter par FRAME (ici, pas dans UploadUBOs qui peut
+			// etre appele plusieurs fois — passe miroir — et jitterait alors chaque
+			// passe differemment, ce qui casserait la coherence de la profondeur).
+			if (mTAAJitter)
+				mTAAJitterIdx++;
 			mOpaque.Clear();
 			mTransparent.Clear();
 			mShadowCasters.Clear();
 			mInstanced.Clear();
 			mSkinned.Clear();
+			mSelection.Clear(); // file de sélection (outline silhouette) : re-soumise par frame
+			mSelectionActive.Clear(); // marqueur d'objet actif, parallèle à mSelection
 			mCullStats = NkCullStats{}; // stats de culling : nouvelles soumissions
 			// mObjectDrawIdx N'EST PAS reset ici — voir ResetFrame() ci-dessus.
 		}
@@ -1317,8 +1547,13 @@ namespace nkentseu {
 				NkDescSetHandle os = mObjectSetPool[mFrameSlot][mObjectDrawIdx];
 				if (ubo.IsValid())
 					mDevice->WriteBuffer(ubo, &ob, sizeof(ob), 0);
-				if (matInst && matInst->GetDescSet().IsValid())
+				if (matInst && matInst->GetDescSet().IsValid()) {
+					// Upload UBO/textures de l'instance si dirty : on ne passe PAS
+					// par BindInstance (pipeline unique G-buffer) — sans ca les
+					// textures ne sont jamais ecrites (albedo blanc, bug panneau).
+					mMat->UpdateInstanceDescriptors(matInst);
 					cmd->BindDescriptorSet(matInst->GetDescSet(), 2);
+				}
 				if (os.IsValid())
 					cmd->BindDescriptorSet(os, 1);
 				mMesh->BindMesh(cmd, dc.mesh);
@@ -1372,7 +1607,11 @@ namespace nkentseu {
 				(dApi == NkGraphicsApi::NK_GFX_API_DX11) || (dApi == NkGraphicsApi::NK_GFX_API_DX12);
 			// VK valide capture : memes conventions que DX (sample flippe +
 			// ndcY negatif) — l'essai sample direct donnait l'image inversee.
-			pc.invResW = -1.f; // = ndcYSign (tous backends)
+			// ndcYSign PAR BACKEND (consomme par le shader, pc.invResolution.x) :
+			// le VS flippe vUV sur DX pour echantillonner le G-buffer -> le signe
+			// NDC s'inverse pour retrouver la position ECRAN. -1 fixe donnait un
+			// worldPos MIROITE sur DX -> rayons parasites du spot cookie.
+			pc.invResW = dIsDX ? 1.f : -1.f; // = ndcYSign
 			pc.invResH = 0.f;
 			pc.yFlipUV = (dIsDX || dIsVK) ? -1.f : 1.f;
 			static int sDbg = -1;
@@ -1524,10 +1763,33 @@ namespace nkentseu {
 			// Mode d'affichage wireframe : propage au material system (c'est lui qui binde
 			// le pipeline final par BindInstance -> il doit choisir la variante fil-de-fer).
 			if (mMat)
-				mMat->SetWireframe(mWireframe);
-			FlushOpaque(cmd);
-			FlushInstanced(cmd);
-			FlushSkinned(cmd);
+				mMat->SetWireframe(mWireframe && !mNgonWire);
+			// WIREFRAME N-GON : les maillages ne sont PAS rasterises (ni pleins, ni en fil
+			// de fer triangulaire) ; seul le batch d'aretes n-gon est dessine (cf.
+			// FlushDebug). C'est la seule facon d'obtenir un fil de fer SANS diagonale :
+			// le rasteriseur, lui, ne connait que des triangles.
+			// DIAG (NK_WIRE_DRAWDIAG=1) : que reste-t-il RASTERISE en mode fil de fer ?
+			{
+				static int32 diag = -1;
+				if (diag == -1) {
+					const char *dv = getenv("NK_WIRE_DRAWDIAG");
+					diag = (dv && dv[0] && dv[0] != '0') ? 1 : 0;
+				}
+				if (diag) {
+					static uint32 nD = 0;
+					if (nD < 40u)
+						logger.Info("[WireRaster] n={0} ngonWire={1} opaque={2} instanced={3} skinned={4} "
+									"transparent={5}\n",
+									(int32)nD, mNgonWire ? 1 : 0, (int32)mOpaque.Size(), (int32)mInstanced.Size(),
+									(int32)mSkinned.Size(), (int32)mTransparent.Size());
+					nD++;
+				}
+			}
+			if (!mNgonWire) {
+				FlushOpaque(cmd);
+				FlushInstanced(cmd);
+				FlushSkinned(cmd);
+			}
 			// Grille infinie : APRÈS l'opaque (occlusion correcte par les objets),
 			// AVANT le transparent (le transparent se blend par-dessus la grille).
 			if (mDrawGrid) {
@@ -1613,7 +1875,11 @@ namespace nkentseu {
 		// Remplace À CHAUD la boule matcap (binding 28). Permet à l'utilisateur de charger
 		// sa propre texture matcap (.exr/.png décodé) et de la changer au runtime.
 		void NkRender3D::SetMatcapTexture(NkTextureHandle tex) {
-			NkTextureHandle bind = tex.IsValid() ? tex : mMatcapTex; // fallback = chrome généré
+			// Une texture utilisateur est une boule SEULE, pas un atlas 6x5 : le shader
+			// doit cesser d'appliquer la transformation de tuile, sinon il n'en lirait
+			// qu'un trentieme. C'est le role de mMatcapCustom (-> uCam.viewOpts.x).
+			mMatcapCustom = tex.IsValid();
+			NkTextureHandle bind = tex.IsValid() ? tex : mMatcapTex; // fallback = atlas genere
 			if (!bind.IsValid() || !mResources)
 				return;
 			NkSamplerHandle samp = mResources->GetSamplerLinearClamp();
@@ -1706,6 +1972,12 @@ namespace nkentseu {
 					// sample le shadow map a la mauvaise position -> reflets faux.
 					// .x = isMirrorPass (0=normal, 1=mirror), .yzw = reserve.
 					NkVec4f reflectionFlags; // offset 384
+					// Options du viewport (offset 400). .x = 1 si une matcap PERSONNALISEE
+					// (texture unique chargee par l'utilisateur) a remplace l'atlas des 30 :
+					// le shader doit alors echantillonner la texture ENTIERE au lieu d'une
+					// tuile. .yzw reserves. Ajoute EN FIN de struct : les shaders qui
+					// declarent un CameraUBO plus court ignorent simplement ces octets.
+					NkVec4f viewOpts;
 			};
 
 			PBRCamUBO cb{};
@@ -1739,7 +2011,48 @@ namespace nkentseu {
 				cb.proj = clipZ01 * cb.proj;
 				cb.viewProj = clipZ01 * cb.viewProj;
 			}
+
+			// ── TAA : jitter SUB-PIXEL de la projection ─────────────────────────
+			// Suite de Halton (bases 2 et 3), 8 phases : repartition
+			// low-discrepancy des positions d'echantillonnage a l'interieur du
+			// pixel, bien plus uniforme qu'un tirage aleatoire sur si peu de
+			// frames. Le decalage vaut au maximum un demi-pixel, donc invisible
+			// frame par frame ; c'est l'accumulation du TAA qui le transforme en
+			// super-echantillonnage. APRES la correction clip-Z pour que le jitter
+			// s'exprime bien en NDC de la projection finale.
+			if (mTAAJitter && mW > 0 && mH > 0) {
+				const uint32 n = (mTAAJitterIdx % 8u) + 1u;
+				float32 hx = 0.f;
+				float32 hy = 0.f;
+				for (uint32 i = n, f = 0; i != 0u; i >>= 1, ++f) {
+					float32 w = 1.f;
+					for (uint32 k = 0; k <= f; ++k)
+						w *= 0.5f;
+					hx += w * (float32)(i & 1u);
+				}
+				for (uint32 i = n, f = 0; i != 0u; i /= 3u, ++f) {
+					float32 w = 1.f;
+					for (uint32 k = 0; k <= f; ++k)
+						w /= 3.f;
+					hy += w * (float32)(i % 3u);
+				}
+				// Halton donne [0,1[ -> recentrer sur [-0.5, +0.5] pixel, puis
+				// convertir en NDC : un pixel vaut 2/resolution en NDC.
+				const float32 jx = (hx - 0.5f) * 2.f / (float32)mW;
+				const float32 jy = (hy - 0.5f) * 2.f / (float32)mH;
+				NkMat4f jit = NkMat4f::Identity();
+				jit[3][0] = jx; // column-major : [3][*] = colonne de translation
+				jit[3][1] = jy;
+				cb.proj = jit * cb.proj;
+				cb.viewProj = jit * cb.viewProj;
+			}
+
 			cb.invViewProj = cb.viewProj.Inverse();
+			// Memorise les matrices REELLEMENT utilisees (jitter + clip-Z compris) :
+			// le TAA reprojette avec elles, et la reconstruction de position monde
+			// du deferred lit une profondeur produite par cette meme projection.
+			mRenderViewProj = cb.viewProj;
+			mRenderInvViewProj = cb.invViewProj;
 			NkVec3f pos = mCtx.camera.GetPosition();
 			NkVec3f fwd = mCtx.camera.GetForward();
 			cb.camPos = {pos.x, pos.y, pos.z, mCtx.camera.GetNear()};
@@ -1750,7 +2063,10 @@ namespace nkentseu {
 			cb.deltaTime = mCtx.deltaTime;
 			cb.iblStrength = mIBLStrength;
 			cb.viewMode = (float32)mViewMode; // 0=rendered(PBR) 1=solid/unlit (indépendant du wireframe)
-			cb.matcapId = (float32)mMatcapId; // preset matcap en mode SOLID/WIREFRAME
+			cb.matcapId = (float32)mMatcapId; // index 0..29 dans l'atlas des 30 matcaps
+			// .x = 1 si une matcap PERSONNALISEE remplace l'atlas (cf. SetMatcapTexture) :
+			// le shader echantillonne alors la texture entiere au lieu d'une tuile.
+			cb.viewOpts = {mMatcapCustom ? 1.f : 0.f, 0.f, 0.f, 0.f};
 			// yFlipNDC : UNIQUEMENT consommé par le SKYBOX (reconstruction du view-ray à
 			// partir de vNDC). C'est l'orientation Y du VS PLEIN ÉCRAN du skybox, qui
 			// n'a PAS d'inputs → le générateur HLSL ne le Y-négate PAS sur DX (il ne
@@ -2833,38 +3149,78 @@ namespace nkentseu {
 		}
 
 		void NkRender3D::FlushDebug(NkICommandBuffer *cmd, NkRenderPassHandle currentRP, NkDescSetHandle gs) {
+			// DIAG (NK_WIRE_DRAWDIAG=1) : compte ce qui est REELLEMENT emis par frame.
+			// Sert a comparer mode OBJET vs mode EDITION (surdessin des aretes).
+			{
+				static int32 diag = -1;
+				if (diag == -1) {
+					const char *dv = getenv("NK_WIRE_DRAWDIAG");
+					diag = (dv && dv[0] && dv[0] != '0') ? 1 : 0;
+				}
+				if (diag) {
+					static uint32 nD = 0;
+					if (nD < 40u)
+						logger.Info("[WireDraw] n={0} ngonWire={1} ngonVerts={2} (={3} aretes) editLineV={4} "
+									"(={5} aretes) editTriV={6} editPointV={7} debugLines={8} debugTris={9}\n",
+									(int32)nD, mNgonWire ? 1 : 0, (int32)mNgonWireN, (int32)(mNgonWireN / 2),
+									(int32)mEditLineN, (int32)(mEditLineN / 2), (int32)mEditTriN,
+									(int32)mEditPointN, (int32)mDebugLines.Size(), (int32)mDebugTris.Size());
+					nD++;
+				}
+			}
+			// ── Batch persistant d'aretes N-GON (mode wireframe sans diagonales) ──
+			// Un seul draw, buffer garde d'une frame sur l'autre. Depth-teste : les
+			// aretes s'occultent correctement contre la grille/le sol.
+			if (mNgonWire && mNgonWireN && EnsureDebugLinePipeline(currentRP) && mLinePipeline.IsValid()) {
+				// Buffer du slot de CETTE frame (remis a niveau ici, jamais pendant qu'une
+				// frame precedente le lit) -> plus de scintillement du fil de fer.
+				const NkBufferHandle wb = NgonWireBufferForFrame();
+				if (wb.IsValid()) {
+					cmd->BindGraphicsPipeline(mLinePipeline);
+					if (gs.IsValid())
+						cmd->BindDescriptorSet(gs, 0);
+					cmd->BindVertexBuffer(0, wb, 0);
+					cmd->Draw(mNgonWireN);
+				}
+			}
 			// ── Edit overlay PERSISTANT (cage/faces/points) : rendu chaque frame depuis
 			//    des buffers GPU gardés (aucune reconstruction CPU tant que rien ne
 			//    change). Faces/points d'abord (fill), puis la cage par-dessus. ────────
 			// Faces (fill translucide) — pipeline triangles.
 			if (mEditTriN && EnsureDebugTriOverlayPipeline(currentRP)) {
 				NkPipelineHandle tp = mEditOverlayNoDepth ? mTriPipelineNoDepth : mTriPipeline;
-				if (tp.IsValid()) {
+				const NkBufferHandle b =
+					EditBufForFrame(mEditTriRing, mEditTriRingCap, mEditTriDirty, mEditTriCPU, mEditTriN, 7);
+				if (tp.IsValid() && b.IsValid()) {
 					cmd->BindGraphicsPipeline(tp);
 					if (gs.IsValid())
 						cmd->BindDescriptorSet(gs, 0);
-					cmd->BindVertexBuffer(0, mEditTriBuf, 0);
+					cmd->BindVertexBuffer(0, b, 0);
 					cmd->Draw(mEditTriN);
 				}
 			}
 			// Points (marqueurs de vertices) — pipeline POINT SPRITE écran-constant.
 			if (mEditPointN && EnsureEditPointPipeline(currentRP)) {
 				NkPipelineHandle pp = mEditOverlayNoDepth ? mEditPointPipelineNoDepth : mEditPointPipeline;
-				if (pp.IsValid()) {
+				const NkBufferHandle b =
+					EditBufForFrame(mEditPointRing, mEditPointRingCap, mEditPointDirty, mEditPointCPU, mEditPointN, 9);
+				if (pp.IsValid() && b.IsValid()) {
 					cmd->BindGraphicsPipeline(pp);
 					if (gs.IsValid())
 						cmd->BindDescriptorSet(gs, 0);
-					cmd->BindVertexBuffer(0, mEditPointBuf, 0);
+					cmd->BindVertexBuffer(0, b, 0);
 					cmd->Draw(mEditPointN);
 				}
 			}
 			if (mEditLineN && EnsureDebugLinePipeline(currentRP)) {
 				NkPipelineHandle lp = mEditOverlayNoDepth ? mLinePipelineNoDepth : mLinePipeline;
-				if (lp.IsValid()) {
+				const NkBufferHandle b =
+					EditBufForFrame(mEditLineRing, mEditLineRingCap, mEditLineDirty, mEditLineCPU, mEditLineN, 7);
+				if (lp.IsValid() && b.IsValid()) {
 					cmd->BindGraphicsPipeline(lp);
 					if (gs.IsValid())
 						cmd->BindDescriptorSet(gs, 0);
-					cmd->BindVertexBuffer(0, mEditLineBuf, 0);
+					cmd->BindVertexBuffer(0, b, 0);
 					cmd->Draw(mEditLineN);
 				}
 			}
@@ -2896,26 +3252,21 @@ namespace nkentseu {
 				const uint32 tcount = (uint32)tv.Size();
 				const uint32 tOverlay = tcount - tNormal;
 				if (tcount > 0) {
-					if (!mTriVBO.IsValid() || mTriVBOCapVerts < tcount) {
-						if (mTriVBO.IsValid())
-							mDevice->DestroyBuffer(mTriVBO);
-						const uint32 cap = tcount + 256;
-						mTriVBO = mDevice->CreateBuffer(NkBufferDesc::VertexDynamic((uint64)cap * sizeof(LV)));
-						mTriVBOCapVerts = cap;
-					}
-					mDevice->WriteBuffer(mTriVBO, tv.Data(), (uint64)tcount * sizeof(LV), 0);
-					if (tNormal > 0) {
+					// Ring par frame en vol (ce contenu est reecrit CHAQUE frame).
+					const NkBufferHandle tb =
+						DebugRingUpload(mTriVBORing, mTriVBORingCap, tv.Data(), tcount, (uint32)sizeof(LV));
+					if (tb.IsValid() && tNormal > 0) {
 						cmd->BindGraphicsPipeline(mTriPipeline);
 						if (gs.IsValid())
 							cmd->BindDescriptorSet(gs, 0);
-						cmd->BindVertexBuffer(0, mTriVBO, 0);
+						cmd->BindVertexBuffer(0, tb, 0);
 						cmd->Draw(tNormal);
 					}
-					if (tOverlay > 0 && mTriPipelineNoDepth.IsValid()) {
+					if (tb.IsValid() && tOverlay > 0 && mTriPipelineNoDepth.IsValid()) {
 						cmd->BindGraphicsPipeline(mTriPipelineNoDepth);
 						if (gs.IsValid())
 							cmd->BindDescriptorSet(gs, 0);
-						cmd->BindVertexBuffer(0, mTriVBO, (uint64)tNormal * sizeof(LV));
+						cmd->BindVertexBuffer(0, tb, (uint64)tNormal * sizeof(LV));
 						cmd->Draw(tOverlay);
 					}
 				}
@@ -2963,30 +3314,26 @@ namespace nkentseu {
 				const uint32 vOverlay = vcount - vNormal;
 				const uint64 bytes = (uint64)vcount * sizeof(LV);
 
-				// (Re)créer le VBO dynamique si trop petit, puis uploader.
-				if (!mLineVBO.IsValid() || mLineVBOCapVerts < vcount) {
-					if (mLineVBO.IsValid())
-						mDevice->DestroyBuffer(mLineVBO);
-					const uint32 cap = vcount + 256;
-					mLineVBO = mDevice->CreateBuffer(NkBufferDesc::VertexDynamic((uint64)cap * sizeof(LV)));
-					mLineVBOCapVerts = cap;
-				}
-				mDevice->WriteBuffer(mLineVBO, verts.Data(), bytes, 0);
+				// Ring par frame en vol (ce contenu est reecrit CHAQUE frame) :
+				// un buffer unique serait reecrit pendant que le GPU le lit encore.
+				(void)bytes;
+				const NkBufferHandle lb =
+					DebugRingUpload(mLineVBORing, mLineVBORingCap, verts.Data(), vcount, (uint32)sizeof(LV));
 
 				// Lot 1 : lignes normales (depth-test ON).
-				if (vNormal > 0) {
+				if (lb.IsValid() && vNormal > 0) {
 					cmd->BindGraphicsPipeline(mLinePipeline);
 					if (gs.IsValid())
 						cmd->BindDescriptorSet(gs, 0);
-					cmd->BindVertexBuffer(0, mLineVBO, 0);
+					cmd->BindVertexBuffer(0, lb, 0);
 					cmd->Draw(vNormal);
 				}
 				// Lot 2 : lignes OVERLAY (depth-test OFF) -> toujours au-dessus.
-				if (vOverlay > 0 && mLinePipelineNoDepth.IsValid()) {
+				if (lb.IsValid() && vOverlay > 0 && mLinePipelineNoDepth.IsValid()) {
 					cmd->BindGraphicsPipeline(mLinePipelineNoDepth);
 					if (gs.IsValid())
 						cmd->BindDescriptorSet(gs, 0);
-					cmd->BindVertexBuffer(0, mLineVBO, (uint64)vNormal * sizeof(LV));
+					cmd->BindVertexBuffer(0, lb, (uint64)vNormal * sizeof(LV));
 					cmd->Draw(vOverlay);
 				}
 			}
@@ -3059,33 +3406,226 @@ namespace nkentseu {
 		}
 
 		// ── Edit overlay persistant ────────────────────────────────────────────────
-		void NkRender3D::UploadEditBuf(NkBufferHandle &buf, uint32 &cap, const float *v, uint32 vcount,
-									   uint32 strideBytes) {
-			if (vcount == 0)
+		// La copie CPU est l'AUTORITE : on n'ecrit jamais dans un buffer GPU ici (une
+		// frame en vol pourrait le lire). Tous les slots sont marques perimes ; chacun
+		// sera remis a niveau par EditBufForFrame au moment ou il est dessine.
+		void NkRender3D::UploadEditBuf(NkVector<float32> &cpu, NkVector<uint8> &dirty, const float *v, uint32 vcount,
+									   uint32 floatsPerVertex) {
+			if (vcount == 0) {
+				cpu.Clear();
+				for (uint32 s = 0; s < (uint32)dirty.Size(); s++)
+					dirty[s] = 1;
 				return;
-			if (!buf.IsValid() || cap < vcount) {
-				if (buf.IsValid())
-					mDevice->DestroyBuffer(buf);
-				cap = vcount + 256;
-				buf = mDevice->CreateBuffer(NkBufferDesc::VertexDynamic((uint64)cap * strideBytes));
 			}
-			mDevice->WriteBuffer(buf, v, (uint64)vcount * strideBytes, 0);
+			cpu.Resize(vcount * floatsPerVertex);
+			if (v)
+				memcpy(cpu.Data(), v, (size_t)vcount * floatsPerVertex * sizeof(float));
+			for (uint32 s = 0; s < (uint32)dirty.Size(); s++)
+				dirty[s] = 1;
+		}
+
+		// Buffer du slot COURANT, remis a niveau depuis la copie CPU juste avant le draw.
+		NkBufferHandle NkRender3D::EditBufForFrame(NkVector<NkBufferHandle> &ring, NkVector<uint32> &caps,
+												   NkVector<uint8> &dirty, const NkVector<float32> &cpu, uint32 vcount,
+												   uint32 floatsPerVertex) {
+			const uint32 slots = (mFramesInFlight < 1u) ? 1u : mFramesInFlight;
+			if ((uint32)ring.Size() != slots) {
+				for (uint32 s = 0; s < (uint32)ring.Size(); s++)
+					if (ring[s].IsValid())
+						mDevice->DestroyBuffer(ring[s]);
+				ring.Clear();
+				caps.Clear();
+				dirty.Clear();
+				ring.Resize(slots);
+				caps.Resize(slots);
+				dirty.Resize(slots);
+				for (uint32 s = 0; s < slots; s++) {
+					ring[s] = NkBufferHandle{};
+					caps[s] = 0;
+					dirty[s] = 1;
+				}
+			}
+			const uint32 slot = (mFrameSlot < slots) ? mFrameSlot : 0u;
+			if (vcount == 0)
+				return NkBufferHandle{};
+			const uint32 strideBytes = floatsPerVertex * (uint32)sizeof(float);
+			if (!ring[slot].IsValid() || caps[slot] < vcount) {
+				if (ring[slot].IsValid())
+					mDevice->DestroyBuffer(ring[slot]);
+				caps[slot] = vcount + 256u;
+				ring[slot] = mDevice->CreateBuffer(NkBufferDesc::VertexDynamic((uint64)caps[slot] * strideBytes));
+				dirty[slot] = 1; // buffer neuf -> contenu complet a ecrire
+			}
+			if (dirty[slot] && (uint64)vcount * floatsPerVertex <= (uint64)cpu.Size()) {
+				mDevice->WriteBuffer(ring[slot], cpu.Data(), (uint64)vcount * strideBytes, 0);
+				dirty[slot] = 0;
+			}
+			return ring[slot];
 		}
 
 		void NkRender3D::SetEditOverlayLines(const float *v, uint32 n) {
-			UploadEditBuf(mEditLineBuf, mEditLineCap, v, n, 7 * sizeof(float));
+			UploadEditBuf(mEditLineCPU, mEditLineDirty, v, n, 7);
 			mEditLineN = n;
 		}
 
 		void NkRender3D::SetEditOverlayTris(const float *v, uint32 n) {
-			UploadEditBuf(mEditTriBuf, mEditTriCap, v, n, 7 * sizeof(float));
+			UploadEditBuf(mEditTriCPU, mEditTriDirty, v, n, 7);
 			mEditTriN = n;
 		}
 
 		// Points = sprites écran-constant : vertex = pos3 + corner2(px) + rgba4 = 9 float.
 		void NkRender3D::SetEditOverlayPoints(const float *v, uint32 n) {
-			UploadEditBuf(mEditPointBuf, mEditPointCap, v, n, 9 * sizeof(float));
+			UploadEditBuf(mEditPointCPU, mEditPointDirty, v, n, 9);
 			mEditPointN = n;
+		}
+
+		// Ring des VBO debug « une frame » (lignes/triangles de gizmo) : le contenu est
+		// entierement reconstruit chaque frame, il suffit donc d'ecrire le slot courant.
+		NkBufferHandle NkRender3D::DebugRingUpload(NkVector<NkBufferHandle> &ring, NkVector<uint32> &caps,
+												   const void *v, uint32 vcount, uint32 strideBytes) {
+			const uint32 slots = (mFramesInFlight < 1u) ? 1u : mFramesInFlight;
+			if ((uint32)ring.Size() != slots) {
+				for (uint32 s = 0; s < (uint32)ring.Size(); s++)
+					if (ring[s].IsValid())
+						mDevice->DestroyBuffer(ring[s]);
+				ring.Clear();
+				caps.Clear();
+				ring.Resize(slots);
+				caps.Resize(slots);
+				for (uint32 s = 0; s < slots; s++) {
+					ring[s] = NkBufferHandle{};
+					caps[s] = 0;
+				}
+			}
+			const uint32 slot = (mFrameSlot < slots) ? mFrameSlot : 0u;
+			if (vcount == 0 || !v)
+				return NkBufferHandle{};
+			if (!ring[slot].IsValid() || caps[slot] < vcount) {
+				if (ring[slot].IsValid())
+					mDevice->DestroyBuffer(ring[slot]);
+				caps[slot] = vcount + 256u;
+				ring[slot] = mDevice->CreateBuffer(NkBufferDesc::VertexDynamic((uint64)caps[slot] * strideBytes));
+			}
+			mDevice->WriteBuffer(ring[slot], v, (uint64)vcount * strideBytes, 0);
+			return ring[slot];
+		}
+
+		// ── Batch d'aretes n-gon — RING PAR FRAME EN VOL ──────────────────────────
+		// Marque la plage [firstVertex, firstVertex+count) comme perimee POUR TOUS LES
+		// SLOTS : chaque frame en vol a son propre buffer, chacun doit donc recevoir la
+		// modification, mais a son propre rythme (au moment ou il est dessine).
+		void NkRender3D::NgonWireMarkDirty(uint32 firstVertex, uint32 count) {
+			if (count == 0)
+				return;
+			const uint32 lo = firstVertex, hi = firstVertex + count;
+			for (uint32 s = 0; s < (uint32)mNgonWireDirtyLo.Size(); s++) {
+				if (mNgonWireDirtyHi[s] <= mNgonWireDirtyLo[s]) { // slot propre -> nouvelle plage
+					mNgonWireDirtyLo[s] = lo;
+					mNgonWireDirtyHi[s] = hi;
+				} else { // coalesce (une seule plage par slot : simple et suffisant ici)
+					mNgonWireDirtyLo[s] = (lo < mNgonWireDirtyLo[s]) ? lo : mNgonWireDirtyLo[s];
+					mNgonWireDirtyHi[s] = (hi > mNgonWireDirtyHi[s]) ? hi : mNgonWireDirtyHi[s];
+				}
+			}
+		}
+
+		// Buffer du slot COURANT, remis a niveau depuis la copie CPU juste avant le draw.
+		// C'est le SEUL endroit qui ecrit dans un buffer du ring -> on n'ecrit jamais dans
+		// celui qu'une frame encore en vol est en train de lire (cause du clignotement).
+		NkBufferHandle NkRender3D::NgonWireBufferForFrame() {
+			const uint32 slots = (mFramesInFlight < 1u) ? 1u : mFramesInFlight;
+			if ((uint32)mNgonWireRing.Size() != slots) {
+				for (uint32 s = 0; s < (uint32)mNgonWireRing.Size(); s++)
+					if (mNgonWireRing[s].IsValid())
+						mDevice->DestroyBuffer(mNgonWireRing[s]);
+				mNgonWireRing.Clear();
+				mNgonWireRingCap.Clear();
+				mNgonWireDirtyLo.Clear();
+				mNgonWireDirtyHi.Clear();
+				mNgonWireRing.Resize(slots);
+				mNgonWireRingCap.Resize(slots);
+				mNgonWireDirtyLo.Resize(slots);
+				mNgonWireDirtyHi.Resize(slots);
+				for (uint32 s = 0; s < slots; s++) {
+					mNgonWireRing[s] = NkBufferHandle{};
+					mNgonWireRingCap[s] = 0;
+					mNgonWireDirtyLo[s] = 0;
+					mNgonWireDirtyHi[s] = mNgonWireN; // tout est a uploader
+				}
+			}
+			const uint32 slot = (mFrameSlot < slots) ? mFrameSlot : 0u;
+			if (mNgonWireN == 0)
+				return mNgonWireRing[slot];
+			if (!mNgonWireRing[slot].IsValid() || mNgonWireRingCap[slot] < mNgonWireN) {
+				if (mNgonWireRing[slot].IsValid())
+					mDevice->DestroyBuffer(mNgonWireRing[slot]);
+				mNgonWireRingCap[slot] = mNgonWireN + 256u;
+				mNgonWireRing[slot] = mDevice->CreateBuffer(
+					NkBufferDesc::VertexDynamic((uint64)mNgonWireRingCap[slot] * 7 * sizeof(float)));
+				mNgonWireDirtyLo[slot] = 0; // buffer neuf -> contenu COMPLET a ecrire
+				mNgonWireDirtyHi[slot] = mNgonWireN;
+			}
+			uint32 lo = mNgonWireDirtyLo[slot], hi = mNgonWireDirtyHi[slot];
+			if (hi > mNgonWireN)
+				hi = mNgonWireN;
+			if (hi > lo && (uint64)hi * 7 <= (uint64)mNgonWireCPU.Size())
+				mDevice->WriteBuffer(mNgonWireRing[slot], mNgonWireCPU.Data() + (uint64)lo * 7,
+									 (uint64)(hi - lo) * 7 * sizeof(float), (uint64)lo * 7 * sizeof(float));
+			// DIAG (NK_WIRE_SLOTDIAG=1) : trace la suite des slots reellement utilises.
+			// Sert a prouver que deux frames CONSECUTIVES ne retombent jamais sur le
+			// meme slot (sinon = ecriture d'un buffer encore lu par le GPU).
+			{
+				static int32 diag = -1;
+				if (diag == -1) {
+					const char *dv = getenv("NK_WIRE_SLOTDIAG");
+					diag = (dv && dv[0] && dv[0] != '0') ? 1 : 0;
+				}
+				if (diag) {
+					static uint32 nDiag = 0;
+					static uint32 prevSlot = 0xFFFFFFFFu;
+					static uint32 collisions = 0;
+					if (slot == prevSlot)
+						collisions++;
+					if (nDiag < 60u)
+						logger.Info("[WireSlot] n={0} devFrameIdx={1} devMaxFIF={2} slots={3} slot={4} "
+									"upload=[{5},{6}) verts={7} collisionsConsecutives={8}\n",
+									(int32)nDiag, (int32)mDevice->GetFrameIndex(),
+									(int32)mDevice->GetMaxFramesInFlight(), (int32)slots, (int32)slot, (int32)lo,
+									(int32)hi, (int32)mNgonWireN, (int32)collisions);
+					prevSlot = slot;
+					nDiag++;
+				}
+			}
+			mNgonWireDirtyLo[slot] = 0;
+			mNgonWireDirtyHi[slot] = 0; // slot a jour
+			return mNgonWireRing[slot];
+		}
+
+		void NkRender3D::SetNgonWireLines(const float *v, uint32 n) {
+			mNgonWireCPU.Resize(n * 7u);
+			if (n > 0 && v)
+				memcpy(mNgonWireCPU.Data(), v, (size_t)n * 7 * sizeof(float));
+			mNgonWireN = n;
+			// Batch entierement reconstruit -> TOUT est perime dans CHAQUE slot.
+			for (uint32 s = 0; s < (uint32)mNgonWireDirtyLo.Size(); s++) {
+				mNgonWireDirtyLo[s] = 0;
+				mNgonWireDirtyHi[s] = n;
+			}
+		}
+
+		// Reecrit UNIQUEMENT la tranche [firstVertex, firstVertex+count) : les aretes
+		// d'une primitive sont calculees une fois pour toutes, seule la transform d'un
+		// objet qui bouge oblige a re-transformer SA tranche. On patche la copie CPU
+		// (autorite) et on marque la plage perimee dans TOUS les slots du ring.
+		void NkRender3D::UpdateNgonWireLines(const float *v, uint32 firstVertex, uint32 count) {
+			if (!v || count == 0 || (uint64)(firstVertex + count) * 7 > (uint64)mNgonWireCPU.Size())
+				return;
+			memcpy(mNgonWireCPU.Data() + (uint64)firstVertex * 7, v, (size_t)count * 7 * sizeof(float));
+			NgonWireMarkDirty(firstVertex, count);
+		}
+
+		void NkRender3D::ClearNgonWire() {
+			mNgonWireN = 0;
 		}
 
 		void NkRender3D::SetEditOverlayXray(bool xray) {

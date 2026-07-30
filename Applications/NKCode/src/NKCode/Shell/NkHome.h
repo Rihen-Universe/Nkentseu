@@ -194,13 +194,28 @@ namespace nkentseu {
 				y += u.s(36);
 			}
 
-			// Footer versions (bas de sidebar)
+			// ── Footer versions (bas de sidebar) ──
+			// Version IDE = constante UNIQUE (NkCodeVersion(), plus de litteral divergent
+			// entre ici et la fenetre « A propos »). Version Jenga = celle REELLEMENT
+			// detectee sur la machine (`jenga --version`, cf. NkSettingsState::DetectSync),
+			// plus un litteral code en dur qui mentait des que l'utilisateur mettait
+			// Jenga a jour (affichait 2.0.7 avec un Jenga 2.0.9 installe).
+			// Amorce la detection (thread de fond, idempotente) : sans cet appel elle
+			// ne demarrait QUE dans le panneau Parametres -> la version Jenga restait
+			// a « … » sur l'accueil jusqu'a ce que l'utilisateur y aille.
+			H->settings.EnsureDetected();
 			const float32 fy = r.y + r.h - u.s(44);
 			u.Rect({r.x, fy - u.s(8), r.w, 1.f}, NkCol::border);
 			u.Text(r.x + u.s(16), fy, "IDE", NkCol::mutedFg);
-			u.Text(r.x + r.w - u.s(16) - u.TextW("1.0.0"), fy, "1.0.0", NkCol::mutedFg);
+			const char *ideV = NkCodeVersion();
+			u.Text(r.x + r.w - u.s(16) - u.TextW(ideV), fy, ideV, NkCol::mutedFg);
 			u.Text(r.x + u.s(16), fy + u.s(16), "Jenga", NkCol::mutedFg);
-			u.Text(r.x + r.w - u.s(16) - u.TextW("2.0.7"), fy + u.s(16), "2.0.7", NkCol::accent);
+			// « … » tant que la detection asynchrone n'a pas repondu ; « n/d » si Jenga
+			// est introuvable (aucune version a afficher, on ne l'invente pas).
+			const NkString jv = H->settings.jengaVersion.Empty()
+									? (H->settings.detected ? NkString("n/d") : NkString("\xE2\x80\xA6"))
+									: H->settings.jengaVersion;
+			u.Text(r.x + r.w - u.s(16) - u.TextW(jv.CStr()), fy + u.s(16), jv.CStr(), NkCol::accent);
 		}
 
 		// Proprietes affichees sur la carte d'un workspace (cf. maquette).
@@ -401,14 +416,21 @@ namespace nkentseu {
 #endif
 		}
 
-		// Lance une NOUVELLE fenetre NKCode sur ce dossier (re-exec de l'executable + arg dossier).
+		// Lance une NOUVELLE fenetre NKCode : sur `folder` si fourni, sinon SANS
+		// argument -> la fenetre s'ouvre sur le LAUNCHER (ecran de demarrage).
 		inline void NkHomeOpenNewWindow(const NkString &exe, const NkString &folder) {
 			if (exe.Empty())
 				return;
 #ifdef _WIN32
-			NkCodeShellRun((NkString("start \"\" \"") + exe + "\" \"" + folder + "\"").CStr());
+			if (folder.Empty())
+				NkCodeShellRun((NkString("start \"\" \"") + exe + "\"").CStr());
+			else
+				NkCodeShellRun((NkString("start \"\" \"") + exe + "\" \"" + folder + "\"").CStr());
 #else
-			NkCodeShellRun((NkString("\"") + exe + "\" \"" + folder + "\" &").CStr());
+			if (folder.Empty())
+				NkCodeShellRun((NkString("\"") + exe + "\" &").CStr());
+			else
+				NkCodeShellRun((NkString("\"") + exe + "\" \"" + folder + "\" &").CStr());
 #endif
 		}
 
@@ -473,12 +495,14 @@ namespace nkentseu {
 				return;
 			const NkString path = H->ctxPath;
 			const bool isCur = H->ctxIsCurrent;
-			const NkString folder = NkPath(path.CStr()).GetParent().ToString();
+			// Dossier de l'entree : le chemin LUI-MEME si c'est un dossier (ouvert sans
+			// workspace), son parent si c'est un fichier « .jenga ». Voir RecentFolder.
+			const NkString folder = NkCodeState::RecentFolder(path.CStr()).ToString();
 			u.ctx->input.mouseClicked[0] = false; // consomme le clic (menu prioritaire)
 			H->ctxIdx = -2;						  // ferme le menu
 			switch (clicked) {
 				case 1:
-					dlg->DoLoad(NkPath(path.CStr()).GetParent());
+					dlg->DoLoad(NkCodeState::RecentFolder(path.CStr()));
 					break; // ecran de chargement (courant OU recent)
 				case 2:
 					NkHomeOpenNewWindow(H->exePath, folder);
@@ -791,7 +815,7 @@ namespace nkentseu {
 							else if (a == 3)
 								openMenu((int32)(1000 + i), cr, st->pinned[i], true, false);
 							else if (a == 4)
-								revealPath = NkPath(st->pinned[i].CStr()).GetParent().ToString(); // reveler
+								revealPath = NkCodeState::RecentFolder(st->pinned[i].CStr()).ToString(); // reveler
 						}
 						y += CSTEP;
 					}
@@ -969,7 +993,7 @@ namespace nkentseu {
 							else if (a == 3)
 								openMenu(idx, cr, st->recents[idx], false, false);
 							else if (a == 4)
-								revealPath = NkPath(st->recents[idx].CStr()).GetParent().ToString();
+								revealPath = NkCodeState::RecentFolder(st->recents[idx].CStr()).ToString();
 						}
 					}
 					y += CSTEP;
@@ -986,14 +1010,14 @@ namespace nkentseu {
 				NkHomeOpenFolder(revealPath); // chemin clique -> revele dans l'explorateur
 			if (loadCur) {
 				if (dlg && !curWsPath.Empty())
-					dlg->DoLoad(NkPath(curWsPath.CStr()).GetParent());
+					dlg->DoLoad(NkCodeState::RecentFolder(curWsPath.CStr()));
 				return;
 			} // ecran de chargement
 			auto pathOf = [&](int32 idx) -> NkString {
 				return idx >= 2000 ? curWsPath : idx >= 1000 ? st->pinned[idx - 1000] : st->recents[idx];
 			};
 			if (doLoad >= 0) {
-				dlg->DoLoad(NkPath(pathOf(doLoad).CStr()).GetParent());
+				dlg->DoLoad(NkCodeState::RecentFolder(pathOf(doLoad).CStr()));
 				return;
 			}
 			if (doPin >= 0) { // (des)epingle : courant (2000) ou epingle (>=1000) -> retire ; recent -> epingle
@@ -1090,8 +1114,19 @@ namespace nkentseu {
 					!NkCodeState::ContainsI(e.platforms.CStr(), H->exSearch))
 					continue;
 				const NkRect er = {exList.x, ey, elw, u.s(40)};
-				if (!anyPopup && u.Hit(er))
+				const bool exHov = !anyPopup && u.Hit(er);
+				if (exHov)
 					u.Rect(er, NkCol::hover, NkR::sm * u.S);
+				// CLIC = cloner l'exemple : le picker maison demande l'EMPLACEMENT de
+				// destination, puis `jenga examples copy` (async) cree le clone et le
+				// clone s'ouvre comme workspace (RoutePickerResult/PollExampleCopy).
+				if (exHov && u.click && H->dlg && !H->dlg->exCopyBusy && !H->dlg->pickerOpen) {
+					H->dlg->exCopyId = e.id;
+					const char *homeDir = env::GetEnvVar("USERPROFILE");
+					if (!homeDir || !*homeDir)
+						homeDir = env::GetEnvVar("HOME");
+					H->dlg->OpenPicker(NkCodeDialogs::PK_ExampleCopy, (homeDir && *homeDir) ? homeDir : ".");
+				}
 				NkDrawIcon(u, H->icons.exemple, {exList.x + u.s(8), ey + u.s(7), u.s(14), u.s(14)}, NkCol::accent);
 				u.TextEllipsis(exList.x + u.s(28), ey + u.s(4), elw - u.s(34), e.id.CStr(), NkCol::foreground);
 				if (e.platforms.CStr()[0])

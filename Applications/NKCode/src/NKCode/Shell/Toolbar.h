@@ -306,6 +306,11 @@ namespace nkentseu {
 				if (sysHas("android") || sysHas("harmonyos"))
 					Bt(6, 40, false, NkT("tb.emulator"), TEX(ic ? ic->monitor : 0), "monitor", 0, nullptr);
 			}
+			// ── Champ « Arguments » (kind 3) : parametres passes a l'EXECUTABLE par
+			// « Demarrer » — equivalent de `jenga run <proj> --args ...`. Priorite 15 :
+			// se replie juste apres la recherche quand la fenetre rétrécit.
+			segs.PushBack({3, -2, u.s(150), 15, true, NkT("tb.runargs"), nullptr, TEX(ic ? ic->play : 0), "play",
+						   false, 0, nullptr});
 			segs.PushBack({2, -1, wSearch, 10, true, NkT("tb.quicksearch"), nullptr, TEX(ic ? ic->search : 0), "search",
 						   false, 0, nullptr}); // recherche : repliée en 1er, absente du menu
 
@@ -386,6 +391,18 @@ namespace nkentseu {
 					const NkRect b = {sx, cyBtn - u.s(13), sg.w, u.s(26)};
 					if (tb.open < 0 && u.Hit(b) && u.click)
 						doBtn(sg.id);
+				} else if (sg.kind == 3) {
+					// ── Champ « Arguments » : passes a l'EXECUTABLE par « Demarrer »
+					// (equivalent de `jenga run <proj> --args ...`). Persistes avec la
+					// session du workspace.
+					const NkRect ab = {sx, ctrlY, sg.w, ctrlH};
+					u.Panel(ab, NkCol::input, NkCol::border, NkR::sm * u.S);
+					if (u.click && tb.open < 0)
+						s->tbArgsFocus = u.Hit(ab);
+					editorkit::NkOverlayTextField(*u.ctx, *u.dl, u.ctx->font, ab, s->runArgs,
+												  (int32)sizeof(s->runArgs), s->tbArgsFocus);
+					if (s->runArgs[0] == 0 && !s->tbArgsFocus)
+						u.TextV(ab.x + u.s(8), ab.y, ab.h, NkT("tb.runargs.ph"), NkCol::mutedFg);
 				} else {
 					// ── Champ « Recherche rapide » = QUICK-OPEN façon VSCode ──
 					// Défaut : recherche FICHIERS (liste déroulante live, fuzzy sur le nom/chemin).

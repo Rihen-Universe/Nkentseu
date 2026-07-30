@@ -7,75 +7,42 @@ using namespace nkentseu::math;
 namespace nkentseu {
 	namespace pv3de {
 
+		// =====================================================================
+		// STUB Phase R1 (2026-07-25) — cf. ROADMAP.md "Rendu 3D".
+		// L'ancienne implémentation appelait mDevice->LoadMesh/LoadTexture,
+		// NkShaderDesc::vertPath/fragPath, NkTextureLoadDesc::path/generateMips :
+		// aucune de ces API n'existe sur le NkIDevice réel (RHI moderne à base de
+		// pipelines/descriptor sets, pas de chargement mesh/texture par chemin).
+		// La vraie couche de convenance (chargement par chemin, matériaux
+		// Skin/Eye) vit dans NKRenderer, pas dans NKRHI brut — la réécriture
+		// réelle est prévue Phase R3, une fois NKRenderer accessible via
+		// NkApplication::GetRenderer(). En attendant, Init() échoue proprement :
+		// PatientLayer::SetupRenderer() gère déjà ce cas ("mode logique seul").
+		// Aucun asset 3D (.nkmesh/.png/.vert/.frag) n'existe non plus sur le
+		// disque aujourd'hui (cfg.*Path ci-dessus sont des chemins visés, pas
+		// des fichiers réels) — cf. ROADMAP.md.
+		// =====================================================================
 		bool NkPatientRenderer::Init(NkIDevice *device, NkICommandBuffer * /*cmd*/,
 									 const NkPatientRenderConfig &cfg) noexcept {
 			mDevice = device;
 			if (!mDevice)
 				return false;
 
-			// ── Shaders ───────────────────────────────────────────────────────
-			{
-				NkShaderDesc sd;
-				sd.vertPath = "Shaders/Skin.vert";
-				sd.fragPath = "Shaders/Skin.frag";
-				sd.debugName = "SkinShader";
-				mSkinShader = mDevice->CreateShader(sd);
-				if (!mSkinShader.IsValid()) {
-					logger.Errorf("[NkPatientRenderer] Shader Skin chargement échoué\n");
-					return false;
-				}
-			}
-			{
-				NkShaderDesc sd;
-				sd.vertPath = "Shaders/Eye.vert";
-				sd.fragPath = "Shaders/Eye.frag";
-				sd.debugName = "EyeShader";
-				mEyeShader = mDevice->CreateShader(sd);
-				if (!mEyeShader.IsValid()) {
-					logger.Errorf("[NkPatientRenderer] Shader Eye chargement échoué\n");
-					return false;
-				}
-			}
+			logger.Warnf("[NkPatientRenderer] Rendu GPU stubé (Phase R1) — en attente de la réécriture "
+						 "NKRenderer (Phase R3). Assets visés : {} / {}\n",
+						 cfg.bodyMeshPath, cfg.eyeMeshPath);
 
-			// ── Textures ──────────────────────────────────────────────────────
-			auto LoadTex = [&](const char *path) -> NkTextureHandle {
-				NkTextureLoadDesc d;
-				d.path = path;
-				d.generateMips = true;
-				return mDevice->LoadTexture(d);
-			};
-			mAlbedo = LoadTex(cfg.albedoPath);
-			mNormal = LoadTex(cfg.normalMapPath);
-			mORM = LoadTex(cfg.ormMapPath);
-			mSSS = LoadTex(cfg.sssMapPath);
-			mEmissive = LoadTex(cfg.emissivePath);
-			mSclera = LoadTex(cfg.scleraPath);
-			mIrisDetail = LoadTex(cfg.irisDetailPath);
+			// NkBSDriver reste initialisable (lui aussi stubé côté GPU, cf. NkBSDriver.cpp)
+			mBSDriver.Init(mDevice, cfg.blendshapeCount);
 
-			// ── Meshes ────────────────────────────────────────────────────────
-			mBodyMesh = mDevice->LoadMesh(cfg.bodyMeshPath);
-			mEyeMesh = mDevice->LoadMesh(cfg.eyeMeshPath);
-
-			// ── NkBSDriver ────────────────────────────────────────────────────
-			if (!mBSDriver.Init(mDevice, cfg.blendshapeCount)) {
-				logger.Errorf("[NkPatientRenderer] NkBSDriver init échoué\n");
-				return false;
-			}
-
-			mReady = true;
-			logger.Infof("[NkPatientRenderer] Init OK — {} blendshapes\n", cfg.blendshapeCount);
-			return true;
+			mReady = false; // pas de rendu réel tant que R3 n'est pas fait
+			return false;
 		}
 
 		void NkPatientRenderer::Shutdown() noexcept {
 			if (!mDevice)
 				return;
 			mBSDriver.Shutdown();
-			if (mSkinShader.IsValid())
-				mDevice->DestroyShader(mSkinShader);
-			if (mEyeShader.IsValid())
-				mDevice->DestroyShader(mEyeShader);
-			// Textures + meshes détruits par NkResourceManager
 			mReady = false;
 		}
 
@@ -118,72 +85,16 @@ namespace nkentseu {
 		}
 
 		// =====================================================================
-		void NkPatientRenderer::Draw(NkICommandBuffer *cmd, const NkMat4f &viewProj, const NkMat4f &model,
-									 const NkVec3f &cameraPos) noexcept {
+		// Draw() — stub Phase R1. mReady est toujours false (cf. Init() ci-dessus)
+		// donc ce corps ne s'exécute jamais en pratique ; conservé no-op propre
+		// (plutôt que supprimé) pour que la signature/l'appelant (PatientLayer::
+		// OnRender) n'aient rien à changer une fois la Phase R3 câblée.
+		// =====================================================================
+		void NkPatientRenderer::Draw(NkICommandBuffer *cmd, const NkMat4f & /*viewProj*/, const NkMat4f & /*model*/,
+									 const NkVec3f & /*cameraPos*/) noexcept {
 			if (!mReady || !cmd)
 				return;
-
-			// Upload blendshapes
-			mBSDriver.Flush(cmd);
-
-			DrawBody(cmd, viewProj, model, cameraPos);
-			DrawEyes(cmd, viewProj, model, cameraPos);
-		}
-
-		void NkPatientRenderer::DrawBody(NkICommandBuffer *cmd, const NkMat4f &viewProj, const NkMat4f &model,
-										 const NkVec3f &cameraPos) noexcept {
-			cmd->BindShader(mSkinShader);
-
-			// Bind textures
-			cmd->BindTexture(mAlbedo, 0);
-			cmd->BindTexture(mNormal, 1);
-			cmd->BindTexture(mORM, 2);
-			cmd->BindTexture(mSSS, 3);
-			cmd->BindTexture(mEmissive, 4);
-
-			// Bind blendshape buffer
-			mBSDriver.Bind(cmd);
-
-			UploadSkinUniforms(cmd, viewProj, model, cameraPos);
-			cmd->DrawMesh(mBodyMesh);
-
-			mBSDriver.Unbind(cmd);
-		}
-
-		void NkPatientRenderer::DrawEyes(NkICommandBuffer *cmd, const NkMat4f &viewProj, const NkMat4f &model,
-										 const NkVec3f &cameraPos) noexcept {
-			cmd->BindShader(mEyeShader);
-			cmd->BindTexture(mIrisDetail, 0);
-			cmd->BindTexture(mSclera, 1);
-			UploadEyeUniforms(cmd, viewProj, model, cameraPos);
-			cmd->DrawMesh(mEyeMesh);
-		}
-
-		void NkPatientRenderer::UploadSkinUniforms(NkICommandBuffer *cmd, const NkMat4f &viewProj, const NkMat4f &model,
-												   const NkVec3f &cameraPos) noexcept {
-			NkMat4f normal = NkTranspose(NkInverse(model));
-			cmd->SetUniformMat4("u_model", model);
-			cmd->SetUniformMat4("u_normalMatrix", normal);
-			cmd->SetUniformVec3("u_cameraPos", cameraPos);
-			cmd->SetUniformVec4("u_skinTint", mSkinParams.skinTint);
-			cmd->SetUniformFloat("u_sssStrength", mSkinParams.sssStrength);
-			cmd->SetUniformFloat("u_emissiveStrength", mSkinParams.emissiveStrength);
-			// Note : viewProj est dans le UBO caméra — lié ailleurs
-			(void)viewProj;
-		}
-
-		void NkPatientRenderer::UploadEyeUniforms(NkICommandBuffer *cmd, const NkMat4f &viewProj, const NkMat4f &model,
-												  const NkVec3f &cameraPos) noexcept {
-			NkMat4f normal = NkTranspose(NkInverse(model));
-			cmd->SetUniformMat4("u_model", model);
-			cmd->SetUniformMat4("u_normalMatrix", normal);
-			cmd->SetUniformVec3("u_cameraPos", cameraPos);
-			cmd->SetUniformFloat("u_pupilDiameter", mEyeParams.pupilDiameter);
-			cmd->SetUniformFloat("u_scleraRedness", mEyeParams.scleraRedness);
-			cmd->SetUniformFloat("u_eyeWetness", mEyeParams.eyeWetness);
-			cmd->SetUniformFloat("u_gazeOffsetX", mEyeParams.gazeOffsetX);
-			cmd->SetUniformFloat("u_gazeOffsetY", mEyeParams.gazeOffsetY);
-			(void)viewProj;
+			// Phase R3 : DrawBody/DrawEyes réels via NKRenderer ici.
 		}
 
 	} // namespace pv3de

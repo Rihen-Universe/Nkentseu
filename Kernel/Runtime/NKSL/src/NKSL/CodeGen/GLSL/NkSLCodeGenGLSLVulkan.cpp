@@ -125,6 +125,12 @@ namespace nkentseu {
 
 		GenProgram(ast);
 
+		// FP16 natif (additif) : si `float16_t` apparaît dans le texte généré,
+		// injecter l'extension requise juste après #version (post-traitement,
+		// cf commentaire de NkSLInjectExtensionIfUsed dans NkSLCodeGen.h).
+		mOutput = NkSLInjectExtensionIfUsed(mOutput, "float16_t",
+											"#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require");
+
 		NkSLCompileResult res;
 		res.success = mErrors.Empty();
 		res.source = mOutput;
@@ -544,6 +550,9 @@ namespace nkentseu {
 
 	NkString NkSLCodeGenGLSLVulkan::GenCall(NkSLCallNode *call) {
 		NkString callee = call->calleeExpr ? GenExpr(call->calleeExpr) : call->callee;
+		// FP16 natif (additif) : constructeur `half(x)` NkSL -> `float16_t(x)` GLSL.
+		if (callee == "half")
+			callee = "float16_t";
 
 		// subpassLoad(attachment) → identique, juste vérifier le nom
 		// En GLSL Vulkan standard, subpassLoad est une fonction builtin

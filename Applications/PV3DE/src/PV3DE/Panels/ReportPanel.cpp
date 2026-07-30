@@ -10,10 +10,11 @@ namespace nkentseu {
 	namespace pv3de {
 
 		using namespace nkui;
+			using namespace nkentseu::math;
 
 		// =====================================================================
 		void ReportPanel::Render(NkUIContext &ctx, NkUIWindowManager &wm, NkUIDrawList &dl, NkUIFont &font,
-								 NkUILayoutStack &ls, const PatientLayer &patient, NkUIRect rect) noexcept {
+								 NkUILayoutStack &ls, const PatientLayer &patient, NkRect rect) noexcept {
 			NkUIWindow::SetNextWindowPos({rect.x, rect.y});
 			NkUIWindow::SetNextWindowSize({rect.w, rect.h});
 
@@ -162,11 +163,11 @@ namespace nkentseu {
 		bool ReportPanel::ExportFHIR(const PatientLayer &patient, const char *path) noexcept {
 			NkString json = mExporter.GenerateReport(patient.GetClinicalState());
 			NkFile file;
-			if (!file.Open(path, NkFileMode::Write | NkFileMode::Text)) {
+			if (!file.Open(path, NkFileMode::NK_WRITE)) {
 				logger.Errorf("[ReportPanel] FHIR: ouverture {} échouée\n", path);
 				return false;
 			}
-			file.WriteString(json);
+			file.Write(json);
 			file.Close();
 			logger.Infof("[ReportPanel] FHIR exporté: {}\n", path);
 			return true;
@@ -225,7 +226,7 @@ namespace nkentseu {
 			// Pour un PDF complet il faudrait libharu/fpdf — ici on produit
 			// un fichier .pdf avec contenu texte (lisible par la plupart des readers)
 			NkFile file;
-			if (!file.Open(path, NkFileMode::Write | NkFileMode::Binary)) {
+			if (!file.Open(path, NkFileMode::NK_WRITE_BINARY)) {
 				logger.Errorf("[ReportPanel] PDF: ouverture {} échouée\n", path);
 				return false;
 			}
@@ -244,10 +245,10 @@ namespace nkentseu {
 			float32 y = 750.f;
 			char lineBuf[512];
 			while (*p && y > 50.f) {
-				const char *nl = NkStrChr(p, '\n');
-				nk_usize len = nl ? (nk_usize)(nl - p) : NkStrLen(p);
+				const char *nl = strchr(p, '\n');
+				nk_usize len = nl ? (nk_usize)(nl - p) : strlen(p);
 				len = NkMin(len, (nk_usize)100); // limit width
-				NkStrNCpy(lineBuf, p, len);
+				strncpy(lineBuf, p, len);
 				lineBuf[len] = '\0';
 				char pdfLine[512];
 				snprintf(pdfLine, sizeof(pdfLine), "(%s) Tj T*\n", lineBuf);
@@ -278,7 +279,7 @@ namespace nkentseu {
 				   "0000000500 00000 n\n";
 			pdf += "trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n580\n%%EOF\n";
 
-			file.WriteString(pdf);
+			file.Write(pdf);
 			file.Close();
 			logger.Infof("[ReportPanel] PDF exporté: {}\n", path);
 			return true;

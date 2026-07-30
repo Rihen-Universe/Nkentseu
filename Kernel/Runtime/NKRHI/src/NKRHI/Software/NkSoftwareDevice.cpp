@@ -23,6 +23,11 @@
 #include <algorithm>
 #include <cassert>
 
+#if defined(NKENTSEU_PLATFORM_HARMONYOS)
+	#include <sys/mman.h> // mmap/munmap du BufferHandle natif (présentation logicielle)
+	#include <unistd.h>
+#endif
+
 #define NK_SW_LOG(...) logger_src.Infof("[NkRHI_SW] " __VA_ARGS__)
 
 namespace nkentseu {
@@ -2593,14 +2598,26 @@ namespace nkentseu {
 
 			int32_t ret = OH_NativeWindow_NativeWindowRequestBuffer(win, &buffer, &fenceFd);
 			if (ret == 0 && buffer) {
-				void *addr = nullptr;
-				OH_NativeWindow_GetBufferHandleFromNative(buffer, &addr);
-				// addr pointe vers les pixels de la surface (RGBA_8888)
-				if (addr) {
-					// Direct memcpy — pas de swap de canaux (RGBA = RGBA)
-					memcpy(addr, pixels, (usize)mWidth * mHeight * 4u);
+				// Signature SDK : BufferHandle *OH_NativeWindow_GetBufferHandleFromNative(buffer)
+				// (1 argument, retourne le handle — PAS d'out-param). Les pixels ne sont
+				// accessibles qu'après mmap du fd du handle (cf. sample NDK drawing).
+				BufferHandle *handle = OH_NativeWindow_GetBufferHandleFromNative(buffer);
+				if (handle) {
+					void *addr = mmap(handle->virAddr, (size_t)handle->size, PROT_READ | PROT_WRITE, MAP_SHARED,
+									  handle->fd, 0);
+					if (addr != MAP_FAILED) {
+						// Copie ligne à ligne : la surface peut être plus large que
+						// l'image (stride en octets), pas de swap de canaux (RGBA = RGBA).
+						const uint32 rowBytes = 4u * mWidth;
+						const uint32 dstStride = (uint32)handle->stride;
+						const uint32 copyBytes = rowBytes < dstStride ? rowBytes : dstStride;
+						const uint32 rows = mHeight < (uint32)handle->height ? mHeight : (uint32)handle->height;
+						for (uint32 y = 0; y < rows; ++y)
+							memcpy((uint8 *)addr + (usize)y * dstStride, pixels + (usize)y * rowBytes, copyBytes);
+						munmap(addr, (size_t)handle->size);
+					}
 				}
-				// Soumettre le buffer
+				// Soumettre le buffer (le fence est transmis au compositeur)
 				OH_NativeWindow_NativeWindowFlushBuffer(win, buffer, fenceFd, {});
 			}
 			return;
@@ -2624,7 +2641,7 @@ namespace nkentseu {
 				var id = UTF8ToString($0);
 				var canvas = null;
 				if (id && id.length > 0) {
-					canvas = document.getElementById(id.charAt(0) == = '#' ? id.substring(1) : id);
+					canvas = document.getElementById(id.charAt(0) === '#' ? id.substring(1) : id);
 				}
 				if (!canvas && Module['canvas']) {
 					canvas = Module['canvas'];
@@ -2901,8 +2918,10 @@ namespace nkentseu {
 		mData.shmInfo = nullptr;
 
 		// Essayer XShm (shared memory â€” plus rapide)
+		// NB: int explicite (PAS `Bool`) â€” ici `Bool` se rÃ©sout en nkentseu::Bool
+		// (alias bool) qui masque le Bool X11 (= int) attendu par XShmQueryVersion.
 		int shmMajor, shmMinor;
-		Bool pixmaps;
+		int pixmaps = 0;
 		mData.useSHM = (XShmQueryVersion(display, &shmMajor, &shmMinor, &pixmaps) == True);
 		if (mData.useSHM) {
 			const char *wslInterop = std::getenv("WSL_INTEROP");

@@ -2,7 +2,7 @@
 #include "NKLogger/NkLog.h"
 
 namespace nkentseu {
-	namespace Noge {
+	namespace noge {
 
 		void CommandHistory::Do(NkEditorCommand *cmd) noexcept {
 			if (!cmd)
@@ -10,8 +10,8 @@ namespace nkentseu {
 
 			// Effacer le futur (redo stack)
 			for (nk_int32 i = (nk_int32)mCommands.Size() - 1; i >= mCursor; --i) {
-				delete mCommands[i];
-				mCommands.EraseAt((nk_usize)i);
+				delete mCommands[(nk_usize)i];
+				mCommands.Erase(mCommands.Begin() + i);
 			}
 
 			// Tentative de fusion avec la commande précédente
@@ -61,12 +61,12 @@ namespace nkentseu {
 		void CommandHistory::Trim() noexcept {
 			while ((nk_uint32)mCommands.Size() > mMaxDepth) {
 				delete mCommands[0];
-				mCommands.EraseAt(0);
+				mCommands.Erase(mCommands.Begin());
 				--mCursor;
 				if (mSavedCursor > 0)
 					--mSavedCursor;
 			}
 		}
 
-	} // namespace Noge
+	} // namespace noge
 } // namespace nkentseu

@@ -1,0 +1,4 @@
+turnOrder,startState,finalState,steps,blockedCount,movedCount,resourcesCollected,distanceTravelled,reachedGoal,fell,arrivalTick,maxConsecutiveBlocks
+0,4,24,5,1,4,1,4,1,0,4,1
+1,9,24,3,0,3,1,3,1,0,2,0
+2,20,24,4,0,4,2,4,1,0,3,0

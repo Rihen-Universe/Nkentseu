@@ -1,6 +1,6 @@
 #pragma once
 // =============================================================================
-// Nkentseu/Modeling/NkSculpting.h
+// Nkentseu/Sculpt/NkSculpting.h
 // =============================================================================
 // Système de sculpt 3D en temps réel.
 //
@@ -27,8 +27,9 @@
 #include "NKECS/NkECSDefines.h"
 #include "NKMath/NKMath.h"
 #include "NKContainers/Sequential/NkVector.h"
-#include "NkEditableMesh.h"
-#include "Nkentseu/Viewport/NkViewportCamera.h"
+#include "Noge/Modeling/NkEditableMesh.h"
+#include "Noge/Modeling/NkUndoStack.h"
+#include "Noge/Viewport/NkViewportCamera.h"
 
 namespace nkentseu {
 	using namespace math;
@@ -59,7 +60,7 @@ namespace nkentseu {
 			float32 radius = 0.5f;	 ///< Rayon en unités monde
 			float32 strength = 0.5f; ///< Force [0..1]
 			float32 hardness = 0.7f; ///< Falloff du brush [0=doux, 1=dur]
-			bool autosmooth = 0.2f;	 ///< Lissage automatique post-déformation
+			float32 autosmooth = 0.2f; ///< Intensité du lissage automatique post-déformation [0=désactivé..1=maximal]
 			bool symmetryX = false;	 ///< Symétrie axe X
 			bool symmetryY = false;
 			bool symmetryZ = false;
@@ -132,7 +133,7 @@ namespace nkentseu {
 			/**
 			 * @brief Retourne la région AABB des vertices modifiés (pour upload partiel).
 			 */
-			[[nodiscard]] const NkAABB &GetDirtyRegion() const noexcept {
+			[[nodiscard]] const collision::NkAABB3D &GetDirtyRegion() const noexcept {
 				return mDirtyRegion;
 			}
 
@@ -174,11 +175,11 @@ namespace nkentseu {
 			NkVec3f mLastHitPos = {};
 			float32 mDistAccum = 0.f;
 
-			NkAABB mDirtyRegion;
+			collision::NkAABB3D mDirtyRegion;
 
 			// BVH (Bounding Volume Hierarchy) — octree simplifié
 			struct BVHNode {
-					NkAABB bounds;
+					collision::NkAABB3D bounds;
 					uint32 firstFace = 0;
 					uint32 faceCount = 0;
 					uint32 left = kNkInvalidIdx;

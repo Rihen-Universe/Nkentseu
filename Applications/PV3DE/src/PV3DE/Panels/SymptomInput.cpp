@@ -32,7 +32,7 @@ namespace nkentseu {
 
 		// =====================================================================
 		void SymptomInputPanel::Render(NkUIContext &ctx, NkUIWindowManager &wm, NkUIDrawList &dl, NkUIFont &font,
-									   NkUILayoutStack &ls, PatientLayer &patient, NkUIRect rect) noexcept {
+									   NkUILayoutStack &ls, PatientLayer &patient, NkRect rect) noexcept {
 			NkUIWindow::SetNextWindowPos({rect.x, rect.y});
 			NkUIWindow::SetNextWindowSize({rect.w, rect.h});
 
@@ -75,7 +75,7 @@ namespace nkentseu {
 
 			// ── Liste des symptômes (scrollable) ──────────────────────────────
 			float32 scrollY = 0.f;
-			NkUIRect scrollRect = {rect.x + 2.f, rect.y + 120.f, rect.w - 4.f, rect.h - 128.f};
+			NkRect scrollRect = {rect.x + 2.f, rect.y + 120.f, rect.w - 4.f, rect.h - 128.f};
 			if (NkUI::BeginScrollRegion(ctx, ls, "sym_scroll", scrollRect, nullptr, &scrollY)) {
 				RenderSymptomList(ctx, dl, font, ls, patient);
 				NkUI::EndScrollRegion(ctx, ls);
@@ -104,9 +104,11 @@ namespace nkentseu {
 			NkColor tCol = (mTemp > 38.f)	? NkColor{255, 120, 80, 255}
 						   : (mTemp < 36.f) ? NkColor{100, 150, 255, 255}
 											: NkColor{200, 200, 200, 255};
-			ctx.PushStyleColor(NkStyleVar::SliderFill, tCol);
+			// NOTE (Phase R1) : NkStyleVar::SliderFill n'existe pas dans NKUI réel
+			// (aucun hook de couleur par widget sur SliderFloat aujourd'hui) —
+			// coloration documentée (tCol) mais non appliquée visuellement.
+			(void)tCol;
 			changed |= NkUI::SliderFloat(ctx, ls, dl, font, "##temp", mTemp, 34.f, 42.f, "%.1f°C");
-			ctx.PopStyle();
 			NkUI::EndRow(ctx, ls);
 
 			// ── SpO2 ──────────────────────────────────────────────────────────
@@ -117,9 +119,9 @@ namespace nkentseu {
 			NkColor sCol = (mSpO2 < 90.f)	? NkColor{255, 60, 60, 255}
 						   : (mSpO2 < 95.f) ? NkColor{255, 180, 60, 255}
 											: NkColor{80, 200, 80, 255};
-			ctx.PushStyleColor(NkStyleVar::SliderFill, sCol);
+			// NOTE (Phase R1) : NkStyleVar::SliderFill n'existe pas dans NKUI réel — cf. plus haut.
+			(void)sCol;
 			changed |= NkUI::SliderFloat(ctx, ls, dl, font, "##spo2", mSpO2, 70.f, 100.f, "%.0f%%");
-			ctx.PopStyle();
 			NkUI::EndRow(ctx, ls);
 
 			if (changed || mAutoApply)
@@ -141,9 +143,9 @@ namespace nkentseu {
 				NkUI::BeginRow(ctx, ls, 20.f);
 				bool prev = sym.active;
 				NkColor col = sym.active ? NkColor{100, 220, 100, 255} : NkColor{180, 180, 180, 255};
-				ctx.PushStyleColor(NkStyleVar::CheckboxMark, col);
+				// NOTE (Phase R1) : NkStyleVar::CheckboxMark n'existe pas dans NKUI réel — cf. plus haut.
+				(void)col;
 				bool changed = NkUI::Checkbox(ctx, ls, dl, font, sym.name.CStr(), sym.active);
-				ctx.PopStyle();
 				NkUI::EndRow(ctx, ls);
 
 				if (changed && mAutoApply) {
@@ -157,20 +159,21 @@ namespace nkentseu {
 
 		bool SymptomInputPanel::IsCatOpen(const char *cat) noexcept {
 			for (nk_uint32 i = 0; i < mCatCount; ++i)
-				if (NkStrEqual(mCatNames[i], cat))
+				if (strcmp(mCatNames[i], cat) == 0)
 					return mCatOpen[i];
 			return true;
 		}
 
 		void SymptomInputPanel::SetCatOpen(const char *cat, bool open) noexcept {
 			for (nk_uint32 i = 0; i < mCatCount; ++i) {
-				if (NkStrEqual(mCatNames[i], cat)) {
+				if (strcmp(mCatNames[i], cat) == 0) {
 					mCatOpen[i] = open;
 					return;
 				}
 			}
 			if (mCatCount < kMaxCats) {
-				NkStrNCpy(mCatNames[mCatCount], cat, 31);
+				strncpy(mCatNames[mCatCount], cat, 31);
+				mCatNames[mCatCount][31] = '\0';
 				mCatOpen[mCatCount++] = open;
 			}
 		}

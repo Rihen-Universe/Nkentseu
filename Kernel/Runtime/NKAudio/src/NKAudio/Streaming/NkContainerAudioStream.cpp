@@ -56,17 +56,48 @@ namespace nkentseu {
 								mBitsPerSample, path);
 					return false;
 				}
+			} else if (tr->codec == NkString("opus")) {
+				// Opus-dans-WebM/MKV : paquets Opus BRUTS dans les SimpleBlocks (pas
+				// d'encapsulation Ogg). Le decodeur NKMedia decode paquet par paquet et sort
+				// TOUJOURS du 48 kHz (sortie native Opus, quel que soit le taux d'origine).
+				// Mono et STEREO (SILK MS->LR + CELT mid/side/intensity). >2 canaux
+				// (mapping multicanal) -> echec propre, le caller peut retomber ailleurs.
+				if (tr->channels > 2) {
+					logger.Info("[ContainerAudioStream] Opus multicanal (>2) non gere : {0}", path);
+					return false;
+				}
+				mCodec = Codec::OPUS;
+				mChannels = (tr->channels == 2) ? 2 : 1;
+				mSampleRate = 48000;
+				mOpus.Init(mChannels);
+				// Pre-skip : OpusHead (RFC 7845 par5.1) dans le CodecPrivate de la piste —
+				// uint16 LE a l'offset 10. Repli 312 (valeur libopus standard) si absent.
+				mOpusPreSkipLeft = 312;
+				if (tr->codecPrivate.Size() >= 19 && tr->codecPrivate[0] == 'O' &&
+					tr->codecPrivate[1] == 'p' && tr->codecPrivate[2] == 'u' &&
+					tr->codecPrivate[3] == 's') {
+					mOpusPreSkipLeft =
+						(int32)tr->codecPrivate[10] | ((int32)tr->codecPrivate[11] << 8);
+				}
 			} else {
-				logger.Info("[ContainerAudioStream] Codec '{0}' non gere (AAC/PCM seulement) : {1}", tr->codec.CStr(),
-							path);
+				logger.Info("[ContainerAudioStream] Codec '{0}' non gere (AAC/PCM/Opus) : {1}",
+							tr->codec.CStr(), path);
 				return false;
 			}
 
 			mPackets.Reserve(packets.Size());
 			usize totalBytes = 0;
+			nk_int64 totalDiscard = 0;
 			for (usize i = 0; i < packets.Size(); ++i) {
-				mPackets.PushBack(PacketRef{packets[i].offset, packets[i].size});
+				PacketRef ref{packets[i].offset, packets[i].size};
+				// DiscardPadding WebM (dernier paquet Opus) : ns -> frames 48 kHz a jeter
+				// en FIN de paquet decode (arrondi au plus proche, convention ffmpeg).
+				if (packets[i].discardPaddingNs > 0)
+					ref.discardFrames =
+						(nk_int32)((packets[i].discardPaddingNs * 48 + 500000) / 1000000);
+				mPackets.PushBack(ref);
 				totalBytes += packets[i].size;
+				totalDiscard += ref.discardFrames;
 			}
 			mNumPackets = mPackets.Size();
 			mLeftover.Resize(2048); // >= 1024 frames stereo (AAC) ; redimensionne si besoin (PCM)
@@ -81,6 +112,15 @@ namespace nkentseu {
 				mLeftoverAvail = 0;
 				mLeftoverPos = 0;
 				mApproxFrameCount = (nk_int64)((mNumPackets > 0 ? mNumPackets - 1 : 0)) * 1024;
+			} else if (mCodec == Codec::OPUS) {
+				mPacketIndex = 0;
+				// Un paquet Opus peut porter jusqu'a 120 ms = 5760 frames a 48 kHz (× canaux).
+				mLeftover.Resize((usize)5760 * (usize)mChannels);
+				// ~20 ms (960 ech.) par paquet, moins le pre-skip et le DiscardPadding de fin
+				// de flux : APPROXIMATIF (suffisant, meme usage que l'estimation AAC).
+				mApproxFrameCount = (nk_int64)mNumPackets * 960 - mOpusPreSkipLeft - totalDiscard;
+				if (mApproxFrameCount < 0)
+					mApproxFrameCount = 0;
 			} else {
 				mPacketIndex = 0;
 				const int32 bytesPerFrame = PcmBytesPerSample(mBitsPerSample) * mChannels;
@@ -88,9 +128,44 @@ namespace nkentseu {
 			}
 
 			logger.Info("[ContainerAudioStream] Ouvert : {0} ({1}, {2} Hz, {3} ch, {4} paquets, ~{5} frames)", path,
-						(mCodec == Codec::AAC) ? "AAC" : "PCM", mSampleRate, mChannels, (long long)mNumPackets,
+						(mCodec == Codec::AAC) ? "AAC" : ((mCodec == Codec::OPUS) ? "Opus" : "PCM"),
+						mSampleRate, mChannels, (long long)mNumPackets,
 						(long long)mApproxFrameCount);
 			return true;
+		}
+
+		int32 ContainerAudioStream::DecodeNextOpusPacket() noexcept {
+			// Le pre-skip (delai de l'encodeur, OpusHead) se consomme sur les PREMIERS
+			// echantillons decodes — potentiellement sur plusieurs paquets si > 1 paquet.
+			for (;;) {
+				if (mPacketIndex >= mNumPackets)
+					return 0;
+				const PacketRef &p = mPackets[mPacketIndex];
+				++mPacketIndex;
+				if (p.offset + p.size > mBytes.Size())
+					continue; // paquet corrompu/tronque -> saute
+				// DecodePacket renvoie le nombre TOTAL de valeurs int16 (frames × canaux).
+				const int32 vals =
+					mOpus.DecodePacket(mBytes.Data() + p.offset, (int32)p.size, mLeftover.Data());
+				int32 n = vals / mChannels; // frames
+				// DiscardPadding (WebM) : jette les dernieres frames du paquet (padding
+				// d'encodeur en fin de flux — ffmpeg fait pareil).
+				if (p.discardFrames > 0) {
+					n -= p.discardFrames;
+					if (n < 0)
+						n = 0;
+				}
+				if (n <= 0)
+					continue; // paquet indecodable -> saute (silence)
+				if (mOpusPreSkipLeft >= n) {
+					mOpusPreSkipLeft -= n; // paquet entierement mange par le pre-skip
+					continue;
+				}
+				mLeftoverPos = mOpusPreSkipLeft; // partie restante du pre-skip sur CE paquet
+				mOpusPreSkipLeft = 0;
+				mLeftoverAvail = n;
+				return n - mLeftoverPos;
+			}
 		}
 
 		int32 ContainerAudioStream::DecodeNextAacPacket() noexcept {
@@ -152,7 +227,11 @@ namespace nkentseu {
 		}
 
 		int32 ContainerAudioStream::DecodeNextPacket() noexcept {
-			return (mCodec == Codec::AAC) ? DecodeNextAacPacket() : DecodeNextPcmPacket();
+			if (mCodec == Codec::AAC)
+				return DecodeNextAacPacket();
+			if (mCodec == Codec::OPUS)
+				return DecodeNextOpusPacket();
+			return DecodeNextPcmPacket();
 		}
 
 		int32 ContainerAudioStream::ReadFrames(float32 *outBuf, int32 maxFrames) noexcept {
@@ -195,6 +274,19 @@ namespace nkentseu {
 				if (target > mNumPackets)
 					target = mNumPackets;
 				mPacketIndex = target;
+				return true;
+			}
+			if (mCodec == Codec::OPUS) {
+				// Granularite paquet (~20 ms = 960 ech. a 48 kHz), APPROXIMATIF comme l'AAC.
+				// L'etat inter-trame (LPC/LTP SILK, overlap CELT) perd sa continuite apres un
+				// saut -> on reinitialise le decodeur pour repartir d'un etat propre (bref
+				// glitch de convergence, imperceptible — meme categorie que la note PNS AAC).
+				usize target = (usize)(frameIdx / 960);
+				if (target > mNumPackets)
+					target = mNumPackets;
+				mPacketIndex = target;
+				mOpus.Init(mChannels);
+				mOpusPreSkipLeft = 0; // le pre-skip ne concerne que le tout debut du flux
 				return true;
 			}
 			// PCM : seek EXACT (pas de granularite de frame imposee par un codec) — parcourt les

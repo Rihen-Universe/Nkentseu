@@ -91,6 +91,8 @@ namespace nkentseu {
 				return "float4";
 			case NkSLBaseType::NK_DOUBLE:
 				return "double";
+			case NkSLBaseType::NK_HALF: // FP16 natif (additif) — mot-clé HLSL natif
+				return "half";
 			case NkSLBaseType::NK_DVEC2:
 				return "double2";
 			case NkSLBaseType::NK_DVEC3:
@@ -666,7 +668,8 @@ namespace nkentseu {
 				}
 				bool purePC = hasPush && !hasUBO;
 				bool depthOnly = !hasVaryingOut;
-				if (hasInputs && !purePC && !depthOnly)
+				bool noFlip = mOpts && mOpts->disableAutoYFlip; // pragma @gl-no-flip-y
+				if (hasInputs && !purePC && !depthOnly && !noFlip)
 					EmitLine("output._Position.y = -output._Position.y;");
 			}
 			if (hasOutput)

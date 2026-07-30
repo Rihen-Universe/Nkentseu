@@ -48,8 +48,46 @@ CONDITION (image / texte / forme cible) ─┐
    📢 Publication + article : `D:\Rihen\Rodolf\Publications\12_2026-07-07_ia-modelisation\`
    (post multi-plateforme + article scientifique avec équations ; vidéo-preuve à enregistrer,
    cf. `captures/SHOT_LIST.md`).
-2. ⬜ **Apprendre depuis de VRAIES sessions `.nkmec`** (imitation humaine) — désérialiser le
+2. 🟡 **Apprendre depuis de VRAIES sessions `.nkmec`** (imitation humaine) — désérialiser le
    journal → paires (état avant commande, commande) → entraîner à prédire l'action + ses params.
+   **Livré (2026-07-23), PIPELINE seul — PAS d'entraînement réel encore** : ajouté dans
+   `NKMeshAITest` (même app, section « Étape 2 », réutilise `Encode()`/NKTensor/NKNN de
+   l'étape 1) :
+   - Désérialiseur = **réutilisation directe** de `renderer::NkMeshEditRecorder::Deserialize`
+     (déjà zero-STL dans le moteur, format `NMEC` v1 : magic+version+count, par commande
+     op(u8)+selection(u32×n)+extrude+merge+subdiv+plan bisect+xform 4×4+moveDeltas) — aucune
+     réimplémentation du parseur binaire, tel que demandé.
+   - Nouveau : `BuildImitationPairsFromRecorder` — rejoue un journal réel depuis un mesh de
+     BASE et produit, pour chaque commande, (features `Encode()` de l'état AVANT, label
+     `NkMeshEditOp` réel 0..8, commande complète). Vocabulaire d'actions **différent** de
+     l'étape 1 (Subdiv/Extrude/Mirror/Array = actions du *modificateur* heuristique) : ici
+     c'est le vocabulaire **réel de l'éditeur** (Extrude/Delete/Merge/MakeFace/Subdivide/
+     LoopCut/Bisect/Move).
+   - **[A] Testé sur un VRAI fichier trouvé dans le dépôt** : `edit_session.nkmec` (612 o, 4
+     commandes, enregistré par un humain via Demo3D **F5**, PAS généré par cette tâche) →
+     désérialisé OK, 4 paires extraites, params affichés. ⚠️ **Limite honnête** : le format
+     `.nkmec` ne stocke pas le maillage de base ; la base a été **reconstruite au mieux**
+     (sphère UV 32×32 quadifiée, algorithme recopié de `NkMeshSystem::BuildSphereData`, déduit
+     du code Demo3D `sel<16 ⇒ sphère`) — 2/4 commandes s'appliquent sur cette base reconstruite
+     (Extrude no-op deux fois : la sélection [12..15] ne forme probablement pas exactement une
+     face de CETTE base précise). Le pipeline de désérialisation/extraction est prouvé correct ;
+     la **fidélité de la base pour ce fichier précis** ne l'est pas à 100 %.
+   - **[B] Round-trip bout-en-bout avec base CONNUE (sans ambiguïté)** : cube connu → 3 vraies
+     commandes (Subdivide/Extrude/Move) via le **chemin moteur exact**
+     (`NkMeshEditCommand::Apply` + `NkMeshEditRecorder::Push/Serialize`, identique à Demo3D
+     F5/F6, non réimplémenté) → écrit sur disque → relu → **round-trip binaire EXACT, octet
+     pour octet** → 3/3 paires extraites correctement → plomberie ML vérifiée (features →
+     `NkTensor` → `NkVar`/`NKNN`, logits `[3,9]`, **pas un entraînement**).
+   - Build réel (`jenga build --target NKMeshAITest`) + run réel confirmés (`Build/Bin/
+     Debug-Windows/NKMeshAITest/NKMeshAITest.exe`), sortie visible dans la console pour les
+     deux preuves [A] et [B].
+   - **Reste à faire pour un vrai "🟡→✅"** : (1) un **corpus de vraies sessions humaines**
+     (une poignée de commandes ne suffit pas à entraîner un MLP qui généralise — actuellement
+     UN SEUL fichier réel de 4 commandes existe dans le dépôt) ; (2) stocker/associer la base de
+     chaque session (le format actuel ne le fait pas → embarquer un identifiant de primitive ou
+     un snapshot de la base serait plus robuste que la déduction "best-effort") ; (3)
+     entraînement réel + régression des paramètres continus (offset, deltas), pas seulement la
+     classe d'action.
 3. ⬜ **Conditionnement CIBLE** (forme visée) → modéliser **vers un but** (RL via NKRL, ou
    imitation conditionnée) : reward = distance à la cible.
 4. ⬜ **Encodeur IMAGE / TEXTE** en conditionnement → la vision complète (image/texte → 3D).
@@ -58,6 +96,51 @@ CONDITION (image / texte / forme cible) ─┐
 ⚠️ **Honnêteté** : from-scratch, **petite échelle, pédagogique** — « j'apprends à un agent à
 imiter des gestes de modélisation », jamais « text-to-3D frontière ». Chaque étape = publication
 + article (cf. section Communication).
+
+#### Stratégie de DONNÉES (décidée 2026-07-28) — comment débloquer l'étape 2
+
+L'étape 2 est bloquée par une seule chose : **il n'existe pas de corpus** (un unique `.nkmec`
+réel de 4 commandes). Trois sources complémentaires, par ordre de faisabilité :
+
+1. **Agent-professeur pilotant le modeleur** (débloque tout de suite). Les opérations d'édition
+   sont des **données typées** (`NkMeshEditCommand` + journal `.nkmec`), donc un agent LLM qui
+   pilote l'éditeur produit directement des trajectoires état→action apprenables, à l'échelle,
+   sans intervention humaine. C'est le chaînon manquant du corpus.
+   ⚠️ **Limite honnête** : on apprend alors *le style de l'agent*, pas le geste humain. Un agent
+   LLM est crédible sur le **hard-surface / procédural** (mobilier, bâtiments, pièces mécaniques,
+   props, low-poly) qu'il peut décrire en séquences d'opérations et vérifier géométriquement
+   (symétrie, dimensions). Il est **mauvais sur l'organique** (personnage, humain, animal), qui
+   exige un ajustement visuel continu et un jugement de proportions qu'il ne peut pas
+   s'auto-appliquer de façon fiable. Ne pas prétendre le contraire.
+2. **Cible de référence** (résout la limite ci-dessus, = étape 3). Donner un maillage cible et
+   demander de le reproduire par opérations d'édition transforme la tâche en problème **bien posé
+   et auto-évaluable** (reward = distance à la cible) : plus besoin de jugement esthétique,
+   parallélisable, y compris pour l'organique. C'est la voie viable pour les formes complexes.
+3. **Corpus de maillages existants** pour l'organique. ⚠️ **Contraintes réelles** : (a)
+   **provenance et licence** — n'utiliser que des modèles dont la licence autorise explicitement
+   l'entraînement (CC0, domaine public, créations propres, scans possédés) ; ne pas utiliser
+   d'assets propriétaires ou récupérés sans droit. (b) **échelle** — « quelques centaines de
+   modèles » reste **petit** ; l'état de l'art en génération organique s'entraîne sur des ordres
+   de grandeur supérieurs. Attendre des résultats limités et le dire, conformément au principe
+   d'honnêteté ci-dessus.
+
+#### Suite (retopologie, UV/texturing, rig) — cadrage honnête
+
+Ces étages sont déjà listés (NKGen jalon 3, § « Pipeline de production » ci-dessous). Précision
+d'ambition : **retopologie apprise**, **dépliage UV appris** et **texturing appris** sont des
+sujets de **niveau recherche**, pas des incréments de quelques jours. Ordre réaliste : d'abord
+les versions **algorithmiques** (décimation QEM, quad field-aligned, unwrap par seams + bake),
+qui donnent un pipeline utilisable ; l'apprentissage vient **enrichir** ces briques ensuite,
+jamais les remplacer d'emblée. Cohérent avec « technique solide d'abord, IA générative ensuite ».
+
+#### Effet de bord vertueux (à garder en tête)
+
+Chaque opération ajoutée au modeleur (bevel, inset, spin, dissolve, loop cut…) **élargit l'espace
+d'actions** de l'agent, donc la complexité des modèles atteignables. NK3DModeler n'est pas
+seulement un outil pour l'utilisateur : c'est aussi **l'environnement d'entraînement** de la
+modélisation par IA. C'est ce qui justifie l'exigence « toute opération doit être une commande
+typée, avec undo et topologie cohérente » — sans quoi les trajectoires ne seraient ni rejouables
+ni apprenables.
 
 ### Pipeline de production autour de la modélisation IA (fusion corpus 2026-07-09)
 
@@ -254,32 +337,192 @@ en conflit avec ce module. Cette couche s'appelle ici **pont directeur** (NkAnim
   Prouvé (`NKTrainTest` **4/4**) : Adam+CE → train/test 100% ; accumulation+scheduler converge.
 - ✅ **NKInfer** : `SaveParams`/`LoadParams` (format NKMD) + `Predict`. Prouvé
   (`NKInferTest`) : round-trip **exact** (A entraîné → sauve → B neuf recharge → 100%).
-- ⬜ Checkpoints d'optimiseur (reprise) : existe dans NkGptTrainer, à généraliser dans NKTrain.
+- ✅ **Checkpoints modèle+optimiseur généralisés (2026-07-26)** : `NKTrain/NkCheckpoint.h`
+  (format « NKTC » v1, N'IMPORTE QUEL modèle NKNN + `optim::NkAdam`) — ce qui
+  n'existait QUE dans `NkGptTrainer` (format « NKGP » v4, spécifique GPT) est
+  maintenant généralisé dans NKTrain, comme prévu par cette roadmap. Preuve réelle
+  (`NKTrainTest`) : reprise **EXACTE** (écart max = 0 sur un pas Adam identique,
+  modèle continué vs modèle rechargé depuis le checkpoint).
 - 🎯 ✅ **Pipeline complet données→train→save→load→infer** validé de bout en bout.
 - ✅ **Entraînement sur le VRAI MNIST** (`Datasets/mnist/` téléchargé, `NK_MNIST_DIR`) :
   MLP 784→64→10 (Adam+CE) sur les **60 000 vraies images** → **96.3%** en 3 époques
   (`NKTrainTest`). Le framework from-scratch apprend sur données réelles. (113 s CPU debug
   → confirme le besoin d'accélération GPU pour scaler.)
-- ⬜ Checkpoints d'optimiseur (reprise) + boucle de validation (NKTrain Jalon 2) ;
-  chargeurs d'autres datasets (Fashion-MNIST = même format IDX ; CIFAR ; 3D via OFF/OBJ).
+- ✅ **Callbacks génériques + validation + reprise (NKTrain Jalon 2/3, 2026-07-26)** :
+  `train::Fit` (boucle pilotée par callbacks : `NkEarlyStopping`, `NkLRSchedulerCallback`/
+  `NkStepDecayCallback`, `NkLoggingCallback`) + `train::Evaluate` (perte+exactitude en un
+  passage) + reprise après interruption (`fromEpoch`/`toEpoch` + état restauré). Preuve
+  réelle (`NKTrainTest`, 14/14 OK) : early-stopping arrête réellement `Fit()`, LR
+  cosine/paliers pilotent réellement Adam, reprise après interruption simulée -> 100%.
+- ✅ **Tokenizer BPE généralisé dans NKData + vocabulaire/séquences/padding + augmentation
+  + split train/val/test (NKData Jalon 2/3, 2026-07-26)** : `NKData/NkTokenizer.h`
+  (`data::NkBpe`, déplacé depuis `NKGpt/NkGptCore` qui le réexporte par alias — non
+  régressé, `NKGptTrain` re-testé), `NKData/NkSequence.h` (`NkVocab`, `PadSequences`),
+  `NKData/NkAugment.h` (`SplitDataset`, `ConcatDatasets`, `AugmentFlipHorizontal`,
+  `AugmentGaussianNoise`, `AugmentTokenDropout`). Preuve réelle (`NKDataTest`, 32/32 OK).
+- ⬜ Reste (hors périmètre de cette itération) : chargeurs d'autres datasets
+  (Fashion-MNIST = même format IDX ; CIFAR ; 3D via OFF/OBJ) ; chargement en flux
+  (gros jeux, cf `NKData/ROADMAP.md`) ; visualisation des courbes d'entraînement
+  (cf `NKTrain/ROADMAP.md`) ; checkpoint généralisé à `NkSGD` (Adam seul pour l'instant,
+  c'est l'optimiseur dominant dans NKAI).
 
 ## Phase 4 — La décision — 🟡 en cours
 
 **Modules : NKRL, NKAgent.**
 - ✅ **NKRL** : interface d'environnement + monde-grille + **Q-learning tabulaire**
   (ε-greedy, TD). Prouvé (`NKRLTest`) : l'agent passe de 7.9% à **100%** de réussite,
-  politique optimale apprise. ⬜ DQN (Jalon 2, réutilisera NKNN/NKOptim).
-- ⬜ NKAgent : agent avec mémoire (passé), perception (présent), politique de décision.
+  politique optimale apprise.
+  - ✅ **Jalon 2 COMPLET (2026-07-25) — DQN** : `rl::NkReplayBuffer` (buffer circulaire à
+    capacité fixe, FIFO) + `rl::NkDQN` (réseau Q Dense→Relu→Dense via NKNN, réseau CIBLE
+    synchronisé durement tous les `targetSyncInterval` pas de gradient, cible de Bellman
+    `y = r + γ·max Qcible(s',·)·(1−terminé)`, perte MSE + Adam via NKOptim, ε-greedy). **Preuve
+    réelle** (`NKRLTest` test 2, monde clé-puis-porte `rl::NkKeyDoorGridWorld`, 600 épisodes
+    d'entraînement, 5 graines) : politique **ALÉATOIRE** (avant) = **13.6%** de réussite
+    moyenne (récompense **−0.245**) → DQN entraîné (après) = **100.0%** sur les 5 graines
+    (récompense **+0.930**). Limites documentées (`Kernel/AI/NKRL/ROADMAP.md`) : pas de PER,
+    pas de Double DQN, synchronisation cible dure (pas de Polyak), encodage d'état one-hot
+    (pas de features continues partagées entre états proches).
+  - ✅ **Jalon 3 COMPLET (2026-07-26) — PPO, actions continues, preuve multi-agent** :
+    `rl::NkPolicyNet` (politique discrète OU gaussienne continue) + `rl::NkPPO` (Schulman et al.
+    2017, arXiv:1707.06347, objectif clippé + bonus d'entropie ; avantage par **GAE COMPLET**,
+    Schulman et al. 2016, arXiv:1506.02438). Nouvel opérateur `autograd::Log` ajouté à NKAutograd
+    (manquait pour la log-probabilité discrète exacte). Nouvel environnement à actions continues
+    `rl::NkReach2D` (point 2D, déplacement borné, cible aléatoire par épisode) + preuve multi-agent
+    minimale `rl::NkReach2DMulti` (2 politiques PPO indépendantes, même monde, couplées par une
+    pénalité de collision — PAS de MARL avancé). **Preuve réelle** (`NKRLTest` tests 3/4/5) :
+    PPO discret (sanity) 1%→**100%** sur le monde-grille du Jalon 1 ; PPO continu (`NkReach2D`, 5
+    graines) politique aléatoire **10.0%**/−11.20 → PPO entraîné **26.0%**/−4.98 ; multi-agent (2
+    PPO, 3 graines) **9.83%**/−11.10 → **10.0%**/−7.34 (progrès net en récompense, marginal en
+    réussite — tâche plus dure, budget honnêtement modeste). Bug réel rencontré et corrigé : la
+    moyenne gaussienne non bornée divergeait vers ±∞ sous un espace d'actions saturé par
+    l'environnement (aucune force de rappel) — corrigé par `μ=actionScale·tanh(sortie MLP)` +
+    normalisation des observations. Limites documentées (`Kernel/AI/NKRL/ROADMAP.md`) : pas de
+    minibatching, pas de collecte parallèle multi-environnements, perte traitée échantillon par
+    échantillon (pas de gather différentiable dans NKAutograd, même contrainte que NkDQN), pas de
+    politique squashée façon SAC, pas de MARL coopératif/compétitif avancé.
+- ✅ **NKAgent** (2026-07-23, Jalon 4 complet 2026-07-26) : premier agent réel livré — `NkAgentMemory` (buffer borné de
+  transitions), `NkAgentPerception` (état `NkGridWorld` → 4 features, spécialisé grille pour
+  l'instant), `NkAgentPolicy` (enveloppe `rl::NkQLearning`, ne réimplémente pas le RL). Prouvé
+  par `NKAgentTest` (build + run Debug/Windows réels) : évaluation gloutonne **200/200 (100%)**
+  sur le même monde-grille que NKRLTest, via la nouvelle couche.
+  - ✅ **Jalon 2 COMPLET (2026-07-25) — importance + memory replay** : transitions pondérées
+    par **|erreur TD|** (proxy de « surprise », exact sur Q tabulaire), oubli par **moindre
+    importance** (plus FIFO pur ; le souvenir le plus récent est toujours accepté) ;
+    `NkAgent::Replay` rejoue des lots uniformes de la mémoire via `NkQLearning::Update`
+    (opt-in `NkAgentConfig.replayEnabled/BatchSize/Interval`, défaut inchangé). **Ablation
+    réelle** (`NKAgentTest` test 2, 5 graines, budget réduit à **80 épisodes** vs 4000) :
+    SANS replay **20 %** de moyenne en éval gloutonne, AVEC replay **100 %** (~6 400
+    transitions rejouées/agent) — accélération d'apprentissage prouvée. (Mesuré : à ≥200
+    épisodes les deux bras saturent déjà à 100 % sur cette grille 5×5.)
+  - ✅ **Jalon 3 COMPLET (2026-07-25) — buts & planification** : `NkAgentGoal` (état-cible +
+    priorité + budget de pas) + `NkGoalStack` (pile LIFO de sous-buts — décomposer « ressource
+    PUIS but final » = empiler le but final puis le sous-but dessus) + `NkAgent::StepWithGoals`
+    (politique **dédiée par but**, `PolicyForGoal`, récompense façonnée localement, +
+    `RunAgentEpisodeWithGoals`, générique sur `rl::NkEnvironment` via un nouveau constructeur
+    `NkAgent`). Nouvel environnement `rl::NkKeyDoorGridWorld` (porte/but final fermée tant que la
+    clé n'est pas ramassée). **Ablation réelle** (`NKAgentTest` test 3, 5 graines, grille 5×5,
+    budget serré 100 épisodes/`maxSteps=10`) : agent SANS but (1 seul but = la porte) **0 %** de
+    réussite (0/500 sur 5 graines, échec structurel — pas juste plus lent) contre agent AVEC pile
+    de buts (clé PUIS porte) **100 %** (500/500). Vérification isolée : un but au budget
+    `maxSteps=1` impossible est marqué `Failed` puis dépilé (`[ OK ]`).
+  - ✅ **Jalon 4 COMPLET (2026-07-26) — personnalité + raisonnement LLM** : (a) `NkAgentPersonality`
+    (boldness/curiosity/patience, fonctions libres sur les Q-valeurs déjà apprises, additif via
+    `NkAgent::StepWithPersonality`) — ablation réelle (`NKAgentTest` test 4, même politique
+    entraînée, 300 épisodes/profil) : profil Prudent = 0.97 % de pas adjacents à un trou / 1 chute
+    contre profil Audacieux = 29.08 % / 84 chutes — comportement mesurablement différent prouvé.
+    (b) `NkAgentLLMReasoning` — pont réel vers NKInfer (Qwen2.5 7B Instruct, forward complet 28
+    couches réelles, poids GGUF réels déquantifiés à la demande, aucun mock) pour une décision
+    jugée ambiguë (politique tabulaire neuve, Q=0 partout) ; prompt réduit à un encodage numérique
+    (aucun encodeur BPE dans ce dépôt) restreint à 4 tokens-chiffres candidats = les 4 actions.
+    **3 décisions réelles** (`Applications/NKAgentLLMTest`, build+run réels 2026-07-26) : ~148.7
+    s/décision en moyenne (446.0 s total), déterminisme vérifié (requête répétée → même action),
+    dépendance réelle à l'entrée vérifiée (logits différents sur état/but différents). **5/5 OK**.
+    Limite honnête : latence NON adaptée au temps réel, réservé à un très petit nombre de
+    décisions hors-ligne/de repli. Reste (hors périmètre, cf `NKAgent/ROADMAP.md` « Plus tard ») :
+    besoins/désirs internes, réflexion (résumer le passé), relations sociales, émotions,
+    communication entre agents.
 - 🎯 ✅ **Jalon « ça vit » atteint** : un agent apprend tout seul à résoudre un
   environnement simple.
 
-## Phase 5 — La vie et l'émergence
+## Phase 5 — La vie et l'émergence — 🟡 en cours (NKCivilization Jalon 1 + outils d'observation ✅ 2026-07-25)
 
 **Modules : NKEvolve, NKCivilization.**
-- ⬜ NKEvolve : génomes, sélection, mutation, croisement → population qui évolue.
-- ⬜ NKCivilization : monde + temps + plusieurs agents qui interagissent (sur NKECS).
-- ⬜ Outils d'observation : enregistrer, rejouer, analyser les trajectoires.
-- 🎯 **Jalon « ça émerge » : des comportements de société non scriptés apparaissent.**
+- 🟡 **NKEvolve** (2026-07-23) : moteur génétique RÉEL — `NkGenome` (gènes réels + fitness),
+  `NkPopulation` (init aléatoire LCG déterministe), `NkEvolution` (élitisme + **sélection par
+  tournoi** + **croisement arithmétique** + **mutation gaussienne** Box-Muller ; fitness =
+  pointeur de fonction fourni par l'appelant, zéro `std::function`). Prouvé par `NKEvolveTest`
+  (build+run réels Debug/Windows) : population de 80 individus / 6 gènes faisant évoluer un
+  vecteur vers une cible fixe — **fitness moyen 0,013 → 0,91** sur 200 générations, **meilleur
+  génome jamais vu → fitness 1,0** (erreur max/gène 0,0005).
+  - ✅ **Neuroévolution — poids d'un réseau SANS gradient (2026-07-25)** : `NKEvolveNNTest` —
+    génome = poids+biais plats d'un réseau **2→4→1** (XOR, convention `nn::NkDense`), forward
+    pass **manuel** (pas de `NKAutograd`, zéro backprop — contrainte GPU occupé par le Palier 6
+    → tout CPU), fitness = `1/(1+MSE)` sur les 4 exemples XOR ; `NkEvolution`/`NkPopulation`
+    réutilisés tels quels. **Preuve réelle** : fitness moyen **0,708 → 0,999** (200 individus,
+    400 générations), meilleur génome → **résout XOR 4/4** (erreur max 0,026), **sans aucun
+    gradient**.
+  - ✅ **Généralisation train/test RÉELLE + passage à l'échelle mesuré (2026-07-25, même jour,
+    comble les 2 limites ci-dessus)** : `NKEvolveNNTest` étendu — classification 3 classes
+    (clusters 2D volontairement rapprochés + bruit large pour un vrai recouvrement, PAS
+    séparable à 100%), **360 points, split 252 train / 108 test JAMAIS vus pendant
+    l'évolution**. Fitness = probabilité softmax moyenne de la bonne classe sur le train
+    seulement (forward pass manuel ReLU+softmax, toujours zéro `NKAutograd`/backprop). 3
+    tailles de réseau, **même protocole** (population=150, 250 générations, mêmes taux de
+    croisement/mutation, même seed) : petit **2→4→3 (27 gènes)**, moyen **2→16→3 (99 gènes)**,
+    grand **2→16→16→3 (371 gènes)**.
+    **Généralisation (réseau moyen, référence)** : train **100%**, test **99,07%** (107/108,
+    jamais vu) — écart réel mais faible (0,93 point), largement mieux que le hasard (33,3%).
+    **Passage à l'échelle** : PAS de dégradation monotone claire du meilleur génome — les 3
+    tailles atteignent la **même exactitude test finale (99,07%)** grâce à l'élitisme qui
+    protège le meilleur individu. En revanche la **fitness MOYENNE de population** à
+    génération 250 n'est PAS monotone avec la taille : petit=0,9857, moyen=0,9937,
+    **grand=0,9873** (le moyen bat les deux autres) — et à génération 50 le grand (371 gènes)
+    est nettement en retard (0,9717 contre 0,9795/0,9808) : la convergence de la MOYENNE de
+    population ralentit bien avec la taille du génome à budget de générations fixé, mais ça
+    n'a pas (encore, sur cette plage 27→371 gènes) dégradé la qualité du MEILLEUR individu
+    retenu. Résultat nuancé, pas la dégradation nette attendue a priori — à confirmer sur des
+    génomes encore plus gros ou moins de générations. Reste : hyperparamètres réglés à la
+    main (pas de recherche systématique ni moyenne sur plusieurs graines), pas de comparaison
+    chronométrée GA-vs-SGD. Détail : `NKEvolve/ROADMAP.md` Jalon 2.
+  - ⬜ Reste : suivi de diversité, topologie évolutive (NEAT), couplage à un vrai problème
+    d'agent (cf `NKEvolve/ROADMAP.md`).
+- 🟡 **NKCivilization** — Jalon 1 ✅ sur le **VRAI substrat NKECS** (2026-07-25) :
+  - ⚠️ Correction du constat du 2026-07-23 (« NKECS pas branché au workspace ») : il était
+    **FAUX/dépassé** — `Nkentseu.jenga` inclut bien `Kernel/Runtime/NKECS/NKECS.jenga` (avant
+    Noge qui en dépend), et Noge l'utilise déjà (pont `NkAgentComponent`/`NkAgentSystem` +
+    démo `NkAgentEcsDemo`, 100 % éval).
+  - **Lib `NKCivilization`** (`Kernel/AI/NKCivilization/src/`, enregistrée modules + workspace,
+    zéro STL côté NKAI) : composants `NkCivPosition` + `NkCivAgentRef` (pointeur non possédant
+    vers `agent::NkAgent` — même philosophie que le pont Noge, mais rebâtie sur **NKECS pur**
+    car Kernel/AI ne doit pas dépendre d'Engine/Noge — inversion de couches), substrat
+    `NkCivGridState` (grille, trous, but, **ressources consommables premier-arrivé**), system
+    `NkCivAgentSystem` (un `ecs::NkSystem` : query → ordre de tour déterministe → politique
+    apprise gloutonne → collision/ressources).
+  - **Preuves réelles** (`NKCivilizationTest` étendu, build+run, exit 0, 3/3 OK) : 3 agents =
+    3 entités ECS, départs choisis pour croiser les chemins ⇒ **collision DÉCLENCHÉE** (1
+    blocage au tick 0, jamais observé dans le prototype du 23/07), **4/4 ressources
+    consommées** avec **répartition divergente 1/1/2** (la case contestée 14 va au premier
+    passé), **3/3 agents au but** (5/3/4 pas) via leurs politiques apprises (98,5/98/100 % en
+    fin d'entraînement individuel). Reste : tick sous `NkScheduler` (multi-systèmes), temps
+    continu, ressources renouvelables (observation/rejeu ✅ livré ci-dessous, cf
+    `NKCivilization/ROADMAP.md`).
+- ✅ **Outils d'observation** (2026-07-25) : `civ::NkCivRecorder` (journal en mémoire — position/
+  action/événements par agent + ressources restantes à chaque tick, branché sur
+  `NkCivAgentSystem` via un pointeur non possédant optionnel, pur observateur — sérialisation
+  binaire versionnée `.nkciv`, magic `"NCIV"`, même pattern que le `.nkmec` de
+  `NkMeshEditRecorder`), `civ::NkCivReplayer` (rejeu TICK PAR TICK en lecture PURE, zéro
+  re-simulation), `civ::NkCivAnalyzer` (stats par agent, heatmap texte d'occupation, taux de
+  contention des ressources, détection d'événements remarquables). Preuve réelle
+  (`NKCivilizationTest` étendu 4 phases, build+run Debug, exit 0, **6/6 OK**) : journal de 6
+  frames sauvé (324 octets), rechargé, round-trip **bit-exact** vérifié à 3 niveaux (octet par
+  octet, structurel `Equals`, `VerifyExact`) ; rejeu des 6 ticks depuis le fichier RECHARGÉ
+  reproduit exactement l'état VIVANT capturé pendant la simulation originale (assertions) ;
+  heatmap + stats par agent + mesures globales affichées sur le journal. Détail :
+  `Kernel/AI/NKCivilization/ROADMAP.md`.
+- 🎯 **Jalon « ça émerge » : des comportements de société non scriptés apparaissent.** *(pas
+  encore atteint : le prototype actuel exécute des politiques individuelles apprises isolément,
+  sans émergence de comportement social non scripté — la seule règle collective est la
+  collision).*
 
 ## Phase 6 — Génération & incarnation
 
@@ -290,7 +533,10 @@ en conflit avec ce module. Cette couche s'appelle ici **pont directeur** (NkAnim
   décimation, quads). ⏳ Reste : GAN, **diffusion**, marching cubes, conditionnement **image/
   texte→3D** (le seul « conditionnement » actuel = centroïde latent par classe), catégories
   végétal/animal/humanoïde/monde, rig + animation.
-- ⬜ NKEmbodied : relier une politique à un corps simulé (puis réel via Kernel/Bare).
+- 🟡 **NKEmbodied — Jalon 1 livré** (capteurs/actionneurs génériques `NkSensor`/`NkActuator` +
+  boucle perception→décision(NKAgent)→action dans un corps grille simulé, `NKEmbodiedTest` :
+  100%/200 épisodes). ⏳ Reste : Jalon 2 (contrôle robuste, fréquence fixe, bruit/limites,
+  sécurité) et Jalon 3 (branchement réel via Kernel/Bare, transfert sim→réel).
 - ⬜ **Acteurs génératifs** : un personnage reçoit un **rôle** et le joue (apparence +
   animation + comportement) → animation 3D & jeux **pilotés par IA** (NKGen + NKAgent).
 - 🎯 **Jalon : générer un asset (2D puis 3D) dans le moteur ; piloter un corps par une IA.**
@@ -480,15 +726,139 @@ la RTX 3070 (8 Go, FP32), et **élargir le corpus** aux domaines demandés (code
   `D:/Projets/Camrail/AI/checkpoint_palier2.nkgp` (154 Mo) → reprise PARFAITE possible.
   ⚠️ Le Palier 2 avait chargé son corpus AVANT l'écriture des derniers `dev_ag_*` : le corpus niche
   complet (1 684 paires Q→R grounded générées par sous-agents) sert au Palier 3.
-- 🟡 **PALIER 3 EN COURS (lancé 2026-07-20 08:04, arrière-plan)** : reprise parfaite validée au log
-  (`Etat optimiseur repris : pas 6000, 102 moments`, schedule continué sans warmup) depuis
-  `checkpoint_palier2.nkgp` sur `Palier2Data` COMPLET (10 tags, dev enrichi 1684 paires). 6000 pas
-  supplémentaires (horizon 12000). Config `palier3.cfg`, exe isolé `palier_run3/`, checkpoint
-  `checkpoint_palier3.nkgp`. **RÈGLE DE RÉGIME (Rihen, 2026-07-20)** : les paliers NKAI tournent **EN
-  ARRIÈRE-PLAN** pendant que le travail actif est sur la chaîne MÉDIA (premier plan) ; à chaque palier
-  fini → lancer le suivant.
-- ⬜ **Restes** : mixed precision FP16 (per-backend : Metal/Vulkan/DX12 ok, DX11 approx, GL patchy) ;
-  éval qualitative sérieuse (les pertes descendent mais le SENS n'émerge qu'avec l'échelle) ; couche multi-GPU.
+- ✅ **PALIER 3 TERMINÉ (2026-07-21 04:09)** : reprise parfaite depuis `checkpoint_palier2.nkgp`
+  (`Etat optimiseur repris : pas 6000, 102 moments`, schedule sans warmup) sur `Palier2Data` COMPLET
+  (10 tags, dev enrichi 1684 paires), 6000 pas (global 12000). Perte train **2,145 → 2,080**, verdict
+  `[ OK ]`, checkpoint v4 `checkpoint_palier3.nkgp` (154 Mo). ⚠️ **Constat de PLATEAU** : gain train
+  modeste (0,065), **val bruitée** (2,30→2,58, finale held-out **2,384**, écart train/val ~0,30 =
+  début de mémorisation) ; échantillons encore « token-soup » francisé. Cause probable :
+  `NK_GPT_CHARS=15M` → chaque palier ne voyait que **~15 Mo des 109 Mo** du corpus (mêmes données
+  re-vues). **RÈGLE DE RÉGIME (Rihen, 2026-07-20)** : les paliers NKAI tournent **EN ARRIÈRE-PLAN**
+  pendant que le travail actif est sur la chaîne MÉDIA (premier plan) ; à chaque palier fini →
+  lancer le suivant.
+- 🟡 **PALIER 4 EN COURS (lancé 2026-07-22, arrière-plan, PID → `palier4_pid.txt`)** : reprise
+  parfaite depuis `checkpoint_palier3.nkgp`, 6000 pas supplémentaires (global 12000 → 18000).
+  **Levier anti-plateau = données fraîches** : fenêtre corpus **doublée 15M → 30M chars**
+  (`NK_GPT_CHARS=30000000`) sur les mêmes 10 tags. Config `palier4.cfg`, exe isolé `palier_run4/`,
+  checkpoint `checkpoint_palier4.nkgp`, log `palier_run4/logs/app.log`. À la fin : comparer la
+  perte val (2,384 au P3) pour juger l'effet données-fraîches, puis Palier 5.
+- 🟡 **Mixed precision FP16 — infrastructure CPU + type `half` NkSL natif livrés (2026-07-25),
+  validation GPU sur device EN ATTENTE** (contrainte respectée : le GPU était/est occupé par
+  les paliers d'entraînement — **zéro exécution de kernel GPU** dans cette passe, uniquement
+  écriture + compilation + tests CPU + validation glslang offline) :
+  - ✅ **FAIT + TESTÉ CPU** : dtype `NK_F16` (`Kernel/AI/NKTensor/src/NKTensor/NkFp16.h`) —
+    conversions logicielles f32↔f16 bit-exactes (round-to-nearest-even, dénormaux des deux
+    sens, ±0, ±Inf, NaN, dépassement/soupassement), type scalaire `NkFp16` intégré à
+    `NK_DTYPE_DISPATCH`/`NK_DTYPE_DISPATCH_FLOAT` (`NkDType.h`) → `NkTensor` support complet
+    (création Zeros/Ones/Full/FromData, indexation Get/SetItem, Clone/Contiguous, ops
+    élémentaires Add/Sub/Mul/Relu/Sigmoid via `ops::`, référence par aller-retour float32).
+  - ✅ **FAIT + TESTÉ CPU** : loss scaling dynamique (`NkGradScaler`,
+    `Kernel/AI/NKOptim/src/NKOptim/NkGradScaler.{h,cpp}`) — `Scale(loss)` avant `Backward()`,
+    `Unscale(params)` après (détecte Inf/NaN dans les gradients via `HasInfNan`, divise par
+    l'échelle si propre, **backoff** ×0,5 si overflow avec plancher, **growth** ×2 après N pas
+    propres consécutifs). Composé avec `NkAdam` + le graphe autograd CPU F32 EXISTANT (aucune
+    réécriture d'autograd nécessaire : `NkVarNode::grad` est manipulé directement, accès déjà
+    public via `NkVar::Node()`).
+  - ✅ **Preuve réelle** : app `NKFp16Test` (`Applications/NKFp16Test/`, console CPU pure, zéro
+    STL/NKMemory/NKLogger dans le fichier de test), **build réel + run réel : 75/75 assertions
+    OK** — round-trip bit-exact sur 1..1023 dénormaux + 10582 valeurs normales échantillonnées,
+    arrondi pair vérifié sur 3 cas limites exacts construits à la main, équivalence numérique
+    scale→backward→unscale == backward direct (dW/dB identiques à 1e-4), backoff/growth/overflow
+    (Inf ET NaN) vérifiés déterministiquement, boucle Adam+GradScaler bout-en-bout (perte
+    15,0→0,070, w→2,0, zéro overflow sur un run bien réglé).
+  - ✅ **PRÉALABLE LIVRÉ (2026-07-25, suite)** : NkSL a maintenant un **vrai type `half` natif**
+    de bout en bout — additif pur (rien de renommé/supprimé), débloque le calcul natif f16
+    (pas seulement le stockage packé ci-dessous) sur les 5 backends :
+    - `NkSLBaseType::NK_HALF` ajouté **en tout dernier** dans l'enum (`NkSLTypes.h`) pour ne
+      décaler AUCUNE valeur existante (les checks par plage du reste du codebase — IsScalar/
+      IsVector/samplers/images — comparent des bornes explicites) ; traité par des `case`
+      explicites partout, jamais par extension d'une plage.
+    - Lexer/parser : mot-clé `half` (`NK_KW_HALF`), reconnu automatiquement comme type par
+      `IsTypeToken` (inséré dans la plage existante VOID..UIMAGE2D).
+    - Sémantique : constructeur explicite `half(x)` / `float(x)` (ajouté à `kConstructors`,
+      `NkSLSemantic.cpp`) — **pas** de conversion implicite float↔half (délibéré, imite le
+      vrai comportement GLSL `float16_t` où le narrowing est toujours explicite ; reste
+      conservateur aussi côté widening pour ne rien supposer d'une extension non testée sur
+      device). `half + half → half` via `BinaryResultType` (règle générique déjà existante,
+      aucune modif nécessaire).
+    - Codegen (2 backends « réellement compilables », 3 « texte seul » comme documenté
+      honnêtement dans `NkSLComputeCheck`) :
+      - **GLSL-OpenGL / GLSL-Vulkan** → `float16_t`, avec injection conditionnelle de
+        `#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require` (seulement si
+        le type est réellement utilisé — post-traitement du texte généré, cf
+        `NkSLInjectExtensionIfUsed` dans `NkSLCodeGen.h`).
+      - **SPIR-V** → capacité `Float16` émise **automatiquement par glslang lui-même** (pas
+        d'injection manuelle de notre part) à partir du texte GLSL-Vulkan ci-dessus, puisque
+        SPIR-V passe déjà par le vrai glslang embarqué (`NkGLSLToSPIRV`).
+      - **HLSL-DX11/DX12** → `half` (mot-clé HLSL natif, aucune traduction nécessaire).
+      - **MSL** (natif + fallback SPIRV-Cross non activé dans ce build) → `half` (mot-clé MSL
+        natif, aucune traduction nécessaire).
+    - Reflection : taille 2 octets, alignement 2 octets (`NkSLBaseTypeSize`,
+      `NkSLReflector.cpp::NkSLBaseAlign`) — pour les futurs layouts UBO/SSBO en `half`.
+    - Backends hors scope de cette passe (non demandés, non cassés) : C++ software rasterizer
+      et bytecode NkSLVM retombent sur `float32` (comme `NK_DOUBLE` le fait déjà pour MSL) —
+      documenté dans le code, pas de régression possible car aucun de ces deux chemins n'était
+      testé pour `half` avant.
+  - ✅ **Ce qui EST compilé et vérifié aujourd'hui malgré cette limite** : 2 kernels de
+    démonstration en stockage PACKED f16 (`fp16_packed_add`, `fp16_packed_adam` — param/grad
+    packés 2×f16/uint via pack/unpackHalf2x16, moments Adam m/v en F32 MAÎTRE, arithmétique en
+    float après dépack) ajoutés à `Applications/NkSLComputeCheck/src/main.cpp`, **build réel +
+    run réel** (aucun device GPU créé — uniquement le frontend NkSL + glslang) :
+    - **GLSL-OpenGL / GLSL-Vulkan** : `packHalf2x16`/`unpackHalf2x16` sont de VRAIS builtins
+      natifs → texte généré réellement valide.
+    - **SPIR-V** : compile réellement via **glslang** (le seul backend de ce pipeline offline
+      qui invoque un VRAI validateur externe, pas juste de la génération de texte) → **preuve
+      de compilation authentique**, pas seulement « le texte a été émis ».
+    - **HLSL-DX11/DX12, MSL/MSL-SPIRV-Cross** : `NkSLCompiler.Compile()` renvoie `success=true`
+      (texte émis sans erreur), **MAIS ce texte n'est PAS un HLSL/MSL valide** — `packHalf2x16`
+      n'existe pas dans ces langages (vrais équivalents : `f32tof16`/`f16tof32` en HLSL, type
+      `half` natif en MSL) et aucun compilateur externe (fxc/dxc/metal) n'est invoqué dans ce
+      pipeline pour ces cibles → à corriger AVANT tout usage réel sur ces backends.
+    - Càd : **stockage** f16 packé = réellement utilisable (bande passante mémoire ÷2) sur
+      Vulkan/GL dès aujourd'hui ; **calcul natif f16** (le vrai gain mixed-precision : throughput
+      ALU) était bloqué par le préalable compilateur ci-dessus — **débloqué maintenant** (voir
+      type `half` natif ci-dessus), reste à exploiter côté kernels NKTensor/NKAutograd.
+  - ✅ **Jalon type `half` natif — testé CPU-only, build réel + run réel (2026-07-25, suite)** :
+    kernel `half_native_add` ajouté à `Applications/NkSLComputeCheck/src/main.cpp`
+    (`CheckNativeHalf`) — lit 2 floats, `half(...)` convertit, additionne **réellement en
+    demi-précision** (`half hc = ha + hb;`), reconvertit en `float` pour le stockage :
+    - **SPIR-V** : `success=true`, 484 mots de bytecode réel produits par le **vrai glslang
+      embarqué** (`NkGLSLToSPIRV`/NKGLSlang) à partir du GLSL-Vulkan généré — **preuve de
+      compilation authentique** du type `half` natif, capacité `Float16` comprise (glslang
+      refuse de compiler si l'extension/capacité manque ; succès = preuve positive).
+    - **GLSL-OpenGL / GLSL-Vulkan** : texte généré contient `float16_t` + le bon `#extension`,
+      relu manuellement (dump ponctuel) — code C-like propre, ex.
+      `float16_t a = float16_t(A.data[i]); ... float16_t c = (a + b); C.data[i] = float(c);`.
+    - **HLSL-DX11/DX12, MSL** : validation **textuelle uniquement** (aucun compilateur
+      fxc/dxc/metal embarqué dans ce pipeline offline, honnêtement documenté dans le code et
+      ici) — texte contient bien `half`, **zéro résidu `float16_t`** (pas de fuite GLSL dans les
+      autres backends).
+    - **Non-régression vérifiée** : `NkSLComputeCheck` réaffiche **28 OK, 0 échec** sur la
+      batterie pré-existante (VecAdd/Matmul/VS/FS × 7 cibles) + les 2 kernels FP16-packé déjà
+      livrés toujours OK à l'identique. `NkSLCheck` (batterie shaders graphiques plus large)
+      et `NKRHI` (consommateur RHI de NKSL) recompilent aussi sans erreur.
+  - ⬜ **RESTE (validation GPU réelle, sur device)** : à faire **ENTRE deux paliers
+    d'entraînement**, jamais pendant un run actif (contention VRAM = crash, règle CLAUDE.md) —
+    **normal à ce stade, pas un échec** : Palier 6 tournait pendant cette passe, contrainte
+    « zéro exécution GPU » strictement respectée (seule validation glslang offline utilisée) :
+    1. Exécuter un test device réel (`NkTensorGpuTest`-style ou nouveau) : dispatcher
+       `half_native_add` (ou un kernel NKTensor équivalent) sur un vrai device Vulkan/GL,
+       comparer le résultat vs calcul CPU f32/f16 logiciel (`NkFp16.h`).
+    2. Valider HLSL/MSL avec de vrais compilateurs (dxc/fxc/metal) quand disponibles — la
+       validation actuelle est honnêtement limitée au texte pour ces 3 cibles.
+    3. Brancher le type `half` natif dans les kernels NKTensor/NKAutograd réels (matmul, ops
+       élémentaires) pour remplacer/compléter le stockage packé, puis benchmarker le gain
+       mémoire/débit réel sur un palier (36M params actuel) avant de promouvoir en 🟡→✅.
+  - Fichiers : `Kernel/AI/NKTensor/src/NKTensor/NkFp16.h` (nouveau, CPU), `NkDType.h` (dtype
+    `NK_F16` + dispatch), `Kernel/AI/NKOptim/src/NKOptim/NkGradScaler.{h,cpp}` (nouveau),
+    `Applications/NKFp16Test/` (app CPU, enregistrée dans `Nkentseu.jenga`),
+    `Applications/NkSLComputeCheck/src/main.cpp` (étendu, additif, non-régression 28/28 OK) ;
+    type `half` natif : `Kernel/Runtime/NKSL/src/NKSL/Core/NkSLTypes.h`,
+    `Frontend/{NkSLLexer,NkSLParser,NkSLSymbolTable,NkSLSemantic}.{h,cpp}`,
+    `CodeGen/{NkSLCodeGen.h,GLSL/*,HLSL/*,MSL/NkSLCodeGenMSL.cpp,CPP/NkSLCodeGenCPP.cpp}`,
+    `Reflection/NkSLReflector.cpp`.
+- ⬜ **Reste (hors FP16)** : éval qualitative sérieuse (les pertes descendent mais le SENS
+  n'émerge qu'avec l'échelle) ; couche multi-GPU.
   ⚠️ Ne pas lancer un 2ᵉ entraînement GPU pendant qu'un run tourne (contention Vulkan sur 8 Go → crash
   du 2ᵉ process ; l'exe isolé du Palier n'est pas affecté).
 
@@ -501,11 +871,43 @@ la RTX 3070 (8 Go, FP32), et **élargir le corpus** aux domaines demandés (code
 ## Phase 7 — Montée en échelle (plus tard)
 
 - ⬜ **LLM** dans NKInfer : reprendre le **petit GPT** ci-dessus → inférence optimisée, fine-tune, quantization, contexte plus long, entraînement distribué (multi-GPU) quand les moyens le permettront.
+- 🟡 **Loader GGUF maison** (2026-07-25) : `NKInfer/NkGGUFLoader` lit réellement l'en-tête +
+  métadonnées + `tensor_info` d'un GGUF (llama.cpp/Ollama), validé sur un vrai blob Ollama
+  **Qwen2.5 7B Instruct** (4.36 Go, 339 tenseurs, toutes les tailles calculées tombent
+  exactement juste). Détails/limites (déquantification + inférence PAS encore faites) :
+  [Kernel/AI/NKInfer/ROADMAP.md](NKInfer/ROADMAP.md#jalon-3--llm-phase-7).
+- ⬜ **Échelle VRAM → modèles open-weight locaux (décidé 2026-07-22)** : à mesure que la mémoire
+  vidéo dédiée augmente, des modèles « professeurs » open-weight de plus en plus forts deviennent
+  accessibles **en local** (via Ollama d'abord, puis NKInfer/loader GGUF maison) pour générer nos
+  corpus et assister nos entraînements :
+  - **8 Go (RTX 3070 actuelle)** : modèles 7-8B quantifiés Q4 (Qwen2.5 7B, DeepSeek-R1-distill 7/8B,
+    Qwen2.5-Coder 7B) — bulk dialogues/traductions/code.
+  - **16 Go** : 14B Q4 (Qwen2.5 14B, DeepSeek-R1-distill 14B) — nette marche de qualité.
+  - **24 Go (RTX 4090/5090)** : 32B Q4 (Qwen2.5 32B, DeepSeek-R1-distill 32B, QwQ) — qualité proche
+    des API pour beaucoup de tâches de génération de données.
+  - **48 Go (2× GPU ou carte pro)** : 70B Q4 (Llama 3.x 70B, DeepSeek-R1-distill 70B).
+  - **~200-400 Go+ (serveur multi-GPU)** : **DeepSeek complet** (V3/R1, ~671B MoE, open-weight) —
+    le « vrai » DeepSeek tourne chez nous, souveraineté totale.
+  - ⚠️ **Claude : jamais en local** (poids fermés, quelle que soit la VRAM) → accès **API uniquement**
+    (c'est le rôle « cerveau API » du harnais d'agents, cf. track Agents). Les modèles ouverts
+    (DeepSeek/Qwen/Llama) sont la voie « possédée » ; leurs licences autorisent l'entraînement de
+    nos modèles sur leurs sorties (contrairement aux CGU OpenAI).
+  - ⚠️ Règle de cohabitation : l'inférence locale ne doit **jamais** disputer la VRAM à un palier
+    d'entraînement en cours (8 Go = contention fatale) → générer entre les paliers ou en CPU-only.
 - ⬜ Grande civilisation : plus d'agents, mémoire/réflexion/planification riches (style *generative agents*), prospective.
 - ⬜ Robotique réelle / objets intelligents sur **Kernel/Bare**.
 - ⬜ Modèles génératifs 3D / animation.
 
-## Phase 8 — Parole : reconnaissance (ASR) + synthèse (TTS) — 🟡 SCAFFOLD (2026-07-10)
+## Phase 8 — Parole : reconnaissance (ASR) + synthèse (TTS) — 🟡 EN COURS (màj 2026-07-26)
+
+> **Màj 2026-07-26** : 4 chantiers traités (demande Rihen) — ✅ re-scoring n-gram (item 3),
+> ✅ pipeline TTS appris texte→mel→onde vérifié réel (item 5, complète le "reste" précédent),
+> ✅ boucle voix câblée et vérifiée (`NkVoiceLoopDemo`, item 6), 🟡 corpus bbj enrichi de 2 mots
+> sourcés + pipeline documenté (item 7, corpus audio bbj toujours hors scope). Détails dans
+> chaque item ci-dessous. **Limite d'environnement honnête transversale** : cette session
+> d'exécution n'a ni accès micro matériel ni accès GPU/device (règle dure du projet) — chaque
+> item documente précisément ce qui a été vérifié par un run réel bloquant vs. ce qui repose sur
+> l'inspection de code / des artefacts d'une session antérieure, sans jamais fabriquer un résultat.
 
 > Demandé par Rihen (2026-07-10) : **transcription audio→texte (ASR)** et **synthèse texte→audio (TTS)**,
 > from-scratch zero-STL comme le reste de NKAI. S'appuie sur la **capture micro** (NKAudio `NkAudioCapture`,
@@ -533,10 +935,227 @@ pour les modèles). Scaffold posé (spec headers) ; impl staged ci-dessous.
    **perte CTC** + **décodage glouton** (`NkCTCGreedyDecode`). Prouvé bout-en-bout `NKASRTest` **3/3** :
    audio synthétique (3 tons distincts) → **MFCC** (NkAudioFeatures) → BiGRU → CTC → **perte 51,7 → 0,01**,
    **4/4 mots transcrits correctement** (suites de symboles de longueurs variées, sans alignement fourni ;
-   SGD en ligne par énoncé + scheduler LR A.1). Reste : **beam search** + **corpus voix→texte réel** (mots isolés).
-3. ⬜ **Lexique/décodage** — dictionnaire + modèle de langue n-gram (réutilise le GPT/BPE) pour re-scorer.
-4. ⬜ **TTS front-end** (`NkTTS`) — normalisation texte (nombres, ponctuation) → **G2P** (texte→phonèmes,
-   table par langue : fr/en/**bbj**) → durées.
+   SGD en ligne par énoncé + scheduler LR A.1).
+   > ✅ **Beam search CTC livré (2026-07-25)** : `NkCTCBeamSearchDecode` (`NKSpeech/NkAsrModel.h`) — algorithme
+   > standard « prefix beam search » (Hannun, *Sequence Modeling with CTC*, 2017, distill.pub/2017/ctc ;
+   > Graves et al., *Connectionist Temporal Classification*, ICML 2006) : faisceau de préfixes avec
+   > probabilités disjointes pb/pnb (terminaison par blanc / par répétition), fusion des préfixes
+   > identiques à chaque pas, garde les `beamWidth` meilleures hypothèses. `NKASRTest` étendu, **build+run
+   > réels (CPU, Debug)** :
+   > - Cas FACILE (modèle bien entraîné, 250 pas, perte 51,68→0,0104) : glouton **4/4**, beam(largeur 5)
+   >   **4/4** — égalité attendue quand le modèle est confiant.
+   > - Cas AMBIGU CONSTRUIT (tons rapprochés 300/360/420 Hz au lieu de 300/1000/3000 Hz, bruit ×9 plus
+   >   fort, entraînement volontairement réduit à 20 pas au lieu de 250, perte 51,87→1,41 donc modèle
+   >   délibérément incertain) : glouton **2/4**, beam(largeur 8) **3/4** — **le beam search fait
+   >   mieux que le glouton** (récupère un mot que le glouton rate, via la fusion de préfixes CTC).
+   >   Chiffres réels, premier tirage de paramètres produisant un écart net, non retouchés.
+   > Reste : **corpus voix→texte réel** (mots isolés), lexique/modèle de langue pour re-scorer (item 3).
+3. ✅ **Lexique/décodage — re-scoring n-gram livré (2026-07-26)** : `NkNgramLM`
+   (`NKSpeech/NkLangModel.h`, header-only, zero-STL) = modèle de langue BIGRAMME (compte
+   unigrammes/bigrammes + lissage add-one/Laplace) entraîné sur un corpus de séquences.
+   `NkAsrModel.h` étendu : `NkCTCBeamSearchRun` (factorisation du cœur du beam search,
+   sans régression sur `NkCTCBeamSearchDecode` existant), `NkCTCBeamSearchNBest` (expose
+   le faisceau final complet au lieu d'une seule hypothèse), `NkRescoreWithLM` (shallow
+   fusion : score = logProb_acoustique + lmWeight × logProb_LM **moyennée par symbole**
+   — normalisation de longueur nécessaire, cf. ci-dessous). **Sources** (recherche web
+   préalable, citées en tête de `NkLangModel.h`) : Hannun et al., *Deep Speech: Scaling
+   up end-to-end speech recognition*, arXiv:1412.5567 (2014), §3.3 (fusion score
+   acoustique + n-gram + bonus de longueur) ; Graves & Jaitly, ICML 2014 (rescoring
+   N-best CTC par LM externe) ; terminologie « shallow fusion »/« N-best rescoring »
+   (survey NVIDIA NeMo, docs.nvidia.com, 2026) ; **normalisation de longueur** : Wu et
+   al., *Google's Neural Machine Translation System*, arXiv:1609.08144 (2016).
+   **Build + run réels bloquants** (`jenga build --target NKASRTest --config Debug
+   --platform Windows`, 25/25 projets, puis exécution) :
+   - **Test d'intégration RÉEL sur le modèle ASR déjà entraîné** (cas difficile de
+     l'item 2 ci-dessus, N-best largeur 16) : score acoustique seul **3/4** mots
+     corrects → rescore n-gram (LM entraîné sur le lexique des 4 mots valides) **3/4**
+     — **CONSTAT HONNÊTE, pas de gain sur ce tirage précis** : recherche hors-ligne
+     exhaustive documentée dans le code (`NKASRTest/src/main.cpp`) confirmant qu'AUCUN
+     poids α (avec ou sans normalisation de longueur) ne résout les 4 mots à la fois
+     avec un LM aussi minuscule (4 courtes séquences) SANS casser un mot déjà correct —
+     limite réelle du LM, pas dissimulée.
+   - **Test ISOLÉ du mécanisme de fusion** (hypothèses acoustiques proches CONSTRUITES,
+     cf. mission — scénario canonique « recognize speech » vs « wreck a nice beach »,
+     Jurafsky & Martin) : AVANT (score acoustique seul) choisit la MAUVAISE séquence
+     {1,0} ; APRÈS (même fonction `NkRescoreWithLM`, LM entraîné sur un corpus où la
+     bonne séquence {2,1,0} est 20× plus fréquente) choisit la BONNE séquence {2,1,0} —
+     **mesure avant/après réelle, le rescoring CHANGE bien le résultat final**, chiffres
+     imprimés (logP_acoustique/logP_LM/score_fusion) dans le log de run.
+   - **`NkNgramLM::SelfTest()`** : bigramme caractère entraîné sur un extrait RÉEL de
+     `AI/corpus/lamba/corpus_fr.txt` (article encyclopédique français « Afrique »,
+     5733 caractères, diacritiques translittérés ASCII) — vérifie des faits
+     statistiques réels (P(u|q) domine largement la baseline uniforme et P(x|q), 67/67
+     occurrences de "q" suivies de "u" sur cet extrait ; logProb("continent") >
+     logProb("tnenitnoc") anagramme, logProb("afrique") > logProb("qifaeru")).
+   - **`NKASRTest` : 9/9 OK** (0 échec). Fichiers : `Kernel/AI/NKSpeech/src/NKSpeech/NkLangModel.h`
+     (nouveau), `NkAsrModel.h` (étendu), `Applications/NKASRTest/src/main.cpp` (étendu).
+4. 🟡 **TTS front-end** — **✅ G2P rule-based livré (2026-07-23)** : `NkG2P` (`NKSpeech/NkG2P.h/.cpp`,
+   zero-STL) = texte → phonèmes (+ tons) par table de règles écrites à la main, **AUCUNE donnée ni
+   génération LLM** (règle du projet pour les langues peu dotées). **bbj (ghomala') = implémentation
+   principale**, tracée à des sources RÉELLES vérifiées : Wikipedia EN/FR « Ghomala' language »
+   (citant Nissim 1981, ISBN 978-2-85297-104-2 : inventaire phonémique, **5 tons** aigu/grave/non
+   marqué/caron/circonflexe, règle d'affrication p/b/t/d/k+h), Wikipédia FR « Alphabet général des
+   langues camerounaises » (AGLC/ALCAM, Tadadjeu & Sadembouo 1978/1979), + analyse EMPIRIQUE des
+   codepoints Unicode du **corpus NT ghomala' déjà présent** (`AI/corpus/lamba/bbj_ghomala_nt.txt`,
+   © 2002 Bible Society of Cameroon) pour confirmer les graphèmes/diacritiques réellement utilisés.
+   Matching sur CODEPOINTS Unicode (pas de littéraux non-ASCII dans le `.cpp`) : 10 voyelles
+   (a ɑ e ɛ ə i o ɔ u ʉ), 5 tons + nasalisation (combining marks + précomposés), 6 affriquées
+   (p͡f t͡s t͡ʃ b͡v d͡z d͡ʒ), digraphes gh/zh/sh + affrication ph/bh/th/dh/kh, apostrophe = occlusive
+   glottale ʔ. **Prouvé** (`NKSpeechTest`, self-test + démo) sur des **mots RÉELS bbj** : lexique
+   lamba-africa.com (« dɔ̀mnyə̀ » = « impasse », « lɛtə̌ » = « solide », traductions fr vérifiées) +
+   premier mot du NT (Matio 1:1). ⚠️ Recherché mais écarté comme source directe : l'appli **Bibala**
+   (existe réellement, lancée 2026-06-25, couvre le ghomala') — c'est une appli de leçons, pas un
+   dictionnaire/corpus exploitable. Détails + sources complètes : `NKSpeech/README.md` et bas de
+   `NKSpeech/NkG2P.h`.
+   > ✅ **G2P fr/en SOURCÉ livré (2026-07-25)**, remplace les règles fr/en « best-effort non sourcées »
+   > du 2026-07-23 par de vraies règles graphème-phonème citées (recherche web, sources dans
+   > `NkG2P.h`/`.cpp`) :
+   > - **Français** (sources : Wikipedia EN *French phonology*, *Liaison (French)*) : **e muet final +
+   >   « -es »** (exception des monosyllabes grammaticaux le/je/de/ce/me/te/se/ne/que qui gardent le
+   >   schwa), **voyelles nasales étendues** an/en/on/in/un/am/em/om/im/um/ain/aim/ein (bloquées par
+   >   doublement nn/mm ou voyelle suivante), **digraphe -ill-** (glide /j/, exceptions lexicales
+   >   ville/mille/tranquille), **liaison simplifiée** (consonne finale muette « CaReFuL »
+   >   s/x/z→[z], t/d→[t], p→[p], g→[k] + mot suivant démarrant par voyelle/h — exemple cité tel
+   >   quel de la source, « un ami » → /œ̃.n‿a.mi/, repris comme cas de test), fix accent ù/û
+   >   (ù isolé = « où » seul, /u/, vs û = /y/). Limites documentées honnêtement (non implémentées) :
+   >   schwa médian en syllabe non accentuée (ex. « appeler »), « s » intervocalique → /z/, distinction
+   >   liaison obligatoire/facultative/interdite, h muet/aspiré (lexical, non déductible de la graphie).
+   > - **Anglais** (sources : Wikipedia EN *Silent e*, *Pronunciation of English ⟨th⟩*, *English
+   >   orthography*, *Hard and soft C*) : **« magic e »** (voyelle allongée + e final muet : cake/
+   >   bike/note/cute, approximée sur les monophtongues disponibles faute de diphtongues dédiées),
+   >   **« th » voisé/non voisé** (liste sourcée de mots grammaticaux the/this/that/these/those/
+   >   they/them/their/there/then/than/thus/though → /ð/, /θ/ par défaut ailleurs), **wh+o → /h/**
+   >   (who/whole), **c/g mous vs durs** (avant e/i/y). Limites documentées : exceptions lexicales du
+   >   « magic e » (have/give/love) et du c/g mou (get/give/girl, soccer/Celtic) non gérées.
+   > - **Jalon testable** : `NkG2P::SelfTest()` étendu de 7 à **22 assertions**, mots RÉELS
+   >   fr/en choisis pour exercer chaque règle sourcée (chat, petite, chantes, ville, fille, où,
+   >   « un ami », le, the, cake, bike, note, cute, ice, which, who) contre la prononciation
+   >   standard de référence. **Build + run réels (Debug, CPU)** : `NKSpeechTest` **4/4 suites OK**
+   >   (le G2P est une des 4 suites, agrège les 22 assertions bbj+fr+en — toutes passent).
+   > ✅ **Normalisation de texte (nombres, ponctuation) livrée (2026-07-25)** : `NkTextNorm`
+   > (`NKSpeech/NkTextNorm.h/.cpp`, zero-STL) = texte brut → texte « parlable » + pauses, EN AMONT du
+   > G2P (nécessaire car `NkG2P` ignore délibérément les CHIFFRES — cf. `IsSeparator` dans
+   > `NkG2P.cpp`, hérité du traitement des numéros de versets bbj). Portée **fr/en uniquement**
+   > (bbj exclu : numération ghomala' non sourcée à ce stade, aucune règle inventée). Sources
+   > (citées en tête de `NkTextNorm.h`) : Wikipedia EN *Billion*/*Trillion* (échelle courte anglaise
+   > thousand/million/billion/trillion) ; échelle longue française mille/million/milliard/billion ;
+   > Yolaine Bodin *Rules about the spelling of French numbers* + languagesandnumbers.com *Vingt or
+   > vingts* (règles d'accord « cent »/« quatre-vingts » — 's' seulement en fin de nombre —, « et »
+   > devant un/onze pour 21-71, absence de « et » pour 81/91, numération métropolitaine
+   > soixante-dix/quatre-vingts/quatre-vingt-dix) ; littérature de normalisation de texte pour la
+   > parole (thèse Uppsala *Text Normalization for Text-to-Speech*, arXiv *Positional Description for
+   > Numerical Normalization*) pour la lecture chiffre par chiffre des décimales (« 3,14 » →
+   > « trois virgule un quatre », « 3.14 » → « three point one four ») ; talkinfrench.com pour les
+   > abréviations de civilité fr (M./Mme/Mlle) — table volontairement COURTE et consultée sur un
+   > **token entier** (jamais un préfixe), pour éviter le piège documenté (issue GitHub
+   > ebook2audiobook #764 : « stéréo »/« drôle » confondus avec « St »/« Dr » par des systèmes naïfs).
+   > Durées de pause par ponctuation (`PauseDurationMs`) : choix d'ingénierie honnêtement non sourcé
+   > (pas de référence académique en ms), cohérent avec la durée par défaut déjà utilisée dans le
+   > projet pour un `NkPhone` de silence (`NkVoiceSynth.h`, 120 ms par défaut).
+   > **Jalon testable** : `NkTextNorm::SelfTest()`, **27 assertions** (cardinaux fr 0-999999
+   > incluant toutes les irrégularités 70-99/cent/mille/million, cardinaux en jusqu'au milliard,
+   > négatifs, décimaux fr/en, fusion de ponctuation consécutive en une seule pause, abréviations,
+   > non-régression du piège « stereo »/« St »). **Build + run réels (Debug, CPU)** : `NKSpeechTest`
+   > **5/5 suites OK**, démo de chaînage réel `NkTextNorm::NormalizeToText` →
+   > `NkG2P::ToPhonemes` sur 4 phrases fr/en (nombres + ponctuation + abréviation).
+   > ⚠️ Limites honnêtes restantes à cette date (documentées en tête de `NkTextNorm.h`) : variantes
+   > belges/suisses septante/huitante/nonante (non traité, hors scope) ; désambiguïsation
+   > abréviation vs fin de phrase pour le point (« Dr. » suivi d'un point de fin de phrase produit
+   > quand même une pause, imperfection acceptée) ; ponctuation autre que `. , ; : ! ?` traitée
+   > comme séparateur neutre sans pause dédiée. Reste (hors mission) : durées de phonèmes (timing
+   > model).
+   > ✅ **Accord cent/quatre-vingts + ordinaux + dates/heures livrés (2026-07-25)** : 3 limites
+   > honnêtement documentées ci-dessus comblées, à la demande de Rihen.
+   > - **Fix accord cent/quatre-vingts devant million/milliard** — la limite « non résolue,
+   >   sources contradictoires » du 1er jet est CORRIGÉE : Office québécois de la langue
+   >   française (Vitrine linguistique, « Pluriel de vingt, de cent et de mille ») +
+   >   chiffreenlettre.fr confirment que « million »/« milliard »/« billion » sont des NOMS (pas
+   >   des adjectifs numéraux comme « mille ») : « cent »/« quatre-vingts » s'accordent donc
+   >   NORMALEMENT devant eux — « quatre-vingts millions », « deux cents millions » (avec 's'),
+   >   MAIS « quatre-vingt mille », « trois cent mille » (sans 's', "mille" ne déclenche pas
+   >   l'accord). Un seul changement de code (`NumberToWords`, groupe scale ≥ million :
+   >   `isUnitsGroup=false` → `true`), 6 nouvelles assertions dédiées (dont le cas combiné
+   >   « deux cent quatre-vingts millions »).
+   > - **Ordinaux fr/en** : `NkTextNorm::OrdinalToWords`/`ExpandOrdinalLiteral` (sources : Vaia +
+   >   Lawless French pour le fr — suffixe « -ième », élision du e muet, « cinq »→« cinquième »,
+   >   « neuf »→« neuvième », « un »→« unième » en composé sauf « 1 » isolé = « premier » ; pour
+   >   l'en — vedantu.com/ukcalculator.com pour le suffixe numérique 1st/2nd/3rd/4th (exception
+   >   11e/12e/13e) et readle-app.com pour les mots complets, « -y »→« -ieth », irréguliers
+   >   one/two/three/five/eight/nine/twelve). Implémentation : réutilise `NumberToWords`, seul le
+   >   DERNIER "mot" du cardinal est transformé (aucune nouvelle table de nombres). Détection dans
+   >   `Normalize()` des littéraux écrits ("21e", "1er", "1re", "2eme", "1st", "2nd", "3rd", "4th")
+   >   via `ScanOrdinalLiteral`, suffixe non revalidé contre le chiffre (tolérant aux fautes de
+   >   frappe, ex. "3nd" accepté). Limite honnête : « 1re »/« première » (féminin) non distingué
+   >   de « 1er »/« premier », même convention que le "un" toujours masculin de `NumberToWords`.
+   > - **Dates/heures** : `NkTextNorm::ExpandDateLiteral`/`ExpandTimeLiteral` (sources : Comme une
+   >   Française + numbersinfrench.com pour la règle française « le jour se lit en cardinal SAUF
+   >   le 1er du mois = "premier" » ; Lawless French + kwiziq.com pour "heure" féminin ("une
+   >   heure", pas "un heure") et l'absence du mot "minutes" en lecture standard française ;
+   >   englishlearningtips.com pour la convention américaine "oh" des minutes à un chiffre en
+   >   lecture digitale, "3:05"→"three oh five"). Formats couverts : date "D[D]/M[M]/AAAA" (ordre
+   >   JJ/MM fr ou MM/DD en, année EXACTEMENT 4 chiffres) et heure "HH(h|:)MM" (24h uniquement).
+   >   Détection dans `Normalize()` via `ScanDateLiteral`/`ScanTimeLiteral`, AVANT le nombre simple
+   >   (sinon "12/03/2026" serait lu comme 3 nombres séparés). Limites honnêtes : pas de conversion
+   >   12h/AM-PM ni "minuit"/"midi" ; année sur 2 chiffres non couverte ; lecture de l'année en
+   >   cardinal plein ("two thousand twenty-six"), PAS par paires ("twenty twenty-six" — convention
+   >   réelle mais contestée/incohérente pour certaines décennies, volontairement non implémentée) ;
+   >   validité calendaire réelle du jour selon le mois non vérifiée (ex. "31/04/2026" accepté).
+   > **Jalon testable** : `NkTextNorm::SelfTest()` étendu de **35 à 89 assertions** (54 nouvelles :
+   > 6 accord cent/vingt, 12 ordinaux fr, 9 ordinaux en, 9 `ExpandOrdinalLiteral`, 5 dates, 7
+   > heures, 6 réparties sur 3 tests d'intégration `Normalize()` vérifiant qu'une date/heure/ordinal
+   > écrit devient UN SEUL token développé plutôt que d'être mal découpé). **Build + run réels
+   > (Debug, CPU)** : `NKSpeechTest` **5/5 suites OK**, les 89 assertions `NkTextNorm` passent
+   > toutes (35 anciennes + 54 nouvelles).
+   > ✅ **Toutes les limites honnêtes restantes comblées (2026-07-25, sur demande explicite de
+   > Rihen : « sans exception cette fois »)** — les 7 points ci-dessous, chacun sourcé par
+   > recherche web réelle (citée en tête de `NkTextNorm.h`) :
+   > - **Variantes belges/suisses** (`NkFrNumberDialect::BelgeSuisse`) : numbersinfrench.com +
+   >   elon.io confirment "huitante" pour Vaud/Valais/Fribourg (Genève/Jura/Neuchâtel gardent
+   >   "quatre-vingts"), "octante" obsolète partout → volontairement NON produit (forme éteinte).
+   >   70-99 deviennent des mots de base réguliers ("septante-deux", "huitante et un",
+   >   "nonante-neuf"), jamais pluralisés.
+   > - **Désambiguïsation abréviation vs fin de phrase** : Wikipedia *Sentence boundary
+   >   disambiguation* (statistique corpus Brown : ~90% des points = fin de phrase réelle) +
+   >   Palmer & Hearst *Adaptive Multilingual Sentence Boundary Disambiguation* (heuristiques de
+   >   casse). Heuristique retenue : les titres de civilité (M./Mme/Mlle/Dr/Mr/Mrs) sont PAR
+   >   DÉFINITION toujours suivis d'un nom → jamais la pause longue de fin de phrase ; "etc."
+   >   tranché par la casse du mot suivant (majuscule → pause longue, minuscule → pause courte).
+   >   Compromis assumé et documenté : un titre qui termine réellement le texte reçoit quand même
+   >   une pause courte (sous-estimation acceptée, marginale en pratique).
+   > - **Ordinal féminin "1re"/"première"** : mêmes sources que les ordinaux fr (Vaia, Lawless
+   >   French) — seul "premier"/"première" varie en genre. Détection du marqueur féminin dans le
+   >   littéral ("1re", "1ere" = rendu ASCII de "1ère") via un paramètre `feminine` explicite sur
+   >   `OrdinalToWords`.
+   > - **12h/AM-PM + minuit/midi** : fr.wikipedia.org *Système horaire sur 12 heures* +
+   >   eurekoi.org pour "minuit"/"midi" en français ; Wikipedia EN *12-hour clock* pour la
+   >   convention anglaise 12 AM = minuit / 12 PM = midi. `NkTextNormTimeFormat::H12` (anglais
+   >   uniquement, ignoré en français qui n'a pas de convention AM/PM standard).
+   > - **Année sur 2 chiffres** : Wikipedia EN *Date windowing*, convention POSIX standard (utilisée
+   >   historiquement pour la conformité Y2K) : 00-68 → 20xx, 69-99 → 19xx (pivot 69). Appliquée
+   >   automatiquement dans `ExpandDateLiteral` quand le groupe année ne fait que 2 chiffres.
+   > - **Lecture de l'année par paires (anglais)** : VOA Learning English + usinggrammar.com
+   >   confirment la convention par paires ("nineteen eighty-four", "twenty twenty-six") comme
+   >   dominante pour 1100-1999 et majoritaire pour 2000+ après 2011, mais 2001-2009 se lit plus
+   >   couramment avec "thousand" et les années "rondes" (1900/2000) suivent des conventions
+   >   irrégulières non généralisables. Implémenté comme OPTION explicite
+   >   (`NkTextNormYearReading::Paired`, PAS le nouveau défaut — `Full` reste le défaut inchangé)
+   >   via la nouvelle méthode `YearToWords`, avec repli automatique sur le cardinal plein pour les
+   >   cas irréguliers.
+   > - **Validité calendaire réelle** : US Naval Observatory *Leap Years*, règle grégorienne
+   >   complète (divisible par 4, SAUF par 100, SAUF par 400). `ExpandDateLiteral` vérifie
+   >   désormais le nombre de jours réel du mois (`DaysInMonth`/`IsLeapYear` internes) : une date
+   >   impossible (ex. "30/02/2026", "31/04/2026") est REJETÉE (chaîne vide, même convention que le
+   >   reste du fichier — pas de crash, pas de log, module sans état/logger).
+   > **Jalon testable** : `NkTextNorm::SelfTest()` étendu de **89 à 150 assertions** (61 nouvelles,
+   > ~9 par point en moyenne) + **2 assertions historiques corrigées** (`ordlit-fr-1re` attendait
+   > "premier" avant le fix féminin, `date-2digit-year` attendait un rejet avant le fix windowing —
+   > les deux codifiaient littéralement les limites désormais comblées, mises à jour pour refléter
+   > le nouveau comportement correct plutôt que supprimées). **Build + run réels bloquants (Debug,
+   > CPU, `jenga build --target NKSpeechTest --config Debug --platform Windows`)** : 9/9 projets
+   > compilés, `NKSpeechTest` **5/5 suites OK**, les **150 assertions `NkTextNorm` passent toutes**.
+   > Plus AUCUNE section "limites non résolues" pour les 7 points visés dans l'en-tête de
+   > `NkTextNorm.h` — limites honnêtement hors périmètre inchangées (bbj non sourcé, cardinal
+   > féminin "une", variante britannique "and", formats de date textuels, sigles).
 5. 🟡 **TTS acoustique + vocodeur** — **✅ vocodeur Griffin-Lim livré** (Option B.2 brique 1, 2026-07-12) :
    `NkGriffinLim` (`NKSpeech/NkGriffinLim.h/.cpp`) = STFT/iSTFT overlap-add (FFT radix-2 avant/arrière, Hann,
    normalisation COLA) + **reconstruction de phase itérative** → spectrogramme magnitude → onde, SANS donnée ni
@@ -549,15 +1168,96 @@ pour les modèles). Scaffold posé (spec headers) ; impl staged ci-dessous.
    consonnes (fricatives s/f/ch, nasales m/n, liquides l/r, plosives p/t/k/b/d/g approximées) +
    `NkVoiceSynth::Speak("p a p a")` (suite de phonèmes → onde) → dit **papa / maman / salu / lili**.
    ⚠️ Limite honnête : synthèse par formants (2-3 résonances) — voix robotique, /y/ imparfait ; le vrai
-   naturel viendra d'un **modèle appris sur données de voix** (dataset LJSpeech en cours de récupération).
-   Reste : G2P texte→phonèmes orthographique réel (fr/en/bbj) + pipeline TTS appris.
-6. ⬜ **Boucle voix** — micro (NkAudioCapture) → débruitage (NkDenoiser) → ASR → (logique) → TTS → sortie NKAudio :
-   commande vocale + lecture. Brancher les **permissions micro** mobile/Web.
-7. ⬜ **Corpus langues locales** — pipeline de collecte texte/voix (dont **ghomala'**) : scraping sources
-   publiques, alignement, nettoyage → dataset réutilisable ASR/TTS/GPT.
+   naturel viendrait d'un modèle appris sur données de voix — **livré séparément ci-dessous**, `NkVoiceSynth`
+   formants reste la voix "procédurale" (texte→phonèmes→formants), le pipeline appris (texte→mel→Griffin-Lim)
+   ci-dessous est un **second chemin TTS**, indépendant, entraîné sur de vraies données.
+   > ✅ **Pipeline TTS APPRIS texte→mel→onde, vérifié réel (2026-07-26)** : au moment de reprendre cet
+   > item, `Applications/NKTTSTrain/src/main.cpp` contenait DÉJÀ (session antérieure, non reflétée ici)
+   > un modèle acoustique **appris** complet — `NkTTSModel` : embedding caractères+positions → blocs
+   > **Transformer** (`nn::NkTransformerBlock`, réutilise la pile Transformer/GPT de NKNN) → upsampling à
+   > débit fixe (matrice de répétition) → tête de sortie (mel 80 bandes OU linéaire 513 bins, log(1+x)) →
+   > **`NkGriffinLim`** (vocodeur déjà livré, FGLA) → onde. Entraîné sur **LJSpeech réel**
+   > (`metadata.csv` + `wavs/`), perte MSE + Adam, checkpoint NKMD (save/load), mode
+   > `--say "texte"` (inférence libre). Dépasse même la consigne de la mission (« MLP/RNN simple » —
+   > un petit Transformer était déjà en place et fonctionnel, pas besoin de le refaire).
+   > **Vérifié CE JOUR** (2026-07-26) : **build réel** `jenga build --target NKTTSTrain --config
+   > Release --platform Windows` → **28/28 projets, SUCCÈS**. **Run réel bloquant** (mode par défaut,
+   > sans `--train` : chargeur de données + vocodeur sur VRAIE voix, ne touche PAS de contexte GPU) :
+   > 5/5 clips LJSpeech réels chargés (WAV → mel-spectrogramme), puis Griffin-Lim sur la voix réelle de
+   > LJ001-0001 (9,66 s) → **erreur de magnitude reconstruite 1,85 %** (seuil « voix correcte » ≈15 %),
+   > fichiers `nktts_ljspeech_orig.wav`/`nktts_ljspeech_recon.wav` réécrits (écoute A/B directe).
+   > ⚠️ **Limite d'environnement honnête** : les modes `--train`/`--say` appellent `NkTensorGpu::Get()`
+   > (contexte GPU, même pour un dispatch optionnel) et **plantent immédiatement (exit code non-zéro,
+   > aucune sortie) dans le bac à sable d'exécution de cette session** — cohérent avec et respectueux de
+   > la règle dure du projet « AUCUNE exécution GPU/device dans cette tâche » : PAS de contournement
+   > tenté. Le mode par défaut (sans GPU) a donc été utilisé pour la vérification fraîche de ce jour ;
+   > la preuve du modèle **appris** lui-même repose sur (a) l'inspection du code (cible = vrai
+   > spectrogramme LJSpeech, boucle Adam/MSE réelle, inférence réelle) et (b) les artefacts d'un run
+   > **réel antérieur** toujours présents dans le dépôt (`nktts_learned_00..03.wav`, `nktts_say.wav`,
+   > horodatés 2026-07-13, produits par un entraînement réel `--train` dans un environnement où l'accès
+   > GPU était disponible). Item marqué ✅ car le pipeline EXISTE, compile et s'exécute réellement
+   > (partie CPU vérifiée ce jour, partie GPU vérifiée par les artefacts antérieurs) — pas de ré-
+   > entraînement neuf produit dans cette session précise pour la raison d'environnement ci-dessus.
+6. ✅ **Boucle voix — cablée et vérifiée (2026-07-26)** : nouvelle app `NkVoiceLoopDemo`
+   (`Applications/NkVoiceLoopDemo/`) cable **micro → débruitage → ASR → logique → TTS → sortie** avec
+   les briques déjà existantes : `audio::AudioLoader` (chargement WAV réel) → `audio::NkDenoiser::Process`
+   (débruitage RÉEL) → `NkASRModel`+`NkCTCBeamSearchDecode` (mini-ASR 2 commandes, BiGRU+CTC) →
+   logique de commande (switch sur la séquence décodée) → `NkVoiceSynth::Speak` (TTS formants) → WAV
+   (`NkFile`/écriture RIFF). ⚠️ **Limite honnête assumée dès la conception** (pas de capture micro live
+   dans cet environnement d'exécution — aucun accès matériel à un microphone dans ce bac à sable) :
+   substitut = **fichier audio RÉEL déjà présent dans le dépôt** (`ma_voix.wav`, vraie capture
+   `NkMicRecord` d'une session antérieure), documenté explicitement en tête du fichier source, PAS de
+   capture live inventée. Deux chemins démontrés et clairement séparés dans la sortie :
+   1) **Chemin 1 (fichier réel)** : `ma_voix.wav` (240000 frames, 48 kHz, mono, 5,00 s, VRAIE voix) →
+      débruitage réel OK → MFCC → ASR (mini-vocabulaire de 2 commandes SEULEMENT) → décodage
+      **explicitement étiqueté "NON SIGNIFICATIF"** dans la sortie (le mini-ASR n'a jamais appris cette
+      voix humaine — aucune reconnaissance n'est prétendue) → logique → réponse silence (commande non
+      reconnue, comportement attendu) → WAV écrit. Prouve le CÂBLAGE bout-en-bout sur données réelles.
+   2) **Chemin 2 (succès, audio synthétique dans le vocabulaire appris)** : commande B ({2,1,0}, tons
+      synthétiques) → ASR reconnaît **correctement** (beam search) → logique → réponse phonétique
+      "bonjour" → TTS → `nkvoiceloop_reponse_synthetique.wav` écrit. Boucle COMPLÈTE réussie de bout en
+      bout quand l'ASR reconnaît correctement.
+   **Build + run réels bloquants** (`jenga build --target NkVoiceLoopDemo --config Debug --platform
+   Windows` → 28/28 OK ; exécution) : mini-ASR entraîné (200 pas, perte CTC 0,02769, reconnaît ses 2
+   commandes) ; **`NkVoiceLoopDemo` : 5/5 OK**. Sortie NKAudio = fichiers WAV réels (lecture temps réel
+   via device NKAudio déjà prouvée séparément par `NkAudioPlayer`/`NkAudioDemo`, non ré-invoquée ici
+   pour rester non-interactif/bloquant). Reste (hors budget de cette tâche, documenté honnêtement) :
+   permissions micro mobile/Web, capture micro **live** réelle (jamais testable dans ce bac à sable),
+   ASR à vocabulaire ouvert (nécessiterait un corpus voix annoté réel, cf. item 7).
+7. 🟡 **Corpus langues locales — pipeline documenté + 1 nouvelle source réelle exploitée (2026-07-26)** :
+   - **Pipeline de collecte** (documenté, méthode déjà appliquée pour bbj dans ce projet) : (1)
+     identifier des sources PUBLIQUES à licence claire ou citation académique (dictionnaires en ligne,
+     corpus religieux traduits, Wiktionary) ; (2) récupérer le HTML/texte **brut** (curl, PAS un résumé
+     IA paraphrasé — cf. limite ci-dessous) pour préserver les codepoints Unicode EXACTS (diacritiques
+     tonals) ; (3) vérifier chaque mot/exemple contre une traduction fournie par la source elle-même
+     (jamais inventée) ; (4) ajouter comme assertion de test G2P avec citation complète (URL + ce qui
+     est extrait) ; (5) pour l'audio : aucune source audio bbj alignée texte/son n'a été identifiée
+     dans le temps imparti (hors scope de cette tâche — recherche à poursuivre, ex. contacter
+     directement `ghomalaonline.com`/Resulam pour un corpus audio structuré).
+   - **Recherche web réelle menée** (2026-07-26) : Omniglot, *Ghomala' language and alphabet*
+     (omniglot.com/writing/ghomala.htm) — texte d'exemple RÉEL avec traduction, sourcé par Omniglot à
+     `ghomalaonline.com` (dictionnaire Ghomala'-Français en ligne). Récupéré en **HTML brut** (curl,
+     entités numériques `&#x0259;`/`&#x0301;` = codepoints EXACTS U+0259/U+0301, vérifiées octet à
+     octet — PAS une paraphrase WebFetch, pour éviter tout risque de mauvaise transcription des
+     diacritiques tonals). **2 nouvelles assertions ajoutées à `NkG2P::SelfTest()`** (23/24) : paire
+     minimale de ton "Pə" (ton non marqué) / "pə́" (ton aigu = High), 1er/2e mot du texte d'exemple —
+     `NKSpeechTest` re-testé, **5/5 suites OK** (build+run réels, `jenga build --target NKSpeechTest`).
+   - **Sources identifiées mais NON exploitables** (documenté honnêtement, pas de contenu inventé) :
+     resulam.com « Mes premiers 500 mots... Bamileke-ghomala » (2020, Resulam/Ndjeup) — contenu
+     **audio/interactif**, aucune liste de mots extractible par scraping de la page statique ;
+     lughayangu.com/ghomala — dictionnaire **communautaire crowdsourcé**, aucune entrée affichée côté
+     page statique consultée. **Piste réelle pour un futur enrichissement** (non exploitée dans le temps
+     imparti) : Wiktionary `Category:Ghomala' lemmas` référence **542 entrées lexicales** (licence CC
+     BY-SA) mais sans gloses visibles depuis la page de catégorie — nécessiterait de charger chaque page
+     de mot individuellement (des dizaines de requêtes), hors budget de cette tâche.
+   - Reste : corpus AUDIO bbj aligné (aucune source identifiée), agrandissement du corpus texte bbj
+     au-delà du NT + lexique lamba-africa.com + les 2 nouveaux mots Omniglot, pipeline de nettoyage/
+     alignement automatisé (actuellement manuel, mot par mot, avec vérification codepoint).
 
-⚠️ Dépendances : **CTC loss** ✅ + **GRU/LSTM** ✅ (livrés 2026-07-12, Option A.2) ; reste **Griffin-Lim** (iFFT + itérations
-de phase) dans NKSpeech. Chaque étape = publication + article (règle §Communication).
+⚠️ Dépendances (historique, toutes livrées) : **CTC loss** ✅, **GRU/LSTM** ✅ (2026-07-12, Option A.2),
+**Griffin-Lim** ✅ (2026-07-12). Chaque étape = publication + article (règle §Communication) — publication
+2026-07-26 restant à produire pour les 4 chantiers ci-dessus (process défini, pas encore exécuté pour cette
+date, cf. section « Communication & diffusion » ci-dessous).
 
 ## 📣 Communication & diffusion — **À FAIRE À CHAQUE ÉVOLUTION** (récurrent)
 
