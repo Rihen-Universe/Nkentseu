@@ -9,11 +9,15 @@
 @binding(set=0, binding=1) uniform sampler2D uBloom;
 @binding(set=0, binding=2) uniform sampler2D uSSAO;
 @binding(set=0, binding=3) uniform sampler3D uColorLUT;
+// Auto-exposure : cible 1x1 écrite par la passe PP_AutoExposure — luminance moyenne
+// logarithmique de la scène, déjà lissée temporellement. Valeur utile dans .r.
+@binding(set=0, binding=4) uniform sampler2D uAvgLuma;
 
 layout(push_constant) uniform PC {
     vec4 p0;   // (exposure, gamma, vignetteIntens, saturation)
     vec4 p1;   // (bloomStrength, lutStrength, yFlipUV, lutSize)
-    vec4 p2;   // auto-exposure : (autoExpStrength, autoExpKey, _, _)
+    vec4 p2;   // (autoExpStrength, autoExpKey, bloomYFlip, hdrClamp)
+    vec4 p3;   // auto-exposure : (exposureMin, exposureMax, _, _)
 } pc;
 
 vec3 ACESFilm(vec3 x) {
@@ -41,13 +45,19 @@ void main() {
     float bloomYFlip     = pc.p2.z;
     vec2  bloomUV        = vec2(vUV.x, mix(vUV.y, 1.0 - vUV.y, bloomYFlip));
 
-    // Auto-exposure V0 : sample le centre du bloom RT (≈ luma moyen scène).
+    // Auto-exposure V1 : luminance moyenne RÉELLE de la scène, mesurée par la passe
+    // PP_AutoExposure (moyenne logarithmique de 256 échantillons + adaptation
+    // temporelle) et lue dans une cible 1x1.
+    // La V0 échantillonnait UN SEUL pixel — le centre du RT de bloom — comme proxy du
+    // niveau de la scène : une source vive au centre écrasait l'exposition de toute
+    // l'image, et une scène sombre hors du centre restait sous-exposée.
     if (autoExpStr > 0.001) {
-        vec3  centerBloom = texture(uBloom, vec2(0.5)).rgb;
-        float centerLuma  = dot(centerBloom, vec3(0.2126, 0.7152, 0.0722));
-        float autoExp     = autoExpKey / max(centerLuma, 0.001);
-        autoExp = clamp(autoExp, 0.1, 10.0);
-        exposure = mix(exposure, autoExp, clamp(autoExpStr, 0.0, 1.0));
+        float avgLuma = texture(uAvgLuma, vec2(0.5)).r;
+        if (avgLuma > 0.0) {
+            float autoExp = autoExpKey / max(avgLuma, 0.0001);
+            autoExp = clamp(autoExp, pc.p3.x, pc.p3.y);
+            exposure = mix(exposure, autoExp, clamp(autoExpStr, 0.0, 1.0));
+        }
     }
 
     // Garde-fou HDR (pc.p2.w) : borne max des valeurs HDR. 0 = desactive. Protege

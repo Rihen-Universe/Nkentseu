@@ -1,0 +1,25 @@
+// pp_autoexposure.vert.nksl — NKRenderer — Auto-exposure : mesure de luminance (VS)
+// Cible = UNE cible 1x1 : ce triangle plein écran ne couvre donc qu'un seul pixel,
+// dont le fragment réduit toute l'image HDR en une luminance moyenne.
+// Aucun input sommet (gl_VertexID) → aucun Y-flip automatique n'est injecté, et la
+// moyenne logarithmique est de toute façon invariante à l'orientation : ce shader
+// n'a AUCUNE convention Y par backend (contrairement au tonemap et au bloom).
+//
+// Le bloc push_constant doit être DÉCLARÉ À L'IDENTIQUE dans le VS et le FS :
+// une divergence donne « type mismatch between shaders for uniform _PushConstants »
+// au link OpenGL (piège déjà rencontré sur ce dépôt).
+
+@location(0) out vec2 vUV;
+
+layout(push_constant) uniform PC {
+    vec4 p0;   // (dtSeconds, adaptSpeed, minLuma, maxLuma)
+} pc;
+
+@stage(vertex)
+@entry
+void main() {
+    vec2 pos = vec2((gl_VertexID == 1) ? 3.0 : -1.0,
+                    (gl_VertexID == 2) ? 3.0 : -1.0);
+    gl_Position = vec4(pos, 0.0, 1.0);
+    vUV = pos * 0.5 + 0.5;
+}

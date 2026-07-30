@@ -120,6 +120,11 @@ namespace nkentseu {
 			// en edition reste neutre.
 			for (uint32 i = 0; i < vc && i < (uint32)verts.Size(); i++)
 				verts[i].normal = v[i].normal;
+			// Liste d'aretes de premier plan, construite DES l'entree : l'editeur peut
+			// ainsi compter/afficher les aretes sans dependre du premier AddWireEdge
+			// (qui, lui, garde un rebuild paresseux en filet). Une construction partant
+			// de zero n'a par definition aucune arete filaire a preserver.
+			RebuildEdges();
 		}
 
 		uint32 NkEditMesh::FaceSize(NkEmId f) const {
@@ -674,6 +679,16 @@ namespace nkentseu {
 
 		void NkEditMesh::GetUniqueEdges(NkVector<uint32> &outPairs) const {
 			outPairs.Clear();
+			// Aretes FILAIRES d'abord : elles n'ont AUCUNE demi-arete, donc la boucle
+			// ci-dessous ne peut pas les trouver. Sans ce premier passage, un segment
+			// cree avec F serait invisible en fil de fer — il existerait dans la
+			// structure sans jamais etre dessine.
+			for (uint32 e = 0; e < (uint32)edges.Size(); ++e) {
+				if (!edges[e].alive || edges[e].faceCount != 0)
+					continue;
+				outPairs.PushBack(edges[e].v0);
+				outPairs.PushBack(edges[e].v1);
+			}
 			for (uint32 h = 0; h < (uint32)hedges.Size(); ++h) {
 				if (!hedges[h].alive)
 					continue; // arête interne dissoute (quadify)
@@ -993,6 +1008,61 @@ namespace nkentseu {
 				off = (bmx - bmn).Len() * 0.08f;
 			}
 
+			// ── NORMALES PAR SOMMET, restreintes aux faces SELECTIONNEES ────────
+			// Necessaires a AlongNormals. Restreintes a la selection : inclure les
+			// faces voisines NON extrudees ferait pencher la direction vers
+			// l'exterieur de la region et tordrait le bord.
+			// Accumulees sur l'identite SOUDEE puis redistribuees : sans cela, un coin
+			// duplique par face partirait dans plusieurs directions et le maillage se
+			// dechirerait le long des coutures.
+			NkVector<NkVec3f> vertN;
+			if (p.direction == NkExtrudeParams::AlongNormals) {
+				NkVector<uint32> canon;
+				BuildVertexMerge(canon);
+				auto cn = [&](uint32 v) { return (v < (uint32)canon.Size()) ? canon[v] : v; };
+				NkVector<NkVec3f> acc;
+				acc.Resize((uint32)pv.Size());
+				for (uint32 i = 0; i < (uint32)acc.Size(); i++)
+					acc[i] = {0.f, 0.f, 0.f};
+				for (uint32 f = 0; f < fc; f++) {
+					if (!faceSel[f])
+						continue;
+					const uint32 s = fs[f];
+					// Normale NON normalisee = ponderation par l'aire : une grande face
+					// doit peser plus qu'un triangle degenere.
+					const NkVec3f fn = NkEmFaceCross(pv[fv[s]].pos, pv[fv[s + 1]].pos, pv[fv[s + 2]].pos);
+					for (uint32 k = fs[f]; k < fs[f + 1]; k++) {
+						const uint32 r = cn(fv[k]);
+						if (r < (uint32)acc.Size())
+							acc[r] = acc[r] + fn;
+					}
+				}
+				vertN.Resize((uint32)pv.Size());
+				for (uint32 i = 0; i < (uint32)pv.Size(); i++) {
+					const uint32 r = cn(i);
+					NkVec3f n = (r < (uint32)acc.Size()) ? acc[r] : NkVec3f{0.f, 0.f, 0.f};
+					const float32 l = n.Len();
+					// Repli sur la normale de region si l'accumulation s'annule (faces
+					// opposees de part et d'autre du sommet) : mieux vaut la direction
+					// commune qu'un deplacement nul silencieux.
+					vertN[i] = (l > 1e-6f) ? n * (1.f / l) : avgN;
+				}
+			}
+
+			// Deplacement d'UN sommet duplique, selon la variante demandee.
+			auto extrudePos = [&](const NkVec3f &base, uint32 srcIdx) -> NkVec3f {
+				if (p.direction == NkExtrudeParams::ToCursor) {
+					// Chacun rejoint le point cible : les sommets convergent, la region
+					// se ferme en pointe. offset sert de FRACTION du chemin (1 = au point).
+					const NkVec3f d = p.target - base;
+					const float32 t = (p.offset > 0.f) ? p.offset : 1.f;
+					return base + d * (t > 1.f ? 1.f : t);
+				}
+				if (p.direction == NkExtrudeParams::AlongNormals && srcIdx < (uint32)vertN.Size())
+					return base + vertN[srcIdx] * off;
+				return base + avgN * off;
+			};
+
 			if (p.individual) {
 				NkVector<uint32> nfs, nfv;
 				nfs.PushBack(0);
@@ -1021,7 +1091,9 @@ namespace nkentseu {
 					for (uint32 k = 0; k < n; k++) {
 						uint32 vi = fv[s + k];
 						NkVertex3D nv = pv[vi];
-						nv.pos = nv.pos + fn * off;
+						// ToCursor primes sur la normale de face : la cible est absolue.
+						nv.pos = (p.direction == NkExtrudeParams::ToCursor) ? extrudePos(nv.pos, vi)
+																						   : nv.pos + fn * off;
 						dup[k] = (uint32)pv.Size();
 						pv.PushBack(nv);
 						vsel.PushBack(1);
@@ -1069,7 +1141,7 @@ namespace nkentseu {
 					if (vmap[vi] < 0) {
 						vmap[vi] = (int32)pv.Size();
 						NkVertex3D nv = pv[vi];
-						nv.pos = nv.pos + avgN * off;
+						nv.pos = extrudePos(nv.pos, vi); // Region / AlongNormals / ToCursor
 						pv.PushBack(nv);
 						vsel.PushBack(1);
 					}
@@ -1264,18 +1336,134 @@ namespace nkentseu {
 			if (n < 2)
 				return false;
 			c = c * (1.f / (float32)n);
-			const int32 rep = (p.mode == NkMergeParams::Last) ? last : first;
-			NkVec3f target = (p.mode == NkMergeParams::First)  ? pv[(uint32)first].pos
-							 : (p.mode == NkMergeParams::Last) ? pv[(uint32)last].pos
-															   : c;
-			pv[(uint32)rep].pos = target;
 			NkVector<int32> map;
 			map.Resize((uint32)pv.Size());
 			for (uint32 i = 0; i < (uint32)map.Size(); i++)
 				map[i] = (int32)i;
-			for (uint32 i = 0; i < (uint32)pv.Size(); i++)
-				if (i < (uint32)verts.Size() && verts[i].sel)
-					map[i] = rep;
+
+			if (p.mode == NkMergeParams::Collapse) {
+				// COLLAPSE : un merge PAR ILOT CONNEXE de la selection, chacun vers son
+				// propre centre — c'est ce qui le distingue de Center (merge global).
+				// Connexite etablie sur l'identite SOUDEE via les aretes : union-find.
+				NkVector<uint32> canon;
+				BuildVertexMerge(canon);
+				auto cn = [&](uint32 v) { return (v < (uint32)canon.Size()) ? canon[v] : v; };
+				NkVector<uint32> parent;
+				parent.Resize((uint32)pv.Size());
+				for (uint32 i = 0; i < (uint32)parent.Size(); i++)
+					parent[i] = i;
+				auto find = [&](uint32 x) {
+					while (parent[x] != x) {
+						parent[x] = parent[parent[x]];
+						x = parent[x];
+					}
+					return x;
+				};
+				NkVector<uint32> pairs;
+				GetUniqueEdges(pairs);
+				auto selC = [&](uint32 v) { return v < (uint32)verts.Size() && verts[v].sel != 0; };
+				for (uint32 e = 0; e + 1 < (uint32)pairs.Size(); e += 2) {
+					const uint32 a = pairs[e], b = pairs[e + 1];
+					if (selC(a) && selC(b)) {
+						const uint32 ra = find(cn(a)), rb = find(cn(b));
+						if (ra != rb)
+							parent[ra] = rb;
+					}
+				}
+				// Centre par ilot : chaque identite soudee comptee UNE fois (les copies
+				// coincidentes fausseraient la moyenne).
+				NkHashMap<uint32, uint32> repOf;   // racine -> sommet representant
+				NkHashMap<uint64, uint8> counted;  // (racine<<32|canonId) deja compte
+				NkHashMap<uint32, NkVec3f> sum;
+				NkHashMap<uint32, uint32> cnt;
+				for (uint32 i = 0; i < (uint32)pv.Size(); i++) {
+					if (!selC(i))
+						continue;
+					const uint32 r = find(cn(i));
+					if (!repOf.Find(r))
+						repOf.InsertOrAssign(r, i);
+					const uint64 key = ((uint64)r << 32) | cn(i);
+					if (!counted.Find(key)) {
+						counted.InsertOrAssign(key, (uint8)1);
+						NkVec3f *s = sum.Find(r);
+						if (s)
+							*s = *s + pv[i].pos;
+						else
+							sum.InsertOrAssign(r, pv[i].pos);
+						uint32 *k2 = cnt.Find(r);
+						if (k2)
+							(*k2)++;
+						else
+							cnt.InsertOrAssign(r, 1u);
+					}
+				}
+				for (uint32 i = 0; i < (uint32)pv.Size(); i++) {
+					if (!selC(i))
+						continue;
+					const uint32 r = find(cn(i));
+					const uint32 rep2 = *repOf.Find(r);
+					map[i] = (int32)rep2;
+					pv[rep2].pos = *sum.Find(r) * (1.f / (float32)(*cnt.Find(r)));
+				}
+			} else if (p.mode == NkMergeParams::ByDistance) {
+				// BY DISTANCE (« Remove Doubles ») : grappes de sommets selectionnes plus
+				// proches que le seuil, chaque grappe vers son centre. Quantification
+				// spatiale au pas du seuil — meme technique que BuildVertexMerge, mais au
+				// seuil UTILISATEUR et restreinte a la selection.
+				float32 eps = p.distance;
+				if (eps <= 0.f) {
+					NkVec3f mn = pv[0].pos, mx = pv[0].pos;
+					for (uint32 i = 1; i < (uint32)pv.Size(); i++) {
+						mn.x = NkMin(mn.x, pv[i].pos.x); mn.y = NkMin(mn.y, pv[i].pos.y); mn.z = NkMin(mn.z, pv[i].pos.z);
+						mx.x = NkMax(mx.x, pv[i].pos.x); mx.y = NkMax(mx.y, pv[i].pos.y); mx.z = NkMax(mx.z, pv[i].pos.z);
+					}
+					eps = (mx - mn).Len() * 0.001f; // 0,1 % de la diagonale
+					if (eps <= 0.f)
+						eps = 1e-4f;
+				}
+				const float32 inv = 1.f / eps;
+				NkHashMap<uint64, uint32> cell; // cle spatiale -> representant
+				NkHashMap<uint64, NkVec3f> csum;
+				NkHashMap<uint64, uint32> ccnt;
+				bool merged = false;
+				for (uint32 i = 0; i < (uint32)pv.Size(); i++) {
+					if (!(i < (uint32)verts.Size() && verts[i].sel))
+						continue;
+					const NkVec3f q = pv[i].pos;
+					const int64 qx = (int64)(q.x * inv + (q.x >= 0.f ? 0.5f : -0.5f));
+					const int64 qy = (int64)(q.y * inv + (q.y >= 0.f ? 0.5f : -0.5f));
+					const int64 qz = (int64)(q.z * inv + (q.z >= 0.f ? 0.5f : -0.5f));
+					const uint64 key = ((uint64)(qx & 0x1FFFFF)) | (((uint64)(qy & 0x1FFFFF)) << 21) |
+									   (((uint64)(qz & 0x1FFFFF)) << 42);
+					uint32 *rep2 = cell.Find(key);
+					if (rep2) {
+						map[i] = (int32)(*rep2);
+						merged = true;
+						NkVec3f *s = csum.Find(key);
+						*s = *s + q;
+						(*ccnt.Find(key))++;
+					} else {
+						cell.InsertOrAssign(key, i);
+						csum.InsertOrAssign(key, q);
+						ccnt.InsertOrAssign(key, 1u);
+					}
+				}
+				if (!merged)
+					return false; // aucun couple sous le seuil : rien a faire
+				for (auto it = cell.Begin(); it != cell.End(); ++it)
+					pv[it->Second].pos = (*csum.Find(it->First)) * (1.f / (float32)(*ccnt.Find(it->First)));
+			} else {
+				// Center / First / Last / AtCursor : UN seul representant global.
+				const int32 rep = (p.mode == NkMergeParams::Last) ? last : first;
+				NkVec3f target = (p.mode == NkMergeParams::First)	   ? pv[(uint32)first].pos
+								 : (p.mode == NkMergeParams::Last)	   ? pv[(uint32)last].pos
+								 : (p.mode == NkMergeParams::AtCursor) ? p.point
+																	   : c;
+				pv[(uint32)rep].pos = target;
+				for (uint32 i = 0; i < (uint32)pv.Size(); i++)
+					if (i < (uint32)verts.Size() && verts[i].sel)
+						map[i] = rep;
+			}
 			const uint32 fc = (fs.Size() > 0) ? (uint32)fs.Size() - 1 : 0;
 			NkVector<int32> remap;
 			remap.Resize((uint32)pv.Size());
@@ -1326,6 +1514,293 @@ namespace nkentseu {
 		//     ses arêtes traversaient la face — exactement l'aspect « la face est faite de deux
 		//     triangles » signalé. On les ORDONNE maintenant angulairement autour de leur
 		//     barycentre, dans le plan de meilleur ajustement -> contour simple, non croisé.
+
+		// ── ARETES DE PREMIER PLAN (etape 1 BMesh) ──────────────────────────────
+		void NkEditMesh::RebuildEdges() {
+			// Les aretes FILAIRES sont conservees : elles ne sont incidentes a aucune
+			// face, donc aucune reconstruction depuis les demi-aretes ne pourrait les
+			// retrouver. C'est toute la raison d'etre de cette liste.
+			NkVector<Edge> wires;
+			for (uint32 i = 0; i < (uint32)edges.Size(); ++i)
+				if (edges[i].alive && edges[i].faceCount == 0 && edges[i].hedge == NK_EM_INVALID)
+					wires.PushBack(edges[i]);
+
+			// Identite SOUDEE : deux sommets exactement au meme endroit sont une seule
+			// identite topologique. Sans cela, un cube (24 sommets dupliques par face)
+			// donnerait 24 aretes distinctes la ou il n'y en a que 12.
+			NkVector<uint32> canon;
+			BuildVertexMerge(canon);
+			auto cn = [&](uint32 v) { return (v < (uint32)canon.Size()) ? canon[v] : v; };
+
+			edges.Clear();
+			NkHashMap<uint64, uint32> seen;
+			NkVector<NkEmId> loop;
+			for (uint32 f = 0; f < (uint32)faces.Size(); ++f) {
+				if (!faces[f].alive)
+					continue;
+				loop.Clear();
+				GetFaceVerts((NkEmId)f, loop);
+				if (loop.Size() < 3)
+					continue;
+				const NkEmId start = faces[f].hedge;
+				NkEmId hh = start;
+				uint32 guard = 0;
+				do {
+					const uint32 o = cn(hedges[hh].origin);
+					const uint32 d = cn(hedges[hedges[hh].next].origin);
+					if (o != d) {
+						const uint64 lo = o < d ? o : d, hi = o < d ? d : o;
+						const uint64 key = (lo << 32) | hi;
+						uint32 *ex = seen.Find(key);
+						if (ex) {
+							if (edges[*ex].faceCount < 255)
+								edges[*ex].faceCount++;
+						} else {
+							Edge e{};
+							e.v0 = (NkEmId)lo;
+							e.v1 = (NkEmId)hi;
+							e.hedge = hh;
+							e.faceCount = 1;
+							e.alive = 1;
+							seen.InsertOrAssign(key, (uint32)edges.Size());
+							edges.PushBack(e);
+						}
+					}
+					hh = hedges[hh].next;
+				} while (hh != start && hh != NK_EM_INVALID && ++guard < 100000u);
+			}
+
+			// Reinsere les filaires, sauf si une face les a entre-temps recouvertes
+			// (une arete filaire qui devient bord d'une face n'est plus filaire).
+			for (uint32 i = 0; i < (uint32)wires.Size(); ++i) {
+				const uint32 o = cn(wires[i].v0), d = cn(wires[i].v1);
+				if (o == d)
+					continue;
+				const uint64 lo = o < d ? o : d, hi = o < d ? d : o;
+				if (seen.Find((lo << 32) | hi))
+					continue;
+				Edge e{};
+				e.v0 = (NkEmId)lo;
+				e.v1 = (NkEmId)hi;
+				e.hedge = NK_EM_INVALID;
+				e.faceCount = 0;
+				e.alive = 1;
+				edges.PushBack(e);
+			}
+		}
+
+		uint32 NkEditMesh::EdgeCount() const {
+			uint32 n = 0;
+			for (uint32 i = 0; i < (uint32)edges.Size(); ++i)
+				if (edges[i].alive)
+					n++;
+			return n;
+		}
+
+		NkEmId NkEditMesh::AddWireEdge(uint32 a, uint32 b) {
+			if (a >= (uint32)verts.Size() || b >= (uint32)verts.Size())
+				return NK_EM_INVALID;
+			NkVector<uint32> canon;
+			BuildVertexMerge(canon);
+			const uint32 ca = (a < (uint32)canon.Size()) ? canon[a] : a;
+			const uint32 cb = (b < (uint32)canon.Size()) ? canon[b] : b;
+			if (ca == cb)
+				return NK_EM_INVALID; // meme sommet topologique : pas d'arete a creer
+			if (edges.Empty())
+				RebuildEdges();
+			const uint32 lo = ca < cb ? ca : cb, hi = ca < cb ? cb : ca;
+			for (uint32 i = 0; i < (uint32)edges.Size(); ++i)
+				if (edges[i].alive && edges[i].v0 == lo && edges[i].v1 == hi)
+					return (NkEmId)i; // deja presente (bord de face ou filaire)
+			Edge e{};
+			e.v0 = (NkEmId)lo;
+			e.v1 = (NkEmId)hi;
+			e.hedge = NK_EM_INVALID; // FILAIRE : aucune face incidente
+			e.faceCount = 0;
+			e.alive = 1;
+			edges.PushBack(e);
+			return (NkEmId)(edges.Size() - 1);
+		}
+
+
+		// ── LOT 5 : PROPORTIONAL EDITING + SYMETRIE ─────────────────────────────
+		float32 NkEditMesh::ProportionalWeight(float32 d, float32 r, int32 falloff) {
+			if (r <= 0.f)
+				return d <= 0.f ? 1.f : 0.f;
+			float32 t = 1.f - (d / r); // 1 au centre, 0 au bord
+			if (t <= 0.f)
+				return 0.f;
+			if (t > 1.f)
+				t = 1.f;
+			switch (falloff) {
+				case NkProportionalParams::Sphere: return sqrtf(1.f - (1.f - t) * (1.f - t));
+				case NkProportionalParams::Root: return sqrtf(t);
+				case NkProportionalParams::Sharp: return t * t;
+				case NkProportionalParams::Linear: return t;
+				case NkProportionalParams::Constant: return 1.f;
+				case NkProportionalParams::Smooth:
+				default:
+					// Hermite 3t^2-2t^3 : tangente NULLE aux deux bouts, donc aucune
+					// cassure ni au sommet tire ni a la limite du rayon. C'est ce qui
+					// distingue une bosse propre d'un cone.
+					return t * t * (3.f - 2.f * t);
+			}
+		}
+
+		bool NkEditMesh::MoveSelected(const NkVec3f &delta, const NkProportionalParams &prop,
+									  const NkSymmetryParams &sym) {
+			const uint32 nv = (uint32)verts.Size();
+			if (nv == 0)
+				return false;
+
+			// Identite SOUDEE : un coin duplique par face doit se deplacer d'un seul
+			// bloc, sinon le maillage s'ouvre le long des coutures.
+			NkVector<uint32> canon;
+			BuildVertexMerge(canon);
+			auto cn = [&](uint32 v) { return (v < (uint32)canon.Size()) ? canon[v] : v; };
+
+			// Poids par sommet SOUDE. 1 = selectionne, 0 < w < 1 = entraine.
+			NkVector<float32> w;
+			w.Resize(nv);
+			for (uint32 i = 0; i < nv; i++)
+				w[i] = 0.f;
+			bool any = false;
+			for (uint32 i = 0; i < nv; i++)
+				if (verts[i].sel) {
+					w[cn(i)] = 1.f;
+					any = true;
+				}
+			if (!any)
+				return false;
+
+			if (prop.enabled) {
+				float32 r = prop.radius;
+				if (r <= 0.f) {
+					NkVec3f mn = verts[0].pos, mx = verts[0].pos;
+					for (uint32 i = 1; i < nv; i++) {
+						const NkVec3f q = verts[i].pos;
+						mn.x = NkMin(mn.x, q.x); mn.y = NkMin(mn.y, q.y); mn.z = NkMin(mn.z, q.z);
+						mx.x = NkMax(mx.x, q.x); mx.y = NkMax(mx.y, q.y); mx.z = NkMax(mx.z, q.z);
+					}
+					r = (mx - mn).Len() * 0.25f; // 25 % de la diagonale
+				}
+				// Distance EUCLIDIENNE au sommet selectionne le plus proche (mode par
+				// defaut de Blender). O(n x s) : suffisant pour une selection d'edition,
+				// et sans structure a maintenir — une accélération spatiale serait une
+				// optimisation prematuree ici.
+				NkVector<uint32> selIdx;
+				for (uint32 i = 0; i < nv; i++)
+					if (verts[i].sel)
+						selIdx.PushBack(i);
+				for (uint32 i = 0; i < nv; i++) {
+					const uint32 ci = cn(i);
+					if (w[ci] >= 1.f)
+						continue; // deja plein poids
+					float32 best = 1e30f;
+					const NkVec3f q = verts[i].pos;
+					for (uint32 k = 0; k < (uint32)selIdx.Size(); k++) {
+						const float32 d = (verts[selIdx[k]].pos - q).Len();
+						if (d < best)
+							best = d;
+					}
+					const float32 ww = ProportionalWeight(best, r, prop.falloff);
+					if (ww > w[ci])
+						w[ci] = ww;
+				}
+			}
+
+			// Positions AVANT deplacement : l'appariement miroir doit se faire sur le
+			// maillage d'origine. Le faire au fur et a mesure ferait apparier des
+			// sommets deja bouges et la symetrie deriverait.
+			NkVector<NkVec3f> before;
+			before.Resize(nv);
+			for (uint32 i = 0; i < nv; i++)
+				before[i] = verts[i].pos;
+
+			// Deplacement direct.
+			for (uint32 i = 0; i < nv; i++) {
+				const float32 ww = w[cn(i)];
+				if (ww > 0.f)
+					verts[i].pos = verts[i].pos + delta * ww;
+			}
+
+			// ── SYMETRIE ────────────────────────────────────────────────────────
+			if (sym.Any()) {
+				// Un axe actif -> 1 miroir ; deux -> 3 ; trois -> 7 (toutes les
+				// combinaisons non nulles de reflexions), comme Blender qui cumule les
+				// cases cochees.
+				const int32 combos[7][3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}, {1, 1, 0},
+											{1, 0, 1}, {0, 1, 1}, {1, 1, 1}};
+				for (int32 ci = 0; ci < 7; ci++) {
+					const bool useX = combos[ci][0] != 0, useY = combos[ci][1] != 0, useZ = combos[ci][2] != 0;
+					if ((useX && !sym.x) || (useY && !sym.y) || (useZ && !sym.z))
+						continue;
+					auto mirror = [&](NkVec3f p) {
+						NkVec3f d2 = p - sym.center;
+						if (useX) d2.x = -d2.x;
+						if (useY) d2.y = -d2.y;
+						if (useZ) d2.z = -d2.z;
+						return sym.center + d2;
+					};
+					for (uint32 i = 0; i < nv; i++) {
+						const float32 ww = w[cn(i)];
+						if (ww <= 0.f)
+							continue;
+						const NkVec3f src = before[i];
+						const NkVec3f tgt = mirror(src);
+						// Sommet SUR le plan de symetrie : il est son propre miroir. Son
+						// deplacement doit etre PROJETE dans le plan, sinon il quitte
+						// l'axe et casse la symetrie qu'on cherche a maintenir.
+						if ((tgt - src).Len() <= sym.tolerance) {
+							NkVec3f d3 = delta * ww;
+							if (useX) d3.x = 0.f;
+							if (useY) d3.y = 0.f;
+							if (useZ) d3.z = 0.f;
+							verts[i].pos = src + d3;
+							continue;
+						}
+						// Sinon : trouver le sommet a la position miroir dans le maillage
+						// AVANT deplacement, et lui appliquer le delta reflechi.
+						NkVec3f dm = delta;
+						if (useX) dm.x = -dm.x;
+						if (useY) dm.y = -dm.y;
+						if (useZ) dm.z = -dm.z;
+						for (uint32 j = 0; j < nv; j++) {
+							if (w[cn(j)] > 0.f)
+								continue; // deja deplace par la selection elle-meme
+							if ((before[j] - tgt).Len() <= sym.tolerance)
+								verts[j].pos = before[j] + dm * ww;
+						}
+					}
+				}
+			}
+
+			RecomputeNormals();
+			return true;
+		}
+
+		bool NkEditMesh::MakeEdgeFromSelected() {
+			// Un seul REPRESENTANT par sommet topologique : les primitives dupliquent
+			// leurs sommets par face, donc « deux sommets selectionnes » peut vouloir
+			// dire six indices bruts pointant deux positions.
+			NkVector<uint32> canon;
+			BuildVertexMerge(canon);
+			NkHashMap<uint32, uint8> taken;
+			NkVector<uint32> sel;
+			for (uint32 i = 0; i < (uint32)verts.Size(); ++i) {
+				if (!verts[i].sel)
+					continue;
+				const uint32 cc = (i < (uint32)canon.Size()) ? canon[i] : i;
+				if (taken.Find(cc))
+					continue;
+				taken.InsertOrAssign(cc, (uint8)1);
+				sel.PushBack(i);
+			}
+			if (sel.Size() != 2)
+				return false;
+			return AddWireEdge(sel[0], sel[1]) != NK_EM_INVALID;
+		}
+
 		bool NkEditMesh::MakeFaceFromSelected() {
 			NkVector<NkVertex3D> pv;
 			NkVector<uint32> fs, fv;
@@ -3219,6 +3694,14 @@ namespace nkentseu {
 				case NkMeshEditOp::Merge:
 					return m.MergeSelectedVerts(merge);
 				case NkMeshEditOp::MakeFace:
+					// F facon Blender : la MEME touche cree une ARETE avec deux sommets
+					// selectionnes, et une FACE a partir de trois. Cette bascule est le
+					// comportement de Blender, pas une commodite : avec deux sommets il
+					// n'y a pas de face a creer, il y a un segment.
+					// C'est ce que l'ancienne structure ne savait pas faire (une arete
+					// n'existait qu'a travers ses faces) — cf. Edge / AddWireEdge.
+					if (m.MakeEdgeFromSelected())
+						return true;
 					return m.MakeFaceFromSelected();
 				case NkMeshEditOp::Subdivide:
 					return m.SubdivideSelectedFaces(subdiv);

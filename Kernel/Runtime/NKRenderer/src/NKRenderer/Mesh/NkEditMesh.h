@@ -35,14 +35,43 @@ namespace nkentseu {
 		// est SÉLECTIONNÉE, et c'est l'utilisateur qui la déplace ensuite (gizmo G/R/S,
 		// axe normal par défaut ou contrainte X/Y/Z). Aucun déplacement automatique.
 		struct NkExtrudeParams {
+				// ── DIRECTION D'EXTRUSION (variantes de Blender) ─────────────────────
+				// Region      : une SEULE direction pour tout le bloc = moyenne des
+				//               normales des faces selectionnees (defaut, E dans Blender).
+				// AlongNormals: chaque sommet part le long de SA propre normale (moyenne
+				//               des faces selectionnees qui le touchent) — Alt+E « Extrude
+				//               Faces Along Normals ». Sur une surface courbe, Region
+				//               ecrase le relief alors qu'AlongNormals l'epaissit en
+				//               suivant la forme : ce n'est PAS un detail cosmetique.
+				// ToCursor    : chaque sommet va vers le point `target` (curseur 3D),
+				//               chacun de sa propre distance -> convergence en pointe.
+				// Individual (le booleen historique) reste orthogonal : il traite chaque
+				// face separement au lieu de la region. Blender l'expose comme une entree
+				// distincte du meme menu.
+				enum Direction { Region = 0, AlongNormals = 1, ToCursor = 2 };
+
 				bool individual = false;
 				float32 offset = 0.f;
+				int32 direction = Region;
+				NkVec3f target = {0.f, 0.f, 0.f}; // ToCursor : point de convergence
 		};
 
 		struct NkMergeParams {
-				enum Mode { Center = 0, First = 1, Last = 2 };
+				// Modes de M (Merge) facon Blender. AJOUTES EN FIN (l'op est serialisee).
+				//   AtCursor   fusionne au CURSEUR 3D (point fourni en espace maillage) ;
+				//   Collapse   chaque ILOT CONNEXE de la selection fusionne vers SON centre
+				//              (un merge par region, pas un merge global) ;
+				//   ByDistance « Remove Doubles » : seuls les sommets selectionnes plus
+				//              proches que `distance` fusionnent, par grappes.
+				// NB Blender : First/Last y designent le premier/dernier SELECTIONNE
+				// (ordre de clic). Ici l'ordre de selection n'est pas encore memorise :
+				// First/Last = plus petit / plus grand INDICE — ecart documente, a
+				// resorber quand l'editeur portera l'historique de selection.
+				enum Mode { Center = 0, First = 1, Last = 2, AtCursor = 3, Collapse = 4, ByDistance = 5 };
 
 				int32 mode = Center;
+				NkVec3f point = {0.f, 0.f, 0.f}; // cible AtCursor (espace du maillage)
+				float32 distance = 0.f;			 // ByDistance ; <= 0 => 0,1 % de la diagonale bbox
 		};
 
 		struct NkSubdivideParams {
@@ -121,6 +150,49 @@ namespace nkentseu {
 				bool duplicate = false;
 		};
 
+		// ── PROPORTIONAL EDITING (touche O dans Blender) ──────────────────────────
+		// Un deplacement de la selection ENTRAINE ses voisins, avec une influence qui
+		// decroit avec la distance. C'est ce qui permet de deformer une surface sans
+		// la plisser : sans lui, bouger un sommet cree un pic ; avec lui, on obtient
+		// une bosse continue.
+		//
+		// La distance est mesuree en DROITE LIGNE (euclidienne) depuis le sommet
+		// selectionne le plus proche, comme Blender par defaut. Une distance
+		// TOPOLOGIQUE (nombre d'aretes) donnerait un resultat different sur un
+		// maillage a densite variable ; ce n'est pas ce mode-ci.
+		struct NkProportionalParams {
+				// Courbes de Blender. Chacune repond a un besoin different : Smooth pour
+				// une bosse organique, Sphere pour un dome net, Root pour un effet qui
+				// s'attenue vite, Constant pour deplacer un bloc en bord franc.
+				enum Falloff { Smooth = 0, Sphere = 1, Root = 2, Sharp = 3, Linear = 4, Constant = 5 };
+
+				bool enabled = false;
+				float32 radius = 0.f; // <= 0 => 25 % de la diagonale de la bbox
+				int32 falloff = Smooth;
+				bool connectedOnly = false; // reserve (distance topologique) — non implemente
+		};
+
+		// ── SYMETRIE DE MAILLAGE (Mesh Symmetry, 1 a 3 axes) ──────────────────────
+		// Toute edition appliquee d'un cote est REJOUEE en miroir de l'autre. Blender
+		// l'expose comme trois cases X / Y / Z cumulables.
+		//
+		// Le miroir est etabli par APPARIEMENT DE POSITIONS : pour chaque sommet
+		// deplace, on cherche celui qui occupe (a `tolerance` pres) la position
+		// symetrique dans le maillage AVANT deplacement, et on lui applique le
+		// deplacement reflechi. On ne cree donc AUCUNE geometrie : la symetrie
+		// suppose un maillage deja symetrique, exactement comme dans Blender.
+		// Un sommet SUR le plan de symetrie est son propre miroir : son deplacement
+		// est projete DANS le plan, sinon il quitterait l'axe et casserait la symetrie.
+		struct NkSymmetryParams {
+				bool x = false, y = false, z = false;
+				float32 tolerance = 1e-4f; // appariement des positions miroir
+				NkVec3f center = {0.f, 0.f, 0.f}; // plan(s) de symetrie passant par ce point
+
+				bool Any() const {
+					return x || y || z;
+				}
+		};
+
 		// ── TO SPHERE (Shift+Alt+S) façon Blender ─────────────────────────────────
 		// Deforme progressivement la selection vers une SPHERE : chaque sommet est
 		// interpole entre sa position et sa projection sur la sphere centree sur
@@ -185,6 +257,37 @@ namespace nkentseu {
 						uint8 sel = 0;
 				};
 
+				// ── ARETE DE PREMIER PLAN (etape 1 du modele BMesh) ──────────────
+				// PROBLEME RESOLU : dans une structure purement demi-arete, une arete
+				// n'existe QU'A TRAVERS ses faces. Une arete « seule » (deux sommets
+				// relies, sans face) n'a donc aucun moyen d'exister — c'est pourquoi F
+				// sur deux sommets ne pouvait RIEN produire, alors que Blender cree un
+				// segment. Chez Blender (BMesh) l'arete est une entite a part entiere ;
+				// une arete sans face est simplement une arete a zero boucle radiale.
+				//
+				// CE QUE FAIT CETTE ETAPE : les aretes deviennent une LISTE PROPRE,
+				// reconstruite depuis les demi-aretes (RebuildEdges) ET capable de
+				// porter des aretes FILAIRES que rien ne deduit d'une face. Les faces
+				// continuent d'etre parcourues par les demi-aretes : la bascule complete
+				// (cycle radial, boucles BMLoop) viendra ensuite, sans rien changer a
+				// l'API publique deja utilisee par l'editeur.
+				//
+				// IDENTITE : v0/v1 sont des indices de sommets SOUDES (representants de
+				// BuildVertexMerge), pas des indices bruts. Sans cela, une primitive dont
+				// les faces dupliquent leurs sommets (cube = 24) produirait des aretes en
+				// double, chacune vue comme distincte.
+				struct Edge {
+						NkEmId v0 = NK_EM_INVALID;
+						NkEmId v1 = NK_EM_INVALID;
+						// Une demi-arete porteuse, ou NK_EM_INVALID pour une arete FILAIRE
+						// (aucune face incidente). C'est exactement le cas que l'ancienne
+						// structure ne savait pas representer.
+						NkEmId hedge = NK_EM_INVALID;
+						uint8 faceCount = 0; // 0 = filaire, 1 = bord, 2 = interieur, >2 = non manifold
+						uint8 sel = 0;
+						uint8 alive = 1;
+				};
+
 				struct Hedge {
 						NkEmId origin = NK_EM_INVALID; // sommet d'origine
 						NkEmId twin = NK_EM_INVALID;   // demi-arête opposée (autre face)
@@ -210,11 +313,16 @@ namespace nkentseu {
 				NkVector<Vert> verts;
 				NkVector<Hedge> hedges;
 				NkVector<Face> faces;
+				// Aretes de premier plan. Reconstruites par RebuildEdges() apres toute
+				// operation topologique ; les aretes FILAIRES y survivent (elles ne sont
+				// deduites d'aucune face, donc rien d'autre ne peut les recreer).
+				NkVector<Edge> edges;
 
 				void Clear() {
 					verts.Clear();
 					hedges.Clear();
 					faces.Clear();
+					edges.Clear();
 				}
 
 				uint32 VertCount() const {
@@ -369,6 +477,40 @@ namespace nkentseu {
 				bool DeleteSelectedFaces();
 				bool MergeSelectedVerts(const NkMergeParams &p = NkMergeParams{});
 				bool MakeFaceFromSelected();
+
+				// ── ARETES DE PREMIER PLAN ──────────────────────────────────────────
+				// (Re)construit la liste d'aretes depuis les demi-aretes vivantes, en
+				// PRESERVANT les aretes filaires existantes (rien d'autre ne pourrait les
+				// recreer : elles ne sont incidentes a aucune face). A appeler apres toute
+				// operation qui change la topologie.
+				void RebuildEdges();
+
+				// Nombre d'aretes vivantes (filaires comprises).
+				uint32 EdgeCount() const;
+
+				// Cree une arete FILAIRE entre deux sommets, si elle n'existe pas deja.
+				// Renvoie l'index de l'arete, ou NK_EM_INVALID en cas d'echec.
+				NkEmId AddWireEdge(uint32 a, uint32 b);
+
+				// F sur EXACTEMENT deux sommets selectionnes : cree le segment qui les
+				// relie, comme Blender. Renvoie false si la selection n'a pas exactement
+				// deux sommets topologiques distincts, ou si l'arete existe deja.
+				bool MakeEdgeFromSelected();
+
+				// ── LOT 5 : DEPLACEMENT AVEC INFLUENCE ET SYMETRIE ──────────────────
+				// Deplace la selection de `delta`, en propageant aux voisins selon
+				// `prop` et en rejouant en miroir selon `sym`. C'est le point d'entree
+				// unique du mouvement de sommets : l'editeur passe par lui pour que
+				// proportional editing et symetrie s'appliquent PARTOUT de la meme
+				// facon, plutot que d'etre reimplantes a chaque outil.
+				// Renvoie false si rien n'est selectionne.
+				bool MoveSelected(const NkVec3f &delta, const NkProportionalParams &prop = NkProportionalParams{},
+								  const NkSymmetryParams &sym = NkSymmetryParams{});
+
+				// Poids d'influence d'un sommet a la distance `d` pour un rayon `r`.
+				// Expose pour que l'editeur puisse DESSINER le cercle d'influence avec
+				// exactement la meme courbe que celle appliquee.
+				static float32 ProportionalWeight(float32 d, float32 r, int32 falloff);
 				bool SubdivideSelectedFaces(const NkSubdivideParams &p = NkSubdivideParams{});
 				bool LoopCutFromSelectedEdge(const NkLoopCutParams &p = NkLoopCutParams{});
 
