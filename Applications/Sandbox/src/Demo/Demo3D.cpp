@@ -358,6 +358,19 @@ namespace nkentseu {
 				NkVector<NkLightDesc> frameLights;
 				int32 lightSel = -1;   // index de lumiere selectionnee (-1 = aucune)
 				bool showLightGizmos = true;
+				// GIZMO DEDIE AUX LUMIERES — un second NkGizmo3D plutot qu'un partage
+				// avec celui des objets : les deux ensembles n'ont ni les memes indices,
+				// ni les memes manipulations autorisees, et un clic doit trancher entre
+				// « j'attrape une lumiere » et « j'attrape un objet ». Deux instances
+				// rendent cette arbitration explicite au lieu de la cacher dans un
+				// espace d'indices partage.
+				renderer::NkGizmo3D lightGizmo;
+				// `lights[]` reste la BASE, jamais ecrite par le gizmo ; l'effet du
+				// gizmo est recompose a chaque frame par Demo3D_LightEffective. C'est
+				// exactement le contrat des objets (base figee + Apply), et c'est ce qui
+				// evite la derive : accumuler dans la base ferait grossir les erreurs
+				// d'arrondi a chaque frame de drag.
+				bool lightDragPrev = false;
 				bool cursorPlacePending = false; // Shift+clic droit -> replacer le curseur 3D
 				float32 cursorPX = 0.f, cursorPY = 0.f;
 				// PILOTE HEADLESS : force l'application de la transform de groupe en Edit Mode
@@ -956,6 +969,55 @@ namespace nkentseu {
 		static void Demo3D_NormalizeSel(Demo3DState *st) {
 			Demo3D_PushSel(st);
 			Demo3D_PullSel(st);
+		}
+
+		// ── LUMIERE EFFECTIVE = base + transform du gizmo ───────────────────────────
+		// La manipulation d'une lumiere n'est PAS celle d'un objet : chaque poignee
+		// doit correspondre a un parametre qui existe reellement. NkLightGizmo dit
+		// lesquels (CanTranslate / CanRotate / ScaleMeaning) et on s'y tient :
+		//   • directionnelle : sa position n'entre dans aucun calcul d'eclairage, donc
+		//     la deplacer ne changerait strictement rien a l'image. On l'ignore.
+		//   • ponctuelle : rayonnement isotrope, la tourner ne change rien non plus.
+		//   • echelle : elle ne « grossit » pas une lumiere, elle regle sa PORTEE
+		//     (point/spot) ou ses DIMENSIONS (area). Une directionnelle n'a ni l'une
+		//     ni l'autre.
+		// Appliquer une transformation sans effet serait pire qu'inutile : le widget
+		// bougerait, l'image non — l'outil mentirait sur son propre resultat.
+		static renderer::NkLightDesc Demo3D_LightEffective(const Demo3DState *st, int32 li) {
+			renderer::NkLightDesc L = st->lights[li];
+			using LG = renderer::NkLightGizmo;
+			// Base = simple translation a la position de reference. Le gizmo accumule
+			// par-dessus, la base ne bouge jamais.
+			const NkMat4f base = NkMat4f::Translate(L.position);
+			const NkMat4f m = st->lightGizmo.Apply(li, base);
+			const NkVec3f o = m * NkVec3f{0.f, 0.f, 0.f};
+			if (LG::CanTranslate(L.type))
+				L.position = o;
+			if (LG::CanRotate(L.type)) {
+				// Direction transformee par la seule partie LINEAIRE : on soustrait
+				// l'origine transformee, ce qui annule la translation quelle que soit la
+				// composition de la matrice (pas besoin d'une API MulDir dediee).
+				const NkVec3f d0 = L.direction.Normalized();
+				const NkVec3f t = (m * d0) - o;
+				const float32 tl = t.Len();
+				if (tl > 1e-5f)
+					L.direction = t * (1.f / tl);
+			}
+			// Facteur d'echelle lu sur un axe : longueur de l'image de X. Uniforme ici,
+			// car portee et dimensions se reglent proportionnellement.
+			const NkVec3f ax = (m * NkVec3f{1.f, 0.f, 0.f}) - o;
+			const float32 k = ax.Len();
+			if (k > 1e-4f) {
+				switch (LG::ScaleMeaning(L.type)) {
+					case renderer::NkLightScaleMeaning::Range: L.range *= k; break;
+					case renderer::NkLightScaleMeaning::Dimensions:
+						L.areaWidth *= k;
+						L.areaHeight *= k;
+						break;
+					default: break; // None : la directionnelle n'a rien a redimensionner
+				}
+			}
+			return L;
 		}
 
 		// ── PROJECTION MONDE -> ÉCRAN, AUTONOME ─────────────────────────────────────
@@ -2594,10 +2656,49 @@ namespace nkentseu {
 						}
 					}
 				}
-				// Gizmo ACTIF selon le mode : objet ou vertices.
-				renderer::NkGizmo3D &G = st->editMode ? st->editGizmo : st->gizmo;
+				// Gizmo ACTIF selon le mode : objet, vertices, ou LUMIERE.
+				// Une lumiere selectionnee capte G/R/S exactement comme un objet — c'est
+				// le modele Blender, ou une lampe EST un objet de la scene. Mais toutes
+				// les manipulations n'ont pas d'effet sur elle, d'ou le filtre ci-dessous.
+				const bool lightActive =
+					(!st->editMode && st->lightSel >= 0 && st->lightSel < Demo3DState::kNumLights);
+				renderer::NkGizmo3D &G =
+					st->editMode ? st->editGizmo : (lightActive ? st->lightGizmo : st->gizmo);
 				if (G.IsDragging())
 					return; // en plein drag : X/Y/Z = verrou (pas de switch)
+				// FILTRE DES MANIPULATIONS SANS EFFET. Le refus est DIT, pas silencieux :
+				// une touche ignoree sans explication se lit comme un bug, alors que le
+				// comportement est voulu. On ne propose que ce qui change l'image :
+				//   • deplacer une directionnelle : sa position n'entre dans aucun calcul ;
+				//   • orienter une ponctuelle : son rayonnement est isotrope ;
+				//   • redimensionner une directionnelle : elle n'a ni portee ni dimensions.
+				if (lightActive && !alt) {
+					using LGZ = renderer::NkLightGizmo;
+					const renderer::NkLightDesc &SL = st->lights[st->lightSel];
+					if (k == NkKey::NK_G && !LGZ::CanTranslate(SL.type)) {
+						logger.Info("[Demo3D][LUMIERE] deplacer une directionnelle n'a aucun effet : "
+									"seule sa direction compte.\n");
+						return;
+					}
+					if (k == NkKey::NK_R && !LGZ::CanRotate(SL.type)) {
+						logger.Info("[Demo3D][LUMIERE] orienter une ponctuelle n'a aucun effet : son "
+									"rayonnement est isotrope.\n");
+						return;
+					}
+					if (k == NkKey::NK_S && LGZ::ScaleMeaning(SL.type) == renderer::NkLightScaleMeaning::None) {
+						logger.Info("[Demo3D][LUMIERE] une directionnelle n'a ni portee ni dimensions a "
+									"redimensionner.\n");
+						return;
+					}
+					// L'echelle d'une lumiere ne l'agrandit pas : elle regle sa PORTEE
+					// (point/spot) ou ses DIMENSIONS (area). Le dire une fois evite de
+					// chercher pourquoi le widget ne « grossit » pas comme un objet.
+					if (k == NkKey::NK_S)
+						logger.Info("[Demo3D][LUMIERE] echelle -> {0}\n",
+									LGZ::ScaleMeaning(SL.type) == renderer::NkLightScaleMeaning::Range
+										? "portee"
+										: "dimensions");
+				}
 				if (k == NkKey::NK_G) {
 					if (alt)
 						G.ClearSelectedTranslate();
@@ -3793,9 +3894,11 @@ namespace nkentseu {
 				}
 			}
 
-			// Soumission : l'ETAT est la source de verite, plus le code ci-dessus.
+			// Soumission : la source de verite est l'ETAT, compose avec le gizmo.
+			// Passer `lights[li]` directement rendrait la manipulation invisible dans
+			// l'image — le widget bougerait, l'eclairage non.
 			for (int32 li = 0; li < Demo3DState::kNumLights; li++)
-				sctx.lights.PushBack(st->lights[li]);
+				sctx.lights.PushBack(Demo3D_LightEffective(st, li));
 
 
 
@@ -5774,6 +5877,135 @@ namespace nkentseu {
 							gin.leftPressed = true;
 						}
 					}
+					// ── PICK ET MANIPULATION DES LUMIERES ────────────────────────────
+					// Passe AVANT le gizmo des objets, parce qu'un clic doit etre attribue
+					// a un seul destinataire : si les deux le traitaient, deplacer une
+					// lumiere selectionnerait aussi l'objet qui se trouve derriere.
+					//
+					// ARBITRATION — la meme que pour les objets dans son PRINCIPE (le plus
+					// proche du curseur gagne), mais sur la DISTANCE ECRAN et non sur un
+					// rayon 3D. Un widget de lumiere n'a pas de volume : sa taille a l'ecran
+					// est constante par construction, donc un test geometrique rendrait une
+					// lumiere lointaine impossible a cliquer alors qu'elle reste aussi
+					// grosse a l'ecran qu'une proche. On compare donc des PIXELS.
+					bool lightClaimedClick = false;
+					{
+						using LG = renderer::NkLightGizmo;
+						const Demo3D_ScreenProj lproj = Demo3D_ScreenProj::Make(
+							cam.GetPosition(), cam.GetTarget(), 60.f, (float32)ctx.width, (float32)ctx.height);
+						st->lightGizmo.SetCamera(cam.GetPosition(), cam.GetTarget(), 60.f, (float32)ctx.width,
+												 (float32)ctx.height);
+						// Cibles du gizmo : extent et rayon de pick NULS, volontairement. Le
+						// pick 3D interne de NkGizmo3D ne doit JAMAIS attraper une lumiere —
+						// c'est le test ecran ci-dessous qui tranche. On garde malgre tout
+						// Update() pour ses poignees, son pivot et son drag.
+						renderer::NkGizmoTarget ltg[Demo3DState::kNumLights];
+						for (int32 li = 0; li < Demo3DState::kNumLights; li++) {
+							ltg[li].base = NkMat4f::Translate(st->lights[li].position);
+							ltg[li].localHalf = {0.f, 0.f, 0.f};
+							ltg[li].pickRadius = 0.f;
+						}
+						renderer::NkGizmoInput lin = gin;
+						// NK_LIGHT_PICK_AT="x,y" : force UNE FOIS un clic a ces pixels et
+						// journalise la lumiere attrapee. Sans ce levier, le pick des lumieres
+						// ne serait verifiable qu'a la souris, donc pas en capture.
+						static bool lpAtDone = false;
+						if (!lpAtDone) {
+							if (const char *lp = getenv("NK_LIGHT_PICK_AT")) {
+								lpAtDone = true;
+								float32 lv[2] = {0.f, 0.f};
+								int32 lk = 0;
+								const char *pl = lp;
+								while (lk < 2 && *pl) {
+									lv[lk++] = (float32)atof(pl);
+									while (*pl && *pl != ',')
+										pl++;
+									if (*pl == ',')
+										pl++;
+								}
+								gin.mouseX = lv[0];
+								gin.mouseY = lv[1];
+								gin.leftPressed = true;
+								lin.mouseX = lv[0];
+								lin.mouseY = lv[1];
+								lin.leftPressed = true;
+							}
+						}
+						if (gin.leftPressed && !st->lightGizmo.IsDragging() && st->showLightGizmos) {
+							int32 best = -1;
+							float32 bestD2 = 1e30f;
+							for (int32 li = 0; li < Demo3DState::kNumLights; li++) {
+								// On projette l'ANCRE du widget — le meme point que celui du
+								// dessin, et sur la lumiere EFFECTIVE : viser ou l'on voit.
+								const renderer::NkLightDesc eff = Demo3D_LightEffective(st, li);
+								float32 lx = 0.f, ly = 0.f;
+								if (!lproj(LG::Anchor(eff), lx, ly))
+									continue; // derriere la camera
+								if (!LG::HitScreen(lx, ly, gin.mouseX, gin.mouseY))
+									continue;
+								const float32 dx = gin.mouseX - lx, dy = gin.mouseY - ly;
+								const float32 d2 = dx * dx + dy * dy;
+								if (d2 < bestD2) {
+									bestD2 = d2;
+									best = li;
+								}
+							}
+							if (best >= 0) {
+								// Selection faite ICI : on prive le gizmo de l'evenement pour
+								// qu'il ne la defasse pas avec son propre pick 3D (qui, cibles
+								// nulles, ne trouverait rien et viderait la selection).
+								st->lightGizmo.Select(best);
+								st->lightSel = best;
+								lin.leftPressed = false;
+								lightClaimedClick = true;
+								// MODE PAR DEFAUT compatible avec le TYPE. Proposer une poignee
+								// sans effet mentirait sur le resultat : une directionnelle ne se
+								// deplace pas (sa position n'entre dans aucun calcul), une
+								// ponctuelle ne s'oriente pas (rayonnement isotrope).
+								const renderer::NkLightDesc &BL = st->lights[best];
+								if (LG::CanTranslate(BL.type))
+									st->lightGizmo.SetMode(renderer::NkGizmo3D::MODE_TRANSLATE);
+								else if (LG::CanRotate(BL.type))
+									st->lightGizmo.SetMode(renderer::NkGizmo3D::MODE_ROTATE);
+								else
+									st->lightGizmo.SetMode(renderer::NkGizmo3D::MODE_SCALE);
+								static const char *kLName[4] = {"directionnelle", "ponctuelle", "spot",
+															   "surfacique"};
+								const int32 ti = (int32)BL.type & 3;
+								logger.Info("[Demo3D][LUMIERE] selection -> {0} ({1}) a {2} px du curseur\n", best,
+											kLName[ti], sqrtf(bestD2));
+							}
+						}
+						const bool lwasDrag = st->lightGizmo.IsDragging();
+						st->lightGizmo.Update(ltg, Demo3DState::kNumLights, lin);
+						if (!lwasDrag && st->lightGizmo.IsDragging())
+							lightClaimedClick = true; // poignee saisie : le clic est a nous
+						st->lightSel = st->lightGizmo.ActiveIndex();
+						// LE CLIC EST CONSOMME : sans cela, deplacer une lumiere selectionnerait
+						// en meme temps l'objet situe derriere elle.
+						if (lightClaimedClick)
+							gin.leftPressed = false;
+						if (st->lightDragPrev && !st->lightGizmo.IsDragging()) {
+							// Fin de drag : on RENTRE le resultat dans la base et on remet le
+							// gizmo a zero. Sinon la base et l'accumulation divergeraient et le
+							// pick (qui projette l'effective) finirait par ne plus tomber la ou
+							// l'on voit le widget apres plusieurs manipulations.
+							for (int32 li = 0; li < Demo3DState::kNumLights; li++)
+								st->lights[li] = Demo3D_LightEffective(st, li);
+							st->lightGizmo.ResetSelected();
+							// Une lumiere manipulee ne peut plus etre animee : son animation
+							// reecrirait la position a la frame suivante et effacerait le geste.
+							if (st->lightSel == 3)
+								st->spotAnimated = false;
+							logger.Info("[Demo3D][LUMIERE] {0} : position ({1}, {2}, {3}), portee {4}\n",
+										st->lightSel < 0 ? 0 : st->lightSel,
+										st->lights[st->lightSel < 0 ? 0 : st->lightSel].position.x,
+										st->lights[st->lightSel < 0 ? 0 : st->lightSel].position.y,
+										st->lights[st->lightSel < 0 ? 0 : st->lightSel].position.z,
+										st->lights[st->lightSel < 0 ? 0 : st->lightSel].range);
+						}
+						st->lightDragPrev = st->lightGizmo.IsDragging();
+					}
 					st->gizmo.Update(targets, n, gin);
 					if (getenv("NK_SEL_AT")) {
 						static int32 lastLogged = -2;
@@ -5854,7 +6086,9 @@ namespace nkentseu {
 							NkInput.IsKeyDown(NkKey::NK_LALT) || NkInput.IsKeyDown(NkKey::NK_RALT);
 						// Le gizmo a la priorité : si une poignée est saisie, on ne démarre
 						// pas de zone (sinon tout déplacement tracerait un rectangle).
-						const bool gizmoBusy = st->gizmo.IsDragging();
+						// Le gizmo des LUMIERES compte autant : tirer une poignee de lumiere
+						// ne doit pas tracer un rectangle de selection par-dessus.
+						const bool gizmoBusy = st->gizmo.IsDragging() || st->lightGizmo.IsDragging();
 
 						if (st->selTool == 3) { // CERCLE : on peint tant que le bouton est tenu
 							st->selX1 = gin.mouseX;
@@ -6000,8 +6234,22 @@ namespace nkentseu {
 					if (const char *ls = getenv("NK_LIGHT_SEL"))
 						st->lightSel = atoi(ls);
 				}
+				// NK_LIGHT_STYLE=<0|1|2> : 0 = symbole filaire facon Blender (defaut),
+				// 1 = billboard facon Unreal, 2 = l'ancien solide 3D. Les DEUX designs
+				// demandes sont dans le systeme ; ce levier permet de les comparer sur
+				// la meme scene, sans recompiler et donc de facon reproductible.
 				if (lgShow && st->showLightGizmos) {
 					const NkVec3f camP = cam.GetPosition();
+					// AXES ECRAN DE LA CAMERA — indispensables aux deux nouveaux designs :
+					// un symbole « face camera » calcule depuis les axes du monde resterait
+					// plaque dans un plan fixe et disparaitrait de profil. Meme construction
+					// que Demo3D_ScreenProj, pour que ce qu'on DESSINE et ce qu'on PROJETTE
+					// au pick soient rigoureusement le meme repere.
+					{
+						const NkVec3f fwd = (cam.GetTarget() - camP).Normalized();
+						const NkVec3f rgt = fwd.Cross(NkVec3f{0.f, 1.f, 0.f}).Normalized();
+						renderer::NkLightGizmo::SetCameraAxes(rgt, rgt.Cross(fwd).Normalized());
+					}
 					for (uint32 li = 0; li < (uint32)st->frameLights.Size(); li++) {
 						const renderer::NkLightDesc &L = st->frameLights[li];
 						// Distance camera->lumiere : dimensionne le corps du widget pour
@@ -6015,6 +6263,15 @@ namespace nkentseu {
 								r3d->DrawDebugTriangle(a, b, c, col, 0.f, true);
 							});
 					}
+					// POIGNEES DE MANIPULATION de la lumiere selectionnee. Sans elles le
+					// pick serait sans suite : on saurait quelle lumiere est prise, sans
+					// pouvoir la bouger. Dessinees APRES les widgets pour rester au-dessus.
+					if (st->lightSel >= 0)
+						st->lightGizmo.Draw(
+							[&](NkVec3f a, NkVec3f b, NkVec4f c) { r3d->DrawDebugLine(a, b, c, 0.f, true); },
+							[&](NkVec3f a, NkVec3f b, NkVec3f c, NkVec4f col) {
+								r3d->DrawDebugTriangle(a, b, c, col, 0.f, true);
+							});
 				}
 			}
 
