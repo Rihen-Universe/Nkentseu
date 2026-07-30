@@ -19,6 +19,15 @@
 namespace nkentseu {
 	namespace renderer {
 
+		// Declarations ANTICIPEES : ces deux helpers sont definis plus bas (section
+		// « Phase L V1 — AUTO-EXPOSURE ») mais utilises AVANT, dans ExecuteRHI.
+		// En C++ un identifiant doit etre visible au point d'appel : sans elles le
+		// fichier ne compile pas (« use of undeclared identifier »), ce qui bloque
+		// TOUTES les cibles, Web comprise. On declare ici plutot que de deplacer
+		// les definitions, pour garder la section auto-exposure d'un seul bloc.
+		static float32 NkAutoExpStrength(float32 fromConfig);
+		static float32 NkAutoExpSpeed(float32 fromConfig);
+
 		// =========================================================================
 		// SHADERS GLSL EMBARQUÉS — référence complète pour intégration future
 		// =========================================================================
@@ -251,13 +260,24 @@ void main() {
 			//   - binding 1 = uBloom   (mBloomRT[0].GetColorHandle() apres RunBloom)
 			//   - binding 2 = uSSAO    (Phase H.3 : ambient occlusion factor)
 			//   - binding 3 = uColorLUT (Phase L : 3D LUT cinema grading)
+			//   - binding 4 = uAvgLuma  (Phase L V1 : luminance moyenne 1x1 mesuree)
 			NkDescriptorSetLayoutDesc tonelay;
 			tonelay.Add(0, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
 			tonelay.Add(1, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
 			tonelay.Add(2, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
 			tonelay.Add(3, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
+			tonelay.Add(4, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
 			mToneLayout = mDevice->CreateDescriptorSetLayout(tonelay);
 			mToneSet = mDevice->AllocateDescriptorSet(mToneLayout);
+
+			// ── Auto-exposure V1 : layout dedie (uHDR + uPrevLuma) + pool de sets ──
+			NkDescriptorSetLayoutDesc aelay;
+			aelay.Add(0, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
+			aelay.Add(1, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
+			mAutoExpLayout = mDevice->CreateDescriptorSetLayout(aelay);
+			for (int i = 0; i < kAutoExpDescSets; i++)
+				mAutoExpSets[i] = mDevice->AllocateDescriptorSet(mAutoExpLayout);
+			mAutoExpSetCursor = 0;
 
 			// Phase L : create identity LUT 16^3 par defaut (no color change).
 			// User upload son LUT custom via SetColorGradingLUT (accessible par
@@ -324,8 +344,11 @@ void main() {
 				pd.blend = NkBlendDesc::Opaque();
 				pd.debugName = "PP_Tone";
 				pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0,
-								   48); // PC[0]=(exposure,gamma,vignette,sat) PC[1]=(bloomStr,lutStr,yFlipUV,lutSize)
-										// PC[2]=(autoExpStr,autoExpKey,_,_) — VS+FS
+								   64); // PC[0]=(exposure,gamma,vignette,sat) PC[1]=(bloomStr,lutStr,yFlipUV,lutSize)
+										// PC[2]=(autoExpStr,autoExpKey,bloomYFlip,hdrClamp)
+										// PC[3]=(expMin,expMax,_,_) — VS+FS
+										// 64 o : sous la garantie Vulkan (128) et sous les root constants
+										// DX12 (32 DWORDs depuis le fix 269207c9).
 				// Phase H.2 : utilise le layout 2-bindings (uHDR + uBloom)
 				if (mToneLayout.IsValid())
 					pd.descriptorSetLayouts.PushBack(mToneLayout);
@@ -427,6 +450,33 @@ void main() {
 				mPipeSSAOBlur = mDevice->CreateGraphicsPipeline(pd);
 			}
 
+			// ── Phase L V1 : pipeline AUTO-EXPOSURE (mesure de luminance 1x1) ──
+			// Cible 1x1 RGBA16F : le HDR peut depasser 1.0, une cible UNORM ecraserait
+			// la mesure. Le render pass vient de mLumaRT[0] (meme format que [1]).
+			if (mShaderLib && mLumaRT[0].IsValid()) {
+				auto progAE = mShaderLib->LoadOrCompileVF("PP_AutoExposure", "", "");
+				if (progAE.IsValid())
+					mShaderAutoExp = mShaderLib->GetRHIHandle(progAE);
+				logger.Info("[NkPostProcessStack] AutoExposure shader : valid={0}\n",
+							mShaderAutoExp.IsValid() ? 1 : 0);
+			}
+			if (mShaderAutoExp.IsValid() && mLumaRT[0].IsValid()) {
+				NkGraphicsPipelineDesc pd;
+				pd.shader = mShaderAutoExp;
+				pd.depthStencil = NkDepthStencilDesc::NoDepth();
+				pd.rasterizer = NkRasterizerDesc::NoCull();
+				pd.blend = NkBlendDesc::Opaque();
+				pd.debugName = "PP_AutoExposure";
+				pd.renderPass = mLumaRT[0].GetRenderPass();
+				pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0,
+								   16); // (dtSeconds, adaptSpeed, minLuma, maxLuma) — VS+FS
+				if (mAutoExpLayout.IsValid())
+					pd.descriptorSetLayouts.PushBack(mAutoExpLayout);
+				mPipeAutoExp = mDevice->CreateGraphicsPipeline(pd);
+				logger.Info("[NkPostProcessStack] AutoExposure pipeline : valid={0}\n",
+							mPipeAutoExp.IsValid() ? 1 : 0);
+			}
+
 			// ── Phase L : pipeline FXAA (Fast Approximate AA, post-tonemap) ────
 			// Shader externalise dans Resources/NKRenderer/Shaders/PP_FXAA/VK/.
 			// Le wirage RenderGraph reste TODO (cf. ExecuteRHI : actuellement
@@ -503,6 +553,22 @@ void main() {
 				mDevice->DestroyPipeline(mPipeFXAA);
 			if (mPipeBlit.IsValid())
 				mDevice->DestroyPipeline(mPipeBlit);
+			// Auto-exposure V1
+			if (mPipeAutoExp.IsValid())
+				mDevice->DestroyPipeline(mPipeAutoExp);
+			for (int i = 0; i < 2; i++) {
+				if (mLumaRT[i].IsValid())
+					mLumaRT[i].Shutdown();
+			}
+			mLumaWrite = -1;
+			for (int i = 0; i < kAutoExpDescSets; i++) {
+				if (mAutoExpSets[i].IsValid())
+					mDevice->FreeDescriptorSet(mAutoExpSets[i]);
+				mAutoExpSets[i] = {};
+			}
+			if (mAutoExpLayout.IsValid())
+				mDevice->DestroyDescriptorSetLayout(mAutoExpLayout);
+			mAutoExpLayout = {};
 			if (mLUTTex.IsValid()) {
 				mDevice->DestroyTexture(mLUTTex);
 				mLUTTex = {};
@@ -563,6 +629,22 @@ void main() {
 				if (mBloomRT[i].IsValid())
 					mBloomRT[i].Shutdown();
 				mBloomRT[i].Init(mDevice, mTex, rtd);
+			}
+
+			// ── Auto-exposure V1 : deux cibles 1x1 RGBA16F, PERSISTANTES ──────────
+			// Creees UNE SEULE FOIS (pas de Shutdown ici, contrairement au bloom) :
+			// l'etat adapte doit survivre a un OnResize, sinon redimensionner la
+			// fenetre remettrait l'exposition a zero et provoquerait un flash.
+			for (int i = 0; i < 2; i++) {
+				if (mLumaRT[i].IsValid())
+					continue;
+				NkRenderTargetDesc rtd;
+				rtd.width = 1;
+				rtd.height = 1;
+				rtd.hdr = true; // RGBA16F : la luminance HDR depasse 1.0
+				rtd.depth = false;
+				rtd.name = (i == 0) ? NkString("AvgLuma0") : NkString("AvgLuma1");
+				mLumaRT[i].Init(mDevice, mTex, rtd);
 			}
 
 			mToneTex = mTex->CreateRenderTarget(mW, mH, NkGPUFormat::NK_RGBA8_UNORM, false, true, "Tone");
@@ -709,6 +791,13 @@ void main() {
 			} else {
 				mDevice->BindTextureSampler(mToneSet, 3, hdrIn, samp);
 			}
+			// Auto-exposure V1 : cible 1x1 de luminance moyenne au binding 4. Si la
+			// passe n'a pas tourne (auto-exposure off), on binde le HDR : le shader
+			// ignore ce slot des que autoExpStrength vaut 0.
+			{
+				NkTextureHandle lumaTex = GetAvgLumaTexRHI();
+				mDevice->BindTextureSampler(mToneSet, 4, lumaTex.IsValid() ? lumaTex : hdrIn, samp);
+			}
 			cmd->BindGraphicsPipeline(mPipeTone);
 			cmd->BindDescriptorSet(mToneSet, 0);
 
@@ -742,8 +831,27 @@ void main() {
 			}
 			// <= 0 -> desactive : on passe une borne enorme que le shader traite comme "off".
 			const float32 hdrClampValue = (hdrClamp > 0.f) ? hdrClamp : 0.f;
-			float32 pc[12] = {// p0 = (exposure, gamma, vignetteIntens, saturation)
-							  mCfg.exposure, swapchainSrgb ? 1.0f : mCfg.gamma,
+			// Exposure de base : override runtime NK_EXPOSURE (sert a prouver l'effet de
+			// l'auto-exposure — une base volontairement fausse doit etre corrigee par
+			// la mesure ; cf. bloc de test dans la ROADMAP Phase L).
+			float32 baseExposure = mCfg.exposure;
+			{
+				static int sInit = 0;
+				static bool sHasEnv = false;
+				static float32 sEnv = 1.f;
+				if (!sInit) {
+					sInit = 1;
+					const char *v = getenv("NK_EXPOSURE");
+					if (v && v[0]) {
+						sHasEnv = true;
+						sEnv = (float32)atof(v);
+					}
+				}
+				if (sHasEnv)
+					baseExposure = sEnv;
+			}
+			float32 pc[16] = {// p0 = (exposure, gamma, vignetteIntens, saturation)
+							  baseExposure, swapchainSrgb ? 1.0f : mCfg.gamma,
 							  mCfg.vignette ? mCfg.vignetteIntens : 0.f, mCfg.colorGrading ? mCfg.saturation : 1.f,
 							  // p1 = (bloomStrength, lutStrength, yFlipUV, lutSize)
 							  mCfg.bloom ? mCfg.bloomStrength : 0.f, mCfg.colorGrading ? mCfg.lutStrength : 0.f,
@@ -753,8 +861,12 @@ void main() {
 							  // la convention storage Vulkan). Le top screen rendu = ligne 0
 							  // du storage -> UV.y = 0 pour sampler -> flip via VS.
 							  -1.f, float32(mLUTSize),
-							  // p2 = (autoExposureStrength, autoExposureKey, bloomYFlip, _)
-							  mCfg.autoExposureStrength, mCfg.autoExposureKey,
+							  // p2 = (autoExposureStrength, autoExposureKey, bloomYFlip, hdrClamp)
+							  // Force effective = config OU override NK_AUTOEXP, et 0 si la
+							  // passe de mesure n'a pas tourne (sinon le shader lirait le HDR
+							  // bindé en repli au binding 4 et calculerait une exposition folle).
+							  (mLumaWrite >= 0) ? NkAutoExpStrength(mCfg.autoExposureStrength) : 0.f,
+							  mCfg.autoExposureKey,
 							  // bloomYFlip : 1 sur DX (bloom/SSAO stockés Y-up vs HDR Y-down → V opposé),
 							  // 0 sur VK/GL (bloom/SSAO et HDR partagent la même convention V). Corrige le
 							  // glow "ghost" miroir vertical sur DX.
@@ -763,7 +875,10 @@ void main() {
 								   ? 1.f
 								   : 0.f),
 							  // p2.w = garde-fou HDR (0 = desactive). Le tonemap clampe le HDR avant ACES.
-							  hdrClampValue};
+							  hdrClampValue,
+							  // p3 = (exposureMin, exposureMax, _, _) : bornes de l'exposure
+							  // calculee par l'auto-exposure (key / luminance mesuree).
+							  mCfg.autoExposureMinExp, mCfg.autoExposureMaxExp, 0.f, 0.f};
 			// Push avec NK_ALL_GRAPHICS pour matcher la range pipeline (cf. fix
 			// VUID-vkCmdPushConstants-offset-01796 — VS lit yFlipUV au slot PC[1].z).
 			cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), pc);
@@ -1042,6 +1157,122 @@ void main() {
 			cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), &pc);
 
 			cmd->Draw(3, 1, 0, 0);
+		}
+
+		// =====================================================================
+		// Phase L V1 — AUTO-EXPOSURE (2026-07-30)
+		// =====================================================================
+		// Force d'auto-exposure effective : config, ou override d'environnement
+		// NK_AUTOEXP (pratique pour un A/B sans recompiler ni modifier une app —
+		// meme motif que NK_HDR_CLAMP dans ExecuteRHI). Lu une seule fois.
+		static float32 NkAutoExpStrength(float32 fromConfig) {
+			static int sInit = 0;
+			static bool sHasEnv = false;
+			static float32 sEnv = 0.f;
+			if (!sInit) {
+				sInit = 1;
+				const char *v = getenv("NK_AUTOEXP");
+				if (v && v[0]) {
+					sHasEnv = true;
+					sEnv = (float32)atof(v);
+				}
+			}
+			return sHasEnv ? sEnv : fromConfig;
+		}
+
+		static float32 NkAutoExpSpeed(float32 fromConfig) {
+			static int sInit = 0;
+			static bool sHasEnv = false;
+			static float32 sEnv = 0.f;
+			if (!sInit) {
+				sInit = 1;
+				const char *v = getenv("NK_AUTOEXP_SPEED");
+				if (v && v[0]) {
+					sHasEnv = true;
+					sEnv = (float32)atof(v);
+				}
+			}
+			return sHasEnv ? sEnv : fromConfig;
+		}
+
+		bool NkPostProcessStack::IsAutoExposureEnabled() const {
+			if (!mPipeAutoExp.IsValid() || !mLumaRT[0].IsValid() || !mLumaRT[1].IsValid())
+				return false;
+			return NkAutoExpStrength(mCfg.autoExposureStrength) > 0.001f;
+		}
+
+		NkTextureHandle NkPostProcessStack::GetAvgLumaTexRHI() const {
+			if (mLumaWrite < 0 || !mTex)
+				return NkTextureHandle{};
+			return mTex->GetRHIHandle(mLumaRT[mLumaWrite].GetColorHandle());
+		}
+
+		void NkPostProcessStack::RunAutoExposure(NkICommandBuffer *cmd, NkTextureHandle hdrIn, float32 dtSeconds) {
+			if (!cmd || !hdrIn.IsValid() || !IsAutoExposureEnabled())
+				return;
+			NkSamplerHandle samp = mResources ? mResources->GetSamplerLinearClamp() : NkSamplerHandle{};
+			if (!samp.IsValid())
+				return;
+
+			// dt : mesure interne si l'appelant n'en fournit pas. La premiere frame
+			// n'a pas de delta significatif -> 0 (le shader prend alors la cible
+			// directement puisque l'etat precedent est nul).
+			float32 dt = dtSeconds;
+			if (dt < 0.f) {
+				if (!mAutoExpClockStarted) {
+					mAutoExpClock.Reset();
+					mAutoExpClockStarted = true;
+					dt = 0.f;
+				} else {
+					dt = (float32)mAutoExpClock.Reset().ToSeconds();
+					// Garde-fou : un hoquet (chargement, breakpoint) ne doit pas
+					// teleporter l'adaptation.
+					if (dt > 0.25f)
+						dt = 0.25f;
+				}
+			}
+
+			// Ping-pong : on ECRIT dans l'index libre, on LIT celui de la frame
+			// precedente. Premiere execution : la cible de lecture n'a jamais ete
+			// rendue, elle vaut 0 -> le shader detecte l'amorcage (prev <= 0).
+			const int write = (mLumaWrite < 0) ? 0 : (1 - mLumaWrite);
+			const int read = 1 - write;
+
+			NkTextureHandle prevTex = mTex ? mTex->GetRHIHandle(mLumaRT[read].GetColorHandle()) : NkTextureHandle{};
+
+			NkDescSetHandle set = mAutoExpSets[mAutoExpSetCursor % kAutoExpDescSets];
+			mAutoExpSetCursor++;
+			if (!set.IsValid())
+				return;
+			mDevice->BindTextureSampler(set, 0, hdrIn, samp);
+			// prevTex invalide au premier passage : on binde le HDR pour ne pas
+			// laisser un slot non initialise (UB sur certains backends). Le shader
+			// ignore la valeur puisqu'elle ne sera pas <= 0 dans ce cas ; d'ou le
+			// clear explicite ci-dessous a la premiere frame.
+			mDevice->BindTextureSampler(set, 1, prevTex.IsValid() ? prevTex : hdrIn, samp);
+
+			// La cible 1x1 n'est PAS un transient du RenderGraph : on gere son
+			// render pass ici (meme modele que la passe d'ombres).
+			// clear a 0 UNIQUEMENT au premier passage : sinon on effacerait l'etat
+			// precedent... qui est justement dans l'AUTRE cible, donc le clear est
+			// inoffensif — on le garde a 0 pour un demarrage deterministe.
+			mLumaRT[write].BeginRender(cmd, NkVec4f{0.f, 0.f, 0.f, 1.f}, false);
+			cmd->BindGraphicsPipeline(mPipeAutoExp);
+			cmd->BindDescriptorSet(set, 0);
+
+			struct PC {
+					float32 dt, speed, minLuma, maxLuma;
+			} pc;
+
+			pc.dt = (mLumaWrite < 0) ? 0.f : dt; // amorcage : saut direct sur la cible
+			pc.speed = NkAutoExpSpeed(mCfg.autoExposureSpeed);
+			pc.minLuma = mCfg.autoExposureMinLuma > 0.f ? mCfg.autoExposureMinLuma : 0.0001f;
+			pc.maxLuma = mCfg.autoExposureMaxLuma > pc.minLuma ? mCfg.autoExposureMaxLuma : 8.f;
+			cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), &pc);
+			cmd->Draw(3, 1, 0, 0);
+			mLumaRT[write].EndRender(cmd);
+
+			mLumaWrite = write;
 		}
 
 	} // namespace renderer

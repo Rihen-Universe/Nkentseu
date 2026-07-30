@@ -407,6 +407,34 @@ NkPlanarReflectionSystem + reflets planaires complets sur sol mirror.
   Limitations V0 : pas d'eye adaptation temporelle (V1 = compute reduction
   + SSBO double-buffer), précision moyenne (bloom threshold filtre les
   basses luminances).
+- ✅ **Auto-exposure V1 — MESURE RÉELLE + ADAPTATION** (2026-07-30) : la V0
+  échantillonnait **UN SEUL pixel** (le centre du RT de bloom) comme proxy du
+  niveau de la scène → l'exposition était pilotée par ce qui se trouvait au
+  milieu de l'écran, et le seuil de bloom écrasait les basses luminances.
+  V1 : nouvelle passe `PP_AutoExposure` (`Resources/.../PP_AutoExposure/NkSL/`)
+  qui calcule la **moyenne logarithmique** (moyenne géométrique, convention
+  Reinhard) de la luminance sur **256 échantillons** de l'image HDR, pondérée
+  vers le centre (métrage « center-weighted »), dans une cible **1×1 RGBA16F** ;
+  **adaptation temporelle** façon accommodation de l'œil
+  (`1 - exp(-dt·vitesse)`, indépendante du framerate) via **ping-pong de deux
+  cibles 1×1 persistantes** (conservées à l'OnResize : sinon redimensionner
+  provoquerait un flash). Le tonemap consomme la valeur au **binding 4**
+  (PC 48→64 o, `p3 = (expMin, expMax)`).
+  Config : `autoExposureSpeed/MinLuma/MaxLuma/MinExp/MaxExp` ; overrides de test
+  `NK_AUTOEXP`, `NK_AUTOEXP_SPEED`, `NK_EXPOSURE`.
+  Le shader n'a **aucune convention Y par backend** (la moyenne logarithmique
+  est invariante à l'orientation) — contrairement au bloom et au tonemap.
+  **MESURES (demo 2, luminance moyenne de la zone 3D, /255)** : référence
+  exposition 1 sans auto = 98,1. Base **0,25** (sous-exposée) : 42,4 → **147,20**
+  avec auto ; base **6** (surexposée, 81,7 % de pixels brûlés) : 204,9 →
+  **147,17**. Soit **0,02 % d'écart entre deux bases distantes d'un facteur 24**
+  = la boucle se ferme bien sur la mesure et non sur l'entrée.
+  **Parité 4 backends** : GL 147,20 · Vulkan 147,19 · DX11 147,20 · DX12 147,19.
+  Note d'usage : la cible 0,18 donne une image plus claire que l'exposition
+  manuelle historique (147 vs 98) — baisser `autoExposureKey` vers ~0,10 pour
+  retrouver le rendu d'avant.
+  Reste V2 : réduction en **compute** (au lieu de 256 taps dans un fragment) et
+  histogramme + percentiles pour ignorer les extrêmes.
 - ✅ **NkRHI compute audit** (2026-05-23) — compute support OK cross-API
   VK+GL (cf. `memory/nkrhi_compute_support.md`). Déjà utilisé par NkML,
   NkAnimationSystem morph, NkComputeContext wrapper. Foundation prête pour
@@ -504,13 +532,20 @@ LIVRÉ dans `NkRender2D`, seul le glow reste un stub.)*
 ### Phase L — Finition post-process (TODO restants)
 - **FXAA wirage RenderGraph** : pipeline créé, manque split tonemap→mToneTex
   + nouvelle pass FXAA→swapchain (~30 min refactor RenderGraph)
-- **Auto-exposure** : adaptation luminance moyenne → exposure adapté
-  via mipmap chain HDR (1x1 fetch) OU compute reduction (~1-2h)
+- ✅ **Auto-exposure** LIVRÉE V1 (2026-07-30) : mesure réelle (256 taps, moyenne
+  logarithmique, cible 1×1) + adaptation temporelle, validée par mesures sur les
+  4 backends — détail dans la section « Livré » Phase L ci-dessus
 - ✅ **API SetColorGradingLUT(data, size)** LIVRÉE (2026-07-12) + vraie LUT 3D
   sur GL (validé capture `NK_LUT_TEST=1` teal&orange)
 - **TAA** (Temporal AA) : remplacer FXAA par TAA moderne UE5-style.
   Jittered proj + velocity buffer + history texture + neighborhood clamp.
-  ~4-5h, gros impact visuel "next gen"
+  ~4-5h, gros impact visuel "next gen".
+  ⚠️ **BLOQUÉ (2026-07-30)** par le verrou du chantier modélisation sur
+  `Tools/Render3D/*` (cf. `Engine/Noge/CONTINUATION.private.md`) : le jitter de
+  projection est faisable dans `Core/NkCamera` (libre), mais la reprojection
+  exige les matrices caméra de la frame courante ET précédente côté passe de
+  post-process — or le renderer n'a aucun accès caméra hors de `NkRender3D`
+  (aucun getter exposé). Débloquer = UN accesseur en lecture dans NkRender3D.
 - **DOF/bokeh** : profondeur de champ avec cercle de confusion
 - **Motion blur** : object + camera, vélocité buffer
 - **Vignette/grain/chromatic/Lens flares** : effets de lens

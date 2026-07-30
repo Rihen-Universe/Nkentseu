@@ -7,7 +7,8 @@
 layout(push_constant) uniform PC {
     vec4 p0;   // (exposure, gamma, vignetteIntens, saturation)
     vec4 p1;   // (bloomStrength, lutStrength, yFlipUV, lutSize)
-    vec4 p2;   // auto-exposure : (autoExpStrength, autoExpKey, _, _)
+    vec4 p2;   // (autoExpStrength, autoExpKey, bloomYFlip, hdrClamp)
+    vec4 p3;   // auto-exposure : (exposureMin, exposureMax, _, _)
 } pc;
 
 @stage(vertex)

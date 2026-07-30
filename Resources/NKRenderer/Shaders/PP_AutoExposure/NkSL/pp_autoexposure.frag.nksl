@@ -1,0 +1,70 @@
+// pp_autoexposure.frag.nksl — NKRenderer — Auto-exposure : mesure + adaptation (FS)
+//
+// Remplace l'auto-exposure V0 qui échantillonnait UN SEUL pixel (le centre du RT de
+// bloom) comme approximation du niveau de la scène : une source vive au centre
+// écrasait alors l'exposition de toute l'image, et une scène entièrement sombre hors
+// du centre restait sombre.
+//
+// Méthode : moyenne LOGARITHMIQUE de la luminance (moyenne géométrique, convention
+// de Reinhard 2002 pour l'exposition photographique) sur une grille régulière de
+// 16x16 = 256 échantillons de l'image HDR, pondérée vers le centre comme le fait la
+// mesure « center-weighted » d'un appareil photo. La cible fait 1x1 : ces 256
+// lectures sont exécutées par UN SEUL fragment (coût négligeable).
+//
+// Adaptation temporelle (accommodation de l'œil) : la valeur ne saute pas, elle
+// converge exponentiellement vers la cible — adapted += (target - adapted) *
+// (1 - exp(-dt * vitesse)). Formulation indépendante du framerate. L'état précédent
+// arrive par uPrevLuma (ping-pong de deux cibles 1x1 persistantes) ; une valeur
+// nulle ou négative signifie « première frame » → on prend la cible directement,
+// sinon la scène apparaîtrait avec une exposition fausse pendant l'amorçage.
+
+@location(0) in  vec2 vUV;
+@location(0) out vec4 oLuma;
+
+@binding(set=0, binding=0) uniform sampler2D uHDR;
+@binding(set=0, binding=1) uniform sampler2D uPrevLuma;
+
+layout(push_constant) uniform PC {
+    vec4 p0;   // (dtSeconds, adaptSpeed, minLuma, maxLuma)
+} pc;
+
+@stage(fragment)
+@entry
+void main() {
+    float dt       = pc.p0.x;
+    float speed    = pc.p0.y;
+    float minLuma  = pc.p0.z;
+    float maxLuma  = pc.p0.w;
+
+    const int kGrid = 16;                   // 256 échantillons
+    float invGrid = 1.0 / float(kGrid);
+    float logSum = 0.0;
+    float wSum   = 0.0;
+
+    for (int y = 0; y < kGrid; y = y + 1) {
+        for (int x = 0; x < kGrid; x = x + 1) {
+            vec2 uv = (vec2(float(x), float(y)) + 0.5) * invGrid;
+            vec3 c = texture(uHDR, uv).rgb;
+            float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+            // Pondération centrale : le bord compte 0.4, le centre 1.0. Évite qu'un
+            // ciel très lumineux en haut d'image sous-expose le sujet.
+            vec2 d = uv - vec2(0.5, 0.5);
+            float w = 1.0 - 0.6 * clamp(length(d) * 1.41421356, 0.0, 1.0);
+            // max(l, 1e-4) : log(0) = -inf contaminerait toute la somme.
+            logSum = logSum + log(max(l, 0.0001)) * w;
+            wSum   = wSum + w;
+        }
+    }
+
+    float target = exp(logSum / max(wSum, 0.0001));
+    target = clamp(target, minLuma, maxLuma);
+
+    float prev = texture(uPrevLuma, vec2(0.5, 0.5)).r;
+    float adapted = target;
+    if (prev > 0.0) {
+        float k = 1.0 - exp(-max(dt, 0.0) * max(speed, 0.0));
+        adapted = prev + (target - prev) * clamp(k, 0.0, 1.0);
+    }
+
+    oLuma = vec4(adapted, adapted, adapted, 1.0);
+}
