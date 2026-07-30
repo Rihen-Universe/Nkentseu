@@ -3871,7 +3871,9 @@ namespace nkentseu {
 			// DESSUS la cage, et on croit déplacer une forme fantôme.
 			if (!gridClean && !(st->editMode && st->editObjIdx == Demo3DState::kIdxFloor)) {
 				NkDrawCall3D dc;
-				dc.mesh = st->meshPlane;
+				// meshFor : si le sol a été ÉDITÉ, c'est SON mesh qui est rendu — sinon
+				// l'extrusion faite en Edit Mode ne serait visible qu'en Edit Mode.
+				dc.mesh = meshFor(Demo3DState::kIdxFloor, st->meshPlane);
 				// Passe par userXform : le sol suit le gizmo comme n'importe quel objet.
 				dc.transform = userXform(Demo3DState::kIdxFloor, Demo3D_ObjBaseFull(st, Demo3DState::kIdxFloor));
 				dc.aabb = {{-40, 0, -40}, {40, 0, 40}};
@@ -3892,7 +3894,7 @@ namespace nkentseu {
 				NkVec3f mn, mx;
 				Demo3D_XformAABB(wm, mn, mx);
 				NkDrawCall3D dc;
-				dc.mesh = st->meshCube;
+				dc.mesh = meshFor(Demo3DState::kIdxGIWall, st->meshCube);
 				dc.transform = wm;
 				dc.aabb = {mn, mx};
 				dc.tint = effTint({0.9f, 0.05f, 0.05f});
@@ -4015,7 +4017,7 @@ namespace nkentseu {
 			// ombre doit montrer les trous entre les disques (Shadow_AlphaTest).
 			if (st->maskedMat && !(st->editMode && st->editObjIdx == Demo3DState::kIdxFoliage)) {
 				NkDrawCall3D dc;
-				dc.mesh = st->meshCube;
+				dc.mesh = meshFor(Demo3DState::kIdxFoliage, st->meshCube);
 				dc.transform = userXform(Demo3DState::kIdxFoliage, Demo3D_ObjBaseFull(st, Demo3DState::kIdxFoliage));
 				dc.aabb = {{4.f - 1.7f, 0.3f, -1.f - 1.7f}, {4.f + 1.7f, 2.9f, -1.f + 1.7f}};
 				dc.material = st->maskedMat->GetInstHandle();
