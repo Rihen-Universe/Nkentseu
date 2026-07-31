@@ -36,6 +36,7 @@
 //                                     sortie 1 si divergence (utilisable en CI)
 // =============================================================================
 #include "NKRenderer/Mesh/NkEditMesh.h"
+#include "NKRenderer/Mesh/NkMeshAnalysis.h"
 #include "NKRenderer/Core/NkGizmo.h"
 #include "NKEditorKit/NkShortcutTable.h"
 #include "NKContainers/Associative/NkHashMap.h"
@@ -1539,6 +1540,135 @@ static void ShortcutBattery() {
 	}
 }
 
+// ── ANALYSE STRUCTURELLE ────────────────────────────────────────────────────
+// La brique qui sert a la fois la RETOPOLOGIE, la REPARATION et la DONNEE
+// D'APPRENTISSAGE. Les cas sont choisis pour qu'une mesure fausse se voie :
+//   • le CUBE donne des chiffres connus d'avance (Euler = 2, genre 0, 8 poles) ;
+//   • CATMULL-CLARK doit PRESERVER le nombre de sommets irreguliers — c'est une
+//     propriete mathematique du schema, et une subdivision naive la casserait ;
+//   • la SYMETRIE doit CHUTER quand on casse la forme, sinon « 1,0 partout » ne
+//     prouverait rien ;
+//   • la JONCTION EN T doit refuser de donner un genre : un genre calcule sur un
+//     maillage non manifold serait un entier plausible et faux.
+static void AnalysisBattery() {
+	NkVector<NkVertex3D> cv, gv;
+	NkVector<uint32> ci, gi;
+	MakeCube(cv, ci);
+	MakeGrid(4, gv, gi);
+	auto line = [](const char *nm, const NkMeshStats &a) {
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256,
+					 "%-34s S=%u A=%u F=%u euler=%d genre=%d quad=%.2f poles(3/5/6+)=%u/%u/%u reg=%u bord=%u",
+					 nm, a.verts, a.edges, a.faces, a.euler, a.genus, (double)a.quadRatio, a.poles.valence3,
+					 a.poles.valence5, a.poles.valence6plus, a.poles.regular, a.poles.boundary);
+			gLineCount++;
+		}
+	};
+
+	// 1) CUBE : tous les chiffres sont connus d'avance. Euler = 8-12+6 = 2, donc
+	//    genre 0. Huit coins de valence 3 : un cube n'a QUE des poles.
+	NkEditMesh cube;
+	cube.BuildFromIndexed(cv.Data(), (uint32)cv.Size(), ci.Data(), (uint32)ci.Size(), true);
+	{
+		const NkMeshStats a = NkMeshAnalysis::Analyze(cube);
+		line("analyse/cube", a);
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s brut=%u soude=%u ferme=%d manifold=%d isoles=%u degen=%u",
+					 "analyse/cube-sante", a.rawVerts, a.verts, a.IsClosed() ? 1 : 0, a.IsManifold() ? 1 : 0,
+					 a.looseVerts, a.degenerateFaces);
+			gLineCount++;
+		}
+	}
+
+	// 2) LE CAS QUI COMPTE — CATMULL-CLARK PRESERVE LES SOMMETS IRREGULIERS.
+	//    Le cube a 8 coins de valence 3. Apres subdivision il en a TOUJOURS 8 :
+	//    les points d'arete et de face naissent tous reguliers (valence 4). Une
+	//    subdivision qui deplacerait ou multiplierait les poles serait fausse, et
+	//    le comptage de sommets seul ne le montrerait pas.
+	for (int32 lv = 1; lv <= 2; lv++) {
+		NkEditMesh m = cube;
+		m.SubdivideCatmullClark(lv);
+		char nm[64];
+		snprintf(nm, sizeof(nm), "analyse/catmull-n%d-poles-invariants", lv);
+		line(nm, NkMeshAnalysis::Analyze(m));
+	}
+
+	// 3) GRILLE : maillage OUVERT. Le genre doit valoir -1 (refus) et non un
+	//    entier calcule sur une formule qui ne s'applique pas.
+	NkEditMesh grid;
+	grid.BuildFromIndexed(gv.Data(), (uint32)gv.Size(), gi.Data(), (uint32)gi.Size(), true);
+	line("analyse/grille-ouverte", NkMeshAnalysis::Analyze(grid));
+
+	// 4) SYMETRIE. Un cube est symetrique sur les trois axes. On DEPLACE ensuite
+	//    un seul coin : la symetrie doit chuter sur les axes concernes. Sans ce
+	//    second cas, « 1,00 partout » ne prouverait rien du tout.
+	{
+		const NkMeshStats a = NkMeshAnalysis::Analyze(cube);
+		NkEditMesh bent = cube;
+		const NkVec3f target = bent.verts[0].pos;
+		for (uint32 i = 0; i < bent.VertCount(); ++i)
+			if ((bent.verts[i].pos - target).Len() < 1e-6f)
+				bent.verts[i].pos = bent.verts[i].pos + NkVec3f{0.35f, 0.f, 0.f};
+		const NkMeshStats b = NkMeshAnalysis::Analyze(bent);
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s cube x/y/z=%.2f/%.2f/%.2f  coin deplace=%.2f/%.2f/%.2f",
+					 "analyse/symetrie", (double)a.symmetry.x, (double)a.symmetry.y, (double)a.symmetry.z,
+					 (double)b.symmetry.x, (double)b.symmetry.y, (double)b.symmetry.z);
+			gLineCount++;
+		}
+	}
+
+	// 5) JONCTION EN T : non manifold. Le genre doit etre REFUSE.
+	{
+		NkVector<NkVertex3D> vt = cv;
+		NkVector<uint32> it = ci;
+		const NkVec3f a = {0.5f, -0.5f, 0.5f}, b = {0.5f, -0.5f, -0.5f};
+		const NkVec3f c = {1.5f, -0.5f, -0.5f}, d = {1.5f, -0.5f, 0.5f};
+		const NkVec3f q[4] = {a, b, c, d};
+		const uint32 base = (uint32)vt.Size();
+		for (int32 k = 0; k < 4; k++) {
+			NkVertex3D x{};
+			x.pos = q[k];
+			x.normal = {0.f, 1.f, 0.f};
+			x.tangent = {1.f, 0.f, 0.f};
+			x.color = 0xFFFFFFFFu;
+			vt.PushBack(x);
+		}
+		it.PushBack(base);
+		it.PushBack(base + 1);
+		it.PushBack(base + 2);
+		it.PushBack(base);
+		it.PushBack(base + 2);
+		it.PushBack(base + 3);
+		NkEditMesh m;
+		m.BuildFromIndexed(vt.Data(), (uint32)vt.Size(), it.Data(), (uint32)it.Size(), true);
+		const NkMeshStats an = NkMeshAnalysis::Analyze(m);
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s nonmanif=%u bordA=%u genre=%d (doit valoir -1)",
+					 "analyse/jonction-T-refus-genre", an.nonManifoldEdges, an.boundaryEdges, an.genus);
+			gLineCount++;
+		}
+	}
+
+	// 6) DENSITE. Un cube a des aretes toutes egales : ecart relatif nul. Une
+	//    grille etiree sur un axe doit montrer un ecart non nul — sinon la mesure
+	//    ne mesure rien.
+	{
+		const NkMeshStats a = NkMeshAnalysis::Analyze(cube);
+		NkEditMesh stretched = grid;
+		for (uint32 i = 0; i < stretched.VertCount(); ++i)
+			stretched.verts[i].pos.x *= 3.f;
+		const NkMeshStats b = NkMeshAnalysis::Analyze(stretched);
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256,
+					 "%-34s cube ecart=%.3f (min %.2f max %.2f) | grille etiree ecart=%.3f (min %.2f max %.2f)",
+					 "analyse/densite", (double)a.edgeDeviation, (double)a.edgeMin, (double)a.edgeMax,
+					 (double)b.edgeDeviation, (double)b.edgeMin, (double)b.edgeMax);
+			gLineCount++;
+		}
+	}
+}
+
 int main(int argc, char **argv) {
 	bool baseline = false, check = false;
 	for (int32 i = 1; i < argc; i++) {
@@ -1562,6 +1692,7 @@ int main(int argc, char **argv) {
 	ModStackBattery();
 	ModsBattery();
 	ShortcutBattery();
+	AnalysisBattery();
 
 	const char *path = "editmesh_baseline.txt";
 	if (baseline) {
