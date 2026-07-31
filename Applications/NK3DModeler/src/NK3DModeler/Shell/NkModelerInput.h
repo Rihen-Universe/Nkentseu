@@ -149,6 +149,20 @@ namespace nkentseu {
 				// Intention en attente et saisie de texte en cours. Le second garde
 				// est indispensable : sans lui, taper « e » dans un champ de nom
 				// extrude le maillage.
+				// Fond de la vue 3D : indice dans la table de prereglages de l'ecran.
+				NkRect addAnchor{};	  ///< bouton « Ajouter », pour ancrer son menu
+				int32 addOpenCat = 0; ///< categorie ouverte du menu Ajouter
+				int32 bgChoice = 0;
+				// ── Navigateur de projet : CONTENU CREE PAR L'UTILISATEUR ───────
+				// Plus aucune donnee simulee : le navigateur nait vide et se remplit
+				// par « + Dossier / + Materiau / + Texture ». Tableaux plats a
+				// indices stables, comme partout ailleurs dans cet etat.
+				static const int32 kMaxBrowser = 32;
+				int32 browserCount = 0;
+				uint8 browserKind[32] = {};	   ///< 0 dossier, 1 materiau, 2 texture
+				char browserNames[32][32] = {};
+				int32 browserParent[32] = {};  ///< -1 = racine
+				int32 browserFolder = -1;	   ///< dossier ouvert (-1 = racine)
 				NkVpAction pendingAction = NkVpAction::None;
 				bool editingText = false;
 				bool xray = false;

@@ -406,6 +406,9 @@ int nkmain(const NkEntryState &entry) {
 		// Le registre est reinitialise APRES BeginFrame : il lit les transitions
 		// que celui-ci vient de calculer.
 		hit.Begin(ui.input);
+		// La garde du clavier suit l'etat REEL des widgets : tant qu'un champ est
+		// en cours de saisie, aucune touche ne doit atteindre les raccourcis.
+		st.editingText = ws.editing;
 		// Relu CHAQUE frame et non seulement apres notre bouton : l'utilisateur peut
 		// maximiser par double-clic sur la barre, par raccourci Windows ou en glissant
 		// la fenetre en haut de l'ecran. L'icone doit suivre dans tous les cas.
@@ -522,8 +525,19 @@ int nkmain(const NkEntryState &entry) {
 						st.dirty = true;
 					break;
 				case NkVpAction::Delete:
-					if (edit && nk3d::Viewport3DDeleteSelection())
-						st.dirty = true;
+					// X supprime CE QUE le mode designe : les faces selectionnees en
+					// edition, l'objet actif en mode objet. La meme touche pour les
+					// deux, comme Blender -- c'est le mode qui porte le sens.
+					if (edit) {
+						if (nk3d::Viewport3DDeleteSelection())
+							st.dirty = true;
+					} else {
+						const int32 act = nk3d::Viewport3DActiveObject();
+						if (act >= 0) {
+							nk3d::Viewport3DDeleteObject(act);
+							st.dirty = true;
+						}
+					}
 					break;
 				case NkVpAction::Dissolve:
 					if (edit && nk3d::Viewport3DDissolve())
@@ -644,6 +658,7 @@ int nkmain(const NkEntryState &entry) {
 		DrawComboPopup(p, hit, ws, combo);
 		DrawCheckPopup(p, hit, ws, checks);
 		PaintModifierMenu(p, st, hit, ws, W, H);
+		PaintAddObjectMenu(p, st, hit, ws, W, H);
 		PaintOpenMenu(p, lay.menu, st, hit, shortcuts);
 		PaintCloseDialog(p, W, H, st, hit);
 

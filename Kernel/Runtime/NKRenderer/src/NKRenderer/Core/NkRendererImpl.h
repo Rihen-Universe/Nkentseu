@@ -122,6 +122,7 @@ namespace nkentseu {
 				void SetFinalColorTarget(NkTextureHandle target) override;
 				void SetFinalColorTargetMirror(NkTextureHandle target, bool mirrorToScreen) override;
 				void SetRenderSizeOverride(uint32 w, uint32 h) override;
+				void SetBackgroundColor(NkVec4f rgba) override;
 
 				// Callback UI applicatif (NKUI & co) exécuté en fin de passe
 				// Overlay2D — cf. NkRenderer.h. [AJOUT 2026-07-25]
@@ -202,6 +203,7 @@ namespace nkentseu {
 				memory::NkUniquePtr<NkMaterialSystem> mMaterials;
 				memory::NkUniquePtr<NkMaterialLibrary> mMaterialLibrary;			 // Phase G
 				memory::NkUniquePtr<class NkMaterialCollection> mMaterialCollection; // Phase M.2
+				NkVec4f mClearColor = {0.05f, 0.05f, 0.07f, 1.f}; ///< fond de la passe Geometry
 				memory::NkUniquePtr<NkVirtualShadowMaps> mShadow;
 				memory::NkUniquePtr<NkEnvironmentSystem> mEnvironment;
 				memory::NkUniquePtr<NkRender2D> mRender2D;
