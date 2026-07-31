@@ -246,40 +246,60 @@ namespace nkentseu {
 			auto S = [&](NkRole r, const char *h) {
 				t.Set(r, FromHex(h));
 			};
-			// Les trois gris de UI_SPEC 10bis.1
-			S(NkRole::WindowBg, "#141414");
-			S(NkRole::PanelBg, "#212121");
-			S(NkRole::PanelHeader, "#2B2B2B");
-			S(NkRole::Border, "#FFFFFF14"); // blanc a 8 %
-			S(NkRole::InputBg, "#1A1A1A");
-			S(NkRole::LabelCol, "#1A1A1A");
-			// BLANC PUR, demande par Rihen. #E6E6E6 (la valeur du guide de style) tire
-			// vers le gris sur les fonds tres sombres du produit : a cote d'une icone
-			// blanche, le texte paraissait eteint.
+
+			// ── PALETTE GITHUB DARK ─────────────────────────────────────────────
+			// Demandee par Rihen. Elle remplace les trois gris neutres de UI_SPEC
+			// 10bis.1 -- la HIERARCHIE A TROIS NIVEAUX, elle, est conservee : c'est
+			// elle qui structure la lecture, pas les valeurs exactes.
+			//
+			// Ce qui change en pratique : les gris sont plus SOMBRES et legerement
+			// BLEUTES. Un gris parfaitement neutre sur un grand aplat parait sale ;
+			// une pointe de bleu le fait lire comme une surface et non comme une
+			// absence de couleur. C'est le choix de GitHub, de VS Code et d'Unreal.
+			S(NkRole::WindowBg, "#010409");	  // le plus sombre : il recule derriere tout
+			S(NkRole::PanelBg, "#0D1117");	  // le panneau se detache du vide
+			S(NkRole::PanelHeader, "#161B22"); // en-tetes et barres : ce qui structure se lit d'abord
+			// Bordure OPAQUE et non un blanc translucide : sur un fond aussi sombre,
+			// 8 % de blanc donne un trait invisible. GitHub utilise une valeur pleine.
+			S(NkRole::Border, "#30363D");
+			S(NkRole::InputBg, "#0D1117");
+			S(NkRole::LabelCol, "#161B22");
 			S(NkRole::Text, "#FFFFFF");
-			S(NkRole::TextMuted, "#FFFFFF8C"); // blanc a 55 %
+			S(NkRole::TextMuted, "#8B949E"); // le gris de texte secondaire de GitHub
 			S(NkRole::TextOnAccent, "#FFFFFF");
-			S(NkRole::AccentUi, "#1177D1");
-			S(NkRole::AccentSel, "#F2980E"); // l'orange UNIQUE (10bis.2)
+			S(NkRole::AccentUi, "#1F6FEB"); // bleu d'etat d'interface
+			S(NkRole::AccentSel, "#F2980E"); // l'orange UNIQUE du produit (10bis.2), inchange
+
+			// Etats de selection d'un element de maillage.
 			S(NkRole::ElemActive, "#FFFFFF");
 			S(NkRole::ElemSelected, "#F2980E");
-			S(NkRole::ElemIdle, "#0F0F0F");
-			S(NkRole::AxisX, "#C7404A");
-			S(NkRole::AxisY, "#5A9E3C");
-			S(NkRole::AxisZ, "#3A6FB0");
-			S(NkRole::TypeMesh, "#22B8CF");
-			S(NkRole::TypeAnim, "#F08C00");
-			S(NkRole::TypeMat, "#37B24D");
-			S(NkRole::TypeTex, "#E64980");
-			S(NkRole::NodeDataHeader, "#0A545E"); // repos      (10bis.3)
-			S(NkRole::NodeDataHeaderHot, "#095461"); // survole (10bis.3)
+			S(NkRole::ElemIdle, "#161B22");
+
+			// Axes, eclaircis pour tenir sur un fond plus sombre qu'avant.
+			S(NkRole::AxisX, "#F85149"); // rouge GitHub
+			S(NkRole::AxisY, "#3FB950"); // vert GitHub
+			S(NkRole::AxisZ, "#58A6FF"); // bleu GitHub
+
+			S(NkRole::TypeMesh, "#39C5CF");
+			S(NkRole::TypeAnim, "#DB6D28");
+			S(NkRole::TypeMat, "#3FB950");
+			S(NkRole::TypeTex, "#DB61A2");
+
+			// Les deux sarcelles imposees restent : elles servent deux etats du MEME
+			// en-tete de noeud, qui ne coexistent jamais (10bis.3).
+			S(NkRole::NodeDataHeader, "#0A545E");
+			S(NkRole::NodeDataHeaderHot, "#095461");
 			S(NkRole::NodeActionHeader, "#F2980E");
-			S(NkRole::NodeBody, "#2B2B2B");
-			S(NkRole::NodeWire, "#B4B4B4");
-			S(NkRole::ViewportTop, "#1A1A1A");
-			S(NkRole::ViewportBottom, "#252525");
-			S(NkRole::GridLine, "#FFFFFF12");
-			S(NkRole::TypeFolder, "#F0B429"); // ambre de dossier, repris de la maquette
+			S(NkRole::NodeBody, "#161B22");
+			S(NkRole::NodeWire, "#8B949E");
+
+			// Vue 3D : un cran AU-DESSUS des panneaux et non en dessous. C'est la zone
+			// qu'on regarde, elle ne doit pas s'enfoncer davantage que le cadre.
+			S(NkRole::ViewportTop, "#1C2128");
+			S(NkRole::ViewportBottom, "#22272E");
+			S(NkRole::GridLine, "#FFFFFF14");
+
+			S(NkRole::TypeFolder, "#E3B341"); // ambre de dossier, version GitHub
 			return t;
 		}
 

@@ -77,30 +77,31 @@ namespace nkentseu {
 				NkRect menu{}, tabs{}, tool{}, left{}, view{}, right{}, propsR{}, detailsR{}, browser{},
 					status{};
 
-				void Compute(float32 W, float32 H) {
-					menuH = H * 0.04f;
-					if (menuH < S(44.f))
-						menuH = S(44.f);
-					tabsH = H * 0.03f;
-					if (tabsH < S(32.f))
-						tabsH = S(32.f);
+				// Les fractions viennent de l'ETAT (les separateurs les modifient) ;
+				// les valeurs par defaut ne servent qu'au premier appel.
+				void Compute(float32 W, float32 H, float32 fLeft = 0.16f, float32 fRight = 0.29f,
+							 float32 fBrowser = 0.22f, float32 fProps = 0.45f) {
+					// BARRE DE TITRE AMINCIE, demandee par Rihen. 30 px suffisent a un
+					// logo, sept menus et trois boutons ; les 44 precedents venaient
+					// d'un pourcentage de la hauteur d'ecran, ce qui n'a aucun sens pour
+					// une barre dont le contenu a une taille fixe.
+					menuH = S(30.f);
+					tabsH = S(28.f);
 					// AMINCIE par rapport a la maquette (5 %) : Banani y avait mis des
 					// boutons qui font doublon avec les menus de la vue. Seul son
 					// commutateur Objet/Edition est garde -- il rend visible un etat qui,
 					// chez Blender, n'existe que dans un menu deroulant.
 					toolH = S(34.f);
-					browserH = H * 0.22f;
-					if (browserH < S(200.f))
-						browserH = S(200.f);
-					statusH = H * 0.03f;
-					if (statusH < S(30.f))
-						statusH = S(30.f);
-					leftW = W * 0.16f;
-					if (leftW < S(200.f))
-						leftW = S(200.f);
-					rightW = W * 0.29f;
-					if (rightW < S(300.f))
-						rightW = S(300.f);
+					browserH = H * fBrowser;
+					if (browserH < S(140.f))
+						browserH = S(140.f);
+					statusH = S(28.f);
+					leftW = W * fLeft;
+					if (leftW < S(180.f))
+						leftW = S(180.f);
+					rightW = W * fRight;
+					if (rightW < S(260.f))
+						rightW = S(260.f);
 
 					float32 y = 0.f;
 					menu = {0.f, y, W, menuH};
@@ -114,7 +115,7 @@ namespace nkentseu {
 					view = {leftW, y, W - leftW - rightW, midH};
 					right = {W - rightW, y, rightW, midH};
 					// Proprietes AU-DESSUS des details, 45 / 55 comme la maquette.
-					propsR = {right.x, right.y, right.w, midH * 0.45f};
+					propsR = {right.x, right.y, right.w, midH * fProps};
 					detailsR = {right.x, right.y + propsR.h, right.w, midH - propsR.h};
 					y += midH;
 					browser = {0.f, y, W, browserH};

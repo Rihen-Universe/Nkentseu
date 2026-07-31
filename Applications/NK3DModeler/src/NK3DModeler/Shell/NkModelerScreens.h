@@ -64,8 +64,11 @@ namespace nkentseu {
 								  NkModelerState &st, NkHitRegistry &hit) {
 			p.Fill(r, NkRole::PanelHeader);
 			p.HLine(r.x, r.y + r.h - 1.f, r.w);
+			// Poignee de deplacement : toute la barre, declaree AVANT les menus et
+			// les boutons pour qu'ils la recouvrent.
+			hit.Add("win.drag", r);
 
-			const float32 logo = S(24.f);
+			const float32 logo = S(22.f);
 			const float32 ly = r.y + (r.h - logo) * 0.5f;
 			p.Fill({S(10.f), ly, logo, logo}, NkRole::AccentUi, 4.f);
 			const float32 nkW = p.TextW("NK");
@@ -111,8 +114,30 @@ namespace nkentseu {
 				p.IconV(bx + (bw - S(13.f)) * 0.5f, by, bh, kWin[i],
 						close ? NkRole::TextOnAccent : NkRole::Text, 13.f);
 			}
-			if (hit.Clicked("win.close"))
-				st.running = false;
+			if (hit.Clicked("win.min"))
+				st.wantMinimize = true;
+			if (hit.Clicked("win.max"))
+				st.wantMaxRestore = true;
+			// La FERMETURE passe par la confirmation si le document est modifie.
+			// Fermer directement ferait perdre le travail sur un clic mal place, et
+			// c'est le genre d'accident qu'on ne pardonne pas a un logiciel.
+			if (hit.Clicked("win.close")) {
+				if (st.dirty)
+					st.askClose = true;
+				else
+					st.running = false;
+			}
+
+			// ── DEPLACEMENT DE LA FENETRE ───────────────────────────────────────
+			// La barre de titre est la poignee, mais seulement la ou elle est VIDE :
+			// declarer la zone en PREMIER laisse les menus et les boutons, declares
+			// ensuite, la recouvrir. C'est la regle « la derniere zone gagne » qui
+			// fait le tri, sans qu'on ait a lister les exceptions.
+			//
+			// Le drapeau est pose ici et consomme par la boucle : BeginDragMove BLOQUE
+			// (boucle modale de l'OS) et le rappeler pendant la peinture reentrerait
+			// dans la frame.
+			st.wantDragMove = hit.Clicked("win.drag");
 		}
 
 		// ── ONGLETS DE DOCUMENT ─────────────────────────────────────────────────
@@ -986,6 +1011,297 @@ namespace nkentseu {
 			const float32 ew = p.TextW("5 elements");
 			p.TextV(r.x + r.w - ew - kPad, r.y + r.h - kRowH, kRowH, "5 elements", NkRole::TextMuted);
 			(void)ih;
+		}
+
+		// ── CONTENU DES MENUS ───────────────────────────────────────────────────
+		// Une TABLE plutot que du code : ajouter une entree ne demande pas de
+		// toucher au rendu, et la meme table servira la palette de recherche et le
+		// menu contextuel -- une liste ecrite deux fois finit par diverger.
+		//
+		// `command` est la CLE STABLE de NkShortcutTable quand l'entree en a une :
+		// c'est elle qui permet d'afficher le raccourci sans le recopier. Vide pour
+		// les entrees qui n'en ont pas encore.
+		struct NkMenuItem {
+				const char *label;   ///< nullptr = separateur
+				const char *command; ///< cle NkShortcutTable, ou ""
+				bool submenu;		 ///< ouvre un sous-menu
+		};
+		struct NkMenuDef {
+				const char *title;
+				const NkMenuItem *items;
+				int32 count;
+		};
+
+		inline const NkMenuDef *NkMenus(int32 &outCount) {
+			static const NkMenuItem kFile[] = {
+				{"Nouveau", "", false},		{"Ouvrir...", "", false}, {"Ouvrir recent", "", true},
+				{nullptr, "", false},		{"Enregistrer", "", false}, {"Enregistrer sous...", "", false},
+				{nullptr, "", false},		{"Importer", "", true},   {"Exporter", "", true},
+				{nullptr, "", false},		{"Quitter", "", false},
+			};
+			static const NkMenuItem kEdit[] = {
+				{"Annuler", "app.annuler", false}, {"Refaire", "app.refaire", false},
+				{nullptr, "", false},			   {"Dupliquer", "objet.dupliquer", false},
+				{"Supprimer", "objet.supprimer", false}, {nullptr, "", false},
+				{"Preferences...", "", false},
+			};
+			static const NkMenuItem kWindow[] = {
+				{"Hierarchie", "", false},		{"Proprietes", "", false}, {"Details", "", false},
+				{"Navigateur de projet", "", false}, {nullptr, "", false},
+				{"Panneau d'outils", "app.panneau_outils", false}, {nullptr, "", false},
+				{"Plein ecran", "", false},
+			};
+			static const NkMenuItem kTools[] = {
+				{"Rechercher une commande", "app.palette", false}, {nullptr, "", false},
+				{"Retopologier", "", false},   {"Decimer...", "", false},
+				{nullptr, "", false},		   {"Extensions", "", true},
+			};
+			static const NkMenuItem kSelect[] = {
+				{"Tout selectionner", "", false}, {"Tout deselectionner", "", false},
+				{"Inverser", "", false},		  {nullptr, "", false},
+				{"Par type", "", true},
+			};
+			static const NkMenuItem kObject[] = {
+				{"Deplacer", "objet.deplacer", false}, {"Tourner", "objet.tourner", false},
+				{"Redimensionner", "objet.echelle", false}, {nullptr, "", false},
+				{"Ajouter un modificateur", "", true}, {"Appliquer tout", "", false},
+			};
+			static const NkMenuItem kHelp[] = {
+				{"Documentation", "", false}, {"Raccourcis clavier", "", false},
+				{nullptr, "", false},		  {"A propos", "", false},
+			};
+			static const NkMenuDef kMenus[] = {
+				{"Fichier", kFile, 11},	  {"Edition", kEdit, 7},	{"Fenetre", kWindow, 8},
+				{"Outils", kTools, 6},	  {"Selection", kSelect, 5}, {"Objet", kObject, 6},
+				{"Aide", kHelp, 4},
+			};
+			outCount = 7;
+			return kMenus;
+		}
+
+		// ── DEROULEMENT D'UN MENU ───────────────────────────────────────────────
+		// Peint APRES tout le reste : un menu doit recouvrir les panneaux, et le
+		// registre de zones donne la priorite a ce qui est declare en dernier.
+		inline void PaintOpenMenu(NkModelerPainter &p, const NkRect &bar, NkModelerState &st,
+								  NkHitRegistry &hit, const NkShortcutTable &sc) {
+			if (st.openMenu < 0)
+				return;
+			int32 nMenus = 0;
+			const NkMenuDef *menus = NkMenus(nMenus);
+			if (st.openMenu >= nMenus)
+				return;
+			const NkMenuDef &m = menus[st.openMenu];
+
+			// Position : sous l'entree de barre correspondante. On recalcule les
+			// largeurs comme la barre pour retomber exactement dessous -- une
+			// constante recopiee se decalerait a la premiere traduction.
+			float32 x = S(10.f) + S(24.f) + S(16.f);
+			for (int32 i = 0; i < st.openMenu; ++i)
+				x += p.TextW(menus[i].title) + S(18.f);
+			x -= S(9.f);
+
+			const float32 itemH = S(24.f), sepH = S(7.f);
+			float32 w = S(150.f);
+			char keys[32];
+			for (int32 i = 0; i < m.count; ++i) {
+				if (!m.items[i].label)
+					continue;
+				float32 need = p.TextW(m.items[i].label) + S(70.f);
+				if (m.items[i].command && *m.items[i].command
+					&& sc.FormatFor(m.items[i].command, keys, sizeof(keys)))
+					need += p.TextW(keys);
+				if (need > w)
+					w = need;
+			}
+			float32 h = S(8.f);
+			for (int32 i = 0; i < m.count; ++i)
+				h += m.items[i].label ? itemH : sepH;
+
+			const NkRect box{x, bar.y + bar.h, w, h};
+			p.Fill({box.x + 2.f, box.y + 2.f, box.w, box.h}, NkRole::WindowBg, 4.f); // ombre portee
+			p.Outline(box, NkRole::Border, NkRole::PanelHeader, 4.f);
+			hit.Add("menu.panel", box); // avale les clics qui tombent dans le menu
+
+			float32 y = box.y + S(4.f);
+			for (int32 i = 0; i < m.count; ++i) {
+				if (!m.items[i].label) {
+					// Separateur : il ne s'etend PAS bord a bord, il est retrait de la
+					// marge du texte -- sinon il coupe le menu en deux blocs qui ont
+					// l'air sans rapport.
+					p.HLine(box.x + S(8.f), y + sepH * 0.5f, box.w - S(16.f));
+					y += sepH;
+					continue;
+				}
+				const NkRect ir{box.x + 2.f, y, box.w - 4.f, itemH};
+				snprintf(keys, sizeof(keys), "menu.item.%d", i);
+				const bool over = hit.Add(keys, ir);
+				if (over)
+					p.Fill(ir, NkRole::AccentUi, 3.f);
+				p.TextV(ir.x + S(12.f), y, itemH, m.items[i].label,
+						over ? NkRole::TextOnAccent : NkRole::Text);
+				// Le RACCOURCI est lu dans la table, jamais recopie : rebinder une
+				// touche met l'affichage a jour tout seul.
+				if (m.items[i].command && *m.items[i].command
+					&& sc.FormatFor(m.items[i].command, keys, sizeof(keys))) {
+					const float32 kw = p.TextW(keys);
+					p.TextV(ir.x + ir.w - kw - S(12.f), y, itemH, keys,
+							over ? NkRole::TextOnAccent : NkRole::TextMuted);
+				}
+				if (m.items[i].submenu)
+					p.IconV(ir.x + ir.w - S(18.f), y, itemH, NkIcon::ChevronRight,
+							over ? NkRole::TextOnAccent : NkRole::TextMuted, 11.f);
+				snprintf(keys, sizeof(keys), "menu.item.%d", i);
+				if (hit.Clicked(keys) && !m.items[i].submenu) {
+					// Une entree SANS sous-menu referme le menu. Une entree AVEC en
+					// ouvrirait un second -- non ecrit tant qu'aucune n'a de contenu
+					// reel, plutot qu'un panneau vide qui ferait croire a un bug.
+					if (st.openMenu == 0 && i == 10) // Fichier > Quitter
+						st.askClose = true;
+					st.openMenu = -1;
+				}
+				y += itemH;
+			}
+
+			// UN CLIC AILLEURS REFERME. Teste en dernier, apres que toutes les zones
+			// du menu ont ete declarees : sans cet ordre, le clic sur une entree
+			// refermerait aussi le menu avant d'etre traite.
+			if (hit.AnyClick() && !hit.IsHovered("menu.panel")) {
+				bool onItem = false;
+				for (int32 i = 0; i < m.count && !onItem; ++i) {
+					snprintf(keys, sizeof(keys), "menu.item.%d", i);
+					onItem = hit.IsHovered(keys);
+				}
+				bool onBar = false;
+				for (int32 i = 0; i < nMenus && !onBar; ++i) {
+					snprintf(keys, sizeof(keys), "menu.%d", i);
+					onBar = hit.IsHovered(keys);
+				}
+				if (!onItem && !onBar)
+					st.openMenu = -1;
+			}
+		}
+
+		// ── SEPARATEURS GLISSABLES ──────────────────────────────────────────────
+		// Ils modifient des FRACTIONS et non des pixels : la disposition se retrouve
+		// identique a la reouverture quelle que soit la taille de fenetre.
+		//
+		// La zone sensible est PLUS LARGE que le trait dessine (6 px contre 1) :
+		// viser un trait d'un pixel est un exercice d'adresse, pas une interaction.
+		// C'est ce que font tous les gestionnaires de fenetres.
+		inline void PaintSplitters(NkModelerPainter &p, const NkLayout &lay, float32 W, float32 H,
+								   NkModelerState &st, NkHitRegistry &hit) {
+			const float32 grab = S(6.f);
+			struct Sp {
+					const char *key;
+					NkRect zone;
+					bool vertical; ///< true = trait vertical, on glisse en X
+					float32 *frac;
+					float32 span; ///< dimension de reference pour convertir px -> fraction
+					float32 sign; ///< sens : +1 si la fraction croit avec la position
+			};
+			const Sp sps[4] = {
+				{"split.left", {lay.left.x + lay.left.w - grab * 0.5f, lay.left.y, grab, lay.left.h},
+				 true, &st.leftFrac, W, 1.f},
+				{"split.right", {lay.right.x - grab * 0.5f, lay.right.y, grab, lay.right.h}, true,
+				 &st.rightFrac, W, -1.f},
+				{"split.browser", {0.f, lay.browser.y - grab * 0.5f, W, grab}, false, &st.browserFrac, H,
+				 -1.f},
+				{"split.props",
+				 {lay.propsR.x, lay.propsR.y + lay.propsR.h - grab * 0.5f, lay.propsR.w, grab}, false,
+				 &st.propsFrac, lay.right.h, 1.f},
+			};
+
+			for (int32 i = 0; i < 4; ++i) {
+				const bool over = hit.Add(sps[i].key, sps[i].zone);
+				const bool active = (st.dragSplitter == i);
+				if (over || active) {
+					hit.WantCursor(sps[i].vertical ? NkCursorWant::ResizeWE : NkCursorWant::ResizeNS);
+					// Le trait s'ECLAIRE au survol : sans retour visuel, on ne sait pas
+					// qu'on a attrape le bon endroit avant d'avoir deja tire.
+					p.Fill(sps[i].zone, active ? NkRole::AccentUi : NkRole::Border);
+				}
+				if (hit.Clicked(sps[i].key)) {
+					st.dragSplitter = i;
+					st.dragStart = sps[i].vertical ? hit.Mouse().x : hit.Mouse().y;
+					st.dragStartFrac = *sps[i].frac;
+				}
+			}
+
+			// Le glissement se poursuit MEME SI la souris quitte la zone : c'est le
+			// bouton enfonce qui commande, pas la position. Sans cela, un glissement
+			// rapide lacherait le separateur en pleine course.
+			if (st.dragSplitter >= 0) {
+				if (!hit.MouseDown()) {
+					st.dragSplitter = -1;
+				} else {
+					const Sp &sp = sps[st.dragSplitter];
+					const float32 now = sp.vertical ? hit.Mouse().x : hit.Mouse().y;
+					float32 f = st.dragStartFrac + sp.sign * (now - st.dragStart) / sp.span;
+					if (f < 0.08f)
+						f = 0.08f;
+					if (f > 0.60f)
+						f = 0.60f;
+					*sp.frac = f;
+				}
+			}
+		}
+
+		// ── CONFIRMATION DE FERMETURE ───────────────────────────────────────────
+		// N'apparait QUE si le document a des modifications non enregistrees.
+		// Demander confirmation pour un document propre serait une friction inutile,
+		// et l'utilisateur finirait par valider sans lire -- ce qui rend la question
+		// dangereuse le jour ou elle compte vraiment.
+		inline void PaintCloseDialog(NkModelerPainter &p, float32 W, float32 H, NkModelerState &st,
+									 NkHitRegistry &hit) {
+			if (!st.askClose)
+				return;
+			p.Fill({0.f, 0.f, W, H}, NkColor{0, 0, 0, 150}); // voile
+			hit.Add("dlg.veil", {0.f, 0.f, W, H});
+
+			const float32 bw = S(420.f), bh = S(150.f);
+			const NkRect box{(W - bw) * 0.5f, (H - bh) * 0.5f, bw, bh};
+			p.Outline(box, NkRole::Border, NkRole::PanelHeader, 6.f);
+			hit.Add("dlg.box", box);
+			p.TextV(box.x + S(20.f), box.y + S(14.f), S(24.f), "Quitter NK3DModeler ?");
+			p.TextV(box.x + S(20.f), box.y + S(44.f), S(22.f),
+					"La scene a des modifications non enregistrees.", NkRole::TextMuted);
+
+			struct B {
+					const char *key;
+					const char *label;
+					bool primary;
+			};
+			// L'ordre compte : l'action la plus SURE est a droite, sous la main, et
+			// c'est elle qui porte l'accent. « Quitter sans enregistrer » reste
+			// atteignable mais ne se propose pas.
+			const B kBtns[3] = {{"dlg.cancel", "Annuler", false},
+								{"dlg.discard", "Quitter sans enregistrer", false},
+								{"dlg.save", "Enregistrer et quitter", true}};
+			float32 bx = box.x + box.w - S(14.f);
+			for (int32 i = 2; i >= 0; --i) {
+				const float32 w = p.TextW(kBtns[i].label) + S(24.f);
+				const NkRect br{bx - w, box.y + bh - S(44.f), w, S(28.f)};
+				const bool over = hit.Add(kBtns[i].key, br);
+				if (kBtns[i].primary)
+					p.Fill(br, over ? NkRole::AccentSel : NkRole::AccentUi, 4.f);
+				else
+					p.Outline(br, NkRole::Border, over ? NkRole::PanelBg : NkRole::PanelHeader, 4.f);
+				const float32 lw = p.TextW(kBtns[i].label);
+				p.TextV(br.x + (w - lw) * 0.5f, br.y, br.h, kBtns[i].label,
+						kBtns[i].primary ? NkRole::TextOnAccent : NkRole::Text);
+				bx -= w + S(10.f);
+			}
+
+			if (hit.Clicked("dlg.cancel"))
+				st.askClose = false;
+			if (hit.Clicked("dlg.discard"))
+				st.running = false;
+			if (hit.Clicked("dlg.save")) {
+				// L'enregistrement reel viendra avec le format de projet. On marque le
+				// document propre pour que le chemin soit deja juste.
+				st.dirty = false;
+				st.running = false;
+			}
 		}
 
 		// ── BARRE D'ETAT ────────────────────────────────────────────────────────
