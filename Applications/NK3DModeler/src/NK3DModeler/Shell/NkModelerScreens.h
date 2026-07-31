@@ -692,31 +692,61 @@ namespace nkentseu {
 		}
 
 		// ── LIGNE DE PROPRIETE A TROIS CHAMPS ───────────────────────────────────
-		// Le lisere de couleur d'axe est sur le SEUL BORD GAUCHE du champ, le fond
-		// restant neutre : teinter le fond entier rend les trois champs criards et
-		// illisibles, c'est un critere de refus ecrit dans le brief.
+		// CHAQUE COORDONNEE A SON PROPRE CADRE, et il est LARGE. Les deux demandes de
+		// Rihen vont ensemble :
+		//   * un cadre PAR coordonnee dit qu'il y a trois champs a EDITER, pas une
+		//     ligne de trois nombres. Sans bordure, « 0,00 0,00 0,00 » se lit comme un
+		//     triplet d'affichage et on ne pense pas a cliquer dedans ;
+		//   * la LARGEUR sert a la saisie : une position peut valoir -1234,567. A
+		//     52 px le nombre etait tronque des qu'on sortait des valeurs de
+		//     demonstration, et l'utilisateur aurait edite a l'aveugle.
 		//
-		// Les champs sont ETROITS et de largeur FIXE, ils ne remplissent pas la
-		// colonne. Ma premiere version les etirait sur toute la largeur : les valeurs
-		// se retrouvaient perdues au milieu de rectangles vides, et il ne restait
-		// aucune place pour l'icone de reinitialisation a droite.
+		// Le lisere d'axe reste sur le SEUL BORD GAUCHE, fond neutre -- teinter le
+		// fond entier rendrait les trois champs criards, c'est un critere de refus du
+		// brief. Il est desormais DANS le cadre, ce qui le fait lire comme l'etiquette
+		// du champ et non comme un trait de separation.
 		inline void PaintVec3Row(NkModelerPainter &p, const NkRect &r, float32 y, const char *label,
-								 const char *v0, const char *v1, const char *v2, NkIcon trailing) {
-			p.Fill({r.x, y, kLabelW, kRowH}, NkRole::LabelCol);
-			p.TextV(r.x + kPad, y, kRowH, label);
+								 const char *v0, const char *v1, const char *v2, NkIcon trailing,
+								 NkHitRegistry *hit = nullptr, const char *keyBase = nullptr) {
+			const float32 rowH = kRowH + S(6.f); // plus haute : les cadres ont besoin d'air
+			p.Fill({r.x, y, kLabelW, rowH}, NkRole::LabelCol);
+			p.TextV(r.x + kPad, y, rowH, label);
+
 			const NkRole axes[3] = {NkRole::AxisX, NkRole::AxisY, NkRole::AxisZ};
 			const char *vals[3] = {v0, v1, v2};
-			const float32 fw = 52.f;
-			float32 x = r.x + kLabelW + 4.f;
+			const float32 gap = S(4.f);
+			const float32 tail = (trailing != NkIcon::None) ? S(24.f) : 0.f;
+			const float32 avail = r.w - kLabelW - S(8.f) - tail;
+			float32 fw = (avail - gap * 2.f) / 3.f;
+			if (fw < S(44.f))
+				fw = S(44.f); // plancher : sous cette largeur un nombre signe ne tient plus
+			float32 x = r.x + kLabelW + S(5.f);
+			char key[40];
 			for (int32 i = 0; i < 3; ++i) {
-				p.Fill({x, y + 2.f, fw, kRowH - 4.f}, NkRole::InputBg, 2.f);
-				p.Fill({x, y + 2.f, 2.f, kRowH - 4.f}, axes[i]); // le lisere, bord gauche
-				p.TextV(x + 8.f, y, kRowH, vals[i]);
-				x += fw + 3.f;
+				const NkRect fr{x, y + S(3.f), fw, rowH - S(6.f)};
+				bool over = false;
+				if (hit && keyBase) {
+					snprintf(key, sizeof(key), "%s.%d", keyBase, i);
+					over = hit->Add(key, fr);
+				}
+				// Le cadre s'ECLAIRE au survol : c'est ce qui annonce qu'on peut taper
+				// dedans, avant meme d'avoir clique.
+				p.Outline(fr, over ? NkRole::AccentUi : NkRole::Border, NkRole::InputBg, 3.f);
+				p.Fill({fr.x + 1.f, fr.y + 1.f, S(3.f), fr.h - 2.f}, axes[i]);
+				// Valeur calee a DROITE : les nombres se comparent par leur unite, et
+				// trois colonnes calees a gauche donnent des virgules en escalier.
+				const float32 vw = p.TextW(vals[i]);
+				p.TextV(fr.x + fr.w - vw - S(8.f), fr.y, fr.h, vals[i]);
+				x += fw + gap;
 			}
 			if (trailing != NkIcon::None)
-				p.IconV(r.x + r.w - 20.f, y, kRowH, trailing, NkRole::TextMuted, 12.f);
-			p.HLine(r.x, y + kRowH - 1.f, r.w);
+				p.IconV(r.x + r.w - S(20.f), y, rowH, trailing, NkRole::Text, 12.f);
+			p.HLine(r.x, y + rowH - 1.f, r.w);
+		}
+
+		// Hauteur d'une ligne a trois champs, pour que l'appelant avance du bon pas.
+		inline float32 Vec3RowH() {
+			return kRowH + S(6.f);
 		}
 
 		// ── PROPRIETES (droite, haut) ───────────────────────────────────────────
@@ -757,12 +787,12 @@ namespace nkentseu {
 			p.IconV(r.x + 6.f, y, kRowH, NkIcon::ChevronDown, NkRole::Text, 11.f);
 			p.TextV(r.x + 22.f, y, kRowH, "Transformation");
 			y += kRowH;
-			PaintVec3Row(p, r, y, "Position", "0,00", "0,00", "0,00", NkIcon::Refresh);
-			y += kRowH;
-			PaintVec3Row(p, r, y, "Rotation", "0,00", "0,00", "0,00", NkIcon::None);
-			y += kRowH;
-			PaintVec3Row(p, r, y, "Echelle", "1,00", "1,00", "1,00", NkIcon::Lock);
-			y += kRowH;
+			PaintVec3Row(p, r, y, "Position", "0,00", "0,00", "0,00", NkIcon::Refresh, &hit, "prop.pos");
+			y += Vec3RowH();
+			PaintVec3Row(p, r, y, "Rotation", "0,00", "0,00", "0,00", NkIcon::None, &hit, "prop.rot");
+			y += Vec3RowH();
+			PaintVec3Row(p, r, y, "Echelle", "1,00", "1,00", "1,00", NkIcon::Lock, &hit, "prop.scl");
+			y += Vec3RowH();
 			// L'ascenseur mesure le contenu REEL depuis le haut de la zone de liste :
 			// une hauteur devinee ferait glisser le curseur a cote de la matiere.
 			const NkRect area{full.x, listTop, full.w, full.y + full.h - listTop};
