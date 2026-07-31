@@ -1653,9 +1653,29 @@ namespace nkentseu {
 					cmd->BindDescriptorSet(gs, 0);
 			}
 			FlushTransparent(cmd);
-			if (!mPendingMirrorActive)
+			// Overlays : emis ICI seulement si l'ancien chemin est demande. Par defaut
+			// ils partent dans la passe Overlay3D, apres le post-process, pour ne pas
+			// etre bloomes (cf. SetOverlayAfterPost).
+			if (!mPendingMirrorActive && !mOverlayAfterPost)
 				FlushDebug(cmd, currentRP, gs);
 			mInScene = false;
+		}
+
+		// Emet les overlays 3D dans la passe dediee. Le RP est celui d'« Overlay3D » :
+		// les pipelines d'overlay sont caches PAR RENDER PASS, il faut donc les creer
+		// pour cette passe — c'est ce que font les Ensure*Pipeline appelees par
+		// FlushDebug. Sur OpenGL le RP vaut {} et le backend l'ignore, comme ailleurs.
+		void NkRender3D::FlushOverlay3D(NkICommandBuffer *cmd) {
+			if (!mOverlayAfterPost)
+				return;
+			NkRenderPassHandle rp{};
+			if (mGraph)
+				rp = mGraph->GetPassRenderPass("Overlay3D");
+			const NkDescSetHandle gs =
+				(mFrameSlot < mGlobalSetRing.Size()) ? mGlobalSetRing[mFrameSlot] : NkDescSetHandle{};
+			if (gs.IsValid())
+				cmd->BindDescriptorSet(gs, 0);
+			FlushDebug(cmd, rp, gs);
 		}
 
 		void NkRender3D::Flush(NkICommandBuffer *cmd) {
@@ -1808,7 +1828,10 @@ namespace nkentseu {
 			// miroir (rendue AVANT la vue principale), il les CONSOMMAIT et la
 			// vue principale ne les affichait jamais (bug « cercle vert visible
 			// seulement dans le miroir », Demo4/5 surlignage matériau actif).
-			if (!mPendingMirrorActive)
+			// Overlays : emis ICI seulement si l'ancien chemin est demande. Par defaut
+			// ils partent dans la passe Overlay3D, apres le post-process, pour ne pas
+			// etre bloomes (cf. SetOverlayAfterPost).
+			if (!mPendingMirrorActive && !mOverlayAfterPost)
 				FlushDebug(cmd, currentRP, gs);
 			mInScene = false;
 
