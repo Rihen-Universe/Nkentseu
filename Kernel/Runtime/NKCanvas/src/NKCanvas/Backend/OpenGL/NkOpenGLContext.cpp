@@ -398,12 +398,15 @@ namespace nkentseu {
 	void NkOpenGLContext::Present() {
 		if (!mIsValid)
 			return;
-		if (mSkipNextPresent) {
-			// Frame rendue a l'ANCIENNE taille alors qu'un configure vient de
-			// changer les dimensions : ne pas la valider (cf. mSkipNextPresent).
-			mSkipNextPresent = false;
-			return;
-		}
+		// NE PAS sauter la presentation apres un redimensionnement.
+		//
+		// Cela avait ete tente : sans eglSwapBuffers, Mesa ne fait pas TOURNER
+		// ses tampons et ne reacquiert donc jamais. La frame suivante reutilise
+		// le meme tampon perime, et l'erreur de protocole survient une frame
+		// plus tard — le correctif deplacait le probleme au lieu de le
+		// resoudre. Le champ mSkipNextPresent est conserve mais neutralise ici,
+		// le temps de trouver la vraie sequence.
+		(void)mSkipNextPresent;
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
 		SwapWGL();
 #elif defined(NKENTSEU_WINDOWING_XLIB) || defined(NKENTSEU_WINDOWING_XCB)
