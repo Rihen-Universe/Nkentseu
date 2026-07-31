@@ -13,14 +13,13 @@
 // =============================================================================
 
 #include "NK3DModeler/Shell/NkModelerUI.h"
+#include "NK3DModeler/Shell/NkModelerInput.h"
 #include "NKEditorKit/NkShortcutTable.h"
 
 #include <cstdio>
 
 namespace nkentseu {
 	namespace nk3d {
-
-		struct NkModelerState;
 
 		// Hauteur d'une ligne de liste ou de propriete. Reprise de la maquette :
 		// 22 px. En dessous le texte touche les bords, au-dessus la densite chute et
@@ -52,70 +51,96 @@ namespace nkentseu {
 			return {r.x + kInset, r.y, r.w - kInset * 2.f, r.h};
 		}
 
+		// Fond de survol. UN SEUL endroit, pour que tous les elements survolables
+		// reagissent pareil : un survol qui change d'aspect d'un bouton a l'autre se
+		// lit comme un defaut d'affichage, pas comme une intention.
+		inline void HoverFill(NkModelerPainter &p, const NkRect &r, bool on, float32 rounding = 3.f) {
+			if (on)
+				p.Fill(r, NkRole::PanelBg, rounding);
+		}
+
 		// ── BARRE DE MENUS ──────────────────────────────────────────────────────
-		inline void PaintMenuBar(NkModelerPainter &p, const NkRect &r, const char *projectName) {
+		inline void PaintMenuBarI(NkModelerPainter &p, const NkRect &r, const char *projectName,
+								  NkModelerState &st, NkHitRegistry &hit) {
 			p.Fill(r, NkRole::PanelHeader);
 			p.HLine(r.x, r.y + r.h - 1.f, r.w);
 
-			const float32 logo = 24.f;
+			const float32 logo = S(24.f);
 			const float32 ly = r.y + (r.h - logo) * 0.5f;
-			p.Fill({10.f, ly, logo, logo}, NkRole::AccentUi, 4.f);
+			p.Fill({S(10.f), ly, logo, logo}, NkRole::AccentUi, 4.f);
 			const float32 nkW = p.TextW("NK");
-			p.TextV(10.f + (logo - nkW) * 0.5f, ly, logo, "NK", NkRole::TextOnAccent);
+			p.TextV(S(10.f) + (logo - nkW) * 0.5f, ly, logo, "NK", NkRole::TextOnAccent);
 
-			float32 x = 10.f + logo + 16.f;
+			float32 x = S(10.f) + logo + S(16.f);
 			static const char *const kMenus[] = {"Fichier", "Edition", "Fenetre", "Outils",
 												 "Selection", "Objet", "Aide"};
+			static const char *const kMenuKeys[] = {"menu.0", "menu.1", "menu.2", "menu.3",
+													"menu.4", "menu.5", "menu.6"};
 			for (int32 i = 0; i < 7; ++i) {
-				p.TextV(x, r.y, r.h, kMenus[i]);
-				x += p.TextW(kMenus[i]) + 22.f;
+				const float32 w = p.TextW(kMenus[i]) + S(18.f);
+				const NkRect mr{x - S(9.f), r.y + S(6.f), w, r.h - S(12.f)};
+				const bool over = hit.Add(kMenuKeys[i], mr);
+				// Un menu OUVERT reste marque meme si la souris est partie : sinon on ne
+				// saurait plus quel menu a produit la liste affichee.
+				if (st.openMenu == i)
+					p.Fill(mr, NkRole::AccentUi, 3.f);
+				else
+					HoverFill(p, mr, over);
+				p.TextV(x, r.y, r.h, kMenus[i], st.openMenu == i ? NkRole::TextOnAccent : NkRole::Text);
+				if (hit.Clicked(kMenuKeys[i]))
+					st.openMenu = (st.openMenu == i) ? -1 : i; // deuxieme clic = referme
+				x += w;
 			}
 
-			// Nom du projet CENTRE sur la FENETRE, pas apres les menus : il doit rester
-			// au meme endroit quelle que soit la langue, et les libelles traduits
-			// changent de largeur de 30 % d'une langue a l'autre.
 			const float32 nw = p.TextW(projectName);
 			p.TextV(r.w * 0.5f - nw * 0.5f, r.y, r.h, projectName, NkRole::TextMuted);
 
-			// Boutons de fenetre. La fenetre etant SANS CADRE OS, c'est nous qui les
-			// portons ; seule la fermeture est coloree, comme dans la maquette.
-			const float32 bw = 30.f, bh = 22.f;
+			const float32 bw = S(30.f), bh = S(22.f);
 			const float32 by = r.y + (r.h - bh) * 0.5f;
 			const NkIcon kWin[3] = {NkIcon::WinMin, NkIcon::WinMax, NkIcon::WinClose};
+			static const char *const kWinKeys[3] = {"win.min", "win.max", "win.close"};
 			for (int32 i = 0; i < 3; ++i) {
-				const float32 bx = r.w - kPad - (float32)(3 - i) * (bw + 6.f);
+				const float32 bx = r.w - kPad - (float32)(3 - i) * (bw + S(6.f));
+				const NkRect br{bx, by, bw, bh};
+				const bool over = hit.Add(kWinKeys[i], br);
 				const bool close = (i == 2);
-				if (close) {
-					p.Fill({bx, by, bw, bh}, NkColor{231, 76, 60, 255}, 3.f);
-				} else {
-					// BORDURE demandee : sans elle, les deux boutons neutres se
-					// fondent dans la barre et on ne devine leur zone cliquable qu'au
-					// survol -- alors que la fermeture, coloree, se voit d'emblee.
-					p.Outline({bx, by, bw, bh}, NkRole::Border, NkRole::PanelHeader, 3.f);
-				}
-				p.IconV(bx + (bw - 13.f) * 0.5f, by, bh, kWin[i],
+				if (close)
+					p.Fill(br, over ? NkColor{240, 100, 85, 255} : NkColor{231, 76, 60, 255}, 3.f);
+				else
+					p.Outline(br, NkRole::Border, over ? NkRole::PanelBg : NkRole::PanelHeader, 3.f);
+				p.IconV(bx + (bw - S(13.f)) * 0.5f, by, bh, kWin[i],
 						close ? NkRole::TextOnAccent : NkRole::Text, 13.f);
 			}
+			if (hit.Clicked("win.close"))
+				st.running = false;
 		}
 
 		// ── ONGLETS DE DOCUMENT ─────────────────────────────────────────────────
-		inline void PaintTabs(NkModelerPainter &p, const NkRect &r, const char *const *scenes, int32 n,
-							  int32 active) {
+		inline void PaintTabsI(NkModelerPainter &p, const NkRect &r, const char *const *scenes, int32 n,
+							   NkModelerState &st, NkHitRegistry &hit) {
 			p.Fill(r, NkRole::PanelBg);
 			p.HLine(r.x, r.y + r.h - 1.f, r.w);
-			float32 x = 10.f;
+			float32 x = S(10.f);
 			const float32 h = r.h - 2.f;
+			char key[24];
 			for (int32 i = 0; i < n; ++i) {
-				const float32 w = p.TextW(scenes[i]) + 34.f;
-				// L'onglet ACTIF prend la couleur de l'EN-TETE, pas un accent : c'est
-				// une continuite de surface avec ce qui est en dessous, pas une
-				// selection. L'accent bleu est reserve aux etats d'interface.
-				p.Fill({x, r.y + 2.f, w, h}, i == active ? NkRole::PanelHeader : NkRole::InputBg, 3.f);
-				p.TextV(x + 10.f, r.y, r.h, scenes[i], i == active ? NkRole::Text : NkRole::TextMuted);
-				p.TextV(x + w - 16.f, r.y, r.h, "x", NkRole::TextMuted);
+				const float32 w = p.TextW(scenes[i]) + S(34.f);
+				const NkRect tr{x, r.y + 2.f, w, h};
+				snprintf(key, sizeof(key), "tab.%d", i);
+				const bool over = hit.Add(key, tr);
+				const bool on = (i == st.activeTab);
+				// L'onglet ACTIF prend la couleur de l'EN-TETE, pas un accent : c'est une
+				// continuite de surface avec ce qui est dessous, pas une selection.
+				p.Fill(tr, on ? NkRole::PanelHeader : (over ? NkRole::PanelBg : NkRole::InputBg), 3.f);
+				p.TextV(x + S(10.f), r.y, r.h, scenes[i], on ? NkRole::Text : NkRole::TextMuted);
+				p.IconV(x + w - S(18.f), r.y, r.h, NkIcon::WinClose, NkRole::TextMuted, 10.f);
+				if (hit.Clicked(key))
+					st.activeTab = i;
 				x += w + 3.f;
 			}
-			p.TextV(x + 8.f, r.y, r.h, "+", NkRole::TextMuted);
+			const NkRect ar{x + S(4.f), r.y + 2.f, S(24.f), h};
+			HoverFill(p, ar, hit.Add("tab.add", ar));
+			p.IconV(x + S(8.f), r.y, r.h, NkIcon::Add, NkRole::Text, 12.f);
 		}
 
 		// ── BARRE D'OUTILS ──────────────────────────────────────────────────────
@@ -127,53 +152,100 @@ namespace nkentseu {
 		// au troisieme mode.
 		// « Mode de selection » reste a cote, et ne fait PAS doublon : il porte le
 		// sous-mode sommet / arete / face, qui n'a de sens qu'EN edition.
-		inline void PaintToolbar(NkModelerPainter &p, const NkRect &r, int32 mode) {
+		inline void PaintToolbar(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
+								 NkHitRegistry &hit) {
 			p.Fill(r, NkRole::PanelHeader);
 			p.HLine(r.x, r.y + r.h - 1.f, r.w);
 			float32 x = kPad;
+			const float32 ih = S(14.f);
 
-			p.IconV(x, r.y, r.h, NkIcon::Save, NkRole::Text, 14.f);
-			p.TextV(x + 19.f, r.y, r.h, "Enregistrer");
-			x += 19.f + p.TextW("Enregistrer") + 14.f;
-			p.VLine(x, r.y + 7.f, r.h - 14.f);
-			x += 10.f;
+			// Bouton icone + libelle, avec sa zone sensible. Une seule fonction pour
+			// que tous reagissent pareil.
+			auto btn = [&](const char *key, NkIcon ic, const char *label) -> bool {
+				const float32 w = ih + S(5.f) + p.TextW(label) + S(14.f);
+				const NkRect br{x - S(7.f), r.y + S(5.f), w, r.h - S(10.f)};
+				const bool over = hit.Add(key, br);
+				HoverFill(p, br, over);
+				p.IconV(x, r.y, r.h, ic, NkRole::Text, 14.f);
+				p.TextV(x + ih + S(5.f), r.y, r.h, label);
+				x += w;
+				return hit.Clicked(key);
+			};
 
-			// Le deroulant de mode.
-			static const char *const kModes[] = {"Objet", "Edition", "Sculpt 2.5D", "Sculpt",
-												 "Texturing"};
+			btn("tb.save", NkIcon::Save, "Enregistrer");
+			p.VLine(x - S(4.f), r.y + S(7.f), r.h - S(14.f));
+			x += S(6.f);
+
+			// ── DEROULANT DE MODE ───────────────────────────────────────────────
+			// Rihen avait raison : ce ne sont pas deux boutons mais UNE liste, qui va
+			// s'allonger. Deux boutons auraient cesse de tenir au troisieme mode.
 			const NkIcon kModeIc[5] = {NkIcon::Mesh, NkIcon::Edit, NkIcon::Layers, NkIcon::Ruler,
 									   NkIcon::Overlay};
-			const int32 m = (mode >= 0 && mode < 5) ? mode : 0;
-			const float32 cbW = 150.f, cbH = 22.f, cbY = r.y + (r.h - cbH) * 0.5f;
-			p.Outline({x, cbY, cbW, cbH}, NkRole::Border, NkRole::InputBg, 3.f);
-			p.IconV(x + 7.f, cbY, cbH, kModeIc[m], NkRole::AccentUi, 13.f);
-			p.TextV(x + 26.f, cbY, cbH, kModes[m]);
-			p.IconV(x + cbW - 18.f, cbY, cbH, NkIcon::ChevronDown, NkRole::Text, 11.f);
-			x += cbW + 14.f;
-			p.VLine(x - 7.f, r.y + 7.f, r.h - 14.f);
+			const float32 cbW = S(150.f), cbH = S(22.f), cbY = r.y + (r.h - cbH) * 0.5f;
+			const NkRect cb{x, cbY, cbW, cbH};
+			const bool cbOver = hit.Add("tb.mode", cb);
+			p.Outline(cb, cbOver ? NkRole::AccentUi : NkRole::Border, NkRole::InputBg, 3.f);
+			p.IconV(x + S(7.f), cbY, cbH, kModeIc[(uint8)st.mode], NkRole::AccentUi, 13.f);
+			p.TextV(x + S(26.f), cbY, cbH, NkModeName(st.mode));
+			p.IconV(x + cbW - S(18.f), cbY, cbH, NkIcon::ChevronDown, NkRole::Text, 11.f);
+			if (hit.Clicked("tb.mode")) {
+				// Tant que le menu deroulant n'est pas ecrit, le clic FAIT DEFILER les
+				// modes. C'est provisoire et assume : mieux vaut un bouton qui repond
+				// qu'un bouton mort en attendant la liste.
+				st.mode = (NkMode)(((uint8)st.mode + 1u) % (uint8)NkMode::Count);
+			}
+			// La liste deroulee, si elle est ouverte.
+			if (st.openMenu == 100) {
+				const float32 itemH = S(24.f);
+				const NkRect list{x, cbY + cbH + 2.f, cbW, itemH * (float32)NkMode::Count};
+				p.Fill(list, NkRole::PanelHeader, 3.f);
+				char key[24];
+				for (uint8 i = 0; i < (uint8)NkMode::Count; ++i) {
+					const NkRect ir{list.x, list.y + (float32)i * itemH, list.w, itemH};
+					snprintf(key, sizeof(key), "tb.mode.%u", (uint32)i);
+					const bool over = hit.Add(key, ir);
+					if (over)
+						p.Fill(ir, NkRole::AccentUi);
+					p.IconV(ir.x + S(7.f), ir.y, itemH, kModeIc[i], over ? NkRole::TextOnAccent : NkRole::Text,
+							13.f);
+					p.TextV(ir.x + S(26.f), ir.y, itemH, NkModeName((NkMode)i),
+							over ? NkRole::TextOnAccent : NkRole::Text);
+					if (hit.Clicked(key)) {
+						st.mode = (NkMode)i;
+						st.openMenu = -1;
+					}
+				}
+			}
+			x += cbW + S(12.f);
+			p.VLine(x - S(7.f), r.y + S(7.f), r.h - S(14.f));
 
-			// Sous-mode de selection : actif SEULEMENT hors mode objet, et grise
-			// sinon plutot que masque -- une commande qui disparait laisse croire
-			// qu'elle n'existe pas.
-			const bool selUsable = (m != 0);
+			// Sous-mode de selection : GRISE en mode objet plutot que masque -- une
+			// commande qui disparait laisse croire qu'elle n'existe pas.
+			const bool selUsable = (st.mode != NkMode::Object);
 			const NkRole selFg = selUsable ? NkRole::Text : NkRole::TextMuted;
-			p.IconV(x, r.y, r.h, NkIcon::Cursor, selFg, 14.f);
-			p.TextV(x + 19.f, r.y, r.h, "Mode de selection", selFg);
-			x += 19.f + p.TextW("Mode de selection") + 6.f;
-			p.IconV(x, r.y, r.h, NkIcon::ChevronDown, NkRole::Text, 11.f);
-			x += 22.f;
+			{
+				const float32 w = ih + S(5.f) + p.TextW("Mode de selection") + S(28.f);
+				const NkRect br{x - S(7.f), r.y + S(5.f), w, r.h - S(10.f)};
+				if (selUsable)
+					HoverFill(p, br, hit.Add("tb.selmode", br));
+				p.IconV(x, r.y, r.h, NkIcon::Cursor, selFg, 14.f);
+				p.TextV(x + ih + S(5.f), r.y, r.h, "Mode de selection", selFg);
+				p.IconV(x + w - S(24.f), r.y, r.h, NkIcon::ChevronDown, selFg, 11.f);
+				x += w;
+			}
 
-			p.IconV(x, r.y, r.h, NkIcon::Add, NkRole::Text, 14.f);
-			p.TextV(x + 19.f, r.y, r.h, "Ajouter");
-			x += 19.f + p.TextW("Ajouter") + 16.f;
-			p.IconV(x, r.y, r.h, NkIcon::Layers, NkRole::Text, 14.f);
-			p.TextV(x + 19.f, r.y, r.h, "Modificateur");
+			btn("tb.add", NkIcon::Add, "Ajouter");
+			btn("tb.mod", NkIcon::Layers, "Modificateur");
 
-			// Reglages cale a DROITE : action de session, pas de modelisation. La
+			// Reglages cale a DROITE : action de session et non de modelisation, la
 			// distance visuelle dit cette difference de nature.
-			const float32 sw = 19.f + p.TextW("Reglages");
-			p.IconV(r.w - kPad - sw, r.y, r.h, NkIcon::Gear, NkRole::Text, 14.f);
-			p.TextV(r.w - kPad - sw + 19.f, r.y, r.h, "Reglages");
+			{
+				const float32 sw = ih + S(5.f) + p.TextW("Reglages");
+				const NkRect br{r.w - kPad - sw - S(7.f), r.y + S(5.f), sw + S(14.f), r.h - S(10.f)};
+				HoverFill(p, br, hit.Add("tb.settings", br));
+				p.IconV(r.w - kPad - sw, r.y, r.h, NkIcon::Gear, NkRole::Text, 14.f);
+				p.TextV(r.w - kPad - sw + ih + S(5.f), r.y, r.h, "Reglages");
+			}
 		}
 
 		// ── EN-TETE DE PANNEAU ──────────────────────────────────────────────────
@@ -199,26 +271,23 @@ namespace nkentseu {
 		}
 
 		// ── HIERARCHIE (gauche) ─────────────────────────────────────────────────
-		// DEUX COLONNES D'ETAT a droite, demandees par Rihen et presentes chez
-		// Blender comme chez Unreal :
-		//   * l'OEIL — visible dans la vue de travail ;
-		//   * le CADENAS — objet verrouille, donc non selectionnable.
-		// Elles sont a l'EXTREME DROITE et non collees au nom : ce sont des etats,
-		// pas des attributs du nom, et les aligner en colonne permet de les lire
-		// d'un coup d'oeil sur toute la liste.
-		inline void PaintHierarchy(NkModelerPainter &p, const NkRect &r, int32 selectedRow,
-								   float32 scroll) {
+		// DEUX COLONNES D'ETAT a droite : l'OEIL (visible dans la vue) et le CADENAS
+		// (objet verrouille, donc non selectionnable). Elles sont alignees en colonne
+		// a l'extreme droite -- ce sont des etats, pas des attributs du nom, et
+		// l'alignement permet de les lire d'un coup sur toute la liste.
+		inline void PaintHierarchy(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
+								   NkHitRegistry &hit) {
 			p.Fill(r, NkRole::PanelBg);
 			p.VLine(r.x + r.w - 1.f, r.y, r.h);
 			float32 y = PaintPanelTab(p, r, "Hierarchie");
 			y = PaintSearch(p, r, y);
 
-			const float32 colEye = r.x + r.w - 74.f;
-			const float32 colLock = r.x + r.w - 52.f;
-			const float32 colType = r.x + r.w - 132.f;
+			const float32 colEye = r.x + r.w - S(74.f);
+			const float32 colLock = r.x + r.w - S(52.f);
+			const float32 colType = r.x + r.w - S(132.f);
 
 			p.Fill({r.x, y, r.w, kRowH}, NkRole::WindowBg);
-			p.TextV(r.x + 34.f, y, kRowH, "Nom");
+			p.TextV(r.x + S(34.f), y, kRowH, "Nom");
 			p.TextV(colType, y, kRowH, "Type", NkRole::TextMuted);
 			p.HLine(r.x, y + kRowH - 1.f, r.w);
 			y += kRowH;
@@ -230,57 +299,85 @@ namespace nkentseu {
 					NkIcon icon;
 					bool expandable;
 					bool folder;
-					bool visible;
-					bool locked;
 			};
 			static const Row kRows[] = {
-				{0, "Scene", "", NkIcon::Globe, true, false, true, false},
-				{1, "Cube", "Maillage", NkIcon::Mesh, false, false, true, false},
-				{1, "Sphere", "Maillage", NkIcon::Circle, false, false, true, true},
-				{1, "Groupe", "Dossier", NkIcon::Folder, true, true, true, false},
-				{2, "Roue", "Maillage", NkIcon::Mesh, false, false, false, false},
-				{2, "Axe", "Maillage", NkIcon::Mesh, false, false, true, false},
+				{0, "Scene", "", NkIcon::Globe, true, false},
+				{1, "Cube", "Maillage", NkIcon::Mesh, false, false},
+				{1, "Sphere", "Maillage", NkIcon::Circle, false, false},
+				{1, "Groupe", "Dossier", NkIcon::Folder, true, true},
+				{2, "Roue", "Maillage", NkIcon::Mesh, false, false},
+				{2, "Axe", "Maillage", NkIcon::Mesh, false, false},
 			};
 			const int32 nRows = 6;
 			const float32 listTop = y;
 			const float32 listH = r.y + r.h - kRowH - listTop;
-			y -= scroll;
+			const NkRect listR{r.x, listTop, r.w, listH};
+			hit.Add("hier.list", listR);
+			hit.Wheel("hier.list", st.scrollHier, (float32)nRows * kRowH, listH);
+
+			y -= st.scrollHier;
+			char key[32];
 			for (int32 i = 0; i < nRows; ++i) {
-				const bool sel = (i == selectedRow);
+				const NkRect rowR{r.x, y, r.w, kRowH};
 				if (y >= listTop - kRowH && y < listTop + listH) {
+					snprintf(key, sizeof(key), "hier.row.%d", i);
+					const bool over = hit.Add(key, rowR);
+					const bool sel = (i == st.selectedObject);
 					if (sel)
-						p.Fill({r.x, y, r.w, kRowH}, NkRole::AccentUi);
+						p.Fill(rowR, NkRole::AccentUi);
+					else
+						HoverFill(p, rowR, over, 0.f);
 					const NkRole fg = sel ? NkRole::TextOnAccent : NkRole::Text;
 					const NkRole dim = sel ? NkRole::TextOnAccent : NkRole::TextMuted;
-					float32 tx = r.x + 6.f + (float32)kRows[i].depth * 14.f;
+					float32 tx = r.x + S(6.f) + (float32)kRows[i].depth * S(14.f);
 					if (kRows[i].expandable)
 						p.IconV(tx, y, kRowH, i == 0 ? NkIcon::ChevronDown : NkIcon::ChevronRight, dim, 12.f);
-					tx += 14.f;
-					// Le DOSSIER prend sa couleur propre, meme selectionne : c'est un
-					// contenant, et c'est ce qui le distingue au premier coup d'oeil.
+					tx += S(14.f);
 					if (kRows[i].folder)
 						p.IconV(tx, y, kRowH, NkIcon::Folder, NkRole::TypeFolder, 13.f);
 					else
-						p.IconV(tx, y, kRowH, kRows[i].icon, sel ? NkRole::TextOnAccent : NkRole::Text, 13.f);
-					p.TextV(tx + 18.f, y, kRowH, kRows[i].name, fg);
+						p.IconV(tx, y, kRowH, kRows[i].icon, fg, 13.f);
+					p.TextV(tx + S(18.f), y, kRowH, kRows[i].name, fg);
 					if (*kRows[i].type)
 						p.TextV(colType, y, kRowH, kRows[i].type, dim);
-					// Etats. L'oeil FERME et le cadenas OUVERT restent dessines, en
-					// attenue : une colonne qui se vide donne une liste en dents de scie
-					// et on ne sait plus si l'etat est faux ou l'objet sans etat.
-					p.IconV(colEye, y, kRowH, kRows[i].visible ? NkIcon::Eye : NkIcon::EyeClosed,
-							kRows[i].visible ? fg : dim, 13.f);
-					p.IconV(colLock, y, kRowH, kRows[i].locked ? NkIcon::Lock : NkIcon::Unlock,
-							kRows[i].locked ? fg : dim, 13.f);
+
+					// OEIL et CADENAS : zones sensibles PROPRES, declarees APRES la
+					// ligne pour qu'elles la recouvrent. Cliquer l'oeil ne doit pas
+					// selectionner l'objet -- ce sont deux intentions differentes.
+					snprintf(key, sizeof(key), "hier.eye.%d", i);
+					const NkRect eyeR{colEye - S(3.f), y, S(20.f), kRowH};
+					const bool eOver = hit.Add(key, eyeR);
+					HoverFill(p, eyeR, eOver && !sel, 2.f);
+					p.IconV(colEye, y, kRowH, st.visible[i] ? NkIcon::Eye : NkIcon::EyeClosed,
+							st.visible[i] ? fg : dim, 13.f);
+					if (hit.Clicked(key))
+						st.visible[i] = !st.visible[i];
+
+					snprintf(key, sizeof(key), "hier.lock.%d", i);
+					const NkRect lockR{colLock - S(3.f), y, S(20.f), kRowH};
+					const bool lOver = hit.Add(key, lockR);
+					HoverFill(p, lockR, lOver && !sel, 2.f);
+					p.IconV(colLock, y, kRowH, st.locked[i] ? NkIcon::Lock : NkIcon::Unlock,
+							st.locked[i] ? fg : dim, 13.f);
+					if (hit.Clicked(key))
+						st.locked[i] = !st.locked[i];
+
+					// La selection n'est prise QU'APRES : si l'oeil ou le cadenas a
+					// recu le clic, c'est lui qui est survole, pas la ligne.
+					snprintf(key, sizeof(key), "hier.row.%d", i);
+					if (hit.Clicked(key) && !st.locked[i])
+						st.selectedObject = i;
 				}
 				y += kRowH;
 			}
-			p.VScroll({r.x, listTop, r.w, listH}, (float32)nRows * kRowH, scroll);
+			p.VScroll(listR, (float32)nRows * kRowH, st.scrollHier);
 
 			const float32 fy = r.y + r.h - kRowH;
 			p.Fill({r.x, fy, r.w, kRowH}, NkRole::WindowBg);
 			p.HLine(r.x, fy, r.w);
-			p.TextV(r.x + kPad, fy, kRowH, "6 objets (1 selectionne)", NkRole::TextMuted);
+			char foot[64];
+			snprintf(foot, sizeof(foot), "%d objets (1 selectionne)", nRows);
+			p.TextV(r.x + kPad, fy, kRowH, foot, NkRole::TextMuted);
 		}
 
 		// ── GIZMO DE NAVIGATION, FACON BLENDER ──────────────────────────────────
@@ -354,8 +451,9 @@ namespace nkentseu {
 		}
 
 		// ── VUE 3D (centre) ─────────────────────────────────────────────────────
-		inline void PaintViewport(NkModelerPainter &p, const NkRect &r, bool editMode,
-								  const NkShortcutTable &sc) {
+		inline void PaintViewport(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
+								  NkHitRegistry &hit, const NkShortcutTable &sc) {
+			const bool editMode = (st.mode != NkMode::Object);
 			p.Fill(r, NkRole::ViewportTop);
 
 			// SOL EN PERSPECTIVE. Les fuyantes convergent vers un point de fuite, et les
@@ -419,19 +517,20 @@ namespace nkentseu {
 			// qu'on veut garder la grille en deplacement.
 			const float32 btn = 24.f;
 			const int32 nSub = editMode ? 3 : 0;
+			// L'ETAT vit dans NkModelerState, pas dans la table : la table decrit
+			// l'apparence, l'etat appartient a la session et doit survivre a la frame.
 			struct Snap {
 					NkIcon icon;
 					const char *value;
-					bool on;
 			};
 			static const Snap kSnaps[3] = {
-				{NkIcon::Ortho, "10", true},   // grille : pas de deplacement
-				{NkIcon::Rotate, "10 deg", true}, // angle
-				{NkIcon::Scale, "0,25", false},   // echelle
+				{NkIcon::Ortho, "10"},		// grille : pas de deplacement
+				{NkIcon::Rotate, "10 deg"}, // angle
+				{NkIcon::Scale, "0,25"},	// echelle
 			};
 			float32 tw = 12.f + (float32)(nSub + 7) * (btn + 2.f) + 16.f;
 			for (int32 i = 0; i < 3; ++i)
-				tw += btn + p.TextW(kSnaps[i].value) + 12.f;
+				tw += btn + p.TextW(kSnaps[i].value) + S(12.f);
 			float32 tx = r.x + r.w - 10.f - tw;
 			p.Fill({tx, barY, tw, barH}, NkRole::PanelBg, 5.f);
 			tx += 5.f;
@@ -440,12 +539,19 @@ namespace nkentseu {
 				// Sous-modes sommet / arete / face. L'ACTIF prend l'accent d'interface,
 				// pas l'ambre : c'est un etat de l'outil, pas une selection dans la scene.
 				const NkIcon kSub[3] = {NkIcon::Dot, NkIcon::Ruler, NkIcon::Square};
+				static const char *const kSubKeys[3] = {"vp.sub.0", "vp.sub.1", "vp.sub.2"};
 				for (int32 i = 0; i < 3; ++i) {
-					const bool on = (i == 2);
+					const NkRect br{tx, barY + 2.f, btn, barH - 4.f};
+					const bool over = hit.Add(kSubKeys[i], br);
+					const bool on = ((int32)st.subMode == i);
 					if (on)
-						p.Fill({tx, barY + 2.f, btn, barH - 4.f}, NkRole::AccentUi, 3.f);
-					p.IconV(tx + (btn - 14.f) * 0.5f, barY, barH, kSub[i],
+						p.Fill(br, NkRole::AccentUi, 3.f);
+					else
+						HoverFill(p, br, over);
+					p.IconV(tx + (btn - S(14.f)) * 0.5f, barY, barH, kSub[i],
 							on ? NkRole::TextOnAccent : NkRole::Text, 14.f);
+					if (hit.Clicked(kSubKeys[i]))
+						st.subMode = (NkSubMode)i;
 					tx += btn + 2.f;
 				}
 				p.VLine(tx + 1.f, barY + 6.f, barH - 12.f);
@@ -455,11 +561,21 @@ namespace nkentseu {
 			// Selection, curseur, puis les trois transformations et le repere.
 			const NkIcon kTools[7] = {NkIcon::Cursor, NkIcon::Gizmo, NkIcon::Move,
 									  NkIcon::Rotate, NkIcon::Scale, NkIcon::Globe, NkIcon::Camera};
+			static const char *const kToolKeys[7] = {"vp.t.0", "vp.t.1", "vp.t.2", "vp.t.3",
+													"vp.t.4", "vp.t.5", "vp.t.6"};
 			for (int32 i = 0; i < 7; ++i) {
-				const bool on = (i == 2); // deplacement actif, comme la maquette
+				const NkRect br{tx, barY + 2.f, btn, barH - 4.f};
+				const bool over = hit.Add(kToolKeys[i], br);
+				// Les cinq premiers sont des OUTILS (un seul actif) ; les deux
+				// derniers, repere et camera, sont des reglages a part.
+				const bool on = (i < 5) && ((int32)st.tool == i);
 				if (on)
-					p.Fill({tx, barY + 2.f, btn, barH - 4.f}, NkRole::AccentUi, 3.f);
-				p.IconV(tx + (btn - 14.f) * 0.5f, barY, barH, kTools[i],
+					p.Fill(br, NkRole::AccentUi, 3.f);
+				else
+					HoverFill(p, br, over);
+				if (i < 5 && hit.Clicked(kToolKeys[i]))
+					st.tool = (NkTool)i;
+				p.IconV(tx + (btn - S(14.f)) * 0.5f, barY, barH, kTools[i],
 						on ? NkRole::TextOnAccent : NkRole::Text, 14.f);
 				// LE POINT en bas a droite du bouton de SELECTION : il annonce un
 				// sous-menu (rectangle, cercle, lasso). Sans lui, rien ne dit que le
@@ -473,17 +589,28 @@ namespace nkentseu {
 			tx += 7.f;
 
 			// Les trois aimantations : bascule (icone) + valeur, cote a cote.
+			bool *const snapFlags[3] = {&st.snapGrid, &st.snapAngle, &st.snapScale};
+			static const char *const kSnapKeys[3] = {"vp.snap.0", "vp.snap.1", "vp.snap.2"};
 			for (int32 i = 0; i < 3; ++i) {
-				if (kSnaps[i].on)
-					p.Fill({tx, barY + 2.f, btn, barH - 4.f}, NkRole::AccentUi, 3.f);
-				p.IconV(tx + (btn - 13.f) * 0.5f, barY, barH, kSnaps[i].icon,
-						kSnaps[i].on ? NkRole::TextOnAccent : NkRole::TextMuted, 13.f);
+				const NkRect br{tx, barY + 2.f, btn, barH - 4.f};
+				const bool over = hit.Add(kSnapKeys[i], br);
+				const bool on = *snapFlags[i];
+				if (on)
+					p.Fill(br, NkRole::AccentUi, 3.f);
+				else
+					HoverFill(p, br, over);
+				if (hit.Clicked(kSnapKeys[i]))
+					*snapFlags[i] = !on;
+				p.IconV(tx + (btn - S(13.f)) * 0.5f, barY, barH, kSnaps[i].icon,
+						on ? NkRole::TextOnAccent : NkRole::TextMuted, 13.f);
 				tx += btn + 3.f;
 				// La valeur est ATTENUEE quand l'aimantation est coupee : elle reste
 				// lisible (on veut savoir sur quel pas on retombera) sans faire croire
 				// qu'elle agit.
-				p.TextV(tx, barY, barH, kSnaps[i].value,
-						kSnaps[i].on ? NkRole::Text : NkRole::TextMuted);
+				// La valeur reste AFFICHEE quand l'aimantation est coupee, mais
+				// attenuee : on veut savoir sur quel pas on retombera en la
+				// rallumant, la masquer obligerait a l'activer pour la lire.
+				p.TextV(tx, barY, barH, kSnaps[i].value, on ? NkRole::Text : NkRole::TextMuted);
 				tx += p.TextW(kSnaps[i].value) + 9.f;
 			}
 
@@ -563,7 +690,9 @@ namespace nkentseu {
 		}
 
 		// ── PROPRIETES (droite, haut) ───────────────────────────────────────────
-		inline void PaintProperties(NkModelerPainter &p, const NkRect &full, float32 scroll) {
+		inline void PaintProperties(NkModelerPainter &p, const NkRect &full, NkModelerState &st,
+									NkHitRegistry &hit) {
+			const float32 scroll = st.scrollProps;
 			p.Fill(full, NkRole::PanelBg);
 			p.VLine(full.x, full.y, full.h);
 			float32 y = PaintPanelTab(p, full, "Proprietes");
@@ -606,7 +735,10 @@ namespace nkentseu {
 			y += kRowH;
 			// L'ascenseur mesure le contenu REEL depuis le haut de la zone de liste :
 			// une hauteur devinee ferait glisser le curseur a cote de la matiere.
-			p.VScroll({full.x, listTop, full.w, full.y + full.h - listTop}, y - listTop + scroll, scroll);
+			const NkRect area{full.x, listTop, full.w, full.y + full.h - listTop};
+			hit.Add("props.list", area);
+			hit.Wheel("props.list", st.scrollProps, y - listTop + scroll, area.h);
+			p.VScroll(area, y - listTop + scroll, scroll);
 		}
 
 		// ── DETAILS (droite, bas) ───────────────────────────────────────────────
@@ -618,7 +750,9 @@ namespace nkentseu {
 		// maquette d'abord et de mettre a jour en developpant -- la pile reviendra
 		// quand les modificateurs seront reellement branches sur NkModifierParams,
 		// avec l'accord de Rihen sur son dessin.
-		inline void PaintDetails(NkModelerPainter &p, const NkRect &full, float32 scroll) {
+		inline void PaintDetails(NkModelerPainter &p, const NkRect &full, NkModelerState &st,
+								 NkHitRegistry &hit) {
+			const float32 scroll = st.scrollDetails;
 			p.Fill(full, NkRole::PanelBg);
 			p.VLine(full.x, full.y, full.h);
 			p.HLine(full.x, full.y, full.w);
@@ -652,13 +786,17 @@ namespace nkentseu {
 			p.IconV(r.x + 6.f, y, kRowH, NkIcon::ChevronRight, NkRole::Text, 11.f);
 			p.TextV(r.x + 22.f, y, kRowH, "Materiau");
 			y += kRowH;
-			p.VScroll({full.x, listTop, full.w, full.y + full.h - listTop}, y - listTop + scroll,
-					  scroll);
+			const NkRect area{full.x, listTop, full.w, full.y + full.h - listTop};
+			hit.Add("det.list", area);
+			hit.Wheel("det.list", st.scrollDetails, y - listTop + scroll, area.h);
+			p.VScroll(area, y - listTop + scroll, scroll);
 		}
 
 		// ── NAVIGATEUR DE PROJET (bas) ──────────────────────────────────────────
-		inline void PaintBrowser(NkModelerPainter &p, const NkRect &r, float32 treeScroll,
-								 float32 assetScroll) {
+		inline void PaintBrowser(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
+								 NkHitRegistry &hit) {
+			const float32 treeScroll = st.scrollTree;
+			const float32 assetScroll = st.scrollAssets;
 			p.Fill(r, NkRole::PanelBg);
 			p.HLine(r.x, r.y, r.w);
 
@@ -837,16 +975,28 @@ namespace nkentseu {
 				p.Text(tx + 5.f, tyy + pvH + barH2 + 17.f, kAssets[i].type, NkRole::TextMuted);
 				tx += tw + 10.f;
 			}
-			p.VScroll({r.x, ty, treeW, th}, 5.f * kRowH + 8.f, treeScroll);
-			p.VScroll({ax - 10.f, ty + 33.f, r.w - treeW - 10.f, th - 33.f}, 66.f + 3.f + 30.f + 26.f,
-					  assetScroll);
+			const NkRect treeArea{r.x, ty, treeW, th};
+			const NkRect assetArea{ax - S(10.f), ty + S(33.f), r.w - treeW - S(10.f), th - S(33.f)};
+			hit.Add("brow.tree", treeArea);
+			hit.Wheel("brow.tree", st.scrollTree, 5.f * kRowH + S(8.f), treeArea.h);
+			hit.Add("brow.assets", assetArea);
+			hit.Wheel("brow.assets", st.scrollAssets, S(125.f), assetArea.h);
+			p.VScroll(treeArea, 5.f * kRowH + S(8.f), treeScroll);
+			p.VScroll(assetArea, S(125.f), assetScroll);
 			const float32 ew = p.TextW("5 elements");
 			p.TextV(r.x + r.w - ew - kPad, r.y + r.h - kRowH, kRowH, "5 elements", NkRole::TextMuted);
 			(void)ih;
 		}
 
 		// ── BARRE D'ETAT ────────────────────────────────────────────────────────
-		inline void PaintStatus(NkModelerPainter &p, const NkRect &r, const char *stats) {
+		inline void PaintStatus(NkModelerPainter &p, const NkRect &r, const NkModelerState &st) {
+			char stats[128];
+			if (st.mode == NkMode::Object)
+				snprintf(stats, sizeof(stats), "Objets 6 - selectionne : %s - 60 ips",
+						 st.selectedObject == 1 ? "Cube" : "-");
+			else
+				snprintf(stats, sizeof(stats), "Sommets 8 - Aretes 12 - Faces 6 - %s - 60 ips",
+						 NkModeName(st.mode));
 			p.Fill(r, NkRole::PanelHeader);
 			p.HLine(r.x, r.y, r.w);
 			float32 x = r.x + kPad;
