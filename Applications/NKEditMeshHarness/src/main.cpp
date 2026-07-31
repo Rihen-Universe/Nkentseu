@@ -1847,6 +1847,171 @@ static void GraphBattery() {
 	}
 }
 
+// -- GRAPHE : SERIALISATION ET ANNULER/REFAIRE -------------------------------
+// Deux mecanismes dont TOUS les consommateurs dependent (materiaux, VFX,
+// blueprint, modelisation). Les cas visent les deux pieges connus :
+//   * un aller-retour qui « marche » mais REATTRIBUE les identifiants liberes ;
+//   * une annulation qui ressuscite le noeud mais PAS ses liens.
+// Les deux produisent un resultat plausible et faux.
+static void GraphIOBattery() {
+	using namespace nkentseu::graph;
+
+	// Graphe de reference, construit avec tout ce qui peut se perdre en route :
+	// des types, une conversion dirigee, des libelles a espaces et accents, et
+	// UN TROU dans les identifiants (un noeud supprime).
+	auto build = [](NkNodeGraph &g) {
+		const NkTypeId R = g.RegisterType("reel");
+		const NkTypeId V = g.RegisterType("vecteur");
+		g.AllowConversion(R, V);
+		NkNodeId a = g.AddNode("bruit.perlin", "Bruit de Perlin");
+		NkNodeId jete = g.AddNode("temporaire", "a jeter");
+		NkNodeId b = g.AddNode("deplacer", "Deplacement de surface");
+		g.AddSocket(a, "sortie", R, NkSocketDir::Output);
+		g.AddSocket(jete, "sortie", R, NkSocketDir::Output);
+		g.AddSocket(b, "quantite", V, NkSocketDir::Input);
+		g.AddSocket(b, "resultat", V, NkSocketDir::Output);
+		g.Connect(a, "sortie", b, "quantite"); // passe par la conversion
+		g.RemoveNode(jete);					   // <- le trou dans les identifiants
+		return jete;
+	};
+
+	// 1) ALLER-RETOUR. On serialise, on relit dans un graphe NEUF, on reserialise :
+	//    les deux textes doivent etre identiques caractere pour caractere. Comparer
+	//    des comptes ne prouverait rien -- des libelles ou des conversions perdus
+	//    laisseraient les comptes intacts.
+	{
+		NkNodeGraph g;
+		build(g);
+		NkString t1;
+		g.Serialize(t1);
+		NkNodeGraph relu;
+		const bool ok = relu.Deserialize(t1.CStr());
+		NkString t2;
+		relu.Serialize(t2);
+		bool identique = (t1.Size() == t2.Size());
+		if (identique)
+			for (uint32 i = 0; i < (uint32)t1.Size(); ++i)
+				if (t1.CStr()[i] != t2.CStr()[i]) {
+					identique = false;
+					break;
+				}
+		GraphPut("%-34s lu=%d identique=%d octets=%u noeuds=%u liens=%u", "graphe/io-aller-retour", ok ? 1 : 0,
+				 identique ? 1 : 0, (uint32)t1.Size(), relu.NodeCount(), relu.LinkCount());
+	}
+
+	// 2) LE PIEGE. Apres rechargement, un nouveau noeud ne doit PAS recuperer
+	//    l'identifiant du noeud supprime. Sans la ligne `compteurs` du fichier,
+	//    un aller-retour par ailleurs correct recyclerait cet identifiant, et une
+	//    reference sauvegardee ailleurs pointerait en silence sur autre chose.
+	{
+		NkNodeGraph g;
+		const NkNodeId jete = build(g);
+		NkString t;
+		g.Serialize(t);
+		NkNodeGraph relu;
+		relu.Deserialize(t.CStr());
+		const NkNodeId neuf = relu.AddNode("apres.rechargement");
+		GraphPut("%-34s supprime=%u nouveau-apres-relecture=%u recycle=%d", "graphe/io-identifiants-non-recycles",
+				 jete, neuf, (neuf == jete) ? 1 : 0);
+	}
+
+	// 3) LA SEMANTIQUE SURVIT, pas seulement les donnees. Le graphe recharge doit
+	//    encore ACCEPTER ce que la conversion permet et REFUSER le reste : c'est
+	//    ce qui prouve que les lignes `conv` et les types ont ete relus, et pas
+	//    seulement reecrits a l'identique.
+	{
+		NkNodeGraph g;
+		build(g);
+		NkString t;
+		g.Serialize(t);
+		NkNodeGraph relu;
+		relu.Deserialize(t.CStr());
+		const NkTypeId R = relu.FindType("reel");
+		const NkTypeId V = relu.FindType("vecteur");
+		const NkTypeId M = relu.RegisterType("maillage");
+		NkNodeId src = relu.AddNode("src"), dst = relu.AddNode("dst");
+		relu.AddSocket(src, "r", R, NkSocketDir::Output);
+		relu.AddSocket(dst, "v", V, NkSocketDir::Input);
+		relu.AddSocket(dst, "m", M, NkSocketDir::Input);
+		const NkLinkError e1 = relu.Connect(src, "r", dst, "v"); // conversion relue
+		const NkLinkError e2 = relu.Connect(src, "r", dst, "m"); // sans rapport
+		GraphPut("%-34s types-retrouves=%d/%d reel>vect=%s reel>maillage=%s", "graphe/io-semantique-survit",
+				 R ? 1 : 0, V ? 1 : 0, NkLinkErrorName(e1), NkLinkErrorName(e2));
+	}
+
+	// 4) ANNULATION D'UNE SUPPRESSION AU MILIEU. Le noeud du milieu emporte DEUX
+	//    liens. Apres annulation, le noeud doit revenir ET les deux liens aussi,
+	//    AVEC LEURS IDENTIFIANTS D'ORIGINE. Une annulation qui ne ressusciterait
+	//    que le noeud laisserait un graphe coupe en deux, d'apparence saine.
+	{
+		NkNodeGraph g;
+		const NkTypeId T = g.RegisterType("flux");
+		NkNodeId a = g.AddNode("a"), b = g.AddNode("b"), c = g.AddNode("c");
+		const NkNodeId ids[3] = {a, b, c};
+		for (int32 i = 0; i < 3; i++) {
+			g.AddSocket(ids[i], "in", T, NkSocketDir::Input);
+			g.AddSocket(ids[i], "out", T, NkSocketDir::Output);
+		}
+		NkLinkId l1 = 0, l2 = 0;
+		g.Connect(a, "out", b, "in", &l1);
+		g.Connect(b, "out", c, "in", &l2);
+
+		NkGraphHistory h;
+		h.Reset(g);
+		g.RemoveNode(b);
+		h.Commit(g);
+		const uint32 apresSuppr = g.LinkCount();
+		const bool undo = h.Undo(g);
+		// On PRELEVE l'etat ici, avant le refaire : mesurer apres donnerait l'etat
+		// d'apres, et la ligne annoncerait autre chose que ce qu'elle mesure.
+		const uint32 noeudsApresAnnule = g.NodeCount();
+		const uint32 liensApresAnnule = g.LinkCount();
+		const NkLink *r0 = g.LinkAt(0);
+		const NkLink *r1 = g.LinkAt(1);
+		const bool memesIds = r0 && r1 && ((r0->id == l1 && r1->id == l2) || (r0->id == l2 && r1->id == l1));
+		const bool bRevenu = g.Find(b) != nullptr;
+		const bool redo = h.Redo(g);
+		GraphPut("%-34s apres-suppr=%u | annule=%d b-revenu=%d noeuds=%u liens=%u memes-ids=%d | refait liens=%u",
+				 "graphe/undo-restaure-les-liens", apresSuppr, undo ? 1 : 0, bRevenu ? 1 : 0, noeudsApresAnnule,
+				 liensApresAnnule, memesIds ? 1 : 0, redo ? g.LinkCount() : 999u);
+	}
+
+	// 5) LA BRANCHE REFAISABLE EST ABANDONNEE quand on modifie apres avoir
+	//    annule -- comportement de tous les editeurs. On verifie aussi qu'une
+	//    remontee complete redonne EXACTEMENT l'etat initial, texte compris :
+	//    comparer des comptes laisserait passer une derive de position ou de
+	//    libelle.
+	{
+		NkNodeGraph g;
+		NkGraphHistory h;
+		g.AddNode("depart");
+		h.Reset(g);
+		NkString avant;
+		g.Serialize(avant);
+		g.AddNode("un");
+		h.Commit(g);
+		g.AddNode("deux");
+		h.Commit(g);
+		const uint32 profAvant = h.UndoDepth();
+		h.Undo(g);
+		h.Undo(g);
+		NkString apres;
+		g.Serialize(apres);
+		bool retourExact = (avant.Size() == apres.Size());
+		if (retourExact)
+			for (uint32 i = 0; i < (uint32)avant.Size(); ++i)
+				if (avant.CStr()[i] != apres.CStr()[i]) {
+					retourExact = false;
+					break;
+				}
+		const uint32 refaisable = h.RedoDepth();
+		g.AddNode("nouvelle-branche"); // abandonne la branche refaisable
+		h.Commit(g);
+		GraphPut("%-34s prof=%u retour-exact=%d refaisable-avant=%u apres-nouvelle-branche=%u",
+				 "graphe/undo-branche-abandonnee", profAvant, retourExact ? 1 : 0, refaisable, h.RedoDepth());
+	}
+}
+
 int main(int argc, char **argv) {
 	bool baseline = false, check = false;
 	for (int32 i = 1; i < argc; i++) {
@@ -1872,6 +2037,7 @@ int main(int argc, char **argv) {
 	ShortcutBattery();
 	AnalysisBattery();
 	GraphBattery();
+	GraphIOBattery();
 
 	const char *path = "editmesh_baseline.txt";
 	if (baseline) {
