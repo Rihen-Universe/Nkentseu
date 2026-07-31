@@ -154,3 +154,10 @@ retopo/apres-decimation-naif-champ naif quads=43 | champ quads=108 tris-restants
 retopo/pipeline-ferme-manifold     ok=1 decim 768->268 tris | sortie quads=108 tris=52 ratio=0.68 | ferme=1 manifold=1 genre=0
 retopo/seuil-qualite-agit          defaut(0,25) quads=108 | strict(0,75) quads=13 (doit chuter)
 retopo/aretes-vives-epinglees      faces=12 epinglees=12 (toutes attendues) | align-axes=1.000 (1,0 attendu)
+theme/aller-retour                 lu=1 appliques=29 inconnus=0 | roles differents=0 (0 attendu) nom=Mon theme
+theme/heritage-partiel             appliques=3 | herites=26/26 noirs=0 (0 attendu) | accent_ui=#2266FF nom=Bleu nuit
+theme/role-inconnu-tolere          lu=1 inconnus=1 (1 attendu) appliques=2 (2 attendus) | axis_x=#FF0000
+theme/couleurs-metier-dans-theme   axeY/panneau sombre=4.90 clair=5.58 | couleur-du-sombre-sur-clair=3.29 (doit chuter)
+theme/validation-contraste         defauts sombre=0 clair=0 (0 attendu) | theme casse : 5 defaut(s), pire text sur panel_header = 1.07 (exige 4.5)
+theme/seuils-par-usage             pire rapport brut sombre=3.13 clair=3.35 | seuils texte=4,5 graphique=3,0
+theme/palette-imposee              conformes=6/6 | ecart des deux sarcelles=1.004 (proche de 1 : meme famille)
