@@ -32,6 +32,7 @@
 
 #include "NK3DModeler/Shell/NkModelerTheme.h"
 #include "NK3DModeler/Shell/NkModelerScreens.h"
+#include "NKEvent/NkMouseEvent.h"
 
 #include <cstdio>
 
@@ -196,22 +197,54 @@ int nkmain(const NkEntryState &entry) {
 	icons.Load(renderer, font.TexId() + 16u, (int32)(16.f * total + 0.5f));
 	printf("[nk3d] %u icones chargees.\n", icons.LoadedCount());
 
-	// ── ETAT ────────────────────────────────────────────────────────────────
-	// Le MODE est un indice dans la liste des modes, plus un booleen : la liste
-	// s'allongera (sculpt 2.5D, sculpt reel, texturing, rigging), et un booleen
-	// aurait cesse de suffire au troisieme.
-	int32 mode = 0; // 0 objet, 1 edition, 2 sculpt 2.5D, 3 sculpt, 4 texturing
-	// Defilements. Poses ici et non dans les fonctions de peinture : ce sont des
-	// etats de session, ils doivent survivre a la frame.
-	float32 scrollHier = 0.f, scrollProps = 0.f, scrollDetails = 0.f;
-	float32 scrollTree = 0.f, scrollAssets = 0.f;
+	// ── ETAT DE SESSION ─────────────────────────────────────────────────────
+	NkModelerState st;
+	NkHitRegistry hit;
 	static const char *const kScenes[] = {"Scene_01", "Scene_02"};
+
+	// ── ENTREE SOURIS ───────────────────────────────────────────────────────
+	// NKGui calcule les TRANSITIONS (clic, relachement, double-clic) dans
+	// BeginFrame a partir de l'etat BRUT que l'application pose ici. On se
+	// contente donc de reporter les evenements ; c'est BeginFrame qui en tire
+	// « vient d'etre clique ».
+	{
+		auto &ev = NkEvents();
+		ev.AddEventCallback<NkMouseMoveEvent>([&ui](NkMouseMoveEvent *e) {
+			ui.input.mousePos = {(float32)e->GetX(), (float32)e->GetY()};
+		});
+		ev.AddEventCallback<NkMouseButtonPressEvent>([&ui](NkMouseButtonPressEvent *e) {
+			const NkMouseButton b = e->GetButton();
+			if (b == NkMouseButton::NK_MB_LEFT)
+				ui.input.mouseDown[0] = true;
+			else if (b == NkMouseButton::NK_MB_RIGHT)
+				ui.input.mouseDown[1] = true;
+			else if (b == NkMouseButton::NK_MB_MIDDLE)
+				ui.input.mouseDown[2] = true;
+			ui.input.ctrlDown = e->GetModifiers().ctrl;
+			ui.input.shiftDown = e->GetModifiers().shift;
+			ui.input.altDown = e->GetModifiers().alt;
+		});
+		ev.AddEventCallback<NkMouseButtonReleaseEvent>([&ui](NkMouseButtonReleaseEvent *e) {
+			const NkMouseButton b = e->GetButton();
+			if (b == NkMouseButton::NK_MB_LEFT)
+				ui.input.mouseDown[0] = false;
+			else if (b == NkMouseButton::NK_MB_RIGHT)
+				ui.input.mouseDown[1] = false;
+			else if (b == NkMouseButton::NK_MB_MIDDLE)
+				ui.input.mouseDown[2] = false;
+		});
+		// La molette s'ACCUMULE : plusieurs crans peuvent arriver dans la meme
+		// frame, et n'en garder qu'un rendrait le defilement saccade.
+		ev.AddEventCallback<NkMouseWheelVerticalEvent>(
+			[&ui](NkMouseWheelVerticalEvent *e) { ui.input.wheel += (float32)e->GetDeltaY(); });
+		ev.AddEventCallback<NkWindowCloseEvent>([&st](NkWindowCloseEvent *) { st.running = false; });
+	}
 
 	NkClock clock;
 	uint32 lastW = real0.x, lastH = real0.y;
 
 	// ── BOUCLE ──────────────────────────────────────────────────────────────
-	while (window.IsOpen()) {
+	while (st.running && window.IsOpen()) {
 		while (NkEvent *ev = NkEvents().PollEvent()) {
 			(void)ev;
 		}
@@ -231,6 +264,9 @@ int nkmain(const NkEntryState &entry) {
 			dt = 1.f / 60.f;
 
 		ui.BeginFrame(dt);
+		// Le registre est reinitialise APRES BeginFrame : il lit les transitions
+		// que celui-ci vient de calculer.
+		hit.Begin(ui.input);
 
 		const float32 W = (float32)lastW, H = (float32)lastH;
 		NkLayout lay;
@@ -243,18 +279,15 @@ int nkmain(const NkEntryState &entry) {
 		// ce qui donne la profondeur a trois niveaux de UI_SPEC 10bis.1.
 		p.Fill({0.f, 0.f, W, H}, NkRole::WindowBg);
 
-		PaintMenuBar(p, lay.menu, "MonProjet");
-		PaintTabs(p, lay.tabs, kScenes, 2, 0);
-		const bool editMode = (mode == 1);
-		PaintToolbar(p, lay.tool, mode);
-		PaintHierarchy(p, lay.left, 1, scrollHier);
-		PaintViewport(p, lay.view, editMode, shortcuts);
-		PaintProperties(p, lay.propsR, scrollProps);
-		PaintDetails(p, lay.detailsR, scrollDetails);
-		PaintBrowser(p, lay.browser, scrollTree, scrollAssets);
-		PaintStatus(p, lay.status,
-					editMode ? "Sommets 8 - Aretes 12 - Faces 6 - sel. 3 faces - 60 ips"
-							 : "Objets 6 - selectionne : Cube - 60 ips");
+		PaintMenuBarI(p, lay.menu, "MonProjet", st, hit);
+		PaintTabsI(p, lay.tabs, kScenes, 2, st, hit);
+		PaintToolbar(p, lay.tool, st, hit);
+		PaintHierarchy(p, lay.left, st, hit);
+		PaintViewport(p, lay.view, st, hit, shortcuts);
+		PaintProperties(p, lay.propsR, st, hit);
+		PaintDetails(p, lay.detailsR, st, hit);
+		PaintBrowser(p, lay.browser, st, hit);
+		PaintStatus(p, lay.status, st);
 
 		ui.EndFrame();
 
