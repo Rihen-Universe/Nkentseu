@@ -188,6 +188,12 @@ namespace nkentseu {
 				bool gizGestureInView = false;
 				bool gizWasMouseDown = false;
 				int32 lastProjection = 0; ///< pour n'appliquer le combo que sur changement
+				// Navigation par GLISSEMENT depuis les boutons de la vue et le gizmo :
+				// -1 aucun, 0 loupe, 1 main, 2 gizmo de navigation. Le geste continue
+				// meme si la souris quitte le bouton -- c'est le bouton ENFONCE qui
+				// commande, pas la position.
+				int32 navDragMode = -1;
+				float32 navDragLastX = 0.f, navDragLastY = 0.f;
 				bool navDragging = false;
 				int32 solidLight = 0; ///< eclairage du mode solide : studio / matcap / plat
 				int32 selectMode = 2; ///< sommet / arete / face
@@ -294,6 +300,7 @@ namespace nkentseu {
 					// elle n'est pas un clic mais un GLISSEMENT -- c'est l'etat enfonce
 					// qui compte, pas la transition.
 					mMiddleDown = in.mouseDown[2];
+					mDouble = in.mouseDoubleClicked[0];
 					mShift = in.shiftDown;
 					mCtrl = in.ctrlDown;
 					mAlt = in.altDown;
@@ -371,6 +378,12 @@ namespace nkentseu {
 					return mMouse;
 				}
 
+				// DOUBLE-CLIC sur une zone : NKGui fusionne la detection interne et
+				// celle de l'OS, on ne fait que la relayer a la zone survolee.
+				bool DoubleClicked(const char *key) const {
+					return mDouble && Eq(mHover, key);
+				}
+
 				bool MiddleDown() const {
 					return mMiddleDown;
 				}
@@ -421,6 +434,7 @@ namespace nkentseu {
 				bool mDown = false, mClicked = false, mRightClicked = false;
 				float32 mWheel = 0.f;
 				bool mMiddleDown = false;
+				bool mDouble = false;
 				bool mShift = false, mCtrl = false, mAlt = false;
 				NkCursorWant mCursor = NkCursorWant::Arrow;
 		};

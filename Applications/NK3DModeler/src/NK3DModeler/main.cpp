@@ -275,6 +275,69 @@ int nkmain(const NkEntryState &entry) {
 		// maillage ici : on pose une intention, consommee dans la boucle. Modifier
 		// la geometrie depuis un callback reentrerait dans une image en cours de
 		// peinture, avec des tampons a moitie ecrits.
+		// ── SAISIE DE TEXTE ─────────────────────────────────────────────────
+		// RIEN DE TOUT CECI N'ETAIT BRANCHE. NkGuiInput expose PushChar et SetKey,
+		// mais l'application ne les appelait jamais : les champs de saisie ne
+		// recevaient donc aucun caractere, aucune touche Entree, aucun Echap. D'ou
+		// « impossible de renommer » ET « impossible de fermer l'editeur » -- ce
+		// n'etait pas deux bugs mais un seul, en amont de tout le reste.
+		ev.AddEventCallback<NkTextInputEvent>([&ui](NkTextInputEvent *e) {
+			ui.input.PushChar(e->GetCodepoint());
+		});
+		// Les touches d'EDITION ont leur propre table dans NKGui, distincte des
+		// raccourcis de l'application : c'est ce qui permet a Entree de valider un
+		// nom sans declencher aussi une commande.
+		ev.AddEventCallback<NkKeyPressEvent>([&ui](NkKeyPressEvent *e) {
+			switch (e->GetKey()) {
+				case NkKey::NK_ENTER:
+				case NkKey::NK_NUMPAD_ENTER:
+					ui.input.SetKey(nkgui::NkGuiKey::Enter, true);
+					break;
+				case NkKey::NK_ESCAPE:
+					ui.input.SetKey(nkgui::NkGuiKey::Escape, true);
+					break;
+				case NkKey::NK_BACK:
+					ui.input.SetKey(nkgui::NkGuiKey::Backspace, true);
+					break;
+				case NkKey::NK_DELETE:
+					ui.input.SetKey(nkgui::NkGuiKey::Delete, true);
+					break;
+				case NkKey::NK_LEFT:
+					ui.input.SetKey(nkgui::NkGuiKey::Left, true);
+					break;
+				case NkKey::NK_RIGHT:
+					ui.input.SetKey(nkgui::NkGuiKey::Right, true);
+					break;
+				default:
+					break;
+			}
+		});
+		ev.AddEventCallback<NkKeyReleaseEvent>([&ui](NkKeyReleaseEvent *e) {
+			switch (e->GetKey()) {
+				case NkKey::NK_ENTER:
+				case NkKey::NK_NUMPAD_ENTER:
+					ui.input.SetKey(nkgui::NkGuiKey::Enter, false);
+					break;
+				case NkKey::NK_ESCAPE:
+					ui.input.SetKey(nkgui::NkGuiKey::Escape, false);
+					break;
+				case NkKey::NK_BACK:
+					ui.input.SetKey(nkgui::NkGuiKey::Backspace, false);
+					break;
+				case NkKey::NK_DELETE:
+					ui.input.SetKey(nkgui::NkGuiKey::Delete, false);
+					break;
+				case NkKey::NK_LEFT:
+					ui.input.SetKey(nkgui::NkGuiKey::Left, false);
+					break;
+				case NkKey::NK_RIGHT:
+					ui.input.SetKey(nkgui::NkGuiKey::Right, false);
+					break;
+				default:
+					break;
+			}
+		});
+
 		ev.AddEventCallback<NkKeyPressEvent>([&st](NkKeyPressEvent *e) {
 			const NkKey k = e->GetKey();
 			const auto mods = e->GetModifiers();
@@ -393,6 +456,13 @@ int nkmain(const NkEntryState &entry) {
 				default:
 					break;
 			}
+		});
+
+		ev.AddEventCallback<NkMouseDoubleClickEvent>([&ui](NkMouseDoubleClickEvent *e) {
+			const NkMouseButton b = e->GetButton();
+			ui.input.SetDoubleClick(b == NkMouseButton::NK_MB_LEFT
+										? 0
+										: (b == NkMouseButton::NK_MB_RIGHT ? 1 : 2));
 		});
 
 		ev.AddEventCallback<NkMouseWheelVerticalEvent>(

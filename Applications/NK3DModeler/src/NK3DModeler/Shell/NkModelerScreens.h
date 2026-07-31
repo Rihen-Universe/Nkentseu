@@ -740,8 +740,9 @@ namespace nkentseu {
 			float32 y = PaintPanelTab(p, r, "Hierarchie", &hit, &st.showLeft, "hier.close");
 			y = PaintSearch(p, r, y);
 
-			const float32 colEye = r.x + r.w - S(52.f);
-			const float32 colType = r.x + r.w - S(132.f);
+			const float32 colEye = r.x + r.w - S(74.f);
+			const float32 colLock = r.x + r.w - S(52.f);
+			const float32 colType = r.x + r.w - S(152.f);
 
 			p.Fill({r.x, y, r.w, kRowH}, NkRole::WindowBg);
 			p.TextV(r.x + S(34.f), y, kRowH, "Nom");
@@ -837,8 +838,23 @@ namespace nkentseu {
 					if (hit.Clicked(key))
 						nk3d::Viewport3DSetObjectVisible(i, !vis);
 
-					snprintf(key, sizeof(key), "hier.row.%d", i);
+					// CADENAS : il interdit la selection ET la modification. Il avait
+					// disparu quand la hierarchie est passee sur la scene reelle --
+					// c'etait une colonne de la maquette, il fallait la rebrancher sur
+					// un vrai etat d'objet, pas la supprimer.
+					const bool lok = nk3d::Viewport3DObjectLocked(i);
+					snprintf(key, sizeof(key), "hier.lock.%d", i);
+					const NkRect lockR{colLock - S(3.f), yy, S(20.f), kRowH};
+					HoverFill(p, lockR, hit.Add(key, lockR) && !sel, 2.f);
+					p.IconV(colLock, yy, kRowH, lok ? NkIcon::Lock : NkIcon::Unlock,
+							lok ? fg : dim, 13.f);
 					if (hit.Clicked(key))
+						nk3d::Viewport3DSetObjectLocked(i, !lok);
+
+					snprintf(key, sizeof(key), "hier.row.%d", i);
+					// Un objet VERROUILLE ne se selectionne pas, meme depuis la
+					// hierarchie : sinon le cadenas ne promettrait rien.
+					if (hit.Clicked(key) && !lok)
 						nk3d::Viewport3DSelectObject(i, hit.ShiftDown());
 				}
 				yy += kRowH;
@@ -880,8 +896,8 @@ namespace nkentseu {
 		// Les boules du FOND sont dessinees en PREMIER : sans cet ordre, un demi-axe
 		// qui s'eloigne passerait par-dessus celui qui s'approche, et la profondeur
 		// serait inversee.
-		inline void PaintNavGizmo(NkModelerPainter &p, NkHitRegistry &hit, float32 cx, float32 cy,
-								  float32 radius) {
+		inline void PaintNavGizmo(NkModelerPainter &p, NkHitRegistry &hit, NkModelerState &st,
+								  float32 cx, float32 cy, float32 radius) {
 			// IL TOURNE AVEC LA VUE, comme celui de Blender. La version precedente
 			// avait une projection isometrique FIGEE : elle affichait toujours la
 			// meme orientation, donc elle ne disait rien de ce qu'on regardait --
@@ -946,6 +962,24 @@ namespace nkentseu {
 						order[b] = t;
 					}
 
+			// ROTATION LIBRE : tirer le CORPS du gizmo fait tourner la vue. Les
+			// boules restent des raccourcis vers les six vues d'axe, mais elles ne
+			// suffisent pas -- Blender permet aussi de le faire pivoter a la main,
+			// et c'est souvent le geste le plus rapide pour se replacer.
+			// La zone du corps est declaree AVANT les boules : elles la recouvrent,
+			// donc viser une boule reste un clic sur la boule.
+			{
+				const NkRect body{cx - radius, cy - radius, radius * 2.f, radius * 2.f};
+				const bool overBody = hit.Add("nav.body", body);
+				if (overBody)
+					hit.WantCursor(NkCursorWant::Hand);
+				if (hit.Clicked("nav.body")) {
+					st.navDragMode = 2;
+					st.navDragLastX = hit.Mouse().x;
+					st.navDragLastY = hit.Mouse().y;
+				}
+			}
+
 			char key[24];
 			for (int32 k = 0; k < 6; ++k) {
 				const int32 i = order[k];
@@ -1002,6 +1036,11 @@ namespace nkentseu {
 				{NkIcon::Ortho, "view.ortho", "Perspective / orthographique", true},
 			};
 			const float32 d = 26.f;
+			// Le RECADRAGE reste accessible : double-clic sur la loupe. Le
+			// glissement regle le zoom, le double-clic cadre tout -- deux besoins
+			// differents sur le meme bouton, comme dans la plupart des editeurs.
+			if (hit.DoubleClicked("view.frame"))
+				nk3d::Viewport3DFrameAll();
 			for (int32 i = 0; i < 4; ++i) {
 				const NkRect br{x, y + (float32)i * (d + 6.f), d, d};
 				const bool over = kBtns[i].enabled && hit.Add(kBtns[i].key, br);
@@ -1017,11 +1056,16 @@ namespace nkentseu {
 				if (over)
 					hit.WantCursor(NkCursorWant::Hand);
 				if (kBtns[i].enabled && hit.Clicked(kBtns[i].key)) {
-					if (i == 0)
-						nk3d::Viewport3DFrameAll();
-					else if (i == 1)
-						nk3d::Viewport3DFrameAll();
-					else if (i == 3) {
+					if (i == 0 || i == 1) {
+						// LOUPE ET MAIN SONT DES GLISSEMENTS, pas des clics : on
+						// attrape le bouton et on tire. C'est ce que fait Blender, et
+						// c'est le seul acces a la navigation sur un portable sans
+						// molette ni bouton du milieu. Un clic simple ne pourrait
+						// exprimer ni la quantite ni la direction.
+						st.navDragMode = i;
+						st.navDragLastX = hit.Mouse().x;
+						st.navDragLastY = hit.Mouse().y;
+					} else if (i == 3) {
 						const bool o = !nk3d::Viewport3DIsOrtho();
 						nk3d::Viewport3DSetOrtho(o);
 						st.projection = o ? 1 : 0;
@@ -1099,7 +1143,29 @@ namespace nkentseu {
 						nk3d::Viewport3DZoom(hit.WheelDelta());
 				}
 
-				// CLIC GAUCHE = SELECTION, mais seulement si le gizmo ne l'a pas pris.
+				// ── GLISSEMENT DE NAVIGATION EN COURS ───────────────────────────
+			// Il se poursuit MEME SI la souris quitte le bouton : c'est le bouton
+			// ENFONCE qui commande, pas la position. Sans cela, un geste un peu
+			// rapide lacherait la navigation en pleine course.
+			if (st.navDragMode >= 0) {
+				if (!hit.MouseDown()) {
+					st.navDragMode = -1;
+				} else {
+					const math::NkVec2 mm = hit.Mouse();
+					const float32 ndx = mm.x - st.navDragLastX;
+					const float32 ndy = mm.y - st.navDragLastY;
+					if (st.navDragMode == 2)
+						nk3d::Viewport3DOrbitFree(ndx, ndy);
+					else
+						nk3d::Viewport3DNavDrag(st.navDragMode, ndx, ndy);
+					st.navDragLastX = mm.x;
+					st.navDragLastY = mm.y;
+					hit.WantCursor(st.navDragMode == 1 ? NkCursorWant::Hand
+													   : NkCursorWant::ResizeNS);
+				}
+			}
+
+			// CLIC GAUCHE = SELECTION, mais seulement si le gizmo ne l'a pas pris.
 				// L'ordre compte : les rubans de rotation couvrent une large zone et
 				// avaleraient tous les clics si on ne les interrogeait pas d'abord.
 				// Les coordonnees sont RELATIVES a la vue -- la cible hors ecran a sa
@@ -1360,7 +1426,7 @@ namespace nkentseu {
 			const float32 navH = 4.f * 26.f + 3.f * 5.f;
 			const float32 navY = r.y + r.h - 22.f - gz * 2.f - 14.f - navH;
 			PaintViewButtons(p, hit, st, r.x + 14.f, navY);
-			PaintNavGizmo(p, hit, r.x + 12.f + gz, r.y + r.h - 22.f - gz, gz);
+			PaintNavGizmo(p, hit, st, r.x + 12.f + gz, r.y + r.h - 22.f - gz, gz);
 
 			// ── PANNEAU DE DERNIERE OPERATION. Il FLOTTE au-dessus de la scene et n'est
 			// pas encastre dans un bord : il appartient a la vue, pas au cadre.
