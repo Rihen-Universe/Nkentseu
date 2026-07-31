@@ -101,6 +101,15 @@ namespace nkentseu {
 					// remplissant : un seul moteur de rasterisation a maintenir.
 					void StrokePath(const NkPdfPath &path, double width, uint8 r, uint8 g, uint8 b, uint8 a);
 
+					// Couverture d'un trace, sans peindre. Necessaire des que la
+					// couleur VARIE par pixel — degrades, motifs — ce que FillPath, qui
+					// prend une couleur unique, ne peut pas exprimer. Le decoupage
+					// courant est DEJA applique : l'appelant n'a plus qu'a melanger.
+					void ComputeCoverage(const NkPdfPath &path, bool evenOdd, NkVector<uint8> &cov) const;
+
+					// Melange une couleur dans le pixel (x, y) avec l'opacite donnee.
+					void BlendPixel(int32 x, int32 y, uint8 r, uint8 g, uint8 b, uint32 alpha);
+
 					// ── Decoupage (operateurs W / W*) ──
 					// Le masque est une couverture 8 bits par pixel. Absent = pas de
 					// decoupage. Intersecter plutot que remplacer : les `q`/`Q` du PDF
