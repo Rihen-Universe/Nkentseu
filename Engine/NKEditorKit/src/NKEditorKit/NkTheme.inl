@@ -26,6 +26,7 @@ namespace nkentseu {
 					"type_tex",		 "node_data_header", "node_data_hot", "node_action_header",
 					"node_body",	 "node_wire",		 "viewport_top",  "viewport_bottom",
 					"grid_line",
+					"type_folder",
 				};
 				return kNames;
 			}
@@ -252,7 +253,10 @@ namespace nkentseu {
 			S(NkRole::Border, "#FFFFFF14"); // blanc a 8 %
 			S(NkRole::InputBg, "#1A1A1A");
 			S(NkRole::LabelCol, "#1A1A1A");
-			S(NkRole::Text, "#E6E6E6");
+			// BLANC PUR, demande par Rihen. #E6E6E6 (la valeur du guide de style) tire
+			// vers le gris sur les fonds tres sombres du produit : a cote d'une icone
+			// blanche, le texte paraissait eteint.
+			S(NkRole::Text, "#FFFFFF");
 			S(NkRole::TextMuted, "#FFFFFF8C"); // blanc a 55 %
 			S(NkRole::TextOnAccent, "#FFFFFF");
 			S(NkRole::AccentUi, "#1177D1");
@@ -275,6 +279,7 @@ namespace nkentseu {
 			S(NkRole::ViewportTop, "#1A1A1A");
 			S(NkRole::ViewportBottom, "#252525");
 			S(NkRole::GridLine, "#FFFFFF12");
+			S(NkRole::TypeFolder, "#F0B429"); // ambre de dossier, repris de la maquette
 			return t;
 		}
 
@@ -325,6 +330,8 @@ namespace nkentseu {
 			S(NkRole::ViewportTop, "#D8D8D8");
 			S(NkRole::ViewportBottom, "#BFBFBF");
 			S(NkRole::GridLine, "#00000014");
+			// Assombri : #F0B429 sur fond blanc passe inapercu.
+			S(NkRole::TypeFolder, "#A87400");
 			return t;
 		}
 

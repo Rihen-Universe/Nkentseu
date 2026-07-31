@@ -136,10 +136,47 @@ namespace nkentseu {
 				// horizontale ni verticale : les fuyantes du sol et le repere d'axes
 				// etaient dessines en rectangles, d'ou les barres etranges au lieu de
 				// diagonales.
-				// Contour seul, sans remplissage : les pastilles de filtre non actives.
-				void Outline(const NkRect &r, NkRole role, float32 rounding = 0.f) {
+				// CONTOUR ARRONDI. AddRect ne sait pas arrondir -- d'ou les pastilles
+				// de filtre CARREES de la derniere capture, alors qu'elles doivent
+				// etre en gelule. On peint donc le contour en PLEIN puis on recreuse
+				// l'interieur d'un pixel : deux rectangles arrondis donnent un
+				// contour arrondi, avec les primitives dont on dispose.
+				void Outline(const NkRect &r, NkRole border, NkRole inner, float32 rounding = 0.f) {
+					mDl.AddRectFilled(r, C(border), rounding);
+					mDl.AddRectFilled({r.x + 1.f, r.y + 1.f, r.w - 2.f, r.h - 2.f}, C(inner),
+									  rounding > 1.f ? rounding - 1.f : 0.f);
+				}
+				// Variante a angles vifs quand le fond n'a pas a etre repeint.
+				void OutlineSharp(const NkRect &r, NkRole role) {
 					mDl.AddRect(r, C(role), 1.f);
-					(void)rounding;
+				}
+
+				// Cercle CREUX : les demi-axes negatifs du gizmo de navigation.
+				void Ring(float32 cx, float32 cy, float32 radius, NkRole role, NkRole inner) {
+					mDl.AddCircleFilled({cx, cy}, radius, C(role));
+					mDl.AddCircleFilled({cx, cy}, radius - 1.6f, C(inner));
+				}
+				void Ring(float32 cx, float32 cy, float32 radius, const NkColor &c, NkRole inner) {
+					mDl.AddCircleFilled({cx, cy}, radius, c);
+					mDl.AddCircleFilled({cx, cy}, radius - 1.6f, C(inner));
+				}
+
+				// ASCENSEUR VERTICAL. Dessine SEULEMENT si le contenu depasse : une
+				// barre toujours visible sur un panneau qui tient entierement fait
+				// croire qu'il reste quelque chose a voir plus bas.
+				void VScroll(const NkRect &area, float32 contentH, float32 offset) {
+					if (contentH <= area.h || area.h <= 0.f)
+						return;
+					const float32 w = 6.f;
+					const float32 x = area.x + area.w - w - 2.f;
+					mDl.AddRectFilled({x, area.y, w, area.h}, C(NkRole::WindowBg), 3.f);
+					float32 th = area.h * (area.h / contentH);
+					if (th < 24.f)
+						th = 24.f;
+					const float32 maxOff = contentH - area.h;
+					const float32 t = maxOff > 0.f ? (offset / maxOff) : 0.f;
+					const float32 ty = area.y + (area.h - th) * (t < 0.f ? 0.f : (t > 1.f ? 1.f : t));
+					mDl.AddRectFilled({x, ty, w, th}, C(NkRole::TextMuted), 3.f);
 				}
 
 				void Disc(float32 cx, float32 cy, float32 radius, NkRole role) {
