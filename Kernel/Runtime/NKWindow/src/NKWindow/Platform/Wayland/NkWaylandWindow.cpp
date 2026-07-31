@@ -92,6 +92,19 @@
 #include <algorithm>
 
 namespace nkentseu {
+
+	// Diagnostic protocole Wayland, SILENCIEUX par defaut.
+	//
+	// Active par NK_WAYLAND_TRACE=1. Passe par fprintf/fflush et NON par le
+	// logger : celui-ci cesse d'emettre apres l'initialisation, ce qui a fait
+	// croire pendant trois correctifs que les gestionnaires de configure ne
+	// tournaient pas — alors qu'ils tournaient. Garde ici pour la session
+	// dediee qui reste a faire sur l'erreur xdg_wm_base 4.
+	static bool NkWlTrace() {
+		static const bool on = (::getenv("NK_WAYLAND_TRACE") != nullptr);
+		return on;
+	}
+
 	using namespace math;
 
 	// =========================================================================
@@ -500,13 +513,42 @@ namespace nkentseu {
 
 	static void OnXdgSurfaceConfigure(void *data, ::xdg_surface *surface, uint32_t serial) {
 		NkWindow *window = static_cast<NkWindow *>(data);
-		logger.Warnf("[NkWayland][DBG] xdg_surface.configure: window=%p serial=%u", static_cast<void *>(window),
-					 static_cast<unsigned>(serial));
-		xdg_surface_ack_configure(surface, serial);
+
+		// ── Acquitter TOUT DE SUITE, ou DIFFERER d'une frame ? ──────────────
+		//
+		// La contrainte de taille d'xdg_surface ne s'applique qu'A PARTIR de
+		// l'acquittement. Or eglSwapBuffers attache le tampon DEJA RENDU,
+		// valide, puis seulement realloue pour la frame suivante — verifie a
+		// la trace : attach(vieux 1440x900) -> commit -> create_buffer(1920x1032).
+		// Acquitter immediatement rendait donc ILLEGALE une presentation deja
+		// en vol : « xdg_surface buffer does not match the configured
+		// maximized state », fatale.
+		//
+		// On differe donc d'une frame quand la taille a change et que la
+		// fenetre est deja mappee. Le PREMIER configure, lui, doit etre
+		// acquitte sur-le-champ : sans cela la surface n'est jamais mappee et
+		// la fenetre n'apparait pas.
+		const bool premierConfigure = !window || !window->mData.mConfigured;
+		const bool tailleEnAttente = window && window->mData.mPendingResize;
+
+		if (premierConfigure || !tailleEnAttente) {
+			if (NkWlTrace()) std::fprintf(stderr, "[RAW] xdg_surface.configure serial=%u -> ack immediat\n", serial);
+			xdg_surface_ack_configure(surface, serial);
+			if (window) {
+				window->mData.mPendingAckSerial = 0;
+				window->mData.mPendingAckDelay = 0;
+			}
+		} else {
+			// Un configure plus recent remplace le precedent : on n'acquitte
+			// que le dernier, ce que le protocole autorise.
+			window->mData.mPendingAckSerial = serial;
+			window->mData.mPendingAckDelay = 1; // une frame de sursis
+			if (NkWlTrace()) std::fprintf(stderr, "[RAW] xdg_surface.configure serial=%u -> ack DIFFERE\n", serial);
+		}
+
 		if (window) {
 			window->mData.mConfigured = true;
 		}
-		logger.Warn("[NkWayland][DBG] xdg_surface.configure acked");
 	}
 
 	static const ::xdg_surface_listener kXdgSurfaceListener = {
@@ -524,6 +566,9 @@ namespace nkentseu {
 		NkWindow *window = static_cast<NkWindow *>(data);
 		logger.Warnf("[NkWayland][DBG] toplevel.configure: window=%p w=%d h=%d states=%p", static_cast<void *>(window),
 					 width, height, static_cast<void *>(states));
+		// Diagnostic BRUT, hors logger : ce dernier cesse d'emettre apres
+		// l'initialisation, ce qui empeche de savoir si ce gestionnaire tourne.
+		if (NkWlTrace()) std::fprintf(stderr, "[RAW] toplevel.configure w=%d h=%d\n", width, height);
 
 		// Lecture des états
 		bool isFullscreen = false;
@@ -604,6 +649,7 @@ namespace nkentseu {
 			wl_egl_window_resize(static_cast<::wl_egl_window *>(window->mData.mEglWindow),
 								 static_cast<int>(width), static_cast<int>(height), 0, 0);
 			logger.Warnf("[NkWayland][DBG] wl_egl_window_resize %ux%u", width, height);
+			if (NkWlTrace()) std::fprintf(stderr, "[RAW] wl_egl_window_resize %ux%u\n", width, height);
 		} else {
 			// Trace explicite : sans elle, un enregistrement manque passerait
 			// pour un correctif qui « ne marche pas », alors que le code n'est

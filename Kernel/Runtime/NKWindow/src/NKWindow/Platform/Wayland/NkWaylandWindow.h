@@ -94,6 +94,26 @@ namespace nkentseu {
 			void *mEglWindow = nullptr;
 
 			// ----------------------------------------------------------------
+			// Acquittement DIFFERE d'un configure qui change la taille.
+			//
+			// La contrainte de taille d'xdg_surface ne s'applique qu'A PARTIR
+			// de l'acquittement. Or eglSwapBuffers attache le tampon DEJA
+			// RENDU, valide, PUIS seulement reallouer pour la frame suivante
+			// (verifie a la trace : attach(vieux) -> commit -> create_buffer).
+			// Acquitter tout de suite rendait donc illegale une presentation
+			// deja en vol, et le compositeur tuait la fenetre.
+			//
+			// En differant d'une frame : la presentation perimee a lieu sous
+			// l'ANCIENNE configuration (legale), Mesa realloue apres ce commit,
+			// puis on acquitte — la frame suivante part a la bonne taille.
+			//
+			// Le PREMIER configure (avant mappage) doit rester acquitte tout de
+			// suite, sinon la fenetre n'apparait jamais.
+			// ----------------------------------------------------------------
+			uint32_t mPendingAckSerial = 0;
+			int32_t mPendingAckDelay = 0;
+
+			// ----------------------------------------------------------------
 			// Dimensions courantes
 			// ----------------------------------------------------------------
 			uint32_t mWidth = 0;
