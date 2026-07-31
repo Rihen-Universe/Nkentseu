@@ -298,6 +298,40 @@ namespace nkentseu {
 			// Rendu d'une page
 			// ============================================================
 
+			bool NkPdfRenderer::PagePixelSize(NkPdfDoc &doc, int32 pageIdx, double dpi, int32 *w,
+											  int32 *h) {
+				double x0 = 0, y0 = 0, x1 = 612, y1 = 792;
+				doc.PageMediaBox(pageIdx, &x0, &y0, &x1, &y1);
+				const double k = dpi / 72.0;
+				const int32 rot = doc.PageRotate(pageIdx);
+				const bool swap = (rot == 90 || rot == 270);
+				const double wPt = x1 - x0, hPt = y1 - y0;
+				const int32 pw = static_cast<int32>((swap ? hPt : wPt) * k + 0.5);
+				const int32 ph = static_cast<int32>((swap ? wPt : hPt) * k + 0.5);
+				if (pw < 1 || ph < 1)
+					return false;
+				if (w)
+					*w = pw;
+				if (h)
+					*h = ph;
+				return true;
+			}
+
+			bool NkPdfRenderer::RenderPageWindow(NkPdfDoc &doc, int32 pageIdx, double dpi, double offX,
+												 double offY, NkPdfCanvas &out) {
+				if (!out.Valid())
+					return false;
+				// Meme chemin que RenderPage, mais SANS recreer le canevas et avec une
+				// translation supplementaire : la fenetre visible se retrouve a
+				// l'origine du canevas.
+				mWindowMode = true;
+				mWinOffX = offX;
+				mWinOffY = offY;
+				const bool ok = RenderPage(doc, pageIdx, dpi, out);
+				mWindowMode = false;
+				return ok;
+			}
+
 			bool NkPdfRenderer::RenderPage(NkPdfDoc &doc, int32 pageIdx, double dpi, NkPdfCanvas &out) {
 				mDoc = &doc;
 				mCv = &out;
@@ -328,8 +362,15 @@ namespace nkentseu {
 				int32 ph = static_cast<int32>((swap ? wPt : hPt) * k + 0.5);
 				if (pw < 1 || ph < 1)
 					return false;
-				if (!out.Create(pw, ph))
-					return false;
+				// En mode FENETRE le canevas est fourni par l'appelant a la taille du
+				// panneau : le recreer ruinerait tout l'interet (texture stable).
+				if (!mWindowMode) {
+					if (!out.Create(pw, ph))
+						return false;
+				} else {
+					out.ClearClip();
+					out.Clear(255, 255, 255, 255);
+				}
 
 				// Matrice de base : PDF a l'origine EN BAS a gauche et l'axe Y vers le
 				// HAUT ; une image a l'origine en haut a gauche et l'axe Y vers le BAS.
@@ -352,6 +393,10 @@ namespace nkentseu {
 						base.a = k; base.b = 0; base.c = 0; base.d = -k;
 						base.e = -x0 * k; base.f = y1 * k;
 						break;
+				}
+				if (mWindowMode) { // decale la page pour amener la fenetre a l'origine
+					base.e -= mWinOffX;
+					base.f -= mWinOffY;
 				}
 				mGs = GState();
 				mGs.ctm = base;

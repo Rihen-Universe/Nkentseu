@@ -53,6 +53,25 @@ namespace nkentseu {
 					// dimensions aberrantes.
 					bool RenderPage(NkPdfDoc &doc, int32 pageIdx, double dpi, NkPdfCanvas &out);
 
+					// Rend une FENETRE de la page dans un canevas DEJA dimensionne.
+					// `offX`/`offY` sont le coin haut-gauche de la fenetre, en pixels de
+					// la page rendue a `dpi`.
+					//
+					// C'est ce que fait tout vrai lecteur, et c'est necessaire ici pour
+					// une raison precise : le backend fige la taille d'une texture a sa
+					// CREATION, et n'offre aucune liberation. Rendre la page entiere
+					// obligeait a reallouer une texture a chaque cran de zoom — fuite de
+					// dizaines de mega-octets par cran, puis plantage. En rendant
+					// toujours dans un canevas de la taille du PANNEAU, la texture ne
+					// change jamais de dimensions : plus de reallocation, memoire bornee,
+					// et le zoom peut monter aussi haut qu'on veut.
+					bool RenderPageWindow(NkPdfDoc &doc, int32 pageIdx, double dpi, double offX, double offY,
+										  NkPdfCanvas &out);
+
+					// Dimensions de la page entiere a `dpi`, sans rien rendre : sert a
+					// borner le defilement et a dimensionner les barres.
+					static bool PagePixelSize(NkPdfDoc &doc, int32 pageIdx, double dpi, int32 *w, int32 *h);
+
 					// Fonctionnalites rencontrees mais NON rendues, pour le dire a
 					// l'utilisateur au lieu de le laisser croire a un rendu fidele.
 					const NkString &Unsupported() const { return mUnsupported; }
@@ -108,6 +127,8 @@ namespace nkentseu {
 					NkString mUnsupported;
 					Stats mStats;
 					NkPdfFont *mLastFont = nullptr;
+					bool mWindowMode = false; // rendu d'une fenetre dans un canevas fourni
+					double mWinOffX = 0.0, mWinOffY = 0.0;
 
 					NkVector<GState> mStack;
 					GState mGs;
