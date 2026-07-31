@@ -187,7 +187,12 @@ namespace nkentseu {
 				int32 editReplayStep = -1;				 // P : rejeu PAS-À-PAS (-1=off, 0=base, k=base+k commandes)
 				bool editSavePending = false;			 // F5 : sauver la session (journal) sur disque
 				bool editLoadPending = false;			 // F6 : charger une session + rejouer
-				int32 editAddModPending = -1;			 // F7/F8/F9 : ajouter modificateur (0=Mirror 1=Array 2=Subsurf)
+				int32 editAddModPending = -1;			 // ajouter le modificateur de ce type
+				// TYPE COURANT du menu « ajouter ». Il y a maintenant 17 modificateurs :
+				// une touche par type serait ingerable, et Blender ne fait pas cela non
+				// plus (il ouvre une liste). On cycle donc le type avec F8/F9 et on
+				// l'ajoute avec F7 — F8/F9 gardent ainsi un role voisin de l'ancien.
+				int32 editModTypePick = 0;
 				bool editClearModPending = false;		 // F10 : vider la pile de modificateurs
 				int32 editActiveMod = -1;				 // index du modificateur en cours de réglage
 				// PARAMÈTRE courant du modificateur actif. Le réglage ne passe plus par un
@@ -2653,17 +2658,25 @@ namespace nkentseu {
 						st->editLoadPending = true;
 						return;
 					}
-					// F7/F8/F9 = ajouter modificateur MIRROR / ARRAY / SUBSURF (non-destructif) · F10 = vider.
+					// F7 = AJOUTER le modificateur du type courant · F8/F9 = changer de type
+					// · F10 = vider la pile. Le type courant est journalise a chaque
+					// changement : sans cela, avec 17 entrees, on ne saurait pas ce qu'on
+					// s'apprete a ajouter.
 					if (k == NkKey::NK_F7) {
-						st->editAddModPending = 0;
+						st->editAddModPending = st->editModTypePick;
 						return;
 					}
-					if (k == NkKey::NK_F8) {
-						st->editAddModPending = 1;
-						return;
-					}
-					if (k == NkKey::NK_F9) {
-						st->editAddModPending = 2;
+					if (k == NkKey::NK_F8 || k == NkKey::NK_F9) {
+						const int32 last = (int32)renderer::NkModifierType::SmoothByAngle;
+						st->editModTypePick += (k == NkKey::NK_F9) ? 1 : -1;
+						if (st->editModTypePick < 0)
+							st->editModTypePick = last;
+						if (st->editModTypePick > last)
+							st->editModTypePick = 0;
+						uint32 np = 0;
+						renderer::NkModifierParams((renderer::NkModifierType)st->editModTypePick, np);
+						logger.Info("[Demo3D] Type a ajouter (F7) = [{0}] {1} — {2} parametres\n", st->editModTypePick,
+									renderer::NkModifierTypeName((renderer::NkModifierType)st->editModTypePick), np);
 						return;
 					}
 					if (k == NkKey::NK_F10) {
@@ -4425,7 +4438,30 @@ namespace nkentseu {
 						st->editLoadPending = false;
 						Demo3D_LoadSession(st, meshSysT);
 					}
-					// Modificateurs (F7/F8/F9 ajouter, F10 vider) : non-destructif, ré-évalué à l'affichage.
+					// NK_MOD_ADD="t[,t…]" : empile ces types UNE FOIS au demarrage. Sans ce
+				// levier, une pile de modificateurs ne serait verifiable qu'a la main —
+				// donc pas en capture, donc pas de facon reproductible.
+				static bool modAddDone = false;
+				if (!modAddDone && st->editMode) {
+					if (const char *ma = getenv("NK_MOD_ADD")) {
+						modAddDone = true;
+						const char *p = ma;
+						while (*p) {
+							renderer::NkMeshModifier mod;
+							mod.type = (renderer::NkModifierType)atoi(p);
+							const uint32 id = st->editModifiers.Add(mod);
+							logger.Info("[Demo3D][PILE] NK_MOD_ADD -> {0} (id={1})\n",
+										renderer::NkModifierTypeName(mod.type), id);
+							while (*p && *p != ',')
+								p++;
+							if (*p == ',')
+								p++;
+						}
+						st->editActiveMod = (int32)st->editModifiers.Count() - 1;
+						Demo3D_SyncFromHE(st, meshSysT);
+					}
+				}
+				// Modificateurs (F7 ajouter le type courant, F8/F9 changer de type, F10 vider).
 					if (st->editAddModPending >= 0) {
 						renderer::NkMeshModifier mod;
 						mod.type = (renderer::NkModifierType)st->editAddModPending;
@@ -4433,10 +4469,13 @@ namespace nkentseu {
 						st->editAddModPending = -1;
 						st->editActiveMod = (int32)st->editModifiers.Count() - 1; // le nouveau = actif (réglable [ ])
 						Demo3D_SyncFromHE(st, meshSysT);
-						const char *nm[3] = {"Mirror (axe X)", "Array (x3)", "Subsurf (1)"};
-						logger.Info(
-							"[Demo3D] + Modificateur {0} — pile={1} · reglage [ / ] · change actif \\ · vider F10\n",
-							nm[(int32)mod.type], st->editModifiers.Count());
+						logger.Info("[Demo3D] + Modificateur {0} (id={1}) — pile={2} · reglage [ / ] · "
+									"parametre suivant Shift+\\ · actif \\ · monter/descendre Shift+Haut/Bas · "
+									"activer Shift+E · dupliquer Shift+D · retirer Shift+Suppr · APPLIQUER "
+									"Shift+Entree · vider F10\n",
+									renderer::NkModifierTypeName(mod.type),
+									st->editModifiers.modifiers[st->editModifiers.Count() - 1].id,
+									st->editModifiers.Count());
 					}
 					if (st->editClearModPending) {
 						st->editClearModPending = false;
