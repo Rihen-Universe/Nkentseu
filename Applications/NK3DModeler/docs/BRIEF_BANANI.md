@@ -196,7 +196,9 @@ de déplacement en son centre fait de trois flèches : rouge vers la droite, ver
 vers le haut, bleue vers le fond. Dans le COIN INFÉRIEUR GAUCHE de la vue, un
 petit repère à trois axes avec les lettres X (rouge), Y (verte), Z (bleue).
 EN SURIMPRESSION sur le HAUT de cette vue, flottant au-dessus de la scène 3D,
-une barre d'outils de vue compacte en deux groupes : à GAUCHE un groupe arrondi
+une barre d'outils de vue compacte en TROIS groupes : à GAUCHE un groupe arrondi
+de MENUS DE COMMANDES en texte portant « Ajouter », « Objet » et « Sélection »,
+chacun suivi d'un petit chevron déroulant ; AU MILIEU un second groupe arrondi
 contenant une icône de menu à trois traits, puis « Perspective » avec un petit
 chevron déroulant, puis « Éclairé » avec un chevron, puis « Affichage » avec un
 chevron ; à DROITE un groupe de petits boutons carrés à icône — un curseur, une
@@ -296,6 +298,19 @@ le reste étant identique :
   cours d'édition.
 - Dans la barre d'état du bas, le texte de statistiques devient « Sommets 8 ·
   Arêtes 12 · Faces 6 · sél. 3 faces · actif : face 4 · 60 ips ».
+- Le groupe de MENUS DE COMMANDES à gauche de la barre flottante change de
+  contenu : il porte maintenant « Ajouter », « Maillage », « Sommet », « Arête »
+  et « Face », chacun suivi d'un petit chevron. Ce sont les mêmes menus que dans
+  l'écran précédent, mais adaptés au mode.
+- Dans le COIN INFÉRIEUR GAUCHE de la vue 3D, JUSTE AU-DESSUS du petit repère à
+  trois axes, un petit panneau rectangulaire flottant en fond #2B2B2B avec un
+  coin arrondi et une ombre portée douce, large d'environ 18 % de la vue. Son
+  bandeau porte le titre « Extruder la région » en blanc demi-gras avec un petit
+  chevron de repli à gauche. En dessous, trois lignes en mise en page à deux
+  colonnes, libellés à gauche et champs numériques à droite : « Distance » avec
+  la valeur « 0,25 », « Décalage » avec « 0,00 », et une case à cocher
+  « Décalage pair » cochée en bleu #1177D1. Ce panneau a l'air de flotter au-
+  dessus de la scène et non d'être encastré dans un bord.
 ```
 
 ---
@@ -502,12 +517,99 @@ opérations ; rien n'est appliqué sans votre accord. »
 
 ---
 
+### 8. Écran G — menu contextuel au clic droit
+
+Le **deuxième** chemin d'accès aux commandes, et le plus utilisé une fois la
+prise en main faite : ce qu'on peut faire sur la sélection **là où se trouve le
+curseur**, sans traverser l'écran jusqu'à un menu d'en-tête.
+
+```
+LA MÊME disposition d'application de modélisation 3D que l'écran du mode
+ÉDITION, avec les mêmes panneaux aux mêmes emplacements et les mêmes couleurs,
+sur laquelle apparaît un MENU CONTEXTUEL flottant. Tout le reste est identique.
+
+Le menu contextuel est un rectangle vertical d'environ 15 % de la largeur de la
+fenêtre, posé au MILIEU de la vue 3D, juste en bas à droite du pointeur de
+souris qui est visible. Fond #2B2B2B, coins légèrement arrondis, un contour d'un
+pixel #1A1A1A et une ombre portée nette qui le détache franchement de la scène
+3D derrière lui.
+
+Il contient une colonne d'entrées de menu en texte gris clair #E6E6E6, alignées
+à gauche avec une marge intérieure confortable, chacune sur sa propre ligne :
+« Extruder les faces », « Insérer une face », « Biseauter », « Subdiviser »,
+puis un fin trait séparateur horizontal #1A1A1A sur toute la largeur, puis
+« Lisser », « Plat », puis un second trait séparateur, puis « Fusionner » suivi
+d'un petit chevron pointant vers la DROITE indiquant un sous-menu, et enfin
+« Supprimer » également suivi d'un chevron droit.
+
+À l'EXTRÊME DROITE de chaque ligne qui en possède un, le raccourci clavier
+correspondant en gris beaucoup plus estompé et en caractères plus petits :
+« E » face à Extruder, « I » face à Insérer, « Ctrl+B » face à Biseauter,
+« M » face à Fusionner, « X » face à Supprimer. Les libellés et les raccourcis
+forment deux colonnes propres.
+
+L'entrée « Biseauter » est SURVOLÉE : sa ligne entière porte un fond bleu plein
+#1177D1 et son texte passe en blanc pur, le raccourci compris.
+```
+
+---
+
+### 9. Écran H — palette de recherche de commandes
+
+Le **troisième** chemin, et celui qui enseigne les raccourcis : on tape ce qu'on
+veut faire, on obtient la commande **et** son raccourci. C'est le filet de
+sécurité qui permet à l'interface de rester dépouillée sans rien rendre
+introuvable.
+
+```
+LA MÊME disposition d'application de modélisation 3D que l'écran du mode
+ÉDITION, mais l'ensemble de l'interface est ASSOMBRI par un voile noir
+translucide à 50 %, et par-dessus ce voile flotte une unique PALETTE DE
+RECHERCHE nettement contrastée.
+
+La palette est un rectangle horizontal centré dans le tiers SUPÉRIEUR de la
+fenêtre, large d'environ 42 % de la fenêtre. Fond #2B2B2B, coins arrondis,
+ombre portée large et douce.
+
+En HAUT de la palette, un champ de saisie occupant toute la largeur, fond
+#141414, hauteur généreuse, contenant à gauche une petite icône de loupe puis le
+texte déjà saisi « extru » en blanc, suivi d'un curseur de texte vertical.
+
+En DESSOUS, une liste verticale de résultats, chacun sur une ligne haute avec à
+GAUCHE une petite icône monochrome, AU CENTRE le nom de la commande en gris
+clair #E6E6E6 et, sous ce nom en caractères plus petits et plus estompés, le
+chemin de menu où la trouver, et à l'EXTRÊME DROITE le raccourci clavier dans
+une petite pastille au fond #1A1A1A :
+
+- « Extruder la région » — sous-titre « Maillage › Extruder » — pastille « E »
+- « Extruder individuellement » — sous-titre « Maillage › Extruder » — pastille
+  « Alt+E »
+- « Extruder le long des normales » — sous-titre « Maillage › Extruder » —
+  aucune pastille
+- « Extruder vers le curseur » — sous-titre « Maillage › Extruder » — aucune
+  pastille
+
+La PREMIÈRE ligne de résultat est sélectionnée : sa ligne entière porte un fond
+bleu plein #1177D1, son nom passe en blanc pur, et sa pastille de raccourci
+devient blanche à texte bleu.
+
+Dans le texte des résultats, les lettres « extru » qui correspondent à la saisie
+sont mises en évidence en ORANGE #F2980E sur les lignes NON sélectionnées.
+
+Tout en BAS de la palette, une fine bande de pied #212121 portant en gris
+estompé « ↑↓ naviguer · Entrée exécuter · Échap fermer ».
+```
+
+---
+
 ## Notes d'usage
 
 **Ordre de génération.** Faire l'écran **1 (calibrage)** d'abord : il valide la
 palette, et surtout que le bleu et l'ambre sont bien distincts. Puis l'écran
 **2 (mode objet)**, qui sert ensuite d'**image de référence** pour les écrans 3
 à 7 — cela évite que Banani ré-improvise une disposition à chaque essai.
+Les écrans **8 (menu contextuel)** et **9 (palette de recherche)** dérivent de
+l'écran **3 (mode édition)** — les fournir tous deux comme image de référence.
 Les écrans **6 (nœuds)** et **7 (assistant)** peuvent attendre : ils décrivent des
 fonctions dont l'implantation vient après. Les produire tôt reste utile pour
 valider que la grammaire visuelle tient sur autre chose qu'un panneau de
@@ -523,7 +625,11 @@ le bleu et l'orange sont intervertis ou mélangés · les champs X/Y/Z sont tein
 en fond au lieu d'être bordés à gauche · les barres d'outils sont en icônes seules
 sans texte · le panneau de modificateurs a des contrôles dessinés sur mesure par
 type · des fenêtres flottantes apparaissent alors qu'aucune n'est demandée · le
-panneau vide montre du vide au lieu d'une phrase.
+panneau vide montre du vide au lieu d'une phrase · **un menu ou une palette
+affiche des commandes SANS leur raccourci** — c'est précisément ce qui apprend
+les raccourcis à l'utilisateur, un menu muet fait perdre cet effet · **le
+panneau de dernière opération est encastré dans un bord** au lieu de flotter
+au-dessus de la scène.
 
 **Ce qui reste libre.** Typographie exacte, dessin des icônes, densité fine,
 traitement des séparateurs, et la déclinaison **claire** du thème — l'application

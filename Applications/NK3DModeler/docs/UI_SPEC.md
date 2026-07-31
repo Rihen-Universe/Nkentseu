@@ -385,6 +385,54 @@ ne l'est pas.
 
 ---
 
+## 9bis. Chemins d'accès aux commandes *(Rihen, 31/07)*
+
+**Le défaut qu'il corrige.** Ce document affirmait « simple à prendre en main »
+tout en ne décrivant, pour l'extrusion et ses semblables, qu'un accès **au
+clavier**. Les deux sont incompatibles : un modeleur qui exige de mémoriser des
+raccourcis avant de pouvoir extruder une face échoue au critère posé en § 1.
+
+### La règle
+
+> **Toute commande atteignable au clavier doit l'être aussi à la souris, et
+> partout où elle apparaît, son raccourci est affiché à côté d'elle.**
+
+La seconde moitié fait le travail : le menu n'est pas un pis-aller pour ceux qui
+ne connaissent pas les raccourcis, c'est **ce qui les enseigne**. Un menu muet
+laisserait l'utilisateur débutant le rester.
+
+### Les quatre chemins
+
+| chemin | rôle | état |
+|---|---|---|
+| **menus de commandes** dans la barre flottante de la vue — `Ajouter/Objet/Sélection` en mode objet, `Ajouter/Maillage/Sommet/Arête/Face` en mode édition | découverte : on parcourt ce qui existe | ❌ à maquetter — **modifie** les écrans A et B |
+| **menu contextuel** au clic droit, filtré par le mode de sélection courant | usage courant : ce qu'on peut faire **ici**, sans traverser l'écran | ❌ nouvel écran G |
+| **palette de recherche** : on tape « extru », on obtient la commande, son chemin de menu et son raccourci | filet de sécurité — permet à l'interface de rester dépouillée sans rien rendre introuvable | ❌ nouvel écran H |
+| **panneau de dernière opération**, flottant en bas à gauche de la vue | on extrude d'abord, on **règle ensuite** au chiffre près | ❌ à maquetter — **modifie** l'écran B |
+
+Un cinquième chemin avait été annoncé — une barre d'outils verticale à gauche du
+viewport. Vérification faite, **elle existe déjà** dans l'écran A sous une autre
+forme : le groupe de boutons carrés à droite de la barre flottante (curseur,
+déplacement, rotation, échelle). En ajouter une seconde ferait doublon.
+
+### Ce que ça coûte en code : rien de nouveau
+
+Les quatre chemins lisent la **même** `NkShortcutTable` déjà livrée — clé de
+commande stable, libellé traduisible, combinaison, contexte. Un menu est une
+**vue** sur cette table filtrée par contexte ; la palette est la même table
+filtrée par texte. Aucune liste de commandes n'est écrite deux fois, donc aucune
+ne peut diverger.
+
+Le panneau de dernière opération, lui, se branche sur `NkModParam` : mêmes
+paramètres nommés, mêmes bornes, même rendu générique que le panneau
+Modificateurs (§ 7). C'est le troisième consommateur de ce mécanisme.
+
+**Conséquence sur la génération de maquettes** : les écrans A et B sont à
+**refaire** (leur barre flottante change, et B gagne le panneau de dernière
+opération) ; G et H sont **nouveaux**. Les autres écrans ne bougent pas.
+
+---
+
 ## 10. Pour Banani — ce qu'on attend d'une maquette
 
 **À produire :** la disposition de la section 2 en trois états —
