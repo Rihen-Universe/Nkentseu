@@ -304,6 +304,7 @@ int nkmain(const NkEntryState &entry) {
 		// les recouvrir, et le registre donne la priorite a la derniere zone.
 		PaintSplitters(p, lay, W, H, st, hit);
 		DrawComboPopup(p, hit, ws, combo);
+		PaintModifierMenu(p, st, hit, ws);
 		PaintOpenMenu(p, lay.menu, st, hit, shortcuts);
 		PaintCloseDialog(p, W, H, st, hit);
 

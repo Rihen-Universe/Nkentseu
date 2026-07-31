@@ -71,9 +71,17 @@ namespace nkentseu {
 			// La CAMERA pour la perspective (on voit depuis un point), la GRILLE pour
 			// les vues orthographiques (aucun point de fuite). Deux dessins distincts,
 			// sinon rien ne dit laquelle est active.
-			static const NkIcon k[] = {NkIcon::Persp,	  NkIcon::OrthoView, NkIcon::OrthoView,
-									   NkIcon::OrthoView, NkIcon::OrthoView, NkIcon::OrthoView,
-									   NkIcon::OrthoView, NkIcon::OrthoView};
+			// UNE ICONE PAR ENTREE. Six vues d'axe portant le meme dessin
+			// obligeraient a lire le libelle pour les distinguer -- ce qui annule
+			// l'interet d'une liste a icones, et rend le bouton de la barre muet
+			// des qu'on sort de la perspective.
+			//   perspective -> camera        orthogonale -> grille
+			//   dessus / dessous -> fleches verticales
+			//   avant / arriere  -> fleches horizontales
+			//   gauche / droite  -> fleches simples
+			static const NkIcon k[] = {NkIcon::Persp,	  NkIcon::OrthoView, NkIcon::ArrowUp,
+									   NkIcon::ArrowDown, NkIcon::ViewFront,  NkIcon::ViewBack,
+									   NkIcon::ArrowLeft, NkIcon::ArrowRight};
 			return k;
 		}
 		// ── MODES D'OMBRAGE ─────────────────────────────────────────────────────
@@ -164,16 +172,68 @@ namespace nkentseu {
 			n = 10;
 			return k;
 		}
-		inline const char *const *NkModifierItems(int32 &n) {
-			// Repris de NkModifierType (NKRenderer) : la liste reelle des modificateurs
-			// implantes. Elle sera generee depuis l'enumeration au branchement.
-			static const char *const k[] = {"Miroir",	  "Tableau",	 "Subdivision", "Biseau",
-											"Solidifier", "Vissage",	 "Decimer",		"Lisser",
-											"Fondre",	  "Remailler",	 "Booleen",		"Deformer",
-											"Courbe",	  "Simple",		 "Enveloppe",	"Ombrage doux"};
-			n = 16;
-			return k;
+		// ── MODIFICATEURS, CLASSES PAR CATEGORIE ────────────────────────────────
+		// Seize modificateurs dans une liste plate obligent a la parcourir en entier
+		// pour trouver le bon, et rien n'indique lesquels font des choses comparables.
+		// Les trois categories repondent chacune a une question differente :
+		//   GENERER  — ajoute de la geometrie qui n'existait pas ;
+		//   DEFORMER — garde la meme geometrie et la deplace ;
+		//   NETTOYER — en retire ou la reorganise.
+		// C'est le classement de Blender, et il tient parce qu'il repose sur ce que le
+		// modificateur FAIT au maillage, pas sur son nom.
+		//
+		// La liste reprend NkModifierType (NKRenderer). Elle sera GENEREE depuis
+		// l'enumeration au branchement : la recopier a la main garantit qu'elle
+		// divergera le jour ou un modificateur sera ajoute.
+		struct NkModEntry {
+				const char *label;
+				NkIcon icon;
+		};
+		struct NkModCategory {
+				const char *name;
+				NkIcon icon;
+				const NkModEntry *items;
+				int32 count;
+		};
+
+		inline const NkModCategory *NkModifierCategories(int32 &n) {
+			static const NkModEntry kGen[] = {
+				{"Miroir", NkIcon::Ruler},		 {"Tableau", NkIcon::SnapGrid},
+				{"Subdivision", NkIcon::Layers}, {"Biseau", NkIcon::Scale},
+				{"Solidifier", NkIcon::Mesh}, {"Vissage", NkIcon::Rotate},
+				{"Booleen", NkIcon::Overlay},	 {"Enveloppe", NkIcon::Mesh},
+				{"Remailler", NkIcon::SnapGrid},
+			};
+			static const NkModEntry kDef[] = {
+				{"Deformer", NkIcon::Move},		{"Courbe", NkIcon::Ruler},
+				{"Simple", NkIcon::Scale},		{"Lisser", NkIcon::Circle},
+			};
+			static const NkModEntry kClean[] = {
+				{"Decimer", NkIcon::Trash},		 {"Fondre", NkIcon::Refresh},
+				{"Ombrage doux", NkIcon::Light},
+			};
+			static const NkModCategory kCats[] = {
+				{"Generer", NkIcon::Add, kGen, 9},
+				{"Deformer", NkIcon::Move, kDef, 4},
+				{"Nettoyer", NkIcon::Trash, kClean, 3},
+			};
+			n = 3;
+			return kCats;
 		}
+
+		// Libelle du modificateur choisi, tous categories confondues.
+		inline const NkModEntry *NkModifierAt(int32 flat) {
+			int32 nc = 0;
+			const NkModCategory *cats = NkModifierCategories(nc);
+			int32 seen = 0;
+			for (int32 c = 0; c < nc; ++c) {
+				if (flat < seen + cats[c].count)
+					return &cats[c].items[flat - seen];
+				seen += cats[c].count;
+			}
+			return &cats[0].items[0];
+		}
+
 
 		// Fond de survol. UN SEUL endroit, pour que tous les elements survolables
 		// reagissent pareil : un survol qui change d'aspect d'un bouton a l'autre se
@@ -398,13 +458,22 @@ namespace nkentseu {
 				Combo(p, hit, ws, "tb.add", {x, cbY, S(118.f), cbH}, items, kAddIc, n, st.addKind, combo);
 				x += S(126.f);
 			}
+			// MODIFICATEUR : liste a DEUX NIVEAUX. Le bouton montre le modificateur
+			// courant avec SON icone ; le clic ouvre les categories, et chaque
+			// categorie ouvre ses entrees.
 			{
-				int32 n = 0;
-				const char *const *items = NkModifierItems(n);
-				static NkIcon kModIc[24];
-				for (int32 i = 0; i < n && i < 24; ++i)
-					kModIc[i] = NkIcon::Layers;
-				Combo(p, hit, ws, "tb.mod", {x, cbY, S(136.f), cbH}, items, kModIc, n, st.modKind, combo);
+				const NkModEntry *cur = NkModifierAt(st.modKind);
+				const NkRect mr{x, cbY, S(136.f), cbH};
+				const bool over = hit.Add("tb.mod", mr);
+				const bool open = ws.ComboOpen("tb.mod");
+				p.Outline(mr, (over || open) ? NkRole::AccentUi : NkRole::Border, NkRole::InputBg, 3.f);
+				p.IconV(x + S(8.f), cbY, cbH, cur->icon, NkRole::AccentUi, 13.f);
+				p.TextV(x + S(27.f), cbY, cbH, cur->label);
+				p.IconV(x + mr.w - S(18.f), cbY, cbH, open ? NkIcon::ChevronUp : NkIcon::ChevronDown,
+						NkRole::Text, 11.f);
+				if (hit.Clicked("tb.mod"))
+					ws.ToggleCombo("tb.mod");
+				st.modAnchor = mr; // memorise pour la liste, peinte apres tout le reste
 				x += S(144.f);
 			}
 
@@ -706,55 +775,58 @@ namespace nkentseu {
 				const bool edit = (st.mode != NkMode::Object);
 				const char *const *shad = NkShadingItems(nS, edit);
 				const char *const *ovl = NkOverlayItems(nO);
-				// LES TROIS LISTES SONT COLLEES dans un seul cadre, comme avant :
-				// elles decrivent toutes « ce qu'on regarde » et forment un groupe. Les
-				// espacer les aurait fait lire comme trois reglages sans rapport, alors
-				// que c'est le meme sujet vu sous trois angles.
-				// Chaque liste est donc dessinee SANS son propre cadre -- le groupe en
-				// porte un seul -- et separee de la suivante par un simple trait.
-				const float32 w1 = p.TextW("Perspective") + S(40.f);
-				const float32 w2 = p.TextW("Non eclaire") + S(40.f);
-				const float32 w3 = p.TextW("Sans surimpression") + S(40.f);
-				const float32 groupW = S(34.f) + w1 + w2 + w3 + S(6.f);
+				// ── GROUPE DE VUE : ICONES SEULES ───────────────────────────────
+				// Le groupe faisait pres de 500 px parce que chaque liste etait
+				// dimensionnee sur son libelle LE PLUS LONG -- « Sans surimpression »
+				// imposait sa largeur en permanence, y compris quand « Grille seule »
+				// etait choisi.
+				//
+				// Dimensionner sur le libelle COURANT aurait fait respirer la barre a
+				// chaque changement, et deplace les boutons voisins sous le curseur.
+				// On garde donc les ICONES SEULES : c'est ce que fait Blender dans son
+				// en-tete de vue, et l'icone porte deja l'etat -- camera contre grille
+				// pour la projection, ampoule contre disque pour l'ombrage, oeil ouvert
+				// contre ferme pour les surimpressions.
+				//
+				// Le libelle n'est pas perdu : il reste dans la liste deroulee, avec la
+				// coche sur la valeur courante. On passe de ~500 px a ~120.
+				const float32 ib = S(28.f);
+				const int32 nBtn = (edit && st.shading == 4) ? 5 : 4;
+				const float32 groupW = S(6.f) + (float32)nBtn * (ib + 2.f);
 				float32 bx = r.x + S(10.f);
 				p.Fill({bx, barY, groupW, barH}, NkRole::PanelBg, 5.f);
+				bx += S(3.f);
 
-				// L'ICONE A GAUCHE porte SON contenu : disposition des vues, plein
-				// ecran, cameras, reinitialisation. Une icone sans menu serait un
-				// bouton mort au milieu de trois listes qui, elles, repondent.
+				// L'icone a gauche porte SON contenu : disposition des vues, plein ecran,
+				// camera enregistree, reinitialisation.
 				int32 nV = 0;
 				const char *const *vitems = NkViewMenuItems(nV);
-				Combo(p, hit, ws, "vp.menu", {bx + 2.f, barY + 2.f, S(28.f), barH - 4.f}, vitems,
-					  NkViewMenuIcons(), nV, st.viewLayout, combo, true, false, false);
-				bx += S(32.f);
-				p.VLine(bx, barY + S(5.f), barH - S(10.f));
-				bx += 2.f;
+				Combo(p, hit, ws, "vp.menu", {bx, barY + 2.f, ib, barH - 4.f}, vitems, NkViewMenuIcons(),
+					  nV, st.viewLayout, combo, true, false, false);
+				bx += ib + 2.f;
+				p.VLine(bx - 1.f, barY + S(5.f), barH - S(10.f));
 
-				Combo(p, hit, ws, "vp.proj", {bx, barY, w1, barH}, proj, NkProjectionIcons(), nP,
-					  st.projection, combo, true, true, false);
-				bx += w1;
-				p.VLine(bx, barY + S(5.f), barH - S(10.f));
-				Combo(p, hit, ws, "vp.shade", {bx + 2.f, barY, w2, barH}, shad, NkShadingIcons(), nS,
-					  st.shading, combo, true, true, false);
-				bx += w2 + 2.f;
-				p.VLine(bx, barY + S(5.f), barH - S(10.f));
-				Combo(p, hit, ws, "vp.ovl", {bx + 2.f, barY, w3, barH}, ovl, NkOverlayIcons(), nO,
-					  st.overlays, combo, true, true, false);
-				bx += w3 + S(2.f);
+				Combo(p, hit, ws, "vp.proj", {bx, barY + 2.f, ib, barH - 4.f}, proj, NkProjectionIcons(),
+					  nP, st.projection, combo, true, false, false);
+				bx += ib + 2.f;
+				Combo(p, hit, ws, "vp.shade", {bx, barY + 2.f, ib, barH - 4.f}, shad, NkShadingIcons(), nS,
+					  st.shading, combo, true, false, false);
+				bx += ib + 2.f;
+				Combo(p, hit, ws, "vp.ovl", {bx, barY + 2.f, ib, barH - 4.f}, ovl, NkOverlayIcons(), nO,
+					  st.overlays, combo, true, false, false);
+				bx += ib + 2.f;
 
-				// LE CHOIX DU MATCAP n'apparait QUE si l'ombrage Matcap est actif.
-				// Un selecteur visible en permanence laisserait croire a un reglage
-				// sans effet les trois quarts du temps.
+				// LE MATCAP prend sa place DANS le groupe, et n'apparait que si l'ombrage
+				// Matcap est actif -- un selecteur visible en permanence laisserait croire
+				// a un reglage sans effet les trois quarts du temps.
 				if (edit && st.shading == 4) {
 					int32 nM = 0;
 					const char *const *mats = NkMatcapItems(nM);
-					const float32 wM = p.TextW("Vert atelier") + S(40.f);
-					p.Fill({bx + S(8.f), barY, wM, barH}, NkRole::PanelBg, 5.f);
 					static NkIcon kMatIc[8];
 					for (int32 i = 0; i < 8; ++i)
 						kMatIc[i] = NkIcon::Circle;
-					Combo(p, hit, ws, "vp.matcap", {bx + S(8.f), barY, wM, barH}, mats, kMatIc, nM,
-						  st.matcap, combo, true, true, false);
+					Combo(p, hit, ws, "vp.matcap", {bx, barY + 2.f, ib, barH - 4.f}, mats, kMatIc, nM,
+						  st.matcap, combo, true, false, false);
 				}
 			}
 
@@ -1515,6 +1587,96 @@ namespace nkentseu {
 				}
 				if (!onItem && !onBar)
 					st.openMenu = -1;
+			}
+		}
+
+		// ── LISTE DES MODIFICATEURS, A DEUX NIVEAUX ─────────────────────────────
+		// Peinte APRES tout le reste : elle doit recouvrir les panneaux, et le
+		// registre donne la priorite a la derniere zone declaree.
+		//
+		// LA CATEGORIE S'OUVRE AU SURVOL et non au clic. Un clic serait un geste de
+		// plus pour atteindre une entree qui, elle, en demande deja un -- et rien ne
+		// justifie de valider le fait de « regarder » une categorie.
+		inline void PaintModifierMenu(NkModelerPainter &p, NkModelerState &st, NkHitRegistry &hit,
+									  NkWidgetState &ws) {
+			if (!ws.ComboOpen("tb.mod"))
+				return;
+			int32 nc = 0;
+			const NkModCategory *cats = NkModifierCategories(nc);
+			const NkRect &a = st.modAnchor;
+			const float32 itemH = S(24.f);
+			const float32 catW = S(150.f);
+			const NkRect box{a.x, a.y + a.h + 2.f, catW, itemH * (float32)nc + S(6.f)};
+			p.Fill({box.x + 2.f, box.y + 2.f, box.w, box.h}, NkRole::WindowBg, 4.f);
+			p.Outline(box, NkRole::Border, NkRole::PanelHeader, 4.f);
+			hit.Add("mod.panel", box);
+
+			char key[32];
+			int32 flatBase = 0;
+			for (int32 c = 0; c < nc; ++c) {
+				const NkRect ir{box.x + 2.f, box.y + S(3.f) + (float32)c * itemH, box.w - 4.f, itemH};
+				snprintf(key, sizeof(key), "mod.cat.%d", c);
+				const bool over = hit.Add(key, ir);
+				if (over)
+					st.modOpenCat = c; // survol = ouverture, sans clic
+				const bool active = (st.modOpenCat == c);
+				if (active)
+					p.Fill(ir, NkRole::AccentUi, 3.f);
+				p.IconV(ir.x + S(10.f), ir.y, itemH, cats[c].icon,
+						active ? NkRole::TextOnAccent : NkRole::Text, 13.f);
+				p.TextV(ir.x + S(29.f), ir.y, itemH, cats[c].name,
+						active ? NkRole::TextOnAccent : NkRole::Text);
+				p.IconV(ir.x + ir.w - S(18.f), ir.y, itemH, NkIcon::ChevronRight,
+						active ? NkRole::TextOnAccent : NkRole::TextMuted, 11.f);
+
+				if (active) {
+					// Le sous-menu s'ouvre A DROITE, aligne sur SA categorie : aligne sur
+					// le haut du panneau, il faudrait chercher a quelle categorie il se
+					// rapporte des qu'on en survole une du bas.
+					const NkRect sub{box.x + box.w + 3.f, ir.y - S(3.f), S(170.f),
+									 itemH * (float32)cats[c].count + S(6.f)};
+					p.Fill({sub.x + 2.f, sub.y + 2.f, sub.w, sub.h}, NkRole::WindowBg, 4.f);
+					p.Outline(sub, NkRole::Border, NkRole::PanelHeader, 4.f);
+					hit.Add("mod.sub", sub);
+					for (int32 i = 0; i < cats[c].count; ++i) {
+						const NkRect er{sub.x + 2.f, sub.y + S(3.f) + (float32)i * itemH, sub.w - 4.f,
+										itemH};
+						snprintf(key, sizeof(key), "mod.item.%d.%d", c, i);
+						const bool o2 = hit.Add(key, er);
+						const bool cur = (st.modKind == flatBase + i);
+						if (o2)
+							p.Fill(er, NkRole::AccentUi, 3.f);
+						p.IconV(er.x + S(10.f), er.y, itemH, cats[c].items[i].icon,
+								o2 ? NkRole::TextOnAccent : NkRole::Text, 13.f);
+						p.TextV(er.x + S(29.f), er.y, itemH, cats[c].items[i].label,
+								o2 ? NkRole::TextOnAccent : NkRole::Text);
+						if (cur)
+							p.IconV(er.x + er.w - S(20.f), er.y, itemH, NkIcon::Check,
+									o2 ? NkRole::TextOnAccent : NkRole::AccentUi, 12.f);
+						if (hit.Clicked(key)) {
+							st.modKind = flatBase + i;
+							ws.CloseCombo();
+						}
+					}
+				}
+				flatBase += cats[c].count;
+			}
+
+			// Un clic HORS des deux panneaux referme. Teste apres toutes les zones :
+			// sinon un clic sur une entree refermerait avant d'etre traite.
+			if (hit.AnyClick() && !hit.IsHovered("mod.panel") && !hit.IsHovered("mod.sub")
+				&& !hit.IsHovered("tb.mod")) {
+				bool inside = false;
+				for (int32 c = 0; c < nc && !inside; ++c) {
+					snprintf(key, sizeof(key), "mod.cat.%d", c);
+					inside = hit.IsHovered(key);
+					for (int32 i = 0; i < cats[c].count && !inside; ++i) {
+						snprintf(key, sizeof(key), "mod.item.%d.%d", c, i);
+						inside = hit.IsHovered(key);
+					}
+				}
+				if (!inside)
+					ws.CloseCombo();
 			}
 		}
 
