@@ -52,6 +52,129 @@ namespace nkentseu {
 			return {r.x + kInset, r.y, r.w - kInset * 2.f, r.h};
 		}
 
+		// ── CONTENU DES LISTES DE LA VUE ────────────────────────────────────────
+		// En TABLES, comme les menus : ajouter une entree ne demande pas de toucher
+		// au rendu, et la meme table servira la palette de recherche.
+		inline const char *const *NkProjectionItems(int32 &n) {
+			// Les six vues orthographiques sont les MEMES que celles du gizmo de
+			// navigation : un seul etat, deux facons d'y arriver.
+			// ORTHOGONALE est une PROJECTION a part entiere, distincte des six vues
+			// d'axe : on peut regarder de biais en orthographique. La confondre avec
+			// « Dessus » -- l'erreur de ma premiere liste -- interdisait justement ce
+			// cas, qui est celui du blocking et du travail de proportions.
+			static const char *const k[] = {"Perspective", "Orthogonale", "Dessus", "Dessous",
+											"Avant",	   "Arriere",	  "Gauche", "Droite"};
+			n = 8;
+			return k;
+		}
+		inline const NkIcon *NkProjectionIcons() {
+			// La CAMERA pour la perspective (on voit depuis un point), la GRILLE pour
+			// les vues orthographiques (aucun point de fuite). Deux dessins distincts,
+			// sinon rien ne dit laquelle est active.
+			static const NkIcon k[] = {NkIcon::Persp,	  NkIcon::OrthoView, NkIcon::OrthoView,
+									   NkIcon::OrthoView, NkIcon::OrthoView, NkIcon::OrthoView,
+									   NkIcon::OrthoView, NkIcon::OrthoView};
+			return k;
+		}
+		// ── MODES D'OMBRAGE ─────────────────────────────────────────────────────
+		// QUATRE modes disponibles PARTOUT -- solide, materiau, rendu, fil de fer --
+		// et on entre en mode EDITION depuis n'importe lequel : le mode d'edition et
+		// le mode d'ombrage sont deux axes INDEPENDANTS. C'est ce que Rihen a precise,
+		// et c'est ce que fait Blender : on peut editer un maillage en vue rendue.
+		//
+		// LE MATCAP est le CINQUIEME, et lui n'existe QU'EN EDITION. Sa raison d'etre
+		// est justement de montrer la FORME sans texture ni eclairage de scene :
+		// c'est ce qui permet de lire les bosses et les creux pendant qu'on modele.
+		// L'offrir en mode objet n'aurait pas de sens -- on y regarde le resultat,
+		// pas la surface.
+		inline const char *const *NkShadingItems(int32 &n, bool editMode) {
+			static const char *const k[] = {"Solide", "Materiau", "Rendu", "Fil de fer", "Matcap"};
+			n = editMode ? 5 : 4;
+			return k;
+		}
+		inline const NkIcon *NkShadingIcons() {
+			static const NkIcon k[] = {NkIcon::Circle, NkIcon::Overlay, NkIcon::Light, NkIcon::Ruler,
+									   NkIcon::Mesh};
+			return k;
+		}
+
+		// Les matcaps disponibles. Ils ne s'affichent que si l'ombrage Matcap est
+		// choisi : proposer un choix de matcap alors qu'aucun n'est utilise ferait
+		// croire a un reglage sans effet.
+		inline const char *const *NkMatcapItems(int32 &n) {
+			static const char *const k[] = {"Argile", "Metal", "Perle", "Rouge mat", "Bleu doux",
+											"Vert atelier", "Peau", "Ceramique"};
+			n = 8;
+			return k;
+		}
+
+		// ── MENU DE VUE (l icone a gauche de Perspective) ───────────────────────
+		// Il porte ce qui ne merite pas un bouton permanent : disposition des vues,
+		// plein ecran, cameras enregistrees, reinitialisation.
+		inline const char *const *NkViewMenuItems(int32 &n) {
+			static const char *const k[] = {"Vue unique",	 "Deux vues",		"Quatre vues",
+											"Plein ecran",	 "Camera enregistree", "Reinitialiser la vue"};
+			n = 6;
+			return k;
+		}
+		inline const NkIcon *NkViewMenuIcons() {
+			static const NkIcon k[] = {NkIcon::Square,  NkIcon::Drawer, NkIcon::SnapGrid,
+									   NkIcon::WinMax,  NkIcon::Camera, NkIcon::Refresh};
+			return k;
+		}
+		inline const char *const *NkOverlayItems(int32 &n) {
+			static const char *const k[] = {"Tout afficher", "Grille seule", "Sans surimpression"};
+			n = 3;
+			return k;
+		}
+		inline const NkIcon *NkOverlayIcons() {
+			static const NkIcon k[] = {NkIcon::Eye, NkIcon::SnapGrid, NkIcon::EyeClosed};
+			return k;
+		}
+		inline const char *const *NkOrientItems(int32 &n) {
+			static const char *const k[] = {"Monde", "Local", "Normale", "Vue"};
+			n = 4;
+			return k;
+		}
+		inline const NkIcon *NkOrientIcons() {
+			static const NkIcon k[] = {NkIcon::Globe, NkIcon::Mesh, NkIcon::Ruler, NkIcon::Camera};
+			return k;
+		}
+		inline const char *const *NkCamSpeedItems(int32 &n) {
+			// Vitesse de deplacement de la camera, comme le « 4 » d'Unreal. Sans elle,
+			// une scene de 200 metres se parcourt au pas et une piece se traverse d'un
+			// coup -- c'est le meme reglage qui rend les deux supportables.
+			static const char *const k[] = {"Vitesse 1", "Vitesse 2", "Vitesse 4", "Vitesse 8"};
+			n = 4;
+			return k;
+		}
+		inline const char *const *NkSelectModeItems(int32 &n) {
+			static const char *const k[] = {"Sommet", "Arete", "Face"};
+			n = 3;
+			return k;
+		}
+		inline const NkIcon *NkSelectModeIcons() {
+			static const NkIcon k[] = {NkIcon::Dot, NkIcon::Ruler, NkIcon::Square};
+			return k;
+		}
+		inline const char *const *NkAddItems(int32 &n) {
+			static const char *const k[] = {"Cube",	   "Sphere", "Cylindre", "Cone",
+											"Plan",	   "Tore",	 "Texte",	 "Lumiere",
+											"Camera",  "Vide"};
+			n = 10;
+			return k;
+		}
+		inline const char *const *NkModifierItems(int32 &n) {
+			// Repris de NkModifierType (NKRenderer) : la liste reelle des modificateurs
+			// implantes. Elle sera generee depuis l'enumeration au branchement.
+			static const char *const k[] = {"Miroir",	  "Tableau",	 "Subdivision", "Biseau",
+											"Solidifier", "Vissage",	 "Decimer",		"Lisser",
+											"Fondre",	  "Remailler",	 "Booleen",		"Deformer",
+											"Courbe",	  "Simple",		 "Enveloppe",	"Ombrage doux"};
+			n = 16;
+			return k;
+		}
+
 		// Fond de survol. UN SEUL endroit, pour que tous les elements survolables
 		// reagissent pareil : un survol qui change d'aspect d'un bouton a l'autre se
 		// lit comme un defaut d'affichage, pas comme une intention.
@@ -147,31 +270,59 @@ namespace nkentseu {
 		}
 
 		// ── ONGLETS DE DOCUMENT ─────────────────────────────────────────────────
-		inline void PaintTabsI(NkModelerPainter &p, const NkRect &r, const char *const *scenes, int32 n,
-							   NkModelerState &st, NkHitRegistry &hit) {
+		// ── ONGLETS DE SCENE ────────────────────────────────────────────────────
+		// UNE SEULE scene a l'ouverture. Demarrer sur deux onglets vides ferait croire
+		// que l'un d'eux contient quelque chose, et obligerait a en fermer un avant
+		// meme d'avoir commence. Le nom se modifie au DOUBLE-clic, le + en ajoute une.
+		inline void PaintTabsI(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
+							   NkHitRegistry &hit, NkWidgetState &ws, const nkgui::NkGuiInput &in) {
 			p.Fill(r, NkRole::PanelBg);
 			p.HLine(r.x, r.y + r.h - 1.f, r.w);
 			float32 x = S(10.f);
 			const float32 h = r.h - 2.f;
-			char key[24];
-			for (int32 i = 0; i < n; ++i) {
-				const float32 w = p.TextW(scenes[i]) + S(34.f);
-				const NkRect tr{x, r.y + 2.f, w, h};
+			char key[32];
+			for (int32 i = 0; i < st.sceneCount; ++i) {
+				const float32 tw = p.TextW(st.sceneNames[i]) + S(44.f);
+				const NkRect tr{x, r.y + 2.f, tw, h};
 				snprintf(key, sizeof(key), "tab.%d", i);
 				const bool over = hit.Add(key, tr);
 				const bool on = (i == st.activeTab);
-				// L'onglet ACTIF prend la couleur de l'EN-TETE, pas un accent : c'est une
-				// continuite de surface avec ce qui est dessous, pas une selection.
 				p.Fill(tr, on ? NkRole::PanelHeader : (over ? NkRole::PanelBg : NkRole::InputBg), 3.f);
-				p.TextV(x + S(10.f), r.y, r.h, scenes[i], on ? NkRole::Text : NkRole::TextMuted);
-				p.IconV(x + w - S(18.f), r.y, r.h, NkIcon::WinClose, NkRole::TextMuted, 10.f);
+				snprintf(key, sizeof(key), "tab.name.%d", i);
+				EditableText(p, hit, ws, in, key, {x + S(10.f), r.y, tw - S(32.f), r.h}, st.sceneNames[i],
+							 on ? NkRole::Text : NkRole::TextMuted, st.sceneNames[i], 32u);
+				// La CROIX n'apparait que s'il reste plus d'une scene : fermer la derniere
+				// laisserait l'application sans document, etat qu'aucune autre partie de
+				// l'interface ne sait representer.
+				if (st.sceneCount > 1) {
+					snprintf(key, sizeof(key), "tab.close.%d", i);
+					const NkRect cr{x + tw - S(24.f), r.y + 2.f, S(20.f), h};
+					HoverFill(p, cr, hit.Add(key, cr), 2.f);
+					p.IconV(x + tw - S(20.f), r.y, r.h, NkIcon::WinClose, NkRole::TextMuted, 10.f);
+					if (hit.Clicked(key)) {
+						for (int32 k = i; k + 1 < st.sceneCount; ++k)
+							NkWidgetState::Copy(st.sceneNames[k], st.sceneNames[k + 1], 31u);
+						st.sceneCount--;
+						if (st.activeTab >= st.sceneCount)
+							st.activeTab = st.sceneCount - 1;
+						break; // la liste a change : on ne continue pas a la parcourir
+					}
+				}
+				snprintf(key, sizeof(key), "tab.%d", i);
 				if (hit.Clicked(key))
 					st.activeTab = i;
-				x += w + 3.f;
+				x += tw + 3.f;
 			}
 			const NkRect ar{x + S(4.f), r.y + 2.f, S(24.f), h};
 			HoverFill(p, ar, hit.Add("tab.add", ar));
 			p.IconV(x + S(8.f), r.y, r.h, NkIcon::Add, NkRole::Text, 12.f);
+			if (hit.Clicked("tab.add") && st.sceneCount < 8) {
+				// Le nom par defaut est NUMEROTE : deux scenes nommees « Scene » seraient
+				// indistinguables dans la barre.
+				snprintf(st.sceneNames[st.sceneCount], 32, "Scene_%d", st.sceneCount + 1);
+				st.activeTab = st.sceneCount;
+				st.sceneCount++;
+			}
 		}
 
 		// ── BARRE D'OUTILS ──────────────────────────────────────────────────────
@@ -184,7 +335,7 @@ namespace nkentseu {
 		// « Mode de selection » reste a cote, et ne fait PAS doublon : il porte le
 		// sous-mode sommet / arete / face, qui n'a de sens qu'EN edition.
 		inline void PaintToolbar(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
-								 NkHitRegistry &hit) {
+								 NkHitRegistry &hit, NkWidgetState &ws, NkComboPending &combo) {
 			p.Fill(r, NkRole::PanelHeader);
 			p.HLine(r.x, r.y + r.h - 1.f, r.w);
 			float32 x = kPad;
@@ -208,61 +359,53 @@ namespace nkentseu {
 			x += S(6.f);
 
 			// ── DEROULANT DE MODE ───────────────────────────────────────────────
-			// Rihen avait raison : ce ne sont pas deux boutons mais UNE liste, qui va
-			// s'allonger. Deux boutons auraient cesse de tenir au troisieme mode.
-			const NkIcon kModeIc[5] = {NkIcon::Mesh, NkIcon::Edit, NkIcon::Layers, NkIcon::Ruler,
-									   NkIcon::Overlay};
-			const float32 cbW = S(150.f), cbH = S(22.f), cbY = r.y + (r.h - cbH) * 0.5f;
-			const NkRect cb{x, cbY, cbW, cbH};
-			const bool cbOver = hit.Add("tb.mode", cb);
-			p.Outline(cb, cbOver ? NkRole::AccentUi : NkRole::Border, NkRole::InputBg, 3.f);
-			p.IconV(x + S(7.f), cbY, cbH, kModeIc[(uint8)st.mode], NkRole::AccentUi, 13.f);
-			p.TextV(x + S(26.f), cbY, cbH, NkModeName(st.mode));
-			p.IconV(x + cbW - S(18.f), cbY, cbH, NkIcon::ChevronDown, NkRole::Text, 11.f);
-			if (hit.Clicked("tb.mode")) {
-				// Tant que le menu deroulant n'est pas ecrit, le clic FAIT DEFILER les
-				// modes. C'est provisoire et assume : mieux vaut un bouton qui repond
-				// qu'un bouton mort en attendant la liste.
-				st.mode = (NkMode)(((uint8)st.mode + 1u) % (uint8)NkMode::Count);
+			// Ce ne sont pas deux boutons mais UNE liste, qui va s'allonger. Deux
+			// boutons auraient cesse de tenir au troisieme mode.
+			static const NkIcon kModeIc[5] = {NkIcon::Mesh, NkIcon::Edit, NkIcon::Layers,
+											  NkIcon::Ruler, NkIcon::Overlay};
+			static const char *const kModeNames[5] = {"Objet", "Edition", "Sculpt 2.5D", "Sculpt",
+													  "Texturing"};
+			const float32 cbH = S(22.f), cbY = r.y + (r.h - cbH) * 0.5f;
+			{
+				int32 sel = (int32)st.mode;
+				Combo(p, hit, ws, "tb.mode", {x, cbY, S(140.f), cbH}, kModeNames, kModeIc, 5, sel, combo);
+				st.mode = (NkMode)sel;
 			}
-			// La liste deroulee, si elle est ouverte.
-			if (st.openMenu == 100) {
-				const float32 itemH = S(24.f);
-				const NkRect list{x, cbY + cbH + 2.f, cbW, itemH * (float32)NkMode::Count};
-				p.Fill(list, NkRole::PanelHeader, 3.f);
-				char key[24];
-				for (uint8 i = 0; i < (uint8)NkMode::Count; ++i) {
-					const NkRect ir{list.x, list.y + (float32)i * itemH, list.w, itemH};
-					snprintf(key, sizeof(key), "tb.mode.%u", (uint32)i);
-					const bool over = hit.Add(key, ir);
-					if (over)
-						p.Fill(ir, NkRole::AccentUi);
-					p.IconV(ir.x + S(7.f), ir.y, itemH, kModeIc[i], over ? NkRole::TextOnAccent : NkRole::Text,
-							13.f);
-					p.TextV(ir.x + S(26.f), ir.y, itemH, NkModeName((NkMode)i),
-							over ? NkRole::TextOnAccent : NkRole::Text);
-					if (hit.Clicked(key)) {
-						st.mode = (NkMode)i;
-						st.openMenu = -1;
-					}
-				}
-			}
-			x += cbW + S(12.f);
+			x += S(148.f);
 			p.VLine(x - S(7.f), r.y + S(7.f), r.h - S(14.f));
 
 			// Sous-mode de selection : GRISE en mode objet plutot que masque -- une
 			// commande qui disparait laisse croire qu'elle n'existe pas.
-			const bool selUsable = (st.mode != NkMode::Object);
-			const NkRole selFg = selUsable ? NkRole::Text : NkRole::TextMuted;
 			{
-				const float32 w = ih + S(5.f) + p.TextW("Mode de selection") + S(28.f);
-				const NkRect br{x - S(7.f), r.y + S(5.f), w, r.h - S(10.f)};
-				if (selUsable)
-					HoverFill(p, br, hit.Add("tb.selmode", br));
-				p.IconV(x, r.y, r.h, NkIcon::Cursor, selFg, 14.f);
-				p.TextV(x + ih + S(5.f), r.y, r.h, "Mode de selection", selFg);
-				p.IconV(x + w - S(24.f), r.y, r.h, NkIcon::ChevronDown, selFg, 11.f);
-				x += w;
+				int32 n = 0;
+				const char *const *items = NkSelectModeItems(n);
+				Combo(p, hit, ws, "tb.selmode", {x, cbY, S(112.f), cbH}, items, NkSelectModeIcons(), n,
+					  st.selectMode, combo, st.mode != NkMode::Object);
+				x += S(120.f);
+				p.VLine(x - S(7.f), r.y + S(7.f), r.h - S(14.f));
+			}
+
+			// AJOUTER et MODIFICATEUR sont des LISTES, pas des boutons : ils ouvrent un
+			// choix. Un bouton simple laisserait croire a une action immediate.
+			{
+				int32 n = 0;
+				const char *const *items = NkAddItems(n);
+				// L'icone reste le « + » pour toutes les entrees : ce qui compte est
+				// l'ACTION (ajouter), pas le dernier element ajoute.
+				static NkIcon kAddIc[16];
+				for (int32 i = 0; i < n && i < 16; ++i)
+					kAddIc[i] = NkIcon::Add;
+				Combo(p, hit, ws, "tb.add", {x, cbY, S(118.f), cbH}, items, kAddIc, n, st.addKind, combo);
+				x += S(126.f);
+			}
+			{
+				int32 n = 0;
+				const char *const *items = NkModifierItems(n);
+				static NkIcon kModIc[24];
+				for (int32 i = 0; i < n && i < 24; ++i)
+					kModIc[i] = NkIcon::Layers;
+				Combo(p, hit, ws, "tb.mod", {x, cbY, S(136.f), cbH}, items, kModIc, n, st.modKind, combo);
+				x += S(144.f);
 			}
 
 			btn("tb.add", NkIcon::Add, "Ajouter");
@@ -302,12 +445,15 @@ namespace nkentseu {
 		}
 
 		// ── HIERARCHIE (gauche) ─────────────────────────────────────────────────
-		// DEUX COLONNES D'ETAT a droite : l'OEIL (visible dans la vue) et le CADENAS
-		// (objet verrouille, donc non selectionnable). Elles sont alignees en colonne
-		// a l'extreme droite -- ce sont des etats, pas des attributs du nom, et
-		// l'alignement permet de les lire d'un coup sur toute la liste.
+		// Arbre REPLIABLE, noms MODIFIABLES, deux colonnes d'etat (oeil, cadenas), et
+		// un clic dans le VIDE qui deselectionne.
+		//
+		// Ce dernier point compte plus qu'il n'en a l'air : sans lui, une fois un
+		// objet selectionne on ne peut plus revenir a « rien de selectionne » sans
+		// passer par un menu. Or « rien » est un etat legitime -- c'est celui ou les
+		// commandes de scene s'appliquent.
 		inline void PaintHierarchy(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
-								   NkHitRegistry &hit) {
+								   NkHitRegistry &hit, NkWidgetState &ws, const nkgui::NkGuiInput &in) {
 			p.Fill(r, NkRole::PanelBg);
 			p.VLine(r.x + r.w - 1.f, r.y, r.h);
 			float32 y = PaintPanelTab(p, r, "Hierarchie");
@@ -325,32 +471,45 @@ namespace nkentseu {
 
 			struct Row {
 					int32 depth;
-					const char *name;
+					int32 parent; ///< -1 = racine ; sert au repli
 					const char *type;
 					NkIcon icon;
-					bool expandable;
 					bool folder;
 			};
+			// `parent` remplace un simple niveau d'indentation : replier un groupe doit
+			// cacher SES descendants, et l'indentation seule ne dit pas qui appartient
+			// a qui des qu'il y a deux groupes voisins.
 			static const Row kRows[] = {
-				{0, "Scene", "", NkIcon::Globe, true, false},
-				{1, "Cube", "Maillage", NkIcon::Mesh, false, false},
-				{1, "Sphere", "Maillage", NkIcon::Circle, false, false},
-				{1, "Groupe", "Dossier", NkIcon::Folder, true, true},
-				{2, "Roue", "Maillage", NkIcon::Mesh, false, false},
-				{2, "Axe", "Maillage", NkIcon::Mesh, false, false},
+				{0, -1, "", NkIcon::Globe, false},		 {1, 0, "Maillage", NkIcon::Mesh, false},
+				{1, 0, "Maillage", NkIcon::Circle, false}, {1, 0, "Dossier", NkIcon::Folder, true},
+				{2, 3, "Maillage", NkIcon::Mesh, false},   {2, 3, "Maillage", NkIcon::Mesh, false},
 			};
 			const int32 nRows = 6;
 			const float32 listTop = y;
 			const float32 listH = r.y + r.h - kRowH - listTop;
 			const NkRect listR{r.x, listTop, r.w, listH};
+			// La zone de LISTE est declaree en PREMIER : les lignes, declarees ensuite,
+			// la recouvrent. Ce qui reste attribue a la liste, c'est donc exactement le
+			// VIDE -- et c'est la qu'un clic deselectionne.
 			hit.Add("hier.list", listR);
-			hit.Wheel("hier.list", st.scrollHier, (float32)nRows * kRowH, listH);
 
-			y -= st.scrollHier;
-			char key[32];
+			int32 visibleCount = 0;
+			float32 yy = y - st.scrollHier;
+			char key[40];
 			for (int32 i = 0; i < nRows; ++i) {
-				const NkRect rowR{r.x, y, r.w, kRowH};
-				if (y >= listTop - kRowH && y < listTop + listH) {
+				// Cache si un ANCETRE est replie.
+				bool hidden = false;
+				for (int32 par = kRows[i].parent; par >= 0; par = kRows[par].parent)
+					if (!st.folderOpen[par]) {
+						hidden = true;
+						break;
+					}
+				if (hidden)
+					continue;
+				visibleCount++;
+
+				const NkRect rowR{r.x, yy, r.w, kRowH};
+				if (yy >= listTop - kRowH && yy < listTop + listH) {
 					snprintf(key, sizeof(key), "hier.row.%d", i);
 					const bool over = hit.Add(key, rowR);
 					const bool sel = (i == st.selectedObject);
@@ -361,136 +520,79 @@ namespace nkentseu {
 					const NkRole fg = sel ? NkRole::TextOnAccent : NkRole::Text;
 					const NkRole dim = sel ? NkRole::TextOnAccent : NkRole::TextMuted;
 					float32 tx = r.x + S(6.f) + (float32)kRows[i].depth * S(14.f);
-					if (kRows[i].expandable)
-						p.IconV(tx, y, kRowH, i == 0 ? NkIcon::ChevronDown : NkIcon::ChevronRight, dim, 12.f);
-					tx += S(14.f);
-					if (kRows[i].folder)
-						p.IconV(tx, y, kRowH, NkIcon::Folder, NkRole::TypeFolder, 13.f);
-					else
-						p.IconV(tx, y, kRowH, kRows[i].icon, fg, 13.f);
-					p.TextV(tx + S(18.f), y, kRowH, kRows[i].name, fg);
-					if (*kRows[i].type)
-						p.TextV(colType, y, kRowH, kRows[i].type, dim);
 
-					// OEIL et CADENAS : zones sensibles PROPRES, declarees APRES la
-					// ligne pour qu'elles la recouvrent. Cliquer l'oeil ne doit pas
-					// selectionner l'objet -- ce sont deux intentions differentes.
+					// CHEVRON : il replie vraiment. Il n'apparait que si la ligne a des
+					// enfants -- en mettre un partout ferait croire que tout se deplie.
+					bool hasChild = false;
+					for (int32 k = 0; k < nRows && !hasChild; ++k)
+						hasChild = (kRows[k].parent == i);
+					if (hasChild) {
+						const NkRect cr{tx - S(2.f), yy, S(16.f), kRowH};
+						snprintf(key, sizeof(key), "hier.chev.%d", i);
+						hit.Add(key, cr);
+						p.IconV(tx, yy, kRowH,
+								st.folderOpen[i] ? NkIcon::ChevronDown : NkIcon::ChevronRight, dim, 12.f);
+						if (hit.Clicked(key))
+							st.folderOpen[i] = !st.folderOpen[i];
+					}
+					tx += S(16.f);
+
+					// Le DOSSIER garde sa couleur propre meme selectionne : c'est un
+					// contenant, et c'est ce qui le distingue au premier coup d'oeil.
+					p.IconV(tx, yy, kRowH, kRows[i].icon,
+							kRows[i].folder ? NkRole::TypeFolder : fg, 13.f);
+
+					// NOM MODIFIABLE au double-clic.
+					snprintf(key, sizeof(key), "hier.name.%d", i);
+					EditableText(p, hit, ws, in, key,
+								 {tx + S(18.f), yy, colType - tx - S(24.f), kRowH}, st.objectNames[i], fg,
+								 st.objectNames[i], 32u);
+					if (*kRows[i].type)
+						p.TextV(colType, yy, kRowH, kRows[i].type, dim);
+
 					snprintf(key, sizeof(key), "hier.eye.%d", i);
-					const NkRect eyeR{colEye - S(3.f), y, S(20.f), kRowH};
-					const bool eOver = hit.Add(key, eyeR);
-					HoverFill(p, eyeR, eOver && !sel, 2.f);
-					p.IconV(colEye, y, kRowH, st.visible[i] ? NkIcon::Eye : NkIcon::EyeClosed,
+					const NkRect eyeR{colEye - S(3.f), yy, S(20.f), kRowH};
+					HoverFill(p, eyeR, hit.Add(key, eyeR) && !sel, 2.f);
+					p.IconV(colEye, yy, kRowH, st.visible[i] ? NkIcon::Eye : NkIcon::EyeClosed,
 							st.visible[i] ? fg : dim, 13.f);
 					if (hit.Clicked(key))
 						st.visible[i] = !st.visible[i];
 
 					snprintf(key, sizeof(key), "hier.lock.%d", i);
-					const NkRect lockR{colLock - S(3.f), y, S(20.f), kRowH};
-					const bool lOver = hit.Add(key, lockR);
-					HoverFill(p, lockR, lOver && !sel, 2.f);
-					p.IconV(colLock, y, kRowH, st.locked[i] ? NkIcon::Lock : NkIcon::Unlock,
+					const NkRect lockR{colLock - S(3.f), yy, S(20.f), kRowH};
+					HoverFill(p, lockR, hit.Add(key, lockR) && !sel, 2.f);
+					p.IconV(colLock, yy, kRowH, st.locked[i] ? NkIcon::Lock : NkIcon::Unlock,
 							st.locked[i] ? fg : dim, 13.f);
 					if (hit.Clicked(key))
 						st.locked[i] = !st.locked[i];
 
-					// La selection n'est prise QU'APRES : si l'oeil ou le cadenas a
-					// recu le clic, c'est lui qui est survole, pas la ligne.
 					snprintf(key, sizeof(key), "hier.row.%d", i);
 					if (hit.Clicked(key) && !st.locked[i])
 						st.selectedObject = i;
 				}
-				y += kRowH;
+				yy += kRowH;
 			}
-			p.VScroll(listR, (float32)nRows * kRowH, st.scrollHier);
+
+			// UN CLIC DANS LE VIDE DESELECTIONNE. La zone « hier.list » n'est survolee
+			// que la ou aucune ligne ne l'a recouverte, donc ce test designe exactement
+			// le vide -- sans qu'on ait a calculer ou finit la derniere ligne.
+			if (hit.Clicked("hier.list"))
+				st.selectedObject = -1;
+
+			hit.Wheel("hier.list", st.scrollHier, (float32)visibleCount * kRowH, listH);
+			p.VScroll(listR, (float32)visibleCount * kRowH, st.scrollHier);
+			// Barre HORIZONTALE : les noms longs debordent des que le panneau est
+			// retreci, et sans elle la fin du nom est simplement perdue.
+			hit.Wheel("hier.list", st.scrollHierH, r.w + S(120.f), r.w);
+			p.HScroll(listR, r.w + S(120.f), st.scrollHierH);
 
 			const float32 fy = r.y + r.h - kRowH;
 			p.Fill({r.x, fy, r.w, kRowH}, NkRole::WindowBg);
 			p.HLine(r.x, fy, r.w);
-			char foot[64];
-			snprintf(foot, sizeof(foot), "%d objets (1 selectionne)", nRows);
+			char foot[72];
+			snprintf(foot, sizeof(foot), "%d objets (%s)", visibleCount,
+					 st.selectedObject >= 0 ? "1 selectionne" : "aucune selection");
 			p.TextV(r.x + kPad, fy, kRowH, foot, NkRole::TextMuted);
-		}
-
-		// ── CONTENU DES LISTES DE LA VUE ────────────────────────────────────────
-		// En TABLES, comme les menus : ajouter une entree ne demande pas de toucher
-		// au rendu, et la meme table servira la palette de recherche.
-		inline const char *const *NkProjectionItems(int32 &n) {
-			// Les six vues orthographiques sont les MEMES que celles du gizmo de
-			// navigation : un seul etat, deux facons d'y arriver.
-			static const char *const k[] = {"Perspective", "Dessus", "Dessous", "Avant",
-											"Arriere",	 "Gauche", "Droite"};
-			n = 7;
-			return k;
-		}
-		inline const NkIcon *NkProjectionIcons() {
-			// La CAMERA pour la perspective (on voit depuis un point), la GRILLE pour
-			// les vues orthographiques (aucun point de fuite). Deux dessins distincts,
-			// sinon rien ne dit laquelle est active.
-			static const NkIcon k[] = {NkIcon::Persp,	  NkIcon::OrthoView, NkIcon::OrthoView,
-									   NkIcon::OrthoView, NkIcon::OrthoView, NkIcon::OrthoView,
-									   NkIcon::OrthoView};
-			return k;
-		}
-		inline const char *const *NkShadingItems(int32 &n) {
-			static const char *const k[] = {"Eclaire", "Non eclaire", "Fil de fer", "Rendu"};
-			n = 4;
-			return k;
-		}
-		inline const NkIcon *NkShadingIcons() {
-			static const NkIcon k[] = {NkIcon::Light, NkIcon::Circle, NkIcon::Ruler, NkIcon::Overlay};
-			return k;
-		}
-		inline const char *const *NkOverlayItems(int32 &n) {
-			static const char *const k[] = {"Tout afficher", "Grille seule", "Sans surimpression"};
-			n = 3;
-			return k;
-		}
-		inline const NkIcon *NkOverlayIcons() {
-			static const NkIcon k[] = {NkIcon::Eye, NkIcon::SnapGrid, NkIcon::EyeClosed};
-			return k;
-		}
-		inline const char *const *NkOrientItems(int32 &n) {
-			static const char *const k[] = {"Monde", "Local", "Normale", "Vue"};
-			n = 4;
-			return k;
-		}
-		inline const NkIcon *NkOrientIcons() {
-			static const NkIcon k[] = {NkIcon::Globe, NkIcon::Mesh, NkIcon::Ruler, NkIcon::Camera};
-			return k;
-		}
-		inline const char *const *NkCamSpeedItems(int32 &n) {
-			// Vitesse de deplacement de la camera, comme le « 4 » d'Unreal. Sans elle,
-			// une scene de 200 metres se parcourt au pas et une piece se traverse d'un
-			// coup -- c'est le meme reglage qui rend les deux supportables.
-			static const char *const k[] = {"Vitesse 1", "Vitesse 2", "Vitesse 4", "Vitesse 8"};
-			n = 4;
-			return k;
-		}
-		inline const char *const *NkSelectModeItems(int32 &n) {
-			static const char *const k[] = {"Sommet", "Arete", "Face"};
-			n = 3;
-			return k;
-		}
-		inline const NkIcon *NkSelectModeIcons() {
-			static const NkIcon k[] = {NkIcon::Dot, NkIcon::Ruler, NkIcon::Square};
-			return k;
-		}
-		inline const char *const *NkAddItems(int32 &n) {
-			static const char *const k[] = {"Cube",	   "Sphere", "Cylindre", "Cone",
-											"Plan",	   "Tore",	 "Texte",	 "Lumiere",
-											"Camera",  "Vide"};
-			n = 10;
-			return k;
-		}
-		inline const char *const *NkModifierItems(int32 &n) {
-			// Repris de NkModifierType (NKRenderer) : la liste reelle des modificateurs
-			// implantes. Elle sera generee depuis l'enumeration au branchement.
-			static const char *const k[] = {"Miroir",	  "Tableau",	 "Subdivision", "Biseau",
-											"Solidifier", "Vissage",	 "Decimer",		"Lisser",
-											"Fondre",	  "Remailler",	 "Booleen",		"Deformer",
-											"Courbe",	  "Simple",		 "Enveloppe",	"Ombrage doux"};
-			n = 16;
-			return k;
 		}
 
 		// ── GIZMO DE NAVIGATION, FACON BLENDER ──────────────────────────────────
@@ -601,27 +703,59 @@ namespace nkentseu {
 			{
 				int32 nP = 0, nS = 0, nO = 0;
 				const char *const *proj = NkProjectionItems(nP);
-				const char *const *shad = NkShadingItems(nS);
+				const bool edit = (st.mode != NkMode::Object);
+				const char *const *shad = NkShadingItems(nS, edit);
 				const char *const *ovl = NkOverlayItems(nO);
+				// LES TROIS LISTES SONT COLLEES dans un seul cadre, comme avant :
+				// elles decrivent toutes « ce qu'on regarde » et forment un groupe. Les
+				// espacer les aurait fait lire comme trois reglages sans rapport, alors
+				// que c'est le meme sujet vu sous trois angles.
+				// Chaque liste est donc dessinee SANS son propre cadre -- le groupe en
+				// porte un seul -- et separee de la suivante par un simple trait.
+				const float32 w1 = p.TextW("Perspective") + S(40.f);
+				const float32 w2 = p.TextW("Non eclaire") + S(40.f);
+				const float32 w3 = p.TextW("Sans surimpression") + S(40.f);
+				const float32 groupW = S(34.f) + w1 + w2 + w3 + S(6.f);
 				float32 bx = r.x + S(10.f);
-				const NkRect menuBtn{bx, barY, S(30.f), barH};
-				p.Fill(menuBtn, NkRole::PanelBg, 5.f);
-				if (hit.Add("vp.menu", menuBtn))
-					p.Fill(menuBtn, NkRole::PanelHeader, 5.f);
-				p.IconV(bx + S(9.f), barY, barH, NkIcon::Menu, NkRole::Text, 13.f);
-				bx += S(34.f);
+				p.Fill({bx, barY, groupW, barH}, NkRole::PanelBg, 5.f);
 
-				const float32 w1 = p.TextW("Perspective") + S(48.f);
+				// L'ICONE A GAUCHE porte SON contenu : disposition des vues, plein
+				// ecran, cameras, reinitialisation. Une icone sans menu serait un
+				// bouton mort au milieu de trois listes qui, elles, repondent.
+				int32 nV = 0;
+				const char *const *vitems = NkViewMenuItems(nV);
+				Combo(p, hit, ws, "vp.menu", {bx + 2.f, barY + 2.f, S(28.f), barH - 4.f}, vitems,
+					  NkViewMenuIcons(), nV, st.viewLayout, combo, true, false, false);
+				bx += S(32.f);
+				p.VLine(bx, barY + S(5.f), barH - S(10.f));
+				bx += 2.f;
+
 				Combo(p, hit, ws, "vp.proj", {bx, barY, w1, barH}, proj, NkProjectionIcons(), nP,
-					  st.projection, combo);
-				bx += w1 + S(4.f);
-				const float32 w2 = p.TextW("Non eclaire") + S(48.f);
-				Combo(p, hit, ws, "vp.shade", {bx, barY, w2, barH}, shad, NkShadingIcons(), nS, st.shading,
-					  combo);
-				bx += w2 + S(4.f);
-				const float32 w3 = p.TextW("Sans surimpression") + S(48.f);
-				Combo(p, hit, ws, "vp.ovl", {bx, barY, w3, barH}, ovl, NkOverlayIcons(), nO, st.overlays,
-					  combo);
+					  st.projection, combo, true, true, false);
+				bx += w1;
+				p.VLine(bx, barY + S(5.f), barH - S(10.f));
+				Combo(p, hit, ws, "vp.shade", {bx + 2.f, barY, w2, barH}, shad, NkShadingIcons(), nS,
+					  st.shading, combo, true, true, false);
+				bx += w2 + 2.f;
+				p.VLine(bx, barY + S(5.f), barH - S(10.f));
+				Combo(p, hit, ws, "vp.ovl", {bx + 2.f, barY, w3, barH}, ovl, NkOverlayIcons(), nO,
+					  st.overlays, combo, true, true, false);
+				bx += w3 + S(2.f);
+
+				// LE CHOIX DU MATCAP n'apparait QUE si l'ombrage Matcap est actif.
+				// Un selecteur visible en permanence laisserait croire a un reglage
+				// sans effet les trois quarts du temps.
+				if (edit && st.shading == 4) {
+					int32 nM = 0;
+					const char *const *mats = NkMatcapItems(nM);
+					const float32 wM = p.TextW("Vert atelier") + S(40.f);
+					p.Fill({bx + S(8.f), barY, wM, barH}, NkRole::PanelBg, 5.f);
+					static NkIcon kMatIc[8];
+					for (int32 i = 0; i < 8; ++i)
+						kMatIc[i] = NkIcon::Circle;
+					Combo(p, hit, ws, "vp.matcap", {bx + S(8.f), barY, wM, barH}, mats, kMatIc, nM,
+						  st.matcap, combo, true, true, false);
+				}
 			}
 
 			// ── BARRE FLOTTANTE DROITE : ce qu'on FAIT ──────────────────────────
@@ -989,7 +1123,7 @@ namespace nkentseu {
 
 		// ── NAVIGATEUR DE PROJET (bas) ──────────────────────────────────────────
 		inline void PaintBrowser(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
-								 NkHitRegistry &hit) {
+								 NkHitRegistry &hit, NkWidgetState &ws, const nkgui::NkGuiInput &in) {
 			const float32 treeScroll = st.scrollTree;
 			const float32 assetScroll = st.scrollAssets;
 			p.Fill(r, NkRole::PanelBg);
@@ -1029,17 +1163,50 @@ namespace nkentseu {
 			const float32 th = r.h - topH;
 			p.Fill({r.x, ty, treeW, th}, NkRole::WindowBg);
 			p.VLine(r.x + treeW, ty, th);
-			static const char *const kDirs[] = {"MonProjet", "Maillages", "Animations", "Materiaux",
-												"Textures"};
-			float32 dy = ty + 4.f - treeScroll;
+			// LES DOSSIERS SONT ORANGE et portent un CHEVRON qui replie leur contenu,
+			// exactement comme dans la hierarchie. Deux listes qui montrent la meme
+			// chose -- une arborescence -- doivent se manipuler pareil, sinon
+			// l'utilisateur reapprend a chaque panneau.
+			//
+			// La couleur du dossier est conservee MEME SELECTIONNE : c'est ce qui le
+			// distingue d'un asset au premier coup d'oeil, et la selection se lit deja
+			// au fond de la ligne.
+			float32 dy = ty + S(4.f) - treeScroll;
+			char fkey[40];
 			for (int32 i = 0; i < 5; ++i) {
-				const bool on = (i == 1);
+				const bool child = (i > 0);
+				if (child && !st.folderOpen[0])
+					continue; // un enfant disparait si la racine est repliee
+				const bool on = (i == st.selectedFolder);
+				const NkRect rowR{r.x, dy, treeW, kRowH};
+				snprintf(fkey, sizeof(fkey), "brow.dir.%d", i);
+				const bool over = hit.Add(fkey, rowR);
 				if (on)
-					p.Fill({r.x, dy, treeW, kRowH}, NkRole::AccentUi);
-				const float32 fx = r.x + 8.f + (i ? 12.f : 0.f);
-				p.IconV(fx, dy, kRowH, on ? NkIcon::FolderOpen : NkIcon::Folder,
-						on ? NkRole::TextOnAccent : NkRole::TextMuted, 13.f);
-				p.TextV(fx + 18.f, dy, kRowH, kDirs[i], on ? NkRole::TextOnAccent : NkRole::Text);
+					p.Fill(rowR, NkRole::AccentUi);
+				else
+					HoverFill(p, rowR, over, 0.f);
+				float32 fx = r.x + S(6.f) + (child ? S(14.f) : 0.f);
+				if (!child) {
+					const NkRect cr{fx - S(2.f), dy, S(16.f), kRowH};
+					snprintf(fkey, sizeof(fkey), "brow.chev.%d", i);
+					hit.Add(fkey, cr);
+					p.IconV(fx, dy, kRowH,
+							st.folderOpen[0] ? NkIcon::ChevronDown : NkIcon::ChevronRight,
+							on ? NkRole::TextOnAccent : NkRole::TextMuted, 12.f);
+					if (hit.Clicked(fkey))
+						st.folderOpen[0] = !st.folderOpen[0];
+				}
+				fx += S(16.f);
+				p.IconV(fx, dy, kRowH,
+						(!child && st.folderOpen[0]) ? NkIcon::FolderOpen : NkIcon::Folder,
+						NkRole::TypeFolder, 13.f);
+				snprintf(fkey, sizeof(fkey), "brow.name.%d", i);
+				EditableText(p, hit, ws, in, fkey, {fx + S(18.f), dy, treeW - fx - S(24.f), kRowH},
+							 st.folderNames[i], on ? NkRole::TextOnAccent : NkRole::Text,
+							 st.folderNames[i], 32u);
+				snprintf(fkey, sizeof(fkey), "brow.dir.%d", i);
+				if (hit.Clicked(fkey))
+					st.selectedFolder = i;
 				dy += kRowH;
 			}
 

@@ -56,8 +56,13 @@ namespace nkentseu {
 				// Aimantation : une bascule PAR transformation (cf. UI_SPEC / Unreal).
 				bool snapGrid = true, snapAngle = true, snapScale = false;
 
-				int32 selectedObject = 1; ///< ligne de la hierarchie
+				// -1 = AUCUNE selection. C'est un etat legitime : celui ou les commandes
+				// de scene s'appliquent, et non une valeur sentinelle d'erreur.
+				int32 selectedObject = 1;
 				int32 selectedAsset = 0;  ///< carte du navigateur
+				int32 selectedFolder = 1; ///< dossier du navigateur
+				int32 matcap = 0;		  ///< matcap actif, mode edition seulement
+				int32 viewLayout = 0;	  ///< disposition des vues (menu de gauche)
 				int32 activeTab = 0;
 				int32 activeFilter = 4; ///< pastille « Tout »
 
@@ -105,6 +110,10 @@ namespace nkentseu {
 				// Defilements. Etats de SESSION : ils doivent survivre a la frame.
 				float32 scrollHier = 0.f, scrollProps = 0.f, scrollDetails = 0.f;
 				float32 scrollTree = 0.f, scrollAssets = 0.f;
+				// Defilements HORIZONTAUX : les noms longs debordent des qu'un panneau
+				// est retreci, et sans eux la fin du nom est simplement perdue.
+				float32 scrollHierH = 0.f, scrollPropsH = 0.f, scrollDetailsH = 0.f;
+				float32 scrollTreeH = 0.f, scrollAssetsH = 0.f;
 
 				// Menus ouverts. -1 = aucun. L'indice designe l'entree de la barre.
 				int32 openMenu = -1;

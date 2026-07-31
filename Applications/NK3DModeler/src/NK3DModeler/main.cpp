@@ -286,13 +286,13 @@ int nkmain(const NkEntryState &entry) {
 		p.Fill({0.f, 0.f, W, H}, NkRole::WindowBg);
 
 		PaintMenuBarI(p, lay.menu, "MonProjet", st, hit);
-		PaintTabsI(p, lay.tabs, kScenes, 2, st, hit);
-		PaintToolbar(p, lay.tool, st, hit);
-		PaintHierarchy(p, lay.left, st, hit);
+		PaintTabsI(p, lay.tabs, st, hit, ws, ui.input);
+		PaintToolbar(p, lay.tool, st, hit, ws, combo);
+		PaintHierarchy(p, lay.left, st, hit, ws, ui.input);
 		PaintViewport(p, lay.view, st, hit, ws, combo, shortcuts);
 		PaintProperties(p, lay.propsR, st, hit, ws, ui.input);
 		PaintDetails(p, lay.detailsR, st, hit);
-		PaintBrowser(p, lay.browser, st, hit);
+		PaintBrowser(p, lay.browser, st, hit, ws, ui.input);
 		PaintStatus(p, lay.status, st);
 
 		// L'ORDRE DE CES TROIS APPELS EST SIGNIFIANT. Les separateurs doivent

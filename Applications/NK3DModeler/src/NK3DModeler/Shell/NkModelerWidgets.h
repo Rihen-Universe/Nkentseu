@@ -173,11 +173,14 @@ namespace nkentseu {
 		inline void Combo(NkModelerPainter &p, NkHitRegistry &hit, NkWidgetState &ws, const char *key,
 						  const NkRect &r, const char *const *items, const NkIcon *icons, int32 count,
 						  int32 &selected, NkComboPending &pending, bool enabled = true,
-						  bool showChevron = true, bool showLabel = true) {
+						  bool showChevron = true, bool showFrame = true) {
 			const bool over = enabled && hit.Add(key, r);
 			const bool open = ws.ComboOpen(key);
 			const NkRole fg = enabled ? NkRole::Text : NkRole::TextMuted;
-			if (showLabel)
+			// Le CADRE est optionnel : dans un groupe colle, c'est le groupe qui en
+			// porte un seul. Sans cette option, trois cadres imbriques dans un
+			// quatrieme donneraient une barre en damier.
+			if (showFrame)
 				p.Outline(r, (over || open) ? NkRole::AccentUi : NkRole::Border,
 						  enabled ? NkRole::InputBg : NkRole::PanelHeader, 3.f);
 			else if (over || open)
@@ -187,13 +190,16 @@ namespace nkentseu {
 			// sont des reglages qu'on consulte rarement, leur donner la largeur d'un
 			// libelle prendrait la place de commandes qu'on utilise a chaque geste.
 			// L'etat reste lisible -- c'est l'icone elle-meme qui change.
-			float32 tx = r.x + (showLabel ? S(8.f) : (r.w - S(14.f)) * 0.5f);
+			// Sans CHEVRON ni cadre, le combo se reduit a son icone centree : c'est
+			// ce qu'il faut pour un reglage rare dans une barre dense.
+			const bool iconOnly = !showChevron && !showFrame;
+			float32 tx = r.x + (iconOnly ? (r.w - S(14.f)) * 0.5f : S(8.f));
 			if (icons) {
 				p.IconV(tx, r.y, r.h, icons[selected],
 						open ? NkRole::AccentUi : (enabled ? NkRole::Text : NkRole::TextMuted), 14.f);
 				tx += S(19.f);
 			}
-			if (showLabel)
+			if (!iconOnly)
 				p.TextV(tx, r.y, r.h, items[selected], fg);
 			// Le chevron TOURNE quand la liste est ouverte : c'est ce qui distingue
 			// « je peux ouvrir » de « c'est ouvert », sans avoir a regarder ailleurs.
