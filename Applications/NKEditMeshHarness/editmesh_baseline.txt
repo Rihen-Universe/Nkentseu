@@ -148,3 +148,9 @@ decim/cible-absurde-degenere       tris 768->2 (cible 3) | refus lien=0 flip=0 |
 decim/condition-de-lien            avec ok=1 tris=4 refus-lien=6 nonmanif=0 | sans ok=1 tris=4 nonmanif=0
 decim/erreur-croit-avec-la-cible   60%:tris=460,err=0.0025 | 30%:tris=230,err=0.0046 | 12%:tris=92,err=0.0094
 decim/plafond-erreur               tris 768->168 cible-atteinte=0 (0 attendu) refus-cout=1 cout-max=0.000010
+retopo/champ-lissage-travaille     faces=128 epinglees=30 | align 0-iter=0.777 -> 20-iter=0.999 (doit monter)
+retopo/cylindre-alignement         naif quads=64 (cellules PLANES : il reussit aussi) | champ ok=1 quads=64 align=0.999 nonmanif=0
+retopo/apres-decimation-naif-champ naif quads=43 | champ quads=108 tris-restants=52 (le champ doit dominer largement)
+retopo/pipeline-ferme-manifold     ok=1 decim 768->268 tris | sortie quads=108 tris=52 ratio=0.68 | ferme=1 manifold=1 genre=0
+retopo/seuil-qualite-agit          defaut(0,25) quads=108 | strict(0,75) quads=13 (doit chuter)
+retopo/aretes-vives-epinglees      faces=12 epinglees=12 (toutes attendues) | align-axes=1.000 (1,0 attendu)
