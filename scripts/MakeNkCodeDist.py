@@ -187,6 +187,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{{cm:CreateDesktopIcon}}"; GroupDescription: "{{cm:AdditionalIcons}}"; Flags: unchecked
+Name: "contextmenu"; Description: "Ajouter « Ouvrir avec NKCode » au menu contextuel des dossiers"; GroupDescription: "Integration a l'explorateur"
 
 [Files]
 Source: "{distDir.as_posix()}\\*"; DestDir: "{{app}}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -195,6 +196,31 @@ Source: "{distDir.as_posix()}\\*"; DestDir: "{{app}}"; Flags: ignoreversion recu
 Name: "{{group}}\\NKCode"; Filename: "{{app}}\\NKCode.exe"; WorkingDir: "{{app}}"
 Name: "{{group}}\\{{cm:UninstallProgram,NKCode}}"; Filename: "{{uninstallexe}}"
 Name: "{{autodesktop}}\\NKCode"; Filename: "{{app}}\\NKCode.exe"; WorkingDir: "{{app}}"; Tasks: desktopicon
+
+[Registry]
+; « Ouvrir avec NKCode » dans l'explorateur. NKCode.exe accepte deja un dossier
+; en argument (main.cpp) : il n'y a donc rien a ajouter cote application.
+;
+; HKCU et PAS HKLM : l'installation est par utilisateur (PrivilegesRequired=lowest
+; ci-dessus). Ecrire dans HKLM demanderait une elevation UAC que cet installeur
+; ne reclame volontairement pas — c'etait deja la cause d'un retour beta.
+;
+; Trois emplacements sont necessaires pour couvrir les trois gestes de l'utilisateur :
+;   Directory\shell            -> clic droit SUR une icone de dossier   -> %1
+;   Directory\Background\shell -> clic droit DANS un dossier ouvert     -> %V
+;   Drive\shell                -> clic droit sur une racine de lecteur  -> %V
+; Les jetons %1 et %V ne sont pas interchangeables : %1 est l'element designe,
+; %V le dossier courant. Les intervertir ouvre le mauvais dossier, ou rien.
+;
+; uninstalldelete{{key}} : sans cela, les entrees survivent a la desinstallation.
+Root: HKCU; Subkey: "Software\\Classes\\Directory\\shell\\NKCode"; ValueType: string; ValueData: "Ouvrir avec NKCode"; Flags: uninsdeletekey; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\\Classes\\Directory\\shell\\NKCode"; ValueType: string; ValueName: "Icon"; ValueData: "{{app}}\\NKCode.exe,0"; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\\Classes\\Directory\\shell\\NKCode\\command"; ValueType: string; ValueData: """{{app}}\\NKCode.exe"" ""%1"""; Flags: uninsdeletekey; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\\Classes\\Directory\\Background\\shell\\NKCode"; ValueType: string; ValueData: "Ouvrir avec NKCode"; Flags: uninsdeletekey; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\\Classes\\Directory\\Background\\shell\\NKCode"; ValueType: string; ValueName: "Icon"; ValueData: "{{app}}\\NKCode.exe,0"; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\\Classes\\Directory\\Background\\shell\\NKCode\\command"; ValueType: string; ValueData: """{{app}}\\NKCode.exe"" ""%V"""; Flags: uninsdeletekey; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\\Classes\\Drive\\shell\\NKCode"; ValueType: string; ValueData: "Ouvrir avec NKCode"; Flags: uninsdeletekey; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\\Classes\\Drive\\shell\\NKCode\\command"; ValueType: string; ValueData: """{{app}}\\NKCode.exe"" ""%V"""; Flags: uninsdeletekey; Tasks: contextmenu
 
 [Run]
 ; WorkingDir explicite : les ressources data/ et tools/ sont resolues a cote de

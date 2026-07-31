@@ -327,6 +327,38 @@ namespace nkentseu {
 	// =============================================================================
 	// Gestion du descripteur système avec conversion des modes.
 
+#ifdef _WIN32
+	// ── Chemins UTF-8 sur Windows ────────────────────────────────────────────
+	//
+	// CONTRAT : dans tout le moteur, un chemin `const char*` est en UTF-8.
+	// C'est ce que produit NkDirectory (API large + conversion UTF-8 explicite).
+	//
+	// Or les API ANSI (`fopen`, `GetFileAttributesA`, `remove`, `rename`)
+	// interpretent leurs octets dans la PAGE DE CODE LOCALE, pas en UTF-8. Un
+	// nom accentue enumere par NkDirectory (« E accent aigu » = C3 89) etait
+	// donc introuvable a l'ouverture : l'explorateur listait le fichier, et
+	// l'ouvrir echouait. Symptome constate sur 4 fichiers d'un corpus de 95.
+	//
+	// On convertit donc en UTF-16 pour les API LARGES. La conversion est en
+	// validation STRICTE (MB_ERR_INVALID_CHARS) : si les octets ne sont pas de
+	// l'UTF-8 valide — cas d'un appelant qui passerait encore un chemin en page
+	// de code locale —, elle echoue et l'appelant RETOMBE sur l'API ANSI
+	// d'origine. Rien de ce qui fonctionnait ne cesse de fonctionner.
+	//
+	// A noter : un chemin purement ASCII est identique en UTF-8 et en ANSI, donc
+	// l'immense majorite des chemins emprunte le chemin large sans rien changer.
+	static bool NkPathToWide(const char *path, wchar_t *out, int cap) {
+		if (!path || !*path || !out || cap <= 1)
+			return false;
+		const int n = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path, -1, out, cap);
+		return n > 0;
+	}
+
+	// Taille confortable : NTFS accepte des chemins bien au-dela de MAX_PATH
+	// (260) des lors qu'on utilise les API larges.
+	static constexpr int kNkWidePathMax = 4096;
+#endif
+
 	bool NkFile::Open(const char *path, NkFileMode mode) {
 		// Fermeture préalable : garantit qu'un seul fichier est ouvert à la fois
 		Close();
@@ -349,8 +381,21 @@ namespace nkentseu {
 			return false;
 		}
 
-		// Ouverture via l'API C standard
-		FILE *file = fopen(path, modeStr);
+		// Ouverture via l'API C standard. Sur Windows on tente d'abord l'API
+		// LARGE (chemin UTF-8 -> UTF-16), avec repli sur `fopen` : voir
+		// NkPathToWide.
+		FILE *file = nullptr;
+#ifdef _WIN32
+		{
+			wchar_t wpath[kNkWidePathMax];
+			wchar_t wmode[16];
+			if (NkPathToWide(path, wpath, kNkWidePathMax) &&
+				MultiByteToWideChar(CP_UTF8, 0, modeStr, -1, wmode, 16) > 0)
+				file = _wfopen(wpath, wmode);
+		}
+#endif
+		if (!file)
+			file = fopen(path, modeStr);
 		if (file) {
 			mHandle = file;
 			mIsOpen = true;
@@ -746,8 +791,17 @@ namespace nkentseu {
 		}
 
 #ifdef _WIN32
-		// Windows : GetFileAttributesA retourne INVALID_FILE_ATTRIBUTES si inexistant
-		const DWORD attrs = GetFileAttributesA(path);
+		// Windows : API LARGE d'abord (chemin UTF-8 -> UTF-16), repli ANSI.
+		// Sans ca, Exists() repondait NON sur un nom accentue pourtant liste par
+		// NkDirectory — et tout appelant qui teste avant de lire abandonnait la.
+		DWORD attrs = INVALID_FILE_ATTRIBUTES;
+		{
+			wchar_t wpath[kNkWidePathMax];
+			if (NkPathToWide(path, wpath, kNkWidePathMax))
+				attrs = GetFileAttributesW(wpath);
+		}
+		if (attrs == INVALID_FILE_ATTRIBUTES)
+			attrs = GetFileAttributesA(path);
 		return (attrs != INVALID_FILE_ATTRIBUTES) && !(attrs & FILE_ATTRIBUTE_DIRECTORY); // Exclure les répertoires
 #else
 		// POSIX : stat remplit une structure avec les métadonnées du fichier
@@ -793,6 +847,15 @@ namespace nkentseu {
 			return false;
 		}
 
+#ifdef _WIN32
+		// API large d'abord : un nom accentue n'etait pas supprimable (voir
+		// NkPathToWide). Repli sur remove() si le chemin n'est pas de l'UTF-8.
+		{
+			wchar_t wpath[kNkWidePathMax];
+			if (NkPathToWide(path, wpath, kNkWidePathMax) && _wremove(wpath) == 0)
+				return true;
+		}
+#endif
 		// remove() supprime le fichier du système
 		// Retourne 0 en cas de succès, non-zéro en cas d'erreur
 		return remove(path) == 0;
@@ -867,6 +930,16 @@ namespace nkentseu {
 			return false;
 		}
 
+#ifdef _WIN32
+		// API large d'abord : renommer VERS un nom accentue echouait, ce qui
+		// touche directement le renommage depuis l'explorateur de NKCode.
+		{
+			wchar_t wsrc[kNkWidePathMax], wdst[kNkWidePathMax];
+			if (NkPathToWide(source, wsrc, kNkWidePathMax) && NkPathToWide(dest, wdst, kNkWidePathMax) &&
+				_wrename(wsrc, wdst) == 0)
+				return true;
+		}
+#endif
 		// rename() déplace/renomme le fichier au niveau système
 		// Comportement : échoue si source et dest sur volumes différents (selon OS)
 		return rename(source, dest) == 0;
