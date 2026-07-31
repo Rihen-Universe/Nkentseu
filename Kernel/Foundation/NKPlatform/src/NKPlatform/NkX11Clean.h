@@ -41,28 +41,22 @@ namespace nkentseu {
 } // namespace nkentseu
 
 // ── Noms en conflit avec du C++ ordinaire ──
-// Cette liste est VOLONTAIREMENT courte : chaque ajout retire un outil au code
-// X11 legitime. On n'y met un nom que lorsqu'une collision reelle est constatee.
+//
+// Cette liste ne contient QUE des noms dont la collision a ete CONSTATEE. Elle
+// se limite aujourd'hui a `None`. Ne rien y ajouter « par precaution » :
+// l'erreur a deja ete commise, et voici ce qu'elle a coute.
+//
+// `Bool`, `Status` et `Success` avaient ete ajoutes sans qu'aucune collision
+// n'ait ete observee. Or ce ne sont pas des macros decoratives : les en-tetes
+// X11 s'en servent comme TYPES. Dans la variante XCB, `Xutil.h` est inclus
+// APRES NKGui, donc apres cette neutralisation — et il ne trouvait plus ses
+// propres types. Des dizaines d'erreurs « unknown type name 'Status' », toutes
+// provoquees par le correctif lui-meme.
+//
+// REGLE : on n'ajoute un nom ici qu'apres avoir vu l'erreur qu'il provoque, et
+// apres avoir verifie qu'aucun en-tete X11 ne s'en sert comme type.
 #ifdef None
 #undef None // collisionne avec NkGuiInteract::None, NkGuiEdge::None, etc.
-#endif
-#ifdef Bool
-#undef Bool
-#endif
-#ifdef Status
-#undef Status
-#endif
-#ifdef Success
-#undef Success
-#endif
-#ifdef Always
-#undef Always
-#endif
-#ifdef Complex
-#undef Complex
-#endif
-#ifdef Convex
-#undef Convex
 #endif
 
 #endif // Linux / BSD
