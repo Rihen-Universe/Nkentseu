@@ -34,6 +34,22 @@ qu'on lit. Rihen modélise avec les réflexes de Blender ; il veut lire une
 interface d'UE5. Les deux ne se contredisent pas — ils touchent des couches
 différentes.
 
+> ⚠️ **REGLE D'ARBITRAGE, prioritaire sur tout le reste (Rihen, 31/07)** :
+> l'apparence d'UE5 est **PUREMENT COSMETIQUE**. Unreal n'est pas un logiciel
+> simple a prendre en main — il est reconnu pour l'inverse. **Notre produit doit
+> etre facile a apprendre, comme Blender l'est pour qui le decouvre.** Chaque fois
+> que la ressemblance a UE5 et la facilite d'usage se contredisent, **c'est la
+> facilite qui gagne.**
+>
+> « Facile » est traduit en cinq regles verifiables, pour ne pas rester un voeu :
+> 1. **tout icone a un mot** — icone seule reservee aux 5 actions evidentes ;
+> 2. **le rare est replie** — l'avance est ferme par defaut ;
+> 3. **les etats vides parlent** — ils disent quoi faire, ils ne montrent pas du vide ;
+> 4. **cinq actions sans menu** — ajouter un objet, changer de mode, ajouter un
+>    modificateur, enregistrer, changer l'affichage ;
+> 5. **une information, un endroit** — sinon on se demande laquelle fait foi.
+> Ces cinq regles sont dans le brief de conception (BRIEF_BANANI.md).
+
 **Explicitement écarté** : reprendre l'apparence de NKCode. NKCode est un IDE,
 son identité visuelle lui appartient. Le **mécanisme** de thème et de langue est
 partagé ; **l'apparence** ne l'est pas.
