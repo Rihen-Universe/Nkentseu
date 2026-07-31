@@ -72,6 +72,7 @@ namespace nkentseu {
 				int32 addKind = 0;	  ///< primitive a ajouter
 				int32 modKind = 0;	  ///< modificateur a ajouter
 				int32 orientation = 0; ///< repere : monde / local / normal / vue
+				int32 camSpeed = 2;	   ///< vitesse de deplacement de la camera
 
 				// Sections repliables. Une seule pour l'instant ; il y en aura une par
 				// section de panneau, et c'est deja la bonne forme.
