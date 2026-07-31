@@ -62,3 +62,5 @@ bmesh2/jonction-T                  radial=3 faces=3 nonmanif=1 autreface=REFUSEE
 bmesh2/boucle-arretee              boucle-cube=4 aretes  boucle-jonction=1 aretes
 bmesh2/jonction-T-signature        V=28     F=7      E=15     bord=3     nonmanif=1   tri=14     A=7.0000 C=(0.1429,-0.0714,0.0000)
 bmesh2/arete-filaire               aretes 12->13  radial=0 filaire=oui disque(v)=4
+snap/translate-x                   libre=1.849 increment=1.800(grille:non) absolu=2.000(grille:oui) depart=0.30 pas=0.50
+snap/bascule-inversee-par-ctrl     off:sansCtrl=0 avecCtrl=1 | on:sansCtrl=1 avecCtrl=0
