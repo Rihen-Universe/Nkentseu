@@ -157,10 +157,10 @@ retopo/aretes-vives-epinglees      faces=12 epinglees=12 (toutes attendues) | al
 theme/aller-retour                 lu=1 appliques=30 inconnus=0 | roles differents=0 (0 attendu) nom=Mon theme
 theme/heritage-partiel             appliques=3 | herites=27/27 noirs=0 (0 attendu) | accent_ui=#2266FF nom=Bleu nuit
 theme/role-inconnu-tolere          lu=1 inconnus=1 (1 attendu) appliques=2 (2 attendus) | axis_x=#FF0000
-theme/couleurs-metier-dans-theme   axeY/panneau sombre=4.90 clair=5.58 | couleur-du-sombre-sur-clair=3.29 (doit chuter)
-theme/validation-contraste         defauts sombre=0 clair=0 (0 attendu) | theme casse : 5 defaut(s), pire text sur panel_header = 1.07 (exige 4.5)
-theme/seuils-par-usage             pire rapport brut sombre=3.13 clair=3.35 | seuils texte=4,5 graphique=3,0
+theme/couleurs-metier-dans-theme   axeY/panneau sombre=7.45 clair=5.58 | couleur-du-sombre-sur-clair=2.54 (doit chuter)
+theme/validation-contraste         defauts sombre=0 clair=0 (0 attendu) | theme casse : 5 defaut(s), pire text sur panel_header = 1.31 (exige 4.5)
+theme/seuils-par-usage             pire rapport brut sombre=4.63 clair=3.35 | seuils texte=4,5 graphique=3,0
 theme/roles-application            ids coeur=30 ext=30,31 idempotent=1 | apres aller-retour #FF00AA inconnus=0
 theme/theme-d-une-autre-app        lu=1 appliques=1 inconnus=2 (2 attendus) | accent_ui=#445566
 theme/bibliotheque                 builtins=2 | Papier trouve=1 herite-du-clair=1 | surcharge sans doublon=1 Sombre.fond=#000000
-theme/palette-imposee              conformes=6/6 | ecart des deux sarcelles=1.004 (proche de 1 : meme famille)
+theme/palette-imposee              porteuses de sens=3/3 | ecart sarcelles=1.004 | hierarchie a 3 niveaux=1
