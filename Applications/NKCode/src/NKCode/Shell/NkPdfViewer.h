@@ -1,13 +1,17 @@
 //
-// NkPdfViewer.h — visionneuse PDF : affiche une page rendue comme une texture.
+// NkPdfViewer.h — visionneuse PDF : affiche les pages rendues comme texture.
 //
-// Meme patron que la visionneuse video : le moteur produit un bitmap RGBA,
-// `UploadRGBA` l'envoie au backend, `AddImage` l'affiche. La visionneuse ne
-// sait rien du format PDF.
+// DEUX MODES, au choix de l'utilisateur :
+//   CONTINU (defaut)  toutes les pages empilees, un seul defilement traverse
+//                     le document entier — le comportement d'un vrai lecteur.
+//   PAGE PAR PAGE     une page a la fois, avec les fleches.
 //
-// Le rendu est PARESSEUX et MIS EN CACHE : une page ne se rend qu'au
-// changement de page ou de zoom, jamais a chaque frame — rendre une page A4 a
-// 150 ppp coute des dizaines de millisecondes.
+// Le rendu est PARESSEUX et CACHE : seules les pages visibles sont rendues, et
+// un petit cache garde les dernieres — sans lui, changer de page coutait un
+// rendu complet a chaque fois, ce qui rendait la navigation penible.
+//
+// La texture, elle, garde TOUJOURS la taille du panneau : le backend fige les
+// dimensions d'une texture a sa creation et n'offre aucune liberation.
 //
 #pragma once
 
@@ -19,52 +23,71 @@
 namespace nkentseu {
 	namespace nkcode {
 
+		// Une page rendue, gardee en cache.
+		struct NkPdfPageCache {
+				int32 page = -1;
+				double zoom = -1.0;
+				pdf::NkPdfCanvas canvas;
+				NkVector<pdf::NkPdfRenderer::TextItem> items;
+				NkString unsupported;
+				uint32 lastUse = 0; // pour evincer la plus ancienne
+		};
+
 		struct NkPdfView {
 				pdf::NkPdfDoc doc;
 				// Canevas de la FENETRE visible : il alimente la texture, et sa taille
 				// ne change jamais tant que le panneau garde la sienne.
-				pdf::NkPdfCanvas page;
-				// Cache de la PAGE ENTIERE au zoom courant. Tant qu'il est valide,
-				// defiler n'est qu'une RECOPIE de rectangle, pas un nouveau rendu :
-				// re-rendre a chaque cran de molette coutait le prix d'une page
-				// complete, ce qui rendait le deplacement penible.
-				pdf::NkPdfCanvas full;
-				bool fullValid = false;
-				double fullZoom = -1.0;
-				int32 fullPage = -1;
-				NkString path;		// document actuellement charge
-				NkString unsupported; // fonctionnalites non rendues, a afficher
+				pdf::NkPdfCanvas window;
+
+				NkString path;
+				NkString unsupported;
 				bool opened = false;
 				bool failed = false;
 
-				int32 pageIdx = 0;
-				int32 wantPage = 0;
-				double zoom = 1.0;	   // 1 = ajuste a la largeur
+				// MODE. Continu par defaut : c'est ce qu'on attend d'un lecteur.
+				bool continuous = true;
 
-				// Defilement, en pixels de la page rendue au zoom courant.
+				int32 pageIdx = 0; // page courante (mode page par page, et affichage)
+				double zoom = 1.0; // 1 = ajuste a la largeur
+
+				// Defilement, en pixels du DOCUMENT (mode continu) ou de la page.
 				float32 scrollX = 0.f, scrollY = 0.f;
 
-				// Etat du dernier rendu : sert a ne PAS refaire le travail tant que
-				// rien n'a bouge (une fenetre de page coute quelques millisecondes,
-				// mais a 60 images par seconde ce serait ruineux).
-				double renderedZoom = -1.0;
-				int32 renderedPage = -1;
-				float32 renderedScrollX = -1.f, renderedScrollY = -1.f;
+				// ── Disposition, recalculee au changement de zoom ──
+				// Hauteur cumulee de chaque page + espacement : permet de savoir quelles
+				// pages sont visibles SANS les rendre.
+				NkVector<int32> pageW, pageH;
+				NkVector<float32> pageTop; // ordonnee du haut de chaque page
+				float32 docW = 0.f, docH = 0.f;
+				double layoutZoom = -1.0;
+				int32 layoutPanelW = -1;
 
-				// ── Selection de texte ──
-				// Les elements viennent du rendu de la FENETRE courante : leurs
-				// coordonnees sont celles du canevas, donc directement comparables a
-				// la souris une fois l'origine du panneau retiree.
+				// ── Cache de pages rendues ──
+				NkVector<NkPdfPageCache *> cache;
+				uint32 useClock = 0;
+
+				// Etat du dernier assemblage de la fenetre : evite de recopier a
+				// l'identique a chaque frame.
+				float32 builtScrollX = -1.f, builtScrollY = -1.f;
+				double builtZoom = -1.0;
+				int32 builtPanelW = -1, builtPanelH = -1;
+				bool builtContinuous = true;
+
+				// Selection : elements visibles, en coordonnees du DOCUMENT.
 				NkVector<pdf::NkPdfRenderer::TextItem> items;
-				int32 selA = -1, selB = -1; // bornes, dans l'ordre du flux de contenu
+				int32 selA = -1, selB = -1;
 				bool selecting = false;
 
 				uint32 texId = 0;
 				int32 texW = 0, texH = 0;
+
+				~NkPdfView() {
+					for (usize i = 0; i < cache.Size(); ++i)
+						delete cache[i];
+				}
 		};
 
-		// Etat par onglet. Un document reste charge tant que son onglet vit :
-		// reouvrir le fichier a chaque frame serait ruineux.
+		// Etat par onglet : un document reste charge tant que son onglet vit.
 		inline NkPdfView *NkPdfViewFor(const NkString &path) {
 			static NkVector<NkPdfView *> views;
 			for (usize i = 0; i < views.Size(); ++i)
