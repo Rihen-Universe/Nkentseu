@@ -139,3 +139,5 @@ graphe/aplati-deux-instances       ok etapes=8 A-emis=2 (doit valoir 2) dst1<-5 
 graphe/aplati-recursion-refusee    directe=sousgraphe-recursif indirecte=sousgraphe-recursif inconnu=sousgraphe-inconnu
 graphe/aplati-entree-libre         ok etapes=2 entree-libre=sans-source (0 serait un BUG)
 graphe/doc-aller-retour            lu=1 texte-identique=1 graphes=2 plan=ok [src>A>B>dst] meme-plan=1
+graphe/interface-groupe            conforme=ok | nom-absent=interface-incompatible | MEME-ID-AUTRE-NOM=interface-incompatible | en-trop=interface-incompatible
+graphe/interface-messages          [racine/inst : socket absent sur l'instance : e] [racine/inst : type different sur e : groupe=flux instance=maillage] [racine/inst : socket en trop sur l'instance : oublie]

@@ -133,7 +133,18 @@ namespace nkentseu {
 				bool RemoveNode(NkNodeId n);
 				NkNode *Find(NkNodeId n);
 				const NkNode *Find(NkNodeId n) const;
-				uint32 NodeCount() const;
+				uint32 NodeCount() const; ///< noeuds VIVANTS
+
+				// Parcours BRUT, noeuds morts compris. Reserve aux traitements qui
+				// doivent voir toute la table (validation, outillage). Le nom dit
+				// « brut » pour qu'on ne l'utilise pas par megarde a la place de
+				// NodeCount(), qui ne compte que les vivants.
+				uint32 RawNodeCount() const {
+					return (uint32)mNodes.Size();
+				}
+				const NkNode *RawNodeAt(uint32 i) const {
+					return i < (uint32)mNodes.Size() ? &mNodes[i] : nullptr;
+				}
 
 				// ── CONNEXIONS ───────────────────────────────────────────────────
 				// Une ENTREE n'accepte qu'UNE source : brancher une seconde REMPLACE

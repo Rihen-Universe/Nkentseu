@@ -2275,6 +2275,80 @@ static void GraphDocBattery() {
 	}
 }
 
+// -- GRAPHE : INTERFACE D'UN GROUPE INSTANCIE --------------------------------
+// Le defaut se produit des qu'un groupe est MODIFIE APRES avoir ete instancie.
+// Sans controle, une entree se retrouve silencieusement debranchee et le calcul
+// continue avec une valeur manquante.
+//
+// LE CAS QUI TRANCHE est le troisieme : les deux graphes attribuent le MEME
+// NUMERO a des types de NOMS DIFFERENTS. Chaque graphe tient son propre
+// registre, donc un controle par identifiant les croirait d'accord. Seul un
+// controle par NOM refuse. C'est pour cela qu'un registre partage n'aurait pas
+// suffi : il aurait rendu la comparaison moins couteuse, sans rien refuser.
+static void GraphIfaceBattery() {
+	using namespace nkentseu::graph;
+
+	// Groupe « G » : interface = entree « e » (flux) -> sortie « s » (flux).
+	auto buildG = [](NkNodeGraph &g) {
+		const NkTypeId T = g.RegisterType("flux");
+		NkNodeId gin = g.AddNode(NK_NODE_GROUP_IN, "entree");
+		NkNodeId mid = g.AddNode("calc", "M");
+		NkNodeId gout = g.AddNode(NK_NODE_GROUP_OUT, "sortie");
+		g.AddSocket(gin, "e", T, NkSocketDir::Output);
+		g.AddSocket(mid, "in", T, NkSocketDir::Input);
+		g.AddSocket(mid, "out", T, NkSocketDir::Output);
+		g.AddSocket(gout, "s", T, NkSocketDir::Input);
+		g.Connect(gin, "e", mid, "in");
+		g.Connect(mid, "out", gout, "s");
+	};
+
+	// Fabrique un document dont la racine instancie G, avec l'interface DEMANDEE
+	// sur le noeud d'instance. `premierType` est enregistre EN PREMIER dans la
+	// racine : il recoit donc l'identifiant 1, comme « flux » dans le groupe.
+	auto essai = [&](const char *premierType, const char *nomEntree, const char *typeEntree, bool socketEnTrop,
+					 NkString &detailOut) {
+		NkGraphDocument doc;
+		buildG(doc.GraphAt(doc.AddGraph("G")));
+		const uint32 ri = doc.AddGraph("racine");
+		doc.SetRoot(ri);
+		NkNodeGraph &r = doc.GraphAt(ri);
+		const NkTypeId premier = r.RegisterType(premierType);
+		const NkTypeId tEntree = r.RegisterType(typeEntree);
+		const NkTypeId tFlux = r.RegisterType("flux");
+		(void)premier;
+		NkNodeId inst = r.AddNode(NK_NODE_INSTANCE, "inst");
+		r.Find(inst)->subgraph = NkString("G");
+		r.AddSocket(inst, nomEntree, tEntree, NkSocketDir::Input);
+		r.AddSocket(inst, "s", tFlux, NkSocketDir::Output);
+		if (socketEnTrop)
+			r.AddSocket(inst, "oublie", tFlux, NkSocketDir::Input);
+		NkEvalPlan plan;
+		const NkPlanError e = doc.BuildPlan(plan);
+		detailOut = plan.errorDetail;
+		return e;
+	};
+
+	NkString d1, d2, d3, d4;
+	// 1) conforme : meme nom, meme type. Sans ce cas, un controle qui refuserait
+	//    TOUT passerait les trois autres et ne prouverait rien.
+	const NkPlanError e1 = essai("flux", "e", "flux", false, d1);
+	// 2) nom absent : le groupe attend « e », l'instance offre « entree ».
+	const NkPlanError e2 = essai("flux", "entree", "flux", false, d2);
+	// 3) LE CAS QUI TRANCHE : « maillage » est enregistre EN PREMIER dans la
+	//    racine, il porte donc l'identifiant 1 -- exactement celui de « flux »
+	//    dans le groupe. Les numeros coincident, les noms non.
+	const NkPlanError e3 = essai("maillage", "e", "maillage", false, d3);
+	// 4) socket EN TROP : un fil branche sur rien.
+	const NkPlanError e4 = essai("flux", "e", "flux", true, d4);
+
+	GraphPut("%-34s conforme=%s | nom-absent=%s | MEME-ID-AUTRE-NOM=%s | en-trop=%s",
+			 "graphe/interface-groupe", NkPlanErrorName(e1), NkPlanErrorName(e2), NkPlanErrorName(e3),
+			 NkPlanErrorName(e4));
+	// Le message doit NOMMER le socket fautif : un code d'erreur seul obligerait
+	// a chercher dans un document qui peut compter des dizaines de groupes.
+	GraphPut("%-34s [%s] [%s] [%s]", "graphe/interface-messages", d2.CStr(), d3.CStr(), d4.CStr());
+}
+
 int main(int argc, char **argv) {
 	bool baseline = false, check = false;
 	for (int32 i = 1; i < argc; i++) {
@@ -2302,6 +2376,7 @@ int main(int argc, char **argv) {
 	GraphBattery();
 	GraphIOBattery();
 	GraphDocBattery();
+	GraphIfaceBattery();
 
 	const char *path = "editmesh_baseline.txt";
 	if (baseline) {
