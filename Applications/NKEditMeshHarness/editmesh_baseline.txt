@@ -109,3 +109,8 @@ mod/wave-phase-animable            phase 0 -> rayon 0.7502 | phase 1,57 -> rayon
 mod/autosmooth-30deg               seuil 30 deg -> 0 lisses / 6 franches
 mod/autosmooth-100deg              seuil 100 deg -> 6 lisses / 0 franches
 mod/inventaire-global              17 types, 36 parametres animables
+raccourcis/contexte                R/objet=object.rotate CtrlR/edit=mesh.loopcut E/edit=mesh.extrude ShiftE=mod.toggle Q=aucune
+raccourcis/conflits                liaisons=32 conflits=0 premier=[aucun]
+raccourcis/conflit-reel-shift-s    conflits=1 [mesh.shade_smooth vs mod.toggle] gagne-en-edition=mesh.shade_smooth
+raccourcis/affichage               bevel_vert=Ctrl+Shift+B apply=Shift+Entree pivot=.
+raccourcis/reconfiguration         ancienne=aucune nouvelle=mod.apply affiche=Ctrl+Shift+Entree
