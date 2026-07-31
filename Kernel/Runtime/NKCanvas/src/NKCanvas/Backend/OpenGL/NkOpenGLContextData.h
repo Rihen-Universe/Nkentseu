@@ -29,6 +29,14 @@ using PFNWGLSWAPINTERVALEXTPROC = BOOL(WINAPI *)(int);
 #include <xcb/xcb.h>
 #include <X11/Xlib.h>
 #include <X11/Xlib-xcb.h>
+// NE PAS inclure NkX11Clean.h ici : ce fichier est du code X11/GLX pur et il a
+// besoin de `None` (Drawable nul de glXMakeCurrent, terminateur des listes
+// d'attributs GLX). La neutralisation appartient aux en-tetes moteur qui
+// declarent des enumerations en conflit : NKGui.h et NkDeviceInitInfo.h
+// l'incluent chez eux, juste avant leurs propres declarations — c'est le bon
+// point d'application. L'inclure ici retirait `None` a ses utilisateurs
+// legitimes : 5 erreurs dans NkOpenGLContext.cpp, en configuration XCB
+// uniquement (la branche XLib ci-dessus ne l'a jamais inclus, et compile).
 #ifndef NK_NO_GLAD2
 #include <glad/glx.h>
 #else

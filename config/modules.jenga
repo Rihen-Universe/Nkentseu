@@ -220,6 +220,13 @@ def useglobalkind(modulename: str) -> None:
     key = _require_key(modulename, "useglobalkind")
     kindexport(_GLOBAL_KIND, _REGISTRY[key]["export"])
 
+    # Backend de fenetrage : AUSSI par ce chemin de compatibilite. L'oublier ici
+    # laissait 4 projets (DemoRW, Pong copy, Pong2, RendererSandbox) sans le
+    # define ni les dossiers par backend — donc exposes a la meme violation
+    # d'ODR que celle corrigee dans nkentseudependson(). Un projet UTILISATEUR
+    # qui suit l'exemple de DemoRW heriterait du defaut.
+    _emit_linux_backend_defines(True)
+
     if _GLOBAL_KIND != ProjectKind.STATIC_LIB:
         return
     visited: set = set()
@@ -239,6 +246,11 @@ def useappdeps(*modulekeys: str) -> None:
     APP : emet les defines _STATIC_LIB pour les modules listes + leur transitif
     (mode STATIC). Ne configure PAS le kind. Accepte noms complets ou cles courtes.
     """
+    # Backend de fenetrage : emis AVANT le retour anticipe ci-dessous, sinon en
+    # mode SHARED_LIB une application n'aurait ni le define ni ses dossiers par
+    # backend. C'est une APP : sorties dans Build/Bin/<cfg>-<sys>-<backend>.
+    _emit_linux_backend_defines(False)
+
     if _GLOBAL_KIND != ProjectKind.STATIC_LIB:
         return
     visited: set = set()
@@ -374,3 +386,78 @@ def nkentseudependson(deps=None, selfexport=None, extra_includes=None, extra_lin
         dependson(_dedup(dpn))
     if defs:
         defines(sorted(set(defs)))
+
+    # 6. Backend de fenetrage Linux : TOUS les projets doivent voir le MEME
+    #    define ET ecrire dans des dossiers SEPARES par backend.
+    _emit_linux_backend_defines(is_lib)
+
+
+# =============================================================================
+# BACKEND DE FENETRAGE LINUX — pourquoi ce define doit etre PARTOUT
+# =============================================================================
+# NkWindow.h inclut une classe native DIFFERENTE selon le backend choisi
+# (NkXCBWindow, NkXLibWindow, NkWaylandWindow), et ces classes n'ont pas la meme
+# taille. sizeof(NkWindow) depend donc du backend, et tout ce qui contient une
+# fenetre change de disposition memoire avec lui.
+#
+# Tant que ce define n'etait pose que dans les Applications/*.jenga, les modules
+# du moteur compilaient en detection AUTOMATIQUE (repli XLib) pendant que
+# l'application compilait en XCB : deux dispositions de la meme classe dans un
+# seul binaire — une violation d'ODR. Symptome observe : segfault au demarrage
+# de NKCode/XCB dans LoadUiFont, parce que mFontPrefs etait lu 8 octets a cote.
+# La variante XLib ne fonctionnait que par COINCIDENCE, son choix correspondant
+# au repli auto-detecte.
+#
+# Les .jenga des modules reglaient deja objdir/targetdir par backend (pour que
+# les artefacts ne se melangent pas) mais JAMAIS le define — d'ou l'illusion que
+# la separation par backend etait complete.
+#
+# ATTENTION : ne pas tenter de poser ces defines au niveau WORKSPACE. Dans
+# Jenga, defines() n'agit que s'il existe un projet ou une toolchain courante ;
+# hors projet, l'appel est ignore SILENCIEUSEMENT (Core/Api.py, def defines).
+# C'est ici, dans le helper que chaque projet appelle, que le define porte.
+# =============================================================================
+# SEPARATION DES DOSSIERS DE SORTIE — indissociable du define
+#
+# Poser le define ne suffit PAS : il faut aussi que chaque backend ait ses
+# propres dossiers d'objets et de bibliotheques. Sinon un build INCREMENTAL
+# melange les deux, et le defaut d'ODR revient par une autre porte :
+#
+#   1. `build --linux-backend xlib` compile NKContainers.a avec XLIB_ONLY
+#      dans Build/Lib/Debug-Linux/ ;
+#   2. `build --linux-backend xcb` retrouve ce meme chemin « a jour » et ne
+#      le RECOMPILE PAS — la bibliotheque reste en XLIB_ONLY ;
+#   3. NKEditorKit, lui, avait deja ses dossiers par backend et compile en
+#      XCB_ONLY.
+#   -> deux dispositions memoire dans un seul binaire -> segfault au demarrage.
+#
+# Constate en pratique : un build PROPRE fonctionnait, un build incremental
+# apres l'autre backend plantait. Seuls 18 modules sur 57 declaraient ces
+# dossiers dans leur .jenga ; les 39 autres partageaient Debug-Linux.
+# On les emet donc ICI, au meme endroit que le define, pour que les deux ne
+# puissent plus diverger.
+def _emit_linux_backend_defines(is_lib: bool = True) -> None:
+    # Les bibliotheques vont dans Build/Lib/<cfg>-<sys>-<backend>, les
+    # executables dans Build/Bin/<cfg>-<sys>-<backend>/<projet> : meme
+    # convention que celle deja ecrite a la main dans les 18 .jenga.
+    outroot = "Lib" if is_lib else "Bin"
+    outleaf = "" if is_lib else "/%{prj.name}"
+
+    def _dirs(suffix: str) -> None:
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-" + suffix + "/%{prj.name}")
+        targetdir("%{wks.location}/Build/" + outroot + "/%{cfg.buildcfg}-%{cfg.system}-" + suffix + outleaf)
+
+    with filter("system:Linux && options:linux-backend=xcb"):
+        defines(["NKENTSEU_FORCE_WINDOWING_XCB_ONLY"])
+        _dirs("xcb")
+    with filter("system:Linux && options:linux-backend=wayland"):
+        defines(["NKENTSEU_FORCE_WINDOWING_WAYLAND_ONLY"])
+        _dirs("wayland")
+    with filter("system:Linux && options:linux-backend=headless || system:Linux && options:headless"):
+        defines(["NKENTSEU_FORCE_WINDOWING_NOOP_ONLY"])
+        _dirs("headless")
+    # XLib reste sur Build/Lib/<cfg>-<sys> SANS suffixe : c'est le backend par
+    # defaut, et changer son chemin invaliderait tous les caches existants
+    # ainsi que les scripts qui pointent dessus.
+    with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
+        defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])

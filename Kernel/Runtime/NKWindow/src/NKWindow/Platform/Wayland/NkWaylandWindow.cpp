@@ -39,6 +39,20 @@
 #include <wayland-client.h>
 #include <wayland-cursor.h>
 
+// wl_egl_window_resize : necessaire pour redimensionner la surface EGL DES la
+// reception du configure (cf. NkWindowData::mEglWindow).
+//
+// ATTENTION au nom de la macro : NKENTSEU_HAS_WAYLAND_EGL n'est defini QUE
+// dans NkContext.cpp. L'employer ici la ferait valoir 0, et tout le bloc
+// deviendrait du code mort compilant sans broncher — un correctif inerte,
+// exactement le piege deja rencontre avec les defines de backend.
+#if __has_include(<wayland-egl.h>)
+#include <wayland-egl.h>
+#define NKENTSEU_WL_WINDOW_HAS_EGL 1
+#else
+#define NKENTSEU_WL_WINDOW_HAS_EGL 0
+#endif
+
 #if __has_include("xdg-decoration-client-protocol.h")
 #include "xdg-decoration-client-protocol.h"
 #elif __has_include(<xdg-decoration-client-protocol.h>)
@@ -78,6 +92,19 @@
 #include <algorithm>
 
 namespace nkentseu {
+
+	// Diagnostic protocole Wayland, SILENCIEUX par defaut.
+	//
+	// Active par NK_WAYLAND_TRACE=1. Passe par fprintf/fflush et NON par le
+	// logger : celui-ci cesse d'emettre apres l'initialisation, ce qui a fait
+	// croire pendant trois correctifs que les gestionnaires de configure ne
+	// tournaient pas — alors qu'ils tournaient. Garde ici pour la session
+	// dediee qui reste a faire sur l'erreur xdg_wm_base 4.
+	static bool NkWlTrace() {
+		static const bool on = (::getenv("NK_WAYLAND_TRACE") != nullptr);
+		return on;
+	}
+
 	using namespace math;
 
 	// =========================================================================
@@ -316,6 +343,21 @@ namespace nkentseu {
 		sLastWindow = win;
 	}
 
+	void NkWaylandSetEglWindow(::wl_surface *surface, void *eglWindow) {
+		if (NkWindow *win = NkWaylandFindWindow(surface))
+			win->mData.mEglWindow = eglWindow;
+	}
+
+	void NkWaylandClearEglWindow(void *eglWindow) {
+		if (!eglWindow)
+			return;
+		// ForEach : l'API d'iteration de NkUnorderedMap (pas de for-range).
+		WaylandSurfaceMap().ForEach([eglWindow](::wl_surface *, NkWindow *win) {
+			if (win && win->mData.mEglWindow == eglWindow)
+				win->mData.mEglWindow = nullptr;
+		});
+	}
+
 	void NkWaylandUnregisterWindow(::wl_surface *surface) {
 		auto &map = WaylandSurfaceMap();
 		auto *win = map.Find(surface);
@@ -471,13 +513,42 @@ namespace nkentseu {
 
 	static void OnXdgSurfaceConfigure(void *data, ::xdg_surface *surface, uint32_t serial) {
 		NkWindow *window = static_cast<NkWindow *>(data);
-		logger.Warnf("[NkWayland][DBG] xdg_surface.configure: window=%p serial=%u", static_cast<void *>(window),
-					 static_cast<unsigned>(serial));
-		xdg_surface_ack_configure(surface, serial);
+
+		// ── Acquitter TOUT DE SUITE, ou DIFFERER d'une frame ? ──────────────
+		//
+		// La contrainte de taille d'xdg_surface ne s'applique qu'A PARTIR de
+		// l'acquittement. Or eglSwapBuffers attache le tampon DEJA RENDU,
+		// valide, puis seulement realloue pour la frame suivante — verifie a
+		// la trace : attach(vieux 1440x900) -> commit -> create_buffer(1920x1032).
+		// Acquitter immediatement rendait donc ILLEGALE une presentation deja
+		// en vol : « xdg_surface buffer does not match the configured
+		// maximized state », fatale.
+		//
+		// On differe donc d'une frame quand la taille a change et que la
+		// fenetre est deja mappee. Le PREMIER configure, lui, doit etre
+		// acquitte sur-le-champ : sans cela la surface n'est jamais mappee et
+		// la fenetre n'apparait pas.
+		const bool premierConfigure = !window || !window->mData.mConfigured;
+		const bool tailleEnAttente = window && window->mData.mPendingResize;
+
+		if (premierConfigure || !tailleEnAttente) {
+			if (NkWlTrace()) std::fprintf(stderr, "[RAW] xdg_surface.configure serial=%u -> ack immediat\n", serial);
+			xdg_surface_ack_configure(surface, serial);
+			if (window) {
+				window->mData.mPendingAckSerial = 0;
+				window->mData.mPendingAckDelay = 0;
+			}
+		} else {
+			// Un configure plus recent remplace le precedent : on n'acquitte
+			// que le dernier, ce que le protocole autorise.
+			window->mData.mPendingAckSerial = serial;
+			window->mData.mPendingAckDelay = 1; // une frame de sursis
+			if (NkWlTrace()) std::fprintf(stderr, "[RAW] xdg_surface.configure serial=%u -> ack DIFFERE\n", serial);
+		}
+
 		if (window) {
 			window->mData.mConfigured = true;
 		}
-		logger.Warn("[NkWayland][DBG] xdg_surface.configure acked");
 	}
 
 	static const ::xdg_surface_listener kXdgSurfaceListener = {
@@ -495,6 +566,9 @@ namespace nkentseu {
 		NkWindow *window = static_cast<NkWindow *>(data);
 		logger.Warnf("[NkWayland][DBG] toplevel.configure: window=%p w=%d h=%d states=%p", static_cast<void *>(window),
 					 width, height, static_cast<void *>(states));
+		// Diagnostic BRUT, hors logger : ce dernier cesse d'emettre apres
+		// l'initialisation, ce qui empeche de savoir si ce gestionnaire tourne.
+		if (NkWlTrace()) std::fprintf(stderr, "[RAW] toplevel.configure w=%d h=%d\n", width, height);
 
 		// Lecture des états
 		bool isFullscreen = false;
@@ -551,6 +625,40 @@ namespace nkentseu {
 		// Synchroniser la config (accesseur backend)
 		window->ConfigData().width = width;
 		window->ConfigData().height = height;
+
+		// ── Redimensionner le wl_egl_window IMMEDIATEMENT ───────────────────
+		//
+		// Et non a la frame suivante, via le OnResize de l'application. Mesa
+		// acquiert son tampon arriere PENDANT le rendu : un redimensionnement
+		// arrive apres coup ne vaut donc que pour la frame d'APRES. Entre les
+		// deux, eglSwapBuffers presente un tampon a l'ancienne taille alors
+		// que le compositeur a deja configure la nouvelle.
+		//
+		// Trace observee (WAYLAND_DEBUG=1) apres une maximisation :
+		//   xdg_toplevel.configure(1920, 1032) ... ack_configure
+		//   -> wl_surface.attach(wl_buffer@22 = 1440x900) ; commit   [Mesa]
+		//   -> wl_shm_pool.create_buffer(@27 = 1920x1032)            [trop tard]
+		//   <- error 4 « buffer (1440 x 900) does not match the configured
+		//      maximized state (1920 x 1032) »  -> FATALE, fenetre tuee.
+		//
+		// En redimensionnant ici, le prochain tampon acquis par Mesa a deja la
+		// bonne taille. L'appel est sans effet si aucun contexte EGL n'a pris
+		// la surface (mEglWindow nul) — cas des backends logiciel et X11.
+#if NKENTSEU_WL_WINDOW_HAS_EGL
+		if (window->mData.mEglWindow) {
+			wl_egl_window_resize(static_cast<::wl_egl_window *>(window->mData.mEglWindow),
+								 static_cast<int>(width), static_cast<int>(height), 0, 0);
+			logger.Warnf("[NkWayland][DBG] wl_egl_window_resize %ux%u", width, height);
+			if (NkWlTrace()) std::fprintf(stderr, "[RAW] wl_egl_window_resize %ux%u\n", width, height);
+		} else {
+			// Trace explicite : sans elle, un enregistrement manque passerait
+			// pour un correctif qui « ne marche pas », alors que le code n'est
+			// simplement jamais atteint.
+			logger.Warnf("[NkWayland][DBG] configure %ux%u SANS wl_egl_window enregistre", width, height);
+		}
+#else
+		logger.Warn("[NkWayland][DBG] wayland-egl absent a la compilation : pas de resize EGL");
+#endif
 	}
 
 	// =========================================================================

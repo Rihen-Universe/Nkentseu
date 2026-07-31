@@ -66,6 +66,19 @@ with project("NKCode"):
 
     files(["src/**.cpp"])
 
+    # Ressources de l'IDE embarquees dans TOUT paquet (deb/rpm/AppImage/targz,
+    # zip/msi cote Windows) : polices, textures, logos, traductions, icons.cfg.
+    #
+    # La forme « source => destination » est indispensable ici. Sans elle,
+    # dependfiles() place les fichiers relativement au WORKSPACE, soit
+    # « Applications/NKCode/data/... ». Or NkAppFonts et NkAppIcons cherchent
+    # « data/... » A COTE DE L'EXECUTABLE : le paquet s'installait sans que
+    # l'application retrouve la moindre police ni icone.
+    #
+    # Ce que MakeNkCodeDist.py fait deja pour Windows est ainsi declare dans le
+    # .jenga, donc valable pour toutes les plateformes d'un seul geste.
+    dependfiles(["data => data"])
+
     nkentseudependson(
         ["NKEditorKit", "NKCanvas", "NKGui", "NKWindow", "NKEvent", "NKGlad",
          "NKFont", "NKImage", "NKAudio", "NKMedia", "NKFileSystem", "NKThreading", "NKLogger", "NKMath", "NKTime",
@@ -73,8 +86,11 @@ with project("NKCode"):
         # pybind11 est header-only (files([]), rien a compiler/lier) : simple
         # includedirs, pas un dependson NK-prefixe (evite un edge dependson/
         # link superflu, cf. NOTICE Externals/Libs/pybind11).
-        extra_includes=["src", "src/NKCode", "%{NKGlad.location}/include", "%{pybind11.location}/include",
-                        _PYEMBED_INCLUDE]
+        # _PYEMBED_INCLUDE n'est PAS ajoute ici : le SDK CPython vendorise est
+        # celui de Windows (pyconfig.h reclame <io.h>), et l'ajouter partout
+        # cassait toute compilation Linux. Il est pose dans le filtre
+        # « platforms:windows » plus bas, avec le define NKCODE_EMBED_PYTHON.
+        extra_includes=["src", "src/NKCode", "%{NKGlad.location}/include", "%{pybind11.location}/include"]
                        + ([_VULKAN_INCLUDE] if _VULKAN_INCLUDE else []),
     )
 
@@ -89,7 +105,14 @@ with project("NKCode"):
     with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
         windowedapp()
         usetoolchain(TC_WINDOWS)
-        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+        # NKCODE_EMBED_PYTHON : n'active le vrai NkEmbeddedJenga QUE sur Windows.
+        # Le CPython vendorise est celui de Windows (son pyconfig.h reclame
+        # <io.h>) ; ailleurs, NkEmbeddedJengaStub.cpp fournit la meme surface en
+        # repondant « indisponible », et l'appelant retombe sur le `jenga` du
+        # PATH — hypothese raisonnable sous Linux, ou Python est presque
+        # toujours present.
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE", "NKCODE_EMBED_PYTHON=1"])
+        includedirs([_PYEMBED_INCLUDE])
         if _VULKAN_LIB:
             libdirs([_VULKAN_LIB])
         libdirs([_PYEMBED_LIBDIR])
@@ -110,7 +133,52 @@ with project("NKCode"):
         windowedapp()
         usetoolchain("clang-native")
         defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
-        links(["pthread", "X11", "Xext", "GL", "asound", "m"]) # asound/m : NKAudio (backend ALSA)
+        # Xrandr : NkXLibWindow interroge les ecrans (XRRGetScreenResources,
+        # XRRGetOutputPrimary...). La bibliotheque manquait dans cette liste, ce
+        # qui ne se voyait pas tant que rien n'etait lie sous Linux.
+        _LINUX_LINKS = ["pthread", "X11", "Xext", "Xrandr", "GL", "asound", "m"]  # asound/m : NKAudio (ALSA)
+        if _WANT_VULKAN:
+            _LINUX_LINKS.append("vulkan")
+        links(_LINUX_LINKS)
+
+    # ===== Linux XCB ==============================================================
+    # Les listes de liens viennent de Applications/DemoRW/demorw.jenga, ou les
+    # trois backends Linux sont cables et eprouves ; on n'en reinvente pas.
+    # Ajouts propres a NKCode : asound/m pour NKAudio (ALSA), absents de DemoRW.
+    with filter("system:Linux && options:linux-backend=xcb"):
+        windowedapp()
+        usetoolchain("clang-native")
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-xcb/%{prj.name}")
+        targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}-xcb/%{prj.name}")
+        defines(["NKENTSEU_FORCE_WINDOWING_XCB_ONLY"])
+        _LINUX_XCB_LINKS = ["pthread", "xcb", "xcb-image", "xcb-icccm", "xcb-randr", "xcb-xfixes",
+                            "X11", "X11-xcb", "Xext", "xkbcommon", "xkbcommon-x11", "GL",
+                            "asound", "m"]
+        if _WANT_VULKAN:
+            _LINUX_XCB_LINKS.append("vulkan")
+        links(_LINUX_XCB_LINKS)
+        ldflags(["-fuse-ld=lld"])
+
+    # ===== Linux Wayland ==========================================================
+    with filter("system:Linux && options:linux-backend=wayland"):
+        windowedapp()
+        usetoolchain("clang-native")
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-wayland/%{prj.name}")
+        targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}-wayland/%{prj.name}")
+        # WAYLAND_DEFINES / WAYLAND_LINKS viennent de config/wayland.jenga, charge
+        # une fois par Nkentseu.jenga et propage a tous les .jenga inclus.
+        #
+        # NE PAS recopier cette liste en dur. Elle est CONDITIONNELLE : si
+        # pkg-config trouve libdecor-0, config/wayland.jenga ajoute A LA FOIS le
+        # define NKENTSEU_WAYLAND_LIBDECOR et le lien `decor-0`. Une liste figee
+        # ici donnait des modules moteur compiles AVEC libdecor (ils lisent la
+        # config partagee) et une ligne de link SANS -ldecor-0 : une vingtaine de
+        # `undefined reference to libdecor_*` a l'edition de liens.
+        defines(WAYLAND_DEFINES)
+        _LINUX_WL_LINKS = list(WAYLAND_LINKS) + ["asound", "m"]  # asound/m : NKAudio (ALSA)
+        if _WANT_VULKAN:
+            _LINUX_WL_LINKS.append("vulkan")
+        links(_LINUX_WL_LINKS)
 
     # ===== macOS ==================================================================
     with filter("system:macOS"):
@@ -158,3 +226,123 @@ with project("NKCode"):
         defines(["NDEBUG"])
         optimize("Speed")
         symbols(False)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Banc de test du lecteur PDF (cible CONSOLE, hors application).
+#
+# Confronte l'analyseur a un corpus de PDF reels et n'affiche que des donnees
+# STRUCTURELLES (nombre de pages, dimensions, etat). Volontairement separe de
+# NKCode : un banc doit pouvoir tourner sans fenetre ni contexte graphique, et
+# etre enchaine dans un script (son code de retour = le nombre d'echecs).
+#
+#   jenga build --target NkPdfProbe --config Debug
+#   ./NkPdfProbe <dossier de PDF>
+# ─────────────────────────────────────────────────────────────────────────────
+with project("NkPdfProbe"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    files(["src/NKCode/Pdf/**.cpp", "tools/PdfProbe.cpp"])
+    includedirs(["src"])
+
+    # L'analyseur PDF ne touche ni au rendu, ni a la fenetre, ni au son : on
+    # reprend la liste de NKCode SANS la pile graphique/audio. NKImage n'est la
+    # que pour NkDeflate (FlateDecode) ; NKStream et consorts sont ses
+    # dependances TRANSITIVES, qu'il faut nommer EXPLICITEMENT — le premier
+    # essai echouait sur « NKStream/NKIResource.h file not found ».
+    nkentseudependson(
+        ["NKFont", "NKImage", "NKFileSystem", "NKStream", "NKThreading", "NKLogger",
+         "NKMath", "NKTime", "NKContainers", "NKMemory", "NKCore", "NKPlatform"],
+    )
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)
+
+
+# Verification NUMERIQUE du rastériseur de traces : chaque forme a une aire
+# CONNUE, et la somme des couvertures doit la retrouver. Un rastériseur
+# anti-aliase correct conserve l'aire — propriete facile a violer sans que ca
+# se voie, et facile a mesurer.
+#
+#   jenga build --target NkPdfRasterTest --config Debug
+with project("NkPdfRasterTest"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    files(["src/NKCode/Pdf/NkPdfRaster.cpp", "tools/PdfRasterTest.cpp"])
+    includedirs(["src"])
+
+    # Le rastériseur ne depend QUE des conteneurs : aucun fichier, aucune image.
+    nkentseudependson(["NKContainers", "NKMemory", "NKCore", "NKPlatform"])
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)
+
+
+# Banc de RENDU : rend la 1re page de chaque PDF et MESURE le resultat
+# (proportion de pixels peints, teintes distinctes). Une page blanche est le
+# mode d'echec le plus vicieux d'un lecteur PDF — aucune erreur, rien a
+# l'ecran — et c'est precisement ce que ce banc detecte.
+with project("NkPdfRenderProbe"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    files(["src/NKCode/Pdf/**.cpp", "tools/PdfRenderProbe.cpp"])
+    includedirs(["src"])
+
+    nkentseudependson(
+        ["NKFont", "NKImage", "NKFileSystem", "NKStream", "NKThreading", "NKLogger",
+         "NKMath", "NKTime", "NKContainers", "NKMemory", "NKCore", "NKPlatform"],
+    )
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)
+
+
+# Banc de diagnostic : lecture de fichiers (NkFile, apres le passage aux API
+# larges de Windows) et fil de rendu PDF. Un « ca ne marche plus » ne se
+# diagnostique pas en relisant le code : on exerce le chemin exact.
+with project("NkFileWorkerTest"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    files(["src/NKCode/Pdf/**.cpp", "src/NKCode/Shell/NkPdfWorker.cpp",
+           "tools/FileWorkerTest.cpp"])
+    includedirs(["src"])
+
+    nkentseudependson(
+        ["NKFont", "NKImage", "NKFileSystem", "NKStream", "NKThreading", "NKLogger",
+         "NKMath", "NKTime", "NKContainers", "NKMemory", "NKCore", "NKPlatform"],
+    )
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG"])
+        optimize("Off")
+        symbols(True)

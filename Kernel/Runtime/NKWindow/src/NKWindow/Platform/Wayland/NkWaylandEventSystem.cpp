@@ -24,6 +24,7 @@
 #include "NKWindow/Platform/Wayland/NkWaylandWindow.h"
 #include "NKMemory/NkUtils.h"
 
+#include <cstdio> // diagnostic brut de l'acquittement differe (hors logger)
 #include <wayland-client.h>
 #include <wayland-cursor.h>
 #include <xkbcommon/xkbcommon.h>
@@ -48,6 +49,19 @@
 #include <cstdlib>
 
 namespace nkentseu {
+
+	// Diagnostic protocole Wayland, SILENCIEUX par defaut.
+	//
+	// Active par NK_WAYLAND_TRACE=1. Passe par fprintf/fflush et NON par le
+	// logger : celui-ci cesse d'emettre apres l'initialisation, ce qui a fait
+	// croire pendant trois correctifs que les gestionnaires de configure ne
+	// tournaient pas — alors qu'ils tournaient. Garde ici pour la session
+	// dediee qui reste a faire sur l'erreur xdg_wm_base 4.
+	static bool NkWlTrace() {
+		static const bool on = (::getenv("NK_WAYLAND_TRACE") != nullptr);
+		return on;
+	}
+
 	using namespace math;
 
 	// =========================================================================
@@ -681,14 +695,38 @@ namespace nkentseu {
 
 		d.mPixels = pixels;
 		d.mBuffer = buf;
-
-		// Attache et commit si la fenêtre est visible
-		if (d.mVisible && d.mSurface && d.mConfigured) {
+		if (d.mPixels) {
 			memory::NkMemSet(d.mPixels, 0, size);
-			wl_surface_attach(d.mSurface, d.mBuffer, 0, 0);
-			wl_surface_damage(d.mSurface, 0, 0, static_cast<int32_t>(d.mWidth), static_cast<int32_t>(d.mHeight));
-			wl_surface_commit(d.mSurface);
 		}
+
+		// ── ON N'ATTACHE NI NE VALIDE ICI. C'EST VOLONTAIRE. ────────────────
+		//
+		// Une wl_surface n'a qu'UN SEUL producteur de tampons. Si la fenetre
+		// attache le sien pendant qu'un contexte graphique presente sur la
+		// meme surface, les deux se contredisent — et le compositeur tue la
+		// fenetre.
+		//
+		// Constate a la trace (WAYLAND_DEBUG=1, WSLg) : DEUX wl_shm coexistent,
+		// celui de la fenetre et celui que Mesa/EGL lie pour son compte. Apres
+		// une maximisation, la fenetre validait la nouvelle configuration avec
+		// son tampon deja redimensionne (1920x1032) ; Mesa presentait ensuite
+		// le sien, encore en 1440x900. Contrat xdg_surface rompu :
+		//   xdg_wm_base error 4 « buffer (1440 x 900) does not match the
+		//   configured maximized state (1920 x 1032) » -> FATALE.
+		//
+		// Le tampon reste recree ci-dessus (le backend LOGICIEL en a besoin),
+		// mais c'est le PRESENTEUR qui attache et valide, jamais la fenetre :
+		//   - logiciel   -> NkSoftwareContext::Present (attach + damage + commit)
+		//   - OpenGL/EGL -> eglSwapBuffers, avec son propre tampon redimensionne
+		//                   par le wl_egl_window_resize de NkOpenGLContext::OnResize
+		//
+		// La fenetre n'attache qu'UNE fois, a la creation, pour que la surface
+		// soit mappee avant qu'un presenteur existe (cf. NkWaylandWindow.cpp).
+		//
+		// RESERVE CONNUE, ANTERIEURE a ce changement : NkSoftwareContext copie
+		// surf.shmBuffer a l'initialisation ; la recreation ci-dessus invalide
+		// ce pointeur. Le chemin logiciel a donc son propre defaut de
+		// redimensionnement, a traiter separement.
 	}
 
 	// =========================================================================
@@ -810,6 +848,26 @@ namespace nkentseu {
 				(void)libdecor_dispatch(window->mData.mLibdecor, 0);
 			}
 #endif
+
+			// ------------------------------------------------------------------
+			// Acquittement DIFFERE d'un configure qui change la taille.
+			//
+			// On laisse passer UNE frame avant d'acquitter : la presentation
+			// deja en vol (tampon a l'ancienne taille, attache par
+			// eglSwapBuffers avant sa reallocation) a ainsi lieu sous
+			// l'ANCIENNE configuration, ou elle est legale. Acquitter plus tot
+			// la rendait illegale et le compositeur tuait la fenetre
+			// (xdg_wm_base error 4). Details dans NkWaylandWindow.h.
+			// ------------------------------------------------------------------
+			if (window->mData.mPendingAckSerial != 0) {
+				if (window->mData.mPendingAckDelay > 0) {
+					--window->mData.mPendingAckDelay;
+				} else if (window->mData.mXdgSurface) {
+					xdg_surface_ack_configure(window->mData.mXdgSurface, window->mData.mPendingAckSerial);
+					if (NkWlTrace()) std::fprintf(stderr, "[RAW] ack DIFFERE envoye serial=%u\n", window->mData.mPendingAckSerial);
+					window->mData.mPendingAckSerial = 0;
+				}
+			}
 
 			// ------------------------------------------------------------------
 			// Redimensionnement : émet l'événement + redimensionne le SHM buffer

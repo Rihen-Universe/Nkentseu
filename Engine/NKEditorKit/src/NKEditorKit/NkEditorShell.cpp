@@ -253,7 +253,16 @@ namespace nkentseu {
 		void NkEditorShell::HookEvents() noexcept {
 			auto &events = NkEvents();
 
-			events.AddEventCallback<NkWindowCloseEvent>([this](NkWindowCloseEvent *) { mRunning = false; });
+			// Croix de la barre de titre = fermeture EXPLICITE de cette fenetre. On
+			// previent l'application AVANT de sortir de la boucle : elle seule sait
+			// quoi en faire (NKCode s'en sert pour ne PAS restaurer cette fenetre au
+			// lancement suivant). Ctrl+Q passe par RequestClose() et ne declenche
+			// donc pas ce rappel — la distinction est voulue.
+			events.AddEventCallback<NkWindowCloseEvent>([this](NkWindowCloseEvent *) {
+				if (mOnWindowClosed)
+					mOnWindowClosed(mOnWindowClosedUser);
+				mRunning = false;
+			});
 			// Drop de FICHIERS depuis l'OS (Explorateur Windows…) -> handler de l'app.
 			events.AddEventCallback<NkDropFileEvent>([this](NkDropFileEvent *e) {
 				if (mDropFn && e)

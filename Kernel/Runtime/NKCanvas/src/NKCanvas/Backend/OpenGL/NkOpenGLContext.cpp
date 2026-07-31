@@ -86,6 +86,9 @@
 #else
 #define NKENTSEU_OPENGL_HAS_WAYLAND_EGL 0
 #endif
+// NkWaylandSetEglWindow / NkWaylandClearEglWindow : la fenetre doit connaitre
+// le wl_egl_window pour le redimensionner des la reception du configure.
+#include "NKWindow/Platform/Wayland/NkWaylandWindow.h"
 #endif
 
 // -----------------------------------------------------------------------------
@@ -395,6 +398,15 @@ namespace nkentseu {
 	void NkOpenGLContext::Present() {
 		if (!mIsValid)
 			return;
+		// NE PAS sauter la presentation apres un redimensionnement.
+		//
+		// Cela avait ete tente : sans eglSwapBuffers, Mesa ne fait pas TOURNER
+		// ses tampons et ne reacquiert donc jamais. La frame suivante reutilise
+		// le meme tampon perime, et l'erreur de protocole survient une frame
+		// plus tard — le correctif deplacait le probleme au lieu de le
+		// resoudre. Le champ mSkipNextPresent est conserve mais neutralise ici,
+		// le temps de trouver la vraie sequence.
+		(void)mSkipNextPresent;
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
 		SwapWGL();
 #elif defined(NKENTSEU_WINDOWING_XLIB) || defined(NKENTSEU_WINDOWING_XCB)
@@ -415,6 +427,7 @@ namespace nkentseu {
 			return false;
 		if (w == 0 || h == 0)
 			return true; // FenÃªtre minimisÃ©e â€” skip
+		const bool sizeChanged = (mData.width != w || mData.height != h);
 		mData.width = w;
 		mData.height = h;
 #if defined(NKENTSEU_WINDOWING_WAYLAND) && NKENTSEU_OPENGL_HAS_WAYLAND_EGL
@@ -422,6 +435,14 @@ namespace nkentseu {
 			wl_egl_window_resize(static_cast<wl_egl_window *>(mData.eglNativeWindow), static_cast<int>(w),
 								 static_cast<int>(h), 0, 0);
 		}
+		// La frame EN VOL porte encore l'ancienne taille : la presenter apres
+		// l'acquittement du configure ferait tuer la fenetre par le
+		// compositeur. On saute cette presentation (cf. mSkipNextPresent).
+		if (sizeChanged) {
+			mSkipNextPresent = true;
+		}
+#else
+		(void)sizeChanged;
 #endif
 		// GL suit la surface automatiquement (le viewport est gÃ©rÃ© par l'utilisateur)
 		return true;
@@ -524,6 +545,9 @@ namespace nkentseu {
 #if defined(NKENTSEU_WINDOWING_WAYLAND) && NKENTSEU_OPENGL_HAS_WAYLAND_EGL
 		// Wayland : il faut aussi recreer l'wl_egl_window
 		if (mData.eglNativeWindow) {
+			// Retire la reference cote fenetre AVANT de detruire l'objet :
+			// un configure recu ensuite utiliserait un pointeur pendant.
+			NkWaylandClearEglWindow(mData.eglNativeWindow);
 			wl_egl_window_destroy(static_cast<wl_egl_window *>(mData.eglNativeWindow));
 			mData.eglNativeWindow = nullptr;
 		}
@@ -534,6 +558,10 @@ namespace nkentseu {
 			return false;
 		}
 		mData.eglNativeWindow = wlEglWindow;
+		// Meme enregistrement que dans InitEGL : ce chemin de RECREATION doit
+		// lui aussi confier le wl_egl_window a la fenetre, sinon un configure
+		// recu ensuite ne le redimensionnerait plus.
+		NkWaylandSetEglWindow(surf.surface, wlEglWindow);
 		EGLNativeWindowType nwin = reinterpret_cast<EGLNativeWindowType>(wlEglWindow);
 #else
 		// Android : on stocke le nouveau ANativeWindow et on l'utilise direct
@@ -1142,6 +1170,9 @@ namespace nkentseu {
 			return false;
 		}
 		if (mData.eglNativeWindow) {
+			// Retire la reference cote fenetre AVANT de detruire l'objet :
+			// un configure recu ensuite utiliserait un pointeur pendant.
+			NkWaylandClearEglWindow(mData.eglNativeWindow);
 			wl_egl_window_destroy(static_cast<wl_egl_window *>(mData.eglNativeWindow));
 			mData.eglNativeWindow = nullptr;
 		}
@@ -1153,6 +1184,12 @@ namespace nkentseu {
 			return false;
 		}
 		mData.eglNativeWindow = wlEglWindow;
+		// Confie le wl_egl_window a la fenetre proprietaire de la surface :
+		// elle le redimensionnera DES la reception du configure, sans attendre
+		// le OnResize de l'application. Sans cela, Mesa presente un tampon a
+		// l'ancienne taille juste apres une maximisation et le compositeur tue
+		// la fenetre (xdg_wm_base error 4). Details dans NkWaylandWindow.cpp.
+		NkWaylandSetEglWindow(surf.surface, wlEglWindow);
 		EGLNativeWindowType nwin = reinterpret_cast<EGLNativeWindowType>(wlEglWindow);
 #else
 		NK_GL_ERR("Wayland EGL support requires <wayland-egl.h>\n");
@@ -1169,7 +1206,10 @@ namespace nkentseu {
 		if (mData.eglSurface == EGL_NO_SURFACE) {
 #if defined(NKENTSEU_WINDOWING_WAYLAND) && NKENTSEU_OPENGL_HAS_WAYLAND_EGL
 			if (mData.eglNativeWindow) {
-				wl_egl_window_destroy(static_cast<wl_egl_window *>(mData.eglNativeWindow));
+				// Retire la reference cote fenetre AVANT de detruire l'objet :
+			// un configure recu ensuite utiliserait un pointeur pendant.
+			NkWaylandClearEglWindow(mData.eglNativeWindow);
+			wl_egl_window_destroy(static_cast<wl_egl_window *>(mData.eglNativeWindow));
 				mData.eglNativeWindow = nullptr;
 			}
 #endif
@@ -1200,7 +1240,10 @@ namespace nkentseu {
 			}
 #if defined(NKENTSEU_WINDOWING_WAYLAND) && NKENTSEU_OPENGL_HAS_WAYLAND_EGL
 			if (mData.eglNativeWindow) {
-				wl_egl_window_destroy(static_cast<wl_egl_window *>(mData.eglNativeWindow));
+				// Retire la reference cote fenetre AVANT de detruire l'objet :
+			// un configure recu ensuite utiliserait un pointeur pendant.
+			NkWaylandClearEglWindow(mData.eglNativeWindow);
+			wl_egl_window_destroy(static_cast<wl_egl_window *>(mData.eglNativeWindow));
 				mData.eglNativeWindow = nullptr;
 			}
 #endif
@@ -1229,6 +1272,9 @@ namespace nkentseu {
 		mData.eglDisplay = EGL_NO_DISPLAY;
 #if defined(NKENTSEU_WINDOWING_WAYLAND) && NKENTSEU_OPENGL_HAS_WAYLAND_EGL
 		if (mData.eglNativeWindow) {
+			// Retire la reference cote fenetre AVANT de detruire l'objet :
+			// un configure recu ensuite utiliserait un pointeur pendant.
+			NkWaylandClearEglWindow(mData.eglNativeWindow);
 			wl_egl_window_destroy(static_cast<wl_egl_window *>(mData.eglNativeWindow));
 			mData.eglNativeWindow = nullptr;
 		}
