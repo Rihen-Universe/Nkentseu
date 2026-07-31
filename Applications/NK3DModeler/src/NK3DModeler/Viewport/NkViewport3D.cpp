@@ -290,6 +290,119 @@ namespace nkentseu {
 				g.meshDirty = false;
 			}
 
+			// Du triangle de RENDU a la FACE du n-gon. La triangulation remplit
+			// `triF` avec l'identifiant de face de chaque triangle : c'est la seule
+			// facon de remonter, puisqu'un quad donne deux triangles qui n'ont aucune
+			// existence topologique propre.
+			inline NkEmId FaceOfTri(uint32 triIndex) {
+				return (triIndex < (uint32)g.triF.Size()) ? g.triF[triIndex] : NK_EM_INVALID;
+			}
+
+			// ── SELECTION PAR ZONE ──────────────────────────────────────────
+			// Portee de Demo3D (l. 1143-1220). Le coeur est le meme pour le
+			// rectangle, le cercle et le lasso : seul le predicat « ce point est-il
+			// dans la zone ? » change. C'est pour cela que c'est un patron -- trois
+			// copies auraient divergé au premier correctif.
+			//
+			// mode : 0 remplacer, 1 ajouter (Maj), 2 retirer (Ctrl).
+			template <class InZone>
+			void SelectInZone(int32 mode, InZone inZone) {
+				const uint32 nv = (uint32)g.triV.Size();
+				if ((uint32)g.vertSel.Size() < nv)
+					g.vertSel.Resize(nv);
+				if (mode == 0)
+					for (uint32 i = 0; i < nv; ++i)
+						g.vertSel[i] = 0;
+				const NkVec3f orgW = g.anchor * NkVec3f{0.f, 0.f, 0.f};
+				auto wpos = [&](uint32 i) { return g.anchor * g.triV[i].pos; };
+				// FILTRE « DOS-CAMERA » ASSOUPLI. Un element de SILHOUETTE a une
+				// normale quasi perpendiculaire a la vue, donc un produit scalaire
+				// normalise proche de zero : avec un test strict `> 0` il basculait au
+				// hasard du bruit numerique et disparaissait des selections alors
+				// qu'il est parfaitement visible. On tolere donc une legere
+				// inclinaison vers l'arriere (-0,2), ce qui couvre toute la bande de
+				// silhouette sans laisser passer ce qui est franchement retourne.
+				auto facing = [&](NkVec3f w, NkVec3f nLocal) {
+					if (g.xray)
+						return true;
+					const NkVec3f nW = (g.anchor * nLocal) - orgW;
+					const NkVec3f toCam = g.lastCamPos - w;
+					const float32 ln = nW.Len(), lv = toCam.Len();
+					if (ln < 1e-6f || lv < 1e-6f)
+						return true;
+					return (nW.Dot(toCam) / (ln * lv)) > -0.2f;
+				};
+				auto touches = [&](NkVec3f w) {
+					float32 px, py;
+					return g.lastProj(w, px, py) && inZone(px, py);
+				};
+				const uint8 on = (mode == 2) ? (uint8)0 : (uint8)1;
+				auto apply = [&](uint32 vi) {
+					if (vi < (uint32)g.vertSel.Size())
+						g.vertSel[vi] = on;
+				};
+				if (g.selMask & 1u) { // SOMMET
+					for (uint32 i = 0; i < nv; ++i)
+						if (facing(wpos(i), g.triV[i].normal) && touches(wpos(i)))
+							apply(i);
+				}
+				if (g.selMask & 2u) { // ARETE, testee par son milieu
+					for (uint32 e = 0; e + 1 < (uint32)g.editEdges.Size(); e += 2) {
+						const uint32 a = g.editEdges[e], b = g.editEdges[e + 1];
+						if (a >= nv || b >= nv)
+							continue;
+						const NkVec3f wa = wpos(a), wb = wpos(b), mid = (wa + wb) * 0.5f;
+						if (!facing(mid, g.triV[a].normal) && !facing(mid, g.triV[b].normal))
+							continue;
+						if (touches(mid)) {
+							apply(a);
+							apply(b);
+						}
+					}
+				}
+				if (g.selMask & 4u) { // FACE, testee par son centre
+					NkVector<NkEmId> fvz;
+					for (uint32 f = 0; f < (uint32)g.edit.faces.Size(); ++f) {
+						// FaceCount() rend la taille de la TABLE : les faces mortes en
+						// font partie et leur cycle est casse. Ce test est la convention
+						// de tout NkEditMesh.
+						if (!g.edit.faces[f].alive)
+							continue;
+						fvz.Clear();
+						g.edit.GetFaceVerts(f, fvz);
+						if (fvz.Size() < 3)
+							continue;
+						NkVec3f c{0.f, 0.f, 0.f};
+						for (uint32 k = 0; k < (uint32)fvz.Size(); ++k)
+							c = c + wpos(fvz[k]);
+						c = c * (1.f / (float32)fvz.Size());
+						if (!facing(c, g.edit.faces[f].normal))
+							continue;
+						if (touches(c))
+							for (uint32 k = 0; k < (uint32)fvz.Size(); ++k)
+								apply(fvz[k]);
+					}
+				}
+				g.overlayDirty = true;
+			}
+
+			// Point dans polygone, par lancer de rayon horizontal et regle
+			// pair/impair. C'est le test du lasso.
+			inline bool PointInPoly(const NkVector<float32> &poly, float32 px, float32 py) {
+				bool in = false;
+				const uint32 n = (uint32)poly.Size() / 2u;
+				if (n < 3u)
+					return false;
+				for (uint32 i = 0, j = n - 1; i < n; j = i++) {
+					const float32 ax = poly[i * 2], ay = poly[i * 2 + 1];
+					const float32 bx = poly[j * 2], by = poly[j * 2 + 1];
+					if (((ay > py) != (by > py)) &&
+						(px < (bx - ax) * (py - ay) / ((by - ay) != 0.f ? (by - ay) : 1e-6f) + ax))
+						in = !in;
+				}
+				return in;
+			}
+
 			// ── POINT D'ENTREE UNIQUE DE TOUTE MODIFICATION ─────────────────
 			// Porte de Demo3D (l. 1273-1297). Rien ne modifie le maillage sans passer
 			// par ici, et ce n'est pas une precaution de style : c'est ce qui garantit
@@ -362,6 +475,9 @@ namespace nkentseu {
 				}
 				g.rtW = g.wantW;
 				g.rtH = g.wantH;
+				// Meme raison qu'au redimensionnement : sans cela le graphe rendrait a
+				// la taille de la fenetre des la premiere image.
+				g.r3->SetRenderSizeOverride(g.rtW, g.rtH);
 				// Redirige la SORTIE FINALE du graphe vers notre cible : on recupere
 				// donc le pipeline COMPLET (ombres, eclairage, IBL, tonemap), pas une
 				// passe geometrie nue. C'est ce qui evite d'avoir a reimplementer un
@@ -398,6 +514,13 @@ namespace nkentseu {
 			if (g.rt->Resize(w, h)) {
 				g.rtW = w;
 				g.rtH = h;
+				// LA RESOLUTION DE RENDU DOIT SUIVRE, et c'est ce qui manquait :
+				// par defaut le graphe rend a la taille de la FENETRE (1616 x 939 ici)
+				// et ecrit ce resultat dans notre cible, qui fait la taille de la VUE.
+				// Les deux ne coincidant pas, agrandir le panneau changeait le rapport
+				// entre les deux et la scene paraissait retrecir au lieu de montrer
+				// plus d'espace. L'override aligne les deux.
+				g.r3->SetRenderSizeOverride(w, h);
 				if (auto *texLib = g.r3->GetTextures())
 					g.r3->SetFinalColorTarget(texLib->GetRHIHandle(g.rt->GetColorResult()));
 			}
@@ -630,6 +753,111 @@ namespace nkentseu {
 			}
 			g.overlayDirty = true;
 			return got;
+		}
+
+		// ── SELECTION PAR ZONE ──────────────────────────────────────────────
+		// Coordonnees RELATIVES a la vue. `mode` : 0 remplacer, 1 ajouter, 2 retirer.
+		void Viewport3DSelectRect(float32 x0, float32 y0, float32 x1, float32 y1, int32 mode) {
+			if (!g.ok || !g.editMode)
+				return;
+			const float32 lo_x = x0 < x1 ? x0 : x1, hi_x = x0 < x1 ? x1 : x0;
+			const float32 lo_y = y0 < y1 ? y0 : y1, hi_y = y0 < y1 ? y1 : y0;
+			SelectInZone(mode, [&](float32 px, float32 py) {
+				return px >= lo_x && px <= hi_x && py >= lo_y && py <= hi_y;
+			});
+		}
+
+		void Viewport3DSelectCircle(float32 cx, float32 cy, float32 radius, int32 mode) {
+			if (!g.ok || !g.editMode)
+				return;
+			const float32 r2 = radius * radius;
+			SelectInZone(mode, [&](float32 px, float32 py) {
+				const float32 dx = px - cx, dy = py - cy;
+				return dx * dx + dy * dy <= r2;
+			});
+		}
+
+		void Viewport3DSelectLasso(const float32 *pts, uint32 count, int32 mode) {
+			if (!g.ok || !g.editMode || !pts || count < 3u)
+				return;
+			NkVector<float32> poly;
+			poly.Resize(count * 2u);
+			for (uint32 i = 0; i < count * 2u; ++i)
+				poly[i] = pts[i];
+			SelectInZone(mode, [&](float32 px, float32 py) { return PointInPoly(poly, px, py); });
+		}
+
+		// ── BOUCLES (Alt+clic) ──────────────────────────────────────────────
+		// Rendues possibles par la SOUDURE topologique : sans les jumelles entre
+		// faces voisines, il n'y a aucun chemin a suivre d'une arete a la suivante.
+		bool Viewport3DSelectLoopAt(float32 mx, float32 my, bool add) {
+			if (!g.ok || !g.editMode)
+				return false;
+			NkPickCtx c;
+			c.mesh = &g.edit;
+			c.rest = &g.triV;
+			c.tris = &g.triI;
+			c.edges = &g.editEdges;
+			c.anchor = g.anchor;
+			c.camPos = g.lastCamPos;
+			c.fwd = g.lastProj.fwd;
+			c.rgt = g.lastProj.rgt;
+			c.upv = g.lastProj.upv;
+			c.thX = g.lastProj.thX;
+			c.thY = g.lastProj.thY;
+			c.vpW = (float32)g.rtW;
+			c.vpH = (float32)g.rtH;
+			c.selMask = g.selMask | 2u | 4u; // il faut au moins l'arete et la face
+			c.xray = g.xray;
+			const NkPickResult r = NkPickEditElement(c, mx, my);
+
+			uint32 la = 0, lb = 0;
+			bool faceLoop = false, ok = false;
+			if (r.edgeA >= 0) { // une arete sous le curseur -> boucle d'ARETES
+				la = (uint32)r.edgeA;
+				lb = (uint32)r.edgeB;
+				ok = true;
+			} else if (r.tri >= 0) { // sinon la face touchee -> anneau de FACES
+				const NkEmId f = FaceOfTri((uint32)r.tri / 3u);
+				NkVector<NkEmId> fvl;
+				if (f != NK_EM_INVALID)
+					g.edit.GetFaceVerts(f, fvl);
+				if (fvl.Size() >= 2) {
+					la = fvl[0];
+					lb = fvl[1];
+					faceLoop = true;
+					ok = true;
+				}
+			}
+			if (!ok)
+				return false;
+
+			const uint32 nv = (uint32)g.vertSel.Size();
+			if (!add)
+				for (uint32 i = 0; i < nv; ++i)
+					g.vertSel[i] = 0;
+			if (faceLoop) {
+				NkVector<NkEmId> loopF, fvl;
+				g.edit.GetFaceLoop(la, lb, loopF);
+				for (uint32 k = 0; k < (uint32)loopF.Size(); ++k) {
+					fvl.Clear();
+					g.edit.GetFaceVerts(loopF[k], fvl);
+					for (uint32 j = 0; j < (uint32)fvl.Size(); ++j)
+						if (fvl[j] < nv)
+							g.vertSel[fvl[j]] = 1;
+				}
+			} else {
+				NkVector<uint32> loopE;
+				g.edit.GetEdgeLoop(la, lb, loopE);
+				for (uint32 k = 0; k + 1 < (uint32)loopE.Size(); k += 2) {
+					if (loopE[k] < nv)
+						g.vertSel[loopE[k]] = 1;
+					if (loopE[k + 1] < nv)
+						g.vertSel[loopE[k + 1]] = 1;
+				}
+			}
+			g.overlayDirty = true;
+			return true;
 		}
 
 		// ── OPERATIONS D'EDITION ────────────────────────────────────────────

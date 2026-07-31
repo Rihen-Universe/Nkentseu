@@ -83,6 +83,14 @@ namespace nkentseu {
 		// le picking de la largeur du panneau de gauche.
 		bool Viewport3DPick(float32 mx, float32 my, bool add, bool toggle);
 
+		// ── Selection par zone ──────────────────────────────────────────────
+		// Coordonnees RELATIVES a la vue. mode : 0 remplacer, 1 ajouter, 2 retirer.
+		void Viewport3DSelectRect(float32 x0, float32 y0, float32 x1, float32 y1, int32 mode);
+		void Viewport3DSelectCircle(float32 cx, float32 cy, float32 radius, int32 mode);
+		void Viewport3DSelectLasso(const float32 *pts, uint32 count, int32 mode);
+		// Alt+clic : boucle d'aretes sur une arete, anneau de faces sur une face.
+		bool Viewport3DSelectLoopAt(float32 mx, float32 my, bool add);
+
 		// ── Operations d'edition ────────────────────────────────────────────
 		// Toutes passent par une commande : annulation et journal acquis d'office.
 		bool Viewport3DExtrude(bool individual);
