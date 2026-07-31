@@ -2961,21 +2961,38 @@ static void ThemeBattery() {
 				NkRole r;
 				const char *hex;
 		};
-		const Att att[6] = {
-			{NkRole::WindowBg, "#141414"},		 {NkRole::PanelBg, "#212121"},
-			{NkRole::PanelHeader, "#2B2B2B"},	 {NkRole::AccentSel, "#F2980E"},
-			{NkRole::NodeDataHeader, "#0A545E"}, {NkRole::NodeDataHeaderHot, "#095461"},
+		// LES TROIS GRIS NE SONT PLUS CONTRACTUELS. Rihen a demande le 31/07 un
+		// theme sombre facon GitHub Dark, qui les REMPLACE (#010409 / #0D1117 /
+		// #161B22). Ce qui reste impose, ce sont les couleurs PORTEUSES DE SENS :
+		// l'orange unique et les deux sarcelles. Elles traversent les themes parce
+		// qu'elles disent quelque chose -- « selectionne », « noeud de donnees » --
+		// alors qu'un gris de fond ne dit rien qu'un autre gris ne dirait aussi bien.
+		//
+		// La HIERARCHIE A TROIS NIVEAUX, elle, reste la regle : fenetre plus sombre
+		// que panneau, panneau plus sombre qu'en-tete. C'est elle qui structure la
+		// lecture, pas les valeurs exactes -- et c'est elle qu'on verifie ci-dessous.
+		const Att att[3] = {
+			{NkRole::AccentSel, "#F2980E"},
+			{NkRole::NodeDataHeader, "#0A545E"},
+			{NkRole::NodeDataHeaderHot, "#095461"},
 		};
 		uint32 conformes = 0;
-		for (int32 i = 0; i < 6; ++i)
+		for (int32 i = 0; i < 3; ++i)
 			if (d.Get(att[i].r) == NkTheme::FromHex(att[i].hex))
 				conformes++;
 		// Les deux sarcelles doivent RESTER proches : c'est voulu (meme en-tete,
 		// deux etats). Si elles s'ecartaient, ce serait une seconde famille.
 		const float32 ecart =
 			NkTheme::Contrast(d.Get(NkRole::NodeDataHeader), d.Get(NkRole::NodeDataHeaderHot));
-		GraphPut("%-34s conformes=%u/6 | ecart des deux sarcelles=%.3f (proche de 1 : meme famille)",
-				 "theme/palette-imposee", conformes, (double)ecart);
+		// La hierarchie a trois niveaux : chaque cran doit etre PLUS CLAIR que le
+		// precedent. Comparer les luminances plutot que les valeurs permet a un
+		// theme de changer de palette sans casser la regle.
+		const float32 lWin = NkTheme::Contrast(d.Get(NkRole::WindowBg), 0x000000FFu);
+		const float32 lPan = NkTheme::Contrast(d.Get(NkRole::PanelBg), 0x000000FFu);
+		const float32 lHdr = NkTheme::Contrast(d.Get(NkRole::PanelHeader), 0x000000FFu);
+		const bool hierarchie = (lWin < lPan) && (lPan < lHdr);
+		GraphPut("%-34s porteuses de sens=%u/3 | ecart sarcelles=%.3f | hierarchie a 3 niveaux=%d",
+				 "theme/palette-imposee", conformes, (double)ecart, hierarchie ? 1 : 0);
 	}
 }
 

@@ -270,7 +270,7 @@ int nkmain(const NkEntryState &entry) {
 
 		const float32 W = (float32)lastW, H = (float32)lastH;
 		NkLayout lay;
-		lay.Compute(W, H);
+		lay.Compute(W, H, st.leftFrac, st.rightFrac, st.browserFrac, st.propsFrac);
 
 		const NkTheme &theme = themes.Current();
 		NkModelerPainter p(ui.dl, font, theme, roles, icons);
@@ -289,11 +289,62 @@ int nkmain(const NkEntryState &entry) {
 		PaintBrowser(p, lay.browser, st, hit);
 		PaintStatus(p, lay.status, st);
 
+		// L'ORDRE DE CES TROIS APPELS EST SIGNIFIANT. Les separateurs doivent
+		// recevoir le clic avant les panneaux qu'ils bordent ; le menu deroule
+		// recouvre tout ; la boite de confirmation recouvre le menu. Le registre
+		// donnant la priorite a la DERNIERE zone declaree, l'ordre de peinture EST
+		// l'ordre de priorite -- il n'y a rien d'autre a synchroniser.
+		PaintSplitters(p, lay, W, H, st, hit);
+		PaintOpenMenu(p, lay.menu, st, hit, shortcuts);
+		PaintCloseDialog(p, W, H, st, hit);
+
 		ui.EndFrame();
+
+		// ── CURSEUR ─────────────────────────────────────────────────────────
+		// Repose CHAQUE frame : sur Windows le systeme le remet a la fleche des
+		// que la souris traverse une zone qui ne le redemande pas.
+		switch (hit.Cursor()) {
+			case NkCursorWant::ResizeWE:
+				window.SetCursor(NkWindow::NkCursorType::ResizeWE);
+				break;
+			case NkCursorWant::ResizeNS:
+				window.SetCursor(NkWindow::NkCursorType::ResizeNS);
+				break;
+			case NkCursorWant::Hand:
+				window.SetCursor(NkWindow::NkCursorType::Hand);
+				break;
+			default:
+				window.SetCursor(NkWindow::NkCursorType::Arrow);
+				break;
+		}
 
 		renderer.BeginFrame();
 		renderer.SubmitDrawList(ui.dl, lastW, lastH);
 		renderer.EndFrame();
+
+		// ── ACTIONS DE FENETRE, HORS FRAME ──────────────────────────────────
+		// BeginDragMove et Maximize entrent dans une boucle modale de l'OS : les
+		// appeler pendant la peinture reentrerait dans la frame. On les consomme
+		// donc ICI, une fois l'image envoyee.
+		if (st.wantMinimize) {
+			st.wantMinimize = false;
+			window.Minimize();
+		}
+		if (st.wantMaxRestore) {
+			st.wantMaxRestore = false;
+			if (window.IsMaximized())
+				window.Restore();
+			else
+				window.Maximize();
+			st.maximized = window.IsMaximized();
+		}
+		if (st.wantDragMove) {
+			st.wantDragMove = false;
+			// Un deplacement n'a pas de sens sur une fenetre maximisee : Windows la
+			// restaurerait a mi-course, ce qui donne un saut desagreable.
+			if (!window.IsMaximized())
+				window.BeginDragMove();
+		}
 	}
 
 	renderer.Shutdown();

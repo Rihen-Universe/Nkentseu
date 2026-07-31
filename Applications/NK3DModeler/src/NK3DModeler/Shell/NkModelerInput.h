@@ -72,9 +72,46 @@ namespace nkentseu {
 
 				// Menus ouverts. -1 = aucun. L'indice designe l'entree de la barre.
 				int32 openMenu = -1;
+				int32 hoverMenuItem = -1;
+				int32 openSubMenu = -1; ///< sous-menu deploye dans le menu courant
+
+				// ── PROPORTIONS AJUSTABLES ──────────────────────────────────────
+				// Les separateurs modifient ces FRACTIONS et non des pixels : a la
+				// prochaine ouverture, la disposition se retrouve identique quelle que
+				// soit la taille de fenetre. En pixels, une fenetre plus petite
+				// ecraserait les panneaux ; en fractions, ils suivent.
+				float32 leftFrac = 0.16f;
+				float32 rightFrac = 0.29f;
+				float32 browserFrac = 0.22f;
+				float32 propsFrac = 0.45f; ///< part des proprietes dans la colonne de droite
+
+				// Separateur en cours de glissement. -1 = aucun. On MEMORISE lequel :
+				// sans cela, un glissement rapide qui sort du rectangle du separateur
+				// le lacherait en pleine course.
+				int32 dragSplitter = -1;
+				float32 dragStart = 0.f;   ///< position souris au debut du glissement
+				float32 dragStartFrac = 0.f;
+
+				// ── DOCUMENT ────────────────────────────────────────────────────
+				// `dirty` decide s'il faut demander confirmation a la fermeture. Il
+				// passe a vrai des qu'une action modifie la scene.
+				bool dirty = true;
+				bool askClose = false; ///< boite de confirmation affichee
+				bool maximized = false;
+				// Consommes par la boucle APRES la frame : BeginDragMove et Maximize
+				// bloquent (boucle modale de l'OS), les appeler pendant la peinture
+				// reentrerait dans la frame.
+				bool wantDragMove = false;
+				bool wantMinimize = false;
+				bool wantMaxRestore = false;
 
 				bool running = true;
 		};
+
+		// Forme de curseur demandee pour la frame. L'application la reporte a la
+		// fenetre APRES la peinture : une zone dessinee tard peut ainsi corriger la
+		// demande d'une zone dessinee tot, exactement comme pour le survol.
+		enum class NkCursorWant : uint8 { Arrow = 0, Hand, ResizeWE, ResizeNS };
 
 		// ── REGISTRE DE ZONES ───────────────────────────────────────────────────
 		// Cle STABLE en texte plutot qu'un identifiant numerique : on lit
@@ -92,6 +129,7 @@ namespace nkentseu {
 					mRightClicked = in.mouseClicked[1];
 					mWheel = in.wheel;
 					mHover[0] = 0;
+					mCursor = NkCursorWant::Arrow;
 				}
 
 				// Declare une zone sensible. Renvoie true si la souris est dessus --
@@ -127,6 +165,11 @@ namespace nkentseu {
 				bool Down(const char *key) const {
 					return mDown && Eq(mHover, key);
 				}
+				// Bouton ENFONCE, independamment de la zone survolee : c'est ce qu'il
+				// faut pour poursuivre un glissement quand la souris a quitte la zone.
+				bool MouseDown() const {
+					return mDown;
+				}
 				bool AnyClick() const {
 					return mClicked;
 				}
@@ -144,6 +187,15 @@ namespace nkentseu {
 					if (offset > maxOff)
 						offset = maxOff;
 					return true;
+				}
+
+				// Curseur voulu. La DERNIERE demande gagne, meme regle que le survol :
+				// c'est ce qui est peint par-dessus qui commande.
+				void WantCursor(NkCursorWant c) {
+					mCursor = c;
+				}
+				NkCursorWant Cursor() const {
+					return mCursor;
 				}
 
 				nkgui::NkVec2 Mouse() const {
@@ -180,6 +232,7 @@ namespace nkentseu {
 				nkgui::NkVec2 mMouse{0.f, 0.f};
 				bool mDown = false, mClicked = false, mRightClicked = false;
 				float32 mWheel = 0.f;
+				NkCursorWant mCursor = NkCursorWant::Arrow;
 		};
 
 	} // namespace nk3d
