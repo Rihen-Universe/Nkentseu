@@ -122,3 +122,10 @@ analyse/grille-ouverte             S=25 A=40 F=16 euler=1 genre=-1 quad=1.00 pol
 analyse/symetrie                   cube x/y/z=1.00/1.00/1.00  coin deplace=0.25/0.75/0.75
 analyse/jonction-T-refus-genre     nonmanif=1 bordA=3 genre=-1 (doit valoir -1)
 analyse/densite                    cube ecart=0.000 (min 1.00 max 1.00) | grille etiree ecart=0.500 (min 0.25 max 0.75)
+graphe/topo-losange-insere-inverse ok=1 ordre=A>C>B>D (insere D,C,B,A) noeuds=4 liens=4
+graphe/cycle-refuse                refus=cycle liens=2 (doit rester 2) triable=1 cycle=0
+graphe/conversion-dirigee          reel>vect=ok | vect>reel=type-incompatible | reel>maillage=type-incompatible
+graphe/entree-source-unique        liens=1 (doit valoir 1) source=y-la-nouvelle
+graphe/suppression-milieu          avant=2 apres=0 (doit valoir 0) noeuds=2 b-retrouve=0
+graphe/sens-et-sockets             entree-src=sens-invalide sortie-dst=sens-invalide inconnu=socket-inconnu boucle-soi=meme-noeud
+graphe/identifiants-stables        a=1 b=2 c=3 (c doit differer de a) recycle=0
