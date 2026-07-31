@@ -289,6 +289,14 @@ namespace nkentseu {
 				void Text(float32 x, float32 y, const char *s, const NkColor &c) {
 					mDl.AddText(mFont.Face(), mFont.TexId(), {Px(x), Px(y + mFont.Ascent())}, s, c);
 				}
+				// IMAGE BRUTE, teinte blanche : c'est la cible hors ecran de la vue 3D.
+				// La teinte MULTIPLIE l'echantillon, donc tout autre blanc que le blanc
+				// plein assombrirait le rendu -- ce serait un correcteur d'exposition
+				// accidentel, applique apres le tonemap.
+				void Image(uint32 texId, const NkRect &r) {
+					mDl.AddImage(texId, PxRect(r), {0.f, 0.f}, {1.f, 1.f}, NkColor{255, 255, 255, 255});
+				}
+
 				// DECOUPE. Tout ce qui est peint entre Clip et Unclip est coupe au
 				// rectangle donne. C'est ce qui manquait aux panneaux defilants : leur
 				// contenu est dessine a partir de `listTop - defilement`, donc DES LE

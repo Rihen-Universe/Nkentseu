@@ -43,16 +43,23 @@ with project("NK3DModeler"):
     files(["src/**.cpp"])
 
     nkentseudependson(
-        ["NKEditorKit", "NKRenderer", "NKCanvas", "NKGui", "NKWindow", "NKEvent",
-         "NKGlad", "NKFont", "NKImage", "NKFileSystem", "NKSerialization",
-         "NKReflection", "NKThreading", "NKLogger", "NKMath", "NKTime",
-         "NKStream", "NKContainers", "NKMemory", "NKCore", "NKPlatform",
+        ["NKEditorKit", "NKRenderer", "NKRHI", "NKSL", "NKCanvas", "NKGui",
+         "NKWindow", "NKEvent", "NKGlad", "NKFont", "NKImage", "NKFileSystem",
+         "NKSerialization", "NKReflection", "NKThreading", "NKLogger", "NKMath",
+         "NKTime", "NKStream", "NKContainers", "NKMemory", "NKCore", "NKPlatform",
          "NKGLSlang", "NKSPIRVCross"],
-        extra_includes=["src", "src/NK3DModeler", "%{NKGlad.location}/include",
+        extra_includes=["src", "src/NK3DModeler", "%{wks.location}/Integrations",
+                        "%{NKGlad.location}/include",
                         "%{wks.location}/Kernel/Runtime/NKGraph/src"]
                        + ([_VULKAN_INCLUDE] if _VULKAN_INCLUDE else []),
         extra_defines=[f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if _WANT_VULKAN else 0}"],
     )
+
+    # Backend UI NKGui -> NKRHI. La vue 3D impose la regle « une fenetre = une
+    # pile » : NKRenderer vit sur NKRHI, donc l'interface doit y vivre aussi. On
+    # quitte NKCanvas pour NkEditorRHIRenderer, qui presente exactement la meme
+    # interface NkIEditorRenderer -- et qui, lui, expose son device.
+    dependson(["NKGuiIntegration"])
 
     objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
     targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
