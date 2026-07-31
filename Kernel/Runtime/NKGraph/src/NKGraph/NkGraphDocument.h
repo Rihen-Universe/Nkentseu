@@ -61,8 +61,13 @@ namespace nkentseu {
 
 		struct NkEvalPlan {
 				NkVector<NkEvalStep> steps;
+				// Rempli en cas d'echec : QUEL socket, DANS QUEL groupe. Un code
+				// d'erreur seul obligerait l'utilisateur a chercher lui-meme, dans un
+				// document qui peut compter des dizaines de groupes.
+				NkString errorDetail;
 				void Clear() {
 					steps.Clear();
+					errorDetail = NkString("");
 				}
 				uint32 Size() const {
 					return (uint32)steps.Size();
@@ -76,6 +81,12 @@ namespace nkentseu {
 			RecursiveSubgraph, ///< un groupe s'instancie lui-meme, direct ou non
 			Cycle,			   ///< cycle a l'interieur d'un graphe
 			TooDeep,
+			// Les sockets du noeud d'instance ne correspondent pas a l'interface du
+			// groupe : nom absent, en trop, ou type different. Ce cas se produit des
+			// qu'un groupe est MODIFIE APRES avoir ete instancie — et sans ce
+			// controle il passerait inapercu, en debranchant silencieusement une
+			// entree.
+			InterfaceMismatch,
 		};
 
 		const char *NkPlanErrorName(NkPlanError e);

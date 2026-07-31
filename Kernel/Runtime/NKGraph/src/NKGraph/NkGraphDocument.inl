@@ -23,6 +23,8 @@ namespace nkentseu {
 					return "cycle";
 				case NkPlanError::TooDeep:
 					return "trop-profond";
+				case NkPlanError::InterfaceMismatch:
+					return "interface-incompatible";
 			}
 			return "?";
 		}
@@ -63,6 +65,95 @@ namespace nkentseu {
 					uint32 step = NK_EVAL_NO_SOURCE;
 					int32 srcSocket = -1;
 			};
+
+			// Verifie que les sockets du noeud d'instance correspondent EXACTEMENT a
+			// l'interface du groupe : meme noms, memes types, ni manquant ni en trop.
+			//
+			// LA COMPARAISON PORTE SUR LES NOMS DE TYPE, JAMAIS SUR LEURS
+			// IDENTIFIANTS. Chaque graphe tient son propre registre : le numero 1
+			// peut designer « flux » ici et « maillage » la. Un controle par
+			// identifiant laisserait donc passer le cas le PLUS dangereux — celui ou
+			// les deux cotes portent le meme numero et croient s'accorder.
+			//
+			// C'est ce controle qui manquait, et non un registre partage : partager
+			// les identifiants rendrait la comparaison moins couteuse, mais sans
+			// verification il n'y aurait toujours rien pour refuser.
+			inline bool GraphCheckInterface(const NkNodeGraph &parent, const NkNode &inst, const NkNodeGraph &child,
+											NkString &detail) {
+				struct Expected {
+						NkString name;
+						NkString typeName;
+						NkSocketDir dirOnInstance;
+				};
+				NkVector<Expected> expected;
+
+				// L'interface du groupe = les sockets de ses noeuds frontiere. On
+				// accepte plusieurs noeuds d'entree ou de sortie : leur union forme
+				// l'interface, comme chez Blender.
+				for (uint32 gi = 0; gi < child.RawNodeCount(); ++gi) {
+					const NkNode *n = child.RawNodeAt(gi);
+					if (!n || !n->alive)
+						continue;
+					const bool isIn = GraphStrEq(n->type, NK_NODE_GROUP_IN);
+					const bool isOut = GraphStrEq(n->type, NK_NODE_GROUP_OUT);
+					if (!isIn && !isOut)
+						continue;
+					for (uint32 s = 0; s < (uint32)n->sockets.Size(); ++s) {
+						// Le noeud d'ENTREE du groupe porte des sockets de SORTIE : il
+						// alimente l'interieur. Sur l'instance, ce sont des ENTREES.
+						if (isIn && n->sockets[s].dir != NkSocketDir::Output)
+							continue;
+						if (isOut && n->sockets[s].dir != NkSocketDir::Input)
+							continue;
+						Expected e;
+						e.name = n->sockets[s].name;
+						const NkString *tn = child.TypeName(n->sockets[s].type);
+						e.typeName = tn ? *tn : NkString("");
+						e.dirOnInstance = isIn ? NkSocketDir::Input : NkSocketDir::Output;
+						expected.PushBack(e);
+					}
+				}
+
+				// a) tout ce que le groupe attend doit exister sur l'instance, au bon
+				//    nom ET au bon type.
+				for (uint32 i = 0; i < (uint32)expected.Size(); ++i) {
+					const int32 si = inst.FindSocket(expected[i].name.CStr(), expected[i].dirOnInstance);
+					if (si < 0) {
+						detail = NkString("socket absent sur l'instance : ");
+						detail.Append(expected[i].name);
+						return false;
+					}
+					const NkString *pn = parent.TypeName(inst.sockets[(uint32)si].type);
+					const NkString instType = pn ? *pn : NkString("");
+					if (!GraphStrEqS(instType, expected[i].typeName)) {
+						detail = NkString("type different sur ");
+						detail.Append(expected[i].name);
+						detail.Append(" : groupe=");
+						detail.Append(expected[i].typeName);
+						detail.Append(" instance=");
+						detail.Append(instType);
+						return false;
+					}
+				}
+
+				// b) et reciproquement : un socket EN TROP sur l'instance serait un
+				//    fil branche sur rien. Sans ce controle, une entree se retrouverait
+				//    silencieusement debranchee apres modification du groupe -- le
+				//    calcul continuerait, avec une valeur manquante.
+				for (uint32 s = 0; s < (uint32)inst.sockets.Size(); ++s) {
+					bool found = false;
+					for (uint32 i = 0; i < (uint32)expected.Size() && !found; ++i)
+						if (expected[i].dirOnInstance == inst.sockets[s].dir
+							&& GraphStrEqS(expected[i].name, inst.sockets[s].name))
+							found = true;
+					if (!found) {
+						detail = NkString("socket en trop sur l'instance : ");
+						detail.Append(inst.sockets[s].name);
+						return false;
+					}
+				}
+				return true;
+			}
 
 			inline const GraphBinding *FindBinding(const NkVector<GraphBinding> &v, const NkString &name) {
 				for (uint32 i = 0; i < (uint32)v.Size(); ++i)
@@ -209,6 +300,21 @@ namespace nkentseu {
 							ctx.active.PopBack();
 							return NkPlanError::UnknownSubgraph;
 						}
+						// L'interface est verifiee AVANT de developper : un groupe
+						// modifie apres avoir ete instancie doit etre signale, pas
+						// developpe a moitie.
+						{
+							NkString why;
+							if (!GraphCheckInterface(g, *n, ctx.doc->GraphAt((uint32)target), why)) {
+								ctx.plan->errorDetail = path;
+								ctx.plan->errorDetail.Append('/');
+								ctx.plan->errorDetail.Append(n->label);
+								ctx.plan->errorDetail.Append(" : ");
+								ctx.plan->errorDetail.Append(why);
+								ctx.active.PopBack();
+								return NkPlanError::InterfaceMismatch;
+							}
+						}
 						NkVector<GraphBinding> childIn;
 						for (uint32 s = 0; s < (uint32)n->sockets.Size(); ++s) {
 							if (n->sockets[s].dir != NkSocketDir::Input)
@@ -281,8 +387,13 @@ namespace nkentseu {
 			NkVector<detail::GraphBinding> noIn, rootOut;
 			const NkString path = mNames[mRoot];
 			const NkPlanError e = detail::GraphExpand(ctx, mRoot, noIn, rootOut, path, 0u);
-			if (e != NkPlanError::Ok)
+			if (e != NkPlanError::Ok) {
+				// On vide les etapes — un plan partiel serait pire qu'aucun plan —
+				// mais on GARDE le message : c'est tout ce qui reste a montrer.
+				const NkString why = out.errorDetail;
 				out.Clear();
+				out.errorDetail = why;
+			}
 			return e;
 		}
 
