@@ -12,6 +12,7 @@
 // a jour en developpant.
 // =============================================================================
 
+#include "NK3DModeler/Viewport/NkViewport3D.h"
 #include "NK3DModeler/Shell/NkModelerUI.h"
 #include "NK3DModeler/Shell/NkModelerInput.h"
 #include "NK3DModeler/Shell/NkModelerWidgets.h"
@@ -859,29 +860,54 @@ namespace nkentseu {
 								  NkHitRegistry &hit, NkWidgetState &ws, NkComboPending &combo,
 								  NkCheckPending &checks, const NkShortcutTable &sc) {
 			const bool editMode = (st.mode != NkMode::Object);
-			p.Fill(r, NkRole::ViewportTop);
 
-			// SOL EN PERSPECTIVE. Les fuyantes convergent vers un point de fuite, et les
-			// lignes d'horizon se RESSERRENT vers lui. Ma premiere version tracait des
-			// horizontales equidistantes : aucune profondeur, ca ressemblait a du papier
-			// reglé. Et elle dessinait les fuyantes en RECTANGLES horizontaux, d'ou les
-			// barres etranges de la capture.
-			const float32 vpx = r.x + r.w * 0.5f;
-			const float32 vpy = r.y + r.h * 0.42f;
-			for (int32 i = 1; i <= 9; ++i) {
-				const float32 t = (float32)i / 9.f;
-				const float32 yy = vpy + (r.y + r.h - vpy) * t * t;
-				const float32 half = r.w * 0.55f * t;
-				float32 x0 = vpx - half, x1 = vpx + half;
-				if (x0 < r.x)
-					x0 = r.x;
-				if (x1 > r.x + r.w)
-					x1 = r.x + r.w;
-				p.Fill({x0, yy, x1 - x0, 1.f}, NkRole::GridLine);
+			// ── LA VUE 3D REELLE ────────────────────────────────────────────────
+			// Ce qui etait peint ici jusqu'a present -- un sol en fuyantes dessine a
+			// la main -- etait un DECOR. Il donnait l'impression d'une perspective
+			// sans caméra, sans profondeur et sans le moindre objet : rien de ce
+			// qu'on y voyait ne pouvait etre selectionne, tourne ni modifie.
+			//
+			// A la place, la scene est rendue par NKRenderer dans une cible hors
+			// ecran, sur le meme device et le meme command buffer que l'interface,
+			// et on pose ici SA TEXTURE. Aucune relecture CPU, aucune seconde pile
+			// GPU : l'image ne quitte jamais la carte.
+			p.Fill(r, NkRole::ViewportTop); // fond, visible tant que la 3D n'est pas prete
+			if (nk3d::Viewport3DReady()) {
+				p.Image(nk3d::kViewportTexId, r);
+			} else if (const char *e = nk3d::Viewport3DError()) {
+				// UN ECHEC SE DIT. Un viewport reste noir ne distingue pas « la carte
+				// a refuse la cible » de « la scene est vide », et on cherche le
+				// probleme du mauvais cote pendant une heure.
+				char msg[128];
+				snprintf(msg, sizeof(msg), "Vue 3D indisponible : %s", e);
+				p.TextV(r.x + S(16.f), r.y, r.h, msg, NkRole::TextMuted);
 			}
-			for (int32 i = -6; i <= 6; ++i) {
-				const float32 xEnd = vpx + (float32)i * r.w * 0.19f;
-				p.Line(vpx, vpy, xEnd, r.y + r.h, NkRole::GridLine);
+
+			// ── NAVIGATION ──────────────────────────────────────────────────────
+			// Convention Blender, celle que connaissent les gens qui utiliseront ca :
+			// bouton du MILIEU pour orbiter, MILIEU + Maj pour deplacer, molette pour
+			// zoomer. La zone est declaree AVANT les barres flottantes : elles sont
+			// peintes ensuite, donc elles gagnent le survol la ou elles se trouvent,
+			// et un clic sur une liste ne fait pas pivoter la camera.
+			{
+				const bool overView = hit.Add("view.nav", r);
+				const math::NkVec2 m = hit.Mouse();
+				if (overView && hit.MiddleDown()) {
+					const float32 dx = m.x - st.navLastX, dy = m.y - st.navLastY;
+					if (st.navDragging) {
+						if (hit.ShiftDown())
+							nk3d::Viewport3DPan(dx, dy);
+						else
+							nk3d::Viewport3DOrbit(dx * 0.008f, -dy * 0.008f);
+					}
+					st.navDragging = true;
+				} else {
+					st.navDragging = false;
+				}
+				st.navLastX = m.x;
+				st.navLastY = m.y;
+				if (overView && hit.WheelDelta() != 0.f)
+					nk3d::Viewport3DZoom(hit.WheelDelta());
 			}
 
 			// ── BARRE FLOTTANTE GAUCHE : ce qu'on REGARDE ───────────────────────

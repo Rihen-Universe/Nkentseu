@@ -24,7 +24,8 @@
 #include "NKWindow/NKWindow.h"
 #include "NKWindow/NKMain.h"
 #include "NKEvent/NKEvent.h"
-#include "NKEditorKit/NkEditorCanvasRenderer.h"
+#include "NKGui/NkEditorRHIRenderer.h" // Integrations/NKGui
+#include "NK3DModeler/Viewport/NkViewport3D.h"
 #include "NKGui/Core/NkGuiContext.h"
 #include "NKGui/Core/NkGuiFont.h"
 #include "NKTime/NkClock.h"
@@ -120,7 +121,24 @@ int nkmain(const NkEntryState &entry) {
 		return 1;
 	}
 
-	NkEditorCanvasRenderer renderer;
+	// RENDU SUR NKRHI, PAS SUR NKCANVAS. Meme interface NkIEditorRenderer, donc
+	// l'interface 2D ne change pas d'une ligne ; ce qui change, c'est que ce
+	// renderer-ci EXPOSE SON DEVICE. C'est la condition pour que la vue 3D
+	// (NKRenderer) rende dans une cible hors ecran sur le MEME device et que sa
+	// texture soit simplement posee dans la draw-list -- au lieu d'ouvrir une
+	// seconde pile GPU dans la meme fenetre, ce que le depot interdit
+	// explicitement (« une fenetre = une pile »).
+	// La scene 3D rend dans sa cible hors ecran sur le command buffer de
+	// l'editeur, AVANT que la passe backbuffer ne s'ouvre : on ne peut pas
+	// imbriquer une passe de rendu dans une autre. Puis on publie sa texture
+	// aupres du backend, pour que la draw-list n'ait plus qu'a la poser.
+	static auto preUI3D = [](NkICommandBuffer *cmd, void *user) {
+		auto *r = static_cast<nkgui::NkEditorRHIRenderer *>(user);
+		nk3d::Viewport3DRenderOffscreen(cmd);
+		nk3d::Viewport3DRegisterInto(&r->GetBackend());
+	};
+
+	nkgui::NkEditorRHIRenderer renderer;
 	if (!renderer.Init(window, NkEditorGfxApi::Auto)) {
 		printf("[nk3d] impossible d'initialiser le rendu.\n");
 		return 1;
@@ -136,6 +154,12 @@ int nkmain(const NkEntryState &entry) {
 	// On interroge desormais le RENDU et non la fenetre : lui seul sait la taille
 	// de son tampon. La fenetre peut compter ses bordures, l'OS peut ajuster, et
 	// les deux chiffres divergent sans prevenir.
+	// Le device de l'interface EST celui de la vue 3D. C'est toute la raison
+	// d'avoir quitte NKCanvas : deux piles GPU dans une fenetre, le depot
+	// l'interdit, et une relecture CPU par image serait hors de question.
+	nk3d::Viewport3DSetSharedDevice(renderer.GetDevice());
+	renderer.SetPreUI(preUI3D, &renderer);
+
 	math::NkVec2u real0 = renderer.Size();
 	if (real0.x == 0 || real0.y == 0)
 		real0 = window.GetSize(); // repli : mieux vaut une taille approchee qu'une taille nulle
@@ -284,6 +308,12 @@ int nkmain(const NkEntryState &entry) {
 		NkPopupBoundsW() = W;
 		NkPopupBoundsH() = H;
 
+		// L'etat d'affichage descend vers la 3D avant la peinture : la barre de la
+		// vue est lue ici, appliquee la, et l'image suivante la reflete.
+		nk3d::Viewport3DSetShading(st.shading, st.solidLight);
+		nk3d::Viewport3DSetOverlays(st.overlayMask);
+		nk3d::Viewport3DResize((uint32)lay.view.w, (uint32)lay.view.h);
+
 		const NkTheme &theme = themes.Current();
 		NkModelerPainter p(ui.dl, font, theme, roles, icons);
 
@@ -394,6 +424,7 @@ int nkmain(const NkEntryState &entry) {
 		}
 	}
 
+	nk3d::Viewport3DShutdown();
 	renderer.Shutdown();
 	ui.Shutdown();
 	return 0;

@@ -95,6 +95,12 @@ namespace nkentseu {
 				// du clic pour replacer la fenetre sous le curseur quand on la tire
 				// depuis l'etat maximise.
 				float32 dragFracX = 0.5f;
+				// Navigation dans la vue : dernier point connu et glissement en cours. Le
+				// « en cours » est indispensable -- sans lui, le premier deplacement apres
+				// un appui ferait un bond, parce que le point precedent daterait de la
+				// derniere position survolee ailleurs dans l'ecran.
+				float32 navLastX = 0.f, navLastY = 0.f;
+				bool navDragging = false;
 				int32 solidLight = 0; ///< eclairage du mode solide : studio / matcap / plat
 				int32 selectMode = 2; ///< sommet / arete / face
 				int32 addKind = 0;	  ///< primitive a ajouter
@@ -196,6 +202,13 @@ namespace nkentseu {
 					mClicked = in.mouseClicked[0];
 					mRightClicked = in.mouseClicked[1];
 					mWheel = in.wheel;
+					// Bouton du MILIEU et modificateurs : la navigation 3D en depend, et
+					// elle n'est pas un clic mais un GLISSEMENT -- c'est l'etat enfonce
+					// qui compte, pas la transition.
+					mMiddleDown = in.mouseDown[2];
+					mShift = in.shiftDown;
+					mCtrl = in.ctrlDown;
+					mAlt = in.altDown;
 					mHover[0] = 0;
 					mCursor = NkCursorWant::Arrow;
 				}
@@ -270,6 +283,25 @@ namespace nkentseu {
 					return mMouse;
 				}
 
+				bool MiddleDown() const {
+					return mMiddleDown;
+				}
+				bool ShiftDown() const {
+					return mShift;
+				}
+				bool CtrlDown() const {
+					return mCtrl;
+				}
+				bool AltDown() const {
+					return mAlt;
+				}
+				// Molette BRUTE, sans zone associee. `Wheel(key, ...)` fait defiler une
+				// liste et borne son resultat ; ici on veut la valeur pour zoomer, et
+				// la borner n'aurait aucun sens.
+				float32 WheelDelta() const {
+					return mWheel;
+				}
+
 				static bool Contains(const NkRect &r, const nkgui::NkVec2 &p) {
 					return p.x >= r.x && p.x < r.x + r.w && p.y >= r.y && p.y < r.y + r.h;
 				}
@@ -300,6 +332,8 @@ namespace nkentseu {
 				nkgui::NkVec2 mMouse{0.f, 0.f};
 				bool mDown = false, mClicked = false, mRightClicked = false;
 				float32 mWheel = 0.f;
+				bool mMiddleDown = false;
+				bool mShift = false, mCtrl = false, mAlt = false;
 				NkCursorWant mCursor = NkCursorWant::Arrow;
 		};
 
