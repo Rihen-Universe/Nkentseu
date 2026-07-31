@@ -29,6 +29,10 @@ using PFNWGLSWAPINTERVALEXTPROC = BOOL(WINAPI *)(int);
 #include <xcb/xcb.h>
 #include <X11/Xlib.h>
 #include <X11/Xlib-xcb.h>
+// Retire les macros X11 qui collisionnent avec du C++ ordinaire (None,
+// Bool, Status...). Sans ca, toute enumeration ayant un membre « None »
+// — il y en a plusieurs dans NKGui — devient incompilable.
+#include "NKPlatform/NkX11Clean.h"
 #ifndef NK_NO_GLAD2
 #include <glad/glx.h>
 #else

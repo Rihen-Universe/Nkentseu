@@ -73,8 +73,11 @@ with project("NKCode"):
         # pybind11 est header-only (files([]), rien a compiler/lier) : simple
         # includedirs, pas un dependson NK-prefixe (evite un edge dependson/
         # link superflu, cf. NOTICE Externals/Libs/pybind11).
-        extra_includes=["src", "src/NKCode", "%{NKGlad.location}/include", "%{pybind11.location}/include",
-                        _PYEMBED_INCLUDE]
+        # _PYEMBED_INCLUDE n'est PAS ajoute ici : le SDK CPython vendorise est
+        # celui de Windows (pyconfig.h reclame <io.h>), et l'ajouter partout
+        # cassait toute compilation Linux. Il est pose dans le filtre
+        # « platforms:windows » plus bas, avec le define NKCODE_EMBED_PYTHON.
+        extra_includes=["src", "src/NKCode", "%{NKGlad.location}/include", "%{pybind11.location}/include"]
                        + ([_VULKAN_INCLUDE] if _VULKAN_INCLUDE else []),
     )
 
@@ -89,7 +92,14 @@ with project("NKCode"):
     with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
         windowedapp()
         usetoolchain(TC_WINDOWS)
-        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+        # NKCODE_EMBED_PYTHON : n'active le vrai NkEmbeddedJenga QUE sur Windows.
+        # Le CPython vendorise est celui de Windows (son pyconfig.h reclame
+        # <io.h>) ; ailleurs, NkEmbeddedJengaStub.cpp fournit la meme surface en
+        # repondant « indisponible », et l'appelant retombe sur le `jenga` du
+        # PATH — hypothese raisonnable sous Linux, ou Python est presque
+        # toujours present.
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE", "NKCODE_EMBED_PYTHON=1"])
+        includedirs([_PYEMBED_INCLUDE])
         if _VULKAN_LIB:
             libdirs([_VULKAN_LIB])
         libdirs([_PYEMBED_LIBDIR])
@@ -110,7 +120,13 @@ with project("NKCode"):
         windowedapp()
         usetoolchain("clang-native")
         defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
-        links(["pthread", "X11", "Xext", "GL", "asound", "m"]) # asound/m : NKAudio (backend ALSA)
+        # Xrandr : NkXLibWindow interroge les ecrans (XRRGetScreenResources,
+        # XRRGetOutputPrimary...). La bibliotheque manquait dans cette liste, ce
+        # qui ne se voyait pas tant que rien n'etait lie sous Linux.
+        _LINUX_LINKS = ["pthread", "X11", "Xext", "Xrandr", "GL", "asound", "m"]  # asound/m : NKAudio (ALSA)
+        if _WANT_VULKAN:
+            _LINUX_LINKS.append("vulkan")
+        links(_LINUX_LINKS)
 
     # ===== macOS ==================================================================
     with filter("system:macOS"):

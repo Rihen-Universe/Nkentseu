@@ -1259,6 +1259,12 @@ namespace nkentseu {
 					const char *hostT = "Linux/x86_64/gnu";
 					const char *clangName = "host-clang";
 					const char *clangT = "Linux/x86_64/gnu";
+					// GCC est le compilateur par defaut de la plupart des distributions :
+					// il merite sa propre entree, distincte de clang. Ce nom manquait —
+					// la branche Linux l'utilisait sans qu'il soit jamais declare, ce que
+					// personne n'avait vu puisque ce code n'avait jamais ete compile
+					// ailleurs que sous Windows et macOS.
+					const char *gccName = "host-gcc";
 #endif
 					// ---- Compilateurs natifs : VARIANTES MULTIPLES + DEDUP par chemin absolu ----
 					// Une meme origine (ex ucrt64) et une autre (ex clang64) cohabitent sans s'ecraser ;
