@@ -14,6 +14,7 @@
 
 #include "NK3DModeler/Shell/NkModelerUI.h"
 #include "NK3DModeler/Shell/NkModelerInput.h"
+#include "NK3DModeler/Shell/NkModelerWidgets.h"
 #include "NKEditorKit/NkShortcutTable.h"
 
 #include <cstdio>
@@ -691,114 +692,145 @@ namespace nkentseu {
 			}
 		}
 
-		// ── LIGNE DE PROPRIETE A TROIS CHAMPS ───────────────────────────────────
-		// CHAQUE COORDONNEE A SON PROPRE CADRE, et il est LARGE. Les deux demandes de
-		// Rihen vont ensemble :
-		//   * un cadre PAR coordonnee dit qu'il y a trois champs a EDITER, pas une
-		//     ligne de trois nombres. Sans bordure, « 0,00 0,00 0,00 » se lit comme un
-		//     triplet d'affichage et on ne pense pas a cliquer dedans ;
-		//   * la LARGEUR sert a la saisie : une position peut valoir -1234,567. A
-		//     52 px le nombre etait tronque des qu'on sortait des valeurs de
-		//     demonstration, et l'utilisateur aurait edite a l'aveugle.
+		// ── LIGNE DE TRANSFORMATION ─────────────────────────────────────────────
+		// TROIS CADRES DE LARGEUR IDENTIQUE, puis DEUX COLONNES CARREES pour les
+		// icones. La largeur egale n'est pas cosmetique : trois champs de tailles
+		// differentes se lisent comme trois choses differentes, alors que X, Y et Z
+		// sont la meme grandeur sur trois axes.
 		//
-		// Le lisere d'axe reste sur le SEUL BORD GAUCHE, fond neutre -- teinter le
-		// fond entier rendrait les trois champs criards, c'est un critere de refus du
-		// brief. Il est desormais DANS le cadre, ce qui le fait lire comme l'etiquette
-		// du champ et non comme un trait de separation.
-		inline void PaintVec3Row(NkModelerPainter &p, const NkRect &r, float32 y, const char *label,
-								 const char *v0, const char *v1, const char *v2, NkIcon trailing,
-								 NkHitRegistry *hit = nullptr, const char *keyBase = nullptr) {
-			const float32 rowH = kRowH + S(6.f); // plus haute : les cadres ont besoin d'air
+		// Les deux colonnes d'icones sont CARREES et RESERVEES meme quand la ligne
+		// n'a qu'une icone : sans reservation, les champs de « Rotation » seraient
+		// plus larges que ceux de « Position », et les trois lignes ne s'aligneraient
+		// plus verticalement.
+		//
+		// LES VALEURS SE MODIFIENT EN GLISSANT, comme dans Blender et Unreal. C'est le
+		// geste le plus utilise d'un modeleur : bien plus souvent qu'on ne tape un
+		// nombre, on veut « un peu plus, un peu moins » en regardant le resultat.
+		inline void PaintTransformRow(NkModelerPainter &p, NkHitRegistry &hit, NkWidgetState &ws,
+									  const nkgui::NkGuiInput &in, const NkRect &r, float32 y,
+									  const char *label, float32 *v, float32 step, const char *keyBase,
+									  NkIcon icon1, NkIcon icon2, const char *fmt = "%.2f") {
+			const float32 rowH = kRowH + S(6.f);
 			p.Fill({r.x, y, kLabelW, rowH}, NkRole::LabelCol);
 			p.TextV(r.x + kPad, y, rowH, label);
 
-			const NkRole axes[3] = {NkRole::AxisX, NkRole::AxisY, NkRole::AxisZ};
-			const char *vals[3] = {v0, v1, v2};
+			const float32 sq = rowH - S(6.f); // colonne carree : cote = hauteur du champ
 			const float32 gap = S(4.f);
-			const float32 tail = (trailing != NkIcon::None) ? S(24.f) : 0.f;
-			const float32 avail = r.w - kLabelW - S(8.f) - tail;
+			const float32 iconsW = sq * 2.f + gap;
+			const float32 avail = r.w - kLabelW - S(10.f) - iconsW - gap;
 			float32 fw = (avail - gap * 2.f) / 3.f;
-			if (fw < S(44.f))
-				fw = S(44.f); // plancher : sous cette largeur un nombre signe ne tient plus
+			if (fw < S(40.f))
+				fw = S(40.f);
+
+			const NkRole axes[3] = {NkRole::AxisX, NkRole::AxisY, NkRole::AxisZ};
 			float32 x = r.x + kLabelW + S(5.f);
-			char key[40];
+			char key[48];
 			for (int32 i = 0; i < 3; ++i) {
-				const NkRect fr{x, y + S(3.f), fw, rowH - S(6.f)};
-				bool over = false;
-				if (hit && keyBase) {
-					snprintf(key, sizeof(key), "%s.%d", keyBase, i);
-					over = hit->Add(key, fr);
-				}
-				// Le cadre s'ECLAIRE au survol : c'est ce qui annonce qu'on peut taper
-				// dedans, avant meme d'avoir clique.
-				p.Outline(fr, over ? NkRole::AccentUi : NkRole::Border, NkRole::InputBg, 3.f);
-				p.Fill({fr.x + 1.f, fr.y + 1.f, S(3.f), fr.h - 2.f}, axes[i]);
-				// Valeur calee a DROITE : les nombres se comparent par leur unite, et
-				// trois colonnes calees a gauche donnent des virgules en escalier.
-				const float32 vw = p.TextW(vals[i]);
-				p.TextV(fr.x + fr.w - vw - S(8.f), fr.y, fr.h, vals[i]);
+				snprintf(key, sizeof(key), "%s.%d", keyBase, i);
+				DragFloat(p, hit, ws, in, key, {x, y + S(3.f), fw, rowH - S(6.f)}, v[i], step, axes[i], fmt);
 				x += fw + gap;
 			}
-			if (trailing != NkIcon::None)
-				p.IconV(r.x + r.w - S(20.f), y, rowH, trailing, NkRole::Text, 12.f);
+
+			// Les deux carres. Une icone absente laisse sa case VIDE plutot que de
+			// decaler la suivante -- l'alignement des trois lignes prime.
+			float32 ix = r.x + r.w - S(5.f) - iconsW;
+			const NkIcon icons[2] = {icon1, icon2};
+			for (int32 i = 0; i < 2; ++i) {
+				if (icons[i] == NkIcon::None) {
+					ix += sq + gap;
+					continue;
+				}
+				const NkRect br{ix, y + S(3.f), sq, sq};
+				snprintf(key, sizeof(key), "%s.ic%d", keyBase, i);
+				const bool over = hit.Add(key, br);
+				p.Outline(br, over ? NkRole::AccentUi : NkRole::Border, NkRole::PanelBg, 3.f);
+				p.IconV(br.x + (sq - S(13.f)) * 0.5f, br.y, sq, icons[i], NkRole::Text, 13.f);
+				// Reinitialiser remet la valeur NEUTRE de la grandeur : zero pour une
+				// position ou une rotation, UN pour une echelle -- remettre une echelle
+				// a zero ferait disparaitre l'objet.
+				if (hit.Clicked(key) && icons[i] == NkIcon::Refresh) {
+					const float32 neutral = (step > 0.05f) ? 0.f : 1.f;
+					v[0] = v[1] = v[2] = neutral;
+				}
+				ix += sq + gap;
+			}
 			p.HLine(r.x, y + rowH - 1.f, r.w);
 		}
 
-		// Hauteur d'une ligne a trois champs, pour que l'appelant avance du bon pas.
 		inline float32 Vec3RowH() {
 			return kRowH + S(6.f);
 		}
 
+		// ── EN-TETE DE SECTION REPLIABLE ────────────────────────────────────────
+		// La fleche REPLIE VRAIMENT la section. Une fleche qui ne fait rien est pire
+		// qu'une absence de fleche : elle promet une commande et ne la tient pas.
+		inline bool SectionHeader(NkModelerPainter &p, NkHitRegistry &hit, const NkRect &r, float32 y,
+								  const char *key, const char *title, bool &open) {
+			const NkRect hr{r.x, y, r.w, kRowH};
+			const bool over = hit.Add(key, hr);
+			if (over)
+				p.Fill(hr, NkRole::PanelHeader);
+			p.IconV(r.x + S(6.f), y, kRowH, open ? NkIcon::ChevronDown : NkIcon::ChevronRight,
+					NkRole::Text, 11.f);
+			p.TextV(r.x + S(22.f), y, kRowH, title);
+			if (hit.Clicked(key))
+				open = !open;
+			return open;
+		}
+
 		// ── PROPRIETES (droite, haut) ───────────────────────────────────────────
 		inline void PaintProperties(NkModelerPainter &p, const NkRect &full, NkModelerState &st,
-									NkHitRegistry &hit) {
-			const float32 scroll = st.scrollProps;
+									NkHitRegistry &hit, NkWidgetState &ws, const nkgui::NkGuiInput &in) {
 			p.Fill(full, NkRole::PanelBg);
 			p.VLine(full.x, full.y, full.h);
 			float32 y = PaintPanelTab(p, full, "Proprietes");
-			// A partir d'ici tout travaille DANS la marge.
 			const NkRect r = Inset(full);
 			y = PaintSearch(p, r, y);
 
-			// Pastilles de filtre : CONTOUREES, sauf l'active qui est pleine. Toutes
-			// pleines, on ne verrait plus laquelle est choisie.
 			static const char *const kPills[] = {"General", "Objet", "Rendu", "Physique", "Tout"};
-			float32 x = r.x + 6.f;
+			float32 x = r.x;
+			char key[32];
 			for (int32 i = 0; i < 5; ++i) {
-				const float32 w = p.TextW(kPills[i]) + 18.f;
-				const bool on = (i == 4);
-				// GELULE, pas carre : le rayon vaut la MOITIE de la hauteur. Mon
-				// premier essai passait 10 a un contour qui ne savait pas arrondir,
-				// d'ou les pastilles carrees de la capture.
+				const float32 w = p.TextW(kPills[i]) + S(18.f);
+				const NkRect pr{x, y, w, S(20.f)};
+				snprintf(key, sizeof(key), "prop.pill.%d", i);
+				const bool over = hit.Add(key, pr);
+				const bool on = (i == st.activeFilter);
 				if (on)
-					p.Fill({x, y, w, 20.f}, NkRole::AccentUi, 10.f);
+					p.Fill(pr, NkRole::AccentUi, 10.f);
 				else
-					p.Outline({x, y, w, 20.f}, NkRole::Border, NkRole::PanelBg, 10.f);
-				p.TextV(x + 9.f, y, 20.f, kPills[i], on ? NkRole::TextOnAccent : NkRole::TextMuted);
-				x += w + 4.f;
+					p.Outline(pr, over ? NkRole::AccentUi : NkRole::Border, NkRole::PanelBg, 10.f);
+				p.TextV(x + S(9.f), y, S(20.f), kPills[i], on ? NkRole::TextOnAccent : NkRole::TextMuted);
+				if (hit.Clicked(key))
+					st.activeFilter = i;
+				x += w + S(4.f);
 			}
-			y += 26.f;
-			p.HLine(r.x, y, r.w);
+			y += S(26.f);
+			p.HLine(full.x, y, full.w);
 			y += 1.f;
 
 			const float32 listTop = y;
-			y -= scroll;
-			p.Fill({r.x, y, r.w, kRowH}, NkRole::PanelBg);
-			p.IconV(r.x + 6.f, y, kRowH, NkIcon::ChevronDown, NkRole::Text, 11.f);
-			p.TextV(r.x + 22.f, y, kRowH, "Transformation");
-			y += kRowH;
-			PaintVec3Row(p, r, y, "Position", "0,00", "0,00", "0,00", NkIcon::Refresh, &hit, "prop.pos");
-			y += Vec3RowH();
-			PaintVec3Row(p, r, y, "Rotation", "0,00", "0,00", "0,00", NkIcon::None, &hit, "prop.rot");
-			y += Vec3RowH();
-			PaintVec3Row(p, r, y, "Echelle", "1,00", "1,00", "1,00", NkIcon::Lock, &hit, "prop.scl");
-			y += Vec3RowH();
-			// L'ascenseur mesure le contenu REEL depuis le haut de la zone de liste :
-			// une hauteur devinee ferait glisser le curseur a cote de la matiere.
+			y -= st.scrollProps;
+
+			if (SectionHeader(p, hit, r, y, "prop.sec.transform", "Transformation", st.showTransform)) {
+				y += kRowH;
+				PaintTransformRow(p, hit, ws, in, r, y, "Position", st.pos, 0.01f, "prop.pos",
+								  NkIcon::Refresh, NkIcon::Lock);
+				y += Vec3RowH();
+				PaintTransformRow(p, hit, ws, in, r, y, "Rotation", st.rot, 0.5f, "prop.rot",
+								  NkIcon::Refresh, NkIcon::None, "%.1f");
+				y += Vec3RowH();
+				PaintTransformRow(p, hit, ws, in, r, y, "Echelle", st.scl, 0.01f, "prop.scl",
+								  NkIcon::Refresh, NkIcon::Lock, "%.3f");
+				y += Vec3RowH();
+			} else {
+				y += kRowH;
+			}
+
 			const NkRect area{full.x, listTop, full.w, full.y + full.h - listTop};
 			hit.Add("props.list", area);
-			hit.Wheel("props.list", st.scrollProps, y - listTop + scroll, area.h);
-			p.VScroll(area, y - listTop + scroll, scroll);
+			hit.Wheel("props.list", st.scrollProps, y - listTop + st.scrollProps, area.h);
+			p.VScroll(area, y - listTop + st.scrollProps, st.scrollProps);
 		}
 
 		// ── DETAILS (droite, bas) ───────────────────────────────────────────────

@@ -61,6 +61,41 @@ namespace nkentseu {
 				int32 activeTab = 0;
 				int32 activeFilter = 4; ///< pastille « Tout »
 
+				// ── ETATS DES LISTES DEROULANTES ────────────────────────────────
+				// Un indice par combo. Les libelles vivent dans les tables de
+				// NkModelerScreens : ici on ne garde que le CHOIX, qui est ce qui
+				// appartient a la session.
+				int32 projection = 0; ///< 0 perspective, 1..6 vues orthographiques
+				int32 shading = 0;	  ///< eclaire / non eclaire / fil de fer / rendu
+				int32 overlays = 0;	  ///< preselection d'affichage
+				int32 selectMode = 2; ///< sommet / arete / face
+				int32 addKind = 0;	  ///< primitive a ajouter
+				int32 modKind = 0;	  ///< modificateur a ajouter
+				int32 orientation = 0; ///< repere : monde / local / normal / vue
+
+				// Sections repliables. Une seule pour l'instant ; il y en aura une par
+				// section de panneau, et c'est deja la bonne forme.
+				bool showTransform = true;
+
+				// Valeurs de transformation. Elles vivent ici et non dans la peinture :
+				// le glissement les modifie, elles doivent survivre a la frame.
+				float32 pos[3] = {0.f, 0.f, 0.f};
+				float32 rot[3] = {0.f, 0.f, 0.f};
+				float32 scl[3] = {1.f, 1.f, 1.f};
+
+				// Dossiers deplies du navigateur.
+				bool folderOpen[8] = {true, true, false, false, false, false, false, false};
+
+				// Scenes. UNE seule par defaut -- ouvrir sur deux scenes vides ferait
+				// croire que l'une d'elles contient quelque chose.
+				char sceneNames[8][32] = {"Scene", "", "", "", "", "", "", ""};
+				int32 sceneCount = 1;
+
+				// Noms modifiables de la hierarchie et des dossiers.
+				char objectNames[8][32] = {"Scene", "Cube", "Sphere", "Groupe", "Roue", "Axe", "", ""};
+				char folderNames[8][32] = {"MonProjet", "Maillages", "Animations", "Materiaux",
+										   "Textures", "", "", ""};
+
 				// Etats par objet de la hierarchie. Tableau fixe tant que la scene est
 				// simulee ; il deviendra une propriete de l'objet reel.
 				bool visible[8] = {true, true, true, true, false, true, true, true};

@@ -200,6 +200,8 @@ int nkmain(const NkEntryState &entry) {
 	// ── ETAT DE SESSION ─────────────────────────────────────────────────────
 	NkModelerState st;
 	NkHitRegistry hit;
+	NkWidgetState ws;
+	NkComboPending combo;
 	static const char *const kScenes[] = {"Scene_01", "Scene_02"};
 
 	// ── ENTREE SOURIS ───────────────────────────────────────────────────────
@@ -251,12 +253,12 @@ int nkmain(const NkEntryState &entry) {
 
 		// On previent le rendu du changement, PUIS on relit SA taille : c'est elle
 		// qui sert a projeter, pas celle qu'on vient de lui donner.
-		const math::NkVec2u ws = window.GetSize();
-		if (ws.x > 0 && ws.y > 0 && (ws.x != lastW || ws.y != lastH)) {
-			renderer.OnResize(ws.x, ws.y);
+		const math::NkVec2u winSz = window.GetSize();
+		if (winSz.x > 0 && winSz.y > 0 && (winSz.x != lastW || winSz.y != lastH)) {
+			renderer.OnResize(winSz.x, winSz.y);
 			const math::NkVec2u rs = renderer.Size();
-			lastW = rs.x > 0 ? rs.x : ws.x;
-			lastH = rs.y > 0 ? rs.y : ws.y;
+			lastW = rs.x > 0 ? rs.x : winSz.x;
+			lastH = rs.y > 0 ? rs.y : winSz.y;
 		}
 
 		float32 dt = clock.Tick().delta;
@@ -288,7 +290,7 @@ int nkmain(const NkEntryState &entry) {
 		PaintToolbar(p, lay.tool, st, hit);
 		PaintHierarchy(p, lay.left, st, hit);
 		PaintViewport(p, lay.view, st, hit, shortcuts);
-		PaintProperties(p, lay.propsR, st, hit);
+		PaintProperties(p, lay.propsR, st, hit, ws, ui.input);
 		PaintDetails(p, lay.detailsR, st, hit);
 		PaintBrowser(p, lay.browser, st, hit);
 		PaintStatus(p, lay.status, st);
@@ -298,7 +300,10 @@ int nkmain(const NkEntryState &entry) {
 		// recouvre tout ; la boite de confirmation recouvre le menu. Le registre
 		// donnant la priorite a la DERNIERE zone declaree, l'ordre de peinture EST
 		// l'ordre de priorite -- il n'y a rien d'autre a synchroniser.
+		// La liste deroulee est peinte AVANT les separateurs et le menu : elle doit
+		// les recouvrir, et le registre donne la priorite a la derniere zone.
 		PaintSplitters(p, lay, W, H, st, hit);
+		DrawComboPopup(p, hit, ws, combo);
 		PaintOpenMenu(p, lay.menu, st, hit, shortcuts);
 		PaintCloseDialog(p, W, H, st, hit);
 
