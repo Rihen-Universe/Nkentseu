@@ -83,6 +83,10 @@ namespace nkentseu {
 			SnapGrid,
 			SnapAngle,
 			SnapScale,
+			ArrowUp,
+			ArrowDown,
+			ViewFront,
+			ViewBack,
 			Count
 		};
 
@@ -159,6 +163,13 @@ namespace nkentseu {
 						{NkIcon::SnapGrid, "table"},		// quadrillage
 						{NkIcon::SnapAngle, "compass"},	// rapporteur
 						{NkIcon::SnapScale, "law"},		// balance : proportions
+						// Vues d'axe : chaque direction a SON icone. Six entrees portant le
+						// meme dessin obligeraient a lire le libelle pour les distinguer, ce
+						// qui annule l'interet d'une liste a icones.
+						{NkIcon::ArrowUp, "arrow-circle-up"},
+						{NkIcon::ArrowDown, "arrow-circle-down"},
+						{NkIcon::ViewFront, "arrow-circle-right"},
+						{NkIcon::ViewBack, "arrow-circle-left"},
 					};
 
 					const NkString exeDir = NkPath::GetExecutableDirectory().ToString();
