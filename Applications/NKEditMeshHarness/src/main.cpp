@@ -2884,7 +2884,75 @@ static void ThemeBattery() {
 				 "theme/seuils-par-usage", (double)d.WorstContrast(), (double)l.WorstContrast());
 	}
 
-	// 6) LES SIX COULEURS IMPOSEES par Rihen sont bien la, aux roles decides en
+	// 6) ROLES D'APPLICATION. Le garde-fou n.1 de NKGraph applique aux themes :
+	//    NK3DModeler enregistre SES roles, NKEditorKit n'a pas a les connaitre.
+	//    LE PIEGE est l'enregistrement : une sauvegarde qui ne parcourrait que
+	//    l'enumeration du coeur perdrait ces roles EN SILENCE, et le fichier
+	//    paraitrait pourtant complet. On verifie donc l'aller-retour, pas la
+	//    simple ecriture.
+	{
+		const uint16 brosse = NkRoleRegistry::Register("nk3d.anneau_brosse");
+		const uint16 encore = NkRoleRegistry::Register("nk3d.anneau_brosse");
+		const uint16 cle = NkRoleRegistry::Register("nk3d.cle_anim");
+		NkTheme t = NkTheme::Dark();
+		t.Set(brosse, NkTheme::FromHex("#FF00AA"));
+		t.Set(cle, NkTheme::FromHex("#00FF88"));
+		NkString txt;
+		t.Save(txt);
+		NkTheme relu = NkTheme::Dark();
+		uint32 unknown = 0, applied = 0;
+		relu.Load(txt.CStr(), &unknown, &applied);
+		char h[10];
+		NkTheme::ToHex(relu.Get(brosse), h);
+		GraphPut("%-34s ids coeur=%u ext=%u,%u idempotent=%d | apres aller-retour %s inconnus=%u",
+				 "theme/roles-application", (uint32)NkRole::Count, brosse, cle, (brosse == encore) ? 1 : 0, h,
+				 unknown);
+	}
+
+	// 7) UN THEME D'UNE AUTRE APPLICATION SE CHARGE QUAND MEME. C'est la
+	//    consequence recherchee : Nogee lisant un theme ecrit pour NkAnima ne doit
+	//    pas echouer, seulement ignorer ce qu'il ne connait pas. Refuser tout le
+	//    fichier rendrait les themes non partageables entre applications.
+	{
+		const char *autre = "nktheme 1\n"
+							"nom Venu d'ailleurs\n"
+							"accent_ui = #445566\n"
+							"nkanima.cle_de_pose = #FFEE00\n"
+							"nogee.gizmo_lumiere = #00EEFF\n";
+		NkTheme t = NkTheme::Dark();
+		uint32 unknown = 0, applied = 0;
+		const bool ok = t.Load(autre, &unknown, &applied);
+		char h[10];
+		NkTheme::ToHex(t.Get(NkRole::AccentUi), h);
+		GraphPut("%-34s lu=%d appliques=%u inconnus=%u (2 attendus) | accent_ui=%s",
+				 "theme/theme-d-une-autre-app", ok ? 1 : 0, applied, unknown, h);
+	}
+
+	// 8) BIBLIOTHEQUE. « Choisir parmi plusieurs ou creer le sien » suppose une
+	//    LISTE. Et un theme utilisateur qui REPREND UN NOM EXISTANT doit le
+	//    REMPLACER : c'est ce qu'attend quelqu'un qui surcharge « Sombre » depuis
+	//    son dossier personnel. En ajouter un homonyme donnerait deux entrees
+	//    indistinguables dans le menu.
+	{
+		NkThemeLibrary lib;
+		lib.AddBuiltins();
+		const uint32 apresBuiltins = lib.Count();
+		// Un theme NEUF, base sur le clair : il doit hériter du CLAIR, pas du sombre.
+		lib.AddFromText("nktheme 1\nnom Papier\naccent_ui = #AA3300\n", false);
+		const bool trouve = lib.SetCurrent("Papier");
+		const bool clairHerite = (lib.Current().Get(NkRole::WindowBg) == NkTheme::FromHex("#F5F5F5"));
+		// Une SURCHARGE de « Sombre » : le compte ne doit PAS augmenter.
+		const uint32 avantSurcharge = lib.Count();
+		lib.AddFromText("nktheme 1\nnom Sombre\nwindow_bg = #000000\n", true);
+		const bool remplace = (lib.Count() == avantSurcharge);
+		lib.SetCurrent("Sombre");
+		char h[10];
+		NkTheme::ToHex(lib.Current().Get(NkRole::WindowBg), h);
+		GraphPut("%-34s builtins=%u | Papier trouve=%d herite-du-clair=%d | surcharge sans doublon=%d Sombre.fond=%s",
+				 "theme/bibliotheque", apresBuiltins, trouve ? 1 : 0, clairHerite ? 1 : 0, remplace ? 1 : 0, h);
+	}
+
+	// 9) LES SIX COULEURS IMPOSEES par Rihen sont bien la, aux roles decides en
 	//    UI_SPEC 10bis. Un test qui se contenterait de charger le theme ne dirait
 	//    pas si j'ai respecte l'affectation.
 	{

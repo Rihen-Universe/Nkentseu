@@ -122,6 +122,77 @@ namespace nkentseu {
 			return NkRole::Count;
 		}
 
+		// ── REGISTRE DES ROLES D'APPLICATION ────────────────────────────────────
+		namespace themedetail {
+			// Statique LOCALE A LA FONCTION : construite au premier appel, donc
+			// immunisee contre l'ordre d'initialisation des statiques globales. Une
+			// application qui enregistre ses roles depuis un constructeur global
+			// planterait autrement.
+			inline NkVector<NkString> &ExtNames() {
+				static NkVector<NkString> names;
+				return names;
+			}
+		} // namespace themedetail
+
+		inline uint16 NkRoleRegistry::Register(const char *name) {
+			const uint16 found = Find(name);
+			if (found != NK_ROLE_INVALID)
+				return found; // idempotent, comme NkNodeGraph::RegisterType
+			NkVector<NkString> &n = themedetail::ExtNames();
+			n.PushBack(NkString(name ? name : ""));
+			return (uint16)((uint16)NkRole::Count + (uint16)n.Size() - 1u);
+		}
+
+		inline uint16 NkRoleRegistry::Find(const char *name) {
+			// Le coeur d'abord : une application ne doit pas pouvoir redefinir
+			// « accent_ui » en role d'extension et se retrouver avec deux entrees
+			// portant le meme nom dans un fichier de theme.
+			const NkRole core = NkRoleFromName(name);
+			if (core != NkRole::Count)
+				return (uint16)core;
+			const NkVector<NkString> &n = themedetail::ExtNames();
+			for (uint16 i = 0; i < (uint16)n.Size(); ++i)
+				if (themedetail::StrEqZ(n[i].CStr(), name))
+					return (uint16)((uint16)NkRole::Count + i);
+			return NK_ROLE_INVALID;
+		}
+
+		inline const char *NkRoleRegistry::Name(uint16 id) {
+			if (id < (uint16)NkRole::Count)
+				return NkRoleName((NkRole)id);
+			const NkVector<NkString> &n = themedetail::ExtNames();
+			const uint16 k = (uint16)(id - (uint16)NkRole::Count);
+			return k < (uint16)n.Size() ? n[k].CStr() : "?";
+		}
+
+		inline uint16 NkRoleRegistry::Total() {
+			return (uint16)((uint16)NkRole::Count + (uint16)themedetail::ExtNames().Size());
+		}
+
+		inline uint16 NkResolveRole(const char *name) {
+			return NkRoleRegistry::Find(name);
+		}
+
+		inline NkThemeColor NkTheme::Get(uint16 id) const {
+			if (id < (uint16)NkRole::Count)
+				return mColors[id];
+			const uint16 k = (uint16)(id - (uint16)NkRole::Count);
+			// Magenta de « role oublie » si le theme est plus ancien que le registre :
+			// ca doit sauter aux yeux, pas se fondre en noir.
+			return k < (uint16)mExt.Size() ? mExt[k] : 0xFF00FFFFu;
+		}
+
+		inline void NkTheme::Set(uint16 id, NkThemeColor c) {
+			if (id < (uint16)NkRole::Count) {
+				mColors[id] = c;
+				return;
+			}
+			const uint16 k = (uint16)(id - (uint16)NkRole::Count);
+			while ((uint16)mExt.Size() <= k)
+				mExt.PushBack(0xFF00FFFFu);
+			mExt[k] = c;
+		}
+
 		inline NkThemeColor NkTheme::FromHex(const char *hex) {
 			if (!hex)
 				return 0x000000FFu;
@@ -280,6 +351,17 @@ namespace nkentseu {
 				out.Append(hex);
 				out.Append('\n');
 			}
+			// Les roles d'APPLICATION aussi : une sauvegarde qui ne parcourrait que
+			// l'enumeration du coeur les perdrait en silence, et le theme paraitrait
+			// pourtant enregistre.
+			for (uint16 k = 0; k < (uint16)mExt.Size(); ++k) {
+				const uint16 id = (uint16)((uint16)NkRole::Count + k);
+				out.Append(NkRoleRegistry::Name(id));
+				out.Append(" = ");
+				ToHex(mExt[k], hex);
+				out.Append(hex);
+				out.Append('\n');
+			}
 		}
 
 		inline bool NkTheme::Load(const char *text, uint32 *outUnknown, uint32 *outApplied) {
@@ -336,14 +418,16 @@ namespace nkentseu {
 					while (*p && *p != ' ' && *p != '\t' && *p != '\n' && *p != '\r' && v < 31)
 						val[v++] = *p++;
 					val[v] = 0;
-					const NkRole r = NkRoleFromName(key);
-					if (r == NkRole::Count) {
-						// Role inconnu : un theme ecrit pour une version plus recente
-						// doit se charger quand meme. On COMPTE au lieu d'echouer.
+					const uint16 id = NkResolveRole(key);
+					if (id == NK_ROLE_INVALID) {
+						// Role inconnu : soit le fichier vient d'une version plus recente,
+						// soit d'une AUTRE APPLICATION (« nkanima.cle » lu par Nogee). Dans
+						// les deux cas on COMPTE au lieu d'echouer -- sinon chaque ajout de
+						// role rendrait les themes existants illisibles.
 						if (outUnknown)
 							(*outUnknown)++;
 					} else if (v > 0) {
-						Set(r, FromHex(val));
+						Set(id, FromHex(val));
 						if (outApplied)
 							(*outApplied)++;
 					}
@@ -427,6 +511,46 @@ namespace nkentseu {
 				}
 			}
 			return worst;
+		}
+
+		// ── BIBLIOTHEQUE ────────────────────────────────────────────────────────
+		inline void NkThemeLibrary::AddBuiltins() {
+			mThemes.PushBack(NkTheme::Dark());
+			mThemes.PushBack(NkTheme::Light());
+			mCurrent = 0;
+		}
+
+		inline int32 NkThemeLibrary::AddFromText(const char *text, bool baseDark) {
+			// On part de la BASE demandee, jamais d'un theme vide : c'est ce qui permet
+			// a un fichier de trois lignes de donner un theme complet.
+			NkTheme t = baseDark ? NkTheme::Dark() : NkTheme::Light();
+			if (!t.Load(text))
+				return -1;
+			// Un theme qui reprend le nom d'un autre le REMPLACE : c'est ce qu'attend
+			// un utilisateur qui surcharge « Sombre » depuis son dossier personnel. En
+			// ajouter un second homonyme donnerait deux entrees indistinguables.
+			const int32 existing = Find(t.Name().CStr());
+			if (existing >= 0) {
+				mThemes[(uint32)existing] = t;
+				return existing;
+			}
+			mThemes.PushBack(t);
+			return (int32)mThemes.Size() - 1;
+		}
+
+		inline int32 NkThemeLibrary::Find(const char *name) const {
+			for (uint32 i = 0; i < (uint32)mThemes.Size(); ++i)
+				if (themedetail::StrEqZ(mThemes[i].Name().CStr(), name))
+					return (int32)i;
+			return -1;
+		}
+
+		inline bool NkThemeLibrary::SetCurrent(const char *name) {
+			const int32 i = Find(name);
+			if (i < 0)
+				return false;
+			mCurrent = (uint32)i;
+			return true;
 		}
 
 	} // namespace editorkit

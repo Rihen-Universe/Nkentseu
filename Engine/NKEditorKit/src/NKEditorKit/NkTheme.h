@@ -111,6 +111,37 @@ namespace nkentseu {
 		// partie du theme au meme titre que les couleurs.
 		enum class NkRadius : uint8 { Sm = 0, Md, Lg, Xl, Count };
 
+		static const uint16 NK_ROLE_INVALID = 0xFFFFu;
+
+		// ── ROLES D'APPLICATION ─────────────────────────────────────────────────
+		// LE GARDE-FOU N.1 DE NKGRAPH, APPLIQUE ICI. NK3DModeler aura besoin d'un
+		// « anneau de brosse », NkAnima d'une « cle d'animation », Nogee d'autre
+		// chose encore. Les mettre dans l'enumeration COMMUNE ferait trainer a
+		// Nogee des roles de sculpt qui ne le concernent pas -- et l'enumeration
+		// grossirait a chaque application.
+		//
+		// Meme reponse que pour les types de sockets de NKGraph : l'APPLICATION
+		// ENREGISTRE ses roles au demarrage et recoit un identifiant. Les roles du
+		// coeur restent indexes par enumeration (rapides, verifies a la
+		// compilation) ; ceux des applications vivent dans une table d'extension.
+		//
+		// Consequence recherchee : un fichier de theme ecrit pour NK3DModeler se
+		// charge SANS ERREUR dans Nogee -- ses roles inconnus sont comptes, pas
+		// rejetes. Convention de nommage : « nk3d.anneau_brosse ».
+		class NkRoleRegistry {
+			public:
+				// Idempotent : deux appels avec le meme nom rendent le meme
+				// identifiant. Une application peut donc enregistrer ses roles sans
+				// se demander si une autre l'a deja fait.
+				static uint16 Register(const char *name);
+				static uint16 Find(const char *name); ///< NK_ROLE_INVALID si absent
+				static const char *Name(uint16 id);
+				static uint16 Total(); ///< roles du coeur + extensions enregistrees
+		};
+
+		// Resout un nom vers un identifiant, coeur PUIS extensions.
+		uint16 NkResolveRole(const char *name);
+
 		// Une paire qui n'atteint pas le contraste exige pour son usage.
 		struct NkThemeIssue {
 				NkRole fg = NkRole::Count;
@@ -134,6 +165,12 @@ namespace nkentseu {
 					if ((uint16)r < (uint16)NkRole::Count)
 						mColors[(uint16)r] = c;
 				}
+
+				// Acces par identifiant : coeur SI id < NkRole::Count, extension
+				// au-dela. Pas d'ambiguite avec les surcharges ci-dessus, `NkRole`
+				// etant une enumeration a portee (aucune conversion implicite).
+				NkThemeColor Get(uint16 id) const;
+				void Set(uint16 id, NkThemeColor c);
 				float32 Radius(NkRadius k) const {
 					return (uint8)k < (uint8)NkRadius::Count ? mRadius[(uint8)k] : 0.f;
 				}
@@ -191,9 +228,56 @@ namespace nkentseu {
 
 			private:
 				NkThemeColor mColors[(uint16)NkRole::Count] = {};
+				// Roles d'application. Peut etre plus COURTE que le registre : une
+				// application peut enregistrer un role apres qu'un theme a ete
+				// construit. Get() rend alors le magenta de « role oublie » plutot
+				// que de lire hors des bornes.
+				NkVector<NkThemeColor> mExt;
 				float32 mRadius[(uint8)NkRadius::Count] = {2.f, 3.f, 4.f, 8.f};
 				NkString mName;
 				bool mDark = true;
+		};
+
+		// ── BIBLIOTHEQUE ────────────────────────────────────────────────────────
+		// « Choisir un theme parmi plusieurs ou creer le sien » suppose une LISTE,
+		// pas deux fonctions ecrites en dur dans le code.
+		//
+		// ELLE NE LIT AUCUN FICHIER, et c'est deliberé : lire le disque exigerait
+		// NKFileSystem, et cet en-tete perdrait sa propriete d'etre testable sans
+		// rien lier. L'APPLICATION lit le texte -- elle sait ou sont ses dossiers,
+		// livre puis surcharge utilisateur, exactement comme pour les icones -- et
+		// le passe ici.
+		class NkThemeLibrary {
+			public:
+				void AddBuiltins(); ///< Sombre et Clair
+
+				// Ajoute un theme depuis un fichier texte. `baseDark` choisit la base
+				// dont il HERITE : un theme de trois lignes doit hériter des 26
+				// autres, et de la bonne famille. Renvoie l'index, ou -1.
+				int32 AddFromText(const char *text, bool baseDark = true);
+
+				uint32 Count() const {
+					return (uint32)mThemes.Size();
+				}
+				const NkTheme &At(uint32 i) const {
+					return mThemes[i];
+				}
+				int32 Find(const char *name) const;
+				bool SetCurrent(const char *name);
+				void SetCurrentIndex(uint32 i) {
+					if (i < (uint32)mThemes.Size())
+						mCurrent = i;
+				}
+				uint32 CurrentIndex() const {
+					return mCurrent;
+				}
+				const NkTheme &Current() const {
+					return mThemes[mCurrent];
+				}
+
+			private:
+				NkVector<NkTheme> mThemes;
+				uint32 mCurrent = 0;
 		};
 
 	} // namespace editorkit
