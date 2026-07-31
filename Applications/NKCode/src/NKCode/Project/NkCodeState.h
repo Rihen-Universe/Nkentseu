@@ -54,7 +54,7 @@ namespace nkentseu {
 				bool changedOnDisk = false; // le fichier a ete modifie en dehors de NKCode
 				float32 codeZoom = 0.f;		// taille police PROPRE a cet onglet (0 = taille globale). Zoom par-fichier.
 				// ── Onglet MEDIA (image / video / audio) : pas de texte, viewer dedie ──
-				int32 mediaKind = 0;		 // 0 aucun (texte), 1 image, 2 video, 3 audio
+				int32 mediaKind = 0;		 // 0 aucun (texte), 1 image, 2 video, 3 audio, 4 PDF
 				bool mediaLoaded = false;	 // texture GPU chargee (image)
 				uint32 mediaTex = 0;		 // texture backend (image) via UploadRGBA
 				int32 mediaW = 0, mediaH = 0; // dimensions natives (px)
@@ -499,6 +499,11 @@ namespace nkentseu {
 						EndsWithI(name, ".flac") || EndsWithI(name, ".m4a") || EndsWithI(name, ".aac") ||
 						EndsWithI(name, ".opus"))
 						return 3;
+					// PDF : visionneuse dediee (lecture seule). L'ouvrir comme du TEXTE
+					// afficherait des octets compresses et ferait croire a un fichier
+					// corrompu — pire qu'un refus franc.
+					if (EndsWithI(name, ".pdf"))
+						return 4;
 					return 0;
 				}
 
@@ -6656,6 +6661,82 @@ namespace nkentseu {
 					cmd += JengaFileArg();
 					EnqueueJenga(cmd);
 					PumpQueue();
+				}
+
+				// Jeton --platform attendu par `jenga package` / `jenga deploy`.
+				// ATTENTION, ce n'est PAS celui de `jenga build` : build veut
+				// « Windows-x86_64 » (OS-architecture), package veut l'OS SEUL en
+				// minuscules. Renvoie nullptr si la plateforme courante n'est pas
+				// empaquetable (XboxSeries n'est pas dans les choix de la commande) —
+				// l'appelant doit alors le dire plutot que de lancer une commande qui
+				// echouerait sur une erreur d'argparse peu lisible.
+				const char *PackagePlatformArg() const {
+					int32 n = 0;
+					const SysDef *sys = Systems(&n);
+					const char *name = sys[(sysIdx >= 0 && sysIdx < n) ? sysIdx : 0].name;
+					if (StrEq(name, "Windows"))
+						return "windows";
+					if (StrEq(name, "Linux"))
+						return "linux";
+					if (StrEq(name, "macOS"))
+						return "macos";
+					if (StrEq(name, "Android"))
+						return "android";
+					if (StrEq(name, "iOS"))
+						return "ios";
+					if (StrEq(name, "Web"))
+						return "web";
+					if (StrEq(name, "HarmonyOS"))
+						return "harmonyos";
+					return nullptr; // XboxSeries : non empaquetable
+				}
+
+				// Le type « jng » (installateur maison Jenga) n'existe que pour les
+				// plateformes de BUREAU. Sert a griser l'entree de menu plutot qu'a
+				// laisser l'utilisateur declencher une commande vouee a l'echec.
+				bool SupportsJngInstaller() const {
+					const char *p = PackagePlatformArg();
+					return p && (StrEq(p, "windows") || StrEq(p, "linux") || StrEq(p, "macos"));
+				}
+
+				// `jenga package` : produit le livrable distribuable de la plateforme
+				// courante. `type` a nullptr => defaut de la plateforme cote Jenga (zip
+				// sous Windows, deb sous Linux, apk sous Android...). On ne recopie donc
+				// PAS la table des types ici : la seule valeur explicite passee est
+				// « jng », demandee par une entree de menu dediee.
+				void DoPackage(const char *type) {
+					if (!HasWorkspace()) {
+						status = NkString("(aucun workspace)");
+						return;
+					}
+					if (IsBuilding()) {
+						status = NkString("(construction en cours - empaqueter apres)");
+						return;
+					}
+					const char *plat = PackagePlatformArg();
+					if (!plat) {
+						status = NkString("(empaquetage non disponible pour cette plateforme)");
+						return;
+					}
+					output.Clear();
+					mQueue.Clear();
+					mQueueTags.Clear();
+					NkString cmd("package --platform ");
+					cmd += plat;
+					cmd += " --config ";
+					cmd += ConfigName();
+					if (!AllProjects()) {
+						cmd += " --project ";
+						cmd += SelectedProject();
+					}
+					if (type && *type) {
+						cmd += " --type ";
+						cmd += type;
+					}
+					cmd += JengaFileArg();
+					EnqueueJenga(cmd);
+					PumpQueue();
+					status = NkPrintf("Empaquetage %s (%s)...", plat, type && *type ? type : "type par defaut");
 				}
 
 				void DoRun() {

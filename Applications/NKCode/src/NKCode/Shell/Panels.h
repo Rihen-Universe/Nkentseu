@@ -20,7 +20,8 @@
 #include "NKPlatform/NkEnv.h"			  // env::GetEnvVar (variables d'environnement maison)
 #include "NKImage/NKImage.h"			  // NkImage : viewer media (image)
 #include "NKCode/Shell/NkAudioViewer.h"	  // DrawAudioViewer : lecteur audio (onde + play/seek)
-#include "NKCode/Shell/NkVideoViewer.h"	  // DrawVideoViewer : lecteur video (frames RGBA + transport)
+#include "NKCode/Shell/NkVideoViewer.h"
+#include "NKCode/Shell/NkPdfViewer.h"   // DrawPdfViewer : lecteur PDF (pages rendues)	  // DrawVideoViewer : lecteur video (frames RGBA + transport)
 
 namespace nkentseu {
 	namespace nkcode {
@@ -838,6 +839,8 @@ namespace nkentseu {
 							DrawAudioViewer(ctx, f, r);
 						else if (f.mediaKind == 2) // VIDEO : decode + affiche frames (NkVideoReader)
 							DrawVideoViewer(ctx, mShell, f, r);
+					else if (f.mediaKind == 4) // PDF : page rendue en bitmap, affichee en texture
+						DrawPdfViewer(ctx, mShell, f.path.ToString(), r);
 						else // IMAGE
 							DrawMediaViewer(ctx, mShell, f, r);
 					} else if (isMd && f.mdPreview) { // MARKDOWN -> preview rendu

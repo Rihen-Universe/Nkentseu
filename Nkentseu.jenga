@@ -569,6 +569,18 @@ with workspace("Nkentseu", location="."):
 
 
 
+    # Backend de fenetrage Linux : le define NKENTSEU_FORCE_WINDOWING_*_ONLY est
+
+    # emis par _emit_linux_backend_defines() dans config/modules.jenga, appele
+
+    # par nkentseudependson() — donc par CHAQUE projet. Ne pas le poser ici :
+
+    # hors projet, defines() est ignore silencieusement par Jenga (essaye, sans
+
+    # effet ; l'explication complete est dans config/modules.jenga).
+
+
+
     # =========================================================================
 
     # Inclusion de chaque projet depuis son propre fichier .jenga

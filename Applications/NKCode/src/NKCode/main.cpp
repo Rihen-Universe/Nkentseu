@@ -18,6 +18,7 @@
 #include "NKCode/Shell/NkAppFonts.h"
 #include "NKCode/Shell/NkAppIcons.h"
 #include "NKCode/Shell/NkAppCommands.h"
+#include "NKCode/Shell/NkOpenWindows.h" // registre des fenetres ouvertes (restauration au lancement)
 #include "NKCode/Project/NkLogSink.h"
 #include "NKImage/NKImage.h"
 #include "NKPlatform/NkEnv.h" // env::GetEnvVar (variables d'environnement maison)
@@ -215,25 +216,65 @@ int nkmain(const NkEntryState &state) {
 		}
 	}
 	// Argument : un dossier de workspace -> ouvre directement (cas "nouvelle fenetre").
+	// C'est AUSSI le chemin d'entree de l'explorateur de fichiers : le menu
+	// contextuel « Ouvrir avec NKCode » lance simplement `NKCode.exe <dossier>`.
 	bool g_openedArg = false;
+	NkString g_openedPath; // chemin REELLEMENT ouvert -> inscrit dans le registre
 	for (usize ai = 1; ai < state.args.Size(); ++ai) {
 		const char *a = state.args[ai].CStr();
 		if (a && a[0] && a[0] != '-') {
 			g_dialogs.DoLoad(NkPath(a));
 			g_openedArg = true;
+			g_openedPath = a;
 			break;
+		}
+	}
+	const NkString g_startupMode = nkcode::NkOpenWsState::ReadNkSetting("openStartup");
+	const NkString g_regHome = nkcode::NkOpenWsState::Home();
+	// « Au demarrage = Toutes les fenetres precedentes » (openStartup==2).
+	// Une fenetre = un processus : on reprend le premier workspace ICI et on
+	// relance les autres, exactement comme le fait « Ouvrir dans une nouvelle
+	// fenetre ». NkOpenWindowsTakeStale ne rend que les entrees dont le PID est
+	// mort — une fenetre encore ouverte n'est donc jamais dupliquee.
+	if (!g_openedArg && nkcode::StrEq(g_startupMode.CStr(), "2")) {
+		NkVector<NkString> prev = nkcode::NkOpenWindowsTakeStale(g_regHome);
+		if (!prev.Empty()) {
+			g_dialogs.DoLoad(NkPath(prev[0].CStr()));
+			g_openedArg = true;
+			g_openedPath = prev[0];
+			for (usize i = 1; i < prev.Size(); ++i)
+				nkcode::NkHomeOpenNewWindow(g_home.exePath, prev[i]);
 		}
 	}
 	// Parametre General « Au demarrage = Dernier workspace » (openStartup==1) :
 	// ouvre directement le workspace recent le plus recent qui existe encore sur disque.
-	if (!g_openedArg && nkcode::StrEq(nkcode::NkOpenWsState::ReadNkSetting("openStartup").CStr(), "1")) {
+	if (!g_openedArg && nkcode::StrEq(g_startupMode.CStr(), "1")) {
 		for (usize i = 0; i < g_state.recents.Size(); ++i) {
 			const char *rp = g_state.recents[i].CStr();
 			if (rp && rp[0] && (NkDirectory::Exists(rp) || NkFile::Exists(rp))) {
 				g_dialogs.DoLoad(NkPath(rp));
+				g_openedPath = rp;
 				break;
 			}
 		}
+	}
+	// ── Registre des fenetres ouvertes (restauration au lancement suivant) ──
+	// Inscription inconditionnelle : meme si l'option est desactivee aujourd'hui,
+	// le registre doit refleter la realite, sinon l'activer plus tard ne
+	// restaurerait rien de la session en cours.
+	nkcode::NkOpenWindowsRegister(g_regHome, g_openedPath);
+	{
+		// Le rappel recoit le dossier personnel ; il doit survivre a main().
+		static NkString s_regHome = g_regHome;
+		shell->SetOnWindowClosed(
+			[](void *user) {
+				// Croix de la barre de titre = fermeture EXPLICITE de cette
+				// fenetre : elle ne doit PAS revenir au prochain lancement.
+				// Ctrl+Q passe par RequestClose() et n'arrive jamais ici, donc
+				// quitter l'application laisse bien la fenetre inscrite.
+				nkcode::NkOpenWindowsUnregister(*static_cast<NkString *>(user));
+			},
+			&s_regHome);
 	}
 	// Logos + icônes (table unique) + manifeste + activity bars — Shell/NkAppIcons.h
 	nkcode::NkLoadAppIcons(shell.Get(), g_home, g_state);

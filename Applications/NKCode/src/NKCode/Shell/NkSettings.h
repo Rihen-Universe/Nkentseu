@@ -26,7 +26,7 @@ namespace nkentseu {
 				bool loaded = false, detected = false;
 				// ── General ──
 				int32 lang = 0;		   // 0 Francais, 1 English
-				int32 openStartup = 0; // 0 Launcher, 1 Dernier WS
+				int32 openStartup = 0; // 0 Launcher, 1 Dernier WS, 2 Fenetres precedentes
 				char recentsMax[8] = "50";
 				int32 groupBy = 0; // 0 Date, 1 Plateforme, 2 Langage
 				// ── Chemins par defaut ──
@@ -704,10 +704,13 @@ namespace nkentseu {
 				}
 				{
 					rowLabel(NkT("gen.startup"));
-					static const char *L[2];
+					// 2 = rouvre TOUTES les fenetres non explicitement fermees (celles
+					// encore ouvertes au moment de quitter, ou lors d'un plantage).
+					static const char *L[3];
 					L[0] = NkT("gen.launcher");
 					L[1] = NkT("gen.lastws");
-					NkSetCombo(u, {ctrlX, y, u.s(200), u.s(30)}, L, 2, &s->openStartup, 2, s, blockBg);
+					L[2] = NkT("gen.prevwins");
+					NkSetCombo(u, {ctrlX, y, u.s(200), u.s(30)}, L, 3, &s->openStartup, 2, s, blockBg);
 					y += u.s(40);
 				}
 				{
