@@ -3142,6 +3142,148 @@ namespace nkentseu {
 			st->giInjectMs = vao->GetLastInjectMs();
 		}
 
+		// ── ENTREE EN EDITION SUR UN OBJET ──────────────────────────────────────
+		// Extraite telle quelle du corps de frame — MEME code, MEME ordre. C'est le
+		// premier pas, et le seul risque, du chantier MULTI-OBJETS : tant que
+		// l'entree etait ecrite en ligne au milieu de la frame, il etait impossible
+		// de la rejouer pour un SECOND objet sans la dupliquer. Le comportement doit
+		// rester strictement identique — verifie par NK_EDIT_IDENTITY (0 partout) et
+		// par capture avant/apres.
+		//
+		// Elle remplit l'etat d'edition COURANT. L'etape suivante consistera a la
+		// faire ecrire dans un EMPLACEMENT (Demo3DEditSlot) plutot que directement
+		// dans st, puis a garder un emplacement par objet edite.
+		static void Demo3D_EnterEditOnObject(Demo3DState *st, renderer::NkMeshSystem *ms,
+											 renderer::NkRender3D *r3d, int32 sel) {
+			(void)r3d;
+			if (sel < 0) {
+				logger.Info("[Demo3D] Sélectionne un objet (clic) avant TAB.\n");
+			} else {
+				// Source = le mesh DÉJÀ édité de l'objet s'il existe (on continue
+				// l'édition), sinon la primitive partagée.
+				// ⚠️ La règle « <16 = sphère, sinon CUBE » supposait que tout objet
+				// non-sphère était un cube. Le sol est un PLAN : on entrait donc en
+				// édition sur une cage de cube étirée à 80×1×80, sans rapport avec
+				// la géométrie réellement affichée — d'où un « cube invisible » qu'on
+				// déplaçait et qui laissait le sol sur place.
+				NkMeshHandle prim = st->meshCube;
+				if (sel < 16)
+					prim = st->meshSphere;
+				else if (sel == Demo3DState::kIdxFloor)
+					prim = st->meshPlane;
+				const bool hadEdit = st->objMesh[sel].IsValid();
+				const NkMeshHandle src = hadEdit ? st->objMesh[sel] : prim;
+				if (!ms || !ms->HasCPUData(src)) {
+					logger.Warn("[Demo3D] Mesh sans copie CPU (keepCPU) — édition impossible.\n");
+				} else {
+					const uint32 vc = ms->GetVertexCount(src);
+					const uint32 ic = ms->GetIndexCount(src);
+					const auto *sv = (const renderer::NkVertex3D *)ms->GetVertices(src);
+					const uint32 *si = ms->GetIndices(src);
+					// AUTORITÉ half-edge n-gon. Si l'objet a DÉJÀ été édité, on reprend sa
+					// topologie EXACTE (objHE) : re-dériver depuis les triangles avec
+					// quadify perdrait toute face n-gon non reconstituable (face créée
+					// avec F non parfaitement plane, n-gon à plus de 4 côtés…) et
+					// ferait réapparaître les diagonales de triangulation en fil de fer.
+					// Sinon seulement : reconstruction heuristique depuis la primitive.
+					if (hadEdit && st->objHasHE[sel] && st->objHE[sel].VertCount() > 0) {
+						st->editHE = st->objHE[sel];
+						logger.Info("[Demo3D] EDIT MODE : topologie n-gon reprise telle quelle "
+									"({0} faces) — aucune re-derivation depuis les triangles\n",
+									(int32)st->editHE.FaceCount());
+					} else
+						st->editHE.BuildFromIndexed(sv, vc, si, ic, /*quadify*/ true);
+					// ── NK_EDIT_IDENTITY=1 : contrôle d'ALLER-RETOUR ──────────────
+					// Entrer en édition puis en ressortir SANS rien modifier doit être
+					// une IDENTITÉ. Ce contrôle compare le maillage re-trianguté au
+					// maillage SOURCE, attribut par attribut. Il vaut mieux qu'une
+					// comparaison de captures : celle-ci est polluée par le gizmo et le
+					// liseré de sélection, qui ne s'affichent QUE dans l'image « après »
+					// — j'ai d'abord conclu à tort à un changement de matériau sur cette
+					// base. Ici, aucune surcouche ne peut fausser le verdict.
+					if (getenv("NK_EDIT_IDENTITY")) {
+						NkVector<NkVertex3D> rv;
+						NkVector<uint32> ri;
+						NkVector<renderer::NkEmId> rtf;
+						st->editHE.Triangulate(rv, ri, rtf);
+						const uint32 n = (vc < (uint32)rv.Size()) ? vc : (uint32)rv.Size();
+						uint32 dPos = 0, dNrm = 0, dTan = 0, dUV = 0, dUV2 = 0, dCol = 0;
+						float32 maxPos = 0.f, maxTan = 0.f;
+						for (uint32 k = 0; k < n; k++) {
+							const NkVec3f dp = rv[k].pos - sv[k].pos;
+							const NkVec3f dt = rv[k].tangent - sv[k].tangent;
+							const float32 lp = dp.Len(), lt = dt.Len();
+							if (lp > 1e-5f) {
+								dPos++;
+								if (lp > maxPos)
+									maxPos = lp;
+							}
+							if ((rv[k].normal - sv[k].normal).Len() > 1e-4f)
+								dNrm++;
+							if (lt > 1e-4f) {
+								dTan++;
+								if (lt > maxTan)
+									maxTan = lt;
+							}
+							if ((rv[k].uv - sv[k].uv).Len() > 1e-5f)
+								dUV++;
+							if ((rv[k].uv2 - sv[k].uv2).Len() > 1e-5f)
+								dUV2++;
+							if (rv[k].color != sv[k].color)
+								dCol++;
+						}
+						logger.Info("[Demo3D][IDENTITE] objet #{0} : {1} sommets compares | "
+									"pos={2} (max {3}) normal={4} tangent={5} (max {6}) "
+									"uv={7} uv2={8} color={9}  <- 0 partout = aller-retour NEUTRE\n",
+									sel, n, dPos, maxPos, dNrm, dTan, maxTan, dUV, dUV2, dCol);
+					}
+					st->editHistory.Clear();   // nouvel objet en édition -> historique neuf
+					st->editRecorder.Clear();  // journal des commandes neuf
+					st->editModifiers.Clear(); // pile de modificateurs neuve
+					st->editActiveMod = -1;
+					st->editBase = st->editHE; // maillage de BASE pour le rejeu (modificateurs/IA)
+					st->editReplayStep = -1;
+					st->vertSel.Clear();
+					st->vertSel.Resize(st->editHE.VertCount());
+					for (uint32 i = 0; i < st->editHE.VertCount(); i++)
+						st->vertSel[i] = 0;
+					st->editMesh = {};
+					Demo3D_SyncFromHE(st, ms);
+					// Le mesh objet a été cloné dans editHE -> on le libère ; il sera
+					// ré-adopté (mis à jour) à la sortie d'édition.
+					if (hadEdit) {
+						ms->Release(st->objMesh[sel]);
+						st->objMesh[sel] = {};
+					}
+					// Ancre = transform MONDE de l'objet (base repos + delta gizmo).
+					st->editAnchor = st->gizmo.Apply(sel, Demo3D_ObjBaseFull(st, sel));
+					st->editAnchorInv = st->editAnchor.Inverse();
+					st->editObjIdx = sel;
+					// Capture le matériau de l'objet -> le mesh édité garde sa couleur PBR.
+					Demo3D_ObjMaterial(sel, st->editObjTint, st->editObjMetallic, st->editObjRoughness);
+					st->editGizmo.ClearSelection();
+					st->editWasDragging = false;
+					st->editOverlayDirty = true;
+					st->editMode = true;
+					// Compte flat/smooth : l'ombrage est DEDUIT des normales source par
+					// BuildFromIndexed. Le tracer ici permet de verifier sans capture
+					// qu'un aller-retour en edition ne rabat pas tout le modele en FLAT.
+					uint32 nSmooth = 0, nFlat = 0;
+					for (uint32 fi = 0; fi < (uint32)st->editHE.faces.Size(); fi++) {
+						if (!st->editHE.faces[fi].alive)
+							continue;
+						if (st->editHE.faces[fi].smooth)
+							nSmooth++;
+						else
+							nFlat++;
+					}
+					logger.Info("[Demo3D] EDIT MODE objet #{0} ({1} vertices, ombrage : {2} faces "
+								"smooth / {3} faces flat).\n",
+								sel, vc, nSmooth, nFlat);
+				}
+			}
+		}
+
 		void Demo3D_Frame(DemoCtx &ctx, float32 dt) {
 			auto *st = (Demo3DState *)ctx.userData;
 			// Delta souris RÉEL de la frame = (courant - précédent) -> vaut 0 sans mouvement
@@ -3744,132 +3886,10 @@ namespace nkentseu {
 					r3d->ClearEditOverlay();
 				} else {
 					const int32 sel = st->gizmo.ActiveIndex();
-					if (sel < 0) {
+					if (sel < 0)
 						logger.Info("[Demo3D] Sélectionne un objet (clic) avant TAB.\n");
-					} else {
-						// Source = le mesh DÉJÀ édité de l'objet s'il existe (on continue
-						// l'édition), sinon la primitive partagée.
-						// ⚠️ La règle « <16 = sphère, sinon CUBE » supposait que tout objet
-						// non-sphère était un cube. Le sol est un PLAN : on entrait donc en
-						// édition sur une cage de cube étirée à 80×1×80, sans rapport avec
-						// la géométrie réellement affichée — d'où un « cube invisible » qu'on
-						// déplaçait et qui laissait le sol sur place.
-						NkMeshHandle prim = st->meshCube;
-						if (sel < 16)
-							prim = st->meshSphere;
-						else if (sel == Demo3DState::kIdxFloor)
-							prim = st->meshPlane;
-						const bool hadEdit = st->objMesh[sel].IsValid();
-						const NkMeshHandle src = hadEdit ? st->objMesh[sel] : prim;
-						if (!ms || !ms->HasCPUData(src)) {
-							logger.Warn("[Demo3D] Mesh sans copie CPU (keepCPU) — édition impossible.\n");
-						} else {
-							const uint32 vc = ms->GetVertexCount(src);
-							const uint32 ic = ms->GetIndexCount(src);
-							const auto *sv = (const renderer::NkVertex3D *)ms->GetVertices(src);
-							const uint32 *si = ms->GetIndices(src);
-							// AUTORITÉ half-edge n-gon. Si l'objet a DÉJÀ été édité, on reprend sa
-							// topologie EXACTE (objHE) : re-dériver depuis les triangles avec
-							// quadify perdrait toute face n-gon non reconstituable (face créée
-							// avec F non parfaitement plane, n-gon à plus de 4 côtés…) et
-							// ferait réapparaître les diagonales de triangulation en fil de fer.
-							// Sinon seulement : reconstruction heuristique depuis la primitive.
-							if (hadEdit && st->objHasHE[sel] && st->objHE[sel].VertCount() > 0) {
-								st->editHE = st->objHE[sel];
-								logger.Info("[Demo3D] EDIT MODE : topologie n-gon reprise telle quelle "
-											"({0} faces) — aucune re-derivation depuis les triangles\n",
-											(int32)st->editHE.FaceCount());
-							} else
-								st->editHE.BuildFromIndexed(sv, vc, si, ic, /*quadify*/ true);
-							// ── NK_EDIT_IDENTITY=1 : contrôle d'ALLER-RETOUR ──────────────
-							// Entrer en édition puis en ressortir SANS rien modifier doit être
-							// une IDENTITÉ. Ce contrôle compare le maillage re-trianguté au
-							// maillage SOURCE, attribut par attribut. Il vaut mieux qu'une
-							// comparaison de captures : celle-ci est polluée par le gizmo et le
-							// liseré de sélection, qui ne s'affichent QUE dans l'image « après »
-							// — j'ai d'abord conclu à tort à un changement de matériau sur cette
-							// base. Ici, aucune surcouche ne peut fausser le verdict.
-							if (getenv("NK_EDIT_IDENTITY")) {
-								NkVector<NkVertex3D> rv;
-								NkVector<uint32> ri;
-								NkVector<renderer::NkEmId> rtf;
-								st->editHE.Triangulate(rv, ri, rtf);
-								const uint32 n = (vc < (uint32)rv.Size()) ? vc : (uint32)rv.Size();
-								uint32 dPos = 0, dNrm = 0, dTan = 0, dUV = 0, dUV2 = 0, dCol = 0;
-								float32 maxPos = 0.f, maxTan = 0.f;
-								for (uint32 k = 0; k < n; k++) {
-									const NkVec3f dp = rv[k].pos - sv[k].pos;
-									const NkVec3f dt = rv[k].tangent - sv[k].tangent;
-									const float32 lp = dp.Len(), lt = dt.Len();
-									if (lp > 1e-5f) {
-										dPos++;
-										if (lp > maxPos)
-											maxPos = lp;
-									}
-									if ((rv[k].normal - sv[k].normal).Len() > 1e-4f)
-										dNrm++;
-									if (lt > 1e-4f) {
-										dTan++;
-										if (lt > maxTan)
-											maxTan = lt;
-									}
-									if ((rv[k].uv - sv[k].uv).Len() > 1e-5f)
-										dUV++;
-									if ((rv[k].uv2 - sv[k].uv2).Len() > 1e-5f)
-										dUV2++;
-									if (rv[k].color != sv[k].color)
-										dCol++;
-								}
-								logger.Info("[Demo3D][IDENTITE] objet #{0} : {1} sommets compares | "
-											"pos={2} (max {3}) normal={4} tangent={5} (max {6}) "
-											"uv={7} uv2={8} color={9}  <- 0 partout = aller-retour NEUTRE\n",
-											sel, n, dPos, maxPos, dNrm, dTan, maxTan, dUV, dUV2, dCol);
-							}
-							st->editHistory.Clear();   // nouvel objet en édition -> historique neuf
-							st->editRecorder.Clear();  // journal des commandes neuf
-							st->editModifiers.Clear(); // pile de modificateurs neuve
-							st->editActiveMod = -1;
-							st->editBase = st->editHE; // maillage de BASE pour le rejeu (modificateurs/IA)
-							st->editReplayStep = -1;
-							st->vertSel.Clear();
-							st->vertSel.Resize(st->editHE.VertCount());
-							for (uint32 i = 0; i < st->editHE.VertCount(); i++)
-								st->vertSel[i] = 0;
-							st->editMesh = {};
-							Demo3D_SyncFromHE(st, ms);
-							// Le mesh objet a été cloné dans editHE -> on le libère ; il sera
-							// ré-adopté (mis à jour) à la sortie d'édition.
-							if (hadEdit) {
-								ms->Release(st->objMesh[sel]);
-								st->objMesh[sel] = {};
-							}
-							// Ancre = transform MONDE de l'objet (base repos + delta gizmo).
-							st->editAnchor = st->gizmo.Apply(sel, Demo3D_ObjBaseFull(st, sel));
-							st->editAnchorInv = st->editAnchor.Inverse();
-							st->editObjIdx = sel;
-							// Capture le matériau de l'objet -> le mesh édité garde sa couleur PBR.
-							Demo3D_ObjMaterial(sel, st->editObjTint, st->editObjMetallic, st->editObjRoughness);
-							st->editGizmo.ClearSelection();
-							st->editWasDragging = false;
-							st->editOverlayDirty = true;
-							st->editMode = true;
-							// Compte flat/smooth : l'ombrage est DEDUIT des normales source par
-							// BuildFromIndexed. Le tracer ici permet de verifier sans capture
-							// qu'un aller-retour en edition ne rabat pas tout le modele en FLAT.
-							uint32 nSmooth = 0, nFlat = 0;
-							for (uint32 fi = 0; fi < (uint32)st->editHE.faces.Size(); fi++) {
-								if (!st->editHE.faces[fi].alive)
-									continue;
-								if (st->editHE.faces[fi].smooth)
-									nSmooth++;
-								else
-									nFlat++;
-							}
-							logger.Info("[Demo3D] EDIT MODE objet #{0} ({1} vertices, ombrage : {2} faces "
-										"smooth / {3} faces flat).\n",
-										sel, vc, nSmooth, nFlat);
-						}
-					}
+					else
+						Demo3D_EnterEditOnObject(st, ms, r3d, sel);
 				}
 			}
 
