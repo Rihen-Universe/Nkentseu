@@ -409,6 +409,49 @@ par `NkVirtualShadowMaps` (multi-lights). Style UE5 simplifié.
 - ✅ Application dans pbr.frag.vk.glsl : atténue IBL irradiance + specular
 - ⏳ V1 TODO : .glsli générique pour Layered/Toon réutilisable
 
+### Phase H.6 v1 — GI à UN REBOND ✅ (2026-07-30)
+La grille de voxels porte désormais la **radiance réémise**, pas seulement
+l'opacité : l'éclairage indirect vient de la géométrie réelle au lieu d'un
+ambiant constant. Structure canonique du cone tracing (Crassin) —
+`RGB` = radiance prémultipliée, `A` = opacité — donc **AO et GI partagent un
+seul parcours de cônes** : l'AO ne coûte plus rien en plus.
+
+- ✅ `NkVoxelOccluder::albedo` + `InjectLighting(lights)` / `InjectLightingIfDirty`
+  (CPU) : éclairage direct par voxel × albédo, normale par **gradient d'opacité**,
+  **visibilité par ray-march** dans la grille (c'est elle qui donne les ombres
+  portées de l'indirect). `SetGIIntensity` applique le réglage à l'injection —
+  aucun uniform ajouté au shader (registres DX contraints).
+- ✅ `Include/NkVoxelAO.glsli` : `NkComputeVoxelGI()` (xyz = irradiance,
+  w = AO) ; `NkComputeVoxelAO()` conservé pour Toon/Anime/Glass.
+- ✅ Branché sur **Layered / LayeredV1** et sur **PBR** (`pbr.frag.nksl`).
+- ✅ **MESURE (démo 8, mur rouge éclairé, aucune lumière rouge dans la scène)** :
+  sur le flanc de la sphère qui fait face au mur, le rouge monte **1,9× plus vite
+  que le bleu** (dR +45,6 contre dB +23,8 à intensité ×3), soit **+15,7 % de
+  ratio R/B** ; à intensité 1, dR +18,7 contre dB +14,7. 58 % des pixels
+  affectés. Le reste du gain est neutre : c'est le rebond du **sol clair**, qui
+  domine légitimement celui du mur — comportement physique attendu, pas un défaut.
+- ✅ Le mur de la scène de test est **réellement rendu** (cube sur l'AABB de
+  l'occluder, bornes en **source unique** `kWallMin/kWallMax` pour qu'ils ne
+  puissent pas diverger). Sans ce draw, la lumière rebondissait sur un mur
+  invisible et l'effet semblait sortir de nulle part. ⚠️ Le mur est adossé en
+  **+Z** : avec `yaw=0` la caméra orbite sur l'axe **X**, donc un mur en +X se
+  planterait entre elle et la sphère.
+  Non-régression : sans occluder injecté le terme est nul, rendu identique
+  (démo 4 MAD 0,0014 pour un bruit run-à-run de 0,93). Debug + Release verts.
+- 🔶 **DÉFAUT PRÉEXISTANT ISOLÉ — la texture voxel n'atteint pas le shader dans
+  la démo 4** : ni le GI ni l'AO n'y produisent d'effet. Prouvé par deux mesures
+  indépendantes : (1) un mur occluder massif (9064 voxels) ne change rien
+  (MAD 0,0013) ; (2) la sonde `NK_GI_DEBUG_FILL=1` (grille entièrement saturée)
+  ne change rien non plus (MAD 0,04), alors que la même sonde **sature l'écran
+  en démo 8** (MAD 153). Le binding 27 ne remonte donc pas jusqu'au shader de
+  cette démo — bug de binding antérieur au GI, à traiter à part.
+- ⏳ Suite : injection en **compute** (l'interface et le shader ne bougeront pas),
+  mips de la grille pour les cônes longue portée, bounds en uniform (aujourd'hui
+  `NK_VOXEL_MIN/MAX_BOUNDS` est codé en dur et doit suivre `NkVoxelAOConfig`),
+  et `giScale` synchronisé à la main entre CPU et `NK_VOXEL_GI_SCALE`.
+- 🔧 Overrides : `NK_GI_TEST` (1 = scène de validation, 2 = témoin sans mur),
+  `NK_GI_INTENSITY`, `NK_GI_DEBUG_FILL` (sonde de diagnostic).
+
 ### Phase Planar Reflection ✅ (2026-05-23) ⭐ FIXÉ
 NkPlanarReflectionSystem + reflets planaires complets sur sol mirror.
 
@@ -538,7 +581,44 @@ NkPlanarReflectionSystem + reflets planaires complets sur sol mirror.
 - `.glsli` générique pour Layered/Toon/Anime (pas dupliquer le code)
 - GPU bake voxel grid (CPU bake actuel = 1s sur startup)
 - Densité voxel runtime adaptative (64³ → 128³ selon scene)
-- Multi-bounce GI light injection (style Lumen lite)
+- 🔶 **GI à UN REBOND — v1 livrée côté moteur (2026-07-30), branchement PBR
+  BLOQUÉ par un verrou.** La grille porte désormais, en plus de l'opacité, la
+  **radiance réémise** par chaque voxel : structure canonique du voxel cone
+  tracing (RGB = radiance prémultipliée, A = opacité) dans la texture RGBA8
+  existante — donc **aucun binding ni format nouveau** (les registres DX sont
+  déjà contraints, cf. [[project_dx_binding_model_plan]]).
+  - `NkVoxelOccluder::albedo` + `InjectLighting(lights)` /
+    `InjectLightingIfDirty(lights)` : pour chaque voxel occupé, éclairage direct
+    (N·L par **gradient d'opacité** — une voxelisation AABB n'a pas de normale)
+    × albédo / π, avec **visibilité par ray-march** dans la grille (c'est elle
+    qui donne les ombres portées de l'indirect, donc son contraste).
+  - `NkComputeVoxelGI()` : AO et GI dans **un seul** balayage de 4 cônes
+    (accumulation front-to-back) — l'AO devient un produit dérivé, sans coût
+    supplémentaire. `NkComputeVoxelAO()` conservé pour les matériaux qui ne
+    veulent que l'AO.
+  - Intensité appliquée **côté CPU à l'injection** (radiance nulle = GI éteint)
+    plutôt qu'en uniform : zéro binding ajouté, et l'A/B de validation est exact.
+  - **MESURE (demo 8, `NK_GI_TEST=1`, scène de color bleeding : mur ROUGE
+    éclairé près de sphères)** : canal rouge moyen 20,95 → **24,34 (+16,2 %)**
+    contre +5,9 % pour le bleu, alors qu'**aucune lumière rouge n'existe** dans
+    la scène — l'écart R−B passe de −6,32 à −4,54. C'est le test canonique du
+    GI : la teinte vient de la géométrie, pas d'un ambiant constant.
+    A/B : `NK_GI_INTENSITY=0` vs `1`.
+  - ⚠️ **BLOQUÉ** : le branchement dans le PBR (le matériau du gros des scènes)
+    tombe dans `Resources/NKRenderer/Shaders/{Sel*,PBR}/**`, VERROUILLÉ par le
+    chantier modélisation (`Engine/Noge/CONTINUATION.private.md`). Le GI est donc
+    branché sur `Layered` et `LayeredV1` (libres) pour la validation. Pour
+    l'activer sur le PBR une fois le verrou levé, dans `pbr.frag.nksl` remplacer
+    `float voxAO = NkComputeVoxelAO(vWorldPos, N);` par
+    `vec4 voxGI = NkComputeVoxelGI(vWorldPos, N); float voxAO = voxGI.w;`
+    puis ajouter après le calcul de `amb` :
+    `amb += kDi * albedo * voxGI.xyz * ao * uCam.iblStrength;`
+    (`NkRender3D::BeginScene` étant lui aussi verrouillé, l'injection est
+    déclenchée par l'APPLICATION — ce qui est de toute façon souhaitable tant
+    qu'elle est en CPU : c'est la scène qui décide quand elle paie ce coût.)
+  - Reste v2 : injection en **compute** (le calcul seul change, ni l'interface ni
+    le shader), mips de la grille pour des cônes larges, bounds en uniform (ils
+    sont encore en `#define` partagé entre CPU et shader), et plusieurs rebonds.
 
 ### Phase H.5b — GTAO complet (papier Activision 2016)
 Amélioration incrémentale au screen-space (alternative voxel) :

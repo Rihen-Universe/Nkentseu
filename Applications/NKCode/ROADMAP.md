@@ -501,9 +501,23 @@ Classement par **rapport valeur / coût**, pas par numéro de la spec :
 - ⬜ Plus tard : registre / marketplace + sandboxing.
 - ⬜ 🎯 **Jalon** : une extension tierce ajoute une commande et un nœud Blueprint sans toucher au cœur.
 
-## Phase 11 — Agents (l'IA de dev dans l'IDE) ⬜
-- ⬜ **Assistant** : panneau de chat + boucle d'outils (lire/écrire fichiers, build Jenga, recherche)
-      + diff/aperçu avant application. Connecteur **LLM externe** (via NKNetwork).
+## Phase 11 — Agents (l'IA de dev dans l'IDE) 🟡
+- ✅ **Assistant Claude Code** : panneau de chat + CLI réel en sous-processus (NkPipeProc,
+      mémoire/outils/permissions natifs), permissions interactives (accepter/refuser en direct),
+      journal IDE (dernières interactions) transmis au contexte, vérification en fond des
+      fichiers modifiés (git status + repli scan disque si git absent).
+- ✅ **Compte & Usage** : requêtes réelles (`claude auth status`, `/usage`), barres Session/Semaine,
+      coût par modèle persistant, bascule Jour/Semaine, calcul dès l'entrée dans le panneau.
+- ✅ **Assistant général** (API directe) : génération/revue de code câblées.
+- ⬜ **Comparaison des 4 panneaux d'agents** (Claude Code / Assistant général / Codex / NkAI) —
+      en attente du retour de Rihen.
+- ⬜ **Codex/OpenAI** et **« IA maison » (NkAI)** : juste des messages « bientôt disponible »
+      pour l'instant, pas encore câblés (contrairement à Claude Code et l'Assistant général).
+- ⬜ **Agents capables de cliquer/interagir avec les fenêtres de l'IDE** (computer-use) —
+      explicitement repoussé à plus tard par Rihen.
+- ⬜ **Bloc « Skills, subagents, plugins, MCP servers »** dans Compte & Usage — pas ajouté
+      volontairement : cette donnée n'existe pas dans la réponse texte brute du CLI (`/usage`),
+      l'inventer violerait la règle du projet de ne jamais afficher une valeur non reçue réellement.
 - ⬜ **Sous-agents** : agents spécialisés (revue, tests, refactor) en parallèle + orchestrateur + fusion.
 - ⬜ **Orchestration visuelle** : nœuds agent/outil/condition/boucle sur le substrat **Graph** (+ équivalent texte).
 - ⬜ Plus tard : **modèles LOCAUX** via **NKAI/NKInfer** (assistant 100 % local) ; permissions/garde-fous fins.

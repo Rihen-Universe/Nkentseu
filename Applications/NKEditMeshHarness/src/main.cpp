@@ -36,6 +36,8 @@
 //                                     sortie 1 si divergence (utilisable en CI)
 // =============================================================================
 #include "NKRenderer/Mesh/NkEditMesh.h"
+#include "NKRenderer/Core/NkGizmo.h"
+#include "NKEditorKit/NkShortcutTable.h"
 #include "NKContainers/Associative/NkHashMap.h"
 #include "NKLogger/NkLog.h"
 
@@ -527,6 +529,1016 @@ static void Lot5Battery() {
 	}
 }
 
+// ── ORDRE DE SELECTION : Merge At First / At Last ───────────────────────────
+// LE CAS QUI COMPTE : les MEMES deux sommets, selectionnes dans l'ORDRE INVERSE.
+// Avec l'ancien comportement (plus petit / plus grand INDICE), les deux scenarios
+// donnaient exactement la meme ligne — le harnais ne pouvait donc pas distinguer
+// « ca marche » de « ca ne regarde pas l'ordre ». Ici les deux lignes DOIVENT
+// differer, et l'une doit etre l'image de l'autre.
+static void SelOrderBattery() {
+	NkVector<NkVertex3D> v;
+	NkVector<uint32> idx;
+	MakeCube(v, idx);
+	// Deux coins opposes. Chacun existe en plusieurs COPIES (le cube duplique ses
+	// sommets par face) : un « clic » selectionne donc toutes les copies du coin,
+	// exactement comme le fait l'editeur apres propagation aux coincidents.
+	for (int32 rev = 0; rev < 2; rev++) {
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		const NkVec3f pa = m.verts[0].pos;
+		const NkVec3f pb = {-pa.x, -pa.y, -pa.z};
+		const NkVec3f p1 = rev ? pb : pa, p2 = rev ? pa : pb;
+		NkVector<uint8> flags;
+		flags.Resize(m.VertCount());
+		for (uint32 i = 0; i < m.VertCount(); i++)
+			flags[i] = 0;
+		// CLIC 1 puis CLIC 2 : deux appels successifs, chacun poussant le tableau
+		// ENTIER — c'est ce que fait l'editeur a chaque synchronisation. L'ordre
+		// doit survivre a cette repetition.
+		for (uint32 i = 0; i < m.VertCount(); i++)
+			if ((m.verts[i].pos - p1).Len() < 1e-6f)
+				flags[i] = 1;
+		m.SetVertSelection(flags.Data(), (uint32)flags.Size());
+		for (uint32 i = 0; i < m.VertCount(); i++)
+			if ((m.verts[i].pos - p2).Len() < 1e-6f)
+				flags[i] = 1;
+		m.SetVertSelection(flags.Data(), (uint32)flags.Size());
+		const int32 fi = m.FirstSelected(), li = m.LastSelected();
+		const NkVec3f fp = (fi >= 0) ? m.verts[(uint32)fi].pos : NkVec3f{0.f, 0.f, 0.f};
+		const NkVec3f lp = (li >= 0) ? m.verts[(uint32)li].pos : NkVec3f{0.f, 0.f, 0.f};
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s premier=(%.2f,%.2f,%.2f) dernier=(%.2f,%.2f,%.2f)",
+					 rev ? "ordre/cube-clic-B-puis-A" : "ordre/cube-clic-A-puis-B", (double)fp.x, (double)fp.y,
+					 (double)fp.z, (double)lp.x, (double)lp.y, (double)lp.z);
+			gLineCount++;
+		}
+		// Merge At First : tout converge vers le PREMIER CLIQUE. Le centre du
+		// maillage resultant en porte la trace, donc la signature suffit.
+		NkEditMesh mf = m;
+		NkMergeParams mp;
+		mp.mode = NkMergeParams::First;
+		const bool okF = mf.MergeSelectedVerts(mp);
+		char nm[96];
+		snprintf(nm, sizeof(nm), "ordre/merge-first-%s%s", rev ? "BA" : "AB", okF ? "" : " [REFUSE]");
+		Emit(nm, Signature(mf));
+		NkEditMesh ml = m;
+		mp.mode = NkMergeParams::Last;
+		const bool okL = ml.MergeSelectedVerts(mp);
+		snprintf(nm, sizeof(nm), "ordre/merge-last-%s%s", rev ? "BA" : "AB", okL ? "" : " [REFUSE]");
+		Emit(nm, Signature(ml));
+	}
+	// DESELECTION : un sommet retire puis reselectionne repasse EN DERNIER. Sans
+	// cela, « dernier selectionne » designerait un geste ancien et Merge At Last
+	// viserait un coin que l'utilisateur croit avoir abandonne.
+	{
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		const NkVec3f pa = m.verts[0].pos;
+		const NkVec3f pb = {-pa.x, -pa.y, -pa.z};
+		NkVector<uint8> flags;
+		flags.Resize(m.VertCount());
+		auto set = [&](NkVec3f p, uint8 on) {
+			for (uint32 i = 0; i < m.VertCount(); i++)
+				if ((m.verts[i].pos - p).Len() < 1e-6f)
+					flags[i] = on;
+		};
+		for (uint32 i = 0; i < m.VertCount(); i++)
+			flags[i] = 0;
+		set(pa, 1);
+		m.SetVertSelection(flags.Data(), (uint32)flags.Size()); // A : rang 1
+		set(pb, 1);
+		m.SetVertSelection(flags.Data(), (uint32)flags.Size()); // B : rang 2
+		set(pa, 0);
+		m.SetVertSelection(flags.Data(), (uint32)flags.Size()); // A retire
+		set(pa, 1);
+		m.SetVertSelection(flags.Data(), (uint32)flags.Size()); // A revient -> rang 3
+		const int32 fi = m.FirstSelected(), li = m.LastSelected();
+		const NkVec3f fp = (fi >= 0) ? m.verts[(uint32)fi].pos : NkVec3f{0.f, 0.f, 0.f};
+		const NkVec3f lp = (li >= 0) ? m.verts[(uint32)li].pos : NkVec3f{0.f, 0.f, 0.f};
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s premier=(%.2f,%.2f,%.2f) dernier=(%.2f,%.2f,%.2f)",
+					 "ordre/cube-A-retire-puis-remis", (double)fp.x, (double)fp.y, (double)fp.z, (double)lp.x,
+					 (double)lp.y, (double)lp.z);
+			gLineCount++;
+		}
+	}
+}
+
+// ── BMESH ETAPE 2 : CYCLE RADIAL ET CYCLE DISQUE ────────────────────────────
+// Le cas qui compte est le NON-MANIFOLD : une arete portee par TROIS faces. La
+// structure ne savait pas la representer — `Hedge::twin` ne designe qu'UNE
+// opposee, donc l'appariement en retenait deux et la troisieme devenait
+// invisible pour tout parcours. On construit donc une jonction en T (un cube
+// plus une cloison collee sur une de ses aretes) et on verifie que :
+//   1. l'arete partagee est bien vue avec TROIS faces ;
+//   2. « la face d'en face » est REFUSEE la-bas, au lieu d'en rendre une au
+//      hasard ;
+//   3. la boucle d'aretes S'ARRETE a cette arete, comme dans Blender, au lieu
+//      de basculer sur une branche que personne n'a choisie.
+static void Bmesh2Battery() {
+	NkVector<NkVertex3D> v;
+	NkVector<uint32> idx;
+	MakeCube(v, idx);
+	// ── Reference : le cube seul ────────────────────────────────────────────
+	{
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		m.RebuildEdges();
+		// Disque : sur un cube, chaque coin porte exactement 3 aretes.
+		NkVector<NkEmId> disk;
+		const uint32 d0 = m.VertEdges(0, disk);
+		// Radial : toute arete d'un cube ferme porte exactement 2 faces.
+		uint32 rad2 = 0, radOther = 0;
+		for (uint32 e = 0; e < (uint32)m.edges.Size(); ++e) {
+			if (!m.edges[e].alive)
+				continue;
+			if (m.RadialCount((NkEmId)e) == 2)
+				rad2++;
+			else
+				radOther++;
+		}
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s aretes=%u radial2=%u autres=%u nonmanif=%u disque(v0)=%u",
+					 "bmesh2/cube-cycles", m.EdgeCount(), rad2, radOther, m.NonManifoldEdgeCount(), d0);
+			gLineCount++;
+		}
+	}
+	// ── Jonction en T : une cloison collee sur l'arete (0.5,-0.5,±0.5) ──────
+	// La cloison partage EXACTEMENT deux sommets du cube ; l'arete qui les relie
+	// se retrouve donc portee par 3 faces (2 du cube + 1 de la cloison).
+	NkVector<NkVertex3D> vt = v;
+	NkVector<uint32> it = idx;
+	{
+		const NkVec3f a = {0.5f, -0.5f, 0.5f}, b = {0.5f, -0.5f, -0.5f};
+		const NkVec3f c = {1.5f, -0.5f, -0.5f}, d = {1.5f, -0.5f, 0.5f};
+		const NkVec3f q[4] = {a, b, c, d};
+		const uint32 base = (uint32)vt.Size();
+		for (int32 k = 0; k < 4; k++) {
+			NkVertex3D x{};
+			x.pos = q[k];
+			x.normal = {0.f, 1.f, 0.f};
+			x.tangent = {1.f, 0.f, 0.f};
+			x.color = 0xFFFFFFFFu;
+			vt.PushBack(x);
+		}
+		it.PushBack(base);
+		it.PushBack(base + 1);
+		it.PushBack(base + 2);
+		it.PushBack(base);
+		it.PushBack(base + 2);
+		it.PushBack(base + 3);
+	}
+	{
+		NkEditMesh m;
+		m.BuildFromIndexed(vt.Data(), (uint32)vt.Size(), it.Data(), (uint32)it.Size(), true);
+		m.RebuildEdges();
+		// Retrouve l'arete partagee par ses deux sommets (indices bruts : les
+		// copies coincidentes sont resolues en interne).
+		int32 ia = -1, ib = -1;
+		const NkVec3f pa = {0.5f, -0.5f, 0.5f}, pb = {0.5f, -0.5f, -0.5f};
+		for (uint32 i = 0; i < m.VertCount(); ++i) {
+			if (ia < 0 && (m.verts[i].pos - pa).Len() < 1e-6f)
+				ia = (int32)i;
+			if (ib < 0 && (m.verts[i].pos - pb).Len() < 1e-6f)
+				ib = (int32)i;
+		}
+		const NkEmId e = (ia >= 0 && ib >= 0) ? m.EdgeBetween((uint32)ia, (uint32)ib) : NK_EM_INVALID;
+		NkVector<NkEmId> fs;
+		const uint32 nf = (e != NK_EM_INVALID) ? m.EdgeFaces(e, fs) : 0u;
+		const NkEmId other = (e != NK_EM_INVALID && nf > 0) ? m.EdgeOtherFace(e, fs[0]) : NK_EM_INVALID;
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s radial=%u faces=%u nonmanif=%u autreface=%s",
+					 "bmesh2/jonction-T", (e != NK_EM_INVALID) ? m.RadialCount(e) : 0u, nf,
+					 m.NonManifoldEdgeCount(), (other == NK_EM_INVALID) ? "REFUSEE" : "rendue");
+			gLineCount++;
+		}
+		// La boucle d'aretes partant de cette arete ne doit pas traverser la
+		// jonction. On compare au meme depart sur le cube SEUL.
+		NkVector<uint32> loopT;
+		if (ia >= 0 && ib >= 0)
+			m.GetEdgeLoop((uint32)ia, (uint32)ib, loopT);
+		NkEditMesh mc;
+		mc.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		mc.RebuildEdges();
+		int32 ja = -1, jb = -1;
+		for (uint32 i = 0; i < mc.VertCount(); ++i) {
+			if (ja < 0 && (mc.verts[i].pos - pa).Len() < 1e-6f)
+				ja = (int32)i;
+			if (jb < 0 && (mc.verts[i].pos - pb).Len() < 1e-6f)
+				jb = (int32)i;
+		}
+		NkVector<uint32> loopC;
+		if (ja >= 0 && jb >= 0)
+			mc.GetEdgeLoop((uint32)ja, (uint32)jb, loopC);
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s boucle-cube=%u aretes  boucle-jonction=%u aretes",
+					 "bmesh2/boucle-arretee", (uint32)(loopC.Size() / 2), (uint32)(loopT.Size() / 2));
+			gLineCount++;
+		}
+		Emit("bmesh2/jonction-T-signature", Signature(m));
+	}
+	// ── ARETE FILAIRE : cycle radial VIDE, et elle reste dans le disque ─────
+	{
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		m.RebuildEdges();
+		const uint32 before = m.EdgeCount();
+		// Deux coins OPPOSES du cube : la diagonale n'est bordee par aucune face.
+		int32 ia = -1, ib = -1;
+		const NkVec3f pa = m.verts[0].pos, pb = {-pa.x, -pa.y, -pa.z};
+		for (uint32 i = 0; i < m.VertCount(); ++i) {
+			if (ia < 0 && (m.verts[i].pos - pa).Len() < 1e-6f)
+				ia = (int32)i;
+			if (ib < 0 && (m.verts[i].pos - pb).Len() < 1e-6f)
+				ib = (int32)i;
+		}
+		const NkEmId we = (ia >= 0 && ib >= 0) ? m.AddWireEdge((uint32)ia, (uint32)ib) : NK_EM_INVALID;
+		NkVector<NkEmId> disk;
+		const uint32 dAfter = (ia >= 0) ? m.VertEdges((uint32)ia, disk) : 0u;
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s aretes %u->%u  radial=%u filaire=%s disque(v)=%u",
+					 "bmesh2/arete-filaire", before, m.EdgeCount(),
+					 (we != NK_EM_INVALID) ? m.RadialCount(we) : 99u,
+					 (we != NK_EM_INVALID && m.EdgeIsWire(we)) ? "oui" : "non", dAfter);
+			gLineCount++;
+		}
+	}
+}
+
+// ── AIMANTATION (« snap ») ──────────────────────────────────────────────────
+// Le cas qui compte est un objet HORS GRILLE au depart. Sans cela, increment
+// relatif et grille absolue donnent le meme resultat et le harnais ne
+// distinguerait pas « ca marche » de « ca ne regarde pas le mode ».
+// L'objet part a x = 0,3 avec un pas de 0,5 :
+//   increment RELATIF -> 0,3 + k x 0,5  (0,8 · 1,3 · 1,8 …) : jamais sur la grille ;
+//   grille ABSOLUE    -> m x 0,5        (0,5 · 1,0 · 1,5 …) : toujours sur la grille.
+// Le drag est un VRAI drag : on cherche une poignee a l'ecran, on la presse, puis
+// on tire — c'est le chemin reel de DoPick/DoDrag, pas une fonction de calcul
+// isolee qui pourrait etre juste sans que l'outil le soit.
+static void SnapBattery() {
+	using GZ = nkentseu::renderer::NkGizmo3D;
+	const float32 kStart = 0.3f, kStep = 0.5f;
+
+	auto runDrag = [&](bool snapOn, bool absolute, float32 &outX) -> bool {
+		GZ g;
+		g.SetCamera({0.f, 3.f, 6.f}, {0.f, 0.f, 0.f}, 60.f, 1280.f, 720.f);
+		g.SetSnapSteps(kStep, 15.f, 0.1f);
+		g.SetSnapEnabled(snapOn);
+		g.SetSnapAbsolute(absolute);
+		g.Select(0);
+		g.SetMode(GZ::MODE_TRANSLATE);
+		nkentseu::renderer::NkGizmoTarget t;
+		t.base = NkMat4f::Translate({kStart, 0.f, 0.f});
+		t.localHalf = {0.5f, 0.5f, 0.5f};
+		t.pickRadius = 1.f;
+		nkentseu::renderer::NkGizmoInput in;
+		// 1) Une passe a VIDE : c'est elle qui calcule pivot, base et poignees.
+		g.Update(&t, 1, in);
+		// 2) Cherche une poignee : balayage grossier de l'ecran, on garde le point
+		//    le plus proche au sens de HandlePickDistPx (c'est l'arbitrage reel).
+		float32 bestD = 1e30f, bx = 0.f, by = 0.f;
+		for (int32 y = 0; y < 720; y += 4)
+			for (int32 x = 0; x < 1280; x += 4) {
+				const float32 d = g.HandlePickDistPx((float32)x, (float32)y);
+				if (d < bestD) {
+					bestD = d;
+					bx = (float32)x;
+					by = (float32)y;
+				}
+			}
+		if (bestD > 1e29f)
+			return false; // aucune poignee trouvee
+		// 3) Presse la poignee.
+		in.mouseX = bx;
+		in.mouseY = by;
+		in.leftPressed = true;
+		in.leftDown = true;
+		g.Update(&t, 1, in);
+		in.leftPressed = false;
+		// 4) Tire. VERROU sur X : quelle que soit la poignee attrapee, le
+		//    deplacement est celui de l'axe X — le test ne depend donc pas de
+		//    l'endroit exact ou le balayage a trouve une poignee.
+		in.lockAxis = 0;
+		for (int32 k = 0; k < 24; k++) {
+			in.mouseDX = 6.f;
+			in.mouseDY = 0.f;
+			in.mouseX += 6.f;
+			in.ctrlDown = false; // l'aimantation vient de la BASCULE, pas de Ctrl
+			g.Update(&t, 1, in);
+		}
+		const NkMat4f m = g.Apply(0, t.base);
+		outX = (m * NkVec3f{0.f, 0.f, 0.f}).x;
+		return true;
+	};
+
+	auto onGrid = [&](float32 v) {
+		const float32 r = v / kStep;
+		const float32 d = r - (float32)((int32)(r < 0.f ? r - 0.5f : r + 0.5f));
+		return (d < 0.f ? -d : d) < 1e-3f;
+	};
+
+	float32 xFree = 0.f, xRel = 0.f, xAbs = 0.f;
+	const bool okF = runDrag(false, false, xFree);
+	const bool okR = runDrag(true, false, xRel);
+	const bool okA = runDrag(true, true, xAbs);
+	if (gLineCount < 512) {
+		snprintf(gLines[gLineCount], 256,
+				 "%-34s libre=%.3f increment=%.3f(grille:%s) absolu=%.3f(grille:%s) depart=%.2f pas=%.2f",
+				 (okF && okR && okA) ? "snap/translate-x" : "snap/translate-x [ECHEC]", (double)xFree, (double)xRel,
+				 onGrid(xRel) ? "oui" : "non", (double)xAbs, onGrid(xAbs) ? "oui" : "non", (double)kStart,
+				 (double)kStep);
+		gLineCount++;
+	}
+	// Ctrl INVERSE la bascule : aimantation ON + Ctrl = PAS d'aimantation. C'est
+	// la difference de fond avec « Ctrl = aimanter », et c'est ce qui permet de
+	// s'echapper ponctuellement quand on travaille aimante en permanence.
+	{
+		GZ g;
+		g.SetSnapEnabled(false);
+		const bool a = g.SnapActive(false), b = g.SnapActive(true);
+		g.SetSnapEnabled(true);
+		const bool c = g.SnapActive(false), d = g.SnapActive(true);
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s off:sansCtrl=%d avecCtrl=%d | on:sansCtrl=%d avecCtrl=%d",
+					 "snap/bascule-inversee-par-ctrl", a ? 1 : 0, b ? 1 : 0, c ? 1 : 0, d ? 1 : 0);
+			gLineCount++;
+		}
+	}
+}
+
+// ── SUBDIVISION DE SURFACE : CATMULL-CLARK vs SIMPLE ────────────────────────
+// LE CAS QUI COMPTE est le RAYON, pas le nombre de faces. Une subdivision
+// LINEAIRE et une Catmull-Clark produisent la MEME topologie (n quads par face
+// de n coins) : compter sommets et faces ne distingue pas l'une de l'autre. Ce
+// qui les separe, c'est que Catmull-Clark DEPLACE les sommets vers la surface
+// limite. On mesure donc la distance au centre :
+//   cube de cote 1 (rayon des coins = 0,866) ;
+//   subdivision SIMPLE  -> le cube reste un cube, rayon max inchange ;
+//   CATMULL-CLARK       -> la forme se contracte vers la sphere limite.
+// Un test qui n'aurait verifie que V/F/E aurait valide un modificateur qui ne
+// lisse rien — c'est exactement le defaut qui existait.
+static void CatmullBattery() {
+	NkVector<NkVertex3D> v;
+	NkVector<uint32> idx;
+	MakeCube(v, idx);
+	auto radii = [](const NkEditMesh &m, float32 &rmin, float32 &rmax, float32 &vol) {
+		rmin = 1e30f;
+		rmax = 0.f;
+		NkVec3f c{0.f, 0.f, 0.f};
+		uint32 n = 0;
+		for (uint32 i = 0; i < m.VertCount(); ++i) {
+			c = c + m.verts[i].pos;
+			n++;
+		}
+		if (n)
+			c = c * (1.f / (float32)n);
+		for (uint32 i = 0; i < m.VertCount(); ++i) {
+			const float32 r = (m.verts[i].pos - c).Len();
+			if (r < rmin)
+				rmin = r;
+			if (r > rmax)
+				rmax = r;
+		}
+		vol = 0.f;
+	};
+	// Reference : le cube brut.
+	{
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		float32 a, b, c;
+		radii(m, a, b, c);
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s rayon min=%.4f max=%.4f", "subsurf/cube-reference", (double)a,
+					 (double)b);
+			gLineCount++;
+		}
+	}
+	// SIMPLE (lineaire) : densifie, ne deforme pas.
+	{
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		NkMeshModifier mod;
+		mod.type = NkModifierType::Subsurf;
+		mod.subsurfSimple = true;
+		mod.subsurfLevels = 1;
+		mod.Apply(m);
+		float32 a, b, c;
+		radii(m, a, b, c);
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s rayon min=%.4f max=%.4f", "subsurf/simple-n1", (double)a,
+					 (double)b);
+			gLineCount++;
+		}
+		Emit("subsurf/simple-n1-signature", Signature(m));
+	}
+	// CATMULL-CLARK : lisse. Niveaux 1 et 2 pour montrer la convergence.
+	for (int32 lv = 1; lv <= 2; lv++) {
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		NkMeshModifier mod;
+		mod.type = NkModifierType::Subsurf;
+		mod.subsurfSimple = false;
+		mod.subsurfLevels = lv;
+		mod.Apply(m);
+		float32 a, b, c;
+		radii(m, a, b, c);
+		char nm[96];
+		snprintf(nm, sizeof(nm), "subsurf/catmull-n%d", lv);
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s rayon min=%.4f max=%.4f", nm, (double)a, (double)b);
+			gLineCount++;
+		}
+		snprintf(nm, sizeof(nm), "subsurf/catmull-n%d-signature", lv);
+		Emit(nm, Signature(m));
+	}
+	// GRILLE OUVERTE : le BORD doit rester franc. C'est la regle de bordure
+	// (M1 + 6V + M2)/8 : sans elle le contour serait aspire vers l'interieur et
+	// un plan subdivise retrecirait — defaut classique de Catmull-Clark naif.
+	{
+		NkVector<NkVertex3D> gv;
+		NkVector<uint32> gi;
+		MakeGrid(4, gv, gi);
+		NkEditMesh m;
+		m.BuildFromIndexed(gv.Data(), (uint32)gv.Size(), gi.Data(), (uint32)gi.Size(), true);
+		float32 x0 = -1e30f;
+		for (uint32 i = 0; i < m.VertCount(); ++i)
+			if (m.verts[i].pos.x > x0)
+				x0 = m.verts[i].pos.x;
+		m.SubdivideCatmullClark(1);
+		float32 x1 = -1e30f;
+		for (uint32 i = 0; i < m.VertCount(); ++i)
+			if (m.verts[i].pos.x > x1)
+				x1 = m.verts[i].pos.x;
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s bord x avant=%.4f apres=%.4f (retrait=%.4f)",
+					 "subsurf/grille-bord-franc", (double)x0, (double)x1, (double)(x0 - x1));
+			gLineCount++;
+		}
+		Emit("subsurf/grille-catmull-signature", Signature(m));
+	}
+}
+
+// ── PILE DE MODIFICATEURS ───────────────────────────────────────────────────
+// Trois choses a prouver, et une seule est evidente.
+//   1. L'ORDRE COMPTE : miroir-puis-tableau et tableau-puis-miroir ne donnent pas
+//      le meme maillage. Si les deux signatures etaient egales, « remonter un
+//      modificateur » ne servirait a rien et le reordonnancement serait decoratif.
+//   2. L'IDENTIFIANT SURVIT au reordonnancement : c'est ce qui permettra a une
+//      courbe d'animation de viser un modificateur qu'on a deplace entre-temps.
+//      Pointer par INDICE se casserait au premier MoveUp.
+//   3. APPLIQUER cuit le modificateur dans le maillage ET le retire de la pile :
+//      le resultat doit etre celui de l'evaluation, et la pile doit avoir maigri.
+static void ModStackBattery() {
+	NkVector<NkVertex3D> v;
+	NkVector<uint32> idx;
+	MakeCube(v, idx);
+	NkEditMesh base;
+	base.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+
+	NkMeshModifier mir;
+	mir.type = NkModifierType::Mirror;
+	mir.mirrorAxis = 0;
+	NkMeshModifier arr;
+	arr.type = NkModifierType::Array;
+	arr.arrayCount = 3;
+	arr.arrayOffset = {2.f, 0.f, 0.f};
+
+	// 1) Miroir PUIS tableau.
+	{
+		NkModifierStack st;
+		st.Add(mir);
+		st.Add(arr);
+		NkEditMesh out;
+		st.Evaluate(base, out);
+		Emit("pile/miroir-puis-tableau", Signature(out));
+	}
+	// 2) Tableau PUIS miroir — obtenu en REMONTANT le second, pas en reconstruisant
+	//    la pile : c'est MoveUp qui est teste, pas ma capacite a ecrire deux piles.
+	uint32 idMir = 0, idArr = 0;
+	{
+		NkModifierStack st;
+		idMir = st.Add(mir);
+		idArr = st.Add(arr);
+		st.MoveUp(1); // le tableau passe en premier
+		NkEditMesh out;
+		st.Evaluate(base, out);
+		Emit("pile/tableau-puis-miroir", Signature(out));
+		// L'identifiant suit le modificateur, l'indice non.
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s miroir: id=%u indice=%d | tableau: id=%u indice=%d",
+					 "pile/id-stable-apres-remontee", idMir, st.IndexOfId(idMir), idArr, st.IndexOfId(idArr));
+			gLineCount++;
+		}
+	}
+	// 3) DESACTIVER : un modificateur eteint ne doit rien produire.
+	{
+		NkModifierStack st;
+		st.Add(mir);
+		st.Add(arr);
+		st.SetEnabled(1, false);
+		NkEditMesh out;
+		st.Evaluate(base, out);
+		Emit("pile/tableau-desactive", Signature(out));
+	}
+	// 4) RETIRER et DUPLIQUER.
+	{
+		NkModifierStack st;
+		st.Add(mir);
+		st.Add(arr);
+		const uint32 n0 = st.Count();
+		st.Duplicate(0); // la copie s'insere JUSTE APRES l'original
+		const uint32 n1 = st.Count();
+		const bool dupAfter = (st.Count() >= 2) && (st.modifiers[1].type == NkModifierType::Mirror);
+		const bool idNeuf = (st.Count() >= 2) && (st.modifiers[1].id != st.modifiers[0].id);
+		st.Remove(1);
+		const uint32 n2 = st.Count();
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s count %u->%u->%u  copie juste apres=%d  id neuf=%d",
+					 "pile/dupliquer-retirer", n0, n1, n2, dupAfter ? 1 : 0, idNeuf ? 1 : 0);
+			gLineCount++;
+		}
+	}
+	// 5) APPLIQUER : cuit dans la base et retire de la pile. Le maillage obtenu
+	//    doit etre celui qu'on aurait eu en evaluant, sinon « appliquer » ne
+	//    signifierait pas « figer ce que je vois ».
+	{
+		NkModifierStack st;
+		st.Add(mir);
+		NkEditMesh baked = base;
+		bool warn = true;
+		const bool ok = st.ApplyToBase(0, baked, &warn);
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s ok=%d reste=%u avertissement-pas-premier=%d",
+					 "pile/appliquer-miroir", ok ? 1 : 0, st.Count(), warn ? 1 : 0);
+			gLineCount++;
+		}
+		Emit("pile/appliquer-miroir-signature", Signature(baked));
+	}
+	// 6) PARAMETRES ADRESSABLES PAR NOM — le socle de la future animation.
+	//    On regle, on relit, et on verifie l'ECRETAGE : une courbe qui deborde ne
+	//    doit pas produire un arrayCount negatif ni 40 niveaux de subdivision.
+	{
+		NkMeshModifier m = arr;
+		float32 got = 0.f;
+		m.SetParam("array_count", 7.f);
+		m.GetParam("array_count", got);
+		float32 clampLo = 0.f, clampHi = 0.f;
+		m.SetParam("array_count", -5.f);
+		m.GetParam("array_count", clampLo);
+		m.SetParam("array_count", 9999.f);
+		m.GetParam("array_count", clampHi);
+		// Arrondi au PLUS PROCHE : 2,999 vise 3, pas 2.
+		float32 round = 0.f;
+		m.SetParam("array_count", 2.999f);
+		m.GetParam("array_count", round);
+		NkVec3f off{0.f, 0.f, 0.f};
+		m.SetParamVec3("array_offset", NkVec3f{1.f, 2.f, 3.f});
+		m.GetParamVec3("array_offset", off);
+		const bool inconnu = m.SetParam("parametre_qui_nexiste_pas", 1.f);
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256,
+					 "%-34s count=%.0f ecrete[%.0f..%.0f] arrondi(2.999)=%.0f offset=(%.0f,%.0f,%.0f) inconnu=%d",
+					 "pile/parametres-par-nom", (double)got, (double)clampLo, (double)clampHi, (double)round,
+					 (double)off.x, (double)off.y, (double)off.z, inconnu ? 1 : 0);
+			gLineCount++;
+		}
+		// Inventaire publie : c'est ce que parcourra une interface ou un editeur de
+		// courbes pour proposer « quoi animer ».
+		uint32 tot = 0;
+		char buf[192];
+		buf[0] = 0;
+		for (int32 t = 0; t < 3; t++) {
+			uint32 n = 0;
+			NkModifierParams((NkModifierType)t, n);
+			tot += n;
+		}
+		snprintf(buf, sizeof(buf), "%s=%u %s=%u %s=%u total=%u", NkModifierTypeName(NkModifierType::Mirror),
+				 NkMeshModifier{NkModifierType::Mirror}.ParamCount(), NkModifierTypeName(NkModifierType::Array),
+				 NkMeshModifier{NkModifierType::Array}.ParamCount(), NkModifierTypeName(NkModifierType::Subsurf),
+				 NkMeshModifier{NkModifierType::Subsurf}.ParamCount(), tot);
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s %s", "pile/inventaire-parametres", buf);
+			gLineCount++;
+		}
+	}
+}
+
+// ── LOT DE MODIFICATEURS ────────────────────────────────────────────────────
+// Chaque modificateur est applique a une primitive CHOISIE pour que son effet
+// soit LISIBLE dans la signature — un modificateur teste sur une forme ou il ne
+// change rien ne prouve rien. Ceux qui deforment sans toucher la topologie
+// (Cast, Simple Deform, Smooth, Wave) sont juges sur l'AIRE et le rayon, les
+// autres sur V/F/E.
+static void ModsBattery() {
+	NkVector<NkVertex3D> cv, gv;
+	NkVector<uint32> ci, gi;
+	MakeCube(cv, ci);
+	MakeGrid(4, gv, gi);
+
+	auto mk = [&](bool grid) {
+		NkEditMesh m;
+		if (grid)
+			m.BuildFromIndexed(gv.Data(), (uint32)gv.Size(), gi.Data(), (uint32)gi.Size(), true);
+		else
+			m.BuildFromIndexed(cv.Data(), (uint32)cv.Size(), ci.Data(), (uint32)ci.Size(), true);
+		return m;
+	};
+	auto rayonMax = [](const NkEditMesh &m) {
+		NkVec3f c{0.f, 0.f, 0.f};
+		for (uint32 i = 0; i < m.VertCount(); ++i)
+			c = c + m.verts[i].pos;
+		if (m.VertCount())
+			c = c * (1.f / (float32)m.VertCount());
+		float32 r = 0.f;
+		for (uint32 i = 0; i < m.VertCount(); ++i) {
+			const float32 d = (m.verts[i].pos - c).Len();
+			if (d > r)
+				r = d;
+		}
+		return r;
+	};
+
+	// ── GENERATE ────────────────────────────────────────────────────────────
+	{ // SOLIDIFIER une GRILLE : c'est le cas ou il sert. Sur un cube (deja ferme)
+	  // l'effet serait invisible dans le comptage. Le bord doit se refermer :
+	  // bord=0 apres, alors que la grille en avait 32.
+		NkEditMesh m = mk(true);
+		NkMeshModifier mod;
+		mod.type = NkModifierType::Solidify;
+		mod.solidifyThickness = 0.1f;
+		mod.solidifyRim = true;
+		mod.Apply(m);
+		Emit("mod/solidify-grille", Signature(m));
+	}
+	{ // Sans bordure : la coque reste OUVERTE -> le bord doit reapparaitre.
+		NkEditMesh m = mk(true);
+		NkMeshModifier mod;
+		mod.type = NkModifierType::Solidify;
+		mod.solidifyThickness = 0.1f;
+		mod.solidifyRim = false;
+		mod.Apply(m);
+		Emit("mod/solidify-sans-bord", Signature(m));
+	}
+	{
+		NkEditMesh m = mk(false);
+		NkMeshModifier mod;
+		mod.type = NkModifierType::Triangulate;
+		mod.triangulateMinVerts = 4;
+		mod.Apply(m);
+		Emit("mod/triangulate-cube", Signature(m));
+	}
+	{ // minVerts = 5 : les quads du cube doivent RESTER des quads.
+		NkEditMesh m = mk(false);
+		NkMeshModifier mod;
+		mod.type = NkModifierType::Triangulate;
+		mod.triangulateMinVerts = 5;
+		mod.Apply(m);
+		Emit("mod/triangulate-min5-inerte", Signature(m));
+	}
+	{
+		NkEditMesh m = mk(false);
+		NkMeshModifier mod;
+		mod.type = NkModifierType::Weld;
+		mod.weldDistance = 0.6f; // > demi-arete : des coins voisins doivent fusionner
+		mod.Apply(m);
+		Emit("mod/weld-0.6", Signature(m));
+	}
+	{
+		NkEditMesh m = mk(false);
+		NkMeshModifier mod;
+		mod.type = NkModifierType::Bevel;
+		mod.bevelWidth = 0.1f;
+		mod.bevelSegments = 1;
+		mod.Apply(m);
+		Emit("mod/bevel-cube", Signature(m));
+	}
+	{
+		NkEditMesh m = mk(true);
+		NkMeshModifier mod;
+		mod.type = NkModifierType::Screw;
+		mod.screwSteps = 6;
+		mod.screwAngle = 180.f;
+		mod.Apply(m);
+		Emit("mod/screw-grille", Signature(m));
+	}
+	{
+		NkEditMesh m = mk(false);
+		NkMeshModifier mod;
+		mod.type = NkModifierType::EdgeSplit;
+		mod.Apply(m);
+		Emit("mod/edgesplit-cube", Signature(m));
+	}
+	{
+		NkEditMesh m = mk(false);
+		NkMeshModifier mod;
+		mod.type = NkModifierType::Decimate;
+		mod.Apply(m);
+		Emit("mod/decimate-cube", Signature(m));
+	}
+	{ // BUILD : la proportion est LE parametre a animer. 0,5 doit retirer la moitie
+	  // des faces — c'est le seul modificateur dont l'interet est le temps.
+		for (int32 k = 0; k < 2; k++) {
+			NkEditMesh m = mk(false);
+			NkMeshModifier mod;
+			mod.type = NkModifierType::Build;
+			mod.buildRatio = k ? 1.f : 0.5f;
+			mod.Apply(m);
+			Emit(k ? "mod/build-1.0" : "mod/build-0.5", Signature(m));
+		}
+	}
+	{ // MASK : garde les faces dont TOUS les sommets sont selectionnes.
+		NkEditMesh m = mk(false);
+		const NkVec3f pa = m.verts[0].pos;
+		NkVector<uint8> fl;
+		fl.Resize(m.VertCount());
+		for (uint32 i = 0; i < m.VertCount(); ++i)
+			fl[i] = (m.verts[i].pos.z > 0.f) ? 1 : 0; // une face du cube
+		m.SetVertSelection(fl.Data(), (uint32)fl.Size());
+		(void)pa;
+		NkMeshModifier mod;
+		mod.type = NkModifierType::Mask;
+		mod.Apply(m);
+		Emit("mod/mask-face-avant", Signature(m));
+	}
+
+	// ── DEFORM (topologie inchangee : on juge le RAYON et l'AIRE) ────────────
+	{
+		// Sur un CUBE tous les sommets sont a la meme distance du centre : le rayon
+		// max ne bougerait pas et le test ne prouverait rien. On prend donc une
+		// GRILLE, dont les sommets ont des rayons varies, et on mesure MIN et MAX —
+		// c'est l'ECART entre eux qui dit si la forme a ete projetee.
+		// DEUX formes, parce qu'aucune ne suffit seule. Sur un CUBE tous les sommets
+		// sont deja a la meme distance du centre : la projection SPHERIQUE ne les
+		// bouge pas — resultat juste, mais qui ne prouve rien. Sur une GRILLE plane,
+		// sphere et cylindre COINCIDENT (les sommets sont a y = 0), ce qui est
+		// egalement correct et egalement peu discriminant. Les deux ensemble
+		// distinguent bien les trois modes.
+		const char *nm[3] = {"mod/cast-sphere", "mod/cast-cylindre", "mod/cast-cube"};
+		for (int32 t = 0; t < 6; t++) {
+			NkEditMesh m = mk(t < 3);
+			float32 a0 = 1e30f, b0 = 0.f;
+			for (uint32 i = 0; i < m.VertCount(); ++i) {
+				const float32 d = m.verts[i].pos.Len();
+				if (d < a0)
+					a0 = d;
+				if (d > b0)
+					b0 = d;
+			}
+			NkMeshModifier mod;
+			mod.type = NkModifierType::Cast;
+			mod.castType = t % 3;
+			mod.castFactor = 1.f;
+			mod.Apply(m);
+			float32 a1 = 1e30f, b1 = 0.f;
+			for (uint32 i = 0; i < m.VertCount(); ++i) {
+				const float32 d = m.verts[i].pos.Len();
+				if (d < a1)
+					a1 = d;
+				if (d > b1)
+					b1 = d;
+			}
+			if (gLineCount < 512) {
+				char cn[96];
+				snprintf(cn, sizeof(cn), "%s-%s", nm[t % 3], (t < 3) ? "grille" : "cube");
+				snprintf(gLines[gLineCount], 256, "%-34s rayon [%.4f..%.4f] -> [%.4f..%.4f]", cn, (double)a0,
+						 (double)b0, (double)a1, (double)b1);
+				gLineCount++;
+			}
+		}
+	}
+	{
+		const char *nm[4] = {"mod/deform-torsion", "mod/deform-courbure", "mod/deform-effilement",
+							 "mod/deform-etirement"};
+		for (int32 d = 0; d < 4; d++) {
+			NkEditMesh m = mk(false);
+			const float32 r0 = rayonMax(m);
+			NkMeshModifier mod;
+			mod.type = NkModifierType::SimpleDeform;
+			mod.deformMode = d;
+			mod.deformAngle = 90.f;
+			mod.deformFactor = 0.5f;
+			mod.Apply(m);
+			if (gLineCount < 512) {
+				snprintf(gLines[gLineCount], 256, "%-34s rayon max %.4f -> %.4f", nm[d], (double)r0, (double)rayonMax(m));
+				gLineCount++;
+			}
+		}
+	}
+	{ // LISSER : sur un cube soude, la relaxation contracte vers le centre.
+		NkEditMesh m = mk(false);
+		const float32 r0 = rayonMax(m);
+		NkMeshModifier mod;
+		mod.type = NkModifierType::Smooth;
+		mod.smoothFactor = 0.5f;
+		mod.smoothRepeat = 3;
+		mod.Apply(m);
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s rayon max %.4f -> %.4f", "mod/smooth-cube", (double)r0,
+					 (double)rayonMax(m));
+			gLineCount++;
+		}
+	}
+	{ // ONDE : la PHASE doit changer le resultat — c'est ce qui la rend animable.
+		float32 r[2] = {0.f, 0.f};
+		for (int32 k = 0; k < 2; k++) {
+			NkEditMesh m = mk(true);
+			NkMeshModifier mod;
+			mod.type = NkModifierType::Wave;
+			mod.waveHeight = 0.3f;
+			mod.waveWidth = 0.2f;
+			mod.wavePhase = k ? 1.57f : 0.f;
+			mod.Apply(m);
+			r[k] = rayonMax(m);
+		}
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s phase 0 -> rayon %.4f | phase 1,57 -> rayon %.4f",
+					 "mod/wave-phase-animable", (double)r[0], (double)r[1]);
+			gLineCount++;
+		}
+	}
+	{ // OMBRAGE PAR ANGLE : a 30 deg un cube reste FRANC (angles a 90), a 100 deg
+	  // il passe entierement en lisse. Le seuil doit donc changer le compte.
+		for (int32 k = 0; k < 2; k++) {
+			NkEditMesh m = mk(false);
+			NkMeshModifier mod;
+			mod.type = NkModifierType::SmoothByAngle;
+			mod.autoSmoothAngle = k ? 100.f : 30.f;
+			mod.Apply(m);
+			uint32 sm = 0, fl2 = 0;
+			for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f) {
+				if (!m.faces[f].alive)
+					continue;
+				if (m.faces[f].smooth)
+					sm++;
+				else
+					fl2++;
+			}
+			if (gLineCount < 512) {
+				snprintf(gLines[gLineCount], 256, "%-34s seuil %.0f deg -> %u lisses / %u franches",
+						 k ? "mod/autosmooth-100deg" : "mod/autosmooth-30deg", (double)mod.autoSmoothAngle, sm, fl2);
+				gLineCount++;
+			}
+		}
+	}
+	// INVENTAIRE : ce que l'editeur de courbes verra.
+	{
+		uint32 tot = 0, types = 0;
+		for (int32 t = 0; t <= (int32)NkModifierType::SmoothByAngle; t++) {
+			uint32 n = 0;
+			NkModifierParams((NkModifierType)t, n);
+			tot += n;
+			if (n)
+				types++;
+		}
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s %u types, %u parametres animables", "mod/inventaire-global", types,
+					 tot);
+			gLineCount++;
+		}
+	}
+}
+
+// ── TABLE DE RACCOURCIS ─────────────────────────────────────────────────────
+// On y verse l'inventaire REEL des raccourcis de l'editeur, releve dans
+// Demo3D.cpp. Deux choses a prouver :
+//   1. la table REPOND — la meme touche donne une commande differente selon le
+//      contexte, ce que la suite de `if` imbriques faisait de facon implicite ;
+//   2. elle DETECTE LES CONFLITS. C'est sa raison d'etre : `Shift+S` etait deja
+//      pris par « ombrage smooth », ce qui m'a force a des combinaisons moins
+//      naturelles pour la pile de modificateurs — et je ne l'ai decouvert qu'a la
+//      compilation, par hasard. Une table le dit tout de suite.
+static void ShortcutBattery() {
+	using namespace nkentseu::editorkit;
+	NkShortcutTable t;
+	// ⚠ ORDRE SIGNIFIANT : le plus SPECIFIQUE d'abord, comme les `if` imbriques
+	// qu'on remplace testaient le mode edition avant le mode objet.
+	// — mode EDITION
+	t.Bind("mesh.extrude", "Extruder", NkKey::NK_E, NK_SC_NONE, NK_SCTX_EDIT);
+	t.Bind("mesh.inset", "Inserer", NkKey::NK_I, NK_SC_NONE, NK_SCTX_EDIT);
+	t.Bind("mesh.knife", "Couteau", NkKey::NK_K, NK_SC_NONE, NK_SCTX_EDIT);
+	t.Bind("mesh.subdivide", "Subdiviser", NkKey::NK_W, NK_SC_NONE, NK_SCTX_EDIT);
+	t.Bind("mesh.merge", "Souder", NkKey::NK_M, NK_SC_NONE, NK_SCTX_EDIT);
+	t.Bind("mesh.delete", "Supprimer", NkKey::NK_X, NK_SC_NONE, NK_SCTX_EDIT);
+	t.Bind("mesh.edge_split", "Separer les aretes", NkKey::NK_V, NK_SC_NONE, NK_SCTX_EDIT);
+	t.Bind("mesh.spin", "Spin", NkKey::NK_J, NK_SC_NONE, NK_SCTX_EDIT);
+	t.Bind("mesh.loopcut", "Loop cut", NkKey::NK_R, NK_SC_CTRL, NK_SCTX_EDIT);
+	t.Bind("mesh.bevel_edge", "Chanfrein arete", NkKey::NK_B, NK_SC_CTRL, NK_SCTX_EDIT);
+	t.Bind("mesh.bevel_vert", "Chanfrein sommet", NkKey::NK_B, (uint8)(NK_SC_CTRL | NK_SC_SHIFT), NK_SCTX_EDIT);
+	t.Bind("mesh.dissolve", "Dissoudre", NkKey::NK_X, NK_SC_CTRL, NK_SCTX_EDIT);
+	t.Bind("mesh.to_sphere", "To sphere", NkKey::NK_S, (uint8)(NK_SC_SHIFT | NK_SC_ALT), NK_SCTX_EDIT);
+	t.Bind("mesh.shade_smooth", "Ombrage doux", NkKey::NK_S, NK_SC_SHIFT, NK_SCTX_EDIT);
+	t.Bind("mesh.shade_flat", "Ombrage franc", NkKey::NK_F, NK_SC_SHIFT, NK_SCTX_EDIT);
+	t.Bind("mesh.xray", "Voir a travers", NkKey::NK_Z, NK_SC_ALT, NK_SCTX_EDIT);
+	// — mode OBJET
+	t.Bind("object.translate", "Deplacer", NkKey::NK_G, NK_SC_NONE, NK_SCTX_OBJECT);
+	t.Bind("object.rotate", "Tourner", NkKey::NK_R, NK_SC_NONE, NK_SCTX_OBJECT);
+	t.Bind("object.scale", "Redimensionner", NkKey::NK_S, NK_SC_NONE, NK_SCTX_OBJECT);
+	// — GLOBAL
+	t.Bind("view.toggle_mode", "Objet / Edition", NkKey::NK_TAB, NK_SC_NONE, NK_SCTX_GLOBAL);
+	t.Bind("view.toggle_snap", "Aimantation", NkKey::NK_TAB, NK_SC_SHIFT, NK_SCTX_GLOBAL);
+	t.Bind("view.cycle_pivot", "Point de pivot", NkKey::NK_PERIOD, NK_SC_NONE, NK_SCTX_GLOBAL);
+	t.Bind("view.cycle_orient", "Orientation", NkKey::NK_COMMA, NK_SC_NONE, NK_SCTX_GLOBAL);
+	t.Bind("select.all", "Tout selectionner", NkKey::NK_A, NK_SC_NONE, NK_SCTX_GLOBAL);
+	t.Bind("select.none", "Tout deselectionner", NkKey::NK_A, NK_SC_ALT, NK_SCTX_GLOBAL);
+	// — pile de MODIFICATEURS
+	t.Bind("mod.param_next", "Parametre suivant", NkKey::NK_BACKSLASH, NK_SC_SHIFT, NK_SCTX_GLOBAL);
+	t.Bind("mod.move_up", "Monter", NkKey::NK_UP, NK_SC_SHIFT, NK_SCTX_GLOBAL);
+	t.Bind("mod.move_down", "Descendre", NkKey::NK_DOWN, NK_SC_SHIFT, NK_SCTX_GLOBAL);
+	t.Bind("mod.toggle", "Activer / desactiver", NkKey::NK_E, NK_SC_SHIFT, NK_SCTX_GLOBAL);
+	t.Bind("mod.duplicate", "Dupliquer", NkKey::NK_D, NK_SC_SHIFT, NK_SCTX_GLOBAL);
+	t.Bind("mod.remove", "Retirer", NkKey::NK_DELETE, NK_SC_SHIFT, NK_SCTX_GLOBAL);
+	t.Bind("mod.apply", "Appliquer", NkKey::NK_ENTER, NK_SC_SHIFT, NK_SCTX_GLOBAL);
+
+	// 1) LE MEME `R` selon le contexte : loop cut en edition (avec Ctrl), rotation
+	//    en objet. C'est ce que la table doit savoir faire.
+	const NkShortcutBinding *rObj = t.Lookup(NkKey::NK_R, NK_SC_NONE, NK_SCTX_OBJECT);
+	const NkShortcutBinding *rEdit = t.Lookup(NkKey::NK_R, NK_SC_CTRL, NK_SCTX_EDIT);
+	// 2) `E` : extruder en edition, mais Shift+E gere la pile — deux commandes
+	//    distinctes sur la meme touche, separees par le modificateur.
+	const NkShortcutBinding *e1 = t.Lookup(NkKey::NK_E, NK_SC_NONE, NK_SCTX_EDIT);
+	const NkShortcutBinding *e2 = t.Lookup(NkKey::NK_E, NK_SC_SHIFT, NK_SCTX_EDIT);
+	// 3) Combinaison non liee -> rien. Une table qui rendrait « quelque chose »
+	//    ferait executer une commande au hasard.
+	const NkShortcutBinding *none = t.Lookup(NkKey::NK_Q, NK_SC_NONE, NK_SCTX_OBJECT);
+	if (gLineCount < 512) {
+		snprintf(gLines[gLineCount], 256, "%-34s R/objet=%s CtrlR/edit=%s E/edit=%s ShiftE=%s Q=%s",
+				 "raccourcis/contexte", rObj ? rObj->command : "-", rEdit ? rEdit->command : "-",
+				 e1 ? e1->command : "-", e2 ? e2->command : "-", none ? none->command : "aucune");
+		gLineCount++;
+	}
+
+	// 4) CONFLITS. Deux liaisons repondant a la meme combinaison dans des contextes
+	//    qui se recoupent. Ici `Shift+E` (pile, GLOBAL) recouvre le mode edition, et
+	//    `Shift+S` / `Shift+Alt+S` illustrent le voisinage qui m'avait pose probleme.
+	char first[64] = {};
+	uint32 ca = 0, cb = 0;
+	if (t.ConflictAt(0, ca, cb)) {
+		const NkShortcutBinding *a = t.At(ca);
+		const NkShortcutBinding *b = t.At(cb);
+		snprintf(first, sizeof(first), "%s vs %s", a ? a->command : "?", b ? b->command : "?");
+	}
+	if (gLineCount < 512) {
+		snprintf(gLines[gLineCount], 256, "%-34s liaisons=%u conflits=%u premier=[%s]", "raccourcis/conflits",
+				 t.Count(), t.ConflictCount(), first[0] ? first : "aucun");
+		gLineCount++;
+	}
+
+	// 4bis) LE CAS QUI PROUVE LE DETECTEUR. La table ci-dessus n'a AUCUN conflit :
+	//    resultat honnete, mais qui ne prouve rien — un detecteur casse afficherait
+	//    zero lui aussi. On rejoue donc le conflit REEL rencontre le 31/07 : vouloir
+	//    « Shift+S » pour activer un modificateur alors que Shift+S est deja
+	//    l'ombrage doux en mode edition. Les contextes se recoupent (GLOBAL recouvre
+	//    EDIT), c'est donc bien un conflit — et c'est exactement ce que j'avais
+	//    decouvert a la compilation, par hasard, faute de table.
+	{
+		NkShortcutTable c;
+		c.Bind("mesh.shade_smooth", "Ombrage doux", NkKey::NK_S, NK_SC_SHIFT, NK_SCTX_EDIT);
+		c.Bind("mod.toggle", "Activer le modificateur", NkKey::NK_S, NK_SC_SHIFT, NK_SCTX_GLOBAL);
+		// Et un NON-conflit tres proche : meme touche, meme modificateur, contextes
+		// DISJOINTS. S'il etait compte, la table crierait au loup des qu'une touche
+		// sert dans deux modes — ce qui est la norme chez Blender.
+		c.Bind("select.link", "Selection liee", NkKey::NK_L, NK_SC_NONE, NK_SCTX_EDIT);
+		c.Bind("object.link", "Lier a la scene", NkKey::NK_L, NK_SC_NONE, NK_SCTX_OBJECT);
+		uint32 ia = 0, ib = 0;
+		const bool got = c.ConflictAt(0, ia, ib);
+		const NkShortcutBinding *ba = got ? c.At(ia) : nullptr;
+		const NkShortcutBinding *bb = got ? c.At(ib) : nullptr;
+		const NkShortcutBinding *win = c.Lookup(NkKey::NK_S, NK_SC_SHIFT, NK_SCTX_EDIT);
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s conflits=%u [%s vs %s] gagne-en-edition=%s",
+					 "raccourcis/conflit-reel-shift-s", c.ConflictCount(), ba ? ba->command : "-",
+					 bb ? bb->command : "-", win ? win->command : "-");
+			gLineCount++;
+		}
+	}
+
+	// 5) AFFICHAGE : le texte montre a l'utilisateur vient de la table, il ne peut
+	//    donc plus mentir — c'etait le defaut du champ `shortcut` de
+	//    NkEditorCommand, une chaine recopiee a la main.
+	char f1[32] = {}, f2[32] = {}, f3[32] = {};
+	t.FormatFor("mesh.bevel_vert", f1, sizeof(f1));
+	t.FormatFor("mod.apply", f2, sizeof(f2));
+	t.FormatFor("view.cycle_pivot", f3, sizeof(f3));
+	if (gLineCount < 512) {
+		snprintf(gLines[gLineCount], 256, "%-34s bevel_vert=%s apply=%s pivot=%s", "raccourcis/affichage", f1, f2, f3);
+		gLineCount++;
+	}
+
+	// 6) RECONFIGURATION : deplacer une commande doit changer ce qui la declenche
+	//    ET ce qui est affiche. Les deux viennent de la meme donnee, donc ils ne
+	//    peuvent pas diverger — c'est tout l'interet.
+	t.Rebind("mod.apply", NkKey::NK_ENTER, (uint8)(NK_SC_CTRL | NK_SC_SHIFT), NK_SCTX_GLOBAL);
+	const NkShortcutBinding *before = t.Lookup(NkKey::NK_ENTER, NK_SC_SHIFT, NK_SCTX_GLOBAL);
+	const NkShortcutBinding *after = t.Lookup(NkKey::NK_ENTER, (uint8)(NK_SC_CTRL | NK_SC_SHIFT), NK_SCTX_GLOBAL);
+	char f4[32] = {};
+	t.FormatFor("mod.apply", f4, sizeof(f4));
+	if (gLineCount < 512) {
+		snprintf(gLines[gLineCount], 256, "%-34s ancienne=%s nouvelle=%s affiche=%s", "raccourcis/reconfiguration",
+				 before ? before->command : "aucune", after ? after->command : "aucune", f4);
+		gLineCount++;
+	}
+}
+
 int main(int argc, char **argv) {
 	bool baseline = false, check = false;
 	for (int32 i = 1; i < argc; i++) {
@@ -541,6 +1553,15 @@ int main(int argc, char **argv) {
 	MergeBattery();
 	ExtrudeBattery();
 	Lot5Battery();
+	// AJOUTEE EN FIN : les 52 lignes precedentes gardent leur numero, donc une
+	// divergence ancienne reste comparable ligne a ligne avec l'ancienne reference.
+	SelOrderBattery();
+	Bmesh2Battery();
+	SnapBattery();
+	CatmullBattery();
+	ModStackBattery();
+	ModsBattery();
+	ShortcutBattery();
 
 	const char *path = "editmesh_baseline.txt";
 	if (baseline) {

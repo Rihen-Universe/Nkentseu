@@ -1274,11 +1274,14 @@ namespace nkentseu {
 		if (!it)
 			return false;
 		auto &desc = it->desc;
-		return WriteTextureRegion(t, p, 0, 0, 0, desc.width, desc.height, 1, 0, 0, rp);
+		// Profondeur REELLE : passer 1 en dur n'uploadait que la premiere tranche
+		// d'une texture 3D (grille de voxels du GI/AO) — les autres gardaient un
+		// contenu indetermine, d'ou un rendu qui variait d'une frame a l'autre.
+		return WriteTextureRegion(t, p, 0, 0, 0, desc.width, desc.height, desc.depth, 0, 0, rp);
 	}
 
-	bool NkDirectX12Device::WriteTextureRegion(NkTextureHandle t, const void *pixels, uint32 x, uint32 y, uint32 /*z*/,
-											   uint32 w, uint32 h, uint32 /*d2*/, uint32 mip, uint32 layer,
+	bool NkDirectX12Device::WriteTextureRegion(NkTextureHandle t, const void *pixels, uint32 x, uint32 y, uint32 z,
+											   uint32 w, uint32 h, uint32 d2, uint32 mip, uint32 layer,
 											   uint32 rowPitch) {
 		auto it = mTextures.Find(t.id);
 		if (!it)
@@ -1289,13 +1292,21 @@ namespace nkentseu {
 		// sinon CopyTextureRegion -> faute GPU -> "Removing Device".
 		const uint32 kPitchAlign = 256u;
 		uint32 alignedRowPitch = (rp + (kPitchAlign - 1)) & ~(kPitchAlign - 1);
-		uint64 sz = (uint64)alignedRowPitch * h;
+		// Textures 3D : le staging porte les d tranches a la suite. Pour un placed
+		// footprint, D3D12 deduit le slice pitch de RowPitch x Height — les tranches
+		// doivent donc etre contigues a ce pas, pas au pas source.
+		const uint32 depthCount = d2 > 0 ? d2 : 1;
+		const uint64 alignedSlicePitch = (uint64)alignedRowPitch * h;
+		const uint64 srcSlicePitch = (uint64)rp * h;
+		uint64 sz = alignedSlicePitch * depthCount;
 		NkBufferDesc sd = NkBufferDesc::Staging(sz);
 		auto stageH = CreateBuffer(sd);
 		auto &stage = mBuffers[stageH.id];
-		for (uint32 row = 0; row < h; ++row) {
-			memcpy((uint8 *)stage.mapped + (uint64)row * alignedRowPitch, (const uint8 *)pixels + (uint64)row * rp,
-				   (size_t)rp);
+		for (uint32 slice = 0; slice < depthCount; ++slice) {
+			for (uint32 row = 0; row < h; ++row) {
+				memcpy((uint8 *)stage.mapped + slice * alignedSlicePitch + (uint64)row * alignedRowPitch,
+					   (const uint8 *)pixels + slice * srcSlicePitch + (uint64)row * rp, (size_t)rp);
+			}
 		}
 
 		auto prevState = it->state;
@@ -1320,11 +1331,11 @@ namespace nkentseu {
 			src.pResource = stage.resource.Get();
 			src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
 			src.PlacedFootprint.Offset = 0;
-			src.PlacedFootprint.Footprint = {it->format, w, h, 1, alignedRowPitch};
-			// Le staging ne contient que la région w×h (0-based) ; le décalage destination
-			// (x,y) est passé à CopyTextureRegion.
-			D3D12_BOX box{0, 0, 0, w, h, 1};
-			cmd->CopyTextureRegion(&dst, x, y, 0, &src, &box);
+			src.PlacedFootprint.Footprint = {it->format, w, h, depthCount, alignedRowPitch};
+			// Le staging ne contient que la région w×h×d (0-based) ; le décalage
+			// destination (x,y,z) est passé à CopyTextureRegion.
+			D3D12_BOX box{0, 0, 0, w, h, depthCount};
+			cmd->CopyTextureRegion(&dst, x, y, z, &src, &box);
 			TransitionResource(cmd, it->resource.Get(), D3D12_RESOURCE_STATE_COPY_DEST, prevState);
 		});
 		DestroyBuffer(stageH);

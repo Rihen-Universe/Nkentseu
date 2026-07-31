@@ -736,8 +736,18 @@ la RTX 3070 (8 Go, FP32), et **élargir le corpus** aux domaines demandés (code
   re-vues). **RÈGLE DE RÉGIME (Rihen, 2026-07-20)** : les paliers NKAI tournent **EN ARRIÈRE-PLAN**
   pendant que le travail actif est sur la chaîne MÉDIA (premier plan) ; à chaque palier fini →
   lancer le suivant.
-- 🟡 **PALIER 4 EN COURS (lancé 2026-07-22, arrière-plan, PID → `palier4_pid.txt`)** : reprise
-  parfaite depuis `checkpoint_palier3.nkgp`, 6000 pas supplémentaires (global 12000 → 18000).
+- ⛔ **PALIER 4 INTERROMPU — constaté le 2026-07-31, à relancer.** Lancé le 22/07 en
+  arrière-plan, il ne tourne plus et **aucun artefact n'est retrouvable** :
+  `palier_run4/`, `checkpoint_palier4.nkgp` et `palier4_pid.txt` sont absents ; les
+  seuls `.nkgp` du dépôt datent du **07/07**. Hypothèse la plus probable : le run n'a
+  pas survécu au plantage machine du **29/07** (Kernel-Power 41 sous pic GPU).
+  **Décision de Rihen (31/07) : relancer plus tard**, quand BulkGen aura libéré le GPU
+  (corpus à 44,9 %, fin estimée 02/08). Un seul travail GPU à la fois — c'est
+  exactement la configuration à deux charges qui a éteint la machine.
+  ⚠ Cette ligne a affiché « EN COURS » pendant neuf jours alors que rien ne tournait :
+  **vérifier l'existence du processus ET du checkpoint** avant de faire confiance à un
+  statut de roadmap.
+  Reprise prévue depuis `checkpoint_palier3.nkgp`, 6000 pas supplémentaires (global 12000 → 18000).
   **Levier anti-plateau = données fraîches** : fenêtre corpus **doublée 15M → 30M chars**
   (`NK_GPT_CHARS=30000000`) sur les mêmes 10 tags. Config `palier4.cfg`, exe isolé `palier_run4/`,
   checkpoint `checkpoint_palier4.nkgp`, log `palier_run4/logs/app.log`. À la fin : comparer la

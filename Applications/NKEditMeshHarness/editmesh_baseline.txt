@@ -50,3 +50,67 @@ grille4/move-proportional-smooth   V=25     F=16     E=40     bord=16    nonmani
 grille4/move-proportional-sharp    V=25     F=16     E=40     bord=16    nonmanif=0   tri=32     A=1.0410 C=(0.0000,0.0306,0.0000)
 grille4/move-symetrie-X            V=25     F=16     E=40     bord=16    nonmanif=0   tri=32     A=1.1015 C=(0.0000,0.0320,0.0000)
 courbes/influence                  smooth(0,.25,.5,.75)=1.000/0.844/0.500/0.156 sphere(.5)=0.866 sharp(.5)=0.250 const(.9)=1.000
+ordre/cube-clic-A-puis-B           premier=(0.50,-0.50,0.50) dernier=(-0.50,0.50,-0.50)
+ordre/merge-first-AB               V=19     F=6      E=12     bord=0     nonmanif=0   tri=12     A=6.7321 C=(0.0263,-0.0263,0.0263)
+ordre/merge-last-AB                V=19     F=6      E=12     bord=0     nonmanif=0   tri=12     A=6.7321 C=(-0.0263,0.0263,-0.0263)
+ordre/cube-clic-B-puis-A           premier=(-0.50,0.50,-0.50) dernier=(0.50,-0.50,0.50)
+ordre/merge-first-BA               V=19     F=6      E=12     bord=0     nonmanif=0   tri=12     A=6.7321 C=(-0.0263,0.0263,-0.0263)
+ordre/merge-last-BA                V=19     F=6      E=12     bord=0     nonmanif=0   tri=12     A=6.7321 C=(0.0263,-0.0263,0.0263)
+ordre/cube-A-retire-puis-remis     premier=(-0.50,0.50,-0.50) dernier=(0.50,-0.50,0.50)
+bmesh2/cube-cycles                 aretes=12 radial2=12 autres=0 nonmanif=0 disque(v0)=3
+bmesh2/jonction-T                  radial=3 faces=3 nonmanif=1 autreface=REFUSEE
+bmesh2/boucle-arretee              boucle-cube=4 aretes  boucle-jonction=1 aretes
+bmesh2/jonction-T-signature        V=28     F=7      E=15     bord=3     nonmanif=1   tri=14     A=7.0000 C=(0.1429,-0.0714,0.0000)
+bmesh2/arete-filaire               aretes 12->13  radial=0 filaire=oui disque(v)=4
+snap/translate-x                   libre=1.849 increment=1.800(grille:non) absolu=2.000(grille:oui) depart=0.30 pas=0.50
+snap/bascule-inversee-par-ctrl     off:sansCtrl=0 avecCtrl=1 | on:sansCtrl=1 avecCtrl=0
+subsurf/cube-reference             rayon min=0.8660 max=0.8660
+subsurf/simple-n1                  rayon min=0.5000 max=0.8660
+subsurf/simple-n1-signature        V=54     F=24     E=48     bord=0     nonmanif=0   tri=48     A=6.0000 C=(0.0000,0.0000,0.0000)
+subsurf/catmull-n1                 rayon min=0.4811 max=0.5303
+subsurf/catmull-n1-signature       V=54     F=24     E=48     bord=0     nonmanif=0   tri=48     A=2.8819 C=(0.0000,0.0000,0.0000)
+subsurf/catmull-n2                 rayon min=0.4392 max=0.4548
+subsurf/catmull-n2-signature       V=150    F=96     E=192    bord=0     nonmanif=0   tri=192    A=2.4319 C=(0.0000,-0.0000,-0.0000)
+subsurf/grille-bord-franc          bord x avant=0.5000 apres=0.5000 (retrait=0.0000)
+subsurf/grille-catmull-signature   V=81     F=64     E=144    bord=32    nonmanif=0   tri=128    A=0.9922 C=(0.0000,0.0000,0.0000)
+pile/miroir-puis-tableau           V=144    F=36     E=36     bord=0     nonmanif=36  tri=72     A=36.0000 C=(2.0000,0.0000,0.0000)
+pile/tableau-puis-miroir           V=144    F=36     E=60     bord=0     nonmanif=12  tri=72     A=36.0000 C=(0.0000,0.0000,0.0000)
+pile/id-stable-apres-remontee      miroir: id=1 indice=1 | tableau: id=2 indice=0
+pile/tableau-desactive             V=48     F=12     E=12     bord=0     nonmanif=12  tri=24     A=12.0000 C=(0.0000,0.0000,0.0000)
+pile/dupliquer-retirer             count 2->3->2  copie juste apres=1  id neuf=1
+pile/appliquer-miroir              ok=1 reste=0 avertissement-pas-premier=0
+pile/appliquer-miroir-signature    V=48     F=12     E=12     bord=0     nonmanif=12  tri=24     A=12.0000 C=(0.0000,0.0000,0.0000)
+pile/parametres-par-nom            count=7 ecrete[1..256] arrondi(2.999)=3 offset=(1,2,3) inconnu=0
+pile/inventaire-parametres         Miroir=3 Tableau=2 Subdivision de surface=2 total=7
+mod/solidify-grille                V=50     F=48     E=96     bord=0     nonmanif=0   tri=96     A=2.4000 C=(0.0000,-0.0500,0.0000)
+mod/solidify-sans-bord             V=50     F=32     E=80     bord=32    nonmanif=0   tri=64     A=2.0000 C=(0.0000,-0.0500,0.0000)
+mod/triangulate-cube               V=24     F=12     E=18     bord=0     nonmanif=0   tri=12     A=6.0000 C=(0.0000,0.0000,0.0000)
+mod/triangulate-min5-inerte        V=24     F=6      E=12     bord=0     nonmanif=0   tri=12     A=6.0000 C=(0.0000,0.0000,0.0000)
+mod/weld-0.6                       V=8      F=6      E=12     bord=0     nonmanif=0   tri=12     A=6.0000 C=(0.0000,0.0000,0.0000)
+mod/bevel-cube                     V=24     F=26     E=48     bord=0     nonmanif=0   tri=44     A=5.2669 C=(0.0000,0.0000,0.0000)
+mod/screw-grille                   V=175    F=112    E=120    bord=0     nonmanif=88  tri=224    A=7.0000 C=(0.0000,0.0000,0.0000)
+mod/edgesplit-cube                 V=24     F=6      E=24     bord=24    nonmanif=0   tri=12     A=6.0000 C=(0.0000,-0.0000,0.0000)
+mod/decimate-cube                  V=24     F=6      E=12     bord=0     nonmanif=0   tri=12     A=6.0000 C=(0.0000,0.0000,0.0000)
+mod/build-0.5                      V=12     F=3      E=10     bord=8     nonmanif=0   tri=6      A=3.0000 C=(-0.1667,0.0000,0.0000)
+mod/build-1.0                      V=24     F=6      E=12     bord=0     nonmanif=0   tri=12     A=6.0000 C=(0.0000,0.0000,0.0000)
+mod/mask-face-avant                V=4      F=1      E=4      bord=4     nonmanif=0   tri=2      A=1.0000 C=(0.0000,0.0000,0.5000)
+mod/cast-sphere-grille             rayon [0.0000..0.7071] -> [0.0000..0.4686]
+mod/cast-cylindre-grille           rayon [0.0000..0.7071] -> [0.0000..0.4686]
+mod/cast-cube-grille               rayon [0.0000..0.7071] -> [0.0000..0.6627]
+mod/cast-sphere-cube               rayon [0.8660..0.8660] -> [0.8660..0.8660]
+mod/cast-cylindre-cube             rayon [0.8660..0.8660] -> [1.0000..1.0000]
+mod/cast-cube-cube                 rayon [0.8660..0.8660] -> [1.5000..1.5000]
+mod/deform-torsion                 rayon max 0.8660 -> 0.8660
+mod/deform-courbure                rayon max 0.8660 -> 0.9354
+mod/deform-effilement              rayon max 0.8660 -> 1.1726
+mod/deform-etirement               rayon max 0.8660 -> 0.9465
+mod/smooth-cube                    rayon max 0.8660 -> 0.2566
+mod/wave-phase-animable            phase 0 -> rayon 0.7502 | phase 1,57 -> rayon 0.7175
+mod/autosmooth-30deg               seuil 30 deg -> 0 lisses / 6 franches
+mod/autosmooth-100deg              seuil 100 deg -> 6 lisses / 0 franches
+mod/inventaire-global              17 types, 36 parametres animables
+raccourcis/contexte                R/objet=object.rotate CtrlR/edit=mesh.loopcut E/edit=mesh.extrude ShiftE=mod.toggle Q=aucune
+raccourcis/conflits                liaisons=32 conflits=0 premier=[aucun]
+raccourcis/conflit-reel-shift-s    conflits=1 [mesh.shade_smooth vs mod.toggle] gagne-en-edition=mesh.shade_smooth
+raccourcis/affichage               bevel_vert=Ctrl+Shift+B apply=Shift+Entree pivot=.
+raccourcis/reconfiguration         ancienne=aucune nouvelle=mod.apply affiche=Ctrl+Shift+Entree
