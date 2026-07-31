@@ -66,6 +66,27 @@ extern "C" int gladLoaderLoadGLES2(void);
 #if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
 #include <emscripten/html5.h>
 extern "C" int gladLoadGLES2(GLADloadfunc load);
+// NKTEMP-DIAG : a retirer — declare le setter de post-callback de gles2.c
+// (gl.h ne declare que la variante GL desktop, jamais linkee sur Web).
+extern "C" void gladSetGLES2PostCallback(GLADpostcallback cb);
+// NKTEMP-DIAG : a retirer (fonction libre : une lambda variadique n'est pas
+// convertible en pointeur de fonction variadique sous clang/wasm).
+static void NkWebGladPostCallback(void *, const char *name, GLADapiproc, int, ...) {
+	if (!glad_glGetError)
+		return;
+	GLenum err = glad_glGetError();
+	if (err == GL_NO_ERROR)
+		return;
+	GLint prog = 0, vao = 0, fbo = 0;
+	glad_glGetIntegerv(GL_CURRENT_PROGRAM, &prog);
+	glad_glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vao);
+	glad_glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &fbo);
+	static int sBudget = 40; // borne le spam
+	if (sBudget > 0) {
+		--sBudget;
+		fprintf(stderr, "[WebDiag] GLERR 0x%X in %s prog=%d vao=%d fbo=%d\n", err, name, prog, vao, fbo);
+	}
+}
 #endif
 
 #define NK_GL_LOG(...) logger_src.Infof("[NkRHI_GL] " __VA_ARGS__)
@@ -804,6 +825,10 @@ namespace nkentseu {
 		}
 #endif
 		NK_GL_LOG("WebGL2 context OK (canvas '%s')\n", canvasSelector);
+		// NKTEMP-DIAG : a retirer (post-callback glad custom — sur erreur GL,
+		// log le nom de la fonction + programme/VAO courants via les pointeurs
+		// BRUTS glad_* pour ne pas re-passer par le wrapper debug).
+		gladSetGLES2PostCallback(&NkWebGladPostCallback);
 #endif
 
 		// Vérifier GL 4.3 minimum (compute shaders) ou OpenGL ES 3.1+
@@ -1035,10 +1060,34 @@ namespace nkentseu {
 		// COPY_READ/COPY_WRITE sont EXEMPTES : upload initial via COPY_WRITE, la
 		// classe sera fixee par le premier bind reel (ARRAY / ELEMENT_ARRAY / UBO).
 		glGenBuffers(1, &id);
-		glBindBuffer(GL_COPY_WRITE_BUFFER, id);
 		GLenum usage = ToGLBufferUsage(desc.usage, desc.bindFlags);
-		glBufferData(GL_COPY_WRITE_BUFFER, (GLsizeiptr)desc.sizeBytes, desc.initialData, usage);
-		glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
+		const bool isIndex =
+			desc.type == NkBufferType::NK_INDEX || NkHasFlag(desc.bindFlags, NkBindFlags::NK_INDEX_BUFFER);
+		if (isIndex) {
+			// Buffer d'INDEX : la classe "element" doit etre fixee ICI, des la
+			// creation. Constate en boucle de rendu : le tout PREMIER
+			// glBindBuffer(GL_ELEMENT_ARRAY_BUFFER) echouait deja en
+			// INVALID_OPERATION ("buffers bound to non ELEMENT_ARRAY_BUFFER
+			// targets...") -> un chemin intermediaire classait le buffer "other"
+			// avant son premier bind index, et TOUS les draws indexes etaient
+			// alors rejetes (scene invisible). En le liant une fois sur
+			// ELEMENT_ARRAY_BUFFER a la creation, la classe est correcte et tout
+			// bind fautif ulterieur devient bruyant au lieu de casser les draws.
+			// PRECAUTION VAO : ELEMENT_ARRAY_BUFFER est un etat DU VAO courant —
+			// on passe par le VAO 0 (defaut, jamais utilise par nos pipelines)
+			// pour ne pas ecraser l'IBO d'un pipeline deja cree.
+			GLint prevVAO = 0;
+			glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &prevVAO);
+			glBindVertexArray(0);
+			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, id);
+			glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)desc.sizeBytes, desc.initialData, usage);
+			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+			glBindVertexArray((GLuint)prevVAO);
+		} else {
+			glBindBuffer(GL_COPY_WRITE_BUFFER, id);
+			glBufferData(GL_COPY_WRITE_BUFFER, (GLsizeiptr)desc.sizeBytes, desc.initialData, usage);
+			glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
+		}
 #elif defined(NK_OPENGL_ES)
 		glGenBuffers(1, &id);
 		GLenum target = (NkHasFlag(desc.bindFlags, NkBindFlags::NK_UNIFORM_BUFFER))	  ? GL_UNIFORM_BUFFER
@@ -1430,6 +1479,34 @@ namespace nkentseu {
 	}
 
 	// =============================================================================
+	// Extension EXT_texture_filter_anisotropic
+	// =============================================================================
+	// Le filtrage anisotrope n'appartient PAS au coeur d'OpenGL ES ni de WebGL2 :
+	// c'est une extension (GL_TEXTURE_MAX_ANISOTROPY = 0x84FE). Emettre son enum
+	// quand elle est absente leve GL_INVALID_ENUM et laisse l'objet sampler (ou la
+	// texture) partiellement configure cote pilote — exactement le meme piege que
+	// GL_TEXTURE_LOD_BIAS deja neutralise en ES.
+	//   - desktop / GLES natif : presente partout (core depuis GL 4.6) -> true,
+	//     aucun changement de comportement.
+	//   - WebGL2 : interrogee UNE SEULE FOIS sur le contexte courant. Chrome/
+	//     SwiftShader headless ne l'expose pas, d'ou la cascade
+	//     "samplerParameter: invalid parameter".
+	static bool NkGLHasAnisotropicFilter() {
+		#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+		static int cached = -1;
+		if (cached < 0) {
+			cached = 0;
+			EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx = emscripten_webgl_get_current_context();
+			if (ctx != 0 && emscripten_webgl_enable_extension(ctx, "EXT_texture_filter_anisotropic"))
+				cached = 1;
+		}
+		return cached == 1;
+		#else
+		return true;
+		#endif
+	}
+
+	// =============================================================================
 	// Samplers
 	// =============================================================================
 	NkSamplerHandle NkOpenGLDevice::CreateSampler(const NkSamplerDesc &d) {
@@ -1453,7 +1530,8 @@ namespace nkentseu {
 #endif
 		glSamplerParameterf(id, GL_TEXTURE_MIN_LOD, d.minLod);
 		glSamplerParameterf(id, GL_TEXTURE_MAX_LOD, d.maxLod);
-		if (d.maxAnisotropy > 1.f)
+		// Extension-only : cf. NkGLHasAnisotropicFilter (absente du coeur WebGL2).
+		if (d.maxAnisotropy > 1.f && NkGLHasAnisotropicFilter())
 			glSamplerParameterf(id, GL_TEXTURE_MAX_ANISOTROPY, d.maxAnisotropy);
 		if (d.compareEnable) {
 			glSamplerParameteri(id, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
@@ -1734,8 +1812,108 @@ namespace nkentseu {
 			out += "\n";
 		}
 
+		// Fusion des samplers de cookies (limite WebGL2/SwiftShader) ─────────────
+		// Le fragment PBR declare 24 samplers TOUS actifs (4 materiau + 3 IBL +
+		// sky + voxelAO + 2 shadow + matcap + 8 cookies 2D + 4 cookies cube), or
+		// SwiftShader n'accorde que MAX_TEXTURE_IMAGE_UNITS=16 au fragment ->
+		// glLinkProgram echoue ("texture image units count exceeds...") et la
+		// scene 3D ne peut pas s'initialiser. En GLSL seuls les samplers
+		// REELLEMENT echantillonnes comptent : on redirige donc les USAGES des
+		// cookies 1..7 (2D) et 1..3 (cube) vers le slot 0 — memes longueurs
+		// d'identifiant, remplacement in-place — ce qui rend les samplers 1..N
+		// inactifs (elimines par le compilateur) : 24 -> 14 unites. Cout visuel :
+		// toutes les lumieres a cookie partagent la texture du slot 0 (aucune
+		// dans les demos). Les declarations restent : leurs webFixes retombent
+		// sur glGetUniformLocation == -1, ignore proprement.
+		// Remap des unites de texture hautes (limite WebGL2/SwiftShader) ─────────
+		// SwiftShader n'accorde que MAX_TEXTURE_IMAGE_UNITS=16 unites au fragment.
+		// Or nos conventions NkSL placent des samplers aux bindings 21/26/27/28
+		// (cube cookie 0, sky, voxel AO, matcap) : glUniform1i(loc, 26) est LEGAL
+		// a l'appel, mais TOUT draw d'un programme dont un sampler actif pointe
+		// une unite >= 16 leve GL_INVALID_OPERATION NATIF (sans message console —
+		// la validation JS de WebGL passe, c'est le driver qui refuse). C'etait
+		// la cause des "GLAD: ERROR 1282 in glDrawElements" en boucle : AUCUN
+		// draw indexe 3D ne partait, ecran noir.
+		// Table de remap GLOBALE (unites < 16), verifiee sans collision contre
+		// les samplers ACTIFS de chaque programme concerne (apres fusion des
+		// cookies, cf. NkWebMergeCookieSamplers) :
+		//   PBR           : actifs {3..6,8..13} + 21,26,27,28 -> libres {2,7,14,15}
+		//   DeferredLight : actifs {0..3,8..11,13} + 21       -> 14 libre
+		//   Layered       : actifs {11,12} + 27               -> 2 libre
+		//   Skybox        : actif  {} + 26                    -> 15 libre
+		// Appliquee des DEUX cotes : glUniform1i au link (ci-dessous) ET
+		// glActiveTexture dans ApplyDescriptors (meme .cpp) — toujours coherents.
+		inline uint32 NkWebRemapTexUnit(uint32 b) {
+			switch (b) {
+				case 21:
+					return 14;
+				case 26:
+					return 15;
+				case 27:
+					return 2;
+				case 28:
+					return 7;
+				default:
+					return b;
+			}
+		}
+
+		// Trouve un identifiant cookie "tLight3D[Cube]CookieN" (N=1..9, mot entier)
+		// dans [s,e). Retourne le pointeur sur le chiffre N, ou nullptr.
+		char *NkWebFindCookieDigit(char *s, const char *e) {
+			static const char *kPrefix2D = "tLight3DCookie";	   // + chiffre
+			static const char *kPrefixCube = "tLight3DCubeCookie"; // + chiffre
+			const size_t l2D = strlen(kPrefix2D), lCube = strlen(kPrefixCube);
+			for (char *p = s; p + l2D + 1 <= e; ++p) {
+				if (p > s && NkWebIsIdent(p[-1]))
+					continue; // pas un debut de mot
+				char *digit = nullptr;
+				if (p + lCube + 1 <= e && strncmp(p, kPrefixCube, lCube) == 0)
+					digit = p + lCube;
+				else if (strncmp(p, kPrefix2D, l2D) == 0)
+					digit = p + l2D;
+				if (!digit)
+					continue;
+				if (*digit >= '1' && *digit <= '9' && (digit + 1 == e || !NkWebIsIdent(digit[1])))
+					return digit;
+			}
+			return nullptr;
+		}
+
+		// Pre-passe : supprime les DECLARATIONS des cookies 1..N et redirige leurs
+		// USAGES vers le slot 0. Opere ligne par ligne sur une copie de la source.
+		NkString NkWebMergeCookieSamplers(const char *src) {
+			NkString out;
+			const char *p = src;
+			const char *end = src + strlen(src);
+			while (p < end) {
+				const char *nl = (const char *)memchr(p, '\n', (size_t)(end - p));
+				const char *lineEnd = nl ? nl : end;
+				// Ligne de DECLARATION d'un cookie 1..N ? (uniform + sampler + ident)
+				const bool isDecl = NkWebFindWord(p, lineEnd, "uniform") != nullptr &&
+									NkWebFindSub(p, lineEnd, "sampler") != nullptr &&
+									NkWebFindCookieDigit((char *)p, lineEnd) != nullptr;
+				if (!isDecl) {
+					const uint32 before = out.Length();
+					out.Append(p, (uint32)(lineEnd - p));
+					out += "\n";
+					// Redirection in-place des usages (longueur inchangee).
+					char *w = (char *)out.CStr() + before;
+					char *we = (char *)out.CStr() + out.Length();
+					for (char *d = NkWebFindCookieDigit(w, we); d; d = NkWebFindCookieDigit(d + 1, we))
+						*d = '0';
+				}
+				p = nl ? nl + 1 : end;
+			}
+			return out;
+		}
+
 		// Adapte une source complete. Retourne la source WebGL2 et remplit `fixes`.
 		NkString NkWebGL2AdaptGLSL(const char *src, GLenum stage, NkVector<NkWebGLBindingFix> &fixes) {
+			// Pre-passe cookies : ramene le fragment PBR sous MAX_TEXTURE_IMAGE_UNITS
+			// (cf. NkWebMergeCookieSamplers). No-op pour les shaders sans cookies.
+			NkString merged = NkWebMergeCookieSamplers(src);
+			src = merged.CStr();
 			NkString out;
 			const char *p = src;
 			const char *end = src + strlen(src);
@@ -1768,6 +1946,20 @@ namespace nkentseu {
 			char buf[2048];
 			glGetShaderInfoLog(s, 2048, nullptr, buf);
 			NK_GL_ERR("Shader compile error:\n%s\n", buf);
+#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+			// NKTEMP-DIAG : a retirer (instrumentation blocage Web)
+			fprintf(stderr, "[NkRHI_GL][WebDiag] stage=0x%X compile FAIL:\n%s\n", (unsigned)stage, buf);
+			{
+				const char *pp = src;
+				int line = 1;
+				while (pp && *pp && line <= 40) {
+					const char *nl = strchr(pp, '\n');
+					fprintf(stderr, "%3d| %.*s\n", line, nl ? (int)(nl - pp) : (int)strlen(pp), pp);
+					pp = nl ? nl + 1 : nullptr;
+					++line;
+				}
+			}
+#endif
 			glDeleteShader(s);
 			return 0;
 		}
@@ -1817,6 +2009,10 @@ namespace nkentseu {
 			char buf[2048];
 			glGetProgramInfoLog(prog, 2048, nullptr, buf);
 			NK_GL_ERR("Shader link error:\n%s\n", buf);
+#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+			// NKTEMP-DIAG : a retirer (instrumentation blocage Web)
+			fprintf(stderr, "[NkRHI_GL][WebDiag] link FAIL:\n%s\n", buf);
+#endif
 			glDeleteProgram(prog);
 			return {};
 		}
@@ -1837,11 +2033,40 @@ namespace nkentseu {
 						glUniformBlockBinding(prog, idx, (GLuint)f.binding);
 				} else {
 					const GLint loc = glGetUniformLocation(prog, f.name);
+					// Unite remappee sous MAX_TEXTURE_IMAGE_UNITS (cf.
+					// NkWebRemapTexUnit) — un sampler actif pointant une unite
+					// >= 16 rendrait TOUS les draws du programme invalides.
 					if (loc >= 0)
-						glUniform1i(loc, f.binding);
+						glUniform1i(loc, (GLint)NkWebRemapTexUnit((uint32)f.binding));
+					// NKTEMP-DIAG : a retirer (assignations d'unites)
+					fprintf(stderr, "[WebDiag] prog=%u '%s' assign '%s' bind=%d unit=%u loc=%d\n", prog,
+							desc.debugName ? desc.debugName : "?", f.name, f.binding,
+							NkWebRemapTexUnit((uint32)f.binding), loc);
 				}
 			}
 			glUseProgram((GLuint)prevProg);
+		}
+		// NKTEMP-DIAG : a retirer (instrumentation samplers/unites WebGL2).
+		// Dump de TOUS les uniforms sampler actifs du programme et de l'unite
+		// qui leur est reellement assignee apres la re-application.
+		{
+			GLint uniformCount = 0;
+			glGetProgramiv(prog, GL_ACTIVE_UNIFORMS, &uniformCount);
+			for (GLint u = 0; u < uniformCount; ++u) {
+				char uname[128] = {0};
+				GLint usize = 0;
+				GLenum utype = 0;
+				glGetActiveUniform(prog, (GLuint)u, 127, nullptr, &usize, &utype, uname);
+				const bool isSampler =
+					utype == GL_SAMPLER_2D || utype == GL_SAMPLER_3D || utype == GL_SAMPLER_CUBE ||
+					utype == GL_SAMPLER_2D_SHADOW || utype == GL_SAMPLER_2D_ARRAY ||
+					utype == GL_SAMPLER_2D_ARRAY_SHADOW || utype == GL_SAMPLER_CUBE_SHADOW ||
+					utype == GL_INT_SAMPLER_2D || utype == GL_UNSIGNED_INT_SAMPLER_2D;
+				if (!isSampler)
+					continue;
+				fprintf(stderr, "[WebDiag] prog=%u '%s' active sampler '%s' type=0x%X\n", prog,
+						desc.debugName ? desc.debugName : "?", uname, utype);
+			}
 		}
 #endif
 #if !defined(NK_OPENGL_ES)
@@ -2060,6 +2285,8 @@ namespace nkentseu {
 				break;
 			}
 		}
+		// NKTEMP-DIAG : a retirer (instrumentation classes de buffers WebGL2)
+		fprintf(stderr, "[WebDiag] BindVB gl=%u binding=%u\n", bufId, binding);
 		glBindBuffer(GL_ARRAY_BUFFER, bufId);
 		for (uint32 i = 0; i < vl.attributes.Size(); ++i) {
 			const auto &a = vl.attributes[i];
@@ -2377,6 +2604,24 @@ namespace nkentseu {
 						const uint64 avail = (b.bufferSize > b.bufferOffset) ? (b.bufferSize - b.bufferOffset) : 0;
 						if (range == 0 || (avail > 0 && range > avail))
 							range = avail;
+#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+						// WebGL2 : les points de binding UBO sont BORNES par
+						// GL_MAX_UNIFORM_BUFFER_BINDINGS (24 seulement sur SwiftShader,
+						// le minimum spec). Le NkMaterialCollection UBO vit au binding
+						// 25 : glBindBufferRange leve alors INVALID_VALUE ("index out
+						// of range", constate 200+ fois/run, gl=30 range=1024) SANS
+						// etablir le binding. Aucun shader de la scene 3D ne lit ce
+						// bloc — on SAUTE le bind hors limite au lieu de spammer la
+						// console (un remap complet programme+range serait requis le
+						// jour ou un shader Web lira un bloc au-dela de la limite).
+						{
+							static GLint sMaxUboBindings = 0;
+							if (sMaxUboBindings == 0)
+								glGetIntegerv(GL_MAX_UNIFORM_BUFFER_BINDINGS, &sMaxUboBindings);
+							if (sMaxUboBindings > 0 && (GLint)lb.binding >= sMaxUboBindings)
+								break;
+						}
+#endif
 						if (range > 0)
 							glBindBufferRange(GL_UNIFORM_BUFFER, lb.binding, b.bufferId, (GLintptr)b.bufferOffset,
 											  (GLsizeiptr)range);
@@ -2392,7 +2637,13 @@ namespace nkentseu {
 				case NkDescriptorType::NK_SAMPLED_TEXTURE:
 				case NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER:
 					if (b.textureId) {
-#if defined(NK_OPENGL_ES)
+#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+						// Unite remappee sous MAX_TEXTURE_IMAGE_UNITS=16 — MEME table
+						// que le glUniform1i du link (NkWebRemapTexUnit), sinon la
+						// texture serait liee sur une unite que le shader ne lit pas.
+						glActiveTexture(GL_TEXTURE0 + NkWebRemapTexUnit(lb.binding));
+						glBindTexture(b.textureTarget ? b.textureTarget : GL_TEXTURE_2D, b.textureId);
+#elif defined(NK_OPENGL_ES)
 						glActiveTexture(GL_TEXTURE0 + lb.binding);
 						glBindTexture(b.textureTarget ? b.textureTarget : GL_TEXTURE_2D, b.textureId);
 #else
@@ -2400,7 +2651,21 @@ namespace nkentseu {
 #endif
 					}
 					if (b.samplerId) {
-#if defined(NK_OPENGL_ES)
+#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+						// WebGL2 : les objets sampler sont CORE et fiables (le bug
+						// glBindSampler ne concernait que le driver GLES emule de
+						// MEmu, cf. repli Android ci-dessous). Ils sont meme
+						// INDISPENSABLES ici : ANGLE valide au draw que toute texture
+						// depth lue par un sampler2DShadow a COMPARE_MODE actif
+						// (INVALID_OPERATION NATIF sinon, sans message console — le
+						// draw PBR echouait ainsi en boucle, prog PBR + fbo offscreen,
+						// isole au post-callback glad). Le repli glTexParameteri ne
+						// peut pas exprimer "compare ON via tShadowAtlas et OFF via
+						// tShadowAtlasRaw" sur la MEME texture ; l'objet sampler (etat
+						// par UNITE) si. Unite remappee comme le glActiveTexture
+						// ci-dessus.
+						glBindSampler(NkWebRemapTexUnit(lb.binding), b.samplerId);
+#elif defined(NK_OPENGL_ES)
 						// PAS de glBindSampler sur OpenGL ES : sur les pilotes GLES emules
 						// (MEmu/goldfish), lier un objet sampler corrompt la presentation —
 						// le rendu continue sans la moindre erreur GL, eglSwapBuffers renvoie
@@ -2417,7 +2682,7 @@ namespace nkentseu {
 						glTexParameteri(tgt, GL_TEXTURE_WRAP_R, sst.wrapR);
 						glTexParameterf(tgt, GL_TEXTURE_MIN_LOD, sst.minLod);
 						glTexParameterf(tgt, GL_TEXTURE_MAX_LOD, sst.maxLod);
-						if (sst.maxAnisotropy > 1.f)
+						if (sst.maxAnisotropy > 1.f && NkGLHasAnisotropicFilter())
 							glTexParameterf(tgt, GL_TEXTURE_MAX_ANISOTROPY, sst.maxAnisotropy);
 						glTexParameteri(tgt, GL_TEXTURE_COMPARE_MODE,
 										sst.compareEnable ? GL_COMPARE_REF_TO_TEXTURE : GL_NONE);
@@ -2828,7 +3093,17 @@ namespace nkentseu {
 			case NkAddressMode::NK_CLAMP_TO_EDGE:
 				return GL_CLAMP_TO_EDGE;
 			case NkAddressMode::NK_CLAMP_TO_BORDER:
+#if defined(NK_OPENGL_ES)
+				// GL_CLAMP_TO_BORDER (0x812D) est DESKTOP-ONLY : OpenGL ES 3.x et WebGL2
+				// ne connaissent que REPEAT / MIRRORED_REPEAT / CLAMP_TO_EDGE (le border
+				// clamp n'y existe que via EXT_texture_border_clamp). Le passer a
+				// glSamplerParameteri/glTexParameteri leve GL_INVALID_ENUM
+				// ("samplerParameter: invalid parameter") et laisse le sampler
+				// partiellement configure. CLAMP_TO_EDGE est le repli standard.
+				return GL_CLAMP_TO_EDGE;
+#else
 				return GL_CLAMP_TO_BORDER;
+#endif
 			default:
 				return GL_REPEAT;
 		}

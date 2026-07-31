@@ -154,6 +154,10 @@ namespace nkentseu {
 		mIndexFormat = fmt;
 		mIndexOffset = off;
 		GLuint bufId = NkOpenglGetBufferID(mDev, buf.id);
+#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+		// NKTEMP-DIAG : a retirer (instrumentation classes de buffers WebGL2)
+		fprintf(stderr, "[WebDiag] BindIB gl=%u\n", bufId);
+#endif
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, bufId);
 	}
 
