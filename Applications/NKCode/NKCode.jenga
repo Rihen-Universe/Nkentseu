@@ -128,6 +128,37 @@ with project("NKCode"):
             _LINUX_LINKS.append("vulkan")
         links(_LINUX_LINKS)
 
+    # ===== Linux XCB ==============================================================
+    # Les listes de liens viennent de Applications/DemoRW/demorw.jenga, ou les
+    # trois backends Linux sont cables et eprouves ; on n'en reinvente pas.
+    # Ajouts propres a NKCode : asound/m pour NKAudio (ALSA), absents de DemoRW.
+    with filter("system:Linux && options:linux-backend=xcb"):
+        windowedapp()
+        usetoolchain("clang-native")
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-xcb/%{prj.name}")
+        targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}-xcb/%{prj.name}")
+        defines(["NKENTSEU_FORCE_WINDOWING_XCB_ONLY"])
+        _LINUX_XCB_LINKS = ["pthread", "xcb", "xcb-image", "xcb-icccm", "xcb-randr", "xcb-xfixes",
+                            "X11", "X11-xcb", "Xext", "xkbcommon", "xkbcommon-x11", "GL",
+                            "asound", "m"]
+        if _WANT_VULKAN:
+            _LINUX_XCB_LINKS.append("vulkan")
+        links(_LINUX_XCB_LINKS)
+        ldflags(["-fuse-ld=lld"])
+
+    # ===== Linux Wayland ==========================================================
+    with filter("system:Linux && options:linux-backend=wayland"):
+        windowedapp()
+        usetoolchain("clang-native")
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-wayland/%{prj.name}")
+        targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}-wayland/%{prj.name}")
+        defines(["NKENTSEU_FORCE_WINDOWING_WAYLAND_ONLY"])
+        _LINUX_WL_LINKS = ["pthread", "wayland-client", "wayland-egl", "xkbcommon",
+                           "wayland-cursor", "EGL", "GLESv2", "asound", "m"]
+        if _WANT_VULKAN:
+            _LINUX_WL_LINKS.append("vulkan")
+        links(_LINUX_WL_LINKS)
+
     # ===== macOS ==================================================================
     with filter("system:macOS"):
         windowedapp()

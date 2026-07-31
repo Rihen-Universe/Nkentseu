@@ -93,7 +93,11 @@ namespace nkentseu {
 					NkPdfStatus Open(const char *path);
 					void Close();
 
-					NkPdfStatus Status() const { return mStatus; }
+					// Nom : surtout PAS `Status()`. X11 definit `#define Status int`, ce
+					// qui transformait cette ligne en `NkPdfStatus int() const`. Retirer
+					// la macro n'est pas une option : les en-tetes X11 s'en servent comme
+					// type (details dans NkX11Clean.h). C'est a notre nom de ceder.
+					NkPdfStatus StatusCode() const { return mStatus; }
 					// Message pret a afficher, en francais, pour l'etat courant.
 					const char *StatusText() const;
 

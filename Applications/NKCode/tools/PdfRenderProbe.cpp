@@ -153,7 +153,7 @@ int main(int argc, char **argv) {
 	for (usize i = 0; i < files.Size(); ++i) {
 		NkPdfDoc doc;
 		if (doc.Open(files[i].CStr()) != NK_PDF_OK) {
-			if (doc.Status() == NK_PDF_ERR_ENCRYPTED)
+			if (doc.StatusCode() == NK_PDF_ERR_ENCRYPTED)
 				++chiffres;
 			else
 				++echecs;
