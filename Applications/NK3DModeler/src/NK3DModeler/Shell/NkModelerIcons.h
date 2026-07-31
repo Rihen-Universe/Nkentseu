@@ -80,6 +80,9 @@ namespace nkentseu {
 			Check,
 			Persp,
 			OrthoView,
+			SnapGrid,
+			SnapAngle,
+			SnapScale,
 			Count
 		};
 
@@ -148,6 +151,14 @@ namespace nkentseu {
 						// distincts, sinon rien ne dit laquelle est active.
 						{NkIcon::Persp, "device-camera"},
 						{NkIcon::OrthoView, "symbol-numeric"},
+						// AIMANTATION : dessins DISTINCTS de ceux des outils de
+						// transformation. Reutiliser l'icone de rotation pour l'aimantation
+						// angulaire faisait croire a deux boutons de rotation cote a cote --
+						// c'est le defaut signale par Rihen. Une aimantation dit « sur quoi
+						// je retombe », pas « ce que je fais ».
+						{NkIcon::SnapGrid, "table"},		// quadrillage
+						{NkIcon::SnapAngle, "compass"},	// rapporteur
+						{NkIcon::SnapScale, "law"},		// balance : proportions
 					};
 
 					const NkString exeDir = NkPath::GetExecutableDirectory().ToString();

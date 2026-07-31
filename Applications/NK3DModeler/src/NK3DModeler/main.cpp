@@ -289,7 +289,7 @@ int nkmain(const NkEntryState &entry) {
 		PaintTabsI(p, lay.tabs, kScenes, 2, st, hit);
 		PaintToolbar(p, lay.tool, st, hit);
 		PaintHierarchy(p, lay.left, st, hit);
-		PaintViewport(p, lay.view, st, hit, shortcuts);
+		PaintViewport(p, lay.view, st, hit, ws, combo, shortcuts);
 		PaintProperties(p, lay.propsR, st, hit, ws, ui.input);
 		PaintDetails(p, lay.detailsR, st, hit);
 		PaintBrowser(p, lay.browser, st, hit);

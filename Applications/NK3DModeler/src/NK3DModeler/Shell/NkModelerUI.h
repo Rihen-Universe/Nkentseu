@@ -194,6 +194,24 @@ namespace nkentseu {
 					mDl.AddCircleFilled({cx, cy}, radius - 1.6f, C(inner));
 				}
 
+				// BARRE HORIZONTALE. Meme regle que la verticale : dessinee SEULEMENT
+				// si le contenu deborde. Une barre permanente sur un panneau qui tient
+				// entierement fait croire qu'il reste quelque chose a voir sur le cote.
+				void HScroll(const NkRect &area, float32 contentW, float32 offset) {
+					if (contentW <= area.w || area.w <= 0.f)
+						return;
+					const float32 h = S(6.f);
+					const float32 y = area.y + area.h - h - 2.f;
+					mDl.AddRectFilled(PxRect({area.x, y, area.w, h}), C(NkRole::WindowBg), 3.f);
+					float32 tw = area.w * (area.w / contentW);
+					if (tw < S(24.f))
+						tw = S(24.f);
+					const float32 maxOff = contentW - area.w;
+					const float32 t = maxOff > 0.f ? (offset / maxOff) : 0.f;
+					const float32 tx = area.x + (area.w - tw) * (t < 0.f ? 0.f : (t > 1.f ? 1.f : t));
+					mDl.AddRectFilled(PxRect({tx, y, tw, h}), C(NkRole::TextMuted), 3.f);
+				}
+
 				// ASCENSEUR VERTICAL. Dessine SEULEMENT si le contenu depasse : une
 				// barre toujours visible sur un panneau qui tient entierement fait
 				// croire qu'il reste quelque chose a voir plus bas.

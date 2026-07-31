@@ -172,23 +172,34 @@ namespace nkentseu {
 
 		inline void Combo(NkModelerPainter &p, NkHitRegistry &hit, NkWidgetState &ws, const char *key,
 						  const NkRect &r, const char *const *items, const NkIcon *icons, int32 count,
-						  int32 &selected, NkComboPending &pending, bool enabled = true) {
+						  int32 &selected, NkComboPending &pending, bool enabled = true,
+						  bool showChevron = true, bool showLabel = true) {
 			const bool over = enabled && hit.Add(key, r);
 			const bool open = ws.ComboOpen(key);
 			const NkRole fg = enabled ? NkRole::Text : NkRole::TextMuted;
-			p.Outline(r, (over || open) ? NkRole::AccentUi : NkRole::Border,
-					  enabled ? NkRole::InputBg : NkRole::PanelHeader, 3.f);
-			float32 tx = r.x + S(8.f);
+			if (showLabel)
+				p.Outline(r, (over || open) ? NkRole::AccentUi : NkRole::Border,
+						  enabled ? NkRole::InputBg : NkRole::PanelHeader, 3.f);
+			else if (over || open)
+				p.Fill(r, open ? NkRole::AccentUi : NkRole::PanelHeader, 3.f);
+			// SANS LIBELLE NI CHEVRON, le combo se reduit a son icone. C'est ce qu'il
+			// faut dans une barre d'outils dense : le repere et la vitesse de camera
+			// sont des reglages qu'on consulte rarement, leur donner la largeur d'un
+			// libelle prendrait la place de commandes qu'on utilise a chaque geste.
+			// L'etat reste lisible -- c'est l'icone elle-meme qui change.
+			float32 tx = r.x + (showLabel ? S(8.f) : (r.w - S(14.f)) * 0.5f);
 			if (icons) {
-				p.IconV(tx, r.y, r.h, icons[selected], enabled ? NkRole::AccentUi : NkRole::TextMuted,
-						13.f);
+				p.IconV(tx, r.y, r.h, icons[selected],
+						open ? NkRole::AccentUi : (enabled ? NkRole::Text : NkRole::TextMuted), 14.f);
 				tx += S(19.f);
 			}
-			p.TextV(tx, r.y, r.h, items[selected], fg);
+			if (showLabel)
+				p.TextV(tx, r.y, r.h, items[selected], fg);
 			// Le chevron TOURNE quand la liste est ouverte : c'est ce qui distingue
 			// « je peux ouvrir » de « c'est ouvert », sans avoir a regarder ailleurs.
-			p.IconV(r.x + r.w - S(18.f), r.y, r.h, open ? NkIcon::ChevronUp : NkIcon::ChevronDown, fg,
-					11.f);
+			if (showChevron)
+				p.IconV(r.x + r.w - S(18.f), r.y, r.h, open ? NkIcon::ChevronUp : NkIcon::ChevronDown,
+						fg, 11.f);
 
 			if (enabled && hit.Clicked(key))
 				ws.ToggleCombo(key);

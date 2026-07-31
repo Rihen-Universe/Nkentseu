@@ -411,6 +411,88 @@ namespace nkentseu {
 			p.TextV(r.x + kPad, fy, kRowH, foot, NkRole::TextMuted);
 		}
 
+		// ── CONTENU DES LISTES DE LA VUE ────────────────────────────────────────
+		// En TABLES, comme les menus : ajouter une entree ne demande pas de toucher
+		// au rendu, et la meme table servira la palette de recherche.
+		inline const char *const *NkProjectionItems(int32 &n) {
+			// Les six vues orthographiques sont les MEMES que celles du gizmo de
+			// navigation : un seul etat, deux facons d'y arriver.
+			static const char *const k[] = {"Perspective", "Dessus", "Dessous", "Avant",
+											"Arriere",	 "Gauche", "Droite"};
+			n = 7;
+			return k;
+		}
+		inline const NkIcon *NkProjectionIcons() {
+			// La CAMERA pour la perspective (on voit depuis un point), la GRILLE pour
+			// les vues orthographiques (aucun point de fuite). Deux dessins distincts,
+			// sinon rien ne dit laquelle est active.
+			static const NkIcon k[] = {NkIcon::Persp,	  NkIcon::OrthoView, NkIcon::OrthoView,
+									   NkIcon::OrthoView, NkIcon::OrthoView, NkIcon::OrthoView,
+									   NkIcon::OrthoView};
+			return k;
+		}
+		inline const char *const *NkShadingItems(int32 &n) {
+			static const char *const k[] = {"Eclaire", "Non eclaire", "Fil de fer", "Rendu"};
+			n = 4;
+			return k;
+		}
+		inline const NkIcon *NkShadingIcons() {
+			static const NkIcon k[] = {NkIcon::Light, NkIcon::Circle, NkIcon::Ruler, NkIcon::Overlay};
+			return k;
+		}
+		inline const char *const *NkOverlayItems(int32 &n) {
+			static const char *const k[] = {"Tout afficher", "Grille seule", "Sans surimpression"};
+			n = 3;
+			return k;
+		}
+		inline const NkIcon *NkOverlayIcons() {
+			static const NkIcon k[] = {NkIcon::Eye, NkIcon::SnapGrid, NkIcon::EyeClosed};
+			return k;
+		}
+		inline const char *const *NkOrientItems(int32 &n) {
+			static const char *const k[] = {"Monde", "Local", "Normale", "Vue"};
+			n = 4;
+			return k;
+		}
+		inline const NkIcon *NkOrientIcons() {
+			static const NkIcon k[] = {NkIcon::Globe, NkIcon::Mesh, NkIcon::Ruler, NkIcon::Camera};
+			return k;
+		}
+		inline const char *const *NkCamSpeedItems(int32 &n) {
+			// Vitesse de deplacement de la camera, comme le « 4 » d'Unreal. Sans elle,
+			// une scene de 200 metres se parcourt au pas et une piece se traverse d'un
+			// coup -- c'est le meme reglage qui rend les deux supportables.
+			static const char *const k[] = {"Vitesse 1", "Vitesse 2", "Vitesse 4", "Vitesse 8"};
+			n = 4;
+			return k;
+		}
+		inline const char *const *NkSelectModeItems(int32 &n) {
+			static const char *const k[] = {"Sommet", "Arete", "Face"};
+			n = 3;
+			return k;
+		}
+		inline const NkIcon *NkSelectModeIcons() {
+			static const NkIcon k[] = {NkIcon::Dot, NkIcon::Ruler, NkIcon::Square};
+			return k;
+		}
+		inline const char *const *NkAddItems(int32 &n) {
+			static const char *const k[] = {"Cube",	   "Sphere", "Cylindre", "Cone",
+											"Plan",	   "Tore",	 "Texte",	 "Lumiere",
+											"Camera",  "Vide"};
+			n = 10;
+			return k;
+		}
+		inline const char *const *NkModifierItems(int32 &n) {
+			// Repris de NkModifierType (NKRenderer) : la liste reelle des modificateurs
+			// implantes. Elle sera generee depuis l'enumeration au branchement.
+			static const char *const k[] = {"Miroir",	  "Tableau",	 "Subdivision", "Biseau",
+											"Solidifier", "Vissage",	 "Decimer",		"Lisser",
+											"Fondre",	  "Remailler",	 "Booleen",		"Deformer",
+											"Courbe",	  "Simple",		 "Enveloppe",	"Ombrage doux"};
+			n = 16;
+			return k;
+		}
+
 		// ── GIZMO DE NAVIGATION, FACON BLENDER ──────────────────────────────────
 		// Six boules reliees au centre, une par DEMI-AXE. Les positives sont PLEINES
 		// et portent leur lettre ; les negatives sont CREUSES et muettes.
@@ -483,7 +565,8 @@ namespace nkentseu {
 
 		// ── VUE 3D (centre) ─────────────────────────────────────────────────────
 		inline void PaintViewport(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
-								  NkHitRegistry &hit, const NkShortcutTable &sc) {
+								  NkHitRegistry &hit, NkWidgetState &ws, NkComboPending &combo,
+								  const NkShortcutTable &sc) {
 			const bool editMode = (st.mode != NkMode::Object);
 			p.Fill(r, NkRole::ViewportTop);
 
@@ -510,139 +593,159 @@ namespace nkentseu {
 				p.Line(vpx, vpy, xEnd, r.y + r.h, NkRole::GridLine);
 			}
 
-			// ── BARRE FLOTTANTE GAUCHE : les options de VUE.
-			// Les menus de commandes (Ajouter/Objet/Selection) vivent dans la barre
-			// d'outils principale, comme dans la maquette. Les dupliquer ici donnerait
-			// deux endroits a tenir a jour pour une seule liste.
-			const float32 barH = 26.f, barY = r.y + 10.f;
-			// Chaque entree porte SON icone, comme chez Unreal : la camera pour la
-			// projection, l'ampoule pour l'eclairage, l'oeil pour l'affichage. Trois
-			// libelles nus se lisent comme une phrase et non comme trois reglages.
-			static const char *const kView[] = {"Perspective", "Eclaire", "Affichage"};
-			const NkIcon kViewIc[3] = {NkIcon::Camera, NkIcon::Light, NkIcon::Eye};
-			float32 gw = 34.f;
-			for (int32 i = 0; i < 3; ++i)
-				gw += 18.f + p.TextW(kView[i]) + 26.f;
-			float32 bx = r.x + 10.f;
-			p.Fill({bx, barY, gw, barH}, NkRole::PanelBg, 5.f);
-			p.IconV(bx + 9.f, barY, barH, NkIcon::Menu, NkRole::Text, 13.f);
-			bx += 32.f;
-			for (int32 i = 0; i < 3; ++i) {
-				p.IconV(bx, barY, barH, kViewIc[i], NkRole::Text, 13.f);
-				p.TextV(bx + 18.f, barY, barH, kView[i]);
-				bx += 18.f + p.TextW(kView[i]) + 5.f;
-				p.IconV(bx, barY, barH, NkIcon::ChevronDown, NkRole::Text, 11.f);
-				bx += 21.f;
+			// ── BARRE FLOTTANTE GAUCHE : ce qu'on REGARDE ───────────────────────
+			// Trois listes deroulantes, chacune avec son icone d'etat. Les menus de
+			// commandes vivent dans la barre d'outils principale : les dupliquer ici
+			// donnerait deux endroits a tenir a jour pour une seule liste.
+			const float32 barH = S(26.f), barY = r.y + S(10.f);
+			{
+				int32 nP = 0, nS = 0, nO = 0;
+				const char *const *proj = NkProjectionItems(nP);
+				const char *const *shad = NkShadingItems(nS);
+				const char *const *ovl = NkOverlayItems(nO);
+				float32 bx = r.x + S(10.f);
+				const NkRect menuBtn{bx, barY, S(30.f), barH};
+				p.Fill(menuBtn, NkRole::PanelBg, 5.f);
+				if (hit.Add("vp.menu", menuBtn))
+					p.Fill(menuBtn, NkRole::PanelHeader, 5.f);
+				p.IconV(bx + S(9.f), barY, barH, NkIcon::Menu, NkRole::Text, 13.f);
+				bx += S(34.f);
+
+				const float32 w1 = p.TextW("Perspective") + S(48.f);
+				Combo(p, hit, ws, "vp.proj", {bx, barY, w1, barH}, proj, NkProjectionIcons(), nP,
+					  st.projection, combo);
+				bx += w1 + S(4.f);
+				const float32 w2 = p.TextW("Non eclaire") + S(48.f);
+				Combo(p, hit, ws, "vp.shade", {bx, barY, w2, barH}, shad, NkShadingIcons(), nS, st.shading,
+					  combo);
+				bx += w2 + S(4.f);
+				const float32 w3 = p.TextW("Sans surimpression") + S(48.f);
+				Combo(p, hit, ws, "vp.ovl", {bx, barY, w3, barH}, ovl, NkOverlayIcons(), nO, st.overlays,
+					  combo);
 			}
 
-			// ── BARRE FLOTTANTE DROITE, calquee sur celle d'Unreal.
-			// Rihen a demande que SELECTION et CURSEUR soient colles aux outils de
-			// transformation plutot que relegues dans une colonne a part : ils
-			// repondent tous a la meme question -- « que fait mon clic ? » -- et un
-			// seul est actif a la fois. Les separer forcait un aller-retour du regard
-			// entre deux coins de l'ecran pour un choix unique.
-			//
-			// L'AIMANTATION EST PAR TRANSFORMATION, comme chez Unreal : une bascule et
-			// une valeur pour la grille, une pour l'angle, une pour l'echelle. Un
-			// interrupteur global obligerait a le couper pour tourner librement alors
-			// qu'on veut garder la grille en deplacement.
-			const float32 btn = 24.f;
-			const int32 nSub = editMode ? 3 : 0;
-			// L'ETAT vit dans NkModelerState, pas dans la table : la table decrit
-			// l'apparence, l'etat appartient a la session et doit survivre a la frame.
+			// ── BARRE FLOTTANTE DROITE : ce qu'on FAIT ──────────────────────────
+			// TROIS GROUPES SEPARES PAR DU VIDE, et c'est ce que Rihen demandait :
+			//   1. les sous-modes de selection (mode edition seulement) ;
+			//   2. les outils -- « que fait mon clic ? », un seul actif ;
+			//   3. les reglages : repere, vitesse de camera, aimantations.
+			// Un seul bloc continu obligeait a compter les boutons pour retrouver le
+			// sien. L'espace fait le tri sans qu'on ait a lire.
+			const float32 btn = S(24.f);
+			const float32 grp = S(10.f); // vide entre deux groupes
 			struct Snap {
 					NkIcon icon;
 					const char *value;
 			};
 			static const Snap kSnaps[3] = {
-				{NkIcon::Ortho, "10"},		// grille : pas de deplacement
-				{NkIcon::Rotate, "10 deg"}, // angle
-				{NkIcon::Scale, "0,25"},	// echelle
+				{NkIcon::SnapGrid, "10"},
+				{NkIcon::SnapAngle, "10 deg"},
+				{NkIcon::SnapScale, "0,25"},
 			};
-			float32 tw = 12.f + (float32)(nSub + 7) * (btn + 2.f) + 16.f;
-			for (int32 i = 0; i < 3; ++i)
-				tw += btn + p.TextW(kSnaps[i].value) + S(12.f);
-			float32 tx = r.x + r.w - 10.f - tw;
-			p.Fill({tx, barY, tw, barH}, NkRole::PanelBg, 5.f);
-			tx += 5.f;
 
-			if (editMode) {
-				// Sous-modes sommet / arete / face. L'ACTIF prend l'accent d'interface,
-				// pas l'ambre : c'est un etat de l'outil, pas une selection dans la scene.
-				const NkIcon kSub[3] = {NkIcon::Dot, NkIcon::Ruler, NkIcon::Square};
-				static const char *const kSubKeys[3] = {"vp.sub.0", "vp.sub.1", "vp.sub.2"};
+			// Largeurs, calculees d'abord pour caler le tout a droite.
+			const bool editMode2 = (st.mode != NkMode::Object);
+			const float32 wSub = editMode2 ? (S(8.f) + 3.f * (btn + 2.f)) : 0.f;
+			const float32 wTools = S(8.f) + 5.f * (btn + 2.f);
+			float32 wSet = S(8.f) + 2.f * (btn + 2.f);
+			for (int32 i = 0; i < 3; ++i)
+				wSet += btn + p.TextW(kSnaps[i].value) + S(12.f);
+			float32 tx = r.x + r.w - S(10.f) - wSet;
+
+			// Groupe 3 : reglages (a droite).
+			{
+				p.Fill({tx, barY, wSet, barH}, NkRole::PanelBg, 5.f);
+				float32 cx = tx + S(4.f);
+				int32 nOr = 0, nCam = 0;
+				const char *const *orients = NkOrientItems(nOr);
+				const char *const *cams = NkCamSpeedItems(nCam);
+				// GLOBE et CAMERA : des listes SANS chevron ni libelle, reduites a leur
+				// icone. Ce sont des reglages qu'on consulte rarement ; leur donner la
+				// largeur d'un libelle prendrait la place de commandes utilisees a
+				// chaque geste. L'etat reste lisible : c'est l'icone qui change.
+				Combo(p, hit, ws, "vp.orient", {cx, barY + 1.f, btn, barH - 2.f}, orients, NkOrientIcons(),
+					  nOr, st.orientation, combo, true, false, false);
+				cx += btn + 2.f;
+				static const NkIcon kCamIc[4] = {NkIcon::Camera, NkIcon::Camera, NkIcon::Camera,
+												 NkIcon::Camera};
+				Combo(p, hit, ws, "vp.cam", {cx, barY + 1.f, btn, barH - 2.f}, cams, kCamIc, nCam,
+					  st.camSpeed, combo, true, false, false);
+				cx += btn + S(8.f);
+				p.VLine(cx - S(4.f), barY + S(6.f), barH - S(12.f));
+
+				bool *const flags[3] = {&st.snapGrid, &st.snapAngle, &st.snapScale};
+				static const char *const kKeys[3] = {"vp.snap.0", "vp.snap.1", "vp.snap.2"};
 				for (int32 i = 0; i < 3; ++i) {
-					const NkRect br{tx, barY + 2.f, btn, barH - 4.f};
-					const bool over = hit.Add(kSubKeys[i], br);
+					const NkRect br{cx, barY + 2.f, btn, barH - 4.f};
+					const bool over = hit.Add(kKeys[i], br);
+					const bool on = *flags[i];
+					if (on)
+						p.Fill(br, NkRole::AccentUi, 3.f);
+					else
+						HoverFill(p, br, over);
+					if (hit.Clicked(kKeys[i]))
+						*flags[i] = !on;
+					p.IconV(cx + (btn - S(13.f)) * 0.5f, barY, barH, kSnaps[i].icon,
+							on ? NkRole::TextOnAccent : NkRole::TextMuted, 13.f);
+					cx += btn + 3.f;
+					// La valeur reste AFFICHEE quand l'aimantation est coupee, mais
+					// attenuee : on veut savoir sur quel pas on retombera en la rallumant.
+					p.TextV(cx, barY, barH, kSnaps[i].value, on ? NkRole::Text : NkRole::TextMuted);
+					cx += p.TextW(kSnaps[i].value) + S(9.f);
+				}
+			}
+
+			// Groupe 2 : outils.
+			tx -= grp + wTools;
+			{
+				p.Fill({tx, barY, wTools, barH}, NkRole::PanelBg, 5.f);
+				float32 cx = tx + S(4.f);
+				const NkIcon kTools[5] = {NkIcon::Cursor, NkIcon::Gizmo, NkIcon::Move, NkIcon::Rotate,
+										  NkIcon::Scale};
+				static const char *const kKeys[5] = {"vp.t.0", "vp.t.1", "vp.t.2", "vp.t.3", "vp.t.4"};
+				for (int32 i = 0; i < 5; ++i) {
+					const NkRect br{cx, barY + 2.f, btn, barH - 4.f};
+					const bool over = hit.Add(kKeys[i], br);
+					const bool on = ((int32)st.tool == i);
+					if (on)
+						p.Fill(br, NkRole::AccentUi, 3.f);
+					else
+						HoverFill(p, br, over);
+					if (hit.Clicked(kKeys[i]))
+						st.tool = (NkTool)i;
+					p.IconV(cx + (btn - S(14.f)) * 0.5f, barY, barH, kTools[i],
+							on ? NkRole::TextOnAccent : NkRole::Text, 14.f);
+					// LE POINT en bas a droite du bouton de SELECTION annonce un
+					// sous-menu (rectangle, cercle, lasso). Sans lui, rien ne dit que le
+					// bouton cache un choix.
+					if (i == 0)
+						p.Fill({cx + btn - S(6.f), barY + barH - S(9.f), S(3.f), S(3.f)},
+							   on ? NkRole::TextOnAccent : NkRole::Text);
+					cx += btn + 2.f;
+				}
+			}
+
+			// Groupe 1 : sous-modes, en mode edition seulement.
+			if (editMode2) {
+				tx -= grp + wSub;
+				p.Fill({tx, barY, wSub, barH}, NkRole::PanelBg, 5.f);
+				float32 cx = tx + S(4.f);
+				const NkIcon kSub[3] = {NkIcon::Dot, NkIcon::Ruler, NkIcon::Square};
+				static const char *const kKeys[3] = {"vp.sub.0", "vp.sub.1", "vp.sub.2"};
+				for (int32 i = 0; i < 3; ++i) {
+					const NkRect br{cx, barY + 2.f, btn, barH - 4.f};
+					const bool over = hit.Add(kKeys[i], br);
 					const bool on = ((int32)st.subMode == i);
 					if (on)
 						p.Fill(br, NkRole::AccentUi, 3.f);
 					else
 						HoverFill(p, br, over);
-					p.IconV(tx + (btn - S(14.f)) * 0.5f, barY, barH, kSub[i],
-							on ? NkRole::TextOnAccent : NkRole::Text, 14.f);
-					if (hit.Clicked(kSubKeys[i]))
+					if (hit.Clicked(kKeys[i]))
 						st.subMode = (NkSubMode)i;
-					tx += btn + 2.f;
+					p.IconV(cx + (btn - S(14.f)) * 0.5f, barY, barH, kSub[i],
+							on ? NkRole::TextOnAccent : NkRole::Text, 14.f);
+					cx += btn + 2.f;
 				}
-				p.VLine(tx + 1.f, barY + 6.f, barH - 12.f);
-				tx += 5.f;
-			}
-
-			// Selection, curseur, puis les trois transformations et le repere.
-			const NkIcon kTools[7] = {NkIcon::Cursor, NkIcon::Gizmo, NkIcon::Move,
-									  NkIcon::Rotate, NkIcon::Scale, NkIcon::Globe, NkIcon::Camera};
-			static const char *const kToolKeys[7] = {"vp.t.0", "vp.t.1", "vp.t.2", "vp.t.3",
-													"vp.t.4", "vp.t.5", "vp.t.6"};
-			for (int32 i = 0; i < 7; ++i) {
-				const NkRect br{tx, barY + 2.f, btn, barH - 4.f};
-				const bool over = hit.Add(kToolKeys[i], br);
-				// Les cinq premiers sont des OUTILS (un seul actif) ; les deux
-				// derniers, repere et camera, sont des reglages a part.
-				const bool on = (i < 5) && ((int32)st.tool == i);
-				if (on)
-					p.Fill(br, NkRole::AccentUi, 3.f);
-				else
-					HoverFill(p, br, over);
-				if (i < 5 && hit.Clicked(kToolKeys[i]))
-					st.tool = (NkTool)i;
-				p.IconV(tx + (btn - S(14.f)) * 0.5f, barY, barH, kTools[i],
-						on ? NkRole::TextOnAccent : NkRole::Text, 14.f);
-				// LE POINT en bas a droite du bouton de SELECTION : il annonce un
-				// sous-menu (rectangle, cercle, lasso). Sans lui, rien ne dit que le
-				// bouton cache un choix -- c'est la convention d'Unreal et de Blender.
-				if (i == 0)
-					p.Fill({tx + btn - 6.f, barY + barH - 8.f, 3.f, 3.f},
-						   on ? NkRole::TextOnAccent : NkRole::Text);
-				tx += btn + 2.f;
-			}
-			p.VLine(tx + 1.f, barY + 6.f, barH - 12.f);
-			tx += 7.f;
-
-			// Les trois aimantations : bascule (icone) + valeur, cote a cote.
-			bool *const snapFlags[3] = {&st.snapGrid, &st.snapAngle, &st.snapScale};
-			static const char *const kSnapKeys[3] = {"vp.snap.0", "vp.snap.1", "vp.snap.2"};
-			for (int32 i = 0; i < 3; ++i) {
-				const NkRect br{tx, barY + 2.f, btn, barH - 4.f};
-				const bool over = hit.Add(kSnapKeys[i], br);
-				const bool on = *snapFlags[i];
-				if (on)
-					p.Fill(br, NkRole::AccentUi, 3.f);
-				else
-					HoverFill(p, br, over);
-				if (hit.Clicked(kSnapKeys[i]))
-					*snapFlags[i] = !on;
-				p.IconV(tx + (btn - S(13.f)) * 0.5f, barY, barH, kSnaps[i].icon,
-						on ? NkRole::TextOnAccent : NkRole::TextMuted, 13.f);
-				tx += btn + 3.f;
-				// La valeur est ATTENUEE quand l'aimantation est coupee : elle reste
-				// lisible (on veut savoir sur quel pas on retombera) sans faire croire
-				// qu'elle agit.
-				// La valeur reste AFFICHEE quand l'aimantation est coupee, mais
-				// attenuee : on veut savoir sur quel pas on retombera en la
-				// rallumant, la masquer obligerait a l'activer pour la lire.
-				p.TextV(tx, barY, barH, kSnaps[i].value, on ? NkRole::Text : NkRole::TextMuted);
-				tx += p.TextW(kSnaps[i].value) + 9.f;
 			}
 
 			// ── GIZMO DE NAVIGATION + BOUTONS DE VUE, en bas a gauche.
