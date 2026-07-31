@@ -81,6 +81,12 @@ namespace nkentseu {
 			ModalAxisZ,
 			ModalConfirm,
 			ModalCancel,
+			// Outils de selection par ZONE. Ils s'ARMENT (la touche) puis
+			// s'appliquent au glissement : c'est ce qui permet de choisir la forme
+			// avant de tracer, au lieu de deviner ce qu'un glissement veut dire.
+			ZoneRect,
+			ZoneCircle,
+			CursorPlace,
 			ToggleXray,
 			Extrude,
 			ExtrudeIndividual,
@@ -192,6 +198,25 @@ namespace nkentseu {
 				// -1 aucun, 0 loupe, 1 main, 2 gizmo de navigation. Le geste continue
 				// meme si la souris quitte le bouton -- c'est le bouton ENFONCE qui
 				// commande, pas la position.
+				// Outil de selection par ZONE en cours : -1 aucun, 0 rectangle,
+				// 1 lasso, 2 cercle. Il est ARME par une touche puis s'applique au
+				// glissement -- c'est la mecanique de Blender (B, Ctrl+glisser, C).
+				int32 zoneTool = -1;
+				bool zoneActive = false; ///< glissement en cours
+				float32 zoneX0 = 0.f, zoneY0 = 0.f, zoneX1 = 0.f, zoneY1 = 0.f;
+				float32 zoneRadius = 40.f; ///< cercle : rayon en pixels (molette)
+				static const int32 kMaxLasso = 128;
+				int32 lassoCount = 0;
+				float32 lasso[128 * 2] = {};
+				// EDITION PROPORTIONNELLE : les sommets voisins suivent en
+				// s'attenuant. Le rayon est en unites monde.
+				bool proportional = false;
+				float32 proportionalRadius = 1.f;
+				// Recherche : un filtre par nom, commun a la hierarchie et au
+				// navigateur. Vide = tout passe.
+				char searchHier[32] = {};
+				char searchBrowser[32] = {};
+				char searchProps[32] = {};
 				int32 navDragMode = -1;
 				float32 navDragLastX = 0.f, navDragLastY = 0.f;
 				bool navDragging = false;
