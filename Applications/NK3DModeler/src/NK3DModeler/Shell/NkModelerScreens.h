@@ -895,10 +895,15 @@ namespace nkentseu {
 				if (overView && hit.MiddleDown()) {
 					const float32 dx = m.x - st.navLastX, dy = m.y - st.navLastY;
 					if (st.navDragging) {
+						// DELTAS BRUTS, en pixels. J'appliquais un facteur 0,008 avant
+						// de les passer : or NkOrbitCameraController3D applique DEJA sa
+						// sensibilite (mRotateSpeed) a l'interieur. Le tour etait donc
+						// cent fois trop faible -- la scene ne bougeait pas. Demo3D
+						// passe mdx/mdy bruts, exactement comme ici.
 						if (hit.ShiftDown())
 							nk3d::Viewport3DPan(dx, dy);
 						else
-							nk3d::Viewport3DOrbit(dx * 0.008f, -dy * 0.008f);
+							nk3d::Viewport3DOrbit(dx, dy);
 					}
 					st.navDragging = true;
 				} else {
