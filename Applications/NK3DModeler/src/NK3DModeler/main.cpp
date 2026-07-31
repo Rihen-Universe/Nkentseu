@@ -305,21 +305,29 @@ int nkmain(const NkEntryState &entry) {
 					want(alt ? NkVpAction::SelectNone : NkVpAction::SelectAll);
 					break;
 				// ── Outils de transformation ────────────────────────────────
+				// G / R / S ARMENT UNE TRANSFORMATION, ils ne changent pas d'outil.
+				// C'est le geste de Blender : la touche saisit l'objet, la souris le
+				// pilote, X / Y / Z contraignent, le clic confirme et Echap annule.
+				// Le choisir plutot que « selectionner l'outil » n'est pas un detail :
+				// il n'y a aucune poignee a viser, donc rien a rater.
 				case NkKey::NK_G:
-					want(NkVpAction::ToolMove);
+					want(NkVpAction::ModalMove);
 					break;
 				case NkKey::NK_R:
-					want(ctrl ? NkVpAction::LoopCut : NkVpAction::ToolRotate);
+					want(ctrl ? NkVpAction::LoopCut : NkVpAction::ModalRotate);
 					break;
 				case NkKey::NK_S:
-					want(NkVpAction::ToolScale);
+					want(NkVpAction::ModalScale);
 					break;
 				// ── Operations ──────────────────────────────────────────────
 				case NkKey::NK_E:
 					want(shift ? NkVpAction::ExtrudeIndividual : NkVpAction::Extrude);
 					break;
 				case NkKey::NK_X:
-					want(ctrl ? NkVpAction::Dissolve : NkVpAction::Delete);
+					// Pendant une modale, X contraint a l'axe ; sinon il supprime.
+					// L'intention posee est « axe X », et le dispatch la reinterprete
+					// en suppression s'il n'y a pas de modale en cours.
+					want(ctrl ? NkVpAction::Dissolve : NkVpAction::ModalAxisX);
 					break;
 				case NkKey::NK_M:
 					want(NkVpAction::Merge);
@@ -343,11 +351,24 @@ int nkmain(const NkEntryState &entry) {
 						want(shift ? NkVpAction::Redo : NkVpAction::Undo);
 					else if (alt)
 						want(NkVpAction::ToggleXray);
+					else
+						want(NkVpAction::ModalAxisZ); // contrainte, si une modale court
 					break;
+				// ── Contraintes d'axe et fin de transformation ──────────────
+				// Ces touches N'ONT DE SENS QUE pendant une modale ; hors modale,
+				// elles retombent sur leur role habituel (X = supprimer). C'est le
+				// dispatch qui tranche, pas le callback : lui ne connait pas l'etat
+				// de la vue.
 				case NkKey::NK_Y:
-					if (ctrl)
-						want(NkVpAction::Redo);
+					want(ctrl ? NkVpAction::Redo : NkVpAction::ModalAxisY);
 					break;
+				case NkKey::NK_ESCAPE:
+					want(NkVpAction::ModalCancel);
+					break;
+				case NkKey::NK_ENTER:
+					want(NkVpAction::ModalConfirm);
+					break;
+
 				// ── Vues du pave numerique ──────────────────────────────────
 				// Ctrl donne la vue OPPOSEE, comme chez Blender : c'est deux fois
 				// moins de touches a retenir pour six vues.
@@ -451,6 +472,9 @@ int nkmain(const NkEntryState &entry) {
 			else if (st.tool == NkTool::Scale)
 				gm = 2;
 			nk3d::Viewport3DSetGizmoMode(gm);
+			// L'outil SELECTION ne transforme rien : afficher ses poignees ferait
+			// croire le contraire, et elles captureraient les clics de selection.
+			nk3d::Viewport3DSetGizmoVisible(st.tool != NkTool::Select && st.tool != NkTool::Cursor);
 		}
 		nk3d::Viewport3DSetGizmoOrientation(st.orientation);
 		// AIMANTATION : les pas sont FIXES (0,5 unite, 15 degres, 0,1 -- ceux de
@@ -528,10 +552,33 @@ int nkmain(const NkEntryState &entry) {
 		// Ici, et pas dans le callback : on est entre deux images, le maillage
 		// n'est pas en cours de lecture par le rendu, et une modification
 		// topologique peut donc se faire sans risque.
+		// ── PILOTAGE DE LA TRANSFORMATION MODALE ────────────────────────────
+		// Elle est mise a jour AVANT le dispatch : la souris a bouge depuis la
+		// derniere image, et l'objet doit avoir suivi quand le panneau Proprietes
+		// se peindra. C'est ce qui donne la mise a jour en TEMPS REEL, dans la vue
+		// comme dans les champs.
+		{
+			const float32 mxv = ui.input.mousePos.x - lay.view.x;
+			const float32 myv = ui.input.mousePos.y - lay.view.y;
+			if (nk3d::Viewport3DModalKind() != nk3d::kVpXformNone) {
+				nk3d::Viewport3DModalUpdate(mxv, myv);
+				st.dirty = true;
+				// Le clic gauche CONFIRME, le clic droit ANNULE -- et la modale
+				// consomme le clic, sinon il tomberait ensuite sur la selection.
+				if (ui.input.mouseClicked[0])
+					nk3d::Viewport3DModalConfirm();
+				else if (ui.input.mouseClicked[1])
+					nk3d::Viewport3DModalCancel();
+			}
+		}
+
 		if (st.pendingAction != NkVpAction::None) {
 			const NkVpAction a = st.pendingAction;
 			st.pendingAction = NkVpAction::None;
 			const bool edit = (st.mode != NkMode::Object);
+			const bool inModal = (nk3d::Viewport3DModalKind() != nk3d::kVpXformNone);
+			const float32 mxv = ui.input.mousePos.x - lay.view.x;
+			const float32 myv = ui.input.mousePos.y - lay.view.y;
 			switch (a) {
 				case NkVpAction::ToggleEdit:
 					st.mode = edit ? NkMode::Object : NkMode::Edit;
@@ -560,6 +607,48 @@ int nkmain(const NkEntryState &entry) {
 				case NkVpAction::ToolScale:
 					st.tool = NkTool::Scale;
 					break;
+				// ── Modales ─────────────────────────────────────────────────
+				case NkVpAction::ModalMove:
+					nk3d::Viewport3DBeginModal(nk3d::kVpXformMove, mxv, myv);
+					break;
+				case NkVpAction::ModalRotate:
+					nk3d::Viewport3DBeginModal(nk3d::kVpXformRotate, mxv, myv);
+					break;
+				case NkVpAction::ModalScale:
+					nk3d::Viewport3DBeginModal(nk3d::kVpXformScale, mxv, myv);
+					break;
+				case NkVpAction::ModalAxisX:
+					// HORS MODALE, X garde son role de suppression : une touche ne
+					// doit pas devenir muette parce qu'un autre mode existe.
+					if (inModal) {
+						nk3d::Viewport3DModalAxis(0);
+					} else if (edit) {
+						if (nk3d::Viewport3DDeleteSelection())
+							st.dirty = true;
+					} else {
+						const int32 act = nk3d::Viewport3DActiveObject();
+						if (act >= 0) {
+							nk3d::Viewport3DDeleteObject(act);
+							st.dirty = true;
+						}
+					}
+					break;
+				case NkVpAction::ModalAxisY:
+					if (inModal)
+						nk3d::Viewport3DModalAxis(1);
+					break;
+				case NkVpAction::ModalAxisZ:
+					if (inModal)
+						nk3d::Viewport3DModalAxis(2);
+					break;
+				case NkVpAction::ModalConfirm:
+					if (inModal)
+						nk3d::Viewport3DModalConfirm();
+					break;
+				case NkVpAction::ModalCancel:
+					if (inModal)
+						nk3d::Viewport3DModalCancel();
+					break;
 				case NkVpAction::ToggleXray:
 					st.xray = !st.xray;
 					nk3d::Viewport3DSetXray(st.xray);
@@ -576,9 +665,8 @@ int nkmain(const NkEntryState &entry) {
 						st.dirty = true;
 					break;
 				case NkVpAction::Delete:
-					// X supprime CE QUE le mode designe : les faces selectionnees en
-					// edition, l'objet actif en mode objet. La meme touche pour les
-					// deux, comme Blender -- c'est le mode qui porte le sens.
+					// Supprime CE QUE le mode designe : les faces selectionnees en
+					// edition, l'objet actif en mode objet.
 					if (edit) {
 						if (nk3d::Viewport3DDeleteSelection())
 							st.dirty = true;
