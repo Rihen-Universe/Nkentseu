@@ -114,3 +114,11 @@ raccourcis/conflits                liaisons=32 conflits=0 premier=[aucun]
 raccourcis/conflit-reel-shift-s    conflits=1 [mesh.shade_smooth vs mod.toggle] gagne-en-edition=mesh.shade_smooth
 raccourcis/affichage               bevel_vert=Ctrl+Shift+B apply=Shift+Entree pivot=.
 raccourcis/reconfiguration         ancienne=aucune nouvelle=mod.apply affiche=Ctrl+Shift+Entree
+analyse/cube                       S=8 A=12 F=6 euler=2 genre=0 quad=1.00 poles(3/5/6+)=8/0/0 reg=0 bord=0
+analyse/cube-sante                 brut=24 soude=8 ferme=1 manifold=1 isoles=0 degen=0
+analyse/catmull-n1-poles-invariants S=26 A=48 F=24 euler=2 genre=0 quad=1.00 poles(3/5/6+)=8/0/0 reg=18 bord=0
+analyse/catmull-n2-poles-invariants S=98 A=192 F=96 euler=2 genre=0 quad=1.00 poles(3/5/6+)=8/0/0 reg=90 bord=0
+analyse/grille-ouverte             S=25 A=40 F=16 euler=1 genre=-1 quad=1.00 poles(3/5/6+)=0/0/0 reg=9 bord=16
+analyse/symetrie                   cube x/y/z=1.00/1.00/1.00  coin deplace=0.25/0.75/0.75
+analyse/jonction-T-refus-genre     nonmanif=1 bordA=3 genre=-1 (doit valoir -1)
+analyse/densite                    cube ecart=0.000 (min 1.00 max 1.00) | grille etiree ecart=0.500 (min 0.25 max 0.75)
