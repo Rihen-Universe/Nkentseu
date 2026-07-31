@@ -228,12 +228,52 @@ namespace nkentseu {
 			static const NkIcon k[] = {NkIcon::Dot, NkIcon::Ruler, NkIcon::Square};
 			return k;
 		}
-		inline const char *const *NkAddItems(int32 &n) {
-			static const char *const k[] = {"Cube",	   "Sphere", "Cylindre", "Cone",
-											"Plan",	   "Tore",	 "Texte",	 "Lumiere",
-											"Camera",  "Vide"};
-			n = 10;
-			return k;
+		// ── AJOUTER, PAR CATEGORIES -- comme Blender ────────────────────────────
+		// « Ajouter » n'est pas une liste de cubes : c'est un menu de CREATION, et
+		// chaque categorie repond a une question differente -- une geometrie a
+		// modeler, une source de lumiere, un point de vue, un repere d'assemblage.
+		// Chaque entree porte le couple (type, primitive) attendu par
+		// Viewport3DAddObject : le menu ne connait AUCUNE logique de creation.
+		struct NkAddEntry {
+				const char *label;
+				NkIcon icon;
+				int32 type;
+				int32 prim;
+		};
+		struct NkAddCategory {
+				const char *name;
+				NkIcon icon;
+				const NkAddEntry *items;
+				int32 count;
+		};
+		inline const NkAddCategory *NkAddCategories(int32 &n) {
+			static const NkAddEntry kMesh[] = {
+				{"Cube", NkIcon::Mesh, nk3d::kVpObjMesh, nk3d::kVpPrimCube},
+				{"Plan", NkIcon::Square, nk3d::kVpObjMesh, nk3d::kVpPrimPlane},
+				{"Sphere", NkIcon::Circle, nk3d::kVpObjMesh, nk3d::kVpPrimSphere},
+				{"Cylindre", NkIcon::Mesh, nk3d::kVpObjMesh, nk3d::kVpPrimCylinder},
+				{"Cone", NkIcon::Mesh, nk3d::kVpObjMesh, nk3d::kVpPrimCone},
+				{"Tore", NkIcon::Circle, nk3d::kVpObjMesh, nk3d::kVpPrimTorus},
+			};
+			static const NkAddEntry kLight[] = {
+				{"Point", NkIcon::Light, nk3d::kVpObjLightPoint, 0},
+				{"Soleil", NkIcon::Light, nk3d::kVpObjLightSun, 0},
+				{"Spot", NkIcon::Light, nk3d::kVpObjLightSpot, 0},
+			};
+			static const NkAddEntry kCam[] = {
+				{"Camera", NkIcon::Camera, nk3d::kVpObjCamera, 0},
+			};
+			static const NkAddEntry kEmpty[] = {
+				{"Repere vide", NkIcon::Gizmo, nk3d::kVpObjEmpty, 0},
+			};
+			static const NkAddCategory kCats[] = {
+				{"Maillage", NkIcon::Mesh, kMesh, 6},
+				{"Lumiere", NkIcon::Light, kLight, 3},
+				{"Camera", NkIcon::Camera, kCam, 1},
+				{"Vide", NkIcon::Gizmo, kEmpty, 1},
+			};
+			n = 4;
+			return kCats;
 		}
 		// ── MODIFICATEURS, CLASSES PAR CATEGORIE ────────────────────────────────
 		// Seize modificateurs dans une liste plate obligent a la parcourir en entier
@@ -516,15 +556,22 @@ namespace nkentseu {
 			// AJOUTER et MODIFICATEUR sont des LISTES, pas des boutons : ils ouvrent un
 			// choix. Un bouton simple laisserait croire a une action immediate.
 			{
-				int32 n = 0;
-				const char *const *items = NkAddItems(n);
-				// L'icone reste le « + » pour toutes les entrees : ce qui compte est
-				// l'ACTION (ajouter), pas le dernier element ajoute.
-				static NkIcon kAddIc[16];
-				for (int32 i = 0; i < n && i < 16; ++i)
-					kAddIc[i] = NkIcon::Add;
-				Combo(p, hit, ws, "tb.add", {x, cbY, S(118.f), cbH}, items, kAddIc, n, st.addKind, combo);
-				x += S(126.f);
+				// « Ajouter » OUVRE LE MENU PAR CATEGORIES, il ne retient pas de
+				// « primitive courante » : ajouter est une action, pas un reglage.
+				const NkRect ar{x, cbY, S(96.f), cbH};
+				const bool over = hit.Add("tb.addmenu", ar);
+				const bool open = ws.ComboOpen("tb.addmenu");
+				if (over || open)
+					p.Fill(ar, open ? NkRole::AccentUi : NkRole::PanelHeader, 3.f);
+				const NkRole fg = open ? NkRole::TextOnAccent : NkRole::Text;
+				p.IconV(ar.x + S(8.f), cbY, cbH, NkIcon::Add, fg, 13.f);
+				p.TextV(ar.x + S(26.f), cbY, cbH, "Ajouter", fg);
+				p.IconV(ar.x + ar.w - S(16.f), cbY, cbH,
+						open ? NkIcon::ChevronUp : NkIcon::ChevronDown, fg, 11.f);
+				if (hit.Clicked("tb.addmenu"))
+					ws.ToggleCombo("tb.addmenu");
+				st.addAnchor = ar; // le menu est peint apres tout le reste
+				x += S(104.f);
 			}
 			// MODIFICATEUR : liste a DEUX NIVEAUX. Le bouton montre le modificateur
 			// courant avec SON icone ; le clic ouvre les categories, et chaque
@@ -636,6 +683,39 @@ namespace nkentseu {
 		// objet selectionne on ne peut plus revenir a « rien de selectionne » sans
 		// passer par un menu. Or « rien » est un etat legitime -- c'est celui ou les
 		// commandes de scene s'appliquent.
+		// La hierarchie liste LA SCENE, plus des lignes inventees. Chaque ligne est
+		// un slot du viewport : les indices sont stables (tableau a trous), donc les
+		// cles de zones cliquables restent valides d'une image a l'autre.
+		inline NkIcon NkObjectIcon(int32 type) {
+			switch (type) {
+				case nk3d::kVpObjLightPoint:
+				case nk3d::kVpObjLightSun:
+				case nk3d::kVpObjLightSpot:
+					return NkIcon::Light;
+				case nk3d::kVpObjCamera:
+					return NkIcon::Camera;
+				case nk3d::kVpObjEmpty:
+					return NkIcon::Gizmo;
+				default:
+					return NkIcon::Mesh;
+			}
+		}
+
+		inline const char *NkObjectTypeName(int32 type) {
+			switch (type) {
+				case nk3d::kVpObjLightPoint:
+				case nk3d::kVpObjLightSun:
+				case nk3d::kVpObjLightSpot:
+					return "Lumiere";
+				case nk3d::kVpObjCamera:
+					return "Camera";
+				case nk3d::kVpObjEmpty:
+					return "Repere";
+				default:
+					return "Maillage";
+			}
+		}
+
 		inline void PaintHierarchy(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
 								   NkHitRegistry &hit, NkWidgetState &ws, const nkgui::NkGuiInput &in) {
 			p.Fill(r, NkRole::PanelBg);
@@ -643,8 +723,7 @@ namespace nkentseu {
 			float32 y = PaintPanelTab(p, r, "Hierarchie", &hit, &st.showLeft, "hier.close");
 			y = PaintSearch(p, r, y);
 
-			const float32 colEye = r.x + r.w - S(74.f);
-			const float32 colLock = r.x + r.w - S(52.f);
+			const float32 colEye = r.x + r.w - S(52.f);
 			const float32 colType = r.x + r.w - S(132.f);
 
 			p.Fill({r.x, y, r.w, kRowH}, NkRole::WindowBg);
@@ -653,135 +732,109 @@ namespace nkentseu {
 			p.HLine(r.x, y + kRowH - 1.f, r.w);
 			y += kRowH;
 
-			struct Row {
-					int32 depth;
-					int32 parent; ///< -1 = racine ; sert au repli
-					const char *type;
-					NkIcon icon;
-					bool folder;
-			};
-			// `parent` remplace un simple niveau d'indentation : replier un groupe doit
-			// cacher SES descendants, et l'indentation seule ne dit pas qui appartient
-			// a qui des qu'il y a deux groupes voisins.
-			static const Row kRows[] = {
-				{0, -1, "", NkIcon::Globe, false},		 {1, 0, "Maillage", NkIcon::Mesh, false},
-				{1, 0, "Maillage", NkIcon::Circle, false}, {1, 0, "Dossier", NkIcon::Folder, true},
-				{2, 3, "Maillage", NkIcon::Mesh, false},   {2, 3, "Maillage", NkIcon::Mesh, false},
-			};
-			const int32 nRows = 6;
 			const float32 listTop = y;
 			const float32 listH = r.y + r.h - kRowH - listTop;
 			const NkRect listR{r.x, listTop, r.w, listH};
-			// La zone de LISTE est declaree en PREMIER : les lignes, declarees ensuite,
-			// la recouvrent. Ce qui reste attribue a la liste, c'est donc exactement le
-			// VIDE -- et c'est la qu'un clic deselectionne.
+			// La zone de LISTE est declaree en PREMIER : les lignes la recouvrent.
+			// Ce qui reste attribue a la liste est exactement le VIDE -- et c'est la
+			// qu'un clic deselectionne.
 			hit.Add("hier.list", listR);
-
-			// Le test de visibilite ci-dessous ecarte les lignes hors champ, mais la
-			// ligne a cheval sur le bord reste peinte en entier : c'est elle qui
-			// depasse sur le pied de panneau. La decoupe s'en charge.
 			p.Clip(listR);
-			int32 visibleCount = 0;
-			float32 yy = y - st.scrollHier;
-			char key[40];
-			for (int32 i = 0; i < nRows; ++i) {
-				// Cache si un ANCETRE est replie.
-				bool hidden = false;
-				for (int32 par = kRows[i].parent; par >= 0; par = kRows[par].parent)
-					if (!st.folderOpen[par]) {
-						hidden = true;
-						break;
-					}
-				if (hidden)
-					continue;
-				visibleCount++;
 
+			char key[40];
+			float32 yy = y - st.scrollHier;
+			int32 visibleCount = 0;
+
+			// Racine : la scene, renommable. Elle ne se selectionne pas -- c'est un
+			// contenant, pas un objet.
+			{
+				const NkRect rowR{r.x, yy, r.w, kRowH};
+				hit.Add("hier.scene", rowR);
+				p.IconV(r.x + S(6.f), yy, kRowH, NkIcon::Globe, NkRole::Text, 13.f);
+				EditableText(p, hit, ws, in, "hier.scene.name",
+							 {r.x + S(24.f), yy, colType - r.x - S(30.f), kRowH}, st.sceneNames[0],
+							 NkRole::Text, st.sceneNames[0], 32u);
+				yy += kRowH;
+				++visibleCount;
+			}
+
+			const int32 nSlots = nk3d::Viewport3DObjectCount();
+			int32 aliveCount = 0, selCount = 0;
+			for (int32 i = 0; i < nSlots; ++i) {
+				if (!nk3d::Viewport3DObjectAlive(i))
+					continue;
+				++aliveCount;
+				const bool sel = nk3d::Viewport3DObjectSelected(i);
+				if (sel)
+					++selCount;
+				++visibleCount;
 				const NkRect rowR{r.x, yy, r.w, kRowH};
 				if (yy >= listTop - kRowH && yy < listTop + listH) {
 					snprintf(key, sizeof(key), "hier.row.%d", i);
 					const bool over = hit.Add(key, rowR);
-					const bool sel = (i == st.selectedObject);
 					if (sel)
 						p.Fill(rowR, NkRole::AccentUi);
 					else
 						HoverFill(p, rowR, over, 0.f);
 					const NkRole fg = sel ? NkRole::TextOnAccent : NkRole::Text;
 					const NkRole dim = sel ? NkRole::TextOnAccent : NkRole::TextMuted;
-					float32 tx = r.x + S(6.f) + (float32)kRows[i].depth * S(14.f);
+					const int32 type = nk3d::Viewport3DObjectType(i);
+					float32 tx = r.x + S(20.f);
+					p.IconV(tx, yy, kRowH, NkObjectIcon(type), fg, 13.f);
 
-					// CHEVRON : il replie vraiment. Il n'apparait que si la ligne a des
-					// enfants -- en mettre un partout ferait croire que tout se deplie.
-					bool hasChild = false;
-					for (int32 k = 0; k < nRows && !hasChild; ++k)
-						hasChild = (kRows[k].parent == i);
-					if (hasChild) {
-						const NkRect cr{tx - S(2.f), yy, S(16.f), kRowH};
-						snprintf(key, sizeof(key), "hier.chev.%d", i);
-						hit.Add(key, cr);
-						p.IconV(tx, yy, kRowH,
-								st.folderOpen[i] ? NkIcon::ChevronDown : NkIcon::ChevronRight, dim, 12.f);
-						if (hit.Clicked(key))
-							st.folderOpen[i] = !st.folderOpen[i];
-					}
-					tx += S(16.f);
-
-					// Le DOSSIER garde sa couleur propre meme selectionne : c'est un
-					// contenant, et c'est ce qui le distingue au premier coup d'oeil.
-					p.IconV(tx, yy, kRowH, kRows[i].icon,
-							kRows[i].folder ? NkRole::TypeFolder : fg, 13.f);
-
-					// NOM MODIFIABLE au double-clic.
+					// NOM MODIFIABLE au double-clic : la saisie passe par un tampon
+					// local puis repart au viewport -- l'interface ne garde AUCUNE
+					// copie du nom, sinon les deux divergeraient au premier renommage
+					// fait ailleurs.
+					char nameBuf[32];
+					snprintf(nameBuf, sizeof(nameBuf), "%s", nk3d::Viewport3DObjectName(i));
 					snprintf(key, sizeof(key), "hier.name.%d", i);
+					char edited[32];
+					snprintf(edited, sizeof(edited), "%s", nameBuf);
 					EditableText(p, hit, ws, in, key,
-								 {tx + S(18.f), yy, colType - tx - S(24.f), kRowH}, st.objectNames[i], fg,
-								 st.objectNames[i], 32u);
-					if (*kRows[i].type)
-						p.TextV(colType, yy, kRowH, kRows[i].type, dim);
+								 {tx + S(18.f), yy, colType - tx - S(24.f), kRowH}, edited, fg,
+								 edited, 32u);
+					if (strcmp(edited, nameBuf) != 0)
+						nk3d::Viewport3DRenameObject(i, edited);
+					p.TextV(colType, yy, kRowH, NkObjectTypeName(type), dim);
 
+					// L'oeil pilote la VISIBILITE DE SCENE, pas un drapeau d'interface.
+					const bool vis = nk3d::Viewport3DObjectVisible(i);
 					snprintf(key, sizeof(key), "hier.eye.%d", i);
 					const NkRect eyeR{colEye - S(3.f), yy, S(20.f), kRowH};
 					HoverFill(p, eyeR, hit.Add(key, eyeR) && !sel, 2.f);
-					p.IconV(colEye, yy, kRowH, st.visible[i] ? NkIcon::Eye : NkIcon::EyeClosed,
-							st.visible[i] ? fg : dim, 13.f);
+					p.IconV(colEye, yy, kRowH, vis ? NkIcon::Eye : NkIcon::EyeClosed, vis ? fg : dim,
+							13.f);
 					if (hit.Clicked(key))
-						st.visible[i] = !st.visible[i];
-
-					snprintf(key, sizeof(key), "hier.lock.%d", i);
-					const NkRect lockR{colLock - S(3.f), yy, S(20.f), kRowH};
-					HoverFill(p, lockR, hit.Add(key, lockR) && !sel, 2.f);
-					p.IconV(colLock, yy, kRowH, st.locked[i] ? NkIcon::Lock : NkIcon::Unlock,
-							st.locked[i] ? fg : dim, 13.f);
-					if (hit.Clicked(key))
-						st.locked[i] = !st.locked[i];
+						nk3d::Viewport3DSetObjectVisible(i, !vis);
 
 					snprintf(key, sizeof(key), "hier.row.%d", i);
-					if (hit.Clicked(key) && !st.locked[i])
-						st.selectedObject = i;
+					if (hit.Clicked(key))
+						nk3d::Viewport3DSelectObject(i, hit.ShiftDown());
 				}
 				yy += kRowH;
 			}
 
+			// Scene VIDE : le dire, et dire quoi faire. Un panneau muet ressemble a
+			// un panneau casse.
+			if (aliveCount == 0)
+				p.TextV(r.x + S(24.f), listTop + S(8.f), kRowH,
+						"Scene vide -- Ajouter pour creer un objet", NkRole::TextMuted);
+
 			p.Unclip();
 
-			// UN CLIC DANS LE VIDE DESELECTIONNE. La zone « hier.list » n'est survolee
-			// que la ou aucune ligne ne l'a recouverte, donc ce test designe exactement
-			// le vide -- sans qu'on ait a calculer ou finit la derniere ligne.
+			// UN CLIC DANS LE VIDE DESELECTIONNE.
 			if (hit.Clicked("hier.list"))
-				st.selectedObject = -1;
+				nk3d::Viewport3DDeselectAllObjects();
 
 			hit.Wheel("hier.list", st.scrollHier, (float32)visibleCount * kRowH, listH);
 			p.VScroll(listR, (float32)visibleCount * kRowH, st.scrollHier);
-			// Barre HORIZONTALE : les noms longs debordent des que le panneau est
-			// retreci, et sans elle la fin du nom est simplement perdue.
-			hit.Wheel("hier.list", st.scrollHierH, r.w + S(120.f), r.w);
-			p.HScroll(listR, r.w + S(120.f), st.scrollHierH);
 
 			const float32 fy = r.y + r.h - kRowH;
 			p.Fill({r.x, fy, r.w, kRowH}, NkRole::WindowBg);
 			p.HLine(r.x, fy, r.w);
 			char foot[72];
-			snprintf(foot, sizeof(foot), "%d objets (%s)", visibleCount,
-					 st.selectedObject >= 0 ? "1 selectionne" : "aucune selection");
+			snprintf(foot, sizeof(foot), "%d objet(s), %d selectionne(s)", aliveCount, selCount);
 			p.TextV(r.x + kPad, fy, kRowH, foot, NkRole::TextMuted);
 		}
 
@@ -797,7 +850,8 @@ namespace nkentseu {
 		// Les boules du FOND sont dessinees en PREMIER : sans cet ordre, un demi-axe
 		// qui s'eloigne passerait par-dessus celui qui s'approche, et la profondeur
 		// serait inversee.
-		inline void PaintNavGizmo(NkModelerPainter &p, float32 cx, float32 cy, float32 radius) {
+		inline void PaintNavGizmo(NkModelerPainter &p, NkHitRegistry &hit, float32 cx, float32 cy,
+								  float32 radius) {
 			// Projection isometrique fixe, reprise de l'orientation de Blender :
 			// Z vers le haut, Y vers la droite, X vers l'avant-bas.
 			struct Axis {
@@ -816,7 +870,22 @@ namespace nkentseu {
 			};
 			const float32 ball = radius * 0.30f;
 
+			// CHAQUE BOULE EST UNE VUE. Cliquer +X regarde depuis +X (vue de
+			// droite), -X depuis l'oppose, et ainsi de suite -- exactement le
+			// gizmo de Blender. Le mapping suit la convention de Viewport3DAxisView :
+			// 0 = face (-Y), 1 = droite (+X), 2 = dessus (+Z ecran, +Y monde).
+			struct View {
+					int32 which;
+					bool opposite;
+			};
+			const View kViews[6] = {
+				{1, false}, {1, true},	// +X / -X
+				{0, true},	{0, false}, // +Y (arriere) / -Y (face)
+				{2, false}, {2, true},	// haut / bas
+			};
+
 			// Passe 1 : ce qui est DERRIERE (profondeur negative).
+			char key[24];
 			for (int32 pass = 0; pass < 2; ++pass) {
 				for (int32 i = 0; i < 6; ++i) {
 					const bool front = kAxes[i].depth > 0.f;
@@ -824,18 +893,26 @@ namespace nkentseu {
 						continue;
 					const float32 ex = cx + kAxes[i].dx * (radius - ball);
 					const float32 ey = cy + kAxes[i].dy * (radius - ball);
+					snprintf(key, sizeof(key), "nav.axis.%d", i);
+					const NkRect br{ex - ball, ey - ball, ball * 2.f, ball * 2.f};
+					const bool over = hit.Add(key, br);
 					if (kAxes[i].positive)
 						p.Line(cx, cy, ex, ey, kAxes[i].role, 2.f);
 					if (kAxes[i].positive) {
-						p.Disc(ex, ey, ball, kAxes[i].role);
+						p.Disc(ex, ey, over ? ball + 2.f : ball, kAxes[i].role);
 						const float32 lw = p.TextW(kAxes[i].label);
 						p.Text(ex - lw * 0.5f, ey - p.LineH() * 0.5f, kAxes[i].label,
 							   NkRole::TextOnAccent);
 					} else {
-						// Creuse : le trou reprend le fond de la VUE, pas celui d'un
-						// panneau -- le gizmo flotte au-dessus de la scene.
-						p.Ring(ex, ey, ball, kAxes[i].role, NkRole::ViewportTop);
+						// Creuse : le trou reprend le fond de la VUE -- le gizmo
+						// flotte au-dessus de la scene.
+						p.Ring(ex, ey, over ? ball + 2.f : ball, kAxes[i].role,
+							   NkRole::ViewportTop);
 					}
+					if (over)
+						hit.WantCursor(NkCursorWant::Hand);
+					if (hit.Clicked(key))
+						nk3d::Viewport3DAxisView(kViews[i].which, kViews[i].opposite);
 				}
 			}
 		}
@@ -982,6 +1059,29 @@ namespace nkentseu {
 				Combo(p, hit, ws, "vp.shade", {bx, barY + 2.f, ib, barH - 4.f}, shad, NkShadingIcons(), nS,
 					  st.shading, combo, true, false, false);
 				bx += ib + 2.f;
+				// ── FOND DE LA VUE ──────────────────────────────────────────
+				// Des PREREGLAGES, pas une roue chromatique : cinq fonds couvrent
+				// les usages reels (sombre, noir pur pour les silhouettes, gris
+				// neutre pour juger les couleurs, clair pour les captures, bleu
+				// nuit). Un selecteur libre viendra avec l'editeur de theme.
+				{
+					static const char *const kBg[] = {"Fond sombre", "Fond noir", "Fond gris",
+													  "Fond clair", "Fond bleu nuit"};
+					static NkIcon kBgIc[5];
+					for (int32 i = 0; i < 5; ++i)
+						kBgIc[i] = NkIcon::Circle;
+					Combo(p, hit, ws, "vp.bg", {bx, barY + 2.f, ib, barH - 4.f}, kBg, kBgIc, 5,
+						  st.bgChoice, combo, true, false, false);
+					bx += ib + 2.f;
+					static const float32 kBgCol[5][3] = {{0.05f, 0.05f, 0.07f},
+														 {0.01f, 0.01f, 0.012f},
+														 {0.24f, 0.24f, 0.25f},
+														 {0.62f, 0.63f, 0.65f},
+														 {0.05f, 0.07f, 0.13f}};
+					nk3d::Viewport3DSetBackground(kBgCol[st.bgChoice][0], kBgCol[st.bgChoice][1],
+												  kBgCol[st.bgChoice][2]);
+				}
+
 				// AFFICHAGE : liste a CASES, pas a choix unique. On veut la grille ET le
 				// repere sans les normales -- trois presets exclusifs obligeaient a
 				// choisir la combinaison la moins mauvaise au lieu de composer.
@@ -1161,7 +1261,7 @@ namespace nkentseu {
 			const float32 navH = 4.f * 26.f + 3.f * 5.f;
 			const float32 navY = r.y + r.h - 22.f - gz * 2.f - 14.f - navH;
 			PaintViewButtons(p, r.x + 14.f, navY);
-			PaintNavGizmo(p, r.x + 12.f + gz, r.y + r.h - 22.f - gz, gz);
+			PaintNavGizmo(p, hit, r.x + 12.f + gz, r.y + r.h - 22.f - gz, gz);
 
 			// ── PANNEAU DE DERNIERE OPERATION. Il FLOTTE au-dessus de la scene et n'est
 			// pas encastre dans un bord : il appartient a la vue, pas au cadre.
@@ -1324,15 +1424,28 @@ namespace nkentseu {
 
 			if (SectionHeader(p, hit, r, y, "prop.sec.transform", "Transformation", st.showTransform)) {
 				y += kRowH;
-				PaintTransformRow(p, hit, ws, in, r, y, "Position", st.pos, 0.01f, "prop.pos",
-								  NkIcon::Refresh, NkIcon::Lock);
-				y += Vec3RowH();
-				PaintTransformRow(p, hit, ws, in, r, y, "Rotation", st.rot, 0.5f, "prop.rot",
-								  NkIcon::Refresh, NkIcon::None, "%.1f");
-				y += Vec3RowH();
-				PaintTransformRow(p, hit, ws, in, r, y, "Echelle", st.scl, 0.01f, "prop.scl",
-								  NkIcon::Refresh, NkIcon::Lock, "%.3f");
-				y += Vec3RowH();
+				// LES CHAMPS SONT CEUX DE L'OBJET ACTIF, dans les deux sens : on lit
+				// sa transformation avant de peindre (le gizmo a pu la changer), on la
+				// reecrit apres (les champs ont pu etre edites). Sans objet, la
+				// section le dit au lieu d'afficher des zeros editables qui ne
+				// commandent rien.
+				const int32 act = nk3d::Viewport3DActiveObject();
+				if (act >= 0 && nk3d::Viewport3DObjectAlive(act)) {
+					nk3d::Viewport3DGetObjectTransform(act, st.pos, st.rot, st.scl);
+					PaintTransformRow(p, hit, ws, in, r, y, "Position", st.pos, 0.01f, "prop.pos",
+									  NkIcon::Refresh, NkIcon::Lock);
+					y += Vec3RowH();
+					PaintTransformRow(p, hit, ws, in, r, y, "Rotation", st.rot, 0.5f, "prop.rot",
+									  NkIcon::Refresh, NkIcon::None, "%.1f");
+					y += Vec3RowH();
+					PaintTransformRow(p, hit, ws, in, r, y, "Echelle", st.scl, 0.01f, "prop.scl",
+									  NkIcon::Refresh, NkIcon::Lock, "%.3f");
+					y += Vec3RowH();
+					nk3d::Viewport3DSetObjectTransform(act, st.pos, st.rot, st.scl);
+				} else {
+					p.TextV(r.x + kPad, y, kRowH, "Aucun objet selectionne", NkRole::TextMuted);
+					y += kRowH;
+				}
 			} else {
 				y += kRowH;
 			}
@@ -1586,12 +1699,31 @@ namespace nkentseu {
 					NkIcon ic;
 					const char *label;
 			};
-			static const B kBtns[] = {
-				{NkIcon::Add, "Ajouter"}, {NkIcon::Import, "Importer"}, {NkIcon::Save, "Tout enregistrer"}};
-			for (int32 i = 0; i < 3; ++i) {
-				p.IconV(x, r.y, topH, kBtns[i].ic, NkRole::Text, 13.f);
+			// TROIS BOUTONS DE CREATION DIRECTS, pas un menu : creer un dossier, un
+			// materiau ou une texture sont les trois gestes fondateurs du navigateur,
+			// et les cacher derriere un deroulant ajouterait un clic a chacun.
+			static const B kBtns[] = {{NkIcon::Folder, "+ Dossier"},
+									  {NkIcon::Circle, "+ Materiau"},
+									  {NkIcon::Journal, "+ Texture"},
+									  {NkIcon::Import, "Importer"}};
+			for (int32 i = 0; i < 4; ++i) {
+				const float32 bw = 18.f + p.TextW(kBtns[i].label) + 10.f;
+				char bkey[24];
+				snprintf(bkey, sizeof(bkey), "brw.new.%d", i);
+				const NkRect br{x - 4.f, r.y + 3.f, bw, topH - 6.f};
+				HoverFill(p, br, hit.Add(bkey, br), 2.f);
+				p.IconV(x, r.y, topH, kBtns[i].ic, i == 0 ? NkRole::TypeFolder : NkRole::Text, 13.f);
 				p.TextV(x + 18.f, r.y, topH, kBtns[i].label);
-				x += 18.f + p.TextW(kBtns[i].label) + 16.f;
+				x += bw + 8.f;
+				// La creation ecrit dans l'etat ; le nom par defaut est numerote et
+				// se renomme au double-clic, comme partout.
+				if (i < 3 && hit.Clicked(bkey) && st.browserCount < NkModelerState::kMaxBrowser) {
+					const int32 k = st.browserCount++;
+					st.browserKind[k] = (uint8)i;
+					st.browserParent[k] = st.browserFolder;
+					static const char *const kBase[] = {"Dossier", "Materiau", "Texture"};
+					snprintf(st.browserNames[k], 32, "%s_%02d", kBase[i], k + 1);
+				}
 			}
 			p.VLine(x, r.y + 6.f, topH - 12.f);
 			x += 10.f;
@@ -1600,214 +1732,150 @@ namespace nkentseu {
 			p.TextV(x + 50.f, r.y, topH, "Tout > Contenu > Perso", NkRole::TextMuted);
 			p.HLine(r.x, r.y + topH - 1.f, r.w);
 
-			// Arbre de dossiers. Ils structurent le PROJET et non le disque : ils seront
-			// enregistres DANS le fichier de projet, comme demande.
+			// Arbre de dossiers : LES DOSSIERS CREES PAR L'UTILISATEUR, plus une
+			// racine fixe. Ils structurent le PROJET et non le disque : ils seront
+			// enregistres DANS le fichier de projet.
 			const float32 treeW = r.w * 0.18f;
 			const float32 ty = r.y + topH;
 			const float32 th = r.h - topH;
-			// Tout le corps du navigateur est DECOUPE sous sa barre de titre : arbre et
-			// cartes sont dessines a partir d'une position defilee, donc negative des le
-			// premier cran, et sans decoupe la premiere rangee de cartes se peint sur la
-			// barre « Ajouter / Importer ».
 			p.Clip({r.x, ty, r.w, th});
 			p.Fill({r.x, ty, treeW, th}, NkRole::WindowBg);
 			p.VLine(r.x + treeW, ty, th);
-			// LES DOSSIERS SONT ORANGE et portent un CHEVRON qui replie leur contenu,
-			// exactement comme dans la hierarchie. Deux listes qui montrent la meme
-			// chose -- une arborescence -- doivent se manipuler pareil, sinon
-			// l'utilisateur reapprend a chaque panneau.
-			//
-			// La couleur du dossier est conservee MEME SELECTIONNE : c'est ce qui le
-			// distingue d'un asset au premier coup d'oeil, et la selection se lit deja
-			// au fond de la ligne.
-			float32 dy = ty + S(4.f) - treeScroll;
-			char fkey[40];
-			for (int32 i = 0; i < 5; ++i) {
-				const bool child = (i > 0);
-				if (child && !st.folderOpen[0])
-					continue; // un enfant disparait si la racine est repliee
-				const bool on = (i == st.selectedFolder);
-				const NkRect rowR{r.x, dy, treeW, kRowH};
-				snprintf(fkey, sizeof(fkey), "brow.dir.%d", i);
-				const bool over = hit.Add(fkey, rowR);
-				if (on)
-					p.Fill(rowR, NkRole::AccentUi);
-				else
-					HoverFill(p, rowR, over, 0.f);
-				float32 fx = r.x + S(6.f) + (child ? S(14.f) : 0.f);
-				if (!child) {
-					const NkRect cr{fx - S(2.f), dy, S(16.f), kRowH};
-					snprintf(fkey, sizeof(fkey), "brow.chev.%d", i);
-					hit.Add(fkey, cr);
-					p.IconV(fx, dy, kRowH,
-							st.folderOpen[0] ? NkIcon::ChevronDown : NkIcon::ChevronRight,
-							on ? NkRole::TextOnAccent : NkRole::TextMuted, 12.f);
-					if (hit.Clicked(fkey))
-						st.folderOpen[0] = !st.folderOpen[0];
+			int32 folderCount = 0;
+			{
+				float32 dy = ty + S(4.f) - treeScroll;
+				char fkey[40];
+				// Racine « Contenu ».
+				{
+					const NkRect rowR{r.x, dy, treeW, kRowH};
+					const bool over = hit.Add("brow.root", rowR);
+					const bool on = (st.browserFolder < 0);
+					if (on)
+						p.Fill(rowR, NkRole::AccentUi);
+					else
+						HoverFill(p, rowR, over, 0.f);
+					p.IconV(r.x + S(6.f), dy, kRowH, NkIcon::Drawer,
+							on ? NkRole::TextOnAccent : NkRole::Text, 13.f);
+					p.TextV(r.x + S(24.f), dy, kRowH, "Contenu",
+							on ? NkRole::TextOnAccent : NkRole::Text);
+					if (hit.Clicked("brow.root"))
+						st.browserFolder = -1;
+					dy += kRowH;
 				}
-				fx += S(16.f);
-				p.IconV(fx, dy, kRowH,
-						(!child && st.folderOpen[0]) ? NkIcon::FolderOpen : NkIcon::Folder,
-						NkRole::TypeFolder, 13.f);
-				snprintf(fkey, sizeof(fkey), "brow.name.%d", i);
-				EditableText(p, hit, ws, in, fkey, {fx + S(18.f), dy, treeW - fx - S(24.f), kRowH},
-							 st.folderNames[i], on ? NkRole::TextOnAccent : NkRole::Text,
-							 st.folderNames[i], 32u);
-				snprintf(fkey, sizeof(fkey), "brow.dir.%d", i);
-				if (hit.Clicked(fkey))
-					st.selectedFolder = i;
-				dy += kRowH;
+				for (int32 i = 0; i < st.browserCount; ++i) {
+					if (st.browserKind[i] != 0)
+						continue; // seuls les DOSSIERS vivent dans l'arbre
+					++folderCount;
+					const bool on = (st.browserFolder == i);
+					const NkRect rowR{r.x, dy, treeW, kRowH};
+					snprintf(fkey, sizeof(fkey), "brow.dir.%d", i);
+					const bool over = hit.Add(fkey, rowR);
+					if (on)
+						p.Fill(rowR, NkRole::AccentUi);
+					else
+						HoverFill(p, rowR, over, 0.f);
+					// LE DOSSIER RESTE ORANGE meme selectionne : c'est ce qui le
+					// distingue d'un asset au premier coup d'oeil.
+					p.IconV(r.x + S(18.f), dy, kRowH, on ? NkIcon::FolderOpen : NkIcon::Folder,
+							NkRole::TypeFolder, 13.f);
+					snprintf(fkey, sizeof(fkey), "brow.dirname.%d", i);
+					EditableText(p, hit, ws, in, fkey,
+								 {r.x + S(36.f), dy, treeW - S(42.f), kRowH}, st.browserNames[i],
+								 on ? NkRole::TextOnAccent : NkRole::Text, st.browserNames[i], 32u);
+					snprintf(fkey, sizeof(fkey), "brow.dir.%d", i);
+					if (hit.Clicked(fkey))
+						st.browserFolder = i;
+					dy += kRowH;
+				}
+				if (folderCount == 0)
+					p.TextV(r.x + S(8.f), dy, kRowH, "Aucun dossier", NkRole::TextMuted);
 			}
 
-			// Filtres par TYPE. Chaque pastille porte la couleur de son type, prise dans
-			// le theme : le navigateur et le reste de l'application parlent ainsi la meme
-			// langue de couleur.
-			const float32 ax = r.x + treeW + 10.f;
-			p.Fill({ax, ty + 6.f, 150.f, 20.f}, NkRole::InputBg, 2.f);
-			p.IconV(ax + 6.f, ty + 6.f, 20.f, NkIcon::Search, NkRole::Text, 12.f);
-			p.TextV(ax + 24.f, ty + 6.f, 20.f, "Rechercher", NkRole::TextMuted);
-			float32 fx = ax + 168.f;
-			static const char *const kTypes[] = {"Maillage", "Animation", "Materiau", "Texture"};
-			const NkRole kTypeRoles[] = {NkRole::TypeMesh, NkRole::TypeAnim, NkRole::TypeMat,
-										 NkRole::TypeTex};
-			for (int32 i = 0; i < 4; ++i) {
-				const float32 w = p.TextW(kTypes[i]) + 30.f;
-				p.Outline({fx, ty + 6.f, w, 20.f}, NkRole::Border, NkRole::PanelBg, 10.f);
-				p.Fill({fx + 8.f, ty + 13.f, 7.f, 7.f}, kTypeRoles[i], 4.f);
-				p.TextV(fx + 20.f, ty + 6.f, 20.f, kTypes[i], NkRole::TextMuted);
-				fx += w + 6.f;
-			}
-			p.HLine(ax - 10.f, ty + 32.f, r.w - treeW);
-
-			// Vignettes. La bande de couleur SOUS la vignette redit le type : on
-			// reconnait un materiau d'un maillage sans lire l'etiquette.
-			// ── CARTES D'ASSETS, CALQUEES SUR LE NAVIGATEUR D'UNREAL ────────────
-			// Structure d'une carte, de haut en bas :
-			//   1. l'apercu, sur un DAMIER (il dit « ce fond est vide », pas « ce fond
-			//      est gris ») ;
-			//   2. une BANDE DE COULEUR fine, qui ouvre le pied de carte ;
-			//   3. le NOM ;
-			//   4. le TYPE, en petit et attenue.
-			//
-			// Mon dessin precedent mettait la bande SOUS l'apercu et le nom DEHORS : le
-			// nom flottait entre deux cartes et on ne savait plus a laquelle il
-			// appartenait des que les libelles etaient longs. Chez Unreal tout est
-			// DANS la carte, et c'est ce qui rend la grille lisible.
-			//
-			// L'APERCU DIT LE TYPE, pas seulement la couleur : on reconnait une forme
-			// avant de lire une etiquette, et un code couleur seul echoue des qu'il y a
-			// du daltonisme ou un ecran mal calibre.
-			enum class Preview : uint8 { Mesh = 0, Material, Texture, Animation, Blueprint };
-			struct Asset {
-					const char *name;
-					const char *type;
-					NkRole role;
-					Preview kind;
-					bool selected;
-			};
-			static const Asset kAssets[] = {
-				{"SM_Cube", "Maillage", NkRole::TypeMesh, Preview::Mesh, true},
-				{"SM_Tete", "Maillage", NkRole::TypeMesh, Preview::Mesh, false},
-				{"M_Bois", "Materiau", NkRole::TypeMat, Preview::Material, false},
-				{"T_Ecorce", "Texture", NkRole::TypeTex, Preview::Texture, false},
-				{"A_Marche", "Animation", NkRole::TypeAnim, Preview::Animation, false},
-			};
+			// ── CARTES : le contenu du dossier courant ──────────────────────────
+			// Plus AUCUNE donnee simulee : chaque carte est un materiau ou une
+			// texture cree par l'utilisateur, rattache au dossier ouvert. Le style
+			// (ombre, damier, bande de type, pied a deux lignes) est celui valide
+			// avec Rihen sur les cartes precedentes.
+			const float32 ax = r.x + treeW + S(14.f);
+			const float32 tw = 96.f;
+			const float32 pvH = 96.f;
+			const float32 barH2 = 3.f;
+			const float32 footH = 34.f;
+			const float32 cardH = pvH + barH2 + footH;
 			float32 tx = ax;
-			// CARTES PLUS HAUTES, comme dans Unreal. L'apercu est ce qu'on regarde et
-			// un carre l'ecrase : un format legerement portrait laisse voir la
-			// silhouette d'un objet debout -- personnage, arbre, colonne -- qui est le
-			// cas le plus courant. Cela donne aussi au pied la place de deux lignes
-			// sans rogner l'image.
-			const float32 tw = 96.f;   // largeur de carte
-			const float32 pvH = 96.f;  // hauteur d'apercu : PLUS GRANDE
-			const float32 barH2 = 3.f; // bande de type
-			const float32 footH = 34.f; // pied : nom + type
-			const float32 tyy = ty + 42.f - assetScroll;
-			for (int32 i = 0; i < 5; ++i) {
-				const float32 cardH = pvH + barH2 + footH;
-				// OMBRE PORTEE legere : elle detache la carte du fond du panneau et
-				// donne le relief d'Unreal. Deux ou trois pixels suffisent -- une ombre
-				// marquee ferait flotter les cartes et fatiguerait sur une grille dense.
+			float32 tyy = ty + S(12.f) - assetScroll;
+			int32 shown = 0;
+			char akey[40];
+			const float32 wrapW = r.x + r.w - S(16.f);
+			for (int32 i = 0; i < st.browserCount; ++i) {
+				if (st.browserKind[i] == 0 || st.browserParent[i] != st.browserFolder)
+					continue;
+				++shown;
+				if (tx + tw > wrapW) { // retour a la ligne
+					tx = ax;
+					tyy += cardH + S(14.f);
+				}
+				const bool isMat = (st.browserKind[i] == 1);
+				const NkRole role = isMat ? NkRole::TypeMat : NkRole::TypeTex;
+
+				// Ombre portee legere, comme Unreal.
 				p.Fill({tx + 2.f, tyy + 3.f, tw, cardH}, NkColor{0, 0, 0, 90}, 3.f);
-				// Carte selectionnee : contour a l'accent d'interface. Chez Unreal c'est
-				// un liseré, pas un fond plein -- un fond plein ecraserait l'apercu, qui
-				// est justement ce qu'on regarde.
-				if (kAssets[i].selected)
+				snprintf(akey, sizeof(akey), "brow.card.%d", i);
+				const bool selCard = (st.selectedAsset == i);
+				hit.Add(akey, {tx, tyy, tw, cardH});
+				if (selCard)
 					p.Fill({tx - 2.f, tyy - 2.f, tw + 4.f, cardH + 4.f}, NkRole::AccentUi, 3.f);
 
-				// 1. DAMIER de fond, comme Unreal : il dit que l'apercu est detoure.
+				// Damier de fond : il dit « ce fond est vide ».
 				const float32 c = 8.f;
 				p.Fill({tx, tyy, tw, pvH}, NkRole::InputBg);
 				for (int32 gx = 0; gx * c < tw; ++gx)
 					for (int32 gy = 0; gy * c < pvH; ++gy)
 						if (((gx + gy) & 1) == 0) {
 							const float32 cw = ((float32)(gx + 1) * c > tw) ? tw - (float32)gx * c : c;
-							const float32 ch = ((float32)(gy + 1) * c > pvH) ? pvH - (float32)gy * c : c;
-							p.Fill({tx + (float32)gx * c, tyy + (float32)gy * c, cw, ch}, NkRole::WindowBg);
+							const float32 ch =
+								((float32)(gy + 1) * c > pvH) ? pvH - (float32)gy * c : c;
+							p.Fill({tx + (float32)gx * c, tyy + (float32)gy * c, cw, ch},
+								   NkRole::WindowBg);
 						}
-
 				const float32 cx = tx + tw * 0.5f, cy = tyy + pvH * 0.5f;
-				switch (kAssets[i].kind) {
-					case Preview::Material:
-						// Boule de rendu, avec son reflet : sans le reflet, le disque se
-						// lit comme une pastille de couleur.
-						p.Disc(cx, cy, 20.f, kAssets[i].role);
-						p.Disc(cx - 7.f, cy - 7.f, 5.f, NkRole::Text);
-						break;
-					case Preview::Texture: {
-						// Un carre de texture : plein, avec un damier plus fin dedans.
-						const float32 q = 6.f, half = q * 3.f;
-						for (int32 gx = 0; gx < 6; ++gx)
-							for (int32 gy = 0; gy < 6; ++gy)
-								p.Fill({cx - half + (float32)gx * q, cy - half + (float32)gy * q, q, q},
-									   ((gx + gy) & 1) ? kAssets[i].role : NkRole::PanelHeader);
-						break;
-					}
-					case Preview::Animation: {
-						const float32 w2 = 20.f, h2 = 13.f;
-						p.Line(cx - w2, cy + h2, cx - w2 * 0.3f, cy - h2 * 0.7f, kAssets[i].role, 2.f);
-						p.Line(cx - w2 * 0.3f, cy - h2 * 0.7f, cx + w2 * 0.4f, cy + h2 * 0.3f,
-							   kAssets[i].role, 2.f);
-						p.Line(cx + w2 * 0.4f, cy + h2 * 0.3f, cx + w2, cy - h2, kAssets[i].role, 2.f);
-						p.Disc(cx - w2 * 0.3f, cy - h2 * 0.7f, 3.f, NkRole::Text);
-						p.Disc(cx + w2 * 0.4f, cy + h2 * 0.3f, 3.f, NkRole::Text);
-						break;
-					}
-					default: {
-						// Cube en volume : face avant pleine, dessus et cote en biais. Un
-						// carre plein ne dirait pas « volume ».
-						const float32 hw = 16.f, hh = 14.f, dp = 8.f;
-						p.Fill({cx - hw, cy - hh + dp, hw * 2.f, hh * 2.f - dp}, NkRole::PanelHeader);
-						p.OutlineSharp({cx - hw, cy - hh + dp, hw * 2.f, hh * 2.f - dp}, kAssets[i].role);
-						p.Line(cx - hw, cy - hh + dp, cx - hw + dp, cy - hh, kAssets[i].role);
-						p.Line(cx - hw + dp, cy - hh, cx + hw + dp, cy - hh, kAssets[i].role);
-						p.Line(cx + hw, cy - hh + dp, cx + hw + dp, cy - hh, kAssets[i].role);
-						p.Line(cx + hw + dp, cy - hh, cx + hw + dp, cy + hh - dp, kAssets[i].role);
-						p.Line(cx + hw, cy + hh, cx + hw + dp, cy + hh - dp, kAssets[i].role);
-						break;
-					}
+				if (isMat) {
+					// Boule de rendu avec reflet : sans reflet, le disque se lit
+					// comme une pastille de couleur.
+					p.Disc(cx, cy, 22.f, role);
+					p.Disc(cx - 8.f, cy - 8.f, 5.f, NkRole::Text);
+				} else {
+					const float32 q = 6.f, half = q * 3.f;
+					for (int32 gx = 0; gx < 6; ++gx)
+						for (int32 gy = 0; gy < 6; ++gy)
+							p.Fill({cx - half + (float32)gx * q, cy - half + (float32)gy * q, q, q},
+								   ((gx + gy) & 1) ? role : NkRole::PanelHeader);
 				}
 
-				// 2. BANDE DE TYPE, puis 3. le NOM et 4. le TYPE, tous DANS la carte.
-				p.Fill({tx, tyy + pvH, tw, barH2}, kAssets[i].role);
+				// Bande de type, puis nom et type DANS la carte, tronques.
+				p.Fill({tx, tyy + pvH, tw, barH2}, role);
 				p.Fill({tx, tyy + pvH + barH2, tw, footH}, NkRole::PanelHeader);
-				// LE TEXTE RESTE DANS LE CADRE, en hauteur comme en largeur. Il etait
-				// pose a des decalages fixes qui ignoraient la hauteur de ligne et la
-				// largeur disponible : a la premiere police plus grande ou au premier
-				// nom long, il debordait par le bas et par la droite. On CENTRE le bloc
-				// de deux lignes dans le pied, et on TRONQUE a la largeur utile.
 				{
 					const float32 fy = tyy + pvH + barH2;
 					const float32 lh = p.LineH();
 					const float32 pad = 6.f;
-					const float32 maxW = tw - pad * 2.f;
 					float32 fyy = fy + (footH - (lh * 2.f + 2.f)) * 0.5f;
-					p.TextClipped(tx + pad, fyy, maxW, kAssets[i].name, NkRole::Text);
+					snprintf(akey, sizeof(akey), "brow.cardname.%d", i);
+					EditableText(p, hit, ws, in, akey, {tx + pad, fyy, tw - pad * 2.f, lh + 2.f},
+								 st.browserNames[i], NkRole::Text, st.browserNames[i], 32u);
 					fyy += lh + 2.f;
-					p.TextClipped(tx + pad, fyy, maxW, kAssets[i].type, NkRole::TextMuted);
+					p.TextClipped(tx + pad, fyy, tw - pad * 2.f, isMat ? "Materiau" : "Texture",
+								  NkRole::TextMuted);
 				}
-				tx += tw + 10.f;
+				snprintf(akey, sizeof(akey), "brow.card.%d", i);
+				if (hit.Clicked(akey))
+					st.selectedAsset = i;
+				tx += tw + S(12.f);
 			}
+			if (shown == 0)
+				p.TextV(ax, ty + S(12.f), kRowH,
+						"Vide -- creez un dossier, un materiau ou une texture", NkRole::TextMuted);
+
 			p.Unclip();
 			const NkRect treeArea{r.x, ty, treeW, th};
 			const NkRect assetArea{ax - S(10.f), ty + S(33.f), r.w - treeW - S(10.f), th - S(33.f)};
@@ -1817,12 +1885,14 @@ namespace nkentseu {
 			// La hauteur de contenu etait figee a 125 px, valeur de l'ancienne carte.
 			// Les cartes font maintenant 133 px : le defilement s'arretait avant le bas
 			// et la derniere rangee restait inaccessible.
-			const float32 assetContentH = 42.f + pvH + barH2 + footH + 10.f;
+			const float32 assetContentH = (tyy + cardH + S(14.f)) - ty + assetScroll;
 			hit.Wheel("brow.assets", st.scrollAssets, assetContentH, assetArea.h);
 			p.VScroll(treeArea, 5.f * kRowH + S(8.f), treeScroll);
 			p.VScroll(assetArea, assetContentH, assetScroll);
-			const float32 ew = p.TextW("5 elements");
-			p.TextV(r.x + r.w - ew - kPad, r.y + r.h - kRowH, kRowH, "5 elements", NkRole::TextMuted);
+			char cnt[32];
+			snprintf(cnt, sizeof(cnt), "%d element(s)", shown);
+			const float32 ew = p.TextW(cnt);
+			p.TextV(r.x + r.w - ew - kPad, r.y + r.h - kRowH, kRowH, cnt, NkRole::TextMuted);
 			(void)ih;
 		}
 
@@ -2105,6 +2175,97 @@ namespace nkentseu {
 					inside = hit.IsHovered(key);
 					for (int32 i = 0; i < cats[c].count && !inside; ++i) {
 						snprintf(key, sizeof(key), "mod.item.%d.%d", c, i);
+						inside = hit.IsHovered(key);
+					}
+				}
+				if (!inside)
+					ws.CloseCombo();
+			}
+		}
+
+		// ── MENU « AJOUTER », DEUX NIVEAUX ──────────────────────────────────────
+		// Meme mecanique que le menu des modificateurs : survol d'une categorie =
+		// ouverture de son sous-menu, clic sur une entree = creation + fermeture.
+		inline void PaintAddObjectMenu(NkModelerPainter &p, NkModelerState &st, NkHitRegistry &hit,
+									   NkWidgetState &ws, float32 W, float32 H) {
+			if (!ws.ComboOpen("tb.addmenu"))
+				return;
+			int32 nc = 0;
+			const NkAddCategory *cats = NkAddCategories(nc);
+			const NkRect &a = st.addAnchor;
+			const float32 itemH = S(24.f);
+			const float32 catW = S(140.f);
+			float32 boxY = a.y + a.h + 2.f;
+			const float32 boxH = itemH * (float32)nc + S(6.f);
+			if (boxY + boxH > H - S(4.f))
+				boxY = H - S(4.f) - boxH;
+			float32 boxX = a.x;
+			if (boxX + catW > W - S(4.f))
+				boxX = W - S(4.f) - catW;
+			const NkRect box{boxX, boxY, catW, boxH};
+			p.Fill({box.x + 2.f, box.y + 2.f, box.w, box.h}, NkRole::WindowBg, 4.f);
+			p.Outline(box, NkRole::Border, NkRole::PanelHeader, 4.f);
+			hit.Add("addm.panel", box);
+
+			char key[32];
+			for (int32 c = 0; c < nc; ++c) {
+				const NkRect ir{box.x + 2.f, box.y + S(3.f) + (float32)c * itemH, box.w - 4.f, itemH};
+				snprintf(key, sizeof(key), "addm.cat.%d", c);
+				const bool over = hit.Add(key, ir);
+				if (over)
+					st.addOpenCat = c; // survol = ouverture, sans clic
+				const bool active = (st.addOpenCat == c);
+				if (active)
+					p.Fill(ir, NkRole::AccentUi, 3.f);
+				p.IconV(ir.x + S(10.f), ir.y, itemH, cats[c].icon,
+						active ? NkRole::TextOnAccent : NkRole::Text, 13.f);
+				p.TextV(ir.x + S(29.f), ir.y, itemH, cats[c].name,
+						active ? NkRole::TextOnAccent : NkRole::Text);
+				p.IconV(ir.x + ir.w - S(18.f), ir.y, itemH, NkIcon::ChevronRight,
+						active ? NkRole::TextOnAccent : NkRole::TextMuted, 11.f);
+
+				if (active) {
+					const float32 subW = S(150.f);
+					const float32 subH = itemH * (float32)cats[c].count + S(6.f);
+					float32 subX = box.x + box.w + 3.f;
+					if (subX + subW > W - S(4.f))
+						subX = box.x - subW - 3.f;
+					float32 subY = ir.y - S(3.f);
+					if (subY + subH > H - S(4.f))
+						subY = H - S(4.f) - subH;
+					const NkRect sub{subX, subY, subW, subH};
+					p.Fill({sub.x + 2.f, sub.y + 2.f, sub.w, sub.h}, NkRole::WindowBg, 4.f);
+					p.Outline(sub, NkRole::Border, NkRole::PanelHeader, 4.f);
+					hit.Add("addm.sub", sub);
+					for (int32 i = 0; i < cats[c].count; ++i) {
+						const NkRect er{sub.x + 2.f, sub.y + S(3.f) + (float32)i * itemH,
+										sub.w - 4.f, itemH};
+						snprintf(key, sizeof(key), "addm.item.%d.%d", c, i);
+						const bool o2 = hit.Add(key, er);
+						if (o2)
+							p.Fill(er, NkRole::AccentUi, 3.f);
+						p.IconV(er.x + S(10.f), er.y, itemH, cats[c].items[i].icon,
+								o2 ? NkRole::TextOnAccent : NkRole::Text, 13.f);
+						p.TextV(er.x + S(29.f), er.y, itemH, cats[c].items[i].label,
+								o2 ? NkRole::TextOnAccent : NkRole::Text);
+						if (hit.Clicked(key)) {
+							nk3d::Viewport3DAddObject(cats[c].items[i].type, cats[c].items[i].prim);
+							st.dirty = true;
+							ws.CloseCombo();
+						}
+					}
+				}
+			}
+
+			// Un clic HORS des deux panneaux referme.
+			if (hit.AnyClick() && !hit.IsHovered("addm.panel") && !hit.IsHovered("addm.sub") &&
+				!hit.IsHovered("tb.addmenu")) {
+				bool inside = false;
+				for (int32 c = 0; c < nc && !inside; ++c) {
+					snprintf(key, sizeof(key), "addm.cat.%d", c);
+					inside = hit.IsHovered(key);
+					for (int32 i = 0; i < cats[c].count && !inside; ++i) {
+						snprintf(key, sizeof(key), "addm.item.%d.%d", c, i);
 						inside = hit.IsHovered(key);
 					}
 				}

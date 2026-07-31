@@ -8,17 +8,22 @@
 // `renderer::NkVertex2D`. Les melanger dans une unite ne compile pas. Le reste
 // de NK3DModeler ne voit donc que NkViewport3D.h et ses `void *`.
 //
-// MODELE : Applications/NkAnimaEditor/src/NkAnimaEditor/AnimBridge.cpp, dont la
-// composition « scene 3D hors ecran + interface NKGui, meme fenetre, meme
-// device, sans relecture CPU » est validee a l'ecran. On la reprend telle
-// quelle plutot que d'en inventer une seconde.
+// MODELE : Applications/NkAnimaEditor/src/NkAnimaEditor/AnimBridge.cpp pour la
+// composition hors ecran, et Applications/Sandbox/src/Demo/Demo3D.cpp pour
+// l'edition -- les deux tournent a l'ecran depuis des mois.
 //
-// LE POINT DELICAT, et c'est le meme que chez NkAnimaEditor : NOUS NE PILOTONS
-// PAS LA FRAME. L'editeur ouvre la frame device et le command buffer ; nous ne
-// faisons qu'ajouter nos passes dessus. Donc pas de BeginFrame, pas de
-// EndFrame, pas de Present ici -- mais il faut rejouer a la main les deux
-// choses que NkRenderer::BeginFrame ferait pour nous : ResetFrame() et l'envoi
-// des materiaux.
+// LE POINT DELICAT : NOUS NE PILOTONS PAS LA FRAME. L'editeur ouvre la frame
+// device et le command buffer ; nous ne faisons qu'ajouter nos passes dessus.
+// Donc pas de BeginFrame / EndFrame / Present ici -- mais il faut rejouer a la
+// main ce que NkRenderer::BeginFrame ferait : ResetFrame() et l'envoi des
+// materiaux.
+//
+// LA SCENE EST MULTI-OBJETS ET NAIT VIDE. Demo3D fige 86 objets en dur ; un
+// modeleur fait l'inverse : rien au depart, et « Ajouter » cree maillages,
+// lumieres, cameras et reperes vides. Chaque objet maillage possede SON
+// NkEditMesh -- la source de verite -- et le tampon GPU n'en est qu'une
+// projection. Sortir du mode edition puis y revenir retrouve la topologie
+// exacte, pas une version retriangulee.
 // -----------------------------------------------------------------------------
 
 #include "NK3DModeler/Viewport/NkViewport3D.h"
@@ -43,11 +48,14 @@
 #include "NK3DModeler/Viewport/NkVpPick.h"
 
 #include <cmath>
+#include <cstdio>
+#include <cstring>
 
 namespace nkentseu {
 	namespace nk3d {
 
 		using namespace nkentseu::renderer;
+		using math::NkAngle;
 		using math::NkMat4f;
 		using math::NkVec3f;
 		using math::NkVec4f;
@@ -55,11 +63,9 @@ namespace nkentseu {
 		namespace {
 
 			// ── PROJECTION MONDE -> ECRAN ───────────────────────────────────
-			// Copiee telle quelle de Demo3D.cpp (l. 1069-1099), ou elle avait deja
-			// ete extraite d'une lambda pour servir le mode objet ET le mode
-			// edition. Elle est indispensable des qu'on veut savoir sur quoi le
-			// curseur pointe : le picking, la selection par zone et l'arbitrage
-			// gizmo/maillage la demandent tous.
+			// Copiee telle quelle de Demo3D.cpp (l. 1069-1099). Indispensable des
+			// qu'on veut savoir sur quoi le curseur pointe : le picking, la
+			// selection par zone et l'arbitrage gizmo/maillage la demandent tous.
 			struct ScreenProj {
 					NkVec3f camPos{}, fwd{}, rgt{}, upv{};
 					float32 thX = 1.f, thY = 1.f, vw = 1.f, vh = 1.f;
@@ -93,6 +99,50 @@ namespace nkentseu {
 					}
 			};
 
+			// ── UN OBJET DE SCENE ───────────────────────────────────────────
+			// Un seul type de fiche pour tout : maillage, lumiere, camera, repere
+			// vide. Les champs de maillage restent vides pour les autres. Une
+			// hierarchie de classes serait plus « propre » sur le papier, mais elle
+			// interdirait le tableau plat a indices stables dont la hierarchie de
+			// l'interface a besoin.
+			struct VpObject {
+					bool alive = false;
+					int32 type = 0; ///< cf. kVpObj* dans NkViewport3D.h
+					char name[32] = {};
+					bool visible = true;
+					bool selected = false;
+
+					// Transformation. pos/rot/scl sont LA SOURCE : le panneau
+					// Proprietes les edite en direct, et la matrice monde n'est
+					// qu'une composition. L'inverse (matrice source, champs derives)
+					// obligerait a decomposer a chaque affichage, et la decomposition
+					// d'Euler n'est pas unique : les champs sauteraient de -180 a 180
+					// sous les yeux de l'utilisateur.
+					NkVec3f pos{0.f, 0.f, 0.f};
+					NkVec3f rotDeg{0.f, 0.f, 0.f};
+					NkVec3f scl{1.f, 1.f, 1.f};
+					NkMat4f world = NkMat4f::Identity(); ///< compose de pos/rot/scl
+					NkMat4f dragBase = NkMat4f::Identity(); ///< monde fige au debut d'un glissement
+
+					// ── Maillage (type == kVpObjMesh) ───────────────────────
+					NkEditMesh edit;
+					NkMeshHandle mesh;
+					bool meshOk = false;
+					bool meshDirty = true;
+					NkVector<NkVertex3D> triV;
+					NkVector<uint32> triI;
+					NkVector<NkEmId> triF;
+					NkVector<uint32> edges;
+					float32 radius = 1.f; ///< rayon englobant local
+
+					// ── Lumiere (types kVpObjLight*) ────────────────────────
+					NkVec3f lightColor{1.f, 1.f, 1.f};
+					float32 lightIntensity = 3.f;
+					float32 lightRange = 10.f;
+			};
+
+			constexpr int32 kMaxObjects = 64;
+
 			struct Viewport3D {
 					// ── Pile GPU ────────────────────────────────────────────
 					NkIDevice *sharedDev = nullptr;
@@ -105,76 +155,56 @@ namespace nkentseu {
 					const char *err = nullptr;
 
 					// ── Scene ───────────────────────────────────────────────
-					NkEditMesh edit;			 ///< LA source de verite : demi-aretes
-					NkMeshHandle mesh;			 ///< sa triangulation, cote GPU
-					bool meshOk = false;
-					bool meshDirty = true;		 ///< la triangulation doit etre refaite
-					NkVector<NkVertex3D> triV;	 ///< tampons reutilises d'une image a
-					NkVector<uint32> triI;		 ///< l'autre : les reallouer par image
-					NkVector<NkEmId> triF;		 ///< couterait plus que le rendu
+					VpObject objs[kMaxObjects];
+					int32 activeObj = -1; ///< l'objet dont on edite le maillage
+					uint32 nameCounter = 0; ///< suffixe des noms par defaut
 
-					// ── Camera : CELLE DU MOTEUR ────────────────────────────
-					// J'avais ecrit yaw/pitch/dist a la main. C'etait une erreur, et
-					// Rihen l'a relevee : NkOrbitCameraController3D existe, il est
-					// utilise par Demo3D, et il fait deja ce que ma version faisait
-					// mal -- notamment OrbitAroundPivot, qui fait tourner la POSITION
-					// ET LA CIBLE ensemble. Ma version revisait le pivot a chaque
-					// image, ce qui produit un saut au premier mouvement des qu'on
-					// orbite autour d'autre chose que l'origine.
+					// Selection demandee par l'interface (hierarchie), appliquee au
+					// gizmo juste avant sa mise a jour. Le gizmo reste la SOURCE de la
+					// selection en mode objet -- c'est lui qui pick au clic -- mais la
+					// hierarchie doit pouvoir la forcer.
+					int32 pendingSelect = -1;
+					bool pendingSelectAdd = false;
+					bool pendingDeselectAll = false;
+
+					// ── Camera : celle du moteur ────────────────────────────
 					NkOrbitCameraController3D cam;
-					bool ortho = false;		///< projection orthographique (pave 5)
-					float32 radius = 1.8f;	///< rayon englobant, pour le recadrage
+					bool ortho = false;
 
-					// ── Gizmo : CELUI DU MOTEUR AUSSI ───────────────────────────
-					// NkGizmo3D apporte d'un bloc translation / rotation / echelle /
-					// combine, les orientations global / local / normal, l'accrochage
-					// au Ctrl, cinq modes de pivot et le curseur 3D. Ce sont
-					// exactement les commandes de la barre de la vue -- les
-					// reecrire aurait donne une version pauvre de ce qui existe.
+					// ── Gizmo : celui du moteur ─────────────────────────────
 					NkGizmo3D gizmo;
 					NkGizmoInput gin{};
+					bool wasDragging = false;
+					// Correspondance cible du gizmo -> slot d'objet, refaite chaque
+					// image. Le gizmo ne connait que des indices contigus ; la scene a
+					// des trous (objets supprimes).
+					int32 tgtSlot[kMaxObjects];
+					int32 tgtCount = 0;
 
-					// ── Mode edition ────────────────────────────────────────
-					// `selMask` : bits 1 sommet, 2 arete, 4 face -- COMBINABLES, comme
-					// dans Blender ou Maj+1/2/3 additionne les sous-modes. Un entier
-					// plutot qu'une enumeration exclusive, parce que travailler en
-					// sommet ET face en meme temps est courant.
+					// ── Mode edition (opere sur l'objet ACTIF) ──────────────
 					bool editMode = false;
 					uint32 selMask = 1u;
 					bool xray = false;
-					NkVector<uint8> vertSel;   ///< 1 = sommet selectionne
-					NkVector<uint32> editEdges; ///< paires, cf. GetUniqueEdges
-					NkVector<float32> overlayLines; ///< pos3 + rgba4 par sommet
-
-					// ── Annulation et journal ───────────────────────────────
-					// Deux mecanismes DISTINCTS, et c'est voulu :
-					//  - `history` garde des INSTANTANES du maillage avant chaque
-					//    operation. C'est ce qui rend Ctrl+Z immediat, quelle que soit
-					//    la complexite de l'operation annulee ;
-					//  - `recorder` garde les COMMANDES elles-memes, avec leur
-					//    selection. C'est ce qui permet de rejouer une session sur un
-					//    autre maillage, de la sauver dans un fichier, et de comprendre
-					//    ce qui a ete fait. Un instantane ne dit pas « biseau de 0,2 sur
-					//    ces quatre aretes », il dit seulement « voici l'etat d'avant ».
+					NkVector<uint8> vertSel;
+					NkVector<float32> overlayLines;
 					NkEditHistory history;
 					NkMeshEditRecorder recorder;
 					int32 activeVert = -1;
 					int32 activeEdgeA = -1, activeEdgeB = -1;
 					bool overlayDirty = true;
-					NkMat4f anchor = NkMat4f::Identity(); ///< objet -> monde
+					bool overlayCleared = false; ///< garde : ClearEditOverlay UNE fois
 
 					// Derniere camera connue. Le picking arrive pendant la PEINTURE,
-					// donc avant que la frame 3D suivante n'ait pose sa camera : sans
-					// cette memoire il faudrait recalculer la matrice de vue a deux
-					// endroits, avec le risque qu'elles divergent.
+					// donc avant que la frame 3D suivante n'ait pose sa camera.
 					NkVec3f lastCamPos{};
 					ScreenProj lastProj{};
-					NkVec3f center{0.f, 0.f, 0.f}; ///< centre de la scene, pour le recadrage
 
 					// ── Affichage ───────────────────────────────────────────
-					int32 shading = 0;		///< 0 solide, 1 materiau, 2 rendu, 3 filaire
-					int32 solidLight = 0;	///< 0 studio, 1 matcap, 2 plat
+					int32 shading = 0;
+					int32 solidLight = 0;
 					uint32 overlays = 0x0Fu;
+					NkVec3f bg{0.05f, 0.05f, 0.07f}; ///< fond de la vue
+					bool bgDirty = false;
 			};
 
 			Viewport3D g;
@@ -191,28 +221,117 @@ namespace nkentseu {
 				kOvOrigins = 1u << 7,
 			};
 
-			// ── Le cube de depart, construit en DEMI-ARETES ─────────────────
-			// On ne prend PAS le cube tout fait de NkMeshSystem. Celui-la est un
-			// tampon de triangles : il n'a ni faces ni aretes, donc rien a editer,
-			// rien a compter, rien a selectionner. Ici la source de verite est le
-			// NkEditMesh, et le tampon GPU n'en est qu'une projection -- c'est le
-			// sens de la fleche pour tout le reste du modeleur.
-			void BuildStartCube() {
+			// ── Transformations ─────────────────────────────────────────────
+			inline void ComposeWorld(VpObject &o) {
+				o.world = NkMat4f::Translate(o.pos)
+						  * NkMat4f::RotationZ(NkAngle::FromRad(o.rotDeg.z * 0.0174532925f))
+						  * NkMat4f::RotationY(NkAngle::FromRad(o.rotDeg.y * 0.0174532925f))
+						  * NkMat4f::RotationX(NkAngle::FromRad(o.rotDeg.x * 0.0174532925f))
+						  * NkMat4f::Scale(o.scl);
+			}
+
+			// Decomposition inverse EXACTE de la composition ci-dessus (T * Rz *
+			// Ry * Rx * S, stockage colonne-majeur). Elle ne sert qu'a la fin d'un
+			// glissement de gizmo : le reste du temps, pos/rot/scl sont la source
+			// et personne ne decompose rien.
+			inline void DecomposeWorld(const NkMat4f &M, NkVec3f &pos, NkVec3f &rotDeg, NkVec3f &scl) {
+				pos = {M.mat[3][0], M.mat[3][1], M.mat[3][2]};
+				const NkVec3f c0{M.mat[0][0], M.mat[0][1], M.mat[0][2]};
+				const NkVec3f c1{M.mat[1][0], M.mat[1][1], M.mat[1][2]};
+				const NkVec3f c2{M.mat[2][0], M.mat[2][1], M.mat[2][2]};
+				scl = {c0.Len(), c1.Len(), c2.Len()};
+				const float32 sx = scl.x > 1e-8f ? 1.f / scl.x : 0.f;
+				const float32 sy = scl.y > 1e-8f ? 1.f / scl.y : 0.f;
+				const float32 sz = scl.z > 1e-8f ? 1.f / scl.z : 0.f;
+				// R = Rz*Ry*Rx ; en colonne-majeur mat[col][row] :
+				//   mat[0][0]=cz*cy  mat[0][1]=sz*cy  mat[0][2]=-sy
+				//   mat[1][2]=cy*sx  mat[2][2]=cy*cx
+				const float32 r00 = M.mat[0][0] * sx, r01 = M.mat[0][1] * sx, r02 = M.mat[0][2] * sx;
+				const float32 r12 = M.mat[1][2] * sy, r22 = M.mat[2][2] * sz;
+				float32 syn = -r02;
+				if (syn < -1.f)
+					syn = -1.f;
+				if (syn > 1.f)
+					syn = 1.f;
+				const float32 kRad2Deg = 57.29577951f;
+				rotDeg.y = asinf(syn) * kRad2Deg;
+				rotDeg.x = atan2f(r12, r22) * kRad2Deg;
+				rotDeg.z = atan2f(r01, r00) * kRad2Deg;
+			}
+
+			inline VpObject *ActMesh() {
+				if (g.activeObj < 0 || g.activeObj >= kMaxObjects)
+					return nullptr;
+				VpObject &o = g.objs[g.activeObj];
+				return (o.alive && o.type == kVpObjMesh) ? &o : nullptr;
+			}
+
+			// Bornes de la scene entiere, pour le recadrage. Une scene vide rend
+			// l'origine et un rayon de confort : recadrer sur rien doit quand meme
+			// donner un point de vue utilisable.
+			inline void SceneBounds(NkVec3f &center, float32 &radius) {
+				NkVec3f mn{1e30f, 1e30f, 1e30f}, mx{-1e30f, -1e30f, -1e30f};
+				bool any = false;
+				for (int32 i = 0; i < kMaxObjects; ++i) {
+					const VpObject &o = g.objs[i];
+					if (!o.alive)
+						continue;
+					const float32 r = (o.type == kVpObjMesh) ? o.radius : 0.5f;
+					const NkVec3f p = o.pos;
+					mn.x = mn.x < p.x - r ? mn.x : p.x - r;
+					mn.y = mn.y < p.y - r ? mn.y : p.y - r;
+					mn.z = mn.z < p.z - r ? mn.z : p.z - r;
+					mx.x = mx.x > p.x + r ? mx.x : p.x + r;
+					mx.y = mx.y > p.y + r ? mx.y : p.y + r;
+					mx.z = mx.z > p.z + r ? mx.z : p.z + r;
+					any = true;
+				}
+				if (!any) {
+					center = {0.f, 0.f, 0.f};
+					radius = 2.f;
+					return;
+				}
+				center = (mn + mx) * 0.5f;
+				radius = (mx - mn).Len() * 0.5f;
+				if (radius < 0.5f)
+					radius = 0.5f;
+			}
+
+			// ── GENERATEURS DE PRIMITIVES ───────────────────────────────────
+			// Ils produisent des TRIANGLES ; BuildFromIndexed(quadify=true) recolle
+			// ensuite les paires coplanaires en quads. On ne prend pas les
+			// primitives GPU de NkMeshSystem : elles n'ont ni faces ni aretes,
+			// donc rien a editer.
+			struct GenOut {
+					NkVector<NkVertex3D> v;
+					NkVector<uint32> i;
+					void Vtx(float32 x, float32 y, float32 z) {
+						NkVertex3D vv{};
+						vv.pos = {x, y, z};
+						vv.normal = {0.f, 1.f, 0.f};
+						vv.color = 0xFFFFFFFFu;
+						v.PushBack(vv);
+					}
+					void Tri(uint32 a, uint32 b, uint32 c) {
+						i.PushBack(a);
+						i.PushBack(b);
+						i.PushBack(c);
+					}
+					void Quad(uint32 a, uint32 b, uint32 c, uint32 d) {
+						Tri(a, b, c);
+						Tri(a, c, d);
+					}
+			};
+
+			void GenCube(GenOut &o) {
 				const float32 h = 1.f;
-				NkVertex3D v[8];
 				const float32 px[8] = {-h, h, h, -h, -h, h, h, -h};
 				const float32 py[8] = {-h, -h, -h, -h, h, h, h, h};
 				const float32 pz[8] = {-h, -h, h, h, -h, -h, h, h};
-				for (uint32 i = 0; i < 8; ++i) {
-					v[i] = NkVertex3D{};
-					v[i].pos = {px[i], py[i], pz[i]};
-					v[i].normal = {0.f, 1.f, 0.f};
-					v[i].color = 0xFFFFFFFFu; // RGBA empaquete, pas un vec4
-				}
-				// Douze triangles, deux par face, en sens anti-horaire vu de
-				// l'exterieur. `quadify` les recolle ensuite deux a deux : on
-				// retrouve les six QUADS d'origine, et c'est ce qui donne 8 sommets,
-				// 12 aretes et 6 faces au lieu de 8 / 18 / 12.
+				for (uint32 i = 0; i < 8; ++i)
+					o.Vtx(px[i], py[i], pz[i]);
+				o.Quad(0, 2, 1, 3); // ecrit en triangles ci-dessous pour garder l'ordre historique
+				o.i.Clear();
 				static const uint32 idx[36] = {
 					0, 2, 1, 0, 3, 2, // bas  (-Y)
 					4, 5, 6, 4, 6, 7, // haut (+Y)
@@ -221,111 +340,191 @@ namespace nkentseu {
 					0, 4, 7, 0, 7, 3, // gauche (-X)
 					1, 2, 6, 1, 6, 5, // droite (+X)
 				};
-				g.edit.BuildFromIndexed(v, 8, idx, 36, true);
-				g.edit.RecomputeNormals();
-				g.meshDirty = true;
-				g.radius = 1.8f;
-				g.center = {0.f, 0.f, 0.f};
+				for (uint32 k = 0; k < 36; ++k)
+					o.i.PushBack(idx[k]);
 			}
 
-			// Apres une operation topologique, la selection qui compte est celle du
-			// MAILLAGE : lui seul sait quels sommets il vient de creer. Une extrusion
-			// selectionne la nouvelle geometrie, et c'est ce qu'on veut retrouver.
-			void PullSelection() {
-				const uint32 nv = g.edit.VertCount();
-				g.vertSel.Resize(nv);
-				for (uint32 i = 0; i < nv; ++i)
-					g.vertSel[i] = g.edit.verts[i].sel;
-				g.activeVert = -1;
-				g.activeEdgeA = g.activeEdgeB = -1;
-				g.overlayDirty = true;
+			void GenPlane(GenOut &o) {
+				o.Vtx(-1.f, 0.f, -1.f);
+				o.Vtx(1.f, 0.f, -1.f);
+				o.Vtx(1.f, 0.f, 1.f);
+				o.Vtx(-1.f, 0.f, 1.f);
+				o.Quad(0, 3, 2, 1); // normale vers +Y
 			}
 
-			// Retriangule et renvoie le resultat au GPU. Appelee seulement quand le
-			// maillage a bouge : la triangulation d'un maillage dense n'est pas
-			// gratuite, et rien ne change entre deux images qui ne l'editent pas.
-			void SyncMesh() {
-				if (!g.meshDirty || !g.r3)
+			void GenSphere(GenOut &o, uint32 seg = 24, uint32 rings = 12) {
+				// Sphere UV : deux poles et un treillis de quads entre les deux.
+				const float32 kPi = 3.14159265f;
+				o.Vtx(0.f, 1.f, 0.f); // pole nord
+				for (uint32 r = 1; r < rings; ++r) {
+					const float32 phi = kPi * (float32)r / (float32)rings;
+					const float32 y = cosf(phi), rad = sinf(phi);
+					for (uint32 s = 0; s < seg; ++s) {
+						const float32 th = 2.f * kPi * (float32)s / (float32)seg;
+						o.Vtx(rad * cosf(th), y, rad * sinf(th));
+					}
+				}
+				o.Vtx(0.f, -1.f, 0.f); // pole sud
+				const uint32 south = (uint32)o.v.Size() - 1u;
+				auto ring = [&](uint32 r, uint32 s) { return 1u + (r - 1u) * seg + (s % seg); };
+				for (uint32 s = 0; s < seg; ++s)
+					o.Tri(0u, ring(1, s + 1), ring(1, s));
+				for (uint32 r = 1; r + 1 < rings; ++r)
+					for (uint32 s = 0; s < seg; ++s)
+						o.Quad(ring(r, s), ring(r, s + 1), ring(r + 1, s + 1), ring(r + 1, s));
+				for (uint32 s = 0; s < seg; ++s)
+					o.Tri(south, ring(rings - 1, s), ring(rings - 1, s + 1));
+			}
+
+			void GenCylinder(GenOut &o, uint32 seg = 24) {
+				const float32 kPi = 3.14159265f;
+				for (uint32 s = 0; s < seg; ++s) {
+					const float32 th = 2.f * kPi * (float32)s / (float32)seg;
+					o.Vtx(cosf(th), 1.f, sinf(th));
+					o.Vtx(cosf(th), -1.f, sinf(th));
+				}
+				o.Vtx(0.f, 1.f, 0.f);  // centre haut
+				o.Vtx(0.f, -1.f, 0.f); // centre bas
+				const uint32 cTop = seg * 2u, cBot = seg * 2u + 1u;
+				for (uint32 s = 0; s < seg; ++s) {
+					const uint32 t0 = s * 2u, b0 = s * 2u + 1u;
+					const uint32 t1 = ((s + 1u) % seg) * 2u, b1 = ((s + 1u) % seg) * 2u + 1u;
+					o.Quad(t0, t1, b1, b0);	  // flanc
+					o.Tri(cTop, t1, t0);	  // couvercle
+					o.Tri(cBot, b0, b1);	  // fond
+				}
+			}
+
+			void GenCone(GenOut &o, uint32 seg = 24) {
+				const float32 kPi = 3.14159265f;
+				o.Vtx(0.f, 1.f, 0.f); // pointe
+				for (uint32 s = 0; s < seg; ++s) {
+					const float32 th = 2.f * kPi * (float32)s / (float32)seg;
+					o.Vtx(cosf(th), -1.f, sinf(th));
+				}
+				o.Vtx(0.f, -1.f, 0.f); // centre du fond
+				const uint32 cBot = seg + 1u;
+				for (uint32 s = 0; s < seg; ++s) {
+					const uint32 a = 1u + s, b = 1u + ((s + 1u) % seg);
+					o.Tri(0u, b, a);
+					o.Tri(cBot, a, b);
+				}
+			}
+
+			void GenTorus(GenOut &o, uint32 segU = 24, uint32 segV = 12) {
+				const float32 kPi = 3.14159265f;
+				const float32 R = 1.f, r = 0.35f;
+				for (uint32 u = 0; u < segU; ++u) {
+					const float32 tu = 2.f * kPi * (float32)u / (float32)segU;
+					for (uint32 v = 0; v < segV; ++v) {
+						const float32 tv = 2.f * kPi * (float32)v / (float32)segV;
+						o.Vtx((R + r * cosf(tv)) * cosf(tu), r * sinf(tv),
+							  (R + r * cosf(tv)) * sinf(tu));
+					}
+				}
+				auto at = [&](uint32 u, uint32 v) { return (u % segU) * segV + (v % segV); };
+				for (uint32 u = 0; u < segU; ++u)
+					for (uint32 v = 0; v < segV; ++v)
+						o.Quad(at(u, v), at(u + 1, v), at(u + 1, v + 1), at(u, v + 1));
+			}
+
+			// Retriangule l'objet et renvoie le resultat au GPU. Appelee seulement
+			// quand son maillage a bouge.
+			void SyncMesh(VpObject &o) {
+				if (!o.meshDirty || !g.r3 || o.type != kVpObjMesh)
 					return;
 				auto *meshSys = g.r3->GetMeshSystem();
 				if (!meshSys)
 					return;
 				// TriangulateShaded, pas Triangulate : elle respecte le drapeau
-				// `smooth` de chaque face. Sur un cube toutes les faces sont plates,
-				// et une normale moyennee aux coins arrondirait visuellement des
-				// aretes qui sont vives -- le cube aurait l'air d'un galet.
-				g.edit.TriangulateShaded(g.triV, g.triI, g.triF);
-				if (g.triV.Empty() || g.triI.Empty())
+				// `smooth` de chaque face. Une normale moyennee aux coins d'un cube
+				// arrondirait visuellement des aretes qui sont vives.
+				o.edit.TriangulateShaded(o.triV, o.triI, o.triF);
+				if (o.triV.Empty() || o.triI.Empty())
 					return;
-				if (g.meshOk) {
-					// Mise a jour en place tant que la taille tient : recreer le
-					// maillage a chaque edition fragmenterait la memoire GPU.
-					meshSys->UpdateVertices(g.mesh, g.triV.Data(), (uint32)g.triV.Size());
-					meshSys->UpdateIndices(g.mesh, g.triI.Data(), (uint32)g.triI.Size());
+				if (o.meshOk) {
+					meshSys->UpdateVertices(o.mesh, o.triV.Data(), (uint32)o.triV.Size());
+					meshSys->UpdateIndices(o.mesh, o.triI.Data(), (uint32)o.triI.Size());
 				} else {
-					NkMeshDesc md = NkMeshDesc::Simple(renderer::NkVertexLayout::Default3D(), g.triV.Data(),
-													   (uint32)g.triV.Size(), g.triI.Data(),
-													   (uint32)g.triI.Size());
+					NkMeshDesc md = NkMeshDesc::Simple(renderer::NkVertexLayout::Default3D(),
+													   o.triV.Data(), (uint32)o.triV.Size(),
+													   o.triI.Data(), (uint32)o.triI.Size());
 					md.keepCPU = true;
-					md.debugName = "NK3DModeler.EditMesh";
-					g.mesh = meshSys->Create(md);
-					g.meshOk = g.mesh.IsValid();
+					md.debugName = "NK3DModeler.Objet";
+					o.mesh = meshSys->Create(md);
+					o.meshOk = o.mesh.IsValid();
 				}
-				// La CAGE vient de GetUniqueEdges, pas des triangles de rendu. Sur un
-				// quad la diagonale de triangulation n'existe pas : un cube a 12
-				// aretes, pas 18. Dessiner les aretes des triangles donnerait une
-				// cage qui ne correspond a rien de modifiable.
-				g.edit.GetUniqueEdges(g.editEdges);
-				// La selection est indexee par sommet : elle doit suivre la taille du
-				// maillage, sinon une extrusion laisse un tableau trop court et tout
-				// ce qui vient apres lit hors bornes.
-				const uint32 nv = (uint32)g.triV.Size();
-				if ((uint32)g.vertSel.Size() != nv) {
-					NkVector<uint8> old = g.vertSel;
-					g.vertSel.Resize(nv);
-					for (uint32 i = 0; i < nv; ++i)
-						g.vertSel[i] = (i < (uint32)old.Size()) ? old[i] : (uint8)0;
+				// La CAGE vient de GetUniqueEdges, pas des triangles de rendu : sur
+				// un quad la diagonale de triangulation n'existe pas (cube = 12
+				// aretes, pas 18).
+				o.edit.GetUniqueEdges(o.edges);
+				// Rayon englobant local, pour le pick d'objet et le recadrage.
+				float32 r2max = 0.f;
+				for (uint32 i = 0; i < (uint32)o.triV.Size(); ++i) {
+					const NkVec3f &p = o.triV[i].pos;
+					const float32 r2 = p.x * p.x + p.y * p.y + p.z * p.z;
+					if (r2 > r2max)
+						r2max = r2;
 				}
+				o.radius = sqrtf(r2max);
+				if (o.radius < 0.1f)
+					o.radius = 0.1f;
+				// La selection est indexee par sommet : elle doit suivre la taille.
+				if (&o == ActMesh()) {
+					const uint32 nv = (uint32)o.triV.Size();
+					if ((uint32)g.vertSel.Size() != nv) {
+						NkVector<uint8> old = g.vertSel;
+						g.vertSel.Resize(nv);
+						for (uint32 i = 0; i < nv; ++i)
+							g.vertSel[i] = (i < (uint32)old.Size()) ? old[i] : (uint8)0;
+					}
+					g.overlayDirty = true;
+				}
+				o.meshDirty = false;
+			}
+
+			// Apres une operation topologique, la selection qui compte est celle du
+			// MAILLAGE : lui seul sait quels sommets il vient de creer.
+			void PullSelection() {
+				VpObject *A = ActMesh();
+				if (!A)
+					return;
+				const uint32 nv = A->edit.VertCount();
+				g.vertSel.Resize(nv);
+				for (uint32 i = 0; i < nv; ++i)
+					g.vertSel[i] = A->edit.verts[i].sel;
+				g.activeVert = -1;
+				g.activeEdgeA = g.activeEdgeB = -1;
 				g.overlayDirty = true;
-				g.meshDirty = false;
 			}
 
-			// Du triangle de RENDU a la FACE du n-gon. La triangulation remplit
-			// `triF` avec l'identifiant de face de chaque triangle : c'est la seule
-			// facon de remonter, puisqu'un quad donne deux triangles qui n'ont aucune
-			// existence topologique propre.
-			inline NkEmId FaceOfTri(uint32 triIndex) {
-				return (triIndex < (uint32)g.triF.Size()) ? g.triF[triIndex] : NK_EM_INVALID;
+			// Du triangle de RENDU a la FACE du n-gon.
+			inline NkEmId FaceOfTri(const VpObject &o, uint32 triIndex) {
+				return (triIndex < (uint32)o.triF.Size()) ? o.triF[triIndex] : NK_EM_INVALID;
 			}
 
-			// ── SELECTION PAR ZONE ──────────────────────────────────────────
-			// Portee de Demo3D (l. 1143-1220). Le coeur est le meme pour le
-			// rectangle, le cercle et le lasso : seul le predicat « ce point est-il
-			// dans la zone ? » change. C'est pour cela que c'est un patron -- trois
-			// copies auraient divergé au premier correctif.
-			//
+			// ── SELECTION PAR ZONE (Demo3D l. 1143-1220) ────────────────────
 			// mode : 0 remplacer, 1 ajouter (Maj), 2 retirer (Ctrl).
 			template <class InZone>
 			void SelectInZone(int32 mode, InZone inZone) {
-				const uint32 nv = (uint32)g.triV.Size();
+				VpObject *A = ActMesh();
+				if (!A)
+					return;
+				const uint32 nv = (uint32)A->triV.Size();
 				if ((uint32)g.vertSel.Size() < nv)
 					g.vertSel.Resize(nv);
 				if (mode == 0)
 					for (uint32 i = 0; i < nv; ++i)
 						g.vertSel[i] = 0;
-				const NkVec3f orgW = g.anchor * NkVec3f{0.f, 0.f, 0.f};
-				auto wpos = [&](uint32 i) { return g.anchor * g.triV[i].pos; };
+				const NkVec3f orgW = A->world * NkVec3f{0.f, 0.f, 0.f};
+				auto wpos = [&](uint32 i) { return A->world * A->triV[i].pos; };
 				// FILTRE « DOS-CAMERA » ASSOUPLI. Un element de SILHOUETTE a une
-				// normale quasi perpendiculaire a la vue, donc un produit scalaire
-				// normalise proche de zero : avec un test strict `> 0` il basculait au
-				// hasard du bruit numerique et disparaissait des selections alors
-				// qu'il est parfaitement visible. On tolere donc une legere
-				// inclinaison vers l'arriere (-0,2), ce qui couvre toute la bande de
-				// silhouette sans laisser passer ce qui est franchement retourne.
+				// normale quasi perpendiculaire a la vue : avec un test strict `> 0`
+				// il basculait au hasard du bruit numerique. Tolerance -0,2.
 				auto facing = [&](NkVec3f w, NkVec3f nLocal) {
 					if (g.xray)
 						return true;
-					const NkVec3f nW = (g.anchor * nLocal) - orgW;
+					const NkVec3f nW = (A->world * nLocal) - orgW;
 					const NkVec3f toCam = g.lastCamPos - w;
 					const float32 ln = nW.Len(), lv = toCam.Len();
 					if (ln < 1e-6f || lv < 1e-6f)
@@ -343,16 +542,16 @@ namespace nkentseu {
 				};
 				if (g.selMask & 1u) { // SOMMET
 					for (uint32 i = 0; i < nv; ++i)
-						if (facing(wpos(i), g.triV[i].normal) && touches(wpos(i)))
+						if (facing(wpos(i), A->triV[i].normal) && touches(wpos(i)))
 							apply(i);
 				}
 				if (g.selMask & 2u) { // ARETE, testee par son milieu
-					for (uint32 e = 0; e + 1 < (uint32)g.editEdges.Size(); e += 2) {
-						const uint32 a = g.editEdges[e], b = g.editEdges[e + 1];
+					for (uint32 e = 0; e + 1 < (uint32)A->edges.Size(); e += 2) {
+						const uint32 a = A->edges[e], b = A->edges[e + 1];
 						if (a >= nv || b >= nv)
 							continue;
 						const NkVec3f wa = wpos(a), wb = wpos(b), mid = (wa + wb) * 0.5f;
-						if (!facing(mid, g.triV[a].normal) && !facing(mid, g.triV[b].normal))
+						if (!facing(mid, A->triV[a].normal) && !facing(mid, A->triV[b].normal))
 							continue;
 						if (touches(mid)) {
 							apply(a);
@@ -362,21 +561,20 @@ namespace nkentseu {
 				}
 				if (g.selMask & 4u) { // FACE, testee par son centre
 					NkVector<NkEmId> fvz;
-					for (uint32 f = 0; f < (uint32)g.edit.faces.Size(); ++f) {
+					for (uint32 f = 0; f < (uint32)A->edit.faces.Size(); ++f) {
 						// FaceCount() rend la taille de la TABLE : les faces mortes en
-						// font partie et leur cycle est casse. Ce test est la convention
-						// de tout NkEditMesh.
-						if (!g.edit.faces[f].alive)
+						// font partie et leur cycle est casse.
+						if (!A->edit.faces[f].alive)
 							continue;
 						fvz.Clear();
-						g.edit.GetFaceVerts(f, fvz);
+						A->edit.GetFaceVerts(f, fvz);
 						if (fvz.Size() < 3)
 							continue;
 						NkVec3f c{0.f, 0.f, 0.f};
 						for (uint32 k = 0; k < (uint32)fvz.Size(); ++k)
 							c = c + wpos(fvz[k]);
 						c = c * (1.f / (float32)fvz.Size());
-						if (!facing(c, g.edit.faces[f].normal))
+						if (!facing(c, A->edit.faces[f].normal))
 							continue;
 						if (touches(c))
 							for (uint32 k = 0; k < (uint32)fvz.Size(); ++k)
@@ -386,8 +584,7 @@ namespace nkentseu {
 				g.overlayDirty = true;
 			}
 
-			// Point dans polygone, par lancer de rayon horizontal et regle
-			// pair/impair. C'est le test du lasso.
+			// Point dans polygone (lasso) : rayon horizontal, regle pair/impair.
 			inline bool PointInPoly(const NkVector<float32> &poly, float32 px, float32 py) {
 				bool in = false;
 				const uint32 n = (uint32)poly.Size() / 2u;
@@ -403,33 +600,49 @@ namespace nkentseu {
 				return in;
 			}
 
-			// ── POINT D'ENTREE UNIQUE DE TOUTE MODIFICATION ─────────────────
-			// Porte de Demo3D (l. 1273-1297). Rien ne modifie le maillage sans passer
-			// par ici, et ce n'est pas une precaution de style : c'est ce qui garantit
-			// que TOUTE operation est annulable et rejouable. Une seule modification
-			// faite en direct, et l'historique ment.
-			//
-			// La selection est copiee DANS la commande. Elle en fait partie : rejouer
-			// « biseauter » sans savoir quoi biseauter n'a aucun sens.
+			// ── POINT D'ENTREE UNIQUE DE TOUTE MODIFICATION (Demo3D l. 1273) ─
+			// Rien ne modifie le maillage sans passer par ici : c'est ce qui
+			// garantit que TOUTE operation est annulable et rejouable.
 			bool ApplyCmd(NkMeshEditCommand cmd) {
-				if (!g.ok)
+				VpObject *A = ActMesh();
+				if (!g.ok || !A)
 					return false;
 				cmd.selection.Clear();
 				for (uint32 i = 0; i < (uint32)g.vertSel.Size(); ++i)
 					if (g.vertSel[i])
 						cmd.selection.PushBack(i);
-				// La selection est POUSSEE dans le maillage avant l'operation : les
-				// operations de NkEditMesh travaillent sur SA selection interne, pas
-				// sur notre tableau.
-				g.edit.SetVertSelection(g.vertSel.Data(), (uint32)g.vertSel.Size());
-				NkEditMesh snapshot = g.edit; // pre-etat
-				if (!cmd.Apply(g.edit))
+				A->edit.SetVertSelection(g.vertSel.Data(), (uint32)g.vertSel.Size());
+				NkEditMesh snapshot = A->edit; // pre-etat
+				if (!cmd.Apply(A->edit))
 					return false; // sans effet : ni annulation ni journal
 				g.history.Commit(snapshot);
 				g.recorder.Push(cmd);
 				PullSelection();
-				g.meshDirty = true;
-				SyncMesh();
+				A->meshDirty = true;
+				SyncMesh(*A);
+				return true;
+			}
+
+			// Contexte de picking sur l'objet actif.
+			bool FillPickCtx(NkPickCtx &c) {
+				VpObject *A = ActMesh();
+				if (!A)
+					return false;
+				c.mesh = &A->edit;
+				c.rest = &A->triV;
+				c.tris = &A->triI;
+				c.edges = &A->edges;
+				c.anchor = A->world;
+				c.camPos = g.lastCamPos;
+				c.fwd = g.lastProj.fwd;
+				c.rgt = g.lastProj.rgt;
+				c.upv = g.lastProj.upv;
+				c.thX = g.lastProj.thX;
+				c.thY = g.lastProj.thY;
+				c.vpW = (float32)g.rtW;
+				c.vpH = (float32)g.rtH;
+				c.selMask = g.selMask;
+				c.xray = g.xray;
 				return true;
 			}
 
@@ -442,9 +655,9 @@ namespace nkentseu {
 					return false;
 				}
 				// ForEditor, pas ForGame : le preset editeur privilegie la latence et
-				// la lisibilite sur la richesse de l'image. Un modeleur veut voir la
-				// forme, pas un rendu de film.
-				NkRendererConfig cfg = NkRendererConfig::ForEditor(g.sharedDev->GetApi(), g.wantW, g.wantH);
+				// la lisibilite sur la richesse de l'image.
+				NkRendererConfig cfg =
+					NkRendererConfig::ForEditor(g.sharedDev->GetApi(), g.wantW, g.wantH);
 				cfg.Enable(NK_SS_OFFSCREEN);
 				cfg.postProcess.toneMapping = true;
 				cfg.postProcess.aces = true;
@@ -475,18 +688,17 @@ namespace nkentseu {
 				}
 				g.rtW = g.wantW;
 				g.rtH = g.wantH;
-				// Meme raison qu'au redimensionnement : sans cela le graphe rendrait a
-				// la taille de la fenetre des la premiere image.
+				// Sans l'override, le graphe rendrait a la taille de la FENETRE dans
+				// une cible a la taille de la VUE : la scene paraitrait retrecir en
+				// agrandissant le panneau.
 				g.r3->SetRenderSizeOverride(g.rtW, g.rtH);
-				// Redirige la SORTIE FINALE du graphe vers notre cible : on recupere
-				// donc le pipeline COMPLET (ombres, eclairage, IBL, tonemap), pas une
-				// passe geometrie nue. C'est ce qui evite d'avoir a reimplementer un
-				// eclairage d'apercu a cote du vrai.
 				if (auto *texLib = g.r3->GetTextures())
 					g.r3->SetFinalColorTarget(texLib->GetRHIHandle(g.rt->GetColorResult()));
+				g.r3->SetBackgroundColor({g.bg.x, g.bg.y, g.bg.z, 1.f});
 
-				BuildStartCube();
-				SyncMesh();
+				// LA SCENE NAIT VIDE. Le cube de depart de la version precedente
+				// venait de Demo3D ; un modeleur commence sur une feuille blanche et
+				// « Ajouter » cree ce qu'on lui demande.
 				g.ok = true;
 				g.err = nullptr;
 				return true;
@@ -505,47 +717,40 @@ namespace nkentseu {
 				h = 16u;
 			g.wantW = w;
 			g.wantH = h;
-			// La cible n'est refaite que si la taille CHANGE. Sans ce test, chaque
-			// image detruirait et recreerait une texture de plusieurs megaoctets --
-			// et le redimensionnement d'une fenetre appelle cette fonction a chaque
-			// pixel parcouru.
+			// La cible n'est refaite que si la taille CHANGE : le redimensionnement
+			// d'une fenetre appelle cette fonction a chaque pixel parcouru.
 			if (!g.ok || !g.rt || (w == g.rtW && h == g.rtH))
 				return;
 			if (g.rt->Resize(w, h)) {
 				g.rtW = w;
 				g.rtH = h;
-				// LA RESOLUTION DE RENDU DOIT SUIVRE, et c'est ce qui manquait :
-				// par defaut le graphe rend a la taille de la FENETRE (1616 x 939 ici)
-				// et ecrit ce resultat dans notre cible, qui fait la taille de la VUE.
-				// Les deux ne coincidant pas, agrandir le panneau changeait le rapport
-				// entre les deux et la scene paraissait retrecir au lieu de montrer
-				// plus d'espace. L'override aligne les deux.
 				g.r3->SetRenderSizeOverride(w, h);
 				if (auto *texLib = g.r3->GetTextures())
 					g.r3->SetFinalColorTarget(texLib->GetRHIHandle(g.rt->GetColorResult()));
 			}
 		}
 
+		// ── Fond de la vue ──────────────────────────────────────────────────
+		void Viewport3DSetBackground(float32 r, float32 gr, float32 b) {
+			g.bg = {r, gr, b};
+			g.bgDirty = true;
+		}
+
+		// ── Camera ──────────────────────────────────────────────────────────
 		void Viewport3DOrbit(float32 dYaw, float32 dPitch) {
 			// ORBITE RIGIDE autour du pivot de la selection : position ET cible
-			// tournent ensemble, donc aucune revisee du pivot, donc aucun saut au
-			// premier mouvement. C'est le comportement de Blender, et c'est ce que
-			// ma camera maison ratait. Sans selection on retombe sur une orbite
-			// autour de la cible courante.
+			// tournent ensemble, donc aucun saut au premier mouvement.
 			if (g.gizmo.HasSelection())
 				g.cam.OrbitAroundPivot(g.gizmo.GetPivot(), dYaw, dPitch);
 			else
 				g.cam.Rotate(dYaw, dPitch);
-			// Orbiter librement REPASSE en perspective : rester en orthographique
-			// apres avoir quitte l'axe donne une image plate ou plus rien ne fuit,
-			// et on ne comprend plus ce qu'on regarde. Blender fait de meme.
+			// Orbiter librement REPASSE en perspective, comme Blender.
 			if (dYaw != 0.f || dPitch != 0.f)
 				g.ortho = false;
 		}
 
 		void Viewport3DPan(float32 dx, float32 dy) {
-			// Axes INVERSES : on tire la scene, on ne deplace pas la camera. Tirer
-			// vers la droite doit amener vers la droite ce qu'on regarde.
+			// Axes INVERSES : on tire la scene, on ne deplace pas la camera.
 			g.cam.Pan(-dx, -dy);
 		}
 
@@ -554,28 +759,24 @@ namespace nkentseu {
 		}
 
 		void Viewport3DPanSteps(float32 dx, float32 dy) {
-			// Molette + modificateur : une crantee vaut ~1 la ou un deplacement de
-			// souris vaut 10 a 20 pixels. Sans ce facteur, Maj+molette ne bougerait
-			// visiblement rien.
+			// Une crantee de molette vaut ~1 la ou un deplacement de souris vaut
+			// 10 a 20 pixels : sans ce facteur, Maj+molette ne bougerait rien.
 			g.cam.Pan(dx * 22.f, dy * 22.f);
 		}
 
 		void Viewport3DFrameAll() {
-			// Recadrage : on place la cible au centre de la scene et on recule de
-			// quoi faire tenir la sphere englobante dans le champ. La marge de 1.25
-			// evite que l'objet touche le bord -- un cadrage exact donne l'impression
-			// que quelque chose est coupe.
+			NkVec3f center;
+			float32 radius;
+			SceneBounds(center, radius);
 			const float32 fovY = 45.f * 3.14159265f / 180.f;
-			float32 d = (g.radius * 1.25f) / tanf(fovY * 0.5f);
+			float32 d = (radius * 1.25f) / tanf(fovY * 0.5f);
 			if (d < 0.5f)
 				d = 0.5f;
-			g.cam.SetCenter(g.center, d, g.cam.GetYaw(), g.cam.GetPitch());
+			g.cam.SetCenter(center, d, g.cam.GetYaw(), g.cam.GetPitch());
 		}
 
 		void Viewport3DAxisView(int32 which, bool opposite) {
-			// Vues axiales du pave numerique, portees de Demo3D (l. 2322-2390) :
-			// 0 = face, 1 = droite, 2 = dessus ; `opposite` (Ctrl) donne l'arriere,
-			// la gauche et le dessous. Le tangage est limite a ~89 degres, pas 90 :
+			// Vues axiales de Demo3D (l. 2322-2390). Tangage limite a ~89 degres :
 			// a la verticale exacte la matrice de vue degenere.
 			const NkVec3f t = g.cam.GetTarget();
 			const float32 d = g.cam.GetDistance();
@@ -591,9 +792,7 @@ namespace nkentseu {
 					g.cam.SetCenter(t, d, 0.f, opposite ? -P : P);
 					break;
 			}
-			// Une vue axiale passe en ORTHOGRAPHIQUE : c'est tout son interet. En
-			// perspective, une vue de face garde des fuyantes et ne permet ni de
-			// comparer deux longueurs ni d'aligner quoi que ce soit.
+			// Une vue axiale passe en ORTHOGRAPHIQUE : c'est tout son interet.
 			g.ortho = true;
 		}
 
@@ -639,15 +838,230 @@ namespace nkentseu {
 			return g.gizmo.IsDragging();
 		}
 
+		// ── Objets ──────────────────────────────────────────────────────────
+		int32 Viewport3DAddObject(int32 type, int32 prim) {
+			if (!g.ok && !Init3D())
+				return -1;
+			int32 slot = -1;
+			for (int32 i = 0; i < kMaxObjects; ++i)
+				if (!g.objs[i].alive) {
+					slot = i;
+					break;
+				}
+			if (slot < 0)
+				return -1;
+			VpObject &o = g.objs[slot];
+			o = VpObject{}; // repart d'une fiche neuve : le slot a pu servir
+			o.alive = true;
+			o.type = type;
+			++g.nameCounter;
+			static const char *const kMeshNames[] = {"Cube",	 "Plan", "Sphere",
+													 "Cylindre", "Cone", "Tore"};
+			const char *base = "Objet";
+			switch (type) {
+				case kVpObjMesh:
+					base = (prim >= 0 && prim < 6) ? kMeshNames[prim] : "Maillage";
+					break;
+				case kVpObjLightPoint:
+					base = "Point";
+					break;
+				case kVpObjLightSun:
+					base = "Soleil";
+					break;
+				case kVpObjLightSpot:
+					base = "Spot";
+					break;
+				case kVpObjCamera:
+					base = "Camera";
+					break;
+				default:
+					base = "Repere";
+					break;
+			}
+			snprintf(o.name, sizeof(o.name), "%s.%03u", base, g.nameCounter);
+
+			if (type == kVpObjMesh) {
+				GenOut gen;
+				switch (prim) {
+					case 1:
+						GenPlane(gen);
+						break;
+					case 2:
+						GenSphere(gen);
+						break;
+					case 3:
+						GenCylinder(gen);
+						break;
+					case 4:
+						GenCone(gen);
+						break;
+					case 5:
+						GenTorus(gen);
+						break;
+					default:
+						GenCube(gen);
+						break;
+				}
+				o.edit.BuildFromIndexed(gen.v.Data(), (uint32)gen.v.Size(), gen.i.Data(),
+										(uint32)gen.i.Size(), true);
+				o.edit.RecomputeNormals();
+				o.meshDirty = true;
+				SyncMesh(o);
+			} else if (type == kVpObjLightPoint || type == kVpObjLightSun ||
+					   type == kVpObjLightSpot) {
+				o.pos = {0.f, 3.f, 0.f};
+				o.lightIntensity = (type == kVpObjLightSun) ? 3.f : 60.f;
+				// Un soleil pointe vers le bas par defaut ; un spot aussi.
+				o.rotDeg = {-90.f, 0.f, 0.f};
+			}
+			ComposeWorld(o);
+			// Le nouvel objet devient la selection ET l'objet actif : c'est ce
+			// qu'on attend apres « Ajouter » -- pouvoir le deplacer tout de suite.
+			for (int32 i = 0; i < kMaxObjects; ++i)
+				g.objs[i].selected = false;
+			o.selected = true;
+			g.activeObj = slot;
+			g.pendingSelect = slot;
+			g.pendingSelectAdd = false;
+			return slot;
+		}
+
+		int32 Viewport3DObjectCount() {
+			return kMaxObjects;
+		}
+
+		bool Viewport3DObjectAlive(int32 i) {
+			return i >= 0 && i < kMaxObjects && g.objs[i].alive;
+		}
+
+		const char *Viewport3DObjectName(int32 i) {
+			return Viewport3DObjectAlive(i) ? g.objs[i].name : "";
+		}
+
+		void Viewport3DRenameObject(int32 i, const char *name) {
+			if (!Viewport3DObjectAlive(i) || !name || !*name)
+				return;
+			snprintf(g.objs[i].name, sizeof(g.objs[i].name), "%s", name);
+		}
+
+		int32 Viewport3DObjectType(int32 i) {
+			return Viewport3DObjectAlive(i) ? g.objs[i].type : -1;
+		}
+
+		bool Viewport3DObjectSelected(int32 i) {
+			return Viewport3DObjectAlive(i) && g.objs[i].selected;
+		}
+
+		bool Viewport3DObjectVisible(int32 i) {
+			return Viewport3DObjectAlive(i) && g.objs[i].visible;
+		}
+
+		void Viewport3DSetObjectVisible(int32 i, bool on) {
+			if (Viewport3DObjectAlive(i))
+				g.objs[i].visible = on;
+		}
+
+		void Viewport3DSelectObject(int32 i, bool add) {
+			if (!Viewport3DObjectAlive(i))
+				return;
+			// La demande est APPLIQUEE a la prochaine image, juste avant la mise a
+			// jour du gizmo : c'est lui qui tient la selection en mode objet, et le
+			// mapping cible -> objet n'existe que la.
+			g.pendingSelect = i;
+			g.pendingSelectAdd = add;
+			if (!add)
+				for (int32 k = 0; k < kMaxObjects; ++k)
+					g.objs[k].selected = false;
+			g.objs[i].selected = true;
+			g.activeObj = i;
+		}
+
+		void Viewport3DDeselectAllObjects() {
+			for (int32 k = 0; k < kMaxObjects; ++k)
+				g.objs[k].selected = false;
+			g.pendingDeselectAll = true;
+			g.activeObj = -1;
+		}
+
+		int32 Viewport3DActiveObject() {
+			return g.activeObj;
+		}
+
+		void Viewport3DDeleteObject(int32 i) {
+			if (!Viewport3DObjectAlive(i))
+				return;
+			// Le tampon GPU n'est pas rendu au systeme : NkMeshSystem ne publie pas
+			// de destruction unitaire aujourd'hui. Fuite bornee par kMaxObjects --
+			// consigne, a resorber quand l'API existera.
+			g.objs[i].alive = false;
+			g.objs[i].selected = false;
+			if (g.activeObj == i) {
+				g.activeObj = -1;
+				g.editMode = false;
+			}
+			g.pendingDeselectAll = true;
+		}
+
+		bool Viewport3DGetObjectTransform(int32 i, float32 *pos3, float32 *rot3, float32 *scl3) {
+			if (!Viewport3DObjectAlive(i))
+				return false;
+			const VpObject &o = g.objs[i];
+			if (pos3) {
+				pos3[0] = o.pos.x;
+				pos3[1] = o.pos.y;
+				pos3[2] = o.pos.z;
+			}
+			if (rot3) {
+				rot3[0] = o.rotDeg.x;
+				rot3[1] = o.rotDeg.y;
+				rot3[2] = o.rotDeg.z;
+			}
+			if (scl3) {
+				scl3[0] = o.scl.x;
+				scl3[1] = o.scl.y;
+				scl3[2] = o.scl.z;
+			}
+			return true;
+		}
+
+		void Viewport3DSetObjectTransform(int32 i, const float32 *pos3, const float32 *rot3,
+										  const float32 *scl3) {
+			if (!Viewport3DObjectAlive(i))
+				return;
+			VpObject &o = g.objs[i];
+			if (pos3)
+				o.pos = {pos3[0], pos3[1], pos3[2]};
+			if (rot3)
+				o.rotDeg = {rot3[0], rot3[1], rot3[2]};
+			if (scl3)
+				o.scl = {scl3[0], scl3[1], scl3[2]};
+			ComposeWorld(o);
+		}
+
 		// ── Mode edition et selection ───────────────────────────────────────
 		void Viewport3DSetEditMode(bool on) {
+			// L'edition demande un objet MAILLAGE actif : entrer en edition sur une
+			// lumiere n'a pas de sens, et sur rien encore moins.
+			if (on && !ActMesh())
+				on = false;
+			if (on == g.editMode)
+				return;
 			g.editMode = on;
 			g.overlayDirty = true;
-			if (!on) {
-				// Sortir d'edition NE VIDE PAS la selection de sommets : y revenir
-				// doit retrouver ce qu'on avait, comme dans Blender. C'est ce qui
-				// permet d'aller regarder l'objet en entier puis de reprendre.
+			g.overlayCleared = false;
+			if (on) {
+				// L'historique est PAR SESSION D'EDITION, comme chez Demo3D : il
+				// s'applique a un maillage precis, le garder en changeant d'objet
+				// restaurerait la topologie d'un autre.
+				g.history.Clear();
+				g.recorder.Clear();
+				PullSelection();
+			} else {
 				g.gizmo.ClearSelection();
+				// La selection de sommets reste DANS le maillage : y revenir la
+				// retrouve, comme dans Blender.
+				if (VpObject *A = ActMesh())
+					A->edit.SetVertSelection(g.vertSel.Data(), (uint32)g.vertSel.Size());
 			}
 		}
 
@@ -657,7 +1071,7 @@ namespace nkentseu {
 
 		void Viewport3DSetSelectMask(uint32 mask) {
 			// Toujours AU MOINS un sous-mode actif : a zero, plus rien n'est
-			// selectionnable et l'application parait cassee sans qu'on sache pourquoi.
+			// selectionnable et l'application parait cassee.
 			g.selMask = mask ? mask : 1u;
 			g.overlayDirty = true;
 		}
@@ -688,36 +1102,18 @@ namespace nkentseu {
 			return n;
 		}
 
-		// Clic dans la vue. Coordonnees RELATIVES au rectangle de la vue, pas a la
-		// fenetre : la cible hors ecran a sa propre origine, et lui passer des
-		// coordonnees fenetre decalerait tout le picking de la largeur du panneau
-		// de gauche.
+		// Clic dans la vue, coordonnees RELATIVES a la vue.
 		bool Viewport3DPick(float32 mx, float32 my, bool add, bool toggle) {
 			if (!g.ok || !g.editMode)
 				return false;
 			NkPickCtx c;
-			c.mesh = &g.edit;
-			c.rest = &g.triV;
-			c.tris = &g.triI;
-			c.edges = &g.editEdges;
-			c.anchor = g.anchor;
-			c.camPos = g.lastCamPos;
-			c.fwd = g.lastProj.fwd;
-			c.rgt = g.lastProj.rgt;
-			c.upv = g.lastProj.upv;
-			c.thX = g.lastProj.thX;
-			c.thY = g.lastProj.thY;
-			c.vpW = (float32)g.rtW;
-			c.vpH = (float32)g.rtH;
-			c.selMask = g.selMask;
-			c.xray = g.xray;
+			if (!FillPickCtx(c))
+				return false;
 			const NkPickResult r = NkPickEditElement(c, mx, my);
+			VpObject *A = ActMesh();
 
 			// PRIORITE façon Blender : sommet, puis arete, puis face -- chacun dans
-			// son propre seuil. Ce n'est pas « le plus proche gagne » toutes
-			// categories confondues : viser un sommet doit prendre le sommet meme si
-			// une arete passe plus pres du curseur, sinon les sommets deviennent
-			// inatteignables sur un maillage dense.
+			// son propre seuil.
 			if (!add && !toggle)
 				Viewport3DSelectAll(false);
 
@@ -740,13 +1136,11 @@ namespace nkentseu {
 				g.activeEdgeB = r.edgeB;
 				g.activeVert = -1;
 				got = true;
-			} else if (r.tri >= 0) {
-				// Une face selectionnee, ce sont SES SOMMETS marques. C'est le modele
-				// de Blender : la selection est portee par les sommets, et les aretes
-				// et faces s'en deduisent. Sans cela il faudrait tenir trois tableaux
-				// coherents entre eux a chaque operation topologique.
+			} else if (r.tri >= 0 && A) {
+				// Une face selectionnee, ce sont SES SOMMETS marques : la selection
+				// est portee par les sommets, aretes et faces s'en deduisent.
 				for (uint32 k = 0; k < 3u; ++k)
-					touch((int32)g.triI[(uint32)r.tri + k]);
+					touch((int32)A->triI[(uint32)r.tri + k]);
 				g.activeVert = -1;
 				g.activeEdgeA = g.activeEdgeB = -1;
 				got = true;
@@ -756,7 +1150,6 @@ namespace nkentseu {
 		}
 
 		// ── SELECTION PAR ZONE ──────────────────────────────────────────────
-		// Coordonnees RELATIVES a la vue. `mode` : 0 remplacer, 1 ajouter, 2 retirer.
 		void Viewport3DSelectRect(float32 x0, float32 y0, float32 x1, float32 y1, int32 mode) {
 			if (!g.ok || !g.editMode)
 				return;
@@ -788,48 +1181,35 @@ namespace nkentseu {
 		}
 
 		// ── BOUCLES (Alt+clic) ──────────────────────────────────────────────
-		// Rendues possibles par la SOUDURE topologique : sans les jumelles entre
-		// faces voisines, il n'y a aucun chemin a suivre d'une arete a la suivante.
 		bool Viewport3DSelectLoopAt(float32 mx, float32 my, bool add) {
 			if (!g.ok || !g.editMode)
 				return false;
+			VpObject *A = ActMesh();
 			NkPickCtx c;
-			c.mesh = &g.edit;
-			c.rest = &g.triV;
-			c.tris = &g.triI;
-			c.edges = &g.editEdges;
-			c.anchor = g.anchor;
-			c.camPos = g.lastCamPos;
-			c.fwd = g.lastProj.fwd;
-			c.rgt = g.lastProj.rgt;
-			c.upv = g.lastProj.upv;
-			c.thX = g.lastProj.thX;
-			c.thY = g.lastProj.thY;
-			c.vpW = (float32)g.rtW;
-			c.vpH = (float32)g.rtH;
+			if (!A || !FillPickCtx(c))
+				return false;
 			c.selMask = g.selMask | 2u | 4u; // il faut au moins l'arete et la face
-			c.xray = g.xray;
 			const NkPickResult r = NkPickEditElement(c, mx, my);
 
 			uint32 la = 0, lb = 0;
-			bool faceLoop = false, ok = false;
-			if (r.edgeA >= 0) { // une arete sous le curseur -> boucle d'ARETES
+			bool faceLoop = false, okp = false;
+			if (r.edgeA >= 0) {
 				la = (uint32)r.edgeA;
 				lb = (uint32)r.edgeB;
-				ok = true;
-			} else if (r.tri >= 0) { // sinon la face touchee -> anneau de FACES
-				const NkEmId f = FaceOfTri((uint32)r.tri / 3u);
+				okp = true;
+			} else if (r.tri >= 0) {
+				const NkEmId f = FaceOfTri(*A, (uint32)r.tri / 3u);
 				NkVector<NkEmId> fvl;
 				if (f != NK_EM_INVALID)
-					g.edit.GetFaceVerts(f, fvl);
+					A->edit.GetFaceVerts(f, fvl);
 				if (fvl.Size() >= 2) {
 					la = fvl[0];
 					lb = fvl[1];
 					faceLoop = true;
-					ok = true;
+					okp = true;
 				}
 			}
-			if (!ok)
+			if (!okp)
 				return false;
 
 			const uint32 nv = (uint32)g.vertSel.Size();
@@ -838,17 +1218,17 @@ namespace nkentseu {
 					g.vertSel[i] = 0;
 			if (faceLoop) {
 				NkVector<NkEmId> loopF, fvl;
-				g.edit.GetFaceLoop(la, lb, loopF);
+				A->edit.GetFaceLoop(la, lb, loopF);
 				for (uint32 k = 0; k < (uint32)loopF.Size(); ++k) {
 					fvl.Clear();
-					g.edit.GetFaceVerts(loopF[k], fvl);
+					A->edit.GetFaceVerts(loopF[k], fvl);
 					for (uint32 j = 0; j < (uint32)fvl.Size(); ++j)
 						if (fvl[j] < nv)
 							g.vertSel[fvl[j]] = 1;
 				}
 			} else {
 				NkVector<uint32> loopE;
-				g.edit.GetEdgeLoop(la, lb, loopE);
+				A->edit.GetEdgeLoop(la, lb, loopE);
 				for (uint32 k = 0; k + 1 < (uint32)loopE.Size(); k += 2) {
 					if (loopE[k] < nv)
 						g.vertSel[loopE[k]] = 1;
@@ -861,20 +1241,10 @@ namespace nkentseu {
 		}
 
 		// ── OPERATIONS D'EDITION ────────────────────────────────────────────
-		// Chacune est un mince emballage autour d'ApplyCmd : elle remplit une
-		// commande et la soumet. C'est la forme de Demo3D, et elle a un avantage
-		// concret sur des appels directs a NkEditMesh -- l'annulation et le journal
-		// sont acquis d'office, sans que chaque operation ait a y penser.
-
 		bool Viewport3DExtrude(bool individual) {
-			// EXTRUSION SELON LE SOUS-MODE ACTIF : face > arete > sommet. Une face
-			// donne un chapeau et des quads lateraux, une arete un quad de liaison,
-			// un sommet une arete filaire.
-			//
-			// DECALAGE ZERO, comme Blender : la nouvelle geometrie nait exactement sur
-			// l'ancienne et devient la selection ; c'est l'utilisateur qui la deplace
-			// ensuite au gizmo. Un decalage automatique obligerait a corriger a chaque
-			// fois la distance choisie a sa place.
+			// EXTRUSION SELON LE SOUS-MODE ACTIF : face > arete > sommet, decalage
+			// ZERO comme Blender -- la nouvelle geometrie nait sur l'ancienne et
+			// c'est l'utilisateur qui la deplace ensuite au gizmo.
 			NkMeshEditCommand c;
 			if (g.selMask & 4u)
 				c.op = NkMeshEditOp::Extrude;
@@ -886,10 +1256,8 @@ namespace nkentseu {
 			c.extrude.offset = 0.f;
 			if (ApplyCmd(c))
 				return true;
-			// REPLI : en mode face sans aucune face ENTIEREMENT selectionnee,
-			// l'extrusion de faces ne fait rien. On retombe alors sur les aretes puis
-			// les sommets -- Blender extrude « ce qui est selectionne », pas « ce que
-			// le sous-mode designe ».
+			// REPLI : Blender extrude « ce qui est selectionne », pas « ce que le
+			// sous-mode designe ».
 			if (c.op == NkMeshEditOp::Extrude) {
 				c.op = NkMeshEditOp::ExtrudeEdges;
 				if (ApplyCmd(c))
@@ -959,10 +1327,7 @@ namespace nkentseu {
 		}
 
 		bool Viewport3DMoveSelection(float32 dx, float32 dy, float32 dz) {
-			// Le deplacement porte un delta PAR SOMMET, pas un delta global : c'est
-			// ce qui permettra plus tard l'edition proportionnelle, ou les sommets
-			// voisins suivent en s'attenuant. Ici tous les selectionnes recoivent le
-			// meme, ce qui est le cas courant.
+			// Delta PAR SOMMET : c'est ce qui permettra l'edition proportionnelle.
 			NkMeshEditCommand c;
 			c.op = NkMeshEditOp::Move;
 			uint32 n = 0;
@@ -977,22 +1342,24 @@ namespace nkentseu {
 
 		// ── ANNULATION ──────────────────────────────────────────────────────
 		bool Viewport3DUndo() {
-			if (!g.ok || !g.history.CanUndo())
+			VpObject *A = ActMesh();
+			if (!g.ok || !A || !g.history.CanUndo())
 				return false;
-			g.history.Undo(g.edit);
+			g.history.Undo(A->edit);
 			PullSelection();
-			g.meshDirty = true;
-			SyncMesh();
+			A->meshDirty = true;
+			SyncMesh(*A);
 			return true;
 		}
 
 		bool Viewport3DRedo() {
-			if (!g.ok || !g.history.CanRedo())
+			VpObject *A = ActMesh();
+			if (!g.ok || !A || !g.history.CanRedo())
 				return false;
-			g.history.Redo(g.edit);
+			g.history.Redo(A->edit);
 			PullSelection();
-			g.meshDirty = true;
-			SyncMesh();
+			A->meshDirty = true;
+			SyncMesh(*A);
 			return true;
 		}
 
@@ -1026,32 +1393,26 @@ namespace nkentseu {
 		}
 
 		void Viewport3DStats(uint32 &verts, uint32 &edges, uint32 &faces, uint32 &tris) {
-			if (!g.ok) {
+			VpObject *A = ActMesh();
+			if (!g.ok || !A) {
 				verts = edges = faces = tris = 0u;
 				return;
 			}
-			verts = g.edit.VertCount();
-			edges = g.edit.EdgeCount();
-			// FaceCount() rend la TAILLE DE LA TABLE, faces mortes comprises. Les
-			// operations d'edition laissent des trous ; les compter donnerait un
-			// nombre qui grimpe a chaque fusion alors que le maillage se simplifie.
-			// On ne peut pas interroger les faces une par une depuis l'exterieur --
-			// il n'y a pas d'accesseur. Mais la triangulation, elle, ne visite QUE
-			// les faces vivantes : `triF` porte un identifiant de face par triangle,
-			// donc le nombre de faces distinctes qu'il contient est exactement le
-			// nombre de faces vivantes. Les identifiants y sont consecutifs par face
-			// (une face donne ses n-2 triangles d'affilee), un simple comptage des
-			// changements suffit.
+			verts = A->edit.VertCount();
+			edges = A->edit.EdgeCount();
+			// FaceCount() rend la TAILLE DE LA TABLE, faces mortes comprises. La
+			// triangulation ne visite que les vivantes : compter les changements
+			// d'identifiant dans triF donne le compte exact.
 			uint32 alive = 0u;
 			NkEmId prev = (NkEmId)0xFFFFFFFFu;
-			for (uint32 t = 0; t < (uint32)g.triF.Size(); ++t) {
-				if (g.triF[t] != prev) {
+			for (uint32 t = 0; t < (uint32)A->triF.Size(); ++t) {
+				if (A->triF[t] != prev) {
 					++alive;
-					prev = g.triF[t];
+					prev = A->triF[t];
 				}
 			}
 			faces = alive;
-			tris = (uint32)(g.triI.Size() / 3u);
+			tris = (uint32)(A->triI.Size() / 3u);
 		}
 
 		void Viewport3DRenderOffscreen(void *cmdv) {
@@ -1062,7 +1423,16 @@ namespace nkentseu {
 			if (!cmd || !r3d)
 				return;
 
-			SyncMesh();
+			// Fond : applique seulement quand il change -- le setter du moteur
+			// reconstruit le graphe, ce n'est pas un reglage par image.
+			if (g.bgDirty) {
+				g.bgDirty = false;
+				g.r3->SetBackgroundColor({g.bg.x, g.bg.y, g.bg.z, 1.f});
+			}
+
+			for (int32 i = 0; i < kMaxObjects; ++i)
+				if (g.objs[i].alive && g.objs[i].type == kVpObjMesh)
+					SyncMesh(g.objs[i]);
 
 			// Ce que NkRenderer::BeginFrame ferait si nous possedions la frame.
 			r3d->ResetFrame();
@@ -1075,79 +1445,136 @@ namespace nkentseu {
 			cd.up = {0.f, 1.f, 0.f};
 			cd.fovY = 45.f;
 			cd.aspect = (float32)g.rtW / (float32)(g.rtH > 0u ? g.rtH : 1u);
-			// Le plan proche suit la distance : fixe a 2 cm, il gaspille toute la
-			// precision du tampon de profondeur des qu'on regarde une scene de
-			// cinquante metres, et les surfaces coplanaires se mettent a clignoter.
+			// Le plan proche suit la distance : fixe, il gaspille la precision du
+			// tampon de profondeur des que la scene est grande.
 			cd.nearPlane = dist * 0.005f;
 			if (cd.nearPlane < 0.01f)
 				cd.nearPlane = 0.01f;
 			cd.farPlane = dist * 20.f + 100.f;
 			NkCamera3D cam(cd);
-			g.cam.Apply(cam); // c'est le controleur qui pose position et cible
-			// Orthographique : la demi-hauteur est derivee de la distance pour que le
-			// cadrage reste comparable a la perspective. Sans cela, basculer en ortho
-			// donne un changement d'echelle brutal qui fait croire a un zoom.
+			g.cam.Apply(cam);
 			if (g.ortho)
 				cam.SetOrtho(true, dist * 0.55f);
 			else
 				cam.SetOrtho(false);
 
-			// ── Gizmo : mise a jour puis rendu ──────────────────────────────
-			// Il est alimente APRES la camera (il projette ses poignees a l'ecran) et
-			// AVANT BeginScene (son trace passe par les lignes de debogage, qui sont
-			// accumulees pour la frame).
 			g.gizmo.SetCamera(cam.GetPosition(), cam.GetTarget(), 45.f, (float32)g.rtW,
 							  (float32)g.rtH);
-			// Memorise pour le picking, qui a lieu pendant la peinture de l'interface
-			// -- donc hors de cette fonction.
 			g.lastCamPos = cam.GetPosition();
 			g.lastProj = ScreenProj::Make(cam.GetPosition(), cam.GetTarget(), 45.f, (float32)g.rtW,
 										  (float32)g.rtH);
 
-			// La CIBLE du gizmo. En mode edition c'est le barycentre de la selection ;
-			// en mode objet, l'objet lui-meme. L'extent minuscule en edition n'est pas
-			// un bricolage : le gizmo dessine un marqueur de boite englobante autour
-			// de sa cible, et un point de selection n'a pas de volume.
+			// ── CIBLES DU GIZMO ─────────────────────────────────────────────
+			// En mode edition : une cible unique, le barycentre de la selection de
+			// sommets. En mode objet : TOUS les objets vivants -- c'est le gizmo qui
+			// pick au clic (modele Demo3D), et la hierarchie force sa selection via
+			// pendingSelect.
 			{
-				NkGizmoTarget vt[1];
-				bool haveTarget = false;
+				NkGizmoTarget vt[kMaxObjects];
+				g.tgtCount = 0;
 				if (g.editMode) {
+					VpObject *A = ActMesh();
 					NkVec3f piv{0.f, 0.f, 0.f};
 					uint32 n = 0;
-					for (uint32 i = 0; i < (uint32)g.vertSel.Size() && i < (uint32)g.triV.Size(); ++i)
-						if (g.vertSel[i]) {
-							const NkVec3f w = g.anchor * g.triV[i].pos;
-							piv.x += w.x;
-							piv.y += w.y;
-							piv.z += w.z;
-							++n;
-						}
+					if (A)
+						for (uint32 i = 0;
+							 i < (uint32)g.vertSel.Size() && i < (uint32)A->triV.Size(); ++i)
+							if (g.vertSel[i]) {
+								const NkVec3f w = A->world * A->triV[i].pos;
+								piv.x += w.x;
+								piv.y += w.y;
+								piv.z += w.z;
+								++n;
+							}
 					if (n) {
 						piv = piv * (1.f / (float32)n);
 						vt[0].base = NkMat4f::Translate(piv);
 						vt[0].localHalf = {0.001f, 0.001f, 0.001f};
 						vt[0].pickRadius = 0.0001f;
-						haveTarget = true;
+						g.tgtSlot[0] = g.activeObj;
+						g.tgtCount = 1;
 					}
-				} else if (g.meshOk) {
-					vt[0].base = g.anchor;
-					vt[0].localHalf = {g.radius, g.radius, g.radius};
-					vt[0].pickRadius = g.radius;
-					haveTarget = true;
-				}
-				if (haveTarget) {
-					if (!g.gizmo.HasSelection())
-						g.gizmo.Select(0);
-					g.gizmo.Update(vt, 1, g.gin);
+					if (g.tgtCount) {
+						if (!g.gizmo.HasSelection())
+							g.gizmo.Select(0);
+						g.gizmo.Update(vt, 1, g.gin);
+					} else {
+						g.gizmo.ClearSelection();
+					}
 				} else {
-					g.gizmo.ClearSelection();
+					for (int32 i = 0; i < kMaxObjects; ++i) {
+						VpObject &o = g.objs[i];
+						if (!o.alive || !o.visible)
+							continue;
+						ComposeWorld(o);
+						vt[g.tgtCount].base = o.world;
+						const float32 r = (o.type == kVpObjMesh) ? o.radius : 0.45f;
+						vt[g.tgtCount].localHalf = {r, r, r};
+						vt[g.tgtCount].pickRadius = r;
+						g.tgtSlot[g.tgtCount] = i;
+						++g.tgtCount;
+					}
+					// Demande de la hierarchie, appliquee ici ou le mapping existe.
+					if (g.pendingDeselectAll) {
+						g.pendingDeselectAll = false;
+						g.gizmo.ClearSelection();
+					}
+					if (g.pendingSelect >= 0) {
+						for (int32 t = 0; t < g.tgtCount; ++t)
+							if (g.tgtSlot[t] == g.pendingSelect) {
+								if (g.pendingSelectAdd)
+									g.gizmo.AddToSelection(t);
+								else
+									g.gizmo.Select(t);
+								break;
+							}
+						g.pendingSelect = -1;
+					}
+					if (g.tgtCount)
+						g.gizmo.Update(vt, g.tgtCount, g.gin);
+					else
+						g.gizmo.ClearSelection();
+
+					// La selection du gizmo redescend dans les objets : en mode
+					// objet c'est LUI qui pick, la hierarchie ne fait que lire.
+					for (int32 t = 0; t < g.tgtCount; ++t)
+						g.objs[g.tgtSlot[t]].selected = g.gizmo.IsSelected(t);
+					const int32 act = g.gizmo.ActiveIndex();
+					if (act >= 0 && act < g.tgtCount)
+						g.activeObj = g.tgtSlot[act];
+
+					// ── Application des transformations ─────────────────
+					// Pendant le glissement : la matrice affichee est base + delta
+					// du gizmo. Au RELACHEMENT : on decompose une fois vers
+					// pos/rot/scl -- la source de verite -- puis on remet le gizmo
+					// a zero. Decomposer a chaque image ferait deriver les champs
+					// par accumulation d'erreurs d'arrondi.
+					const bool dragging = g.gizmo.IsDragging();
+					if (dragging && !g.wasDragging)
+						for (int32 t = 0; t < g.tgtCount; ++t)
+							g.objs[g.tgtSlot[t]].dragBase = g.objs[g.tgtSlot[t]].world;
+					if (dragging) {
+						for (int32 t = 0; t < g.tgtCount; ++t)
+							if (g.gizmo.IsSelected(t)) {
+								VpObject &o = g.objs[g.tgtSlot[t]];
+								o.world = g.gizmo.Apply(t, o.dragBase);
+								DecomposeWorld(o.world, o.pos, o.rotDeg, o.scl);
+							}
+					} else if (g.wasDragging) {
+						for (int32 t = 0; t < g.tgtCount; ++t)
+							if (g.gizmo.IsSelected(t)) {
+								VpObject &o = g.objs[g.tgtSlot[t]];
+								o.world = g.gizmo.Apply(t, o.dragBase);
+								DecomposeWorld(o.world, o.pos, o.rotDeg, o.scl);
+								ComposeWorld(o);
+							}
+						g.gizmo.ResetSelected();
+					}
+					g.wasDragging = dragging;
 				}
 			}
 
 			// ── Grille ──────────────────────────────────────────────────────
-			// Elle vient du moteur, pas d'un tas de lignes que nous dessinerions :
-			// la grille de NkRender3D est calculee par pixel, donc elle ne moire pas
-			// a l'horizon et ne coute pas un sommet.
 			const bool wantGrid = (g.overlays & kOvGrid) != 0u;
 			r3d->SetInfiniteGridEnabled(wantGrid || (g.overlays & kOvAxes) != 0u);
 			NkInfiniteGridParams gp = r3d->GetInfiniteGridParams();
@@ -1159,85 +1586,110 @@ namespace nkentseu {
 			r3d->SetInfiniteGridParams(gp);
 
 			// ── Mode d'affichage ────────────────────────────────────────────
-			// Filaire = un MODE, pas une surimpression : la surface disparait. Le
-			// filaire de la case « Filaire » est autre chose -- la cage par-dessus la
-			// surface -- et viendra avec la selection d'aretes.
 			const bool wire = (g.shading == 3);
 			r3d->SetWireframe(wire);
 
 			NkSceneContext sctx;
 			sctx.camera = cam;
 			sctx.viewMode = wire ? NkViewMode::NK_WIREFRAME
-								 : ((g.shading == 2) ? NkViewMode::NK_SOLID	   // Rendu = PBR complet
-													: NkViewMode::NK_UNLIT); // Solide / Materiau
-			// Deux directionnelles : une cle chaude en haut a gauche, un remplissage
-			// froid en bas a droite. C'est l'eclairage d'atelier de tous les
-			// modeleurs -- il donne du volume sans que rien ne tombe dans le noir,
-			// ce qui compte plus ici que le realisme.
-			NkLightDesc key;
-			key.type = NkLightType::NK_DIRECTIONAL;
-			key.direction = {-0.4f, -0.8f, -0.5f};
-			key.color = {1.f, 0.97f, 0.92f};
-			key.intensity = 3.f;
-			key.castShadow = false; // pas d'ombres portees dans un viewport d'edition
-			sctx.lights.PushBack(key);
-			NkLightDesc fill;
-			fill.type = NkLightType::NK_DIRECTIONAL;
-			fill.direction = {0.5f, -0.3f, 0.6f};
-			fill.color = {0.62f, 0.7f, 0.9f};
-			fill.intensity = 1.1f;
-			fill.castShadow = false;
-			sctx.lights.PushBack(fill);
+								 : ((g.shading == 2) ? NkViewMode::NK_SOLID
+													 : NkViewMode::NK_UNLIT);
+			// ── Lumieres : celles de la SCENE d'abord ───────────────────────
+			// L'eclairage d'atelier (cle chaude + remplissage froid) ne sert que
+			// tant que l'utilisateur n'a cree AUCUNE lumiere : des la premiere, la
+			// scene est a lui. Melanger les deux rendrait ses reglages illisibles.
+			bool anyUserLight = false;
+			for (int32 i = 0; i < kMaxObjects; ++i) {
+				const VpObject &o = g.objs[i];
+				if (!o.alive || !o.visible)
+					continue;
+				if (o.type != kVpObjLightPoint && o.type != kVpObjLightSun &&
+					o.type != kVpObjLightSpot)
+					continue;
+				NkLightDesc L;
+				L.color = o.lightColor;
+				L.intensity = o.lightIntensity;
+				L.position = o.pos;
+				// La direction est l'axe -Y de l'objet tourne : une lumiere neuve
+				// pointe vers le bas, et la tourner au gizmo l'oriente.
+				const NkVec3f dir = {-o.world.mat[1][0], -o.world.mat[1][1], -o.world.mat[1][2]};
+				L.direction = dir;
+				L.castShadow = false;
+				switch (o.type) {
+					case kVpObjLightSun:
+						L.type = NkLightType::NK_DIRECTIONAL;
+						break;
+					case kVpObjLightSpot:
+						L.type = NkLightType::NK_SPOT;
+						L.range = o.lightRange;
+						break;
+					default:
+						L.type = NkLightType::NK_POINT;
+						L.range = o.lightRange;
+						break;
+				}
+				sctx.lights.PushBack(L);
+				anyUserLight = true;
+			}
+			if (!anyUserLight) {
+				NkLightDesc key;
+				key.type = NkLightType::NK_DIRECTIONAL;
+				key.direction = {-0.4f, -0.8f, -0.5f};
+				key.color = {1.f, 0.97f, 0.92f};
+				key.intensity = 3.f;
+				key.castShadow = false;
+				sctx.lights.PushBack(key);
+				NkLightDesc fill;
+				fill.type = NkLightType::NK_DIRECTIONAL;
+				fill.direction = {0.5f, -0.3f, 0.6f};
+				fill.color = {0.62f, 0.7f, 0.9f};
+				fill.intensity = 1.1f;
+				fill.castShadow = false;
+				sctx.lights.PushBack(fill);
+			}
 			sctx.iblIntensity = 1.f;
 			sctx.ambientIntensity = 0.45f;
 			r3d->BeginScene(sctx);
 
-			// ── OVERLAY D'EDITION ───────────────────────────────────────────
-			// Porte de Demo3D (l. 5647-5762). Deux choses a ne pas defaire :
-			//  - la cage vient de GetUniqueEdges, jamais des triangles de rendu ;
-			//  - la couleur est portee PAR EXTREMITE, et le GPU interpole. Une arete
-			//    dont un seul bout est selectionne apparait donc en degrade
-			//    orange -> noir, gratuitement, sans decouper le segment.
-			// Et surtout : AUCUN decalage geometrique. Le decalage precedent etait
-			// proportionnel a la taille de l'objet, donc la cage ne suivait plus la
-			// silhouette des objets allonges, et les marqueurs de sommets, eux traces
-			// sans decalage, ne coincidaient plus avec elle. Le z-fighting est deja
-			// traite par le depth-bias des passes overlay.
-			if (g.editMode) {
+			// ── OVERLAY D'EDITION (Demo3D l. 5647-5762) ─────────────────────
+			// Cage de GetUniqueEdges, couleur PAR EXTREMITE interpolee par le GPU,
+			// AUCUN decalage geometrique -- le depth-bias des passes overlay traite
+			// deja le z-fighting.
+			VpObject *A = ActMesh();
+			if (g.editMode && A) {
+				g.overlayCleared = false;
 				if (g.overlayDirty) {
 					g.overlayDirty = false;
 					const NkVec4f cageCol{0.015f, 0.015f, 0.02f, 1.f};
 					const NkVec4f selEdgeCol{1.f, 0.70f, 0.13f, 1.f};
 					const NkVec4f actCol{1.f, 1.f, 1.f, 1.f};
-					auto pushV = [](NkVector<float32> &A, NkVec3f p, NkVec4f c) {
-						A.PushBack(p.x);
-						A.PushBack(p.y);
-						A.PushBack(p.z);
-						A.PushBack(c.x);
-						A.PushBack(c.y);
-						A.PushBack(c.z);
-						A.PushBack(c.w);
+					auto pushV = [](NkVector<float32> &Aq, NkVec3f p, NkVec4f c) {
+						Aq.PushBack(p.x);
+						Aq.PushBack(p.y);
+						Aq.PushBack(p.z);
+						Aq.PushBack(c.x);
+						Aq.PushBack(c.y);
+						Aq.PushBack(c.z);
+						Aq.PushBack(c.w);
 					};
 					g.overlayLines.Clear();
-					g.overlayLines.Reserve((uint32)g.editEdges.Size() * 7u);
+					g.overlayLines.Reserve((uint32)A->edges.Size() * 7u);
 					const uint32 ns = (uint32)g.vertSel.Size();
-					// Passe 0 = aretes neutres, passe 1 = aretes touchees. Les secondes
-					// sont tracees APRES, donc elles gagnent le z-fight et restent
-					// franches.
+					// Passe 0 = aretes neutres, passe 1 = aretes touchees (tracees
+					// APRES : elles gagnent le z-fight).
 					for (int32 pass = 0; pass < 2; ++pass) {
-						for (uint32 e = 0; e + 1 < (uint32)g.editEdges.Size(); e += 2) {
-							const uint32 a = g.editEdges[e], b = g.editEdges[e + 1];
+						for (uint32 e = 0; e + 1 < (uint32)A->edges.Size(); e += 2) {
+							const uint32 a = A->edges[e], b = A->edges[e + 1];
 							if (a >= ns || b >= ns)
 								continue;
 							const bool selA = (g.vertSel[a] != 0), selB = (g.vertSel[b] != 0);
 							if ((selA || selB) != (pass == 1))
 								continue;
-							// ARETE ACTIVE : blanche sur TOUTE sa longueur. Un degrade
-							// dirait « cette extremite est le sommet actif », ce qui est
-							// une autre information.
-							const bool actE = (g.activeEdgeA >= 0 &&
-											   (((int32)a == g.activeEdgeA && (int32)b == g.activeEdgeB) ||
-												((int32)a == g.activeEdgeB && (int32)b == g.activeEdgeA)));
+							// ARETE ACTIVE : blanche sur TOUTE sa longueur.
+							const bool actE =
+								(g.activeEdgeA >= 0 &&
+								 (((int32)a == g.activeEdgeA && (int32)b == g.activeEdgeB) ||
+								  ((int32)a == g.activeEdgeB && (int32)b == g.activeEdgeA)));
 							auto vcol = [&](uint32 v, bool sel) -> NkVec4f {
 								if (actE)
 									return actCol;
@@ -1245,73 +1697,144 @@ namespace nkentseu {
 									return actCol;
 								return sel ? selEdgeCol : cageCol;
 							};
-							pushV(g.overlayLines, g.anchor * g.triV[a].pos, vcol(a, selA));
-							pushV(g.overlayLines, g.anchor * g.triV[b].pos, vcol(b, selB));
+							pushV(g.overlayLines, A->world * A->triV[a].pos, vcol(a, selA));
+							pushV(g.overlayLines, A->world * A->triV[b].pos, vcol(b, selB));
 						}
 					}
-					r3d->SetEditOverlayLines(g.overlayLines.Empty() ? nullptr : g.overlayLines.Data(),
+					r3d->SetEditOverlayLines(g.overlayLines.Empty() ? nullptr
+																	: g.overlayLines.Data(),
 											 (uint32)(g.overlayLines.Size() / 7u));
-					// Les marqueurs de sommets ne passent PLUS par le lot persistant :
-					// le rendu en point-sprite s'est revele peu fiable en DX12. Ils sont
-					// traces chaque image en triangles pleins, plus bas.
+					// Marqueurs en triangles pleins plus bas : le point-sprite est
+					// peu fiable en DX12.
 					r3d->SetEditOverlayPoints(nullptr, 0);
 					r3d->SetEditOverlayTris(nullptr, 0);
 					r3d->SetEditOverlayXray(g.xray);
 				}
-			} else {
+			} else if (!g.overlayCleared) {
+				// UNE seule fois. L'appeler chaque image invalidait le lot overlay
+				// en continu -- c'est ce qui faisait CLIGNOTER le gizmo, qui partage
+				// ce chemin de rendu.
 				r3d->ClearEditOverlay();
+				g.overlayCleared = true;
 			}
 
-			if (g.meshOk) {
-				NkDrawCall3D dc;
-				dc.mesh = g.mesh;
-				dc.transform = NkMat4f::Identity();
-				dc.tint = {0.78f, 0.78f, 0.80f};
-				dc.metallic = 0.f;
-				dc.roughness = 0.62f;
-				dc.castShadow = false;
-				dc.aabb = NkAABB{{g.center.x - g.radius, g.center.y - g.radius, g.center.z - g.radius},
-								 {g.center.x + g.radius, g.center.y + g.radius, g.center.z + g.radius}};
-				r3d->Submit(dc);
+			// ── SOUMISSION DES OBJETS ───────────────────────────────────────
+			for (int32 i = 0; i < kMaxObjects; ++i) {
+				VpObject &o = g.objs[i];
+				if (!o.alive || !o.visible)
+					continue;
+				if (o.type == kVpObjMesh && o.meshOk) {
+					NkDrawCall3D dc;
+					dc.mesh = o.mesh;
+					dc.transform = o.world;
+					// La selection se voit : teinte legerement rechauffee plutot
+					// qu'un changement de couleur franc -- le liseré de silhouette
+					// viendra plus tard.
+					dc.tint = o.selected ? NkVec3f{0.92f, 0.82f, 0.62f}
+										 : NkVec3f{0.78f, 0.78f, 0.80f};
+					dc.metallic = 0.f;
+					dc.roughness = 0.62f;
+					dc.castShadow = false;
+					const float32 r = o.radius * (o.scl.x > o.scl.y ? (o.scl.x > o.scl.z ? o.scl.x : o.scl.z)
+																	 : (o.scl.y > o.scl.z ? o.scl.y : o.scl.z));
+					dc.aabb = NkAABB{{o.pos.x - r, o.pos.y - r, o.pos.z - r},
+									 {o.pos.x + r, o.pos.y + r, o.pos.z + r}};
+					r3d->Submit(dc);
+				} else if (o.type != kVpObjMesh) {
+					// ── Widgets des objets sans surface ─────────────────
+					// Une lumiere, une camera ou un repere n'ont rien a rendre :
+					// sans widget ils seraient invisibles ET introuvables. Traces en
+					// overlay, taille fixe en monde -- ce sont des reperes de scene,
+					// pas des marqueurs d'ecran.
+					const NkVec4f col = o.selected ? NkVec4f{1.f, 0.70f, 0.13f, 1.f}
+												   : NkVec4f{0.85f, 0.85f, 0.55f, 1.f};
+					const NkVec3f p = o.pos;
+					auto line = [&](NkVec3f a2, NkVec3f b2) {
+						r3d->DrawDebugLine(a2, b2, col, 0.f, true);
+					};
+					const float32 s = 0.28f;
+					if (o.type == kVpObjEmpty) {
+						const NkVec4f cx{0.95f, 0.35f, 0.32f, 1.f}, cy{0.25f, 0.75f, 0.30f, 1.f},
+							cz{0.35f, 0.65f, 0.95f, 1.f};
+						r3d->DrawDebugLine(p - NkVec3f{s, 0, 0}, p + NkVec3f{s, 0, 0},
+										   o.selected ? col : cx, 0.f, true);
+						r3d->DrawDebugLine(p - NkVec3f{0, s, 0}, p + NkVec3f{0, s, 0},
+										   o.selected ? col : cy, 0.f, true);
+						r3d->DrawDebugLine(p - NkVec3f{0, 0, s}, p + NkVec3f{0, 0, s},
+										   o.selected ? col : cz, 0.f, true);
+					} else if (o.type == kVpObjCamera) {
+						// Petit tronc de pyramide : la base regarde -Z local.
+						const NkVec3f fwd{-o.world.mat[2][0], -o.world.mat[2][1],
+										  -o.world.mat[2][2]};
+						const NkVec3f rgt{o.world.mat[0][0], o.world.mat[0][1], o.world.mat[0][2]};
+						const NkVec3f up{o.world.mat[1][0], o.world.mat[1][1], o.world.mat[1][2]};
+						const NkVec3f tip = p + fwd * 0.75f;
+						const NkVec3f c1 = tip + rgt * 0.4f + up * 0.28f;
+						const NkVec3f c2 = tip + rgt * 0.4f - up * 0.28f;
+						const NkVec3f c3 = tip - rgt * 0.4f - up * 0.28f;
+						const NkVec3f c4 = tip - rgt * 0.4f + up * 0.28f;
+						line(p, c1);
+						line(p, c2);
+						line(p, c3);
+						line(p, c4);
+						line(c1, c2);
+						line(c2, c3);
+						line(c3, c4);
+						line(c4, c1);
+					} else {
+						// Lumieres : une etoile pour le point, une fleche pour le
+						// soleil, un cone pour le spot.
+						const NkVec3f dir{-o.world.mat[1][0], -o.world.mat[1][1],
+										  -o.world.mat[1][2]};
+						line(p - NkVec3f{s, 0, 0}, p + NkVec3f{s, 0, 0});
+						line(p - NkVec3f{0, s, 0}, p + NkVec3f{0, s, 0});
+						line(p - NkVec3f{0, 0, s}, p + NkVec3f{0, 0, s});
+						if (o.type == kVpObjLightSun) {
+							line(p, p + dir * 1.2f);
+						} else if (o.type == kVpObjLightSpot) {
+							const NkVec3f rgt{o.world.mat[0][0], o.world.mat[0][1],
+											  o.world.mat[0][2]};
+							const NkVec3f fw2{o.world.mat[2][0], o.world.mat[2][1],
+											  o.world.mat[2][2]};
+							const NkVec3f e = p + dir * 1.0f;
+							line(p, e + rgt * 0.45f);
+							line(p, e - rgt * 0.45f);
+							line(p, e + fw2 * 0.45f);
+							line(p, e - fw2 * 0.45f);
+						}
+					}
+				}
 			}
 
 			// ── MARQUEURS DE SOMMETS ────────────────────────────────────────
-			// En quads pleins face-camera, pas en point-sprites : c'est le meme chemin
-			// overlay sans test de profondeur que le gizmo, correct en OpenGL comme en
-			// DX12. Taille indexee sur la DISTANCE -- un marqueur en unites monde
-			// disparaitrait de loin et couvrirait l'objet de pres.
-			if (g.editMode && (g.selMask & 1u)) {
+			if (g.editMode && A && (g.selMask & 1u)) {
 				const NkVec3f rgt = g.lastProj.rgt, upv = g.lastProj.upv;
 				const uint32 ns = (uint32)g.vertSel.Size();
-				for (uint32 i = 0; i < ns && i < (uint32)g.triV.Size(); ++i) {
-					const NkVec3f w = g.anchor * g.triV[i].pos;
+				for (uint32 i = 0; i < ns && i < (uint32)A->triV.Size(); ++i) {
+					const NkVec3f w = A->world * A->triV[i].pos;
 					const float32 hs = (w - g.lastCamPos).Len() * 0.0035f;
 					const NkVec4f col = ((int32)i == g.activeVert)
 											? NkVec4f{1.f, 1.f, 1.f, 1.f}
 											: (g.vertSel[i] ? NkVec4f{1.f, 0.70f, 0.13f, 1.f}
 															: NkVec4f{0.05f, 0.05f, 0.06f, 1.f});
-					const NkVec3f a = w - rgt * hs - upv * hs, b = w + rgt * hs - upv * hs;
+					const NkVec3f a2 = w - rgt * hs - upv * hs, b2 = w + rgt * hs - upv * hs;
 					const NkVec3f c2 = w + rgt * hs + upv * hs, d2 = w - rgt * hs + upv * hs;
-					r3d->DrawDebugTriangle(a, b, c2, col, 0.f, true);
-					r3d->DrawDebugTriangle(a, c2, d2, col, 0.f, true);
+					r3d->DrawDebugTriangle(a2, b2, c2, col, 0.f, true);
+					r3d->DrawDebugTriangle(a2, c2, d2, col, 0.f, true);
 				}
 			}
 
 			// ── GIZMO ───────────────────────────────────────────────────────
-			// Trace en lignes ET en triangles : les fleches pleines se lisent bien
-			// mieux que des chevrons en fil de fer. Le `true` final demande le trace en
-			// surimpression, sans test de profondeur -- un gizmo a moitie enfoui dans
-			// le maillage serait inutilisable.
 			if (g.gizmo.HasSelection())
 				g.gizmo.Draw(
-					[&](NkVec3f a, NkVec3f b, NkVec4f c) { r3d->DrawDebugLine(a, b, c, 0.f, true); },
-					[&](NkVec3f a, NkVec3f b, NkVec3f c, NkVec4f col) {
-						r3d->DrawDebugTriangle(a, b, c, col, 0.f, true);
+					[&](NkVec3f a2, NkVec3f b2, NkVec4f c2) {
+						r3d->DrawDebugLine(a2, b2, c2, 0.f, true);
+					},
+					[&](NkVec3f a2, NkVec3f b2, NkVec3f c2, NkVec4f col) {
+						r3d->DrawDebugTriangle(a2, b2, c2, col, 0.f, true);
 					});
 
-			// Le graphe fait tout : ombres, geometrie HDR, tonemap, et ecrit dans
-			// NOTRE cible parce qu'on l'y a redirigee. Il gere ses propres passes et
-			// son effacement -- surtout pas de BeginCapture manuel par-dessus.
+			// Le graphe fait tout et ecrit dans NOTRE cible.
 			if (auto *graph = g.r3->GetRenderGraph())
 				graph->Execute(cmd);
 		}

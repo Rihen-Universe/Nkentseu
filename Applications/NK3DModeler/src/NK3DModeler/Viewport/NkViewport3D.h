@@ -29,6 +29,23 @@ namespace nkentseu {
 		// pouvoir entrer en collision avec aucun des deux.
 		constexpr uint32 kViewportTexId = 4096u;
 
+		// Types d'objets de scene. EN AJOUT SEUL : ils finiront dans les fichiers
+		// de projet, et renumeroter rendrait faux tous les fichiers existants.
+		constexpr int32 kVpObjMesh = 0;
+		constexpr int32 kVpObjLightPoint = 1;
+		constexpr int32 kVpObjLightSun = 2;
+		constexpr int32 kVpObjLightSpot = 3;
+		constexpr int32 kVpObjCamera = 4;
+		constexpr int32 kVpObjEmpty = 5;
+
+		// Primitives de maillage, dans l'ordre du menu « Ajouter > Maillage ».
+		constexpr int32 kVpPrimCube = 0;
+		constexpr int32 kVpPrimPlane = 1;
+		constexpr int32 kVpPrimSphere = 2;
+		constexpr int32 kVpPrimCylinder = 3;
+		constexpr int32 kVpPrimCone = 4;
+		constexpr int32 kVpPrimTorus = 5;
+
 		// Cablage, appele une fois depuis main.cpp.
 		void Viewport3DSetSharedDevice(void *device);
 
@@ -68,6 +85,33 @@ namespace nkentseu {
 		void Viewport3DSetGizmoInput(float32 mouseX, float32 mouseY, float32 dx, float32 dy,
 									 bool leftPressed, bool leftDown, bool shift, bool ctrl);
 		bool Viewport3DGizmoDragging();
+
+		// ── Objets de scene ─────────────────────────────────────────────────
+		// La scene NAIT VIDE ; « Ajouter » cree maillages, lumieres, cameras et
+		// reperes. Les indices de slot sont STABLES (un tableau a trous, pas une
+		// liste compactee) : la hierarchie peut les garder d'une image a l'autre.
+		int32 Viewport3DAddObject(int32 type, int32 prim); ///< rend le slot, -1 si plein
+		int32 Viewport3DObjectCount();					   ///< taille de la table, trous compris
+		bool Viewport3DObjectAlive(int32 i);
+		const char *Viewport3DObjectName(int32 i);
+		void Viewport3DRenameObject(int32 i, const char *name);
+		int32 Viewport3DObjectType(int32 i);
+		bool Viewport3DObjectSelected(int32 i);
+		bool Viewport3DObjectVisible(int32 i);
+		void Viewport3DSetObjectVisible(int32 i, bool on);
+		void Viewport3DSelectObject(int32 i, bool add);
+		void Viewport3DDeselectAllObjects();
+		int32 Viewport3DActiveObject();
+		void Viewport3DDeleteObject(int32 i);
+		// Transformations, en clair : position, rotation en degres, echelle.
+		// pos/rot/scl sont LA SOURCE -- le panneau Proprietes edite ces valeurs et
+		// le gizmo ne les ecrase qu'en fin de glissement.
+		bool Viewport3DGetObjectTransform(int32 i, float32 *pos3, float32 *rot3, float32 *scl3);
+		void Viewport3DSetObjectTransform(int32 i, const float32 *pos3, const float32 *rot3,
+										  const float32 *scl3);
+
+		// Fond de la vue 3D.
+		void Viewport3DSetBackground(float32 r, float32 g, float32 b);
 
 		// ── Mode edition et selection ───────────────────────────────────────
 		void Viewport3DSetEditMode(bool on);

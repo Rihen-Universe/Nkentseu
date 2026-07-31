@@ -475,6 +475,14 @@ namespace nkentseu {
 				RebuildRenderGraph();
 		}
 
+		void NkRendererImpl::SetBackgroundColor(NkVec4f rgba) {
+			if (mClearColor.x == rgba.x && mClearColor.y == rgba.y && mClearColor.z == rgba.z &&
+				mClearColor.w == rgba.w)
+				return; // reconstruire le graphe pour rien coute cher
+			mClearColor = rgba;
+			RebuildRenderGraph();
+		}
+
 		// =====================================================================
 		// Reconstruction du render graph (apres enable/disable runtime ou resize).
 		// =====================================================================
@@ -782,7 +790,7 @@ namespace nkentseu {
 				fwd.Execute([this](NkICommandBuffer *cmd) { mRender3D->FlushForwardRest(cmd); });
 			} else if (has3D) {
 				auto &geom = g.AddPass("Geometry", NkPassType::NK_GEOMETRY);
-				geom.SetColor(0, mainColor, NkLoadOp::NK_CLEAR, {0.05f, 0.05f, 0.07f, 1.f})
+				geom.SetColor(0, mainColor, NkLoadOp::NK_CLEAR, mClearColor)
 					.SetDepth(mainDepth, NkLoadOp::NK_CLEAR, 1.f);
 				// shadowId n'est plus dans le graph (NkShadowSystem gere son atlas
 				// hors-graph). Le sequencing Shadows->Geometry est garanti par

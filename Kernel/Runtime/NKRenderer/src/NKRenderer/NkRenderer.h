@@ -122,6 +122,15 @@ namespace nkentseu {
 					(void)h;
 				}
 
+				// Couleur d'effacement de la passe Geometry (le « fond » de la scene
+				// quand il n'y a pas de skybox). Demande par les editeurs : un
+				// viewport de modelage se regle souvent plus clair ou plus neutre que
+				// le fond d'un jeu. Reconstruit le graphe : la couleur est figee dans
+				// la description de passe, pas lue a chaque image.
+				virtual void SetBackgroundColor(NkVec4f rgba) {
+					(void)rgba;
+				}
+
 				// ── Overlay UI applicatif ─────────────────────────────────────────────
 				// Enregistre un callback exécuté en FIN de passe Overlay2D (après
 				// Render2D/OverlayRenderer), dans une render pass active sur la
