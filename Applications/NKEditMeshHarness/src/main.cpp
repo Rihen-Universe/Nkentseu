@@ -865,6 +865,118 @@ static void SnapBattery() {
 	}
 }
 
+// ── SUBDIVISION DE SURFACE : CATMULL-CLARK vs SIMPLE ────────────────────────
+// LE CAS QUI COMPTE est le RAYON, pas le nombre de faces. Une subdivision
+// LINEAIRE et une Catmull-Clark produisent la MEME topologie (n quads par face
+// de n coins) : compter sommets et faces ne distingue pas l'une de l'autre. Ce
+// qui les separe, c'est que Catmull-Clark DEPLACE les sommets vers la surface
+// limite. On mesure donc la distance au centre :
+//   cube de cote 1 (rayon des coins = 0,866) ;
+//   subdivision SIMPLE  -> le cube reste un cube, rayon max inchange ;
+//   CATMULL-CLARK       -> la forme se contracte vers la sphere limite.
+// Un test qui n'aurait verifie que V/F/E aurait valide un modificateur qui ne
+// lisse rien — c'est exactement le defaut qui existait.
+static void CatmullBattery() {
+	NkVector<NkVertex3D> v;
+	NkVector<uint32> idx;
+	MakeCube(v, idx);
+	auto radii = [](const NkEditMesh &m, float32 &rmin, float32 &rmax, float32 &vol) {
+		rmin = 1e30f;
+		rmax = 0.f;
+		NkVec3f c{0.f, 0.f, 0.f};
+		uint32 n = 0;
+		for (uint32 i = 0; i < m.VertCount(); ++i) {
+			c = c + m.verts[i].pos;
+			n++;
+		}
+		if (n)
+			c = c * (1.f / (float32)n);
+		for (uint32 i = 0; i < m.VertCount(); ++i) {
+			const float32 r = (m.verts[i].pos - c).Len();
+			if (r < rmin)
+				rmin = r;
+			if (r > rmax)
+				rmax = r;
+		}
+		vol = 0.f;
+	};
+	// Reference : le cube brut.
+	{
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		float32 a, b, c;
+		radii(m, a, b, c);
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s rayon min=%.4f max=%.4f", "subsurf/cube-reference", (double)a,
+					 (double)b);
+			gLineCount++;
+		}
+	}
+	// SIMPLE (lineaire) : densifie, ne deforme pas.
+	{
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		NkMeshModifier mod;
+		mod.type = NkModifierType::Subsurf;
+		mod.subsurfSimple = true;
+		mod.subsurfLevels = 1;
+		mod.Apply(m);
+		float32 a, b, c;
+		radii(m, a, b, c);
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s rayon min=%.4f max=%.4f", "subsurf/simple-n1", (double)a,
+					 (double)b);
+			gLineCount++;
+		}
+		Emit("subsurf/simple-n1-signature", Signature(m));
+	}
+	// CATMULL-CLARK : lisse. Niveaux 1 et 2 pour montrer la convergence.
+	for (int32 lv = 1; lv <= 2; lv++) {
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		NkMeshModifier mod;
+		mod.type = NkModifierType::Subsurf;
+		mod.subsurfSimple = false;
+		mod.subsurfLevels = lv;
+		mod.Apply(m);
+		float32 a, b, c;
+		radii(m, a, b, c);
+		char nm[96];
+		snprintf(nm, sizeof(nm), "subsurf/catmull-n%d", lv);
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s rayon min=%.4f max=%.4f", nm, (double)a, (double)b);
+			gLineCount++;
+		}
+		snprintf(nm, sizeof(nm), "subsurf/catmull-n%d-signature", lv);
+		Emit(nm, Signature(m));
+	}
+	// GRILLE OUVERTE : le BORD doit rester franc. C'est la regle de bordure
+	// (M1 + 6V + M2)/8 : sans elle le contour serait aspire vers l'interieur et
+	// un plan subdivise retrecirait — defaut classique de Catmull-Clark naif.
+	{
+		NkVector<NkVertex3D> gv;
+		NkVector<uint32> gi;
+		MakeGrid(4, gv, gi);
+		NkEditMesh m;
+		m.BuildFromIndexed(gv.Data(), (uint32)gv.Size(), gi.Data(), (uint32)gi.Size(), true);
+		float32 x0 = -1e30f;
+		for (uint32 i = 0; i < m.VertCount(); ++i)
+			if (m.verts[i].pos.x > x0)
+				x0 = m.verts[i].pos.x;
+		m.SubdivideCatmullClark(1);
+		float32 x1 = -1e30f;
+		for (uint32 i = 0; i < m.VertCount(); ++i)
+			if (m.verts[i].pos.x > x1)
+				x1 = m.verts[i].pos.x;
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s bord x avant=%.4f apres=%.4f (retrait=%.4f)",
+					 "subsurf/grille-bord-franc", (double)x0, (double)x1, (double)(x0 - x1));
+			gLineCount++;
+		}
+		Emit("subsurf/grille-catmull-signature", Signature(m));
+	}
+}
+
 int main(int argc, char **argv) {
 	bool baseline = false, check = false;
 	for (int32 i = 1; i < argc; i++) {
@@ -884,6 +996,7 @@ int main(int argc, char **argv) {
 	SelOrderBattery();
 	Bmesh2Battery();
 	SnapBattery();
+	CatmullBattery();
 
 	const char *path = "editmesh_baseline.txt";
 	if (baseline) {
