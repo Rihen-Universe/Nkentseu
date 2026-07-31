@@ -18,6 +18,7 @@
 #include "NKCode/Pdf/NkPdf.h"
 #include "NKCode/Pdf/NkPdfFont.h"
 #include "NKCode/Pdf/NkPdfRaster.h"
+#include "NKCode/Pdf/NkPdfShading.h"
 
 namespace nkentseu {
 	namespace nkcode {
@@ -127,6 +128,10 @@ namespace nkentseu {
 						// portait certaines pages a 95 % d'encre.
 						bool fillIsPattern = false;
 						bool strokeIsPattern = false;
+						// Nom du motif courant : sert a le RETROUVER dans les ressources
+						// au moment de peindre, pas au moment de le declarer (les
+						// ressources peuvent changer entre les deux via un formulaire).
+						NkString fillPattern, strokePattern;
 							NkPdfFont *font = nullptr;
 							NkVector<uint8> clip; // vide = pas de decoupage
 					};
@@ -135,6 +140,16 @@ namespace nkentseu {
 					void Run(const NkVector<uint8> &content, const NkPdfVal &resources, int32 depth);
 					void DoXObject(const char *name, int32 nameLen, const NkPdfVal &resources, int32 depth);
 					void DrawImage(const NkPdfVal &img, int32 depth);
+
+					// Peint `path` avec un degrade, en resolvant la couleur PIXEL PAR
+					// PIXEL : chaque point de l'image est ramene dans l'espace du
+					// degrade par la matrice inverse.
+					void FillWithShading(const NkPdfPath &path, bool evenOdd, const NkPdfVal &shDict,
+										 const NkPdfMat &mat, double alpha);
+
+					// Peint `path` avec un motif (PatternType 1 pave, 2 degrade).
+					void FillWithPattern(const NkPdfPath &path, bool evenOdd, const NkString &name,
+										 const NkPdfVal &resources, int32 depth);
 
 					NkPdfDoc *mDoc = nullptr;
 					NkPdfCanvas *mCv = nullptr;
@@ -154,6 +169,9 @@ namespace nkentseu {
 
 					// Etat texte inter-operateurs (BT/ET).
 					NkPdfMat mTm, mTlm;
+					// Matrice de la PAGE : espace de reference des motifs, qui ne
+					// suivent PAS la matrice courante.
+					NkPdfMat mBaseCtm;
 			};
 
 		} // namespace pdf

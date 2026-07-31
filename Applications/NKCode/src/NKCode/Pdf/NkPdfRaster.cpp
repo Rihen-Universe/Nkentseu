@@ -413,6 +413,30 @@ namespace nkentseu {
 				}
 			}
 
+			void NkPdfCanvas::ComputeCoverage(const NkPdfPath &path, bool evenOdd,
+											  NkVector<uint8> &cov) const {
+				Rasterize(path, evenOdd, cov);
+				// Applique le decoupage ICI plutot que de laisser chaque appelant y
+				// penser : l'oublier une seule fois ferait deborder un degrade.
+				if (!mClip.Empty())
+					for (usize i = 0; i < cov.Size() && i < mClip.Size(); ++i)
+						cov[i] = static_cast<uint8>((static_cast<uint32>(cov[i]) * mClip[i]) / 255u);
+			}
+
+			void NkPdfCanvas::BlendPixel(int32 x, int32 y, uint8 r, uint8 g, uint8 b, uint32 alpha) {
+				if (x < 0 || y < 0 || x >= mW || y >= mH || alpha == 0)
+					return;
+				uint8 *p = mPix.Data() + (static_cast<usize>(y) * static_cast<usize>(mW) +
+										  static_cast<usize>(x)) * 4u;
+				if (alpha > 255u)
+					alpha = 255u;
+				p[0] = static_cast<uint8>((r * alpha + p[0] * (255u - alpha)) / 255u);
+				p[1] = static_cast<uint8>((g * alpha + p[1] * (255u - alpha)) / 255u);
+				p[2] = static_cast<uint8>((b * alpha + p[2] * (255u - alpha)) / 255u);
+				const uint32 na = alpha + (p[3] * (255u - alpha)) / 255u;
+				p[3] = static_cast<uint8>(na > 255u ? 255u : na);
+			}
+
 			void NkPdfCanvas::SetClipFromPath(const NkPdfPath &path, bool evenOdd) {
 				NkVector<uint8> cov;
 				Rasterize(path, evenOdd, cov);

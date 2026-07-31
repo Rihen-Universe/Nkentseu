@@ -399,6 +399,7 @@ namespace nkentseu {
 					base.e -= mWinOffX;
 					base.f -= mWinOffY;
 				}
+				mBaseCtm = base; // espace du MOTIF : voir FillWithPattern
 				mGs = GState();
 				mGs.ctm = base;
 
@@ -654,7 +655,11 @@ namespace nkentseu {
 							noPaint) {
 							if (closeStroke || OpIs(t, "b") || OpIs(t, "b*"))
 								mPath.Close();
-							if ((fillNz || fillEo || fillStrokeNz || fillStrokeEo) && !mGs.fillIsPattern) {
+							if ((fillNz || fillEo || fillStrokeNz || fillStrokeEo) && mGs.fillIsPattern) {
+								++mStats.fills;
+								FillWithPattern(mPath, fillEo || fillStrokeEo, mGs.fillPattern, resources,
+												depth);
+							} else if (fillNz || fillEo || fillStrokeNz || fillStrokeEo) {
 								++mStats.fills;
 								mCv->FillPath(mPath, fillEo || fillStrokeEo, ToByte(mGs.fill[0]),
 											  ToByte(mGs.fill[1]), ToByte(mGs.fill[2]),
@@ -716,12 +721,16 @@ namespace nkentseu {
 							c[1] = (1.0 - num[1]) * (1.0 - num[3]);
 							c[2] = (1.0 - num[2]) * (1.0 - num[3]);
 						} else if (lastName.kind == Tok::Name) {
-							// Motif : on NE PEINT PAS. Voir GState::fillIsPattern.
-							if (isFill)
+							NkString pn;
+							for (int32 k = 0; k < lastName.len; ++k)
+								pn += static_cast<char>(lastName.ptr[k]);
+							if (isFill) {
 								mGs.fillIsPattern = true;
-							else
+								mGs.fillPattern = pn;
+							} else {
 								mGs.strokeIsPattern = true;
-							Note("motif (non peint)");
+								mGs.strokePattern = pn;
+							}
 						}
 						if (nNum >= 1) { // couleur explicite : ce n'est plus un motif
 							if (isFill)
@@ -737,7 +746,21 @@ namespace nkentseu {
 						continue;
 					}
 					if (OpIs(t, "sh")) {
-						Note("degrade");
+						// `sh` peint le degrade sur TOUTE la region decoupee courante,
+						// sans trace : on fabrique donc un trace couvrant la page, que
+						// le decoupage borne.
+						if (lastName.kind == Tok::Name) {
+							NkString nm;
+							for (int32 k = 0; k < lastName.len; ++k)
+								nm += static_cast<char>(lastName.ptr[k]);
+							const NkPdfVal shd = doc.DictGet(doc.DictGet(resources, "Shading"), nm.CStr());
+							if (shd.IsDictLike()) {
+								NkPdfPath full;
+								full.Rect(0, 0, static_cast<double>(mCv->Width()),
+									   static_cast<double>(mCv->Height()));
+								FillWithShading(full, false, shd, mGs.ctm, mGs.fillAlpha);
+							}
+						}
 						clear();
 						continue;
 					}
@@ -957,6 +980,194 @@ namespace nkentseu {
 				}
 			}
 
+
+			// ============================================================
+			// Degrades et motifs
+			// ============================================================
+
+			void NkPdfRenderer::FillWithShading(const NkPdfPath &path, bool evenOdd,
+												const NkPdfVal &shDict, const NkPdfMat &mat,
+												double alpha) {
+				NkPdfShading sh;
+				if (!sh.Load(*mDoc, shDict)) {
+					// Types 1 et 4 a 7 (maillages) : rares, et une seconde mecanique
+					// entiere. On le DIT plutot que de peindre une couleur inventee.
+					Note("degrade a maillage");
+					return;
+				}
+				// Matrice inverse : chaque pixel de l'image est ramene dans l'espace du
+				// degrade. C'est ce qui gere correctement un degrade tourne ou etire.
+				const double det = mat.a * mat.d - mat.b * mat.c;
+				if (det > -1e-12 && det < 1e-12)
+					return;
+				const double ia = mat.d / det, ib = -mat.b / det;
+				const double ic = -mat.c / det, id = mat.a / det;
+				const double ie = -(mat.e * ia + mat.f * ic), iff = -(mat.e * ib + mat.f * id);
+
+				NkVector<uint8> cov;
+				mCv->ComputeCoverage(path, evenOdd, cov);
+				const int32 W = mCv->Width();
+				const uint32 ga = static_cast<uint32>(ToByte(alpha));
+				for (usize i = 0; i < cov.Size(); ++i) {
+					const uint32 cvg = cov[i];
+					if (!cvg)
+						continue;
+					const int32 x = static_cast<int32>(i % static_cast<usize>(W));
+					const int32 y = static_cast<int32>(i / static_cast<usize>(W));
+					const double dx = static_cast<double>(x) + 0.5;
+					const double dy = static_cast<double>(y) + 0.5;
+					const double ux = dx * ia + dy * ic + ie;
+					const double uy = dx * ib + dy * id + iff;
+					double r = 0, g = 0, b = 0;
+					if (!sh.ColorAt(ux, uy, &r, &g, &b))
+						continue; // hors du degrade et non etendu : on ne peint pas
+					mCv->BlendPixel(x, y, ToByte(r), ToByte(g), ToByte(b), (cvg * ga) / 255u);
+				}
+			}
+
+			void NkPdfRenderer::FillWithPattern(const NkPdfPath &path, bool evenOdd, const NkString &name,
+												const NkPdfVal &resources, int32 depth) {
+				NkPdfDoc &doc = *mDoc;
+				const NkPdfVal pat = doc.DictGet(doc.DictGet(resources, "Pattern"), name.CStr());
+				if (!pat.IsDictLike()) {
+					Note("motif introuvable");
+					return;
+				}
+				const int32 ptype = static_cast<int32>(doc.Num(doc.DictGet(pat, "PatternType"), 0.0));
+
+				// La matrice du motif s'applique par rapport a l'espace du MOTIF, qui
+				// est celui de la page — pas la matrice courante. C'est le piege
+				// classique : utiliser mGs.ctm ferait deriver le motif avec le contenu.
+				NkPdfMat pm = mBaseCtm;
+				const NkPdfVal mtx = doc.DictGet(pat, "Matrix");
+				if (mtx.kind == NK_PDF_ARRAY && mtx.b >= 6) {
+					NkPdfMat m;
+					m.a = doc.Num(doc.ArrayAt(mtx, 0), 1);
+					m.b = doc.Num(doc.ArrayAt(mtx, 1), 0);
+					m.c = doc.Num(doc.ArrayAt(mtx, 2), 0);
+					m.d = doc.Num(doc.ArrayAt(mtx, 3), 1);
+					m.e = doc.Num(doc.ArrayAt(mtx, 4), 0);
+					m.f = doc.Num(doc.ArrayAt(mtx, 5), 0);
+					pm = NkPdfMat::Mul(m, mBaseCtm);
+				}
+
+				if (ptype == 2) { // motif de DEGRADE
+					FillWithShading(path, evenOdd, doc.DictGet(pat, "Shading"), pm, mGs.fillAlpha);
+					return;
+				}
+				if (ptype != 1) {
+					Note("motif de type inconnu");
+					return;
+				}
+
+				// ── Motif PAVE : on execute le contenu de la cellule, repete ──
+				NkVector<uint8> cell;
+				if (pat.kind != NK_PDF_STREAM || !doc.DecodeStream(pat, cell) || cell.Empty()) {
+					Note("motif pave illisible");
+					return;
+				}
+				const double xs = doc.Num(doc.DictGet(pat, "XStep"), 0.0);
+				const double ys = doc.Num(doc.DictGet(pat, "YStep"), 0.0);
+				if (xs == 0.0 || ys == 0.0) {
+					Note("motif pave a pas nul");
+					return;
+				}
+
+				// Le motif est DECOUPE par le trace : sans ca, il deborderait sur toute
+				// la page. On empile donc le decoupage courant et on le restaure apres.
+				NkVector<uint8> savedClip = mCv->TakeClip();
+				mCv->SetClipFromPath(path, evenOdd);
+
+				double bx0 = 0, by0 = 0, bx1 = 0, by1 = 0;
+				if (!path.Bounds(&bx0, &by0, &bx1, &by1)) {
+					mCv->RestoreClip(savedClip);
+					return;
+				}
+				// Etendue a paver, exprimee dans l'espace du motif.
+				const double det = pm.a * pm.d - pm.b * pm.c;
+				if (det > -1e-12 && det < 1e-12) {
+					mCv->RestoreClip(savedClip);
+					return;
+				}
+				const double ia = pm.d / det, ib = -pm.b / det;
+				const double ic = -pm.c / det, id = pm.a / det;
+				const double ie = -(pm.e * ia + pm.f * ic), iff = -(pm.e * ib + pm.f * id);
+				double ux0 = 1e30, uy0 = 1e30, ux1 = -1e30, uy1 = -1e30;
+				const double cx[4] = {bx0, bx1, bx1, bx0}, cy[4] = {by0, by0, by1, by1};
+				for (int32 i = 0; i < 4; ++i) {
+					const double u = cx[i] * ia + cy[i] * ic + ie;
+					const double v = cx[i] * ib + cy[i] * id + iff;
+					if (u < ux0) ux0 = u;
+					if (v < uy0) uy0 = v;
+					if (u > ux1) ux1 = u;
+					if (v > uy1) uy1 = v;
+				}
+
+				const int32 i0 = static_cast<int32>(ux0 / xs) - 1;
+				const int32 i1 = static_cast<int32>(ux1 / xs) + 1;
+				const int32 j0 = static_cast<int32>(uy0 / ys) - 1;
+				const int32 j1 = static_cast<int32>(uy1 / ys) + 1;
+				// Borne DURE sur le nombre de cellules : un pas minuscule sur une
+				// grande surface produirait des millions de repetitions et figerait
+				// l'application. On prefere un motif partiel, et on le dit.
+				const int64 tiles = static_cast<int64>(i1 - i0 + 1) * static_cast<int64>(j1 - j0 + 1);
+				int32 maxI = i1, maxJ = j1;
+				if (tiles > 4096) {
+					Note("motif pave tronque (trop de repetitions)");
+					maxI = i0 + 63;
+					maxJ = j0 + 63;
+				}
+
+				NkPdfVal pres = doc.DictGet(pat, "Resources");
+				if (!pres.IsDictLike())
+					pres = resources;
+				const GState saved = mGs;
+				NkPdfPath savedPath = mPath;
+
+				// /BBox : chaque cellule est DECOUPEE par sa propre boite. L'oublier
+				// laisse le contenu d'une cellule deborder sur ses voisines — defaut
+				// visible immediatement, sous forme de blocs qui se chevauchent.
+				double bb[4] = {0, 0, xs, ys};
+				const NkPdfVal bbv = doc.DictGet(pat, "BBox");
+				if (bbv.kind == NK_PDF_ARRAY && bbv.b >= 4)
+					for (int32 i = 0; i < 4; ++i)
+						bb[i] = doc.Num(doc.ArrayAt(bbv, i), bb[i]);
+
+				for (int32 j = j0; j <= maxJ; ++j) {
+					for (int32 i = i0; i <= maxI; ++i) {
+						NkPdfMat t;
+						t.e = static_cast<double>(i) * xs;
+						t.f = static_cast<double>(j) * ys;
+						mGs = GState();
+						mGs.ctm = NkPdfMat::Mul(t, pm);
+
+						// Decoupage = trace du motif INTERSECTE la boite de la cellule.
+						const NkVector<uint8> clipBefore = mCv->TakeClip();
+						NkPdfPath box;
+						{
+							double px[4], py[4];
+							const double cx2[4] = {bb[0], bb[2], bb[2], bb[0]};
+							const double cy2[4] = {bb[1], bb[1], bb[3], bb[3]};
+							for (int32 k = 0; k < 4; ++k)
+								mGs.ctm.Apply(cx2[k], cy2[k], &px[k], &py[k]);
+							box.MoveTo(px[0], py[0]);
+							box.LineTo(px[1], py[1]);
+							box.LineTo(px[2], py[2]);
+							box.LineTo(px[3], py[3]);
+							box.Close();
+						}
+						mCv->SetClipFromPath(box, false);
+
+						mPath.Clear();
+						Run(cell, pres, depth + 1);
+						mCv->RestoreClip(clipBefore);
+					}
+				}
+				mGs = saved;
+				mPath = savedPath;
+				mCv->RestoreClip(savedClip);
+			}
+
 			// ============================================================
 			// XObjects
 			// ============================================================
@@ -998,10 +1209,36 @@ namespace nkentseu {
 						m.f = doc.Num(doc.ArrayAt(mtx, 5), 0);
 						mGs.ctm = NkPdfMat::Mul(m, mGs.ctm);
 					}
+					// /BBox : un formulaire est DECOUPE par sa boite (§8.10.2). Sans ce
+					// decoupage, son contenu deborde de la zone prevue — defaut visible
+					// immediatement sous forme de blocs qui empietent sur le reste de la
+					// page. La boite est exprimee dans l'espace du formulaire, donc
+					// APRES application de sa /Matrix.
+					const NkVector<uint8> clipBefore = mCv->TakeClip();
+					const NkPdfVal bb = doc.DictGet(xo, "BBox");
+					if (bb.kind == NK_PDF_ARRAY && bb.b >= 4) {
+						double v[4];
+						for (int32 i = 0; i < 4; ++i)
+							v[i] = doc.Num(doc.ArrayAt(bb, i), 0.0);
+						double px[4], py[4];
+						const double cx2[4] = {v[0], v[2], v[2], v[0]};
+						const double cy2[4] = {v[1], v[1], v[3], v[3]};
+						for (int32 k = 0; k < 4; ++k)
+							mGs.ctm.Apply(cx2[k], cy2[k], &px[k], &py[k]);
+						NkPdfPath box;
+						box.MoveTo(px[0], py[0]);
+						box.LineTo(px[1], py[1]);
+						box.LineTo(px[2], py[2]);
+						box.LineTo(px[3], py[3]);
+						box.Close();
+						mCv->SetClipFromPath(box, false);
+					}
+
 					NkPdfVal r2 = doc.DictGet(xo, "Resources");
 					if (!r2.IsDictLike())
 						r2 = resources; // heritees du parent
 					Run(sc, r2, depth + 1);
+					mCv->RestoreClip(clipBefore);
 					mGs = saved;
 					mPath = savedPath;
 				}
@@ -1073,8 +1310,100 @@ namespace nkentseu {
 					comps = 4;
 				else if (doc.NameIs(csv, "DeviceGray"))
 					comps = 1;
-				else if (csv.kind == NK_PDF_ARRAY)
-					comps = 1; // espace indexe : traite en niveaux de gris, approximatif
+				// ── Espace de couleurs INDEXE ──
+				// [/Indexed base hival palette] : chaque echantillon est un INDEX dans
+				// une palette, pas une intensite. Le traiter en niveaux de gris — ce
+				// que faisait la version precedente — transforme un logo en bouillie,
+				// puisqu'on affiche des numeros de couleur comme s'ils etaient des
+				// luminosites.
+				NkVector<uint8> palette; // RVB, 3 octets par entree
+				bool indexed = false;
+				if (csv.kind == NK_PDF_ARRAY && csv.b >= 4 &&
+					(doc.NameIs(doc.ArrayAt(csv, 0), "Indexed") || doc.NameIs(doc.ArrayAt(csv, 0), "I"))) {
+					const NkPdfVal base = doc.ArrayAt(csv, 1);
+					int32 baseComps = 3;
+					if (doc.NameIs(base, "DeviceGray"))
+						baseComps = 1;
+					else if (doc.NameIs(base, "DeviceCMYK"))
+						baseComps = 4;
+					const NkPdfVal look = doc.ArrayAt(csv, 3);
+					NkVector<uint8> raw;
+					if (look.kind == NK_PDF_STREAM) {
+						doc.DecodeStream(look, raw);
+					} else if (look.kind == NK_PDF_STRING) {
+						int32 ln = 0;
+						const char *sp = doc.Text(look, &ln);
+						for (int32 i = 0; i < ln; ++i)
+							raw.PushBack(static_cast<uint8>(sp[i]));
+					}
+					if (!raw.Empty()) {
+						const int32 entries = static_cast<int32>(raw.Size()) / baseComps;
+						for (int32 i = 0; i < entries; ++i) {
+							const usize o = static_cast<usize>(i) * static_cast<usize>(baseComps);
+							uint8 pr = 0, pg = 0, pb = 0;
+							if (baseComps == 1) {
+								pr = pg = pb = raw[o];
+							} else if (baseComps == 3) {
+								pr = raw[o];
+								pg = raw[o + 1];
+								pb = raw[o + 2];
+							} else {
+								const double c0 = raw[o] / 255.0, m0 = raw[o + 1] / 255.0;
+								const double y0 = raw[o + 2] / 255.0, k0 = raw[o + 3] / 255.0;
+								pr = ToByte((1 - c0) * (1 - k0));
+								pg = ToByte((1 - m0) * (1 - k0));
+								pb = ToByte((1 - y0) * (1 - k0));
+							}
+							palette.PushBack(pr);
+							palette.PushBack(pg);
+							palette.PushBack(pb);
+						}
+						indexed = true;
+						comps = 1; // un seul echantillon : l'index
+					}
+				}
+				if (csv.kind == NK_PDF_ARRAY && !indexed) {
+					// Autres espaces a tableau (ICCBased, Separation, DeviceN...) : on
+					// se fie au /N declare quand il existe, sinon on suppose du RVB.
+					const NkPdfVal alt = doc.ArrayAt(csv, 1);
+					const int32 n = static_cast<int32>(doc.Num(doc.DictGet(alt, "N"), 0.0));
+					comps = (n == 1 || n == 3 || n == 4) ? n : 3;
+				}
+
+				// ── Masque de transparence (/SMask) ──
+				// 52 % du corpus. Sans lui, un logo detoure s'affiche sur un rectangle
+				// opaque qui masque ce qu'il y a dessous.
+				NkVector<uint8> smask;
+				int32 smW = 0, smH = 0;
+				{
+					const NkPdfVal sm = doc.DictGet(img, "SMask");
+					if (sm.kind == NK_PDF_STREAM) {
+						smW = static_cast<int32>(doc.Num(doc.DictGet(sm, "Width"), 0));
+						smH = static_cast<int32>(doc.Num(doc.DictGet(sm, "Height"), 0));
+						const int32 sbpc = static_cast<int32>(doc.Num(doc.DictGet(sm, "BitsPerComponent"), 8));
+						NkVector<uint8> sraw;
+						const NkPdfVal sf = doc.DictGet(sm, "Filter");
+						const bool sJpeg = doc.NameIs(sf, "DCTDecode");
+						if (smW > 0 && smH > 0 && doc.DecodeStream(sm, sraw) && !sraw.Empty()) {
+							if (sJpeg) {
+								NkImage sim;
+								if (sim.LoadFromMemory(sraw.Data(), sraw.Size(), 1) && sim.Width() == smW) {
+									smask.Resize(static_cast<usize>(smW) * static_cast<usize>(smH));
+									for (int32 yy = 0; yy < smH; ++yy)
+										for (int32 xx = 0; xx < smW; ++xx)
+											smask[static_cast<usize>(yy) * smW + xx] =
+												sim.Pixels()[static_cast<usize>(yy) * sim.Stride() + xx];
+								}
+							} else if (sbpc == 8) {
+								const usize need = static_cast<usize>(smW) * static_cast<usize>(smH);
+								if (sraw.Size() >= need)
+									smask = sraw;
+							}
+							if (smask.Empty())
+								Note("masque de transparence non decode");
+						}
+					}
+				}
 
 				const bool mask = doc.Num(doc.DictGet(img, "ImageMask"), 0) != 0.0;
 				if (mask)
@@ -1152,7 +1481,14 @@ namespace nkentseu {
 											  static_cast<usize>(sx) * static_cast<usize>(comps);
 							if (off + static_cast<usize>(comps) > data.Size())
 								continue;
-							if (comps == 1) {
+							if (indexed) {
+								const usize pi = static_cast<usize>(data[off]) * 3u;
+								if (pi + 2 < palette.Size()) {
+									r = palette[pi];
+									g = palette[pi + 1];
+									b = palette[pi + 2];
+								}
+							} else if (comps == 1) {
 								r = g = b = data[off];
 							} else if (comps == 3) {
 								r = data[off]; g = data[off + 1]; b = data[off + 2];
@@ -1174,6 +1510,13 @@ namespace nkentseu {
 								if (on)
 									continue;
 								r = fr; g = fg; b = fb;
+							} else if (indexed) {
+								const usize pi = (on ? 1u : 0u) * 3u;
+								if (pi + 2 < palette.Size()) {
+									r = palette[pi];
+									g = palette[pi + 1];
+									b = palette[pi + 2];
+								}
 							} else {
 								r = g = b = on ? 255 : 0;
 							}
@@ -1181,12 +1524,26 @@ namespace nkentseu {
 							continue; // 2/4/16 bits : rares, non geres
 						}
 
+						// Masque de transparence : l'alpha vient d'une image separee,
+						// echantillonnee aux memes coordonnees normalisees.
+						if (!smask.Empty() && smW > 0 && smH > 0) {
+							const int32 mx = static_cast<int32>(u * smW);
+							const int32 my = static_cast<int32>((1.0 - v) * smH);
+							if (mx >= 0 && mx < smW && my >= 0 && my < smH) {
+								const uint32 mv = smask[static_cast<usize>(my) * smW + mx];
+								a = (a * mv) / 255u;
+								if (!a)
+									continue;
+							}
+						}
+
 						uint8 *p = dst + (static_cast<usize>(y) * static_cast<usize>(mCv->Width()) +
 										  static_cast<usize>(x)) * 4u;
 						p[0] = static_cast<uint8>((r * a + p[0] * (255u - a)) / 255u);
 						p[1] = static_cast<uint8>((g * a + p[1] * (255u - a)) / 255u);
 						p[2] = static_cast<uint8>((b * a + p[2] * (255u - a)) / 255u);
-						p[3] = 255;
+						const uint32 na2 = a + (p[3] * (255u - a)) / 255u;
+						p[3] = static_cast<uint8>(na2 > 255u ? 255u : na2);
 					}
 				}
 			}
