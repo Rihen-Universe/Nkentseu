@@ -81,6 +81,19 @@ namespace nkentseu {
 			uint32_t mStride = 0;
 
 			// ----------------------------------------------------------------
+			// wl_egl_window du contexte graphique (type opaque : on n'impose
+			// pas <wayland-egl.h> a tout NKWindow).
+			//
+			// Il DOIT etre redimensionne DES LA RECEPTION du configure, pas a
+			// la frame suivante : Mesa acquiert son tampon arriere pendant le
+			// rendu, donc un redimensionnement arrive apres coup ne vaut que
+			// pour la frame d'APRES. Entre les deux, eglSwapBuffers presente un
+			// tampon a l'ANCIENNE taille alors que le compositeur en attend
+			// une nouvelle -> xdg_wm_base error 4, fatale.
+			// ----------------------------------------------------------------
+			void *mEglWindow = nullptr;
+
+			// ----------------------------------------------------------------
 			// Dimensions courantes
 			// ----------------------------------------------------------------
 			uint32_t mWidth = 0;
@@ -134,6 +147,15 @@ namespace nkentseu {
 	class NkWindow;
 	NkWindow *NkWaylandFindWindow(::wl_surface *surface);
 	void NkWaylandRegisterWindow(::wl_surface *surface, NkWindow *win);
+	// Confie le wl_egl_window a la fenetre proprietaire de `surface`, pour
+	// qu'elle le redimensionne des la reception du configure (cf. mEglWindow).
+	// Appele par le contexte OpenGL/EGL a la creation de la surface EGL.
+	void NkWaylandSetEglWindow(::wl_surface *surface, void *eglWindow);
+	// Retire ce wl_egl_window de TOUTE fenetre qui le reference, avant sa
+	// destruction. Par valeur et non par surface : le contexte graphique ne
+	// memorise pas la wl_surface, et laisser une reference pendante ferait
+	// planter le prochain configure recu.
+	void NkWaylandClearEglWindow(void *eglWindow);
 	void NkWaylandUnregisterWindow(::wl_surface *surface);
 	NkWindow *NkWaylandGetLastWindow();
 
