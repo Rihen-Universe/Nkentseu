@@ -929,9 +929,37 @@ namespace nkentseu {
 		// Fondation directe : ces modificateurs sont aussi des ACTIONS composables pour l'IA.
 		enum class NkModifierType : uint8 { Mirror = 0, Array = 1, Subsurf = 2 };
 
+		// ── PARAMETRE ADRESSABLE PAR NOM ───────────────────────────────────────────
+		// Chaque modificateur publie la LISTE de ses parametres : nom stable, libelle,
+		// type, et ou le lire dans la structure. Cela sert trois choses a la fois :
+		//   1. une interface peut se construire toute seule, sans connaitre les
+		//      modificateurs un par un ;
+		//   2. l'IA et le rejeu peuvent regler « arrayCount » sans code dedie ;
+		//   3. et surtout, demande de Rihen : une ANIMATION pourra plus tard marquer
+		//      N'IMPORTE QUEL parametre. Une courbe d'animation designe une cible par
+		//      (identifiant du modificateur, nom du parametre) — deux choses STABLES,
+		//      qui survivent au reordonnancement de la pile.
+		// C'est pour cela que `name` ne doit JAMAIS etre renomme une fois publie : ce
+		// n'est pas un libelle, c'est une CLE. `label` est la, lui, pour l'affichage.
+		enum class NkModParamType : uint8 { Bool = 0, Int, Float, Vec3 };
+
+		struct NkModParam {
+				const char *name = "";	// CLE stable (animation, rejeu, serialisation)
+				const char *label = ""; // libelle affichable, librement modifiable
+				NkModParamType type = NkModParamType::Float;
+				uint32 offset = 0;			   // position du champ dans NkMeshModifier
+				float32 minV = 0.f, maxV = 0.f; // bornes indicatives (0/0 = libre)
+		};
+
 		struct NkMeshModifier {
 				NkModifierType type = NkModifierType::Mirror;
 				bool enabled = true;
+				// IDENTIFIANT STABLE, attribue par la pile. Il ne change ni au
+				// reordonnancement, ni a la desactivation, ni a la duplication (la copie
+				// en recoit un neuf). C'est l'ancre d'une future courbe d'animation :
+				// pointer un modificateur par son INDICE se casserait des qu'on le
+				// remonte d'un cran dans la pile, ce que Blender permet a tout moment.
+				uint32 id = 0;
 				// Mirror : miroir sur un axe au plan de l'origine (+ soudure des sommets sur le plan).
 				int32 mirrorAxis = 0; // 0=X 1=Y 2=Z
 				bool mirrorMerge = true;
@@ -948,7 +976,24 @@ namespace nkentseu {
 				bool subsurfSimple = false;
 
 				void Apply(NkEditMesh &m) const; // transforme `m` en place
+
+				// ── ACCES GENERIQUE AUX PARAMETRES ──────────────────────────────────
+				// Les scalaires (Bool / Int / Float) passent par float32 : c'est le type
+				// d'une courbe d'animation, et la conversion est faite ICI plutot que
+				// chez chaque appelant — sinon chacun arrondirait a sa facon.
+				uint32 ParamCount() const;
+				const NkModParam *ParamAt(uint32 i) const;
+				const NkModParam *FindParam(const char *name) const;
+				bool GetParam(const char *name, float32 &out) const;
+				bool SetParam(const char *name, float32 v);
+				bool GetParamVec3(const char *name, NkVec3f &out) const;
+				bool SetParamVec3(const char *name, const NkVec3f &v);
 		};
+
+		// Nom lisible d'un type de modificateur (interface, journal, serialisation).
+		const char *NkModifierTypeName(NkModifierType t);
+		// Table des parametres d'un type donne.
+		const NkModParam *NkModifierParams(NkModifierType t, uint32 &count);
 
 		class NkModifierStack {
 			public:
@@ -960,18 +1005,55 @@ namespace nkentseu {
 
 				void Clear() {
 					modifiers.Clear();
+					mNextId = 1;
 				}
 
-				void Add(const NkMeshModifier &mod) {
-					modifiers.PushBack(mod);
+				// Empile et renvoie l'IDENTIFIANT STABLE attribue. Cet identifiant est ce
+				// qu'il faut retenir ailleurs (animation, interface), jamais l'indice.
+				uint32 Add(const NkMeshModifier &mod) {
+					NkMeshModifier m = mod;
+					m.id = mNextId++;
+					modifiers.PushBack(m);
+					return m.id;
 				}
 
 				uint32 Count() const {
 					return (uint32)modifiers.Size();
 				}
 
-				// out = base, puis chaque modificateur activé appliqué dans l'ordre.
+				// ── GESTION DE LA PILE (facon Blender) ──────────────────────────────
+				// L'ORDRE EST SIGNIFIANT : miroir puis tableau ne donne pas la meme chose
+				// que tableau puis miroir. Pouvoir remonter/descendre un modificateur
+				// n'est donc pas un confort d'interface, c'est un parametre de resultat.
+				bool Remove(uint32 index);
+				bool MoveUp(uint32 index);	 // vers le HAUT = evalue plus TOT
+				bool MoveDown(uint32 index); // vers le BAS = evalue plus TARD
+				bool SetEnabled(uint32 index, bool on);
+				// Duplique le modificateur (la copie recoit un identifiant NEUF : deux
+				// entrees animables independamment, sinon une courbe piloterait les deux).
+				bool Duplicate(uint32 index);
+
+				int32 IndexOfId(uint32 id) const;
+				NkMeshModifier *FindById(uint32 id);
+				const NkMeshModifier *FindById(uint32 id) const;
+
+				// APPLIQUER (Blender : « Apply ») : cuit CE modificateur dans le maillage
+				// de BASE et le retire de la pile. Le maillage editable devient le
+				// resultat — l'operation est donc DESTRUCTIVE, c'est tout son objet.
+				//
+				// Comme Blender, on autorise a appliquer un modificateur qui n'est PAS le
+				// premier, mais le resultat ne sera alors pas celui qu'on voyait a
+				// l'ecran : l'affichage montre la pile ENTIERE, alors qu'on ne cuit que ce
+				// modificateur-la, sans ceux qui le precedent. `outWarnNotFirst` le
+				// signale a l'appelant, a charge pour lui de prevenir l'utilisateur —
+				// plutot que de refuser (Blender ne refuse pas) ou de se taire.
+				bool ApplyToBase(uint32 index, NkEditMesh &base, bool *outWarnNotFirst = nullptr);
+
+				// out = base, puis chaque modificateur ACTIVE applique dans l'ordre.
 				void Evaluate(const NkEditMesh &base, NkEditMesh &out) const;
+
+			private:
+				uint32 mNextId = 1;
 		};
 
 	} // namespace renderer

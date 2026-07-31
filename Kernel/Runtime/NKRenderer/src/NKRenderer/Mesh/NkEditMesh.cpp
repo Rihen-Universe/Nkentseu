@@ -4,6 +4,7 @@
 #include "NkEditMesh.h"
 #include "NKContainers/Associative/NkHashMap.h"
 
+#include <stddef.h> // offsetof : parametres adressables par nom
 #include <cmath> // cosf / sinf / atan2f — profils d'arc du bevel, rotations du spin
 
 namespace nkentseu {
@@ -4519,6 +4520,212 @@ namespace nkentseu {
 				}
 			}
 			m.BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data());
+		}
+
+		// ── TABLES DE PARAMETRES ────────────────────────────────────────────────
+		// Les noms sont des CLES : ne jamais les renommer une fois publies, une courbe
+		// d'animation ou un fichier enregistre les designerait encore.
+		static const NkModParam kParamsMirror[] = {
+			{"mirror_axis", "Axe", NkModParamType::Int, offsetof(NkMeshModifier, mirrorAxis), 0.f, 2.f},
+			{"mirror_merge", "Souder au plan", NkModParamType::Bool, offsetof(NkMeshModifier, mirrorMerge), 0.f, 1.f},
+			{"mirror_merge_dist", "Distance de soudure", NkModParamType::Float,
+			 offsetof(NkMeshModifier, mirrorMergeDist), 0.f, 1.f},
+		};
+		static const NkModParam kParamsArray[] = {
+			{"array_count", "Nombre", NkModParamType::Int, offsetof(NkMeshModifier, arrayCount), 1.f, 256.f},
+			{"array_offset", "Decalage", NkModParamType::Vec3, offsetof(NkMeshModifier, arrayOffset), 0.f, 0.f},
+		};
+		static const NkModParam kParamsSubsurf[] = {
+			{"subsurf_levels", "Niveaux", NkModParamType::Int, offsetof(NkMeshModifier, subsurfLevels), 0.f, 6.f},
+			{"subsurf_simple", "Simple (lineaire)", NkModParamType::Bool, offsetof(NkMeshModifier, subsurfSimple), 0.f,
+			 1.f},
+		};
+
+		const char *NkModifierTypeName(NkModifierType t) {
+			switch (t) {
+				case NkModifierType::Mirror: return "Miroir";
+				case NkModifierType::Array: return "Tableau";
+				case NkModifierType::Subsurf: return "Subdivision de surface";
+			}
+			return "?";
+		}
+
+		const NkModParam *NkModifierParams(NkModifierType t, uint32 &count) {
+			switch (t) {
+				case NkModifierType::Mirror:
+					count = (uint32)(sizeof(kParamsMirror) / sizeof(kParamsMirror[0]));
+					return kParamsMirror;
+				case NkModifierType::Array:
+					count = (uint32)(sizeof(kParamsArray) / sizeof(kParamsArray[0]));
+					return kParamsArray;
+				case NkModifierType::Subsurf:
+					count = (uint32)(sizeof(kParamsSubsurf) / sizeof(kParamsSubsurf[0]));
+					return kParamsSubsurf;
+			}
+			count = 0;
+			return nullptr;
+		}
+
+		uint32 NkMeshModifier::ParamCount() const {
+			uint32 n = 0;
+			NkModifierParams(type, n);
+			return n;
+		}
+
+		const NkModParam *NkMeshModifier::ParamAt(uint32 i) const {
+			uint32 n = 0;
+			const NkModParam *p = NkModifierParams(type, n);
+			return (p && i < n) ? &p[i] : nullptr;
+		}
+
+		static bool NkEmStrEq(const char *a, const char *b) {
+			if (!a || !b)
+				return false;
+			while (*a && *b) {
+				if (*a != *b)
+					return false;
+				++a;
+				++b;
+			}
+			return *a == *b;
+		}
+
+		const NkModParam *NkMeshModifier::FindParam(const char *name) const {
+			uint32 n = 0;
+			const NkModParam *p = NkModifierParams(type, n);
+			for (uint32 i = 0; i < n; ++i)
+				if (NkEmStrEq(p[i].name, name))
+					return &p[i];
+			return nullptr;
+		}
+
+		bool NkMeshModifier::GetParam(const char *name, float32 &out) const {
+			const NkModParam *p = FindParam(name);
+			if (!p || p->type == NkModParamType::Vec3)
+				return false;
+			const uint8 *base = (const uint8 *)this + p->offset;
+			switch (p->type) {
+				case NkModParamType::Bool: out = (*(const bool *)base) ? 1.f : 0.f; return true;
+				case NkModParamType::Int: out = (float32)(*(const int32 *)base); return true;
+				default: out = *(const float32 *)base; return true;
+			}
+		}
+
+		bool NkMeshModifier::SetParam(const char *name, float32 v) {
+			const NkModParam *p = FindParam(name);
+			if (!p || p->type == NkModParamType::Vec3)
+				return false;
+			// Ecretage sur les bornes PUBLIEES : une courbe d'animation depasse
+			// facilement (interpolation, rebond), et un arrayCount negatif ou un niveau
+			// de subdivision a 30 ne sont pas des reglages, ce sont des plantages.
+			if (p->maxV > p->minV) {
+				if (v < p->minV)
+					v = p->minV;
+				if (v > p->maxV)
+					v = p->maxV;
+			}
+			uint8 *base = (uint8 *)this + p->offset;
+			switch (p->type) {
+				case NkModParamType::Bool: *(bool *)base = (v >= 0.5f); return true;
+				// Arrondi au plus proche et non troncature : une courbe qui passe par
+				// 2,999 vise 3, pas 2.
+				case NkModParamType::Int: *(int32 *)base = (int32)(v < 0.f ? v - 0.5f : v + 0.5f); return true;
+				default: *(float32 *)base = v; return true;
+			}
+		}
+
+		bool NkMeshModifier::GetParamVec3(const char *name, NkVec3f &out) const {
+			const NkModParam *p = FindParam(name);
+			if (!p || p->type != NkModParamType::Vec3)
+				return false;
+			out = *(const NkVec3f *)((const uint8 *)this + p->offset);
+			return true;
+		}
+
+		bool NkMeshModifier::SetParamVec3(const char *name, const NkVec3f &v) {
+			const NkModParam *p = FindParam(name);
+			if (!p || p->type != NkModParamType::Vec3)
+				return false;
+			*(NkVec3f *)((uint8 *)this + p->offset) = v;
+			return true;
+		}
+
+		// ── GESTION DE LA PILE ──────────────────────────────────────────────────
+		bool NkModifierStack::Remove(uint32 index) {
+			if (index >= (uint32)modifiers.Size())
+				return false;
+			for (uint32 i = index; i + 1 < (uint32)modifiers.Size(); ++i)
+				modifiers[i] = modifiers[i + 1];
+			modifiers.Resize((uint32)modifiers.Size() - 1);
+			return true;
+		}
+
+		bool NkModifierStack::MoveUp(uint32 index) {
+			if (index == 0 || index >= (uint32)modifiers.Size())
+				return false;
+			const NkMeshModifier t = modifiers[index - 1];
+			modifiers[index - 1] = modifiers[index];
+			modifiers[index] = t;
+			return true;
+		}
+
+		bool NkModifierStack::MoveDown(uint32 index) {
+			if (index + 1 >= (uint32)modifiers.Size())
+				return false;
+			return MoveUp(index + 1);
+		}
+
+		bool NkModifierStack::SetEnabled(uint32 index, bool on) {
+			if (index >= (uint32)modifiers.Size())
+				return false;
+			modifiers[index].enabled = on;
+			return true;
+		}
+
+		bool NkModifierStack::Duplicate(uint32 index) {
+			if (index >= (uint32)modifiers.Size())
+				return false;
+			NkMeshModifier c = modifiers[index];
+			c.id = mNextId++; // identifiant NEUF : animable independamment de l'original
+			modifiers.PushBack(c);
+			// Inseree JUSTE APRES l'original, comme Blender : la pile est un ordre
+			// d'evaluation, une copie ajoutee a la fin n'aurait pas le meme effet.
+			for (uint32 i = (uint32)modifiers.Size() - 1; i > index + 1; --i) {
+				const NkMeshModifier t = modifiers[i - 1];
+				modifiers[i - 1] = modifiers[i];
+				modifiers[i] = t;
+			}
+			return true;
+		}
+
+		int32 NkModifierStack::IndexOfId(uint32 id) const {
+			for (uint32 i = 0; i < (uint32)modifiers.Size(); ++i)
+				if (modifiers[i].id == id)
+					return (int32)i;
+			return -1;
+		}
+
+		NkMeshModifier *NkModifierStack::FindById(uint32 id) {
+			const int32 i = IndexOfId(id);
+			return (i >= 0) ? &modifiers[(uint32)i] : nullptr;
+		}
+
+		const NkMeshModifier *NkModifierStack::FindById(uint32 id) const {
+			const int32 i = IndexOfId(id);
+			return (i >= 0) ? &modifiers[(uint32)i] : nullptr;
+		}
+
+		bool NkModifierStack::ApplyToBase(uint32 index, NkEditMesh &base, bool *outWarnNotFirst) {
+			if (index >= (uint32)modifiers.Size())
+				return false;
+			if (outWarnNotFirst)
+				*outWarnNotFirst = (index != 0);
+			// On applique meme s'il est desactive ? NON : un modificateur eteint ne
+			// participe pas au resultat affiche, le cuire produirait une geometrie que
+			// l'utilisateur n'a jamais vue. On le retire simplement, comme Blender.
+			if (modifiers[index].enabled)
+				modifiers[index].Apply(base);
+			return Remove(index);
 		}
 
 		void NkModifierStack::Evaluate(const NkEditMesh &base, NkEditMesh &out) const {
