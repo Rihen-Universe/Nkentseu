@@ -42,6 +42,7 @@
 #include "NKRenderer/Mesh/NkMeshDecimate.h"
 #include "NKRenderer/Mesh/NkMeshAnalysis.h"
 #include "NKRenderer/Core/NkGizmo.h"
+#include "NKEditorKit/NkTheme.h"
 #include "NKEditorKit/NkShortcutTable.h"
 #include "NKContainers/Associative/NkHashMap.h"
 #include "NKLogger/NkLog.h"
@@ -2759,6 +2760,157 @@ static void RetopoBattery() {
 	}
 }
 
+// -- THEMES ------------------------------------------------------------------
+// Regle de UI_SPEC 10bis : les couleurs PORTEUSES DE SENS vivent DANS le theme
+// -- axes, etats de selection, types d'assets compris. Laissees en dur, le theme
+// clair serait illisible sans que personne s'en apercoive avant la capture.
+//
+// Les cas visent les deux pieges du systeme :
+//   * un theme UTILISATEUR ne redefinit que quelques couleurs ; un chargeur naif
+//     laisserait les autres a zero, donc NOIR, et le theme paraitrait charge tout
+//     en etant inutilisable ;
+//   * un theme clair fabrique en INVERSANT les gris garderait les couleurs
+//     metier du sombre -- elles deviendraient illisibles sur fond clair. On le
+//     MESURE au lieu de l'affirmer.
+static void ThemeBattery() {
+	using namespace nkentseu::editorkit;
+
+	// 1) ALLER-RETOUR. On modifie deux roles, on enregistre, on relit dans une
+	//    base NEUVE : les deux modifications ET les 27 autres doivent survivre.
+	//    Enregistrer puis relire un theme INCHANGE ne prouverait rien.
+	{
+		NkTheme t = NkTheme::Dark();
+		t.SetName("Mon theme");
+		t.Set(NkRole::AccentUi, NkTheme::FromHex("#123456"));
+		t.Set(NkRole::AxisX, NkTheme::FromHex("#ABCDEF"));
+		NkString txt;
+		t.Save(txt);
+		NkTheme relu = NkTheme::Dark();
+		uint32 unknown = 0, applied = 0;
+		const bool ok = relu.Load(txt.CStr(), &unknown, &applied);
+		uint32 diff = 0;
+		for (uint16 i = 0; i < (uint16)NkRole::Count; ++i)
+			if (relu.Get((NkRole)i) != t.Get((NkRole)i))
+				diff++;
+		GraphPut("%-34s lu=%d appliques=%u inconnus=%u | roles differents=%u (0 attendu) nom=%s",
+				 "theme/aller-retour", ok ? 1 : 0, applied, unknown, diff, relu.Name().CStr());
+	}
+
+	// 2) LE PIEGE — HERITAGE D'UN THEME PARTIEL. Trois lignes seulement. Les
+	//    trois doivent ecraser, les 26 autres doivent rester CELLES DE LA BASE.
+	//    Un chargeur qui repartirait de zero les mettrait a noir : le compte de
+	//    roles appliques serait le meme, et rien ne le signalerait.
+	{
+		const char *partiel = "nktheme 1\n"
+							  "nom Bleu nuit\n"
+							  "accent_ui = #2266FF\n"
+							  "panel_bg = #101820\n"
+							  "# une ligne de commentaire, doit etre ignoree\n"
+							  "accent_sel = #FFAA22\n";
+		const NkTheme base = NkTheme::Dark();
+		NkTheme t = NkTheme::Dark();
+		uint32 unknown = 0, applied = 0;
+		t.Load(partiel, &unknown, &applied);
+		uint32 herites = 0, noirs = 0;
+		for (uint16 i = 0; i < (uint16)NkRole::Count; ++i) {
+			const NkRole r = (NkRole)i;
+			if (r == NkRole::AccentUi || r == NkRole::PanelBg || r == NkRole::AccentSel)
+				continue;
+			if (t.Get(r) == base.Get(r))
+				herites++;
+			if ((t.Get(r) >> 8) == 0u)
+				noirs++;
+		}
+		char h[10];
+		NkTheme::ToHex(t.Get(NkRole::AccentUi), h);
+		GraphPut("%-34s appliques=%u | herites=%u/%u noirs=%u (0 attendu) | accent_ui=%s nom=%s",
+				 "theme/heritage-partiel", applied, herites, (uint32)NkRole::Count - 3u, noirs, h,
+				 t.Name().CStr());
+	}
+
+	// 3) ROLE INCONNU TOLERE. Un theme ecrit pour une version plus recente doit
+	//    se charger quand meme, en le SIGNALANT. Refuser tout le fichier pour une
+	//    ligne inconnue rendrait chaque ajout de role incompatible avec l'existant.
+	{
+		const char *futur = "nktheme 1\n"
+							"accent_ui = #2266FF\n"
+							"couleur_de_2027 = #FF00FF\n"
+							"axis_x = #FF0000\n";
+		NkTheme t = NkTheme::Dark();
+		uint32 unknown = 0, applied = 0;
+		const bool ok = t.Load(futur, &unknown, &applied);
+		char h[10];
+		NkTheme::ToHex(t.Get(NkRole::AxisX), h);
+		GraphPut("%-34s lu=%d inconnus=%u (1 attendu) appliques=%u (2 attendus) | axis_x=%s",
+				 "theme/role-inconnu-tolere", ok ? 1 : 0, unknown, applied, h);
+	}
+
+	// 4) CE QUI JUSTIFIE TOUT LE SYSTEME. Le theme clair n'INVERSE pas les gris,
+	//    il les REMPLACE, et il ASSOMBRIT les couleurs metier. On mesure le
+	//    contraste de l'axe Y sur le fond de panneau dans les deux themes, PUIS
+	//    celui qu'on aurait eu en gardant la couleur du sombre sur fond clair.
+	//    Ce troisieme chiffre est la preuve : s'il n'etait pas nettement plus
+	//    faible, mettre les axes dans le theme n'aurait servi a rien.
+	{
+		const NkTheme d = NkTheme::Dark();
+		const NkTheme l = NkTheme::Light();
+		const float32 cd = NkTheme::Contrast(d.Get(NkRole::AxisY), d.Get(NkRole::PanelBg));
+		const float32 cl = NkTheme::Contrast(l.Get(NkRole::AxisY), l.Get(NkRole::PanelBg));
+		const float32 naif = NkTheme::Contrast(d.Get(NkRole::AxisY), l.Get(NkRole::PanelBg));
+		GraphPut("%-34s axeY/panneau sombre=%.2f clair=%.2f | couleur-du-sombre-sur-clair=%.2f (doit chuter)",
+				 "theme/couleurs-metier-dans-theme", (double)cd, (double)cl, (double)naif);
+	}
+
+	// 5) VALIDATION. L'utilisateur pouvant fabriquer ses themes, il en fabriquera
+	//    un illisible. Les deux themes livres doivent passer largement ; un theme
+	//    volontairement mauvais doit etre signale bas. Sans le mauvais cas, un
+	//    validateur qui renverrait toujours un grand nombre passerait aussi.
+	{
+		const NkTheme d = NkTheme::Dark();
+		const NkTheme l = NkTheme::Light();
+		NkTheme mauvais = NkTheme::Dark();
+		mauvais.Set(NkRole::Text, NkTheme::FromHex("#303030")); // gris sur gris
+		NkThemeIssue id{}, il{}, im{};
+		const uint32 fd = d.Validate(&id);
+		const uint32 fl = l.Validate(&il);
+		const uint32 fm = mauvais.Validate(&im);
+		GraphPut("%-34s defauts sombre=%u clair=%u (0 attendu) | theme casse : %u defaut(s), pire %s sur %s = %.2f (exige %.1f)",
+				 "theme/validation-contraste", fd, fl, fm, NkRoleName(im.fg), NkRoleName(im.bg),
+				 (double)im.ratio, (double)im.required);
+		// Le SEUIL DEPEND DE L'USAGE, et le verifier compte : le meme rapport doit
+		// passer pour un element graphique et echouer pour du texte. Un validateur
+		// a seuil unique rendrait ces deux lignes identiques.
+		GraphPut("%-34s pire rapport brut sombre=%.2f clair=%.2f | seuils texte=4,5 graphique=3,0",
+				 "theme/seuils-par-usage", (double)d.WorstContrast(), (double)l.WorstContrast());
+	}
+
+	// 6) LES SIX COULEURS IMPOSEES par Rihen sont bien la, aux roles decides en
+	//    UI_SPEC 10bis. Un test qui se contenterait de charger le theme ne dirait
+	//    pas si j'ai respecte l'affectation.
+	{
+		const NkTheme d = NkTheme::Dark();
+		struct Att {
+				NkRole r;
+				const char *hex;
+		};
+		const Att att[6] = {
+			{NkRole::WindowBg, "#141414"},		 {NkRole::PanelBg, "#212121"},
+			{NkRole::PanelHeader, "#2B2B2B"},	 {NkRole::AccentSel, "#F2980E"},
+			{NkRole::NodeDataHeader, "#0A545E"}, {NkRole::NodeDataHeaderHot, "#095461"},
+		};
+		uint32 conformes = 0;
+		for (int32 i = 0; i < 6; ++i)
+			if (d.Get(att[i].r) == NkTheme::FromHex(att[i].hex))
+				conformes++;
+		// Les deux sarcelles doivent RESTER proches : c'est voulu (meme en-tete,
+		// deux etats). Si elles s'ecartaient, ce serait une seconde famille.
+		const float32 ecart =
+			NkTheme::Contrast(d.Get(NkRole::NodeDataHeader), d.Get(NkRole::NodeDataHeaderHot));
+		GraphPut("%-34s conformes=%u/6 | ecart des deux sarcelles=%.3f (proche de 1 : meme famille)",
+				 "theme/palette-imposee", conformes, (double)ecart);
+	}
+}
+
 int main(int argc, char **argv) {
 	bool baseline = false, check = false;
 	for (int32 i = 1; i < argc; i++) {
@@ -2789,6 +2941,7 @@ int main(int argc, char **argv) {
 	GraphIfaceBattery();
 	DecimateBattery();
 	RetopoBattery();
+	ThemeBattery();
 
 	const char *path = "editmesh_baseline.txt";
 	if (baseline) {
