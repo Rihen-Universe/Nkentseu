@@ -1396,6 +1396,262 @@ namespace nkentseu {
 
 		// MERGE : soude les sommets sélectionnés en un (centroïde / premier / dernier),
 		// retire les faces dégénérées (<3 sommets distincts), compacte.
+		// ── CATMULL-CLARK ───────────────────────────────────────────────────────
+		// Une passe. Voir NkEditMesh.h pour les regles et le pourquoi de chacune.
+		static NkVertex3D NkEmMixVerts(const NkVertex3D *v, const uint32 *idx, uint32 n) {
+			NkVertex3D o{};
+			if (n == 0)
+				return o;
+			const float32 inv = 1.f / (float32)n;
+			NkVec3f nrm{0.f, 0.f, 0.f}, tan{0.f, 0.f, 0.f};
+			NkVec2f uv{0.f, 0.f}, uv2{0.f, 0.f};
+			float32 cr = 0.f, cg = 0.f, cb = 0.f, ca = 0.f;
+			for (uint32 k = 0; k < n; ++k) {
+				const NkVertex3D &s = v[idx[k]];
+				nrm = nrm + s.normal;
+				tan = tan + s.tangent;
+				uv = uv + s.uv;
+				uv2 = uv2 + s.uv2;
+				cr += (float32)((s.color >> 0) & 0xFFu);
+				cg += (float32)((s.color >> 8) & 0xFFu);
+				cb += (float32)((s.color >> 16) & 0xFFu);
+				ca += (float32)((s.color >> 24) & 0xFFu);
+			}
+			const NkVec3f an = nrm * inv, at = tan * inv;
+			const float32 ln = an.Len(), lt = at.Len();
+			o.normal = (ln > 1e-6f) ? an * (1.f / ln) : NkVec3f{0.f, 1.f, 0.f};
+			o.tangent = (lt > 1e-6f) ? at * (1.f / lt) : NkEmOrthoTangent(o.normal);
+			o.uv = uv * inv;
+			o.uv2 = uv2 * inv;
+			// Couleur moyennee canal par canal : melanger les 32 bits d'un coup
+			// melangerait le rouge d'un sommet avec le vert d'un autre.
+			auto q = [](float32 x, float32 k) {
+				const float32 r = x * k + 0.5f;
+				const int32 i = (int32)(r < 0.f ? 0.f : (r > 255.f ? 255.f : r));
+				return (uint32)i;
+			};
+			o.color = q(cr, inv) | (q(cg, inv) << 8) | (q(cb, inv) << 16) | (q(ca, inv) << 24);
+			return o;
+		}
+
+		bool NkEditMesh::SubdivideCatmullClark(int32 levels) {
+			if (levels < 1)
+				return false;
+			bool any = false;
+			for (int32 lvl = 0; lvl < levels; ++lvl) {
+				NkVector<NkVertex3D> pv;
+				NkVector<uint32> fs, fv;
+				ToPolygons(pv, fs, fv);
+				const uint32 vc = (uint32)pv.Size();
+				const uint32 fc = (fs.Size() > 0) ? (uint32)fs.Size() - 1 : 0;
+				if (vc == 0 || fc == 0)
+					return any;
+
+				NkVector<uint32> canon;
+				BuildVertexMerge(canon);
+				auto CN = [&](uint32 v) { return (v < (uint32)canon.Size()) ? canon[v] : v; };
+
+				// ── 1) POINT DE FACE : barycentre des sommets de la face ────────
+				NkVector<NkVec3f> facePt;
+				facePt.Resize(fc);
+				for (uint32 f = 0; f < fc; ++f) {
+					NkVec3f c{0.f, 0.f, 0.f};
+					const uint32 s0 = fs[f], s1 = fs[f + 1], n = s1 - s0;
+					for (uint32 k = s0; k < s1; ++k)
+						c = c + pv[fv[k]].pos;
+					facePt[f] = (n > 0) ? c * (1.f / (float32)n) : c;
+				}
+
+				// ── 2) ARETES SOUDEES : milieu, somme des points de face, degre ──
+				struct EdgeAcc {
+						NkVec3f pa{0.f, 0.f, 0.f}, pb{0.f, 0.f, 0.f}, fsum{0.f, 0.f, 0.f};
+						uint32 nface = 0;
+				};
+				NkHashMap<uint64, uint32> edgeOf;
+				NkVector<EdgeAcc> edgeAcc;
+				auto edgeKey = [](uint32 a, uint32 b) {
+					const uint64 lo = a < b ? a : b, hi = a < b ? b : a;
+					return (lo << 32) | hi;
+				};
+				for (uint32 f = 0; f < fc; ++f) {
+					const uint32 s0 = fs[f], s1 = fs[f + 1], n = s1 - s0;
+					for (uint32 k = 0; k < n; ++k) {
+						const uint32 ia = fv[s0 + k], ib = fv[s0 + (k + 1) % n];
+						const uint32 ca = CN(ia), cb = CN(ib);
+						if (ca == cb)
+							continue;
+						const uint64 key = edgeKey(ca, cb);
+						uint32 *ex = edgeOf.Find(key);
+						uint32 ei;
+						if (ex) {
+							ei = *ex;
+						} else {
+							ei = (uint32)edgeAcc.Size();
+							EdgeAcc e;
+							e.pa = pv[ia].pos;
+							e.pb = pv[ib].pos;
+							edgeAcc.PushBack(e);
+							edgeOf.InsertOrAssign(key, ei);
+						}
+						edgeAcc[ei].fsum = edgeAcc[ei].fsum + facePt[f];
+						edgeAcc[ei].nface++;
+					}
+				}
+
+				// ── 3) SOMMETS DEPLACES, par identite soudee ────────────────────
+				NkVector<NkVec3f> sumF, sumMid, bnd1, bnd2;
+				NkVector<uint32> degF, degE, nBnd;
+				sumF.Resize(vc);
+				sumMid.Resize(vc);
+				bnd1.Resize(vc);
+				bnd2.Resize(vc);
+				degF.Resize(vc);
+				degE.Resize(vc);
+				nBnd.Resize(vc);
+				for (uint32 i = 0; i < vc; ++i) {
+					sumF[i] = sumMid[i] = bnd1[i] = bnd2[i] = NkVec3f{0.f, 0.f, 0.f};
+					degF[i] = degE[i] = nBnd[i] = 0;
+				}
+				for (uint32 f = 0; f < fc; ++f) {
+					const uint32 s0 = fs[f], s1 = fs[f + 1];
+					// Chaque identite soudee ne doit compter la face QU'UNE fois, meme si
+					// plusieurs de ses copies apparaissent dans le meme polygone.
+					for (uint32 k = s0; k < s1; ++k) {
+						const uint32 c = CN(fv[k]);
+						bool seen = false;
+						for (uint32 j = s0; j < k; ++j)
+							if (CN(fv[j]) == c) {
+								seen = true;
+								break;
+							}
+						if (seen)
+							continue;
+						sumF[c] = sumF[c] + facePt[f];
+						degF[c]++;
+					}
+				}
+				for (auto it = edgeOf.Begin(); it != edgeOf.End(); ++it) {
+					const uint32 ei = it->Second;
+					const EdgeAcc &e = edgeAcc[ei];
+					const uint32 a = (uint32)(it->First >> 32), b = (uint32)(it->First & 0xFFFFFFFFu);
+					const NkVec3f mid = (e.pa + e.pb) * 0.5f;
+					for (int32 side = 0; side < 2; ++side) {
+						const uint32 v = side ? b : a;
+						if (v >= vc)
+							continue;
+						sumMid[v] = sumMid[v] + mid;
+						degE[v]++;
+						if (e.nface < 2) {
+							// Bord : on retient les DEUX premiers milieux — la regle de
+							// bordure ne fait intervenir qu'eux.
+							if (nBnd[v] == 0)
+								bnd1[v] = mid;
+							else if (nBnd[v] == 1)
+								bnd2[v] = mid;
+							nBnd[v]++;
+						}
+					}
+				}
+				NkVector<NkVec3f> newPos;
+				newPos.Resize(vc);
+				for (uint32 i = 0; i < vc; ++i)
+					newPos[i] = pv[i].pos;
+				for (uint32 i = 0; i < vc; ++i) {
+					const uint32 c = CN(i);
+					if (c >= vc)
+						continue;
+					const uint32 n = degE[c];
+					if (n < 2) {
+						newPos[i] = pv[c].pos; // sommet isole ou pendant : inchange
+						continue;
+					}
+					if (nBnd[c] >= 2) {
+						// BORD : (M1 + 6V + M2) / 8. N'utilise que la bordure, donc le bord
+						// reste franc au lieu d'etre aspire vers l'interieur.
+						newPos[i] = (bnd1[c] + pv[c].pos * 6.f + bnd2[c]) * (1.f / 8.f);
+						continue;
+					}
+					const float32 fn = (float32)n;
+					const NkVec3f F = (degF[c] > 0) ? sumF[c] * (1.f / (float32)degF[c]) : pv[c].pos;
+					const NkVec3f R = sumMid[c] * (1.f / fn);
+					newPos[i] = (F + R * 2.f + pv[c].pos * (fn - 3.f)) * (1.f / fn);
+				}
+
+				// ── 4) RECONSTRUCTION : n quads par face de n coins ─────────────
+				// Les attributs restent PAR COIN. Un point d'arete est indexe par la
+				// paire de coins D'ORIGINE (et non par l'arete soudee) : deux faces de
+				// part et d'autre d'une couture d'UV gardent ainsi chacune le leur.
+				NkVector<NkVertex3D> ov;
+				ov.Resize(vc);
+				for (uint32 i = 0; i < vc; ++i) {
+					ov[i] = pv[i];
+					ov[i].pos = newPos[i];
+				}
+				NkHashMap<uint64, uint32> cornerEdge;
+				NkVector<uint32> nfs, nfv;
+				nfs.PushBack(0);
+				uint32 pair[2];
+				for (uint32 f = 0; f < fc; ++f) {
+					const uint32 s0 = fs[f], s1 = fs[f + 1], n = s1 - s0;
+					if (n < 3)
+						continue;
+					// Point de face (position issue du barycentre, attributs moyens).
+					NkVertex3D fvtx = NkEmMixVerts(pv.Data(), &fv[s0], n);
+					fvtx.pos = facePt[f];
+					const uint32 fIdx = (uint32)ov.Size();
+					ov.PushBack(fvtx);
+					// Points d'arete du contour.
+					NkVector<uint32> ep;
+					ep.Resize(n);
+					for (uint32 k = 0; k < n; ++k) {
+						const uint32 ia = fv[s0 + k], ib = fv[s0 + (k + 1) % n];
+						const uint64 ck = edgeKey(ia, ib);
+						uint32 *ex = cornerEdge.Find(ck);
+						if (ex) {
+							ep[k] = *ex;
+							continue;
+						}
+						pair[0] = ia;
+						pair[1] = ib;
+						NkVertex3D e = NkEmMixVerts(pv.Data(), pair, 2);
+						const uint32 ca = CN(ia), cb = CN(ib);
+						uint32 *sei = (ca != cb) ? edgeOf.Find(edgeKey(ca, cb)) : nullptr;
+						if (sei) {
+							const EdgeAcc &ea = edgeAcc[*sei];
+							e.pos = (ea.nface >= 2)
+										? (ea.pa + ea.pb + ea.fsum * (1.f / (float32)ea.nface) * 2.f) * 0.25f
+										: (ea.pa + ea.pb) * 0.5f;
+						} else {
+							e.pos = (pv[ia].pos + pv[ib].pos) * 0.5f;
+						}
+						ep[k] = (uint32)ov.Size();
+						ov.PushBack(e);
+						cornerEdge.InsertOrAssign(ck, ep[k]);
+					}
+					for (uint32 k = 0; k < n; ++k) {
+						const uint32 prev = (k + n - 1) % n;
+						nfv.PushBack(fv[s0 + k]); // sommet d'origine, DEPLACE
+						nfv.PushBack(ep[k]);	  // arete suivante
+						nfv.PushBack(fIdx);		  // centre de face
+						nfv.PushBack(ep[prev]);	  // arete precedente
+						nfs.PushBack((uint32)nfv.Size());
+					}
+				}
+				if (nfs.Size() < 2)
+					return any;
+				NkVector<uint8> vsel;
+				vsel.Resize((uint32)ov.Size());
+				for (uint32 i = 0; i < (uint32)ov.Size(); ++i)
+					vsel[i] = (i < vc && i < (uint32)verts.Size()) ? verts[i].sel : (uint8)0;
+				BuildFromPolygons(ov.Data(), (uint32)ov.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data());
+				ApplyVertSel(vsel);
+				RecomputeNormals();
+				RebuildEdges();
+				any = true;
+			}
+			return any;
+		}
+
 		bool NkEditMesh::MergeSelectedVerts(const NkMergeParams &p) {
 			NkVector<NkVertex3D> pv;
 			NkVector<uint32> fs, fv;
@@ -4165,10 +4421,21 @@ namespace nkentseu {
 			if (!enabled)
 				return;
 			if (type == NkModifierType::Subsurf) {
+				const int32 lv = (subsurfLevels < 1) ? 1 : subsurfLevels;
+				if (!subsurfSimple) {
+					// CATMULL-CLARK : le vrai lissage. C'etait la lacune — le
+					// modificateur appelait SubdivideSelectedFaces, une subdivision
+					// LINEAIRE : elle densifie le maillage sans DEPLACER un seul sommet,
+					// donc un cube subdivise restait un cube. Ce n'est pas le
+					// modificateur « Subdivision Surface » de Blender, c'est son mode
+					// « Simple » — desormais accessible par subsurfSimple.
+					m.SubdivideCatmullClark(lv);
+					return;
+				}
 				for (uint32 i = 0; i < m.VertCount(); ++i)
 					m.verts[i].sel = 0; // aucune sél. -> TOUT
 				NkSubdivideParams p;
-				p.cuts = (subsurfLevels < 1) ? 1 : subsurfLevels;
+				p.cuts = lv;
 				m.SubdivideSelectedFaces(p);
 				return;
 			}
