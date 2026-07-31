@@ -79,8 +79,14 @@ namespace nkentseu {
 
 				// Les fractions viennent de l'ETAT (les separateurs les modifient) ;
 				// les valeurs par defaut ne servent qu'au premier appel.
+				// Poignees de reouverture des panneaux masques. Elles n'existent que si
+				// le panneau correspondant est cache ; leur taille est nulle sinon, ce
+				// qui les rend inatteignables sans test supplementaire.
+				NkRect handleLeft{}, handleRight{}, handleBrowser{};
+
 				void Compute(float32 W, float32 H, float32 fLeft = 0.16f, float32 fRight = 0.29f,
-							 float32 fBrowser = 0.22f, float32 fProps = 0.45f) {
+							 float32 fBrowser = 0.22f, float32 fProps = 0.45f, bool showLeft = true,
+							 bool showRight = true, bool showBrowser = true) {
 					// BARRE DE TITRE AMINCIE, demandee par Rihen. 30 px suffisent a un
 					// logo, sept menus et trois boutons ; les 44 precedents venaient
 					// d'un pourcentage de la hauteur d'ecran, ce qui n'a aucun sens pour
@@ -92,16 +98,29 @@ namespace nkentseu {
 					// commutateur Objet/Edition est garde -- il rend visible un etat qui,
 					// chez Blender, n'existe que dans un menu deroulant.
 					toolH = S(34.f);
-					browserH = H * fBrowser;
-					if (browserH < S(140.f))
-						browserH = S(140.f);
+					// TAILLES MINIMALES. En dessous, un panneau ne montre plus ses
+					// colonnes : la hierarchie perd l'oeil et le cadenas, le navigateur
+					// perd une rangee de cartes. Le separateur bute donc sur ces bornes
+					// au lieu de laisser reduire jusqu'a l'illisible.
+					//
+					// Et comme on ne peut plus reduire a rien, il FAUT pouvoir masquer :
+					// c'est la contrepartie de la borne. Un panneau masque GARDE sa
+					// fraction -- il rouvre a la largeur qu'il avait, pas au defaut.
+					const float32 kMinBrowserH = S(140.f);
+					const float32 kMinLeftW = S(200.f);
+					const float32 kMinRightW = S(280.f);
+					const float32 kHandle = S(14.f); // lisere de reouverture
+
+					browserH = showBrowser ? H * fBrowser : kHandle;
+					if (showBrowser && browserH < kMinBrowserH)
+						browserH = kMinBrowserH;
 					statusH = S(28.f);
-					leftW = W * fLeft;
-					if (leftW < S(180.f))
-						leftW = S(180.f);
-					rightW = W * fRight;
-					if (rightW < S(260.f))
-						rightW = S(260.f);
+					leftW = showLeft ? W * fLeft : kHandle;
+					if (showLeft && leftW < kMinLeftW)
+						leftW = kMinLeftW;
+					rightW = showRight ? W * fRight : kHandle;
+					if (showRight && rightW < kMinRightW)
+						rightW = kMinRightW;
 
 					float32 y = 0.f;
 					menu = {0.f, y, W, menuH};
@@ -121,6 +140,13 @@ namespace nkentseu {
 					browser = {0.f, y, W, browserH};
 					y += browserH;
 					status = {0.f, y, W, statusH};
+
+					// Les poignees occupent la place du panneau masque. Elles restent
+					// DANS le flux : une bande flottante par-dessus la vue masquerait
+					// justement ce qu'on vient de degager.
+					handleLeft = showLeft ? NkRect{} : left;
+					handleRight = showRight ? NkRect{} : right;
+					handleBrowser = showBrowser ? NkRect{} : browser;
 				}
 		};
 
@@ -249,6 +275,42 @@ namespace nkentseu {
 				void Text(float32 x, float32 y, const char *s, const NkColor &c) {
 					mDl.AddText(mFont.Face(), mFont.TexId(), {Px(x), Px(y + mFont.Ascent())}, s, c);
 				}
+				// TEXTE TRONQUE a une largeur donnee, avec des points de suite. Sans
+				// troncature, un nom d asset un peu long deborde sur la carte voisine et
+				// on ne sait plus a laquelle il appartient. Les points de suite disent
+				// « il y a plus », ce qu une coupe nette ne dit pas.
+				void TextClipped(float32 x, float32 y, float32 maxW, const char *s, NkRole role) {
+					if (!s || !*s || maxW <= 0.f)
+						return;
+					if (mFont.MeasureWidth(s) <= maxW) {
+						Text(x, y, s, role);
+						return;
+					}
+					char buf[64];
+					const float32 dots = mFont.MeasureWidth("...");
+					uint32 n = 0;
+					while (s[n] && n < 60u) {
+						buf[n] = s[n];
+						buf[n + 1] = 0;
+						if (mFont.MeasureWidth(buf) + dots > maxW) {
+							if (n > 0)
+								buf[n] = 0;
+							break;
+						}
+						++n;
+					}
+					buf[n] = 0;
+					char out[68];
+					uint32 k = 0;
+					for (; buf[k] && k < 60u; ++k)
+						out[k] = buf[k];
+					out[k] = '.';
+					out[k + 1] = '.';
+					out[k + 2] = '.';
+					out[k + 3] = 0;
+					Text(x, y, out, role);
+				}
+
 				// Centre verticalement dans une hauteur donnee.
 				void TextV(float32 x, float32 y, float32 h, const char *s, NkRole role = NkRole::Text) {
 					Text(x, y + (h - mFont.LineHeight()) * 0.5f, s, role);

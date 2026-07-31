@@ -227,12 +227,28 @@ namespace nkentseu {
 				return;
 			const NkRect &a = pending.anchor;
 			const float32 itemH = S(24.f);
-			float32 w = a.w;
+			// LARGEUR CALCULEE SUR LE CONTENU REEL, jamais sur l'ancre. Un combo
+			// reduit a son icone fait 28 px : caler la liste dessus ecrasait le
+			// libelle contre la coche, au point qu'on ne voyait plus quelle entree
+			// etait la courante -- le defaut signale par Rihen.
+			//
+			// On RESERVE explicitement chaque zone : marge, icone, libelle, puis la
+			// coche avec son propre espace. Additionner « un peu de marge » au juge
+			// est precisement ce qui produit des chevauchements des qu'un libelle
+			// s'allonge ou qu'une traduction arrive.
+			const float32 padL = S(10.f);
+			const float32 iconW = pending.icons ? S(19.f) : 0.f;
+			const float32 checkW = S(26.f);
+			const float32 padR = S(10.f);
+			float32 labelW = 0.f;
 			for (int32 i = 0; i < pending.count; ++i) {
-				const float32 need = p.TextW(pending.items[i]) + S(46.f);
-				if (need > w)
-					w = need;
+				const float32 t = p.TextW(pending.items[i]);
+				if (t > labelW)
+					labelW = t;
 			}
+			float32 w = padL + iconW + labelW + checkW + padR;
+			if (w < a.w)
+				w = a.w;
 			const NkRect box{a.x, a.y + a.h + 2.f, w, itemH * (float32)pending.count + S(6.f)};
 			p.Fill({box.x + 2.f, box.y + 2.f, box.w, box.h}, NkRole::WindowBg, 4.f); // ombre
 			p.Outline(box, NkRole::Border, NkRole::PanelHeader, 4.f);
@@ -246,18 +262,20 @@ namespace nkentseu {
 				const bool cur = (i == *pending.selected);
 				if (over)
 					p.Fill(ir, NkRole::AccentUi, 3.f);
-				float32 tx = ir.x + S(10.f);
+				float32 tx = ir.x + padL;
 				if (pending.icons) {
 					p.IconV(tx, ir.y, itemH, pending.icons[i],
 							over ? NkRole::TextOnAccent : NkRole::Text, 13.f);
-					tx += S(19.f);
+					tx += iconW;
 				}
 				p.TextV(tx, ir.y, itemH, pending.items[i], over ? NkRole::TextOnAccent : NkRole::Text);
 				// La valeur COURANTE porte une coche : sans elle, on ne sait pas ce
 				// qu'on est en train de remplacer.
+				// La coche est peinte dans l'espace qui lui est RESERVE : sans
+				// reservation elle chevauche le libelle des qu'il s'allonge.
 				if (cur)
-					p.IconV(ir.x + ir.w - S(20.f), ir.y, itemH, NkIcon::Check,
-							over ? NkRole::TextOnAccent : NkRole::AccentUi, 12.f);
+					p.IconV(ir.x + ir.w - checkW + S(4.f), ir.y, itemH, NkIcon::Check,
+							over ? NkRole::TextOnAccent : NkRole::AccentUi, 13.f);
 				if (hit.Clicked(k)) {
 					*pending.selected = i;
 					ws.CloseCombo();
@@ -273,6 +291,116 @@ namespace nkentseu {
 					onItem = hit.IsHovered(k);
 				}
 				if (!onItem && !hit.IsHovered(pending.key))
+					ws.CloseCombo();
+			}
+			pending.active = false;
+		}
+
+		// ── 2bis. LISTE A CASES A COCHER ────────────────────────────────────────
+		// Certaines listes ne sont PAS un choix unique. « Affichage » en est une :
+		// on veut couramment la grille ET le repere d axes, sans les normales. Une
+		// liste a choix unique obligerait a la rouvrir trois fois pour trois
+		// reglages independants -- c est ce que UI_SPEC 9bis annoncait et que le
+		// premier jet n avait pas respecte.
+		//
+		// L etat tient dans un MASQUE DE BITS : un booleen par entree eparpille l
+		// etat, et le passer a une fonction generique demanderait un tableau de
+		// pointeurs. Un entier se copie, se compare et se serialise d un bloc.
+		struct NkCheckPending {
+				bool active = false;
+				NkRect anchor{};
+				const char *const *items = nullptr;
+				const NkIcon *icons = nullptr;
+				int32 count = 0;
+				uint32 *mask = nullptr;
+				char key[48] = {};
+		};
+
+		inline void CheckCombo(NkModelerPainter &p, NkHitRegistry &hit, NkWidgetState &ws,
+							   const char *key, const NkRect &r, const char *const *items,
+							   const NkIcon *icons, int32 count, uint32 &mask, NkIcon buttonIcon,
+							   NkCheckPending &pending) {
+			const bool over = hit.Add(key, r);
+			const bool open = ws.ComboOpen(key);
+			if (over || open)
+				p.Fill(r, open ? NkRole::AccentUi : NkRole::PanelHeader, 3.f);
+			// L icone du bouton est FIXE : contrairement a un choix unique, il n y a
+			// pas « une » valeur courante a representer.
+			p.IconV(r.x + (r.w - S(14.f)) * 0.5f, r.y, r.h, buttonIcon,
+					open ? NkRole::TextOnAccent : NkRole::Text, 14.f);
+			if (hit.Clicked(key))
+				ws.ToggleCombo(key);
+			if (ws.ComboOpen(key)) {
+				pending.active = true;
+				pending.anchor = r;
+				pending.items = items;
+				pending.icons = icons;
+				pending.count = count;
+				pending.mask = &mask;
+				NkWidgetState::Copy(pending.key, key);
+			}
+		}
+
+		inline void DrawCheckPopup(NkModelerPainter &p, NkHitRegistry &hit, NkWidgetState &ws,
+								   NkCheckPending &pending) {
+			if (!pending.active)
+				return;
+			const NkRect &a = pending.anchor;
+			const float32 itemH = S(24.f);
+			const float32 padL = S(10.f), boxW = S(22.f);
+			const float32 iconW = pending.icons ? S(19.f) : 0.f;
+			const float32 padR = S(14.f);
+			float32 labelW = 0.f;
+			for (int32 i = 0; i < pending.count; ++i) {
+				const float32 t = p.TextW(pending.items[i]);
+				if (t > labelW)
+					labelW = t;
+			}
+			const float32 w = padL + boxW + iconW + labelW + padR;
+			const NkRect box{a.x, a.y + a.h + 2.f, w, itemH * (float32)pending.count + S(6.f)};
+			p.Fill({box.x + 2.f, box.y + 2.f, box.w, box.h}, NkRole::WindowBg, 4.f);
+			p.Outline(box, NkRole::Border, NkRole::PanelHeader, 4.f);
+			hit.Add("check.panel", box);
+
+			char k[64];
+			for (int32 i = 0; i < pending.count; ++i) {
+				const NkRect ir{box.x + 2.f, box.y + S(3.f) + (float32)i * itemH, box.w - 4.f, itemH};
+				snprintf(k, sizeof(k), "%s.c%d", pending.key, i);
+				const bool over = hit.Add(k, ir);
+				const bool on = ((*pending.mask) & (1u << (uint32)i)) != 0u;
+				if (over)
+					p.Fill(ir, NkRole::AccentUi, 3.f);
+				// La CASE est dessinee meme decochee : une case qui n apparait que
+				// cochee ne dit pas qu on peut la cocher.
+				const NkRect cb{ir.x + padL, ir.y + (itemH - S(14.f)) * 0.5f, S(14.f), S(14.f)};
+				if (on) {
+					p.Fill(cb, over ? NkRole::TextOnAccent : NkRole::AccentUi, 2.f);
+					p.IconV(cb.x + 1.f, cb.y - S(1.f), S(16.f), NkIcon::Check,
+							over ? NkRole::AccentUi : NkRole::TextOnAccent, 12.f);
+				} else {
+					p.Outline(cb, over ? NkRole::TextOnAccent : NkRole::Border, NkRole::InputBg, 2.f);
+				}
+				float32 tx = ir.x + padL + boxW;
+				if (pending.icons) {
+					p.IconV(tx, ir.y, itemH, pending.icons[i],
+							over ? NkRole::TextOnAccent : NkRole::Text, 13.f);
+					tx += iconW;
+				}
+				p.TextV(tx, ir.y, itemH, pending.items[i], over ? NkRole::TextOnAccent : NkRole::Text);
+				// LA LISTE NE SE REFERME PAS au clic : on coche plusieurs cases
+				// d affilee. La refermer a chaque case obligerait a la rouvrir autant
+				// de fois, ce qui annulerait tout l interet des cases.
+				if (hit.Clicked(k))
+					*pending.mask ^= (1u << (uint32)i);
+			}
+
+			if (hit.AnyClick() && !hit.IsHovered("check.panel")) {
+				bool inside = false;
+				for (int32 i = 0; i < pending.count && !inside; ++i) {
+					snprintf(k, sizeof(k), "%s.c%d", pending.key, i);
+					inside = hit.IsHovered(k);
+				}
+				if (!inside && !hit.IsHovered(pending.key))
 					ws.CloseCombo();
 			}
 			pending.active = false;

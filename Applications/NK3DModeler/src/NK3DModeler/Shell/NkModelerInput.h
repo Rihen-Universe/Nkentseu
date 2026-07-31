@@ -75,7 +75,27 @@ namespace nkentseu {
 				// appartient a la session.
 				int32 projection = 0; ///< 0 perspective, 1..6 vues orthographiques
 				int32 shading = 0;	  ///< eclaire / non eclaire / fil de fer / rendu
-				int32 overlays = 0;	  ///< preselection d'affichage
+				// Masque de surimpressions : grille, repere, contours, gizmos, normales,
+				// statistiques, filaire, origines. Grille + repere + contours + gizmos
+				// par defaut -- ce qu on veut voir en ouvrant, sans le bruit du reste.
+				uint32 overlayMask = 0x0Fu;
+// Sections DEROULEES du panneau Details, un bit par section (maillage,
+				// modificateurs, materiaux, sous-maillages). Les quatre ouvertes au
+				// depart : un panneau qui s'ouvre tout replie oblige a quatre clics
+				// avant de montrer quoi que ce soit.
+				uint32 detailOpen = 0x0Fu;
+				int32 materialSlot = 0; ///< emplacement de materiau courant
+				// PANNEAUX VISIBLES. Ils ont une taille minimale (cf. NkLayout) : on ne
+				// les retrecit donc pas jusqu'a disparition, on les MASQUE franchement.
+				// Un panneau reduit a trois pixels n'est ni utilisable ni refermable.
+				bool showLeft = true;
+				bool showRight = true;
+				bool showBrowser = true;
+				// Fraction horizontale du clic dans la barre de titre, retenue au moment
+				// du clic pour replacer la fenetre sous le curseur quand on la tire
+				// depuis l'etat maximise.
+				float32 dragFracX = 0.5f;
+				int32 solidLight = 0; ///< eclairage du mode solide : studio / matcap / plat
 				int32 selectMode = 2; ///< sommet / arete / face
 				int32 addKind = 0;	  ///< primitive a ajouter
 				int32 modKind = 0;	  ///< modificateur a ajouter

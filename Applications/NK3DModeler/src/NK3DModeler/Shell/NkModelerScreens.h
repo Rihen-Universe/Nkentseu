@@ -95,9 +95,13 @@ namespace nkentseu {
 		// c'est ce qui permet de lire les bosses et les creux pendant qu'on modele.
 		// L'offrir en mode objet n'aurait pas de sens -- on y regarde le resultat,
 		// pas la surface.
-		inline const char *const *NkShadingItems(int32 &n, bool editMode) {
-			static const char *const k[] = {"Solide", "Materiau", "Rendu", "Fil de fer", "Matcap"};
-			n = editMode ? 5 : 4;
+		// QUATRE modes d ombrage, disponibles PARTOUT, et on entre en edition depuis
+		// n importe lequel : mode d edition et mode d ombrage sont deux axes
+		// INDEPENDANTS. Le matcap n en fait plus partie -- c est un reglage du mode
+		// solide, cf. NkSolidLightItems.
+		inline const char *const *NkShadingItems(int32 &n) {
+			static const char *const k[] = {"Solide", "Materiau", "Rendu", "Fil de fer"};
+			n = 4;
 			return k;
 		}
 		inline const NkIcon *NkShadingIcons() {
@@ -152,13 +156,49 @@ namespace nkentseu {
 									   NkIcon::WinMax,  NkIcon::Camera, NkIcon::Refresh};
 			return k;
 		}
+		// ── AFFICHAGE : DES CASES, PAS UN CHOIX UNIQUE ──────────────────────────
+		// Rihen a raison, et UI_SPEC 9bis le disait deja : on veut couramment la
+		// grille ET le repere d axes SANS les normales. Mon premier jet proposait
+		// trois presets exclusifs (« tout / grille seule / rien »), ce qui obligeait
+		// a choisir la combinaison la moins mauvaise au lieu de composer la sienne.
+		//
+		// Chaque entree est un bit du masque `st.overlayMask`.
 		inline const char *const *NkOverlayItems(int32 &n) {
-			static const char *const k[] = {"Tout afficher", "Grille seule", "Sans surimpression"};
-			n = 3;
+			static const char *const k[] = {
+				"Grille",		   // le sol quadrille
+				"Repere d axes",   // le trepied rouge / vert / bleu
+				"Contours",		   // silhouette des objets selectionnes
+				"Gizmos",		   // poignees de transformation
+				"Normales",		   // direction des faces, en mode edition
+				"Statistiques",	   // sommets / aretes / faces en surimpression
+				"Filaire",		   // cage par-dessus la surface
+				"Origines",		   // point d origine de chaque objet
+			};
+			n = 8;
 			return k;
 		}
 		inline const NkIcon *NkOverlayIcons() {
-			static const NkIcon k[] = {NkIcon::Eye, NkIcon::SnapGrid, NkIcon::EyeClosed};
+			static const NkIcon k[] = {NkIcon::SnapGrid, NkIcon::Gizmo,	  NkIcon::Square,
+									   NkIcon::Move,	NkIcon::Ruler,	  NkIcon::Journal,
+									   NkIcon::Wireframe, NkIcon::Dot};
+			return k;
+		}
+
+		// ── MATCAP : UN REGLAGE DU MODE SOLIDE ──────────────────────────────────
+		// Rihen l a corrige a juste titre. J en avais fait un cinquieme mode
+		// d ombrage ; c est faux. Le matcap N EST PAS un mode : c est la maniere
+		// dont le mode SOLIDE eclaire la surface. Blender fait exactement cela --
+		// « Solid » ouvre un panneau ou l on choisit entre eclairage studio, matcap
+		// et couleur plate.
+		// Consequence pratique : le selecteur de matcap n apparait que si l ombrage
+		// est SOLIDE, et il reste disponible en mode objet comme en edition.
+		inline const char *const *NkSolidLightItems(int32 &n) {
+			static const char *const k[] = {"Studio", "Matcap", "Plat"};
+			n = 3;
+			return k;
+		}
+		inline const NkIcon *NkSolidLightIcons() {
+			static const NkIcon k[] = {NkIcon::Light, NkIcon::Matcap, NkIcon::Circle};
 			return k;
 		}
 		inline const char *const *NkOrientItems(int32 &n) {
@@ -348,7 +388,15 @@ namespace nkentseu {
 			// Le drapeau est pose ici et consomme par la boucle : BeginDragMove BLOQUE
 			// (boucle modale de l'OS) et le rappeler pendant la peinture reentrerait
 			// dans la frame.
-			st.wantDragMove = hit.Clicked("win.drag");
+			// On retient OU l'on a saisi la barre, en fraction de largeur : c'est ce
+			// qui permet de replacer la fenetre sous le curseur si le glissement part
+			// d'un etat maximise (cf. main.cpp).
+			if (hit.Clicked("win.drag")) {
+				st.wantDragMove = true;
+				const float32 w = r.w > 1.f ? r.w : 1.f;
+				float32 f = (hit.Mouse().x - r.x) / w;
+				st.dragFracX = f < 0.f ? 0.f : (f > 1.f ? 1.f : f);
+			}
 		}
 
 		// ── ONGLETS DE DOCUMENT ─────────────────────────────────────────────────
@@ -456,16 +504,13 @@ namespace nkentseu {
 			x += S(148.f);
 			p.VLine(x - S(7.f), r.y + S(7.f), r.h - S(14.f));
 
-			// Sous-mode de selection : GRISE en mode objet plutot que masque -- une
-			// commande qui disparait laisse croire qu'elle n'existe pas.
-			{
-				int32 n = 0;
-				const char *const *items = NkSelectModeItems(n);
-				Combo(p, hit, ws, "tb.selmode", {x, cbY, S(112.f), cbH}, items, NkSelectModeIcons(), n,
-					  st.selectMode, combo, st.mode != NkMode::Object);
-				x += S(120.f);
-				p.VLine(x - S(7.f), r.y + S(7.f), r.h - S(14.f));
-			}
+			// LE « MODE DE SELECTION » A ETE RETIRE D ICI. Rihen a demande a quoi
+			// servait le « Face » a cote d « Objet » : c etait le sous-mode
+			// sommet/arete/face, exactement la meme chose que les trois boutons de la
+			// barre de la vue. Un doublon que j avais introduit sans le voir.
+			// Il reste dans la VUE, ou il est a sa place : c est la qu on selectionne,
+			// et c est la qu on doit pouvoir changer de sous-mode sans traverser
+			// l ecran.
 
 			// AJOUTER et MODIFICATEUR sont des LISTES, pas des boutons : ils ouvrent un
 			// choix. Un bouton simple laisserait croire a une action immediate.
@@ -516,13 +561,60 @@ namespace nkentseu {
 		// ── EN-TETE DE PANNEAU ──────────────────────────────────────────────────
 		// Onglet + croix, comme la maquette. Rendu ici une seule fois : quatre
 		// panneaux le partagent, et il n'y a donc qu'un endroit a corriger.
-		inline float32 PaintPanelTab(NkModelerPainter &p, const NkRect &r, const char *title) {
+		// La croix de l'en-tete REFERME LE PANNEAU. Elle etait dessinee mais morte,
+		// et c'est justement la contrepartie de la largeur minimale : puisqu'on ne
+		// peut plus reduire un panneau jusqu'a le faire disparaitre, il faut un geste
+		// franc pour le fermer -- et une poignee visible pour le rouvrir.
+		//
+		// `show` peut etre nul : certains en-tetes (l'onglet d'un panneau qui ne se
+		// ferme pas) gardent la croix desactivee plutot que de la faire disparaitre,
+		// pour que la rangee d'en-tetes reste alignee.
+		inline float32 PaintPanelTab(NkModelerPainter &p, const NkRect &r, const char *title,
+									 NkHitRegistry *hit = nullptr, bool *show = nullptr,
+									 const char *key = nullptr) {
 			const float32 h = 26.f;
 			p.Fill({r.x, r.y, r.w, h}, NkRole::PanelHeader);
 			p.TextV(r.x + kPad, r.y, h, title);
-			p.IconV(r.x + r.w - 20.f, r.y, h, NkIcon::WinClose, NkRole::Text, 11.f);
+			const NkRect cr{r.x + r.w - 24.f, r.y + 3.f, 20.f, h - 6.f};
+			bool over = false;
+			if (hit && show && key) {
+				over = hit->Add(key, cr);
+				if (over)
+					p.Fill(cr, NkRole::AccentUi, 2.f);
+				if (hit->Clicked(key))
+					*show = false;
+			}
+			p.IconV(r.x + r.w - 20.f, r.y, h, NkIcon::WinClose,
+					over ? NkRole::TextOnAccent : NkRole::Text, 11.f);
 			p.HLine(r.x, r.y + h - 1.f, r.w);
 			return r.y + h;
+		}
+
+		// ── POIGNEE DE REOUVERTURE ──────────────────────────────────────────────
+		// Un panneau ferme doit laisser une trace : sans elle, l'utilisateur qui a
+		// clique la croix n'a plus aucun moyen de deviner comment revenir en arriere,
+		// et le menu n'est pas un moyen de DEVINER -- c'est un moyen de retrouver ce
+		// qu'on sait deja exister.
+		// Le chevron pointe vers l'endroit ou le panneau reapparaitra.
+		inline void PaintPanelHandle(NkModelerPainter &p, const NkRect &r, NkHitRegistry &hit,
+									 const char *key, bool &show, NkIcon icon) {
+			if (r.w <= 0.f || r.h <= 0.f)
+				return;
+			const bool over = hit.Add(key, r);
+			p.Fill(r, over ? NkRole::AccentUi : NkRole::PanelHeader);
+			if (r.w > r.h) {
+				p.HLine(r.x, r.y, r.w);
+				p.IconV(r.x + r.w * 0.5f - 7.f, r.y, r.h, icon,
+						over ? NkRole::TextOnAccent : NkRole::TextMuted, 12.f);
+			} else {
+				p.VLine(r.x + (r.x < 4.f ? r.w - 1.f : 0.f), r.y, r.h);
+				p.IconV(r.x + r.w * 0.5f - 7.f, r.y + r.h * 0.5f - 13.f, 26.f, icon,
+						over ? NkRole::TextOnAccent : NkRole::TextMuted, 12.f);
+			}
+			if (over)
+				hit.WantCursor(NkCursorWant::Hand);
+			if (hit.Clicked(key))
+				show = true;
 		}
 
 		// Champ de recherche, avec sa loupe. Sans l'icone, un champ vide au texte
@@ -547,7 +639,7 @@ namespace nkentseu {
 								   NkHitRegistry &hit, NkWidgetState &ws, const nkgui::NkGuiInput &in) {
 			p.Fill(r, NkRole::PanelBg);
 			p.VLine(r.x + r.w - 1.f, r.y, r.h);
-			float32 y = PaintPanelTab(p, r, "Hierarchie");
+			float32 y = PaintPanelTab(p, r, "Hierarchie", &hit, &st.showLeft, "hier.close");
 			y = PaintSearch(p, r, y);
 
 			const float32 colEye = r.x + r.w - S(74.f);
@@ -759,7 +851,7 @@ namespace nkentseu {
 		// ── VUE 3D (centre) ─────────────────────────────────────────────────────
 		inline void PaintViewport(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
 								  NkHitRegistry &hit, NkWidgetState &ws, NkComboPending &combo,
-								  const NkShortcutTable &sc) {
+								  NkCheckPending &checks, const NkShortcutTable &sc) {
 			const bool editMode = (st.mode != NkMode::Object);
 			p.Fill(r, NkRole::ViewportTop);
 
@@ -795,7 +887,7 @@ namespace nkentseu {
 				int32 nP = 0, nS = 0, nO = 0;
 				const char *const *proj = NkProjectionItems(nP);
 				const bool edit = (st.mode != NkMode::Object);
-				const char *const *shad = NkShadingItems(nS, edit);
+				const char *const *shad = NkShadingItems(nS);
 				const char *const *ovl = NkOverlayItems(nO);
 				// ── GROUPE DE VUE : ICONES SEULES ───────────────────────────────
 				// Le groupe faisait pres de 500 px parce que chaque liste etait
@@ -813,7 +905,7 @@ namespace nkentseu {
 				// Le libelle n'est pas perdu : il reste dans la liste deroulee, avec la
 				// coche sur la valeur courante. On passe de ~500 px a ~120.
 				const float32 ib = S(28.f);
-				const int32 nBtn = (edit && st.shading == 4) ? 5 : 4;
+				const int32 nBtn = 4 + (st.shading == 0 ? (st.solidLight == 1 ? 2 : 1) : 0);
 				const float32 groupW = S(6.f) + (float32)nBtn * (ib + 2.f);
 				float32 bx = r.x + S(10.f);
 				p.Fill({bx, barY, groupW, barH}, NkRole::PanelBg, 5.f);
@@ -834,21 +926,35 @@ namespace nkentseu {
 				Combo(p, hit, ws, "vp.shade", {bx, barY + 2.f, ib, barH - 4.f}, shad, NkShadingIcons(), nS,
 					  st.shading, combo, true, false, false);
 				bx += ib + 2.f;
-				Combo(p, hit, ws, "vp.ovl", {bx, barY + 2.f, ib, barH - 4.f}, ovl, NkOverlayIcons(), nO,
-					  st.overlays, combo, true, false, false);
+				// AFFICHAGE : liste a CASES, pas a choix unique. On veut la grille ET le
+				// repere sans les normales -- trois presets exclusifs obligeaient a
+				// choisir la combinaison la moins mauvaise au lieu de composer.
+				CheckCombo(p, hit, ws, "vp.ovl", {bx, barY + 2.f, ib, barH - 4.f}, ovl,
+						   NkOverlayIcons(), nO, st.overlayMask, NkIcon::Eye, checks);
 				bx += ib + 2.f;
 
-				// LE MATCAP prend sa place DANS le groupe, et n'apparait que si l'ombrage
-				// Matcap est actif -- un selecteur visible en permanence laisserait croire
-				// a un reglage sans effet les trois quarts du temps.
-				if (edit && st.shading == 4) {
-					int32 nM = 0;
-					const char *const *mats = NkMatcapItems(nM);
-					static NkIcon kMatIc[8];
-					for (int32 i = 0; i < 8; ++i)
-						kMatIc[i] = NkIcon::Circle;
-					Combo(p, hit, ws, "vp.matcap", {bx, barY + 2.f, ib, barH - 4.f}, mats, kMatIc, nM,
-						  st.matcap, combo, true, false, false);
+				// ECLAIRAGE DU MODE SOLIDE : studio, matcap ou plat. Il n apparait que
+				// si l ombrage est SOLIDE -- c est un reglage DE ce mode, pas un mode.
+				// Et il reste disponible en mode objet comme en edition : on veut lire
+				// une forme au matcap avant meme d entrer en edition.
+				if (st.shading == 0) {
+					int32 nL = 0;
+					const char *const *lights = NkSolidLightItems(nL);
+					Combo(p, hit, ws, "vp.solidlight", {bx, barY + 2.f, ib, barH - 4.f}, lights,
+						  NkSolidLightIcons(), nL, st.solidLight, combo, true, false, false);
+					bx += ib + 2.f;
+					// Le CHOIX du matcap ne s ouvre que si le matcap est l eclairage
+					// retenu : proposer huit matcaps sous un eclairage studio laisserait
+					// croire a un reglage sans effet.
+					if (st.solidLight == 1) {
+						int32 nM = 0;
+						const char *const *mats = NkMatcapItems(nM);
+						static NkIcon kMatIc[8];
+						for (int32 i = 0; i < 8; ++i)
+							kMatIc[i] = NkIcon::Matcap;
+						Combo(p, hit, ws, "vp.matcap", {bx, barY + 2.f, ib, barH - 4.f}, mats, kMatIc,
+							  nM, st.matcap, combo, true, false, false);
+					}
 				}
 			}
 
@@ -1127,7 +1233,7 @@ namespace nkentseu {
 									NkHitRegistry &hit, NkWidgetState &ws, const nkgui::NkGuiInput &in) {
 			p.Fill(full, NkRole::PanelBg);
 			p.VLine(full.x, full.y, full.h);
-			float32 y = PaintPanelTab(p, full, "Proprietes");
+			float32 y = PaintPanelTab(p, full, "Proprietes", &hit, &st.showRight, "prop.close");
 			const NkRect r = Inset(full);
 			y = PaintSearch(p, r, y);
 
@@ -1186,42 +1292,183 @@ namespace nkentseu {
 		// maquette d'abord et de mettre a jour en developpant -- la pile reviendra
 		// quand les modificateurs seront reellement branches sur NkModifierParams,
 		// avec l'accord de Rihen sur son dessin.
+		// Sections repliables du panneau Details. L'index sert de bit dans
+		// `st.detailOpen` : un booleen par section eparpillerait l'etat et
+		// obligerait a passer un tableau de pointeurs a chaque appel.
+		enum NkDetailSection : uint32 {
+			NkDetailMesh = 0,
+			NkDetailModifiers = 1,
+			NkDetailMaterial = 2,
+			NkDetailSubMesh = 3,
+		};
+
+		// En-tete de section repliable. Retourne l'etat OUVERT/FERME apres le clic,
+		// pour que l'appelant saute le corps sans le recalculer.
+		inline bool DetailHeader(NkModelerPainter &p, NkHitRegistry &hit, const NkRect &r, float32 &y,
+								 NkModelerState &st, uint32 bit, const char *label) {
+			const NkRect hr{r.x, y, r.w, kRowH};
+			char key[40];
+			snprintf(key, sizeof(key), "det.sec.%u", bit);
+			const bool over = hit.Add(key, hr);
+			HoverFill(p, hr, over, 0.f);
+			const bool open = (st.detailOpen & (1u << bit)) != 0u;
+			p.IconV(r.x + 6.f, y, kRowH, open ? NkIcon::ChevronDown : NkIcon::ChevronRight,
+					NkRole::Text, 11.f);
+			p.TextV(r.x + 22.f, y, kRowH, label);
+			y += kRowH;
+			// LE CHEVRON REPLIE VRAIMENT. Il etait dessine mais mort : un chevron qui
+			// ne fait rien apprend a l'utilisateur a ne plus essayer de cliquer, et
+			// c'est une lecon qu'il applique ensuite aux chevrons qui, eux, marchent.
+			// Toute la ligne est cliquable, pas seulement la fleche -- viser 11 px de
+			// haut n'a aucun interet quand la ligne entiere est sans ambiguite.
+			if (hit.Clicked(key))
+				st.detailOpen ^= (1u << bit);
+			return open;
+		}
+
 		inline void PaintDetails(NkModelerPainter &p, const NkRect &full, NkModelerState &st,
 								 NkHitRegistry &hit) {
 			const float32 scroll = st.scrollDetails;
 			p.Fill(full, NkRole::PanelBg);
 			p.VLine(full.x, full.y, full.h);
 			p.HLine(full.x, full.y, full.w);
-			float32 y = PaintPanelTab(p, full, "Details (Cube)");
+			// Proprietes et Details partagent UNE colonne : les fermer ferme donc la
+			// colonne entiere, et la poignee de droite les ramene toutes les deux. Les
+			// separer demanderait deux poignees pour un gain nul -- on ne travaille pas
+			// avec les proprietes sans les details.
+			float32 y = PaintPanelTab(p, full, "Details (Cube)", &hit, &st.showRight, "det.close");
 			const NkRect r = Inset(full);
 			const float32 listTop = y;
 			y -= scroll;
 
-			p.IconV(r.x + 6.f, y, kRowH, NkIcon::ChevronDown, NkRole::Text, 11.f);
-			p.TextV(r.x + 22.f, y, kRowH, "Maillage");
-			y += kRowH;
-			static const char *const kL[] = {"Sommets", "Faces"};
-			static const char *const kV[] = {"8", "6"};
-			for (int32 i = 0; i < 2; ++i) {
-				p.Fill({r.x, y, kLabelW, kRowH}, NkRole::LabelCol);
-				p.TextV(r.x + kPad, y, kRowH, kL[i]);
-				p.TextV(r.x + kLabelW + kPad, y, kRowH, kV[i], NkRole::TextMuted);
-				p.HLine(r.x, y + kRowH - 1.f, r.w);
-				y += kRowH;
+			// ── MAILLAGE ────────────────────────────────────────────────────────
+			if (DetailHeader(p, hit, r, y, st, NkDetailMesh, "Maillage")) {
+				// LES ARETES MANQUAIENT. Sur un maillage a demi-aretes elles ne sont
+				// pas une curiosite : c'est la seule des trois quantites qui trahit un
+				// maillage non-manifold (une arete portee par trois faces) et c'est
+				// aussi le sous-mode d'edition du milieu. En afficher deux sur trois
+				// laissait croire que le compte d'aretes n'existait pas.
+				static const char *const kL[] = {"Sommets", "Aretes", "Faces", "Triangles"};
+				static const char *const kV[] = {"8", "12", "6", "12"};
+				for (int32 i = 0; i < 4; ++i) {
+					p.Fill({r.x, y, kLabelW, kRowH}, NkRole::LabelCol);
+					p.TextV(r.x + kPad, y, kRowH, kL[i]);
+					p.TextV(r.x + kLabelW + kPad, y, kRowH, kV[i], NkRole::TextMuted);
+					p.HLine(r.x, y + kRowH - 1.f, r.w);
+					y += kRowH;
+				}
 			}
 
-			p.IconV(r.x + 6.f, y, kRowH, NkIcon::ChevronDown, NkRole::Text, 11.f);
-			p.TextV(r.x + 22.f, y, kRowH, "Modificateurs");
-			y += kRowH;
-			// Le deroulant. Bordure + chevron a droite, comme tout selecteur.
-			p.Outline({r.x + 8.f, y + 2.f, r.w - 16.f, kRowH - 4.f}, NkRole::Border, NkRole::InputBg, 2.f);
-			p.TextV(r.x + 16.f, y, kRowH, "Selectionner un modificateur", NkRole::TextMuted);
-			p.IconV(r.x + r.w - 26.f, y, kRowH, NkIcon::ChevronDown, NkRole::Text, 11.f);
-			y += kRowH + 4.f;
+			// ── MODIFICATEURS ───────────────────────────────────────────────────
+			if (DetailHeader(p, hit, r, y, st, NkDetailModifiers, "Modificateurs")) {
+				p.Outline({r.x + 8.f, y + 2.f, r.w - 16.f, kRowH - 4.f}, NkRole::Border,
+						  NkRole::InputBg, 2.f);
+				p.TextV(r.x + 16.f, y, kRowH, "Selectionner un modificateur", NkRole::TextMuted);
+				p.IconV(r.x + r.w - 26.f, y, kRowH, NkIcon::ChevronDown, NkRole::Text, 11.f);
+				y += kRowH + 4.f;
+			}
 
-			p.IconV(r.x + 6.f, y, kRowH, NkIcon::ChevronRight, NkRole::Text, 11.f);
-			p.TextV(r.x + 22.f, y, kRowH, "Materiau");
-			y += kRowH;
+			// ── MATERIAUX : PLUSIEURS PAR MODELE ────────────────────────────────
+			// Rihen le rappelle et c'est structurant : un modele n'a pas UN materiau,
+			// il a une LISTE D'EMPLACEMENTS. Chaque face du maillage porte l'indice de
+			// l'emplacement qui la peint ; l'ensemble des faces qui partagent un indice
+			// forme un SOUS-MAILLAGE. C'est exactement le modele de Blender, et c'est
+			// aussi ce qu'attend le rendu : un tampon de dessin par emplacement.
+			//
+			// Consequence sur le format du maillage : `NkEditMesh` doit porter un
+			// `materialSlot` PAR FACE, pas une couleur par objet. Consequence sur
+			// l'edition : selectionner des faces (ou des sommets, dont on deduit les
+			// faces) puis « Assigner » ecrit cet indice -- ce qui CREE le sous-maillage
+			// sans qu'aucune geometrie soit dupliquee ni separee.
+			//
+			// Ce panneau n'est pour l'instant qu'une facade : les emplacements sont en
+			// dur et « Assigner » n'ecrit rien. Le cablage vient avec la vue 3D, quand
+			// il y aura une vraie selection a assigner.
+			if (DetailHeader(p, hit, r, y, st, NkDetailMaterial, "Materiaux")) {
+				struct Slot {
+						const char *name;
+						NkRole tint;
+						int32 faces; ///< nombre de faces portant cet emplacement
+				};
+				static const Slot kSlots[] = {
+					{"M_Bois", NkRole::TypeMat, 4},
+					{"M_Metal", NkRole::TypeMesh, 2},
+				};
+				char key[40];
+				for (int32 i = 0; i < 2; ++i) {
+					const NkRect sr{r.x, y, r.w, kRowH};
+					snprintf(key, sizeof(key), "det.slot.%d", i);
+					const bool over = hit.Add(key, sr);
+					const bool sel = (st.materialSlot == i);
+					if (sel)
+						p.Fill(sr, NkRole::AccentUi);
+					else
+						HoverFill(p, sr, over, 0.f);
+					const NkRole fg = sel ? NkRole::TextOnAccent : NkRole::Text;
+					// La PASTILLE de couleur reste teintee meme sur ligne selectionnee :
+					// c'est elle qui relie l'emplacement a ce qu'on voit dans la vue.
+					p.Fill({r.x + 8.f, y + 5.f, 12.f, kRowH - 10.f}, kSlots[i].tint, 2.f);
+					p.TextV(r.x + 26.f, y, kRowH, kSlots[i].name, fg);
+					char cnt[32];
+					snprintf(cnt, sizeof(cnt), "%d faces", kSlots[i].faces);
+					p.TextV(r.x + r.w - 8.f - p.TextW(cnt), y, kRowH, cnt,
+							sel ? NkRole::TextOnAccent : NkRole::TextMuted);
+					p.HLine(r.x, y + kRowH - 1.f, r.w);
+					if (hit.Clicked(key))
+						st.materialSlot = i;
+					y += kRowH;
+				}
+				// Ajouter / retirer un emplacement, puis assigner la selection courante.
+				// « Assigner » est GRISE hors mode edition : hors edition il n'y a pas de
+				// faces selectionnees, donc rien a assigner -- et un bouton qui repond
+				// sans rien faire est pire qu'un bouton grise.
+				const float32 bw = (r.w - 24.f) / 3.f;
+				struct Btn {
+						const char *label;
+						NkIcon ic;
+				};
+				static const Btn kB[] = {
+					{"Ajouter", NkIcon::Add}, {"Retirer", NkIcon::Trash}, {"Assigner", NkIcon::Check}};
+				for (int32 i = 0; i < 3; ++i) {
+					const NkRect br{r.x + 8.f + (float32)i * bw, y + 3.f, bw - 4.f, kRowH - 6.f};
+					const bool off = (i == 2 && st.mode != NkMode::Edit);
+					snprintf(key, sizeof(key), "det.mat.%d", i);
+					const bool over = !off && hit.Add(key, br);
+					p.Outline(br, NkRole::Border, over ? NkRole::PanelHeader : NkRole::InputBg, 2.f);
+					const NkRole fg = off ? NkRole::TextMuted : NkRole::Text;
+					p.IconV(br.x + 5.f, br.y, br.h, kB[i].ic, fg, 12.f);
+					p.TextV(br.x + 21.f, br.y, br.h, kB[i].label, fg);
+				}
+				y += kRowH + 4.f;
+			}
+
+			// ── SOUS-MAILLAGES ──────────────────────────────────────────────────
+			// La contrepartie du point precedent : ce que les emplacements DECOUPENT.
+			// Un sous-maillage n'est pas un objet separe -- c'est un groupe de faces du
+			// meme maillage. Le selectionner ici doit selectionner ses faces dans la
+			// vue, ce qui donne le chemin inverse de « selectionner puis assigner ».
+			if (DetailHeader(p, hit, r, y, st, NkDetailSubMesh, "Sous-maillages")) {
+				static const char *const kSub[] = {"Corps (M_Bois)", "Ferrures (M_Metal)"};
+				char key[40];
+				for (int32 i = 0; i < 2; ++i) {
+					const NkRect sr{r.x, y, r.w, kRowH};
+					snprintf(key, sizeof(key), "det.sub.%d", i);
+					const bool over = hit.Add(key, sr);
+					const bool sel = (st.materialSlot == i);
+					if (sel)
+						p.Fill(sr, NkRole::AccentUi);
+					else
+						HoverFill(p, sr, over, 0.f);
+					const NkRole fg = sel ? NkRole::TextOnAccent : NkRole::Text;
+					p.IconV(r.x + 8.f, y, kRowH, NkIcon::Mesh, fg, 12.f);
+					p.TextV(r.x + 26.f, y, kRowH, kSub[i], fg);
+					p.HLine(r.x, y + kRowH - 1.f, r.w);
+					if (hit.Clicked(key))
+						st.materialSlot = i;
+					y += kRowH;
+				}
+			}
+
 			const NkRect area{full.x, listTop, full.w, full.y + full.h - listTop};
 			hit.Add("det.list", area);
 			hit.Wheel("det.list", st.scrollDetails, y - listTop + scroll, area.h);
@@ -1241,7 +1488,18 @@ namespace nkentseu {
 			p.Fill({r.x, r.y, r.w, topH}, NkRole::PanelHeader);
 			p.TextV(r.x + kPad, r.y, topH, "Navigateur de projet");
 			float32 x = r.x + kPad + p.TextW("Navigateur de projet") + 10.f;
-			p.IconV(x, r.y, topH, NkIcon::WinClose, NkRole::Text, 11.f);
+			{
+				// Meme croix que les panneaux lateraux, meme effet : elle referme, et la
+				// poignee du bas ramene le navigateur.
+				const NkRect cr{x - 3.f, r.y + 4.f, 20.f, topH - 8.f};
+				const bool over = hit.Add("brw.close", cr);
+				if (over)
+					p.Fill(cr, NkRole::AccentUi, 2.f);
+				p.IconV(x, r.y, topH, NkIcon::WinClose, over ? NkRole::TextOnAccent : NkRole::Text,
+						11.f);
+				if (hit.Clicked("brw.close"))
+					st.showBrowser = false;
+			}
 			x += 22.f;
 			p.VLine(x, r.y + 6.f, topH - 12.f);
 			x += 10.f;
@@ -1371,13 +1629,22 @@ namespace nkentseu {
 				{"A_Marche", "Animation", NkRole::TypeAnim, Preview::Animation, false},
 			};
 			float32 tx = ax;
-			const float32 tw = 94.f;		  // largeur de carte
-			const float32 pvH = 66.f;		  // hauteur d'apercu
-			const float32 barH2 = 3.f;		  // bande de type
-			const float32 footH = 30.f;		  // pied : nom + type
+			// CARTES PLUS HAUTES, comme dans Unreal. L'apercu est ce qu'on regarde et
+			// un carre l'ecrase : un format legerement portrait laisse voir la
+			// silhouette d'un objet debout -- personnage, arbre, colonne -- qui est le
+			// cas le plus courant. Cela donne aussi au pied la place de deux lignes
+			// sans rogner l'image.
+			const float32 tw = 96.f;   // largeur de carte
+			const float32 pvH = 96.f;  // hauteur d'apercu : PLUS GRANDE
+			const float32 barH2 = 3.f; // bande de type
+			const float32 footH = 34.f; // pied : nom + type
 			const float32 tyy = ty + 42.f - assetScroll;
 			for (int32 i = 0; i < 5; ++i) {
 				const float32 cardH = pvH + barH2 + footH;
+				// OMBRE PORTEE legere : elle detache la carte du fond du panneau et
+				// donne le relief d'Unreal. Deux ou trois pixels suffisent -- une ombre
+				// marquee ferait flotter les cartes et fatiguerait sur une grille dense.
+				p.Fill({tx + 2.f, tyy + 3.f, tw, cardH}, NkColor{0, 0, 0, 90}, 3.f);
 				// Carte selectionnee : contour a l'accent d'interface. Chez Unreal c'est
 				// un liseré, pas un fond plein -- un fond plein ecraserait l'apercu, qui
 				// est justement ce qu'on regarde.
@@ -1440,8 +1707,21 @@ namespace nkentseu {
 				// 2. BANDE DE TYPE, puis 3. le NOM et 4. le TYPE, tous DANS la carte.
 				p.Fill({tx, tyy + pvH, tw, barH2}, kAssets[i].role);
 				p.Fill({tx, tyy + pvH + barH2, tw, footH}, NkRole::PanelHeader);
-				p.Text(tx + 5.f, tyy + pvH + barH2 + 4.f, kAssets[i].name);
-				p.Text(tx + 5.f, tyy + pvH + barH2 + 17.f, kAssets[i].type, NkRole::TextMuted);
+				// LE TEXTE RESTE DANS LE CADRE, en hauteur comme en largeur. Il etait
+				// pose a des decalages fixes qui ignoraient la hauteur de ligne et la
+				// largeur disponible : a la premiere police plus grande ou au premier
+				// nom long, il debordait par le bas et par la droite. On CENTRE le bloc
+				// de deux lignes dans le pied, et on TRONQUE a la largeur utile.
+				{
+					const float32 fy = tyy + pvH + barH2;
+					const float32 lh = p.LineH();
+					const float32 pad = 6.f;
+					const float32 maxW = tw - pad * 2.f;
+					float32 fyy = fy + (footH - (lh * 2.f + 2.f)) * 0.5f;
+					p.TextClipped(tx + pad, fyy, maxW, kAssets[i].name, NkRole::Text);
+					fyy += lh + 2.f;
+					p.TextClipped(tx + pad, fyy, maxW, kAssets[i].type, NkRole::TextMuted);
+				}
 				tx += tw + 10.f;
 			}
 			const NkRect treeArea{r.x, ty, treeW, th};
@@ -1745,7 +2025,13 @@ namespace nkentseu {
 				 &st.propsFrac, lay.right.h, 1.f},
 			};
 
+			// Un separateur borde un panneau : si le panneau est masque, il n'y a rien
+			// a redimensionner. Le laisser actif donnerait un trait invisible qui
+			// change le curseur et modifie une fraction qu'on ne voit pas.
+			const bool alive[4] = {st.showLeft, st.showRight, st.showBrowser, st.showRight};
 			for (int32 i = 0; i < 4; ++i) {
+				if (!alive[i])
+					continue;
 				const bool over = hit.Add(sps[i].key, sps[i].zone);
 				const bool active = (st.dragSplitter == i);
 				if (over || active) {
