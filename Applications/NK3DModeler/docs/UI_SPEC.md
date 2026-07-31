@@ -38,11 +38,12 @@ différentes.
 son identité visuelle lui appartient. Le **mécanisme** de thème et de langue est
 partagé ; **l'apparence** ne l'est pas.
 
-> ⚠️ **Réserve honnête sur les références.** Les trois liens fournis par Rihen
-> sont des pages de texte ; leurs captures d'écran ne sont pas lisibles par
-> l'outil de récupération dont je dispose. Cette spécification part donc de ma
-> connaissance de la disposition d'UE5, pas d'une lecture de ces pages précises.
-> **À corriger sur maquette** plutôt qu'à supposer acquis.
+> ✅ **Références VÉRIFIÉES le 31/07.** Rihen a fourni les captures dans
+> `C:\Users\Rihen\Downloads\ue`. Les sections 2 et 3 sont désormais décrites
+> d'après ce que ces images montrent RÉELLEMENT, pas d'après mon souvenir d'UE5 —
+> c'est une différence de nature, et elle a corrigé plusieurs détails que j'avais
+> supposés (les champs X/Y/Z ne sont pas teintés en fond mais bordés à gauche ;
+> le panneau Détails porte une rangée de filtres que je n'avais pas prévue).
 
 ---
 
@@ -62,87 +63,140 @@ conclure à tort à une scène vide.
 
 ## 2. Disposition
 
-Contraintes de zone, pas d'esthétique. Les proportions sont indicatives ; les
-**adjacences** ne le sont pas.
+Relevée sur la capture de référence d'UE5 (zones numérotées), puis adaptée à la
+nuance demandée. Les proportions sont indicatives ; les **adjacences** ne le sont
+pas.
+
+### 2.1 Ce que montre UE5 (référence)
+
+| zone | contenu |
+|---|---|
+| **1** | barre de menus + bandeau d'onglets de document (nom du niveau, croix de fermeture) |
+| **2** | barre d'outils principale : enregistrer · mode de sélection ▾ · ajouter ▾ · blueprints ▾ · cinématique ▾ · **lecture** ▶ ⏸ ⏹ · plateformes ▾ · réglages ▾ |
+| **3** | barre de la VUE : à gauche un groupe en pilule (☰, Perspective ▾, Éclairé ▾, Afficher ▾) ; à droite les outils de transformation, le repère monde/local, et les **aimantations** (grille 10, angle 10°, échelle 0,25, vitesse caméra) |
+| **4** | vue 3D |
+| **5** | **Outliner**, en haut à droite |
+| **6** | **Détails**, sous l'Outliner |
+| **7** | tiroir de contenu, en bas à gauche |
+| **8** | barre d'état : journal, console, état d'enregistrement, gestion de version |
+
+### 2.2 Notre disposition
+
+**La seule divergence assumée** : l'Outliner passe **à gauche**, demande de
+Rihen. Tout le reste suit UE5.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│ A  MENUS      Fichier   Édition   Fenêtre   Outils   Aide                        │
+│ 1  ⬢  Fichier  Édition  Fenêtre  Outils  Sélection  Objet  Aide      MonProjet   │
+│    ┌ Scene_01  ✕ ┐                                                              │
 ├─────────────────────────────────────────────────────────────────────────────────┤
-│ B  BARRE D'OUTILS   [💾] [Mode ▾] [Ajouter ▾] │ [↖][✥][⟳][⤢] │ [Aimant ▾] […]   │
+│ 2  [💾] │ [Mode de sélection ▾] │ [＋Ajouter ▾] [Modificateur ▾] │  [⚙ Réglages ▾]│
 ├──────────────┬──────────────────────────────────────┬───────────────────────────┤
-│ C HIÉRARCHIE │  D  VUE 3D                           │ E  PROPRIÉTÉS             │
-│              │  ┌ barre de vue ──────────────────┐  │  ▾ Transform              │
-│  ▾ Scène     │  │ Persp │ Éclairé ▾ │ Afficher ▾ │  │    Position   X  Y  Z     │
-│    ▸ Cube    │  └────────────────────────────────┘  │    Rotation   X  Y  Z     │
-│    ▸ Sphère  │                                      │    Échelle    X  Y  Z     │
-│    ▸ Soleil  │                                      ├───────────────────────────┤
-│    ▾ Groupe  │                                      │ F  DÉTAILS  (objet sél.)  │
-│      ▸ Roue  │                                      │  ▾ Maillage               │
-│      ▸ Axe   │                                      │  ▾ Modificateurs      [+] │
-│              │                                      │  ▾ Matériau               │
+│ 5 HIÉRARCHIE │ 3 ┌ ☰ │ Perspective ▾ │ Éclairé ▾ │  │ 6  Propriétés         ✕   │
+│ [▾][🔍     ] │   └ Afficher ▾ ┘   [↖][✥][⟳][⤢][🌐] │  [🔍            ] [⚙][🔒] │
+│ Nom    │Type │                    [⊞ 0,5][∠15°][↗] │  Général Objet Rendu  Tout│
+│ ▾ Scène│Monde│                                      │  ▾ Transform              │
+│  ▸Cube │Maill│ 4         VUE 3D                     │    Position │▌X │▌Y │▌Z │↩│
+│  ▸Sphèr│Maill│                                      │    Rotation │▌X │▌Y │▌Z │ │
+│  ▾📁Grp│Doss.│                                      │    Échelle  │▌X │▌Y │▌Z │🔒│
+│    ▸Roue│Mail│                                      ├───────────────────────────┤
+│         │    │                                      │ 6b DÉTAILS  (objet sél.)  │
+│         │    │                                      │  ▾ Maillage               │
+│ 12 objets (2 │                                      │  ▾ Modificateurs      [＋]│
+│  sélectionnés)                                      │  ▾ Matériau               │
 ├──────────────┴──────────────────────────────────────┴───────────────────────────┤
-│ G  NAVIGATEUR DE PROJET                                                         │
-│  ▾ MonProjet    │  Maillages │ Animations │ Matériaux │ Textures                │
-│    ▸ Maillages  │   ▣ Cube      ▣ Perso      ▣ Décor                            │
-│    ▸ Animations │                                                               │
+│ 7  NAVIGATEUR DE PROJET                                                   ✕     │
+│  [＋Ajouter][⤓Importer][💾Tout enregistrer] │ ← → 📁 Tout ▸ Contenu ▸ Perso  [⚙]│
+│  ┌ Favoris ─────┬──────────────────────────────────────────────────────────────┐│
+│  │ ▾ MonProjet  │ [▾][🔍          ]  ●Maillage ●Animation ●Matériau ●Texture   ││
+│  │   ▸ Maillages│  ┌────┐ ┌────┐ ┌────┐                                        ││
+│  │   ▸ Animation│  │ ▣  │ │ ▣  │ │ ▣  │                                        ││
+│  │   ▸ Matériaux│  │Cube│ │Tête│ │Bois│                                        ││
+│  │ ▸ Collections│  └▬▬▬▬┘ └▬▬▬▬┘ └▬▬▬▬┘   ← barre de couleur = TYPE            ││
+│  └──────────────┴──────────────────────────────────────────────────────────────┘│
+│                                                                       3 éléments│
 ├─────────────────────────────────────────────────────────────────────────────────┤
-│ H  BARRE D'ÉTAT   S:8  A:12  F:6 · sél. 4 · actif : Cube · 60 ips · [message]    │
+│ 8  [📂 Tiroir] [Journal] [Cmd ▾ …]      S:8 A:12 F:6 · sél.4 · Cube · 60 ips     │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Règles de disposition, et leur raison
+### Règles, et leur raison
 
-1. **C (hiérarchie) est à GAUCHE.** C'est la nuance demandée par Rihen : UE5 place
-   son *Outliner* en haut à droite. Ici il est à gauche, donc **seul** de ce côté —
-   la colonne gauche n'accueille rien d'autre, sinon la hiérarchie perd sa
-   lisibilité de sommaire.
-2. **E et F sont à DROITE, l'un au-dessus de l'autre**, et leur partage est une
-   règle, pas un rangement :
-   - **E — Propriétés** : ce qui existe pour **tout** objet (transform, visibilité,
-     nom). Contenu **fixe**, donc toujours au même endroit à l'œil.
-   - **F — Détails** : ce qui est propre à **cet** objet-là. **Cette zone
-     s'allonge** : ajouter un modificateur, un matériau, une propriété, c'est
-     ajouter une section ici. C'est la demande de Rihen, mot pour mot — « si on
-     ajoute une propriété, elle est ajoutée sur la zone de détail de l'objet
-     sélectionné ».
-   La raison du partage : si tout était mélangé, la position d'un objet
-   descendrait de plus en plus bas à mesure qu'on lui ajoute des choses.
-3. **G (navigateur de projet) est en BAS, sur toute la largeur.** Équivalent du
-   *Content Browser* d'UE5. Il structure le projet en dossiers, et cette structure
-   est **enregistrée dans le fichier de projet** (§ 4).
-4. **D (vue 3D) porte sa propre barre**, dans la vue : mode de caméra, mode
-   d'affichage, options d'overlay. Ce qui concerne la vue reste dans la vue.
-5. **H est sur toute la largeur** et porte les compteurs. Ils sont aujourd'hui
-   absents ou morts : c'est un défaut à corriger, pas un détail.
-6. **Tout est dockable**, façon UE5 : onglets, glisser-déposer, dispositions
-   enregistrables. ⚠️ NKEditorKit a un **défaut connu sur le split droit** — à
+1. **La hiérarchie est à GAUCHE et SEULE de ce côté.** Divergence assumée avec
+   UE5. La colonne gauche n'accueille rien d'autre : un sommaire perd sa
+   lisibilité dès qu'on l'empile avec autre chose.
+2. **Propriétés (6) au-dessus de Détails (6b)**, à droite, et leur partage est
+   une **règle**, pas un rangement :
+   - **Propriétés** : ce qui existe pour **tout** objet — transform, nom,
+     visibilité. Contenu **fixe**, donc toujours au même endroit à l'œil.
+   - **Détails** : ce qui est propre à **cet** objet. **Cette zone s'allonge** :
+     ajouter un modificateur, un matériau, une propriété, c'est ajouter une
+     section ici. Demande de Rihen, mot pour mot.
+   Sans ce partage, la position d'un objet descendrait de plus en plus bas à
+   mesure qu'on lui ajoute des choses.
+3. **La barre de vue (3) est DANS la vue**, en surimpression, avec le groupe de
+   navigation à gauche et les outils + aimantations à droite — exactement la
+   disposition d'UE5. Les réglages d'aimantation y sont **visibles en
+   permanence** : c'est là que se lit le pas de la grille, ce qui n'existait
+   nulle part chez nous.
+4. **Le navigateur (7) est en bas, sur toute la largeur**, avec l'arborescence de
+   source à gauche et la grille d'éléments à droite.
+5. **La barre d'état (8) porte les compteurs** — aujourd'hui absents ou morts.
+6. **Tout est dockable** : onglets avec croix, glisser-déposer, dispositions
+   enregistrables. ⚠️ NKEditorKit a un **défaut connu sur le split droit** : à
    corriger **avant** de promettre des panneaux déplaçables, sinon la première
    démonstration échouera là-dessus.
 
----
+## 3. Aspect des widgets — relevé sur les captures
 
-## 3. Aspect des widgets — UE5, pas NKCode
+Demande explicite de Rihen : **comme UE5, pas comme NKCode**. Ce qui suit est
+relevé sur les images, pas supposé.
 
-Demande explicite de Rihen. Les différences qui comptent, parce qu'elles se
-voient immédiatement :
+### 3.1 Ce que les captures montrent
 
-| élément | NKCode (à ne PAS reprendre) | NK3DModeler (UE5) |
+| élément | ce qu'on voit dans UE5 |
+|---|---|
+| **fond** | très sombre et NEUTRE (gris presque noir) ; les panneaux à peine plus clairs que le fond ; les séparations sont des traits de 1 px, pas des ombres |
+| **arrondi** | quasi nul sur les panneaux ; léger sur les puces et les boutons de la barre de vue |
+| **densité** | rangées serrées (~22 px), typographie petite, beaucoup d'information par écran |
+| **ligne de propriété** | **deux colonnes** : libellé à gauche sur fond légèrement plus sombre, valeur à droite |
+| **champs X/Y/Z** | **bordés d'un trait de couleur À GAUCHE** (rouge / vert / bleu) — le fond du champ reste neutre. *J'avais supposé des champs teintés : c'est faux.* |
+| **propriété modifiée** | flèche de **réinitialisation** `↩` à l'extrême droite de la rangée |
+| **choix exclusif** | **segmenté** (ex. Statique │ Stationnaire │ Mobile), l'actif en surbrillance |
+| **filtres** | rangée de **puces** au-dessus des sections (Général · Objet · Rendu · … · **Tout**), l'active en **bleu plein**. *Non prévu dans ma première version.* |
+| **sections** | triangle `▾` + titre en gras, empilées, sans cadre |
+| **outils de vue** | **puces carrées** groupées ; l'outil actif est **bleu plein** |
+| **sélection dans une liste** | rangée surlignée en **bleu**, texte inchangé |
+| **onglet de panneau** | icône + nom + **croix de fermeture** |
+| **état vide** | phrase en italique, centrée (« Sélectionnez un objet pour voir ses détails. ») |
+| **navigateur** | filtres de type en **puces COLORÉES**, et chaque vignette porte une **barre de couleur** indiquant son type |
+| **arborescence** | dossiers en **jaune**, colonne « Type » atténuée à droite, pied de liste « 63 objets (2 sélectionnés) » |
+
+### 3.2 Ce que ça donne comme règles
+
+- **La ligne à deux colonnes est la brique la plus structurante.** Le panneau
+  Détails en est presque entièrement fait ; c'est elle qui donne à UE5 sa
+  lisibilité en balayage vertical.
+- **Le bleu est la couleur de l'ÉTAT** (actif, sélectionné dans une liste).
+  **L'orange est la couleur de la SÉLECTION 3D** — c'est déjà notre convention
+  dans le viewport, et UE5 fait exactement pareil. Les deux ne se confondent pas.
+- **La couleur porte du sens dans le navigateur** : un type = une couleur, sur la
+  puce de filtre ET sur la vignette. C'est ce qui permet de distinguer d'un coup
+  d'œil maillages, animations et matériaux — précisément ce que Rihen demande.
+- **La flèche de réinitialisation n'est pas un détail** : elle dit qu'une valeur
+  a été modifiée par rapport au défaut. Sans elle, on ne sait pas ce qu'on a
+  touché.
+
+### 3.3 Ce qu'on ne reprend PAS de NKCode
+
+| | NKCode | NK3DModeler |
 |---|---|---|
-| **arrondi** | 5 px, doux | **2 px**, quasi net |
-| **densité** | confortable, IDE | **dense** : hauteur de ligne réduite, marges serrées |
-| **boutons** | remplis, colorés | **plats**, bordure discrète, remplissage au survol |
-| **accent** | bleu clair | **bleu-gris froid**, et **orange** pour la sélection d'objet |
-| **en-têtes de section** | onglets | **triangle de repli** `▾` + titre, sections empilées |
-| **propriété** | libellé au-dessus du champ | **deux colonnes** : libellé à gauche, valeur à droite, alignées |
-| **vecteur X/Y/Z** | trois champs neutres | **trois champs teintés** rouge / vert / bleu |
-| **barre d'outils** | texte | **icône + libellé**, groupes séparés par un trait |
+| arrondi | 5 px | **2 px** |
+| densité | confortable (IDE) | **dense** |
+| boutons | remplis, colorés | **plats**, bordure discrète, remplissage au survol |
+| libellé de champ | au-dessus | **à gauche, deux colonnes** |
 
-**La ligne de propriété à deux colonnes est la brique la plus structurante** : le
-panneau Détails en est presque entièrement fait, et c'est elle qui donne à UE5
-sa lisibilité en balayage vertical.
-
-### Grammaire de couleurs — déjà établie dans le viewport, à ne pas réinventer
+### 3.4 Grammaire de couleurs métier — déjà établie, à ne pas réinventer
 
 | notion | couleur |
 |---|---|
@@ -153,10 +207,7 @@ sa lisibilité en balayage vertical.
 | lumière | jaune, teinte claire si active |
 
 **Trois états, pas deux.** La distinction sélectionné / actif existe partout dans
-le viewport ; les panneaux et la hiérarchie doivent la respecter — dans une liste,
-la ligne active se distingue des lignes seulement sélectionnées.
-
----
+le viewport ; la hiérarchie et les panneaux doivent la respecter.
 
 ## 4. Navigateur de projet et fichier de projet
 
@@ -341,7 +392,43 @@ libellés qui laisseraient croire qu'ils sont écrits en dur dans le code.
 
 ---
 
-## 11. Ce que ce document ne fixe pas encore
+## 11. Socle partagé — NK3DModeler, Nogee, NkAnima
+
+Décision de Rihen (31/07) : **le même principe pour les trois applications**,
+chacune dans son domaine.
+
+| application | domaine | ce qui remplace la vue 3D et les panneaux |
+|---|---|---|
+| **NK3DModeler** | modélisation | vue 3D · hiérarchie · propriétés/détails · navigateur de projet |
+| **Nogee** | moteur de jeu | vue de niveau · hiérarchie d'acteurs · détails · navigateur d'assets · **lecture ▶** |
+| **NkAnima** | animation 3D | vue 3D + **ligne de temps / feuille d'exposition / éditeur de courbes** · hiérarchie d'os · détails · bibliothèque de mouvements |
+
+**Ce qui est COMMUN et doit vivre dans NKEditorKit / NKGui — donc écrit une fois :**
+- la coquille : menus, bandeau d'onglets, barre d'outils, docking, barre d'état ;
+- le **système de thèmes** (§ 5) et le **multilangue** (§ 6) ;
+- la **table de raccourcis** (§ 9), déjà livrée ;
+- les **widgets d'UE5** de la § 3 : ligne à deux colonnes, champ vectoriel bordé,
+  segmenté, puces de filtre, section repliable, arborescence, grille de vignettes ;
+- le **panneau générique piloté par une table de paramètres** (§ 7) — sa valeur
+  dépasse les modificateurs : il vaut pour tout objet décrit par des paramètres
+  nommés.
+
+**Ce qui est PROPRE à chaque application** : le contenu de la vue, les commandes
+métier, les panneaux spécifiques (ligne de temps pour NkAnima, lecture pour
+Nogee).
+
+> ⚠️ **Conflit à résoudre, découvert le 31/07** :
+> `Applications/NkAnimaEditor/important/interface.md` existe déjà — **1 655
+> lignes**, 23 sections, et il décrit une interface **façon Cascadeur + Blender**.
+> Il **précède** la décision UE5 et la contredit sur la disposition et l'aspect.
+> Il reste précieux pour son **contenu métier** (ligne de temps, éditeur de
+> courbes, bibliothèque de mouvements, directeur IA) — c'est la partie qu'aucune
+> capture d'UE5 ne donnera. À faire : **réconcilier**, pas jeter — garder ses
+> chapitres métier, remplacer ses choix de disposition et d'aspect par ceux-ci.
+> Ne pas le laisser diverger en silence : c'est exactement ainsi qu'on se
+> retrouve avec deux éditeurs qui ne se ressemblent pas.
+
+## 12. Ce que ce document ne fixe pas encore
 
 Assumé, à trancher quand la question se posera :
 - **format du fichier de projet** : un fichier ou un dossier (§ 4) ;
