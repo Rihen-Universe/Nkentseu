@@ -202,6 +202,7 @@ int nkmain(const NkEntryState &entry) {
 	NkHitRegistry hit;
 	NkWidgetState ws;
 	NkComboPending combo;
+	NkCheckPending checks;
 	static const char *const kScenes[] = {"Scene_01", "Scene_02"};
 
 	// ── ENTREE SOURIS ───────────────────────────────────────────────────────
@@ -276,7 +277,8 @@ int nkmain(const NkEntryState &entry) {
 
 		const float32 W = (float32)lastW, H = (float32)lastH;
 		NkLayout lay;
-		lay.Compute(W, H, st.leftFrac, st.rightFrac, st.browserFrac, st.propsFrac);
+		lay.Compute(W, H, st.leftFrac, st.rightFrac, st.browserFrac, st.propsFrac, st.showLeft,
+					st.showRight, st.showBrowser);
 
 		const NkTheme &theme = themes.Current();
 		NkModelerPainter p(ui.dl, font, theme, roles, icons);
@@ -288,12 +290,26 @@ int nkmain(const NkEntryState &entry) {
 		PaintMenuBarI(p, lay.menu, "MonProjet", st, hit);
 		PaintTabsI(p, lay.tabs, st, hit, ws, ui.input);
 		PaintToolbar(p, lay.tool, st, hit, ws, combo);
-		PaintHierarchy(p, lay.left, st, hit, ws, ui.input);
-		PaintViewport(p, lay.view, st, hit, ws, combo, shortcuts);
-		PaintProperties(p, lay.propsR, st, hit, ws, ui.input);
-		PaintDetails(p, lay.detailsR, st, hit);
-		PaintBrowser(p, lay.browser, st, hit, ws, ui.input);
+		// Un panneau MASQUE n'est pas peint en taille nulle : il n'est pas peint du
+		// tout. Le peindre dans un rectangle de 14 px declarerait ses zones cliquables
+		// les unes sur les autres et un clic sur la poignee tomberait sur la premiere
+		// ligne de la liste.
+		if (st.showLeft)
+			PaintHierarchy(p, lay.left, st, hit, ws, ui.input);
+		PaintViewport(p, lay.view, st, hit, ws, combo, checks, shortcuts);
+		if (st.showRight) {
+			PaintProperties(p, lay.propsR, st, hit, ws, ui.input);
+			PaintDetails(p, lay.detailsR, st, hit);
+		}
+		if (st.showBrowser)
+			PaintBrowser(p, lay.browser, st, hit, ws, ui.input);
 		PaintStatus(p, lay.status, st);
+
+		// Poignees de reouverture, a la place exacte qu'occupait le panneau.
+		PaintPanelHandle(p, lay.handleLeft, hit, "handle.left", st.showLeft, NkIcon::ChevronRight);
+		PaintPanelHandle(p, lay.handleRight, hit, "handle.right", st.showRight, NkIcon::ChevronLeft);
+		PaintPanelHandle(p, lay.handleBrowser, hit, "handle.browser", st.showBrowser,
+						 NkIcon::ChevronUp);
 
 		// L'ORDRE DE CES TROIS APPELS EST SIGNIFIANT. Les separateurs doivent
 		// recevoir le clic avant les panneaux qu'ils bordent ; le menu deroule
@@ -304,6 +320,7 @@ int nkmain(const NkEntryState &entry) {
 		// les recouvrir, et le registre donne la priorite a la derniere zone.
 		PaintSplitters(p, lay, W, H, st, hit);
 		DrawComboPopup(p, hit, ws, combo);
+		DrawCheckPopup(p, hit, ws, checks);
 		PaintModifierMenu(p, st, hit, ws);
 		PaintOpenMenu(p, lay.menu, st, hit, shortcuts);
 		PaintCloseDialog(p, W, H, st, hit);
@@ -350,10 +367,26 @@ int nkmain(const NkEntryState &entry) {
 		}
 		if (st.wantDragMove) {
 			st.wantDragMove = false;
-			// Un deplacement n'a pas de sens sur une fenetre maximisee : Windows la
-			// restaurerait a mi-course, ce qui donne un saut desagreable.
-			if (!window.IsMaximized())
-				window.BeginDragMove();
+			// TIRER UNE FENETRE MAXIMISEE LA RESTAURE, puis la deplace. C'est le
+			// comportement de toutes les fenetres du systeme, et le refuser -- ce que
+			// faisait la version precedente -- donne une barre de titre morte une fois
+			// sur deux sans rien qui l'explique.
+			//
+			// On replace la fenetre restauree SOUS LE CURSEUR avant de rendre la main
+			// a l'OS : sans cela elle saute en haut a gauche et la suite du geste
+			// l'emmene ailleurs que la ou on croyait l'avoir attrapee. On conserve la
+			// fraction horizontale du point saisi -- attraper la barre a droite doit
+			// laisser le curseur a droite de la fenetre restauree.
+			if (window.IsMaximized()) {
+				const math::NkVec2 m = ui.input.mousePos;
+				window.Restore();
+				const math::NkVec2u sz = window.GetSize();
+				const int32 nx = (int32)(m.x - (float32)sz.x * st.dragFracX);
+				const int32 ny = (int32)(m.y - 12.f); // le curseur reste dans la barre
+				window.SetPosition(nx < 0 ? 0 : nx, ny < 0 ? 0 : ny);
+				st.maximized = false;
+			}
+			window.BeginDragMove();
 		}
 	}
 
