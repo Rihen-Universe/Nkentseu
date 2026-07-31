@@ -335,6 +335,20 @@ namespace nkentseu {
 		mData.mWmDeleteWindow = XInternAtom(sDisplay, "WM_DELETE_WINDOW", False);
 		XSetWMProtocols(sDisplay, mData.mXid, &mData.mWmDeleteWindow, 1);
 
+		// ── Fenetre SANS bordure (config.frame == false) ─────────────────────
+		//
+		// config.frame etait purement IGNORE ici : le gestionnaire de fenetres
+		// decorait donc toujours. Une application a barre de titre custom — comme
+		// NKCode, qui dessine ses propres boutons reduire/agrandir/fermer — se
+		// retrouvait avec DEUX jeux de boutons : les siens et ceux du WM.
+		//
+		// _MOTIF_WM_HINTS est le mecanisme que tous les WM modernes respectent
+		// pour cela. La structure fait 5 champs de 32 bits ; seul `decorations`
+		// nous interesse, d'ou le drapeau MWM_HINTS_DECORATIONS (1 << 1) seul.
+		// Decoration : une seule implementation, partagee avec SetDecorated()
+		// pour que creation et execution ne puissent pas diverger.
+		SetDecorated(config.frame);
+
 		if (config.native.utilityWindow) {
 			Atom wmWindowType = XInternAtom(sDisplay, "_NET_WM_WINDOW_TYPE", False);
 			Atom wmWindowTypeUtility = XInternAtom(sDisplay, "_NET_WM_WINDOW_TYPE_UTILITY", False);
@@ -811,8 +825,72 @@ namespace nkentseu {
 		mConfig.visible = true;
 	}
 
+	// Decoration geree par la PROPRIETE _MOTIF_WM_HINTS, que tous les WM
+	// modernes respectent. La structure fait 5 champs de 32 bits ; seul
+	// `decorations` nous interesse, d'ou le drapeau MWM_HINTS_DECORATIONS seul.
+	// Le type de la propriete est l'atome lui-meme : convention Motif.
+	void NkWindow::SetDecorated(bool decorated) {
+		mConfig.frame = decorated;
+		if (!mData.mDisplay || !mData.mXid)
+			return;
+		struct NkMotifWmHints {
+				unsigned long flags;
+				unsigned long functions;
+				unsigned long decorations;
+				long inputMode;
+				unsigned long status;
+		};
+		const Atom motif = XInternAtom(mData.mDisplay, "_MOTIF_WM_HINTS", False);
+		if (motif == None)
+			return;
+		NkMotifWmHints hints = {};
+		hints.flags = (1UL << 1); // MWM_HINTS_DECORATIONS
+		hints.decorations = decorated ? 1UL : 0UL;
+		XChangeProperty(mData.mDisplay, mData.mXid, motif, motif, 32, PropModeReplace,
+						reinterpret_cast<unsigned char *>(&hints), 5);
+		XFlush(mData.mDisplay);
+	}
+
+	bool NkWindow::IsDecorated() const {
+		return mConfig.frame;
+	}
+
 	bool NkWindow::IsMaximized() const {
-		return false;
+		// Renvoyait `false` en dur : l'icone de la barre de titre restait figee
+		// sur « maximiser » meme fenetre maximisee, et Maximize() — qui BASCULE —
+		// ne pouvait plus restaurer.
+		//
+		// Sous X11 c'est le gestionnaire de fenetres qui fait autorite : on lit
+		// _NET_WM_STATE. Maximise = les DEUX axes (HORZ et VERT) ; un seul des
+		// deux correspond a un demi-ecran, que l'utilisateur ne considere pas
+		// comme maximise.
+		if (!mData.mDisplay || !mData.mXid)
+			return false;
+		Atom wmState = XInternAtom(mData.mDisplay, "_NET_WM_STATE", True);
+		Atom maxH = XInternAtom(mData.mDisplay, "_NET_WM_STATE_MAXIMIZED_HORZ", True);
+		Atom maxV = XInternAtom(mData.mDisplay, "_NET_WM_STATE_MAXIMIZED_VERT", True);
+		if (wmState == None || maxH == None || maxV == None)
+			return false;
+
+		Atom actualType = None;
+		int actualFormat = 0;
+		unsigned long numItems = 0, bytesAfter = 0;
+		unsigned char *data = nullptr;
+		bool horz = false, vert = false;
+		if (XGetWindowProperty(mData.mDisplay, mData.mXid, wmState, 0, 1024, False, XA_ATOM, &actualType,
+							   &actualFormat, &numItems, &bytesAfter, &data) == Success) {
+			if (actualType == XA_ATOM && actualFormat == 32 && data) {
+				Atom *atoms = reinterpret_cast<Atom *>(data);
+				for (unsigned long i = 0; i < numItems; ++i) {
+					if (atoms[i] == maxH)
+						horz = true;
+					else if (atoms[i] == maxV)
+						vert = true;
+				}
+			}
+			platform::NkX11Free(data);
+		}
+		return horz && vert;
 	}
 
 	// Hand-off natif (deplacement/redimensionnement) via _NET_WM_MOVERESIZE : le WM

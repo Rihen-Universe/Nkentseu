@@ -2620,6 +2620,29 @@ namespace nkentseu {
 				}
 
 				static NkString PtyCommand(int32 s, const NkString &distro) {
+#if !defined(_WIN32)
+					// ── UNIX : aucun des programmes ci-dessous n'existe ────────
+					//
+					// powershell.exe, wsl.exe, bash.exe et cmd.exe sont des
+					// executables WINDOWS. Les lancer sous Linux echoue en
+					// silence : le terminal s'ouvrait et restait DESESPEREMENT
+					// VIDE, sans le moindre message. C'est ce que voyait un
+					// utilisateur Linux quel que soit le shell choisi.
+					//
+					// On rend donc le shell de la session ($SHELL), avec repli
+					// sur /bin/bash puis /bin/sh — ce dernier existe sur tout
+					// systeme POSIX.
+					{
+						(void)s;
+						(void)distro;
+						const char *env = std::getenv("SHELL");
+						NkString sh = (env && *env) ? NkString(env) : NkString();
+						if (sh.Empty() || !NkFile::Exists(sh.CStr()))
+							sh = NkFile::Exists("/bin/bash") ? NkString("/bin/bash") : NkString("/bin/sh");
+						// -i : session INTERACTIVE, sans quoi ni invite ni historique.
+						return sh + " -i";
+					}
+#else
 					switch (s) {
 						case SH_PWSH:
 						case SH_JENGA:
@@ -2633,6 +2656,7 @@ namespace nkentseu {
 						default:
 							return CmdColored("");
 					}
+#endif
 				}
 
 				// ── Grille du terminal : rend les cellules visibles + curseur + selection +
