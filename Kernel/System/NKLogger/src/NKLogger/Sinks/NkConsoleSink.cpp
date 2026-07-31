@@ -201,6 +201,16 @@ namespace nkentseu {
 		// Newline automatique après chaque message pour lisibilité
 		(void)::fputc('\n', outputStream);
 
+#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+		// WebAssembly : stdout n'est PAS un TTY, la libc l'ouvre donc en mode
+		// totalement bufferise (bloc de 1 Ko) et le navigateur ne voit les messages
+		// qu'au vidage du buffer. Concretement, tant que la frame courante n'a pas
+		// rendu la main au navigateur, AUCUN log n'apparait : impossible de
+		// diagnostiquer une initialisation qui n'aboutit pas. On vide donc a chaque
+		// message (cout negligeable : console.log est deja asynchrone cote JS).
+		(void)::fflush(outputStream);
+#endif
+
 		// Flush automatique pour niveaux critiques pour visibilité immédiate
 		if (message.level >= NkLogLevel::NK_ERROR) {
 			(void)::fflush(outputStream);

@@ -268,6 +268,31 @@ namespace nkentseu {
 					if (ndErr != GL_NO_ERROR)
 						logger.Errorf("[NkRHI_GL][ES] DrawIndexed idxCnt=%u vtxOff=%d error=0x%X\n", idxCnt, vtxOff,
 									  ndErr);
+#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+					// NKTEMP-DIAG : a retirer (instrumentation draw WebGL2) — etat
+					// complet du 1er draw en echec, une seule fois.
+					if (ndErr != GL_NO_ERROR) {
+						static bool sOnce = false;
+						if (!sOnce) {
+							sOnce = true;
+							GLint vao = 0, ibo = 0, prog = 0;
+							glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vao);
+							glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &ibo);
+							glGetIntegerv(GL_CURRENT_PROGRAM, &prog);
+							fprintf(stderr,
+									"[WebDiag] draw FAIL err=0x%X prim=0x%X idxCnt=%u fmt=0x%X off=%llu vao=%d ibo=%d "
+									"prog=%d inst=%u\n",
+									ndErr, mPrimitive, idxCnt, idxFmt, (unsigned long long)byteOff, vao, ibo, prog,
+									instCnt);
+							GLint valid = 0;
+							glValidateProgram((GLuint)prog);
+							glGetProgramiv((GLuint)prog, GL_VALIDATE_STATUS, &valid);
+							char vbuf[1024] = {0};
+							glGetProgramInfoLog((GLuint)prog, 1023, nullptr, vbuf);
+							fprintf(stderr, "[WebDiag] validate=%d log:%s\n", valid, vbuf);
+						}
+					}
+#endif
 #endif
 				});
 			}
@@ -375,7 +400,16 @@ namespace nkentseu {
 				}
 				if (bits == 0)
 					bits = GL_ALL_BARRIER_BITS;
+#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+				// glMemoryBarrier est ES 3.1 : il N'EXISTE PAS en WebGL2 (ES 3.0),
+				// le pointeur glad reste NUL et l'appel wasm leve
+				// "RuntimeError: null function" (crash constate au 1er Barrier()).
+				// WebGL2 n'a de toute facon ni SSBO ni image load/store : les
+				// acces concernes y sont deja ordonnes implicitement -> no-op.
+				(void)bits;
+#else
 				Push([bits] { glMemoryBarrier(bits); });
+#endif
 			}
 
 			// =========================================================================
