@@ -36,6 +36,8 @@
 // =============================================================================
 #include "NKRenderer/Core/NkRendererTypes.h"
 
+#include <stdlib.h> // getenv : choisir le design sans recompiler
+
 namespace nkentseu {
 	namespace renderer {
 
@@ -52,6 +54,73 @@ namespace nkentseu {
 				// Couleurs : jaune pour une lumiere non selectionnee, teinte plus claire
 				// pour l'active — meme grammaire que le lisere de selection des objets,
 				// pour ne pas avoir a apprendre deux codes couleur.
+				// ── DEUX DESIGNS AU CHOIX (Rihen : « fais les deux au choix ») ──────
+				// Le premier jet dessinait un SOLIDE 3D (octaedre plein). C'etait l'erreur
+				// de fond : un volume se lit comme de la GEOMETRIE DE SCENE, pas comme un
+				// marqueur. Blender comme Unreal utilisent un symbole FACE CAMERA a taille
+				// ecran constante — ce qui les rend reconnaissables sous tout angle et
+				// impossibles a confondre avec un objet.
+				//
+				//   BlenderWire      symbole filaire fin : disque + anneau. Aucun asset,
+				//                    tres discret, adapte a un affichage permanent.
+				//   UnrealBillboard  quad face camera (l'encombrement d'un sprite) portant
+				//                    un glyphe distinct par type. Plus lisible de loin.
+				//                    Le glyphe est TRACE, pas echantillonne : meme lecture
+				//                    qu'un sprite sans imposer d'atlas d'icones au moteur ;
+				//                    passer a une vraie texture ne touchera que BodyIcon().
+				//   Solid3D          l'ancien octaedre, conserve : utile en debogage pour
+				//                    verifier une position en profondeur.
+				enum class Style : uint8 { BlenderWire = 0, UnrealBillboard = 1, Solid3D = 2 };
+
+				static Style &StyleRef() {
+					// NK_LIGHT_STYLE (0/1/2) permet de comparer les trois sans recompiler.
+					static Style s = ParseStyleEnv();
+					return s;
+				}
+				static void SetStyle(Style s) { StyleRef() = s; }
+				static Style GetStyle() { return StyleRef(); }
+
+				// AXES ECRAN DE LA CAMERA — a poser une fois par frame avant tout Draw().
+				// Sans eux un symbole « face camera » resterait plaque dans un plan du
+				// monde et disparaitrait de profil : c'est toute la difference entre un
+				// symbole et un morceau de geometrie. On les passe par un etat de classe
+				// plutot que par la signature de Draw() pour ne casser aucun appelant ;
+				// non renseignes, on retombe sur les axes du monde (comportement d'avant).
+				static NkVec3f &CamRightRef() {
+					static NkVec3f v{1.f, 0.f, 0.f};
+					return v;
+				}
+				static NkVec3f &CamUpRef() {
+					static NkVec3f v{0.f, 1.f, 0.f};
+					return v;
+				}
+				static void SetCameraAxes(NkVec3f right, NkVec3f up) {
+					const float32 lr = right.Len(), lu = up.Len();
+					if (lr > 1e-5f)
+						CamRightRef() = right * (1.f / lr);
+					if (lu > 1e-5f)
+						CamUpRef() = up * (1.f / lu);
+				}
+
+				// ── PICK PAR DISTANCE ECRAN ─────────────────────────────────────────
+				// Meme arbitration que le pick d'objets. On NE teste PAS une intersection
+				// geometrique : le widget n'a pas de volume reel et sa taille depend de la
+				// distance, donc un test 3D rendrait une lumiere lointaine impossible a
+				// cliquer alors qu'elle reste grosse a l'ecran. On compare une distance EN
+				// PIXELS a un rayon en pixels : ce qu'on voit gros se clique facilement.
+				static float32 PickRadiusPx() {
+					return 14.f; // aligne sur le pick de sommets en mode edition
+				}
+				static bool HitScreen(float32 lx, float32 ly, float32 px, float32 py) {
+					const float32 dx = px - lx, dy = py - ly, r = PickRadiusPx();
+					return (dx * dx + dy * dy) <= (r * r);
+				}
+				// Point d'ANCRAGE du widget : c'est lui qu'on projette pour le pick, et il
+				// doit rester le meme que celui du dessin, sinon on cliquerait a cote.
+				static NkVec3f Anchor(const NkLightDesc &L) {
+					return L.position;
+				}
+
 				static NkVec4f ColorFor(bool selected, bool active) {
 					if (active)
 						return {1.f, 0.94f, 0.62f, 1.f};
@@ -123,10 +192,98 @@ namespace nkentseu {
 					y = (l2 > 1e-5f) ? y * (1.f / l2) : NkVec3f{0.f, 0.f, 1.f};
 				}
 
-				// Petit corps PLEIN (octaedre) : lisible a toute distance, et distinct du
-				// fil de fer des maillages — on voit tout de suite que ce n'est pas
-				// de la geometrie de scene.
-				template <class DrawTri> static void Body(NkVec3f c, float32 r, NkVec4f col, DrawTri drawTri) {
+				static Style ParseStyleEnv() {
+					const char *v = getenv("NK_LIGHT_STYLE");
+					if (v && v[0] == '1')
+						return Style::UnrealBillboard;
+					if (v && v[0] == '2')
+						return Style::Solid3D;
+					return Style::BlenderWire; // defaut : le plus discret, et sans asset
+				}
+
+				// CORPS du marqueur — seul element qui depend du design. Les indications
+				// de portee, de cone et de direction restent communes aux trois styles :
+				// elles decrivent la LUMIERE, pas sa representation.
+				template <class DrawLine, class DrawTri>
+				static void Body(NkVec3f c, float32 r, NkVec4f col, NkLightType type, DrawLine drawLine,
+								 DrawTri drawTri) {
+					switch (StyleRef()) {
+						case Style::UnrealBillboard: BodyIcon(c, r, col, type, drawLine, drawTri); break;
+						case Style::Solid3D: BodySolid(c, r, col, drawTri); break;
+						default: BodyWire(c, r, col, type, drawLine); break;
+					}
+				}
+
+				// Cercle FACE CAMERA — brique commune aux deux nouveaux designs.
+				template <class DrawLine>
+				static void ScreenCircle(NkVec3f c, float32 rad, NkVec4f col, int32 seg, bool dashed, DrawLine drawLine) {
+					const NkVec3f cr = CamRightRef(), cu = CamUpRef();
+					NkVec3f prev{};
+					for (int32 i = 0; i <= seg; i++) {
+						const float32 a = 6.2831853f * (float32)i / (float32)seg;
+						const NkVec3f p = c + cr * (cosf(a) * rad) + cu * (sinf(a) * rad);
+						if (i > 0 && (!dashed || (i & 1)))
+							drawLine(prev, p, col);
+						prev = p;
+					}
+				}
+
+				// DESIGN BLENDER : symbole filaire fin, face camera. Un petit disque (le
+				// « point » de la lumiere) cercle d'un anneau — pointille pour une
+				// ponctuelle, plein sinon, ce qui suffit a les distinguer d'un coup d'oeil.
+				template <class DrawLine>
+				static void BodyWire(NkVec3f c, float32 r, NkVec4f col, NkLightType type, DrawLine drawLine) {
+					ScreenCircle(c, r * 0.42f, col, 10, false, drawLine);
+					ScreenCircle(c, r, col, 20, type == NkLightType::NK_POINT, drawLine);
+				}
+
+				// DESIGN UNREAL : quad face camera + glyphe par type. Le fond assombri
+				// detache l'icone d'un decor clair sans masquer la scene (alpha bas).
+				template <class DrawLine, class DrawTri>
+				static void BodyIcon(NkVec3f c, float32 r, NkVec4f col, NkLightType type, DrawLine drawLine,
+									 DrawTri drawTri) {
+					const NkVec3f cr = CamRightRef(), cu = CamUpRef();
+					const NkVec3f a = c - cr * r - cu * r, b = c + cr * r - cu * r;
+					const NkVec3f d = c + cr * r + cu * r, e = c - cr * r + cu * r;
+					const NkVec4f bg = {col.x * 0.18f, col.y * 0.18f, col.z * 0.18f, 0.55f};
+					drawTri(a, b, d, bg);
+					drawTri(a, d, e, bg);
+					drawLine(a, b, col);
+					drawLine(b, d, col);
+					drawLine(d, e, col);
+					drawLine(e, a, col);
+					const float32 g = r * 0.58f;
+					if (type == NkLightType::NK_DIRECTIONAL) {
+						// Soleil : disque + rayons courts.
+						ScreenCircle(c, g * 0.45f, col, 10, false, drawLine);
+						for (int32 i = 0; i < 8; i++) {
+							const float32 an = 6.2831853f * (float32)i / 8.f;
+							const NkVec3f dir = cr * cosf(an) + cu * sinf(an);
+							drawLine(c + dir * (g * 0.66f), c + dir * g, col);
+						}
+					} else if (type == NkLightType::NK_SPOT) {
+						// Projecteur : triangle pointe en haut.
+						drawLine(c + cu * g, c - cr * g - cu * g, col);
+						drawLine(c + cu * g, c + cr * g - cu * g, col);
+						drawLine(c - cr * g - cu * g, c + cr * g - cu * g, col);
+					} else if (type == NkLightType::NK_AREA) {
+						// Surfacique : rectangle.
+						const float32 h = g * 0.62f;
+						drawLine(c - cr * g - cu * h, c + cr * g - cu * h, col);
+						drawLine(c + cr * g - cu * h, c + cr * g + cu * h, col);
+						drawLine(c + cr * g + cu * h, c - cr * g + cu * h, col);
+						drawLine(c - cr * g + cu * h, c - cr * g - cu * h, col);
+					} else {
+						// Ponctuelle : ampoule stylisee (globe + culot).
+						ScreenCircle(c + cu * (g * 0.28f), g * 0.5f, col, 12, false, drawLine);
+						drawLine(c - cr * (g * 0.26f) - cu * (g * 0.42f), c + cr * (g * 0.26f) - cu * (g * 0.42f), col);
+						drawLine(c - cr * (g * 0.26f) - cu * (g * 0.70f), c + cr * (g * 0.26f) - cu * (g * 0.70f), col);
+					}
+				}
+
+				// Corps PLEIN d'origine (octaedre), conserve sous Style::Solid3D : utile
+				// en debogage pour verifier une position en profondeur.
+				template <class DrawTri> static void BodySolid(NkVec3f c, float32 r, NkVec4f col, DrawTri drawTri) {
 					const NkVec3f px = {c.x + r, c.y, c.z}, nx = {c.x - r, c.y, c.z};
 					const NkVec3f py = {c.x, c.y + r, c.z}, ny = {c.x, c.y - r, c.z};
 					const NkVec3f pz = {c.x, c.y, c.z + r}, nz = {c.x, c.y, c.z - r};
@@ -160,7 +317,7 @@ namespace nkentseu {
 				template <class DrawLine, class DrawTri>
 				static void DrawPoint(const NkLightDesc &L, NkVec4f col, float32 r, bool selected, DrawLine drawLine,
 									  DrawTri drawTri) {
-					Body(L.position, r, col, drawTri);
+					Body(L.position, r, col, L.type, drawLine, drawTri);
 					// Petites branches : identifient une ponctuelle (rayonnement isotrope)
 					// sans encombrer. Longueur proportionnelle au corps, donc constante a
 					// l'ecran.
@@ -190,7 +347,7 @@ namespace nkentseu {
 					// le widget sur `position` s'il est renseigne, sinon a l'origine, et on
 					// le documente : ce n'est qu'un point d'accrochage visuel.
 					const NkVec3f c = L.position;
-					Body(c, r, col, drawTri);
+					Body(c, r, col, L.type, drawLine, drawTri);
 					NkVec3f x, y;
 					Basis(d, x, y);
 					Circle(c, x, y, r * 2.2f, col, false, drawLine);
@@ -213,7 +370,7 @@ namespace nkentseu {
 					NkVec3f d = L.direction;
 					const float32 dl = d.Len();
 					d = (dl > 1e-5f) ? d * (1.f / dl) : NkVec3f{0.f, -1.f, 0.f};
-					Body(L.position, r, col, drawTri);
+					Body(L.position, r, col, L.type, drawLine, drawTri);
 					NkVec3f x, y;
 					Basis(d, x, y);
 					const float32 len = L.range > 0.f ? L.range : 5.f;
@@ -254,7 +411,7 @@ namespace nkentseu {
 					drawLine(b, e, col);
 					drawLine(e, f, col);
 					drawLine(f, a, col);
-					Body(c, r * 0.6f, col, drawTri);
+					Body(c, r * 0.6f, col, L.type, drawLine, drawTri);
 					drawLine(c, c + d * (hw + hh), col); // normale = sens d'emission
 				}
 		};

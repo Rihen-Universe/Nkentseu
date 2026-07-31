@@ -27,7 +27,9 @@
 #include "NKRenderer/Mesh/NkEditMesh.h"			// structure demi-arête n-gon
 #include "NKFileSystem/NkFile.h"				// save/load session d'édition (journal de commandes)
 #include "NKTime/NkChrono.h"					// mesure du coût des aperçus modaux (NK_MODAL_PERF)
+#include "NKRenderer/Tools/VoxelAO/NkVoxelAOSystem.h" // NK_GI_TEST : GI à un rebond
 #include <cstdio>
+#include <cstdlib> // getenv (override NK_GI_TEST)
 
 namespace nkentseu {
 	namespace demo {
@@ -36,6 +38,24 @@ namespace nkentseu {
 				NkMeshHandle meshSphere;
 				NkMeshHandle meshPlane;
 				NkMeshHandle meshCube;
+				// ── NK_GI_TEST : mur mobile pour éprouver le GI à un rebond ──────
+				// Bornes de base du mur ; `giWallOffset` s'y ajoute et le GI est
+				// recalculé à chaque déplacement — c'est la démonstration que
+				// l'indirect suit la géométrie au lieu d'être pré-cuit.
+				static constexpr float32 kGIWallMin[3] = {-1.6f, 0.f, 2.2f};
+				static constexpr float32 kGIWallMax[3] = {1.6f, 2.6f, 2.8f};
+				bool giTest = false;
+				bool giOn = true;
+				bool giAuto = false;
+				bool giDirty = true;
+				float32 giIntensity = 1.f;
+				float32 giPhase = 0.f;
+				NkVec3f giWallOffset = {0.f, 0.f, 0.f};
+				// Transform effective du mur (clavier + gizmo) réellement utilisée par
+				// le dernier calcul de GI : sert à détecter qu'il a bougé.
+				NkMat4f giWallXform = NkMat4f::Identity();
+				float32 giBuildMs = 0.f;
+				float32 giInjectMs = 0.f;
 				NkTexHandle cookieWindow; // E.6 : cookie 2D pour le spot
 				NkTexHandle cookieCube;	  // E.6b : cookie cube pour le point red
 				// NkVSM v2 : panneau "feuillage" alpha-teste (validation ombre trouee).
@@ -90,12 +110,33 @@ namespace nkentseu {
 				// (valeur périmée conservée) -> le gizmo continuait de transformer souris immobile.
 				float32 lastMouseX = 0.f, lastMouseY = 0.f;
 				bool mouseTracked = false; // 1re frame : pas de delta
-				// Indices des cibles : 16 sphères, 1 cube, 2 colonnes, 64 instanciés = 83.
-				static const int32 kNumObj = 16 + 1 + 2 + 64;
+				// Indices des cibles : 16 sphères, 1 cube, 2 colonnes, 64 instanciés,
+				// puis 3 éléments de décor longtemps NON sélectionnables — le sol (83),
+				// le panneau feuillage alpha-testé (84) et le mur rouge du GI (85).
+				// Ils étaient dessinés avec une transform EN DUR : aucun index gizmo, donc
+				// ni clic ni déplacement possibles.
+				static const int32 kIdxFloor = 83, kIdxFoliage = 84, kIdxGIWall = 85;
+				static const int32 kNumObj = 16 + 1 + 2 + 64 + 3;
 				renderer::NkGizmo3D gizmo; // sélection multiple + translate/rotate/scale/combiné
 				// Mesh ÉDITÉ propre à un objet (persiste l'édition) : si valide, l'objet est
 				// rendu avec CE mesh au lieu de sa primitive partagée. Rempli à la SORTIE d'edit.
-					NkMeshHandle objMesh[kNumObj]{};
+					// ── LUMIERES PERSISTANTES (L1 etape 1) ──────────────────────────────
+				// VERROU LEVE ICI. Les 4 lumieres etaient reconstruites EN DUR a chaque
+				// frame dans Demo3D_Frame : tout deplacement au gizmo aurait ete ecrase a
+				// l'image suivante. Coder le pick avant cette etape aurait donne une
+				// manipulation qui marche a l'ecran et se reinitialise — pire que rien.
+				// Elles vivent desormais dans l'ETAT : initialisees une fois, modifiables,
+				// et seule leur animation reste optionnelle.
+				static const int32 kNumLights = 4;
+				renderer::NkLightDesc lights[kNumLights];
+				bool lightsInit = false;
+				// Le spot tournait via ctx.totalTime. On garde l'animation par DEFAUT (la
+				// demo montre la projection dynamique du cookie), mais des que
+				// l'utilisateur touche au spot elle DOIT s'arreter : sinon sa position
+				// serait recalculee et son deplacement perdu a la frame suivante.
+				bool spotAnimated = true;
+				float32 spotAngle = 0.f; // phase courante, avancee seulement si animee
+				NkMeshHandle objMesh[kNumObj]{};
 				// AUTORITE TOPOLOGIQUE de l'objet edite : la structure demi-arete n-gon
 				// TELLE QUELLE. Sans elle, on re-derivait la topologie depuis les TRIANGLES
 				// du mesh de rendu (BuildFromIndexed + quadify), heuristique qui ne
@@ -146,9 +187,23 @@ namespace nkentseu {
 				int32 editReplayStep = -1;				 // P : rejeu PAS-À-PAS (-1=off, 0=base, k=base+k commandes)
 				bool editSavePending = false;			 // F5 : sauver la session (journal) sur disque
 				bool editLoadPending = false;			 // F6 : charger une session + rejouer
-				int32 editAddModPending = -1;			 // F7/F8/F9 : ajouter modificateur (0=Mirror 1=Array 2=Subsurf)
+				int32 editAddModPending = -1;			 // ajouter le modificateur de ce type
+				// TYPE COURANT du menu « ajouter ». Il y a maintenant 17 modificateurs :
+				// une touche par type serait ingerable, et Blender ne fait pas cela non
+				// plus (il ouvre une liste). On cycle donc le type avec F8/F9 et on
+				// l'ajoute avec F7 — F8/F9 gardent ainsi un role voisin de l'ancien.
+				int32 editModTypePick = 0;
 				bool editClearModPending = false;		 // F10 : vider la pile de modificateurs
 				int32 editActiveMod = -1;				 // index du modificateur en cours de réglage
+				// PARAMÈTRE courant du modificateur actif. Le réglage ne passe plus par un
+				// `if (type == Mirror) … else if (type == Array) …` : il parcourt la TABLE
+				// publiée par le modificateur. Ajouter un type de modificateur n'oblige donc
+				// plus à revenir modifier la démo — et c'est la même table qu'un éditeur de
+				// courbes utilisera pour proposer « quoi animer ».
+				int32 editActiveParam = 0;
+				int32 editModStackOp = 0;   // 1=monter 2=descendre 3=activer/désactiver
+											// 4=dupliquer 5=retirer 6=appliquer
+				bool editModParamCyclePending = false;
 				int32 editModAdjustPending = 0;			 // [ / ] : ajuster (-1 / +1) le param principal
 				bool editModCyclePending = false;		 // \ : changer de modificateur actif
 				NkVector<renderer::NkEmId> editTriFace;	 // map triangle de rendu -> face n-gon (pick)
@@ -166,6 +221,18 @@ namespace nkentseu {
 				float32 editObjRoughness = 0.7f;
 				int32 editSelMask = 1;			  // bits : 1=VERTEX 2=EDGE 4=FACE (touches 1/2/3 ; Shift+ = combiner)
 				int32 editActiveVert = -1;		  // sommet ACTIF (dernier sélectionné) = rendu BLANC façon Blender
+				// ── ÉLÉMENT ACTIF EN ARÊTE ET EN FACE ───────────────────────────────
+				// Blender distingue TROIS états, pas deux : non sélectionné (noir),
+				// sélectionné (orange) et ACTIF (blanc). L'actif n'est pas cosmétique :
+				// c'est lui que visent « pivot = élément actif », les opérations « depuis
+				// l'actif » et le futur Merge At Last. Le sommet actif existait déjà ;
+				// l'arête et la face, non — en mode ARÊTE ou FACE on ne pouvait donc pas
+				// savoir laquelle de plusieurs sélections servirait de référence.
+				// L'arête est mémorisée par ses DEUX SOMMETS et non par un indice dans
+				// `editEdges` : ce tableau est reconstruit à chaque changement de
+				// topologie, un indice y deviendrait silencieusement faux.
+				int32 editActiveEdgeA = -1, editActiveEdgeB = -1;
+				int32 editActiveFace = -1; // identifiant de face n-gon (demi-arêtes)
 				bool editXray = false;			  // Alt+Z : voir/sélectionner à travers (façon Blender)
 				bool editMode = false;			  // TAB : bascule objet <-> édition
 				bool editTogglePending = false;	  // TAB traité côté frame (accès meshSys)
@@ -317,6 +384,19 @@ namespace nkentseu {
 				NkVector<NkLightDesc> frameLights;
 				int32 lightSel = -1;   // index de lumiere selectionnee (-1 = aucune)
 				bool showLightGizmos = true;
+				// GIZMO DEDIE AUX LUMIERES — un second NkGizmo3D plutot qu'un partage
+				// avec celui des objets : les deux ensembles n'ont ni les memes indices,
+				// ni les memes manipulations autorisees, et un clic doit trancher entre
+				// « j'attrape une lumiere » et « j'attrape un objet ». Deux instances
+				// rendent cette arbitration explicite au lieu de la cacher dans un
+				// espace d'indices partage.
+				renderer::NkGizmo3D lightGizmo;
+				// `lights[]` reste la BASE, jamais ecrite par le gizmo ; l'effet du
+				// gizmo est recompose a chaque frame par Demo3D_LightEffective. C'est
+				// exactement le contrat des objets (base figee + Apply), et c'est ce qui
+				// evite la derive : accumuler dans la base ferait grossir les erreurs
+				// d'arrondi a chaque frame de drag.
+				bool lightDragPrev = false;
 				bool cursorPlacePending = false; // Shift+clic droit -> replacer le curseur 3D
 				float32 cursorPX = 0.f, cursorPY = 0.f;
 				// PILOTE HEADLESS : force l'application de la transform de groupe en Edit Mode
@@ -354,6 +434,20 @@ namespace nkentseu {
 				return NkMat4f::Translate({(gx - 3.5f) * 0.55f, 1.6f, (gz - 3.5f) * 0.55f - 4.5f}) *
 					   NkMat4f::Scale({0.18f, 0.18f, 0.18f});
 			}
+			// Décor devenu sélectionnable — MÊMES transforms que les draw calls.
+			if (idx == Demo3DState::kIdxFloor)
+				return NkMat4f::Scale({40.f, 1.f, 40.f}); // sol 80x80
+			if (idx == Demo3DState::kIdxFoliage)
+				return NkMat4f::Translate({4.f, 1.6f, -1.f}) * NkMat4f::RotationY(NkAngle::FromRad(0.6f)) *
+					   NkMat4f::Scale({1.6f, 1.2f, 0.03f}); // panneau alpha-testé
+			if (idx == Demo3DState::kIdxGIWall) {
+				const NkVec3f c{(Demo3DState::kGIWallMin[0] + Demo3DState::kGIWallMax[0]) * 0.5f,
+								(Demo3DState::kGIWallMin[1] + Demo3DState::kGIWallMax[1]) * 0.5f,
+								(Demo3DState::kGIWallMin[2] + Demo3DState::kGIWallMax[2]) * 0.5f};
+				return NkMat4f::Translate(c) * NkMat4f::Scale({Demo3DState::kGIWallMax[0] - Demo3DState::kGIWallMin[0],
+															   Demo3DState::kGIWallMax[1] - Demo3DState::kGIWallMin[1],
+															   Demo3DState::kGIWallMax[2] - Demo3DState::kGIWallMin[2]});
+			}
 			return NkMat4f::Identity();
 		}
 
@@ -385,6 +479,18 @@ namespace nkentseu {
 				tint = {(float32)gx / 7.f, 0.6f, (float32)gz / 7.f};
 				metallic = 0.f;
 				roughness = 0.6f;
+				return;
+			}
+			if (idx == Demo3DState::kIdxFloor) {
+				tint = {0.12f, 0.12f, 0.13f};
+				metallic = 0.f;
+				roughness = 0.92f;
+				return;
+			}
+			if (idx == Demo3DState::kIdxGIWall) {
+				tint = {0.9f, 0.05f, 0.05f};
+				metallic = 0.f;
+				roughness = 0.85f;
 				return;
 			}
 			tint = {0.75f, 0.78f, 0.85f};
@@ -590,6 +696,8 @@ namespace nkentseu {
 			st->editHE.Triangulate(st->editRest, st->editIdx, st->editTriFace);
 			st->editLive = st->editRest;
 			st->editActiveVert = -1; // la topologie a pu changer -> l'index actif n'est plus fiable
+			st->editActiveEdgeA = st->editActiveEdgeB = -1;
+			st->editActiveFace = -1;
 			st->editHE.GetUniqueEdges(st->editEdges);
 			if ((uint32)st->vertSel.Size() != st->editHE.VertCount())
 				st->vertSel.Resize(st->editHE.VertCount());
@@ -865,9 +973,12 @@ namespace nkentseu {
 		// récupèrent la sélection du démo (st->vertSel) autour de l'appel, puis
 		// Demo3D_SyncFromHE régénère le rendu (triangulation + cage + mesh GPU).
 		static void Demo3D_PushSel(Demo3DState *st) {
-			const uint32 n = st->editHE.VertCount();
-			for (uint32 i = 0; i < n && i < (uint32)st->vertSel.Size(); ++i)
-				st->editHE.verts[i].sel = st->vertSel[i];
+			// SetVertSelection au lieu d'écrire `sel` à la main : c'est ce qui fait
+			// vivre l'ORDRE DE SÉLECTION (Vert::selOrder), dont dépendent Merge At
+			// First / At Last. L'ordre se déduit des TRANSITIONS, donc pousser le
+			// tableau ENTIER à chaque synchronisation — ce que fait cette fonction —
+			// n'écrase rien : seuls les changements réels consomment un rang.
+			st->editHE.SetVertSelection(st->vertSel.Data(), (uint32)st->vertSel.Size());
 			// Les primitives dupliquent leurs sommets PAR FACE : un coin cliqué n'est qu'UNE
 			// des N copies coïncidentes. Sans propagation, la face/l'arête voisine ne se voit
 			// pas sélectionnée ET la copie retenue peut appartenir à une face qui tourne le
@@ -889,6 +1000,64 @@ namespace nkentseu {
 		static void Demo3D_NormalizeSel(Demo3DState *st) {
 			Demo3D_PushSel(st);
 			Demo3D_PullSel(st);
+		}
+
+		// ── LUMIERE EFFECTIVE = base + transform du gizmo ───────────────────────────
+		// La manipulation d'une lumiere n'est PAS celle d'un objet : chaque poignee
+		// doit correspondre a un parametre qui existe reellement. NkLightGizmo dit
+		// lesquels (CanTranslate / CanRotate / ScaleMeaning) et on s'y tient :
+		//   • directionnelle : sa position n'entre dans aucun calcul d'eclairage, donc
+		//     la deplacer ne changerait strictement rien a l'image. On l'ignore.
+		//   • ponctuelle : rayonnement isotrope, la tourner ne change rien non plus.
+		//   • echelle : elle ne « grossit » pas une lumiere, elle regle sa PORTEE
+		//     (point/spot) ou ses DIMENSIONS (area). Une directionnelle n'a ni l'une
+		//     ni l'autre.
+		// Appliquer une transformation sans effet serait pire qu'inutile : le widget
+		// bougerait, l'image non — l'outil mentirait sur son propre resultat.
+		static renderer::NkLightDesc Demo3D_LightEffective(const Demo3DState *st, int32 li) {
+			renderer::NkLightDesc L = st->lights[li];
+			using LG = renderer::NkLightGizmo;
+			// Base = simple translation a la position de reference. Le gizmo accumule
+			// par-dessus, la base ne bouge jamais.
+			const NkMat4f base = NkMat4f::Translate(L.position);
+			const NkMat4f m = st->lightGizmo.Apply(li, base);
+			const NkVec3f o = m * NkVec3f{0.f, 0.f, 0.f};
+			// TRANSLATION ET ROTATION TOUJOURS APPLIQUEES. Premiere version : elles
+			// etaient filtrees par CanTranslate/CanRotate, au motif qu'une manipulation
+			// sans effet « mentirait sur le resultat ». C'etait une erreur de modele.
+			// Dans Blender une lampe EST un objet de la scene : on deplace un soleil pour
+			// le RANGER (le sortir du champ, l'aligner sur un repere) meme si sa position
+			// n'entre dans aucun calcul d'eclairage, et on tourne une ponctuelle parce que
+			// tourner un objet est un geste universel. Refuser cassait deux choses :
+			// l'uniformite du geste, et le placement du WIDGET lui-meme, qui restait
+			// coince a sa position d'origine. Ce que le type change, c'est l'EFFET sur
+			// l'image — dit une fois dans le journal — pas le DROIT de manipuler.
+			L.position = o;
+			{
+				// Direction transformee par la seule partie LINEAIRE : on soustrait
+				// l'origine transformee, ce qui annule la translation quelle que soit la
+				// composition de la matrice (pas besoin d'une API MulDir dediee).
+				const NkVec3f d0 = L.direction.Normalized();
+				const NkVec3f t = (m * d0) - o;
+				const float32 tl = t.Len();
+				if (tl > 1e-5f)
+					L.direction = t * (1.f / tl);
+			}
+			// Facteur d'echelle lu sur un axe : longueur de l'image de X. Uniforme ici,
+			// car portee et dimensions se reglent proportionnellement.
+			const NkVec3f ax = (m * NkVec3f{1.f, 0.f, 0.f}) - o;
+			const float32 k = ax.Len();
+			if (k > 1e-4f) {
+				switch (LG::ScaleMeaning(L.type)) {
+					case renderer::NkLightScaleMeaning::Range: L.range *= k; break;
+					case renderer::NkLightScaleMeaning::Dimensions:
+						L.areaWidth *= k;
+						L.areaHeight *= k;
+						break;
+					default: break; // None : la directionnelle n'a rien a redimensionner
+				}
+			}
+			return L;
 		}
 
 		// ── PROJECTION MONDE -> ÉCRAN, AUTONOME ─────────────────────────────────────
@@ -1673,28 +1842,130 @@ namespace nkentseu {
 			if (st->editActiveMod < 0 || st->editActiveMod >= cnt)
 				st->editActiveMod = cnt - 1;
 			renderer::NkMeshModifier &m = st->editModifiers.modifiers[st->editActiveMod];
-			const char *nm[3] = {"Mirror", "Array", "Subsurf"};
-			const char *ax[3] = {"X", "Y", "Z"};
-			if (m.type == renderer::NkModifierType::Mirror) {
-				m.mirrorAxis = (m.mirrorAxis + (dir > 0 ? 1 : 2)) % 3;
-				logger.Info("[Demo3D] Modif[{0}] Mirror axe = {1}\n", st->editActiveMod, ax[m.mirrorAxis]);
-			} else if (m.type == renderer::NkModifierType::Array) {
-				m.arrayCount += dir;
-				if (m.arrayCount < 1)
-					m.arrayCount = 1;
-				if (m.arrayCount > 20)
-					m.arrayCount = 20;
-				logger.Info("[Demo3D] Modif[{0}] Array copies = {1}\n", st->editActiveMod, m.arrayCount);
+			const uint32 pc = m.ParamCount();
+			if (pc == 0)
+				return;
+			if (st->editActiveParam < 0 || st->editActiveParam >= (int32)pc)
+				st->editActiveParam = 0;
+			const renderer::NkModParam *p = m.ParamAt((uint32)st->editActiveParam);
+			if (!p)
+				return;
+			// PAS D'INCRÉMENT PAR TYPE. Un booléen bascule, un entier avance de 1, un
+			// réel avance d'un centième de sa plage (ou de 0,05 si la plage est libre).
+			// Sans cette règle, un même geste ferait passer un compteur de 1 à 2 et une
+			// distance de 0,001 à 1,001 — l'un utilisable, l'autre pas.
+			if (p->type == renderer::NkModParamType::Vec3) {
+				NkVec3f v{0.f, 0.f, 0.f};
+				m.GetParamVec3(p->name, v);
+				const float32 stepv = 0.25f * (float32)dir;
+				v = v + NkVec3f{stepv, 0.f, 0.f}; // décalage principal = X (cf. Array)
+				m.SetParamVec3(p->name, v);
+				logger.Info("[Demo3D] Modif[{0}] {1} = ({2}, {3}, {4})\n", st->editActiveMod, p->label, v.x, v.y, v.z);
 			} else {
-				m.subsurfLevels += dir;
-				if (m.subsurfLevels < 1)
-					m.subsurfLevels = 1;
-				if (m.subsurfLevels > 4)
-					m.subsurfLevels = 4;
-				logger.Info("[Demo3D] Modif[{0}] Subsurf niveaux = {1}\n", st->editActiveMod, m.subsurfLevels);
+				float32 v = 0.f;
+				m.GetParam(p->name, v);
+				float32 step = 1.f;
+				if (p->type == renderer::NkModParamType::Bool)
+					v = (v >= 0.5f) ? 0.f : 1.f;
+				else {
+					if (p->type == renderer::NkModParamType::Float)
+						step = (p->maxV > p->minV) ? (p->maxV - p->minV) * 0.01f : 0.05f;
+					v += step * (float32)dir;
+				}
+				m.SetParam(p->name, v);
+				m.GetParam(p->name, v); // relire : la valeur a pu être écrêtée
+				logger.Info("[Demo3D] Modif[{0}] {1} ({2}) = {3}\n", st->editActiveMod, p->label, p->name, v);
 			}
-			(void)nm;
 			Demo3D_SyncFromHE(st, ms);
+		}
+
+		// Passe au PARAMÈTRE suivant du modificateur actif (touche ; ). Générique :
+		// la liste vient du modificateur, pas d'un switch dans la démo.
+		static void Demo3D_CycleModParam(Demo3DState *st) {
+			const int32 cnt = (int32)st->editModifiers.Count();
+			if (cnt == 0 || st->editActiveMod < 0 || st->editActiveMod >= cnt)
+				return;
+			const renderer::NkMeshModifier &m = st->editModifiers.modifiers[st->editActiveMod];
+			const uint32 pc = m.ParamCount();
+			if (pc == 0)
+				return;
+			st->editActiveParam = (st->editActiveParam + 1) % (int32)pc;
+			const renderer::NkModParam *p = m.ParamAt((uint32)st->editActiveParam);
+			float32 v = 0.f;
+			if (p) {
+				m.GetParam(p->name, v);
+				logger.Info("[Demo3D] Modif[{0}] parametre actif = {1} ({2}) = {3}\n", st->editActiveMod, p->label,
+							p->name, v);
+			}
+		}
+
+		// GESTION DE LA PILE — monter/descendre/activer/dupliquer/retirer/appliquer.
+		// L'ORDRE de la pile est un paramètre de RÉSULTAT : miroir puis tableau ne
+		// donne pas la même chose que tableau puis miroir. Pouvoir déplacer une entrée
+		// n'est donc pas un confort d'interface.
+		static void Demo3D_ModStackOp(Demo3DState *st, renderer::NkMeshSystem *ms, int32 op) {
+			const int32 cnt = (int32)st->editModifiers.Count();
+			if (cnt == 0) {
+				logger.Info("[Demo3D] Pile de modificateurs vide.\n");
+				return;
+			}
+			if (st->editActiveMod < 0 || st->editActiveMod >= cnt)
+				st->editActiveMod = cnt - 1;
+			const uint32 i = (uint32)st->editActiveMod;
+			bool ok = false;
+			switch (op) {
+				case 1:
+					ok = st->editModifiers.MoveUp(i);
+					if (ok)
+						st->editActiveMod--;
+					break;
+				case 2:
+					ok = st->editModifiers.MoveDown(i);
+					if (ok)
+						st->editActiveMod++;
+					break;
+				case 3: ok = st->editModifiers.SetEnabled(i, !st->editModifiers.modifiers[i].enabled); break;
+				case 4:
+					ok = st->editModifiers.Duplicate(i);
+					if (ok)
+						st->editActiveMod = (int32)i + 1; // la copie devient active
+					break;
+				case 5:
+					ok = st->editModifiers.Remove(i);
+					if (ok && st->editActiveMod >= (int32)st->editModifiers.Count())
+						st->editActiveMod = (int32)st->editModifiers.Count() - 1;
+					break;
+				case 6: {
+					// APPLIQUER : cuit dans le maillage ÉDITABLE et retire de la pile.
+					// L'opération est DESTRUCTIVE — d'où le snapshot d'annulation AVANT,
+					// sans lequel un clic malheureux serait irréversible.
+					st->editHistory.Commit(st->editHE);
+					bool notFirst = false;
+					ok = st->editModifiers.ApplyToBase(i, st->editHE, &notFirst);
+					if (ok && notFirst)
+						logger.Info("[Demo3D] ⚠ modificateur appliqué alors qu'il n'était PAS le premier : le "
+									"resultat ne correspond pas a ce qui etait affiche (les precedents n'ont pas "
+									"ete cuits). Comportement de Blender.\n");
+					if (ok && st->editActiveMod >= (int32)st->editModifiers.Count())
+						st->editActiveMod = (int32)st->editModifiers.Count() - 1;
+					break;
+				}
+				default: break;
+			}
+			if (!ok) {
+				logger.Info("[Demo3D] Operation de pile sans effet (bord de pile ?).\n");
+				return;
+			}
+			st->editActiveParam = 0;
+			Demo3D_SyncFromHE(st, ms);
+			// État complet de la pile après l'opération : c'est ce qui permet de
+			// vérifier l'ordre sans capture d'écran.
+			for (uint32 k = 0; k < st->editModifiers.Count(); ++k) {
+				const renderer::NkMeshModifier &mm = st->editModifiers.modifiers[k];
+				logger.Info("[Demo3D][PILE] [{0}] {1} id={2} {3}{4}\n", k, renderer::NkModifierTypeName(mm.type),
+							mm.id, mm.enabled ? "actif" : "ETEINT",
+							((int32)k == st->editActiveMod) ? "  <- selectionne" : "");
+			}
 		}
 
 		static void Demo3D_CycleActiveMod(Demo3DState *st) {
@@ -1892,9 +2163,27 @@ namespace nkentseu {
 			// section « EDIT MODE » dans la frame. Les primitives (sphère/cube) gardent
 			// leurs données CPU (NkMeshDesc::keepCPU par défaut) -> clonage sans readback.
 
-			// Pas de SNAP (touche Ctrl) — LIBREMENT ajustables ici par l'application :
+			// ── AIMANTATION (« snap ») — RÉGLÉE POUR LES DEUX MODES ────────────────
+			// Auparavant seul le gizmo OBJET était configuré ; le gizmo d'ÉDITION
+			// gardait les défauts de la classe. Ils coïncidaient, donc l'aimantation
+			// paraissait identique dans les deux modes — mais par accident : changer
+			// le pas ici n'aurait rien changé en édition. Les deux sont désormais
+			// réglés au même endroit, ce qui rend la coïncidence VOULUE.
 			//   translate (unités monde) · rotation (degrés) · échelle (delta).
-			st->gizmo.SetSnapSteps(/*translate*/ 0.5f, /*rotation°*/ 15.f, /*échelle*/ 0.1f);
+			for (renderer::NkGizmo3D *gz : {&st->gizmo, &st->editGizmo}) {
+				gz->SetSnapSteps(/*translate*/ 0.5f, /*rotation°*/ 15.f, /*échelle*/ 0.1f);
+				// Bascule PERSISTANTE façon Blender (Shift+Tab), que Ctrl inverse.
+				// Éteinte par défaut : Ctrl aimante, comme avant.
+				gz->SetSnapEnabled(false);
+				// Grille ABSOLUE : NK_SNAP_ABS=1. Par défaut incrément RELATIF, qui est
+				// aussi le défaut de Blender.
+				if (const char *sa = getenv("NK_SNAP_ABS"))
+					gz->SetSnapAbsolute(sa[0] && sa[0] != '0');
+				if (const char *so = getenv("NK_SNAP_ON"))
+					gz->SetSnapEnabled(so[0] && so[0] != '0');
+				if (const char *ss = getenv("NK_SNAP_STEP"))
+					gz->SetSnapTranslate((float32)atof(ss));
+			}
 
 			// ── Phase E.6 : creation procedurale des cookies + bind ──────────────
 			auto *texLib = ctx.renderer->GetTextures();
@@ -2071,6 +2360,29 @@ namespace nkentseu {
 					st->orthoView = !st->orthoView;
 					logger.Info("[Demo3D] Projection = {0}\n", st->orthoView ? "ORTHO" : "PERSPECTIVE");
 				} // pavé 5 = toggle ortho/persp
+				// ── NK_GI_TEST : pilotage du mur rouge et A/B de l'indirect ──────
+				// Touches actives UNIQUEMENT sous l'override, pour ne rien voler au
+				// keymap habituel de la démo.
+				else if (st->giTest && (k == NkKey::NK_NUMPAD_4 || k == NkKey::NK_NUMPAD_6 ||
+										k == NkKey::NK_NUMPAD_8 || k == NkKey::NK_NUMPAD_2)) {
+					const float32 step = 0.35f;
+					if (k == NkKey::NK_NUMPAD_4)
+						st->giWallOffset.x -= step;
+					else if (k == NkKey::NK_NUMPAD_6)
+						st->giWallOffset.x += step;
+					else if (k == NkKey::NK_NUMPAD_8)
+						st->giWallOffset.z -= step;
+					else
+						st->giWallOffset.z += step;
+					st->giDirty = true; // le GI est recalculé : l'indirect SUIT le mur
+				} else if (st->giTest && k == NkKey::NK_NUMPAD_0) {
+					st->giOn = !st->giOn;
+					st->giDirty = true;
+					logger.Info("[Demo3D] GI {0}\n", st->giOn ? "ON" : "OFF");
+				} else if (st->giTest && k == NkKey::NK_NUMPAD_9) {
+					st->giAuto = !st->giAuto;
+					logger.Info("[Demo3D] va-et-vient auto du mur : {0}\n", st->giAuto ? "ON" : "OFF");
+				}
 				if (axisView)
 					st->orthoView = true; // vue axiale -> ortho auto (façon Blender)
 			});
@@ -2161,6 +2473,20 @@ namespace nkentseu {
 				const bool alt = NkInput.IsKeyDown(NkKey::NK_LALT) || NkInput.IsKeyDown(NkKey::NK_RALT);
 				const char *mn[4] = {"TRANSLATE", "ROTATE", "SCALE", "COMBINE (T+R+S)"};
 				using GZ = renderer::NkGizmo3D;
+				// SHIFT+TAB : bascule l'AIMANTATION, comme Blender — et comme lui, Ctrl
+				// l'INVERSE ensuite le temps d'un geste. Testé AVANT le TAB nu, sinon la
+				// combinaison entrerait en mode édition. Réglée sur les DEUX gizmos : une
+				// aimantation qui ne vaudrait que dans un mode serait pire qu'aucune.
+				if (k == NkKey::NK_TAB &&
+					(NkInput.IsKeyDown(NkKey::NK_LSHIFT) || NkInput.IsKeyDown(NkKey::NK_RSHIFT))) {
+					const bool on = !st->gizmo.IsSnapEnabled();
+					st->gizmo.SetSnapEnabled(on);
+					st->editGizmo.SetSnapEnabled(on);
+					logger.Info("[Demo3D] Aimantation = {0} (pas {1}, grille {2}) — Ctrl inverse\n",
+								on ? "ON" : "off", st->gizmo.SnapTranslate(),
+								st->gizmo.IsSnapAbsolute() ? "ABSOLUE" : "increment");
+					return;
+				}
 				// TAB : bascule OBJET <-> EDIT MODE. Traité côté frame (accès meshSys pour
 				// cloner le mesh de l'objet sélectionné). Façon Blender.
 				if (k == NkKey::NK_TAB) {
@@ -2332,17 +2658,25 @@ namespace nkentseu {
 						st->editLoadPending = true;
 						return;
 					}
-					// F7/F8/F9 = ajouter modificateur MIRROR / ARRAY / SUBSURF (non-destructif) · F10 = vider.
+					// F7 = AJOUTER le modificateur du type courant · F8/F9 = changer de type
+					// · F10 = vider la pile. Le type courant est journalise a chaque
+					// changement : sans cela, avec 17 entrees, on ne saurait pas ce qu'on
+					// s'apprete a ajouter.
 					if (k == NkKey::NK_F7) {
-						st->editAddModPending = 0;
+						st->editAddModPending = st->editModTypePick;
 						return;
 					}
-					if (k == NkKey::NK_F8) {
-						st->editAddModPending = 1;
-						return;
-					}
-					if (k == NkKey::NK_F9) {
-						st->editAddModPending = 2;
+					if (k == NkKey::NK_F8 || k == NkKey::NK_F9) {
+						const int32 last = (int32)renderer::NkModifierType::SmoothByAngle;
+						st->editModTypePick += (k == NkKey::NK_F9) ? 1 : -1;
+						if (st->editModTypePick < 0)
+							st->editModTypePick = last;
+						if (st->editModTypePick > last)
+							st->editModTypePick = 0;
+						uint32 np = 0;
+						renderer::NkModifierParams((renderer::NkModifierType)st->editModTypePick, np);
+						logger.Info("[Demo3D] Type a ajouter (F7) = [{0}] {1} — {2} parametres\n", st->editModTypePick,
+									renderer::NkModifierTypeName((renderer::NkModifierType)st->editModTypePick), np);
 						return;
 					}
 					if (k == NkKey::NK_F10) {
@@ -2357,6 +2691,39 @@ namespace nkentseu {
 					}
 					if (k == NkKey::NK_LBRACKET) {
 						st->editModAdjustPending = -1;
+						return;
+					}
+					// ── GESTION DE LA PILE (Blender : panneau Modificateurs) ─────────
+					// L'ORDRE de la pile est un parametre de RESULTAT — miroir puis tableau
+					// ne donne pas la meme chose que tableau puis miroir — donc deplacer une
+					// entree n'est pas un confort d'interface. Toutes ces touches sont sous
+					// SHIFT pour ne pas voler les raccourcis d'edition existants :
+					//   Shift+\   parametre suivant du modificateur actif
+					//   Shift+Haut / Shift+Bas   monter / descendre dans la pile
+					//   Shift+E   activer/desactiver     Shift+D   dupliquer
+					//   Shift+Suppr  retirer             Shift+Entree  APPLIQUER (destructif)
+					if (k == NkKey::NK_BACKSLASH && shiftG) {
+						st->editModParamCyclePending = true;
+						return;
+					}
+					if (shiftG && (k == NkKey::NK_UP || k == NkKey::NK_DOWN)) {
+						st->editModStackOp = (k == NkKey::NK_UP) ? 1 : 2;
+						return;
+					}
+					if (shiftG && k == NkKey::NK_E) {
+						st->editModStackOp = 3;
+						return;
+					}
+					if (shiftG && k == NkKey::NK_D) {
+						st->editModStackOp = 4;
+						return;
+					}
+					if (shiftG && k == NkKey::NK_DELETE) {
+						st->editModStackOp = 5;
+						return;
+					}
+					if (shiftG && k == NkKey::NK_ENTER) {
+						st->editModStackOp = 6; // APPLIQUER : destructif, snapshot d'annulation pose
 						return;
 					}
 					if (k == NkKey::NK_BACKSLASH) {
@@ -2504,10 +2871,45 @@ namespace nkentseu {
 						}
 					}
 				}
-				// Gizmo ACTIF selon le mode : objet ou vertices.
-				renderer::NkGizmo3D &G = st->editMode ? st->editGizmo : st->gizmo;
+				// Gizmo ACTIF selon le mode : objet, vertices, ou LUMIERE.
+				// Une lumiere selectionnee capte G/R/S exactement comme un objet — c'est
+				// le modele Blender, ou une lampe EST un objet de la scene. Mais toutes
+				// les manipulations n'ont pas d'effet sur elle, d'ou le filtre ci-dessous.
+				const bool lightActive =
+					(!st->editMode && st->lightSel >= 0 && st->lightSel < Demo3DState::kNumLights);
+				renderer::NkGizmo3D &G =
+					st->editMode ? st->editGizmo : (lightActive ? st->lightGizmo : st->gizmo);
 				if (G.IsDragging())
 					return; // en plein drag : X/Y/Z = verrou (pas de switch)
+				// G/R/S NE SONT JAMAIS REFUSES sur une lumiere. Comme dans Blender, une
+				// lampe EST un objet de la scene : elle se deplace, tourne et se
+				// redimensionne toujours. Le type ne restreint pas le GESTE, il determine
+				// seulement son EFFET sur l'image — et c'est cela qu'on dit, au lieu
+				// d'ignorer la touche.
+				// Premiere version : la touche etait REFUSEE quand la manipulation n'avait
+				// pas d'effet visible. Erreur de modele : on deplace un soleil pour le
+				// RANGER dans la scene, pas pour changer l'eclairage, et refuser empechait
+				// aussi de bouger son WIDGET. Uniformite du geste d'abord.
+				if (lightActive && !alt) {
+					using LGZ = renderer::NkLightGizmo;
+					const renderer::NkLightDesc &SL = st->lights[st->lightSel];
+					if (k == NkKey::NK_G && !LGZ::CanTranslate(SL.type))
+						logger.Info("[Demo3D][LUMIERE] deplacement autorise, mais l'eclairage ne changera pas : "
+									"une directionnelle n'utilise que sa direction.\n");
+					if (k == NkKey::NK_R && !LGZ::CanRotate(SL.type))
+						logger.Info("[Demo3D][LUMIERE] rotation autorisee, mais l'eclairage ne changera pas : "
+									"une ponctuelle rayonne dans toutes les directions.\n");
+					// L'echelle d'une lumiere ne l'agrandit pas : elle regle sa PORTEE
+					// (point/spot) ou ses DIMENSIONS (area). Le dire evite de chercher
+					// pourquoi le widget ne « grossit » pas comme un objet.
+					if (k == NkKey::NK_S) {
+						const renderer::NkLightScaleMeaning sm = LGZ::ScaleMeaning(SL.type);
+						logger.Info("[Demo3D][LUMIERE] echelle -> {0}\n",
+									sm == renderer::NkLightScaleMeaning::Range		  ? "portee"
+									: sm == renderer::NkLightScaleMeaning::Dimensions ? "dimensions"
+																				  : "aucun parametre (directionnelle)");
+					}
+				}
 				if (k == NkKey::NK_G) {
 					if (alt)
 						G.ClearSelectedTranslate();
@@ -2655,9 +3057,231 @@ namespace nkentseu {
 			st->editorCam.SetCenter(camCenter, camRadius, camYaw, camPitch);
 			st->simCam.SetPose({0.f, 1.5f, 6.f}, -1.5708f, -0.15f);
 
+			{
+				const char *giEnv = getenv("NK_GI_TEST");
+				st->giTest = (giEnv && giEnv[0] && giEnv[0] != '0');
+				const char *giInt = getenv("NK_GI_INTENSITY");
+				if (giInt && giInt[0])
+					st->giIntensity = (float32)atof(giInt);
+				// NK_GI_AUTO : démarre le va-et-vient sans clavier — sert à mesurer
+				// le coût du GI en mouvement dans une capture automatisée.
+				const char *giAuto = getenv("NK_GI_AUTO");
+				st->giAuto = (giAuto && giAuto[0] && giAuto[0] != '0');
+				if (st->giTest) {
+					logger.Info("[Demo3D] === NK_GI_TEST : GI a un rebond (mur rouge mobile) ===\n");
+					logger.Info("[Demo3D] PAVE NUM 4/6 : deplacer le mur en X | 8/2 : en Z\n");
+					logger.Info("[Demo3D] PAVE NUM 0 : GI on/off (A/B)   9 : va-et-vient auto\n");
+					logger.Info("[Demo3D] La lumiere rouge de la scene est RETIREE : tout rouge = rebond\n");
+				}
+			}
+
 			logger.Info("[Demo3D] Init OK — meshes : sphere={0} plane={1} cube={2}\n", (uint64)st->meshSphere.id,
 						(uint64)st->meshPlane.id, (uint64)st->meshCube.id);
 			return true;
+		}
+
+		// ── NK_GI_TEST : (re)construction de la grille de GI ─────────────────────
+		// Re-voxelise le sol + le mur à sa position COURANTE, puis réinjecte
+		// l'éclairage. Appelée uniquement quand quelque chose a bougé : l'injection
+		// v1 est en CPU, donc on ne la paie pas à chaque frame pour rien. Les deux
+		// coûts sont relevés pour être affichés à l'écran — c'est ce qui permet de
+		// juger si l'indirect peut suivre une scène animée.
+		// Transform de base COMPLÈTE d'un objet : celle de Demo3D_ObjBase, plus le
+		// décalage clavier du mur du GI. Toute la chaîne (cible du gizmo, ancre d'Edit
+		// Mode, draw, occluder) doit passer par ICI — sinon l'un d'eux travaille sur
+		// une position que les autres ignorent, et la cage d'édition se retrouve
+		// décalée par rapport à l'objet affiché.
+		static NkMat4f Demo3D_ObjBaseFull(const Demo3DState *st, int32 idx) {
+			if (st && idx == Demo3DState::kIdxGIWall)
+				return NkMat4f::Translate(st->giWallOffset) * Demo3D_ObjBase(idx);
+			return Demo3D_ObjBase(idx);
+		}
+
+		// AABB MONDE d'un cube unitaire (±0,5) transformé : les 8 coins puis min/max.
+		// Sert à faire suivre l'occluder du GI quand le mur est déplacé AU GIZMO
+		// (translation, mais aussi rotation ou mise à l'échelle).
+		static void Demo3D_XformAABB(const NkMat4f &m, NkVec3f &outMin, NkVec3f &outMax) {
+			outMin = {1e30f, 1e30f, 1e30f};
+			outMax = {-1e30f, -1e30f, -1e30f};
+			for (int32 c = 0; c < 8; c++) {
+				const NkVec3f l{(c & 1) ? 0.5f : -0.5f, (c & 2) ? 0.5f : -0.5f, (c & 4) ? 0.5f : -0.5f};
+				const NkVec3f p = m * l;
+				outMin.x = NkMin(outMin.x, p.x);
+				outMin.y = NkMin(outMin.y, p.y);
+				outMin.z = NkMin(outMin.z, p.z);
+				outMax.x = NkMax(outMax.x, p.x);
+				outMax.y = NkMax(outMax.y, p.y);
+				outMax.z = NkMax(outMax.z, p.z);
+			}
+		}
+
+		static void Demo3D_RebuildGI(Demo3DState *st, NkRenderer *renderer, const NkVector<NkLightDesc> &lights) {
+			auto *vao = renderer ? renderer->GetVoxelAO() : nullptr;
+			if (!vao)
+				return;
+			vao->Clear();
+			NkVoxelOccluder floorOcc;
+			floorOcc.minWorld = {-8.f, -0.6f, -8.f};
+			floorOcc.maxWorld = {8.f, 0.05f, 8.f};
+			floorOcc.opacity = 1.f;
+			floorOcc.albedo = {0.5f, 0.5f, 0.5f};
+			vao->RegisterOccluder(floorOcc);
+			// L'occluder épouse la transform EFFECTIVE du mur (clavier + gizmo) : la
+			// lumière rebondit donc toujours exactement sur le mur qu'on voit bouger.
+			NkVoxelOccluder wall;
+			Demo3D_XformAABB(st->giWallXform, wall.minWorld, wall.maxWorld);
+			wall.opacity = 1.f;
+			wall.albedo = {0.9f, 0.05f, 0.05f};
+			vao->RegisterOccluder(wall);
+			vao->Build();
+			// GI éteint = injection de zéro : l'opacité (donc l'AO) reste, seul
+			// l'indirect disparaît. L'A/B ne change donc QUE ce qu'on veut mesurer.
+			vao->SetGIIntensity(st->giOn ? st->giIntensity : 0.f);
+			vao->InjectLighting(lights);
+			st->giBuildMs = vao->GetLastBuildMs();
+			st->giInjectMs = vao->GetLastInjectMs();
+		}
+
+		// ── ENTREE EN EDITION SUR UN OBJET ──────────────────────────────────────
+		// Extraite telle quelle du corps de frame — MEME code, MEME ordre. C'est le
+		// premier pas, et le seul risque, du chantier MULTI-OBJETS : tant que
+		// l'entree etait ecrite en ligne au milieu de la frame, il etait impossible
+		// de la rejouer pour un SECOND objet sans la dupliquer. Le comportement doit
+		// rester strictement identique — verifie par NK_EDIT_IDENTITY (0 partout) et
+		// par capture avant/apres.
+		//
+		// Elle remplit l'etat d'edition COURANT. L'etape suivante consistera a la
+		// faire ecrire dans un EMPLACEMENT (Demo3DEditSlot) plutot que directement
+		// dans st, puis a garder un emplacement par objet edite.
+		static void Demo3D_EnterEditOnObject(Demo3DState *st, renderer::NkMeshSystem *ms,
+											 renderer::NkRender3D *r3d, int32 sel) {
+			(void)r3d;
+			if (sel < 0) {
+				logger.Info("[Demo3D] Sélectionne un objet (clic) avant TAB.\n");
+			} else {
+				// Source = le mesh DÉJÀ édité de l'objet s'il existe (on continue
+				// l'édition), sinon la primitive partagée.
+				// ⚠️ La règle « <16 = sphère, sinon CUBE » supposait que tout objet
+				// non-sphère était un cube. Le sol est un PLAN : on entrait donc en
+				// édition sur une cage de cube étirée à 80×1×80, sans rapport avec
+				// la géométrie réellement affichée — d'où un « cube invisible » qu'on
+				// déplaçait et qui laissait le sol sur place.
+				NkMeshHandle prim = st->meshCube;
+				if (sel < 16)
+					prim = st->meshSphere;
+				else if (sel == Demo3DState::kIdxFloor)
+					prim = st->meshPlane;
+				const bool hadEdit = st->objMesh[sel].IsValid();
+				const NkMeshHandle src = hadEdit ? st->objMesh[sel] : prim;
+				if (!ms || !ms->HasCPUData(src)) {
+					logger.Warn("[Demo3D] Mesh sans copie CPU (keepCPU) — édition impossible.\n");
+				} else {
+					const uint32 vc = ms->GetVertexCount(src);
+					const uint32 ic = ms->GetIndexCount(src);
+					const auto *sv = (const renderer::NkVertex3D *)ms->GetVertices(src);
+					const uint32 *si = ms->GetIndices(src);
+					// AUTORITÉ half-edge n-gon. Si l'objet a DÉJÀ été édité, on reprend sa
+					// topologie EXACTE (objHE) : re-dériver depuis les triangles avec
+					// quadify perdrait toute face n-gon non reconstituable (face créée
+					// avec F non parfaitement plane, n-gon à plus de 4 côtés…) et
+					// ferait réapparaître les diagonales de triangulation en fil de fer.
+					// Sinon seulement : reconstruction heuristique depuis la primitive.
+					if (hadEdit && st->objHasHE[sel] && st->objHE[sel].VertCount() > 0) {
+						st->editHE = st->objHE[sel];
+						logger.Info("[Demo3D] EDIT MODE : topologie n-gon reprise telle quelle "
+									"({0} faces) — aucune re-derivation depuis les triangles\n",
+									(int32)st->editHE.FaceCount());
+					} else
+						st->editHE.BuildFromIndexed(sv, vc, si, ic, /*quadify*/ true);
+					// ── NK_EDIT_IDENTITY=1 : contrôle d'ALLER-RETOUR ──────────────
+					// Entrer en édition puis en ressortir SANS rien modifier doit être
+					// une IDENTITÉ. Ce contrôle compare le maillage re-trianguté au
+					// maillage SOURCE, attribut par attribut. Il vaut mieux qu'une
+					// comparaison de captures : celle-ci est polluée par le gizmo et le
+					// liseré de sélection, qui ne s'affichent QUE dans l'image « après »
+					// — j'ai d'abord conclu à tort à un changement de matériau sur cette
+					// base. Ici, aucune surcouche ne peut fausser le verdict.
+					if (getenv("NK_EDIT_IDENTITY")) {
+						NkVector<NkVertex3D> rv;
+						NkVector<uint32> ri;
+						NkVector<renderer::NkEmId> rtf;
+						st->editHE.Triangulate(rv, ri, rtf);
+						const uint32 n = (vc < (uint32)rv.Size()) ? vc : (uint32)rv.Size();
+						uint32 dPos = 0, dNrm = 0, dTan = 0, dUV = 0, dUV2 = 0, dCol = 0;
+						float32 maxPos = 0.f, maxTan = 0.f;
+						for (uint32 k = 0; k < n; k++) {
+							const NkVec3f dp = rv[k].pos - sv[k].pos;
+							const NkVec3f dt = rv[k].tangent - sv[k].tangent;
+							const float32 lp = dp.Len(), lt = dt.Len();
+							if (lp > 1e-5f) {
+								dPos++;
+								if (lp > maxPos)
+									maxPos = lp;
+							}
+							if ((rv[k].normal - sv[k].normal).Len() > 1e-4f)
+								dNrm++;
+							if (lt > 1e-4f) {
+								dTan++;
+								if (lt > maxTan)
+									maxTan = lt;
+							}
+							if ((rv[k].uv - sv[k].uv).Len() > 1e-5f)
+								dUV++;
+							if ((rv[k].uv2 - sv[k].uv2).Len() > 1e-5f)
+								dUV2++;
+							if (rv[k].color != sv[k].color)
+								dCol++;
+						}
+						logger.Info("[Demo3D][IDENTITE] objet #{0} : {1} sommets compares | "
+									"pos={2} (max {3}) normal={4} tangent={5} (max {6}) "
+									"uv={7} uv2={8} color={9}  <- 0 partout = aller-retour NEUTRE\n",
+									sel, n, dPos, maxPos, dNrm, dTan, maxTan, dUV, dUV2, dCol);
+					}
+					st->editHistory.Clear();   // nouvel objet en édition -> historique neuf
+					st->editRecorder.Clear();  // journal des commandes neuf
+					st->editModifiers.Clear(); // pile de modificateurs neuve
+					st->editActiveMod = -1;
+					st->editBase = st->editHE; // maillage de BASE pour le rejeu (modificateurs/IA)
+					st->editReplayStep = -1;
+					st->vertSel.Clear();
+					st->vertSel.Resize(st->editHE.VertCount());
+					for (uint32 i = 0; i < st->editHE.VertCount(); i++)
+						st->vertSel[i] = 0;
+					st->editMesh = {};
+					Demo3D_SyncFromHE(st, ms);
+					// Le mesh objet a été cloné dans editHE -> on le libère ; il sera
+					// ré-adopté (mis à jour) à la sortie d'édition.
+					if (hadEdit) {
+						ms->Release(st->objMesh[sel]);
+						st->objMesh[sel] = {};
+					}
+					// Ancre = transform MONDE de l'objet (base repos + delta gizmo).
+					st->editAnchor = st->gizmo.Apply(sel, Demo3D_ObjBaseFull(st, sel));
+					st->editAnchorInv = st->editAnchor.Inverse();
+					st->editObjIdx = sel;
+					// Capture le matériau de l'objet -> le mesh édité garde sa couleur PBR.
+					Demo3D_ObjMaterial(sel, st->editObjTint, st->editObjMetallic, st->editObjRoughness);
+					st->editGizmo.ClearSelection();
+					st->editWasDragging = false;
+					st->editOverlayDirty = true;
+					st->editMode = true;
+					// Compte flat/smooth : l'ombrage est DEDUIT des normales source par
+					// BuildFromIndexed. Le tracer ici permet de verifier sans capture
+					// qu'un aller-retour en edition ne rabat pas tout le modele en FLAT.
+					uint32 nSmooth = 0, nFlat = 0;
+					for (uint32 fi = 0; fi < (uint32)st->editHE.faces.Size(); fi++) {
+						if (!st->editHE.faces[fi].alive)
+							continue;
+						if (st->editHE.faces[fi].smooth)
+							nSmooth++;
+						else
+							nFlat++;
+					}
+					logger.Info("[Demo3D] EDIT MODE objet #{0} ({1} vertices, ombrage : {2} faces "
+								"smooth / {3} faces flat).\n",
+								sel, vc, nSmooth, nFlat);
+				}
+			}
 		}
 
 		void Demo3D_Frame(DemoCtx &ctx, float32 dt) {
@@ -2944,6 +3568,8 @@ namespace nkentseu {
 					for (uint32 i = 0; i < vc && i < (uint32)st->vertSel.Size(); i++)
 						st->vertSel[i] = 0;
 					st->editActiveVert = -1;
+					st->editActiveEdgeA = st->editActiveEdgeB = -1;
+					st->editActiveFace = -1;
 					const uint32 fcnt = (uint32)st->editHE.faces.Size();
 					NkVector<renderer::NkEmId> fvv;
 					int32 nsel = 0;
@@ -3260,123 +3886,10 @@ namespace nkentseu {
 					r3d->ClearEditOverlay();
 				} else {
 					const int32 sel = st->gizmo.ActiveIndex();
-					if (sel < 0) {
+					if (sel < 0)
 						logger.Info("[Demo3D] Sélectionne un objet (clic) avant TAB.\n");
-					} else {
-						// Source = le mesh DÉJÀ édité de l'objet s'il existe (on continue
-						// l'édition), sinon la primitive partagée.
-						const NkMeshHandle prim = (sel < 16) ? st->meshSphere : st->meshCube;
-						const bool hadEdit = st->objMesh[sel].IsValid();
-						const NkMeshHandle src = hadEdit ? st->objMesh[sel] : prim;
-						if (!ms || !ms->HasCPUData(src)) {
-							logger.Warn("[Demo3D] Mesh sans copie CPU (keepCPU) — édition impossible.\n");
-						} else {
-							const uint32 vc = ms->GetVertexCount(src);
-							const uint32 ic = ms->GetIndexCount(src);
-							const auto *sv = (const renderer::NkVertex3D *)ms->GetVertices(src);
-							const uint32 *si = ms->GetIndices(src);
-							// AUTORITÉ half-edge n-gon. Si l'objet a DÉJÀ été édité, on reprend sa
-							// topologie EXACTE (objHE) : re-dériver depuis les triangles avec
-							// quadify perdrait toute face n-gon non reconstituable (face créée
-							// avec F non parfaitement plane, n-gon à plus de 4 côtés…) et
-							// ferait réapparaître les diagonales de triangulation en fil de fer.
-							// Sinon seulement : reconstruction heuristique depuis la primitive.
-							if (hadEdit && st->objHasHE[sel] && st->objHE[sel].VertCount() > 0) {
-								st->editHE = st->objHE[sel];
-								logger.Info("[Demo3D] EDIT MODE : topologie n-gon reprise telle quelle "
-											"({0} faces) — aucune re-derivation depuis les triangles\n",
-											(int32)st->editHE.FaceCount());
-							} else
-								st->editHE.BuildFromIndexed(sv, vc, si, ic, /*quadify*/ true);
-							// ── NK_EDIT_IDENTITY=1 : contrôle d'ALLER-RETOUR ──────────────
-							// Entrer en édition puis en ressortir SANS rien modifier doit être
-							// une IDENTITÉ. Ce contrôle compare le maillage re-trianguté au
-							// maillage SOURCE, attribut par attribut. Il vaut mieux qu'une
-							// comparaison de captures : celle-ci est polluée par le gizmo et le
-							// liseré de sélection, qui ne s'affichent QUE dans l'image « après »
-							// — j'ai d'abord conclu à tort à un changement de matériau sur cette
-							// base. Ici, aucune surcouche ne peut fausser le verdict.
-							if (getenv("NK_EDIT_IDENTITY")) {
-								NkVector<NkVertex3D> rv;
-								NkVector<uint32> ri;
-								NkVector<renderer::NkEmId> rtf;
-								st->editHE.Triangulate(rv, ri, rtf);
-								const uint32 n = (vc < (uint32)rv.Size()) ? vc : (uint32)rv.Size();
-								uint32 dPos = 0, dNrm = 0, dTan = 0, dUV = 0, dUV2 = 0, dCol = 0;
-								float32 maxPos = 0.f, maxTan = 0.f;
-								for (uint32 k = 0; k < n; k++) {
-									const NkVec3f dp = rv[k].pos - sv[k].pos;
-									const NkVec3f dt = rv[k].tangent - sv[k].tangent;
-									const float32 lp = dp.Len(), lt = dt.Len();
-									if (lp > 1e-5f) {
-										dPos++;
-										if (lp > maxPos)
-											maxPos = lp;
-									}
-									if ((rv[k].normal - sv[k].normal).Len() > 1e-4f)
-										dNrm++;
-									if (lt > 1e-4f) {
-										dTan++;
-										if (lt > maxTan)
-											maxTan = lt;
-									}
-									if ((rv[k].uv - sv[k].uv).Len() > 1e-5f)
-										dUV++;
-									if ((rv[k].uv2 - sv[k].uv2).Len() > 1e-5f)
-										dUV2++;
-									if (rv[k].color != sv[k].color)
-										dCol++;
-								}
-								logger.Info("[Demo3D][IDENTITE] objet #{0} : {1} sommets compares | "
-											"pos={2} (max {3}) normal={4} tangent={5} (max {6}) "
-											"uv={7} uv2={8} color={9}  <- 0 partout = aller-retour NEUTRE\n",
-											sel, n, dPos, maxPos, dNrm, dTan, maxTan, dUV, dUV2, dCol);
-							}
-							st->editHistory.Clear();   // nouvel objet en édition -> historique neuf
-							st->editRecorder.Clear();  // journal des commandes neuf
-							st->editModifiers.Clear(); // pile de modificateurs neuve
-							st->editActiveMod = -1;
-							st->editBase = st->editHE; // maillage de BASE pour le rejeu (modificateurs/IA)
-							st->editReplayStep = -1;
-							st->vertSel.Clear();
-							st->vertSel.Resize(st->editHE.VertCount());
-							for (uint32 i = 0; i < st->editHE.VertCount(); i++)
-								st->vertSel[i] = 0;
-							st->editMesh = {};
-							Demo3D_SyncFromHE(st, ms);
-							// Le mesh objet a été cloné dans editHE -> on le libère ; il sera
-							// ré-adopté (mis à jour) à la sortie d'édition.
-							if (hadEdit) {
-								ms->Release(st->objMesh[sel]);
-								st->objMesh[sel] = {};
-							}
-							// Ancre = transform MONDE de l'objet (base repos + delta gizmo).
-							st->editAnchor = st->gizmo.Apply(sel, Demo3D_ObjBase(sel));
-							st->editAnchorInv = st->editAnchor.Inverse();
-							st->editObjIdx = sel;
-							// Capture le matériau de l'objet -> le mesh édité garde sa couleur PBR.
-							Demo3D_ObjMaterial(sel, st->editObjTint, st->editObjMetallic, st->editObjRoughness);
-							st->editGizmo.ClearSelection();
-							st->editWasDragging = false;
-							st->editOverlayDirty = true;
-							st->editMode = true;
-							// Compte flat/smooth : l'ombrage est DEDUIT des normales source par
-							// BuildFromIndexed. Le tracer ici permet de verifier sans capture
-							// qu'un aller-retour en edition ne rabat pas tout le modele en FLAT.
-							uint32 nSmooth = 0, nFlat = 0;
-							for (uint32 fi = 0; fi < (uint32)st->editHE.faces.Size(); fi++) {
-								if (!st->editHE.faces[fi].alive)
-									continue;
-								if (st->editHE.faces[fi].smooth)
-									nSmooth++;
-								else
-									nFlat++;
-							}
-							logger.Info("[Demo3D] EDIT MODE objet #{0} ({1} vertices, ombrage : {2} faces "
-										"smooth / {3} faces flat).\n",
-										sel, vc, nSmooth, nFlat);
-						}
-					}
+					else
+						Demo3D_EnterEditOnObject(st, ms, r3d, sel);
 				}
 			}
 
@@ -3537,57 +4050,91 @@ namespace nkentseu {
 			sctx.camera = cam;
 			sctx.time = ctx.totalTime;
 
-			// Soleil directionnel
-			NkLightDesc sun;
-			sun.type = NkLightType::NK_DIRECTIONAL;
-			sun.direction = {-0.4f, -1.f, -0.3f};
-			sun.color = {1.f, 0.95f, 0.85f};
-			sun.intensity = 3.f;
-			sun.castShadow = true;
-			sun.shadowStatic = true; // NkVSM v1 cache : sun ne bouge pas
-			sctx.lights.PushBack(sun);
+			// ── INITIALISATION UNIQUE DES LUMIERES ──────────────────────────────
+			// Auparavant ces 4 descripteurs etaient reecrits a CHAQUE frame : la scene
+			// etait donc figee par construction, et aucune manipulation n'aurait pu
+			// survivre. On ne les ecrit plus qu'une fois ; ensuite l'etat fait foi.
+			if (!st->lightsInit) {
+				st->lightsInit = true;
 
-			// Lumiere ponctuelle rouge — avec cube cookie "lantern" (E.6b).
-			// Boostee (intensity 12, range 10) pour que le pattern X soit clair
-			// meme face au sun + spot. Position legerement haute pour eviter
-			// d'etre dans le sol.
-			NkLightDesc redLight;
-			redLight.type = NkLightType::NK_POINT;
-			redLight.position = {3.f, 2.5f, 0.f};
-			redLight.color = {1.f, 0.2f, 0.1f};
-			redLight.intensity = 12.f;
-			redLight.range = 10.f;
-			redLight.cookieIdx = 0;		  // utilise le cube bind au slot 0
-			redLight.castShadow = true;	  // NkVSM : cubemap 6 faces shadow
-			redLight.shadowStatic = true; // position fixe
-			sctx.lights.PushBack(redLight);
+				// [0] Soleil directionnel
+				NkLightDesc &sun = st->lights[0];
+				sun = NkLightDesc{};
+				sun.type = NkLightType::NK_DIRECTIONAL;
+				sun.direction = {-0.4f, -1.f, -0.3f};
+				sun.color = {1.f, 0.95f, 0.85f};
+				sun.intensity = 3.f;
+				sun.castShadow = true;
+				sun.shadowStatic = true; // NkVSM v1 cache : le soleil ne bouge pas
 
-			// Fill bleue
-			NkLightDesc blue;
-			blue.type = NkLightType::NK_POINT;
-			blue.position = {-2.f, 1.f, 1.f};
-			blue.color = {0.2f, 0.5f, 1.f};
-			blue.intensity = 2.5f;
-			blue.range = 8.f;
-			blue.castShadow = true;	  // NkVSM : cubemap 6 faces shadow
-			blue.shadowStatic = true; // position fixe
-			sctx.lights.PushBack(blue);
+				// [1] Ponctuelle rouge — cube cookie « lantern » (E.6b). Boostee
+				// (intensite 12, portee 10) pour que le motif en X reste lisible face
+				// au soleil et au spot. Legerement haute pour ne pas etre dans le sol.
+				NkLightDesc &redLight = st->lights[1];
+				redLight = NkLightDesc{};
+				redLight.type = NkLightType::NK_POINT;
+				redLight.position = {3.f, 2.5f, 0.f};
+				redLight.color = {1.f, 0.2f, 0.1f};
+				redLight.intensity = 12.f;
+				redLight.range = 10.f;
+				redLight.cookieIdx = 0;
+				redLight.castShadow = true;
+				redLight.shadowStatic = true;
 
-			// E.6 : Spot light avec cookie procedural "window bars" projete au sol.
-			// Tournant lentement pour montrer la projection dynamique.
-			NkLightDesc spot;
-			spot.type = NkLightType::NK_SPOT;
-			spot.position = {3.f * cosf(ctx.totalTime * 0.3f), 4.f, 3.f * sinf(ctx.totalTime * 0.3f)};
-			spot.direction = NkVec3f{0.f, 0.f, 0.f} - spot.position; // pointe vers origine
-			spot.direction = spot.direction.Normalized();
-			spot.color = {1.f, 0.95f, 0.85f};
-			spot.intensity = 8.f;
-			spot.range = 10.f;
-			spot.innerAngle = 18.f;
-			spot.outerAngle = 28.f;
-			spot.cookieIdx = 0;		// utilise le slot bind par Init
-			spot.castShadow = true; // NkVSM : 1 tile shadow map per spot
-			sctx.lights.PushBack(spot);
+				// [2] Fill bleue
+				NkLightDesc &blue = st->lights[2];
+				blue = NkLightDesc{};
+				blue.type = NkLightType::NK_POINT;
+				blue.position = {-2.f, 1.f, 1.f};
+				blue.color = {0.2f, 0.5f, 1.f};
+				blue.intensity = 2.5f;
+				blue.range = 8.f;
+				blue.castShadow = true;
+				blue.shadowStatic = true;
+
+				// [3] Spot avec cookie procedural « barreaux » projete au sol.
+				NkLightDesc &spot = st->lights[3];
+				spot = NkLightDesc{};
+				spot.type = NkLightType::NK_SPOT;
+				spot.position = {3.f, 4.f, 0.f};
+				spot.direction = (NkVec3f{0.f, 0.f, 0.f} - spot.position).Normalized();
+				spot.color = {1.f, 0.95f, 0.85f};
+				spot.intensity = 8.f;
+				spot.range = 10.f;
+				spot.innerAngle = 18.f;
+				spot.outerAngle = 28.f;
+				spot.cookieIdx = 0;
+				spot.castShadow = true;
+			}
+
+			// ANIMATION DU SPOT — desormais OPTIONNELLE et pilotee par une phase
+			// PROPRE, pas par ctx.totalTime. Deux raisons : (1) des que l'utilisateur
+			// deplacera le spot il faudra couper l'animation sans figer le temps
+			// global ; (2) lire l'horloge globale rendait la scene non reproductible
+			// entre deux captures, ce qui fausse toute comparaison avant/apres.
+			// NK_LIGHT_ANIM=0 fige l'animation (captures deterministes).
+			{
+				static int32 sAnimEnv = -1;
+				if (sAnimEnv == -1) {
+					const char *v = getenv("NK_LIGHT_ANIM");
+					sAnimEnv = (v && v[0] == '0') ? 0 : 1;
+				}
+				if (sAnimEnv && st->spotAnimated && !fixcam) {
+					st->spotAngle += dt * 0.3f;
+					NkLightDesc &spot = st->lights[3];
+					spot.position = {3.f * cosf(st->spotAngle), 4.f, 3.f * sinf(st->spotAngle)};
+					spot.direction = (NkVec3f{0.f, 0.f, 0.f} - spot.position).Normalized();
+				}
+			}
+
+			// Soumission : la source de verite est l'ETAT, compose avec le gizmo.
+			// Passer `lights[li]` directement rendrait la manipulation invisible dans
+			// l'image — le widget bougerait, l'eclairage non.
+			for (int32 li = 0; li < Demo3DState::kNumLights; li++)
+				sctx.lights.PushBack(Demo3D_LightEffective(st, li));
+
+
+
 
 			sctx.ambientIntensity = 0.15f;
 
@@ -3599,6 +4146,47 @@ namespace nkentseu {
 			st->frameLights.Clear();
 			for (uint32 li = 0; li < (uint32)sctx.lights.Size(); li++)
 				st->frameLights.PushBack(sctx.lights[li]);
+
+			// ── NK_GI_TEST : GI à un rebond, avec mur ROUGE MOBILE ───────────────
+			// Cette scène contient déjà une lumière rouge : elle rendrait le test
+			// ambigu (le rouge observé viendrait-il du rebond ou d'elle ?). On la
+			// retire donc sous l'override, pour qu'AUCUNE source rouge n'existe et
+			// que toute teinte rouge ne puisse venir que du rebond sur le mur.
+			if (st->giTest) {
+				for (uint32 li = 0; li < (uint32)sctx.lights.Size();) {
+					const NkVec3f &c = sctx.lights[li].color;
+					if (c.x > 0.5f && c.y < 0.35f && c.z < 0.35f)
+						sctx.lights.Erase(sctx.lights.Begin() + li);
+					else
+						li++;
+				}
+				// Va-et-vient automatique : le mur balaie l'axe X et le GI suit.
+				if (st->giAuto) {
+					st->giPhase += dt;
+					const float32 nx = math::NkSin(st->giPhase * 0.6f) * 2.2f;
+					if (math::NkAbs(nx - st->giWallOffset.x) > 0.02f) {
+						st->giWallOffset.x = nx;
+						st->giDirty = true;
+					}
+				}
+				// Transform effective du mur = décalage clavier PUIS décalage gizmo.
+				// (On appelle gizmo.Apply directement : la lambda userXform n'est
+				// définie que plus bas, après BeginScene. Même résultat, le gizmo
+				// n'étant mis à jour qu'en fin de frame.)
+				const NkMat4f wallXform =
+					st->gizmo.Apply(Demo3DState::kIdxGIWall, Demo3D_ObjBaseFull(st, Demo3DState::kIdxGIWall));
+				// Déplacé au gizmo ? On compare la transform à celle du dernier calcul :
+				// c'est ce qui fait que TIRER LE MUR À LA SOURIS met le GI à jour.
+				for (int32 e = 0; e < 16 && !st->giDirty; e++) {
+					if (math::NkAbs(((const float32 *)&wallXform)[e] - ((const float32 *)&st->giWallXform)[e]) > 1e-4f)
+						st->giDirty = true;
+				}
+				if (st->giDirty) {
+					st->giWallXform = wallXform;
+					Demo3D_RebuildGI(st, ctx.renderer, sctx.lights);
+					st->giDirty = false;
+				}
+			}
 
 			r3d->BeginScene(sctx);
 
@@ -3662,15 +4250,40 @@ namespace nkentseu {
 					g.cellColor = {0.10f, 0.11f, 0.13f, 0.0f}; // pas de remplissage opaque
 				}
 			}
-			if (!gridClean) {
+			// Objet en cours d'édition : sa cage remplace son rendu normal, comme pour
+			// tous les autres objets — sinon la primitive d'origine reste affichée PAR
+			// DESSUS la cage, et on croit déplacer une forme fantôme.
+			if (!gridClean && !(st->editMode && st->editObjIdx == Demo3DState::kIdxFloor)) {
 				NkDrawCall3D dc;
-				dc.mesh = st->meshPlane;
-				dc.transform = NkMat4f::Scale({40.f, 1.f, 40.f}); // sol AGRANDI (80x80)
+				// meshFor : si le sol a été ÉDITÉ, c'est SON mesh qui est rendu — sinon
+				// l'extrusion faite en Edit Mode ne serait visible qu'en Edit Mode.
+				dc.mesh = meshFor(Demo3DState::kIdxFloor, st->meshPlane);
+				// Passe par userXform : le sol suit le gizmo comme n'importe quel objet.
+				dc.transform = userXform(Demo3DState::kIdxFloor, Demo3D_ObjBaseFull(st, Demo3DState::kIdxFloor));
 				dc.aabb = {{-40, 0, -40}, {40, 0, 40}};
 				dc.castShadow = false; // reçoit les ombres (pas caster)
 				dc.tint = effTint({0.12f, 0.12f, 0.13f});
 				dc.metallic = 0.f;
 				dc.roughness = 0.92f;
+				r3d->Submit(dc);
+			}
+
+			// ── NK_GI_TEST : le mur rouge, RENDU à la position qui sert au GI ────
+			// Même AABB que l'occluder injecté (source unique kGIWallMin/Max +
+			// offset) : la lumière rebondit exactement sur le mur qu'on voit.
+			if (st->giTest && !(st->editMode && st->editObjIdx == Demo3DState::kIdxGIWall)) {
+				// EXACTEMENT la transform qui a servi à l'occluder (clavier + gizmo).
+				const NkMat4f wm =
+					userXform(Demo3DState::kIdxGIWall, Demo3D_ObjBaseFull(st, Demo3DState::kIdxGIWall));
+				NkVec3f mn, mx;
+				Demo3D_XformAABB(wm, mn, mx);
+				NkDrawCall3D dc;
+				dc.mesh = meshFor(Demo3DState::kIdxGIWall, st->meshCube);
+				dc.transform = wm;
+				dc.aabb = {mn, mx};
+				dc.tint = effTint({0.9f, 0.05f, 0.05f});
+				dc.metallic = 0.f;
+				dc.roughness = 0.85f;
 				r3d->Submit(dc);
 			}
 
@@ -3786,12 +4399,10 @@ namespace nkentseu {
 			// ── NkVSM v2 : panneau feuillage ALPHA-TESTED (ombre trouee) ──────────
 			// Panneau vertical au-dessus du sol, entre le soleil et le sol : son
 			// ombre doit montrer les trous entre les disques (Shadow_AlphaTest).
-			if (st->maskedMat) {
+			if (st->maskedMat && !(st->editMode && st->editObjIdx == Demo3DState::kIdxFoliage)) {
 				NkDrawCall3D dc;
-				dc.mesh = st->meshCube;
-				dc.transform = NkMat4f::Translate({4.f, 1.6f, -1.f}) *
-							   NkMat4f::RotationY(NkAngle::FromRad(0.6f)) *
-							   NkMat4f::Scale({1.6f, 1.2f, 0.03f});
+				dc.mesh = meshFor(Demo3DState::kIdxFoliage, st->meshCube);
+				dc.transform = userXform(Demo3DState::kIdxFoliage, Demo3D_ObjBaseFull(st, Demo3DState::kIdxFoliage));
 				dc.aabb = {{4.f - 1.7f, 0.3f, -1.f - 1.7f}, {4.f + 1.7f, 2.9f, -1.f + 1.7f}};
 				dc.material = st->maskedMat->GetInstHandle();
 				dc.castShadow = true;
@@ -3847,7 +4458,30 @@ namespace nkentseu {
 						st->editLoadPending = false;
 						Demo3D_LoadSession(st, meshSysT);
 					}
-					// Modificateurs (F7/F8/F9 ajouter, F10 vider) : non-destructif, ré-évalué à l'affichage.
+					// NK_MOD_ADD="t[,t…]" : empile ces types UNE FOIS au demarrage. Sans ce
+				// levier, une pile de modificateurs ne serait verifiable qu'a la main —
+				// donc pas en capture, donc pas de facon reproductible.
+				static bool modAddDone = false;
+				if (!modAddDone && st->editMode) {
+					if (const char *ma = getenv("NK_MOD_ADD")) {
+						modAddDone = true;
+						const char *p = ma;
+						while (*p) {
+							renderer::NkMeshModifier mod;
+							mod.type = (renderer::NkModifierType)atoi(p);
+							const uint32 id = st->editModifiers.Add(mod);
+							logger.Info("[Demo3D][PILE] NK_MOD_ADD -> {0} (id={1})\n",
+										renderer::NkModifierTypeName(mod.type), id);
+							while (*p && *p != ',')
+								p++;
+							if (*p == ',')
+								p++;
+						}
+						st->editActiveMod = (int32)st->editModifiers.Count() - 1;
+						Demo3D_SyncFromHE(st, meshSysT);
+					}
+				}
+				// Modificateurs (F7 ajouter le type courant, F8/F9 changer de type, F10 vider).
 					if (st->editAddModPending >= 0) {
 						renderer::NkMeshModifier mod;
 						mod.type = (renderer::NkModifierType)st->editAddModPending;
@@ -3855,10 +4489,13 @@ namespace nkentseu {
 						st->editAddModPending = -1;
 						st->editActiveMod = (int32)st->editModifiers.Count() - 1; // le nouveau = actif (réglable [ ])
 						Demo3D_SyncFromHE(st, meshSysT);
-						const char *nm[3] = {"Mirror (axe X)", "Array (x3)", "Subsurf (1)"};
-						logger.Info(
-							"[Demo3D] + Modificateur {0} — pile={1} · reglage [ / ] · change actif \\ · vider F10\n",
-							nm[(int32)mod.type], st->editModifiers.Count());
+						logger.Info("[Demo3D] + Modificateur {0} (id={1}) — pile={2} · reglage [ / ] · "
+									"parametre suivant Shift+\\ · actif \\ · monter/descendre Shift+Haut/Bas · "
+									"activer Shift+E · dupliquer Shift+D · retirer Shift+Suppr · APPLIQUER "
+									"Shift+Entree · vider F10\n",
+									renderer::NkModifierTypeName(mod.type),
+									st->editModifiers.modifiers[st->editModifiers.Count() - 1].id,
+									st->editModifiers.Count());
 					}
 					if (st->editClearModPending) {
 						st->editClearModPending = false;
@@ -3873,7 +4510,17 @@ namespace nkentseu {
 					}
 					if (st->editModCyclePending) {
 						st->editModCyclePending = false;
+						st->editActiveParam = 0; // nouveau modificateur -> premier parametre
 						Demo3D_CycleActiveMod(st);
+					}
+					if (st->editModParamCyclePending) {
+						st->editModParamCyclePending = false;
+						Demo3D_CycleModParam(st);
+					}
+					if (st->editModStackOp != 0) {
+						const int32 op = st->editModStackOp;
+						st->editModStackOp = 0;
+						Demo3D_ModStackOp(st, meshSysT, op);
 					}
 					// ── OMBRAGE FLAT / SMOOTH (Shift+F / Shift+S) ─────────────────
 					// Pousse la sélection dans l'autorité (une face est « sélectionnée »
@@ -4756,12 +5403,20 @@ namespace nkentseu {
 						const uint8 on = wasSel((uint32)bestV) ? (uint8)0 : (uint8)1;
 						st->vertSel[bestV] = on;
 						st->editActiveVert = on ? bestV : -1; // actif = dernier sélectionné (blanc)
+						// Un clic sur un SOMMET périme l'arête et la face actives : garder
+						// un ancien élément actif d'un autre type ferait cohabiter deux
+						// « références » blanches et on ne saurait plus laquelle fait foi.
+						st->editActiveEdgeA = st->editActiveEdgeB = -1;
+						st->editActiveFace = -1;
 					} else if (bestEa >= 0) {
 						// Une arête est « déjà sélectionnée » si ses DEUX extrémités l'étaient.
 						const uint8 on = (wasSel((uint32)bestEa) && wasSel((uint32)bestEb)) ? (uint8)0 : (uint8)1;
 						st->vertSel[bestEa] = on;
 						st->vertSel[bestEb] = on;
 						st->editActiveVert = on ? bestEb : -1;
+						st->editActiveEdgeA = on ? bestEa : -1;
+						st->editActiveEdgeB = on ? bestEb : -1;
+						st->editActiveFace = -1;
 					} else if (bestFt >= 0) {
 						// FACE N-GON : triangle touché -> sa face n-gon (quadify) -> tous ses sommets.
 						// Face « déjà sélectionnée » = TOUS ses sommets l'étaient (même convention
@@ -4787,6 +5442,11 @@ namespace nkentseu {
 						}
 						if (!on)
 							st->editActiveVert = -1;
+						// La FACE active est l'identifiant n-gon, pas le triangle touché :
+						// une face quadrangulaire couvre deux triangles, et retenir le
+						// triangle ferait clignoter l'actif selon la moitié cliquée.
+						st->editActiveFace = (on && f != renderer::NK_EM_INVALID) ? (int32)f : -1;
+						st->editActiveEdgeA = st->editActiveEdgeB = -1;
 					}
 					// Sélection étendue à tous les sommets COÏNCIDENTS : sans ça, le coin retenu
 					// peut appartenir à une face qui tourne le dos à la caméra -> son marqueur
@@ -5062,7 +5722,17 @@ namespace nkentseu {
 							const bool any = (selA || selB);
 							if (any != (pass == 1))
 								continue; // passe 0 = arêtes neutres, passe 1 = arêtes touchées
+							// ARÊTE ACTIVE : blanche sur TOUTE sa longueur, pas seulement à
+							// l'extrémité. Un dégradé n'aurait pas dit « cette arête est la
+							// référence » mais « cette extrémité est le sommet actif » — deux
+							// informations différentes qu'il ne faut pas confondre.
+							const bool actE =
+								(st->editActiveEdgeA >= 0 &&
+								 (((int32)a == st->editActiveEdgeA && (int32)b == st->editActiveEdgeB) ||
+								  ((int32)a == st->editActiveEdgeB && (int32)b == st->editActiveEdgeA)));
 							auto vcol = [&](uint32 v, bool s) {
+								if (actE)
+									return actVertCol; // arête ACTIVE -> blanche entièrement
 								if (s && (int32)v == st->editActiveVert)
 									return actVertCol; // extrémité ACTIVE -> blanc
 								return s ? selEdgeCol : cageCol;
@@ -5245,7 +5915,20 @@ namespace nkentseu {
 							cW = cW * (1.f / (float32)fn);
 							if (!facingCam(cW, st->editHE.faces[f].normal))
 								continue; // face du dos -> point caché (sauf X-ray)
-							if (allSel)
+							if ((int32)f == st->editActiveFace) {
+								// FACE ACTIVE : centre BLANC et contour blanc. Le seul point
+								// central ne suffisait pas — sur un n-gon large, un point de
+								// 4 px au barycentre ne dit pas QUELLE face est active quand
+								// plusieurs se touchent. Le contour lève l'ambiguïté.
+								dot(cW, 2.0f, NkVec4f{1.f, 1.f, 1.f, 1.f});
+								for (uint32 k = 0; k < fn; k++) {
+									const uint32 v0 = fvd[k], v1 = fvd[(k + 1) % fn];
+									if (v0 >= (uint32)st->editLive.Size() || v1 >= (uint32)st->editLive.Size())
+										continue;
+									r3d->DrawDebugLine(liveWv((int32)v0), liveWv((int32)v1),
+													   NkVec4f{1.f, 1.f, 1.f, 1.f}, 0.f, st->editXray);
+								}
+							} else if (allSel)
 								dot(cW, 1.8f, NkVec4f{1.f, 0.55f, 0.05f, 1.f}); // face sél. = ORANGE
 							else
 								dot(cW, 1.4f, NkVec4f{0.02f, 0.02f, 0.03f, 1.f}); // face = point NOIR
@@ -5276,6 +5959,44 @@ namespace nkentseu {
 				auto *msG = ctx.renderer->GetMeshSystem();
 				// Pour un objet ÉDITÉ, le marqueur OBB épouse l'AABB LOCALE réelle du mesh
 				// modifié (centre + demi-extent), au lieu du demi-extent fixe de la primitive.
+				// Demi-extent réel d'un mesh (données CPU) : indispensable pour que le
+				// marqueur ÉPOUSE la forme. Un plan est PLAT — lui donner le demi-extent
+				// cubique {0.5,0.5,0.5} par défaut dessinait une boîte en volume autour
+				// d'un sol d'épaisseur nulle, au lieu d'un contour posé dessus.
+				auto meshHalf = [&](NkMeshHandle mh, NkVec3f &half, NkVec3f &center) -> bool {
+					if (!mh.IsValid() || !msG || !msG->HasCPUData(mh))
+						return false;
+					const auto *vv = (const renderer::NkVertex3D *)msG->GetVertices(mh);
+					const uint32 vc = msG->GetVertexCount(mh);
+					if (!vv || vc == 0)
+						return false;
+					NkVec3f mn{1e30f, 1e30f, 1e30f}, mx{-1e30f, -1e30f, -1e30f};
+					for (uint32 i = 0; i < vc; i++) {
+						const NkVec3f p = vv[i].pos;
+						mn.x = NkMin(mn.x, p.x);
+						mn.y = NkMin(mn.y, p.y);
+						mn.z = NkMin(mn.z, p.z);
+						mx.x = NkMax(mx.x, p.x);
+						mx.y = NkMax(mx.y, p.y);
+						mx.z = NkMax(mx.z, p.z);
+					}
+					center = (mn + mx) * 0.5f;
+					half = (mx - mn) * 0.5f;
+					return true;
+				};
+				// Variante qui connaît la PRIMITIVE de l'objet : le mesh édité prime, sinon
+				// on mesure la primitive elle-même (sphère, cube, plan) au lieu de supposer
+				// un cube. `prim` invalide = ancien comportement (demi-extent H).
+				auto fitTargetMesh = [&](int32 idx, const NkMat4f &base, float32 pickR,
+										 NkMeshHandle prim) -> renderer::NkGizmoTarget {
+					NkVec3f h, c;
+					if (idx >= 0 && idx < Demo3DState::kNumObj && st->objMesh[idx].IsValid() &&
+						meshHalf(st->objMesh[idx], h, c))
+						return {base * NkMat4f::Translate(c), h, pickR};
+					if (meshHalf(prim, h, c))
+						return {base * NkMat4f::Translate(c), h, pickR};
+					return {base, H, pickR};
+				};
 				auto fitTarget = [&](int32 idx, const NkMat4f &base, float32 pickR) -> renderer::NkGizmoTarget {
 					if (idx >= 0 && idx < Demo3DState::kNumObj && st->objMesh[idx].IsValid() && msG &&
 						msG->HasCPUData(st->objMesh[idx])) {
@@ -5316,6 +6037,20 @@ namespace nkentseu {
 									  NkMat4f::Translate({(gx - 3.5f) * 0.55f, 1.6f, (gz - 3.5f) * 0.55f - 4.5f}) *
 										  NkMat4f::Scale({0.18f, 0.18f, 0.18f}),
 									  0.2f);
+
+				// ── Décor sélectionnable (sol, feuillage, mur du GI) ─────────────
+				// Le pick du gizmo teste désormais la BOÎTE de l'objet (cf. NkGizmo.h) :
+				// un sol de 80×80 ne capte donc que les clics qui tombent réellement
+				// dessus, au lieu de voler ceux des objets posés sur lui — ce qui était
+				// impossible avec une sphère de pick.
+				// Chaque cible reçoit SA primitive : le sol est un PLAN, son marqueur est
+				// donc plat et posé dessus, pas une boîte qui l'enveloppe.
+				targets[n++] =
+					fitTargetMesh(Demo3DState::kIdxFloor, Demo3D_ObjBaseFull(st, Demo3DState::kIdxFloor), 0.5f, st->meshPlane);
+				targets[n++] = fitTargetMesh(Demo3DState::kIdxFoliage, Demo3D_ObjBaseFull(st, Demo3DState::kIdxFoliage), 1.2f,
+											 st->meshCube);
+				targets[n++] = fitTargetMesh(Demo3DState::kIdxGIWall,
+											 Demo3D_ObjBaseFull(st, Demo3DState::kIdxGIWall), 1.4f, st->meshCube);
 
 				// Gizmo OBJET actif UNIQUEMENT hors Edit Mode (sinon c'est le gizmo vertices).
 				if (!st->editMode) {
@@ -5423,7 +6158,216 @@ namespace nkentseu {
 						else if (NkInput.IsKeyDown(NkKey::NK_Z))
 							gin.lockAxis = 2;
 					}
+					// NK_SEL_AT="x,y" : force UNE FOIS un clic de sélection OBJET à ces
+					// pixels et journalise l'index attrapé. Le levier NK_PICK_AT existant
+					// ne pilote que le pick de SOMMETS en Edit Mode ; sans équivalent ici,
+					// la sélection d'objets ne pouvait être vérifiée qu'à la souris — donc
+					// pas de façon reproductible.
+					static bool selAtDone = false;
+					if (!selAtDone) {
+						if (const char *sa = getenv("NK_SEL_AT")) {
+							selAtDone = true;
+							float32 sv[2] = {0.f, 0.f};
+							int32 sk = 0;
+							const char *sp = sa;
+							while (sk < 2 && *sp) {
+								sv[sk++] = (float32)atof(sp);
+								while (*sp && *sp != ',')
+									sp++;
+								if (*sp == ',')
+									sp++;
+							}
+							gin.mouseX = sv[0];
+							gin.mouseY = sv[1];
+							gin.leftPressed = true;
+						}
+					}
+					// ── PICK ET MANIPULATION DES LUMIERES ────────────────────────────
+					// Passe AVANT le gizmo des objets, parce qu'un clic doit etre attribue
+					// a un seul destinataire : si les deux le traitaient, deplacer une
+					// lumiere selectionnerait aussi l'objet qui se trouve derriere.
+					//
+					// ARBITRATION — la meme que pour les objets dans son PRINCIPE (le plus
+					// proche du curseur gagne), mais sur la DISTANCE ECRAN et non sur un
+					// rayon 3D. Un widget de lumiere n'a pas de volume : sa taille a l'ecran
+					// est constante par construction, donc un test geometrique rendrait une
+					// lumiere lointaine impossible a cliquer alors qu'elle reste aussi
+					// grosse a l'ecran qu'une proche. On compare donc des PIXELS.
+					bool lightClaimedClick = false;
+					{
+						using LG = renderer::NkLightGizmo;
+						const Demo3D_ScreenProj lproj = Demo3D_ScreenProj::Make(
+							cam.GetPosition(), cam.GetTarget(), 60.f, (float32)ctx.width, (float32)ctx.height);
+						st->lightGizmo.SetCamera(cam.GetPosition(), cam.GetTarget(), 60.f, (float32)ctx.width,
+												 (float32)ctx.height);
+						// Cibles du gizmo : extent et rayon de pick NULS, volontairement. Le
+						// pick 3D interne de NkGizmo3D ne doit JAMAIS attraper une lumiere —
+						// c'est le test ecran ci-dessous qui tranche. On garde malgre tout
+						// Update() pour ses poignees, son pivot et son drag.
+						renderer::NkGizmoTarget ltg[Demo3DState::kNumLights];
+						for (int32 li = 0; li < Demo3DState::kNumLights; li++) {
+							ltg[li].base = NkMat4f::Translate(st->lights[li].position);
+							ltg[li].localHalf = {0.f, 0.f, 0.f};
+							ltg[li].pickRadius = 0.f;
+						}
+						renderer::NkGizmoInput lin = gin;
+						// NK_LIGHT_PICK_AT="x,y" : force UNE FOIS un clic a ces pixels et
+						// journalise la lumiere attrapee. Sans ce levier, le pick des lumieres
+						// ne serait verifiable qu'a la souris, donc pas en capture.
+						static bool lpAtDone = false;
+						if (!lpAtDone) {
+							if (const char *lp = getenv("NK_LIGHT_PICK_AT")) {
+								lpAtDone = true;
+								float32 lv[2] = {0.f, 0.f};
+								int32 lk = 0;
+								const char *pl = lp;
+								while (lk < 2 && *pl) {
+									lv[lk++] = (float32)atof(pl);
+									while (*pl && *pl != ',')
+										pl++;
+									if (*pl == ',')
+										pl++;
+								}
+								gin.mouseX = lv[0];
+								gin.mouseY = lv[1];
+								gin.leftPressed = true;
+								lin.mouseX = lv[0];
+								lin.mouseY = lv[1];
+								lin.leftPressed = true;
+							}
+						}
+						if (gin.leftPressed && !st->lightGizmo.IsDragging() && st->showLightGizmos) {
+							int32 best = -1;
+							float32 bestD2 = 1e30f;
+							for (int32 li = 0; li < Demo3DState::kNumLights; li++) {
+								// On projette l'ANCRE du widget — le meme point que celui du
+								// dessin, et sur la lumiere EFFECTIVE : viser ou l'on voit.
+								const renderer::NkLightDesc eff = Demo3D_LightEffective(st, li);
+								float32 lx = 0.f, ly = 0.f;
+								if (!lproj(LG::Anchor(eff), lx, ly))
+									continue; // derriere la camera
+								if (!LG::HitScreen(lx, ly, gin.mouseX, gin.mouseY))
+									continue;
+								const float32 dx = gin.mouseX - lx, dy = gin.mouseY - ly;
+								const float32 d2 = dx * dx + dy * dy;
+								if (d2 < bestD2) {
+									bestD2 = d2;
+									best = li;
+								}
+							}
+							if (best >= 0) {
+								// Selection faite ICI : on prive le gizmo de l'evenement pour
+								// qu'il ne la defasse pas avec son propre pick 3D (qui, cibles
+								// nulles, ne trouverait rien et viderait la selection).
+								st->lightGizmo.Select(best);
+								st->lightSel = best;
+								lin.leftPressed = false;
+								lightClaimedClick = true;
+								// MODE PAR DEFAUT : TRANSLATE pour TOUS les types, comme pour un objet.
+								// Le type ne restreint pas les gestes disponibles ; il determine
+								// seulement lesquels ont un effet VISIBLE, ce que le journal dit une
+								// fois, a la selection.
+								const renderer::NkLightDesc &BL = st->lights[best];
+								st->lightGizmo.SetMode(renderer::NkGizmo3D::MODE_TRANSLATE);
+								static const char *kLName[4] = {"directionnelle", "ponctuelle", "spot", "surfacique"};
+								const int32 ti = (int32)BL.type & 3;
+								// Ce que la manipulation CHANGE pour ce type : annonce a la selection,
+								// plutot qu'en refusant une touche. L'utilisateur sait a quoi s'attendre
+								// et garde la main.
+								const char *note = "";
+								if (!LG::CanTranslate(BL.type))
+									note = " (la deplacer ne change pas l'eclairage : seule sa direction compte)";
+								else if (!LG::CanRotate(BL.type))
+									note = " (la tourner ne change pas l'eclairage : rayonnement isotrope)";
+								logger.Info("[Demo3D][LUMIERE] selection -> {0} ({1}) a {2} px du curseur{3}\n", best,
+											kLName[ti], sqrtf(bestD2), note);
+							}
+						}
+						// NK_LIGHT_MOVE="dx,dy,dz" : deplace UNE FOIS la lumiere selectionnee,
+						// sans souris. Ce levier ne sert pas a piloter la demo : il sert a
+						// PROUVER que la manipulation change bien l'ECLAIRAGE et pas seulement
+						// le widget. Sans lui, une capture ne montrerait qu'un marqueur qui
+						// bouge — ce qui est precisement l'illusion contre laquelle
+						// Demo3D_LightEffective a ete ecrite.
+						static bool lmvDone = false;
+						if (!lmvDone && st->lightSel >= 0) {
+							if (const char *lm = getenv("NK_LIGHT_MOVE")) {
+								lmvDone = true;
+								float32 mv[3] = {0.f, 0.f, 0.f};
+								int32 mk = 0;
+								const char *pm = lm;
+								while (mk < 3 && *pm) {
+									mv[mk++] = (float32)atof(pm);
+									while (*pm && *pm != ',')
+										pm++;
+									if (*pm == ',')
+										pm++;
+								}
+								st->lightGizmo.SetSelectedTransform({mv[0], mv[1], mv[2]}, NkMat4f::Identity(),
+																	{0.f, 0.f, 0.f});
+								const renderer::NkLightDesc ef = Demo3D_LightEffective(st, st->lightSel);
+								logger.Info("[Demo3D][LUMIERE] NK_LIGHT_MOVE ({0}, {1}, {2}) -> lumiere {3} "
+											"effective en ({4}, {5}, {6})\n",
+											mv[0], mv[1], mv[2], st->lightSel, ef.position.x, ef.position.y,
+											ef.position.z);
+							}
+						}
+						const bool lwasDrag = st->lightGizmo.IsDragging();
+						st->lightGizmo.Update(ltg, Demo3DState::kNumLights, lin);
+						if (!lwasDrag && st->lightGizmo.IsDragging())
+							lightClaimedClick = true; // poignee saisie : le clic est a nous
+						st->lightSel = st->lightGizmo.ActiveIndex();
+						// LE CLIC EST CONSOMME : sans cela, deplacer une lumiere selectionnerait
+						// en meme temps l'objet situe derriere elle.
+						if (lightClaimedClick)
+							gin.leftPressed = false;
+						if (st->lightDragPrev && !st->lightGizmo.IsDragging()) {
+							// Fin de drag : on RENTRE le resultat dans la base et on remet le
+							// gizmo a zero. Sinon la base et l'accumulation divergeraient et le
+							// pick (qui projette l'effective) finirait par ne plus tomber la ou
+							// l'on voit le widget apres plusieurs manipulations.
+							for (int32 li = 0; li < Demo3DState::kNumLights; li++)
+								st->lights[li] = Demo3D_LightEffective(st, li);
+							st->lightGizmo.ResetSelected();
+							// Une lumiere manipulee ne peut plus etre animee : son animation
+							// reecrirait la position a la frame suivante et effacerait le geste.
+							if (st->lightSel == 3)
+								st->spotAnimated = false;
+							logger.Info("[Demo3D][LUMIERE] {0} : position ({1}, {2}, {3}), portee {4}\n",
+										st->lightSel < 0 ? 0 : st->lightSel,
+										st->lights[st->lightSel < 0 ? 0 : st->lightSel].position.x,
+										st->lights[st->lightSel < 0 ? 0 : st->lightSel].position.y,
+										st->lights[st->lightSel < 0 ? 0 : st->lightSel].position.z,
+										st->lights[st->lightSel < 0 ? 0 : st->lightSel].range);
+						}
+						st->lightDragPrev = st->lightGizmo.IsDragging();
+					}
 					st->gizmo.Update(targets, n, gin);
+					if (getenv("NK_SEL_AT")) {
+						static int32 lastLogged = -2;
+						const int32 nowSel = st->gizmo.ActiveIndex();
+						if (nowSel != lastLogged) {
+							lastLogged = nowSel;
+							const char *what = "?";
+							if (nowSel < 0)
+								what = "rien";
+							else if (nowSel < 16)
+								what = "sphere";
+							else if (nowSel == 16)
+								what = "cube central";
+							else if (nowSel <= 18)
+								what = "colonne";
+							else if (nowSel < 83)
+								what = "cube instancie";
+							else if (nowSel == Demo3DState::kIdxFloor)
+								what = "SOL";
+							else if (nowSel == Demo3DState::kIdxFoliage)
+								what = "PANNEAU FEUILLAGE";
+							else if (nowSel == Demo3DState::kIdxGIWall)
+								what = "MUR GI";
+							logger.Info("[Demo3D] selection -> index {0} ({1})\n", nowSel, what);
+						}
+					}
 
 					// ── OUTILS DE SÉLECTION PAR ZONE, MODE OBJET ─────────────────────
 					// B = rectangle, Ctrl+glisser = lasso, C = cercle — exactement les
@@ -5478,7 +6422,9 @@ namespace nkentseu {
 							NkInput.IsKeyDown(NkKey::NK_LALT) || NkInput.IsKeyDown(NkKey::NK_RALT);
 						// Le gizmo a la priorité : si une poignée est saisie, on ne démarre
 						// pas de zone (sinon tout déplacement tracerait un rectangle).
-						const bool gizmoBusy = st->gizmo.IsDragging();
+						// Le gizmo des LUMIERES compte autant : tirer une poignee de lumiere
+						// ne doit pas tracer un rectangle de selection par-dessus.
+						const bool gizmoBusy = st->gizmo.IsDragging() || st->lightGizmo.IsDragging();
 
 						if (st->selTool == 3) { // CERCLE : on peint tant que le bouton est tenu
 							st->selX1 = gin.mouseX;
@@ -5624,8 +6570,22 @@ namespace nkentseu {
 					if (const char *ls = getenv("NK_LIGHT_SEL"))
 						st->lightSel = atoi(ls);
 				}
+				// NK_LIGHT_STYLE=<0|1|2> : 0 = symbole filaire facon Blender (defaut),
+				// 1 = billboard facon Unreal, 2 = l'ancien solide 3D. Les DEUX designs
+				// demandes sont dans le systeme ; ce levier permet de les comparer sur
+				// la meme scene, sans recompiler et donc de facon reproductible.
 				if (lgShow && st->showLightGizmos) {
 					const NkVec3f camP = cam.GetPosition();
+					// AXES ECRAN DE LA CAMERA — indispensables aux deux nouveaux designs :
+					// un symbole « face camera » calcule depuis les axes du monde resterait
+					// plaque dans un plan fixe et disparaitrait de profil. Meme construction
+					// que Demo3D_ScreenProj, pour que ce qu'on DESSINE et ce qu'on PROJETTE
+					// au pick soient rigoureusement le meme repere.
+					{
+						const NkVec3f fwd = (cam.GetTarget() - camP).Normalized();
+						const NkVec3f rgt = fwd.Cross(NkVec3f{0.f, 1.f, 0.f}).Normalized();
+						renderer::NkLightGizmo::SetCameraAxes(rgt, rgt.Cross(fwd).Normalized());
+					}
 					for (uint32 li = 0; li < (uint32)st->frameLights.Size(); li++) {
 						const renderer::NkLightDesc &L = st->frameLights[li];
 						// Distance camera->lumiere : dimensionne le corps du widget pour
@@ -5639,6 +6599,15 @@ namespace nkentseu {
 								r3d->DrawDebugTriangle(a, b, c, col, 0.f, true);
 							});
 					}
+					// POIGNEES DE MANIPULATION de la lumiere selectionnee. Sans elles le
+					// pick serait sans suite : on saurait quelle lumiere est prise, sans
+					// pouvoir la bouger. Dessinees APRES les widgets pour rester au-dessus.
+					if (st->lightSel >= 0)
+						st->lightGizmo.Draw(
+							[&](NkVec3f a, NkVec3f b, NkVec4f c) { r3d->DrawDebugLine(a, b, c, 0.f, true); },
+							[&](NkVec3f a, NkVec3f b, NkVec3f c, NkVec4f col) {
+								r3d->DrawDebugTriangle(a, b, c, col, 0.f, true);
+							});
 				}
 			}
 

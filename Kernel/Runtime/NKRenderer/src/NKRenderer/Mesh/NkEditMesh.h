@@ -63,10 +63,13 @@ namespace nkentseu {
 				//              (un merge par region, pas un merge global) ;
 				//   ByDistance « Remove Doubles » : seuls les sommets selectionnes plus
 				//              proches que `distance` fusionnent, par grappes.
-				// NB Blender : First/Last y designent le premier/dernier SELECTIONNE
-				// (ordre de clic). Ici l'ordre de selection n'est pas encore memorise :
-				// First/Last = plus petit / plus grand INDICE — ecart documente, a
-				// resorber quand l'editeur portera l'historique de selection.
+				// First / Last designent bien, comme dans Blender, le PREMIER et le
+				// DERNIER SELECTIONNE (ordre des gestes), grace au rang porte par
+				// Vert::selOrder. Repli documente : si aucun sommet selectionne ne
+				// porte de rang — selection posee par un chemin qui ne passe pas par
+				// SetVertSelection (script, chargement) — on retombe sur le plus petit
+				// et le plus grand INDICE. Mieux vaut un ordre arbitraire mais defini
+				// qu'un refus d'operer.
 				enum Mode { Center = 0, First = 1, Last = 2, AtCursor = 3, Collapse = 4, ByDistance = 5 };
 
 				int32 mode = Center;
@@ -255,6 +258,27 @@ namespace nkentseu {
 						uint32 color = 0xFFFFFFFFu;
 						NkEmId hedge = NK_EM_INVALID; // une demi-arête SORTANTE
 						uint8 sel = 0;
+						// ── ORDRE DE SÉLECTION (rang de clic) ─────────────────────
+						// 0 = non sélectionné. Sinon : rang CROISSANT de sélection,
+						// donné par un compteur monotone. C'est ce qui permet à Merge
+						// At First / At Last de désigner le PREMIER et le DERNIER
+						// SÉLECTIONNÉ, comme Blender, et non le plus petit et le plus
+						// grand INDICE — deux choses qui n'ont aucune raison de
+						// coïncider : l'indice reflète l'ordre de construction du
+						// maillage, pas les gestes de l'utilisateur.
+						// Le rang n'est PAS un identifiant : il ne survit pas à une
+						// re-topologie (la sélection est réappliquée à plat), ce qui
+						// est correct — après un merge, « le premier cliqué » n'existe
+						// plus.
+						uint32 selOrder = 0;
+						// ── CYCLE DISQUE (etape 2) ────────────────────────────────
+						// Tranche dans `diskPool` : les aretes incidentes a ce sommet.
+						// Renseignee sur le sommet REPRESENTANT de l'identite soudee (les
+						// copies coincidentes pointent la meme tranche) — sinon, sur une
+						// primitive qui duplique ses sommets par face, chaque copie ne
+						// verrait qu'un tiers de ses aretes.
+						uint32 diskStart = 0;
+						uint32 diskCount = 0;
 				};
 
 				// ── ARETE DE PREMIER PLAN (etape 1 du modele BMesh) ──────────────
@@ -286,6 +310,24 @@ namespace nkentseu {
 						uint8 faceCount = 0; // 0 = filaire, 1 = bord, 2 = interieur, >2 = non manifold
 						uint8 sel = 0;
 						uint8 alive = 1;
+						// ── CYCLE RADIAL (etape 2) ────────────────────────────────
+						// Tranche dans `radialPool` : TOUTES les demi-aretes qui portent
+						// cette arete, donc toutes les faces incidentes.
+						//
+						// POURQUOI c'est necessaire : `Hedge::twin` ne peut designer
+						// QU'UNE opposee. Sur une arete partagee par TROIS faces (jonction
+						// en T, tres courante des qu'on colle une cloison sur un mur),
+						// l'appariement en retient deux et la troisieme devient invisible
+						// pour tout parcours. Le cycle radial les porte TOUTES, donc le
+						// non-manifold cesse d'etre un cas qu'on ignore pour devenir un cas
+						// qu'on peut CONSTATER et traiter.
+						//
+						// Tranche contigue plutot que liste chainee (BMesh en utilise une) :
+						// la structure est reconstruite en bloc par RebuildEdges, jamais
+						// modifiee arete par arete — une liste chainee n'apporterait ici que
+						// des indirections et des invariants supplementaires a maintenir.
+						uint32 radialStart = 0;
+						uint32 radialCount = 0;
 				};
 
 				struct Hedge {
@@ -293,6 +335,11 @@ namespace nkentseu {
 						NkEmId twin = NK_EM_INVALID;   // demi-arête opposée (autre face)
 						NkEmId next = NK_EM_INVALID;   // suivante autour de la face
 						NkEmId face = NK_EM_INVALID;   // face incidente
+						// Arete de premier plan portee par cette demi-arete (etape 2).
+						// Sans ce lien, passer d'une demi-arete a « son » arete demandait
+						// une recherche par cle spatiale a chaque fois — c'est-a-dire de
+						// RE-DEDUIRE une information que la structure connaissait deja.
+						NkEmId edge = NK_EM_INVALID;
 						uint8 alive = 1;			   // 0 = arête interne dissoute (quadify)
 				};
 
@@ -317,6 +364,13 @@ namespace nkentseu {
 				// operation topologique ; les aretes FILAIRES y survivent (elles ne sont
 				// deduites d'aucune face, donc rien d'autre ne peut les recreer).
 				NkVector<Edge> edges;
+				// Compteur monotone des rangs de selection (cf. Vert::selOrder). Jamais
+				// remis a zero en cours d'edition : c'est un ORDRE, pas un compte.
+				uint32 selCounter = 0;
+				// Reservoirs des deux cycles BMesh (etape 2). Reconstruits en meme temps
+				// que `edges` : ce sont des VUES sur la topologie, jamais une source.
+				NkVector<NkEmId> radialPool; // demi-aretes, groupees par arete
+				NkVector<NkEmId> diskPool;   // aretes, groupees par sommet representant
 
 				void Clear() {
 					verts.Clear();
@@ -475,6 +529,54 @@ namespace nkentseu {
 				// Arête sélectionnée -> nouvelle arête + FACE (quad) reliante.
 				bool ExtrudeSelectedEdges(const NkExtrudeParams &p = NkExtrudeParams{});
 				bool DeleteSelectedFaces();
+				// ── SELECTION ORDONNEE ──────────────────────────────────────────────
+				// Pose la selection COMPLETE en une passe, tout en enregistrant l'ORDRE.
+				// L'ordre est deduit des TRANSITIONS : un sommet qui passe de non
+				// selectionne a selectionne recoit le rang suivant ; un sommet deja
+				// selectionne garde le sien ; un sommet deselectionne perd le sien.
+				// C'est ce qui permet a l'editeur de continuer a pousser son tableau
+				// ENTIER a chaque frame (ce qu'il fait) sans ecraser l'historique :
+				// seuls les changements reels comptent. Demander a l'appelant de signaler
+				// chaque clic aurait disperse la responsabilite dans toute l'interface.
+				void SetVertSelection(const uint8 *flags, uint32 count);
+				// Rang courant du compteur (diagnostic / tests).
+				uint32 SelectionStamp() const {
+					return selCounter;
+				}
+				// Premier / dernier SELECTIONNE au sens de l'ordre des gestes. -1 si la
+				// selection est vide. Repli sur l'indice si aucun rang n'est pose.
+				int32 FirstSelected() const;
+				int32 LastSelected() const;
+
+				// ── SUBDIVISION DE SURFACE CATMULL-CLARK ────────────────────────────
+				// Le lissage de Blender (« Subdivision Surface »), et non une simple
+				// decoupe. La difference est de nature, pas de degre : une subdivision
+				// LINEAIRE ajoute des sommets SUR la surface existante — la silhouette ne
+				// bouge pas d'un micron, on n'obtient qu'un maillage plus dense. Catmull-
+				// Clark DEPLACE les sommets vers la surface limite : un cube devient une
+				// forme arrondie, ce qui est tout l'interet du modificateur.
+				//
+				// Regles appliquees (formulation standard, celle de Blender) :
+				//   point de FACE   = barycentre des sommets de la face ;
+				//   point d'ARETE   = moyenne des 2 sommets et des 2 points de face —
+				//                     sur un BORD (une seule face), simple milieu, sinon la
+				//                     bordure se retracterait vers l'interieur ;
+				//   sommet DEPLACE  = (F + 2R + (n-3)V) / n, avec F la moyenne des points
+				//                     de face voisins, R celle des MILIEUX d'aretes, n la
+				//                     valence. Sur un bord : (M1 + 6V + M2) / 8, qui ne fait
+				//                     intervenir QUE la bordure — c'est ce qui garde un bord
+				//                     franc au lieu de l'aspirer vers la surface.
+				//
+				// Le calcul se fait sur l'identite SOUDEE : sans cela un cube (24 sommets
+				// dupliques par face) aurait une valence de 2 partout et se disloquerait.
+				// Les ATTRIBUTS (uv, uv2, couleur, tangente) restent PAR COIN et sont
+				// interpoles a l'interieur de chaque face : les coutures d'UV survivent,
+				// alors qu'un moyennage sur les sommets soudes les detruirait.
+				//
+				// levels : nombre d'applications (chacune multiplie les faces par ~4).
+				// Renvoie false si le maillage est vide ou si rien n'a pu etre produit.
+				bool SubdivideCatmullClark(int32 levels = 1);
+
 				bool MergeSelectedVerts(const NkMergeParams &p = NkMergeParams{});
 				bool MakeFaceFromSelected();
 
@@ -487,6 +589,89 @@ namespace nkentseu {
 
 				// Nombre d'aretes vivantes (filaires comprises).
 				uint32 EdgeCount() const;
+
+				// ── ETAPE 2 : LES DEUX CYCLES DE BMESH ──────────────────────────────
+				// L'etape 1 avait fait de l'arete une ENTITE ; elle restait deduite des
+				// faces et ne savait rien de son voisinage. L'etape 2 lui donne son
+				// CYCLE RADIAL (les faces qui la portent) et donne au sommet son CYCLE
+				// DISQUE (les aretes qui en partent). Ce sont les deux parcours a partir
+				// desquels Blender exprime boucles, anneaux, dissolution et bord.
+				//
+				// Ce que cela change concretement :
+				//   - le NON-MANIFOLD devient representable et constatable. `twin` ne
+				//     designe qu'une opposee : au-dela de deux faces par arete, un
+				//     parcours fonde sur lui suit une branche ARBITRAIRE sans le dire ;
+				//   - « les faces autour de cette arete » et « les aretes autour de ce
+				//     sommet » sont en O(k) au lieu d'un balayage ou d'une table.
+				//
+				// Ces vues sont reconstruites par RebuildEdges(). Elles ne remplacent pas
+				// les demi-aretes : elles s'y ajoutent, l'API publique existante etant
+				// inchangee.
+
+				// Arete portee par une demi-arete. NK_EM_INVALID si inconnue.
+				NkEmId EdgeOfHedge(NkEmId h) const {
+					return (h < (NkEmId)hedges.Size()) ? hedges[h].edge : NK_EM_INVALID;
+				}
+				// Arete reliant deux sommets (indices bruts ; l'identite soudee est
+				// resolue en interne). NK_EM_INVALID si aucune.
+				NkEmId EdgeBetween(uint32 a, uint32 b) const;
+				// CYCLE RADIAL : demi-aretes portant l'arete (une par face incidente).
+				uint32 EdgeHedges(NkEmId e, NkVector<NkEmId> &out) const;
+				// CYCLE RADIAL, cote faces : faces incidentes, sans doublon.
+				uint32 EdgeFaces(NkEmId e, NkVector<NkEmId> &out) const;
+				// Face incidente a `e` AUTRE que `f`. NK_EM_INVALID si l'arete est un
+				// bord (une seule face) OU non manifold (le « de l'autre cote » n'a
+				// alors pas de sens, et en choisir un au hasard serait un mensonge).
+				NkEmId EdgeOtherFace(NkEmId e, NkEmId f) const;
+				// CYCLE DISQUE : aretes incidentes au sommet (identite soudee).
+				uint32 VertEdges(uint32 v, NkVector<NkEmId> &out) const;
+
+				uint32 RadialCount(NkEmId e) const {
+					return (e < (NkEmId)edges.Size() && edges[e].alive) ? edges[e].radialCount : 0u;
+				}
+				bool EdgeIsWire(NkEmId e) const {
+					return e < (NkEmId)edges.Size() && edges[e].alive && edges[e].radialCount == 0;
+				}
+				bool EdgeIsBoundary(NkEmId e) const {
+					return e < (NkEmId)edges.Size() && edges[e].alive && edges[e].radialCount == 1;
+				}
+				bool EdgeIsManifold(NkEmId e) const {
+					return e < (NkEmId)edges.Size() && edges[e].alive && edges[e].radialCount == 2;
+				}
+				bool EdgeIsNonManifold(NkEmId e) const {
+					return e < (NkEmId)edges.Size() && edges[e].alive && edges[e].radialCount > 2;
+				}
+				// JUMELLE RADIALE : l'opposee de `h` selon le cycle radial.
+				// Difference avec `Hedge::twin`, et raison d'etre de cette fonction : sur
+				// une arete portee par TROIS faces ou plus, `twin` designe une opposee
+				// ARBITRAIRE (celle que l'appariement a retenue) et tout parcours qui s'y
+				// fie bascule silencieusement sur une branche que l'utilisateur n'a pas
+				// choisie. Ici on REFUSE : NK_EM_INVALID, et le parcours s'arrete — ce que
+				// fait Blender sur une arete non manifold.
+				// Repli : si les aretes n'ont pas encore ete construites (edge == INVALID),
+				// on rend `twin`, pour ne rien casser chez un appelant qui n'a pas appele
+				// RebuildEdges().
+				NkEmId RadialTwin(NkEmId h) const {
+					if (h >= (NkEmId)hedges.Size())
+						return NK_EM_INVALID;
+					const NkEmId e = hedges[h].edge;
+					if (e == NK_EM_INVALID || e >= (NkEmId)edges.Size())
+						return hedges[h].twin;
+					if (edges[e].radialCount != 2)
+						return NK_EM_INVALID; // bord, filaire ou non manifold : pas d'oppose unique
+					const uint32 s0 = edges[e].radialStart;
+					for (uint32 k = 0; k < 2; ++k) {
+						if (s0 + k >= (uint32)radialPool.Size())
+							break;
+						if (radialPool[s0 + k] != h)
+							return radialPool[s0 + k];
+					}
+					return hedges[h].twin;
+				}
+
+				// Nombre d'aretes non manifold — un chiffre a surveiller apres toute
+				// operation topologique : il ne devrait jamais augmenter par accident.
+				uint32 NonManifoldEdgeCount() const;
 
 				// Cree une arete FILAIRE entre deux sommets, si elle n'existe pas deja.
 				// Renvoie l'index de l'arete, ou NK_EM_INVALID en cas d'echec.
@@ -742,11 +927,66 @@ namespace nkentseu {
 		//   base → mod0(params) → mod1(params) → … → résultat.
 		// Changer un paramètre = ré-évaluer la pile (la base reste éditable dessous).
 		// Fondation directe : ces modificateurs sont aussi des ACTIONS composables pour l'IA.
-		enum class NkModifierType : uint8 { Mirror = 0, Array = 1, Subsurf = 2 };
+		// ⚠ VALEURS SERIALISEES : on AJOUTE EN FIN, on ne renumerote jamais. Une
+		// scene enregistree designe ses modificateurs par ces entiers.
+		// Faisabilite : ne figurent ici que les modificateurs realisables avec le
+		// maillage SEUL. Ceux de Blender qui exigent un AUTRE objet (Shrinkwrap,
+		// Curve, Lattice, Hook, Armature, Mesh/Surface Deform, Boolean, Warp), des
+		// GROUPES DE SOMMETS (Mask par groupe, Vertex Weight *), une TEXTURE
+		// (Displace, UV Project), une SIMULATION (Cloth, Fluid, Ocean, Soft Body,
+		// particules) ou un systeme de POILS sont hors de portee tant que ces
+		// systemes n'existent pas — les lister sans les faire serait mentir.
+		enum class NkModifierType : uint8 {
+			Mirror = 0,
+			Array = 1,
+			Subsurf = 2,
+			Solidify = 3,	   // epaissit une surface : coque interne + bordure
+			Triangulate = 4,   // n-gons -> triangles
+			Weld = 5,		   // soude les sommets sous une distance
+			Bevel = 6,		   // chanfreine toutes les aretes
+			Screw = 7,		   // revolution du profil autour d'un axe
+			EdgeSplit = 8,	   // dedouble les aretes vives (angle)
+			Decimate = 9,	   // simplifie : dissout les aretes quasi coplanaires
+			Build = 10,		   // ne montre qu'une PROPORTION des faces (animable)
+			Mask = 11,		   // ne garde que les faces selectionnees
+			Cast = 12,		   // projette vers sphere / cylindre / cube
+			SimpleDeform = 13, // torsion / courbure / effilement / etirement
+			Smooth = 14,	   // relaxe les sommets vers la moyenne des voisins
+			Wave = 15,		   // ondulation (la phase est faite pour etre animee)
+			SmoothByAngle = 16 // ombrage doux sous un angle, franc au-dela
+		};
+
+		// ── PARAMETRE ADRESSABLE PAR NOM ───────────────────────────────────────────
+		// Chaque modificateur publie la LISTE de ses parametres : nom stable, libelle,
+		// type, et ou le lire dans la structure. Cela sert trois choses a la fois :
+		//   1. une interface peut se construire toute seule, sans connaitre les
+		//      modificateurs un par un ;
+		//   2. l'IA et le rejeu peuvent regler « arrayCount » sans code dedie ;
+		//   3. et surtout, demande de Rihen : une ANIMATION pourra plus tard marquer
+		//      N'IMPORTE QUEL parametre. Une courbe d'animation designe une cible par
+		//      (identifiant du modificateur, nom du parametre) — deux choses STABLES,
+		//      qui survivent au reordonnancement de la pile.
+		// C'est pour cela que `name` ne doit JAMAIS etre renomme une fois publie : ce
+		// n'est pas un libelle, c'est une CLE. `label` est la, lui, pour l'affichage.
+		enum class NkModParamType : uint8 { Bool = 0, Int, Float, Vec3 };
+
+		struct NkModParam {
+				const char *name = "";	// CLE stable (animation, rejeu, serialisation)
+				const char *label = ""; // libelle affichable, librement modifiable
+				NkModParamType type = NkModParamType::Float;
+				uint32 offset = 0;			   // position du champ dans NkMeshModifier
+				float32 minV = 0.f, maxV = 0.f; // bornes indicatives (0/0 = libre)
+		};
 
 		struct NkMeshModifier {
 				NkModifierType type = NkModifierType::Mirror;
 				bool enabled = true;
+				// IDENTIFIANT STABLE, attribue par la pile. Il ne change ni au
+				// reordonnancement, ni a la desactivation, ni a la duplication (la copie
+				// en recoit un neuf). C'est l'ancre d'une future courbe d'animation :
+				// pointer un modificateur par son INDICE se casserait des qu'on le
+				// remonte d'un cran dans la pile, ce que Blender permet a tout moment.
+				uint32 id = 0;
 				// Mirror : miroir sur un axe au plan de l'origine (+ soudure des sommets sur le plan).
 				int32 mirrorAxis = 0; // 0=X 1=Y 2=Z
 				bool mirrorMerge = true;
@@ -754,11 +994,99 @@ namespace nkentseu {
 				// Array : duplique le maillage `arrayCount` fois avec un décalage constant.
 				int32 arrayCount = 3;
 				NkVec3f arrayOffset = {2.f, 0.f, 0.f};
-				// Subsurf : subdivise TOUT le maillage `subsurfLevels` fois (réutilise Subdivide).
+				// Subsurf : `subsurfLevels` applications sur TOUT le maillage.
+				// subsurfSimple : false (defaut) = CATMULL-CLARK, le lissage de Blender ;
+				//   true = mode « Simple » de Blender, subdivision LINEAIRE qui densifie
+				//   sans deformer. Les deux existent chez Blender parce qu'ils repondent a
+				//   des besoins differents : lisser une forme, ou densifier pour sculpter.
 				int32 subsurfLevels = 1;
+				bool subsurfSimple = false;
+
+				// ── LOT AJOUTE ──────────────────────────────────────────────────────
+				// Solidify : epaissit une surface. offset -1 = vers l'interieur,
+				// +1 = vers l'exterieur, 0 = de part et d'autre (convention Blender).
+				float32 solidifyThickness = 0.05f;
+				float32 solidifyOffset = -1.f;
+				bool solidifyRim = true; // referme le bord, sinon la coque reste ouverte
+
+				// Triangulate : les faces de moins de `minVerts` cotes sont laissees
+				// telles quelles (un quad reste un quad si minVerts vaut 5).
+				int32 triangulateMinVerts = 4;
+
+				// Weld : distance de soudure. C'est « Remove Doubles » en modificateur.
+				float32 weldDistance = 0.001f;
+
+				// Bevel : largeur mesuree le long des aretes, et nombre de segments.
+				float32 bevelWidth = 0.05f;
+				int32 bevelSegments = 1;
+
+				// Screw : revolution du profil. angle en degres, height = pas d'helice.
+				int32 screwSteps = 12;
+				float32 screwAngle = 360.f;
+				float32 screwHeight = 0.f;
+				int32 screwAxis = 1; // 0=X 1=Y 2=Z
+
+				// EdgeSplit : angle diedre au-dela duquel l'arete est dedoublee.
+				float32 edgeSplitAngle = 30.f;
+
+				// Decimate : angle en dessous duquel deux faces voisines sont jugees
+				// coplanaires et leur arete dissoute (mode « Planar » de Blender).
+				float32 decimateAngle = 5.f;
+
+				// Build : proportion de faces conservees, 0..1. Ce parametre existe POUR
+				// etre anime — c'est le seul modificateur dont l'interet est le temps.
+				float32 buildRatio = 1.f;
+
+				// Mask : ne garde que les faces selectionnees (invert = le complement).
+				bool maskInvert = false;
+
+				// Cast : 0=sphere 1=cylindre 2=cube. factor 0 = rien, 1 = forme pure.
+				// radius <= 0 : deduit du maillage (rayon moyen) — un rayon impose a
+				// zero ferait imploser le modele, ce qui n'est jamais l'intention.
+				int32 castType = 0;
+				float32 castFactor = 0.5f;
+				float32 castRadius = 0.f;
+
+				// SimpleDeform : 0=torsion 1=courbure 2=effilement 3=etirement.
+				// angle en degres (torsion/courbure), factor pour effilement/etirement.
+				int32 deformMode = 0;
+				float32 deformAngle = 45.f;
+				float32 deformFactor = 0.5f;
+				int32 deformAxis = 1; // 0=X 1=Y 2=Z
+
+				// Smooth : relaxation laplacienne. factor 0..1, repetee `repeat` fois.
+				float32 smoothFactor = 0.5f;
+				int32 smoothRepeat = 1;
+
+				// Wave : ondulation radiale. `phase` est le parametre a animer.
+				float32 waveHeight = 0.1f;
+				float32 waveWidth = 0.5f;
+				float32 wavePhase = 0.f;
+				int32 waveAxis = 1; // axe le long duquel l'onde deplace les sommets
+
+				// SmoothByAngle : ombrage doux en dessous de cet angle diedre, franc
+				// au-dela. C'est « Auto Smooth » de Blender, devenu un modificateur.
+				float32 autoSmoothAngle = 30.f;
 
 				void Apply(NkEditMesh &m) const; // transforme `m` en place
+
+				// ── ACCES GENERIQUE AUX PARAMETRES ──────────────────────────────────
+				// Les scalaires (Bool / Int / Float) passent par float32 : c'est le type
+				// d'une courbe d'animation, et la conversion est faite ICI plutot que
+				// chez chaque appelant — sinon chacun arrondirait a sa facon.
+				uint32 ParamCount() const;
+				const NkModParam *ParamAt(uint32 i) const;
+				const NkModParam *FindParam(const char *name) const;
+				bool GetParam(const char *name, float32 &out) const;
+				bool SetParam(const char *name, float32 v);
+				bool GetParamVec3(const char *name, NkVec3f &out) const;
+				bool SetParamVec3(const char *name, const NkVec3f &v);
 		};
+
+		// Nom lisible d'un type de modificateur (interface, journal, serialisation).
+		const char *NkModifierTypeName(NkModifierType t);
+		// Table des parametres d'un type donne.
+		const NkModParam *NkModifierParams(NkModifierType t, uint32 &count);
 
 		class NkModifierStack {
 			public:
@@ -770,18 +1098,55 @@ namespace nkentseu {
 
 				void Clear() {
 					modifiers.Clear();
+					mNextId = 1;
 				}
 
-				void Add(const NkMeshModifier &mod) {
-					modifiers.PushBack(mod);
+				// Empile et renvoie l'IDENTIFIANT STABLE attribue. Cet identifiant est ce
+				// qu'il faut retenir ailleurs (animation, interface), jamais l'indice.
+				uint32 Add(const NkMeshModifier &mod) {
+					NkMeshModifier m = mod;
+					m.id = mNextId++;
+					modifiers.PushBack(m);
+					return m.id;
 				}
 
 				uint32 Count() const {
 					return (uint32)modifiers.Size();
 				}
 
-				// out = base, puis chaque modificateur activé appliqué dans l'ordre.
+				// ── GESTION DE LA PILE (facon Blender) ──────────────────────────────
+				// L'ORDRE EST SIGNIFIANT : miroir puis tableau ne donne pas la meme chose
+				// que tableau puis miroir. Pouvoir remonter/descendre un modificateur
+				// n'est donc pas un confort d'interface, c'est un parametre de resultat.
+				bool Remove(uint32 index);
+				bool MoveUp(uint32 index);	 // vers le HAUT = evalue plus TOT
+				bool MoveDown(uint32 index); // vers le BAS = evalue plus TARD
+				bool SetEnabled(uint32 index, bool on);
+				// Duplique le modificateur (la copie recoit un identifiant NEUF : deux
+				// entrees animables independamment, sinon une courbe piloterait les deux).
+				bool Duplicate(uint32 index);
+
+				int32 IndexOfId(uint32 id) const;
+				NkMeshModifier *FindById(uint32 id);
+				const NkMeshModifier *FindById(uint32 id) const;
+
+				// APPLIQUER (Blender : « Apply ») : cuit CE modificateur dans le maillage
+				// de BASE et le retire de la pile. Le maillage editable devient le
+				// resultat — l'operation est donc DESTRUCTIVE, c'est tout son objet.
+				//
+				// Comme Blender, on autorise a appliquer un modificateur qui n'est PAS le
+				// premier, mais le resultat ne sera alors pas celui qu'on voyait a
+				// l'ecran : l'affichage montre la pile ENTIERE, alors qu'on ne cuit que ce
+				// modificateur-la, sans ceux qui le precedent. `outWarnNotFirst` le
+				// signale a l'appelant, a charge pour lui de prevenir l'utilisateur —
+				// plutot que de refuser (Blender ne refuse pas) ou de se taire.
+				bool ApplyToBase(uint32 index, NkEditMesh &base, bool *outWarnNotFirst = nullptr);
+
+				// out = base, puis chaque modificateur ACTIVE applique dans l'ordre.
 				void Evaluate(const NkEditMesh &base, NkEditMesh &out) const;
+
+			private:
+				uint32 mNextId = 1;
 		};
 
 	} // namespace renderer

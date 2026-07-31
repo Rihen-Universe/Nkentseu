@@ -325,6 +325,19 @@ namespace nkentseu {
 			// (1/w, 1/h) de mW/mH pour l'edge-detect du liseré de sélection — à 0, les
 			// offsets d'échantillonnage explosent (1.0 en UV) et le liseré disparaît.
 			mRender3D->OnResize(mCfg.width, mCfg.height);
+			// NK_OVERLAY_IN_BLOOM=1 : ancien chemin (overlays emis dans la passe
+			// Geometry, donc soumis au bloom). Sert a comparer, et de filet si un
+			// backend se comportait mal avec la passe supplementaire. Lu ICI, avant la
+			// construction du graphe, parce que la presence de la passe Overlay3D en
+			// depend — le graphe n'est reconstruit que sur changement de config.
+			{
+				const char *ob = getenv("NK_OVERLAY_IN_BLOOM");
+				if (ob && ob[0] && ob[0] != '0') {
+					mRender3D->SetOverlayAfterPost(false);
+					logger.Info("[NkRendererImpl] NK_OVERLAY_IN_BLOOM : overlays 3D emis dans Geometry "
+								"(ancien chemin, halo de bloom sur les traits)\n");
+				}
+			}
 			// Wire la connexion inverse : NkShadowSystem itere les opaques de
 			// mRender3D dans sa passe shadow. Necessaire pour D.3b.
 			if (mShadow)
@@ -898,6 +911,36 @@ namespace nkentseu {
 						}
 					});
 				}
+			}
+
+			// ── OVERLAYS 3D : APRES LE BLOOM, AVANT LE TONEMAP ────────────────
+			// PROBLEME RESOLU : fil de fer, cage d'edition, marqueurs et gizmos etaient
+			// emis DANS la passe Geometry, donc ecrits dans le HDR (`mainColor`) AVANT
+			// que le bright-pass du bloom ne l'echantillonne. Chaque trait d'editeur
+			// ressortait donc entoure d'un halo, ce que Blender ne fait pas.
+			//
+			// POURQUOI ICI ET PAS APRES LE POST-PROCESS (ou vivent SelectionOutline et
+			// Overlay2D) : essaye, et MESURE a l'appui, cela casse deux choses sur
+			// OpenGL. Le tonemap RETOURNE l'image en Y (yFlipUV) — la cible finale est
+			// donc en repere haut-bas alors que la scene et `mainDepth` sont en repere
+			// bas-haut. Resultat constate en capture : overlays dessines a l'envers
+			// (gizmo tete-beche, lignes de sol convergeant vers le bas). Et meme en
+			// corrigeant le signe en Y, la PROFONDEUR de la scene resterait dans
+			// l'autre repere : la cage depth-testee serait occultee au mauvais endroit.
+			// Ici, meme cible et meme profondeur que la geometrie : rien de tout cela.
+			//
+			// LIMITE ASSUMEE : les overlays traversent encore tonemap / TAA / FXAA,
+			// donc leurs couleurs sont legerement comprimees par ACES. Le HALO — la
+			// gene signalee — disparait ; la teinte exacte demanderait soit un drapeau
+			// « deja LDR » dans le tonemap, soit de supprimer le retournement du
+			// post-process pour ne retourner qu'a la presentation.
+			if (has3D && mRender3D && mRender3D->IsOverlayAfterPost() && mainDepth != NK_INVALID_RES_ID) {
+				auto &ov3 = g.AddPass("Overlay3D", NkPassType::NK_UI_OVERLAY);
+				ov3.SetColor(0, mainColor, NkLoadOp::NK_LOAD).SetDepth(mainDepth, NkLoadOp::NK_LOAD);
+				ov3.Execute([this](NkICommandBuffer *cmd) {
+					if (mRender3D)
+						mRender3D->FlushOverlay3D(cmd);
+				});
 			}
 
 			// ── Post-process ──────────────────────────────────────────────────
