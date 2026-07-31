@@ -977,6 +977,151 @@ static void CatmullBattery() {
 	}
 }
 
+// ── PILE DE MODIFICATEURS ───────────────────────────────────────────────────
+// Trois choses a prouver, et une seule est evidente.
+//   1. L'ORDRE COMPTE : miroir-puis-tableau et tableau-puis-miroir ne donnent pas
+//      le meme maillage. Si les deux signatures etaient egales, « remonter un
+//      modificateur » ne servirait a rien et le reordonnancement serait decoratif.
+//   2. L'IDENTIFIANT SURVIT au reordonnancement : c'est ce qui permettra a une
+//      courbe d'animation de viser un modificateur qu'on a deplace entre-temps.
+//      Pointer par INDICE se casserait au premier MoveUp.
+//   3. APPLIQUER cuit le modificateur dans le maillage ET le retire de la pile :
+//      le resultat doit etre celui de l'evaluation, et la pile doit avoir maigri.
+static void ModStackBattery() {
+	NkVector<NkVertex3D> v;
+	NkVector<uint32> idx;
+	MakeCube(v, idx);
+	NkEditMesh base;
+	base.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+
+	NkMeshModifier mir;
+	mir.type = NkModifierType::Mirror;
+	mir.mirrorAxis = 0;
+	NkMeshModifier arr;
+	arr.type = NkModifierType::Array;
+	arr.arrayCount = 3;
+	arr.arrayOffset = {2.f, 0.f, 0.f};
+
+	// 1) Miroir PUIS tableau.
+	{
+		NkModifierStack st;
+		st.Add(mir);
+		st.Add(arr);
+		NkEditMesh out;
+		st.Evaluate(base, out);
+		Emit("pile/miroir-puis-tableau", Signature(out));
+	}
+	// 2) Tableau PUIS miroir — obtenu en REMONTANT le second, pas en reconstruisant
+	//    la pile : c'est MoveUp qui est teste, pas ma capacite a ecrire deux piles.
+	uint32 idMir = 0, idArr = 0;
+	{
+		NkModifierStack st;
+		idMir = st.Add(mir);
+		idArr = st.Add(arr);
+		st.MoveUp(1); // le tableau passe en premier
+		NkEditMesh out;
+		st.Evaluate(base, out);
+		Emit("pile/tableau-puis-miroir", Signature(out));
+		// L'identifiant suit le modificateur, l'indice non.
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s miroir: id=%u indice=%d | tableau: id=%u indice=%d",
+					 "pile/id-stable-apres-remontee", idMir, st.IndexOfId(idMir), idArr, st.IndexOfId(idArr));
+			gLineCount++;
+		}
+	}
+	// 3) DESACTIVER : un modificateur eteint ne doit rien produire.
+	{
+		NkModifierStack st;
+		st.Add(mir);
+		st.Add(arr);
+		st.SetEnabled(1, false);
+		NkEditMesh out;
+		st.Evaluate(base, out);
+		Emit("pile/tableau-desactive", Signature(out));
+	}
+	// 4) RETIRER et DUPLIQUER.
+	{
+		NkModifierStack st;
+		st.Add(mir);
+		st.Add(arr);
+		const uint32 n0 = st.Count();
+		st.Duplicate(0); // la copie s'insere JUSTE APRES l'original
+		const uint32 n1 = st.Count();
+		const bool dupAfter = (st.Count() >= 2) && (st.modifiers[1].type == NkModifierType::Mirror);
+		const bool idNeuf = (st.Count() >= 2) && (st.modifiers[1].id != st.modifiers[0].id);
+		st.Remove(1);
+		const uint32 n2 = st.Count();
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s count %u->%u->%u  copie juste apres=%d  id neuf=%d",
+					 "pile/dupliquer-retirer", n0, n1, n2, dupAfter ? 1 : 0, idNeuf ? 1 : 0);
+			gLineCount++;
+		}
+	}
+	// 5) APPLIQUER : cuit dans la base et retire de la pile. Le maillage obtenu
+	//    doit etre celui qu'on aurait eu en evaluant, sinon « appliquer » ne
+	//    signifierait pas « figer ce que je vois ».
+	{
+		NkModifierStack st;
+		st.Add(mir);
+		NkEditMesh baked = base;
+		bool warn = true;
+		const bool ok = st.ApplyToBase(0, baked, &warn);
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s ok=%d reste=%u avertissement-pas-premier=%d",
+					 "pile/appliquer-miroir", ok ? 1 : 0, st.Count(), warn ? 1 : 0);
+			gLineCount++;
+		}
+		Emit("pile/appliquer-miroir-signature", Signature(baked));
+	}
+	// 6) PARAMETRES ADRESSABLES PAR NOM — le socle de la future animation.
+	//    On regle, on relit, et on verifie l'ECRETAGE : une courbe qui deborde ne
+	//    doit pas produire un arrayCount negatif ni 40 niveaux de subdivision.
+	{
+		NkMeshModifier m = arr;
+		float32 got = 0.f;
+		m.SetParam("array_count", 7.f);
+		m.GetParam("array_count", got);
+		float32 clampLo = 0.f, clampHi = 0.f;
+		m.SetParam("array_count", -5.f);
+		m.GetParam("array_count", clampLo);
+		m.SetParam("array_count", 9999.f);
+		m.GetParam("array_count", clampHi);
+		// Arrondi au PLUS PROCHE : 2,999 vise 3, pas 2.
+		float32 round = 0.f;
+		m.SetParam("array_count", 2.999f);
+		m.GetParam("array_count", round);
+		NkVec3f off{0.f, 0.f, 0.f};
+		m.SetParamVec3("array_offset", NkVec3f{1.f, 2.f, 3.f});
+		m.GetParamVec3("array_offset", off);
+		const bool inconnu = m.SetParam("parametre_qui_nexiste_pas", 1.f);
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256,
+					 "%-34s count=%.0f ecrete[%.0f..%.0f] arrondi(2.999)=%.0f offset=(%.0f,%.0f,%.0f) inconnu=%d",
+					 "pile/parametres-par-nom", (double)got, (double)clampLo, (double)clampHi, (double)round,
+					 (double)off.x, (double)off.y, (double)off.z, inconnu ? 1 : 0);
+			gLineCount++;
+		}
+		// Inventaire publie : c'est ce que parcourra une interface ou un editeur de
+		// courbes pour proposer « quoi animer ».
+		uint32 tot = 0;
+		char buf[192];
+		buf[0] = 0;
+		for (int32 t = 0; t < 3; t++) {
+			uint32 n = 0;
+			NkModifierParams((NkModifierType)t, n);
+			tot += n;
+		}
+		snprintf(buf, sizeof(buf), "%s=%u %s=%u %s=%u total=%u", NkModifierTypeName(NkModifierType::Mirror),
+				 NkMeshModifier{NkModifierType::Mirror}.ParamCount(), NkModifierTypeName(NkModifierType::Array),
+				 NkMeshModifier{NkModifierType::Array}.ParamCount(), NkModifierTypeName(NkModifierType::Subsurf),
+				 NkMeshModifier{NkModifierType::Subsurf}.ParamCount(), tot);
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s %s", "pile/inventaire-parametres", buf);
+			gLineCount++;
+		}
+	}
+}
+
 int main(int argc, char **argv) {
 	bool baseline = false, check = false;
 	for (int32 i = 1; i < argc; i++) {
@@ -997,6 +1142,7 @@ int main(int argc, char **argv) {
 	Bmesh2Battery();
 	SnapBattery();
 	CatmullBattery();
+	ModStackBattery();
 
 	const char *path = "editmesh_baseline.txt";
 	if (baseline) {
