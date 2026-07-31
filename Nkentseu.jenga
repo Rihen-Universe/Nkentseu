@@ -765,6 +765,12 @@ with workspace("Nkentseu", location="."):
 
 
 
+    with include("Applications/NK3DModeler/NK3DModeler.jenga"):
+
+        pass
+
+
+
     # Integrations decouplees (ImGui / NKUI -> NKCanvas/NKRHI). Optionnelles :
 
     # une app les lie seulement si elle en a besoin (ImGui n'est PAS tire dans
@@ -821,6 +827,12 @@ with workspace("Nkentseu", location="."):
 
 
     with include("Applications/Sandbox/Sandbox.jenga"):
+
+        pass
+
+
+
+    with include("Applications/ConquerorProto/ConquerorProto.jenga"):
 
         pass
 
