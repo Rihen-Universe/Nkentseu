@@ -125,11 +125,39 @@ int nkmain(const NkEntryState &entry) {
 		return 1;
 	}
 
+	// ── LA TAILLE DE REFERENCE EST CELLE DU RENDU, PAS CELLE DE LA FENETRE ──
+	// C'ETAIT LA CAUSE DU FLOU. J'initialisais l'interface avec la taille
+	// DEMANDEE (1600x900) alors que la fenetre reelle fait 1616x939 : la liste de
+	// dessin etait projetee dans un repere qui ne correspondait pas au tampon de
+	// rendu, et toute l'image se retrouvait reechantillonnee -- texte et icones
+	// compris. D'ou le flou uniforme et la fatigue visuelle.
+	//
+	// On interroge desormais le RENDU et non la fenetre : lui seul sait la taille
+	// de son tampon. La fenetre peut compter ses bordures, l'OS peut ajuster, et
+	// les deux chiffres divergent sans prevenir.
+	math::NkVec2u real0 = renderer.Size();
+	if (real0.x == 0 || real0.y == 0)
+		real0 = window.GetSize(); // repli : mieux vaut une taille approchee qu'une taille nulle
+	printf("[nk3d] fenetre %ux%u, tampon de rendu %ux%u\n", window.GetSize().x, window.GetSize().y,
+		   real0.x, real0.y);
+
 	nkgui::NkGuiContext ui;
-	ui.Init((int32)wc.width, (int32)wc.height);
+	ui.Init((int32)real0.x, (int32)real0.y);
+
+	// ── ECHELLE D'INTERFACE ─────────────────────────────────────────────────
+	// Sans elle, sur un ecran a 125 % ou 150 %, Windows ETIRE l'image de la
+	// fenetre : tout devient mou. C'est la premiere cause du flou signale.
+	float32 uiScale = window.GetDpiScale();
+	if (uiScale < 0.5f || uiScale > 4.f)
+		uiScale = 1.f; // valeur aberrante : on prefere une interface petite a une interface cassee
+	ApplyUiScale(uiScale);
+	printf("[nk3d] echelle d'interface : %.2f\n", (double)uiScale);
 
 	nkgui::NkGuiFont font;
-	if (!font.LoadEmbedded(NkEmbeddedFontId::Inter, 13.f)) {
+	// La taille de corps est ARRONDIE : une police demandee a 16,25 px produit
+	// des metriques fractionnaires, donc des lignes de base entre deux pixels.
+	const float32 fontPx = (float32)(int32)(13.f * uiScale + 0.5f);
+	if (!font.LoadEmbedded(NkEmbeddedFontId::Inter, fontPx)) {
 		printf("[nk3d] police introuvable.\n");
 		return 1;
 	}
@@ -142,7 +170,7 @@ int nkmain(const NkEntryState &entry) {
 	// Apres la police : leurs identifiants de texture partent APRES celui de
 	// l'atlas de glyphes, sinon la premiere icone ecraserait la police.
 	NkModelerIcons icons;
-	icons.Load(renderer, font.TexId() + 16u, 16);
+	icons.Load(renderer, font.TexId() + 16u, (int32)(16.f * uiScale + 0.5f));
 	printf("[nk3d] %u icones chargees.\n", icons.LoadedCount());
 
 	// ── ETAT ────────────────────────────────────────────────────────────────
@@ -157,7 +185,7 @@ int nkmain(const NkEntryState &entry) {
 	static const char *const kScenes[] = {"Scene_01", "Scene_02"};
 
 	NkClock clock;
-	uint32 lastW = wc.width, lastH = wc.height;
+	uint32 lastW = real0.x, lastH = real0.y;
 
 	// ── BOUCLE ──────────────────────────────────────────────────────────────
 	while (window.IsOpen()) {
@@ -165,11 +193,14 @@ int nkmain(const NkEntryState &entry) {
 			(void)ev;
 		}
 
-		const math::NkVec2u sz = window.GetSize();
-		if (sz.x > 0 && sz.y > 0 && (sz.x != lastW || sz.y != lastH)) {
-			renderer.OnResize(sz.x, sz.y);
-			lastW = sz.x;
-			lastH = sz.y;
+		// On previent le rendu du changement, PUIS on relit SA taille : c'est elle
+		// qui sert a projeter, pas celle qu'on vient de lui donner.
+		const math::NkVec2u ws = window.GetSize();
+		if (ws.x > 0 && ws.y > 0 && (ws.x != lastW || ws.y != lastH)) {
+			renderer.OnResize(ws.x, ws.y);
+			const math::NkVec2u rs = renderer.Size();
+			lastW = rs.x > 0 ? rs.x : ws.x;
+			lastH = rs.y > 0 ? rs.y : ws.y;
 		}
 
 		float32 dt = clock.Tick().delta;
