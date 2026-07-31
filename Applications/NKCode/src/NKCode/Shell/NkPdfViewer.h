@@ -18,6 +18,7 @@
 #include "NKCode/Pdf/NkPdf.h"
 #include "NKCode/Pdf/NkPdfRender.h"
 #include "NKCode/Shell/NkI18n.h"
+#include "NKCode/Shell/NkPdfWorker.h"
 #include "NKCode/Shell/NkUi.h"
 
 namespace nkentseu {
@@ -65,6 +66,14 @@ namespace nkentseu {
 				// ── Cache de pages rendues ──
 				NkVector<NkPdfPageCache *> cache;
 				uint32 useClock = 0;
+
+				// Rendu en TACHE DE FOND : l'interface demande une page et continue,
+				// au lieu de figer pendant le rendu. C'est ce qui rendait le zoom, le
+				// changement de page et la bascule de mode bloquants.
+				NkPdfWorker worker;
+				// Vrai tant qu'une page visible manque : sert a afficher un reperage
+				// discret plutot que de laisser croire a un blocage.
+				bool waiting = false;
 
 				// Etat du dernier assemblage de la fenetre : evite de recopier a
 				// l'identique a chaque frame.

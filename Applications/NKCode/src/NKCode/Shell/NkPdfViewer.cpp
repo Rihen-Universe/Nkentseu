@@ -69,36 +69,70 @@ namespace nkentseu {
 			v->layoutPanelW = panelW;
 		}
 
-		// Page rendue, depuis le cache ou fraichement produite.
+		// Recupere les pages terminees par le fil de fond et les range en cache.
+		static void DrainWorker(NkPdfView *v) {
+			for (;;) {
+				int32 page = -1;
+				double zoom = 1.0;
+				NkPdfCanvas canvas;
+				NkVector<NkPdfRenderer::TextItem> items;
+				NkString unsup;
+				if (!v->worker.TakeResult(&page, &zoom, canvas, items, unsup))
+					return;
+				if (page < 0)
+					continue;
+				NkPdfPageCache *slot = nullptr;
+				for (usize i = 0; i < v->cache.Size(); ++i)
+					if (v->cache[i]->page == page && v->cache[i]->zoom == zoom)
+						slot = v->cache[i];
+				if (!slot) {
+					if (v->cache.Size() >= kCacheMax) {
+						usize oldest = 0;
+						for (usize i = 1; i < v->cache.Size(); ++i)
+							if (v->cache[i]->lastUse < v->cache[oldest]->lastUse)
+								oldest = i;
+						slot = v->cache[oldest];
+					} else {
+						slot = new NkPdfPageCache();
+						v->cache.PushBack(slot);
+					}
+				}
+				slot->canvas.Swap(canvas);
+				slot->items = items;
+				slot->unsupported = unsup;
+				slot->page = page;
+				slot->zoom = zoom;
+				slot->lastUse = ++v->useClock;
+				// Le contenu a change : la fenetre doit etre reassemblee.
+				v->builtScrollY = -1e30f;
+			}
+		}
+
+		// Page prete, ou nullptr. NE BLOQUE JAMAIS : si la page manque, elle est
+		// DEMANDEE au fil de fond et l'interface continue. C'est tout l'objet du
+		// changement — auparavant, chaque zoom ou changement de page figeait
+		// l'application le temps du rendu.
 		static NkPdfPageCache *GetPage(NkPdfView *v, int32 page, double dpi) {
 			for (usize i = 0; i < v->cache.Size(); ++i)
 				if (v->cache[i]->page == page && v->cache[i]->zoom == v->zoom) {
 					v->cache[i]->lastUse = ++v->useClock;
 					return v->cache[i];
 				}
-			// Evince la moins recemment utilisee plutot que d'allouer sans fin.
-			NkPdfPageCache *slot = nullptr;
-			if (v->cache.Size() >= kCacheMax) {
-				usize oldest = 0;
-				for (usize i = 1; i < v->cache.Size(); ++i)
-					if (v->cache[i]->lastUse < v->cache[oldest]->lastUse)
-						oldest = i;
-				slot = v->cache[oldest];
-			} else {
-				slot = new NkPdfPageCache();
-				v->cache.PushBack(slot);
-			}
-			NkPdfRenderer rend;
-			if (!rend.RenderPage(v->doc, page, dpi, slot->canvas)) {
-				slot->page = -1;
-				return nullptr;
-			}
-			slot->page = page;
-			slot->zoom = v->zoom;
-			slot->items = rend.TextItems();
-			slot->unsupported = rend.Unsupported();
-			slot->lastUse = ++v->useClock;
-			return slot;
+			v->worker.Request(page, v->zoom, dpi);
+			v->waiting = true;
+			return nullptr;
+		}
+
+		// A defaut de la page au bon zoom, une version rendue a un AUTRE zoom :
+		// affichee mise a l'echelle, elle donne un apercu immediat au lieu d'un
+		// trou gris. C'est ce que font les lecteurs pendant qu'ils recalculent.
+		static NkPdfPageCache *GetPageAnyZoom(NkPdfView *v, int32 page) {
+			NkPdfPageCache *best = nullptr;
+			for (usize i = 0; i < v->cache.Size(); ++i)
+				if (v->cache[i]->page == page && v->cache[i]->canvas.Valid())
+					if (!best || v->cache[i]->lastUse > best->lastUse)
+						best = v->cache[i];
+			return best;
 		}
 
 		// Assemble la fenetre visible a partir des pages, en recopiant. Aucun rendu
@@ -139,8 +173,19 @@ namespace nkentseu {
 					continue;
 
 				NkPdfPageCache *pc = GetPage(v, p, dpi);
-				if (!pc)
-					continue;
+				double sxScale = 1.0, syScale = 1.0;
+				if (!pc) {
+					// Page pas encore rendue au zoom courant : on affiche celle d'un
+					// autre zoom, mise a l'echelle. Un apercu approximatif vaut mieux
+					// qu'un trou gris, et il disparait des que le rendu arrive.
+					pc = GetPageAnyZoom(v, p);
+					if (!pc)
+						continue;
+					sxScale = static_cast<double>(pc->canvas.Width()) /
+							  static_cast<double>(v->pageW[static_cast<usize>(p)]);
+					syScale = static_cast<double>(pc->canvas.Height()) /
+							  static_cast<double>(v->pageH[static_cast<usize>(p)]);
+				}
 				if (!pc->unsupported.Empty() && v->unsupported.Empty())
 					v->unsupported = pc->unsupported;
 
@@ -152,13 +197,13 @@ namespace nkentseu {
 				const uint8 *src = pc->canvas.Pixels();
 				for (int32 y = 0; y < texH; ++y) {
 					const float32 docY = v->scrollY + static_cast<float32>(y);
-					const int32 sy = static_cast<int32>(docY - top);
+					const int32 sy = static_cast<int32>((docY - top) * syScale);
 					if (sy < 0 || sy >= shh)
 						continue;
 					uint8 *drow = dst + static_cast<usize>(y) * static_cast<usize>(texW) * 4u;
 					for (int32 x = 0; x < texW; ++x) {
 						const float32 docX = v->scrollX + static_cast<float32>(x);
-						const int32 sx = static_cast<int32>(docX - left);
+						const int32 sx = static_cast<int32>((docX - left) * sxScale);
 						if (sx < 0 || sx >= sw)
 							continue;
 						const uint8 *s = src + (static_cast<usize>(sy) * static_cast<usize>(sw) +
@@ -173,12 +218,16 @@ namespace nkentseu {
 
 				// Elements de texte, ramenes en coordonnees du DOCUMENT pour que la
 				// selection fonctionne a travers les pages.
-				for (usize i = 0; i < pc->items.Size(); ++i) {
-					NkPdfRenderer::TextItem it = pc->items[i];
-					it.x += left;
-					it.y += top;
-					v->items.PushBack(it);
-				}
+				// Les boites de texte d'un rendu a un AUTRE zoom seraient a la
+				// mauvaise echelle : on ne les prend pas, plutot que de proposer une
+				// selection decalee. Elles arrivent avec le vrai rendu.
+				if (sxScale == 1.0 && syScale == 1.0)
+					for (usize i = 0; i < pc->items.Size(); ++i) {
+						NkPdfRenderer::TextItem it = pc->items[i];
+						it.x += left;
+						it.y += top;
+						v->items.PushBack(it);
+					}
 			}
 
 			v->builtScrollX = v->scrollX;
@@ -223,7 +272,8 @@ namespace nkentseu {
 				if (v->doc.Open(path.CStr()) != NK_PDF_OK) {
 					v->failed = true;
 					v->unsupported = v->doc.StatusText();
-				}
+				} else
+					v->worker.Open(path); // le fil ouvre sa PROPRE instance
 			}
 			if (v->failed) {
 				centered(v->unsupported.Empty() ? NkT("pdf.error") : v->unsupported.CStr(),
@@ -296,6 +346,8 @@ namespace nkentseu {
 				}
 			}
 
+			DrainWorker(v); // recupere ce que le fil a termine
+			v->waiting = false;
 			const int32 texW = static_cast<int32>(view.w);
 			const int32 texH = static_cast<int32>(view.h);
 			BuildWindow(shell, v, texW, texH, dpi, gap);
@@ -377,6 +429,19 @@ namespace nkentseu {
 				}
 			}
 			dl.PopClipRect();
+
+			// Reperage discret pendant qu'une page se rend : l'utilisateur doit
+			// voir que ca TRAVAILLE, sinon il croit a un blocage — ce qui etait
+			// justement le cas avant le passage en tache de fond.
+			if (v->waiting && font && font->Valid()) {
+				const char *msg = NkT("pdf.rendering");
+				const float32 tw = font->MeasureWidth(msg);
+				const NkRect box = {view.x + view.w - tw - ctx.S(24), view.y + ctx.S(8), tw + ctx.S(16),
+									lh + ctx.S(8)};
+				dl.AddRectFilled(box, NkColor{24, 26, 32, 220});
+				dl.AddText(font->Face(), font->TexId(),
+						   {box.x + ctx.S(8), box.y + ctx.S(4) + asc}, msg, NkCol::mutedFg);
+			}
 
 			// ── Barres STANDARD du moteur ──
 			if (needV) {

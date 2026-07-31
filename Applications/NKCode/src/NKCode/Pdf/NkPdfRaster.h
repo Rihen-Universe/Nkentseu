@@ -90,6 +90,21 @@ namespace nkentseu {
 
 					void Clear(uint8 r, uint8 g, uint8 b, uint8 a);
 
+					// Echange le contenu de deux canevas, en O(1). Indispensable pour
+					// transmettre une page rendue depuis un fil de travail : la copier
+					// couterait plusieurs mega-octets sous verrou.
+					void Swap(NkPdfCanvas &o) {
+						const int32 w = mW, h = mH;
+						mW = o.mW;
+						mH = o.mH;
+						o.mW = w;
+						o.mH = h;
+						mPix.Swap(o.mPix);
+						mClip.Swap(o.mClip);
+						mScratch.Swap(o.mScratch);
+						mClipStack.Swap(o.mClipStack);
+					}
+
 					// Remplit `path`. `evenOdd` choisit la regle de remplissage :
 					// false = non-nul (operateur `f`), true = pair-impair (`f*`).
 					// La couleur est melangee avec le fond selon `a` ET la couverture
