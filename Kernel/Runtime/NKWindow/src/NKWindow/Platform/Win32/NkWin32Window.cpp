@@ -862,6 +862,31 @@ namespace nkentseu {
 		mConfig.visible = true;
 	}
 
+	// Win32 : la decoration est un STYLE de fenetre. WS_OVERLAPPEDWINDOW porte
+	// bordure + barre de titre ; WS_POPUP n'en a aucune. SetWindowPos avec
+	// SWP_FRAMECHANGED est indispensable pour que le nouveau style soit
+	// reellement applique — sans lui, le changement reste invisible jusqu'au
+	// prochain redimensionnement.
+	void NkWindow::SetDecorated(bool decorated) {
+		mConfig.frame = decorated;
+		if (!mData.mHwnd)
+			return;
+		LONG_PTR style = GetWindowLongPtrW(mData.mHwnd, GWL_STYLE);
+		if (decorated) {
+			style |= (WS_CAPTION | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX);
+		} else {
+			style &= ~(WS_CAPTION | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX);
+			style |= WS_POPUP;
+		}
+		SetWindowLongPtrW(mData.mHwnd, GWL_STYLE, style);
+		SetWindowPos(mData.mHwnd, nullptr, 0, 0, 0, 0,
+					 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+	}
+
+	bool NkWindow::IsDecorated() const {
+		return mConfig.frame;
+	}
+
 	bool NkWindow::IsMaximized() const {
 		return mData.mHwnd && IsZoomed(mData.mHwnd) != 0;
 	}

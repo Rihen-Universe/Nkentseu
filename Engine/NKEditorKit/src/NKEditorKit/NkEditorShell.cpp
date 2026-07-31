@@ -1023,10 +1023,31 @@ namespace nkentseu {
 				if (h)
 					dl.AddRectFilled(chip(cMax), hovBg, cround);
 				const float32 gx = cMax.x + cMax.w * 0.5f, s = mUI.S(9.f);
+				// ── DEUX glyphes franchement distincts ──────────────────────
+				//
+				// Le bouton doit dire d'un coup d'oeil dans quel etat on est.
+				// L'ancien dessin opposait UN carre a DEUX carres decales de
+				// 2 px a peine, pour un cote de 9 px : a l'oeil, c'etait le
+				// meme. On ecarte donc nettement (decalage `d`), et le carre
+				// arriere n'est plus qu'une EQUERRE (haut + droite), ce qui est
+				// le glyphe « restaurer » universellement reconnu.
+				//
+				// L'ancienne version peignait un rectangle de couleur `bg` pour
+				// « effacer » sous le carre avant. Au SURVOL, le fond reel est
+				// `hovBg` : l'effacement laissait une trace visible. On dessine
+				// desormais l'equerre en deux traits — plus rien a effacer, et
+				// le rendu est correct quel que soit le fond.
 				if (mWindow.IsMaximized()) {
-					dl.AddRect({gx - s * 0.5f + 2.f, cy - s * 0.5f - 2.f, s - 2.f, s - 2.f}, fg, 1.f);
-					dl.AddRectFilled({gx - s * 0.5f - 2.f, cy - s * 0.5f + 2.f, s - 2.f, s - 2.f}, bg);
-					dl.AddRect({gx - s * 0.5f - 2.f, cy - s * 0.5f + 2.f, s - 2.f, s - 2.f}, fg, 1.f);
+					const float32 d = mUI.S(3.f);		 // ecart entre les deux plans
+					const float32 c = s - d;			 // cote du carre avant
+					const float32 x0 = gx - s * 0.5f;	 // bord gauche du carre avant
+					const float32 y0 = cy - s * 0.5f + d; // bord haut du carre avant
+					// Carre AVANT, en entier.
+					dl.AddRect({x0, y0, c, c}, fg, 1.f);
+					// Carre ARRIERE, reduit a son equerre visible : trait du
+					// haut, puis trait de droite.
+					dl.AddLine({x0 + d, y0 - d}, {x0 + d + c, y0 - d}, fg, 1.f);
+					dl.AddLine({x0 + d + c, y0 - d}, {x0 + d + c, y0 - d + c}, fg, 1.f);
 				} else {
 					dl.AddRect({gx - s * 0.5f, cy - s * 0.5f, s, s}, fg, 1.f);
 				}

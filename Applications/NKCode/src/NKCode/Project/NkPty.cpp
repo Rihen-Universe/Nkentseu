@@ -22,6 +22,34 @@
 typedef HRESULT(WINAPI *PFN_CreatePseudoConsole)(COORD, HANDLE, HANDLE, DWORD, void **);
 typedef HRESULT(WINAPI *PFN_ResizePseudoConsole)(void *, COORD);
 typedef void(WINAPI *PFN_ClosePseudoConsole)(void *);
+#else
+// ── UNIX : pseudo-terminal POSIX ─────────────────────────────────────────────
+//
+// L'implementation non-Windows se resumait a `return false;`. Le terminal
+// integre etait donc INERTE sous Linux : il s'ouvrait et restait vide, sans le
+// moindre message. forkpty() fournit l'equivalent du ConPTY — un vrai
+// terminal, avec invite, couleurs, historique et redimensionnement.
+//
+// Les membres du .h sont des void* pour ne pas exposer windows.h ; on y range
+// ici un descripteur de fichier et un PID, via les conversions ci-dessous.
+#include <pty.h> // forkpty (bibliotheque util : lier `util`)
+#include <unistd.h>
+#include <signal.h>
+#include <sys/ioctl.h>
+#include <sys/wait.h>
+#include <cerrno>
+#include <cstdlib>
+
+namespace {
+	// Le descripteur 0 est valide : on decale de 1 pour que nullptr garde son
+	// sens de « aucun descripteur ».
+	inline void *NkFdToHandle(int fd) {
+		return reinterpret_cast<void *>(static_cast<intptr_t>(fd) + 1);
+	}
+	inline int NkHandleToFd(void *h) {
+		return h ? static_cast<int>(reinterpret_cast<intptr_t>(h)) - 1 : -1;
+	}
+} // namespace
 #endif
 
 namespace nkentseu {
@@ -145,10 +173,51 @@ namespace nkentseu {
 			mThread = NkThread([this](void *) { ReadLoop(); });
 			return true;
 #else
-			(void)cmdline;
-			(void)cols;
-			(void)rows;
-			return false;
+			// ── UNIX : forkpty + exec du shell ────────────────────────────────
+			if (mRunning)
+				return false;
+			mCols = cols < 1 ? 80 : cols;
+			mRows = rows < 1 ? 24 : rows;
+
+			struct winsize ws;
+			ws.ws_col = static_cast<unsigned short>(mCols);
+			ws.ws_row = static_cast<unsigned short>(mRows);
+			ws.ws_xpixel = 0;
+			ws.ws_ypixel = 0;
+
+			int master = -1;
+			const pid_t pid = forkpty(&master, nullptr, nullptr, &ws);
+			if (pid < 0)
+				return false;
+
+			if (pid == 0) {
+				// ── ENFANT ────────────────────────────────────────────────────
+				// Repertoire de depart demande (racine du workspace). Un echec
+				// n'est pas bloquant : on demarre alors dans le cwd herite.
+				if (!cwd.Empty())
+					(void)::chdir(cwd.CStr());
+
+				// TERM : sans lui, la plupart des shells n'emettent NI couleurs
+				// NI sequences de positionnement, et l'emulateur ne recoit qu'un
+				// flux plat. `xterm-256color` est la valeur que reconnaissent les
+				// terminaux modernes.
+				::setenv("TERM", "xterm-256color", 1);
+
+				// `cmdline` est une ligne de commande complete (ex. « /bin/bash -i ») :
+				// on la confie a un shell POSIX, qui gere decoupage et guillemets.
+				::execlp("/bin/sh", "sh", "-c", cmdline.CStr(), static_cast<char *>(nullptr));
+				::_exit(127); // execlp n'a pas rendu la main : commande introuvable
+			}
+
+			// ── PARENT ────────────────────────────────────────────────────────
+			// Un seul descripteur pour lire ET ecrire : c'est le propre d'un
+			// pseudo-terminal, contrairement aux deux tubes du ConPTY.
+			mInWrite = NkFdToHandle(master);
+			mOutRead = NkFdToHandle(master);
+			mProcess = reinterpret_cast<void *>(static_cast<intptr_t>(pid));
+			mRunning = true;
+			mThread = NkThread([this](void *) { ReadLoop(); });
+			return true;
 #endif
 		}
 
@@ -165,6 +234,30 @@ namespace nkentseu {
 					mBuf.PushBack(buf[i]);
 			}
 			mRunning = false;
+#else
+			// UNIX : lecture bloquante sur le maitre du pseudo-terminal. La
+			// boucle sort quand le shell se termine (read renvoie 0) ou quand
+			// Stop() ferme le descripteur (read renvoie -1).
+			const int fd = NkHandleToFd(mOutRead);
+			if (fd < 0) {
+				mRunning = false;
+				return;
+			}
+			char buf[4096];
+			for (;;) {
+				const ssize_t rd = ::read(fd, buf, sizeof(buf));
+				if (rd > 0) {
+					threading::NkScopedLock<NkMutex> lk(mMutex);
+					for (ssize_t i = 0; i < rd; ++i)
+						mBuf.PushBack(buf[i]);
+					continue;
+				}
+				// EINTR : simple interruption par un signal, on repart.
+				if (rd < 0 && errno == EINTR)
+					continue;
+				break;
+			}
+			mRunning = false;
 #endif
 		}
 
@@ -175,8 +268,24 @@ namespace nkentseu {
 			DWORD wr = 0;
 			WriteFile((HANDLE)mInWrite, data, static_cast<DWORD>(len), &wr, NULL);
 #else
-			(void)data;
-			(void)len;
+			if (!mRunning || !data || len == 0)
+				return;
+			const int fd = NkHandleToFd(mInWrite);
+			if (fd < 0)
+				return;
+			// Ecriture PARTIELLE possible sur un pseudo-terminal : on boucle,
+			// sinon une frappe rapide (ou un collage) se perdrait en silence.
+			usize done = 0;
+			while (done < len) {
+				const ssize_t wr = ::write(fd, data + done, len - done);
+				if (wr > 0) {
+					done += static_cast<usize>(wr);
+					continue;
+				}
+				if (wr < 0 && errno == EINTR)
+					continue;
+				break;
+			}
 #endif
 		}
 
@@ -206,8 +315,27 @@ namespace nkentseu {
 			c.Y = rows;
 			((PFN_ResizePseudoConsole)mResizeFn)(mPC, c);
 #else
-			(void)cols;
-			(void)rows;
+			if (!mRunning)
+				return;
+			if (cols < 1)
+				cols = 1;
+			if (rows < 1)
+				rows = 1;
+			if (cols == mCols && rows == mRows)
+				return;
+			mCols = cols;
+			mRows = rows;
+			const int fd = NkHandleToFd(mInWrite);
+			if (fd < 0)
+				return;
+			struct winsize ws;
+			ws.ws_col = static_cast<unsigned short>(cols);
+			ws.ws_row = static_cast<unsigned short>(rows);
+			ws.ws_xpixel = 0;
+			ws.ws_ypixel = 0;
+			// TIOCSWINSZ previent le shell ET envoie SIGWINCH : sans cela, les
+			// programmes plein ecran (vim, htop) gardent l'ancienne taille.
+			(void)::ioctl(fd, TIOCSWINSZ, &ws);
 #endif
 		}
 
@@ -243,6 +371,39 @@ namespace nkentseu {
 				CloseHandle((HANDLE)mProcess);
 				mProcess = NULL;
 			}
+			mRunning = false;
+#else
+			// ── UNIX ──────────────────────────────────────────────────────────
+			// 1) SIGHUP au shell : c'est le signal « le terminal a disparu »,
+			//    celui qu'un vrai emulateur envoie en se fermant. Il laisse au
+			//    shell la chance de se terminer proprement.
+			const pid_t pid = static_cast<pid_t>(reinterpret_cast<intptr_t>(mProcess));
+			if (pid > 0)
+				(void)::kill(pid, SIGHUP);
+
+			// 2) Fermer le maitre debloque le read() du thread de lecture, qui
+			//    sort alors de sa boucle. Sans cela, Join() attendrait
+			//    indefiniment.
+			const int fd = NkHandleToFd(mInWrite);
+			mInWrite = nullptr;
+			mOutRead = nullptr; // meme descripteur : ne pas fermer deux fois
+			if (fd >= 0)
+				(void)::close(fd);
+
+			if (mThread.Joinable())
+				mThread.Join();
+
+			// 3) Moissonner l'enfant, sinon il reste en ZOMBIE. Ouvrir puis
+			//    fermer des terminaux en accumulerait un a chaque fois.
+			if (pid > 0) {
+				int status = 0;
+				if (::waitpid(pid, &status, WNOHANG) == 0) {
+					// Toujours vivant apres SIGHUP : on insiste, puis on moissonne.
+					(void)::kill(pid, SIGKILL);
+					(void)::waitpid(pid, &status, 0);
+				}
+			}
+			mProcess = nullptr;
 			mRunning = false;
 #endif
 		}

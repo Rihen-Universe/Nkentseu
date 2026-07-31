@@ -380,6 +380,21 @@ namespace nkentseu {
 		xcb_change_property(sConnection, XCB_PROP_MODE_REPLACE, mData.mWindow, sAtomWmProtocols, XCB_ATOM_ATOM, 32, 1,
 							&sAtomWmDeleteWindow);
 
+		// ── Fenetre SANS bordure (config.frame == false) ─────────────────────
+		//
+		// config.frame etait purement IGNORE ici : le gestionnaire de fenetres
+		// decorait donc toujours. Une application a barre de titre custom —
+		// comme NKCode, qui dessine ses propres boutons reduire/agrandir/
+		// fermer — se retrouvait avec DEUX jeux de boutons : les siens et ceux
+		// du WM.
+		//
+		// _MOTIF_WM_HINTS est le mecanisme que tous les WM modernes respectent.
+		// La structure fait 5 champs de 32 bits ; seul `decorations` nous
+		// interesse, d'ou le drapeau MWM_HINTS_DECORATIONS (1 << 1) seul.
+		// Decoration : une seule implementation, partagee avec SetDecorated()
+		// pour que creation et execution ne puissent pas diverger.
+		SetDecorated(config.frame);
+
 		// --- Titre ---
 		xcb_change_property(sConnection, XCB_PROP_MODE_REPLACE, mData.mWindow, XCB_ATOM_WM_NAME, XCB_ATOM_STRING, 8,
 							static_cast<uint32_t>(config.title.Size()), config.title.CStr());
@@ -913,8 +928,60 @@ namespace nkentseu {
 		mConfig.visible = true;
 	}
 
+	// Decoration geree par la PROPRIETE _MOTIF_WM_HINTS, que tous les WM
+	// modernes respectent. 5 champs de 32 bits ; seul `decorations` compte,
+	// d'ou le drapeau MWM_HINTS_DECORATIONS seul. Le type de la propriete est
+	// l'atome lui-meme : convention Motif.
+	void NkWindow::SetDecorated(bool decorated) {
+		mConfig.frame = decorated;
+		if (!mData.mConnection || !mData.mWindow)
+			return;
+		const xcb_atom_t motif = NkXCBInternAtom(mData.mConnection, "_MOTIF_WM_HINTS");
+		if (motif == XCB_ATOM_NONE)
+			return;
+		// flags, functions, decorations, input_mode, status
+		const uint32_t hints[5] = {(1u << 1), 0u, decorated ? 1u : 0u, 0u, 0u};
+		xcb_change_property(mData.mConnection, XCB_PROP_MODE_REPLACE, mData.mWindow, motif, motif, 32, 5, hints);
+		xcb_flush(mData.mConnection);
+	}
+
+	bool NkWindow::IsDecorated() const {
+		return mConfig.frame;
+	}
+
 	bool NkWindow::IsMaximized() const {
-		return false;
+		// Renvoyait `false` en dur : l'icone de la barre de titre restait figee
+		// sur « maximiser » meme fenetre maximisee, et Maximize() — qui BASCULE —
+		// ne pouvait plus restaurer.
+		//
+		// Sous X11 c'est le gestionnaire de fenetres qui fait autorite : on lit
+		// _NET_WM_STATE. Maximise = les DEUX axes (HORZ et VERT) ; un seul des
+		// deux correspond a un demi-ecran, que l'utilisateur ne considere pas
+		// comme maximise.
+		if (!mData.mConnection || !mData.mWindow)
+			return false;
+		const xcb_atom_t wmState = NkXCBInternAtom(mData.mConnection, "_NET_WM_STATE", true);
+		const xcb_atom_t maxH = NkXCBInternAtom(mData.mConnection, "_NET_WM_STATE_MAXIMIZED_HORZ", true);
+		const xcb_atom_t maxV = NkXCBInternAtom(mData.mConnection, "_NET_WM_STATE_MAXIMIZED_VERT", true);
+		if (wmState == XCB_ATOM_NONE || maxH == XCB_ATOM_NONE || maxV == XCB_ATOM_NONE)
+			return false;
+
+		xcb_get_property_cookie_t cookie =
+			xcb_get_property(mData.mConnection, 0, mData.mWindow, wmState, XCB_ATOM_ATOM, 0, 1024);
+		xcb_get_property_reply_t *reply = xcb_get_property_reply(mData.mConnection, cookie, nullptr);
+		bool horz = false, vert = false;
+		if (reply && reply->type == XCB_ATOM_ATOM && reply->format == 32) {
+			const xcb_atom_t *atoms = static_cast<xcb_atom_t *>(xcb_get_property_value(reply));
+			const int count = reply->length / (reply->format / 8);
+			for (int i = 0; i < count; ++i) {
+				if (atoms[i] == maxH)
+					horz = true;
+				else if (atoms[i] == maxV)
+					vert = true;
+			}
+		}
+		platform::NkXcbFree(reply);
+		return horz && vert;
 	}
 
 	// Hand-off natif via _NET_WM_MOVERESIZE (le WM gere le drag jusqu'au relachement).
