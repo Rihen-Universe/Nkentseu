@@ -66,6 +66,19 @@ with project("NKCode"):
 
     files(["src/**.cpp"])
 
+    # Ressources de l'IDE embarquees dans TOUT paquet (deb/rpm/AppImage/targz,
+    # zip/msi cote Windows) : polices, textures, logos, traductions, icons.cfg.
+    #
+    # La forme « source => destination » est indispensable ici. Sans elle,
+    # dependfiles() place les fichiers relativement au WORKSPACE, soit
+    # « Applications/NKCode/data/... ». Or NkAppFonts et NkAppIcons cherchent
+    # « data/... » A COTE DE L'EXECUTABLE : le paquet s'installait sans que
+    # l'application retrouve la moindre police ni icone.
+    #
+    # Ce que MakeNkCodeDist.py fait deja pour Windows est ainsi declare dans le
+    # .jenga, donc valable pour toutes les plateformes d'un seul geste.
+    dependfiles(["data => data"])
+
     nkentseudependson(
         ["NKEditorKit", "NKCanvas", "NKGui", "NKWindow", "NKEvent", "NKGlad",
          "NKFont", "NKImage", "NKAudio", "NKMedia", "NKFileSystem", "NKThreading", "NKLogger", "NKMath", "NKTime",

@@ -681,14 +681,38 @@ namespace nkentseu {
 
 		d.mPixels = pixels;
 		d.mBuffer = buf;
-
-		// Attache et commit si la fenêtre est visible
-		if (d.mVisible && d.mSurface && d.mConfigured) {
+		if (d.mPixels) {
 			memory::NkMemSet(d.mPixels, 0, size);
-			wl_surface_attach(d.mSurface, d.mBuffer, 0, 0);
-			wl_surface_damage(d.mSurface, 0, 0, static_cast<int32_t>(d.mWidth), static_cast<int32_t>(d.mHeight));
-			wl_surface_commit(d.mSurface);
 		}
+
+		// ── ON N'ATTACHE NI NE VALIDE ICI. C'EST VOLONTAIRE. ────────────────
+		//
+		// Une wl_surface n'a qu'UN SEUL producteur de tampons. Si la fenetre
+		// attache le sien pendant qu'un contexte graphique presente sur la
+		// meme surface, les deux se contredisent — et le compositeur tue la
+		// fenetre.
+		//
+		// Constate a la trace (WAYLAND_DEBUG=1, WSLg) : DEUX wl_shm coexistent,
+		// celui de la fenetre et celui que Mesa/EGL lie pour son compte. Apres
+		// une maximisation, la fenetre validait la nouvelle configuration avec
+		// son tampon deja redimensionne (1920x1032) ; Mesa presentait ensuite
+		// le sien, encore en 1440x900. Contrat xdg_surface rompu :
+		//   xdg_wm_base error 4 « buffer (1440 x 900) does not match the
+		//   configured maximized state (1920 x 1032) » -> FATALE.
+		//
+		// Le tampon reste recree ci-dessus (le backend LOGICIEL en a besoin),
+		// mais c'est le PRESENTEUR qui attache et valide, jamais la fenetre :
+		//   - logiciel   -> NkSoftwareContext::Present (attach + damage + commit)
+		//   - OpenGL/EGL -> eglSwapBuffers, avec son propre tampon redimensionne
+		//                   par le wl_egl_window_resize de NkOpenGLContext::OnResize
+		//
+		// La fenetre n'attache qu'UNE fois, a la creation, pour que la surface
+		// soit mappee avant qu'un presenteur existe (cf. NkWaylandWindow.cpp).
+		//
+		// RESERVE CONNUE, ANTERIEURE a ce changement : NkSoftwareContext copie
+		// surf.shmBuffer a l'initialisation ; la recreation ci-dessus invalide
+		// ce pointeur. Le chemin logiciel a donc son propre defaut de
+		// redimensionnement, a traiter separement.
 	}
 
 	// =========================================================================

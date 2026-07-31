@@ -39,6 +39,20 @@
 #include <wayland-client.h>
 #include <wayland-cursor.h>
 
+// wl_egl_window_resize : necessaire pour redimensionner la surface EGL DES la
+// reception du configure (cf. NkWindowData::mEglWindow).
+//
+// ATTENTION au nom de la macro : NKENTSEU_HAS_WAYLAND_EGL n'est defini QUE
+// dans NkContext.cpp. L'employer ici la ferait valoir 0, et tout le bloc
+// deviendrait du code mort compilant sans broncher — un correctif inerte,
+// exactement le piege deja rencontre avec les defines de backend.
+#if __has_include(<wayland-egl.h>)
+#include <wayland-egl.h>
+#define NKENTSEU_WL_WINDOW_HAS_EGL 1
+#else
+#define NKENTSEU_WL_WINDOW_HAS_EGL 0
+#endif
+
 #if __has_include("xdg-decoration-client-protocol.h")
 #include "xdg-decoration-client-protocol.h"
 #elif __has_include(<xdg-decoration-client-protocol.h>)
@@ -316,6 +330,21 @@ namespace nkentseu {
 		sLastWindow = win;
 	}
 
+	void NkWaylandSetEglWindow(::wl_surface *surface, void *eglWindow) {
+		if (NkWindow *win = NkWaylandFindWindow(surface))
+			win->mData.mEglWindow = eglWindow;
+	}
+
+	void NkWaylandClearEglWindow(void *eglWindow) {
+		if (!eglWindow)
+			return;
+		// ForEach : l'API d'iteration de NkUnorderedMap (pas de for-range).
+		WaylandSurfaceMap().ForEach([eglWindow](::wl_surface *, NkWindow *win) {
+			if (win && win->mData.mEglWindow == eglWindow)
+				win->mData.mEglWindow = nullptr;
+		});
+	}
+
 	void NkWaylandUnregisterWindow(::wl_surface *surface) {
 		auto &map = WaylandSurfaceMap();
 		auto *win = map.Find(surface);
@@ -551,6 +580,39 @@ namespace nkentseu {
 		// Synchroniser la config (accesseur backend)
 		window->ConfigData().width = width;
 		window->ConfigData().height = height;
+
+		// ── Redimensionner le wl_egl_window IMMEDIATEMENT ───────────────────
+		//
+		// Et non a la frame suivante, via le OnResize de l'application. Mesa
+		// acquiert son tampon arriere PENDANT le rendu : un redimensionnement
+		// arrive apres coup ne vaut donc que pour la frame d'APRES. Entre les
+		// deux, eglSwapBuffers presente un tampon a l'ancienne taille alors
+		// que le compositeur a deja configure la nouvelle.
+		//
+		// Trace observee (WAYLAND_DEBUG=1) apres une maximisation :
+		//   xdg_toplevel.configure(1920, 1032) ... ack_configure
+		//   -> wl_surface.attach(wl_buffer@22 = 1440x900) ; commit   [Mesa]
+		//   -> wl_shm_pool.create_buffer(@27 = 1920x1032)            [trop tard]
+		//   <- error 4 « buffer (1440 x 900) does not match the configured
+		//      maximized state (1920 x 1032) »  -> FATALE, fenetre tuee.
+		//
+		// En redimensionnant ici, le prochain tampon acquis par Mesa a deja la
+		// bonne taille. L'appel est sans effet si aucun contexte EGL n'a pris
+		// la surface (mEglWindow nul) — cas des backends logiciel et X11.
+#if NKENTSEU_WL_WINDOW_HAS_EGL
+		if (window->mData.mEglWindow) {
+			wl_egl_window_resize(static_cast<::wl_egl_window *>(window->mData.mEglWindow),
+								 static_cast<int>(width), static_cast<int>(height), 0, 0);
+			logger.Warnf("[NkWayland][DBG] wl_egl_window_resize %ux%u", width, height);
+		} else {
+			// Trace explicite : sans elle, un enregistrement manque passerait
+			// pour un correctif qui « ne marche pas », alors que le code n'est
+			// simplement jamais atteint.
+			logger.Warnf("[NkWayland][DBG] configure %ux%u SANS wl_egl_window enregistre", width, height);
+		}
+#else
+		logger.Warn("[NkWayland][DBG] wayland-egl absent a la compilation : pas de resize EGL");
+#endif
 	}
 
 	// =========================================================================
