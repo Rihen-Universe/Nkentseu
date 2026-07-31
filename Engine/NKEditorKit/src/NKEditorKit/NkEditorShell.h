@@ -70,6 +70,19 @@ namespace nkentseu {
 					mRunning = false;
 				}
 
+				// ── Fermeture EXPLICITE de la fenetre (croix de la barre de titre) ──
+				// Declenche uniquement par NkWindowCloseEvent, JAMAIS par RequestClose()
+				// ci-dessus. La distinction est necessaire a l'application : fermer une
+				// fenetre (« je n'ai plus besoin de ce workspace ») et quitter par Ctrl+Q
+				// (« je ferme l'application, je reprendrai ou j'en etais ») n'ont pas le
+				// meme sens pour la restauration de session au lancement suivant.
+				using NkOnWindowClosed = void (*)(void *user);
+
+				void SetOnWindowClosed(NkOnWindowClosed cb, void *user) noexcept {
+					mOnWindowClosed = cb;
+					mOnWindowClosedUser = user;
+				}
+
 				// ── Enregistrement (le shell NE POSSEDE PAS les panneaux) ───────────
 				bool AddPanel(NkEditorPanel *panel) noexcept;
 				// Ouvre (si ferme) puis met au premier plan le panneau nomme (onglet de dock).
@@ -488,6 +501,9 @@ namespace nkentseu {
 				// === Etat boucle ===
 				NkClock mClock;
 				bool mRunning = true;
+				// Rappel de fermeture explicite (croix) — cf. SetOnWindowClosed.
+				NkOnWindowClosed mOnWindowClosed = nullptr;
+				void *mOnWindowClosedUser = nullptr;
 				bool mDockBootstrap = true;
 				bool mPopupMasked = false;	  ///< input du corps masque (souris sur un popup) - cf. dockHeaderFn
 				nkgui::NkGuiInput mRealInput; ///< input REEL pendant le masquage (barres d onglets)
