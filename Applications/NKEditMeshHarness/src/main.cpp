@@ -38,6 +38,7 @@
 #include "NKRenderer/Mesh/NkEditMesh.h"
 #include "NKGraph/NkGraphDocument.h"
 #include "NKGraph/NkNodeGraph.h"
+#include "NKRenderer/Mesh/NkMeshDecimate.h"
 #include "NKRenderer/Mesh/NkMeshAnalysis.h"
 #include "NKRenderer/Core/NkGizmo.h"
 #include "NKEditorKit/NkShortcutTable.h"
@@ -2349,6 +2350,231 @@ static void GraphIfaceBattery() {
 	GraphPut("%-34s [%s] [%s] [%s]", "graphe/interface-messages", d2.CStr(), d3.CStr(), d4.CStr());
 }
 
+// -- DECIMATION QEM ----------------------------------------------------------
+// Premiere passe de RETOPOLOGIE : alleger EN GARDANT LA FORME. La decimation par
+// clustering deja presente dans NKGen moyenne les sommets par cellule de grille,
+// donc elle arrondit les aretes vives ; QEM mesure de combien la surface
+// s'ecarterait des plans d'origine et retire d'abord ce qui ne porte pas la
+// forme.
+//
+// Les cas sont batis pour qu'une implantation FAUSSE echoue :
+//   * sur une surface PLANE, l'erreur QEM d'une contraction interieure est
+//     exactement nulle -- l'erreur de forme doit donc rester ~0 meme apres une
+//     decimation massive. Une implantation approximative deformerait ;
+//   * le drapeau de BORD est teste dans les DEUX positions sur le meme maillage :
+//     sans lui la boite englobante doit RETRECIR. Un seul essai ne prouverait
+//     rien, puisqu'une bbox intacte peut simplement signifier qu'on n'a rien
+//     decime ;
+//   * les compteurs de REFUS doivent etre NON NULS : un garde-fou qui ne se
+//     declenche jamais ne prouve rien, il decore.
+static void DecimateBattery() {
+	NkVector<NkVertex3D> gv, cv;
+	NkVector<uint32> gi, ci;
+	MakeGrid(8, gv, gi);
+	MakeCube(cv, ci);
+
+	auto bboxOf = [](const NkEditMesh &m, float32 &dx, float32 &dz) {
+		const NkMeshStats a = NkMeshAnalysis::Analyze(m);
+		dx = a.bboxMax.x - a.bboxMin.x;
+		dz = a.bboxMax.z - a.bboxMin.z;
+	};
+
+	// 1) SURFACE PLANE. Toutes les contractions interieures coutent exactement
+	//    zero, donc on peut alleger tres fort SANS deformer. C'est la propriete
+	//    qui distingue QEM d'une decimation qui se contente de compter.
+	{
+		NkEditMesh ref;
+		ref.BuildFromIndexed(gv.Data(), (uint32)gv.Size(), gi.Data(), (uint32)gi.Size(), true);
+		NkEditMesh m = ref;
+		NkDecimateParams p;
+		p.targetRatio = 0.15f;
+		NkDecimateStats st;
+		const bool ok = NkMeshDecimate::DecimateQEM(m, p, &st);
+		float32 mean = 0.f, max = 0.f;
+		NkMeshDecimate::ShapeError(m, ref, mean, max);
+		float32 dx = 0.f, dz = 0.f;
+		bboxOf(m, dx, dz);
+		GraphPut("%-34s ok=%d tris %u->%u contract=%u | erreur moy=%.5f max=%.5f | bbox %.2fx%.2f",
+				 "decim/plan-erreur-nulle", ok ? 1 : 0, st.trisBefore, st.trisAfter, st.collapses, (double)mean,
+				 (double)max, (double)dx, (double)dz);
+	}
+
+	// 2) LE DRAPEAU DE BORD, DANS LES DEUX POSITIONS, sur le meme maillage et la
+	//    meme cible.
+	//
+	//    PREMIERE VERSION DE CE CAS : une grille PLATE. Elle ne prouvait RIEN --
+	//    sur un plan, deplacer un sommet DANS le plan coute zero, avec ou sans
+	//    contrainte de bord ; les deux essais donnaient la meme boite englobante.
+	//    Il faut une surface COURBE a bord plat : la ou l'interieur bombe, un bord
+	//    non retenu se fait aspirer vers le haut et vers le centre.
+	{
+		NkEditMesh dome;
+		dome.BuildFromIndexed(gv.Data(), (uint32)gv.Size(), gi.Data(), (uint32)gi.Size(), true);
+		for (uint32 i = 0; i < dome.VertCount(); ++i) {
+			const float32 x = dome.verts[i].pos.x, z = dome.verts[i].pos.z;
+			// cos s'annule en +/-0,5 : le BORD reste plat a y=0, l'interieur bombe.
+			dome.verts[i].pos.y = 0.35f * cosf(3.14159265f * x) * cosf(3.14159265f * z);
+		}
+		dome.RecomputeNormals();
+		float32 dx0 = 0.f, dy0 = 0.f;
+		{
+			const NkMeshStats a = NkMeshAnalysis::Analyze(dome);
+			dx0 = a.bboxMax.x - a.bboxMin.x;
+			dy0 = a.bboxMax.y - a.bboxMin.y;
+		}
+
+		NkEditMesh avec = dome, sans = dome;
+		NkDecimateParams pa;
+		pa.targetRatio = 0.12f;
+		pa.preserveBoundary = true;
+		NkDecimateParams ps = pa;
+		ps.preserveBoundary = false;
+		NkDecimateStats sa, ss;
+		NkMeshDecimate::DecimateQEM(avec, pa, &sa);
+		NkMeshDecimate::DecimateQEM(sans, ps, &ss);
+		const NkMeshStats ra = NkMeshAnalysis::Analyze(avec);
+		const NkMeshStats rs = NkMeshAnalysis::Analyze(sans);
+		const float32 dxa = ra.bboxMax.x - ra.bboxMin.x, dxs = rs.bboxMax.x - rs.bboxMin.x;
+		GraphPut("%-34s depart larg=%.3f | avec-bord larg=%.3f bords=%u | sans-bord larg=%.3f bords=%u | perte=%.3f",
+				 "decim/bord-retenu-ou-non", (double)dx0, (double)dxa, ra.boundaryEdges, (double)dxs,
+				 rs.boundaryEdges, (double)(dxa - dxs));
+		(void)dy0;
+	}
+
+	// 3) MAILLAGE FERME. Un cube subdivise deux fois est une variete fermee. Apres
+	//    decimation il doit le RESTER : zero arete non manifold. Et les compteurs
+	//    de refus doivent etre non nuls, sinon les garde-fous ne servent a rien.
+	{
+		NkEditMesh ref;
+		ref.BuildFromIndexed(cv.Data(), (uint32)cv.Size(), ci.Data(), (uint32)ci.Size(), true);
+		ref.SubdivideCatmullClark(3);
+		const NkMeshStats before = NkMeshAnalysis::Analyze(ref);
+		NkEditMesh m = ref;
+		NkDecimateParams p;
+		p.targetRatio = 0.35f;
+		NkDecimateStats st;
+		NkMeshDecimate::DecimateQEM(m, p, &st);
+		const NkMeshStats after = NkMeshAnalysis::Analyze(m);
+		float32 mean = 0.f, max = 0.f;
+		NkMeshDecimate::ShapeError(m, ref, mean, max);
+		GraphPut("%-34s tris %u->%u | nonmanif %u->%u ferme=%d | err moy=%.4f", "decim/ferme-reste-manifold",
+				 st.trisBefore, st.trisAfter, before.nonManifoldEdges, after.nonManifoldEdges,
+				 after.IsClosed() ? 1 : 0, (double)mean);
+
+		// CE QUE CE CAS MONTRE, ET QUI N'EST PAS CE QUE J'ATTENDAIS.
+		// Je pensais qu'a cible absurde la condition de lien finirait par refuser.
+		// Elle ne refuse jamais ici : contracter une arete de tetraedre est LICITE
+		// au sens du lien, et donne deux triangles superposes -- une variete fermee
+		// degeneree. Le resultat est donc coherent, mais inutilisable.
+		// Conclusion a retenir : la cible en nombre de faces n'est PAS un garde-fou
+		// de qualite. Le vrai controle est le PLAFOND D'ERREUR (cas suivant).
+		NkEditMesh ex = ref;
+		NkDecimateParams pe;
+		pe.targetRatio = 0.004f; // 3 triangles vises : impossible sur une variete fermee
+		NkDecimateStats se;
+		NkMeshDecimate::DecimateQEM(ex, pe, &se);
+		const NkMeshStats ea = NkMeshAnalysis::Analyze(ex);
+		GraphPut("%-34s tris %u->%u (cible 3) | refus lien=%u flip=%u | nonmanif=%u ferme=%d",
+				 "decim/cible-absurde-degenere", se.trisBefore, se.trisAfter, se.rejectedLink,
+				 se.rejectedFlip, ea.nonManifoldEdges, ea.IsClosed() ? 1 : 0);
+
+		// Meme a l'extreme, un cube subdivise ne met PAS la condition de lien en
+		// defaut : sa regularite fait que toute contraction reste licite. Il faut
+		// une forme construite pour la violer.
+		//
+		// TUBE OUVERT A TROIS COTES. Sur l'arete du bas b0-b1, le sommet b2 est
+		// voisin des DEUX extremites sans etre oppose a l'arete (une seule face la
+		// porte, elle est au bord). Contracter b0 dans b1 pincerait le tube : deux
+		// nappes se toucheraient par un sommet. C'est exactement ce que la
+		// condition de lien existe pour refuser.
+		//
+		// On lance les DEUX versions : avec le controle, aucune arete non manifold
+		// ne doit apparaitre ; sans lui, le maillage doit se degrader. Un seul essai
+		// ne prouverait rien.
+		{
+			const float32 h = 0.866f;
+			const NkVec3f P6[6] = {{0.f, 0.f, 0.f}, {1.f, 0.f, 0.f}, {0.5f, 0.f, h},
+								   {0.f, 1.f, 0.f}, {1.f, 1.f, 0.f}, {0.5f, 1.f, h}};
+			const uint32 T6[18] = {0, 1, 4, 0, 4, 3, 1, 2, 5, 1, 5, 4, 2, 0, 3, 2, 3, 5};
+			NkVector<NkVertex3D> tv;
+			NkVector<uint32> ti;
+			for (int32 k = 0; k < 6; k++) {
+				NkVertex3D x{};
+				x.pos = P6[k];
+				x.normal = {0.f, 1.f, 0.f};
+				x.tangent = {1.f, 0.f, 0.f};
+				x.color = 0xFFFFFFFFu;
+				tv.PushBack(x);
+			}
+			for (int32 k = 0; k < 18; k++)
+				ti.PushBack(T6[k]);
+
+			NkEditMesh tubeA, tubeB;
+			tubeA.BuildFromIndexed(tv.Data(), 6, ti.Data(), 18, false);
+			tubeB = tubeA;
+			NkDecimateParams pt;
+			// 6 triangles au depart : viser 20 % donnerait 1, ce qui effondre tout et
+			// ne teste rien. On vise 4 -- juste assez pour que la seule contraction
+			// possible soit celle que la condition de lien doit refuser.
+			pt.targetFaces = 4;
+			pt.preserveTopology = true;
+			NkDecimateParams pn = pt;
+			pn.preserveTopology = false;
+			NkDecimateStats sA, sB;
+			const bool okA = NkMeshDecimate::DecimateQEM(tubeA, pt, &sA);
+			const bool okB = NkMeshDecimate::DecimateQEM(tubeB, pn, &sB);
+			const NkMeshStats aA = NkMeshAnalysis::Analyze(tubeA);
+			const NkMeshStats aB = NkMeshAnalysis::Analyze(tubeB);
+			GraphPut("%-34s avec ok=%d tris=%u refus-lien=%u nonmanif=%u | sans ok=%d tris=%u nonmanif=%u",
+					 "decim/condition-de-lien", okA ? 1 : 0, sA.trisAfter, sA.rejectedLink, aA.nonManifoldEdges,
+					 okB ? 1 : 0, sB.trisAfter, aB.nonManifoldEdges);
+		}
+	}
+
+	// 4) L'ERREUR DOIT CROITRE quand la cible se resserre. Une erreur qui
+	//    stagnerait signalerait que la cible n'est pas suivie, ou que la mesure
+	//    ne mesure rien.
+	{
+		NkEditMesh ref;
+		ref.BuildFromIndexed(cv.Data(), (uint32)cv.Size(), ci.Data(), (uint32)ci.Size(), true);
+		ref.SubdivideCatmullClark(3);
+		char buf[160];
+		int32 w = 0;
+		for (int32 k = 0; k < 3; k++) {
+			const float32 ratios[3] = {0.60f, 0.30f, 0.12f};
+			NkEditMesh m = ref;
+			NkDecimateParams p;
+			p.targetRatio = ratios[k];
+			NkDecimateStats st;
+			NkMeshDecimate::DecimateQEM(m, p, &st);
+			float32 mean = 0.f, max = 0.f;
+			NkMeshDecimate::ShapeError(m, ref, mean, max);
+			w += snprintf(buf + w, sizeof(buf) - (size_t)w, "%s%.0f%%:tris=%u,err=%.4f", w ? " | " : "",
+						  (double)(ratios[k] * 100.f), st.trisAfter, (double)mean);
+		}
+		GraphPut("%-34s %s", "decim/erreur-croit-avec-la-cible", buf);
+	}
+
+	// 5) LE PLAFOND D'ERREUR. « Allege tant que tu ne deformes pas » plutot que
+	//    « atteins ce compte coute que coute » : avec un plafond serre sur un cube
+	//    subdivise, la cible ne doit PAS etre atteinte -- et c'est le comportement
+	//    voulu, pas un echec.
+	{
+		NkEditMesh ref;
+		ref.BuildFromIndexed(cv.Data(), (uint32)cv.Size(), ci.Data(), (uint32)ci.Size(), true);
+		ref.SubdivideCatmullClark(3);
+		NkEditMesh m = ref;
+		NkDecimateParams p;
+		p.targetRatio = 0.05f;
+		p.maxError = 1e-5f;
+		NkDecimateStats st;
+		NkMeshDecimate::DecimateQEM(m, p, &st);
+		GraphPut("%-34s tris %u->%u cible-atteinte=%d (0 attendu) refus-cout=%u cout-max=%.6f",
+				 "decim/plafond-erreur", st.trisBefore, st.trisAfter, st.reachedTarget ? 1 : 0, st.rejectedCost,
+				 (double)st.maxCost);
+	}
+}
+
 int main(int argc, char **argv) {
 	bool baseline = false, check = false;
 	for (int32 i = 1; i < argc; i++) {
@@ -2377,6 +2603,7 @@ int main(int argc, char **argv) {
 	GraphIOBattery();
 	GraphDocBattery();
 	GraphIfaceBattery();
+	DecimateBattery();
 
 	const char *path = "editmesh_baseline.txt";
 	if (baseline) {

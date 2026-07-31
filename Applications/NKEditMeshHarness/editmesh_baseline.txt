@@ -141,3 +141,10 @@ graphe/aplati-entree-libre         ok etapes=2 entree-libre=sans-source (0 serai
 graphe/doc-aller-retour            lu=1 texte-identique=1 graphes=2 plan=ok [src>A>B>dst] meme-plan=1
 graphe/interface-groupe            conforme=ok | nom-absent=interface-incompatible | MEME-ID-AUTRE-NOM=interface-incompatible | en-trop=interface-incompatible
 graphe/interface-messages          [racine/inst : socket absent sur l'instance : e] [racine/inst : type different sur e : groupe=flux instance=maillage] [racine/inst : socket en trop sur l'instance : oublie]
+decim/plan-erreur-nulle            ok=1 tris 128->19 contract=66 | erreur moy=0.00000 max=0.00000 | bbox 1.00x1.00
+decim/bord-retenu-ou-non           depart larg=1.000 | avec-bord larg=1.000 bords=8 | sans-bord larg=0.873 bords=7 | perte=0.127
+decim/ferme-reste-manifold         tris 768->268 | nonmanif 0->0 ferme=1 | err moy=0.0041
+decim/cible-absurde-degenere       tris 768->2 (cible 3) | refus lien=0 flip=0 | nonmanif=0 ferme=1
+decim/condition-de-lien            avec ok=1 tris=4 refus-lien=6 nonmanif=0 | sans ok=1 tris=4 nonmanif=0
+decim/erreur-croit-avec-la-cible   60%:tris=460,err=0.0025 | 30%:tris=230,err=0.0046 | 12%:tris=92,err=0.0094
+decim/plafond-erreur               tris 768->168 cible-atteinte=0 (0 attendu) refus-cout=1 cout-max=0.000010
