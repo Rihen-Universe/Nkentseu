@@ -36,6 +36,7 @@
 //                                     sortie 1 si divergence (utilisable en CI)
 // =============================================================================
 #include "NKRenderer/Mesh/NkEditMesh.h"
+#include "NKGraph/NkNodeGraph.h"
 #include "NKRenderer/Mesh/NkMeshAnalysis.h"
 #include "NKRenderer/Core/NkGizmo.h"
 #include "NKEditorKit/NkShortcutTable.h"
@@ -43,6 +44,7 @@
 #include "NKLogger/NkLog.h"
 
 #include <math.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -1669,6 +1671,182 @@ static void AnalysisBattery() {
 	}
 }
 
+// -- GRAPHE DE NOEUDS (NKGraph, couche 1) ------------------------------------
+// Le coeur commun aux materiaux, au VFX, a la modelisation procedurale et au
+// blueprint. Les cas sont choisis pour qu'une implantation FAUSSE echoue :
+//   * les noeuds sont crees dans l'ordre INVERSE de l'ordre topologique, sinon
+//     un tri qui renverrait simplement l'ordre d'insertion passerait aussi ;
+//   * la conversion implicite est testee DANS LES DEUX SENS, parce qu'une table
+//     symetrique par erreur laisserait passer la perte d'information ;
+//   * le cycle est REFUSE a la connexion, et on verifie que le graphe reste
+//     triable apres le refus -- un refus qui laisserait le lien en place ne se
+//     verrait pas au compte de liens seul.
+// Ecriture d'une ligne de rapport. Fonction STATIQUE et non lambda : une lambda
+// a ellipse C n'est pas du C++ valide.
+static void GraphPut(const char *fmt, ...) {
+	if (gLineCount >= 512)
+		return;
+	va_list ap;
+	va_start(ap, fmt);
+	vsnprintf(gLines[gLineCount], 256, fmt, ap);
+	va_end(ap);
+	gLineCount++;
+}
+
+static void GraphBattery() {
+	using namespace nkentseu::graph;
+	// 1) TRI TOPOLOGIQUE SUR UN LOSANGE, INSERE A L'ENVERS.
+	//    Dependances : A -> B, A -> C, B -> D, C -> D.
+	//    On cree D, C, B, A dans CET ordre. L'ordre d'insertion est donc
+	//    exactement l'inverse du resultat attendu : si le tri renvoyait
+	//    l'ordre de creation, A finirait dernier et le cas echouerait.
+	{
+		NkNodeGraph g;
+		const NkTypeId T = g.RegisterType("flux");
+		NkNodeId d = g.AddNode("sortie"), c = g.AddNode("droite");
+		NkNodeId b = g.AddNode("gauche"), a = g.AddNode("source");
+		const NkNodeId ids[4] = {a, b, c, d};
+		const char *nom[4] = {"A", "B", "C", "D"};
+		for (int32 i = 0; i < 4; i++) {
+			g.AddSocket(ids[i], "in", T, NkSocketDir::Input);
+			g.AddSocket(ids[i], "in2", T, NkSocketDir::Input);
+			g.AddSocket(ids[i], "out", T, NkSocketDir::Output);
+		}
+		g.Connect(a, "out", b, "in");
+		g.Connect(a, "out", c, "in");
+		g.Connect(b, "out", d, "in");
+		g.Connect(c, "out", d, "in2");
+		NkVector<NkNodeId> order;
+		const bool ok = g.TopoSort(order);
+		char buf[96];
+		int32 w = 0;
+		for (uint32 i = 0; i < (uint32)order.Size() && w < 80; ++i) {
+			const char *n = "?";
+			for (int32 k = 0; k < 4; k++)
+				if (ids[k] == order[i])
+					n = nom[k];
+			w += snprintf(buf + w, sizeof(buf) - (size_t)w, "%s%s", w ? ">" : "", n);
+		}
+		// Attendu : A en premier, D en dernier. Insertion faite en D,C,B,A.
+		GraphPut("%-34s ok=%d ordre=%s (insere D,C,B,A) noeuds=%u liens=%u", "graphe/topo-losange-insere-inverse",
+			ok ? 1 : 0, buf, g.NodeCount(), g.LinkCount());
+	}
+
+	// 2) CYCLE REFUSE A LA CONNEXION. A -> B -> C, puis C -> A.
+	//    On verifie (a) le code d'erreur, (b) que le lien n'a PAS ete cree,
+	//    (c) que le graphe reste triable. Un refus qui poserait quand meme le
+	//    lien donnerait le meme code d'erreur mais casserait le tri.
+	{
+		NkNodeGraph g;
+		const NkTypeId T = g.RegisterType("flux");
+		NkNodeId a = g.AddNode("a"), b = g.AddNode("b"), c = g.AddNode("c");
+		const NkNodeId ids[3] = {a, b, c};
+		for (int32 i = 0; i < 3; i++) {
+			g.AddSocket(ids[i], "in", T, NkSocketDir::Input);
+			g.AddSocket(ids[i], "out", T, NkSocketDir::Output);
+		}
+		g.Connect(a, "out", b, "in");
+		g.Connect(b, "out", c, "in");
+		const NkLinkError e = g.Connect(c, "out", a, "in");
+		NkVector<NkNodeId> order;
+		const bool ok = g.TopoSort(order);
+		GraphPut("%-34s refus=%s liens=%u (doit rester 2) triable=%d cycle=%d", "graphe/cycle-refuse",
+			NkLinkErrorName(e), g.LinkCount(), ok ? 1 : 0, g.HasCycle() ? 1 : 0);
+	}
+
+	// 3) TYPES. La conversion declaree est DIRIGEE : reel -> vecteur autorise
+	//    n'autorise PAS vecteur -> reel. Une table symetrique par erreur
+	//    accepterait les deux, et le graphe calculerait faux sans rien dire.
+	{
+		NkNodeGraph g;
+		const NkTypeId R = g.RegisterType("reel");
+		const NkTypeId V = g.RegisterType("vecteur");
+		const NkTypeId M = g.RegisterType("maillage");
+		g.AllowConversion(R, V); // un reel alimente un vecteur, pas l'inverse
+		NkNodeId s = g.AddNode("source"), p = g.AddNode("puits");
+		g.AddSocket(s, "reel", R, NkSocketDir::Output);
+		g.AddSocket(s, "vect", V, NkSocketDir::Output);
+		g.AddSocket(p, "reel", R, NkSocketDir::Input);
+		g.AddSocket(p, "vect", V, NkSocketDir::Input);
+		g.AddSocket(p, "mail", M, NkSocketDir::Input);
+		const NkLinkError e1 = g.Connect(s, "reel", p, "vect"); // conversion permise
+		const NkLinkError e2 = g.Connect(s, "vect", p, "reel"); // sens interdit
+		const NkLinkError e3 = g.Connect(s, "reel", p, "mail"); // aucun rapport
+		GraphPut("%-34s reel>vect=%s | vect>reel=%s | reel>maillage=%s", "graphe/conversion-dirigee",
+			NkLinkErrorName(e1), NkLinkErrorName(e2), NkLinkErrorName(e3));
+	}
+
+	// 4) UNE ENTREE, UNE SOURCE. Brancher une seconde source REMPLACE la
+	//    premiere (Blender, Unreal). Le compte de liens doit rester a 1 ET la
+	//    source doit etre la NOUVELLE -- un remplacement qui garderait
+	//    l'ancienne donnerait le meme compte.
+	{
+		NkNodeGraph g;
+		const NkTypeId T = g.RegisterType("flux");
+		NkNodeId x = g.AddNode("x"), y = g.AddNode("y"), z = g.AddNode("z");
+		g.AddSocket(x, "out", T, NkSocketDir::Output);
+		g.AddSocket(y, "out", T, NkSocketDir::Output);
+		g.AddSocket(z, "in", T, NkSocketDir::Input);
+		g.Connect(x, "out", z, "in");
+		g.Connect(y, "out", z, "in");
+		const NkLink *in = g.IncomingOf(z, 0);
+		GraphPut("%-34s liens=%u (doit valoir 1) source=%s", "graphe/entree-source-unique", g.LinkCount(),
+			in ? (in->fromNode == y ? "y-la-nouvelle" : "x-l-ancienne-BUG") : "aucune-BUG");
+	}
+
+	// 5) SUPPRESSION. Le noeud du MILIEU d'une chaine emporte SES DEUX liens.
+	//    Supprimer une extremite n'en emporterait qu'un : le milieu est le seul
+	//    cas ou une implantation qui oublierait un sens se verrait.
+	{
+		NkNodeGraph g;
+		const NkTypeId T = g.RegisterType("flux");
+		NkNodeId a = g.AddNode("a"), b = g.AddNode("b"), c = g.AddNode("c");
+		const NkNodeId ids[3] = {a, b, c};
+		for (int32 i = 0; i < 3; i++) {
+			g.AddSocket(ids[i], "in", T, NkSocketDir::Input);
+			g.AddSocket(ids[i], "out", T, NkSocketDir::Output);
+		}
+		g.Connect(a, "out", b, "in");
+		g.Connect(b, "out", c, "in");
+		const uint32 before = g.LinkCount();
+		g.RemoveNode(b);
+		GraphPut("%-34s avant=%u apres=%u (doit valoir 0) noeuds=%u b-retrouve=%d", "graphe/suppression-milieu", before,
+			g.LinkCount(), g.NodeCount(), g.Find(b) ? 1 : 0);
+	}
+
+	// 6) SENS ET SOCKETS. « ce socket n'existe pas » et « vous branchez une
+	//    entree sur une entree » ne se corrigent pas de la meme facon : le coeur
+	//    doit les DISTINGUER, sinon l'interface ne peut rien expliquer.
+	{
+		NkNodeGraph g;
+		const NkTypeId T = g.RegisterType("flux");
+		NkNodeId a = g.AddNode("a"), b = g.AddNode("b");
+		g.AddSocket(a, "in", T, NkSocketDir::Input);
+		g.AddSocket(a, "out", T, NkSocketDir::Output);
+		g.AddSocket(b, "in", T, NkSocketDir::Input);
+		g.AddSocket(b, "out", T, NkSocketDir::Output);
+		const NkLinkError e1 = g.Connect(a, "in", b, "in");	   // sortie<-entree
+		const NkLinkError e2 = g.Connect(a, "out", b, "out");  // entree<-sortie
+		const NkLinkError e3 = g.Connect(a, "out", b, "truc"); // n'existe pas
+		const NkLinkError e4 = g.Connect(a, "out", a, "in");   // soi-meme
+		GraphPut("%-34s entree-src=%s sortie-dst=%s inconnu=%s boucle-soi=%s", "graphe/sens-et-sockets",
+			NkLinkErrorName(e1), NkLinkErrorName(e2), NkLinkErrorName(e3), NkLinkErrorName(e4));
+	}
+
+	// 7) IDENTIFIANTS STABLES. Apres suppression, un nouveau noeud ne doit PAS
+	//    reprendre l'identifiant libere : une sauvegarde ou une courbe
+	//    d'animation qui designerait l'ancien pointerait silencieusement sur le
+	//    nouveau. Meme regle que pour les modificateurs.
+	{
+		NkNodeGraph g;
+		NkNodeId a = g.AddNode("a"), b = g.AddNode("b");
+		g.RemoveNode(a);
+		NkNodeId c = g.AddNode("c");
+		GraphPut("%-34s a=%u b=%u c=%u (c doit differer de a) recycle=%d", "graphe/identifiants-stables", a, b, c,
+			(c == a) ? 1 : 0);
+	}
+}
+
 int main(int argc, char **argv) {
 	bool baseline = false, check = false;
 	for (int32 i = 1; i < argc; i++) {
@@ -1693,6 +1871,7 @@ int main(int argc, char **argv) {
 	ModsBattery();
 	ShortcutBattery();
 	AnalysisBattery();
+	GraphBattery();
 
 	const char *path = "editmesh_baseline.txt";
 	if (baseline) {
