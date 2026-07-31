@@ -90,15 +90,45 @@ fausse **échoue**, pas pour confirmer ce qui marche :
 | `aplati-entree-libre` | **le piège de la sentinelle** : `0` est l'index d'une étape valide ; une sentinelle à zéro ferait lire la sortie de la 1ʳᵉ étape à chaque entrée libre | `sans-source` |
 | `doc-aller-retour` | le champ `subgraph` est ce qui se perd le plus facilement ; on compare les textes **puis** on vérifie que le plan **reconstruit** est identique — une donnée peut survivre à l'écriture sans plus rien piloter | texte identique, même plan |
 
-### Limite connue, à traiter avec le premier consommateur
+### Interface d'un groupe instancié — **corrigé le 31/07/2026**
 
-Les identifiants de type sont **propres à chaque graphe** du document. Rien ne
-vérifie donc qu'un socket d'un nœud d'instance a le même type que le socket
-correspondant de l'interface du groupe : la validation s'arrête à la frontière.
-Tant qu'un groupe est construit par l'éditeur (qui copie l'interface), le cas ne
-se présente pas ; il se présentera dès qu'un groupe sera **modifié après** avoir
-été instancié. Le correctif est un registre de types **partagé par le document**
-— à faire au moment où un consommateur réel expose le problème, pas avant.
+Diagnostic initial faux : j'avais présenté le problème comme « les identifiants
+de type sont propres à chaque graphe » et annoncé un registre partagé. Le
+registre partagé n'aurait rien réglé — il aurait rendu la comparaison moins
+coûteuse, sans rien **refuser**. Ce qui manquait était le **contrôle**.
+
+`BuildPlan` valide désormais l'interface de chaque instance avant de la
+développer : mêmes noms, mêmes types, ni socket manquant ni socket en trop. La
+comparaison porte sur les **noms de type**, jamais sur leurs identifiants —
+chaque graphe tenant son propre registre, le numéro 1 peut désigner « flux » ici
+et « maillage » là.
+
+| cas | pourquoi il discrimine | résultat |
+|---|---|---|
+| conforme | sans lui, un contrôle qui refuserait **tout** passerait les trois autres et ne prouverait rien | `ok` |
+| nom absent | le groupe attend `e`, l'instance offre `entree` | refusé, socket nommé |
+| **même identifiant, autre nom** | **le cas qui tranche** : `maillage` est enregistré en premier dans la racine, il porte donc l'id 1 — exactement celui de `flux` dans le groupe. Les numéros coïncident, les noms non. Un contrôle par identifiant les croirait d'accord | `type different sur e : groupe=flux instance=maillage` |
+| socket en trop | un fil branché sur rien ; sans ce contrôle une entrée se retrouve **silencieusement débranchée** après modification du groupe, et le calcul continue avec une valeur manquante | refusé, socket nommé |
+
+Le message porte le **chemin d'instanciation** (`racine/inst : …`) : un code
+d'erreur seul obligerait à chercher dans un document qui peut compter des
+dizaines de groupes.
+
+### Instanciation multiple vs récursion — ce qui est permis, ce qui ne l'est pas
+
+- **Instancier N fois le même groupe** : ✅ permis, prouvé (`aplati-deux-instances`).
+- **Un groupe qui se contient lui-même** (`G→G` ou `G→H→G`) : ❌ refusé.
+
+Ce n'est pas une limitation arbitraire : un graphe de **flux de données** est
+aplati en un plan **fini** avant évaluation, et un groupe qui se contient
+n'a pas de développement fini. Blender, Houdini et les graphes de matériaux
+d'Unreal refusent tous le même cas.
+
+La **récursion de fonction** est autre chose : elle suppose un graphe
+d'**exécution** avec une pile d'appels à l'exécution (les fonctions Blueprint
+d'Unreal la permettent, pour cette raison). Si le blueprint de modélisation en a
+besoin, la réponse sera un **nœud d'appel** distinct du nœud d'instance — pas un
+assouplissement de l'aplatissement. À décider avec le premier consommateur.
 
 ## Consommateurs prévus (état de leur côté)
 
