@@ -223,6 +223,17 @@ namespace nkentseu {
 			Tri(i0, i1, i2, 0u);
 		}
 
+		// ── ALIGNEMENT D'UN GLYPHE SUR LA GRILLE DE PIXELS ──────────────────────
+		// Le curseur de texte accumule des avances FRACTIONNAIRES. Sans arrondi,
+		// seul le PREMIER glyphe d'une chaîne tombe sur un pixel entier ; tous les
+		// suivants dérivent et échantillonnent l'atlas ENTRE deux texels, ce qui
+		// rend le texte uniformément flou. Le défaut est d'autant plus marqué que le
+		// corps est petit : l'erreur vaut un demi-texel CONSTANT, soit 4 % de la
+		// hauteur d'un caractère à 13 px et 3,3 % à 15 px.
+		static inline float32 NkGuiPixelSnap(float32 v) noexcept {
+			return (float32)(int32)(v < 0.f ? v - 0.5f : v + 0.5f);
+		}
+
 		void NkGuiDrawList::AddText(const NkFont *face, uint32 texId, const NkVec2 &baseline, const char *text,
 									const NkColor &col, float32 maxWidth, float32 skew) noexcept {
 			if (!face || !text || !*text || texId == 0u)
@@ -244,8 +255,17 @@ namespace nkentseu {
 				if (!g)
 					continue;
 				if (g->visible) {
-					const float32 x0 = x + g->x0, y0 = y + g->y0;
-					const float32 x1 = x + g->x1, y1 = y + g->y1;
+					// On arrondit la POSITION du quad, jamais l'AVANCE : `x` continue
+					// d'accumuler la valeur exacte, donc la largeur totale de la chaîne
+					// est inchangée et MeasureWidth reste d'accord avec le rendu. Seul
+					// l'espacement entre deux glyphes varie de moins d'un pixel, ce qui
+					// ne se voit pas — alors que le flou, lui, se voyait.
+					//
+					// La LARGEUR est reportée telle quelle : arrondir les deux bords
+					// séparément étirerait le glyphe d'un pixel et le rééchantillonnerait,
+					// ce qu'on cherche précisément à éviter.
+					const float32 x0 = NkGuiPixelSnap(x + g->x0), y0 = NkGuiPixelSnap(y + g->y0);
+					const float32 x1 = x0 + (g->x1 - g->x0), y1 = y0 + (g->y1 - g->y0);
 					if (x1 > xEnd)
 						break; // troncature simple
 					// Italique factice : décale chaque sommet selon sa hauteur au-dessus
@@ -279,8 +299,11 @@ namespace nkentseu {
 				if (!g)
 					continue;
 				if (g->visible) {
-					const float32 x0 = x + g->x0, y0 = y + g->y0;
-					const float32 x1 = x + g->x1, y1 = y + g->y1;
+					// Même alignement que dans AddText : sans lui, ce chemin resterait
+					// flou alors que l'autre serait net — et le défaut serait d'autant
+					// plus déroutant qu'il ne toucherait qu'une partie du texte.
+					const float32 x0 = NkGuiPixelSnap(x + g->x0), y0 = NkGuiPixelSnap(y + g->y0);
+					const float32 x1 = x0 + (g->x1 - g->x0), y1 = y0 + (g->y1 - g->y0);
 					const uint32 i0 = Vtx({x0, y0}, {g->u0, g->v0}, c);
 					const uint32 i1 = Vtx({x1, y0}, {g->u1, g->v0}, c);
 					const uint32 i2 = Vtx({x1, y1}, {g->u1, g->v1}, c);
