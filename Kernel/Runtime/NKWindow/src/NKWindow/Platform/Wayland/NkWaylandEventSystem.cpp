@@ -24,6 +24,7 @@
 #include "NKWindow/Platform/Wayland/NkWaylandWindow.h"
 #include "NKMemory/NkUtils.h"
 
+#include <cstdio> // diagnostic brut de l'acquittement differe (hors logger)
 #include <wayland-client.h>
 #include <wayland-cursor.h>
 #include <xkbcommon/xkbcommon.h>
@@ -48,6 +49,19 @@
 #include <cstdlib>
 
 namespace nkentseu {
+
+	// Diagnostic protocole Wayland, SILENCIEUX par defaut.
+	//
+	// Active par NK_WAYLAND_TRACE=1. Passe par fprintf/fflush et NON par le
+	// logger : celui-ci cesse d'emettre apres l'initialisation, ce qui a fait
+	// croire pendant trois correctifs que les gestionnaires de configure ne
+	// tournaient pas — alors qu'ils tournaient. Garde ici pour la session
+	// dediee qui reste a faire sur l'erreur xdg_wm_base 4.
+	static bool NkWlTrace() {
+		static const bool on = (::getenv("NK_WAYLAND_TRACE") != nullptr);
+		return on;
+	}
+
 	using namespace math;
 
 	// =========================================================================
@@ -834,6 +848,26 @@ namespace nkentseu {
 				(void)libdecor_dispatch(window->mData.mLibdecor, 0);
 			}
 #endif
+
+			// ------------------------------------------------------------------
+			// Acquittement DIFFERE d'un configure qui change la taille.
+			//
+			// On laisse passer UNE frame avant d'acquitter : la presentation
+			// deja en vol (tampon a l'ancienne taille, attache par
+			// eglSwapBuffers avant sa reallocation) a ainsi lieu sous
+			// l'ANCIENNE configuration, ou elle est legale. Acquitter plus tot
+			// la rendait illegale et le compositeur tuait la fenetre
+			// (xdg_wm_base error 4). Details dans NkWaylandWindow.h.
+			// ------------------------------------------------------------------
+			if (window->mData.mPendingAckSerial != 0) {
+				if (window->mData.mPendingAckDelay > 0) {
+					--window->mData.mPendingAckDelay;
+				} else if (window->mData.mXdgSurface) {
+					xdg_surface_ack_configure(window->mData.mXdgSurface, window->mData.mPendingAckSerial);
+					if (NkWlTrace()) std::fprintf(stderr, "[RAW] ack DIFFERE envoye serial=%u\n", window->mData.mPendingAckSerial);
+					window->mData.mPendingAckSerial = 0;
+				}
+			}
 
 			// ------------------------------------------------------------------
 			// Redimensionnement : émet l'événement + redimensionne le SHM buffer
