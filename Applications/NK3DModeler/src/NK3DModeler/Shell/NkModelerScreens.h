@@ -101,8 +101,30 @@ namespace nkentseu {
 			return k;
 		}
 		inline const NkIcon *NkShadingIcons() {
-			static const NkIcon k[] = {NkIcon::Circle, NkIcon::Overlay, NkIcon::Light, NkIcon::Ruler,
-									   NkIcon::Mesh};
+			// QUATRE DESSINS DISTINCTS. Solide et Materiau partageaient le meme disque
+			// plein : impossible de savoir lequel etait actif en regardant le bouton,
+			// ce qui vide de son sens une barre a icones seules.
+			static const NkIcon k[] = {NkIcon::Circle,	  // solide : sphere nue
+									   NkIcon::Material,  // materiau : sphere coloree
+									   NkIcon::Light,	  // rendu : eclairage de scene
+									   NkIcon::Wireframe, // fil de fer : quadrillage
+									   NkIcon::Matcap};	  // matcap : degrade capture
+			return k;
+		}
+
+		// ── FORMES DE SELECTION ─────────────────────────────────────────────────
+		// C'est le sous-menu qu'annonce le petit point du bouton de selection.
+		// Rectangle par defaut : c'est le geste le plus simple et le plus previsible.
+		// Le cercle sert a « peindre » une selection en balayant, le lasso a cerner
+		// une forme irreguliere -- trois besoins reels que le rectangle seul ne
+		// couvre pas.
+		inline const char *const *NkSelShapeItems(int32 &n) {
+			static const char *const k[] = {"Rectangle", "Cercle", "Lasso"};
+			n = 3;
+			return k;
+		}
+		inline const NkIcon *NkSelShapeIcons() {
+			static const NkIcon k[] = {NkIcon::SelRect, NkIcon::SelCircle, NkIcon::SelLasso};
 			return k;
 		}
 
@@ -911,8 +933,27 @@ namespace nkentseu {
 				static const char *const kKeys[5] = {"vp.t.0", "vp.t.1", "vp.t.2", "vp.t.3", "vp.t.4"};
 				for (int32 i = 0; i < 5; ++i) {
 					const NkRect br{cx, barY + 2.f, btn, barH - 4.f};
-					const bool over = hit.Add(kKeys[i], br);
 					const bool on = ((int32)st.tool == i);
+					if (i == 0) {
+						// LE BOUTON DE SELECTION EST UNE LISTE DE FORMES : rectangle,
+						// cercle, lasso. C'est ce qu'annoncait deja le petit point ; il
+						// ouvre desormais vraiment un choix.
+						// Son icone suit la FORME choisie et non un dessin fixe : sinon
+						// rien ne dirait, une fois le lasso choisi, qu'on est en lasso.
+						int32 nS2 = 0;
+						const char *const *shapes = NkSelShapeItems(nS2);
+						if (on)
+							p.Fill(br, NkRole::AccentUi, 3.f);
+						Combo(p, hit, ws, "vp.selshape", br, shapes, NkSelShapeIcons(), nS2,
+							  st.selShape, combo, true, false, false);
+						if (hit.Clicked("vp.selshape"))
+							st.tool = NkTool::Select; // choisir une forme active l'outil
+						p.Fill({cx + btn - S(6.f), barY + barH - S(9.f), S(3.f), S(3.f)},
+							   on ? NkRole::TextOnAccent : NkRole::Text);
+						cx += btn + 2.f;
+						continue;
+					}
+					const bool over = hit.Add(kKeys[i], br);
 					if (on)
 						p.Fill(br, NkRole::AccentUi, 3.f);
 					else
@@ -921,12 +962,6 @@ namespace nkentseu {
 						st.tool = (NkTool)i;
 					p.IconV(cx + (btn - S(14.f)) * 0.5f, barY, barH, kTools[i],
 							on ? NkRole::TextOnAccent : NkRole::Text, 14.f);
-					// LE POINT en bas a droite du bouton de SELECTION annonce un
-					// sous-menu (rectangle, cercle, lasso). Sans lui, rien ne dit que le
-					// bouton cache un choix.
-					if (i == 0)
-						p.Fill({cx + btn - S(6.f), barY + barH - S(9.f), S(3.f), S(3.f)},
-							   on ? NkRole::TextOnAccent : NkRole::Text);
 					cx += btn + 2.f;
 				}
 			}
