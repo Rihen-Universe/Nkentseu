@@ -86,6 +86,20 @@ namespace nkentseu {
 			NkContextDesc mDesc;
 			bool mIsValid = false;
 			bool mVSync = true;
+			// Wayland : sauter la PRESENTATION suivant un redimensionnement.
+			//
+			// Mesa acquiert son tampon arriere au debut du rendu. Quand un
+			// configure change la taille en cours de frame, wl_egl_window_resize
+			// ne vaut que pour l'acquisition SUIVANTE : la frame en vol porte
+			// encore l'ancienne taille. La presenter apres avoir acquitte le
+			// configure viole le contrat xdg_surface, et le compositeur TUE la
+			// fenetre (xdg_wm_base error 4 « buffer does not match the
+			// configured maximized state »).
+			//
+			// On saute donc cette presentation : pas de commit = pas de
+			// violation. La frame suivante, rendue a la bonne taille, est
+			// presentee normalement — un saut invisible a l'oeil.
+			bool mSkipNextPresent = false;
 			NkOpenGLContext *mSharedParent = nullptr; // nullptr = contexte primaire
 	};
 
