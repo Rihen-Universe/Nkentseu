@@ -10,46 +10,71 @@ namespace nkentseu {
 
 		using namespace nkentseu::nkcode::pdf;
 
-		// Rend la page demandee si necessaire, puis met la texture a jour.
-		// PARESSEUX : ne refait rien tant que page et zoom n'ont pas change.
-		static void EnsurePage(editorkit::NkEditorShell *shell, NkPdfView *v, int32 viewW) {
-			if (!v->opened || v->failed)
-				return;
-			if (v->renderedPage == v->pageIdx && v->renderedZoom == v->zoom && v->texId != 0)
-				return;
+		// Epaisseur des barres de defilement, en pixels logiques.
+		static constexpr float32 kBarPx = 12.f;
 
-			// Le zoom 1 ajuste la page a la largeur disponible. On convertit en
-			// points par pouce, unite du moteur de rendu.
+		// Points par pouce correspondant au zoom demande, pour la page courante.
+		static double DpiFor(NkPdfView *v, int32 viewW) {
 			double x0 = 0, y0 = 0, x1 = 612, y1 = 792;
 			v->doc.PageMediaBox(v->pageIdx, &x0, &y0, &x1, &y1);
 			const int32 rot = v->doc.PageRotate(v->pageIdx);
 			const double wPt = ((rot == 90 || rot == 270) ? (y1 - y0) : (x1 - x0));
-			if (wPt < 1.0)
-				return;
+			if (wPt < 1.0 || viewW < 1)
+				return 72.0;
+			// Zoom 1 = la page tient dans la largeur disponible.
 			double dpi = (static_cast<double>(viewW) / wPt) * 72.0 * v->zoom;
-			// Bornes : sous 24 ppp c'est illisible, au-dela de 400 la page pese des
-			// centaines de mega-octets pour rien.
-			if (dpi < 24.0)
-				dpi = 24.0;
-			if (dpi > 400.0)
-				dpi = 400.0;
+			if (dpi < 6.0)
+				dpi = 6.0;
+			// Plus de plafond bas : la memoire ne depend PLUS du zoom, puisqu'on ne
+			// rend que la fenetre visible. On borne tout de meme tres haut pour
+			// eviter des coordonnees aberrantes.
+			if (dpi > 20000.0)
+				dpi = 20000.0;
+			return dpi;
+		}
+
+		// Rend la fenetre visible si necessaire. PARESSEUX : ne refait rien tant que
+		// page, zoom, defilement et taille du panneau n'ont pas change.
+		static void EnsureWindow(editorkit::NkEditorShell *shell, NkPdfView *v, int32 texW, int32 texH,
+								 double dpi) {
+			if (!v->opened || v->failed || texW < 4 || texH < 4)
+				return;
+			const bool same = v->renderedPage == v->pageIdx && v->renderedZoom == v->zoom &&
+							  v->renderedScrollX == v->scrollX && v->renderedScrollY == v->scrollY &&
+							  v->texW == texW && v->texH == texH && v->texId != 0;
+			if (same)
+				return;
+
+			// Le canevas garde EXACTEMENT la taille du panneau. C'est ce qui rend la
+			// texture stable : le backend fige les dimensions d'une texture a sa
+			// creation et n'offre aucune liberation — la reallouer a chaque zoom
+			// fuyait des dizaines de mega-octets, puis plantait.
+			if (!v->page.Valid() || v->page.Width() != texW || v->page.Height() != texH) {
+				if (!v->page.Create(texW, texH)) {
+					v->failed = true;
+					return;
+				}
+				v->texId = 0; // la texture doit etre recreee a cette nouvelle taille
+			}
 
 			NkPdfRenderer rend;
-			if (!rend.RenderPage(v->doc, v->pageIdx, dpi, v->page) || !v->page.Valid()) {
+			if (!rend.RenderPageWindow(v->doc, v->pageIdx, dpi, v->scrollX, v->scrollY, v->page)) {
 				v->failed = true;
 				return;
 			}
 			v->unsupported = rend.Unsupported();
 			v->renderedPage = v->pageIdx;
 			v->renderedZoom = v->zoom;
+			v->renderedScrollX = v->scrollX;
+			v->renderedScrollY = v->scrollY;
 
 			const uint8 *px = v->page.Pixels();
-			if (v->texId == 0 || v->texW != v->page.Width() || v->texH != v->page.Height()) {
-				v->texId = shell->UploadRGBA(px, v->page.Width(), v->page.Height());
-				v->texW = v->page.Width();
-				v->texH = v->page.Height();
+			if (v->texId == 0) {
+				v->texId = shell->UploadRGBA(px, texW, texH);
+				v->texW = texW;
+				v->texH = texH;
 			} else
-				shell->UpdateRGBA(v->texId, px, v->page.Width(), v->page.Height());
+				shell->UpdateRGBA(v->texId, px, texW, texH);
 		}
 
 		void DrawPdfViewer(NkGuiContext &ctx, editorkit::NkEditorShell *shell, const NkString &path,
@@ -72,18 +97,14 @@ namespace nkentseu {
 
 			NkPdfView *v = NkPdfViewFor(path);
 
-			// ── Ouverture UNE fois ──
 			if (!v->opened) {
 				v->opened = true;
-				const NkPdfStatus st = v->doc.Open(path.CStr());
-				if (st != NK_PDF_OK) {
+				if (v->doc.Open(path.CStr()) != NK_PDF_OK) {
 					v->failed = true;
 					v->unsupported = v->doc.StatusText();
 				}
 			}
 			if (v->failed) {
-				// On DIT pourquoi (document chiffre, index corrompu...) plutot que
-				// d'afficher une zone vide qui laisserait croire a un bug.
 				centered(v->unsupported.Empty() ? NkT("pdf.error") : v->unsupported.CStr(),
 						 NkColor{232, 106, 106, 255});
 				dl.PopClipRect();
@@ -95,96 +116,192 @@ namespace nkentseu {
 				return;
 			}
 
-			// ── Barre d'outils : page precedente/suivante, zoom ──
+			// ── Barre d'outils FIXE ──────────────────────────────────────────────
+			// Elle est dessinee APRES la page et sa propre zone est EXCLUE du clip de
+			// la page : sans ca, une page defilee vers le haut passait par-dessus.
 			const float32 barH = 34.f * ctx.S(1.f);
 			const NkRect bar = {r.x, r.y, r.w, barH};
-			dl.AddRectFilled(bar, NkColor{24, 26, 32, 255});
-
-			float32 bx = bar.x + ctx.S(8);
-			auto button = [&](const char *label, float32 wpx) -> bool {
-				const NkRect b = {bx, bar.y + ctx.S(5), wpx, barH - ctx.S(10)};
-				const bool hov = NkGuiRectContains(b, ctx.input.mousePos);
-				dl.AddRectFilled(b, hov ? NkColor{58, 62, 74, 255} : NkColor{40, 43, 52, 255});
-				if (font && font->Valid()) {
-					const float32 tw = font->MeasureWidth(label);
-					dl.AddText(font->Face(), font->TexId(),
-							   {b.x + (b.w - tw) * 0.5f, b.y + (b.h - lh) * 0.5f + asc}, label,
-							   NkCol::foreground);
-				}
-				bx += wpx + ctx.S(6);
-				return hov && ctx.input.mouseClicked[0];
-			};
-
-			if (button("<", ctx.S(28)) && v->pageIdx > 0) {
-				--v->pageIdx;
-				v->scroll = 0.f;
-			}
-			if (button(">", ctx.S(28)) && v->pageIdx + 1 < v->doc.PageCount()) {
-				++v->pageIdx;
-				v->scroll = 0.f;
-			}
-			{
-				const NkString lblS = NkPrintf("%d / %d", v->pageIdx + 1, v->doc.PageCount());
-				if (font && font->Valid())
-					dl.AddText(font->Face(), font->TexId(),
-							   {bx, bar.y + (barH - lh) * 0.5f + asc}, lblS.CStr(), NkCol::mutedFg);
-				bx += ctx.S(80);
-			}
-			if (button("-", ctx.S(28)) && v->zoom > 0.3)
-				v->zoom -= 0.25;
-			if (button("+", ctx.S(28)) && v->zoom < 6.0)
-				v->zoom += 0.25;
-			{
-				const NkString lblS = NkPrintf("%d %%", static_cast<int32>(v->zoom * 100.0 + 0.5));
-				if (font && font->Valid())
-					dl.AddText(font->Face(), font->TexId(),
-							   {bx, bar.y + (barH - lh) * 0.5f + asc}, lblS.CStr(), NkCol::mutedFg);
-			}
-
-			// Avertissement de fidelite, a DROITE : l'utilisateur doit savoir que
-			// certaines choses ne sont pas rendues, plutot que de croire a un
-			// document abime.
-			if (!v->unsupported.Empty() && font && font->Valid()) {
-				const NkString msg = NkString(NkT("pdf.partial")) + " : " + v->unsupported;
-				const float32 tw = font->MeasureWidth(msg.CStr());
-				if (tw < r.w * 0.5f)
-					dl.AddText(font->Face(), font->TexId(),
-							   {r.x + r.w - tw - ctx.S(10), bar.y + (barH - lh) * 0.5f + asc}, msg.CStr(),
-							   NkColor{214, 168, 74, 255});
-			}
-
-			// ── Zone de page ──
 			const NkRect area = {r.x, r.y + barH, r.w, r.h - barH};
-			const int32 viewW = static_cast<int32>(area.w - ctx.S(24));
-			if (viewW < 32) {
+			if (area.w < 16.f || area.h < 16.f) {
 				dl.PopClipRect();
 				return;
 			}
-			EnsurePage(shell, v, viewW);
-			if (v->failed || v->texId == 0 || v->texW <= 0) {
+
+			// ── Geometrie : page entiere, fenetre visible, barres ────────────────
+			const float32 sb = ctx.S(kBarPx);
+			int32 fullW = 0, fullH = 0;
+			double dpi = DpiFor(v, static_cast<int32>(area.w - sb));
+			NkPdfRenderer::PagePixelSize(v->doc, v->pageIdx, dpi, &fullW, &fullH);
+
+			// Les barres n'apparaissent que si elles servent, et leur presence reduit
+			// la zone utile — ce qui peut faire apparaitre l'autre : on evalue donc
+			// les deux ensemble.
+			bool needV = static_cast<float32>(fullH) > area.h;
+			bool needH = static_cast<float32>(fullW) > area.w - (needV ? sb : 0.f);
+			if (needH && !needV)
+				needV = static_cast<float32>(fullH) > area.h - sb;
+
+			const NkRect view = {area.x, area.y, area.w - (needV ? sb : 0.f),
+								 area.h - (needH ? sb : 0.f)};
+			const float32 maxSx = (static_cast<float32>(fullW) > view.w)
+									  ? (static_cast<float32>(fullW) - view.w) : 0.f;
+			const float32 maxSy = (static_cast<float32>(fullH) > view.h)
+									  ? (static_cast<float32>(fullH) - view.h) : 0.f;
+
+			// ── Interactions ─────────────────────────────────────────────────────
+			const bool overView = NkGuiRectContains(view, ctx.input.mousePos);
+			if (overView && ctx.input.wheel != 0.f) {
+				// Molette + Ctrl = zoom, comme partout ailleurs.
+				if (ctx.input.ctrlDown) {
+					const double z = v->zoom * (ctx.input.wheel > 0.f ? 1.15 : 1.0 / 1.15);
+					v->zoom = (z < 0.1) ? 0.1 : (z > 40.0 ? 40.0 : z);
+				} else
+					v->scrollY -= ctx.input.wheel * lh * 3.f;
+			}
+			if (overView && ctx.input.wheelH != 0.f)
+				v->scrollX -= ctx.input.wheelH * lh * 3.f;
+
+			// Le defilement est borne APRES coup : le zoom a pu reduire la page.
+			if (v->scrollX < 0.f) v->scrollX = 0.f;
+			if (v->scrollX > maxSx) v->scrollX = maxSx;
+			if (v->scrollY < 0.f) v->scrollY = 0.f;
+			if (v->scrollY > maxSy) v->scrollY = maxSy;
+
+			// ── Rendu de la fenetre visible ──────────────────────────────────────
+			const int32 texW = static_cast<int32>(view.w);
+			const int32 texH = static_cast<int32>(view.h);
+			EnsureWindow(shell, v, texW, texH, dpi);
+			if (v->failed || v->texId == 0) {
 				centered(NkT("pdf.render.error"), NkColor{232, 106, 106, 255});
 				dl.PopClipRect();
 				return;
 			}
 
-			// Molette : defilement vertical. Le facteur suit la hauteur de ligne
-			// pour rester coherent avec le reste de l'IDE.
-			if (NkGuiRectContains(area, ctx.input.mousePos) && ctx.input.wheel != 0.f)
-				v->scroll -= ctx.input.wheel * lh * 3.f;
+			// La page est clippee a `view` : elle ne peut plus deborder sur la barre.
+			dl.PushClipRect(view, true);
+			dl.AddImage(v->texId, {view.x, view.y, static_cast<float32>(texW), static_cast<float32>(texH)},
+						{0.f, 0.f}, {1.f, 1.f}, NkColor{255, 255, 255, 255});
+			dl.PopClipRect();
 
-			const float32 pw = static_cast<float32>(v->texW);
-			const float32 ph = static_cast<float32>(v->texH);
-			const float32 maxScroll = (ph > area.h) ? (ph - area.h) : 0.f;
-			if (v->scroll < 0.f)
-				v->scroll = 0.f;
-			if (v->scroll > maxScroll)
-				v->scroll = maxScroll;
+			// ── Barres de defilement ─────────────────────────────────────────────
+			auto scrollbar = [&](bool vertical) {
+				const NkRect track = vertical
+										 ? NkRect{view.x + view.w, view.y, sb, view.h}
+										 : NkRect{view.x, view.y + view.h, view.w, sb};
+				dl.AddRectFilled(track, NkColor{26, 28, 34, 255});
+				const float32 total = vertical ? static_cast<float32>(fullH) : static_cast<float32>(fullW);
+				const float32 vis = vertical ? view.h : view.w;
+				if (total <= vis || total <= 0.f)
+					return;
+				const float32 len = vertical ? track.h : track.w;
+				// Curseur d'au moins 24 px : en dessous il devient inattrapable.
+				float32 thumb = len * (vis / total);
+				if (thumb < ctx.S(24.f))
+					thumb = ctx.S(24.f);
+				const float32 maxS = vertical ? maxSy : maxSx;
+				const float32 cur = vertical ? v->scrollY : v->scrollX;
+				const float32 pos = (maxS > 0.f) ? (cur / maxS) * (len - thumb) : 0.f;
+				const NkRect th = vertical ? NkRect{track.x + 2.f, track.y + pos, sb - 4.f, thumb}
+										   : NkRect{track.x + pos, track.y + 2.f, thumb, sb - 4.f};
+				const bool hov = NkGuiRectContains(th, ctx.input.mousePos);
+				dl.AddRectFilled(th, hov ? NkColor{120, 128, 144, 255} : NkColor{74, 80, 92, 255});
 
-			const NkRect dst = {area.x + (area.w - pw) * 0.5f, area.y - v->scroll, pw, ph};
-			// Ombre portee discrete : distingue la page du fond, comme le font les
-			// lecteurs habituels.
-			dl.AddRectFilled({dst.x + 2.f, dst.y + 2.f, dst.w, dst.h}, NkColor{0, 0, 0, 90});
-			dl.AddImage(v->texId, dst, {0.f, 0.f}, {1.f, 1.f}, NkColor{255, 255, 255, 255});
+				// Glisser : on memorise l'ecart au point de saisie, sinon le curseur
+				// saute sous la souris au premier pixel de mouvement.
+				int32 &drag = vertical ? v->dragV : v->dragH;
+				float32 &grab = vertical ? v->grabV : v->grabH;
+				if (ctx.input.mouseClicked[0] && hov) {
+					drag = 1;
+					grab = (vertical ? ctx.input.mousePos.y - th.y : ctx.input.mousePos.x - th.x);
+				}
+				if (!ctx.input.mouseDown[0])
+					drag = 0;
+				if (drag) {
+					const float32 p = (vertical ? ctx.input.mousePos.y - track.y - grab
+												: ctx.input.mousePos.x - track.x - grab);
+					const float32 span = len - thumb;
+					const float32 frac = (span > 0.f) ? (p / span) : 0.f;
+					const float32 val = frac * maxS;
+					if (vertical)
+						v->scrollY = (val < 0.f) ? 0.f : (val > maxSy ? maxSy : val);
+					else
+						v->scrollX = (val < 0.f) ? 0.f : (val > maxSx ? maxSx : val);
+				} else if (ctx.input.mouseClicked[0] && NkGuiRectContains(track, ctx.input.mousePos)) {
+					// Clic dans la piste hors du curseur : saut d'une « page ».
+					const float32 m = vertical ? ctx.input.mousePos.y : ctx.input.mousePos.x;
+					const float32 t0 = vertical ? th.y : th.x;
+					const float32 step = vis * 0.9f;
+					if (vertical)
+						v->scrollY += (m < t0) ? -step : step;
+					else
+						v->scrollX += (m < t0) ? -step : step;
+				}
+			};
+			if (needV)
+				scrollbar(true);
+			if (needH)
+				scrollbar(false);
+			if (needV && needH) // coin entre les deux barres
+				dl.AddRectFilled({view.x + view.w, view.y + view.h, sb, sb}, NkColor{26, 28, 34, 255});
+
+			// ── Barre d'outils, dessinee EN DERNIER pour rester au-dessus ────────
+			dl.AddRectFilled(bar, NkColor{24, 26, 32, 255});
+			float32 bx = bar.x + ctx.S(8);
+			auto button = [&](const char *label, float32 wpx, bool enabled) -> bool {
+				const NkRect b = {bx, bar.y + ctx.S(5), wpx, barH - ctx.S(10)};
+				const bool hov = enabled && NkGuiRectContains(b, ctx.input.mousePos);
+				dl.AddRectFilled(b, hov ? NkColor{58, 62, 74, 255}
+										: NkColor{40, 43, 52, static_cast<uint8>(enabled ? 255 : 120)});
+				if (font && font->Valid()) {
+					const float32 tw = font->MeasureWidth(label);
+					dl.AddText(font->Face(), font->TexId(),
+							   {b.x + (b.w - tw) * 0.5f, b.y + (b.h - lh) * 0.5f + asc}, label,
+							   enabled ? NkCol::foreground : NkCol::mutedFg);
+				}
+				bx += wpx + ctx.S(6);
+				return hov && ctx.input.mouseClicked[0];
+			};
+
+			const bool canPrev = v->pageIdx > 0;
+			const bool canNext = v->pageIdx + 1 < v->doc.PageCount();
+			if (button("<", ctx.S(28), canPrev)) {
+				--v->pageIdx;
+				v->scrollX = v->scrollY = 0.f;
+			}
+			if (button(">", ctx.S(28), canNext)) {
+				++v->pageIdx;
+				v->scrollX = v->scrollY = 0.f;
+			}
+			{
+				const NkString lbl = NkPrintf("%d / %d", v->pageIdx + 1, v->doc.PageCount());
+				if (font && font->Valid())
+					dl.AddText(font->Face(), font->TexId(), {bx, bar.y + (barH - lh) * 0.5f + asc},
+							   lbl.CStr(), NkCol::mutedFg);
+				bx += ctx.S(84);
+			}
+			if (button("-", ctx.S(28), v->zoom > 0.11))
+				v->zoom /= 1.25;
+			if (button("+", ctx.S(28), v->zoom < 39.0))
+				v->zoom *= 1.25;
+			if (button("100 %", ctx.S(52), true))
+				v->zoom = 1.0;
+			{
+				const NkString lbl = NkPrintf("%d %%", static_cast<int32>(v->zoom * 100.0 + 0.5));
+				if (font && font->Valid())
+					dl.AddText(font->Face(), font->TexId(), {bx, bar.y + (barH - lh) * 0.5f + asc},
+							   lbl.CStr(), NkCol::mutedFg);
+			}
+
+			// Avertissement de fidelite : l'utilisateur doit savoir qu'une page est
+			// partielle, plutot que de croire son document abime.
+			if (!v->unsupported.Empty() && font && font->Valid()) {
+				const NkString msg = NkString(NkT("pdf.partial")) + " : " + v->unsupported;
+				const float32 tw = font->MeasureWidth(msg.CStr());
+				if (tw < r.w * 0.45f)
+					dl.AddText(font->Face(), font->TexId(),
+							   {r.x + r.w - tw - ctx.S(10), bar.y + (barH - lh) * 0.5f + asc},
+							   msg.CStr(), NkColor{214, 168, 74, 255});
+			}
 
 			dl.PopClipRect();
 		}

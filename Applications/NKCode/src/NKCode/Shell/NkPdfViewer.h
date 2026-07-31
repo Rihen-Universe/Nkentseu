@@ -30,12 +30,24 @@ namespace nkentseu {
 				int32 pageIdx = 0;
 				int32 wantPage = 0;
 				double zoom = 1.0;	   // 1 = ajuste a la largeur
+
+				// Defilement, en pixels de la page rendue au zoom courant.
+				float32 scrollX = 0.f, scrollY = 0.f;
+
+				// Etat du dernier rendu : sert a ne PAS refaire le travail tant que
+				// rien n'a bouge (une fenetre de page coute quelques millisecondes,
+				// mais a 60 images par seconde ce serait ruineux).
 				double renderedZoom = -1.0;
 				int32 renderedPage = -1;
+				float32 renderedScrollX = -1.f, renderedScrollY = -1.f;
+
+				// Glisser des barres de defilement : `grab` retient l'ecart au point
+				// de saisie, sinon le curseur saute sous la souris des le 1er pixel.
+				int32 dragV = 0, dragH = 0;
+				float32 grabV = 0.f, grabH = 0.f;
 
 				uint32 texId = 0;
 				int32 texW = 0, texH = 0;
-				float32 scroll = 0.f; // defilement vertical, en pixels
 		};
 
 		// Etat par onglet. Un document reste charge tant que son onglet vit :
