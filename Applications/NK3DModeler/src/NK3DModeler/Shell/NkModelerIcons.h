@@ -76,6 +76,10 @@ namespace nkentseu {
 			Light,
 			Menu,
 			WinRestore,
+			ChevronUp,
+			Check,
+			Persp,
+			OrthoView,
 			Count
 		};
 
@@ -137,6 +141,13 @@ namespace nkentseu {
 						{NkIcon::Light, "lightbulb"},
 						{NkIcon::Menu, "menu"},
 						{NkIcon::WinRestore, "chrome-restore"},
+						{NkIcon::ChevronUp, "chevron-up"},
+						{NkIcon::Check, "check"},
+						// Projection : la CAMERA pour la perspective (on voit depuis un point),
+						// la GRILLE pour l'orthographique (aucun point de fuite). Deux dessins
+						// distincts, sinon rien ne dit laquelle est active.
+						{NkIcon::Persp, "device-camera"},
+						{NkIcon::OrthoView, "symbol-numeric"},
 					};
 
 					const NkString exeDir = NkPath::GetExecutableDirectory().ToString();
