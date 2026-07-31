@@ -375,33 +375,58 @@ namespace nkentseu {
 			// d'outils principale, comme dans la maquette. Les dupliquer ici donnerait
 			// deux endroits a tenir a jour pour une seule liste.
 			const float32 barH = 26.f, barY = r.y + 10.f;
+			// Chaque entree porte SON icone, comme chez Unreal : la camera pour la
+			// projection, l'ampoule pour l'eclairage, l'oeil pour l'affichage. Trois
+			// libelles nus se lisent comme une phrase et non comme trois reglages.
 			static const char *const kView[] = {"Perspective", "Eclaire", "Affichage"};
-			float32 gw = 30.f;
+			const NkIcon kViewIc[3] = {NkIcon::Camera, NkIcon::Light, NkIcon::Eye};
+			float32 gw = 34.f;
 			for (int32 i = 0; i < 3; ++i)
-				gw += p.TextW(kView[i]) + 30.f;
+				gw += 18.f + p.TextW(kView[i]) + 26.f;
 			float32 bx = r.x + 10.f;
 			p.Fill({bx, barY, gw, barH}, NkRole::PanelBg, 5.f);
-			p.IconV(bx + 8.f, barY, barH, NkIcon::Layers, NkRole::Text, 13.f);
-			bx += 30.f;
+			p.IconV(bx + 9.f, barY, barH, NkIcon::Menu, NkRole::Text, 13.f);
+			bx += 32.f;
 			for (int32 i = 0; i < 3; ++i) {
-				p.TextV(bx, barY, barH, kView[i]);
-				bx += p.TextW(kView[i]) + 6.f;
+				p.IconV(bx, barY, barH, kViewIc[i], NkRole::Text, 13.f);
+				p.TextV(bx + 18.f, barY, barH, kView[i]);
+				bx += 18.f + p.TextW(kView[i]) + 5.f;
 				p.IconV(bx, barY, barH, NkIcon::ChevronDown, NkRole::Text, 11.f);
-				bx += 24.f;
+				bx += 21.f;
 			}
 
-			// ── BARRE FLOTTANTE DROITE : sous-modes (en edition) + outils + aimantation.
+			// ── BARRE FLOTTANTE DROITE, calquee sur celle d'Unreal.
+			// Rihen a demande que SELECTION et CURSEUR soient colles aux outils de
+			// transformation plutot que relegues dans une colonne a part : ils
+			// repondent tous a la meme question -- « que fait mon clic ? » -- et un
+			// seul est actif a la fois. Les separer forcait un aller-retour du regard
+			// entre deux coins de l'ecran pour un choix unique.
+			//
+			// L'AIMANTATION EST PAR TRANSFORMATION, comme chez Unreal : une bascule et
+			// une valeur pour la grille, une pour l'angle, une pour l'echelle. Un
+			// interrupteur global obligerait a le couper pour tourner librement alors
+			// qu'on veut garder la grille en deplacement.
 			const float32 btn = 24.f;
 			const int32 nSub = editMode ? 3 : 0;
-			static const char *const kSnaps[] = {"0,5", "15 deg", "0,25"};
-			float32 tw = 12.f + (float32)(nSub + 5) * (btn + 2.f) + 12.f;
+			struct Snap {
+					NkIcon icon;
+					const char *value;
+					bool on;
+			};
+			static const Snap kSnaps[3] = {
+				{NkIcon::Ortho, "10", true},   // grille : pas de deplacement
+				{NkIcon::Rotate, "10 deg", true}, // angle
+				{NkIcon::Scale, "0,25", false},   // echelle
+			};
+			float32 tw = 12.f + (float32)(nSub + 7) * (btn + 2.f) + 16.f;
 			for (int32 i = 0; i < 3; ++i)
-				tw += p.TextW(kSnaps[i]) + 12.f;
+				tw += btn + p.TextW(kSnaps[i].value) + 12.f;
 			float32 tx = r.x + r.w - 10.f - tw;
 			p.Fill({tx, barY, tw, barH}, NkRole::PanelBg, 5.f);
 			tx += 5.f;
+
 			if (editMode) {
-				// Sommet / arete / face. Le sous-mode ACTIF prend l'accent d'interface,
+				// Sous-modes sommet / arete / face. L'ACTIF prend l'accent d'interface,
 				// pas l'ambre : c'est un etat de l'outil, pas une selection dans la scene.
 				const NkIcon kSub[3] = {NkIcon::Dot, NkIcon::Ruler, NkIcon::Square};
 				for (int32 i = 0; i < 3; ++i) {
@@ -415,21 +440,40 @@ namespace nkentseu {
 				p.VLine(tx + 1.f, barY + 6.f, barH - 12.f);
 				tx += 5.f;
 			}
-			const NkIcon kTools[5] = {NkIcon::Cursor, NkIcon::Move, NkIcon::Rotate, NkIcon::Scale,
-									  NkIcon::Globe};
-			for (int32 i = 0; i < 5; ++i) {
-				const bool on = (i == 1); // deplacement actif, comme dans la maquette
+
+			// Selection, curseur, puis les trois transformations et le repere.
+			const NkIcon kTools[7] = {NkIcon::Cursor, NkIcon::Gizmo, NkIcon::Move,
+									  NkIcon::Rotate, NkIcon::Scale, NkIcon::Globe, NkIcon::Camera};
+			for (int32 i = 0; i < 7; ++i) {
+				const bool on = (i == 2); // deplacement actif, comme la maquette
 				if (on)
 					p.Fill({tx, barY + 2.f, btn, barH - 4.f}, NkRole::AccentUi, 3.f);
 				p.IconV(tx + (btn - 14.f) * 0.5f, barY, barH, kTools[i],
 						on ? NkRole::TextOnAccent : NkRole::Text, 14.f);
+				// LE POINT en bas a droite du bouton de SELECTION : il annonce un
+				// sous-menu (rectangle, cercle, lasso). Sans lui, rien ne dit que le
+				// bouton cache un choix -- c'est la convention d'Unreal et de Blender.
+				if (i == 0)
+					p.Fill({tx + btn - 6.f, barY + barH - 8.f, 3.f, 3.f},
+						   on ? NkRole::TextOnAccent : NkRole::Text);
 				tx += btn + 2.f;
 			}
 			p.VLine(tx + 1.f, barY + 6.f, barH - 12.f);
 			tx += 7.f;
+
+			// Les trois aimantations : bascule (icone) + valeur, cote a cote.
 			for (int32 i = 0; i < 3; ++i) {
-				p.TextV(tx, barY, barH, kSnaps[i], NkRole::TextMuted);
-				tx += p.TextW(kSnaps[i]) + 12.f;
+				if (kSnaps[i].on)
+					p.Fill({tx, barY + 2.f, btn, barH - 4.f}, NkRole::AccentUi, 3.f);
+				p.IconV(tx + (btn - 13.f) * 0.5f, barY, barH, kSnaps[i].icon,
+						kSnaps[i].on ? NkRole::TextOnAccent : NkRole::TextMuted, 13.f);
+				tx += btn + 3.f;
+				// La valeur est ATTENUEE quand l'aimantation est coupee : elle reste
+				// lisible (on veut savoir sur quel pas on retombera) sans faire croire
+				// qu'elle agit.
+				p.TextV(tx, barY, barH, kSnaps[i].value,
+						kSnaps[i].on ? NkRole::Text : NkRole::TextMuted);
+				tx += p.TextW(kSnaps[i].value) + 9.f;
 			}
 
 			// ── GIZMO DE NAVIGATION + BOUTONS DE VUE, en bas a gauche.
@@ -443,27 +487,6 @@ namespace nkentseu {
 			const float32 navY = r.y + r.h - 22.f - gz * 2.f - 14.f - navH;
 			PaintViewButtons(p, r.x + 14.f, navY);
 			PaintNavGizmo(p, r.x + 12.f + gz, r.y + r.h - 22.f - gz, gz);
-
-			// ── OUTILS SELECTION ET CURSEUR, colonne de GAUCHE.
-			// Ce sont les deux premiers outils de la barre T de Blender, et ils ne
-			// sont pas de meme nature que les boutons de navigation : ceux-la
-			// deplacent la VUE, ceux-ci changent ce que fait le CLIC. D'ou deux
-			// groupes distincts, et non une seule colonne fourre-tout.
-			// Un seul peut etre actif a la fois -- d'ou l'accent sur un seul.
-			{
-				const float32 d = 26.f;
-				const float32 tx2 = r.x + 14.f;
-				const float32 ty2 = barY + barH + 10.f;
-				const NkIcon kT[2] = {NkIcon::Cursor, NkIcon::Gizmo};
-				const int32 active = 0; // outil de selection
-				for (int32 i = 0; i < 2; ++i) {
-					const float32 by2 = ty2 + (float32)i * (d + 5.f);
-					const bool on = (i == active);
-					p.Fill({tx2, by2, d, d}, on ? NkRole::AccentUi : NkRole::PanelBg, 4.f);
-					p.IconV(tx2 + (d - 14.f) * 0.5f, by2, d, kT[i],
-							on ? NkRole::TextOnAccent : NkRole::Text, 14.f);
-				}
-			}
 
 			// ── PANNEAU DE DERNIERE OPERATION. Il FLOTTE au-dessus de la scene et n'est
 			// pas encastre dans un bord : il appartient a la vue, pas au cadre.
@@ -698,87 +721,114 @@ namespace nkentseu {
 
 			// Vignettes. La bande de couleur SOUS la vignette redit le type : on
 			// reconnait un materiau d'un maillage sans lire l'etiquette.
-			// L'APERCU DIT LE TYPE, et pas seulement la bande de couleur. Un
-			// utilisateur reconnait une forme avant de lire une etiquette ou de
-			// decoder un code couleur -- et le code couleur seul echoue des qu'il y a
+			// ── CARTES D'ASSETS, CALQUEES SUR LE NAVIGATEUR D'UNREAL ────────────
+			// Structure d'une carte, de haut en bas :
+			//   1. l'apercu, sur un DAMIER (il dit « ce fond est vide », pas « ce fond
+			//      est gris ») ;
+			//   2. une BANDE DE COULEUR fine, qui ouvre le pied de carte ;
+			//   3. le NOM ;
+			//   4. le TYPE, en petit et attenue.
+			//
+			// Mon dessin precedent mettait la bande SOUS l'apercu et le nom DEHORS : le
+			// nom flottait entre deux cartes et on ne savait plus a laquelle il
+			// appartenait des que les libelles etaient longs. Chez Unreal tout est
+			// DANS la carte, et c'est ce qui rend la grille lisible.
+			//
+			// L'APERCU DIT LE TYPE, pas seulement la couleur : on reconnait une forme
+			// avant de lire une etiquette, et un code couleur seul echoue des qu'il y a
 			// du daltonisme ou un ecran mal calibre.
-			//   maillage  -> cube en fil de fer
-			//   materiau  -> sphere (la boule de rendu, convention universelle)
-			//   texture   -> damier (ce qu'on voit dans tous les logiciels)
-			//   animation -> courbe avec ses cles
-			enum class Preview : uint8 { Mesh = 0, Material, Texture, Animation };
+			enum class Preview : uint8 { Mesh = 0, Material, Texture, Animation, Blueprint };
 			struct Asset {
 					const char *name;
+					const char *type;
 					NkRole role;
 					Preview kind;
+					bool selected;
 			};
 			static const Asset kAssets[] = {
-				{"Cube", NkRole::TypeMesh, Preview::Mesh},
-				{"Tete", NkRole::TypeMesh, Preview::Mesh},
-				{"Bois", NkRole::TypeMat, Preview::Material},
-				{"Ecorce", NkRole::TypeTex, Preview::Texture},
-				{"Marche", NkRole::TypeAnim, Preview::Animation},
+				{"SM_Cube", "Maillage", NkRole::TypeMesh, Preview::Mesh, true},
+				{"SM_Tete", "Maillage", NkRole::TypeMesh, Preview::Mesh, false},
+				{"M_Bois", "Materiau", NkRole::TypeMat, Preview::Material, false},
+				{"T_Ecorce", "Texture", NkRole::TypeTex, Preview::Texture, false},
+				{"A_Marche", "Animation", NkRole::TypeAnim, Preview::Animation, false},
 			};
 			float32 tx = ax;
-			const float32 tw = 88.f, thh = 62.f, tyy = ty + 42.f;
+			const float32 tw = 94.f;		  // largeur de carte
+			const float32 pvH = 66.f;		  // hauteur d'apercu
+			const float32 barH2 = 3.f;		  // bande de type
+			const float32 footH = 30.f;		  // pied : nom + type
+			const float32 tyy = ty + 42.f - assetScroll;
 			for (int32 i = 0; i < 5; ++i) {
-				p.Fill({tx, tyy, tw, thh}, NkRole::PanelHeader, 2.f);
-				// Apercu : une sphere pour un materiau, un cube en fil de fer sinon --
-				// une vignette vide ne dirait rien de ce qu'elle contient.
-				const float32 cx = tx + tw * 0.5f, cy = tyy + thh * 0.5f;
+				const float32 cardH = pvH + barH2 + footH;
+				// Carte selectionnee : contour a l'accent d'interface. Chez Unreal c'est
+				// un liseré, pas un fond plein -- un fond plein ecraserait l'apercu, qui
+				// est justement ce qu'on regarde.
+				if (kAssets[i].selected)
+					p.Fill({tx - 2.f, tyy - 2.f, tw + 4.f, cardH + 4.f}, NkRole::AccentUi, 3.f);
+
+				// 1. DAMIER de fond, comme Unreal : il dit que l'apercu est detoure.
+				const float32 c = 8.f;
+				p.Fill({tx, tyy, tw, pvH}, NkRole::InputBg);
+				for (int32 gx = 0; gx * c < tw; ++gx)
+					for (int32 gy = 0; gy * c < pvH; ++gy)
+						if (((gx + gy) & 1) == 0) {
+							const float32 cw = ((float32)(gx + 1) * c > tw) ? tw - (float32)gx * c : c;
+							const float32 ch = ((float32)(gy + 1) * c > pvH) ? pvH - (float32)gy * c : c;
+							p.Fill({tx + (float32)gx * c, tyy + (float32)gy * c, cw, ch}, NkRole::WindowBg);
+						}
+
+				const float32 cx = tx + tw * 0.5f, cy = tyy + pvH * 0.5f;
 				switch (kAssets[i].kind) {
 					case Preview::Material:
-						// Boule de rendu : disque plein, avec un reflet clair en haut a
-						// gauche. Sans le reflet, le disque se lit comme une pastille.
-						p.Disc(cx, cy, 17.f, kAssets[i].role);
-						p.Disc(cx - 6.f, cy - 6.f, 4.f, NkRole::Text);
+						// Boule de rendu, avec son reflet : sans le reflet, le disque se
+						// lit comme une pastille de couleur.
+						p.Disc(cx, cy, 20.f, kAssets[i].role);
+						p.Disc(cx - 7.f, cy - 7.f, 5.f, NkRole::Text);
 						break;
 					case Preview::Texture: {
-						// Damier : ce qu'affichent tous les logiciels pour une texture.
-						const float32 c = 7.f;
-						for (int32 gx = 0; gx < 4; ++gx)
-							for (int32 gy = 0; gy < 4; ++gy)
-								if (((gx + gy) & 1) == 0)
-									p.Fill({cx - c * 2.f + (float32)gx * c, cy - c * 2.f + (float32)gy * c,
-											c, c},
-										   kAssets[i].role);
-						p.OutlineSharp({cx - c * 2.f, cy - c * 2.f, c * 4.f, c * 4.f}, NkRole::Border);
+						// Un carre de texture : plein, avec un damier plus fin dedans.
+						const float32 q = 6.f, half = q * 3.f;
+						for (int32 gx = 0; gx < 6; ++gx)
+							for (int32 gy = 0; gy < 6; ++gy)
+								p.Fill({cx - half + (float32)gx * q, cy - half + (float32)gy * q, q, q},
+									   ((gx + gy) & 1) ? kAssets[i].role : NkRole::PanelHeader);
 						break;
 					}
 					case Preview::Animation: {
-						// Courbe avec ses cles : une animation est une valeur qui varie,
-						// et c'est cette variation qu'il faut montrer.
-						const float32 w2 = 17.f, h2 = 11.f;
-						p.Line(cx - w2, cy + h2, cx - w2 * 0.3f, cy - h2 * 0.6f, kAssets[i].role, 2.f);
-						p.Line(cx - w2 * 0.3f, cy - h2 * 0.6f, cx + w2 * 0.4f, cy + h2 * 0.3f,
+						const float32 w2 = 20.f, h2 = 13.f;
+						p.Line(cx - w2, cy + h2, cx - w2 * 0.3f, cy - h2 * 0.7f, kAssets[i].role, 2.f);
+						p.Line(cx - w2 * 0.3f, cy - h2 * 0.7f, cx + w2 * 0.4f, cy + h2 * 0.3f,
 							   kAssets[i].role, 2.f);
 						p.Line(cx + w2 * 0.4f, cy + h2 * 0.3f, cx + w2, cy - h2, kAssets[i].role, 2.f);
-						p.Disc(cx - w2 * 0.3f, cy - h2 * 0.6f, 3.f, NkRole::Text);
+						p.Disc(cx - w2 * 0.3f, cy - h2 * 0.7f, 3.f, NkRole::Text);
 						p.Disc(cx + w2 * 0.4f, cy + h2 * 0.3f, 3.f, NkRole::Text);
 						break;
 					}
 					default: {
-						// Cube en fil de fer : la face avant, plus les trois aretes de
-						// profondeur. Un carre plein ne dirait pas « volume ».
-						const float32 hw = 14.f, hh = 12.f, dp = 7.f;
-						p.Fill({cx - hw, cy - hh + dp, hw * 2.f, hh * 2.f - dp}, NkRole::InputBg);
-						p.OutlineSharp({cx - hw, cy - hh + dp, hw * 2.f, hh * 2.f - dp},
-									   NkRole::TypeMesh);
-						p.Line(cx - hw, cy - hh + dp, cx - hw + dp, cy - hh, NkRole::TypeMesh);
-						p.Line(cx - hw + dp, cy - hh, cx + hw + dp, cy - hh, NkRole::TypeMesh);
-						p.Line(cx + hw, cy - hh + dp, cx + hw + dp, cy - hh, NkRole::TypeMesh);
-						p.Line(cx + hw + dp, cy - hh, cx + hw + dp, cy + hh - dp, NkRole::TypeMesh);
-						p.Line(cx + hw, cy + hh, cx + hw + dp, cy + hh - dp, NkRole::TypeMesh);
+						// Cube en volume : face avant pleine, dessus et cote en biais. Un
+						// carre plein ne dirait pas « volume ».
+						const float32 hw = 16.f, hh = 14.f, dp = 8.f;
+						p.Fill({cx - hw, cy - hh + dp, hw * 2.f, hh * 2.f - dp}, NkRole::PanelHeader);
+						p.OutlineSharp({cx - hw, cy - hh + dp, hw * 2.f, hh * 2.f - dp}, kAssets[i].role);
+						p.Line(cx - hw, cy - hh + dp, cx - hw + dp, cy - hh, kAssets[i].role);
+						p.Line(cx - hw + dp, cy - hh, cx + hw + dp, cy - hh, kAssets[i].role);
+						p.Line(cx + hw, cy - hh + dp, cx + hw + dp, cy - hh, kAssets[i].role);
+						p.Line(cx + hw + dp, cy - hh, cx + hw + dp, cy + hh - dp, kAssets[i].role);
+						p.Line(cx + hw, cy + hh, cx + hw + dp, cy + hh - dp, kAssets[i].role);
 						break;
 					}
 				}
-				p.Fill({tx, tyy + thh - 3.f, tw, 3.f}, kAssets[i].role);
-				const float32 nw = p.TextW(kAssets[i].name);
-				p.Text(tx + tw * 0.5f - nw * 0.5f, tyy + thh + 5.f, kAssets[i].name);
+
+				// 2. BANDE DE TYPE, puis 3. le NOM et 4. le TYPE, tous DANS la carte.
+				p.Fill({tx, tyy + pvH, tw, barH2}, kAssets[i].role);
+				p.Fill({tx, tyy + pvH + barH2, tw, footH}, NkRole::PanelHeader);
+				p.Text(tx + 5.f, tyy + pvH + barH2 + 4.f, kAssets[i].name);
+				p.Text(tx + 5.f, tyy + pvH + barH2 + 17.f, kAssets[i].type, NkRole::TextMuted);
 				tx += tw + 10.f;
 			}
 			p.VScroll({r.x, ty, treeW, th}, 5.f * kRowH + 8.f, treeScroll);
-			p.VScroll({ax - 10.f, ty + 33.f, r.w - treeW - 10.f, th - 33.f}, thh + 26.f, assetScroll);
+			p.VScroll({ax - 10.f, ty + 33.f, r.w - treeW - 10.f, th - 33.f}, 66.f + 3.f + 30.f + 26.f,
+					  assetScroll);
 			const float32 ew = p.TextW("5 elements");
 			p.TextV(r.x + r.w - ew - kPad, r.y + r.h - kRowH, kRowH, "5 elements", NkRole::TextMuted);
 			(void)ih;

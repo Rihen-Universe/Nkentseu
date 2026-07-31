@@ -73,6 +73,8 @@ namespace nkentseu {
 			Ortho,
 			Gizmo,
 			Overlay,
+			Light,
+			Menu,
 			Count
 		};
 
@@ -131,6 +133,8 @@ namespace nkentseu {
 						{NkIcon::Ortho, "layout"},
 						{NkIcon::Gizmo, "location"},
 						{NkIcon::Overlay, "circle-filled"},
+						{NkIcon::Light, "lightbulb"},
+						{NkIcon::Menu, "menu"},
 					};
 
 					const NkString exeDir = NkPath::GetExecutableDirectory().ToString();
@@ -156,6 +160,28 @@ namespace nkentseu {
 							}
 							NkImage *small = big->Resize(sizePx, sizePx);
 							NkImage *use = (small && small->IsValid()) ? small : big;
+
+							// ── LA CORRECTION QUI FAIT TOUT ─────────────────────
+							// Les codicons sont dessines en NOIR. La teinte du rendu
+							// MULTIPLIE l'echantillon : noir x blanc = noir. Les icones
+							// sortaient donc NOIRES sur fond sombre quelle que soit la
+							// couleur demandee -- et le systeme de roles ne servait a
+							// rien pour elles.
+							//
+							// On les convertit en MASQUE : RGB force a blanc, ALPHA
+							// conserve (c'est lui qui porte la forme). La teinte reprend
+							// alors tout son sens, exactement comme pour un glyphe de
+							// police -- et les icones basculeront toutes seules en
+							// theme clair.
+							if (uint8 *px = use->Pixels()) {
+								const int32 n = use->Width() * use->Height();
+								for (int32 k = 0; k < n; ++k) {
+									px[k * 4 + 0] = 255;
+									px[k * 4 + 1] = 255;
+									px[k * 4 + 2] = 255;
+								}
+							}
+
 							const uint32 texId = firstTexId + (uint32)slot;
 							if (renderer.UploadImageRGBA(texId, use->Pixels(), use->Width(), use->Height())) {
 								mTex[slot] = texId;
