@@ -280,7 +280,90 @@ elle ne doit pas être bricolée : sans validation par schéma, elle produira de
 suites plausibles et fausses, exactement comme le corpus l'a montré sur les faits
 historiques.
 
-### 4.6 Verrou partagé identifié
+### 4.6 SCRIPTS et EXTENSIONS en C++ *(Rihen, 31/07)*
+
+Demande : *« écrire des scripts comme sur Blender, créer des add-ons »*, en C++.
+
+**Le mécanisme existe déjà, et il est prouvé par exécution.** `Engine/Noge` porte
+le premier des cinq piliers de scripting :
+
+| brique | où | état |
+|---|---|---|
+| ABI C **autonome** (aucun lien avec le moteur) | `Noge/ECS/Scripting/NkScriptABI.h` | ✅ |
+| chargement de DLL, **copie fantôme**, injection des hooks NKMemory | `NkScriptBridge.cpp` | ✅ |
+| **rechargement à chaud** : détection de date → sérialisation de l'état → déchargement → rechargement → restauration | `NkScriptLoader::HotReload` | ✅ |
+| **compilation à l'exécution** (appel clang++ direct, même chaîne que jenga) | `NkHotReloadDemo` | ✅ |
+| surveillance de fichiers | `NKFileSystem/NkFileWatcher.h` | ✅ |
+
+Preuve : `Applications/NkHotReloadDemo`, **16 assertions**. Un compteur passe de
+`+1/tick` à `+2/tick` par recompilation d'un `.cpp` **pendant l'exécution**, et
+**son état survit** au rechargement — la valeur reste à 5 pendant le remplacement,
+puis suit le nouveau comportement. C'est exactement ce qu'un add-on demande.
+
+**Ce qui manque n'est donc pas la machinerie, c'est la SURFACE** : ce qu'un add-on
+a le droit d'appeler.
+
+#### La règle, et c'est la troisième fois qu'elle s'impose
+
+> **Un add-on n'appelle pas les fonctions internes. Il émet des COMMANDES.**
+
+S'il touchait directement au maillage, il court-circuiterait l'annulation, le
+rejeu et l'IA — et le premier add-on écrit ainsi rendrait ces trois systèmes faux
+sans qu'on s'en aperçoive. En émettant des commandes, il hérite de tout
+gratuitement.
+
+C'est le **troisième consommateur** de la même règle, après l'assistant par prompt
+(§ 4.5) et le graphe de nœuds (§ 4.4). Trois besoins indépendants qui convergent
+sur la même contrainte : c'est le signe que l'architecture est juste.
+
+#### La surface est déjà à moitié conçue
+
+Parce que tout a été rendu **adressable par données**, un add-on dispose déjà de :
+
+| ce qu'il peut faire | grâce à quoi | état |
+|---|---|---|
+| exécuter n'importe quelle opération d'édition | `NkMeshEditCommand` sérialisable | ✅ |
+| lire et régler n'importe quel paramètre de modificateur | `NkModifierParams` (clé stable + type + bornes) | ✅ |
+| déclarer ses propres raccourcis, et voir les conflits | `NkShortcutTable` | ✅ |
+| analyser un maillage | `NkMeshAnalysis` | ✅ |
+| **déclarer une commande nommée** | `NkEditorCommand` (NKEditorKit) | ✅ |
+| **ajouter un panneau** | `NkEditorPanel` (NKEditorKit) | ✅ |
+| **ajouter un type de modificateur** | ❌ — la table `NkModifierType` est une énumération **fermée** |
+| **s'enregistrer / se décharger proprement** | ❌ — pas de cycle de vie d'add-on |
+
+**Deux briques à écrire, donc**, et une seule est délicate : ouvrir l'enregistrement
+des modificateurs à des types venus de l'extérieur. L'énumération est aujourd'hui
+**sérialisée** — un type d'add-on ne peut pas y prendre un numéro sans risquer de
+collisionner avec un futur type interne. Il lui faudra un identifiant **textuel**
+(`monaddon.plisser`), exactement comme les clés de paramètres.
+
+#### Réserves honnêtes sur le C++ comme langage de script
+
+Elles ne remettent pas le choix en cause — elles disent ce qu'il coûte :
+
+1. **Un plantage dans un add-on tue l'application.** L'ABI C et la copie fantôme
+   isolent le *chargement*, pas l'*exécution*. Blender a choisi Python en partie
+   pour cela. Atténuation réaliste : un add-on qui plante est **désactivé au
+   redémarrage suivant** et signalé, plutôt que de replanter en boucle.
+2. **Il faut un compilateur.** Acceptable ici — la chaîne clang++ est déjà exigée
+   par le projet, et `NkHotReloadDemo` s'en sert déjà à l'exécution.
+3. **L'ABI doit rester stable.** C'est déjà la discipline de `NkScriptABI.h`
+   (header autonome, aucun lien) : la tenir est un engagement, pas une évidence.
+
+#### L'échelle complète, du plus simple au plus puissant
+
+| niveau | pour qui | état |
+|---|---|---|
+| **graphe de nœuds** (§ 4.4) | ne pas programmer du tout | ❌ à écrire (NKGraph) |
+| **assistant par prompt** (§ 4.5) | décrire au lieu de faire | 🟡 ossature prête |
+| **add-on C++ rechargeable** | tout faire | ✅ mécanisme prêt, surface à finir |
+| **journal de commandes** | le socle commun aux trois | ✅ livré |
+
+Les bridges **C#** et **Python** existent comme specs dans Noge
+(`Scripting/CSharp/`, `Scripting/Python/`) — hors périmètre v1, mais la même
+surface de commandes les servira sans rien redéfinir.
+
+### 4.7 Verrou partagé identifié
 
 Les **groupes de sommets** bloquent simultanément : Mask par groupe, les trois
 modificateurs Vertex Weight, et le skinning côté animation. C'est le prérequis au
