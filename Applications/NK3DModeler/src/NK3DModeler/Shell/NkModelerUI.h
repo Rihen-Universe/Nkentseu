@@ -24,6 +24,7 @@
 #include "NKGui/Core/NkGuiFont.h"
 #include "NKEditorKit/NkTheme.h"
 #include "NK3DModeler/Shell/NkModelerTheme.h"
+#include "NK3DModeler/Shell/NkModelerIcons.h"
 
 namespace nkentseu {
 	namespace nk3d {
@@ -95,8 +96,8 @@ namespace nkentseu {
 		class NkModelerPainter {
 			public:
 				NkModelerPainter(NkGuiDrawList &dl, NkGuiFont &font, const NkTheme &theme,
-								 const NkModelerRoles &roles) noexcept
-					: mDl(dl), mFont(font), mTh(theme), mRoles(roles) {}
+								 const NkModelerRoles &roles, const NkModelerIcons &icons) noexcept
+					: mDl(dl), mFont(font), mTh(theme), mRoles(roles), mIcons(icons) {}
 
 				// Conversion theme -> couleur du moteur. Le theme stocke 0xRRGGBBAA ;
 				// NkColor attend quatre octets. Un seul endroit fait la traduction.
@@ -131,6 +132,25 @@ namespace nkentseu {
 					mDl.AddRectFilled({x, y, 1.f, h}, C(NkRole::Border));
 				}
 
+				// Segment QUELCONQUE. Indispensable des qu'une ligne n'est ni
+				// horizontale ni verticale : les fuyantes du sol et le repere d'axes
+				// etaient dessines en rectangles, d'ou les barres etranges au lieu de
+				// diagonales.
+				// Contour seul, sans remplissage : les pastilles de filtre non actives.
+				void Outline(const NkRect &r, NkRole role, float32 rounding = 0.f) {
+					mDl.AddRect(r, C(role), 1.f);
+					(void)rounding;
+				}
+
+				void Disc(float32 cx, float32 cy, float32 radius, NkRole role) {
+					mDl.AddCircleFilled({cx, cy}, radius, C(role));
+				}
+
+				void Line(float32 x0, float32 y0, float32 x1, float32 y1, NkRole role,
+						  float32 thickness = 1.f) {
+					mDl.AddLine({x0, y0}, {x1, y1}, C(role), thickness);
+				}
+
 				// Texte cale sur la LIGNE DE BASE, pas sur le haut du glyphe : sans ca
 				// les libelles « sautent » d'un widget a l'autre selon leurs jambages.
 				void Text(float32 x, float32 y, const char *s, NkRole role = NkRole::Text) {
@@ -145,6 +165,38 @@ namespace nkentseu {
 				}
 				void TextV(float32 x, float32 y, float32 h, const char *s, const NkColor &c) {
 					Text(x, y + (h - mFont.LineHeight()) * 0.5f, s, c);
+				}
+
+				// ── ICONES ──────────────────────────────────────────────────────
+				// TEINTEES par un role de theme, jamais affichees telles quelles : une
+				// icone grise dessinee brute serait invisible en theme clair -- le
+				// defaut meme que le systeme de roles existe pour empecher.
+				//
+				// Une icone MANQUANTE ne dessine RIEN et ne decale rien. Elle degrade
+				// l'interface au lieu de la casser : un carre de remplacement serait
+				// pire, il ferait croire a un dessin voulu.
+				void Icon(float32 x, float32 y, NkIcon ic, NkRole role = NkRole::Text, float32 sz = 0.f) {
+					const uint32 tex = mIcons.Tex(ic);
+					if (!tex)
+						return;
+					const float32 s = sz > 0.f ? sz : (float32)mIcons.Size();
+					mDl.AddImage(tex, {x, y, s, s}, {0.f, 0.f}, {1.f, 1.f}, C(role));
+				}
+				void Icon(float32 x, float32 y, NkIcon ic, const NkColor &c, float32 sz = 0.f) {
+					const uint32 tex = mIcons.Tex(ic);
+					if (!tex)
+						return;
+					const float32 s = sz > 0.f ? sz : (float32)mIcons.Size();
+					mDl.AddImage(tex, {x, y, s, s}, {0.f, 0.f}, {1.f, 1.f}, c);
+				}
+				// Centree verticalement dans une hauteur de ligne.
+				void IconV(float32 x, float32 y, float32 h, NkIcon ic, NkRole role = NkRole::Text,
+						   float32 sz = 0.f) {
+					const float32 s = sz > 0.f ? sz : (float32)mIcons.Size();
+					Icon(x, y + (h - s) * 0.5f, ic, role, sz);
+				}
+				float32 IconSize() const {
+					return (float32)mIcons.Size();
 				}
 
 				const NkTheme &Theme() const {
@@ -163,6 +215,7 @@ namespace nkentseu {
 				NkGuiFont &mFont;
 				const NkTheme &mTh;
 				const NkModelerRoles &mRoles;
+				const NkModelerIcons &mIcons;
 		};
 
 	} // namespace nk3d

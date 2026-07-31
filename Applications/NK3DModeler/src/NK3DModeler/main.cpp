@@ -138,6 +138,13 @@ int nkmain(const NkEntryState &entry) {
 	// texte sort en rectangles vides -- symptome classique et deroutant.
 	renderer.UploadFontGray8(font.TexId(), font.pixels, font.atlasW, font.atlasH);
 
+	// ── ICONES ──────────────────────────────────────────────────────────────
+	// Apres la police : leurs identifiants de texture partent APRES celui de
+	// l'atlas de glyphes, sinon la premiere icone ecraserait la police.
+	NkModelerIcons icons;
+	icons.Load(renderer, font.TexId() + 16u, 16);
+	printf("[nk3d] %u icones chargees.\n", icons.LoadedCount());
+
 	// ── ETAT ────────────────────────────────────────────────────────────────
 	bool editMode = false;
 	static const char *const kScenes[] = {"Scene_01", "Scene_02"};
@@ -169,7 +176,7 @@ int nkmain(const NkEntryState &entry) {
 		lay.Compute(W, H);
 
 		const NkTheme &theme = themes.Current();
-		NkModelerPainter p(ui.dl, font, theme, roles);
+		NkModelerPainter p(ui.dl, font, theme, roles, icons);
 
 		// Fond general : il se voit dans les interstices entre panneaux, et c'est
 		// ce qui donne la profondeur a trois niveaux de UI_SPEC 10bis.1.

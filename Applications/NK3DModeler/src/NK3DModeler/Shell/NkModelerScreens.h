@@ -34,39 +34,39 @@ namespace nkentseu {
 			p.Fill(r, NkRole::PanelHeader);
 			p.HLine(r.x, r.y + r.h - 1.f, r.w);
 
-			// Logo hexagonal. Dessine en losange faute de primitive polygonale ici :
-			// la forme exacte viendra avec l'icone reelle, extraite comme les autres.
-			const float32 logo = 22.f;
+			const float32 logo = 24.f;
 			const float32 ly = r.y + (r.h - logo) * 0.5f;
-			p.Fill({12.f, ly, logo, logo}, NkRole::AccentUi, 4.f);
-			p.TextV(12.f + 4.f, ly, logo, "NK", NkRole::TextOnAccent);
+			p.Fill({10.f, ly, logo, logo}, NkRole::AccentUi, 4.f);
+			const float32 nkW = p.TextW("NK");
+			p.TextV(10.f + (logo - nkW) * 0.5f, ly, logo, "NK", NkRole::TextOnAccent);
 
-			float32 x = 12.f + logo + 14.f;
+			float32 x = 10.f + logo + 16.f;
 			static const char *const kMenus[] = {"Fichier", "Edition", "Fenetre", "Outils",
 												 "Selection", "Objet", "Aide"};
 			for (int32 i = 0; i < 7; ++i) {
 				p.TextV(x, r.y, r.h, kMenus[i]);
-				x += p.TextW(kMenus[i]) + 20.f;
+				x += p.TextW(kMenus[i]) + 22.f;
 			}
 
-			// Nom du projet CENTRE sur la fenetre, pas apres les menus : il doit
-			// rester au meme endroit quelle que soit la langue de l'interface.
+			// Nom du projet CENTRE sur la FENETRE, pas apres les menus : il doit rester
+			// au meme endroit quelle que soit la langue, et les libelles traduits
+			// changent de largeur de 30 % d'une langue a l'autre.
 			const float32 nw = p.TextW(projectName);
 			p.TextV(r.w * 0.5f - nw * 0.5f, r.y, r.h, projectName, NkRole::TextMuted);
 
-			// Boutons de fenetre. Sans bordure OS (fenetre sans cadre), c'est nous qui
-			// les portons -- comme dans la maquette.
+			// Boutons de fenetre. La fenetre etant SANS CADRE OS, c'est nous qui les
+			// portons ; seule la fermeture est coloree, comme dans la maquette.
 			const float32 bw = 30.f, bh = 22.f;
 			const float32 by = r.y + (r.h - bh) * 0.5f;
-			float32 bx = r.w - kPad - bw;
-			p.Fill({bx, by, bw, bh}, NkColor{231, 76, 60, 255}, 3.f);
-			p.TextV(bx + bw * 0.5f - 4.f, by, bh, "X", NkRole::TextOnAccent);
-			bx -= bw + 6.f;
-			p.Fill({bx, by, bw, bh}, NkRole::PanelBg, 3.f);
-			p.TextV(bx + bw * 0.5f - 4.f, by, bh, "[]");
-			bx -= bw + 6.f;
-			p.Fill({bx, by, bw, bh}, NkRole::PanelBg, 3.f);
-			p.TextV(bx + bw * 0.5f - 3.f, by, bh, "-");
+			const NkIcon kWin[3] = {NkIcon::WinMin, NkIcon::WinMax, NkIcon::WinClose};
+			for (int32 i = 0; i < 3; ++i) {
+				const float32 bx = r.w - kPad - (float32)(3 - i) * (bw + 4.f);
+				const bool close = (i == 2);
+				if (close)
+					p.Fill({bx, by, bw, bh}, NkColor{231, 76, 60, 255}, 3.f);
+				p.IconV(bx + (bw - p.IconSize()) * 0.5f, by, bh, kWin[i],
+						close ? NkRole::TextOnAccent : NkRole::TextMuted);
+			}
 		}
 
 		// ── ONGLETS DE DOCUMENT ─────────────────────────────────────────────────
@@ -94,26 +94,49 @@ namespace nkentseu {
 			p.Fill(r, NkRole::PanelHeader);
 			p.HLine(r.x, r.y + r.h - 1.f, r.w);
 			float32 x = kPad;
+			const float32 ih = p.IconSize();
 
-			// LE COMMUTATEUR DE MODE — la seule chose que je garde de la barre que
-			// Banani avait ajoutee, et la meilleure idee de cette maquette : chez
-			// Blender ce mode n'est visible que dans un menu deroulant, ce qui est la
-			// premiere source de confusion pour un debutant.
-			const float32 segH = 24.f, segY = r.y + (r.h - segH) * 0.5f;
+			auto btn = [&](NkIcon ic, const char *label) {
+				p.IconV(x, r.y, r.h, ic, NkRole::Text);
+				p.TextV(x + ih + 5.f, r.y, r.h, label);
+				x += ih + 5.f + p.TextW(label) + 18.f;
+			};
+			btn(NkIcon::Save, "Enregistrer");
+			p.VLine(x - 9.f, r.y + 7.f, r.h - 14.f);
+
+			// LE COMMUTATEUR DE MODE — la meilleure idee de la maquette Banani, et la
+			// seule chose que je garde de la barre qu'elle avait ajoutee : chez Blender
+			// ce mode n'est visible que dans un menu deroulant, ce qui est la premiere
+			// source de confusion pour un debutant.
+			const float32 segH = 22.f, segY = r.y + (r.h - segH) * 0.5f;
 			static const char *const kModes[] = {"Objet", "Edition"};
+			const NkIcon kModeIc[2] = {NkIcon::Mesh, NkIcon::Edit};
 			for (int32 i = 0; i < 2; ++i) {
-				const float32 w = p.TextW(kModes[i]) + 24.f;
-				const bool on = (i == 1) == editMode;
-				p.Fill({x, segY, w, segH}, on ? NkRole::AccentUi : NkRole::PanelBg, i == 0 ? 3.f : 0.f);
-				p.TextV(x + 12.f, segY, segH, kModes[i], on ? NkRole::TextOnAccent : NkRole::Text);
-				x += w;
+				const float32 w = ih + 8.f + p.TextW(kModes[i]) + 18.f;
+				const bool on = ((i == 1) == editMode);
+				if (on)
+					p.Fill({x, segY, w, segH}, NkRole::AccentUi, 3.f);
+				p.IconV(x + 7.f, segY, segH, kModeIc[i], on ? NkRole::TextOnAccent : NkRole::Text);
+				p.TextV(x + 7.f + ih + 5.f, segY, segH, kModes[i],
+						on ? NkRole::TextOnAccent : NkRole::Text);
+				x += w + 4.f;
 			}
-			x += 16.f;
-			static const char *const kBtns[] = {"Ajouter", "Modificateur"};
-			for (int32 i = 0; i < 2; ++i) {
-				p.TextV(x, r.y, r.h, kBtns[i]);
-				x += p.TextW(kBtns[i]) + 20.f;
-			}
+			x += 10.f;
+			p.VLine(x - 9.f, r.y + 7.f, r.h - 14.f);
+
+			p.IconV(x, r.y, r.h, NkIcon::Cursor);
+			p.TextV(x + ih + 5.f, r.y, r.h, "Mode de selection");
+			x += ih + 5.f + p.TextW("Mode de selection") + 6.f;
+			p.IconV(x, r.y, r.h, NkIcon::ChevronDown, NkRole::TextMuted, 12.f);
+			x += 22.f;
+			btn(NkIcon::Add, "Ajouter");
+			btn(NkIcon::Layers, "Modificateur");
+
+			// Reglages calE A DROITE : c'est une action de session, pas une action de
+			// modelisation. La distance visuelle dit la difference de nature.
+			const float32 sw = ih + 5.f + p.TextW("Reglages");
+			p.IconV(r.w - kPad - sw, r.y, r.h, NkIcon::Gear);
+			p.TextV(r.w - kPad - sw + ih + 5.f, r.y, r.h, "Reglages");
 		}
 
 		// ── EN-TETE DE PANNEAU ──────────────────────────────────────────────────
@@ -123,16 +146,18 @@ namespace nkentseu {
 			const float32 h = 26.f;
 			p.Fill({r.x, r.y, r.w, h}, NkRole::PanelHeader);
 			p.TextV(r.x + kPad, r.y, h, title);
-			p.TextV(r.x + r.w - 18.f, r.y, h, "x", NkRole::TextMuted);
+			p.IconV(r.x + r.w - 20.f, r.y, h, NkIcon::WinClose, NkRole::TextMuted, 11.f);
 			p.HLine(r.x, r.y + h - 1.f, r.w);
 			return r.y + h;
 		}
 
-		// Champ de recherche.
+		// Champ de recherche, avec sa loupe. Sans l'icone, un champ vide au texte
+		// grise se confond avec une etiquette desactivee.
 		inline float32 PaintSearch(NkModelerPainter &p, const NkRect &r, float32 y) {
 			const float32 h = 22.f;
 			p.Fill({r.x + 6.f, y + 4.f, r.w - 12.f, h}, NkRole::InputBg, 2.f);
-			p.TextV(r.x + 14.f, y + 4.f, h, "Rechercher...", NkRole::TextMuted);
+			p.IconV(r.x + 12.f, y + 4.f, h, NkIcon::Search, NkRole::TextMuted, 12.f);
+			p.TextV(r.x + 30.f, y + 4.f, h, "Rechercher", NkRole::TextMuted);
 			return y + h + 8.f;
 		}
 
@@ -143,10 +168,9 @@ namespace nkentseu {
 			float32 y = PaintPanelTab(p, r, "Hierarchie");
 			y = PaintSearch(p, r, y);
 
-			// En-tete de colonnes.
 			p.Fill({r.x, y, r.w, kRowH}, NkRole::WindowBg);
-			p.TextV(r.x + 30.f, y, kRowH, "Nom", NkRole::Text);
-			p.TextV(r.x + r.w - 60.f, y, kRowH, "Type", NkRole::TextMuted);
+			p.TextV(r.x + 34.f, y, kRowH, "Nom");
+			p.TextV(r.x + r.w - 62.f, y, kRowH, "Type", NkRole::TextMuted);
 			p.HLine(r.x, y + kRowH - 1.f, r.w);
 			y += kRowH;
 
@@ -154,26 +178,36 @@ namespace nkentseu {
 					int32 depth;
 					const char *name;
 					const char *type;
+					NkIcon icon;
+					bool expandable;
 			};
 			static const Row kRows[] = {
-				{0, "Scene", ""},		 {1, "Cube", "Maillage"},  {1, "Sphere", "Maillage"},
-				{1, "Groupe", "Dossier"}, {2, "Roue", "Maillage"}, {2, "Axe", "Maillage"},
+				{0, "Scene", "", NkIcon::Globe, true},
+				{1, "Cube", "Maillage", NkIcon::Mesh, false},
+				{1, "Sphere", "Maillage", NkIcon::Circle, false},
+				{1, "Groupe", "Dossier", NkIcon::Folder, true},
+				{2, "Roue", "Maillage", NkIcon::Mesh, false},
+				{2, "Axe", "Maillage", NkIcon::Mesh, false},
 			};
 			for (int32 i = 0; i < 6; ++i) {
 				const bool sel = (i == selectedRow);
 				if (sel)
 					p.Fill({r.x, y, r.w, kRowH}, NkRole::AccentUi);
-				const float32 tx = r.x + 8.f + (float32)kRows[i].depth * 14.f;
-				p.TextV(tx, y, kRowH, kRows[i].depth == 0 ? "v" : " ", NkRole::TextMuted);
-				p.TextV(tx + 14.f, y, kRowH, kRows[i].name, sel ? NkRole::TextOnAccent : NkRole::Text);
+				const NkRole fg = sel ? NkRole::TextOnAccent : NkRole::Text;
+				const NkRole dim = sel ? NkRole::TextOnAccent : NkRole::TextMuted;
+				float32 tx = r.x + 6.f + (float32)kRows[i].depth * 14.f;
+				// Le chevron n'est dessine QUE si la ligne a des enfants. En mettre un
+				// partout ferait croire que toutes les lignes se deplient.
+				if (kRows[i].expandable)
+					p.IconV(tx, y, kRowH, i == 0 ? NkIcon::ChevronDown : NkIcon::ChevronRight, dim, 12.f);
+				tx += 14.f;
+				p.IconV(tx, y, kRowH, kRows[i].icon, dim, 13.f);
+				p.TextV(tx + 18.f, y, kRowH, kRows[i].name, fg);
 				if (*kRows[i].type)
-					p.TextV(r.x + r.w - 60.f, y, kRowH, kRows[i].type,
-							sel ? NkRole::TextOnAccent : NkRole::TextMuted);
+					p.TextV(r.x + r.w - 62.f, y, kRowH, kRows[i].type, dim);
 				y += kRowH;
 			}
 
-			// Pied : le compte. Il vaut mieux qu'un panneau vide dise combien il
-			// contient plutot que de laisser l'utilisateur se demander s'il a charge.
 			const float32 fy = r.y + r.h - kRowH;
 			p.Fill({r.x, fy, r.w, kRowH}, NkRole::WindowBg);
 			p.HLine(r.x, fy, r.w);
@@ -183,119 +217,163 @@ namespace nkentseu {
 		// ── VUE 3D (centre) ─────────────────────────────────────────────────────
 		inline void PaintViewport(NkModelerPainter &p, const NkRect &r, bool editMode,
 								  const NkShortcutTable &sc) {
-			// Degrade haut/bas : deux roles distincts, donc pilotables par theme.
 			p.Fill(r, NkRole::ViewportTop);
-			p.Fill({r.x, r.y + r.h * 0.5f, r.w, r.h * 0.5f}, NkRole::ViewportBottom);
 
-			// Sol quadrille en perspective, purement indicatif tant que la vue reelle
-			// n'est pas branchee -- mais il donne l'echelle et le sens de la scene.
-			const float32 hy = r.y + r.h * 0.55f;
-			for (int32 i = 0; i < 7; ++i) {
-				const float32 t = (float32)i / 6.f;
-				const float32 yy = hy + (r.h - (hy - r.y)) * t * t * 0.75f;
-				p.Fill({r.x, yy, r.w, 1.f}, NkRole::GridLine);
+			// SOL EN PERSPECTIVE. Les fuyantes convergent vers un point de fuite, et les
+			// lignes d'horizon se RESSERRENT vers lui. Ma premiere version tracait des
+			// horizontales equidistantes : aucune profondeur, ca ressemblait a du papier
+			// reglé. Et elle dessinait les fuyantes en RECTANGLES horizontaux, d'ou les
+			// barres etranges de la capture.
+			const float32 vpx = r.x + r.w * 0.5f;
+			const float32 vpy = r.y + r.h * 0.42f;
+			for (int32 i = 1; i <= 9; ++i) {
+				const float32 t = (float32)i / 9.f;
+				const float32 yy = vpy + (r.y + r.h - vpy) * t * t;
+				const float32 half = r.w * 0.55f * t;
+				float32 x0 = vpx - half, x1 = vpx + half;
+				if (x0 < r.x)
+					x0 = r.x;
+				if (x1 > r.x + r.w)
+					x1 = r.x + r.w;
+				p.Fill({x0, yy, x1 - x0, 1.f}, NkRole::GridLine);
 			}
-			for (int32 i = -3; i <= 3; ++i) {
-				const float32 x0 = r.x + r.w * 0.5f;
-				const float32 x1 = x0 + (float32)i * r.w * 0.16f;
-				p.Fill({x1 < x0 ? x1 : x0, hy, 1.f + (x1 > x0 ? x1 - x0 : x0 - x1), 1.f}, NkRole::GridLine);
-			}
-
-			// ── BARRE FLOTTANTE : les menus de commandes (UI_SPEC 9bis, chemin 1).
-			// Leur contenu CHANGE avec le mode -- c'est ce qui rend le mode lisible
-			// sans avoir a le chercher.
-			const float32 barH = 28.f, barY = r.y + 10.f;
-			float32 bx = r.x + 10.f;
-			static const char *const kObj[] = {"Ajouter", "Objet", "Selection"};
-			static const char *const kEdit[] = {"Ajouter", "Maillage", "Sommet", "Arete", "Face"};
-			const char *const *menus = editMode ? kEdit : kObj;
-			const int32 nMenus = editMode ? 5 : 3;
-			float32 gw = 0.f;
-			for (int32 i = 0; i < nMenus; ++i)
-				gw += p.TextW(menus[i]) + 26.f;
-			p.Fill({bx, barY, gw, barH}, NkRole::PanelBg, 6.f);
-			for (int32 i = 0; i < nMenus; ++i) {
-				p.TextV(bx + 10.f, barY, barH, menus[i]);
-				bx += p.TextW(menus[i]) + 26.f;
+			for (int32 i = -6; i <= 6; ++i) {
+				const float32 xEnd = vpx + (float32)i * r.w * 0.19f;
+				p.Line(vpx, vpy, xEnd, r.y + r.h, NkRole::GridLine);
 			}
 
-			// Groupe de vue, cale a DROITE.
+			// ── BARRE FLOTTANTE GAUCHE : les options de VUE.
+			// Les menus de commandes (Ajouter/Objet/Selection) vivent dans la barre
+			// d'outils principale, comme dans la maquette. Les dupliquer ici donnerait
+			// deux endroits a tenir a jour pour une seule liste.
+			const float32 barH = 26.f, barY = r.y + 10.f;
 			static const char *const kView[] = {"Perspective", "Eclaire", "Affichage"};
-			float32 vw = 0.f;
+			float32 gw = 30.f;
 			for (int32 i = 0; i < 3; ++i)
-				vw += p.TextW(kView[i]) + 26.f;
-			float32 vx = r.x + r.w - 10.f - vw;
-			p.Fill({vx, barY, vw, barH}, NkRole::PanelBg, 6.f);
+				gw += p.TextW(kView[i]) + 30.f;
+			float32 bx = r.x + 10.f;
+			p.Fill({bx, barY, gw, barH}, NkRole::PanelBg, 5.f);
+			p.IconV(bx + 8.f, barY, barH, NkIcon::Layers, NkRole::Text, 13.f);
+			bx += 30.f;
 			for (int32 i = 0; i < 3; ++i) {
-				p.TextV(vx + 10.f, barY, barH, kView[i]);
-				vx += p.TextW(kView[i]) + 26.f;
+				p.TextV(bx, barY, barH, kView[i]);
+				bx += p.TextW(kView[i]) + 6.f;
+				p.IconV(bx, barY, barH, NkIcon::ChevronDown, NkRole::TextMuted, 11.f);
+				bx += 24.f;
 			}
 
-			// ── REPERE D'AXES, en bas a gauche. Les couleurs viennent du THEME : en
-			// clair ce sont d'autres valeurs, assombries pour rester lisibles.
-			const float32 ax = r.x + 42.f, ay = r.y + r.h - 46.f, len = 22.f;
-			p.Fill({ax, ay, len, 2.f}, NkRole::AxisX);
-			p.Text(ax + len + 4.f, ay - 7.f, "X", NkRole::AxisX);
-			p.Fill({ax, ay - len, 2.f, len}, NkRole::AxisY);
-			p.Text(ax - 3.f, ay - len - 16.f, "Y", NkRole::AxisY);
-			p.Fill({ax - len, ay + 8.f, len, 2.f}, NkRole::AxisZ);
-			p.Text(ax - len - 12.f, ay + 2.f, "Z", NkRole::AxisZ);
-
-			// ── PANNEAU DE DERNIERE OPERATION (chemin 4). En bas a GAUCHE, flottant
-			// au-dessus de la scene et non encastre dans un bord : il appartient a la
-			// vue, pas au cadre.
+			// ── BARRE FLOTTANTE DROITE : sous-modes (en edition) + outils + aimantation.
+			const float32 btn = 24.f;
+			const int32 nSub = editMode ? 3 : 0;
+			static const char *const kSnaps[] = {"0,5", "15 deg", "0,25"};
+			float32 tw = 12.f + (float32)(nSub + 5) * (btn + 2.f) + 12.f;
+			for (int32 i = 0; i < 3; ++i)
+				tw += p.TextW(kSnaps[i]) + 12.f;
+			float32 tx = r.x + r.w - 10.f - tw;
+			p.Fill({tx, barY, tw, barH}, NkRole::PanelBg, 5.f);
+			tx += 5.f;
 			if (editMode) {
-				const float32 pw = 210.f, ph = 4.f * kRowH + 8.f;
-				const float32 px = r.x + 12.f, py = r.y + r.h - ph - 70.f;
+				// Sommet / arete / face. Le sous-mode ACTIF prend l'accent d'interface,
+				// pas l'ambre : c'est un etat de l'outil, pas une selection dans la scene.
+				const NkIcon kSub[3] = {NkIcon::Dot, NkIcon::Ruler, NkIcon::Square};
+				for (int32 i = 0; i < 3; ++i) {
+					const bool on = (i == 2);
+					if (on)
+						p.Fill({tx, barY + 2.f, btn, barH - 4.f}, NkRole::AccentUi, 3.f);
+					p.IconV(tx + (btn - 14.f) * 0.5f, barY, barH, kSub[i],
+							on ? NkRole::TextOnAccent : NkRole::Text, 14.f);
+					tx += btn + 2.f;
+				}
+				p.VLine(tx + 1.f, barY + 6.f, barH - 12.f);
+				tx += 5.f;
+			}
+			const NkIcon kTools[5] = {NkIcon::Cursor, NkIcon::Move, NkIcon::Rotate, NkIcon::Scale,
+									  NkIcon::Globe};
+			for (int32 i = 0; i < 5; ++i) {
+				const bool on = (i == 1); // deplacement actif, comme dans la maquette
+				if (on)
+					p.Fill({tx, barY + 2.f, btn, barH - 4.f}, NkRole::AccentUi, 3.f);
+				p.IconV(tx + (btn - 14.f) * 0.5f, barY, barH, kTools[i],
+						on ? NkRole::TextOnAccent : NkRole::Text, 14.f);
+				tx += btn + 2.f;
+			}
+			p.VLine(tx + 1.f, barY + 6.f, barH - 12.f);
+			tx += 7.f;
+			for (int32 i = 0; i < 3; ++i) {
+				p.TextV(tx, barY, barH, kSnaps[i], NkRole::TextMuted);
+				tx += p.TextW(kSnaps[i]) + 12.f;
+			}
+
+			// ── REPERE D'AXES. Couleurs prises dans le THEME : en clair ce sont
+			// d'autres valeurs, assombries pour rester lisibles sur fond pale.
+			const float32 ax = r.x + 44.f, ay = r.y + r.h - 46.f, len = 26.f;
+			p.Line(ax, ay, ax + len, ay - 7.f, NkRole::AxisX, 2.f);
+			p.Text(ax + len + 4.f, ay - 16.f, "X", NkRole::AxisX);
+			p.Line(ax, ay, ax, ay - len, NkRole::AxisY, 2.f);
+			p.Text(ax - 4.f, ay - len - 16.f, "Y", NkRole::AxisY);
+			p.Line(ax, ay, ax - len * 0.7f, ay + len * 0.5f, NkRole::AxisZ, 2.f);
+			p.Text(ax - len * 0.7f - 12.f, ay + len * 0.5f - 4.f, "Z", NkRole::AxisZ);
+
+			// ── PANNEAU DE DERNIERE OPERATION. Il FLOTTE au-dessus de la scene et n'est
+			// pas encastre dans un bord : il appartient a la vue, pas au cadre.
+			if (editMode) {
+				const float32 pw = 214.f, ph = 4.f * kRowH + 6.f;
+				const float32 px = r.x + 12.f, py = r.y + r.h - ph - 80.f;
 				p.Fill({px, py, pw, ph}, NkRole::PanelHeader, 4.f);
-				p.TextV(px + kPad, py, kRowH, "v Extruder la region");
+				p.IconV(px + 6.f, py, kRowH, NkIcon::ChevronDown, NkRole::TextMuted, 11.f);
+				p.TextV(px + 22.f, py, kRowH, "Extruder la region");
 				float32 ry = py + kRowH;
 				static const char *const kL[] = {"Distance", "Decalage"};
 				static const char *const kV[] = {"0,25", "0,00"};
 				for (int32 i = 0; i < 2; ++i) {
 					p.TextV(px + kPad, ry, kRowH, kL[i], NkRole::TextMuted);
-					p.Fill({px + 110.f, ry + 3.f, 80.f, 16.f}, NkRole::InputBg, 2.f);
-					p.TextV(px + 116.f, ry, kRowH, kV[i]);
+					p.Fill({px + 112.f, ry + 3.f, 92.f, 16.f}, NkRole::InputBg, 2.f);
+					p.TextV(px + 118.f, ry, kRowH, kV[i]);
 					ry += kRowH;
 				}
 				p.Fill({px + kPad, ry + 5.f, 12.f, 12.f}, NkRole::AccentUi, 2.f);
 				p.TextV(px + kPad + 18.f, ry, kRowH, "Decalage pair", NkRole::TextMuted);
 			}
 
-			// Le raccourci de l'operation courante, lu dans la TABLE et jamais ecrit
-			// en dur : c'est ce qui garantit que l'affichage suit une reliaison faite
-			// par l'utilisateur. FormatFor prend la CLE DE COMMANDE, pas un index --
-			// la cle est stable, l'index bouge des qu'on ajoute une liaison.
+			// Le raccourci de l'operation courante est LU dans la table via sa CLE DE
+			// COMMANDE, jamais recopie : rebinder la touche changera cet affichage tout
+			// seul. La cle est stable, l'index ne l'est pas.
 			{
 				const char *cmd = editMode ? "edit.extruder" : "objet.deplacer";
 				char keys[32];
 				if (sc.FormatFor(cmd, keys, sizeof(keys))) {
 					char hint[96];
 					snprintf(hint, sizeof(hint), "%s   %s", editMode ? "Extruder" : "Deplacer", keys);
-					p.TextV(r.x + 12.f, r.y + r.h - 26.f, 20.f, hint, NkRole::TextMuted);
+					p.TextV(r.x + 12.f, r.y + r.h - 24.f, 20.f, hint, NkRole::TextMuted);
 				}
 			}
 		}
 
 		// ── LIGNE DE PROPRIETE A TROIS CHAMPS ───────────────────────────────────
-		// Le liseré de couleur d'axe est sur le SEUL BORD GAUCHE du champ, le fond
-		// restant neutre. Teinter le fond entier rendrait les trois champs criards
-		// et illisibles -- c'est explicitement un critere de refus de maquette.
+		// Le lisere de couleur d'axe est sur le SEUL BORD GAUCHE du champ, le fond
+		// restant neutre : teinter le fond entier rend les trois champs criards et
+		// illisibles, c'est un critere de refus ecrit dans le brief.
+		//
+		// Les champs sont ETROITS et de largeur FIXE, ils ne remplissent pas la
+		// colonne. Ma premiere version les etirait sur toute la largeur : les valeurs
+		// se retrouvaient perdues au milieu de rectangles vides, et il ne restait
+		// aucune place pour l'icone de reinitialisation a droite.
 		inline void PaintVec3Row(NkModelerPainter &p, const NkRect &r, float32 y, const char *label,
-								 const char *v0, const char *v1, const char *v2) {
+								 const char *v0, const char *v1, const char *v2, NkIcon trailing) {
 			p.Fill({r.x, y, kLabelW, kRowH}, NkRole::LabelCol);
 			p.TextV(r.x + kPad, y, kRowH, label);
-			p.VLine(r.x + kLabelW, y, kRowH);
 			const NkRole axes[3] = {NkRole::AxisX, NkRole::AxisY, NkRole::AxisZ};
 			const char *vals[3] = {v0, v1, v2};
-			const float32 fw = (r.w - kLabelW - 34.f) / 3.f;
-			float32 x = r.x + kLabelW + 5.f;
+			const float32 fw = 52.f;
+			float32 x = r.x + kLabelW + 4.f;
 			for (int32 i = 0; i < 3; ++i) {
-				p.Fill({x, y + 2.f, fw - 4.f, kRowH - 4.f}, NkRole::InputBg, 2.f);
-				p.Fill({x, y + 2.f, 2.f, kRowH - 4.f}, axes[i]); // le liseré, bord gauche
-				p.TextV(x + 7.f, y, kRowH, vals[i]);
-				x += fw;
+				p.Fill({x, y + 2.f, fw, kRowH - 4.f}, NkRole::InputBg, 2.f);
+				p.Fill({x, y + 2.f, 2.f, kRowH - 4.f}, axes[i]); // le lisere, bord gauche
+				p.TextV(x + 8.f, y, kRowH, vals[i]);
+				x += fw + 3.f;
 			}
+			if (trailing != NkIcon::None)
+				p.IconV(r.x + r.w - 20.f, y, kRowH, trailing, NkRole::TextMuted, 12.f);
 			p.HLine(r.x, y + kRowH - 1.f, r.w);
 		}
 
@@ -306,7 +384,8 @@ namespace nkentseu {
 			float32 y = PaintPanelTab(p, r, "Proprietes");
 			y = PaintSearch(p, r, y);
 
-			// Pastilles de filtre. Arrondies a fond, la derniere est ACTIVE.
+			// Pastilles de filtre : CONTOUREES, sauf l'active qui est pleine. Toutes
+			// pleines, on ne verrait plus laquelle est choisie.
 			static const char *const kPills[] = {"General", "Objet", "Rendu", "Physique", "Tout"};
 			float32 x = r.x + 6.f;
 			for (int32 i = 0; i < 5; ++i) {
@@ -314,6 +393,8 @@ namespace nkentseu {
 				const bool on = (i == 4);
 				if (on)
 					p.Fill({x, y, w, 20.f}, NkRole::AccentUi, 10.f);
+				else
+					p.Outline({x, y, w, 20.f}, NkRole::Border, 10.f);
 				p.TextV(x + 9.f, y, 20.f, kPills[i], on ? NkRole::TextOnAccent : NkRole::TextMuted);
 				x += w + 4.f;
 			}
@@ -321,25 +402,34 @@ namespace nkentseu {
 			p.HLine(r.x, y, r.w);
 			y += 1.f;
 
-			p.Fill({r.x, y, r.w, kRowH}, NkRole::PanelHeader);
-			p.TextV(r.x + kPad, y, kRowH, "v Transformation");
+			p.Fill({r.x, y, r.w, kRowH}, NkRole::PanelBg);
+			p.IconV(r.x + 6.f, y, kRowH, NkIcon::ChevronDown, NkRole::TextMuted, 11.f);
+			p.TextV(r.x + 22.f, y, kRowH, "Transformation");
 			y += kRowH;
-			PaintVec3Row(p, r, y, "Position", "0,00", "0,00", "0,00");
+			PaintVec3Row(p, r, y, "Position", "0,00", "0,00", "0,00", NkIcon::Refresh);
 			y += kRowH;
-			PaintVec3Row(p, r, y, "Rotation", "0,00", "0,00", "0,00");
+			PaintVec3Row(p, r, y, "Rotation", "0,00", "0,00", "0,00", NkIcon::None);
 			y += kRowH;
-			PaintVec3Row(p, r, y, "Echelle", "1,00", "1,00", "1,00");
+			PaintVec3Row(p, r, y, "Echelle", "1,00", "1,00", "1,00", NkIcon::Lock);
 		}
 
-		// ── DETAILS + PILE DE MODIFICATEURS (droite, bas) ───────────────────────
+		// ── DETAILS (droite, bas) ───────────────────────────────────────────────
+		// LE DEROULANT DE MODIFICATEURS EST CELUI DE LA MAQUETTE, et il est ici
+		// VOLONTAIREMENT tel quel. J'avais dessine une PILE (activation,
+		// reordonnancement, application, retrait) parce que c'est ce qu'il faut
+		// fonctionnellement : l'ordre est signifiant, un miroir apres une subdivision
+		// ne donne pas le meme maillage qu'avant. Mais la consigne est de coller a la
+		// maquette d'abord et de mettre a jour en developpant -- la pile reviendra
+		// quand les modificateurs seront reellement branches sur NkModifierParams,
+		// avec l'accord de Rihen sur son dessin.
 		inline void PaintDetails(NkModelerPainter &p, const NkRect &r) {
 			p.Fill(r, NkRole::PanelBg);
 			p.VLine(r.x, r.y, r.h);
 			p.HLine(r.x, r.y, r.w);
 			float32 y = PaintPanelTab(p, r, "Details (Cube)");
 
-			p.Fill({r.x, y, r.w, kRowH}, NkRole::PanelHeader);
-			p.TextV(r.x + kPad, y, kRowH, "v Maillage");
+			p.IconV(r.x + 6.f, y, kRowH, NkIcon::ChevronDown, NkRole::TextMuted, 11.f);
+			p.TextV(r.x + 22.f, y, kRowH, "Maillage");
 			y += kRowH;
 			static const char *const kL[] = {"Sommets", "Faces"};
 			static const char *const kV[] = {"8", "6"};
@@ -351,58 +441,18 @@ namespace nkentseu {
 				y += kRowH;
 			}
 
-			// ── LA PILE. Banani l'avait faite en menu deroulant ; c'est faux, et le
-			// dire ici plutot que dans un commentaire de commit evite qu'on y revienne.
-			// L'ORDRE EST SIGNIFIANT : un miroir place apres une subdivision ne donne
-			// pas le meme maillage qu'avant. D'ou les fleches de reordonnancement, que
-			// jamais un menu deroulant ne pourra offrir.
-			p.Fill({r.x, y, r.w, kRowH}, NkRole::PanelHeader);
-			p.TextV(r.x + kPad, y, kRowH, "v Modificateurs");
-			{
-				const char *add = "+ Ajouter";
-				const float32 w = p.TextW(add) + 16.f;
-				p.Fill({r.x + r.w - w - 6.f, y + 3.f, w, kRowH - 6.f}, NkRole::AccentUi, 3.f);
-				p.TextV(r.x + r.w - w - 6.f + 8.f, y, kRowH, add, NkRole::TextOnAccent);
-			}
+			p.IconV(r.x + 6.f, y, kRowH, NkIcon::ChevronDown, NkRole::TextMuted, 11.f);
+			p.TextV(r.x + 22.f, y, kRowH, "Modificateurs");
 			y += kRowH;
+			// Le deroulant. Bordure + chevron a droite, comme tout selecteur.
+			p.Fill({r.x + 8.f, y + 2.f, r.w - 16.f, kRowH - 4.f}, NkRole::InputBg, 2.f);
+			p.Outline({r.x + 8.f, y + 2.f, r.w - 16.f, kRowH - 4.f}, NkRole::Border);
+			p.TextV(r.x + 16.f, y, kRowH, "Selectionner un modificateur", NkRole::TextMuted);
+			p.IconV(r.x + r.w - 26.f, y, kRowH, NkIcon::ChevronDown, NkRole::TextMuted, 11.f);
+			y += kRowH + 4.f;
 
-			struct Mod {
-					const char *name;
-					bool on;
-					const char *p1;
-					const char *v1;
-			};
-			static const Mod kMods[] = {
-				{"Subdivision", true, "Niveaux", "2"},
-				{"Miroir", true, "Axe", "X"},
-				{"Tableau", false, "Compte", "3"},
-			};
-			for (int32 i = 0; i < 3; ++i) {
-				// La pastille d'etat prend un ROLE PROPRE AU PRODUIT : actif =
-				// l'accent d'interface (c'est un etat de l'interface, pas une
-				// selection 3D), inactif = le texte attenue.
-				const uint16 role = kMods[i].on ? p.Roles().modifierOn : p.Roles().modifierOff;
-				p.Fill({r.x + 6.f, y + 5.f, 12.f, 12.f}, p.C(role), 2.f);
-				p.TextV(r.x + 24.f, y, kRowH, kMods[i].name,
-						kMods[i].on ? NkRole::Text : NkRole::TextMuted);
-				p.TextV(r.x + r.w - 92.f, y, kRowH, "^  v", NkRole::TextMuted);
-				p.TextV(r.x + r.w - 56.f, y, kRowH, "appl.", NkRole::TextMuted);
-				p.TextV(r.x + r.w - 18.f, y, kRowH, "x", NkRole::TextMuted);
-				y += kRowH;
-				// Parametre. Le petit losange marque « animable » -- il porte lui aussi
-				// un role propre, parce qu'un parametre marque pour animation doit se
-				// reconnaitre au premier coup d'oeil, dans tous les themes.
-				p.Fill({r.x + 24.f, y, kLabelW - 24.f, kRowH}, NkRole::LabelCol);
-				p.TextV(r.x + 30.f, y, kRowH, kMods[i].p1, NkRole::TextMuted);
-				p.Fill({r.x + kLabelW + 5.f, y + 3.f, 60.f, kRowH - 6.f}, NkRole::InputBg, 2.f);
-				p.TextV(r.x + kLabelW + 12.f, y, kRowH, kMods[i].v1);
-				p.Fill({r.x + kLabelW + 72.f, y + 8.f, 7.f, 7.f}, p.C(p.Roles().animatable), 2.f);
-				p.HLine(r.x, y + kRowH - 1.f, r.w);
-				y += kRowH;
-			}
-
-			p.Fill({r.x, y, r.w, kRowH}, NkRole::PanelHeader);
-			p.TextV(r.x + kPad, y, kRowH, "> Materiau");
+			p.IconV(r.x + 6.f, y, kRowH, NkIcon::ChevronRight, NkRole::TextMuted, 11.f);
+			p.TextV(r.x + 22.f, y, kRowH, "Materiau");
 		}
 
 		// ── NAVIGATEUR DE PROJET (bas) ──────────────────────────────────────────
@@ -410,20 +460,35 @@ namespace nkentseu {
 			p.Fill(r, NkRole::PanelBg);
 			p.HLine(r.x, r.y, r.w);
 
-			const float32 topH = 30.f;
+			const float32 topH = 28.f;
+			const float32 ih = p.IconSize();
 			p.Fill({r.x, r.y, r.w, topH}, NkRole::PanelHeader);
 			p.TextV(r.x + kPad, r.y, topH, "Navigateur de projet");
-			float32 x = r.x + p.TextW("Navigateur de projet") + 28.f;
-			static const char *const kBtns[] = {"+ Ajouter", "Importer", "Tout enregistrer"};
+			float32 x = r.x + kPad + p.TextW("Navigateur de projet") + 10.f;
+			p.IconV(x, r.y, topH, NkIcon::WinClose, NkRole::TextMuted, 11.f);
+			x += 22.f;
+			p.VLine(x, r.y + 6.f, topH - 12.f);
+			x += 10.f;
+			struct B {
+					NkIcon ic;
+					const char *label;
+			};
+			static const B kBtns[] = {
+				{NkIcon::Add, "Ajouter"}, {NkIcon::Import, "Importer"}, {NkIcon::Save, "Tout enregistrer"}};
 			for (int32 i = 0; i < 3; ++i) {
-				p.TextV(x, r.y, topH, kBtns[i], NkRole::TextMuted);
-				x += p.TextW(kBtns[i]) + 20.f;
+				p.IconV(x, r.y, topH, kBtns[i].ic, NkRole::Text, 13.f);
+				p.TextV(x + 18.f, r.y, topH, kBtns[i].label);
+				x += 18.f + p.TextW(kBtns[i].label) + 16.f;
 			}
-			p.TextV(r.x + r.w - 220.f, r.y, topH, "Tout > Contenu > Perso", NkRole::TextMuted);
+			p.VLine(x, r.y + 6.f, topH - 12.f);
+			x += 10.f;
+			p.IconV(x, r.y, topH, NkIcon::ArrowLeft, NkRole::TextMuted, 13.f);
+			p.IconV(x + 22.f, r.y, topH, NkIcon::ArrowRight, NkRole::TextMuted, 13.f);
+			p.TextV(x + 50.f, r.y, topH, "Tout > Contenu > Perso", NkRole::TextMuted);
 			p.HLine(r.x, r.y + topH - 1.f, r.w);
 
-			// Arbre de dossiers. Ils structurent le PROJET et non le disque : ils
-			// seront enregistres DANS le fichier de projet, comme demande.
+			// Arbre de dossiers. Ils structurent le PROJET et non le disque : ils seront
+			// enregistres DANS le fichier de projet, comme demande.
 			const float32 treeW = r.w * 0.18f;
 			const float32 ty = r.y + topH;
 			const float32 th = r.h - topH;
@@ -436,59 +501,93 @@ namespace nkentseu {
 				const bool on = (i == 1);
 				if (on)
 					p.Fill({r.x, dy, treeW, kRowH}, NkRole::AccentUi);
-				p.TextV(r.x + 8.f + (i ? 12.f : 0.f), dy, kRowH, kDirs[i],
-						on ? NkRole::TextOnAccent : NkRole::Text);
+				const float32 fx = r.x + 8.f + (i ? 12.f : 0.f);
+				p.IconV(fx, dy, kRowH, on ? NkIcon::FolderOpen : NkIcon::Folder,
+						on ? NkRole::TextOnAccent : NkRole::TextMuted, 13.f);
+				p.TextV(fx + 18.f, dy, kRowH, kDirs[i], on ? NkRole::TextOnAccent : NkRole::Text);
 				dy += kRowH;
 			}
 
-			// Filtres par TYPE. Chaque pastille porte la couleur de son type, prise
-			// dans le theme : le navigateur et le reste de l'application parlent ainsi
-			// la meme langue de couleur.
+			// Filtres par TYPE. Chaque pastille porte la couleur de son type, prise dans
+			// le theme : le navigateur et le reste de l'application parlent ainsi la meme
+			// langue de couleur.
 			const float32 ax = r.x + treeW + 10.f;
-			float32 fx = ax + 170.f;
 			p.Fill({ax, ty + 6.f, 150.f, 20.f}, NkRole::InputBg, 2.f);
-			p.TextV(ax + 8.f, ty + 6.f, 20.f, "Rechercher...", NkRole::TextMuted);
+			p.IconV(ax + 6.f, ty + 6.f, 20.f, NkIcon::Search, NkRole::TextMuted, 12.f);
+			p.TextV(ax + 24.f, ty + 6.f, 20.f, "Rechercher", NkRole::TextMuted);
+			float32 fx = ax + 168.f;
 			static const char *const kTypes[] = {"Maillage", "Animation", "Materiau", "Texture"};
 			const NkRole kTypeRoles[] = {NkRole::TypeMesh, NkRole::TypeAnim, NkRole::TypeMat,
 										 NkRole::TypeTex};
 			for (int32 i = 0; i < 4; ++i) {
-				const float32 w = p.TextW(kTypes[i]) + 26.f;
-				p.Fill({fx + 6.f, ty + 12.f, 7.f, 7.f}, kTypeRoles[i], 4.f);
-				p.TextV(fx + 18.f, ty + 6.f, 20.f, kTypes[i], NkRole::TextMuted);
+				const float32 w = p.TextW(kTypes[i]) + 30.f;
+				p.Outline({fx, ty + 6.f, w, 20.f}, NkRole::Border, 10.f);
+				p.Fill({fx + 8.f, ty + 13.f, 7.f, 7.f}, kTypeRoles[i], 4.f);
+				p.TextV(fx + 20.f, ty + 6.f, 20.f, kTypes[i], NkRole::TextMuted);
 				fx += w + 6.f;
 			}
 			p.HLine(ax - 10.f, ty + 32.f, r.w - treeW);
 
-			// Vignettes. La bande de couleur en bas de chaque vignette redit le type :
-			// on reconnait un materiau d'un maillage sans lire l'etiquette.
+			// Vignettes. La bande de couleur SOUS la vignette redit le type : on
+			// reconnait un materiau d'un maillage sans lire l'etiquette.
 			struct Asset {
 					const char *name;
 					NkRole role;
+					bool sphere;
 			};
 			static const Asset kAssets[] = {
-				{"Cube", NkRole::TypeMesh}, {"Tete", NkRole::TypeMesh}, {"Bois", NkRole::TypeMat},
-				{"Marche", NkRole::TypeMesh}, {"Roche", NkRole::TypeMesh},
+				{"Cube", NkRole::TypeMesh, false}, {"Tete", NkRole::TypeMesh, false},
+				{"Bois", NkRole::TypeMat, true},   {"Marche", NkRole::TypeMesh, false},
+				{"Roche", NkRole::TypeMesh, false},
 			};
 			float32 tx = ax;
-			const float32 tw = 88.f, thh = 66.f, tyy = ty + 42.f;
+			const float32 tw = 88.f, thh = 62.f, tyy = ty + 42.f;
 			for (int32 i = 0; i < 5; ++i) {
 				p.Fill({tx, tyy, tw, thh}, NkRole::PanelHeader, 2.f);
+				// Apercu : une sphere pour un materiau, un cube en fil de fer sinon --
+				// une vignette vide ne dirait rien de ce qu'elle contient.
+				const float32 cx = tx + tw * 0.5f, cy = tyy + thh * 0.5f;
+				if (kAssets[i].sphere) {
+					p.Disc(cx, cy, 17.f, kAssets[i].role);
+				} else {
+					const float32 hw = 15.f, hh = 13.f, dp = 7.f;
+					p.Fill({cx - hw, cy - hh + dp, hw * 2.f, hh * 2.f - dp}, NkRole::InputBg);
+					p.Line(cx - hw, cy - hh + dp, cx - hw + dp, cy - hh, NkRole::TextMuted);
+					p.Line(cx - hw + dp, cy - hh, cx + hw + dp, cy - hh, NkRole::TextMuted);
+					p.Line(cx + hw, cy - hh + dp, cx + hw + dp, cy - hh, NkRole::TextMuted);
+					p.Line(cx + hw + dp, cy - hh, cx + hw + dp, cy + hh - dp, NkRole::TextMuted);
+					p.Line(cx + hw, cy + hh, cx + hw + dp, cy + hh - dp, NkRole::TextMuted);
+				}
 				p.Fill({tx, tyy + thh - 3.f, tw, 3.f}, kAssets[i].role);
 				const float32 nw = p.TextW(kAssets[i].name);
-				p.Text(tx + tw * 0.5f - nw * 0.5f, tyy + thh + 4.f, kAssets[i].name);
+				p.Text(tx + tw * 0.5f - nw * 0.5f, tyy + thh + 5.f, kAssets[i].name);
 				tx += tw + 10.f;
 			}
-			p.TextV(r.x + r.w - 90.f, r.y + r.h - kRowH, kRowH, "5 elements", NkRole::TextMuted);
+			const float32 ew = p.TextW("5 elements");
+			p.TextV(r.x + r.w - ew - kPad, r.y + r.h - kRowH, kRowH, "5 elements", NkRole::TextMuted);
+			(void)ih;
 		}
 
 		// ── BARRE D'ETAT ────────────────────────────────────────────────────────
 		inline void PaintStatus(NkModelerPainter &p, const NkRect &r, const char *stats) {
 			p.Fill(r, NkRole::PanelHeader);
 			p.HLine(r.x, r.y, r.w);
-			p.TextV(r.x + kPad, r.y, r.h, "Tiroir", NkRole::TextMuted);
-			p.TextV(r.x + kPad + 54.f, r.y, r.h, "Journal", NkRole::TextMuted);
-			p.Fill({r.x + 130.f, r.y + (r.h - 20.f) * 0.5f, 230.f, 20.f}, NkRole::InputBg, 2.f);
-			p.TextV(r.x + 138.f, r.y, r.h, "Entrer une commande", NkRole::TextMuted);
+			float32 x = r.x + kPad;
+			struct B {
+					NkIcon ic;
+					const char *label;
+			};
+			static const B kBtns[] = {{NkIcon::Drawer, "Tiroir"}, {NkIcon::Journal, "Journal"}};
+			for (int32 i = 0; i < 2; ++i) {
+				p.IconV(x, r.y, r.h, kBtns[i].ic, NkRole::Text, 13.f);
+				p.TextV(x + 18.f, r.y, r.h, kBtns[i].label);
+				x += 18.f + p.TextW(kBtns[i].label) + 16.f;
+			}
+			p.VLine(x, r.y + 6.f, r.h - 12.f);
+			x += 10.f;
+			p.Fill({x, r.y + (r.h - 20.f) * 0.5f, 240.f, 20.f}, NkRole::InputBg, 2.f);
+			p.IconV(x + 6.f, r.y, r.h, NkIcon::Terminal, NkRole::TextMuted, 12.f);
+			p.TextV(x + 24.f, r.y, r.h, "Entrer une commande", NkRole::TextMuted);
 			const float32 w = p.TextW(stats);
 			p.TextV(r.x + r.w - w - kPad, r.y, r.h, stats, NkRole::TextMuted);
 		}
