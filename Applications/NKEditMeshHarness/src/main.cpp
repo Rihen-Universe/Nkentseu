@@ -36,6 +36,7 @@
 //                                     sortie 1 si divergence (utilisable en CI)
 // =============================================================================
 #include "NKRenderer/Mesh/NkEditMesh.h"
+#include "NKRenderer/Core/NkGizmo.h"
 #include "NKContainers/Associative/NkHashMap.h"
 #include "NKLogger/NkLog.h"
 
@@ -763,6 +764,107 @@ static void Bmesh2Battery() {
 	}
 }
 
+// ── AIMANTATION (« snap ») ──────────────────────────────────────────────────
+// Le cas qui compte est un objet HORS GRILLE au depart. Sans cela, increment
+// relatif et grille absolue donnent le meme resultat et le harnais ne
+// distinguerait pas « ca marche » de « ca ne regarde pas le mode ».
+// L'objet part a x = 0,3 avec un pas de 0,5 :
+//   increment RELATIF -> 0,3 + k x 0,5  (0,8 · 1,3 · 1,8 …) : jamais sur la grille ;
+//   grille ABSOLUE    -> m x 0,5        (0,5 · 1,0 · 1,5 …) : toujours sur la grille.
+// Le drag est un VRAI drag : on cherche une poignee a l'ecran, on la presse, puis
+// on tire — c'est le chemin reel de DoPick/DoDrag, pas une fonction de calcul
+// isolee qui pourrait etre juste sans que l'outil le soit.
+static void SnapBattery() {
+	using GZ = nkentseu::renderer::NkGizmo3D;
+	const float32 kStart = 0.3f, kStep = 0.5f;
+
+	auto runDrag = [&](bool snapOn, bool absolute, float32 &outX) -> bool {
+		GZ g;
+		g.SetCamera({0.f, 3.f, 6.f}, {0.f, 0.f, 0.f}, 60.f, 1280.f, 720.f);
+		g.SetSnapSteps(kStep, 15.f, 0.1f);
+		g.SetSnapEnabled(snapOn);
+		g.SetSnapAbsolute(absolute);
+		g.Select(0);
+		g.SetMode(GZ::MODE_TRANSLATE);
+		nkentseu::renderer::NkGizmoTarget t;
+		t.base = NkMat4f::Translate({kStart, 0.f, 0.f});
+		t.localHalf = {0.5f, 0.5f, 0.5f};
+		t.pickRadius = 1.f;
+		nkentseu::renderer::NkGizmoInput in;
+		// 1) Une passe a VIDE : c'est elle qui calcule pivot, base et poignees.
+		g.Update(&t, 1, in);
+		// 2) Cherche une poignee : balayage grossier de l'ecran, on garde le point
+		//    le plus proche au sens de HandlePickDistPx (c'est l'arbitrage reel).
+		float32 bestD = 1e30f, bx = 0.f, by = 0.f;
+		for (int32 y = 0; y < 720; y += 4)
+			for (int32 x = 0; x < 1280; x += 4) {
+				const float32 d = g.HandlePickDistPx((float32)x, (float32)y);
+				if (d < bestD) {
+					bestD = d;
+					bx = (float32)x;
+					by = (float32)y;
+				}
+			}
+		if (bestD > 1e29f)
+			return false; // aucune poignee trouvee
+		// 3) Presse la poignee.
+		in.mouseX = bx;
+		in.mouseY = by;
+		in.leftPressed = true;
+		in.leftDown = true;
+		g.Update(&t, 1, in);
+		in.leftPressed = false;
+		// 4) Tire. VERROU sur X : quelle que soit la poignee attrapee, le
+		//    deplacement est celui de l'axe X — le test ne depend donc pas de
+		//    l'endroit exact ou le balayage a trouve une poignee.
+		in.lockAxis = 0;
+		for (int32 k = 0; k < 24; k++) {
+			in.mouseDX = 6.f;
+			in.mouseDY = 0.f;
+			in.mouseX += 6.f;
+			in.ctrlDown = false; // l'aimantation vient de la BASCULE, pas de Ctrl
+			g.Update(&t, 1, in);
+		}
+		const NkMat4f m = g.Apply(0, t.base);
+		outX = (m * NkVec3f{0.f, 0.f, 0.f}).x;
+		return true;
+	};
+
+	auto onGrid = [&](float32 v) {
+		const float32 r = v / kStep;
+		const float32 d = r - (float32)((int32)(r < 0.f ? r - 0.5f : r + 0.5f));
+		return (d < 0.f ? -d : d) < 1e-3f;
+	};
+
+	float32 xFree = 0.f, xRel = 0.f, xAbs = 0.f;
+	const bool okF = runDrag(false, false, xFree);
+	const bool okR = runDrag(true, false, xRel);
+	const bool okA = runDrag(true, true, xAbs);
+	if (gLineCount < 512) {
+		snprintf(gLines[gLineCount], 256,
+				 "%-34s libre=%.3f increment=%.3f(grille:%s) absolu=%.3f(grille:%s) depart=%.2f pas=%.2f",
+				 (okF && okR && okA) ? "snap/translate-x" : "snap/translate-x [ECHEC]", (double)xFree, (double)xRel,
+				 onGrid(xRel) ? "oui" : "non", (double)xAbs, onGrid(xAbs) ? "oui" : "non", (double)kStart,
+				 (double)kStep);
+		gLineCount++;
+	}
+	// Ctrl INVERSE la bascule : aimantation ON + Ctrl = PAS d'aimantation. C'est
+	// la difference de fond avec « Ctrl = aimanter », et c'est ce qui permet de
+	// s'echapper ponctuellement quand on travaille aimante en permanence.
+	{
+		GZ g;
+		g.SetSnapEnabled(false);
+		const bool a = g.SnapActive(false), b = g.SnapActive(true);
+		g.SetSnapEnabled(true);
+		const bool c = g.SnapActive(false), d = g.SnapActive(true);
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s off:sansCtrl=%d avecCtrl=%d | on:sansCtrl=%d avecCtrl=%d",
+					 "snap/bascule-inversee-par-ctrl", a ? 1 : 0, b ? 1 : 0, c ? 1 : 0, d ? 1 : 0);
+			gLineCount++;
+		}
+	}
+}
+
 int main(int argc, char **argv) {
 	bool baseline = false, check = false;
 	for (int32 i = 1; i < argc; i++) {
@@ -781,6 +883,7 @@ int main(int argc, char **argv) {
 	// divergence ancienne reste comparable ligne a ligne avec l'ancienne reference.
 	SelOrderBattery();
 	Bmesh2Battery();
+	SnapBattery();
 
 	const char *path = "editmesh_baseline.txt";
 	if (baseline) {

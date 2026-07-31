@@ -2047,9 +2047,27 @@ namespace nkentseu {
 			// section « EDIT MODE » dans la frame. Les primitives (sphère/cube) gardent
 			// leurs données CPU (NkMeshDesc::keepCPU par défaut) -> clonage sans readback.
 
-			// Pas de SNAP (touche Ctrl) — LIBREMENT ajustables ici par l'application :
+			// ── AIMANTATION (« snap ») — RÉGLÉE POUR LES DEUX MODES ────────────────
+			// Auparavant seul le gizmo OBJET était configuré ; le gizmo d'ÉDITION
+			// gardait les défauts de la classe. Ils coïncidaient, donc l'aimantation
+			// paraissait identique dans les deux modes — mais par accident : changer
+			// le pas ici n'aurait rien changé en édition. Les deux sont désormais
+			// réglés au même endroit, ce qui rend la coïncidence VOULUE.
 			//   translate (unités monde) · rotation (degrés) · échelle (delta).
-			st->gizmo.SetSnapSteps(/*translate*/ 0.5f, /*rotation°*/ 15.f, /*échelle*/ 0.1f);
+			for (renderer::NkGizmo3D *gz : {&st->gizmo, &st->editGizmo}) {
+				gz->SetSnapSteps(/*translate*/ 0.5f, /*rotation°*/ 15.f, /*échelle*/ 0.1f);
+				// Bascule PERSISTANTE façon Blender (Shift+Tab), que Ctrl inverse.
+				// Éteinte par défaut : Ctrl aimante, comme avant.
+				gz->SetSnapEnabled(false);
+				// Grille ABSOLUE : NK_SNAP_ABS=1. Par défaut incrément RELATIF, qui est
+				// aussi le défaut de Blender.
+				if (const char *sa = getenv("NK_SNAP_ABS"))
+					gz->SetSnapAbsolute(sa[0] && sa[0] != '0');
+				if (const char *so = getenv("NK_SNAP_ON"))
+					gz->SetSnapEnabled(so[0] && so[0] != '0');
+				if (const char *ss = getenv("NK_SNAP_STEP"))
+					gz->SetSnapTranslate((float32)atof(ss));
+			}
 
 			// ── Phase E.6 : creation procedurale des cookies + bind ──────────────
 			auto *texLib = ctx.renderer->GetTextures();
@@ -2339,6 +2357,20 @@ namespace nkentseu {
 				const bool alt = NkInput.IsKeyDown(NkKey::NK_LALT) || NkInput.IsKeyDown(NkKey::NK_RALT);
 				const char *mn[4] = {"TRANSLATE", "ROTATE", "SCALE", "COMBINE (T+R+S)"};
 				using GZ = renderer::NkGizmo3D;
+				// SHIFT+TAB : bascule l'AIMANTATION, comme Blender — et comme lui, Ctrl
+				// l'INVERSE ensuite le temps d'un geste. Testé AVANT le TAB nu, sinon la
+				// combinaison entrerait en mode édition. Réglée sur les DEUX gizmos : une
+				// aimantation qui ne vaudrait que dans un mode serait pire qu'aucune.
+				if (k == NkKey::NK_TAB &&
+					(NkInput.IsKeyDown(NkKey::NK_LSHIFT) || NkInput.IsKeyDown(NkKey::NK_RSHIFT))) {
+					const bool on = !st->gizmo.IsSnapEnabled();
+					st->gizmo.SetSnapEnabled(on);
+					st->editGizmo.SetSnapEnabled(on);
+					logger.Info("[Demo3D] Aimantation = {0} (pas {1}, grille {2}) — Ctrl inverse\n",
+								on ? "ON" : "off", st->gizmo.SnapTranslate(),
+								st->gizmo.IsSnapAbsolute() ? "ABSOLUE" : "increment");
+					return;
+				}
 				// TAB : bascule OBJET <-> EDIT MODE. Traité côté frame (accès meshSys pour
 				// cloner le mesh de l'objet sélectionné). Façon Blender.
 				if (k == NkKey::NK_TAB) {
