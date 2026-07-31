@@ -152,9 +152,17 @@ with project("NKCode"):
         usetoolchain("clang-native")
         objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-wayland/%{prj.name}")
         targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}-wayland/%{prj.name}")
-        defines(["NKENTSEU_FORCE_WINDOWING_WAYLAND_ONLY"])
-        _LINUX_WL_LINKS = ["pthread", "wayland-client", "wayland-egl", "xkbcommon",
-                           "wayland-cursor", "EGL", "GLESv2", "asound", "m"]
+        # WAYLAND_DEFINES / WAYLAND_LINKS viennent de config/wayland.jenga, charge
+        # une fois par Nkentseu.jenga et propage a tous les .jenga inclus.
+        #
+        # NE PAS recopier cette liste en dur. Elle est CONDITIONNELLE : si
+        # pkg-config trouve libdecor-0, config/wayland.jenga ajoute A LA FOIS le
+        # define NKENTSEU_WAYLAND_LIBDECOR et le lien `decor-0`. Une liste figee
+        # ici donnait des modules moteur compiles AVEC libdecor (ils lisent la
+        # config partagee) et une ligne de link SANS -ldecor-0 : une vingtaine de
+        # `undefined reference to libdecor_*` a l'edition de liens.
+        defines(WAYLAND_DEFINES)
+        _LINUX_WL_LINKS = list(WAYLAND_LINKS) + ["asound", "m"]  # asound/m : NKAudio (ALSA)
         if _WANT_VULKAN:
             _LINUX_WL_LINKS.append("vulkan")
         links(_LINUX_WL_LINKS)
