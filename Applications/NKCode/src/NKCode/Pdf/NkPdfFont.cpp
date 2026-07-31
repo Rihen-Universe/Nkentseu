@@ -20,6 +20,8 @@ namespace nkentseu {
 				mWidths.Clear();
 				mCidCodes.Clear();
 				mCidWidths.Clear();
+				mUniCodes.Clear();
+				mUniText.Clear();
 			}
 
 			bool NkPdfFont::Load(const NkPdfDoc &doc, const NkPdfVal &fontDict) {
@@ -34,6 +36,10 @@ namespace nkentseu {
 					for (int32 i = 0; i < n; ++i)
 						mBaseFont += s[i];
 				}
+
+				// La table /ToUnicode vit sur le dictionnaire de TETE, meme pour un
+				// Type0 dont le programme de police est porte par le descendant.
+				ParseToUnicode(doc, fontDict);
 
 				const NkPdfVal subtype = doc.DictGet(fontDict, "Subtype");
 				NkPdfVal descFont = fontDict; // pour un Type0, le vrai porteur est le descendant
@@ -247,6 +253,194 @@ namespace nkentseu {
 						++ok;
 				}
 				return ok;
+			}
+
+
+			// ============================================================
+			// /ToUnicode
+			// ============================================================
+			//
+			// La table est un petit programme PostScript. On n'en interprete que les
+			// deux constructions qui portent l'information :
+			//   <src> <dst>            entre beginbfchar et endbfchar
+			//   <lo> <hi> <dst>        entre beginbfrange et endbfrange (dst incremente)
+			//   <lo> <hi> [<d1> <d2>]  meme chose, avec un tableau de destinations
+			// Les destinations sont en UTF-16BE ; on convertit en UTF-8.
+
+			// UTF-16BE (octets bruts) -> UTF-8. Gere les paires de substitution : sans
+			// elles, les ideogrammes et emoji ressortiraient casses.
+			static void Utf16BeToUtf8(const NkVector<uint8> &b, NkString &out) {
+				for (usize i = 0; i + 1 < b.Size(); i += 2) {
+					uint32 u = (static_cast<uint32>(b[i]) << 8) | b[i + 1];
+					if (u >= 0xD800u && u <= 0xDBFFu && i + 3 < b.Size()) {
+						const uint32 lo = (static_cast<uint32>(b[i + 2]) << 8) | b[i + 3];
+						if (lo >= 0xDC00u && lo <= 0xDFFFu) {
+							u = 0x10000u + ((u - 0xD800u) << 10) + (lo - 0xDC00u);
+							i += 2;
+						}
+					}
+					if (u < 0x80u) {
+						out += static_cast<char>(u);
+					} else if (u < 0x800u) {
+						out += static_cast<char>(0xC0u | (u >> 6));
+						out += static_cast<char>(0x80u | (u & 0x3Fu));
+					} else if (u < 0x10000u) {
+						out += static_cast<char>(0xE0u | (u >> 12));
+						out += static_cast<char>(0x80u | ((u >> 6) & 0x3Fu));
+						out += static_cast<char>(0x80u | (u & 0x3Fu));
+					} else {
+						out += static_cast<char>(0xF0u | (u >> 18));
+						out += static_cast<char>(0x80u | ((u >> 12) & 0x3Fu));
+						out += static_cast<char>(0x80u | ((u >> 6) & 0x3Fu));
+						out += static_cast<char>(0x80u | (u & 0x3Fu));
+					}
+				}
+			}
+
+			void NkPdfFont::ParseToUnicode(const NkPdfDoc &doc, const NkPdfVal &fontDict) {
+				const NkPdfVal tu = doc.DictGet(fontDict, "ToUnicode");
+				if (tu.kind != NK_PDF_STREAM)
+					return;
+				NkVector<uint8> d;
+				if (!doc.DecodeStream(tu, d) || d.Empty())
+					return;
+
+				const uint8 *p = d.Data();
+				const usize n = d.Size();
+
+				auto keyword = [&](usize i, const char *kw) {
+					usize k = 0;
+					for (; kw[k]; ++k)
+						if (i + k >= n || p[i + k] != static_cast<uint8>(kw[k]))
+							return false;
+					return true;
+				};
+				auto readHex = [&](usize &i, NkVector<uint8> &out) -> bool {
+					while (i < n && p[i] != 0x3C && p[i] != 0x3E && p[i] != 0x5B && p[i] != 0x5D)
+						++i;
+					if (i >= n || p[i] != 0x3C)
+						return false;
+					++i;
+					out.Clear();
+					int32 hi = -1;
+					for (; i < n && p[i] != 0x3E; ++i) {
+						int32 h = -1;
+						const uint8 c = p[i];
+						if (c >= 0x30 && c <= 0x39)
+							h = c - 0x30;
+						else if (c >= 0x61 && c <= 0x66)
+							h = c - 0x61 + 10;
+						else if (c >= 0x41 && c <= 0x46)
+							h = c - 0x41 + 10;
+						else
+							continue;
+						if (hi < 0)
+							hi = h;
+						else {
+							out.PushBack(static_cast<uint8>((hi << 4) | h));
+							hi = -1;
+						}
+					}
+					if (hi >= 0)
+						out.PushBack(static_cast<uint8>(hi << 4));
+					if (i < n)
+						++i;
+					return true;
+				};
+				auto toCode = [](const NkVector<uint8> &b) {
+					uint32 v = 0;
+					for (usize i = 0; i < b.Size() && i < 4; ++i)
+						v = (v << 8) | b[i];
+					return v;
+				};
+
+				for (usize i = 0; i < n;) {
+					if (keyword(i, "beginbfchar")) {
+						i += 11;
+						NkVector<uint8> src, dst;
+						while (i < n && !keyword(i, "endbfchar")) {
+							if (!readHex(i, src))
+								break;
+							if (!readHex(i, dst))
+								break;
+							NkString txt;
+							Utf16BeToUtf8(dst, txt);
+							if (!txt.Empty()) {
+								mUniCodes.PushBack(toCode(src));
+								mUniText.PushBack(txt);
+							}
+						}
+						continue;
+					}
+					if (keyword(i, "beginbfrange")) {
+						i += 12;
+						NkVector<uint8> lo, hi2, dst;
+						while (i < n && !keyword(i, "endbfrange")) {
+							if (!readHex(i, lo))
+								break;
+							if (!readHex(i, hi2))
+								break;
+							usize j = i;
+							while (j < n && (p[j] == 32 || p[j] == 13 || p[j] == 10 || p[j] == 9))
+								++j;
+							const uint32 c0 = toCode(lo), c1 = toCode(hi2);
+							// Borne : un intervalle aberrant ferait exploser la memoire.
+							const uint32 lim = (c1 > c0 + 65535u) ? c0 + 65535u : c1;
+							if (j < n && p[j] == 0x5B) { // tableau de destinations
+								i = j + 1;
+								for (uint32 cc = c0; cc <= lim && i < n; ++cc) {
+									usize k = i;
+									while (k < n && (p[k] == 32 || p[k] == 13 || p[k] == 10))
+										++k;
+									if (k < n && p[k] == 0x5D) {
+										i = k + 1;
+										break;
+									}
+									if (!readHex(i, dst))
+										break;
+									NkString txt;
+									Utf16BeToUtf8(dst, txt);
+									if (!txt.Empty()) {
+										mUniCodes.PushBack(cc);
+										mUniText.PushBack(txt);
+									}
+								}
+								continue;
+							}
+							if (!readHex(i, dst))
+								break;
+							// Destination INCREMENTALE : le dernier caractere avance avec
+							// le code source.
+							for (uint32 cc = c0; cc <= lim; ++cc) {
+								NkVector<uint8> cur = dst;
+								if (cur.Size() >= 2) {
+									uint32 tail = (static_cast<uint32>(cur[cur.Size() - 2]) << 8) |
+												  cur[cur.Size() - 1];
+									tail += (cc - c0);
+									cur[cur.Size() - 2] = static_cast<uint8>((tail >> 8) & 0xFFu);
+									cur[cur.Size() - 1] = static_cast<uint8>(tail & 0xFFu);
+								} else if (cur.Size() == 1) {
+									cur[0] = static_cast<uint8>((cur[0] + (cc - c0)) & 0xFFu);
+								}
+								NkString txt;
+								Utf16BeToUtf8(cur, txt);
+								if (!txt.Empty()) {
+									mUniCodes.PushBack(cc);
+									mUniText.PushBack(txt);
+								}
+							}
+						}
+						continue;
+					}
+					++i;
+				}
+			}
+
+			NkString NkPdfFont::ToUnicode(uint32 code) const {
+				for (usize i = 0; i < mUniCodes.Size(); ++i)
+					if (mUniCodes[i] == code)
+						return mUniText[i];
+				return NkString();
 			}
 
 			// ============================================================

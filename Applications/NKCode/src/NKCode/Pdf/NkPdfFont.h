@@ -57,6 +57,16 @@ namespace nkentseu {
 					bool AppendGlyph(uint32 code, double tx, double ty, double scale,
 									 double shearX, double vScale, NkPdfPath &out) const;
 
+					// Texte UNICODE (UTF-8) correspondant a un code, via la table
+					// /ToUnicode du document. Chaine vide si la police n'en fournit pas.
+					//
+					// C'est la SEULE facon honnete de retrouver du texte lisible : un
+					// code de glyphe n'a aucun sens hors de sa police (le meme code 3
+					// peut etre un espace ici et un « e » ailleurs). Sans /ToUnicode, on
+					// ne peut PAS deviner — et on le dira plutot que d'inventer.
+					NkString ToUnicode(uint32 code) const;
+					bool HasToUnicode() const { return !mUniCodes.Empty(); }
+
 					// Nom de la police tel que declare (diagnostic).
 					const NkString &BaseFont() const { return mBaseFont; }
 
@@ -86,6 +96,14 @@ namespace nkentseu {
 					// Largeurs des polices composites : /W, en paires (code, largeur).
 					NkVector<uint32> mCidCodes;
 					NkVector<double> mCidWidths;
+
+					// Table /ToUnicode : code -> texte UTF-8. Deux tableaux paralleles
+					// plutot qu'une table de hachage : quelques centaines d'entrees au
+					// plus, et la recherche n'a lieu qu'a la selection, pas au rendu.
+					NkVector<uint32> mUniCodes;
+					NkVector<NkString> mUniText;
+
+					void ParseToUnicode(const NkPdfDoc &doc, const NkPdfVal &fontDict);
 
 					// Echelle du programme : unites de police -> em.
 					double mUnitsPerEmInv = 1.0 / 1000.0;

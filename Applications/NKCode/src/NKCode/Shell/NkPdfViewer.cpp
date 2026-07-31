@@ -181,6 +181,91 @@ namespace nkentseu {
 			dl.PushClipRect(view, true);
 			dl.AddImage(v->texId, {view.x, view.y, static_cast<float32>(texW), static_cast<float32>(texH)},
 						{0.f, 0.f}, {1.f, 1.f}, NkColor{255, 255, 255, 255});
+
+			// ── Selection de texte ────────────────────────────────────────────────
+			// Un PDF ne stocke PAS de texte : il place des glyphes un par un. La
+			// selection travaille donc sur les boites relevees au rendu, dans l'ordre
+			// du flux de contenu — qui est l'ordre de lecture dans l'immense majorite
+			// des documents.
+			{
+				const NkVec2 mp = ctx.input.mousePos;
+				const float32 lx = mp.x - view.x, ly = mp.y - view.y;
+
+				// Element sous la souris, ou le plus proche sur la meme ligne : sans
+				// cette tolerance, il faudrait viser le glyphe au pixel pres.
+				auto pick = [&]() -> int32 {
+					int32 best = -1;
+					float32 bestD = 1e30f;
+					for (usize i = 0; i < v->items.Size(); ++i) {
+						const pdf::NkPdfRenderer::TextItem &t = v->items[i];
+						if (ly < t.y || ly > t.y + t.h)
+							continue; // pas sur cette ligne
+						const float32 cx = t.x + t.w * 0.5f;
+						const float32 d = (lx > cx) ? (lx - cx) : (cx - lx);
+						if (d < bestD) {
+							bestD = d;
+							best = static_cast<int32>(i);
+						}
+					}
+					return best;
+				};
+
+				if (overView && ctx.input.mouseClicked[0]) {
+					const int32 k = pick();
+					if (k >= 0) {
+						v->selA = v->selB = k;
+						v->selecting = true;
+					} else
+						v->selA = v->selB = -1;
+				}
+				if (v->selecting && ctx.input.mouseDown[0]) {
+					const int32 k = pick();
+					if (k >= 0)
+						v->selB = k;
+				}
+				if (!ctx.input.mouseDown[0])
+					v->selecting = false;
+
+				// Surlignage
+				if (v->selA >= 0 && v->selB >= 0) {
+					const int32 a = v->selA < v->selB ? v->selA : v->selB;
+					const int32 b = v->selA < v->selB ? v->selB : v->selA;
+					for (int32 i = a; i <= b && static_cast<usize>(i) < v->items.Size(); ++i) {
+						const pdf::NkPdfRenderer::TextItem &t = v->items[static_cast<usize>(i)];
+						dl.AddRectFilled({view.x + t.x, view.y + t.y, t.w, t.h},
+										 NkColor{70, 130, 220, 90});
+					}
+				}
+
+				// Ctrl+C : copie. Les sauts de ligne sont DEDUITS d'un recul
+				// horizontal ou d'un changement de hauteur — un PDF ne dit nulle part
+				// ou finit une ligne.
+				if (v->selA >= 0 && v->selB >= 0 && ctx.input.ctrlDown &&
+					ctx.input.KeyPressed(NkGuiKey::C)) {
+					const int32 a = v->selA < v->selB ? v->selA : v->selB;
+					const int32 b = v->selA < v->selB ? v->selB : v->selA;
+					NkString out;
+					float32 prevX = -1e30f, prevY = -1e30f;
+					int32 manquants = 0;
+					for (int32 i = a; i <= b && static_cast<usize>(i) < v->items.Size(); ++i) {
+						const pdf::NkPdfRenderer::TextItem &t = v->items[static_cast<usize>(i)];
+						if (prevX > -1e29f) {
+							const float32 dy = (t.y > prevY) ? (t.y - prevY) : (prevY - t.y);
+							if (t.x + 1.f < prevX || dy > t.h * 0.5f)
+								out += "\n";
+						}
+						if (t.text.Empty())
+							++manquants;
+						else
+							out += t.text;
+						prevX = t.x;
+						prevY = t.y;
+					}
+					if (!out.Empty())
+						ctx.SetClipboard(out.CStr());
+					(void)manquants;
+				}
+			}
 			dl.PopClipRect();
 
 			// ── Barres de defilement ─────────────────────────────────────────────

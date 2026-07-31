@@ -180,6 +180,17 @@ int main(int argc, char **argv) {
 
 		std::printf("  [%3d] %4dx%-4d  encre %6.2f %%  teintes %4d  %s", static_cast<int>(i + 1),
 					cv.Width(), cv.Height(), ink, tones, blanche ? "PAGE BLANCHE" : "");
+		// Texte selectionnable : on compte les caracteres RECUPERABLES, jamais
+		// leur contenu. Un ratio faible signale des polices sans /ToUnicode.
+		{
+			const NkVector<NkPdfRenderer::TextItem> &ti = rend.TextItems();
+			int32 avecTexte = 0;
+			for (usize k = 0; k < ti.Size(); ++k)
+				if (!ti[k].text.Empty())
+					++avecTexte;
+			if (!ti.Empty())
+				std::printf("  texte %d/%d", avecTexte, static_cast<int>(ti.Size()));
+		}
 		if (!rend.Unsupported().Empty())
 			std::printf("  [non rendu : %s]", rend.Unsupported().CStr());
 		std::printf("\n");
