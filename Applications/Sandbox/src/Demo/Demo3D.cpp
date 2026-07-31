@@ -1008,9 +1008,18 @@ namespace nkentseu {
 			const NkMat4f base = NkMat4f::Translate(L.position);
 			const NkMat4f m = st->lightGizmo.Apply(li, base);
 			const NkVec3f o = m * NkVec3f{0.f, 0.f, 0.f};
-			if (LG::CanTranslate(L.type))
-				L.position = o;
-			if (LG::CanRotate(L.type)) {
+			// TRANSLATION ET ROTATION TOUJOURS APPLIQUEES. Premiere version : elles
+			// etaient filtrees par CanTranslate/CanRotate, au motif qu'une manipulation
+			// sans effet « mentirait sur le resultat ». C'etait une erreur de modele.
+			// Dans Blender une lampe EST un objet de la scene : on deplace un soleil pour
+			// le RANGER (le sortir du champ, l'aligner sur un repere) meme si sa position
+			// n'entre dans aucun calcul d'eclairage, et on tourne une ponctuelle parce que
+			// tourner un objet est un geste universel. Refuser cassait deux choses :
+			// l'uniformite du geste, et le placement du WIDGET lui-meme, qui restait
+			// coince a sa position d'origine. Ce que le type change, c'est l'EFFET sur
+			// l'image — dit une fois dans le journal — pas le DROIT de manipuler.
+			L.position = o;
+			{
 				// Direction transformee par la seule partie LINEAIRE : on soustrait
 				// l'origine transformee, ce qui annule la translation quelle que soit la
 				// composition de la matrice (pas besoin d'une API MulDir dediee).
@@ -2683,38 +2692,34 @@ namespace nkentseu {
 					st->editMode ? st->editGizmo : (lightActive ? st->lightGizmo : st->gizmo);
 				if (G.IsDragging())
 					return; // en plein drag : X/Y/Z = verrou (pas de switch)
-				// FILTRE DES MANIPULATIONS SANS EFFET. Le refus est DIT, pas silencieux :
-				// une touche ignoree sans explication se lit comme un bug, alors que le
-				// comportement est voulu. On ne propose que ce qui change l'image :
-				//   • deplacer une directionnelle : sa position n'entre dans aucun calcul ;
-				//   • orienter une ponctuelle : son rayonnement est isotrope ;
-				//   • redimensionner une directionnelle : elle n'a ni portee ni dimensions.
+				// G/R/S NE SONT JAMAIS REFUSES sur une lumiere. Comme dans Blender, une
+				// lampe EST un objet de la scene : elle se deplace, tourne et se
+				// redimensionne toujours. Le type ne restreint pas le GESTE, il determine
+				// seulement son EFFET sur l'image — et c'est cela qu'on dit, au lieu
+				// d'ignorer la touche.
+				// Premiere version : la touche etait REFUSEE quand la manipulation n'avait
+				// pas d'effet visible. Erreur de modele : on deplace un soleil pour le
+				// RANGER dans la scene, pas pour changer l'eclairage, et refuser empechait
+				// aussi de bouger son WIDGET. Uniformite du geste d'abord.
 				if (lightActive && !alt) {
 					using LGZ = renderer::NkLightGizmo;
 					const renderer::NkLightDesc &SL = st->lights[st->lightSel];
-					if (k == NkKey::NK_G && !LGZ::CanTranslate(SL.type)) {
-						logger.Info("[Demo3D][LUMIERE] deplacer une directionnelle n'a aucun effet : "
-									"seule sa direction compte.\n");
-						return;
-					}
-					if (k == NkKey::NK_R && !LGZ::CanRotate(SL.type)) {
-						logger.Info("[Demo3D][LUMIERE] orienter une ponctuelle n'a aucun effet : son "
-									"rayonnement est isotrope.\n");
-						return;
-					}
-					if (k == NkKey::NK_S && LGZ::ScaleMeaning(SL.type) == renderer::NkLightScaleMeaning::None) {
-						logger.Info("[Demo3D][LUMIERE] une directionnelle n'a ni portee ni dimensions a "
-									"redimensionner.\n");
-						return;
-					}
+					if (k == NkKey::NK_G && !LGZ::CanTranslate(SL.type))
+						logger.Info("[Demo3D][LUMIERE] deplacement autorise, mais l'eclairage ne changera pas : "
+									"une directionnelle n'utilise que sa direction.\n");
+					if (k == NkKey::NK_R && !LGZ::CanRotate(SL.type))
+						logger.Info("[Demo3D][LUMIERE] rotation autorisee, mais l'eclairage ne changera pas : "
+									"une ponctuelle rayonne dans toutes les directions.\n");
 					// L'echelle d'une lumiere ne l'agrandit pas : elle regle sa PORTEE
-					// (point/spot) ou ses DIMENSIONS (area). Le dire une fois evite de
-					// chercher pourquoi le widget ne « grossit » pas comme un objet.
-					if (k == NkKey::NK_S)
+					// (point/spot) ou ses DIMENSIONS (area). Le dire evite de chercher
+					// pourquoi le widget ne « grossit » pas comme un objet.
+					if (k == NkKey::NK_S) {
+						const renderer::NkLightScaleMeaning sm = LGZ::ScaleMeaning(SL.type);
 						logger.Info("[Demo3D][LUMIERE] echelle -> {0}\n",
-									LGZ::ScaleMeaning(SL.type) == renderer::NkLightScaleMeaning::Range
-										? "portee"
-										: "dimensions");
+									sm == renderer::NkLightScaleMeaning::Range		  ? "portee"
+									: sm == renderer::NkLightScaleMeaning::Dimensions ? "dimensions"
+																				  : "aucun parametre (directionnelle)");
+					}
 				}
 				if (k == NkKey::NK_G) {
 					if (alt)
@@ -6013,22 +6018,24 @@ namespace nkentseu {
 								st->lightSel = best;
 								lin.leftPressed = false;
 								lightClaimedClick = true;
-								// MODE PAR DEFAUT compatible avec le TYPE. Proposer une poignee
-								// sans effet mentirait sur le resultat : une directionnelle ne se
-								// deplace pas (sa position n'entre dans aucun calcul), une
-								// ponctuelle ne s'oriente pas (rayonnement isotrope).
+								// MODE PAR DEFAUT : TRANSLATE pour TOUS les types, comme pour un objet.
+								// Le type ne restreint pas les gestes disponibles ; il determine
+								// seulement lesquels ont un effet VISIBLE, ce que le journal dit une
+								// fois, a la selection.
 								const renderer::NkLightDesc &BL = st->lights[best];
-								if (LG::CanTranslate(BL.type))
-									st->lightGizmo.SetMode(renderer::NkGizmo3D::MODE_TRANSLATE);
-								else if (LG::CanRotate(BL.type))
-									st->lightGizmo.SetMode(renderer::NkGizmo3D::MODE_ROTATE);
-								else
-									st->lightGizmo.SetMode(renderer::NkGizmo3D::MODE_SCALE);
-								static const char *kLName[4] = {"directionnelle", "ponctuelle", "spot",
-															   "surfacique"};
+								st->lightGizmo.SetMode(renderer::NkGizmo3D::MODE_TRANSLATE);
+								static const char *kLName[4] = {"directionnelle", "ponctuelle", "spot", "surfacique"};
 								const int32 ti = (int32)BL.type & 3;
-								logger.Info("[Demo3D][LUMIERE] selection -> {0} ({1}) a {2} px du curseur\n", best,
-											kLName[ti], sqrtf(bestD2));
+								// Ce que la manipulation CHANGE pour ce type : annonce a la selection,
+								// plutot qu'en refusant une touche. L'utilisateur sait a quoi s'attendre
+								// et garde la main.
+								const char *note = "";
+								if (!LG::CanTranslate(BL.type))
+									note = " (la deplacer ne change pas l'eclairage : seule sa direction compte)";
+								else if (!LG::CanRotate(BL.type))
+									note = " (la tourner ne change pas l'eclairage : rayonnement isotrope)";
+								logger.Info("[Demo3D][LUMIERE] selection -> {0} ({1}) a {2} px du curseur{3}\n", best,
+											kLName[ti], sqrtf(bestD2), note);
 							}
 						}
 						// NK_LIGHT_MOVE="dx,dy,dz" : deplace UNE FOIS la lumiere selectionnee,
