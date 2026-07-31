@@ -548,6 +548,35 @@ namespace nkentseu {
 				int32 FirstSelected() const;
 				int32 LastSelected() const;
 
+				// ── SUBDIVISION DE SURFACE CATMULL-CLARK ────────────────────────────
+				// Le lissage de Blender (« Subdivision Surface »), et non une simple
+				// decoupe. La difference est de nature, pas de degre : une subdivision
+				// LINEAIRE ajoute des sommets SUR la surface existante — la silhouette ne
+				// bouge pas d'un micron, on n'obtient qu'un maillage plus dense. Catmull-
+				// Clark DEPLACE les sommets vers la surface limite : un cube devient une
+				// forme arrondie, ce qui est tout l'interet du modificateur.
+				//
+				// Regles appliquees (formulation standard, celle de Blender) :
+				//   point de FACE   = barycentre des sommets de la face ;
+				//   point d'ARETE   = moyenne des 2 sommets et des 2 points de face —
+				//                     sur un BORD (une seule face), simple milieu, sinon la
+				//                     bordure se retracterait vers l'interieur ;
+				//   sommet DEPLACE  = (F + 2R + (n-3)V) / n, avec F la moyenne des points
+				//                     de face voisins, R celle des MILIEUX d'aretes, n la
+				//                     valence. Sur un bord : (M1 + 6V + M2) / 8, qui ne fait
+				//                     intervenir QUE la bordure — c'est ce qui garde un bord
+				//                     franc au lieu de l'aspirer vers la surface.
+				//
+				// Le calcul se fait sur l'identite SOUDEE : sans cela un cube (24 sommets
+				// dupliques par face) aurait une valence de 2 partout et se disloquerait.
+				// Les ATTRIBUTS (uv, uv2, couleur, tangente) restent PAR COIN et sont
+				// interpoles a l'interieur de chaque face : les coutures d'UV survivent,
+				// alors qu'un moyennage sur les sommets soudes les detruirait.
+				//
+				// levels : nombre d'applications (chacune multiplie les faces par ~4).
+				// Renvoie false si le maillage est vide ou si rien n'a pu etre produit.
+				bool SubdivideCatmullClark(int32 levels = 1);
+
 				bool MergeSelectedVerts(const NkMergeParams &p = NkMergeParams{});
 				bool MakeFaceFromSelected();
 
@@ -910,8 +939,13 @@ namespace nkentseu {
 				// Array : duplique le maillage `arrayCount` fois avec un décalage constant.
 				int32 arrayCount = 3;
 				NkVec3f arrayOffset = {2.f, 0.f, 0.f};
-				// Subsurf : subdivise TOUT le maillage `subsurfLevels` fois (réutilise Subdivide).
+				// Subsurf : `subsurfLevels` applications sur TOUT le maillage.
+				// subsurfSimple : false (defaut) = CATMULL-CLARK, le lissage de Blender ;
+				//   true = mode « Simple » de Blender, subdivision LINEAIRE qui densifie
+				//   sans deformer. Les deux existent chez Blender parce qu'ils repondent a
+				//   des besoins differents : lisser une forme, ou densifier pour sculpter.
 				int32 subsurfLevels = 1;
+				bool subsurfSimple = false;
 
 				void Apply(NkEditMesh &m) const; // transforme `m` en place
 		};

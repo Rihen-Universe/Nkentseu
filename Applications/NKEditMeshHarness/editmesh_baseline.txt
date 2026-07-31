@@ -64,3 +64,12 @@ bmesh2/jonction-T-signature        V=28     F=7      E=15     bord=3     nonmani
 bmesh2/arete-filaire               aretes 12->13  radial=0 filaire=oui disque(v)=4
 snap/translate-x                   libre=1.849 increment=1.800(grille:non) absolu=2.000(grille:oui) depart=0.30 pas=0.50
 snap/bascule-inversee-par-ctrl     off:sansCtrl=0 avecCtrl=1 | on:sansCtrl=1 avecCtrl=0
+subsurf/cube-reference             rayon min=0.8660 max=0.8660
+subsurf/simple-n1                  rayon min=0.5000 max=0.8660
+subsurf/simple-n1-signature        V=54     F=24     E=48     bord=0     nonmanif=0   tri=48     A=6.0000 C=(0.0000,0.0000,0.0000)
+subsurf/catmull-n1                 rayon min=0.4811 max=0.5303
+subsurf/catmull-n1-signature       V=54     F=24     E=48     bord=0     nonmanif=0   tri=48     A=2.8819 C=(0.0000,0.0000,0.0000)
+subsurf/catmull-n2                 rayon min=0.4392 max=0.4548
+subsurf/catmull-n2-signature       V=150    F=96     E=192    bord=0     nonmanif=0   tri=192    A=2.4319 C=(0.0000,-0.0000,-0.0000)
+subsurf/grille-bord-franc          bord x avant=0.5000 apres=0.5000 (retrait=0.0000)
+subsurf/grille-catmull-signature   V=81     F=64     E=144    bord=32    nonmanif=0   tri=128    A=0.9922 C=(0.0000,0.0000,0.0000)
