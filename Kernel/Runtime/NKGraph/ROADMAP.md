@@ -53,14 +53,28 @@ les types » ; chaque domaine fournit « ses nodes et ce qu'il en fait ».
 
 | Brique | Statut | Notes |
 |--------|--------|-------|
-| P1 — Modèle de données (nodes/sockets typés/connexions/validation) | ❌ | zero-STL, NKContainers/NKMemory |
-| P2 — Évaluation (tri topologique, sous-graphes, plan aplati) | ❌ | ordre d'évaluation exposé, pas d'exécution métier |
+| P1 — Modèle de données (nodes/sockets typés/connexions/validation) | ✅ | `src/NKGraph/NkNodeGraph.h/.inl`, **en-tête pur** (testable sans lier de cible, comme `NkShortcutTable`), zero-STL. **Nommé `NkNodeGraph` et non `NkGraph` : `nkentseu::NkGraph<V,Alloc>` existe déjà dans NKContainers** (graphe pondéré générique, DFS/BFS, 877 l.). Conversions implicites **dirigées** et déclarées par le consommateur, jamais devinées. Une entrée n'accepte qu'une source (la 2ᵉ remplace, comme Blender/Unreal). Supprimer un nœud emporte ses liens. Identifiants **jamais recyclés**. |
+| P2 — Évaluation (tri topologique, sous-graphes, plan aplati) | 🔶 | tri topologique + **refus du cycle à la connexion** (avec sa raison) livrés et testés. Restent : sous-graphes, plan aplati. |
 | P3 — Sérialisation `.nkgraph` + undo/redo | ❌ | NKSerialization ; commandes inversibles (modèle NkAnimationEditor) |
 | P4 — Widget canvas (NKEditorKit) | ❌ | pan/zoom, fils, recherche, groupes, preview |
 | P5 — 1er consommateur : NKCode Phase 4 (Blueprint) OU matériaux T.2 | ❌ | le premier qui démarre construit AVEC le cœur |
 | P6 — 2e consommateur (l'autre des deux, ou VFX) | ❌ | force la généralisation de l'API |
 
 Légende : ✅ Livré · 🔶 Partiel · ⏳ En cours · ❌ TODO · 🚫 Abandonné
+
+**Preuve (31/07/2026)** — 7 cas dans `Applications/NKEditMeshHarness` (131 cas au
+total, les 124 antérieurs inchangés). Ils sont choisis pour qu'une implantation
+fausse **échoue**, pas pour confirmer ce qui marche :
+
+| cas | pourquoi il discrimine | résultat |
+|---|---|---|
+| `topo-losange-insere-inverse` | les nœuds sont créés **D,C,B,A**, l'inverse de l'ordre attendu — un tri qui renverrait l'ordre d'insertion échouerait | `A>C>B>D` |
+| `cycle-refuse` | vérifie aussi que le lien **n'a pas été posé** et que le graphe reste triable — un refus qui laisserait le lien donnerait le même code d'erreur | `cycle`, liens=2, triable |
+| `conversion-dirigee` | testée dans les **deux sens** : une table symétrique par erreur passerait un test à sens unique | `réel>vect=ok`, `vect>réel=refusé` |
+| `suppression-milieu` | porte sur le nœud **du milieu** : une extrémité ne montrerait pas l'oubli d'un sens | 2 liens → 0 |
+| `entree-source-unique` | vérifie que la source restante est la **nouvelle** — garder l'ancienne donnerait le même compte | `y-la-nouvelle` |
+| `sens-et-sockets` | « ce socket n'existe pas » ≠ « vous branchez une entrée sur une entrée » : l'interface doit pouvoir l'expliquer | 4 codes distincts |
+| `identifiants-stables` | un id recyclé ferait pointer silencieusement une sauvegarde sur un autre nœud | pas de recyclage |
 
 ## Consommateurs prévus (état de leur côté)
 
