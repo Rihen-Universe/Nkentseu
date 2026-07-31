@@ -25,18 +25,29 @@ namespace nkentseu {
 		// Hauteur d'une ligne de liste ou de propriete. Reprise de la maquette :
 		// 22 px. En dessous le texte touche les bords, au-dessus la densite chute et
 		// il faut faire defiler pour rien.
-		static const float32 kRowH = 22.f;
-		static const float32 kLabelW = 78.f;  ///< colonne de libelles des proprietes
-		static const float32 kPad = 8.f;
+		// Non const : elles sont multipliees par l'echelle au demarrage (cf. S()).
+		inline float32 kRowH = 22.f;
+		inline float32 kLabelW = 78.f;  ///< colonne de libelles des proprietes
+		inline float32 kPad = 8.f;
 		// MARGE INTERNE des panneaux de droite. Le contenu ne doit pas toucher les
 		// bords : colle au trait de separation, une ligne de propriete se lit comme
 		// la continuation du panneau voisin. Applique en RETRECISSANT le rectangle de
 		// travail, une fois, plutot qu'en decalant chaque appel -- sinon il suffit
 		// d'en oublier un pour que l'alignement casse.
-		static const float32 kInset = 10.f;
+		inline float32 kInset = 10.f;
 
 		// Retrecit un rectangle de la marge interne, sans toucher au haut ni au bas :
 		// l'en-tete d'onglet et les fonds pleins doivent, eux, aller bord a bord.
+		// Applique l'echelle d'interface a toutes les constantes de disposition.
+		// Appelee UNE FOIS au demarrage, apres avoir lu le DPI de la fenetre.
+		inline void ApplyUiScale(float32 scale) {
+			gUiScale = scale;
+			kRowH = Px(22.f * scale);
+			kLabelW = Px(78.f * scale);
+			kPad = Px(8.f * scale);
+			kInset = Px(10.f * scale);
+		}
+
 		inline NkRect Inset(const NkRect &r) {
 			return {r.x + kInset, r.y, r.w - kInset * 2.f, r.h};
 		}

@@ -36,6 +36,37 @@ namespace nkentseu {
 		using nkgui::NkRect;
 		using nkgui::NkVec2;
 
+		// ── ECHELLE D'INTERFACE ─────────────────────────────────────────────────
+		// Posee UNE FOIS au demarrage depuis NkWindow::GetDpiScale(). Sur un ecran
+		// a 125 % ou 150 %, ne pas en tenir compte laisse Windows ETIRER l'image de
+		// la fenetre : tout devient mou, et c'est exactement le flou signale.
+		// Variable inline (C++17) plutot qu'un parametre traine partout : l'echelle
+		// ne change pas en cours de session, et la faire circuler dans chaque appel
+		// n'aurait servi qu'a l'oublier quelque part.
+		inline float32 gUiScale = 1.f;
+
+		inline float32 S(float32 px) {
+			return px * gUiScale;
+		}
+
+		// ARRONDI AU PIXEL. C'est la seconde cause du flou, et la plus insidieuse :
+		// une ligne de base a 42,5 px echantillonne l'atlas ENTRE deux texels, donc
+		// chaque glyphe bave d'un demi-pixel. A 13 px de corps, un demi-pixel
+		// represente 4 % de la hauteur du caractere -- assez pour fatiguer l'oeil
+		// sans qu'on sache dire pourquoi. Meme chose pour les icones : une image de
+		// 16 px posee a 10,3 px est reechantillonnee sur toute sa surface.
+		inline float32 Px(float32 v) {
+			return (float32)(int32)(v < 0.f ? v - 0.5f : v + 0.5f);
+		}
+
+		// Rectangle aligne. On arrondit les DEUX BORDS puis on recalcule la largeur :
+		// arrondir la position et la largeur separement laisse des trous d'un pixel
+		// entre deux zones adjacentes, visibles comme des rayures claires.
+		inline NkRect PxRect(const NkRect &r) {
+			const float32 x0 = Px(r.x), y0 = Px(r.y);
+			return {x0, y0, Px(r.x + r.w) - x0, Px(r.y + r.h) - y0};
+		}
+
 		// ── PROPORTIONS DE LA MAQUETTE ──────────────────────────────────────────
 		// Reprises telles quelles de l'ecran A. Les pourcentages sont bornes par un
 		// minimum en pixels : sous 1024 de large, un panneau a 16 % deviendrait
@@ -48,28 +79,28 @@ namespace nkentseu {
 
 				void Compute(float32 W, float32 H) {
 					menuH = H * 0.04f;
-					if (menuH < 44.f)
-						menuH = 44.f;
+					if (menuH < S(44.f))
+						menuH = S(44.f);
 					tabsH = H * 0.03f;
-					if (tabsH < 32.f)
-						tabsH = 32.f;
+					if (tabsH < S(32.f))
+						tabsH = S(32.f);
 					// AMINCIE par rapport a la maquette (5 %) : Banani y avait mis des
 					// boutons qui font doublon avec les menus de la vue. Seul son
 					// commutateur Objet/Edition est garde -- il rend visible un etat qui,
 					// chez Blender, n'existe que dans un menu deroulant.
-					toolH = 34.f;
+					toolH = S(34.f);
 					browserH = H * 0.22f;
-					if (browserH < 200.f)
-						browserH = 200.f;
+					if (browserH < S(200.f))
+						browserH = S(200.f);
 					statusH = H * 0.03f;
-					if (statusH < 30.f)
-						statusH = 30.f;
+					if (statusH < S(30.f))
+						statusH = S(30.f);
 					leftW = W * 0.16f;
-					if (leftW < 200.f)
-						leftW = 200.f;
+					if (leftW < S(200.f))
+						leftW = S(200.f);
 					rightW = W * 0.29f;
-					if (rightW < 300.f)
-						rightW = 300.f;
+					if (rightW < S(300.f))
+						rightW = S(300.f);
 
 					float32 y = 0.f;
 					menu = {0.f, y, W, menuH};
@@ -116,20 +147,20 @@ namespace nkentseu {
 				}
 
 				void Fill(const NkRect &r, NkRole role, float32 rounding = 0.f) {
-					mDl.AddRectFilled(r, C(role), rounding);
+					mDl.AddRectFilled(PxRect(r), C(role), rounding);
 				}
 				void Fill(const NkRect &r, const NkColor &c, float32 rounding = 0.f) {
-					mDl.AddRectFilled(r, c, rounding);
+					mDl.AddRectFilled(PxRect(r), c, rounding);
 				}
 
 				// Trait de separation. Toujours au meme role : une bordure dessinee
 				// avec une autre couleur « qui va bien » se voit immediatement quand on
 				// change de theme.
 				void HLine(float32 x, float32 y, float32 w) {
-					mDl.AddRectFilled({x, y, w, 1.f}, C(NkRole::Border));
+					mDl.AddRectFilled({Px(x), Px(y), Px(x + w) - Px(x), 1.f}, C(NkRole::Border));
 				}
 				void VLine(float32 x, float32 y, float32 h) {
-					mDl.AddRectFilled({x, y, 1.f, h}, C(NkRole::Border));
+					mDl.AddRectFilled({Px(x), Px(y), 1.f, Px(y + h) - Px(y)}, C(NkRole::Border));
 				}
 
 				// Segment QUELCONQUE. Indispensable des qu'une ligne n'est ni
@@ -142,13 +173,14 @@ namespace nkentseu {
 				// l'interieur d'un pixel : deux rectangles arrondis donnent un
 				// contour arrondi, avec les primitives dont on dispose.
 				void Outline(const NkRect &r, NkRole border, NkRole inner, float32 rounding = 0.f) {
-					mDl.AddRectFilled(r, C(border), rounding);
-					mDl.AddRectFilled({r.x + 1.f, r.y + 1.f, r.w - 2.f, r.h - 2.f}, C(inner),
+					const NkRect q = PxRect(r);
+					mDl.AddRectFilled(q, C(border), rounding);
+					mDl.AddRectFilled({q.x + 1.f, q.y + 1.f, q.w - 2.f, q.h - 2.f}, C(inner),
 									  rounding > 1.f ? rounding - 1.f : 0.f);
 				}
 				// Variante a angles vifs quand le fond n'a pas a etre repeint.
 				void OutlineSharp(const NkRect &r, NkRole role) {
-					mDl.AddRect(r, C(role), 1.f);
+					mDl.AddRect(PxRect(r), C(role), 1.f);
 				}
 
 				// Cercle CREUX : les demi-axes negatifs du gizmo de navigation.
@@ -190,11 +222,13 @@ namespace nkentseu {
 
 				// Texte cale sur la LIGNE DE BASE, pas sur le haut du glyphe : sans ca
 				// les libelles « sautent » d'un widget a l'autre selon leurs jambages.
+				// La LIGNE DE BASE est arrondie, pas le haut du texte : c'est elle
+				// qui positionne les glyphes dans l'atlas.
 				void Text(float32 x, float32 y, const char *s, NkRole role = NkRole::Text) {
-					mDl.AddText(mFont.Face(), mFont.TexId(), {x, y + mFont.Ascent()}, s, C(role));
+					mDl.AddText(mFont.Face(), mFont.TexId(), {Px(x), Px(y + mFont.Ascent())}, s, C(role));
 				}
 				void Text(float32 x, float32 y, const char *s, const NkColor &c) {
-					mDl.AddText(mFont.Face(), mFont.TexId(), {x, y + mFont.Ascent()}, s, c);
+					mDl.AddText(mFont.Face(), mFont.TexId(), {Px(x), Px(y + mFont.Ascent())}, s, c);
 				}
 				// Centre verticalement dans une hauteur donnee.
 				void TextV(float32 x, float32 y, float32 h, const char *s, NkRole role = NkRole::Text) {
@@ -216,20 +250,22 @@ namespace nkentseu {
 					const uint32 tex = mIcons.Tex(ic);
 					if (!tex)
 						return;
-					const float32 s = sz > 0.f ? sz : (float32)mIcons.Size();
-					mDl.AddImage(tex, {x, y, s, s}, {0.f, 0.f}, {1.f, 1.f}, C(role));
+					// La TAILLE est arrondie aussi : une icone de 13,7 px est
+					// reechantillonnee sur toute sa surface, d'ou le flou.
+					const float32 s = Px(sz > 0.f ? S(sz) : (float32)mIcons.Size());
+					mDl.AddImage(tex, {Px(x), Px(y), s, s}, {0.f, 0.f}, {1.f, 1.f}, C(role));
 				}
 				void Icon(float32 x, float32 y, NkIcon ic, const NkColor &c, float32 sz = 0.f) {
 					const uint32 tex = mIcons.Tex(ic);
 					if (!tex)
 						return;
-					const float32 s = sz > 0.f ? sz : (float32)mIcons.Size();
-					mDl.AddImage(tex, {x, y, s, s}, {0.f, 0.f}, {1.f, 1.f}, c);
+					const float32 s = Px(sz > 0.f ? S(sz) : (float32)mIcons.Size());
+					mDl.AddImage(tex, {Px(x), Px(y), s, s}, {0.f, 0.f}, {1.f, 1.f}, c);
 				}
 				// Centree verticalement dans une hauteur de ligne.
 				void IconV(float32 x, float32 y, float32 h, NkIcon ic, NkRole role = NkRole::Text,
 						   float32 sz = 0.f) {
-					const float32 s = sz > 0.f ? sz : (float32)mIcons.Size();
+					const float32 s = sz > 0.f ? S(sz) : (float32)mIcons.Size();
 					Icon(x, y + (h - s) * 0.5f, ic, role, sz);
 				}
 				float32 IconSize() const {
