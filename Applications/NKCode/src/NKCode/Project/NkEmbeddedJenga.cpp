@@ -4,6 +4,12 @@
 //   Voir NkEmbeddedJenga.h pour le contrat.
 // =============================================================================
 #include "NKCode/Project/NkEmbeddedJenga.h"
+
+// Ce module embarque CPython via pybind11. Le paquet vendorise est celui de
+// WINDOWS (son pyconfig.h reclame <io.h>) : sur les autres plateformes on
+// compile NkEmbeddedJengaStub.cpp a la place, qui repond « indisponible » et
+// laisse l'appelant retomber sur le `jenga` du PATH.
+#if defined(NKCODE_EMBED_PYTHON)
 #include "NKCode/Project/NkProcess.h" // NkStripAnsiInto (transcript sans codes couleur)
 #include "NKFileSystem/NkDirectory.h"
 
@@ -498,3 +504,5 @@ namespace nkentseu {
 
 	} // namespace nkcode
 } // namespace nkentseu
+
+#endif // NKCODE_EMBED_PYTHON
