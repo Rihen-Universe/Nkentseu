@@ -106,6 +106,9 @@ namespace nkentseu {
 					// prend une couleur unique, ne peut pas exprimer. Le decoupage
 					// courant est DEJA applique : l'appelant n'a plus qu'a melanger.
 					void ComputeCoverage(const NkPdfPath &path, bool evenOdd, NkVector<uint8> &cov) const;
+					// Couverture COMPLETE, remise a zero partout : ce dont a besoin le
+					// decoupage, qui doit valoir 0 hors du trace.
+					void ComputeCoverageRaw(const NkPdfPath &path, bool evenOdd, NkVector<uint8> &cov) const;
 
 					// Melange une couleur dans le pixel (x, y) avec l'opacite donnee.
 					void BlendPixel(int32 x, int32 y, uint8 r, uint8 g, uint8 b, uint32 alpha);
@@ -117,17 +120,44 @@ namespace nkentseu {
 					void SetClipFromPath(const NkPdfPath &path, bool evenOdd);
 					void ClearClip();
 					bool HasClip() const { return !mClip.Empty(); }
-					// Sauvegarde/restauration, pour l'empilement q/Q de l'interpreteur.
-					NkVector<uint8> TakeClip() { return mClip; }
-					void RestoreClip(const NkVector<uint8> &c) { mClip = c; }
+
+					// ── Pile de decoupage, a COPIE PARESSEUSE ──
+					// Les operateurs q/Q du PDF sont TRES frequents (des centaines par
+					// page), alors que la plupart des blocs ne touchent PAS au
+					// decoupage. Copier le masque — de la taille de la page — a chaque
+					// `q` etait le principal cout du rendu : c'est ce qui rendait le
+					// defilement et le zoom inutilisables.
+					//
+					// On n'empile donc qu'un MARQUEUR. La copie n'a lieu qu'au moment ou
+					// le decoupage est reellement modifie, et une seule fois par niveau.
+					void PushClipState();
+					void PopClipState();
 
 				private:
-					// Calcule la couverture de `path` dans `cov` (mW*mH octets).
-					void Rasterize(const NkPdfPath &path, bool evenOdd, NkVector<uint8> &cov) const;
+					// Calcule la couverture de `path` dans `cov` (mW*mH octets) et REND
+					// la boite touchee. Seule cette boite est remise a zero et parcourue.
+					//
+					// C'est LE point de performance du lecteur : une page de texte
+					// contient des milliers de traces, et remettre a zero un tampon de la
+					// taille de la page a chaque fois representait des GIGA-octets de
+					// memoire ecrite pour rien. Le defilement et le zoom en devenaient
+					// inutilisables.
+					void Rasterize(const NkPdfPath &path, bool evenOdd, NkVector<uint8> &cov, int32 *bx0,
+								   int32 *by0, int32 *bx1, int32 *by1) const;
 
 					int32 mW = 0, mH = 0;
 					NkVector<uint8> mPix;  // RGBA, mW*mH*4
 					NkVector<uint8> mClip; // couverture de decoupage, mW*mH (vide = aucun)
+					// Tampon de travail REUTILISE : le reallouer a chaque trace coutait
+					// une allocation par glyphe.
+					mutable NkVector<uint8> mScratch;
+
+					// Pile de decoupage : `saved` vide = le niveau n'a rien modifie.
+					struct ClipLevel {
+							NkVector<uint8> saved;
+							bool dirty = false;
+					};
+					NkVector<ClipLevel> mClipStack;
 			};
 
 		} // namespace pdf
