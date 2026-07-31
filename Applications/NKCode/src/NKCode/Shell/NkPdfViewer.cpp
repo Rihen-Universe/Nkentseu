@@ -11,128 +11,185 @@ namespace nkentseu {
 
 		using namespace nkentseu::nkcode::pdf;
 
-		// Epaisseur des barres de defilement, en pixels logiques.
-		// Largeur des barres : celle du moteur, pour rester identique au reste
-// de l'IDE plutot que d'imposer une valeur maison.
-static float32 BarPx() { return editorkit::NkScrollbarWidth(); }
+		// Espace entre deux pages en mode continu, en pixels logiques.
+		static constexpr float32 kGapPx = 10.f;
+		// Nombre de pages gardees en cache. 4 suffit a couvrir la page courante,
+		// ses voisines immediates, et la precedente — c'est ce qui rend la
+		// navigation instantanee au lieu de rendre a chaque changement.
+		static constexpr usize kCacheMax = 4;
 
-		// Points par pouce correspondant au zoom demande, pour la page courante.
+		static float32 BarPx() { return editorkit::NkScrollbarWidth(); }
+
+		// Points par pouce pour une largeur de panneau donnee, a partir de la page 0
+		// (les pages d'un meme document ont presque toujours la meme largeur ; les
+		// autres seront simplement un peu plus larges ou etroites).
 		static double DpiFor(NkPdfView *v, int32 viewW) {
 			double x0 = 0, y0 = 0, x1 = 612, y1 = 792;
-			v->doc.PageMediaBox(v->pageIdx, &x0, &y0, &x1, &y1);
-			const int32 rot = v->doc.PageRotate(v->pageIdx);
+			v->doc.PageMediaBox(0, &x0, &y0, &x1, &y1);
+			const int32 rot = v->doc.PageRotate(0);
 			const double wPt = ((rot == 90 || rot == 270) ? (y1 - y0) : (x1 - x0));
 			if (wPt < 1.0 || viewW < 1)
 				return 72.0;
-			// Zoom 1 = la page tient dans la largeur disponible.
 			double dpi = (static_cast<double>(viewW) / wPt) * 72.0 * v->zoom;
 			if (dpi < 6.0)
 				dpi = 6.0;
-			// Plus de plafond bas : la memoire ne depend PLUS du zoom, puisqu'on ne
-			// rend que la fenetre visible. On borne tout de meme tres haut pour
-			// eviter des coordonnees aberrantes.
 			if (dpi > 20000.0)
 				dpi = 20000.0;
 			return dpi;
 		}
 
-		// Rend la fenetre visible si necessaire. PARESSEUX : ne refait rien tant que
-		// page, zoom, defilement et taille du panneau n'ont pas change.
-		static void EnsureWindow(editorkit::NkEditorShell *shell, NkPdfView *v, int32 texW, int32 texH,
-								 double dpi) {
-			if (!v->opened || v->failed || texW < 4 || texH < 4)
+		// Calcule la position de chaque page SANS en rendre aucune : seules les
+		// dimensions sont lues. C'est ce qui permet un defilement sur tout le
+		// document sans payer le rendu des 95 pages.
+		static void EnsureLayout(NkPdfView *v, double dpi, int32 panelW, float32 gap) {
+			if (v->layoutZoom == v->zoom && v->layoutPanelW == panelW && !v->pageTop.Empty())
 				return;
-			const bool same = v->renderedPage == v->pageIdx && v->renderedZoom == v->zoom &&
-							  v->renderedScrollX == v->scrollX && v->renderedScrollY == v->scrollY &&
-							  v->texW == texW && v->texH == texH && v->texId != 0;
+			v->pageW.Clear();
+			v->pageH.Clear();
+			v->pageTop.Clear();
+			float32 y = 0.f;
+			float32 maxW = 0.f;
+			const int32 n = v->doc.PageCount();
+			for (int32 i = 0; i < n; ++i) {
+				int32 w = 0, h = 0;
+				if (!NkPdfRenderer::PagePixelSize(v->doc, i, dpi, &w, &h)) {
+					w = 1;
+					h = 1;
+				}
+				v->pageW.PushBack(w);
+				v->pageH.PushBack(h);
+				v->pageTop.PushBack(y);
+				y += static_cast<float32>(h) + gap;
+				if (static_cast<float32>(w) > maxW)
+					maxW = static_cast<float32>(w);
+			}
+			v->docW = maxW;
+			v->docH = (n > 0) ? (y - gap) : 0.f;
+			v->layoutZoom = v->zoom;
+			v->layoutPanelW = panelW;
+		}
+
+		// Page rendue, depuis le cache ou fraichement produite.
+		static NkPdfPageCache *GetPage(NkPdfView *v, int32 page, double dpi) {
+			for (usize i = 0; i < v->cache.Size(); ++i)
+				if (v->cache[i]->page == page && v->cache[i]->zoom == v->zoom) {
+					v->cache[i]->lastUse = ++v->useClock;
+					return v->cache[i];
+				}
+			// Evince la moins recemment utilisee plutot que d'allouer sans fin.
+			NkPdfPageCache *slot = nullptr;
+			if (v->cache.Size() >= kCacheMax) {
+				usize oldest = 0;
+				for (usize i = 1; i < v->cache.Size(); ++i)
+					if (v->cache[i]->lastUse < v->cache[oldest]->lastUse)
+						oldest = i;
+				slot = v->cache[oldest];
+			} else {
+				slot = new NkPdfPageCache();
+				v->cache.PushBack(slot);
+			}
+			NkPdfRenderer rend;
+			if (!rend.RenderPage(v->doc, page, dpi, slot->canvas)) {
+				slot->page = -1;
+				return nullptr;
+			}
+			slot->page = page;
+			slot->zoom = v->zoom;
+			slot->items = rend.TextItems();
+			slot->unsupported = rend.Unsupported();
+			slot->lastUse = ++v->useClock;
+			return slot;
+		}
+
+		// Assemble la fenetre visible a partir des pages, en recopiant. Aucun rendu
+		// n'a lieu ici pour une page deja en cache : c'est ce qui rend le defilement
+		// fluide.
+		static void BuildWindow(editorkit::NkEditorShell *shell, NkPdfView *v, int32 texW, int32 texH,
+								double dpi, float32 gap) {
+			const bool same = v->builtScrollX == v->scrollX && v->builtScrollY == v->scrollY &&
+							  v->builtZoom == v->zoom && v->builtPanelW == texW &&
+							  v->builtPanelH == texH && v->builtContinuous == v->continuous &&
+							  v->texId != 0;
 			if (same)
 				return;
 
-			// Le canevas garde EXACTEMENT la taille du panneau. C'est ce qui rend la
-			// texture stable : le backend fige les dimensions d'une texture a sa
-			// creation et n'offre aucune liberation — la reallouer a chaque zoom
-			// fuyait des dizaines de mega-octets, puis plantait.
-			if (!v->page.Valid() || v->page.Width() != texW || v->page.Height() != texH) {
-				if (!v->page.Create(texW, texH)) {
+			if (!v->window.Valid() || v->window.Width() != texW || v->window.Height() != texH) {
+				if (!v->window.Create(texW, texH)) {
 					v->failed = true;
 					return;
 				}
-				v->texId = 0; // la texture doit etre recreee a cette nouvelle taille
+				v->texId = 0; // taille figee a la creation cote backend : on recree
 			}
+			// Fond gris : distingue le hors-page du blanc d'une page.
+			v->window.Clear(210, 210, 214, 255);
 
-			// ── Cache de PAGE ENTIERE ──
-			// La page complete est rendue une fois par (page, zoom) ; defiler n'est
-			// alors qu'une RECOPIE de rectangle. Re-rendre a chaque cran de molette
-			// coutait le prix d'une page entiere — c'est ce qui rendait le
-			// deplacement penible. Plafonne a 40 millions de pixels (~160 Mo) :
-			// au-dela, retour au rendu de fenetre, borne mais recalcule.
-			int32 fw = 0, fh = 0;
-			NkPdfRenderer::PagePixelSize(v->doc, v->pageIdx, dpi, &fw, &fh);
-			if ((static_cast<int64>(fw) * static_cast<int64>(fh)) <= 40000000ll) {
-				if (!v->fullValid || v->fullPage != v->pageIdx || v->fullZoom != v->zoom) {
-					NkPdfRenderer rendF;
-					if (!rendF.RenderPage(v->doc, v->pageIdx, dpi, v->full)) {
-						v->failed = true;
-						return;
-					}
-					v->unsupported = rendF.Unsupported();
-					v->items = rendF.TextItems(); // positions dans le repere de la PAGE
-					v->fullValid = true;
-					v->fullPage = v->pageIdx;
-					v->fullZoom = v->zoom;
-				}
-				const int32 ox = static_cast<int32>(v->scrollX);
-				const int32 oy = static_cast<int32>(v->scrollY);
-				uint8 *dst = v->page.Pixels();
-				const uint8 *src = v->full.Pixels();
-				const int32 sw = v->full.Width(), shh = v->full.Height();
+			v->items.Clear();
+			v->unsupported.Clear();
+
+			const int32 first = v->continuous ? 0 : v->pageIdx;
+			const int32 last = v->continuous ? (v->doc.PageCount() - 1) : v->pageIdx;
+			uint8 *dst = v->window.Pixels();
+
+			for (int32 p = first; p <= last; ++p) {
+				const float32 top = v->continuous ? v->pageTop[static_cast<usize>(p)] : 0.f;
+				const float32 ph = static_cast<float32>(v->pageH[static_cast<usize>(p)]);
+				// Ignore les pages hors de la fenetre : c'est ce qui permet un
+				// document de 95 pages sans en rendre 95.
+				if (top + ph < v->scrollY || top > v->scrollY + static_cast<float32>(texH))
+					continue;
+
+				NkPdfPageCache *pc = GetPage(v, p, dpi);
+				if (!pc)
+					continue;
+				if (!pc->unsupported.Empty() && v->unsupported.Empty())
+					v->unsupported = pc->unsupported;
+
+				// Page CENTREE horizontalement dans la largeur du document.
+				const float32 pw = static_cast<float32>(v->pageW[static_cast<usize>(p)]);
+				const float32 left = (v->docW > pw) ? ((v->docW - pw) * 0.5f) : 0.f;
+
+				const int32 sw = pc->canvas.Width(), shh = pc->canvas.Height();
+				const uint8 *src = pc->canvas.Pixels();
 				for (int32 y = 0; y < texH; ++y) {
-					const int32 sy = oy + y;
+					const float32 docY = v->scrollY + static_cast<float32>(y);
+					const int32 sy = static_cast<int32>(docY - top);
+					if (sy < 0 || sy >= shh)
+						continue;
 					uint8 *drow = dst + static_cast<usize>(y) * static_cast<usize>(texW) * 4u;
 					for (int32 x = 0; x < texW; ++x) {
-						const int32 sx = ox + x;
-						uint8 *d = drow + static_cast<usize>(x) * 4u;
-						if (sy < 0 || sy >= shh || sx < 0 || sx >= sw) {
-							d[0] = d[1] = d[2] = 210; // gris de fond hors page
-							d[3] = 255;
+						const float32 docX = v->scrollX + static_cast<float32>(x);
+						const int32 sx = static_cast<int32>(docX - left);
+						if (sx < 0 || sx >= sw)
 							continue;
-						}
 						const uint8 *s = src + (static_cast<usize>(sy) * static_cast<usize>(sw) +
 											   static_cast<usize>(sx)) * 4u;
+						uint8 *d = drow + static_cast<usize>(x) * 4u;
 						d[0] = s[0];
 						d[1] = s[1];
 						d[2] = s[2];
-						d[3] = s[3];
+						d[3] = 255;
 					}
 				}
-				v->renderedPage = v->pageIdx;
-				v->renderedZoom = v->zoom;
-				v->renderedScrollX = v->scrollX;
-				v->renderedScrollY = v->scrollY;
-				const uint8 *px2 = v->page.Pixels();
-				if (v->texId == 0) {
-					v->texId = shell->UploadRGBA(px2, texW, texH);
-					v->texW = texW;
-					v->texH = texH;
-				} else
-					shell->UpdateRGBA(v->texId, px2, texW, texH);
-				return;
+
+				// Elements de texte, ramenes en coordonnees du DOCUMENT pour que la
+				// selection fonctionne a travers les pages.
+				for (usize i = 0; i < pc->items.Size(); ++i) {
+					NkPdfRenderer::TextItem it = pc->items[i];
+					it.x += left;
+					it.y += top;
+					v->items.PushBack(it);
+				}
 			}
 
-			v->fullValid = false;
-			NkPdfRenderer rend;
-			if (!rend.RenderPageWindow(v->doc, v->pageIdx, dpi, v->scrollX, v->scrollY, v->page)) {
-				v->failed = true;
-				return;
-			}
-			v->unsupported = rend.Unsupported();
-			v->items = rend.TextItems(); // positions relatives a la FENETRE
-			v->renderedPage = v->pageIdx;
-			v->renderedZoom = v->zoom;
-			v->renderedScrollX = v->scrollX;
-			v->renderedScrollY = v->scrollY;
+			v->builtScrollX = v->scrollX;
+			v->builtScrollY = v->scrollY;
+			v->builtZoom = v->zoom;
+			v->builtPanelW = texW;
+			v->builtPanelH = texH;
+			v->builtContinuous = v->continuous;
+			(void)gap;
 
-			const uint8 *px = v->page.Pixels();
+			const uint8 *px = v->window.Pixels();
 			if (v->texId == 0) {
 				v->texId = shell->UploadRGBA(px, texW, texH);
 				v->texW = texW;
@@ -180,9 +237,6 @@ static float32 BarPx() { return editorkit::NkScrollbarWidth(); }
 				return;
 			}
 
-			// ── Barre d'outils FIXE ──────────────────────────────────────────────
-			// Elle est dessinee APRES la page et sa propre zone est EXCLUE du clip de
-			// la page : sans ca, une page defilee vers le haut passait par-dessus.
 			const float32 barH = 34.f * ctx.S(1.f);
 			const NkRect bar = {r.x, r.y, r.w, barH};
 			const NkRect area = {r.x, r.y + barH, r.w, r.h - barH};
@@ -191,31 +245,29 @@ static float32 BarPx() { return editorkit::NkScrollbarWidth(); }
 				return;
 			}
 
-			// ── Geometrie : page entiere, fenetre visible, barres ────────────────
 			const float32 sb = ctx.S(BarPx());
-			int32 fullW = 0, fullH = 0;
-			double dpi = DpiFor(v, static_cast<int32>(area.w - sb));
-			NkPdfRenderer::PagePixelSize(v->doc, v->pageIdx, dpi, &fullW, &fullH);
+			const float32 gap = ctx.S(kGapPx);
+			const double dpi = DpiFor(v, static_cast<int32>(area.w - sb));
+			EnsureLayout(v, dpi, static_cast<int32>(area.w - sb), gap);
 
-			// Les barres n'apparaissent que si elles servent, et leur presence reduit
-			// la zone utile — ce qui peut faire apparaitre l'autre : on evalue donc
-			// les deux ensemble.
-			bool needV = static_cast<float32>(fullH) > area.h;
-			bool needH = static_cast<float32>(fullW) > area.w - (needV ? sb : 0.f);
+			// Etendue defilable : tout le document en continu, la page seule sinon.
+			const float32 totalH = v->continuous
+									   ? v->docH
+									   : static_cast<float32>(v->pageH[static_cast<usize>(v->pageIdx)]);
+			const float32 totalW = v->docW;
+
+			bool needV = totalH > area.h;
+			bool needH = totalW > area.w - (needV ? sb : 0.f);
 			if (needH && !needV)
-				needV = static_cast<float32>(fullH) > area.h - sb;
-
+				needV = totalH > area.h - sb;
 			const NkRect view = {area.x, area.y, area.w - (needV ? sb : 0.f),
 								 area.h - (needH ? sb : 0.f)};
-			const float32 maxSx = (static_cast<float32>(fullW) > view.w)
-									  ? (static_cast<float32>(fullW) - view.w) : 0.f;
-			const float32 maxSy = (static_cast<float32>(fullH) > view.h)
-									  ? (static_cast<float32>(fullH) - view.h) : 0.f;
+			const float32 maxSx = (totalW > view.w) ? (totalW - view.w) : 0.f;
+			const float32 maxSy = (totalH > view.h) ? (totalH - view.h) : 0.f;
 
-			// ── Interactions ─────────────────────────────────────────────────────
+			// ── Interactions ──
 			const bool overView = NkGuiRectContains(view, ctx.input.mousePos);
 			if (overView && ctx.input.wheel != 0.f) {
-				// Molette + Ctrl = zoom, comme partout ailleurs.
 				if (ctx.input.ctrlDown) {
 					const double z = v->zoom * (ctx.input.wheel > 0.f ? 1.15 : 1.0 / 1.15);
 					v->zoom = (z < 0.1) ? 0.1 : (z > 40.0 ? 40.0 : z);
@@ -225,50 +277,53 @@ static float32 BarPx() { return editorkit::NkScrollbarWidth(); }
 			if (overView && ctx.input.wheelH != 0.f)
 				v->scrollX -= ctx.input.wheelH * lh * 3.f;
 
-			// Le defilement est borne APRES coup : le zoom a pu reduire la page.
 			if (v->scrollX < 0.f) v->scrollX = 0.f;
 			if (v->scrollX > maxSx) v->scrollX = maxSx;
 			if (v->scrollY < 0.f) v->scrollY = 0.f;
 			if (v->scrollY > maxSy) v->scrollY = maxSy;
 
-			// ── Rendu de la fenetre visible ──────────────────────────────────────
+			// En mode continu, la page « courante » est celle qui occupe le haut de la
+			// fenetre : c'est elle qu'affiche le compteur.
+			if (v->continuous) {
+				for (int32 i = 0; i < v->doc.PageCount(); ++i) {
+					const float32 top = v->pageTop[static_cast<usize>(i)];
+					const float32 bot = top + static_cast<float32>(v->pageH[static_cast<usize>(i)]);
+					if (v->scrollY + view.h * 0.3f < bot) {
+						v->pageIdx = i;
+						break;
+					}
+					(void)top;
+				}
+			}
+
 			const int32 texW = static_cast<int32>(view.w);
 			const int32 texH = static_cast<int32>(view.h);
-			EnsureWindow(shell, v, texW, texH, dpi);
+			BuildWindow(shell, v, texW, texH, dpi, gap);
 			if (v->failed || v->texId == 0) {
 				centered(NkT("pdf.render.error"), NkColor{232, 106, 106, 255});
 				dl.PopClipRect();
 				return;
 			}
 
-			// La page est clippee a `view` : elle ne peut plus deborder sur la barre.
 			dl.PushClipRect(view, true);
 			dl.AddImage(v->texId, {view.x, view.y, static_cast<float32>(texW), static_cast<float32>(texH)},
 						{0.f, 0.f}, {1.f, 1.f}, NkColor{255, 255, 255, 255});
 
-			// ── Selection de texte ────────────────────────────────────────────────
-			// Un PDF ne stocke PAS de texte : il place des glyphes un par un. La
-			// selection travaille donc sur les boites relevees au rendu, dans l'ordre
-			// du flux de contenu — qui est l'ordre de lecture dans l'immense majorite
-			// des documents.
+			// ── Selection de texte ──
+			// Les boites sont en coordonnees du DOCUMENT : la selection traverse donc
+			// les pages en mode continu, ce qu'on attend d'un lecteur.
 			{
 				const NkVec2 mp = ctx.input.mousePos;
-				// En mode cache, les boites de texte sont dans le repere de la PAGE :
-				// on ajoute le defilement a la position souris. En mode fenetre elles
-				// sont deja relatives a la fenetre, donc aucun decalage.
-				const float32 offX = v->fullValid ? v->scrollX : 0.f;
-				const float32 offY = v->fullValid ? v->scrollY : 0.f;
-				const float32 lx = mp.x - view.x + offX, ly = mp.y - view.y + offY;
+				const float32 lx = mp.x - view.x + v->scrollX;
+				const float32 ly = mp.y - view.y + v->scrollY;
 
-				// Element sous la souris, ou le plus proche sur la meme ligne : sans
-				// cette tolerance, il faudrait viser le glyphe au pixel pres.
 				auto pick = [&]() -> int32 {
 					int32 best = -1;
 					float32 bestD = 1e30f;
 					for (usize i = 0; i < v->items.Size(); ++i) {
-						const pdf::NkPdfRenderer::TextItem &t = v->items[i];
+						const NkPdfRenderer::TextItem &t = v->items[i];
 						if (ly < t.y || ly > t.y + t.h)
-							continue; // pas sur cette ligne
+							continue;
 						const float32 cx = t.x + t.w * 0.5f;
 						const float32 d = (lx > cx) ? (lx - cx) : (cx - lx);
 						if (d < bestD) {
@@ -281,11 +336,8 @@ static float32 BarPx() { return editorkit::NkScrollbarWidth(); }
 
 				if (overView && ctx.input.mouseClicked[0]) {
 					const int32 k = pick();
-					if (k >= 0) {
-						v->selA = v->selB = k;
-						v->selecting = true;
-					} else
-						v->selA = v->selB = -1;
+					v->selA = v->selB = k;
+					v->selecting = k >= 0;
 				}
 				if (v->selecting && ctx.input.mouseDown[0]) {
 					const int32 k = pick();
@@ -295,74 +347,59 @@ static float32 BarPx() { return editorkit::NkScrollbarWidth(); }
 				if (!ctx.input.mouseDown[0])
 					v->selecting = false;
 
-				// Surlignage
 				if (v->selA >= 0 && v->selB >= 0) {
 					const int32 a = v->selA < v->selB ? v->selA : v->selB;
 					const int32 b = v->selA < v->selB ? v->selB : v->selA;
 					for (int32 i = a; i <= b && static_cast<usize>(i) < v->items.Size(); ++i) {
-						const pdf::NkPdfRenderer::TextItem &t = v->items[static_cast<usize>(i)];
-						dl.AddRectFilled({view.x + t.x - offX, view.y + t.y - offY, t.w, t.h},
+						const NkPdfRenderer::TextItem &t = v->items[static_cast<usize>(i)];
+						dl.AddRectFilled({view.x + t.x - v->scrollX, view.y + t.y - v->scrollY, t.w, t.h},
 										 NkColor{70, 130, 220, 90});
 					}
-				}
-
-				// Ctrl+C : copie. Les sauts de ligne sont DEDUITS d'un recul
-				// horizontal ou d'un changement de hauteur — un PDF ne dit nulle part
-				// ou finit une ligne.
-				if (v->selA >= 0 && v->selB >= 0 && ctx.input.ctrlDown &&
-					ctx.input.KeyPressed(NkGuiKey::C)) {
-					const int32 a = v->selA < v->selB ? v->selA : v->selB;
-					const int32 b = v->selA < v->selB ? v->selB : v->selA;
-					NkString out;
-					float32 prevX = -1e30f, prevY = -1e30f;
-					int32 manquants = 0;
-					for (int32 i = a; i <= b && static_cast<usize>(i) < v->items.Size(); ++i) {
-						const pdf::NkPdfRenderer::TextItem &t = v->items[static_cast<usize>(i)];
-						if (prevX > -1e29f) {
-							const float32 dy = (t.y > prevY) ? (t.y - prevY) : (prevY - t.y);
-							if (t.x + 1.f < prevX || dy > t.h * 0.5f)
-								out += "\n";
-						}
-						if (t.text.Empty())
-							++manquants;
-						else
+					if (ctx.input.ctrlDown && ctx.input.KeyPressed(NkGuiKey::C)) {
+						NkString out;
+						float32 prevX = -1e30f, prevY = -1e30f;
+						for (int32 i = a; i <= b && static_cast<usize>(i) < v->items.Size(); ++i) {
+							const NkPdfRenderer::TextItem &t = v->items[static_cast<usize>(i)];
+							if (prevX > -1e29f) {
+								const float32 dy = (t.y > prevY) ? (t.y - prevY) : (prevY - t.y);
+								// Un saut de ligne ne se lit nulle part dans un PDF : on le
+								// DEDUIT d'un recul horizontal ou d'un changement de hauteur.
+								if (t.x + 1.f < prevX || dy > t.h * 0.5f)
+									out += "\n";
+							}
 							out += t.text;
-						prevX = t.x;
-						prevY = t.y;
+							prevX = t.x;
+							prevY = t.y;
+						}
+						if (!out.Empty())
+							ctx.SetClipboard(out.CStr());
 					}
-					if (!out.Empty())
-						ctx.SetClipboard(out.CStr());
-					(void)manquants;
 				}
 			}
 			dl.PopClipRect();
 
-			// ── Barres de defilement : celles de NKEditorKit ─────────────────────
-			// NkVScrollbar / NkHScrollbar sont les barres STANDARD du moteur, deja
-			// utilisees partout dans NKCode (menus contextuels, panneaux, editeur).
-			// En ecrire une ici aurait donne un comportement et une apparence
-			// differents du reste de l'IDE — pour rien.
+			// ── Barres STANDARD du moteur ──
 			if (needV) {
 				const NkRect track = {view.x + view.w, view.y, sb, view.h};
-				editorkit::NkVScrollbar(ctx, dl, track, v->scrollY, static_cast<float32>(fullH), view.h,
-										0x50DF0001u, lh * 3.f);
+				editorkit::NkVScrollbar(ctx, dl, track, v->scrollY, totalH, view.h, 0x50DF0001u, lh * 3.f);
 			}
 			if (needH) {
 				const NkRect track = {view.x, view.y + view.h, view.w, sb};
-				editorkit::NkHScrollbar(ctx, dl, track, v->scrollX, static_cast<float32>(fullW), view.w,
-										0x50DF0002u, lh * 3.f);
+				editorkit::NkHScrollbar(ctx, dl, track, v->scrollX, totalW, view.w, 0x50DF0002u, lh * 3.f);
 			}
-			if (needV && needH) // coin entre les deux barres
+			if (needV && needH)
 				dl.AddRectFilled({view.x + view.w, view.y + view.h, sb, sb}, NkColor{26, 28, 34, 255});
 
-			// ── Barre d'outils, dessinee EN DERNIER pour rester au-dessus ────────
+			// ── Barre d'outils, dessinee EN DERNIER pour rester au-dessus ──
 			dl.AddRectFilled(bar, NkColor{24, 26, 32, 255});
 			float32 bx = bar.x + ctx.S(8);
-			auto button = [&](const char *label, float32 wpx, bool enabled) -> bool {
+			auto button = [&](const char *label, float32 wpx, bool enabled, bool active = false) -> bool {
 				const NkRect b = {bx, bar.y + ctx.S(5), wpx, barH - ctx.S(10)};
 				const bool hov = enabled && NkGuiRectContains(b, ctx.input.mousePos);
-				dl.AddRectFilled(b, hov ? NkColor{58, 62, 74, 255}
-										: NkColor{40, 43, 52, static_cast<uint8>(enabled ? 255 : 120)});
+				dl.AddRectFilled(b, active ? NkCol::primary
+										   : (hov ? NkColor{58, 62, 74, 255}
+												  : NkColor{40, 43, 52,
+															static_cast<uint8>(enabled ? 255 : 120)}));
 				if (font && font->Valid()) {
 					const float32 tw = font->MeasureWidth(label);
 					dl.AddText(font->Face(), font->TexId(),
@@ -373,15 +410,23 @@ static float32 BarPx() { return editorkit::NkScrollbarWidth(); }
 				return hov && ctx.input.mouseClicked[0];
 			};
 
-			const bool canPrev = v->pageIdx > 0;
-			const bool canNext = v->pageIdx + 1 < v->doc.PageCount();
-			if (button("<", ctx.S(28), canPrev)) {
-				--v->pageIdx;
-				v->scrollX = v->scrollY = 0.f;
+			// Naviguer = DEPLACER LE DEFILEMENT en mode continu (instantane, la page
+			// est deja rendue ou le sera seule), changer de page sinon.
+			if (button("<", ctx.S(28), v->pageIdx > 0)) {
+				if (v->continuous)
+					v->scrollY = v->pageTop[static_cast<usize>(v->pageIdx > 0 ? v->pageIdx - 1 : 0)];
+				else {
+					--v->pageIdx;
+					v->scrollY = 0.f;
+				}
 			}
-			if (button(">", ctx.S(28), canNext)) {
-				++v->pageIdx;
-				v->scrollX = v->scrollY = 0.f;
+			if (button(">", ctx.S(28), v->pageIdx + 1 < v->doc.PageCount())) {
+				if (v->continuous)
+					v->scrollY = v->pageTop[static_cast<usize>(v->pageIdx + 1)];
+				else {
+					++v->pageIdx;
+					v->scrollY = 0.f;
+				}
 			}
 			{
 				const NkString lbl = NkPrintf("%d / %d", v->pageIdx + 1, v->doc.PageCount());
@@ -401,14 +446,23 @@ static float32 BarPx() { return editorkit::NkScrollbarWidth(); }
 				if (font && font->Valid())
 					dl.AddText(font->Face(), font->TexId(), {bx, bar.y + (barH - lh) * 0.5f + asc},
 							   lbl.CStr(), NkCol::mutedFg);
+				bx += ctx.S(60);
+			}
+			// Bascule de mode, mise en evidence quand le mode continu est actif.
+			if (button(NkT("pdf.mode.continuous"), ctx.S(96), true, v->continuous)) {
+				// On conserve la position de lecture en passant d'un mode a l'autre :
+				// sans ca, l'utilisateur perd sa place a chaque bascule.
+				if (v->continuous)
+					v->scrollY -= v->pageTop[static_cast<usize>(v->pageIdx)];
+				else
+					v->scrollY += v->pageTop[static_cast<usize>(v->pageIdx)];
+				v->continuous = !v->continuous;
 			}
 
-			// Avertissement de fidelite : l'utilisateur doit savoir qu'une page est
-			// partielle, plutot que de croire son document abime.
 			if (!v->unsupported.Empty() && font && font->Valid()) {
 				const NkString msg = NkString(NkT("pdf.partial")) + " : " + v->unsupported;
 				const float32 tw = font->MeasureWidth(msg.CStr());
-				if (tw < r.w * 0.45f)
+				if (tw < r.w * 0.35f)
 					dl.AddText(font->Face(), font->TexId(),
 							   {r.x + r.w - tw - ctx.S(10), bar.y + (barH - lh) * 0.5f + asc},
 							   msg.CStr(), NkColor{214, 168, 74, 255});
