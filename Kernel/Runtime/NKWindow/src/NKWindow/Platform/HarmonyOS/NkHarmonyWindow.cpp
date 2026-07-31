@@ -742,6 +742,17 @@ namespace nkentseu {
 	 * @brief Définit le titre de la fenêtre
 	 * @param t Le nouveau titre
 	 */
+	// Decoration : notion INEXISTANTE sur cette plateforme (pas de gestionnaire
+	// de fenetres avec bordure ni barre de titre). On memorise l'intention pour
+	// que IsDecorated() reste coherent, sans rien appliquer.
+	void NkWindow::SetDecorated(bool decorated) {
+		mConfig.frame = decorated;
+	}
+
+	bool NkWindow::IsDecorated() const {
+		return mConfig.frame;
+	}
+
 	void NkWindow::SetTitle(const NkString &t) {
 		mConfig.title = t;
 	}
