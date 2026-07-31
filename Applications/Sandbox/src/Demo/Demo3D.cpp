@@ -190,6 +190,15 @@ namespace nkentseu {
 				int32 editAddModPending = -1;			 // F7/F8/F9 : ajouter modificateur (0=Mirror 1=Array 2=Subsurf)
 				bool editClearModPending = false;		 // F10 : vider la pile de modificateurs
 				int32 editActiveMod = -1;				 // index du modificateur en cours de réglage
+				// PARAMÈTRE courant du modificateur actif. Le réglage ne passe plus par un
+				// `if (type == Mirror) … else if (type == Array) …` : il parcourt la TABLE
+				// publiée par le modificateur. Ajouter un type de modificateur n'oblige donc
+				// plus à revenir modifier la démo — et c'est la même table qu'un éditeur de
+				// courbes utilisera pour proposer « quoi animer ».
+				int32 editActiveParam = 0;
+				int32 editModStackOp = 0;   // 1=monter 2=descendre 3=activer/désactiver
+											// 4=dupliquer 5=retirer 6=appliquer
+				bool editModParamCyclePending = false;
 				int32 editModAdjustPending = 0;			 // [ / ] : ajuster (-1 / +1) le param principal
 				bool editModCyclePending = false;		 // \ : changer de modificateur actif
 				NkVector<renderer::NkEmId> editTriFace;	 // map triangle de rendu -> face n-gon (pick)
@@ -1828,28 +1837,130 @@ namespace nkentseu {
 			if (st->editActiveMod < 0 || st->editActiveMod >= cnt)
 				st->editActiveMod = cnt - 1;
 			renderer::NkMeshModifier &m = st->editModifiers.modifiers[st->editActiveMod];
-			const char *nm[3] = {"Mirror", "Array", "Subsurf"};
-			const char *ax[3] = {"X", "Y", "Z"};
-			if (m.type == renderer::NkModifierType::Mirror) {
-				m.mirrorAxis = (m.mirrorAxis + (dir > 0 ? 1 : 2)) % 3;
-				logger.Info("[Demo3D] Modif[{0}] Mirror axe = {1}\n", st->editActiveMod, ax[m.mirrorAxis]);
-			} else if (m.type == renderer::NkModifierType::Array) {
-				m.arrayCount += dir;
-				if (m.arrayCount < 1)
-					m.arrayCount = 1;
-				if (m.arrayCount > 20)
-					m.arrayCount = 20;
-				logger.Info("[Demo3D] Modif[{0}] Array copies = {1}\n", st->editActiveMod, m.arrayCount);
+			const uint32 pc = m.ParamCount();
+			if (pc == 0)
+				return;
+			if (st->editActiveParam < 0 || st->editActiveParam >= (int32)pc)
+				st->editActiveParam = 0;
+			const renderer::NkModParam *p = m.ParamAt((uint32)st->editActiveParam);
+			if (!p)
+				return;
+			// PAS D'INCRÉMENT PAR TYPE. Un booléen bascule, un entier avance de 1, un
+			// réel avance d'un centième de sa plage (ou de 0,05 si la plage est libre).
+			// Sans cette règle, un même geste ferait passer un compteur de 1 à 2 et une
+			// distance de 0,001 à 1,001 — l'un utilisable, l'autre pas.
+			if (p->type == renderer::NkModParamType::Vec3) {
+				NkVec3f v{0.f, 0.f, 0.f};
+				m.GetParamVec3(p->name, v);
+				const float32 stepv = 0.25f * (float32)dir;
+				v = v + NkVec3f{stepv, 0.f, 0.f}; // décalage principal = X (cf. Array)
+				m.SetParamVec3(p->name, v);
+				logger.Info("[Demo3D] Modif[{0}] {1} = ({2}, {3}, {4})\n", st->editActiveMod, p->label, v.x, v.y, v.z);
 			} else {
-				m.subsurfLevels += dir;
-				if (m.subsurfLevels < 1)
-					m.subsurfLevels = 1;
-				if (m.subsurfLevels > 4)
-					m.subsurfLevels = 4;
-				logger.Info("[Demo3D] Modif[{0}] Subsurf niveaux = {1}\n", st->editActiveMod, m.subsurfLevels);
+				float32 v = 0.f;
+				m.GetParam(p->name, v);
+				float32 step = 1.f;
+				if (p->type == renderer::NkModParamType::Bool)
+					v = (v >= 0.5f) ? 0.f : 1.f;
+				else {
+					if (p->type == renderer::NkModParamType::Float)
+						step = (p->maxV > p->minV) ? (p->maxV - p->minV) * 0.01f : 0.05f;
+					v += step * (float32)dir;
+				}
+				m.SetParam(p->name, v);
+				m.GetParam(p->name, v); // relire : la valeur a pu être écrêtée
+				logger.Info("[Demo3D] Modif[{0}] {1} ({2}) = {3}\n", st->editActiveMod, p->label, p->name, v);
 			}
-			(void)nm;
 			Demo3D_SyncFromHE(st, ms);
+		}
+
+		// Passe au PARAMÈTRE suivant du modificateur actif (touche ; ). Générique :
+		// la liste vient du modificateur, pas d'un switch dans la démo.
+		static void Demo3D_CycleModParam(Demo3DState *st) {
+			const int32 cnt = (int32)st->editModifiers.Count();
+			if (cnt == 0 || st->editActiveMod < 0 || st->editActiveMod >= cnt)
+				return;
+			const renderer::NkMeshModifier &m = st->editModifiers.modifiers[st->editActiveMod];
+			const uint32 pc = m.ParamCount();
+			if (pc == 0)
+				return;
+			st->editActiveParam = (st->editActiveParam + 1) % (int32)pc;
+			const renderer::NkModParam *p = m.ParamAt((uint32)st->editActiveParam);
+			float32 v = 0.f;
+			if (p) {
+				m.GetParam(p->name, v);
+				logger.Info("[Demo3D] Modif[{0}] parametre actif = {1} ({2}) = {3}\n", st->editActiveMod, p->label,
+							p->name, v);
+			}
+		}
+
+		// GESTION DE LA PILE — monter/descendre/activer/dupliquer/retirer/appliquer.
+		// L'ORDRE de la pile est un paramètre de RÉSULTAT : miroir puis tableau ne
+		// donne pas la même chose que tableau puis miroir. Pouvoir déplacer une entrée
+		// n'est donc pas un confort d'interface.
+		static void Demo3D_ModStackOp(Demo3DState *st, renderer::NkMeshSystem *ms, int32 op) {
+			const int32 cnt = (int32)st->editModifiers.Count();
+			if (cnt == 0) {
+				logger.Info("[Demo3D] Pile de modificateurs vide.\n");
+				return;
+			}
+			if (st->editActiveMod < 0 || st->editActiveMod >= cnt)
+				st->editActiveMod = cnt - 1;
+			const uint32 i = (uint32)st->editActiveMod;
+			bool ok = false;
+			switch (op) {
+				case 1:
+					ok = st->editModifiers.MoveUp(i);
+					if (ok)
+						st->editActiveMod--;
+					break;
+				case 2:
+					ok = st->editModifiers.MoveDown(i);
+					if (ok)
+						st->editActiveMod++;
+					break;
+				case 3: ok = st->editModifiers.SetEnabled(i, !st->editModifiers.modifiers[i].enabled); break;
+				case 4:
+					ok = st->editModifiers.Duplicate(i);
+					if (ok)
+						st->editActiveMod = (int32)i + 1; // la copie devient active
+					break;
+				case 5:
+					ok = st->editModifiers.Remove(i);
+					if (ok && st->editActiveMod >= (int32)st->editModifiers.Count())
+						st->editActiveMod = (int32)st->editModifiers.Count() - 1;
+					break;
+				case 6: {
+					// APPLIQUER : cuit dans le maillage ÉDITABLE et retire de la pile.
+					// L'opération est DESTRUCTIVE — d'où le snapshot d'annulation AVANT,
+					// sans lequel un clic malheureux serait irréversible.
+					st->editHistory.Commit(st->editHE);
+					bool notFirst = false;
+					ok = st->editModifiers.ApplyToBase(i, st->editHE, &notFirst);
+					if (ok && notFirst)
+						logger.Info("[Demo3D] ⚠ modificateur appliqué alors qu'il n'était PAS le premier : le "
+									"resultat ne correspond pas a ce qui etait affiche (les precedents n'ont pas "
+									"ete cuits). Comportement de Blender.\n");
+					if (ok && st->editActiveMod >= (int32)st->editModifiers.Count())
+						st->editActiveMod = (int32)st->editModifiers.Count() - 1;
+					break;
+				}
+				default: break;
+			}
+			if (!ok) {
+				logger.Info("[Demo3D] Operation de pile sans effet (bord de pile ?).\n");
+				return;
+			}
+			st->editActiveParam = 0;
+			Demo3D_SyncFromHE(st, ms);
+			// État complet de la pile après l'opération : c'est ce qui permet de
+			// vérifier l'ordre sans capture d'écran.
+			for (uint32 k = 0; k < st->editModifiers.Count(); ++k) {
+				const renderer::NkMeshModifier &mm = st->editModifiers.modifiers[k];
+				logger.Info("[Demo3D][PILE] [{0}] {1} id={2} {3}{4}\n", k, renderer::NkModifierTypeName(mm.type),
+							mm.id, mm.enabled ? "actif" : "ETEINT",
+							((int32)k == st->editActiveMod) ? "  <- selectionne" : "");
+			}
 		}
 
 		static void Demo3D_CycleActiveMod(Demo3DState *st) {
@@ -2567,6 +2678,39 @@ namespace nkentseu {
 					}
 					if (k == NkKey::NK_LBRACKET) {
 						st->editModAdjustPending = -1;
+						return;
+					}
+					// ── GESTION DE LA PILE (Blender : panneau Modificateurs) ─────────
+					// L'ORDRE de la pile est un parametre de RESULTAT — miroir puis tableau
+					// ne donne pas la meme chose que tableau puis miroir — donc deplacer une
+					// entree n'est pas un confort d'interface. Toutes ces touches sont sous
+					// SHIFT pour ne pas voler les raccourcis d'edition existants :
+					//   Shift+\   parametre suivant du modificateur actif
+					//   Shift+Haut / Shift+Bas   monter / descendre dans la pile
+					//   Shift+E   activer/desactiver     Shift+D   dupliquer
+					//   Shift+Suppr  retirer             Shift+Entree  APPLIQUER (destructif)
+					if (k == NkKey::NK_BACKSLASH && shiftG) {
+						st->editModParamCyclePending = true;
+						return;
+					}
+					if (shiftG && (k == NkKey::NK_UP || k == NkKey::NK_DOWN)) {
+						st->editModStackOp = (k == NkKey::NK_UP) ? 1 : 2;
+						return;
+					}
+					if (shiftG && k == NkKey::NK_E) {
+						st->editModStackOp = 3;
+						return;
+					}
+					if (shiftG && k == NkKey::NK_D) {
+						st->editModStackOp = 4;
+						return;
+					}
+					if (shiftG && k == NkKey::NK_DELETE) {
+						st->editModStackOp = 5;
+						return;
+					}
+					if (shiftG && k == NkKey::NK_ENTER) {
+						st->editModStackOp = 6; // APPLIQUER : destructif, snapshot d'annulation pose
 						return;
 					}
 					if (k == NkKey::NK_BACKSLASH) {
@@ -4307,7 +4451,17 @@ namespace nkentseu {
 					}
 					if (st->editModCyclePending) {
 						st->editModCyclePending = false;
+						st->editActiveParam = 0; // nouveau modificateur -> premier parametre
 						Demo3D_CycleActiveMod(st);
+					}
+					if (st->editModParamCyclePending) {
+						st->editModParamCyclePending = false;
+						Demo3D_CycleModParam(st);
+					}
+					if (st->editModStackOp != 0) {
+						const int32 op = st->editModStackOp;
+						st->editModStackOp = 0;
+						Demo3D_ModStackOp(st, meshSysT, op);
 					}
 					// ── OMBRAGE FLAT / SMOOTH (Shift+F / Shift+S) ─────────────────
 					// Pousse la sélection dans l'autorité (une face est « sélectionnée »
