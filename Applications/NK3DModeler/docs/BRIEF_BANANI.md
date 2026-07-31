@@ -298,6 +298,20 @@ le reste étant identique :
   cours d'édition.
 - Dans la barre d'état du bas, le texte de statistiques devient « Sommets 8 ·
   Arêtes 12 · Faces 6 · sél. 3 faces · actif : face 4 · 60 ips ».
+- Une NOUVELLE COLONNE VERTICALE apparaît le long du BORD GAUCHE de la vue 3D,
+  À L'INTÉRIEUR de celle-ci et par-dessus la scène, large d'environ 9 % de la
+  fenêtre et haute de toute la vue : le PANNEAU D'OUTILS. Fond #212121 à 92 %
+  d'opacité, un fin trait vertical #1A1A1A sur son bord droit. Il contient une
+  seule colonne de boutons d'outil, chacun étant une ligne haute portant une
+  petite icône monochrome À GAUCHE et le nom de l'outil à sa droite en gris clair
+  #E6E6E6 : « Sélection », « Curseur », « Déplacer », « Tourner », « Redimen. »,
+  puis un fin trait séparateur horizontal, puis « Extruder », « Biseauter »,
+  « Insérer », « Découper », « Boucle », « Lisser ». Le bouton « Extruder » est
+  ACTIF : sa ligne entière porte un fond bleu plein #1177D1 et son texte passe en
+  blanc. En BAS de cette colonne, séparée par un trait, une petite section
+  repliable intitulée « Options d'extrusion » contenant deux lignes de propriété à
+  deux colonnes, « Distance » avec un champ « 0,25 » et « Décalage pair » avec une
+  case cochée en bleu.
 - Le groupe de MENUS DE COMMANDES à gauche de la barre flottante change de
   contenu : il porte maintenant « Ajouter », « Maillage », « Sommet », « Arête »
   et « Face », chacun suivi d'un petit chevron. Ce sont les mêmes menus que dans
@@ -602,14 +616,66 @@ estompé « ↑↓ naviguer · Entrée exécuter · Échap fermer ».
 
 ---
 
+### 10. Écran I — mode sculpt *(le panneau T y devient indispensable)*
+
+C'est l'écran qui justifie le panneau T : une barre horizontale peut tenir cinq
+outils de transformation, elle ne peut pas tenir une liste de brosses avec leurs
+réglages.
+
+```
+LA MÊME disposition d'application de modélisation 3D que l'écran du mode
+ÉDITION, avec les mêmes panneaux aux mêmes emplacements et les mêmes couleurs,
+mais cette fois en mode SCULPT. Différences par rapport à cet écran, tout le
+reste étant identique :
+
+- Dans la VUE 3D centrale, l'objet n'est plus un cube mais une forme organique
+  arrondie, grise et lisse, sans arêtes visibles ni cage en fil de fer,
+  ressemblant à une masse d'argile grossièrement modelée. Un CERCLE DE BROSSE
+  fin, tracé en blanc à 70 % d'opacité, est posé sur sa surface là où se trouve
+  le pointeur, avec un second cercle concentric plus petit et plus estompé
+  indiquant l'atténuation.
+
+- Le PANNEAU D'OUTILS vertical du bord gauche est PLUS LARGE, environ 13 % de la
+  fenêtre, et son contenu change entièrement. En HAUT, une grille de vignettes de
+  brosses sur DEUX colonnes, chaque vignette étant un carré arrondi au fond
+  #2B2B2B contenant une petite icône monochrome et, sous elle, un nom court en
+  très petits caractères : « Élever », « Creuser », « Lisser », « Pincer »,
+  « Gonfler », « Aplanir », « Masque », « Peindre ». La vignette « Élever » est
+  ACTIVE : son fond est bleu plein #1177D1 et son contour est plus clair.
+
+  SOUS cette grille, séparés par un fin trait horizontal #1A1A1A, les réglages de
+  la brosse courante, en mise en page à deux colonnes : « Rayon » avec un curseur
+  horizontal rempli aux deux tiers en ORANGE #F2980E et la valeur « 42 px » à sa
+  droite ; « Force » avec un curseur rempli à moitié en orange et « 0,50 » ;
+  « Atténuation » avec un petit APERÇU DE COURBE — un carré au fond #141414 dans
+  lequel est tracée une courbe descendante douce en orange. Puis une ligne
+  « Symétrie » portant trois petits boutons carrés côte à côte marqués « X »,
+  « Y », « Z », où seul « X » est rempli en bleu plein #1177D1.
+
+- Dans la barre d'outils en surimpression du HAUT de la vue, le groupe de menus
+  de commandes porte maintenant « Sculpt » et « Masque » au lieu des menus du
+  mode édition.
+
+- Dans le panneau de hiérarchie à gauche, la ligne de l'objet est précédée d'une
+  petite icône de brosse au lieu du crayon.
+
+- Dans la barre d'état du bas, le texte devient « Sculpt · brosse Élever ·
+  rayon 42 · force 0,50 · symétrie X · 60 ips ».
+```
+
+---
+
 ## Notes d'usage
 
 **Ordre de génération.** Faire l'écran **1 (calibrage)** d'abord : il valide la
 palette, et surtout que le bleu et l'ambre sont bien distincts. Puis l'écran
 **2 (mode objet)**, qui sert ensuite d'**image de référence** pour les écrans 3
 à 7 — cela évite que Banani ré-improvise une disposition à chaque essai.
-Les écrans **8 (menu contextuel)** et **9 (palette de recherche)** dérivent de
-l'écran **3 (mode édition)** — les fournir tous deux comme image de référence.
+Les écrans **8 (menu contextuel)**, **9 (palette de recherche)** et **10 (mode
+sculpt)** dérivent de l'écran **3 (mode édition)** — le fournir comme image de
+référence. L'écran **10** est celui qui justifie le panneau T : le générer permet
+de vérifier qu'une liste de brosses et ses réglages y tiennent sans étouffer la
+vue 3D.
 Les écrans **6 (nœuds)** et **7 (assistant)** peuvent attendre : ils décrivent des
 fonctions dont l'implantation vient après. Les produire tôt reste utile pour
 valider que la grammaire visuelle tient sur autre chose qu'un panneau de

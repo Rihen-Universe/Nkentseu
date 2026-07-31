@@ -409,11 +409,42 @@ laisserait l'utilisateur débutant le rester.
 | **menu contextuel** au clic droit, filtré par le mode de sélection courant | usage courant : ce qu'on peut faire **ici**, sans traverser l'écran | ❌ nouvel écran G |
 | **palette de recherche** : on tape « extru », on obtient la commande, son chemin de menu et son raccourci | filet de sécurité — permet à l'interface de rester dépouillée sans rien rendre introuvable | ❌ nouvel écran H |
 | **panneau de dernière opération**, flottant en bas à gauche de la vue | on extrude d'abord, on **règle ensuite** au chiffre près | ❌ à maquetter — **modifie** l'écran B |
+| **panneau T**, vertical à gauche de la vue, repliable (touche `T`) | la liste des outils et les réglages de l'outil courant — **indispensable au sculpt** | ❌ à maquetter — **modifie** l'écran B, plus un écran sculpt |
 
-Un cinquième chemin avait été annoncé — une barre d'outils verticale à gauche du
-viewport. Vérification faite, **elle existe déjà** dans l'écran A sous une autre
-forme : le groupe de boutons carrés à droite de la barre flottante (curseur,
-déplacement, rotation, échelle). En ajouter une seconde ferait doublon.
+### Le panneau T — barre d'outils verticale *(Rihen, 31/07 — révision)*
+
+J'avais écarté ce cinquième chemin en jugeant qu'il ferait doublon avec le groupe
+de boutons carrés de la barre flottante. **C'était une erreur d'analyse**, et la
+raison est le sculpt : une barre horizontale peut tenir cinq outils de
+transformation, elle ne peut pas tenir une **liste de brosses avec leurs
+réglages**. Or le sculpt est au périmètre.
+
+Les deux ne font donc pas doublon, ils ne portent pas la même chose :
+
+| | contenu | pourquoi là |
+|---|---|---|
+| **barre flottante** (haut de la vue) | l'outil **actif** et le mode de vue | changement rapide, toujours visible, coût vertical nul |
+| **panneau T** (gauche de la vue, repliable) | la **liste** des outils et les **réglages de l'outil courant** | il faut de la hauteur : brosses, force, rayon, courbe d'atténuation, symétrie |
+
+**Contenu par mode :**
+
+- **objet** — sélection, curseur, déplacement, rotation, échelle, transformer ;
+- **édition** — les précédents plus extruder, biseauter, insérer, découper,
+  boucle de coupe, glisser une arête, lisser, poinçonner ;
+- **sculpt** — la liste des brosses (élever, creuser, lisser, pincer, gonfler,
+  aplanir, masque, peindre — les huit modes déjà déclarés dans `NkSculptTypes.h`),
+  et sous elle les réglages de la brosse courante : **rayon**, **force**, **courbe
+  d'atténuation** (les cinq profils déjà déclarés), **symétrie X/Y/Z**.
+
+**Repliable, et refermé par défaut en mode objet.** Un débutant qui ouvre le
+logiciel doit voir la scène, pas trois panneaux. En mode sculpt il s'ouvre seul :
+sans lui, le mode est inutilisable.
+
+**Raccourci `T`**, comme Blender — c'est le geste que tout utilisateur venant de
+Blender essaiera en premier, et le refuser n'apporterait rien.
+
+Comme les quatre autres chemins, il se peuple depuis `NkShortcutTable` ; ses
+réglages de brosse depuis `NkModParam`. Toujours aucune liste écrite deux fois.
 
 ### Ce que ça coûte en code : rien de nouveau
 
@@ -428,8 +459,9 @@ paramètres nommés, mêmes bornes, même rendu générique que le panneau
 Modificateurs (§ 7). C'est le troisième consommateur de ce mécanisme.
 
 **Conséquence sur la génération de maquettes** : les écrans A et B sont à
-**refaire** (leur barre flottante change, et B gagne le panneau de dernière
-opération) ; G et H sont **nouveaux**. Les autres écrans ne bougent pas.
+**refaire** (barre flottante, panneau de dernière opération, et **panneau T
+ouvert** sur B) ; G, H et **I (mode sculpt)** sont **nouveaux**. Les autres
+écrans ne bougent pas.
 
 ---
 
