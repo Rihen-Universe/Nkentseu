@@ -254,3 +254,27 @@ with project("NkPdfRenderProbe"):
         defines(["NDEBUG"])
         optimize("Speed")
         symbols(False)
+
+
+# Banc de diagnostic : lecture de fichiers (NkFile, apres le passage aux API
+# larges de Windows) et fil de rendu PDF. Un « ca ne marche plus » ne se
+# diagnostique pas en relisant le code : on exerce le chemin exact.
+with project("NkFileWorkerTest"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    files(["src/NKCode/Pdf/**.cpp", "src/NKCode/Shell/NkPdfWorker.cpp",
+           "tools/FileWorkerTest.cpp"])
+    includedirs(["src"])
+
+    nkentseudependson(
+        ["NKFont", "NKImage", "NKFileSystem", "NKStream", "NKThreading", "NKLogger",
+         "NKMath", "NKTime", "NKContainers", "NKMemory", "NKCore", "NKPlatform"],
+    )
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG"])
+        optimize("Off")
+        symbols(True)

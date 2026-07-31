@@ -300,6 +300,24 @@ namespace nkentseu {
 			const double dpi = DpiFor(v, static_cast<int32>(area.w - sb));
 			EnsureLayout(v, dpi, static_cast<int32>(area.w - sb), gap);
 
+			// GARDE-FOUS. La disposition est indexee par numero de page dans
+			// plusieurs formules. Si elle est vide ou desynchronisee du document, on
+			// sort proprement au lieu de lire hors des tableaux : ce genre de
+			// depassement passe souvent inapercu en Debug et corrompt la memoire en
+			// Release.
+			const int32 nPages = v->doc.PageCount();
+			if (v->pageTop.Size() != static_cast<usize>(nPages) ||
+				v->pageH.Size() != static_cast<usize>(nPages) ||
+				v->pageW.Size() != static_cast<usize>(nPages)) {
+				centered(NkT("pdf.render.error"), NkColor{232, 106, 106, 255});
+				dl.PopClipRect();
+				return;
+			}
+			if (v->pageIdx < 0)
+				v->pageIdx = 0;
+			if (v->pageIdx >= nPages)
+				v->pageIdx = nPages - 1;
+
 			// Etendue defilable : tout le document en continu, la page seule sinon.
 			const float32 totalH = v->continuous
 									   ? v->docH
