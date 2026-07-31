@@ -13,6 +13,7 @@
 // =============================================================================
 
 #include "NK3DModeler/Viewport/NkViewport3D.h"
+#include "NK3DModeler/Viewport/NkDemo3DHost.h" // PORTAGE INTEGRAL de --demo=2
 #include "NK3DModeler/Shell/NkModelerUI.h"
 #include "NK3DModeler/Shell/NkModelerInput.h"
 #include "NK3DModeler/Shell/NkModelerWidgets.h"
@@ -1193,9 +1194,12 @@ namespace nkentseu {
 			// et on pose ici SA TEXTURE. Aucune relecture CPU, aucune seconde pile
 			// GPU : l'image ne quitte jamais la carte.
 			p.Fill(r, NkRole::ViewportTop); // fond, visible tant que la 3D n'est pas prete
-			if (nk3d::Viewport3DReady()) {
+			// PORTAGE INTEGRAL de --demo=2 : la texture vient desormais de la demo
+			// portee (NkDemo3D.cpp), sous le MEME id 4096. L'ancienne vue est
+			// dormante ; c'est donc l'hote de la demo qui dit « pret ».
+			if (demo::Demo3DHostReady()) {
 				p.Image(nk3d::kViewportTexId, r);
-			} else if (const char *e = nk3d::Viewport3DError()) {
+			} else if (const char *e = demo::Demo3DHostError()) {
 				// UN ECHEC SE DIT. Un viewport reste noir ne distingue pas « la carte
 				// a refuse la cible » de « la scene est vide », et on cherche le
 				// probleme du mauvais cote pendant une heure.

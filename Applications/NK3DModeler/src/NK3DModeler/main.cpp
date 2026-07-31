@@ -26,6 +26,7 @@
 #include "NKEvent/NKEvent.h"
 #include "NKGui/NkEditorRHIRenderer.h" // Integrations/NKGui
 #include "NK3DModeler/Viewport/NkViewport3D.h"
+#include "NK3DModeler/Viewport/NkDemo3DHost.h" // PORTAGE INTEGRAL de --demo=2
 #include "NKGui/Core/NkGuiContext.h"
 #include "NKGui/Core/NkGuiFont.h"
 #include "NKTime/NkClock.h"
@@ -134,8 +135,12 @@ int nkmain(const NkEntryState &entry) {
 	// aupres du backend, pour que la draw-list n'ait plus qu'a la poser.
 	static auto preUI3D = [](NkICommandBuffer *cmd, void *user) {
 		auto *r = static_cast<nkgui::NkEditorRHIRenderer *>(user);
-		nk3d::Viewport3DRenderOffscreen(cmd);
-		nk3d::Viewport3DRegisterInto(&r->GetBackend());
+		// PORTAGE INTEGRAL de --demo=2 : la vue 3D est desormais la demo de
+		// renderdemo, portee telle quelle (NkDemo3D.cpp). L'ancienne vue
+		// (NkViewport3D) reste compilee mais DORMANTE — on ne lui donne plus
+		// de device, donc chacun de ses appels est un no-op sans danger.
+		demo::Demo3DHostFrame(cmd);
+		demo::Demo3DHostRegisterInto(&r->GetBackend());
 	};
 
 	nkgui::NkEditorRHIRenderer renderer;
@@ -157,7 +162,9 @@ int nkmain(const NkEntryState &entry) {
 	// Le device de l'interface EST celui de la vue 3D. C'est toute la raison
 	// d'avoir quitte NKCanvas : deux piles GPU dans une fenetre, le depot
 	// l'interdit, et une relecture CPU par image serait hors de question.
-	nk3d::Viewport3DSetSharedDevice(renderer.GetDevice());
+	// L'ancienne vue ne recoit VOLONTAIREMENT plus le device : c'est ce qui la
+	// rend dormante (son Init3D echoue proprement et chaque facade se tait).
+	demo::Demo3DHostSetDevice(renderer.GetDevice());
 	renderer.SetPreUI(preUI3D, &renderer);
 
 	math::NkVec2u real0 = renderer.Size();
@@ -534,6 +541,11 @@ int nkmain(const NkEntryState &entry) {
 		nk3d::Viewport3DSetShading(st.shading, st.solidLight);
 		nk3d::Viewport3DSetOverlays(st.overlayMask);
 		nk3d::Viewport3DResize((uint32)lay.view.w, (uint32)lay.view.h);
+		// La demo portee recoit la taille de la vue, son origine (traduction
+		// souris fenetre -> vue), le survol (ses raccourcis n'ecoutent que la
+		// vue survolee, comme Blender) et la garde de saisie de texte.
+		demo::Demo3DHostResize((uint32)lay.view.w, (uint32)lay.view.h);
+		demo::Demo3DHostSetView(lay.view.x, lay.view.y, overSceneLastFrame, !st.editingText);
 		nk3d::Viewport3DSetEditMode(st.mode != NkMode::Object);
 		// Le sous-mode de la vue devient le masque de selection. Un seul bit ici :
 		// les trois boutons sont exclusifs. Les combiner (Maj+1/2/3 chez Blender)
@@ -953,6 +965,7 @@ int nkmain(const NkEntryState &entry) {
 		}
 	}
 
+	demo::Demo3DHostShutdown();
 	nk3d::Viewport3DShutdown();
 	renderer.Shutdown();
 	ui.Shutdown();
