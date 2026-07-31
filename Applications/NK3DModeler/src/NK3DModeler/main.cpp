@@ -146,7 +146,14 @@ int nkmain(const NkEntryState &entry) {
 	printf("[nk3d] %u icones chargees.\n", icons.LoadedCount());
 
 	// ── ETAT ────────────────────────────────────────────────────────────────
-	bool editMode = false;
+	// Le MODE est un indice dans la liste des modes, plus un booleen : la liste
+	// s'allongera (sculpt 2.5D, sculpt reel, texturing, rigging), et un booleen
+	// aurait cesse de suffire au troisieme.
+	int32 mode = 0; // 0 objet, 1 edition, 2 sculpt 2.5D, 3 sculpt, 4 texturing
+	// Defilements. Poses ici et non dans les fonctions de peinture : ce sont des
+	// etats de session, ils doivent survivre a la frame.
+	float32 scrollHier = 0.f, scrollProps = 0.f, scrollDetails = 0.f;
+	float32 scrollTree = 0.f, scrollAssets = 0.f;
 	static const char *const kScenes[] = {"Scene_01", "Scene_02"};
 
 	NkClock clock;
@@ -184,12 +191,13 @@ int nkmain(const NkEntryState &entry) {
 
 		PaintMenuBar(p, lay.menu, "MonProjet");
 		PaintTabs(p, lay.tabs, kScenes, 2, 0);
-		PaintToolbar(p, lay.tool, editMode);
-		PaintHierarchy(p, lay.left, 1);
+		const bool editMode = (mode == 1);
+		PaintToolbar(p, lay.tool, mode);
+		PaintHierarchy(p, lay.left, 1, scrollHier);
 		PaintViewport(p, lay.view, editMode, shortcuts);
-		PaintProperties(p, lay.propsR);
-		PaintDetails(p, lay.detailsR);
-		PaintBrowser(p, lay.browser);
+		PaintProperties(p, lay.propsR, scrollProps);
+		PaintDetails(p, lay.detailsR, scrollDetails);
+		PaintBrowser(p, lay.browser, scrollTree, scrollAssets);
 		PaintStatus(p, lay.status,
 					editMode ? "Sommets 8 - Aretes 12 - Faces 6 - sel. 3 faces - 60 ips"
 							 : "Objets 6 - selectionne : Cube - 60 ips");

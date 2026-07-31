@@ -65,6 +65,14 @@ namespace nkentseu {
 			Import,
 			Refresh,
 			Lock,
+			Unlock,
+			EyeClosed,
+			Zoom,
+			Pan,
+			Camera,
+			Ortho,
+			Gizmo,
+			Overlay,
 			Count
 		};
 
@@ -115,6 +123,14 @@ namespace nkentseu {
 						{NkIcon::Import, "desktop-download"},
 						{NkIcon::Refresh, "refresh"},
 						{NkIcon::Lock, "lock"},
+						{NkIcon::Unlock, "unlock"},
+						{NkIcon::EyeClosed, "eye-closed"},
+						{NkIcon::Zoom, "zoom-in"},
+						{NkIcon::Pan, "move"},
+						{NkIcon::Camera, "device-camera"},
+						{NkIcon::Ortho, "layout"},
+						{NkIcon::Gizmo, "location"},
+						{NkIcon::Overlay, "circle-filled"},
 					};
 
 					const NkString exeDir = NkPath::GetExecutableDirectory().ToString();

@@ -99,6 +99,14 @@ namespace nkentseu {
 			ViewportBottom,
 			GridLine,
 
+			// Dossier. AJOUTE EN FIN, comme l'exige la regle append-only : l'inserer
+			// pres des autres types aurait decale tous les roles suivants et un theme
+			// deja enregistre aurait relu les mauvaises couleurs.
+			// Il lui faut un role a lui : un dossier n'est pas un type d'asset, c'est
+			// un CONTENANT, et il apparait a la fois dans la hierarchie et dans le
+			// navigateur de projet -- les deux doivent parler la meme couleur.
+			TypeFolder,
+
 			Count
 		};
 
