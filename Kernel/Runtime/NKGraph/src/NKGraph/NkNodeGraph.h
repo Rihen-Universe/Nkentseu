@@ -73,6 +73,10 @@ namespace nkentseu {
 				NkNodeId id = NK_NODE_INVALID;
 				NkString type;			  ///< CLE du type de noeud, ex. « mesh.extrude »
 				NkString label;			  ///< libelle affichable, traduisible
+				// Renseigne UNIQUEMENT sur un noeud d'instance (type
+				// NK_NODE_INSTANCE) : nom du graphe instancie dans le document.
+				// Vide partout ailleurs.
+				NkString subgraph;
 				float32 x = 0.f, y = 0.f; ///< position dans le canevas (couche 2)
 				NkVector<NkSocket> sockets;
 				bool alive = true;

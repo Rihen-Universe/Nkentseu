@@ -36,6 +36,7 @@
 //                                     sortie 1 si divergence (utilisable en CI)
 // =============================================================================
 #include "NKRenderer/Mesh/NkEditMesh.h"
+#include "NKGraph/NkGraphDocument.h"
 #include "NKGraph/NkNodeGraph.h"
 #include "NKRenderer/Mesh/NkMeshAnalysis.h"
 #include "NKRenderer/Core/NkGizmo.h"
@@ -2012,6 +2013,268 @@ static void GraphIOBattery() {
 	}
 }
 
+// -- GRAPHE : SOUS-GRAPHES ET PLAN APLATI ------------------------------------
+// Un sous-graphe n'est pas « un graphe range dans un noeud » : c'est une brique
+// NOMMEE, definie une fois et INSTANCIEE plusieurs fois -- corriger le groupe
+// une fois doit corriger les cinq instances. Les cas visent ce qui distingue une
+// vraie implantation d'une approximation :
+//   * apres aplatissement, les noeuds d'instance et de frontiere ont DISPARU, et
+//     les entrees pointent sur les etapes REELLES, a travers les frontieres ;
+//   * deux instances du meme groupe donnent DEUX calculs, pas un partage ;
+//   * une entree libre vaut NK_EVAL_NO_SOURCE et surtout PAS 0 -- 0 est un index
+//     d'etape valide, et cette confusion produit un resultat plausible.
+static void GraphDocBattery() {
+	using namespace nkentseu::graph;
+
+	// Construit le groupe « double » : entree -> A -> B -> sortie.
+	auto buildGroup = [](NkNodeGraph &g) {
+		const NkTypeId T = g.RegisterType("flux");
+		NkNodeId gin = g.AddNode(NK_NODE_GROUP_IN, "entree");
+		NkNodeId a = g.AddNode("calc.a", "A");
+		NkNodeId b = g.AddNode("calc.b", "B");
+		NkNodeId gout = g.AddNode(NK_NODE_GROUP_OUT, "sortie");
+		g.AddSocket(gin, "e", T, NkSocketDir::Output);
+		g.AddSocket(a, "in", T, NkSocketDir::Input);
+		g.AddSocket(a, "out", T, NkSocketDir::Output);
+		g.AddSocket(b, "in", T, NkSocketDir::Input);
+		g.AddSocket(b, "out", T, NkSocketDir::Output);
+		g.AddSocket(gout, "s", T, NkSocketDir::Input);
+		g.Connect(gin, "e", a, "in");
+		g.Connect(a, "out", b, "in");
+		g.Connect(b, "out", gout, "s");
+	};
+
+	// Rend « src>A>B>dst » a partir du plan : ce sont les LIBELLES des etapes,
+	// donc ce qui subsiste reellement apres aplatissement.
+	auto trace = [](const NkGraphDocument &doc, const NkEvalPlan &plan, char *buf, uint32 cap) {
+		uint32 w = 0;
+		buf[0] = 0;
+		for (uint32 i = 0; i < plan.Size() && w + 1 < cap; ++i) {
+			const NkEvalStep &st = plan.steps[i];
+			const NkNode *n = doc.GraphAt(st.graph).Find(st.node);
+			const int32 k = snprintf(buf + w, (size_t)(cap - w), "%s%s", w ? ">" : "", n ? n->label.CStr() : "?");
+			if (k <= 0)
+				break;
+			w += (uint32)k;
+		}
+	};
+
+	// 1) L'APLATISSEMENT ELIMINE LA FRONTIERE. Le plan doit contenir src, A, B,
+	//    dst -- ni le noeud d'instance, ni les deux noeuds de frontiere. Et
+	//    surtout : l'entree de `dst` doit pointer sur l'etape de B, qui se trouve
+	//    de l'autre cote d'une frontiere. Compter les etapes ne suffirait pas ;
+	//    c'est ce raccordement qui prouve l'aplatissement.
+	{
+		NkGraphDocument doc;
+		const uint32 gi = doc.AddGraph("double");
+		buildGroup(doc.GraphAt(gi));
+		const uint32 ri = doc.AddGraph("racine");
+		doc.SetRoot(ri);
+		NkNodeGraph &r = doc.GraphAt(ri);
+		const NkTypeId T = r.RegisterType("flux");
+		NkNodeId src = r.AddNode("source", "src");
+		NkNodeId inst = r.AddNode(NK_NODE_INSTANCE, "inst");
+		NkNodeId dst = r.AddNode("puits", "dst");
+		r.Find(inst)->subgraph = NkString("double");
+		r.AddSocket(src, "out", T, NkSocketDir::Output);
+		r.AddSocket(inst, "e", T, NkSocketDir::Input);
+		r.AddSocket(inst, "s", T, NkSocketDir::Output);
+		r.AddSocket(dst, "in", T, NkSocketDir::Input);
+		r.Connect(src, "out", inst, "e");
+		r.Connect(inst, "s", dst, "in");
+
+		NkEvalPlan plan;
+		const NkPlanError e = doc.BuildPlan(plan);
+		char t[128];
+		trace(doc, plan, t, sizeof(t));
+		// L'etape de `dst` est la derniere ; sa source doit etre l'etape de B.
+		const char *srcDeDst = "?";
+		if (plan.Size() > 0) {
+			const NkEvalStep &last = plan.steps[plan.Size() - 1];
+			if (last.inputs.Size() > 0 && last.inputs[0].srcStep != NK_EVAL_NO_SOURCE
+				&& last.inputs[0].srcStep < plan.Size()) {
+				const NkEvalStep &p = plan.steps[last.inputs[0].srcStep];
+				const NkNode *n = doc.GraphAt(p.graph).Find(p.node);
+				if (n)
+					srcDeDst = n->label.CStr();
+			}
+		}
+		GraphPut("%-34s %s etapes=%u [%s] dst<-%s (doit etre B)", "graphe/aplati-frontiere-disparait",
+				 NkPlanErrorName(e), plan.Size(), t, srcDeDst);
+	}
+
+	// 2) LE CAS QUI TRANCHE -- DEUX INSTANCES DU MEME GROUPE.
+	//    Une implantation qui memoriserait le resultat par GRAPHE n'emettrait le
+	//    groupe qu'UNE fois, et les deux branches liraient la meme valeur. Il faut
+	//    donc voir A et B DEUX fois, et les deux puits doivent pointer sur des
+	//    etapes DIFFERENTES.
+	{
+		NkGraphDocument doc;
+		const uint32 gi = doc.AddGraph("double");
+		buildGroup(doc.GraphAt(gi));
+		const uint32 ri = doc.AddGraph("racine");
+		doc.SetRoot(ri);
+		NkNodeGraph &r = doc.GraphAt(ri);
+		const NkTypeId T = r.RegisterType("flux");
+		NkNodeId d1 = 0, d2 = 0;
+		for (int32 k = 0; k < 2; k++) {
+			char sn[16], in[16], dn[16];
+			snprintf(sn, sizeof(sn), "src%d", k + 1);
+			snprintf(in, sizeof(in), "i%d", k + 1);
+			snprintf(dn, sizeof(dn), "dst%d", k + 1);
+			NkNodeId src = r.AddNode("source", sn);
+			NkNodeId inst = r.AddNode(NK_NODE_INSTANCE, in);
+			NkNodeId dst = r.AddNode("puits", dn);
+			r.Find(inst)->subgraph = NkString("double");
+			r.AddSocket(src, "out", T, NkSocketDir::Output);
+			r.AddSocket(inst, "e", T, NkSocketDir::Input);
+			r.AddSocket(inst, "s", T, NkSocketDir::Output);
+			r.AddSocket(dst, "in", T, NkSocketDir::Input);
+			r.Connect(src, "out", inst, "e");
+			r.Connect(inst, "s", dst, "in");
+			(k == 0 ? d1 : d2) = dst;
+		}
+		NkEvalPlan plan;
+		const NkPlanError e = doc.BuildPlan(plan);
+		uint32 nbA = 0, s1 = NK_EVAL_NO_SOURCE, s2 = NK_EVAL_NO_SOURCE;
+		for (uint32 i = 0; i < plan.Size(); ++i) {
+			const NkNode *n = doc.GraphAt(plan.steps[i].graph).Find(plan.steps[i].node);
+			if (!n)
+				continue;
+			if (strcmp(n->label.CStr(), "A") == 0)
+				nbA++;
+			if (n->id == d1 && plan.steps[i].inputs.Size())
+				s1 = plan.steps[i].inputs[0].srcStep;
+			if (n->id == d2 && plan.steps[i].inputs.Size())
+				s2 = plan.steps[i].inputs[0].srcStep;
+		}
+		GraphPut("%-34s %s etapes=%u A-emis=%u (doit valoir 2) dst1<-%u dst2<-%u distincts=%d",
+				 "graphe/aplati-deux-instances", NkPlanErrorName(e), plan.Size(), nbA, s1, s2,
+				 (s1 != s2 && s1 != NK_EVAL_NO_SOURCE) ? 1 : 0);
+	}
+
+	// 3) RECURSION REFUSEE, directe ET indirecte. L'indirecte est le vrai cas :
+	//    une garde qui ne comparerait qu'au graphe courant laisserait passer
+	//    G -> H -> G et ferait deborder la pile.
+	{
+		NkGraphDocument dd;
+		const uint32 g = dd.AddGraph("G");
+		dd.SetRoot(g);
+		{
+			NkNodeGraph &x = dd.GraphAt(g);
+			NkNodeId i = x.AddNode(NK_NODE_INSTANCE, "moi-meme");
+			x.Find(i)->subgraph = NkString("G");
+		}
+		NkEvalPlan p1;
+		const NkPlanError e1 = dd.BuildPlan(p1);
+
+		NkGraphDocument di;
+		const uint32 a = di.AddGraph("G"), b = di.AddGraph("H");
+		di.SetRoot(a);
+		{
+			NkNodeId i = di.GraphAt(a).AddNode(NK_NODE_INSTANCE, "vers-H");
+			di.GraphAt(a).Find(i)->subgraph = NkString("H");
+			NkNodeId j = di.GraphAt(b).AddNode(NK_NODE_INSTANCE, "retour-G");
+			di.GraphAt(b).Find(j)->subgraph = NkString("G");
+		}
+		NkEvalPlan p2;
+		const NkPlanError e2 = di.BuildPlan(p2);
+
+		NkGraphDocument du;
+		const uint32 u = du.AddGraph("racine");
+		du.SetRoot(u);
+		{
+			NkNodeId i = du.GraphAt(u).AddNode(NK_NODE_INSTANCE, "fantome");
+			du.GraphAt(u).Find(i)->subgraph = NkString("nexiste.pas");
+		}
+		NkEvalPlan p3;
+		const NkPlanError e3 = du.BuildPlan(p3);
+
+		GraphPut("%-34s directe=%s indirecte=%s inconnu=%s", "graphe/aplati-recursion-refusee",
+				 NkPlanErrorName(e1), NkPlanErrorName(e2), NkPlanErrorName(e3));
+	}
+
+	// 4) LA SENTINELLE. Une entree LIBRE doit valoir NK_EVAL_NO_SOURCE et non 0 :
+	//    0 est l'index de la PREMIERE etape, donc une sentinelle a zero ferait
+	//    lire sa sortie a chaque entree non branchee -- resultat plausible, faux,
+	//    et invisible au comptage.
+	{
+		NkGraphDocument doc;
+		const uint32 ri = doc.AddGraph("racine");
+		doc.SetRoot(ri);
+		NkNodeGraph &r = doc.GraphAt(ri);
+		const NkTypeId T = r.RegisterType("flux");
+		NkNodeId premier = r.AddNode("premier", "P");
+		NkNodeId libre = r.AddNode("libre", "L");
+		r.AddSocket(premier, "out", T, NkSocketDir::Output);
+		r.AddSocket(libre, "in", T, NkSocketDir::Input);
+		// AUCUNE connexion : l'entree de L reste libre.
+		NkEvalPlan plan;
+		const NkPlanError e = doc.BuildPlan(plan);
+		uint32 srcLibre = 12345u;
+		for (uint32 i = 0; i < plan.Size(); ++i)
+			if (plan.steps[i].node == libre && plan.steps[i].inputs.Size())
+				srcLibre = plan.steps[i].inputs[0].srcStep;
+		GraphPut("%-34s %s etapes=%u entree-libre=%s (0 serait un BUG)", "graphe/aplati-entree-libre",
+				 NkPlanErrorName(e), plan.Size(),
+				 srcLibre == NK_EVAL_NO_SOURCE ? "sans-source" : (srcLibre == 0 ? "ETAPE-0-BUG" : "autre-BUG"));
+	}
+
+	// 5) ALLER-RETOUR DU DOCUMENT. Le champ `subgraph` est ce qui se perd le plus
+	//    facilement : un document relu sans lui donnerait des instances vides,
+	//    donc un plan reduit au graphe racine. On compare les TEXTES, puis on
+	//    verifie que le plan RECONSTRUIT est identique -- une donnee peut survivre
+	//    a l'ecriture et ne plus rien piloter.
+	{
+		NkGraphDocument doc;
+		const uint32 gi = doc.AddGraph("double");
+		buildGroup(doc.GraphAt(gi));
+		const uint32 ri = doc.AddGraph("racine");
+		doc.SetRoot(ri);
+		NkNodeGraph &r = doc.GraphAt(ri);
+		const NkTypeId T = r.RegisterType("flux");
+		NkNodeId src = r.AddNode("source", "src");
+		NkNodeId inst = r.AddNode(NK_NODE_INSTANCE, "inst");
+		NkNodeId dst = r.AddNode("puits", "dst");
+		r.Find(inst)->subgraph = NkString("double");
+		r.AddSocket(src, "out", T, NkSocketDir::Output);
+		r.AddSocket(inst, "e", T, NkSocketDir::Input);
+		r.AddSocket(inst, "s", T, NkSocketDir::Output);
+		r.AddSocket(dst, "in", T, NkSocketDir::Input);
+		r.Connect(src, "out", inst, "e");
+		r.Connect(inst, "s", dst, "in");
+
+		NkString t1;
+		doc.Serialize(t1);
+		NkGraphDocument relu;
+		const bool lu = relu.Deserialize(t1.CStr());
+		NkString t2;
+		relu.Serialize(t2);
+		bool identique = (t1.Size() == t2.Size());
+		if (identique)
+			for (uint32 i = 0; i < (uint32)t1.Size(); ++i)
+				if (t1.CStr()[i] != t2.CStr()[i]) {
+					identique = false;
+					break;
+				}
+		NkEvalPlan pa, pb;
+		doc.BuildPlan(pa);
+		const NkPlanError eb = relu.BuildPlan(pb);
+		char ta[128], tb[128];
+		trace(doc, pa, ta, sizeof(ta));
+		trace(relu, pb, tb, sizeof(tb));
+		bool memeTrace = true;
+		for (uint32 i = 0; ta[i] || tb[i]; ++i)
+			if (ta[i] != tb[i]) {
+				memeTrace = false;
+				break;
+			}
+		GraphPut("%-34s lu=%d texte-identique=%d graphes=%u plan=%s [%s] meme-plan=%d",
+				 "graphe/doc-aller-retour", lu ? 1 : 0, identique ? 1 : 0, relu.GraphCount(),
+				 NkPlanErrorName(eb), tb, memeTrace ? 1 : 0);
+	}
+}
+
 int main(int argc, char **argv) {
 	bool baseline = false, check = false;
 	for (int32 i = 1; i < argc; i++) {
@@ -2038,6 +2301,7 @@ int main(int argc, char **argv) {
 	AnalysisBattery();
 	GraphBattery();
 	GraphIOBattery();
+	GraphDocBattery();
 
 	const char *path = "editmesh_baseline.txt";
 	if (baseline) {

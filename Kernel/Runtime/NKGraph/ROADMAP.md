@@ -3,8 +3,12 @@
 > Décision d'architecture validée par Rihen le 2026-07-09. **Un seul système de
 > graphe de nodes** pour tout l'écosystème : matériaux (NKRenderer Phase T.2),
 > VFX (Noge), Blueprint/Scratch (NKCode), modélisation procédurale (Kernel/AI),
-> anim graphs / state machines (NkAnima M2), futur rig graph. Aucun code encore —
-> ce document est la spec de référence AVANT la première implémentation.
+> anim graphs / state machines (NkAnima M2), futur rig graph.
+>
+> **Le cœur (couche 1) est livré et prouvé** depuis le 31/07/2026 : modèle,
+> évaluation, sous-graphes, sérialisation, annuler/refaire. Il ne dépend ni de
+> NKCanvas ni de NKRenderer — c'est sa raison d'être. Restent le widget canevas
+> (couche 2, NKEditorKit) et les consommateurs.
 
 ## Architecture en 3 couches (la séparation est la règle n°1)
 
@@ -54,7 +58,7 @@ les types » ; chaque domaine fournit « ses nodes et ce qu'il en fait ».
 | Brique | Statut | Notes |
 |--------|--------|-------|
 | P1 — Modèle de données (nodes/sockets typés/connexions/validation) | ✅ | `src/NKGraph/NkNodeGraph.h/.inl`, **en-tête pur** (testable sans lier de cible, comme `NkShortcutTable`), zero-STL. **Nommé `NkNodeGraph` et non `NkGraph` : `nkentseu::NkGraph<V,Alloc>` existe déjà dans NKContainers** (graphe pondéré générique, DFS/BFS, 877 l.). Conversions implicites **dirigées** et déclarées par le consommateur, jamais devinées. Une entrée n'accepte qu'une source (la 2ᵉ remplace, comme Blender/Unreal). Supprimer un nœud emporte ses liens. Identifiants **jamais recyclés**. |
-| P2 — Évaluation (tri topologique, sous-graphes, plan aplati) | 🔶 | tri topologique + **refus du cycle à la connexion** (avec sa raison) livrés et testés. Restent : sous-graphes, plan aplati. |
+| P2 — Évaluation (tri topologique, sous-graphes, plan aplati) | ✅ | tri topologique + **refus du cycle à la connexion** (avec sa raison) ; **sous-graphes** et **plan aplati** dans `NkGraphDocument.h/.inl`. Un sous-graphe est une brique **nommée**, définie une fois et **instanciée** N fois (groupes de nœuds de Blender, graphes repliés d'Unreal) — corriger le groupe corrige les N instances. Après aplatissement, les nœuds d'instance et de frontière **ont disparu** et chaque entrée pointe sur l'étape réelle, même à trois groupes de distance. Récursion directe **et indirecte** refusée en la nommant. |
 | P3 — Sérialisation `.nkgraph` + undo/redo | ✅ | `NkNodeGraphIO.inl`. Format **texte**, une directive par ligne : un graphe se relit, se compare avec `git diff` et se répare à la main ; le binaire ferait gagner des octets sur des fichiers de quelques Ko. **Écart assumé** : annuler/refaire par **instantanés sérialisés**, pas par commandes inversibles — l'inverse de « supprimer un nœud » doit restaurer le nœud, tous ses liens **et** leurs identifiants, et c'est le genre d'inverse qu'on écrit presque juste, dont l'erreur ne se voit que trois manipulations plus tard. L'instantané est correct par construction. Coût : mémoire ∝ taille × profondeur ; négligeable à cette échelle, et l'API publique ne changera pas si un jour il faut basculer. |
 | P4 — Widget canvas (NKEditorKit) | ❌ | pan/zoom, fils, recherche, groupes, preview |
 | P5 — 1er consommateur : NKCode Phase 4 (Blueprint) OU matériaux T.2 | ❌ | le premier qui démarre construit AVEC le cœur |
@@ -62,7 +66,7 @@ les types » ; chaque domaine fournit « ses nodes et ce qu'il en fait ».
 
 Légende : ✅ Livré · 🔶 Partiel · ⏳ En cours · ❌ TODO · 🚫 Abandonné
 
-**Preuve (31/07/2026)** — 12 cas dans `Applications/NKEditMeshHarness` (136 cas au
+**Preuve (31/07/2026)** — 17 cas dans `Applications/NKEditMeshHarness` (141 cas au
 total, les 124 antérieurs inchangés). Ils sont choisis pour qu'une implantation
 fausse **échoue**, pas pour confirmer ce qui marche :
 
@@ -80,6 +84,21 @@ fausse **échoue**, pas pour confirmer ce qui marche :
 | `io-semantique-survit` | le graphe rechargé doit encore **accepter et refuser** comme avant — preuve que `conv` et les types ont été relus, pas seulement réécrits | `réel>vect=ok`, `réel>maillage=refusé` |
 | `undo-restaure-les-liens` | **le piège de l'annulation** : la suppression du nœud du milieu tue 2 liens ; une annulation qui ne ressusciterait que le nœud laisserait un graphe coupé, d'apparence saine | nœud revenu, 2 liens, **mêmes ids** |
 | `undo-branche-abandonnee` | remonter toute la pile doit redonner l'état initial **au texte près** — les comptes laisseraient passer une dérive de position ou de libellé | retour exact, refaisable 2→0 |
+| `aplati-frontiere-disparait` | ne compte pas les étapes : vérifie que l'entrée du puits pointe sur **B**, de l'autre côté d'une frontière — c'est ce raccordement qui prouve l'aplatissement | `[src>A>B>dst]`, `dst<-B` |
+| `aplati-deux-instances` | **le cas qui tranche** : une implantation qui mémoïserait par *graphe* n'émettrait le groupe qu'une fois et les deux branches liraient la même valeur | 8 étapes, `A` émis **2×**, sources distinctes |
+| `aplati-recursion-refusee` | l'**indirecte** est le vrai cas : une garde qui ne comparerait qu'au graphe courant laisserait passer `G→H→G` et ferait déborder la pile | directe, indirecte et sous-graphe inconnu, tous nommés |
+| `aplati-entree-libre` | **le piège de la sentinelle** : `0` est l'index d'une étape valide ; une sentinelle à zéro ferait lire la sortie de la 1ʳᵉ étape à chaque entrée libre | `sans-source` |
+| `doc-aller-retour` | le champ `subgraph` est ce qui se perd le plus facilement ; on compare les textes **puis** on vérifie que le plan **reconstruit** est identique — une donnée peut survivre à l'écriture sans plus rien piloter | texte identique, même plan |
+
+### Limite connue, à traiter avec le premier consommateur
+
+Les identifiants de type sont **propres à chaque graphe** du document. Rien ne
+vérifie donc qu'un socket d'un nœud d'instance a le même type que le socket
+correspondant de l'interface du groupe : la validation s'arrête à la frontière.
+Tant qu'un groupe est construit par l'éditeur (qui copie l'interface), le cas ne
+se présente pas ; il se présentera dès qu'un groupe sera **modifié après** avoir
+été instancié. Le correctif est un registre de types **partagé par le document**
+— à faire au moment où un consommateur réel expose le problème, pas avant.
 
 ## Consommateurs prévus (état de leur côté)
 

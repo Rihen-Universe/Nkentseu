@@ -134,3 +134,8 @@ graphe/io-identifiants-non-recycles supprime=2 nouveau-apres-relecture=4 recycle
 graphe/io-semantique-survit        types-retrouves=1/1 reel>vect=ok reel>maillage=type-incompatible
 graphe/undo-restaure-les-liens     apres-suppr=0 | annule=1 b-revenu=1 noeuds=3 liens=2 memes-ids=1 | refait liens=0
 graphe/undo-branche-abandonnee     prof=2 retour-exact=1 refaisable-avant=2 apres-nouvelle-branche=0
+graphe/aplati-frontiere-disparait  ok etapes=4 [src>A>B>dst] dst<-B (doit etre B)
+graphe/aplati-deux-instances       ok etapes=8 A-emis=2 (doit valoir 2) dst1<-5 dst2<-6 distincts=1
+graphe/aplati-recursion-refusee    directe=sousgraphe-recursif indirecte=sousgraphe-recursif inconnu=sousgraphe-inconnu
+graphe/aplati-entree-libre         ok etapes=2 entree-libre=sans-source (0 serait un BUG)
+graphe/doc-aller-retour            lu=1 texte-identique=1 graphes=2 plan=ok [src>A>B>dst] meme-plan=1
