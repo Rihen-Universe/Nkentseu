@@ -520,15 +520,10 @@ namespace nkentseu {
 			mCurrent = 0;
 		}
 
-		inline int32 NkThemeLibrary::AddFromText(const char *text, bool baseDark) {
-			// On part de la BASE demandee, jamais d'un theme vide : c'est ce qui permet
-			// a un fichier de trois lignes de donner un theme complet.
-			NkTheme t = baseDark ? NkTheme::Dark() : NkTheme::Light();
-			if (!t.Load(text))
-				return -1;
+		inline int32 NkThemeLibrary::AddOrReplace(const NkTheme &t) {
 			// Un theme qui reprend le nom d'un autre le REMPLACE : c'est ce qu'attend
 			// un utilisateur qui surcharge « Sombre » depuis son dossier personnel. En
-			// ajouter un second homonyme donnerait deux entrees indistinguables.
+			// ajouter un homonyme donnerait deux entrees indistinguables dans le menu.
 			const int32 existing = Find(t.Name().CStr());
 			if (existing >= 0) {
 				mThemes[(uint32)existing] = t;
@@ -536,6 +531,15 @@ namespace nkentseu {
 			}
 			mThemes.PushBack(t);
 			return (int32)mThemes.Size() - 1;
+		}
+
+		inline int32 NkThemeLibrary::AddFromText(const char *text, bool baseDark) {
+			// On part de la BASE demandee, jamais d'un theme vide : c'est ce qui permet
+			// a un fichier de trois lignes de donner un theme complet.
+			NkTheme t = baseDark ? NkTheme::Dark() : NkTheme::Light();
+			if (!t.Load(text))
+				return -1;
+			return AddOrReplace(t);
 		}
 
 		inline int32 NkThemeLibrary::Find(const char *name) const {

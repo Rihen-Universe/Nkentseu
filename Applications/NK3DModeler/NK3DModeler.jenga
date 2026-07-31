@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""NK3DModeler — application de modelisation 3D.
+
+SQUELETTE : la coquille de fenetre et la disposition de l'ecran A (maquette
+Banani validee) — bandes, colonnes, panneaux aux bonnes places, alimentes par
+NkTheme et NkShortcutTable. Le contenu reel (vue 3D, pile de modificateurs,
+navigateur de projet) vient ensuite, panneau par panneau.
+
+Calque sur NKCode.jenga, MOINS ce dont un modeleur n'a pas besoin : ni Python
+embarque (NKCode integre jenga in-process), ni NKAudio/NKMedia. En revanche il
+LIE NKRenderer, que NKCode n'utilise pas : c'est la que vivent NkEditMesh, les
+modificateurs, la decimation QEM et la retopologie.
+"""
+
+from Jenga import *
+from jengaconfig import *
+import os
+
+
+def _norm(p):
+    return p.replace("\\", "/") if p else p
+
+
+_VULKAN_SDK     = _norm(os.getenv("VULKAN_SDK", ""))
+_VULKAN_INCLUDE = _norm(os.path.join(_VULKAN_SDK, "Include")) if _VULKAN_SDK else ""
+_VULKAN_LIB     = _norm(os.path.join(_VULKAN_SDK, "Lib")) if _VULKAN_SDK else ""
+_VULKAN_OPT     = os.getenv("NK_ENABLE_VULKAN", "auto").strip().lower()
+if _VULKAN_OPT in ("0", "false", "off", "no"):
+    _WANT_VULKAN = False
+elif _VULKAN_OPT in ("1", "true", "on", "yes"):
+    _WANT_VULKAN = True
+else:
+    _WANT_VULKAN = bool(_VULKAN_INCLUDE)
+
+
+with project("NK3DModeler"):
+    windowedapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    files(["src/**.cpp"])
+
+    nkentseudependson(
+        ["NKEditorKit", "NKRenderer", "NKCanvas", "NKGui", "NKWindow", "NKEvent",
+         "NKGlad", "NKFont", "NKImage", "NKFileSystem", "NKSerialization",
+         "NKReflection", "NKThreading", "NKLogger", "NKMath", "NKTime",
+         "NKStream", "NKContainers", "NKMemory", "NKCore", "NKPlatform",
+         "NKGLSlang", "NKSPIRVCross"],
+        extra_includes=["src", "src/NK3DModeler", "%{NKGlad.location}/include",
+                        "%{wks.location}/Kernel/Runtime/NKGraph/src"]
+                       + ([_VULKAN_INCLUDE] if _VULKAN_INCLUDE else []),
+        extra_defines=[f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if _WANT_VULKAN else 0}"],
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    apppublisher("Rihen Universe")
+    appversion("0.1.0")
+    licensefile("../../LICENSE")
+
+    # ===== Windows ============================================================
+    with filter("system:Windows && !options:windows-runtime=uwp"):
+        windowedapp()
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+        if _VULKAN_LIB:
+            libdirs([_VULKAN_LIB])
+        _WIN_LINKS = [
+            "user32", "gdi32", "opengl32", "dwmapi", "shell32", "comdlg32",
+            "uuid", "ole32", "dinput8", "dxguid",
+            "d3d11", "d3d12", "dxgi", "d3dcompiler",
+            "winmm",
+        ]
+        if _WANT_VULKAN:
+            _WIN_LINKS.append("vulkan-1")
+        links(_WIN_LINKS)
+
+    # ===== Linux ==============================================================
+    with filter("system:Linux"):
+        windowedapp()
+        usetoolchain("clang-native")
+        defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
+        links(["pthread", "X11", "Xext", "GL", "m"])
+
+    # ===== macOS ==============================================================
+    with filter("system:macOS"):
+        windowedapp()
+        usetoolchain("clang-native")
+        frameworks(["Cocoa", "QuartzCore", "OpenGL", "Foundation"])

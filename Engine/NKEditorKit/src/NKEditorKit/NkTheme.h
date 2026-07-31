@@ -251,6 +251,14 @@ namespace nkentseu {
 			public:
 				void AddBuiltins(); ///< Sombre et Clair
 
+				// Ajoute un theme DEJA CONSTRUIT, ou remplace celui de meme nom.
+				// C'est la porte d'entree de base : elle permet a l'application de
+				// composer son theme AVANT de le deposer -- poser ses roles propres,
+				// puis laisser le fichier les ecraser s'il le souhaite. Sans elle,
+				// AddFromText fabriquait sa base en interne et l'application n'avait
+				// aucun moyen d'y glisser ses defauts.
+				int32 AddOrReplace(const NkTheme &t);
+
 				// Ajoute un theme depuis un fichier texte. `baseDark` choisit la base
 				// dont il HERITE : un theme de trois lignes doit hériter des 26
 				// autres, et de la bonne famille. Renvoie l'index, ou -1.

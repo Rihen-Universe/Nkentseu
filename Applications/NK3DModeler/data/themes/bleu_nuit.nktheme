@@ -1,0 +1,35 @@
+# =============================================================================
+# Bleu nuit — thème d'exemple, et démonstration du mécanisme.
+#
+# Ce fichier ne redéfinit que SIX couleurs sur trente-cinq. Toutes les autres
+# sont HÉRITÉES du thème sombre : c'est ce qui permet à quelqu'un de créer son
+# thème sans recopier une liste entière, et de continuer à profiter des couleurs
+# ajoutées dans les versions suivantes.
+#
+# Pour faire le vôtre : copiez ce fichier sous un autre nom dans
+#   %APPDATA%\NK3DModeler\themes\
+# changez la ligne « nom », et gardez uniquement les rôles que vous modifiez.
+# Un fichier de votre dossier personnel qui reprend le nom d'un thème livré le
+# REMPLACE dans la liste — c'est ainsi qu'on personnalise « Sombre ».
+# =============================================================================
+
+nktheme 1
+nom Bleu nuit
+base sombre
+
+# Les trois gris, décalés vers le bleu. La hiérarchie à trois niveaux est
+# conservée : fenêtre le plus sombre, panneau au-dessus, en-tête le plus clair.
+window_bg = #0D1117
+panel_bg = #161B22
+panel_header = #21262D
+
+# L'accent d'interface reste un bleu, mais plus vif sur ce fond froid.
+accent_ui = #2F81F7
+
+# L'ambre de sélection 3D est INCHANGÉ, et c'est volontaire : c'est la seule
+# couleur chaude de l'écran, elle doit rester la même d'un thème à l'autre pour
+# que « sélectionné » se reconnaisse sans réapprentissage.
+
+# Un rôle propre à NK3DModeler. Une autre application qui lirait ce fichier
+# l'ignorerait simplement, au lieu de refuser tout le thème.
+nk3d.anneau_brosse = #FFD866CC
