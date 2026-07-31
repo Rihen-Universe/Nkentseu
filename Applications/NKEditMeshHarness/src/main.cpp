@@ -38,6 +38,7 @@
 #include "NKRenderer/Mesh/NkEditMesh.h"
 #include "NKGraph/NkGraphDocument.h"
 #include "NKGraph/NkNodeGraph.h"
+#include "NKRenderer/Mesh/NkMeshRetopo.h"
 #include "NKRenderer/Mesh/NkMeshDecimate.h"
 #include "NKRenderer/Mesh/NkMeshAnalysis.h"
 #include "NKRenderer/Core/NkGizmo.h"
@@ -2575,6 +2576,189 @@ static void DecimateBattery() {
 	}
 }
 
+// -- RETOPOLOGIE : CHAMP DE CROIX + FUSION QUAD-DOMINANTE --------------------
+// Le juge de paix est le DEMI-CYLINDRE : une grille pliee autour de l'axe X.
+//   * Quadify() exige la coplanarite (cos > 0,985) ; a 8 segments le diedre
+//     entre les deux triangles d'une cellule vaut ~22,5 degres (cos 0,924) --
+//     Quadify doit donc rendre ZERO quad. Si le champ reussit la ou Quadify
+//     echoue, la fusion guidee apporte reellement quelque chose ;
+//   * le champ est initialise sur l'arete LA PLUS LONGUE, la DIAGONALE (45
+//     degres de travers, alignement ~0,71). Mesurer a 0 iteration PUIS a 20
+//     prouve que le lissage TRAVAILLE -- sans le depart oblique, un champ ne
+//     faisant rien passerait le test.
+static void RetopoBattery() {
+	NkVector<NkVertex3D> gv, cv;
+	NkVector<uint32> gi, ci;
+	MakeGrid(8, gv, gi);
+	MakeCube(cv, ci);
+
+	// La grille pliee en demi-cylindre autour de X : le bord droit reste droit
+	// (le long de X), les anneaux suivent la courbure. Rayon 1/pi pour que la
+	// longueur deroulee reste 1.
+	auto bend = [&](NkEditMesh &m) {
+		const float32 r = 1.f / 3.14159265f;
+		for (uint32 i = 0; i < m.VertCount(); ++i) {
+			const float32 z = m.verts[i].pos.z;
+			const float32 th = 3.14159265f * (z + 0.5f);
+			m.verts[i].pos.y = r * sinf(th);
+			m.verts[i].pos.z = r * cosf(th);
+		}
+		m.RecomputeNormals();
+	};
+	// Alignement d'une direction tangente au cylindre sur la croix attendue
+	// {axe X, direction d'anneau} : l'anneau vit dans le plan YZ, donc
+	// sqrt(y^2+z^2) mesure la composante d'anneau. Une diagonale donne ~0,71,
+	// une direction alignee ~1.
+	auto alignCyl = [](const NkVec3f &d) {
+		const float32 ring = sqrtf(d.y * d.y + d.z * d.z);
+		const float32 ax = fabsf(d.x);
+		return ax > ring ? ax : ring;
+	};
+
+	// 1) LE LISSAGE TRAVAILLE. Champ a 0 iteration (depart diagonal) puis a 20 :
+	//    l'alignement moyen doit MONTER nettement. Les deux chiffres cote a cote
+	//    sont la preuve ; l'un sans l'autre ne prouverait rien.
+	{
+		NkEditMesh cyl;
+		cyl.BuildFromIndexed(gv.Data(), (uint32)gv.Size(), gi.Data(), (uint32)gi.Size(), false);
+		bend(cyl);
+		NkVector<NkVec3f> d0, d20;
+		NkVector<uint8> p0, p20;
+		NkMeshRetopo::ComputeCrossField(cyl, 40.f, 0, d0, p0);
+		NkMeshRetopo::ComputeCrossField(cyl, 40.f, 20, d20, p20);
+		float32 a0 = 0.f, a20 = 0.f;
+		uint32 pinned = 0;
+		for (uint32 i = 0; i < (uint32)d0.Size(); ++i) {
+			a0 += alignCyl(d0[i]);
+			a20 += alignCyl(d20[i]);
+			if (p20[i])
+				pinned++;
+		}
+		if (!d0.Empty()) {
+			a0 /= (float32)d0.Size();
+			a20 /= (float32)d0.Size();
+		}
+		GraphPut("%-34s faces=%u epinglees=%u | align 0-iter=%.3f -> 20-iter=%.3f (doit monter)",
+				 "retopo/champ-lissage-travaille", (uint32)d0.Size(), pinned, (double)a0, (double)a20);
+	}
+
+	// 2) CE QUE LE CYLINDRE PROUVE -- ET CE QU'IL NE PROUVE PAS.
+	//    Je croyais Quadify incapable ici (diedre 22,5 degres). FAUX, et le
+	//    premier passage du harnais l'a montre : un cylindre est une surface
+	//    DEVELOPPABLE, chaque cellule pliee reste un rectangle PLAN, donc
+	//    Quadify reussit aussi (64 quads). Le diedre est entre CELLULES, pas
+	//    dans la cellule. Ce cas prouve donc l'ALIGNEMENT du champ et la
+	//    coherence d'orientation des quads emis (zero arete non manifold) --
+	//    la discrimination naif/champ, elle, est au cas suivant.
+	{
+		NkEditMesh naive, field;
+		naive.BuildFromIndexed(gv.Data(), (uint32)gv.Size(), gi.Data(), (uint32)gi.Size(), false);
+		bend(naive);
+		field = naive;
+		naive.Quadify(0.985f);
+		const NkMeshStats an = NkMeshAnalysis::Analyze(naive);
+		NkRetopoParams rp; // targetRatio=1 : fusion seule, sans decimation
+		NkRetopoStats rs;
+		const bool ok = NkMeshRetopo::QuadDominant(field, rp, &rs);
+		const NkMeshStats af = NkMeshAnalysis::Analyze(field);
+		GraphPut("%-34s naif quads=%u (cellules PLANES : il reussit aussi) | champ ok=%d quads=%u align=%.3f nonmanif=%u",
+				 "retopo/cylindre-alignement", an.quads, ok ? 1 : 0, rs.quadsOut, (double)rs.alignMean,
+				 af.nonManifoldEdges);
+	}
+
+	// 2bis) LA VRAIE DISCRIMINATION : APRES DECIMATION. Quadify ne considere que
+	//    les paires CONSECUTIVES (f, f+1) issues d'une triangulation
+	//    quad-par-quad ; apres une decimation QEM, cet ordre n'existe plus.
+	//    Le champ, lui, apparie par adjacence reelle. Les deux chiffres cote a
+	//    cote sont la preuve que la fusion guidee apporte quelque chose.
+	{
+		NkEditMesh m;
+		m.BuildFromIndexed(cv.Data(), (uint32)cv.Size(), ci.Data(), (uint32)ci.Size(), true);
+		m.SubdivideCatmullClark(3);
+		NkDecimateParams dp;
+		dp.targetRatio = 0.35f;
+		NkMeshDecimate::DecimateQEM(m, dp, nullptr);
+		NkEditMesh naive = m, field = m;
+		naive.Quadify(0.985f);
+		const NkMeshStats an = NkMeshAnalysis::Analyze(naive);
+		NkRetopoParams rp; // fusion seule : la decimation est deja faite
+		NkRetopoStats rs;
+		NkMeshRetopo::QuadDominant(field, rp, &rs);
+		GraphPut("%-34s naif quads=%u | champ quads=%u tris-restants=%u (le champ doit dominer largement)",
+				 "retopo/apres-decimation-naif-champ", an.quads, rs.quadsOut, rs.trisOut);
+	}
+
+	// 3) PIPELINE COMPLET sur un maillage FERME : cube Catmull-Clark (quads) ->
+	//    decimation QEM (triangles) -> fusion (quads a nouveau). Le maillage doit
+	//    RESTER ferme et manifold -- c'est ce que casserait une emission de quads
+	//    aux orientations incoherentes, et qu'aucun compte de faces ne montre.
+	{
+		NkEditMesh m;
+		m.BuildFromIndexed(cv.Data(), (uint32)cv.Size(), ci.Data(), (uint32)ci.Size(), true);
+		m.SubdivideCatmullClark(3);
+		NkRetopoParams rp;
+		rp.targetRatio = 0.35f;
+		NkRetopoStats rs;
+		const bool ok = NkMeshRetopo::QuadDominant(m, rp, &rs);
+		const NkMeshStats a = NkMeshAnalysis::Analyze(m);
+		GraphPut("%-34s ok=%d decim %u->%u tris | sortie quads=%u tris=%u ratio=%.2f | ferme=%d manifold=%d genre=%d",
+				 "retopo/pipeline-ferme-manifold", ok ? 1 : 0, rs.decim.trisBefore, rs.decim.trisAfter,
+				 rs.quadsOut, rs.trisOut, (double)rs.quadRatio, a.IsClosed() ? 1 : 0, a.IsManifold() ? 1 : 0,
+				 a.genus);
+	}
+
+	// 4) LE SEUIL DE QUALITE AGIT. Premier essai sur le cylindre : INERTE, ses
+	//    cellules sont des rectangles exacts, qualite 1,0 partout, rien a
+	//    filtrer. On le mesure donc sur le maillage DECIME, dont les triangles
+	//    irreguliers donnent des quads de qualite variable : le seuil strict
+	//    doit en refuser une partie.
+	{
+		NkEditMesh m;
+		m.BuildFromIndexed(cv.Data(), (uint32)cv.Size(), ci.Data(), (uint32)ci.Size(), true);
+		m.SubdivideCatmullClark(3);
+		NkDecimateParams dp;
+		dp.targetRatio = 0.35f;
+		NkMeshDecimate::DecimateQEM(m, dp, nullptr);
+		NkEditMesh a = m, b = m;
+		NkRetopoParams pa;
+		NkRetopoParams pb;
+		pb.minQuadQuality = 0.75f;
+		NkRetopoStats sa, sb;
+		NkMeshRetopo::QuadDominant(a, pa, &sa);
+		NkMeshRetopo::QuadDominant(b, pb, &sb);
+		GraphPut("%-34s defaut(0,25) quads=%u | strict(0,75) quads=%u (doit chuter)",
+				 "retopo/seuil-qualite-agit", sa.quadsOut, sb.quadsOut);
+	}
+
+	// 5) ARETE VIVE EPINGLEE. Sur un cube BRUT (aretes a 90 degres), toutes les
+	//    faces touchent une arete vive : elles doivent etre epinglees, et le
+	//    champ doit etre aligne sur les axes SANS aucun lissage. C'est le premier
+	//    temps du calcul (les epingles) teste isolement du second (le lissage).
+	{
+		NkEditMesh cube;
+		cube.BuildFromIndexed(cv.Data(), (uint32)cv.Size(), ci.Data(), (uint32)ci.Size(), false);
+		NkVector<NkVec3f> d;
+		NkVector<uint8> pin;
+		NkMeshRetopo::ComputeCrossField(cube, 40.f, 0, d, pin);
+		uint32 pinned = 0;
+		float32 axisAlign = 0.f;
+		for (uint32 i = 0; i < (uint32)d.Size(); ++i) {
+			if (pin[i])
+				pinned++;
+			float32 best = fabsf(d[i].x);
+			if (fabsf(d[i].y) > best)
+				best = fabsf(d[i].y);
+			if (fabsf(d[i].z) > best)
+				best = fabsf(d[i].z);
+			axisAlign += best;
+		}
+		if (!d.Empty())
+			axisAlign /= (float32)d.Size();
+		GraphPut("%-34s faces=%u epinglees=%u (toutes attendues) | align-axes=%.3f (1,0 attendu)",
+				 "retopo/aretes-vives-epinglees", (uint32)d.Size(), pinned, (double)axisAlign);
+	}
+}
+
 int main(int argc, char **argv) {
 	bool baseline = false, check = false;
 	for (int32 i = 1; i < argc; i++) {
@@ -2604,6 +2788,7 @@ int main(int argc, char **argv) {
 	GraphDocBattery();
 	GraphIfaceBattery();
 	DecimateBattery();
+	RetopoBattery();
 
 	const char *path = "editmesh_baseline.txt";
 	if (baseline) {
