@@ -374,3 +374,42 @@ def nkentseudependson(deps=None, selfexport=None, extra_includes=None, extra_lin
         dependson(_dedup(dpn))
     if defs:
         defines(sorted(set(defs)))
+
+    # 6. Backend de fenetrage Linux : TOUS les projets doivent voir le MEME.
+    _emit_linux_backend_defines()
+
+
+# =============================================================================
+# BACKEND DE FENETRAGE LINUX — pourquoi ce define doit etre PARTOUT
+# =============================================================================
+# NkWindow.h inclut une classe native DIFFERENTE selon le backend choisi
+# (NkXCBWindow, NkXLibWindow, NkWaylandWindow), et ces classes n'ont pas la meme
+# taille. sizeof(NkWindow) depend donc du backend, et tout ce qui contient une
+# fenetre change de disposition memoire avec lui.
+#
+# Tant que ce define n'etait pose que dans les Applications/*.jenga, les modules
+# du moteur compilaient en detection AUTOMATIQUE (repli XLib) pendant que
+# l'application compilait en XCB : deux dispositions de la meme classe dans un
+# seul binaire — une violation d'ODR. Symptome observe : segfault au demarrage
+# de NKCode/XCB dans LoadUiFont, parce que mFontPrefs etait lu 8 octets a cote.
+# La variante XLib ne fonctionnait que par COINCIDENCE, son choix correspondant
+# au repli auto-detecte.
+#
+# Les .jenga des modules reglaient deja objdir/targetdir par backend (pour que
+# les artefacts ne se melangent pas) mais JAMAIS le define — d'ou l'illusion que
+# la separation par backend etait complete.
+#
+# ATTENTION : ne pas tenter de poser ces defines au niveau WORKSPACE. Dans
+# Jenga, defines() n'agit que s'il existe un projet ou une toolchain courante ;
+# hors projet, l'appel est ignore SILENCIEUSEMENT (Core/Api.py, def defines).
+# C'est ici, dans le helper que chaque projet appelle, que le define porte.
+# =============================================================================
+def _emit_linux_backend_defines() -> None:
+    with filter("system:Linux && options:linux-backend=xcb"):
+        defines(["NKENTSEU_FORCE_WINDOWING_XCB_ONLY"])
+    with filter("system:Linux && options:linux-backend=wayland"):
+        defines(["NKENTSEU_FORCE_WINDOWING_WAYLAND_ONLY"])
+    with filter("system:Linux && options:linux-backend=headless || system:Linux && options:headless"):
+        defines(["NKENTSEU_FORCE_WINDOWING_NOOP_ONLY"])
+    with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
+        defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
