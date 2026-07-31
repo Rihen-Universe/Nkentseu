@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# gitpush.sh — add + commit + push du depot Nkentseu (RihenUniverse/Nkentseu).
+# gitpush.sh — add + commit + push du depot Nkentseu (Rihen-Universe/Nkentseu).
 # -----------------------------------------------------------------------------
 # Commit PROPRE puis push de la branche indiquee. Option
 # --release pour creer et pousser un tag de version.
