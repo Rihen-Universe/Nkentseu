@@ -87,6 +87,12 @@ namespace nkentseu {
 			ArrowDown,
 			ViewFront,
 			ViewBack,
+			Material,
+			Wireframe,
+			Matcap,
+			SelRect,
+			SelCircle,
+			SelLasso,
 			Count
 		};
 
@@ -170,6 +176,18 @@ namespace nkentseu {
 						{NkIcon::ArrowDown, "arrow-circle-down"},
 						{NkIcon::ViewFront, "arrow-circle-right"},
 						{NkIcon::ViewBack, "arrow-circle-left"},
+						// OMBRAGE : quatre dessins DISTINCTS. Solide et Materiau partageaient
+						// le meme disque plein -- on ne pouvait donc pas savoir lequel etait
+						// actif en regardant le bouton, ce qui vide de son sens une barre a
+						// icones seules. Blender les distingue de la meme facon : sphere nue
+						// pour le solide, sphere COLOREE pour le materiau.
+						{NkIcon::Material, "symbol-color"},
+						{NkIcon::Wireframe, "table"},
+						{NkIcon::Matcap, "color-mode"},
+						// Formes de selection.
+						{NkIcon::SelRect, "primitive-square"},
+						{NkIcon::SelCircle, "circle-filled"},
+						{NkIcon::SelLasso, "edit"},
 					};
 
 					const NkString exeDir = NkPath::GetExecutableDirectory().ToString();

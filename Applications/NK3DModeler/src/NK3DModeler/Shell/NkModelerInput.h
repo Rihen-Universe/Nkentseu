@@ -63,6 +63,7 @@ namespace nkentseu {
 				int32 selectedFolder = 1; ///< dossier du navigateur
 				int32 matcap = 0;		  ///< matcap actif, mode edition seulement
 				int32 viewLayout = 0;	  ///< disposition des vues (menu de gauche)
+				int32 selShape = 0;		  ///< rectangle / cercle / lasso
 				int32 modOpenCat = 0;	  ///< categorie de modificateurs survolee
 				NkRect modAnchor{};		  ///< ou ancrer la liste a deux niveaux
 				int32 activeTab = 0;
