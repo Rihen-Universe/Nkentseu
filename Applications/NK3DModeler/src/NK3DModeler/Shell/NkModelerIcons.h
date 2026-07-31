@@ -75,6 +75,7 @@ namespace nkentseu {
 			Overlay,
 			Light,
 			Menu,
+			WinRestore,
 			Count
 		};
 
@@ -135,6 +136,7 @@ namespace nkentseu {
 						{NkIcon::Overlay, "circle-filled"},
 						{NkIcon::Light, "lightbulb"},
 						{NkIcon::Menu, "menu"},
+						{NkIcon::WinRestore, "chrome-restore"},
 					};
 
 					const NkString exeDir = NkPath::GetExecutableDirectory().ToString();
