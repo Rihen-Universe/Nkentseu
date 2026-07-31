@@ -135,6 +135,35 @@ namespace nkentseu {
 		// Alt+clic : boucle d'aretes sur une arete, anneau de faces sur une face.
 		bool Viewport3DSelectLoopAt(float32 mx, float32 my, bool add);
 
+		// ── Pile de modificateurs ───────────────────────────────────────────
+		// Elle vit sur l'objet ACTIF et n'est PAS destructive : la cage editee
+		// reste la base, la pile produit la geometrie affichee. « Appliquer » est
+		// le seul geste destructif.
+		//
+		// L'interface est GENERIQUE : elle interroge la liste des parametres que
+		// chaque modificateur publie (nom, type, bornes) au lieu de recopier a la
+		// main dix-sept jeux de reglages qui divergeraient au premier ajout.
+		uint32 Viewport3DModifierTypeCount();
+		const char *Viewport3DModifierTypeName(int32 type);
+		int32 Viewport3DAddModifier(int32 type); ///< rend l'indice, -1 si impossible
+		uint32 Viewport3DModifierCount();
+		int32 Viewport3DModifierTypeAt(uint32 index);
+		bool Viewport3DModifierEnabled(uint32 index);
+		void Viewport3DSetModifierEnabled(uint32 index, bool on);
+		bool Viewport3DRemoveModifier(uint32 index);
+		bool Viewport3DMoveModifier(uint32 index, bool up);
+		bool Viewport3DApplyModifier(uint32 index); ///< DESTRUCTIF : cuit dans le maillage
+		// Parametres du modificateur `index`. `type` : 0 booleen, 1 entier,
+		// 2 flottant, 3 vecteur3, 4 enumeration.
+		uint32 Viewport3DModifierParamCount(uint32 index);
+		bool Viewport3DModifierParamInfo(uint32 index, uint32 p, const char **label, int32 *type,
+										 float32 *minV, float32 *maxV);
+		float32 Viewport3DGetModifierParam(uint32 index, uint32 p);
+		void Viewport3DSetModifierParam(uint32 index, uint32 p, float32 v);
+
+		// Repere de la camera, pour orienter le gizmo de navigation de l'interface.
+		void Viewport3DCameraAxes(float32 *right3, float32 *up3, float32 *fwd3);
+
 		// ── Operations d'edition ────────────────────────────────────────────
 		// Toutes passent par une commande : annulation et journal acquis d'office.
 		bool Viewport3DExtrude(bool individual);
