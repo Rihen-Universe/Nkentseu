@@ -725,3 +725,8 @@ Engine/Noge/CONTINUATION.md
 # Etat de travaux : document INTERNE de reprise (etat par machine, chantiers
 # en cours, chiffres du moment). Prive — meme regime que PLATEFORMES_ETAT.md.
 ETAT_TRAVAUX.md
+
+# Sorties d auto-tests : ce sont des RESULTATS, pas des sources. Les versionner
+# ferait grossir le depot a chaque execution et brouillerait les diffs.
+nkwebmwriter_selftest.webm
+*_selftest.webm
