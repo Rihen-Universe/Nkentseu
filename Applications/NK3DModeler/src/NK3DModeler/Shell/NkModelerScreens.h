@@ -100,7 +100,12 @@ namespace nkentseu {
 
 			const float32 bw = S(30.f), bh = S(22.f);
 			const float32 by = r.y + (r.h - bh) * 0.5f;
-			const NkIcon kWin[3] = {NkIcon::WinMin, NkIcon::WinMax, NkIcon::WinClose};
+			// L'ICONE DU BOUTON CENTRAL SUIT L'ETAT DE LA FENETRE : carre quand elle
+			// peut etre agrandie, deux carres superposes quand elle peut etre
+			// restauree. Garder le meme dessin dans les deux cas obligerait a se
+			// souvenir de ce qu'on a fait pour savoir ce que le bouton va faire.
+			const NkIcon kWin[3] = {NkIcon::WinMin, st.maximized ? NkIcon::WinRestore : NkIcon::WinMax,
+									NkIcon::WinClose};
 			static const char *const kWinKeys[3] = {"win.min", "win.max", "win.close"};
 			for (int32 i = 0; i < 3; ++i) {
 				const float32 bx = r.w - kPad - (float32)(3 - i) * (bw + S(6.f));

@@ -267,6 +267,10 @@ int nkmain(const NkEntryState &entry) {
 		// Le registre est reinitialise APRES BeginFrame : il lit les transitions
 		// que celui-ci vient de calculer.
 		hit.Begin(ui.input);
+		// Relu CHAQUE frame et non seulement apres notre bouton : l'utilisateur peut
+		// maximiser par double-clic sur la barre, par raccourci Windows ou en glissant
+		// la fenetre en haut de l'ecran. L'icone doit suivre dans tous les cas.
+		st.maximized = window.IsMaximized();
 
 		const float32 W = (float32)lastW, H = (float32)lastH;
 		NkLayout lay;
