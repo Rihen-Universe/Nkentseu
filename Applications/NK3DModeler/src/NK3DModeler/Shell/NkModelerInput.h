@@ -47,6 +47,53 @@ namespace nkentseu {
 		// Outil actif : « que fait mon clic ? ». Un seul a la fois.
 		enum class NkTool : uint8 { Select = 0, Cursor, Move, Rotate, Scale };
 
+		// ── INTENTION CLAVIER ───────────────────────────────────────────────────
+		// Une TOUCHE ne fait rien elle-meme : elle pose une intention, consommee
+		// entre deux images. Deux raisons, et la seconde est la vraie :
+		//  - les evenements arrivent hors de la boucle, donc modifier le maillage
+		//    depuis un callback reentrerait dans une image en cours de peinture ;
+		//  - une intention nommee se relie a un menu, a une palette de commandes et
+		//    a un panneau d'outils sans rien dupliquer. Si la touche appelait
+		//    directement l'operation, chaque nouveau chemin d'acces recopierait la
+		//    meme logique -- et ils divergeraient.
+		//
+		// ENUMERATION EN AJOUT SEUL si elle est un jour serialisee dans un fichier
+		// de raccourcis : renumeroter rendrait faux tous les fichiers existants.
+		enum class NkVpAction : uint8 {
+			None = 0,
+			ToggleEdit,
+			SubModeVertex,
+			SubModeEdge,
+			SubModeFace,
+			SelectAll,
+			SelectNone,
+			ToolMove,
+			ToolRotate,
+			ToolScale,
+			ToggleXray,
+			Extrude,
+			ExtrudeIndividual,
+			Delete,
+			Dissolve,
+			Merge,
+			MakeFace,
+			Subdivide,
+			LoopCut,
+			Inset,
+			BevelEdge,
+			BevelVertex,
+			Undo,
+			Redo,
+			ViewFront,
+			ViewBack,
+			ViewRight,
+			ViewLeft,
+			ViewTop,
+			ViewBottom,
+			ToggleOrtho,
+			FrameAll,
+		};
+
 		// ── ETAT DE SESSION ─────────────────────────────────────────────────────
 		struct NkModelerState {
 				NkMode mode = NkMode::Object;
@@ -99,6 +146,12 @@ namespace nkentseu {
 				// « en cours » est indispensable -- sans lui, le premier deplacement apres
 				// un appui ferait un bond, parce que le point precedent daterait de la
 				// derniere position survolee ailleurs dans l'ecran.
+				// Intention en attente et saisie de texte en cours. Le second garde
+				// est indispensable : sans lui, taper « e » dans un champ de nom
+				// extrude le maillage.
+				NkVpAction pendingAction = NkVpAction::None;
+				bool editingText = false;
+				bool xray = false;
 				float32 navLastX = 0.f, navLastY = 0.f;
 				// Meme raison pour le gizmo : son deplacement se calcule a partir de la
 				// position precedente, jamais d'un delta fourni tout fait.

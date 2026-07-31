@@ -262,6 +262,118 @@ int nkmain(const NkEntryState &entry) {
 		});
 		// La molette s'ACCUMULE : plusieurs crans peuvent arriver dans la meme
 		// frame, et n'en garder qu'un rendrait le defilement saccade.
+		// ── CLAVIER ─────────────────────────────────────────────────────────
+		// Une quinzaine de fonctions de la vue 3D etaient ecrites mais DORMANTES :
+		// aucun appelant. Le clavier est leur premier chemin d'acces -- les menus
+		// et la palette suivront, alimentes par la meme table de raccourcis.
+		//
+		// Le clavier de Blender, parce que c'est celui que connaissent les gens qui
+		// modelisent. Les touches ne sont PAS ecrites en dur ailleurs : cette table
+		// est le seul endroit ou l'on decide « quelle touche fait quoi ».
+		//
+		// Les evenements arrivent HORS de la frame, donc on ne touche pas au
+		// maillage ici : on pose une intention, consommee dans la boucle. Modifier
+		// la geometrie depuis un callback reentrerait dans une image en cours de
+		// peinture, avec des tampons a moitie ecrits.
+		ev.AddEventCallback<NkKeyPressEvent>([&st](NkKeyPressEvent *e) {
+			const NkKey k = e->GetKey();
+			const auto mods = e->GetModifiers();
+			const bool ctrl = mods.ctrl, shift = mods.shift, alt = mods.alt;
+			// La saisie d'un nom en cours capte TOUT : taper « e » dans un champ ne
+			// doit pas extruder. C'est le premier reflexe a avoir des qu'un
+			// raccourci d'une seule lettre existe.
+			if (st.editingText)
+				return;
+			auto want = [&st](NkVpAction a) { st.pendingAction = a; };
+
+			switch (k) {
+				// ── Modes ───────────────────────────────────────────────────
+				case NkKey::NK_TAB:
+					want(NkVpAction::ToggleEdit);
+					break;
+				case NkKey::NK_NUM1:
+					want(NkVpAction::SubModeVertex);
+					break;
+				case NkKey::NK_NUM2:
+					want(NkVpAction::SubModeEdge);
+					break;
+				case NkKey::NK_NUM3:
+					want(NkVpAction::SubModeFace);
+					break;
+				// ── Selection ───────────────────────────────────────────────
+				case NkKey::NK_A:
+					want(alt ? NkVpAction::SelectNone : NkVpAction::SelectAll);
+					break;
+				// ── Outils de transformation ────────────────────────────────
+				case NkKey::NK_G:
+					want(NkVpAction::ToolMove);
+					break;
+				case NkKey::NK_R:
+					want(ctrl ? NkVpAction::LoopCut : NkVpAction::ToolRotate);
+					break;
+				case NkKey::NK_S:
+					want(NkVpAction::ToolScale);
+					break;
+				// ── Operations ──────────────────────────────────────────────
+				case NkKey::NK_E:
+					want(shift ? NkVpAction::ExtrudeIndividual : NkVpAction::Extrude);
+					break;
+				case NkKey::NK_X:
+					want(ctrl ? NkVpAction::Dissolve : NkVpAction::Delete);
+					break;
+				case NkKey::NK_M:
+					want(NkVpAction::Merge);
+					break;
+				case NkKey::NK_F:
+					want(NkVpAction::MakeFace);
+					break;
+				case NkKey::NK_W:
+					want(NkVpAction::Subdivide);
+					break;
+				case NkKey::NK_I:
+					want(NkVpAction::Inset);
+					break;
+				case NkKey::NK_B:
+					want(ctrl ? (shift ? NkVpAction::BevelVertex : NkVpAction::BevelEdge)
+							  : NkVpAction::None);
+					break;
+				// ── Annulation ──────────────────────────────────────────────
+				case NkKey::NK_Z:
+					if (ctrl)
+						want(shift ? NkVpAction::Redo : NkVpAction::Undo);
+					else if (alt)
+						want(NkVpAction::ToggleXray);
+					break;
+				case NkKey::NK_Y:
+					if (ctrl)
+						want(NkVpAction::Redo);
+					break;
+				// ── Vues du pave numerique ──────────────────────────────────
+				// Ctrl donne la vue OPPOSEE, comme chez Blender : c'est deux fois
+				// moins de touches a retenir pour six vues.
+				case NkKey::NK_NUMPAD_1:
+					want(ctrl ? NkVpAction::ViewBack : NkVpAction::ViewFront);
+					break;
+				case NkKey::NK_NUMPAD_3:
+					want(ctrl ? NkVpAction::ViewLeft : NkVpAction::ViewRight);
+					break;
+				case NkKey::NK_NUMPAD_7:
+					want(ctrl ? NkVpAction::ViewBottom : NkVpAction::ViewTop);
+					break;
+				case NkKey::NK_NUMPAD_5:
+					want(NkVpAction::ToggleOrtho);
+					break;
+				case NkKey::NK_NUMPAD_DOT:
+					want(NkVpAction::FrameAll);
+					break;
+				case NkKey::NK_HOME:
+					want(NkVpAction::FrameAll);
+					break;
+				default:
+					break;
+			}
+		});
+
 		ev.AddEventCallback<NkMouseWheelVerticalEvent>(
 			[&ui](NkMouseWheelVerticalEvent *e) { ui.input.wheel += (float32)e->GetDeltaY(); });
 		ev.AddEventCallback<NkWindowCloseEvent>([&st](NkWindowCloseEvent *) { st.running = false; });
@@ -356,6 +468,138 @@ int nkmain(const NkEntryState &entry) {
 			st.gizLastX = mxv;
 			st.gizLastY = myv;
 			st.gizWasDown = down;
+		}
+
+		// ── CONSOMMATION DE L'INTENTION CLAVIER ─────────────────────────────
+		// Ici, et pas dans le callback : on est entre deux images, le maillage
+		// n'est pas en cours de lecture par le rendu, et une modification
+		// topologique peut donc se faire sans risque.
+		if (st.pendingAction != NkVpAction::None) {
+			const NkVpAction a = st.pendingAction;
+			st.pendingAction = NkVpAction::None;
+			const bool edit = (st.mode != NkMode::Object);
+			switch (a) {
+				case NkVpAction::ToggleEdit:
+					st.mode = edit ? NkMode::Object : NkMode::Edit;
+					break;
+				case NkVpAction::SubModeVertex:
+					st.subMode = NkSubMode::Vertex;
+					break;
+				case NkVpAction::SubModeEdge:
+					st.subMode = NkSubMode::Edge;
+					break;
+				case NkVpAction::SubModeFace:
+					st.subMode = NkSubMode::Face;
+					break;
+				case NkVpAction::SelectAll:
+					nk3d::Viewport3DSelectAll(true);
+					break;
+				case NkVpAction::SelectNone:
+					nk3d::Viewport3DSelectAll(false);
+					break;
+				case NkVpAction::ToolMove:
+					st.tool = NkTool::Move;
+					break;
+				case NkVpAction::ToolRotate:
+					st.tool = NkTool::Rotate;
+					break;
+				case NkVpAction::ToolScale:
+					st.tool = NkTool::Scale;
+					break;
+				case NkVpAction::ToggleXray:
+					st.xray = !st.xray;
+					nk3d::Viewport3DSetXray(st.xray);
+					break;
+				// Les operations n'ont de sens QU'EN EDITION. Les laisser passer en
+				// mode objet donnerait des commandes sans effet, donc un journal
+				// d'annulation qui se remplit de riens.
+				case NkVpAction::Extrude:
+					if (edit && nk3d::Viewport3DExtrude(false))
+						st.dirty = true;
+					break;
+				case NkVpAction::ExtrudeIndividual:
+					if (edit && nk3d::Viewport3DExtrude(true))
+						st.dirty = true;
+					break;
+				case NkVpAction::Delete:
+					if (edit && nk3d::Viewport3DDeleteSelection())
+						st.dirty = true;
+					break;
+				case NkVpAction::Dissolve:
+					if (edit && nk3d::Viewport3DDissolve())
+						st.dirty = true;
+					break;
+				case NkVpAction::Merge:
+					if (edit && nk3d::Viewport3DMerge(0)) // 0 = au centre
+						st.dirty = true;
+					break;
+				case NkVpAction::MakeFace:
+					if (edit && nk3d::Viewport3DMakeFace())
+						st.dirty = true;
+					break;
+				case NkVpAction::Subdivide:
+					if (edit && nk3d::Viewport3DSubdivide(1))
+						st.dirty = true;
+					break;
+				case NkVpAction::LoopCut:
+					if (edit && nk3d::Viewport3DLoopCut(1))
+						st.dirty = true;
+					break;
+				case NkVpAction::Inset:
+					// Epaisseur AUTOMATIQUE, proportionnelle a l'objet : une valeur
+					// fixe donne un inset invisible sur un grand modele et un inset
+					// qui traverse tout sur un petit.
+					if (edit && nk3d::Viewport3DInset(0.1f, 0.f))
+						st.dirty = true;
+					break;
+				case NkVpAction::BevelEdge:
+					if (edit && nk3d::Viewport3DBevel(0.1f, 2, false))
+						st.dirty = true;
+					break;
+				case NkVpAction::BevelVertex:
+					if (edit && nk3d::Viewport3DBevel(0.1f, 2, true))
+						st.dirty = true;
+					break;
+				case NkVpAction::Undo:
+					nk3d::Viewport3DUndo();
+					break;
+				case NkVpAction::Redo:
+					nk3d::Viewport3DRedo();
+					break;
+				// ── Vues ────────────────────────────────────────────────────
+				case NkVpAction::ViewFront:
+					nk3d::Viewport3DAxisView(0, false);
+					st.projection = 1;
+					break;
+				case NkVpAction::ViewBack:
+					nk3d::Viewport3DAxisView(0, true);
+					st.projection = 1;
+					break;
+				case NkVpAction::ViewRight:
+					nk3d::Viewport3DAxisView(1, false);
+					st.projection = 1;
+					break;
+				case NkVpAction::ViewLeft:
+					nk3d::Viewport3DAxisView(1, true);
+					st.projection = 1;
+					break;
+				case NkVpAction::ViewTop:
+					nk3d::Viewport3DAxisView(2, false);
+					st.projection = 1;
+					break;
+				case NkVpAction::ViewBottom:
+					nk3d::Viewport3DAxisView(2, true);
+					st.projection = 1;
+					break;
+				case NkVpAction::ToggleOrtho:
+					st.projection = (st.projection == 1) ? 0 : 1;
+					break;
+				case NkVpAction::FrameAll:
+					nk3d::Viewport3DFrameAll();
+					break;
+				default:
+					break;
+			}
 		}
 
 		const NkTheme &theme = themes.Current();
