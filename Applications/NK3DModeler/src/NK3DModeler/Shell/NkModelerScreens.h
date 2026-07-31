@@ -288,9 +288,15 @@ namespace nkentseu {
 		// La liste reprend NkModifierType (NKRenderer). Elle sera GENEREE depuis
 		// l'enumeration au branchement : la recopier a la main garantit qu'elle
 		// divergera le jour ou un modificateur sera ajoute.
+		// Chaque entree porte le TYPE attendu par le moteur (cf. NkModifierType).
+		// L'interface classe par usage -- generer / deformer / nettoyer -- et cet
+		// ordre n'a aucune raison de coincider avec celui de l'enumeration : le
+		// type explicite evite tout calcul d'indice, donc toute divergence le jour
+		// ou une categorie gagne une entree.
 		struct NkModEntry {
 				const char *label;
 				NkIcon icon;
+				int32 type; ///< NkModifierType du moteur
 		};
 		struct NkModCategory {
 				const char *name;
@@ -300,25 +306,29 @@ namespace nkentseu {
 		};
 
 		inline const NkModCategory *NkModifierCategories(int32 &n) {
+			// LES DIX-SEPT MODIFICATEURS DU MOTEUR, aucun de plus. La liste
+			// precedente annoncait « Booleen », « Enveloppe », « Remailler » et
+			// « Courbe » qui n'existent pas : un menu qui propose ce qui n'existe
+			// pas est pire qu'un menu court.
 			static const NkModEntry kGen[] = {
-				{"Miroir", NkIcon::Ruler},		 {"Tableau", NkIcon::SnapGrid},
-				{"Subdivision", NkIcon::Layers}, {"Biseau", NkIcon::Scale},
-				{"Solidifier", NkIcon::Mesh}, {"Vissage", NkIcon::Rotate},
-				{"Booleen", NkIcon::Overlay},	 {"Enveloppe", NkIcon::Mesh},
-				{"Remailler", NkIcon::SnapGrid},
+				{"Miroir", NkIcon::Ruler, 0},		{"Reseau", NkIcon::SnapGrid, 1},
+				{"Subdivision", NkIcon::Layers, 2}, {"Solidifier", NkIcon::Mesh, 3},
+				{"Biseau", NkIcon::Scale, 6},		{"Vissage", NkIcon::Rotate, 7},
+				{"Construction", NkIcon::Add, 10},	{"Masque", NkIcon::EyeClosed, 11},
 			};
 			static const NkModEntry kDef[] = {
-				{"Deformer", NkIcon::Move},		{"Courbe", NkIcon::Ruler},
-				{"Simple", NkIcon::Scale},		{"Lisser", NkIcon::Circle},
+				{"Projeter", NkIcon::Circle, 12},	 {"Deformation simple", NkIcon::Move, 13},
+				{"Lisser", NkIcon::Circle, 14},		 {"Onde", NkIcon::Ruler, 15},
 			};
 			static const NkModEntry kClean[] = {
-				{"Decimer", NkIcon::Trash},		 {"Fondre", NkIcon::Refresh},
-				{"Ombrage doux", NkIcon::Light},
+				{"Trianguler", NkIcon::Mesh, 4},	  {"Souder", NkIcon::Refresh, 5},
+				{"Separer les aretes", NkIcon::Ruler, 8}, {"Decimer", NkIcon::Trash, 9},
+				{"Ombrage par angle", NkIcon::Light, 16},
 			};
 			static const NkModCategory kCats[] = {
-				{"Generer", NkIcon::Add, kGen, 9},
+				{"Generer", NkIcon::Add, kGen, 8},
 				{"Deformer", NkIcon::Move, kDef, 4},
-				{"Nettoyer", NkIcon::Trash, kClean, 3},
+				{"Nettoyer", NkIcon::Trash, kClean, 5},
 			};
 			n = 3;
 			return kCats;
@@ -561,8 +571,10 @@ namespace nkentseu {
 				const NkRect ar{x, cbY, S(96.f), cbH};
 				const bool over = hit.Add("tb.addmenu", ar);
 				const bool open = ws.ComboOpen("tb.addmenu");
-				if (over || open)
-					p.Fill(ar, open ? NkRole::AccentUi : NkRole::PanelHeader, 3.f);
+				// ENCADRE comme tous les deroulants de la barre : sans cadre il se
+				// lisait comme une etiquette, pas comme une commande.
+				p.Outline(ar, (over || open) ? NkRole::AccentUi : NkRole::Border,
+						  open ? NkRole::AccentUi : NkRole::InputBg, 3.f);
 				const NkRole fg = open ? NkRole::TextOnAccent : NkRole::Text;
 				p.IconV(ar.x + S(8.f), cbY, cbH, NkIcon::Add, fg, 13.f);
 				p.TextV(ar.x + S(26.f), cbY, cbH, "Ajouter", fg);
@@ -577,13 +589,16 @@ namespace nkentseu {
 			// courant avec SON icone ; le clic ouvre les categories, et chaque
 			// categorie ouvre ses entrees.
 			{
-				const NkModEntry *cur = NkModifierAt(st.modKind);
+				// LE BOUTON DIT « MODIFICATEUR », pas le nom du dernier choisi.
+				// Afficher « Miroir » laisse croire a un reglage en cours alors que
+				// c'est une commande d'AJOUT -- et le modificateur ajoute, lui, vit
+				// dans le panneau Details.
 				const NkRect mr{x, cbY, S(136.f), cbH};
 				const bool over = hit.Add("tb.mod", mr);
 				const bool open = ws.ComboOpen("tb.mod");
 				p.Outline(mr, (over || open) ? NkRole::AccentUi : NkRole::Border, NkRole::InputBg, 3.f);
-				p.IconV(x + S(8.f), cbY, cbH, cur->icon, NkRole::AccentUi, 13.f);
-				p.TextV(x + S(27.f), cbY, cbH, cur->label);
+				p.IconV(x + S(8.f), cbY, cbH, NkIcon::Layers, NkRole::AccentUi, 13.f);
+				p.TextV(x + S(27.f), cbY, cbH, "Modificateur");
 				p.IconV(x + mr.w - S(18.f), cbY, cbH, open ? NkIcon::ChevronUp : NkIcon::ChevronDown,
 						NkRole::Text, 11.f);
 				if (hit.Clicked("tb.mod"))
@@ -815,11 +830,12 @@ namespace nkentseu {
 				yy += kRowH;
 			}
 
-			// Scene VIDE : le dire, et dire quoi faire. Un panneau muet ressemble a
-			// un panneau casse.
+			// Scene VIDE : le dire, et dire quoi faire -- SOUS la racine, pas dessus.
+			// Le texte etait pose a une hauteur fixe qui chevauchait la ligne de la
+			// scene.
 			if (aliveCount == 0)
-				p.TextV(r.x + S(24.f), listTop + S(8.f), kRowH,
-						"Scene vide -- Ajouter pour creer un objet", NkRole::TextMuted);
+				p.TextV(r.x + S(24.f), yy, kRowH, "Vide -- Ajouter pour creer un objet",
+						NkRole::TextMuted);
 
 			p.Unclip();
 
@@ -852,68 +868,96 @@ namespace nkentseu {
 		// serait inversee.
 		inline void PaintNavGizmo(NkModelerPainter &p, NkHitRegistry &hit, float32 cx, float32 cy,
 								  float32 radius) {
-			// Projection isometrique fixe, reprise de l'orientation de Blender :
-			// Z vers le haut, Y vers la droite, X vers l'avant-bas.
-			struct Axis {
-					float32 dx, dy, depth; ///< depth : + = vers l'observateur
+			// IL TOURNE AVEC LA VUE, comme celui de Blender. La version precedente
+			// avait une projection isometrique FIGEE : elle affichait toujours la
+			// meme orientation, donc elle ne disait rien de ce qu'on regardait --
+			// c'etait un decor. On projette maintenant les axes du MONDE avec le
+			// meme repere que la scene : X, Y et Z se placent exactement la ou ils
+			// se trouvent dans l'image.
+			float32 rgt[3], upv[3], fwd[3];
+			nk3d::Viewport3DCameraAxes(rgt, upv, fwd);
+
+			struct Half {
+					float32 wx, wy, wz;	 ///< direction MONDE du demi-axe
 					NkRole role;
 					const char *label;
 					bool positive;
 			};
-			const Axis kAxes[6] = {
-				{0.42f, 0.86f, 0.6f, NkRole::AxisX, "X", true},
-				{-0.42f, -0.86f, -0.6f, NkRole::AxisX, "", false},
-				{0.92f, -0.30f, 0.2f, NkRole::AxisY, "Y", true},
-				{-0.92f, 0.30f, -0.2f, NkRole::AxisY, "", false},
-				{-0.18f, -0.96f, 0.4f, NkRole::AxisZ, "Z", true},
-				{0.18f, 0.96f, -0.4f, NkRole::AxisZ, "", false},
+			static const Half kHalf[6] = {
+				{1.f, 0.f, 0.f, NkRole::AxisX, "X", true},
+				{-1.f, 0.f, 0.f, NkRole::AxisX, "", false},
+				{0.f, 1.f, 0.f, NkRole::AxisY, "Y", true},
+				{0.f, -1.f, 0.f, NkRole::AxisY, "", false},
+				{0.f, 0.f, 1.f, NkRole::AxisZ, "Z", true},
+				{0.f, 0.f, -1.f, NkRole::AxisZ, "", false},
 			};
-			const float32 ball = radius * 0.30f;
-
-			// CHAQUE BOULE EST UNE VUE. Cliquer +X regarde depuis +X (vue de
-			// droite), -X depuis l'oppose, et ainsi de suite -- exactement le
-			// gizmo de Blender. Le mapping suit la convention de Viewport3DAxisView :
-			// 0 = face (-Y), 1 = droite (+X), 2 = dessus (+Z ecran, +Y monde).
+			// Chaque demi-axe amene sa vue : cliquer +X regarde DEPUIS +X.
+			// Correspondance avec Viewport3DAxisView : 0 face (-Z monde), 1 droite
+			// (+X), 2 dessus (+Y).
 			struct View {
 					int32 which;
 					bool opposite;
 			};
-			const View kViews[6] = {
-				{1, false}, {1, true},	// +X / -X
-				{0, true},	{0, false}, // +Y (arriere) / -Y (face)
-				{2, false}, {2, true},	// haut / bas
+			static const View kViews[6] = {
+				{1, false}, {1, true},	// +X droite / -X gauche
+				{2, false}, {2, true},	// +Y dessus / -Y dessous
+				{0, true},	{0, false}, // +Z arriere / -Z face
 			};
 
-			// Passe 1 : ce qui est DERRIERE (profondeur negative).
-			char key[24];
-			for (int32 pass = 0; pass < 2; ++pass) {
-				for (int32 i = 0; i < 6; ++i) {
-					const bool front = kAxes[i].depth > 0.f;
-					if ((pass == 0) == front)
-						continue;
-					const float32 ex = cx + kAxes[i].dx * (radius - ball);
-					const float32 ey = cy + kAxes[i].dy * (radius - ball);
-					snprintf(key, sizeof(key), "nav.axis.%d", i);
-					const NkRect br{ex - ball, ey - ball, ball * 2.f, ball * 2.f};
-					const bool over = hit.Add(key, br);
-					if (kAxes[i].positive)
-						p.Line(cx, cy, ex, ey, kAxes[i].role, 2.f);
-					if (kAxes[i].positive) {
-						p.Disc(ex, ey, over ? ball + 2.f : ball, kAxes[i].role);
-						const float32 lw = p.TextW(kAxes[i].label);
-						p.Text(ex - lw * 0.5f, ey - p.LineH() * 0.5f, kAxes[i].label,
-							   NkRole::TextOnAccent);
-					} else {
-						// Creuse : le trou reprend le fond de la VUE -- le gizmo
-						// flotte au-dessus de la scene.
-						p.Ring(ex, ey, over ? ball + 2.f : ball, kAxes[i].role,
-							   NkRole::ViewportTop);
+			const float32 ball = radius * 0.28f;
+			struct Proj {
+					float32 sx, sy, depth;
+			};
+			Proj pr[6];
+			for (int32 i = 0; i < 6; ++i) {
+				const float32 wx = kHalf[i].wx, wy = kHalf[i].wy, wz = kHalf[i].wz;
+				// Projection sur le repere camera : droite -> +x ecran, haut -> -y
+				// ecran (l'ecran descend), avant -> profondeur.
+				pr[i].sx = wx * rgt[0] + wy * rgt[1] + wz * rgt[2];
+				pr[i].sy = -(wx * upv[0] + wy * upv[1] + wz * upv[2]);
+				// Profondeur : positif = vers l'observateur, donc l'OPPOSE de l'axe
+				// « avant » de la camera, qui pointe vers la scene.
+				pr[i].depth = -(wx * fwd[0] + wy * fwd[1] + wz * fwd[2]);
+			}
+
+			// Ordre de PROFONDEUR reel : ce qui est derriere se peint d'abord. Un
+			// tri complet plutot qu'un tableau fige -- l'orientation change, donc
+			// l'ordre aussi.
+			int32 order[6] = {0, 1, 2, 3, 4, 5};
+			for (int32 a = 0; a < 6; ++a)
+				for (int32 b = a + 1; b < 6; ++b)
+					if (pr[order[b]].depth < pr[order[a]].depth) {
+						const int32 t = order[a];
+						order[a] = order[b];
+						order[b] = t;
 					}
-					if (over)
-						hit.WantCursor(NkCursorWant::Hand);
-					if (hit.Clicked(key))
-						nk3d::Viewport3DAxisView(kViews[i].which, kViews[i].opposite);
+
+			char key[24];
+			for (int32 k = 0; k < 6; ++k) {
+				const int32 i = order[k];
+				const float32 ex = cx + pr[i].sx * (radius - ball);
+				const float32 ey = cy + pr[i].sy * (radius - ball);
+				snprintf(key, sizeof(key), "nav.axis.%d", i);
+				const NkRect br{ex - ball, ey - ball, ball * 2.f, ball * 2.f};
+				const bool over = hit.Add(key, br);
+				// La tige ne part que des demi-axes POSITIFS : six tiges feraient une
+				// etoile illisible.
+				if (kHalf[i].positive)
+					p.Line(cx, cy, ex, ey, kHalf[i].role, 2.f);
+				if (kHalf[i].positive) {
+					p.Disc(ex, ey, over ? ball + 2.f : ball, kHalf[i].role);
+					const float32 lw = p.TextW(kHalf[i].label);
+					p.Text(ex - lw * 0.5f, ey - p.LineH() * 0.5f, kHalf[i].label,
+						   NkRole::TextOnAccent);
+				} else {
+					// Creuse : le trou reprend le fond de la VUE -- le gizmo flotte
+					// au-dessus de la scene.
+					p.Ring(ex, ey, over ? ball + 2.f : ball, kHalf[i].role, NkRole::ViewportTop);
 				}
+				if (over)
+					hit.WantCursor(NkCursorWant::Hand);
+				if (hit.Clicked(key))
+					nk3d::Viewport3DAxisView(kViews[i].which, kViews[i].opposite);
 			}
 		}
 
@@ -1501,7 +1545,7 @@ namespace nkentseu {
 		}
 
 		inline void PaintDetails(NkModelerPainter &p, const NkRect &full, NkModelerState &st,
-								 NkHitRegistry &hit) {
+								 NkHitRegistry &hit, NkWidgetState &ws, const nkgui::NkGuiInput &in) {
 			const float32 scroll = st.scrollDetails;
 			p.Fill(full, NkRole::PanelBg);
 			p.VLine(full.x, full.y, full.h);
@@ -1550,13 +1594,133 @@ namespace nkentseu {
 				}
 			}
 
-			// ── MODIFICATEURS ───────────────────────────────────────────────────
+			// ── MODIFICATEURS : LA PILE REELLE ──────────────────────────────────
+			// Ce qui etait peint ici -- « Selectionner un modificateur » -- etait une
+			// facade. La pile vit sur l'objet actif, elle est NON DESTRUCTIVE (la
+			// cage editee reste la base) et l'ORDRE Y EST SIGNIFIANT : miroir puis
+			// reseau ne donne pas la meme chose que reseau puis miroir. D'ou les
+			// fleches de reordonnancement, qui ne sont pas un confort.
+			//
+			// L'affichage est GENERIQUE : chaque modificateur publie la liste de ses
+			// parametres (libelle, type, bornes) et on la parcourt. Recopier a la
+			// main dix-sept jeux de reglages aurait diverge au premier ajout moteur.
 			if (DetailHeader(p, hit, r, y, st, NkDetailModifiers, "Modificateurs")) {
-				p.Outline({r.x + 8.f, y + 2.f, r.w - 16.f, kRowH - 4.f}, NkRole::Border,
-						  NkRole::InputBg, 2.f);
-				p.TextV(r.x + 16.f, y, kRowH, "Selectionner un modificateur", NkRole::TextMuted);
-				p.IconV(r.x + r.w - 26.f, y, kRowH, NkIcon::ChevronDown, NkRole::Text, 11.f);
-				y += kRowH + 4.f;
+				const uint32 nMods = nk3d::Viewport3DModifierCount();
+				if (nMods == 0u) {
+					p.TextV(r.x + kPad, y, kRowH, "Aucun -- barre d'outils > Modificateur",
+							NkRole::TextMuted);
+					y += kRowH;
+				}
+				char mkey[48];
+				for (uint32 m = 0; m < nMods; ++m) {
+					const int32 type = nk3d::Viewport3DModifierTypeAt(m);
+					const bool on = nk3d::Viewport3DModifierEnabled(m);
+					const NkRect hr{r.x, y, r.w, kRowH};
+					p.Fill(hr, NkRole::PanelHeader);
+
+					// L'OEIL desactive sans supprimer : comparer avec et sans est le
+					// geste le plus courant d'une pile.
+					snprintf(mkey, sizeof(mkey), "det.mod.eye.%u", m);
+					const NkRect er{r.x + 4.f, y + 3.f, 20.f, kRowH - 6.f};
+					HoverFill(p, er, hit.Add(mkey, er), 2.f);
+					p.IconV(r.x + 6.f, y, kRowH, on ? NkIcon::Eye : NkIcon::EyeClosed,
+							on ? NkRole::Text : NkRole::TextMuted, 12.f);
+					if (hit.Clicked(mkey))
+						nk3d::Viewport3DSetModifierEnabled(m, !on);
+
+					p.TextV(r.x + 26.f, y, kRowH, nk3d::Viewport3DModifierTypeName(type),
+							on ? NkRole::Text : NkRole::TextMuted);
+
+					// Monter / descendre / appliquer / retirer, cales a droite.
+					float32 bx = r.x + r.w - 22.f;
+					struct MB {
+							NkIcon ic;
+							int32 act; ///< 0 retirer, 1 appliquer, 2 descendre, 3 monter
+					};
+					static const MB kMB[4] = {{NkIcon::Trash, 0},
+											  {NkIcon::Check, 1},
+											  {NkIcon::ChevronDown, 2},
+											  {NkIcon::ChevronUp, 3}};
+					for (int32 b = 0; b < 4; ++b) {
+						snprintf(mkey, sizeof(mkey), "det.mod.b%d.%u", b, m);
+						const NkRect br{bx - 2.f, y + 3.f, 20.f, kRowH - 6.f};
+						HoverFill(p, br, hit.Add(mkey, br), 2.f);
+						p.IconV(bx, y, kRowH, kMB[b].ic, NkRole::TextMuted, 11.f);
+						if (hit.Clicked(mkey)) {
+							switch (kMB[b].act) {
+								case 0:
+									nk3d::Viewport3DRemoveModifier(m);
+									break;
+								case 1:
+									// DESTRUCTIF : cuit le modificateur dans le maillage
+									// et le retire de la pile. C'est tout son objet, et
+									// Ctrl+Z le defait (un instantane est pris).
+									nk3d::Viewport3DApplyModifier(m);
+									break;
+								case 2:
+									nk3d::Viewport3DMoveModifier(m, false);
+									break;
+								default:
+									nk3d::Viewport3DMoveModifier(m, true);
+									break;
+							}
+							st.dirty = true;
+						}
+						bx -= 22.f;
+					}
+					y += kRowH;
+
+					// ── Parametres, decrits par le modificateur lui-meme ─────
+					const uint32 nP = nk3d::Viewport3DModifierParamCount(m);
+					for (uint32 pi = 0; pi < nP; ++pi) {
+						const char *plabel = "";
+						int32 ptype = 2;
+						float32 pmin = 0.f, pmax = 0.f;
+						if (!nk3d::Viewport3DModifierParamInfo(m, pi, &plabel, &ptype, &pmin, &pmax))
+							continue;
+						p.Fill({r.x, y, kLabelW, kRowH}, NkRole::LabelCol);
+						p.TextV(r.x + kPad + 8.f, y, kRowH, plabel);
+						float32 v = nk3d::Viewport3DGetModifierParam(m, pi);
+						snprintf(mkey, sizeof(mkey), "det.mod.p%u.%u", m, pi);
+						const NkRect fr{r.x + kLabelW + 4.f, y + 2.f, r.w - kLabelW - 12.f,
+										kRowH - 4.f};
+						if (ptype == 0) {
+							// BOOLEEN : une case, pas un champ numerique.
+							const NkRect cb{fr.x + 2.f, fr.y + 2.f, 14.f, 14.f};
+							const bool over2 = hit.Add(mkey, {fr.x, fr.y, 22.f, fr.h});
+							if (v != 0.f) {
+								p.Fill(cb, NkRole::AccentUi, 2.f);
+								p.IconV(cb.x + 1.f, cb.y - 1.f, 16.f, NkIcon::Check,
+										NkRole::TextOnAccent, 12.f);
+							} else {
+								p.Outline(cb, over2 ? NkRole::AccentUi : NkRole::Border,
+										  NkRole::InputBg, 2.f);
+							}
+							if (hit.Clicked(mkey))
+								nk3d::Viewport3DSetModifierParam(m, pi, v != 0.f ? 0.f : 1.f);
+						} else {
+								// Les ENTIERS se tirent par pas de 1, les flottants par
+							// centiemes : un pas unique rendrait les uns inatteignables
+							// et les autres inutilisables.
+							const float32 step = (ptype == 1) ? 1.f : 0.01f;
+							const char *fmt = (ptype == 1) ? "%.0f" : "%.3f";
+							float32 nv = v;
+							DragFloat(p, hit, ws, in, mkey, fr, nv, step, NkRole::AccentUi, fmt);
+							if (nv != v) {
+								if (pmin != pmax) { // bornes publiees : on les respecte
+									if (nv < pmin)
+										nv = pmin;
+									if (nv > pmax)
+										nv = pmax;
+								}
+								nk3d::Viewport3DSetModifierParam(m, pi, nv);
+							}
+						}
+						p.HLine(r.x, y + kRowH - 1.f, r.w);
+						y += kRowH;
+					}
+					y += 4.f;
+				}
 			}
 
 			// ── MATERIAUX : PLUSIEURS PAR MODELE ────────────────────────────────
@@ -2158,6 +2322,11 @@ namespace nkentseu {
 									o2 ? NkRole::TextOnAccent : NkRole::AccentUi, 12.f);
 						if (hit.Clicked(key)) {
 							st.modKind = flatBase + i;
+							// Chaque entree porte SON type moteur : le menu ne calcule
+							// aucun indice, donc rien ne diverge quand une categorie
+							// gagne une entree.
+							nk3d::Viewport3DAddModifier(cats[c].items[i].type);
+							st.dirty = true;
 							ws.CloseCombo();
 						}
 					}

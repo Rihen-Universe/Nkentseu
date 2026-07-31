@@ -134,6 +134,13 @@ namespace nkentseu {
 					NkVector<NkEmId> triF;
 					NkVector<uint32> edges;
 					float32 radius = 1.f; ///< rayon englobant local
+					// PILE DE MODIFICATEURS, non destructive : `edit` reste la base,
+					// `evaluated` recoit le resultat de la pile. C'est cette derniere
+					// qui part au GPU -- sans quoi ajouter un miroir modifierait la
+					// cage qu'on est en train d'editer.
+					NkModifierStack mods;
+					NkEditMesh evaluated;
+					bool modsDirty = true;
 
 					// ── Lumiere (types kVpObjLight*) ────────────────────────
 					NkVec3f lightColor{1.f, 1.f, 1.f};
@@ -439,7 +446,21 @@ namespace nkentseu {
 				// TriangulateShaded, pas Triangulate : elle respecte le drapeau
 				// `smooth` de chaque face. Une normale moyennee aux coins d'un cube
 				// arrondirait visuellement des aretes qui sont vives.
+				// LA PILE EST EVALUEE AVANT LA TRIANGULATION. Sans modificateur actif
+			// on triangule la base directement : recopier le maillage pour rien
+			// couterait a chaque edition.
+			bool anyMod = false;
+			for (uint32 m = 0; m < o.mods.Count(); ++m)
+				if (o.mods.modifiers[m].enabled) {
+					anyMod = true;
+					break;
+				}
+			if (anyMod) {
+				o.mods.Evaluate(o.edit, o.evaluated);
+				o.evaluated.TriangulateShaded(o.triV, o.triI, o.triF);
+			} else {
 				o.edit.TriangulateShaded(o.triV, o.triI, o.triF);
+			}
 				if (o.triV.Empty() || o.triI.Empty())
 					return;
 				if (o.meshOk) {
@@ -695,6 +716,13 @@ namespace nkentseu {
 				if (auto *texLib = g.r3->GetTextures())
 					g.r3->SetFinalColorTarget(texLib->GetRHIHandle(g.rt->GetColorResult()));
 				g.r3->SetBackgroundColor({g.bg.x, g.bg.y, g.bg.z, 1.f});
+				// LISERE DE SILHOUETTE, porte de Demo3D : les objets selectionnes
+				// sont rendus seuls dans un masque, puis une passe plein-ecran en
+				// tire un contour d'epaisseur constante. C'est LE retour visuel de
+				// selection -- une teinte modifiee ment des que l'objet est deja
+				// colore.
+				if (auto *r3d0 = g.r3->GetRender3D())
+					r3d0->SetSelectionOutline(true, {1.f, 0.45f, 0.05f, 1.f}, 2.5f);
 
 				// LA SCENE NAIT VIDE. Le cube de depart de la version precedente
 				// venait de Demo3D ; un modeleur commence sur une feuille blanche et
@@ -1240,6 +1268,197 @@ namespace nkentseu {
 			return true;
 		}
 
+		// ── PILE DE MODIFICATEURS ───────────────────────────────────────────
+		uint32 Viewport3DModifierTypeCount() {
+			return 17u; // cf. NkModifierType, en ajout seul
+		}
+
+		const char *Viewport3DModifierTypeName(int32 type) {
+			return NkModifierTypeName((NkModifierType)type);
+		}
+
+		int32 Viewport3DAddModifier(int32 type) {
+			VpObject *A = ActMesh();
+			if (!A || type < 0 || type >= 17)
+				return -1;
+			NkMeshModifier m;
+			m.type = (NkModifierType)type;
+			m.enabled = true;
+			A->mods.Add(m);
+			A->meshDirty = true;
+			SyncMesh(*A);
+			return (int32)A->mods.Count() - 1;
+		}
+
+		uint32 Viewport3DModifierCount() {
+			VpObject *A = ActMesh();
+			return A ? A->mods.Count() : 0u;
+		}
+
+		int32 Viewport3DModifierTypeAt(uint32 index) {
+			VpObject *A = ActMesh();
+			if (!A || index >= A->mods.Count())
+				return -1;
+			return (int32)A->mods.modifiers[index].type;
+		}
+
+		bool Viewport3DModifierEnabled(uint32 index) {
+			VpObject *A = ActMesh();
+			return A && index < A->mods.Count() && A->mods.modifiers[index].enabled;
+		}
+
+		void Viewport3DSetModifierEnabled(uint32 index, bool on) {
+			VpObject *A = ActMesh();
+			if (!A || index >= A->mods.Count())
+				return;
+			A->mods.SetEnabled(index, on);
+			A->meshDirty = true;
+			SyncMesh(*A);
+		}
+
+		bool Viewport3DRemoveModifier(uint32 index) {
+			VpObject *A = ActMesh();
+			if (!A || !A->mods.Remove(index))
+				return false;
+			A->meshDirty = true;
+			SyncMesh(*A);
+			return true;
+		}
+
+		bool Viewport3DMoveModifier(uint32 index, bool up) {
+			// L'ORDRE EST UN PARAMETRE DE RESULTAT : miroir puis reseau ne donne
+			// pas la meme chose que reseau puis miroir.
+			VpObject *A = ActMesh();
+			if (!A)
+				return false;
+			const bool okm = up ? A->mods.MoveUp(index) : A->mods.MoveDown(index);
+			if (!okm)
+				return false;
+			A->meshDirty = true;
+			SyncMesh(*A);
+			return true;
+		}
+
+		bool Viewport3DApplyModifier(uint32 index) {
+			VpObject *A = ActMesh();
+			if (!A || index >= A->mods.Count())
+				return false;
+			// DESTRUCTIF : on prend donc un instantane pour que Ctrl+Z le defasse.
+			NkEditMesh snapshot = A->edit;
+			bool warnNotFirst = false;
+			if (!A->mods.ApplyToBase(index, A->edit, &warnNotFirst))
+				return false;
+			g.history.Commit(snapshot);
+			A->meshDirty = true;
+			SyncMesh(*A);
+			return true;
+		}
+
+		uint32 Viewport3DModifierParamCount(uint32 index) {
+			VpObject *A = ActMesh();
+			if (!A || index >= A->mods.Count())
+				return 0u;
+			uint32 n = 0;
+			NkModifierParams(A->mods.modifiers[index].type, n);
+			return n;
+		}
+
+		bool Viewport3DModifierParamInfo(uint32 index, uint32 p, const char **label, int32 *type,
+										 float32 *minV, float32 *maxV) {
+			VpObject *A = ActMesh();
+			if (!A || index >= A->mods.Count())
+				return false;
+			uint32 n = 0;
+			const NkModParam *ps = NkModifierParams(A->mods.modifiers[index].type, n);
+			if (!ps || p >= n)
+				return false;
+			if (label)
+				*label = ps[p].label;
+			if (type)
+				*type = (int32)ps[p].type;
+			if (minV)
+				*minV = ps[p].minV;
+			if (maxV)
+				*maxV = ps[p].maxV;
+			return true;
+		}
+
+		// Lecture/ecriture par DECALAGE dans la structure : c'est ce que publie
+		// NkModParam, et c'est ce qui permet a l'interface d'ignorer quels champs
+		// existent. Les vecteurs sont exposes par leur composante X -- une interface
+		// vectorielle viendra avec l'editeur de parametres.
+		float32 Viewport3DGetModifierParam(uint32 index, uint32 p) {
+			VpObject *A = ActMesh();
+			if (!A || index >= A->mods.Count())
+				return 0.f;
+			uint32 n = 0;
+			const NkModParam *ps = NkModifierParams(A->mods.modifiers[index].type, n);
+			if (!ps || p >= n)
+				return 0.f;
+			const uint8 *base = (const uint8 *)&A->mods.modifiers[index];
+			const void *field = base + ps[p].offset;
+			switch (ps[p].type) {
+				case NkModParamType::Bool:
+					return *(const bool *)field ? 1.f : 0.f;
+				case NkModParamType::Int:
+					return (float32)(*(const int32 *)field);
+				case NkModParamType::Vec3:
+					return ((const NkVec3f *)field)->x;
+				default:
+					return *(const float32 *)field;
+			}
+		}
+
+		void Viewport3DSetModifierParam(uint32 index, uint32 p, float32 v) {
+			VpObject *A = ActMesh();
+			if (!A || index >= A->mods.Count())
+				return;
+			uint32 n = 0;
+			const NkModParam *ps = NkModifierParams(A->mods.modifiers[index].type, n);
+			if (!ps || p >= n)
+				return;
+			uint8 *base = (uint8 *)&A->mods.modifiers[index];
+			void *field = base + ps[p].offset;
+			switch (ps[p].type) {
+				case NkModParamType::Bool:
+					*(bool *)field = (v != 0.f);
+					break;
+				case NkModParamType::Int:
+					*(int32 *)field = (int32)(v + (v < 0.f ? -0.5f : 0.5f));
+					break;
+				case NkModParamType::Vec3:
+					((NkVec3f *)field)->x = v;
+					break;
+				default:
+					*(float32 *)field = v;
+					break;
+			}
+			A->meshDirty = true;
+			SyncMesh(*A);
+		}
+
+		void Viewport3DCameraAxes(float32 *right3, float32 *up3, float32 *fwd3) {
+			// Le gizmo de navigation de l'interface doit TOURNER AVEC LA VUE, comme
+			// celui de Blender : ses axes se projettent avec la meme base que la
+			// scene, sinon il indique une orientation qui n'est pas celle qu'on
+			// regarde -- et il devient un decor.
+			if (right3) {
+				right3[0] = g.lastProj.rgt.x;
+				right3[1] = g.lastProj.rgt.y;
+				right3[2] = g.lastProj.rgt.z;
+			}
+			if (up3) {
+				up3[0] = g.lastProj.upv.x;
+				up3[1] = g.lastProj.upv.y;
+				up3[2] = g.lastProj.upv.z;
+			}
+			if (fwd3) {
+				fwd3[0] = g.lastProj.fwd.x;
+				fwd3[1] = g.lastProj.fwd.y;
+				fwd3[2] = g.lastProj.fwd.z;
+			}
+		}
+
 		// ── OPERATIONS D'EDITION ────────────────────────────────────────────
 		bool Viewport3DExtrude(bool individual) {
 			// EXTRUSION SELON LE SOUS-MODE ACTIF : face > arete > sommet, decalage
@@ -1502,12 +1721,18 @@ namespace nkentseu {
 						g.gizmo.ClearSelection();
 					}
 				} else {
+					// PENDANT UN GLISSEMENT, la cible passee au gizmo est la matrice
+					// FIGEE au debut du geste (dragBase), jamais le monde recompose :
+					// decomposer puis recomposer chaque image accumule les arrondis
+					// d'Euler, et le gizmo « quittait l'objet » en cours de geste.
+					const bool dragNow = g.gizmo.IsDragging();
 					for (int32 i = 0; i < kMaxObjects; ++i) {
 						VpObject &o = g.objs[i];
 						if (!o.alive || !o.visible)
 							continue;
-						ComposeWorld(o);
-						vt[g.tgtCount].base = o.world;
+						if (!(dragNow && o.selected))
+							ComposeWorld(o);
+						vt[g.tgtCount].base = (dragNow && o.selected) ? o.dragBase : o.world;
 						const float32 r = (o.type == kVpObjMesh) ? o.radius : 0.45f;
 						vt[g.tgtCount].localHalf = {r, r, r};
 						vt[g.tgtCount].pickRadius = r;
@@ -1554,11 +1779,14 @@ namespace nkentseu {
 						for (int32 t = 0; t < g.tgtCount; ++t)
 							g.objs[g.tgtSlot[t]].dragBase = g.objs[g.tgtSlot[t]].world;
 					if (dragging) {
+						// Le monde AFFICHE suit le geste ; pos/rot/scl ne sont PAS
+						// touches -- ils ne le seront qu'une fois, au relachement.
+						// Les reecrire ici puis recomposer a l'image suivante faisait
+						// deriver l'objet ET le gizmo par accumulation d'arrondis.
 						for (int32 t = 0; t < g.tgtCount; ++t)
 							if (g.gizmo.IsSelected(t)) {
 								VpObject &o = g.objs[g.tgtSlot[t]];
 								o.world = g.gizmo.Apply(t, o.dragBase);
-								DecomposeWorld(o.world, o.pos, o.rotDeg, o.scl);
 							}
 					} else if (g.wasDragging) {
 						for (int32 t = 0; t < g.tgtCount; ++t)
@@ -1585,21 +1813,34 @@ namespace nkentseu {
 			gp.majorEvery = 10.f;
 			r3d->SetInfiniteGridParams(gp);
 
-			// ── Mode d'affichage ────────────────────────────────────────────
+			// ── Mode d'affichage, calque sur Blender ────────────────────────
+			// SOLIDE et FIL DE FER sont des vues d'ATELIER : elles ignorent les
+			// lumieres de la scene -- c'est un eclairage d'etude fixe, et il serait
+			// faux d'y voir l'effet d'un spot qu'on vient de poser. MATERIAU montre
+			// les materiaux sous un eclairage neutre, et RENDU est le seul mode ou
+			// les lumieres de la scene agissent.
+			//   0 Solide   -> NK_UNLIT (albedo plat, eclairage d'etude)
+			//   1 Materiau -> NK_SOLID sous eclairage d'ATELIER (pas celui de la scene)
+			//   2 Rendu    -> NK_SOLID sous les lumieres DE LA SCENE
+			//   3 Filaire  -> NK_WIREFRAME, sans lumiere par definition
 			const bool wire = (g.shading == 3);
+			const bool sceneLit = (g.shading == 2); // seul RENDU voit les lumieres
 			r3d->SetWireframe(wire);
 
 			NkSceneContext sctx;
 			sctx.camera = cam;
 			sctx.viewMode = wire ? NkViewMode::NK_WIREFRAME
-								 : ((g.shading == 2) ? NkViewMode::NK_SOLID
+								 : ((g.shading >= 1) ? NkViewMode::NK_SOLID
 													 : NkViewMode::NK_UNLIT);
 			// ── Lumieres : celles de la SCENE d'abord ───────────────────────
 			// L'eclairage d'atelier (cle chaude + remplissage froid) ne sert que
 			// tant que l'utilisateur n'a cree AUCUNE lumiere : des la premiere, la
 			// scene est a lui. Melanger les deux rendrait ses reglages illisibles.
 			bool anyUserLight = false;
-			for (int32 i = 0; i < kMaxObjects; ++i) {
+			for (int32 i = 0; sceneLit && i < kMaxObjects; ++i) {
+				// Hors du mode RENDU, les lumieres de la scene n'entrent pas dans le
+				// contexte : Solide, Materiau et Filaire gardent leur eclairage
+				// d'etude quoi que contienne la scene.
 				const VpObject &o = g.objs[i];
 				if (!o.alive || !o.visible)
 					continue;
@@ -1727,11 +1968,7 @@ namespace nkentseu {
 					NkDrawCall3D dc;
 					dc.mesh = o.mesh;
 					dc.transform = o.world;
-					// La selection se voit : teinte legerement rechauffee plutot
-					// qu'un changement de couleur franc -- le liseré de silhouette
-					// viendra plus tard.
-					dc.tint = o.selected ? NkVec3f{0.92f, 0.82f, 0.62f}
-										 : NkVec3f{0.78f, 0.78f, 0.80f};
+					dc.tint = {0.78f, 0.78f, 0.80f};
 					dc.metallic = 0.f;
 					dc.roughness = 0.62f;
 					dc.castShadow = false;
@@ -1740,6 +1977,12 @@ namespace nkentseu {
 					dc.aabb = NkAABB{{o.pos.x - r, o.pos.y - r, o.pos.z - r},
 									 {o.pos.x + r, o.pos.y + r, o.pos.z + r}};
 					r3d->Submit(dc);
+					// LISERE : la silhouette est soumise avec la matrice EXACTE qui a
+					// servi au rendu de cette image -- pendant un glissement, toute
+					// autre matrice decale le contour de l'objet. L'actif ressort
+					// d'une teinte plus claire, comme Blender.
+					if (o.selected)
+						r3d->SubmitSelection(dc, i == g.activeObj);
 				} else if (o.type != kVpObjMesh) {
 					// ── Widgets des objets sans surface ─────────────────
 					// Une lumiere, une camera ou un repere n'ont rien a rendre :

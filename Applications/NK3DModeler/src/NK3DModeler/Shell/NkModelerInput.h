@@ -171,6 +171,12 @@ namespace nkentseu {
 				// position precedente, jamais d'un delta fourni tout fait.
 				float32 gizLastX = 0.f, gizLastY = 0.f;
 				bool gizWasDown = false;
+				// Le geste appartient a la zone ou il a COMMENCE : ces deux drapeaux
+				// empechent un glissement ne de l'interface de devenir une entree du
+				// gizmo 3D en traversant la vue.
+				bool gizGestureInView = false;
+				bool gizWasMouseDown = false;
+				int32 lastProjection = 0; ///< pour n'appliquer le combo que sur changement
 				bool navDragging = false;
 				int32 solidLight = 0; ///< eclairage du mode solide : studio / matcap / plat
 				int32 selectMode = 2; ///< sommet / arete / face

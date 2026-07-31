@@ -405,6 +405,11 @@ int nkmain(const NkEntryState &entry) {
 		ui.BeginFrame(dt);
 		// Le registre est reinitialise APRES BeginFrame : il lit les transitions
 		// que celui-ci vient de calculer.
+		// Memorise AVANT le Begin (qui reinitialise le registre) : ce que la
+		// souris survolait a l'image precedente. Le pilotage du gizmo en a besoin
+		// pour distinguer « clic sur la scene » de « clic sur un widget pose
+		// par-dessus la scene ».
+		const bool overSceneLastFrame = hit.IsHovered("view.nav");
 		hit.Begin(ui.input);
 		// La garde du clavier suit l'etat REEL des widgets : tant qu'un champ est
 		// en cours de saisie, aucune touche ne doit atteindre les raccourcis.
@@ -448,12 +453,47 @@ int nkmain(const NkEntryState &entry) {
 			nk3d::Viewport3DSetGizmoMode(gm);
 		}
 		nk3d::Viewport3DSetGizmoOrientation(st.orientation);
-		// Un pas d'aimantation PAR transformation, comme dans Unreal : une unite de
-		// grille, 15 degres, un dixieme. Les trois bascules sont independantes --
-		// aimanter les angles sans aimanter les positions est un cas courant.
-		nk3d::Viewport3DSetSnap(st.snapGrid || st.snapAngle || st.snapScale, st.snapGrid ? 1.f : 0.f,
-								st.snapAngle ? 15.f : 0.f, st.snapScale ? 0.1f : 0.f);
-		nk3d::Viewport3DSetOrtho(st.projection == 1);
+		// AIMANTATION : les pas sont FIXES (0,5 unite, 15 degres, 0,1 -- ceux de
+		// Demo3D) et ce sont les BASCULES qui decident si elle agit. Le gizmo n'a
+		// qu'un interrupteur global : on lui donne celui de la bascule du MODE
+		// COURANT -- aimanter les angles sans aimanter les positions reste ainsi
+		// possible, puisqu'on ne tourne et ne deplace jamais dans le meme geste.
+		// L'ancienne version passait 0 comme pas quand une bascule etait eteinte ;
+		// or le gizmo IGNORE un pas nul (garde v > 0) et gardait l'ancien : la
+		// valeur appliquee n'etait jamais celle qu'on croyait.
+		{
+			bool snapOn = st.snapGrid;
+			if (st.tool == NkTool::Rotate)
+				snapOn = st.snapAngle;
+			else if (st.tool == NkTool::Scale)
+				snapOn = st.snapScale;
+			nk3d::Viewport3DSetSnap(snapOn, 0.5f, 15.f, 0.1f);
+		}
+		// PROJECTION : appliquee sur CHANGEMENT du combo seulement, puis relue --
+		// les vues axiales du pave numerique et du gizmo de navigation ecrivent le
+		// meme etat, et l'ecraser chaque image annulait leur effet une image plus
+		// tard.
+		if (st.projection != st.lastProjection) {
+			if (st.projection == 0)
+				nk3d::Viewport3DSetOrtho(false);
+			else if (st.projection == 1)
+				nk3d::Viewport3DSetOrtho(true);
+			else {
+				// 2..7 : Dessus, Dessous, Avant, Arriere, Gauche, Droite.
+				static const int32 kWhich[6] = {2, 2, 0, 0, 1, 1};
+				static const bool kOpp[6] = {false, true, false, true, true, false};
+				nk3d::Viewport3DAxisView(kWhich[st.projection - 2], kOpp[st.projection - 2]);
+			}
+			st.lastProjection = st.projection;
+		} else {
+			const int32 fromView = nk3d::Viewport3DIsOrtho() ? 1 : 0;
+			// Ne reecrit le combo que sur les deux etats de base : les six vues
+			// d'axe restent affichees tant qu'on n'orbite pas.
+			if (st.projection <= 1 && st.projection != fromView) {
+				st.projection = fromView;
+				st.lastProjection = fromView;
+			}
+		}
 
 		// ── ENTREE DU GIZMO ─────────────────────────────────────────────────
 		// Les deplacements sont recalcules ICI, a partir de la position precedente.
@@ -464,7 +504,18 @@ int nkmain(const NkEntryState &entry) {
 			const float32 mxv = ui.input.mousePos.x - lay.view.x;
 			const float32 myv = ui.input.mousePos.y - lay.view.y;
 			const bool inView = (mxv >= 0.f && myv >= 0.f && mxv < lay.view.w && myv < lay.view.h);
-			const bool down = ui.input.mouseDown[0] && inView;
+			// LE GESTE APPARTIENT A LA ZONE OU IL A COMMENCE. Sans ce verrou, tirer
+			// un champ de transformation dont le trajet traverse la vue declenchait
+			// un press pour le gizmo 3D -- qui pickait dans le vide et DESELECTIONNAIT
+			// l'objet qu'on etait en train de regler. De meme, un clic sur les boules
+			// du gizmo de navigation (peintes PAR-DESSUS la vue) ne doit pas devenir
+			// un pick 3D : on exige que le survol appartienne bien a la scene.
+			if (ui.input.mouseDown[0] && !st.gizWasMouseDown)
+				st.gizGestureInView = inView && overSceneLastFrame;
+			if (!ui.input.mouseDown[0])
+				st.gizGestureInView = false;
+			st.gizWasMouseDown = ui.input.mouseDown[0];
+			const bool down = ui.input.mouseDown[0] && st.gizGestureInView;
 			nk3d::Viewport3DSetGizmoInput(mxv, myv, mxv - st.gizLastX, myv - st.gizLastY,
 										  down && !st.gizWasDown, down, ui.input.shiftDown,
 										  ui.input.ctrlDown);
@@ -583,27 +634,21 @@ int nkmain(const NkEntryState &entry) {
 				// ── Vues ────────────────────────────────────────────────────
 				case NkVpAction::ViewFront:
 					nk3d::Viewport3DAxisView(0, false);
-					st.projection = 1;
 					break;
 				case NkVpAction::ViewBack:
 					nk3d::Viewport3DAxisView(0, true);
-					st.projection = 1;
 					break;
 				case NkVpAction::ViewRight:
 					nk3d::Viewport3DAxisView(1, false);
-					st.projection = 1;
 					break;
 				case NkVpAction::ViewLeft:
 					nk3d::Viewport3DAxisView(1, true);
-					st.projection = 1;
 					break;
 				case NkVpAction::ViewTop:
 					nk3d::Viewport3DAxisView(2, false);
-					st.projection = 1;
 					break;
 				case NkVpAction::ViewBottom:
 					nk3d::Viewport3DAxisView(2, true);
-					st.projection = 1;
 					break;
 				case NkVpAction::ToggleOrtho:
 					st.projection = (st.projection == 1) ? 0 : 1;
@@ -635,7 +680,7 @@ int nkmain(const NkEntryState &entry) {
 		PaintViewport(p, lay.view, st, hit, ws, combo, checks, shortcuts);
 		if (st.showRight) {
 			PaintProperties(p, lay.propsR, st, hit, ws, ui.input);
-			PaintDetails(p, lay.detailsR, st, hit);
+			PaintDetails(p, lay.detailsR, st, hit, ws, ui.input);
 		}
 		if (st.showBrowser)
 			PaintBrowser(p, lay.browser, st, hit, ws, ui.input);
