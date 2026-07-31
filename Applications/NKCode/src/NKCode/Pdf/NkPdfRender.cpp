@@ -523,8 +523,8 @@ namespace nkentseu {
 					// Etat graphique
 					if (OpIs(t, "q")) {
 						if (mStack.Size() < 64) {
-							mGs.clip = mCv->TakeClip();
 							mStack.PushBack(mGs);
+							mCv->PushClipState();
 						}
 						clear();
 						continue;
@@ -533,7 +533,7 @@ namespace nkentseu {
 						if (!mStack.Empty()) {
 							mGs = mStack[mStack.Size() - 1];
 							mStack.Erase(mStack.Begin() + (mStack.Size() - 1));
-							mCv->RestoreClip(mGs.clip);
+							mCv->PopClipState();
 						}
 						clear();
 						continue;
@@ -1075,18 +1075,18 @@ namespace nkentseu {
 
 				// Le motif est DECOUPE par le trace : sans ca, il deborderait sur toute
 				// la page. On empile donc le decoupage courant et on le restaure apres.
-				NkVector<uint8> savedClip = mCv->TakeClip();
+				mCv->PushClipState();
 				mCv->SetClipFromPath(path, evenOdd);
 
 				double bx0 = 0, by0 = 0, bx1 = 0, by1 = 0;
 				if (!path.Bounds(&bx0, &by0, &bx1, &by1)) {
-					mCv->RestoreClip(savedClip);
+					mCv->PopClipState();
 					return;
 				}
 				// Etendue a paver, exprimee dans l'espace du motif.
 				const double det = pm.a * pm.d - pm.b * pm.c;
 				if (det > -1e-12 && det < 1e-12) {
-					mCv->RestoreClip(savedClip);
+					mCv->PopClipState();
 					return;
 				}
 				const double ia = pm.d / det, ib = -pm.b / det;
@@ -1142,7 +1142,7 @@ namespace nkentseu {
 						mGs.ctm = NkPdfMat::Mul(t, pm);
 
 						// Decoupage = trace du motif INTERSECTE la boite de la cellule.
-						const NkVector<uint8> clipBefore = mCv->TakeClip();
+						mCv->PushClipState();
 						NkPdfPath box;
 						{
 							double px[4], py[4];
@@ -1160,12 +1160,12 @@ namespace nkentseu {
 
 						mPath.Clear();
 						Run(cell, pres, depth + 1);
-						mCv->RestoreClip(clipBefore);
+						mCv->PopClipState();
 					}
 				}
 				mGs = saved;
 				mPath = savedPath;
-				mCv->RestoreClip(savedClip);
+				mCv->PopClipState();
 			}
 
 			// ============================================================
@@ -1214,7 +1214,7 @@ namespace nkentseu {
 					// immediatement sous forme de blocs qui empietent sur le reste de la
 					// page. La boite est exprimee dans l'espace du formulaire, donc
 					// APRES application de sa /Matrix.
-					const NkVector<uint8> clipBefore = mCv->TakeClip();
+					mCv->PushClipState();
 					const NkPdfVal bb = doc.DictGet(xo, "BBox");
 					if (bb.kind == NK_PDF_ARRAY && bb.b >= 4) {
 						double v[4];
@@ -1238,7 +1238,7 @@ namespace nkentseu {
 					if (!r2.IsDictLike())
 						r2 = resources; // heritees du parent
 					Run(sc, r2, depth + 1);
-					mCv->RestoreClip(clipBefore);
+					mCv->PopClipState();
 					mGs = saved;
 					mPath = savedPath;
 				}

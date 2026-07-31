@@ -168,6 +168,23 @@ namespace nkentseu {
 
 			void NkPdfCanvas::ClearClip() { mClip.Clear(); }
 
+			void NkPdfCanvas::PushClipState() {
+				// Aucune copie ici : c'est tout l'interet. On note simplement qu'un
+				// niveau s'ouvre.
+				ClipLevel lv;
+				lv.dirty = false;
+				mClipStack.PushBack(lv);
+			}
+
+			void NkPdfCanvas::PopClipState() {
+				if (mClipStack.Empty())
+					return;
+				const usize last = mClipStack.Size() - 1;
+				if (mClipStack[last].dirty)
+					mClip = mClipStack[last].saved; // restauration effective
+				mClipStack.Erase(mClipStack.Begin() + last);
+			}
+
 			// ── Coeur : couverture par balayage ─────────────────────────────────────
 			//
 			// Pour chaque ligne de pixels on echantillonne kSub sous-lignes. Sur
@@ -186,12 +203,39 @@ namespace nkentseu {
 			// elle, chaque sous-ligne reparcourait toutes les aretes de la page.
 			static constexpr int32 kSub = 16; // sous-lignes par pixel
 
-			void NkPdfCanvas::Rasterize(const NkPdfPath &path, bool evenOdd, NkVector<uint8> &cov) const {
-				cov.Resize(static_cast<usize>(mW) * static_cast<usize>(mH));
-				for (usize i = 0; i < cov.Size(); ++i)
-					cov[i] = 0;
+			void NkPdfCanvas::Rasterize(const NkPdfPath &path, bool evenOdd, NkVector<uint8> &cov,
+										int32 *obx0, int32 *oby0, int32 *obx1, int32 *oby1) const {
+				// Boite vide par defaut : l'appelant ne parcourt alors rien.
+				if (obx0) *obx0 = 0;
+				if (oby0) *oby0 = 0;
+				if (obx1) *obx1 = 0;
+				if (oby1) *oby1 = 0;
+				if (cov.Size() != static_cast<usize>(mW) * static_cast<usize>(mH))
+					cov.Resize(static_cast<usize>(mW) * static_cast<usize>(mH));
 				if (path.Empty() || mW <= 0 || mH <= 0)
 					return;
+
+				// Boite du trace : on ne remet a zero et ne parcourt QUE cette zone.
+				double px0 = 0, py0 = 0, px1 = 0, py1 = 0;
+				if (!path.Bounds(&px0, &py0, &px1, &py1))
+					return;
+				int32 cx0 = static_cast<int32>(px0) - 1, cy0 = static_cast<int32>(py0) - 1;
+				int32 cx1 = static_cast<int32>(px1) + 2, cy1 = static_cast<int32>(py1) + 2;
+				if (cx0 < 0) cx0 = 0;
+				if (cy0 < 0) cy0 = 0;
+				if (cx1 > mW) cx1 = mW;
+				if (cy1 > mH) cy1 = mH;
+				if (cx0 >= cx1 || cy0 >= cy1)
+					return;
+				for (int32 y = cy0; y < cy1; ++y) {
+					uint8 *row = cov.Data() + static_cast<usize>(y) * static_cast<usize>(mW);
+					for (int32 x = cx0; x < cx1; ++x)
+						row[x] = 0;
+				}
+				if (obx0) *obx0 = cx0;
+				if (oby0) *oby0 = cy0;
+				if (obx1) *obx1 = cx1;
+				if (oby1) *oby1 = cy1;
 
 				const NkVector<NkPdfPt> &pts = path.Points();
 				const NkVector<int32> &starts = path.Starts();
@@ -233,18 +277,14 @@ namespace nkentseu {
 				if (edges.Empty())
 					return;
 
-				// Bornes verticales : inutile de balayer la page entiere pour un glyphe.
-				double py0 = edges[0].y0, py1 = edges[0].y1;
-				for (usize i = 1; i < edges.Size(); ++i) {
-					py0 = Min2(py0, edges[i].y0);
-					py1 = Max2(py1, edges[i].y1);
-				}
+				// Bornes verticales : deja connues par la boite du trace, calculee plus
+				// haut. On les reutilise plutot que de reparcourir les aretes.
 				int32 rowBeg = static_cast<int32>(py0);
 				int32 rowEnd = static_cast<int32>(py1) + 1;
-				if (rowBeg < 0)
-					rowBeg = 0;
-				if (rowEnd > mH)
-					rowEnd = mH;
+				if (rowBeg < cy0)
+					rowBeg = cy0;
+				if (rowEnd > cy1)
+					rowEnd = cy1;
 				if (rowBeg >= rowEnd)
 					return;
 
@@ -276,7 +316,7 @@ namespace nkentseu {
 
 				// Accumulateur de couverture d'une ligne, en 1/kSub de pixel.
 				NkVector<float32> acc;
-				acc.Resize(static_cast<usize>(mW));
+				acc.Resize(static_cast<usize>(cx1 - cx0));
 				NkVector<double> xs;   // abscisses des croisements
 				NkVector<int32> dirs; // sens correspondant
 
@@ -355,18 +395,22 @@ namespace nkentseu {
 							const int32 ia = static_cast<int32>(xa);
 							const int32 ib = static_cast<int32>(xb);
 							if (ia == ib) { // segment entierement dans un pixel
-								acc[static_cast<usize>(ia)] += static_cast<float32>(xb - xa) * subW;
+								if (ia >= cx0 && ia < cx1)
+									acc[static_cast<usize>(ia - cx0)] +=
+										static_cast<float32>(xb - xa) * subW;
 								continue;
 							}
 							// Pixel de gauche : fraction couverte a droite de xa.
-							acc[static_cast<usize>(ia)] +=
-								static_cast<float32>(static_cast<double>(ia + 1) - xa) * subW;
+							if (ia >= cx0 && ia < cx1)
+								acc[static_cast<usize>(ia - cx0)] +=
+									static_cast<float32>(static_cast<double>(ia + 1) - xa) * subW;
 							// Pixels pleins.
 							for (int32 x = ia + 1; x < ib; ++x)
-								acc[static_cast<usize>(x)] += subW;
+								if (x >= cx0 && x < cx1)
+									acc[static_cast<usize>(x - cx0)] += subW;
 							// Pixel de droite : fraction couverte a gauche de xb.
-							if (ib < mW)
-								acc[static_cast<usize>(ib)] +=
+							if (ib >= cx0 && ib < cx1)
+								acc[static_cast<usize>(ib - cx0)] +=
 									static_cast<float32>(xb - static_cast<double>(ib)) * subW;
 						}
 					}
@@ -374,8 +418,8 @@ namespace nkentseu {
 					if (!touched)
 						continue;
 					uint8 *dst = cov.Data() + static_cast<usize>(row) * static_cast<usize>(mW);
-					for (int32 x = 0; x < mW; ++x) {
-						float32 v = acc[static_cast<usize>(x)];
+					for (int32 x = cx0; x < cx1; ++x) {
+						float32 v = acc[static_cast<usize>(x - cx0)];
 						if (v <= 0.f)
 							continue;
 						if (v > 1.f)
@@ -388,11 +432,16 @@ namespace nkentseu {
 			void NkPdfCanvas::FillPath(const NkPdfPath &path, bool evenOdd, uint8 r, uint8 g, uint8 b, uint8 a) {
 				if (!Valid() || a == 0)
 					return;
-				NkVector<uint8> cov;
-				Rasterize(path, evenOdd, cov);
+				int32 x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+				Rasterize(path, evenOdd, mScratch, &x0, &y0, &x1, &y1);
+				if (x0 >= x1 || y0 >= y1)
+					return;
 				const bool clip = !mClip.Empty();
-				for (usize i = 0; i < cov.Size(); ++i) {
-					uint32 c = cov[i];
+				for (int32 yy = y0; yy < y1; ++yy)
+				for (int32 xx = x0; xx < x1; ++xx) {
+					const usize i = static_cast<usize>(yy) * static_cast<usize>(mW) +
+									static_cast<usize>(xx);
+					uint32 c = mScratch[i];
 					if (!c)
 						continue;
 					if (clip) {
@@ -413,9 +462,30 @@ namespace nkentseu {
 				}
 			}
 
+			// Couverture COMPLETE (hors boite = 0). Le decoupage en a besoin : il
+			// doit valoir 0 partout ailleurs, pas conserver d'anciennes valeurs.
+			void NkPdfCanvas::ComputeCoverageRaw(const NkPdfPath &path, bool evenOdd,
+												 NkVector<uint8> &cov) const {
+				cov.Resize(static_cast<usize>(mW) * static_cast<usize>(mH));
+				for (usize i = 0; i < cov.Size(); ++i)
+					cov[i] = 0;
+				int32 x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+				Rasterize(path, evenOdd, cov, &x0, &y0, &x1, &y1);
+			}
+
 			void NkPdfCanvas::ComputeCoverage(const NkPdfPath &path, bool evenOdd,
 											  NkVector<uint8> &cov) const {
-				Rasterize(path, evenOdd, cov);
+				int32 x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+				Rasterize(path, evenOdd, cov, &x0, &y0, &x1, &y1);
+				// Les pixels HORS boite conservent leur valeur precedente : ils ne sont
+				// pas remis a zero (c'est tout l'interet). On les neutralise donc ici,
+				// car l'appelant parcourt tout le tampon.
+				for (usize i = 0; i < cov.Size(); ++i) {
+					const int32 yy = static_cast<int32>(i / static_cast<usize>(mW));
+					const int32 xx = static_cast<int32>(i % static_cast<usize>(mW));
+					if (xx < x0 || xx >= x1 || yy < y0 || yy >= y1)
+						cov[i] = 0;
+				}
 				// Applique le decoupage ICI plutot que de laisser chaque appelant y
 				// penser : l'oublier une seule fois ferait deborder un degrade.
 				if (!mClip.Empty())
@@ -438,8 +508,17 @@ namespace nkentseu {
 			}
 
 			void NkPdfCanvas::SetClipFromPath(const NkPdfPath &path, bool evenOdd) {
+				// COPIE PARESSEUSE : on ne sauvegarde l'etat du niveau courant qu'ici,
+				// au moment ou il est vraiment sur le point de changer.
+				if (!mClipStack.Empty()) {
+					ClipLevel &lv = mClipStack[mClipStack.Size() - 1];
+					if (!lv.dirty) {
+						lv.saved = mClip;
+						lv.dirty = true;
+					}
+				}
 				NkVector<uint8> cov;
-				Rasterize(path, evenOdd, cov);
+				ComputeCoverageRaw(path, evenOdd, cov);
 				if (mClip.Empty()) {
 					mClip = cov;
 					return;

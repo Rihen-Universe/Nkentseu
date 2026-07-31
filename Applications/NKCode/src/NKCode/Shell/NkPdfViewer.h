@@ -21,7 +21,17 @@ namespace nkentseu {
 
 		struct NkPdfView {
 				pdf::NkPdfDoc doc;
+				// Canevas de la FENETRE visible : il alimente la texture, et sa taille
+				// ne change jamais tant que le panneau garde la sienne.
 				pdf::NkPdfCanvas page;
+				// Cache de la PAGE ENTIERE au zoom courant. Tant qu'il est valide,
+				// defiler n'est qu'une RECOPIE de rectangle, pas un nouveau rendu :
+				// re-rendre a chaque cran de molette coutait le prix d'une page
+				// complete, ce qui rendait le deplacement penible.
+				pdf::NkPdfCanvas full;
+				bool fullValid = false;
+				double fullZoom = -1.0;
+				int32 fullPage = -1;
 				NkString path;		// document actuellement charge
 				NkString unsupported; // fonctionnalites non rendues, a afficher
 				bool opened = false;
@@ -40,11 +50,6 @@ namespace nkentseu {
 				double renderedZoom = -1.0;
 				int32 renderedPage = -1;
 				float32 renderedScrollX = -1.f, renderedScrollY = -1.f;
-
-				// Glisser des barres de defilement : `grab` retient l'ecart au point
-				// de saisie, sinon le curseur saute sous la souris des le 1er pixel.
-				int32 dragV = 0, dragH = 0;
-				float32 grabV = 0.f, grabH = 0.f;
 
 				// ── Selection de texte ──
 				// Les elements viennent du rendu de la FENETRE courante : leurs

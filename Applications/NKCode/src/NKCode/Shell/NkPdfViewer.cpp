@@ -3,6 +3,7 @@
 //
 #include "NKCode/Shell/NkPdfViewer.h"
 
+#include "NKEditorKit/NkEditorScrollbar.h" // barres STANDARD du moteur
 #include "NKEditorKit/NkEditorShell.h"
 
 namespace nkentseu {
@@ -11,7 +12,9 @@ namespace nkentseu {
 		using namespace nkentseu::nkcode::pdf;
 
 		// Epaisseur des barres de defilement, en pixels logiques.
-		static constexpr float32 kBarPx = 12.f;
+		// Largeur des barres : celle du moteur, pour rester identique au reste
+// de l'IDE plutot que d'imposer une valeur maison.
+static float32 BarPx() { return editorkit::NkScrollbarWidth(); }
 
 		// Points par pouce correspondant au zoom demande, pour la page courante.
 		static double DpiFor(NkPdfView *v, int32 viewW) {
@@ -57,12 +60,73 @@ namespace nkentseu {
 				v->texId = 0; // la texture doit etre recreee a cette nouvelle taille
 			}
 
+			// ── Cache de PAGE ENTIERE ──
+			// La page complete est rendue une fois par (page, zoom) ; defiler n'est
+			// alors qu'une RECOPIE de rectangle. Re-rendre a chaque cran de molette
+			// coutait le prix d'une page entiere — c'est ce qui rendait le
+			// deplacement penible. Plafonne a 40 millions de pixels (~160 Mo) :
+			// au-dela, retour au rendu de fenetre, borne mais recalcule.
+			int32 fw = 0, fh = 0;
+			NkPdfRenderer::PagePixelSize(v->doc, v->pageIdx, dpi, &fw, &fh);
+			if ((static_cast<int64>(fw) * static_cast<int64>(fh)) <= 40000000ll) {
+				if (!v->fullValid || v->fullPage != v->pageIdx || v->fullZoom != v->zoom) {
+					NkPdfRenderer rendF;
+					if (!rendF.RenderPage(v->doc, v->pageIdx, dpi, v->full)) {
+						v->failed = true;
+						return;
+					}
+					v->unsupported = rendF.Unsupported();
+					v->items = rendF.TextItems(); // positions dans le repere de la PAGE
+					v->fullValid = true;
+					v->fullPage = v->pageIdx;
+					v->fullZoom = v->zoom;
+				}
+				const int32 ox = static_cast<int32>(v->scrollX);
+				const int32 oy = static_cast<int32>(v->scrollY);
+				uint8 *dst = v->page.Pixels();
+				const uint8 *src = v->full.Pixels();
+				const int32 sw = v->full.Width(), shh = v->full.Height();
+				for (int32 y = 0; y < texH; ++y) {
+					const int32 sy = oy + y;
+					uint8 *drow = dst + static_cast<usize>(y) * static_cast<usize>(texW) * 4u;
+					for (int32 x = 0; x < texW; ++x) {
+						const int32 sx = ox + x;
+						uint8 *d = drow + static_cast<usize>(x) * 4u;
+						if (sy < 0 || sy >= shh || sx < 0 || sx >= sw) {
+							d[0] = d[1] = d[2] = 210; // gris de fond hors page
+							d[3] = 255;
+							continue;
+						}
+						const uint8 *s = src + (static_cast<usize>(sy) * static_cast<usize>(sw) +
+											   static_cast<usize>(sx)) * 4u;
+						d[0] = s[0];
+						d[1] = s[1];
+						d[2] = s[2];
+						d[3] = s[3];
+					}
+				}
+				v->renderedPage = v->pageIdx;
+				v->renderedZoom = v->zoom;
+				v->renderedScrollX = v->scrollX;
+				v->renderedScrollY = v->scrollY;
+				const uint8 *px2 = v->page.Pixels();
+				if (v->texId == 0) {
+					v->texId = shell->UploadRGBA(px2, texW, texH);
+					v->texW = texW;
+					v->texH = texH;
+				} else
+					shell->UpdateRGBA(v->texId, px2, texW, texH);
+				return;
+			}
+
+			v->fullValid = false;
 			NkPdfRenderer rend;
 			if (!rend.RenderPageWindow(v->doc, v->pageIdx, dpi, v->scrollX, v->scrollY, v->page)) {
 				v->failed = true;
 				return;
 			}
 			v->unsupported = rend.Unsupported();
+			v->items = rend.TextItems(); // positions relatives a la FENETRE
 			v->renderedPage = v->pageIdx;
 			v->renderedZoom = v->zoom;
 			v->renderedScrollX = v->scrollX;
@@ -128,7 +192,7 @@ namespace nkentseu {
 			}
 
 			// ── Geometrie : page entiere, fenetre visible, barres ────────────────
-			const float32 sb = ctx.S(kBarPx);
+			const float32 sb = ctx.S(BarPx());
 			int32 fullW = 0, fullH = 0;
 			double dpi = DpiFor(v, static_cast<int32>(area.w - sb));
 			NkPdfRenderer::PagePixelSize(v->doc, v->pageIdx, dpi, &fullW, &fullH);
@@ -189,7 +253,12 @@ namespace nkentseu {
 			// des documents.
 			{
 				const NkVec2 mp = ctx.input.mousePos;
-				const float32 lx = mp.x - view.x, ly = mp.y - view.y;
+				// En mode cache, les boites de texte sont dans le repere de la PAGE :
+				// on ajoute le defilement a la position souris. En mode fenetre elles
+				// sont deja relatives a la fenetre, donc aucun decalage.
+				const float32 offX = v->fullValid ? v->scrollX : 0.f;
+				const float32 offY = v->fullValid ? v->scrollY : 0.f;
+				const float32 lx = mp.x - view.x + offX, ly = mp.y - view.y + offY;
 
 				// Element sous la souris, ou le plus proche sur la meme ligne : sans
 				// cette tolerance, il faudrait viser le glyphe au pixel pres.
@@ -232,7 +301,7 @@ namespace nkentseu {
 					const int32 b = v->selA < v->selB ? v->selB : v->selA;
 					for (int32 i = a; i <= b && static_cast<usize>(i) < v->items.Size(); ++i) {
 						const pdf::NkPdfRenderer::TextItem &t = v->items[static_cast<usize>(i)];
-						dl.AddRectFilled({view.x + t.x, view.y + t.y, t.w, t.h},
+						dl.AddRectFilled({view.x + t.x - offX, view.y + t.y - offY, t.w, t.h},
 										 NkColor{70, 130, 220, 90});
 					}
 				}
@@ -268,64 +337,21 @@ namespace nkentseu {
 			}
 			dl.PopClipRect();
 
-			// ── Barres de defilement ─────────────────────────────────────────────
-			auto scrollbar = [&](bool vertical) {
-				const NkRect track = vertical
-										 ? NkRect{view.x + view.w, view.y, sb, view.h}
-										 : NkRect{view.x, view.y + view.h, view.w, sb};
-				dl.AddRectFilled(track, NkColor{26, 28, 34, 255});
-				const float32 total = vertical ? static_cast<float32>(fullH) : static_cast<float32>(fullW);
-				const float32 vis = vertical ? view.h : view.w;
-				if (total <= vis || total <= 0.f)
-					return;
-				const float32 len = vertical ? track.h : track.w;
-				// Curseur d'au moins 24 px : en dessous il devient inattrapable.
-				float32 thumb = len * (vis / total);
-				if (thumb < ctx.S(24.f))
-					thumb = ctx.S(24.f);
-				const float32 maxS = vertical ? maxSy : maxSx;
-				const float32 cur = vertical ? v->scrollY : v->scrollX;
-				const float32 pos = (maxS > 0.f) ? (cur / maxS) * (len - thumb) : 0.f;
-				const NkRect th = vertical ? NkRect{track.x + 2.f, track.y + pos, sb - 4.f, thumb}
-										   : NkRect{track.x + pos, track.y + 2.f, thumb, sb - 4.f};
-				const bool hov = NkGuiRectContains(th, ctx.input.mousePos);
-				dl.AddRectFilled(th, hov ? NkColor{120, 128, 144, 255} : NkColor{74, 80, 92, 255});
-
-				// Glisser : on memorise l'ecart au point de saisie, sinon le curseur
-				// saute sous la souris au premier pixel de mouvement.
-				int32 &drag = vertical ? v->dragV : v->dragH;
-				float32 &grab = vertical ? v->grabV : v->grabH;
-				if (ctx.input.mouseClicked[0] && hov) {
-					drag = 1;
-					grab = (vertical ? ctx.input.mousePos.y - th.y : ctx.input.mousePos.x - th.x);
-				}
-				if (!ctx.input.mouseDown[0])
-					drag = 0;
-				if (drag) {
-					const float32 p = (vertical ? ctx.input.mousePos.y - track.y - grab
-												: ctx.input.mousePos.x - track.x - grab);
-					const float32 span = len - thumb;
-					const float32 frac = (span > 0.f) ? (p / span) : 0.f;
-					const float32 val = frac * maxS;
-					if (vertical)
-						v->scrollY = (val < 0.f) ? 0.f : (val > maxSy ? maxSy : val);
-					else
-						v->scrollX = (val < 0.f) ? 0.f : (val > maxSx ? maxSx : val);
-				} else if (ctx.input.mouseClicked[0] && NkGuiRectContains(track, ctx.input.mousePos)) {
-					// Clic dans la piste hors du curseur : saut d'une « page ».
-					const float32 m = vertical ? ctx.input.mousePos.y : ctx.input.mousePos.x;
-					const float32 t0 = vertical ? th.y : th.x;
-					const float32 step = vis * 0.9f;
-					if (vertical)
-						v->scrollY += (m < t0) ? -step : step;
-					else
-						v->scrollX += (m < t0) ? -step : step;
-				}
-			};
-			if (needV)
-				scrollbar(true);
-			if (needH)
-				scrollbar(false);
+			// ── Barres de defilement : celles de NKEditorKit ─────────────────────
+			// NkVScrollbar / NkHScrollbar sont les barres STANDARD du moteur, deja
+			// utilisees partout dans NKCode (menus contextuels, panneaux, editeur).
+			// En ecrire une ici aurait donne un comportement et une apparence
+			// differents du reste de l'IDE — pour rien.
+			if (needV) {
+				const NkRect track = {view.x + view.w, view.y, sb, view.h};
+				editorkit::NkVScrollbar(ctx, dl, track, v->scrollY, static_cast<float32>(fullH), view.h,
+										0x50DF0001u, lh * 3.f);
+			}
+			if (needH) {
+				const NkRect track = {view.x, view.y + view.h, view.w, sb};
+				editorkit::NkHScrollbar(ctx, dl, track, v->scrollX, static_cast<float32>(fullW), view.w,
+										0x50DF0002u, lh * 3.f);
+			}
 			if (needV && needH) // coin entre les deux barres
 				dl.AddRectFilled({view.x + view.w, view.y + view.h, sb, sb}, NkColor{26, 28, 34, 255});
 

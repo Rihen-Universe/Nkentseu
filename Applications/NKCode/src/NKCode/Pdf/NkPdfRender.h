@@ -133,7 +133,9 @@ namespace nkentseu {
 						// ressources peuvent changer entre les deux via un formulaire).
 						NkString fillPattern, strokePattern;
 							NkPdfFont *font = nullptr;
-							NkVector<uint8> clip; // vide = pas de decoupage
+							// Le decoupage n'est PLUS ici : il vit dans la pile du canevas,
+							// pour eviter de copier un masque de la taille de la page a
+							// chaque q/Q. Voir NkPdfCanvas::PushClipState.
 					};
 
 					void Note(const char *what);
