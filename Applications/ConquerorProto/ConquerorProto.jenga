@@ -1,0 +1,87 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# =============================================================================
+# ConquerorProto — Prototype 2D « Spread » sur NKCanvas (JETABLE).
+# But : valider la mécanique cœur (dupliquer / attaquer / conquérir) en hotseat,
+#       AVANT de passer à Noge. Socle minimal, PC-first.
+# Stack : NKCanvas (OpenGL) + NKFont (texte) + NKGlad. Aucune dépendance Noge.
+# Build : jenga build --target ConquerorProto --config Debug
+# Run   : jenga run   --target ConquerorProto   (ou lancer le binaire produit)
+# =============================================================================
+from Jenga import *
+from jengaconfig import *
+import os
+
+# NKCanvas.lib (partagé) est compilé AVEC le backend Vulkan : il faut donc lier
+# le loader vulkan-1 même si l'app tourne en OpenGL. On récupère le SDK.
+_VULKAN_LIB = os.path.join(os.getenv("VULKAN_SDK", ""), "Lib").replace("\\", "/") if os.getenv("VULKAN_SDK") else ""
+
+with project("ConquerorProto"):
+    windowedapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    files(["src/**.cpp"])
+
+    # Un seul appel : includedirs + links + dependson + defines transitifs.
+    # NKWindow, NKEvent, NKCore, NKMemory, NKMath, NKLogger, NKTime... sont tirés
+    # automatiquement par NKCanvas/NKFont.
+    nkentseudependson(
+        ["NKCanvas", "NKFont", "NKImage", "NKStream", "NKTime", "NKGlad"],
+        extra_includes=["src"],
+        extra_defines=[
+            # Proto OpenGL only : on n'active pas le backend Vulkan (pas de SDK requis).
+            "NKENTSEU_ENABLE_VULKAN_BACKEND=0",
+        ],
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    # La police chargée au runtime ("Resources/Fonts/Antonio-Bold.ttf").
+    dependfiles(["../../Resources/Fonts"])
+
+    apppublisher("Rihen Universe")
+    appversion("0.1.0")
+
+    # ===== Windows ===========================================================
+    with filter("system:Windows"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+        # opengl32 pour le backend GL de NKCanvas ; d3d11/dxgi car NKCanvas
+        # compile aussi le backend DX11 par défaut sur Windows (même si non utilisé
+        # au runtime -> il faut résoudre les symboles au link).
+        if _VULKAN_LIB:
+            libdirs([_VULKAN_LIB])
+        links([
+            "user32", "gdi32", "opengl32", "dwmapi", "shell32", "ole32", "uuid",
+            # dinput8 : NKWindow utilise DirectInput (manette) -> c_dfDIJoystick2.
+            "dinput8", "dxguid",
+            "d3d11", "d3d12", "dxgi", "d3dcompiler",
+            # vulkan-1 : NKCanvas.lib référence des symboles vk* (backend compilé).
+            "vulkan-1",
+        ])
+
+    # ===== Linux (XLib) ======================================================
+    with filter("system:Linux && !options:linux-backend=wayland"):
+        usetoolchain("clang-native")
+        defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
+        links(["pthread", "X11", "Xrandr", "Xext", "GL", "m"])
+
+    # ===== Web (Emscripten / WebGL2) =========================================
+    with filter("system:Web"):
+        usetoolchain("emscripten")
+        emscripteninitialmemory(32)
+        emscriptenextraflags([
+            "-s", "ASYNCIFY",
+            "-s", "ALLOW_MEMORY_GROWTH=1",
+            "-s", "FULL_ES3=1",
+            "-s", "USE_WEBGL2=1",
+            "-s", "NO_EXIT_RUNTIME=1",
+        ])
+
+    with filter("config:Debug"):
+        defines(["_DEBUG"]); optimize("Off"); symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"]); optimize("Speed"); symbols(False)
