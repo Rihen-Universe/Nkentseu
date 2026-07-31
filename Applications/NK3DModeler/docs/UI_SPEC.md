@@ -218,7 +218,7 @@ relevé sur les images, pas supposé.
 |---|---|
 | axe X / Y / Z | rouge / vert / bleu |
 | **non sélectionné** | noir |
-| **sélectionné** | orange `(1 · 0,55 · 0,05)` |
+| **sélectionné** | ambre `#F2980E` (cf. § 10bis.2) |
 | **actif** | blanc |
 | lumière | jaune, teinte claire si active |
 
@@ -405,6 +405,141 @@ claire du thème.
 information disponible seulement au survol · un panneau modificateurs dessiné
 avec des contrôles spécifiques par type, alors qu'il est **générique** · des
 libellés qui laisseraient croire qu'ils sont écrits en dur dans le code.
+
+---
+
+## 10bis. Palette imposée et rôles
+
+Rihen a fourni six couleurs à intégrer aux thèmes principaux (sombre **et** clair) :
+`#F2980E` `#0A545E` `#095461` `#141414` `#2B2B2B` `#212121`.
+
+### 10bis.1 Les trois gris — la structure du thème sombre
+
+| couleur | rôle | pourquoi celui-là |
+|---|---|---|
+| `#141414` | **fond de fenêtre** | le plus sombre : il doit reculer derrière tout le reste |
+| `#212121` | **fond des panneaux** | un cran au-dessus, pour que le panneau se détache du vide |
+| `#2B2B2B` | **en-têtes de panneau, barres d'outils, en-têtes de section** | le plus clair des trois : ce qui structure doit se lire en premier |
+
+Trois valeurs suffisent, et c'est une bonne chose : une hiérarchie à trois niveaux
+se lit sans effort. En ajouter un quatrième rendrait les écarts indistincts.
+
+### 10bis.2 L'ambre `#F2980E` — et une décision à prendre
+
+`#F2980E` est **très proche** de l'orange de sélection 3D que j'avais posé
+(`#FF8C0D`) : 13 points d'écart sur le rouge, 12 sur le vert. **Côte à côte, on ne
+les distinguerait pas.** Garder les deux créerait une différence que personne ne
+peut voir mais que tout le monde devrait maintenir.
+
+> **Décision : `#F2980E` devient l'orange UNIQUE du produit.** Il sert à la fois de
+> couleur de **sélection 3D** et d'accent **ambre** pour les nœuds d'action et les
+> avertissements. `#FF8C0D` est retiré de la spécification.
+
+Cela ne remet pas en cause la règle qui compte : **le bleu reste l'état de
+l'interface, l'ambre reste la sélection 3D.** Ce sont deux familles, pas deux
+nuances.
+
+### 10bis.3 Les deux sarcelles `#0A545E` et `#095461` — écart imperceptible, usage précis
+
+Elles diffèrent de **1 à 3 points par canal**. Aucun œil ne les sépare si elles
+sont voisines. Les affecter à deux rôles distincts et **simultanément visibles**
+serait une erreur : l'utilisateur croirait à une seule couleur et se demanderait
+pourquoi elle « bave ».
+
+> **Décision : les affecter à des états qui ne coexistent JAMAIS.**
+> `#0A545E` = en-tête de nœud de **données / évaluation** au repos.
+> `#095461` = le **même** en-tête, survolé ou sélectionné.
+> Un écart minime est exactement ce qu'il faut pour un changement d'état : assez
+> pour être ressenti au survol, trop peu pour créer une seconde famille de couleur.
+
+### 10bis.4 Déclinaison CLAIRE
+
+Le thème clair n'inverse pas les gris — il les **remplace** :
+fond `#F5F5F5` · panneaux `#FFFFFF` · en-têtes `#EAEAEA` · texte `#1A1A1A`.
+
+Les couleurs **porteuses de sens** sont conservées mais **assombries** pour rester
+lisibles sur fond clair : l'ambre passe de `#F2980E` à `#C97A08`, le bleu d'état de
+`#1177D1` à `#0E5FA6`, les sarcelles restent inchangées (elles sont déjà sombres).
+
+> ⚠️ **C'est précisément pour cela que les couleurs métier doivent vivre DANS le
+> thème** — axes X/Y/Z et trois états de sélection compris. Laissées en dur dans le
+> code, elles rendraient le thème clair illisible, et personne ne s'en apercevrait
+> avant de l'essayer.
+
+---
+
+## 10ter. Éditeur de nœuds — modélisation et matériaux
+
+Rihen : *« on doit avoir aussi la possibilité de faire de la modélisation par
+blueprint ou visuel, pareil pour les matériaux. »* Le périmètre et l'architecture
+sont traités dans `SPECIFICATION.md` § 4.4 (le substrat `NKGraph` est déjà arbitré).
+Ici : **à quoi ça ressemble**.
+
+### 10ter.1 Deux références, deux emprunts distincts
+
+| référence | ce qu'on en prend |
+|---|---|
+| **capture 1** (éditeur sombre à nœuds arrondis) | **le style général** : cartes sombres à coins arrondis, bandeau de titre coloré, ports typés, fils courbes colorés par type, fond quadrillé de points |
+| **capture 2** (Blueprint UE5) | **l'en-tête seulement**, et un détail précis : **les broches d'exécution sont DANS le bandeau de titre** — entrée à gauche, sortie à droite — tandis que les broches de **données** sont dans le corps |
+
+**Pourquoi ce détail compte** : il sépare visuellement le **flux** (l'ordre des
+opérations) de la **donnée** (ce qui circule). On lit la chaîne d'exécution en
+suivant une seule ligne horizontale, sans la chercher parmi les valeurs.
+
+### 10ter.2 Anatomie d'un nœud
+
+```
+        ┌──────────────────────────────────────────────┐
+   ▶────┤  Extruder                              ────▶ │  ← bandeau : titre +
+        │                                              │    broches d'EXÉCUTION
+        ├──────────────────────────────────────────────┤
+   ●────┤  Maillage                                    │  ← corps : broches de
+   ●────┤  Distance          │  0,25                   │    DONNÉES + valeurs
+        │                              Maillage   ────● │
+        └──────────────────────────────────────────────┘
+```
+
+- **Bandeau** : hauteur ~24 px, coloré **par famille** (§ 10ter.3), titre en
+  demi-gras clair, broches d'exécution en **triangle** aux deux extrémités.
+- **Corps** : fond `#212121`, lignes en **deux colonnes** — exactement le même
+  composant que le panneau Détails. Une broche non connectée affiche son **champ
+  de saisie** ; connectée, le champ disparaît.
+- **Broches de données** : petits **cercles**, colorés par **type**.
+- **Coins** : 6 px sur les nœuds (plus généreux que les 2 px des panneaux — un nœud
+  est un objet flottant, pas une zone d'interface).
+
+### 10ter.3 Couleur du bandeau = famille de nœud
+
+| famille | couleur | exemples |
+|---|---|---|
+| **Action / opération** | ambre `#F2980E` | Extruder, Chanfreiner, Subdiviser |
+| **Donnée / évaluation** | sarcelle `#0A545E` (survol `#095461`) | Nombre, Vecteur, Expression |
+| **Contrôle de flux** | gris `#2B2B2B` | Si, Répéter, Séquence |
+| **Entrée / sortie** | bleu `#1177D1` | Maillage d'entrée, Résultat |
+
+### 10ter.4 Fils
+
+Courbes de Bézier, épaisseur 2 px, **couleur du TYPE transporté** — pas de la
+famille du nœud. Le fil d'exécution est **blanc et plus épais** (3 px) : c'est le
+squelette du graphe, il doit se distinguer d'un coup d'œil de tout ce qui est
+donnée.
+
+### 10ter.5 Fond
+
+`#141414` avec une **grille de points** discrets (1 px, blanc à 6 %, pas de 24 px).
+Des points plutôt qu'un quadrillage : ils donnent le repère de position et
+d'aimantation sans ajouter de lignes qui entreraient en concurrence avec les fils.
+
+### 10ter.6 Règles
+
+1. **Un type = une couleur**, la même sur la broche et sur le fil. Sans cela, on ne
+   peut pas voir d'un regard ce qui est connectable à quoi.
+2. **Une connexion invalide est refusée à la prise** et le dit — pas acceptée puis
+   signalée en erreur plus tard.
+3. **Un nœud repliable** sur son seul bandeau : un graphe de modélisation devient
+   vite dense.
+4. **Le panneau Détails montre le nœud sélectionné**, avec les mêmes lignes à deux
+   colonnes. Une seule grammaire de propriété dans toute l'application.
 
 ---
 

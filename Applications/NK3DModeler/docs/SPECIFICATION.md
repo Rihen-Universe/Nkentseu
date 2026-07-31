@@ -105,7 +105,42 @@ ressemble à un oubli et sera re-proposée à chaque session.
 > partie de ce qu'on attend d'un modeleur, et surtout il impose une contrainte
 > d'architecture qu'il vaut bien mieux poser **avant** d'écrire l'application.
 
-**Ce qui existe déjà et le sert** — il ne s'agit pas de partir de zéro :
+> ⚠️ **CORRECTION DE MA CORRECTION (31/07).** Rihen : *« on a même déjà commencé à
+> implémenter les algorithmes de sculpting, tu peux vérifier. »* Vérifié — et il a
+> raison. **`NKRenderer/Tools/PixolSculpt/` existe** : 1 234 lignes, 8 fichiers,
+> deux shaders compute, un `DESIGN.md` complet. J'avais écrit un plan S1-S5 en
+> supposant qu'il n'y avait rien. C'était faux, **et faux d'une manière
+> intéressante** : l'approche déjà choisie n'est pas celle que j'esquissais.
+
+**L'approche existante — pixol / 2.5D, façon ZBrush.** Elle ne sculpte **pas** des
+sommets : elle maintient un G-buffer « pixol » en **espace-écran** (profondeur +
+normale + matériau + masque + couleur) et le mute par des **dispatchs compute
+bornés à la tuile sous la brosse**. Conséquence décisive : *le coût est borné par
+la résolution d'écran, pas par le nombre de triangles.*
+
+**Ce que ça change par rapport à ce que j'avais écrit :**
+
+| ma proposition (mesh) | l'approche déjà en place (pixol) |
+|---|---|
+| S1 mise à jour partielle du maillage GPU | **sans objet** : rien n'est envoyé au GPU, la brosse écrit directement dans des images de stockage |
+| S2 requête spatiale sur les sommets | **sans objet** : le voisinage est le voisinage de PIXELS, gratuit |
+| S3 trait, S4 brosses | **déjà spécifiés** : `NkSculptStroke` (dabs interpolés + rectangle sale borné), 8 modes de brosse et 5 courbes d'atténuation déjà déclarés |
+| S5 dyntopo ou multirésolution | `NkSculptTileStore.h` est posé comme la voie « vraie géométrie » — **à trancher plus tard**, comme prévu |
+
+**État réel, tel que le dit son propre `DESIGN.md` : « squelette ».** Les structures,
+les enums et la façade sont là ; l'implantation ne l'est pas. Restent à écrire :
+création des images de stockage, chargement des pipelines compute, le kernel de
+brosse `RAISE`/`LOWER`, le rectangle sale, la passe de resolve vers le G-buffer, et
+le branchement dans `NkRendererImpl` (le diff est écrit, non appliqué).
+
+**Deux pièges y sont déjà consignés**, et ils valent d'être relus avant de reprendre :
+le backend OpenGL passe un format **codé en dur** `GL_RGBA32F` à `glBindImageTexture`
+(à étendre si l'on utilise `r32f`/`rgba16f`) ; et la profondeur du G-buffer est
+souvent non-storage, donc son resolve peut exiger une petite passe graphique plutôt
+qu'un `imageStore`.
+
+**Ce qui reste vrai de mon analyse**, et qui sert l'autre voie (celle de
+`NkSculptTileStore`, sculpt sur vraie géométrie) :
 
 | brique existante | ce qu'elle apporte au sculpt |
 |---|---|
@@ -115,33 +150,137 @@ ressemble à un oubli et sera re-proposée à chaque session.
 | **cycles radial et disque** (BMesh étape 2) | le voisinage d'un sommet en O(k), nécessaire au lissage et à la dilatation |
 | **harnais, 116 cas** | un filet déjà en place pour une opération qui déforme massivement |
 
-**⚠️ LE VRAI OBSTACLE, et il est architectural.** Aujourd'hui, toute opération
-d'édition **reconstruit et resynchronise le maillage entier** (`Demo3D_SyncFromHE`).
-C'est sans conséquence sur un cube de 24 sommets ; c'est **rédhibitoire** pour du
-sculpt, où chaque mouvement de souris touche quelques milliers de sommets sur un
-maillage qui peut en compter des centaines de milliers, à 60 images par seconde.
+**⚠️ La contrainte de mise à jour PARTIELLE reste valable**, mais pour l'**autre**
+voie. Aujourd'hui, toute opération d'édition reconstruit et resynchronise le
+maillage entier (`Demo3D_SyncFromHE`) : sans conséquence sur un cube de 24 sommets,
+rédhibitoire pour du sculpt **sur vraie géométrie**. Le chemin pixol y échappe par
+construction — c'est même son argument principal.
 
-> **Conséquence pour la v1, à respecter même avant d'écrire la première brosse :**
-> la chaîne doit permettre une **mise à jour PARTIELLE** — modifier un sous-ensemble
-> de sommets et n'envoyer au GPU que ce sous-ensemble. Ce n'est pas du sculpt, c'est
-> une propriété de la chaîne de rendu. **L'ajouter après coup coûterait une refonte
-> du chemin d'édition ; l'y prévoir maintenant ne coûte presque rien.**
+**Position honnête** : le sculpt est dans le produit, l'architecture est choisie et
+documentée, et il reste à l'**implanter**. Le chantier s'ouvre quand l'interface
+existe : une brosse sans interface pour régler son rayon, sa force et son mode ne
+se teste pas.
 
-**Ce qui manque vraiment**, par ordre de dépendance :
+### 4.4 MODÉLISATION et MATÉRIAUX par GRAPHE DE NŒUDS *(décision Rihen, 31/07)*
 
-| # | brique | pourquoi elle est nécessaire |
+Demande : pouvoir faire de la **modélisation par blueprint / visuel**, et de même
+pour les **matériaux**.
+
+**Cette demande tombe sur une décision déjà prise et documentée.**
+`Kernel/Runtime/NKGraph/ROADMAP.md` (validé le 2026-07-09) définit **un substrat de
+graphe UNIQUE** pour tout l'écosystème, et **cite déjà nommément** les deux
+consommateurs demandés : *« matériaux (NKRenderer Phase T.2) »* et *« modélisation
+procédurale »*. Rien à réinventer : il faut l'implanter.
+
+**Architecture, telle qu'elle est déjà arbitrée** — la séparation est la règle :
+
+| couche | où | rôle |
 |---|---|---|
-| **S1** | **mise à jour partielle** du maillage GPU | sans elle, tout le reste est inutilisable en pratique |
-| **S2** | **requête spatiale** (grille ou arbre) : « quels sommets dans ce rayon ? » | un balayage linéaire par mouvement de souris s'effondre dès la centaine de milliers de sommets |
-| **S3** | **trait** (stroke) : entrée continue, espacement, pression | une brosse n'est pas un clic ; c'est ce qui donne un geste régulier plutôt qu'une série de bosses |
-| **S4** | **brosses** : tirer, attraper, lisser, gonfler, aplatir, pincer | la partie visible — et la plus rapide à écrire une fois S1-S3 en place |
-| **S5** | **densité adaptative** : dynamic topology **ou** multirésolution | ajouter du détail là où on sculpte. **À trancher :** dyntopo est plus simple et plus libre, la multirésolution préserve une cage éditable et permet de revenir en arrière. Les deux ne se remplacent pas. |
+| **3 — sémantique métier** | chez chaque consommateur | bibliothèques de nœuds + exécution : compilateur NkSL pour les matériaux, **commandes `NkMeshEditCommand` pour la modélisation** |
+| **2 — édition** | `Engine/NKEditorKit` | le canevas de nœuds : panoramique, zoom, fils, sélection, recherche, groupes — **appris une fois, partagé partout** |
+| **1 — cœur** | `Kernel/Runtime/NKGraph` | modèle pur : nœuds, sockets **typés**, connexions, validation, tri topologique, sérialisation, annulation |
 
-**Position honnête** : S1 est une contrainte à respecter **dès la v1** ; S2 à S5
-constituent un chantier à part entière, à ouvrir quand l'interface existe — parce
-qu'une brosse sans interface pour la régler ne se teste pas.
+> **La phrase à retenir de cette architecture** : *« on unifie l'AUTORAT — modèle,
+> sérialisation, interface — jamais l'EXÉCUTION. »* Les matériaux se **compilent**
+> vers NkSL à l'édition ; la modélisation **produit des commandes** rejouables. Un
+> `if (nodeType == …)` métier dans le cœur signerait sa mort.
 
-### 4.4 Verrou partagé identifié
+**Ce qui rend la modélisation par nœuds réaliste chez nous, et c'est décisif** :
+le journal de commandes existe **déjà** (`NkMeshEditRecorder`, sérialisé,
+rejouable) et l'aller-retour est prouvé au bit près. Un graphe de modélisation
+n'est donc pas un nouveau moteur — c'est une **autre façon d'écrire la même liste
+de commandes**. La preuve que les deux chemins coïncident est déjà outillée.
+
+**État réel** : `Kernel/Runtime/NKGraph/` ne contient **que sa roadmap**, aucun
+code, aucune cible de build — comme NKSimulation. Le module naîtra avec son premier
+consommateur.
+
+**Ordre proposé** : cœur NKGraph (couche 1) → canevas (couche 2) → **matériaux**
+d'abord *(périmètre fermé, backend NkSL existant)* → **modélisation** ensuite, qui
+bénéficiera d'une API déjà éprouvée par un second usage. La roadmap NKGraph appelle
+cela la « règle des deux consommateurs » : *c'est le deuxième client qui force la
+généralisation de l'API.*
+
+### 4.5 MODÉLISATION PAR PROMPT, en CYCLE avec l'édition manuelle *(Rihen, 31/07)*
+
+Demande : *« modéliser avec l'IA dans l'interface par prompt, tout en acceptant de
+modifier manuellement le résultat obtenu et continuer si possible de manière
+cyclique entre prompt et modification manuelle. »*
+
+**C'est la demande la plus exigeante du document, et la pièce qui la rend possible
+existe déjà.**
+
+#### Pourquoi le cycle est le point dur
+
+La partie facile est « un prompt produit un objet ». La partie qui casse
+d'habitude, c'est le **deuxième tour** : l'utilisateur retouche le résultat à la
+main, redemande quelque chose à l'IA, et **ses retouches disparaissent**. C'est le
+comportement par défaut de tout système où l'IA rend un **maillage fini** : le
+second prompt régénère depuis zéro et écrase le travail manuel.
+
+#### Ce qui l'évite, et nous l'avons déjà
+
+> **L'IA ne produit pas un maillage. Elle produit des COMMANDES.**
+
+`NkMeshEditRecorder` existe : chaque opération d'édition est une **commande donnée**,
+sérialisée, **rejouable**, et l'aller-retour est prouvé au bit près
+(`NK_EDIT_IDENTITY` → 0 sur tous les attributs). Le journal est déjà le format
+d'échange dont ce cycle a besoin.
+
+Conséquence : **prompt et main écrivent dans le MÊME journal.**
+
+```
+   prompt ──▶ [commandes IA]  ─┐
+                               ├──▶  journal unique ──▶ maillage
+   main   ──▶ [commandes UI]  ─┘        (rejouable, annulable)
+                               ▲
+   prompt suivant ────────────┘   il AJOUTE, il ne régénère pas
+```
+
+Les retouches manuelles ne sont pas un obstacle au prompt suivant : ce sont des
+entrées du même journal, que l'IA voit comme contexte. **Le cycle se ferme tout
+seul** — non par une astuce, mais parce que les deux chemins parlent la même langue.
+
+C'est aussi la raison pour laquelle le § 2 exige que *toute opération de l'interface
+soit une commande*. Cette exigence, écrite avant cette demande, la sert exactement.
+
+#### Ce que ça impose
+
+| exigence | pourquoi |
+|---|---|
+| **L'IA n'émet que des commandes existantes** | une commande inventée ne serait ni rejouable, ni annulable, ni éditable ensuite |
+| **Sortie validée par schéma**, jamais du texte libre exécuté | même règle que `NkRoleContextSchema` dans NkAnima : une sortie malformée est **rejetée avec un message**, jamais interprétée au mieux |
+| **Aperçu avant application** | la proposition de l'IA est un lot de commandes qu'on **voit** avant d'accepter. Sinon chaque essai est une annulation |
+| **Annulation par lot** | « défaire ce que le prompt vient de faire » doit être **un** geste, pas trente |
+| **Le prompt et sa réponse sont journalisés** | savoir quel prompt a produit quelle partie du modèle — sans quoi le cycle devient illisible au bout de dix tours |
+| **Repli explicite** | modèle indisponible ou réponse invalide → on le **dit**, on ne devine pas |
+
+#### Interface (détaillée dans `UI_SPEC.md`)
+
+Un panneau **« Assistant »** dans la colonne de droite : champ de prompt,
+historique des échanges, et pour chaque réponse la **liste des commandes proposées**
+avec `Aperçu` / `Appliquer` / `Rejeter`. L'utilisateur voit **ce que l'IA va faire**
+avant que ce soit fait — c'est ce qui rend la collaboration tenable plutôt
+qu'inquiétante.
+
+#### État des dépendances — honnêtement
+
+| brique | état |
+|---|---|
+| journal de commandes rejouable | ✅ livré et prouvé |
+| annulation / rétablissement | ✅ livré |
+| 17 modificateurs + ~40 opérations d'édition adressables | ✅ livrés |
+| paramètres adressables par nom | ✅ livré (`NkModParam`) |
+| **modèle de langue local** | 🟡 NkGPT existe et génère du texte ; **le pont n'est pas câblé**, et le Palier 4 est interrompu |
+| **traduction prompt → commandes** | ❌ non commencé — c'est le vrai travail |
+
+**Position honnête** : l'ossature est là et elle est bonne. Ce qui manque est la
+pièce du milieu — transformer une phrase en une suite de commandes valides — et
+elle ne doit pas être bricolée : sans validation par schéma, elle produira des
+suites plausibles et fausses, exactement comme le corpus l'a montré sur les faits
+historiques.
+
+### 4.6 Verrou partagé identifié
 
 Les **groupes de sommets** bloquent simultanément : Mask par groupe, les trois
 modificateurs Vertex Weight, et le skinning côté animation. C'est le prérequis au
