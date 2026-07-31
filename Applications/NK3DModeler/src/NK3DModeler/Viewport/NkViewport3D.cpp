@@ -231,6 +231,12 @@ namespace nkentseu {
 					int32 solidLight = 0;
 					uint32 overlays = 0x0Fu;
 					bool gizmoVisible = true;
+					// CURSEUR 3D : le point de reference de Blender. Il sert de pivot,
+					// d'origine aux nouveaux objets, de centre a la revolution et de
+					// cible a « souder au curseur ». Sans lui, ces quatre commandes
+					// n'ont aucun point d'application.
+					NkVec3f cursor3D{0.f, 0.f, 0.f};
+					int32 orientation = 0; ///< 0 global, 1 local, 2 normal
 					bool ngonWire = true;
 
 					// ── Transformation modale en cours ──────────────────────
@@ -887,6 +893,78 @@ namespace nkentseu {
 
 		void Viewport3DSetGizmoOrientation(int32 orient) {
 			g.gizmo.SetOrientation(orient);
+			// Retenue AUSSI ici : les transformations modales n'ont pas de gizmo a
+			// interroger, et elles doivent pourtant respecter le meme repere.
+			g.orientation = orient;
+		}
+
+		void Viewport3DSetCursor3D(float32 x, float32 y, float32 z) {
+			g.cursor3D = {x, y, z};
+			g.gizmo.Set3DCursor(g.cursor3D);
+		}
+
+		void Viewport3DGetCursor3D(float32 *out3) {
+			if (!out3)
+				return;
+			out3[0] = g.cursor3D.x;
+			out3[1] = g.cursor3D.y;
+			out3[2] = g.cursor3D.z;
+		}
+
+		// Pose le curseur 3D sous la souris : sur la surface visee si le rayon
+		// touche un maillage, sinon sur le plan du sol. Un curseur qui refuserait
+		// de se poser faute de surface serait inutilisable dans une scene vide.
+		void Viewport3DPlaceCursor(float32 mx, float32 my) {
+			if (!g.ok)
+				return;
+			const float32 nx = mx / (float32)(g.rtW ? g.rtW : 1u) * 2.f - 1.f;
+			const float32 ny = 1.f - my / (float32)(g.rtH ? g.rtH : 1u) * 2.f;
+			NkVec3f dir = g.lastProj.fwd + g.lastProj.rgt * (nx * g.lastProj.thX)
+						  + g.lastProj.upv * (ny * g.lastProj.thY);
+			const float32 l = dir.Len();
+			if (l > 1e-6f)
+				dir = dir * (1.f / l);
+			float32 best = 1e30f;
+			bool hitAny = false;
+			for (int32 i = 0; i < kMaxObjects; ++i) {
+				VpObject &o = g.objs[i];
+				if (!o.alive || !o.visible || o.type != kVpObjMesh)
+					continue;
+				for (uint32 t = 0; t + 2 < (uint32)o.restI.Size(); t += 3) {
+					const NkVec3f v0 = o.world * o.restV[o.restI[t]].pos;
+					const NkVec3f v1 = o.world * o.restV[o.restI[t + 1]].pos;
+					const NkVec3f v2 = o.world * o.restV[o.restI[t + 2]].pos;
+					NkVec3f e1 = v1 - v0, e2 = v2 - v0, h = dir.Cross(e2);
+					const float32 aa = e1.Dot(h);
+					if (fabsf(aa) < 1e-7f)
+						continue;
+					const float32 f = 1.f / aa;
+					NkVec3f sv = g.lastCamPos - v0;
+					const float32 u = f * sv.Dot(h);
+					if (u < 0.f || u > 1.f)
+						continue;
+					NkVec3f q = sv.Cross(e1);
+					const float32 vv = f * dir.Dot(q);
+					if (vv < 0.f || u + vv > 1.f)
+						continue;
+					const float32 tt = f * e2.Dot(q);
+					if (tt > 1e-4f && tt < best) {
+						best = tt;
+						hitAny = true;
+					}
+				}
+			}
+			if (!hitAny && fabsf(dir.y) > 1e-5f) {
+				const float32 t = -g.lastCamPos.y / dir.y;
+				if (t > 0.f) {
+					best = t;
+					hitAny = true;
+				}
+			}
+			if (hitAny) {
+				g.cursor3D = g.lastCamPos + dir * best;
+				g.gizmo.Set3DCursor(g.cursor3D);
+			}
 		}
 
 		void Viewport3DSetGizmoPivot(int32 pivot) {
@@ -950,13 +1028,28 @@ namespace nkentseu {
 				case kVpObjCamera:
 					base = "Camera";
 					break;
+				case kVpObjReference:
+					base = "Reference";
+					break;
 				default:
 					base = "Repere";
 					break;
 			}
 			snprintf(o.name, sizeof(o.name), "%s.%03u", base, g.nameCounter);
 
-			if (type == kVpObjMesh) {
+			if (type == kVpObjReference) {
+				// Un simple plan, dresse FACE A LA CAMERA courante : on ajoute une
+				// reference pour la voir tout de suite, pas pour la chercher.
+				GenOut gen;
+				GenPlane(gen);
+				o.edit.BuildFromIndexed(gen.v.Data(), (uint32)gen.v.Size(), gen.i.Data(),
+										(uint32)gen.i.Size(), true);
+				o.edit.RecomputeNormals();
+				o.meshDirty = true;
+				o.rotDeg = {90.f, 0.f, 0.f}; // le plan est horizontal : on le redresse
+				o.scl = {2.f, 1.f, 2.f};
+				SyncMesh(o);
+			} else if (type == kVpObjMesh) {
 				GenOut gen;
 				switch (prim) {
 					case 1:
@@ -1555,8 +1648,37 @@ namespace nkentseu {
 						VpObject &o = g.objs[i];
 						if (!o.alive || !o.selected)
 							continue;
-						o.scl = {g.modalScl0[i].x * fv.x, g.modalScl0[i].y * fv.y,
-								 g.modalScl0[i].z * fv.z};
+						// L'ECHELLE PORTE SUR LES AXES DE L'OBJET, pas sur ceux du
+						// monde : `scl` est appliquee AVANT la rotation dans la
+						// composition (T * R * S). En repere GLOBAL avec un objet
+						// tourne, contraindre a X doit donc etirer selon le X DU MONDE,
+						// ce qui n'est pas representable par un facteur d'echelle
+						// local -- on prend alors l'axe local le plus proche du X
+						// monde. C'est l'approximation de tous les modeleurs qui
+						// gardent une echelle non cisaillante ; l'exact demanderait
+						// une matrice de deformation par objet.
+						NkVec3f use = fv;
+						if (g.modalAxis >= 0 && g.orientation == 0) {
+							const NkVec3f col0{o.world.mat[0][0], o.world.mat[0][1],
+											   o.world.mat[0][2]};
+							const NkVec3f col1{o.world.mat[1][0], o.world.mat[1][1],
+											   o.world.mat[1][2]};
+							const NkVec3f col2{o.world.mat[2][0], o.world.mat[2][1],
+											   o.world.mat[2][2]};
+							NkVec3f wax{0.f, 0.f, 0.f};
+							((float32 *)&wax)[g.modalAxis] = 1.f;
+							const float32 d0 = fabsf(col0.Normalized().Dot(wax));
+							const float32 d1 = fabsf(col1.Normalized().Dot(wax));
+							const float32 d2 = fabsf(col2.Normalized().Dot(wax));
+							const int32 la = (d0 > d1) ? ((d0 > d2) ? 0 : 2) : ((d1 > d2) ? 1 : 2);
+							use = {1.f, 1.f, 1.f};
+							((float32 *)&use)[la] = f;
+						}
+						o.scl = {g.modalScl0[i].x * use.x, g.modalScl0[i].y * use.y,
+								 g.modalScl0[i].z * use.z};
+						// Le DEPLACEMENT autour du pivot, lui, reste en repere MONDE :
+						// c'est la position dans la scene qui s'ecarte, pas une
+						// dimension de l'objet.
 						const NkVec3f rel = g.modalPos0[i] - g.modalPivot;
 						o.pos = g.modalPivot
 								+ NkVec3f{rel.x * fv.x, rel.y * fv.y, rel.z * fv.z};
@@ -2344,7 +2466,7 @@ namespace nkentseu {
 				VpObject &o = g.objs[i];
 				if (!o.alive || !o.visible)
 					continue;
-				if (o.type == kVpObjMesh && o.meshOk) {
+				if ((o.type == kVpObjMesh || o.type == kVpObjReference) && o.meshOk) {
 					NkDrawCall3D dc;
 					dc.mesh = o.mesh;
 					dc.transform = o.world;
@@ -2363,7 +2485,7 @@ namespace nkentseu {
 					// d'une teinte plus claire, comme Blender.
 					if (o.selected)
 						r3d->SubmitSelection(dc, i == g.activeObj);
-				} else if (o.type != kVpObjMesh) {
+				} else if (o.type != kVpObjMesh && o.type != kVpObjReference) {
 					// ── Widgets des objets sans surface ─────────────────
 					// Une lumiere, une camera ou un repere n'ont rien a rendre :
 					// sans widget ils seraient invisibles ET introuvables. Traces en
@@ -2427,6 +2549,43 @@ namespace nkentseu {
 						}
 					}
 				}
+			}
+
+			// ── AXES DU MONDE ───────────────────────────────────────────────
+			// La grille du moteur ne trace que X (rouge) et Z (bleu) : elle vit dans
+			// le PLAN du sol, donc l'axe vertical n'y a pas sa place. Le Y vert
+			// manquait pour cette raison exacte, et Demo3D le trace separement en
+			// vraie ligne 3D (l. 6706-6712). On fait pareil.
+			if (g.overlays & kOvAxes) {
+				const float32 A = 1000.f;
+				const float32 h = 0.02f; // au-dessus du sol : pas de z-fight
+				r3d->DrawDebugLine({-A, h, 0.f}, {A, h, 0.f}, {1.f, 0.f, 0.f, 1.f});
+				r3d->DrawDebugLine({0.f, -A, 0.f}, {0.f, A, 0.f}, {0.f, 1.f, 0.f, 1.f});
+				r3d->DrawDebugLine({0.f, h, -A}, {0.f, h, A}, {0.f, 0.f, 1.f, 1.f});
+			}
+
+			// ── CURSEUR 3D ──────────────────────────────────────────────────
+			// Cercle en pointilles + croix, de taille CONSTANTE A L'ECRAN : c'est un
+			// repere, il doit rester lisible de pres comme de loin.
+			{
+				const NkVec3f c3 = g.cursor3D;
+				const float32 rr = (c3 - g.lastCamPos).Len() * 0.016f;
+				const NkVec3f rg = g.lastProj.rgt, up = g.lastProj.upv;
+				const NkVec4f cw{1.f, 1.f, 1.f, 1.f}, cr{0.85f, 0.1f, 0.1f, 1.f};
+				const int32 kSeg = 16;
+				for (int32 k = 0; k < kSeg; ++k) {
+					// Un segment sur deux : le pointille distingue le curseur d'une
+					// sphere de scene.
+					if (k & 1)
+						continue;
+					const float32 a0 = 6.2831853f * (float32)k / (float32)kSeg;
+					const float32 a1 = 6.2831853f * (float32)(k + 1) / (float32)kSeg;
+					const NkVec3f p0 = c3 + rg * (cosf(a0) * rr) + up * (sinf(a0) * rr);
+					const NkVec3f p1 = c3 + rg * (cosf(a1) * rr) + up * (sinf(a1) * rr);
+					r3d->DrawDebugLine(p0, p1, (k % 4 == 0) ? cw : cr, 0.f, true);
+				}
+				r3d->DrawDebugLine(c3 - rg * (rr * 1.6f), c3 + rg * (rr * 1.6f), cw, 0.f, true);
+				r3d->DrawDebugLine(c3 - up * (rr * 1.6f), c3 + up * (rr * 1.6f), cw, 0.f, true);
 			}
 
 			// ── MARQUEURS DE SOMMETS ────────────────────────────────────────

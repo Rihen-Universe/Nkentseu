@@ -457,6 +457,23 @@ namespace nkentseu {
 			p.Fill({r.x + S(5.f) + cw, r.y + S(3.f), 1.f, r.h - S(6.f)}, NkRole::Text);
 
 			bool done = false;
+			// CLIQUER AILLEURS VALIDE. C'est ce que fait tout editeur : on tape un
+			// nom, on va cliquer autre chose, et le nom est pris. Exiger Entree
+			// obligeait a un geste supplementaire que personne n'attend -- et pire,
+			// abandonner sans Entree perdait la saisie en silence.
+			//
+			// La zone du champ a ete declaree ci-dessus (hit.Add) : elle n'est donc
+			// survolee que si le clic tombe DANS le champ. Un clic hors du champ ne
+			// la survole pas, et c'est exactement le signal de perte de focus.
+			hit.Add(key, r);
+			if (hit.AnyClick() && !hit.IsHovered(key)) {
+				if (ws.editLen > 0) {
+					NkWidgetState::Copy(out, ws.editBuf, outCap - 1u);
+					done = true;
+				}
+				ws.EndEdit();
+				return done;
+			}
 			// Caracteres saisis. NKGui les met en file dans la frame ; on les
 			// consomme ici. On filtre a l'ASCII imprimable tant que le rendu de
 			// texte n'accepte pas l'UTF-8 en saisie -- laisser passer un accent

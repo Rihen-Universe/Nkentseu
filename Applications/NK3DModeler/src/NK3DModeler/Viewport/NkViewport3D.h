@@ -37,6 +37,11 @@ namespace nkentseu {
 		constexpr int32 kVpObjLightSpot = 3;
 		constexpr int32 kVpObjCamera = 4;
 		constexpr int32 kVpObjEmpty = 5;
+		// IMAGE DE REFERENCE : un plan qu'on aligne sur une vue pour modeler
+		// par-dessus. Ce n'est pas un maillage ordinaire -- il ne doit ni recevoir
+		// d'ombre ni entrer dans le rendu final -- mais il a une transformation,
+		// donc il vit dans la meme table.
+		constexpr int32 kVpObjReference = 6;
 
 		// Primitives de maillage, dans l'ordre du menu « Ajouter > Maillage ».
 		constexpr int32 kVpPrimCube = 0;
@@ -132,6 +137,13 @@ namespace nkentseu {
 		// hors ecran a sa propre origine, des coordonnees fenetre decaleraient tout
 		// le picking de la largeur du panneau de gauche.
 		bool Viewport3DPick(float32 mx, float32 my, bool add, bool toggle);
+
+		// ── Curseur 3D ──────────────────────────────────────────────────────
+		// Point de reference de Blender : pivot, origine des nouveaux objets, centre
+		// de la revolution, cible de « souder au curseur ».
+		void Viewport3DSetCursor3D(float32 x, float32 y, float32 z);
+		void Viewport3DGetCursor3D(float32 *out3);
+		void Viewport3DPlaceCursor(float32 mx, float32 my); ///< sous la souris
 
 		// ── Selection par zone ──────────────────────────────────────────────
 		// Coordonnees RELATIVES a la vue. mode : 0 remplacer, 1 ajouter, 2 retirer.

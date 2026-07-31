@@ -405,8 +405,15 @@ int nkmain(const NkEntryState &entry) {
 					want(NkVpAction::Inset);
 					break;
 				case NkKey::NK_B:
+					// Ctrl+B biseaute, B seul arme la selection RECTANGLE -- c'est le
+					// clavier de Blender, ou B veut dire « box select ».
 					want(ctrl ? (shift ? NkVpAction::BevelVertex : NkVpAction::BevelEdge)
-							  : NkVpAction::None);
+							  : NkVpAction::ZoneRect);
+					break;
+				case NkKey::NK_C:
+					// C arme la selection CERCLE (peinture) ; la molette en regle le
+					// rayon pendant le geste.
+					want(NkVpAction::ZoneCircle);
 					break;
 				// ── Annulation ──────────────────────────────────────────────
 				case NkKey::NK_Z:
@@ -716,8 +723,24 @@ int nkmain(const NkEntryState &entry) {
 						nk3d::Viewport3DModalConfirm();
 					break;
 				case NkVpAction::ModalCancel:
+					// Echap annule ce qui est en cours, dans l'ordre de priorite :
+					// une modale d'abord, un outil de zone ensuite. Sans cet ordre,
+					// armer un rectangle puis appuyer Echap annulerait la mauvaise
+					// chose.
 					if (inModal)
 						nk3d::Viewport3DModalCancel();
+					else if (st.zoneTool >= 0) {
+						st.zoneTool = -1;
+						st.zoneActive = false;
+					}
+					break;
+				case NkVpAction::ZoneRect:
+					st.zoneTool = (st.zoneTool == 0) ? -1 : 0;
+					st.zoneActive = false;
+					break;
+				case NkVpAction::ZoneCircle:
+					st.zoneTool = (st.zoneTool == 2) ? -1 : 2;
+					st.zoneActive = false;
 					break;
 				case NkVpAction::ToggleXray:
 					st.xray = !st.xray;

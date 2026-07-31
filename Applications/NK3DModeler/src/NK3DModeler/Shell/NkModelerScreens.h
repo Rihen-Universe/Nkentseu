@@ -266,13 +266,23 @@ namespace nkentseu {
 			static const NkAddEntry kEmpty[] = {
 				{"Repere vide", NkIcon::Gizmo, nk3d::kVpObjEmpty, 0},
 			};
+			// IMAGE DE REFERENCE : un plan texture qu'on aligne sur une vue pour
+			// modeler par-dessus. C'est l'outil de base du blocking -- on part
+			// presque toujours d'un croquis de face et d'un croquis de profil. Elle
+			// n'est PAS un maillage ordinaire : elle ne doit ni recevoir d'ombre ni
+			// entrer dans le rendu, mais elle a une transformation, donc elle vit
+			// dans la meme table d'objets.
+			static const NkAddEntry kRef[] = {
+				{"Image de reference", NkIcon::Journal, nk3d::kVpObjReference, 0},
+			};
 			static const NkAddCategory kCats[] = {
 				{"Maillage", NkIcon::Mesh, kMesh, 6},
 				{"Lumiere", NkIcon::Light, kLight, 3},
 				{"Camera", NkIcon::Camera, kCam, 1},
+				{"Reference", NkIcon::Journal, kRef, 1},
 				{"Vide", NkIcon::Gizmo, kEmpty, 1},
 			};
-			n = 4;
+			n = 5;
 			return kCats;
 		}
 		// ── MODIFICATEURS, CLASSES PAR CATEGORIE ────────────────────────────────
@@ -684,12 +694,98 @@ namespace nkentseu {
 
 		// Champ de recherche, avec sa loupe. Sans l'icone, un champ vide au texte
 		// grise se confond avec une etiquette desactivee.
-		inline float32 PaintSearch(NkModelerPainter &p, const NkRect &r, float32 y) {
+		// CHAMP DE RECHERCHE REEL : bordure, saisie, effacement, et un filtre que
+		// l'appelant applique. L'ancien etait un dessin -- une boite grise avec le
+		// mot « Rechercher » -- qui ne recevait aucun clic et ne filtrait rien.
+		inline float32 PaintSearch(NkModelerPainter &p, const NkRect &r, float32 y,
+								   NkHitRegistry &hit, NkWidgetState &ws,
+								   const nkgui::NkGuiInput &in, const char *key, char *buf) {
 			const float32 h = 22.f;
-			p.Fill({r.x + 6.f, y + 4.f, r.w - 12.f, h}, NkRole::InputBg, 2.f);
-			p.IconV(r.x + 12.f, y + 4.f, h, NkIcon::Search, NkRole::Text, 12.f);
-			p.TextV(r.x + 30.f, y + 4.f, h, "Rechercher", NkRole::TextMuted);
+			const NkRect fr{r.x + 6.f, y + 4.f, r.w - 12.f, h};
+			// BORDURE : sans elle, le champ se confond avec le fond du panneau et
+			// rien ne dit qu'on peut y ecrire.
+			const bool editing = ws.IsEditing(key);
+			p.Outline(fr, editing ? NkRole::AccentUi : NkRole::Border, NkRole::InputBg, 3.f);
+			p.IconV(fr.x + 6.f, fr.y, h, NkIcon::Search, NkRole::TextMuted, 12.f);
+			const NkRect tr{fr.x + 24.f, fr.y, fr.w - 48.f, h};
+			if (editing) {
+				p.TextV(tr.x, tr.y, h, ws.editBuf);
+				const float32 cw = p.TextW(ws.editBuf);
+				p.Fill({tr.x + cw + 1.f, tr.y + 3.f, 1.f, h - 6.f}, NkRole::Text);
+				for (int32 i = 0; i < in.charCount; ++i) {
+					const uint32 c = in.chars[i];
+					if (c >= 32u && c < 127u && ws.editLen < 30u) {
+						ws.editBuf[ws.editLen++] = (char)c;
+						ws.editBuf[ws.editLen] = 0;
+					}
+				}
+				if (in.KeyPressed(nkgui::NkGuiKey::Backspace) && ws.editLen > 0)
+					ws.editBuf[--ws.editLen] = 0;
+				// La recherche s'applique A CHAQUE FRAPPE : attendre Entree pour
+				// filtrer une liste n'aurait aucun sens, on cherche justement en
+				// voyant le resultat se reduire.
+				NkWidgetState::Copy(buf, ws.editBuf, 31u);
+				hit.Add(key, fr);
+				if (in.KeyPressed(nkgui::NkGuiKey::Enter)
+					|| in.KeyPressed(nkgui::NkGuiKey::Escape)
+					|| (hit.AnyClick() && !hit.IsHovered(key)))
+					ws.EndEdit();
+			} else {
+				const bool over = hit.Add(key, fr);
+				if (over)
+					hit.WantCursor(NkCursorWant::Hand);
+				if (*buf)
+					p.TextV(tr.x, tr.y, h, buf, NkRole::Text);
+				else
+					p.TextV(tr.x, tr.y, h, "Rechercher", NkRole::TextMuted);
+				// SIMPLE clic, pas double : un champ de recherche s'ouvre au premier
+				// clic. Le double-clic est reserve au renommage, ou il protege d'un
+				// renommage accidentel -- ici il n'y a rien a proteger.
+				if (hit.Clicked(key))
+					ws.BeginEdit(key, buf);
+			}
+			// Croix d'effacement, seulement s'il y a quelque chose a effacer.
+			if (*buf) {
+				char ck[48];
+				snprintf(ck, sizeof(ck), "%s.clear", key);
+				const NkRect cr{fr.x + fr.w - 22.f, fr.y + 3.f, 18.f, h - 6.f};
+				HoverFill(p, cr, hit.Add(ck, cr), 2.f);
+				p.IconV(cr.x + 3.f, cr.y, cr.h, NkIcon::WinClose, NkRole::TextMuted, 10.f);
+				if (hit.Clicked(ck)) {
+					buf[0] = 0;
+					if (editing)
+						ws.EndEdit();
+				}
+			}
 			return y + h + 8.f;
+		}
+
+		// Filtre insensible a la casse : « cu » trouve « Cube ». Un filtre sensible
+		// obligerait a connaitre la casse exacte de ce qu'on cherche, ce qui est
+		// exactement ce qu'on ne sait pas quand on cherche.
+		inline bool NkNameMatches(const char *name, const char *filter) {
+			if (!filter || !*filter)
+				return true;
+			if (!name)
+				return false;
+			for (const char *a = name; *a; ++a) {
+				const char *x = a;
+				const char *y = filter;
+				while (*x && *y) {
+					char cx = *x, cy = *y;
+					if (cx >= 'A' && cx <= 'Z')
+						cx = (char)(cx - 'A' + 'a');
+					if (cy >= 'A' && cy <= 'Z')
+						cy = (char)(cy - 'A' + 'a');
+					if (cx != cy)
+						break;
+					++x;
+					++y;
+				}
+				if (!*y)
+					return true;
+			}
+			return false;
 		}
 
 		// ── HIERARCHIE (gauche) ─────────────────────────────────────────────────
@@ -738,7 +834,7 @@ namespace nkentseu {
 			p.Fill(r, NkRole::PanelBg);
 			p.VLine(r.x + r.w - 1.f, r.y, r.h);
 			float32 y = PaintPanelTab(p, r, "Hierarchie", &hit, &st.showLeft, "hier.close");
-			y = PaintSearch(p, r, y);
+			y = PaintSearch(p, r, y, hit, ws, in, "hier.search", st.searchHier);
 
 			const float32 colEye = r.x + r.w - S(74.f);
 			const float32 colLock = r.x + r.w - S(52.f);
@@ -782,6 +878,11 @@ namespace nkentseu {
 				if (!nk3d::Viewport3DObjectAlive(i))
 					continue;
 				++aliveCount;
+				// LE FILTRE ECARTE LA LIGNE, il ne la grise pas : une liste filtree
+				// qui garde ses lignes barrees n'est pas plus courte, donc elle ne
+				// sert a rien.
+				if (!NkNameMatches(nk3d::Viewport3DObjectName(i), st.searchHier))
+					continue;
 				const bool sel = nk3d::Viewport3DObjectSelected(i);
 				if (sel)
 					++selCount;
@@ -1165,12 +1266,109 @@ namespace nkentseu {
 				}
 			}
 
+			// ── OUTILS DE SELECTION PAR ZONE ────────────────────────────
+			// Rectangle (B), lasso (Ctrl + glisser) et cercle (C, molette =
+			// rayon). Portes de Demo3D : le coeur de la selection etait deja
+			// ecrit dans le viewport, il ne lui manquait que ce pilote et son
+			// trace -- un outil qu'on ne voit pas est un outil qu'on croit casse.
+			{
+				const bool ctrlLasso = overView && hit.CtrlDown() && hit.MouseDown()
+									   && st.zoneTool < 0 && !st.zoneActive;
+				if (ctrlLasso) {
+					st.zoneTool = 1; // lasso : arme par le geste lui-meme
+					st.zoneActive = true;
+					st.lassoCount = 0;
+				}
+				if (st.zoneTool >= 0) {
+					hit.WantCursor(NkCursorWant::Hand);
+					const math::NkVec2 mz = hit.Mouse();
+					if (st.zoneTool == 2) {
+						// CERCLE : il peint tant que le bouton est enfonce, et la
+						// molette regle son rayon. Pas de « depart » a memoriser.
+						st.zoneX1 = mz.x;
+						st.zoneY1 = mz.y;
+						if (overView && hit.WheelDelta() != 0.f) {
+							st.zoneRadius += hit.WheelDelta() * 6.f;
+							if (st.zoneRadius < 8.f)
+								st.zoneRadius = 8.f;
+							if (st.zoneRadius > 400.f)
+								st.zoneRadius = 400.f;
+						}
+						if (overView && hit.MouseDown())
+							nk3d::Viewport3DSelectCircle(mz.x - r.x, mz.y - r.y, st.zoneRadius,
+														 hit.ShiftDown() ? 1 : 0);
+						p.Ring(mz.x, mz.y, st.zoneRadius, NkRole::AccentUi,
+							   NkRole::ViewportTop);
+					} else if (hit.MouseDown()) {
+						if (!st.zoneActive) {
+							st.zoneActive = true;
+							st.zoneX0 = mz.x;
+							st.zoneY0 = mz.y;
+							st.lassoCount = 0;
+						}
+						st.zoneX1 = mz.x;
+						st.zoneY1 = mz.y;
+						if (st.zoneTool == 1
+							&& st.lassoCount < NkModelerState::kMaxLasso) {
+							// Un point tous les quelques pixels : suivre chaque
+							// image donnerait des milliers de points pour un
+							// contour que trente decrivent aussi bien.
+							const int32 n = st.lassoCount;
+							if (n == 0
+								|| (fabsf(st.lasso[(n - 1) * 2] - mz.x) > 4.f
+									|| fabsf(st.lasso[(n - 1) * 2 + 1] - mz.y) > 4.f)) {
+								st.lasso[n * 2] = mz.x;
+								st.lasso[n * 2 + 1] = mz.y;
+								st.lassoCount = n + 1;
+							}
+						}
+					} else if (st.zoneActive) {
+						// RELACHEMENT : on applique, puis l'outil se desarme --
+						// comme Blender, ou B ne sert qu'a un rectangle.
+						const int32 mode = hit.ShiftDown() ? 1 : (hit.CtrlDown() ? 2 : 0);
+						if (st.zoneTool == 0) {
+							nk3d::Viewport3DSelectRect(st.zoneX0 - r.x, st.zoneY0 - r.y,
+													   st.zoneX1 - r.x, st.zoneY1 - r.y, mode);
+						} else if (st.zoneTool == 1 && st.lassoCount >= 3) {
+							float32 pts[NkModelerState::kMaxLasso * 2];
+							for (int32 k = 0; k < st.lassoCount; ++k) {
+								pts[k * 2] = st.lasso[k * 2] - r.x;
+								pts[k * 2 + 1] = st.lasso[k * 2 + 1] - r.y;
+							}
+							nk3d::Viewport3DSelectLasso(pts, (uint32)st.lassoCount, mode);
+						}
+						st.zoneActive = false;
+						st.zoneTool = -1;
+						st.lassoCount = 0;
+					}
+
+					// TRACE de la zone. Sans lui on selectionne a l'aveugle.
+					if (st.zoneActive && st.zoneTool == 0) {
+						const float32 x0 = st.zoneX0 < st.zoneX1 ? st.zoneX0 : st.zoneX1;
+						const float32 y0 = st.zoneY0 < st.zoneY1 ? st.zoneY0 : st.zoneY1;
+						const float32 x1 = st.zoneX0 < st.zoneX1 ? st.zoneX1 : st.zoneX0;
+						const float32 y1 = st.zoneY0 < st.zoneY1 ? st.zoneY1 : st.zoneY0;
+						p.OutlineSharp({x0, y0, x1 - x0, y1 - y0}, NkRole::AccentUi);
+					} else if (st.zoneActive && st.zoneTool == 1) {
+						for (int32 k = 1; k < st.lassoCount; ++k)
+							p.Line(st.lasso[(k - 1) * 2], st.lasso[(k - 1) * 2 + 1],
+								   st.lasso[k * 2], st.lasso[k * 2 + 1], NkRole::AccentUi, 1.5f);
+					}
+				}
+			}
+
+			// CURSEUR 3D : Maj + clic DROIT le pose sous la souris, comme
+			// Blender. Le clic droit seul reste libre pour le menu contextuel.
+			if (overView && hit.RightClicked("view.nav") && hit.ShiftDown())
+				nk3d::Viewport3DPlaceCursor(m.x - r.x, m.y - r.y);
+
 			// CLIC GAUCHE = SELECTION, mais seulement si le gizmo ne l'a pas pris.
 				// L'ordre compte : les rubans de rotation couvrent une large zone et
 				// avaleraient tous les clics si on ne les interrogeait pas d'abord.
 				// Les coordonnees sont RELATIVES a la vue -- la cible hors ecran a sa
 				// propre origine.
-				if (overView && hit.Clicked("view.nav") && !nk3d::Viewport3DGizmoDragging()) {
+				if (overView && st.zoneTool < 0 && hit.Clicked("view.nav")
+				&& !nk3d::Viewport3DGizmoDragging()) {
 					nk3d::Viewport3DPick(m.x - r.x, m.y - r.y, hit.ShiftDown(), hit.CtrlDown());
 					st.dirty = true;
 				}
@@ -1556,27 +1754,18 @@ namespace nkentseu {
 			p.VLine(full.x, full.y, full.h);
 			float32 y = PaintPanelTab(p, full, "Proprietes", &hit, &st.showRight, "prop.close");
 			const NkRect r = Inset(full);
-			y = PaintSearch(p, r, y);
+			y = PaintSearch(p, r, y, hit, ws, in, "props.search", st.searchProps);
 
-			static const char *const kPills[] = {"General", "Objet", "Rendu", "Physique", "Tout"};
-			float32 x = r.x;
-			char key[32];
-			for (int32 i = 0; i < 5; ++i) {
-				const float32 w = p.TextW(kPills[i]) + S(18.f);
-				const NkRect pr{x, y, w, S(20.f)};
-				snprintf(key, sizeof(key), "prop.pill.%d", i);
-				const bool over = hit.Add(key, pr);
-				const bool on = (i == st.activeFilter);
-				if (on)
-					p.Fill(pr, NkRole::AccentUi, 10.f);
-				else
-					p.Outline(pr, over ? NkRole::AccentUi : NkRole::Border, NkRole::PanelBg, 10.f);
-				p.TextV(x + S(9.f), y, S(20.f), kPills[i], on ? NkRole::TextOnAccent : NkRole::TextMuted);
-				if (hit.Clicked(key))
-					st.activeFilter = i;
-				x += w + S(4.f);
-			}
-			y += S(26.f);
+			// LES CINQ PASTILLES « General / Objet / Rendu / Physique / Tout » ONT
+			// ETE RETIREES. Rihen a demande a quoi elles servaient : a rien. Elles
+			// venaient de la maquette et annonçaient quatre familles de reglages
+			// dont trois n'existent pas -- il n'y a ni materiau d'objet, ni physique.
+			// Une barre de filtres qui ne filtre rien apprend a ne plus lire les
+			// filtres, y compris ceux qui marcheront un jour.
+			//
+			// Elles reviendront quand il y aura vraiment plusieurs familles a
+			// separer, et elles porteront alors le meme mecanisme que les sections
+			// de Details : un bit par famille, teste a la peinture.
 			p.HLine(full.x, y, full.w);
 			y += 1.f;
 
@@ -1607,6 +1796,39 @@ namespace nkentseu {
 									  NkIcon::Refresh, NkIcon::Lock, "%.3f");
 					y += Vec3RowH();
 					nk3d::Viewport3DSetObjectTransform(act, st.pos, st.rot, st.scl);
+					// ── EDITION PROPORTIONNELLE ─────────────────────────────
+					// Les sommets voisins suivent en s'attenuant, dans un rayon
+					// donne. C'est l'outil qui distingue une deformation organique
+					// d'un deplacement de sommets : sans lui, bouger un point d'un
+					// visage laisse un pic.
+					{
+						p.Fill({r.x, y, kLabelW, kRowH}, NkRole::LabelCol);
+						p.TextV(r.x + kPad, y, kRowH, "Proportionnel");
+						const NkRect cb{r.x + kLabelW + 8.f, y + 5.f, 14.f, 14.f};
+						const bool over = hit.Add("prop.prop", {r.x + kLabelW, y, 30.f, kRowH});
+						if (st.proportional) {
+							p.Fill(cb, NkRole::AccentUi, 2.f);
+							p.IconV(cb.x + 1.f, cb.y - 1.f, 16.f, NkIcon::Check,
+									NkRole::TextOnAccent, 12.f);
+						} else {
+							p.Outline(cb, over ? NkRole::AccentUi : NkRole::Border,
+									  NkRole::InputBg, 2.f);
+						}
+						if (hit.Clicked("prop.prop"))
+							st.proportional = !st.proportional;
+						// Le RAYON n'apparait que si l'option est active : un reglage
+						// visible mais sans effet fait douter de tout le panneau.
+						if (st.proportional) {
+							const NkRect rr{r.x + kLabelW + 34.f, y + 2.f, r.w - kLabelW - 42.f,
+											kRowH - 4.f};
+							DragFloat(p, hit, ws, in, "prop.proprad", rr, st.proportionalRadius,
+									  0.01f, NkRole::AccentUi, "%.2f");
+							if (st.proportionalRadius < 0.01f)
+								st.proportionalRadius = 0.01f;
+						}
+						p.HLine(r.x, y + kRowH - 1.f, r.w);
+						y += kRowH;
+					}
 				} else {
 					p.TextV(r.x + kPad, y, kRowH, "Aucun objet selectionne", NkRole::TextMuted);
 					y += kRowH;
