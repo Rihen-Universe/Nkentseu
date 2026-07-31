@@ -150,17 +150,40 @@ int nkmain(const NkEntryState &entry) {
 	float32 uiScale = window.GetDpiScale();
 	if (uiScale < 0.5f || uiScale > 4.f)
 		uiScale = 1.f; // valeur aberrante : on prefere une interface petite a une interface cassee
-	ApplyUiScale(uiScale);
-	printf("[nk3d] echelle d'interface : %.2f\n", (double)uiScale);
+
+	// ── DENSITE D'INTERFACE ─────────────────────────────────────────────────
+	// Facteur de LISIBILITE, distinct du DPI, et il a une raison technique.
+	//
+	// Dans NkGuiDrawList::AddText, le curseur avance de `g->advance`, qui est
+	// FRACTIONNAIRE. Seul le PREMIER glyphe d'une chaine tombe donc sur un pixel
+	// entier ; les suivants derivent, et chacun echantillonne l'atlas ENTRE deux
+	// texels. C'est structurel, et partage avec NKCode -- on ne le corrige pas
+	// depuis ici.
+	//
+	// Mais l'erreur est un demi-texel CONSTANT : a 13 px de corps elle represente
+	// 4 % de la hauteur d'un caractere, a 15 px seulement 3,3 %. Grossir le texte
+	// ne supprime pas le defaut, il en DIVISE l'effet -- et c'est pour cela que
+	// le shell de NKCode charge Inter a 16 px et non a 13. Rihen a donc vu juste
+	// en soupconnant l'echelle.
+	//
+	// 1,15 est un compromis : assez pour que le texte se pose, pas au point de
+	// faire perdre deux lignes a chaque panneau. Ce sera le curseur « densite »
+	// des reglages.
+	const float32 kUiZoom = 1.15f;
+	const float32 total = uiScale * kUiZoom;
+	ApplyUiScale(total);
+	printf("[nk3d] echelle : DPI %.2f x densite %.2f = %.2f\n", (double)uiScale, (double)kUiZoom,
+		   (double)total);
 
 	nkgui::NkGuiFont font;
 	// La taille de corps est ARRONDIE : une police demandee a 16,25 px produit
 	// des metriques fractionnaires, donc des lignes de base entre deux pixels.
-	const float32 fontPx = (float32)(int32)(13.f * uiScale + 0.5f);
+	const float32 fontPx = (float32)(int32)(13.f * total + 0.5f);
 	if (!font.LoadEmbedded(NkEmbeddedFontId::Inter, fontPx)) {
 		printf("[nk3d] police introuvable.\n");
 		return 1;
 	}
+	printf("[nk3d] police Inter a %.0f px.\n", (double)fontPx);
 	ui.font = &font;
 	// L'atlas de glyphes doit etre televerse AVANT la premiere frame, sinon le
 	// texte sort en rectangles vides -- symptome classique et deroutant.
@@ -170,7 +193,7 @@ int nkmain(const NkEntryState &entry) {
 	// Apres la police : leurs identifiants de texture partent APRES celui de
 	// l'atlas de glyphes, sinon la premiere icone ecraserait la police.
 	NkModelerIcons icons;
-	icons.Load(renderer, font.TexId() + 16u, (int32)(16.f * uiScale + 0.5f));
+	icons.Load(renderer, font.TexId() + 16u, (int32)(16.f * total + 0.5f));
 	printf("[nk3d] %u icones chargees.\n", icons.LoadedCount());
 
 	// ── ETAT ────────────────────────────────────────────────────────────────
