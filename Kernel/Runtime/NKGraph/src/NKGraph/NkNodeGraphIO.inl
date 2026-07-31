@@ -165,6 +165,16 @@ namespace nkentseu {
 				out.Append(' ');
 				out.Append(n.label);
 				out.Append('\n');
+				// Directive DEDIEE plutot qu'un champ de plus sur la ligne `noeud` :
+				// les fichiers ecrits avant les sous-graphes restent lisibles tels
+				// quels, et un noeud ordinaire n'ecrit rien du tout.
+				if (n.subgraph.Size() > 0) {
+					out.Append("sousgraphe ");
+					detail::PutU32(out, n.id);
+					out.Append(' ');
+					out.Append(n.subgraph);
+					out.Append('\n');
+				}
 				// Les sockets suivent leur noeud, dans l'ordre : cet ordre EST leur
 				// index, et les liens s'y referent.
 				for (uint32 k = 0; k < (uint32)n.sockets.Size(); ++k) {
@@ -235,6 +245,11 @@ namespace nkentseu {
 					detail::RestOfLine(p, n.label);
 					n.alive = true;
 					mNodes.PushBack(n);
+				} else if (detail::GraphStrEq(kw, "sousgraphe")) {
+					const uint32 nid = detail::TokenU32(p);
+					NkNode *n = Find(nid);
+					if (n)
+						detail::RestOfLine(p, n->subgraph);
 				} else if (detail::GraphStrEq(kw, "sock")) {
 					const uint32 nid = detail::TokenU32(p);
 					const uint32 dir = detail::TokenU32(p);
