@@ -927,7 +927,34 @@ namespace nkentseu {
 		//   base → mod0(params) → mod1(params) → … → résultat.
 		// Changer un paramètre = ré-évaluer la pile (la base reste éditable dessous).
 		// Fondation directe : ces modificateurs sont aussi des ACTIONS composables pour l'IA.
-		enum class NkModifierType : uint8 { Mirror = 0, Array = 1, Subsurf = 2 };
+		// ⚠ VALEURS SERIALISEES : on AJOUTE EN FIN, on ne renumerote jamais. Une
+		// scene enregistree designe ses modificateurs par ces entiers.
+		// Faisabilite : ne figurent ici que les modificateurs realisables avec le
+		// maillage SEUL. Ceux de Blender qui exigent un AUTRE objet (Shrinkwrap,
+		// Curve, Lattice, Hook, Armature, Mesh/Surface Deform, Boolean, Warp), des
+		// GROUPES DE SOMMETS (Mask par groupe, Vertex Weight *), une TEXTURE
+		// (Displace, UV Project), une SIMULATION (Cloth, Fluid, Ocean, Soft Body,
+		// particules) ou un systeme de POILS sont hors de portee tant que ces
+		// systemes n'existent pas — les lister sans les faire serait mentir.
+		enum class NkModifierType : uint8 {
+			Mirror = 0,
+			Array = 1,
+			Subsurf = 2,
+			Solidify = 3,	   // epaissit une surface : coque interne + bordure
+			Triangulate = 4,   // n-gons -> triangles
+			Weld = 5,		   // soude les sommets sous une distance
+			Bevel = 6,		   // chanfreine toutes les aretes
+			Screw = 7,		   // revolution du profil autour d'un axe
+			EdgeSplit = 8,	   // dedouble les aretes vives (angle)
+			Decimate = 9,	   // simplifie : dissout les aretes quasi coplanaires
+			Build = 10,		   // ne montre qu'une PROPORTION des faces (animable)
+			Mask = 11,		   // ne garde que les faces selectionnees
+			Cast = 12,		   // projette vers sphere / cylindre / cube
+			SimpleDeform = 13, // torsion / courbure / effilement / etirement
+			Smooth = 14,	   // relaxe les sommets vers la moyenne des voisins
+			Wave = 15,		   // ondulation (la phase est faite pour etre animee)
+			SmoothByAngle = 16 // ombrage doux sous un angle, franc au-dela
+		};
 
 		// ── PARAMETRE ADRESSABLE PAR NOM ───────────────────────────────────────────
 		// Chaque modificateur publie la LISTE de ses parametres : nom stable, libelle,
@@ -974,6 +1001,72 @@ namespace nkentseu {
 				//   des besoins differents : lisser une forme, ou densifier pour sculpter.
 				int32 subsurfLevels = 1;
 				bool subsurfSimple = false;
+
+				// ── LOT AJOUTE ──────────────────────────────────────────────────────
+				// Solidify : epaissit une surface. offset -1 = vers l'interieur,
+				// +1 = vers l'exterieur, 0 = de part et d'autre (convention Blender).
+				float32 solidifyThickness = 0.05f;
+				float32 solidifyOffset = -1.f;
+				bool solidifyRim = true; // referme le bord, sinon la coque reste ouverte
+
+				// Triangulate : les faces de moins de `minVerts` cotes sont laissees
+				// telles quelles (un quad reste un quad si minVerts vaut 5).
+				int32 triangulateMinVerts = 4;
+
+				// Weld : distance de soudure. C'est « Remove Doubles » en modificateur.
+				float32 weldDistance = 0.001f;
+
+				// Bevel : largeur mesuree le long des aretes, et nombre de segments.
+				float32 bevelWidth = 0.05f;
+				int32 bevelSegments = 1;
+
+				// Screw : revolution du profil. angle en degres, height = pas d'helice.
+				int32 screwSteps = 12;
+				float32 screwAngle = 360.f;
+				float32 screwHeight = 0.f;
+				int32 screwAxis = 1; // 0=X 1=Y 2=Z
+
+				// EdgeSplit : angle diedre au-dela duquel l'arete est dedoublee.
+				float32 edgeSplitAngle = 30.f;
+
+				// Decimate : angle en dessous duquel deux faces voisines sont jugees
+				// coplanaires et leur arete dissoute (mode « Planar » de Blender).
+				float32 decimateAngle = 5.f;
+
+				// Build : proportion de faces conservees, 0..1. Ce parametre existe POUR
+				// etre anime — c'est le seul modificateur dont l'interet est le temps.
+				float32 buildRatio = 1.f;
+
+				// Mask : ne garde que les faces selectionnees (invert = le complement).
+				bool maskInvert = false;
+
+				// Cast : 0=sphere 1=cylindre 2=cube. factor 0 = rien, 1 = forme pure.
+				// radius <= 0 : deduit du maillage (rayon moyen) — un rayon impose a
+				// zero ferait imploser le modele, ce qui n'est jamais l'intention.
+				int32 castType = 0;
+				float32 castFactor = 0.5f;
+				float32 castRadius = 0.f;
+
+				// SimpleDeform : 0=torsion 1=courbure 2=effilement 3=etirement.
+				// angle en degres (torsion/courbure), factor pour effilement/etirement.
+				int32 deformMode = 0;
+				float32 deformAngle = 45.f;
+				float32 deformFactor = 0.5f;
+				int32 deformAxis = 1; // 0=X 1=Y 2=Z
+
+				// Smooth : relaxation laplacienne. factor 0..1, repetee `repeat` fois.
+				float32 smoothFactor = 0.5f;
+				int32 smoothRepeat = 1;
+
+				// Wave : ondulation radiale. `phase` est le parametre a animer.
+				float32 waveHeight = 0.1f;
+				float32 waveWidth = 0.5f;
+				float32 wavePhase = 0.f;
+				int32 waveAxis = 1; // axe le long duquel l'onde deplace les sommets
+
+				// SmoothByAngle : ombrage doux en dessous de cet angle diedre, franc
+				// au-dela. C'est « Auto Smooth » de Blender, devenu un modificateur.
+				float32 autoSmoothAngle = 30.f;
 
 				void Apply(NkEditMesh &m) const; // transforme `m` en place
 

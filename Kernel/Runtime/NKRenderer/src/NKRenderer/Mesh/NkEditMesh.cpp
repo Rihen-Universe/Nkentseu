@@ -4418,9 +4418,498 @@ namespace nkentseu {
 		// =====================================================================
 		// STACK DE MODIFICATEURS — Mirror / Array / Subsurf (non-destructif)
 		// =====================================================================
+		// ── OUTILS COMMUNS AUX MODIFICATEURS ────────────────────────────────────
+		// Un modificateur travaille sur le maillage ENTIER. Ceux qui reutilisent une
+		// operation d'edition (qui, elle, agit sur la SELECTION) doivent donc tout
+		// selectionner puis restaurer — sans quoi le resultat dependrait de ce que
+		// l'utilisateur avait clique avant, ce qui n'aurait aucun sens pour une pile
+		// non destructive rejouee a chaque frame.
+		static NkVector<uint8> NkEmSaveSel(const NkEditMesh &m) {
+			NkVector<uint8> s;
+			s.Resize(m.VertCount());
+			for (uint32 i = 0; i < m.VertCount(); ++i)
+				s[i] = m.verts[i].sel;
+			return s;
+		}
+		static void NkEmRestoreSel(NkEditMesh &m, const NkVector<uint8> &s) {
+			// La topologie a pu changer : on ne restaure que si la taille correspond,
+			// sinon on repart d'une selection vide plutot que de reaffecter au hasard.
+			if ((uint32)s.Size() == m.VertCount())
+				m.SetVertSelection(s.Data(), (uint32)s.Size());
+			else
+				m.SelectNone();
+		}
+
+		// SOLIDIFIER : construit une SECONDE coque decalee le long des normales, et
+		// (option) referme le BORD entre les deux. Sans la bordure, une surface
+		// ouverte donnerait deux nappes separees — visuellement une epaisseur, mais un
+		// maillage non ferme, ce qui casse tout ce qui suit (booleen, impression 3D).
+		static void NkEmModSolidify(NkEditMesh &m, const NkMeshModifier &p) {
+			NkVector<NkVertex3D> pv;
+			NkVector<uint32> fs, fv;
+			m.ToPolygons(pv, fs, fv);
+			const uint32 vc = (uint32)pv.Size();
+			const uint32 fc = (fs.Size() > 0) ? (uint32)fs.Size() - 1 : 0;
+			if (vc == 0 || fc == 0 || p.solidifyThickness <= 0.f)
+				return;
+			// offset -1 = tout vers l'interieur, +1 = tout vers l'exterieur, 0 = moitie
+			// de chaque cote (convention Blender).
+			const float32 o = (p.solidifyOffset < -1.f) ? -1.f : (p.solidifyOffset > 1.f ? 1.f : p.solidifyOffset);
+			const float32 outAmt = p.solidifyThickness * (1.f + o) * 0.5f;
+			const float32 inAmt = p.solidifyThickness * (1.f - o) * 0.5f;
+			NkVector<NkVertex3D> ov;
+			ov.Resize(vc * 2u);
+			for (uint32 i = 0; i < vc; ++i) {
+				ov[i] = pv[i];
+				ov[i].pos = pv[i].pos + pv[i].normal * outAmt;
+				ov[vc + i] = pv[i];
+				ov[vc + i].pos = pv[i].pos - pv[i].normal * inAmt;
+				ov[vc + i].normal = pv[i].normal * -1.f; // la coque interne regarde dedans
+			}
+			NkVector<uint32> nfs, nfv;
+			nfs.PushBack(0);
+			for (uint32 f = 0; f < fc; ++f) { // coque externe
+				for (uint32 k = fs[f]; k < fs[f + 1]; ++k)
+					nfv.PushBack(fv[k]);
+				nfs.PushBack((uint32)nfv.Size());
+			}
+			for (uint32 f = 0; f < fc; ++f) { // coque interne, winding INVERSE
+				const uint32 s0 = fs[f], s1 = fs[f + 1];
+				for (uint32 k = s1; k > s0; --k)
+					nfv.PushBack(vc + fv[k - 1]);
+				nfs.PushBack((uint32)nfv.Size());
+			}
+			if (p.solidifyRim) {
+				// BORD = arete portee par UNE seule face (identite soudee). C'est la
+				// seule facon de savoir ou la surface s'arrete.
+				NkVector<uint32> canon;
+				m.BuildVertexMerge(canon);
+				auto CN = [&](uint32 v) { return (v < (uint32)canon.Size()) ? canon[v] : v; };
+				NkHashMap<uint64, uint32> cnt;
+				for (uint32 f = 0; f < fc; ++f) {
+					const uint32 s0 = fs[f], s1 = fs[f + 1], n = s1 - s0;
+					for (uint32 k = 0; k < n; ++k) {
+						const uint32 a = CN(fv[s0 + k]), b = CN(fv[s0 + (k + 1) % n]);
+						if (a == b)
+							continue;
+						const uint64 lo = a < b ? a : b, hi = a < b ? b : a;
+						const uint64 key = (lo << 32) | hi;
+						uint32 *e = cnt.Find(key);
+						if (e)
+							(*e)++;
+						else
+							cnt.InsertOrAssign(key, 1u);
+					}
+				}
+				for (uint32 f = 0; f < fc; ++f) {
+					const uint32 s0 = fs[f], s1 = fs[f + 1], n = s1 - s0;
+					for (uint32 k = 0; k < n; ++k) {
+						const uint32 ia = fv[s0 + k], ib = fv[s0 + (k + 1) % n];
+						const uint32 a = CN(ia), b = CN(ib);
+						if (a == b)
+							continue;
+						const uint64 lo = a < b ? a : b, hi = a < b ? b : a;
+						const uint32 *e = cnt.Find((lo << 32) | hi);
+						if (!e || *e != 1u)
+							continue; // arete interieure : pas de bordure a creer
+						nfv.PushBack(ib);
+						nfv.PushBack(ia);
+						nfv.PushBack(vc + ia);
+						nfv.PushBack(vc + ib);
+						nfs.PushBack((uint32)nfv.Size());
+					}
+				}
+			}
+			m.BuildFromPolygons(ov.Data(), (uint32)ov.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data());
+			m.RecomputeNormals();
+			m.RebuildEdges();
+		}
+
+		// BUILD (proportion de faces) et MASK (faces selectionnees) : meme mecanique,
+		// seul le CRITERE de conservation change. Les mettre en commun evite deux
+		// reconstructions de polygones qui divergeraient a la premiere correction.
+		static void NkEmModFaceSubset(NkEditMesh &m, const NkMeshModifier &p, bool byRatio) {
+			NkVector<NkVertex3D> pv;
+			NkVector<uint32> fs, fv;
+			m.ToPolygons(pv, fs, fv);
+			const uint32 fc = (fs.Size() > 0) ? (uint32)fs.Size() - 1 : 0;
+			if (fc == 0)
+				return;
+			uint32 keepN = fc;
+			if (byRatio) {
+				float32 r = p.buildRatio;
+				r = (r < 0.f) ? 0.f : (r > 1.f ? 1.f : r);
+				keepN = (uint32)((float32)fc * r + 0.5f);
+			}
+			NkVector<uint32> nfs, nfv;
+			nfs.PushBack(0);
+			for (uint32 f = 0; f < fc; ++f) {
+				bool keep;
+				if (byRatio) {
+					keep = (f < keepN);
+				} else {
+					// MASK : une face est retenue si TOUS ses sommets sont selectionnes
+					// — meme convention que le remplissage orange de l'editeur, pour que
+					// ce qu'on voit selectionne soit exactement ce qui reste.
+					keep = true;
+					for (uint32 k = fs[f]; k < fs[f + 1]; ++k)
+						if (fv[k] >= m.VertCount() || !m.verts[fv[k]].sel) {
+							keep = false;
+							break;
+						}
+					if (p.maskInvert)
+						keep = !keep;
+				}
+				if (!keep)
+					continue;
+				for (uint32 k = fs[f]; k < fs[f + 1]; ++k)
+					nfv.PushBack(fv[k]);
+				nfs.PushBack((uint32)nfv.Size());
+			}
+			if (nfs.Size() < 2) {
+				// Tout retirer donnerait un maillage vide et une scene qui semble avoir
+				// disparu ; on prefere ne rien faire, l'utilisateur voit alors que le
+				// reglage est a l'extreme.
+				return;
+			}
+			m.BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data());
+			m.RebuildEdges();
+		}
+
+		// DEFORMATIONS PURES : Cast / SimpleDeform / Smooth / Wave. Elles ne touchent
+		// QUE les positions — la topologie est intacte, donc pas de reconstruction.
+		static void NkEmModDeform(NkEditMesh &m, const NkMeshModifier &p) {
+			const uint32 vc = m.VertCount();
+			if (vc == 0)
+				return;
+			// Repere : centre et rayon moyen du maillage. Un rayon impose a zero ferait
+			// imploser le modele, ce qui n'est jamais l'intention -> repli automatique.
+			NkVec3f c{0.f, 0.f, 0.f};
+			for (uint32 i = 0; i < vc; ++i)
+				c = c + m.verts[i].pos;
+			c = c * (1.f / (float32)vc);
+			float32 rAvg = 0.f, ymin = 1e30f, ymax = -1e30f;
+			const int32 ax = (p.type == NkModifierType::Wave) ? p.waveAxis : p.deformAxis;
+			auto comp = [&](const NkVec3f &v, int32 a) { return (a == 0) ? v.x : (a == 1 ? v.y : v.z); };
+			for (uint32 i = 0; i < vc; ++i) {
+				rAvg += (m.verts[i].pos - c).Len();
+				const float32 t = comp(m.verts[i].pos - c, ax);
+				if (t < ymin)
+					ymin = t;
+				if (t > ymax)
+					ymax = t;
+			}
+			rAvg /= (float32)vc;
+			const float32 span = (ymax - ymin) > 1e-6f ? (ymax - ymin) : 1.f;
+
+			if (p.type == NkModifierType::Smooth) {
+				// Relaxation laplacienne sur l'identite SOUDEE : sans soudure, un cube
+				// aux sommets dupliques n'aurait aucun voisin et rien ne bougerait.
+				NkVector<uint32> pairs;
+				m.GetUniqueEdges(pairs);
+				NkVector<uint32> canon;
+				m.BuildVertexMerge(canon);
+				auto CN = [&](uint32 v) { return (v < (uint32)canon.Size()) ? canon[v] : v; };
+				const int32 rep = (p.smoothRepeat < 1) ? 1 : p.smoothRepeat;
+				for (int32 it = 0; it < rep; ++it) {
+					NkVector<NkVec3f> sum;
+					NkVector<uint32> deg;
+					sum.Resize(vc);
+					deg.Resize(vc);
+					for (uint32 i = 0; i < vc; ++i) {
+						sum[i] = NkVec3f{0.f, 0.f, 0.f};
+						deg[i] = 0;
+					}
+					for (uint32 e = 0; e + 1 < (uint32)pairs.Size(); e += 2) {
+						const uint32 a = CN(pairs[e]), b = CN(pairs[e + 1]);
+						if (a >= vc || b >= vc)
+							continue;
+						sum[a] = sum[a] + m.verts[b].pos;
+						deg[a]++;
+						sum[b] = sum[b] + m.verts[a].pos;
+						deg[b]++;
+					}
+					NkVector<NkVec3f> np;
+					np.Resize(vc);
+					for (uint32 i = 0; i < vc; ++i) {
+						const uint32 r = CN(i);
+						np[i] = (r < vc && deg[r] > 0)
+									? m.verts[i].pos + (sum[r] * (1.f / (float32)deg[r]) - m.verts[r].pos) * p.smoothFactor
+									: m.verts[i].pos;
+					}
+					for (uint32 i = 0; i < vc; ++i)
+						m.verts[i].pos = np[i];
+				}
+				m.RecomputeNormals();
+				return;
+			}
+
+			for (uint32 i = 0; i < vc; ++i) {
+				NkVec3f v = m.verts[i].pos - c;
+				if (p.type == NkModifierType::Cast) {
+					const float32 R = (p.castRadius > 1e-6f) ? p.castRadius : rAvg;
+					NkVec3f tgt = v;
+					if (p.castType == 0) { // SPHERE
+						const float32 l = v.Len();
+						tgt = (l > 1e-6f) ? v * (R / l) : v;
+					} else if (p.castType == 1) { // CYLINDRE : rayon dans le plan normal a l'axe
+						NkVec3f r = v;
+						if (ax == 0)
+							r.x = 0.f;
+						else if (ax == 1)
+							r.y = 0.f;
+						else
+							r.z = 0.f;
+						const float32 l = r.Len();
+						if (l > 1e-6f) {
+							const NkVec3f s = r * (R / l);
+							tgt = v + (s - r);
+						}
+					} else { // CUBE : projection sur la face dominante
+						const float32 axv = v.x < 0.f ? -v.x : v.x, ayv = v.y < 0.f ? -v.y : v.y,
+									  azv = v.z < 0.f ? -v.z : v.z;
+						const float32 mx = (axv > ayv ? (axv > azv ? axv : azv) : (ayv > azv ? ayv : azv));
+						if (mx > 1e-6f)
+							tgt = v * (R / mx);
+					}
+					v = v + (tgt - v) * p.castFactor;
+				} else if (p.type == NkModifierType::SimpleDeform) {
+					const float32 t = (comp(v, ax) - ymin) / span; // 0..1 le long de l'axe
+					if (p.deformMode == 0) { // TORSION
+						const float32 a = p.deformAngle * 3.14159265f / 180.f * t;
+						const float32 ca = cosf(a), sa = sinf(a);
+						if (ax == 1) {
+							const float32 x = v.x * ca - v.z * sa, z = v.x * sa + v.z * ca;
+							v.x = x;
+							v.z = z;
+						} else if (ax == 0) {
+							const float32 y = v.y * ca - v.z * sa, z = v.y * sa + v.z * ca;
+							v.y = y;
+							v.z = z;
+						} else {
+							const float32 x = v.x * ca - v.y * sa, y = v.x * sa + v.y * ca;
+							v.x = x;
+							v.y = y;
+						}
+					} else if (p.deformMode == 1) { // COURBURE
+						const float32 a = p.deformAngle * 3.14159265f / 180.f * (t - 0.5f);
+						const float32 ca = cosf(a), sa = sinf(a);
+						if (ax == 1) {
+							const float32 x = v.x * ca - v.y * sa, y = v.x * sa + v.y * ca;
+							v.x = x;
+							v.y = y;
+						} else {
+							const float32 y = v.y * ca - v.z * sa, z = v.y * sa + v.z * ca;
+							v.y = y;
+							v.z = z;
+						}
+					} else if (p.deformMode == 2) { // EFFILEMENT
+						const float32 k = 1.f + p.deformFactor * (t - 0.5f) * 2.f;
+						if (ax == 1) {
+							v.x *= k;
+							v.z *= k;
+						} else if (ax == 0) {
+							v.y *= k;
+							v.z *= k;
+						} else {
+							v.x *= k;
+							v.y *= k;
+						}
+					} else { // ETIREMENT : allonge sur l'axe, retrecit autour (volume ~ conserve)
+						const float32 k = 1.f + p.deformFactor;
+						const float32 inv = (k > 1e-4f) ? 1.f / sqrtf(k) : 1.f;
+						if (ax == 1) {
+							v.y *= k;
+							v.x *= inv;
+							v.z *= inv;
+						} else if (ax == 0) {
+							v.x *= k;
+							v.y *= inv;
+							v.z *= inv;
+						} else {
+							v.z *= k;
+							v.x *= inv;
+							v.y *= inv;
+						}
+					}
+				} else if (p.type == NkModifierType::Wave) {
+					// Onde RADIALE dans le plan perpendiculaire a l'axe : c'est la forme
+					// de Blender (rides concentriques), pas une sinusoide le long d'un axe.
+					NkVec3f r = v;
+					if (ax == 0)
+						r.x = 0.f;
+					else if (ax == 1)
+						r.y = 0.f;
+					else
+						r.z = 0.f;
+					const float32 d = r.Len();
+					const float32 w = (p.waveWidth > 1e-4f) ? p.waveWidth : 1e-4f;
+					const float32 h = p.waveHeight * sinf(d / w - p.wavePhase);
+					if (ax == 0)
+						v.x += h;
+					else if (ax == 1)
+						v.y += h;
+					else
+						v.z += h;
+				}
+				m.verts[i].pos = c + v;
+			}
+			m.RecomputeNormals();
+		}
+
+		// OMBRAGE PAR ANGLE (« Auto Smooth ») : une face est LISSE si toutes ses
+		// aretes partagees font un angle diedre inferieur au seuil. Au-dela, l'arete
+		// doit rester franche — c'est ce qui distingue un cylindre (cotes lisses,
+		// couvercles francs) d'une capsule.
+		static void NkEmModAutoSmooth(NkEditMesh &m, const NkMeshModifier &p) {
+			const float32 cosLim = cosf(p.autoSmoothAngle * 3.14159265f / 180.f);
+			// On passe par le CYCLE RADIAL (BMesh etape 2) et non par GetUniqueEdges +
+			// EdgeFaces(a, b, ...). Mesure du defaut de la premiere version : sur un
+			// cube, toutes les faces ressortaient LISSES quel que soit le seuil — la
+			// recherche par paire de sommets ne retrouvait pas les deux faces (sommets
+			// dupliques par face), donc aucune arete n'etait jamais jugee vive et le
+			// reglage n'avait aucun effet. Le cycle radial, lui, PORTE les faces.
+			m.RebuildEdges();
+			const uint32 fc = (uint32)m.faces.Size();
+			NkVector<uint8> sharp;
+			sharp.Resize(fc);
+			for (uint32 f = 0; f < fc; ++f)
+				sharp[f] = 0;
+			NkVector<NkEmId> fs;
+			for (uint32 e = 0; e < (uint32)m.edges.Size(); ++e) {
+				if (!m.edges[e].alive)
+					continue;
+				if (m.EdgeFaces((NkEmId)e, fs) != 2)
+					continue; // bord, filaire ou non manifold : pas d angle diedre defini
+				const NkEmId f0 = fs[0], f1 = fs[1];
+				if (f0 >= fc || f1 >= fc)
+					continue;
+				if (m.faces[f0].normal.Dot(m.faces[f1].normal) < cosLim) {
+					sharp[f0] = 1;
+					sharp[f1] = 1;
+				}
+			}
+			for (uint32 f = 0; f < fc; ++f)
+				if (m.faces[f].alive)
+					m.faces[f].smooth = sharp[f] ? (uint8)0 : (uint8)1;
+			m.RecomputeNormals();
+		}
+
 		void NkMeshModifier::Apply(NkEditMesh &m) const {
 			if (!enabled)
 				return;
+			// ── LOT DE MODIFICATEURS ────────────────────────────────────────────
+			// Chacun traite le maillage ENTIER : un modificateur n'a pas de notion de
+			// selection utilisateur (sauf Mask, dont c'est justement l'objet). Ceux
+			// qui reutilisent une operation d'edition selectionnent donc TOUT d'abord,
+			// puis restaurent — sinon le resultat dependrait de ce que l'utilisateur
+			// avait clique avant d'ajouter le modificateur, ce qui serait imprevisible.
+			switch (type) {
+				case NkModifierType::Triangulate: {
+					NkVector<NkVertex3D> tv;
+					NkVector<uint32> ti;
+					NkVector<NkEmId> tf;
+					m.Triangulate(tv, ti, tf);
+					// minVerts : les faces plus PETITES sont laissees telles quelles.
+					// Sans ce garde, « trianguler » a partir de 5 cotes decouperait
+					// quand meme les quads — le reglage n'aurait aucun effet.
+					if (triangulateMinVerts > 3) {
+						NkVector<NkVertex3D> pv;
+						NkVector<uint32> fs, fv;
+						m.ToPolygons(pv, fs, fv);
+						const uint32 fc = (fs.Size() > 0) ? (uint32)fs.Size() - 1 : 0;
+						NkVector<uint32> nfs, nfv;
+						nfs.PushBack(0);
+						for (uint32 f = 0; f < fc; ++f) {
+							const uint32 s0 = fs[f], s1 = fs[f + 1], n = s1 - s0;
+							if ((int32)n < triangulateMinVerts) {
+								for (uint32 k = s0; k < s1; ++k)
+									nfv.PushBack(fv[k]);
+								nfs.PushBack((uint32)nfv.Size());
+								continue;
+							}
+							for (uint32 k = 1; k + 1 < n; ++k) { // eventail
+								nfv.PushBack(fv[s0]);
+								nfv.PushBack(fv[s0 + k]);
+								nfv.PushBack(fv[s0 + k + 1]);
+								nfs.PushBack((uint32)nfv.Size());
+							}
+						}
+						if (nfs.Size() > 1)
+							m.BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size() - 1,
+												nfv.Data());
+					} else if (!tv.Empty() && !ti.Empty()) {
+						m.BuildFromIndexed(tv.Data(), (uint32)tv.Size(), ti.Data(), (uint32)ti.Size(), false);
+					}
+					m.RebuildEdges();
+					return;
+				}
+				case NkModifierType::Weld: {
+					const NkVector<uint8> keep = NkEmSaveSel(m);
+					m.SelectAll();
+					NkMergeParams mp;
+					mp.mode = NkMergeParams::ByDistance;
+					mp.distance = (weldDistance > 0.f) ? weldDistance : 1e-4f;
+					m.MergeSelectedVerts(mp);
+					NkEmRestoreSel(m, keep);
+					m.RebuildEdges();
+					return;
+				}
+				case NkModifierType::Bevel: {
+					const NkVector<uint8> keep = NkEmSaveSel(m);
+					m.SelectAll();
+					NkBevelParams bp;
+					bp.offset = bevelWidth;
+					bp.segments = (bevelSegments < 1) ? 1 : bevelSegments;
+					m.BevelSelected(bp);
+					NkEmRestoreSel(m, keep);
+					m.RebuildEdges();
+					return;
+				}
+				case NkModifierType::EdgeSplit: {
+					const NkVector<uint8> keep = NkEmSaveSel(m);
+					m.SelectAll();
+					NkEdgeSplitParams ep;
+					m.SplitSelectedEdges(ep);
+					NkEmRestoreSel(m, keep);
+					m.RebuildEdges();
+					return;
+				}
+				case NkModifierType::Decimate: {
+					const NkVector<uint8> keep = NkEmSaveSel(m);
+					m.SelectAll();
+					NkDissolveParams dp;
+					m.DissolveSelected(dp);
+					NkEmRestoreSel(m, keep);
+					m.RebuildEdges();
+					return;
+				}
+				case NkModifierType::Screw: {
+					const NkVector<uint8> keep = NkEmSaveSel(m);
+					m.SelectAll();
+					NkSpinParams sp;
+					sp.steps = (screwSteps < 2) ? 2 : screwSteps;
+					sp.angle = screwAngle * 3.14159265f / 180.f;
+					sp.duplicate = true;
+					sp.axis = (screwAxis == 0) ? NkVec3f{1.f, 0.f, 0.f}
+								: (screwAxis == 2) ? NkVec3f{0.f, 0.f, 1.f}
+												   : NkVec3f{0.f, 1.f, 0.f};
+					sp.center = {0.f, 0.f, 0.f};
+					m.SpinSelected(sp, NkMat4f::Identity());
+					NkEmRestoreSel(m, keep);
+					m.RebuildEdges();
+					return;
+				}
+				case NkModifierType::Solidify: NkEmModSolidify(m, *this); return;
+				case NkModifierType::Build: NkEmModFaceSubset(m, *this, true); return;
+				case NkModifierType::Mask: NkEmModFaceSubset(m, *this, false); return;
+				case NkModifierType::Cast:
+				case NkModifierType::SimpleDeform:
+				case NkModifierType::Smooth:
+				case NkModifierType::Wave: NkEmModDeform(m, *this); return;
+				case NkModifierType::SmoothByAngle: NkEmModAutoSmooth(m, *this); return;
+				default: break;
+			}
 			if (type == NkModifierType::Subsurf) {
 				const int32 lv = (subsurfLevels < 1) ? 1 : subsurfLevels;
 				if (!subsurfSimple) {
@@ -4541,11 +5030,87 @@ namespace nkentseu {
 			 1.f},
 		};
 
+		static const NkModParam kParamsSolidify[] = {
+			{"solidify_thickness", "Epaisseur", NkModParamType::Float, offsetof(NkMeshModifier, solidifyThickness),
+			 0.f, 2.f},
+			{"solidify_offset", "Decalage", NkModParamType::Float, offsetof(NkMeshModifier, solidifyOffset), -1.f, 1.f},
+			{"solidify_rim", "Fermer le bord", NkModParamType::Bool, offsetof(NkMeshModifier, solidifyRim), 0.f, 1.f},
+		};
+		static const NkModParam kParamsTriangulate[] = {
+			{"triangulate_min_verts", "Cotes minimum", NkModParamType::Int,
+			 offsetof(NkMeshModifier, triangulateMinVerts), 3.f, 16.f},
+		};
+		static const NkModParam kParamsWeld[] = {
+			{"weld_distance", "Distance", NkModParamType::Float, offsetof(NkMeshModifier, weldDistance), 0.f, 1.f},
+		};
+		static const NkModParam kParamsBevel[] = {
+			{"bevel_width", "Largeur", NkModParamType::Float, offsetof(NkMeshModifier, bevelWidth), 0.f, 1.f},
+			{"bevel_segments", "Segments", NkModParamType::Int, offsetof(NkMeshModifier, bevelSegments), 1.f, 12.f},
+		};
+		static const NkModParam kParamsScrew[] = {
+			{"screw_steps", "Pas", NkModParamType::Int, offsetof(NkMeshModifier, screwSteps), 2.f, 128.f},
+			{"screw_angle", "Angle", NkModParamType::Float, offsetof(NkMeshModifier, screwAngle), -720.f, 720.f},
+			{"screw_height", "Hauteur", NkModParamType::Float, offsetof(NkMeshModifier, screwHeight), -10.f, 10.f},
+			{"screw_axis", "Axe", NkModParamType::Int, offsetof(NkMeshModifier, screwAxis), 0.f, 2.f},
+		};
+		static const NkModParam kParamsEdgeSplit[] = {
+			{"edge_split_angle", "Angle", NkModParamType::Float, offsetof(NkMeshModifier, edgeSplitAngle), 0.f, 180.f},
+		};
+		static const NkModParam kParamsDecimate[] = {
+			{"decimate_angle", "Angle planaire", NkModParamType::Float, offsetof(NkMeshModifier, decimateAngle), 0.f,
+			 90.f},
+		};
+		static const NkModParam kParamsBuild[] = {
+			{"build_ratio", "Proportion", NkModParamType::Float, offsetof(NkMeshModifier, buildRatio), 0.f, 1.f},
+		};
+		static const NkModParam kParamsMask[] = {
+			{"mask_invert", "Inverser", NkModParamType::Bool, offsetof(NkMeshModifier, maskInvert), 0.f, 1.f},
+		};
+		static const NkModParam kParamsCast[] = {
+			{"cast_type", "Forme", NkModParamType::Int, offsetof(NkMeshModifier, castType), 0.f, 2.f},
+			{"cast_factor", "Facteur", NkModParamType::Float, offsetof(NkMeshModifier, castFactor), -2.f, 2.f},
+			{"cast_radius", "Rayon", NkModParamType::Float, offsetof(NkMeshModifier, castRadius), 0.f, 10.f},
+		};
+		static const NkModParam kParamsSimpleDeform[] = {
+			{"deform_mode", "Mode", NkModParamType::Int, offsetof(NkMeshModifier, deformMode), 0.f, 3.f},
+			{"deform_angle", "Angle", NkModParamType::Float, offsetof(NkMeshModifier, deformAngle), -360.f, 360.f},
+			{"deform_factor", "Facteur", NkModParamType::Float, offsetof(NkMeshModifier, deformFactor), -2.f, 2.f},
+			{"deform_axis", "Axe", NkModParamType::Int, offsetof(NkMeshModifier, deformAxis), 0.f, 2.f},
+		};
+		static const NkModParam kParamsSmooth[] = {
+			{"smooth_factor", "Facteur", NkModParamType::Float, offsetof(NkMeshModifier, smoothFactor), 0.f, 1.f},
+			{"smooth_repeat", "Repetitions", NkModParamType::Int, offsetof(NkMeshModifier, smoothRepeat), 1.f, 20.f},
+		};
+		static const NkModParam kParamsWave[] = {
+			{"wave_height", "Hauteur", NkModParamType::Float, offsetof(NkMeshModifier, waveHeight), -2.f, 2.f},
+			{"wave_width", "Largeur", NkModParamType::Float, offsetof(NkMeshModifier, waveWidth), 0.01f, 10.f},
+			{"wave_phase", "Phase", NkModParamType::Float, offsetof(NkMeshModifier, wavePhase), -100.f, 100.f},
+			{"wave_axis", "Axe", NkModParamType::Int, offsetof(NkMeshModifier, waveAxis), 0.f, 2.f},
+		};
+		static const NkModParam kParamsAutoSmooth[] = {
+			{"auto_smooth_angle", "Angle", NkModParamType::Float, offsetof(NkMeshModifier, autoSmoothAngle), 0.f,
+			 180.f},
+		};
+
 		const char *NkModifierTypeName(NkModifierType t) {
 			switch (t) {
 				case NkModifierType::Mirror: return "Miroir";
 				case NkModifierType::Array: return "Tableau";
 				case NkModifierType::Subsurf: return "Subdivision de surface";
+				case NkModifierType::Solidify: return "Solidifier";
+				case NkModifierType::Triangulate: return "Trianguler";
+				case NkModifierType::Weld: return "Souder";
+				case NkModifierType::Bevel: return "Chanfrein";
+				case NkModifierType::Screw: return "Vis (revolution)";
+				case NkModifierType::EdgeSplit: return "Separer les aretes";
+				case NkModifierType::Decimate: return "Simplifier";
+				case NkModifierType::Build: return "Construction";
+				case NkModifierType::Mask: return "Masque";
+				case NkModifierType::Cast: return "Projeter";
+				case NkModifierType::SimpleDeform: return "Deformation simple";
+				case NkModifierType::Smooth: return "Lisser";
+				case NkModifierType::Wave: return "Onde";
+				case NkModifierType::SmoothByAngle: return "Ombrage par angle";
 			}
 			return "?";
 		}
@@ -4561,6 +5126,23 @@ namespace nkentseu {
 				case NkModifierType::Subsurf:
 					count = (uint32)(sizeof(kParamsSubsurf) / sizeof(kParamsSubsurf[0]));
 					return kParamsSubsurf;
+#define NK_MOD_TABLE(T, A)                                                                                             \
+	case NkModifierType::T: count = (uint32)(sizeof(A) / sizeof(A[0])); return A
+				NK_MOD_TABLE(Solidify, kParamsSolidify);
+				NK_MOD_TABLE(Triangulate, kParamsTriangulate);
+				NK_MOD_TABLE(Weld, kParamsWeld);
+				NK_MOD_TABLE(Bevel, kParamsBevel);
+				NK_MOD_TABLE(Screw, kParamsScrew);
+				NK_MOD_TABLE(EdgeSplit, kParamsEdgeSplit);
+				NK_MOD_TABLE(Decimate, kParamsDecimate);
+				NK_MOD_TABLE(Build, kParamsBuild);
+				NK_MOD_TABLE(Mask, kParamsMask);
+				NK_MOD_TABLE(Cast, kParamsCast);
+				NK_MOD_TABLE(SimpleDeform, kParamsSimpleDeform);
+				NK_MOD_TABLE(Smooth, kParamsSmooth);
+				NK_MOD_TABLE(Wave, kParamsWave);
+				NK_MOD_TABLE(SmoothByAngle, kParamsAutoSmooth);
+#undef NK_MOD_TABLE
 			}
 			count = 0;
 			return nullptr;

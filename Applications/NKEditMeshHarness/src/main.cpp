@@ -1122,6 +1122,281 @@ static void ModStackBattery() {
 	}
 }
 
+// ── LOT DE MODIFICATEURS ────────────────────────────────────────────────────
+// Chaque modificateur est applique a une primitive CHOISIE pour que son effet
+// soit LISIBLE dans la signature — un modificateur teste sur une forme ou il ne
+// change rien ne prouve rien. Ceux qui deforment sans toucher la topologie
+// (Cast, Simple Deform, Smooth, Wave) sont juges sur l'AIRE et le rayon, les
+// autres sur V/F/E.
+static void ModsBattery() {
+	NkVector<NkVertex3D> cv, gv;
+	NkVector<uint32> ci, gi;
+	MakeCube(cv, ci);
+	MakeGrid(4, gv, gi);
+
+	auto mk = [&](bool grid) {
+		NkEditMesh m;
+		if (grid)
+			m.BuildFromIndexed(gv.Data(), (uint32)gv.Size(), gi.Data(), (uint32)gi.Size(), true);
+		else
+			m.BuildFromIndexed(cv.Data(), (uint32)cv.Size(), ci.Data(), (uint32)ci.Size(), true);
+		return m;
+	};
+	auto rayonMax = [](const NkEditMesh &m) {
+		NkVec3f c{0.f, 0.f, 0.f};
+		for (uint32 i = 0; i < m.VertCount(); ++i)
+			c = c + m.verts[i].pos;
+		if (m.VertCount())
+			c = c * (1.f / (float32)m.VertCount());
+		float32 r = 0.f;
+		for (uint32 i = 0; i < m.VertCount(); ++i) {
+			const float32 d = (m.verts[i].pos - c).Len();
+			if (d > r)
+				r = d;
+		}
+		return r;
+	};
+
+	// ── GENERATE ────────────────────────────────────────────────────────────
+	{ // SOLIDIFIER une GRILLE : c'est le cas ou il sert. Sur un cube (deja ferme)
+	  // l'effet serait invisible dans le comptage. Le bord doit se refermer :
+	  // bord=0 apres, alors que la grille en avait 32.
+		NkEditMesh m = mk(true);
+		NkMeshModifier mod;
+		mod.type = NkModifierType::Solidify;
+		mod.solidifyThickness = 0.1f;
+		mod.solidifyRim = true;
+		mod.Apply(m);
+		Emit("mod/solidify-grille", Signature(m));
+	}
+	{ // Sans bordure : la coque reste OUVERTE -> le bord doit reapparaitre.
+		NkEditMesh m = mk(true);
+		NkMeshModifier mod;
+		mod.type = NkModifierType::Solidify;
+		mod.solidifyThickness = 0.1f;
+		mod.solidifyRim = false;
+		mod.Apply(m);
+		Emit("mod/solidify-sans-bord", Signature(m));
+	}
+	{
+		NkEditMesh m = mk(false);
+		NkMeshModifier mod;
+		mod.type = NkModifierType::Triangulate;
+		mod.triangulateMinVerts = 4;
+		mod.Apply(m);
+		Emit("mod/triangulate-cube", Signature(m));
+	}
+	{ // minVerts = 5 : les quads du cube doivent RESTER des quads.
+		NkEditMesh m = mk(false);
+		NkMeshModifier mod;
+		mod.type = NkModifierType::Triangulate;
+		mod.triangulateMinVerts = 5;
+		mod.Apply(m);
+		Emit("mod/triangulate-min5-inerte", Signature(m));
+	}
+	{
+		NkEditMesh m = mk(false);
+		NkMeshModifier mod;
+		mod.type = NkModifierType::Weld;
+		mod.weldDistance = 0.6f; // > demi-arete : des coins voisins doivent fusionner
+		mod.Apply(m);
+		Emit("mod/weld-0.6", Signature(m));
+	}
+	{
+		NkEditMesh m = mk(false);
+		NkMeshModifier mod;
+		mod.type = NkModifierType::Bevel;
+		mod.bevelWidth = 0.1f;
+		mod.bevelSegments = 1;
+		mod.Apply(m);
+		Emit("mod/bevel-cube", Signature(m));
+	}
+	{
+		NkEditMesh m = mk(true);
+		NkMeshModifier mod;
+		mod.type = NkModifierType::Screw;
+		mod.screwSteps = 6;
+		mod.screwAngle = 180.f;
+		mod.Apply(m);
+		Emit("mod/screw-grille", Signature(m));
+	}
+	{
+		NkEditMesh m = mk(false);
+		NkMeshModifier mod;
+		mod.type = NkModifierType::EdgeSplit;
+		mod.Apply(m);
+		Emit("mod/edgesplit-cube", Signature(m));
+	}
+	{
+		NkEditMesh m = mk(false);
+		NkMeshModifier mod;
+		mod.type = NkModifierType::Decimate;
+		mod.Apply(m);
+		Emit("mod/decimate-cube", Signature(m));
+	}
+	{ // BUILD : la proportion est LE parametre a animer. 0,5 doit retirer la moitie
+	  // des faces — c'est le seul modificateur dont l'interet est le temps.
+		for (int32 k = 0; k < 2; k++) {
+			NkEditMesh m = mk(false);
+			NkMeshModifier mod;
+			mod.type = NkModifierType::Build;
+			mod.buildRatio = k ? 1.f : 0.5f;
+			mod.Apply(m);
+			Emit(k ? "mod/build-1.0" : "mod/build-0.5", Signature(m));
+		}
+	}
+	{ // MASK : garde les faces dont TOUS les sommets sont selectionnes.
+		NkEditMesh m = mk(false);
+		const NkVec3f pa = m.verts[0].pos;
+		NkVector<uint8> fl;
+		fl.Resize(m.VertCount());
+		for (uint32 i = 0; i < m.VertCount(); ++i)
+			fl[i] = (m.verts[i].pos.z > 0.f) ? 1 : 0; // une face du cube
+		m.SetVertSelection(fl.Data(), (uint32)fl.Size());
+		(void)pa;
+		NkMeshModifier mod;
+		mod.type = NkModifierType::Mask;
+		mod.Apply(m);
+		Emit("mod/mask-face-avant", Signature(m));
+	}
+
+	// ── DEFORM (topologie inchangee : on juge le RAYON et l'AIRE) ────────────
+	{
+		// Sur un CUBE tous les sommets sont a la meme distance du centre : le rayon
+		// max ne bougerait pas et le test ne prouverait rien. On prend donc une
+		// GRILLE, dont les sommets ont des rayons varies, et on mesure MIN et MAX —
+		// c'est l'ECART entre eux qui dit si la forme a ete projetee.
+		// DEUX formes, parce qu'aucune ne suffit seule. Sur un CUBE tous les sommets
+		// sont deja a la meme distance du centre : la projection SPHERIQUE ne les
+		// bouge pas — resultat juste, mais qui ne prouve rien. Sur une GRILLE plane,
+		// sphere et cylindre COINCIDENT (les sommets sont a y = 0), ce qui est
+		// egalement correct et egalement peu discriminant. Les deux ensemble
+		// distinguent bien les trois modes.
+		const char *nm[3] = {"mod/cast-sphere", "mod/cast-cylindre", "mod/cast-cube"};
+		for (int32 t = 0; t < 6; t++) {
+			NkEditMesh m = mk(t < 3);
+			float32 a0 = 1e30f, b0 = 0.f;
+			for (uint32 i = 0; i < m.VertCount(); ++i) {
+				const float32 d = m.verts[i].pos.Len();
+				if (d < a0)
+					a0 = d;
+				if (d > b0)
+					b0 = d;
+			}
+			NkMeshModifier mod;
+			mod.type = NkModifierType::Cast;
+			mod.castType = t % 3;
+			mod.castFactor = 1.f;
+			mod.Apply(m);
+			float32 a1 = 1e30f, b1 = 0.f;
+			for (uint32 i = 0; i < m.VertCount(); ++i) {
+				const float32 d = m.verts[i].pos.Len();
+				if (d < a1)
+					a1 = d;
+				if (d > b1)
+					b1 = d;
+			}
+			if (gLineCount < 512) {
+				char cn[96];
+				snprintf(cn, sizeof(cn), "%s-%s", nm[t % 3], (t < 3) ? "grille" : "cube");
+				snprintf(gLines[gLineCount], 256, "%-34s rayon [%.4f..%.4f] -> [%.4f..%.4f]", cn, (double)a0,
+						 (double)b0, (double)a1, (double)b1);
+				gLineCount++;
+			}
+		}
+	}
+	{
+		const char *nm[4] = {"mod/deform-torsion", "mod/deform-courbure", "mod/deform-effilement",
+							 "mod/deform-etirement"};
+		for (int32 d = 0; d < 4; d++) {
+			NkEditMesh m = mk(false);
+			const float32 r0 = rayonMax(m);
+			NkMeshModifier mod;
+			mod.type = NkModifierType::SimpleDeform;
+			mod.deformMode = d;
+			mod.deformAngle = 90.f;
+			mod.deformFactor = 0.5f;
+			mod.Apply(m);
+			if (gLineCount < 512) {
+				snprintf(gLines[gLineCount], 256, "%-34s rayon max %.4f -> %.4f", nm[d], (double)r0, (double)rayonMax(m));
+				gLineCount++;
+			}
+		}
+	}
+	{ // LISSER : sur un cube soude, la relaxation contracte vers le centre.
+		NkEditMesh m = mk(false);
+		const float32 r0 = rayonMax(m);
+		NkMeshModifier mod;
+		mod.type = NkModifierType::Smooth;
+		mod.smoothFactor = 0.5f;
+		mod.smoothRepeat = 3;
+		mod.Apply(m);
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s rayon max %.4f -> %.4f", "mod/smooth-cube", (double)r0,
+					 (double)rayonMax(m));
+			gLineCount++;
+		}
+	}
+	{ // ONDE : la PHASE doit changer le resultat — c'est ce qui la rend animable.
+		float32 r[2] = {0.f, 0.f};
+		for (int32 k = 0; k < 2; k++) {
+			NkEditMesh m = mk(true);
+			NkMeshModifier mod;
+			mod.type = NkModifierType::Wave;
+			mod.waveHeight = 0.3f;
+			mod.waveWidth = 0.2f;
+			mod.wavePhase = k ? 1.57f : 0.f;
+			mod.Apply(m);
+			r[k] = rayonMax(m);
+		}
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s phase 0 -> rayon %.4f | phase 1,57 -> rayon %.4f",
+					 "mod/wave-phase-animable", (double)r[0], (double)r[1]);
+			gLineCount++;
+		}
+	}
+	{ // OMBRAGE PAR ANGLE : a 30 deg un cube reste FRANC (angles a 90), a 100 deg
+	  // il passe entierement en lisse. Le seuil doit donc changer le compte.
+		for (int32 k = 0; k < 2; k++) {
+			NkEditMesh m = mk(false);
+			NkMeshModifier mod;
+			mod.type = NkModifierType::SmoothByAngle;
+			mod.autoSmoothAngle = k ? 100.f : 30.f;
+			mod.Apply(m);
+			uint32 sm = 0, fl2 = 0;
+			for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f) {
+				if (!m.faces[f].alive)
+					continue;
+				if (m.faces[f].smooth)
+					sm++;
+				else
+					fl2++;
+			}
+			if (gLineCount < 512) {
+				snprintf(gLines[gLineCount], 256, "%-34s seuil %.0f deg -> %u lisses / %u franches",
+						 k ? "mod/autosmooth-100deg" : "mod/autosmooth-30deg", (double)mod.autoSmoothAngle, sm, fl2);
+				gLineCount++;
+			}
+		}
+	}
+	// INVENTAIRE : ce que l'editeur de courbes verra.
+	{
+		uint32 tot = 0, types = 0;
+		for (int32 t = 0; t <= (int32)NkModifierType::SmoothByAngle; t++) {
+			uint32 n = 0;
+			NkModifierParams((NkModifierType)t, n);
+			tot += n;
+			if (n)
+				types++;
+		}
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s %u types, %u parametres animables", "mod/inventaire-global", types,
+					 tot);
+			gLineCount++;
+		}
+	}
+}
+
 int main(int argc, char **argv) {
 	bool baseline = false, check = false;
 	for (int32 i = 1; i < argc; i++) {
@@ -1143,6 +1418,7 @@ int main(int argc, char **argv) {
 	SnapBattery();
 	CatmullBattery();
 	ModStackBattery();
+	ModsBattery();
 
 	const char *path = "editmesh_baseline.txt";
 	if (baseline) {

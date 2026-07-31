@@ -82,3 +82,30 @@ pile/appliquer-miroir              ok=1 reste=0 avertissement-pas-premier=0
 pile/appliquer-miroir-signature    V=48     F=12     E=12     bord=0     nonmanif=12  tri=24     A=12.0000 C=(0.0000,0.0000,0.0000)
 pile/parametres-par-nom            count=7 ecrete[1..256] arrondi(2.999)=3 offset=(1,2,3) inconnu=0
 pile/inventaire-parametres         Miroir=3 Tableau=2 Subdivision de surface=2 total=7
+mod/solidify-grille                V=50     F=48     E=96     bord=0     nonmanif=0   tri=96     A=2.4000 C=(0.0000,-0.0500,0.0000)
+mod/solidify-sans-bord             V=50     F=32     E=80     bord=32    nonmanif=0   tri=64     A=2.0000 C=(0.0000,-0.0500,0.0000)
+mod/triangulate-cube               V=24     F=12     E=18     bord=0     nonmanif=0   tri=12     A=6.0000 C=(0.0000,0.0000,0.0000)
+mod/triangulate-min5-inerte        V=24     F=6      E=12     bord=0     nonmanif=0   tri=12     A=6.0000 C=(0.0000,0.0000,0.0000)
+mod/weld-0.6                       V=8      F=6      E=12     bord=0     nonmanif=0   tri=12     A=6.0000 C=(0.0000,0.0000,0.0000)
+mod/bevel-cube                     V=24     F=26     E=48     bord=0     nonmanif=0   tri=44     A=5.2669 C=(0.0000,0.0000,0.0000)
+mod/screw-grille                   V=175    F=112    E=120    bord=0     nonmanif=88  tri=224    A=7.0000 C=(0.0000,0.0000,0.0000)
+mod/edgesplit-cube                 V=24     F=6      E=24     bord=24    nonmanif=0   tri=12     A=6.0000 C=(0.0000,-0.0000,0.0000)
+mod/decimate-cube                  V=24     F=6      E=12     bord=0     nonmanif=0   tri=12     A=6.0000 C=(0.0000,0.0000,0.0000)
+mod/build-0.5                      V=12     F=3      E=10     bord=8     nonmanif=0   tri=6      A=3.0000 C=(-0.1667,0.0000,0.0000)
+mod/build-1.0                      V=24     F=6      E=12     bord=0     nonmanif=0   tri=12     A=6.0000 C=(0.0000,0.0000,0.0000)
+mod/mask-face-avant                V=4      F=1      E=4      bord=4     nonmanif=0   tri=2      A=1.0000 C=(0.0000,0.0000,0.5000)
+mod/cast-sphere-grille             rayon [0.0000..0.7071] -> [0.0000..0.4686]
+mod/cast-cylindre-grille           rayon [0.0000..0.7071] -> [0.0000..0.4686]
+mod/cast-cube-grille               rayon [0.0000..0.7071] -> [0.0000..0.6627]
+mod/cast-sphere-cube               rayon [0.8660..0.8660] -> [0.8660..0.8660]
+mod/cast-cylindre-cube             rayon [0.8660..0.8660] -> [1.0000..1.0000]
+mod/cast-cube-cube                 rayon [0.8660..0.8660] -> [1.5000..1.5000]
+mod/deform-torsion                 rayon max 0.8660 -> 0.8660
+mod/deform-courbure                rayon max 0.8660 -> 0.9354
+mod/deform-effilement              rayon max 0.8660 -> 1.1726
+mod/deform-etirement               rayon max 0.8660 -> 0.9465
+mod/smooth-cube                    rayon max 0.8660 -> 0.2566
+mod/wave-phase-animable            phase 0 -> rayon 0.7502 | phase 1,57 -> rayon 0.7175
+mod/autosmooth-30deg               seuil 30 deg -> 0 lisses / 6 franches
+mod/autosmooth-100deg              seuil 100 deg -> 6 lisses / 0 franches
+mod/inventaire-global              17 types, 36 parametres animables
