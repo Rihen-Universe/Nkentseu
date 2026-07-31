@@ -37,6 +37,7 @@
 // =============================================================================
 #include "NKRenderer/Mesh/NkEditMesh.h"
 #include "NKRenderer/Core/NkGizmo.h"
+#include "NKEditorKit/NkShortcutTable.h"
 #include "NKContainers/Associative/NkHashMap.h"
 #include "NKLogger/NkLog.h"
 
@@ -1397,6 +1398,147 @@ static void ModsBattery() {
 	}
 }
 
+// ── TABLE DE RACCOURCIS ─────────────────────────────────────────────────────
+// On y verse l'inventaire REEL des raccourcis de l'editeur, releve dans
+// Demo3D.cpp. Deux choses a prouver :
+//   1. la table REPOND — la meme touche donne une commande differente selon le
+//      contexte, ce que la suite de `if` imbriques faisait de facon implicite ;
+//   2. elle DETECTE LES CONFLITS. C'est sa raison d'etre : `Shift+S` etait deja
+//      pris par « ombrage smooth », ce qui m'a force a des combinaisons moins
+//      naturelles pour la pile de modificateurs — et je ne l'ai decouvert qu'a la
+//      compilation, par hasard. Une table le dit tout de suite.
+static void ShortcutBattery() {
+	using namespace nkentseu::editorkit;
+	NkShortcutTable t;
+	// ⚠ ORDRE SIGNIFIANT : le plus SPECIFIQUE d'abord, comme les `if` imbriques
+	// qu'on remplace testaient le mode edition avant le mode objet.
+	// — mode EDITION
+	t.Bind("mesh.extrude", "Extruder", NkKey::NK_E, NK_SC_NONE, NK_SCTX_EDIT);
+	t.Bind("mesh.inset", "Inserer", NkKey::NK_I, NK_SC_NONE, NK_SCTX_EDIT);
+	t.Bind("mesh.knife", "Couteau", NkKey::NK_K, NK_SC_NONE, NK_SCTX_EDIT);
+	t.Bind("mesh.subdivide", "Subdiviser", NkKey::NK_W, NK_SC_NONE, NK_SCTX_EDIT);
+	t.Bind("mesh.merge", "Souder", NkKey::NK_M, NK_SC_NONE, NK_SCTX_EDIT);
+	t.Bind("mesh.delete", "Supprimer", NkKey::NK_X, NK_SC_NONE, NK_SCTX_EDIT);
+	t.Bind("mesh.edge_split", "Separer les aretes", NkKey::NK_V, NK_SC_NONE, NK_SCTX_EDIT);
+	t.Bind("mesh.spin", "Spin", NkKey::NK_J, NK_SC_NONE, NK_SCTX_EDIT);
+	t.Bind("mesh.loopcut", "Loop cut", NkKey::NK_R, NK_SC_CTRL, NK_SCTX_EDIT);
+	t.Bind("mesh.bevel_edge", "Chanfrein arete", NkKey::NK_B, NK_SC_CTRL, NK_SCTX_EDIT);
+	t.Bind("mesh.bevel_vert", "Chanfrein sommet", NkKey::NK_B, (uint8)(NK_SC_CTRL | NK_SC_SHIFT), NK_SCTX_EDIT);
+	t.Bind("mesh.dissolve", "Dissoudre", NkKey::NK_X, NK_SC_CTRL, NK_SCTX_EDIT);
+	t.Bind("mesh.to_sphere", "To sphere", NkKey::NK_S, (uint8)(NK_SC_SHIFT | NK_SC_ALT), NK_SCTX_EDIT);
+	t.Bind("mesh.shade_smooth", "Ombrage doux", NkKey::NK_S, NK_SC_SHIFT, NK_SCTX_EDIT);
+	t.Bind("mesh.shade_flat", "Ombrage franc", NkKey::NK_F, NK_SC_SHIFT, NK_SCTX_EDIT);
+	t.Bind("mesh.xray", "Voir a travers", NkKey::NK_Z, NK_SC_ALT, NK_SCTX_EDIT);
+	// — mode OBJET
+	t.Bind("object.translate", "Deplacer", NkKey::NK_G, NK_SC_NONE, NK_SCTX_OBJECT);
+	t.Bind("object.rotate", "Tourner", NkKey::NK_R, NK_SC_NONE, NK_SCTX_OBJECT);
+	t.Bind("object.scale", "Redimensionner", NkKey::NK_S, NK_SC_NONE, NK_SCTX_OBJECT);
+	// — GLOBAL
+	t.Bind("view.toggle_mode", "Objet / Edition", NkKey::NK_TAB, NK_SC_NONE, NK_SCTX_GLOBAL);
+	t.Bind("view.toggle_snap", "Aimantation", NkKey::NK_TAB, NK_SC_SHIFT, NK_SCTX_GLOBAL);
+	t.Bind("view.cycle_pivot", "Point de pivot", NkKey::NK_PERIOD, NK_SC_NONE, NK_SCTX_GLOBAL);
+	t.Bind("view.cycle_orient", "Orientation", NkKey::NK_COMMA, NK_SC_NONE, NK_SCTX_GLOBAL);
+	t.Bind("select.all", "Tout selectionner", NkKey::NK_A, NK_SC_NONE, NK_SCTX_GLOBAL);
+	t.Bind("select.none", "Tout deselectionner", NkKey::NK_A, NK_SC_ALT, NK_SCTX_GLOBAL);
+	// — pile de MODIFICATEURS
+	t.Bind("mod.param_next", "Parametre suivant", NkKey::NK_BACKSLASH, NK_SC_SHIFT, NK_SCTX_GLOBAL);
+	t.Bind("mod.move_up", "Monter", NkKey::NK_UP, NK_SC_SHIFT, NK_SCTX_GLOBAL);
+	t.Bind("mod.move_down", "Descendre", NkKey::NK_DOWN, NK_SC_SHIFT, NK_SCTX_GLOBAL);
+	t.Bind("mod.toggle", "Activer / desactiver", NkKey::NK_E, NK_SC_SHIFT, NK_SCTX_GLOBAL);
+	t.Bind("mod.duplicate", "Dupliquer", NkKey::NK_D, NK_SC_SHIFT, NK_SCTX_GLOBAL);
+	t.Bind("mod.remove", "Retirer", NkKey::NK_DELETE, NK_SC_SHIFT, NK_SCTX_GLOBAL);
+	t.Bind("mod.apply", "Appliquer", NkKey::NK_ENTER, NK_SC_SHIFT, NK_SCTX_GLOBAL);
+
+	// 1) LE MEME `R` selon le contexte : loop cut en edition (avec Ctrl), rotation
+	//    en objet. C'est ce que la table doit savoir faire.
+	const NkShortcutBinding *rObj = t.Lookup(NkKey::NK_R, NK_SC_NONE, NK_SCTX_OBJECT);
+	const NkShortcutBinding *rEdit = t.Lookup(NkKey::NK_R, NK_SC_CTRL, NK_SCTX_EDIT);
+	// 2) `E` : extruder en edition, mais Shift+E gere la pile — deux commandes
+	//    distinctes sur la meme touche, separees par le modificateur.
+	const NkShortcutBinding *e1 = t.Lookup(NkKey::NK_E, NK_SC_NONE, NK_SCTX_EDIT);
+	const NkShortcutBinding *e2 = t.Lookup(NkKey::NK_E, NK_SC_SHIFT, NK_SCTX_EDIT);
+	// 3) Combinaison non liee -> rien. Une table qui rendrait « quelque chose »
+	//    ferait executer une commande au hasard.
+	const NkShortcutBinding *none = t.Lookup(NkKey::NK_Q, NK_SC_NONE, NK_SCTX_OBJECT);
+	if (gLineCount < 512) {
+		snprintf(gLines[gLineCount], 256, "%-34s R/objet=%s CtrlR/edit=%s E/edit=%s ShiftE=%s Q=%s",
+				 "raccourcis/contexte", rObj ? rObj->command : "-", rEdit ? rEdit->command : "-",
+				 e1 ? e1->command : "-", e2 ? e2->command : "-", none ? none->command : "aucune");
+		gLineCount++;
+	}
+
+	// 4) CONFLITS. Deux liaisons repondant a la meme combinaison dans des contextes
+	//    qui se recoupent. Ici `Shift+E` (pile, GLOBAL) recouvre le mode edition, et
+	//    `Shift+S` / `Shift+Alt+S` illustrent le voisinage qui m'avait pose probleme.
+	char first[64] = {};
+	uint32 ca = 0, cb = 0;
+	if (t.ConflictAt(0, ca, cb)) {
+		const NkShortcutBinding *a = t.At(ca);
+		const NkShortcutBinding *b = t.At(cb);
+		snprintf(first, sizeof(first), "%s vs %s", a ? a->command : "?", b ? b->command : "?");
+	}
+	if (gLineCount < 512) {
+		snprintf(gLines[gLineCount], 256, "%-34s liaisons=%u conflits=%u premier=[%s]", "raccourcis/conflits",
+				 t.Count(), t.ConflictCount(), first[0] ? first : "aucun");
+		gLineCount++;
+	}
+
+	// 4bis) LE CAS QUI PROUVE LE DETECTEUR. La table ci-dessus n'a AUCUN conflit :
+	//    resultat honnete, mais qui ne prouve rien — un detecteur casse afficherait
+	//    zero lui aussi. On rejoue donc le conflit REEL rencontre le 31/07 : vouloir
+	//    « Shift+S » pour activer un modificateur alors que Shift+S est deja
+	//    l'ombrage doux en mode edition. Les contextes se recoupent (GLOBAL recouvre
+	//    EDIT), c'est donc bien un conflit — et c'est exactement ce que j'avais
+	//    decouvert a la compilation, par hasard, faute de table.
+	{
+		NkShortcutTable c;
+		c.Bind("mesh.shade_smooth", "Ombrage doux", NkKey::NK_S, NK_SC_SHIFT, NK_SCTX_EDIT);
+		c.Bind("mod.toggle", "Activer le modificateur", NkKey::NK_S, NK_SC_SHIFT, NK_SCTX_GLOBAL);
+		// Et un NON-conflit tres proche : meme touche, meme modificateur, contextes
+		// DISJOINTS. S'il etait compte, la table crierait au loup des qu'une touche
+		// sert dans deux modes — ce qui est la norme chez Blender.
+		c.Bind("select.link", "Selection liee", NkKey::NK_L, NK_SC_NONE, NK_SCTX_EDIT);
+		c.Bind("object.link", "Lier a la scene", NkKey::NK_L, NK_SC_NONE, NK_SCTX_OBJECT);
+		uint32 ia = 0, ib = 0;
+		const bool got = c.ConflictAt(0, ia, ib);
+		const NkShortcutBinding *ba = got ? c.At(ia) : nullptr;
+		const NkShortcutBinding *bb = got ? c.At(ib) : nullptr;
+		const NkShortcutBinding *win = c.Lookup(NkKey::NK_S, NK_SC_SHIFT, NK_SCTX_EDIT);
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s conflits=%u [%s vs %s] gagne-en-edition=%s",
+					 "raccourcis/conflit-reel-shift-s", c.ConflictCount(), ba ? ba->command : "-",
+					 bb ? bb->command : "-", win ? win->command : "-");
+			gLineCount++;
+		}
+	}
+
+	// 5) AFFICHAGE : le texte montre a l'utilisateur vient de la table, il ne peut
+	//    donc plus mentir — c'etait le defaut du champ `shortcut` de
+	//    NkEditorCommand, une chaine recopiee a la main.
+	char f1[32] = {}, f2[32] = {}, f3[32] = {};
+	t.FormatFor("mesh.bevel_vert", f1, sizeof(f1));
+	t.FormatFor("mod.apply", f2, sizeof(f2));
+	t.FormatFor("view.cycle_pivot", f3, sizeof(f3));
+	if (gLineCount < 512) {
+		snprintf(gLines[gLineCount], 256, "%-34s bevel_vert=%s apply=%s pivot=%s", "raccourcis/affichage", f1, f2, f3);
+		gLineCount++;
+	}
+
+	// 6) RECONFIGURATION : deplacer une commande doit changer ce qui la declenche
+	//    ET ce qui est affiche. Les deux viennent de la meme donnee, donc ils ne
+	//    peuvent pas diverger — c'est tout l'interet.
+	t.Rebind("mod.apply", NkKey::NK_ENTER, (uint8)(NK_SC_CTRL | NK_SC_SHIFT), NK_SCTX_GLOBAL);
+	const NkShortcutBinding *before = t.Lookup(NkKey::NK_ENTER, NK_SC_SHIFT, NK_SCTX_GLOBAL);
+	const NkShortcutBinding *after = t.Lookup(NkKey::NK_ENTER, (uint8)(NK_SC_CTRL | NK_SC_SHIFT), NK_SCTX_GLOBAL);
+	char f4[32] = {};
+	t.FormatFor("mod.apply", f4, sizeof(f4));
+	if (gLineCount < 512) {
+		snprintf(gLines[gLineCount], 256, "%-34s ancienne=%s nouvelle=%s affiche=%s", "raccourcis/reconfiguration",
+				 before ? before->command : "aucune", after ? after->command : "aucune", f4);
+		gLineCount++;
+	}
+}
+
 int main(int argc, char **argv) {
 	bool baseline = false, check = false;
 	for (int32 i = 1; i < argc; i++) {
@@ -1419,6 +1561,7 @@ int main(int argc, char **argv) {
 	CatmullBattery();
 	ModStackBattery();
 	ModsBattery();
+	ShortcutBattery();
 
 	const char *path = "editmesh_baseline.txt";
 	if (baseline) {
