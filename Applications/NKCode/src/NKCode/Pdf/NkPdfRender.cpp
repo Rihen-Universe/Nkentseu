@@ -337,6 +337,7 @@ namespace nkentseu {
 				mCv = &out;
 				mFonts.Clear();
 				mLastFont = nullptr;
+				mText.Clear();
 				mUnsupported.Clear();
 				mStats = Stats();
 				mStack.Clear();
@@ -872,6 +873,29 @@ namespace nkentseu {
 									// Avance : largeur + inter-lettre (+ inter-mot pour
 									// l'espace, code 32 des polices simples uniquement).
 									double adv = w0 * mGs.fontSize + mGs.charSpace;
+									// ── Trace de selection ──
+									// On enregistre meme les glyphes INVISIBLES (Tr 3) : c'est
+									// tout le calque texte d'un document scanne, et c'est
+									// precisement lui qu'on veut pouvoir selectionner.
+									{
+										NkPdfMat trm2 = NkPdfMat::Mul(mTm, mGs.ctm);
+										double bx = 0.0, by = 0.0;
+										trm2.Apply(0.0, mGs.rise, &bx, &by);
+										const double hpx = mGs.fontSize * Abs2(trm2.d);
+										const double wpx = adv * mGs.hscale * Abs2(trm2.a);
+										TextItem it;
+										// La boite part de la ligne de base : ~80 % au-dessus
+										// (hauteur des capitales) et ~20 % en dessous
+										// (jambages), ce qui couvre le glyphe sans deborder
+										// sur la ligne voisine.
+										it.x = static_cast<float32>(bx);
+										it.y = static_cast<float32>(by - hpx * 0.8);
+										it.w = static_cast<float32>(wpx);
+										it.h = static_cast<float32>(hpx);
+										it.text = f->ToUnicode(code);
+										if (it.w > 0.f && it.h > 0.f && mText.Size() < 200000u)
+											mText.PushBack(it);
+									}
 									if (code == 32 && !f->IsTwoByte())
 										adv += mGs.wordSpace;
 									NkPdfMat m;

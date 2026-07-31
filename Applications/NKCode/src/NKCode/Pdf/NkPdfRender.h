@@ -76,7 +76,22 @@ namespace nkentseu {
 					// l'utilisateur au lieu de le laisser croire a un rendu fidele.
 					const NkString &Unsupported() const { return mUnsupported; }
 
-					// Compteurs de DIAGNOSTIC : une page blanche sans avertissement ne
+					// ── Texte SELECTIONNABLE ──
+					// Chaque caractere dessine laisse sa boite, en pixels du canevas, et
+					// son equivalent UTF-8 issu de la table /ToUnicode de la police.
+					//
+					// C'est la SEULE facon honnete de selectionner du texte dans un PDF :
+					// le format ne stocke pas de texte, mais des identifiants de glyphes
+					// places un a un. Sans /ToUnicode on ne peut PAS deviner ce qu'un
+					// glyphe represente — on laisse alors le caractere vide plutot que
+					// d'inventer, et la selection le saute.
+					struct TextItem {
+							float32 x = 0.f, y = 0.f, w = 0.f, h = 0.f;
+							NkString text; // UTF-8 ; vide si la police n'a pas de /ToUnicode
+					};
+					const NkVector<TextItem> &TextItems() const { return mText; }
+
+				// Compteurs de DIAGNOSTIC : une page blanche sans avertissement ne
 					// se diagnostique pas autrement. Ils disent OU la chaine se rompt —
 					// contenu vide, operateurs non executes, glyphes sans contour, ou
 					// peinture hors cadre.
@@ -127,6 +142,7 @@ namespace nkentseu {
 					NkString mUnsupported;
 					Stats mStats;
 					NkPdfFont *mLastFont = nullptr;
+					NkVector<TextItem> mText;
 					bool mWindowMode = false; // rendu d'une fenetre dans un canevas fourni
 					double mWinOffX = 0.0, mWinOffY = 0.0;
 

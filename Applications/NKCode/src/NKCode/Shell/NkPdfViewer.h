@@ -46,6 +46,14 @@ namespace nkentseu {
 				int32 dragV = 0, dragH = 0;
 				float32 grabV = 0.f, grabH = 0.f;
 
+				// ── Selection de texte ──
+				// Les elements viennent du rendu de la FENETRE courante : leurs
+				// coordonnees sont celles du canevas, donc directement comparables a
+				// la souris une fois l'origine du panneau retiree.
+				NkVector<pdf::NkPdfRenderer::TextItem> items;
+				int32 selA = -1, selB = -1; // bornes, dans l'ordre du flux de contenu
+				bool selecting = false;
+
 				uint32 texId = 0;
 				int32 texW = 0, texH = 0;
 		};
