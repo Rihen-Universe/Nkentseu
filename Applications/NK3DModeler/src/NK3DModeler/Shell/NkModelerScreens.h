@@ -676,6 +676,10 @@ namespace nkentseu {
 			// VIDE -- et c'est la qu'un clic deselectionne.
 			hit.Add("hier.list", listR);
 
+			// Le test de visibilite ci-dessous ecarte les lignes hors champ, mais la
+			// ligne a cheval sur le bord reste peinte en entier : c'est elle qui
+			// depasse sur le pied de panneau. La decoupe s'en charge.
+			p.Clip(listR);
 			int32 visibleCount = 0;
 			float32 yy = y - st.scrollHier;
 			char key[40];
@@ -755,6 +759,8 @@ namespace nkentseu {
 				}
 				yy += kRowH;
 			}
+
+			p.Unclip();
 
 			// UN CLIC DANS LE VIDE DESELECTIONNE. La zone « hier.list » n'est survolee
 			// que la ou aucune ligne ne l'a recouverte, donc ce test designe exactement
@@ -1260,6 +1266,10 @@ namespace nkentseu {
 			y += 1.f;
 
 			const float32 listTop = y;
+			// Meme decoupe que Details : sinon la section Transformation remonte sur
+			// l'en-tete « Proprietes » et deborde sur Details en dessous.
+			const NkRect clipR{full.x, listTop, full.w, full.y + full.h - listTop};
+			p.Clip(clipR);
 			y -= st.scrollProps;
 
 			if (SectionHeader(p, hit, r, y, "prop.sec.transform", "Transformation", st.showTransform)) {
@@ -1277,7 +1287,8 @@ namespace nkentseu {
 				y += kRowH;
 			}
 
-			const NkRect area{full.x, listTop, full.w, full.y + full.h - listTop};
+			p.Unclip();
+			const NkRect area = clipR;
 			hit.Add("props.list", area);
 			hit.Wheel("props.list", st.scrollProps, y - listTop + st.scrollProps, area.h);
 			p.VScroll(area, y - listTop + st.scrollProps, st.scrollProps);
@@ -1339,6 +1350,13 @@ namespace nkentseu {
 			float32 y = PaintPanelTab(p, full, "Details (Cube)", &hit, &st.showRight, "det.close");
 			const NkRect r = Inset(full);
 			const float32 listTop = y;
+			// LE CONTENU EST DECOUPE au rectangle qui reste sous l'en-tete. Sans cela
+			// « Maillage » remonte par-dessus l'onglet « Details » des le premier cran
+			// de molette, et les sections du bas debordent sur le navigateur. C'etait
+			// visible et c'est corrige ici plutot qu'en bornant le defilement : borner
+			// ne changerait rien, le debordement vient du DESSIN.
+			const NkRect clipR{full.x, listTop, full.w, full.y + full.h - listTop};
+			p.Clip(clipR);
 			y -= scroll;
 
 			// ── MAILLAGE ────────────────────────────────────────────────────────
@@ -1469,7 +1487,8 @@ namespace nkentseu {
 				}
 			}
 
-			const NkRect area{full.x, listTop, full.w, full.y + full.h - listTop};
+			p.Unclip();
+			const NkRect area = clipR;
 			hit.Add("det.list", area);
 			hit.Wheel("det.list", st.scrollDetails, y - listTop + scroll, area.h);
 			p.VScroll(area, y - listTop + scroll, scroll);
@@ -1526,6 +1545,11 @@ namespace nkentseu {
 			const float32 treeW = r.w * 0.18f;
 			const float32 ty = r.y + topH;
 			const float32 th = r.h - topH;
+			// Tout le corps du navigateur est DECOUPE sous sa barre de titre : arbre et
+			// cartes sont dessines a partir d'une position defilee, donc negative des le
+			// premier cran, et sans decoupe la premiere rangee de cartes se peint sur la
+			// barre « Ajouter / Importer ».
+			p.Clip({r.x, ty, r.w, th});
 			p.Fill({r.x, ty, treeW, th}, NkRole::WindowBg);
 			p.VLine(r.x + treeW, ty, th);
 			// LES DOSSIERS SONT ORANGE et portent un CHEVRON qui replie leur contenu,
@@ -1724,14 +1748,19 @@ namespace nkentseu {
 				}
 				tx += tw + 10.f;
 			}
+			p.Unclip();
 			const NkRect treeArea{r.x, ty, treeW, th};
 			const NkRect assetArea{ax - S(10.f), ty + S(33.f), r.w - treeW - S(10.f), th - S(33.f)};
 			hit.Add("brow.tree", treeArea);
 			hit.Wheel("brow.tree", st.scrollTree, 5.f * kRowH + S(8.f), treeArea.h);
 			hit.Add("brow.assets", assetArea);
-			hit.Wheel("brow.assets", st.scrollAssets, S(125.f), assetArea.h);
+			// La hauteur de contenu etait figee a 125 px, valeur de l'ancienne carte.
+			// Les cartes font maintenant 133 px : le defilement s'arretait avant le bas
+			// et la derniere rangee restait inaccessible.
+			const float32 assetContentH = 42.f + pvH + barH2 + footH + 10.f;
+			hit.Wheel("brow.assets", st.scrollAssets, assetContentH, assetArea.h);
 			p.VScroll(treeArea, 5.f * kRowH + S(8.f), treeScroll);
-			p.VScroll(assetArea, S(125.f), assetScroll);
+			p.VScroll(assetArea, assetContentH, assetScroll);
 			const float32 ew = p.TextW("5 elements");
 			p.TextV(r.x + r.w - ew - kPad, r.y + r.h - kRowH, kRowH, "5 elements", NkRole::TextMuted);
 			(void)ih;
@@ -1913,7 +1942,7 @@ namespace nkentseu {
 		// plus pour atteindre une entree qui, elle, en demande deja un -- et rien ne
 		// justifie de valider le fait de « regarder » une categorie.
 		inline void PaintModifierMenu(NkModelerPainter &p, NkModelerState &st, NkHitRegistry &hit,
-									  NkWidgetState &ws) {
+									  NkWidgetState &ws, float32 W, float32 H) {
 			if (!ws.ComboOpen("tb.mod"))
 				return;
 			int32 nc = 0;
@@ -1921,7 +1950,23 @@ namespace nkentseu {
 			const NkRect &a = st.modAnchor;
 			const float32 itemH = S(24.f);
 			const float32 catW = S(150.f);
-			const NkRect box{a.x, a.y + a.h + 2.f, catW, itemH * (float32)nc + S(6.f)};
+			// LE MENU RESTE DANS LA FENETRE. Il etait pose sous son ancre sans aucune
+			// verification : avec neuf categories et un sous-menu de huit entrees, le
+			// bas du panneau sortait par le bas de l'ecran et les dernieres entrees
+			// etaient inatteignables. On remonte le panneau plutot que de le faire
+			// defiler -- un menu qui defile demande deux gestes la ou un seul suffit.
+			float32 boxY = a.y + a.h + 2.f;
+			const float32 boxH = itemH * (float32)nc + S(6.f);
+			if (boxY + boxH > H - S(4.f))
+				boxY = H - S(4.f) - boxH;
+			if (boxY < S(4.f))
+				boxY = S(4.f);
+			float32 boxX = a.x;
+			if (boxX + catW > W - S(4.f))
+				boxX = W - S(4.f) - catW;
+			if (boxX < S(4.f))
+				boxX = S(4.f);
+			const NkRect box{boxX, boxY, catW, boxH};
 			p.Fill({box.x + 2.f, box.y + 2.f, box.w, box.h}, NkRole::WindowBg, 4.f);
 			p.Outline(box, NkRole::Border, NkRole::PanelHeader, 4.f);
 			hit.Add("mod.panel", box);
@@ -1948,8 +1993,21 @@ namespace nkentseu {
 					// Le sous-menu s'ouvre A DROITE, aligne sur SA categorie : aligne sur
 					// le haut du panneau, il faudrait chercher a quelle categorie il se
 					// rapporte des qu'on en survole une du bas.
-					const NkRect sub{box.x + box.w + 3.f, ir.y - S(3.f), S(170.f),
-									 itemH * (float32)cats[c].count + S(6.f)};
+					const float32 subW = S(170.f);
+					const float32 subH = itemH * (float32)cats[c].count + S(6.f);
+					// Le sous-menu subit la meme contrainte, et bascule A GAUCHE du
+					// panneau s'il n'y a plus la place a droite.
+					float32 subX = box.x + box.w + 3.f;
+					if (subX + subW > W - S(4.f))
+						subX = box.x - subW - 3.f;
+					if (subX < S(4.f))
+						subX = S(4.f);
+					float32 subY = ir.y - S(3.f);
+					if (subY + subH > H - S(4.f))
+						subY = H - S(4.f) - subH;
+					if (subY < S(4.f))
+						subY = S(4.f);
+					const NkRect sub{subX, subY, subW, subH};
 					p.Fill({sub.x + 2.f, sub.y + 2.f, sub.w, sub.h}, NkRole::WindowBg, 4.f);
 					p.Outline(sub, NkRole::Border, NkRole::PanelHeader, 4.f);
 					hit.Add("mod.sub", sub);

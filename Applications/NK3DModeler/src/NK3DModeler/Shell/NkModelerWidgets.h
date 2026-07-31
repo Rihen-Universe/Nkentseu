@@ -89,6 +89,27 @@ namespace nkentseu {
 				}
 		};
 
+		// Un panneau deroulant qui sort de la fenetre est un panneau dont les
+		// dernieres entrees sont INATTEIGNABLES. On le fait donc remonter ou glisser
+		// pour qu'il tienne, plutot que de le laisser deborder : la liste est courte,
+		// il y a toujours la place quelque part.
+		inline NkRect NkFitPopup(const NkRect &anchor, float32 w, float32 h) {
+			const float32 W = NkPopupBoundsW(), H = NkPopupBoundsH();
+			const float32 m = S(4.f);
+			float32 x = anchor.x, y = anchor.y + anchor.h + 2.f;
+			// Sous l'ancre si possible, AU-DESSUS sinon : recouvrir le bouton qu'on
+			// vient de cliquer ferait perdre de vue ce qu'on est en train de regler.
+			if (y + h > H - m)
+				y = anchor.y - h - 2.f;
+			if (y < m)
+				y = m;
+			if (x + w > W - m)
+				x = W - m - w;
+			if (x < m)
+				x = m;
+			return {x, y, w, h};
+		}
+
 		// ── 1. CHAMP NUMERIQUE A GLISSEMENT ─────────────────────────────────────
 		// Cliquer-glisser HORIZONTALEMENT change la valeur, comme dans Blender,
 		// Unreal et Maya. C'est le geste le plus utilise d'un modeleur : bien plus
@@ -249,7 +270,7 @@ namespace nkentseu {
 			float32 w = padL + iconW + labelW + checkW + padR;
 			if (w < a.w)
 				w = a.w;
-			const NkRect box{a.x, a.y + a.h + 2.f, w, itemH * (float32)pending.count + S(6.f)};
+			const NkRect box = NkFitPopup(a, w, itemH * (float32)pending.count + S(6.f));
 			p.Fill({box.x + 2.f, box.y + 2.f, box.w, box.h}, NkRole::WindowBg, 4.f); // ombre
 			p.Outline(box, NkRole::Border, NkRole::PanelHeader, 4.f);
 			hit.Add("combo.panel", box);
@@ -357,7 +378,7 @@ namespace nkentseu {
 					labelW = t;
 			}
 			const float32 w = padL + boxW + iconW + labelW + padR;
-			const NkRect box{a.x, a.y + a.h + 2.f, w, itemH * (float32)pending.count + S(6.f)};
+			const NkRect box = NkFitPopup(a, w, itemH * (float32)pending.count + S(6.f));
 			p.Fill({box.x + 2.f, box.y + 2.f, box.w, box.h}, NkRole::WindowBg, 4.f);
 			p.Outline(box, NkRole::Border, NkRole::PanelHeader, 4.f);
 			hit.Add("check.panel", box);

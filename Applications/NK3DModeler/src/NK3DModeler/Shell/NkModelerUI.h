@@ -62,6 +62,20 @@ namespace nkentseu {
 		// Rectangle aligne. On arrondit les DEUX BORDS puis on recalcule la largeur :
 		// arrondir la position et la largeur separement laisse des trous d'un pixel
 		// entre deux zones adjacentes, visibles comme des rayures claires.
+		// Dimensions de la fenetre, posees une fois par image. Les panneaux
+		// deroulants en ont besoin pour ne pas sortir de l'ecran, et les faire
+		// descendre en parametre a travers Combo, CheckCombo et leurs appelants
+		// aurait touche une vingtaine de signatures pour une valeur qui ne change
+		// pas de la frame.
+		inline float32 &NkPopupBoundsW() {
+			static float32 w = 1600.f;
+			return w;
+		}
+		inline float32 &NkPopupBoundsH() {
+			static float32 h = 900.f;
+			return h;
+		}
+
 		inline NkRect PxRect(const NkRect &r) {
 			const float32 x0 = Px(r.x), y0 = Px(r.y);
 			return {x0, y0, Px(r.x + r.w) - x0, Px(r.y + r.h) - y0};
@@ -275,6 +289,19 @@ namespace nkentseu {
 				void Text(float32 x, float32 y, const char *s, const NkColor &c) {
 					mDl.AddText(mFont.Face(), mFont.TexId(), {Px(x), Px(y + mFont.Ascent())}, s, c);
 				}
+				// DECOUPE. Tout ce qui est peint entre Clip et Unclip est coupe au
+				// rectangle donne. C'est ce qui manquait aux panneaux defilants : leur
+				// contenu est dessine a partir de `listTop - defilement`, donc DES LE
+				// PREMIER CRAN il commence AU-DESSUS du panneau et se peint par-dessus
+				// l'en-tete, puis par-dessus le panneau voisin. Borner le defilement ne
+				// suffit pas : le debordement vient du dessin, pas de la valeur.
+				void Clip(const NkRect &r) {
+					mDl.PushClipRect(PxRect(r), true);
+				}
+				void Unclip() {
+					mDl.PopClipRect();
+				}
+
 				// TEXTE TRONQUE a une largeur donnee, avec des points de suite. Sans
 				// troncature, un nom d asset un peu long deborde sur la carte voisine et
 				// on ne sait plus a laquelle il appartient. Les points de suite disent

@@ -280,6 +280,10 @@ int nkmain(const NkEntryState &entry) {
 		lay.Compute(W, H, st.leftFrac, st.rightFrac, st.browserFrac, st.propsFrac, st.showLeft,
 					st.showRight, st.showBrowser);
 
+		// Bornes des panneaux deroulants pour cette image.
+		NkPopupBoundsW() = W;
+		NkPopupBoundsH() = H;
+
 		const NkTheme &theme = themes.Current();
 		NkModelerPainter p(ui.dl, font, theme, roles, icons);
 
@@ -321,7 +325,7 @@ int nkmain(const NkEntryState &entry) {
 		PaintSplitters(p, lay, W, H, st, hit);
 		DrawComboPopup(p, hit, ws, combo);
 		DrawCheckPopup(p, hit, ws, checks);
-		PaintModifierMenu(p, st, hit, ws);
+		PaintModifierMenu(p, st, hit, ws, W, H);
 		PaintOpenMenu(p, lay.menu, st, hit, shortcuts);
 		PaintCloseDialog(p, W, H, st, hit);
 
