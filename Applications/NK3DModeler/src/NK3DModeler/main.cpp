@@ -308,11 +308,55 @@ int nkmain(const NkEntryState &entry) {
 		NkPopupBoundsW() = W;
 		NkPopupBoundsH() = H;
 
-		// L'etat d'affichage descend vers la 3D avant la peinture : la barre de la
-		// vue est lue ici, appliquee la, et l'image suivante la reflete.
+		// ── L'INTERFACE PILOTE LA VUE 3D ────────────────────────────────────
+		// Tout descend ici, AVANT la peinture : la barre de la vue est lue a
+		// l'image N et appliquee a l'image N. L'inverse -- appliquer apres avoir
+		// peint -- ferait toujours voir l'etat precedent, ce qui donne une
+		// interface qui « repond en retard » sans qu'on sache pourquoi.
 		nk3d::Viewport3DSetShading(st.shading, st.solidLight);
 		nk3d::Viewport3DSetOverlays(st.overlayMask);
 		nk3d::Viewport3DResize((uint32)lay.view.w, (uint32)lay.view.h);
+		nk3d::Viewport3DSetEditMode(st.mode != NkMode::Object);
+		// Le sous-mode de la vue devient le masque de selection. Un seul bit ici :
+		// les trois boutons sont exclusifs. Les combiner (Maj+1/2/3 chez Blender)
+		// viendra avec les raccourcis clavier.
+		nk3d::Viewport3DSetSelectMask(1u << (uint32)st.subMode);
+		// Outil -> mode du gizmo. « Selection » et « Curseur » n'en ont pas : on
+		// laisse alors le gizmo sur le deplacement, mais il ne prendra pas le clic
+		// puisque l'arbitrage donne la priorite au maillage.
+		{
+			int32 gm = 0;
+			if (st.tool == NkTool::Rotate)
+				gm = 1;
+			else if (st.tool == NkTool::Scale)
+				gm = 2;
+			nk3d::Viewport3DSetGizmoMode(gm);
+		}
+		nk3d::Viewport3DSetGizmoOrientation(st.orientation);
+		// Un pas d'aimantation PAR transformation, comme dans Unreal : une unite de
+		// grille, 15 degres, un dixieme. Les trois bascules sont independantes --
+		// aimanter les angles sans aimanter les positions est un cas courant.
+		nk3d::Viewport3DSetSnap(st.snapGrid || st.snapAngle || st.snapScale, st.snapGrid ? 1.f : 0.f,
+								st.snapAngle ? 15.f : 0.f, st.snapScale ? 0.1f : 0.f);
+		nk3d::Viewport3DSetOrtho(st.projection == 1);
+
+		// ── ENTREE DU GIZMO ─────────────────────────────────────────────────
+		// Les deplacements sont recalcules ICI, a partir de la position precedente.
+		// Ne surtout pas lire un « delta » fourni par la couche d'evenements : il
+		// reste fige a sa derniere valeur quand la souris s'arrete, et le gizmo
+		// derive tout seul. Le probleme a deja ete rencontre dans Demo3D.
+		{
+			const float32 mxv = ui.input.mousePos.x - lay.view.x;
+			const float32 myv = ui.input.mousePos.y - lay.view.y;
+			const bool inView = (mxv >= 0.f && myv >= 0.f && mxv < lay.view.w && myv < lay.view.h);
+			const bool down = ui.input.mouseDown[0] && inView;
+			nk3d::Viewport3DSetGizmoInput(mxv, myv, mxv - st.gizLastX, myv - st.gizLastY,
+										  down && !st.gizWasDown, down, ui.input.shiftDown,
+										  ui.input.ctrlDown);
+			st.gizLastX = mxv;
+			st.gizLastY = myv;
+			st.gizWasDown = down;
+		}
 
 		const NkTheme &theme = themes.Current();
 		NkModelerPainter p(ui.dl, font, theme, roles, icons);

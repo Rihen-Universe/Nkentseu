@@ -100,6 +100,10 @@ namespace nkentseu {
 				// un appui ferait un bond, parce que le point precedent daterait de la
 				// derniere position survolee ailleurs dans l'ecran.
 				float32 navLastX = 0.f, navLastY = 0.f;
+				// Meme raison pour le gizmo : son deplacement se calcule a partir de la
+				// position precedente, jamais d'un delta fourni tout fait.
+				float32 gizLastX = 0.f, gizLastY = 0.f;
+				bool gizWasDown = false;
 				bool navDragging = false;
 				int32 solidLight = 0; ///< eclairage du mode solide : studio / matcap / plat
 				int32 selectMode = 2; ///< sommet / arete / face
