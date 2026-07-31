@@ -70,6 +70,17 @@ namespace nkentseu {
 			ToolMove,
 			ToolRotate,
 			ToolScale,
+			// Transformations MODALES : la touche arme, la souris pilote. Elles
+			// sont distinctes des outils -- G ne selectionne pas l'outil
+			// deplacement, il DEPLACE tout de suite.
+			ModalMove,
+			ModalRotate,
+			ModalScale,
+			ModalAxisX,
+			ModalAxisY,
+			ModalAxisZ,
+			ModalConfirm,
+			ModalCancel,
 			ToggleXray,
 			Extrude,
 			ExtrudeIndividual,

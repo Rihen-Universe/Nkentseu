@@ -129,6 +129,21 @@ namespace nkentseu {
 					NkMeshHandle mesh;
 					bool meshOk = false;
 					bool meshDirty = true;
+					// DEUX TRIANGULATIONS, et la distinction est cruciale :
+					//  - `restV` / `restI` viennent de Triangulate, dont le contrat est
+					//    1:1 avec les sommets du maillage. C'est la SEULE base valide
+					//    pour la cage, le picking, la selection et les marqueurs : les
+					//    indices d'arete rendus par GetUniqueEdges designent des
+					//    sommets DU MAILLAGE ;
+					//  - `triV` / `triI` viennent de TriangulateShaded, qui DEDOUBLE
+					//    les coins des faces plates pour leur donner des normales
+					//    franches. Ses indices ne correspondent donc plus a ceux du
+					//    maillage -- s'en servir pour la cage donnait des aretes qui
+					//    reliaient n'importe quoi.
+					// C'est exactement le partage de Demo3D (editRest / editLive).
+					NkVector<NkVertex3D> restV;
+					NkVector<uint32> restI;
+					NkVector<NkEmId> restF;
 					NkVector<NkVertex3D> triV;
 					NkVector<uint32> triI;
 					NkVector<NkEmId> triF;
@@ -194,6 +209,7 @@ namespace nkentseu {
 					bool xray = false;
 					NkVector<uint8> vertSel;
 					NkVector<float32> overlayLines;
+					NkVector<float32> wireLines; ///< aretes n-gon, pos3 + rgba4
 					NkEditHistory history;
 					NkMeshEditRecorder recorder;
 					int32 activeVert = -1;
@@ -210,6 +226,23 @@ namespace nkentseu {
 					int32 shading = 0;
 					int32 solidLight = 0;
 					uint32 overlays = 0x0Fu;
+					bool gizmoVisible = true;
+					bool ngonWire = true;
+
+					// ── Transformation modale en cours ──────────────────────
+					int32 modalKind = 0;  ///< cf. kVpXform*
+					int32 modalAxis = -1; ///< -1 libre, 0 X, 1 Y, 2 Z
+					float32 modalStartX = 0.f, modalStartY = 0.f;
+					float32 modalCurX = 0.f, modalCurY = 0.f;
+					NkVec3f modalPivot{};	 ///< barycentre de la selection, fige au depart
+					float32 modalValue = 0.f; ///< la grandeur reglee, pour l'affichage
+					char modalLabel[64] = {};
+					// Etat de DEPART de chaque objet : annuler doit restaurer
+					// exactement, pas « a peu pres ».
+					NkVec3f modalPos0[kMaxObjects];
+					NkVec3f modalRot0[kMaxObjects];
+					NkVec3f modalScl0[kMaxObjects];
+
 					NkVec3f bg{0.05f, 0.05f, 0.07f}; ///< fond de la vue
 					bool bgDirty = false;
 			};
@@ -458,8 +491,14 @@ namespace nkentseu {
 			if (anyMod) {
 				o.mods.Evaluate(o.edit, o.evaluated);
 				o.evaluated.TriangulateShaded(o.triV, o.triI, o.triF);
+				// La cage suit le resultat de la pile : c'est ce qu'on voit, donc
+				// c'est ce qu'on doit pouvoir viser.
+				o.evaluated.Triangulate(o.restV, o.restI, o.restF);
+				o.evaluated.GetUniqueEdges(o.edges);
 			} else {
 				o.edit.TriangulateShaded(o.triV, o.triI, o.triF);
+				o.edit.Triangulate(o.restV, o.restI, o.restF);
+				o.edit.GetUniqueEdges(o.edges);
 			}
 				if (o.triV.Empty() || o.triI.Empty())
 					return;
@@ -475,14 +514,10 @@ namespace nkentseu {
 					o.mesh = meshSys->Create(md);
 					o.meshOk = o.mesh.IsValid();
 				}
-				// La CAGE vient de GetUniqueEdges, pas des triangles de rendu : sur
-				// un quad la diagonale de triangulation n'existe pas (cube = 12
-				// aretes, pas 18).
-				o.edit.GetUniqueEdges(o.edges);
 				// Rayon englobant local, pour le pick d'objet et le recadrage.
 				float32 r2max = 0.f;
-				for (uint32 i = 0; i < (uint32)o.triV.Size(); ++i) {
-					const NkVec3f &p = o.triV[i].pos;
+				for (uint32 i = 0; i < (uint32)o.restV.Size(); ++i) {
+					const NkVec3f &p = o.restV[i].pos;
 					const float32 r2 = p.x * p.x + p.y * p.y + p.z * p.z;
 					if (r2 > r2max)
 						r2max = r2;
@@ -492,7 +527,7 @@ namespace nkentseu {
 					o.radius = 0.1f;
 				// La selection est indexee par sommet : elle doit suivre la taille.
 				if (&o == ActMesh()) {
-					const uint32 nv = (uint32)o.triV.Size();
+					const uint32 nv = (uint32)o.restV.Size();
 					if ((uint32)g.vertSel.Size() != nv) {
 						NkVector<uint8> old = g.vertSel;
 						g.vertSel.Resize(nv);
@@ -521,7 +556,7 @@ namespace nkentseu {
 
 			// Du triangle de RENDU a la FACE du n-gon.
 			inline NkEmId FaceOfTri(const VpObject &o, uint32 triIndex) {
-				return (triIndex < (uint32)o.triF.Size()) ? o.triF[triIndex] : NK_EM_INVALID;
+				return (triIndex < (uint32)o.restF.Size()) ? o.restF[triIndex] : NK_EM_INVALID;
 			}
 
 			// ── SELECTION PAR ZONE (Demo3D l. 1143-1220) ────────────────────
@@ -531,14 +566,14 @@ namespace nkentseu {
 				VpObject *A = ActMesh();
 				if (!A)
 					return;
-				const uint32 nv = (uint32)A->triV.Size();
+				const uint32 nv = (uint32)A->restV.Size();
 				if ((uint32)g.vertSel.Size() < nv)
 					g.vertSel.Resize(nv);
 				if (mode == 0)
 					for (uint32 i = 0; i < nv; ++i)
 						g.vertSel[i] = 0;
 				const NkVec3f orgW = A->world * NkVec3f{0.f, 0.f, 0.f};
-				auto wpos = [&](uint32 i) { return A->world * A->triV[i].pos; };
+				auto wpos = [&](uint32 i) { return A->world * A->restV[i].pos; };
 				// FILTRE « DOS-CAMERA » ASSOUPLI. Un element de SILHOUETTE a une
 				// normale quasi perpendiculaire a la vue : avec un test strict `> 0`
 				// il basculait au hasard du bruit numerique. Tolerance -0,2.
@@ -563,7 +598,7 @@ namespace nkentseu {
 				};
 				if (g.selMask & 1u) { // SOMMET
 					for (uint32 i = 0; i < nv; ++i)
-						if (facing(wpos(i), A->triV[i].normal) && touches(wpos(i)))
+						if (facing(wpos(i), A->restV[i].normal) && touches(wpos(i)))
 							apply(i);
 				}
 				if (g.selMask & 2u) { // ARETE, testee par son milieu
@@ -572,7 +607,7 @@ namespace nkentseu {
 						if (a >= nv || b >= nv)
 							continue;
 						const NkVec3f wa = wpos(a), wb = wpos(b), mid = (wa + wb) * 0.5f;
-						if (!facing(mid, A->triV[a].normal) && !facing(mid, A->triV[b].normal))
+						if (!facing(mid, A->restV[a].normal) && !facing(mid, A->restV[b].normal))
 							continue;
 						if (touches(mid)) {
 							apply(a);
@@ -650,8 +685,8 @@ namespace nkentseu {
 				if (!A)
 					return false;
 				c.mesh = &A->edit;
-				c.rest = &A->triV;
-				c.tris = &A->triI;
+				c.rest = &A->restV;
+				c.tris = &A->restI;
 				c.edges = &A->edges;
 				c.anchor = A->world;
 				c.camPos = g.lastCamPos;
@@ -1168,7 +1203,7 @@ namespace nkentseu {
 				// Une face selectionnee, ce sont SES SOMMETS marques : la selection
 				// est portee par les sommets, aretes et faces s'en deduisent.
 				for (uint32 k = 0; k < 3u; ++k)
-					touch((int32)A->triI[(uint32)r.tri + k]);
+					touch((int32)A->restI[(uint32)r.tri + k]);
 				g.activeVert = -1;
 				g.activeEdgeA = g.activeEdgeB = -1;
 				got = true;
@@ -1266,6 +1301,235 @@ namespace nkentseu {
 			}
 			g.overlayDirty = true;
 			return true;
+		}
+
+		// ── TRANSFORMATIONS MODALES ─────────────────────────────────────────
+		void Viewport3DSetGizmoVisible(bool on) {
+			g.gizmoVisible = on;
+		}
+
+		void Viewport3DSetNgonWireframe(bool on) {
+			g.ngonWire = on;
+		}
+
+		int32 Viewport3DModalKind() {
+			return g.modalKind;
+		}
+
+		int32 Viewport3DModalAxisNow() {
+			return g.modalAxis;
+		}
+
+		const char *Viewport3DModalLabel() {
+			return g.modalLabel;
+		}
+
+		void Viewport3DBeginModal(int32 kind, float32 mouseX, float32 mouseY) {
+			if (!g.ok || kind == kVpXformNone)
+				return;
+			// Pivot : le barycentre des objets selectionnes, FIGE au depart. Le
+			// recalculer pendant le geste ferait fuir la rotation, puisque les
+			// objets qui tournent deplacent leur propre barycentre.
+			NkVec3f piv{0.f, 0.f, 0.f};
+			uint32 n = 0;
+			for (int32 i = 0; i < kMaxObjects; ++i) {
+				const VpObject &o = g.objs[i];
+				if (!o.alive || !o.selected)
+					continue;
+				g.modalPos0[i] = o.pos;
+				g.modalRot0[i] = o.rotDeg;
+				g.modalScl0[i] = o.scl;
+				piv = piv + o.pos;
+				++n;
+			}
+			if (!n)
+				return; // rien de selectionne : la touche ne fait rien, et c'est juste
+			g.modalPivot = piv * (1.f / (float32)n);
+			g.modalKind = kind;
+			g.modalAxis = -1;
+			g.modalStartX = g.modalCurX = mouseX;
+			g.modalStartY = g.modalCurY = mouseY;
+			g.modalValue = 0.f;
+			g.modalLabel[0] = 0;
+		}
+
+		void Viewport3DModalAxis(int32 axis) {
+			if (g.modalKind == kVpXformNone)
+				return;
+			// Retaper la meme touche LIBERE l'axe : c'est le comportement de
+			// Blender, et il evite d'annuler pour corriger une contrainte posee par
+			// erreur.
+			g.modalAxis = (g.modalAxis == axis) ? -1 : axis;
+			Viewport3DModalUpdate(g.modalCurX, g.modalCurY);
+		}
+
+		void Viewport3DModalUpdate(float32 mouseX, float32 mouseY) {
+			if (g.modalKind == kVpXformNone)
+				return;
+			g.modalCurX = mouseX;
+			g.modalCurY = mouseY;
+			const float32 dx = mouseX - g.modalStartX;
+			const float32 dy = mouseY - g.modalStartY;
+
+			// Le repere de l'ECRAN, pour convertir des pixels en monde.
+			const NkVec3f rgt = g.lastProj.rgt, upv = g.lastProj.upv;
+			// Echelle monde-par-pixel a la distance du pivot : sans elle, un
+			// deplacement d'un pixel bougerait autant de pres que de loin.
+			const float32 dist = (g.modalPivot - g.lastCamPos).Len();
+			const float32 wpp = (dist * 2.f * g.lastProj.thY) / (float32)(g.rtH ? g.rtH : 1u);
+
+			switch (g.modalKind) {
+				case kVpXformMove: {
+					NkVec3f delta = rgt * (dx * wpp) - upv * (dy * wpp);
+					if (g.modalAxis >= 0) {
+						// CONTRAINTE D'AXE : on projette le deplacement libre sur
+						// l'axe. Projeter le MOUVEMENT (et non prendre bêtement dx)
+						// donne le bon sens quel que soit l'angle de la camera --
+						// tirer vers la droite quand X pointe a gauche doit reculer.
+						NkVec3f ax{0.f, 0.f, 0.f};
+						((float32 *)&ax)[g.modalAxis] = 1.f;
+						const float32 t = delta.Dot(ax);
+						delta = ax * t;
+						g.modalValue = t;
+					} else {
+						g.modalValue = delta.Len();
+					}
+					for (int32 i = 0; i < kMaxObjects; ++i) {
+						VpObject &o = g.objs[i];
+						if (!o.alive || !o.selected)
+							continue;
+						o.pos = g.modalPos0[i] + delta;
+						ComposeWorld(o);
+					}
+					snprintf(g.modalLabel, sizeof(g.modalLabel), "Deplacement %s : %.3f",
+							 g.modalAxis == 0 ? "X" : (g.modalAxis == 1 ? "Y" : (g.modalAxis == 2 ? "Z" : "libre")),
+							 g.modalValue);
+					break;
+				}
+				case kVpXformRotate: {
+					// L'ANGLE VIENT DE LA ROTATION DU CURSEUR AUTOUR DU PIVOT, pas
+					// d'un simple dx : c'est ce qui donne la sensation de tenir
+					// l'objet. On projette le pivot a l'ecran et on mesure l'angle
+					// balaye entre le point de depart et le point courant.
+					float32 px = 0.f, py = 0.f;
+					g.lastProj(g.modalPivot, px, py);
+					const float32 a0 = atan2f(g.modalStartY - py, g.modalStartX - px);
+					const float32 a1 = atan2f(mouseY - py, mouseX - px);
+					float32 da = a1 - a0;
+					const float32 kPi = 3.14159265f;
+					while (da > kPi)
+						da -= 2.f * kPi;
+					while (da < -kPi)
+						da += 2.f * kPi;
+					// Sens : a l'ecran l'axe Y descend, donc l'angle mesure tourne a
+					// l'envers de la convention mathematique.
+					float32 deg = -da * 57.29577951f;
+					int32 axis = g.modalAxis;
+					if (axis < 0) {
+						// Sans contrainte, on tourne autour de l'axe de VUE -- c'est
+						// ce que fait Blender, et c'est le seul axe pour lequel le
+						// geste circulaire a un sens a l'ecran. On le ramene a l'axe
+						// du monde le plus proche pour rester sur des angles d'Euler.
+						const NkVec3f f = g.lastProj.fwd;
+						const float32 ax2 = fabsf(f.x), ay2 = fabsf(f.y), az2 = fabsf(f.z);
+						axis = (ax2 > ay2) ? ((ax2 > az2) ? 0 : 2) : ((ay2 > az2) ? 1 : 2);
+						const float32 sgn = ((const float32 *)&f)[axis];
+						if (sgn > 0.f)
+							deg = -deg;
+					}
+					g.modalValue = deg;
+					for (int32 i = 0; i < kMaxObjects; ++i) {
+						VpObject &o = g.objs[i];
+						if (!o.alive || !o.selected)
+							continue;
+						o.rotDeg = g.modalRot0[i];
+						((float32 *)&o.rotDeg)[axis] += deg;
+						// Rotation AUTOUR DU PIVOT : la position tourne aussi, sinon
+						// une selection multiple pivoterait sur place au lieu de
+						// tourner en groupe.
+						const NkVec3f rel = g.modalPos0[i] - g.modalPivot;
+						const float32 c = cosf(deg * 0.0174532925f), sn = sinf(deg * 0.0174532925f);
+						NkVec3f rot = rel;
+						if (axis == 0) {
+							rot.y = rel.y * c - rel.z * sn;
+							rot.z = rel.y * sn + rel.z * c;
+						} else if (axis == 1) {
+							rot.x = rel.x * c + rel.z * sn;
+							rot.z = -rel.x * sn + rel.z * c;
+						} else {
+							rot.x = rel.x * c - rel.y * sn;
+							rot.y = rel.x * sn + rel.y * c;
+						}
+						o.pos = g.modalPivot + rot;
+						ComposeWorld(o);
+					}
+					snprintf(g.modalLabel, sizeof(g.modalLabel), "Rotation %s : %.1f deg",
+							 axis == 0 ? "X" : (axis == 1 ? "Y" : "Z"), deg);
+					break;
+				}
+				default: { // ECHELLE
+					// LE FACTEUR EST LE RAPPORT DES DISTANCES AU PIVOT, a l'ecran.
+					// C'est la definition de Blender, et c'est la seule qui soit
+					// stable : un facteur tire de dx seul dependrait de la direction
+					// du geste.
+					float32 px = 0.f, py = 0.f;
+					g.lastProj(g.modalPivot, px, py);
+					const float32 d0 = sqrtf((g.modalStartX - px) * (g.modalStartX - px)
+											 + (g.modalStartY - py) * (g.modalStartY - py));
+					const float32 d1 = sqrtf((mouseX - px) * (mouseX - px)
+											 + (mouseY - py) * (mouseY - py));
+					float32 f = (d0 > 1e-3f) ? (d1 / d0) : 1.f;
+					if (f < 0.001f)
+						f = 0.001f;
+					g.modalValue = f;
+					NkVec3f fv{f, f, f};
+					if (g.modalAxis >= 0) {
+						fv = {1.f, 1.f, 1.f};
+						((float32 *)&fv)[g.modalAxis] = f;
+					}
+					for (int32 i = 0; i < kMaxObjects; ++i) {
+						VpObject &o = g.objs[i];
+						if (!o.alive || !o.selected)
+							continue;
+						o.scl = {g.modalScl0[i].x * fv.x, g.modalScl0[i].y * fv.y,
+								 g.modalScl0[i].z * fv.z};
+						const NkVec3f rel = g.modalPos0[i] - g.modalPivot;
+						o.pos = g.modalPivot
+								+ NkVec3f{rel.x * fv.x, rel.y * fv.y, rel.z * fv.z};
+						ComposeWorld(o);
+					}
+					snprintf(g.modalLabel, sizeof(g.modalLabel), "Echelle %s : %.3f",
+							 g.modalAxis == 0 ? "X" : (g.modalAxis == 1 ? "Y" : (g.modalAxis == 2 ? "Z" : "libre")),
+							 f);
+					break;
+				}
+			}
+			(void)dy;
+		}
+
+		void Viewport3DModalConfirm() {
+			// Les valeurs sont deja ecrites dans les objets : confirmer, c'est
+			// simplement cesser de pouvoir annuler.
+			g.modalKind = kVpXformNone;
+			g.modalAxis = -1;
+			g.modalLabel[0] = 0;
+		}
+
+		void Viewport3DModalCancel() {
+			if (g.modalKind == kVpXformNone)
+				return;
+			for (int32 i = 0; i < kMaxObjects; ++i) {
+				VpObject &o = g.objs[i];
+				if (!o.alive || !o.selected)
+					continue;
+				o.pos = g.modalPos0[i];
+				o.rotDeg = g.modalRot0[i];
+				o.scl = g.modalScl0[i];
+				ComposeWorld(o);
+			}
+			g.modalKind = kVpXformNone;
+			g.modalAxis = -1;
+			g.modalLabel[0] = 0;
 		}
 
 		// ── PILE DE MODIFICATEURS ───────────────────────────────────────────
@@ -1624,10 +1888,10 @@ namespace nkentseu {
 			// d'identifiant dans triF donne le compte exact.
 			uint32 alive = 0u;
 			NkEmId prev = (NkEmId)0xFFFFFFFFu;
-			for (uint32 t = 0; t < (uint32)A->triF.Size(); ++t) {
-				if (A->triF[t] != prev) {
+			for (uint32 t = 0; t < (uint32)A->restF.Size(); ++t) {
+				if (A->restF[t] != prev) {
 					++alive;
-					prev = A->triF[t];
+					prev = A->restF[t];
 				}
 			}
 			faces = alive;
@@ -1697,9 +1961,9 @@ namespace nkentseu {
 					uint32 n = 0;
 					if (A)
 						for (uint32 i = 0;
-							 i < (uint32)g.vertSel.Size() && i < (uint32)A->triV.Size(); ++i)
+							 i < (uint32)g.vertSel.Size() && i < (uint32)A->restV.Size(); ++i)
 							if (g.vertSel[i]) {
-								const NkVec3f w = A->world * A->triV[i].pos;
+								const NkVec3f w = A->world * A->restV[i].pos;
 								piv.x += w.x;
 								piv.y += w.y;
 								piv.z += w.z;
@@ -1755,10 +2019,21 @@ namespace nkentseu {
 							}
 						g.pendingSelect = -1;
 					}
-					if (g.tgtCount)
-						g.gizmo.Update(vt, g.tgtCount, g.gin);
-					else
+					if (g.tgtCount) {
+						// Pendant une transformation MODALE, le gizmo ne recoit rien :
+						// deux mecanismes qui deplacent le meme objet en meme temps se
+						// contrediraient.
+						NkGizmoInput gi = g.gin;
+						if (g.modalKind != kVpXformNone) {
+							gi.leftPressed = false;
+							gi.leftDown = false;
+							gi.mouseDX = 0.f;
+							gi.mouseDY = 0.f;
+						}
+						g.gizmo.Update(vt, g.tgtCount, gi);
+					} else {
 						g.gizmo.ClearSelection();
+					}
 
 					// La selection du gizmo redescend dans les objets : en mode
 					// objet c'est LUI qui pick, la hierarchie ne fait que lire.
@@ -1826,6 +2101,41 @@ namespace nkentseu {
 			const bool wire = (g.shading == 3);
 			const bool sceneLit = (g.shading == 2); // seul RENDU voit les lumieres
 			r3d->SetWireframe(wire);
+			// FILAIRE N-GON : on ne montre que les VRAIES aretes. Un quad est rendu
+			// en deux triangles, mais sa diagonale n'existe pas topologiquement --
+			// l'afficher donnerait un cube a 18 aretes au lieu de 12, ce qui n'est
+			// ni ce que Blender montre ni ce qu'on peut selectionner.
+			r3d->SetNgonWireframe(g.ngonWire);
+			if (wire && g.ngonWire) {
+				g.wireLines.Clear();
+				const NkVec4f wc{0.75f, 0.78f, 0.82f, 1.f};
+				for (int32 i = 0; i < kMaxObjects; ++i) {
+					const VpObject &o = g.objs[i];
+					if (!o.alive || !o.visible || o.type != kVpObjMesh)
+						continue;
+					for (uint32 e = 0; e + 1 < (uint32)o.edges.Size(); e += 2) {
+						const uint32 a = o.edges[e], b = o.edges[e + 1];
+						if (a >= (uint32)o.restV.Size() || b >= (uint32)o.restV.Size())
+							continue;
+						const NkVec3f wa = o.world * o.restV[a].pos;
+						const NkVec3f wb = o.world * o.restV[b].pos;
+						const float32 pts[2][3] = {{wa.x, wa.y, wa.z}, {wb.x, wb.y, wb.z}};
+						for (int32 k = 0; k < 2; ++k) {
+							g.wireLines.PushBack(pts[k][0]);
+							g.wireLines.PushBack(pts[k][1]);
+							g.wireLines.PushBack(pts[k][2]);
+							g.wireLines.PushBack(wc.x);
+							g.wireLines.PushBack(wc.y);
+							g.wireLines.PushBack(wc.z);
+							g.wireLines.PushBack(wc.w);
+						}
+					}
+				}
+				r3d->SetNgonWireLines(g.wireLines.Empty() ? nullptr : g.wireLines.Data(),
+									  (uint32)(g.wireLines.Size() / 7u));
+			} else {
+				r3d->ClearNgonWire();
+			}
 
 			NkSceneContext sctx;
 			sctx.camera = cam;
@@ -1938,8 +2248,8 @@ namespace nkentseu {
 									return actCol;
 								return sel ? selEdgeCol : cageCol;
 							};
-							pushV(g.overlayLines, A->world * A->triV[a].pos, vcol(a, selA));
-							pushV(g.overlayLines, A->world * A->triV[b].pos, vcol(b, selB));
+							pushV(g.overlayLines, A->world * A->restV[a].pos, vcol(a, selA));
+							pushV(g.overlayLines, A->world * A->restV[b].pos, vcol(b, selB));
 						}
 					}
 					r3d->SetEditOverlayLines(g.overlayLines.Empty() ? nullptr
@@ -2053,8 +2363,8 @@ namespace nkentseu {
 			if (g.editMode && A && (g.selMask & 1u)) {
 				const NkVec3f rgt = g.lastProj.rgt, upv = g.lastProj.upv;
 				const uint32 ns = (uint32)g.vertSel.Size();
-				for (uint32 i = 0; i < ns && i < (uint32)A->triV.Size(); ++i) {
-					const NkVec3f w = A->world * A->triV[i].pos;
+				for (uint32 i = 0; i < ns && i < (uint32)A->restV.Size(); ++i) {
+					const NkVec3f w = A->world * A->restV[i].pos;
 					const float32 hs = (w - g.lastCamPos).Len() * 0.0035f;
 					const NkVec4f col = ((int32)i == g.activeVert)
 											? NkVec4f{1.f, 1.f, 1.f, 1.f}
@@ -2068,7 +2378,9 @@ namespace nkentseu {
 			}
 
 			// ── GIZMO ───────────────────────────────────────────────────────
-			if (g.gizmo.HasSelection())
+			// Le gizmo disparait avec l'outil Selection (rien a transformer) et
+			// pendant une modale (le geste ne passe pas par lui).
+			if (g.gizmoVisible && g.modalKind == kVpXformNone && g.gizmo.HasSelection())
 				g.gizmo.Draw(
 					[&](NkVec3f a2, NkVec3f b2, NkVec4f c2) {
 						r3d->DrawDebugLine(a2, b2, c2, 0.f, true);

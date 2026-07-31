@@ -135,6 +135,32 @@ namespace nkentseu {
 		// Alt+clic : boucle d'aretes sur une arete, anneau de faces sur une face.
 		bool Viewport3DSelectLoopAt(float32 mx, float32 my, bool add);
 
+		// ── TRANSFORMATIONS MODALES (G / R / S facon Blender) ───────────────
+		// Le geste de Blender : une TOUCHE arme la transformation, la souris la
+		// pilote en direct, X / Y / Z la contraignent a un axe, le clic gauche
+		// confirme et Echap annule. C'est autre chose que le gizmo -- il n'y a
+		// aucune poignee a viser, donc rien a rater, et c'est pour cela que les
+		// modeleurs travaillent presque tous au clavier.
+		//
+		// Rien n'est ecrit tant qu'on n'a pas confirme : annuler restaure
+		// exactement l'etat de depart.
+		enum : int32 { kVpXformNone = 0, kVpXformMove, kVpXformRotate, kVpXformScale };
+		void Viewport3DBeginModal(int32 kind, float32 mouseX, float32 mouseY);
+		void Viewport3DModalAxis(int32 axis); ///< 0 X, 1 Y, 2 Z, -1 libre (bascule)
+		void Viewport3DModalUpdate(float32 mouseX, float32 mouseY);
+		void Viewport3DModalConfirm();
+		void Viewport3DModalCancel();
+		int32 Viewport3DModalKind();  ///< kVpXformNone si aucune en cours
+		int32 Viewport3DModalAxisNow();
+		// Libelle pour la barre d'etat (« Deplacement X : 1.240 »).
+		const char *Viewport3DModalLabel();
+
+		// Filaire : n'afficher que les VRAIES aretes (les quads gardent leur forme,
+		// la diagonale de triangulation ne se voit pas).
+		void Viewport3DSetNgonWireframe(bool on);
+		// Le gizmo peut etre masque -- l'outil Selection ne transforme rien.
+		void Viewport3DSetGizmoVisible(bool on);
+
 		// ── Pile de modificateurs ───────────────────────────────────────────
 		// Elle vit sur l'objet ACTIF et n'est PAS destructive : la cage editee
 		// reste la base, la pile produit la geometrie affichee. « Appliquer » est

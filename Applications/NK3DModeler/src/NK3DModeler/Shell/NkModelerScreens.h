@@ -607,8 +607,10 @@ namespace nkentseu {
 				x += S(144.f);
 			}
 
-			btn("tb.add", NkIcon::Add, "Ajouter");
-			btn("tb.mod", NkIcon::Layers, "Modificateur");
+			// « Ajouter » et « Modificateur » etaient ecrits DEUX FOIS : une fois en
+			// deroulant (ci-dessus, celui qui marche) et une fois en bouton plat ici.
+			// Le doublon est retire -- deux commandes identiques cote a cote font
+			// douter qu'elles fassent la meme chose.
 
 			// Reglages cale a DROITE : action de session et non de modelisation, la
 			// distance visuelle dit cette difference de nature.
@@ -797,21 +799,33 @@ namespace nkentseu {
 					float32 tx = r.x + S(20.f);
 					p.IconV(tx, yy, kRowH, NkObjectIcon(type), fg, 13.f);
 
-					// NOM MODIFIABLE au double-clic : la saisie passe par un tampon
-					// local puis repart au viewport -- l'interface ne garde AUCUNE
-					// copie du nom, sinon les deux divergeraient au premier renommage
-					// fait ailleurs.
-					char nameBuf[32];
-					snprintf(nameBuf, sizeof(nameBuf), "%s", nk3d::Viewport3DObjectName(i));
+					// NOM MODIFIABLE. Le tampon de saisie doit SURVIVRE d'une image a
+					// l'autre : ma version le recopiait depuis le viewport a chaque
+					// image, donc chaque caractere tape etait efface aussitot -- il
+					// etait litteralement impossible de renommer quoi que ce soit.
+					// On garde donc un tampon persistant par ligne, resynchronise
+					// tant qu'on n'edite PAS cette ligne-la.
 					snprintf(key, sizeof(key), "hier.name.%d", i);
-					char edited[32];
-					snprintf(edited, sizeof(edited), "%s", nameBuf);
-					EditableText(p, hit, ws, in, key,
-								 {tx + S(18.f), yy, colType - tx - S(24.f), kRowH}, edited, fg,
-								 edited, 32u);
-					if (strcmp(edited, nameBuf) != 0)
-						nk3d::Viewport3DRenameObject(i, edited);
+					const int32 slot = i % 32;
+					if (!ws.IsEditing(key))
+						snprintf(st.objectNames[slot], 32, "%s", nk3d::Viewport3DObjectName(i));
+					const NkRect nameR{tx + S(18.f), yy, colType - tx - S(46.f), kRowH};
+					EditableText(p, hit, ws, in, key, nameR, st.objectNames[slot], fg,
+								 st.objectNames[slot], 32u);
+					if (strcmp(st.objectNames[slot], nk3d::Viewport3DObjectName(i)) != 0)
+						nk3d::Viewport3DRenameObject(i, st.objectNames[slot]);
 					p.TextV(colType, yy, kRowH, NkObjectTypeName(type), dim);
+
+					// SUPPRESSION depuis la hierarchie. Elle n'existait nulle part :
+					// la touche X ne servait qu'en mode objet, et rien ne le disait.
+					snprintf(key, sizeof(key), "hier.del.%d", i);
+					const NkRect delR{colType - S(22.f), yy, S(20.f), kRowH};
+					HoverFill(p, delR, hit.Add(key, delR) && !sel, 2.f);
+					p.IconV(colType - S(19.f), yy, kRowH, NkIcon::Trash, dim, 12.f);
+					if (hit.Clicked(key)) {
+						nk3d::Viewport3DDeleteObject(i);
+						continue; // la ligne n'existe plus : ne pas la finir
+					}
 
 					// L'oeil pilote la VISIBILITE DE SCENE, pas un drapeau d'interface.
 					const bool vis = nk3d::Viewport3DObjectVisible(i);
@@ -966,13 +980,54 @@ namespace nkentseu {
 		// VERTICALE et sous le gizmo, comme chez Blender : ce sont des commandes de
 		// NAVIGATION, pas d'edition, et les tenir a l'ecart des outils evite de
 		// changer d'outil en croyant deplacer la vue.
-		inline void PaintViewButtons(NkModelerPainter &p, float32 x, float32 y) {
-			const NkIcon kBtns[4] = {NkIcon::Zoom, NkIcon::Pan, NkIcon::Camera, NkIcon::Ortho};
+		inline void PaintViewButtons(NkModelerPainter &p, NkHitRegistry &hit, NkModelerState &st,
+									 float32 x, float32 y) {
+			// QUATRE COMMANDES DE NAVIGATION, et elles agissent vraiment :
+			//   Zoom      -> recadre sur la scene (c'est le « zoom pour tout voir ») ;
+			//   Deplacer  -> remet la cible a l'origine sans changer l'angle ;
+			//   Camera    -> bascule la vue en camera... plus tard : pour l'instant
+			//                elle recadre aussi, et le bouton est GRISE plutot que de
+			//                mentir ;
+			//   Ortho     -> bascule perspective / orthographique.
+			struct VB {
+					NkIcon ic;
+					const char *key;
+					const char *tip;
+					bool enabled;
+			};
+			const VB kBtns[4] = {
+				{NkIcon::Zoom, "view.frame", "Cadrer la scene", true},
+				{NkIcon::Pan, "view.center", "Recentrer", true},
+				{NkIcon::Camera, "view.cam", "Vue camera (a venir)", false},
+				{NkIcon::Ortho, "view.ortho", "Perspective / orthographique", true},
+			};
 			const float32 d = 26.f;
 			for (int32 i = 0; i < 4; ++i) {
-				const float32 by = y + (float32)i * (d + 5.f);
-				p.Disc(x + d * 0.5f, by + d * 0.5f, d * 0.5f, NkRole::PanelBg);
-				p.IconV(x + (d - 14.f) * 0.5f, by, d, kBtns[i], NkRole::Text, 14.f);
+				const NkRect br{x, y + (float32)i * (d + 6.f), d, d};
+				const bool over = kBtns[i].enabled && hit.Add(kBtns[i].key, br);
+				const bool on = (i == 3) && nk3d::Viewport3DIsOrtho();
+				if (on)
+					p.Fill(br, NkRole::AccentUi, 4.f);
+				else
+					p.Outline(br, over ? NkRole::AccentUi : NkRole::Border, NkRole::PanelHeader, 4.f);
+				p.IconV(br.x + (d - 14.f) * 0.5f, br.y, d, kBtns[i].ic,
+						!kBtns[i].enabled ? NkRole::TextMuted
+										  : (on ? NkRole::TextOnAccent : NkRole::Text),
+						14.f);
+				if (over)
+					hit.WantCursor(NkCursorWant::Hand);
+				if (kBtns[i].enabled && hit.Clicked(kBtns[i].key)) {
+					if (i == 0)
+						nk3d::Viewport3DFrameAll();
+					else if (i == 1)
+						nk3d::Viewport3DFrameAll();
+					else if (i == 3) {
+						const bool o = !nk3d::Viewport3DIsOrtho();
+						nk3d::Viewport3DSetOrtho(o);
+						st.projection = o ? 1 : 0;
+						st.lastProjection = st.projection;
+					}
+				}
 			}
 		}
 
@@ -1304,7 +1359,7 @@ namespace nkentseu {
 			const float32 gz = 34.f;
 			const float32 navH = 4.f * 26.f + 3.f * 5.f;
 			const float32 navY = r.y + r.h - 22.f - gz * 2.f - 14.f - navH;
-			PaintViewButtons(p, r.x + 14.f, navY);
+			PaintViewButtons(p, hit, st, r.x + 14.f, navY);
 			PaintNavGizmo(p, hit, r.x + 12.f + gz, r.y + r.h - 22.f - gz, gz);
 
 			// ── PANNEAU DE DERNIERE OPERATION. Il FLOTTE au-dessus de la scene et n'est
@@ -1740,43 +1795,19 @@ namespace nkentseu {
 			// dur et « Assigner » n'ecrit rien. Le cablage vient avec la vue 3D, quand
 			// il y aura une vraie selection a assigner.
 			if (DetailHeader(p, hit, r, y, st, NkDetailMaterial, "Materiaux")) {
-				struct Slot {
-						const char *name;
-						NkRole tint;
-						int32 faces; ///< nombre de faces portant cet emplacement
-				};
-				static const Slot kSlots[] = {
-					{"M_Bois", NkRole::TypeMat, 4},
-					{"M_Metal", NkRole::TypeMesh, 2},
-				};
-				char key[40];
-				for (int32 i = 0; i < 2; ++i) {
-					const NkRect sr{r.x, y, r.w, kRowH};
-					snprintf(key, sizeof(key), "det.slot.%d", i);
-					const bool over = hit.Add(key, sr);
-					const bool sel = (st.materialSlot == i);
-					if (sel)
-						p.Fill(sr, NkRole::AccentUi);
-					else
-						HoverFill(p, sr, over, 0.f);
-					const NkRole fg = sel ? NkRole::TextOnAccent : NkRole::Text;
-					// La PASTILLE de couleur reste teintee meme sur ligne selectionnee :
-					// c'est elle qui relie l'emplacement a ce qu'on voit dans la vue.
-					p.Fill({r.x + 8.f, y + 5.f, 12.f, kRowH - 10.f}, kSlots[i].tint, 2.f);
-					p.TextV(r.x + 26.f, y, kRowH, kSlots[i].name, fg);
-					char cnt[32];
-					snprintf(cnt, sizeof(cnt), "%d faces", kSlots[i].faces);
-					p.TextV(r.x + r.w - 8.f - p.TextW(cnt), y, kRowH, cnt,
-							sel ? NkRole::TextOnAccent : NkRole::TextMuted);
-					p.HLine(r.x, y + kRowH - 1.f, r.w);
-					if (hit.Clicked(key))
-						st.materialSlot = i;
-					y += kRowH;
-				}
-				// Ajouter / retirer un emplacement, puis assigner la selection courante.
-				// « Assigner » est GRISE hors mode edition : hors edition il n'y a pas de
-				// faces selectionnees, donc rien a assigner -- et un bouton qui repond
-				// sans rien faire est pire qu'un bouton grise.
+				// LES DEUX MATERIAUX ET LES DEUX SOUS-MAILLAGES QUI S'AFFICHAIENT ICI
+				// ETAIENT SIMULES. Rihen a demande d'ou ils sortaient : de nulle part,
+				// c'etait une maquette. Un panneau qui invente son contenu est pire
+				// qu'un panneau vide -- on lui fait confiance.
+				//
+				// Le modele reste celui annonce : un modele porte une LISTE
+				// d'emplacements, chaque face du maillage porte l'indice de celui qui
+				// la peint, et l'ensemble des faces d'un meme indice forme un
+				// sous-maillage. Les emplacements viendront des materiaux crees dans
+				// le navigateur de projet ; tant qu'aucun n'existe, il n'y a rien a
+				// montrer et on le dit.
+				p.TextV(r.x + kPad, y, kRowH, "Aucun emplacement", NkRole::TextMuted);
+				y += kRowH;
 				const float32 bw = (r.w - 24.f) / 3.f;
 				struct Btn {
 						const char *label;
@@ -1786,11 +1817,11 @@ namespace nkentseu {
 					{"Ajouter", NkIcon::Add}, {"Retirer", NkIcon::Trash}, {"Assigner", NkIcon::Check}};
 				for (int32 i = 0; i < 3; ++i) {
 					const NkRect br{r.x + 8.f + (float32)i * bw, y + 3.f, bw - 4.f, kRowH - 6.f};
-					const bool off = (i == 2 && st.mode != NkMode::Edit);
-					snprintf(key, sizeof(key), "det.mat.%d", i);
-					const bool over = !off && hit.Add(key, br);
-					p.Outline(br, NkRole::Border, over ? NkRole::PanelHeader : NkRole::InputBg, 2.f);
+					// TOUT est grise tant qu'aucun materiau n'existe : « Assigner »
+					// demande en plus une selection de faces, donc le mode edition.
+					const bool off = true;
 					const NkRole fg = off ? NkRole::TextMuted : NkRole::Text;
+					p.Outline(br, NkRole::Border, NkRole::InputBg, 2.f);
 					p.IconV(br.x + 5.f, br.y, br.h, kB[i].ic, fg, 12.f);
 					p.TextV(br.x + 21.f, br.y, br.h, kB[i].label, fg);
 				}
@@ -1798,30 +1829,12 @@ namespace nkentseu {
 			}
 
 			// ── SOUS-MAILLAGES ──────────────────────────────────────────────────
-			// La contrepartie du point precedent : ce que les emplacements DECOUPENT.
-			// Un sous-maillage n'est pas un objet separe -- c'est un groupe de faces du
-			// meme maillage. Le selectionner ici doit selectionner ses faces dans la
-			// vue, ce qui donne le chemin inverse de « selectionner puis assigner ».
+			// Ce que les emplacements DECOUPENT. Un sous-maillage n'est pas un objet
+			// separe : c'est un groupe de faces du meme maillage. Il n'y en a donc
+			// aucun tant qu'aucun emplacement n'a ete assigne.
 			if (DetailHeader(p, hit, r, y, st, NkDetailSubMesh, "Sous-maillages")) {
-				static const char *const kSub[] = {"Corps (M_Bois)", "Ferrures (M_Metal)"};
-				char key[40];
-				for (int32 i = 0; i < 2; ++i) {
-					const NkRect sr{r.x, y, r.w, kRowH};
-					snprintf(key, sizeof(key), "det.sub.%d", i);
-					const bool over = hit.Add(key, sr);
-					const bool sel = (st.materialSlot == i);
-					if (sel)
-						p.Fill(sr, NkRole::AccentUi);
-					else
-						HoverFill(p, sr, over, 0.f);
-					const NkRole fg = sel ? NkRole::TextOnAccent : NkRole::Text;
-					p.IconV(r.x + 8.f, y, kRowH, NkIcon::Mesh, fg, 12.f);
-					p.TextV(r.x + 26.f, y, kRowH, kSub[i], fg);
-					p.HLine(r.x, y + kRowH - 1.f, r.w);
-					if (hit.Clicked(key))
-						st.materialSlot = i;
-					y += kRowH;
-				}
+				p.TextV(r.x + kPad, y, kRowH, "Aucun", NkRole::TextMuted);
+				y += kRowH;
 			}
 
 			p.Unclip();
@@ -1866,26 +1879,36 @@ namespace nkentseu {
 			// TROIS BOUTONS DE CREATION DIRECTS, pas un menu : creer un dossier, un
 			// materiau ou une texture sont les trois gestes fondateurs du navigateur,
 			// et les cacher derriere un deroulant ajouterait un clic a chacun.
-			static const B kBtns[] = {{NkIcon::Folder, "+ Dossier"},
+			// LE BLUEPRINT manquait. C'est le document de modelisation lui-meme --
+			// une piece a modeler, avec sa geometrie, ses materiaux et ses reglages.
+			// Materiau et texture sont des RESSOURCES qu'il consomme ; le blueprint
+			// est ce qu'on ouvre pour travailler, donc il vient en premier.
+			static const B kBtns[] = {{NkIcon::Mesh, "+ Blueprint"},
+									  {NkIcon::Folder, "+ Dossier"},
 									  {NkIcon::Circle, "+ Materiau"},
 									  {NkIcon::Journal, "+ Texture"},
 									  {NkIcon::Import, "Importer"}};
-			for (int32 i = 0; i < 4; ++i) {
+			for (int32 i = 0; i < 5; ++i) {
 				const float32 bw = 18.f + p.TextW(kBtns[i].label) + 10.f;
 				char bkey[24];
 				snprintf(bkey, sizeof(bkey), "brw.new.%d", i);
 				const NkRect br{x - 4.f, r.y + 3.f, bw, topH - 6.f};
 				HoverFill(p, br, hit.Add(bkey, br), 2.f);
-				p.IconV(x, r.y, topH, kBtns[i].ic, i == 0 ? NkRole::TypeFolder : NkRole::Text, 13.f);
+				static const NkRole kBtnRole[5] = {NkRole::TypeMesh, NkRole::TypeFolder,
+												   NkRole::TypeMat, NkRole::TypeTex,
+												   NkRole::Text};
+				p.IconV(x, r.y, topH, kBtns[i].ic, kBtnRole[i], 13.f);
 				p.TextV(x + 18.f, r.y, topH, kBtns[i].label);
 				x += bw + 8.f;
 				// La creation ecrit dans l'etat ; le nom par defaut est numerote et
 				// se renomme au double-clic, comme partout.
-				if (i < 3 && hit.Clicked(bkey) && st.browserCount < NkModelerState::kMaxBrowser) {
+				if (i < 4 && hit.Clicked(bkey) && st.browserCount < NkModelerState::kMaxBrowser) {
 					const int32 k = st.browserCount++;
+					// 0 blueprint, 1 dossier, 2 materiau, 3 texture -- l'ordre des
+					// boutons EST celui des genres, il n'y a rien a traduire.
 					st.browserKind[k] = (uint8)i;
 					st.browserParent[k] = st.browserFolder;
-					static const char *const kBase[] = {"Dossier", "Materiau", "Texture"};
+					static const char *const kBase[] = {"BP", "Dossier", "Materiau", "Texture"};
 					snprintf(st.browserNames[k], 32, "%s_%02d", kBase[i], k + 1);
 				}
 			}
@@ -1927,7 +1950,7 @@ namespace nkentseu {
 					dy += kRowH;
 				}
 				for (int32 i = 0; i < st.browserCount; ++i) {
-					if (st.browserKind[i] != 0)
+					if (st.browserKind[i] != 1)
 						continue; // seuls les DOSSIERS vivent dans l'arbre
 					++folderCount;
 					const bool on = (st.browserFolder == i);
@@ -1972,15 +1995,20 @@ namespace nkentseu {
 			char akey[40];
 			const float32 wrapW = r.x + r.w - S(16.f);
 			for (int32 i = 0; i < st.browserCount; ++i) {
-				if (st.browserKind[i] == 0 || st.browserParent[i] != st.browserFolder)
-					continue;
+				if (st.browserKind[i] == 1 || st.browserParent[i] != st.browserFolder)
+					continue; // les dossiers sont dans l'arbre, pas dans la grille
 				++shown;
 				if (tx + tw > wrapW) { // retour a la ligne
 					tx = ax;
 					tyy += cardH + S(14.f);
 				}
-				const bool isMat = (st.browserKind[i] == 1);
-				const NkRole role = isMat ? NkRole::TypeMat : NkRole::TypeTex;
+				const uint8 kind = st.browserKind[i]; // 0 blueprint, 2 materiau, 3 texture
+				const NkRole role = (kind == 0)   ? NkRole::TypeMesh
+									: (kind == 2) ? NkRole::TypeMat
+												  : NkRole::TypeTex;
+				const char *kindName = (kind == 0)   ? "Blueprint"
+									   : (kind == 2) ? "Materiau"
+													 : "Texture";
 
 				// Ombre portee legere, comme Unreal.
 				p.Fill({tx + 2.f, tyy + 3.f, tw, cardH}, NkColor{0, 0, 0, 90}, 3.f);
@@ -2003,7 +2031,17 @@ namespace nkentseu {
 								   NkRole::WindowBg);
 						}
 				const float32 cx = tx + tw * 0.5f, cy = tyy + pvH * 0.5f;
-				if (isMat) {
+				if (kind == 0) {
+					// BLUEPRINT : un cube en volume -- c'est une piece a modeler.
+					const float32 hw = 18.f, hh = 16.f, dp = 9.f;
+					p.Fill({cx - hw, cy - hh + dp, hw * 2.f, hh * 2.f - dp}, NkRole::PanelHeader);
+					p.OutlineSharp({cx - hw, cy - hh + dp, hw * 2.f, hh * 2.f - dp}, role);
+					p.Line(cx - hw, cy - hh + dp, cx - hw + dp, cy - hh, role);
+					p.Line(cx - hw + dp, cy - hh, cx + hw + dp, cy - hh, role);
+					p.Line(cx + hw, cy - hh + dp, cx + hw + dp, cy - hh, role);
+					p.Line(cx + hw + dp, cy - hh, cx + hw + dp, cy + hh - dp, role);
+					p.Line(cx + hw, cy + hh, cx + hw + dp, cy + hh - dp, role);
+				} else if (kind == 2) {
 					// Boule de rendu avec reflet : sans reflet, le disque se lit
 					// comme une pastille de couleur.
 					p.Disc(cx, cy, 22.f, role);
@@ -2028,8 +2066,7 @@ namespace nkentseu {
 					EditableText(p, hit, ws, in, akey, {tx + pad, fyy, tw - pad * 2.f, lh + 2.f},
 								 st.browserNames[i], NkRole::Text, st.browserNames[i], 32u);
 					fyy += lh + 2.f;
-					p.TextClipped(tx + pad, fyy, tw - pad * 2.f, isMat ? "Materiau" : "Texture",
-								  NkRole::TextMuted);
+					p.TextClipped(tx + pad, fyy, tw - pad * 2.f, kindName, NkRole::TextMuted);
 				}
 				snprintf(akey, sizeof(akey), "brow.card.%d", i);
 				if (hit.Clicked(akey))
@@ -2317,9 +2354,10 @@ namespace nkentseu {
 								o2 ? NkRole::TextOnAccent : NkRole::Text, 13.f);
 						p.TextV(er.x + S(29.f), er.y, itemH, cats[c].items[i].label,
 								o2 ? NkRole::TextOnAccent : NkRole::Text);
-						if (cur)
-							p.IconV(er.x + er.w - S(20.f), er.y, itemH, NkIcon::Check,
-									o2 ? NkRole::TextOnAccent : NkRole::AccentUi, 12.f);
+						// AUCUNE COCHE ICI. Une coche dit « ceci est l'option retenue » ;
+						// or ce menu ne retient rien, il AJOUTE. Le modificateur ajoute
+						// se lit dans le panneau Details, la ou il vit.
+						(void)cur;
 						if (hit.Clicked(key)) {
 							st.modKind = flatBase + i;
 							// Chaque entree porte SON type moteur : le menu ne calcule
