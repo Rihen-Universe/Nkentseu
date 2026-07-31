@@ -89,7 +89,6 @@ qu'on range. Correction : le geste est autorisé, l'absence d'effet est **dite**
 
 | ce qui n'y est pas | pourquoi | où |
 |---|---|---|
-| Sculpt, multirésolution | demande une hiérarchie de niveaux persistante et des brosses — projet entier | v2 |
 | Édition UV, dépliage | dépend du dépliage automatique, encore à écrire | v2 (`NKGen`, roadmap IA) |
 | Nœuds de matériaux | substrat NKGraph déjà décidé, consommateur à part | Nogee |
 | Animation, rigging | module dédié | NkAnima |
@@ -100,7 +99,49 @@ qu'on range. Correction : le geste est autorisé, l'absence d'effet est **dite**
 **Cette colonne « pourquoi » est le cœur du document.** Sans elle, chaque absence
 ressemble à un oubli et sera re-proposée à chaque session.
 
-### 4.3 Verrou partagé identifié
+### 4.3 Le SCULPT est dans le produit *(décision de Rihen, 31/07)*
+
+> Il figurait d'abord hors périmètre. **C'était une erreur** : le sculpt fait
+> partie de ce qu'on attend d'un modeleur, et surtout il impose une contrainte
+> d'architecture qu'il vaut bien mieux poser **avant** d'écrire l'application.
+
+**Ce qui existe déjà et le sert** — il ne s'agit pas de partir de zéro :
+
+| brique existante | ce qu'elle apporte au sculpt |
+|---|---|
+| **proportional editing** (6 courbes d'atténuation) | c'est **exactement** la mécanique de retombée d'une brosse. Une brosse est un déplacement pondéré par une courbe autour d'un point — le calcul existe et il est testé. |
+| **symétrie 1-3 axes** | sculpter symétriquement, sans code neuf |
+| **Catmull-Clark** | la densité de maillage que le sculpt exige |
+| **cycles radial et disque** (BMesh étape 2) | le voisinage d'un sommet en O(k), nécessaire au lissage et à la dilatation |
+| **harnais, 116 cas** | un filet déjà en place pour une opération qui déforme massivement |
+
+**⚠️ LE VRAI OBSTACLE, et il est architectural.** Aujourd'hui, toute opération
+d'édition **reconstruit et resynchronise le maillage entier** (`Demo3D_SyncFromHE`).
+C'est sans conséquence sur un cube de 24 sommets ; c'est **rédhibitoire** pour du
+sculpt, où chaque mouvement de souris touche quelques milliers de sommets sur un
+maillage qui peut en compter des centaines de milliers, à 60 images par seconde.
+
+> **Conséquence pour la v1, à respecter même avant d'écrire la première brosse :**
+> la chaîne doit permettre une **mise à jour PARTIELLE** — modifier un sous-ensemble
+> de sommets et n'envoyer au GPU que ce sous-ensemble. Ce n'est pas du sculpt, c'est
+> une propriété de la chaîne de rendu. **L'ajouter après coup coûterait une refonte
+> du chemin d'édition ; l'y prévoir maintenant ne coûte presque rien.**
+
+**Ce qui manque vraiment**, par ordre de dépendance :
+
+| # | brique | pourquoi elle est nécessaire |
+|---|---|---|
+| **S1** | **mise à jour partielle** du maillage GPU | sans elle, tout le reste est inutilisable en pratique |
+| **S2** | **requête spatiale** (grille ou arbre) : « quels sommets dans ce rayon ? » | un balayage linéaire par mouvement de souris s'effondre dès la centaine de milliers de sommets |
+| **S3** | **trait** (stroke) : entrée continue, espacement, pression | une brosse n'est pas un clic ; c'est ce qui donne un geste régulier plutôt qu'une série de bosses |
+| **S4** | **brosses** : tirer, attraper, lisser, gonfler, aplatir, pincer | la partie visible — et la plus rapide à écrire une fois S1-S3 en place |
+| **S5** | **densité adaptative** : dynamic topology **ou** multirésolution | ajouter du détail là où on sculpte. **À trancher :** dyntopo est plus simple et plus libre, la multirésolution préserve une cage éditable et permet de revenir en arrière. Les deux ne se remplacent pas. |
+
+**Position honnête** : S1 est une contrainte à respecter **dès la v1** ; S2 à S5
+constituent un chantier à part entière, à ouvrir quand l'interface existe — parce
+qu'une brosse sans interface pour la régler ne se teste pas.
+
+### 4.4 Verrou partagé identifié
 
 Les **groupes de sommets** bloquent simultanément : Mask par groupe, les trois
 modificateurs Vertex Weight, et le skinning côté animation. C'est le prérequis au
