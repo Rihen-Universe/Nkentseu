@@ -129,3 +129,8 @@ graphe/entree-source-unique        liens=1 (doit valoir 1) source=y-la-nouvelle
 graphe/suppression-milieu          avant=2 apres=0 (doit valoir 0) noeuds=2 b-retrouve=0
 graphe/sens-et-sockets             entree-src=sens-invalide sortie-dst=sens-invalide inconnu=socket-inconnu boucle-soi=meme-noeud
 graphe/identifiants-stables        a=1 b=2 c=3 (c doit differer de a) recycle=0
+graphe/io-aller-retour             lu=1 identique=1 octets=246 noeuds=2 liens=1
+graphe/io-identifiants-non-recycles supprime=2 nouveau-apres-relecture=4 recycle=0
+graphe/io-semantique-survit        types-retrouves=1/1 reel>vect=ok reel>maillage=type-incompatible
+graphe/undo-restaure-les-liens     apres-suppr=0 | annule=1 b-revenu=1 noeuds=3 liens=2 memes-ids=1 | refait liens=0
+graphe/undo-branche-abandonnee     prof=2 retour-exact=1 refaisable-avant=2 apres-nouvelle-branche=0

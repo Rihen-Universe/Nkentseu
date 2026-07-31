@@ -55,14 +55,14 @@ les types » ; chaque domaine fournit « ses nodes et ce qu'il en fait ».
 |--------|--------|-------|
 | P1 — Modèle de données (nodes/sockets typés/connexions/validation) | ✅ | `src/NKGraph/NkNodeGraph.h/.inl`, **en-tête pur** (testable sans lier de cible, comme `NkShortcutTable`), zero-STL. **Nommé `NkNodeGraph` et non `NkGraph` : `nkentseu::NkGraph<V,Alloc>` existe déjà dans NKContainers** (graphe pondéré générique, DFS/BFS, 877 l.). Conversions implicites **dirigées** et déclarées par le consommateur, jamais devinées. Une entrée n'accepte qu'une source (la 2ᵉ remplace, comme Blender/Unreal). Supprimer un nœud emporte ses liens. Identifiants **jamais recyclés**. |
 | P2 — Évaluation (tri topologique, sous-graphes, plan aplati) | 🔶 | tri topologique + **refus du cycle à la connexion** (avec sa raison) livrés et testés. Restent : sous-graphes, plan aplati. |
-| P3 — Sérialisation `.nkgraph` + undo/redo | ❌ | NKSerialization ; commandes inversibles (modèle NkAnimationEditor) |
+| P3 — Sérialisation `.nkgraph` + undo/redo | ✅ | `NkNodeGraphIO.inl`. Format **texte**, une directive par ligne : un graphe se relit, se compare avec `git diff` et se répare à la main ; le binaire ferait gagner des octets sur des fichiers de quelques Ko. **Écart assumé** : annuler/refaire par **instantanés sérialisés**, pas par commandes inversibles — l'inverse de « supprimer un nœud » doit restaurer le nœud, tous ses liens **et** leurs identifiants, et c'est le genre d'inverse qu'on écrit presque juste, dont l'erreur ne se voit que trois manipulations plus tard. L'instantané est correct par construction. Coût : mémoire ∝ taille × profondeur ; négligeable à cette échelle, et l'API publique ne changera pas si un jour il faut basculer. |
 | P4 — Widget canvas (NKEditorKit) | ❌ | pan/zoom, fils, recherche, groupes, preview |
 | P5 — 1er consommateur : NKCode Phase 4 (Blueprint) OU matériaux T.2 | ❌ | le premier qui démarre construit AVEC le cœur |
 | P6 — 2e consommateur (l'autre des deux, ou VFX) | ❌ | force la généralisation de l'API |
 
 Légende : ✅ Livré · 🔶 Partiel · ⏳ En cours · ❌ TODO · 🚫 Abandonné
 
-**Preuve (31/07/2026)** — 7 cas dans `Applications/NKEditMeshHarness` (131 cas au
+**Preuve (31/07/2026)** — 12 cas dans `Applications/NKEditMeshHarness` (136 cas au
 total, les 124 antérieurs inchangés). Ils sont choisis pour qu'une implantation
 fausse **échoue**, pas pour confirmer ce qui marche :
 
@@ -75,6 +75,11 @@ fausse **échoue**, pas pour confirmer ce qui marche :
 | `entree-source-unique` | vérifie que la source restante est la **nouvelle** — garder l'ancienne donnerait le même compte | `y-la-nouvelle` |
 | `sens-et-sockets` | « ce socket n'existe pas » ≠ « vous branchez une entrée sur une entrée » : l'interface doit pouvoir l'expliquer | 4 codes distincts |
 | `identifiants-stables` | un id recyclé ferait pointer silencieusement une sauvegarde sur un autre nœud | pas de recyclage |
+| `io-aller-retour` | compare les **textes caractère pour caractère**, pas des comptes : des libellés ou des conversions perdus laisseraient les comptes intacts | 246 o identiques |
+| `io-identifiants-non-recycles` | **le piège du format** : sans la ligne `compteurs`, un aller-retour par ailleurs correct réattribuerait l'id du nœud supprimé | supprimé=2, nouveau=4 |
+| `io-semantique-survit` | le graphe rechargé doit encore **accepter et refuser** comme avant — preuve que `conv` et les types ont été relus, pas seulement réécrits | `réel>vect=ok`, `réel>maillage=refusé` |
+| `undo-restaure-les-liens` | **le piège de l'annulation** : la suppression du nœud du milieu tue 2 liens ; une annulation qui ne ressusciterait que le nœud laisserait un graphe coupé, d'apparence saine | nœud revenu, 2 liens, **mêmes ids** |
+| `undo-branche-abandonnee` | remonter toute la pile doit redonner l'état initial **au texte près** — les comptes laisseraient passer une dérive de position ou de libellé | retour exact, refaisable 2→0 |
 
 ## Consommateurs prévus (état de leur côté)
 

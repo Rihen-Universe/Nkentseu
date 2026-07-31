@@ -150,6 +150,14 @@ namespace nkentseu {
 				bool TopoSort(NkVector<NkNodeId> &out) const;
 				bool HasCycle() const;
 
+				// ── SERIALISATION `.nkgraph` ─────────────────────────────────────
+				// Format TEXTE, une directive par ligne (cf. NkNodeGraphIO.inl). Un
+				// graphe se relit, se compare avec `git diff` et se repare a la main ;
+				// un format binaire ferait gagner des octets sur des fichiers qui
+				// pesent quelques kilo-octets.
+				void Serialize(NkString &out) const;
+				bool Deserialize(const char *text);
+
 				void Clear();
 
 			private:
@@ -163,7 +171,41 @@ namespace nkentseu {
 				NkLinkId mNextLink = 1;
 		};
 
+		// ── ANNULER / REFAIRE ────────────────────────────────────────────────
+		// ECART ASSUME PAR RAPPORT A LA ROADMAP, qui disait « commandes
+		// inversibles ». On garde des INSTANTANES serialises, pas des inverses.
+		//
+		// Pourquoi : l'inverse de « supprimer un noeud » doit restaurer le noeud,
+		// TOUS ses liens, ET leurs identifiants d'origine. C'est precisement le
+		// genre d'inverse qu'on ecrit presque juste, et dont l'erreur ne se voit
+		// que trois manipulations plus tard. L'instantane est correct par
+		// construction, puisqu'il reutilise une serialisation deja prouvee.
+		//
+		// Ce que ca coute, honnetement : memoire proportionnelle a
+		// (taille du graphe x profondeur). Pour des graphes de quelques centaines
+		// de noeuds c'est negligeable. Si un graphe reel devient assez gros pour
+		// que ca compte, on passera aux inverses A CE MOMENT-LA — l'interface
+		// publique ci-dessous ne changera pas.
+		class NkGraphHistory {
+			public:
+				void Reset(const NkNodeGraph &g);  ///< etat initial, vide l'historique
+				void Commit(const NkNodeGraph &g); ///< APRES chaque modification
+				bool Undo(NkNodeGraph &g);
+				bool Redo(NkNodeGraph &g);
+				uint32 UndoDepth() const; ///< nombre d'annulations encore possibles
+				uint32 RedoDepth() const;
+				void SetLimit(uint32 n) {
+					mLimit = n < 2u ? 2u : n;
+				}
+
+			private:
+				NkVector<NkString> mStack;
+				uint32 mCursor = 0;
+				uint32 mLimit = 128;
+		};
+
 	} // namespace graph
 } // namespace nkentseu
 
 #include "NKGraph/NkNodeGraph.inl"
+#include "NKGraph/NkNodeGraphIO.inl"
