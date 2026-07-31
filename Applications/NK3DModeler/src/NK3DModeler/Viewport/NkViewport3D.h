@@ -49,8 +49,58 @@ namespace nkentseu {
 		// ── Camera ──────────────────────────────────────────────────────────
 		void Viewport3DOrbit(float32 dYaw, float32 dPitch);
 		void Viewport3DPan(float32 dx, float32 dy);
+		void Viewport3DPanSteps(float32 dx, float32 dy); ///< pan a la molette (crans)
 		void Viewport3DZoom(float32 steps);
 		void Viewport3DFrameAll(); ///< recadre sur la scene entiere
+		// Vues axiales du pave numerique : 0 face, 1 droite, 2 dessus.
+		// `opposite` (Ctrl) donne arriere / gauche / dessous.
+		void Viewport3DAxisView(int32 which, bool opposite);
+		void Viewport3DSetOrtho(bool on);
+		bool Viewport3DIsOrtho();
+
+		// ── Gizmo de transformation ─────────────────────────────────────────
+		// mode : 0 deplacer, 1 tourner, 2 redimensionner, 3 combine.
+		// orient : 0 global, 1 local, 2 normal. pivot : cf. NkGizmo3D.
+		void Viewport3DSetGizmoMode(int32 mode);
+		void Viewport3DSetGizmoOrientation(int32 orient);
+		void Viewport3DSetGizmoPivot(int32 pivot);
+		void Viewport3DSetSnap(bool on, float32 translate, float32 rotateDeg, float32 scale);
+		void Viewport3DSetGizmoInput(float32 mouseX, float32 mouseY, float32 dx, float32 dy,
+									 bool leftPressed, bool leftDown, bool shift, bool ctrl);
+		bool Viewport3DGizmoDragging();
+
+		// ── Mode edition et selection ───────────────────────────────────────
+		void Viewport3DSetEditMode(bool on);
+		bool Viewport3DEditMode();
+		// Sous-modes COMBINABLES : bit 1 sommet, 2 arete, 4 face.
+		void Viewport3DSetSelectMask(uint32 mask);
+		uint32 Viewport3DSelectMask();
+		void Viewport3DSetXray(bool on);
+		void Viewport3DSelectAll(bool all);
+		uint32 Viewport3DSelectedCount();
+		// Clic dans la vue. Coordonnees RELATIVES au rectangle de la vue : la cible
+		// hors ecran a sa propre origine, des coordonnees fenetre decaleraient tout
+		// le picking de la largeur du panneau de gauche.
+		bool Viewport3DPick(float32 mx, float32 my, bool add, bool toggle);
+
+		// ── Operations d'edition ────────────────────────────────────────────
+		// Toutes passent par une commande : annulation et journal acquis d'office.
+		bool Viewport3DExtrude(bool individual);
+		bool Viewport3DDeleteSelection();
+		bool Viewport3DMerge(int32 mode);
+		bool Viewport3DMakeFace();
+		bool Viewport3DSubdivide(int32 cuts);
+		bool Viewport3DLoopCut(int32 cuts);
+		bool Viewport3DBevel(float32 offset, int32 segments, bool vertexOnly);
+		bool Viewport3DInset(float32 thickness, float32 depth);
+		bool Viewport3DDissolve();
+		bool Viewport3DMoveSelection(float32 dx, float32 dy, float32 dz);
+
+		bool Viewport3DUndo();
+		bool Viewport3DRedo();
+		bool Viewport3DCanUndo();
+		bool Viewport3DCanRedo();
+		uint32 Viewport3DEditCount();
 
 		// ── Reglages d'affichage, pilotes par la barre de la vue ────────────
 		// `shading` : 0 solide, 1 materiau, 2 rendu, 3 filaire.

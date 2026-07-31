@@ -906,8 +906,27 @@ namespace nkentseu {
 				}
 				st.navLastX = m.x;
 				st.navLastY = m.y;
-				if (overView && hit.WheelDelta() != 0.f)
-					nk3d::Viewport3DZoom(hit.WheelDelta());
+				if (overView && hit.WheelDelta() != 0.f) {
+					// Molette seule = zoom ; Maj = deplacement vertical ; Ctrl =
+					// horizontal. C'est le jeu de raccourcis de Blender, et il evite
+					// d'avoir a lacher la souris pour recadrer.
+					if (hit.ShiftDown())
+						nk3d::Viewport3DPanSteps(0.f, hit.WheelDelta());
+					else if (hit.CtrlDown())
+						nk3d::Viewport3DPanSteps(hit.WheelDelta(), 0.f);
+					else
+						nk3d::Viewport3DZoom(hit.WheelDelta());
+				}
+
+				// CLIC GAUCHE = SELECTION, mais seulement si le gizmo ne l'a pas pris.
+				// L'ordre compte : les rubans de rotation couvrent une large zone et
+				// avaleraient tous les clics si on ne les interrogeait pas d'abord.
+				// Les coordonnees sont RELATIVES a la vue -- la cible hors ecran a sa
+				// propre origine.
+				if (overView && hit.Clicked("view.nav") && !nk3d::Viewport3DGizmoDragging()) {
+					nk3d::Viewport3DPick(m.x - r.x, m.y - r.y, hit.ShiftDown(), hit.CtrlDown());
+					st.dirty = true;
+				}
 			}
 
 			// ── BARRE FLOTTANTE GAUCHE : ce qu'on REGARDE ───────────────────────
@@ -1393,7 +1412,17 @@ namespace nkentseu {
 				// aussi le sous-mode d'edition du milieu. En afficher deux sur trois
 				// laissait croire que le compte d'aretes n'existait pas.
 				static const char *const kL[] = {"Sommets", "Aretes", "Faces", "Triangles"};
-				static const char *const kV[] = {"8", "12", "6", "12"};
+				// PLUS DE VALEURS EN DUR. Elles viennent du NkEditMesh lui-meme : un
+				// panneau qui affiche « 8 sommets » quoi qu'il arrive est pire qu'un
+				// panneau vide, parce qu'on le croit.
+				uint32 nv = 0, ne = 0, nf = 0, nt = 0;
+				nk3d::Viewport3DStats(nv, ne, nf, nt);
+				char vbuf[4][24];
+				snprintf(vbuf[0], sizeof(vbuf[0]), "%u", nv);
+				snprintf(vbuf[1], sizeof(vbuf[1]), "%u", ne);
+				snprintf(vbuf[2], sizeof(vbuf[2]), "%u", nf);
+				snprintf(vbuf[3], sizeof(vbuf[3]), "%u", nt);
+				const char *kV[4] = {vbuf[0], vbuf[1], vbuf[2], vbuf[3]};
 				for (int32 i = 0; i < 4; ++i) {
 					p.Fill({r.x, y, kLabelW, kRowH}, NkRole::LabelCol);
 					p.TextV(r.x + kPad, y, kRowH, kL[i]);
