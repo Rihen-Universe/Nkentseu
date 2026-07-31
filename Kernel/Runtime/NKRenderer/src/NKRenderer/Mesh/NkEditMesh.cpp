@@ -4,6 +4,7 @@
 #include "NkEditMesh.h"
 #include "NKContainers/Associative/NkHashMap.h"
 
+#include <stddef.h> // offsetof : parametres adressables par nom
 #include <cmath> // cosf / sinf / atan2f — profils d'arc du bevel, rotations du spin
 
 namespace nkentseu {
@@ -232,11 +233,26 @@ namespace nkentseu {
 			repSel.Resize(n);
 			for (uint32 i = 0; i < n; ++i)
 				repSel[i] = 0;
+			// Le rang est propage AVEC la selection : sans cela, une copie coincidente
+			// activee par propagation entrerait dans l'historique avec le rang 0 (ou,
+			// pire, un rang plus recent), et « le premier selectionne » pourrait
+			// designer une copie que l'utilisateur n'a jamais cliquee. On retient donc,
+			// par identite soudee, le PLUS PETIT rang non nul rencontre.
+			NkVector<uint32> repOrder;
+			repOrder.Resize(n);
 			for (uint32 i = 0; i < n; ++i)
-				if (verts[i].sel)
+				repOrder[i] = 0;
+			for (uint32 i = 0; i < n; ++i)
+				if (verts[i].sel) {
 					repSel[canon[i]] = 1;
-			for (uint32 i = 0; i < n; ++i)
+					const uint32 o = verts[i].selOrder;
+					if (o != 0 && (repOrder[canon[i]] == 0 || o < repOrder[canon[i]]))
+						repOrder[canon[i]] = o;
+				}
+			for (uint32 i = 0; i < n; ++i) {
 				verts[i].sel = repSel[canon[i]];
+				verts[i].selOrder = verts[i].sel ? repOrder[canon[i]] : 0u;
+			}
 		}
 
 		void NkEditMesh::LinkTwins() {
@@ -545,7 +561,11 @@ namespace nkentseu {
 					return NK_EM_INVALID; // bord du maillage -> Blender s'arrete
 				const uint16 val = adj.valence[v];
 				if (val == 4) {
-					const NkEmId tw = hedges[hn].twin; // w -> v, face voisine
+					// RadialTwin et non `twin` : sur une arete portee par plus de deux
+					// faces, `twin` en designe une ARBITRAIREMENT et la boucle basculait
+					// sur une branche que personne n'avait choisie, sans le dire. On
+					// s'arrete, comme Blender.
+					const NkEmId tw = RadialTwin(hn); // w -> v, face voisine
 					if (tw == NK_EM_INVALID)
 						return NK_EM_INVALID;
 					return hedges[tw].next; // v -> x : l'arete OPPOSEE a celle d'ou l'on vient
@@ -575,8 +595,9 @@ namespace nkentseu {
 			if (closed)
 				return;
 			// Sens ARRIERE (boucle ouverte : grille, bord de maillage) - on repart du jumeau,
-			// qui pointe dans l'autre sens.
-			NkEmId h = hedges[h0].twin;
+			// qui pointe dans l'autre sens. Meme regle : pas de jumeau unique, pas de
+			// sens arriere.
+			NkEmId h = RadialTwin(h0);
 			uint32 guard = 0;
 			while (h != NK_EM_INVALID && ++guard < 100000u) {
 				h = step(h);
@@ -957,9 +978,66 @@ namespace nkentseu {
 			return e > s;
 		}
 
+		// ── SELECTION ORDONNEE ──────────────────────────────────────────────────
+		// L'ordre est deduit des TRANSITIONS, pas d'un appel par clic : l'editeur
+		// pousse son tableau ENTIER a chaque synchronisation, donc seuls les
+		// changements reels doivent consommer un rang.
+		void NkEditMesh::SetVertSelection(const uint8 *flags, uint32 count) {
+			const uint32 n = (uint32)verts.Size();
+			for (uint32 i = 0; i < n; ++i) {
+				const uint8 want = (flags && i < count) ? (flags[i] ? (uint8)1 : (uint8)0) : (uint8)0;
+				if (want && !verts[i].sel)
+					verts[i].selOrder = ++selCounter; // nouvelle entree dans l'historique
+				else if (!want)
+					verts[i].selOrder = 0; // deselectionne : il sort de l'historique
+				verts[i].sel = want;
+			}
+		}
+
+		int32 NkEditMesh::FirstSelected() const {
+			int32 best = -1, fallback = -1;
+			uint32 bestOrder = 0xFFFFFFFFu;
+			for (uint32 i = 0; i < (uint32)verts.Size(); ++i) {
+				if (!verts[i].sel)
+					continue;
+				if (fallback < 0)
+					fallback = (int32)i;
+				const uint32 o = verts[i].selOrder;
+				if (o != 0 && o < bestOrder) {
+					bestOrder = o;
+					best = (int32)i;
+				}
+			}
+			// Repli sur l'indice : une selection sans rang (script, chargement) doit
+			// rester operable. Refuser serait plus deroutant qu'un ordre arbitraire.
+			return (best >= 0) ? best : fallback;
+		}
+
+		int32 NkEditMesh::LastSelected() const {
+			int32 best = -1, fallback = -1;
+			uint32 bestOrder = 0;
+			for (uint32 i = 0; i < (uint32)verts.Size(); ++i) {
+				if (!verts[i].sel)
+					continue;
+				fallback = (int32)i;
+				const uint32 o = verts[i].selOrder;
+				if (o > bestOrder) {
+					bestOrder = o;
+					best = (int32)i;
+				}
+			}
+			return (best >= 0) ? best : fallback;
+		}
+
 		void NkEditMesh::ApplyVertSel(const NkVector<uint8> &vsel) {
-			for (uint32 i = 0; i < (uint32)verts.Size(); ++i)
+			// Reapplication a plat APRES une re-topologie : les rangs de l'ancien
+			// maillage ne designent plus rien (les sommets ont change d'identite), on
+			// les efface plutot que de les laisser mentir. L'ordre repartira du
+			// prochain geste.
+			for (uint32 i = 0; i < (uint32)verts.Size(); ++i) {
 				verts[i].sel = (i < (uint32)vsel.Size()) ? vsel[i] : (uint8)0;
+				verts[i].selOrder = 0;
+			}
 		}
 
 		// EXTRUDE FACES : duplique les faces sélectionnées (cap), crée des quads latéraux sur
@@ -1319,20 +1397,282 @@ namespace nkentseu {
 
 		// MERGE : soude les sommets sélectionnés en un (centroïde / premier / dernier),
 		// retire les faces dégénérées (<3 sommets distincts), compacte.
+		// ── CATMULL-CLARK ───────────────────────────────────────────────────────
+		// Une passe. Voir NkEditMesh.h pour les regles et le pourquoi de chacune.
+		static NkVertex3D NkEmMixVerts(const NkVertex3D *v, const uint32 *idx, uint32 n) {
+			NkVertex3D o{};
+			if (n == 0)
+				return o;
+			const float32 inv = 1.f / (float32)n;
+			NkVec3f nrm{0.f, 0.f, 0.f}, tan{0.f, 0.f, 0.f};
+			NkVec2f uv{0.f, 0.f}, uv2{0.f, 0.f};
+			float32 cr = 0.f, cg = 0.f, cb = 0.f, ca = 0.f;
+			for (uint32 k = 0; k < n; ++k) {
+				const NkVertex3D &s = v[idx[k]];
+				nrm = nrm + s.normal;
+				tan = tan + s.tangent;
+				uv = uv + s.uv;
+				uv2 = uv2 + s.uv2;
+				cr += (float32)((s.color >> 0) & 0xFFu);
+				cg += (float32)((s.color >> 8) & 0xFFu);
+				cb += (float32)((s.color >> 16) & 0xFFu);
+				ca += (float32)((s.color >> 24) & 0xFFu);
+			}
+			const NkVec3f an = nrm * inv, at = tan * inv;
+			const float32 ln = an.Len(), lt = at.Len();
+			o.normal = (ln > 1e-6f) ? an * (1.f / ln) : NkVec3f{0.f, 1.f, 0.f};
+			o.tangent = (lt > 1e-6f) ? at * (1.f / lt) : NkEmOrthoTangent(o.normal);
+			o.uv = uv * inv;
+			o.uv2 = uv2 * inv;
+			// Couleur moyennee canal par canal : melanger les 32 bits d'un coup
+			// melangerait le rouge d'un sommet avec le vert d'un autre.
+			auto q = [](float32 x, float32 k) {
+				const float32 r = x * k + 0.5f;
+				const int32 i = (int32)(r < 0.f ? 0.f : (r > 255.f ? 255.f : r));
+				return (uint32)i;
+			};
+			o.color = q(cr, inv) | (q(cg, inv) << 8) | (q(cb, inv) << 16) | (q(ca, inv) << 24);
+			return o;
+		}
+
+		bool NkEditMesh::SubdivideCatmullClark(int32 levels) {
+			if (levels < 1)
+				return false;
+			bool any = false;
+			for (int32 lvl = 0; lvl < levels; ++lvl) {
+				NkVector<NkVertex3D> pv;
+				NkVector<uint32> fs, fv;
+				ToPolygons(pv, fs, fv);
+				const uint32 vc = (uint32)pv.Size();
+				const uint32 fc = (fs.Size() > 0) ? (uint32)fs.Size() - 1 : 0;
+				if (vc == 0 || fc == 0)
+					return any;
+
+				NkVector<uint32> canon;
+				BuildVertexMerge(canon);
+				auto CN = [&](uint32 v) { return (v < (uint32)canon.Size()) ? canon[v] : v; };
+
+				// ── 1) POINT DE FACE : barycentre des sommets de la face ────────
+				NkVector<NkVec3f> facePt;
+				facePt.Resize(fc);
+				for (uint32 f = 0; f < fc; ++f) {
+					NkVec3f c{0.f, 0.f, 0.f};
+					const uint32 s0 = fs[f], s1 = fs[f + 1], n = s1 - s0;
+					for (uint32 k = s0; k < s1; ++k)
+						c = c + pv[fv[k]].pos;
+					facePt[f] = (n > 0) ? c * (1.f / (float32)n) : c;
+				}
+
+				// ── 2) ARETES SOUDEES : milieu, somme des points de face, degre ──
+				struct EdgeAcc {
+						NkVec3f pa{0.f, 0.f, 0.f}, pb{0.f, 0.f, 0.f}, fsum{0.f, 0.f, 0.f};
+						uint32 nface = 0;
+				};
+				NkHashMap<uint64, uint32> edgeOf;
+				NkVector<EdgeAcc> edgeAcc;
+				auto edgeKey = [](uint32 a, uint32 b) {
+					const uint64 lo = a < b ? a : b, hi = a < b ? b : a;
+					return (lo << 32) | hi;
+				};
+				for (uint32 f = 0; f < fc; ++f) {
+					const uint32 s0 = fs[f], s1 = fs[f + 1], n = s1 - s0;
+					for (uint32 k = 0; k < n; ++k) {
+						const uint32 ia = fv[s0 + k], ib = fv[s0 + (k + 1) % n];
+						const uint32 ca = CN(ia), cb = CN(ib);
+						if (ca == cb)
+							continue;
+						const uint64 key = edgeKey(ca, cb);
+						uint32 *ex = edgeOf.Find(key);
+						uint32 ei;
+						if (ex) {
+							ei = *ex;
+						} else {
+							ei = (uint32)edgeAcc.Size();
+							EdgeAcc e;
+							e.pa = pv[ia].pos;
+							e.pb = pv[ib].pos;
+							edgeAcc.PushBack(e);
+							edgeOf.InsertOrAssign(key, ei);
+						}
+						edgeAcc[ei].fsum = edgeAcc[ei].fsum + facePt[f];
+						edgeAcc[ei].nface++;
+					}
+				}
+
+				// ── 3) SOMMETS DEPLACES, par identite soudee ────────────────────
+				NkVector<NkVec3f> sumF, sumMid, bnd1, bnd2;
+				NkVector<uint32> degF, degE, nBnd;
+				sumF.Resize(vc);
+				sumMid.Resize(vc);
+				bnd1.Resize(vc);
+				bnd2.Resize(vc);
+				degF.Resize(vc);
+				degE.Resize(vc);
+				nBnd.Resize(vc);
+				for (uint32 i = 0; i < vc; ++i) {
+					sumF[i] = sumMid[i] = bnd1[i] = bnd2[i] = NkVec3f{0.f, 0.f, 0.f};
+					degF[i] = degE[i] = nBnd[i] = 0;
+				}
+				for (uint32 f = 0; f < fc; ++f) {
+					const uint32 s0 = fs[f], s1 = fs[f + 1];
+					// Chaque identite soudee ne doit compter la face QU'UNE fois, meme si
+					// plusieurs de ses copies apparaissent dans le meme polygone.
+					for (uint32 k = s0; k < s1; ++k) {
+						const uint32 c = CN(fv[k]);
+						bool seen = false;
+						for (uint32 j = s0; j < k; ++j)
+							if (CN(fv[j]) == c) {
+								seen = true;
+								break;
+							}
+						if (seen)
+							continue;
+						sumF[c] = sumF[c] + facePt[f];
+						degF[c]++;
+					}
+				}
+				for (auto it = edgeOf.Begin(); it != edgeOf.End(); ++it) {
+					const uint32 ei = it->Second;
+					const EdgeAcc &e = edgeAcc[ei];
+					const uint32 a = (uint32)(it->First >> 32), b = (uint32)(it->First & 0xFFFFFFFFu);
+					const NkVec3f mid = (e.pa + e.pb) * 0.5f;
+					for (int32 side = 0; side < 2; ++side) {
+						const uint32 v = side ? b : a;
+						if (v >= vc)
+							continue;
+						sumMid[v] = sumMid[v] + mid;
+						degE[v]++;
+						if (e.nface < 2) {
+							// Bord : on retient les DEUX premiers milieux — la regle de
+							// bordure ne fait intervenir qu'eux.
+							if (nBnd[v] == 0)
+								bnd1[v] = mid;
+							else if (nBnd[v] == 1)
+								bnd2[v] = mid;
+							nBnd[v]++;
+						}
+					}
+				}
+				NkVector<NkVec3f> newPos;
+				newPos.Resize(vc);
+				for (uint32 i = 0; i < vc; ++i)
+					newPos[i] = pv[i].pos;
+				for (uint32 i = 0; i < vc; ++i) {
+					const uint32 c = CN(i);
+					if (c >= vc)
+						continue;
+					const uint32 n = degE[c];
+					if (n < 2) {
+						newPos[i] = pv[c].pos; // sommet isole ou pendant : inchange
+						continue;
+					}
+					if (nBnd[c] >= 2) {
+						// BORD : (M1 + 6V + M2) / 8. N'utilise que la bordure, donc le bord
+						// reste franc au lieu d'etre aspire vers l'interieur.
+						newPos[i] = (bnd1[c] + pv[c].pos * 6.f + bnd2[c]) * (1.f / 8.f);
+						continue;
+					}
+					const float32 fn = (float32)n;
+					const NkVec3f F = (degF[c] > 0) ? sumF[c] * (1.f / (float32)degF[c]) : pv[c].pos;
+					const NkVec3f R = sumMid[c] * (1.f / fn);
+					newPos[i] = (F + R * 2.f + pv[c].pos * (fn - 3.f)) * (1.f / fn);
+				}
+
+				// ── 4) RECONSTRUCTION : n quads par face de n coins ─────────────
+				// Les attributs restent PAR COIN. Un point d'arete est indexe par la
+				// paire de coins D'ORIGINE (et non par l'arete soudee) : deux faces de
+				// part et d'autre d'une couture d'UV gardent ainsi chacune le leur.
+				NkVector<NkVertex3D> ov;
+				ov.Resize(vc);
+				for (uint32 i = 0; i < vc; ++i) {
+					ov[i] = pv[i];
+					ov[i].pos = newPos[i];
+				}
+				NkHashMap<uint64, uint32> cornerEdge;
+				NkVector<uint32> nfs, nfv;
+				nfs.PushBack(0);
+				uint32 pair[2];
+				for (uint32 f = 0; f < fc; ++f) {
+					const uint32 s0 = fs[f], s1 = fs[f + 1], n = s1 - s0;
+					if (n < 3)
+						continue;
+					// Point de face (position issue du barycentre, attributs moyens).
+					NkVertex3D fvtx = NkEmMixVerts(pv.Data(), &fv[s0], n);
+					fvtx.pos = facePt[f];
+					const uint32 fIdx = (uint32)ov.Size();
+					ov.PushBack(fvtx);
+					// Points d'arete du contour.
+					NkVector<uint32> ep;
+					ep.Resize(n);
+					for (uint32 k = 0; k < n; ++k) {
+						const uint32 ia = fv[s0 + k], ib = fv[s0 + (k + 1) % n];
+						const uint64 ck = edgeKey(ia, ib);
+						uint32 *ex = cornerEdge.Find(ck);
+						if (ex) {
+							ep[k] = *ex;
+							continue;
+						}
+						pair[0] = ia;
+						pair[1] = ib;
+						NkVertex3D e = NkEmMixVerts(pv.Data(), pair, 2);
+						const uint32 ca = CN(ia), cb = CN(ib);
+						uint32 *sei = (ca != cb) ? edgeOf.Find(edgeKey(ca, cb)) : nullptr;
+						if (sei) {
+							const EdgeAcc &ea = edgeAcc[*sei];
+							e.pos = (ea.nface >= 2)
+										? (ea.pa + ea.pb + ea.fsum * (1.f / (float32)ea.nface) * 2.f) * 0.25f
+										: (ea.pa + ea.pb) * 0.5f;
+						} else {
+							e.pos = (pv[ia].pos + pv[ib].pos) * 0.5f;
+						}
+						ep[k] = (uint32)ov.Size();
+						ov.PushBack(e);
+						cornerEdge.InsertOrAssign(ck, ep[k]);
+					}
+					for (uint32 k = 0; k < n; ++k) {
+						const uint32 prev = (k + n - 1) % n;
+						nfv.PushBack(fv[s0 + k]); // sommet d'origine, DEPLACE
+						nfv.PushBack(ep[k]);	  // arete suivante
+						nfv.PushBack(fIdx);		  // centre de face
+						nfv.PushBack(ep[prev]);	  // arete precedente
+						nfs.PushBack((uint32)nfv.Size());
+					}
+				}
+				if (nfs.Size() < 2)
+					return any;
+				NkVector<uint8> vsel;
+				vsel.Resize((uint32)ov.Size());
+				for (uint32 i = 0; i < (uint32)ov.Size(); ++i)
+					vsel[i] = (i < vc && i < (uint32)verts.Size()) ? verts[i].sel : (uint8)0;
+				BuildFromPolygons(ov.Data(), (uint32)ov.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data());
+				ApplyVertSel(vsel);
+				RecomputeNormals();
+				RebuildEdges();
+				any = true;
+			}
+			return any;
+		}
+
 		bool NkEditMesh::MergeSelectedVerts(const NkMergeParams &p) {
 			NkVector<NkVertex3D> pv;
 			NkVector<uint32> fs, fv;
 			ToPolygons(pv, fs, fv);
 			NkVec3f c{0.f, 0.f, 0.f};
-			int32 n = 0, first = -1, last = -1;
+			int32 n = 0;
 			for (uint32 i = 0; i < (uint32)pv.Size(); i++)
 				if (i < (uint32)verts.Size() && verts[i].sel) {
 					c = c + pv[i].pos;
 					n++;
-					if (first < 0)
-						first = (int32)i;
-					last = (int32)i;
 				}
+			// PREMIER / DERNIER SELECTIONNE au sens des GESTES, pas des indices.
+			// L'indice reflete l'ordre de construction du maillage ; sur un cube dont
+			// les sommets sont dupliques par face, « plus petit indice » designait une
+			// copie arbitraire, sans rapport avec le premier coin clique.
+			int32 first = FirstSelected(), last = LastSelected();
+			if (first < 0 || first >= (int32)pv.Size())
+				first = 0;
+			if (last < 0 || last >= (int32)pv.Size())
+				last = first;
 			if (n < 2)
 				return false;
 			c = c * (1.f / (float32)n);
@@ -1533,8 +1873,16 @@ namespace nkentseu {
 			auto cn = [&](uint32 v) { return (v < (uint32)canon.Size()) ? canon[v] : v; };
 
 			edges.Clear();
+			radialPool.Clear();
+			diskPool.Clear();
+			for (uint32 h = 0; h < (uint32)hedges.Size(); ++h)
+				hedges[h].edge = NK_EM_INVALID;
 			NkHashMap<uint64, uint32> seen;
 			NkVector<NkEmId> loop;
+			// Demi-aretes rattachees a chaque arete, collectees AVANT d'etre aplaties
+			// dans radialPool : on ne connait le nombre d'incidences qu'a la fin du
+			// balayage, et une tranche contigue exige de le savoir.
+			NkVector<NkVector<NkEmId>> radial;
 			for (uint32 f = 0; f < (uint32)faces.Size(); ++f) {
 				if (!faces[f].alive)
 					continue;
@@ -1552,9 +1900,11 @@ namespace nkentseu {
 						const uint64 lo = o < d ? o : d, hi = o < d ? d : o;
 						const uint64 key = (lo << 32) | hi;
 						uint32 *ex = seen.Find(key);
+						uint32 ei;
 						if (ex) {
-							if (edges[*ex].faceCount < 255)
-								edges[*ex].faceCount++;
+							ei = *ex;
+							if (edges[ei].faceCount < 255)
+								edges[ei].faceCount++;
 						} else {
 							Edge e{};
 							e.v0 = (NkEmId)lo;
@@ -1562,9 +1912,17 @@ namespace nkentseu {
 							e.hedge = hh;
 							e.faceCount = 1;
 							e.alive = 1;
-							seen.InsertOrAssign(key, (uint32)edges.Size());
+							ei = (uint32)edges.Size();
+							seen.InsertOrAssign(key, ei);
 							edges.PushBack(e);
+							radial.PushBack(NkVector<NkEmId>{});
 						}
+						// LIEN DEMI-ARETE -> ARETE et CYCLE RADIAL, poses ici parce que
+						// c'est le seul endroit qui voit chaque incidence exactement une
+						// fois. Les recalculer ailleurs reviendrait a re-deduire ce que ce
+						// balayage vient d'etablir.
+						hedges[hh].edge = (NkEmId)ei;
+						radial[ei].PushBack(hh);
 					}
 					hh = hedges[hh].next;
 				} while (hh != start && hh != NK_EM_INVALID && ++guard < 100000u);
@@ -1586,7 +1944,167 @@ namespace nkentseu {
 				e.faceCount = 0;
 				e.alive = 1;
 				edges.PushBack(e);
+				radial.PushBack(NkVector<NkEmId>{}); // filaire : cycle radial VIDE
 			}
+
+			// ── APLATISSEMENT DU CYCLE RADIAL ───────────────────────────────────
+			// `radialCount` fait desormais autorite sur le nombre de faces incidentes.
+			// `faceCount` est conserve (l'API et la serialisation l'utilisent) mais
+			// realigne dessus : deux compteurs qui divergent finissent toujours par se
+			// contredire, et c'est alors le mauvais qui est lu.
+			for (uint32 i = 0; i < (uint32)edges.Size(); ++i) {
+				edges[i].radialStart = (uint32)radialPool.Size();
+				const uint32 k = (i < (uint32)radial.Size()) ? (uint32)radial[i].Size() : 0u;
+				edges[i].radialCount = k;
+				for (uint32 j = 0; j < k; ++j)
+					radialPool.PushBack(radial[i][j]);
+				edges[i].faceCount = (uint8)(k > 255u ? 255u : k);
+			}
+
+			// ── CYCLE DISQUE ────────────────────────────────────────────────────
+			// Renseigne sur le sommet REPRESENTANT de l'identite soudee ; les copies
+			// coincidentes partagent la meme tranche. Sinon, sur une primitive qui
+			// duplique ses sommets par face, chaque copie ne verrait qu'une partie de
+			// ses aretes — exactement le piege deja rencontre sur le comptage d'aretes.
+			{
+				const uint32 nv = (uint32)verts.Size();
+				NkVector<uint32> cnt;
+				cnt.Resize(nv);
+				for (uint32 i = 0; i < nv; ++i)
+					cnt[i] = 0;
+				for (uint32 i = 0; i < (uint32)edges.Size(); ++i) {
+					if (!edges[i].alive)
+						continue;
+					if (edges[i].v0 < nv)
+						cnt[edges[i].v0]++;
+					if (edges[i].v1 < nv)
+						cnt[edges[i].v1]++;
+				}
+				NkVector<uint32> start;
+				start.Resize(nv);
+				uint32 acc = 0;
+				for (uint32 i = 0; i < nv; ++i) {
+					start[i] = acc;
+					acc += cnt[i];
+				}
+				diskPool.Resize(acc);
+				NkVector<uint32> fill;
+				fill.Resize(nv);
+				for (uint32 i = 0; i < nv; ++i)
+					fill[i] = start[i];
+				for (uint32 i = 0; i < (uint32)edges.Size(); ++i) {
+					if (!edges[i].alive)
+						continue;
+					if (edges[i].v0 < nv)
+						diskPool[fill[edges[i].v0]++] = (NkEmId)i;
+					if (edges[i].v1 < nv)
+						diskPool[fill[edges[i].v1]++] = (NkEmId)i;
+				}
+				for (uint32 i = 0; i < nv; ++i) {
+					const uint32 r = (i < (uint32)canon.Size()) ? canon[i] : i;
+					verts[i].diskStart = start[r < nv ? r : i];
+					verts[i].diskCount = cnt[r < nv ? r : i];
+				}
+			}
+		}
+
+		// ── ACCES AUX DEUX CYCLES ───────────────────────────────────────────────
+		NkEmId NkEditMesh::EdgeBetween(uint32 a, uint32 b) const {
+			NkVector<uint32> canon;
+			BuildVertexMerge(canon);
+			const uint32 nc = (uint32)canon.Size();
+			const uint32 ca = (a < nc) ? canon[a] : a, cb = (b < nc) ? canon[b] : b;
+			if (ca == cb)
+				return NK_EM_INVALID;
+			const uint32 lo = ca < cb ? ca : cb, hi = ca < cb ? cb : ca;
+			// Balayage du DISQUE du sommet plutot que de toutes les aretes : c'est
+			// precisement ce que le cycle disque apporte.
+			if (lo < (uint32)verts.Size()) {
+				const uint32 s0 = verts[lo].diskStart, n0 = verts[lo].diskCount;
+				for (uint32 k = 0; k < n0; ++k) {
+					const NkEmId e = diskPool[s0 + k];
+					if (e < (NkEmId)edges.Size() && edges[e].alive && edges[e].v0 == lo && edges[e].v1 == hi)
+						return e;
+				}
+			}
+			return NK_EM_INVALID;
+		}
+
+		uint32 NkEditMesh::EdgeHedges(NkEmId e, NkVector<NkEmId> &out) const {
+			out.Clear();
+			if (e >= (NkEmId)edges.Size() || !edges[e].alive)
+				return 0;
+			const uint32 s0 = edges[e].radialStart, n0 = edges[e].radialCount;
+			for (uint32 k = 0; k < n0; ++k)
+				if (s0 + k < (uint32)radialPool.Size())
+					out.PushBack(radialPool[s0 + k]);
+			return (uint32)out.Size();
+		}
+
+		uint32 NkEditMesh::EdgeFaces(NkEmId e, NkVector<NkEmId> &out) const {
+			out.Clear();
+			if (e >= (NkEmId)edges.Size() || !edges[e].alive)
+				return 0;
+			const uint32 s0 = edges[e].radialStart, n0 = edges[e].radialCount;
+			for (uint32 k = 0; k < n0; ++k) {
+				if (s0 + k >= (uint32)radialPool.Size())
+					break;
+				const NkEmId h = radialPool[s0 + k];
+				if (h >= (NkEmId)hedges.Size())
+					continue;
+				const NkEmId f = hedges[h].face;
+				if (f == NK_EM_INVALID)
+					continue;
+				bool dup = false;
+				for (uint32 j = 0; j < (uint32)out.Size(); ++j)
+					if (out[j] == f) {
+						dup = true;
+						break;
+					}
+				if (!dup)
+					out.PushBack(f);
+			}
+			return (uint32)out.Size();
+		}
+
+		NkEmId NkEditMesh::EdgeOtherFace(NkEmId e, NkEmId f) const {
+			// REFUS EXPLICITE sur une arete non manifold : « la face d'en face » n'y
+			// existe pas. En retourner une au hasard donnerait un parcours qui semble
+			// marcher et qui suit une branche arbitraire — le defaut precis que le
+			// cycle radial existe pour rendre visible.
+			if (e >= (NkEmId)edges.Size() || !edges[e].alive || edges[e].radialCount != 2)
+				return NK_EM_INVALID;
+			const uint32 s0 = edges[e].radialStart;
+			for (uint32 k = 0; k < 2; ++k) {
+				if (s0 + k >= (uint32)radialPool.Size())
+					break;
+				const NkEmId h = radialPool[s0 + k];
+				if (h >= (NkEmId)hedges.Size())
+					continue;
+				const NkEmId ff = hedges[h].face;
+				if (ff != f)
+					return ff;
+			}
+			return NK_EM_INVALID;
+		}
+
+		uint32 NkEditMesh::VertEdges(uint32 v, NkVector<NkEmId> &out) const {
+			out.Clear();
+			if (v >= (uint32)verts.Size())
+				return 0;
+			const uint32 s0 = verts[v].diskStart, n0 = verts[v].diskCount;
+			for (uint32 k = 0; k < n0; ++k)
+				if (s0 + k < (uint32)diskPool.Size())
+					out.PushBack(diskPool[s0 + k]);
+			return (uint32)out.Size();
+		}
+
+		uint32 NkEditMesh::NonManifoldEdgeCount() const {
+			uint32 n = 0;
+			for (uint32 i = 0; i < (uint32)edges.Size(); ++i)
+				if (edges[i].alive && edges[i].radialCount > 2)
+					n++;
+			return n;
 		}
 
 		uint32 NkEditMesh::EdgeCount() const {
@@ -1619,7 +2137,15 @@ namespace nkentseu {
 			e.faceCount = 0;
 			e.alive = 1;
 			edges.PushBack(e);
-			return (NkEmId)(edges.Size() - 1);
+			// RECONSTRUCTION APRES AJOUT. Empiler l'arete suffisait tant qu'`edges`
+			// n'etait qu'une liste ; avec les cycles de l'etape 2 elle ne suffit plus :
+			// le cycle DISQUE du sommet ne verrait pas la nouvelle arete. Defaut
+			// MESURE avant correction : disque(v) restait a 3 au lieu de 4 apres l'ajout
+			// de la diagonale d'un cube. RebuildEdges preserve les filaires — c'est sa
+			// raison d'etre — donc on peut la relancer sans perdre celle qu'on vient de
+			// creer, puis retrouver son index par le disque.
+			RebuildEdges();
+			return EdgeBetween(a, b);
 		}
 
 
@@ -3892,14 +4418,514 @@ namespace nkentseu {
 		// =====================================================================
 		// STACK DE MODIFICATEURS — Mirror / Array / Subsurf (non-destructif)
 		// =====================================================================
+		// ── OUTILS COMMUNS AUX MODIFICATEURS ────────────────────────────────────
+		// Un modificateur travaille sur le maillage ENTIER. Ceux qui reutilisent une
+		// operation d'edition (qui, elle, agit sur la SELECTION) doivent donc tout
+		// selectionner puis restaurer — sans quoi le resultat dependrait de ce que
+		// l'utilisateur avait clique avant, ce qui n'aurait aucun sens pour une pile
+		// non destructive rejouee a chaque frame.
+		static NkVector<uint8> NkEmSaveSel(const NkEditMesh &m) {
+			NkVector<uint8> s;
+			s.Resize(m.VertCount());
+			for (uint32 i = 0; i < m.VertCount(); ++i)
+				s[i] = m.verts[i].sel;
+			return s;
+		}
+		static void NkEmRestoreSel(NkEditMesh &m, const NkVector<uint8> &s) {
+			// La topologie a pu changer : on ne restaure que si la taille correspond,
+			// sinon on repart d'une selection vide plutot que de reaffecter au hasard.
+			if ((uint32)s.Size() == m.VertCount())
+				m.SetVertSelection(s.Data(), (uint32)s.Size());
+			else
+				m.SelectNone();
+		}
+
+		// SOLIDIFIER : construit une SECONDE coque decalee le long des normales, et
+		// (option) referme le BORD entre les deux. Sans la bordure, une surface
+		// ouverte donnerait deux nappes separees — visuellement une epaisseur, mais un
+		// maillage non ferme, ce qui casse tout ce qui suit (booleen, impression 3D).
+		static void NkEmModSolidify(NkEditMesh &m, const NkMeshModifier &p) {
+			NkVector<NkVertex3D> pv;
+			NkVector<uint32> fs, fv;
+			m.ToPolygons(pv, fs, fv);
+			const uint32 vc = (uint32)pv.Size();
+			const uint32 fc = (fs.Size() > 0) ? (uint32)fs.Size() - 1 : 0;
+			if (vc == 0 || fc == 0 || p.solidifyThickness <= 0.f)
+				return;
+			// offset -1 = tout vers l'interieur, +1 = tout vers l'exterieur, 0 = moitie
+			// de chaque cote (convention Blender).
+			const float32 o = (p.solidifyOffset < -1.f) ? -1.f : (p.solidifyOffset > 1.f ? 1.f : p.solidifyOffset);
+			const float32 outAmt = p.solidifyThickness * (1.f + o) * 0.5f;
+			const float32 inAmt = p.solidifyThickness * (1.f - o) * 0.5f;
+			NkVector<NkVertex3D> ov;
+			ov.Resize(vc * 2u);
+			for (uint32 i = 0; i < vc; ++i) {
+				ov[i] = pv[i];
+				ov[i].pos = pv[i].pos + pv[i].normal * outAmt;
+				ov[vc + i] = pv[i];
+				ov[vc + i].pos = pv[i].pos - pv[i].normal * inAmt;
+				ov[vc + i].normal = pv[i].normal * -1.f; // la coque interne regarde dedans
+			}
+			NkVector<uint32> nfs, nfv;
+			nfs.PushBack(0);
+			for (uint32 f = 0; f < fc; ++f) { // coque externe
+				for (uint32 k = fs[f]; k < fs[f + 1]; ++k)
+					nfv.PushBack(fv[k]);
+				nfs.PushBack((uint32)nfv.Size());
+			}
+			for (uint32 f = 0; f < fc; ++f) { // coque interne, winding INVERSE
+				const uint32 s0 = fs[f], s1 = fs[f + 1];
+				for (uint32 k = s1; k > s0; --k)
+					nfv.PushBack(vc + fv[k - 1]);
+				nfs.PushBack((uint32)nfv.Size());
+			}
+			if (p.solidifyRim) {
+				// BORD = arete portee par UNE seule face (identite soudee). C'est la
+				// seule facon de savoir ou la surface s'arrete.
+				NkVector<uint32> canon;
+				m.BuildVertexMerge(canon);
+				auto CN = [&](uint32 v) { return (v < (uint32)canon.Size()) ? canon[v] : v; };
+				NkHashMap<uint64, uint32> cnt;
+				for (uint32 f = 0; f < fc; ++f) {
+					const uint32 s0 = fs[f], s1 = fs[f + 1], n = s1 - s0;
+					for (uint32 k = 0; k < n; ++k) {
+						const uint32 a = CN(fv[s0 + k]), b = CN(fv[s0 + (k + 1) % n]);
+						if (a == b)
+							continue;
+						const uint64 lo = a < b ? a : b, hi = a < b ? b : a;
+						const uint64 key = (lo << 32) | hi;
+						uint32 *e = cnt.Find(key);
+						if (e)
+							(*e)++;
+						else
+							cnt.InsertOrAssign(key, 1u);
+					}
+				}
+				for (uint32 f = 0; f < fc; ++f) {
+					const uint32 s0 = fs[f], s1 = fs[f + 1], n = s1 - s0;
+					for (uint32 k = 0; k < n; ++k) {
+						const uint32 ia = fv[s0 + k], ib = fv[s0 + (k + 1) % n];
+						const uint32 a = CN(ia), b = CN(ib);
+						if (a == b)
+							continue;
+						const uint64 lo = a < b ? a : b, hi = a < b ? b : a;
+						const uint32 *e = cnt.Find((lo << 32) | hi);
+						if (!e || *e != 1u)
+							continue; // arete interieure : pas de bordure a creer
+						nfv.PushBack(ib);
+						nfv.PushBack(ia);
+						nfv.PushBack(vc + ia);
+						nfv.PushBack(vc + ib);
+						nfs.PushBack((uint32)nfv.Size());
+					}
+				}
+			}
+			m.BuildFromPolygons(ov.Data(), (uint32)ov.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data());
+			m.RecomputeNormals();
+			m.RebuildEdges();
+		}
+
+		// BUILD (proportion de faces) et MASK (faces selectionnees) : meme mecanique,
+		// seul le CRITERE de conservation change. Les mettre en commun evite deux
+		// reconstructions de polygones qui divergeraient a la premiere correction.
+		static void NkEmModFaceSubset(NkEditMesh &m, const NkMeshModifier &p, bool byRatio) {
+			NkVector<NkVertex3D> pv;
+			NkVector<uint32> fs, fv;
+			m.ToPolygons(pv, fs, fv);
+			const uint32 fc = (fs.Size() > 0) ? (uint32)fs.Size() - 1 : 0;
+			if (fc == 0)
+				return;
+			uint32 keepN = fc;
+			if (byRatio) {
+				float32 r = p.buildRatio;
+				r = (r < 0.f) ? 0.f : (r > 1.f ? 1.f : r);
+				keepN = (uint32)((float32)fc * r + 0.5f);
+			}
+			NkVector<uint32> nfs, nfv;
+			nfs.PushBack(0);
+			for (uint32 f = 0; f < fc; ++f) {
+				bool keep;
+				if (byRatio) {
+					keep = (f < keepN);
+				} else {
+					// MASK : une face est retenue si TOUS ses sommets sont selectionnes
+					// — meme convention que le remplissage orange de l'editeur, pour que
+					// ce qu'on voit selectionne soit exactement ce qui reste.
+					keep = true;
+					for (uint32 k = fs[f]; k < fs[f + 1]; ++k)
+						if (fv[k] >= m.VertCount() || !m.verts[fv[k]].sel) {
+							keep = false;
+							break;
+						}
+					if (p.maskInvert)
+						keep = !keep;
+				}
+				if (!keep)
+					continue;
+				for (uint32 k = fs[f]; k < fs[f + 1]; ++k)
+					nfv.PushBack(fv[k]);
+				nfs.PushBack((uint32)nfv.Size());
+			}
+			if (nfs.Size() < 2) {
+				// Tout retirer donnerait un maillage vide et une scene qui semble avoir
+				// disparu ; on prefere ne rien faire, l'utilisateur voit alors que le
+				// reglage est a l'extreme.
+				return;
+			}
+			m.BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data());
+			m.RebuildEdges();
+		}
+
+		// DEFORMATIONS PURES : Cast / SimpleDeform / Smooth / Wave. Elles ne touchent
+		// QUE les positions — la topologie est intacte, donc pas de reconstruction.
+		static void NkEmModDeform(NkEditMesh &m, const NkMeshModifier &p) {
+			const uint32 vc = m.VertCount();
+			if (vc == 0)
+				return;
+			// Repere : centre et rayon moyen du maillage. Un rayon impose a zero ferait
+			// imploser le modele, ce qui n'est jamais l'intention -> repli automatique.
+			NkVec3f c{0.f, 0.f, 0.f};
+			for (uint32 i = 0; i < vc; ++i)
+				c = c + m.verts[i].pos;
+			c = c * (1.f / (float32)vc);
+			float32 rAvg = 0.f, ymin = 1e30f, ymax = -1e30f;
+			const int32 ax = (p.type == NkModifierType::Wave) ? p.waveAxis : p.deformAxis;
+			auto comp = [&](const NkVec3f &v, int32 a) { return (a == 0) ? v.x : (a == 1 ? v.y : v.z); };
+			for (uint32 i = 0; i < vc; ++i) {
+				rAvg += (m.verts[i].pos - c).Len();
+				const float32 t = comp(m.verts[i].pos - c, ax);
+				if (t < ymin)
+					ymin = t;
+				if (t > ymax)
+					ymax = t;
+			}
+			rAvg /= (float32)vc;
+			const float32 span = (ymax - ymin) > 1e-6f ? (ymax - ymin) : 1.f;
+
+			if (p.type == NkModifierType::Smooth) {
+				// Relaxation laplacienne sur l'identite SOUDEE : sans soudure, un cube
+				// aux sommets dupliques n'aurait aucun voisin et rien ne bougerait.
+				NkVector<uint32> pairs;
+				m.GetUniqueEdges(pairs);
+				NkVector<uint32> canon;
+				m.BuildVertexMerge(canon);
+				auto CN = [&](uint32 v) { return (v < (uint32)canon.Size()) ? canon[v] : v; };
+				const int32 rep = (p.smoothRepeat < 1) ? 1 : p.smoothRepeat;
+				for (int32 it = 0; it < rep; ++it) {
+					NkVector<NkVec3f> sum;
+					NkVector<uint32> deg;
+					sum.Resize(vc);
+					deg.Resize(vc);
+					for (uint32 i = 0; i < vc; ++i) {
+						sum[i] = NkVec3f{0.f, 0.f, 0.f};
+						deg[i] = 0;
+					}
+					for (uint32 e = 0; e + 1 < (uint32)pairs.Size(); e += 2) {
+						const uint32 a = CN(pairs[e]), b = CN(pairs[e + 1]);
+						if (a >= vc || b >= vc)
+							continue;
+						sum[a] = sum[a] + m.verts[b].pos;
+						deg[a]++;
+						sum[b] = sum[b] + m.verts[a].pos;
+						deg[b]++;
+					}
+					NkVector<NkVec3f> np;
+					np.Resize(vc);
+					for (uint32 i = 0; i < vc; ++i) {
+						const uint32 r = CN(i);
+						np[i] = (r < vc && deg[r] > 0)
+									? m.verts[i].pos + (sum[r] * (1.f / (float32)deg[r]) - m.verts[r].pos) * p.smoothFactor
+									: m.verts[i].pos;
+					}
+					for (uint32 i = 0; i < vc; ++i)
+						m.verts[i].pos = np[i];
+				}
+				m.RecomputeNormals();
+				return;
+			}
+
+			for (uint32 i = 0; i < vc; ++i) {
+				NkVec3f v = m.verts[i].pos - c;
+				if (p.type == NkModifierType::Cast) {
+					const float32 R = (p.castRadius > 1e-6f) ? p.castRadius : rAvg;
+					NkVec3f tgt = v;
+					if (p.castType == 0) { // SPHERE
+						const float32 l = v.Len();
+						tgt = (l > 1e-6f) ? v * (R / l) : v;
+					} else if (p.castType == 1) { // CYLINDRE : rayon dans le plan normal a l'axe
+						NkVec3f r = v;
+						if (ax == 0)
+							r.x = 0.f;
+						else if (ax == 1)
+							r.y = 0.f;
+						else
+							r.z = 0.f;
+						const float32 l = r.Len();
+						if (l > 1e-6f) {
+							const NkVec3f s = r * (R / l);
+							tgt = v + (s - r);
+						}
+					} else { // CUBE : projection sur la face dominante
+						const float32 axv = v.x < 0.f ? -v.x : v.x, ayv = v.y < 0.f ? -v.y : v.y,
+									  azv = v.z < 0.f ? -v.z : v.z;
+						const float32 mx = (axv > ayv ? (axv > azv ? axv : azv) : (ayv > azv ? ayv : azv));
+						if (mx > 1e-6f)
+							tgt = v * (R / mx);
+					}
+					v = v + (tgt - v) * p.castFactor;
+				} else if (p.type == NkModifierType::SimpleDeform) {
+					const float32 t = (comp(v, ax) - ymin) / span; // 0..1 le long de l'axe
+					if (p.deformMode == 0) { // TORSION
+						const float32 a = p.deformAngle * 3.14159265f / 180.f * t;
+						const float32 ca = cosf(a), sa = sinf(a);
+						if (ax == 1) {
+							const float32 x = v.x * ca - v.z * sa, z = v.x * sa + v.z * ca;
+							v.x = x;
+							v.z = z;
+						} else if (ax == 0) {
+							const float32 y = v.y * ca - v.z * sa, z = v.y * sa + v.z * ca;
+							v.y = y;
+							v.z = z;
+						} else {
+							const float32 x = v.x * ca - v.y * sa, y = v.x * sa + v.y * ca;
+							v.x = x;
+							v.y = y;
+						}
+					} else if (p.deformMode == 1) { // COURBURE
+						const float32 a = p.deformAngle * 3.14159265f / 180.f * (t - 0.5f);
+						const float32 ca = cosf(a), sa = sinf(a);
+						if (ax == 1) {
+							const float32 x = v.x * ca - v.y * sa, y = v.x * sa + v.y * ca;
+							v.x = x;
+							v.y = y;
+						} else {
+							const float32 y = v.y * ca - v.z * sa, z = v.y * sa + v.z * ca;
+							v.y = y;
+							v.z = z;
+						}
+					} else if (p.deformMode == 2) { // EFFILEMENT
+						const float32 k = 1.f + p.deformFactor * (t - 0.5f) * 2.f;
+						if (ax == 1) {
+							v.x *= k;
+							v.z *= k;
+						} else if (ax == 0) {
+							v.y *= k;
+							v.z *= k;
+						} else {
+							v.x *= k;
+							v.y *= k;
+						}
+					} else { // ETIREMENT : allonge sur l'axe, retrecit autour (volume ~ conserve)
+						const float32 k = 1.f + p.deformFactor;
+						const float32 inv = (k > 1e-4f) ? 1.f / sqrtf(k) : 1.f;
+						if (ax == 1) {
+							v.y *= k;
+							v.x *= inv;
+							v.z *= inv;
+						} else if (ax == 0) {
+							v.x *= k;
+							v.y *= inv;
+							v.z *= inv;
+						} else {
+							v.z *= k;
+							v.x *= inv;
+							v.y *= inv;
+						}
+					}
+				} else if (p.type == NkModifierType::Wave) {
+					// Onde RADIALE dans le plan perpendiculaire a l'axe : c'est la forme
+					// de Blender (rides concentriques), pas une sinusoide le long d'un axe.
+					NkVec3f r = v;
+					if (ax == 0)
+						r.x = 0.f;
+					else if (ax == 1)
+						r.y = 0.f;
+					else
+						r.z = 0.f;
+					const float32 d = r.Len();
+					const float32 w = (p.waveWidth > 1e-4f) ? p.waveWidth : 1e-4f;
+					const float32 h = p.waveHeight * sinf(d / w - p.wavePhase);
+					if (ax == 0)
+						v.x += h;
+					else if (ax == 1)
+						v.y += h;
+					else
+						v.z += h;
+				}
+				m.verts[i].pos = c + v;
+			}
+			m.RecomputeNormals();
+		}
+
+		// OMBRAGE PAR ANGLE (« Auto Smooth ») : une face est LISSE si toutes ses
+		// aretes partagees font un angle diedre inferieur au seuil. Au-dela, l'arete
+		// doit rester franche — c'est ce qui distingue un cylindre (cotes lisses,
+		// couvercles francs) d'une capsule.
+		static void NkEmModAutoSmooth(NkEditMesh &m, const NkMeshModifier &p) {
+			const float32 cosLim = cosf(p.autoSmoothAngle * 3.14159265f / 180.f);
+			// On passe par le CYCLE RADIAL (BMesh etape 2) et non par GetUniqueEdges +
+			// EdgeFaces(a, b, ...). Mesure du defaut de la premiere version : sur un
+			// cube, toutes les faces ressortaient LISSES quel que soit le seuil — la
+			// recherche par paire de sommets ne retrouvait pas les deux faces (sommets
+			// dupliques par face), donc aucune arete n'etait jamais jugee vive et le
+			// reglage n'avait aucun effet. Le cycle radial, lui, PORTE les faces.
+			m.RebuildEdges();
+			const uint32 fc = (uint32)m.faces.Size();
+			NkVector<uint8> sharp;
+			sharp.Resize(fc);
+			for (uint32 f = 0; f < fc; ++f)
+				sharp[f] = 0;
+			NkVector<NkEmId> fs;
+			for (uint32 e = 0; e < (uint32)m.edges.Size(); ++e) {
+				if (!m.edges[e].alive)
+					continue;
+				if (m.EdgeFaces((NkEmId)e, fs) != 2)
+					continue; // bord, filaire ou non manifold : pas d angle diedre defini
+				const NkEmId f0 = fs[0], f1 = fs[1];
+				if (f0 >= fc || f1 >= fc)
+					continue;
+				if (m.faces[f0].normal.Dot(m.faces[f1].normal) < cosLim) {
+					sharp[f0] = 1;
+					sharp[f1] = 1;
+				}
+			}
+			for (uint32 f = 0; f < fc; ++f)
+				if (m.faces[f].alive)
+					m.faces[f].smooth = sharp[f] ? (uint8)0 : (uint8)1;
+			m.RecomputeNormals();
+		}
+
 		void NkMeshModifier::Apply(NkEditMesh &m) const {
 			if (!enabled)
 				return;
+			// ── LOT DE MODIFICATEURS ────────────────────────────────────────────
+			// Chacun traite le maillage ENTIER : un modificateur n'a pas de notion de
+			// selection utilisateur (sauf Mask, dont c'est justement l'objet). Ceux
+			// qui reutilisent une operation d'edition selectionnent donc TOUT d'abord,
+			// puis restaurent — sinon le resultat dependrait de ce que l'utilisateur
+			// avait clique avant d'ajouter le modificateur, ce qui serait imprevisible.
+			switch (type) {
+				case NkModifierType::Triangulate: {
+					NkVector<NkVertex3D> tv;
+					NkVector<uint32> ti;
+					NkVector<NkEmId> tf;
+					m.Triangulate(tv, ti, tf);
+					// minVerts : les faces plus PETITES sont laissees telles quelles.
+					// Sans ce garde, « trianguler » a partir de 5 cotes decouperait
+					// quand meme les quads — le reglage n'aurait aucun effet.
+					if (triangulateMinVerts > 3) {
+						NkVector<NkVertex3D> pv;
+						NkVector<uint32> fs, fv;
+						m.ToPolygons(pv, fs, fv);
+						const uint32 fc = (fs.Size() > 0) ? (uint32)fs.Size() - 1 : 0;
+						NkVector<uint32> nfs, nfv;
+						nfs.PushBack(0);
+						for (uint32 f = 0; f < fc; ++f) {
+							const uint32 s0 = fs[f], s1 = fs[f + 1], n = s1 - s0;
+							if ((int32)n < triangulateMinVerts) {
+								for (uint32 k = s0; k < s1; ++k)
+									nfv.PushBack(fv[k]);
+								nfs.PushBack((uint32)nfv.Size());
+								continue;
+							}
+							for (uint32 k = 1; k + 1 < n; ++k) { // eventail
+								nfv.PushBack(fv[s0]);
+								nfv.PushBack(fv[s0 + k]);
+								nfv.PushBack(fv[s0 + k + 1]);
+								nfs.PushBack((uint32)nfv.Size());
+							}
+						}
+						if (nfs.Size() > 1)
+							m.BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size() - 1,
+												nfv.Data());
+					} else if (!tv.Empty() && !ti.Empty()) {
+						m.BuildFromIndexed(tv.Data(), (uint32)tv.Size(), ti.Data(), (uint32)ti.Size(), false);
+					}
+					m.RebuildEdges();
+					return;
+				}
+				case NkModifierType::Weld: {
+					const NkVector<uint8> keep = NkEmSaveSel(m);
+					m.SelectAll();
+					NkMergeParams mp;
+					mp.mode = NkMergeParams::ByDistance;
+					mp.distance = (weldDistance > 0.f) ? weldDistance : 1e-4f;
+					m.MergeSelectedVerts(mp);
+					NkEmRestoreSel(m, keep);
+					m.RebuildEdges();
+					return;
+				}
+				case NkModifierType::Bevel: {
+					const NkVector<uint8> keep = NkEmSaveSel(m);
+					m.SelectAll();
+					NkBevelParams bp;
+					bp.offset = bevelWidth;
+					bp.segments = (bevelSegments < 1) ? 1 : bevelSegments;
+					m.BevelSelected(bp);
+					NkEmRestoreSel(m, keep);
+					m.RebuildEdges();
+					return;
+				}
+				case NkModifierType::EdgeSplit: {
+					const NkVector<uint8> keep = NkEmSaveSel(m);
+					m.SelectAll();
+					NkEdgeSplitParams ep;
+					m.SplitSelectedEdges(ep);
+					NkEmRestoreSel(m, keep);
+					m.RebuildEdges();
+					return;
+				}
+				case NkModifierType::Decimate: {
+					const NkVector<uint8> keep = NkEmSaveSel(m);
+					m.SelectAll();
+					NkDissolveParams dp;
+					m.DissolveSelected(dp);
+					NkEmRestoreSel(m, keep);
+					m.RebuildEdges();
+					return;
+				}
+				case NkModifierType::Screw: {
+					const NkVector<uint8> keep = NkEmSaveSel(m);
+					m.SelectAll();
+					NkSpinParams sp;
+					sp.steps = (screwSteps < 2) ? 2 : screwSteps;
+					sp.angle = screwAngle * 3.14159265f / 180.f;
+					sp.duplicate = true;
+					sp.axis = (screwAxis == 0) ? NkVec3f{1.f, 0.f, 0.f}
+								: (screwAxis == 2) ? NkVec3f{0.f, 0.f, 1.f}
+												   : NkVec3f{0.f, 1.f, 0.f};
+					sp.center = {0.f, 0.f, 0.f};
+					m.SpinSelected(sp, NkMat4f::Identity());
+					NkEmRestoreSel(m, keep);
+					m.RebuildEdges();
+					return;
+				}
+				case NkModifierType::Solidify: NkEmModSolidify(m, *this); return;
+				case NkModifierType::Build: NkEmModFaceSubset(m, *this, true); return;
+				case NkModifierType::Mask: NkEmModFaceSubset(m, *this, false); return;
+				case NkModifierType::Cast:
+				case NkModifierType::SimpleDeform:
+				case NkModifierType::Smooth:
+				case NkModifierType::Wave: NkEmModDeform(m, *this); return;
+				case NkModifierType::SmoothByAngle: NkEmModAutoSmooth(m, *this); return;
+				default: break;
+			}
 			if (type == NkModifierType::Subsurf) {
+				const int32 lv = (subsurfLevels < 1) ? 1 : subsurfLevels;
+				if (!subsurfSimple) {
+					// CATMULL-CLARK : le vrai lissage. C'etait la lacune — le
+					// modificateur appelait SubdivideSelectedFaces, une subdivision
+					// LINEAIRE : elle densifie le maillage sans DEPLACER un seul sommet,
+					// donc un cube subdivise restait un cube. Ce n'est pas le
+					// modificateur « Subdivision Surface » de Blender, c'est son mode
+					// « Simple » — desormais accessible par subsurfSimple.
+					m.SubdivideCatmullClark(lv);
+					return;
+				}
 				for (uint32 i = 0; i < m.VertCount(); ++i)
 					m.verts[i].sel = 0; // aucune sél. -> TOUT
 				NkSubdivideParams p;
-				p.cuts = (subsurfLevels < 1) ? 1 : subsurfLevels;
+				p.cuts = lv;
 				m.SubdivideSelectedFaces(p);
 				return;
 			}
@@ -3983,6 +5009,305 @@ namespace nkentseu {
 				}
 			}
 			m.BuildFromPolygons(pv.Data(), (uint32)pv.Size(), nfs.Data(), (uint32)nfs.Size() - 1, nfv.Data());
+		}
+
+		// ── TABLES DE PARAMETRES ────────────────────────────────────────────────
+		// Les noms sont des CLES : ne jamais les renommer une fois publies, une courbe
+		// d'animation ou un fichier enregistre les designerait encore.
+		static const NkModParam kParamsMirror[] = {
+			{"mirror_axis", "Axe", NkModParamType::Int, offsetof(NkMeshModifier, mirrorAxis), 0.f, 2.f},
+			{"mirror_merge", "Souder au plan", NkModParamType::Bool, offsetof(NkMeshModifier, mirrorMerge), 0.f, 1.f},
+			{"mirror_merge_dist", "Distance de soudure", NkModParamType::Float,
+			 offsetof(NkMeshModifier, mirrorMergeDist), 0.f, 1.f},
+		};
+		static const NkModParam kParamsArray[] = {
+			{"array_count", "Nombre", NkModParamType::Int, offsetof(NkMeshModifier, arrayCount), 1.f, 256.f},
+			{"array_offset", "Decalage", NkModParamType::Vec3, offsetof(NkMeshModifier, arrayOffset), 0.f, 0.f},
+		};
+		static const NkModParam kParamsSubsurf[] = {
+			{"subsurf_levels", "Niveaux", NkModParamType::Int, offsetof(NkMeshModifier, subsurfLevels), 0.f, 6.f},
+			{"subsurf_simple", "Simple (lineaire)", NkModParamType::Bool, offsetof(NkMeshModifier, subsurfSimple), 0.f,
+			 1.f},
+		};
+
+		static const NkModParam kParamsSolidify[] = {
+			{"solidify_thickness", "Epaisseur", NkModParamType::Float, offsetof(NkMeshModifier, solidifyThickness),
+			 0.f, 2.f},
+			{"solidify_offset", "Decalage", NkModParamType::Float, offsetof(NkMeshModifier, solidifyOffset), -1.f, 1.f},
+			{"solidify_rim", "Fermer le bord", NkModParamType::Bool, offsetof(NkMeshModifier, solidifyRim), 0.f, 1.f},
+		};
+		static const NkModParam kParamsTriangulate[] = {
+			{"triangulate_min_verts", "Cotes minimum", NkModParamType::Int,
+			 offsetof(NkMeshModifier, triangulateMinVerts), 3.f, 16.f},
+		};
+		static const NkModParam kParamsWeld[] = {
+			{"weld_distance", "Distance", NkModParamType::Float, offsetof(NkMeshModifier, weldDistance), 0.f, 1.f},
+		};
+		static const NkModParam kParamsBevel[] = {
+			{"bevel_width", "Largeur", NkModParamType::Float, offsetof(NkMeshModifier, bevelWidth), 0.f, 1.f},
+			{"bevel_segments", "Segments", NkModParamType::Int, offsetof(NkMeshModifier, bevelSegments), 1.f, 12.f},
+		};
+		static const NkModParam kParamsScrew[] = {
+			{"screw_steps", "Pas", NkModParamType::Int, offsetof(NkMeshModifier, screwSteps), 2.f, 128.f},
+			{"screw_angle", "Angle", NkModParamType::Float, offsetof(NkMeshModifier, screwAngle), -720.f, 720.f},
+			{"screw_height", "Hauteur", NkModParamType::Float, offsetof(NkMeshModifier, screwHeight), -10.f, 10.f},
+			{"screw_axis", "Axe", NkModParamType::Int, offsetof(NkMeshModifier, screwAxis), 0.f, 2.f},
+		};
+		static const NkModParam kParamsEdgeSplit[] = {
+			{"edge_split_angle", "Angle", NkModParamType::Float, offsetof(NkMeshModifier, edgeSplitAngle), 0.f, 180.f},
+		};
+		static const NkModParam kParamsDecimate[] = {
+			{"decimate_angle", "Angle planaire", NkModParamType::Float, offsetof(NkMeshModifier, decimateAngle), 0.f,
+			 90.f},
+		};
+		static const NkModParam kParamsBuild[] = {
+			{"build_ratio", "Proportion", NkModParamType::Float, offsetof(NkMeshModifier, buildRatio), 0.f, 1.f},
+		};
+		static const NkModParam kParamsMask[] = {
+			{"mask_invert", "Inverser", NkModParamType::Bool, offsetof(NkMeshModifier, maskInvert), 0.f, 1.f},
+		};
+		static const NkModParam kParamsCast[] = {
+			{"cast_type", "Forme", NkModParamType::Int, offsetof(NkMeshModifier, castType), 0.f, 2.f},
+			{"cast_factor", "Facteur", NkModParamType::Float, offsetof(NkMeshModifier, castFactor), -2.f, 2.f},
+			{"cast_radius", "Rayon", NkModParamType::Float, offsetof(NkMeshModifier, castRadius), 0.f, 10.f},
+		};
+		static const NkModParam kParamsSimpleDeform[] = {
+			{"deform_mode", "Mode", NkModParamType::Int, offsetof(NkMeshModifier, deformMode), 0.f, 3.f},
+			{"deform_angle", "Angle", NkModParamType::Float, offsetof(NkMeshModifier, deformAngle), -360.f, 360.f},
+			{"deform_factor", "Facteur", NkModParamType::Float, offsetof(NkMeshModifier, deformFactor), -2.f, 2.f},
+			{"deform_axis", "Axe", NkModParamType::Int, offsetof(NkMeshModifier, deformAxis), 0.f, 2.f},
+		};
+		static const NkModParam kParamsSmooth[] = {
+			{"smooth_factor", "Facteur", NkModParamType::Float, offsetof(NkMeshModifier, smoothFactor), 0.f, 1.f},
+			{"smooth_repeat", "Repetitions", NkModParamType::Int, offsetof(NkMeshModifier, smoothRepeat), 1.f, 20.f},
+		};
+		static const NkModParam kParamsWave[] = {
+			{"wave_height", "Hauteur", NkModParamType::Float, offsetof(NkMeshModifier, waveHeight), -2.f, 2.f},
+			{"wave_width", "Largeur", NkModParamType::Float, offsetof(NkMeshModifier, waveWidth), 0.01f, 10.f},
+			{"wave_phase", "Phase", NkModParamType::Float, offsetof(NkMeshModifier, wavePhase), -100.f, 100.f},
+			{"wave_axis", "Axe", NkModParamType::Int, offsetof(NkMeshModifier, waveAxis), 0.f, 2.f},
+		};
+		static const NkModParam kParamsAutoSmooth[] = {
+			{"auto_smooth_angle", "Angle", NkModParamType::Float, offsetof(NkMeshModifier, autoSmoothAngle), 0.f,
+			 180.f},
+		};
+
+		const char *NkModifierTypeName(NkModifierType t) {
+			switch (t) {
+				case NkModifierType::Mirror: return "Miroir";
+				case NkModifierType::Array: return "Tableau";
+				case NkModifierType::Subsurf: return "Subdivision de surface";
+				case NkModifierType::Solidify: return "Solidifier";
+				case NkModifierType::Triangulate: return "Trianguler";
+				case NkModifierType::Weld: return "Souder";
+				case NkModifierType::Bevel: return "Chanfrein";
+				case NkModifierType::Screw: return "Vis (revolution)";
+				case NkModifierType::EdgeSplit: return "Separer les aretes";
+				case NkModifierType::Decimate: return "Simplifier";
+				case NkModifierType::Build: return "Construction";
+				case NkModifierType::Mask: return "Masque";
+				case NkModifierType::Cast: return "Projeter";
+				case NkModifierType::SimpleDeform: return "Deformation simple";
+				case NkModifierType::Smooth: return "Lisser";
+				case NkModifierType::Wave: return "Onde";
+				case NkModifierType::SmoothByAngle: return "Ombrage par angle";
+			}
+			return "?";
+		}
+
+		const NkModParam *NkModifierParams(NkModifierType t, uint32 &count) {
+			switch (t) {
+				case NkModifierType::Mirror:
+					count = (uint32)(sizeof(kParamsMirror) / sizeof(kParamsMirror[0]));
+					return kParamsMirror;
+				case NkModifierType::Array:
+					count = (uint32)(sizeof(kParamsArray) / sizeof(kParamsArray[0]));
+					return kParamsArray;
+				case NkModifierType::Subsurf:
+					count = (uint32)(sizeof(kParamsSubsurf) / sizeof(kParamsSubsurf[0]));
+					return kParamsSubsurf;
+#define NK_MOD_TABLE(T, A)                                                                                             \
+	case NkModifierType::T: count = (uint32)(sizeof(A) / sizeof(A[0])); return A
+				NK_MOD_TABLE(Solidify, kParamsSolidify);
+				NK_MOD_TABLE(Triangulate, kParamsTriangulate);
+				NK_MOD_TABLE(Weld, kParamsWeld);
+				NK_MOD_TABLE(Bevel, kParamsBevel);
+				NK_MOD_TABLE(Screw, kParamsScrew);
+				NK_MOD_TABLE(EdgeSplit, kParamsEdgeSplit);
+				NK_MOD_TABLE(Decimate, kParamsDecimate);
+				NK_MOD_TABLE(Build, kParamsBuild);
+				NK_MOD_TABLE(Mask, kParamsMask);
+				NK_MOD_TABLE(Cast, kParamsCast);
+				NK_MOD_TABLE(SimpleDeform, kParamsSimpleDeform);
+				NK_MOD_TABLE(Smooth, kParamsSmooth);
+				NK_MOD_TABLE(Wave, kParamsWave);
+				NK_MOD_TABLE(SmoothByAngle, kParamsAutoSmooth);
+#undef NK_MOD_TABLE
+			}
+			count = 0;
+			return nullptr;
+		}
+
+		uint32 NkMeshModifier::ParamCount() const {
+			uint32 n = 0;
+			NkModifierParams(type, n);
+			return n;
+		}
+
+		const NkModParam *NkMeshModifier::ParamAt(uint32 i) const {
+			uint32 n = 0;
+			const NkModParam *p = NkModifierParams(type, n);
+			return (p && i < n) ? &p[i] : nullptr;
+		}
+
+		static bool NkEmStrEq(const char *a, const char *b) {
+			if (!a || !b)
+				return false;
+			while (*a && *b) {
+				if (*a != *b)
+					return false;
+				++a;
+				++b;
+			}
+			return *a == *b;
+		}
+
+		const NkModParam *NkMeshModifier::FindParam(const char *name) const {
+			uint32 n = 0;
+			const NkModParam *p = NkModifierParams(type, n);
+			for (uint32 i = 0; i < n; ++i)
+				if (NkEmStrEq(p[i].name, name))
+					return &p[i];
+			return nullptr;
+		}
+
+		bool NkMeshModifier::GetParam(const char *name, float32 &out) const {
+			const NkModParam *p = FindParam(name);
+			if (!p || p->type == NkModParamType::Vec3)
+				return false;
+			const uint8 *base = (const uint8 *)this + p->offset;
+			switch (p->type) {
+				case NkModParamType::Bool: out = (*(const bool *)base) ? 1.f : 0.f; return true;
+				case NkModParamType::Int: out = (float32)(*(const int32 *)base); return true;
+				default: out = *(const float32 *)base; return true;
+			}
+		}
+
+		bool NkMeshModifier::SetParam(const char *name, float32 v) {
+			const NkModParam *p = FindParam(name);
+			if (!p || p->type == NkModParamType::Vec3)
+				return false;
+			// Ecretage sur les bornes PUBLIEES : une courbe d'animation depasse
+			// facilement (interpolation, rebond), et un arrayCount negatif ou un niveau
+			// de subdivision a 30 ne sont pas des reglages, ce sont des plantages.
+			if (p->maxV > p->minV) {
+				if (v < p->minV)
+					v = p->minV;
+				if (v > p->maxV)
+					v = p->maxV;
+			}
+			uint8 *base = (uint8 *)this + p->offset;
+			switch (p->type) {
+				case NkModParamType::Bool: *(bool *)base = (v >= 0.5f); return true;
+				// Arrondi au plus proche et non troncature : une courbe qui passe par
+				// 2,999 vise 3, pas 2.
+				case NkModParamType::Int: *(int32 *)base = (int32)(v < 0.f ? v - 0.5f : v + 0.5f); return true;
+				default: *(float32 *)base = v; return true;
+			}
+		}
+
+		bool NkMeshModifier::GetParamVec3(const char *name, NkVec3f &out) const {
+			const NkModParam *p = FindParam(name);
+			if (!p || p->type != NkModParamType::Vec3)
+				return false;
+			out = *(const NkVec3f *)((const uint8 *)this + p->offset);
+			return true;
+		}
+
+		bool NkMeshModifier::SetParamVec3(const char *name, const NkVec3f &v) {
+			const NkModParam *p = FindParam(name);
+			if (!p || p->type != NkModParamType::Vec3)
+				return false;
+			*(NkVec3f *)((uint8 *)this + p->offset) = v;
+			return true;
+		}
+
+		// ── GESTION DE LA PILE ──────────────────────────────────────────────────
+		bool NkModifierStack::Remove(uint32 index) {
+			if (index >= (uint32)modifiers.Size())
+				return false;
+			for (uint32 i = index; i + 1 < (uint32)modifiers.Size(); ++i)
+				modifiers[i] = modifiers[i + 1];
+			modifiers.Resize((uint32)modifiers.Size() - 1);
+			return true;
+		}
+
+		bool NkModifierStack::MoveUp(uint32 index) {
+			if (index == 0 || index >= (uint32)modifiers.Size())
+				return false;
+			const NkMeshModifier t = modifiers[index - 1];
+			modifiers[index - 1] = modifiers[index];
+			modifiers[index] = t;
+			return true;
+		}
+
+		bool NkModifierStack::MoveDown(uint32 index) {
+			if (index + 1 >= (uint32)modifiers.Size())
+				return false;
+			return MoveUp(index + 1);
+		}
+
+		bool NkModifierStack::SetEnabled(uint32 index, bool on) {
+			if (index >= (uint32)modifiers.Size())
+				return false;
+			modifiers[index].enabled = on;
+			return true;
+		}
+
+		bool NkModifierStack::Duplicate(uint32 index) {
+			if (index >= (uint32)modifiers.Size())
+				return false;
+			NkMeshModifier c = modifiers[index];
+			c.id = mNextId++; // identifiant NEUF : animable independamment de l'original
+			modifiers.PushBack(c);
+			// Inseree JUSTE APRES l'original, comme Blender : la pile est un ordre
+			// d'evaluation, une copie ajoutee a la fin n'aurait pas le meme effet.
+			for (uint32 i = (uint32)modifiers.Size() - 1; i > index + 1; --i) {
+				const NkMeshModifier t = modifiers[i - 1];
+				modifiers[i - 1] = modifiers[i];
+				modifiers[i] = t;
+			}
+			return true;
+		}
+
+		int32 NkModifierStack::IndexOfId(uint32 id) const {
+			for (uint32 i = 0; i < (uint32)modifiers.Size(); ++i)
+				if (modifiers[i].id == id)
+					return (int32)i;
+			return -1;
+		}
+
+		NkMeshModifier *NkModifierStack::FindById(uint32 id) {
+			const int32 i = IndexOfId(id);
+			return (i >= 0) ? &modifiers[(uint32)i] : nullptr;
+		}
+
+		const NkMeshModifier *NkModifierStack::FindById(uint32 id) const {
+			const int32 i = IndexOfId(id);
+			return (i >= 0) ? &modifiers[(uint32)i] : nullptr;
+		}
+
+		bool NkModifierStack::ApplyToBase(uint32 index, NkEditMesh &base, bool *outWarnNotFirst) {
+			if (index >= (uint32)modifiers.Size())
+				return false;
+			if (outWarnNotFirst)
+				*outWarnNotFirst = (index != 0);
+			// On applique meme s'il est desactive ? NON : un modificateur eteint ne
+			// participe pas au resultat affiche, le cuire produirait une geometrie que
+			// l'utilisateur n'a jamais vue. On le retire simplement, comme Blender.
+			if (modifiers[index].enabled)
+				modifiers[index].Apply(base);
+			return Remove(index);
 		}
 
 		void NkModifierStack::Evaluate(const NkEditMesh &base, NkEditMesh &out) const {

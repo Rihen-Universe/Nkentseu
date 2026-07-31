@@ -264,6 +264,45 @@ namespace nkentseu {
 					return mSnapS;
 				}
 
+				// ── AIMANTATION PERSISTANTE (Blender : Shift+Tab) ───────────────
+				// Blender ne fait pas « Ctrl = aimanter ». Il a une bascule
+				// PERSISTANTE dans l'en-tete, et Ctrl l'INVERSE le temps du geste :
+				// aimantation eteinte -> Ctrl aimante ; aimantation allumee -> Ctrl
+				// desaimante. C'est ce qui permet de travailler aimante en permanence
+				// tout en s'echappant ponctuellement — impossible avec un simple
+				// « Ctrl = aimanter », ou l'echappement n'existe pas.
+				// Par defaut la bascule est ETEINTE : le comportement observable reste
+				// donc celui d'avant (Ctrl aimante), l'inversion n'apparaissant que si
+				// l'application allume l'aimantation.
+				void SetSnapEnabled(bool on) {
+					mSnapOn = on;
+				}
+				bool IsSnapEnabled() const {
+					return mSnapOn;
+				}
+				// Etat EFFECTIF pour ce geste : la bascule, inversee par Ctrl.
+				bool SnapActive(bool ctrlDown) const {
+					return mSnapOn != ctrlDown;
+				}
+
+				// ── GRILLE ABSOLUE (Blender : « Absolute Grid Snap ») ───────────
+				// false (defaut) = increment RELATIF : on avance par pas depuis la
+				//   position de depart, quelle qu'elle soit. Un objet a x = 0,3 avec un
+				//   pas de 0,5 ira a 0,8 — jamais a 0,5.
+				// true = grille ABSOLUE : la position finale est un MULTIPLE du pas.
+				//   Le meme objet ira a 0,5. C'est ce qu'on attend quand on dit
+				//   « aligner sur la grille », et c'est une option distincte chez
+				//   Blender precisement parce que les deux usages existent.
+				// N'a de sens qu'en orientation GLOBALE : une grille absolue le long
+				// d'axes locaux tournes ne serait plus une grille. On l'ignore donc
+				// hors ORIENT_GLOBAL plutot que de produire un alignement faux.
+				void SetSnapAbsolute(bool on) {
+					mSnapAbsolute = on;
+				}
+				bool IsSnapAbsolute() const {
+					return mSnapAbsolute;
+				}
+
 				// ── Sélection ─────────────────────────────────────────────────────
 				bool HasSelection() const {
 					return mHaveSel;
@@ -1058,6 +1097,8 @@ namespace nkentseu {
 						int32 hit = PickHandle(in.mouseX, in.mouseY, hs, nh);
 						if (hit >= 0) {
 							mDragging = true;
+							// Debut de drag : la position libre repart du pivot courant.
+							mDragFree = mPivot;
 							mGOp = hs[hit].op;
 							mGMask = hs[hit].mask;
 							mGKind = hs[hit].kind;
@@ -1079,15 +1120,85 @@ namespace nkentseu {
 											  mFwd.z + mRgt.z * (ndcX * mThX) + mUp.z * (ndcY * mThY)});
 					float32 bestT = 1e30f;
 					int32 bestId = -1;
+					// 1) Pick sur la BOÎTE de l'objet (OBB monde = mComposed × mHalf).
+					// La sphère seule ne peut pas décrire un objet PLAT ou très allongé :
+					// un sol de 80×80 aurait un rayon englobant énorme et volerait tous
+					// les clics, y compris ceux des objets posés dessus. La boîte épouse
+					// la forme réelle, donc chaque objet ne capte que sa propre surface.
 					for (int32 i = 0; i < mCount; i++) {
-						NkVec3f c = Ctr(i);
-						NkVec3f oc = {mCamPos.x - c.x, mCamPos.y - c.y, mCamPos.z - c.z};
-						float32 b = Dot(oc, rd), cc = Dot(oc, oc) - mPickR[i] * mPickR[i], disc = b * b - cc;
-						if (disc >= 0.f) {
-							float32 t = -b - sqrtf(disc);
+						const NkVec3f h = mHalf[i];
+						if (h.x <= 0.f && h.y <= 0.f && h.z <= 0.f)
+							continue; // pas d'extent connu -> laissé à la sphère
+						const NkMat4f &M = mComposed[i];
+						const NkVec3f c = M * NkVec3f{0.f, 0.f, 0.f};
+						// Axes de l'OBB obtenus en transformant les axes unitaires : la
+						// longueur obtenue PORTE l'échelle, et on reste indépendant de la
+						// convention de stockage de NkMat4f (même opérateur que Corner()).
+						const NkVec3f ex = M * NkVec3f{1.f, 0.f, 0.f}, ey = M * NkVec3f{0.f, 1.f, 0.f},
+									  ez = M * NkVec3f{0.f, 0.f, 1.f};
+						const NkVec3f ax[3] = {{ex.x - c.x, ex.y - c.y, ex.z - c.z},
+											   {ey.x - c.x, ey.y - c.y, ey.z - c.z},
+											   {ez.x - c.x, ez.y - c.y, ez.z - c.z}};
+						const float32 hl[3] = {h.x, h.y, h.z};
+						const NkVec3f p{c.x - mCamPos.x, c.y - mCamPos.y, c.z - mCamPos.z};
+						float32 tMin = -1e30f, tMax = 1e30f;
+						bool hit = true;
+						for (int32 a = 0; a < 3; a++) {
+							const float32 len = sqrtf(Dot(ax[a], ax[a]));
+							if (len <= 1e-6f)
+								continue;
+							const NkVec3f n{ax[a].x / len, ax[a].y / len, ax[a].z / len};
+							// Demi-extent MONDE, avec une épaisseur PLANCHER : un plan a un
+							// extent nul sur sa normale, et un slab d'épaisseur zéro rend le
+							// test dégénéré (t1 == t2) donc fragile en flottant. Ce plancher
+							// ne concerne QUE le pick — le marqueur garde l'extent réel et
+							// reste donc plat sur un plan.
+							float32 e = hl[a] * len;
+							if (e < 1e-3f)
+								e = 1e-3f;
+							const float32 s = Dot(n, p), f = Dot(n, rd);
+							if (f > 1e-6f || f < -1e-6f) {
+								float32 t1 = (s - e) / f, t2 = (s + e) / f;
+								if (t1 > t2) {
+									const float32 tmp = t1;
+									t1 = t2;
+									t2 = tmp;
+								}
+								if (t1 > tMin)
+									tMin = t1;
+								if (t2 < tMax)
+									tMax = t2;
+								if (tMin > tMax) {
+									hit = false;
+									break;
+								}
+							} else if (-s - e > 0.f || -s + e < 0.f) {
+								hit = false; // rayon parallèle et hors du slab
+								break;
+							}
+						}
+						if (hit && tMax >= 0.f) {
+							const float32 t = tMin > 0.f ? tMin : tMax;
 							if (t > 0.f && t < bestT) {
 								bestT = t;
 								bestId = i;
+							}
+						}
+					}
+					// 2) Repli SPHÈRE si le clic n'a touché aucune boîte : conserve la
+					// tolérance historique (viser à côté d'un petit objet le sélectionne
+					// quand même) sans laisser un objet plat capter ce qui ne le concerne pas.
+					if (bestId < 0) {
+						for (int32 i = 0; i < mCount; i++) {
+							NkVec3f c = Ctr(i);
+							NkVec3f oc = {mCamPos.x - c.x, mCamPos.y - c.y, mCamPos.z - c.z};
+							float32 b = Dot(oc, rd), cc = Dot(oc, oc) - mPickR[i] * mPickR[i], disc = b * b - cc;
+							if (disc >= 0.f) {
+								float32 t = -b - sqrtf(disc);
+								if (t > 0.f && t < bestT) {
+									bestT = t;
+									bestId = i;
+								}
 							}
 						}
 					}
@@ -1115,6 +1226,16 @@ namespace nkentseu {
 							mSel[i] = false;
 						mSelId = -1;
 					}
+				}
+
+				// Multiple de `step` le PLUS PROCHE de v (grille absolue). floorf(x+0.5)
+				// et non truncf : truncf arrondit vers zero, donc -0,4 tomberait sur 0
+				// alors que -0,5 est aussi proche — la grille serait dissymetrique autour
+				// de l'origine, ce qui se voit des qu'on travaille des deux cotes.
+				static float32 SnapToGrid(float32 v, float32 step) {
+					if (step <= 0.f)
+						return v;
+					return floorf(v / step + 0.5f) * step;
 				}
 
 				// Accumule `raw` dans `res` ; si `on` (Ctrl), ne restitue que les multiples
@@ -1148,7 +1269,14 @@ namespace nkentseu {
 						if (op != 1)
 							kind = 0;
 					}
-					const bool snap = in.ctrlDown;
+					// Etat EFFECTIF : la bascule persistante, INVERSEE par Ctrl (Blender).
+					const bool snap = SnapActive(in.ctrlDown);
+					// Quantification RELATIVE et grille ABSOLUE ne doivent pas se cumuler :
+					// la premiere avance deja par pas, la seconde realignerait ensuite — le
+					// deplacement ferait des sauts de deux pas. La grille absolue n'a par
+					// ailleurs de sens qu'en repere GLOBAL.
+					const bool snapAbs = snap && mSnapAbsolute && (mOrient == ORIENT_GLOBAL);
+					const bool snapRel = snap && !snapAbs;
 					const float32 mdx = in.mouseDX, mdy = in.mouseDY, mx = in.mouseX, my = in.mouseY;
 					const bool localOri = (mOrient != ORIENT_GLOBAL);
 					float32 cpx, cpy;
@@ -1157,6 +1285,15 @@ namespace nkentseu {
 						if (kind == 2) {
 							float32 wpp = (2.f * mThY * mPivDist) / mVpH;
 							NkVec3f wd = mRgt * (mdx * wpp) + mUp * (-mdy * wpp);
+							// Deplacement LIBRE dans le plan ecran : la grille absolue s'y applique
+							// sur les trois axes (aucun n'est porteur), la quantification relative
+							// n'aurait pas de sens faute d'axe de reference.
+							if (snapAbs && mSnapT > 0.f) {
+								mDragFree = mDragFree + wd; // position LIBRE cumulee
+								const NkVec3f tgt{SnapToGrid(mDragFree.x, mSnapT), SnapToGrid(mDragFree.y, mSnapT),
+												  SnapToGrid(mDragFree.z, mSnapT)};
+								wd = tgt - mPivot; // amene le pivot PILE sur la case visee
+							}
 							for (int32 i = 0; i < mCount; i++)
 								if (mSel[i])
 									mTr[i] = mTr[i] + wd;
@@ -1175,7 +1312,7 @@ namespace nkentseu {
 										amtT[a] = (mdx * sdx + mdy * sdy) * (mGL / NkGMax(sl, 1.f));
 									}
 									float32 &r = (a == 0) ? mResT.x : (a == 1) ? mResT.y : mResT.z;
-									amtT[a] = SnapAmt(r, amtT[a], mSnapT, snap);
+									amtT[a] = SnapAmt(r, amtT[a], mSnapT, snapRel);
 								}
 							for (int32 i = 0; i < mCount; i++)
 								if (mSel[i]) {
@@ -1185,6 +1322,29 @@ namespace nkentseu {
 										if (mask & (1 << a))
 											mTr[i] = mTr[i] + B[a] * amtT[a];
 								}
+							// GRILLE ABSOLUE : on aligne le PIVOT sur des multiples du pas et on
+							// reporte la MEME correction sur toute la selection — sinon des objets
+							// selectionnes ensemble se desolidariseraient, chacun tombant sur sa
+							// propre case. Seuls les axes ACTIFS sont alignes : tirer la fleche X ne
+							// doit pas realigner Y et Z au passage.
+							if (snapAbs && mSnapT > 0.f) {
+								// La position LIBRE avance du deplacement brut ; la case visee en
+								// decoule. La correction ramene le pivot dessus. Seuls les axes
+								// ACTIFS sont alignes : tirer la fleche X ne doit pas realigner Y
+								// et Z au passage.
+								mDragFree = mDragFree + NkVec3f{amtT[0], amtT[1], amtT[2]};
+								const NkVec3f now{mPivot.x + amtT[0], mPivot.y + amtT[1], mPivot.z + amtT[2]};
+								NkVec3f corr{0.f, 0.f, 0.f};
+								if (mask & 1)
+									corr.x = SnapToGrid(mDragFree.x, mSnapT) - now.x;
+								if (mask & 2)
+									corr.y = SnapToGrid(mDragFree.y, mSnapT) - now.y;
+								if (mask & 4)
+									corr.z = SnapToGrid(mDragFree.z, mSnapT) - now.z;
+								for (int32 i = 0; i < mCount; i++)
+									if (mSel[i])
+										mTr[i] = mTr[i] + corr;
+							}
 						}
 					} else if (op == 2) {
 						const float32 k = 0.012f;
@@ -1196,7 +1356,7 @@ namespace nkentseu {
 								rdy /= rl;
 							}
 							float32 a = (mdx * rdx + mdy * rdy) * k;
-							a = SnapAmt(mResS.x, a, mSnapS, snap);
+							a = SnapAmt(mResS.x, a, mSnapS, snapRel);
 							amt[0] = amt[1] = amt[2] = a;
 						} else
 							for (int32 a = 0; a < 3; a++)
@@ -1212,7 +1372,7 @@ namespace nkentseu {
 										amt[a] = (mdx * sdx + mdy * sdy) * k;
 									}
 									float32 &r = (a == 0) ? mResS.x : (a == 1) ? mResS.y : mResS.z;
-									amt[a] = SnapAmt(r, amt[a], mSnapS, snap);
+									amt[a] = SnapAmt(r, amt[a], mSnapS, snapRel);
 								}
 						for (int32 i = 0; i < mCount; i++)
 							if (mSel[i]) {
@@ -1317,6 +1477,15 @@ namespace nkentseu {
 				float32 mLastAngle = 0.f;
 				// Snap (quand ctrlDown) : pas + résidus accumulés par drag (quantification).
 				float32 mSnapT = 0.5f, mSnapRdeg = 15.f, mSnapS = 0.1f;
+				// Bascule persistante (cf. SetSnapEnabled) et mode grille absolue.
+				bool mSnapOn = false, mSnapAbsolute = false;
+				// Position du pivot SANS aimantation, cumulee depuis le debut du drag.
+				// Indispensable a la grille absolue : quantifier une position DEJA
+				// quantifiee bloque l'objet sur la premiere case atteinte — chaque frame
+				// le petit deplacement de souris se rearrondit sur la meme case et rien
+				// n'avance plus. Mesure du defaut : depart 0,3 pas 0,5, drag libre menant
+				// a 1,849 ; la grille absolue s'arretait a 0,500 au lieu de 2,000.
+				NkVec3f mDragFree = {0.f, 0.f, 0.f};
 				NkVec3f mResT = {0, 0, 0};
 				float32 mResR = 0.f;
 				NkVec3f mResS = {0, 0, 0};

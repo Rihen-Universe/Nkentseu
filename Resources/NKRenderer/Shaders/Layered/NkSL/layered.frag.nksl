@@ -130,9 +130,16 @@ uniform LayeredUBO {
 // Shadow per-light via SampleLightShadow (atlas), dispatch DIR/POINT/SPOT.
 // worldPos passe en PARAMETRE (pas de varying directe dans un helper : le generateur
 // HLSL traduirait vWorldPos en input.vworldpos, indispo hors de l'entry -> X3004).
-vec3 EvalLayer(LayerPBR p, vec3 N, vec3 V, float voxAO, vec3 worldPos) {
+// voxGI : xyz = irradiance indirecte (GI à un rebond), w = facteur d'AO.
+vec3 EvalLayer(LayerPBR p, vec3 N, vec3 V, vec4 voxGI, vec3 worldPos) {
     vec3 albedo = p.albedo.rgb;
-    vec3 result = albedo * 0.10 * voxAO;
+    float voxAO = voxGI.w;
+    // L'ambiant n'est plus une constante uniforme : la part indirecte vient
+    // désormais de la lumière réellement rebondie par la géométrie voisine
+    // (c'est ce qui teinte une surface près d'un mur coloré éclairé).
+    // Le terme constant 0.10 subsiste comme plancher : sans lui, une scène
+    // sans occluder injecté deviendrait noire à l'ombre.
+    vec3 result = albedo * (0.10 * voxAO + voxGI.xyz);
 
     for (int i = 0; i < uLights.count && i < 32; i++) {
         int lt = int(uLights.positions[i].w);
@@ -187,10 +194,11 @@ void main() {
     }
     mask = clamp(mask, 0.0, 1.0);
 
-    float voxAO = NkComputeVoxelAO(vWorldPos, N);
+    // GI à un rebond + AO en un seul balayage de cônes (cf. NkVoxelAO.glsli).
+    vec4 voxGI = NkComputeVoxelGI(vWorldPos, N);
 
-    vec3 c0 = EvalLayer(uLayered.base, N, V, voxAO, vWorldPos);
-    vec3 c1 = EvalLayer(uLayered.top,  N, V, voxAO, vWorldPos);
+    vec3 c0 = EvalLayer(uLayered.base, N, V, voxGI, vWorldPos);
+    vec3 c1 = EvalLayer(uLayered.top,  N, V, voxGI, vWorldPos);
     vec3 color = mix(c0, c1, mask);
 
     // Phase M.2 : globalTint depuis la Material Parameter Collection.

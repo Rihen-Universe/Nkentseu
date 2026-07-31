@@ -62,6 +62,30 @@ namespace nkentseu {
 				// FlushForwardRest : tout le reste en FORWARD par-dessus le HDR
 				// (skybox, instancies, skins, grille, transparents, debug).
 				void FlushForwardRest(NkICommandBuffer *cmd);
+				// ── OVERLAYS 3D APRES LE POST-PROCESS (facon Blender) ───────────
+				// PROBLEME RESOLU : le fil de fer, la cage d'edition, les marqueurs et
+				// les gizmos etaient emis DANS la passe Geometry, qui ecrit le HDR
+				// (`mainColor`). Or c'est ce meme HDR que lit le bright-pass du bloom :
+				// les traits d'editeur etaient donc bloomes PAR CONSTRUCTION, et un halo
+				// entourait chaque arete. Blender ne fait pas cela — ses overlays sont
+				// composites APRES le rendu, donc jamais soumis aux effets d'image.
+				//
+				// Ils sont desormais emis par FlushOverlay3D dans une passe dediee,
+				// placee apres tonemap/TAA/FXAA. La profondeur de la scene y est
+				// rattachee : un overlay depth-teste reste correctement occulte.
+				//
+				// NK_OVERLAY_IN_BLOOM=1 restaure l'ancien chemin (overlays dans
+				// Geometry) — utile pour comparer, et comme filet si un backend se
+				// comportait mal avec la passe supplementaire.
+				void SetOverlayAfterPost(bool on) {
+					mOverlayAfterPost = on;
+				}
+				bool IsOverlayAfterPost() const {
+					return mOverlayAfterPost;
+				}
+				// Emet les overlays 3D. A appeler UNIQUEMENT depuis la passe dediee.
+				void FlushOverlay3D(NkICommandBuffer *cmd);
+
 				// Surcharge render-to-texture : utilise renderPass au lieu du RP Geometry du graph.
 				void Flush(NkICommandBuffer *cmd, NkRenderPassHandle renderPass);
 
@@ -637,6 +661,9 @@ namespace nkentseu {
 				NkPipelineHandle mGridPipeline;
 				NkRenderPassHandle mGridPipelineRP{};
 				bool mDrawGrid = false;
+				// Overlays 3D emis dans une passe APRES le post-process (defaut : oui,
+				// c'est le comportement correct). Cf. SetOverlayAfterPost.
+				bool mOverlayAfterPost = true;
 				NkInfiniteGridParams mGridParams;
 
 				void UploadUBOs(NkICommandBuffer *cmd);
