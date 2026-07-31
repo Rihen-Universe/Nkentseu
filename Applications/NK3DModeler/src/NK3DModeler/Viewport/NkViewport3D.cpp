@@ -111,6 +111,10 @@ namespace nkentseu {
 					char name[32] = {};
 					bool visible = true;
 					bool selected = false;
+					// VERROUILLE : ni selectionnable ni modifiable. C'est ce que
+					// promet le cadenas de la hierarchie, et il ne servirait a rien
+					// si le clic dans la vue passait outre.
+					bool locked = false;
 
 					// Transformation. pos/rot/scl sont LA SOURCE : le panneau
 					// Proprietes les edite en direct, et la matrice monde n'est
@@ -759,6 +763,15 @@ namespace nkentseu {
 				if (auto *r3d0 = g.r3->GetRender3D())
 					r3d0->SetSelectionOutline(true, {1.f, 0.45f, 0.05f, 1.f}, 2.5f);
 
+				// VUE PAR DEFAUT : AU-DESSUS DE LA GRILLE, tournee vers le centre a
+				// 45 degres. C'est la pose de Blender, et elle n'est pas
+				// arbitraire : de face on ne voit pas le sol, de dessus on ne voit
+				// pas les hauteurs. A 45 degres les trois axes sont lisibles d'un
+				// coup, ce qui est exactement ce qu'on demande a une vue d'ouverture.
+				// Un fichier enregistre imposera SA pose -- c'est le seul cas ou
+				// celle-ci ne s'applique pas.
+				g.cam.SetCenter({0.f, 0.f, 0.f}, 8.f, 0.7854f, 0.7854f);
+
 				// LA SCENE NAIT VIDE. Le cube de depart de la version precedente
 				// venait de Demo3D ; un modeleur commence sur une feuille blanche et
 				// « Ajouter » cree ce qu'on lui demande.
@@ -1024,8 +1037,26 @@ namespace nkentseu {
 				g.objs[i].visible = on;
 		}
 
-		void Viewport3DSelectObject(int32 i, bool add) {
+		bool Viewport3DObjectLocked(int32 i) {
+			return Viewport3DObjectAlive(i) && g.objs[i].locked;
+		}
+
+		void Viewport3DSetObjectLocked(int32 i, bool on) {
 			if (!Viewport3DObjectAlive(i))
+				return;
+			g.objs[i].locked = on;
+			// Verrouiller DESELECTIONNE : garder selectionne un objet qu'on ne peut
+			// plus toucher laisserait le gizmo agir dessus.
+			if (on) {
+				g.objs[i].selected = false;
+				g.pendingDeselectAll = true;
+				if (g.activeObj == i)
+					g.activeObj = -1;
+			}
+		}
+
+		void Viewport3DSelectObject(int32 i, bool add) {
+			if (!Viewport3DObjectAlive(i) || g.objs[i].locked)
 				return;
 			// La demande est APPLIQUEE a la prochaine image, juste avant la mise a
 			// jour du gizmo : c'est lui qui tient la selection en mode objet, et le
@@ -1063,6 +1094,15 @@ namespace nkentseu {
 				g.editMode = false;
 			}
 			g.pendingDeselectAll = true;
+			g.pendingSelect = -1;
+			// LE GIZMO EST VIDE TOUT DE SUITE. Le laisser au prochain passage de
+			// frame le faisait survivre au dernier objet supprime : il restait
+			// plante au centre d'une scene vide.
+			g.gizmo.ClearSelection();
+			for (int32 k = 0; k < kMaxObjects; ++k)
+				if (g.objs[k].alive) {
+					g.objs[k].selected = false;
+				}
 		}
 
 		bool Viewport3DGetObjectTransform(int32 i, float32 *pos3, float32 *rot3, float32 *scl3) {
@@ -1301,6 +1341,30 @@ namespace nkentseu {
 			}
 			g.overlayDirty = true;
 			return true;
+		}
+
+		// ── NAVIGATION MODALE (loupe et main de la colonne de boutons) ──────
+		// Cliquer la loupe puis TIRER zoome, cliquer la main puis tirer deplace.
+		// C'est le fonctionnement de Blender, et il a un interet concret : sur un
+		// portable sans molette ni bouton du milieu, ce sont les seuls acces a la
+		// navigation. Le geste s'applique en direct et reste acquis au relachement.
+		void Viewport3DNavDrag(int32 kind, float32 dx, float32 dy) {
+			if (!g.ok)
+				return;
+			if (kind == 0)
+				g.cam.Zoom(-dy * 0.02f); // vers le haut = approcher
+			else
+				g.cam.Pan(-dx, -dy);
+		}
+
+		void Viewport3DOrbitFree(float32 dYaw, float32 dPitch) {
+			// Orbite depuis le GIZMO DE NAVIGATION : autour de la cible courante,
+			// jamais du pivot de selection. Le gizmo represente l'ORIENTATION DE LA
+			// VUE ; le faire tourner autour d'un objet donnerait un mouvement qui ne
+			// correspond pas a ce qu'on manipule.
+			g.cam.Rotate(dYaw, dPitch);
+			if (dYaw != 0.f || dPitch != 0.f)
+				g.ortho = false;
 		}
 
 		// ── TRANSFORMATIONS MODALES ─────────────────────────────────────────
@@ -1992,8 +2056,8 @@ namespace nkentseu {
 					const bool dragNow = g.gizmo.IsDragging();
 					for (int32 i = 0; i < kMaxObjects; ++i) {
 						VpObject &o = g.objs[i];
-						if (!o.alive || !o.visible)
-							continue;
+						if (!o.alive || !o.visible || o.locked)
+							continue; // verrouille : hors d'atteinte du gizmo
 						if (!(dragNow && o.selected))
 							ComposeWorld(o);
 						vt[g.tgtCount].base = (dragNow && o.selected) ? o.dragBase : o.world;
@@ -2105,7 +2169,13 @@ namespace nkentseu {
 			// en deux triangles, mais sa diagonale n'existe pas topologiquement --
 			// l'afficher donnerait un cube a 18 aretes au lieu de 12, ce qui n'est
 			// ni ce que Blender montre ni ce qu'on peut selectionner.
-			r3d->SetNgonWireframe(g.ngonWire);
+			// UNIQUEMENT EN MODE FILAIRE. Actif en permanence, il remplacait le
+			// rendu des surfaces par des lignes -- et comme on vidait le lot hors
+			// mode filaire, les objets devenaient INVISIBLES tout en gardant leur
+			// silhouette dans le masque de selection. C'est exactement ce que Rihen
+			// decrivait : un maillage qu'on ne voit pas mais dont le contour de
+			// selection apparait.
+			r3d->SetNgonWireframe(wire && g.ngonWire);
 			if (wire && g.ngonWire) {
 				g.wireLines.Clear();
 				const NkVec4f wc{0.75f, 0.78f, 0.82f, 1.f};

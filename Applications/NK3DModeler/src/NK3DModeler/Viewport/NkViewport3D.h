@@ -67,6 +67,10 @@ namespace nkentseu {
 		void Viewport3DOrbit(float32 dYaw, float32 dPitch);
 		void Viewport3DPan(float32 dx, float32 dy);
 		void Viewport3DPanSteps(float32 dx, float32 dy); ///< pan a la molette (crans)
+		// Navigation par GLISSEMENT depuis les boutons de la vue : 0 zoom, 1 pan.
+		void Viewport3DNavDrag(int32 kind, float32 dx, float32 dy);
+		// Orbite libre depuis le gizmo de navigation (autour de la CIBLE).
+		void Viewport3DOrbitFree(float32 dYaw, float32 dPitch);
 		void Viewport3DZoom(float32 steps);
 		void Viewport3DFrameAll(); ///< recadre sur la scene entiere
 		// Vues axiales du pave numerique : 0 face, 1 droite, 2 dessus.
@@ -99,6 +103,8 @@ namespace nkentseu {
 		bool Viewport3DObjectSelected(int32 i);
 		bool Viewport3DObjectVisible(int32 i);
 		void Viewport3DSetObjectVisible(int32 i, bool on);
+		bool Viewport3DObjectLocked(int32 i);
+		void Viewport3DSetObjectLocked(int32 i, bool on);
 		void Viewport3DSelectObject(int32 i, bool add);
 		void Viewport3DDeselectAllObjects();
 		int32 Viewport3DActiveObject();
