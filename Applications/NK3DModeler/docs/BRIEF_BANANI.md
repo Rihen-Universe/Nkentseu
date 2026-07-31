@@ -58,22 +58,26 @@ en illustration d'interface à plat (pas une photo, pas de chrome 3D brillant,
 aucun effet de matière).
 
 Palette de couleurs (stricte, utiliser exactement celles-ci) :
-- Fond de fenêtre principal : gris neutre presque noir, #1A1A1A
-- Fond des panneaux : gris neutre sombre, #242424
-- Fond des en-têtes de panneau et des barres d'outils : #2A2A2A
+- Fond de fenêtre principal : gris neutre presque noir, #141414
+- Fond des panneaux : gris neutre sombre, #212121
+- Fond des en-têtes de panneau et des barres d'outils : #2B2B2B
 - Fond de la colonne des libellés dans une ligne de propriété, légèrement plus
-  sombre que la colonne des valeurs : #1E1E1E
+  sombre que la colonne des valeurs : #1A1A1A
 - Bordures et séparateurs : traits fins de 1 pixel, blanc à faible opacité
   (blanc à 8 %). Aucune ombre portée, aucune lueur.
 - Accent « ÉTAT DE L'INTERFACE » (bouton d'outil actif, ligne sélectionnée dans
   une liste, puce de filtre active, champ ayant le focus) : bleu #1177D1
 - Accent « SÉLECTION 3D » (contour de l'objet sélectionné dans la vue,
-  faces/arêtes/sommets sélectionnés) : orange #FF8C0D
+  faces/arêtes/sommets sélectionnés) : ambre #F2980E
+- Sarcelle sombre, réservée aux en-têtes de nœuds de DONNÉES dans l'éditeur de
+  nœuds : #0A545E au repos, #095461 au survol. Ces deux valeurs sont presque
+  identiques À DESSEIN : elles ne sont jamais visibles côte à côte, elles
+  marquent un changement d'état du même élément.
 - Élément ACTIF (le dernier cliqué, qui sert de référence) : blanc pur #FFFFFF
 - Couleurs d'axes, utilisées comme fins bandeaux verticaux de 2 pixels sur le
   BORD GAUCHE des champs numériques : X = rouge atténué #C7404A,
   Y = vert atténué #5A9E3C, Z = bleu atténué #3A6FB0. Le fond du champ
-  lui-même reste neutre #1E1E1E — ne jamais teinter le champ entier.
+  lui-même reste neutre #1A1A1A — ne jamais teinter le champ entier.
 - Couleurs de type d'élément (puces de filtre du navigateur de projet et fine
   barre colorée au bas de chaque vignette) : Maillage = cyan #22B8CF,
   Animation = orange #F08C00, Matériau = vert #37B24D, Texture = magenta #E64980
@@ -110,15 +114,15 @@ Génère d'abord ce panneau neutre pour valider les couleurs et surtout la
 ```
 Un unique panneau d'interface sombre et vide, sans contenu applicatif, servant
 uniquement à démontrer les règles de couleur et d'arrondi du guide de style
-ci-dessus. Fond presque noir #1A1A1A. Au centre, une carte #242424 avec une
+ci-dessus. Fond presque noir #141414. Au centre, une carte #212121 avec une
 bordure fine de 1 pixel en blanc à 8 % et des coins arrondis de 2 pixels,
 contenant, empilés verticalement avec un espacement généreux :
 
 - une rangée de deux petites puces arrondies côte à côte : la première remplie
   en bleu #1177D1 portant le libellé « État interface », la seconde remplie en
-  orange #FF8C0D portant le libellé « Sélection 3D » ;
+  orange #F2980E portant le libellé « Sélection 3D » ;
 - en dessous, une seule ligne de propriété démontrant la mise en page à deux
-  colonnes : à gauche une colonne de libellé au fond #1E1E1E contenant le texte
+  colonnes : à gauche une colonne de libellé au fond #1A1A1A contenant le texte
   « Position », à droite trois petits champs numériques côte à côte, chacun
   portant un bandeau vertical de couleur de 2 pixels sur son SEUL BORD GAUCHE
   (le premier en rouge atténué #C7404A, le deuxième en vert atténué #5A9E3C, le
@@ -147,17 +151,17 @@ sont imposées ; les proportions données sont indicatives à ±3 %.
 Une fenêtre complète d'application de modélisation 3D pour ordinateur, paysage
 16:9, thème sombre, organisée en bandes horizontales et en colonnes comme suit.
 
-BANDE SUPÉRIEURE, 4 % de la hauteur de la fenêtre, fond #2A2A2A : tout à gauche
+BANDE SUPÉRIEURE, 4 % de la hauteur de la fenêtre, fond #2B2B2B : tout à gauche
 un petit logo hexagonal, puis une barre de menus horizontale avec les entrées
 « Fichier  Édition  Fenêtre  Outils  Sélection  Objet  Aide » en gris clair
 #E6E6E6. À l'extrême droite de cette bande, le nom du projet « MonProjet » en
 blanc à 55 % d'opacité.
 
-DEUXIÈME BANDE, 3 % de hauteur, fond #242424 : un seul onglet de document à
+DEUXIÈME BANDE, 3 % de hauteur, fond #212121 : un seul onglet de document à
 gauche portant le texte « Scène_01 » avec une petite croix de fermeture,
 l'onglet paraissant visuellement rattaché à la bande située en dessous.
 
-TROISIÈME BANDE (barre d'outils principale), 5 % de hauteur, fond #2A2A2A,
+TROISIÈME BANDE (barre d'outils principale), 5 % de hauteur, fond #2B2B2B,
 séparée de la bande du dessus par un trait fin de 1 pixel en blanc à 8 % : de
 gauche à droite, des groupes de boutons « icône + libellé » séparés par de
 courts traits verticaux — une icône de disquette avec le libellé
@@ -169,7 +173,7 @@ bande, une icône d'engrenage avec le libellé « Réglages ».
 ZONE PRINCIPALE, occupant l'espace vertical entre la barre d'outils et les
 bandes du bas, découpée en trois colonnes :
 
-COLONNE DE GAUCHE, 16 % de la largeur de la fenêtre, fond #242424 — le panneau
+COLONNE DE GAUCHE, 16 % de la largeur de la fenêtre, fond #212121 — le panneau
 de hiérarchie. En haut, un onglet de panneau portant le texte « Hiérarchie »
 avec une petite croix de fermeture. En dessous, un champ de recherche avec une
 icône de loupe et le texte indicatif « Rechercher ». En dessous encore, une
@@ -186,7 +190,7 @@ petit texte « 12 objets (2 sélectionnés) » en blanc à 55 %.
 COLONNE CENTRALE, 55 % de la largeur de la fenêtre — la vue 3D. Elle montre une
 scène 3D simple sur un fond en dégradé gris sombre neutre avec un léger sol
 quadrillé en perspective : un cube gris au centre, une sphère grise à sa droite,
-tous deux à facettes et sans texture. Le CUBE porte un contour ORANGE #FF8C0D
+tous deux à facettes et sans texture. Le CUBE porte un contour ORANGE #F2980E
 net autour de sa silhouette, indiquant qu'il est sélectionné, et un petit gizmo
 de déplacement en son centre fait de trois flèches : rouge vers la droite, verte
 vers le haut, bleue vers le fond. Dans le COIN INFÉRIEUR GAUCHE de la vue, un
@@ -212,7 +216,7 @@ deux panneaux empilés :
   autres sont seulement contournées. En dessous, une section repliable avec un
   petit triangle vers le bas et le titre demi-gras « Transformation », contenant
   trois lignes de propriété en stricte mise en page à deux colonnes : colonne de
-  libellé à gauche au fond #1E1E1E contenant « Position », « Rotation »,
+  libellé à gauche au fond #1A1A1A contenant « Position », « Rotation »,
   « Échelle », et à droite de chaque libellé, trois petits champs numériques
   côte à côte, chacun portant un bandeau vertical de couleur de 2 pixels sur son
   SEUL BORD GAUCHE (rouge, vert, bleu dans cet ordre) et une valeur numérique
@@ -232,7 +236,7 @@ deux panneaux empilés :
   seule ligne de titre.
 
 PANNEAU DU BAS (navigateur de projet), une bande horizontale occupant TOUTE la
-largeur de la fenêtre, environ 22 % de sa hauteur, fond #242424, séparée par un
+largeur de la fenêtre, environ 22 % de sa hauteur, fond #212121, séparée par un
 trait fin en blanc à 8 %. En haut, un onglet de panneau portant « Navigateur de
 projet » avec une croix de fermeture, puis une rangée de boutons « icône +
 libellé » : une icône de plus avec « Ajouter », une icône de flèche descendante
@@ -254,7 +258,7 @@ vignette indiquant son type : cyan #22B8CF pour les vignettes de maillage, vert
 #37B24D pour celle de matériau. À l'extrême droite du pied du panneau, le petit
 texte « 5 éléments » en blanc à 55 %.
 
-BARRE D'ÉTAT INFÉRIEURE, 3 % de hauteur, fond #2A2A2A, sur toute la largeur : à
+BARRE D'ÉTAT INFÉRIEURE, 3 % de hauteur, fond #2B2B2B, sur toute la largeur : à
 gauche, une petite icône de tiroir avec le libellé « Tiroir », puis « Journal »,
 puis un champ de saisie de console avec le texte indicatif estompé « Entrer une
 commande ». À droite, le petit texte de statistiques « Sommets 8 · Arêtes 12 ·
@@ -278,7 +282,7 @@ le reste étant identique :
 - Dans la VUE 3D centrale, le cube est maintenant affiché comme un maillage
   éditable : une fine cage en fil de fer sombre sur sa surface, avec de petits
   carrés aux coins. Trois de ses faces supérieures sont remplies d'un voile
-  ORANGE #FF8C0D translucide et leurs arêtes de contour sont tracées en orange
+  ORANGE #F2980E translucide et leurs arêtes de contour sont tracées en orange
   plein. Exactement UN carré de coin est en BLANC pur #FFFFFF (l'élément actif),
   tandis que les autres coins sélectionnés sont ORANGE et les non sélectionnés
   presque noirs.
@@ -306,7 +310,7 @@ un modificateur en particulier.
 ```
 Gros plan sur un unique panneau d'interface vertical issu d'une application de
 modélisation 3D sombre, composition plutôt portrait 3:4, fond de panneau
-#242424, occupant toute l'image.
+#212121, occupant toute l'image.
 
 En haut, un onglet de panneau portant « Détails (Cube) » avec une petite croix
 de fermeture. En dessous, une ligne de titre de section repliée, avec un
@@ -327,7 +331,7 @@ triangle vers le bas, un petit cercle plein bleu #1177D1 servant d'interrupteur
 repoussés vers la droite le petit texte gris « n° 1 », une icône de menu à trois
 points verticaux, et une petite croix de fermeture. Sous cet en-tête, deux lignes
 de propriété en stricte mise en page à deux colonnes — colonne de libellé au fond
-#1E1E1E — portant « Niveaux » avec la valeur numérique « 2 », et « Simple
+#1A1A1A — portant « Niveaux » avec la valeur numérique « 2 », et « Simple
 (linéaire) » avec une case à cocher décochée.
 
 SECONDE CARTE — même structure, en-tête montrant un triangle vers le bas, un
@@ -367,7 +371,7 @@ ligne et, plus petit et plus estompé en dessous, « Cliquez sur Ajouter pour en
 empiler un ».
 
 Chevauchant le panneau, ancré sous le bouton « Ajouter », un menu déroulant au
-fond #2A2A2A, avec une bordure fine en blanc à 8 % et des coins de 2 pixels,
+fond #2B2B2B, avec une bordure fine en blanc à 8 % et des coins de 2 pixels,
 contenant en haut un champ de recherche au texte indicatif « Rechercher un
 modificateur », puis trois groupes d'entrées séparés par de fins traits, avec de
 petits en-têtes de groupe en gris et en majuscules portant « GÉNÉRER »,
@@ -381,12 +385,133 @@ surface » est surlignée par un fond bleu plein #1177D1, comme survolée.
 
 ---
 
+### 6. Écran E — éditeur de nœuds *(modélisation et matériaux)*
+
+Le graphe sert à deux choses dans le produit : construire une forme par
+opérations enchaînées, et composer un matériau. **Même canevas, mêmes nœuds à
+l'œil, bibliothèques différentes.** Le détail qui compte : les broches
+d'**exécution** sont DANS le bandeau de titre, les broches de **données** dans le
+corps — cela sépare visuellement le flux de la donnée.
+
+```
+Un éditeur de graphe de nœuds plein écran, paysage 16:9, thème sombre, occupant
+toute l'image.
+
+FOND : #141414, couvert d'une grille de POINTS discrets (points de 1 pixel, blanc
+à 6 % d'opacité, espacés d'environ 24 pixels). Des points, pas un quadrillage :
+aucune ligne ne doit concurrencer les fils.
+
+En haut à gauche, une petite barre flottante arrondie contenant, en icône plus
+libellé : « Ajouter un nœud », « Cadrer », « Aligner », et à sa droite un fil
+d'Ariane portant « Cube  ›  Graphe de modélisation ».
+
+CINQ NŒUDS répartis dans l'espace, reliés par des fils courbes de Bézier. Chaque
+nœud est une carte au fond #212121, coins arrondis de 6 pixels, bordure fine de
+1 pixel en blanc à 8 %, avec une légère ombre portée très douce pour la détacher
+du fond — c'est le SEUL endroit de l'application où une ombre est admise, parce
+qu'un nœud flotte au-dessus d'un plan de travail.
+
+Chaque nœud est construit ainsi, de haut en bas :
+- un BANDEAU DE TITRE d'environ 24 pixels de haut, entièrement coloré selon la
+  famille du nœud, portant le titre en texte clair demi-gras, ET — point
+  essentiel — une petite BROCHE TRIANGULAIRE BLANCHE à l'extrémité GAUCHE du
+  bandeau (entrée d'exécution) et une autre à l'extrémité DROITE (sortie
+  d'exécution) ;
+- un CORPS au fond #212121 contenant des lignes en deux colonnes : à gauche le
+  nom de la broche, à droite soit un petit champ de saisie avec une valeur, soit
+  rien si la broche est connectée. Les broches de DONNÉES sont de petits CERCLES
+  pleins posés sur le bord gauche (entrées) ou droit (sorties) du corps.
+
+Les cinq nœuds, de gauche à droite :
+1. « Cube » — bandeau BLEU #1177D1 (famille entrée/sortie), corps avec les lignes
+   « Taille » = « 1,0 » et une sortie « Maillage » à droite ;
+2. « Extruder » — bandeau AMBRE #F2980E (famille action), entrée « Maillage » à
+   gauche, ligne « Distance » = « 0,25 », sortie « Maillage » à droite ;
+3. « Chanfrein » — bandeau AMBRE #F2980E, lignes « Largeur » = « 0,05 » et
+   « Segments » = « 2 » ;
+4. « Nombre » — nœud plus petit, bandeau SARCELLE #0A545E (famille donnée),
+   une seule ligne avec le champ « 0,25 » et une sortie ;
+5. « Résultat » — bandeau BLEU #1177D1, une seule entrée « Maillage », aucune
+   sortie.
+
+FILS : courbes de Bézier douces. Les fils de DONNÉES font 2 pixels et prennent la
+couleur du TYPE transporté — cyan #22B8CF pour un maillage, vert #37B24D pour un
+nombre. Le fil d'EXÉCUTION, qui relie les broches triangulaires des bandeaux, est
+BLANC et plus épais (3 pixels) : c'est le squelette du graphe, il doit se
+distinguer d'un seul regard.
+
+Le nœud « Chanfrein » est SÉLECTIONNÉ : son contour est tracé en ambre #F2980E,
+d'un trait de 2 pixels.
+
+À DROITE de l'image, occupant 24 % de la largeur, le panneau « Détails » habituel
+au fond #212121, montrant les propriétés du nœud sélectionné dans la même mise en
+page à deux colonnes que le reste de l'application — une seule grammaire de
+propriété partout.
+```
+
+---
+
+### 7. Écran F — panneau Assistant *(modélisation par prompt)*
+
+L'utilisateur décrit ce qu'il veut, l'assistant propose **une suite d'opérations**
+— jamais un objet fini. Il les **voit avant** qu'elles soient appliquées, et peut
+continuer à modifier à la main entre deux demandes. C'est ce va-et-vient que la
+maquette doit rendre évident.
+
+```
+Gros plan sur un panneau d'interface vertical sombre, composition portrait 3:4,
+fond #212121, occupant toute l'image — le panneau « Assistant » d'un logiciel de
+modélisation 3D.
+
+En haut, un onglet de panneau portant « Assistant » avec une petite croix de
+fermeture.
+
+Sous l'onglet, une zone de CONVERSATION occupant les deux tiers supérieurs, faite
+de bulles alignées :
+- une bulle utilisateur alignée à DROITE, fond #2B2B2B, coins de 3 pixels,
+  contenant le texte « Fais-moi une caisse en bois avec des renforts aux arêtes » ;
+- en dessous, une réponse alignée à GAUCHE, sans bulle, introduite par une petite
+  icône d'étincelle en ambre #F2980E, contenant d'abord une courte phrase grise
+  « 4 opérations proposées » puis, en dessous, une LISTE d'opérations. Chaque
+  ligne de la liste porte une petite case à cocher COCHÉE, le nom de l'opération
+  en texte clair et ses paramètres en gris plus petit à droite :
+     « Cube »            « taille 1,0 »
+     « Insérer faces »   « épaisseur 0,05 »
+     « Extruder »        « distance 0,08 »
+     « Chanfrein »       « largeur 0,02 · 2 segments »
+- sous cette liste, une rangée de trois boutons : « Aperçu » (bouton plat
+  contourné), « Appliquer » (bouton plein en bleu #1177D1) et « Rejeter » (bouton
+  plat contourné, texte gris).
+
+Sous cette réponse, une SECONDE bulle utilisateur alignée à droite portant
+« Rends les renforts deux fois plus épais », et sous elle une seconde réponse
+avec une seule ligne d'opération « Chanfrein » « largeur 0,04 », montrant que
+l'assistant AJOUTE à ce qui existe au lieu de tout refaire.
+
+Entre les deux échanges, une fine ligne de séparation horizontale accompagnée
+d'une mention discrète en italique gris « — modifications manuelles : 3 — »,
+indiquant que l'utilisateur a retouché le modèle à la main entre les deux
+demandes et que l'assistant en a tenu compte.
+
+EN BAS du panneau, une zone de saisie : un champ de texte multiligne au fond
+#141414 avec le texte indicatif estompé « Décrivez ce que vous voulez… », et à sa
+droite un bouton d'envoi carré rempli en bleu #1177D1 portant une icône de flèche.
+Sous le champ, une ligne minuscule en gris à 55 % : « L'assistant propose des
+opérations ; rien n'est appliqué sans votre accord. »
+```
+
+---
+
 ## Notes d'usage
 
 **Ordre de génération.** Faire l'écran **1 (calibrage)** d'abord : il valide la
-palette, et surtout que le bleu et l'orange sont bien distincts. Puis l'écran
-**2 (mode objet)**, qui sert ensuite d'**image de référence** pour les écrans 3,
-4 et 5 — cela évite que Banani ré-improvise une disposition à chaque essai.
+palette, et surtout que le bleu et l'ambre sont bien distincts. Puis l'écran
+**2 (mode objet)**, qui sert ensuite d'**image de référence** pour les écrans 3
+à 7 — cela évite que Banani ré-improvise une disposition à chaque essai.
+Les écrans **6 (nœuds)** et **7 (assistant)** peuvent attendre : ils décrivent des
+fonctions dont l'implantation vient après. Les produire tôt reste utile pour
+valider que la grammaire visuelle tient sur autre chose qu'un panneau de
+propriétés.
 
 **Si un écran dérive.** Le symptôme le plus probable est une disposition
 réinventée. Dans ce cas, re-coller le guide de style **et** la phrase de
