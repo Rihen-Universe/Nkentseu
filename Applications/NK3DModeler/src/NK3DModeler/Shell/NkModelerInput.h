@@ -259,6 +259,8 @@ namespace nkentseu {
 				int32 delNodes[64];
 				// Nom AFFICHE de la source du presse-papiers (pour « X.001 »).
 				char clipName[24] = {};
+				// Noeud en cours d'AJUSTEMENT de creation (panneau bas-droit).
+				int32 addAdjustNode = -1;
 				// Une scene AJOUTEE est VIERGE : les objets de la demo y sont masques.
 				bool sceneBlank[8] = {};
 				// TYPE de fond de la scene : 0 couleur unie, 1 degrade, 2 texture,

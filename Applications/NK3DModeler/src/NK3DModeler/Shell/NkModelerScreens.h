@@ -281,6 +281,7 @@ namespace nkentseu {
 				{"Cylindre", NkIcon::Mesh, 2, 1},
 				{"Cone", NkIcon::Mesh, 2, 2},
 				{"Tore", NkIcon::Circle, 1, 2},
+				{"Capsule", NkIcon::Circle, 1, 3},
 			};
 			static const NkAddEntry kLight[] = {
 				{"Point", NkIcon::Light, 5, 1},
@@ -337,7 +338,7 @@ namespace nkentseu {
 				{"Cube", NkIcon::Mesh, 9, 4},
 			};
 			static const NkAddCategory kCats[] = {
-				{"Maillage", NkIcon::Mesh, kMesh, 8},
+				{"Maillage", NkIcon::Mesh, kMesh, 9},
 				{"Lumiere", NkIcon::Light, kLight, 4},
 				{"Camera", NkIcon::Camera, kCam, 1},
 				{"Image", NkIcon::Journal, kImage, 4},
@@ -2192,7 +2193,8 @@ namespace nkentseu {
 
 		// â”€â”€ VUE 3D (centre) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		inline void PaintViewport(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
-								  NkHitRegistry &hit, NkWidgetState &ws, NkComboPending &combo,
+								  NkHitRegistry &hit, NkWidgetState &ws,
+								  const nkgui::NkGuiInput &in, NkComboPending &combo,
 								  NkCheckPending &checks, const NkShortcutTable &sc) {
 			const bool editMode = (st.mode != NkMode::Object);
 
@@ -2260,6 +2262,78 @@ namespace nkentseu {
 					p.IconV(ch2.x + S(6.f), ch2.y, ch2.h, NkIcon::ChevronDown,
 							NkRole::TextMuted, 12.f);
 					p.TextV(ch2.x + S(22.f), ch2.y, ch2.h, "Espaces", NkRole::TextMuted);
+				}
+				// ── AJUSTER LA CREATION (facon Blender), bas-droit de la vue ──
+				// Modifier les parametres du mesh fraichement cree, valider par
+				// « Appliquer » ou par un clic dans la vue (Rihen).
+				if (st.addAdjustNode >= 0) {
+					int32 sgA = 0, rgA = 0;
+					if (!demo::Demo3DHostMeshParams(st.addAdjustNode, &sgA, &rgA) ||
+						demo::Demo3DHostNodeDeleted(st.addAdjustNode)) {
+						st.addAdjustNode = -1;
+					} else {
+						const float32 pw = S(232.f);
+						const float32 ph = kRowH * 6.f + S(10.f);
+						const NkRect aj{vr.x + vr.w - pw - S(10.f), vr.y + vr.h - ph - S(10.f),
+										pw, ph};
+						if (hit.AnyClick() && NkHitRegistry::Contains(vr, hit.Mouse()) &&
+							!NkHitRegistry::Contains(aj, hit.Mouse())) {
+							st.addAdjustNode = -1; // un clic dans la vue VALIDE
+						} else {
+							p.Outline(aj, NkRole::Border, NkRole::PanelHeader, 4.f);
+							hit.Add("vp.adjust", aj);
+							char nmA[32];
+							NkHierNodeName(st, st.addAdjustNode, nmA, sizeof(nmA));
+							char tA[48];
+							snprintf(tA, sizeof(tA), "Creation : %s", nmA);
+							p.TextV(aj.x + S(8.f), aj.y + S(3.f), kRowH, tA);
+							float32 ay = aj.y + S(3.f) + kRowH;
+							float32 fsg = (float32)sgA, frg = (float32)rgA;
+							p.TextV(aj.x + S(8.f), ay, kRowH, "Segments", NkRole::TextMuted);
+							DragFloat(p, hit, ws, in, "vp.adj.seg",
+									  {aj.x + S(100.f), ay + S(3.f), pw - S(108.f), kRowH - S(4.f)},
+									  fsg, 0.2f, NkRole::AccentUi, "%.0f");
+							ay += kRowH;
+							p.TextV(aj.x + S(8.f), ay, kRowH, "Anneaux", NkRole::TextMuted);
+							DragFloat(p, hit, ws, in, "vp.adj.ring",
+									  {aj.x + S(100.f), ay + S(3.f), pw - S(108.f), kRowH - S(4.f)},
+									  frg, 0.2f, NkRole::AccentUi, "%.0f");
+							ay += kRowH;
+							float32 epA[3], erA[3], esA[3];
+							demo::Demo3DHostEmptyTransform(st.addAdjustNode, epA, erA, esA);
+							float32 rayA = esA[0], hauA = esA[1];
+							p.TextV(aj.x + S(8.f), ay, kRowH, "Rayon", NkRole::TextMuted);
+							DragFloat(p, hit, ws, in, "vp.adj.ray",
+									  {aj.x + S(100.f), ay + S(3.f), pw - S(108.f), kRowH - S(4.f)},
+									  rayA, 0.01f, NkRole::AccentUi, "%.2f");
+							ay += kRowH;
+							p.TextV(aj.x + S(8.f), ay, kRowH, "Hauteur", NkRole::TextMuted);
+							DragFloat(p, hit, ws, in, "vp.adj.h",
+									  {aj.x + S(100.f), ay + S(3.f), pw - S(108.f), kRowH - S(4.f)},
+									  hauA, 0.01f, NkRole::AccentUi, "%.2f");
+							ay += kRowH;
+							if ((int32)(fsg + 0.5f) != sgA || (int32)(frg + 0.5f) != rgA)
+								demo::Demo3DHostSetMeshParams(st.addAdjustNode,
+															  (int32)(fsg + 0.5f),
+															  (int32)(frg + 0.5f));
+							if (rayA != esA[0] || hauA != esA[1]) {
+								// rayon = echelle XZ, hauteur = echelle Y (comme Blender)
+								esA[0] = rayA;
+								esA[2] = rayA;
+								esA[1] = hauA;
+								demo::Demo3DHostSetEmptyTransform(st.addAdjustNode, epA, erA,
+																  esA);
+							}
+							const NkRect ab{aj.x + S(8.f), ay + S(2.f), pw - S(16.f),
+											kRowH - S(4.f)};
+							hit.Add("vp.adj.apply", ab);
+							p.Fill(ab, NkRole::AccentUi, 3.f);
+							p.TextV(ab.x + S(8.f), ay + S(2.f), kRowH - S(4.f), "Appliquer",
+									NkRole::TextOnAccent);
+							if (hit.Clicked("vp.adj.apply"))
+								st.addAdjustNode = -1;
+						}
+					}
 				}
 			} else if (const char *e = demo::Demo3DHostError()) {
 				// UN ECHEC SE DIT. Un viewport reste noir ne distingue pas Â« la carte
@@ -4938,6 +5012,9 @@ namespace nkentseu {
 							if (nn >= 0) {
 								NkHierComposeName(st, cats[c].items[i].label, nn);
 								demo::Demo3DHostSelectEmptyNode(nn);
+								int32 psg2, prg2;
+								st.addAdjustNode =
+									demo::Demo3DHostMeshParams(nn, &psg2, &prg2) ? nn : -1;
 							}
 							st.dirty = true;
 							ws.CloseCombo();

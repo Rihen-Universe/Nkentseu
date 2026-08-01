@@ -166,6 +166,10 @@ namespace nkentseu {
 		int32 Demo3DHostTakeShortcuts();
 		// Menu AJOUTER : cree un noeud utilisateur (kind 1..9, sub = variante).
 		int32 Demo3DHostAddNode(int32 kind, int32 sub);
+		// Parametres du mesh cree (segments / anneaux-subdivisions) : le
+		// panneau « Ajuster la creation » les edite AVANT validation.
+		bool Demo3DHostMeshParams(int32 node, int32 *segs, int32 *rings);
+		void Demo3DHostSetMeshParams(int32 node, int32 segs, int32 rings);
 		// Lumiere UTILISATEUR (kind 5) : couleur + intensite.
 		bool Demo3DHostUserLightParams(int32 node, float32 *color3, float32 *intensity);
 		void Demo3DHostSetUserLightParams(int32 node, const float32 *color3, float32 intensity);
