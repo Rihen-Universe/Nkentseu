@@ -2396,7 +2396,8 @@ namespace nkentseu {
 						float32 lpos[3];
 						demo::Demo3DHostLightPosition(li, lpos);
 						NkRect rowR = rr;
-						rowR.x = r.x;
+						rowR.x = r.x + kPad; // meme marge des deux cotes
+						rowR.w = rr.w - 2.f * kPad;
 						PaintTransformRow(p, hit, ws, in, rowR, yy, "Position", lpos, 0.01f,
 										  "prop.lpos", NkIcon::None, NkIcon::None);
 						static float32 sLPull[3] = {};
@@ -2463,8 +2464,11 @@ namespace nkentseu {
 								}
 								sLastAct = act;
 							}
+							// CENTRE dans le panneau : meme marge a gauche et a droite
+							// (kPad, celle des autres panneaux).
 							NkRect rowR = rr;
-							rowR.x = r.x;
+							rowR.x = r.x + kPad;
+							rowR.w = rr.w - 2.f * kPad;
 							PaintTransformRow(p, hit, ws, in, rowR, yy, "Position", st.pos, 0.01f,
 											  "prop.pos", st.lockPos ? NkIcon::Lock : NkIcon::Unlock,
 											  NkIcon::Refresh, "%.2f", NkIcon::SnapScale, st.propPos);

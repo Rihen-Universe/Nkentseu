@@ -5283,8 +5283,14 @@ namespace nkentseu {
 						if (fabsf(lp.x - gin.mouseX) + fabsf(lp.y - gin.mouseY) > 3.f)
 							st->selLasso.PushBack(NkVec2f{gin.mouseX, gin.mouseY});
 					}
-					if (!gin.leftDown) { // relâché -> on applique la zone
-						if (st->selTool == 1) {
+					if (!gin.leftDown) { // relache -> on applique la zone
+						// Meme garde qu'en mode objet : un rectangle de moins de
+						// 4 px est un CLIC, pas une zone a appliquer.
+						const bool tinyEd = fabsf(st->selX1 - st->selX0) < 4.f &&
+											fabsf(st->selY1 - st->selY0) < 4.f;
+						if (tinyEd && st->selTool == 1) {
+							// clic simple : le pick ponctuel fera foi
+						} else if (st->selTool == 1) {
 							const float32 x0 = NkMin(st->selX0, st->selX1), x1 = NkMax(st->selX0, st->selX1);
 							const float32 y0 = NkMin(st->selY0, st->selY1), y1 = NkMax(st->selY0, st->selY1);
 							Demo3D_SelectInZone(
@@ -6606,8 +6612,17 @@ namespace nkentseu {
 								if (fabsf(lp.x - gin.mouseX) + fabsf(lp.y - gin.mouseY) > 3.f)
 									st->selLasso.PushBack(NkVec2f{gin.mouseX, gin.mouseY});
 							}
-							if (!gin.leftDown) { // relâché -> on applique la zone
-								if (st->selTool == 1) {
+							if (!gin.leftDown) { // relache -> on applique la zone
+								// UN CLIC N'EST PAS UNE ZONE : l'outil rectangle arme en
+								// continu par la barre transformait chaque clic en
+								// rectangle VIDE qui REMPLACAIT la selection -- la
+								// « deselection instantanee » constatee par Rihen. En
+								// dessous de 4 px, le pick du press garde son effet.
+								const bool tinyObj = fabsf(st->selX1 - st->selX0) < 4.f &&
+													 fabsf(st->selY1 - st->selY0) < 4.f;
+								if (tinyObj) {
+									// clic simple : rien a appliquer
+								} else if (st->selTool == 1) {
 									const float32 x0 = NkMin(st->selX0, st->selX1), x1 = NkMax(st->selX0, st->selX1);
 									const float32 y0 = NkMin(st->selY0, st->selY1), y1 = NkMax(st->selY0, st->selY1);
 									Demo3D_SelectObjectsInZone(
