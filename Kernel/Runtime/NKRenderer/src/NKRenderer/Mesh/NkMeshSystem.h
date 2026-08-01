@@ -154,7 +154,7 @@ namespace nkentseu {
 				NkMeshHandle CreateCylinderMesh(uint32 segs);
 				NkMeshHandle CreateConeMesh(uint32 segs);
 				NkMeshHandle CreateTorusMesh(uint32 majorSegs, uint32 minorSegs,
-											 bool unusedPlaceholder = false);
+											 float32 minorRadius = 0.15f);
 				NkMeshHandle CreateCapsuleMesh(uint32 segs, uint32 rings);
 
 				// Draw (appelé par NkRender3D)
