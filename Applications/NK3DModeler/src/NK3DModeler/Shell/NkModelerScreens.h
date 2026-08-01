@@ -1037,6 +1037,28 @@ namespace nkentseu {
 				base[bl - 4] = 0;
 			snprintf(st.customNames[newNode], 24, "%.19s.%03d", base, (newNode - 96) + 1);
 		}
+		// Nom UNIQUE par (dossier, nature) : Base, Base_02, Base_03... (Rihen).
+		inline void NkBrowUniqueName(NkModelerState &st, uint8 kind, int32 parent,
+									 const char *base, char *out, uint32 cap) {
+			for (int32 n7 = 1; n7 < 1000; ++n7) {
+				if (n7 == 1)
+					snprintf(out, cap, "%s", base);
+				else
+					snprintf(out, cap, "%s_%02d", base, n7);
+				bool taken = false;
+				for (int32 j7 = 0; j7 < st.browserCount; ++j7) {
+					if (st.browserNames[j7] == out)
+						continue; // soi-meme (nom en cours d'ecriture)
+					if (st.browserKind[j7] == kind && st.browserParent[j7] == parent &&
+						strcmp(st.browserNames[j7], out) == 0) {
+						taken = true;
+						break;
+					}
+				}
+				if (!taken)
+					return;
+			}
+		}
 		inline void NkHierNameNewNode(NkModelerState &st, int32 srcNode, int32 newNode) {
 			char b[24];
 			NkHierNodeName(st, srcNode, b, sizeof(b));
@@ -1155,7 +1177,8 @@ namespace nkentseu {
 					const int32 k4 = st.browserCount++;
 					st.browserKind[k4] = st.browserKind[s2];
 					st.browserParent[k4] = p2;
-					snprintf(st.browserNames[k4], 32, "%s", st.browserNames[s2]);
+					NkBrowUniqueName(st, st.browserKind[s2], p2, st.browserNames[s2],
+									 st.browserNames[k4], 32);
 					if (st.browserKind[s2] == 1)
 						for (int32 j4 = 0; j4 < k4; ++j4)
 							if (st.browserParent[j4] == s2 && st.browserKind[j4] != 255 &&
@@ -1513,8 +1536,8 @@ namespace nkentseu {
 						const int32 k5 = st.browserCount++;
 						st.browserKind[k5] = kNewK[act2 - 10];
 						st.browserParent[k5] = destF;
-						snprintf(st.browserNames[k5], 32, "%s_%02d", kNewN[act2 - 10],
-								 k5 + 1);
+						NkBrowUniqueName(st, kNewK[act2 - 10], destF, kNewN[act2 - 10],
+										 st.browserNames[k5], 32);
 					} else if (act2 == 0) {
 						st.browClip = tgt;
 						st.browClipCut = true;
@@ -1531,7 +1554,8 @@ namespace nkentseu {
 					}
 					st.browMenuIdx = -1;
 				} else if (hit.AnyClick() && !NkHitRegistry::Contains(mr2, hit.Mouse()) &&
-						   !(st.browMenuCreat && NkHitRegistry::Contains(sub2, hit.Mouse()))) {
+						   !(st.browMenuCreat && NkHitRegistry::Contains(sub2, hit.Mouse())) &&
+						   !hit.IsHovered("brw.creer")) { // pas le clic d'OUVERTURE
 					st.browMenuIdx = -1;
 					st.browMenuCreat = false;
 				}
@@ -1855,8 +1879,10 @@ namespace nkentseu {
 								st.browserKind[k6] = 6;
 								st.browserParent[k6] = st.browserFolder;
 								st.browserSrcNode[k6] = st.hierDragNode + 1;
-								NkHierNodeName(st, st.hierDragNode, st.browserNames[k6],
-											   32);
+								char bnm[32];
+								NkHierNodeName(st, st.hierDragNode, bnm, sizeof(bnm));
+								NkBrowUniqueName(st, 6, st.browserFolder, bnm,
+												 st.browserNames[k6], 32);
 							}
 						} else if (dropHover >= 0 && dropHover != st.hierDragNode)
 							demo::Demo3DHostSetNodeParent(st.hierDragNode, dropHover);
@@ -5009,6 +5035,9 @@ namespace nkentseu {
 			// racine fixe. Ils structurent le PROJET et non le disque : ils seront
 			// enregistres DANS le fichier de projet.
 			st.browserRect = r; // routage des raccourcis (voir PaintSceneMenus)
+			// Un menu ou une carte de depot OUVERT bloque tout le navigateur en
+			// dessous : les clics ne TRAVERSENT plus (constate par Rihen).
+			const bool uiModal = (st.browMenuIdx != -1) || (st.browAskIdx >= 0);
 			const float32 treeW = r.w * 0.18f;
 			const float32 ty = r.y + topH;
 			const float32 th = r.h - topH;
@@ -5024,7 +5053,7 @@ namespace nkentseu {
 			// Le FOND de la grille est une zone : cliquer dans le vide
 			// DESELECTIONNE (les cartes, declarees apres, gardent leurs clics).
 			hit.Add("brow.grid", {r.x + treeW, ty, r.w - treeW, th});
-			if (hit.Clicked("brow.grid"))
+			if (!uiModal && hit.Clicked("brow.grid"))
 				st.selectedAsset = -1;
 			if (hit.RightClicked("brow.grid")) {
 				st.browMenuIdx = -2;
@@ -5032,7 +5061,7 @@ namespace nkentseu {
 				st.browMenuY = hit.Mouse().y;
 			}
 			int32 dropTo = -999; // -1 racine, i dossier, -100 fond de grille
-			const bool freshB = hit.MouseDown() && !st.browMouseWasDown;
+			const bool freshB = hit.MouseDown() && !st.browMouseWasDown && !uiModal;
 			const nkgui::NkVec2 bm = hit.Mouse();
 			int32 folderCount = 0;
 			{
@@ -5051,7 +5080,7 @@ namespace nkentseu {
 							on ? NkRole::TextOnAccent : NkRole::Text, 13.f);
 					p.TextV(r.x + S(24.f), dy, kRowH, "Contenu",
 							on ? NkRole::TextOnAccent : NkRole::Text);
-					if (hit.Clicked("brow.root"))
+					if (!uiModal && hit.Clicked("brow.root"))
 						st.browserFolder = -1;
 					if (st.browDragging && NkHitRegistry::Contains(rowR, bm)) {
 						dropTo = -1; // vers la RACINE
@@ -5115,7 +5144,7 @@ namespace nkentseu {
 								 st.browserNames[i],
 								 on ? NkRole::TextOnAccent : NkRole::Text, st.browserNames[i], 32u);
 					snprintf(fkey, sizeof(fkey), "brow.dir.%d", i);
-					if (hit.Clicked(fkey))
+					if (!uiModal && hit.Clicked(fkey))
 						st.browserFolder = i;
 					if (hit.RightClicked(fkey)) {
 						st.browMenuIdx = i;
@@ -5289,7 +5318,7 @@ namespace nkentseu {
 					p.TextClipped(tx + pad, fyy, tw - pad * 2.f, kindName, NkRole::TextMuted);
 				}
 				snprintf(akey, sizeof(akey), "brow.card.%d", i);
-				if (kind == 1 && hit.DoubleClicked(akey))
+				if (!uiModal && kind == 1 && hit.DoubleClicked(akey))
 					st.browserFolder = i; // double-clic : ENTRER dans le dossier
 				if (hit.RightClicked(akey)) {
 					st.browMenuIdx = i;
@@ -5313,7 +5342,7 @@ namespace nkentseu {
 						p.OutlineSharp(cardR, NkRole::AccentUi);
 					}
 				}
-				if (hit.Clicked(akey))
+				if (!uiModal && hit.Clicked(akey))
 					st.selectedAsset = i;
 				tx += tw + S(12.f);
 			}
