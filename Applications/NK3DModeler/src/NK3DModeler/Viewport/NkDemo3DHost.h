@@ -170,6 +170,9 @@ namespace nkentseu {
 		// panneau « Ajuster la creation » les edite AVANT validation.
 		int32 Demo3DHostUserSub(int32 node); // variante demandee au menu Ajouter
 		// Camera (vide sous-type 10) : focale + clips, declaratifs pour l'instant.
+		// Cookie (texture de faisceau) d'une lumiere : -1 = couleur pure.
+		int32 Demo3DHostLightCookie(int32 node);
+		void Demo3DHostSetLightCookie(int32 node, int32 idx);
 		// Proprietes NATIVES d'une lumiere par NOEUD (demo ou utilisateur).
 		bool Demo3DHostLightEx(int32 node, float32 *range, float32 *inner, float32 *outer,
 							   float32 *aw, float32 *ah, bool *shadow, int32 *type);

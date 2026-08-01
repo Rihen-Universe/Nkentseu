@@ -9262,6 +9262,15 @@ namespace nkentseu {
 				return &nkvpUserLight[node - kNkvpFirstUser];
 			return nullptr;
 		}
+		int32 Demo3DHostLightCookie(int32 node) {
+			const renderer::NkLightDesc *L = HostLightDescOf(node);
+			return L ? L->cookieIdx : -1;
+		}
+		void Demo3DHostSetLightCookie(int32 node, int32 idx) {
+			renderer::NkLightDesc *L = HostLightDescOf(node);
+			if (L)
+				L->cookieIdx = idx < -1 ? -1 : (idx > 7 ? 7 : idx);
+		}
 		bool Demo3DHostLightEx(int32 node, float32 *range, float32 *inner, float32 *outer,
 							   float32 *aw, float32 *ah, bool *shadow, int32 *type) {
 			const renderer::NkLightDesc *L = HostLightDescOf(node);

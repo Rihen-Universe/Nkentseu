@@ -3331,6 +3331,51 @@ namespace nkentseu {
 											demo::Demo3DHostSetLightEx(en, rgL, inL, outL, awL, ahL, shL);
 									}
 								}
+								// COULEUR / TEXTURE / MIX (Rihen) : par defaut couleur pure ;
+								// Texture = cookie de l'atlas (couleur forcee au blanc) ; Mix =
+								// texture x couleur libre. Deux textures melangees : avec le
+								// chargement de fichiers ; le nodal NKGraphe ensuite.
+								{
+									const int32 ck0 = demo::Demo3DHostLightCookie(en);
+									const bool whiteC = [&] {
+										float32 c4[3];
+										float32 i4 = 1.f;
+										return demo::Demo3DHostUserLightParams(en, c4, &i4) &&
+											   c4[0] > 0.99f && c4[1] > 0.99f && c4[2] > 0.99f;
+									}();
+									int32 cmode = ck0 < 0 ? 0 : (whiteC ? 1 : 2);
+									const int32 cm0 = cmode;
+									static const char *const kCMix[3] = {"Couleur", "Texture", "Mix"};
+									p.TextV(r.x + kPad, yy, kRowH, "Source", NkRole::TextMuted);
+									Combo(p, hit, ws, "prop.ulex.mode",
+										  {r.x + S(120.f), yy + S(2.f), rr.w - S(128.f), kRowH - S(4.f)},
+										  kCMix, nullptr, 3, cmode, combo);
+									yy += kRowH;
+									if (cmode != cm0) {
+										if (cmode == 0) {
+											demo::Demo3DHostSetLightCookie(en, -1);
+										} else {
+											demo::Demo3DHostSetLightCookie(en, ck0 < 0 ? 0 : ck0);
+											if (cmode == 1) {
+												const float32 wc[3] = {1.f, 1.f, 1.f};
+												float32 c5[3];
+								float32 i5 = 1.f;
+								demo::Demo3DHostUserLightParams(en, c5, &i5);
+								demo::Demo3DHostSetUserLightParams(en, wc, i5);
+											}
+										}
+									}
+									if (cmode > 0) {
+										float32 slot = (float32)(ck0 < 0 ? 0 : ck0);
+										p.TextV(r.x + kPad, yy, kRowH, "Texture (atlas)", NkRole::TextMuted);
+										DragFloat(p, hit, ws, in, "prop.ulex.slot",
+												  {r.x + S(120.f), yy + S(3.f), rr.w - S(128.f), kRowH - S(4.f)},
+												  slot, 0.05f, NkRole::AccentUi, "%.0f");
+										yy += kRowH;
+										if ((int32)(slot + 0.5f) != ck0)
+											demo::Demo3DHostSetLightCookie(en, (int32)(slot + 0.5f));
+									}
+								}
 							}
 							{
 								// CAMERA : ses proprietes propres (declaratives tant que
@@ -3502,6 +3547,43 @@ namespace nkentseu {
 								if (rgL != v0[0] || inL != v0[1] || outL != v0[2] || awL != v0[3] ||
 									ahL != v0[4] || shL != s0)
 									demo::Demo3DHostSetLightEx(86 + li, rgL, inL, outL, awL, ahL, shL);
+							}
+						}
+						// COULEUR / TEXTURE / MIX (Rihen) : par defaut couleur pure ;
+						// Texture = cookie de l'atlas (couleur forcee au blanc) ; Mix =
+						// texture x couleur libre. Deux textures melangees : avec le
+						// chargement de fichiers ; le nodal NKGraphe ensuite.
+						{
+							const int32 ck0 = demo::Demo3DHostLightCookie(86 + li);
+							const bool whiteC = lcol[0] > 0.99f && lcol[1] > 0.99f && lcol[2] > 0.99f;
+							int32 cmode = ck0 < 0 ? 0 : (whiteC ? 1 : 2);
+							const int32 cm0 = cmode;
+							static const char *const kCMix[3] = {"Couleur", "Texture", "Mix"};
+							p.TextV(r.x + kPad, yy, kRowH, "Source", NkRole::TextMuted);
+							Combo(p, hit, ws, "prop.lex.mode",
+								  {r.x + S(120.f), yy + S(2.f), rr.w - S(128.f), kRowH - S(4.f)},
+								  kCMix, nullptr, 3, cmode, combo);
+							yy += kRowH;
+							if (cmode != cm0) {
+								if (cmode == 0) {
+									demo::Demo3DHostSetLightCookie(86 + li, -1);
+								} else {
+									demo::Demo3DHostSetLightCookie(86 + li, ck0 < 0 ? 0 : ck0);
+									if (cmode == 1) {
+										const float32 wc[3] = {1.f, 1.f, 1.f};
+										demo::Demo3DHostSetLightParams(li, wc, lint < 0.f ? 0.f : lint);
+									}
+								}
+							}
+							if (cmode > 0) {
+								float32 slot = (float32)(ck0 < 0 ? 0 : ck0);
+								p.TextV(r.x + kPad, yy, kRowH, "Texture (atlas)", NkRole::TextMuted);
+								DragFloat(p, hit, ws, in, "prop.lex.slot",
+										  {r.x + S(120.f), yy + S(3.f), rr.w - S(128.f), kRowH - S(4.f)},
+										  slot, 0.05f, NkRole::AccentUi, "%.0f");
+								yy += kRowH;
+								if ((int32)(slot + 0.5f) != ck0)
+									demo::Demo3DHostSetLightCookie(86 + li, (int32)(slot + 0.5f));
 							}
 						}
 						if (demo::Demo3DHostNodeHasChildren(86 + li)) {
