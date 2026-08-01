@@ -226,6 +226,8 @@ namespace nkentseu {
 				// PROPORTIONNEL par ligne de transformation : l'axe touche propage
 				// son rapport aux autres (delta quand la base est nulle).
 				bool propPos = false, propRot = false, propScale = false;
+				// PAS D'AIMANTATION modifiables depuis les proprietes de l'outil.
+				float32 snapStepT = 0.5f, snapStepR = 15.f, snapStepS = 0.1f;
 				// Groupes ouverts de la hierarchie (bit par groupe).
 				uint32 hierOpen = 0xFFFFFFFFu;
 				// Une scene AJOUTEE est VIERGE : les objets de la demo y sont masques.
@@ -234,6 +236,9 @@ namespace nkentseu {
 				// 3 HDRI, 4 ciel. Seule la couleur unie est cablee aujourd'hui ; les
 				// autres montrent leurs proprietes en annoncant le chantier moteur.
 				int32 bgType = 0;
+				// LUMINOSITE du fond : assombrit ou eclaircit la couleur choisie
+				// (prereglage ou personnalisee) sans en changer la teinte.
+				float32 bgBrightness = 1.f;
 				int32 matcapDragBar = -1; ///< -1 aucun, 0 verticale, 1 horizontale
 				float32 matcapDragOff = 0.f;
 				// ── Navigateur de projet : CONTENU CREE PAR L'UTILISATEUR ───────

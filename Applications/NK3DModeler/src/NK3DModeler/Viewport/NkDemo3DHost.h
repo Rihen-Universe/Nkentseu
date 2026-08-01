@@ -126,6 +126,8 @@ namespace nkentseu {
 		void Demo3DHostSetGridExtent(int32 n);
 		int32 Demo3DHostGridExtent();
 		void Demo3DHostResetCursor();
+		void Demo3DHostCursorToSelection();
+		void Demo3DHostSelectionToCursor();
 		void Demo3DHostClearXform(int32 which); // 0 translation, 1 rotation, 2 echelle
 		// Pose de camera : les ONGLETS DE SCENE s'en servent pour donner a
 		// chaque scene sa propre vue (memorisee a la bascule d'onglet).
