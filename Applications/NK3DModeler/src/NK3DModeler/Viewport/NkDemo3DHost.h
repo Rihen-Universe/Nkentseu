@@ -98,6 +98,16 @@ namespace nkentseu {
 		int32 Demo3DHostSelectedLight();
 		void Demo3DHostSelectLight(int32 li);
 		void Demo3DHostLightPosition(int32 li, float32 *out3);
+		void Demo3DHostSetObjectHidden(int32 i, bool hidden);
+		bool Demo3DHostObjectHidden(int32 i);
+		void Demo3DHostSetObjectLocked(int32 i, bool locked);
+		bool Demo3DHostObjectLocked(int32 i);
+		void Demo3DHostSetLightHidden(int32 li, bool hidden);
+		bool Demo3DHostLightHidden(int32 li);
+		void Demo3DHostSetAllHidden(bool hidden); // scene VIERGE d'un nouvel onglet
+		bool Demo3DHostObjectTransform(int32 i, float32 *pos3, float32 *rotDeg3, float32 *scl3);
+		void Demo3DHostSetObjectTransform(int32 i, const float32 *pos3, const float32 *rotDeg3,
+										  const float32 *scl3);
 
 		// ── Reglages de vue (panneau Scene / Outil) ─────────────────────────
 		void Demo3DHostSetViewFar(float32 f); // 0 = auto

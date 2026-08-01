@@ -539,6 +539,9 @@ namespace nkentseu {
 													  st.sceneCamPose[i][5], st.sceneCamOrtho[i]);
 					else
 						demo::Demo3DHostResetView();
+					// Chaque scene a SES objets : la demo peuple la premiere, les
+					// autres naissent VIERGES (tout masque).
+					demo::Demo3DHostSetAllHidden(st.sceneBlank[i]);
 				}
 				x += tw + 3.f;
 			}
@@ -553,9 +556,11 @@ namespace nkentseu {
 				st.activeTab = st.sceneCount;
 				st.sceneCamSet[st.activeTab] = false;
 				st.sceneCount++;
-				// Une scene NEUVE ouvre sur la pose d'ouverture -- pas sur celle
-				// de la scene precedente, sinon rien ne dirait qu'on a change.
+				// Une scene NEUVE ouvre sur la pose d'ouverture, et elle est
+				// VIERGE : les objets de la demo appartiennent a la premiere scene.
 				demo::Demo3DHostResetView();
+				st.sceneBlank[st.activeTab] = true;
+				demo::Demo3DHostSetAllHidden(true);
 			}
 		}
 
@@ -872,6 +877,40 @@ namespace nkentseu {
 			}
 		}
 
+		// ── BARRE DE DEFILEMENT SAISISSABLE ─────────────────────────────────
+		// La molette marchait ; la barre n'etait qu'un DESSIN (p.VScroll) --
+		// « le scrollbar n'est pas fonctionnel » (Rihen). Le pouce suit la
+		// souris tant que le bouton reste enfonce, meme hors de la glissiere :
+		// le geste appartient a la barre ou il a commence (propDragKey).
+		inline void NkScrollDrag(NkModelerPainter &p, NkHitRegistry &hit, NkModelerState &st,
+								 const char *key, const NkRect &area, float32 contentH,
+								 float32 &offset) {
+			if (contentH > area.h && area.h > 0.f) {
+				// Plus large que le dessin (6 px) : une cible de 6 px se rate.
+				const NkRect track{area.x + area.w - S(12.f), area.y, S(12.f), area.h};
+				hit.Add(key, track);
+				const bool mine = (strcmp(st.propDragKey, key) == 0);
+				if (hit.MouseDown() && (hit.IsHovered(key) || mine)) {
+					if (!st.propDragKey[0] && hit.IsHovered(key))
+						snprintf(st.propDragKey, sizeof(st.propDragKey), "%s", key);
+					if (strcmp(st.propDragKey, key) == 0) {
+						float32 th = area.h * (area.h / contentH);
+						if (th < 24.f)
+							th = 24.f;
+						float32 t = (hit.Mouse().y - area.y - th * 0.5f) / (area.h - th);
+						if (t < 0.f)
+							t = 0.f;
+						if (t > 1.f)
+							t = 1.f;
+						offset = t * (contentH - area.h);
+					}
+				} else if (mine && !hit.MouseDown()) {
+					st.propDragKey[0] = 0;
+				}
+			}
+			p.VScroll(area, contentH, offset);
+		}
+
 		inline void PaintHierarchy(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
 								   NkHitRegistry &hit, NkWidgetState &ws, const nkgui::NkGuiInput &in) {
 			p.Fill(r, NkRole::PanelBg);
@@ -879,22 +918,23 @@ namespace nkentseu {
 			float32 y = PaintPanelTab(p, r, "Hierarchie", &hit, &st.showLeft, "hier.close");
 			y = PaintSearch(p, r, y, hit, ws, in, "hier.search", st.searchHier);
 
-			const float32 colEye = r.x + r.w - S(74.f);
-			const float32 colLock = r.x + r.w - S(52.f);
-			const float32 colType = r.x + r.w - S(152.f);
+			const float32 colEye = r.x + r.w - S(48.f);
+			const float32 colLock = r.x + r.w - S(26.f);
+			const float32 colType = r.x + r.w - S(122.f);
 
+			// L'EN-TETE annonce TOUTES les colonnes : nom, type, oeil, cadenas --
+			// pour que l'utilisateur sache exactement ce que c'est (Rihen).
 			p.Fill({r.x, y, r.w, kRowH}, NkRole::WindowBg);
 			p.TextV(r.x + S(34.f), y, kRowH, "Nom");
 			p.TextV(colType, y, kRowH, "Type", NkRole::TextMuted);
+			p.IconV(colEye, y, kRowH, NkIcon::Eye, NkRole::TextMuted, 12.f);
+			p.IconV(colLock, y, kRowH, NkIcon::Lock, NkRole::TextMuted, 12.f);
 			p.HLine(r.x, y + kRowH - 1.f, r.w);
 			y += kRowH;
 
 			const float32 listTop = y;
 			const float32 listH = r.y + r.h - kRowH - listTop;
 			const NkRect listR{r.x, listTop, r.w, listH};
-			// La zone de LISTE est declaree en PREMIER : les lignes la recouvrent.
-			// Ce qui reste attribue a la liste est exactement le VIDE -- et c'est la
-			// qu'un clic deselectionne.
 			hit.Add("hier.list", listR);
 			p.Clip(listR);
 
@@ -902,8 +942,7 @@ namespace nkentseu {
 			float32 yy = y - st.scrollHier;
 			int32 visibleCount = 0;
 
-			// Racine : la scene, renommable. Elle ne se selectionne pas -- c'est un
-			// contenant, pas un objet.
+			// Racine : la scene, renommable.
 			{
 				const NkRect rowR{r.x, yy, r.w, kRowH};
 				hit.Add("hier.scene", rowR);
@@ -915,58 +954,122 @@ namespace nkentseu {
 				++visibleCount;
 			}
 
-			// LA SCENE REELLE : les objets et les lumieres de la demo portee. La
-			// selection passe par le MEME gizmo et le MEME lightSel que la vue :
-			// selectionner ici, c'est selectionner la-bas, et reciproquement.
-			const int32 nObj = demo::Demo3DHostObjectCount();
-			const int32 nLights = demo::Demo3DHostLightCount();
+			// PARENT-ENFANT : la scene demo est plate, mais sa STRUCTURE ne l'est
+			// pas -- les objets se rangent par familles, chacune repliable comme un
+			// parent avec ses enfants. Le re-parentage libre viendra avec le format
+			// projet.
+			struct HGroup {
+					const char *name;
+					int32 start, count; // start >= 1000 : lumieres (li = k)
+			};
+			static const HGroup kGroups[6] = {{"Spheres", 0, 16},	 {"Cube central", 16, 1},
+											  {"Colonnes", 17, 2},	 {"Instances", 19, 64},
+											  {"Decor", 83, 3},		 {"Lumieres", 1000, 4}};
 			const int32 activeObj = demo::Demo3DHostActiveObject();
+			const bool searching = (st.searchHier[0] != 0);
 			int32 aliveCount = 0, selCount = 0;
 			char nameBuf[48];
-			for (int32 i = 0; i < nObj + nLights; ++i) {
-				const bool isLight = (i >= nObj);
-				const int32 li = i - nObj;
-				if (isLight)
-					demo::Demo3DHostLightName(li, nameBuf, sizeof(nameBuf));
-				else
-					demo::Demo3DHostObjectName(i, nameBuf, sizeof(nameBuf));
-				++aliveCount;
-				// LE FILTRE ECARTE LA LIGNE, il ne la grise pas.
-				if (!NkNameMatches(nameBuf, st.searchHier))
-					continue;
-				const bool sel = isLight ? (demo::Demo3DHostSelectedLight() == li)
-										 : demo::Demo3DHostObjectSelected(i);
-				if (sel)
-					++selCount;
-				++visibleCount;
-				const NkRect rowR{r.x, yy, r.w, kRowH};
-				if (yy >= listTop - kRowH && yy < listTop + listH) {
-					snprintf(key, sizeof(key), "hier.row.%d", i);
-					const bool over = hit.Add(key, rowR);
-					if (sel)
-						p.Fill(rowR, NkRole::AccentUi);
-					else
-						HoverFill(p, rowR, over, 0.f);
-					const NkRole fg = sel ? NkRole::TextOnAccent : NkRole::Text;
-					const NkRole dim = sel ? NkRole::TextOnAccent : NkRole::TextMuted;
-					const float32 tx = r.x + S(20.f);
-					p.IconV(tx, yy, kRowH, isLight ? NkIcon::Light : NkIcon::Mesh, fg, 13.f);
-					p.TextV(tx + S(18.f), yy, kRowH, nameBuf, fg);
-					p.TextV(colType, yy, kRowH, isLight ? "Lumiere" : "Maillage", dim);
-					// L'objet ACTIF porte un point : c'est lui que le panneau detaille.
-					if (!isLight && sel && i == activeObj)
-						p.Fill({colType - S(12.f), yy + kRowH * 0.5f - S(2.f), S(4.f), S(4.f)}, fg);
-					if (hit.Clicked(key)) {
-						if (isLight)
-							demo::Demo3DHostSelectLight(li);
-						else
-							demo::Demo3DHostSelectObject(i, hit.ShiftDown());
+			for (int32 gi2 = 0; gi2 < 6; ++gi2) {
+				const HGroup &G2 = kGroups[gi2];
+				const bool isLightGrp = (G2.start >= 1000);
+				const bool open = searching || ((st.hierOpen >> gi2) & 1u) != 0u;
+				// Ligne du GROUPE (cachee pendant une recherche : la recherche est
+				// une liste plate de resultats).
+				if (!searching) {
+					const NkRect rowR{r.x, yy, r.w, kRowH};
+					if (yy >= listTop - kRowH && yy < listTop + listH) {
+						snprintf(key, sizeof(key), "hier.grp.%d", gi2);
+						HoverFill(p, rowR, hit.Add(key, rowR), 0.f);
+						p.IconV(r.x + S(8.f), yy, kRowH,
+								open ? NkIcon::ChevronDown : NkIcon::ChevronRight, NkRole::Text, 11.f);
+						char gl[48];
+						snprintf(gl, sizeof(gl), "%s (%d)", G2.name, G2.count);
+						p.TextV(r.x + S(24.f), yy, kRowH, gl);
+						p.TextV(colType, yy, kRowH, "Groupe", NkRole::TextMuted);
+						if (hit.Clicked(key))
+							st.hierOpen ^= (1u << gi2);
 					}
+					yy += kRowH;
+					++visibleCount;
 				}
-				yy += kRowH;
+				for (int32 k = 0; k < G2.count; ++k) {
+					const int32 li = isLightGrp ? k : -1;
+					const int32 oi = isLightGrp ? -1 : G2.start + k;
+					if (isLightGrp)
+						demo::Demo3DHostLightName(li, nameBuf, sizeof(nameBuf));
+					else
+						demo::Demo3DHostObjectName(oi, nameBuf, sizeof(nameBuf));
+					++aliveCount;
+					const bool sel = isLightGrp ? (demo::Demo3DHostSelectedLight() == li)
+												: demo::Demo3DHostObjectSelected(oi);
+					if (sel)
+						++selCount;
+					if (!open || !NkNameMatches(nameBuf, st.searchHier))
+						continue;
+					++visibleCount;
+					const NkRect rowR{r.x, yy, r.w, kRowH};
+					if (yy >= listTop - kRowH && yy < listTop + listH) {
+						const int32 rowId = isLightGrp ? 1000 + li : oi;
+						snprintf(key, sizeof(key), "hier.row.%d", rowId);
+						const bool over = hit.Add(key, rowR);
+						if (sel)
+							p.Fill(rowR, NkRole::AccentUi);
+						else
+							HoverFill(p, rowR, over, 0.f);
+						const NkRole fg = sel ? NkRole::TextOnAccent : NkRole::Text;
+						const NkRole dim = sel ? NkRole::TextOnAccent : NkRole::TextMuted;
+						const float32 tx = r.x + (searching ? S(20.f) : S(34.f));
+						p.IconV(tx, yy, kRowH, isLightGrp ? NkIcon::Light : NkIcon::Mesh, fg, 13.f);
+						// Le NOM est CLIPPE a sa colonne : en retrecissant le panneau il
+						// chevauchait « Type » (constate par Rihen).
+						p.Clip({rowR.x, yy, colType - rowR.x - S(8.f), kRowH});
+						p.TextV(tx + S(18.f), yy, kRowH, nameBuf, fg);
+						p.Unclip();
+						p.TextV(colType, yy, kRowH, isLightGrp ? "Lumiere" : "Maillage", dim);
+						if (!isLightGrp && sel && oi == activeObj)
+							p.Fill({colType - S(12.f), yy + kRowH * 0.5f - S(2.f), S(4.f), S(4.f)}, fg);
+
+						// L'OEIL : visibilite REELLE (les soumissions de la demo sont
+						// gatees, lumieres comprises).
+						const bool hidden = isLightGrp ? demo::Demo3DHostLightHidden(li)
+													   : demo::Demo3DHostObjectHidden(oi);
+						snprintf(key, sizeof(key), "hier.eye.%d", rowId);
+						const NkRect eyeR{colEye - S(3.f), yy, S(20.f), kRowH};
+						HoverFill(p, eyeR, hit.Add(key, eyeR) && !sel, 2.f);
+						p.IconV(colEye, yy, kRowH, hidden ? NkIcon::EyeClosed : NkIcon::Eye,
+								hidden ? dim : fg, 12.f);
+						if (hit.Clicked(key)) {
+							if (isLightGrp)
+								demo::Demo3DHostSetLightHidden(li, !hidden);
+							else
+								demo::Demo3DHostSetObjectHidden(oi, !hidden);
+						}
+
+						// LE CADENAS (objets) : bloque la selection et l'ecriture de
+						// transformation.
+						bool lok = false;
+						if (!isLightGrp) {
+							lok = demo::Demo3DHostObjectLocked(oi);
+							snprintf(key, sizeof(key), "hier.lock.%d", rowId);
+							const NkRect lockR{colLock - S(3.f), yy, S(20.f), kRowH};
+							HoverFill(p, lockR, hit.Add(key, lockR) && !sel, 2.f);
+							p.IconV(colLock, yy, kRowH, lok ? NkIcon::Lock : NkIcon::Unlock,
+									lok ? fg : dim, 12.f);
+							if (hit.Clicked(key))
+								demo::Demo3DHostSetObjectLocked(oi, !lok);
+						}
+
+						snprintf(key, sizeof(key), "hier.row.%d", rowId);
+						if (hit.Clicked(key)) {
+							if (isLightGrp)
+								demo::Demo3DHostSelectLight(li);
+							else if (!lok) // un objet verrouille ne se selectionne pas
+								demo::Demo3DHostSelectObject(oi, hit.ShiftDown());
+						}
+					}
+					yy += kRowH;
+				}
 			}
-			(void)colEye;
-			(void)colLock;
 
 			p.Unclip();
 
@@ -975,7 +1078,8 @@ namespace nkentseu {
 				demo::Demo3DHostDeselectAll();
 
 			hit.Wheel("hier.list", st.scrollHier, (float32)visibleCount * kRowH, listH);
-			p.VScroll(listR, (float32)visibleCount * kRowH, st.scrollHier);
+			NkScrollDrag(p, hit, st, "hier.scrollbar", listR, (float32)visibleCount * kRowH,
+						 st.scrollHier);
 
 			const float32 fy = r.y + r.h - kRowH;
 			p.Fill({r.x, fy, r.w, kRowH}, NkRole::WindowBg);
@@ -1507,6 +1611,40 @@ namespace nkentseu {
 								  NkCheckPending &checks, const NkShortcutTable &sc) {
 			const bool editMode = (st.mode != NkMode::Object);
 
+			// ── TAB BAR D'ESPACES DE TRAVAIL ────────────────────────────────
+			// Un seul espace aujourd'hui (Modelisation) ; Sculpt, Texturing et
+			// NkAnima s'y rangeront. L'en-tete s'ESCAMOTE d'un clic sur le
+			// chevron -- replie, seul un petit chevron discret le rappelle.
+			float32 wsBarH = 0.f;
+			if (st.wsBarOpen) {
+				wsBarH = S(24.f);
+				const NkRect wb{r.x, r.y, r.w, wsBarH};
+				p.Fill(wb, NkRole::PanelHeader);
+				p.HLine(r.x, r.y + wsBarH - 1.f, r.w);
+				const NkRect t0{r.x + S(8.f), r.y + S(2.f), S(122.f), wsBarH - S(4.f)};
+				hit.Add("ws.tab.0", t0);
+				p.Fill(t0, NkRole::AccentUi, 3.f);
+				p.IconV(t0.x + S(6.f), t0.y, t0.h, NkIcon::Mesh, NkRole::TextOnAccent, 12.f);
+				p.TextV(t0.x + S(24.f), t0.y, t0.h, "Modelisation", NkRole::TextOnAccent);
+				const NkRect ch{r.x + r.w - S(26.f), r.y + S(2.f), S(20.f), wsBarH - S(4.f)};
+				HoverFill(p, ch, hit.Add("ws.hide", ch), 2.f);
+				p.IconV(ch.x + S(3.f), ch.y, ch.h, NkIcon::ChevronUp, NkRole::TextMuted, 12.f);
+				if (hit.Clicked("ws.hide"))
+					st.wsBarOpen = false;
+			} else {
+				// Replie : un chevron discret, centre en haut de la vue.
+				const NkRect ch{r.x + r.w * 0.5f - S(10.f), r.y + S(2.f), S(20.f), S(16.f)};
+				HoverFill(p, ch, hit.Add("ws.show", ch), 2.f);
+				p.IconV(ch.x + S(3.f), ch.y, ch.h, NkIcon::ChevronDown, NkRole::TextMuted, 12.f);
+				if (hit.Clicked("ws.show"))
+					st.wsBarOpen = true;
+			}
+			// LA VUE EST RECADREE sous la barre d'espaces : sans cela elle
+			// coupait le haut de l'image (le texte du HUD, constate par Rihen).
+			NkRect vr = r;
+			vr.y += wsBarH;
+			vr.h -= wsBarH;
+
 			// ── LA VUE 3D REELLE ────────────────────────────────────────────────
 			// Ce qui etait peint ici jusqu'a present -- un sol en fuyantes dessine a
 			// la main -- etait un DECOR. Il donnait l'impression d'une perspective
@@ -1517,12 +1655,14 @@ namespace nkentseu {
 			// ecran, sur le meme device et le meme command buffer que l'interface,
 			// et on pose ici SA TEXTURE. Aucune relecture CPU, aucune seconde pile
 			// GPU : l'image ne quitte jamais la carte.
-			p.Fill(r, NkRole::ViewportTop); // fond, visible tant que la 3D n'est pas prete
+			// Fond de la ZONE IMAGE seulement (vr, pas r) : peindre r entier
+			// recouvrait la barre d'espaces peinte juste au-dessus.
+			p.Fill(vr, NkRole::ViewportTop); // visible tant que la 3D n'est pas prete
 			// PORTAGE INTEGRAL de --demo=2 : la texture vient desormais de la demo
 			// portee (NkDemo3D.cpp), sous le MEME id 4096. L'ancienne vue est
 			// dormante ; c'est donc l'hote de la demo qui dit « pret ».
 			if (demo::Demo3DHostReady()) {
-				p.Image(nk3d::kViewportTexId, r);
+				p.Image(nk3d::kViewportTexId, vr);
 			} else if (const char *e = demo::Demo3DHostError()) {
 				// UN ECHEC SE DIT. Un viewport reste noir ne distingue pas « la carte
 				// a refuse la cible » de « la scene est vide », et on cherche le
@@ -1537,7 +1677,7 @@ namespace nkentseu {
 			// curseur 3D et pick : cette zone ne sert plus qu'au SURVOL -- c'est lui
 			// qui autorise ses raccourcis et sa souris (voir Demo3DHostSetView).
 			{
-				hit.Add("view.nav", r);
+				hit.Add("view.nav", vr);
 			}
 
 			// ── GLISSEMENT DE NAVIGATION EN COURS (loupe, main, gizmo de nav) ──
@@ -1569,34 +1709,6 @@ namespace nkentseu {
 			// Trois listes deroulantes, chacune avec son icone d'etat. Les menus de
 			// commandes vivent dans la barre d'outils principale : les dupliquer ici
 			// donnerait deux endroits a tenir a jour pour une seule liste.
-			// ── TAB BAR D'ESPACES DE TRAVAIL ────────────────────────────────
-			// Un seul espace aujourd'hui (Modelisation) ; Sculpt, Texturing et
-			// NkAnima s'y rangeront. L'en-tete s'ESCAMOTE d'un clic sur le
-			// chevron -- replie, seul un petit chevron discret le rappelle.
-			float32 wsBarH = 0.f;
-			if (st.wsBarOpen) {
-				wsBarH = S(24.f);
-				const NkRect wb{r.x, r.y, r.w, wsBarH};
-				p.Fill(wb, NkRole::PanelHeader);
-				p.HLine(r.x, r.y + wsBarH - 1.f, r.w);
-				const NkRect t0{r.x + S(8.f), r.y + S(2.f), S(122.f), wsBarH - S(4.f)};
-				hit.Add("ws.tab.0", t0);
-				p.Fill(t0, NkRole::AccentUi, 3.f);
-				p.IconV(t0.x + S(6.f), t0.y, t0.h, NkIcon::Mesh, NkRole::TextOnAccent, 12.f);
-				p.TextV(t0.x + S(24.f), t0.y, t0.h, "Modelisation", NkRole::TextOnAccent);
-				const NkRect ch{r.x + r.w - S(26.f), r.y + S(2.f), S(20.f), wsBarH - S(4.f)};
-				HoverFill(p, ch, hit.Add("ws.hide", ch), 2.f);
-				p.IconV(ch.x + S(3.f), ch.y, ch.h, NkIcon::ChevronUp, NkRole::TextMuted, 12.f);
-				if (hit.Clicked("ws.hide"))
-					st.wsBarOpen = false;
-			} else {
-				// Replie : un chevron discret, centre en haut de la vue.
-				const NkRect ch{r.x + r.w * 0.5f - S(10.f), r.y + S(2.f), S(20.f), S(16.f)};
-				HoverFill(p, ch, hit.Add("ws.show", ch), 2.f);
-				p.IconV(ch.x + S(3.f), ch.y, ch.h, NkIcon::ChevronDown, NkRole::TextMuted, 12.f);
-				if (hit.Clicked("ws.show"))
-					st.wsBarOpen = true;
-			}
 			const float32 barH = S(26.f), barY = r.y + wsBarH + S(10.f);
 			{
 				int32 nP = 0, nS = 0, nO = 0;
@@ -2017,295 +2129,385 @@ namespace nkentseu {
 		}
 
 		// ── PANNEAU DROIT UNIQUE : OBJET / SCENE / OUTIL ────────────────────
-		// Rihen : « au lieu de proprietes de l'objet et details, on doit avoir
-		// proprietes de l'objet, proprietes de la scene, proprietes de l'outil
-		// actuellement selectionne avec possibilite d'appliquer. » Un seul
-		// panneau, trois sections -- les deux anciens disaient deux fois la
-		// meme chose.
+		// Trois SOUS-BLOCS repliables, chacun son DEFILEMENT : le contenu d'une
+		// section peut etre tres long sans pousser les autres hors de l'ecran.
+		// La hauteur se partage entre les sections OUVERTES ; la hauteur de
+		// contenu est mesuree a l'image precedente (stable des la deuxieme).
 		inline void PaintPropertiesUnified(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
-										   NkHitRegistry &hit) {
+										   NkHitRegistry &hit, NkWidgetState &ws,
+										   const nkgui::NkGuiInput &in) {
 			p.Fill(r, NkRole::PanelBg);
 			p.VLine(r.x, r.y, r.h);
 			float32 y = PaintPanelTab(p, r, "Proprietes", &hit, &st.showRight, "props.close");
-			hit.Add("props.body", {r.x, y, r.w, r.y + r.h - y});
-			p.Clip({r.x, y, r.w, r.y + r.h - y});
-			const float32 top = y;
-			y -= st.propScroll;
 			char key[40], buf[96];
 
-			// Un REGLAGE A BARRE : la moitie du travail du panneau. Le glissement
-			// appartient au reglage ou il a commence (propDragKey), pas a la
-			// position de la souris -- comme partout ailleurs.
-			auto Slider = [&](const char *k2, float32 &yRef, const char *label, float32 &val,
-							  float32 mn, float32 mx, const char *fmt) -> bool {
-				p.TextV(r.x + kPad, yRef, kRowH, label, NkRole::TextMuted);
-				const NkRect br{r.x + S(120.f), yRef + S(4.f), r.w - S(132.f), kRowH - S(8.f)};
-				hit.Add(k2, br);
-				p.Fill(br, NkRole::InputBg, 3.f);
-				float32 t = (val - mn) / (mx - mn);
-				if (t < 0.f)
-					t = 0.f;
-				if (t > 1.f)
-					t = 1.f;
-				p.Fill({br.x, br.y, br.w * t, br.h}, NkRole::AccentUi, 3.f);
-				char vb[32];
-				snprintf(vb, sizeof(vb), fmt, (float64)val);
-				p.TextV(br.x + S(6.f), yRef, kRowH, vb, NkRole::Text);
-				bool changed = false;
-				if (hit.MouseDown() && (hit.IsHovered(k2) || strcmp(st.propDragKey, k2) == 0)) {
-					if (!st.propDragKey[0] && hit.IsHovered(k2))
-						snprintf(st.propDragKey, sizeof(st.propDragKey), "%s", k2);
-					if (strcmp(st.propDragKey, k2) == 0) {
-						float32 t2 = (hit.Mouse().x - br.x) / br.w;
-						if (t2 < 0.f)
-							t2 = 0.f;
-						if (t2 > 1.f)
-							t2 = 1.f;
-						const float32 nv = mn + t2 * (mx - mn);
-						changed = (nv != val);
-						val = nv;
-					}
-				}
-				yRef += kRowH;
-				return changed;
-			};
-			auto Header = [&](float32 &yRef, const char *label) {
-				p.Fill({r.x, yRef, r.w, kRowH}, NkRole::PanelHeader);
-				p.TextV(r.x + kPad, yRef, kRowH, label);
-				yRef += kRowH;
-			};
-			auto Button = [&](const char *k2, float32 &yRef, const char *label, float32 x,
+			auto Button = [&](const char *k2, float32 yB, const char *label, float32 x,
 							  float32 w) -> bool {
-				const NkRect br{x, yRef + S(2.f), w, kRowH - S(4.f)};
+				const NkRect br{x, yB + S(2.f), w, kRowH - S(4.f)};
 				const bool over = hit.Add(k2, br);
 				p.Outline(br, over ? NkRole::AccentUi : NkRole::Border, NkRole::PanelHeader, 3.f);
 				const float32 tw = p.TextW(label);
-				p.TextV(br.x + (br.w - tw) * 0.5f, yRef, kRowH, label);
+				p.TextV(br.x + (br.w - tw) * 0.5f, yB, kRowH, label);
 				return hit.Clicked(k2);
 			};
 
-			// ── 1. L'OBJET ──────────────────────────────────────────────────
-			Header(y, "Objet");
-			const int32 li = demo::Demo3DHostSelectedLight();
-			const int32 act = demo::Demo3DHostActiveObject();
-			if (li >= 0) {
-				demo::Demo3DHostLightName(li, buf, sizeof(buf));
-				p.IconV(r.x + kPad, y, kRowH, NkIcon::Light, NkRole::Text, 13.f);
-				p.TextV(r.x + kPad + S(18.f), y, kRowH, buf);
-				y += kRowH;
-				float32 pos[3];
-				demo::Demo3DHostLightPosition(li, pos);
-				snprintf(buf, sizeof(buf), "X %.2f   Y %.2f   Z %.2f", (float64)pos[0], (float64)pos[1],
-						 (float64)pos[2]);
-				p.TextV(r.x + kPad, y, kRowH, buf, NkRole::TextMuted);
-				y += kRowH;
-			} else if (act >= 0 && demo::Demo3DHostObjectSelected(act)) {
-				demo::Demo3DHostObjectName(act, buf, sizeof(buf));
-				p.IconV(r.x + kPad, y, kRowH, NkIcon::Mesh, NkRole::Text, 13.f);
-				p.TextV(r.x + kPad + S(18.f), y, kRowH, buf);
-				y += kRowH;
-				float32 pos[3];
-				demo::Demo3DHostObjectPosition(act, pos);
-				snprintf(buf, sizeof(buf), "X %.2f   Y %.2f   Z %.2f", (float64)pos[0], (float64)pos[1],
-						 (float64)pos[2]);
-				p.TextV(r.x + kPad, y, kRowH, buf, NkRole::TextMuted);
-				y += kRowH;
-				int32 nSel = 0;
-				const int32 nO = demo::Demo3DHostObjectCount();
-				for (int32 i = 0; i < nO; ++i)
-					if (demo::Demo3DHostObjectSelected(i))
-						++nSel;
-				snprintf(buf, sizeof(buf), "%d objet(s) selectionne(s)", nSel);
-				p.TextV(r.x + kPad, y, kRowH, buf, NkRole::TextMuted);
-				y += kRowH;
-				if (Button("props.desel", y, "Tout deselectionner", r.x + kPad, r.w - 2.f * kPad))
-					demo::Demo3DHostDeselectAll();
-				y += kRowH;
-			} else {
-				p.TextV(r.x + kPad, y, kRowH, "Aucun objet selectionne", NkRole::TextMuted);
-				y += kRowH;
-			}
-			y += S(6.f);
+			static float32 sContentH[3] = {200.f, 260.f, 200.f};
+			bool *openFlags[3] = {&st.propOpen0, &st.propOpen1, &st.propOpen2};
+			static const char *const kSecTitles[3] = {"Proprietes de l'objet",
+													  "Proprietes de la scene",
+													  "Proprietes de l'outil"};
+			int32 nOpen = 0;
+			for (int32 i2 = 0; i2 < 3; ++i2)
+				if (*openFlags[i2])
+					++nOpen;
+			const float32 availH = (r.y + r.h) - y - 3.f * kRowH;
+			const NkRect rr{r.x, 0.f, r.w - S(14.f), 0.f}; // colonne du scrollbar reservee
+			float32 secY = y;
 
-			// ── 2. LA SCENE ─────────────────────────────────────────────────
-			// Matcap, fond, projection et reglages de VUE (distance de vue
-			// independante des cameras de la scene, taille de l'ortho, etendue
-			// de la grille) -- modifiables, comme demande.
-			Header(y, "Scene");
-			{
-				// Projection : deux boutons, l'etat vient de la demo.
-				p.TextV(r.x + kPad, y, kRowH, "Projection", NkRole::TextMuted);
-				const bool o = demo::Demo3DHostIsOrtho();
-				const float32 bw = (r.w - S(132.f)) * 0.5f;
-				{
-					const NkRect br{r.x + S(120.f), y + S(2.f), bw, kRowH - S(4.f)};
-					hit.Add("props.persp", br);
-					if (!o)
-						p.Fill(br, NkRole::AccentUi, 3.f);
-					else
-						p.Outline(br, NkRole::Border, NkRole::PanelHeader, 3.f);
-					p.TextV(br.x + S(8.f), y, kRowH, "Persp.", !o ? NkRole::TextOnAccent : NkRole::Text);
-					if (hit.Clicked("props.persp")) {
-						demo::Demo3DHostSetOrtho(false);
-						st.projection = 0;
-						st.lastProjection = 0;
-					}
-				}
-				{
-					const NkRect br{r.x + S(120.f) + bw + S(4.f), y + S(2.f), bw, kRowH - S(4.f)};
-					hit.Add("props.ortho", br);
-					if (o)
-						p.Fill(br, NkRole::AccentUi, 3.f);
-					else
-						p.Outline(br, NkRole::Border, NkRole::PanelHeader, 3.f);
-					p.TextV(br.x + S(8.f), y, kRowH, "Ortho.", o ? NkRole::TextOnAccent : NkRole::Text);
-					if (hit.Clicked("props.ortho")) {
-						demo::Demo3DHostSetOrtho(true);
-						st.projection = 1;
-						st.lastProjection = 1;
-					}
-				}
-				y += kRowH;
-			}
-			{
-				float32 os = demo::Demo3DHostOrthoScale();
-				if (Slider("props.oscale", y, "Taille ortho", os, 0.15f, 1.5f, "%.2f"))
-					demo::Demo3DHostSetOrthoScale(os);
-			}
-			{
-				// 0 = distance automatique (dist*20+100). La barre commence a 40 :
-				// en dessous, l'auto reprend la main (bouton Auto).
-				float32 fv = demo::Demo3DHostViewFar();
-				if (Slider("props.far", y, "Distance de vue", fv, 0.f, 2000.f, "%.0f"))
-					demo::Demo3DHostSetViewFar(fv < 40.f ? 0.f : fv);
-			}
-			{
-				float32 ge = (float32)demo::Demo3DHostGridExtent();
-				if (Slider("props.grid", y, "Etendue grille", ge, 5.f, 100.f, "%.0f"))
-					demo::Demo3DHostSetGridExtent((int32)(ge + 0.5f));
-			}
-			{
-				// Matcap : le nom courant + precedent / suivant.
-				p.TextV(r.x + kPad, y, kRowH, "Matcap", NkRole::TextMuted);
-				const int32 mc = demo::Demo3DHostMatcap();
-				if (Button("props.mcprev", y, "<", r.x + S(120.f), S(24.f)))
-					demo::Demo3DHostSetMatcap(mc - 1 < 0 ? demo::Demo3DHostMatcapCount() - 1 : mc - 1);
-				if (Button("props.mcnext", y, ">", r.x + S(148.f), S(24.f)))
-					demo::Demo3DHostSetMatcap((mc + 1) % demo::Demo3DHostMatcapCount());
-				p.TextV(r.x + S(180.f), y, kRowH, demo::Demo3DHostMatcapName(mc));
-				y += kRowH;
-			}
-			{
-				// Fond : les six pastilles (5 prereglages + personnalisee).
-				p.TextV(r.x + kPad, y, kRowH, "Fond", NkRole::TextMuted);
-				float32 bx = r.x + S(120.f);
-				for (int32 i = 0; i < 6; ++i) {
-					snprintf(key, sizeof(key), "props.bg.%d", i);
-					const NkRect br{bx, y + S(4.f), S(18.f), kRowH - S(8.f)};
-					hit.Add(key, br);
-					float32 c[3];
-					NkBgColorOf(st, i, c);
-					p.Fill(br, NkColor{(uint8)(c[0] * 255.f), (uint8)(c[1] * 255.f),
-									  (uint8)(c[2] * 255.f), 255},
-						   2.f);
-					if (st.bgChoice == i)
-						p.OutlineSharp(br, NkRole::AccentUi);
-					if (hit.Clicked(key))
-						st.bgChoice = i;
-					bx += S(22.f);
-				}
-				y += kRowH;
-			}
-			y += S(6.f);
+			for (int32 sec = 0; sec < 3; ++sec) {
+				snprintf(key, sizeof(key), "props.sec.%d", sec);
+				SectionHeader(p, hit, r, secY, key, kSecTitles[sec], *openFlags[sec]);
+				p.HLine(r.x, secY + kRowH - 1.f, r.w);
+				secY += kRowH;
+				if (!*openFlags[sec])
+					continue;
+				float32 share = availH / (float32)(nOpen > 0 ? nOpen : 1);
+				float32 boxH = sContentH[sec] < share ? sContentH[sec] : share;
+				if (boxH < kRowH)
+					boxH = kRowH;
+				const NkRect box{r.x, secY, r.w, boxH};
+				snprintf(key, sizeof(key), "props.body.%d", sec);
+				hit.Add(key, box);
+				p.Clip(box);
+				float32 yy = secY - st.propScroll3[sec];
 
-			// ── 3. L'OUTIL ──────────────────────────────────────────────────
-			Header(y, "Outil");
-			{
-				static const char *const kToolNames[6] = {"Selection", "Curseur 3D", "Deplacer",
-														  "Rotation",	"Echelle",	 "Multigizmo"};
-				p.TextV(r.x + kPad, y, kRowH, kToolNames[(int32)st.tool]);
-				y += kRowH;
-				if (st.tool == NkTool::Select) {
-					int32 nS2 = 0;
-					const char *const *shapes = NkSelShapeItems(nS2);
-					float32 bx = r.x + kPad;
-					for (int32 i = 0; i < nS2; ++i) {
-						snprintf(key, sizeof(key), "props.shape.%d", i);
-						const float32 wq = (r.w - 2.f * kPad - 8.f) / 3.f;
-						const NkRect br{bx, y + S(2.f), wq, kRowH - S(4.f)};
-						hit.Add(key, br);
-						if (st.selShape == i)
-							p.Fill(br, NkRole::AccentUi, 3.f);
+				if (sec == 0) {
+					// ── L'OBJET : nom + TRANSFORMATION COMPLETE ─────────────────
+					const int32 li = demo::Demo3DHostSelectedLight();
+					const int32 act = demo::Demo3DHostActiveObject();
+					if (li >= 0) {
+						demo::Demo3DHostLightName(li, buf, sizeof(buf));
+						p.IconV(r.x + kPad, yy, kRowH, NkIcon::Light, NkRole::Text, 13.f);
+						p.TextV(r.x + kPad + S(18.f), yy, kRowH, buf);
+						yy += kRowH;
+						float32 pos[3];
+						demo::Demo3DHostLightPosition(li, pos);
+						snprintf(buf, sizeof(buf), "X %.2f   Y %.2f   Z %.2f", (float64)pos[0],
+								 (float64)pos[1], (float64)pos[2]);
+						p.TextV(r.x + kPad, yy, kRowH, buf, NkRole::TextMuted);
+						yy += kRowH;
+					} else if (act >= 0 && demo::Demo3DHostObjectSelected(act)) {
+						demo::Demo3DHostObjectName(act, buf, sizeof(buf));
+						p.IconV(r.x + kPad, yy, kRowH, NkIcon::Mesh, NkRole::Text, 13.f);
+						p.TextV(r.x + kPad + S(18.f), yy, kRowH, buf);
+						yy += kRowH;
+
+						// SYNC : TIRER quand on ne glisse pas (le gizmo et la vue
+						// restent maitres), POUSSER au changement des champs. Un axe
+						// VERROUILLE revient a la valeur tiree ; l'echelle
+						// PROPORTIONNELLE propage le rapport de l'axe touche.
+						static int32 sLastAct = -1;
+						static float32 sPull[9] = {};
+						const bool holding = ws.dragging || ws.editing;
+						float32 tp[3], tr2[3], ts2[3];
+						if (demo::Demo3DHostObjectTransform(act, tp, tr2, ts2)) {
+							if (!holding || act != sLastAct) {
+								for (int32 a = 0; a < 3; ++a) {
+									st.pos[a] = tp[a];
+									st.rot[a] = tr2[a];
+									st.scl[a] = ts2[a];
+									sPull[a] = tp[a];
+									sPull[3 + a] = tr2[a];
+									sPull[6 + a] = ts2[a];
+								}
+								sLastAct = act;
+							}
+							NkRect rowR = rr;
+							rowR.x = r.x;
+							PaintTransformRow(p, hit, ws, in, rowR, yy, "Position", st.pos, 0.01f,
+											  "prop.pos", st.lockPos ? NkIcon::Lock : NkIcon::Unlock,
+											  NkIcon::Refresh);
+							if (hit.Clicked("prop.pos.ic0"))
+								st.lockPos = !st.lockPos;
+							yy += Vec3RowH();
+							PaintTransformRow(p, hit, ws, in, rowR, yy, "Rotation", st.rot, 0.5f,
+											  "prop.rot", st.lockRot ? NkIcon::Lock : NkIcon::Unlock,
+											  NkIcon::Refresh);
+							if (hit.Clicked("prop.rot.ic0"))
+								st.lockRot = !st.lockRot;
+							yy += Vec3RowH();
+							PaintTransformRow(p, hit, ws, in, rowR, yy, "Echelle", st.scl, 0.01f,
+											  "prop.scl", st.lockScl ? NkIcon::Lock : NkIcon::Unlock,
+											  NkIcon::Refresh);
+							if (hit.Clicked("prop.scl.ic0"))
+								st.lockScl = !st.lockScl;
+							yy += Vec3RowH();
+
+							// Echelle proportionnelle : la case, puis la propagation.
+							{
+								const NkRect cb{r.x + kPad, yy + S(4.f), S(14.f), S(14.f)};
+								hit.Add("prop.scl.prop", cb);
+								if (st.propScale) {
+									p.Fill(cb, NkRole::AccentUi, 2.f);
+									p.IconV(cb.x + 1.f, cb.y - S(1.f), S(16.f), NkIcon::Check,
+											NkRole::TextOnAccent, 11.f);
+								} else {
+									p.Outline(cb, NkRole::Border, NkRole::InputBg, 2.f);
+								}
+								if (hit.Clicked("prop.scl.prop"))
+									st.propScale = !st.propScale;
+								p.TextV(r.x + kPad + S(20.f), yy, kRowH, "Echelle proportionnelle",
+										NkRole::TextMuted);
+								yy += kRowH;
+							}
+							if (st.propScale) {
+								int32 ch = -1;
+								for (int32 a = 0; a < 3; ++a)
+									if (st.scl[a] != sPull[6 + a])
+										ch = a;
+								if (ch >= 0 && sPull[6 + ch] > 1e-6f) {
+									const float32 ratio = st.scl[ch] / sPull[6 + ch];
+									for (int32 a = 0; a < 3; ++a)
+										if (a != ch)
+											st.scl[a] = sPull[6 + a] * ratio;
+								}
+							}
+							// Verrous : la ligne revient a l'etat tire.
+							for (int32 a = 0; a < 3; ++a) {
+								if (st.lockPos)
+									st.pos[a] = sPull[a];
+								if (st.lockRot)
+									st.rot[a] = sPull[3 + a];
+								if (st.lockScl)
+									st.scl[a] = sPull[6 + a];
+							}
+							bool diff = false;
+							for (int32 a = 0; a < 3; ++a)
+								if (fabsf(st.pos[a] - sPull[a]) > 1e-5f ||
+									fabsf(st.rot[a] - sPull[3 + a]) > 1e-5f ||
+									fabsf(st.scl[a] - sPull[6 + a]) > 1e-5f)
+									diff = true;
+							if (diff) {
+								demo::Demo3DHostSetObjectTransform(act, st.pos, st.rot, st.scl);
+								for (int32 a = 0; a < 3; ++a) {
+									sPull[a] = st.pos[a];
+									sPull[3 + a] = st.rot[a];
+									sPull[6 + a] = st.scl[a];
+								}
+							}
+						}
+						int32 nSel = 0;
+						const int32 nO = demo::Demo3DHostObjectCount();
+						for (int32 i3 = 0; i3 < nO; ++i3)
+							if (demo::Demo3DHostObjectSelected(i3))
+								++nSel;
+						snprintf(buf, sizeof(buf), "%d objet(s) selectionne(s)", nSel);
+						p.TextV(r.x + kPad, yy, kRowH, buf, NkRole::TextMuted);
+						yy += kRowH;
+						if (Button("props.desel", yy, "Tout deselectionner", r.x + kPad,
+								   rr.w - 2.f * kPad))
+							demo::Demo3DHostDeselectAll();
+						yy += kRowH;
+					} else {
+						p.TextV(r.x + kPad, yy, kRowH, "Aucun objet selectionne", NkRole::TextMuted);
+						yy += kRowH;
+					}
+				} else if (sec == 1) {
+					// ── LA SCENE : champs GLISSABLES (comme les transformations) ─
+					{
+						p.TextV(r.x + kPad, yy, kRowH, "Projection", NkRole::TextMuted);
+						const bool o = demo::Demo3DHostIsOrtho();
+						const float32 bw = (rr.w - S(132.f)) * 0.5f;
+						const NkRect b1{r.x + S(120.f), yy + S(2.f), bw, kRowH - S(4.f)};
+						hit.Add("props.persp", b1);
+						if (!o)
+							p.Fill(b1, NkRole::AccentUi, 3.f);
 						else
-							p.Outline(br, NkRole::Border, NkRole::PanelHeader, 3.f);
-						p.TextV(br.x + S(6.f), y, kRowH, shapes[i],
-								st.selShape == i ? NkRole::TextOnAccent : NkRole::Text);
-						if (hit.Clicked(key))
-							st.selShape = i;
-						bx += wq + 4.f;
+							p.Outline(b1, NkRole::Border, NkRole::PanelHeader, 3.f);
+						p.TextV(b1.x + S(8.f), yy, kRowH, "Persp.",
+								!o ? NkRole::TextOnAccent : NkRole::Text);
+						if (hit.Clicked("props.persp")) {
+							demo::Demo3DHostSetOrtho(false);
+							st.projection = 0;
+							st.lastProjection = 0;
+						}
+						const NkRect b2{r.x + S(120.f) + bw + S(4.f), yy + S(2.f), bw, kRowH - S(4.f)};
+						hit.Add("props.ortho", b2);
+						if (o)
+							p.Fill(b2, NkRole::AccentUi, 3.f);
+						else
+							p.Outline(b2, NkRole::Border, NkRole::PanelHeader, 3.f);
+						p.TextV(b2.x + S(8.f), yy, kRowH, "Ortho.",
+								o ? NkRole::TextOnAccent : NkRole::Text);
+						if (hit.Clicked("props.ortho")) {
+							demo::Demo3DHostSetOrtho(true);
+							st.projection = 1;
+							st.lastProjection = 1;
+						}
+						yy += kRowH;
 					}
-					y += kRowH;
-				} else if (st.tool == NkTool::Cursor) {
-					p.TextV(r.x + kPad, y, kRowH, "Clic gauche : poser le curseur 3D", NkRole::TextMuted);
-					y += kRowH;
-					if (Button("props.cur0", y, "Remettre a l'origine", r.x + kPad, r.w - 2.f * kPad))
-						demo::Demo3DHostResetCursor();
-					y += kRowH;
+					const NkRect fr{r.x + S(120.f), yy + S(3.f), rr.w - S(128.f), kRowH - S(4.f)};
+					{
+						p.TextV(r.x + kPad, yy, kRowH, "Taille ortho", NkRole::TextMuted);
+						float32 os = demo::Demo3DHostOrthoScale();
+						if (DragFloat(p, hit, ws, in, "props.oscale", fr, os, 0.005f,
+									  NkRole::AccentUi, "%.2f"))
+							demo::Demo3DHostSetOrthoScale(os);
+						yy += kRowH;
+					}
+					{
+						p.TextV(r.x + kPad, yy, kRowH, "Distance (0=auto)", NkRole::TextMuted);
+						NkRect fr2 = fr;
+						fr2.y = yy + S(3.f);
+						float32 fv = demo::Demo3DHostViewFar();
+						if (DragFloat(p, hit, ws, in, "props.far", fr2, fv, 5.f, NkRole::AccentUi,
+									  "%.0f"))
+							demo::Demo3DHostSetViewFar(fv < 20.f ? 0.f : fv);
+						yy += kRowH;
+					}
+					{
+						p.TextV(r.x + kPad, yy, kRowH, "Etendue grille", NkRole::TextMuted);
+						NkRect fr2 = fr;
+						fr2.y = yy + S(3.f);
+						float32 ge = (float32)demo::Demo3DHostGridExtent();
+						if (DragFloat(p, hit, ws, in, "props.grid", fr2, ge, 1.f, NkRole::AccentUi,
+									  "%.0f"))
+							demo::Demo3DHostSetGridExtent((int32)(ge + 0.5f));
+						yy += kRowH;
+					}
+					{
+						p.TextV(r.x + kPad, yy, kRowH, "Matcap", NkRole::TextMuted);
+						const int32 mc = demo::Demo3DHostMatcap();
+						if (Button("props.mcprev", yy, "<", r.x + S(120.f), S(24.f)))
+							demo::Demo3DHostSetMatcap(mc - 1 < 0 ? demo::Demo3DHostMatcapCount() - 1
+																 : mc - 1);
+						if (Button("props.mcnext", yy, ">", r.x + S(148.f), S(24.f)))
+							demo::Demo3DHostSetMatcap((mc + 1) % demo::Demo3DHostMatcapCount());
+						p.TextV(r.x + S(180.f), yy, kRowH, demo::Demo3DHostMatcapName(mc));
+						yy += kRowH;
+					}
+					{
+						p.TextV(r.x + kPad, yy, kRowH, "Fond", NkRole::TextMuted);
+						float32 bx = r.x + S(120.f);
+						for (int32 i3 = 0; i3 < 6; ++i3) {
+							snprintf(key, sizeof(key), "props.bg.%d", i3);
+							const NkRect br{bx, yy + S(4.f), S(18.f), kRowH - S(8.f)};
+							hit.Add(key, br);
+							float32 c[3];
+							NkBgColorOf(st, i3, c);
+							p.Fill(br, NkColor{(uint8)(c[0] * 255.f), (uint8)(c[1] * 255.f),
+											   (uint8)(c[2] * 255.f), 255},
+								   2.f);
+							if (st.bgChoice == i3)
+								p.OutlineSharp(br, NkRole::AccentUi);
+							if (hit.Clicked(key))
+								st.bgChoice = i3;
+							bx += S(22.f);
+						}
+						yy += kRowH;
+						// Le FOND PAR TYPE (uni, degrade, texture, HDRI, ciel --
+						// certains visibles seulement en Rendu/Materiaux) demande le
+						// pipeline de fond du moteur : chantier note, pas un bouton mort.
+						p.TextV(r.x + kPad, yy, kRowH, "Degrade, texture, HDRI, ciel : avec",
+								NkRole::TextMuted);
+						yy += kRowH - S(6.f);
+						p.TextV(r.x + kPad, yy, kRowH, "le fond moteur (mode Rendu), a venir.",
+								NkRole::TextMuted);
+						yy += kRowH;
+					}
 				} else {
-					// Outils de transformation : orientation, aimantation, et
-					// l'« appliquer » -- remettre la composante de la selection.
-					p.TextV(r.x + kPad, y, kRowH, "Orientation", NkRole::TextMuted);
-					int32 nOr = 0;
-					const char *const *orients = NkOrientItems(nOr);
-					float32 bx = r.x + S(120.f);
-					for (int32 i = 0; i < nOr; ++i) {
-						snprintf(key, sizeof(key), "props.or.%d", i);
-						const float32 wq = (r.w - S(132.f) - 8.f) / 3.f;
-						const NkRect br{bx, y + S(2.f), wq, kRowH - S(4.f)};
-						hit.Add(key, br);
-						const bool on = (st.orientation == i);
-						if (on)
-							p.Fill(br, NkRole::AccentUi, 3.f);
-						else
-							p.Outline(br, NkRole::Border, NkRole::PanelHeader, 3.f);
-						p.TextV(br.x + S(4.f), y, kRowH, orients[i],
-								on ? NkRole::TextOnAccent : NkRole::Text);
-						if (hit.Clicked(key))
-							st.orientation = i; // pousse par la sync
-						bx += wq + 4.f;
-					}
-					y += kRowH;
-					const bool snapOn = demo::Demo3DHostSnapEnabled();
-					if (Button("props.snap", y, snapOn ? "Aimantation : active" : "Aimantation : coupee",
-							   r.x + kPad, r.w - 2.f * kPad))
-						demo::Demo3DHostSetSnap(!snapOn, 0.5f, 15.f, 0.1f);
-					y += kRowH;
-					// APPLIQUER : remet la composante de l'outil sur la selection
-					// (le Alt+G / Alt+R / Alt+S de la demo).
-					if (st.tool == NkTool::Move || st.tool == NkTool::MultiGizmo) {
-						if (Button("props.clr0", y, "Remettre la translation", r.x + kPad, r.w - 2.f * kPad))
-							demo::Demo3DHostClearXform(0);
-						y += kRowH;
-					}
-					if (st.tool == NkTool::Rotate || st.tool == NkTool::MultiGizmo) {
-						if (Button("props.clr1", y, "Remettre la rotation", r.x + kPad, r.w - 2.f * kPad))
-							demo::Demo3DHostClearXform(1);
-						y += kRowH;
-					}
-					if (st.tool == NkTool::Scale || st.tool == NkTool::MultiGizmo) {
-						if (Button("props.clr2", y, "Remettre l'echelle", r.x + kPad, r.w - 2.f * kPad))
-							demo::Demo3DHostClearXform(2);
-						y += kRowH;
+					// ── L'OUTIL : ses reglages et son « appliquer » ─────────────
+					static const char *const kToolNames[6] = {"Selection",  "Curseur 3D", "Deplacer",
+															  "Rotation",	"Echelle",	  "Multigizmo"};
+					p.TextV(r.x + kPad, yy, kRowH, kToolNames[(int32)st.tool]);
+					yy += kRowH;
+					if (st.tool == NkTool::Select) {
+						int32 nS2 = 0;
+						const char *const *shapes = NkSelShapeItems(nS2);
+						float32 bx = r.x + kPad;
+						for (int32 i3 = 0; i3 < nS2; ++i3) {
+							snprintf(key, sizeof(key), "props.shape.%d", i3);
+							const float32 wq = (rr.w - 2.f * kPad - 8.f) / 3.f;
+							const NkRect br{bx, yy + S(2.f), wq, kRowH - S(4.f)};
+							hit.Add(key, br);
+							if (st.selShape == i3)
+								p.Fill(br, NkRole::AccentUi, 3.f);
+							else
+								p.Outline(br, NkRole::Border, NkRole::PanelHeader, 3.f);
+							p.TextV(br.x + S(6.f), yy, kRowH, shapes[i3],
+									st.selShape == i3 ? NkRole::TextOnAccent : NkRole::Text);
+							if (hit.Clicked(key))
+								st.selShape = i3;
+							bx += wq + 4.f;
+						}
+						yy += kRowH;
+					} else if (st.tool == NkTool::Cursor) {
+						p.TextV(r.x + kPad, yy, kRowH, "Clic gauche : poser le curseur 3D",
+								NkRole::TextMuted);
+						yy += kRowH;
+						if (Button("props.cur0", yy, "Remettre a l'origine", r.x + kPad,
+								   rr.w - 2.f * kPad))
+							demo::Demo3DHostResetCursor();
+						yy += kRowH;
+					} else {
+						p.TextV(r.x + kPad, yy, kRowH, "Orientation", NkRole::TextMuted);
+						int32 nOr = 0;
+						const char *const *orients = NkOrientItems(nOr);
+						float32 bx = r.x + S(120.f);
+						for (int32 i3 = 0; i3 < nOr; ++i3) {
+							snprintf(key, sizeof(key), "props.or.%d", i3);
+							const float32 wq = (rr.w - S(132.f) - 8.f) / 3.f;
+							const NkRect br{bx, yy + S(2.f), wq, kRowH - S(4.f)};
+							hit.Add(key, br);
+							const bool on = (st.orientation == i3);
+							if (on)
+								p.Fill(br, NkRole::AccentUi, 3.f);
+							else
+								p.Outline(br, NkRole::Border, NkRole::PanelHeader, 3.f);
+							p.TextV(br.x + S(4.f), yy, kRowH, orients[i3],
+									on ? NkRole::TextOnAccent : NkRole::Text);
+							if (hit.Clicked(key))
+								st.orientation = i3;
+							bx += wq + 4.f;
+						}
+						yy += kRowH;
+						const bool snapOn = demo::Demo3DHostSnapEnabled();
+						if (Button("props.snap", yy,
+								   snapOn ? "Aimantation : active" : "Aimantation : coupee",
+								   r.x + kPad, rr.w - 2.f * kPad))
+							demo::Demo3DHostSetSnap(!snapOn, 0.5f, 15.f, 0.1f);
+						yy += kRowH;
+						if (st.tool == NkTool::Move || st.tool == NkTool::MultiGizmo) {
+							if (Button("props.clr0", yy, "Remettre la translation", r.x + kPad,
+									   rr.w - 2.f * kPad))
+								demo::Demo3DHostClearXform(0);
+							yy += kRowH;
+						}
+						if (st.tool == NkTool::Rotate || st.tool == NkTool::MultiGizmo) {
+							if (Button("props.clr1", yy, "Remettre la rotation", r.x + kPad,
+									   rr.w - 2.f * kPad))
+								demo::Demo3DHostClearXform(1);
+							yy += kRowH;
+						}
+						if (st.tool == NkTool::Scale || st.tool == NkTool::MultiGizmo) {
+							if (Button("props.clr2", yy, "Remettre l'echelle", r.x + kPad,
+									   rr.w - 2.f * kPad))
+								demo::Demo3DHostClearXform(2);
+							yy += kRowH;
+						}
 					}
 				}
-			}
 
-			if (!hit.MouseDown())
+				sContentH[sec] = (yy + st.propScroll3[sec]) - secY + S(4.f);
+				snprintf(key, sizeof(key), "props.body.%d", sec);
+				hit.Wheel(key, st.propScroll3[sec], sContentH[sec], boxH);
+				p.Unclip();
+				snprintf(key, sizeof(key), "props.sb.%d", sec);
+				NkScrollDrag(p, hit, st, key, box, sContentH[sec], st.propScroll3[sec]);
+				secY += boxH;
+			}
+			if (!hit.MouseDown() && !st.propDragKey[0])
 				st.propDragKey[0] = 0;
-			const float32 contentH = (y + st.propScroll) - top;
-			hit.Wheel("props.body", st.propScroll, contentH, r.y + r.h - top);
-			p.Unclip();
-			p.VScroll({r.x, top, r.w, r.y + r.h - top}, contentH, st.propScroll);
 		}
 
 		// ── PROPRIETES (droite, haut) ───────────────────────────────────────────

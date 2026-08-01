@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor">
+  <!-- Cube en projection PARALLELE (pas de point de fuite) : trois faces
+       pleines separees par des joints -- l'icone de la bascule ortho. -->
+  <path d="M8 1.2 14 4.2v7.2l-6 3.4-6-3.4V4.2l6-3zM3.3 5.5v5.3l4 2.3V7.8l-4-2.3zm9.4 0-4 2.3v5.3l4-2.3V5.5zM8 2.9 4.1 4.8 8 7l3.9-2.2L8 2.9z"/>
+</svg>
