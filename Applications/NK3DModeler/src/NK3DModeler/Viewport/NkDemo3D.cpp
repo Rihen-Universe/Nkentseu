@@ -6745,10 +6745,47 @@ namespace nkentseu {
 							etg[e].pickRadius = 0.f; // pas de pick : la hierarchie selectionne
 						}
 						renderer::NkGizmoInput ein = gin;
-						// PICK ECRAN des MAILLAGES UTILISATEUR : un clic dans la vue
+						const bool ewasDrag = st->emptyGizmo.IsDragging();
+						st->emptyGizmo.Update(etg, 70, ein);
+						if (!ewasDrag && st->emptyGizmo.IsDragging())
+							gin.leftPressed = false; // poignee saisie : le clic est a nous
+						if (st->emptyDragPrev && !st->emptyGizmo.IsDragging()) {
+							const int32 es = st->emptyGizmo.ActiveIndex();
+							if (es >= 0 && es < 70) {
+								// REPLI : effective -> base, gizmo remis a zero (meme
+								// regle que les lumieres, sinon base et decalages
+								// divergent).
+								const NkVec3f tr = st->emptyGizmo.TranslateOf(es);
+								const NkMat4f oR = st->emptyGizmo.RotationOf(es);
+								const NkVec3f os = st->emptyGizmo.ScaleOf(es);
+								const NkMat4f bR =
+									NkMat4f::RotationZ(NkAngle::FromRad(nkvpEmptyRotDeg[es][2] * kD2R)) *
+									NkMat4f::RotationY(NkAngle::FromRad(nkvpEmptyRotDeg[es][1] * kD2R)) *
+									NkMat4f::RotationX(NkAngle::FromRad(nkvpEmptyRotDeg[es][0] * kD2R));
+								NkVec3f fp, fr, fs;
+								HostDecompose(oR * bR, fp, fr, fs);
+								nkvpEmptyPos[es][0] += tr.x;
+								nkvpEmptyPos[es][1] += tr.y;
+								nkvpEmptyPos[es][2] += tr.z;
+								nkvpEmptyRotDeg[es][0] = fr.x;
+								nkvpEmptyRotDeg[es][1] = fr.y;
+								nkvpEmptyRotDeg[es][2] = fr.z;
+								nkvpEmptyScl[es][0] *= (1.f + os.x);
+								nkvpEmptyScl[es][1] *= (1.f + os.y);
+								nkvpEmptyScl[es][2] *= (1.f + os.z);
+								st->emptyGizmo.ResetSelected();
+							}
+						}
+						st->emptyDragPrev = st->emptyGizmo.IsDragging();
+					}
+					st->gizmo.Update(targets, n, gin);
+						// PICK ECRAN des MAILLAGES UTILISATEUR -- APRES le gizmo objets :
+						// une FLECHE saisie garde son clic, un objet derriere elle
+						// n'est plus vole (constate par Rihen). Un clic dans la vue
 						// les selectionne comme n'importe quel objet (Rihen). Meme
 						// principe que les lumieres : centre projete, rayon approche.
-						if (gin.leftPressed && !st->emptyGizmo.IsDragging()) {
+						if (gin.leftPressed && !st->emptyGizmo.IsDragging() &&
+							!st->gizmo.IsDragging()) { // une POIGNEE saisie a priorite
 							const Demo3D_ScreenProj uproj = Demo3D_ScreenProj::Make(
 								cam.GetPosition(), cam.GetTarget(), 60.f, (float32)ctx.width,
 								(float32)ctx.height);
@@ -6801,44 +6838,9 @@ namespace nkentseu {
 									st->emptyGizmo.ToggleSelection(bestU); // multi successif
 								else
 									st->emptyGizmo.Select(bestU);
-								ein.leftPressed = false;
 								gin.leftPressed = false; // le clic est a nous
 							}
 						}
-						const bool ewasDrag = st->emptyGizmo.IsDragging();
-						st->emptyGizmo.Update(etg, 70, ein);
-						if (!ewasDrag && st->emptyGizmo.IsDragging())
-							gin.leftPressed = false; // poignee saisie : le clic est a nous
-						if (st->emptyDragPrev && !st->emptyGizmo.IsDragging()) {
-							const int32 es = st->emptyGizmo.ActiveIndex();
-							if (es >= 0 && es < 70) {
-								// REPLI : effective -> base, gizmo remis a zero (meme
-								// regle que les lumieres, sinon base et decalages
-								// divergent).
-								const NkVec3f tr = st->emptyGizmo.TranslateOf(es);
-								const NkMat4f oR = st->emptyGizmo.RotationOf(es);
-								const NkVec3f os = st->emptyGizmo.ScaleOf(es);
-								const NkMat4f bR =
-									NkMat4f::RotationZ(NkAngle::FromRad(nkvpEmptyRotDeg[es][2] * kD2R)) *
-									NkMat4f::RotationY(NkAngle::FromRad(nkvpEmptyRotDeg[es][1] * kD2R)) *
-									NkMat4f::RotationX(NkAngle::FromRad(nkvpEmptyRotDeg[es][0] * kD2R));
-								NkVec3f fp, fr, fs;
-								HostDecompose(oR * bR, fp, fr, fs);
-								nkvpEmptyPos[es][0] += tr.x;
-								nkvpEmptyPos[es][1] += tr.y;
-								nkvpEmptyPos[es][2] += tr.z;
-								nkvpEmptyRotDeg[es][0] = fr.x;
-								nkvpEmptyRotDeg[es][1] = fr.y;
-								nkvpEmptyRotDeg[es][2] = fr.z;
-								nkvpEmptyScl[es][0] *= (1.f + os.x);
-								nkvpEmptyScl[es][1] *= (1.f + os.y);
-								nkvpEmptyScl[es][2] *= (1.f + os.z);
-								st->emptyGizmo.ResetSelected();
-							}
-						}
-						st->emptyDragPrev = st->emptyGizmo.IsDragging();
-					}
-					st->gizmo.Update(targets, n, gin);
 					if (getenv("NK_SEL_AT")) {
 						static int32 lastLogged = -2;
 						const int32 nowSel = st->gizmo.ActiveIndex();
