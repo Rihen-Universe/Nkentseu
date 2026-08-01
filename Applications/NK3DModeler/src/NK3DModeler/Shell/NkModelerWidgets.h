@@ -652,7 +652,17 @@ namespace nkentseu {
 			static float32 sHsv[3] = {0.f, 0.f, 0.f};
 			static char sFor[40] = {0};
 			if (!dragSq && !dragHu) {
-				if (strcmp(sFor, key) != 0 || !hit.MouseDown()) {
+				// Resynchroniser DEPUIS le RGB seulement s'il a change de
+				// l'EXTERIEUR (autre widget, prereglage) : au noir/blanc la
+				// conversion perd la teinte, et la refaire chaque image faisait
+				// sauter le curseur de teinte apres chaque relachement.
+				float32 back[3];
+				NkHsvToRgb(sHsv, back);
+				const bool same = strcmp(sFor, key) == 0 &&
+								  fabsf(back[0] - rgb[0]) < 0.004f &&
+								  fabsf(back[1] - rgb[1]) < 0.004f &&
+								  fabsf(back[2] - rgb[2]) < 0.004f;
+				if (!same) {
 					NkRgbToHsv(rgb, sHsv);
 					snprintf(sFor, sizeof(sFor), "%s", key);
 				}
