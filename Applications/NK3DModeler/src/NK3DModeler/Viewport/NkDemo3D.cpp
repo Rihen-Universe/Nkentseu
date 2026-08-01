@@ -112,6 +112,8 @@ namespace nkentseu {
 		// RACCOURCIS DE SCENE par POLLING (les evenements clavier ne livrent
 		// pas les lettres au shell) : bits 1 dupliquer, 2 copier, 4 coller,
 		// 8 supprimer, 16 parenter, 32 deparenter -- consommes une fois.
+		static renderer::NkLightDesc nkvpUserLight[kNkvpMaxUser];
+		static renderer::NkLightDesc nkvpClipLight;
 		static int32 nkvpShortcutBits = 0;
 		static uint8 nkvpShortcutPrev = 0;
 		static void HostHierarchyFrame(); // detecteur (defini pres des accesseurs)
@@ -4384,6 +4386,21 @@ namespace nkentseu {
 			for (int32 li = 0; li < Demo3DState::kNumLights; li++)
 				if (!HostHiddenEff(86 + li)) // oeil ferme (le sien ou celui d'un ancetre)
 					sctx.lights.PushBack(Demo3D_LightEffective(st, li));
+			// LUMIERES UTILISATEUR (dupliquees/collees) : descripteur NATIF
+			// conserve, position pilotee par les tableaux + le gizmo.
+			for (int32 u = 0; u < kNkvpMaxUser; ++u) {
+				if (nkvpUserKind[u] != 5)
+					continue;
+				const int32 un = kNkvpFirstUser + u;
+				if (HostHiddenEff(un))
+					continue;
+				renderer::NkLightDesc L2 = nkvpUserLight[u];
+				const int32 e = un - 90;
+				const NkVec3f tr = st->emptyGizmo.TranslateOf(e);
+				L2.position = {nkvpEmptyPos[e][0] + tr.x, nkvpEmptyPos[e][1] + tr.y,
+							   nkvpEmptyPos[e][2] + tr.z};
+				sctx.lights.PushBack(L2);
+			}
 
 
 
@@ -7103,33 +7120,54 @@ namespace nkentseu {
 				// filaire orange (le lisere de la demo ne les connait pas).
 				for (int32 g2 = 6; g2 < 70; ++g2) {
 					const int32 gn2 = 90 + g2;
-					if (nkvpUserKind[g2 - 6] == 0 || nkvpUserKind[g2 - 6] == 4)
+					if (nkvpUserKind[g2 - 6] == 0 || nkvpUserKind[g2 - 6] == 4 ||
+						nkvpUserKind[g2 - 6] == 5)
 						continue;
 					if (!st->emptyGizmo.IsSelected(g2) || HostHiddenEff(gn2))
 						continue;
+					// Boite ORIENTEE : les 8 coins passent par la transformation
+					// effective (rotation, echelle, dimensions suivies -- Rihen).
 					const NkVec3f tr2 = st->emptyGizmo.TranslateOf(g2);
+					const NkVec3f os3 = st->emptyGizmo.ScaleOf(g2);
+					const float32 kD2Rm = 0.017453292f;
+					const NkMat4f mR =
+						st->emptyGizmo.RotationOf(g2) *
+						(NkMat4f::RotationZ(NkAngle::FromRad(nkvpEmptyRotDeg[g2][2] * kD2Rm)) *
+						 NkMat4f::RotationY(NkAngle::FromRad(nkvpEmptyRotDeg[g2][1] * kD2Rm)) *
+						 NkMat4f::RotationX(NkAngle::FromRad(nkvpEmptyRotDeg[g2][0] * kD2Rm)));
+					const uint8 mk = nkvpUserKind[g2 - 6];
+					float32 hb[3] = {0.62f, 0.62f, 0.62f};
+					if (mk == 1)
+						hb[0] = hb[1] = hb[2] = 0.58f;
+					if (mk == 3) {
+						hb[0] = hb[2] = 1.05f;
+						hb[1] = 0.05f;
+					}
+					const float32 osv[3] = {os3.x, os3.y, os3.z};
+					float32 hx[3];
+					for (int32 a3 = 0; a3 < 3; ++a3) {
+						hx[a3] = fabsf(nkvpEmptyScl[g2][a3]) * (1.f + osv[a3]) * hb[a3];
+						if (nkvpBaseSet[gn2] && nkvpDimFactor[gn2][a3] > 0.f)
+							hx[a3] *= nkvpDimFactor[gn2][a3];
+						hx[a3] += 0.03f;
+					}
 					const NkVec3f c3{nkvpEmptyPos[g2][0] + tr2.x, nkvpEmptyPos[g2][1] + tr2.y,
 									 nkvpEmptyPos[g2][2] + tr2.z};
-					float32 h3 = fabsf(nkvpEmptyScl[g2][0]);
-					if (fabsf(nkvpEmptyScl[g2][1]) > h3)
-						h3 = fabsf(nkvpEmptyScl[g2][1]);
-					if (fabsf(nkvpEmptyScl[g2][2]) > h3)
-						h3 = fabsf(nkvpEmptyScl[g2][2]);
-					h3 = h3 * 0.62f + 0.08f;
-					if (nkvpBaseSet[gn2] && nkvpDimFactor[gn2][0] > 0.f)
-						h3 *= nkvpDimFactor[gn2][0];
+					NkVec3f cn[8];
+					for (int32 ci2 = 0; ci2 < 8; ++ci2) {
+						const float32 lx = (ci2 & 1) ? hx[0] : -hx[0];
+						const float32 ly = (ci2 & 2) ? hx[1] : -hx[1];
+						const float32 lz = (ci2 & 4) ? hx[2] : -hx[2];
+						cn[ci2] = {c3.x + mR.mat[0][0] * lx + mR.mat[1][0] * ly + mR.mat[2][0] * lz,
+								   c3.y + mR.mat[0][1] * lx + mR.mat[1][1] * ly + mR.mat[2][1] * lz,
+								   c3.z + mR.mat[0][2] * lx + mR.mat[1][2] * ly + mR.mat[2][2] * lz};
+					}
 					const NkVec4f oc{1.f, 0.45f, 0.05f, 1.f};
-					const float32 xs[2] = {c3.x - h3, c3.x + h3};
-					const float32 ys2[2] = {c3.y - h3, c3.y + h3};
-					const float32 zs[2] = {c3.z - h3, c3.z + h3};
-					for (int32 a2 = 0; a2 < 2; ++a2)
-						for (int32 b2 = 0; b2 < 2; ++b2) {
-							r3d->DrawDebugLine({xs[0], ys2[a2], zs[b2]}, {xs[1], ys2[a2], zs[b2]},
-											   oc, 0.f, true);
-							r3d->DrawDebugLine({xs[a2], ys2[0], zs[b2]}, {xs[a2], ys2[1], zs[b2]},
-											   oc, 0.f, true);
-							r3d->DrawDebugLine({xs[a2], ys2[b2], zs[0]}, {xs[a2], ys2[b2], zs[1]},
-											   oc, 0.f, true);
+					for (int32 a3 = 0; a3 < 8; ++a3)
+						for (int32 b3 = 0; b3 < 3; ++b3) {
+							const int32 nb = a3 | (1 << b3);
+							if (nb != a3)
+								r3d->DrawDebugLine(cn[a3], cn[nb], oc, 0.f, true);
 						}
 				}
 				if (esel >= 0 && !nkvpGizmoHidden)
@@ -8753,7 +8791,7 @@ namespace nkentseu {
 			if (node >= kNkvpFirstEmpty)
 				return 4; // empty
 			if (node >= Demo3DState::kNumObj)
-				return 0; // lumiere : pas duplicable (v1, note au carnet)
+				return 5; // lumiere : descripteur natif copie
 			if (node <= 15)
 				return 1; // spheres
 			if (node == 83 || node == 84)
@@ -8798,6 +8836,13 @@ namespace nkentseu {
 				nkvpMatMetal[n] = nkvpMatCache[src][3];
 				nkvpMatRough[n] = nkvpMatCache[src][4];
 			}
+			if (kind == 5) {
+				// Une lumiere dupliquee RESTE une lumiere (Rihen).
+				nkvpUserLight[n - kNkvpFirstUser] =
+					src >= kNkvpFirstUser
+						? nkvpUserLight[src - kNkvpFirstUser]
+						: Demo3D_LightEffective(st, src - Demo3DState::kNumObj);
+			}
 			// Le double reprend aussi la TAILLE LOCALE surchargee.
 			if (nkvpBaseSet[src]) {
 				nkvpBaseSet[n] = true;
@@ -8823,6 +8868,10 @@ namespace nkentseu {
 				return;
 			nkvpClipSet = true;
 			nkvpClipKind = kind;
+			if (kind == 5)
+				nkvpClipLight = node >= kNkvpFirstUser
+									? nkvpUserLight[node - kNkvpFirstUser]
+									: Demo3D_LightEffective(st, node - Demo3DState::kNumObj);
 			float32 wp[3], wsc[3];
 			NkMat4f wr;
 			HostNodeWorld(st, node, wp, wr, wsc);
@@ -8850,6 +8899,8 @@ namespace nkentseu {
 				nkvpEmptyRotDeg[e][a] = nkvpClipTRS[3 + a];
 				nkvpEmptyScl[e][a] = nkvpClipTRS[6 + a];
 			}
+			if (nkvpClipKind == 5)
+				nkvpUserLight[n - kNkvpFirstUser] = nkvpClipLight;
 			if (nkvpClipKind >= 1 && nkvpClipKind <= 3) {
 				nkvpMatMask[n] = 1 | 2 | 4;
 				nkvpMatTint[n][0] = nkvpClipMat[0];
@@ -8897,6 +8948,25 @@ namespace nkentseu {
 				nkvpDimFactor[node][a] = def[a] > 1e-6f ? v / def[a] : 1.f;
 			}
 			nkvpBaseSet[node] = true;
+		}
+		bool Demo3DHostUserLightParams(int32 node, float32 *color3, float32 *intensity) {
+			if (node < kNkvpFirstUser || node >= kNkvpMaxNodes ||
+				nkvpUserKind[node - kNkvpFirstUser] != 5)
+				return false;
+			const renderer::NkLightDesc &L = nkvpUserLight[node - kNkvpFirstUser];
+			color3[0] = L.color.x;
+			color3[1] = L.color.y;
+			color3[2] = L.color.z;
+			*intensity = L.intensity;
+			return true;
+		}
+		void Demo3DHostSetUserLightParams(int32 node, const float32 *color3, float32 intensity) {
+			if (node < kNkvpFirstUser || node >= kNkvpMaxNodes ||
+				nkvpUserKind[node - kNkvpFirstUser] != 5)
+				return;
+			renderer::NkLightDesc &L = nkvpUserLight[node - kNkvpFirstUser];
+			L.color = {color3[0], color3[1], color3[2]};
+			L.intensity = intensity < 0.f ? 0.f : intensity;
 		}
 		int32 Demo3DHostTakeShortcuts() {
 			const int32 b = nkvpShortcutBits;

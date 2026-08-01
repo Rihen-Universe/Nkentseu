@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 // =============================================================================
 // NkModelerScreens.h â€” les zones de l'ecran A, peintes une par une.
 //
@@ -945,6 +945,26 @@ namespace nkentseu {
 			demo::Demo3DHostSetNodeXmitMask(node, mask);
 			yy += kRowH;
 		}
+		inline void NkHierNodeName(NkModelerState &st, int32 node, char *out, uint32 cap);
+		// Nom d'un double/colle : « base.NNN » (base = nom AFFICHE de la
+		// source, suffixe .NNN existant coupe pour ne pas empiler).
+		inline void NkHierComposeName(NkModelerState &st, const char *base0, int32 newNode) {
+			if (newNode < 96 || newNode >= 160 || !base0 || !base0[0])
+				return;
+			char base[24];
+			snprintf(base, sizeof(base), "%s", base0);
+			const int32 bl = (int32)strlen(base);
+			if (bl > 4 && base[bl - 4] == '.' && base[bl - 3] >= '0' && base[bl - 3] <= '9' &&
+				base[bl - 2] >= '0' && base[bl - 2] <= '9' && base[bl - 1] >= '0' &&
+				base[bl - 1] <= '9')
+				base[bl - 4] = 0;
+			snprintf(st.customNames[newNode], 24, "%.19s.%03d", base, (newNode - 96) + 1);
+		}
+		inline void NkHierNameNewNode(NkModelerState &st, int32 srcNode, int32 newNode) {
+			char b[24];
+			NkHierNodeName(st, srcNode, b, sizeof(b));
+			NkHierComposeName(st, b, newNode);
+		}
 		// Ligne a SAUTER dans la hierarchie : noeud supprime ou slot libre.
 		inline bool NkHierNodeSkip(int32 node) {
 			if (demo::Demo3DHostNodeDeleted(node))
@@ -994,10 +1014,10 @@ namespace nkentseu {
 			}
 			if (node >= 96) {
 				// OBJET UTILISATEUR : nom par nature + numero de slot.
-				static const char *const kUK[5] = {"Objet", "Sphere", "Cube", "Plan",
-												   "Empty"};
+				static const char *const kUK[6] = {"Objet", "Sphere", "Cube", "Plan",
+												   "Empty", "Lumiere"};
 				int32 k2 = demo::Demo3DHostUserKind(node);
-				if (k2 < 0 || k2 > 4)
+				if (k2 < 0 || k2 > 5)
 					k2 = 0;
 				snprintf(out, cap, "%s.%03d", kUK[k2], node - 96);
 				return;
@@ -1078,18 +1098,25 @@ namespace nkentseu {
 					}
 				} else if (dupK && actN >= 0) {
 					const int32 nn = demo::Demo3DHostDuplicateNode(actN);
-					if (nn >= 0)
+					if (nn >= 0) {
+						NkHierNameNewNode(st, actN, nn); // « Sol.001 » (Rihen)
 						demo::Demo3DHostSelectEmptyNode(nn);
+					}
 				}
 				if ((in.wantCopy || (sk & 2) != 0 ||
 					 (in.keyInit[(int32)nkgui::NkGuiKey::C] && in.ctrlDown)) &&
 					actN >= 0)
-					demo::Demo3DHostCopyNode(actN);
+					{
+						demo::Demo3DHostCopyNode(actN);
+						NkHierNodeName(st, actN, st.clipName, sizeof(st.clipName));
+					}
 				if (in.wantPaste || (sk & 4) != 0 ||
 					(in.keyInit[(int32)nkgui::NkGuiKey::V] && in.ctrlDown)) {
 					const int32 nn = demo::Demo3DHostPasteNode();
-					if (nn >= 0)
+					if (nn >= 0) {
+						NkHierComposeName(st, st.clipName, nn);
 						demo::Demo3DHostSelectEmptyNode(nn);
+					}
 				}
 				// Ctrl+P / Maj+P polles : parenter la selection a l'actif,
 				// ou tout deparenter -- meme regle que la hierarchie.
@@ -1129,14 +1156,19 @@ namespace nkentseu {
 					const int32 tn = st.hierMenuNode;
 					if (mact == 0) {
 						const int32 nn = demo::Demo3DHostDuplicateNode(tn);
-						if (nn >= 0)
+						if (nn >= 0) {
+							NkHierNameNewNode(st, tn, nn);
 							demo::Demo3DHostSelectEmptyNode(nn);
+						}
 					} else if (mact == 1) {
 						demo::Demo3DHostCopyNode(tn);
+						NkHierNodeName(st, tn, st.clipName, sizeof(st.clipName));
 					} else if (mact == 2) {
 						const int32 nn = demo::Demo3DHostPasteNode();
-						if (nn >= 0)
+						if (nn >= 0) {
+							NkHierComposeName(st, st.clipName, nn);
 							demo::Demo3DHostSelectEmptyNode(nn);
+						}
 					} else if (mact == 3) {
 						// CONFIRMATION d'abord -- le dialogue tranche pour les
 						// enfants (Rihen).
@@ -1366,7 +1398,9 @@ namespace nkentseu {
 						const int32 ukind = node >= 96 ? demo::Demo3DHostUserKind(node) : 0;
 						const bool isUserMesh = ukind >= 1 && ukind <= 3;
 						p.IconV(tx, yy, kRowH,
-								isEmpty ? (isUserMesh ? NkIcon::Mesh : NkIcon::Cursor)
+								isEmpty ? (isUserMesh	 ? NkIcon::Mesh
+										   : ukind == 5 ? NkIcon::Light
+														 : NkIcon::Cursor)
 										: (isLight ? NkIcon::Light : NkIcon::Mesh),
 								fg, 13.f);
 						p.Clip({rowR.x, yy, colType - rowR.x - S(8.f), kRowH});
@@ -1376,7 +1410,9 @@ namespace nkentseu {
 									 st.customNames[node], 24u);
 						p.Unclip();
 						p.TextV(colType, yy, kRowH,
-								isEmpty ? (isUserMesh ? "Maillage" : "Empty")
+								isEmpty ? (isUserMesh	 ? "Maillage"
+										   : ukind == 5 ? "Lumiere"
+														 : "Empty")
 										: (isLight ? "Lumiere" : "Maillage"),
 								dim);
 						if (!isEmpty && !isLight && sel && node == activeObj)
@@ -2972,6 +3008,28 @@ namespace nkentseu {
 									demo::Demo3DHostSetMeshTint(en, mtE);
 								if (metE != metE0 || rghE != rghE0)
 									demo::Demo3DHostSetMeshMetalRough(en, metE, rghE);
+							}
+							if (ukE == 5) {
+								// LUMIERE UTILISATEUR : ses proprietes NATIVES.
+								float32 ulc[3], uli = 1.f;
+								if (demo::Demo3DHostUserLightParams(en, ulc, &uli)) {
+									bool ulch = false;
+									p.TextV(r.x + kPad, yy, kRowH, "Intensite",
+											NkRole::TextMuted);
+									ulch |= DragFloat(p, hit, ws, in, "prop.ulint",
+													  {r.x + S(120.f), yy + S(3.f),
+													   rr.w - S(128.f), kRowH - S(4.f)},
+													  uli, 0.05f, NkRole::AccentUi, "%.2f");
+									yy += kRowH;
+									const float32 ulc0[3] = {ulc[0], ulc[1], ulc[2]};
+									PaintTransformRow(p, hit, ws, in, rowR, yy, "Couleur",
+													  ulc, 0.01f, "prop.ulcol", NkIcon::None,
+													  NkIcon::None);
+									yy += Vec3RowH();
+									if (ulch || ulc[0] != ulc0[0] || ulc[1] != ulc0[1] ||
+										ulc[2] != ulc0[2])
+										demo::Demo3DHostSetUserLightParams(en, ulc, uli);
+								}
 							}
 							NkXmitRow(p, hit, r, rr, yy, en);
 						}
