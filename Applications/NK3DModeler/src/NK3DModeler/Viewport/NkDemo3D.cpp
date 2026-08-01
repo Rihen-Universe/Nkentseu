@@ -6929,6 +6929,38 @@ namespace nkentseu {
 				}
 			}
 
+			// ── WIDGETS DES EMPTIES (croix d'axes, facon Blender) ───────────────
+			// Un empty n'a pas de geometrie mais il EXISTE dans la scene : une
+			// croix d'axes a sa position EFFECTIVE (drag du gizmo compris),
+			// teinte claire quand il est actif -- et les POIGNEES de son gizmo,
+			// qui tournaient sans jamais etre dessinees (constate par Rihen).
+			{
+				const int32 esel = st->emptyGizmo.ActiveIndex();
+				for (int32 e = 0; e < 6; ++e) {
+					if (HostHiddenEff(90 + e))
+						continue;
+					const NkVec3f etr = st->emptyGizmo.TranslateOf(e);
+					const NkVec3f ep{nkvpEmptyPos[e][0] + etr.x, nkvpEmptyPos[e][1] + etr.y,
+									 nkvpEmptyPos[e][2] + etr.z};
+					const float32 eh = 0.35f;
+					const bool esl = (e == esel);
+					const NkVec4f ecol = esl ? NkVec4f{1.f, 0.75f, 0.25f, 1.f}
+											 : NkVec4f{0.75f, 0.75f, 0.78f, 0.9f};
+					r3d->DrawDebugLine({ep.x - eh, ep.y, ep.z}, {ep.x + eh, ep.y, ep.z}, ecol, 0.f,
+									   true);
+					r3d->DrawDebugLine({ep.x, ep.y - eh, ep.z}, {ep.x, ep.y + eh, ep.z}, ecol, 0.f,
+									   true);
+					r3d->DrawDebugLine({ep.x, ep.y, ep.z - eh}, {ep.x, ep.y, ep.z + eh}, ecol, 0.f,
+									   true);
+				}
+				if (esel >= 0 && !nkvpGizmoHidden)
+					st->emptyGizmo.Draw(
+						[&](NkVec3f a, NkVec3f b, NkVec4f c) { r3d->DrawDebugLine(a, b, c, 0.f, true); },
+						[&](NkVec3f a, NkVec3f b, NkVec3f c, NkVec4f col) {
+							r3d->DrawDebugTriangle(a, b, c, col, 0.f, true);
+						});
+			}
+
 			// (Le gizmo d'édition de vertices + pick VERTEX/EDGE/FACE + marqueurs fins
 			//  sont désormais gérés plus haut, dans la section « EDIT MODE ».)
 
