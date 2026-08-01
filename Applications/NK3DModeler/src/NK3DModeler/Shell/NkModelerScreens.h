@@ -1433,11 +1433,21 @@ namespace nkentseu {
 				const bool onCard = st.browMenuIdx >= 0;
 				const bool canPaste =
 					st.browClip >= 0 && st.browserKind[st.browClip] != 255;
-				const char *bmIt[6];
-				int32 bmAct[6];
+				const char *bmIt[12];
+				int32 bmAct[12];
 				int32 nIt = 0;
 				bmIt[nIt] = "Nouveau dossier ici";
 				bmAct[nIt++] = 10;
+				bmIt[nIt] = "Creer materiau";
+				bmAct[nIt++] = 11;
+				bmIt[nIt] = "Creer texture";
+				bmAct[nIt++] = 12;
+				bmIt[nIt] = "Creer blueprint";
+				bmAct[nIt++] = 13;
+				bmIt[nIt] = "Creer dataset";
+				bmAct[nIt++] = 14;
+				bmIt[nIt] = "Importer...";
+				bmAct[nIt++] = 20;
 				if (onCard) {
 					bmIt[nIt] = "Couper";
 					bmAct[nIt++] = 0;
@@ -1469,15 +1479,20 @@ namespace nkentseu {
 				}
 				if (act2 >= 0) {
 					const int32 tgt = st.browMenuIdx;
-					if (act2 == 10) {
-						// dans le dossier vise (carte-dossier) sinon le courant
-						if (st.browserCount < NkModelerState::kMaxBrowser) {
-							const int32 k5 = st.browserCount++;
-							st.browserKind[k5] = 1;
-							st.browserParent[k5] =
-								(onCard && st.browserKind[tgt] == 1) ? tgt : st.browserFolder;
-							snprintf(st.browserNames[k5], 32, "Dossier_%02d", k5 + 1);
-						}
+					// le dossier VISE (carte-dossier cliquee) sinon le courant
+					const int32 destF =
+						(onCard && st.browserKind[tgt] == 1) ? tgt : st.browserFolder;
+					if (act2 >= 10 && act2 <= 14 &&
+						st.browserCount < NkModelerState::kMaxBrowser) {
+						// 10 dossier, 11 materiau, 12 texture, 13 blueprint, 14 dataset
+						static const uint8 kNewK[5] = {1, 2, 3, 0, 4};
+						static const char *const kNewN[5] = {"Dossier", "Materiau",
+															 "Texture", "BP", "Dataset"};
+						const int32 k5 = st.browserCount++;
+						st.browserKind[k5] = kNewK[act2 - 10];
+						st.browserParent[k5] = destF;
+						snprintf(st.browserNames[k5], 32, "%s_%02d", kNewN[act2 - 10],
+								 k5 + 1);
 					} else if (act2 == 0) {
 						st.browClip = tgt;
 						st.browClipCut = true;
@@ -1486,8 +1501,7 @@ namespace nkentseu {
 						st.browClipCut = false;
 					} else if (act2 == 2) {
 						// dans le dossier CLIQUE, pas la racine (Rihen)
-						BrPaste((onCard && st.browserKind[tgt] == 1) ? tgt
-																	  : st.browserFolder);
+						BrPaste(destF);
 					} else if (act2 == 3) {
 						BrCopyRec(tgt, st.browserParent[tgt]);
 					} else if (act2 == 4) {
@@ -1497,6 +1511,33 @@ namespace nkentseu {
 				} else if (hit.AnyClick() && !NkHitRegistry::Contains(mr2, hit.Mouse())) {
 					st.browMenuIdx = -1;
 				}
+			}
+			// CARTE du depot GAUCHE -> DROITE : Copier / Deplacer / Annuler ;
+			// cliquer dans le vide annule aussi (Rihen).
+			if (st.browAskIdx >= 0) {
+				static const char *const kAsk[3] = {"Deplacer ici", "Copier ici",
+													"Annuler"};
+				NkRect ar3{st.browAskX, st.browAskY, S(160.f), kRowH * 3.f};
+				if (ar3.y + ar3.h > area.y + area.h)
+					ar3.y = area.y + area.h - ar3.h;
+				p.Outline(ar3, NkRole::AccentUi, NkRole::PanelHeader, 3.f);
+				int32 ask2 = -1;
+				for (int32 mi = 0; mi < 3; ++mi) {
+					const NkRect it{ar3.x, ar3.y + (float32)mi * kRowH, ar3.w, kRowH};
+					snprintf(key, sizeof(key), "brw.ask.%d", mi);
+					HoverFill(p, it, hit.Add(key, it), 0.f);
+					p.TextV(it.x + S(10.f), it.y, kRowH, kAsk[mi]);
+					if (hit.Clicked(key))
+						ask2 = mi;
+				}
+				if (ask2 == 0) {
+					st.browserParent[st.browAskIdx] = st.browAskDest;
+				} else if (ask2 == 1) {
+					BrCopyRec(st.browAskIdx, st.browAskDest);
+				}
+				if (ask2 >= 0 ||
+					(hit.AnyClick() && !NkHitRegistry::Contains(ar3, hit.Mouse())))
+					st.browAskIdx = -1; // le vide ANNULE
 			}
 		}
 		inline void PaintHierarchy(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
@@ -5024,8 +5065,28 @@ namespace nkentseu {
 						p.Fill(rowR, NkRole::AccentUi);
 					else
 						HoverFill(p, rowR, over, 0.f);
+					// CHEVRON si le dossier a des SOUS-DOSSIERS ; icone COLOREE si
+					// plein, eteinte si vide (regles de Rihen).
+					bool hasSub = false, hasAny = false;
+					for (int32 c7 = 0; c7 < st.browserCount; ++c7)
+						if (st.browserParent[c7] == i && st.browserKind[c7] != 255) {
+							hasAny = true;
+							if (st.browserKind[c7] == 1)
+								hasSub = true;
+						}
+					const bool foldB = ((st.browFold[i >> 5] >> (i & 31)) & 1u) != 0u;
+					if (hasSub) {
+						snprintf(fkey, sizeof(fkey), "brow.chev.%d", i);
+						hit.Add(fkey, {r.x + ind, dy, S(16.f), kRowH});
+						p.IconV(r.x + S(2.f) + ind, dy, kRowH,
+								foldB ? NkIcon::ChevronRight : NkIcon::ChevronDown,
+								on ? NkRole::TextOnAccent : NkRole::TextMuted, 11.f);
+						if (hit.Clicked(fkey))
+							st.browFold[i >> 5] ^= (1u << (i & 31));
+					}
 					p.IconV(r.x + S(18.f) + ind, dy, kRowH,
-							on ? NkIcon::FolderOpen : NkIcon::Folder, NkRole::TypeFolder, 13.f);
+							on ? NkIcon::FolderOpen : NkIcon::Folder,
+							hasAny ? NkRole::TypeFolder : NkRole::TextMuted, 13.f);
 					snprintf(fkey, sizeof(fkey), "brow.dirname.%d", i);
 					EditableText(p, hit, ws, in, fkey,
 								 {r.x + S(36.f) + ind, dy, treeW - S(42.f) - ind, kRowH},
@@ -5045,6 +5106,7 @@ namespace nkentseu {
 						st.browDragX = bm.x;
 						st.browDragY = bm.y;
 						st.browDragging = false;
+						st.browDragFromTree = true;
 					}
 					if (st.browDragging && st.browDragIdx != i &&
 						NkHitRegistry::Contains(rowR, bm)) {
@@ -5053,6 +5115,7 @@ namespace nkentseu {
 							   NkRole::AccentUi);
 					}
 					dy += kRowH;
+					if (!foldB)
 					for (int32 c6 = st.browserCount - 1; c6 >= 0; --c6)
 						if (st.browserKind[c6] == 1 && st.browserParent[c6] == i && tsp < 62) {
 							tstk[tsp] = c6;
@@ -5203,6 +5266,7 @@ namespace nkentseu {
 						st.browDragX = bm.x;
 						st.browDragY = bm.y;
 						st.browDragging = false;
+						st.browDragFromTree = false;
 					}
 					if (st.browDragging && st.browDragIdx != i && kind == 1 &&
 						NkHitRegistry::Contains(cardR, bm)) {
@@ -5253,8 +5317,20 @@ namespace nkentseu {
 							for (int32 c5 = dest; c5 >= 0 && ok5; c5 = st.browserParent[c5])
 								if (c5 == st.browDragIdx)
 									ok5 = false;
-							if (ok5)
-								st.browserParent[st.browDragIdx] = dest;
+							if (ok5) {
+								if (st.browDragFromTree &&
+									NkHitRegistry::Contains(
+										{r.x + treeW, ty, r.w - treeW, th}, bm)) {
+									// GAUCHE -> DROITE : la carte Copier/Deplacer decide
+									// (Rihen) -- cliquer dans le vide annulera.
+									st.browAskIdx = st.browDragIdx;
+									st.browAskDest = dest;
+									st.browAskX = bm.x;
+									st.browAskY = bm.y;
+								} else {
+									st.browserParent[st.browDragIdx] = dest;
+								}
+							}
 						}
 					}
 					st.browDragIdx = -1;

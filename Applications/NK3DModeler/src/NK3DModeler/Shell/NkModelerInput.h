@@ -278,6 +278,13 @@ namespace nkentseu {
 				float32 browDragX = 0.f, browDragY = 0.f;
 				bool browDragging = false;
 				bool browMouseWasDown = false;
+				// Pliage de l'arbre (bit = plie), origine du drag, et carte
+				// Copier/Deplacer du depot gauche -> droite.
+				uint32 browFold[8] = {};
+				bool browDragFromTree = false;
+				int32 browAskIdx = -1;
+				int32 browAskDest = -1;
+				float32 browAskX = 0.f, browAskY = 0.f;
 				int32 lightSrcUi = 0;
 				// Une scene AJOUTEE est VIERGE : les objets de la demo y sont masques.
 				bool sceneBlank[8] = {};
