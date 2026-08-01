@@ -1183,22 +1183,22 @@ namespace nkentseu {
 				if (st.selectedAsset == root2)
 					st.selectedAsset = -1;
 			};
-			auto BrPaste = [&]() {
+			auto BrPaste = [&](int32 dest5) {
 				if (st.browClip < 0 || st.browserKind[st.browClip] == 255)
 					return;
 				if (st.browClipCut) {
 					bool okMove = true;
-					for (int32 c4 = st.browserFolder; c4 >= 0; c4 = st.browserParent[c4])
+					for (int32 c4 = dest5; c4 >= 0; c4 = st.browserParent[c4])
 						if (c4 == st.browClip) {
 							okMove = false;
 							break;
 						}
 					if (okMove) {
-						st.browserParent[st.browClip] = st.browserFolder;
+						st.browserParent[st.browClip] = dest5;
 						st.browClip = -1;
 					}
 				} else {
-					BrCopyRec(st.browClip, st.browserFolder);
+					BrCopyRec(st.browClip, dest5);
 				}
 			};
 			// CLIC DROIT DANS LA VUE 3D : le menu du noeud ACTIF.
@@ -1253,7 +1253,7 @@ namespace nkentseu {
 					}
 					if (in.wantPaste || (sk & 4) != 0 ||
 						(in.keyInit[(int32)nkgui::NkGuiKey::V] && in.ctrlDown))
-						BrPaste();
+						BrPaste(st.browserFolder);
 				} else {
 				const int32 actN = st.activeEmpty >= 0
 									   ? st.activeEmpty
@@ -1485,7 +1485,9 @@ namespace nkentseu {
 						st.browClip = tgt;
 						st.browClipCut = false;
 					} else if (act2 == 2) {
-						BrPaste();
+						// dans le dossier CLIQUE, pas la racine (Rihen)
+						BrPaste((onCard && st.browserKind[tgt] == 1) ? tgt
+																	  : st.browserFolder);
 					} else if (act2 == 3) {
 						BrCopyRec(tgt, st.browserParent[tgt]);
 					} else if (act2 == 4) {
@@ -4966,6 +4968,9 @@ namespace nkentseu {
 				st.browMenuX = hit.Mouse().x;
 				st.browMenuY = hit.Mouse().y;
 			}
+			int32 dropTo = -999; // -1 racine, i dossier, -100 fond de grille
+			const bool freshB = hit.MouseDown() && !st.browMouseWasDown;
+			const nkgui::NkVec2 bm = hit.Mouse();
 			int32 folderCount = 0;
 			{
 				float32 dy = ty + S(4.f) - treeScroll;
@@ -4985,12 +4990,32 @@ namespace nkentseu {
 							on ? NkRole::TextOnAccent : NkRole::Text);
 					if (hit.Clicked("brow.root"))
 						st.browserFolder = -1;
+					if (st.browDragging && NkHitRegistry::Contains(rowR, bm)) {
+						dropTo = -1; // vers la RACINE
+						p.Fill({rowR.x, rowR.y + rowR.h - S(2.f), rowR.w, S(2.f)},
+							   NkRole::AccentUi);
+					}
 					dy += kRowH;
 				}
-				for (int32 i = 0; i < st.browserCount; ++i) {
-					if (st.browserKind[i] != 1)
-						continue; // seuls les DOSSIERS vivent dans l'arbre
+				// ARBRE RECURSIF : chaque sous-dossier s'indente sous son parent,
+				// comme la hierarchie (regle de Rihen, facon Unreal).
+				int32 tstk[64];
+				int32 tdep[64];
+				int32 tsp = 0;
+				for (int32 i = st.browserCount - 1; i >= 0; --i)
+					if (st.browserKind[i] == 1 &&
+						(st.browserParent[i] < 0 ||
+						 st.browserKind[st.browserParent[i]] != 1)) {
+						tstk[tsp] = i;
+						tdep[tsp] = 0;
+						++tsp;
+					}
+				while (tsp > 0) {
+					--tsp;
+					const int32 i = tstk[tsp];
+					const int32 dep = tdep[tsp];
 					++folderCount;
+					const float32 ind = (float32)dep * S(14.f);
 					const bool on = (st.browserFolder == i);
 					const NkRect rowR{r.x, dy, treeW, kRowH};
 					snprintf(fkey, sizeof(fkey), "brow.dir.%d", i);
@@ -4999,18 +5024,41 @@ namespace nkentseu {
 						p.Fill(rowR, NkRole::AccentUi);
 					else
 						HoverFill(p, rowR, over, 0.f);
-					// LE DOSSIER RESTE ORANGE meme selectionne : c'est ce qui le
-					// distingue d'un asset au premier coup d'oeil.
-					p.IconV(r.x + S(18.f), dy, kRowH, on ? NkIcon::FolderOpen : NkIcon::Folder,
-							NkRole::TypeFolder, 13.f);
+					p.IconV(r.x + S(18.f) + ind, dy, kRowH,
+							on ? NkIcon::FolderOpen : NkIcon::Folder, NkRole::TypeFolder, 13.f);
 					snprintf(fkey, sizeof(fkey), "brow.dirname.%d", i);
 					EditableText(p, hit, ws, in, fkey,
-								 {r.x + S(36.f), dy, treeW - S(42.f), kRowH}, st.browserNames[i],
+								 {r.x + S(36.f) + ind, dy, treeW - S(42.f) - ind, kRowH},
+								 st.browserNames[i],
 								 on ? NkRole::TextOnAccent : NkRole::Text, st.browserNames[i], 32u);
 					snprintf(fkey, sizeof(fkey), "brow.dir.%d", i);
 					if (hit.Clicked(fkey))
 						st.browserFolder = i;
+					if (hit.RightClicked(fkey)) {
+						st.browMenuIdx = i;
+						st.browMenuX = bm.x;
+						st.browMenuY = bm.y;
+					}
+					// GLISSER-DEPOSER : armement sur la ligne, cible au survol.
+					if (freshB && NkHitRegistry::Contains(rowR, bm)) {
+						st.browDragIdx = i;
+						st.browDragX = bm.x;
+						st.browDragY = bm.y;
+						st.browDragging = false;
+					}
+					if (st.browDragging && st.browDragIdx != i &&
+						NkHitRegistry::Contains(rowR, bm)) {
+						dropTo = i;
+						p.Fill({rowR.x, rowR.y + rowR.h - S(2.f), rowR.w, S(2.f)},
+							   NkRole::AccentUi);
+					}
 					dy += kRowH;
+					for (int32 c6 = st.browserCount - 1; c6 >= 0; --c6)
+						if (st.browserKind[c6] == 1 && st.browserParent[c6] == i && tsp < 62) {
+							tstk[tsp] = c6;
+							tdep[tsp] = dep + 1;
+							++tsp;
+						}
 				}
 				if (folderCount == 0)
 					p.TextV(r.x + S(8.f), dy, kRowH, "Aucun dossier", NkRole::TextMuted);
@@ -5146,6 +5194,22 @@ namespace nkentseu {
 					st.browMenuX = hit.Mouse().x;
 					st.browMenuY = hit.Mouse().y;
 				}
+				{
+					// GLISSER-DEPOSER : la carte s'arme au premier appui ; une
+					// carte-DOSSIER est une cible de depot.
+					const NkRect cardR{tx, tyy, tw, cardH};
+					if (freshB && NkHitRegistry::Contains(cardR, bm)) {
+						st.browDragIdx = i;
+						st.browDragX = bm.x;
+						st.browDragY = bm.y;
+						st.browDragging = false;
+					}
+					if (st.browDragging && st.browDragIdx != i && kind == 1 &&
+						NkHitRegistry::Contains(cardR, bm)) {
+						dropTo = i;
+						p.OutlineSharp(cardR, NkRole::AccentUi);
+					}
+				}
 				if (hit.Clicked(akey))
 					st.selectedAsset = i;
 				tx += tw + S(12.f);
@@ -5167,6 +5231,39 @@ namespace nkentseu {
 			hit.Wheel("brow.assets", st.scrollAssets, assetContentH, assetArea.h);
 			p.VScroll(treeArea, 5.f * kRowH + S(8.f), treeScroll);
 			p.VScroll(assetArea, assetContentH, assetScroll);
+			// LACHER du glisser-deposer (4 sens, garde anti-cycle) + fantome.
+			if (st.browDragIdx >= 0) {
+				if (hit.MouseDown()) {
+					if (!st.browDragging) {
+						const float32 dxb = bm.x - st.browDragX, dyb = bm.y - st.browDragY;
+						if (dxb * dxb + dyb * dyb > 36.f)
+							st.browDragging = true;
+					}
+					if (st.browDragging)
+						p.TextV(bm.x + S(14.f), bm.y - kRowH * 0.5f, kRowH,
+								st.browserNames[st.browDragIdx], NkRole::Text);
+				} else {
+					if (st.browDragging) {
+						if (dropTo == -999 &&
+							NkHitRegistry::Contains({r.x + treeW, ty, r.w - treeW, th}, bm))
+							dropTo = -100; // fond de grille = dossier COURANT
+						if (dropTo != -999) {
+							const int32 dest = (dropTo == -100) ? st.browserFolder : dropTo;
+							bool ok5 = (dest != st.browDragIdx);
+							for (int32 c5 = dest; c5 >= 0 && ok5; c5 = st.browserParent[c5])
+								if (c5 == st.browDragIdx)
+									ok5 = false;
+							if (ok5)
+								st.browserParent[st.browDragIdx] = dest;
+						}
+					}
+					st.browDragIdx = -1;
+				}
+			}
+			if (!hit.MouseDown() && st.browDragIdx < 0)
+				st.browDragging = false;
+			st.browMouseWasDown = hit.MouseDown();
+
 			char cnt[32];
 			snprintf(cnt, sizeof(cnt), "%d element(s)", shown);
 			const float32 ew = p.TextW(cnt);

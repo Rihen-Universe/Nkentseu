@@ -273,6 +273,11 @@ namespace nkentseu {
 				// Rect du navigateur (pose chaque frame) : les raccourcis y sont
 				// routes vers les cartes plutot que vers la scene.
 				NkRect browserRect{0.f, 0.f, 0.f, 0.f};
+				// Glisser-deposer du navigateur (4 sens, facon Unreal).
+				int32 browDragIdx = -1;
+				float32 browDragX = 0.f, browDragY = 0.f;
+				bool browDragging = false;
+				bool browMouseWasDown = false;
 				int32 lightSrcUi = 0;
 				// Une scene AJOUTEE est VIERGE : les objets de la demo y sont masques.
 				bool sceneBlank[8] = {};
