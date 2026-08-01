@@ -1076,9 +1076,12 @@ namespace nkentseu {
 					if (nn >= 0)
 						demo::Demo3DHostSelectEmptyNode(nn);
 				}
-				if (in.wantCopy && actN >= 0)
+				if ((in.wantCopy ||
+					 (in.keyInit[(int32)nkgui::NkGuiKey::C] && in.ctrlDown)) &&
+					actN >= 0)
 					demo::Demo3DHostCopyNode(actN);
-				if (in.wantPaste) {
+				if (in.wantPaste ||
+					(in.keyInit[(int32)nkgui::NkGuiKey::V] && in.ctrlDown)) {
 					const int32 nn = demo::Demo3DHostPasteNode();
 					if (nn >= 0)
 						demo::Demo3DHostSelectEmptyNode(nn);
@@ -1308,7 +1311,9 @@ namespace nkentseu {
 				NkHierNodeName(st, node, nameBuf, sizeof(nameBuf));
 				const bool hasKids = demo::Demo3DHostNodeHasChildren(node);
 				const bool folded = ((st.hierFold[node >> 5] >> (node & 31)) & 1u) != 0u;
-				const bool sel = isEmpty    ? (st.activeEmpty == node)
+				const bool sel = isEmpty
+									 ? (demo::Demo3DHostEmptyNodeSelected(node) ||
+										st.activeEmpty == node)
 								 : isLight ? (selLight == li)
 										   : demo::Demo3DHostObjectSelected(node);
 				const bool show = !searching || NkNameMatches(nameBuf, st.searchHier);
@@ -1398,8 +1403,12 @@ namespace nkentseu {
 						}
 						if (wantSel) {
 							if (isEmpty && !lok) {
-								demo::Demo3DHostDeselectAll();
-								demo::Demo3DHostSelectEmptyNode(node);
+								if (hit.ShiftDown() || hit.CtrlDown()) {
+									demo::Demo3DHostToggleEmptyNode(node); // multi successif
+								} else {
+									demo::Demo3DHostDeselectAll();
+									demo::Demo3DHostSelectEmptyNode(node);
+								}
 								st.activeEmpty = node;
 							} else if (isLight) {
 								if (!lok)
@@ -2974,6 +2983,39 @@ namespace nkentseu {
 							sLLast = li;
 						}
 						yy += Vec3RowH();
+						// ROTATION (direction du faisceau) : soleil, projecteur,
+						// surfacique -- une ponctuelle n'a pas d'orientation.
+						if (demo::Demo3DHostLightType(li) != 1) {
+							static float32 sLE[4][3];
+							static bool sLEInit[4] = {};
+							float32 ld[3];
+							demo::Demo3DHostLightDir(li, ld);
+							if (li >= 0 && li < 4 && !sLEInit[li]) {
+								// angles retrouves depuis la direction (rx elevation,
+								// rz azimut ; ry libre, sans effet visuel)
+								float32 dz = ld[2] < -1.f ? -1.f : (ld[2] > 1.f ? 1.f : ld[2]);
+								sLE[li][0] = asinf(-dz) * 57.29578f;
+								sLE[li][1] = 0.f;
+								sLE[li][2] = atan2f(ld[0], -ld[1]) * 57.29578f;
+								sLEInit[li] = true;
+							}
+							const float32 le0[3] = {sLE[li][0], sLE[li][1], sLE[li][2]};
+							PaintTransformRow(p, hit, ws, in, rowR, yy, "Rotation",
+											  sLE[li], 0.5f, "prop.lrot", NkIcon::None,
+											  NkIcon::None, "%.1f");
+							yy += Vec3RowH();
+							if (sLE[li][0] != le0[0] || sLE[li][1] != le0[1] ||
+								sLE[li][2] != le0[2]) {
+								const float32 k2r = 0.017453292f;
+								const float32 cxr = cosf(sLE[li][0] * k2r);
+								const float32 sxr = sinf(sLE[li][0] * k2r);
+								const float32 czr = cosf(sLE[li][2] * k2r);
+								const float32 szr = sinf(sLE[li][2] * k2r);
+								// direction = Rz(azimut) * Rx(elevation) . (0,-1,0)
+								const float32 nd[3] = {cxr * szr, -cxr * czr, -sxr};
+								demo::Demo3DHostSetLightDir(li, nd);
+							}
+						}
 						float32 lcol[3], lint = 1.f;
 						demo::Demo3DHostLightParams(li, lcol, &lint);
 						bool lch = false;

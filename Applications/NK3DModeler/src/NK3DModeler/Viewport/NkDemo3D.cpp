@@ -6742,7 +6742,10 @@ namespace nkentseu {
 								st->gizmo.ClearSelection();
 								st->lightGizmo.ClearSelection();
 								st->lightSel = -1;
-								st->emptyGizmo.Select(bestU);
+								if (gin.shiftDown || gin.ctrlDown)
+									st->emptyGizmo.ToggleSelection(bestU); // multi successif
+								else
+									st->emptyGizmo.Select(bestU);
 								ein.leftPressed = false;
 								gin.leftPressed = false; // le clic est a nous
 							}
@@ -7087,6 +7090,39 @@ namespace nkentseu {
 									   true);
 					r3d->DrawDebugLine({ep.x, ep.y, ep.z - eh}, {ep.x, ep.y, ep.z + eh}, ecol, 0.f,
 									   true);
+				}
+				// MARQUEUR DE SELECTION des maillages utilisateur : boite
+				// filaire orange (le lisere de la demo ne les connait pas).
+				for (int32 g2 = 6; g2 < 70; ++g2) {
+					const int32 gn2 = 90 + g2;
+					if (nkvpUserKind[g2 - 6] == 0 || nkvpUserKind[g2 - 6] == 4)
+						continue;
+					if (!st->emptyGizmo.IsSelected(g2) || HostHiddenEff(gn2))
+						continue;
+					const NkVec3f tr2 = st->emptyGizmo.TranslateOf(g2);
+					const NkVec3f c3{nkvpEmptyPos[g2][0] + tr2.x, nkvpEmptyPos[g2][1] + tr2.y,
+									 nkvpEmptyPos[g2][2] + tr2.z};
+					float32 h3 = fabsf(nkvpEmptyScl[g2][0]);
+					if (fabsf(nkvpEmptyScl[g2][1]) > h3)
+						h3 = fabsf(nkvpEmptyScl[g2][1]);
+					if (fabsf(nkvpEmptyScl[g2][2]) > h3)
+						h3 = fabsf(nkvpEmptyScl[g2][2]);
+					h3 = h3 * 0.62f + 0.08f;
+					if (nkvpBaseSet[gn2] && nkvpDimFactor[gn2][0] > 0.f)
+						h3 *= nkvpDimFactor[gn2][0];
+					const NkVec4f oc{1.f, 0.45f, 0.05f, 1.f};
+					const float32 xs[2] = {c3.x - h3, c3.x + h3};
+					const float32 ys2[2] = {c3.y - h3, c3.y + h3};
+					const float32 zs[2] = {c3.z - h3, c3.z + h3};
+					for (int32 a2 = 0; a2 < 2; ++a2)
+						for (int32 b2 = 0; b2 < 2; ++b2) {
+							r3d->DrawDebugLine({xs[0], ys2[a2], zs[b2]}, {xs[1], ys2[a2], zs[b2]},
+											   oc, 0.f, true);
+							r3d->DrawDebugLine({xs[a2], ys2[0], zs[b2]}, {xs[a2], ys2[1], zs[b2]},
+											   oc, 0.f, true);
+							r3d->DrawDebugLine({xs[a2], ys2[b2], zs[0]}, {xs[a2], ys2[b2], zs[1]},
+											   oc, 0.f, true);
+						}
 				}
 				if (esel >= 0 && !nkvpGizmoHidden)
 					st->emptyGizmo.Draw(
@@ -8022,6 +8058,34 @@ namespace nkentseu {
 			// replie les decalages dans la base en fin de drag.
 			st->lights[li].position = {xyz[0], xyz[1], xyz[2]};
 		}
+		int32 Demo3DHostLightType(int32 li) {
+			auto *st = HostSt();
+			if (!st || li < 0 || li >= Demo3DState::kNumLights)
+				return 1;
+			return (int32)st->lights[li].type & 3; // 0 dir, 1 point, 2 spot, 3 area
+		}
+		void Demo3DHostLightDir(int32 li, float32 *out3) {
+			auto *st = HostSt();
+			if (!st || li < 0 || li >= Demo3DState::kNumLights) {
+				out3[0] = 0.f;
+				out3[1] = -1.f;
+				out3[2] = 0.f;
+				return;
+			}
+			const NkVec3f d = st->lights[li].direction;
+			out3[0] = d.x;
+			out3[1] = d.y;
+			out3[2] = d.z;
+		}
+		void Demo3DHostSetLightDir(int32 li, const float32 *xyz) {
+			auto *st = HostSt();
+			if (!st || li < 0 || li >= Demo3DState::kNumLights)
+				return;
+			NkVec3f d{xyz[0], xyz[1], xyz[2]};
+			if (d.Len() < 1e-5f)
+				d = {0.f, -1.f, 0.f};
+			st->lights[li].direction = d.Normalized();
+		}
 		void Demo3DHostLightParams(int32 li, float32 *color3, float32 *intensity) {
 			auto *st = HostSt();
 			if (!st || li < 0 || li >= Demo3DState::kNumLights) {
@@ -8266,6 +8330,23 @@ namespace nkentseu {
 			st->lightGizmo.ClearSelection();
 			st->lightSel = -1;
 			st->emptyGizmo.Select(node - kNkvpFirstEmpty);
+		}
+		void Demo3DHostToggleEmptyNode(int32 node) {
+			auto *st = HostSt();
+			if (!st || node < kNkvpFirstEmpty || node >= kNkvpMaxNodes)
+				return;
+			if (HostLockedEff(node) || nkvpDeleted[node] ||
+				(node >= kNkvpFirstUser && nkvpUserKind[node - kNkvpFirstUser] == 0))
+				return;
+			st->gizmo.ClearSelection();
+			st->lightGizmo.ClearSelection();
+			st->lightSel = -1;
+			st->emptyGizmo.ToggleSelection(node - kNkvpFirstEmpty);
+		}
+		bool Demo3DHostEmptyNodeSelected(int32 node) {
+			auto *st = HostSt();
+			return st && node >= kNkvpFirstEmpty && node < kNkvpMaxNodes &&
+				   st->emptyGizmo.IsSelected(node - kNkvpFirstEmpty);
 		}
 		int32 Demo3DHostSelectedEmptyNode() {
 			auto *st = HostSt();

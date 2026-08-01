@@ -103,6 +103,9 @@ namespace nkentseu {
 		void Demo3DHostSelectLight(int32 li);
 		void Demo3DHostLightPosition(int32 li, float32 *out3);
 		void Demo3DHostSetLightPosition(int32 li, const float32 *xyz);
+		int32 Demo3DHostLightType(int32 li); // 0 dir, 1 point, 2 spot, 3 area
+		void Demo3DHostLightDir(int32 li, float32 *out3);
+		void Demo3DHostSetLightDir(int32 li, const float32 *xyz);
 		void Demo3DHostLightParams(int32 li, float32 *color3, float32 *intensity);
 		void Demo3DHostSetLightParams(int32 li, const float32 *color3, float32 intensity);
 		void Demo3DHostSetObjectHidden(int32 i, bool hidden);
@@ -135,6 +138,8 @@ namespace nkentseu {
 		// Selection d'un EMPTY (gizmo dedie dans la vue ; -1 = aucun).
 		void Demo3DHostSelectEmptyNode(int32 node);
 		int32 Demo3DHostSelectedEmptyNode();
+		void Demo3DHostToggleEmptyNode(int32 node); // Maj/Ctrl+clic : multi successif
+		bool Demo3DHostEmptyNodeSelected(int32 node);
 		// Transform EFFECTIVE d'un empty (node >= 90), drag du gizmo compris.
 		bool Demo3DHostEmptyTransform(int32 node, float32 *pos3, float32 *rotDeg3, float32 *scl3);
 		void Demo3DHostSetEmptyTransform(int32 node, const float32 *pos3, const float32 *rotDeg3,
