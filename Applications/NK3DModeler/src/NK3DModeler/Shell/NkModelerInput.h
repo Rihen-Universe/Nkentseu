@@ -198,15 +198,22 @@ namespace nkentseu {
 				float32 propScroll = 0.f;
 				// Les trois SOUS-BLOCS du panneau Proprietes : replies/deplies et
 				// chacun son defilement -- leur contenu peut etre tres long.
-				bool propOpen0 = true, propOpen1 = true, propOpen2 = true;
-				// PLIEE par le chevron de son en-tete : l'en-tete reste visible,
-				// seul le contenu est recouvert -- distinct de la pastille, qui
-				// retire la section de la liste.
-				bool propFold0 = false, propFold1 = false, propFold2 = false;
-				float32 propScroll3[3] = {0.f, 0.f, 0.f};
+				// EN TABLEAUX : le panneau accueillera d'AUTRES categories de
+				// proprietes (la table kSecs des ecrans) -- huit emplacements.
+				// propOpen = ACTIVE par la pastille ; propFold = PLIE par le
+				// chevron (l'en-tete reste, seul le contenu est recouvert).
+				bool propOpen[8] = {true, true, true};
+				bool propFold[8] = {};
+				bool AnyPropOpen() const {
+					for (int32 i = 0; i < 8; ++i)
+						if (propOpen[i])
+							return true;
+					return false;
+				}
+				float32 propScroll3[8] = {};
 				// Hauteur CHOISIE de chaque section (0 = partage automatique) :
 				// la poignee sous la section la regle.
-				float32 propSecH[3] = {0.f, 0.f, 0.f};
+				float32 propSecH[8] = {};
 				// Le panneau des matcaps s'ancre au bouton qui l'a ouvert (barre de
 				// la vue OU panneau Proprietes).
 				NkRect matcapAnchor{};
@@ -216,7 +223,9 @@ namespace nkentseu {
 				char customNames[100][24] = {};
 				// Cadenas et proportionnel des lignes de transformation.
 				bool lockPos = false, lockRot = false, lockScl = false;
-				bool propScale = false;
+				// PROPORTIONNEL par ligne de transformation : l'axe touche propage
+				// son rapport aux autres (delta quand la base est nulle).
+				bool propPos = false, propRot = false, propScale = false;
 				// Groupes ouverts de la hierarchie (bit par groupe).
 				uint32 hierOpen = 0xFFFFFFFFu;
 				// Une scene AJOUTEE est VIERGE : les objets de la demo y sont masques.
@@ -392,13 +401,37 @@ namespace nkentseu {
 
 				// Declare une zone sensible. Renvoie true si la souris est dessus --
 				// ce qui permet d'ecrire directement `if (Add(...)) dessineSurvol();`.
+				// ── CLIP DES ZONES ──────────────────────────────────────────────
+				// La zone CLIQUABLE suit la zone DESSINEE : quand la peinture est
+				// clippee (listes, sections a defilement), les zones le sont aussi.
+				// Sans cela, un champ defile hors de vue restait saisissable -- les
+				// « elements invisibles qu'on deplace » constates par Rihen.
+				void PushClip(const NkRect &r) {
+					mClip = r;
+					mHasClip = true;
+				}
+				void PopClip() {
+				mHasClip = false;
+			}
 				bool Add(const char *key, const NkRect &r) {
 					if (mCount >= kMax || !key)
-						return false;
+					return false;
+					NkRect rr = r;
+					if (mHasClip) {
+						const float32 x0 = rr.x > mClip.x ? rr.x : mClip.x;
+						const float32 y0 = rr.y > mClip.y ? rr.y : mClip.y;
+						const float32 x1r = rr.x + rr.w < mClip.x + mClip.w ? rr.x + rr.w
+																			 : mClip.x + mClip.w;
+						const float32 y1r = rr.y + rr.h < mClip.y + mClip.h ? rr.y + rr.h
+																			 : mClip.y + mClip.h;
+						if (x1r <= x0 || y1r <= y0)
+							return false; // entierement hors du clip : pas de zone
+						rr = {x0, y0, x1r - x0, y1r - y0};
+					}
 					Copy(mKeys[mCount], key);
-					mRects[mCount] = r;
+					mRects[mCount] = rr;
 					mCount++;
-					const bool over = Contains(r, mMouse);
+					const bool over = Contains(rr, mMouse);
 					// LA DERNIERE ZONE AJOUTEE GAGNE. C'est ce qu'il faut : on peint du
 					// fond vers le dessus, donc la derniere declaree est celle qui est
 					// VISIBLEMENT au-dessus. Garder la premiere ferait repondre le
@@ -530,6 +563,8 @@ namespace nkentseu {
 				NkRect mRects[kMax] = {};
 				uint32 mCount = 0;
 				char mHover[48] = {};
+				NkRect mClip{};
+				bool mHasClip = false;
 				nkgui::NkVec2 mMouse{0.f, 0.f};
 				bool mDown = false, mClicked = false, mRightClicked = false;
 				float32 mWheel = 0.f;

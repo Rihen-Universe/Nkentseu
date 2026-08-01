@@ -563,7 +563,7 @@ int nkmain(const NkEntryState &entry) {
 		// vue survolee, comme Blender) et la garde de saisie de texte.
 		// AUCUNE pastille de proprietes active : le panneau se REPLIE sur sa
 		// colonne de pastilles et la VUE recupere la place.
-		if (st.showRight && !(st.propOpen0 || st.propOpen1 || st.propOpen2)) {
+		if (st.showRight && !st.AnyPropOpen()) {
 			const float32 tabW = S(28.f);
 			const float32 give = lay.propsR.w - tabW;
 			if (give > 0.f) {

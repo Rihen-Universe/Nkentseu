@@ -941,6 +941,7 @@ namespace nkentseu {
 			const NkRect listR{r.x, listTop, r.w, listH};
 			hit.Add("hier.list", listR);
 			p.Clip(listR);
+			hit.PushClip(listR); // les lignes defilees hors de vue ne cliquent pas
 
 			char key[40];
 			float32 yy = y - st.scrollHier;
@@ -1134,6 +1135,7 @@ namespace nkentseu {
 				}
 			}
 
+			hit.PopClip();
 			p.Unclip();
 
 			// UN CLIC DANS LE VIDE DESELECTIONNE.
@@ -2137,14 +2139,17 @@ namespace nkentseu {
 		inline void PaintTransformRow(NkModelerPainter &p, NkHitRegistry &hit, NkWidgetState &ws,
 									  const nkgui::NkGuiInput &in, const NkRect &r, float32 y,
 									  const char *label, float32 *v, float32 step, const char *keyBase,
-									  NkIcon icon1, NkIcon icon2, const char *fmt = "%.2f") {
+									  NkIcon icon1, NkIcon icon2, const char *fmt = "%.2f",
+									  NkIcon icon3 = NkIcon::None, bool icon3On = false) {
 			const float32 rowH = kRowH + S(6.f);
 			p.Fill({r.x, y, kLabelW, rowH}, NkRole::LabelCol);
 			p.TextV(r.x + kPad, y, rowH, label);
 
 			const float32 sq = rowH - S(6.f); // colonne carree : cote = hauteur du champ
 			const float32 gap = S(4.f);
-			const float32 iconsW = sq * 2.f + gap;
+			// TROIS cases : cadenas, reinitialiser, PROPORTIONNEL. La troisieme
+			// reste vide quand la ligne n'en veut pas -- l'alignement prime.
+			const float32 iconsW = sq * 3.f + gap * 2.f;
 			const float32 avail = r.w - kLabelW - S(10.f) - iconsW - gap;
 			float32 fw = (avail - gap * 2.f) / 3.f;
 			if (fw < S(40.f))
@@ -2169,8 +2174,8 @@ namespace nkentseu {
 			// Les deux carres. Une icone absente laisse sa case VIDE plutot que de
 			// decaler la suivante -- l'alignement des trois lignes prime.
 			float32 ix = r.x + r.w - S(5.f) - iconsW;
-			const NkIcon icons[2] = {icon1, icon2};
-			for (int32 i = 0; i < 2; ++i) {
+			const NkIcon icons[3] = {icon1, icon2, icon3};
+			for (int32 i = 0; i < 3; ++i) {
 				if (icons[i] == NkIcon::None) {
 					ix += sq + gap;
 					continue;
@@ -2178,8 +2183,13 @@ namespace nkentseu {
 				const NkRect br{ix, y + S(3.f), sq, sq};
 				snprintf(key, sizeof(key), "%s.ic%d", keyBase, i);
 				const bool over = hit.Add(key, br);
-				p.Outline(br, over ? NkRole::AccentUi : NkRole::Border, NkRole::PanelBg, 3.f);
-				p.IconV(br.x + (sq - S(13.f)) * 0.5f, br.y, sq, icons[i], NkRole::Text, 13.f);
+				const bool accent = (i == 2 && icon3On);
+				if (accent)
+					p.Fill(br, NkRole::AccentUi, 3.f);
+				else
+					p.Outline(br, over ? NkRole::AccentUi : NkRole::Border, NkRole::PanelBg, 3.f);
+				p.IconV(br.x + (sq - S(13.f)) * 0.5f, br.y, sq, icons[i],
+						accent ? NkRole::TextOnAccent : NkRole::Text, 13.f);
 				// Reinitialiser remet la valeur NEUTRE de la grandeur : zero pour une
 				// position ou une rotation, UN pour une echelle -- remettre une echelle
 				// a zero ferait disparaitre l'objet.
@@ -2228,7 +2238,7 @@ namespace nkentseu {
 			p.VLine(rFull.x, rFull.y, rFull.h);
 			// PLUS DE CROIX : les PASTILLES font l'affichage/masquage -- aucune
 			// active, et le panneau n'est plus que sa colonne de pastilles.
-			const bool collapsed = !(st.propOpen0 || st.propOpen1 || st.propOpen2);
+			const bool collapsed = !st.AnyPropOpen();
 			float32 y;
 			if (collapsed) {
 				y = rFull.y + S(6.f);
@@ -2255,17 +2265,25 @@ namespace nkentseu {
 				return hit.Clicked(k2);
 			};
 
-			static float32 sContentH[3] = {200.f, 260.f, 200.f};
-			bool *openFlags[3] = {&st.propOpen0, &st.propOpen1, &st.propOpen2};
-			static const char *const kSecTitles[3] = {"Proprietes de l'objet",
-													  "Proprietes de la scene",
-													  "Proprietes de l'outil"};
-			bool *foldFlags[3] = {&st.propFold0, &st.propFold1, &st.propFold2};
+			static float32 sContentH[8] = {200.f, 260.f, 200.f, 200.f,
+										   200.f, 200.f, 200.f, 200.f};
+			// ── LA TABLE DES CATEGORIES ─────────────────────────────────────
+			// EN AJOUTER UNE = une entree ici (titre + icone de pastille) + son
+			// contenu dans le switch plus bas. Pastilles, pliage, defilement et
+			// hauteurs suivent la table sans autre code.
+			struct NkPropSec {
+					const char *title;
+					NkIcon icon;
+			};
+			static const NkPropSec kSecs[] = {{"Proprietes de l'objet", NkIcon::Mesh},
+											  {"Proprietes de la scene", NkIcon::Globe},
+											  {"Proprietes de l'outil", NkIcon::Gizmo}};
+			const int32 kNSec = (int32)(sizeof(kSecs) / sizeof(kSecs[0]));
 			int32 nOpen = 0, nUnfold = 0;
-			for (int32 i2 = 0; i2 < 3; ++i2)
-				if (*openFlags[i2]) {
+			for (int32 i2 = 0; i2 < kNSec; ++i2)
+				if (st.propOpen[i2]) {
 					++nOpen;
-					if (!*foldFlags[i2])
+					if (!st.propFold[i2])
 						++nUnfold;
 				}
 			// Les en-tetes affiches (sections actives) sont deduits ; la place
@@ -2280,22 +2298,26 @@ namespace nkentseu {
 			float32 secY = y - st.propScroll;
 
 			bool anyWheel = false;
-			for (int32 sec = 0; sec < 3; ++sec) {
+			for (int32 sec = 0; sec < kNSec; ++sec) {
 				// PASTILLE DECOCHEE = SECTION RETIREE de la liste (Rihen) : ni
 				// contenu NI en-tete -- la colonne de pastilles est le seul moyen
 				// de la faire revenir.
-				if (!*openFlags[sec])
+				if (!st.propOpen[sec])
 					continue;
 				snprintf(key, sizeof(key), "props.sec.%d", sec);
 				// Le CHEVRON plie/deplie ; il ne retire jamais la section de la
-				// liste (ca, c'est la pastille). Plie : l'en-tete reste, le
-				// contenu est recouvert.
-				bool unfolded = !*foldFlags[sec];
-				SectionHeader(p, hit, r, secY, key, kSecTitles[sec], unfolded);
-				*foldFlags[sec] = !unfolded;
+				// liste (ca, c'est la pastille). Et AUCUN clic d'en-tete ne
+				// compte pendant un glissement : relacher la POIGNEE sur
+				// l'en-tete voisin basculait le chevron (constate par Rihen).
+				const bool wasUnfolded = !st.propFold[sec];
+				bool unfolded = wasUnfolded;
+				SectionHeader(p, hit, r, secY, key, kSecs[sec].title, unfolded);
+				if (st.propDragKey[0] || ws.dragging)
+					unfolded = wasUnfolded;
+				st.propFold[sec] = !unfolded;
 				p.HLine(r.x, secY + kRowH - 1.f, r.w);
 				secY += kRowH;
-				if (*foldFlags[sec])
+				if (st.propFold[sec])
 					continue; // plie par son chevron : en-tete seul
 				float32 share = availH / (float32)(nUnfold > 0 ? nUnfold : 1);
 				// La hauteur CHOISIE (poignee) prime ; sinon partage automatique
@@ -2314,6 +2336,7 @@ namespace nkentseu {
 				snprintf(key, sizeof(key), "props.body.%d", sec);
 				hit.Add(key, box);
 				p.Clip(box);
+				hit.PushClip(box); // les zones suivent le dessin : rien d'invisible
 				float32 yy = secY - st.propScroll3[sec];
 
 				if (sec == 0) {
@@ -2401,52 +2424,56 @@ namespace nkentseu {
 							rowR.x = r.x;
 							PaintTransformRow(p, hit, ws, in, rowR, yy, "Position", st.pos, 0.01f,
 											  "prop.pos", st.lockPos ? NkIcon::Lock : NkIcon::Unlock,
-											  NkIcon::Refresh);
+											  NkIcon::Refresh, "%.2f", NkIcon::SnapScale, st.propPos);
 							if (hit.Clicked("prop.pos.ic0"))
 								st.lockPos = !st.lockPos;
+							if (hit.Clicked("prop.pos.ic2"))
+								st.propPos = !st.propPos;
 							yy += Vec3RowH();
 							PaintTransformRow(p, hit, ws, in, rowR, yy, "Rotation", st.rot, 0.5f,
 											  "prop.rot", st.lockRot ? NkIcon::Lock : NkIcon::Unlock,
-											  NkIcon::Refresh);
+											  NkIcon::Refresh, "%.1f", NkIcon::SnapScale, st.propRot);
 							if (hit.Clicked("prop.rot.ic0"))
 								st.lockRot = !st.lockRot;
+							if (hit.Clicked("prop.rot.ic2"))
+								st.propRot = !st.propRot;
 							yy += Vec3RowH();
 							PaintTransformRow(p, hit, ws, in, rowR, yy, "Echelle", st.scl, 0.01f,
 											  "prop.scl", st.lockScl ? NkIcon::Lock : NkIcon::Unlock,
-											  NkIcon::Refresh);
+											  NkIcon::Refresh, "%.2f", NkIcon::SnapScale, st.propScale);
 							if (hit.Clicked("prop.scl.ic0"))
 								st.lockScl = !st.lockScl;
+							if (hit.Clicked("prop.scl.ic2"))
+								st.propScale = !st.propScale;
 							yy += Vec3RowH();
 
-							// Echelle proportionnelle : la case, puis la propagation.
-							{
-								const NkRect cb{r.x + kPad, yy + S(4.f), S(14.f), S(14.f)};
-								hit.Add("prop.scl.prop", cb);
-								if (st.propScale) {
-									p.Fill(cb, NkRole::AccentUi, 2.f);
-									p.IconV(cb.x + 1.f, cb.y - S(1.f), S(16.f), NkIcon::Check,
-											NkRole::TextOnAccent, 11.f);
-								} else {
-									p.Outline(cb, NkRole::Border, NkRole::InputBg, 2.f);
-								}
-								if (hit.Clicked("prop.scl.prop"))
-									st.propScale = !st.propScale;
-								p.TextV(r.x + kPad + S(20.f), yy, kRowH, "Echelle proportionnelle",
-										NkRole::TextMuted);
-								yy += kRowH;
-							}
-							if (st.propScale) {
+							// PROPORTIONNEL (par ligne, 3e icone) : l'axe touche propage
+							// son RAPPORT aux autres -- delta simple quand la base est
+							// nulle, un rapport n'y aurait pas de sens.
+							auto Propagate = [](float32 *vals, const float32 *base, bool on) {
+								if (!on)
+									return;
 								int32 ch = -1;
 								for (int32 a = 0; a < 3; ++a)
-									if (st.scl[a] != sPull[6 + a])
+									if (vals[a] != base[a])
 										ch = a;
-								if (ch >= 0 && sPull[6 + ch] > 1e-6f) {
-									const float32 ratio = st.scl[ch] / sPull[6 + ch];
+								if (ch < 0)
+									return;
+								if (fabsf(base[ch]) > 1e-6f) {
+									const float32 ratio = vals[ch] / base[ch];
 									for (int32 a = 0; a < 3; ++a)
 										if (a != ch)
-											st.scl[a] = sPull[6 + a] * ratio;
+											vals[a] = base[a] * ratio;
+								} else {
+									const float32 d = vals[ch] - base[ch];
+									for (int32 a = 0; a < 3; ++a)
+										if (a != ch)
+											vals[a] = base[a] + d;
 								}
-							}
+							};
+							Propagate(st.pos, sPull, st.propPos);
+							Propagate(st.rot, sPull + 3, st.propRot);
+							Propagate(st.scl, sPull + 6, st.propScale);
 							// Verrous : la ligne revient a l'etat tire.
 							for (int32 a = 0; a < 3; ++a) {
 								if (st.lockPos)
@@ -2759,6 +2786,7 @@ namespace nkentseu {
 					anyWheel |= hit.WheelIn(box, st.propScroll3[sec], sContentH[sec], boxH);
 				else
 					st.propScroll3[sec] = 0.f;
+				hit.PopClip();
 				p.Unclip();
 				snprintf(key, sizeof(key), "props.sb.%d", sec);
 				{
@@ -2772,7 +2800,9 @@ namespace nkentseu {
 				// comme la barre de defilement.
 				{
 					snprintf(key, sizeof(key), "props.div.%d", sec);
-					const NkRect dv{r.x, secY - S(3.f), r.w - S(14.f), S(6.f)};
+					// Entierement DANS le bas de la boite : elle mordait sur
+					// l'en-tete suivant, et viser l'un declenchait l'autre.
+					const NkRect dv{r.x, secY - S(6.f), r.w - S(14.f), S(6.f)};
 					const bool overD = hit.Add(key, dv);
 					const bool mineD = (strcmp(st.propDragKey, key) == 0);
 					if (overD || mineD) {
@@ -2811,23 +2841,22 @@ namespace nkentseu {
 			// qui restera lisible quand les types de proprietes se compteront en
 			// dizaines.
 			{
-				static const NkIcon kTabIc[3] = {NkIcon::Mesh, NkIcon::Globe, NkIcon::Gizmo};
 				p.VLine(r.x + r.w, stackTop, (rFull.y + rFull.h) - stackTop);
 				float32 ty = stackTop + S(4.f);
-				for (int32 i2 = 0; i2 < 3; ++i2) {
+				for (int32 i2 = 0; i2 < kNSec; ++i2) {
 					char tk[24];
 					snprintf(tk, sizeof(tk), "props.tab.%d", i2);
 					const NkRect tb{r.x + r.w + S(3.f), ty, S(20.f), S(24.f)};
-					const bool on = *openFlags[i2];
+					const bool on = st.propOpen[i2];
 					const bool overT = hit.Add(tk, tb);
 					if (on)
 						p.Fill(tb, NkRole::AccentUi, 3.f);
 					else
 						HoverFill(p, tb, overT, 3.f);
-					p.IconV(tb.x + (tb.w - S(14.f)) * 0.5f, tb.y, tb.h, kTabIc[i2],
+					p.IconV(tb.x + (tb.w - S(14.f)) * 0.5f, tb.y, tb.h, kSecs[i2].icon,
 							on ? NkRole::TextOnAccent : NkRole::TextMuted, 14.f);
 					if (hit.Clicked(tk)) {
-						*openFlags[i2] = !on;
+						st.propOpen[i2] = !on;
 						// Une section MASQUEE oublie son agrandissement et son
 						// defilement : ils ne doivent plus peser sur la mise en
 						// page, et elle reviendra en partage automatique.
