@@ -284,10 +284,10 @@ namespace nkentseu {
 				{"Capsule", NkIcon::Capsule, 1, 3},
 			};
 			static const NkAddEntry kLight[] = {
-				{"Point", NkIcon::Light, 5, 1},
+				{"Point light", NkIcon::Light, 5, 1},
 				{"Soleil", NkIcon::Light, 5, 0},
 				{"Spot", NkIcon::Light, 5, 2},
-				{"Surfacique (area)", NkIcon::Light, 5, 3},
+				{"Area", NkIcon::Light, 5, 3},
 			};
 			static const NkAddEntry kCam[] = {
 				{"Camera", NkIcon::Camera, 4, 10},
@@ -1111,6 +1111,12 @@ namespace nkentseu {
 					else if (sb == 13)
 						bn = "Image";
 				}
+				if (k2 == 5) {
+					// nom par TYPE de lumiere (Rihen)
+					static const char *const kLT[4] = {"Soleil", "Point light", "Spot",
+													   "Area"};
+					bn = kLT[demo::Demo3DHostUserSub(node) & 3];
+				}
 				snprintf(out, cap, "%s.%03d", bn, node - 96);
 				return;
 			}
@@ -1499,10 +1505,17 @@ namespace nkentseu {
 									 {tx + S(18.f), yy, colType - tx - S(26.f), kRowH}, nameBuf, fg,
 									 st.customNames[node], 24u);
 						p.Unclip();
-						p.TextV(colType, yy, kRowH,
-								isEmpty ? NkUserKindLabel(node >= 96 ? ukind : 4)
-										: (isLight ? "Lumiere" : "Maillage"),
-								dim);
+						// le TYPE affiche precise la nature de la lumiere (Rihen)
+						static const char *const kLTt[4] = {"Soleil", "Point light",
+															"Spot", "Area"};
+						const char *tyTxt = isEmpty
+												? NkUserKindLabel(node >= 96 ? ukind : 4)
+												: (isLight ? "Lumiere" : "Maillage");
+						if (isLight)
+							tyTxt = kLTt[demo::Demo3DHostLightType(li) & 3];
+						else if (isEmpty && ukind == 5)
+							tyTxt = kLTt[demo::Demo3DHostUserSub(node) & 3];
+						p.TextV(colType, yy, kRowH, tyTxt, dim);
 						if (!isEmpty && !isLight && sel && node == activeObj)
 							p.Fill({colType - S(12.f), yy + kRowH * 0.5f - S(2.f), S(4.f), S(4.f)}, fg);
 						// L'OEIL, pour TOUS : cacher un parent cache son sous-arbre
@@ -2303,12 +2316,22 @@ namespace nkentseu {
 						const bool showRay = isSph || isIco || isTor || isCap || isCyl || isCir;
 						const bool showHaut = isCap || isCyl;
 						const bool showAux = isTor;
-						const bool showLHP = !showRay; // cube, plan, vides, marqueurs...
+						const bool showLHP = !showRay && ukA != 5; // cube, plan, vides...
 						const char *segLbl =
 							isIco ? "Subdivisions" : (isPln ? "Divisions" : "Segments");
+						int32 tyP = -1;
+						float32 rgP = 0.f, inP = 0.f, outP = 0.f, awP = 0.f, ahP = 0.f;
+						bool shP = true;
+						if (ukA == 5)
+							demo::Demo3DHostLightEx(st.addAdjustNode, &rgP, &inP, &outP, &awP,
+													&ahP, &shP, &tyP);
 						const int32 rowsN = 2 + (showSeg ? 1 : 0) + (showRing ? 1 : 0) +
 											(showRay ? 1 : 0) + (showHaut ? 1 : 0) +
-											(showAux ? 1 : 0) + (showLHP ? (isPln ? 2 : 3) : 0);
+											(showAux ? 1 : 0) + (showLHP ? (isPln ? 2 : 3) : 0) +
+											(ukA == 5 ? 1 + (tyP != 0 ? 1 : 0) +
+															(tyP == 2 ? 2 : 0) +
+															(tyP == 3 ? 2 : 0)
+													  : 0);
 						const float32 pw = S(232.f);
 						const float32 ph = kRowH * (float32)rowsN + S(10.f);
 						const NkRect aj{vr.x + vr.w - pw - S(10.f), vr.y + vr.h - ph - S(10.f),
@@ -2364,6 +2387,33 @@ namespace nkentseu {
 								if (!isPln)
 									AdjRow("Hauteur", "vp.adj.ly", esA[1], 0.01f, "%.2f");
 								AdjRow("Profondeur", "vp.adj.lz", esA[2], 0.01f, "%.2f");
+							}
+							if (ukA == 5) {
+								// une LUMIERE aussi a ses proprietes DES la creation
+								float32 ulc2[3], uli2 = 1.f;
+								if (demo::Demo3DHostUserLightParams(st.addAdjustNode, ulc2,
+																   &uli2)) {
+									const float32 i0 = uli2;
+									AdjRow("Puissance", "vp.adj.pw", uli2, 0.05f, "%.2f");
+									if (uli2 != i0)
+										demo::Demo3DHostSetUserLightParams(st.addAdjustNode,
+																		   ulc2, uli2);
+								}
+								const float32 w0[5] = {rgP, inP, outP, awP, ahP};
+								if (tyP != 0)
+									AdjRow("Portee", "vp.adj.rg", rgP, 0.05f, "%.2f");
+								if (tyP == 2) {
+									AdjRow("Cone interne", "vp.adj.ci", inP, 0.2f, "%.1f");
+									AdjRow("Cone externe", "vp.adj.co", outP, 0.2f, "%.1f");
+								}
+								if (tyP == 3) {
+									AdjRow("Largeur", "vp.adj.aw", awP, 0.01f, "%.2f");
+									AdjRow("Hauteur", "vp.adj.ah", ahP, 0.01f, "%.2f");
+								}
+								if (rgP != w0[0] || inP != w0[1] || outP != w0[2] ||
+									awP != w0[3] || ahP != w0[4])
+									demo::Demo3DHostSetLightEx(st.addAdjustNode, rgP, inP,
+															   outP, awP, ahP, shP);
 							}
 							if (hasParams && (prmCh || (int32)(fsg + 0.5f) != sgA ||
 											  (int32)(frg + 0.5f) != rgA))
@@ -3237,6 +3287,50 @@ namespace nkentseu {
 										ulc[2] != ulc0[2])
 										demo::Demo3DHostSetUserLightParams(en, ulc, uli);
 								}
+								{
+									// PROPRIETES NATIVES par type : portee, cones du spot, dimensions
+									// de l'area, ombres -- visibles ICI et a la creation (Rihen).
+									float32 rgL, inL, outL, awL, ahL;
+									bool shL = true;
+									int32 tyL = -1;
+									if (demo::Demo3DHostLightEx(en, &rgL, &inL, &outL, &awL, &ahL, &shL,
+																&tyL)) {
+										const float32 v0[5] = {rgL, inL, outL, awL, ahL};
+										const bool s0 = shL;
+										auto LRow = [&](const char *lbl, const char *k4, float32 &val,
+														float32 stp, const char *fm) {
+											p.TextV(r.x + kPad, yy, kRowH, lbl, NkRole::TextMuted);
+											DragFloat(p, hit, ws, in, k4,
+													  {r.x + S(120.f), yy + S(3.f), rr.w - S(128.f), kRowH - S(4.f)},
+													  val, stp, NkRole::AccentUi, fm);
+											yy += kRowH;
+										};
+										if (tyL != 0)
+											LRow("Portee", "prop.ulex.rg", rgL, 0.05f, "%.2f");
+										if (tyL == 2) {
+											LRow("Cone interne", "prop.ulex.ci", inL, 0.2f, "%.1f");
+											LRow("Cone externe", "prop.ulex.co", outL, 0.2f, "%.1f");
+										}
+										if (tyL == 3) {
+											LRow("Largeur", "prop.ulex.aw", awL, 0.01f, "%.2f");
+											LRow("Hauteur", "prop.ulex.ah", ahL, 0.01f, "%.2f");
+										}
+										{
+											const NkRect cb2{r.x + kPad, yy + S(5.f), S(12.f), S(12.f)};
+											hit.Add("prop.ulex.sh", cb2);
+											p.Outline(cb2, shL ? NkRole::AccentUi : NkRole::Border,
+													  shL ? NkRole::AccentUi : NkRole::InputBg, 2.f);
+											p.TextV(cb2.x + S(18.f), yy, kRowH, "Ombres portees",
+													NkRole::TextMuted);
+											if (hit.Clicked("prop.ulex.sh"))
+												shL = !shL;
+											yy += kRowH;
+										}
+										if (rgL != v0[0] || inL != v0[1] || outL != v0[2] || awL != v0[3] ||
+											ahL != v0[4] || shL != s0)
+											demo::Demo3DHostSetLightEx(en, rgL, inL, outL, awL, ahL, shL);
+									}
+								}
 							}
 							{
 								// CAMERA : ses proprietes propres (declaratives tant que
@@ -3366,6 +3460,50 @@ namespace nkentseu {
 							sLC[3] = lcol[2];
 						}
 						yy += Vec3RowH();
+						{
+							// PROPRIETES NATIVES par type : portee, cones du spot, dimensions
+							// de l'area, ombres -- visibles ICI et a la creation (Rihen).
+							float32 rgL, inL, outL, awL, ahL;
+							bool shL = true;
+							int32 tyL = -1;
+							if (demo::Demo3DHostLightEx(86 + li, &rgL, &inL, &outL, &awL, &ahL, &shL,
+														&tyL)) {
+								const float32 v0[5] = {rgL, inL, outL, awL, ahL};
+								const bool s0 = shL;
+								auto LRow = [&](const char *lbl, const char *k4, float32 &val,
+												float32 stp, const char *fm) {
+									p.TextV(r.x + kPad, yy, kRowH, lbl, NkRole::TextMuted);
+									DragFloat(p, hit, ws, in, k4,
+											  {r.x + S(120.f), yy + S(3.f), rr.w - S(128.f), kRowH - S(4.f)},
+											  val, stp, NkRole::AccentUi, fm);
+									yy += kRowH;
+								};
+								if (tyL != 0)
+									LRow("Portee", "prop.lex.rg", rgL, 0.05f, "%.2f");
+								if (tyL == 2) {
+									LRow("Cone interne", "prop.lex.ci", inL, 0.2f, "%.1f");
+									LRow("Cone externe", "prop.lex.co", outL, 0.2f, "%.1f");
+								}
+								if (tyL == 3) {
+									LRow("Largeur", "prop.lex.aw", awL, 0.01f, "%.2f");
+									LRow("Hauteur", "prop.lex.ah", ahL, 0.01f, "%.2f");
+								}
+								{
+									const NkRect cb2{r.x + kPad, yy + S(5.f), S(12.f), S(12.f)};
+									hit.Add("prop.lex.sh", cb2);
+									p.Outline(cb2, shL ? NkRole::AccentUi : NkRole::Border,
+											  shL ? NkRole::AccentUi : NkRole::InputBg, 2.f);
+									p.TextV(cb2.x + S(18.f), yy, kRowH, "Ombres portees",
+											NkRole::TextMuted);
+									if (hit.Clicked("prop.lex.sh"))
+										shL = !shL;
+									yy += kRowH;
+								}
+								if (rgL != v0[0] || inL != v0[1] || outL != v0[2] || awL != v0[3] ||
+									ahL != v0[4] || shL != s0)
+									demo::Demo3DHostSetLightEx(86 + li, rgL, inL, outL, awL, ahL, shL);
+							}
+						}
 						if (demo::Demo3DHostNodeHasChildren(86 + li)) {
 							NkPropagateCheck(p, hit, r, yy, "prop.lprop", st.matPropagate);
 							yy += kRowH;

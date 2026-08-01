@@ -4431,8 +4431,9 @@ namespace nkentseu {
 					L2.direction = {-lRm.mat[1][0], -lRm.mat[1][1], -lRm.mat[1][2]};
 				if (((int32)L2.type & 3) == 3) {
 					const NkVec3f osl = st->emptyGizmo.ScaleOf(e);
-					L2.areaWidth = fabsf(nkvpEmptyScl[e][0]) * (1.f + osl.x);
-					L2.areaHeight = fabsf(nkvpEmptyScl[e][1]) * (1.f + osl.y);
+					// l'echelle MULTIPLIE les dimensions du panneau (les deux agissent)
+					L2.areaWidth *= fabsf(nkvpEmptyScl[e][0]) * (1.f + osl.x);
+					L2.areaHeight *= fabsf(nkvpEmptyScl[e][1]) * (1.f + osl.y);
 				}
 				sctx.lights.PushBack(L2);
 			}
@@ -9060,6 +9061,8 @@ namespace nkentseu {
 					src >= kNkvpFirstUser
 						? nkvpUserLight[src - kNkvpFirstUser]
 						: Demo3D_LightEffective(st, src - Demo3DState::kNumObj);
+				nkvpUserSub[n - kNkvpFirstUser] =
+					(uint8)((int32)nkvpUserLight[n - kNkvpFirstUser].type & 3);
 			}
 			// Le double reprend aussi la TAILLE LOCALE surchargee.
 			if (nkvpBaseSet[src]) {
@@ -9245,6 +9248,44 @@ namespace nkentseu {
 					dv = 64;
 				nkvpUserMesh[u] = ms->CreatePlaneMesh((uint32)dv, (uint32)dv);
 			}
+		}
+		// Descripteur d'une lumiere par NOEUD (demo 86..89 ou utilisateur).
+		static renderer::NkLightDesc *HostLightDescOf(int32 node) {
+			auto *st = HostSt();
+			if (!st)
+				return nullptr;
+			if (node >= 86 && node < 90)
+				return &st->lights[node - 86];
+			if (node >= kNkvpFirstUser && node < kNkvpMaxNodes &&
+				nkvpUserKind[node - kNkvpFirstUser] == 5)
+				return &nkvpUserLight[node - kNkvpFirstUser];
+			return nullptr;
+		}
+		bool Demo3DHostLightEx(int32 node, float32 *range, float32 *inner, float32 *outer,
+							   float32 *aw, float32 *ah, bool *shadow, int32 *type) {
+			const renderer::NkLightDesc *L = HostLightDescOf(node);
+			if (!L)
+				return false;
+			*range = L->range;
+			*inner = L->innerAngle;
+			*outer = L->outerAngle;
+			*aw = L->areaWidth;
+			*ah = L->areaHeight;
+			*shadow = L->castShadow;
+			*type = (int32)L->type & 3;
+			return true;
+		}
+		void Demo3DHostSetLightEx(int32 node, float32 range, float32 inner, float32 outer,
+								  float32 aw, float32 ah, bool shadow) {
+			renderer::NkLightDesc *L = HostLightDescOf(node);
+			if (!L)
+				return;
+			L->range = range < 0.1f ? 0.1f : range;
+			L->innerAngle = inner < 1.f ? 1.f : (inner > 89.f ? 89.f : inner);
+			L->outerAngle = outer < L->innerAngle ? L->innerAngle : (outer > 90.f ? 90.f : outer);
+			L->areaWidth = aw < 0.01f ? 0.01f : aw;
+			L->areaHeight = ah < 0.01f ? 0.01f : ah;
+			L->castShadow = shadow;
 		}
 		bool Demo3DHostCameraParams(int32 node, float32 *fov, float32 *nearC, float32 *farC) {
 			if (node < kNkvpFirstUser || node >= kNkvpMaxNodes ||
