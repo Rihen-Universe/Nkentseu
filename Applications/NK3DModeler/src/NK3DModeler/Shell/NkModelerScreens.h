@@ -1344,6 +1344,104 @@ namespace nkentseu {
 					st.delNodeCount = 0;
 				}
 			}
+			// ── MENU CONTEXTUEL DU NAVIGATEUR (Rihen) : couper / copier /
+			// coller / dupliquer / supprimer. Le coller vise le dossier COURANT ;
+			// un dossier emporte son contenu (copie et suppression recursives) et
+			// ne se colle jamais dans sa propre descendance.
+			if (st.browMenuIdx >= 0) {
+				static const char *const kBM[5] = {"Couper", "Copier", "Coller",
+												   "Dupliquer", "Supprimer"};
+				NkRect mr2{st.browMenuX, st.browMenuY, S(170.f), kRowH * 5.f};
+				if (mr2.y + mr2.h > area.y + area.h)
+					mr2.y = area.y + area.h - mr2.h;
+				p.Outline(mr2, NkRole::Border, NkRole::PanelHeader, 3.f);
+				int32 act2 = -1;
+				for (int32 mi = 0; mi < 5; ++mi) {
+					const NkRect it{mr2.x, mr2.y + (float32)mi * kRowH, mr2.w, kRowH};
+					snprintf(key, sizeof(key), "brw.menu.%d", mi);
+					HoverFill(p, it, hit.Add(key, it), 0.f);
+					p.TextV(it.x + S(10.f), it.y, kRowH, kBM[mi]);
+					if (hit.Clicked(key))
+						act2 = mi;
+				}
+				if (act2 >= 0) {
+					const int32 tgt = st.browMenuIdx;
+					auto CopyRec = [&](int32 src, int32 par) {
+						int32 stk[64][2];
+						int32 sp2 = 0;
+						stk[sp2][0] = src;
+						stk[sp2][1] = par;
+						++sp2;
+						while (sp2 > 0) {
+							--sp2;
+							const int32 s2 = stk[sp2][0];
+							const int32 p2 = stk[sp2][1];
+							if (st.browserCount >= NkModelerState::kMaxBrowser)
+								break;
+							const int32 k4 = st.browserCount++;
+							st.browserKind[k4] = st.browserKind[s2];
+							st.browserParent[k4] = p2;
+							snprintf(st.browserNames[k4], 32, "%s", st.browserNames[s2]);
+							if (st.browserKind[s2] == 1)
+								for (int32 j4 = 0; j4 < k4; ++j4)
+									if (st.browserParent[j4] == s2 &&
+										st.browserKind[j4] != 255 && sp2 < 63) {
+										stk[sp2][0] = j4;
+										stk[sp2][1] = k4;
+										++sp2;
+									}
+						}
+					};
+					auto DelRec = [&](int32 root2) {
+						int32 stk[64];
+						int32 sp2 = 0;
+						stk[sp2++] = root2;
+						while (sp2 > 0) {
+							const int32 s2 = stk[--sp2];
+							st.browserKind[s2] = 255;
+							for (int32 j4 = 0; j4 < st.browserCount; ++j4)
+								if (st.browserParent[j4] == s2 && st.browserKind[j4] != 255 &&
+									sp2 < 63)
+									stk[sp2++] = j4;
+						}
+						if (st.browserFolder == root2)
+							st.browserFolder = -1;
+						if (st.selectedAsset == root2)
+							st.selectedAsset = -1;
+					};
+					if (act2 == 0) {
+						st.browClip = tgt;
+						st.browClipCut = true;
+					} else if (act2 == 1) {
+						st.browClip = tgt;
+						st.browClipCut = false;
+					} else if (act2 == 2 && st.browClip >= 0 &&
+							   st.browserKind[st.browClip] != 255) {
+						if (st.browClipCut) {
+							bool okMove = true;
+							for (int32 c4 = st.browserFolder; c4 >= 0;
+								 c4 = st.browserParent[c4])
+								if (c4 == st.browClip) {
+									okMove = false;
+									break;
+								}
+							if (okMove) {
+								st.browserParent[st.browClip] = st.browserFolder;
+								st.browClip = -1;
+							}
+						} else {
+							CopyRec(st.browClip, st.browserFolder);
+						}
+					} else if (act2 == 3) {
+						CopyRec(tgt, st.browserParent[tgt]);
+					} else if (act2 == 4) {
+						DelRec(tgt);
+					}
+					st.browMenuIdx = -1;
+				} else if (hit.AnyClick() && !NkHitRegistry::Contains(mr2, hit.Mouse())) {
+					st.browMenuIdx = -1;
+				}
+			}
 		}
 		inline void PaintHierarchy(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
 								   NkHitRegistry &hit, NkWidgetState &ws, const nkgui::NkGuiInput &in) {
@@ -4754,28 +4852,30 @@ namespace nkentseu {
 									  {NkIcon::Folder, "+ Dossier"},
 									  {NkIcon::Circle, "+ Materiau"},
 									  {NkIcon::Journal, "+ Texture"},
+									  {NkIcon::Terminal, "+ Dataset"},
 									  {NkIcon::Import, "Importer"}};
-			for (int32 i = 0; i < 5; ++i) {
+			for (int32 i = 0; i < 6; ++i) {
 				const float32 bw = 18.f + p.TextW(kBtns[i].label) + 10.f;
 				char bkey[24];
 				snprintf(bkey, sizeof(bkey), "brw.new.%d", i);
 				const NkRect br{x - 4.f, r.y + 3.f, bw, topH - 6.f};
 				HoverFill(p, br, hit.Add(bkey, br), 2.f);
-				static const NkRole kBtnRole[5] = {NkRole::TypeMesh, NkRole::TypeFolder,
+				static const NkRole kBtnRole[6] = {NkRole::TypeMesh, NkRole::TypeFolder,
 												   NkRole::TypeMat, NkRole::TypeTex,
-												   NkRole::Text};
+												   NkRole::AccentUi, NkRole::Text};
 				p.IconV(x, r.y, topH, kBtns[i].ic, kBtnRole[i], 13.f);
 				p.TextV(x + 18.f, r.y, topH, kBtns[i].label);
 				x += bw + 8.f;
 				// La creation ecrit dans l'etat ; le nom par defaut est numerote et
 				// se renomme au double-clic, comme partout.
-				if (i < 4 && hit.Clicked(bkey) && st.browserCount < NkModelerState::kMaxBrowser) {
+				if (i < 5 && hit.Clicked(bkey) && st.browserCount < NkModelerState::kMaxBrowser) {
 					const int32 k = st.browserCount++;
 					// 0 blueprint, 1 dossier, 2 materiau, 3 texture -- l'ordre des
 					// boutons EST celui des genres, il n'y a rien a traduire.
 					st.browserKind[k] = (uint8)i;
 					st.browserParent[k] = st.browserFolder;
-					static const char *const kBase[] = {"BP", "Dossier", "Materiau", "Texture"};
+					static const char *const kBase[] = {"BP", "Dossier", "Materiau",
+														"Texture", "Dataset"};
 					snprintf(st.browserNames[k], 32, "%s_%02d", kBase[i], k + 1);
 				}
 			}
@@ -4795,6 +4895,11 @@ namespace nkentseu {
 			p.Clip({r.x, ty, r.w, th});
 			p.Fill({r.x, ty, treeW, th}, NkRole::WindowBg);
 			p.VLine(r.x + treeW, ty, th);
+			// Le FOND de la grille est une zone : cliquer dans le vide
+			// DESELECTIONNE (les cartes, declarees apres, gardent leurs clics).
+			hit.Add("brow.grid", {r.x + treeW, ty, r.w - treeW, th});
+			if (hit.Clicked("brow.grid"))
+				st.selectedAsset = -1;
 			int32 folderCount = 0;
 			{
 				float32 dy = ty + S(4.f) - treeScroll;
@@ -4862,8 +4967,8 @@ namespace nkentseu {
 			char akey[40];
 			const float32 wrapW = r.x + r.w - S(16.f);
 			for (int32 i = 0; i < st.browserCount; ++i) {
-				if (st.browserParent[i] != st.browserFolder)
-					continue; // les dossiers aussi ont leur carte (regle de Rihen)
+				if (st.browserKind[i] == 255 || st.browserParent[i] != st.browserFolder)
+					continue; // supprimes ignores ; les dossiers ont leur carte
 				++shown;
 				if (tx + tw > wrapW) { // retour a la ligne
 					tx = ax;
@@ -4872,10 +4977,12 @@ namespace nkentseu {
 				const uint8 kind = st.browserKind[i]; // 0 blueprint, 2 materiau, 3 texture
 				const NkRole role = (kind == 0)   ? NkRole::TypeMesh
 									: (kind == 1) ? NkRole::TypeFolder
+									: (kind == 4) ? NkRole::AccentUi
 									: (kind == 2) ? NkRole::TypeMat
 												  : NkRole::TypeTex;
 				const char *kindName = (kind == 0)   ? "Blueprint"
 									   : (kind == 1) ? "Dossier"
+									   : (kind == 4) ? "Dataset IA"
 									   : (kind == 2) ? "Materiau"
 													 : "Texture";
 
@@ -4905,7 +5012,7 @@ namespace nkentseu {
 					// contenu (previsualisation par contenu, regle de Rihen).
 					bool fullF = false;
 					for (int32 j3 = 0; j3 < st.browserCount; ++j3)
-						if (st.browserParent[j3] == i) {
+						if (st.browserKind[j3] != 255 && st.browserParent[j3] == i) {
 							fullF = true;
 							break;
 						}
@@ -4935,6 +5042,14 @@ namespace nkentseu {
 					// comme une pastille de couleur.
 					p.Disc(cx, cy, 22.f, role);
 					p.Disc(cx - 8.f, cy - 8.f, 5.f, NkRole::Text);
+				} else if (kind == 4) {
+					// DATASET IA : un document ligne (paires d'entrainement JSONL).
+					p.Fill({cx - 16.f, cy - 20.f, 32.f, 40.f}, NkRole::PanelHeader);
+					p.OutlineSharp({cx - 16.f, cy - 20.f, 32.f, 40.f}, role);
+					for (int32 ln = 0; ln < 4; ++ln)
+						p.Fill({cx - 11.f, cy - 13.f + (float32)ln * 8.f,
+								(ln == 3) ? 12.f : 22.f, 3.f},
+							   role);
 				} else {
 					const float32 q = 6.f, half = q * 3.f;
 					for (int32 gx = 0; gx < 6; ++gx)
@@ -4960,6 +5075,11 @@ namespace nkentseu {
 				snprintf(akey, sizeof(akey), "brow.card.%d", i);
 				if (kind == 1 && hit.DoubleClicked(akey))
 					st.browserFolder = i; // double-clic : ENTRER dans le dossier
+				if (hit.RightClicked(akey)) {
+					st.browMenuIdx = i;
+					st.browMenuX = hit.Mouse().x;
+					st.browMenuY = hit.Mouse().y;
+				}
 				if (hit.Clicked(akey))
 					st.selectedAsset = i;
 				tx += tw + S(12.f);
