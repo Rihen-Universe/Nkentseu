@@ -97,6 +97,9 @@ namespace nkentseu {
 		static constexpr int32 kNkvpFirstUser = 96;
 		static constexpr int32 kNkvpMaxUser = 64;
 		static uint8 nkvpUserKind[kNkvpMaxUser] = {};
+		// Sous-type du noeud utilisateur (style d'empty, variante de courbe/
+		// surface/metaball, primitive demandee) -- porte par le menu Ajouter.
+		static uint8 nkvpUserSub[kNkvpMaxUser] = {};
 		// SUPPRESSION par drapeau (heritee par la visibilite effective).
 		static bool nkvpDeleted[kNkvpMaxNodes] = {};
 		// PRESSE-PAPIERS de noeud (copier/coller).
@@ -6732,8 +6735,8 @@ namespace nkentseu {
 							float32 bestD2 = 1e30f;
 							for (int32 u2 = 0; u2 < kNkvpMaxUser; ++u2) {
 								const uint8 uk2 = nkvpUserKind[u2];
-								if (uk2 == 0 || uk2 == 4)
-									continue;
+								if (uk2 < 1 || uk2 > 3)
+									continue; // seuls les maillages se cliquent ici
 								const int32 un2 = kNkvpFirstUser + u2;
 								if (HostHiddenEff(un2) || HostLockedEff(un2))
 									continue;
@@ -7139,9 +7142,13 @@ namespace nkentseu {
 			{
 				const int32 esel = st->emptyGizmo.ActiveIndex();
 				for (int32 e = 0; e < 70; ++e) {
-					// Seuls les EMPTIES ont une croix : un maillage utilisateur a
-					// son rendu, un slot libre n'existe pas.
-					if (90 + e >= kNkvpFirstUser && nkvpUserKind[e - 6] != 4)
+					// Croix pour les EMPTIES et les MARQUEURS types (texte, courbe,
+					// surface, metaball) ; un maillage a son rendu, une lumiere son
+					// widget, un slot libre n'existe pas.
+					if (90 + e >= kNkvpFirstUser &&
+						(nkvpUserKind[e - 6] == 0 ||
+						 (nkvpUserKind[e - 6] >= 1 && nkvpUserKind[e - 6] <= 3) ||
+						 nkvpUserKind[e - 6] == 5))
 						continue;
 					if (HostHiddenEff(90 + e))
 						continue;
@@ -8763,6 +8770,7 @@ namespace nkentseu {
 				nkvpObjHidden[n] = false;
 				nkvpObjLocked[n] = false;
 				nkvpBaseSet[n] = false;
+				nkvpUserSub[u] = 0;
 				const int32 e = n - kNkvpFirstEmpty;
 				for (int32 a = 0; a < 3; ++a) {
 					nkvpEmptyPos[e][a] = 0.f;
@@ -8840,6 +8848,8 @@ namespace nkentseu {
 					nkvpDimFactor[n][a] = nkvpDimFactor[src][a];
 				}
 			}
+			if (src >= kNkvpFirstUser)
+				nkvpUserSub[n - kNkvpFirstUser] = nkvpUserSub[src - kNkvpFirstUser];
 			const int32 pp = nkvpParentOf[src];
 			nkvpParentOf[n] = (pp >= 0 && !nkvpDeleted[pp]) ? pp : -1;
 			return n;
@@ -8956,6 +8966,31 @@ namespace nkentseu {
 			renderer::NkLightDesc &L = nkvpUserLight[node - kNkvpFirstUser];
 			L.color = {color3[0], color3[1], color3[2]};
 			L.intensity = intensity < 0.f ? 0.f : intensity;
+		}
+		// CREATION d'un noeud utilisateur (menu Ajouter) : 1 sphere, 2 cube,
+		// 3 plan, 4 empty, 5 lumiere (sub = type), 6 texte, 7 courbe,
+		// 8 surface, 9 metaball. Les natures 6..9 sont des MARQUEURS types en
+		// attendant leur backend de geometrie (transformables, parentables).
+		int32 Demo3DHostAddNode(int32 kind, int32 sub) {
+			auto *st = HostSt();
+			if (!st || kind < 1 || kind > 9)
+				return -1;
+			const int32 n = HostAllocUser((uint8)kind);
+			if (n < 0)
+				return -1;
+			nkvpUserSub[n - kNkvpFirstUser] = (uint8)(sub & 0xFF);
+			const int32 e = n - kNkvpFirstEmpty;
+			nkvpEmptyPos[e][1] = kind == 5 ? 2.5f : 0.5f; // nait au-dessus du sol
+			if (kind == 5) {
+				// Lumiere NATIVE : partir de la lumiere existante la plus proche
+				// du type demande (0 dir, 1 point, 2 spot, 3 surfacique).
+				const int32 tpl = sub == 0 ? 0 : (sub == 2 ? 3 : 1);
+				renderer::NkLightDesc L = Demo3D_LightEffective(st, tpl);
+				L.type = (decltype(L.type))(sub & 3);
+				L.direction = {0.f, -1.f, 0.f};
+				nkvpUserLight[n - kNkvpFirstUser] = L;
+			}
+			return n;
 		}
 		int32 Demo3DHostTakeShortcuts() {
 			const int32 b = nkvpShortcutBits;

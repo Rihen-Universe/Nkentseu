@@ -164,6 +164,8 @@ namespace nkentseu {
 		// Raccourcis par POLLING : bits 1 dupliquer, 2 copier, 4 coller,
 		// 8 supprimer, 16 parenter, 32 deparenter. Consommes a la lecture.
 		int32 Demo3DHostTakeShortcuts();
+		// Menu AJOUTER : cree un noeud utilisateur (kind 1..9, sub = variante).
+		int32 Demo3DHostAddNode(int32 kind, int32 sub);
 		// Lumiere UTILISATEUR (kind 5) : couleur + intensite.
 		bool Demo3DHostUserLightParams(int32 node, float32 *color3, float32 *intensity);
 		void Demo3DHostSetUserLightParams(int32 node, const float32 *color3, float32 intensity);
