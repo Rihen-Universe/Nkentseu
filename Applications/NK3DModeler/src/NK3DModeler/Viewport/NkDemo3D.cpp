@@ -7724,6 +7724,33 @@ namespace nkentseu {
 		int32 Demo3DHostGridExtent() {
 			return nkvpGridExtent;
 		}
+		// CURSEUR <-> SELECTION, en mode objet comme en edition (le pivot de
+		// la selection d'edition prime quand il existe).
+		void Demo3DHostCursorToSelection() {
+			auto *st = HostSt();
+			if (!st)
+				return;
+			if (st->editMode && st->editGizmo.HasSelection())
+				st->cursor3D = st->editGizmo.GetPivot();
+			else if (st->gizmo.HasSelection())
+				st->cursor3D = st->gizmo.GetPivot();
+		}
+		void Demo3DHostSelectionToCursor() {
+			auto *st = HostSt();
+			if (!st || !st->gizmo.HasSelection())
+				return;
+			// Mode OBJET : la selection SAUTE au curseur (delta commun sur les
+			// decalages). L'equivalent en edition passera par le cadre modal.
+			const NkVec3f piv = st->gizmo.GetPivot();
+			const NkVec3f d = {st->cursor3D.x - piv.x, st->cursor3D.y - piv.y,
+							   st->cursor3D.z - piv.z};
+			for (int32 i = 0; i < Demo3DState::kNumObj; ++i) {
+				if (!st->gizmo.IsSelected(i) || nkvpObjLocked[i])
+					continue;
+				const NkVec3f t = st->gizmo.TranslateOf(i);
+				st->gizmo.SetTranslateOf(i, {t.x + d.x, t.y + d.y, t.z + d.z});
+			}
+		}
 		void Demo3DHostResetCursor() {
 			if (auto *st = HostSt())
 				st->cursor3D = {0.f, 0.f, 0.f}; // la meme ecriture que Alt+.

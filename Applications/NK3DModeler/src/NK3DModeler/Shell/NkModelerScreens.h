@@ -1858,7 +1858,15 @@ namespace nkentseu {
 					}
 					// Applique CHAQUE image : le moteur a une garde d'egalite, et
 					// c'est ce qui rend le picker vivant pendant le glissement.
-					demo::Demo3DHostSetBackground(bc[0], bc[1], bc[2]);
+					// La LUMINOSITE (proprietes de la scene) module la couleur sans
+					// en changer la teinte.
+					float32 lum[3];
+					for (int32 c2 = 0; c2 < 3; ++c2) {
+						lum[c2] = bc[c2] * st.bgBrightness;
+						if (lum[c2] > 1.f)
+							lum[c2] = 1.f;
+					}
+					demo::Demo3DHostSetBackground(lum[0], lum[1], lum[2]);
 				}
 				bx += ib + 2.f;
 
@@ -2140,23 +2148,26 @@ namespace nkentseu {
 									  const nkgui::NkGuiInput &in, const NkRect &r, float32 y,
 									  const char *label, float32 *v, float32 step, const char *keyBase,
 									  NkIcon icon1, NkIcon icon2, const char *fmt = "%.2f",
-									  NkIcon icon3 = NkIcon::None, bool icon3On = false) {
+									  NkIcon icon3 = NkIcon::None, bool icon3On = false,
+									  float32 labelW = kLabelW) {
 			const float32 rowH = kRowH + S(6.f);
-			p.Fill({r.x, y, kLabelW, rowH}, NkRole::LabelCol);
+			p.Fill({r.x, y, labelW, rowH}, NkRole::LabelCol);
+			p.Clip({r.x, y, labelW, rowH});
 			p.TextV(r.x + kPad, y, rowH, label);
+			p.Unclip();
 
 			const float32 sq = rowH - S(6.f); // colonne carree : cote = hauteur du champ
 			const float32 gap = S(4.f);
 			// TROIS cases : cadenas, reinitialiser, PROPORTIONNEL. La troisieme
 			// reste vide quand la ligne n'en veut pas -- l'alignement prime.
 			const float32 iconsW = sq * 3.f + gap * 2.f;
-			const float32 avail = r.w - kLabelW - S(10.f) - iconsW - gap;
+			const float32 avail = r.w - labelW - S(10.f) - iconsW - gap;
 			float32 fw = (avail - gap * 2.f) / 3.f;
 			if (fw < S(40.f))
 				fw = S(40.f);
 
 			const NkRole axes[3] = {NkRole::AxisX, NkRole::AxisY, NkRole::AxisZ};
-			float32 x = r.x + kLabelW + S(5.f);
+			float32 x = r.x + labelW + S(5.f);
 			char key[48];
 			// Les champs gardent leur LARGEUR MINIMALE, mais le bloc est CLIPPE
 			// avant la colonne des icones : panneau etroit, le champ Z passait
@@ -2424,7 +2435,8 @@ namespace nkentseu {
 							rowR.x = r.x;
 							PaintTransformRow(p, hit, ws, in, rowR, yy, "Position", st.pos, 0.01f,
 											  "prop.pos", st.lockPos ? NkIcon::Lock : NkIcon::Unlock,
-											  NkIcon::Refresh, "%.2f", NkIcon::SnapScale, st.propPos);
+											  NkIcon::Refresh, "%.2f", NkIcon::SnapScale, st.propPos,
+											  S(64.f));
 							if (hit.Clicked("prop.pos.ic0"))
 								st.lockPos = !st.lockPos;
 							if (hit.Clicked("prop.pos.ic2"))
@@ -2432,7 +2444,8 @@ namespace nkentseu {
 							yy += Vec3RowH();
 							PaintTransformRow(p, hit, ws, in, rowR, yy, "Rotation", st.rot, 0.5f,
 											  "prop.rot", st.lockRot ? NkIcon::Lock : NkIcon::Unlock,
-											  NkIcon::Refresh, "%.1f", NkIcon::SnapScale, st.propRot);
+											  NkIcon::Refresh, "%.1f", NkIcon::SnapScale, st.propRot,
+											  S(64.f));
 							if (hit.Clicked("prop.rot.ic0"))
 								st.lockRot = !st.lockRot;
 							if (hit.Clicked("prop.rot.ic2"))
@@ -2440,7 +2453,8 @@ namespace nkentseu {
 							yy += Vec3RowH();
 							PaintTransformRow(p, hit, ws, in, rowR, yy, "Echelle", st.scl, 0.01f,
 											  "prop.scl", st.lockScl ? NkIcon::Lock : NkIcon::Unlock,
-											  NkIcon::Refresh, "%.2f", NkIcon::SnapScale, st.propScale);
+											  NkIcon::Refresh, "%.2f", NkIcon::SnapScale, st.propScale,
+											  S(64.f));
 							if (hit.Clicked("prop.scl.ic0"))
 								st.lockScl = !st.lockScl;
 							if (hit.Clicked("prop.scl.ic2"))
@@ -2644,6 +2658,19 @@ namespace nkentseu {
 								bx += S(22.f);
 							}
 						yy += kRowH;
+						// LUMINOSITE : plus sombre ou plus claire, quelle que soit
+						// la couleur choisie (Rihen).
+						p.TextV(r.x + kPad, yy, kRowH, "Luminosite", NkRole::TextMuted);
+						if (DragFloat(p, hit, ws, in, "props.bglum",
+									  {r.x + S(120.f), yy + S(3.f), rr.w - S(128.f),
+									   kRowH - S(4.f)},
+									  st.bgBrightness, 0.005f, NkRole::AccentUi, "%.2f")) {
+							if (st.bgBrightness < 0.1f)
+								st.bgBrightness = 0.1f;
+							if (st.bgBrightness > 2.f)
+								st.bgBrightness = 2.f;
+						}
+						yy += kRowH;
 						if (st.bgChoice == 5) {
 							// LE VRAI PICKER (carre SV + barre de teinte, transpose du
 							// ColorPicker4 de NKGui) ; les champs R/V/B restent dessous
@@ -2697,7 +2724,10 @@ namespace nkentseu {
 						}
 					}
 				} else {
-					// â”€â”€ L'OUTIL : ses reglages et son Â« appliquer Â» â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+					// ── L'OUTIL -- et PLUSIEURS quand plusieurs coexistent : l'outil
+					// de transformation garde son bloc, le mode EDITION empile le
+					// sien dessous (deplacer + extruder arrivent ensemble, chacun
+					// doit rester lisible). ─────────────────────────────────────────
 					static const char *const kToolNames[6] = {"Selection",  "Curseur 3D", "Deplacer",
 															  "Rotation",	"Echelle",	  "Multigizmo"};
 					p.TextV(r.x + kPad, yy, kRowH, kToolNames[(int32)st.tool]);
@@ -2708,15 +2738,19 @@ namespace nkentseu {
 						float32 bx = r.x + kPad;
 						for (int32 i3 = 0; i3 < nS2; ++i3) {
 							snprintf(key, sizeof(key), "props.shape.%d", i3);
-							const float32 wq = (rr.w - 2.f * kPad - 8.f) / 3.f;
+							float32 wq = (rr.w - 2.f * kPad - 8.f) / 3.f;
+							if (wq < S(30.f))
+								wq = S(30.f);
 							const NkRect br{bx, yy + S(2.f), wq, kRowH - S(4.f)};
 							hit.Add(key, br);
 							if (st.selShape == i3)
 								p.Fill(br, NkRole::AccentUi, 3.f);
 							else
 								p.Outline(br, NkRole::Border, NkRole::PanelHeader, 3.f);
+							p.Clip(br);
 							p.TextV(br.x + S(6.f), yy, kRowH, shapes[i3],
 									st.selShape == i3 ? NkRole::TextOnAccent : NkRole::Text);
+							p.Unclip();
 							if (hit.Clicked(key))
 								st.selShape = i3;
 							bx += wq + 4.f;
@@ -2730,14 +2764,28 @@ namespace nkentseu {
 								   rr.w - 2.f * kPad))
 							demo::Demo3DHostResetCursor();
 						yy += kRowH;
+						// CURSEUR <-> SELECTION, en mode objet comme en edition.
+						if (Button("props.cur1", yy, "Curseur -> selection", r.x + kPad,
+								   rr.w - 2.f * kPad))
+							demo::Demo3DHostCursorToSelection();
+						yy += kRowH;
+						if (Button("props.cur2", yy, "Selection -> curseur", r.x + kPad,
+								   rr.w - 2.f * kPad))
+							demo::Demo3DHostSelectionToCursor();
+						yy += kRowH;
 					} else {
+						// Orientation : libelles CLIPPES a leur bouton -- en retrecissant
+						// le panneau ils debordaient (Deplacer, Rotation, Echelle et le
+						// cumule partagent ce bloc).
 						p.TextV(r.x + kPad, yy, kRowH, "Orientation", NkRole::TextMuted);
 						int32 nOr = 0;
 						const char *const *orients = NkOrientItems(nOr);
-						float32 bx = r.x + S(120.f);
+						float32 bx = r.x + S(96.f);
 						for (int32 i3 = 0; i3 < nOr; ++i3) {
 							snprintf(key, sizeof(key), "props.or.%d", i3);
-							const float32 wq = (rr.w - S(132.f) - 8.f) / 3.f;
+							float32 wq = (rr.w - S(108.f) - 8.f) / 3.f;
+							if (wq < S(30.f))
+								wq = S(30.f);
 							const NkRect br{bx, yy + S(2.f), wq, kRowH - S(4.f)};
 							hit.Add(key, br);
 							const bool on = (st.orientation == i3);
@@ -2745,19 +2793,50 @@ namespace nkentseu {
 								p.Fill(br, NkRole::AccentUi, 3.f);
 							else
 								p.Outline(br, NkRole::Border, NkRole::PanelHeader, 3.f);
+							p.Clip(br);
 							p.TextV(br.x + S(4.f), yy, kRowH, orients[i3],
 									on ? NkRole::TextOnAccent : NkRole::Text);
+							p.Unclip();
 							if (hit.Clicked(key))
 								st.orientation = i3;
 							bx += wq + 4.f;
 						}
 						yy += kRowH;
+						// AIMANTATION : la bascule ET ses PAS, modifiables ici.
 						const bool snapOn = demo::Demo3DHostSnapEnabled();
 						if (Button("props.snap", yy,
 								   snapOn ? "Aimantation : active" : "Aimantation : coupee",
 								   r.x + kPad, rr.w - 2.f * kPad))
-							demo::Demo3DHostSetSnap(!snapOn, 0.5f, 15.f, 0.1f);
+							demo::Demo3DHostSetSnap(!snapOn, st.snapStepT, st.snapStepR,
+													st.snapStepS);
 						yy += kRowH;
+						{
+							static const char *const kSn[3] = {"Pas deplacement", "Pas angle",
+															   "Pas echelle"};
+							float32 *sv[3] = {&st.snapStepT, &st.snapStepR, &st.snapStepS};
+							static const char *const kFm[3] = {"%.2f", "%.0f", "%.2f"};
+							bool snCh = false;
+							for (int32 i3 = 0; i3 < 3; ++i3) {
+								p.TextV(r.x + kPad + S(8.f), yy, kRowH, kSn[i3], NkRole::TextMuted);
+								snprintf(key, sizeof(key), "props.snap.%d", i3);
+								snCh |= DragFloat(p, hit, ws, in, key,
+												  {r.x + S(120.f), yy + S(3.f), rr.w - S(128.f),
+												   kRowH - S(4.f)},
+												  *sv[i3], i3 == 1 ? 0.5f : 0.01f,
+												  NkRole::AccentUi, kFm[i3]);
+								yy += kRowH;
+							}
+							if (snCh) {
+								if (st.snapStepT < 0.01f)
+									st.snapStepT = 0.01f;
+								if (st.snapStepR < 1.f)
+									st.snapStepR = 1.f;
+								if (st.snapStepS < 0.01f)
+									st.snapStepS = 0.01f;
+								demo::Demo3DHostSetSnap(snapOn, st.snapStepT, st.snapStepR,
+														st.snapStepS);
+							}
+						}
 						if (st.tool == NkTool::Move || st.tool == NkTool::MultiGizmo) {
 							if (Button("props.clr0", yy, "Remettre la translation", r.x + kPad,
 									   rr.w - 2.f * kPad))
@@ -2776,6 +2855,26 @@ namespace nkentseu {
 								demo::Demo3DHostClearXform(2);
 							yy += kRowH;
 						}
+					}
+					// ── SECOND BLOC : l'outil d'EDITION quand le mode Edit est actif.
+					// Deux natures coexistent (deplacer + extruder) : chaque outil a
+					// SON bloc, empile avec son titre.
+					if (demo::Demo3DHostInEditMode()) {
+						yy += S(4.f);
+						p.Fill({r.x, yy, rr.w, kRowH}, NkRole::PanelHeader);
+						p.TextV(r.x + kPad, yy, kRowH, "Outil d'edition");
+						yy += kRowH;
+						const int32 m2 = demo::Demo3DHostEditSelMask();
+						snprintf(buf, sizeof(buf), "Sous-mode : %s%s%s", (m2 & 1) ? "Sommets " : "",
+								 (m2 & 2) ? "Aretes " : "", (m2 & 4) ? "Faces" : "");
+						p.TextV(r.x + kPad, yy, kRowH, buf, NkRole::TextMuted);
+						yy += kRowH;
+						p.TextV(r.x + kPad, yy, kRowH, "E extruder   I inserer   Ctrl+B biseauter",
+								NkRole::TextMuted);
+						yy += kRowH;
+						p.TextV(r.x + kPad, yy, kRowH, "Ctrl+R boucle   W subdiviser   K couteau",
+								NkRole::TextMuted);
+						yy += kRowH;
 					}
 				}
 
