@@ -233,13 +233,16 @@ int nkmain(const NkEntryState &entry) {
 	// l'APERCU REEL du selecteur -- un pictogramme generique ne dit pas
 	// quelle matiere on choisit.
 	{
-		static uint8 ball[32 * 32 * 4];
+		// 128 px, pas 32 : le grand apercu du panneau fait 72 px, et AGRANDIR
+		// pixelise (constate par Rihen) -- on genere plus grand que le plus
+		// grand usage ; le retrecissement, lui, reste lisse.
+		static uint8 ball[128 * 128 * 4];
 		const int32 nMc = demo::Demo3DHostMatcapCount();
 		for (int32 i = 0; i < nMc; ++i) {
-			demo::Demo3DHostMatcapBall(i, ball, 32);
-			renderer.UploadImageRGBA(4300u + (uint32)i, ball, 32, 32);
+			demo::Demo3DHostMatcapBall(i, ball, 128);
+			renderer.UploadImageRGBA(4300u + (uint32)i, ball, 128, 128);
 		}
-		printf("[nk3d] %d vignettes de matcap.\n", nMc);
+		printf("[nk3d] %d vignettes de matcap (128 px).\n", nMc);
 	}
 
 	// ── ETAT DE SESSION ─────────────────────────────────────────────────────
