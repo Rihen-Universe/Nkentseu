@@ -8927,6 +8927,8 @@ namespace nkentseu {
 					nkvpShortcutBits |= 4;
 				if (((fresh & 8) && !anyDrag && !ct2) || (fresh & 32))
 					nkvpShortcutBits |= 8;
+				if ((fresh & 8) && ct2)
+					nkvpShortcutBits |= 64; // Ctrl+X : couper (navigateur)
 				if ((fresh & 16) && ct2)
 					nkvpShortcutBits |= 16;
 				if ((fresh & 16) && sh2 && !ct2)
