@@ -1669,7 +1669,12 @@ namespace nkentseu {
 			}
 			if (!hit.MouseDown())
 				st.matcapDragBar = -1;
-			if (hit.AnyClick() && !hit.IsHovered("vp.mc.panel") && !hit.IsHovered("vp.matcap"))
+			// Le panneau s'ouvre depuis DEUX boutons (barre de la vue, panneau
+			// Proprietes) : la fermeture au clic exterieur doit les connaitre
+			// tous les deux -- sinon le clic d'OUVERTURE du second refermait le
+			// panneau dans la meme frame (constate par Rihen).
+			if (hit.AnyClick() && !hit.IsHovered("vp.mc.panel") && !hit.IsHovered("vp.matcap") &&
+				!hit.IsHovered("props.matcap"))
 				st.matcapOpen = false;
 		}
 
@@ -2534,6 +2539,11 @@ namespace nkentseu {
 							st.matcapAnchor = br;
 						}
 						yy += kRowH;
+						// L'APERCU, EN GRAND : une vignette de 22 px dit « il y a une
+						// boule », pas « quelle matiere c'est ». Le carre reprend la
+						// meme texture, en 72 px.
+						p.Image(4300u + (uint32)mc, {r.x + S(120.f), yy + S(2.f), S(72.f), S(72.f)});
+						yy += S(78.f);
 					}
 					{
 						// â”€â”€ FOND PAR TYPE : un COMBO, et les proprietes du type choisi
@@ -2566,10 +2576,29 @@ namespace nkentseu {
 									st.bgChoice = i3;
 								bx += S(22.f);
 							}
-							yy += kRowH;
-							p.TextV(r.x + kPad, yy, kRowH, "La 6e pastille = couleur du picker.",
-									NkRole::TextMuted);
-							yy += kRowH;
+						yy += kRowH;
+						if (st.bgChoice == 5) {
+							// PICKER de la couleur personnalisee : trois champs R/V/B
+							// glissables (et saisissables au double-clic, comme partout).
+							// La pastille et le fond suivent EN DIRECT.
+							static const char *const kCh[3] = {"Rouge", "Vert", "Bleu"};
+							for (int32 c2 = 0; c2 < 3; ++c2) {
+								p.TextV(r.x + kPad + S(8.f), yy, kRowH, kCh[c2], NkRole::TextMuted);
+								snprintf(key, sizeof(key), "props.bgc.%d", c2);
+								float32 v2 = st.bgCustom[c2];
+								if (DragFloat(p, hit, ws, in, key,
+											 {r.x + S(120.f), yy + S(3.f), rr.w - S(128.f),
+											  kRowH - S(4.f)},
+											 v2, 0.005f, NkRole::AccentUi, "%.2f")) {
+									if (v2 < 0.f)
+										v2 = 0.f;
+									if (v2 > 1.f)
+										v2 = 1.f;
+									st.bgCustom[c2] = v2;
+								}
+								yy += kRowH;
+							}
+						}
 						} else if (st.bgType == 1) {
 							p.TextV(r.x + kPad, yy, kRowH, "Haut / horizon / bas : trois",
 									NkRole::TextMuted);
