@@ -4419,6 +4419,21 @@ namespace nkentseu {
 				const NkVec3f tr = st->emptyGizmo.TranslateOf(e);
 				L2.position = {nkvpEmptyPos[e][0] + tr.x, nkvpEmptyPos[e][1] + tr.y,
 							   nkvpEmptyPos[e][2] + tr.z};
+				// ROTATION du noeud -> direction du faisceau (-Y local) ;
+				// l'ECHELLE d'une SURFACIQUE regle ses dimensions (Rihen).
+				const float32 kD2Rl = 0.017453292f;
+				const NkMat4f lRm =
+					st->emptyGizmo.RotationOf(e) *
+					(NkMat4f::RotationZ(NkAngle::FromRad(nkvpEmptyRotDeg[e][2] * kD2Rl)) *
+					 NkMat4f::RotationY(NkAngle::FromRad(nkvpEmptyRotDeg[e][1] * kD2Rl)) *
+					 NkMat4f::RotationX(NkAngle::FromRad(nkvpEmptyRotDeg[e][0] * kD2Rl)));
+				if (((int32)L2.type & 3) != 1)
+					L2.direction = {-lRm.mat[1][0], -lRm.mat[1][1], -lRm.mat[1][2]};
+				if (((int32)L2.type & 3) == 3) {
+					const NkVec3f osl = st->emptyGizmo.ScaleOf(e);
+					L2.areaWidth = fabsf(nkvpEmptyScl[e][0]) * (1.f + osl.x);
+					L2.areaHeight = fabsf(nkvpEmptyScl[e][1]) * (1.f + osl.y);
+				}
 				sctx.lights.PushBack(L2);
 			}
 
@@ -6692,6 +6707,20 @@ namespace nkentseu {
 											ef.position.z);
 							}
 						}
+						// REGLES par TYPE (Rihen) : ponctuelle = deplacement seul ;
+						// soleil/spot = + rotation ; surfacique = + echelle. Le mode
+						// demande est rabattu si interdit.
+						if (st->lightSel >= 0 && st->lightSel < Demo3DState::kNumLights) {
+							const int32 lt2 = (int32)st->lights[st->lightSel].type & 3;
+							int32 md = st->gizmo.Mode();
+							if (md == 1 && lt2 == 1)
+								md = 0;
+							if (md == 2 && lt2 != 3)
+								md = 0;
+							if (md == 3 && lt2 == 1)
+								md = 0;
+							st->lightGizmo.SetMode(md);
+						}
 						const bool lwasDrag = st->lightGizmo.IsDragging();
 						st->lightGizmo.Update(ltg, Demo3DState::kNumLights, lin);
 						if (!lwasDrag && st->lightGizmo.IsDragging())
@@ -6748,6 +6777,24 @@ namespace nkentseu {
 							etg[e].pickRadius = 0.f; // pas de pick : la hierarchie selectionne
 						}
 						renderer::NkGizmoInput ein = gin;
+						// Memes regles pour une LUMIERE utilisateur selectionnee ;
+						// les autres noeuds gardent le mode demande.
+						{
+							const int32 ea = st->emptyGizmo.ActiveIndex();
+							if (ea >= 6 && nkvpUserKind[ea - 6] == 5) {
+								const int32 lt2 = (int32)nkvpUserLight[ea - 6].type & 3;
+								int32 md = st->gizmo.Mode();
+								if (md == 1 && lt2 == 1)
+									md = 0;
+								if (md == 2 && lt2 != 3)
+									md = 0;
+								if (md == 3 && lt2 == 1)
+									md = 0;
+								st->emptyGizmo.SetMode(md);
+							} else {
+								st->emptyGizmo.SetMode(st->gizmo.Mode());
+							}
+						}
 						const bool ewasDrag = st->emptyGizmo.IsDragging();
 						st->emptyGizmo.Update(etg, 70, ein);
 						if (!ewasDrag && st->emptyGizmo.IsDragging())
