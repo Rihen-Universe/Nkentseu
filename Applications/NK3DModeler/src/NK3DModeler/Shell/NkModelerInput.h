@@ -223,6 +223,9 @@ namespace nkentseu {
 				char customNames[100][24] = {};
 				// Cadenas et proportionnel des lignes de transformation.
 				bool lockPos = false, lockRot = false, lockScl = false;
+				// PROPAGER AUX ENFANTS : les proprietes communes editees sur un
+				// parent s'appliquent aussi a ses descendants compatibles.
+				bool matPropagate = false;
 				// PROPORTIONNEL par ligne de transformation : l'axe touche propage
 				// son rapport aux autres (delta quand la base est nulle).
 				bool propPos = false, propRot = false, propScale = false;
@@ -230,6 +233,15 @@ namespace nkentseu {
 				float32 snapStepT = 0.5f, snapStepR = 15.f, snapStepS = 0.1f;
 				// Groupes ouverts de la hierarchie (bit par groupe).
 				uint32 hierOpen = 0xFFFFFFFFu;
+				// ARBRE DE PARENTE : pliage par noeud (bit = PLIE), etat du
+				// glisser-deposer, et EMPTY actif -- la selection d'un parent
+				// SEUL (les empties n'existent pas dans la demo).
+				uint32 hierFold[3] = {};
+				int32 activeEmpty = -1;
+				int32 hierDragNode = -1;
+				float32 hierDragX = 0.f, hierDragY = 0.f;
+				bool hierDragging = false;
+				bool hierMouseWasDown = false;
 				// Une scene AJOUTEE est VIERGE : les objets de la demo y sont masques.
 				bool sceneBlank[8] = {};
 				// TYPE de fond de la scene : 0 couleur unie, 1 degrade, 2 texture,

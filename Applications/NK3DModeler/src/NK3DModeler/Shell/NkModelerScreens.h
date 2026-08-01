@@ -916,6 +916,75 @@ namespace nkentseu {
 			p.VScroll(area, contentH, offset);
 		}
 
+		// Ligne « Transmettre » d'un parent : quelles composantes de SA
+		// transformation atteignent ses enfants (option par transformation,
+		// idee de Rihen).
+		inline void NkXmitRow(NkModelerPainter &p, NkHitRegistry &hit, const NkRect &r,
+							  const NkRect &rr, float32 &yy, int32 node) {
+			p.TextV(r.x + kPad, yy, kRowH, "Transmettre", NkRole::TextMuted);
+			int32 mask = demo::Demo3DHostNodeXmitMask(node);
+			static const char *const kXm[3] = {"Pos", "Rot", "Ech"};
+			const float32 bw = (rr.w - S(128.f) - S(8.f)) / 3.f;
+			char kx[24];
+			for (int32 b = 0; b < 3; ++b) {
+				const NkRect br{r.x + S(120.f) + (float32)b * (bw + S(4.f)), yy + S(2.f), bw,
+								kRowH - S(4.f)};
+				snprintf(kx, sizeof(kx), "prop.xmit.%d", b);
+				hit.Add(kx, br);
+				const bool on2 = ((mask >> b) & 1) != 0;
+				if (on2)
+					p.Fill(br, NkRole::AccentUi, 3.f);
+				else
+					p.Outline(br, NkRole::Border, NkRole::PanelHeader, 3.f);
+				const float32 tw = p.TextW(kXm[b]);
+				p.TextV(br.x + (br.w - tw) * 0.5f, yy, kRowH, kXm[b],
+						on2 ? NkRole::TextOnAccent : NkRole::Text);
+				if (hit.Clicked(kx))
+					mask ^= (1 << b);
+			}
+			demo::Demo3DHostSetNodeXmitMask(node, mask);
+			yy += kRowH;
+		}
+		// Le noeud est-il un DESCENDANT de anc dans l'arbre de parente ?
+		inline bool NkHierIsDescendant(int32 node, int32 anc) {
+			int32 cur = node;
+			for (int32 g = 0; g < 96 && cur >= 0; ++g) {
+				cur = demo::Demo3DHostNodeParent(cur);
+				if (cur == anc)
+					return true;
+			}
+			return false;
+		}
+		// Case « Propager aux enfants » d'une propriete commune parent/enfant.
+		inline bool NkPropagateCheck(NkModelerPainter &p, NkHitRegistry &hit, const NkRect &r,
+									 float32 y, const char *key, bool &on) {
+			const NkRect cb{r.x + kPad, y + S(5.f), S(12.f), S(12.f)};
+			hit.Add(key, cb);
+			p.Outline(cb, on ? NkRole::AccentUi : NkRole::Border,
+					  on ? NkRole::AccentUi : NkRole::InputBg, 2.f);
+			p.TextV(cb.x + S(18.f), y, kRowH, "Propager aux enfants", NkRole::TextMuted);
+			if (hit.Clicked(key)) {
+				on = !on;
+				return true;
+			}
+			return false;
+		}
+		// Nom AFFICHE d'un noeud de scene : nom personnalise > nom de la demo >
+		// nom d'empty par defaut (les anciens groupes, noeuds 90..95).
+		static const char *const kNkEmptyNames[6] = {"Spheres", "Cube central", "Colonnes",
+													 "Instances", "Decor", "Lumieres"};
+		inline void NkHierNodeName(NkModelerState &st, int32 node, char *out, uint32 cap) {
+			if (node >= 0 && node < 96 && st.customNames[node][0]) {
+				snprintf(out, cap, "%s", st.customNames[node]);
+				return;
+			}
+			if (node >= 90)
+				snprintf(out, cap, "%s", kNkEmptyNames[node - 90]);
+			else if (node >= 86)
+				demo::Demo3DHostLightName(node - 86, out, cap);
+			else
+				demo::Demo3DHostObjectName(node, out, cap);
+		}
 		inline void PaintHierarchy(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
 								   NkHitRegistry &hit, NkWidgetState &ws, const nkgui::NkGuiInput &in) {
 			p.Fill(r, NkRole::PanelBg);
@@ -960,111 +1029,82 @@ namespace nkentseu {
 				++visibleCount;
 			}
 
-			// PARENT-ENFANT : la scene demo est plate, mais sa STRUCTURE ne l'est
-			// pas -- les objets se rangent par familles, chacune repliable comme un
-			// parent avec ses enfants. Le re-parentage libre viendra avec le format
-			// projet.
-			struct HGroup {
-					const char *name;
-					int32 start, count; // start >= 1000 : lumieres (li = k)
-			};
-			static const HGroup kGroups[6] = {{"Spheres", 0, 16},	 {"Cube central", 16, 1},
-											  {"Colonnes", 17, 2},	 {"Instances", 19, 64},
-											  {"Decor", 83, 3},		 {"Lumieres", 1000, 4}};
+			// ── ARBRE REEL DE PARENTE ───────────────────────────────────────
+			// L'arbre suit la TABLE DE PARENTE de l'hote : les anciens groupes
+			// sont devenus de vrais EMPTIES (noeuds 90..95) et TOUT noeud peut
+			// etre parent ou enfant, quelle que soit sa nature (regle de Rihen).
+			// Le CHEVRON plie/deplie -- et RIEN d'autre : le clic de ligne ne
+			// fait que selectionner, et un parent se selectionne SEUL (sa
+			// transformation emporte ses enfants, pas sa selection). Glisser une
+			// ligne sur une autre PARENTE ; vers le vide de la liste, DEPARENTE.
+			const int32 kNumObj2 = demo::Demo3DHostObjectCount();
+			const int32 kFirstLight = kNumObj2;
+			const int32 kFirstEmpty2 = 90;
+			const int32 kNNodes = demo::Demo3DHostNodeCount();
 			const int32 activeObj = demo::Demo3DHostActiveObject();
+			const int32 selLight = demo::Demo3DHostSelectedLight();
 			const bool searching = (st.searchHier[0] != 0);
+			// Un objet ou une lumiere redevenus actifs (clic vue ou hierarchie)
+			// reprennent la main sur l'empty actif.
+			if (st.activeEmpty >= 0 && (activeObj >= 0 || selLight >= 0))
+				st.activeEmpty = -1;
+			if (!hit.MouseDown() && st.hierDragNode < 0)
+				st.hierDragging = false; // le relachement est digere, une frame apres
 			int32 aliveCount = 0, selCount = 0;
+			for (int32 n2 = 0; n2 < kFirstEmpty2; ++n2) {
+				++aliveCount;
+				if (n2 < kNumObj2 ? demo::Demo3DHostObjectSelected(n2)
+								  : (selLight == n2 - kFirstLight))
+					++selCount;
+			}
 			char nameBuf[48];
-			for (int32 gi2 = 0; gi2 < 6; ++gi2) {
-				const HGroup &G2 = kGroups[gi2];
-				const bool isLightGrp = (G2.start >= 1000);
-				const bool open = searching || ((st.hierOpen >> gi2) & 1u) != 0u;
-				// Ligne du GROUPE (cachee pendant une recherche : la recherche est
-				// une liste plate de resultats).
-				if (!searching) {
-					const NkRect rowR{r.x, yy, r.w, kRowH};
-					if (yy >= listTop - kRowH && yy < listTop + listH) {
-						// Le PARENT se selectionne aussi : tous ses enfants entrent
-						// dans le gizmo et se transforment ENSEMBLE, comme Unity. Le
-						// CHEVRON garde le pliage ; le reste de la ligne selectionne.
-						bool allSel = G2.count > 0;
-						if (isLightGrp)
-							allSel = demo::Demo3DHostAllLightsSelected();
-						else
-							for (int32 k2 = 0; k2 < G2.count && allSel; ++k2)
-								if (!demo::Demo3DHostObjectSelected(G2.start + k2))
-									allSel = false;
-						snprintf(key, sizeof(key), "hier.grp.%d", gi2);
-						const bool overG = hit.Add(key, rowR);
-						if (allSel)
-							p.Fill(rowR, NkRole::AccentUi);
-						else
-							HoverFill(p, rowR, overG, 0.f);
-						const NkRole gfg = allSel ? NkRole::TextOnAccent : NkRole::Text;
-						const NkRect chevR{r.x + S(4.f), yy, S(18.f), kRowH};
-						snprintf(key, sizeof(key), "hier.grpc.%d", gi2);
-						hit.Add(key, chevR);
-						p.IconV(r.x + S(8.f), yy, kRowH,
-								open ? NkIcon::ChevronDown : NkIcon::ChevronRight, gfg, 11.f);
-						// Le PARENT aussi se renomme (double-clic) ; le compte reste
-						// affiche a cote. Jamais de chevauchement Nom/Type.
-						const int32 grpSlot = 90 + gi2;
-						const char *gname =
-							st.customNames[grpSlot][0] ? st.customNames[grpSlot] : G2.name;
-						char gl[48];
-						snprintf(gl, sizeof(gl), "%s (%d)", gname, G2.count);
-						p.Clip({rowR.x, yy, colType - rowR.x - S(8.f), kRowH});
-						snprintf(key, sizeof(key), "hier.gname.%d", gi2);
-						EditableText(p, hit, ws, in, key,
-									 {r.x + S(24.f), yy, colType - r.x - S(32.f), kRowH}, gl, gfg,
-									 st.customNames[grpSlot], 24u);
-						p.Unclip();
-						if (hit.Clicked(key)) {
-							if (isLightGrp)
-								demo::Demo3DHostSelectAllLights();
-							else
-								demo::Demo3DHostSelectGroup(G2.start, G2.count, hit.ShiftDown());
-						}
-						p.TextV(colType, yy, kRowH, "Groupe",
-								allSel ? NkRole::TextOnAccent : NkRole::TextMuted);
-						if (hit.Clicked(key)) {
-							st.hierOpen ^= (1u << gi2); // le chevron plie/deplie
-						} else {
-							snprintf(key, sizeof(key), "hier.grp.%d", gi2);
-							if (hit.Clicked(key)) {
-								if (isLightGrp)
-									demo::Demo3DHostSelectAllLights();
-								else
-									demo::Demo3DHostSelectGroup(G2.start, G2.count, hit.ShiftDown());
-							}
-						}
-					}
-					yy += kRowH;
-					++visibleCount;
+			const bool freshPress = hit.MouseDown() && !st.hierMouseWasDown;
+			int32 dropHover = -1;
+			// Pile explicite (racines : les empties d'abord -- les familles --
+			// puis tout noeud sans parent) ; en RECHERCHE, liste plate.
+			int32 stack[128];
+			int32 sdepth[128];
+			int32 sp = 0;
+			if (searching) {
+				for (int32 n2 = kNNodes - 1; n2 >= 0; --n2) {
+					stack[sp] = n2;
+					sdepth[sp] = 0;
+					++sp;
 				}
-				for (int32 k = 0; k < G2.count; ++k) {
-					const int32 li = isLightGrp ? k : -1;
-					const int32 oi = isLightGrp ? -1 : G2.start + k;
-					if (isLightGrp)
-						demo::Demo3DHostLightName(li, nameBuf, sizeof(nameBuf));
-					else
-						demo::Demo3DHostObjectName(oi, nameBuf, sizeof(nameBuf));
-					// NOM PERSONNALISE s'il existe : tout se renomme (Rihen).
-					const int32 nameSlot = isLightGrp ? 86 + li : oi;
-					if (st.customNames[nameSlot][0])
-						snprintf(nameBuf, sizeof(nameBuf), "%s", st.customNames[nameSlot]);
-					++aliveCount;
-					const bool sel = isLightGrp ? (demo::Demo3DHostSelectedLight() == li)
-												: demo::Demo3DHostObjectSelected(oi);
-					if (sel)
-						++selCount;
-					if (!open || !NkNameMatches(nameBuf, st.searchHier))
-						continue;
+			} else {
+				int32 roots[96];
+				int32 nRoots = 0;
+				for (int32 n2 = kFirstEmpty2; n2 < kNNodes; ++n2)
+					if (demo::Demo3DHostNodeParent(n2) < 0)
+						roots[nRoots++] = n2;
+				for (int32 n2 = 0; n2 < kFirstEmpty2; ++n2)
+					if (demo::Demo3DHostNodeParent(n2) < 0)
+						roots[nRoots++] = n2;
+				for (int32 i2 = nRoots - 1; i2 >= 0; --i2) {
+					stack[sp] = roots[i2];
+					sdepth[sp] = 0;
+					++sp;
+				}
+			}
+			while (sp > 0) {
+				--sp;
+				const int32 node = stack[sp];
+				const int32 depth = sdepth[sp];
+				const bool isLight = node >= kFirstLight && node < kFirstEmpty2;
+				const bool isEmpty = node >= kFirstEmpty2;
+				const int32 li = isLight ? node - kFirstLight : -1;
+				NkHierNodeName(st, node, nameBuf, sizeof(nameBuf));
+				const bool hasKids = demo::Demo3DHostNodeHasChildren(node);
+				const bool folded = ((st.hierFold[node >> 5] >> (node & 31)) & 1u) != 0u;
+				const bool sel = isEmpty    ? (st.activeEmpty == node)
+								 : isLight ? (selLight == li)
+										   : demo::Demo3DHostObjectSelected(node);
+				const bool show = !searching || NkNameMatches(nameBuf, st.searchHier);
+				if (show) {
 					++visibleCount;
 					const NkRect rowR{r.x, yy, r.w, kRowH};
 					if (yy >= listTop - kRowH && yy < listTop + listH) {
-						const int32 rowId = isLightGrp ? 1000 + li : oi;
-						snprintf(key, sizeof(key), "hier.row.%d", rowId);
+						snprintf(key, sizeof(key), "hier.row.%d", node);
 						const bool over = hit.Add(key, rowR);
 						if (sel)
 							p.Fill(rowR, NkRole::AccentUi);
@@ -1072,76 +1112,175 @@ namespace nkentseu {
 							HoverFill(p, rowR, over, 0.f);
 						const NkRole fg = sel ? NkRole::TextOnAccent : NkRole::Text;
 						const NkRole dim = sel ? NkRole::TextOnAccent : NkRole::TextMuted;
-						const float32 tx = r.x + (searching ? S(20.f) : S(34.f));
-						p.IconV(tx, yy, kRowH, isLightGrp ? NkIcon::Light : NkIcon::Mesh, fg, 13.f);
-						// Le NOM est CLIPPE a sa colonne : en retrecissant le panneau il
-						// chevauchait Â« Type Â» (constate par Rihen).
-						// Le nom est aussi MODIFIABLE au double-clic -- tout se
-						// renomme, lumieres comprises ; le clic simple selectionne.
+						const float32 ind = searching ? S(6.f) : S(4.f) + (float32)depth * S(14.f);
+						// CHEVRON : la SEULE commande de pliage -- le clic de ligne
+						// pliait aussi, trop sensible et genant pour renommer (Rihen).
+						if (hasKids && !searching) {
+							const NkRect chevR{r.x + ind, yy, S(16.f), kRowH};
+							snprintf(key, sizeof(key), "hier.chev.%d", node);
+							hit.Add(key, chevR);
+							p.IconV(r.x + ind + S(2.f), yy, kRowH,
+									folded ? NkIcon::ChevronRight : NkIcon::ChevronDown, fg, 11.f);
+							if (hit.Clicked(key) && !st.hierDragging && !ws.dragging)
+								st.hierFold[node >> 5] ^= (1u << (node & 31));
+						}
+						const float32 tx = r.x + ind + S(18.f);
+						p.IconV(tx, yy, kRowH,
+								isEmpty ? NkIcon::Cursor : (isLight ? NkIcon::Light : NkIcon::Mesh),
+								fg, 13.f);
 						p.Clip({rowR.x, yy, colType - rowR.x - S(8.f), kRowH});
-						snprintf(key, sizeof(key), "hier.name.%d", rowId);
+						snprintf(key, sizeof(key), "hier.name.%d", node);
 						EditableText(p, hit, ws, in, key,
 									 {tx + S(18.f), yy, colType - tx - S(26.f), kRowH}, nameBuf, fg,
-									 st.customNames[nameSlot], 24u);
+									 st.customNames[node], 24u);
 						p.Unclip();
-						if (hit.Clicked(key)) {
-							if (isLightGrp)
-								demo::Demo3DHostSelectLight(li);
-							else if (!demo::Demo3DHostObjectLocked(oi))
-								demo::Demo3DHostSelectObject(oi, hit.ShiftDown());
-						}
-						p.TextV(colType, yy, kRowH, isLightGrp ? "Lumiere" : "Maillage", dim);
-						if (!isLightGrp && sel && oi == activeObj)
+						p.TextV(colType, yy, kRowH,
+								isEmpty ? "Empty" : (isLight ? "Lumiere" : "Maillage"), dim);
+						if (!isEmpty && !isLight && sel && node == activeObj)
 							p.Fill({colType - S(12.f), yy + kRowH * 0.5f - S(2.f), S(4.f), S(4.f)}, fg);
-
-						// L'OEIL : visibilite REELLE (les soumissions de la demo sont
-						// gatees, lumieres comprises).
-						const bool hidden = isLightGrp ? demo::Demo3DHostLightHidden(li)
-													   : demo::Demo3DHostObjectHidden(oi);
-						snprintf(key, sizeof(key), "hier.eye.%d", rowId);
-						const NkRect eyeR{colEye - S(3.f), yy, S(20.f), kRowH};
-						HoverFill(p, eyeR, hit.Add(key, eyeR) && !sel, 2.f);
-						p.IconV(colEye, yy, kRowH, hidden ? NkIcon::EyeClosed : NkIcon::Eye,
-								hidden ? dim : fg, 12.f);
-						if (hit.Clicked(key)) {
-							if (isLightGrp)
-								demo::Demo3DHostSetLightHidden(li, !hidden);
-							else
-								demo::Demo3DHostSetObjectHidden(oi, !hidden);
+						// L'OEIL (objets et lumieres ; un empty n'a pas de rendu).
+						if (!isEmpty) {
+							const bool hidden = isLight ? demo::Demo3DHostLightHidden(li)
+														: demo::Demo3DHostObjectHidden(node);
+							snprintf(key, sizeof(key), "hier.eye.%d", node);
+							const NkRect eyeR{colEye - S(3.f), yy, S(20.f), kRowH};
+							HoverFill(p, eyeR, hit.Add(key, eyeR) && !sel, 2.f);
+							p.IconV(colEye, yy, kRowH, hidden ? NkIcon::EyeClosed : NkIcon::Eye,
+									hidden ? dim : fg, 12.f);
+							if (hit.Clicked(key)) {
+								if (isLight)
+									demo::Demo3DHostSetLightHidden(li, !hidden);
+								else
+									demo::Demo3DHostSetObjectHidden(node, !hidden);
+							}
 						}
-
-						// LE CADENAS (objets) : bloque la selection et l'ecriture de
-						// transformation.
+						// LE CADENAS (objets) : verrouille = INselectionnable.
 						bool lok = false;
-						if (!isLightGrp) {
-							lok = demo::Demo3DHostObjectLocked(oi);
-							snprintf(key, sizeof(key), "hier.lock.%d", rowId);
+						if (!isEmpty && !isLight) {
+							lok = demo::Demo3DHostObjectLocked(node);
+							snprintf(key, sizeof(key), "hier.lock.%d", node);
 							const NkRect lockR{colLock - S(3.f), yy, S(20.f), kRowH};
 							HoverFill(p, lockR, hit.Add(key, lockR) && !sel, 2.f);
 							p.IconV(colLock, yy, kRowH, lok ? NkIcon::Lock : NkIcon::Unlock,
 									lok ? fg : dim, 12.f);
 							if (hit.Clicked(key))
-								demo::Demo3DHostSetObjectLocked(oi, !lok);
+								demo::Demo3DHostSetObjectLocked(node, !lok);
 						}
-
-						snprintf(key, sizeof(key), "hier.row.%d", rowId);
-						if (hit.Clicked(key)) {
-							if (isLightGrp)
+						// SELECTION : la ligne ou le nom. Un parent se selectionne
+						// SEUL, un cadenasse JAMAIS ; Maj/Ctrl+clic = multi.
+						bool wantSel = false;
+						if (!st.hierDragging) {
+							snprintf(key, sizeof(key), "hier.row.%d", node);
+							wantSel = hit.Clicked(key);
+							snprintf(key, sizeof(key), "hier.name.%d", node);
+							wantSel = wantSel || hit.Clicked(key);
+						}
+						if (wantSel) {
+							if (isEmpty) {
+								demo::Demo3DHostDeselectAll();
+								st.activeEmpty = node;
+							} else if (isLight) {
 								demo::Demo3DHostSelectLight(li);
-							else if (!lok) // un objet verrouille ne se selectionne pas
-								demo::Demo3DHostSelectObject(oi, hit.ShiftDown());
+								st.activeEmpty = -1;
+							} else if (!lok) {
+								demo::Demo3DHostSelectObject(node,
+															 hit.ShiftDown() || hit.CtrlDown());
+								st.activeEmpty = -1;
+							}
+						}
+						// GLISSER-DEPOSER : armement au premier appui sur la ligne ;
+						// la cible est la ligne survolee au lacher.
+						const nkgui::NkVec2 hm = hit.Mouse();
+						if (freshPress && NkHitRegistry::Contains(rowR, hm) &&
+							hm.x < r.x + r.w - S(14.f)) {
+							st.hierDragNode = node;
+							st.hierDragX = hm.x;
+							st.hierDragY = hm.y;
+							st.hierDragging = false;
+						}
+						if (st.hierDragging && st.hierDragNode != node &&
+							NkHitRegistry::Contains(rowR, hm)) {
+							dropHover = node;
+							p.Fill({rowR.x, rowR.y + rowR.h - S(2.f), rowR.w, S(2.f)},
+								   NkRole::AccentUi);
 						}
 					}
 					yy += kRowH;
 				}
+				if (hasKids && !searching && !folded) {
+					for (int32 c2 = kNNodes - 1; c2 >= 0; --c2)
+						if (demo::Demo3DHostNodeParent(c2) == node && sp < 126) {
+							stack[sp] = c2;
+							sdepth[sp] = depth + 1;
+							++sp;
+						}
+				}
 			}
-
+			// Lacher du glisser-deposer + fantome sous le curseur.
+			if (st.hierDragNode >= 0) {
+				const nkgui::NkVec2 dm = hit.Mouse();
+				if (hit.MouseDown()) {
+					if (!st.hierDragging) {
+						const float32 ddx = dm.x - st.hierDragX, ddy = dm.y - st.hierDragY;
+						if (ddx * ddx + ddy * ddy > 36.f)
+							st.hierDragging = true;
+					}
+					if (st.hierDragging) {
+						NkHierNodeName(st, st.hierDragNode, nameBuf, sizeof(nameBuf));
+						p.TextV(dm.x + S(14.f), dm.y - kRowH * 0.5f, kRowH, nameBuf, NkRole::Text);
+					}
+				} else {
+					if (st.hierDragging) {
+						if (dropHover >= 0 && dropHover != st.hierDragNode)
+							demo::Demo3DHostSetNodeParent(st.hierDragNode, dropHover);
+						else if (dropHover < 0 && NkHitRegistry::Contains(listR, dm))
+							demo::Demo3DHostSetNodeParent(st.hierDragNode, -1);
+					}
+					// hierDragging reste vrai jusqu'a la frame suivante : le clic
+					// de relachement ne doit ni selectionner ni deselectionner.
+					st.hierDragNode = -1;
+				}
+			}
+			st.hierMouseWasDown = hit.MouseDown();
+			// CTRL+P PARENTE la selection a l'ACTIF ; MAJ+P DEPARENTE -- le
+			// pendant clavier du glisser-deposer. Jamais pendant une saisie.
+			if (!ws.editing) {
+				bool wantP = false, wantU = false;
+				for (int32 ci = 0; ci < in.charCount; ++ci) {
+					const uint32 cp = in.chars[ci];
+					if (cp == 'p' || cp == 'P' || cp == 16u) {
+						if (in.ctrlDown)
+							wantP = true;
+						else if (in.shiftDown)
+							wantU = true;
+					}
+				}
+				const int32 act = st.activeEmpty >= 0
+									  ? st.activeEmpty
+									  : (selLight >= 0 ? kFirstLight + selLight : activeObj);
+				if (wantP && act < 0)
+					wantP = false;
+				if (wantP || wantU) {
+					for (int32 n2 = 0; n2 < kFirstEmpty2; ++n2) {
+						const bool selN = n2 < kNumObj2
+											  ? demo::Demo3DHostObjectSelected(n2)
+											  : (selLight == n2 - kFirstLight);
+						if (!selN || n2 == act)
+							continue;
+						demo::Demo3DHostSetNodeParent(n2, wantP ? act : -1);
+					}
+					if (wantU && act >= 0 && act < kFirstEmpty2)
+						demo::Demo3DHostSetNodeParent(act, -1);
+				}
+			}
 			hit.PopClip();
 			p.Unclip();
 
 			// UN CLIC DANS LE VIDE DESELECTIONNE.
-			if (hit.Clicked("hier.list"))
+			if (hit.Clicked("hier.list") && !st.hierDragging) {
 				demo::Demo3DHostDeselectAll();
+				st.activeEmpty = -1;
+			}
 
 			// Molette par CONTENANCE : les lignes recouvrent la liste, le survol
 			// exact la rendait morte (constate). La barre est COLLEE au bord
@@ -2404,7 +2543,59 @@ namespace nkentseu {
 					// â”€â”€ L'OBJET : nom + TRANSFORMATION COMPLETE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 					const int32 li = demo::Demo3DHostSelectedLight();
 					const int32 act = demo::Demo3DHostActiveObject();
-					if (li >= 0) {
+					if (st.activeEmpty >= 0) {
+						// ── UN EMPTY : nom + transformation. Pas de rendu propre --
+						// sa transformation n'agit QUE par ses enfants (le detecteur
+						// de parente la repercute au sous-arbre).
+						const int32 en = st.activeEmpty;
+						NkHierNodeName(st, en, buf, sizeof(buf));
+						p.IconV(r.x + kPad, yy, kRowH, NkIcon::Cursor, NkRole::Text, 13.f);
+						p.TextV(r.x + kPad + S(18.f), yy, kRowH, buf);
+						yy += kRowH;
+						static int32 sELast = -1;
+						static float32 sE[9] = {};
+						float32 ep[3], er2[3], es2[3];
+						if (demo::Demo3DHostEmptyTransform(en, ep, er2, es2)) {
+							const bool holdE = ws.dragging || ws.editing;
+							if (!holdE || en != sELast) {
+								for (int32 a = 0; a < 3; ++a) {
+									st.pos[a] = ep[a];
+									st.rot[a] = er2[a];
+									st.scl[a] = es2[a];
+									sE[a] = ep[a];
+									sE[3 + a] = er2[a];
+									sE[6 + a] = es2[a];
+								}
+								sELast = en;
+							}
+							NkRect rowR = rr;
+							rowR.x = r.x + kPad;
+							rowR.w = rr.w - 2.f * kPad;
+							PaintTransformRow(p, hit, ws, in, rowR, yy, "Position", st.pos, 0.01f,
+											  "prop.epos", NkIcon::None, NkIcon::None);
+							yy += Vec3RowH();
+							PaintTransformRow(p, hit, ws, in, rowR, yy, "Rotation", st.rot, 0.5f,
+											  "prop.erot", NkIcon::None, NkIcon::None, "%.1f");
+							yy += Vec3RowH();
+							PaintTransformRow(p, hit, ws, in, rowR, yy, "Echelle", st.scl, 0.01f,
+											  "prop.escl", NkIcon::None, NkIcon::None);
+							yy += Vec3RowH();
+							bool diffE = false;
+							for (int32 a = 0; a < 3; ++a)
+								if (st.pos[a] != sE[a] || st.rot[a] != sE[3 + a] ||
+									st.scl[a] != sE[6 + a])
+									diffE = true;
+							if (diffE) {
+								demo::Demo3DHostSetEmptyTransform(en, st.pos, st.rot, st.scl);
+								for (int32 a = 0; a < 3; ++a) {
+									sE[a] = st.pos[a];
+									sE[3 + a] = st.rot[a];
+									sE[6 + a] = st.scl[a];
+								}
+							}
+							NkXmitRow(p, hit, r, rr, yy, en);
+						}
+					} else if (li >= 0) {
 						// UNE LUMIERE A SES PROPRIETES comme un maillage (Rihen) --
 						// les vides et cameras suivront avec le modele objet.
 						demo::Demo3DHostLightName(li, buf, sizeof(buf));
@@ -2449,6 +2640,13 @@ namespace nkentseu {
 									if (lcol[a] < 0.f)
 										lcol[a] = 0.f;
 								demo::Demo3DHostSetLightParams(li, lcol, lint < 0.f ? 0.f : lint);
+								// PROPAGER coche : memes reglages pour les lumieres
+								// DESCENDANTES de celle-ci (propriete commune).
+								if (st.matPropagate)
+									for (int32 l2 = 0; l2 < demo::Demo3DHostLightCount(); ++l2)
+										if (l2 != li && NkHierIsDescendant(86 + l2, 86 + li))
+											demo::Demo3DHostSetLightParams(l2, lcol,
+																		   lint < 0.f ? 0.f : lint);
 							}
 							sLC[0] = (float32)li;
 							sLC[1] = lcol[0];
@@ -2456,6 +2654,11 @@ namespace nkentseu {
 							sLC[3] = lcol[2];
 						}
 						yy += Vec3RowH();
+						if (demo::Demo3DHostNodeHasChildren(86 + li)) {
+							NkPropagateCheck(p, hit, r, yy, "prop.lprop", st.matPropagate);
+							yy += kRowH;
+							NkXmitRow(p, hit, r, rr, yy, 86 + li);
+						}
 					} else if (act >= 0 && demo::Demo3DHostObjectSelected(act)) {
 						demo::Demo3DHostObjectName(act, buf, sizeof(buf));
 						p.IconV(r.x + kPad, yy, kRowH, NkIcon::Mesh, NkRole::Text, 13.f);
@@ -2571,6 +2774,80 @@ namespace nkentseu {
 									sPull[6 + a] = st.scl[a];
 								}
 							}
+						}
+						if (demo::Demo3DHostNodeHasChildren(act))
+							NkXmitRow(p, hit, r, rr, yy, act);
+						// ── MATERIAU DU MAILLAGE (proprietes par TYPE) ──────────────
+						// Lecture = valeurs EFFECTIVES de la derniere soumission ;
+						// ecriture = SURCHARGE par objet. PROPAGER cochee : la
+						// modification s'applique aussi aux maillages DESCENDANTS
+						// (propriete commune parent/enfant, regle de Rihen).
+						{
+							p.TextV(r.x + kPad, yy, kRowH, "Materiau", NkRole::TextMuted);
+							yy += kRowH;
+							float32 mt[3], met = 0.f, rgh = 0.5f;
+							demo::Demo3DHostMeshMaterial(act, mt, &met, &rgh);
+							const float32 mt0[3] = {mt[0], mt[1], mt[2]};
+							const float32 met0 = met, rgh0 = rgh;
+							NkRect rowM = rr;
+							rowM.x = r.x + kPad;
+							rowM.w = rr.w - 2.f * kPad;
+							PaintTransformRow(p, hit, ws, in, rowM, yy, "Couleur", mt, 0.005f,
+											  "prop.mcol", NkIcon::None, NkIcon::None);
+							yy += Vec3RowH();
+							p.TextV(r.x + kPad, yy, kRowH, "Metallique", NkRole::TextMuted);
+							DragFloat(p, hit, ws, in, "prop.mmet",
+									  {r.x + S(120.f), yy + S(3.f), rr.w - S(128.f), kRowH - S(4.f)},
+									  met, 0.005f, NkRole::AccentUi, "%.2f");
+							yy += kRowH;
+							p.TextV(r.x + kPad, yy, kRowH, "Rugosite", NkRole::TextMuted);
+							DragFloat(p, hit, ws, in, "prop.mrgh",
+									  {r.x + S(120.f), yy + S(3.f), rr.w - S(128.f), kRowH - S(4.f)},
+									  rgh, 0.005f, NkRole::AccentUi, "%.2f");
+							yy += kRowH;
+							const bool actParent = demo::Demo3DHostNodeHasChildren(act);
+							if (actParent) {
+								NkPropagateCheck(p, hit, r, yy, "prop.mprop", st.matPropagate);
+								yy += kRowH;
+							}
+							auto clamp01 = [](float32 v) {
+								return v < 0.f ? 0.f : (v > 1.f ? 1.f : v);
+							};
+							const bool tintCh =
+								mt[0] != mt0[0] || mt[1] != mt0[1] || mt[2] != mt0[2];
+							const bool mrCh = met != met0 || rgh != rgh0;
+							if (tintCh || mrCh) {
+								for (int32 a = 0; a < 3; ++a)
+									mt[a] = clamp01(mt[a]);
+								met = clamp01(met);
+								rgh = clamp01(rgh);
+								if (tintCh)
+									demo::Demo3DHostSetMeshTint(act, mt);
+								if (mrCh)
+									demo::Demo3DHostSetMeshMetalRough(act, met, rgh);
+								if (st.matPropagate && actParent) {
+									const int32 nO2 = demo::Demo3DHostObjectCount();
+									for (int32 n3 = 0; n3 < nO2; ++n3) {
+										if (n3 == act || !NkHierIsDescendant(n3, act))
+											continue;
+										if (tintCh)
+											demo::Demo3DHostSetMeshTint(n3, mt);
+										if (mrCh)
+											demo::Demo3DHostSetMeshMetalRough(n3, met, rgh);
+									}
+								}
+							}
+							if (Button("prop.mreset", yy, "Materiau d'origine", r.x + kPad,
+									   rr.w - 2.f * kPad)) {
+								demo::Demo3DHostResetMeshMat(act);
+								if (st.matPropagate && actParent) {
+									const int32 nO2 = demo::Demo3DHostObjectCount();
+									for (int32 n3 = 0; n3 < nO2; ++n3)
+										if (NkHierIsDescendant(n3, act))
+											demo::Demo3DHostResetMeshMat(n3);
+								}
+							}
+							yy += kRowH;
 						}
 						int32 nSel = 0;
 						const int32 nO = demo::Demo3DHostObjectCount();

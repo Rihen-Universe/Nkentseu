@@ -118,6 +118,33 @@ namespace nkentseu {
 		void Demo3DHostSetObjectTransform(int32 i, const float32 *pos3, const float32 *rotDeg3,
 										  const float32 *scl3);
 
+		// ── PARENTE DE SCENE ────────────────────────────────────────────────
+		// TOUT NOEUD peut etre parent ou enfant : 0..85 objets, 86..89
+		// lumieres, 90..95 EMPTIES (les anciens groupes, devenus de vrais
+		// objets vides). La transformation d'un parent est repercutee a son
+		// sous-arbre par l'hote (semantique orbite) ; selectionner un parent
+		// ne selectionne PAS ses enfants.
+		int32 Demo3DHostNodeCount();		 // 96 (plafond, empties compris)
+		int32 Demo3DHostNodeParent(int32 node); // -1 = racine
+		bool Demo3DHostSetNodeParent(int32 child, int32 parent); // refuse les cycles
+		bool Demo3DHostNodeHasChildren(int32 node);
+		// Masque de TRANSMISSION du parent : bit 1 position, bit 2 rotation,
+		// bit 4 echelle -- une composante eteinte ne se propage plus.
+		int32 Demo3DHostNodeXmitMask(int32 node);
+		void Demo3DHostSetNodeXmitMask(int32 node, int32 mask);
+		// Transform PROPRE d'un empty (node >= 90).
+		bool Demo3DHostEmptyTransform(int32 node, float32 *pos3, float32 *rotDeg3, float32 *scl3);
+		void Demo3DHostSetEmptyTransform(int32 node, const float32 *pos3, const float32 *rotDeg3,
+										 const float32 *scl3);
+
+		// ── Materiau par objet (panneau Modele) ─────────────────────────────
+		// Lecture = valeurs EFFECTIVES vues a la derniere soumission ;
+		// ecriture = surcharge persistante (teinte / metallique+rugosite).
+		bool Demo3DHostMeshMaterial(int32 i, float32 *tint3, float32 *metallic, float32 *roughness);
+		void Demo3DHostSetMeshTint(int32 i, const float32 *rgb3);
+		void Demo3DHostSetMeshMetalRough(int32 i, float32 metallic, float32 roughness);
+		void Demo3DHostResetMeshMat(int32 i);
+
 		// ── Reglages de vue (panneau Scene / Outil) ─────────────────────────
 		void Demo3DHostSetViewFar(float32 f); // 0 = auto
 		float32 Demo3DHostViewFar();
