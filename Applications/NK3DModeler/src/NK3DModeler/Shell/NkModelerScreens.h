@@ -29,7 +29,8 @@ namespace nkentseu {
 		// il faut faire defiler pour rien.
 		// Non const : elles sont multipliees par l'echelle au demarrage (cf. S()).
 		inline float32 kRowH = 22.f;
-		inline float32 kLabelW = 78.f;  ///< colonne de libelles des proprietes
+		inline float32 kLabelW = 64.f;  ///< colonne de libelles (resserree : l'ecart
+										///< label -> premiere coordonnee etait trop grand)
 		inline float32 kPad = 8.f;
 		// MARGE INTERNE des panneaux de droite. Le contenu ne doit pas toucher les
 		// bords : colle au trait de separation, une ligne de propriete se lit comme
@@ -45,7 +46,7 @@ namespace nkentseu {
 		inline void ApplyUiScale(float32 scale) {
 			gUiScale = scale;
 			kRowH = Px(22.f * scale);
-			kLabelW = Px(78.f * scale);
+			kLabelW = Px(64.f * scale);
 			kPad = Px(8.f * scale);
 			kInset = Px(10.f * scale);
 		}
@@ -1913,15 +1914,15 @@ namespace nkentseu {
 			const float32 grp = S(10.f); // vide entre deux groupes
 			struct Snap {
 					NkIcon icon;
-					const char *value;
+					char value[16];
 			};
-			// LES PAS REELS envoyes au gizmo de la demo : 0,5 unite, 15 degres,
-			// 0,1. Afficher d'autres chiffres que ceux appliques serait mentir.
-			static const Snap kSnaps[3] = {
-				{NkIcon::SnapGrid, "0,5"},
-				{NkIcon::SnapAngle, "15 deg"},
-				{NkIcon::SnapScale, "0,1"},
-			};
+			// Les VALEURS viennent de l'ETAT (modifiables dans les proprietes de
+			// l'outil) : codees en dur, elles mentaient des le premier reglage.
+			Snap kSnaps[3] = {{NkIcon::SnapGrid, {}}, {NkIcon::SnapAngle, {}},
+							  {NkIcon::SnapScale, {}}};
+			snprintf(kSnaps[0].value, sizeof(kSnaps[0].value), "%.2g", (float64)st.snapStepT);
+			snprintf(kSnaps[1].value, sizeof(kSnaps[1].value), "%.0f deg", (float64)st.snapStepR);
+			snprintf(kSnaps[2].value, sizeof(kSnaps[2].value), "%.2g", (float64)st.snapStepS);
 
 			// Largeurs, calculees d'abord pour caler le tout a droite.
 			const bool editMode2 = demo::Demo3DHostInEditMode();
@@ -2330,12 +2331,43 @@ namespace nkentseu {
 				secY += kRowH;
 				if (st.propFold[sec])
 					continue; // plie par son chevron : en-tete seul
-				float32 share = availH / (float32)(nUnfold > 0 ? nUnfold : 1);
-				// La hauteur CHOISIE (poignee) prime ; sinon partage automatique
-				// borne par le contenu.
-				float32 boxH = (st.propSecH[sec] > 0.f)
-								   ? st.propSecH[sec]
-								   : (sContentH[sec] < share ? sContentH[sec] : share);
+				// REPARTITION EN DEUX PASSES : les sections plus petites que leur
+				// part rendent l'espace, redistribue aux plus grandes -- une
+				// section n'a de defilement local que quand l'ESPACE TOTAL manque
+				// (une petite section en dessous ne doit pas figer la part des
+				// autres, constate par Rihen).
+				float32 boxH;
+				{
+					float32 want[8];
+					bool alloc[8] = {};
+					float32 given[8] = {};
+					for (int32 j = 0; j < kNSec; ++j)
+						want[j] = (st.propSecH[j] > 0.f) ? st.propSecH[j] : sContentH[j];
+					float32 remaining = availH;
+					int32 hungry = nUnfold;
+					for (int32 pass = 0; pass < 3 && hungry > 0; ++pass) {
+						const float32 sh = remaining / (float32)hungry;
+						bool moved = false;
+						for (int32 j = 0; j < kNSec; ++j) {
+							if (alloc[j] || !st.propOpen[j] || st.propFold[j])
+								continue;
+							if (want[j] <= sh) {
+								given[j] = want[j];
+								alloc[j] = true;
+								remaining -= want[j];
+								--hungry;
+								moved = true;
+							}
+						}
+						if (!moved)
+							break;
+					}
+					const float32 shFinal = hungry > 0 ? remaining / (float32)hungry : 0.f;
+					for (int32 j = 0; j < kNSec; ++j)
+						if (!alloc[j])
+							given[j] = shFinal;
+					boxH = given[sec];
+				}
 				if (boxH < kRowH)
 					boxH = kRowH;
 				// PAS de plafond calcule sur la position DEFILEE : il creait une
@@ -2435,8 +2467,7 @@ namespace nkentseu {
 							rowR.x = r.x;
 							PaintTransformRow(p, hit, ws, in, rowR, yy, "Position", st.pos, 0.01f,
 											  "prop.pos", st.lockPos ? NkIcon::Lock : NkIcon::Unlock,
-											  NkIcon::Refresh, "%.2f", NkIcon::SnapScale, st.propPos,
-											  S(64.f));
+											  NkIcon::Refresh, "%.2f", NkIcon::SnapScale, st.propPos);
 							if (hit.Clicked("prop.pos.ic0"))
 								st.lockPos = !st.lockPos;
 							if (hit.Clicked("prop.pos.ic2"))
@@ -2444,8 +2475,7 @@ namespace nkentseu {
 							yy += Vec3RowH();
 							PaintTransformRow(p, hit, ws, in, rowR, yy, "Rotation", st.rot, 0.5f,
 											  "prop.rot", st.lockRot ? NkIcon::Lock : NkIcon::Unlock,
-											  NkIcon::Refresh, "%.1f", NkIcon::SnapScale, st.propRot,
-											  S(64.f));
+											  NkIcon::Refresh, "%.1f", NkIcon::SnapScale, st.propRot);
 							if (hit.Clicked("prop.rot.ic0"))
 								st.lockRot = !st.lockRot;
 							if (hit.Clicked("prop.rot.ic2"))
@@ -2453,8 +2483,7 @@ namespace nkentseu {
 							yy += Vec3RowH();
 							PaintTransformRow(p, hit, ws, in, rowR, yy, "Echelle", st.scl, 0.01f,
 											  "prop.scl", st.lockScl ? NkIcon::Lock : NkIcon::Unlock,
-											  NkIcon::Refresh, "%.2f", NkIcon::SnapScale, st.propScale,
-											  S(64.f));
+											  NkIcon::Refresh, "%.2f", NkIcon::SnapScale, st.propScale);
 							if (hit.Clicked("prop.scl.ic0"))
 								st.lockScl = !st.lockScl;
 							if (hit.Clicked("prop.scl.ic2"))

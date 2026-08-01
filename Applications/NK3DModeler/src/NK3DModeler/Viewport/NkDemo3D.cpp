@@ -7190,6 +7190,16 @@ namespace nkentseu {
 			nkvpCmd = cmd;
 			Demo3D_Frame(hst.ctx, dt);
 			nkvpCmd = nullptr;
+			// [DIAG selection] bascules de l'etat du gizmo objets.
+			{
+				auto *st2 = (Demo3DState *)hst.ctx.userData;
+				static int32 sPrevAct = -2;
+				const int32 act = st2 ? st2->gizmo.ActiveIndex() : -2;
+				if (act != sPrevAct) {
+					logger.Info("[SEL] actif {0} -> {1}\n", sPrevAct, act);
+					sPrevAct = act;
+				}
+			}
 		}
 
 		void Demo3DHostRegisterInto(void *guiBackend) {
@@ -7569,6 +7579,7 @@ namespace nkentseu {
 			// chaque frame (lightSel = ActiveIndex) -- on vide sa selection.
 			st->lightGizmo.ClearSelection();
 			st->lightSel = -1;
+			logger.Info("[SEL] SelectObject({0}, additive={1})\n", i, additive ? 1 : 0);
 			if (additive)
 				st->gizmo.ToggleSelection(i); // Maj+clic, comme dans la vue
 			else
@@ -7618,6 +7629,7 @@ namespace nkentseu {
 			auto *st = HostSt();
 			if (!st)
 				return;
+			logger.Info("[SEL] DeselectAll\n");
 			st->gizmo.ClearSelection();
 			st->lightGizmo.ClearSelection(); // sinon lightSel renait a la frame suivante
 			st->lightSel = -1;
