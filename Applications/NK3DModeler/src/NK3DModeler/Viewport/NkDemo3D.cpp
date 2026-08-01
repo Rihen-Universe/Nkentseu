@@ -70,6 +70,56 @@ namespace nkentseu {
 		static bool nkvpAxesOn = true; // axes debug +-1000 (bascule « Axes du plan »)
 		static bool nkvpCursorTool = false;			   // outil CURSEUR : clic gauche = poser le curseur 3D
 		static bool nkvpGizmoHidden = false;		   // outils Selection/Curseur : pas de poignees
+		// ── PARENTE DE SCENE ────────────────────────────────────────────────
+		// TOUT NOEUD peut etre parent ou enfant (regle de Rihen) : objets
+		// (0..85), lumieres (86..89) et EMPTIES (90..95) -- les anciens groupes
+		// d'affichage, devenus de vrais objets vides, invisibles au rendu.
+		// -1 = racine. La transformation d'un parent est REPERCUTEE a son
+		// sous-arbre par le detecteur de frame (HostHierarchyFrame) ; la
+		// selection d'un parent ne selectionne PAS ses enfants.
+		static constexpr int32 kNkvpMaxNodes = 96;
+		static constexpr int32 kNkvpFirstEmpty = 90;
+		static int32 nkvpParentOf[kNkvpMaxNodes];
+		// MASQUE DE TRANSMISSION par parent : bit 1 position, bit 2 rotation,
+		// bit 4 echelle. Une composante eteinte n'est PLUS propagee aux
+		// enfants (option par transformation, idee de Rihen).
+		static uint8 nkvpXmit[kNkvpMaxNodes];
+		static bool nkvpParentInit = false;
+		// Transform PROPRE des empties (ils n'existent pas dans la demo).
+		static float32 nkvpEmptyPos[8][3] = {};
+		static float32 nkvpEmptyRotDeg[8][3] = {};
+		static float32 nkvpEmptyScl[8][3] = {{1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f},
+											 {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f},
+											 {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}};
+		static void HostHierarchyFrame(); // detecteur (defini pres des accesseurs)
+		// ── SURCHARGES MATERIAU PAR OBJET (panneau Modele) ──────────────────
+		// bit 1 teinte, bit 2 metallique, bit 4 rugosite. Le cache memorise les
+		// valeurs EFFECTIVES vues a la soumission pour que le panneau les lise
+		// sans connaitre les constantes internes de la demo.
+		static uint8 nkvpMatMask[kNkvpMaxNodes] = {};
+		static float32 nkvpMatTint[kNkvpMaxNodes][3];
+		static float32 nkvpMatMetal[kNkvpMaxNodes];
+		static float32 nkvpMatRough[kNkvpMaxNodes];
+		static float32 nkvpMatCache[kNkvpMaxNodes][5];
+		template <typename TDC>
+		static void HostMatHook(int32 i, TDC &dc) {
+			if (i < 0 || i >= kNkvpMaxNodes)
+				return;
+			if (nkvpMatMask[i] & 1) {
+				dc.tint.x = nkvpMatTint[i][0];
+				dc.tint.y = nkvpMatTint[i][1];
+				dc.tint.z = nkvpMatTint[i][2];
+			}
+			if (nkvpMatMask[i] & 2)
+				dc.metallic = nkvpMatMetal[i];
+			if (nkvpMatMask[i] & 4)
+				dc.roughness = nkvpMatRough[i];
+			nkvpMatCache[i][0] = dc.tint.x;
+			nkvpMatCache[i][1] = dc.tint.y;
+			nkvpMatCache[i][2] = dc.tint.z;
+			nkvpMatCache[i][3] = dc.metallic;
+			nkvpMatCache[i][4] = dc.roughness;
+		}
 
 		struct Demo3DState {
 				NkMeshHandle meshSphere;
@@ -4402,6 +4452,7 @@ namespace nkentseu {
 				dc.tint = effTint({0.12f, 0.12f, 0.13f});
 				dc.metallic = 0.f;
 				dc.roughness = 0.92f;
+				HostMatHook(Demo3DState::kIdxFloor, dc);
 				if (!nkvpObjHidden[Demo3DState::kIdxFloor])
 					r3d->Submit(dc);
 			}
@@ -4422,6 +4473,7 @@ namespace nkentseu {
 				dc.tint = effTint({0.9f, 0.05f, 0.05f});
 				dc.metallic = 0.f;
 				dc.roughness = 0.85f;
+				HostMatHook(Demo3DState::kIdxGIWall, dc);
 				if (!nkvpObjHidden[Demo3DState::kIdxGIWall])
 					r3d->Submit(dc);
 			}
@@ -4446,6 +4498,7 @@ namespace nkentseu {
 					dc.tint = effTint({(float32)col / 3.f, (float32)row / 3.f, 0.7f});
 					dc.metallic = (float32)col / 3.f;				   // 0, 0.33, 0.66, 1
 					dc.roughness = 0.05f + (float32)row / 3.f * 0.95f; // 0.05 .. 1
+					HostMatHook(row * 4 + col, dc);
 					// En Edit Mode, l'objet édité est remplacé par son clone (plus bas).
 					if (!(st->editMode && st->editObjIdx == row * 4 + col) &&
 						!nkvpObjHidden[row * 4 + col])
@@ -4481,10 +4534,24 @@ namespace nkentseu {
 							dc.tint = tint;
 							dc.metallic = 0.f;
 							dc.roughness = 0.6f;
+							HostMatHook(idx, dc);
 							r3d->Submit(dc);
 						} else {
 							inst.transforms.PushBack(xf);
-							inst.tints.PushBack(tint);
+							// Surcharge de TEINTE par instance (le chemin instancie n'a
+							// pas de metallique/rugosite par objet).
+							NkVec3f instTint = tint;
+							if (nkvpMatMask[idx] & 1) {
+								instTint.x = nkvpMatTint[idx][0];
+								instTint.y = nkvpMatTint[idx][1];
+								instTint.z = nkvpMatTint[idx][2];
+							}
+							inst.tints.PushBack(instTint);
+							nkvpMatCache[idx][0] = instTint.x;
+							nkvpMatCache[idx][1] = instTint.y;
+							nkvpMatCache[idx][2] = instTint.z;
+							nkvpMatCache[idx][3] = 0.f;
+							nkvpMatCache[idx][4] = 0.6f;
 						}
 					}
 				}
@@ -4509,6 +4576,7 @@ namespace nkentseu {
 				dc.tint = effTint({1.f, 0.8f, 0.3f}); // gold albedo (ou gris en edit/unlit)
 				dc.metallic = 1.f;
 				dc.roughness = 0.15f;
+				HostMatHook(16, dc);
 				if (!(st->editMode && st->editObjIdx == 16) && !nkvpObjHidden[16])
 					r3d->Submit(dc);
 			}
@@ -4533,6 +4601,7 @@ namespace nkentseu {
 				dc.tint = effTint({0.7f, 0.7f, 0.7f});
 				dc.metallic = 0.f;
 				dc.roughness = 0.6f;
+				HostMatHook(17 + c, dc);
 				dc.castShadow = true;
 				if (!(st->editMode && st->editObjIdx == 17 + c) && !nkvpObjHidden[17 + c])
 					r3d->Submit(dc);
@@ -5782,9 +5851,10 @@ namespace nkentseu {
 					for (int32 i = 0; i < nv; i++)
 						growW(st->editAnchor * st->editLive[i].pos);
 					dc.aabb = {amin, amax};
-					dc.tint = effTint(st->editObjTint); // matériau de l'objet (gris en SOLID/WIREFRAME)
+					dc.tint = effTint(st->editObjTint); // materiau de l'objet (gris en SOLID/WIREFRAME)
 					dc.metallic = st->editObjMetallic;
 					dc.roughness = st->editObjRoughness;
+					HostMatHook(st->editObjIdx, dc);
 					r3d->Submit(dc);
 				}
 
@@ -7205,6 +7275,9 @@ namespace nkentseu {
 			nkvpCmd = cmd;
 			Demo3D_Frame(hst.ctx, dt);
 			nkvpCmd = nullptr;
+			// Parente : repercuter les deltas des parents a leurs enfants, et
+			// faire respecter le cadenas (INselectionnable, meme depuis la vue).
+			HostHierarchyFrame();
 		}
 
 		void Demo3DHostRegisterInto(void *guiBackend) {
@@ -7582,6 +7655,8 @@ namespace nkentseu {
 				return;
 			// lightSel seul ne suffit pas : le gizmo des lumieres le RESSUSCITE
 			// chaque frame (lightSel = ActiveIndex) -- on vide sa selection.
+			if (nkvpObjLocked[i])
+				return; // CADENASSE = ne peut plus etre selectionne (Rihen)
 			st->lightGizmo.ClearSelection();
 			st->lightSel = -1;
 			if (additive)
@@ -7841,6 +7916,316 @@ namespace nkentseu {
 			rotDeg.y = asinf(syn) * kRad2Deg;
 			rotDeg.x = atan2f(r12, r22) * kRad2Deg;
 			rotDeg.z = atan2f(r01, r00) * kRad2Deg;
+		}
+		// ── PARENTE DE SCENE : helpers ──────────────────────────────────────
+		static void HostParentEnsureInit() {
+			if (nkvpParentInit)
+				return;
+			nkvpParentInit = true;
+			for (int32 i = 0; i < kNkvpMaxNodes; ++i) {
+				nkvpParentOf[i] = -1;
+				nkvpXmit[i] = 7; // tout se transmet par defaut
+			}
+			// Les familles historiques deviennent de VRAIS EMPTIES (un groupe
+			// sans identite de scene est un empty, regle de Rihen) : 90 Spheres,
+			// 91 Cube central, 92 Colonnes, 93 Instances, 94 Decor, 95 Lumieres.
+			for (int32 i = 0; i <= 15; ++i)
+				nkvpParentOf[i] = 90;
+			nkvpParentOf[16] = 91;
+			nkvpParentOf[17] = 92;
+			nkvpParentOf[18] = 92;
+			for (int32 i = 19; i <= 82; ++i)
+				nkvpParentOf[i] = 93;
+			for (int32 i = 83; i <= 85; ++i)
+				nkvpParentOf[i] = 94;
+			for (int32 i = 86; i <= 89; ++i)
+				nkvpParentOf[i] = 95;
+		}
+		static bool HostIsDescendant(int32 node, int32 anc) {
+			// node est-il DANS le sous-arbre de anc ? (garde anti-cycle)
+			int32 cur = node;
+			for (int32 guard = 0; guard < kNkvpMaxNodes && cur >= 0; ++guard) {
+				if (cur == anc)
+					return true;
+				cur = nkvpParentOf[cur];
+			}
+			return false;
+		}
+		int32 Demo3DHostNodeCount() {
+			return kNkvpMaxNodes;
+		}
+		int32 Demo3DHostNodeParent(int32 node) {
+			HostParentEnsureInit();
+			return (node >= 0 && node < kNkvpMaxNodes) ? nkvpParentOf[node] : -1;
+		}
+		bool Demo3DHostSetNodeParent(int32 child, int32 parent) {
+			HostParentEnsureInit();
+			if (child < 0 || child >= kNkvpMaxNodes || parent < -1 || parent >= kNkvpMaxNodes)
+				return false;
+			// Refus des CYCLES : on ne parente pas a soi-meme ni a un de ses
+			// propres descendants.
+			if (parent >= 0 && HostIsDescendant(parent, child))
+				return false;
+			nkvpParentOf[child] = parent;
+			return true;
+		}
+		int32 Demo3DHostNodeXmitMask(int32 node) {
+			HostParentEnsureInit();
+			return (node >= 0 && node < kNkvpMaxNodes) ? (int32)nkvpXmit[node] : 7;
+		}
+		void Demo3DHostSetNodeXmitMask(int32 node, int32 mask) {
+			HostParentEnsureInit();
+			if (node >= 0 && node < kNkvpMaxNodes)
+				nkvpXmit[node] = (uint8)(mask & 7);
+		}
+		bool Demo3DHostNodeHasChildren(int32 node) {
+			HostParentEnsureInit();
+			for (int32 i = 0; i < kNkvpMaxNodes; ++i)
+				if (nkvpParentOf[i] == node)
+					return true;
+			return false;
+		}
+		bool Demo3DHostEmptyTransform(int32 node, float32 *pos3, float32 *rotDeg3, float32 *scl3) {
+			if (node < kNkvpFirstEmpty || node >= kNkvpMaxNodes)
+				return false;
+			const int32 e = node - kNkvpFirstEmpty;
+			for (int32 a = 0; a < 3; ++a) {
+				pos3[a] = nkvpEmptyPos[e][a];
+				rotDeg3[a] = nkvpEmptyRotDeg[e][a];
+				scl3[a] = nkvpEmptyScl[e][a];
+			}
+			return true;
+		}
+		void Demo3DHostSetEmptyTransform(int32 node, const float32 *pos3, const float32 *rotDeg3,
+										 const float32 *scl3) {
+			if (node < kNkvpFirstEmpty || node >= kNkvpMaxNodes)
+				return;
+			const int32 e = node - kNkvpFirstEmpty;
+			for (int32 a = 0; a < 3; ++a) {
+				nkvpEmptyPos[e][a] = pos3[a];
+				nkvpEmptyRotDeg[e][a] = rotDeg3[a];
+				nkvpEmptyScl[e][a] = scl3[a];
+			}
+		}
+		// ── Materiau par objet (surcharges + cache des valeurs effectives) ──
+		bool Demo3DHostMeshMaterial(int32 i, float32 *tint3, float32 *metallic, float32 *roughness) {
+			if (i < 0 || i >= kNkvpMaxNodes)
+				return false;
+			tint3[0] = nkvpMatCache[i][0];
+			tint3[1] = nkvpMatCache[i][1];
+			tint3[2] = nkvpMatCache[i][2];
+			*metallic = nkvpMatCache[i][3];
+			*roughness = nkvpMatCache[i][4];
+			return true;
+		}
+		void Demo3DHostSetMeshTint(int32 i, const float32 *rgb3) {
+			if (i < 0 || i >= kNkvpMaxNodes)
+				return;
+			nkvpMatMask[i] |= 1;
+			nkvpMatTint[i][0] = rgb3[0];
+			nkvpMatTint[i][1] = rgb3[1];
+			nkvpMatTint[i][2] = rgb3[2];
+		}
+		void Demo3DHostSetMeshMetalRough(int32 i, float32 metallic, float32 roughness) {
+			if (i < 0 || i >= kNkvpMaxNodes)
+				return;
+			nkvpMatMask[i] |= 2 | 4;
+			nkvpMatMetal[i] = metallic;
+			nkvpMatRough[i] = roughness;
+		}
+		void Demo3DHostResetMeshMat(int32 i) {
+			if (i >= 0 && i < kNkvpMaxNodes)
+				nkvpMatMask[i] = 0;
+		}
+		// ── DETECTEUR DE PARENTE (une passe par frame) ──────────────────────
+		// Il observe la transformation MONDE de chaque noeud ; tout delta d'un
+		// parent (gizmo, panneau, raccourcis G/R/S de la demo, animation) est
+		// repercute a ses enfants avec la semantique ORBITE : l'enfant tourne
+		// et s'ecarte AUTOUR du parent. Un seul point de passage pour toutes
+		// les sources de transformation -- aucune n'a a connaitre la parente.
+		static float32 sHierPos[kNkvpMaxNodes][3];
+		static NkMat4f sHierRot[kNkvpMaxNodes];
+		static float32 sHierScl[kNkvpMaxNodes][3];
+		static bool sHierOk = false;
+		static NkMat4f HostRotFromEuler(const float32 *rotDeg) {
+			const float32 kDeg2Rad = 0.017453292f;
+			return NkMat4f::RotationZ(NkAngle::FromRad(rotDeg[2] * kDeg2Rad)) *
+				   NkMat4f::RotationY(NkAngle::FromRad(rotDeg[1] * kDeg2Rad)) *
+				   NkMat4f::RotationX(NkAngle::FromRad(rotDeg[0] * kDeg2Rad));
+		}
+		static NkMat4f HostRotTranspose(const NkMat4f &m) {
+			NkMat4f t = NkMat4f::Identity();
+			for (int32 c = 0; c < 3; ++c)
+				for (int32 r = 0; r < 3; ++r)
+					t.mat[c][r] = m.mat[r][c];
+			return t;
+		}
+		// Etat MONDE d'un noeud : position, rotation pure (colonnes normees),
+		// echelle. Lumieres : position effective (base + decalage du gizmo).
+		static void HostNodeWorld(Demo3DState *st, int32 n, float32 *pos, NkMat4f &rot, float32 *scl) {
+			rot = NkMat4f::Identity();
+			scl[0] = scl[1] = scl[2] = 1.f;
+			if (n < Demo3DState::kNumObj) {
+				const NkMat4f &M = st->objXform[n];
+				pos[0] = M.mat[3][0];
+				pos[1] = M.mat[3][1];
+				pos[2] = M.mat[3][2];
+				for (int32 c = 0; c < 3; ++c) {
+					const float32 lx = M.mat[c][0], ly = M.mat[c][1], lz = M.mat[c][2];
+					const float32 len = sqrtf(lx * lx + ly * ly + lz * lz);
+					scl[c] = len;
+					const float32 inv = len > 1e-8f ? 1.f / len : 0.f;
+					rot.mat[c][0] = lx * inv;
+					rot.mat[c][1] = ly * inv;
+					rot.mat[c][2] = lz * inv;
+				}
+			} else if (n < kNkvpFirstEmpty) {
+				const int32 li = n - Demo3DState::kNumObj;
+				const NkVec3f base = st->lights[li].position;
+				const NkVec3f off = st->lightGizmo.TranslateOf(li);
+				pos[0] = base.x + off.x;
+				pos[1] = base.y + off.y;
+				pos[2] = base.z + off.z;
+			} else {
+				const int32 e = n - kNkvpFirstEmpty;
+				pos[0] = nkvpEmptyPos[e][0];
+				pos[1] = nkvpEmptyPos[e][1];
+				pos[2] = nkvpEmptyPos[e][2];
+				rot = HostRotFromEuler(nkvpEmptyRotDeg[e]);
+				scl[0] = nkvpEmptyScl[e][0];
+				scl[1] = nkvpEmptyScl[e][1];
+				scl[2] = nkvpEmptyScl[e][2];
+			}
+		}
+		static bool HostNodeSelected(Demo3DState *st, int32 n) {
+			if (n < Demo3DState::kNumObj)
+				return st->gizmo.IsSelected(n);
+			if (n < kNkvpFirstEmpty)
+				return st->lightGizmo.IsSelected(n - Demo3DState::kNumObj);
+			return false; // la selection des empties vit dans le shell
+		}
+		// Fait SUIVRE a l'enfant c le delta de son parent : orbite autour du
+		// pivot (position du parent avant le geste), rotation et echelle
+		// composees -- memes ecritures incrementales que le panneau.
+		static void HostFollowParent(Demo3DState *st, int32 c, const float32 *pPrev,
+									 const float32 *pCur, const NkMat4f &dR, bool hasRot,
+									 const float32 *ratio, bool hasScl) {
+			float32 cpos[3], cscl[3];
+			NkMat4f crot;
+			HostNodeWorld(st, c, cpos, crot, cscl);
+			float32 rel[3] = {(cpos[0] - pPrev[0]) * ratio[0], (cpos[1] - pPrev[1]) * ratio[1],
+							  (cpos[2] - pPrev[2]) * ratio[2]};
+			float32 tgt[3];
+			for (int32 rr2 = 0; rr2 < 3; ++rr2)
+				tgt[rr2] = pCur[rr2] + dR.mat[0][rr2] * rel[0] + dR.mat[1][rr2] * rel[1] +
+						   dR.mat[2][rr2] * rel[2];
+			const float32 dp[3] = {tgt[0] - cpos[0], tgt[1] - cpos[1], tgt[2] - cpos[2]};
+			if (c < Demo3DState::kNumObj) {
+				renderer::NkGizmo3D &G = st->gizmo;
+				const NkVec3f t = G.TranslateOf(c);
+				G.SetTranslateOf(c, {t.x + dp[0], t.y + dp[1], t.z + dp[2]});
+				if (hasRot)
+					G.SetRotationOf(c, dR * G.RotationOf(c));
+				if (hasScl) {
+					NkVec3f sv = G.ScaleOf(c);
+					sv.x = (1.f + sv.x) * ratio[0] - 1.f;
+					sv.y = (1.f + sv.y) * ratio[1] - 1.f;
+					sv.z = (1.f + sv.z) * ratio[2] - 1.f;
+					G.SetScaleOf(c, sv);
+				}
+			} else if (c < kNkvpFirstEmpty) {
+				// Lumiere : la POSITION suit (l'orientation d'un spot viendra
+				// avec le format projet).
+				const int32 li = c - Demo3DState::kNumObj;
+				st->lights[li].position.x += dp[0];
+				st->lights[li].position.y += dp[1];
+				st->lights[li].position.z += dp[2];
+			} else {
+				const int32 e = c - kNkvpFirstEmpty;
+				nkvpEmptyPos[e][0] += dp[0];
+				nkvpEmptyPos[e][1] += dp[1];
+				nkvpEmptyPos[e][2] += dp[2];
+				if (hasRot) {
+					NkMat4f nr = dR * HostRotFromEuler(nkvpEmptyRotDeg[e]);
+					NkVec3f p2, r2, s2;
+					HostDecompose(nr, p2, r2, s2);
+					nkvpEmptyRotDeg[e][0] = r2.x;
+					nkvpEmptyRotDeg[e][1] = r2.y;
+					nkvpEmptyRotDeg[e][2] = r2.z;
+				}
+				if (hasScl) {
+					nkvpEmptyScl[e][0] *= ratio[0];
+					nkvpEmptyScl[e][1] *= ratio[1];
+					nkvpEmptyScl[e][2] *= ratio[2];
+				}
+			}
+		}
+		static void HostHierRecurse(Demo3DState *st, int32 pnode) {
+			float32 cpos[3], cscl[3];
+			NkMat4f crot;
+			HostNodeWorld(st, pnode, cpos, crot, cscl);
+			const float32 *ppos = sHierPos[pnode];
+			const float32 dp[3] = {cpos[0] - ppos[0], cpos[1] - ppos[1], cpos[2] - ppos[2]};
+			const bool hasPos =
+				fabsf(dp[0]) + fabsf(dp[1]) + fabsf(dp[2]) > 1e-5f;
+			const NkMat4f dR = crot * HostRotTranspose(sHierRot[pnode]);
+			float32 offDiag = 0.f;
+			for (int32 c2 = 0; c2 < 3; ++c2)
+				for (int32 r2 = 0; r2 < 3; ++r2)
+					offDiag += fabsf(dR.mat[c2][r2] - (c2 == r2 ? 1.f : 0.f));
+			const bool hasRot = offDiag > 1e-4f;
+			float32 ratio[3];
+			bool hasScl = false;
+			for (int32 a = 0; a < 3; ++a) {
+				const float32 prev = sHierScl[pnode][a];
+				ratio[a] = prev > 1e-6f ? cscl[a] / prev : 1.f;
+				if (fabsf(ratio[a] - 1.f) > 1e-5f)
+					hasScl = true;
+			}
+			// MASQUE DE TRANSMISSION du parent : une composante eteinte est
+			// RETENUE -- elle n'atteint jamais les enfants.
+			const uint8 xm = nkvpXmit[pnode];
+			const bool xPos = hasPos && (xm & 1) != 0;
+			const bool xRot = hasRot && (xm & 2) != 0;
+			const bool xScl = hasScl && (xm & 4) != 0;
+			const NkMat4f dRm = xRot ? dR : NkMat4f::Identity();
+			const float32 ratiom[3] = {xScl ? ratio[0] : 1.f, xScl ? ratio[1] : 1.f,
+										   xScl ? ratio[2] : 1.f};
+			const float32 pCurm[3] = {xPos ? cpos[0] : ppos[0], xPos ? cpos[1] : ppos[1],
+										  xPos ? cpos[2] : ppos[2]};
+			const bool moved = xPos || xRot || xScl;
+			const bool selP = HostNodeSelected(st, pnode);
+			for (int32 c = 0; c < kNkvpMaxNodes; ++c) {
+				if (nkvpParentOf[c] != pnode)
+					continue;
+				// Un enfant DEJA emporte par le meme geste (parent et enfant
+				// selectionnes ensemble) ne doit pas etre deplace deux fois.
+				if (moved && !(selP && HostNodeSelected(st, c)))
+					HostFollowParent(st, c, ppos, pCurm, dRm, xRot, ratiom, xScl);
+				HostHierRecurse(st, c);
+			}
+		}
+		static void HostHierarchyFrame() {
+			auto *st = HostSt();
+			if (!st)
+				return;
+			HostParentEnsureInit();
+			// CADENAS INVIOLABLE : quel que soit le chemin (clic vue, zone,
+			// panneau), un objet verrouille est desselectionne d'office.
+			for (int32 i = 0; i < Demo3DState::kNumObj; ++i)
+				if (nkvpObjLocked[i] && st->gizmo.IsSelected(i))
+					st->gizmo.ToggleSelection(i);
+			if (!sHierOk) {
+				sHierOk = true;
+			} else {
+				for (int32 n = 0; n < kNkvpMaxNodes; ++n)
+					if (nkvpParentOf[n] < 0)
+						HostHierRecurse(st, n);
+			}
+			// Cliche de fin : l'etat APRES propagation devient la reference de
+			// la frame suivante.
+			for (int32 n = 0; n < kNkvpMaxNodes; ++n)
+				HostNodeWorld(st, n, sHierPos[n], sHierRot[n], sHierScl[n]);
 		}
 		// Le MEME geste pour toute la selection : le delta tape dans le panneau
 		// sur l'objet ACTIF est propage aux autres selectionnes -- position en
