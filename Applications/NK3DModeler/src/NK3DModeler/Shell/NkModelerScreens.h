@@ -273,15 +273,15 @@ namespace nkentseu {
 			// attendant le generateur moteur ; les natures 6..9 naissent en
 			// MARQUEURS types, transformables et parentables.
 			static const NkAddEntry kMesh[] = {
-				{"Plan", NkIcon::Square, 3, 0},
-				{"Cube", NkIcon::Mesh, 2, 0},
-				{"Cercle", NkIcon::Circle, 10, 0}, // vrai cercle FERME d'aretes
-				{"Sphere UV", NkIcon::Circle, 1, 0},
-				{"IcoSphere", NkIcon::Circle, 1, 1},
-				{"Cylindre", NkIcon::Mesh, 2, 1},
-				{"Cone", NkIcon::Mesh, 2, 2},
-				{"Tore", NkIcon::Circle, 1, 2},
-				{"Capsule", NkIcon::Circle, 1, 3},
+				{"Plan", NkIcon::Plane3D, 3, 0},
+				{"Cube", NkIcon::Cube3D, 2, 0},
+				{"Cercle", NkIcon::CircleEdge, 10, 0}, // vrai cercle FERME d'aretes
+				{"Sphere UV", NkIcon::SphereUV, 1, 0},
+				{"IcoSphere", NkIcon::IcoSphere, 1, 1},
+				{"Cylindre", NkIcon::Cylinder, 2, 1},
+				{"Cone", NkIcon::Cone, 2, 2},
+				{"Tore", NkIcon::Torus, 1, 2},
+				{"Capsule", NkIcon::Capsule, 1, 3},
 			};
 			static const NkAddEntry kLight[] = {
 				{"Point", NkIcon::Light, 5, 1},
@@ -296,57 +296,57 @@ namespace nkentseu {
 			// arriere-plan et empty image = reperes ; « plan maille » = un vrai
 			// plan a texturer.
 			static const NkAddEntry kImage[] = {
-				{"Reference", NkIcon::Journal, 4, 11},
-				{"Arriere-plan", NkIcon::Journal, 4, 12},
-				{"Plan maille", NkIcon::Square, 3, 2},
-				{"Empty image", NkIcon::Journal, 4, 13},
+				{"Reference", NkIcon::ImageRef, 4, 11},
+				{"Arriere-plan", NkIcon::ImageRef, 4, 12},
+				{"Plan maille", NkIcon::Plane3D, 3, 2},
+				{"Empty image", NkIcon::ImageRef, 4, 13},
 			};
 			static const NkAddEntry kEmpty[] = {
-				{"Axes", NkIcon::Gizmo, 4, 0},
+				{"Axes", NkIcon::EmptyAxes, 4, 0},
 				{"Fleches", NkIcon::Gizmo, 4, 1},
 				{"Fleche simple", NkIcon::Gizmo, 4, 2},
-				{"Cercle", NkIcon::Circle, 4, 3},
-				{"Cube", NkIcon::Mesh, 4, 4},
-				{"Sphere", NkIcon::Circle, 4, 5},
-				{"Cone", NkIcon::Mesh, 4, 6},
+				{"Cercle", NkIcon::CircleEdge, 4, 3},
+				{"Cube", NkIcon::Cube3D, 4, 4},
+				{"Sphere", NkIcon::SphereUV, 4, 5},
+				{"Cone", NkIcon::Cone, 4, 6},
 			};
 			static const NkAddEntry kText[] = {
-				{"Texte", NkIcon::Edit, 6, 0},
+				{"Texte", NkIcon::Text3D, 6, 0},
 			};
 			static const NkAddEntry kCurve[] = {
-				{"Bezier", NkIcon::Ruler, 7, 0},
-				{"Cercle", NkIcon::Ruler, 7, 1},
-				{"Courbe NURBS", NkIcon::Ruler, 7, 2},
-				{"Cercle NURBS", NkIcon::Ruler, 7, 3},
-				{"Chemin", NkIcon::Ruler, 7, 4},
-				{"Empty hair", NkIcon::Ruler, 7, 5},
-				{"Fourrure", NkIcon::Ruler, 7, 6},
+				{"Bezier", NkIcon::CurveBezier, 7, 0},
+				{"Cercle", NkIcon::CurveBezier, 7, 1},
+				{"Courbe NURBS", NkIcon::CurveBezier, 7, 2},
+				{"Cercle NURBS", NkIcon::CurveBezier, 7, 3},
+				{"Chemin", NkIcon::CurveBezier, 7, 4},
+				{"Empty hair", NkIcon::CurveBezier, 7, 5},
+				{"Fourrure", NkIcon::CurveBezier, 7, 6},
 			};
 			static const NkAddEntry kSurf[] = {
-				{"Courbe NURBS", NkIcon::Layers, 8, 0},
-				{"Cercle NURBS", NkIcon::Layers, 8, 1},
-				{"Surface NURBS", NkIcon::Layers, 8, 2},
-				{"Cylindre NURBS", NkIcon::Layers, 8, 3},
-				{"Sphere NURBS", NkIcon::Layers, 8, 4},
-				{"Tore NURBS", NkIcon::Layers, 8, 5},
+				{"Courbe NURBS", NkIcon::SurfacePatch, 8, 0},
+				{"Cercle NURBS", NkIcon::SurfacePatch, 8, 1},
+				{"Surface NURBS", NkIcon::SurfacePatch, 8, 2},
+				{"Cylindre NURBS", NkIcon::SurfacePatch, 8, 3},
+				{"Sphere NURBS", NkIcon::SurfacePatch, 8, 4},
+				{"Tore NURBS", NkIcon::SurfacePatch, 8, 5},
 			};
 			static const NkAddEntry kMeta[] = {
-				{"Ball", NkIcon::Circle, 9, 0},
-				{"Capsule", NkIcon::Circle, 9, 1},
-				{"Plan", NkIcon::Square, 9, 2},
-				{"Ellipsoide", NkIcon::Circle, 9, 3},
-				{"Cube", NkIcon::Mesh, 9, 4},
+				{"Ball", NkIcon::Metaball, 9, 0},
+				{"Capsule", NkIcon::Capsule, 9, 1},
+				{"Plan", NkIcon::Plane3D, 9, 2},
+				{"Ellipsoide", NkIcon::Metaball, 9, 3},
+				{"Cube", NkIcon::Cube3D, 9, 4},
 			};
 			static const NkAddCategory kCats[] = {
-				{"Maillage", NkIcon::Mesh, kMesh, 9},
+				{"Maillage", NkIcon::Cube3D, kMesh, 9},
 				{"Lumiere", NkIcon::Light, kLight, 4},
 				{"Camera", NkIcon::Camera, kCam, 1},
-				{"Image", NkIcon::Journal, kImage, 4},
-				{"Vide", NkIcon::Gizmo, kEmpty, 7},
-				{"Texte", NkIcon::Edit, kText, 1},
-				{"Courbe", NkIcon::Ruler, kCurve, 7},
-				{"Surface", NkIcon::Layers, kSurf, 6},
-				{"Metaball", NkIcon::Circle, kMeta, 5},
+				{"Image", NkIcon::ImageRef, kImage, 4},
+				{"Vide", NkIcon::EmptyAxes, kEmpty, 7},
+				{"Texte", NkIcon::Text3D, kText, 1},
+				{"Courbe", NkIcon::CurveBezier, kCurve, 7},
+				{"Surface", NkIcon::SurfacePatch, kSurf, 6},
+				{"Metaball", NkIcon::Metaball, kMeta, 5},
 			};
 			n = 9;
 			return kCats;
@@ -1010,15 +1010,15 @@ namespace nkentseu {
 				case 5:
 					return NkIcon::Light;
 				case 6:
-					return NkIcon::Edit;
+					return NkIcon::Text3D;
 				case 7:
-					return NkIcon::Ruler;
+					return NkIcon::CurveBezier;
 				case 8:
-					return NkIcon::Layers;
+					return NkIcon::SurfacePatch;
 				case 9:
-					return NkIcon::Circle;
+					return NkIcon::Metaball;
 				case 10:
-					return NkIcon::Circle; // cercle d'aretes
+					return NkIcon::CircleEdge;
 				default:
 					return NkIcon::Cursor;
 			}
@@ -2264,17 +2264,40 @@ namespace nkentseu {
 					p.TextV(ch2.x + S(22.f), ch2.y, ch2.h, "Espaces", NkRole::TextMuted);
 				}
 				// ── AJUSTER LA CREATION (facon Blender), bas-droit de la vue ──
-				// Modifier les parametres du mesh fraichement cree, valider par
-				// « Appliquer » ou par un clic dans la vue (Rihen).
+				// Chaque nature a SES champs (regles de Rihen) : sphere =
+				// segments/anneaux/rayon ; icosphere = subdivisions/rayon ; tore =
+				// deux rayons ; cube = largeur/hauteur/profondeur... Valider par
+				// « Appliquer » ou par un clic dans la vue.
 				if (st.addAdjustNode >= 0) {
 					int32 sgA = 0, rgA = 0;
+					float32 axA = 0.15f;
 					const bool hasParams =
-						demo::Demo3DHostMeshParams(st.addAdjustNode, &sgA, &rgA);
+						demo::Demo3DHostMeshParams(st.addAdjustNode, &sgA, &rgA, &axA);
 					if (demo::Demo3DHostNodeDeleted(st.addAdjustNode)) {
 						st.addAdjustNode = -1;
 					} else {
+						const int32 ukA = demo::Demo3DHostUserKind(st.addAdjustNode);
+						const int32 sbA = demo::Demo3DHostUserSub(st.addAdjustNode);
+						const bool isSph = ukA == 1 && sbA == 0;
+						const bool isIco = ukA == 1 && sbA == 1;
+						const bool isTor = ukA == 1 && sbA == 2;
+						const bool isCap = ukA == 1 && sbA == 3;
+						const bool isCyl = ukA == 2 && (sbA == 1 || sbA == 2);
+						const bool isPln = ukA == 3;
+						const bool isCir = ukA == 10;
+						const bool showSeg = hasParams;
+						const bool showRing = isSph || isTor || isCap;
+						const bool showRay = isSph || isIco || isTor || isCap || isCyl || isCir;
+						const bool showHaut = isCap || isCyl;
+						const bool showAux = isTor;
+						const bool showLHP = !showRay; // cube, plan, vides, marqueurs...
+						const char *segLbl =
+							isIco ? "Subdivisions" : (isPln ? "Divisions" : "Segments");
+						const int32 rowsN = 2 + (showSeg ? 1 : 0) + (showRing ? 1 : 0) +
+											(showRay ? 1 : 0) + (showHaut ? 1 : 0) +
+											(showAux ? 1 : 0) + (showLHP ? (isPln ? 2 : 3) : 0);
 						const float32 pw = S(232.f);
-						const float32 ph = kRowH * (hasParams ? 6.f : 4.f) + S(10.f);
+						const float32 ph = kRowH * (float32)rowsN + S(10.f);
 						const NkRect aj{vr.x + vr.w - pw - S(10.f), vr.y + vr.h - ph - S(10.f),
 										pw, ph};
 						if (hit.AnyClick() && NkHitRegistry::Contains(vr, hit.Mouse()) &&
@@ -2289,45 +2312,54 @@ namespace nkentseu {
 							snprintf(tA, sizeof(tA), "Creation : %s", nmA);
 							p.TextV(aj.x + S(8.f), aj.y + S(3.f), kRowH, tA);
 							float32 ay = aj.y + S(3.f) + kRowH;
-							float32 fsg = (float32)sgA, frg = (float32)rgA;
-							if (hasParams) {
-							p.TextV(aj.x + S(8.f), ay, kRowH, "Segments", NkRole::TextMuted);
-							DragFloat(p, hit, ws, in, "vp.adj.seg",
-									  {aj.x + S(100.f), ay + S(3.f), pw - S(108.f), kRowH - S(4.f)},
-									  fsg, 0.2f, NkRole::AccentUi, "%.0f");
-							ay += kRowH;
-							p.TextV(aj.x + S(8.f), ay, kRowH, "Anneaux", NkRole::TextMuted);
-							DragFloat(p, hit, ws, in, "vp.adj.ring",
-									  {aj.x + S(100.f), ay + S(3.f), pw - S(108.f), kRowH - S(4.f)},
-									  frg, 0.2f, NkRole::AccentUi, "%.0f");
-							ay += kRowH;
-							}
+							auto AdjRow = [&](const char *lbl, const char *key2, float32 &val,
+											  float32 step, const char *fmt2) {
+								p.TextV(aj.x + S(8.f), ay, kRowH, lbl, NkRole::TextMuted);
+								const bool ch2 = DragFloat(
+									p, hit, ws, in, key2,
+									{aj.x + S(104.f), ay + S(3.f), pw - S(112.f), kRowH - S(4.f)},
+									val, step, NkRole::AccentUi, fmt2);
+								ay += kRowH;
+								return ch2;
+							};
+							float32 fsg = (float32)sgA, frg = (float32)rgA, fax = axA;
+							bool prmCh = false;
+							if (showSeg)
+								prmCh |= AdjRow(segLbl, "vp.adj.seg", fsg, 0.2f, "%.0f");
+							if (showRing)
+								prmCh |= AdjRow("Anneaux", "vp.adj.ring", frg, 0.2f, "%.0f");
 							float32 epA[3], erA[3], esA[3];
 							demo::Demo3DHostEmptyTransform(st.addAdjustNode, epA, erA, esA);
-							float32 rayA = esA[0], hauA = esA[1];
-							p.TextV(aj.x + S(8.f), ay, kRowH, "Rayon", NkRole::TextMuted);
-							DragFloat(p, hit, ws, in, "vp.adj.ray",
-									  {aj.x + S(100.f), ay + S(3.f), pw - S(108.f), kRowH - S(4.f)},
-									  rayA, 0.01f, NkRole::AccentUi, "%.2f");
-							ay += kRowH;
-							p.TextV(aj.x + S(8.f), ay, kRowH, "Hauteur", NkRole::TextMuted);
-							DragFloat(p, hit, ws, in, "vp.adj.h",
-									  {aj.x + S(100.f), ay + S(3.f), pw - S(108.f), kRowH - S(4.f)},
-									  hauA, 0.01f, NkRole::AccentUi, "%.2f");
-							ay += kRowH;
-							if (hasParams &&
-								((int32)(fsg + 0.5f) != sgA || (int32)(frg + 0.5f) != rgA))
+							const float32 es0[3] = {esA[0], esA[1], esA[2]};
+							if (showRay) {
+								float32 rayA = esA[0];
+								if (AdjRow(isTor ? "Rayon externe" : "Rayon", "vp.adj.ray",
+										   rayA, 0.01f, "%.2f")) {
+									esA[0] = rayA;
+									esA[2] = rayA;
+									if (isSph || isIco)
+										esA[1] = rayA; // une sphere reste une sphere
+								}
+							}
+							if (showHaut)
+								AdjRow("Hauteur", "vp.adj.h", esA[1], 0.01f, "%.2f");
+							if (showAux)
+								prmCh |= AdjRow("Rayon interne", "vp.adj.aux", fax, 0.005f,
+												"%.2f");
+							if (showLHP) {
+								AdjRow("Largeur", "vp.adj.lx", esA[0], 0.01f, "%.2f");
+								if (!isPln)
+									AdjRow("Hauteur", "vp.adj.ly", esA[1], 0.01f, "%.2f");
+								AdjRow("Profondeur", "vp.adj.lz", esA[2], 0.01f, "%.2f");
+							}
+							if (hasParams && (prmCh || (int32)(fsg + 0.5f) != sgA ||
+											  (int32)(frg + 0.5f) != rgA))
 								demo::Demo3DHostSetMeshParams(st.addAdjustNode,
 															  (int32)(fsg + 0.5f),
-															  (int32)(frg + 0.5f));
-							if (rayA != esA[0] || hauA != esA[1]) {
-								// rayon = echelle XZ, hauteur = echelle Y (comme Blender)
-								esA[0] = rayA;
-								esA[2] = rayA;
-								esA[1] = hauA;
+															  (int32)(frg + 0.5f), fax);
+							if (esA[0] != es0[0] || esA[1] != es0[1] || esA[2] != es0[2])
 								demo::Demo3DHostSetEmptyTransform(st.addAdjustNode, epA, erA,
 																  esA);
-							}
 							const NkRect ab{aj.x + S(8.f), ay + S(2.f), pw - S(16.f),
 											kRowH - S(4.f)};
 							hit.Add("vp.adj.apply", ab);

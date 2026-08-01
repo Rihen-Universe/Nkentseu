@@ -911,7 +911,8 @@ namespace nkentseu {
 				return Create(d);
 			}
 		}
-		NkMeshHandle NkMeshSystem::CreateTorusMesh(uint32 majorSegs, uint32 minorSegs, bool) {
+		NkMeshHandle NkMeshSystem::CreateTorusMesh(uint32 majorSegs, uint32 minorSegs,
+												   float32 minorRadius) {
 			if (majorSegs < 3)
 				majorSegs = 3;
 			if (majorSegs > 256)
@@ -920,7 +921,11 @@ namespace nkentseu {
 				minorSegs = 3;
 			if (minorSegs > 128)
 				minorSegs = 128;
-			const float32 rMin = 0.15f;
+			float32 rMin = minorRadius; // rayon INTERNE demande (Rihen)
+			if (rMin < 0.02f)
+				rMin = 0.02f;
+			if (rMin > 0.45f)
+				rMin = 0.45f;
 			const float32 rMaj = 0.5f - rMin;
 			NkVector<NkVertex3D> v;
 			NkVector<uint32> idx;
