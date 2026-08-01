@@ -184,6 +184,9 @@ namespace nkentseu {
 				bool matcapOpen = false;
 				float32 matcapScrollY = 0.f;
 				float32 matcapScrollX = 0.f;
+				// Panneau droit unique : glissement de reglage en cours + defilement.
+				char propDragKey[24] = {0};
+				float32 propScroll = 0.f;
 				int32 matcapDragBar = -1; ///< -1 aucun, 0 verticale, 1 horizontale
 				float32 matcapDragOff = 0.f;
 				// ── Navigateur de projet : CONTENU CREE PAR L'UTILISATEUR ───────

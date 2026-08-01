@@ -85,6 +85,30 @@ namespace nkentseu {
 		bool Demo3DHostHud();
 		void Demo3DHostSetBackground(float32 r, float32 g, float32 b);
 
+		// ── Objets de la scene (hierarchie, panneau Objet) ──────────────────
+		int32 Demo3DHostObjectCount();
+		void Demo3DHostObjectName(int32 i, char *out, uint32 cap);
+		bool Demo3DHostObjectSelected(int32 i);
+		int32 Demo3DHostActiveObject();
+		void Demo3DHostSelectObject(int32 i, bool additive);
+		void Demo3DHostDeselectAll();
+		void Demo3DHostObjectPosition(int32 i, float32 *out3);
+		int32 Demo3DHostLightCount();
+		void Demo3DHostLightName(int32 li, char *out, uint32 cap);
+		int32 Demo3DHostSelectedLight();
+		void Demo3DHostSelectLight(int32 li);
+		void Demo3DHostLightPosition(int32 li, float32 *out3);
+
+		// ── Reglages de vue (panneau Scene / Outil) ─────────────────────────
+		void Demo3DHostSetViewFar(float32 f); // 0 = auto
+		float32 Demo3DHostViewFar();
+		void Demo3DHostSetOrthoScale(float32 f);
+		float32 Demo3DHostOrthoScale();
+		void Demo3DHostSetGridExtent(int32 n);
+		int32 Demo3DHostGridExtent();
+		void Demo3DHostResetCursor();
+		void Demo3DHostClearXform(int32 which); // 0 translation, 1 rotation, 2 echelle
+
 		// Vrai des que la demo rend dans sa cible (l'interface peut poser la
 		// texture 4096).
 		bool Demo3DHostReady();
