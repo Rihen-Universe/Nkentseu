@@ -117,6 +117,9 @@ namespace nkentseu {
 			J,
 			W,
 			T,
+			// Raccourcis de scene du modeleur : X supprime, P parente.
+			X,
+			P,
 			I,
 			O,
 			Backslash,
