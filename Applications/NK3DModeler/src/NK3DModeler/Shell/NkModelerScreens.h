@@ -4862,8 +4862,8 @@ namespace nkentseu {
 			char akey[40];
 			const float32 wrapW = r.x + r.w - S(16.f);
 			for (int32 i = 0; i < st.browserCount; ++i) {
-				if (st.browserKind[i] == 1 || st.browserParent[i] != st.browserFolder)
-					continue; // les dossiers sont dans l'arbre, pas dans la grille
+				if (st.browserParent[i] != st.browserFolder)
+					continue; // les dossiers aussi ont leur carte (regle de Rihen)
 				++shown;
 				if (tx + tw > wrapW) { // retour a la ligne
 					tx = ax;
@@ -4871,9 +4871,11 @@ namespace nkentseu {
 				}
 				const uint8 kind = st.browserKind[i]; // 0 blueprint, 2 materiau, 3 texture
 				const NkRole role = (kind == 0)   ? NkRole::TypeMesh
+									: (kind == 1) ? NkRole::TypeFolder
 									: (kind == 2) ? NkRole::TypeMat
 												  : NkRole::TypeTex;
 				const char *kindName = (kind == 0)   ? "Blueprint"
+									   : (kind == 1) ? "Dossier"
 									   : (kind == 2) ? "Materiau"
 													 : "Texture";
 
@@ -4898,7 +4900,27 @@ namespace nkentseu {
 								   NkRole::WindowBg);
 						}
 				const float32 cx = tx + tw * 0.5f, cy = tyy + pvH * 0.5f;
-				if (kind == 0) {
+				if (kind == 1) {
+					// DOSSIER : chemise avec rabat ; PLEINE ou VIDE selon son
+					// contenu (previsualisation par contenu, regle de Rihen).
+					bool fullF = false;
+					for (int32 j3 = 0; j3 < st.browserCount; ++j3)
+						if (st.browserParent[j3] == i) {
+							fullF = true;
+							break;
+						}
+					p.Fill({cx - 22.f, cy - 18.f, 18.f, 7.f}, role); // rabat
+					if (fullF) {
+						// des feuilles depassent : le dossier est habite
+						p.Fill({cx - 14.f, cy - 14.f, 30.f, 4.f}, NkRole::Text);
+						p.Fill({cx - 17.f, cy - 9.f, 36.f, 4.f}, NkRole::TextMuted);
+						p.Fill({cx - 22.f, cy - 11.f, 44.f, 28.f}, role);
+					} else {
+						// vide : le corps n'est qu'un contour
+						p.Fill({cx - 22.f, cy - 11.f, 44.f, 28.f}, NkRole::PanelHeader);
+						p.OutlineSharp({cx - 22.f, cy - 11.f, 44.f, 28.f}, role);
+					}
+				} else if (kind == 0) {
 					// BLUEPRINT : un cube en volume -- c'est une piece a modeler.
 					const float32 hw = 18.f, hh = 16.f, dp = 9.f;
 					p.Fill({cx - hw, cy - hh + dp, hw * 2.f, hh * 2.f - dp}, NkRole::PanelHeader);
@@ -4936,6 +4958,8 @@ namespace nkentseu {
 					p.TextClipped(tx + pad, fyy, tw - pad * 2.f, kindName, NkRole::TextMuted);
 				}
 				snprintf(akey, sizeof(akey), "brow.card.%d", i);
+				if (kind == 1 && hit.DoubleClicked(akey))
+					st.browserFolder = i; // double-clic : ENTRER dans le dossier
 				if (hit.Clicked(akey))
 					st.selectedAsset = i;
 				tx += tw + S(12.f);
