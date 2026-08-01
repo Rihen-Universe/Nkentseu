@@ -2287,7 +2287,7 @@ namespace nkentseu {
 					const char *title;
 					NkIcon icon;
 			};
-			static const NkPropSec kSecs[] = {{"Proprietes de l'objet", NkIcon::Mesh},
+			static const NkPropSec kSecs[] = {{"Proprietes du modele", NkIcon::Mesh},
 											  {"Proprietes de la scene", NkIcon::Globe},
 											  {"Proprietes de l'outil", NkIcon::Gizmo}};
 			const int32 kNSec = (int32)(sizeof(kSecs) / sizeof(kSecs[0]));
@@ -2341,10 +2341,28 @@ namespace nkentseu {
 					float32 want[8];
 					bool alloc[8] = {};
 					float32 given[8] = {};
-					for (int32 j = 0; j < kNSec; ++j)
-						want[j] = (st.propSecH[j] > 0.f) ? st.propSecH[j] : sContentH[j];
+					// La hauteur CHOISIE a la poignee est INTOUCHABLE : allouee
+					// telle quelle, meme si le total deborde -- c'est alors le
+					// DEFILEMENT GLOBAL qui prend le relais. La plafonner a la
+					// part egale (version precedente) rendait la poignee inerte
+					// et eteignait la barre generale (constate par Rihen). Les
+					// deux passes ne repartissent que les sections AUTO.
 					float32 remaining = availH;
-					int32 hungry = nUnfold;
+					int32 hungry = 0;
+					for (int32 j = 0; j < kNSec; ++j) {
+						if (!st.propOpen[j] || st.propFold[j])
+							continue;
+						if (st.propSecH[j] > 0.f) {
+							given[j] = st.propSecH[j];
+							alloc[j] = true;
+							remaining -= given[j];
+						} else {
+							want[j] = sContentH[j];
+							++hungry;
+						}
+					}
+					if (remaining < 0.f)
+						remaining = 0.f;
 					for (int32 pass = 0; pass < 3 && hungry > 0; ++pass) {
 						const float32 sh = remaining / (float32)hungry;
 						bool moved = false;
