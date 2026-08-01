@@ -490,6 +490,24 @@ namespace nkentseu {
 				case NkKey::NK_NUM2:
 					mUI.input.SetKey(NkGuiKey::Num2, down);
 					break;
+				// Num3..Num6 et la virgule : indispensables aux raccourcis du
+				// launcher (Ctrl+3..6, Ctrl+,) qui etaient annonces dans les
+				// Parametres sans qu'aucune touche ne leur soit acheminee.
+				case NkKey::NK_NUM3:
+					mUI.input.SetKey(NkGuiKey::Num3, down);
+					break;
+				case NkKey::NK_NUM4:
+					mUI.input.SetKey(NkGuiKey::Num4, down);
+					break;
+				case NkKey::NK_NUM5:
+					mUI.input.SetKey(NkGuiKey::Num5, down);
+					break;
+				case NkKey::NK_NUM6:
+					mUI.input.SetKey(NkGuiKey::Num6, down);
+					break;
+				case NkKey::NK_COMMA:
+					mUI.input.SetKey(NkGuiKey::Comma, down);
+					break;
 				case NkKey::NK_MINUS:
 					mUI.input.SetKey(NkGuiKey::Minus, down);
 					break; // Ctrl+- : dézoom éditeur

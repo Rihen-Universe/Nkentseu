@@ -678,6 +678,45 @@ namespace nkentseu {
 			const bool caretOn = (H->caretBlink - (float32)(int32)H->caretBlink) < 0.55f; // clignotement ~1s
 			H->fieldClaim = false; // reinitialise : un champ de recherche posera true s'il capte le clic
 
+			// ── Raccourcis clavier du launcher ───────────────────────────────
+			//
+			// Ils etaient ANNONCES dans l'ecran Parametres (table ScKey) mais
+			// n'existaient NULLE PART : ce fichier ne gerait qu'Echap, et les
+			// codes de touche Num3..Num6 / Comma n'etaient meme pas acheminés
+			// jusqu'a NKGui. Un utilisateur lisait « Ctrl+N : nouveau
+			// workspace » et n'obtenait rien — signale en beta (issue #12).
+			//
+			// Valeurs de `nav` : 0 Accueil, 1 Ouvrir, 2 Nouveau, 3 Cloner, puis
+			// 10 Toolchains, 11 Plateformes, 12 Parametres (elles ne se suivent
+			// PAS : les outils commencent a 10).
+			//
+			// Geles pendant qu'un popup est ouvert, comme les clics : sinon
+			// Ctrl+1 changerait de page sous un menu encore affiche.
+			if (!anyPopup) {
+				auto &kin = u.ctx->input;
+				auto kp = [&](NkGuiKey k) { return kin.ctrlDown && kin.KeyPressed(k); };
+				if (kp(NkGuiKey::Num1))
+					H->nav = 0; // Accueil
+				else if (kp(NkGuiKey::Num2))
+					H->nav = 1; // Ouvrir
+				else if (kp(NkGuiKey::Num3))
+					H->nav = 2; // Nouveau workspace
+				else if (kp(NkGuiKey::Num4))
+					H->nav = 3; // Cloner
+				else if (kp(NkGuiKey::Num5))
+					H->nav = 10; // Toolchains
+				else if (kp(NkGuiKey::Num6))
+					H->nav = 12; // Parametres
+				else if (kp(NkGuiKey::N))
+					H->nav = 2; // Ctrl+N : nouveau workspace
+				else if (kp(NkGuiKey::O))
+					H->nav = 1; // Ctrl+O : ouvrir un workspace
+				else if (kp(NkGuiKey::G))
+					H->nav = 3; // Ctrl+G : cloner un depot
+				else if (kp(NkGuiKey::Comma))
+					H->nav = 12; // Ctrl+, : parametres
+			}
+
 			// ── Barre de filtres : recherche + combo langage + combo systeme (fonctionnels) ──
 			const float32 fh = u.s(30);
 			const float32 cw = u.s(110);

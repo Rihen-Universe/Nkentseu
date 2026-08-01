@@ -570,7 +570,15 @@ namespace nkentseu {
 
 				static NkString ScafSourceImpl(const NkString &name, int32 kind) {
 					NkString o;
-					if (kind <= 2) {
+					// kind <= 1 : classe (0) et structure (1) UNIQUEMENT.
+					//
+					// La condition etait « kind <= 2 », donc l'UNION (2) en
+					// heritait : on ecrivait Name::Name() et Name::~Name() dans le
+					// .cpp alors que l'en-tete d'une union n'en DECLARE aucun (cf.
+					// ScafElement, dont le cas 2 rend « union Name {}; » nu). Le
+					// code genere ne compilait donc pas, et l'utilisateur devait
+					// corriger a la main a chaque union creee.
+					if (kind <= 1) {
 						o += name;
 						o += "::";
 						o += name;
