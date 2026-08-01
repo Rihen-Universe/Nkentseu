@@ -3343,20 +3343,23 @@ namespace nkentseu {
 										return demo::Demo3DHostUserLightParams(en, c4, &i4) &&
 											   c4[0] > 0.99f && c4[1] > 0.99f && c4[2] > 0.99f;
 									}();
-									int32 cmode = ck0 < 0 ? 0 : (whiteC ? 1 : 2);
-									const int32 cm0 = cmode;
+									const int32 derivedM = ck0 < 0 ? 0 : (whiteC ? 1 : 2);
+									if (st.lightSrcNode != en) {
+										st.lightSrcNode = en;
+										st.lightSrcUi = derivedM;
+									}
 									static const char *const kCMix[3] = {"Couleur", "Texture", "Mix"};
 									p.TextV(r.x + kPad, yy, kRowH, "Source", NkRole::TextMuted);
 									Combo(p, hit, ws, "prop.ulex.mode",
 										  {r.x + S(120.f), yy + S(2.f), rr.w - S(128.f), kRowH - S(4.f)},
-										  kCMix, nullptr, 3, cmode, combo);
+										  kCMix, nullptr, 3, st.lightSrcUi, combo);
 									yy += kRowH;
-									if (cmode != cm0) {
-										if (cmode == 0) {
+									if (st.lightSrcUi != derivedM) {
+										if (st.lightSrcUi == 0) {
 											demo::Demo3DHostSetLightCookie(en, -1);
 										} else {
 											demo::Demo3DHostSetLightCookie(en, ck0 < 0 ? 0 : ck0);
-											if (cmode == 1) {
+											if (st.lightSrcUi == 1) {
 												const float32 wc[3] = {1.f, 1.f, 1.f};
 												float32 c5[3];
 								float32 i5 = 1.f;
@@ -3365,7 +3368,7 @@ namespace nkentseu {
 											}
 										}
 									}
-									if (cmode > 0) {
+									if (st.lightSrcUi > 0) {
 										float32 slot = (float32)(ck0 < 0 ? 0 : ck0);
 										p.TextV(r.x + kPad, yy, kRowH, "Texture (atlas)", NkRole::TextMuted);
 										DragFloat(p, hit, ws, in, "prop.ulex.slot",
@@ -3556,26 +3559,29 @@ namespace nkentseu {
 						{
 							const int32 ck0 = demo::Demo3DHostLightCookie(86 + li);
 							const bool whiteC = lcol[0] > 0.99f && lcol[1] > 0.99f && lcol[2] > 0.99f;
-							int32 cmode = ck0 < 0 ? 0 : (whiteC ? 1 : 2);
-							const int32 cm0 = cmode;
+							const int32 derivedM = ck0 < 0 ? 0 : (whiteC ? 1 : 2);
+							if (st.lightSrcNode != 86 + li) {
+								st.lightSrcNode = 86 + li;
+								st.lightSrcUi = derivedM;
+							}
 							static const char *const kCMix[3] = {"Couleur", "Texture", "Mix"};
 							p.TextV(r.x + kPad, yy, kRowH, "Source", NkRole::TextMuted);
 							Combo(p, hit, ws, "prop.lex.mode",
 								  {r.x + S(120.f), yy + S(2.f), rr.w - S(128.f), kRowH - S(4.f)},
-								  kCMix, nullptr, 3, cmode, combo);
+								  kCMix, nullptr, 3, st.lightSrcUi, combo);
 							yy += kRowH;
-							if (cmode != cm0) {
-								if (cmode == 0) {
+							if (st.lightSrcUi != derivedM) {
+								if (st.lightSrcUi == 0) {
 									demo::Demo3DHostSetLightCookie(86 + li, -1);
 								} else {
 									demo::Demo3DHostSetLightCookie(86 + li, ck0 < 0 ? 0 : ck0);
-									if (cmode == 1) {
+									if (st.lightSrcUi == 1) {
 										const float32 wc[3] = {1.f, 1.f, 1.f};
 										demo::Demo3DHostSetLightParams(li, wc, lint < 0.f ? 0.f : lint);
 									}
 								}
 							}
-							if (cmode > 0) {
+							if (st.lightSrcUi > 0) {
 								float32 slot = (float32)(ck0 < 0 ? 0 : ck0);
 								p.TextV(r.x + kPad, yy, kRowH, "Texture (atlas)", NkRole::TextMuted);
 								DragFloat(p, hit, ws, in, "prop.lex.slot",

@@ -261,6 +261,11 @@ namespace nkentseu {
 				char clipName[24] = {};
 				// Noeud en cours d'AJUSTEMENT de creation (panneau bas-droit).
 				int32 addAdjustNode = -1;
+				// Mode SOURCE (Couleur/Texture/Mix) de la lumiere en cours : le
+				// popup du combo ecrit ici (adresse STABLE), resynchronise au
+				// changement de lumiere.
+				int32 lightSrcNode = -1;
+				int32 lightSrcUi = 0;
 				// Une scene AJOUTEE est VIERGE : les objets de la demo y sont masques.
 				bool sceneBlank[8] = {};
 				// TYPE de fond de la scene : 0 couleur unie, 1 degrade, 2 texture,
