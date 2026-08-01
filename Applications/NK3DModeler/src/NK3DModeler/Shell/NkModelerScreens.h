@@ -1037,12 +1037,6 @@ namespace nkentseu {
 			// DUPLIQUER (Maj+D), COPIER / COLLER (Ctrl+C / Ctrl+V). Valables
 			// aussi la souris sur la vue 3D -- jamais pendant une saisie.
 			if (!ws.editing) {
-				// [DIAG clavier] les touches arrivent-elles jusqu'ici ?
-				if (in.keyInit[(int32)nkgui::NkGuiKey::D])
-					printf("[KEY] D init shift=%d ctrl=%d\n", in.shiftDown ? 1 : 0,
-						   in.ctrlDown ? 1 : 0);
-				if (in.keyInit[(int32)nkgui::NkGuiKey::C] || in.keyInit[(int32)nkgui::NkGuiKey::V])
-					printf("[KEY] C/V init ctrl=%d\n", in.ctrlDown ? 1 : 0);
 				bool delK = in.keyInit[(int32)nkgui::NkGuiKey::Delete] ||
 							(in.keyInit[(int32)nkgui::NkGuiKey::X] && !in.ctrlDown &&
 							 !hit.MouseDown());
@@ -1056,6 +1050,11 @@ namespace nkentseu {
 					if ((cp == 'd' || cp == 'D') && in.shiftDown)
 						dupK = true;
 				}
+				// Les raccourcis POLLES par l'hote (seule voie fiable pour les
+				// lettres, constatee avec Rihen) s'ajoutent aux evenements.
+				const int32 sk = demo::Demo3DHostTakeShortcuts();
+				delK = delK || (sk & 8) != 0;
+				dupK = dupK || (sk & 1) != 0;
 				const int32 actN = st.activeEmpty >= 0
 									   ? st.activeEmpty
 									   : (selLight >= 0 ? kFirstLight + selLight : activeObj);
@@ -1082,15 +1081,30 @@ namespace nkentseu {
 					if (nn >= 0)
 						demo::Demo3DHostSelectEmptyNode(nn);
 				}
-				if ((in.wantCopy ||
+				if ((in.wantCopy || (sk & 2) != 0 ||
 					 (in.keyInit[(int32)nkgui::NkGuiKey::C] && in.ctrlDown)) &&
 					actN >= 0)
 					demo::Demo3DHostCopyNode(actN);
-				if (in.wantPaste ||
+				if (in.wantPaste || (sk & 4) != 0 ||
 					(in.keyInit[(int32)nkgui::NkGuiKey::V] && in.ctrlDown)) {
 					const int32 nn = demo::Demo3DHostPasteNode();
 					if (nn >= 0)
 						demo::Demo3DHostSelectEmptyNode(nn);
+				}
+				// Ctrl+P / Maj+P polles : parenter la selection a l'actif,
+				// ou tout deparenter -- meme regle que la hierarchie.
+				if (sk & (16 | 32)) {
+					for (int32 n2 = 0; n2 < 90; ++n2) {
+						const bool selN = n2 < kNumObj2
+											  ? demo::Demo3DHostObjectSelected(n2)
+											  : (selLight == n2 - kFirstLight);
+						if (!selN || n2 == actN)
+							continue;
+						demo::Demo3DHostSetNodeParent(n2,
+													  (sk & 16) && actN >= 0 ? actN : -1);
+					}
+					if ((sk & 32) && actN >= 0 && actN < 90)
+						demo::Demo3DHostSetNodeParent(actN, -1);
 				}
 			}
 			// MENU CONTEXTUEL : Dupliquer / Copier / Coller / Supprimer, avec

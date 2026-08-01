@@ -109,6 +109,11 @@ namespace nkentseu {
 		static bool nkvpBaseSet[kNkvpMaxNodes] = {};
 		static float32 nkvpBaseSize[kNkvpMaxNodes][3];
 		static float32 nkvpDimFactor[kNkvpMaxNodes][3];
+		// RACCOURCIS DE SCENE par POLLING (les evenements clavier ne livrent
+		// pas les lettres au shell) : bits 1 dupliquer, 2 copier, 4 coller,
+		// 8 supprimer, 16 parenter, 32 deparenter -- consommes une fois.
+		static int32 nkvpShortcutBits = 0;
+		static uint8 nkvpShortcutPrev = 0;
 		static void HostHierarchyFrame(); // detecteur (defini pres des accesseurs)
 		static void HostParentEnsureInit();
 		static void HostDecompose(const NkMat4f &M, NkVec3f &pos, NkVec3f &rotDeg, NkVec3f &scl);
@@ -3103,7 +3108,8 @@ namespace nkentseu {
 					else
 						G.SetMode(GZ::MODE_SCALE);
 				}
-				if (k == NkKey::NK_C)
+				if (k == NkKey::NK_C && !NkInput.IsKeyDown(NkKey::NK_LCTRL) &&
+					!NkInput.IsKeyDown(NkKey::NK_RCTRL)) // Ctrl+C = COPIER, pas le gizmo
 					G.SetMode(GZ::MODE_COMBINE);
 				if (k == NkKey::NK_A) {
 					if (alt)
@@ -3116,7 +3122,9 @@ namespace nkentseu {
 					const char *o[3] = {"GLOBAL", "LOCAL", "NORMAL"};
 					logger.Info("[Demo3D] Orientation = {0}\n", o[G.Orientation()]);
 				}
-				if (k == NkKey::NK_G || k == NkKey::NK_R || k == NkKey::NK_S || k == NkKey::NK_C)
+				if (k == NkKey::NK_G || k == NkKey::NK_R || k == NkKey::NK_S ||
+					(k == NkKey::NK_C && !NkInput.IsKeyDown(NkKey::NK_LCTRL) &&
+					 !NkInput.IsKeyDown(NkKey::NK_RCTRL)))
 					logger.Info("[Demo3D] Gizmo mode = {0}\n", mn[G.Mode()]);
 			});
 			if (shadowSys) {
@@ -8636,6 +8644,44 @@ namespace nkentseu {
 					if (nkvpParentOf[n] < 0)
 						HostHierRecurse(st, n);
 			}
+			// RACCOURCIS par polling : fronts de D/C/V/X/P/Suppr avec les
+			// modificateurs, hors saisie de texte et hors drag de gizmo (X y
+			// verrouille un axe).
+			if (nkvpInputOn) {
+				const bool sh2 = NkInput.IsKeyDown(NkKey::NK_LSHIFT) ||
+								 NkInput.IsKeyDown(NkKey::NK_RSHIFT);
+				const bool ct2 = NkInput.IsKeyDown(NkKey::NK_LCTRL) ||
+								 NkInput.IsKeyDown(NkKey::NK_RCTRL);
+				uint8 now2 = 0;
+				if (NkInput.IsKeyDown(NkKey::NK_D))
+					now2 |= 1;
+				if (NkInput.IsKeyDown(NkKey::NK_C))
+					now2 |= 2;
+				if (NkInput.IsKeyDown(NkKey::NK_V))
+					now2 |= 4;
+				if (NkInput.IsKeyDown(NkKey::NK_X))
+					now2 |= 8;
+				if (NkInput.IsKeyDown(NkKey::NK_P))
+					now2 |= 16;
+				if (NkInput.IsKeyDown(NkKey::NK_DELETE))
+					now2 |= 32;
+				const uint8 fresh = (uint8)(now2 & (uint8)~nkvpShortcutPrev);
+				nkvpShortcutPrev = now2;
+				const bool anyDrag = st->gizmo.IsDragging() || st->lightGizmo.IsDragging() ||
+									 st->emptyGizmo.IsDragging();
+				if ((fresh & 1) && sh2)
+					nkvpShortcutBits |= 1;
+				if ((fresh & 2) && ct2)
+					nkvpShortcutBits |= 2;
+				if ((fresh & 4) && ct2)
+					nkvpShortcutBits |= 4;
+				if (((fresh & 8) && !anyDrag && !ct2) || (fresh & 32))
+					nkvpShortcutBits |= 8;
+				if ((fresh & 16) && ct2)
+					nkvpShortcutBits |= 16;
+				if ((fresh & 16) && sh2 && !ct2)
+					nkvpShortcutBits |= 32;
+			}
 			// Cliche de fin : l'etat APRES propagation devient la reference de
 			// la frame suivante.
 			for (int32 n = 0; n < kNkvpMaxNodes; ++n)
@@ -8851,6 +8897,11 @@ namespace nkentseu {
 				nkvpDimFactor[node][a] = def[a] > 1e-6f ? v / def[a] : 1.f;
 			}
 			nkvpBaseSet[node] = true;
+		}
+		int32 Demo3DHostTakeShortcuts() {
+			const int32 b = nkvpShortcutBits;
+			nkvpShortcutBits = 0; // consommes une fois
+			return b;
 		}
 		// Le MEME geste pour toute la selection : le delta tape dans le panneau
 		// sur l'objet ACTIF est propage aux autres selectionnes -- position en

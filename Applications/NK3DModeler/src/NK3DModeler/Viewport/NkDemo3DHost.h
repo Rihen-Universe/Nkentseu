@@ -161,6 +161,9 @@ namespace nkentseu {
 		void Demo3DHostCopyNode(int32 node);
 		int32 Demo3DHostPasteNode();
 		int32 Demo3DHostUserKind(int32 node); // 0 aucun, 1 sphere, 2 cube, 3 plan, 4 empty
+		// Raccourcis par POLLING : bits 1 dupliquer, 2 copier, 4 coller,
+		// 8 supprimer, 16 parenter, 32 deparenter. Consommes a la lecture.
+		int32 Demo3DHostTakeShortcuts();
 		void Demo3DHostNodeBaseSize(int32 node, float32 *out3); // taille locale par nature
 		void Demo3DHostSetNodeBaseSize(int32 node, const float32 *in3); // decouplee de l'echelle
 
