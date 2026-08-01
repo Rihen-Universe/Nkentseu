@@ -131,9 +131,12 @@ namespace nkentseu {
 			// reste le geste principal ; la saisie sert aux valeurs exactes.
 			if (ws.IsEditing(key)) {
 				p.Outline(r, NkRole::AccentUi, NkRole::InputBg, 3.f);
+				// La saisie ne DEBORDE jamais du champ (demande de Rihen) : clip.
+				p.Clip(r);
 				p.TextV(r.x + S(4.f), r.y, r.h, ws.editBuf);
 				const float32 cw = p.TextW(ws.editBuf);
 				p.Fill({r.x + S(5.f) + cw, r.y + S(3.f), 1.f, r.h - S(6.f)}, NkRole::Text);
+				p.Unclip();
 				hit.Add(key, r);
 				bool commit = false, finish = false;
 				if (hit.AnyClick() && !hit.IsHovered(key)) {
@@ -228,8 +231,13 @@ namespace nkentseu {
 			snprintf(txt, sizeof(txt), fmt, (double)value);
 			// Valeur calee a DROITE : les nombres se comparent par leur unite, et
 			// trois colonnes calees a gauche donnent des virgules en escalier.
+			// CLIPPEE au champ (demande de Rihen) : une valeur trop longue se
+			// tronque a GAUCHE -- les unites et decimales restent lisibles, c'est
+			// la partie qui compte.
 			const float32 tw = p.TextW(txt);
+			p.Clip(r);
 			p.TextV(r.x + r.w - tw - S(8.f), r.y, r.h, txt);
+			p.Unclip();
 			return changed;
 		}
 
@@ -569,6 +577,142 @@ namespace nkentseu {
 				ws.EndEdit(); // ANNULE : la source n'a jamais ete touchee
 			}
 			return done;
+		}
+
+
+		// ── VRAI PICKER DE COULEUR ──────────────────────────────────────────────
+		// Transpose du ColorPicker4 de NKGui (NkGuiWidgets.cpp) sur le painter du
+		// modeleur : carre SATURATION/VALEUR (blanc->teinte, noir par-dessus) +
+		// barre de TEINTE en six segments. La teinte est MEMORISEE pendant le
+		// geste : au noir ou au blanc elle serait perdue par la conversion.
+		inline void NkRgbToHsv(const float32 *rgb, float32 *hsv) {
+			const float32 r = rgb[0], g = rgb[1], b = rgb[2];
+			const float32 mx = r > g ? (r > b ? r : b) : (g > b ? g : b);
+			const float32 mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
+			const float32 d = mx - mn;
+			hsv[2] = mx;
+			hsv[1] = mx > 1e-6f ? d / mx : 0.f;
+			if (d < 1e-6f)
+				hsv[0] = 0.f;
+			else if (mx == r)
+				hsv[0] = 60.f * fmodf((g - b) / d, 6.f);
+			else if (mx == g)
+				hsv[0] = 60.f * ((b - r) / d + 2.f);
+			else
+				hsv[0] = 60.f * ((r - g) / d + 4.f);
+			if (hsv[0] < 0.f)
+				hsv[0] += 360.f;
+		}
+		inline void NkHsvToRgb(const float32 *hsv, float32 *rgb) {
+			const float32 h = hsv[0], sat = hsv[1], v = hsv[2];
+			const float32 c = v * sat;
+			const float32 hp = h / 60.f;
+			const float32 x = c * (1.f - fabsf(fmodf(hp, 2.f) - 1.f));
+			float32 r = 0.f, g = 0.f, b = 0.f;
+			if (hp < 1.f) {
+				r = c;
+				g = x;
+			} else if (hp < 2.f) {
+				r = x;
+				g = c;
+			} else if (hp < 3.f) {
+				g = c;
+				b = x;
+			} else if (hp < 4.f) {
+				g = x;
+				b = c;
+			} else if (hp < 5.f) {
+				r = x;
+				b = c;
+			} else {
+				r = c;
+				b = x;
+			}
+			const float32 m = v - c;
+			rgb[0] = r + m;
+			rgb[1] = g + m;
+			rgb[2] = b + m;
+		}
+		inline bool NkColorPickerSV(NkModelerPainter &p, NkHitRegistry &hit, char *dragKey,
+									uint32 dragKeyCap, const char *key, const NkRect &r,
+									float32 *rgb) {
+			const float32 barW = S(14.f), gap = S(8.f);
+			const NkRect sq{r.x, r.y, r.w - barW - gap, r.h};
+			const NkRect hb{r.x + r.w - barW, r.y, barW, r.h};
+			char kSq[40], kHu[40];
+			snprintf(kSq, sizeof(kSq), "%s.sv", key);
+			snprintf(kHu, sizeof(kHu), "%s.h", key);
+			hit.Add(kSq, sq);
+			hit.Add(kHu, hb);
+			const bool dragSq = (strcmp(dragKey, kSq) == 0);
+			const bool dragHu = (strcmp(dragKey, kHu) == 0);
+			// La teinte survit au geste : convertie a chaque image depuis le RGB,
+			// elle retomberait a zero au noir/blanc (c'est ce que memorise aussi le
+			// picker de NKGui, par id).
+			static float32 sHsv[3] = {0.f, 0.f, 0.f};
+			static char sFor[40] = {0};
+			if (!dragSq && !dragHu) {
+				if (strcmp(sFor, key) != 0 || !hit.MouseDown()) {
+					NkRgbToHsv(rgb, sHsv);
+					snprintf(sFor, sizeof(sFor), "%s", key);
+				}
+			}
+			bool changed = false;
+			if (hit.MouseDown()) {
+				if (!dragKey[0]) {
+					if (hit.IsHovered(kSq))
+						snprintf(dragKey, dragKeyCap, "%s", kSq);
+					else if (hit.IsHovered(kHu))
+						snprintf(dragKey, dragKeyCap, "%s", kHu);
+				}
+				if (strcmp(dragKey, kSq) == 0) {
+					float32 t = (hit.Mouse().x - sq.x) / sq.w;
+					float32 u = (hit.Mouse().y - sq.y) / sq.h;
+					t = t < 0.f ? 0.f : (t > 1.f ? 1.f : t);
+					u = u < 0.f ? 0.f : (u > 1.f ? 1.f : u);
+					sHsv[1] = t;
+					sHsv[2] = 1.f - u;
+					NkHsvToRgb(sHsv, rgb);
+					changed = true;
+				} else if (strcmp(dragKey, kHu) == 0) {
+					float32 u = (hit.Mouse().y - hb.y) / hb.h;
+					u = u < 0.f ? 0.f : (u > 1.f ? 1.f : u);
+					sHsv[0] = u * 359.9f;
+					NkHsvToRgb(sHsv, rgb);
+					changed = true;
+				}
+			}
+			// ── Dessin ──────────────────────────────────────────────────────
+			float32 hueRgb[3];
+			const float32 hueHsv[3] = {sHsv[0], 1.f, 1.f};
+			NkHsvToRgb(hueHsv, hueRgb);
+			const NkColor cHue{(uint8)(hueRgb[0] * 255.f), (uint8)(hueRgb[1] * 255.f),
+							   (uint8)(hueRgb[2] * 255.f), 255};
+			const NkColor cW{255, 255, 255, 255};
+			const NkColor cT{0, 0, 0, 0};
+			const NkColor cB{0, 0, 0, 255};
+			p.RectMultiColor(sq, cW, cHue, cHue, cW); // blanc -> teinte
+			p.RectMultiColor(sq, cT, cT, cB, cB);	  // noir par-dessus, vers le bas
+			p.OutlineSharp(sq, NkRole::Border);
+			// Barre de teinte : six segments de l'arc-en-ciel.
+			static const uint8 kHue[7][3] = {{255, 0, 0},   {255, 255, 0}, {0, 255, 0}, {0, 255, 255},
+											 {0, 0, 255},   {255, 0, 255}, {255, 0, 0}};
+			for (int32 i = 0; i < 6; ++i) {
+				const NkColor c0{kHue[i][0], kHue[i][1], kHue[i][2], 255};
+				const NkColor c1{kHue[i + 1][0], kHue[i + 1][1], kHue[i + 1][2], 255};
+				const NkRect seg{hb.x, hb.y + hb.h * (float32)i / 6.f, hb.w, hb.h / 6.f + 1.f};
+				p.RectMultiColor(seg, c0, c0, c1, c1);
+			}
+			p.OutlineSharp(hb, NkRole::Border);
+			// Curseurs : croix sur le carre, trait sur la barre.
+			{
+				const float32 cx = sq.x + sHsv[1] * sq.w;
+				const float32 cy = sq.y + (1.f - sHsv[2]) * sq.h;
+				p.Ring(cx, cy, S(5.f), NkRole::Text, NkRole::Border);
+				const float32 hy = hb.y + (sHsv[0] / 359.9f) * hb.h;
+				p.Fill({hb.x - S(2.f), hy - S(1.f), hb.w + S(4.f), S(3.f)}, NkRole::Text);
+			}
+			return changed;
 		}
 
 	} // namespace nk3d

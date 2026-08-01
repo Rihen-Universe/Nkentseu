@@ -272,6 +272,12 @@ namespace nkentseu {
 					mDl.AddRectFilled({x, ty, w, th}, C(NkRole::TextMuted), 3.f);
 				}
 
+				// Degrade aux quatre coins : LA primitive du picker de couleur
+				// (carre SV, barre de teinte) -- celle du ColorPicker4 de NKGui.
+				void RectMultiColor(const NkRect &r, NkColor tl, NkColor tr, NkColor br, NkColor bl) {
+					mDl.AddRectFilledMultiColor(r, tl, tr, br, bl);
+				}
+
 				void Disc(float32 cx, float32 cy, float32 radius, NkRole role) {
 					mDl.AddCircleFilled({cx, cy}, radius, C(role));
 				}

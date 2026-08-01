@@ -2153,11 +2153,18 @@ namespace nkentseu {
 			const NkRole axes[3] = {NkRole::AxisX, NkRole::AxisY, NkRole::AxisZ};
 			float32 x = r.x + kLabelW + S(5.f);
 			char key[48];
+			// Les champs gardent leur LARGEUR MINIMALE, mais le bloc est CLIPPE
+			// avant la colonne des icones : panneau etroit, le champ Z passait
+			// SOUS le cadenas (constate par Rihen). Tronque vaut mieux que
+			// superpose -- et la colonne d'icones reste toujours cliquable.
+			const float32 fieldsEnd = r.x + r.w - S(5.f) - iconsW - gap;
+			p.Clip({x, y, fieldsEnd - x, rowH});
 			for (int32 i = 0; i < 3; ++i) {
 				snprintf(key, sizeof(key), "%s.%d", keyBase, i);
 				DragFloat(p, hit, ws, in, key, {x, y + S(3.f), fw, rowH - S(6.f)}, v[i], step, axes[i], fmt);
 				x += fw + gap;
 			}
+			p.Unclip();
 
 			// Les deux carres. Une icone absente laisse sa case VIDE plutot que de
 			// decaler la suivante -- l'alignement des trois lignes prime.
@@ -2196,8 +2203,11 @@ namespace nkentseu {
 								  const char *key, const char *title, bool &open) {
 			const NkRect hr{r.x, y, r.w, kRowH};
 			const bool over = hit.Add(key, hr);
+			// L'EN-TETE a TOUJOURS son fond propre, distinct du fond des valeurs
+			// (demande de Rihen) ; le survol s'annonce par un lisere accent.
+			p.Fill(hr, NkRole::PanelHeader);
 			if (over)
-				p.Fill(hr, NkRole::PanelHeader);
+				p.Fill({hr.x, hr.y + hr.h - S(2.f), hr.w, S(2.f)}, NkRole::AccentUi);
 			p.IconV(r.x + S(6.f), y, kRowH, open ? NkIcon::ChevronDown : NkIcon::ChevronRight,
 					NkRole::Text, 11.f);
 			p.TextV(r.x + S(22.f), y, kRowH, title);
@@ -2608,9 +2618,15 @@ namespace nkentseu {
 							}
 						yy += kRowH;
 						if (st.bgChoice == 5) {
-							// PICKER de la couleur personnalisee : trois champs R/V/B
-							// glissables (et saisissables au double-clic, comme partout).
-							// La pastille et le fond suivent EN DIRECT.
+							// LE VRAI PICKER (carre SV + barre de teinte, transpose du
+							// ColorPicker4 de NKGui) ; les champs R/V/B restent dessous
+							// pour les valeurs exactes. Le fond suit EN DIRECT.
+							{
+								const NkRect pk{r.x + S(16.f), yy + S(2.f), rr.w - S(28.f), S(120.f)};
+								NkColorPickerSV(p, hit, st.propDragKey, sizeof(st.propDragKey),
+												"props.bgpick", pk, st.bgCustom);
+								yy += S(126.f);
+							}
 							static const char *const kCh[3] = {"Rouge", "Vert", "Bleu"};
 							for (int32 c2 = 0; c2 < 3; ++c2) {
 								p.TextV(r.x + kPad + S(8.f), yy, kRowH, kCh[c2], NkRole::TextMuted);
