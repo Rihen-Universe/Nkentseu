@@ -9092,6 +9092,19 @@ namespace nkentseu {
 			const float32 off[3] = {0.45f, 0.f, 0.45f};
 			return HostSpawnLike(node, off);
 		}
+		int32 Demo3DHostArchiveNode(int32 node) {
+			// ARCHIVE d'asset : copie INVISIBLE qui survit a la suppression de
+			// l'original (le navigateur clone depuis elle). deleted=true la
+			// sort du rendu et de la hierarchie ; kind!=0 empeche le recyclage
+			// du slot par HostAllocUser.
+			const float32 off[3] = {0.f, 0.f, 0.f};
+			const int32 n = HostSpawnLike(node, off);
+			if (n >= 0) {
+				nkvpDeleted[n] = true;
+				nkvpParentOf[n] = -1;
+			}
+			return n;
+		}
 		void Demo3DHostCopyNode(int32 node) {
 			auto *st = HostSt();
 			if (!st || node < 0 || node >= kNkvpMaxNodes)
