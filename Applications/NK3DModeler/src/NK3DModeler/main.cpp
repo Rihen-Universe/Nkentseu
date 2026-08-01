@@ -1000,7 +1000,7 @@ int nkmain(const NkEntryState &entry) {
 			{
 				NkRect rightR = lay.propsR;
 				rightR.h = (lay.detailsR.y + lay.detailsR.h) - lay.propsR.y;
-				PaintPropertiesUnified(p, rightR, st, hit, ws, ui.input);
+				PaintPropertiesUnified(p, rightR, st, hit, ws, ui.input, combo);
 			}
 		}
 		if (st.showBrowser)

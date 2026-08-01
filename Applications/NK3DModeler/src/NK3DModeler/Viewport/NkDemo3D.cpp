@@ -7564,11 +7564,30 @@ namespace nkentseu {
 			else
 				st->gizmo.Select(i);
 		}
+		// SELECTION DE GROUPE (parent -> enfants) : le gizmo transforme deja
+		// une multi-selection autour du pivot commun -- selectionner le parent,
+		// c'est selectionner tous ses enfants d'un coup, comme Unity. Le vrai
+		// re-parentage libre viendra avec le format projet.
+		void Demo3DHostSelectGroup(int32 start, int32 count, bool additive) {
+			auto *st = HostSt();
+			if (!st)
+				return;
+			st->lightSel = -1;
+			if (!additive)
+				st->gizmo.ClearSelection();
+			for (int32 k = 0; k < count; ++k) {
+				const int32 i = start + k;
+				if (i >= 0 && i < Demo3DState::kNumObj && !nkvpObjLocked[i] &&
+					!st->gizmo.IsSelected(i))
+					st->gizmo.ToggleSelection(i);
+			}
+		}
 		void Demo3DHostDeselectAll() {
 			auto *st = HostSt();
 			if (!st)
 				return;
 			st->gizmo.ClearSelection();
+			st->lightGizmo.ClearSelection(); // sinon lightSel renait a la frame suivante
 			st->lightSel = -1;
 		}
 		void Demo3DHostObjectPosition(int32 i, float32 *out3) {
@@ -7600,7 +7619,42 @@ namespace nkentseu {
 			if (!st)
 				return;
 			st->gizmo.ClearSelection();
+			// PAS lightSel directement : la demo le REECRIT chaque frame depuis
+			// la selection interne du gizmo des lumieres (lightSel =
+			// lightGizmo.ActiveIndex()). C'est donc LE GIZMO qu'on pilote --
+			// lightSel suit tout seul, et la selection SURVIT.
+			if (li >= 0 && li < Demo3DState::kNumLights)
+				st->lightGizmo.Select(li);
+			else
+				st->lightGizmo.ClearSelection();
 			st->lightSel = (li >= 0 && li < Demo3DState::kNumLights) ? li : -1;
+		}
+		void Demo3DHostSetLightPosition(int32 li, const float32 *xyz) {
+			auto *st = HostSt();
+			if (!st || li < 0 || li >= Demo3DState::kNumLights)
+				return;
+			// La BASE : l'effective = base + decalages du gizmo, et la demo
+			// replie les decalages dans la base en fin de drag.
+			st->lights[li].position = {xyz[0], xyz[1], xyz[2]};
+		}
+		void Demo3DHostLightParams(int32 li, float32 *color3, float32 *intensity) {
+			auto *st = HostSt();
+			if (!st || li < 0 || li >= Demo3DState::kNumLights) {
+				color3[0] = color3[1] = color3[2] = 1.f;
+				*intensity = 1.f;
+				return;
+			}
+			color3[0] = st->lights[li].color.x;
+			color3[1] = st->lights[li].color.y;
+			color3[2] = st->lights[li].color.z;
+			*intensity = st->lights[li].intensity;
+		}
+		void Demo3DHostSetLightParams(int32 li, const float32 *color3, float32 intensity) {
+			auto *st = HostSt();
+			if (!st || li < 0 || li >= Demo3DState::kNumLights)
+				return;
+			st->lights[li].color = {color3[0], color3[1], color3[2]};
+			st->lights[li].intensity = intensity;
 		}
 		void Demo3DHostLightPosition(int32 li, float32 *out3) {
 			auto *st = HostSt();

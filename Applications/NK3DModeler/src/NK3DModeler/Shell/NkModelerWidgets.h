@@ -125,6 +125,52 @@ namespace nkentseu {
 		inline bool DragFloat(NkModelerPainter &p, NkHitRegistry &hit, NkWidgetState &ws,
 							  const nkgui::NkGuiInput &in, const char *key, const NkRect &r,
 							  float32 &value, float32 step, NkRole accent, const char *fmt = "%.2f") {
+			// ── SAISIE AU CLAVIER (double-clic), demande de Rihen ───────────────
+			// Le champ est AUSSI un champ de texte : double-clic, on tape la
+			// valeur, Entree ou clic ailleurs valide, Echap annule. Le glissement
+			// reste le geste principal ; la saisie sert aux valeurs exactes.
+			if (ws.IsEditing(key)) {
+				p.Outline(r, NkRole::AccentUi, NkRole::InputBg, 3.f);
+				p.TextV(r.x + S(4.f), r.y, r.h, ws.editBuf);
+				const float32 cw = p.TextW(ws.editBuf);
+				p.Fill({r.x + S(5.f) + cw, r.y + S(3.f), 1.f, r.h - S(6.f)}, NkRole::Text);
+				hit.Add(key, r);
+				bool commit = false, finish = false;
+				if (hit.AnyClick() && !hit.IsHovered(key)) {
+					commit = ws.editLen > 0;
+					finish = true;
+				}
+				for (int32 i = 0; i < in.charCount; ++i) {
+					const uint32 c = in.chars[i];
+					// Chiffres, signe, separateur -- la VIRGULE tapee devient un
+					// point : c'est elle qu'on a sous le doigt sur un clavier
+					// francais, et atof ne lit que le point.
+					if (((c >= '0' && c <= '9') || c == '-' || c == '+' || c == '.' || c == ',') &&
+						ws.editLen < 30u) {
+						ws.editBuf[ws.editLen++] = (c == ',') ? '.' : (char)c;
+						ws.editBuf[ws.editLen] = 0;
+					}
+				}
+				if (in.KeyPressed(nkgui::NkGuiKey::Backspace) && ws.editLen > 0)
+					ws.editBuf[--ws.editLen] = 0;
+				if (in.KeyPressed(nkgui::NkGuiKey::Enter)) {
+					commit = ws.editLen > 0;
+					finish = true;
+				} else if (in.KeyPressed(nkgui::NkGuiKey::Escape)) {
+					finish = true; // annule : la valeur n'est jamais touchee
+				}
+				bool typed = false;
+				if (finish) {
+					if (commit) {
+						const float32 nv = (float32)atof(ws.editBuf);
+						typed = (nv != value);
+						value = nv;
+					}
+					ws.EndEdit();
+				}
+				return typed;
+			}
+
 			const bool over = hit.Add(key, r);
 			const bool active = ws.dragging && NkWidgetState::Eq(ws.dragKey, key);
 
@@ -132,6 +178,17 @@ namespace nkentseu {
 			// qu'un champ se glisse, et l'utilisateur le decouvre par accident.
 			if (over || active)
 				hit.WantCursor(NkCursorWant::ResizeWE);
+
+			// Le DOUBLE-CLIC ouvre la saisie -- teste AVANT le drag : son premier
+			// clic a arme un glissement qu'on desarme ici.
+			if (over && in.mouseDoubleClicked[0]) {
+				ws.dragging = false;
+				ws.dragKey[0] = 0;
+				char init[32];
+				snprintf(init, sizeof(init), fmt, (double)value);
+				ws.BeginEdit(key, init);
+				return false;
+			}
 
 			if (hit.Clicked(key)) {
 				ws.dragging = true;

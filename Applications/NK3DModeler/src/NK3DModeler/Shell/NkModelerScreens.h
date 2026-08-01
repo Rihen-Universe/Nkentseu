@@ -1,6 +1,6 @@
-#pragma once
+﻿#pragma once
 // =============================================================================
-// NkModelerScreens.h — les zones de l'ecran A, peintes une par une.
+// NkModelerScreens.h â€” les zones de l'ecran A, peintes une par une.
 //
 // Une fonction par zone, dans l'ordre ou elles apparaissent a l'ecran. Chacune
 // recoit son rectangle et ne peint QUE dedans : c'est ce qui permettra de les
@@ -54,7 +54,7 @@ namespace nkentseu {
 			return {r.x + kInset, r.y, r.w - kInset * 2.f, r.h};
 		}
 
-		// ── CONTENU DES LISTES DE LA VUE ────────────────────────────────────────
+		// â”€â”€ CONTENU DES LISTES DE LA VUE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		// En TABLES, comme les menus : ajouter une entree ne demande pas de toucher
 		// au rendu, et la meme table servira la palette de recherche.
 		inline const char *const *NkProjectionItems(int32 &n) {
@@ -62,7 +62,7 @@ namespace nkentseu {
 			// navigation : un seul etat, deux facons d'y arriver.
 			// ORTHOGONALE est une PROJECTION a part entiere, distincte des six vues
 			// d'axe : on peut regarder de biais en orthographique. La confondre avec
-			// « Dessus » -- l'erreur de ma premiere liste -- interdisait justement ce
+			// Â« Dessus Â» -- l'erreur de ma premiere liste -- interdisait justement ce
 			// cas, qui est celui du blocking et du travail de proportions.
 			static const char *const k[] = {"Perspective", "Orthogonale", "Dessus", "Dessous",
 											"Avant",	   "Arriere",	  "Gauche", "Droite"};
@@ -86,7 +86,7 @@ namespace nkentseu {
 									   NkIcon::ArrowLeft, NkIcon::ArrowRight};
 			return k;
 		}
-		// ── MODES D'OMBRAGE ─────────────────────────────────────────────────────
+		// â”€â”€ MODES D'OMBRAGE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		// QUATRE modes disponibles PARTOUT -- solide, materiau, rendu, fil de fer --
 		// et on entre en mode EDITION depuis n'importe lequel : le mode d'edition et
 		// le mode d'ombrage sont deux axes INDEPENDANTS. C'est ce que Rihen a precise,
@@ -104,7 +104,7 @@ namespace nkentseu {
 		inline const char *const *NkShadingItems(int32 &n) {
 			// LES SIX MODES REELS de la demo portee (sa touche Z) : l'index de la
 			// liste EST le shadingMode de la demo. Une liste qui promettait un mode
-			// « Materiau » inexistant obligeait a mentir au cablage.
+			// Â« Materiau Â» inexistant obligeait a mentir au cablage.
 			static const char *const k[] = {"Rendu",	"Solide", "Fil de fer",
 											"Normales", "UV",	  "Occlusion (AO)"};
 			n = 6;
@@ -122,10 +122,10 @@ namespace nkentseu {
 			return k;
 		}
 
-		// ── FORMES DE SELECTION ─────────────────────────────────────────────────
+		// â”€â”€ FORMES DE SELECTION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		// C'est le sous-menu qu'annonce le petit point du bouton de selection.
 		// Rectangle par defaut : c'est le geste le plus simple et le plus previsible.
-		// Le cercle sert a « peindre » une selection en balayant, le lasso a cerner
+		// Le cercle sert a Â« peindre Â» une selection en balayant, le lasso a cerner
 		// une forme irreguliere -- trois besoins reels que le rectangle seul ne
 		// couvre pas.
 		inline const char *const *NkSelShapeItems(int32 &n) {
@@ -148,7 +148,7 @@ namespace nkentseu {
 			return k;
 		}
 
-		// ── MENU DE VUE (l icone a gauche de Perspective) ───────────────────────
+		// â”€â”€ MENU DE VUE (l icone a gauche de Perspective) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		// Il porte ce qui ne merite pas un bouton permanent : disposition des vues,
 		// plein ecran, cameras enregistrees, reinitialisation.
 		inline const char *const *NkViewMenuItems(int32 &n) {
@@ -165,18 +165,18 @@ namespace nkentseu {
 									   NkIcon::Drawer};
 			return k;
 		}
-		// ── AFFICHAGE : DES CASES, PAS UN CHOIX UNIQUE ──────────────────────────
+		// â”€â”€ AFFICHAGE : DES CASES, PAS UN CHOIX UNIQUE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		// Rihen a raison, et UI_SPEC 9bis le disait deja : on veut couramment la
 		// grille ET le repere d axes SANS les normales. Mon premier jet proposait
-		// trois presets exclusifs (« tout / grille seule / rien »), ce qui obligeait
+		// trois presets exclusifs (Â« tout / grille seule / rien Â»), ce qui obligeait
 		// a choisir la combinaison la moins mauvaise au lieu de composer la sienne.
 		//
 		// Chaque entree est un bit du masque `st.overlayMask`.
 		inline const char *const *NkOverlayItems(int32 &n) {
 			// CHAQUE CASE PILOTE UN REGLAGE REEL de la demo portee : la grille
 			// infinie et ses trois familles de traits (touches F1..F4), le lisere
-			// de selection, et le HUD texte. Les entrees sans effet (« Normales »,
-			// « Origines »...) sont retirees plutot que decoratives.
+			// de selection, et le HUD texte. Les entrees sans effet (Â« Normales Â»,
+			// Â« Origines Â»...) sont retirees plutot que decoratives.
 			static const char *const k[] = {
 				"Grille",				// la grille infinie (F1)
 				"Lignes fines",			// subdivisions internes (F2)
@@ -194,11 +194,11 @@ namespace nkentseu {
 			return k;
 		}
 
-		// ── MATCAP : UN REGLAGE DU MODE SOLIDE ──────────────────────────────────
+		// â”€â”€ MATCAP : UN REGLAGE DU MODE SOLIDE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		// Rihen l a corrige a juste titre. J en avais fait un cinquieme mode
 		// d ombrage ; c est faux. Le matcap N EST PAS un mode : c est la maniere
 		// dont le mode SOLIDE eclaire la surface. Blender fait exactement cela --
-		// « Solid » ouvre un panneau ou l on choisit entre eclairage studio, matcap
+		// Â« Solid Â» ouvre un panneau ou l on choisit entre eclairage studio, matcap
 		// et couleur plate.
 		// Consequence pratique : le selecteur de matcap n apparait que si l ombrage
 		// est SOLIDE, et il reste disponible en mode objet comme en edition.
@@ -206,7 +206,7 @@ namespace nkentseu {
 			// La SOURCE DE COULEUR des modes non eclaires (Solide / Fil de fer),
 			// c'est-a-dire le reglage REEL de la demo (sa touche B) : couleur du
 			// materiau, gris d'atelier, ou couleur choisie. L'ancienne liste
-			// « Studio / Matcap / Plat » promettait des eclairages qui n'existent
+			// Â« Studio / Matcap / Plat Â» promettait des eclairages qui n'existent
 			// pas -- le matcap est TOUJOURS l'eclairage de ces modes.
 			static const char *const k[] = {"Couleur du materiau", "Gris d'atelier",
 											"Couleur personnalisee"};
@@ -219,7 +219,7 @@ namespace nkentseu {
 		}
 		inline const char *const *NkOrientItems(int32 &n) {
 			// LES TROIS ORIENTATIONS DU GIZMO de la demo (sa touche virgule) :
-			// monde, local, normale. « Vue » n'existe pas dans le moteur -- la
+			// monde, local, normale. Â« Vue Â» n'existe pas dans le moteur -- la
 			// proposer aurait fait un choix sans effet.
 			static const char *const k[] = {"Monde", "Local", "Normale"};
 			n = 3;
@@ -230,7 +230,7 @@ namespace nkentseu {
 			return k;
 		}
 		inline const char *const *NkCamSpeedItems(int32 &n) {
-			// Vitesse de deplacement de la camera, comme le « 4 » d'Unreal. Sans elle,
+			// Vitesse de deplacement de la camera, comme le Â« 4 Â» d'Unreal. Sans elle,
 			// une scene de 200 metres se parcourt au pas et une piece se traverse d'un
 			// coup -- c'est le meme reglage qui rend les deux supportables.
 			static const char *const k[] = {"Vitesse 1", "Vitesse 2", "Vitesse 4", "Vitesse 8"};
@@ -246,8 +246,8 @@ namespace nkentseu {
 			static const NkIcon k[] = {NkIcon::Dot, NkIcon::Ruler, NkIcon::Square};
 			return k;
 		}
-		// ── AJOUTER, PAR CATEGORIES -- comme Blender ────────────────────────────
-		// « Ajouter » n'est pas une liste de cubes : c'est un menu de CREATION, et
+		// â”€â”€ AJOUTER, PAR CATEGORIES -- comme Blender â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+		// Â« Ajouter Â» n'est pas une liste de cubes : c'est un menu de CREATION, et
 		// chaque categorie repond a une question differente -- une geometrie a
 		// modeler, une source de lumiere, un point de vue, un repere d'assemblage.
 		// Chaque entree porte le couple (type, primitive) attendu par
@@ -303,13 +303,13 @@ namespace nkentseu {
 			n = 5;
 			return kCats;
 		}
-		// ── MODIFICATEURS, CLASSES PAR CATEGORIE ────────────────────────────────
+		// â”€â”€ MODIFICATEURS, CLASSES PAR CATEGORIE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		// Seize modificateurs dans une liste plate obligent a la parcourir en entier
 		// pour trouver le bon, et rien n'indique lesquels font des choses comparables.
 		// Les trois categories repondent chacune a une question differente :
-		//   GENERER  — ajoute de la geometrie qui n'existait pas ;
-		//   DEFORMER — garde la meme geometrie et la deplace ;
-		//   NETTOYER — en retire ou la reorganise.
+		//   GENERER  â€” ajoute de la geometrie qui n'existait pas ;
+		//   DEFORMER â€” garde la meme geometrie et la deplace ;
+		//   NETTOYER â€” en retire ou la reorganise.
 		// C'est le classement de Blender, et il tient parce qu'il repose sur ce que le
 		// modificateur FAIT au maillage, pas sur son nom.
 		//
@@ -335,8 +335,8 @@ namespace nkentseu {
 
 		inline const NkModCategory *NkModifierCategories(int32 &n) {
 			// LES DIX-SEPT MODIFICATEURS DU MOTEUR, aucun de plus. La liste
-			// precedente annoncait « Booleen », « Enveloppe », « Remailler » et
-			// « Courbe » qui n'existent pas : un menu qui propose ce qui n'existe
+			// precedente annoncait Â« Booleen Â», Â« Enveloppe Â», Â« Remailler Â» et
+			// Â« Courbe Â» qui n'existent pas : un menu qui propose ce qui n'existe
 			// pas est pire qu'un menu court.
 			static const NkModEntry kGen[] = {
 				{"Miroir", NkIcon::Ruler, 0},		{"Reseau", NkIcon::SnapGrid, 1},
@@ -384,7 +384,7 @@ namespace nkentseu {
 				p.Fill(r, NkRole::PanelBg, rounding);
 		}
 
-		// ── BARRE DE MENUS ──────────────────────────────────────────────────────
+		// â”€â”€ BARRE DE MENUS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		inline void PaintMenuBarI(NkModelerPainter &p, const NkRect &r, const char *projectName,
 								  NkModelerState &st, NkHitRegistry &hit) {
 			p.Fill(r, NkRole::PanelHeader);
@@ -458,10 +458,10 @@ namespace nkentseu {
 					st.running = false;
 			}
 
-			// ── DEPLACEMENT DE LA FENETRE ───────────────────────────────────────
+			// â”€â”€ DEPLACEMENT DE LA FENETRE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 			// La barre de titre est la poignee, mais seulement la ou elle est VIDE :
 			// declarer la zone en PREMIER laisse les menus et les boutons, declares
-			// ensuite, la recouvrir. C'est la regle « la derniere zone gagne » qui
+			// ensuite, la recouvrir. C'est la regle Â« la derniere zone gagne Â» qui
 			// fait le tri, sans qu'on ait a lister les exceptions.
 			//
 			// Le drapeau est pose ici et consomme par la boucle : BeginDragMove BLOQUE
@@ -478,8 +478,8 @@ namespace nkentseu {
 			}
 		}
 
-		// ── ONGLETS DE DOCUMENT ─────────────────────────────────────────────────
-		// ── ONGLETS DE SCENE ────────────────────────────────────────────────────
+		// â”€â”€ ONGLETS DE DOCUMENT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+		// â”€â”€ ONGLETS DE SCENE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		// UNE SEULE scene a l'ouverture. Demarrer sur deux onglets vides ferait croire
 		// que l'un d'eux contient quelque chose, et obligerait a en fermer un avant
 		// meme d'avoir commence. Le nom se modifie au DOUBLE-clic, le + en ajoute une.
@@ -549,7 +549,7 @@ namespace nkentseu {
 			HoverFill(p, ar, hit.Add("tab.add", ar));
 			p.IconV(x + S(8.f), r.y, r.h, NkIcon::Add, NkRole::Text, 12.f);
 			if (hit.Clicked("tab.add") && st.sceneCount < 8) {
-				// Le nom par defaut est NUMEROTE : deux scenes nommees « Scene » seraient
+				// Le nom par defaut est NUMEROTE : deux scenes nommees Â« Scene Â» seraient
 				// indistinguables dans la barre.
 				NkStoreSceneCam(st, st.activeTab); // la scene quittee garde sa vue
 				snprintf(st.sceneNames[st.sceneCount], 32, "Scene_%d", st.sceneCount + 1);
@@ -564,14 +564,14 @@ namespace nkentseu {
 			}
 		}
 
-		// ── BARRE D'OUTILS ──────────────────────────────────────────────────────
+		// â”€â”€ BARRE D'OUTILS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		// LE MODE EST UN DEROULANT, PLUS UN COMMUTATEUR A DEUX ETATS. Rihen a
-		// remarque que « Objet » et « Edition » faisaient doublon avec « Mode de
-		// selection » -- et il a raison sur le fond : ce ne sont pas deux boutons,
+		// remarque que Â« Objet Â» et Â« Edition Â» faisaient doublon avec Â« Mode de
+		// selection Â» -- et il a raison sur le fond : ce ne sont pas deux boutons,
 		// c'est UNE liste de modes, qui va s'allonger (sculpt 2.5D, sculpt reel,
 		// texturing, riggging...). Deux boutons cotes a cote auraient cesse de tenir
 		// au troisieme mode.
-		// « Mode de selection » reste a cote, et ne fait PAS doublon : il porte le
+		// Â« Mode de selection Â» reste a cote, et ne fait PAS doublon : il porte le
 		// sous-mode sommet / arete / face, qui n'a de sens qu'EN edition.
 		inline void PaintToolbar(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
 								 NkHitRegistry &hit, NkWidgetState &ws, NkComboPending &combo) {
@@ -597,7 +597,7 @@ namespace nkentseu {
 			p.VLine(x - S(4.f), r.y + S(7.f), r.h - S(14.f));
 			x += S(6.f);
 
-			// ── DEROULANT DE MODE ───────────────────────────────────────────────
+			// â”€â”€ DEROULANT DE MODE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 			// Ce ne sont pas deux boutons mais UNE liste, qui va s'allonger. Deux
 			// boutons auraient cesse de tenir au troisieme mode.
 			static const NkIcon kModeIc[5] = {NkIcon::Mesh, NkIcon::Edit, NkIcon::Layers,
@@ -613,8 +613,8 @@ namespace nkentseu {
 			x += S(148.f);
 			p.VLine(x - S(7.f), r.y + S(7.f), r.h - S(14.f));
 
-			// LE « MODE DE SELECTION » A ETE RETIRE D ICI. Rihen a demande a quoi
-			// servait le « Face » a cote d « Objet » : c etait le sous-mode
+			// LE Â« MODE DE SELECTION Â» A ETE RETIRE D ICI. Rihen a demande a quoi
+			// servait le Â« Face Â» a cote d Â« Objet Â» : c etait le sous-mode
 			// sommet/arete/face, exactement la meme chose que les trois boutons de la
 			// barre de la vue. Un doublon que j avais introduit sans le voir.
 			// Il reste dans la VUE, ou il est a sa place : c est la qu on selectionne,
@@ -624,8 +624,8 @@ namespace nkentseu {
 			// AJOUTER et MODIFICATEUR sont des LISTES, pas des boutons : ils ouvrent un
 			// choix. Un bouton simple laisserait croire a une action immediate.
 			{
-				// « Ajouter » OUVRE LE MENU PAR CATEGORIES, il ne retient pas de
-				// « primitive courante » : ajouter est une action, pas un reglage.
+				// Â« Ajouter Â» OUVRE LE MENU PAR CATEGORIES, il ne retient pas de
+				// Â« primitive courante Â» : ajouter est une action, pas un reglage.
 				const NkRect ar{x, cbY, S(96.f), cbH};
 				const bool over = hit.Add("tb.addmenu", ar);
 				const bool open = ws.ComboOpen("tb.addmenu");
@@ -647,8 +647,8 @@ namespace nkentseu {
 			// courant avec SON icone ; le clic ouvre les categories, et chaque
 			// categorie ouvre ses entrees.
 			{
-				// LE BOUTON DIT « MODIFICATEUR », pas le nom du dernier choisi.
-				// Afficher « Miroir » laisse croire a un reglage en cours alors que
+				// LE BOUTON DIT Â« MODIFICATEUR Â», pas le nom du dernier choisi.
+				// Afficher Â« Miroir Â» laisse croire a un reglage en cours alors que
 				// c'est une commande d'AJOUT -- et le modificateur ajoute, lui, vit
 				// dans le panneau Details.
 				const NkRect mr{x, cbY, S(136.f), cbH};
@@ -665,7 +665,7 @@ namespace nkentseu {
 				x += S(144.f);
 			}
 
-			// « Ajouter » et « Modificateur » etaient ecrits DEUX FOIS : une fois en
+			// Â« Ajouter Â» et Â« Modificateur Â» etaient ecrits DEUX FOIS : une fois en
 			// deroulant (ci-dessus, celui qui marche) et une fois en bouton plat ici.
 			// Le doublon est retire -- deux commandes identiques cote a cote font
 			// douter qu'elles fassent la meme chose.
@@ -681,7 +681,7 @@ namespace nkentseu {
 			}
 		}
 
-		// ── EN-TETE DE PANNEAU ──────────────────────────────────────────────────
+		// â”€â”€ EN-TETE DE PANNEAU â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		// Onglet + croix, comme la maquette. Rendu ici une seule fois : quatre
 		// panneaux le partagent, et il n'y a donc qu'un endroit a corriger.
 		// La croix de l'en-tete REFERME LE PANNEAU. Elle etait dessinee mais morte,
@@ -713,7 +713,7 @@ namespace nkentseu {
 			return r.y + h;
 		}
 
-		// ── POIGNEE DE REOUVERTURE ──────────────────────────────────────────────
+		// â”€â”€ POIGNEE DE REOUVERTURE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		// Un panneau ferme doit laisser une trace : sans elle, l'utilisateur qui a
 		// clique la croix n'a plus aucun moyen de deviner comment revenir en arriere,
 		// et le menu n'est pas un moyen de DEVINER -- c'est un moyen de retrouver ce
@@ -744,7 +744,7 @@ namespace nkentseu {
 		// grise se confond avec une etiquette desactivee.
 		// CHAMP DE RECHERCHE REEL : bordure, saisie, effacement, et un filtre que
 		// l'appelant applique. L'ancien etait un dessin -- une boite grise avec le
-		// mot « Rechercher » -- qui ne recevait aucun clic et ne filtrait rien.
+		// mot Â« Rechercher Â» -- qui ne recevait aucun clic et ne filtrait rien.
 		inline float32 PaintSearch(NkModelerPainter &p, const NkRect &r, float32 y,
 								   NkHitRegistry &hit, NkWidgetState &ws,
 								   const nkgui::NkGuiInput &in, const char *key, char *buf) {
@@ -808,7 +808,7 @@ namespace nkentseu {
 			return y + h + 8.f;
 		}
 
-		// Filtre insensible a la casse : « cu » trouve « Cube ». Un filtre sensible
+		// Filtre insensible a la casse : Â« cu Â» trouve Â« Cube Â». Un filtre sensible
 		// obligerait a connaitre la casse exacte de ce qu'on cherche, ce qui est
 		// exactement ce qu'on ne sait pas quand on cherche.
 		inline bool NkNameMatches(const char *name, const char *filter) {
@@ -836,13 +836,13 @@ namespace nkentseu {
 			return false;
 		}
 
-		// ── HIERARCHIE (gauche) ─────────────────────────────────────────────────
+		// â”€â”€ HIERARCHIE (gauche) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		// Arbre REPLIABLE, noms MODIFIABLES, deux colonnes d'etat (oeil, cadenas), et
 		// un clic dans le VIDE qui deselectionne.
 		//
 		// Ce dernier point compte plus qu'il n'en a l'air : sans lui, une fois un
-		// objet selectionne on ne peut plus revenir a « rien de selectionne » sans
-		// passer par un menu. Or « rien » est un etat legitime -- c'est celui ou les
+		// objet selectionne on ne peut plus revenir a Â« rien de selectionne Â» sans
+		// passer par un menu. Or Â« rien Â» est un etat legitime -- c'est celui ou les
 		// commandes de scene s'appliquent.
 		// La hierarchie liste LA SCENE, plus des lignes inventees. Chaque ligne est
 		// un slot du viewport : les indices sont stables (tableau a trous), donc les
@@ -877,9 +877,9 @@ namespace nkentseu {
 			}
 		}
 
-		// ── BARRE DE DEFILEMENT SAISISSABLE ─────────────────────────────────
+		// â”€â”€ BARRE DE DEFILEMENT SAISISSABLE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		// La molette marchait ; la barre n'etait qu'un DESSIN (p.VScroll) --
-		// « le scrollbar n'est pas fonctionnel » (Rihen). Le pouce suit la
+		// Â« le scrollbar n'est pas fonctionnel Â» (Rihen). Le pouce suit la
 		// souris tant que le bouton reste enfonce, meme hors de la glissiere :
 		// le geste appartient a la barre ou il a commence (propDragKey).
 		inline void NkScrollDrag(NkModelerPainter &p, NkHitRegistry &hit, NkModelerState &st,
@@ -978,16 +978,41 @@ namespace nkentseu {
 				if (!searching) {
 					const NkRect rowR{r.x, yy, r.w, kRowH};
 					if (yy >= listTop - kRowH && yy < listTop + listH) {
+						// Le PARENT se selectionne aussi : tous ses enfants entrent
+						// dans le gizmo et se transforment ENSEMBLE, comme Unity. Le
+						// CHEVRON garde le pliage ; le reste de la ligne selectionne.
+						bool allSel = !isLightGrp && G2.count > 0;
+						if (!isLightGrp)
+							for (int32 k2 = 0; k2 < G2.count && allSel; ++k2)
+								if (!demo::Demo3DHostObjectSelected(G2.start + k2))
+									allSel = false;
 						snprintf(key, sizeof(key), "hier.grp.%d", gi2);
-						HoverFill(p, rowR, hit.Add(key, rowR), 0.f);
+						const bool overG = hit.Add(key, rowR);
+						if (allSel)
+							p.Fill(rowR, NkRole::AccentUi);
+						else
+							HoverFill(p, rowR, overG, 0.f);
+						const NkRole gfg = allSel ? NkRole::TextOnAccent : NkRole::Text;
+						const NkRect chevR{r.x + S(4.f), yy, S(18.f), kRowH};
+						snprintf(key, sizeof(key), "hier.grpc.%d", gi2);
+						hit.Add(key, chevR);
 						p.IconV(r.x + S(8.f), yy, kRowH,
-								open ? NkIcon::ChevronDown : NkIcon::ChevronRight, NkRole::Text, 11.f);
+								open ? NkIcon::ChevronDown : NkIcon::ChevronRight, gfg, 11.f);
 						char gl[48];
 						snprintf(gl, sizeof(gl), "%s (%d)", G2.name, G2.count);
-						p.TextV(r.x + S(24.f), yy, kRowH, gl);
-						p.TextV(colType, yy, kRowH, "Groupe", NkRole::TextMuted);
-						if (hit.Clicked(key))
-							st.hierOpen ^= (1u << gi2);
+						// Jamais de chevauchement Nom/Type, meme sur un groupe.
+					p.Clip({rowR.x, yy, colType - rowR.x - S(8.f), kRowH});
+					p.TextV(r.x + S(24.f), yy, kRowH, gl, gfg);
+					p.Unclip();
+						p.TextV(colType, yy, kRowH, "Groupe",
+								allSel ? NkRole::TextOnAccent : NkRole::TextMuted);
+						if (hit.Clicked(key)) {
+							st.hierOpen ^= (1u << gi2); // le chevron plie/deplie
+						} else {
+							snprintf(key, sizeof(key), "hier.grp.%d", gi2);
+							if (hit.Clicked(key) && !isLightGrp)
+								demo::Demo3DHostSelectGroup(G2.start, G2.count, hit.ShiftDown());
+						}
 					}
 					yy += kRowH;
 					++visibleCount;
@@ -1021,7 +1046,7 @@ namespace nkentseu {
 						const float32 tx = r.x + (searching ? S(20.f) : S(34.f));
 						p.IconV(tx, yy, kRowH, isLightGrp ? NkIcon::Light : NkIcon::Mesh, fg, 13.f);
 						// Le NOM est CLIPPE a sa colonne : en retrecissant le panneau il
-						// chevauchait « Type » (constate par Rihen).
+						// chevauchait Â« Type Â» (constate par Rihen).
 						p.Clip({rowR.x, yy, colType - rowR.x - S(8.f), kRowH});
 						p.TextV(tx + S(18.f), yy, kRowH, nameBuf, fg);
 						p.Unclip();
@@ -1078,8 +1103,15 @@ namespace nkentseu {
 				demo::Demo3DHostDeselectAll();
 
 			hit.Wheel("hier.list", st.scrollHier, (float32)visibleCount * kRowH, listH);
-			NkScrollDrag(p, hit, st, "hier.scrollbar", listR, (float32)visibleCount * kRowH,
-						 st.scrollHier);
+			// La barre s'ECARTE du bord : le SPLITTER de panneau (declare apres
+			// tout le reste) recouvrait la moitie droite de la glissiere et volait
+			// ses clics -- le Â« scrollbar ne fonctionne pas Â» de Rihen.
+			{
+				NkRect sbR = listR;
+				sbR.w -= S(7.f);
+				NkScrollDrag(p, hit, st, "hier.scrollbar", sbR, (float32)visibleCount * kRowH,
+							 st.scrollHier);
+			}
 
 			const float32 fy = r.y + r.h - kRowH;
 			p.Fill({r.x, fy, r.w, kRowH}, NkRole::WindowBg);
@@ -1089,7 +1121,7 @@ namespace nkentseu {
 			p.TextV(r.x + kPad, fy, kRowH, foot, NkRole::TextMuted);
 		}
 
-		// ── GIZMO DE NAVIGATION, FACON BLENDER ──────────────────────────────────
+		// â”€â”€ GIZMO DE NAVIGATION, FACON BLENDER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		// Six boules reliees au centre, une par DEMI-AXE. Les positives sont PLEINES
 		// et portent leur lettre ; les negatives sont CREUSES et muettes.
 		//
@@ -1154,7 +1186,7 @@ namespace nkentseu {
 				pr[i].sx = wx * rgt[0] + wy * rgt[1] + wz * rgt[2];
 				pr[i].sy = -(wx * upv[0] + wy * upv[1] + wz * upv[2]);
 				// Profondeur : positif = vers l'observateur, donc l'OPPOSE de l'axe
-				// « avant » de la camera, qui pointe vers la scene.
+				// Â« avant Â» de la camera, qui pointe vers la scene.
 				pr[i].depth = -(wx * fwd[0] + wy * fwd[1] + wz * fwd[2]);
 			}
 
@@ -1217,7 +1249,7 @@ namespace nkentseu {
 			}
 		}
 
-		// ── COLONNE DE BOUTONS DE VUE ───────────────────────────────────────────
+		// â”€â”€ COLONNE DE BOUTONS DE VUE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		// Zoom, deplacement lateral, camera, bascule orthographique/perspective.
 		// VERTICALE et sous le gizmo, comme chez Blender : ce sont des commandes de
 		// NAVIGATION, pas d'edition, et les tenir a l'ecart des outils evite de
@@ -1227,7 +1259,7 @@ namespace nkentseu {
 			// QUATRE COMMANDES DE NAVIGATION, cablees sur la DEMO PORTEE :
 			//   Loupe  -> glisser = zoom (le meme chemin que sa molette) ;
 			//            double-clic = pose d'ouverture ;
-			//   Main   -> glisser = deplacement lateral (« grab ») ;
+			//   Main   -> glisser = deplacement lateral (Â« grab Â») ;
 			//   Camera -> bascule editeur <-> vol (sa touche F) ;
 			//   Ortho  -> perspective / orthographique (son pave 5).
 			struct VB {
@@ -1285,7 +1317,7 @@ namespace nkentseu {
 			}
 		}
 
-		// ── COULEURS DE FOND ────────────────────────────────────────────────
+		// â”€â”€ COULEURS DE FOND â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		// Les cinq prereglages + la couleur PERSONNALISEE (index 5) reglee au
 		// picker. Une seule table : le bouton-temoin, le menu et le picker
 		// lisent la meme source.
@@ -1306,7 +1338,7 @@ namespace nkentseu {
 			}
 		}
 
-		// ── MENU DE VUE (actions) ───────────────────────────────────────────
+		// â”€â”€ MENU DE VUE (actions) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		inline void PaintViewMenuPopup(NkModelerPainter &p, NkHitRegistry &hit, NkModelerState &st,
 									   const NkRect &view, float32 barY, float32 barH) {
 			if (!st.viewMenuOpen)
@@ -1355,7 +1387,7 @@ namespace nkentseu {
 				st.viewMenuOpen = false;
 		}
 
-		// ── FOND : prereglages + picker de couleur personnalisee ────────────
+		// â”€â”€ FOND : prereglages + picker de couleur personnalisee â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		inline void PaintBgPopup(NkModelerPainter &p, NkHitRegistry &hit, NkModelerState &st,
 								 const NkRect &view, float32 barY, float32 barH) {
 			if (!st.bgMenuOpen)
@@ -1402,7 +1434,7 @@ namespace nkentseu {
 						st.bgMenuOpen = st.bgPickerOpen = false;
 				}
 			}
-			// ── LE PICKER : trois barres R/V/B + temoin. Un vrai choix de
+			// â”€â”€ LE PICKER : trois barres R/V/B + temoin. Un vrai choix de
 			// couleur, pas une roue complete -- elle viendra avec le theme.
 			if (st.bgPickerOpen) {
 				const float32 pw = S(210.f), ph = 3.f * S(24.f) + S(40.f);
@@ -1450,7 +1482,7 @@ namespace nkentseu {
 				st.bgMenuOpen = st.bgPickerOpen = false;
 		}
 
-		// ── MATCAPS PAR CATEGORIE, avec defilement V et H ───────────────────
+		// â”€â”€ MATCAPS PAR CATEGORIE, avec defilement V et H â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		// Les 34 boules de la bibliotheque, groupees par famille (les plages
 		// suivent kPresets de NkMatcapLibrary.cpp). Le panneau defile dans les
 		// deux sens des que le contenu depasse -- demande de Rihen.
@@ -1558,7 +1590,7 @@ namespace nkentseu {
 				y += cellH * (float32)((cnt + cols - 1) / cols);
 			}
 
-			// ── ASCENSEURS : VERTICAL puis HORIZONTAL, glissables ───────────
+			// â”€â”€ ASCENSEURS : VERTICAL puis HORIZONTAL, glissables â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 			if (needV) {
 				const NkRect track{box.x + box.w - S(8.f), box.y + S(4.f), S(5.f), viewH};
 				p.Fill(track, NkRole::InputBg, 2.f);
@@ -1605,13 +1637,13 @@ namespace nkentseu {
 				st.matcapOpen = false;
 		}
 
-		// ── VUE 3D (centre) ─────────────────────────────────────────────────────
+		// â”€â”€ VUE 3D (centre) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		inline void PaintViewport(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
 								  NkHitRegistry &hit, NkWidgetState &ws, NkComboPending &combo,
 								  NkCheckPending &checks, const NkShortcutTable &sc) {
 			const bool editMode = (st.mode != NkMode::Object);
 
-			// ── TAB BAR D'ESPACES DE TRAVAIL ────────────────────────────────
+			// â”€â”€ TAB BAR D'ESPACES DE TRAVAIL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 			// Un seul espace aujourd'hui (Modelisation) ; Sculpt, Texturing et
 			// NkAnima s'y rangeront. L'en-tete s'ESCAMOTE d'un clic sur le
 			// chevron -- replie, seul un petit chevron discret le rappelle.
@@ -1645,10 +1677,10 @@ namespace nkentseu {
 			vr.y += wsBarH;
 			vr.h -= wsBarH;
 
-			// ── LA VUE 3D REELLE ────────────────────────────────────────────────
+			// â”€â”€ LA VUE 3D REELLE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 			// Ce qui etait peint ici jusqu'a present -- un sol en fuyantes dessine a
 			// la main -- etait un DECOR. Il donnait l'impression d'une perspective
-			// sans caméra, sans profondeur et sans le moindre objet : rien de ce
+			// sans camÃ©ra, sans profondeur et sans le moindre objet : rien de ce
 			// qu'on y voyait ne pouvait etre selectionne, tourne ni modifie.
 			//
 			// A la place, la scene est rendue par NKRenderer dans une cible hors
@@ -1660,19 +1692,19 @@ namespace nkentseu {
 			p.Fill(vr, NkRole::ViewportTop); // visible tant que la 3D n'est pas prete
 			// PORTAGE INTEGRAL de --demo=2 : la texture vient desormais de la demo
 			// portee (NkDemo3D.cpp), sous le MEME id 4096. L'ancienne vue est
-			// dormante ; c'est donc l'hote de la demo qui dit « pret ».
+			// dormante ; c'est donc l'hote de la demo qui dit Â« pret Â».
 			if (demo::Demo3DHostReady()) {
 				p.Image(nk3d::kViewportTexId, vr);
 			} else if (const char *e = demo::Demo3DHostError()) {
-				// UN ECHEC SE DIT. Un viewport reste noir ne distingue pas « la carte
-				// a refuse la cible » de « la scene est vide », et on cherche le
+				// UN ECHEC SE DIT. Un viewport reste noir ne distingue pas Â« la carte
+				// a refuse la cible Â» de Â« la scene est vide Â», et on cherche le
 				// probleme du mauvais cote pendant une heure.
 				char msg[128];
 				snprintf(msg, sizeof(msg), "Vue 3D indisponible : %s", e);
 				p.TextV(r.x + S(16.f), r.y, r.h, msg, NkRole::TextMuted);
 			}
 
-			// ── ZONE DE LA SCENE ────────────────────────────────────────────────
+			// â”€â”€ ZONE DE LA SCENE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 			// La DEMO PORTEE gere elle-meme orbite, molette, zones de selection,
 			// curseur 3D et pick : cette zone ne sert plus qu'au SURVOL -- c'est lui
 			// qui autorise ses raccourcis et sa souris (voir Demo3DHostSetView).
@@ -1680,7 +1712,7 @@ namespace nkentseu {
 				hit.Add("view.nav", vr);
 			}
 
-			// ── GLISSEMENT DE NAVIGATION EN COURS (loupe, main, gizmo de nav) ──
+			// â”€â”€ GLISSEMENT DE NAVIGATION EN COURS (loupe, main, gizmo de nav) â”€â”€
 			// Il se poursuit MEME SI la souris quitte le bouton : c'est le bouton
 			// ENFONCE qui commande, pas la position.
 			if (st.navDragMode >= 0) {
@@ -1705,7 +1737,7 @@ namespace nkentseu {
 				}
 			}
 
-			// ── BARRE FLOTTANTE GAUCHE : ce qu'on REGARDE ───────────────────────
+			// â”€â”€ BARRE FLOTTANTE GAUCHE : ce qu'on REGARDE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 			// Trois listes deroulantes, chacune avec son icone d'etat. Les menus de
 			// commandes vivent dans la barre d'outils principale : les dupliquer ici
 			// donnerait deux endroits a tenir a jour pour une seule liste.
@@ -1729,8 +1761,8 @@ namespace nkentseu {
 				bx += S(3.f);
 
 				// MENU DE VUE : des ACTIONS (memoriser/rappeler la camera, reset,
-				// panneaux). Pas un Combo -- un menu d'actions n'a pas de « valeur
-				// courante » a afficher.
+				// panneaux). Pas un Combo -- un menu d'actions n'a pas de Â« valeur
+				// courante Â» a afficher.
 				{
 					const NkRect br{bx, barY + 2.f, ib, barH - 4.f};
 					const bool over = hit.Add("vp.menu", br);
@@ -1755,8 +1787,8 @@ namespace nkentseu {
 					  st.shading, combo, true, false, false);
 				bx += ib + 2.f;
 
-				// ── FOND DE LA VUE : le bouton EST un temoin de couleur ─────────
-				// Cinq prereglages + « Personnalisee » qui ouvre un PICKER (trois
+				// â”€â”€ FOND DE LA VUE : le bouton EST un temoin de couleur â”€â”€â”€â”€â”€â”€â”€â”€â”€
+				// Cinq prereglages + Â« Personnalisee Â» qui ouvre un PICKER (trois
 				// barres R/V/B) -- demande de Rihen. Le temoin montre la couleur
 				// REELLE : aucune icone ne dirait mieux l'etat.
 				{
@@ -1815,10 +1847,10 @@ namespace nkentseu {
 				}
 			}
 
-			// ── BARRE FLOTTANTE DROITE : ce qu'on FAIT ──────────────────────────
+			// â”€â”€ BARRE FLOTTANTE DROITE : ce qu'on FAIT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 			// TROIS GROUPES SEPARES PAR DU VIDE, et c'est ce que Rihen demandait :
 			//   1. les sous-modes de selection (mode edition seulement) ;
-			//   2. les outils -- « que fait mon clic ? », un seul actif ;
+			//   2. les outils -- Â« que fait mon clic ? Â», un seul actif ;
 			//   3. les reglages : repere, vitesse de camera, aimantations.
 			// Un seul bloc continu obligeait a compter les boutons pour retrouver le
 			// sien. L'espace fait le tri sans qu'on ait a lire.
@@ -1990,7 +2022,7 @@ namespace nkentseu {
 				}
 			}
 
-			// ── GIZMO DE NAVIGATION + BOUTONS DE VUE, en bas a gauche.
+			// â”€â”€ GIZMO DE NAVIGATION + BOUTONS DE VUE, en bas a gauche.
 			// Chez Blender ils sont en haut a droite ; ici la place y est prise par
 			// les outils, et Rihen a demande de garder le coin bas-gauche.
 			// Les boutons de navigation sont AU-DESSUS du gizmo, comme chez Blender :
@@ -2002,7 +2034,7 @@ namespace nkentseu {
 			PaintViewButtons(p, hit, st, r.x + 14.f, navY);
 			PaintNavGizmo(p, hit, st, r.x + 12.f + gz, r.y + r.h - 22.f - gz, gz);
 
-			// ── PANNEAU DE DERNIERE OPERATION. Il FLOTTE au-dessus de la scene et n'est
+			// â”€â”€ PANNEAU DE DERNIERE OPERATION. Il FLOTTE au-dessus de la scene et n'est
 			// pas encastre dans un bord : il appartient a la vue, pas au cadre.
 			if (editMode) {
 				const float32 pw = 214.f, ph = 4.f * kRowH + 6.f;
@@ -2036,26 +2068,26 @@ namespace nkentseu {
 				}
 			}
 
-			// ── POPUPS DE LA VUE : peints en DERNIER, par-dessus les barres ────
+			// â”€â”€ POPUPS DE LA VUE : peints en DERNIER, par-dessus les barres â”€â”€â”€â”€
 			PaintViewMenuPopup(p, hit, st, r, barY, barH);
 			PaintBgPopup(p, hit, st, r, barY, barH);
 			PaintMatcapPopup(p, hit, st, r, barY, barH);
 		}
 
-		// ── LIGNE DE TRANSFORMATION ─────────────────────────────────────────────
+		// â”€â”€ LIGNE DE TRANSFORMATION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		// TROIS CADRES DE LARGEUR IDENTIQUE, puis DEUX COLONNES CARREES pour les
 		// icones. La largeur egale n'est pas cosmetique : trois champs de tailles
 		// differentes se lisent comme trois choses differentes, alors que X, Y et Z
 		// sont la meme grandeur sur trois axes.
 		//
 		// Les deux colonnes d'icones sont CARREES et RESERVEES meme quand la ligne
-		// n'a qu'une icone : sans reservation, les champs de « Rotation » seraient
-		// plus larges que ceux de « Position », et les trois lignes ne s'aligneraient
+		// n'a qu'une icone : sans reservation, les champs de Â« Rotation Â» seraient
+		// plus larges que ceux de Â« Position Â», et les trois lignes ne s'aligneraient
 		// plus verticalement.
 		//
 		// LES VALEURS SE MODIFIENT EN GLISSANT, comme dans Blender et Unreal. C'est le
 		// geste le plus utilise d'un modeleur : bien plus souvent qu'on ne tape un
-		// nombre, on veut « un peu plus, un peu moins » en regardant le resultat.
+		// nombre, on veut Â« un peu plus, un peu moins Â» en regardant le resultat.
 		inline void PaintTransformRow(NkModelerPainter &p, NkHitRegistry &hit, NkWidgetState &ws,
 									  const nkgui::NkGuiInput &in, const NkRect &r, float32 y,
 									  const char *label, float32 *v, float32 step, const char *keyBase,
@@ -2111,7 +2143,7 @@ namespace nkentseu {
 			return kRowH + S(6.f);
 		}
 
-		// ── EN-TETE DE SECTION REPLIABLE ────────────────────────────────────────
+		// â”€â”€ EN-TETE DE SECTION REPLIABLE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		// La fleche REPLIE VRAIMENT la section. Une fleche qui ne fait rien est pire
 		// qu'une absence de fleche : elle promet une commande et ne la tient pas.
 		inline bool SectionHeader(NkModelerPainter &p, NkHitRegistry &hit, const NkRect &r, float32 y,
@@ -2128,14 +2160,14 @@ namespace nkentseu {
 			return open;
 		}
 
-		// ── PANNEAU DROIT UNIQUE : OBJET / SCENE / OUTIL ────────────────────
+		// â”€â”€ PANNEAU DROIT UNIQUE : OBJET / SCENE / OUTIL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		// Trois SOUS-BLOCS repliables, chacun son DEFILEMENT : le contenu d'une
 		// section peut etre tres long sans pousser les autres hors de l'ecran.
 		// La hauteur se partage entre les sections OUVERTES ; la hauteur de
 		// contenu est mesuree a l'image precedente (stable des la deuxieme).
 		inline void PaintPropertiesUnified(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
 										   NkHitRegistry &hit, NkWidgetState &ws,
-										   const nkgui::NkGuiInput &in) {
+										   const nkgui::NkGuiInput &in, NkComboPending &combo) {
 			p.Fill(r, NkRole::PanelBg);
 			p.VLine(r.x, r.y, r.h);
 			float32 y = PaintPanelTab(p, r, "Proprietes", &hit, &st.showRight, "props.close");
@@ -2182,20 +2214,60 @@ namespace nkentseu {
 				float32 yy = secY - st.propScroll3[sec];
 
 				if (sec == 0) {
-					// ── L'OBJET : nom + TRANSFORMATION COMPLETE ─────────────────
+					// â”€â”€ L'OBJET : nom + TRANSFORMATION COMPLETE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 					const int32 li = demo::Demo3DHostSelectedLight();
 					const int32 act = demo::Demo3DHostActiveObject();
 					if (li >= 0) {
+						// UNE LUMIERE A SES PROPRIETES comme un maillage (Rihen) --
+						// les vides et cameras suivront avec le modele objet.
 						demo::Demo3DHostLightName(li, buf, sizeof(buf));
 						p.IconV(r.x + kPad, yy, kRowH, NkIcon::Light, NkRole::Text, 13.f);
 						p.TextV(r.x + kPad + S(18.f), yy, kRowH, buf);
 						yy += kRowH;
-						float32 pos[3];
-						demo::Demo3DHostLightPosition(li, pos);
-						snprintf(buf, sizeof(buf), "X %.2f   Y %.2f   Z %.2f", (float64)pos[0],
-								 (float64)pos[1], (float64)pos[2]);
-						p.TextV(r.x + kPad, yy, kRowH, buf, NkRole::TextMuted);
+						float32 lpos[3];
+						demo::Demo3DHostLightPosition(li, lpos);
+						NkRect rowR = rr;
+						rowR.x = r.x;
+						PaintTransformRow(p, hit, ws, in, rowR, yy, "Position", lpos, 0.01f,
+										  "prop.lpos", NkIcon::None, NkIcon::None);
+						static float32 sLPull[3] = {};
+						static int32 sLLast = -1;
+						if (sLLast != li || !(ws.dragging || ws.editing)) {
+							// tirer : la lumiere peut bouger par son widget dans la vue
+						}
+						if (lpos[0] != sLPull[0] || lpos[1] != sLPull[1] || lpos[2] != sLPull[2]) {
+							if (sLLast == li)
+								demo::Demo3DHostSetLightPosition(li, lpos);
+							sLPull[0] = lpos[0];
+							sLPull[1] = lpos[1];
+							sLPull[2] = lpos[2];
+							sLLast = li;
+						}
+						yy += Vec3RowH();
+						float32 lcol[3], lint = 1.f;
+						demo::Demo3DHostLightParams(li, lcol, &lint);
+						bool lch = false;
+						p.TextV(r.x + kPad, yy, kRowH, "Intensite", NkRole::TextMuted);
+						lch |= DragFloat(p, hit, ws, in, "prop.lint",
+										 {r.x + S(120.f), yy + S(3.f), rr.w - S(128.f), kRowH - S(4.f)},
+										 lint, 0.05f, NkRole::AccentUi, "%.2f");
 						yy += kRowH;
+						PaintTransformRow(p, hit, ws, in, rowR, yy, "Couleur", lcol, 0.01f,
+										  "prop.lcol", NkIcon::None, NkIcon::None);
+						static float32 sLC[4] = {-1.f, 0.f, 0.f, 0.f};
+						if (lch || lcol[0] != sLC[1] || lcol[1] != sLC[2] || lcol[2] != sLC[3]) {
+							if ((int32)sLC[0] == li) {
+								for (int32 a = 0; a < 3; ++a)
+									if (lcol[a] < 0.f)
+										lcol[a] = 0.f;
+								demo::Demo3DHostSetLightParams(li, lcol, lint < 0.f ? 0.f : lint);
+							}
+							sLC[0] = (float32)li;
+							sLC[1] = lcol[0];
+							sLC[2] = lcol[1];
+							sLC[3] = lcol[2];
+						}
+						yy += Vec3RowH();
 					} else if (act >= 0 && demo::Demo3DHostObjectSelected(act)) {
 						demo::Demo3DHostObjectName(act, buf, sizeof(buf));
 						p.IconV(r.x + kPad, yy, kRowH, NkIcon::Mesh, NkRole::Text, 13.f);
@@ -2313,7 +2385,7 @@ namespace nkentseu {
 						yy += kRowH;
 					}
 				} else if (sec == 1) {
-					// ── LA SCENE : champs GLISSABLES (comme les transformations) ─
+					// â”€â”€ LA SCENE : champs GLISSABLES (comme les transformations) â”€
 					{
 						p.TextV(r.x + kPad, yy, kRowH, "Projection", NkRole::TextMuted);
 						const bool o = demo::Demo3DHostIsOrtho();
@@ -2387,36 +2459,66 @@ namespace nkentseu {
 						yy += kRowH;
 					}
 					{
+						// â”€â”€ FOND PAR TYPE : un COMBO, et les proprietes du type choisi
+						// juste en dessous (Rihen). Seule la COULEUR UNIE agit
+						// aujourd'hui ; degrade, texture, HDRI et ciel montrent leurs
+						// proprietes en annoncant le chantier moteur -- certains ne
+						// seront visibles qu'en mode Rendu/Materiaux.
 						p.TextV(r.x + kPad, yy, kRowH, "Fond", NkRole::TextMuted);
-						float32 bx = r.x + S(120.f);
-						for (int32 i3 = 0; i3 < 6; ++i3) {
-							snprintf(key, sizeof(key), "props.bg.%d", i3);
-							const NkRect br{bx, yy + S(4.f), S(18.f), kRowH - S(8.f)};
-							hit.Add(key, br);
-							float32 c[3];
-							NkBgColorOf(st, i3, c);
-							p.Fill(br, NkColor{(uint8)(c[0] * 255.f), (uint8)(c[1] * 255.f),
-											   (uint8)(c[2] * 255.f), 255},
-								   2.f);
-							if (st.bgChoice == i3)
-								p.OutlineSharp(br, NkRole::AccentUi);
-							if (hit.Clicked(key))
-								st.bgChoice = i3;
-							bx += S(22.f);
+						static const char *const kBgTypes[5] = {"Couleur unie", "Degrade", "Texture",
+																"HDRI", "Ciel"};
+						Combo(p, hit, ws, "props.bgtype", {r.x + S(120.f), yy + S(2.f), rr.w - S(128.f),
+														   kRowH - S(4.f)},
+							  kBgTypes, nullptr, 5, st.bgType, combo);
+						yy += kRowH;
+						if (st.bgType == 0) {
+							p.TextV(r.x + kPad, yy, kRowH, "Couleur", NkRole::TextMuted);
+							float32 bx = r.x + S(120.f);
+							for (int32 i3 = 0; i3 < 6; ++i3) {
+								snprintf(key, sizeof(key), "props.bg.%d", i3);
+								const NkRect br{bx, yy + S(4.f), S(18.f), kRowH - S(8.f)};
+								hit.Add(key, br);
+								float32 c[3];
+								NkBgColorOf(st, i3, c);
+								p.Fill(br, NkColor{(uint8)(c[0] * 255.f), (uint8)(c[1] * 255.f),
+												   (uint8)(c[2] * 255.f), 255},
+									   2.f);
+								if (st.bgChoice == i3)
+									p.OutlineSharp(br, NkRole::AccentUi);
+								if (hit.Clicked(key))
+									st.bgChoice = i3;
+								bx += S(22.f);
+							}
+							yy += kRowH;
+							p.TextV(r.x + kPad, yy, kRowH, "La 6e pastille = couleur du picker.",
+									NkRole::TextMuted);
+							yy += kRowH;
+						} else if (st.bgType == 1) {
+							p.TextV(r.x + kPad, yy, kRowH, "Haut / horizon / bas : trois",
+									NkRole::TextMuted);
+							yy += kRowH - S(6.f);
+							p.TextV(r.x + kPad, yy, kRowH, "couleurs -- fond moteur, a venir.",
+									NkRole::TextMuted);
+							yy += kRowH;
+						} else if (st.bgType == 2 || st.bgType == 3) {
+							p.TextV(r.x + kPad, yy, kRowH,
+									st.bgType == 2 ? "Fichier image : (aucun)" : "Fichier .hdr : (aucun)",
+									NkRole::TextMuted);
+							yy += kRowH - S(6.f);
+							p.TextV(r.x + kPad, yy, kRowH, "Visible en mode Rendu -- a venir.",
+									NkRole::TextMuted);
+							yy += kRowH;
+						} else {
+							p.TextV(r.x + kPad, yy, kRowH, "Ciel procedural (mode Rendu) --",
+									NkRole::TextMuted);
+							yy += kRowH - S(6.f);
+							p.TextV(r.x + kPad, yy, kRowH, "a venir avec le fond moteur.",
+									NkRole::TextMuted);
+							yy += kRowH;
 						}
-						yy += kRowH;
-						// Le FOND PAR TYPE (uni, degrade, texture, HDRI, ciel --
-						// certains visibles seulement en Rendu/Materiaux) demande le
-						// pipeline de fond du moteur : chantier note, pas un bouton mort.
-						p.TextV(r.x + kPad, yy, kRowH, "Degrade, texture, HDRI, ciel : avec",
-								NkRole::TextMuted);
-						yy += kRowH - S(6.f);
-						p.TextV(r.x + kPad, yy, kRowH, "le fond moteur (mode Rendu), a venir.",
-								NkRole::TextMuted);
-						yy += kRowH;
 					}
 				} else {
-					// ── L'OUTIL : ses reglages et son « appliquer » ─────────────
+					// â”€â”€ L'OUTIL : ses reglages et son Â« appliquer Â» â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 					static const char *const kToolNames[6] = {"Selection",  "Curseur 3D", "Deplacer",
 															  "Rotation",	"Echelle",	  "Multigizmo"};
 					p.TextV(r.x + kPad, yy, kRowH, kToolNames[(int32)st.tool]);
@@ -2506,11 +2608,11 @@ namespace nkentseu {
 				NkScrollDrag(p, hit, st, key, box, sContentH[sec], st.propScroll3[sec]);
 				secY += boxH;
 			}
-			if (!hit.MouseDown() && !st.propDragKey[0])
-				st.propDragKey[0] = 0;
+			if (!hit.MouseDown())
+				st.propDragKey[0] = 0; // fin de glissement : la barre lache le geste
 		}
 
-		// ── PROPRIETES (droite, haut) ───────────────────────────────────────────
+		// â”€â”€ PROPRIETES (droite, haut) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		inline void PaintProperties(NkModelerPainter &p, const NkRect &full, NkModelerState &st,
 									NkHitRegistry &hit, NkWidgetState &ws, const nkgui::NkGuiInput &in) {
 			p.Fill(full, NkRole::PanelBg);
@@ -2519,9 +2621,9 @@ namespace nkentseu {
 			const NkRect r = Inset(full);
 			y = PaintSearch(p, r, y, hit, ws, in, "props.search", st.searchProps);
 
-			// LES CINQ PASTILLES « General / Objet / Rendu / Physique / Tout » ONT
+			// LES CINQ PASTILLES Â« General / Objet / Rendu / Physique / Tout Â» ONT
 			// ETE RETIREES. Rihen a demande a quoi elles servaient : a rien. Elles
-			// venaient de la maquette et annonçaient quatre familles de reglages
+			// venaient de la maquette et annonÃ§aient quatre familles de reglages
 			// dont trois n'existent pas -- il n'y a ni materiau d'objet, ni physique.
 			// Une barre de filtres qui ne filtre rien apprend a ne plus lire les
 			// filtres, y compris ceux qui marcheront un jour.
@@ -2534,7 +2636,7 @@ namespace nkentseu {
 
 			const float32 listTop = y;
 			// Meme decoupe que Details : sinon la section Transformation remonte sur
-			// l'en-tete « Proprietes » et deborde sur Details en dessous.
+			// l'en-tete Â« Proprietes Â» et deborde sur Details en dessous.
 			const NkRect clipR{full.x, listTop, full.w, full.y + full.h - listTop};
 			p.Clip(clipR);
 			y -= st.scrollProps;
@@ -2559,7 +2661,7 @@ namespace nkentseu {
 									  NkIcon::Refresh, NkIcon::Lock, "%.3f");
 					y += Vec3RowH();
 					nk3d::Viewport3DSetObjectTransform(act, st.pos, st.rot, st.scl);
-					// ── EDITION PROPORTIONNELLE ─────────────────────────────
+					// â”€â”€ EDITION PROPORTIONNELLE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 					// Les sommets voisins suivent en s'attenuant, dans un rayon
 					// donne. C'est l'outil qui distingue une deformation organique
 					// d'un deplacement de sommets : sans lui, bouger un point d'un
@@ -2607,7 +2709,7 @@ namespace nkentseu {
 			p.VScroll(area, y - listTop + st.scrollProps, st.scrollProps);
 		}
 
-		// ── DETAILS (droite, bas) ───────────────────────────────────────────────
+		// â”€â”€ DETAILS (droite, bas) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		// LE DEROULANT DE MODIFICATEURS EST CELUI DE LA MAQUETTE, et il est ici
 		// VOLONTAIREMENT tel quel. J'avais dessine une PILE (activation,
 		// reordonnancement, application, retrait) parce que c'est ce qu'il faut
@@ -2664,7 +2766,7 @@ namespace nkentseu {
 			const NkRect r = Inset(full);
 			const float32 listTop = y;
 			// LE CONTENU EST DECOUPE au rectangle qui reste sous l'en-tete. Sans cela
-			// « Maillage » remonte par-dessus l'onglet « Details » des le premier cran
+			// Â« Maillage Â» remonte par-dessus l'onglet Â« Details Â» des le premier cran
 			// de molette, et les sections du bas debordent sur le navigateur. C'etait
 			// visible et c'est corrige ici plutot qu'en bornant le defilement : borner
 			// ne changerait rien, le debordement vient du DESSIN.
@@ -2672,7 +2774,7 @@ namespace nkentseu {
 			p.Clip(clipR);
 			y -= scroll;
 
-			// ── MAILLAGE ────────────────────────────────────────────────────────
+			// â”€â”€ MAILLAGE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 			if (DetailHeader(p, hit, r, y, st, NkDetailMesh, "Maillage")) {
 				// LES ARETES MANQUAIENT. Sur un maillage a demi-aretes elles ne sont
 				// pas une curiosite : c'est la seule des trois quantites qui trahit un
@@ -2681,7 +2783,7 @@ namespace nkentseu {
 				// laissait croire que le compte d'aretes n'existait pas.
 				static const char *const kL[] = {"Sommets", "Aretes", "Faces", "Triangles"};
 				// PLUS DE VALEURS EN DUR. Elles viennent du NkEditMesh lui-meme : un
-				// panneau qui affiche « 8 sommets » quoi qu'il arrive est pire qu'un
+				// panneau qui affiche Â« 8 sommets Â» quoi qu'il arrive est pire qu'un
 				// panneau vide, parce qu'on le croit.
 				uint32 nv = 0, ne = 0, nf = 0, nt = 0;
 				nk3d::Viewport3DStats(nv, ne, nf, nt);
@@ -2700,8 +2802,8 @@ namespace nkentseu {
 				}
 			}
 
-			// ── MODIFICATEURS : LA PILE REELLE ──────────────────────────────────
-			// Ce qui etait peint ici -- « Selectionner un modificateur » -- etait une
+			// â”€â”€ MODIFICATEURS : LA PILE REELLE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+			// Ce qui etait peint ici -- Â« Selectionner un modificateur Â» -- etait une
 			// facade. La pile vit sur l'objet actif, elle est NON DESTRUCTIVE (la
 			// cage editee reste la base) et l'ORDRE Y EST SIGNIFIANT : miroir puis
 			// reseau ne donne pas la meme chose que reseau puis miroir. D'ou les
@@ -2776,7 +2878,7 @@ namespace nkentseu {
 					}
 					y += kRowH;
 
-					// ── Parametres, decrits par le modificateur lui-meme ─────
+					// â”€â”€ Parametres, decrits par le modificateur lui-meme â”€â”€â”€â”€â”€
 					const uint32 nP = nk3d::Viewport3DModifierParamCount(m);
 					for (uint32 pi = 0; pi < nP; ++pi) {
 						const char *plabel = "";
@@ -2829,7 +2931,7 @@ namespace nkentseu {
 				}
 			}
 
-			// ── MATERIAUX : PLUSIEURS PAR MODELE ────────────────────────────────
+			// â”€â”€ MATERIAUX : PLUSIEURS PAR MODELE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 			// Rihen le rappelle et c'est structurant : un modele n'a pas UN materiau,
 			// il a une LISTE D'EMPLACEMENTS. Chaque face du maillage porte l'indice de
 			// l'emplacement qui la peint ; l'ensemble des faces qui partagent un indice
@@ -2839,11 +2941,11 @@ namespace nkentseu {
 			// Consequence sur le format du maillage : `NkEditMesh` doit porter un
 			// `materialSlot` PAR FACE, pas une couleur par objet. Consequence sur
 			// l'edition : selectionner des faces (ou des sommets, dont on deduit les
-			// faces) puis « Assigner » ecrit cet indice -- ce qui CREE le sous-maillage
+			// faces) puis Â« Assigner Â» ecrit cet indice -- ce qui CREE le sous-maillage
 			// sans qu'aucune geometrie soit dupliquee ni separee.
 			//
 			// Ce panneau n'est pour l'instant qu'une facade : les emplacements sont en
-			// dur et « Assigner » n'ecrit rien. Le cablage vient avec la vue 3D, quand
+			// dur et Â« Assigner Â» n'ecrit rien. Le cablage vient avec la vue 3D, quand
 			// il y aura une vraie selection a assigner.
 			if (DetailHeader(p, hit, r, y, st, NkDetailMaterial, "Materiaux")) {
 				// LES DEUX MATERIAUX ET LES DEUX SOUS-MAILLAGES QUI S'AFFICHAIENT ICI
@@ -2868,7 +2970,7 @@ namespace nkentseu {
 					{"Ajouter", NkIcon::Add}, {"Retirer", NkIcon::Trash}, {"Assigner", NkIcon::Check}};
 				for (int32 i = 0; i < 3; ++i) {
 					const NkRect br{r.x + 8.f + (float32)i * bw, y + 3.f, bw - 4.f, kRowH - 6.f};
-					// TOUT est grise tant qu'aucun materiau n'existe : « Assigner »
+					// TOUT est grise tant qu'aucun materiau n'existe : Â« Assigner Â»
 					// demande en plus une selection de faces, donc le mode edition.
 					const bool off = true;
 					const NkRole fg = off ? NkRole::TextMuted : NkRole::Text;
@@ -2879,7 +2981,7 @@ namespace nkentseu {
 				y += kRowH + 4.f;
 			}
 
-			// ── SOUS-MAILLAGES ──────────────────────────────────────────────────
+			// â”€â”€ SOUS-MAILLAGES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 			// Ce que les emplacements DECOUPENT. Un sous-maillage n'est pas un objet
 			// separe : c'est un groupe de faces du meme maillage. Il n'y en a donc
 			// aucun tant qu'aucun emplacement n'a ete assigne.
@@ -2895,7 +2997,7 @@ namespace nkentseu {
 			p.VScroll(area, y - listTop + scroll, scroll);
 		}
 
-		// ── NAVIGATEUR DE PROJET (bas) ──────────────────────────────────────────
+		// â”€â”€ NAVIGATEUR DE PROJET (bas) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		inline void PaintBrowser(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
 								 NkHitRegistry &hit, NkWidgetState &ws, const nkgui::NkGuiInput &in) {
 			const float32 treeScroll = st.scrollTree;
@@ -2983,7 +3085,7 @@ namespace nkentseu {
 			{
 				float32 dy = ty + S(4.f) - treeScroll;
 				char fkey[40];
-				// Racine « Contenu ».
+				// Racine Â« Contenu Â».
 				{
 					const NkRect rowR{r.x, dy, treeW, kRowH};
 					const bool over = hit.Add("brow.root", rowR);
@@ -3029,7 +3131,7 @@ namespace nkentseu {
 					p.TextV(r.x + S(8.f), dy, kRowH, "Aucun dossier", NkRole::TextMuted);
 			}
 
-			// ── CARTES : le contenu du dossier courant ──────────────────────────
+			// â”€â”€ CARTES : le contenu du dossier courant â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 			// Plus AUCUNE donnee simulee : chaque carte est un materiau ou une
 			// texture cree par l'utilisateur, rattache au dossier ouvert. Le style
 			// (ombre, damier, bande de type, pied a deux lignes) est celui valide
@@ -3069,7 +3171,7 @@ namespace nkentseu {
 				if (selCard)
 					p.Fill({tx - 2.f, tyy - 2.f, tw + 4.f, cardH + 4.f}, NkRole::AccentUi, 3.f);
 
-				// Damier de fond : il dit « ce fond est vide ».
+				// Damier de fond : il dit Â« ce fond est vide Â».
 				const float32 c = 8.f;
 				p.Fill({tx, tyy, tw, pvH}, NkRole::InputBg);
 				for (int32 gx = 0; gx * c < tw; ++gx)
@@ -3148,7 +3250,7 @@ namespace nkentseu {
 			(void)ih;
 		}
 
-		// ── CONTENU DES MENUS ───────────────────────────────────────────────────
+		// â”€â”€ CONTENU DES MENUS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		// Une TABLE plutot que du code : ajouter une entree ne demande pas de
 		// toucher au rendu, et la meme table servira la palette de recherche et le
 		// menu contextuel -- une liste ecrite deux fois finit par diverger.
@@ -3214,7 +3316,7 @@ namespace nkentseu {
 			return kMenus;
 		}
 
-		// ── DEROULEMENT D'UN MENU ───────────────────────────────────────────────
+		// â”€â”€ DEROULEMENT D'UN MENU â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		// Peint APRES tout le reste : un menu doit recouvrir les panneaux, et le
 		// registre de zones donne la priorite a ce qui est declare en dernier.
 		inline void PaintOpenMenu(NkModelerPainter &p, const NkRect &bar, NkModelerState &st,
@@ -3316,13 +3418,13 @@ namespace nkentseu {
 			}
 		}
 
-		// ── LISTE DES MODIFICATEURS, A DEUX NIVEAUX ─────────────────────────────
+		// â”€â”€ LISTE DES MODIFICATEURS, A DEUX NIVEAUX â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		// Peinte APRES tout le reste : elle doit recouvrir les panneaux, et le
 		// registre donne la priorite a la derniere zone declaree.
 		//
 		// LA CATEGORIE S'OUVRE AU SURVOL et non au clic. Un clic serait un geste de
 		// plus pour atteindre une entree qui, elle, en demande deja un -- et rien ne
-		// justifie de valider le fait de « regarder » une categorie.
+		// justifie de valider le fait de Â« regarder Â» une categorie.
 		inline void PaintModifierMenu(NkModelerPainter &p, NkModelerState &st, NkHitRegistry &hit,
 									  NkWidgetState &ws, float32 W, float32 H) {
 			if (!ws.ComboOpen("tb.mod"))
@@ -3405,7 +3507,7 @@ namespace nkentseu {
 								o2 ? NkRole::TextOnAccent : NkRole::Text, 13.f);
 						p.TextV(er.x + S(29.f), er.y, itemH, cats[c].items[i].label,
 								o2 ? NkRole::TextOnAccent : NkRole::Text);
-						// AUCUNE COCHE ICI. Une coche dit « ceci est l'option retenue » ;
+						// AUCUNE COCHE ICI. Une coche dit Â« ceci est l'option retenue Â» ;
 						// or ce menu ne retient rien, il AJOUTE. Le modificateur ajoute
 						// se lit dans le panneau Details, la ou il vit.
 						(void)cur;
@@ -3441,7 +3543,7 @@ namespace nkentseu {
 			}
 		}
 
-		// ── MENU « AJOUTER », DEUX NIVEAUX ──────────────────────────────────────
+		// â”€â”€ MENU Â« AJOUTER Â», DEUX NIVEAUX â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		// Meme mecanique que le menu des modificateurs : survol d'une categorie =
 		// ouverture de son sous-menu, clic sur une entree = creation + fermeture.
 		inline void PaintAddObjectMenu(NkModelerPainter &p, NkModelerState &st, NkHitRegistry &hit,
@@ -3532,7 +3634,7 @@ namespace nkentseu {
 			}
 		}
 
-		// ── SEPARATEURS GLISSABLES ──────────────────────────────────────────────
+		// â”€â”€ SEPARATEURS GLISSABLES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		// Ils modifient des FRACTIONS et non des pixels : la disposition se retrouve
 		// identique a la reouverture quelle que soit la taille de fenetre.
 		//
@@ -3603,7 +3705,7 @@ namespace nkentseu {
 			}
 		}
 
-		// ── CONFIRMATION DE FERMETURE ───────────────────────────────────────────
+		// â”€â”€ CONFIRMATION DE FERMETURE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		// N'apparait QUE si le document a des modifications non enregistrees.
 		// Demander confirmation pour un document propre serait une friction inutile,
 		// et l'utilisateur finirait par valider sans lire -- ce qui rend la question
@@ -3629,7 +3731,7 @@ namespace nkentseu {
 					bool primary;
 			};
 			// L'ordre compte : l'action la plus SURE est a droite, sous la main, et
-			// c'est elle qui porte l'accent. « Quitter sans enregistrer » reste
+			// c'est elle qui porte l'accent. Â« Quitter sans enregistrer Â» reste
 			// atteignable mais ne se propose pas.
 			const B kBtns[3] = {{"dlg.cancel", "Annuler", false},
 								{"dlg.discard", "Quitter sans enregistrer", false},
@@ -3661,7 +3763,7 @@ namespace nkentseu {
 			}
 		}
 
-		// ── BARRE D'ETAT ────────────────────────────────────────────────────────
+		// â”€â”€ BARRE D'ETAT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		inline void PaintStatus(NkModelerPainter &p, const NkRect &r, const NkModelerState &st) {
 			char stats[128];
 			if (st.mode == NkMode::Object)

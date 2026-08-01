@@ -207,6 +207,10 @@ namespace nkentseu {
 				uint32 hierOpen = 0xFFFFFFFFu;
 				// Une scene AJOUTEE est VIERGE : les objets de la demo y sont masques.
 				bool sceneBlank[8] = {};
+				// TYPE de fond de la scene : 0 couleur unie, 1 degrade, 2 texture,
+				// 3 HDRI, 4 ciel. Seule la couleur unie est cablee aujourd'hui ; les
+				// autres montrent leurs proprietes en annoncant le chantier moteur.
+				int32 bgType = 0;
 				int32 matcapDragBar = -1; ///< -1 aucun, 0 verticale, 1 horizontale
 				float32 matcapDragOff = 0.f;
 				// ── Navigateur de projet : CONTENU CREE PAR L'UTILISATEUR ───────
