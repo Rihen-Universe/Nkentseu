@@ -2250,11 +2250,16 @@ namespace nkentseu {
 			static const char *const kSecTitles[3] = {"Proprietes de l'objet",
 													  "Proprietes de la scene",
 													  "Proprietes de l'outil"};
-			int32 nOpen = 0;
+			bool *foldFlags[3] = {&st.propFold0, &st.propFold1, &st.propFold2};
+			int32 nOpen = 0, nUnfold = 0;
 			for (int32 i2 = 0; i2 < 3; ++i2)
-				if (*openFlags[i2])
+				if (*openFlags[i2]) {
 					++nOpen;
-			// Le partage ne compte que les en-tetes REELLEMENT affiches.
+					if (!*foldFlags[i2])
+						++nUnfold;
+				}
+			// Les en-tetes affiches (sections actives) sont deduits ; la place
+			// restante se partage entre les sections DEPLIEES.
 			const float32 availH = (r.y + r.h) - y - (float32)(nOpen > 0 ? nOpen : 1) * kRowH;
 			const NkRect rr{r.x, 0.f, r.w - S(14.f), 0.f}; // colonne du scrollbar reservee
 			// DEFILEMENT GLOBAL : la pile entiere glisse de propScroll ; le
@@ -2272,12 +2277,17 @@ namespace nkentseu {
 				if (!*openFlags[sec])
 					continue;
 				snprintf(key, sizeof(key), "props.sec.%d", sec);
-				SectionHeader(p, hit, r, secY, key, kSecTitles[sec], *openFlags[sec]);
+				// Le CHEVRON plie/deplie ; il ne retire jamais la section de la
+				// liste (ca, c'est la pastille). Plie : l'en-tete reste, le
+				// contenu est recouvert.
+				bool unfolded = !*foldFlags[sec];
+				SectionHeader(p, hit, r, secY, key, kSecTitles[sec], unfolded);
+				*foldFlags[sec] = !unfolded;
 				p.HLine(r.x, secY + kRowH - 1.f, r.w);
 				secY += kRowH;
-				if (!*openFlags[sec])
-					continue; // l'en-tete vient de replier la section
-				float32 share = availH / (float32)(nOpen > 0 ? nOpen : 1);
+				if (*foldFlags[sec])
+					continue; // plie par son chevron : en-tete seul
+				float32 share = availH / (float32)(nUnfold > 0 ? nUnfold : 1);
 				// La hauteur CHOISIE (poignee) prime ; sinon partage automatique
 				// borne par le contenu.
 				float32 boxH = (st.propSecH[sec] > 0.f)

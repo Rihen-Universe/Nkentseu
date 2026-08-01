@@ -199,6 +199,10 @@ namespace nkentseu {
 				// Les trois SOUS-BLOCS du panneau Proprietes : replies/deplies et
 				// chacun son defilement -- leur contenu peut etre tres long.
 				bool propOpen0 = true, propOpen1 = true, propOpen2 = true;
+				// PLIEE par le chevron de son en-tete : l'en-tete reste visible,
+				// seul le contenu est recouvert -- distinct de la pastille, qui
+				// retire la section de la liste.
+				bool propFold0 = false, propFold1 = false, propFold2 = false;
 				float32 propScroll3[3] = {0.f, 0.f, 0.f};
 				// Hauteur CHOISIE de chaque section (0 = partage automatique) :
 				// la poignee sous la section la regle.
