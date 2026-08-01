@@ -3238,6 +3238,40 @@ namespace nkentseu {
 										demo::Demo3DHostSetUserLightParams(en, ulc, uli);
 								}
 							}
+							{
+								// CAMERA : ses proprietes propres (declaratives tant que
+								// le rendu au travers de la camera n'est pas branche).
+								float32 cf = 50.f, cnr = 0.1f, cfr = 100.f;
+								if (demo::Demo3DHostCameraParams(en, &cf, &cnr, &cfr)) {
+									const float32 c0[3] = {cf, cnr, cfr};
+									p.TextV(r.x + kPad, yy, kRowH, "Camera",
+											NkRole::TextMuted);
+									yy += kRowH;
+									p.TextV(r.x + kPad, yy, kRowH, "Focale (deg)",
+											NkRole::TextMuted);
+									DragFloat(p, hit, ws, in, "prop.cfov",
+											  {r.x + S(120.f), yy + S(3.f), rr.w - S(128.f),
+											   kRowH - S(4.f)},
+											  cf, 0.2f, NkRole::AccentUi, "%.0f");
+									yy += kRowH;
+									p.TextV(r.x + kPad, yy, kRowH, "Clip debut",
+											NkRole::TextMuted);
+									DragFloat(p, hit, ws, in, "prop.cnear",
+											  {r.x + S(120.f), yy + S(3.f), rr.w - S(128.f),
+											   kRowH - S(4.f)},
+											  cnr, 0.01f, NkRole::AccentUi, "%.2f");
+									yy += kRowH;
+									p.TextV(r.x + kPad, yy, kRowH, "Clip fin",
+											NkRole::TextMuted);
+									DragFloat(p, hit, ws, in, "prop.cfar",
+											  {r.x + S(120.f), yy + S(3.f), rr.w - S(128.f),
+											   kRowH - S(4.f)},
+											  cfr, 0.5f, NkRole::AccentUi, "%.0f");
+									yy += kRowH;
+									if (cf != c0[0] || cnr != c0[1] || cfr != c0[2])
+										demo::Demo3DHostSetCameraParams(en, cf, cnr, cfr);
+								}
+							}
 							NkXmitRow(p, hit, r, rr, yy, en);
 						}
 					} else if (li >= 0) {
