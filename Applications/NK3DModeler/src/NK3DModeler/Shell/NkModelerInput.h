@@ -220,7 +220,7 @@ namespace nkentseu {
 				// NOMS PERSONNALISES de la hierarchie : 0..85 objets, 86..89
 				// lumieres, 90..95 parents. Vide = nom genere. Ils vivent ici tant
 				// que la demo n'a pas de champ nom ; le format projet les reprendra.
-				char customNames[100][24] = {};
+				char customNames[176][24] = {};
 				// Cadenas et proportionnel des lignes de transformation.
 				bool lockPos = false, lockRot = false, lockScl = false;
 				// PROPAGER AUX ENFANTS : les proprietes communes editees sur un
@@ -242,6 +242,13 @@ namespace nkentseu {
 				float32 hierDragX = 0.f, hierDragY = 0.f;
 				bool hierDragging = false;
 				bool hierMouseWasDown = false;
+				// MENU CONTEXTUEL de la hierarchie (clic droit sur une ligne).
+				int32 hierMenuNode = -1;
+				float32 hierMenuX = 0.f, hierMenuY = 0.f;
+				// UNITES DE MESURE de la scene (0 metrique, 1 imperial, 2 aucun).
+				int32 unitSystem = 0;
+				int32 unitLength = 0;
+				float32 unitScale = 1.f;
 				// Une scene AJOUTEE est VIERGE : les objets de la demo y sont masques.
 				bool sceneBlank[8] = {};
 				// TYPE de fond de la scene : 0 couleur unie, 1 degrade, 2 texture,

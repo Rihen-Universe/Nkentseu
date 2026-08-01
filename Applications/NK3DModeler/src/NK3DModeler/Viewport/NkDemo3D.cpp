@@ -57,8 +57,8 @@ namespace nkentseu {
 		// OEIL et CADENAS de la hierarchie : visibilite et verrou PAR OBJET.
 		// La visibilite gate les soumissions de la demo ; le verrou bloque la
 		// selection depuis la hierarchie et l'ecriture de transformation.
-		static bool nkvpObjHidden[128] = {};
-		static bool nkvpObjLocked[128] = {};
+		static bool nkvpObjHidden[160] = {};
+		static bool nkvpObjLocked[160] = {};
 		static bool nkvpLightHidden[8] = {};
 		static float32 nkvpFarOverride = 0.f;  // 0 = auto (dist*20+100) ; sinon la
 											   // DISTANCE DE VUE choisie, independante
@@ -77,7 +77,7 @@ namespace nkentseu {
 		// -1 = racine. La transformation d'un parent est REPERCUTEE a son
 		// sous-arbre par le detecteur de frame (HostHierarchyFrame) ; la
 		// selection d'un parent ne selectionne PAS ses enfants.
-		static constexpr int32 kNkvpMaxNodes = 96;
+		static constexpr int32 kNkvpMaxNodes = 160;
 		static constexpr int32 kNkvpFirstEmpty = 90;
 		static int32 nkvpParentOf[kNkvpMaxNodes];
 		// MASQUE DE TRANSMISSION par parent : bit 1 position, bit 2 rotation,
@@ -86,11 +86,24 @@ namespace nkentseu {
 		static uint8 nkvpXmit[kNkvpMaxNodes];
 		static bool nkvpParentInit = false;
 		// Transform PROPRE des empties (ils n'existent pas dans la demo).
-		static float32 nkvpEmptyPos[8][3] = {};
-		static float32 nkvpEmptyRotDeg[8][3] = {};
-		static float32 nkvpEmptyScl[8][3] = {{1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f},
-											 {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f},
-											 {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}};
+		// Transforms en TABLEAUX des noeuds 90..159 : 0..5 = empties, 6..69 =
+		// OBJETS UTILISATEUR -- une seule plage, toute la machinerie (gizmo,
+		// panneau, detecteur) est partagee.
+		static float32 nkvpEmptyPos[70][3] = {};
+		static float32 nkvpEmptyRotDeg[70][3] = {};
+		static float32 nkvpEmptyScl[70][3] = {{1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}};
+		// OBJETS UTILISATEUR : nature du slot (0 libre, 1 sphere, 2 cube,
+		// 3 plan, 4 empty).
+		static constexpr int32 kNkvpFirstUser = 96;
+		static constexpr int32 kNkvpMaxUser = 64;
+		static uint8 nkvpUserKind[kNkvpMaxUser] = {};
+		// SUPPRESSION par drapeau (heritee par la visibilite effective).
+		static bool nkvpDeleted[kNkvpMaxNodes] = {};
+		// PRESSE-PAPIERS de noeud (copier/coller).
+		static bool nkvpClipSet = false;
+		static uint8 nkvpClipKind = 0;
+		static float32 nkvpClipTRS[9];
+		static float32 nkvpClipMat[5];
 		static void HostHierarchyFrame(); // detecteur (defini pres des accesseurs)
 		static void HostParentEnsureInit();
 		static void HostDecompose(const NkMat4f &M, NkVec3f &pos, NkVec3f &rotDeg, NkVec3f &scl);
@@ -98,9 +111,13 @@ namespace nkentseu {
 		// cacher/cadenasser un parent emporte tout son sous-arbre, mais chaque
 		// enfant GARDE son propre drapeau, restaure au retour (regle de Rihen).
 		static bool HostNodeHiddenOwn(int32 n) {
+			if (n < 0 || n >= kNkvpMaxNodes)
+				return false;
+			if (nkvpDeleted[n])
+				return true; // supprime = plus jamais rendu
 			if (n >= 86 && n < 90)
 				return nkvpLightHidden[n - 86];
-			return n >= 0 && n < 128 && nkvpObjHidden[n];
+			return nkvpObjHidden[n];
 		}
 		static bool HostHiddenEff(int32 n) {
 			for (int32 g = 0; g < kNkvpMaxNodes && n >= 0; ++g) {
@@ -112,7 +129,7 @@ namespace nkentseu {
 		}
 		static bool HostLockedEff(int32 n) {
 			for (int32 g = 0; g < kNkvpMaxNodes && n >= 0; ++g) {
-				if (n < 128 && nkvpObjLocked[n])
+				if (n < 160 && nkvpObjLocked[n])
 					return true;
 				n = nkvpParentOf[n];
 			}
@@ -4635,6 +4652,48 @@ namespace nkentseu {
 					r3d->Submit(dc);
 			}
 
+			// ── OBJETS UTILISATEUR (duplication / collage / menu Ajouter) ────────
+			// Adosses aux maillages de la demo ; transform = tableaux + decalages
+			// du gizmo (effectif -> ils suivent la poignee en direct).
+			for (int32 u = 0; u < kNkvpMaxUser; ++u) {
+				const uint8 uk = nkvpUserKind[u];
+				if (uk == 0 || uk == 4)
+					continue; // libre ou empty : rien a rendre ici
+				const int32 un = kNkvpFirstUser + u;
+				if (HostHiddenEff(un))
+					continue;
+				const int32 e = un - 90;
+				const float32 kD2Ru = 0.017453292f;
+				const NkVec3f utr = st->emptyGizmo.TranslateOf(e);
+				const NkVec3f uos = st->emptyGizmo.ScaleOf(e);
+				const NkMat4f uR =
+					st->emptyGizmo.RotationOf(e) *
+					(NkMat4f::RotationZ(NkAngle::FromRad(nkvpEmptyRotDeg[e][2] * kD2Ru)) *
+					 NkMat4f::RotationY(NkAngle::FromRad(nkvpEmptyRotDeg[e][1] * kD2Ru)) *
+					 NkMat4f::RotationX(NkAngle::FromRad(nkvpEmptyRotDeg[e][0] * kD2Ru)));
+				NkDrawCall3D dc;
+				dc.mesh = uk == 1 ? st->meshSphere : (uk == 2 ? st->meshCube : st->meshPlane);
+				const NkVec3f uc{nkvpEmptyPos[e][0] + utr.x, nkvpEmptyPos[e][1] + utr.y,
+								 nkvpEmptyPos[e][2] + utr.z};
+				dc.transform = NkMat4f::Translate(uc) * uR *
+							   NkMat4f::Scale({nkvpEmptyScl[e][0] * (1.f + uos.x),
+											   nkvpEmptyScl[e][1] * (1.f + uos.y),
+											   nkvpEmptyScl[e][2] * (1.f + uos.z)});
+				float32 uh = fabsf(nkvpEmptyScl[e][0]);
+				if (fabsf(nkvpEmptyScl[e][1]) > uh)
+					uh = fabsf(nkvpEmptyScl[e][1]);
+				if (fabsf(nkvpEmptyScl[e][2]) > uh)
+					uh = fabsf(nkvpEmptyScl[e][2]);
+				uh = uh * 1.2f + 0.2f;
+				dc.aabb = {{uc.x - uh, uc.y - uh, uc.z - uh}, {uc.x + uh, uc.y + uh, uc.z + uh}};
+				dc.castShadow = true;
+				dc.tint = effTint({0.7f, 0.7f, 0.72f});
+				dc.metallic = 0.f;
+				dc.roughness = 0.6f;
+				HostMatHook(un, dc);
+				r3d->Submit(dc);
+			}
+
 			// ── NkVSM v2 : panneau feuillage ALPHA-TESTED (ombre trouee) ──────────
 			// Panneau vertical au-dessus du sol, entre le soleil et le sol : son
 			// ombre doit montrer les trous entre les disques (Shadow_AlphaTest).
@@ -6600,9 +6659,9 @@ namespace nkentseu {
 					{
 						st->emptyGizmo.SetCamera(cam.GetPosition(), cam.GetTarget(), 60.f,
 												 (float32)ctx.width, (float32)ctx.height);
-						renderer::NkGizmoTarget etg[6];
+						renderer::NkGizmoTarget etg[70];
 						const float32 kD2R = 0.017453292f;
-						for (int32 e = 0; e < 6; ++e) {
+						for (int32 e = 0; e < 70; ++e) {
 							const NkMat4f eR =
 								NkMat4f::RotationZ(NkAngle::FromRad(nkvpEmptyRotDeg[e][2] * kD2R)) *
 								NkMat4f::RotationY(NkAngle::FromRad(nkvpEmptyRotDeg[e][1] * kD2R)) *
@@ -6617,12 +6676,12 @@ namespace nkentseu {
 						}
 						renderer::NkGizmoInput ein = gin;
 						const bool ewasDrag = st->emptyGizmo.IsDragging();
-						st->emptyGizmo.Update(etg, 6, ein);
+						st->emptyGizmo.Update(etg, 70, ein);
 						if (!ewasDrag && st->emptyGizmo.IsDragging())
 							gin.leftPressed = false; // poignee saisie : le clic est a nous
 						if (st->emptyDragPrev && !st->emptyGizmo.IsDragging()) {
 							const int32 es = st->emptyGizmo.ActiveIndex();
-							if (es >= 0 && es < 6) {
+							if (es >= 0 && es < 70) {
 								// REPLI : effective -> base, gizmo remis a zero (meme
 								// regle que les lumieres, sinon base et decalages
 								// divergent).
@@ -6936,7 +6995,11 @@ namespace nkentseu {
 			// qui tournaient sans jamais etre dessinees (constate par Rihen).
 			{
 				const int32 esel = st->emptyGizmo.ActiveIndex();
-				for (int32 e = 0; e < 6; ++e) {
+				for (int32 e = 0; e < 70; ++e) {
+					// Seuls les EMPTIES ont une croix : un maillage utilisateur a
+					// son rendu, un slot libre n'existe pas.
+					if (90 + e >= kNkvpFirstUser && nkvpUserKind[e - 6] != 4)
+						continue;
 					if (HostHiddenEff(90 + e))
 						continue;
 					const NkVec3f etr = st->emptyGizmo.TranslateOf(e);
@@ -7990,18 +8053,18 @@ namespace nkentseu {
 
 		// ── OEIL / CADENAS / SCENE VIERGE ───────────────────────────────────
 		void Demo3DHostSetObjectHidden(int32 i, bool hidden) {
-			if (i >= 0 && i < 128)
+			if (i >= 0 && i < 160)
 				nkvpObjHidden[i] = hidden;
 		}
 		bool Demo3DHostObjectHidden(int32 i) {
-			return (i >= 0 && i < 128) && nkvpObjHidden[i];
+			return (i >= 0 && i < 160) && nkvpObjHidden[i];
 		}
 		void Demo3DHostSetObjectLocked(int32 i, bool locked) {
-			if (i >= 0 && i < 128)
+			if (i >= 0 && i < 160)
 				nkvpObjLocked[i] = locked;
 		}
 		bool Demo3DHostObjectLocked(int32 i) {
-			return (i >= 0 && i < 128) && nkvpObjLocked[i];
+			return (i >= 0 && i < 160) && nkvpObjLocked[i];
 		}
 		void Demo3DHostSetLightHidden(int32 li, bool hidden) {
 			if (li >= 0 && li < 8)
@@ -8012,7 +8075,7 @@ namespace nkentseu {
 		}
 		void Demo3DHostSetAllHidden(bool hidden) {
 			// La SCENE VIERGE d'un nouvel onglet : tout est masque d'un coup.
-			for (int32 i = 0; i < 128; ++i)
+			for (int32 i = 0; i < 160; ++i)
 				nkvpObjHidden[i] = hidden;
 			for (int32 i = 0; i < 8; ++i)
 				nkvpLightHidden[i] = hidden;
@@ -8124,6 +8187,9 @@ namespace nkentseu {
 			}
 			if (HostLockedEff(node))
 				return; // empty cadenasse (lui ou un ancetre)
+			if (nkvpDeleted[node] ||
+				(node >= kNkvpFirstUser && nkvpUserKind[node - kNkvpFirstUser] == 0))
+				return; // supprime ou slot libre
 			st->gizmo.ClearSelection();
 			st->lightGizmo.ClearSelection();
 			st->lightSel = -1;
@@ -8404,10 +8470,11 @@ namespace nkentseu {
 			// CADENAS INVIOLABLE : quel que soit le chemin (clic vue, zone,
 			// panneau), un objet verrouille est desselectionne d'office.
 			for (int32 i = 0; i < Demo3DState::kNumObj; ++i)
-				if (HostLockedEff(i) && st->gizmo.IsSelected(i))
+				if ((HostLockedEff(i) || nkvpDeleted[i]) && st->gizmo.IsSelected(i))
 					st->gizmo.ToggleSelection(i);
 			for (int32 li2 = 0; li2 < Demo3DState::kNumLights; ++li2)
-				if (HostLockedEff(86 + li2) && st->lightGizmo.IsSelected(li2))
+				if ((HostLockedEff(86 + li2) || nkvpDeleted[86 + li2]) &&
+					st->lightGizmo.IsSelected(li2))
 					st->lightGizmo.ToggleSelection(li2);
 			if (!sHierOk) {
 				sHierOk = true;
@@ -8420,6 +8487,186 @@ namespace nkentseu {
 			// la frame suivante.
 			for (int32 n = 0; n < kNkvpMaxNodes; ++n)
 				HostNodeWorld(st, n, sHierPos[n], sHierRot[n], sHierScl[n]);
+		}
+		// ── SUPPRESSION / DUPLICATION / PRESSE-PAPIERS ──────────────────────
+		bool Demo3DHostNodeDeleted(int32 node) {
+			return node >= 0 && node < kNkvpMaxNodes && nkvpDeleted[node];
+		}
+		static void HostDeselectNode(Demo3DState *st, int32 n) {
+			if (n < Demo3DState::kNumObj) {
+				if (st->gizmo.IsSelected(n))
+					st->gizmo.ToggleSelection(n);
+			} else if (n < kNkvpFirstEmpty) {
+				if (st->lightGizmo.IsSelected(n - Demo3DState::kNumObj))
+					st->lightGizmo.ToggleSelection(n - Demo3DState::kNumObj);
+				st->lightSel = st->lightGizmo.ActiveIndex();
+			} else if (st->emptyGizmo.ActiveIndex() == n - kNkvpFirstEmpty) {
+				st->emptyGizmo.ClearSelection();
+			}
+		}
+		void Demo3DHostDeleteNode(int32 node, bool withChildren) {
+			HostParentEnsureInit();
+			if (node < 0 || node >= kNkvpMaxNodes || nkvpDeleted[node])
+				return;
+			nkvpDeleted[node] = true;
+			if (node >= kNkvpFirstUser)
+				nkvpUserKind[node - kNkvpFirstUser] = 0; // slot recyclable
+			auto *st = HostSt();
+			if (st)
+				HostDeselectNode(st, node);
+			for (int32 c = 0; c < kNkvpMaxNodes; ++c) {
+				if (nkvpParentOf[c] != node || nkvpDeleted[c])
+					continue;
+				if (withChildren)
+					Demo3DHostDeleteNode(c, true); // le sous-arbre part avec (Rihen)
+				else
+					nkvpParentOf[c] = nkvpParentOf[node]; // remonte d'un cran
+			}
+		}
+		static int32 HostAllocUser(uint8 kind) {
+			HostParentEnsureInit();
+			for (int32 u = 0; u < kNkvpMaxUser; ++u) {
+				if (nkvpUserKind[u] != 0)
+					continue;
+				const int32 n = kNkvpFirstUser + u;
+				nkvpUserKind[u] = kind;
+				nkvpDeleted[n] = false;
+				nkvpParentOf[n] = -1;
+				nkvpXmit[n] = 7;
+				nkvpMatMask[n] = 0;
+				nkvpObjHidden[n] = false;
+				nkvpObjLocked[n] = false;
+				const int32 e = n - kNkvpFirstEmpty;
+				for (int32 a = 0; a < 3; ++a) {
+					nkvpEmptyPos[e][a] = 0.f;
+					nkvpEmptyRotDeg[e][a] = 0.f;
+					nkvpEmptyScl[e][a] = 1.f;
+				}
+				return n;
+			}
+			return -1;
+		}
+		// Nature GEOMETRIQUE d'un noeud (pour duplication/collage).
+		static uint8 HostKindOf(int32 node) {
+			if (node >= kNkvpFirstUser)
+				return nkvpUserKind[node - kNkvpFirstUser];
+			if (node >= kNkvpFirstEmpty)
+				return 4; // empty
+			if (node >= Demo3DState::kNumObj)
+				return 0; // lumiere : pas duplicable (v1, note au carnet)
+			if (node <= 15)
+				return 1; // spheres
+			if (node == 83 || node == 84)
+				return 3; // sol et feuillage : plans
+			return 2; // cube central, colonnes, instances, mur
+		}
+		int32 Demo3DHostUserKind(int32 node) {
+			return (node >= kNkvpFirstUser && node < kNkvpMaxNodes)
+					   ? (int32)nkvpUserKind[node - kNkvpFirstUser]
+					   : 0;
+		}
+		static int32 HostSpawnLike(int32 src, const float32 *offset) {
+			auto *st = HostSt();
+			if (!st || src < 0 || src >= kNkvpMaxNodes)
+				return -1;
+			const uint8 kind = HostKindOf(src);
+			if (kind == 0)
+				return -1;
+			const int32 n = HostAllocUser(kind);
+			if (n < 0)
+				return -1;
+			// Transform MONDE de la source (decalage pour la voir naitre a cote).
+			float32 wp[3], wsc[3];
+			NkMat4f wr;
+			HostNodeWorld(st, src, wp, wr, wsc);
+			NkVec3f qp, qr, qs;
+			HostDecompose(wr, qp, qr, qs);
+			const int32 e = n - kNkvpFirstEmpty;
+			for (int32 a = 0; a < 3; ++a) {
+				nkvpEmptyPos[e][a] = wp[a] + offset[a];
+				nkvpEmptyScl[e][a] = wsc[a];
+			}
+			nkvpEmptyRotDeg[e][0] = qr.x;
+			nkvpEmptyRotDeg[e][1] = qr.y;
+			nkvpEmptyRotDeg[e][2] = qr.z;
+			// Le rendu EFFECTIF de la source devient la surcharge du double.
+			if (kind >= 1 && kind <= 3) {
+				nkvpMatMask[n] = 1 | 2 | 4;
+				nkvpMatTint[n][0] = nkvpMatCache[src][0];
+				nkvpMatTint[n][1] = nkvpMatCache[src][1];
+				nkvpMatTint[n][2] = nkvpMatCache[src][2];
+				nkvpMatMetal[n] = nkvpMatCache[src][3];
+				nkvpMatRough[n] = nkvpMatCache[src][4];
+			}
+			const int32 pp = nkvpParentOf[src];
+			nkvpParentOf[n] = (pp >= 0 && !nkvpDeleted[pp]) ? pp : -1;
+			return n;
+		}
+		int32 Demo3DHostDuplicateNode(int32 node) {
+			const float32 off[3] = {0.45f, 0.f, 0.45f};
+			return HostSpawnLike(node, off);
+		}
+		void Demo3DHostCopyNode(int32 node) {
+			auto *st = HostSt();
+			if (!st || node < 0 || node >= kNkvpMaxNodes)
+				return;
+			const uint8 kind = HostKindOf(node);
+			if (kind == 0)
+				return;
+			nkvpClipSet = true;
+			nkvpClipKind = kind;
+			float32 wp[3], wsc[3];
+			NkMat4f wr;
+			HostNodeWorld(st, node, wp, wr, wsc);
+			NkVec3f qp, qr, qs;
+			HostDecompose(wr, qp, qr, qs);
+			for (int32 a = 0; a < 3; ++a) {
+				nkvpClipTRS[a] = wp[a];
+				nkvpClipTRS[6 + a] = wsc[a];
+			}
+			nkvpClipTRS[3] = qr.x;
+			nkvpClipTRS[4] = qr.y;
+			nkvpClipTRS[5] = qr.z;
+			for (int32 a = 0; a < 5; ++a)
+				nkvpClipMat[a] = nkvpMatCache[node][a];
+		}
+		int32 Demo3DHostPasteNode() {
+			if (!nkvpClipSet)
+				return -1;
+			const int32 n = HostAllocUser(nkvpClipKind);
+			if (n < 0)
+				return -1;
+			const int32 e = n - kNkvpFirstEmpty;
+			for (int32 a = 0; a < 3; ++a) {
+				nkvpEmptyPos[e][a] = nkvpClipTRS[a];
+				nkvpEmptyRotDeg[e][a] = nkvpClipTRS[3 + a];
+				nkvpEmptyScl[e][a] = nkvpClipTRS[6 + a];
+			}
+			if (nkvpClipKind >= 1 && nkvpClipKind <= 3) {
+				nkvpMatMask[n] = 1 | 2 | 4;
+				nkvpMatTint[n][0] = nkvpClipMat[0];
+				nkvpMatTint[n][1] = nkvpClipMat[1];
+				nkvpMatTint[n][2] = nkvpClipMat[2];
+				nkvpMatMetal[n] = nkvpClipMat[3];
+				nkvpMatRough[n] = nkvpClipMat[4];
+			}
+			return n;
+		}
+		// Taille LOCALE approchee d'un noeud par nature : les DIMENSIONS du
+		// panneau = echelle monde x cette base (le format projet l'affinera
+		// avec les vraies boites englobantes).
+		void Demo3DHostNodeBaseSize(int32 node, float32 *out3) {
+			const uint8 k = HostKindOf(node);
+			float32 b = 1.2f; // cube unite de la demo
+			if (k == 1)
+				b = 1.1f; // sphere
+			out3[0] = out3[1] = out3[2] = b;
+			if (k == 3) { // plan : etendu en X/Z, plat en Y
+				out3[0] = out3[2] = (node == 83) ? 80.f : 2.f;
+				out3[1] = 0.f;
+			}
+			if (k == 0 || k == 4)
+				out3[0] = out3[1] = out3[2] = 1.f;
 		}
 		// Le MEME geste pour toute la selection : le delta tape dans le panneau
 		// sur l'objet ACTIF est propage aux autres selectionnes -- position en
