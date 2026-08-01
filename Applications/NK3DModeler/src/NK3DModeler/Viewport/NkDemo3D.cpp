@@ -3960,8 +3960,16 @@ namespace nkentseu {
 			camData.up = {0.f, 1.f, 0.f};
 			camData.fovY = 60.f;
 			camData.aspect = (float32)ctx.width / (float32)ctx.height;
-			camData.nearPlane = 0.1f;
-			camData.farPlane = 100.f;
+			// PORTAGE NK3DModeler : plans near/far DYNAMIQUES, comme l'ancienne
+			// vue du modeleur (c'est Rihen qui a pointe vers elle). Figes a
+			// 0,1/100, la precision du tampon de profondeur s'ecrase des que la
+			// camera s'eloigne, et la grille infinie se deteriore -- visible
+			// surtout en projection ORTHOGRAPHIQUE.
+			{
+				const float32 cdist = st->useSimCam ? 8.f : st->editorCam.GetDistance();
+				camData.nearPlane = NkMax(0.01f, cdist * 0.005f);
+				camData.farPlane = cdist * 20.f + 100.f;
+			}
 			NkCamera3D cam(camData);
 
 			const float32 wheelRaw = (float32)st->wheelAccum;
