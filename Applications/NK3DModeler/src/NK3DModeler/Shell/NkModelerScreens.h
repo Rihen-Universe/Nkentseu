@@ -1059,6 +1059,133 @@ namespace nkentseu {
 					return;
 			}
 		}
+		// Homonyme de MEME NATURE dans un dossier (hors src et supprimes).
+		inline int32 NkBrowFindSame(NkModelerState &st, int32 dest, uint8 kind,
+									const char *name, int32 excl) {
+			for (int32 j8 = 0; j8 < st.browserCount; ++j8)
+				if (j8 != excl && st.browserKind[j8] == kind &&
+					st.browserParent[j8] == dest &&
+					strcmp(st.browserNames[j8], name) == 0)
+					return j8;
+			return -1;
+		}
+		inline void NkBrowDelRec(NkModelerState &st, int32 root2) {
+			int32 stk[64];
+			int32 sp2 = 0;
+			stk[sp2++] = root2;
+			while (sp2 > 0) {
+				const int32 s2 = stk[--sp2];
+				st.browserKind[s2] = 255;
+				for (int32 j4 = 0; j4 < st.browserCount; ++j4)
+					if (st.browserParent[j4] == s2 && st.browserKind[j4] != 255 && sp2 < 63)
+						stk[sp2++] = j4;
+			}
+			if (st.browserFolder == root2)
+				st.browserFolder = -1;
+			if (st.selectedAsset == root2)
+				st.selectedAsset = -1;
+		}
+		// Copie RECURSIVE avec noms uniques par niveau (et souvenir de source).
+		inline void NkBrowCopyRecU(NkModelerState &st, int32 src, int32 par) {
+			int32 stk[64][2];
+			int32 sp2 = 0;
+			stk[sp2][0] = src;
+			stk[sp2][1] = par;
+			++sp2;
+			while (sp2 > 0) {
+				--sp2;
+				const int32 s2 = stk[sp2][0];
+				const int32 p2 = stk[sp2][1];
+				if (st.browserCount >= NkModelerState::kMaxBrowser)
+					break;
+				const int32 k4 = st.browserCount++;
+				st.browserKind[k4] = st.browserKind[s2];
+				st.browserParent[k4] = p2;
+				st.browserSrcNode[k4] = st.browserSrcNode[s2];
+				NkBrowUniqueName(st, st.browserKind[s2], p2, st.browserNames[s2],
+								 st.browserNames[k4], 32);
+				if (st.browserKind[s2] == 1)
+					for (int32 j4 = 0; j4 < k4; ++j4)
+						if (st.browserParent[j4] == s2 && st.browserKind[j4] != 255 &&
+							sp2 < 63) {
+							stk[sp2][0] = j4;
+							stk[sp2][1] = k4;
+							++sp2;
+						}
+			}
+		}
+		// DEPLACER en REMPLACANT : dossier homonyme = FUSION recursive (le
+		// contenu migre et l'identite se reverifie a chaque niveau -- Windows).
+		inline void NkBrowMoveReplace(NkModelerState &st, int32 src, int32 dest) {
+			const int32 dup = NkBrowFindSame(st, dest, st.browserKind[src],
+											 st.browserNames[src], src);
+			if (dup < 0) {
+				st.browserParent[src] = dest;
+				return;
+			}
+			if (st.browserKind[src] == 1) {
+				for (int32 c8 = 0; c8 < st.browserCount; ++c8)
+					if (st.browserKind[c8] != 255 && st.browserParent[c8] == src)
+						NkBrowMoveReplace(st, c8, dup);
+				st.browserKind[src] = 255; // la coquille vide disparait
+				if (st.browserFolder == src)
+					st.browserFolder = dup;
+			} else {
+				NkBrowDelRec(st, dup);
+				st.browserParent[src] = dest;
+			}
+		}
+		inline int32 NkBrowCopyOne(NkModelerState &st, int32 src, int32 par) {
+			if (st.browserCount >= NkModelerState::kMaxBrowser)
+				return -1;
+			const int32 k4 = st.browserCount++;
+			st.browserKind[k4] = st.browserKind[src];
+			st.browserParent[k4] = par;
+			st.browserSrcNode[k4] = st.browserSrcNode[src];
+			snprintf(st.browserNames[k4], 32, "%s", st.browserNames[src]);
+			return k4;
+		}
+		inline void NkBrowCopyReplace(NkModelerState &st, int32 src, int32 dest) {
+			const int32 dup = NkBrowFindSame(st, dest, st.browserKind[src],
+											 st.browserNames[src], src);
+			if (dup >= 0 && st.browserKind[src] == 1) {
+				for (int32 c8 = 0; c8 < st.browserCount; ++c8)
+					if (st.browserKind[c8] != 255 && st.browserParent[c8] == src)
+						NkBrowCopyReplace(st, c8, dup);
+				return;
+			}
+			if (dup >= 0)
+				NkBrowDelRec(st, dup);
+			const int32 nk8 = NkBrowCopyOne(st, src, dest);
+			if (nk8 >= 0 && st.browserKind[src] == 1)
+				for (int32 c8 = 0; c8 < st.browserCount; ++c8)
+					if (c8 != nk8 && st.browserKind[c8] != 255 &&
+						st.browserParent[c8] == src)
+						NkBrowCopyReplace(st, c8, nk8);
+		}
+		// DEMANDE de transfert : sans homonyme on agit ; sinon le DIALOGUE
+		// Renommer / Remplacer / Arreter tranche (regle de Rihen).
+		inline void NkBrowRequestTransfer(NkModelerState &st, int32 src, int32 dest,
+										  bool isCopy, float32 mx, float32 my) {
+			if (src < 0 || st.browserKind[src] == 255)
+				return;
+			if (!isCopy && st.browserParent[src] == dest)
+				return; // deja la
+			const int32 dup = NkBrowFindSame(st, dest, st.browserKind[src],
+											 st.browserNames[src], src);
+			if (dup < 0) {
+				if (isCopy)
+					NkBrowCopyRecU(st, src, dest);
+				else
+					st.browserParent[src] = dest;
+				return;
+			}
+			st.browConfSrc = src;
+			st.browConfDest = dest;
+			st.browConfCopy = isCopy;
+			st.browConfX = mx;
+			st.browConfY = my;
+		}
 		inline void NkHierNameNewNode(NkModelerState &st, int32 srcNode, int32 newNode) {
 			char b[24];
 			NkHierNodeName(st, srcNode, b, sizeof(b));
@@ -1162,67 +1289,19 @@ namespace nkentseu {
 			const int32 activeObj = demo::Demo3DHostActiveObject();
 			char key[40];
 			// Operations du NAVIGATEUR, partagees par le menu et les raccourcis.
-			auto BrCopyRec = [&](int32 src, int32 par) {
-				int32 stk[64][2];
-				int32 sp2 = 0;
-				stk[sp2][0] = src;
-				stk[sp2][1] = par;
-				++sp2;
-				while (sp2 > 0) {
-					--sp2;
-					const int32 s2 = stk[sp2][0];
-					const int32 p2 = stk[sp2][1];
-					if (st.browserCount >= NkModelerState::kMaxBrowser)
-						break;
-					const int32 k4 = st.browserCount++;
-					st.browserKind[k4] = st.browserKind[s2];
-					st.browserParent[k4] = p2;
-					NkBrowUniqueName(st, st.browserKind[s2], p2, st.browserNames[s2],
-									 st.browserNames[k4], 32);
-					if (st.browserKind[s2] == 1)
-						for (int32 j4 = 0; j4 < k4; ++j4)
-							if (st.browserParent[j4] == s2 && st.browserKind[j4] != 255 &&
-								sp2 < 63) {
-								stk[sp2][0] = j4;
-								stk[sp2][1] = k4;
-								++sp2;
-							}
-				}
-			};
-			auto BrDelRec = [&](int32 root2) {
-				int32 stk[64];
-				int32 sp2 = 0;
-				stk[sp2++] = root2;
-				while (sp2 > 0) {
-					const int32 s2 = stk[--sp2];
-					st.browserKind[s2] = 255;
-					for (int32 j4 = 0; j4 < st.browserCount; ++j4)
-						if (st.browserParent[j4] == s2 && st.browserKind[j4] != 255 &&
-							sp2 < 63)
-							stk[sp2++] = j4;
-				}
-				if (st.browserFolder == root2)
-					st.browserFolder = -1;
-				if (st.selectedAsset == root2)
-					st.selectedAsset = -1;
-			};
+			auto BrCopyRec = [&](int32 src, int32 par) { NkBrowCopyRecU(st, src, par); };
+			auto BrDelRec = [&](int32 root2) { NkBrowDelRec(st, root2); };
 			auto BrPaste = [&](int32 dest5) {
 				if (st.browClip < 0 || st.browserKind[st.browClip] == 255)
 					return;
-				if (st.browClipCut) {
-					bool okMove = true;
+				if (st.browClipCut)
 					for (int32 c4 = dest5; c4 >= 0; c4 = st.browserParent[c4])
-						if (c4 == st.browClip) {
-							okMove = false;
-							break;
-						}
-					if (okMove) {
-						st.browserParent[st.browClip] = dest5;
-						st.browClip = -1;
-					}
-				} else {
-					BrCopyRec(st.browClip, dest5);
-				}
+						if (c4 == st.browClip)
+							return; // pas dans sa propre descendance
+				NkBrowRequestTransfer(st, st.browClip, dest5, !st.browClipCut,
+									  in.mousePos.x, in.mousePos.y);
+				if (st.browClipCut && st.browConfSrc < 0)
+					st.browClip = -1; // deplace sans conflit ; sinon le dialogue
 			};
 			// CLIC DROIT DANS LA VUE 3D : le menu du noeud ACTIF.
 			if (in.mouseClicked[1] && st.hierMenuNode < 0 &&
@@ -1579,13 +1658,67 @@ namespace nkentseu {
 						ask2 = mi;
 				}
 				if (ask2 == 0) {
-					st.browserParent[st.browAskIdx] = st.browAskDest;
+					NkBrowRequestTransfer(st, st.browAskIdx, st.browAskDest, false,
+										  in.mousePos.x, in.mousePos.y);
 				} else if (ask2 == 1) {
-					BrCopyRec(st.browAskIdx, st.browAskDest);
+					NkBrowRequestTransfer(st, st.browAskIdx, st.browAskDest, true,
+										  in.mousePos.x, in.mousePos.y);
 				}
 				if (ask2 >= 0 ||
 					(hit.AnyClick() && !NkHitRegistry::Contains(ar3, hit.Mouse())))
 					st.browAskIdx = -1; // le vide ANNULE
+			}
+			// CONFLIT D'HOMONYME (facon Windows) : Renommer / Remplacer /
+			// Arreter -- remplacer deux DOSSIERS homonymes les FUSIONNE
+			// recursivement (regle de Rihen).
+			if (st.browConfSrc >= 0) {
+				NkRect cr3{st.browConfX, st.browConfY, S(220.f), kRowH * 4.f + S(6.f)};
+				if (cr3.y + cr3.h > area.y + area.h)
+					cr3.y = area.y + area.h - cr3.h;
+				if (cr3.x + cr3.w > area.x + area.w)
+					cr3.x = area.x + area.w - cr3.w;
+				p.Outline(cr3, NkRole::AccentUi, NkRole::PanelHeader, 3.f);
+				char t7[64];
+				snprintf(t7, sizeof(t7), "\"%s\" existe deja ici",
+						 st.browserNames[st.browConfSrc]);
+				p.TextV(cr3.x + S(8.f), cr3.y + S(3.f), kRowH, t7);
+				static const char *const kCf[3] = {"Renommer", "Remplacer", "Arreter"};
+				int32 cAct = -1;
+				for (int32 mi = 0; mi < 3; ++mi) {
+					const NkRect it{cr3.x, cr3.y + S(3.f) + kRowH * (float32)(mi + 1),
+									cr3.w, kRowH};
+					snprintf(key, sizeof(key), "brw.conf.%d", mi);
+					HoverFill(p, it, hit.Add(key, it), 0.f);
+					p.TextV(it.x + S(10.f), it.y, kRowH, kCf[mi]);
+					if (hit.Clicked(key))
+						cAct = mi;
+				}
+				if (cAct >= 0) {
+					const int32 cs = st.browConfSrc;
+					const int32 cd = st.browConfDest;
+					if (cAct == 0) {
+						// RENOMMER : suffixe unique, puis transfert.
+						if (st.browConfCopy) {
+							NkBrowCopyRecU(st, cs, cd); // les noms y sont uniques
+						} else {
+							char nn7[32];
+							NkBrowUniqueName(st, st.browserKind[cs], cd,
+											st.browserNames[cs], nn7, 32);
+							snprintf(st.browserNames[cs], 32, "%s", nn7);
+							st.browserParent[cs] = cd;
+						}
+					} else if (cAct == 1) {
+						if (st.browConfCopy)
+							NkBrowCopyReplace(st, cs, cd);
+						else
+							NkBrowMoveReplace(st, cs, cd);
+					}
+					if (cAct != 2 && !st.browConfCopy && st.browClip == cs)
+						st.browClip = -1; // le couper est consomme
+					st.browConfSrc = -1;
+				} else if (hit.AnyClick() && !NkHitRegistry::Contains(cr3, hit.Mouse())) {
+					st.browConfSrc = -1; // le vide ARRETE
+				}
 			}
 		}
 		inline void PaintHierarchy(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
@@ -5408,7 +5541,8 @@ namespace nkentseu {
 									st.browAskX = bm.x;
 									st.browAskY = bm.y;
 								} else {
-									st.browserParent[st.browDragIdx] = dest;
+									NkBrowRequestTransfer(st, st.browDragIdx, dest, false,
+														  bm.x, bm.y);
 								}
 							}
 						}
