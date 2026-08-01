@@ -200,6 +200,9 @@ namespace nkentseu {
 				// chacun son defilement -- leur contenu peut etre tres long.
 				bool propOpen0 = true, propOpen1 = true, propOpen2 = true;
 				float32 propScroll3[3] = {0.f, 0.f, 0.f};
+				// Hauteur CHOISIE de chaque section (0 = partage automatique) :
+				// la poignee sous la section la regle.
+				float32 propSecH[3] = {0.f, 0.f, 0.f};
 				// Cadenas et proportionnel des lignes de transformation.
 				bool lockPos = false, lockRot = false, lockScl = false;
 				bool propScale = false;
