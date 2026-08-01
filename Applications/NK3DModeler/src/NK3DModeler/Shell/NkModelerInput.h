@@ -265,6 +265,11 @@ namespace nkentseu {
 				// popup du combo ecrit ici (adresse STABLE), resynchronise au
 				// changement de lumiere.
 				int32 lightSrcNode = -1;
+				// Navigateur : menu contextuel des cartes + presse-papiers.
+				int32 browMenuIdx = -1;
+				float32 browMenuX = 0.f, browMenuY = 0.f;
+				int32 browClip = -1;
+				bool browClipCut = false;
 				int32 lightSrcUi = 0;
 				// Une scene AJOUTEE est VIERGE : les objets de la demo y sont masques.
 				bool sceneBlank[8] = {};
