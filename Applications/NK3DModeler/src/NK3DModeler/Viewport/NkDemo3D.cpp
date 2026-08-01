@@ -53,6 +53,10 @@ namespace nkentseu {
 		static bool nkvpInputOn = true;				   // faux pendant une saisie de texte
 		static bool nkvpHover = false;				   // souris au-dessus de la vue
 		static void *nkvpCmd = nullptr;				   // cmd de l'editeur (frame courante)
+		static bool nkvpHudOn = true;				   // HUD texte de la demo (surimpression)
+		static bool nkvpAxesOn = true; // axes debug +-1000 (bascule « Axes du plan »)
+		static bool nkvpCursorTool = false;			   // outil CURSEUR : clic gauche = poser le curseur 3D
+		static bool nkvpGizmoHidden = false;		   // outils Selection/Curseur : pas de poignees
 
 		struct Demo3DState {
 				NkMeshHandle meshSphere;
@@ -2317,6 +2321,15 @@ namespace nkentseu {
 				// PORTAGE NK3DModeler : la vue n'ecoute que si elle est concernee.
 				if (!nkvpInputOn || !nkvpHover)
 					return;
+				// PORTAGE NK3DModeler : l'outil CURSEUR de la barre fait du clic
+				// gauche un placement de curseur 3D (comme l'outil de Blender). Le
+				// Shift+clic droit de la demo reste valable en parallele.
+				if (nkvpCursorTool && e->GetButton() == NkMouseButton::NK_MB_LEFT) {
+					st->cursorPlacePending = true;
+					st->cursorPX = (float32)e->GetX() - nkvpOffX;
+					st->cursorPY = (float32)e->GetY() - nkvpOffY;
+					return;
+				}
 				if (e->GetButton() == NkMouseButton::NK_MB_LEFT) {
 					st->pickPending = true;
 					st->pickX = e->GetX() - (int32)nkvpOffX;
@@ -5986,7 +5999,8 @@ namespace nkentseu {
 				// (drawLine pour tiges/liserés fins + drawTri pour formes PLEINES : cônes/cubes/
 				// rubans). Le 2e callback active la surcharge Draw(drawLine, drawTri) du gizmo —
 				// mêmes couleurs d'axe (X rouge, Y vert, Z bleu) et mêmes formes que l'objet.
-				st->editGizmo.Draw(
+				if (!nkvpGizmoHidden)
+					st->editGizmo.Draw(
 					[&](NkVec3f a, NkVec3f b, NkVec4f c) { r3d->DrawDebugLine(a, b, c, 0.f, true); },
 					[&](NkVec3f a, NkVec3f b, NkVec3f c, NkVec4f col) {
 						diagTri("gizmo", a, b, c, col);
@@ -6594,7 +6608,8 @@ namespace nkentseu {
 						outlineOnly = (v && v[0] && v[0] != '0') ? 1 : 0;
 					}
 					if (!outlineOnly)
-						st->gizmo.Draw(
+						if (!nkvpGizmoHidden)
+					st->gizmo.Draw(
 							[&](NkVec3f a, NkVec3f b, NkVec4f c) { r3d->DrawDebugLine(a, b, c, 0.f, true); },
 							[&](NkVec3f a, NkVec3f b, NkVec3f c, NkVec4f col) {
 								r3d->DrawDebugTriangle(a, b, c, col, 0.f, true);
@@ -6649,7 +6664,8 @@ namespace nkentseu {
 					// pick serait sans suite : on saurait quelle lumiere est prise, sans
 					// pouvoir la bouger. Dessinees APRES les widgets pour rester au-dessus.
 					if (st->lightSel >= 0)
-						st->lightGizmo.Draw(
+						if (!nkvpGizmoHidden)
+					st->lightGizmo.Draw(
 							[&](NkVec3f a, NkVec3f b, NkVec4f c) { r3d->DrawDebugLine(a, b, c, 0.f, true); },
 							[&](NkVec3f a, NkVec3f b, NkVec3f c, NkVec4f col) {
 								r3d->DrawDebugTriangle(a, b, c, col, 0.f, true);
@@ -6749,7 +6765,9 @@ namespace nkentseu {
 				r3d->DrawDebugLine(CC + cup * (Rw * 0.7f), CC + cup * (Rw * 2.0f), colW, 0.f, true);
 			}
 
-			if (!gridClean) {
+			// PORTAGE NK3DModeler : ces trois axes debug sont AUSSI sous la
+			// bascule « Axes du plan » du shell -- la decocher les eteint.
+			if (!gridClean && nkvpAxesOn) {
 				const float32 A = 1000.f;
 				const float32 h = 0.02f; // légèrement au-dessus du sol/grille -> pas de z-fight (pointillés)
 				r3d->DrawDebugLine({-A, h, 0.f}, {A, h, 0.f}, {1.f, 0.f, 0.f, 1.f});	 // X rouge
@@ -6758,7 +6776,9 @@ namespace nkentseu {
 			}
 
 			// ── Overlay ──────────────────────────────────────────────────────────
-			if (auto *overlay = ctx.renderer->GetOverlay()) {
+			// PORTAGE NK3DModeler : le HUD passe sous la bascule « Affichage » du
+			// shell — il chevauchait la barre d'outils de l'editeur.
+			if (auto *overlay = nkvpHudOn ? ctx.renderer->GetOverlay() : nullptr) {
 				overlay->BeginOverlay(ctx.renderer->GetCmd(), ctx.width, ctx.height);
 				overlay->DrawStats(ctx.renderer->GetStats());
 				{
@@ -7090,6 +7110,323 @@ namespace nkentseu {
 			if (!texLib)
 				return;
 			b->RegisterTexture(kHostTexId, texLib->GetRHIHandle(hst.rt->GetColorResult()));
+		}
+
+		// ── ACCESSEURS DU CABLAGE ───────────────────────────────────────────
+		// Les boutons du shell parlent a la demo A TRAVERS ces fonctions, qui
+		// refont EXACTEMENT ce que font ses raccourcis (memes lignes, memes
+		// champs). Regle : jamais de logique nouvelle ici — si un raccourci de
+		// la demo fait trois ecritures, l'accesseur fait les trois memes.
+		namespace {
+			Demo3DState *HostSt() {
+				return hst.ok ? (Demo3DState *)hst.ctx.userData : nullptr;
+			}
+			renderer::NkRender3D *HostR3D() {
+				return hst.ok ? hst.ctx.renderer->GetRender3D() : nullptr;
+			}
+			// Memoire du lisere (le moteur n'a pas de getter) et de la camera
+			// memorisee par le menu de vue.
+			bool hostOutlineOn = true;
+			bool hostCamStored = false;
+			NkVec3f hostCamTarget{0.f, 0.5f, 0.f};
+			float32 hostCamDist = 6.5f, hostCamYaw = 0.7f, hostCamPitch = 0.4f;
+			bool hostCamOrtho = false;
+		} // namespace
+
+		// ── Ombrage (la touche Z de la demo, adressable) ────────────────────
+		void Demo3DHostSetShading(int32 mode) {
+			auto *st = HostSt();
+			auto *r3d = HostR3D();
+			if (!st || !r3d)
+				return;
+			st->shadingMode = ((mode % 6) + 6) % 6;
+			const int32 vm[6] = {0, 1, 1, 2, 3, 4};
+			r3d->SetWireframe(st->shadingMode == 2);
+			r3d->SetViewMode(vm[st->shadingMode]);
+		}
+		int32 Demo3DHostShading() {
+			auto *st = HostSt();
+			return st ? st->shadingMode : 0;
+		}
+		void Demo3DHostSetUnlitColor(int32 mode) {
+			if (auto *st = HostSt())
+				st->unlitColorMode = ((mode % 3) + 3) % 3;
+		}
+		int32 Demo3DHostUnlitColor() {
+			auto *st = HostSt();
+			return st ? st->unlitColorMode : 1;
+		}
+
+		// ── Matcaps (la touche M, adressable + noms pour l'interface) ───────
+		void Demo3DHostSetMatcap(int32 id) {
+			if (auto *r3d = HostR3D())
+				r3d->SetMatcap(id);
+		}
+		int32 Demo3DHostMatcap() {
+			auto *r3d = HostR3D();
+			return r3d ? r3d->Matcap() : 0;
+		}
+		int32 Demo3DHostMatcapCount() {
+			return (int32)renderer::NkRender3D::kMatcapCount;
+		}
+		const char *Demo3DHostMatcapName(int32 id) {
+			return renderer::NkMatcapLibrary::Name(id);
+		}
+
+		// ── Projection et vues d'axe (le pave numerique, adressable) ────────
+		void Demo3DHostSetOrtho(bool on) {
+			if (auto *st = HostSt())
+				st->orthoView = on;
+		}
+		bool Demo3DHostIsOrtho() {
+			auto *st = HostSt();
+			return st && st->orthoView;
+		}
+		void Demo3DHostAxisView(int32 which, bool opposite) {
+			auto *st = HostSt();
+			if (!st)
+				return;
+			auto &c = st->editorCam;
+			const NkVec3f t = c.GetTarget();
+			const float32 d = c.GetDistance();
+			const float32 P = 1.55f; // ~90 degres (meme clamp que la demo)
+			if (which == 0)
+				c.SetCenter(t, d, opposite ? -1.5708f : 1.5708f, 0.f); // avant / arriere
+			else if (which == 1)
+				c.SetCenter(t, d, opposite ? 3.1416f : 0.f, 0.f); // droite / gauche
+			else
+				c.SetCenter(t, d, 0.f, opposite ? -P : P); // dessus / dessous
+			st->orthoView = true; // vue axiale -> ortho, facon Blender
+		}
+		void Demo3DHostResetView() {
+			auto *st = HostSt();
+			if (!st)
+				return;
+			// La pose d'OUVERTURE de la demo (Demo3D_Init).
+			st->editorCam.SetCenter({0.f, 0.5f, 0.f}, 6.5f, 0.7f, 0.4f);
+			st->orthoView = false;
+		}
+		void Demo3DHostStoreCamera() {
+			auto *st = HostSt();
+			if (!st)
+				return;
+			hostCamTarget = st->editorCam.GetTarget();
+			hostCamDist = st->editorCam.GetDistance();
+			hostCamYaw = st->editorCam.GetYaw();
+			hostCamPitch = st->editorCam.GetPitch();
+			hostCamOrtho = st->orthoView;
+			hostCamStored = true;
+		}
+		bool Demo3DHostRecallCamera() {
+			auto *st = HostSt();
+			if (!st || !hostCamStored)
+				return false;
+			st->editorCam.SetCenter(hostCamTarget, hostCamDist, hostCamYaw, hostCamPitch);
+			st->orthoView = hostCamOrtho;
+			return true;
+		}
+
+		// ── Navigation directe (gizmo de navigation, loupe, main) ───────────
+		void Demo3DHostOrbit(float32 dx, float32 dy) {
+			auto *st = HostSt();
+			if (!st)
+				return;
+			st->editorCam.Rotate(dx, dy);
+			st->orthoView = false; // orbite libre -> perspective (meme regle que la demo)
+		}
+		void Demo3DHostPan(float32 dx, float32 dy) {
+			if (auto *st = HostSt())
+				st->editorCam.Pan(-dx, -dy); // « grab » facon Blender, comme la demo
+		}
+		void Demo3DHostZoomWheel(float32 notches) {
+			if (auto *st = HostSt())
+				st->wheelAccum += (float64)notches; // le MEME chemin que la molette
+		}
+		void Demo3DHostToggleFlyCam() {
+			if (auto *st = HostSt())
+				st->useSimCam = !st->useSimCam;
+		}
+		bool Demo3DHostIsFlyCam() {
+			auto *st = HostSt();
+			return st && st->useSimCam;
+		}
+		void Demo3DHostSetCamSpeed(float32 mult) {
+			auto *st = HostSt();
+			if (!st)
+				return;
+			// Le pan est proportionnel (defaut 0.0015), le zoom est un facteur par
+			// cran (defaut 0.88 ; plus PETIT = plus rapide). La rotation ne change
+			// pas : on ne « tourne pas plus vite » dans une grande scene.
+			st->editorCam.SetPanSpeed(0.0015f * mult);
+			float32 zs = 0.88f - 0.04f * (mult - 1.f);
+			if (zs < 0.55f)
+				zs = 0.55f;
+			st->editorCam.SetZoomStep(zs);
+		}
+		void Demo3DHostCameraAxes(float32 *rgt, float32 *upv, float32 *fwd) {
+			auto *st = HostSt();
+			NkVec3f f{0.f, 0.f, -1.f};
+			if (st && st->useSimCam)
+				f = st->simCam.GetForward();
+			else if (st) {
+				const NkVec3f d = st->editorCam.GetTarget() - st->editorCam.GetPosition();
+				const float32 l = sqrtf(d.x * d.x + d.y * d.y + d.z * d.z);
+				if (l > 1e-6f)
+					f = {d.x / l, d.y / l, d.z / l};
+			}
+			// right = f ^ up_monde, up = right ^ f — le repere de la scene.
+			NkVec3f r{f.z * 1.f - 0.f, 0.f - f.x * 0.f, 0.f}; // f ^ (0,1,0)
+			r = {-f.z, 0.f, f.x};
+			float32 rl = sqrtf(r.x * r.x + r.y * r.y + r.z * r.z);
+			if (rl < 1e-6f) {
+				r = {1.f, 0.f, 0.f};
+				rl = 1.f;
+			}
+			r = {r.x / rl, r.y / rl, r.z / rl};
+			const NkVec3f u{r.y * f.z - r.z * f.y, r.z * f.x - r.x * f.z, r.x * f.y - r.y * f.x};
+			rgt[0] = r.x;
+			rgt[1] = r.y;
+			rgt[2] = r.z;
+			upv[0] = u.x;
+			upv[1] = u.y;
+			upv[2] = u.z;
+			fwd[0] = f.x;
+			fwd[1] = f.y;
+			fwd[2] = f.z;
+		}
+
+		// ── Gizmo : operation, orientation, aimantation, visibilite ─────────
+		void Demo3DHostSetGizmoOp(int32 op) {
+			auto *st = HostSt();
+			if (!st)
+				return;
+			op &= 3;
+			st->gizmo.SetMode(op);
+			st->editGizmo.SetMode(op);
+			st->lightGizmo.SetMode(op);
+		}
+		int32 Demo3DHostGizmoOp() {
+			auto *st = HostSt();
+			if (!st)
+				return 0;
+			return (st->editMode ? st->editGizmo : st->gizmo).Mode();
+		}
+		void Demo3DHostSetOrientation(int32 o) {
+			auto *st = HostSt();
+			if (!st)
+				return;
+			st->gizmo.SetOrientation(o);
+			st->editGizmo.SetOrientation(o);
+			st->lightGizmo.SetOrientation(o);
+		}
+		int32 Demo3DHostOrientation() {
+			auto *st = HostSt();
+			if (!st)
+				return 0;
+			return (st->editMode ? st->editGizmo : st->gizmo).Orientation();
+		}
+		void Demo3DHostSetSnap(bool on, float32 t, float32 rotDeg, float32 scl) {
+			auto *st = HostSt();
+			if (!st)
+				return;
+			st->gizmo.SetSnapEnabled(on);
+			st->editGizmo.SetSnapEnabled(on);
+			st->lightGizmo.SetSnapEnabled(on);
+			st->gizmo.SetSnapSteps(t, rotDeg, scl);
+			st->editGizmo.SetSnapSteps(t, rotDeg, scl);
+			st->lightGizmo.SetSnapSteps(t, rotDeg, scl);
+		}
+		bool Demo3DHostSnapEnabled() {
+			auto *st = HostSt();
+			return st && st->gizmo.IsSnapEnabled();
+		}
+		void Demo3DHostSetGizmoHidden(bool hidden) {
+			nkvpGizmoHidden = hidden;
+		}
+
+		// ── Mode edition : sous-modes V/E/F, outils de zone, curseur ────────
+		bool Demo3DHostInEditMode() {
+			auto *st = HostSt();
+			return st && st->editMode;
+		}
+		void Demo3DHostSetEditSelMask(int32 mask) {
+			auto *st = HostSt();
+			if (!st)
+				return;
+			mask &= 7;
+			if (mask == 0)
+				mask = 1;
+			if (st->editSelMask != mask) {
+				st->editSelMask = mask;
+				st->editOverlayDirty = true; // meme ecriture que les touches 1/2/3
+			}
+		}
+		int32 Demo3DHostEditSelMask() {
+			auto *st = HostSt();
+			return st ? st->editSelMask : 1;
+		}
+		void Demo3DHostSetZoneTool(int32 shape) {
+			// shape : -1 = desarme, 0 = rectangle, 1 = cercle, 2 = lasso — le
+			// selTool de la demo (1 rect / 2 lasso / 3 cercle) se re-arme apres
+			// chaque geste : c'est ce qui transforme le one-shot de la touche B
+			// en OUTIL persistant de barre, sans toucher au coeur.
+			auto *st = HostSt();
+			if (!st || st->selDragging)
+				return;
+			const int32 want = (shape < 0) ? 0 : (shape == 0 ? 1 : (shape == 1 ? 3 : 2));
+			st->selTool = want;
+		}
+		void Demo3DHostSetCursorTool(bool on) {
+			nkvpCursorTool = on;
+		}
+
+		// ── Surimpressions : grille, liseres, HUD ───────────────────────────
+		void Demo3DHostSetGridFlags(bool grid, bool minor, bool major, bool axes) {
+			auto *r3d = HostR3D();
+			if (!r3d)
+				return;
+			r3d->SetInfiniteGridEnabled(grid);
+			auto &g = r3d->GetInfiniteGridParams();
+			g.showMinor = minor;
+			g.showMajor = major;
+			g.showAxes = axes;
+			nkvpAxesOn = axes; // les axes debug de la demo suivent la meme case
+		}
+		void Demo3DHostGridFlags(bool *grid, bool *minor, bool *major, bool *axes) {
+			auto *r3d = HostR3D();
+			if (!r3d) {
+				*grid = *minor = *major = *axes = true;
+				return;
+			}
+			auto &g = r3d->GetInfiniteGridParams();
+			*grid = r3d->IsInfiniteGridEnabled();
+			*minor = g.showMinor;
+			*major = g.showMajor;
+			*axes = g.showAxes;
+		}
+		void Demo3DHostSetOutline(bool on) {
+			auto *r3d = HostR3D();
+			if (!r3d)
+				return;
+			if (hostOutlineOn != on) {
+				hostOutlineOn = on;
+				r3d->SetSelectionOutline(on, {1.f, 0.45f, 0.05f, 1.f}, 3.f);
+			}
+		}
+		bool Demo3DHostOutline() {
+			return hostOutlineOn;
+		}
+		void Demo3DHostSetHud(bool on) {
+			nkvpHudOn = on;
+		}
+		bool Demo3DHostHud() {
+			return nkvpHudOn;
+		}
+
+		// ── Fond de la vue (le SetBackgroundColor du moteur, garde d'egalite) ─
+		void Demo3DHostSetBackground(float32 r, float32 g, float32 b) {
+			if (hst.ok)
+				hst.ctx.renderer->SetBackgroundColor({r, g, b, 1.f});
 		}
 
 		bool Demo3DHostReady() {

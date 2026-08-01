@@ -40,6 +40,51 @@ namespace nkentseu {
 		// Publie la cible aupres du backend NKGui sous l'id 4096.
 		void Demo3DHostRegisterInto(void *guiBackend);
 
+		// ── CABLAGE DES BOUTONS DE LA VUE ───────────────────────────────────
+		// Chaque fonction refait EXACTEMENT ce que fait le raccourci
+		// correspondant de la demo (Z, M, pave numerique, G/R/S, virgule,
+		// Shift+TAB, F1..F4) — memes ecritures, aucun etat parallele.
+		void Demo3DHostSetShading(int32 mode); // 0 rendu, 1 solide, 2 filaire, 3 normales, 4 uv, 5 ao
+		int32 Demo3DHostShading();
+		void Demo3DHostSetUnlitColor(int32 mode); // 0 materiau, 1 gris, 2 personnalisee
+		int32 Demo3DHostUnlitColor();
+		void Demo3DHostSetMatcap(int32 id);
+		int32 Demo3DHostMatcap();
+		int32 Demo3DHostMatcapCount();
+		const char *Demo3DHostMatcapName(int32 id);
+		void Demo3DHostSetOrtho(bool on);
+		bool Demo3DHostIsOrtho();
+		void Demo3DHostAxisView(int32 which, bool opposite); // 0 avant/arriere, 1 droite/gauche, 2 dessus/dessous
+		void Demo3DHostResetView();
+		void Demo3DHostStoreCamera();
+		bool Demo3DHostRecallCamera();
+		void Demo3DHostOrbit(float32 dx, float32 dy);
+		void Demo3DHostPan(float32 dx, float32 dy);
+		void Demo3DHostZoomWheel(float32 notches);
+		void Demo3DHostToggleFlyCam();
+		bool Demo3DHostIsFlyCam();
+		void Demo3DHostSetCamSpeed(float32 mult);
+		void Demo3DHostCameraAxes(float32 *rgt, float32 *upv, float32 *fwd);
+		void Demo3DHostSetGizmoOp(int32 op); // 0 deplacer, 1 tourner, 2 echelle, 3 combine
+		int32 Demo3DHostGizmoOp();
+		void Demo3DHostSetOrientation(int32 o); // 0 monde, 1 local, 2 normale
+		int32 Demo3DHostOrientation();
+		void Demo3DHostSetSnap(bool on, float32 t, float32 rotDeg, float32 scl);
+		bool Demo3DHostSnapEnabled();
+		void Demo3DHostSetGizmoHidden(bool hidden);
+		bool Demo3DHostInEditMode();
+		void Demo3DHostSetEditSelMask(int32 mask); // bits 1 sommet, 2 arete, 4 face
+		int32 Demo3DHostEditSelMask();
+		void Demo3DHostSetZoneTool(int32 shape); // -1 off, 0 rectangle, 1 cercle, 2 lasso
+		void Demo3DHostSetCursorTool(bool on);
+		void Demo3DHostSetGridFlags(bool grid, bool minor, bool major, bool axes);
+		void Demo3DHostGridFlags(bool *grid, bool *minor, bool *major, bool *axes);
+		void Demo3DHostSetOutline(bool on);
+		bool Demo3DHostOutline();
+		void Demo3DHostSetHud(bool on);
+		bool Demo3DHostHud();
+		void Demo3DHostSetBackground(float32 r, float32 g, float32 b);
+
 		// Vrai des que la demo rend dans sa cible (l'interface peut poser la
 		// texture 4096).
 		bool Demo3DHostReady();

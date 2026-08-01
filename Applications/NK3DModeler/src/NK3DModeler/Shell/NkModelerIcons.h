@@ -93,6 +93,14 @@ namespace nkentseu {
 			SelRect,
 			SelCircle,
 			SelLasso,
+			// Modes d'affichage de la demo portee (normales / uv / occlusion) et
+			// divers du cablage de la vue. Chaque BOUTON de la vue doit porter un
+			// dessin unique -- deux boutons identiques obligent a lire l'info-bulle.
+			ViewNormals,
+			ViewUV,
+			ViewAO,
+			Picker, ///< pot de peinture : couleur personnalisee
+			Speed,  ///< vitesse de camera
 			Count
 		};
 
@@ -146,7 +154,7 @@ namespace nkentseu {
 						{NkIcon::Unlock, "unlock"},
 						{NkIcon::EyeClosed, "eye-closed"},
 						{NkIcon::Zoom, "zoom-in"},
-						{NkIcon::Pan, "move"},
+						{NkIcon::Pan, "split-horizontal"},
 						{NkIcon::Camera, "device-camera"},
 						{NkIcon::Ortho, "layout"},
 						{NkIcon::Gizmo, "location"},
@@ -182,12 +190,17 @@ namespace nkentseu {
 						// icones seules. Blender les distingue de la meme facon : sphere nue
 						// pour le solide, sphere COLOREE pour le materiau.
 						{NkIcon::Material, "symbol-color"},
-						{NkIcon::Wireframe, "table"},
+						{NkIcon::Wireframe, "list-tree"},
 						{NkIcon::Matcap, "color-mode"},
 						// Formes de selection.
-						{NkIcon::SelRect, "primitive-square"},
+						{NkIcon::SelRect, "chrome-maximize"},
 						{NkIcon::SelCircle, "circle-filled"},
 						{NkIcon::SelLasso, "edit"},
+						{NkIcon::ViewNormals, "milestone"},
+						{NkIcon::ViewUV, "symbol-method"},
+						{NkIcon::ViewAO, "book"},
+						{NkIcon::Picker, "paintcan"},
+						{NkIcon::Speed, "symbol-operator"},
 					};
 
 					const NkString exeDir = NkPath::GetExecutableDirectory().ToString();

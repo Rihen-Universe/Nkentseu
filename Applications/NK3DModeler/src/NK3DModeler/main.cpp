@@ -546,6 +546,138 @@ int nkmain(const NkEntryState &entry) {
 		// vue survolee, comme Blender) et la garde de saisie de texte.
 		demo::Demo3DHostResize((uint32)lay.view.w, (uint32)lay.view.h);
 		demo::Demo3DHostSetView(lay.view.x, lay.view.y, overSceneLastFrame, !st.editingText);
+
+		// ── SYNCHRONISATION UI <-> DEMO PORTEE ──────────────────────────────
+		// POUSSER quand l'interface a change depuis l'image precedente, TIRER
+		// sinon : les raccourcis de la demo (Z, virgule, pave numerique,
+		// Shift+TAB...) restent maitres et l'interface les REFLETE, au lieu de
+		// les ecraser chaque image. L'etat « derniere valeur vue » vit ici.
+		if (demo::Demo3DHostReady()) {
+			static struct {
+					int32 shading = -1, solidLight = -1, projection = -1, orientation = -1,
+						  camSpeed = -1, gizmoOp = -1;
+					uint32 overlay = 0xFFFFFFFFu;
+					NkTool tool = (NkTool)255;
+					bool snapGrid = false, snapAngle = false, snapScale = false;
+					bool first = true;
+			} sy;
+
+			// Ombrage (les 6 modes reels : l'index de la liste EST le mode).
+			if (!sy.first && st.shading != sy.shading)
+				demo::Demo3DHostSetShading(st.shading);
+			else
+				st.shading = demo::Demo3DHostShading();
+			sy.shading = st.shading;
+
+			// Source de couleur des modes non eclaires (touche B de la demo).
+			if (!sy.first && st.solidLight != sy.solidLight)
+				demo::Demo3DHostSetUnlitColor(st.solidLight);
+			else
+				st.solidLight = demo::Demo3DHostUnlitColor();
+			sy.solidLight = st.solidLight;
+
+			// Projection : 0 perspective, 1 orthogonale, 2..7 vues d'axe. Une vue
+			// d'axe est une ACTION (elle pose la camera) ; l'etat durable, c'est
+			// ortho/perspective.
+			if (!sy.first && st.projection != sy.projection) {
+				if (st.projection == 0)
+					demo::Demo3DHostSetOrtho(false);
+				else if (st.projection == 1)
+					demo::Demo3DHostSetOrtho(true);
+				else {
+					// Dessus/Dessous, Avant/Arriere, Gauche/Droite.
+					static const int32 kWhich[6] = {2, 2, 0, 0, 1, 1};
+					static const bool kOpp[6] = {false, true, false, true, true, false};
+					demo::Demo3DHostAxisView(kWhich[st.projection - 2], kOpp[st.projection - 2]);
+				}
+			} else if (!demo::Demo3DHostIsOrtho()) {
+				st.projection = 0;
+			} else if (st.projection == 0) {
+				st.projection = 1;
+			}
+			sy.projection = st.projection;
+			st.lastProjection = st.projection;
+
+			// Orientation du gizmo (monde / local / normale).
+			if (!sy.first && st.orientation != sy.orientation)
+				demo::Demo3DHostSetOrientation(st.orientation);
+			else
+				st.orientation = demo::Demo3DHostOrientation();
+			sy.orientation = st.orientation;
+
+			// Outils. Deplacer/Rotation/Echelle/Multigizmo = les 4 modes du gizmo
+			// de la demo ; Selection et Curseur sont des outils du shell qui
+			// s'appuient sur ses mecanismes (zones, curseur 3D).
+			const int32 opNow = demo::Demo3DHostGizmoOp();
+			if (!sy.first && st.tool != sy.tool) {
+				if ((int32)st.tool >= (int32)NkTool::Move)
+					demo::Demo3DHostSetGizmoOp((int32)st.tool - (int32)NkTool::Move);
+			} else if (opNow != sy.gizmoOp && (int32)st.tool >= (int32)NkTool::Move) {
+				// G/R/S/C presses dans la vue : l'outil de la barre suit.
+				st.tool = (NkTool)((int32)NkTool::Move + opNow);
+			}
+			sy.gizmoOp = demo::Demo3DHostGizmoOp();
+			sy.tool = st.tool;
+			demo::Demo3DHostSetCursorTool(st.tool == NkTool::Cursor);
+			demo::Demo3DHostSetZoneTool(st.tool == NkTool::Select ? st.selShape : -1);
+			demo::Demo3DHostSetGizmoHidden(st.tool == NkTool::Select || st.tool == NkTool::Cursor);
+
+			// Vitesse de camera : 1x / 2x / 4x / 8x.
+			if (st.camSpeed != sy.camSpeed) {
+				demo::Demo3DHostSetCamSpeed((float32)(1 << st.camSpeed));
+				sy.camSpeed = st.camSpeed;
+			}
+
+			// Aimantation : les pas sont FIXES (0,5 / 15 deg / 0,1) et l'etat du
+			// gizmo est GLOBAL -> la bascule appliquee est celle du mode courant.
+			{
+				const bool changed = st.snapGrid != sy.snapGrid || st.snapAngle != sy.snapAngle ||
+									 st.snapScale != sy.snapScale;
+				bool *cur = &st.snapGrid;
+				if (opNow == 1)
+					cur = &st.snapAngle;
+				else if (opNow == 2)
+					cur = &st.snapScale;
+				if (!sy.first && changed)
+					demo::Demo3DHostSetSnap(*cur, 0.5f, 15.f, 0.1f);
+				else
+					*cur = demo::Demo3DHostSnapEnabled(); // Shift+TAB dans la vue
+				sy.snapGrid = st.snapGrid;
+				sy.snapAngle = st.snapAngle;
+				sy.snapScale = st.snapScale;
+			}
+
+			// Surimpressions : grille et ses traits (F1..F4), lisere, HUD.
+			if (!sy.first && st.overlayMask != sy.overlay) {
+				demo::Demo3DHostSetGridFlags((st.overlayMask & 1u) != 0u, (st.overlayMask & 2u) != 0u,
+											 (st.overlayMask & 4u) != 0u, (st.overlayMask & 8u) != 0u);
+				demo::Demo3DHostSetOutline((st.overlayMask & 16u) != 0u);
+				demo::Demo3DHostSetHud((st.overlayMask & 32u) != 0u);
+			} else {
+				bool g0, g1, g2, g3;
+				demo::Demo3DHostGridFlags(&g0, &g1, &g2, &g3);
+				st.overlayMask = (g0 ? 1u : 0u) | (g1 ? 2u : 0u) | (g2 ? 4u : 0u) | (g3 ? 8u : 0u) |
+								 (demo::Demo3DHostOutline() ? 16u : 0u) |
+								 (demo::Demo3DHostHud() ? 32u : 0u);
+			}
+			sy.overlay = st.overlayMask;
+
+			// Sous-mode : refleter le masque reel (le bouton pousse lui-meme).
+			{
+				const int32 m2 = demo::Demo3DHostEditSelMask();
+				st.subMode = (m2 & 1) ? NkSubMode::Vertex : ((m2 & 2) ? NkSubMode::Edge : NkSubMode::Face);
+			}
+
+			// Premiere image : tout TIRER, ne rien pousser -- la demo est la
+			// source de verite a l'ouverture. Et le HUD suit le masque du shell
+			// (off par defaut : il chevauchait la barre d'outils).
+			if (sy.first) {
+				sy.first = false;
+				demo::Demo3DHostSetHud((st.overlayMask & 32u) != 0u);
+				demo::Demo3DHostSetOutline((st.overlayMask & 16u) != 0u);
+				sy.overlay = 0xFFFFFFFFu; // re-tirer au prochain tour
+			}
+		}
 		nk3d::Viewport3DSetEditMode(st.mode != NkMode::Object);
 		// Le sous-mode de la vue devient le masque de selection. Un seul bit ici :
 		// les trois boutons sont exclusifs. Les combiner (Maj+1/2/3 chez Blender)
@@ -582,31 +714,11 @@ int nkmain(const NkEntryState &entry) {
 				snapOn = st.snapScale;
 			nk3d::Viewport3DSetSnap(snapOn, 0.5f, 15.f, 0.1f);
 		}
-		// PROJECTION : appliquee sur CHANGEMENT du combo seulement, puis relue --
-		// les vues axiales du pave numerique et du gizmo de navigation ecrivent le
-		// meme etat, et l'ecraser chaque image annulait leur effet une image plus
-		// tard.
-		if (st.projection != st.lastProjection) {
-			if (st.projection == 0)
-				nk3d::Viewport3DSetOrtho(false);
-			else if (st.projection == 1)
-				nk3d::Viewport3DSetOrtho(true);
-			else {
-				// 2..7 : Dessus, Dessous, Avant, Arriere, Gauche, Droite.
-				static const int32 kWhich[6] = {2, 2, 0, 0, 1, 1};
-				static const bool kOpp[6] = {false, true, false, true, true, false};
-				nk3d::Viewport3DAxisView(kWhich[st.projection - 2], kOpp[st.projection - 2]);
-			}
-			st.lastProjection = st.projection;
-		} else {
-			const int32 fromView = nk3d::Viewport3DIsOrtho() ? 1 : 0;
-			// Ne reecrit le combo que sur les deux etats de base : les six vues
-			// d'axe restent affichees tant qu'on n'orbite pas.
-			if (st.projection <= 1 && st.projection != fromView) {
-				st.projection = fromView;
-				st.lastProjection = fromView;
-			}
-		}
+		// PROJECTION : entierement geree par la SYNC de la demo portee, plus haut.
+		// L'ancien bloc RELISAIT l'etat de la vue DORMANTE (Viewport3DIsOrtho,
+		// toujours faux) et remettait le combo a « Perspective » une image apres
+		// chaque passage en ortho -- c'est le bug « l'ortho s'active et se
+		// desactive en quelques millisecondes » constate par Rihen.
 
 		// ── ENTREE DU GIZMO ─────────────────────────────────────────────────
 		// Les deplacements sont recalcules ICI, a partir de la position precedente.

@@ -194,7 +194,8 @@ namespace nkentseu {
 		inline void Combo(NkModelerPainter &p, NkHitRegistry &hit, NkWidgetState &ws, const char *key,
 						  const NkRect &r, const char *const *items, const NkIcon *icons, int32 count,
 						  int32 &selected, NkComboPending &pending, bool enabled = true,
-						  bool showChevron = true, bool showFrame = true) {
+						  bool showChevron = true, bool showFrame = true,
+						  NkIcon faceIcon = NkIcon::Count) {
 			const bool over = enabled && hit.Add(key, r);
 			const bool open = ws.ComboOpen(key);
 			const NkRole fg = enabled ? NkRole::Text : NkRole::TextMuted;
@@ -216,8 +217,11 @@ namespace nkentseu {
 			const bool iconOnly = !showChevron && !showFrame;
 			float32 tx = r.x + (iconOnly ? (r.w - S(14.f)) * 0.5f : S(8.f));
 			if (icons) {
-				p.IconV(tx, r.y, r.h, icons[selected],
-						open ? NkRole::AccentUi : (enabled ? NkRole::Text : NkRole::TextMuted), 14.f);
+				// OUVERT = fond accent -> l'icone passe en TextOnAccent. Elle etait
+				// en AccentUi : bleu sur bleu, la valeur courante disparaissait le
+				// temps du choix (bug signale par Rihen).
+				p.IconV(tx, r.y, r.h, faceIcon != NkIcon::Count ? faceIcon : icons[selected],
+						open ? NkRole::TextOnAccent : (enabled ? NkRole::Text : NkRole::TextMuted), 14.f);
 				tx += S(19.f);
 			}
 			if (!iconOnly)
@@ -227,6 +231,11 @@ namespace nkentseu {
 			if (showChevron)
 				p.IconV(r.x + r.w - S(18.f), r.y, r.h, open ? NkIcon::ChevronUp : NkIcon::ChevronDown,
 						fg, 11.f);
+			// MARQUEUR DE COMBO : un point blanc en bas a droite du bouton. C'est
+			// ce qui distingue d'un coup d'oeil une LISTE d'un simple bouton --
+			// sans lui, il faut cliquer pour le decouvrir (demande de Rihen).
+			p.Fill({r.x + r.w - S(6.f), r.y + r.h - S(6.f), S(3.f), S(3.f)},
+				   open ? NkRole::TextOnAccent : NkRole::Text);
 
 			if (enabled && hit.Clicked(key))
 				ws.ToggleCombo(key);
@@ -349,6 +358,9 @@ namespace nkentseu {
 			// pas « une » valeur courante a representer.
 			p.IconV(r.x + (r.w - S(14.f)) * 0.5f, r.y, r.h, buttonIcon,
 					open ? NkRole::TextOnAccent : NkRole::Text, 14.f);
+			// Marqueur de combo : les listes a cases en sont aussi.
+			p.Fill({r.x + r.w - S(6.f), r.y + r.h - S(6.f), S(3.f), S(3.f)},
+				   open ? NkRole::TextOnAccent : NkRole::Text);
 			if (hit.Clicked(key))
 				ws.ToggleCombo(key);
 			if (ws.ComboOpen(key)) {
