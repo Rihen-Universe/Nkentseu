@@ -168,8 +168,9 @@ namespace nkentseu {
 		int32 Demo3DHostAddNode(int32 kind, int32 sub);
 		// Parametres du mesh cree (segments / anneaux-subdivisions) : le
 		// panneau « Ajuster la creation » les edite AVANT validation.
-		bool Demo3DHostMeshParams(int32 node, int32 *segs, int32 *rings);
-		void Demo3DHostSetMeshParams(int32 node, int32 segs, int32 rings);
+		int32 Demo3DHostUserSub(int32 node); // variante demandee au menu Ajouter
+		bool Demo3DHostMeshParams(int32 node, int32 *segs, int32 *rings, float32 *aux);
+		void Demo3DHostSetMeshParams(int32 node, int32 segs, int32 rings, float32 aux);
 		// Lumiere UTILISATEUR (kind 5) : couleur + intensite.
 		bool Demo3DHostUserLightParams(int32 node, float32 *color3, float32 *intensity);
 		void Demo3DHostSetUserLightParams(int32 node, const float32 *color3, float32 intensity);

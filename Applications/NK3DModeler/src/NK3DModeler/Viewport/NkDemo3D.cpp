@@ -107,6 +107,7 @@ namespace nkentseu {
 		static NkMeshHandle nkvpUserMesh[kNkvpMaxUser];
 		static int32 nkvpUserSeg[kNkvpMaxUser];
 		static int32 nkvpUserRing[kNkvpMaxUser];
+		static float32 nkvpUserAux[kNkvpMaxUser]; // ex. rayon interne du tore
 		// SUPPRESSION par drapeau (heritee par la visibilite effective).
 		static bool nkvpDeleted[kNkvpMaxNodes] = {};
 		// PRESSE-PAPIERS de noeud (copier/coller).
@@ -7999,7 +8000,10 @@ namespace nkentseu {
 			auto &g = r3d->GetInfiniteGridParams();
 			g.showMinor = minor;
 			g.showMajor = major;
-			g.showAxes = axes;
+			// JAMAIS g.showAxes : l'axe Y du shader est errone (la « seconde
+			// ligne verte » constatee par Rihen). Les vrais axes sont les
+			// lignes debug, pilotees par nkvpAxesOn.
+			g.showAxes = false;
 			nkvpAxesOn = axes; // les axes debug de la demo suivent la meme case
 			nkvpMinorOn = minor;
 			nkvpMajorOn = major;
@@ -8403,6 +8407,14 @@ namespace nkentseu {
 				nkvpParentOf[i] = 94;
 			for (int32 i = 86; i <= 89; ++i)
 				nkvpParentOf[i] = 95;
+			// SCENE DE DEPART VIERGE (Rihen) : le menu Ajouter cree tout,
+			// la scene demo n'est plus imposee -- restent le SOL et le SOLEIL.
+			for (int32 i = 0; i < kNkvpMaxNodes; ++i)
+				nkvpDeleted[i] = true;
+			nkvpDeleted[83] = false; // Sol
+			nkvpDeleted[86] = false; // Soleil
+			nkvpParentOf[83] = -1;
+			nkvpParentOf[86] = -1;
 		}
 		static bool HostIsDescendant(int32 node, int32 anc) {
 			// node est-il DANS le sous-arbre de anc ? (garde anti-cycle)
@@ -8871,6 +8883,7 @@ namespace nkentseu {
 				nkvpUserMesh[u] = NkMeshHandle{};
 				nkvpUserSeg[u] = 32;
 				nkvpUserRing[u] = 16;
+				nkvpUserAux[u] = 0.15f;
 				const int32 e = n - kNkvpFirstEmpty;
 				for (int32 a = 0; a < 3; ++a) {
 					nkvpEmptyPos[e][a] = 0.f;
@@ -8955,6 +8968,7 @@ namespace nkentseu {
 				nkvpUserMesh[nu] = nkvpUserMesh[su]; // meme geometrie parametree
 				nkvpUserSeg[nu] = nkvpUserSeg[su];
 				nkvpUserRing[nu] = nkvpUserRing[su];
+				nkvpUserAux[nu] = nkvpUserAux[su];
 			}
 			const int32 pp = nkvpParentOf[src];
 			nkvpParentOf[n] = (pp >= 0 && !nkvpDeleted[pp]) ? pp : -1;
@@ -9104,7 +9118,8 @@ namespace nkentseu {
 						sd = 5;
 					nkvpUserMesh[u] = ms->CreateIcosphereMesh((uint32)sd);
 				} else if (sub == 2) {
-					nkvpUserMesh[u] = ms->CreateTorusMesh((uint32)sg, (uint32)rg);
+					nkvpUserMesh[u] = ms->CreateTorusMesh((uint32)sg, (uint32)rg,
+														  nkvpUserAux[u]);
 				} else if (sub == 3) {
 					nkvpUserMesh[u] = ms->CreateCapsuleMesh((uint32)sg, (uint32)rg);
 				} else {
@@ -9123,25 +9138,33 @@ namespace nkentseu {
 				nkvpUserMesh[u] = ms->CreatePlaneMesh((uint32)dv, (uint32)dv);
 			}
 		}
-		bool Demo3DHostMeshParams(int32 node, int32 *segs, int32 *rings) {
+		int32 Demo3DHostUserSub(int32 node) {
+			return (node >= kNkvpFirstUser && node < kNkvpMaxNodes)
+					   ? (int32)nkvpUserSub[node - kNkvpFirstUser]
+					   : 0;
+		}
+		bool Demo3DHostMeshParams(int32 node, int32 *segs, int32 *rings, float32 *aux) {
 			if (node < kNkvpFirstUser || node >= kNkvpMaxNodes)
 				return false;
 			const int32 u = node - kNkvpFirstUser;
 			const uint8 uk = nkvpUserKind[u];
 			const uint8 sub = nkvpUserSub[u];
-			const bool ok = uk == 1 || (uk == 2 && (sub == 1 || sub == 2)) || uk == 3;
+			const bool ok =
+				uk == 1 || (uk == 2 && (sub == 1 || sub == 2)) || uk == 3 || uk == 10;
 			if (!ok)
 				return false;
 			*segs = nkvpUserSeg[u];
 			*rings = nkvpUserRing[u];
+			*aux = nkvpUserAux[u];
 			return true;
 		}
-		void Demo3DHostSetMeshParams(int32 node, int32 segs, int32 rings) {
+		void Demo3DHostSetMeshParams(int32 node, int32 segs, int32 rings, float32 aux) {
 			if (node < kNkvpFirstUser || node >= kNkvpMaxNodes)
 				return;
 			const int32 u = node - kNkvpFirstUser;
 			nkvpUserSeg[u] = segs;
 			nkvpUserRing[u] = rings;
+			nkvpUserAux[u] = aux;
 			HostRegenUserMesh(u);
 		}
 		int32 Demo3DHostAddNode(int32 kind, int32 sub) {
@@ -9163,6 +9186,7 @@ namespace nkentseu {
 				const int32 u = n - kNkvpFirstUser;
 				nkvpUserSeg[u] = kind == 3 ? 1 : (kind == 1 && (sub & 0xFF) == 1 ? 3 : 32);
 				nkvpUserRing[u] = 16;
+				nkvpUserAux[u] = 0.15f;
 				if (kind >= 1 && kind <= 3)
 					HostRegenUserMesh(u);
 			}
