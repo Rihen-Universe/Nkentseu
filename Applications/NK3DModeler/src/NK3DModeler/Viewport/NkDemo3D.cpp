@@ -7256,6 +7256,13 @@ namespace nkentseu {
 			auto *r3d = HostR3D();
 			return r3d ? r3d->Matcap() : 0;
 		}
+		// Les PIXELS d'une boule matcap : la bibliotheque les genere, l'hote
+		// les tend a l'interface qui les uploade comme n'importe quelle icone
+		// -- c'est ce qui donne un APERCU REEL dans le selecteur.
+		void Demo3DHostMatcapBall(int32 id, uint8 *rgba, uint32 size) {
+			if (rgba && size)
+				renderer::NkMatcapLibrary::GenerateBall(id, size, rgba);
+		}
 		int32 Demo3DHostMatcapCount() {
 			return (int32)renderer::NkRender3D::kMatcapCount;
 		}

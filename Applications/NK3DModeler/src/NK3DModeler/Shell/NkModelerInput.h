@@ -203,6 +203,13 @@ namespace nkentseu {
 				// Hauteur CHOISIE de chaque section (0 = partage automatique) :
 				// la poignee sous la section la regle.
 				float32 propSecH[3] = {0.f, 0.f, 0.f};
+				// Le panneau des matcaps s'ancre au bouton qui l'a ouvert (barre de
+				// la vue OU panneau Proprietes).
+				NkRect matcapAnchor{};
+				// NOMS PERSONNALISES de la hierarchie : 0..85 objets, 86..89
+				// lumieres, 90..95 parents. Vide = nom genere. Ils vivent ici tant
+				// que la demo n'a pas de champ nom ; le format projet les reprendra.
+				char customNames[100][24] = {};
 				// Cadenas et proportionnel des lignes de transformation.
 				bool lockPos = false, lockRot = false, lockScl = false;
 				bool propScale = false;

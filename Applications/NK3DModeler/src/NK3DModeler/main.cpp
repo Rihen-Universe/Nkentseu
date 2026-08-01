@@ -228,6 +228,20 @@ int nkmain(const NkEntryState &entry) {
 	icons.Load(renderer, font.TexId() + 16u, (int32)(16.f * total + 0.5f));
 	printf("[nk3d] %u icones chargees.\n", icons.LoadedCount());
 
+	// VIGNETTES DES MATCAPS (ids 4300+) : la bibliotheque genere chaque
+	// boule en pixels, et on l'uploade comme n'importe quelle icone. C'est
+	// l'APERCU REEL du selecteur -- un pictogramme generique ne dit pas
+	// quelle matiere on choisit.
+	{
+		static uint8 ball[32 * 32 * 4];
+		const int32 nMc = demo::Demo3DHostMatcapCount();
+		for (int32 i = 0; i < nMc; ++i) {
+			demo::Demo3DHostMatcapBall(i, ball, 32);
+			renderer.UploadImageRGBA(4300u + (uint32)i, ball, 32, 32);
+		}
+		printf("[nk3d] %d vignettes de matcap.\n", nMc);
+	}
+
 	// ── ETAT DE SESSION ─────────────────────────────────────────────────────
 	NkModelerState st;
 	NkHitRegistry hit;
@@ -1021,6 +1035,9 @@ int nkmain(const NkEntryState &entry) {
 		// La liste deroulee est peinte AVANT les separateurs et le menu : elle doit
 		// les recouvrir, et le registre donne la priorite a la derniere zone.
 		PaintSplitters(p, lay, W, H, st, hit);
+		// Le panneau des matcaps par-dessus TOUT : il peut etre ouvert depuis
+		// la barre de la vue comme depuis le panneau Proprietes.
+		PaintMatcapPopup(p, hit, st);
 		DrawComboPopup(p, hit, ws, combo);
 		DrawCheckPopup(p, hit, ws, checks);
 		PaintModifierMenu(p, st, hit, ws, W, H);
