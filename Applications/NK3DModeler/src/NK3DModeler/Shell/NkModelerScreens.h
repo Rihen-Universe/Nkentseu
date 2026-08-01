@@ -1046,8 +1046,9 @@ namespace nkentseu {
 			const bool searching = (st.searchHier[0] != 0);
 			// Un objet ou une lumiere redevenus actifs (clic vue ou hierarchie)
 			// reprennent la main sur l'empty actif.
-			if (st.activeEmpty >= 0 && (activeObj >= 0 || selLight >= 0))
-				st.activeEmpty = -1;
+			// L'EMPTY ACTIF vit dans l'HOTE (gizmo des empties) : une seule
+			// source de verite, la vue et la hierarchie restent d'accord.
+			st.activeEmpty = demo::Demo3DHostSelectedEmptyNode();
 			if (!hit.MouseDown() && st.hierDragNode < 0)
 				st.hierDragging = false; // le relachement est digere, une frame apres
 			int32 aliveCount = 0, selCount = 0;
@@ -1138,8 +1139,9 @@ namespace nkentseu {
 								isEmpty ? "Empty" : (isLight ? "Lumiere" : "Maillage"), dim);
 						if (!isEmpty && !isLight && sel && node == activeObj)
 							p.Fill({colType - S(12.f), yy + kRowH * 0.5f - S(2.f), S(4.f), S(4.f)}, fg);
-						// L'OEIL (objets et lumieres ; un empty n'a pas de rendu).
-						if (!isEmpty) {
+						// L'OEIL, pour TOUS : cacher un parent cache son sous-arbre
+						// (etat propre des enfants conserve, restaure au retour).
+						{
 							const bool hidden = isLight ? demo::Demo3DHostLightHidden(li)
 														: demo::Demo3DHostObjectHidden(node);
 							snprintf(key, sizeof(key), "hier.eye.%d", node);
@@ -1154,9 +1156,11 @@ namespace nkentseu {
 									demo::Demo3DHostSetObjectHidden(node, !hidden);
 							}
 						}
-						// LE CADENAS (objets) : verrouille = INselectionnable.
+						// LE CADENAS, pour TOUS : verrouille = INselectionnable, et
+						// cadenasser un parent verrouille son sous-arbre (chaque
+						// enfant garde son propre drapeau).
 						bool lok = false;
-						if (!isEmpty && !isLight) {
+						{
 							lok = demo::Demo3DHostObjectLocked(node);
 							snprintf(key, sizeof(key), "hier.lock.%d", node);
 							const NkRect lockR{colLock - S(3.f), yy, S(20.f), kRowH};
@@ -1176,11 +1180,13 @@ namespace nkentseu {
 							wantSel = wantSel || hit.Clicked(key);
 						}
 						if (wantSel) {
-							if (isEmpty) {
+							if (isEmpty && !lok) {
 								demo::Demo3DHostDeselectAll();
+								demo::Demo3DHostSelectEmptyNode(node);
 								st.activeEmpty = node;
 							} else if (isLight) {
-								demo::Demo3DHostSelectLight(li);
+								if (!lok)
+									demo::Demo3DHostSelectLight(li);
 								st.activeEmpty = -1;
 							} else if (!lok) {
 								demo::Demo3DHostSelectObject(node,
@@ -2571,15 +2577,65 @@ namespace nkentseu {
 							NkRect rowR = rr;
 							rowR.x = r.x + kPad;
 							rowR.w = rr.w - 2.f * kPad;
+							// MEMES ICONES que l'objet : cadenas, reset, proportionnel
+							// (un empty est un objet comme un autre, Rihen).
 							PaintTransformRow(p, hit, ws, in, rowR, yy, "Position", st.pos, 0.01f,
-											  "prop.epos", NkIcon::None, NkIcon::None);
+											  "prop.epos", st.lockPos ? NkIcon::Lock : NkIcon::Unlock,
+											  NkIcon::Refresh, "%.2f", NkIcon::SnapScale, st.propPos);
+							if (hit.Clicked("prop.epos.ic0"))
+								st.lockPos = !st.lockPos;
+							if (hit.Clicked("prop.epos.ic2"))
+								st.propPos = !st.propPos;
 							yy += Vec3RowH();
 							PaintTransformRow(p, hit, ws, in, rowR, yy, "Rotation", st.rot, 0.5f,
-											  "prop.erot", NkIcon::None, NkIcon::None, "%.1f");
+											  "prop.erot", st.lockRot ? NkIcon::Lock : NkIcon::Unlock,
+											  NkIcon::Refresh, "%.1f", NkIcon::SnapScale, st.propRot);
+							if (hit.Clicked("prop.erot.ic0"))
+								st.lockRot = !st.lockRot;
+							if (hit.Clicked("prop.erot.ic2"))
+								st.propRot = !st.propRot;
 							yy += Vec3RowH();
 							PaintTransformRow(p, hit, ws, in, rowR, yy, "Echelle", st.scl, 0.01f,
-											  "prop.escl", NkIcon::None, NkIcon::None);
+											  "prop.escl", st.lockScl ? NkIcon::Lock : NkIcon::Unlock,
+											  NkIcon::Refresh, "%.2f", NkIcon::SnapScale, st.propScale);
+							if (hit.Clicked("prop.escl.ic0"))
+								st.lockScl = !st.lockScl;
+							if (hit.Clicked("prop.escl.ic2"))
+								st.propScale = !st.propScale;
 							yy += Vec3RowH();
+							// Proportionnel et verrous : memes regles que l'objet.
+							auto PropagateE = [](float32 *vals, const float32 *base, bool on) {
+								if (!on)
+									return;
+								int32 ch = -1;
+								for (int32 a = 0; a < 3; ++a)
+									if (vals[a] != base[a])
+										ch = a;
+								if (ch < 0)
+									return;
+								if (fabsf(base[ch]) > 1e-6f) {
+									const float32 ratio = vals[ch] / base[ch];
+									for (int32 a = 0; a < 3; ++a)
+										if (a != ch)
+											vals[a] = base[a] * ratio;
+								} else {
+									const float32 d = vals[ch] - base[ch];
+									for (int32 a = 0; a < 3; ++a)
+										if (a != ch)
+											vals[a] = base[a] + d;
+								}
+							};
+							PropagateE(st.pos, sE, st.propPos);
+							PropagateE(st.rot, sE + 3, st.propRot);
+							PropagateE(st.scl, sE + 6, st.propScale);
+							for (int32 a = 0; a < 3; ++a) {
+								if (st.lockPos)
+									st.pos[a] = sE[a];
+								if (st.lockRot)
+									st.rot[a] = sE[3 + a];
+								if (st.lockScl)
+									st.scl[a] = sE[6 + a];
+							}
 							bool diffE = false;
 							for (int32 a = 0; a < 3; ++a)
 								if (st.pos[a] != sE[a] || st.rot[a] != sE[3 + a] ||

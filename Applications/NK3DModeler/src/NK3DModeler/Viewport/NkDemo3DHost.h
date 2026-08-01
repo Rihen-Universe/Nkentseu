@@ -132,7 +132,10 @@ namespace nkentseu {
 		// bit 4 echelle -- une composante eteinte ne se propage plus.
 		int32 Demo3DHostNodeXmitMask(int32 node);
 		void Demo3DHostSetNodeXmitMask(int32 node, int32 mask);
-		// Transform PROPRE d'un empty (node >= 90).
+		// Selection d'un EMPTY (gizmo dedie dans la vue ; -1 = aucun).
+		void Demo3DHostSelectEmptyNode(int32 node);
+		int32 Demo3DHostSelectedEmptyNode();
+		// Transform EFFECTIVE d'un empty (node >= 90), drag du gizmo compris.
 		bool Demo3DHostEmptyTransform(int32 node, float32 *pos3, float32 *rotDeg3, float32 *scl3);
 		void Demo3DHostSetEmptyTransform(int32 node, const float32 *pos3, const float32 *rotDeg3,
 										 const float32 *scl3);

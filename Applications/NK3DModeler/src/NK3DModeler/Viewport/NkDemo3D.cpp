@@ -92,6 +92,32 @@ namespace nkentseu {
 											 {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f},
 											 {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}};
 		static void HostHierarchyFrame(); // detecteur (defini pres des accesseurs)
+		static void HostParentEnsureInit();
+		static void HostDecompose(const NkMat4f &M, NkVec3f &pos, NkVec3f &rotDeg, NkVec3f &scl);
+		// VISIBILITE et VERROU EFFECTIFS : le sien OU celui d'un ancetre --
+		// cacher/cadenasser un parent emporte tout son sous-arbre, mais chaque
+		// enfant GARDE son propre drapeau, restaure au retour (regle de Rihen).
+		static bool HostNodeHiddenOwn(int32 n) {
+			if (n >= 86 && n < 90)
+				return nkvpLightHidden[n - 86];
+			return n >= 0 && n < 128 && nkvpObjHidden[n];
+		}
+		static bool HostHiddenEff(int32 n) {
+			for (int32 g = 0; g < kNkvpMaxNodes && n >= 0; ++g) {
+				if (HostNodeHiddenOwn(n))
+					return true;
+				n = nkvpParentOf[n];
+			}
+			return false;
+		}
+		static bool HostLockedEff(int32 n) {
+			for (int32 g = 0; g < kNkvpMaxNodes && n >= 0; ++g) {
+				if (n < 128 && nkvpObjLocked[n])
+					return true;
+				n = nkvpParentOf[n];
+			}
+			return false;
+		}
 		// ── SURCHARGES MATERIAU PAR OBJET (panneau Modele) ──────────────────
 		// bit 1 teinte, bit 2 metallique, bit 4 rugosite. Le cache memorise les
 		// valeurs EFFECTIVES vues a la soumission pour que le panneau les lise
@@ -478,6 +504,8 @@ namespace nkentseu {
 				// rendent cette arbitration explicite au lieu de la cacher dans un
 				// espace d'indices partage.
 				renderer::NkGizmo3D lightGizmo;
+				renderer::NkGizmo3D emptyGizmo; // poignees des EMPTIES (parente)
+				bool emptyDragPrev = false;
 				// `lights[]` reste la BASE, jamais ecrite par le gizmo ; l'effet du
 				// gizmo est recompose a chaque frame par Demo3D_LightEffective. C'est
 				// exactement le contrat des objets (base figee + Apply), et c'est ce qui
@@ -4317,7 +4345,7 @@ namespace nkentseu {
 			// Passer `lights[li]` directement rendrait la manipulation invisible dans
 			// l'image — le widget bougerait, l'eclairage non.
 			for (int32 li = 0; li < Demo3DState::kNumLights; li++)
-				if (!nkvpLightHidden[li]) // oeil ferme dans la hierarchie
+				if (!HostHiddenEff(86 + li)) // oeil ferme (le sien ou celui d'un ancetre)
 					sctx.lights.PushBack(Demo3D_LightEffective(st, li));
 
 
@@ -4453,7 +4481,7 @@ namespace nkentseu {
 				dc.metallic = 0.f;
 				dc.roughness = 0.92f;
 				HostMatHook(Demo3DState::kIdxFloor, dc);
-				if (!nkvpObjHidden[Demo3DState::kIdxFloor])
+				if (!HostHiddenEff(Demo3DState::kIdxFloor))
 					r3d->Submit(dc);
 			}
 
@@ -4474,7 +4502,7 @@ namespace nkentseu {
 				dc.metallic = 0.f;
 				dc.roughness = 0.85f;
 				HostMatHook(Demo3DState::kIdxGIWall, dc);
-				if (!nkvpObjHidden[Demo3DState::kIdxGIWall])
+				if (!HostHiddenEff(Demo3DState::kIdxGIWall))
 					r3d->Submit(dc);
 			}
 
@@ -4501,7 +4529,7 @@ namespace nkentseu {
 					HostMatHook(row * 4 + col, dc);
 					// En Edit Mode, l'objet édité est remplacé par son clone (plus bas).
 					if (!(st->editMode && st->editObjIdx == row * 4 + col) &&
-						!nkvpObjHidden[row * 4 + col])
+						!HostHiddenEff(row * 4 + col))
 						r3d->Submit(dc);
 				}
 			}
@@ -4524,7 +4552,7 @@ namespace nkentseu {
 						const NkVec3f tint = effTint({(float32)gx / 7.f, 0.6f, (float32)gz / 7.f});
 						if (st->editMode && st->editObjIdx == idx)
 							continue;
-						if (nkvpObjHidden[idx])
+						if (HostHiddenEff(idx))
 							continue; // oeil ferme dans la hierarchie					  // édité -> via editMesh
 						if (st->objMesh[idx].IsValid()) { // édité persisté -> draw séparé
 							NkDrawCall3D dc;
@@ -4577,7 +4605,7 @@ namespace nkentseu {
 				dc.metallic = 1.f;
 				dc.roughness = 0.15f;
 				HostMatHook(16, dc);
-				if (!(st->editMode && st->editObjIdx == 16) && !nkvpObjHidden[16])
+				if (!(st->editMode && st->editObjIdx == 16) && !HostHiddenEff(16))
 					r3d->Submit(dc);
 			}
 
@@ -4603,7 +4631,7 @@ namespace nkentseu {
 				dc.roughness = 0.6f;
 				HostMatHook(17 + c, dc);
 				dc.castShadow = true;
-				if (!(st->editMode && st->editObjIdx == 17 + c) && !nkvpObjHidden[17 + c])
+				if (!(st->editMode && st->editObjIdx == 17 + c) && !HostHiddenEff(17 + c))
 					r3d->Submit(dc);
 			}
 
@@ -4611,7 +4639,7 @@ namespace nkentseu {
 			// Panneau vertical au-dessus du sol, entre le soleil et le sol : son
 			// ombre doit montrer les trous entre les disques (Shadow_AlphaTest).
 			if (st->maskedMat && !(st->editMode && st->editObjIdx == Demo3DState::kIdxFoliage) &&
-				!nkvpObjHidden[Demo3DState::kIdxFoliage]) {
+				!HostHiddenEff(Demo3DState::kIdxFoliage)) {
 				NkDrawCall3D dc;
 				dc.mesh = meshFor(Demo3DState::kIdxFoliage, st->meshCube);
 				dc.transform = userXform(Demo3DState::kIdxFoliage, Demo3D_ObjBaseFull(st, Demo3DState::kIdxFoliage));
@@ -6562,6 +6590,65 @@ namespace nkentseu {
 						}
 						st->lightDragPrev = st->lightGizmo.IsDragging();
 					}
+					// ── GIZMO DES EMPTIES (parente) ──────────────────────────────
+					// Un empty n'a pas de volume : sa selection VIENT DE LA
+					// HIERARCHIE (aucun pick, rayon nul), mais ses poignees se
+					// manipulent ici comme celles d'une lumiere. Pendant le drag,
+					// la transformation EFFECTIVE (base + decalages) est vue par le
+					// detecteur de parente -> les enfants suivent EN DIRECT ; en
+					// fin de drag le resultat est replie dans la base.
+					{
+						st->emptyGizmo.SetCamera(cam.GetPosition(), cam.GetTarget(), 60.f,
+												 (float32)ctx.width, (float32)ctx.height);
+						renderer::NkGizmoTarget etg[6];
+						const float32 kD2R = 0.017453292f;
+						for (int32 e = 0; e < 6; ++e) {
+							const NkMat4f eR =
+								NkMat4f::RotationZ(NkAngle::FromRad(nkvpEmptyRotDeg[e][2] * kD2R)) *
+								NkMat4f::RotationY(NkAngle::FromRad(nkvpEmptyRotDeg[e][1] * kD2R)) *
+								NkMat4f::RotationX(NkAngle::FromRad(nkvpEmptyRotDeg[e][0] * kD2R));
+							etg[e].base = NkMat4f::Translate({nkvpEmptyPos[e][0], nkvpEmptyPos[e][1],
+															  nkvpEmptyPos[e][2]}) *
+										  eR *
+										  NkMat4f::Scale({nkvpEmptyScl[e][0], nkvpEmptyScl[e][1],
+														  nkvpEmptyScl[e][2]});
+							etg[e].localHalf = {0.f, 0.f, 0.f};
+							etg[e].pickRadius = 0.f; // pas de pick : la hierarchie selectionne
+						}
+						renderer::NkGizmoInput ein = gin;
+						const bool ewasDrag = st->emptyGizmo.IsDragging();
+						st->emptyGizmo.Update(etg, 6, ein);
+						if (!ewasDrag && st->emptyGizmo.IsDragging())
+							gin.leftPressed = false; // poignee saisie : le clic est a nous
+						if (st->emptyDragPrev && !st->emptyGizmo.IsDragging()) {
+							const int32 es = st->emptyGizmo.ActiveIndex();
+							if (es >= 0 && es < 6) {
+								// REPLI : effective -> base, gizmo remis a zero (meme
+								// regle que les lumieres, sinon base et decalages
+								// divergent).
+								const NkVec3f tr = st->emptyGizmo.TranslateOf(es);
+								const NkMat4f oR = st->emptyGizmo.RotationOf(es);
+								const NkVec3f os = st->emptyGizmo.ScaleOf(es);
+								const NkMat4f bR =
+									NkMat4f::RotationZ(NkAngle::FromRad(nkvpEmptyRotDeg[es][2] * kD2R)) *
+									NkMat4f::RotationY(NkAngle::FromRad(nkvpEmptyRotDeg[es][1] * kD2R)) *
+									NkMat4f::RotationX(NkAngle::FromRad(nkvpEmptyRotDeg[es][0] * kD2R));
+								NkVec3f fp, fr, fs;
+								HostDecompose(oR * bR, fp, fr, fs);
+								nkvpEmptyPos[es][0] += tr.x;
+								nkvpEmptyPos[es][1] += tr.y;
+								nkvpEmptyPos[es][2] += tr.z;
+								nkvpEmptyRotDeg[es][0] = fr.x;
+								nkvpEmptyRotDeg[es][1] = fr.y;
+								nkvpEmptyRotDeg[es][2] = fr.z;
+								nkvpEmptyScl[es][0] *= (1.f + os.x);
+								nkvpEmptyScl[es][1] *= (1.f + os.y);
+								nkvpEmptyScl[es][2] *= (1.f + os.z);
+								st->emptyGizmo.ResetSelected();
+							}
+						}
+						st->emptyDragPrev = st->emptyGizmo.IsDragging();
+					}
 					st->gizmo.Update(targets, n, gin);
 					if (getenv("NK_SEL_AT")) {
 						static int32 lastLogged = -2;
@@ -7272,6 +7359,7 @@ namespace nkentseu {
 				dt = 1.f / 60.f;
 			hst.ctx.totalTime += dt;
 			hst.ctx.frame++;
+			HostParentEnsureInit(); // la parente sert DANS la frame (visibilite)
 			nkvpCmd = cmd;
 			Demo3D_Frame(hst.ctx, dt);
 			nkvpCmd = nullptr;
@@ -7489,6 +7577,7 @@ namespace nkentseu {
 			st->gizmo.SetMode(op);
 			st->editGizmo.SetMode(op);
 			st->lightGizmo.SetMode(op);
+			st->emptyGizmo.SetMode(op);
 		}
 		int32 Demo3DHostGizmoOp() {
 			auto *st = HostSt();
@@ -7655,9 +7744,10 @@ namespace nkentseu {
 				return;
 			// lightSel seul ne suffit pas : le gizmo des lumieres le RESSUSCITE
 			// chaque frame (lightSel = ActiveIndex) -- on vide sa selection.
-			if (nkvpObjLocked[i])
-				return; // CADENASSE = ne peut plus etre selectionne (Rihen)
+			if (HostLockedEff(i))
+				return; // CADENASSE (lui ou un ancetre) = INselectionnable
 			st->lightGizmo.ClearSelection();
+			st->emptyGizmo.ClearSelection();
 			st->lightSel = -1;
 			if (additive)
 				st->gizmo.ToggleSelection(i); // Maj+clic, comme dans la vue
@@ -7673,12 +7763,13 @@ namespace nkentseu {
 			if (!st)
 				return;
 			st->lightGizmo.ClearSelection(); // meme regle que Demo3DHostSelectObject
+			st->emptyGizmo.ClearSelection();
 			st->lightSel = -1;
 			if (!additive)
 				st->gizmo.ClearSelection();
 			for (int32 k = 0; k < count; ++k) {
 				const int32 i = start + k;
-				if (i >= 0 && i < Demo3DState::kNumObj && !nkvpObjLocked[i] &&
+				if (i >= 0 && i < Demo3DState::kNumObj && !HostLockedEff(i) &&
 					!st->gizmo.IsSelected(i))
 					st->gizmo.ToggleSelection(i);
 			}
@@ -7692,6 +7783,7 @@ namespace nkentseu {
 			if (!st)
 				return;
 			st->gizmo.ClearSelection();
+			st->emptyGizmo.ClearSelection();
 			st->lightGizmo.SelectAll();
 			st->lightSel = st->lightGizmo.ActiveIndex();
 		}
@@ -7710,6 +7802,7 @@ namespace nkentseu {
 				return;
 			st->gizmo.ClearSelection();
 			st->lightGizmo.ClearSelection(); // sinon lightSel renait a la frame suivante
+			st->emptyGizmo.ClearSelection();
 			st->lightSel = -1;
 		}
 		void Demo3DHostObjectPosition(int32 i, float32 *out3) {
@@ -7740,7 +7833,10 @@ namespace nkentseu {
 			auto *st = HostSt();
 			if (!st)
 				return;
+			if (li >= 0 && HostLockedEff(86 + li))
+				return; // lumiere cadenassee (elle ou un ancetre)
 			st->gizmo.ClearSelection();
+			st->emptyGizmo.ClearSelection();
 			// PAS lightSel directement : la demo le REECRIT chaque frame depuis
 			// la selection interne du gizmo des lumieres (lightSel =
 			// lightGizmo.ActiveIndex()). C'est donc LE GIZMO qu'on pilote --
@@ -7985,6 +8081,29 @@ namespace nkentseu {
 					return true;
 			return false;
 		}
+		static NkMat4f HostRotFromEuler(const float32 *rotDeg);
+		void Demo3DHostSelectEmptyNode(int32 node) {
+			auto *st = HostSt();
+			if (!st)
+				return;
+			if (node < kNkvpFirstEmpty || node >= kNkvpMaxNodes) {
+				st->emptyGizmo.ClearSelection();
+				return;
+			}
+			if (HostLockedEff(node))
+				return; // empty cadenasse (lui ou un ancetre)
+			st->gizmo.ClearSelection();
+			st->lightGizmo.ClearSelection();
+			st->lightSel = -1;
+			st->emptyGizmo.Select(node - kNkvpFirstEmpty);
+		}
+		int32 Demo3DHostSelectedEmptyNode() {
+			auto *st = HostSt();
+			if (!st)
+				return -1;
+			const int32 e = st->emptyGizmo.ActiveIndex();
+			return e >= 0 ? kNkvpFirstEmpty + e : -1;
+		}
 		bool Demo3DHostEmptyTransform(int32 node, float32 *pos3, float32 *rotDeg3, float32 *scl3) {
 			if (node < kNkvpFirstEmpty || node >= kNkvpMaxNodes)
 				return false;
@@ -7994,6 +8113,24 @@ namespace nkentseu {
 				rotDeg3[a] = nkvpEmptyRotDeg[e][a];
 				scl3[a] = nkvpEmptyScl[e][a];
 			}
+			// EFFECTIF : les decalages d'un drag du gizmo en cours s'ajoutent.
+			auto *st = HostSt();
+			if (st) {
+				const NkVec3f tr = st->emptyGizmo.TranslateOf(e);
+				pos3[0] += tr.x;
+				pos3[1] += tr.y;
+				pos3[2] += tr.z;
+				NkVec3f gp, gr, gs;
+				HostDecompose(st->emptyGizmo.RotationOf(e) * HostRotFromEuler(nkvpEmptyRotDeg[e]),
+							  gp, gr, gs);
+				rotDeg3[0] = gr.x;
+				rotDeg3[1] = gr.y;
+				rotDeg3[2] = gr.z;
+				const NkVec3f os = st->emptyGizmo.ScaleOf(e);
+				scl3[0] *= (1.f + os.x);
+				scl3[1] *= (1.f + os.y);
+				scl3[2] *= (1.f + os.z);
+			}
 			return true;
 		}
 		void Demo3DHostSetEmptyTransform(int32 node, const float32 *pos3, const float32 *rotDeg3,
@@ -8001,11 +8138,29 @@ namespace nkentseu {
 			if (node < kNkvpFirstEmpty || node >= kNkvpMaxNodes)
 				return;
 			const int32 e = node - kNkvpFirstEmpty;
-			for (int32 a = 0; a < 3; ++a) {
-				nkvpEmptyPos[e][a] = pos3[a];
-				nkvpEmptyRotDeg[e][a] = rotDeg3[a];
-				nkvpEmptyScl[e][a] = scl3[a];
+			// INCREMENTAL sur la BASE, delta calcule contre l'EFFECTIF (le gizmo
+			// peut porter des decalages en plein drag) -- meme logique que l'objet.
+			float32 cp[3], cr[3], cs[3];
+			Demo3DHostEmptyTransform(node, cp, cr, cs);
+			for (int32 a = 0; a < 3; ++a)
+				nkvpEmptyPos[e][a] += pos3[a] - cp[a];
+			const float32 kD2R = 0.017453292f;
+			const float32 ddx = (rotDeg3[0] - cr[0]) * kD2R;
+			const float32 ddy = (rotDeg3[1] - cr[1]) * kD2R;
+			const float32 ddz = (rotDeg3[2] - cr[2]) * kD2R;
+			if (fabsf(ddx) + fabsf(ddy) + fabsf(ddz) > 1e-7f) {
+				const NkMat4f dR = NkMat4f::RotationZ(NkAngle::FromRad(ddz)) *
+								   NkMat4f::RotationY(NkAngle::FromRad(ddy)) *
+								   NkMat4f::RotationX(NkAngle::FromRad(ddx));
+				NkVec3f bp, br, bs;
+				HostDecompose(dR * HostRotFromEuler(nkvpEmptyRotDeg[e]), bp, br, bs);
+				nkvpEmptyRotDeg[e][0] = br.x;
+				nkvpEmptyRotDeg[e][1] = br.y;
+				nkvpEmptyRotDeg[e][2] = br.z;
 			}
+			for (int32 a = 0; a < 3; ++a)
+				if (cs[a] > 1e-6f && fabsf(scl3[a] - cs[a]) > 1e-7f)
+					nkvpEmptyScl[e][a] *= scl3[a] / cs[a];
 		}
 		// ── Materiau par objet (surcharges + cache des valeurs effectives) ──
 		bool Demo3DHostMeshMaterial(int32 i, float32 *tint3, float32 *metallic, float32 *roughness) {
@@ -8087,14 +8242,18 @@ namespace nkentseu {
 				pos[1] = base.y + off.y;
 				pos[2] = base.z + off.z;
 			} else {
+				// EFFECTIF : base + decalages du gizmo des empties -> pendant un
+				// drag, les enfants suivent EN DIRECT.
 				const int32 e = n - kNkvpFirstEmpty;
-				pos[0] = nkvpEmptyPos[e][0];
-				pos[1] = nkvpEmptyPos[e][1];
-				pos[2] = nkvpEmptyPos[e][2];
-				rot = HostRotFromEuler(nkvpEmptyRotDeg[e]);
-				scl[0] = nkvpEmptyScl[e][0];
-				scl[1] = nkvpEmptyScl[e][1];
-				scl[2] = nkvpEmptyScl[e][2];
+				const NkVec3f tr = st->emptyGizmo.TranslateOf(e);
+				pos[0] = nkvpEmptyPos[e][0] + tr.x;
+				pos[1] = nkvpEmptyPos[e][1] + tr.y;
+				pos[2] = nkvpEmptyPos[e][2] + tr.z;
+				rot = st->emptyGizmo.RotationOf(e) * HostRotFromEuler(nkvpEmptyRotDeg[e]);
+				const NkVec3f os = st->emptyGizmo.ScaleOf(e);
+				scl[0] = nkvpEmptyScl[e][0] * (1.f + os.x);
+				scl[1] = nkvpEmptyScl[e][1] * (1.f + os.y);
+				scl[2] = nkvpEmptyScl[e][2] * (1.f + os.z);
 			}
 		}
 		static bool HostNodeSelected(Demo3DState *st, int32 n) {
@@ -8213,8 +8372,11 @@ namespace nkentseu {
 			// CADENAS INVIOLABLE : quel que soit le chemin (clic vue, zone,
 			// panneau), un objet verrouille est desselectionne d'office.
 			for (int32 i = 0; i < Demo3DState::kNumObj; ++i)
-				if (nkvpObjLocked[i] && st->gizmo.IsSelected(i))
+				if (HostLockedEff(i) && st->gizmo.IsSelected(i))
 					st->gizmo.ToggleSelection(i);
+			for (int32 li2 = 0; li2 < Demo3DState::kNumLights; ++li2)
+				if (HostLockedEff(86 + li2) && st->lightGizmo.IsSelected(li2))
+					st->lightGizmo.ToggleSelection(li2);
 			if (!sHierOk) {
 				sHierOk = true;
 			} else {
@@ -8238,7 +8400,7 @@ namespace nkentseu {
 			renderer::NkGizmo3D &G = st->gizmo;
 			const float32 kDeg2Rad = 0.017453292f;
 			for (int32 i = 0; i < Demo3DState::kNumObj; ++i) {
-				if (i == except || !G.IsSelected(i) || nkvpObjLocked[i])
+				if (i == except || !G.IsSelected(i) || HostLockedEff(i))
 					continue;
 				const NkVec3f t = G.TranslateOf(i);
 				G.SetTranslateOf(i, {t.x + dPos[0], t.y + dPos[1], t.z + dPos[2]});
@@ -8276,7 +8438,7 @@ namespace nkentseu {
 		void Demo3DHostSetObjectTransform(int32 i, const float32 *pos3, const float32 *rotDeg3,
 										  const float32 *scl3) {
 			auto *st = HostSt();
-			if (!st || i < 0 || i >= Demo3DState::kNumObj || nkvpObjLocked[i])
+			if (!st || i < 0 || i >= Demo3DState::kNumObj || HostLockedEff(i))
 				return;
 			NkVec3f cp, cr, cs;
 			HostDecompose(st->objXform[i], cp, cr, cs);
