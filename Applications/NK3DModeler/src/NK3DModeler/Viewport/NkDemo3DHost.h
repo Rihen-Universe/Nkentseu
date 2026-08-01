@@ -158,6 +158,7 @@ namespace nkentseu {
 		bool Demo3DHostNodeDeleted(int32 node);
 		void Demo3DHostDeleteNode(int32 node, bool withChildren);
 		int32 Demo3DHostDuplicateNode(int32 node); // -1 si impossible (lumiere v1)
+		int32 Demo3DHostArchiveNode(int32 node);   // copie invisible pour asset
 		void Demo3DHostCopyNode(int32 node);
 		int32 Demo3DHostPasteNode();
 		int32 Demo3DHostUserKind(int32 node); // 0 aucun, 1 sphere, 2 cube, 3 plan, 4 empty

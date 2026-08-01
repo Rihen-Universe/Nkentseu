@@ -566,8 +566,17 @@ namespace nkentseu {
 					HoverFill(p, cr, hit.Add(key, cr), 2.f);
 					p.IconV(x + tw - S(20.f), r.y, r.h, NkIcon::WinClose, NkRole::TextMuted, 10.f);
 					if (hit.Clicked(key)) {
-						for (int32 k = i; k + 1 < st.sceneCount; ++k)
+						for (int32 k = i; k + 1 < st.sceneCount; ++k) {
 							NkWidgetState::Copy(st.sceneNames[k], st.sceneNames[k + 1], 31u);
+							// TOUTES les donnees d'onglet suivent le nom.
+							st.sceneBlank[k] = st.sceneBlank[k + 1];
+							st.sceneTabKind[k] = st.sceneTabKind[k + 1];
+							st.sceneTabAsset[k] = st.sceneTabAsset[k + 1];
+							st.sceneCamOrtho[k] = st.sceneCamOrtho[k + 1];
+							st.sceneCamSet[k] = st.sceneCamSet[k + 1];
+							for (int32 a = 0; a < 6; ++a)
+								st.sceneCamPose[k][a] = st.sceneCamPose[k + 1][a];
+						}
 						st.sceneCount--;
 						if (st.activeTab >= st.sceneCount)
 							st.activeTab = st.sceneCount - 1;
@@ -579,17 +588,20 @@ namespace nkentseu {
 					// CHANGER DE SCENE = changer de VUE : la pose de camera de la
 					// scene quittee est memorisee, celle de la scene ouverte est
 					// rappelee (ou la pose d'ouverture si elle n'a jamais servi).
-					NkStoreSceneCam(st, st.activeTab);
+					// Les onglets EDITEUR (asset) ne touchent ni camera ni scene.
+					if (st.sceneTabKind[st.activeTab] == 0)
+						NkStoreSceneCam(st, st.activeTab);
 					st.activeTab = i;
-					if (st.sceneCamSet[i])
+					if (st.sceneTabKind[i] == 0 && st.sceneCamSet[i])
 						demo::Demo3DHostSetCameraPose(st.sceneCamPose[i], st.sceneCamPose[i][3],
 													  st.sceneCamPose[i][4],
 													  st.sceneCamPose[i][5], st.sceneCamOrtho[i]);
-					else
+					else if (st.sceneTabKind[i] == 0)
 						demo::Demo3DHostResetView();
 					// Chaque scene a SES objets : la demo peuple la premiere, les
 					// autres naissent VIERGES (tout masque).
-					demo::Demo3DHostSetAllHidden(st.sceneBlank[i]);
+					if (st.sceneTabKind[i] == 0)
+						demo::Demo3DHostSetAllHidden(st.sceneBlank[i]);
 				}
 				x += tw + 3.f;
 			}
@@ -1131,9 +1143,27 @@ namespace nkentseu {
 				if (st.browserFolder == src)
 					st.browserFolder = dup;
 			} else {
-				NkBrowDelRec(st, dup);
-				st.browserParent[src] = dest;
+				// FICHIER homonyme : ON DEMANDE (file du dialogue) -- plus de
+				// remplacement silencieux pendant une fusion (Rihen).
+				if (st.browConfQN < 32) {
+					st.browConfQ[st.browConfQN][0] = src;
+					st.browConfQ[st.browConfQN][1] = dest;
+					st.browConfQCopy &= ~(1u << st.browConfQN);
+					st.browConfQN++;
+				}
 			}
+		}
+		// Remplacement EXPLICITE d'un seul element (choix du dialogue).
+		inline void NkBrowReplaceOne(NkModelerState &st, int32 src, int32 dest,
+									 bool isCopy) {
+			const int32 dup = NkBrowFindSame(st, dest, st.browserKind[src],
+											 st.browserNames[src], src);
+			if (dup >= 0)
+				NkBrowDelRec(st, dup);
+			if (isCopy)
+				NkBrowCopyRecU(st, src, dest);
+			else
+				st.browserParent[src] = dest;
 		}
 		inline int32 NkBrowCopyOne(NkModelerState &st, int32 src, int32 par) {
 			if (st.browserCount >= NkModelerState::kMaxBrowser)
@@ -1154,8 +1184,16 @@ namespace nkentseu {
 						NkBrowCopyReplace(st, c8, dup);
 				return;
 			}
-			if (dup >= 0)
-				NkBrowDelRec(st, dup);
+			if (dup >= 0) {
+				// fichier homonyme en COPIE : la file du dialogue tranchera
+				if (st.browConfQN < 32) {
+					st.browConfQ[st.browConfQN][0] = src;
+					st.browConfQ[st.browConfQN][1] = dest;
+					st.browConfQCopy |= (1u << st.browConfQN);
+					st.browConfQN++;
+				}
+				return;
+			}
 			const int32 nk8 = NkBrowCopyOne(st, src, dest);
 			if (nk8 >= 0 && st.browserKind[src] == 1)
 				for (int32 c8 = 0; c8 < st.browserCount; ++c8)
@@ -1708,14 +1746,28 @@ namespace nkentseu {
 							st.browserParent[cs] = cd;
 						}
 					} else if (cAct == 1) {
-						if (st.browConfCopy)
-							NkBrowCopyReplace(st, cs, cd);
-						else
-							NkBrowMoveReplace(st, cs, cd);
+						if (st.browserKind[cs] == 1) {
+							// dossier : FUSION (les fichiers homonymes rejoignent
+							// la file et repassent ici un par un)
+							if (st.browConfCopy)
+								NkBrowCopyReplace(st, cs, cd);
+							else
+								NkBrowMoveReplace(st, cs, cd);
+						} else {
+							NkBrowReplaceOne(st, cs, cd, st.browConfCopy);
+						}
 					}
 					if (cAct != 2 && !st.browConfCopy && st.browClip == cs)
 						st.browClip = -1; // le couper est consomme
 					st.browConfSrc = -1;
+					// la FILE continue : le prochain conflit reprend le dialogue
+					if (st.browConfQN > 0) {
+						st.browConfQN--;
+						st.browConfSrc = st.browConfQ[st.browConfQN][0];
+						st.browConfDest = st.browConfQ[st.browConfQN][1];
+						st.browConfCopy =
+							((st.browConfQCopy >> st.browConfQN) & 1u) != 0u;
+					}
 				} else if (hit.AnyClick() && !NkHitRegistry::Contains(cr3, hit.Mouse())) {
 					st.browConfSrc = -1; // le vide ARRETE
 				}
@@ -2011,7 +2063,12 @@ namespace nkentseu {
 								const int32 k6 = st.browserCount++;
 								st.browserKind[k6] = 6;
 								st.browserParent[k6] = st.browserFolder;
-								st.browserSrcNode[k6] = st.hierDragNode + 1;
+								// ARCHIVE hote : l'asset survit a la suppression
+								// de l'original dans la scene (retour de Rihen).
+								const int32 arc6 =
+									demo::Demo3DHostArchiveNode(st.hierDragNode);
+								st.browserSrcNode[k6] =
+									(arc6 >= 0 ? arc6 : st.hierDragNode) + 1;
 								char bnm[32];
 								NkHierNodeName(st, st.hierDragNode, bnm, sizeof(bnm));
 								NkBrowUniqueName(st, 6, st.browserFolder, bnm,
@@ -2663,6 +2720,32 @@ namespace nkentseu {
 			// Fond de la ZONE IMAGE seulement (vr, pas r) : peindre r entier
 			// recouvrait la barre d'espaces peinte juste au-dessus.
 			p.Fill(vr, NkRole::ViewportTop); // visible tant que la 3D n'est pas prete
+			// ONGLET EDITEUR (asset ouvert au double-clic) : la vue 3D laisse
+			// place a une fenetre SPECIALISEE pour la nature de l'asset.
+			if (st.sceneTabKind[st.activeTab] != 0) {
+				const uint8 ek = (uint8)(st.sceneTabKind[st.activeTab] - 1);
+				const char *en = (ek == 0)	 ? "Editeur de Blueprint"
+								 : (ek == 2) ? "Editeur de Materiau"
+								 : (ek == 3) ? "Editeur de Texture"
+								 : (ek == 4) ? "Editeur de Dataset IA"
+								 : (ek == 6) ? "Editeur de Mesh"
+											 : "Editeur";
+				p.Fill(vr, NkRole::WindowBg);
+				const float32 cxE = vr.x + vr.w * 0.5f;
+				const float32 cyE = vr.y + vr.h * 0.5f;
+				p.TextV(cxE - p.TextW(en) * 0.5f, cyE - S(36.f), kRowH, en,
+						NkRole::Text);
+				const int32 aiE = st.sceneTabAsset[st.activeTab] - 1;
+				if (aiE >= 0 && aiE < st.browserCount)
+					p.TextV(cxE - p.TextW(st.browserNames[aiE]) * 0.5f,
+							cyE - S(12.f), kRowH, st.browserNames[aiE],
+							NkRole::TextMuted);
+				p.TextV(cxE - p.TextW("Edition dediee a venir (NKGraphe)") * 0.5f,
+						cyE + S(12.f), kRowH, "Edition dediee a venir (NKGraphe)",
+						NkRole::TextMuted);
+				st.viewRect = {0.f, 0.f, 0.f, 0.f}; // pas de depot 3D ici
+				return;
+			}
 			// PORTAGE INTEGRAL de --demo=2 : la texture vient desormais de la demo
 			// portee (NkDemo3D.cpp), sous le MEME id 4096. L'ancienne vue est
 			// dormante ; c'est donc l'hote de la demo qui dit Â« pret Â».
@@ -5159,9 +5242,76 @@ namespace nkentseu {
 			}
 			p.VLine(x, r.y + 6.f, topH - 12.f);
 			x += 10.f;
-			p.IconV(x, r.y, topH, NkIcon::ArrowLeft, NkRole::Text, 13.f);
-			p.IconV(x + 22.f, r.y, topH, NkIcon::ArrowRight, NkRole::Text, 13.f);
-			p.TextV(x + 50.f, r.y, topH, "Tout > Contenu > Perso", NkRole::TextMuted);
+			// HISTORIQUE : chaque changement de dossier s'enregistre (sauf via
+			// les fleches elles-memes).
+			if (st.browHistLen == 0) {
+				st.browHist[0] = -1;
+				st.browHistLen = 1;
+				st.browHistPos = 0;
+			}
+			if (st.browserFolder != st.browPrevFolder) {
+				if (!st.browHistNav && st.browHistPos < 63) {
+					st.browHistLen = st.browHistPos + 1;
+					st.browHist[st.browHistLen++] = st.browserFolder;
+					st.browHistPos = st.browHistLen - 1;
+				}
+				st.browHistNav = false;
+				st.browPrevFolder = st.browserFolder;
+			}
+			const bool canB = st.browHistPos > 0;
+			const bool canF = st.browHistPos + 1 < st.browHistLen;
+			hit.Add("brw.back", {x - 4.f, r.y + 3.f, 22.f, topH - 6.f});
+			p.IconV(x, r.y, topH, NkIcon::ArrowLeft,
+					canB ? NkRole::Text : NkRole::TextMuted, 13.f);
+			if (canB && hit.Clicked("brw.back")) {
+				st.browHistPos--;
+				st.browHistNav = true;
+				int32 tg9 = st.browHist[st.browHistPos];
+				if (tg9 >= 0 && st.browserKind[tg9] == 255)
+					tg9 = -1; // dossier disparu entre-temps
+				st.browserFolder = tg9;
+			}
+			hit.Add("brw.fwd", {x + 18.f, r.y + 3.f, 22.f, topH - 6.f});
+			p.IconV(x + 22.f, r.y, topH, NkIcon::ArrowRight,
+					canF ? NkRole::Text : NkRole::TextMuted, 13.f);
+			if (canF && hit.Clicked("brw.fwd")) {
+				st.browHistPos++;
+				st.browHistNav = true;
+				int32 tg9 = st.browHist[st.browHistPos];
+				if (tg9 >= 0 && st.browserKind[tg9] == 255)
+					tg9 = -1; // dossier disparu entre-temps
+				st.browserFolder = tg9;
+			}
+			// FIL D'ARIANE dynamique et cliquable (chemin REEL du dossier).
+			{
+				int32 chain[16];
+				int32 nCh = 0;
+				for (int32 c9 = st.browserFolder; c9 >= 0 && nCh < 16;
+					 c9 = st.browserParent[c9])
+					chain[nCh++] = c9;
+				float32 bx = x + 50.f;
+				hit.Add("brw.crumb.root",
+						{bx, r.y + 3.f, p.TextW("Contenu") + 6.f, topH - 6.f});
+				p.TextV(bx, r.y, topH, "Contenu",
+						st.browserFolder < 0 ? NkRole::Text : NkRole::TextMuted);
+				if (hit.Clicked("brw.crumb.root"))
+					st.browserFolder = -1;
+				bx += p.TextW("Contenu") + 8.f;
+				for (int32 c9 = nCh - 1; c9 >= 0; --c9) {
+					p.TextV(bx, r.y, topH, ">", NkRole::TextMuted);
+					bx += p.TextW(">") + 6.f;
+					const int32 fi = chain[c9];
+					char ck[24];
+					snprintf(ck, sizeof(ck), "brw.crumb.%d", fi);
+					const float32 wN = p.TextW(st.browserNames[fi]);
+					hit.Add(ck, {bx, r.y + 3.f, wN + 6.f, topH - 6.f});
+					p.TextV(bx, r.y, topH, st.browserNames[fi],
+							fi == st.browserFolder ? NkRole::Text : NkRole::TextMuted);
+					if (hit.Clicked(ck))
+						st.browserFolder = fi;
+					bx += wN + 10.f;
+				}
+			}
 			p.HLine(r.x, r.y + topH - 1.f, r.w);
 
 			// Arbre de dossiers : LES DOSSIERS CREES PAR L'UTILISATEUR, plus une
@@ -5453,6 +5603,34 @@ namespace nkentseu {
 				snprintf(akey, sizeof(akey), "brow.card.%d", i);
 				if (!uiModal && kind == 1 && hit.DoubleClicked(akey))
 					st.browserFolder = i; // double-clic : ENTRER dans le dossier
+				if (!uiModal && kind != 1 && hit.DoubleClicked(akey)) {
+					// OUVRIR l'asset : une SCENE s'ajoute a la barre d'onglets
+					// avec son contenu ; les autres natures ouvrent leur EDITEUR
+					// specialise dans un onglet dedie (Rihen).
+					const uint8 tk9 = (uint8)(kind == 5 ? 0 : 1 + kind);
+					int32 tb = -1;
+					for (int32 t9 = 0; t9 < st.sceneCount; ++t9)
+						if (st.sceneTabAsset[t9] == i + 1 && st.sceneTabKind[t9] == tk9)
+							tb = t9; // deja ouvert : on l'ACTIVE simplement
+					if (tb < 0 && st.sceneCount < 8) {
+						tb = st.sceneCount++;
+						NkWidgetState::Copy(st.sceneNames[tb], st.browserNames[i], 31u);
+						st.sceneTabAsset[tb] = i + 1;
+						st.sceneTabKind[tb] = tk9;
+						st.sceneCamSet[tb] = false;
+						// contenu REEL au chargement : viendra du format projet
+						st.sceneBlank[tb] = true;
+					}
+					if (tb >= 0 && tb != st.activeTab) {
+						if (st.sceneTabKind[st.activeTab] == 0)
+							NkStoreSceneCam(st, st.activeTab);
+						st.activeTab = tb;
+						if (st.sceneTabKind[tb] == 0) {
+							demo::Demo3DHostResetView();
+							demo::Demo3DHostSetAllHidden(st.sceneBlank[tb]);
+						}
+					}
+				}
 				if (hit.RightClicked(akey)) {
 					st.browMenuIdx = i;
 					st.browMenuX = hit.Mouse().x;
@@ -5512,10 +5690,13 @@ namespace nkentseu {
 						// Sur la VUE : importer un CLONE dans la scene (Rihen).
 						if (!NkHitRegistry::Contains(st.browserRect, bm) &&
 							NkHitRegistry::Contains(st.viewRect, bm) &&
-							st.browserKind[st.browDragIdx] == 6 &&
-							st.browserSrcNode[st.browDragIdx] > 0) {
-							const int32 nn6 = demo::Demo3DHostDuplicateNode(
-								st.browserSrcNode[st.browDragIdx] - 1);
+							st.browserKind[st.browDragIdx] == 6) {
+							int32 nn6 = -1;
+							if (st.browserSrcNode[st.browDragIdx] > 0)
+								nn6 = demo::Demo3DHostDuplicateNode(
+									st.browserSrcNode[st.browDragIdx] - 1);
+							if (nn6 < 0) // asset sans source : cube par defaut
+								nn6 = demo::Demo3DHostAddNode(2, 0);
 							if (nn6 >= 0)
 								demo::Demo3DHostSelectEmptyNode(nn6);
 							st.browDragIdx = -1;

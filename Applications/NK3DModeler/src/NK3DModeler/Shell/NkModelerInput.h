@@ -292,9 +292,23 @@ namespace nkentseu {
 				int32 browConfDest = -1;
 				bool browConfCopy = false;
 				float32 browConfX = 0.f, browConfY = 0.f;
+				// FILE des conflits rencontres pendant une fusion (un par un).
+				int32 browConfQ[32][2] = {};
+				uint32 browConfQCopy = 0;
+				int32 browConfQN = 0;
+				// HISTORIQUE de navigation (fleches) + fil d'Ariane.
+				int32 browHist[64] = {};
+				int32 browHistLen = 0;
+				int32 browHistPos = 0;
+				int32 browPrevFolder = -1;
+				bool browHistNav = false;
 				int32 lightSrcUi = 0;
 				// Une scene AJOUTEE est VIERGE : les objets de la demo y sont masques.
 				bool sceneBlank[8] = {};
+				// Nature de l'onglet : 0 scene ; sinon 1+kind d'asset (EDITEUR
+				// specialise ouvert au double-clic dans le navigateur).
+				uint8 sceneTabKind[8] = {};
+				int32 sceneTabAsset[8] = {}; // index navigateur + 1
 				// TYPE de fond de la scene : 0 couleur unie, 1 degrade, 2 texture,
 				// 3 HDRI, 4 ciel. Seule la couleur unie est cablee aujourd'hui ; les
 				// autres montrent leurs proprietes en annoncant le chantier moteur.
