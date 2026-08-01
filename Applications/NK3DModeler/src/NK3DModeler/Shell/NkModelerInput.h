@@ -45,7 +45,8 @@ namespace nkentseu {
 		enum class NkSubMode : uint8 { Vertex = 0, Edge, Face };
 
 		// Outil actif : « que fait mon clic ? ». Un seul a la fois.
-		enum class NkTool : uint8 { Select = 0, Cursor, Move, Rotate, Scale };
+		// MultiGizmo = le mode COMBINE de la demo (T+R+S en un seul gizmo).
+		enum class NkTool : uint8 { Select = 0, Cursor, Move, Rotate, Scale, MultiGizmo };
 
 		// ── INTENTION CLAVIER ───────────────────────────────────────────────────
 		// Une TOUCHE ne fait rien elle-meme : elle pose une intention, consommee
@@ -142,7 +143,10 @@ namespace nkentseu {
 				// Masque de surimpressions : grille, repere, contours, gizmos, normales,
 				// statistiques, filaire, origines. Grille + repere + contours + gizmos
 				// par defaut -- ce qu on veut voir en ouvrant, sans le bruit du reste.
-				uint32 overlayMask = 0x0Fu;
+				// bits : 1 grille, 2 lignes fines, 4 lignes majeures, 8 axes du plan,
+				// 16 contour de selection, 32 HUD texte de la demo (off par defaut :
+				// il chevauchait la barre d'outils).
+				uint32 overlayMask = 0x1Fu;
 // Sections DEROULEES du panneau Details, un bit par section (maillage,
 				// modificateurs, materiaux, sous-maillages). Les quatre ouvertes au
 				// depart : un panneau qui s'ouvre tout replie oblige a quatre clics
@@ -170,6 +174,18 @@ namespace nkentseu {
 				NkRect addAnchor{};	  ///< bouton « Ajouter », pour ancrer son menu
 				int32 addOpenCat = 0; ///< categorie ouverte du menu Ajouter
 				int32 bgChoice = 0;
+				// Fond PERSONNALISE (le picker demande par Rihen) + menus de la vue.
+				float32 bgCustom[3] = {0.13f, 0.15f, 0.19f};
+				bool bgMenuOpen = false;
+				bool bgPickerOpen = false;
+				int32 bgDragChannel = -1;
+				bool viewMenuOpen = false;
+				// Selecteur de matcaps : par CATEGORIE, avec defilement V et H.
+				bool matcapOpen = false;
+				float32 matcapScrollY = 0.f;
+				float32 matcapScrollX = 0.f;
+				int32 matcapDragBar = -1; ///< -1 aucun, 0 verticale, 1 horizontale
+				float32 matcapDragOff = 0.f;
 				// ── Navigateur de projet : CONTENU CREE PAR L'UTILISATEUR ───────
 				// Plus aucune donnee simulee : le navigateur nait vide et se remplit
 				// par « + Dossier / + Materiau / + Texture ». Tableaux plats a

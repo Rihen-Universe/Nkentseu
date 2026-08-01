@@ -102,19 +102,23 @@ namespace nkentseu {
 		// INDEPENDANTS. Le matcap n en fait plus partie -- c est un reglage du mode
 		// solide, cf. NkSolidLightItems.
 		inline const char *const *NkShadingItems(int32 &n) {
-			static const char *const k[] = {"Solide", "Materiau", "Rendu", "Fil de fer"};
-			n = 4;
+			// LES SIX MODES REELS de la demo portee (sa touche Z) : l'index de la
+			// liste EST le shadingMode de la demo. Une liste qui promettait un mode
+			// « Materiau » inexistant obligeait a mentir au cablage.
+			static const char *const k[] = {"Rendu",	"Solide", "Fil de fer",
+											"Normales", "UV",	  "Occlusion (AO)"};
+			n = 6;
 			return k;
 		}
 		inline const NkIcon *NkShadingIcons() {
-			// QUATRE DESSINS DISTINCTS. Solide et Materiau partageaient le meme disque
-			// plein : impossible de savoir lequel etait actif en regardant le bouton,
-			// ce qui vide de son sens une barre a icones seules.
-			static const NkIcon k[] = {NkIcon::Circle,	  // solide : sphere nue
-									   NkIcon::Material,  // materiau : sphere coloree
-									   NkIcon::Light,	  // rendu : eclairage de scene
-									   NkIcon::Wireframe, // fil de fer : quadrillage
-									   NkIcon::Matcap};	  // matcap : degrade capture
+			// SIX DESSINS DISTINCTS -- un bouton a icone seule ne dit son etat que
+			// si chaque valeur a le sien.
+			static const NkIcon k[] = {NkIcon::Light,		// rendu : eclairage de scene
+									   NkIcon::Circle,		// solide : sphere nue
+									   NkIcon::Wireframe,	// fil de fer
+									   NkIcon::ViewNormals, // normales
+									   NkIcon::ViewUV,		// uv
+									   NkIcon::ViewAO};		// occlusion
 			return k;
 		}
 
@@ -148,14 +152,17 @@ namespace nkentseu {
 		// Il porte ce qui ne merite pas un bouton permanent : disposition des vues,
 		// plein ecran, cameras enregistrees, reinitialisation.
 		inline const char *const *NkViewMenuItems(int32 &n) {
-			static const char *const k[] = {"Vue unique",	 "Deux vues",		"Quatre vues",
-											"Plein ecran",	 "Camera enregistree", "Reinitialiser la vue"};
-			n = 6;
+			// DES ACTIONS, pas un etat : chaque entree FAIT quelque chose de reel.
+			// Les dispositions multi-vues promettaient un decoupage du viewport qui
+			// n'existe pas encore -- retirees plutot que factices.
+			static const char *const k[] = {"Memoriser la camera", "Rappeler la camera",
+											"Reinitialiser la vue", "Panneaux : montrer / cacher"};
+			n = 4;
 			return k;
 		}
 		inline const NkIcon *NkViewMenuIcons() {
-			static const NkIcon k[] = {NkIcon::Square,  NkIcon::Drawer, NkIcon::SnapGrid,
-									   NkIcon::WinMax,  NkIcon::Camera, NkIcon::Refresh};
+			static const NkIcon k[] = {NkIcon::Camera, NkIcon::Import, NkIcon::Refresh,
+									   NkIcon::Drawer};
 			return k;
 		}
 		// ── AFFICHAGE : DES CASES, PAS UN CHOIX UNIQUE ──────────────────────────
@@ -166,23 +173,24 @@ namespace nkentseu {
 		//
 		// Chaque entree est un bit du masque `st.overlayMask`.
 		inline const char *const *NkOverlayItems(int32 &n) {
+			// CHAQUE CASE PILOTE UN REGLAGE REEL de la demo portee : la grille
+			// infinie et ses trois familles de traits (touches F1..F4), le lisere
+			// de selection, et le HUD texte. Les entrees sans effet (« Normales »,
+			// « Origines »...) sont retirees plutot que decoratives.
 			static const char *const k[] = {
-				"Grille",		   // le sol quadrille
-				"Repere d axes",   // le trepied rouge / vert / bleu
-				"Contours",		   // silhouette des objets selectionnes
-				"Gizmos",		   // poignees de transformation
-				"Normales",		   // direction des faces, en mode edition
-				"Statistiques",	   // sommets / aretes / faces en surimpression
-				"Filaire",		   // cage par-dessus la surface
-				"Origines",		   // point d origine de chaque objet
+				"Grille",				// la grille infinie (F1)
+				"Lignes fines",			// subdivisions internes (F2)
+				"Lignes majeures",		// lignes principales (F3)
+				"Axes du plan",			// X rouge / Z bleu sur le sol (F4)
+				"Contour de selection", // le lisere orange
+				"HUD de la demo",		// les panneaux texte en surimpression
 			};
-			n = 8;
+			n = 6;
 			return k;
 		}
 		inline const NkIcon *NkOverlayIcons() {
-			static const NkIcon k[] = {NkIcon::SnapGrid, NkIcon::Gizmo,	  NkIcon::Square,
-									   NkIcon::Move,	NkIcon::Ruler,	  NkIcon::Journal,
-									   NkIcon::Wireframe, NkIcon::Dot};
+			static const NkIcon k[] = {NkIcon::SnapGrid, NkIcon::Dot,	  NkIcon::Ruler,
+									   NkIcon::Gizmo,	 NkIcon::Square, NkIcon::Journal};
 			return k;
 		}
 
@@ -195,21 +203,30 @@ namespace nkentseu {
 		// Consequence pratique : le selecteur de matcap n apparait que si l ombrage
 		// est SOLIDE, et il reste disponible en mode objet comme en edition.
 		inline const char *const *NkSolidLightItems(int32 &n) {
-			static const char *const k[] = {"Studio", "Matcap", "Plat"};
+			// La SOURCE DE COULEUR des modes non eclaires (Solide / Fil de fer),
+			// c'est-a-dire le reglage REEL de la demo (sa touche B) : couleur du
+			// materiau, gris d'atelier, ou couleur choisie. L'ancienne liste
+			// « Studio / Matcap / Plat » promettait des eclairages qui n'existent
+			// pas -- le matcap est TOUJOURS l'eclairage de ces modes.
+			static const char *const k[] = {"Couleur du materiau", "Gris d'atelier",
+											"Couleur personnalisee"};
 			n = 3;
 			return k;
 		}
 		inline const NkIcon *NkSolidLightIcons() {
-			static const NkIcon k[] = {NkIcon::Light, NkIcon::Matcap, NkIcon::Circle};
+			static const NkIcon k[] = {NkIcon::Material, NkIcon::Dot, NkIcon::Picker};
 			return k;
 		}
 		inline const char *const *NkOrientItems(int32 &n) {
-			static const char *const k[] = {"Monde", "Local", "Normale", "Vue"};
-			n = 4;
+			// LES TROIS ORIENTATIONS DU GIZMO de la demo (sa touche virgule) :
+			// monde, local, normale. « Vue » n'existe pas dans le moteur -- la
+			// proposer aurait fait un choix sans effet.
+			static const char *const k[] = {"Monde", "Local", "Normale"};
+			n = 3;
 			return k;
 		}
 		inline const NkIcon *NkOrientIcons() {
-			static const NkIcon k[] = {NkIcon::Globe, NkIcon::Mesh, NkIcon::Ruler, NkIcon::Camera};
+			static const NkIcon k[] = {NkIcon::Globe, NkIcon::Mesh, NkIcon::Ruler};
 			return k;
 		}
 		inline const char *const *NkCamSpeedItems(int32 &n) {
@@ -1006,8 +1023,11 @@ namespace nkentseu {
 			// c'etait un decor. On projette maintenant les axes du MONDE avec le
 			// meme repere que la scene : X, Y et Z se placent exactement la ou ils
 			// se trouvent dans l'image.
+			// PORTAGE : le repere vient de la CAMERA DE LA DEMO (l'ancienne facade
+			// est dormante et repondait un repere fige -- le gizmo restait statique,
+			// bug signale par Rihen).
 			float32 rgt[3], upv[3], fwd[3];
-			nk3d::Viewport3DCameraAxes(rgt, upv, fwd);
+			demo::Demo3DHostCameraAxes(rgt, upv, fwd);
 
 			struct Half {
 					float32 wx, wy, wz;	 ///< direction MONDE du demi-axe
@@ -1107,7 +1127,7 @@ namespace nkentseu {
 				if (over)
 					hit.WantCursor(NkCursorWant::Hand);
 				if (hit.Clicked(key))
-					nk3d::Viewport3DAxisView(kViews[i].which, kViews[i].opposite);
+					demo::Demo3DHostAxisView(kViews[i].which, kViews[i].opposite);
 			}
 		}
 
@@ -1118,13 +1138,12 @@ namespace nkentseu {
 		// changer d'outil en croyant deplacer la vue.
 		inline void PaintViewButtons(NkModelerPainter &p, NkHitRegistry &hit, NkModelerState &st,
 									 float32 x, float32 y) {
-			// QUATRE COMMANDES DE NAVIGATION, et elles agissent vraiment :
-			//   Zoom      -> recadre sur la scene (c'est le « zoom pour tout voir ») ;
-			//   Deplacer  -> remet la cible a l'origine sans changer l'angle ;
-			//   Camera    -> bascule la vue en camera... plus tard : pour l'instant
-			//                elle recadre aussi, et le bouton est GRISE plutot que de
-			//                mentir ;
-			//   Ortho     -> bascule perspective / orthographique.
+			// QUATRE COMMANDES DE NAVIGATION, cablees sur la DEMO PORTEE :
+			//   Loupe  -> glisser = zoom (le meme chemin que sa molette) ;
+			//            double-clic = pose d'ouverture ;
+			//   Main   -> glisser = deplacement lateral (« grab ») ;
+			//   Camera -> bascule editeur <-> vol (sa touche F) ;
+			//   Ortho  -> perspective / orthographique (son pave 5).
 			struct VB {
 					NkIcon ic;
 					const char *key;
@@ -1132,9 +1151,9 @@ namespace nkentseu {
 					bool enabled;
 			};
 			const VB kBtns[4] = {
-				{NkIcon::Zoom, "view.frame", "Cadrer la scene", true},
-				{NkIcon::Pan, "view.center", "Recentrer", true},
-				{NkIcon::Camera, "view.cam", "Vue camera (a venir)", false},
+				{NkIcon::Zoom, "view.frame", "Zoom (glisser) / recadrer (double-clic)", true},
+				{NkIcon::Pan, "view.center", "Deplacer la vue (glisser)", true},
+				{NkIcon::Camera, "view.cam", "Camera de vol (WASD + clic droit)", true},
 				{NkIcon::Ortho, "view.ortho", "Perspective / orthographique", true},
 			};
 			const float32 d = 26.f;
@@ -1142,11 +1161,12 @@ namespace nkentseu {
 			// glissement regle le zoom, le double-clic cadre tout -- deux besoins
 			// differents sur le meme bouton, comme dans la plupart des editeurs.
 			if (hit.DoubleClicked("view.frame"))
-				nk3d::Viewport3DFrameAll();
+				demo::Demo3DHostResetView();
 			for (int32 i = 0; i < 4; ++i) {
 				const NkRect br{x, y + (float32)i * (d + 6.f), d, d};
 				const bool over = kBtns[i].enabled && hit.Add(kBtns[i].key, br);
-				const bool on = (i == 3) && nk3d::Viewport3DIsOrtho();
+				const bool on = (i == 3 && demo::Demo3DHostIsOrtho()) ||
+								(i == 2 && demo::Demo3DHostIsFlyCam());
 				if (on)
 					p.Fill(br, NkRole::AccentUi, 4.f);
 				else
@@ -1167,14 +1187,336 @@ namespace nkentseu {
 						st.navDragMode = i;
 						st.navDragLastX = hit.Mouse().x;
 						st.navDragLastY = hit.Mouse().y;
+					} else if (i == 2) {
+						demo::Demo3DHostToggleFlyCam();
 					} else if (i == 3) {
-						const bool o = !nk3d::Viewport3DIsOrtho();
-						nk3d::Viewport3DSetOrtho(o);
+						const bool o = !demo::Demo3DHostIsOrtho();
+						demo::Demo3DHostSetOrtho(o);
 						st.projection = o ? 1 : 0;
 						st.lastProjection = st.projection;
 					}
 				}
 			}
+		}
+
+		// ── COULEURS DE FOND ────────────────────────────────────────────────
+		// Les cinq prereglages + la couleur PERSONNALISEE (index 5) reglee au
+		// picker. Une seule table : le bouton-temoin, le menu et le picker
+		// lisent la meme source.
+		inline void NkBgColorOf(const NkModelerState &st, int32 choice, float32 *out) {
+			static const float32 kBgCol[5][3] = {{0.05f, 0.05f, 0.07f},
+												 {0.01f, 0.01f, 0.012f},
+												 {0.24f, 0.24f, 0.25f},
+												 {0.62f, 0.63f, 0.65f},
+												 {0.05f, 0.07f, 0.13f}};
+			if (choice >= 5 || choice < 0) {
+				out[0] = st.bgCustom[0];
+				out[1] = st.bgCustom[1];
+				out[2] = st.bgCustom[2];
+			} else {
+				out[0] = kBgCol[choice][0];
+				out[1] = kBgCol[choice][1];
+				out[2] = kBgCol[choice][2];
+			}
+		}
+
+		// ── MENU DE VUE (actions) ───────────────────────────────────────────
+		inline void PaintViewMenuPopup(NkModelerPainter &p, NkHitRegistry &hit, NkModelerState &st,
+									   const NkRect &view, float32 barY, float32 barH) {
+			if (!st.viewMenuOpen)
+				return;
+			int32 n = 0;
+			const char *const *items = NkViewMenuItems(n);
+			const NkIcon *icons = NkViewMenuIcons();
+			const float32 itemH = S(24.f);
+			float32 w = 0.f;
+			for (int32 i = 0; i < n; ++i)
+				if (p.TextW(items[i]) > w)
+					w = p.TextW(items[i]);
+			w += S(10.f) + S(19.f) + S(14.f);
+			const NkRect box{view.x + S(10.f), barY + barH + S(4.f), w,
+							 itemH * (float32)n + S(6.f)};
+			p.Fill({box.x + 2.f, box.y + 2.f, box.w, box.h}, NkRole::WindowBg, 4.f);
+			p.Outline(box, NkRole::Border, NkRole::PanelHeader, 4.f);
+			hit.Add("vp.menu.panel", box);
+			char k[32];
+			for (int32 i = 0; i < n; ++i) {
+				const NkRect ir{box.x + 2.f, box.y + S(3.f) + (float32)i * itemH, box.w - 4.f, itemH};
+				snprintf(k, sizeof(k), "vp.menu.i%d", i);
+				const bool over = hit.Add(k, ir);
+				if (over)
+					p.Fill(ir, NkRole::AccentUi, 3.f);
+				p.IconV(ir.x + S(10.f), ir.y, itemH, icons[i], over ? NkRole::TextOnAccent : NkRole::Text,
+						13.f);
+				p.TextV(ir.x + S(10.f) + S(19.f), ir.y, itemH, items[i],
+						over ? NkRole::TextOnAccent : NkRole::Text);
+				if (hit.Clicked(k)) {
+					if (i == 0)
+						demo::Demo3DHostStoreCamera();
+					else if (i == 1)
+						demo::Demo3DHostRecallCamera();
+					else if (i == 2)
+						demo::Demo3DHostResetView();
+					else {
+						// Panneaux : tout montrer si l'un manque, sinon tout cacher.
+						const bool anyHidden = !st.showLeft || !st.showRight || !st.showBrowser;
+						st.showLeft = st.showRight = st.showBrowser = anyHidden;
+					}
+					st.viewMenuOpen = false;
+				}
+			}
+			if (hit.AnyClick() && !hit.IsHovered("vp.menu.panel") && !hit.IsHovered("vp.menu"))
+				st.viewMenuOpen = false;
+		}
+
+		// ── FOND : prereglages + picker de couleur personnalisee ────────────
+		inline void PaintBgPopup(NkModelerPainter &p, NkHitRegistry &hit, NkModelerState &st,
+								 const NkRect &view, float32 barY, float32 barH) {
+			if (!st.bgMenuOpen)
+				return;
+			static const char *const kNames[6] = {"Fond sombre", "Fond noir",	 "Fond gris",
+												  "Fond clair",  "Fond bleu nuit", "Personnalisee..."};
+			const float32 itemH = S(24.f);
+			float32 w = 0.f;
+			for (int32 i = 0; i < 6; ++i)
+				if (p.TextW(kNames[i]) > w)
+					w = p.TextW(kNames[i]);
+			w += S(10.f) + S(22.f) + S(26.f) + S(10.f);
+			// Ancre sous le 4e bouton de la barre gauche (menu, proj, ombrage, fond).
+			const float32 ax = view.x + S(10.f) + S(3.f) + 3.f * (S(28.f) + 2.f);
+			const NkRect box{ax, barY + barH + S(4.f), w, itemH * 6.f + S(6.f)};
+			p.Fill({box.x + 2.f, box.y + 2.f, box.w, box.h}, NkRole::WindowBg, 4.f);
+			p.Outline(box, NkRole::Border, NkRole::PanelHeader, 4.f);
+			hit.Add("vp.bg.panel", box);
+			char k[32];
+			for (int32 i = 0; i < 6; ++i) {
+				const NkRect ir{box.x + 2.f, box.y + S(3.f) + (float32)i * itemH, box.w - 4.f, itemH};
+				snprintf(k, sizeof(k), "vp.bg.i%d", i);
+				const bool over = hit.Add(k, ir);
+				const bool cur = (st.bgChoice == i);
+				if (over)
+					p.Fill(ir, NkRole::AccentUi, 3.f);
+				// Pastille de la COULEUR REELLE, picker compris : c'est elle qui
+				// permet de choisir sans essayer.
+				float32 c[3];
+				NkBgColorOf(st, i, c);
+				p.Fill({ir.x + S(8.f), ir.y + (itemH - S(12.f)) * 0.5f, S(14.f), S(12.f)},
+					   NkColor{(uint8)(c[0] * 255.f), (uint8)(c[1] * 255.f), (uint8)(c[2] * 255.f), 255},
+					   2.f);
+				p.TextV(ir.x + S(10.f) + S(22.f), ir.y, itemH, kNames[i],
+						over ? NkRole::TextOnAccent : NkRole::Text);
+				if (cur)
+					p.IconV(ir.x + ir.w - S(20.f), ir.y, itemH, NkIcon::Check,
+							over ? NkRole::TextOnAccent : NkRole::AccentUi, 13.f);
+				if (hit.Clicked(k)) {
+					st.bgChoice = i;
+					if (i == 5)
+						st.bgPickerOpen = true; // la personnalisee OUVRE son picker
+					else
+						st.bgMenuOpen = st.bgPickerOpen = false;
+				}
+			}
+			// ── LE PICKER : trois barres R/V/B + temoin. Un vrai choix de
+			// couleur, pas une roue complete -- elle viendra avec le theme.
+			if (st.bgPickerOpen) {
+				const float32 pw = S(210.f), ph = 3.f * S(24.f) + S(40.f);
+				const NkRect pk{box.x + box.w + S(6.f), box.y, pw, ph};
+				p.Fill({pk.x + 2.f, pk.y + 2.f, pk.w, pk.h}, NkRole::WindowBg, 4.f);
+				p.Outline(pk, NkRole::Border, NkRole::PanelHeader, 4.f);
+				hit.Add("vp.bg.picker", pk);
+				static const char *const kCh[3] = {"R", "V", "B"};
+				for (int32 c2 = 0; c2 < 3; ++c2) {
+					const NkRect bar{pk.x + S(24.f), pk.y + S(8.f) + (float32)c2 * S(24.f) + S(4.f),
+									 pw - S(36.f), S(12.f)};
+					p.TextV(pk.x + S(8.f), bar.y - S(2.f), S(16.f), kCh[c2], NkRole::TextMuted);
+					snprintf(k, sizeof(k), "vp.bg.ch%d", c2);
+					hit.Add(k, bar);
+					p.Fill(bar, NkRole::InputBg, 3.f);
+					p.Fill({bar.x, bar.y, bar.w * st.bgCustom[c2], bar.h}, NkRole::AccentUi, 3.f);
+					// GLISSEMENT : la barre suit la souris tant que le bouton est
+					// tenu, meme sortie de la barre (c'est le canal qui possede le
+					// geste, pas la position).
+					if (hit.MouseDown() && (hit.IsHovered(k) || st.bgDragChannel == c2)) {
+						if (st.bgDragChannel < 0 && hit.IsHovered(k))
+							st.bgDragChannel = c2;
+						if (st.bgDragChannel == c2) {
+							float32 v = (hit.Mouse().x - bar.x) / bar.w;
+							if (v < 0.f)
+								v = 0.f;
+							if (v > 1.f)
+								v = 1.f;
+							st.bgCustom[c2] = v;
+							st.bgChoice = 5;
+						}
+					}
+				}
+				if (!hit.MouseDown())
+					st.bgDragChannel = -1;
+				// Temoin en pied : la couleur composee, en grand.
+				p.Fill({pk.x + S(8.f), pk.y + ph - S(26.f), pw - S(16.f), S(18.f)},
+					   NkColor{(uint8)(st.bgCustom[0] * 255.f), (uint8)(st.bgCustom[1] * 255.f),
+							   (uint8)(st.bgCustom[2] * 255.f), 255},
+					   3.f);
+			}
+			const bool overAll = hit.IsHovered("vp.bg.panel") || hit.IsHovered("vp.bg.picker") ||
+								 hit.IsHovered("vp.bg");
+			if (hit.AnyClick() && !overAll && st.bgDragChannel < 0)
+				st.bgMenuOpen = st.bgPickerOpen = false;
+		}
+
+		// ── MATCAPS PAR CATEGORIE, avec defilement V et H ───────────────────
+		// Les 34 boules de la bibliotheque, groupees par famille (les plages
+		// suivent kPresets de NkMatcapLibrary.cpp). Le panneau defile dans les
+		// deux sens des que le contenu depasse -- demande de Rihen.
+		inline void PaintMatcapPopup(NkModelerPainter &p, NkHitRegistry &hit, NkModelerState &st,
+									 const NkRect &view, float32 barY, float32 barH) {
+			if (!st.matcapOpen)
+				return;
+			struct Cat {
+					const char *name;
+					int32 first, count;
+			};
+			static const Cat kCats[] = {
+				{"Studio", 0, 6},		 {"Controle", 6, 5},  {"Argile", 11, 5}, {"Organique", 16, 4},
+				{"Metal et verre", 20, 8}, {"Stylise", 28, 2}, {"Historiques", 30, 4},
+			};
+			const int32 nCats = (int32)(sizeof(kCats) / sizeof(kCats[0]));
+			const int32 total = demo::Demo3DHostMatcapCount();
+			const float32 headH = S(20.f), cellH = S(22.f), cellW = S(150.f);
+			const int32 cols = 2;
+			// Taille du CONTENU (avant defilement).
+			float32 contentH = S(6.f);
+			for (int32 c = 0; c < nCats; ++c) {
+				int32 cnt = kCats[c].count;
+				if (kCats[c].first + cnt > total)
+					cnt = total > kCats[c].first ? total - kCats[c].first : 0;
+				contentH += headH + cellH * (float32)((cnt + cols - 1) / cols);
+			}
+			const float32 contentW = S(8.f) + cellW * (float32)cols;
+			// Boite : sous la barre, bornee a la vue.
+			float32 boxW = contentW + S(12.f);
+			if (boxW > view.w - S(40.f))
+				boxW = view.w - S(40.f);
+			float32 boxH = contentH + S(12.f);
+			const float32 maxH = view.h - barH - S(60.f);
+			if (boxH > maxH)
+				boxH = maxH;
+			const NkRect box{view.x + S(10.f), barY + barH + S(4.f), boxW, boxH};
+			p.Fill({box.x + 2.f, box.y + 2.f, box.w, box.h}, NkRole::WindowBg, 4.f);
+			p.Outline(box, NkRole::Border, NkRole::PanelHeader, 4.f);
+			hit.Add("vp.mc.panel", box);
+			const bool needV = contentH > box.h - S(8.f);
+			const bool needH = contentW > box.w - S(8.f);
+			const float32 viewH = box.h - S(8.f) - (needH ? S(8.f) : 0.f);
+			const float32 viewW = box.w - S(8.f) - (needV ? S(8.f) : 0.f);
+			// Bornes du defilement.
+			float32 maxSy = contentH - viewH;
+			if (maxSy < 0.f)
+				maxSy = 0.f;
+			float32 maxSx = contentW - viewW;
+			if (maxSx < 0.f)
+				maxSx = 0.f;
+			// Molette = vertical (Maj = horizontal), comme partout.
+			if (hit.IsHovered("vp.mc.panel") && hit.WheelDelta() != 0.f) {
+				if (hit.ShiftDown())
+					st.matcapScrollX -= hit.WheelDelta() * S(24.f);
+				else
+					st.matcapScrollY -= hit.WheelDelta() * S(24.f);
+			}
+			if (st.matcapScrollY < 0.f)
+				st.matcapScrollY = 0.f;
+			if (st.matcapScrollY > maxSy)
+				st.matcapScrollY = maxSy;
+			if (st.matcapScrollX < 0.f)
+				st.matcapScrollX = 0.f;
+			if (st.matcapScrollX > maxSx)
+				st.matcapScrollX = maxSx;
+
+			// Contenu (borne a la boite : pas de clip pixel, on SAUTE les lignes
+			// hors champ -- suffisant pour des rangees regulieres).
+			const int32 cur = demo::Demo3DHostMatcap();
+			float32 y = box.y + S(4.f) - st.matcapScrollY;
+			const float32 x0 = box.x + S(4.f) - st.matcapScrollX;
+			char k[32];
+			for (int32 c = 0; c < nCats; ++c) {
+				int32 cnt = kCats[c].count;
+				if (kCats[c].first + cnt > total)
+					cnt = total > kCats[c].first ? total - kCats[c].first : 0;
+				if (cnt <= 0)
+					continue;
+				if (y + headH > box.y && y < box.y + viewH)
+					p.TextV(x0 + S(6.f), y, headH, kCats[c].name, NkRole::TextMuted);
+				y += headH;
+				for (int32 i = 0; i < cnt; ++i) {
+					const int32 id = kCats[c].first + i;
+					const float32 cx = x0 + (float32)(i % cols) * cellW;
+					const float32 cy = y + (float32)(i / cols) * cellH;
+					if (cy + cellH < box.y || cy > box.y + viewH) {
+						continue;
+					}
+					const NkRect ir{cx, cy, cellW - S(4.f), cellH - 2.f};
+					snprintf(k, sizeof(k), "vp.mc.%d", id);
+					const bool over = hit.Add(k, ir);
+					const bool sel = (id == cur);
+					if (sel)
+						p.Fill(ir, NkRole::AccentUi, 3.f);
+					else if (over)
+						p.Fill(ir, NkRole::PanelHeader, 3.f);
+					p.IconV(ir.x + S(4.f), ir.y, ir.h, NkIcon::Matcap,
+							sel ? NkRole::TextOnAccent : NkRole::Text, 12.f);
+					p.TextV(ir.x + S(22.f), ir.y, ir.h, demo::Demo3DHostMatcapName(id),
+							sel ? NkRole::TextOnAccent : NkRole::Text);
+					if (hit.Clicked(k))
+						demo::Demo3DHostSetMatcap(id);
+				}
+				y += cellH * (float32)((cnt + cols - 1) / cols);
+			}
+
+			// ── ASCENSEURS : VERTICAL puis HORIZONTAL, glissables ───────────
+			if (needV) {
+				const NkRect track{box.x + box.w - S(8.f), box.y + S(4.f), S(5.f), viewH};
+				p.Fill(track, NkRole::InputBg, 2.f);
+				const float32 thH = viewH * (viewH / contentH) < S(20.f)
+									   ? S(20.f)
+									   : viewH * (viewH / contentH);
+				const float32 thY = track.y + (track.h - thH) * (maxSy > 0.f ? st.matcapScrollY / maxSy : 0.f);
+				const NkRect th{track.x, thY, track.w, thH};
+				hit.Add("vp.mc.sbv", th);
+				p.Fill(th, NkRole::AccentUi, 2.f);
+				if (hit.MouseDown() && (hit.IsHovered("vp.mc.sbv") || st.matcapDragBar == 0)) {
+					if (st.matcapDragBar < 0 && hit.IsHovered("vp.mc.sbv")) {
+						st.matcapDragBar = 0;
+						st.matcapDragOff = hit.Mouse().y - thY;
+					}
+					if (st.matcapDragBar == 0 && track.h > thH)
+						st.matcapScrollY =
+							(hit.Mouse().y - st.matcapDragOff - track.y) / (track.h - thH) * maxSy;
+				}
+			}
+			if (needH) {
+				const NkRect track{box.x + S(4.f), box.y + box.h - S(8.f), viewW, S(5.f)};
+				p.Fill(track, NkRole::InputBg, 2.f);
+				const float32 thW = viewW * (viewW / contentW) < S(20.f)
+									   ? S(20.f)
+									   : viewW * (viewW / contentW);
+				const float32 thX = track.x + (track.w - thW) * (maxSx > 0.f ? st.matcapScrollX / maxSx : 0.f);
+				const NkRect th{thX, track.y, thW, track.h};
+				hit.Add("vp.mc.sbh", th);
+				p.Fill(th, NkRole::AccentUi, 2.f);
+				if (hit.MouseDown() && (hit.IsHovered("vp.mc.sbh") || st.matcapDragBar == 1)) {
+					if (st.matcapDragBar < 0 && hit.IsHovered("vp.mc.sbh")) {
+						st.matcapDragBar = 1;
+						st.matcapDragOff = hit.Mouse().x - thX;
+					}
+					if (st.matcapDragBar == 1 && track.w > thW)
+						st.matcapScrollX =
+							(hit.Mouse().x - st.matcapDragOff - track.x) / (track.w - thW) * maxSx;
+				}
+			}
+			if (!hit.MouseDown())
+				st.matcapDragBar = -1;
+			if (hit.AnyClick() && !hit.IsHovered("vp.mc.panel") && !hit.IsHovered("vp.matcap"))
+				st.matcapOpen = false;
 		}
 
 		// ── VUE 3D (centre) ─────────────────────────────────────────────────────
@@ -1208,50 +1550,17 @@ namespace nkentseu {
 				p.TextV(r.x + S(16.f), r.y, r.h, msg, NkRole::TextMuted);
 			}
 
-			// ── NAVIGATION ──────────────────────────────────────────────────────
-			// Convention Blender, celle que connaissent les gens qui utiliseront ca :
-			// bouton du MILIEU pour orbiter, MILIEU + Maj pour deplacer, molette pour
-			// zoomer. La zone est declaree AVANT les barres flottantes : elles sont
-			// peintes ensuite, donc elles gagnent le survol la ou elles se trouvent,
-			// et un clic sur une liste ne fait pas pivoter la camera.
+			// ── ZONE DE LA SCENE ────────────────────────────────────────────────
+			// La DEMO PORTEE gere elle-meme orbite, molette, zones de selection,
+			// curseur 3D et pick : cette zone ne sert plus qu'au SURVOL -- c'est lui
+			// qui autorise ses raccourcis et sa souris (voir Demo3DHostSetView).
 			{
-				const bool overView = hit.Add("view.nav", r);
-				const math::NkVec2 m = hit.Mouse();
-				if (overView && hit.MiddleDown()) {
-					const float32 dx = m.x - st.navLastX, dy = m.y - st.navLastY;
-					if (st.navDragging) {
-						// DELTAS BRUTS, en pixels. J'appliquais un facteur 0,008 avant
-						// de les passer : or NkOrbitCameraController3D applique DEJA sa
-						// sensibilite (mRotateSpeed) a l'interieur. Le tour etait donc
-						// cent fois trop faible -- la scene ne bougeait pas. Demo3D
-						// passe mdx/mdy bruts, exactement comme ici.
-						if (hit.ShiftDown())
-							nk3d::Viewport3DPan(dx, dy);
-						else
-							nk3d::Viewport3DOrbit(dx, dy);
-					}
-					st.navDragging = true;
-				} else {
-					st.navDragging = false;
-				}
-				st.navLastX = m.x;
-				st.navLastY = m.y;
-				if (overView && hit.WheelDelta() != 0.f) {
-					// Molette seule = zoom ; Maj = deplacement vertical ; Ctrl =
-					// horizontal. C'est le jeu de raccourcis de Blender, et il evite
-					// d'avoir a lacher la souris pour recadrer.
-					if (hit.ShiftDown())
-						nk3d::Viewport3DPanSteps(0.f, hit.WheelDelta());
-					else if (hit.CtrlDown())
-						nk3d::Viewport3DPanSteps(hit.WheelDelta(), 0.f);
-					else
-						nk3d::Viewport3DZoom(hit.WheelDelta());
-				}
+				hit.Add("view.nav", r);
+			}
 
-				// ── GLISSEMENT DE NAVIGATION EN COURS ───────────────────────────
+			// ── GLISSEMENT DE NAVIGATION EN COURS (loupe, main, gizmo de nav) ──
 			// Il se poursuit MEME SI la souris quitte le bouton : c'est le bouton
-			// ENFONCE qui commande, pas la position. Sans cela, un geste un peu
-			// rapide lacherait la navigation en pleine course.
+			// ENFONCE qui commande, pas la position.
 			if (st.navDragMode >= 0) {
 				if (!hit.MouseDown()) {
 					st.navDragMode = -1;
@@ -1260,121 +1569,17 @@ namespace nkentseu {
 					const float32 ndx = mm.x - st.navDragLastX;
 					const float32 ndy = mm.y - st.navDragLastY;
 					if (st.navDragMode == 2)
-						nk3d::Viewport3DOrbitFree(ndx, ndy);
+						demo::Demo3DHostOrbit(ndx, ndy);
+					else if (st.navDragMode == 1)
+						demo::Demo3DHostPan(ndx, ndy);
 					else
-						nk3d::Viewport3DNavDrag(st.navDragMode, ndx, ndy);
+						// Tirer vers le HAUT rapproche : la meme convention que la
+						// molette (0,02 cran par pixel).
+						demo::Demo3DHostZoomWheel(-ndy * 0.02f);
 					st.navDragLastX = mm.x;
 					st.navDragLastY = mm.y;
 					hit.WantCursor(st.navDragMode == 1 ? NkCursorWant::Hand
 													   : NkCursorWant::ResizeNS);
-				}
-			}
-
-			// ── OUTILS DE SELECTION PAR ZONE ────────────────────────────
-			// Rectangle (B), lasso (Ctrl + glisser) et cercle (C, molette =
-			// rayon). Portes de Demo3D : le coeur de la selection etait deja
-			// ecrit dans le viewport, il ne lui manquait que ce pilote et son
-			// trace -- un outil qu'on ne voit pas est un outil qu'on croit casse.
-			{
-				const bool ctrlLasso = overView && hit.CtrlDown() && hit.MouseDown()
-									   && st.zoneTool < 0 && !st.zoneActive;
-				if (ctrlLasso) {
-					st.zoneTool = 1; // lasso : arme par le geste lui-meme
-					st.zoneActive = true;
-					st.lassoCount = 0;
-				}
-				if (st.zoneTool >= 0) {
-					hit.WantCursor(NkCursorWant::Hand);
-					const math::NkVec2 mz = hit.Mouse();
-					if (st.zoneTool == 2) {
-						// CERCLE : il peint tant que le bouton est enfonce, et la
-						// molette regle son rayon. Pas de « depart » a memoriser.
-						st.zoneX1 = mz.x;
-						st.zoneY1 = mz.y;
-						if (overView && hit.WheelDelta() != 0.f) {
-							st.zoneRadius += hit.WheelDelta() * 6.f;
-							if (st.zoneRadius < 8.f)
-								st.zoneRadius = 8.f;
-							if (st.zoneRadius > 400.f)
-								st.zoneRadius = 400.f;
-						}
-						if (overView && hit.MouseDown())
-							nk3d::Viewport3DSelectCircle(mz.x - r.x, mz.y - r.y, st.zoneRadius,
-														 hit.ShiftDown() ? 1 : 0);
-						p.Ring(mz.x, mz.y, st.zoneRadius, NkRole::AccentUi,
-							   NkRole::ViewportTop);
-					} else if (hit.MouseDown()) {
-						if (!st.zoneActive) {
-							st.zoneActive = true;
-							st.zoneX0 = mz.x;
-							st.zoneY0 = mz.y;
-							st.lassoCount = 0;
-						}
-						st.zoneX1 = mz.x;
-						st.zoneY1 = mz.y;
-						if (st.zoneTool == 1
-							&& st.lassoCount < NkModelerState::kMaxLasso) {
-							// Un point tous les quelques pixels : suivre chaque
-							// image donnerait des milliers de points pour un
-							// contour que trente decrivent aussi bien.
-							const int32 n = st.lassoCount;
-							if (n == 0
-								|| (fabsf(st.lasso[(n - 1) * 2] - mz.x) > 4.f
-									|| fabsf(st.lasso[(n - 1) * 2 + 1] - mz.y) > 4.f)) {
-								st.lasso[n * 2] = mz.x;
-								st.lasso[n * 2 + 1] = mz.y;
-								st.lassoCount = n + 1;
-							}
-						}
-					} else if (st.zoneActive) {
-						// RELACHEMENT : on applique, puis l'outil se desarme --
-						// comme Blender, ou B ne sert qu'a un rectangle.
-						const int32 mode = hit.ShiftDown() ? 1 : (hit.CtrlDown() ? 2 : 0);
-						if (st.zoneTool == 0) {
-							nk3d::Viewport3DSelectRect(st.zoneX0 - r.x, st.zoneY0 - r.y,
-													   st.zoneX1 - r.x, st.zoneY1 - r.y, mode);
-						} else if (st.zoneTool == 1 && st.lassoCount >= 3) {
-							float32 pts[NkModelerState::kMaxLasso * 2];
-							for (int32 k = 0; k < st.lassoCount; ++k) {
-								pts[k * 2] = st.lasso[k * 2] - r.x;
-								pts[k * 2 + 1] = st.lasso[k * 2 + 1] - r.y;
-							}
-							nk3d::Viewport3DSelectLasso(pts, (uint32)st.lassoCount, mode);
-						}
-						st.zoneActive = false;
-						st.zoneTool = -1;
-						st.lassoCount = 0;
-					}
-
-					// TRACE de la zone. Sans lui on selectionne a l'aveugle.
-					if (st.zoneActive && st.zoneTool == 0) {
-						const float32 x0 = st.zoneX0 < st.zoneX1 ? st.zoneX0 : st.zoneX1;
-						const float32 y0 = st.zoneY0 < st.zoneY1 ? st.zoneY0 : st.zoneY1;
-						const float32 x1 = st.zoneX0 < st.zoneX1 ? st.zoneX1 : st.zoneX0;
-						const float32 y1 = st.zoneY0 < st.zoneY1 ? st.zoneY1 : st.zoneY0;
-						p.OutlineSharp({x0, y0, x1 - x0, y1 - y0}, NkRole::AccentUi);
-					} else if (st.zoneActive && st.zoneTool == 1) {
-						for (int32 k = 1; k < st.lassoCount; ++k)
-							p.Line(st.lasso[(k - 1) * 2], st.lasso[(k - 1) * 2 + 1],
-								   st.lasso[k * 2], st.lasso[k * 2 + 1], NkRole::AccentUi, 1.5f);
-					}
-				}
-			}
-
-			// CURSEUR 3D : Maj + clic DROIT le pose sous la souris, comme
-			// Blender. Le clic droit seul reste libre pour le menu contextuel.
-			if (overView && hit.RightClicked("view.nav") && hit.ShiftDown())
-				nk3d::Viewport3DPlaceCursor(m.x - r.x, m.y - r.y);
-
-			// CLIC GAUCHE = SELECTION, mais seulement si le gizmo ne l'a pas pris.
-				// L'ordre compte : les rubans de rotation couvrent une large zone et
-				// avaleraient tous les clics si on ne les interrogeait pas d'abord.
-				// Les coordonnees sont RELATIVES a la vue -- la cible hors ecran a sa
-				// propre origine.
-				if (overView && st.zoneTool < 0 && hit.Clicked("view.nav")
-				&& !nk3d::Viewport3DGizmoDragging()) {
-					nk3d::Viewport3DPick(m.x - r.x, m.y - r.y, hit.ShiftDown(), hit.CtrlDown());
-					st.dirty = true;
 				}
 			}
 
@@ -1386,37 +1591,38 @@ namespace nkentseu {
 			{
 				int32 nP = 0, nS = 0, nO = 0;
 				const char *const *proj = NkProjectionItems(nP);
-				const bool edit = (st.mode != NkMode::Object);
 				const char *const *shad = NkShadingItems(nS);
 				const char *const *ovl = NkOverlayItems(nO);
-				// ── GROUPE DE VUE : ICONES SEULES ───────────────────────────────
-				// Le groupe faisait pres de 500 px parce que chaque liste etait
-				// dimensionnee sur son libelle LE PLUS LONG -- « Sans surimpression »
-				// imposait sa largeur en permanence, y compris quand « Grille seule »
-				// etait choisi.
-				//
-				// Dimensionner sur le libelle COURANT aurait fait respirer la barre a
-				// chaque changement, et deplace les boutons voisins sous le curseur.
-				// On garde donc les ICONES SEULES : c'est ce que fait Blender dans son
-				// en-tete de vue, et l'icone porte deja l'etat -- camera contre grille
-				// pour la projection, ampoule contre disque pour l'ombrage, oeil ouvert
-				// contre ferme pour les surimpressions.
-				//
-				// Le libelle n'est pas perdu : il reste dans la liste deroulee, avec la
-				// coche sur la valeur courante. On passe de ~500 px a ~120.
 				const float32 ib = S(28.f);
-				const int32 nBtn = 4 + (st.shading == 0 ? (st.solidLight == 1 ? 2 : 1) : 0);
+				// La COULEUR et le MATCAP ne concernent que les modes non eclaires
+				// (Solide, Fil de fer) : c'est la que la demo les applique.
+				const bool unlitZone = (st.shading == 1 || st.shading == 2);
+				// LE COMPTE EXACT des boutons dimensionne le fond -- il etait a 4
+				// pour 5 boutons de base, et le dernier (le matcap) flottait sans
+				// fond : le defaut signale par Rihen.
+				const int32 nBtn = 5 + (unlitZone ? 2 : 0);
 				const float32 groupW = S(6.f) + (float32)nBtn * (ib + 2.f);
 				float32 bx = r.x + S(10.f);
 				p.Fill({bx, barY, groupW, barH}, NkRole::PanelBg, 5.f);
 				bx += S(3.f);
 
-				// L'icone a gauche porte SON contenu : disposition des vues, plein ecran,
-				// camera enregistree, reinitialisation.
-				int32 nV = 0;
-				const char *const *vitems = NkViewMenuItems(nV);
-				Combo(p, hit, ws, "vp.menu", {bx, barY + 2.f, ib, barH - 4.f}, vitems, NkViewMenuIcons(),
-					  nV, st.viewLayout, combo, true, false, false);
+				// MENU DE VUE : des ACTIONS (memoriser/rappeler la camera, reset,
+				// panneaux). Pas un Combo -- un menu d'actions n'a pas de « valeur
+				// courante » a afficher.
+				{
+					const NkRect br{bx, barY + 2.f, ib, barH - 4.f};
+					const bool over = hit.Add("vp.menu", br);
+					if (over || st.viewMenuOpen)
+						p.Fill(br, st.viewMenuOpen ? NkRole::AccentUi : NkRole::PanelHeader, 3.f);
+					p.IconV(br.x + (ib - S(14.f)) * 0.5f, br.y, br.h, NkIcon::Menu,
+							st.viewMenuOpen ? NkRole::TextOnAccent : NkRole::Text, 14.f);
+					p.Fill({br.x + br.w - S(6.f), br.y + br.h - S(6.f), S(3.f), S(3.f)},
+						   st.viewMenuOpen ? NkRole::TextOnAccent : NkRole::Text);
+					if (hit.Clicked("vp.menu")) {
+						st.viewMenuOpen = !st.viewMenuOpen;
+						st.bgMenuOpen = st.bgPickerOpen = st.matcapOpen = false;
+					}
+				}
 				bx += ib + 2.f;
 				p.VLine(bx - 1.f, barY + S(5.f), barH - S(10.f));
 
@@ -1426,57 +1632,63 @@ namespace nkentseu {
 				Combo(p, hit, ws, "vp.shade", {bx, barY + 2.f, ib, barH - 4.f}, shad, NkShadingIcons(), nS,
 					  st.shading, combo, true, false, false);
 				bx += ib + 2.f;
-				// ── FOND DE LA VUE ──────────────────────────────────────────
-				// Des PREREGLAGES, pas une roue chromatique : cinq fonds couvrent
-				// les usages reels (sombre, noir pur pour les silhouettes, gris
-				// neutre pour juger les couleurs, clair pour les captures, bleu
-				// nuit). Un selecteur libre viendra avec l'editeur de theme.
-				{
-					static const char *const kBg[] = {"Fond sombre", "Fond noir", "Fond gris",
-													  "Fond clair", "Fond bleu nuit"};
-					static NkIcon kBgIc[5];
-					for (int32 i = 0; i < 5; ++i)
-						kBgIc[i] = NkIcon::Circle;
-					Combo(p, hit, ws, "vp.bg", {bx, barY + 2.f, ib, barH - 4.f}, kBg, kBgIc, 5,
-						  st.bgChoice, combo, true, false, false);
-					bx += ib + 2.f;
-					static const float32 kBgCol[5][3] = {{0.05f, 0.05f, 0.07f},
-														 {0.01f, 0.01f, 0.012f},
-														 {0.24f, 0.24f, 0.25f},
-														 {0.62f, 0.63f, 0.65f},
-														 {0.05f, 0.07f, 0.13f}};
-					nk3d::Viewport3DSetBackground(kBgCol[st.bgChoice][0], kBgCol[st.bgChoice][1],
-												  kBgCol[st.bgChoice][2]);
-				}
 
-				// AFFICHAGE : liste a CASES, pas a choix unique. On veut la grille ET le
-				// repere sans les normales -- trois presets exclusifs obligeaient a
-				// choisir la combinaison la moins mauvaise au lieu de composer.
+				// ── FOND DE LA VUE : le bouton EST un temoin de couleur ─────────
+				// Cinq prereglages + « Personnalisee » qui ouvre un PICKER (trois
+				// barres R/V/B) -- demande de Rihen. Le temoin montre la couleur
+				// REELLE : aucune icone ne dirait mieux l'etat.
+				{
+					const NkRect br{bx, barY + 2.f, ib, barH - 4.f};
+					const bool over = hit.Add("vp.bg", br);
+					if (over || st.bgMenuOpen)
+						p.Fill(br, NkRole::PanelHeader, 3.f);
+					float32 bc[3];
+					NkBgColorOf(st, st.bgChoice, bc);
+					p.Fill({br.x + S(5.f), br.y + S(4.f), br.w - S(10.f), br.h - S(8.f)},
+						   NkColor{(uint8)(bc[0] * 255.f), (uint8)(bc[1] * 255.f),
+								   (uint8)(bc[2] * 255.f), 255},
+						   2.f);
+					p.Fill({br.x + br.w - S(6.f), br.y + br.h - S(6.f), S(3.f), S(3.f)},
+						   st.bgMenuOpen ? NkRole::TextOnAccent : NkRole::Text);
+					if (hit.Clicked("vp.bg")) {
+						st.bgMenuOpen = !st.bgMenuOpen;
+						st.viewMenuOpen = st.matcapOpen = false;
+						if (!st.bgMenuOpen)
+							st.bgPickerOpen = false;
+					}
+					// Applique CHAQUE image : le moteur a une garde d'egalite, et
+					// c'est ce qui rend le picker vivant pendant le glissement.
+					demo::Demo3DHostSetBackground(bc[0], bc[1], bc[2]);
+				}
+				bx += ib + 2.f;
+
 				CheckCombo(p, hit, ws, "vp.ovl", {bx, barY + 2.f, ib, barH - 4.f}, ovl,
 						   NkOverlayIcons(), nO, st.overlayMask, NkIcon::Eye, checks);
 				bx += ib + 2.f;
 
-				// ECLAIRAGE DU MODE SOLIDE : studio, matcap ou plat. Il n apparait que
-				// si l ombrage est SOLIDE -- c est un reglage DE ce mode, pas un mode.
-				// Et il reste disponible en mode objet comme en edition : on veut lire
-				// une forme au matcap avant meme d entrer en edition.
-				if (st.shading == 0) {
+				if (unlitZone) {
+					// SOURCE DE COULEUR des modes non eclaires (la touche B de la
+					// demo) : materiau, gris d'atelier, couleur choisie.
 					int32 nL = 0;
 					const char *const *lights = NkSolidLightItems(nL);
 					Combo(p, hit, ws, "vp.solidlight", {bx, barY + 2.f, ib, barH - 4.f}, lights,
 						  NkSolidLightIcons(), nL, st.solidLight, combo, true, false, false);
 					bx += ib + 2.f;
-					// Le CHOIX du matcap ne s ouvre que si le matcap est l eclairage
-					// retenu : proposer huit matcaps sous un eclairage studio laisserait
-					// croire a un reglage sans effet.
-					if (st.solidLight == 1) {
-						int32 nM = 0;
-						const char *const *mats = NkMatcapItems(nM);
-						static NkIcon kMatIc[8];
-						for (int32 i = 0; i < 8; ++i)
-							kMatIc[i] = NkIcon::Matcap;
-						Combo(p, hit, ws, "vp.matcap", {bx, barY + 2.f, ib, barH - 4.f}, mats, kMatIc,
-							  nM, st.matcap, combo, true, false, false);
+					// MATCAP : bouton dedie -> panneau par CATEGORIES avec defilement
+					// (34 boules ne tiennent pas dans une liste plate).
+					{
+						const NkRect br{bx, barY + 2.f, ib, barH - 4.f};
+						const bool over = hit.Add("vp.matcap", br);
+						if (over || st.matcapOpen)
+							p.Fill(br, st.matcapOpen ? NkRole::AccentUi : NkRole::PanelHeader, 3.f);
+						p.IconV(br.x + (ib - S(14.f)) * 0.5f, br.y, br.h, NkIcon::Matcap,
+								st.matcapOpen ? NkRole::TextOnAccent : NkRole::Text, 14.f);
+						p.Fill({br.x + br.w - S(6.f), br.y + br.h - S(6.f), S(3.f), S(3.f)},
+							   st.matcapOpen ? NkRole::TextOnAccent : NkRole::Text);
+						if (hit.Clicked("vp.matcap")) {
+							st.matcapOpen = !st.matcapOpen;
+							st.viewMenuOpen = st.bgMenuOpen = st.bgPickerOpen = false;
+						}
 					}
 				}
 			}
@@ -1494,16 +1706,21 @@ namespace nkentseu {
 					NkIcon icon;
 					const char *value;
 			};
+			// LES PAS REELS envoyes au gizmo de la demo : 0,5 unite, 15 degres,
+			// 0,1. Afficher d'autres chiffres que ceux appliques serait mentir.
 			static const Snap kSnaps[3] = {
-				{NkIcon::SnapGrid, "10"},
-				{NkIcon::SnapAngle, "10 deg"},
-				{NkIcon::SnapScale, "0,25"},
+				{NkIcon::SnapGrid, "0,5"},
+				{NkIcon::SnapAngle, "15 deg"},
+				{NkIcon::SnapScale, "0,1"},
 			};
 
 			// Largeurs, calculees d'abord pour caler le tout a droite.
-			const bool editMode2 = (st.mode != NkMode::Object);
+			const bool editMode2 = demo::Demo3DHostInEditMode();
 			const float32 wSub = editMode2 ? (S(8.f) + 3.f * (btn + 2.f)) : 0.f;
-			const float32 wTools = S(8.f) + 5.f * (btn + 2.f);
+			// OUTILS EN DEUX BLOCS dans le meme cadre : [Selection | Curseur] puis
+			// un vide, puis [Deplacer | Rotation | Echelle | Multigizmo] -- la
+			// disposition demandee par Rihen (celle de Blender).
+			const float32 wTools = S(8.f) + 6.f * (btn + 2.f) + S(10.f);
 			float32 wSet = S(8.f) + 2.f * (btn + 2.f);
 			for (int32 i = 0; i < 3; ++i)
 				wSet += btn + p.TextW(kSnaps[i].value) + S(12.f);
@@ -1516,15 +1733,14 @@ namespace nkentseu {
 				int32 nOr = 0, nCam = 0;
 				const char *const *orients = NkOrientItems(nOr);
 				const char *const *cams = NkCamSpeedItems(nCam);
-				// GLOBE et CAMERA : des listes SANS chevron ni libelle, reduites a leur
-				// icone. Ce sont des reglages qu'on consulte rarement ; leur donner la
-				// largeur d'un libelle prendrait la place de commandes utilisees a
-				// chaque geste. L'etat reste lisible : c'est l'icone qui change.
 				Combo(p, hit, ws, "vp.orient", {cx, barY + 1.f, btn, barH - 2.f}, orients, NkOrientIcons(),
 					  nOr, st.orientation, combo, true, false, false);
 				cx += btn + 2.f;
-				static const NkIcon kCamIc[4] = {NkIcon::Camera, NkIcon::Camera, NkIcon::Camera,
-												 NkIcon::Camera};
+				// VITESSE DE CAMERA : son icone etait la camera -- le meme dessin
+				// que la projection perspective ET que le bouton de vol. Un dessin
+				// dedie, sinon la barre a trois boutons jumeaux.
+				static const NkIcon kCamIc[4] = {NkIcon::Speed, NkIcon::Speed, NkIcon::Speed,
+												 NkIcon::Speed};
 				Combo(p, hit, ws, "vp.cam", {cx, barY + 1.f, btn, barH - 2.f}, cams, kCamIc, nCam,
 					  st.camSpeed, combo, true, false, false);
 				cx += btn + S(8.f);
@@ -1546,72 +1762,106 @@ namespace nkentseu {
 							on ? NkRole::TextOnAccent : NkRole::TextMuted, 13.f);
 					cx += btn + 3.f;
 					// La valeur reste AFFICHEE quand l'aimantation est coupee, mais
-					// attenuee : on veut savoir sur quel pas on retombera en la rallumant.
+					// attenuee : on veut savoir sur quel pas on retombera.
 					p.TextV(cx, barY, barH, kSnaps[i].value, on ? NkRole::Text : NkRole::TextMuted);
 					cx += p.TextW(kSnaps[i].value) + S(9.f);
 				}
 			}
 
-			// Groupe 2 : outils.
+			// Groupe 2 : outils -- [Selection | Curseur]  [Deplacer | Rotation |
+			// Echelle | Multigizmo].
 			tx -= grp + wTools;
 			{
 				p.Fill({tx, barY, wTools, barH}, NkRole::PanelBg, 5.f);
 				float32 cx = tx + S(4.f);
-				const NkIcon kTools[5] = {NkIcon::Cursor, NkIcon::Gizmo, NkIcon::Move, NkIcon::Rotate,
-										  NkIcon::Scale};
-				static const char *const kKeys[5] = {"vp.t.0", "vp.t.1", "vp.t.2", "vp.t.3", "vp.t.4"};
-				for (int32 i = 0; i < 5; ++i) {
+
+				// SELECTION : une liste de formes (rectangle / cercle / lasso).
+				{
 					const NkRect br{cx, barY + 2.f, btn, barH - 4.f};
-					const bool on = ((int32)st.tool == i);
-					if (i == 0) {
-						// LE BOUTON DE SELECTION EST UNE LISTE DE FORMES : rectangle,
-						// cercle, lasso. C'est ce qu'annoncait deja le petit point ; il
-						// ouvre desormais vraiment un choix.
-						// Son icone suit la FORME choisie et non un dessin fixe : sinon
-						// rien ne dirait, une fois le lasso choisi, qu'on est en lasso.
-						int32 nS2 = 0;
-						const char *const *shapes = NkSelShapeItems(nS2);
-						if (on)
-							p.Fill(br, NkRole::AccentUi, 3.f);
-						Combo(p, hit, ws, "vp.selshape", br, shapes, NkSelShapeIcons(), nS2,
-							  st.selShape, combo, true, false, false);
-						if (hit.Clicked("vp.selshape"))
-							st.tool = NkTool::Select; // choisir une forme active l'outil
-						p.Fill({cx + btn - S(6.f), barY + barH - S(9.f), S(3.f), S(3.f)},
-							   on ? NkRole::TextOnAccent : NkRole::Text);
-						cx += btn + 2.f;
-						continue;
-					}
-					const bool over = hit.Add(kKeys[i], br);
+					const bool on = (st.tool == NkTool::Select);
+					int32 nS2 = 0;
+					const char *const *shapes = NkSelShapeItems(nS2);
+					if (on)
+						p.Fill(br, NkRole::AccentUi, 3.f);
+					Combo(p, hit, ws, "vp.selshape", br, shapes, NkSelShapeIcons(), nS2,
+						  st.selShape, combo, true, false, false);
+					if (hit.Clicked("vp.selshape"))
+						st.tool = NkTool::Select; // choisir une forme active l'outil
+					cx += btn + 2.f;
+				}
+				// CURSEUR : le clic gauche pose le curseur 3D de la demo.
+				{
+					const NkRect br{cx, barY + 2.f, btn, barH - 4.f};
+					const bool over = hit.Add("vp.t.cursor", br);
+					const bool on = (st.tool == NkTool::Cursor);
 					if (on)
 						p.Fill(br, NkRole::AccentUi, 3.f);
 					else
 						HoverFill(p, br, over);
-					if (hit.Clicked(kKeys[i]))
-						st.tool = (NkTool)i;
-					p.IconV(cx + (btn - S(14.f)) * 0.5f, barY, barH, kTools[i],
+					if (hit.Clicked("vp.t.cursor"))
+						st.tool = NkTool::Cursor;
+					p.IconV(cx + (btn - S(14.f)) * 0.5f, barY, barH, NkIcon::Cursor,
+							on ? NkRole::TextOnAccent : NkRole::Text, 14.f);
+					cx += btn + 2.f;
+				}
+				// L'ESPACE entre les deux blocs : selection et transformation sont
+				// deux familles de gestes, le vide fait le tri sans qu'on lise.
+				cx += S(10.f);
+				p.VLine(cx - S(5.f), barY + S(6.f), barH - S(12.f));
+
+				struct TB {
+						NkIcon ic;
+						NkTool tool;
+						const char *key;
+				};
+				static const TB kXf[4] = {
+					{NkIcon::Move, NkTool::Move, "vp.t.move"},
+					{NkIcon::Rotate, NkTool::Rotate, "vp.t.rot"},
+					{NkIcon::Scale, NkTool::Scale, "vp.t.scale"},
+					// MULTIGIZMO = le mode COMBINE de la demo : T+R+S en un seul
+					// gizmo (sa touche C). Il manquait a la barre.
+					{NkIcon::Gizmo, NkTool::MultiGizmo, "vp.t.multi"},
+				};
+				for (int32 i = 0; i < 4; ++i) {
+					const NkRect br{cx, barY + 2.f, btn, barH - 4.f};
+					const bool over = hit.Add(kXf[i].key, br);
+					const bool on = (st.tool == kXf[i].tool);
+					if (on)
+						p.Fill(br, NkRole::AccentUi, 3.f);
+					else
+						HoverFill(p, br, over);
+					if (hit.Clicked(kXf[i].key))
+						st.tool = kXf[i].tool;
+					p.IconV(cx + (btn - S(14.f)) * 0.5f, barY, barH, kXf[i].ic,
 							on ? NkRole::TextOnAccent : NkRole::Text, 14.f);
 					cx += btn + 2.f;
 				}
 			}
 
-			// Groupe 1 : sous-modes, en mode edition seulement.
+			// Groupe 1 : sous-modes V/E/F, en mode edition seulement -- cables sur
+			// le masque de selection REEL de la demo (ses touches 1/2/3).
 			if (editMode2) {
 				tx -= grp + wSub;
 				p.Fill({tx, barY, wSub, barH}, NkRole::PanelBg, 5.f);
 				float32 cx = tx + S(4.f);
 				const NkIcon kSub[3] = {NkIcon::Dot, NkIcon::Ruler, NkIcon::Square};
 				static const char *const kKeys[3] = {"vp.sub.0", "vp.sub.1", "vp.sub.2"};
+				const int32 mask = demo::Demo3DHostEditSelMask();
 				for (int32 i = 0; i < 3; ++i) {
 					const NkRect br{cx, barY + 2.f, btn, barH - 4.f};
 					const bool over = hit.Add(kKeys[i], br);
-					const bool on = ((int32)st.subMode == i);
+					const bool on = (mask & (1 << i)) != 0;
 					if (on)
 						p.Fill(br, NkRole::AccentUi, 3.f);
 					else
 						HoverFill(p, br, over);
-					if (hit.Clicked(kKeys[i]))
+					if (hit.Clicked(kKeys[i])) {
+						// Maj+clic COMBINE les modes (comme Maj+1/2/3 dans la demo),
+						// le clic simple remplace.
+						const int32 nm = hit.ShiftDown() ? (mask ^ (1 << i)) : (1 << i);
+						demo::Demo3DHostSetEditSelMask(nm);
 						st.subMode = (NkSubMode)i;
+					}
 					p.IconV(cx + (btn - S(14.f)) * 0.5f, barY, barH, kSub[i],
 							on ? NkRole::TextOnAccent : NkRole::Text, 14.f);
 					cx += btn + 2.f;
@@ -1663,6 +1913,11 @@ namespace nkentseu {
 					p.TextV(r.x + 12.f, r.y + r.h - 24.f, 20.f, hint, NkRole::TextMuted);
 				}
 			}
+
+			// ── POPUPS DE LA VUE : peints en DERNIER, par-dessus les barres ────
+			PaintViewMenuPopup(p, hit, st, r, barY, barH);
+			PaintBgPopup(p, hit, st, r, barY, barH);
+			PaintMatcapPopup(p, hit, st, r, barY, barH);
 		}
 
 		// ── LIGNE DE TRANSFORMATION ─────────────────────────────────────────────
