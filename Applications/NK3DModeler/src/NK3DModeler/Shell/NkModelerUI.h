@@ -259,7 +259,9 @@ namespace nkentseu {
 					if (contentH <= area.h || area.h <= 0.f)
 						return;
 					const float32 w = 6.f;
-					const float32 x = area.x + area.w - w - 2.f;
+					// COLLE au bord : les 2 px d'ecart laissaient voir la couleur de
+					// la ligne selectionnee derriere la barre (constate par Rihen).
+					const float32 x = area.x + area.w - w;
 					mDl.AddRectFilled({x, area.y, w, area.h}, C(NkRole::WindowBg), 3.f);
 					float32 th = area.h * (area.h / contentH);
 					if (th < 24.f)

@@ -52,6 +52,7 @@ namespace nkentseu {
 		int32 Demo3DHostMatcap();
 		int32 Demo3DHostMatcapCount();
 		const char *Demo3DHostMatcapName(int32 id);
+		void Demo3DHostMatcapBall(int32 id, uint8 *rgba, uint32 size);
 		void Demo3DHostSetOrtho(bool on);
 		bool Demo3DHostIsOrtho();
 		void Demo3DHostAxisView(int32 which, bool opposite); // 0 avant/arriere, 1 droite/gauche, 2 dessus/dessous

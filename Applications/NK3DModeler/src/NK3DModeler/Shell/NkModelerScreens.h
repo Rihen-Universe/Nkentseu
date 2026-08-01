@@ -1004,12 +1004,25 @@ namespace nkentseu {
 						hit.Add(key, chevR);
 						p.IconV(r.x + S(8.f), yy, kRowH,
 								open ? NkIcon::ChevronDown : NkIcon::ChevronRight, gfg, 11.f);
+						// Le PARENT aussi se renomme (double-clic) ; le compte reste
+						// affiche a cote. Jamais de chevauchement Nom/Type.
+						const int32 grpSlot = 90 + gi2;
+						const char *gname =
+							st.customNames[grpSlot][0] ? st.customNames[grpSlot] : G2.name;
 						char gl[48];
-						snprintf(gl, sizeof(gl), "%s (%d)", G2.name, G2.count);
-						// Jamais de chevauchement Nom/Type, meme sur un groupe.
-					p.Clip({rowR.x, yy, colType - rowR.x - S(8.f), kRowH});
-					p.TextV(r.x + S(24.f), yy, kRowH, gl, gfg);
-					p.Unclip();
+						snprintf(gl, sizeof(gl), "%s (%d)", gname, G2.count);
+						p.Clip({rowR.x, yy, colType - rowR.x - S(8.f), kRowH});
+						snprintf(key, sizeof(key), "hier.gname.%d", gi2);
+						EditableText(p, hit, ws, in, key,
+									 {r.x + S(24.f), yy, colType - r.x - S(32.f), kRowH}, gl, gfg,
+									 st.customNames[grpSlot], 24u);
+						p.Unclip();
+						if (hit.Clicked(key)) {
+							if (isLightGrp)
+								demo::Demo3DHostSelectAllLights();
+							else
+								demo::Demo3DHostSelectGroup(G2.start, G2.count, hit.ShiftDown());
+						}
 						p.TextV(colType, yy, kRowH, "Groupe",
 								allSel ? NkRole::TextOnAccent : NkRole::TextMuted);
 						if (hit.Clicked(key)) {
@@ -1034,6 +1047,10 @@ namespace nkentseu {
 						demo::Demo3DHostLightName(li, nameBuf, sizeof(nameBuf));
 					else
 						demo::Demo3DHostObjectName(oi, nameBuf, sizeof(nameBuf));
+					// NOM PERSONNALISE s'il existe : tout se renomme (Rihen).
+					const int32 nameSlot = isLightGrp ? 86 + li : oi;
+					if (st.customNames[nameSlot][0])
+						snprintf(nameBuf, sizeof(nameBuf), "%s", st.customNames[nameSlot]);
 					++aliveCount;
 					const bool sel = isLightGrp ? (demo::Demo3DHostSelectedLight() == li)
 												: demo::Demo3DHostObjectSelected(oi);
@@ -1057,9 +1074,20 @@ namespace nkentseu {
 						p.IconV(tx, yy, kRowH, isLightGrp ? NkIcon::Light : NkIcon::Mesh, fg, 13.f);
 						// Le NOM est CLIPPE a sa colonne : en retrecissant le panneau il
 						// chevauchait Â« Type Â» (constate par Rihen).
+						// Le nom est aussi MODIFIABLE au double-clic -- tout se
+						// renomme, lumieres comprises ; le clic simple selectionne.
 						p.Clip({rowR.x, yy, colType - rowR.x - S(8.f), kRowH});
-						p.TextV(tx + S(18.f), yy, kRowH, nameBuf, fg);
+						snprintf(key, sizeof(key), "hier.name.%d", rowId);
+						EditableText(p, hit, ws, in, key,
+									 {tx + S(18.f), yy, colType - tx - S(26.f), kRowH}, nameBuf, fg,
+									 st.customNames[nameSlot], 24u);
 						p.Unclip();
+						if (hit.Clicked(key)) {
+							if (isLightGrp)
+								demo::Demo3DHostSelectLight(li);
+							else if (!demo::Demo3DHostObjectLocked(oi))
+								demo::Demo3DHostSelectObject(oi, hit.ShiftDown());
+						}
 						p.TextV(colType, yy, kRowH, isLightGrp ? "Lumiere" : "Maillage", dim);
 						if (!isLightGrp && sel && oi == activeObj)
 							p.Fill({colType - S(12.f), yy + kRowH * 0.5f - S(2.f), S(4.f), S(4.f)}, fg);
@@ -1492,8 +1520,7 @@ namespace nkentseu {
 		// Les 34 boules de la bibliotheque, groupees par famille (les plages
 		// suivent kPresets de NkMatcapLibrary.cpp). Le panneau defile dans les
 		// deux sens des que le contenu depasse -- demande de Rihen.
-		inline void PaintMatcapPopup(NkModelerPainter &p, NkHitRegistry &hit, NkModelerState &st,
-									 const NkRect &view, float32 barY, float32 barH) {
+		inline void PaintMatcapPopup(NkModelerPainter &p, NkHitRegistry &hit, NkModelerState &st) {
 			if (!st.matcapOpen)
 				return;
 			struct Cat {
@@ -1517,15 +1544,17 @@ namespace nkentseu {
 				contentH += headH + cellH * (float32)((cnt + cols - 1) / cols);
 			}
 			const float32 contentW = S(8.f) + cellW * (float32)cols;
-			// Boite : sous la barre, bornee a la vue.
+			// Boite : ancree au bouton qui l'a ouverte, bornee a la fenetre --
+			// elle peut donc s'ouvrir depuis la barre de la vue comme depuis le
+			// panneau Proprietes.
 			float32 boxW = contentW + S(12.f);
-			if (boxW > view.w - S(40.f))
-				boxW = view.w - S(40.f);
+			if (boxW > NkPopupBoundsW() - S(40.f))
+				boxW = NkPopupBoundsW() - S(40.f);
 			float32 boxH = contentH + S(12.f);
-			const float32 maxH = view.h - barH - S(60.f);
+			const float32 maxH = NkPopupBoundsH() - S(90.f);
 			if (boxH > maxH)
 				boxH = maxH;
-			const NkRect box{view.x + S(10.f), barY + barH + S(4.f), boxW, boxH};
+			const NkRect box = NkFitPopup(st.matcapAnchor, boxW, boxH);
 			p.Fill({box.x + 2.f, box.y + 2.f, box.w, box.h}, NkRole::WindowBg, 4.f);
 			p.Outline(box, NkRole::Border, NkRole::PanelHeader, 4.f);
 			hit.Add("vp.mc.panel", box);
@@ -1586,9 +1615,10 @@ namespace nkentseu {
 						p.Fill(ir, NkRole::AccentUi, 3.f);
 					else if (over)
 						p.Fill(ir, NkRole::PanelHeader, 3.f);
-					p.IconV(ir.x + S(4.f), ir.y, ir.h, NkIcon::Matcap,
-							sel ? NkRole::TextOnAccent : NkRole::Text, 12.f);
-					p.TextV(ir.x + S(22.f), ir.y, ir.h, demo::Demo3DHostMatcapName(id),
+					// La VIGNETTE REELLE de la boule, pas un pictogramme generique.
+					p.Image(4300u + (uint32)id,
+							{ir.x + S(3.f), ir.y + S(2.f), ir.h - S(4.f), ir.h - S(4.f)});
+					p.TextV(ir.x + ir.h + S(4.f), ir.y, ir.h, demo::Demo3DHostMatcapName(id),
 							sel ? NkRole::TextOnAccent : NkRole::Text);
 					if (hit.Clicked(k))
 						demo::Demo3DHostSetMatcap(id);
@@ -1670,10 +1700,13 @@ namespace nkentseu {
 				if (hit.Clicked("ws.hide"))
 					st.wsBarOpen = false;
 			} else {
-				// Replie : un chevron discret, centre en haut de la vue.
-				const NkRect ch{r.x + r.w * 0.5f - S(10.f), r.y + S(2.f), S(20.f), S(16.f)};
-				HoverFill(p, ch, hit.Add("ws.show", ch), 2.f);
-				p.IconV(ch.x + S(3.f), ch.y, ch.h, NkIcon::ChevronDown, NkRole::TextMuted, 12.f);
+				// Replie : une POIGNEE VISIBLE, comme celles des panneaux -- le
+				// chevron seul de 20 px etait introuvable (constate par Rihen).
+				const NkRect ch{r.x + r.w * 0.5f - S(52.f), r.y + S(2.f), S(104.f), S(16.f)};
+				const bool overC = hit.Add("ws.show", ch);
+				p.Outline(ch, overC ? NkRole::AccentUi : NkRole::Border, NkRole::PanelHeader, 3.f);
+				p.IconV(ch.x + S(6.f), ch.y, ch.h, NkIcon::ChevronDown, NkRole::Text, 11.f);
+				p.TextV(ch.x + S(22.f), ch.y, ch.h, "Espaces", NkRole::TextMuted);
 				if (hit.Clicked("ws.show"))
 					st.wsBarOpen = true;
 			}
@@ -1847,6 +1880,7 @@ namespace nkentseu {
 							   st.matcapOpen ? NkRole::TextOnAccent : NkRole::Text);
 						if (hit.Clicked("vp.matcap")) {
 							st.matcapOpen = !st.matcapOpen;
+							st.matcapAnchor = br; // le panneau s'ancre a SON bouton
 							st.viewMenuOpen = st.bgMenuOpen = st.bgPickerOpen = false;
 						}
 					}
@@ -2077,7 +2111,8 @@ namespace nkentseu {
 			// â”€â”€ POPUPS DE LA VUE : peints en DERNIER, par-dessus les barres â”€â”€â”€â”€
 			PaintViewMenuPopup(p, hit, st, r, barY, barH);
 			PaintBgPopup(p, hit, st, r, barY, barH);
-			PaintMatcapPopup(p, hit, st, r, barY, barH);
+			// Le panneau des matcaps est peint depuis main, APRES tous les
+			// panneaux : il peut s'ouvrir depuis le panneau Proprietes aussi.
 		}
 
 		// â”€â”€ LIGNE DE TRANSFORMATION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -2171,12 +2206,17 @@ namespace nkentseu {
 		// section peut etre tres long sans pousser les autres hors de l'ecran.
 		// La hauteur se partage entre les sections OUVERTES ; la hauteur de
 		// contenu est mesuree a l'image precedente (stable des la deuxieme).
-		inline void PaintPropertiesUnified(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
-										   NkHitRegistry &hit, NkWidgetState &ws,
+		inline void PaintPropertiesUnified(NkModelerPainter &p, const NkRect &rFull,
+										   NkModelerState &st, NkHitRegistry &hit, NkWidgetState &ws,
 										   const nkgui::NkGuiInput &in, NkComboPending &combo) {
-			p.Fill(r, NkRole::PanelBg);
-			p.VLine(r.x, r.y, r.h);
-			float32 y = PaintPanelTab(p, r, "Proprietes", &hit, &st.showRight, "props.close");
+			p.Fill(rFull, NkRole::PanelBg);
+			p.VLine(rFull.x, rFull.y, rFull.h);
+			float32 y = PaintPanelTab(p, rFull, "Proprietes", &hit, &st.showRight, "props.close");
+			// LA COLONNE DE PASTILLES (idee de Rihen, facon Blender) reserve le
+			// bord droit ; tout le reste du panneau travaille dans r, ampute
+			// d'autant.
+			NkRect r = rFull;
+			r.w -= S(26.f);
 			char key[40], buf[96];
 
 			auto Button = [&](const char *k2, float32 yB, const char *label, float32 x,
@@ -2200,7 +2240,12 @@ namespace nkentseu {
 					++nOpen;
 			const float32 availH = (r.y + r.h) - y - 3.f * kRowH;
 			const NkRect rr{r.x, 0.f, r.w - S(14.f), 0.f}; // colonne du scrollbar reservee
-			float32 secY = y;
+			// DEFILEMENT GLOBAL : la pile entiere glisse de propScroll ; le
+			// contenu est mesure au fil de la peinture et la barre du bord la
+			// pilote (celles des sections sont inserees).
+			const float32 stackTop = y;
+			p.Clip({r.x, stackTop, r.w, (r.y + r.h) - stackTop});
+			float32 secY = y - st.propScroll;
 
 			for (int32 sec = 0; sec < 3; ++sec) {
 				snprintf(key, sizeof(key), "props.sec.%d", sec);
@@ -2470,14 +2515,24 @@ namespace nkentseu {
 						yy += kRowH;
 					}
 					{
+						// MATCAP : un COMBO avec l'APERCU de la boule choisie ; le clic
+						// ouvre le panneau par categories, ancre ICI.
 						p.TextV(r.x + kPad, yy, kRowH, "Matcap", NkRole::TextMuted);
 						const int32 mc = demo::Demo3DHostMatcap();
-						if (Button("props.mcprev", yy, "<", r.x + S(120.f), S(24.f)))
-							demo::Demo3DHostSetMatcap(mc - 1 < 0 ? demo::Demo3DHostMatcapCount() - 1
-																 : mc - 1);
-						if (Button("props.mcnext", yy, ">", r.x + S(148.f), S(24.f)))
-							demo::Demo3DHostSetMatcap((mc + 1) % demo::Demo3DHostMatcapCount());
-						p.TextV(r.x + S(180.f), yy, kRowH, demo::Demo3DHostMatcapName(mc));
+						const NkRect br{r.x + S(120.f), yy + S(2.f), rr.w - S(128.f), kRowH - S(4.f)};
+						const bool overM = hit.Add("props.matcap", br);
+						p.Outline(br, (overM || st.matcapOpen) ? NkRole::AccentUi : NkRole::Border,
+								  NkRole::InputBg, 3.f);
+						p.Image(4300u + (uint32)mc,
+								{br.x + S(3.f), br.y + S(2.f), br.h - S(4.f), br.h - S(4.f)});
+						p.TextV(br.x + br.h + S(4.f), yy, kRowH, demo::Demo3DHostMatcapName(mc));
+						// Marqueur blanc de combo, comme partout.
+						p.Fill({br.x + br.w - S(6.f), br.y + br.h - S(6.f), S(3.f), S(3.f)},
+							   NkRole::Text);
+						if (hit.Clicked("props.matcap")) {
+							st.matcapOpen = !st.matcapOpen;
+							st.matcapAnchor = br;
+						}
 						yy += kRowH;
 					}
 					{
@@ -2626,7 +2681,11 @@ namespace nkentseu {
 				hit.WheelIn(box, st.propScroll3[sec], sContentH[sec], boxH);
 				p.Unclip();
 				snprintf(key, sizeof(key), "props.sb.%d", sec);
-				NkScrollDrag(p, hit, st, key, box, sContentH[sec], st.propScroll3[sec]);
+				{
+					NkRect inBox = box;
+					inBox.w -= S(9.f); // la barre de section s'INSERE ; le bord est a la globale
+					NkScrollDrag(p, hit, st, key, inBox, sContentH[sec], st.propScroll3[sec]);
+				}
 				secY += boxH;
 				// ── POIGNEE DE HAUTEUR : agrandir/retrecir CETTE section ────
 				// Le geste appartient a la poignee ou il a commence (propDragKey),
@@ -2650,6 +2709,41 @@ namespace nkentseu {
 							st.propSecH[sec] = nh;
 						}
 					}
+				}
+			}
+			p.Unclip();
+			{
+				const float32 stackH = (secY + st.propScroll) - stackTop;
+				const float32 viewH = (r.y + r.h) - stackTop;
+				const float32 maxOff = stackH > viewH ? stackH - viewH : 0.f;
+				if (st.propScroll > maxOff)
+					st.propScroll = maxOff;
+				NkScrollDrag(p, hit, st, "props.outer", {r.x, stackTop, r.w, viewH}, stackH,
+							 st.propScroll);
+			}
+			// ── LES PASTILLES : une par section, a droite. BLEUE = active ;
+			// plusieurs a la fois ; AUCUNE = panneau entierement replie. C'est ce
+			// qui restera lisible quand les types de proprietes se compteront en
+			// dizaines.
+			{
+				static const NkIcon kTabIc[3] = {NkIcon::Mesh, NkIcon::Globe, NkIcon::Gizmo};
+				p.VLine(r.x + r.w, stackTop, (rFull.y + rFull.h) - stackTop);
+				float32 ty = stackTop + S(4.f);
+				for (int32 i2 = 0; i2 < 3; ++i2) {
+					char tk[24];
+					snprintf(tk, sizeof(tk), "props.tab.%d", i2);
+					const NkRect tb{r.x + r.w + S(3.f), ty, S(20.f), S(24.f)};
+					const bool on = *openFlags[i2];
+					const bool overT = hit.Add(tk, tb);
+					if (on)
+						p.Fill(tb, NkRole::AccentUi, 3.f);
+					else
+						HoverFill(p, tb, overT, 3.f);
+					p.IconV(tb.x + (tb.w - S(14.f)) * 0.5f, tb.y, tb.h, kTabIc[i2],
+							on ? NkRole::TextOnAccent : NkRole::TextMuted, 14.f);
+					if (hit.Clicked(tk))
+						*openFlags[i2] = !on;
+					ty += S(28.f);
 				}
 			}
 			if (!hit.MouseDown())
