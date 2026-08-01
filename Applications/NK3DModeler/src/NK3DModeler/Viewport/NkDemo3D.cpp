@@ -102,6 +102,11 @@ namespace nkentseu {
 		// Sous-type du noeud utilisateur (style d'empty, variante de courbe/
 		// surface/metaball, primitive demandee) -- porte par le menu Ajouter.
 		static uint8 nkvpUserSub[kNkvpMaxUser] = {};
+		// Mesh PARAMETRIQUE du slot (regenere quand ses parametres changent)
+		// et ses parametres (segments / anneaux-subdivisions).
+		static NkMeshHandle nkvpUserMesh[kNkvpMaxUser];
+		static int32 nkvpUserSeg[kNkvpMaxUser];
+		static int32 nkvpUserRing[kNkvpMaxUser];
 		// SUPPRESSION par drapeau (heritee par la visibilite effective).
 		static bool nkvpDeleted[kNkvpMaxNodes] = {};
 		// PRESSE-PAPIERS de noeud (copier/coller).
@@ -4736,6 +4741,8 @@ namespace nkentseu {
 				else if (uk == 2)
 					dc.mesh = usv == 1 ? st->meshCylinder
 										   : (usv == 2 ? st->meshCone : st->meshCube);
+				if (nkvpUserMesh[u].IsValid())
+					dc.mesh = nkvpUserMesh[u]; // mesh parametrique regenere
 				const NkVec3f uc{nkvpEmptyPos[e][0] + utr.x, nkvpEmptyPos[e][1] + utr.y,
 								 nkvpEmptyPos[e][2] + utr.z};
 				dc.transform = NkMat4f::Translate(uc) * uR *
@@ -7056,6 +7063,8 @@ namespace nkentseu {
 									sdc2.mesh = usv2 == 1
 													? st->meshCylinder
 													: (usv2 == 2 ? st->meshCone : st->meshCube);
+								if (nkvpUserMesh[u].IsValid())
+									sdc2.mesh = nkvpUserMesh[u];
 							}
 							const NkVec3f utr = st->emptyGizmo.TranslateOf(e);
 							const NkVec3f uos = st->emptyGizmo.ScaleOf(e);
@@ -8857,6 +8866,9 @@ namespace nkentseu {
 				nkvpObjLocked[n] = false;
 				nkvpBaseSet[n] = false;
 				nkvpUserSub[u] = 0;
+				nkvpUserMesh[u] = NkMeshHandle{};
+				nkvpUserSeg[u] = 32;
+				nkvpUserRing[u] = 16;
 				const int32 e = n - kNkvpFirstEmpty;
 				for (int32 a = 0; a < 3; ++a) {
 					nkvpEmptyPos[e][a] = 0.f;
@@ -8934,8 +8946,14 @@ namespace nkentseu {
 					nkvpDimFactor[n][a] = nkvpDimFactor[src][a];
 				}
 			}
-			if (src >= kNkvpFirstUser)
-				nkvpUserSub[n - kNkvpFirstUser] = nkvpUserSub[src - kNkvpFirstUser];
+			if (src >= kNkvpFirstUser) {
+				const int32 su = src - kNkvpFirstUser;
+				const int32 nu = n - kNkvpFirstUser;
+				nkvpUserSub[nu] = nkvpUserSub[su];
+				nkvpUserMesh[nu] = nkvpUserMesh[su]; // meme geometrie parametree
+				nkvpUserSeg[nu] = nkvpUserSeg[su];
+				nkvpUserRing[nu] = nkvpUserRing[su];
+			}
 			const int32 pp = nkvpParentOf[src];
 			nkvpParentOf[n] = (pp >= 0 && !nkvpDeleted[pp]) ? pp : -1;
 			return n;
@@ -9057,6 +9075,73 @@ namespace nkentseu {
 		// 3 plan, 4 empty, 5 lumiere (sub = type), 6 texte, 7 courbe,
 		// 8 surface, 9 metaball. Les natures 6..9 sont des MARQUEURS types en
 		// attendant leur backend de geometrie (transformables, parentables).
+		// Regenere le mesh PARAMETRIQUE d'un slot utilisateur d'apres ses
+		// (segments, anneaux) -- chaque nature mappe ses parametres.
+		static void HostRegenUserMesh(int32 u) {
+			auto *ms = hst.ctx.renderer ? hst.ctx.renderer->GetMeshSystem() : nullptr;
+			if (!ms || u < 0 || u >= kNkvpMaxUser)
+				return;
+			const uint8 uk = nkvpUserKind[u];
+			const uint8 sub = nkvpUserSub[u];
+			int32 sg = nkvpUserSeg[u];
+			int32 rg = nkvpUserRing[u];
+			if (sg < 3)
+				sg = 3;
+			if (sg > 128)
+				sg = 128;
+			if (rg < 2)
+				rg = 2;
+			if (rg > 64)
+				rg = 64;
+			if (uk == 1) {
+				if (sub == 1) {
+					int32 sd = nkvpUserSeg[u];
+					if (sd < 1)
+						sd = 1;
+					if (sd > 5)
+						sd = 5;
+					nkvpUserMesh[u] = ms->CreateIcosphereMesh((uint32)sd);
+				} else if (sub == 2) {
+					nkvpUserMesh[u] = ms->CreateTorusMesh((uint32)sg, (uint32)rg);
+				} else if (sub == 3) {
+					nkvpUserMesh[u] = ms->CreateCapsuleMesh((uint32)sg, (uint32)rg);
+				} else {
+					nkvpUserMesh[u] = ms->CreateSphereMesh((uint32)rg, (uint32)sg);
+				}
+			} else if (uk == 2 && sub == 1) {
+				nkvpUserMesh[u] = ms->CreateCylinderMesh((uint32)sg);
+			} else if (uk == 2 && sub == 2) {
+				nkvpUserMesh[u] = ms->CreateConeMesh((uint32)sg);
+			} else if (uk == 3) {
+				int32 dv = nkvpUserSeg[u];
+				if (dv < 1)
+					dv = 1;
+				if (dv > 64)
+					dv = 64;
+				nkvpUserMesh[u] = ms->CreatePlaneMesh((uint32)dv, (uint32)dv);
+			}
+		}
+		bool Demo3DHostMeshParams(int32 node, int32 *segs, int32 *rings) {
+			if (node < kNkvpFirstUser || node >= kNkvpMaxNodes)
+				return false;
+			const int32 u = node - kNkvpFirstUser;
+			const uint8 uk = nkvpUserKind[u];
+			const uint8 sub = nkvpUserSub[u];
+			const bool ok = uk == 1 || (uk == 2 && (sub == 1 || sub == 2)) || uk == 3;
+			if (!ok)
+				return false;
+			*segs = nkvpUserSeg[u];
+			*rings = nkvpUserRing[u];
+			return true;
+		}
+		void Demo3DHostSetMeshParams(int32 node, int32 segs, int32 rings) {
+			if (node < kNkvpFirstUser || node >= kNkvpMaxNodes)
+				return;
+			const int32 u = node - kNkvpFirstUser;
+			nkvpUserSeg[u] = segs;
+			nkvpUserRing[u] = rings;
+			HostRegenUserMesh(u);
+		}
 		int32 Demo3DHostAddNode(int32 kind, int32 sub) {
 			auto *st = HostSt();
 			if (!st || kind < 1 || kind > 10)
@@ -9071,6 +9156,14 @@ namespace nkentseu {
 			nkvpEmptyPos[e][0] = st->cursor3D.x;
 			nkvpEmptyPos[e][1] = st->cursor3D.y;
 			nkvpEmptyPos[e][2] = st->cursor3D.z;
+			// Parametres par defaut de la nature, puis mesh PARAMETRIQUE reel.
+			{
+				const int32 u = n - kNkvpFirstUser;
+				nkvpUserSeg[u] = kind == 3 ? 1 : (kind == 1 && (sub & 0xFF) == 1 ? 3 : 32);
+				nkvpUserRing[u] = 16;
+				if (kind >= 1 && kind <= 3)
+					HostRegenUserMesh(u);
+			}
 			if (kind == 5) {
 				// Lumiere NATIVE : partir de la lumiere existante la plus proche
 				// du type demande (0 dir, 1 point, 2 spot, 3 surfacique).

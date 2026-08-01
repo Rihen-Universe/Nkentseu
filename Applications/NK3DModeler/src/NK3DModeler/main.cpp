@@ -1054,7 +1054,7 @@ int nkmain(const NkEntryState &entry) {
 		// ligne de la liste.
 		if (st.showLeft)
 			PaintHierarchy(p, lay.left, st, hit, ws, ui.input);
-		PaintViewport(p, lay.view, st, hit, ws, combo, checks, shortcuts);
+		PaintViewport(p, lay.view, st, hit, ws, ui.input, combo, checks, shortcuts);
 		if (st.showRight) {
 			// PANNEAU DROIT UNIQUE (demande de Rihen) : Objet / Scene / Outil.
 			// Proprietes et Details disaient deux fois la meme chose ; leurs
