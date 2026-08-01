@@ -2268,12 +2268,13 @@ namespace nkentseu {
 				// « Appliquer » ou par un clic dans la vue (Rihen).
 				if (st.addAdjustNode >= 0) {
 					int32 sgA = 0, rgA = 0;
-					if (!demo::Demo3DHostMeshParams(st.addAdjustNode, &sgA, &rgA) ||
-						demo::Demo3DHostNodeDeleted(st.addAdjustNode)) {
+					const bool hasParams =
+						demo::Demo3DHostMeshParams(st.addAdjustNode, &sgA, &rgA);
+					if (demo::Demo3DHostNodeDeleted(st.addAdjustNode)) {
 						st.addAdjustNode = -1;
 					} else {
 						const float32 pw = S(232.f);
-						const float32 ph = kRowH * 6.f + S(10.f);
+						const float32 ph = kRowH * (hasParams ? 6.f : 4.f) + S(10.f);
 						const NkRect aj{vr.x + vr.w - pw - S(10.f), vr.y + vr.h - ph - S(10.f),
 										pw, ph};
 						if (hit.AnyClick() && NkHitRegistry::Contains(vr, hit.Mouse()) &&
@@ -2289,6 +2290,7 @@ namespace nkentseu {
 							p.TextV(aj.x + S(8.f), aj.y + S(3.f), kRowH, tA);
 							float32 ay = aj.y + S(3.f) + kRowH;
 							float32 fsg = (float32)sgA, frg = (float32)rgA;
+							if (hasParams) {
 							p.TextV(aj.x + S(8.f), ay, kRowH, "Segments", NkRole::TextMuted);
 							DragFloat(p, hit, ws, in, "vp.adj.seg",
 									  {aj.x + S(100.f), ay + S(3.f), pw - S(108.f), kRowH - S(4.f)},
@@ -2299,6 +2301,7 @@ namespace nkentseu {
 									  {aj.x + S(100.f), ay + S(3.f), pw - S(108.f), kRowH - S(4.f)},
 									  frg, 0.2f, NkRole::AccentUi, "%.0f");
 							ay += kRowH;
+							}
 							float32 epA[3], erA[3], esA[3];
 							demo::Demo3DHostEmptyTransform(st.addAdjustNode, epA, erA, esA);
 							float32 rayA = esA[0], hauA = esA[1];
@@ -2312,7 +2315,8 @@ namespace nkentseu {
 									  {aj.x + S(100.f), ay + S(3.f), pw - S(108.f), kRowH - S(4.f)},
 									  hauA, 0.01f, NkRole::AccentUi, "%.2f");
 							ay += kRowH;
-							if ((int32)(fsg + 0.5f) != sgA || (int32)(frg + 0.5f) != rgA)
+							if (hasParams &&
+								((int32)(fsg + 0.5f) != sgA || (int32)(frg + 0.5f) != rgA))
 								demo::Demo3DHostSetMeshParams(st.addAdjustNode,
 															  (int32)(fsg + 0.5f),
 															  (int32)(frg + 0.5f));
@@ -5012,9 +5016,8 @@ namespace nkentseu {
 							if (nn >= 0) {
 								NkHierComposeName(st, cats[c].items[i].label, nn);
 								demo::Demo3DHostSelectEmptyNode(nn);
-								int32 psg2, prg2;
-								st.addAdjustNode =
-									demo::Demo3DHostMeshParams(nn, &psg2, &prg2) ? nn : -1;
+								// pour TOUT element du menu, sans distinction (Rihen)
+								st.addAdjustNode = nn;
 							}
 							st.dirty = true;
 							ws.CloseCombo();
