@@ -540,6 +540,59 @@ namespace nkentseu {
 			st.sceneCamOrtho[tab] = ortho;
 			st.sceneCamSet[tab] = true;
 		}
+		// ── ACTIVER UN ONGLET ───────────────────────────────────────────────────
+		// Un onglet EDITEUR est une SCENE A PART ENTIERE (Rihen) : la vue se vide
+		// et une MAQUETTE de l'asset nait a l'origine, editable avec les memes
+		// outils. En quittant l'editeur, la maquette disparait.
+		inline void NkActivateTab(NkModelerState &st, int32 tb, bool force = false) {
+			if (tb < 0 || tb >= st.sceneCount || (tb == st.activeTab && !force))
+				return;
+			if (st.sceneTabKind[st.activeTab] == 0 && tb != st.activeTab)
+				NkStoreSceneCam(st, st.activeTab); // la scene quittee garde sa vue
+			if (st.editPreviewNode > 0) {
+				demo::Demo3DHostDeleteNode(st.editPreviewNode - 1, true);
+				st.editPreviewNode = 0;
+			}
+			st.activeTab = tb;
+			const uint8 tk = st.sceneTabKind[tb];
+			if (tk == 0) {
+				if (st.sceneCamSet[tb])
+					demo::Demo3DHostSetCameraPose(st.sceneCamPose[tb],
+												  st.sceneCamPose[tb][3],
+												  st.sceneCamPose[tb][4],
+												  st.sceneCamPose[tb][5],
+												  st.sceneCamOrtho[tb]);
+				else
+					demo::Demo3DHostResetView();
+				demo::Demo3DHostSetAllHidden(st.sceneBlank[tb]);
+				return;
+			}
+			// EDITEUR : scene VIDE + maquette selon la nature de l'asset.
+			demo::Demo3DHostResetView();
+			demo::Demo3DHostSetAllHidden(true);
+			const uint8 ek = (uint8)(tk - 1);
+			const int32 ai = st.sceneTabAsset[tb] - 1;
+			int32 pv = -1;
+			if (ek == 6 && ai >= 0 && ai < st.browserCount &&
+				st.browserSrcNode[ai] > 0)
+				pv = demo::Demo3DHostDuplicateNode(st.browserSrcNode[ai] - 1);
+			else if (ek == 6)
+				pv = demo::Demo3DHostAddNode(2, 0); // mesh sans source : cube
+			else if (ek == 2)
+				pv = demo::Demo3DHostAddNode(1, 0); // materiau : sphere d'apercu
+			else if (ek == 3)
+				pv = demo::Demo3DHostAddNode(3, 0); // texture : plan d'apercu
+			if (pv >= 0) {
+				// La maquette nait a l'ORIGINE, droite, et selectionnee ; elle
+				// garde sa propre echelle (dimensions reelles de l'asset).
+				float32 pz[3] = {0.f, 0.f, 0.f}, rz[3] = {0.f, 0.f, 0.f};
+				float32 sz[3] = {1.f, 1.f, 1.f}, gp[3], gr[3];
+				demo::Demo3DHostEmptyTransform(pv, gp, gr, sz);
+				demo::Demo3DHostSetEmptyTransform(pv, pz, rz, sz);
+				demo::Demo3DHostSelectEmptyNode(pv);
+			}
+			st.editPreviewNode = pv + 1;
+		}
 		inline void PaintTabsI(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
 							   NkHitRegistry &hit, NkWidgetState &ws, const nkgui::NkGuiInput &in) {
 			p.Fill(r, NkRole::PanelBg);
@@ -554,6 +607,17 @@ namespace nkentseu {
 				const bool over = hit.Add(key, tr);
 				const bool on = (i == st.activeTab);
 				p.Fill(tr, on ? NkRole::PanelHeader : (over ? NkRole::PanelBg : NkRole::InputBg), 3.f);
+				if (st.sceneTabKind[i] != 0) {
+					// Liseret de NATURE : distinguer d'un oeil les onglets EDITEUR
+					// des scenes (memes couleurs que les cartes du navigateur).
+					const uint8 k2 = (uint8)(st.sceneTabKind[i] - 1);
+					const NkRole r2 = (k2 == 0)	  ? NkRole::TypeMesh
+									  : (k2 == 4) ? NkRole::AccentUi
+									  : (k2 == 6) ? NkRole::AxisY
+									  : (k2 == 2) ? NkRole::TypeMat
+												  : NkRole::TypeTex;
+					p.Fill({tr.x, tr.y + tr.h - 2.f, tr.w, 2.f}, r2);
+				}
 				snprintf(key, sizeof(key), "tab.name.%d", i);
 				EditableText(p, hit, ws, in, key, {x + S(10.f), r.y, tw - S(32.f), r.h}, st.sceneNames[i],
 							 on ? NkRole::Text : NkRole::TextMuted, st.sceneNames[i], 32u);
@@ -578,30 +642,27 @@ namespace nkentseu {
 								st.sceneCamPose[k][a] = st.sceneCamPose[k + 1][a];
 						}
 						st.sceneCount--;
+						// L'ACTIF suit : ferme avant lui son index recule ; ferme
+						// LUI-MEME, l'environnement du nouvel actif s'applique.
+						const bool wasAct = (i == st.activeTab);
+						if (i < st.activeTab)
+							st.activeTab--;
 						if (st.activeTab >= st.sceneCount)
 							st.activeTab = st.sceneCount - 1;
+						if (wasAct)
+							NkActivateTab(st, st.activeTab, true);
 						break; // la liste a change : on ne continue pas a la parcourir
 					}
 				}
 				snprintf(key, sizeof(key), "tab.%d", i);
-				if (hit.Clicked(key) && i != st.activeTab) {
-					// CHANGER DE SCENE = changer de VUE : la pose de camera de la
-					// scene quittee est memorisee, celle de la scene ouverte est
-					// rappelee (ou la pose d'ouverture si elle n'a jamais servi).
-					// Les onglets EDITEUR (asset) ne touchent ni camera ni scene.
-					if (st.sceneTabKind[st.activeTab] == 0)
-						NkStoreSceneCam(st, st.activeTab);
-					st.activeTab = i;
-					if (st.sceneTabKind[i] == 0 && st.sceneCamSet[i])
-						demo::Demo3DHostSetCameraPose(st.sceneCamPose[i], st.sceneCamPose[i][3],
-													  st.sceneCamPose[i][4],
-													  st.sceneCamPose[i][5], st.sceneCamOrtho[i]);
-					else if (st.sceneTabKind[i] == 0)
-						demo::Demo3DHostResetView();
-					// Chaque scene a SES objets : la demo peuple la premiere, les
-					// autres naissent VIERGES (tout masque).
-					if (st.sceneTabKind[i] == 0)
-						demo::Demo3DHostSetAllHidden(st.sceneBlank[i]);
+				{
+					// Le clic sur le NOM bascule AUSSI l'onglet : la zone du nom
+					// recouvre celle de l'onglet et lui VOLAIT le survol --
+					// selectionner une scene exigeait de viser les bords (Rihen).
+					char nk2[32];
+					snprintf(nk2, sizeof(nk2), "tab.name.%d", i);
+					if (hit.Clicked(key) || (!ws.IsEditing(nk2) && hit.Clicked(nk2)))
+						NkActivateTab(st, i);
 				}
 				x += tw + 3.f;
 			}
@@ -609,18 +670,16 @@ namespace nkentseu {
 			HoverFill(p, ar, hit.Add("tab.add", ar));
 			p.IconV(x + S(8.f), r.y, r.h, NkIcon::Add, NkRole::Text, 12.f);
 			if (hit.Clicked("tab.add") && st.sceneCount < 8) {
-				// Le nom par defaut est NUMEROTE : deux scenes nommees Â« Scene Â» seraient
-				// indistinguables dans la barre.
-				NkStoreSceneCam(st, st.activeTab); // la scene quittee garde sa vue
-				snprintf(st.sceneNames[st.sceneCount], 32, "Scene_%d", st.sceneCount + 1);
-				st.activeTab = st.sceneCount;
-				st.sceneCamSet[st.activeTab] = false;
-				st.sceneCount++;
-				// Une scene NEUVE ouvre sur la pose d'ouverture, et elle est
-				// VIERGE : les objets de la demo appartiennent a la premiere scene.
-				demo::Demo3DHostResetView();
-				st.sceneBlank[st.activeTab] = true;
-				demo::Demo3DHostSetAllHidden(true);
+				// Le nom par defaut est NUMEROTE : deux scenes homonymes seraient
+				// indistinguables. Une scene NEUVE nait VIERGE : les objets de la
+				// demo appartiennent a la premiere scene.
+				const int32 nt = st.sceneCount++;
+				snprintf(st.sceneNames[nt], 32, "Scene_%d", nt + 1);
+				st.sceneCamSet[nt] = false;
+				st.sceneBlank[nt] = true;
+				st.sceneTabKind[nt] = 0;
+				st.sceneTabAsset[nt] = 0;
+				NkActivateTab(st, nt);
 			}
 		}
 
@@ -2720,9 +2779,11 @@ namespace nkentseu {
 			// Fond de la ZONE IMAGE seulement (vr, pas r) : peindre r entier
 			// recouvrait la barre d'espaces peinte juste au-dessus.
 			p.Fill(vr, NkRole::ViewportTop); // visible tant que la 3D n'est pas prete
-			// ONGLET EDITEUR (asset ouvert au double-clic) : la vue 3D laisse
-			// place a une fenetre SPECIALISEE pour la nature de l'asset.
-			if (st.sceneTabKind[st.activeTab] != 0) {
+			// ONGLET EDITEUR : Mesh, Materiau et Texture s'editent dans un VRAI
+			// viewport (scene a part entiere, maquette posee par NkActivateTab) ;
+			// Blueprint et Dataset gardent leur page en attendant NKGraphe.
+			if (st.sceneTabKind[st.activeTab] == 1 ||
+				st.sceneTabKind[st.activeTab] == 5) {
 				const uint8 ek = (uint8)(st.sceneTabKind[st.activeTab] - 1);
 				const char *en = (ek == 0)	 ? "Editeur de Blueprint"
 								 : (ek == 2) ? "Editeur de Materiau"
@@ -5621,15 +5682,8 @@ namespace nkentseu {
 						// contenu REEL au chargement : viendra du format projet
 						st.sceneBlank[tb] = true;
 					}
-					if (tb >= 0 && tb != st.activeTab) {
-						if (st.sceneTabKind[st.activeTab] == 0)
-							NkStoreSceneCam(st, st.activeTab);
-						st.activeTab = tb;
-						if (st.sceneTabKind[tb] == 0) {
-							demo::Demo3DHostResetView();
-							demo::Demo3DHostSetAllHidden(st.sceneBlank[tb]);
-						}
-					}
+					if (tb >= 0)
+						NkActivateTab(st, tb);
 				}
 				if (hit.RightClicked(akey)) {
 					st.browMenuIdx = i;
