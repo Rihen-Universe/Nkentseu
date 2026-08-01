@@ -226,6 +226,8 @@ namespace nkentseu {
 				// PROPAGER AUX ENFANTS : les proprietes communes editees sur un
 				// parent s'appliquent aussi a ses descendants compatibles.
 				bool matPropagate = false;
+				// Verrou et proportionnel de la ligne DIMENSIONS.
+				bool lockDim = false, propDim = false;
 				// PROPORTIONNEL par ligne de transformation : l'axe touche propage
 				// son rapport aux autres (delta quand la base est nulle).
 				bool propPos = false, propRot = false, propScale = false;
@@ -249,6 +251,12 @@ namespace nkentseu {
 				int32 unitSystem = 0;
 				int32 unitLength = 0;
 				float32 unitScale = 1.f;
+				// DIALOGUE DE CONFIRMATION de suppression : cibles memorisees a
+				// la demande, le dialogue tranche (avec/sans les enfants).
+				bool delAskOpen = false;
+				bool delHasKids = false;
+				int32 delNodeCount = 0;
+				int32 delNodes[64];
 				// Une scene AJOUTEE est VIERGE : les objets de la demo y sont masques.
 				bool sceneBlank[8] = {};
 				// TYPE de fond de la scene : 0 couleur unie, 1 degrade, 2 texture,
