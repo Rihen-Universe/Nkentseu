@@ -4128,19 +4128,26 @@ namespace nkentseu {
 							const float32 h = 0.015f;
 							const NkVec4f minor{0.30f, 0.31f, 0.34f, 0.55f};
 							const NkVec4f major{0.42f, 0.43f, 0.47f, 0.85f};
-							// LA GRILLE FAIT FACE AU REGARD, comme Blender : vue de
-							// dessus -> plan du sol (XZ) ; vue de face/arriere -> plan
-							// XY ; vue de gauche/droite -> plan ZY. On choisit le plan
-							// PERPENDICULAIRE a l'axe dominant de la direction de vue.
-							const NkVec3f vdir = cam.GetTarget() - cam.GetPosition();
-							const float32 ax = fabsf(vdir.x), ay = fabsf(vdir.y), az = fabsf(vdir.z);
+							// LA GRILLE FAIT FACE AU REGARD **sur les vues d'axe
+							// seulement** (Rihen) : de face/arriere -> plan XY, de
+							// gauche/droite -> plan ZY. Partout ailleurs -- orbite
+							// libre, meme orthographique -- elle reste AU SOL, comme
+							// la grille infinie qu'elle remplace. Le seuil 0,99 dit
+							// « pratiquement aligne sur l'axe ».
+							NkVec3f vdir = cam.GetTarget() - cam.GetPosition();
+							const float32 vl =
+								sqrtf(vdir.x * vdir.x + vdir.y * vdir.y + vdir.z * vdir.z);
+							if (vl > 1e-6f)
+								vdir = {vdir.x / vl, vdir.y / vl, vdir.z / vl};
+							const float32 ax = fabsf(vdir.x), az = fabsf(vdir.z);
+							const int32 plane = (az > 0.99f) ? 1 : ((ax > 0.99f) ? 2 : 0);
 							for (int32 gi = -N; gi <= N; ++gi) {
 								const NkVec4f &c = (gi % 10 == 0) ? major : minor;
 								const float32 f = (float32)gi;
-								if (ay >= ax && ay >= az) { // dessus/dessous : sol XZ
+								if (plane == 0) { // sol XZ : defaut + vues dessus/dessous
 									r3d->DrawDebugLine({f, h, (float32)-N}, {f, h, (float32)N}, c);
 									r3d->DrawDebugLine({(float32)-N, h, f}, {(float32)N, h, f}, c);
-								} else if (az >= ax) { // face/arriere : plan XY
+								} else if (plane == 1) { // face/arriere : plan XY
 									r3d->DrawDebugLine({f, (float32)-N, 0.f}, {f, (float32)N, 0.f}, c);
 									r3d->DrawDebugLine({(float32)-N, f, 0.f}, {(float32)N, f, 0.f}, c);
 								} else { // gauche/droite : plan ZY
@@ -7627,6 +7634,35 @@ namespace nkentseu {
 				G.ClearSelectedRotation();
 			else
 				G.ClearSelectedScale();
+		}
+
+		void Demo3DHostGetCameraPose(float32 *t3, float32 *dist, float32 *yaw, float32 *pitch,
+									 bool *ortho) {
+			auto *st = HostSt();
+			if (!st) {
+				t3[0] = t3[1] = t3[2] = 0.f;
+				*dist = 6.5f;
+				*yaw = 0.7f;
+				*pitch = 0.4f;
+				*ortho = false;
+				return;
+			}
+			const NkVec3f t = st->editorCam.GetTarget();
+			t3[0] = t.x;
+			t3[1] = t.y;
+			t3[2] = t.z;
+			*dist = st->editorCam.GetDistance();
+			*yaw = st->editorCam.GetYaw();
+			*pitch = st->editorCam.GetPitch();
+			*ortho = st->orthoView;
+		}
+		void Demo3DHostSetCameraPose(const float32 *t3, float32 dist, float32 yaw, float32 pitch,
+									 bool ortho) {
+			auto *st = HostSt();
+			if (!st)
+				return;
+			st->editorCam.SetCenter({t3[0], t3[1], t3[2]}, dist, yaw, pitch);
+			st->orthoView = ortho;
 		}
 
 		bool Demo3DHostReady() {
