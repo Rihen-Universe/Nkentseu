@@ -343,6 +343,12 @@ int nkmain(const NkEntryState &entry) {
 				case NkKey::NK_P:
 					ui.input.SetKey(nkgui::NkGuiKey::P, true);
 					break;
+				case NkKey::NK_C:
+					ui.input.SetKey(nkgui::NkGuiKey::C, true);
+					break;
+				case NkKey::NK_V:
+					ui.input.SetKey(nkgui::NkGuiKey::V, true);
+					break;
 				default:
 					break;
 			}
@@ -376,6 +382,12 @@ int nkmain(const NkEntryState &entry) {
 					break;
 				case NkKey::NK_P:
 					ui.input.SetKey(nkgui::NkGuiKey::P, false);
+					break;
+				case NkKey::NK_C:
+					ui.input.SetKey(nkgui::NkGuiKey::C, false);
+					break;
+				case NkKey::NK_V:
+					ui.input.SetKey(nkgui::NkGuiKey::V, false);
 					break;
 				default:
 					break;
