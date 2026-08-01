@@ -148,6 +148,16 @@ namespace nkentseu {
 		void Demo3DHostSetMeshMetalRough(int32 i, float32 metallic, float32 roughness);
 		void Demo3DHostResetMeshMat(int32 i);
 
+		// ── Suppression / duplication / presse-papiers ──────────────────────
+		// Les noeuds 96..159 sont les OBJETS UTILISATEUR (crees ici).
+		bool Demo3DHostNodeDeleted(int32 node);
+		void Demo3DHostDeleteNode(int32 node, bool withChildren);
+		int32 Demo3DHostDuplicateNode(int32 node); // -1 si impossible (lumiere v1)
+		void Demo3DHostCopyNode(int32 node);
+		int32 Demo3DHostPasteNode();
+		int32 Demo3DHostUserKind(int32 node); // 0 aucun, 1 sphere, 2 cube, 3 plan, 4 empty
+		void Demo3DHostNodeBaseSize(int32 node, float32 *out3); // taille locale par nature
+
 		// ── Reglages de vue (panneau Scene / Outil) ─────────────────────────
 		void Demo3DHostSetViewFar(float32 f); // 0 = auto
 		float32 Demo3DHostViewFar();
