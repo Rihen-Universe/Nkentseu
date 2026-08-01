@@ -1139,6 +1139,68 @@ namespace nkentseu {
 			const int32 selLight = demo::Demo3DHostSelectedLight();
 			const int32 activeObj = demo::Demo3DHostActiveObject();
 			char key[40];
+			// Operations du NAVIGATEUR, partagees par le menu et les raccourcis.
+			auto BrCopyRec = [&](int32 src, int32 par) {
+				int32 stk[64][2];
+				int32 sp2 = 0;
+				stk[sp2][0] = src;
+				stk[sp2][1] = par;
+				++sp2;
+				while (sp2 > 0) {
+					--sp2;
+					const int32 s2 = stk[sp2][0];
+					const int32 p2 = stk[sp2][1];
+					if (st.browserCount >= NkModelerState::kMaxBrowser)
+						break;
+					const int32 k4 = st.browserCount++;
+					st.browserKind[k4] = st.browserKind[s2];
+					st.browserParent[k4] = p2;
+					snprintf(st.browserNames[k4], 32, "%s", st.browserNames[s2]);
+					if (st.browserKind[s2] == 1)
+						for (int32 j4 = 0; j4 < k4; ++j4)
+							if (st.browserParent[j4] == s2 && st.browserKind[j4] != 255 &&
+								sp2 < 63) {
+								stk[sp2][0] = j4;
+								stk[sp2][1] = k4;
+								++sp2;
+							}
+				}
+			};
+			auto BrDelRec = [&](int32 root2) {
+				int32 stk[64];
+				int32 sp2 = 0;
+				stk[sp2++] = root2;
+				while (sp2 > 0) {
+					const int32 s2 = stk[--sp2];
+					st.browserKind[s2] = 255;
+					for (int32 j4 = 0; j4 < st.browserCount; ++j4)
+						if (st.browserParent[j4] == s2 && st.browserKind[j4] != 255 &&
+							sp2 < 63)
+							stk[sp2++] = j4;
+				}
+				if (st.browserFolder == root2)
+					st.browserFolder = -1;
+				if (st.selectedAsset == root2)
+					st.selectedAsset = -1;
+			};
+			auto BrPaste = [&]() {
+				if (st.browClip < 0 || st.browserKind[st.browClip] == 255)
+					return;
+				if (st.browClipCut) {
+					bool okMove = true;
+					for (int32 c4 = st.browserFolder; c4 >= 0; c4 = st.browserParent[c4])
+						if (c4 == st.browClip) {
+							okMove = false;
+							break;
+						}
+					if (okMove) {
+						st.browserParent[st.browClip] = st.browserFolder;
+						st.browClip = -1;
+					}
+				} else {
+					BrCopyRec(st.browClip, st.browserFolder);
+				}
+			};
 			// CLIC DROIT DANS LA VUE 3D : le menu du noeud ACTIF.
 			if (in.mouseClicked[1] && st.hierMenuNode < 0 &&
 				NkHitRegistry::Contains(view, in.mousePos)) {
@@ -1173,6 +1235,26 @@ namespace nkentseu {
 				const int32 sk = demo::Demo3DHostTakeShortcuts();
 				delK = delK || (sk & 8) != 0;
 				dupK = dupK || (sk & 1) != 0;
+				// AU-DESSUS DU NAVIGATEUR, les raccourcis agissent sur LUI.
+				if (NkHitRegistry::Contains(st.browserRect, in.mousePos)) {
+					if (delK && st.selectedAsset >= 0)
+						BrDelRec(st.selectedAsset);
+					else if (dupK && st.selectedAsset >= 0)
+						BrCopyRec(st.selectedAsset, st.browserParent[st.selectedAsset]);
+					if ((in.wantCopy || (sk & 2) != 0 ||
+						 (in.keyInit[(int32)nkgui::NkGuiKey::C] && in.ctrlDown)) &&
+						st.selectedAsset >= 0) {
+						st.browClip = st.selectedAsset;
+						st.browClipCut = false;
+					}
+					if ((sk & 64) != 0 && st.selectedAsset >= 0) {
+						st.browClip = st.selectedAsset;
+						st.browClipCut = true;
+					}
+					if (in.wantPaste || (sk & 4) != 0 ||
+						(in.keyInit[(int32)nkgui::NkGuiKey::V] && in.ctrlDown))
+						BrPaste();
+				} else {
 				const int32 actN = st.activeEmpty >= 0
 									   ? st.activeEmpty
 									   : (selLight >= 0 ? kFirstLight + selLight : activeObj);
@@ -1230,6 +1312,7 @@ namespace nkentseu {
 					}
 					if ((sk & 32) && actN >= 0 && actN < 90)
 						demo::Demo3DHostSetNodeParent(actN, -1);
+				}
 				}
 			}
 			// MENU CONTEXTUEL : Dupliquer / Copier / Coller / Supprimer, avec
@@ -1344,98 +1427,69 @@ namespace nkentseu {
 					st.delNodeCount = 0;
 				}
 			}
-			// ── MENU CONTEXTUEL DU NAVIGATEUR (Rihen) : couper / copier /
-			// coller / dupliquer / supprimer. Le coller vise le dossier COURANT ;
-			// un dossier emporte son contenu (copie et suppression recursives) et
-			// ne se colle jamais dans sa propre descendance.
-			if (st.browMenuIdx >= 0) {
-				static const char *const kBM[5] = {"Couper", "Copier", "Coller",
-												   "Dupliquer", "Supprimer"};
-				NkRect mr2{st.browMenuX, st.browMenuY, S(170.f), kRowH * 5.f};
+			// ── MENU CONTEXTUEL DU NAVIGATEUR : PARTOUT (arbre, grille, carte
+			// ou vide), et son contenu s'adapte au presse-papiers (Rihen).
+			if (st.browMenuIdx != -1) {
+				const bool onCard = st.browMenuIdx >= 0;
+				const bool canPaste =
+					st.browClip >= 0 && st.browserKind[st.browClip] != 255;
+				const char *bmIt[6];
+				int32 bmAct[6];
+				int32 nIt = 0;
+				bmIt[nIt] = "Nouveau dossier ici";
+				bmAct[nIt++] = 10;
+				if (onCard) {
+					bmIt[nIt] = "Couper";
+					bmAct[nIt++] = 0;
+					bmIt[nIt] = "Copier";
+					bmAct[nIt++] = 1;
+				}
+				if (canPaste) {
+					bmIt[nIt] = "Coller";
+					bmAct[nIt++] = 2;
+				}
+				if (onCard) {
+					bmIt[nIt] = "Dupliquer";
+					bmAct[nIt++] = 3;
+					bmIt[nIt] = "Supprimer";
+					bmAct[nIt++] = 4;
+				}
+				NkRect mr2{st.browMenuX, st.browMenuY, S(180.f), kRowH * (float32)nIt};
 				if (mr2.y + mr2.h > area.y + area.h)
 					mr2.y = area.y + area.h - mr2.h;
 				p.Outline(mr2, NkRole::Border, NkRole::PanelHeader, 3.f);
 				int32 act2 = -1;
-				for (int32 mi = 0; mi < 5; ++mi) {
+				for (int32 mi = 0; mi < nIt; ++mi) {
 					const NkRect it{mr2.x, mr2.y + (float32)mi * kRowH, mr2.w, kRowH};
 					snprintf(key, sizeof(key), "brw.menu.%d", mi);
 					HoverFill(p, it, hit.Add(key, it), 0.f);
-					p.TextV(it.x + S(10.f), it.y, kRowH, kBM[mi]);
+					p.TextV(it.x + S(10.f), it.y, kRowH, bmIt[mi]);
 					if (hit.Clicked(key))
-						act2 = mi;
+						act2 = bmAct[mi];
 				}
 				if (act2 >= 0) {
 					const int32 tgt = st.browMenuIdx;
-					auto CopyRec = [&](int32 src, int32 par) {
-						int32 stk[64][2];
-						int32 sp2 = 0;
-						stk[sp2][0] = src;
-						stk[sp2][1] = par;
-						++sp2;
-						while (sp2 > 0) {
-							--sp2;
-							const int32 s2 = stk[sp2][0];
-							const int32 p2 = stk[sp2][1];
-							if (st.browserCount >= NkModelerState::kMaxBrowser)
-								break;
-							const int32 k4 = st.browserCount++;
-							st.browserKind[k4] = st.browserKind[s2];
-							st.browserParent[k4] = p2;
-							snprintf(st.browserNames[k4], 32, "%s", st.browserNames[s2]);
-							if (st.browserKind[s2] == 1)
-								for (int32 j4 = 0; j4 < k4; ++j4)
-									if (st.browserParent[j4] == s2 &&
-										st.browserKind[j4] != 255 && sp2 < 63) {
-										stk[sp2][0] = j4;
-										stk[sp2][1] = k4;
-										++sp2;
-									}
+					if (act2 == 10) {
+						// dans le dossier vise (carte-dossier) sinon le courant
+						if (st.browserCount < NkModelerState::kMaxBrowser) {
+							const int32 k5 = st.browserCount++;
+							st.browserKind[k5] = 1;
+							st.browserParent[k5] =
+								(onCard && st.browserKind[tgt] == 1) ? tgt : st.browserFolder;
+							snprintf(st.browserNames[k5], 32, "Dossier_%02d", k5 + 1);
 						}
-					};
-					auto DelRec = [&](int32 root2) {
-						int32 stk[64];
-						int32 sp2 = 0;
-						stk[sp2++] = root2;
-						while (sp2 > 0) {
-							const int32 s2 = stk[--sp2];
-							st.browserKind[s2] = 255;
-							for (int32 j4 = 0; j4 < st.browserCount; ++j4)
-								if (st.browserParent[j4] == s2 && st.browserKind[j4] != 255 &&
-									sp2 < 63)
-									stk[sp2++] = j4;
-						}
-						if (st.browserFolder == root2)
-							st.browserFolder = -1;
-						if (st.selectedAsset == root2)
-							st.selectedAsset = -1;
-					};
-					if (act2 == 0) {
+					} else if (act2 == 0) {
 						st.browClip = tgt;
 						st.browClipCut = true;
 					} else if (act2 == 1) {
 						st.browClip = tgt;
 						st.browClipCut = false;
-					} else if (act2 == 2 && st.browClip >= 0 &&
-							   st.browserKind[st.browClip] != 255) {
-						if (st.browClipCut) {
-							bool okMove = true;
-							for (int32 c4 = st.browserFolder; c4 >= 0;
-								 c4 = st.browserParent[c4])
-								if (c4 == st.browClip) {
-									okMove = false;
-									break;
-								}
-							if (okMove) {
-								st.browserParent[st.browClip] = st.browserFolder;
-								st.browClip = -1;
-							}
-						} else {
-							CopyRec(st.browClip, st.browserFolder);
-						}
+					} else if (act2 == 2) {
+						BrPaste();
 					} else if (act2 == 3) {
-						CopyRec(tgt, st.browserParent[tgt]);
+						BrCopyRec(tgt, st.browserParent[tgt]);
 					} else if (act2 == 4) {
-						DelRec(tgt);
+						BrDelRec(tgt);
 					}
 					st.browMenuIdx = -1;
 				} else if (hit.AnyClick() && !NkHitRegistry::Contains(mr2, hit.Mouse())) {
@@ -4889,17 +4943,29 @@ namespace nkentseu {
 			// Arbre de dossiers : LES DOSSIERS CREES PAR L'UTILISATEUR, plus une
 			// racine fixe. Ils structurent le PROJET et non le disque : ils seront
 			// enregistres DANS le fichier de projet.
+			st.browserRect = r; // routage des raccourcis (voir PaintSceneMenus)
 			const float32 treeW = r.w * 0.18f;
 			const float32 ty = r.y + topH;
 			const float32 th = r.h - topH;
 			p.Clip({r.x, ty, r.w, th});
 			p.Fill({r.x, ty, treeW, th}, NkRole::WindowBg);
+			hit.Add("brow.tree", {r.x, ty, treeW, th});
+			if (hit.RightClicked("brow.tree")) {
+				st.browMenuIdx = -2; // fond : Nouveau dossier / Coller
+				st.browMenuX = hit.Mouse().x;
+				st.browMenuY = hit.Mouse().y;
+			}
 			p.VLine(r.x + treeW, ty, th);
 			// Le FOND de la grille est une zone : cliquer dans le vide
 			// DESELECTIONNE (les cartes, declarees apres, gardent leurs clics).
 			hit.Add("brow.grid", {r.x + treeW, ty, r.w - treeW, th});
 			if (hit.Clicked("brow.grid"))
 				st.selectedAsset = -1;
+			if (hit.RightClicked("brow.grid")) {
+				st.browMenuIdx = -2;
+				st.browMenuX = hit.Mouse().x;
+				st.browMenuY = hit.Mouse().y;
+			}
 			int32 folderCount = 0;
 			{
 				float32 dy = ty + S(4.f) - treeScroll;

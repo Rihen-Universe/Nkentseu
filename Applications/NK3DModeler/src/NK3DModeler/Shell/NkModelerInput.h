@@ -270,6 +270,9 @@ namespace nkentseu {
 				float32 browMenuX = 0.f, browMenuY = 0.f;
 				int32 browClip = -1;
 				bool browClipCut = false;
+				// Rect du navigateur (pose chaque frame) : les raccourcis y sont
+				// routes vers les cartes plutot que vers la scene.
+				NkRect browserRect{0.f, 0.f, 0.f, 0.f};
 				int32 lightSrcUi = 0;
 				// Une scene AJOUTEE est VIERGE : les objets de la demo y sont masques.
 				bool sceneBlank[8] = {};
