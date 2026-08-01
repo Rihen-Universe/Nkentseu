@@ -336,6 +336,7 @@ int nkmain(const NkEntryState &entry) {
 				// hors saisie : on mappe les TOUCHES, constate par Rihen).
 				case NkKey::NK_D:
 					ui.input.SetKey(nkgui::NkGuiKey::D, true);
+					printf("[KEY] pompe D down\n");
 					break;
 				case NkKey::NK_X:
 					ui.input.SetKey(nkgui::NkGuiKey::X, true);

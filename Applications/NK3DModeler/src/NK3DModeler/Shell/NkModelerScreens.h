@@ -1037,6 +1037,12 @@ namespace nkentseu {
 			// DUPLIQUER (Maj+D), COPIER / COLLER (Ctrl+C / Ctrl+V). Valables
 			// aussi la souris sur la vue 3D -- jamais pendant une saisie.
 			if (!ws.editing) {
+				// [DIAG clavier] les touches arrivent-elles jusqu'ici ?
+				if (in.keyInit[(int32)nkgui::NkGuiKey::D])
+					printf("[KEY] D init shift=%d ctrl=%d\n", in.shiftDown ? 1 : 0,
+						   in.ctrlDown ? 1 : 0);
+				if (in.keyInit[(int32)nkgui::NkGuiKey::C] || in.keyInit[(int32)nkgui::NkGuiKey::V])
+					printf("[KEY] C/V init ctrl=%d\n", in.ctrlDown ? 1 : 0);
 				bool delK = in.keyInit[(int32)nkgui::NkGuiKey::Delete] ||
 							(in.keyInit[(int32)nkgui::NkGuiKey::X] && !in.ctrlDown &&
 							 !hit.MouseDown());
@@ -4827,7 +4833,13 @@ namespace nkentseu {
 			// Un separateur borde un panneau : si le panneau est masque, il n'y a rien
 			// a redimensionner. Le laisser actif donnerait un trait invisible qui
 			// change le curseur et modifie une fraction qu'on ne voit pas.
-			const bool alive[4] = {st.showLeft, st.showRight, st.showBrowser, st.showRight};
+			// Le splitter vue|proprietes MEURT quand le panneau est replie sur
+			// ses pastilles (sa zone restait dans l'espace rendu a la vue --
+			// le « cote gauche fantome » constate par Rihen). Et le separateur
+			// interne Proprietes/Details est OBSOLETE depuis le panneau unique :
+			// c'etait la « tete » invisible des sous-blocs.
+			const bool alive[4] = {st.showLeft, st.showRight && st.AnyPropOpen(),
+								   st.showBrowser, false};
 			for (int32 i = 0; i < 4; ++i) {
 				if (!alive[i])
 					continue;
