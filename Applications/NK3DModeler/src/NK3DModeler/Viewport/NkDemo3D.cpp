@@ -54,6 +54,13 @@ namespace nkentseu {
 		static bool nkvpHover = false;				   // souris au-dessus de la vue
 		static void *nkvpCmd = nullptr;				   // cmd de l'editeur (frame courante)
 		static bool nkvpHudOn = true;				   // HUD texte de la demo (surimpression)
+		static float32 nkvpFarOverride = 0.f;  // 0 = auto (dist*20+100) ; sinon la
+											   // DISTANCE DE VUE choisie, independante
+											   // des cameras de la scene
+		static float32 nkvpOrthoScale = 0.55f; // demi-hauteur ortho = dist * ce facteur
+		static int32 nkvpGridExtent = 20;	   // demi-etendue de la grille ortho (unites)
+		static bool nkvpGridOn = true; // la VOLONTE de grille (la case du shell), meme quand
+									   // l'ortho coupe la grille infinie du moteur
 		static bool nkvpAxesOn = true; // axes debug +-1000 (bascule « Axes du plan »)
 		static bool nkvpCursorTool = false;			   // outil CURSEUR : clic gauche = poser le curseur 3D
 		static bool nkvpGizmoHidden = false;		   // outils Selection/Curseur : pas de poignees
@@ -2482,7 +2489,10 @@ namespace nkentseu {
 					}
 					auto &g = r3d->GetInfiniteGridParams();
 					if (k == NkKey::NK_F1) {
-						bool on = !r3d->IsInfiniteGridEnabled();
+						// PORTAGE NK3DModeler : F1 bascule la VOLONTE (nkvpGridOn), pas
+						// seulement l'etat moteur -- en ortho ce dernier est deja coupe.
+						bool on = !nkvpGridOn;
+						nkvpGridOn = on;
 						r3d->SetInfiniteGridEnabled(on);
 						logger.Info("[Demo3D] Grille = {0}\n", on);
 					}
@@ -3968,7 +3978,9 @@ namespace nkentseu {
 			{
 				const float32 cdist = st->useSimCam ? 8.f : st->editorCam.GetDistance();
 				camData.nearPlane = NkMax(0.01f, cdist * 0.005f);
-				camData.farPlane = cdist * 20.f + 100.f;
+				// La DISTANCE DE VUE se regle dans les proprietes de la scene,
+				// independamment des cameras de scene (objets ajoutables n fois).
+				camData.farPlane = (nkvpFarOverride > 0.f) ? nkvpFarOverride : cdist * 20.f + 100.f;
 			}
 			NkCamera3D cam(camData);
 
@@ -4101,12 +4113,51 @@ namespace nkentseu {
 					// distance pour un cadrage comparable à la perspective (demi-hauteur ≈ d·tan(fov/2)).
 					if (st->orthoView) {
 						const float32 dist = (cam.GetPosition() - cam.GetTarget()).Len();
-						cam.SetOrtho(true, dist * 0.55f);
-						// Option : afficher la grille en vue axiale ortho (façon Blender).
-						r3d->SetInfiniteGridEnabled(st->viewGridInOrtho);
+						cam.SetOrtho(true, dist * nkvpOrthoScale);
+						// PORTAGE NK3DModeler : la grille INFINIE est un shader concu
+						// pour la PERSPECTIVE (il reconstruit un rayon par pixel) ; en
+						// projection orthographique il degenere en eventail de rayures
+						// -- constate a l'ecran. En ortho on la COUPE et on trace une
+						// grille FINIE en lignes de debogage, comme Blender.
+						r3d->SetInfiniteGridEnabled(false);
+						if (st->viewGridInOrtho && nkvpGridOn) {
+							const int32 N = nkvpGridExtent;
+							// LEGEREMENT decalee du plan qu'elle habille : a la meme
+							// hauteur que le sol, les lignes z-fightent et « se
+							// chevauchent » (constate par Rihen).
+							const float32 h = 0.015f;
+							const NkVec4f minor{0.30f, 0.31f, 0.34f, 0.55f};
+							const NkVec4f major{0.42f, 0.43f, 0.47f, 0.85f};
+							// LA GRILLE FAIT FACE AU REGARD, comme Blender : vue de
+							// dessus -> plan du sol (XZ) ; vue de face/arriere -> plan
+							// XY ; vue de gauche/droite -> plan ZY. On choisit le plan
+							// PERPENDICULAIRE a l'axe dominant de la direction de vue.
+							const NkVec3f vdir = cam.GetTarget() - cam.GetPosition();
+							const float32 ax = fabsf(vdir.x), ay = fabsf(vdir.y), az = fabsf(vdir.z);
+							for (int32 gi = -N; gi <= N; ++gi) {
+								const NkVec4f &c = (gi % 10 == 0) ? major : minor;
+								const float32 f = (float32)gi;
+								if (ay >= ax && ay >= az) { // dessus/dessous : sol XZ
+									r3d->DrawDebugLine({f, h, (float32)-N}, {f, h, (float32)N}, c);
+									r3d->DrawDebugLine({(float32)-N, h, f}, {(float32)N, h, f}, c);
+								} else if (az >= ax) { // face/arriere : plan XY
+									r3d->DrawDebugLine({f, (float32)-N, 0.f}, {f, (float32)N, 0.f}, c);
+									r3d->DrawDebugLine({(float32)-N, f, 0.f}, {(float32)N, f, 0.f}, c);
+								} else { // gauche/droite : plan ZY
+									r3d->DrawDebugLine({0.f, (float32)-N, f}, {0.f, (float32)N, f}, c);
+									r3d->DrawDebugLine({0.f, f, (float32)-N}, {0.f, f, (float32)N}, c);
+								}
+							}
+						}
 					} else {
 						cam.SetOrtho(false);
+						r3d->SetInfiniteGridEnabled(nkvpGridOn);
 					}
+					// NOTE : une premiere version coupait ici SSAO/SSR/bloom en ortho
+					// (SetPostConfig a chaud). RETIREE : basculer la config de post en
+					// cours de route melangeait des tampons perimes avec la frame
+					// courante — c'est le « dedoublement des elements, deux vues en
+					// une » constate par Rihen en passant persp/ortho par les vues.
 				}
 			} else {
 				st->editorCam.Apply(cam); // NK_FIX_CAM : pose figée déterministe
@@ -7054,6 +7105,12 @@ namespace nkentseu {
 					hst.err = "Demo3D_Init a echoue";
 					return false;
 				}
+				// NK_VP_ORTHO=1 : demarre la vue en projection ORTHOGRAPHIQUE.
+				// Outil de verification headless (captures d'agent) : l'etat ortho
+				// se constate sans avoir a cliquer dans une session en cours.
+				if (const char *oe = getenv("NK_VP_ORTHO"))
+					if (oe[0] && oe[0] != '0')
+						((Demo3DState *)hst.ctx.userData)->orthoView = true;
 				hst.ok = true;
 				return true;
 			}
@@ -7393,6 +7450,7 @@ namespace nkentseu {
 			auto *r3d = HostR3D();
 			if (!r3d)
 				return;
+			nkvpGridOn = grid;
 			r3d->SetInfiniteGridEnabled(grid);
 			auto &g = r3d->GetInfiniteGridParams();
 			g.showMinor = minor;
@@ -7407,7 +7465,7 @@ namespace nkentseu {
 				return;
 			}
 			auto &g = r3d->GetInfiniteGridParams();
-			*grid = r3d->IsInfiniteGridEnabled();
+			*grid = nkvpGridOn; // la volonte, pas l'etat moteur (l'ortho le coupe)
 			*minor = g.showMinor;
 			*major = g.showMajor;
 			*axes = g.showAxes;
@@ -7435,6 +7493,140 @@ namespace nkentseu {
 		void Demo3DHostSetBackground(float32 r, float32 g, float32 b) {
 			if (hst.ok)
 				hst.ctx.renderer->SetBackgroundColor({r, g, b, 1.f});
+		}
+
+		// ── OBJETS DE LA SCENE (hierarchie, panneau Objet) ──────────────────
+		// La scene de la demo : kNumObj cibles du gizmo + kNumLights lumieres.
+		// Les noms sont derives des PLAGES D'INDICES de sa construction -- la
+		// demo n'a pas de champ nom, et inventer un stockage parallele ici se
+		// desynchroniserait ; les plages, elles, sont structurelles.
+		int32 Demo3DHostObjectCount() {
+			return hst.ok ? Demo3DState::kNumObj : 0;
+		}
+		void Demo3DHostObjectName(int32 i, char *out, uint32 cap) {
+			if (!out || !cap)
+				return;
+			if (i < 16)
+				snprintf(out, cap, "Sphere %02d", i + 1);
+			else if (i == 16)
+				snprintf(out, cap, "Cube central");
+			else if (i <= 18)
+				snprintf(out, cap, "Colonne %d", i - 16);
+			else if (i <= 82)
+				snprintf(out, cap, "Instance %02d", i - 18);
+			else if (i == 83)
+				snprintf(out, cap, "Sol");
+			else if (i == 84)
+				snprintf(out, cap, "Feuillage");
+			else
+				snprintf(out, cap, "Mur GI");
+		}
+		bool Demo3DHostObjectSelected(int32 i) {
+			auto *st = HostSt();
+			return st && st->gizmo.IsSelected(i);
+		}
+		int32 Demo3DHostActiveObject() {
+			auto *st = HostSt();
+			return st ? st->gizmo.ActiveIndex() : -1;
+		}
+		void Demo3DHostSelectObject(int32 i, bool additive) {
+			auto *st = HostSt();
+			if (!st)
+				return;
+			st->lightSel = -1;
+			if (additive)
+				st->gizmo.ToggleSelection(i); // Maj+clic, comme dans la vue
+			else
+				st->gizmo.Select(i);
+		}
+		void Demo3DHostDeselectAll() {
+			auto *st = HostSt();
+			if (!st)
+				return;
+			st->gizmo.ClearSelection();
+			st->lightSel = -1;
+		}
+		void Demo3DHostObjectPosition(int32 i, float32 *out3) {
+			auto *st = HostSt();
+			if (!st || i < 0 || i >= Demo3DState::kNumObj) {
+				out3[0] = out3[1] = out3[2] = 0.f;
+				return;
+			}
+			const NkVec3f p = st->objXform[i] * NkVec3f{0.f, 0.f, 0.f};
+			out3[0] = p.x;
+			out3[1] = p.y;
+			out3[2] = p.z;
+		}
+		int32 Demo3DHostLightCount() {
+			return hst.ok ? Demo3DState::kNumLights : 0;
+		}
+		void Demo3DHostLightName(int32 li, char *out, uint32 cap) {
+			static const char *const kNames[4] = {"Soleil", "Ponctuelle rouge", "Ponctuelle bleue",
+												  "Projecteur"};
+			if (out && cap)
+				snprintf(out, cap, "%s", (li >= 0 && li < 4) ? kNames[li] : "Lumiere");
+		}
+		int32 Demo3DHostSelectedLight() {
+			auto *st = HostSt();
+			return st ? st->lightSel : -1;
+		}
+		void Demo3DHostSelectLight(int32 li) {
+			auto *st = HostSt();
+			if (!st)
+				return;
+			st->gizmo.ClearSelection();
+			st->lightSel = (li >= 0 && li < Demo3DState::kNumLights) ? li : -1;
+		}
+		void Demo3DHostLightPosition(int32 li, float32 *out3) {
+			auto *st = HostSt();
+			if (!st || li < 0 || li >= Demo3DState::kNumLights) {
+				out3[0] = out3[1] = out3[2] = 0.f;
+				return;
+			}
+			const NkLightDesc L = Demo3D_LightEffective(st, li);
+			out3[0] = L.position.x;
+			out3[1] = L.position.y;
+			out3[2] = L.position.z;
+		}
+
+		// ── REGLAGES DE VUE (panneau Scene) ─────────────────────────────────
+		void Demo3DHostSetViewFar(float32 f) {
+			nkvpFarOverride = f;
+		}
+		float32 Demo3DHostViewFar() {
+			return nkvpFarOverride;
+		}
+		void Demo3DHostSetOrthoScale(float32 f) {
+			if (f > 0.05f && f < 5.f)
+				nkvpOrthoScale = f;
+		}
+		float32 Demo3DHostOrthoScale() {
+			return nkvpOrthoScale;
+		}
+		void Demo3DHostSetGridExtent(int32 n) {
+			if (n >= 5 && n <= 100)
+				nkvpGridExtent = n;
+		}
+		int32 Demo3DHostGridExtent() {
+			return nkvpGridExtent;
+		}
+		void Demo3DHostResetCursor() {
+			if (auto *st = HostSt())
+				st->cursor3D = {0.f, 0.f, 0.f}; // la meme ecriture que Alt+.
+		}
+		void Demo3DHostClearXform(int32 which) {
+			auto *st = HostSt();
+			if (!st)
+				return;
+			// L'« Appliquer » de l'outil : remet la composante de la SELECTION,
+			// exactement Alt+G / Alt+R / Alt+S de la demo -- sur le gizmo ACTIF.
+			renderer::NkGizmo3D &G = st->editMode ? st->editGizmo : st->gizmo;
+			if (which == 0)
+				G.ClearSelectedTranslate();
+			else if (which == 1)
+				G.ClearSelectedRotation();
+			else
+				G.ClearSelectedScale();
 		}
 
 		bool Demo3DHostReady() {

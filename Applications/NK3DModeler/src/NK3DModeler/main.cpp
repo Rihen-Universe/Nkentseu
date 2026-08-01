@@ -984,8 +984,14 @@ int nkmain(const NkEntryState &entry) {
 			PaintHierarchy(p, lay.left, st, hit, ws, ui.input);
 		PaintViewport(p, lay.view, st, hit, ws, combo, checks, shortcuts);
 		if (st.showRight) {
-			PaintProperties(p, lay.propsR, st, hit, ws, ui.input);
-			PaintDetails(p, lay.detailsR, st, hit, ws, ui.input);
+			// PANNEAU DROIT UNIQUE (demande de Rihen) : Objet / Scene / Outil.
+			// Proprietes et Details disaient deux fois la meme chose ; leurs
+			// deux rectangles sont reunis en un seul.
+			{
+				NkRect rightR = lay.propsR;
+				rightR.h = (lay.detailsR.y + lay.detailsR.h) - lay.propsR.y;
+				PaintPropertiesUnified(p, rightR, st, hit);
+			}
 		}
 		if (st.showBrowser)
 			PaintBrowser(p, lay.browser, st, hit, ws, ui.input);
