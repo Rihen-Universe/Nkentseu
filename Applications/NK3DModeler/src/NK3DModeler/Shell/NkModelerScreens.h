@@ -266,42 +266,88 @@ namespace nkentseu {
 				int32 count;
 		};
 		inline const NkAddCategory *NkAddCategories(int32 &n) {
+			// Chaque entree porte (nature, sous-type) pour Demo3DHostAddNode :
+			// 1 sphere, 2 cube, 3 plan, 4 empty, 5 lumiere, 6 texte, 7 courbe,
+			// 8 surface, 9 metaball. Les maillages sans generateur (tore,
+			// cylindre, icosphere...) prennent la primitive la plus proche en
+			// attendant le generateur moteur ; les natures 6..9 naissent en
+			// MARQUEURS types, transformables et parentables.
 			static const NkAddEntry kMesh[] = {
-				{"Cube", NkIcon::Mesh, nk3d::kVpObjMesh, nk3d::kVpPrimCube},
-				{"Plan", NkIcon::Square, nk3d::kVpObjMesh, nk3d::kVpPrimPlane},
-				{"Sphere", NkIcon::Circle, nk3d::kVpObjMesh, nk3d::kVpPrimSphere},
-				{"Cylindre", NkIcon::Mesh, nk3d::kVpObjMesh, nk3d::kVpPrimCylinder},
-				{"Cone", NkIcon::Mesh, nk3d::kVpObjMesh, nk3d::kVpPrimCone},
-				{"Tore", NkIcon::Circle, nk3d::kVpObjMesh, nk3d::kVpPrimTorus},
+				{"Plan", NkIcon::Square, 3, 0},
+				{"Cube", NkIcon::Mesh, 2, 0},
+				{"Cercle", NkIcon::Circle, 3, 1},
+				{"Sphere UV", NkIcon::Circle, 1, 0},
+				{"IcoSphere", NkIcon::Circle, 1, 1},
+				{"Cylindre", NkIcon::Mesh, 2, 1},
+				{"Cone", NkIcon::Mesh, 2, 2},
+				{"Tore", NkIcon::Circle, 1, 2},
 			};
 			static const NkAddEntry kLight[] = {
-				{"Point", NkIcon::Light, nk3d::kVpObjLightPoint, 0},
-				{"Soleil", NkIcon::Light, nk3d::kVpObjLightSun, 0},
-				{"Spot", NkIcon::Light, nk3d::kVpObjLightSpot, 0},
+				{"Point", NkIcon::Light, 5, 1},
+				{"Soleil", NkIcon::Light, 5, 0},
+				{"Spot", NkIcon::Light, 5, 2},
+				{"Surfacique (area)", NkIcon::Light, 5, 3},
 			};
 			static const NkAddEntry kCam[] = {
-				{"Camera", NkIcon::Camera, nk3d::kVpObjCamera, 0},
+				{"Camera", NkIcon::Camera, 4, 10},
+			};
+			// IMAGE (remplace « Reference », regle de Rihen) : reference,
+			// arriere-plan et empty image = reperes ; « plan maille » = un vrai
+			// plan a texturer.
+			static const NkAddEntry kImage[] = {
+				{"Reference", NkIcon::Journal, 4, 11},
+				{"Arriere-plan", NkIcon::Journal, 4, 12},
+				{"Plan maille", NkIcon::Square, 3, 2},
+				{"Empty image", NkIcon::Journal, 4, 13},
 			};
 			static const NkAddEntry kEmpty[] = {
-				{"Repere vide", NkIcon::Gizmo, nk3d::kVpObjEmpty, 0},
+				{"Axes", NkIcon::Gizmo, 4, 0},
+				{"Fleches", NkIcon::Gizmo, 4, 1},
+				{"Fleche simple", NkIcon::Gizmo, 4, 2},
+				{"Cercle", NkIcon::Circle, 4, 3},
+				{"Cube", NkIcon::Mesh, 4, 4},
+				{"Sphere", NkIcon::Circle, 4, 5},
+				{"Cone", NkIcon::Mesh, 4, 6},
 			};
-			// IMAGE DE REFERENCE : un plan texture qu'on aligne sur une vue pour
-			// modeler par-dessus. C'est l'outil de base du blocking -- on part
-			// presque toujours d'un croquis de face et d'un croquis de profil. Elle
-			// n'est PAS un maillage ordinaire : elle ne doit ni recevoir d'ombre ni
-			// entrer dans le rendu, mais elle a une transformation, donc elle vit
-			// dans la meme table d'objets.
-			static const NkAddEntry kRef[] = {
-				{"Image de reference", NkIcon::Journal, nk3d::kVpObjReference, 0},
+			static const NkAddEntry kText[] = {
+				{"Texte", NkIcon::Edit, 6, 0},
+			};
+			static const NkAddEntry kCurve[] = {
+				{"Bezier", NkIcon::Ruler, 7, 0},
+				{"Cercle", NkIcon::Ruler, 7, 1},
+				{"Courbe NURBS", NkIcon::Ruler, 7, 2},
+				{"Cercle NURBS", NkIcon::Ruler, 7, 3},
+				{"Chemin", NkIcon::Ruler, 7, 4},
+				{"Empty hair", NkIcon::Ruler, 7, 5},
+				{"Fourrure", NkIcon::Ruler, 7, 6},
+			};
+			static const NkAddEntry kSurf[] = {
+				{"Courbe NURBS", NkIcon::Layers, 8, 0},
+				{"Cercle NURBS", NkIcon::Layers, 8, 1},
+				{"Surface NURBS", NkIcon::Layers, 8, 2},
+				{"Cylindre NURBS", NkIcon::Layers, 8, 3},
+				{"Sphere NURBS", NkIcon::Layers, 8, 4},
+				{"Tore NURBS", NkIcon::Layers, 8, 5},
+			};
+			static const NkAddEntry kMeta[] = {
+				{"Ball", NkIcon::Circle, 9, 0},
+				{"Capsule", NkIcon::Circle, 9, 1},
+				{"Plan", NkIcon::Square, 9, 2},
+				{"Ellipsoide", NkIcon::Circle, 9, 3},
+				{"Cube", NkIcon::Mesh, 9, 4},
 			};
 			static const NkAddCategory kCats[] = {
-				{"Maillage", NkIcon::Mesh, kMesh, 6},
-				{"Lumiere", NkIcon::Light, kLight, 3},
+				{"Maillage", NkIcon::Mesh, kMesh, 8},
+				{"Lumiere", NkIcon::Light, kLight, 4},
 				{"Camera", NkIcon::Camera, kCam, 1},
-				{"Reference", NkIcon::Journal, kRef, 1},
-				{"Vide", NkIcon::Gizmo, kEmpty, 1},
+				{"Image", NkIcon::Journal, kImage, 4},
+				{"Vide", NkIcon::Gizmo, kEmpty, 7},
+				{"Texte", NkIcon::Edit, kText, 1},
+				{"Courbe", NkIcon::Ruler, kCurve, 7},
+				{"Surface", NkIcon::Layers, kSurf, 6},
+				{"Metaball", NkIcon::Circle, kMeta, 5},
 			};
-			n = 5;
+			n = 9;
 			return kCats;
 		}
 		// â”€â”€ MODIFICATEURS, CLASSES PAR CATEGORIE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -946,6 +992,34 @@ namespace nkentseu {
 			yy += kRowH;
 		}
 		inline void NkHierNodeName(NkModelerState &st, int32 node, char *out, uint32 cap);
+		// Nature d'un noeud utilisateur -> libelle et icone de la hierarchie.
+		inline const char *NkUserKindLabel(int32 k) {
+			static const char *const kL[10] = {"Empty",  "Maillage", "Maillage",
+											   "Maillage", "Empty",	"Lumiere",
+											   "Texte",	"Courbe",	"Surface",
+											   "Metaball"};
+			return (k >= 0 && k <= 9) ? kL[k] : "Empty";
+		}
+		inline NkIcon NkUserKindIcon(int32 k) {
+			switch (k) {
+				case 1:
+				case 2:
+				case 3:
+					return NkIcon::Mesh;
+				case 5:
+					return NkIcon::Light;
+				case 6:
+					return NkIcon::Edit;
+				case 7:
+					return NkIcon::Ruler;
+				case 8:
+					return NkIcon::Layers;
+				case 9:
+					return NkIcon::Circle;
+				default:
+					return NkIcon::Cursor;
+			}
+		}
 		// Nom d'un double/colle : « base.NNN » (base = nom AFFICHE de la
 		// source, suffixe .NNN existant coupe pour ne pas empiler).
 		inline void NkHierComposeName(NkModelerState &st, const char *base0, int32 newNode) {
@@ -1014,10 +1088,12 @@ namespace nkentseu {
 			}
 			if (node >= 96) {
 				// OBJET UTILISATEUR : nom par nature + numero de slot.
-				static const char *const kUK[6] = {"Objet", "Sphere", "Cube", "Plan",
-												   "Empty", "Lumiere"};
+				static const char *const kUK[10] = {"Objet", "Sphere", "Cube",
+													"Plan",  "Empty",  "Lumiere",
+													"Texte", "Courbe", "Surface",
+													"Metaball"};
 				int32 k2 = demo::Demo3DHostUserKind(node);
-				if (k2 < 0 || k2 > 5)
+				if (k2 < 0 || k2 > 9)
 					k2 = 0;
 				snprintf(out, cap, "%s.%03d", kUK[k2], node - 96);
 				return;
@@ -1398,9 +1474,7 @@ namespace nkentseu {
 						const int32 ukind = node >= 96 ? demo::Demo3DHostUserKind(node) : 0;
 						const bool isUserMesh = ukind >= 1 && ukind <= 3;
 						p.IconV(tx, yy, kRowH,
-								isEmpty ? (isUserMesh	 ? NkIcon::Mesh
-										   : ukind == 5 ? NkIcon::Light
-														 : NkIcon::Cursor)
+								isEmpty ? NkUserKindIcon(node >= 96 ? ukind : 4)
 										: (isLight ? NkIcon::Light : NkIcon::Mesh),
 								fg, 13.f);
 						p.Clip({rowR.x, yy, colType - rowR.x - S(8.f), kRowH});
@@ -1410,9 +1484,7 @@ namespace nkentseu {
 									 st.customNames[node], 24u);
 						p.Unclip();
 						p.TextV(colType, yy, kRowH,
-								isEmpty ? (isUserMesh	 ? "Maillage"
-										   : ukind == 5 ? "Lumiere"
-														 : "Empty")
+								isEmpty ? NkUserKindLabel(node >= 96 ? ukind : 4)
 										: (isLight ? "Lumiere" : "Maillage"),
 								dim);
 						if (!isEmpty && !isLight && sel && node == activeObj)
@@ -4847,7 +4919,14 @@ namespace nkentseu {
 						p.TextV(er.x + S(29.f), er.y, itemH, cats[c].items[i].label,
 								o2 ? NkRole::TextOnAccent : NkRole::Text);
 						if (hit.Clicked(key)) {
-							nk3d::Viewport3DAddObject(cats[c].items[i].type, cats[c].items[i].prim);
+							// CREATION dans l'HOTE : noeud utilisateur nomme d'apres
+							// l'entree (« Cube.001 »), selectionne immediatement.
+							const int32 nn = demo::Demo3DHostAddNode(cats[c].items[i].type,
+																	 cats[c].items[i].prim);
+							if (nn >= 0) {
+								NkHierComposeName(st, cats[c].items[i].label, nn);
+								demo::Demo3DHostSelectEmptyNode(nn);
+							}
 							st.dirty = true;
 							ws.CloseCombo();
 						}
