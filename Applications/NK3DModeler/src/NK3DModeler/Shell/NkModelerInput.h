@@ -285,6 +285,8 @@ namespace nkentseu {
 				int32 browAskIdx = -1;
 				int32 browAskDest = -1;
 				float32 browAskX = 0.f, browAskY = 0.f;
+				bool browMenuCreat = false;
+				NkRect viewRect{0.f, 0.f, 0.f, 0.f};
 				int32 lightSrcUi = 0;
 				// Une scene AJOUTEE est VIERGE : les objets de la demo y sont masques.
 				bool sceneBlank[8] = {};
@@ -302,6 +304,8 @@ namespace nkentseu {
 				// par « + Dossier / + Materiau / + Texture ». Tableaux plats a
 				// indices stables, comme partout ailleurs dans cet etat.
 				static const int32 kMaxBrowser = 32;
+				// Noeud SOURCE d'un asset reutilisable (0 = aucun, sinon noeud+1).
+				int32 browserSrcNode[kMaxBrowser] = {};
 				int32 browserCount = 0;
 				uint8 browserKind[32] = {};	   ///< 0 dossier, 1 materiau, 2 texture
 				char browserNames[32][32] = {};

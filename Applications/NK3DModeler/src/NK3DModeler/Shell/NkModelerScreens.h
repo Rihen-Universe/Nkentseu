@@ -1436,16 +1436,8 @@ namespace nkentseu {
 				const char *bmIt[12];
 				int32 bmAct[12];
 				int32 nIt = 0;
-				bmIt[nIt] = "Nouveau dossier ici";
-				bmAct[nIt++] = 10;
-				bmIt[nIt] = "Creer materiau";
-				bmAct[nIt++] = 11;
-				bmIt[nIt] = "Creer texture";
-				bmAct[nIt++] = 12;
-				bmIt[nIt] = "Creer blueprint";
-				bmAct[nIt++] = 13;
-				bmIt[nIt] = "Creer dataset";
-				bmAct[nIt++] = 14;
+				bmIt[nIt] = "Creer                >";
+				bmAct[nIt++] = 100; // ouvre le SOUS-MENU au survol
 				bmIt[nIt] = "Importer...";
 				bmAct[nIt++] = 20;
 				if (onCard) {
@@ -1469,25 +1461,55 @@ namespace nkentseu {
 					mr2.y = area.y + area.h - mr2.h;
 				p.Outline(mr2, NkRole::Border, NkRole::PanelHeader, 3.f);
 				int32 act2 = -1;
+				float32 creatY = mr2.y;
 				for (int32 mi = 0; mi < nIt; ++mi) {
 					const NkRect it{mr2.x, mr2.y + (float32)mi * kRowH, mr2.w, kRowH};
 					snprintf(key, sizeof(key), "brw.menu.%d", mi);
-					HoverFill(p, it, hit.Add(key, it), 0.f);
+					const bool overIt = hit.Add(key, it);
+					HoverFill(p, it, overIt, 0.f);
 					p.TextV(it.x + S(10.f), it.y, kRowH, bmIt[mi]);
-					if (hit.Clicked(key))
+					// le survol OUVRE le sous-menu Creer, un autre item le ferme
+					if (overIt)
+						st.browMenuCreat = (bmAct[mi] == 100);
+					if (bmAct[mi] == 100)
+						creatY = it.y;
+					if (hit.Clicked(key) && bmAct[mi] != 100)
 						act2 = bmAct[mi];
+				}
+				NkRect sub2{0.f, 0.f, 0.f, 0.f};
+				if (st.browMenuCreat) {
+					// SOUS-MENU Creer : tout ce qui peut naitre ici (Rihen), dont
+					// la SCENE et le MESH reutilisable.
+					static const char *const kCr[7] = {"Dossier", "Scene", "Mesh",
+													   "Materiau", "Texture",
+													   "Blueprint", "Dataset"};
+					sub2 = {mr2.x + mr2.w + 2.f, creatY, S(150.f), kRowH * 7.f};
+					if (sub2.y + sub2.h > area.y + area.h)
+						sub2.y = area.y + area.h - sub2.h;
+					if (sub2.x + sub2.w > area.x + area.w)
+						sub2.x = mr2.x - sub2.w - 2.f;
+					p.Outline(sub2, NkRole::Border, NkRole::PanelHeader, 3.f);
+					for (int32 mi = 0; mi < 7; ++mi) {
+						const NkRect it{sub2.x, sub2.y + (float32)mi * kRowH, sub2.w, kRowH};
+						snprintf(key, sizeof(key), "brw.sub.%d", mi);
+						HoverFill(p, it, hit.Add(key, it), 0.f);
+						p.TextV(it.x + S(10.f), it.y, kRowH, kCr[mi]);
+						if (hit.Clicked(key))
+							act2 = 10 + mi;
+					}
 				}
 				if (act2 >= 0) {
 					const int32 tgt = st.browMenuIdx;
 					// le dossier VISE (carte-dossier cliquee) sinon le courant
 					const int32 destF =
 						(onCard && st.browserKind[tgt] == 1) ? tgt : st.browserFolder;
-					if (act2 >= 10 && act2 <= 14 &&
+					if (act2 >= 10 && act2 <= 16 &&
 						st.browserCount < NkModelerState::kMaxBrowser) {
-						// 10 dossier, 11 materiau, 12 texture, 13 blueprint, 14 dataset
-						static const uint8 kNewK[5] = {1, 2, 3, 0, 4};
-						static const char *const kNewN[5] = {"Dossier", "Materiau",
-															 "Texture", "BP", "Dataset"};
+						// dossier, scene, mesh, materiau, texture, blueprint, dataset
+						static const uint8 kNewK[7] = {1, 5, 6, 2, 3, 0, 4};
+						static const char *const kNewN[7] = {"Dossier", "Scene", "Mesh",
+															 "Materiau", "Texture", "BP",
+															 "Dataset"};
 						const int32 k5 = st.browserCount++;
 						st.browserKind[k5] = kNewK[act2 - 10];
 						st.browserParent[k5] = destF;
@@ -1508,8 +1530,10 @@ namespace nkentseu {
 						BrDelRec(tgt);
 					}
 					st.browMenuIdx = -1;
-				} else if (hit.AnyClick() && !NkHitRegistry::Contains(mr2, hit.Mouse())) {
+				} else if (hit.AnyClick() && !NkHitRegistry::Contains(mr2, hit.Mouse()) &&
+						   !(st.browMenuCreat && NkHitRegistry::Contains(sub2, hit.Mouse()))) {
 					st.browMenuIdx = -1;
+					st.browMenuCreat = false;
 				}
 			}
 			// CARTE du depot GAUCHE -> DROITE : Copier / Deplacer / Annuler ;
@@ -1823,7 +1847,18 @@ namespace nkentseu {
 					}
 				} else {
 					if (st.hierDragging) {
-						if (dropHover >= 0 && dropHover != st.hierDragNode)
+						if (NkHitRegistry::Contains(st.browserRect, dm)) {
+							// DEPOSER dans le NAVIGATEUR : l'objet devient un asset
+							// MESH reutilisable, souvenir de sa source (Rihen).
+							if (st.browserCount < NkModelerState::kMaxBrowser) {
+								const int32 k6 = st.browserCount++;
+								st.browserKind[k6] = 6;
+								st.browserParent[k6] = st.browserFolder;
+								st.browserSrcNode[k6] = st.hierDragNode + 1;
+								NkHierNodeName(st, st.hierDragNode, st.browserNames[k6],
+											   32);
+							}
+						} else if (dropHover >= 0 && dropHover != st.hierDragNode)
 							demo::Demo3DHostSetNodeParent(st.hierDragNode, dropHover);
 						else if (dropHover < 0 && NkHitRegistry::Contains(listR, dm))
 							demo::Demo3DHostSetNodeParent(st.hierDragNode, -1);
@@ -2474,6 +2509,7 @@ namespace nkentseu {
 			// dormante ; c'est donc l'hote de la demo qui dit Â« pret Â».
 			if (demo::Demo3DHostReady()) {
 				p.Image(nk3d::kViewportTexId, vr);
+				st.viewRect = vr; // depot d'assets : importer un clone en scene
 				if (!st.wsBarOpen) {
 					// La poignee « Espaces » se REPEINT par-dessus l'image : elle
 					// etait recouverte, donc introuvable barre fermee (Rihen).
@@ -4938,43 +4974,29 @@ namespace nkentseu {
 					NkIcon ic;
 					const char *label;
 			};
-			// TROIS BOUTONS DE CREATION DIRECTS, pas un menu : creer un dossier, un
-			// materiau ou une texture sont les trois gestes fondateurs du navigateur,
-			// et les cacher derriere un deroulant ajouterait un clic a chacun.
-			// LE BLUEPRINT manquait. C'est le document de modelisation lui-meme --
-			// une piece a modeler, avec sa geometrie, ses materiaux et ses reglages.
-			// Materiau et texture sont des RESSOURCES qu'il consomme ; le blueprint
-			// est ce qu'on ouvre pour travailler, donc il vient en premier.
-			static const B kBtns[] = {{NkIcon::Mesh, "+ Blueprint"},
-									  {NkIcon::Folder, "+ Dossier"},
-									  {NkIcon::Circle, "+ Materiau"},
-									  {NkIcon::Journal, "+ Texture"},
-									  {NkIcon::Terminal, "+ Dataset"},
-									  {NkIcon::Import, "Importer"}};
-			for (int32 i = 0; i < 6; ++i) {
-				const float32 bw = 18.f + p.TextW(kBtns[i].label) + 10.f;
-				char bkey[24];
-				snprintf(bkey, sizeof(bkey), "brw.new.%d", i);
+			// UN COMBO « Creer » (le meme sous-menu que le clic droit) remplace
+			// la rangee de boutons, plus « Importer » (Rihen).
+			{
+				const float32 bw = 18.f + p.TextW("Creer") + 24.f;
 				const NkRect br{x - 4.f, r.y + 3.f, bw, topH - 6.f};
-				HoverFill(p, br, hit.Add(bkey, br), 2.f);
-				static const NkRole kBtnRole[6] = {NkRole::TypeMesh, NkRole::TypeFolder,
-												   NkRole::TypeMat, NkRole::TypeTex,
-												   NkRole::AccentUi, NkRole::Text};
-				p.IconV(x, r.y, topH, kBtns[i].ic, kBtnRole[i], 13.f);
-				p.TextV(x + 18.f, r.y, topH, kBtns[i].label);
-				x += bw + 8.f;
-				// La creation ecrit dans l'etat ; le nom par defaut est numerote et
-				// se renomme au double-clic, comme partout.
-				if (i < 5 && hit.Clicked(bkey) && st.browserCount < NkModelerState::kMaxBrowser) {
-					const int32 k = st.browserCount++;
-					// 0 blueprint, 1 dossier, 2 materiau, 3 texture -- l'ordre des
-					// boutons EST celui des genres, il n'y a rien a traduire.
-					st.browserKind[k] = (uint8)i;
-					st.browserParent[k] = st.browserFolder;
-					static const char *const kBase[] = {"BP", "Dossier", "Materiau",
-														"Texture", "Dataset"};
-					snprintf(st.browserNames[k], 32, "%s_%02d", kBase[i], k + 1);
+				HoverFill(p, br, hit.Add("brw.creer", br), 2.f);
+				p.IconV(x, r.y, topH, NkIcon::Add, NkRole::Text, 13.f);
+				p.TextV(x + 18.f, r.y, topH, "Creer");
+				p.IconV(x + 18.f + p.TextW("Creer") + 6.f, r.y, topH, NkIcon::ChevronDown,
+						NkRole::TextMuted, 11.f);
+				if (hit.Clicked("brw.creer")) {
+					st.browMenuIdx = -2;
+					st.browMenuCreat = true;
+					st.browMenuX = br.x;
+					st.browMenuY = br.y + br.h + 2.f;
 				}
+				x += bw + 8.f;
+				const float32 bw2 = 18.f + p.TextW("Importer") + 10.f;
+				const NkRect br2{x - 4.f, r.y + 3.f, bw2, topH - 6.f};
+				HoverFill(p, br2, hit.Add("brw.imp", br2), 2.f);
+				p.IconV(x, r.y, topH, NkIcon::Import, NkRole::Text, 13.f);
+				p.TextV(x + 18.f, r.y, topH, "Importer");
+				x += bw2 + 8.f;
 			}
 			p.VLine(x, r.y + 6.f, topH - 12.f);
 			x += 10.f;
@@ -5155,11 +5177,15 @@ namespace nkentseu {
 				const NkRole role = (kind == 0)   ? NkRole::TypeMesh
 									: (kind == 1) ? NkRole::TypeFolder
 									: (kind == 4) ? NkRole::AccentUi
+									: (kind == 5) ? NkRole::AxisZ
+									: (kind == 6) ? NkRole::AxisY
 									: (kind == 2) ? NkRole::TypeMat
 												  : NkRole::TypeTex;
 				const char *kindName = (kind == 0)   ? "Blueprint"
 									   : (kind == 1) ? "Dossier"
 									   : (kind == 4) ? "Dataset IA"
+									   : (kind == 5) ? "Scene"
+									   : (kind == 6) ? "Mesh"
 									   : (kind == 2) ? "Materiau"
 													 : "Texture";
 
@@ -5219,6 +5245,19 @@ namespace nkentseu {
 					// comme une pastille de couleur.
 					p.Disc(cx, cy, 22.f, role);
 					p.Disc(cx - 8.f, cy - 8.f, 5.f, NkRole::Text);
+				} else if (kind == 5) {
+					// SCENE : un globe raye -- un monde a ouvrir.
+					p.Disc(cx, cy, 22.f, role);
+					p.Fill({cx - 22.f, cy - 2.f, 44.f, 4.f}, NkRole::PanelHeader);
+					p.Fill({cx - 2.f, cy - 22.f, 4.f, 44.f}, NkRole::PanelHeader);
+				} else if (kind == 6) {
+					// MESH reutilisable : cube plein -- une piece prete a cloner.
+					p.Fill({cx - 16.f, cy - 14.f, 32.f, 28.f}, role);
+					p.Line(cx - 16.f, cy - 14.f, cx - 8.f, cy - 22.f, NkRole::Text);
+					p.Line(cx - 8.f, cy - 22.f, cx + 24.f, cy - 22.f, NkRole::Text);
+					p.Line(cx + 16.f, cy - 14.f, cx + 24.f, cy - 22.f, NkRole::Text);
+					p.Line(cx + 24.f, cy - 22.f, cx + 24.f, cy + 6.f, NkRole::Text);
+					p.Line(cx + 16.f, cy + 14.f, cx + 24.f, cy + 6.f, NkRole::Text);
 				} else if (kind == 4) {
 					// DATASET IA : un document ligne (paires d'entrainement JSONL).
 					p.Fill({cx - 16.f, cy - 20.f, 32.f, 40.f}, NkRole::PanelHeader);
@@ -5308,7 +5347,18 @@ namespace nkentseu {
 								st.browserNames[st.browDragIdx], NkRole::Text);
 				} else {
 					if (st.browDragging) {
-						if (dropTo == -999 &&
+						// Sur la VUE : importer un CLONE dans la scene (Rihen).
+						if (!NkHitRegistry::Contains(st.browserRect, bm) &&
+							NkHitRegistry::Contains(st.viewRect, bm) &&
+							st.browserKind[st.browDragIdx] == 6 &&
+							st.browserSrcNode[st.browDragIdx] > 0) {
+							const int32 nn6 = demo::Demo3DHostDuplicateNode(
+								st.browserSrcNode[st.browDragIdx] - 1);
+							if (nn6 >= 0)
+								demo::Demo3DHostSelectEmptyNode(nn6);
+							st.browDragIdx = -1;
+						}
+						if (st.browDragIdx >= 0 && dropTo == -999 &&
 							NkHitRegistry::Contains({r.x + treeW, ty, r.w - treeW, th}, bm))
 							dropTo = -100; // fond de grille = dossier COURANT
 						if (dropTo != -999) {
@@ -5318,9 +5368,10 @@ namespace nkentseu {
 								if (c5 == st.browDragIdx)
 									ok5 = false;
 							if (ok5) {
-								if (st.browDragFromTree &&
-									NkHitRegistry::Contains(
-										{r.x + treeW, ty, r.w - treeW, th}, bm)) {
+								const bool destTree =
+									NkHitRegistry::Contains({r.x, ty, treeW, th}, bm);
+								if (st.browDragFromTree != destTree) {
+									// TRAVERSEE gauche <-> droite, dans les DEUX sens :
 									// GAUCHE -> DROITE : la carte Copier/Deplacer decide
 									// (Rihen) -- cliquer dans le vide annulera.
 									st.browAskIdx = st.browDragIdx;
