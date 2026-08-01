@@ -129,6 +129,7 @@ namespace nkentseu {
 		static uint8 nkvpShortcutPrev = 0;
 		static void HostHierarchyFrame(); // detecteur (defini pres des accesseurs)
 		static void HostParentEnsureInit();
+		static int32 HostAllocUser(uint8 kind);
 		static void HostDecompose(const NkMat4f &M, NkVec3f &pos, NkVec3f &rotDeg, NkVec3f &scl);
 		// VISIBILITE et VERROU EFFECTIFS : le sien OU celui d'un ancetre --
 		// cacher/cadenasser un parent emporte tout son sous-arbre, mais chaque
@@ -8411,10 +8412,8 @@ namespace nkentseu {
 			// la scene demo n'est plus imposee -- restent le SOL et le SOLEIL.
 			for (int32 i = 0; i < kNkvpMaxNodes; ++i)
 				nkvpDeleted[i] = true;
-			nkvpDeleted[83] = false; // Sol
-			nkvpDeleted[86] = false; // Soleil
-			nkvpParentOf[83] = -1;
-			nkvpParentOf[86] = -1;
+			// Le TRIO de depart (cube + ponctuelle + camera) est cree a la
+			// premiere frame, quand le moteur est pret.
 		}
 		static bool HostIsDescendant(int32 node, int32 anc) {
 			// node est-il DANS le sous-arbre de anc ? (garde anti-cycle)
@@ -8782,11 +8781,63 @@ namespace nkentseu {
 				// premiere frame : pousser les volontes d'affichage dans le
 				// moteur (lignes internes/majeures visibles d'entree).
 				Demo3DHostSetGridFlags(nkvpGridOn, nkvpMinorOn, nkvpMajorOn, nkvpAxesOn);
+				// LE TRIO DE DEPART (Rihen) : un cube, une lumiere ponctuelle et
+				// une camera -- comme n'importe quel ajout utilisateur.
+				{
+					const int32 nCube = HostAllocUser(2);
+					if (nCube >= 0)
+						nkvpEmptyPos[nCube - kNkvpFirstEmpty][1] = 0.5f;
+					const int32 nLit = HostAllocUser(5);
+					if (nLit >= 0) {
+						renderer::NkLightDesc L0 = Demo3D_LightEffective(st, 1);
+						L0.color = {1.f, 1.f, 1.f};
+						L0.position = {3.f, 4.f, 2.5f};
+						nkvpUserLight[nLit - kNkvpFirstUser] = L0;
+						nkvpUserSub[nLit - kNkvpFirstUser] = 1;
+						const int32 e0 = nLit - kNkvpFirstEmpty;
+						nkvpEmptyPos[e0][0] = 3.f;
+						nkvpEmptyPos[e0][1] = 4.f;
+						nkvpEmptyPos[e0][2] = 2.5f;
+					}
+					const int32 nCam = HostAllocUser(4);
+					if (nCam >= 0) {
+						nkvpUserSub[nCam - kNkvpFirstUser] = 10;
+						const int32 e0 = nCam - kNkvpFirstEmpty;
+						nkvpEmptyPos[e0][0] = 5.f;
+						nkvpEmptyPos[e0][1] = 3.5f;
+						nkvpEmptyPos[e0][2] = 5.f;
+						nkvpEmptyRotDeg[e0][0] = -24.f;
+						nkvpEmptyRotDeg[e0][1] = 45.f;
+					}
+				}
 			} else {
 				for (int32 n = 0; n < kNkvpMaxNodes; ++n)
 					if (nkvpParentOf[n] < 0)
 						HostHierRecurse(st, n);
 			}
+			// Un SOLEIL trop loin rendait sa poignee ultra-rapide (le pas d'un
+			// drag est proportionnel a la PROFONDEUR) : les directionnelles
+			// restent a portee.
+			for (int32 li3 = 0; li3 < Demo3DState::kNumLights; ++li3)
+				if (((int32)st->lights[li3].type & 3) == 0) {
+					const NkVec3f p3 = st->lights[li3].position;
+					const float32 L3 = p3.Len();
+					if (L3 > 12.f)
+						st->lights[li3].position = p3 * (12.f / L3);
+				}
+			for (int32 u3 = 0; u3 < kNkvpMaxUser; ++u3)
+				if (nkvpUserKind[u3] == 5 && ((int32)nkvpUserLight[u3].type & 3) == 0) {
+					const int32 e3 = 6 + u3;
+					const float32 L3 = sqrtf(nkvpEmptyPos[e3][0] * nkvpEmptyPos[e3][0] +
+											 nkvpEmptyPos[e3][1] * nkvpEmptyPos[e3][1] +
+											 nkvpEmptyPos[e3][2] * nkvpEmptyPos[e3][2]);
+					if (L3 > 12.f) {
+						const float32 k3 = 12.f / L3;
+						nkvpEmptyPos[e3][0] *= k3;
+						nkvpEmptyPos[e3][1] *= k3;
+						nkvpEmptyPos[e3][2] *= k3;
+					}
+				}
 			// RACCOURCIS par polling : fronts de D/C/V/X/P/Suppr avec les
 			// modificateurs, hors saisie de texte et hors drag de gizmo (X y
 			// verrouille un axe).

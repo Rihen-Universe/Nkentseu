@@ -1098,7 +1098,20 @@ namespace nkentseu {
 				int32 k2 = demo::Demo3DHostUserKind(node);
 				if (k2 < 0 || k2 > 10)
 					k2 = 0;
-				snprintf(out, cap, "%s.%03d", kUK[k2], node - 96);
+				const char *bn = kUK[k2];
+				if (k2 == 4) {
+					// les VIDES a sous-type portent leur vrai nom
+					const int32 sb = demo::Demo3DHostUserSub(node);
+					if (sb == 10)
+						bn = "Camera";
+					else if (sb == 11)
+						bn = "Reference";
+					else if (sb == 12)
+						bn = "Arriere-plan";
+					else if (sb == 13)
+						bn = "Image";
+				}
+				snprintf(out, cap, "%s.%03d", bn, node - 96);
 				return;
 			}
 			if (node >= 90)
