@@ -169,6 +169,9 @@ namespace nkentseu {
 		// Parametres du mesh cree (segments / anneaux-subdivisions) : le
 		// panneau « Ajuster la creation » les edite AVANT validation.
 		int32 Demo3DHostUserSub(int32 node); // variante demandee au menu Ajouter
+		// Camera (vide sous-type 10) : focale + clips, declaratifs pour l'instant.
+		bool Demo3DHostCameraParams(int32 node, float32 *fov, float32 *nearC, float32 *farC);
+		void Demo3DHostSetCameraParams(int32 node, float32 fov, float32 nearC, float32 farC);
 		bool Demo3DHostMeshParams(int32 node, int32 *segs, int32 *rings, float32 *aux);
 		void Demo3DHostSetMeshParams(int32 node, int32 segs, int32 rings, float32 aux);
 		// Lumiere UTILISATEUR (kind 5) : couleur + intensite.

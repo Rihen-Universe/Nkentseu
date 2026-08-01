@@ -108,6 +108,7 @@ namespace nkentseu {
 		static int32 nkvpUserSeg[kNkvpMaxUser];
 		static int32 nkvpUserRing[kNkvpMaxUser];
 		static float32 nkvpUserAux[kNkvpMaxUser]; // ex. rayon interne du tore
+		static float32 nkvpUserCam[kNkvpMaxUser][3]; // camera : fov, clip debut/fin
 		// SUPPRESSION par drapeau (heritee par la visibilite effective).
 		static bool nkvpDeleted[kNkvpMaxNodes] = {};
 		// PRESSE-PAPIERS de noeud (copier/coller).
@@ -6798,8 +6799,8 @@ namespace nkentseu {
 							float32 bestD2 = 1e30f;
 							for (int32 u2 = 0; u2 < kNkvpMaxUser; ++u2) {
 								const uint8 uk2 = nkvpUserKind[u2];
-								if (uk2 < 1 || uk2 > 3)
-									continue; // seuls les maillages se cliquent ici
+								if (uk2 == 0)
+									continue; // slot libre -- tout le reste se clique
 								const int32 un2 = kNkvpFirstUser + u2;
 								if (HostHiddenEff(un2) || HostLockedEff(un2))
 									continue;
@@ -6814,15 +6815,21 @@ namespace nkentseu {
 								rw = rw * 0.7f + 0.15f;
 								if (nkvpBaseSet[un2] && nkvpDimFactor[un2][0] > 0.f)
 									rw *= nkvpDimFactor[un2][0];
-								float32 sx0 = 0.f, sy0 = 0.f, sx1 = 0.f, sy1 = 0.f;
+								float32 sx0 = 0.f, sy0 = 0.f;
 								if (!uproj(c2, sx0, sy0))
 									continue;
-								const NkVec3f edge{c2.x + rgt2.x * rw, c2.y + rgt2.y * rw,
-												   c2.z + rgt2.z * rw};
-								if (!uproj(edge, sx1, sy1))
-									continue;
-								const float32 rpix = sqrtf((sx1 - sx0) * (sx1 - sx0) +
-														   (sy1 - sy0) * (sy1 - sy0));
+								// Maillage : rayon MONDE projete ; widgets (lumiere,
+								// camera, vides, marqueurs) : taille ecran constante.
+								float32 rpix = 16.f;
+								if (uk2 >= 1 && uk2 <= 3) {
+									float32 sx1 = 0.f, sy1 = 0.f;
+									const NkVec3f edge{c2.x + rgt2.x * rw, c2.y + rgt2.y * rw,
+													   c2.z + rgt2.z * rw};
+									if (!uproj(edge, sx1, sy1))
+										continue;
+									rpix = sqrtf((sx1 - sx0) * (sx1 - sx0) +
+												 (sy1 - sy0) * (sy1 - sy0));
+								}
 								const float32 pdx = gin.mouseX - sx0, pdy = gin.mouseY - sy0;
 								const float32 pd2 = pdx * pdx + pdy * pdy;
 								if (pd2 <= rpix * rpix && pd2 < bestD2) {
@@ -8935,6 +8942,9 @@ namespace nkentseu {
 				nkvpUserSeg[u] = 32;
 				nkvpUserRing[u] = 16;
 				nkvpUserAux[u] = 0.15f;
+				nkvpUserCam[u][0] = 50.f;
+				nkvpUserCam[u][1] = 0.1f;
+				nkvpUserCam[u][2] = 100.f;
 				const int32 e = n - kNkvpFirstEmpty;
 				for (int32 a = 0; a < 3; ++a) {
 					nkvpEmptyPos[e][a] = 0.f;
@@ -9188,6 +9198,25 @@ namespace nkentseu {
 					dv = 64;
 				nkvpUserMesh[u] = ms->CreatePlaneMesh((uint32)dv, (uint32)dv);
 			}
+		}
+		bool Demo3DHostCameraParams(int32 node, float32 *fov, float32 *nearC, float32 *farC) {
+			if (node < kNkvpFirstUser || node >= kNkvpMaxNodes ||
+				nkvpUserKind[node - kNkvpFirstUser] != 4 ||
+				nkvpUserSub[node - kNkvpFirstUser] != 10)
+				return false;
+			const int32 u = node - kNkvpFirstUser;
+			*fov = nkvpUserCam[u][0];
+			*nearC = nkvpUserCam[u][1];
+			*farC = nkvpUserCam[u][2];
+			return true;
+		}
+		void Demo3DHostSetCameraParams(int32 node, float32 fov, float32 nearC, float32 farC) {
+			if (node < kNkvpFirstUser || node >= kNkvpMaxNodes)
+				return;
+			const int32 u = node - kNkvpFirstUser;
+			nkvpUserCam[u][0] = fov < 5.f ? 5.f : (fov > 150.f ? 150.f : fov);
+			nkvpUserCam[u][1] = nearC < 0.01f ? 0.01f : nearC;
+			nkvpUserCam[u][2] = farC < nkvpUserCam[u][1] + 0.1f ? nkvpUserCam[u][1] + 0.1f : farC;
 		}
 		int32 Demo3DHostUserSub(int32 node) {
 			return (node >= kNkvpFirstUser && node < kNkvpMaxNodes)
