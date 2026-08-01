@@ -544,8 +544,18 @@ int nkmain(const NkEntryState &entry) {
 		// La demo portee recoit la taille de la vue, son origine (traduction
 		// souris fenetre -> vue), le survol (ses raccourcis n'ecoutent que la
 		// vue survolee, comme Blender) et la garde de saisie de texte.
-		demo::Demo3DHostResize((uint32)lay.view.w, (uint32)lay.view.h);
-		demo::Demo3DHostSetView(lay.view.x, lay.view.y, overSceneLastFrame, !st.editingText);
+		// La vue REELLE vit SOUS la barre d'espaces : taille et origine de la
+		// souris doivent viser la meme zone que l'image, sinon le picking
+		// decale d'une hauteur de barre.
+		{
+			NkRect viewImg = lay.view;
+			if (st.wsBarOpen) {
+				viewImg.y += S(24.f);
+				viewImg.h -= S(24.f);
+			}
+			demo::Demo3DHostResize((uint32)viewImg.w, (uint32)viewImg.h);
+			demo::Demo3DHostSetView(viewImg.x, viewImg.y, overSceneLastFrame, !st.editingText);
+		}
 
 		// ── SYNCHRONISATION UI <-> DEMO PORTEE ──────────────────────────────
 		// POUSSER quand l'interface a change depuis l'image precedente, TIRER
@@ -990,7 +1000,7 @@ int nkmain(const NkEntryState &entry) {
 			{
 				NkRect rightR = lay.propsR;
 				rightR.h = (lay.detailsR.y + lay.detailsR.h) - lay.propsR.y;
-				PaintPropertiesUnified(p, rightR, st, hit);
+				PaintPropertiesUnified(p, rightR, st, hit, ws, ui.input);
 			}
 		}
 		if (st.showBrowser)

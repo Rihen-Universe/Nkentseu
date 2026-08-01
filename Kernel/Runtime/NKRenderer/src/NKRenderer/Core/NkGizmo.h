@@ -427,6 +427,32 @@ namespace nkentseu {
 							mScale[i] = {0.f, 0.f, 0.f};
 				}
 
+				// ── Acces PAR CIBLE aux decalages utilisateur ────────────────────
+				// Le panneau Proprietes d'un editeur edite la transformation par
+				// CHAMPS : il lit et ecrit les decalages de la cible active. Les
+				// Clear* ci-dessus restent les remises a zero de la SELECTION.
+				NkVec3f TranslateOf(int32 i) const {
+					return (i >= 0 && i < kMax) ? mTr[i] : NkVec3f{0.f, 0.f, 0.f};
+				}
+				void SetTranslateOf(int32 i, NkVec3f v) {
+					if (i >= 0 && i < kMax)
+						mTr[i] = v;
+				}
+				NkMat4f RotationOf(int32 i) const {
+					return (i >= 0 && i < kMax) ? mRot[i] : NkMat4f::Identity();
+				}
+				void SetRotationOf(int32 i, const NkMat4f &m) {
+					if (i >= 0 && i < kMax)
+						mRot[i] = m;
+				}
+				NkVec3f ScaleOf(int32 i) const {
+					return (i >= 0 && i < kMax) ? mScale[i] : NkVec3f{0.f, 0.f, 0.f};
+				}
+				void SetScaleOf(int32 i, NkVec3f v) {
+					if (i >= 0 && i < kMax)
+						mScale[i] = v;
+				}
+
 				// Transform final (base + décalage utilisateur) pour la cible i.
 				NkMat4f Apply(int32 i, const NkMat4f &base) const {
 					if (i < 0 || i >= kMax)

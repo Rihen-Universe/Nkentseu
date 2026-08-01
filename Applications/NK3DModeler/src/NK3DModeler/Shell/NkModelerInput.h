@@ -196,6 +196,17 @@ namespace nkentseu {
 				// l'instant) ; son en-tete s'escamote.
 				bool wsBarOpen = true;
 				float32 propScroll = 0.f;
+				// Les trois SOUS-BLOCS du panneau Proprietes : replies/deplies et
+				// chacun son defilement -- leur contenu peut etre tres long.
+				bool propOpen0 = true, propOpen1 = true, propOpen2 = true;
+				float32 propScroll3[3] = {0.f, 0.f, 0.f};
+				// Cadenas et proportionnel des lignes de transformation.
+				bool lockPos = false, lockRot = false, lockScl = false;
+				bool propScale = false;
+				// Groupes ouverts de la hierarchie (bit par groupe).
+				uint32 hierOpen = 0xFFFFFFFFu;
+				// Une scene AJOUTEE est VIERGE : les objets de la demo y sont masques.
+				bool sceneBlank[8] = {};
 				int32 matcapDragBar = -1; ///< -1 aucun, 0 verticale, 1 horizontale
 				float32 matcapDragOff = 0.f;
 				// ── Navigateur de projet : CONTENU CREE PAR L'UTILISATEUR ───────

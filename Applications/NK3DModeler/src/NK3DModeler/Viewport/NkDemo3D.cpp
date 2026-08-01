@@ -54,6 +54,12 @@ namespace nkentseu {
 		static bool nkvpHover = false;				   // souris au-dessus de la vue
 		static void *nkvpCmd = nullptr;				   // cmd de l'editeur (frame courante)
 		static bool nkvpHudOn = true;				   // HUD texte de la demo (surimpression)
+		// OEIL et CADENAS de la hierarchie : visibilite et verrou PAR OBJET.
+		// La visibilite gate les soumissions de la demo ; le verrou bloque la
+		// selection depuis la hierarchie et l'ecriture de transformation.
+		static bool nkvpObjHidden[128] = {};
+		static bool nkvpObjLocked[128] = {};
+		static bool nkvpLightHidden[8] = {};
 		static float32 nkvpFarOverride = 0.f;  // 0 = auto (dist*20+100) ; sinon la
 											   // DISTANCE DE VUE choisie, independante
 											   // des cameras de la scene
@@ -4142,6 +4148,11 @@ namespace nkentseu {
 							const float32 ax = fabsf(vdir.x), az = fabsf(vdir.z);
 							const int32 plane = (az > 0.99f) ? 1 : ((ax > 0.99f) ? 2 : 0);
 							for (int32 gi = -N; gi <= N; ++gi) {
+								// La ligne CENTRALE repasserait sur les axes X/Y/Z deja
+								// traces (la « seconde ligne » constatee) : on la saute
+								// tant que les axes sont affiches.
+								if (gi == 0 && nkvpAxesOn)
+									continue;
 								const NkVec4f &c = (gi % 10 == 0) ? major : minor;
 								const float32 f = (float32)gi;
 								if (plane == 0) { // sol XZ : defaut + vues dessus/dessous
@@ -4256,7 +4267,8 @@ namespace nkentseu {
 			// Passer `lights[li]` directement rendrait la manipulation invisible dans
 			// l'image — le widget bougerait, l'eclairage non.
 			for (int32 li = 0; li < Demo3DState::kNumLights; li++)
-				sctx.lights.PushBack(Demo3D_LightEffective(st, li));
+				if (!nkvpLightHidden[li]) // oeil ferme dans la hierarchie
+					sctx.lights.PushBack(Demo3D_LightEffective(st, li));
 
 
 
@@ -4390,7 +4402,8 @@ namespace nkentseu {
 				dc.tint = effTint({0.12f, 0.12f, 0.13f});
 				dc.metallic = 0.f;
 				dc.roughness = 0.92f;
-				r3d->Submit(dc);
+				if (!nkvpObjHidden[Demo3DState::kIdxFloor])
+					r3d->Submit(dc);
 			}
 
 			// ── NK_GI_TEST : le mur rouge, RENDU à la position qui sert au GI ────
@@ -4409,7 +4422,8 @@ namespace nkentseu {
 				dc.tint = effTint({0.9f, 0.05f, 0.05f});
 				dc.metallic = 0.f;
 				dc.roughness = 0.85f;
-				r3d->Submit(dc);
+				if (!nkvpObjHidden[Demo3DState::kIdxGIWall])
+					r3d->Submit(dc);
 			}
 
 			// ── Grille 4x4 de spheres : grille PBR canonique ─────────────────────
@@ -4433,7 +4447,8 @@ namespace nkentseu {
 					dc.metallic = (float32)col / 3.f;				   // 0, 0.33, 0.66, 1
 					dc.roughness = 0.05f + (float32)row / 3.f * 0.95f; // 0.05 .. 1
 					// En Edit Mode, l'objet édité est remplacé par son clone (plus bas).
-					if (!(st->editMode && st->editObjIdx == row * 4 + col))
+					if (!(st->editMode && st->editObjIdx == row * 4 + col) &&
+						!nkvpObjHidden[row * 4 + col])
 						r3d->Submit(dc);
 				}
 			}
@@ -4455,7 +4470,9 @@ namespace nkentseu {
 						st->objXform[idx] = xf;
 						const NkVec3f tint = effTint({(float32)gx / 7.f, 0.6f, (float32)gz / 7.f});
 						if (st->editMode && st->editObjIdx == idx)
-							continue;					  // édité -> via editMesh
+							continue;
+						if (nkvpObjHidden[idx])
+							continue; // oeil ferme dans la hierarchie					  // édité -> via editMesh
 						if (st->objMesh[idx].IsValid()) { // édité persisté -> draw séparé
 							NkDrawCall3D dc;
 							dc.mesh = st->objMesh[idx];
@@ -4492,7 +4509,7 @@ namespace nkentseu {
 				dc.tint = effTint({1.f, 0.8f, 0.3f}); // gold albedo (ou gris en edit/unlit)
 				dc.metallic = 1.f;
 				dc.roughness = 0.15f;
-				if (!(st->editMode && st->editObjIdx == 16))
+				if (!(st->editMode && st->editObjIdx == 16) && !nkvpObjHidden[16])
 					r3d->Submit(dc);
 			}
 
@@ -4517,14 +4534,15 @@ namespace nkentseu {
 				dc.metallic = 0.f;
 				dc.roughness = 0.6f;
 				dc.castShadow = true;
-				if (!(st->editMode && st->editObjIdx == 17 + c))
+				if (!(st->editMode && st->editObjIdx == 17 + c) && !nkvpObjHidden[17 + c])
 					r3d->Submit(dc);
 			}
 
 			// ── NkVSM v2 : panneau feuillage ALPHA-TESTED (ombre trouee) ──────────
 			// Panneau vertical au-dessus du sol, entre le soleil et le sol : son
 			// ombre doit montrer les trous entre les disques (Shadow_AlphaTest).
-			if (st->maskedMat && !(st->editMode && st->editObjIdx == Demo3DState::kIdxFoliage)) {
+			if (st->maskedMat && !(st->editMode && st->editObjIdx == Demo3DState::kIdxFoliage) &&
+				!nkvpObjHidden[Demo3DState::kIdxFoliage]) {
 				NkDrawCall3D dc;
 				dc.mesh = meshFor(Demo3DState::kIdxFoliage, st->meshCube);
 				dc.transform = userXform(Demo3DState::kIdxFoliage, Demo3D_ObjBaseFull(st, Demo3DState::kIdxFoliage));
@@ -7611,7 +7629,10 @@ namespace nkentseu {
 			return nkvpOrthoScale;
 		}
 		void Demo3DHostSetGridExtent(int32 n) {
-			if (n >= 5 && n <= 100)
+			// Jusqu'a 2000 : « l'etendue doit pouvoir etre infinie » -- 2000
+			// demi-unites couvrent tout ce qu'on voit, sans faire exploser le
+			// nombre de lignes debug par image.
+			if (n >= 5 && n <= 2000)
 				nkvpGridExtent = n;
 		}
 		int32 Demo3DHostGridExtent() {
@@ -7634,6 +7655,114 @@ namespace nkentseu {
 				G.ClearSelectedRotation();
 			else
 				G.ClearSelectedScale();
+		}
+
+		// ── OEIL / CADENAS / SCENE VIERGE ───────────────────────────────────
+		void Demo3DHostSetObjectHidden(int32 i, bool hidden) {
+			if (i >= 0 && i < 128)
+				nkvpObjHidden[i] = hidden;
+		}
+		bool Demo3DHostObjectHidden(int32 i) {
+			return (i >= 0 && i < 128) && nkvpObjHidden[i];
+		}
+		void Demo3DHostSetObjectLocked(int32 i, bool locked) {
+			if (i >= 0 && i < 128)
+				nkvpObjLocked[i] = locked;
+		}
+		bool Demo3DHostObjectLocked(int32 i) {
+			return (i >= 0 && i < 128) && nkvpObjLocked[i];
+		}
+		void Demo3DHostSetLightHidden(int32 li, bool hidden) {
+			if (li >= 0 && li < 8)
+				nkvpLightHidden[li] = hidden;
+		}
+		bool Demo3DHostLightHidden(int32 li) {
+			return (li >= 0 && li < 8) && nkvpLightHidden[li];
+		}
+		void Demo3DHostSetAllHidden(bool hidden) {
+			// La SCENE VIERGE d'un nouvel onglet : tout est masque d'un coup.
+			for (int32 i = 0; i < 128; ++i)
+				nkvpObjHidden[i] = hidden;
+			for (int32 i = 0; i < 8; ++i)
+				nkvpLightHidden[i] = hidden;
+		}
+
+		// ── TRANSFORMATION DE L'OBJET ACTIF (panneau Proprietes) ────────────
+		// Lecture : decomposition du MONDE reellement rendu (objXform), la meme
+		// que l'ancienne vue (colonne-majeur, R = Rz*Ry*Rx). Ecriture :
+		// INCREMENTALE sur les decalages du gizmo -- position exacte, rotation
+		// par delta d'angles, echelle par rapport d'axes ; aucune inversion de
+		// matrice n'est necessaire.
+		static void HostDecompose(const NkMat4f &M, NkVec3f &pos, NkVec3f &rotDeg, NkVec3f &scl) {
+			pos = {M.mat[3][0], M.mat[3][1], M.mat[3][2]};
+			const NkVec3f c0{M.mat[0][0], M.mat[0][1], M.mat[0][2]};
+			const NkVec3f c1{M.mat[1][0], M.mat[1][1], M.mat[1][2]};
+			const NkVec3f c2{M.mat[2][0], M.mat[2][1], M.mat[2][2]};
+			scl = {c0.Len(), c1.Len(), c2.Len()};
+			const float32 sx = scl.x > 1e-8f ? 1.f / scl.x : 0.f;
+			const float32 sy = scl.y > 1e-8f ? 1.f / scl.y : 0.f;
+			const float32 sz = scl.z > 1e-8f ? 1.f / scl.z : 0.f;
+			const float32 r00 = M.mat[0][0] * sx, r01 = M.mat[0][1] * sx, r02 = M.mat[0][2] * sx;
+			const float32 r12 = M.mat[1][2] * sy, r22 = M.mat[2][2] * sz;
+			float32 syn = -r02;
+			if (syn < -1.f)
+				syn = -1.f;
+			if (syn > 1.f)
+				syn = 1.f;
+			const float32 kRad2Deg = 57.29577951f;
+			rotDeg.y = asinf(syn) * kRad2Deg;
+			rotDeg.x = atan2f(r12, r22) * kRad2Deg;
+			rotDeg.z = atan2f(r01, r00) * kRad2Deg;
+		}
+		bool Demo3DHostObjectTransform(int32 i, float32 *pos3, float32 *rotDeg3, float32 *scl3) {
+			auto *st = HostSt();
+			if (!st || i < 0 || i >= Demo3DState::kNumObj)
+				return false;
+			NkVec3f p, r, sc;
+			HostDecompose(st->objXform[i], p, r, sc);
+			pos3[0] = p.x;
+			pos3[1] = p.y;
+			pos3[2] = p.z;
+			rotDeg3[0] = r.x;
+			rotDeg3[1] = r.y;
+			rotDeg3[2] = r.z;
+			scl3[0] = sc.x;
+			scl3[1] = sc.y;
+			scl3[2] = sc.z;
+			return true;
+		}
+		void Demo3DHostSetObjectTransform(int32 i, const float32 *pos3, const float32 *rotDeg3,
+										  const float32 *scl3) {
+			auto *st = HostSt();
+			if (!st || i < 0 || i >= Demo3DState::kNumObj || nkvpObjLocked[i])
+				return;
+			NkVec3f cp, cr, cs;
+			HostDecompose(st->objXform[i], cp, cr, cs);
+			renderer::NkGizmo3D &G = st->gizmo;
+			// Position : delta MONDE exact.
+			const NkVec3f t = G.TranslateOf(i);
+			G.SetTranslateOf(i, {t.x + (pos3[0] - cp.x), t.y + (pos3[1] - cp.y),
+								 t.z + (pos3[2] - cp.z)});
+			// Rotation : delta d'angles compose DANS L'ORDRE de la decomposition.
+			const float32 kDeg2Rad = 0.017453292f;
+			const float32 dx = (rotDeg3[0] - cr.x) * kDeg2Rad;
+			const float32 dy = (rotDeg3[1] - cr.y) * kDeg2Rad;
+			const float32 dz = (rotDeg3[2] - cr.z) * kDeg2Rad;
+			if (fabsf(dx) + fabsf(dy) + fabsf(dz) > 1e-6f) {
+				const NkMat4f R = NkMat4f::RotationZ(NkAngle::FromRad(dz)) *
+								  NkMat4f::RotationY(NkAngle::FromRad(dy)) *
+								  NkMat4f::RotationX(NkAngle::FromRad(dx));
+				G.SetRotationOf(i, R * G.RotationOf(i));
+			}
+			// Echelle : rapport par axe sur le decalage (1+s).
+			NkVec3f sv = G.ScaleOf(i);
+			const float32 want[3] = {scl3[0], scl3[1], scl3[2]};
+			const float32 cur[3] = {cs.x, cs.y, cs.z};
+			float32 *sc[3] = {&sv.x, &sv.y, &sv.z};
+			for (int32 a = 0; a < 3; ++a)
+				if (cur[a] > 1e-6f && fabsf(want[a] - cur[a]) > 1e-6f)
+					*sc[a] = (1.f + *sc[a]) * (want[a] / cur[a]) - 1.f;
+			G.SetScaleOf(i, sv);
 		}
 
 		void Demo3DHostGetCameraPose(float32 *t3, float32 *dist, float32 *yaw, float32 *pitch,

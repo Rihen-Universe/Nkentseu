@@ -1,6 +1,6 @@
-#pragma once
+﻿#pragma once
 // =============================================================================
-// NkModelerIcons.h — les icones de l'interface.
+// NkModelerIcons.h â€” les icones de l'interface.
 //
 // SOURCE : les SVG de vscode-codicons, deposes dans data/icons/. Le SVG plutot
 // que le PNG parce qu'un rasteriseur existe deja (NkSVGCodec) : on decode a la
@@ -28,7 +28,7 @@ namespace nkentseu {
 
 		// Identifiants STABLES. L'ordre n'a pas d'importance ici (rien n'est
 		// serialise), mais les noms si : ils disent l'USAGE, pas le dessin. Le jour
-		// ou « enregistrer » change d'icone, seule la table ci-dessous bouge.
+		// ou Â« enregistrer Â» change d'icone, seule la table ci-dessous bouge.
 		enum class NkIcon : uint16 {
 			None = 0,
 			Save,
@@ -154,9 +154,9 @@ namespace nkentseu {
 						{NkIcon::Unlock, "unlock"},
 						{NkIcon::EyeClosed, "eye-closed"},
 						{NkIcon::Zoom, "zoom-in"},
-						{NkIcon::Pan, "split-horizontal"},
+						{NkIcon::Pan, "hand"},
 						{NkIcon::Camera, "device-camera"},
-						{NkIcon::Ortho, "layout"},
+						{NkIcon::Ortho, "ortho-cube"},
 						{NkIcon::Gizmo, "location"},
 						{NkIcon::Overlay, "circle-filled"},
 						{NkIcon::Light, "lightbulb"},
@@ -172,8 +172,8 @@ namespace nkentseu {
 						// AIMANTATION : dessins DISTINCTS de ceux des outils de
 						// transformation. Reutiliser l'icone de rotation pour l'aimantation
 						// angulaire faisait croire a deux boutons de rotation cote a cote --
-						// c'est le defaut signale par Rihen. Une aimantation dit « sur quoi
-						// je retombe », pas « ce que je fais ».
+						// c'est le defaut signale par Rihen. Une aimantation dit Â« sur quoi
+						// je retombe Â», pas Â« ce que je fais Â».
 						{NkIcon::SnapGrid, "table"},		// quadrillage
 						{NkIcon::SnapAngle, "compass"},	// rapporteur
 						{NkIcon::SnapScale, "law"},		// balance : proportions
@@ -227,7 +227,7 @@ namespace nkentseu {
 							NkImage *small = big->Resize(sizePx, sizePx);
 							NkImage *use = (small && small->IsValid()) ? small : big;
 
-							// ── LA CORRECTION QUI FAIT TOUT ─────────────────────
+							// â”€â”€ LA CORRECTION QUI FAIT TOUT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 							// Les codicons sont dessines en NOIR. La teinte du rendu
 							// MULTIPLIE l'echantillon : noir x blanc = noir. Les icones
 							// sortaient donc NOIRES sur fond sombre quelle que soit la
