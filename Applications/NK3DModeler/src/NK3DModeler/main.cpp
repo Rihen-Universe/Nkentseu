@@ -561,6 +561,19 @@ int nkmain(const NkEntryState &entry) {
 		// La demo portee recoit la taille de la vue, son origine (traduction
 		// souris fenetre -> vue), le survol (ses raccourcis n'ecoutent que la
 		// vue survolee, comme Blender) et la garde de saisie de texte.
+		// AUCUNE pastille de proprietes active : le panneau se REPLIE sur sa
+		// colonne de pastilles et la VUE recupere la place.
+		if (st.showRight && !(st.propOpen0 || st.propOpen1 || st.propOpen2)) {
+			const float32 tabW = S(28.f);
+			const float32 give = lay.propsR.w - tabW;
+			if (give > 0.f) {
+				lay.view.w += give;
+				lay.propsR.x += give;
+				lay.propsR.w = tabW;
+				lay.detailsR.x += give;
+				lay.detailsR.w = tabW;
+			}
+		}
 		// La vue REELLE vit SOUS la barre d'espaces : taille et origine de la
 		// souris doivent viser la meme zone que l'image, sinon le picking
 		// decale d'une hauteur de barre.

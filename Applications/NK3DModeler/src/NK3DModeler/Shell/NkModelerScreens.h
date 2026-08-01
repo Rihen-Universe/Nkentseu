@@ -2216,7 +2216,18 @@ namespace nkentseu {
 										   const nkgui::NkGuiInput &in, NkComboPending &combo) {
 			p.Fill(rFull, NkRole::PanelBg);
 			p.VLine(rFull.x, rFull.y, rFull.h);
-			float32 y = PaintPanelTab(p, rFull, "Proprietes", &hit, &st.showRight, "props.close");
+			// PLUS DE CROIX : les PASTILLES font l'affichage/masquage -- aucune
+			// active, et le panneau n'est plus que sa colonne de pastilles.
+			const bool collapsed = !(st.propOpen0 || st.propOpen1 || st.propOpen2);
+			float32 y;
+			if (collapsed) {
+				y = rFull.y + S(6.f);
+			} else {
+				p.Fill({rFull.x, rFull.y, rFull.w, kRowH}, NkRole::PanelHeader);
+				p.TextV(rFull.x + kPad, rFull.y, kRowH, "Proprietes");
+				p.HLine(rFull.x, rFull.y + kRowH - 1.f, rFull.w);
+				y = rFull.y + kRowH;
+			}
 			// LA COLONNE DE PASTILLES (idee de Rihen, facon Blender) reserve le
 			// bord droit ; tout le reste du panneau travaille dans r, ampute
 			// d'autant.
@@ -2274,9 +2285,11 @@ namespace nkentseu {
 								   : (sContentH[sec] < share ? sContentH[sec] : share);
 				if (boxH < kRowH)
 					boxH = kRowH;
-				const float32 maxBox = (r.y + r.h) - secY - S(8.f);
-				if (boxH > maxBox && maxBox > kRowH)
-					boxH = maxBox;
+				// PAS de plafond calcule sur la position DEFILEE : il creait une
+				// retroaction (descendre allongeait la derniere section, donc la
+				// pile, donc le defilement...) -- c'etait le CLIGNOTEMENT de la
+				// barre generale constate par Rihen. L'exces de hauteur est
+				// l'affaire du defilement de page, pas d'un plafond.
 				const NkRect box{r.x, secY, r.w, boxH};
 				snprintf(key, sizeof(key), "props.body.%d", sec);
 				hit.Add(key, box);
@@ -2787,8 +2800,16 @@ namespace nkentseu {
 						HoverFill(p, tb, overT, 3.f);
 					p.IconV(tb.x + (tb.w - S(14.f)) * 0.5f, tb.y, tb.h, kTabIc[i2],
 							on ? NkRole::TextOnAccent : NkRole::TextMuted, 14.f);
-					if (hit.Clicked(tk))
+					if (hit.Clicked(tk)) {
 						*openFlags[i2] = !on;
+						// Une section MASQUEE oublie son agrandissement et son
+						// defilement : ils ne doivent plus peser sur la mise en
+						// page, et elle reviendra en partage automatique.
+						if (on) {
+							st.propSecH[i2] = 0.f;
+							st.propScroll3[i2] = 0.f;
+						}
+					}
 					ty += S(28.f);
 				}
 			}
