@@ -68,6 +68,8 @@ namespace nkentseu {
 		static bool nkvpGridOn = true; // la VOLONTE de grille (la case du shell), meme quand
 									   // l'ortho coupe la grille infinie du moteur
 		static bool nkvpAxesOn = true; // axes debug +-1000 (bascule « Axes du plan »)
+		static bool nkvpMinorOn = true;  // volonte « Lignes internes »
+		static bool nkvpMajorOn = true;  // volonte « Lignes majeures »
 		static bool nkvpCursorTool = false;			   // outil CURSEUR : clic gauche = poser le curseur 3D
 		static bool nkvpGizmoHidden = false;		   // outils Selection/Curseur : pas de poignees
 		// ── PARENTE DE SCENE ────────────────────────────────────────────────
@@ -190,6 +192,10 @@ namespace nkentseu {
 				NkMeshHandle meshSphere;
 				NkMeshHandle meshPlane;
 				NkMeshHandle meshCube;
+				// Primitives du menu AJOUTER (vraies formes, regle de Rihen).
+				NkMeshHandle meshCylinder;
+				NkMeshHandle meshCone;
+				NkMeshHandle meshIco;
 				// ── NK_GI_TEST : mur mobile pour éprouver le GI à un rebond ──────
 				// Bornes de base du mur ; `giWallOffset` s'y ajoute et le GI est
 				// recalculé à chaque déplacement — c'est la démonstration que
@@ -2312,6 +2318,9 @@ namespace nkentseu {
 			st->meshSphere = meshSys->GetSphere();
 			st->meshPlane = meshSys->GetPlane();
 			st->meshCube = meshSys->GetCube();
+			st->meshCylinder = meshSys->GetCylinder();
+			st->meshCone = meshSys->GetCone();
+			st->meshIco = meshSys->GetIcosphere();
 			// Volet 2 : le mesh éditable n'est plus une grille test — il est CLONÉ à la
 			// volée depuis l'objet sélectionné à l'entrée en Edit Mode (TAB), cf. la
 			// section « EDIT MODE » dans la frame. Les primitives (sphère/cube) gardent
@@ -4718,7 +4727,15 @@ namespace nkentseu {
 					 NkMat4f::RotationY(NkAngle::FromRad(nkvpEmptyRotDeg[e][1] * kD2Ru)) *
 					 NkMat4f::RotationX(NkAngle::FromRad(nkvpEmptyRotDeg[e][0] * kD2Ru)));
 				NkDrawCall3D dc;
-				dc.mesh = uk == 1 ? st->meshSphere : (uk == 2 ? st->meshCube : st->meshPlane);
+				// La VARIANTE demandee au menu choisit la vraie primitive
+				// (tore : generateur moteur a venir, sphere en attendant).
+				const uint8 usv = nkvpUserSub[u];
+				dc.mesh = st->meshPlane;
+				if (uk == 1)
+					dc.mesh = usv == 1 ? st->meshIco : st->meshSphere;
+				else if (uk == 2)
+					dc.mesh = usv == 1 ? st->meshCylinder
+										   : (usv == 2 ? st->meshCone : st->meshCube);
 				const NkVec3f uc{nkvpEmptyPos[e][0] + utr.x, nkvpEmptyPos[e][1] + utr.y,
 								 nkvpEmptyPos[e][2] + utr.z};
 				dc.transform = NkMat4f::Translate(uc) * uR *
@@ -7030,9 +7047,16 @@ namespace nkentseu {
 							if (!st->emptyGizmo.IsSelected(e) || HostHiddenEff(un))
 								continue;
 							NkDrawCall3D sdc2;
-							sdc2.mesh = nkvpUserKind[u] == 1   ? st->meshSphere
-										: nkvpUserKind[u] == 2 ? st->meshCube
-																   : st->meshPlane;
+							{
+								const uint8 usv2 = nkvpUserSub[u];
+								sdc2.mesh = st->meshPlane;
+								if (nkvpUserKind[u] == 1)
+									sdc2.mesh = usv2 == 1 ? st->meshIco : st->meshSphere;
+								else if (nkvpUserKind[u] == 2)
+									sdc2.mesh = usv2 == 1
+													? st->meshCylinder
+													: (usv2 == 2 ? st->meshCone : st->meshCube);
+							}
 							const NkVec3f utr = st->emptyGizmo.TranslateOf(e);
 							const NkVec3f uos = st->emptyGizmo.ScaleOf(e);
 							const NkMat4f uR =
@@ -7148,7 +7172,8 @@ namespace nkentseu {
 					if (90 + e >= kNkvpFirstUser &&
 						(nkvpUserKind[e - 6] == 0 ||
 						 (nkvpUserKind[e - 6] >= 1 && nkvpUserKind[e - 6] <= 3) ||
-						 nkvpUserKind[e - 6] == 5))
+						 nkvpUserKind[e - 6] == 5) &&
+						nkvpUserKind[e - 6] != 10)
 						continue;
 					if (HostHiddenEff(90 + e))
 						continue;
@@ -7159,12 +7184,66 @@ namespace nkentseu {
 					const bool esl = (e == esel);
 					const NkVec4f ecol = esl ? NkVec4f{1.f, 0.75f, 0.25f, 1.f}
 											 : NkVec4f{0.75f, 0.75f, 0.78f, 0.9f};
-					r3d->DrawDebugLine({ep.x - eh, ep.y, ep.z}, {ep.x + eh, ep.y, ep.z}, ecol, 0.f,
-									   true);
-					r3d->DrawDebugLine({ep.x, ep.y - eh, ep.z}, {ep.x, ep.y + eh, ep.z}, ecol, 0.f,
-									   true);
-					r3d->DrawDebugLine({ep.x, ep.y, ep.z - eh}, {ep.x, ep.y, ep.z + eh}, ecol, 0.f,
-									   true);
+					// Chaque nature a SA forme (regle de Rihen) : cercle FERME
+					// d'aretes sans face, camera en pyramide de visee, croix sinon.
+					const uint8 dk2 = (90 + e >= kNkvpFirstUser) ? nkvpUserKind[e - 6] : (uint8)4;
+					const uint8 ds2 = (90 + e >= kNkvpFirstUser) ? nkvpUserSub[e - 6] : (uint8)0;
+					const float32 kD2Rc = 0.017453292f;
+					const NkMat4f cRm =
+						st->emptyGizmo.RotationOf(e) *
+						(NkMat4f::RotationZ(NkAngle::FromRad(nkvpEmptyRotDeg[e][2] * kD2Rc)) *
+						 NkMat4f::RotationY(NkAngle::FromRad(nkvpEmptyRotDeg[e][1] * kD2Rc)) *
+						 NkMat4f::RotationX(NkAngle::FromRad(nkvpEmptyRotDeg[e][0] * kD2Rc)));
+					const NkVec3f cOs = st->emptyGizmo.ScaleOf(e);
+					const float32 sx2 = fabsf(nkvpEmptyScl[e][0]) * (1.f + cOs.x);
+					const float32 sy2 = fabsf(nkvpEmptyScl[e][1]) * (1.f + cOs.y);
+					const float32 sz2 = fabsf(nkvpEmptyScl[e][2]) * (1.f + cOs.z);
+					auto cxf = [&](float32 lx, float32 ly, float32 lz) {
+						lx *= sx2;
+						ly *= sy2;
+						lz *= sz2;
+						return NkVec3f{
+							ep.x + cRm.mat[0][0] * lx + cRm.mat[1][0] * ly + cRm.mat[2][0] * lz,
+							ep.y + cRm.mat[0][1] * lx + cRm.mat[1][1] * ly + cRm.mat[2][1] * lz,
+							ep.z + cRm.mat[0][2] * lx + cRm.mat[1][2] * ly + cRm.mat[2][2] * lz};
+					};
+					if (dk2 == 10 || (dk2 == 7 && (ds2 == 1 || ds2 == 3))) {
+						// CERCLE ferme : 32 aretes, aucune face.
+						NkVec3f prevPt{};
+						for (int32 seg = 0; seg <= 32; ++seg) {
+							const float32 an = (float32)seg * (6.2831853f / 32.f);
+							const NkVec3f pt = cxf(cosf(an), 0.f, sinf(an));
+							if (seg > 0)
+								r3d->DrawDebugLine(prevPt, pt, ecol, 0.f, true);
+							prevPt = pt;
+						}
+					} else if (dk2 == 4 && ds2 == 10) {
+						// CAMERA : pyramide de visee (regard -Z local) + triangle
+						// « haut », facon Blender/Unreal.
+						const NkVec3f apex = cxf(0.f, 0.f, 0.f);
+						NkVec3f cw[4];
+						cw[0] = cxf(-0.32f, -0.22f, -0.7f);
+						cw[1] = cxf(0.32f, -0.22f, -0.7f);
+						cw[2] = cxf(0.32f, 0.22f, -0.7f);
+						cw[3] = cxf(-0.32f, 0.22f, -0.7f);
+						for (int32 k3 = 0; k3 < 4; ++k3) {
+							r3d->DrawDebugLine(apex, cw[k3], ecol, 0.f, true);
+							r3d->DrawDebugLine(cw[k3], cw[(k3 + 1) & 3], ecol, 0.f, true);
+						}
+						r3d->DrawDebugLine(cxf(-0.12f, 0.26f, -0.7f), cxf(0.12f, 0.26f, -0.7f),
+										   ecol, 0.f, true);
+						r3d->DrawDebugLine(cxf(0.12f, 0.26f, -0.7f), cxf(0.f, 0.42f, -0.7f), ecol,
+										   0.f, true);
+						r3d->DrawDebugLine(cxf(0.f, 0.42f, -0.7f), cxf(-0.12f, 0.26f, -0.7f), ecol,
+										   0.f, true);
+					} else {
+						r3d->DrawDebugLine({ep.x - eh, ep.y, ep.z}, {ep.x + eh, ep.y, ep.z}, ecol,
+										   0.f, true);
+						r3d->DrawDebugLine({ep.x, ep.y - eh, ep.z}, {ep.x, ep.y + eh, ep.z}, ecol,
+										   0.f, true);
+						r3d->DrawDebugLine({ep.x, ep.y, ep.z - eh}, {ep.x, ep.y, ep.z + eh}, ecol,
+										   0.f, true);
+					}
 				}
 				if (esel >= 0 && !nkvpGizmoHidden)
 					st->emptyGizmo.Draw(
@@ -7911,6 +7990,8 @@ namespace nkentseu {
 			g.showMajor = major;
 			g.showAxes = axes;
 			nkvpAxesOn = axes; // les axes debug de la demo suivent la meme case
+			nkvpMinorOn = minor;
+			nkvpMajorOn = major;
 		}
 		void Demo3DHostGridFlags(bool *grid, bool *minor, bool *major, bool *axes) {
 			auto *r3d = HostR3D();
@@ -7918,11 +7999,13 @@ namespace nkentseu {
 				*grid = *minor = *major = *axes = true;
 				return;
 			}
-			auto &g = r3d->GetInfiniteGridParams();
-			*grid = nkvpGridOn; // la volonte, pas l'etat moteur (l'ortho le coupe)
-			*minor = g.showMinor;
-			*major = g.showMajor;
-			*axes = g.showAxes;
+			// Les VOLONTES, jamais l'etat moteur : la demo coupe les axes shader
+			// a l'init (axes en lignes debug) et la premiere synchro du shell
+			// DECOCHAIT « Axes du plan » et « Lignes internes » (Rihen).
+			*grid = nkvpGridOn;
+			*minor = nkvpMinorOn;
+			*major = nkvpMajorOn;
+			*axes = nkvpAxesOn;
 		}
 		void Demo3DHostSetOutline(bool on) {
 			auto *r3d = HostR3D();
@@ -8673,6 +8756,9 @@ namespace nkentseu {
 					st->lightGizmo.ToggleSelection(li2);
 			if (!sHierOk) {
 				sHierOk = true;
+				// premiere frame : pousser les volontes d'affichage dans le
+				// moteur (lignes internes/majeures visibles d'entree).
+				Demo3DHostSetGridFlags(nkvpGridOn, nkvpMinorOn, nkvpMajorOn, nkvpAxesOn);
 			} else {
 				for (int32 n = 0; n < kNkvpMaxNodes; ++n)
 					if (nkvpParentOf[n] < 0)
@@ -8973,14 +9059,18 @@ namespace nkentseu {
 		// attendant leur backend de geometrie (transformables, parentables).
 		int32 Demo3DHostAddNode(int32 kind, int32 sub) {
 			auto *st = HostSt();
-			if (!st || kind < 1 || kind > 9)
+			if (!st || kind < 1 || kind > 10)
 				return -1;
 			const int32 n = HostAllocUser((uint8)kind);
 			if (n < 0)
 				return -1;
 			nkvpUserSub[n - kNkvpFirstUser] = (uint8)(sub & 0xFF);
 			const int32 e = n - kNkvpFirstEmpty;
-			nkvpEmptyPos[e][1] = kind == 5 ? 2.5f : 0.5f; // nait au-dessus du sol
+			// nait AU CURSEUR 3D : il n'y en a qu'un et il peut etre place
+			// n'importe ou (regle de Rihen).
+			nkvpEmptyPos[e][0] = st->cursor3D.x;
+			nkvpEmptyPos[e][1] = st->cursor3D.y;
+			nkvpEmptyPos[e][2] = st->cursor3D.z;
 			if (kind == 5) {
 				// Lumiere NATIVE : partir de la lumiere existante la plus proche
 				// du type demande (0 dir, 1 point, 2 spot, 3 surfacique).

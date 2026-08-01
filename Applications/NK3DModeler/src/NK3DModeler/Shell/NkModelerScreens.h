@@ -275,7 +275,7 @@ namespace nkentseu {
 			static const NkAddEntry kMesh[] = {
 				{"Plan", NkIcon::Square, 3, 0},
 				{"Cube", NkIcon::Mesh, 2, 0},
-				{"Cercle", NkIcon::Circle, 3, 1},
+				{"Cercle", NkIcon::Circle, 10, 0}, // vrai cercle FERME d'aretes
 				{"Sphere UV", NkIcon::Circle, 1, 0},
 				{"IcoSphere", NkIcon::Circle, 1, 1},
 				{"Cylindre", NkIcon::Mesh, 2, 1},
@@ -994,11 +994,11 @@ namespace nkentseu {
 		inline void NkHierNodeName(NkModelerState &st, int32 node, char *out, uint32 cap);
 		// Nature d'un noeud utilisateur -> libelle et icone de la hierarchie.
 		inline const char *NkUserKindLabel(int32 k) {
-			static const char *const kL[10] = {"Empty",  "Maillage", "Maillage",
+			static const char *const kL[11] = {"Empty",  "Maillage", "Maillage",
 											   "Maillage", "Empty",	"Lumiere",
 											   "Texte",	"Courbe",	"Surface",
-											   "Metaball"};
-			return (k >= 0 && k <= 9) ? kL[k] : "Empty";
+											   "Metaball", "Maillage"};
+			return (k >= 0 && k <= 10) ? kL[k] : "Empty";
 		}
 		inline NkIcon NkUserKindIcon(int32 k) {
 			switch (k) {
@@ -1016,6 +1016,8 @@ namespace nkentseu {
 					return NkIcon::Layers;
 				case 9:
 					return NkIcon::Circle;
+				case 10:
+					return NkIcon::Circle; // cercle d'aretes
 				default:
 					return NkIcon::Cursor;
 			}
@@ -1088,12 +1090,12 @@ namespace nkentseu {
 			}
 			if (node >= 96) {
 				// OBJET UTILISATEUR : nom par nature + numero de slot.
-				static const char *const kUK[10] = {"Objet", "Sphere", "Cube",
+				static const char *const kUK[11] = {"Objet", "Sphere", "Cube",
 													"Plan",  "Empty",  "Lumiere",
 													"Texte", "Courbe", "Surface",
-													"Metaball"};
+													"Metaball", "Cercle"};
 				int32 k2 = demo::Demo3DHostUserKind(node);
-				if (k2 < 0 || k2 > 9)
+				if (k2 < 0 || k2 > 10)
 					k2 = 0;
 				snprintf(out, cap, "%s.%03d", kUK[k2], node - 96);
 				return;
@@ -2249,6 +2251,16 @@ namespace nkentseu {
 			// dormante ; c'est donc l'hote de la demo qui dit Â« pret Â».
 			if (demo::Demo3DHostReady()) {
 				p.Image(nk3d::kViewportTexId, vr);
+				if (!st.wsBarOpen) {
+					// La poignee « Espaces » se REPEINT par-dessus l'image : elle
+					// etait recouverte, donc introuvable barre fermee (Rihen).
+					const NkRect ch2{r.x + r.w * 0.5f - S(52.f), r.y + S(2.f), S(104.f),
+									 S(16.f)};
+					p.Outline(ch2, NkRole::Border, NkRole::PanelHeader, 4.f);
+					p.IconV(ch2.x + S(6.f), ch2.y, ch2.h, NkIcon::ChevronDown,
+							NkRole::TextMuted, 12.f);
+					p.TextV(ch2.x + S(22.f), ch2.y, ch2.h, "Espaces", NkRole::TextMuted);
+				}
 			} else if (const char *e = demo::Demo3DHostError()) {
 				// UN ECHEC SE DIT. Un viewport reste noir ne distingue pas Â« la carte
 				// a refuse la cible Â» de Â« la scene est vide Â», et on cherche le
