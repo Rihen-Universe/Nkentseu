@@ -164,6 +164,9 @@ namespace nkentseu {
 		// Raccourcis par POLLING : bits 1 dupliquer, 2 copier, 4 coller,
 		// 8 supprimer, 16 parenter, 32 deparenter. Consommes a la lecture.
 		int32 Demo3DHostTakeShortcuts();
+		// Lumiere UTILISATEUR (kind 5) : couleur + intensite.
+		bool Demo3DHostUserLightParams(int32 node, float32 *color3, float32 *intensity);
+		void Demo3DHostSetUserLightParams(int32 node, const float32 *color3, float32 intensity);
 		void Demo3DHostNodeBaseSize(int32 node, float32 *out3); // taille locale par nature
 		void Demo3DHostSetNodeBaseSize(int32 node, const float32 *in3); // decouplee de l'echelle
 

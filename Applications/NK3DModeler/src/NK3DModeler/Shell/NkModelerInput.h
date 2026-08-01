@@ -257,6 +257,8 @@ namespace nkentseu {
 				bool delHasKids = false;
 				int32 delNodeCount = 0;
 				int32 delNodes[64];
+				// Nom AFFICHE de la source du presse-papiers (pour « X.001 »).
+				char clipName[24] = {};
 				// Une scene AJOUTEE est VIERGE : les objets de la demo y sont masques.
 				bool sceneBlank[8] = {};
 				// TYPE de fond de la scene : 0 couleur unie, 1 degrade, 2 texture,
