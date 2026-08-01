@@ -91,6 +91,7 @@ namespace nkentseu {
 		bool Demo3DHostObjectSelected(int32 i);
 		int32 Demo3DHostActiveObject();
 		void Demo3DHostSelectObject(int32 i, bool additive);
+		void Demo3DHostSelectGroup(int32 start, int32 count, bool additive);
 		void Demo3DHostDeselectAll();
 		void Demo3DHostObjectPosition(int32 i, float32 *out3);
 		int32 Demo3DHostLightCount();
@@ -98,6 +99,9 @@ namespace nkentseu {
 		int32 Demo3DHostSelectedLight();
 		void Demo3DHostSelectLight(int32 li);
 		void Demo3DHostLightPosition(int32 li, float32 *out3);
+		void Demo3DHostSetLightPosition(int32 li, const float32 *xyz);
+		void Demo3DHostLightParams(int32 li, float32 *color3, float32 *intensity);
+		void Demo3DHostSetLightParams(int32 li, const float32 *color3, float32 intensity);
 		void Demo3DHostSetObjectHidden(int32 i, bool hidden);
 		bool Demo3DHostObjectHidden(int32 i);
 		void Demo3DHostSetObjectLocked(int32 i, bool locked);
