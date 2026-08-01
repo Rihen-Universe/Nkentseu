@@ -2714,7 +2714,12 @@ namespace nkentseu {
 				}
 
 				sContentH[sec] = (yy + st.propScroll3[sec]) - secY + S(4.f);
-				anyWheel |= hit.WheelIn(box, st.propScroll3[sec], sContentH[sec], boxH);
+				// Une section dont le contenu TIENT n'avale pas la molette : elle
+				// n'a rien a faire defiler, c'est donc la PILE qui doit bouger.
+				if (sContentH[sec] > boxH)
+					anyWheel |= hit.WheelIn(box, st.propScroll3[sec], sContentH[sec], boxH);
+				else
+					st.propScroll3[sec] = 0.f;
 				p.Unclip();
 				snprintf(key, sizeof(key), "props.sb.%d", sec);
 				{
