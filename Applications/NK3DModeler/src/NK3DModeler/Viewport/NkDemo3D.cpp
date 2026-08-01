@@ -4699,8 +4699,9 @@ namespace nkentseu {
 			// du gizmo (effectif -> ils suivent la poignee en direct).
 			for (int32 u = 0; u < kNkvpMaxUser; ++u) {
 				const uint8 uk = nkvpUserKind[u];
-				if (uk == 0 || uk == 4)
-					continue; // libre ou empty : rien a rendre ici
+				if (uk < 1 || uk > 3)
+					continue; // seuls les MAILLAGES se rendent (une lumiere kind 5
+							  // tombait dans le cas « plan » -- constate par Rihen)
 				const int32 un = kNkvpFirstUser + u;
 				if (HostHiddenEff(un))
 					continue;
@@ -6763,6 +6764,8 @@ namespace nkentseu {
 									bestU = e2;
 								}
 							}
+							if (bestU >= 0 && bestU == st->emptyGizmo.ActiveIndex())
+								bestU = -1; // deja actif : le clic est aux POIGNEES
 							if (bestU >= 0) {
 								st->gizmo.ClearSelection();
 								st->lightGizmo.ClearSelection();
@@ -7010,6 +7013,46 @@ namespace nkentseu {
 						}
 						(void)nOut;
 					}
+					// MAILLAGES UTILISATEUR selectionnes : le MEME lisere
+					// silhouette que les objets natifs (Rihen), transformation
+					// EFFECTIVE identique au rendu (base + gizmo + dimensions).
+					if (r3d->IsSelectionOutlineEnabled()) {
+						const int32 esel2 = st->emptyGizmo.ActiveIndex();
+						const float32 kD2Ro = 0.017453292f;
+						for (int32 u = 0; u < kNkvpMaxUser; ++u) {
+							if (nkvpUserKind[u] < 1 || nkvpUserKind[u] > 3)
+								continue;
+							const int32 e = 6 + u;
+							const int32 un = kNkvpFirstUser + u;
+							if (!st->emptyGizmo.IsSelected(e) || HostHiddenEff(un))
+								continue;
+							NkDrawCall3D sdc2;
+							sdc2.mesh = nkvpUserKind[u] == 1   ? st->meshSphere
+										: nkvpUserKind[u] == 2 ? st->meshCube
+																   : st->meshPlane;
+							const NkVec3f utr = st->emptyGizmo.TranslateOf(e);
+							const NkVec3f uos = st->emptyGizmo.ScaleOf(e);
+							const NkMat4f uR =
+								st->emptyGizmo.RotationOf(e) *
+								(NkMat4f::RotationZ(NkAngle::FromRad(nkvpEmptyRotDeg[e][2] * kD2Ro)) *
+								 NkMat4f::RotationY(NkAngle::FromRad(nkvpEmptyRotDeg[e][1] * kD2Ro)) *
+								 NkMat4f::RotationX(NkAngle::FromRad(nkvpEmptyRotDeg[e][0] * kD2Ro)));
+							sdc2.transform =
+								NkMat4f::Translate({nkvpEmptyPos[e][0] + utr.x,
+													nkvpEmptyPos[e][1] + utr.y,
+													nkvpEmptyPos[e][2] + utr.z}) *
+								uR *
+								NkMat4f::Scale({nkvpEmptyScl[e][0] * (1.f + uos.x),
+												nkvpEmptyScl[e][1] * (1.f + uos.y),
+												nkvpEmptyScl[e][2] * (1.f + uos.z)});
+							if (nkvpBaseSet[un])
+								sdc2.transform = sdc2.transform *
+												 NkMat4f::Scale({nkvpDimFactor[un][0],
+																 nkvpDimFactor[un][1],
+																 nkvpDimFactor[un][2]});
+							r3d->SubmitSelection(sdc2, e == esel2);
+						}
+					}
 
 					// Rendu PLEIN (façon Blender solide) : lignes fines (tiges/liserés) via
 					// DrawDebugLine + formes PLEINES (cônes/cubes/rubans) via DrawDebugTriangle,
@@ -7115,60 +7158,6 @@ namespace nkentseu {
 									   true);
 					r3d->DrawDebugLine({ep.x, ep.y, ep.z - eh}, {ep.x, ep.y, ep.z + eh}, ecol, 0.f,
 									   true);
-				}
-				// MARQUEUR DE SELECTION des maillages utilisateur : boite
-				// filaire orange (le lisere de la demo ne les connait pas).
-				for (int32 g2 = 6; g2 < 70; ++g2) {
-					const int32 gn2 = 90 + g2;
-					if (nkvpUserKind[g2 - 6] == 0 || nkvpUserKind[g2 - 6] == 4 ||
-						nkvpUserKind[g2 - 6] == 5)
-						continue;
-					if (!st->emptyGizmo.IsSelected(g2) || HostHiddenEff(gn2))
-						continue;
-					// Boite ORIENTEE : les 8 coins passent par la transformation
-					// effective (rotation, echelle, dimensions suivies -- Rihen).
-					const NkVec3f tr2 = st->emptyGizmo.TranslateOf(g2);
-					const NkVec3f os3 = st->emptyGizmo.ScaleOf(g2);
-					const float32 kD2Rm = 0.017453292f;
-					const NkMat4f mR =
-						st->emptyGizmo.RotationOf(g2) *
-						(NkMat4f::RotationZ(NkAngle::FromRad(nkvpEmptyRotDeg[g2][2] * kD2Rm)) *
-						 NkMat4f::RotationY(NkAngle::FromRad(nkvpEmptyRotDeg[g2][1] * kD2Rm)) *
-						 NkMat4f::RotationX(NkAngle::FromRad(nkvpEmptyRotDeg[g2][0] * kD2Rm)));
-					const uint8 mk = nkvpUserKind[g2 - 6];
-					float32 hb[3] = {0.62f, 0.62f, 0.62f};
-					if (mk == 1)
-						hb[0] = hb[1] = hb[2] = 0.58f;
-					if (mk == 3) {
-						hb[0] = hb[2] = 1.05f;
-						hb[1] = 0.05f;
-					}
-					const float32 osv[3] = {os3.x, os3.y, os3.z};
-					float32 hx[3];
-					for (int32 a3 = 0; a3 < 3; ++a3) {
-						hx[a3] = fabsf(nkvpEmptyScl[g2][a3]) * (1.f + osv[a3]) * hb[a3];
-						if (nkvpBaseSet[gn2] && nkvpDimFactor[gn2][a3] > 0.f)
-							hx[a3] *= nkvpDimFactor[gn2][a3];
-						hx[a3] += 0.03f;
-					}
-					const NkVec3f c3{nkvpEmptyPos[g2][0] + tr2.x, nkvpEmptyPos[g2][1] + tr2.y,
-									 nkvpEmptyPos[g2][2] + tr2.z};
-					NkVec3f cn[8];
-					for (int32 ci2 = 0; ci2 < 8; ++ci2) {
-						const float32 lx = (ci2 & 1) ? hx[0] : -hx[0];
-						const float32 ly = (ci2 & 2) ? hx[1] : -hx[1];
-						const float32 lz = (ci2 & 4) ? hx[2] : -hx[2];
-						cn[ci2] = {c3.x + mR.mat[0][0] * lx + mR.mat[1][0] * ly + mR.mat[2][0] * lz,
-								   c3.y + mR.mat[0][1] * lx + mR.mat[1][1] * ly + mR.mat[2][1] * lz,
-								   c3.z + mR.mat[0][2] * lx + mR.mat[1][2] * ly + mR.mat[2][2] * lz};
-					}
-					const NkVec4f oc{1.f, 0.45f, 0.05f, 1.f};
-					for (int32 a3 = 0; a3 < 8; ++a3)
-						for (int32 b3 = 0; b3 < 3; ++b3) {
-							const int32 nb = a3 | (1 << b3);
-							if (nb != a3)
-								r3d->DrawDebugLine(cn[a3], cn[nb], oc, 0.f, true);
-						}
 				}
 				if (esel >= 0 && !nkvpGizmoHidden)
 					st->emptyGizmo.Draw(
