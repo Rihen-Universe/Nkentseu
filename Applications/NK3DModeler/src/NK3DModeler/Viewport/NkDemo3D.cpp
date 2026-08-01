@@ -4778,7 +4778,7 @@ namespace nkentseu {
 				dc.castShadow = true;
 				dc.tint = effTint({0.7f, 0.7f, 0.72f});
 				dc.metallic = 0.f;
-				dc.roughness = 0.6f;
+				dc.roughness = 0.85f; // mat par defaut, sans brillance marquee
 				HostMatHook(un, dc);
 				r3d->Submit(dc);
 			}
@@ -8847,6 +8847,7 @@ namespace nkentseu {
 						renderer::NkLightDesc L0 = Demo3D_LightEffective(st, 1);
 						L0.color = {1.f, 1.f, 1.f};
 						L0.position = {3.f, 4.f, 2.5f};
+						L0.cookieIdx = -1; // couleur pure par defaut
 						nkvpUserLight[nLit - kNkvpFirstUser] = L0;
 						nkvpUserSub[nLit - kNkvpFirstUser] = 1;
 						const int32 e0 = nLit - kNkvpFirstEmpty;
@@ -9365,6 +9366,7 @@ namespace nkentseu {
 				renderer::NkLightDesc L = Demo3D_LightEffective(st, tpl);
 				L.type = (decltype(L.type))(sub & 3);
 				L.direction = {0.f, -1.f, 0.f};
+				L.cookieIdx = -1; // COULEUR PURE par defaut (pas de texture heritee)
 				nkvpUserLight[n - kNkvpFirstUser] = L;
 			}
 			return n;
