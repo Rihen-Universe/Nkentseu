@@ -2243,7 +2243,8 @@ namespace nkentseu {
 			for (int32 i2 = 0; i2 < 3; ++i2)
 				if (*openFlags[i2])
 					++nOpen;
-			const float32 availH = (r.y + r.h) - y - 3.f * kRowH;
+			// Le partage ne compte que les en-tetes REELLEMENT affiches.
+			const float32 availH = (r.y + r.h) - y - (float32)(nOpen > 0 ? nOpen : 1) * kRowH;
 			const NkRect rr{r.x, 0.f, r.w - S(14.f), 0.f}; // colonne du scrollbar reservee
 			// DEFILEMENT GLOBAL : la pile entiere glisse de propScroll ; le
 			// contenu est mesure au fil de la peinture et la barre du bord la
@@ -2252,13 +2253,19 @@ namespace nkentseu {
 			p.Clip({r.x, stackTop, r.w, (r.y + r.h) - stackTop});
 			float32 secY = y - st.propScroll;
 
+			bool anyWheel = false;
 			for (int32 sec = 0; sec < 3; ++sec) {
+				// PASTILLE DECOCHEE = SECTION RETIREE de la liste (Rihen) : ni
+				// contenu NI en-tete -- la colonne de pastilles est le seul moyen
+				// de la faire revenir.
+				if (!*openFlags[sec])
+					continue;
 				snprintf(key, sizeof(key), "props.sec.%d", sec);
 				SectionHeader(p, hit, r, secY, key, kSecTitles[sec], *openFlags[sec]);
 				p.HLine(r.x, secY + kRowH - 1.f, r.w);
 				secY += kRowH;
 				if (!*openFlags[sec])
-					continue;
+					continue; // l'en-tete vient de replier la section
 				float32 share = availH / (float32)(nOpen > 0 ? nOpen : 1);
 				// La hauteur CHOISIE (poignee) prime ; sinon partage automatique
 				// borne par le contenu.
@@ -2707,7 +2714,7 @@ namespace nkentseu {
 				}
 
 				sContentH[sec] = (yy + st.propScroll3[sec]) - secY + S(4.f);
-				hit.WheelIn(box, st.propScroll3[sec], sContentH[sec], boxH);
+				anyWheel |= hit.WheelIn(box, st.propScroll3[sec], sContentH[sec], boxH);
 				p.Unclip();
 				snprintf(key, sizeof(key), "props.sb.%d", sec);
 				{
@@ -2747,6 +2754,11 @@ namespace nkentseu {
 				const float32 maxOff = stackH > viewH ? stackH - viewH : 0.f;
 				if (st.propScroll > maxOff)
 					st.propScroll = maxOff;
+				// Molette de PAGE : quand aucune section ne l'a consommee (souris
+				// sur un en-tete, une poignee, ou du vide), c'est la pile entiere
+				// qui defile.
+				if (!anyWheel)
+					hit.WheelIn({r.x, stackTop, r.w, viewH}, st.propScroll, stackH, viewH);
 				NkScrollDrag(p, hit, st, "props.outer", {r.x, stackTop, r.w, viewH}, stackH,
 							 st.propScroll);
 			}
