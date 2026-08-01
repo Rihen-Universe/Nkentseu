@@ -4243,7 +4243,16 @@ namespace nkentseu {
 				// ── POIGNEE DE HAUTEUR : agrandir/retrecir CETTE section ────
 				// Le geste appartient a la poignee ou il a commence (propDragKey),
 				// comme la barre de defilement.
-				{
+				// La poignee n'existe que si une AUTRE section OUVERTE suit : au
+				// bas de la DERNIERE elle flottait en lisere fantome sur le vide
+				// (capture de Rihen) -- la derniere remplit toujours l'espace.
+				bool hasNextOpen = false;
+				for (int32 j2 = sec + 1; j2 < kNSec; ++j2)
+					if (st.propOpen[j2] && !st.propFold[j2])
+						hasNextOpen = true;
+				if (!hasNextOpen)
+					st.propSecH[sec] = 0.f;
+				if (hasNextOpen) {
 					snprintf(key, sizeof(key), "props.div.%d", sec);
 					// Entierement DANS le bas de la boite : elle mordait sur
 					// l'en-tete suivant, et viser l'un declenchait l'autre.
