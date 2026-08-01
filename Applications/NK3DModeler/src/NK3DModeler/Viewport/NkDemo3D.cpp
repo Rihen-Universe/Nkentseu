@@ -104,6 +104,11 @@ namespace nkentseu {
 		static uint8 nkvpClipKind = 0;
 		static float32 nkvpClipTRS[9];
 		static float32 nkvpClipMat[5];
+		// TAILLE LOCALE surchargee (ligne Dimensions) : decouplee de
+		// l'echelle -- le FACTEUR ne s'applique qu'au rendu.
+		static bool nkvpBaseSet[kNkvpMaxNodes] = {};
+		static float32 nkvpBaseSize[kNkvpMaxNodes][3];
+		static float32 nkvpDimFactor[kNkvpMaxNodes][3];
 		static void HostHierarchyFrame(); // detecteur (defini pres des accesseurs)
 		static void HostParentEnsureInit();
 		static void HostDecompose(const NkMat4f &M, NkVec3f &pos, NkVec3f &rotDeg, NkVec3f &scl);
@@ -162,6 +167,13 @@ namespace nkentseu {
 			nkvpMatCache[i][2] = dc.tint.z;
 			nkvpMatCache[i][3] = dc.metallic;
 			nkvpMatCache[i][4] = dc.roughness;
+			// DIMENSIONS decouplees de l'echelle : le facteur de taille locale
+			// s'applique au RENDU seulement (l'echelle du panneau n'en sait
+			// rien, et reciproquement -- regle de Rihen).
+			if (nkvpBaseSet[i])
+				dc.transform = dc.transform *
+							   NkMat4f::Scale({nkvpDimFactor[i][0], nkvpDimFactor[i][1],
+											   nkvpDimFactor[i][2]});
 		}
 
 		struct Demo3DState {
@@ -4582,7 +4594,12 @@ namespace nkentseu {
 							HostMatHook(idx, dc);
 							r3d->Submit(dc);
 						} else {
-							inst.transforms.PushBack(xf);
+							NkMat4f xfI = xf;
+							if (nkvpBaseSet[idx])
+								xfI = xfI * NkMat4f::Scale({nkvpDimFactor[idx][0],
+															nkvpDimFactor[idx][1],
+															nkvpDimFactor[idx][2]});
+							inst.transforms.PushBack(xfI);
 							// Surcharge de TEINTE par instance (le chemin instancie n'a
 							// pas de metallique/rugosite par objet).
 							NkVec3f instTint = tint;
@@ -6675,6 +6692,61 @@ namespace nkentseu {
 							etg[e].pickRadius = 0.f; // pas de pick : la hierarchie selectionne
 						}
 						renderer::NkGizmoInput ein = gin;
+						// PICK ECRAN des MAILLAGES UTILISATEUR : un clic dans la vue
+						// les selectionne comme n'importe quel objet (Rihen). Meme
+						// principe que les lumieres : centre projete, rayon approche.
+						if (gin.leftPressed && !st->emptyGizmo.IsDragging()) {
+							const Demo3D_ScreenProj uproj = Demo3D_ScreenProj::Make(
+								cam.GetPosition(), cam.GetTarget(), 60.f, (float32)ctx.width,
+								(float32)ctx.height);
+							const NkVec3f camP2 = cam.GetPosition();
+							const NkVec3f fwd2 = (cam.GetTarget() - camP2).Normalized();
+							const NkVec3f rgt2 = fwd2.Cross(NkVec3f{0.f, 1.f, 0.f}).Normalized();
+							int32 bestU = -1;
+							float32 bestD2 = 1e30f;
+							for (int32 u2 = 0; u2 < kNkvpMaxUser; ++u2) {
+								const uint8 uk2 = nkvpUserKind[u2];
+								if (uk2 == 0 || uk2 == 4)
+									continue;
+								const int32 un2 = kNkvpFirstUser + u2;
+								if (HostHiddenEff(un2) || HostLockedEff(un2))
+									continue;
+								const int32 e2 = un2 - 90;
+								const NkVec3f c2{nkvpEmptyPos[e2][0], nkvpEmptyPos[e2][1],
+												 nkvpEmptyPos[e2][2]};
+								float32 rw = fabsf(nkvpEmptyScl[e2][0]);
+								if (fabsf(nkvpEmptyScl[e2][1]) > rw)
+									rw = fabsf(nkvpEmptyScl[e2][1]);
+								if (fabsf(nkvpEmptyScl[e2][2]) > rw)
+									rw = fabsf(nkvpEmptyScl[e2][2]);
+								rw = rw * 0.7f + 0.15f;
+								if (nkvpBaseSet[un2] && nkvpDimFactor[un2][0] > 0.f)
+									rw *= nkvpDimFactor[un2][0];
+								float32 sx0 = 0.f, sy0 = 0.f, sx1 = 0.f, sy1 = 0.f;
+								if (!uproj(c2, sx0, sy0))
+									continue;
+								const NkVec3f edge{c2.x + rgt2.x * rw, c2.y + rgt2.y * rw,
+												   c2.z + rgt2.z * rw};
+								if (!uproj(edge, sx1, sy1))
+									continue;
+								const float32 rpix = sqrtf((sx1 - sx0) * (sx1 - sx0) +
+														   (sy1 - sy0) * (sy1 - sy0));
+								const float32 pdx = gin.mouseX - sx0, pdy = gin.mouseY - sy0;
+								const float32 pd2 = pdx * pdx + pdy * pdy;
+								if (pd2 <= rpix * rpix && pd2 < bestD2) {
+									bestD2 = pd2;
+									bestU = e2;
+								}
+							}
+							if (bestU >= 0) {
+								st->gizmo.ClearSelection();
+								st->lightGizmo.ClearSelection();
+								st->lightSel = -1;
+								st->emptyGizmo.Select(bestU);
+								ein.leftPressed = false;
+								gin.leftPressed = false; // le clic est a nous
+							}
+						}
 						const bool ewasDrag = st->emptyGizmo.IsDragging();
 						st->emptyGizmo.Update(etg, 70, ein);
 						if (!ewasDrag && st->emptyGizmo.IsDragging())
@@ -8536,6 +8608,7 @@ namespace nkentseu {
 				nkvpMatMask[n] = 0;
 				nkvpObjHidden[n] = false;
 				nkvpObjLocked[n] = false;
+				nkvpBaseSet[n] = false;
 				const int32 e = n - kNkvpFirstEmpty;
 				for (int32 a = 0; a < 3; ++a) {
 					nkvpEmptyPos[e][a] = 0.f;
@@ -8598,6 +8671,14 @@ namespace nkentseu {
 				nkvpMatMetal[n] = nkvpMatCache[src][3];
 				nkvpMatRough[n] = nkvpMatCache[src][4];
 			}
+			// Le double reprend aussi la TAILLE LOCALE surchargee.
+			if (nkvpBaseSet[src]) {
+				nkvpBaseSet[n] = true;
+				for (int32 a = 0; a < 3; ++a) {
+					nkvpBaseSize[n][a] = nkvpBaseSize[src][a];
+					nkvpDimFactor[n][a] = nkvpDimFactor[src][a];
+				}
+			}
 			const int32 pp = nkvpParentOf[src];
 			nkvpParentOf[n] = (pp >= 0 && !nkvpDeleted[pp]) ? pp : -1;
 			return n;
@@ -8656,6 +8737,12 @@ namespace nkentseu {
 		// panneau = echelle monde x cette base (le format projet l'affinera
 		// avec les vraies boites englobantes).
 		void Demo3DHostNodeBaseSize(int32 node, float32 *out3) {
+			if (node >= 0 && node < kNkvpMaxNodes && nkvpBaseSet[node]) {
+				out3[0] = nkvpBaseSize[node][0];
+				out3[1] = nkvpBaseSize[node][1];
+				out3[2] = nkvpBaseSize[node][2];
+				return;
+			}
 			const uint8 k = HostKindOf(node);
 			float32 b = 1.2f; // cube unite de la demo
 			if (k == 1)
@@ -8667,6 +8754,22 @@ namespace nkentseu {
 			}
 			if (k == 0 || k == 4)
 				out3[0] = out3[1] = out3[2] = 1.f;
+		}
+		void Demo3DHostSetNodeBaseSize(int32 node, const float32 *in3) {
+			if (node < 0 || node >= kNkvpMaxNodes)
+				return;
+			// Facteur de RENDU = taille voulue / taille par defaut de la nature.
+			const bool was = nkvpBaseSet[node];
+			nkvpBaseSet[node] = false;
+			float32 def[3];
+			Demo3DHostNodeBaseSize(node, def);
+			nkvpBaseSet[node] = was;
+			for (int32 a = 0; a < 3; ++a) {
+				const float32 v = in3[a] < 0.f ? 0.f : in3[a];
+				nkvpBaseSize[node][a] = v;
+				nkvpDimFactor[node][a] = def[a] > 1e-6f ? v / def[a] : 1.f;
+			}
+			nkvpBaseSet[node] = true;
 		}
 		// Le MEME geste pour toute la selection : le delta tape dans le panneau
 		// sur l'objet ACTIF est propage aux autres selectionnes -- position en

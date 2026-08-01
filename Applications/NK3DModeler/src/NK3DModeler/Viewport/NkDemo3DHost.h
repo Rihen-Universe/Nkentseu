@@ -157,6 +157,7 @@ namespace nkentseu {
 		int32 Demo3DHostPasteNode();
 		int32 Demo3DHostUserKind(int32 node); // 0 aucun, 1 sphere, 2 cube, 3 plan, 4 empty
 		void Demo3DHostNodeBaseSize(int32 node, float32 *out3); // taille locale par nature
+		void Demo3DHostSetNodeBaseSize(int32 node, const float32 *in3); // decouplee de l'echelle
 
 		// ── Reglages de vue (panneau Scene / Outil) ─────────────────────────
 		void Demo3DHostSetViewFar(float32 f); // 0 = auto

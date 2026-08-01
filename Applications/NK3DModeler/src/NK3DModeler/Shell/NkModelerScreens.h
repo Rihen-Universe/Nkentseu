@@ -951,6 +951,14 @@ namespace nkentseu {
 				return true;
 			return node >= 96 && demo::Demo3DHostUserKind(node) == 0;
 		}
+		// Le noeud a-t-il des enfants VIVANTS (ni supprimes ni slots libres) ?
+		inline bool NkHierHasLiveKids(int32 node) {
+			const int32 nc = demo::Demo3DHostNodeCount();
+			for (int32 c = 0; c < nc; ++c)
+				if (!NkHierNodeSkip(c) && demo::Demo3DHostNodeParent(c) == node)
+					return true;
+			return false;
+		}
 		// Le noeud est-il un DESCENDANT de anc dans l'arbre de parente ?
 		inline bool NkHierIsDescendant(int32 node, int32 anc) {
 			int32 cur = node;
@@ -1000,6 +1008,189 @@ namespace nkentseu {
 				demo::Demo3DHostLightName(node - 86, out, cap);
 			else
 				demo::Demo3DHostObjectName(node, out, cap);
+		}
+		// ── MENUS ET RACCOURCIS DE SCENE (peints PAR-DESSUS tout) ───────────
+		// Raccourcis globaux (X/Suppr, Maj+D, Ctrl+C/V), menu contextuel --
+		// lignes de la hierarchie ET clic droit dans la vue 3D (Rihen) --,
+		// dialogue de confirmation de suppression. Appele en DERNIER par main.
+		inline void PaintSceneMenus(NkModelerPainter &p, const NkRect &area, const NkRect &view,
+									NkModelerState &st, NkHitRegistry &hit, NkWidgetState &ws,
+									const nkgui::NkGuiInput &in) {
+			const int32 kNumObj2 = demo::Demo3DHostObjectCount();
+			const int32 kFirstLight = kNumObj2;
+			const int32 selLight = demo::Demo3DHostSelectedLight();
+			const int32 activeObj = demo::Demo3DHostActiveObject();
+			char key[40];
+			// CLIC DROIT DANS LA VUE 3D : le menu du noeud ACTIF.
+			if (in.mouseClicked[1] && st.hierMenuNode < 0 &&
+				NkHitRegistry::Contains(view, in.mousePos)) {
+				const int32 actV = st.activeEmpty >= 0
+									   ? st.activeEmpty
+									   : (selLight >= 0 ? kFirstLight + selLight : activeObj);
+				if (actV >= 0) {
+					st.hierMenuNode = actV;
+					st.hierMenuX = in.mousePos.x;
+					st.hierMenuY = in.mousePos.y;
+				}
+			}
+			// SUPPRIMER (X ou Suppr : le sous-arbre part avec, regle de Rihen),
+			// DUPLIQUER (Maj+D), COPIER / COLLER (Ctrl+C / Ctrl+V). Valables
+			// aussi la souris sur la vue 3D -- jamais pendant une saisie.
+			if (!ws.editing) {
+				bool delK = in.keyInit[(int32)nkgui::NkGuiKey::Delete] ||
+							(in.keyInit[(int32)nkgui::NkGuiKey::X] && !in.ctrlDown &&
+							 !hit.MouseDown());
+				bool dupK = in.keyInit[(int32)nkgui::NkGuiKey::D] && in.shiftDown;
+				for (int32 ci = 0; ci < in.charCount; ++ci) {
+					const uint32 cp = in.chars[ci];
+					// X pendant un glissement = verrou d'axe du gizmo, pas une
+					// suppression : la souris doit etre relachee.
+					if ((cp == 'x' || cp == 'X') && !in.ctrlDown && !hit.MouseDown())
+						delK = true;
+					if ((cp == 'd' || cp == 'D') && in.shiftDown)
+						dupK = true;
+				}
+				const int32 actN = st.activeEmpty >= 0
+									   ? st.activeEmpty
+									   : (selLight >= 0 ? kFirstLight + selLight : activeObj);
+				if (delK && !st.delAskOpen) {
+					// CONFIRMATION D'ABORD (Rihen) : on memorise les cibles, le
+					// dialogue tranche -- y compris le sort des enfants.
+					st.delNodeCount = 0;
+					for (int32 n2 = 0; n2 < kNumObj2; ++n2)
+						if (demo::Demo3DHostObjectSelected(n2) && st.delNodeCount < 64)
+							st.delNodes[st.delNodeCount++] = n2;
+					if (selLight >= 0 && st.delNodeCount < 64)
+						st.delNodes[st.delNodeCount++] = kFirstLight + selLight;
+					if (st.activeEmpty >= 0 && st.delNodeCount < 64)
+						st.delNodes[st.delNodeCount++] = st.activeEmpty;
+					if (st.delNodeCount > 0) {
+						st.delHasKids = false;
+						for (int32 di = 0; di < st.delNodeCount; ++di)
+							if (NkHierHasLiveKids(st.delNodes[di]))
+								st.delHasKids = true;
+						st.delAskOpen = true;
+					}
+				} else if (dupK && actN >= 0) {
+					const int32 nn = demo::Demo3DHostDuplicateNode(actN);
+					if (nn >= 0)
+						demo::Demo3DHostSelectEmptyNode(nn);
+				}
+				if (in.wantCopy && actN >= 0)
+					demo::Demo3DHostCopyNode(actN);
+				if (in.wantPaste) {
+					const int32 nn = demo::Demo3DHostPasteNode();
+					if (nn >= 0)
+						demo::Demo3DHostSelectEmptyNode(nn);
+				}
+			}
+			// MENU CONTEXTUEL : Dupliquer / Copier / Coller / Supprimer, avec
+			// ou sans les enfants (les deux variantes demandees par Rihen).
+			if (st.hierMenuNode >= 0) {
+				static const char *const kMenu[4] = {"Dupliquer  (Maj+D)", "Copier  (Ctrl+C)",
+													 "Coller  (Ctrl+V)", "Supprimer...  (X)"};
+				NkRect mr{st.hierMenuX, st.hierMenuY, S(210.f), kRowH * 4.f};
+				if (mr.y + mr.h > area.y + area.h)
+					mr.y = area.y + area.h - mr.h;
+				p.Outline(mr, NkRole::Border, NkRole::PanelHeader, 3.f);
+				int32 mact = -1;
+				for (int32 mi = 0; mi < 4; ++mi) {
+					const NkRect it{mr.x, mr.y + (float32)mi * kRowH, mr.w, kRowH};
+					snprintf(key, sizeof(key), "hier.menu.%d", mi);
+					HoverFill(p, it, hit.Add(key, it), 0.f);
+					p.TextV(it.x + S(10.f), it.y, kRowH, kMenu[mi]);
+					if (hit.Clicked(key))
+						mact = mi;
+				}
+				if (mact >= 0) {
+					const int32 tn = st.hierMenuNode;
+					if (mact == 0) {
+						const int32 nn = demo::Demo3DHostDuplicateNode(tn);
+						if (nn >= 0)
+							demo::Demo3DHostSelectEmptyNode(nn);
+					} else if (mact == 1) {
+						demo::Demo3DHostCopyNode(tn);
+					} else if (mact == 2) {
+						const int32 nn = demo::Demo3DHostPasteNode();
+						if (nn >= 0)
+							demo::Demo3DHostSelectEmptyNode(nn);
+					} else if (mact == 3) {
+						// CONFIRMATION d'abord -- le dialogue tranche pour les
+						// enfants (Rihen).
+						st.delNodes[0] = tn;
+						st.delNodeCount = 1;
+						st.delHasKids = NkHierHasLiveKids(tn);
+						st.delAskOpen = true;
+					}
+					st.hierMenuNode = -1;
+				} else if (hit.AnyClick() && !NkHitRegistry::Contains(mr, hit.Mouse())) {
+					st.hierMenuNode = -1;
+				}
+			}
+			// DIALOGUE DE CONFIRMATION : aucune suppression directe (Rihen).
+			// Si un parent est vise, l'utilisateur choisit le sort des enfants.
+			if (st.delAskOpen) {
+				hit.Add("hier.delveil", area); // voile : la liste ne repond plus
+				const float32 dw = area.w - S(24.f) < S(250.f) ? area.w - S(24.f) : S(250.f);
+				const float32 dh = kRowH * (st.delHasKids ? 5.f : 3.f) + S(8.f);
+				const NkRect dr{area.x + (area.w - dw) * 0.5f, area.y + area.h * 0.32f, dw, dh};
+				p.Outline(dr, NkRole::AccentUi, NkRole::PanelHeader, 4.f);
+				char title[96];
+				if (st.delNodeCount == 1) {
+					char nm[48];
+					NkHierNodeName(st, st.delNodes[0], nm, sizeof(nm));
+					snprintf(title, sizeof(title), "Supprimer \"%s\" ?", nm);
+				} else {
+					snprintf(title, sizeof(title), "Supprimer %d elements ?",
+							 st.delNodeCount);
+				}
+				p.TextV(dr.x + S(10.f), dr.y + S(4.f), kRowH, title);
+				float32 dy = dr.y + S(4.f) + kRowH;
+				if (st.delHasKids) {
+					p.TextV(dr.x + S(10.f), dy, kRowH, "Des enfants en dependent :",
+							NkRole::TextMuted);
+					dy += kRowH;
+				}
+				int32 choice = -1; // 0 avec enfants, 1 garder, 2 annuler
+				{
+					const NkRect b0{dr.x + S(8.f), dy + S(2.f), dr.w - S(16.f), kRowH - S(4.f)};
+					hit.Add("hier.del.ok", b0);
+					p.Fill(b0, NkRole::AccentUi, 3.f);
+					p.TextV(b0.x + S(8.f), dy, kRowH,
+							st.delHasKids ? "Supprimer avec les enfants" : "Supprimer",
+							NkRole::TextOnAccent);
+					if (hit.Clicked("hier.del.ok"))
+						choice = 0;
+					dy += kRowH;
+				}
+				if (st.delHasKids) {
+					const NkRect b1{dr.x + S(8.f), dy + S(2.f), dr.w - S(16.f), kRowH - S(4.f)};
+					hit.Add("hier.del.keep", b1);
+					p.Outline(b1, NkRole::Border, NkRole::InputBg, 3.f);
+					p.TextV(b1.x + S(8.f), dy, kRowH, "Garder les enfants");
+					if (hit.Clicked("hier.del.keep"))
+						choice = 1;
+					dy += kRowH;
+				}
+				{
+					const NkRect b2{dr.x + S(8.f), dy + S(2.f), dr.w - S(16.f), kRowH - S(4.f)};
+					hit.Add("hier.del.cancel", b2);
+					p.Outline(b2, NkRole::Border, NkRole::InputBg, 3.f);
+					p.TextV(b2.x + S(8.f), dy, kRowH, "Annuler  (Echap)");
+					if (hit.Clicked("hier.del.cancel") ||
+						in.keyInit[(int32)nkgui::NkGuiKey::Escape])
+						choice = 2;
+				}
+				if (choice == 0 || choice == 1) {
+					for (int32 di = 0; di < st.delNodeCount; ++di)
+						demo::Demo3DHostDeleteNode(st.delNodes[di], choice == 0);
+					demo::Demo3DHostDeselectAll();
+				}
+				if (choice >= 0) {
+					st.delAskOpen = false;
+					st.delNodeCount = 0;
+				}
+			}
 		}
 		inline void PaintHierarchy(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
 								   NkHitRegistry &hit, NkWidgetState &ws, const nkgui::NkGuiInput &in) {
@@ -1199,7 +1390,7 @@ namespace nkentseu {
 						// SELECTION : la ligne ou le nom. Un parent se selectionne
 						// SEUL, un cadenasse JAMAIS ; Maj/Ctrl+clic = multi.
 						bool wantSel = false;
-						if (!st.hierDragging) {
+						if (!st.hierDragging && !st.delAskOpen) {
 							snprintf(key, sizeof(key), "hier.row.%d", node);
 							wantSel = hit.Clicked(key);
 							snprintf(key, sizeof(key), "hier.name.%d", node);
@@ -1313,46 +1504,6 @@ namespace nkentseu {
 						demo::Demo3DHostSetNodeParent(act, -1);
 				}
 			}
-			// SUPPRIMER (X ou Suppr : le sous-arbre part avec, regle de Rihen),
-			// DUPLIQUER (Maj+D), COPIER / COLLER (Ctrl+C / Ctrl+V). Valables
-			// aussi la souris sur la vue 3D -- jamais pendant une saisie.
-			if (!ws.editing) {
-				bool delK = in.keyInit[(int32)nkgui::NkGuiKey::Delete];
-				bool dupK = false;
-				for (int32 ci = 0; ci < in.charCount; ++ci) {
-					const uint32 cp = in.chars[ci];
-					// X pendant un glissement = verrou d'axe du gizmo, pas une
-					// suppression : la souris doit etre relachee.
-					if ((cp == 'x' || cp == 'X') && !in.ctrlDown && !hit.MouseDown())
-						delK = true;
-					if ((cp == 'd' || cp == 'D') && in.shiftDown)
-						dupK = true;
-				}
-				const int32 actN = st.activeEmpty >= 0
-									   ? st.activeEmpty
-									   : (selLight >= 0 ? kFirstLight + selLight : activeObj);
-				if (delK) {
-					for (int32 n2 = 0; n2 < kNumObj2; ++n2)
-						if (demo::Demo3DHostObjectSelected(n2))
-							demo::Demo3DHostDeleteNode(n2, true);
-					if (selLight >= 0)
-						demo::Demo3DHostDeleteNode(kFirstLight + selLight, true);
-					if (st.activeEmpty >= 0)
-						demo::Demo3DHostDeleteNode(st.activeEmpty, true);
-					demo::Demo3DHostDeselectAll();
-				} else if (dupK && actN >= 0) {
-					const int32 nn = demo::Demo3DHostDuplicateNode(actN);
-					if (nn >= 0)
-						demo::Demo3DHostSelectEmptyNode(nn);
-				}
-				if (in.wantCopy && actN >= 0)
-					demo::Demo3DHostCopyNode(actN);
-				if (in.wantPaste) {
-					const int32 nn = demo::Demo3DHostPasteNode();
-					if (nn >= 0)
-						demo::Demo3DHostSelectEmptyNode(nn);
-				}
-			}
 			hit.PopClip();
 			p.Unclip();
 
@@ -1360,49 +1511,6 @@ namespace nkentseu {
 			if (hit.Clicked("hier.list") && !st.hierDragging && st.hierMenuNode < 0) {
 				demo::Demo3DHostDeselectAll();
 				st.activeEmpty = -1;
-			}
-			// MENU CONTEXTUEL : Dupliquer / Copier / Coller / Supprimer, avec
-			// ou sans les enfants (les deux variantes demandees par Rihen).
-			if (st.hierMenuNode >= 0) {
-				static const char *const kMenu[5] = {"Dupliquer  (Maj+D)", "Copier  (Ctrl+C)",
-													 "Coller  (Ctrl+V)", "Supprimer  (X)",
-													 "Supprimer, garder les enfants"};
-				NkRect mr{st.hierMenuX, st.hierMenuY, S(210.f), kRowH * 5.f};
-				if (mr.y + mr.h > r.y + r.h)
-					mr.y = r.y + r.h - mr.h;
-				p.Outline(mr, NkRole::Border, NkRole::PanelHeader, 3.f);
-				int32 mact = -1;
-				for (int32 mi = 0; mi < 5; ++mi) {
-					const NkRect it{mr.x, mr.y + (float32)mi * kRowH, mr.w, kRowH};
-					snprintf(key, sizeof(key), "hier.menu.%d", mi);
-					HoverFill(p, it, hit.Add(key, it), 0.f);
-					p.TextV(it.x + S(10.f), it.y, kRowH, kMenu[mi]);
-					if (hit.Clicked(key))
-						mact = mi;
-				}
-				if (mact >= 0) {
-					const int32 tn = st.hierMenuNode;
-					if (mact == 0) {
-						const int32 nn = demo::Demo3DHostDuplicateNode(tn);
-						if (nn >= 0)
-							demo::Demo3DHostSelectEmptyNode(nn);
-					} else if (mact == 1) {
-						demo::Demo3DHostCopyNode(tn);
-					} else if (mact == 2) {
-						const int32 nn = demo::Demo3DHostPasteNode();
-						if (nn >= 0)
-							demo::Demo3DHostSelectEmptyNode(nn);
-					} else if (mact == 3) {
-						demo::Demo3DHostDeleteNode(tn, true);
-						demo::Demo3DHostDeselectAll();
-					} else {
-						demo::Demo3DHostDeleteNode(tn, false);
-						demo::Demo3DHostDeselectAll();
-					}
-					st.hierMenuNode = -1;
-				} else if (hit.AnyClick() && !NkHitRegistry::Contains(mr, hit.Mouse())) {
-					st.hierMenuNode = -1;
-				}
 			}
 
 			// Molette par CONTENANCE : les lignes recouvrent la liste, le survol
@@ -2753,6 +2861,46 @@ namespace nkentseu {
 								if (st.lockScl)
 									st.scl[a] = sE[6 + a];
 							}
+							// Un MAILLAGE UTILISATEUR a TOUTES les proprietes d'un
+							// mesh (Rihen) : DIMENSIONS ici, materiau plus bas.
+							const int32 ukE = demo::Demo3DHostUserKind(en);
+							if (ukE >= 1 && ukE <= 3) {
+								float32 dimE[3];
+								demo::Demo3DHostNodeBaseSize(en, dimE);
+								const float32 dimE0[3] = {dimE[0], dimE[1], dimE[2]};
+								PaintTransformRow(p, hit, ws, in, rowR, yy, "Dimensions", dimE,
+									  0.01f, "prop.edim",
+									  st.lockDim ? NkIcon::Lock : NkIcon::Unlock,
+									  NkIcon::Refresh, "%.2f", NkIcon::SnapScale, st.propDim);
+					if (hit.Clicked("prop.edim.ic0"))
+						st.lockDim = !st.lockDim;
+					if (hit.Clicked("prop.edim.ic2"))
+						st.propDim = !st.propDim;
+					yy += Vec3RowH();
+					// PROPORTIONNEL : l'axe touche impose son RAPPORT aux autres ;
+					// sinon chaque dimension ne bouge QUE son axe (Rihen).
+					if (st.propDim) {
+						int32 chD = -1;
+						for (int32 a = 0; a < 3; ++a)
+							if (dimE[a] != dimE0[a])
+								chD = a;
+						if (chD >= 0 && fabsf(dimE0[chD]) > 1e-6f) {
+							const float32 rd = dimE[chD] / dimE0[chD];
+							for (int32 a = 0; a < 3; ++a)
+								if (a != chD)
+									dimE[a] = dimE0[a] * rd;
+						}
+					}
+					if (st.lockDim)
+						for (int32 a = 0; a < 3; ++a)
+							dimE[a] = dimE0[a];
+					bool dimChE = false;
+					for (int32 a = 0; a < 3; ++a)
+						if (dimE[a] != dimE0[a])
+							dimChE = true;
+					if (dimChE)
+						demo::Demo3DHostSetNodeBaseSize(en, dimE);
+							}
 							bool diffE = false;
 							for (int32 a = 0; a < 3; ++a)
 								if (st.pos[a] != sE[a] || st.rot[a] != sE[3 + a] ||
@@ -2765,6 +2913,36 @@ namespace nkentseu {
 									sE[3 + a] = st.rot[a];
 									sE[6 + a] = st.scl[a];
 								}
+							}
+							if (ukE >= 1 && ukE <= 3) {
+								// MATERIAU du maillage utilisateur : les memes reglages
+								// que n'importe quel mesh.
+								p.TextV(r.x + kPad, yy, kRowH, "Materiau", NkRole::TextMuted);
+								yy += kRowH;
+								float32 mtE[3], metE = 0.f, rghE = 0.5f;
+								demo::Demo3DHostMeshMaterial(en, mtE, &metE, &rghE);
+								const float32 mtE0[3] = {mtE[0], mtE[1], mtE[2]};
+								const float32 metE0 = metE, rghE0 = rghE;
+								PaintTransformRow(p, hit, ws, in, rowR, yy, "Couleur", mtE,
+												  0.005f, "prop.emcol", NkIcon::None,
+												  NkIcon::None);
+								yy += Vec3RowH();
+								p.TextV(r.x + kPad, yy, kRowH, "Metallique", NkRole::TextMuted);
+								DragFloat(p, hit, ws, in, "prop.emmet",
+										  {r.x + S(120.f), yy + S(3.f), rr.w - S(128.f),
+										   kRowH - S(4.f)},
+										  metE, 0.005f, NkRole::AccentUi, "%.2f");
+								yy += kRowH;
+								p.TextV(r.x + kPad, yy, kRowH, "Rugosite", NkRole::TextMuted);
+								DragFloat(p, hit, ws, in, "prop.emrgh",
+										  {r.x + S(120.f), yy + S(3.f), rr.w - S(128.f),
+										   kRowH - S(4.f)},
+										  rghE, 0.005f, NkRole::AccentUi, "%.2f");
+								yy += kRowH;
+								if (mtE[0] != mtE0[0] || mtE[1] != mtE0[1] || mtE[2] != mtE0[2])
+									demo::Demo3DHostSetMeshTint(en, mtE);
+								if (metE != metE0 || rghE != rghE0)
+									demo::Demo3DHostSetMeshMetalRough(en, metE, rghE);
 							}
 							NkXmitRow(p, hit, r, rr, yy, en);
 						}
@@ -2890,18 +3068,44 @@ namespace nkentseu {
 							// DIMENSIONS (unites monde) : echelle x taille de base de
 							// la nature ; les EDITER ajuste l'echelle, comme Blender.
 							{
-								float32 bsz[3];
-								demo::Demo3DHostNodeBaseSize(act, bsz);
-								float32 dim[3] = {fabsf(st.scl[0]) * bsz[0],
-												  fabsf(st.scl[1]) * bsz[1],
-												  fabsf(st.scl[2]) * bsz[2]};
+								// DIMENSIONS = taille LOCALE, DECOUPLEE de l'echelle
+								// (Rihen) : l'editer redimensionne la geometrie au rendu,
+								// l'echelle n'en sait rien -- et reciproquement.
+								float32 dim[3];
+								demo::Demo3DHostNodeBaseSize(act, dim);
 								const float32 dim0[3] = {dim[0], dim[1], dim[2]};
 								PaintTransformRow(p, hit, ws, in, rowR, yy, "Dimensions", dim,
-												  0.01f, "prop.dim", NkIcon::None, NkIcon::None);
-								yy += Vec3RowH();
-								for (int32 a = 0; a < 3; ++a)
-									if (dim[a] != dim0[a] && bsz[a] > 1e-6f && dim[a] > 1e-6f)
-										st.scl[a] = dim[a] / bsz[a];
+									  0.01f, "prop.dim",
+									  st.lockDim ? NkIcon::Lock : NkIcon::Unlock,
+									  NkIcon::Refresh, "%.2f", NkIcon::SnapScale, st.propDim);
+					if (hit.Clicked("prop.dim.ic0"))
+						st.lockDim = !st.lockDim;
+					if (hit.Clicked("prop.dim.ic2"))
+						st.propDim = !st.propDim;
+					yy += Vec3RowH();
+					// PROPORTIONNEL : l'axe touche impose son RAPPORT aux autres ;
+					// sinon chaque dimension ne bouge QUE son axe (Rihen).
+					if (st.propDim) {
+						int32 chD = -1;
+						for (int32 a = 0; a < 3; ++a)
+							if (dim[a] != dim0[a])
+								chD = a;
+						if (chD >= 0 && fabsf(dim0[chD]) > 1e-6f) {
+							const float32 rd = dim[chD] / dim0[chD];
+							for (int32 a = 0; a < 3; ++a)
+								if (a != chD)
+									dim[a] = dim0[a] * rd;
+						}
+					}
+					if (st.lockDim)
+						for (int32 a = 0; a < 3; ++a)
+							dim[a] = dim0[a];
+					bool dimCh = false;
+					for (int32 a = 0; a < 3; ++a)
+						if (dim[a] != dim0[a])
+							dimCh = true;
+					if (dimCh)
+						demo::Demo3DHostSetNodeBaseSize(act, dim);
 							}
 
 							// PROPORTIONNEL (par ligne, 3e icone) : l'axe touche propage

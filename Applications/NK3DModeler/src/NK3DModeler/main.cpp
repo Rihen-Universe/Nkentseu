@@ -332,6 +332,17 @@ int nkmain(const NkEntryState &entry) {
 				case NkKey::NK_RIGHT:
 					ui.input.SetKey(nkgui::NkGuiKey::Right, true);
 					break;
+				// Raccourcis de scene (les CARACTERES n'arrivent pas toujours
+				// hors saisie : on mappe les TOUCHES, constate par Rihen).
+				case NkKey::NK_D:
+					ui.input.SetKey(nkgui::NkGuiKey::D, true);
+					break;
+				case NkKey::NK_X:
+					ui.input.SetKey(nkgui::NkGuiKey::X, true);
+					break;
+				case NkKey::NK_P:
+					ui.input.SetKey(nkgui::NkGuiKey::P, true);
+					break;
 				default:
 					break;
 			}
@@ -356,6 +367,15 @@ int nkmain(const NkEntryState &entry) {
 					break;
 				case NkKey::NK_RIGHT:
 					ui.input.SetKey(nkgui::NkGuiKey::Right, false);
+					break;
+				case NkKey::NK_D:
+					ui.input.SetKey(nkgui::NkGuiKey::D, false);
+					break;
+				case NkKey::NK_X:
+					ui.input.SetKey(nkgui::NkGuiKey::X, false);
+					break;
+				case NkKey::NK_P:
+					ui.input.SetKey(nkgui::NkGuiKey::P, false);
 					break;
 				default:
 					break;
@@ -1051,6 +1071,10 @@ int nkmain(const NkEntryState &entry) {
 		// La liste deroulee est peinte AVANT les separateurs et le menu : elle doit
 		// les recouvrir, et le registre donne la priorite a la derniere zone.
 		PaintSplitters(p, lay, W, H, st, hit);
+		// Menus et dialogues de scene PAR-DESSUS tout (menu contextuel de la
+		// hierarchie ET de la vue 3D, confirmation de suppression).
+		PaintSceneMenus(p, {0.f, 0.f, (float32)W, (float32)H}, lay.view, st, hit, ws,
+						ui.input);
 		// Le panneau des matcaps par-dessus TOUT : il peut etre ouvert depuis
 		// la barre de la vue comme depuis le panneau Proprietes.
 		PaintMatcapPopup(p, hit, st);
