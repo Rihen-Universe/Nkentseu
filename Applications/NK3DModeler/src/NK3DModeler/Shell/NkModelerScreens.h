@@ -2210,9 +2210,16 @@ namespace nkentseu {
 				if (!*openFlags[sec])
 					continue;
 				float32 share = availH / (float32)(nOpen > 0 ? nOpen : 1);
-				float32 boxH = sContentH[sec] < share ? sContentH[sec] : share;
+				// La hauteur CHOISIE (poignee) prime ; sinon partage automatique
+				// borne par le contenu.
+				float32 boxH = (st.propSecH[sec] > 0.f)
+								   ? st.propSecH[sec]
+								   : (sContentH[sec] < share ? sContentH[sec] : share);
 				if (boxH < kRowH)
 					boxH = kRowH;
+				const float32 maxBox = (r.y + r.h) - secY - S(8.f);
+				if (boxH > maxBox && maxBox > kRowH)
+					boxH = maxBox;
 				const NkRect box{r.x, secY, r.w, boxH};
 				snprintf(key, sizeof(key), "props.body.%d", sec);
 				hit.Add(key, box);
@@ -2621,6 +2628,29 @@ namespace nkentseu {
 				snprintf(key, sizeof(key), "props.sb.%d", sec);
 				NkScrollDrag(p, hit, st, key, box, sContentH[sec], st.propScroll3[sec]);
 				secY += boxH;
+				// ── POIGNEE DE HAUTEUR : agrandir/retrecir CETTE section ────
+				// Le geste appartient a la poignee ou il a commence (propDragKey),
+				// comme la barre de defilement.
+				{
+					snprintf(key, sizeof(key), "props.div.%d", sec);
+					const NkRect dv{r.x, secY - S(3.f), r.w - S(14.f), S(6.f)};
+					const bool overD = hit.Add(key, dv);
+					const bool mineD = (strcmp(st.propDragKey, key) == 0);
+					if (overD || mineD) {
+						hit.WantCursor(NkCursorWant::ResizeNS);
+						p.Fill({r.x, secY - S(2.f), r.w, S(3.f)}, NkRole::AccentUi);
+					}
+					if (hit.MouseDown() && (overD || mineD)) {
+						if (!st.propDragKey[0] && overD)
+							snprintf(st.propDragKey, sizeof(st.propDragKey), "%s", key);
+						if (strcmp(st.propDragKey, key) == 0) {
+							float32 nh = hit.Mouse().y - box.y;
+							if (nh < kRowH * 2.f)
+								nh = kRowH * 2.f;
+							st.propSecH[sec] = nh;
+						}
+					}
+				}
 			}
 			if (!hit.MouseDown())
 				st.propDragKey[0] = 0; // fin de glissement : la barre lache le geste
