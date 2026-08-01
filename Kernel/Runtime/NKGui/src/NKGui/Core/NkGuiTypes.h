@@ -121,6 +121,15 @@ namespace nkentseu {
 			O,
 			Backslash,
 			Period, // Ctrl+. : quick fix
+			// Navigation du launcher (Ctrl+3..6) et Parametres (Ctrl+,).
+			// Ces touches MANQUAIENT : l'ecran Parametres annoncait pourtant
+			// Ctrl+1..6 et Ctrl+, — des raccourcis qu'aucun code ne pouvait
+			// recevoir, faute de code de touche. Signale en beta (issue #12).
+			Num3,
+			Num4,
+			Num5,
+			Num6,
+			Comma,
 			Count
 		};
 
