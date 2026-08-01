@@ -92,6 +92,8 @@ namespace nkentseu {
 		int32 Demo3DHostActiveObject();
 		void Demo3DHostSelectObject(int32 i, bool additive);
 		void Demo3DHostSelectGroup(int32 start, int32 count, bool additive);
+		void Demo3DHostSelectAllLights();
+		bool Demo3DHostAllLightsSelected();
 		void Demo3DHostDeselectAll();
 		void Demo3DHostObjectPosition(int32 i, float32 *out3);
 		int32 Demo3DHostLightCount();
@@ -110,6 +112,8 @@ namespace nkentseu {
 		bool Demo3DHostLightHidden(int32 li);
 		void Demo3DHostSetAllHidden(bool hidden); // scene VIERGE d'un nouvel onglet
 		bool Demo3DHostObjectTransform(int32 i, float32 *pos3, float32 *rotDeg3, float32 *scl3);
+		void Demo3DHostApplyDeltaToSelection(const float32 *dPos, const float32 *dRotDeg,
+											 const float32 *sclRatio, int32 except);
 		void Demo3DHostSetObjectTransform(int32 i, const float32 *pos3, const float32 *rotDeg3,
 										  const float32 *scl3);
 

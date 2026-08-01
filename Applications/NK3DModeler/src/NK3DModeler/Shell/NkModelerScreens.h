@@ -886,8 +886,12 @@ namespace nkentseu {
 								 const char *key, const NkRect &area, float32 contentH,
 								 float32 &offset) {
 			if (contentH > area.h && area.h > 0.f) {
-				// Plus large que le dessin (6 px) : une cible de 6 px se rate.
-				const NkRect track{area.x + area.w - S(12.f), area.y, S(12.f), area.h};
+				// Le DESSIN reste colle au bord droit ; seule la ZONE DE SAISIE
+				// s'arrete 4 px avant lui -- les SPLITTERS de panneau, declares
+				// apres tout le reste, possedent ces derniers pixels et voleraient
+				// le clic. Plus large que le dessin (6 px) : une cible de 6 px se
+				// rate.
+				const NkRect track{area.x + area.w - S(16.f), area.y, S(12.f), area.h};
 				hit.Add(key, track);
 				const bool mine = (strcmp(st.propDragKey, key) == 0);
 				if (hit.MouseDown() && (hit.IsHovered(key) || mine)) {
@@ -981,8 +985,10 @@ namespace nkentseu {
 						// Le PARENT se selectionne aussi : tous ses enfants entrent
 						// dans le gizmo et se transforment ENSEMBLE, comme Unity. Le
 						// CHEVRON garde le pliage ; le reste de la ligne selectionne.
-						bool allSel = !isLightGrp && G2.count > 0;
-						if (!isLightGrp)
+						bool allSel = G2.count > 0;
+						if (isLightGrp)
+							allSel = demo::Demo3DHostAllLightsSelected();
+						else
 							for (int32 k2 = 0; k2 < G2.count && allSel; ++k2)
 								if (!demo::Demo3DHostObjectSelected(G2.start + k2))
 									allSel = false;
@@ -1010,8 +1016,12 @@ namespace nkentseu {
 							st.hierOpen ^= (1u << gi2); // le chevron plie/deplie
 						} else {
 							snprintf(key, sizeof(key), "hier.grp.%d", gi2);
-							if (hit.Clicked(key) && !isLightGrp)
-								demo::Demo3DHostSelectGroup(G2.start, G2.count, hit.ShiftDown());
+							if (hit.Clicked(key)) {
+								if (isLightGrp)
+									demo::Demo3DHostSelectAllLights();
+								else
+									demo::Demo3DHostSelectGroup(G2.start, G2.count, hit.ShiftDown());
+							}
 						}
 					}
 					yy += kRowH;
@@ -1102,16 +1112,12 @@ namespace nkentseu {
 			if (hit.Clicked("hier.list"))
 				demo::Demo3DHostDeselectAll();
 
-			hit.Wheel("hier.list", st.scrollHier, (float32)visibleCount * kRowH, listH);
-			// La barre s'ECARTE du bord : le SPLITTER de panneau (declare apres
-			// tout le reste) recouvrait la moitie droite de la glissiere et volait
-			// ses clics -- le Â« scrollbar ne fonctionne pas Â» de Rihen.
-			{
-				NkRect sbR = listR;
-				sbR.w -= S(7.f);
-				NkScrollDrag(p, hit, st, "hier.scrollbar", sbR, (float32)visibleCount * kRowH,
-							 st.scrollHier);
-			}
+			// Molette par CONTENANCE : les lignes recouvrent la liste, le survol
+			// exact la rendait morte (constate). La barre est COLLEE au bord
+			// droit ; seule sa zone de saisie s'arrete avant le splitter.
+			hit.WheelIn(listR, st.scrollHier, (float32)visibleCount * kRowH, listH);
+			NkScrollDrag(p, hit, st, "hier.scrollbar", listR, (float32)visibleCount * kRowH,
+						 st.scrollHier);
 
 			const float32 fy = r.y + r.h - kRowH;
 			p.Fill({r.x, fy, r.w, kRowH}, NkRole::WindowBg);
@@ -2360,7 +2366,16 @@ namespace nkentseu {
 									fabsf(st.scl[a] - sPull[6 + a]) > 1e-5f)
 									diff = true;
 							if (diff) {
+								// La MEME modification pour TOUTE la selection : le delta
+								// tape ici se propage aux autres objets selectionnes.
+								float32 dP[3], dR[3], rS[3];
+								for (int32 a = 0; a < 3; ++a) {
+									dP[a] = st.pos[a] - sPull[a];
+									dR[a] = st.rot[a] - sPull[3 + a];
+									rS[a] = (sPull[6 + a] > 1e-6f) ? st.scl[a] / sPull[6 + a] : 1.f;
+								}
 								demo::Demo3DHostSetObjectTransform(act, st.pos, st.rot, st.scl);
+								demo::Demo3DHostApplyDeltaToSelection(dP, dR, rS, act);
 								for (int32 a = 0; a < 3; ++a) {
 									sPull[a] = st.pos[a];
 									sPull[3 + a] = st.rot[a];
@@ -2601,8 +2616,7 @@ namespace nkentseu {
 				}
 
 				sContentH[sec] = (yy + st.propScroll3[sec]) - secY + S(4.f);
-				snprintf(key, sizeof(key), "props.body.%d", sec);
-				hit.Wheel(key, st.propScroll3[sec], sContentH[sec], boxH);
+				hit.WheelIn(box, st.propScroll3[sec], sContentH[sec], boxH);
 				p.Unclip();
 				snprintf(key, sizeof(key), "props.sb.%d", sec);
 				NkScrollDrag(p, hit, st, key, box, sContentH[sec], st.propScroll3[sec]);

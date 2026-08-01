@@ -7558,6 +7558,9 @@ namespace nkentseu {
 			auto *st = HostSt();
 			if (!st)
 				return;
+			// lightSel seul ne suffit pas : le gizmo des lumieres le RESSUSCITE
+			// chaque frame (lightSel = ActiveIndex) -- on vide sa selection.
+			st->lightGizmo.ClearSelection();
 			st->lightSel = -1;
 			if (additive)
 				st->gizmo.ToggleSelection(i); // Maj+clic, comme dans la vue
@@ -7572,6 +7575,7 @@ namespace nkentseu {
 			auto *st = HostSt();
 			if (!st)
 				return;
+			st->lightGizmo.ClearSelection(); // meme regle que Demo3DHostSelectObject
 			st->lightSel = -1;
 			if (!additive)
 				st->gizmo.ClearSelection();
@@ -7581,6 +7585,27 @@ namespace nkentseu {
 					!st->gizmo.IsSelected(i))
 					st->gizmo.ToggleSelection(i);
 			}
+		}
+		// Le PARENT « Lumieres » se selectionne aussi : toutes les lumieres
+		// entrent dans le gizmo des lumieres (multi-selection) et se
+		// transforment ensemble. Le parentage LIBRE entre natures differentes
+		// (une lumiere enfant d'un maillage...) viendra avec le format projet.
+		void Demo3DHostSelectAllLights() {
+			auto *st = HostSt();
+			if (!st)
+				return;
+			st->gizmo.ClearSelection();
+			st->lightGizmo.SelectAll();
+			st->lightSel = st->lightGizmo.ActiveIndex();
+		}
+		bool Demo3DHostAllLightsSelected() {
+			auto *st = HostSt();
+			if (!st)
+				return false;
+			for (int32 li = 0; li < Demo3DState::kNumLights; ++li)
+				if (!st->lightGizmo.IsSelected(li))
+					return false;
+			return true;
 		}
 		void Demo3DHostDeselectAll() {
 			auto *st = HostSt();
@@ -7767,6 +7792,35 @@ namespace nkentseu {
 			rotDeg.y = asinf(syn) * kRad2Deg;
 			rotDeg.x = atan2f(r12, r22) * kRad2Deg;
 			rotDeg.z = atan2f(r01, r00) * kRad2Deg;
+		}
+		// Le MEME geste pour toute la selection : le delta tape dans le panneau
+		// sur l'objet ACTIF est propage aux autres selectionnes -- position en
+		// delta monde, rotation en delta d'angles, echelle en rapport.
+		void Demo3DHostApplyDeltaToSelection(const float32 *dPos, const float32 *dRotDeg,
+											 const float32 *sclRatio, int32 except) {
+			auto *st = HostSt();
+			if (!st)
+				return;
+			renderer::NkGizmo3D &G = st->gizmo;
+			const float32 kDeg2Rad = 0.017453292f;
+			for (int32 i = 0; i < Demo3DState::kNumObj; ++i) {
+				if (i == except || !G.IsSelected(i) || nkvpObjLocked[i])
+					continue;
+				const NkVec3f t = G.TranslateOf(i);
+				G.SetTranslateOf(i, {t.x + dPos[0], t.y + dPos[1], t.z + dPos[2]});
+				if (fabsf(dRotDeg[0]) + fabsf(dRotDeg[1]) + fabsf(dRotDeg[2]) > 1e-6f) {
+					const NkMat4f R = NkMat4f::RotationZ(NkAngle::FromRad(dRotDeg[2] * kDeg2Rad)) *
+									  NkMat4f::RotationY(NkAngle::FromRad(dRotDeg[1] * kDeg2Rad)) *
+									  NkMat4f::RotationX(NkAngle::FromRad(dRotDeg[0] * kDeg2Rad));
+					G.SetRotationOf(i, R * G.RotationOf(i));
+				}
+				NkVec3f sv = G.ScaleOf(i);
+				float32 *sc[3] = {&sv.x, &sv.y, &sv.z};
+				for (int32 a = 0; a < 3; ++a)
+					if (sclRatio[a] > 1e-6f && fabsf(sclRatio[a] - 1.f) > 1e-6f)
+						*sc[a] = (1.f + *sc[a]) * sclRatio[a] - 1.f;
+				G.SetScaleOf(i, sv);
+			}
 		}
 		bool Demo3DHostObjectTransform(int32 i, float32 *pos3, float32 *rotDeg3, float32 *scl3) {
 			auto *st = HostSt();

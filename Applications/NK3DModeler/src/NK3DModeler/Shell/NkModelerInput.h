@@ -433,6 +433,24 @@ namespace nkentseu {
 					return true;
 				}
 
+				// Molette par CONTENANCE, pas par survol exact : une liste est
+				// RECOUVERTE par ses lignes -- le survol pointe la ligne, jamais la
+				// liste, et exiger le survol exact rendait la molette morte des que
+				// la liste etait pleine (constate par Rihen dans la hierarchie).
+				bool WheelIn(const NkRect &area, float32 &offset, float32 contentH,
+							 float32 viewH) const {
+					if (mWheel == 0.f || mMouse.x < area.x || mMouse.y < area.y ||
+						mMouse.x >= area.x + area.w || mMouse.y >= area.y + area.h)
+						return false;
+					const float32 maxOff = contentH > viewH ? contentH - viewH : 0.f;
+					offset -= mWheel * 40.f;
+					if (offset < 0.f)
+						offset = 0.f;
+					if (offset > maxOff)
+						offset = maxOff;
+					return true;
+				}
+
 				// Curseur voulu. La DERNIERE demande gagne, meme regle que le survol :
 				// c'est ce qui est peint par-dessus qui commande.
 				void WantCursor(NkCursorWant c) {
