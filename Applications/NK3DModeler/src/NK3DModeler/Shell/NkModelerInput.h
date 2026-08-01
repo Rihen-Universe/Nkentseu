@@ -309,6 +309,7 @@ namespace nkentseu {
 				// specialise ouvert au double-clic dans le navigateur).
 				uint8 sceneTabKind[8] = {};
 				int32 sceneTabAsset[8] = {}; // index navigateur + 1
+				int32 editPreviewNode = 0;   // noeud+1 de la maquette d'editeur
 				// TYPE de fond de la scene : 0 couleur unie, 1 degrade, 2 texture,
 				// 3 HDRI, 4 ciel. Seule la couleur unie est cablee aujourd'hui ; les
 				// autres montrent leurs proprietes en annoncant le chantier moteur.
