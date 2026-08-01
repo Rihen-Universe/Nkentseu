@@ -186,6 +186,15 @@ namespace nkentseu {
 				float32 matcapScrollX = 0.f;
 				// Panneau droit unique : glissement de reglage en cours + defilement.
 				char propDragKey[24] = {0};
+				// Chaque ONGLET DE SCENE garde sa pose de camera : cible, distance,
+				// lacet, tangage, ortho. C'est ce qui rend les onglets FONCTIONNELS
+				// aujourd'hui ; les objets par scene viendront avec le format projet.
+				float32 sceneCamPose[8][6] = {}; // cible xyz, distance, lacet, tangage
+				bool sceneCamOrtho[8] = {};
+				bool sceneCamSet[8] = {};
+				// Tab bar d'ESPACES au-dessus de la vue (Modelisation seul pour
+				// l'instant) ; son en-tete s'escamote.
+				bool wsBarOpen = true;
 				float32 propScroll = 0.f;
 				int32 matcapDragBar = -1; ///< -1 aucun, 0 verticale, 1 horizontale
 				float32 matcapDragOff = 0.f;

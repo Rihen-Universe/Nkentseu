@@ -108,6 +108,12 @@ namespace nkentseu {
 		int32 Demo3DHostGridExtent();
 		void Demo3DHostResetCursor();
 		void Demo3DHostClearXform(int32 which); // 0 translation, 1 rotation, 2 echelle
+		// Pose de camera : les ONGLETS DE SCENE s'en servent pour donner a
+		// chaque scene sa propre vue (memorisee a la bascule d'onglet).
+		void Demo3DHostGetCameraPose(float32 *t3, float32 *dist, float32 *yaw, float32 *pitch,
+									 bool *ortho);
+		void Demo3DHostSetCameraPose(const float32 *t3, float32 dist, float32 yaw, float32 pitch,
+									 bool ortho);
 
 		// Vrai des que la demo rend dans sa cible (l'interface peut poser la
 		// texture 4096).

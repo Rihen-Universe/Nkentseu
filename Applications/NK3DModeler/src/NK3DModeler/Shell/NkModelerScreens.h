@@ -483,6 +483,15 @@ namespace nkentseu {
 		// UNE SEULE scene a l'ouverture. Demarrer sur deux onglets vides ferait croire
 		// que l'un d'eux contient quelque chose, et obligerait a en fermer un avant
 		// meme d'avoir commence. Le nom se modifie au DOUBLE-clic, le + en ajoute une.
+		inline void NkStoreSceneCam(NkModelerState &st, int32 tab) {
+			if (tab < 0 || tab >= 8)
+				return;
+			float32 *cp = st.sceneCamPose[tab];
+			bool ortho = false;
+			demo::Demo3DHostGetCameraPose(cp, &cp[3], &cp[4], &cp[5], &ortho);
+			st.sceneCamOrtho[tab] = ortho;
+			st.sceneCamSet[tab] = true;
+		}
 		inline void PaintTabsI(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
 							   NkHitRegistry &hit, NkWidgetState &ws, const nkgui::NkGuiInput &in) {
 			p.Fill(r, NkRole::PanelBg);
@@ -518,8 +527,19 @@ namespace nkentseu {
 					}
 				}
 				snprintf(key, sizeof(key), "tab.%d", i);
-				if (hit.Clicked(key))
+				if (hit.Clicked(key) && i != st.activeTab) {
+					// CHANGER DE SCENE = changer de VUE : la pose de camera de la
+					// scene quittee est memorisee, celle de la scene ouverte est
+					// rappelee (ou la pose d'ouverture si elle n'a jamais servi).
+					NkStoreSceneCam(st, st.activeTab);
 					st.activeTab = i;
+					if (st.sceneCamSet[i])
+						demo::Demo3DHostSetCameraPose(st.sceneCamPose[i], st.sceneCamPose[i][3],
+													  st.sceneCamPose[i][4],
+													  st.sceneCamPose[i][5], st.sceneCamOrtho[i]);
+					else
+						demo::Demo3DHostResetView();
+				}
 				x += tw + 3.f;
 			}
 			const NkRect ar{x + S(4.f), r.y + 2.f, S(24.f), h};
@@ -528,9 +548,14 @@ namespace nkentseu {
 			if (hit.Clicked("tab.add") && st.sceneCount < 8) {
 				// Le nom par defaut est NUMEROTE : deux scenes nommees « Scene » seraient
 				// indistinguables dans la barre.
+				NkStoreSceneCam(st, st.activeTab); // la scene quittee garde sa vue
 				snprintf(st.sceneNames[st.sceneCount], 32, "Scene_%d", st.sceneCount + 1);
 				st.activeTab = st.sceneCount;
+				st.sceneCamSet[st.activeTab] = false;
 				st.sceneCount++;
+				// Une scene NEUVE ouvre sur la pose d'ouverture -- pas sur celle
+				// de la scene precedente, sinon rien ne dirait qu'on a change.
+				demo::Demo3DHostResetView();
 			}
 		}
 
@@ -1544,7 +1569,35 @@ namespace nkentseu {
 			// Trois listes deroulantes, chacune avec son icone d'etat. Les menus de
 			// commandes vivent dans la barre d'outils principale : les dupliquer ici
 			// donnerait deux endroits a tenir a jour pour une seule liste.
-			const float32 barH = S(26.f), barY = r.y + S(10.f);
+			// ── TAB BAR D'ESPACES DE TRAVAIL ────────────────────────────────
+			// Un seul espace aujourd'hui (Modelisation) ; Sculpt, Texturing et
+			// NkAnima s'y rangeront. L'en-tete s'ESCAMOTE d'un clic sur le
+			// chevron -- replie, seul un petit chevron discret le rappelle.
+			float32 wsBarH = 0.f;
+			if (st.wsBarOpen) {
+				wsBarH = S(24.f);
+				const NkRect wb{r.x, r.y, r.w, wsBarH};
+				p.Fill(wb, NkRole::PanelHeader);
+				p.HLine(r.x, r.y + wsBarH - 1.f, r.w);
+				const NkRect t0{r.x + S(8.f), r.y + S(2.f), S(122.f), wsBarH - S(4.f)};
+				hit.Add("ws.tab.0", t0);
+				p.Fill(t0, NkRole::AccentUi, 3.f);
+				p.IconV(t0.x + S(6.f), t0.y, t0.h, NkIcon::Mesh, NkRole::TextOnAccent, 12.f);
+				p.TextV(t0.x + S(24.f), t0.y, t0.h, "Modelisation", NkRole::TextOnAccent);
+				const NkRect ch{r.x + r.w - S(26.f), r.y + S(2.f), S(20.f), wsBarH - S(4.f)};
+				HoverFill(p, ch, hit.Add("ws.hide", ch), 2.f);
+				p.IconV(ch.x + S(3.f), ch.y, ch.h, NkIcon::ChevronUp, NkRole::TextMuted, 12.f);
+				if (hit.Clicked("ws.hide"))
+					st.wsBarOpen = false;
+			} else {
+				// Replie : un chevron discret, centre en haut de la vue.
+				const NkRect ch{r.x + r.w * 0.5f - S(10.f), r.y + S(2.f), S(20.f), S(16.f)};
+				HoverFill(p, ch, hit.Add("ws.show", ch), 2.f);
+				p.IconV(ch.x + S(3.f), ch.y, ch.h, NkIcon::ChevronDown, NkRole::TextMuted, 12.f);
+				if (hit.Clicked("ws.show"))
+					st.wsBarOpen = true;
+			}
+			const float32 barH = S(26.f), barY = r.y + wsBarH + S(10.f);
 			{
 				int32 nP = 0, nS = 0, nO = 0;
 				const char *const *proj = NkProjectionItems(nP);
