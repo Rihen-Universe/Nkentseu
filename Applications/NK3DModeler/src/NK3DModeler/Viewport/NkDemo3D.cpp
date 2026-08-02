@@ -9822,6 +9822,15 @@ namespace nkentseu {
 			if (r3)
 				r3->SetIBLColor({rgb[0], rgb[1], rgb[2]});
 		}
+		bool Demo3DHostAmbientUseEnv() {
+			auto *r3 = hst.ctx.renderer ? hst.ctx.renderer->GetRender3D() : nullptr;
+			return r3 ? r3->GetIBLUseEnv() : false;
+		}
+		void Demo3DHostSetAmbientUseEnv(bool on) {
+			auto *r3 = hst.ctx.renderer ? hst.ctx.renderer->GetRender3D() : nullptr;
+			if (r3)
+				r3->SetIBLUseEnv(on);
+		}
 		// ── BROUILLARD ──────────────────────────────────────────────────────
 		// Etat gardé ici : c'est le contexte de scene, reconstruit a chaque
 		// image, qui le porte jusqu'au moteur (cf. la soumission).

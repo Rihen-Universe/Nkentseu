@@ -2121,7 +2121,10 @@ namespace nkentseu {
 			// toujours les memes quelle que soit la vue -- ce que Rihen a
 			// constate, alors que Blender donne un aplat parfait sans monde
 			// image. A zero, le shader prend une ambiance UNIFORME.
-			const bool hasEnv = mEnv && mEnv->GetIrradianceCubemap().IsValid();
+			// Le moteur genere TOUJOURS un ciel procedural de repli : tester la
+			// seule validite de la cubemap repondait donc « oui » en permanence,
+			// et l'ambiance restait directionnelle. C'est un CHOIX explicite.
+			const bool hasEnv = mIBLUseEnv && mEnv && mEnv->GetIrradianceCubemap().IsValid();
 			cb.iblColor = {mIBLColor.x, mIBLColor.y, mIBLColor.z, hasEnv ? 1.f : 0.f};
 			cb.fogColor = {mCtx.fogColor.x, mCtx.fogColor.y, mCtx.fogColor.z, mCtx.fogDensity};
 			cb.fogParams = {mCtx.fogEnabled ? 1.f : 0.f, mCtx.fogStart, mCtx.fogEnd,

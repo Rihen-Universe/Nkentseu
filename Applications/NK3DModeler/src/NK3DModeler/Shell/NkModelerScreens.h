@@ -4794,7 +4794,12 @@ namespace nkentseu {
 				hit.Add(key, box);
 				p.Clip(box);
 				hit.PushClip(box); // les zones suivent le dessin : rien d'invisible
-				float32 yy = secY - st.propScroll3[sec];
+				// UNE RESPIRATION EN HAUT DE CHAQUE SECTION (Rihen) : Modele,
+				// Rendu, Scene et Modificateur. Le premier groupe collait au
+				// bandeau du panneau, ce qui donnait l'impression qu'il en faisait
+				// partie. Pose ICI, au point de depart commun aux quatre : une
+				// marge ajoutee section par section aurait fini par diverger.
+				float32 yy = secY - st.propScroll3[sec] + S(8.f);
 
 				if (sec == 0) {
 					// ── LA PIPETTE A-T-ELLE DESIGNE QUELQU'UN ? ──────────────────
@@ -6123,6 +6128,23 @@ namespace nkentseu {
 													"prop.ambcol", ac, &acCh);
 								if (acCh)
 									demo::Demo3DHostSetAmbientColor(ac);
+							}
+						// L'ambiance vient-elle du CIEL ou d'une COULEUR UNIE ?
+							// Le moteur genere toujours un ciel de repli : sans ce
+							// choix, l'ambiance restait directionnelle et trois
+							// faces d'un cube etaient plus claires que les autres,
+							// meme sans aucune lumiere.
+							{
+								const bool ue0 = demo::Demo3DHostAmbientUseEnv();
+								const NkRect cb{iA.x, yy + S(5.f), S(12.f), S(12.f)};
+								hit.Add("prop.amb.env", cb);
+								p.Outline(cb, ue0 ? NkRole::AccentUi : NkRole::Border,
+										  ue0 ? NkRole::AccentUi : NkRole::InputBg, 2.f);
+								p.TextV(cb.x + S(18.f), yy, kRowH, "Depuis l'environnement",
+										NkRole::TextMuted);
+								if (hit.Clicked("prop.amb.env"))
+									demo::Demo3DHostSetAmbientUseEnv(!ue0);
+								yy += kRowH;
 							}
 							yy += NkGroupPad();
 							PaintGroupBlock(p, aR, aTop, yy);

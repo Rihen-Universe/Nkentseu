@@ -224,6 +224,10 @@ namespace nkentseu {
 		// Teinte de l'ambiance (pendant du « World > Color » de Blender).
 		void Demo3DHostAmbientColor(float32 *rgb);
 		void Demo3DHostSetAmbientColor(const float32 *rgb);
+		// Ambiance issue de l'ENVIRONNEMENT (ciel procedural / HDRI) plutot que
+		// d'une couleur unie. Faux = aplat parfait, comme le monde de Blender.
+		bool Demo3DHostAmbientUseEnv();
+		void Demo3DHostSetAmbientUseEnv(bool on);
 		// Brouillard de scene : loi lineaire (debut/fin) ou exponentielle (densite).
 		void Demo3DHostFog(bool *on, float32 *rgb, float32 *density, float32 *start,
 						   float32 *end, int32 *mode);
