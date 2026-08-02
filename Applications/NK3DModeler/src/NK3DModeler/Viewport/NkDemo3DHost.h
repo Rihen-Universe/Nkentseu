@@ -188,6 +188,8 @@ namespace nkentseu {
 		// ORIGINE (pivot) d'un noeud : point autour duquel il tourne et se met a
 		// l'echelle, lui et tout ce qu'il porte. La deplacer NE DEPLACE PAS la
 		// matiere -- les enfants sont recules d'autant.
+		// Compteurs REELS de la geometrie d'un noeud (sommets, aretes, triangles).
+		bool Demo3DHostMeshCounts(int32 node, int32 *verts, int32 *edges, int32 *tris);
 		bool Demo3DHostNodeOrigin(int32 node, float32 *out3);
 		void Demo3DHostSetNodeOrigin(int32 node, const float32 *p3);
 		bool Demo3DHostMeshesCenter(int32 node, float32 *out3);

@@ -8703,6 +8703,28 @@ namespace nkentseu {
 			nkvpIsModel[root] = true;
 			return m;
 		}
+		bool Demo3DHostMeshCounts(int32 node, int32 *verts, int32 *edges, int32 *tris) {
+			// LES VRAIS COMPTEURS du maillage, lus dans le systeme de maillages.
+			// Le panneau doit montrer la geometrie REELLE de l'objet : des nombres
+			// d'illustration y seraient pires que rien.
+			*verts = *edges = *tris = 0;
+			if (node < kNkvpFirstUser || node >= kNkvpMaxNodes)
+				return false;
+			const int32 u = node - kNkvpFirstUser;
+			if (!nkvpUserMesh[u].IsValid())
+				return false;
+			auto *ms = hst.ctx.renderer ? hst.ctx.renderer->GetMeshSystem() : nullptr;
+			if (!ms)
+				return false;
+			const int32 nv = (int32)ms->GetVertexCount(nkvpUserMesh[u]);
+			const int32 ni = (int32)ms->GetIndexCount(nkvpUserMesh[u]);
+			*verts = nv;
+			*tris = ni / 3;
+			// Aretes : sans table d'adjacence, la relation d'Euler donne le compte
+			// exact d'un maillage ferme (V - E + F = 2 -> E = V + F - 2).
+			*edges = (nv > 0 && *tris > 0) ? (nv + *tris - 2) : 0;
+			return nv > 0;
+		}
 		bool Demo3DHostNodeOrigin(int32 node, float32 *out3) {
 			// L'ORIGINE d'un noeud est son point de pivot : c'est autour d'elle
 			// qu'il tourne et se met a l'echelle, lui et tout ce qu'il porte. Elle
@@ -9537,9 +9559,12 @@ namespace nkentseu {
 				return;
 			}
 			const uint8 k = HostKindOf(node);
-			float32 b = 1.2f; // cube unite de la demo
+			// LE CUBE DE BASE FAIT 2 m DE COTE (Rihen) : c'est la taille de
+			// reference des modeleurs, et elle donne une echelle lisible d'emblee
+			// dans le panneau Dimensions.
+			float32 b = 2.f;
 			if (k == 1)
-				b = 1.1f; // sphere
+				b = 2.f; // sphere : meme diametre de reference
 			out3[0] = out3[1] = out3[2] = b;
 			if (k == 3) { // plan : etendu en X/Z, plat en Y
 				out3[0] = out3[2] = (node == 83) ? 80.f : 2.f;
