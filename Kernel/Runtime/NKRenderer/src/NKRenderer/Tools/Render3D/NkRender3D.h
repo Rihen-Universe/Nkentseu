@@ -302,6 +302,15 @@ namespace nkentseu {
 				NkVec3f GetIBLColor() const {
 					return mIBLColor;
 				}
+				// Ambiance issue de l'environnement (ciel / HDRI) plutot que d'une
+				// couleur unie. Faux = aplat parfait, comme le monde par defaut de
+				// Blender.
+				void SetIBLUseEnv(bool on) {
+					mIBLUseEnv = on;
+				}
+				bool GetIBLUseEnv() const {
+					return mIBLUseEnv;
+				}
 
 				// Phase N v0.5 : active/desactive le rendu de la skybox HDR en
 				// background. Necessite un NkEnvironmentSystem charge (HDR ou
@@ -492,6 +501,13 @@ namespace nkentseu {
 				// sans se substituer a l'eclairage ; le panneau Rendu l'expose.
 				float32 mIBLStrength = 0.05f;
 				NkVec3f mIBLColor = {1.f, 1.f, 1.f}; // neutre par defaut
+				// L'ambiance vient-elle de l'ENVIRONNEMENT (ciel procedural ou
+				// HDRI) ou d'une COULEUR UNIE ? Le moteur genere toujours un ciel
+				// de repli, si bien que l'ambiance etait forcement directionnelle :
+				// trois faces d'un cube plus claires que les trois autres, sans
+				// aucune lumiere dans la scene. Blender part d'une couleur unie et
+				// l'environnement est un choix -- on fait pareil.
+				bool mIBLUseEnv = false;
 				NkIDevice *mDevice = nullptr;
 				NkMeshSystem *mMesh = nullptr;
 				NkMaterialSystem *mMat = nullptr;
