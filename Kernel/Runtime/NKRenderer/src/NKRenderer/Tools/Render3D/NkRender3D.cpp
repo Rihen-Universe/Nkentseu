@@ -19,6 +19,16 @@
 namespace nkentseu {
 	namespace renderer {
 
+		// Taille du bloc CAMERA reellement ecrit par UploadUBOs (PBRCamUBO), et
+		// donc taille a allouer. A NE PAS confondre avec sizeof(NkCameraUBO), qui
+		// est une AUTRE disposition (528 octets, avec invView/invProj separes) que
+		// ce chemin n'utilise pas. Allouer d'apres elle tronquait silencieusement
+		// la fin du bloc.
+		// Un static_assert dans UploadUBOs verifie l'accord : agrandir PBRCamUBO
+		// sans toucher a cette constante casse la COMPILATION, au lieu de perdre
+		// les derniers champs sans un mot.
+		static constexpr uint32 kPBRCamUBOSize = 592;
+
 		NkRender3D::~NkRender3D() {
 			Shutdown();
 		}
@@ -62,9 +72,25 @@ namespace nkentseu {
 			mUBOObjectPool.Resize(mFramesInFlight);
 
 			// Camera UBO — binding 0 (main + mirror dedicated)
+			//
+			// LA TAILLE EST CELLE DU BLOC REELLEMENT ECRIT, pas celle de
+			// NkCameraUBO. Les deux n'ont RIEN A VOIR : NkCameraUBO (528 octets)
+			// est une autre disposition, avec invView/invProj separes, que ce
+			// chemin n'utilise pas — UploadUBOs ecrit un PBRCamUBO.
+			//
+			// Tant que PBRCamUBO tenait dans 528 octets, l'erreur ne se voyait
+			// pas. En y ajoutant les parametres du ciel il est passe a 592 : tout
+			// ce qui depassait etait perdu EN SILENCE, et le premier champ
+			// au-dela de la limite — la couleur de SOL, offset 528 — n'arrivait
+			// jamais au shader. Le zenith (496) et l'horizon (512) passaient
+			// encore : le ciel semblait donc « presque » marcher.
+			//
+			// kPBRCamUBOSize est verifie par static_assert dans UploadUBOs :
+			// agrandir le bloc sans ajuster cette valeur casse la COMPILATION au
+			// lieu de tronquer sans bruit.
 			for (uint32 i = 0; i < mFramesInFlight; i++) {
-				mUBOCameraRing[i] = mDevice->CreateBuffer(NkBufferDesc::Uniform(sizeof(NkCameraUBO)));
-				mUBOCameraMirrorRing[i] = mDevice->CreateBuffer(NkBufferDesc::Uniform(sizeof(NkCameraUBO)));
+				mUBOCameraRing[i] = mDevice->CreateBuffer(NkBufferDesc::Uniform(kPBRCamUBOSize));
+				mUBOCameraMirrorRing[i] = mDevice->CreateBuffer(NkBufferDesc::Uniform(kPBRCamUBOSize));
 			}
 
 			// Lights UBO — binding 2 (32 lights max)
@@ -76,6 +102,11 @@ namespace nkentseu {
 			for (uint32 i = 0; i < mFramesInFlight; i++) {
 				mUBOLightsRing[i] = mDevice->CreateBuffer(NkBufferDesc::Uniform(sizeof(LightsUBO)));
 			}
+
+			// PAS de bloc uniforme dedie au ciel : ses parametres voyagent en FIN
+			// du bloc camera (cf. PBRCamUBO). Un bloc de plus butait sur DX11, qui
+			// n'a que 14 emplacements de constant buffer, et les numeros bas du
+			// set 0 sont deja pris par des textures cote moteur.
 
 			// Object UBO — binding 1. Layout std140 doit matcher EXACTEMENT le shader
 			// pbr.vert/frag.gl.glsl (sinon le linker GL refuse, ou les reads out-of-buffer
@@ -2056,8 +2087,37 @@ namespace nkentseu {
 					// desormais jusqu'au shader, qui les applique en dernier.
 					NkVec4f fogColor;  // .xyz couleur, .w densite (loi exponentielle)
 					NkVec4f fogParams; // .x actif, .y debut, .z fin, .w 0=lineaire 1=exp
+					// ── LE CIEL VISIBLE (offsets 464 a 591) ──────────────────
+					// Il vit ICI, en fin de bloc camera, et NON dans un bloc a lui.
+					// Deux raisons, toutes deux apprises en essayant :
+					//   - DX11 (SM5) n'a que 14 emplacements de constant buffer
+					//     (b0..b13) : un bloc de plus au-dela echoue la ou les
+					//     autres backends passent (« X4567 »).
+					//   - dans le set 0, les numeros bas sont deja pris par des
+					//     TEXTURES cote moteur : y poser un bloc uniforme le fait
+					//     ecraser en silence, et le ciel sort noir.
+					// La fin du bloc camera est le seul endroit sans ces deux
+					// ecueils, et c'est le motif deja employe pour iblColor et le
+					// brouillard : les shaders qui declarent un CameraUBO plus
+					// court ignorent simplement ces octets.
+					NkVec4f skyP0;		  // x modele(0 degrade,1 physique,2 cubemap) y turbidite
+										  // z puissance du soleil                    w disque (0/1)
+					NkVec4f skySunDir;	  // xyz direction de propagation, w vitesse des nuages
+					NkVec4f skyTopCol;	  // xyz couleur du zenith,  w nuages actifs (0/1)
+					NkVec4f skyHorizonCol; // xyz couleur d'horizon, w couverture
+					NkVec4f skyGroundCol;  // xyz couleur du sol,    w densite
+					NkVec4f skySunCol;	  // xyz teinte du soleil,  w echelle des nuages
+					NkVec4f skyCloudCol;  // xyz couleur des nuages, w reserve
+					NkVec4f skyP7;		  // reserve (lunes, etoiles)
 			};
 
+			// L'ALLOCATION ET L'ECRITURE DOIVENT S'ACCORDER. Sans cette
+			// verification, agrandir le bloc tronque la fin en silence : c'est
+			// exactement ce qui est arrive en y ajoutant le ciel, et seule la
+			// couleur de SOL manquait a l'ecran -- un symptome qui ne designait
+			// pas sa cause.
+			static_assert(sizeof(PBRCamUBO) == kPBRCamUBOSize,
+						  "PBRCamUBO a change de taille : ajuster kPBRCamUBOSize");
 			PBRCamUBO cb{};
 			cb.view = mCtx.camera.GetView();
 			cb.proj = mCtx.camera.GetProj();
@@ -2155,6 +2215,24 @@ namespace nkentseu {
 			cb.fogColor = {mCtx.fogColor.x, mCtx.fogColor.y, mCtx.fogColor.z, mCtx.fogDensity};
 			cb.fogParams = {mCtx.fogEnabled ? 1.f : 0.f, mCtx.fogStart, mCtx.fogEnd,
 							mCtx.fogDensity > 0.f ? 1.f : 0.f};
+			// ── LE CIEL VISIBLE, evalue en temps reel par le shader Skybox ────
+			// Empaquetage dense en vec4, documente ici ET dans skybox.frag.nksl :
+			// les deux doivent rester d'accord.
+			{
+				const NkSkyParams &SP = mSkyParams;
+				// 2 = cubemap : cas HDRI, l'image vient d'un fichier et ne se
+				// calcule pas. Le drapeau prime sur le modele procedural.
+				const float32 modelId =
+					mSkyFromCubemap ? 2.f : ((SP.model == NkSkyModel::NK_SKY_PHYSICAL) ? 1.f : 0.f);
+				cb.skyP0 = {modelId, SP.turbidity, SP.sunIntensity, SP.sunDisc ? 1.f : 0.f};
+				cb.skySunDir = {SP.sunDirection.x, SP.sunDirection.y, SP.sunDirection.z, SP.cloudSpeed};
+				cb.skyTopCol = {SP.skyTop.x, SP.skyTop.y, SP.skyTop.z, SP.clouds ? 1.f : 0.f};
+				cb.skyHorizonCol = {SP.horizon.x, SP.horizon.y, SP.horizon.z, SP.cloudCoverage};
+				cb.skyGroundCol = {SP.ground.x, SP.ground.y, SP.ground.z, SP.cloudDensity};
+				cb.skySunCol = {SP.sunColor.x, SP.sunColor.y, SP.sunColor.z, SP.cloudScale};
+				cb.skyCloudCol = {SP.cloudColor.x, SP.cloudColor.y, SP.cloudColor.z, 0.f};
+				cb.skyP7 = {0.f, 0.f, 0.f, 0.f};
+			}
 			cb.viewMode = (float32)mViewMode; // 0=rendered(PBR) 1=solid/unlit (indépendant du wireframe)
 			cb.matcapId = (float32)mMatcapId; // index 0..29 dans l'atlas des 30 matcaps
 			// .x = 1 si une matcap PERSONNALISEE remplace l'atlas (cf. SetMatcapTexture) :
@@ -2241,6 +2319,7 @@ namespace nkentseu {
 			}
 			if (mFrameSlot < mUBOLightsRing.Size())
 				mDevice->WriteBuffer(mUBOLightsRing[mFrameSlot], &lb, sizeof(lb));
+
 		}
 
 		void NkRender3D::RenderShadowPass(NkICommandBuffer *cmd, const NkMat4f &lightVP) {

@@ -4434,6 +4434,10 @@ namespace nkentseu {
 			// sa fabrication vit avec les autres reglages du ciel, plus bas dans
 			// ce fichier. Declaree ici, appelee juste apres les lumieres reelles.
 			bool HostSkySunAsLight(renderer::NkLightDesc &out);
+			// Le ciel VISIBLE est evalue dans le shader : ses parametres partent a
+			// chaque image, ce qui rend tout reglage immediat -- et animable.
+			void HostPushSkyToRenderer();
+			HostPushSkyToRenderer();
 			NkSceneContext sctx;
 			sctx.camera = cam;
 			sctx.time = ctx.totalTime;
@@ -9937,6 +9941,12 @@ namespace nkentseu {
 		static float32 nkvpSkyCloudDensity = kCloudDenDef;
 		static float32 nkvpSkyCloudScale = kCloudSclDef;
 		static float32 nkvpSkyCloudColor[3] = {kCloudColDef[0], kCloudColDef[1], kCloudColDef[2]};
+		// Vitesse de defilement des nuages. Sans objet pour la cuisson (une
+		// cubemap est une image fixe) : elle n'a de sens que depuis que le ciel
+		// visible est evalue a chaque image dans le shader.
+		static float32 nkvpSkyCloudSpeed = 0.02f;
+		// Le ciel visible vient-il de l'HDRI charge ? (source d'ambiance = 2)
+		static bool nkvpSkyFromHdr = false;
 
 		int32 Demo3DHostSkyModel() {
 			return nkvpSkyModel;
@@ -10003,6 +10013,15 @@ namespace nkentseu {
 			nkvpSkyTurbidity = turbidity < 1.f ? 1.f : (turbidity > 10.f ? 10.f : turbidity);
 			nkvpSkySunDisc = disc;
 			nkvpSkySunIntensity = intensity < 0.f ? 0.f : (intensity > 10.f ? 10.f : intensity);
+		}
+		float32 Demo3DHostSkyCloudSpeed() {
+			return nkvpSkyCloudSpeed;
+		}
+		void Demo3DHostSetSkyCloudSpeed(float32 v) {
+			// PAS de marquage « a regenerer » : la vitesse n'agit que sur le ciel
+			// evalue en temps reel. La cuisson, elle, produit une image fixe --
+			// une vitesse n'y a aucun sens.
+			nkvpSkyCloudSpeed = v < 0.f ? 0.f : (v > 1.f ? 1.f : v);
 		}
 		void Demo3DHostSkyClouds(bool *on, float32 *coverage, float32 *density, float32 *scale, float32 *color) {
 			if (on)
@@ -10111,6 +10130,54 @@ namespace nkentseu {
 			nkvpSkyDirty = true;
 		}
 
+		// ── LE CIEL VISIBLE, POUSSE A CHAQUE IMAGE ──────────────────────────
+		// Depuis que le ciel est evalue DANS LE SHADER, ses parametres ne sont
+		// plus une consigne de cuisson mais un etat de rendu : on les envoie a
+		// chaque frame, et tout reglage devient immediat. C'est aussi ce qui les
+		// rend animables -- il suffira qu'une piste d'animation ecrive dans ces
+		// memes variables.
+		//
+		// La CUISSON (Demo3DHostApplySky) reste, mais elle ne sert plus qu'a
+		// l'ECLAIRAGE : irradiance et reflets, les seuls calculs qui la
+		// justifient.
+		void HostPushSkyToRenderer() {
+			auto *r3 = hst.ctx.renderer ? hst.ctx.renderer->GetRender3D() : nullptr;
+			if (!r3)
+				return;
+			// Le ciel suit-il un soleil de la scene ? Sa direction fait alors foi,
+			// et elle est relue ICI, a chaque image : c'est ce qui fait que le
+			// ciel visible suit la lumiere SANS attendre une regeneration.
+			if (nkvpSkySunNode >= 0) {
+				float32 d[3];
+				if (HostSunDirOf(nkvpSkySunNode, d)) {
+					nkvpSkySunDir[0] = d[0];
+					nkvpSkySunDir[1] = d[1];
+					nkvpSkySunDir[2] = d[2];
+				}
+			}
+			renderer::NkSkyParams sp;
+			sp.model = (nkvpSkyModel == 1) ? renderer::NkSkyModel::NK_SKY_PHYSICAL
+										   : renderer::NkSkyModel::NK_SKY_GRADIENT;
+			sp.skyTop = {nkvpSkyTop[0], nkvpSkyTop[1], nkvpSkyTop[2]};
+			sp.horizon = {nkvpSkyHorizon[0], nkvpSkyHorizon[1], nkvpSkyHorizon[2]};
+			sp.ground = {nkvpSkyGround[0], nkvpSkyGround[1], nkvpSkyGround[2]};
+			sp.sunDirection = {nkvpSkySunDir[0], nkvpSkySunDir[1], nkvpSkySunDir[2]};
+			sp.turbidity = nkvpSkyTurbidity;
+			sp.sunDisc = nkvpSkySunDisc;
+			sp.sunIntensity = nkvpSkySunIntensity;
+			sp.sunColor = {nkvpSkySunColor[0], nkvpSkySunColor[1], nkvpSkySunColor[2]};
+			sp.clouds = nkvpSkyClouds;
+			sp.cloudCoverage = nkvpSkyCloudCoverage;
+			sp.cloudDensity = nkvpSkyCloudDensity;
+			sp.cloudScale = nkvpSkyCloudScale;
+			sp.cloudColor = {nkvpSkyCloudColor[0], nkvpSkyCloudColor[1], nkvpSkyCloudColor[2]};
+			sp.cloudSpeed = nkvpSkyCloudSpeed;
+			r3->SetSkyParams(sp);
+			// HDRI : l'image vient d'un fichier, elle ne se calcule pas. Le shader
+			// lit alors la cubemap telle quelle.
+			r3->SetSkyFromCubemap(nkvpHdrPath[0] != 0 && nkvpSkyFromHdr);
+		}
+
 		bool Demo3DHostApplySky() {
 			auto *env = hst.ctx.renderer ? hst.ctx.renderer->GetEnvironment() : nullptr;
 			if (!env)
@@ -10147,6 +10214,9 @@ namespace nkentseu {
 			sp.cloudScale = nkvpSkyCloudScale;
 			sp.cloudColor = {nkvpSkyCloudColor[0], nkvpSkyCloudColor[1], nkvpSkyCloudColor[2]};
 			env->LoadProceduralEx(sp);
+			// On revient a un ciel PROCEDURAL : le shader doit le calculer, plus
+			// lire l'image HDRI.
+			nkvpSkyFromHdr = false;
 			nkvpSkyDirty = false;
 			// Les cubemaps viennent d'etre RECREEES : sans ce rafraichissement, les
 			// jeux de descripteurs pointent encore sur les anciennes et la
@@ -10247,6 +10317,9 @@ namespace nkentseu {
 			const bool ok = env->LoadFromHDR(NkString(path));
 			if (ok) {
 				snprintf(nkvpHdrPath, sizeof(nkvpHdrPath), "%s", path);
+				// Le ciel VISIBLE vient desormais de cette image : elle ne se
+				// calcule pas, le shader devra lire la cubemap telle quelle.
+				nkvpSkyFromHdr = true;
 				if (auto *r3 = hst.ctx.renderer->GetRender3D())
 					r3->RefreshEnvironmentBindings(); // cubemaps recreees
 			}

@@ -332,6 +332,63 @@ l'appliquent à toutes les lumières. À porter si l'on ajoute le choix de backe
 
 ---
 
+## 4bis. CIEL — état au 2026-08-02 et suite demandée
+
+**Fait** : ciel visible **évalué dans le shader** (`skybox.frag.nksl`, bloc de
+paramètres binding 5), modèles **Dégradé** et **Physique** (Preetham 1999), **nuages
+procéduraux animés**, soleil en élévation/azimut, teinte, disque, lien vers un soleil
+de la scène (plusieurs sources possibles), soleil manuel capable d'éclairer la scène,
+boutons de remise à zéro.
+
+### Trois contraintes multi-backend apprises à la dure (VK / GL / DX11 / DX12 / Metal)
+
+1. **Aucun identifiant ne doit différer d'un autre par la seule casse.** GLSL les
+   distingue, le passage NkSL → HLSL non : `float y` à côté de `float Y` donne
+   « error X3003: redefinition of 'y' ». Le shader ne compile pas, le pipeline n'est
+   pas créé, et **le ciel disparaît sans aucun message à l'écran**.
+2. **Retour unique dans chaque fonction.** Un `return` anticipé devient en HLSL une
+   variable de résultat non écrite sur tous les chemins
+   (« X4000: potentially uninitialized »), donc une valeur indéterminée qui peut
+   différer d'un backend à l'autre.
+3. **DX11 (SM5) n'a que 14 emplacements de constant buffer (b0..b13).** Un bloc
+   uniforme au-delà passe sur VK/DX12/GL/Metal et échoue sur DX11
+   (« X4567: maximum cbuffer exceeded »). Les blocs uniformes et les textures ont des
+   espaces de registres distincts (b# / t#) : un même numéro peut servir aux deux.
+
+### Demandé, pas encore fait
+
+- **Activer / désactiver l'animation à volonté** (geler les nuages sans perdre leurs
+  réglages) — un simple interrupteur, la vitesse existe déjà.
+- **Nuages sombres de pluie** : la couleur des nuages existe, il manque un
+  assombrissement lié à leur **épaisseur** (un nuage dense doit s'auto-ombrer par en
+  dessous), et une couverture qui monte au-delà d'un simple seuil.
+- **Ciels d'ambiance** (désert, orage, brume…) : ce sont des **préréglages** — un jeu
+  de valeurs nommé, pas du code. À traiter avec le fichier de données, pas en dur.
+- **Hosek-Wilkie** comme troisième modèle.
+- **Lunes** (une ou plusieurs) et **étoiles** : termes additifs dans le shader, une
+  fois le ciel calculé en temps réel — ce qui est désormais le cas.
+- **Animation des paramètres** : maintenant qu'ils descendent au GPU à chaque image,
+  il suffit qu'une piste écrive dans les mêmes variables. Le rôle de thème
+  `nk3d.parametre_animable` existe déjà.
+
+### Le ciel visible est en avance sur le ciel qui éclaire
+
+Le visible est calculé par image ; l'**éclairage** (irradiance + reflets) reste cuit
+en cubemaps et n'est refait qu'à la demande. Bouger le soleil en continu fait donc
+diverger les deux.
+
+**C'est soluble, par trois voies de coût croissant :**
+
+1. **Irradiance ANALYTIQUE.** Le ciel est désormais une formule : on peut en déduire
+   directement les 9 coefficients d'harmoniques sphériques qui décrivent l'éclairage
+   diffus, sans aucune convolution. Quelques dizaines d'opérations par image, sur les
+   cinq backends, sans compute shader. **C'est la voie recommandée** pour l'ambiance.
+2. **Reflets à cadence réduite** : la cubemap spéculaire est refaite toutes les N
+   images plutôt qu'à chaque. Invisible sur un cycle lent, très bon marché.
+3. **Convolution GPU à chaque changement** (`NkIBLCompute`, déjà présent). Bloquée
+   sur DX11 : `fxc cs_5_0` donne un écart max de 175/255 sur ~0,8 % des texels, là où
+   GL/VK/DX12 sont à 5/255 près. Réparer ce noyau est un chantier en soi.
+
 ## 5. Reste à faire — ordre décidé par l'utilisateur
 
 L'ordre a été fixé explicitement : **modélisation d'abord**, la sauvegarde
