@@ -145,31 +145,46 @@ namespace nkentseu {
 			// reste le geste principal ; la saisie sert aux valeurs exactes.
 			if (ws.IsEditing(key)) {
 				p.Outline(r, NkRole::AccentUi, NkRole::InputBg, 3.f);
-				// La saisie ne DEBORDE jamais du champ (demande de Rihen) : clip.
-				p.Clip(r);
-				p.TextV(r.x + S(4.f), r.y, r.h, ws.editBuf);
-				const float32 cw = p.TextW(ws.editBuf);
-				p.Fill({r.x + S(5.f) + cw, r.y + S(3.f), 1.f, r.h - S(6.f)}, NkRole::Text);
-				p.Unclip();
+				// MEME SAISIE QUE PARTOUT : curseur placable, selection, copier /
+				// couper / coller. Un champ numerique se tape et se corrige comme
+				// n'importe quel champ (Rihen : « tous les champs de saisie de
+				// l'application, numerique ou caractere ou mixte »).
 				hit.Add(key, r);
+				if (nkgui::NkGuiContext *gc = NkUiCtx()) {
+					editorkit::NkOverlayTextField(*gc, gc->dl, p.FontPtr(), r, ws.editBuf, 31,
+												  true);
+					// La VIRGULE tapee devient un point : c'est elle qu'on a sous le
+					// doigt sur un clavier francais, et atof ne lit que le point.
+					uint32 nl = 0;
+					for (; ws.editBuf[nl]; ++nl)
+						if (ws.editBuf[nl] == ',')
+							ws.editBuf[nl] = '.';
+					ws.editLen = nl;
+				} else {
+					p.Clip(r);
+					p.TextV(r.x + S(4.f), r.y, r.h, ws.editBuf);
+					const float32 cw = p.TextW(ws.editBuf);
+					p.Fill({r.x + S(5.f) + cw, r.y + S(3.f), 1.f, r.h - S(6.f)}, NkRole::Text);
+					p.Unclip();
+				}
 				bool commit = false, finish = false;
 				if (hit.AnyClick() && !hit.IsHovered(key)) {
 					commit = ws.editLen > 0;
 					finish = true;
 				}
-				for (int32 i = 0; i < in.charCount; ++i) {
-					const uint32 c = in.chars[i];
-					// Chiffres, signe, separateur -- la VIRGULE tapee devient un
-					// point : c'est elle qu'on a sous le doigt sur un clavier
-					// francais, et atof ne lit que le point.
-					if (((c >= '0' && c <= '9') || c == '-' || c == '+' || c == '.' || c == ',') &&
-						ws.editLen < 30u) {
-						ws.editBuf[ws.editLen++] = (c == ',') ? '.' : (char)c;
-						ws.editBuf[ws.editLen] = 0;
+				if (!NkUiCtx()) {
+					for (int32 i = 0; i < in.charCount; ++i) {
+						const uint32 c = in.chars[i];
+						if (((c >= '0' && c <= '9') || c == '-' || c == '+' || c == '.' ||
+							 c == ',') &&
+							ws.editLen < 30u) {
+							ws.editBuf[ws.editLen++] = (c == ',') ? '.' : (char)c;
+							ws.editBuf[ws.editLen] = 0;
+						}
 					}
+					if (in.KeyPressed(nkgui::NkGuiKey::Backspace) && ws.editLen > 0)
+						ws.editBuf[--ws.editLen] = 0;
 				}
-				if (in.KeyPressed(nkgui::NkGuiKey::Backspace) && ws.editLen > 0)
-					ws.editBuf[--ws.editLen] = 0;
 				if (in.KeyPressed(nkgui::NkGuiKey::Enter)) {
 					commit = ws.editLen > 0;
 					finish = true;

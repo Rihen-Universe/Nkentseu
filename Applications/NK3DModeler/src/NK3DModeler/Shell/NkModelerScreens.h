@@ -4025,11 +4025,20 @@ namespace nkentseu {
 		// Le BLOC qui entoure le contenu d'un groupe : il dit ou le groupe commence
 		// et ou il finit, ce qu'un simple bandeau ne suffit pas a montrer quand
 		// plusieurs groupes se suivent (Rihen).
+		// L'ESPACE ENTRE DEUX GROUPES. Il vaut AUSSI pour un groupe replie (Rihen) :
+		// c'est justement quand les bandeaux se suivent qu'ils ont besoin de
+		// respirer, sinon ils forment une colonne indistincte.
+		inline float32 NkPropGroupGap() {
+			return S(8.f);
+		}
 		inline void PaintGroupBlock(NkModelerPainter &p, const NkRect &r, float32 yTop,
 									float32 yBottom) {
 			if (yBottom <= yTop)
 				return;
-			p.Outline({r.x, yTop, r.w, yBottom - yTop}, NkRole::Border, NkRole::PanelBg, 3.f);
+			// CONTOUR SEUL. `Outline` REPEINT le fond : peint apres le contenu, il
+			// effacait les champs du groupe -- ils s'affichaient vides (constate
+			// par Rihen). Le cadre se trace donc sans remplissage.
+			p.OutlineSharp({r.x, yTop, r.w, yBottom - yTop}, NkRole::Border);
 		}
 		inline bool PaintPropGroup(NkModelerPainter &p, NkHitRegistry &hit, NkModelerState &st,
 								   const NkRect &r, float32 &y, const char *key,
@@ -4230,7 +4239,10 @@ namespace nkentseu {
 			// Les en-tetes affiches (sections actives) sont deduits ; la place
 			// restante se partage entre les sections DEPLIEES.
 			const float32 availH = (r.y + r.h) - y - (float32)(nOpen > 0 ? nOpen : 1) * kRowH;
-			const NkRect rr{r.x, 0.f, r.w - S(14.f), 0.f}; // colonne du scrollbar reservee
+			// La gouttiere du scrollbar est DEJA retranchee de r (voir plus haut) :
+			// en retirer une seconde fois laissait une large bande morte a droite
+			// du contenu (constate par Rihen).
+			const NkRect rr{r.x, 0.f, r.w, 0.f};
 			// DEFILEMENT GLOBAL : la pile entiere glisse de propScroll ; le
 			// contenu est mesure au fil de la peinture et la barre du bord la
 			// pilote (celles des sections sont inserees).
@@ -4428,10 +4440,12 @@ namespace nkentseu {
 							}
 							// Le BLOC qui entoure le groupe : peint APRES son contenu,
 							// puisqu'il faut connaitre ou celui-ci s'arrete.
-							if (grpXf)
+							if (grpXf) {
 								PaintGroupBlock(p, rowR, grpXfTop, yy + S(2.f));
-							if (grpXf)
-								yy += S(6.f);
+								yy += S(2.f);
+							}
+							// L'espace suit le groupe REPLIE OU NON (Rihen).
+							yy += NkPropGroupGap();
 							// Proportionnel et verrous : memes regles que l'objet.
 							auto PropagateE = [](float32 *vals, const float32 *base, bool on) {
 								if (!on)
@@ -4483,8 +4497,9 @@ namespace nkentseu {
 													"%.2f m");
 									yy += NkXformGroupH();
 									PaintGroupBlock(p, rowR, grpDimTop, yy + S(2.f));
-									yy += S(6.f);
+									yy += S(2.f);
 								}
+								yy += NkPropGroupGap(); // meme replie (Rihen)
 					// PROPORTIONNEL : l'axe touche impose son RAPPORT aux autres ;
 					// sinon chaque dimension ne bouge QUE son axe (Rihen).
 					if (st.propDim) {
