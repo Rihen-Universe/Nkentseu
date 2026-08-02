@@ -99,7 +99,38 @@ explicitement par l'utilisateur. Dans `NkHitRegistry` :
 
 ## 4. DÉFAUTS NON RÉSOLUS
 
-### 4.1 — Trois faces d'un cube restent éclairées (PRIORITÉ)
+### 4.1 — RÉSOLU (2026-08-02) — Trois faces d'un cube restaient éclairées
+
+**Cause** : dans `NkMaterialSystem.cpp`, le repli de texture d'un emplacement non
+renseigné était **blanc pour TOUS les slots**, normal map comprise. Le blanc est le
+neutre des slots MULTIPLIÉS (albédo, ORM, émissif) ; ce n'est pas celui d'une
+normale, dont le neutre est `(0.5, 0.5, 1)`.
+
+Le shader lisait donc `nTs = (1,1,1)*2-1 = (1,1,1)` au lieu de `(0,0,1)`, et
+calculait `N = normalize(T + B + geomN)` : une normale **inclinée de 54,7°**,
+orientée différemment sur chaque face selon sa base tangente. **Tout objet sans
+normal map explicite** était touché — ils retombent tous sur `Default_PBR`, et
+`ob.normalStrength` vaut 1 dès qu'un matériau existe (`NkRender3D.cpp:1583`).
+
+**Correctif** : repli dépendant du slot — `GetTexOr(name, fallback)`, blanc pour
+albédo/ORM/émissif, `texLib->GetNormal1x1()` pour la normale.
+
+**Ce qui a permis de trancher, et qui vaut pour la suite** : la vue NORMAL (touche Z)
+comme instrument de mesure, mais avec les **valeurs de pixels lues sur la capture**,
+pas jugées à l'œil. Le fait décisif : chaque canal ne prenait que **deux** valeurs
+(~0,21 et ~0,79) et plusieurs faces avaient deux canaux saturés à la fois — or une
+normale unitaire ne peut pas avoir deux composantes à 1. Signature de composantes
+toutes égales à ±0,577, soit exactement `normalize(±T ±B ±geomN)`.
+Puis une **sonde d'une ligne** dans le shader (afficher `geomN` au lieu de `N`) a
+séparé l'étage vertex de l'étage fragment : `geomN` sortait signée et correcte.
+
+Les pistes 1, 3 et 4 du diagnostic d'origine ont été fermées avec preuve (le cube
+passe bien par le shader PBR ; la grille de voxels n'est bâtie que sous `NK_GI_TEST`
+donc inerte ; les types de lumière sont corrects de bout en bout). La piste 2
+(matcap) a été écartée après mesure. La cause était ailleurs qu'aux quatre endroits
+soupçonnés.
+
+### 4.1 bis — ANCIEN TEXTE (conservé pour mémoire)
 
 **Symptôme** : avec un **soleil** dirigé vers le bas, trois faces visibles du cube
 sont éclairées au lieu de la seule face du dessus. Pire : une **point light placée
@@ -150,6 +181,34 @@ C'est ce test qui a révélé l'ambiance à 0.3. Refaire ce genre de test isolan
   `uCam.iblColor.w = 1` — sinon le shader ignore la cubemap **par construction**.
   Vérifier que `st.envSource == 1` appelle bien `Demo3DHostSetAmbientUseEnv(true)`.
 
+**Indice du journal (2026-08-02)** : deux appels successifs à 18:35:37 et 18:35:49
+rechargent le **même** fichier de cache — `[IBL] Cache charge (hit) :
+.../cache/ibl/nk_ibl_a91b913f.bin`, hash identique aux deux appels alors que les
+couleurs demandées avaient changé. La clé de cache IBL n'intègre donc pas
+`skyTop / horizon / ground` : `LoadProcedural` restitue toujours les mêmes cubemaps
+et n'écrit jamais le nouveau contenu. C'est la piste la plus prometteuse pour ce
+défaut — vérifier la fonction de hachage dans `NkEnvironmentSystem::TryLoadIBLCache`
+(`NkEnvironmentSystem.cpp:138`).
+
+### 4.2 bis — Le ciel n'est JAMAIS visible dans la scène (manque distinct)
+
+À ne pas confondre avec le défaut ci-dessus. Ce sont **deux mécanismes séparés** :
+
+| Effet | Réglage moteur | État |
+|---|---|---|
+| Le ciel **éclaire** les objets (ambiance, reflets) | `NkRender3D::SetIBLUseEnv(true)` | exposé par le combo « source d'ambiance » |
+| Le ciel est **visible** en fond de scène | `NkRender3D::SetSkyboxEnabled(true)` / `NkRendererConfig::ibl.drawSkybox` | **jamais activé** |
+
+`drawSkybox = false` par défaut (`NkRendererConfig.h:225`) et **NK3DModeler n'appelle
+jamais `SetSkyboxEnabled` ni ne renseigne `drawSkybox`** — aucune occurrence dans
+toute l'application. Le ciel ne peut donc, par construction, qu'agir sur l'éclairage :
+son invisibilité n'est pas un bug de rendu mais une fonctionnalité absente.
+
+Dans Blender les deux vont ensemble. À faire : câbler `SetSkyboxEnabled` et l'exposer
+dans le panneau **Rendu**, à côté de la source d'ambiance — en gardant les deux
+réglages **indépendants** (on veut pouvoir être éclairé par un HDRI sans l'afficher
+en fond, et réciproquement).
+
 ### 4.3 — Fermeture de l'application à la RESTAURATION d'une fenêtre réduite
 
 **Non résolu.** Voir aussi la section 9 de `CLAUDE.md`.
@@ -173,10 +232,37 @@ contexte immédiat ; `framesInFlight = 3` sur un contexte DX11 immédiat ;
 comportement de `IDXGISwapChain::ResizeBuffers` en mode flip après passage par une
 surface nulle. Envisager un test avec `framesInFlight = 1`.
 
-### 4.4 — Lumière surfacique (Area) sans ombre
+### 4.4 — Lumière surfacique (Area) : sans ombre ET sans direction
 
-Non implémenté en V0 de NkVSM (`AllocSlotsForLights`, cas `NK_AREA` → `break`).
-Piste : la traiter comme un spot large (une tuile).
+**Deux manques distincts, même origine — le type 3 n'est traité nulle part.**
+
+1. **Pas d'ombre** : `AllocSlotsForLights` (`NkVirtualShadowMaps.cpp:543`) fait
+   `case NK_AREA: break;`. Piste : la traiter comme un spot large (une tuile).
+2. **La direction n'a aucun effet** (constaté par Rihen, 2026-08-02). Dans
+   `pbr.frag.nksl`, la boucle des lumières a une branche `lt == 0` (directionnelle),
+   `lt == 1` (ponctuelle, cookie cube) et `lt == 2` (spot, cône + cookie), mais
+   **aucune branche `lt == 3`**. Une surfacique retombe donc dans le cas général
+   « point » : `L = normalize(pos - worldPos)`, atténuation radiale, et sa direction
+   n'est jamais lue. Le CPU la transmet pourtant (`NkDemo3D.cpp:4558`) et le gizmo
+   la fait tourner — le retour visuel existe, l'effet non.
+   À faire : un vrai terme surfacique (au minimum un `max(dot(-L, dirAire), 0)` pour
+   n'émettre que d'un côté du panneau, idéalement une LTC).
+
+### 4.6 — Spot : l'ombre disparaît quand on monte la lumière très haut
+
+Pas un défaut de l'atlas : `AllocSlotsSpot` prend `far = light.range`
+(`NkVirtualShadowMaps.cpp:448`), et le shader coupe l'atténuation avec la même
+valeur (`att = max(1 - dist/range, 0)`). Au-delà de sa **portée**, un spot n'éclaire
+plus *et* ne projette plus — les deux s'éteignent ensemble, ce qui est cohérent mais
+illisible pour l'utilisateur.
+
+À décider : soit la portée s'ajuste toute seule à la scène, soit elle devient
+visible dans le panneau (avec son gizmo), pour qu'on comprenne *pourquoi* l'ombre
+part. La deuxième option est plus proche de Blender.
+
+**Rappel utile (pas un défaut)** : l'ombre d'un **soleil** garde la même taille quand
+on déplace l'objet — les rayons d'une directionnelle sont parallèles. Seules les
+ponctuelles et les spots font varier la taille avec la distance.
 
 ### 4.5 — Ombres : seul le chemin Vulkan lit l'atlas par lumière
 

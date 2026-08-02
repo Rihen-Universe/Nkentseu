@@ -549,12 +549,34 @@ namespace nkentseu {
 					}
 				}
 
-				// Helper to get a texture's RHI handle (fallback to white)
-				auto GetTex = [&](const NkString &name) -> NkTextureHandle {
+				// Handle RHI d'une texture du materiau. LE REPLI DEPEND DU SLOT, et
+				// c'est tout l'objet de ce decoupage en deux lambdas.
+				//
+				// Le blanc est le neutre des slots MULTIPLIES (albedo, ORM, emissive).
+				// Il ne l'est PAS pour une normal map : le neutre d'une normale en
+				// espace tangent est (0.5, 0.5, 1), qui redonne nTs = (0,0,1) dans le
+				// shader, donc N = geomN -- la normale geometrique, inchangee.
+				//
+				// Avec du blanc, le shader lit nTs = (1,1,1)*2-1 = (1,1,1) et calcule
+				// N = normalize(T + B + geomN) : une normale inclinee de 54,7 degres,
+				// dont le sens change d'une face a l'autre selon sa base tangente.
+				// TOUT objet sans normal map explicite etait touche, car il retombe
+				// sur Default_PBR et que normalStrength vaut alors 1.
+				//
+				// Symptomes (Rihen) : avec un soleil dirige vers le bas, trois faces
+				// d'un cube restaient eclairees, et une ponctuelle placee en haut
+				// eclairait aussi le dessous. Mesure decisive en vue NORMAL : chaque
+				// canal ne prenait plus que DEUX valeurs (~0.21 et ~0.79) -- signature
+				// de composantes toutes egales a +-0,577, soit exactement
+				// normalize(+-T +-B +-geomN).
+				auto GetTexOr = [&](const NkString &name, NkTexHandle fallback) -> NkTextureHandle {
 					for (auto &p : inst->mParams)
 						if (p.kind == NkMaterialInstance::Param::Kind::TEX && p.name == name)
 							return texLib->GetRHIHandle(p.tex);
-					return texLib->GetRHIHandle(texLib->GetWhite1x1());
+					return texLib->GetRHIHandle(fallback);
+				};
+				auto GetTex = [&](const NkString &name) -> NkTextureHandle {
+					return GetTexOr(name, texLib->GetWhite1x1());
 				};
 
 				NkTextureHandle albedoTex = GetTex("albedo");
@@ -570,7 +592,7 @@ namespace nkentseu {
 							break;
 						}
 					if (!found)
-						slot4Tex = GetTex("normal");
+						slot4Tex = GetTexOr("normal", texLib->GetNormal1x1());
 				}
 				NkTextureHandle ormTex = GetTex("orm");
 				NkTextureHandle emissiveTex = GetTex("emissive");
