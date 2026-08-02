@@ -548,9 +548,14 @@ int nkmain(const NkEntryState &entry) {
 		// l'application (Rihen). On rend la main a l'OS et on repart au debut de
 		// la boucle : les evenements continuent d'etre depiles, donc la fenetre
 		// se restaure normalement.
+		// C'est la SURFACE qu'il faut interroger, pas GetSize() : une fenetre
+		// reduite garde sa taille logique -- Windows la conserve pour la
+		// restauration -- alors que sa surface de rendu tombe a zero. Tester
+		// GetSize() ne detectait donc jamais la minimisation, et l'application
+		// continuait a rendre puis mourait.
 		{
-			const math::NkVec2u sz0 = window.GetSize();
-			if (sz0.x == 0 || sz0.y == 0) {
+			const NkSurfaceDesc surf0 = window.GetSurfaceDesc();
+			if (surf0.width == 0 || surf0.height == 0) {
 				NkClock::SleepMilliseconds(8);
 				continue;
 			}
