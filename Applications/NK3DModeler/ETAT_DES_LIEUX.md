@@ -1,0 +1,248 @@
+# NK3DModeler — état des lieux (2026-08-02)
+
+Document de reprise. Il dit **où en est le travail**, **ce qui reste**, et surtout
+**ce qui est cassé avec tout ce qui a déjà été établi** — pour ne pas refaire les
+mêmes recherches.
+
+Dernier commit poussé : `9c379ee0` sur `main`.
+Langue de travail : **français** (code, commentaires, échanges).
+
+---
+
+## 1. Règles de travail (impératives)
+
+1. **Ne jamais piloter la souris ni le clavier de l'utilisateur.** Un incident a
+   envoyé des clics synthétiques dans Blender. Interdiction définitive.
+2. **Lancer l'application depuis la racine du dépôt** (`D:\Projets\2026\Nkentseu\Nkentseu`),
+   sinon les shaders HLSL/GLSL et les icônes sont introuvables : fenêtre noire.
+3. **Fichiers privés jamais poussés** (`CARNET.private.md`, `CLAUDE.md` est ignoré par git).
+4. Commit + push à chaque palier stable, message en français expliquant *pourquoi*.
+5. Un point à la fois, relance vérifiée (`Get-Process NK3DModeler`), l'utilisateur teste.
+
+### PIÈGE DE BUILD — cause de deux faux diagnostics
+
+`jenga build --target NK3DModeler` **ne reconstruit pas** NKWindow, NKRHI, NKRenderer :
+ils sont liés tels quels. Toute correction dans ces bibliothèques exige de construire
+leur cible **d'abord** :
+
+```
+jenga build --target NKWindow  --config Debug --platform Windows
+jenga build --target NKRHI     --config Debug --platform Windows
+jenga build --target NKRenderer --config Debug --platform Windows
+jenga build --target NK3DModeler --config Debug --platform Windows
+```
+
+Un correctif absent du binaire donne **exactement la même image** qu'un correctif faux.
+
+### PIÈGE — la valeur qui « fait foi »
+
+Plusieurs réglages existent à deux endroits : un défaut de membre, et une valeur de
+configuration réappliquée à l'initialisation. C'est la **seconde** qui gagne.
+Exemple vécu : `NkRender3D::mIBLStrength = 0.05f` était écrasé par
+`NkRendererConfig::ibl.iblStrength` via `NkRendererImpl.cpp:355`.
+
+---
+
+## 2. Architecture — repères
+
+- **Hôte de la vue 3D** : `Applications/NK3DModeler/src/NK3DModeler/Viewport/NkDemo3D.cpp`
+  (~9900 lignes), interface dans `NkDemo3DHost.h`. Tous les accesseurs `Demo3DHost*`.
+- **Interface** : `Shell/NkModelerScreens.h` (~7700 lignes, panneaux),
+  `Shell/NkModelerWidgets.h` (widgets), `Shell/NkModelerInput.h` (état + registre de
+  zones), `Shell/NkModelerUI.h` (painter), `main.cpp` (boucle et ordre de peinture).
+- **Nœuds** : `kNkvpMaxNodes = 160`. 0-85 objets de démo, 86-89 lumières de démo,
+  90-95 empties, 96-159 objets utilisateur.
+- **Shader PBR réellement utilisé** : `Resources/NKRenderer/Shaders/PBR/NkSL/pbr.frag.nksl`
+  (chemin NkSL, prioritaire). Les `.hlsl` / `.vk.glsl` du même dossier **ne sont pas
+  chargés** quand les `.nksl` existent — vérifié dans le journal :
+  `[NkShaderLibrary] 'PBR' -> chemin NkSL (vrai dialecte)`.
+  L'include partagé des ombres est `Resources/NKRenderer/Shaders/Include/NkShadowAtlas.glsli`.
+
+### Routeur d'occlusion (gestion des événements GUI)
+
+Modèle repris de NkCode (`NkGuiContext::PushOcclusion/PointReachable`), demandé
+explicitement par l'utilisateur. Dans `NkHitRegistry` :
+
+- `SetLayer(n)` / `LayerScope` : **0** panneaux, **50** menus et sous-menus, **100** modales.
+- `PushOcclusion(rect, layer)` : emprise déclarée pendant le dessin ; la liste
+  **consultée** est celle de la frame précédente → indépendante de l'ordre de dessin.
+- `Reachable(pt)` : un point recouvert par une couche strictement supérieure est
+  inatteignable. Consulté par `Add()` **et** disponible pour le code qui teste la
+  souris à la main.
+- L'ancienne garde `SetBlock`/`UiBlocks` **n'est plus utilisée depuis main.cpp** :
+  deux mécanismes concurrents faisaient qu'un menu refusait ses propres clics.
+
+---
+
+## 3. Livré et validé par l'utilisateur
+
+- Picker de couleur **modal** complet : roue chromatique, barre de valeur,
+  Linéaire/Perceptuel, RVB/TSV, alpha, hexadécimal sRGB, Valider/Annuler
+  (fermeture différée d'une image pour que l'annulation rende vraiment la couleur
+  d'origine). Conversions via `NkColorF::ToHSV/FromHSV` de NKMath. Branché sur :
+  couleur de lumière utilisateur, couleur de base du matériau, matériau du mesh,
+  couleur d'ambiance, couleurs du ciel, couleur du brouillard.
+- Navigateur de projet : barre de recherche + pastilles de filtre par type, sur un
+  bandeau pleine largeur peint **après** les cartes (donc au-dessus).
+- Barres de défilement unifiées (`editorkit::NkVScrollbar`) : hiérarchie, navigateur
+  gauche et droite, propriétés. Gouttière opaque, harnais et flèches assombris via
+  `NkScrollbarUserSkin`.
+- Panneau **Rendu** : groupes Ambiance (intensité, couleur, source), Brouillard
+  (actif, loi, couleur, densité ou début/fin), Ombres (qualité, mise à jour
+  statique/dynamique, douceur, biais normal, biais de pente).
+- Marge en haut des quatre sections du panneau de propriétés.
+- Moteur : température/exposition des lumières, `GetEnvironment()` sur l'interface
+  du renderer, `RefreshEnvironmentBindings()`, brouillard câblé jusqu'au shader,
+  couleur d'ambiance dans le bloc de constantes caméra.
+
+---
+
+## 4. DÉFAUTS NON RÉSOLUS
+
+### 4.1 — Trois faces d'un cube restent éclairées (PRIORITÉ)
+
+**Symptôme** : avec un **soleil** dirigé vers le bas, trois faces visibles du cube
+sont éclairées au lieu de la seule face du dessus. Pire : une **point light placée
+en haut éclaire aussi le bas**. Les faces concernées ne changent pas quand on tourne
+la vue → dépend de la normale **monde**, pas de la vue.
+
+**Ce qui a été éliminé** :
+- Ce n'est pas l'intensité de l'ambiance seule (passée de 0.3 → 0.05 aux deux
+  endroits : `NkRendererConfig.h` et `NkRender3D.h`).
+- Ce n'est pas l'IBL directionnel seul : la source d'ambiance « Couleur unie »
+  force `uCam.iblColor.w = 0` et le shader prend alors `irr = vec3(1.0)`,
+  `pref = vec3(1.0)` — donc uniforme.
+- La normale semble correctement transformée (`pbr.vert.nksl:102`, `vNormal = N_real`).
+- Le shader applique bien `NdL = max(dot(N,L), 0.0)` (pas de `abs`).
+
+**Pistes à vérifier, dans cet ordre** :
+1. **Le cube utilisateur est-il rendu par le shader PBR ?** Vérifier quel matériau
+   `HostMatHook` / `Demo3DHostMeshMaterial` lui assigne. S'il passe par un matériau
+   « masked » ou un autre shader, tout le raisonnement ci-dessus est hors sujet.
+2. **`uCam.viewMode`** : en mode SOLID/matcap, la couleur vient d'une matcap
+   échantillonnée par la normale — ce qui produirait exactement ce symptôme. Le HUD
+   annonce `Affichage(Z): RENDERED`, mais vérifier ce qui est réellement écrit dans
+   le bloc caméra (`cb.viewMode`), pas ce qu'affiche le HUD.
+3. **`NkComputeVoxelGI`** (`Include/NkVoxelAO.glsli`) : le terme `voxGI.xyz` s'ajoute
+   à l'ambiance. Si la grille de voxels contient autre chose que zéro, il éclaire
+   selon la position/normale. Le neutraliser temporairement pour trancher.
+4. **Le point light qui éclaire le bas** : vérifier l'atténuation `att` et surtout
+   que `positions[i].w` (le type) vaut bien 1. Si le type lu vaut 0, la branche
+   directionnelle s'applique et `L` devient constant — ce qui éclairerait
+   « le haut et le bas » selon la direction, exactement le symptôme décrit.
+   **C'est la piste la plus prometteuse pour ce cas précis.**
+
+**Méthode qui a marché** : demander un rendu **sans aucune lumière** dans la scène.
+C'est ce test qui a révélé l'ambiance à 0.3. Refaire ce genre de test isolant.
+
+### 4.2 — Le ciel procédural ne produit aucun effet
+
+`Demo3DHostApplySky()` appelle `env->LoadProcedural(top, horizon, ground)` puis
+`r3->RefreshEnvironmentBindings()`. Aucun changement visible.
+
+**À vérifier** :
+- `LoadProcedural` recrée-t-il les textures (nouveaux handles) ou écrit-il dans les
+  existantes ? Si les handles sont identiques, le rebinding est inutile et le
+  problème est ailleurs (contenu non écrit, ou cache IBL qui court-circuite).
+- Le journal contient-il une trace de `LoadProcedural` ? Ajouter un log du handle
+  avant/après.
+- La source d'ambiance doit être sur « Ciel procédural » pour que
+  `uCam.iblColor.w = 1` — sinon le shader ignore la cubemap **par construction**.
+  Vérifier que `st.envSource == 1` appelle bien `Demo3DHostSetAmbientUseEnv(true)`.
+
+### 4.3 — Fermeture de l'application à la RESTAURATION d'une fenêtre réduite
+
+**Non résolu.** Voir aussi la section 9 de `CLAUDE.md`.
+
+Symptôme : l'application meurt en restaurant une fenêtre minimisée. Le journal
+s'arrête net sur `ResizeSwapchain` puis `RebuildRenderGraph`.
+
+**Correctifs déjà appliqués (à conserver — chacun est un vrai défaut)** :
+- `NkRendererImpl::BeginFrame` fait désormais l'auto-resize **avant**
+  `mDevice->BeginFrame` : on détruisait les cibles et on reconstruisait le graphe
+  au milieu d'une frame ouverte.
+- `WaitIdle()` avant `RebuildRenderGraph` dans `ApplyRenderSize`.
+- `NkDirectX11Device::OnResize` : no-op si la taille est inchangée (DX12 l'avait déjà).
+- `mWidth/mHeight` posés **après** `ResizeSwapchain` (sinon la trace « avant: » ment).
+- Boucle principale : `window.GetSurfaceDesc()` à zéro → `Sleep(8)` + `continue`.
+  **`GetSize()` ne convient pas** : une fenêtre réduite garde sa taille logique.
+- `WM_SIZE` : pas de `RDW_UPDATENOW` quand la taille est nulle.
+
+**Pistes non explorées** : ordre de destruction des vues (RTV/DSV) encore liées au
+contexte immédiat ; `framesInFlight = 3` sur un contexte DX11 immédiat ;
+comportement de `IDXGISwapChain::ResizeBuffers` en mode flip après passage par une
+surface nulle. Envisager un test avec `framesInFlight = 1`.
+
+### 4.4 — Lumière surfacique (Area) sans ombre
+
+Non implémenté en V0 de NkVSM (`AllocSlotsForLights`, cas `NK_AREA` → `break`).
+Piste : la traiter comme un spot large (une tuile).
+
+### 4.5 — Ombres : seul le chemin Vulkan lit l'atlas par lumière
+
+`Resources/NKRenderer/Shaders/PBR/` : **VK** et **NkSL** échantillonnent l'atlas
+per-light. **DX12, OpenGL et MSL** calculent une seule ombre (cascade du soleil) et
+l'appliquent à toutes les lumières. À porter si l'on ajoute le choix de backend.
+
+---
+
+## 5. Reste à faire — ordre décidé par l'utilisateur
+
+L'ordre a été fixé explicitement : **modélisation d'abord**, la sauvegarde
+« viendra avec le temps ».
+
+1. **Matériaux** (le gros morceau, prévu et repoussé) :
+   - Pastille **Matériaux** dédiée, visible **uniquement** pour model et mesh —
+     jamais pour caméra, lumière ou empty. Liée à l'objet sélectionné.
+   - **MOTEUR** : emplacements de matériaux multiples par model + table par face +
+     rendu en sous-appels. `NkDrawCall3D::materialSlots` existe déjà (phase M.8).
+     C'est le socle du bouton « Assigner » et la matérialisation du concept de mesh.
+   - Aperçu de matériau (rendu hors écran).
+2. **Sélecteur de fichier / dossier** : `Engine/NKEditorKit/src/NKEditorKit/NkFilePicker.h`
+   existe (utilisé par NkCode). À brancher sur le champ HDRI, ou réécrire au style du
+   modeleur si son contrat ne s'y prête pas. **Demandé, pas encore fait.**
+3. **Textures de lumière** : mode Couleur / Texture / Mix pour **toutes** les
+   lumières. Règle : **vraies textures fournies par l'utilisateur** ; si aucune n'est
+   fournie (mode Texture comme mode Mix), on **conserve uniquement la couleur**.
+   Un emplacement en mode Texture, plusieurs en mode Mix.
+4. **Réglages** : choix du backend graphique (DX11, DX12, Vulkan, OpenGL, Metal).
+   Suppose une relance du contexte de rendu → réglage persistant appliqué au
+   démarrage, et n'offrir que les backends de la plateforme.
+5. Caméras, éclairage (suite), import de modèles, combo « Ajouter », mode Édition.
+6. Sortie des 96 objets de démo de la scène (en dernier).
+7. Listes restantes du panneau : Groupes de Vertex, Shape Keys, Maps UV, Attributs
+   de Couleur, Attributs ; Espace Texture ; Données Géométrie.
+8. Pipette dans le picker de couleur (comme la maquette Blender).
+9. HDRI : à terme, aller les chercher **dans le projet** plutôt qu'un chemin saisi.
+
+---
+
+## 6. Sémantique Model / Mesh (définition de l'utilisateur)
+
+> « un mesh = l'ensemble des éléments graphiques (vertices, edges, faces) d'un model
+> qui partagent les mêmes propriétés, qu'ils soient directement connectés ou pas »
+
+Donc **un mesh EST un emplacement de matériau**. Model = parent unique ; ses enfants
+sont tous frères ; un mesh n'est jamais parent d'un autre mesh.
+Implémenté dans `NkDemo3D.cpp` : `nkvpIsMesh[]`, `nkvpIsModel[]`,
+`Demo3DHostModelRootOf`, `FlattenModel`, point de passage unique dans
+`Demo3DHostSetNodeParent`.
+
+Drapeaux **par contexte** : `nkvpObjHidden/Locked` (scène) contre
+`nkvpMeshHidden/Locked` (model). Visibilité = OU en scène (propagation model→scène) ;
+verrou jamais propagé.
+
+---
+
+## 7. Leçons de conception (acquises à la dure)
+
+- Un état qui se propage doit être **affiché sous sa forme effective**, pas sous sa
+  forme locale (le cadenas ouvert alors que la sélection était refusée).
+- Quand on remplace un mécanisme, **retirer l'ancien**. Deux gardes concurrentes ont
+  fait qu'un menu refusait ses propres clics.
+- Un invariant se pose au **point de passage unique**, jamais dans une branche « sinon ».
+- Ne pas déduire un état structurel de la forme de l'arbre.
+- `Outline` repeint le fond : utiliser `OutlineSharp` pour un contour seul.
+- Les listes déroulées retiennent un **pointeur** sur la valeur et l'écrivent à la
+  frame suivante : ce pointeur ne doit **jamais** désigner une variable locale.
+- Un champ de saisie ne doit jamais écrire son texte d'invite dans le buffer.
