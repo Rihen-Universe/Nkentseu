@@ -267,6 +267,16 @@ namespace nkentseu {
 				// Materiaux...) : un bit par groupe, mis a 1 quand il est REPLIE.
 				// Les elements de nature differente se rangent par groupe (Rihen).
 				uint32 grpFold = 0;
+				// ── PIPETTE DE RELATION (idee de Rihen, reprise de Blender) ──
+				// Plutot que de chercher un objet dans une liste, on le DESIGNE :
+				// on arme la pipette, puis on clique l'objet dans la vue ou dans
+				// la hierarchie. 0 = inactive, 1 = choisir le parent, 2 = ajouter
+				// un enfant. `pickFor` retient l'objet dont on edite les
+				// relations, `pickPrev` la selection au moment de l'armement --
+				// c'est son changement qui designe la cible.
+				int32 relPick = 0;
+				int32 relPickFor = -1;
+				int32 relPickPrev = -1;
 				// ── LISTES DU PANNEAU MODELE ────────────────────────────────
 				// Groupes de vertex, shape keys, maps UV, attributs de couleur,
 				// attributs : ces natures n'ont pas encore de modele de donnees

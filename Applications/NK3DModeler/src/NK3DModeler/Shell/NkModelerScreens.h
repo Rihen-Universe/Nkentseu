@@ -4665,6 +4665,27 @@ namespace nkentseu {
 								if (grpRel) {
 									const NkRect iR = NkGroupInner(rowR);
 									yy += NkGroupPad();
+									// ── LA PIPETTE A DESIGNE QUELQU'UN ? ───────────
+									// Elle a arme, puis l'utilisateur a clique un objet
+									// dans la vue ou la hierarchie : la selection a donc
+									// change, et c'est ELLE la cible.
+									if (st.relPick != 0 && st.relPickFor == en &&
+										st.activeEmpty >= 0 &&
+										st.activeEmpty != st.relPickPrev &&
+										st.activeEmpty != en) {
+										const int32 tgt = st.activeEmpty;
+										if (st.relPick == 1 && !NkHierIsDescendant(tgt, en))
+											demo::Demo3DHostSetNodeParent(en, tgt);
+										else if (st.relPick == 2 && !NkHierIsDescendant(en, tgt))
+											demo::Demo3DHostSetNodeParent(tgt, en);
+										// On REVIENT sur l'objet qu'on editait : sinon le
+										// panneau saute sur la cible et l'on perd le fil.
+										demo::Demo3DHostDeselectAll();
+										demo::Demo3DHostSelectEmptyNode(en);
+										st.activeEmpty = en;
+										st.relPick = 0;
+										st.relPickFor = -1;
+									}
 									const float32 valX = iR.x + S(96.f);
 									const float32 valW = iR.w - S(96.f);
 									// PARENT : une LISTE, pas une etiquette (Rihen) -- on
@@ -4727,9 +4748,32 @@ namespace nkentseu {
 											sParSel = curIdx;
 											sParApplied = pa;
 										}
-										const NkRect vb{valX, yy + S(3.f), valW, kRowH - S(6.f)};
+										// PIPETTE : designer le parent dans la vue plutot que
+										// de le chercher dans la liste (Rihen, Blender).
+										const bool pkP = (st.relPick == 1 && st.relPickFor == en);
+										const NkRect vb{valX, yy + S(3.f), valW - S(24.f),
+														kRowH - S(6.f)};
 										Combo(p, hit, ws, "prop.rel.par", vb, sParPtr, nullptr, np,
 											  sParSel, combo);
+										{
+											const NkRect eb{vb.x + vb.w + S(4.f), vb.y, S(20.f),
+															vb.h};
+											const bool ovE = hit.Add("prop.rel.parpick", eb);
+											p.Outline(eb,
+													  (pkP || ovE) ? NkRole::AccentUi
+																   : NkRole::Border,
+													  pkP ? NkRole::AccentUi : NkRole::PanelHeader,
+													  3.f);
+											p.IconV(eb.x + (eb.w - S(11.f)) * 0.5f, eb.y, eb.h,
+													NkIcon::Picker,
+													pkP ? NkRole::TextOnAccent : NkRole::TextMuted,
+													11.f);
+											if (hit.Clicked("prop.rel.parpick")) {
+												st.relPick = pkP ? 0 : 1;
+												st.relPickFor = en;
+												st.relPickPrev = st.activeEmpty;
+											}
+										}
 									}
 									yy += kRowH;
 									// ENFANTS : la LISTE, pas un compte (Rihen). Un nombre
@@ -4800,7 +4844,14 @@ namespace nkentseu {
 										static const char *sAddPtr[24];
 										static int32 sAddNode[24];
 										static int32 sAddSel = 0;
+										// « Aucun » EN TETE ET PAR DEFAUT (Rihen) : tant qu'on
+										// n'a designe personne, le bouton n'ajoute rien --
+										// sinon un clic distrait rattache le premier venu.
 										int32 na = 0;
+										snprintf(sAddName[0], sizeof(sAddName[0]), "Aucun");
+										sAddPtr[0] = sAddName[0];
+										sAddNode[0] = -1;
+										na = 1;
 										const int32 ncA = demo::Demo3DHostNodeCount();
 										for (int32 c9 = 0; c9 < ncA && na < 24; ++c9) {
 											if (c9 == en || NkHierNodeSkip(c9))
@@ -4815,31 +4866,63 @@ namespace nkentseu {
 											sAddNode[na] = c9;
 											++na;
 										}
-										p.TextV(iR.x, yy, kRowH, "Ajouter", NkRole::TextMuted);
-										if (na > 0) {
+										// PAS DE LIBELLE « Ajouter » (Rihen) : le libelle
+										// « Enfants » couvre deja la liste ET l'ajout. Cette
+										// seconde ligne s'aligne simplement sous la
+										// premiere, ce qui la rattache visiblement a elle.
+										{
 											if (sAddSel < 0 || sAddSel >= na)
 												sAddSel = 0;
-											const NkRect ab{valX, yy + S(3.f), valW - S(24.f),
+											// La liste, PUIS la pipette, PUIS le plus : on
+											// designe l'objet du regard ou du doigt, et on
+											// valide toujours par le meme bouton (Rihen).
+											const bool pkC = (st.relPick == 2 && st.relPickFor == en);
+											const NkRect ab{valX, yy + S(3.f), valW - S(48.f),
 															kRowH - S(6.f)};
 											Combo(p, hit, ws, "prop.rel.addk", ab, sAddPtr,
 												  nullptr, na, sAddSel, combo);
-											const NkRect pb{ab.x + ab.w + S(4.f), ab.y, S(20.f),
+											{
+												const NkRect eb{ab.x + ab.w + S(4.f), ab.y, S(20.f),
+																ab.h};
+												const bool ovE = hit.Add("prop.rel.addpick", eb);
+												p.Outline(eb,
+														  (pkC || ovE) ? NkRole::AccentUi
+																	   : NkRole::Border,
+														  pkC ? NkRole::AccentUi
+															  : NkRole::PanelHeader,
+														  3.f);
+												p.IconV(eb.x + (eb.w - S(11.f)) * 0.5f, eb.y, eb.h,
+														NkIcon::Picker,
+														pkC ? NkRole::TextOnAccent
+															: NkRole::TextMuted,
+														11.f);
+												if (hit.Clicked("prop.rel.addpick")) {
+													st.relPick = pkC ? 0 : 2;
+													st.relPickFor = en;
+													st.relPickPrev = st.activeEmpty;
+												}
+											}
+											// Le bouton ne fait rien tant que le choix est
+											// « Aucun » : il s'affiche eteint pour le dire,
+											// et BLANC des qu'il peut agir.
+											const bool canAdd =
+												sAddSel > 0 && sAddSel < na && sAddNode[sAddSel] >= 0;
+											const NkRect pb{ab.x + ab.w + S(28.f), ab.y, S(20.f),
 															ab.h};
 											const bool ovP = hit.Add("prop.rel.addb", pb);
 											p.Outline(pb,
-													  ovP ? NkRole::AccentUi : NkRole::Border,
+													  (canAdd && ovP) ? NkRole::AccentUi
+																	  : NkRole::Border,
 													  NkRole::PanelHeader, 3.f);
 											p.IconV(pb.x + (pb.w - S(11.f)) * 0.5f, pb.y, pb.h,
-													NkIcon::PlusCircle, NkRole::TextMuted, 11.f);
-											if (hit.Clicked("prop.rel.addb") && sAddSel < na)
+													NkIcon::PlusCircle,
+													canAdd ? NkRole::Text : NkRole::TextMuted,
+													11.f);
+											if (canAdd && hit.Clicked("prop.rel.addb")) {
 												demo::Demo3DHostSetNodeParent(sAddNode[sAddSel],
 																			  en);
-										} else {
-											const NkRect ab{valX, yy + S(3.f), valW,
-															kRowH - S(6.f)};
-											p.Outline(ab, NkRole::Border, NkRole::InputBg, 2.f);
-											p.TextV(ab.x + S(6.f), yy, kRowH, "Aucun libre",
-													NkRole::TextMuted);
+												sAddSel = 0; // on revient a « Aucun »
+											}
 										}
 										yy += kRowH;
 									}
@@ -5059,7 +5142,9 @@ namespace nkentseu {
 										demo::Demo3DHostSetCameraParams(en, cf, cnr, cfr);
 								}
 							}
-							NkXmitRow(p, hit, r, rr, yy, en);
+							// (« Transmettre » a rejoint le groupe RELATIONS : le
+							// laisser aussi ici l'affichait DEUX FOIS -- constate par
+							// Rihen sur sa capture.)
 						}
 					} else if (li >= 0) {
 						// UNE LUMIERE A SES PROPRIETES comme un maillage (Rihen) --
