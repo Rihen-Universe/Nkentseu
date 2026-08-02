@@ -2024,6 +2024,12 @@ namespace nkentseu {
 					// Ajoutee EN FIN de struct : les shaders qui declarent un
 					// CameraUBO plus court ignorent simplement ces octets.
 					NkVec4f iblColor;
+					// BROUILLARD (offsets 432 et 448). Ces reglages vivaient dans
+					// le contexte de scene depuis toujours mais AUCUNE passe ne les
+					// lisait : les regler n'avait aucun effet. Ils descendent
+					// desormais jusqu'au shader, qui les applique en dernier.
+					NkVec4f fogColor;  // .xyz couleur, .w densite (loi exponentielle)
+					NkVec4f fogParams; // .x actif, .y debut, .z fin, .w 0=lineaire 1=exp
 			};
 
 			PBRCamUBO cb{};
@@ -2108,7 +2114,18 @@ namespace nkentseu {
 			cb.time = mCtx.time;
 			cb.deltaTime = mCtx.deltaTime;
 			cb.iblStrength = mIBLStrength;
-			cb.iblColor = {mIBLColor.x, mIBLColor.y, mIBLColor.z, 0.f};
+			// .w = UN ENVIRONNEMENT EST-IL CHARGE ? Sans lui, le shader
+			// echantillonnait quand meme les cubemaps d'irradiance et de reflet
+			// PAR LA NORMALE : leur contenu par defaut n'etant pas uniforme, trois
+			// faces d'un cube ressortaient plus claires que les trois autres, et
+			// toujours les memes quelle que soit la vue -- ce que Rihen a
+			// constate, alors que Blender donne un aplat parfait sans monde
+			// image. A zero, le shader prend une ambiance UNIFORME.
+			const bool hasEnv = mEnv && mEnv->GetIrradianceCubemap().IsValid();
+			cb.iblColor = {mIBLColor.x, mIBLColor.y, mIBLColor.z, hasEnv ? 1.f : 0.f};
+			cb.fogColor = {mCtx.fogColor.x, mCtx.fogColor.y, mCtx.fogColor.z, mCtx.fogDensity};
+			cb.fogParams = {mCtx.fogEnabled ? 1.f : 0.f, mCtx.fogStart, mCtx.fogEnd,
+							mCtx.fogDensity > 0.f ? 1.f : 0.f};
 			cb.viewMode = (float32)mViewMode; // 0=rendered(PBR) 1=solid/unlit (indépendant du wireframe)
 			cb.matcapId = (float32)mMatcapId; // index 0..29 dans l'atlas des 30 matcaps
 			// .x = 1 si une matcap PERSONNALISEE remplace l'atlas (cf. SetMatcapTexture) :

@@ -224,6 +224,11 @@ namespace nkentseu {
 		// Teinte de l'ambiance (pendant du « World > Color » de Blender).
 		void Demo3DHostAmbientColor(float32 *rgb);
 		void Demo3DHostSetAmbientColor(const float32 *rgb);
+		// Brouillard de scene : loi lineaire (debut/fin) ou exponentielle (densite).
+		void Demo3DHostFog(bool *on, float32 *rgb, float32 *density, float32 *start,
+						   float32 *end, int32 *mode);
+		void Demo3DHostSetFog(bool on, const float32 *rgb, float32 density, float32 start,
+							  float32 end, int32 mode);
 		// Mise a jour des ombres : dynamique (elles suivent la scene) ou statique
 		// (calculees une fois, puis gardees telles quelles).
 		bool Demo3DHostShadowDynamic();

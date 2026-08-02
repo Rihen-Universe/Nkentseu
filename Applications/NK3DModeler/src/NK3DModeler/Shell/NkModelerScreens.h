@@ -6129,6 +6129,71 @@ namespace nkentseu {
 						}
 						yy += NkPropGroupGap();
 					}
+					// ── BROUILLARD ──────────────────────────────────────────────
+					{
+						NkRect fR = rr;
+						fR.x = r.x + NkPropInset();
+						fR.w = rr.w - 2.f * NkPropInset();
+						const float32 fTop = yy;
+						if (PaintPropGroup(p, hit, st, fR, yy, "prop.g.fog", "Brouillard", 4u)) {
+							const NkRect iF = NkGroupInner(fR);
+							const float32 fvX = iF.x + S(110.f);
+							const float32 fvW = iF.w - S(110.f);
+							yy += NkGroupPad();
+							bool fOn = false;
+							float32 fCol[3], fDen = 0.f, fSta = 0.f, fEnd = 0.f;
+							int32 fMode = 0;
+							demo::Demo3DHostFog(&fOn, fCol, &fDen, &fSta, &fEnd, &fMode);
+							const bool o0 = fOn;
+							const float32 d0 = fDen, s0 = fSta, e0 = fEnd;
+							const int32 m0 = fMode;
+							{
+								const NkRect cb{iF.x, yy + S(5.f), S(12.f), S(12.f)};
+								hit.Add("prop.fog.on", cb);
+								p.Outline(cb, fOn ? NkRole::AccentUi : NkRole::Border,
+										  fOn ? NkRole::AccentUi : NkRole::InputBg, 2.f);
+								p.TextV(cb.x + S(18.f), yy, kRowH, "Actif", NkRole::TextMuted);
+								if (hit.Clicked("prop.fog.on"))
+									fOn = !fOn;
+								yy += kRowH;
+							}
+							static const char *const kFm[2] = {"Lineaire (debut / fin)",
+															   "Exponentiel (densite)"};
+							p.TextV(iF.x, yy, kRowH, "Loi", NkRole::TextMuted);
+							Combo(p, hit, ws, "prop.fog.mode",
+								  {fvX, yy + S(2.f), fvW, kRowH - S(4.f)}, kFm, nullptr, 2,
+								  st.fogMode, combo);
+							fMode = st.fogMode;
+							yy += kRowH;
+							bool fcCh = false;
+							yy += PaintColorRow(p, hit, ws, in, st, iF, yy, "Couleur",
+												"prop.fogcol", fCol, &fcCh);
+							if (fMode == 1) {
+								p.TextV(iF.x, yy, kRowH, "Densite", NkRole::TextMuted);
+								DragFloat(p, hit, ws, in, "prop.fog.den",
+										  {fvX, yy + S(3.f), fvW, kRowH - S(6.f)}, fDen, 0.002f,
+										  NkRole::AccentUi, "%.3f");
+								yy += kRowH;
+							} else {
+								p.TextV(iF.x, yy, kRowH, "Debut", NkRole::TextMuted);
+								DragFloat(p, hit, ws, in, "prop.fog.sta",
+										  {fvX, yy + S(3.f), fvW, kRowH - S(6.f)}, fSta, 0.25f,
+										  NkRole::AccentUi, "%.2f m");
+								yy += kRowH;
+								p.TextV(iF.x, yy, kRowH, "Fin", NkRole::TextMuted);
+								DragFloat(p, hit, ws, in, "prop.fog.end",
+										  {fvX, yy + S(3.f), fvW, kRowH - S(6.f)}, fEnd, 0.5f,
+										  NkRole::AccentUi, "%.2f m");
+								yy += kRowH;
+							}
+							if (fOn != o0 || fDen != d0 || fSta != s0 || fEnd != e0 ||
+								fMode != m0 || fcCh)
+								demo::Demo3DHostSetFog(fOn, fCol, fDen, fSta, fEnd, fMode);
+							yy += NkGroupPad();
+							PaintGroupBlock(p, fR, fTop, yy);
+						}
+						yy += NkPropGroupGap();
+					}
 					const bool grpSh = PaintPropGroup(p, hit, st, rowR, yy, "prop.g.shadow",
 													  "Ombres", 1u);
 					const float32 grpShTop = yy;
