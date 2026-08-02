@@ -1107,15 +1107,20 @@ namespace nkentseu {
 		// Ligne « Transmettre » d'un parent : quelles composantes de SA
 		// transformation atteignent ses enfants (option par transformation,
 		// idee de Rihen).
+		// `r` est le rectangle de TRAVAIL : les trois boutons se calent sur SA
+		// largeur. Ils se calculaient auparavant sur la largeur du panneau entier,
+		// et debordaient donc du cadre d'un groupe (constate par Rihen).
 		inline void NkXmitRow(NkModelerPainter &p, NkHitRegistry &hit, const NkRect &r,
 							  const NkRect &rr, float32 &yy, int32 node) {
-			p.TextV(r.x + kPad, yy, kRowH, "Transmettre", NkRole::TextMuted);
+			(void)rr;
+			const float32 labW = S(90.f);
+			p.TextV(r.x, yy, kRowH, "Transmettre", NkRole::TextMuted);
 			int32 mask = demo::Demo3DHostNodeXmitMask(node);
 			static const char *const kXm[3] = {"Pos", "Rot", "Ech"};
-			const float32 bw = (rr.w - S(128.f) - S(8.f)) / 3.f;
+			const float32 bw = (r.w - labW - S(8.f)) / 3.f;
 			char kx[24];
 			for (int32 b = 0; b < 3; ++b) {
-				const NkRect br{r.x + S(120.f) + (float32)b * (bw + S(4.f)), yy + S(2.f), bw,
+				const NkRect br{r.x + labW + (float32)b * (bw + S(4.f)), yy + S(2.f), bw,
 								kRowH - S(4.f)};
 				snprintf(kx, sizeof(kx), "prop.xmit.%d", b);
 				hit.Add(kx, br);
@@ -4653,51 +4658,141 @@ namespace nkentseu {
 									yy += NkGroupPad();
 									const float32 valX = iR.x + S(96.f);
 									const float32 valW = iR.w - S(96.f);
-									// PARENT : son nom, ou « Aucun ».
+									// PARENT : une LISTE, pas une etiquette (Rihen) -- on
+									// CHANGE de parent depuis elle, « Aucun » detachant
+									// l'objet. Les candidats excluent l'objet lui-meme
+									// et sa descendance : s'y rattacher ferait un cycle.
 									p.TextV(iR.x, yy, kRowH, "Parent", NkRole::TextMuted);
 									{
+										static char sParName[24][24];
+										static const char *sParPtr[24];
+										static int32 sParNode[24];
+										static int32 sParOwner = -1;
+										static int32 sParSel = 0;
+										int32 np = 0;
+										snprintf(sParName[0], sizeof(sParName[0]), "Aucun");
+										sParPtr[0] = sParName[0];
+										sParNode[0] = -1;
+										np = 1;
 										const int32 pa = demo::Demo3DHostNodeParent(en);
-										char pn[32] = "Aucun";
-										if (pa >= 0)
-											NkHierNodeName(st, pa, pn, sizeof(pn));
+										int32 curIdx = 0;
+										const int32 ncP = demo::Demo3DHostNodeCount();
+										for (int32 c9 = 0; c9 < ncP && np < 24; ++c9) {
+											if (c9 == en || NkHierNodeSkip(c9))
+												continue;
+											if (NkHierIsDescendant(c9, en))
+												continue; // interdit : cycle
+											NkHierNodeName(st, c9, sParName[np],
+														   sizeof(sParName[0]));
+											sParPtr[np] = sParName[np];
+											sParNode[np] = c9;
+											if (c9 == pa)
+												curIdx = np;
+											++np;
+										}
+										// La liste suit l'objet ET son parent reel : elle
+										// doit montrer ce qui EST, pas un vieux choix.
+										if (sParOwner != en) {
+											sParOwner = en;
+											sParSel = curIdx;
+										}
+										if (sParSel >= np || sParNode[sParSel] != pa)
+											sParSel = curIdx;
 										const NkRect vb{valX, yy + S(3.f), valW, kRowH - S(6.f)};
-										p.Outline(vb, NkRole::Border, NkRole::InputBg, 2.f);
-										p.Clip(vb);
-										p.TextV(vb.x + S(6.f), yy, kRowH, pn,
-												pa >= 0 ? NkRole::Text : NkRole::TextMuted);
-										p.Unclip();
-										// DETACHER : le geste manquait ici, alors qu'il
-										// est la premiere chose qu'on cherche quand on
-										// regarde une relation.
-										if (pa >= 0 && hit.Add("prop.rel.unp", vb) &&
-											hit.Clicked("prop.rel.unp"))
-											demo::Demo3DHostSetNodeParent(en, -1);
+										const int32 beforeP = sParSel;
+										Combo(p, hit, ws, "prop.rel.par", vb, sParPtr, nullptr, np,
+											  sParSel, combo);
+										if (sParSel != beforeP && sParSel >= 0 && sParSel < np)
+											demo::Demo3DHostSetNodeParent(en, sParNode[sParSel]);
 									}
 									yy += kRowH;
-									// ENFANTS : combien, et de quelle nature.
-									p.TextV(iR.x, yy, kRowH, "Enfants", NkRole::TextMuted);
+									// ENFANTS : la LISTE, pas un compte (Rihen). Un nombre
+									// dit qu'il y en a ; la liste dit LESQUELS -- et la
+									// choisir, c'est y aller.
 									{
+										static char sKidName[16][24];
+										static const char *sKidPtr[16];
+										static int32 sKidNode[16];
+										static int32 sKidOwner = -1;
+										static int32 sKidSel = 0;
 										int32 nk = 0;
 										const int32 ncR = demo::Demo3DHostNodeCount();
-										for (int32 c9 = 0; c9 < ncR; ++c9)
+										for (int32 c9 = 0; c9 < ncR && nk < 16; ++c9)
 											if (!NkHierNodeSkip(c9) &&
-												demo::Demo3DHostNodeParent(c9) == en)
+												demo::Demo3DHostNodeParent(c9) == en) {
+												NkHierNodeName(st, c9, sKidName[nk],
+															   sizeof(sKidName[0]));
+												sKidPtr[nk] = sKidName[nk];
+												sKidNode[nk] = c9;
 												++nk;
-										char cn[32];
-										snprintf(cn, sizeof(cn), "%d", nk);
-										const NkRect vb{valX, yy + S(3.f), valW, kRowH - S(6.f)};
-										p.Outline(vb, NkRole::Border, NkRole::InputBg, 2.f);
-										p.TextV(vb.x + S(6.f), yy, kRowH, cn,
-												nk ? NkRole::Text : NkRole::TextMuted);
+											}
+										// LE COMPTE dans le libelle, LA LISTE a cote (Rihen) :
+										// on sait d'un coup d'oeil combien il y en a, et
+										// lesquels si on ouvre.
+										char klab[24];
+										snprintf(klab, sizeof(klab), "Enfants (%d)", nk);
+										p.TextV(iR.x, yy, kRowH, klab, NkRole::TextMuted);
+										const float32 delW = nk ? S(24.f) : 0.f;
+										const NkRect vb{valX, yy + S(3.f), valW - delW,
+														kRowH - S(6.f)};
+										if (nk == 0) {
+											p.Outline(vb, NkRole::Border, NkRole::InputBg, 2.f);
+											p.TextV(vb.x + S(6.f), yy, kRowH, "Aucun",
+													NkRole::TextMuted);
+										} else {
+											// Changer d'objet remet la liste sur son
+											// premier enfant : garder l'ancien indice
+											// designerait un enfant qui n'est plus la.
+											if (sKidOwner != en) {
+												sKidOwner = en;
+												sKidSel = 0;
+											}
+											if (sKidSel >= nk)
+												sKidSel = nk - 1;
+											const int32 beforeK = sKidSel;
+											Combo(p, hit, ws, "prop.rel.kids", vb, sKidPtr,
+												  nullptr, nk, sKidSel, combo);
+											// CHOISIR UN ENFANT, C'EST Y ALLER : il devient
+											// l'objet selectionne et le panneau le suit.
+											if (sKidSel != beforeK && sKidSel >= 0 &&
+												sKidSel < nk) {
+												demo::Demo3DHostDeselectAll();
+												demo::Demo3DHostSelectEmptyNode(sKidNode[sKidSel]);
+												st.activeEmpty = sKidNode[sKidSel];
+											}
+											// RETIRER l'enfant choisi : detacher se fait
+											// depuis la ou on le designe (Rihen).
+											const NkRect db{vb.x + vb.w + S(4.f), vb.y,
+															S(20.f), vb.h};
+											const bool ovD = hit.Add("prop.rel.kdel", db);
+											p.Outline(db, ovD ? NkRole::AccentUi : NkRole::Border,
+													  NkRole::PanelHeader, 3.f);
+											p.IconV(db.x + (db.w - S(11.f)) * 0.5f, db.y, db.h,
+													NkIcon::MinusCircle, NkRole::TextMuted, 11.f);
+											if (hit.Clicked("prop.rel.kdel") && sKidSel < nk)
+												demo::Demo3DHostSetNodeParent(sKidNode[sKidSel], -1);
+										}
 									}
 									yy += kRowH;
+									// TOUS LES ENFANTS D'UN COUP (Rihen) : detacher un a
+									// un devient vite penible des qu'ils sont nombreux.
+									if (demo::Demo3DHostNodeHasChildren(en)) {
+										if (Button("prop.rel.kallout", yy,
+												   "Detacher tous les enfants", iR.x, iR.w)) {
+											const int32 ncD = demo::Demo3DHostNodeCount();
+											for (int32 c9 = 0; c9 < ncD; ++c9)
+												if (!NkHierNodeSkip(c9) &&
+													demo::Demo3DHostNodeParent(c9) == en)
+													demo::Demo3DHostSetNodeParent(c9, -1);
+										}
+										yy += kRowH;
+									}
 									// CE QUE LE PARENT TRANSMET (apport de Blender) :
 									// position, rotation, echelle, chacune coupable.
-									if (demo::Demo3DHostNodeHasChildren(en)) {
-										p.TextV(iR.x, yy, kRowH, "Transmettre",
-												NkRole::TextMuted);
-										NkXmitRow(p, hit, rowR, rr, yy, en);
-									}
+									// La ligne travaille dans le rectangle INTERIEUR du
+									// groupe, sinon ses boutons sortaient du cadre.
+									if (demo::Demo3DHostNodeHasChildren(en))
+										NkXmitRow(p, hit, iR, iR, yy, en);
 									yy += NkGroupPad();
 									PaintGroupBlock(p, rowR, grpRelTop, yy);
 								}
