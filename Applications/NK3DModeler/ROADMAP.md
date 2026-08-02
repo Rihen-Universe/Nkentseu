@@ -1,0 +1,154 @@
+# NK3DModeler — Feuille de route
+
+> Document **suivi par git** (contrairement à `CARNET.private.md`, qui garde le
+> journal détaillé et les idées écartées). Il dit **ce qui reste à faire** et
+> **dans quel ordre**, avec assez de détail pour reprendre sans rien redécouvrir.
+> À mettre à jour **à chaque palier franchi**, pas en fin de session.
+
+L'application est **un seul DCC** (pas de séparation modeleur / animation).
+Langue de travail : **français**. Toute décision d'interface vient de Rihen et
+est consignée avec sa raison.
+
+---
+
+## Ordre décidé par Rihen (2026-08-02)
+
+Cet ordre prime sur toute autre priorisation. La sauvegarde « viendra avec le
+temps » — elle n'est volontairement **pas** en tête.
+
+| # | Chantier | État |
+|---|---|---|
+| 1 | **Caméras** : plusieurs caméras, bascule, vue caméra | 🔄 socle livré (v15) |
+| 2 | **Éclairage** : terminer la phase lumières | ⬜ |
+| 3 | **Modélisation complète** (dont mode Édition) | ⬜ |
+| 4 | **Import de modèles** | ⬜ |
+| 5 | **Terminer les éléments du combo Ajouter** | ⬜ |
+| 6 | **Mode Édition** (sommets / arêtes / faces, sculpt) | ⬜ |
+| 7 | **Sortir les 96 objets de la démo** — *uniquement quand toute la modélisation est terminée* | ⬜ |
+
+---
+
+## 1. Caméras 🔄
+
+**Livré (v15)** : sélecteur de vue en haut-gauche du viewport listant « Vue 3D »
+et **toutes les caméras du document actif** ; la vue caméra montre exactement ce
+que voit la caméra (position monde, regard **-Z local** comme le filaire, focale
+du nœud) ; retour à la vue 3D avec **restitution de la pose libre** mémorisée à
+l'entrée ; la vue caméra force la perspective (une caméra réelle n'est pas
+orthographique) ; sortie automatique si la caméra disparaît ou change de document.
+
+**Reste à faire :**
+- Raccourci clavier (façon pavé numérique 0) et « caméra active » de la scène.
+- **Piloter la caméra depuis la vue caméra** : naviguer déplace la caméra elle-même
+  (verrou façon UE5 « pilot »), au lieu de subir la pose.
+- Cadre de sécurité / rapport d'aspect du rendu, surbalayage, grille de composition.
+- Profondeur de champ, exposition, et les autres propriétés ciné.
+- « Aligner la caméra sur la vue » et « aligner la vue sur la caméra ».
+
+## 2. Éclairage ⬜
+
+- **Mélange de deux textures** de lumière en **pré-composition CPU** (décidé avec
+  Rihen ; le nodal viendra avec NKGraphe).
+- **Textures de lumière par fichier** : remplacer le numéro d'atlas (8 slots) par
+  une vraie image importée.
+- Ombres par lumière, portée/atténuation affinées, IES éventuellement.
+- Widget de sélection dans la vue pour les lumières utilisateur.
+
+## 3. Modélisation complète ⬜
+
+- **Mode Édition** : sommets / arêtes / faces, sélection, extrusion, biseau,
+  boucles, subdivision.
+- **Sculpt** (2.5D puis réel), retopologie, décimation.
+- Géométrie manquante du menu Ajouter : **texte, courbes, surfaces, metaballs**.
+- Modificateurs réels (la liste existe, elle est décorative).
+
+## 4. Import de modèles ⬜
+
+- **Glisser-déposer depuis Windows** (`WM_DROPFILES`) + bouton « Importer ».
+- Boîte de **propriétés d'import** (échelle, axe haut, unités, matériaux).
+- Formats : mesh (via NKAssimp), **texture**, **image de référence**.
+  Le format matériau et le format dataset JSONL existent déjà.
+- Conversion vers **nos propres formats** au moment de l'import.
+
+## 5. Terminer le combo Ajouter ⬜
+
+Les natures créées mais **sans géométrie réelle** : texte, courbe, surface,
+metaball. Chacune doit avoir son panneau « Ajuster la création » comme les
+primitives paramétriques (sphère, icosphère, tore, cylindre, cône, capsule…).
+
+## 6. Sortie de la démo ⬜
+
+Les nœuds 0-95 appartiennent au portage de `--demo=2` (scène 0 du document).
+Ne les retirer **qu'une fois toute la modélisation terminée** — ils servent
+aujourd'hui de banc d'essai permanent pour le rendu, la parenté et le gizmo.
+
+---
+
+## Chantiers de fond (hors ordre ci-dessus)
+
+### NKGraphe — l'éditeur nodal
+« Blueprint » s'appelle désormais **Graphe**. Natures prévues :
+**modélisation procédurale**, **texturing procédural**, **matériau**, et
+**motion** (plus tard). Un graphe est un asset du navigateur (nature 0 +
+sous-type). L'éditeur de **texture** doit permettre de **peindre au pinceau**,
+de construire en **nœuds procéduraux**, ou de **mélanger les deux**.
+
+### Fenêtres flottantes dockables (façon UE5)
+Le double-clic sur un asset doit ouvrir une **fenêtre modale flottante**
+**dockable** dans la barre d'onglets ; une fois dockée, elle remplace tout
+l'espace de scène. Demande un gestionnaire de fenêtres + zones d'accueil +
+aperçu de dépôt + détacher/rattacher. Aujourd'hui le double-clic ouvre
+directement un onglet docké (état final du geste, sans l'étape flottante).
+
+### Sauvegarde et format projet
+Scènes, models, arborescence du navigateur, propriétés par scène, matériaux,
+dimensions. « Viendra avec le temps » (Rihen), mais **rien n'est persistant**
+tant que ce n'est pas fait.
+
+### Annuler / Refaire
+Aucun historique aujourd'hui. À concevoir avant que les outils d'édition se
+multiplient (chaque opération devra être une commande réversible).
+
+### Divers
+- Sous-onglets spécialisés **par document** (modélisation procédurale, etc.)
+  à côté de « Modeler ».
+- Table de raccourcis **par fenêtre**, configurable.
+- Restreindre l'ajout dans un Model : ✅ fait (maillages = sous-meshes ;
+  lumières/caméras/empties = cosmétiques).
+
+---
+
+## Règles d'interface acquises (ne pas les redécouvrir)
+
+- **Un document par onglet** : un nœud appartient à **une** scène ou **un**
+  éditeur ; ailleurs il n'est ni rendu, ni listé, ni sélectionnable.
+- **Scène et Model** seuls ont l'interface complète (hiérarchie, propriétés,
+  barre d'outils, viewport). Matériau, texture, graphe et dataset restent
+  **vides** tant que leur design n'est pas défini.
+- Dans un Model, la **racine de la hiérarchie s'appelle « Model »**, le panneau
+  garde le nom « Hiérarchie ».
+- **Chaque scène a ses propres propriétés** ; on peut les copier vers une scène
+  précise ou vers toutes.
+- **Pliage sur la flèche seulement** ; le **clic droit** vaut sur toute la
+  largeur d'une ligne ou d'une carte.
+- Les menus prennent la **largeur de leur entrée la plus longue** et s'ouvrent
+  **vers le haut** quand le bas manque.
+- **Aucune référence inventée** dans l'interface : chaque libellé décrit ce qui
+  existe vraiment.
+
+## Pièges techniques déjà payés
+
+- **Registre de zones** (`NkHitRegistry`) : capacité 1024 depuis v15. À 256 il
+  **saturait en silence** et tout ce qui était déclaré tard (les chevrons de
+  pliage) devenait mort. Si une interaction cesse de répondre sans raison,
+  vérifier d'abord la saturation.
+- La **dernière zone déclarée gagne** le survol : une zone large déclarée après
+  une petite lui vole ses clics.
+- Les **événements clavier ne livrent pas les lettres** au shell : les raccourcis
+  passent par **polling NkInput** dans l'hôte.
+- Les **combos différés** exigent une adresse d'état **stable** (jamais une
+  variable locale recalculée).
+- `SetGridFlags` ne doit **jamais** réactiver `g.showAxes` (axe Y du shader
+  erroné = « seconde ligne verte »).
+- Les scripts de patch doivent vérifier les **tabulations exactes** des ancres
+  (`cat -A`) avant d'écrire, et rester **réentrants**.

@@ -1843,12 +1843,16 @@ namespace nkentseu {
 						act2 = bmAct[mi];
 				}
 				NkRect sub2{0.f, 0.f, 0.f, 0.f};
+				NkRect gr3{0.f, 0.f, 0.f, 0.f};
 				if (st.browMenuCreat) {
 					// SOUS-MENU Creer : tout ce qui peut naitre ici (Rihen), dont
 					// la SCENE et le MESH reutilisable.
+					// Le GRAPHE remplace le blueprint : c'est un editeur nodal, et
+					// il en existe plusieurs natures (Rihen).
 					static const char *const kCr[7] = {"Dossier", "Scene", "Model",
 													   "Materiau", "Texture",
-													   "Blueprint", "Dataset"};
+													   "Graphe             >",
+													   "Dataset"};
 					float32 wS2 = 0.f;
 					for (int32 mi = 0; mi < 7; ++mi)
 						if (p.TextW(kCr[mi]) > wS2)
@@ -1859,13 +1863,47 @@ namespace nkentseu {
 					if (sub2.x + sub2.w > area.x + area.w)
 						sub2.x = mr2.x - sub2.w - 2.f;
 					p.Outline(sub2, NkRole::Border, NkRole::PanelHeader, 3.f);
+					float32 grY = sub2.y;
 					for (int32 mi = 0; mi < 7; ++mi) {
 						const NkRect it{sub2.x, sub2.y + (float32)mi * kRowH, sub2.w, kRowH};
 						snprintf(key, sizeof(key), "brw.sub.%d", mi);
-						HoverFill(p, it, hit.Add(key, it), 0.f);
+						const bool ovG = hit.Add(key, it);
+						HoverFill(p, it, ovG, 0.f);
 						p.TextV(it.x + S(10.f), it.y, kRowH, kCr[mi]);
-						if (hit.Clicked(key))
+						if (mi == 5) {
+							grY = it.y;
+							if (ovG)
+								st.browMenuGraph = true;
+						} else if (ovG) {
+							st.browMenuGraph = false;
+						}
+						if (hit.Clicked(key) && mi != 5)
 							act2 = 10 + mi;
+					}
+					if (st.browMenuGraph) {
+						// SOUS-MENU GRAPHE : les natures d'editeur nodal (Rihen).
+						static const char *const kGr[4] = {
+							"Modelisation procedurale", "Texturing procedural",
+							"Materiau", "Motion"};
+						float32 wG = 0.f;
+						for (int32 gi = 0; gi < 4; ++gi)
+							if (p.TextW(kGr[gi]) > wG)
+								wG = p.TextW(kGr[gi]);
+						gr3 = {sub2.x + sub2.w + 2.f, grY, wG + S(28.f), kRowH * 4.f};
+						if (gr3.y + gr3.h > area.y + area.h)
+							gr3.y = area.y + area.h - gr3.h;
+						if (gr3.x + gr3.w > area.x + area.w)
+							gr3.x = sub2.x - gr3.w - 2.f;
+						p.Outline(gr3, NkRole::Border, NkRole::PanelHeader, 3.f);
+						for (int32 gi = 0; gi < 4; ++gi) {
+							const NkRect it{gr3.x, gr3.y + (float32)gi * kRowH, gr3.w,
+											kRowH};
+							snprintf(key, sizeof(key), "brw.gr.%d", gi);
+							HoverFill(p, it, hit.Add(key, it), 0.f);
+							p.TextV(it.x + S(10.f), it.y, kRowH, kGr[gi]);
+							if (hit.Clicked(key))
+								act2 = 30 + gi;
+						}
 					}
 				}
 				if (act2 >= 0) {
@@ -1873,8 +1911,21 @@ namespace nkentseu {
 					// le dossier VISE (carte-dossier cliquee) sinon le courant
 					const int32 destF =
 						(onCard && st.browserKind[tgt] == 1) ? tgt : st.browserFolder;
-					if (act2 >= 10 && act2 <= 16 &&
+					if (act2 >= 30 && act2 <= 33 &&
 						st.browserCount < NkModelerState::kMaxBrowser) {
+						// GRAPHE : un asset nodal, avec sa NATURE en sous-type.
+						static const char *const kGrN[4] = {"Graphe_Modelisation",
+															"Graphe_Texturing",
+															"Graphe_Materiau",
+															"Graphe_Motion"};
+						const int32 kg = st.browserCount++;
+						st.browserKind[kg] = 0;
+						st.browserSub[kg] = (uint8)(act2 - 30);
+						st.browserParent[kg] = destF;
+						NkBrowUniqueName(st, 0, destF, kGrN[act2 - 30],
+										 st.browserNames[kg], 32);
+					} else if (act2 >= 10 && act2 <= 16 &&
+							   st.browserCount < NkModelerState::kMaxBrowser) {
 						// dossier, scene, mesh, materiau, texture, blueprint, dataset
 						static const uint8 kNewK[7] = {1, 5, 6, 2, 3, 0, 4};
 						static const char *const kNewN[7] = {"Dossier", "Scene", "Model",
@@ -1901,8 +1952,10 @@ namespace nkentseu {
 					}
 					st.browMenuIdx = -1;
 					st.browMenuCreat = false; // sinon le prochain menu l'ouvrirait
+					st.browMenuGraph = false;
 				} else if (hit.AnyClick() && !NkHitRegistry::Contains(mr2, hit.Mouse()) &&
 						   !(st.browMenuCreat && NkHitRegistry::Contains(sub2, hit.Mouse())) &&
+						   !(st.browMenuGraph && NkHitRegistry::Contains(gr3, hit.Mouse())) &&
 						   !hit.IsHovered("brw.creer")) { // pas le clic d'OUVERTURE
 					st.browMenuIdx = -1;
 					st.browMenuCreat = false;
@@ -2008,9 +2061,8 @@ namespace nkentseu {
 								   NkHitRegistry &hit, NkWidgetState &ws, const nkgui::NkGuiInput &in) {
 			p.Fill(r, NkRole::PanelBg);
 			p.VLine(r.x + r.w - 1.f, r.y, r.h);
-			float32 y = PaintPanelTab(
-				p, r, st.sceneTabKind[st.activeTab] == 7 ? "Model" : "Hierarchie",
-				&hit, &st.showLeft, "hier.close");
+			float32 y = PaintPanelTab(p, r, "Hierarchie", &hit, &st.showLeft,
+									  "hier.close");
 			// Les editeurs SANS design defini (materiau, texture, blueprint,
 			// dataset) n'ont PAS de hierarchie : seuls Scene et Model ont
 			// l'interface complete (Rihen).
@@ -2053,10 +2105,18 @@ namespace nkentseu {
 			{
 				const NkRect rowR{r.x, yy, r.w, kRowH};
 				hit.Add("hier.scene", rowR);
-				p.IconV(r.x + S(6.f), yy, kRowH, NkIcon::Globe, NkRole::Text, 13.f);
+				// La racine est le DOCUMENT OUVERT : son nom est celui de
+				// l'onglet actif (et non plus toujours la scene 1), et dans un
+				// editeur elle s'annonce MODEL et non scene (Rihen).
+				const bool rootMdl = st.sceneTabKind[st.activeTab] == 7;
+				p.IconV(r.x + S(6.f), yy, kRowH,
+						rootMdl ? NkIcon::Mesh : NkIcon::Globe, NkRole::Text, 13.f);
 				EditableText(p, hit, ws, in, "hier.scene.name",
-							 {r.x + S(24.f), yy, colType - r.x - S(30.f), kRowH}, st.sceneNames[0],
-							 NkRole::Text, st.sceneNames[0], 32u);
+							 {r.x + S(24.f), yy, colType - r.x - S(30.f), kRowH},
+							 st.sceneNames[st.activeTab], NkRole::Text,
+							 st.sceneNames[st.activeTab], 32u);
+				p.TextV(colType, yy, kRowH, rootMdl ? "Model" : "Scene",
+						NkRole::TextMuted);
 				yy += kRowH;
 				++visibleCount;
 			}
@@ -2133,6 +2193,7 @@ namespace nkentseu {
 				NkHierNodeName(st, node, nameBuf, sizeof(nameBuf));
 				const bool hasKids = demo::Demo3DHostNodeHasChildren(node);
 				const bool folded = ((st.hierFold[node >> 5] >> (node & 31)) & 1u) != 0u;
+				bool chevHit = false; // clic tombe sur la fleche : pas de selection
 				const bool sel = isEmpty
 									 ? (demo::Demo3DHostEmptyNodeSelected(node) ||
 										st.activeEmpty == node)
@@ -2156,13 +2217,17 @@ namespace nkentseu {
 						// pliait aussi, trop sensible et genant pour renommer (Rihen).
 						if (hasKids && !searching) {
 							// zone LARGE : le pliage doit etre aise (Rihen)
+							// PLIAGE : la FLECHE seule, teste en GEOMETRIE BRUTE --
+							// une zone nommee depend de l'ordre de declaration et du
+							// registre ; le pliage, lui, doit toujours repondre.
 							const NkRect chevR{r.x + ind - S(4.f), yy, S(24.f), kRowH};
-							snprintf(key, sizeof(key), "hier.chev.%d", node);
-							hit.Add(key, chevR);
 							p.IconV(r.x + ind + S(2.f), yy, kRowH,
 									folded ? NkIcon::ChevronRight : NkIcon::ChevronDown, fg, 11.f);
-							if (hit.Clicked(key) && !st.hierDragging && !ws.dragging)
+							if (in.mouseClicked[0] && !st.hierDragging && !ws.dragging &&
+								NkHitRegistry::Contains(chevR, hit.Mouse())) {
 								st.hierFold[node >> 5] ^= (1u << (node & 31));
+								chevHit = true; // ce clic ne selectionne pas
+							}
 						}
 						const float32 tx = r.x + ind + S(18.f);
 						// Un OBJET UTILISATEUR de nature maillage garde l'icone maillage.
@@ -2230,7 +2295,7 @@ namespace nkentseu {
 						// SELECTION : la ligne ou le nom. Un parent se selectionne
 						// SEUL, un cadenasse JAMAIS ; Maj/Ctrl+clic = multi.
 						bool wantSel = false;
-						if (!st.hierDragging && !st.delAskOpen) {
+						if (!st.hierDragging && !st.delAskOpen && !chevHit) {
 							snprintf(key, sizeof(key), "hier.row.%d", node);
 							wantSel = hit.Clicked(key);
 							snprintf(key, sizeof(key), "hier.name.%d", node);
@@ -2986,7 +3051,7 @@ namespace nkentseu {
 			if (st.sceneTabKind[st.activeTab] != 0 &&
 				st.sceneTabKind[st.activeTab] != 7) {
 				const uint8 ek = (uint8)(st.sceneTabKind[st.activeTab] - 1);
-				const char *en = (ek == 0)	 ? "Editeur de Blueprint"
+				const char *en = (ek == 0)	 ? "Editeur de Graphe"
 								 : (ek == 2) ? "Editeur de Materiau"
 								 : (ek == 3) ? "Editeur de Texture"
 								 : (ek == 4) ? "Editeur de Dataset IA"
@@ -3017,6 +3082,97 @@ namespace nkentseu {
 			if (demo::Demo3DHostReady()) {
 				p.Image(nk3d::kViewportTexId, vr);
 				st.viewRect = vr; // depot d'assets : importer un clone en scene
+				// ── VUE CAMERA (Rihen) ──────────────────────────────────────
+				// Bascule entre la vue 3D libre et CE QUE VOIT une camera de la
+				// scene. Le selecteur liste les cameras du document actif.
+				{
+					if (st.camViewNode > 0 &&
+						(NkHierNodeSkip(st.camViewNode - 1) ||
+						 demo::Demo3DHostUserSub(st.camViewNode - 1) != 10)) {
+						// la camera regardee a disparu (ou change de document)
+						st.camViewNode = 0;
+						demo::Demo3DHostSetCameraView(-1);
+					}
+					char vlb[48];
+					if (st.camViewNode > 0) {
+						char cnm[24];
+						NkHierNodeName(st, st.camViewNode - 1, cnm, sizeof(cnm));
+						snprintf(vlb, sizeof(vlb), "Vue camera : %s", cnm);
+					} else {
+						snprintf(vlb, sizeof(vlb), "Vue 3D");
+					}
+					const float32 vw = p.TextW(vlb) + S(34.f);
+					const NkRect vb{vr.x + S(8.f), vr.y + S(8.f), vw, S(20.f)};
+					const bool ovV = hit.Add("view.cam", vb);
+					p.Outline(vb, ovV || st.camPickOpen ? NkRole::AccentUi : NkRole::Border,
+							  NkRole::PanelHeader, 4.f);
+					p.IconV(vb.x + S(5.f), vb.y, vb.h, NkIcon::Camera,
+							st.camViewNode > 0 ? NkRole::AccentUi : NkRole::TextMuted,
+							12.f);
+					p.TextV(vb.x + S(22.f), vb.y, vb.h, vlb);
+					if (hit.Clicked("view.cam"))
+						st.camPickOpen = !st.camPickOpen;
+					if (st.camPickOpen) {
+						// Liste : la vue 3D, puis TOUTES les cameras du document.
+						int32 cams[16];
+						int32 nCam = 0;
+						const int32 ncT = demo::Demo3DHostNodeCount();
+						for (int32 c1 = 0; c1 < ncT && nCam < 16; ++c1)
+							if (!NkHierNodeSkip(c1) &&
+								demo::Demo3DHostUserKind(c1) == 4 &&
+								demo::Demo3DHostUserSub(c1) == 10)
+								cams[nCam++] = c1;
+						const NkRect lb{vb.x, vb.y + vb.h + 2.f, vb.w < S(150.f) ? S(150.f)
+																			 : vb.w,
+										kRowH * (float32)(nCam + 1)};
+						p.Outline(lb, NkRole::Border, NkRole::PanelHeader, 4.f);
+						const NkRect i0{lb.x, lb.y, lb.w, kRowH};
+						HoverFill(p, i0, hit.Add("view.cam.free", i0), 0.f);
+						p.TextV(i0.x + S(10.f), i0.y, kRowH, "Vue 3D");
+						if (hit.Clicked("view.cam.free")) {
+							// RETOUR : la pose libre d'avant est restituee.
+							if (st.camViewNode > 0 && st.camViewSaved)
+								demo::Demo3DHostSetCameraPose(
+									st.camViewSave, st.camViewSave[3], st.camViewSave[4],
+									st.camViewSave[5], st.camViewSaveOrtho);
+							st.camViewNode = 0;
+							demo::Demo3DHostSetCameraView(-1);
+							st.camPickOpen = false;
+						}
+						for (int32 c2 = 0; c2 < nCam; ++c2) {
+							const NkRect ic{lb.x, lb.y + kRowH * (float32)(c2 + 1), lb.w,
+											kRowH};
+							char ck2[32], cnm2[24];
+							snprintf(ck2, sizeof(ck2), "view.cam.%d", cams[c2]);
+							HoverFill(p, ic, hit.Add(ck2, ic), 0.f);
+							NkHierNodeName(st, cams[c2], cnm2, sizeof(cnm2));
+							p.IconV(ic.x + S(8.f), ic.y, kRowH, NkIcon::Camera,
+									st.camViewNode == cams[c2] + 1 ? NkRole::AccentUi
+																  : NkRole::TextMuted,
+									12.f);
+							p.TextV(ic.x + S(26.f), ic.y, kRowH, cnm2);
+							if (hit.Clicked(ck2)) {
+								// On MEMORISE la pose libre avant d'entrer, une
+								// seule fois : passer d'une camera a l'autre ne
+								// doit pas ecraser le point de vue d'origine.
+								if (st.camViewNode == 0) {
+									bool oo = false;
+									demo::Demo3DHostGetCameraPose(
+										st.camViewSave, &st.camViewSave[3],
+										&st.camViewSave[4], &st.camViewSave[5], &oo);
+									st.camViewSaveOrtho = oo;
+									st.camViewSaved = true;
+								}
+								st.camViewNode = cams[c2] + 1;
+								demo::Demo3DHostSetCameraView(cams[c2]);
+								st.camPickOpen = false;
+							}
+						}
+						if (hit.AnyClick() && !NkHitRegistry::Contains(lb, hit.Mouse()) &&
+							!hit.IsHovered("view.cam"))
+							st.camPickOpen = false;
+					}
+				}
 				if (!st.wsBarOpen) {
 					// La poignee « Espaces » se REPEINT par-dessus l'image : elle
 					// etait recouverte, donc introuvable barre fermee (Rihen).
@@ -4698,14 +4854,38 @@ namespace nkentseu {
 								const NkRect cb7{r.x + S(120.f), yy + S(2.f),
 												 rr.w - S(128.f), kRowH - S(4.f)};
 								HoverFill(p, cb7, hit.Add("props.ucopy", cb7), 2.f);
-								p.TextV(cb7.x + S(8.f), yy, kRowH,
-										"Copier vers toutes les scenes", NkRole::TextMuted);
-								if (hit.Clicked("props.ucopy"))
-									for (int32 t7 = 0; t7 < 8; ++t7) {
-										st.unitSystemTab[t7] = st.unitSystem;
-										st.unitLengthTab[t7] = st.unitLength;
-										st.unitScaleTab[t7] = st.unitScale;
+								char cbl[64];
+								if (st.propCopyTarget <= 0)
+									snprintf(cbl, sizeof(cbl), "Copier vers : toutes");
+								else
+									snprintf(cbl, sizeof(cbl), "Copier vers : %s",
+											 st.sceneNames[(st.propCopyTarget - 1) & 7]);
+								p.TextV(cb7.x + S(8.f), yy, kRowH, cbl, NkRole::Text);
+								if (hit.Clicked("props.ucopy")) {
+									// La CIBLE tourne a chaque clic droit sur la ligne ;
+									// le clic gauche copie vers elle (Rihen).
+									if (st.propCopyTarget <= 0) {
+										for (int32 t7 = 0; t7 < 8; ++t7) {
+											st.unitSystemTab[t7] = st.unitSystem;
+											st.unitLengthTab[t7] = st.unitLength;
+											st.unitScaleTab[t7] = st.unitScale;
+										}
+									} else {
+										const int32 t8 = (st.propCopyTarget - 1) & 7;
+										st.unitSystemTab[t8] = st.unitSystem;
+										st.unitLengthTab[t8] = st.unitLength;
+										st.unitScaleTab[t8] = st.unitScale;
 									}
+								}
+								if (hit.RightClicked("props.ucopy")) {
+									st.propCopyTarget++;
+									if (st.propCopyTarget > st.sceneCount)
+										st.propCopyTarget = 0;
+								}
+								yy += kRowH;
+								p.TextV(r.x + kPad, yy, kRowH,
+										"(clic droit : changer de cible)",
+										NkRole::TextMuted);
 								yy += kRowH;
 							}
 					}
@@ -5634,6 +5814,7 @@ namespace nkentseu {
 				st.browMenuY = hit.Mouse().y;
 			}
 			int32 dropTo = -999; // -1 racine, i dossier, -100 fond de grille
+			int32 chevB2 = -1;   // dossier dont la FLECHE vient d'etre cliquee
 			const bool freshB = hit.MouseDown() && !st.browMouseWasDown && !uiModal;
 			const nkgui::NkVec2 bm = hit.Mouse();
 			int32 folderCount = 0;
@@ -5701,12 +5882,17 @@ namespace nkentseu {
 					const bool foldB = ((st.browFold[i >> 5] >> (i & 31)) & 1u) != 0u;
 					if (hasSub) {
 						snprintf(fkey, sizeof(fkey), "brow.chev.%d", i);
-						hit.Add(fkey, {r.x + ind - S(4.f), dy, S(24.f), kRowH});
+						// PLIAGE : la FLECHE seule, en geometrie brute (voir la
+						// hierarchie -- meme raison).
+						const NkRect chevB{r.x + ind - S(4.f), dy, S(24.f), kRowH};
 						p.IconV(r.x + S(2.f) + ind, dy, kRowH,
 								foldB ? NkIcon::ChevronRight : NkIcon::ChevronDown,
 								on ? NkRole::TextOnAccent : NkRole::TextMuted, 11.f);
-						if (hit.Clicked(fkey))
+						if (in.mouseClicked[0] && !uiModal &&
+							NkHitRegistry::Contains(chevB, bm)) {
 							st.browFold[i >> 5] ^= (1u << (i & 31));
+							chevB2 = i; // ce clic n'entre pas dans le dossier
+						}
 					}
 					p.IconV(r.x + S(18.f) + ind, dy, kRowH,
 							on ? NkIcon::FolderOpen : NkIcon::Folder,
@@ -5717,7 +5903,7 @@ namespace nkentseu {
 								 st.browserNames[i],
 								 on ? NkRole::TextOnAccent : NkRole::Text, st.browserNames[i], 32u);
 					snprintf(fkey, sizeof(fkey), "brow.dir.%d", i);
-					if (!uiModal && hit.Clicked(fkey))
+					if (!uiModal && hit.Clicked(fkey) && chevB2 != i)
 						st.browserFolder = i;
 					if (in.mouseClicked[1] && NkHitRegistry::Contains(rowR, bm)) {
 						st.browMenuIdx = i;
@@ -5783,10 +5969,14 @@ namespace nkentseu {
 									: (kind == 6) ? NkRole::AxisX
 									: (kind == 2) ? NkRole::TypeMat
 												  : NkRole::TypeTex;
-				const char *kindName = (kind == 0)   ? "Blueprint"
+				const char *kindName = (kind == 0)   ? "Graphe"
 									   : (kind == 1) ? "Dossier"
 									   : (kind == 4) ? "Dataset IA"
 									   : (kind == 5) ? "Scene"
+									   : (kind == 0 && st.browserSub[i] == 0) ? "Graphe modelisation"
+									   : (kind == 0 && st.browserSub[i] == 1) ? "Graphe texturing"
+									   : (kind == 0 && st.browserSub[i] == 2) ? "Graphe materiau"
+									   : (kind == 0 && st.browserSub[i] == 3) ? "Graphe motion"
 									   : (kind == 6) ? "Model"
 									   : (kind == 2) ? "Materiau"
 													 : "Texture";

@@ -165,6 +165,9 @@ namespace nkentseu {
 		int32 Demo3DHostActiveScene();
 		int32 Demo3DHostNodeScene(int32 node);
 		void Demo3DHostMoveTreeScene(int32 node, int32 id); // isolation
+		// VUE CAMERA : la vue montre ce que voit ce noeud camera (-1 = vue 3D).
+		void Demo3DHostSetCameraView(int32 node);
+		int32 Demo3DHostCameraView();
 		void Demo3DHostCopyNode(int32 node);
 		int32 Demo3DHostPasteNode();
 		int32 Demo3DHostUserKind(int32 node); // 0 aucun, 1 sphere, 2 cube, 3 plan, 4 empty
