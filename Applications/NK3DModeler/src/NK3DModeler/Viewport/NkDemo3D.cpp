@@ -9821,9 +9821,20 @@ namespace nkentseu {
 				return;
 			const int32 u = node - kNkvpFirstUser;
 			nkvpUserSub[u] = (uint8)(sub & 0xFF);
-			if (nkvpUserKind[u] == 5)
-				nkvpUserLight[u].type =
-					(decltype(nkvpUserLight[u].type))(sub & 3);
+			if (nkvpUserKind[u] == 5) {
+				const int32 t = sub & 3;
+				nkvpUserLight[u].type = (decltype(nkvpUserLight[u].type))t;
+				// L'INTENSITE N'A PAS LE MEME SENS D'UN TYPE A L'AUTRE. Une
+				// ponctuelle rayonne dans toutes les directions et s'attenue avec
+				// la distance ; une directionnelle arrive partout avec la meme
+				// force. Garder la valeur de l'ancien type en changeant de type
+				// donnait un soleil a la puissance d'une ampoule : tout saturait
+				// en blanc, au point qu'on ne distinguait plus les faces du cube
+				// (constate par Rihen). Chaque type repart donc de SA valeur de
+				// reference, comme dans Blender.
+				static const float32 kDefIntensity[4] = {3.f, 8.f, 8.f, 6.f};
+				nkvpUserLight[u].intensity = kDefIntensity[t];
+			}
 		}
 		bool Demo3DHostMeshParams(int32 node, int32 *segs, int32 *rings, float32 *aux) {
 			if (node < kNkvpFirstUser || node >= kNkvpMaxNodes)
