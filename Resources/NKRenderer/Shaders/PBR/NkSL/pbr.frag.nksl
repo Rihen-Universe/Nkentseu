@@ -339,6 +339,26 @@ void main() {
                     }
                 }
             }
+            if (lt == 3) {
+                // SURFACIQUE : un panneau n'emet que d'UN COTE.
+                // Sans ce terme, le type 3 tombait dans le cas general « point » :
+                // sa direction n'etait JAMAIS lue, si bien que tourner le gizmo
+                // deplacait le widget sans rien changer a l'image (constate par
+                // Rihen). C'est le defaut de conception deja rencontre -- un etat
+                // affiche qui ne correspond a aucun etat effectif.
+                //
+                // L va du fragment VERS la lumiere ; -L va donc de la lumiere vers
+                // le fragment. Le fragment n'est eclaire que s'il se trouve DEVANT
+                // le panneau. Le cosinus donne en prime l'attenuation d'un emetteur
+                // lambertien : c'est le comportement d'une SURFACE, pas d'un point.
+                //
+                // V1 assume : les DIMENSIONS (areaWidth / areaHeight) ne sont pas
+                // encore transmises au GPU -- le bloc de lumieres n'a plus de champ
+                // libre. La forme de la penombre et l'etalement du reflet
+                // speculaire viendront avec (LTC).
+                vec3 fwdA = normalize(uLights.directions[i].xyz);
+                att *= max(dot(fwdA, -L), 0.0);
+            }
         }
 
         float csf = 1.0;

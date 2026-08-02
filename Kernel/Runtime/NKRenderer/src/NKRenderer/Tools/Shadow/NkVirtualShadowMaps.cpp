@@ -540,9 +540,25 @@ namespace nkentseu {
 					case NkLightType::NK_POINT:
 						AllocSlotsPoint(lights[i], i);
 						break;
-					case NkLightType::NK_AREA:
+					case NkLightType::NK_AREA: {
+						// SURFACIQUE (V1) : traitee comme un SPOT LARGE — une seule
+						// tuile. Un panneau n'emet que d'un cote (cf. le terme en
+						// cosinus ajoute dans pbr.frag.nksl), donc un tronc
+						// perspectif large decrit correctement ce qu'il occulte.
+						// Avant, ce cas ne faisait RIEN : une surfacique traversait
+						// toute la geometrie sans jamais projeter la moindre ombre.
+						//
+						// L'angle exterieur d'une surfacique n'a pas de sens comme
+						// cone : son defaut (25 deg) donnerait un tronc bien trop
+						// etroit et l'ombre disparaitrait des qu'on s'ecarte de
+						// l'axe. On impose donc un plancher large.
+						NkLightDesc wide = lights[i];
+						if (wide.outerAngle < 45.f)
+							wide.outerAngle = 45.f;
+						AllocSlotsSpot(wide, i);
+						break;
+					}
 					default:
-						// pas de shadow pour area light en V0.
 						break;
 				}
 
