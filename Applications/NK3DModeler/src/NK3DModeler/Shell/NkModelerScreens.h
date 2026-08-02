@@ -1117,12 +1117,29 @@ namespace nkentseu {
 			if (area.w <= sbW * 2.f || area.h <= sbW * 2.f)
 				return area;
 			const NkRect track{area.x + area.w - sbW, area.y, sbW, area.h};
-			if (guiCtx)
+			if (guiCtx) {
+				// LE HARNAIS ET LES FLECHES, PLUS SOMBRES (Rihen). Le skin
+				// utilisateur de NKEditorKit existe pour ca : on le pose une fois,
+				// et TOUTES les barres de l'application suivent -- y compris
+				// celle des proprietes, qui doit rester identique aux autres.
+				auto &sk = editorkit::NkScrollbarUserSkin();
+				if (!sk.custom) {
+					sk.custom = true;
+					sk.colors.track = NkColor{0, 0, 0, 46};
+					sk.colors.thumb = NkColor{44, 49, 58, 255};
+					sk.colors.thumbHover = NkColor{62, 69, 80, 255};
+					sk.colors.arrowHover = NkColor{26, 30, 38, 255};
+				}
+				// LE FOND DE LA GOUTTIERE EST OPAQUE : la barre de NKEditorKit
+				// peint une piste translucide, si bien que les lignes de selection
+				// peintes avant elle transparaissaient au travers (Rihen).
+				p.Fill(track, NkRole::PanelBg);
 				editorkit::NkVScrollbar(*guiCtx, guiCtx->dl, track, scroll,
 										contentH > area.h ? contentH : area.h + 1.f, area.h, id,
 										kRowH);
-			else
+			} else {
 				p.VScroll(area, contentH, scroll);
+			}
 			return {area.x, area.y, area.w - sbW, area.h};
 		}
 
@@ -2242,9 +2259,14 @@ namespace nkentseu {
 			const float32 listTop = y;
 			const float32 listH = r.y + r.h - kRowH - listTop;
 			const NkRect listR{r.x, listTop, r.w, listH};
+			// LA GOUTTIERE EST RESERVEE AVANT DE PEINDRE : le contenu s'arrete
+			// avant elle. Sans cela, les bandeaux de selection couraient jusqu'au
+			// bord et passaient SOUS la barre, qui semblait alors decollee et
+			// traversee par le dessin (Rihen).
+			const NkRect listInner{r.x, listTop, r.w - editorkit::NkScrollbarWidth(), listH};
 			hit.Add("hier.list", listR);
-			p.Clip(listR);
-			hit.PushClip(listR); // les lignes defilees hors de vue ne cliquent pas
+			p.Clip(listInner);
+			hit.PushClip(listInner); // les lignes defilees hors de vue ne cliquent pas
 
 			char key[40];
 			float32 yy = y - st.scrollHier;
@@ -7640,7 +7662,10 @@ namespace nkentseu {
 
 			p.Unclip();
 			const NkRect treeArea{r.x, ty, treeW, th};
-			const NkRect assetArea{ax - S(10.f), ty + S(33.f), r.w - treeW - S(10.f), th - S(33.f)};
+			// La zone des cartes va JUSQU'AU BORD DROIT du panneau : elle
+			// s'arretait 6 px avant, et sa barre paraissait flotter (Rihen).
+			const NkRect assetArea{ax - S(10.f), ty + S(34.f), r.x + r.w - (ax - S(10.f)),
+								   th - S(34.f)};
 			hit.Add("brow.tree", treeArea);
 			hit.Wheel("brow.tree", st.scrollTree, 5.f * kRowH + S(8.f), treeArea.h);
 			hit.Add("brow.assets", assetArea);
