@@ -4827,6 +4827,35 @@ namespace nkentseu {
 						}
 						if (demo::Demo3DHostNodeHasChildren(act))
 							NkXmitRow(p, hit, r, rr, yy, act);
+						// ── ORIGINE (PIVOT) ─────────────────────────────────────────
+						// Elle merite une place a part (Rihen) : c'est autour d'elle
+						// que l'objet TOURNE et se met a l'ECHELLE, lui et tout ce
+						// qu'il porte. On peut la poser n'importe ou -- la deplacer
+						// ici ne deplace PAS la matiere, seulement le point de pivot.
+						if (act >= 90) {
+							float32 org[3];
+							if (demo::Demo3DHostNodeOrigin(act, org)) {
+								const float32 org0[3] = {org[0], org[1], org[2]};
+								PaintTransformRow(p, hit, ws, in, r, yy, "Origine", org,
+												  0.01f, "props.org", NkIcon::None,
+												  NkIcon::None);
+								yy += Vec3RowH();
+								bool orgCh = false;
+								for (int32 a = 0; a < 3; ++a)
+									if (org[a] != org0[a])
+										orgCh = true;
+								if (orgCh)
+									demo::Demo3DHostSetNodeOrigin(act, org);
+								float32 ctr[3];
+								if (demo::Demo3DHostMeshesCenter(act, ctr)) {
+									if (Button("props.orgctr", yy,
+											   "Origine au centre des maillages",
+											   r.x + kPad, rr.w - 2.f * kPad))
+										demo::Demo3DHostSetNodeOrigin(act, ctr);
+									yy += kRowH;
+								}
+							}
+						}
 						// ── MATERIAU DU MAILLAGE (proprietes par TYPE) ──────────────
 						// Lecture = valeurs EFFECTIVES de la derniere soumission ;
 						// ecriture = SURCHARGE par objet. PROPAGER cochee : la

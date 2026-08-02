@@ -185,6 +185,12 @@ namespace nkentseu {
 		// Remet les maillages d'un model A PLAT (tous enfants directs de sa
 		// racine) : dans un model, le seul parent est le model.
 		void Demo3DHostFlattenModel(int32 root);
+		// ORIGINE (pivot) d'un noeud : point autour duquel il tourne et se met a
+		// l'echelle, lui et tout ce qu'il porte. La deplacer NE DEPLACE PAS la
+		// matiere -- les enfants sont recules d'autant.
+		bool Demo3DHostNodeOrigin(int32 node, float32 *out3);
+		void Demo3DHostSetNodeOrigin(int32 node, const float32 *p3);
+		bool Demo3DHostMeshesCenter(int32 node, float32 *out3);
 		// Fait du noeud un MODEL et descend sa geometrie propre dans un
 		// premier maillage interne. Renvoie ce maillage (-1 si rien a faire).
 		int32 Demo3DHostEnsureModelMesh(int32 root);

@@ -6951,6 +6951,11 @@ namespace nkentseu {
 								if (uk2 == 0)
 									continue; // slot libre -- tout le reste se clique
 								const int32 un2 = kNkvpFirstUser + u2;
+								if (nkvpIsModel[un2])
+									continue; // un model se clique PAR SA MATIERE : sa
+											  // propre origine ne dessine rien, et y
+											  // laisser une cible faisait une zone
+											  // fantome loin de ses maillages (Rihen)
 								if (HostHiddenEff(un2) || HostLockedEff(un2))
 									continue;
 								const int32 e2 = un2 - 90;
@@ -7221,7 +7226,21 @@ namespace nkentseu {
 								continue;
 							const int32 e = 6 + u;
 							const int32 un = kNkvpFirstUser + u;
-							if (!st->emptyGizmo.IsSelected(e) || HostHiddenEff(un))
+							if (nkvpIsModel[un])
+								continue; // il ne rend rien : ses maillages le cernent
+							if (HostHiddenEff(un))
+								continue;
+							// LA ZONE D'UN MODEL, C'EST SA MATIERE (Rihen) : un
+							// maillage se lisere aussi quand c'est SON MODEL qui est
+							// selectionne -- sinon le lisere restait a l'origine du
+							// model, souvent loin des maillages qu'il porte.
+							bool selOut = st->emptyGizmo.IsSelected(e);
+							if (!selOut && nkvpIsMesh[un]) {
+								const int32 mr = Demo3DHostModelRootOf(un);
+								selOut = mr >= kNkvpFirstEmpty &&
+										 st->emptyGizmo.IsSelected(mr - kNkvpFirstEmpty);
+							}
+							if (!selOut)
 								continue;
 							NkDrawCall3D sdc2;
 							{
@@ -8678,6 +8697,58 @@ namespace nkentseu {
 			// geometrie, que son maillage rend desormais pour lui.
 			nkvpIsModel[root] = true;
 			return m;
+		}
+		bool Demo3DHostNodeOrigin(int32 node, float32 *out3) {
+			// L'ORIGINE d'un noeud est son point de pivot : c'est autour d'elle
+			// qu'il tourne et se met a l'echelle, lui et tout ce qu'il porte. Elle
+			// merite d'etre lue et posee explicitement (Rihen).
+			if (node < kNkvpFirstEmpty || node >= kNkvpMaxNodes)
+				return false;
+			const int32 e = node - kNkvpFirstEmpty;
+			out3[0] = nkvpEmptyPos[e][0];
+			out3[1] = nkvpEmptyPos[e][1];
+			out3[2] = nkvpEmptyPos[e][2];
+			return true;
+		}
+		void Demo3DHostSetNodeOrigin(int32 node, const float32 *p3) {
+			// DEPLACER L'ORIGINE SANS DEPLACER LA MATIERE : le noeud bouge, et ses
+			// enfants sont recules d'autant -- a l'ecran, rien ne bouge, mais le
+			// point de rotation et de mise a l'echelle a change. C'est le geste
+			// « definir l'origine » des modeleurs.
+			if (node < kNkvpFirstEmpty || node >= kNkvpMaxNodes)
+				return;
+			const int32 e = node - kNkvpFirstEmpty;
+			const float32 d[3] = {p3[0] - nkvpEmptyPos[e][0], p3[1] - nkvpEmptyPos[e][1],
+								  p3[2] - nkvpEmptyPos[e][2]};
+			for (int32 a = 0; a < 3; ++a)
+				nkvpEmptyPos[e][a] = p3[a];
+			for (int32 c = 0; c < kNkvpMaxNodes; ++c) {
+				if (nkvpDeleted[c] || nkvpParentOf[c] != node || c < kNkvpFirstEmpty)
+					continue;
+				const int32 ce = c - kNkvpFirstEmpty;
+				for (int32 a = 0; a < 3; ++a)
+					nkvpEmptyPos[ce][a] -= d[a];
+			}
+		}
+		bool Demo3DHostMeshesCenter(int32 node, float32 *out3) {
+			// Centre de la MATIERE d'un noeud : moyenne des origines de ses
+			// maillages. Sert a poser l'origine « au centre de la geometrie ».
+			float32 acc[3] = {0.f, 0.f, 0.f};
+			int32 n = 0;
+			for (int32 c = kNkvpFirstEmpty; c < kNkvpMaxNodes; ++c) {
+				if (nkvpDeleted[c] || !nkvpIsMesh[c] || nkvpParentOf[c] != node)
+					continue;
+				const int32 ce = c - kNkvpFirstEmpty;
+				for (int32 a = 0; a < 3; ++a)
+					acc[a] += nkvpEmptyPos[ce][a];
+				++n;
+			}
+			if (n == 0)
+				return false;
+			const int32 e = node - kNkvpFirstEmpty;
+			for (int32 a = 0; a < 3; ++a)
+				out3[a] = nkvpEmptyPos[e][a] + acc[a] / (float32)n;
+			return true;
 		}
 		void Demo3DHostFlattenModel(int32 root) {
 			// Remet A PLAT les maillages d'un model : tous enfants DIRECTS de la
