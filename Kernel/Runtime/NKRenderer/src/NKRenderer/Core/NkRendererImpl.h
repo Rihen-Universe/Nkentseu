@@ -105,6 +105,10 @@ namespace nkentseu {
 					return mShadow.Get();
 				}
 
+				NkEnvironmentSystem *GetEnvironment() override {
+					return mEnvironment.Get();
+				}
+
 				NkVFXSystem *GetVFX() override {
 					return mVFX.Get();
 				}
