@@ -8618,12 +8618,41 @@ namespace nkentseu {
 			HostParentEnsureInit();
 			if (child < 0 || child >= kNkvpMaxNodes || parent < -1 || parent >= kNkvpMaxNodes)
 				return false;
+			// DANS UN MODEL, LE SEUL PARENT EST LE MODEL (regle de Rihen). Un
+			// maillage est une donnee geometrique, pas un noeud de hierarchie :
+			// toute tentative de le rendre parent est rabattue sur la racine du
+			// model, de sorte que ses maillages restent tous FRERES. Le controle
+			// est ici, au point de passage unique, plutot que dans chaque geste
+			// (depot, Ctrl+P, menu Ajouter) ou l'on finirait par en oublier un.
+			if (nkvpDocIsModel && parent >= 0 && nkvpIsMesh[parent])
+				parent = Demo3DHostModelRootOf(parent);
 			// Refus des CYCLES : on ne parente pas a soi-meme ni a un de ses
 			// propres descendants.
 			if (parent >= 0 && HostIsDescendant(parent, child))
 				return false;
 			nkvpParentOf[child] = parent;
 			return true;
+		}
+		void Demo3DHostFlattenModel(int32 root) {
+			// Remet A PLAT les maillages d'un model : tous enfants DIRECTS de la
+			// racine. Sert a l'ouverture d'un editeur, pour que la regle vaille
+			// aussi sur ce qui a ete assemble avant elle.
+			if (root < 0 || root >= kNkvpMaxNodes)
+				return;
+			for (int32 c = 0; c < kNkvpMaxNodes; ++c) {
+				if (c == root || nkvpDeleted[c] || !nkvpIsMesh[c])
+					continue;
+				int32 cur = nkvpParentOf[c];
+				for (int32 g = 0; g < kNkvpMaxNodes && cur >= 0; ++g) {
+					if (cur == root) {
+						nkvpParentOf[c] = root;
+						break;
+					}
+					if (!nkvpIsMesh[cur])
+						break; // appartient a un AUTRE model
+					cur = nkvpParentOf[cur];
+				}
+			}
 		}
 		int32 Demo3DHostNodeXmitMask(int32 node) {
 			HostParentEnsureInit();
