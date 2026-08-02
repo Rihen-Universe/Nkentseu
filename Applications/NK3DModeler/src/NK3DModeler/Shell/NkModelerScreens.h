@@ -554,6 +554,10 @@ namespace nkentseu {
 				st.editPreviewNode = 0;
 			}
 			st.activeTab = tb;
+			// BASCULE DE DOCUMENT : l'hote ne rend et ne liste plus que les
+			// noeuds de CE document ; la selection ne traverse jamais.
+			demo::Demo3DHostSetActiveScene((int32)st.sceneTabId[tb]);
+			demo::Demo3DHostDeselectAll();
 			const uint8 tk = st.sceneTabKind[tb];
 			if (tk == 0) {
 				if (st.sceneCamSet[tb])
@@ -564,12 +568,10 @@ namespace nkentseu {
 												  st.sceneCamOrtho[tb]);
 				else
 					demo::Demo3DHostResetView();
-				demo::Demo3DHostSetAllHidden(st.sceneBlank[tb]);
-				return;
+				return; // l'appartenance filtre deja les objets de la scene
 			}
 			// EDITEUR : scene VIDE + maquette selon la nature de l'asset.
-			demo::Demo3DHostResetView();
-			demo::Demo3DHostSetAllHidden(true);
+			demo::Demo3DHostResetView(); // document neuf : vue d'ouverture
 			const uint8 ek = (uint8)(tk - 1);
 			const int32 ai = st.sceneTabAsset[tb] - 1;
 			int32 pv = -1;
@@ -578,10 +580,6 @@ namespace nkentseu {
 				pv = demo::Demo3DHostDuplicateNode(st.browserSrcNode[ai] - 1);
 			else if (ek == 6)
 				pv = demo::Demo3DHostAddNode(2, 0); // mesh sans source : cube
-			else if (ek == 2)
-				pv = demo::Demo3DHostAddNode(1, 0); // materiau : sphere d'apercu
-			else if (ek == 3)
-				pv = demo::Demo3DHostAddNode(3, 0); // texture : plan d'apercu
 			if (pv >= 0) {
 				// La maquette nait a l'ORIGINE, droite, et selectionnee ; elle
 				// garde sa propre echelle (dimensions reelles de l'asset).
@@ -636,6 +634,7 @@ namespace nkentseu {
 							st.sceneBlank[k] = st.sceneBlank[k + 1];
 							st.sceneTabKind[k] = st.sceneTabKind[k + 1];
 							st.sceneTabAsset[k] = st.sceneTabAsset[k + 1];
+							st.sceneTabId[k] = st.sceneTabId[k + 1];
 							st.sceneCamOrtho[k] = st.sceneCamOrtho[k + 1];
 							st.sceneCamSet[k] = st.sceneCamSet[k + 1];
 							for (int32 a = 0; a < 6; ++a)
@@ -679,6 +678,7 @@ namespace nkentseu {
 				st.sceneBlank[nt] = true;
 				st.sceneTabKind[nt] = 0;
 				st.sceneTabAsset[nt] = 0;
+				st.sceneTabId[nt] = (uint8)st.sceneIdNext++;
 				NkActivateTab(st, nt);
 			}
 		}
@@ -696,6 +696,10 @@ namespace nkentseu {
 								 NkHitRegistry &hit, NkWidgetState &ws, NkComboPending &combo) {
 			p.Fill(r, NkRole::PanelHeader);
 			p.HLine(r.x, r.y + r.h - 1.f, r.w);
+			// Editeurs sans design defini : pas de barre d'outils (Rihen).
+			if (st.sceneTabKind[st.activeTab] != 0 &&
+				st.sceneTabKind[st.activeTab] != 7)
+				return;
 			float32 x = kPad;
 			const float32 ih = S(14.f);
 
@@ -1292,6 +1296,8 @@ namespace nkentseu {
 		inline bool NkHierNodeSkip(int32 node) {
 			if (demo::Demo3DHostNodeDeleted(node))
 				return true;
+			if (demo::Demo3DHostNodeScene(node) != demo::Demo3DHostActiveScene())
+				return true; // appartient a un autre document (scene/editeur)
 			return node >= 96 && demo::Demo3DHostUserKind(node) == 0;
 		}
 		// Le noeud a-t-il des enfants VIVANTS (ni supprimes ni slots libres) ?
@@ -1630,22 +1636,27 @@ namespace nkentseu {
 			// ou vide), et son contenu s'adapte au presse-papiers (Rihen).
 			if (st.browMenuIdx != -1) {
 				const bool onCard = st.browMenuIdx >= 0;
+				// -4 : combo Creer de la barre -> UNIQUEMENT la liste de creation
+				// (le clic droit garde Importer + sous-menu Creer).
+				const bool creatOnly = (st.browMenuIdx == -4);
 				const bool canPaste =
 					st.browClip >= 0 && st.browserKind[st.browClip] != 255;
 				const char *bmIt[12];
 				int32 bmAct[12];
 				int32 nIt = 0;
-				bmIt[nIt] = "Creer                >";
-				bmAct[nIt++] = 100; // ouvre le SOUS-MENU au survol
-				bmIt[nIt] = "Importer...";
-				bmAct[nIt++] = 20;
+				if (!creatOnly) {
+					bmIt[nIt] = "Creer                >";
+					bmAct[nIt++] = 100; // ouvre le SOUS-MENU au survol
+					bmIt[nIt] = "Importer...";
+					bmAct[nIt++] = 20;
+				}
 				if (onCard) {
 					bmIt[nIt] = "Couper";
 					bmAct[nIt++] = 0;
 					bmIt[nIt] = "Copier";
 					bmAct[nIt++] = 1;
 				}
-				if (canPaste) {
+				if (canPaste && !creatOnly) {
 					bmIt[nIt] = "Coller";
 					bmAct[nIt++] = 2;
 				}
@@ -1655,10 +1666,12 @@ namespace nkentseu {
 					bmIt[nIt] = "Supprimer";
 					bmAct[nIt++] = 4;
 				}
-				NkRect mr2{st.browMenuX, st.browMenuY, S(180.f), kRowH * (float32)nIt};
+				NkRect mr2{st.browMenuX, st.browMenuY, creatOnly ? 0.f : S(180.f),
+						   kRowH * (float32)nIt};
 				if (mr2.y + mr2.h > area.y + area.h)
 					mr2.y = area.y + area.h - mr2.h;
-				p.Outline(mr2, NkRole::Border, NkRole::PanelHeader, 3.f);
+				if (!creatOnly)
+					p.Outline(mr2, NkRole::Border, NkRole::PanelHeader, 3.f);
 				int32 act2 = -1;
 				float32 creatY = mr2.y;
 				for (int32 mi = 0; mi < nIt; ++mi) {
@@ -1679,10 +1692,10 @@ namespace nkentseu {
 				if (st.browMenuCreat) {
 					// SOUS-MENU Creer : tout ce qui peut naitre ici (Rihen), dont
 					// la SCENE et le MESH reutilisable.
-					static const char *const kCr[7] = {"Dossier", "Scene", "Mesh",
+					static const char *const kCr[7] = {"Dossier", "Scene", "Model",
 													   "Materiau", "Texture",
 													   "Blueprint", "Dataset"};
-					sub2 = {mr2.x + mr2.w + 2.f, creatY, S(150.f), kRowH * 7.f};
+					sub2 = {mr2.x + mr2.w + 2.f, creatY, S(112.f), kRowH * 7.f};
 					if (sub2.y + sub2.h > area.y + area.h)
 						sub2.y = area.y + area.h - sub2.h;
 					if (sub2.x + sub2.w > area.x + area.w)
@@ -1706,7 +1719,7 @@ namespace nkentseu {
 						st.browserCount < NkModelerState::kMaxBrowser) {
 						// dossier, scene, mesh, materiau, texture, blueprint, dataset
 						static const uint8 kNewK[7] = {1, 5, 6, 2, 3, 0, 4};
-						static const char *const kNewN[7] = {"Dossier", "Scene", "Mesh",
+						static const char *const kNewN[7] = {"Dossier", "Scene", "Model",
 															 "Materiau", "Texture", "BP",
 															 "Dataset"};
 						const int32 k5 = st.browserCount++;
@@ -1729,6 +1742,7 @@ namespace nkentseu {
 						BrDelRec(tgt);
 					}
 					st.browMenuIdx = -1;
+					st.browMenuCreat = false; // sinon le prochain menu l'ouvrirait
 				} else if (hit.AnyClick() && !NkHitRegistry::Contains(mr2, hit.Mouse()) &&
 						   !(st.browMenuCreat && NkHitRegistry::Contains(sub2, hit.Mouse())) &&
 						   !hit.IsHovered("brw.creer")) { // pas le clic d'OUVERTURE
@@ -1837,6 +1851,17 @@ namespace nkentseu {
 			p.Fill(r, NkRole::PanelBg);
 			p.VLine(r.x + r.w - 1.f, r.y, r.h);
 			float32 y = PaintPanelTab(p, r, "Hierarchie", &hit, &st.showLeft, "hier.close");
+			// Les editeurs SANS design defini (materiau, texture, blueprint,
+			// dataset) n'ont PAS de hierarchie : seuls Scene et Model ont
+			// l'interface complete (Rihen).
+			{
+				const uint8 tkH = st.sceneTabKind[st.activeTab];
+				if (tkH != 0 && tkH != 7) {
+					p.TextV(r.x + S(12.f), y + S(6.f), kRowH,
+							"Indisponible pour cet editeur", NkRole::TextMuted);
+					return;
+				}
+			}
 			y = PaintSearch(p, r, y, hit, ws, in, "hier.search", st.searchHier);
 
 			const float32 colEye = r.x + r.w - S(48.f);
@@ -2779,17 +2804,18 @@ namespace nkentseu {
 			// Fond de la ZONE IMAGE seulement (vr, pas r) : peindre r entier
 			// recouvrait la barre d'espaces peinte juste au-dessus.
 			p.Fill(vr, NkRole::ViewportTop); // visible tant que la 3D n'est pas prete
-			// ONGLET EDITEUR : Mesh, Materiau et Texture s'editent dans un VRAI
-			// viewport (scene a part entiere, maquette posee par NkActivateTab) ;
-			// Blueprint et Dataset gardent leur page en attendant NKGraphe.
-			if (st.sceneTabKind[st.activeTab] == 1 ||
-				st.sceneTabKind[st.activeTab] == 5) {
+			// ONGLET EDITEUR : seul MODEL s'edite dans un vrai viewport (meme
+			// interface qu'une scene, regle de Rihen). Materiau, texture,
+			// blueprint et dataset = CONTENU VIDE tant que leur design n'est
+			// pas defini (peinture, nodes proceduraux, NKGraphe a venir).
+			if (st.sceneTabKind[st.activeTab] != 0 &&
+				st.sceneTabKind[st.activeTab] != 7) {
 				const uint8 ek = (uint8)(st.sceneTabKind[st.activeTab] - 1);
 				const char *en = (ek == 0)	 ? "Editeur de Blueprint"
 								 : (ek == 2) ? "Editeur de Materiau"
 								 : (ek == 3) ? "Editeur de Texture"
 								 : (ek == 4) ? "Editeur de Dataset IA"
-								 : (ek == 6) ? "Editeur de Mesh"
+								 : (ek == 6) ? "Editeur de Model"
 											 : "Editeur";
 				p.Fill(vr, NkRole::WindowBg);
 				const float32 cxE = vr.x + vr.w * 0.5f;
@@ -2801,8 +2827,11 @@ namespace nkentseu {
 					p.TextV(cxE - p.TextW(st.browserNames[aiE]) * 0.5f,
 							cyE - S(12.f), kRowH, st.browserNames[aiE],
 							NkRole::TextMuted);
-				p.TextV(cxE - p.TextW("Edition dediee a venir (NKGraphe)") * 0.5f,
-						cyE + S(12.f), kRowH, "Edition dediee a venir (NKGraphe)",
+				p.TextV(cxE - p.TextW("Interface a definir -- NKGraphe, peinture, "
+									  "procedural a venir") *
+								 0.5f,
+						cyE + S(12.f), kRowH,
+						"Interface a definir -- NKGraphe, peinture, procedural a venir",
 						NkRole::TextMuted);
 				st.viewRect = {0.f, 0.f, 0.f, 0.f}; // pas de depot 3D ici
 				return;
@@ -3474,6 +3503,15 @@ namespace nkentseu {
 										   const nkgui::NkGuiInput &in, NkComboPending &combo) {
 			p.Fill(rFull, NkRole::PanelBg);
 			p.VLine(rFull.x, rFull.y, rFull.h);
+			// Editeurs sans design defini : pas de proprietes (Rihen).
+			{
+				const uint8 tkP = st.sceneTabKind[st.activeTab];
+				if (tkP != 0 && tkP != 7) {
+					p.TextV(rFull.x + S(12.f), rFull.y + S(6.f), kRowH,
+							"Indisponible pour cet editeur", NkRole::TextMuted);
+					return;
+				}
+			}
 			// PLUS DE CROIX : les PASTILLES font l'affichage/masquage -- aucune
 			// active, et le panneau n'est plus que sa colonne de pastilles.
 			const bool collapsed = !st.AnyPropOpen();
@@ -5288,7 +5326,7 @@ namespace nkentseu {
 				p.IconV(x + 18.f + p.TextW("Creer") + 6.f, r.y, topH, NkIcon::ChevronDown,
 						NkRole::TextMuted, 11.f);
 				if (hit.Clicked("brw.creer")) {
-					st.browMenuIdx = -2;
+					st.browMenuIdx = -4; // liste Creer SEULE (pas d'Importer)
 					st.browMenuCreat = true;
 					st.browMenuX = br.x;
 					st.browMenuY = br.y + br.h + 2.f;
@@ -5558,7 +5596,7 @@ namespace nkentseu {
 									   : (kind == 1) ? "Dossier"
 									   : (kind == 4) ? "Dataset IA"
 									   : (kind == 5) ? "Scene"
-									   : (kind == 6) ? "Mesh"
+									   : (kind == 6) ? "Model"
 									   : (kind == 2) ? "Materiau"
 													 : "Texture";
 
@@ -5678,6 +5716,7 @@ namespace nkentseu {
 						NkWidgetState::Copy(st.sceneNames[tb], st.browserNames[i], 31u);
 						st.sceneTabAsset[tb] = i + 1;
 						st.sceneTabKind[tb] = tk9;
+						st.sceneTabId[tb] = (uint8)st.sceneIdNext++;
 						st.sceneCamSet[tb] = false;
 						// contenu REEL au chargement : viendra du format projet
 						st.sceneBlank[tb] = true;

@@ -159,6 +159,11 @@ namespace nkentseu {
 		void Demo3DHostDeleteNode(int32 node, bool withChildren);
 		int32 Demo3DHostDuplicateNode(int32 node); // -1 si impossible (lumiere v1)
 		int32 Demo3DHostArchiveNode(int32 node);   // copie invisible pour asset
+		// APPARTENANCE par document : chaque noeud vit dans UNE scene ou UN
+		// editeur ; ailleurs il n'est ni rendu ni liste.
+		void Demo3DHostSetActiveScene(int32 id);
+		int32 Demo3DHostActiveScene();
+		int32 Demo3DHostNodeScene(int32 node);
 		void Demo3DHostCopyNode(int32 node);
 		int32 Demo3DHostPasteNode();
 		int32 Demo3DHostUserKind(int32 node); // 0 aucun, 1 sphere, 2 cube, 3 plan, 4 empty
