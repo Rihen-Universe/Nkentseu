@@ -127,6 +127,8 @@ namespace nkentseu {
 			PlusCircle,		  ///< 3e action (ajouter)
 			MinusCircle,	  ///< 4e action (retirer)
 			Tag,			  ///< marqueur d'un attribut
+			Pipette,		  ///< DESIGNER un objet dans la vue (« Picker » est le
+							  ///< pot de peinture : deux gestes differents, deux dessins)
 			Count
 		};
 
@@ -204,6 +206,7 @@ namespace nkentseu {
 					{NkIcon::PlusCircle, "plus-circle"},
 					{NkIcon::MinusCircle, "minus-circle"},
 					{NkIcon::Tag, "tag"},
+					{NkIcon::Pipette, "pipette"},
 						{NkIcon::Camera, "device-camera"},
 						{NkIcon::Ortho, "ortho-cube"},
 						{NkIcon::Gizmo, "location"},
