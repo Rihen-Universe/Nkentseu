@@ -569,13 +569,6 @@ namespace nkentseu {
 			// L'hote doit savoir s'il sert un MODEL : la selection en vue 3D
 			// n'y a pas la meme regle (mesh par mesh, contre model entier).
 			demo::Demo3DHostSetDocIsModel(st.sceneTabKind[tb] == 7);
-			// RACINE du model ouvert : dans son propre editeur, elle ignore le
-			// masquage et le verrou poses cote SCENE (l'inverse reste vrai).
-			demo::Demo3DHostSetModelRoot(
-				st.sceneTabKind[tb] == 7
-					? (st.sceneTabIsoNode[tb] > 0 ? st.sceneTabIsoNode[tb] - 1
-												  : st.editPreviewNode - 1)
-					: -1);
 			demo::Demo3DHostDeselectAll();
 			st.unitSystem = st.unitSystemTab[tb];
 			st.unitLength = st.unitLengthTab[tb];
@@ -623,10 +616,6 @@ namespace nkentseu {
 				demo::Demo3DHostSelectEmptyNode(pv);
 			}
 			st.editPreviewNode = pv + 1;
-			// La maquette n'existe qu'ICI : la racine du model se publie donc
-			// maintenant (plus haut, elle n'etait pas encore creee).
-			if (tk == 7)
-				demo::Demo3DHostSetModelRoot(pv);
 		}
 		inline void PaintTabsI(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
 							   NkHitRegistry &hit, NkWidgetState &ws, const nkgui::NkGuiInput &in) {

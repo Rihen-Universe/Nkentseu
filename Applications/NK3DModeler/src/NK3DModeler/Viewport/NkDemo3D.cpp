@@ -156,12 +156,9 @@ namespace nkentseu {
 		// et dans la scene un clic dessus selectionne TOUT le model (Rihen).
 		static bool nkvpIsMesh[kNkvpMaxNodes] = {};
 		static bool nkvpDocIsModel = false;
-		// Racine du model ouvert dans le document courant (-1 : aucun). Dans son
-		// PROPRE editeur, un model ne subit ni le masquage ni le verrou poses sur
-		// lui COTE SCENE : ce sont des reglages de scene, et on n'ouvre pas un
-		// editeur pour y trouver son sujet invisible ou intouchable. L'inverse
-		// reste vrai -- ce qu'on fait DANS le model se voit dans la scene (Rihen).
-		static int32 nkvpModelRoot = -1;
+		// (L'etancheite du model aux reglages de la scene ne passe PAS par la
+		// connaissance de sa racine, mais par des drapeaux separes par contexte --
+		// voir nkvpMeshHidden / nkvpMeshLocked plus bas.)
 		// VUE CAMERA : noeud regarde (-1 = vue 3D libre).
 		static int32 nkvpCamViewNode = -1;
 		// VISIBILITE et VERROU EFFECTIFS : le sien OU celui d'un ancetre --
@@ -194,14 +191,16 @@ namespace nkentseu {
 			return p >= 0 && p < kNkvpMaxNodes &&
 				   (nkvpDeleted[p] || HostNodeForeign(p));
 		}
-		// La chaine s'arrete a la racine du model dans son propre editeur :
-		// au-dela on sort du model, et la scene ne le concerne plus.
-		static bool HostChainStopsAt(int32 n) {
-			return nkvpDocIsModel && n >= 0 && n == nkvpModelRoot;
-		}
 		// VERROU PROPRE au document : celui de la scene ne verrouille pas dans
 		// le model, et celui du model ne verrouille pas dans la scene -- il n'y
 		// a pas d'importance a ce niveau (Rihen).
+		//
+		// C'est CETTE separation qui rend le model etanche aux reglages de scene.
+		// Une precedente version faisait plutot ignorer a la racine du model son
+		// PROPRE drapeau : elle rendait du meme coup impossible de masquer ou de
+		// verrouiller le model DANS son editeur. La separation par contexte suffit,
+		// et la remontee s'arrete de toute facon a l'ancetre reste dans la scene
+		// (etranger au document).
 		static bool HostLockedOwn(int32 n) {
 			if (n < 0 || n >= 160)
 				return false;
@@ -211,12 +210,8 @@ namespace nkentseu {
 			if (HostNodeForeign(n))
 				return true; // lui-meme vit dans un autre document
 			for (int32 g = 0; g < kNkvpMaxNodes && n >= 0; ++g) {
-				// Le SUJET de l'editeur ne se cache pas parce que la scene l'a
-				// cache : ce serait ouvrir un editeur vide (Rihen).
-				if (!HostChainStopsAt(n) && HostNodeHiddenOwn(n))
+				if (HostNodeHiddenOwn(n))
 					return true;
-				if (HostChainStopsAt(n))
-					break;
 				const int32 pa = nkvpParentOf[n];
 				if (HostChainBreaks(pa))
 					break;
@@ -226,10 +221,8 @@ namespace nkentseu {
 		}
 		static bool HostLockedEff(int32 n) {
 			for (int32 g = 0; g < kNkvpMaxNodes && n >= 0; ++g) {
-				if (!HostChainStopsAt(n) && HostLockedOwn(n))
+				if (HostLockedOwn(n))
 					return true;
-				if (HostChainStopsAt(n))
-					break;
 				const int32 pa = nkvpParentOf[n];
 				if (HostChainBreaks(pa))
 					break;
@@ -9316,9 +9309,6 @@ namespace nkentseu {
 					cur = nkvpParentOf[cur];
 				}
 			}
-		}
-		void Demo3DHostSetModelRoot(int32 node) {
-			nkvpModelRoot = node;
 		}
 		void Demo3DHostCopyNode(int32 node) {
 			auto *st = HostSt();
