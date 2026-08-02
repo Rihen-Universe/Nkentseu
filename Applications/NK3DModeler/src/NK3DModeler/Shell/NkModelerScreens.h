@@ -5495,7 +5495,10 @@ namespace nkentseu {
 				// code (Rihen). Elle occupe sa gouttiere entre le contenu et la
 				// colonne de pastilles, et reste VISIBLE meme quand tout tient a
 				// l'ecran : une barre qui va et vient fait sauter la mise en page.
-				if (guiCtx) {
+				// AUCUNE pastille active = pas de contenu, donc PAS DE BARRE : le
+				// panneau se reduit a sa colonne de pastilles (Rihen). Une
+				// gouttiere seule, sans rien a faire defiler, n'annonce rien.
+				if (guiCtx && !collapsed) {
 					const NkRect sbTrack{r.x + r.w, stackTop, kSbW, viewH};
 					editorkit::NkVScrollbar(*guiCtx, guiCtx->dl, sbTrack, st.propScroll,
 											stackH > viewH ? stackH : viewH + 1.f, viewH,
@@ -5512,12 +5515,16 @@ namespace nkentseu {
 			// place de chacun -- illisible des que les categories se comptent en
 			// dizaines. Recliquer la pastille active replie le panneau.
 			{
-				p.VLine(r.x + r.w, stackTop, (rFull.y + rFull.h) - stackTop);
+				// La colonne commence APRES la gouttiere de la scrollbar : posee au
+				// meme x, elle recouvrait la barre (constate par Rihen). Le trait
+				// separateur se place de meme, entre la barre et les pastilles.
+				const float32 tabX = r.x + r.w + kSbW;
+				p.VLine(tabX, stackTop, (rFull.y + rFull.h) - stackTop);
 				float32 ty = stackTop + S(4.f);
 				for (int32 i2 = 0; i2 < kNSec; ++i2) {
 					char tk[24];
 					snprintf(tk, sizeof(tk), "props.tab.%d", i2);
-					const NkRect tb{r.x + r.w + S(3.f), ty, S(20.f), S(24.f)};
+					const NkRect tb{tabX + S(3.f), ty, S(20.f), S(24.f)};
 					const bool on = st.propOpen[i2];
 					const bool overT = hit.Add(tk, tb);
 					if (on)
