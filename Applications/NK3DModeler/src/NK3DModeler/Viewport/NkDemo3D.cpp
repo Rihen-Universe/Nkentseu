@@ -136,6 +136,14 @@ namespace nkentseu {
 		// Mise a jour des ombres, reglee au panneau Rendu : dynamique par defaut,
 		// parce qu'un modeleur passe son temps a deplacer objets et lumieres.
 		static bool nkvpShadowDynamic = true;
+		// Brouillard de scene, regle au panneau Rendu. Eteint par defaut : il
+		// change radicalement l'image, il ne doit pas s'inviter tout seul.
+		static bool nkvpFogOn = false;
+		static float32 nkvpFogColor[3] = {0.5f, 0.6f, 0.7f};
+		static float32 nkvpFogDensity = 0.02f;
+		static float32 nkvpFogStart = 10.f;
+		static float32 nkvpFogEnd = 60.f;
+		static int32 nkvpFogMode = 0; // 0 lineaire, 1 exponentiel
 		static renderer::NkLightDesc nkvpClipLight;
 		static int32 nkvpShortcutBits = 0;
 		static uint8 nkvpShortcutPrev = 0;
@@ -4567,6 +4575,16 @@ namespace nkentseu {
 
 
 			sctx.ambientIntensity = 0.15f;
+			// BROUILLARD : le contexte le portait deja, plus personne ne le
+			// lisait. Il est desormais rempli depuis le panneau Rendu et
+			// consomme par le shader PBR.
+			sctx.fogEnabled = nkvpFogOn;
+			sctx.fogColor = {nkvpFogColor[0], nkvpFogColor[1], nkvpFogColor[2]};
+			// La densite ne sert qu'a la loi exponentielle ; a zero, le shader
+			// retombe sur la loi lineaire debut/fin.
+			sctx.fogDensity = nkvpFogMode == 1 ? nkvpFogDensity : 0.f;
+			sctx.fogStart = nkvpFogStart;
+			sctx.fogEnd = nkvpFogEnd;
 
 			// ── WIDGETS DES LUMIERES ────────────────────────────────────────────
 			// Une lumiere eclaire mais ne se voit pas : sans marqueur elle n'est ni
@@ -9803,6 +9821,30 @@ namespace nkentseu {
 			auto *r3 = hst.ctx.renderer ? hst.ctx.renderer->GetRender3D() : nullptr;
 			if (r3)
 				r3->SetIBLColor({rgb[0], rgb[1], rgb[2]});
+		}
+		// ── BROUILLARD ──────────────────────────────────────────────────────
+		// Etat gardé ici : c'est le contexte de scene, reconstruit a chaque
+		// image, qui le porte jusqu'au moteur (cf. la soumission).
+		void Demo3DHostFog(bool *on, float32 *rgb, float32 *density, float32 *start,
+						   float32 *end, int32 *mode) {
+			*on = nkvpFogOn;
+			rgb[0] = nkvpFogColor[0];
+			rgb[1] = nkvpFogColor[1];
+			rgb[2] = nkvpFogColor[2];
+			*density = nkvpFogDensity;
+			*start = nkvpFogStart;
+			*end = nkvpFogEnd;
+			*mode = nkvpFogMode;
+		}
+		void Demo3DHostSetFog(bool on, const float32 *rgb, float32 density, float32 start,
+							  float32 end, int32 mode) {
+			nkvpFogOn = on;
+			for (int32 i = 0; i < 3; ++i)
+				nkvpFogColor[i] = rgb[i] < 0.f ? 0.f : (rgb[i] > 1.f ? 1.f : rgb[i]);
+			nkvpFogDensity = density < 0.f ? 0.f : (density > 1.f ? 1.f : density);
+			nkvpFogStart = start < 0.f ? 0.f : start;
+			nkvpFogEnd = end < start ? start + 0.001f : end;
+			nkvpFogMode = mode & 1;
 		}
 		bool Demo3DHostShadowDynamic() {
 			return nkvpShadowDynamic;

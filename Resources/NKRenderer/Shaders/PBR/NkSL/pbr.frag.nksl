@@ -30,7 +30,9 @@ uniform CameraUBO {
     mat4  mirrorViewProj;
     vec4  reflectionFlags;
     vec4  viewOpts;      // .x=1 si matcap PERSONNALISEE (texture seule, pas l'atlas) ; .yzw reserve
-    vec4  iblColor;      // .xyz = teinte de l'ambiance (World Color) ; .w reserve
+    vec4  iblColor;      // .xyz = teinte de l'ambiance (World Color) ; .w = 1 si un monde est charge
+    vec4  fogColor;      // .xyz = couleur du brouillard ; .w = densite
+    vec4  fogParams;     // .x = actif ; .y = debut ; .z = fin ; .w = 0 lineaire, 1 exponentiel
 } uCam;
 
 @binding(set=1, binding=1)
@@ -358,11 +360,18 @@ void main() {
     vec3 Fi   = F_SchlickR(max(dot(N,V),0.0), F0, rog);
     vec3 kDi  = (1.0-Fi)*(1.0-met);
     vec3 R    = reflect(-V, N);
-    vec3 irr  = texture(tEnvIrradiance, N).rgb;
+    // SANS ENVIRONNEMENT CHARGE, L'AMBIANCE EST UNIFORME (uCam.iblColor.w).
+    // On echantillonnait les cubemaps PAR LA NORMALE meme quand aucun monde
+    // n'etait charge : leur contenu par defaut n'etant pas uniforme, trois faces
+    // d'un cube ressortaient plus claires que les trois autres, TOUJOURS les
+    // memes quelle que soit la vue -- alors que Blender, avec un monde de
+    // couleur unie, donne un aplat parfait.
+    float hasEnv = uCam.iblColor.w;
+    vec3 irr  = mix(vec3(1.0), texture(tEnvIrradiance, N).rgb, hasEnv);
     vec3 prefMirror = texture(tSkyEnvCube, R).rgb;
     vec3 prefRough  = textureLod(tEnvPrefilter, R, rog*4.0).rgb;
     float mirrorMix = 1.0 - smoothstep(0.05, 0.50, rog);
-    vec3 pref       = mix(prefRough, prefMirror, mirrorMix);
+    vec3 pref       = mix(vec3(1.0), mix(prefRough, prefMirror, mirrorMix), hasEnv);
     vec2 brdf       = texture(tBRDFLUT, vec2(max(dot(N,V),0.0), rog)).rg;
     // GI à un rebond + AO en UN SEUL balayage de cônes : la grille de voxels
     // porte rgb = radiance réémise et a = opacité (cf. Include/NkVoxelAO.glsli),
@@ -457,6 +466,28 @@ void main() {
             // 4 — AO : occlusion ambiante (ORM.r*aoStrength × Voxel AO) en niveaux de gris.
             color = vec3(clamp(ao * voxAO, 0.0, 1.0));
         }
+    }
+    // ── BROUILLARD ───────────────────────────────────────────────────────────
+    // Applique EN DERNIER, sur la couleur finale : le brouillard est ce qui
+    // s'interpose entre l'objet et l'oeil, il recouvre donc tout le reste --
+    // eclairage, reflets, emissif. Deux lois au choix, comme partout ailleurs :
+    // LINEAIRE (debut/fin nets, pratique pour cadrer un decor) et EXPONENTIEL
+    // (plus proche de la realite, l'attenuation suit la distance traversee).
+    // Les champs existaient dans le contexte de scene depuis toujours, mais
+    // AUCUNE passe ne les lisait : les regler n'avait aucun effet (Rihen).
+    if (uCam.fogParams.x > 0.5) {
+        float dist = length(uCam.camPos.xyz - vWorldPos);
+        float f;
+        if (uCam.fogParams.w > 0.5) {
+            // exponentiel au carre : la transition reste douce de pres
+            float d = dist * uCam.fogColor.w;
+            f = 1.0 - exp(-d * d);
+        } else {
+            float fstart = uCam.fogParams.y;
+            float fend   = max(uCam.fogParams.z, fstart + 0.001);
+            f = clamp((dist - fstart) / (fend - fstart), 0.0, 1.0);
+        }
+        color = mix(color, uCam.fogColor.rgb, clamp(f, 0.0, 1.0));
     }
     // ── GARDE-FOU NaN / Inf (dernier rempart) ────────────────────────────────
     // Un seul pixel NaN ecrit dans la cible HDR contamine toute la chaine de BLOOM
