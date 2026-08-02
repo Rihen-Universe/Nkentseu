@@ -18,6 +18,9 @@
 #include "NK3DModeler/Shell/NkModelerInput.h"
 #include "NK3DModeler/Shell/NkModelerWidgets.h"
 #include "NKEditorKit/NkShortcutTable.h"
+// La scrollbar STANDARD de Nkentseu (celle de l'editeur de code) : Rihen la veut
+// partout, et son en-tete demande explicitement de ne pas la redessiner ailleurs.
+#include "NKEditorKit/NkEditorScrollbar.h"
 
 #include <cstdio>
 
@@ -4043,9 +4046,13 @@ namespace nkentseu {
 			}
 			// LA COLONNE DE PASTILLES (idee de Rihen, facon Blender) reserve le
 			// bord droit ; tout le reste du panneau travaille dans r, ampute
-			// d'autant.
+			// d'autant. Entre les deux, la SCROLLBAR de NKEditorKit -- celle de
+			// l'editeur de code -- est TOUJOURS visible (Rihen) : une barre qui
+			// n'apparait qu'au besoin fait sauter la mise en page et laisse
+			// douter qu'il y ait quelque chose plus bas.
+			const float32 kSbW = editorkit::NkScrollbarWidth();
 			NkRect r = rFull;
-			r.w -= S(26.f);
+			r.w -= S(26.f) + kSbW;
 			char key[40], buf[96];
 
 			auto Button = [&](const char *k2, float32 yB, const char *label, float32 x,
@@ -4191,9 +4198,24 @@ namespace nkentseu {
 						// de parente la repercute au sous-arbre).
 						const int32 en = st.activeEmpty;
 						NkHierNodeName(st, en, buf, sizeof(buf));
-						p.IconV(r.x + kPad, yy, kRowH, NkIcon::Cursor, NkRole::Text, 13.f);
-						p.TextV(r.x + kPad + S(18.f), yy, kRowH, buf);
-						yy += kRowH;
+						// LE NOM EST UN CHAMP, pas une etiquette (Rihen) : on doit
+						// pouvoir renommer ici, avant meme de toucher a la
+						// transformation, sans passer par la hierarchie.
+						{
+							const NkIcon nico =
+								demo::Demo3DHostNodeIsModel(en)   ? NkIcon::Cube3D
+								: demo::Demo3DHostNodeIsMesh(en) ? NkIcon::Mesh
+																 : NkIcon::Cursor;
+							p.IconV(r.x + kPad, yy, kRowH, nico, NkRole::Text, 13.f);
+							const NkRect nmR{r.x + kPad + S(20.f), yy + S(2.f),
+											 rr.w - S(28.f) - kPad, kRowH - S(4.f)};
+							p.Outline(nmR, NkRole::Border, NkRole::InputBg, 3.f);
+							if (en >= 0 && en < 176)
+								EditableText(p, hit, ws, in, "props.name",
+											 {nmR.x + S(4.f), yy, nmR.w - S(8.f), kRowH},
+											 buf, NkRole::Text, st.customNames[en], 24u);
+							yy += kRowH;
+						}
 						static int32 sELast = -1;
 						static float32 sE[9] = {};
 						float32 ep[3], er2[3], es2[3];
@@ -4217,7 +4239,7 @@ namespace nkentseu {
 							// (un empty est un objet comme un autre, Rihen).
 							PaintTransformRow(p, hit, ws, in, rowR, yy, "Position", st.pos, 0.01f,
 											  "prop.epos", st.lockPos ? NkIcon::Lock : NkIcon::Unlock,
-											  NkIcon::Refresh, "%.2f", NkIcon::SnapScale, st.propPos);
+											  NkIcon::Refresh, "%.2f", NkIcon::Link2, st.propPos);
 							if (hit.Clicked("prop.epos.ic0"))
 								st.lockPos = !st.lockPos;
 							if (hit.Clicked("prop.epos.ic2"))
@@ -4225,7 +4247,7 @@ namespace nkentseu {
 							yy += Vec3RowH();
 							PaintTransformRow(p, hit, ws, in, rowR, yy, "Rotation", st.rot, 0.5f,
 											  "prop.erot", st.lockRot ? NkIcon::Lock : NkIcon::Unlock,
-											  NkIcon::Refresh, "%.1f", NkIcon::SnapScale, st.propRot);
+											  NkIcon::Refresh, "%.1f", NkIcon::Link2, st.propRot);
 							if (hit.Clicked("prop.erot.ic0"))
 								st.lockRot = !st.lockRot;
 							if (hit.Clicked("prop.erot.ic2"))
@@ -4233,12 +4255,52 @@ namespace nkentseu {
 							yy += Vec3RowH();
 							PaintTransformRow(p, hit, ws, in, rowR, yy, "Echelle", st.scl, 0.01f,
 											  "prop.escl", st.lockScl ? NkIcon::Lock : NkIcon::Unlock,
-											  NkIcon::Refresh, "%.2f", NkIcon::SnapScale, st.propScale);
+											  NkIcon::Refresh, "%.2f", NkIcon::Link2, st.propScale);
 							if (hit.Clicked("prop.escl.ic0"))
 								st.lockScl = !st.lockScl;
 							if (hit.Clicked("prop.escl.ic2"))
 								st.propScale = !st.propScale;
 							yy += Vec3RowH();
+							// ── PIVOT (origine) ────────────────────────────────
+							// Blender ne le laisse bouger qu'en mode Edition ; on
+							// l'offre AUSSI en mode Objet (Rihen : « on ne sait
+							// jamais »), avec son cadenas pour le figer quand on
+							// ne veut pas y toucher -- comme les autres lignes.
+							// Le deplacer NE DEPLACE PAS la matiere : les enfants
+							// reculent d'autant, seul le point de rotation et de
+							// mise a l'echelle change.
+							{
+								float32 piv[3];
+								if (demo::Demo3DHostNodeOrigin(act, piv)) {
+									const float32 piv0[3] = {piv[0], piv[1], piv[2]};
+									PaintTransformRow(
+										p, hit, ws, in, rowR, yy, "Pivot", piv, 0.01f,
+										"prop.epiv",
+										st.lockPiv ? NkIcon::Lock : NkIcon::Unlock,
+										NkIcon::Refresh, "%.2f", NkIcon::Link2,
+										st.propPiv);
+									if (hit.Clicked("prop.epiv.ic0"))
+										st.lockPiv = !st.lockPiv;
+									if (hit.Clicked("prop.epiv.ic2"))
+										st.propPiv = !st.propPiv;
+									bool pivCh = false;
+									for (int32 a = 0; a < 3; ++a)
+										if (piv[a] != piv0[a])
+											pivCh = true;
+									if (pivCh && !st.lockPiv)
+										demo::Demo3DHostSetNodeOrigin(act, piv);
+									yy += Vec3RowH();
+									float32 ctr[3];
+									if (demo::Demo3DHostMeshesCenter(act, ctr) &&
+										Button("props.pivctr", yy,
+											   "Pivot au centre des maillages", rowR.x,
+											   rowR.w)) {
+										if (!st.lockPiv)
+											demo::Demo3DHostSetNodeOrigin(act, ctr);
+									}
+									yy += kRowH;
+								}
+							}
 							// Proportionnel et verrous : memes regles que l'objet.
 							auto PropagateE = [](float32 *vals, const float32 *base, bool on) {
 								if (!on)
@@ -4282,7 +4344,7 @@ namespace nkentseu {
 								PaintTransformRow(p, hit, ws, in, rowR, yy, "Dimensions", dimE,
 									  0.01f, "prop.edim",
 									  st.lockDim ? NkIcon::Lock : NkIcon::Unlock,
-									  NkIcon::Refresh, "%.2f", NkIcon::SnapScale, st.propDim);
+									  NkIcon::Refresh, "%.2f", NkIcon::Link2, st.propDim);
 					if (hit.Clicked("prop.edim.ic0"))
 						st.lockDim = !st.lockDim;
 					if (hit.Clicked("prop.edim.ic2"))
@@ -4719,7 +4781,7 @@ namespace nkentseu {
 							rowR.w = rr.w - 2.f * kPad;
 							PaintTransformRow(p, hit, ws, in, rowR, yy, "Position", st.pos, 0.01f,
 											  "prop.pos", st.lockPos ? NkIcon::Lock : NkIcon::Unlock,
-											  NkIcon::Refresh, "%.2f", NkIcon::SnapScale, st.propPos);
+											  NkIcon::Refresh, "%.2f", NkIcon::Link2, st.propPos);
 							if (hit.Clicked("prop.pos.ic0"))
 								st.lockPos = !st.lockPos;
 							if (hit.Clicked("prop.pos.ic2"))
@@ -4727,7 +4789,7 @@ namespace nkentseu {
 							yy += Vec3RowH();
 							PaintTransformRow(p, hit, ws, in, rowR, yy, "Rotation", st.rot, 0.5f,
 											  "prop.rot", st.lockRot ? NkIcon::Lock : NkIcon::Unlock,
-											  NkIcon::Refresh, "%.1f", NkIcon::SnapScale, st.propRot);
+											  NkIcon::Refresh, "%.1f", NkIcon::Link2, st.propRot);
 							if (hit.Clicked("prop.rot.ic0"))
 								st.lockRot = !st.lockRot;
 							if (hit.Clicked("prop.rot.ic2"))
@@ -4735,7 +4797,7 @@ namespace nkentseu {
 							yy += Vec3RowH();
 							PaintTransformRow(p, hit, ws, in, rowR, yy, "Echelle", st.scl, 0.01f,
 											  "prop.scl", st.lockScl ? NkIcon::Lock : NkIcon::Unlock,
-											  NkIcon::Refresh, "%.2f", NkIcon::SnapScale, st.propScale);
+											  NkIcon::Refresh, "%.2f", NkIcon::Link2, st.propScale);
 							if (hit.Clicked("prop.scl.ic0"))
 								st.lockScl = !st.lockScl;
 							if (hit.Clicked("prop.scl.ic2"))
@@ -4753,7 +4815,7 @@ namespace nkentseu {
 								PaintTransformRow(p, hit, ws, in, rowR, yy, "Dimensions", dim,
 									  0.01f, "prop.dim",
 									  st.lockDim ? NkIcon::Lock : NkIcon::Unlock,
-									  NkIcon::Refresh, "%.2f", NkIcon::SnapScale, st.propDim);
+									  NkIcon::Refresh, "%.2f", NkIcon::Link2, st.propDim);
 					if (hit.Clicked("prop.dim.ic0"))
 						st.lockDim = !st.lockDim;
 					if (hit.Clicked("prop.dim.ic2"))
@@ -4846,35 +4908,8 @@ namespace nkentseu {
 						}
 						if (demo::Demo3DHostNodeHasChildren(act))
 							NkXmitRow(p, hit, r, rr, yy, act);
-						// ── ORIGINE (PIVOT) ─────────────────────────────────────────
-						// Elle merite une place a part (Rihen) : c'est autour d'elle
-						// que l'objet TOURNE et se met a l'ECHELLE, lui et tout ce
-						// qu'il porte. On peut la poser n'importe ou -- la deplacer
-						// ici ne deplace PAS la matiere, seulement le point de pivot.
-						if (act >= 90) {
-							float32 org[3];
-							if (demo::Demo3DHostNodeOrigin(act, org)) {
-								const float32 org0[3] = {org[0], org[1], org[2]};
-								PaintTransformRow(p, hit, ws, in, r, yy, "Origine", org,
-												  0.01f, "props.org", NkIcon::None,
-												  NkIcon::None);
-								yy += Vec3RowH();
-								bool orgCh = false;
-								for (int32 a = 0; a < 3; ++a)
-									if (org[a] != org0[a])
-										orgCh = true;
-								if (orgCh)
-									demo::Demo3DHostSetNodeOrigin(act, org);
-								float32 ctr[3];
-								if (demo::Demo3DHostMeshesCenter(act, ctr)) {
-									if (Button("props.orgctr", yy,
-											   "Origine au centre des maillages",
-											   r.x + kPad, rr.w - 2.f * kPad))
-										demo::Demo3DHostSetNodeOrigin(act, ctr);
-									yy += kRowH;
-								}
-							}
-						}
+						// (Le PIVOT a rejoint le groupe Transformation, avec son cadenas
+						// et son bouton de reinitialisation comme les autres lignes.)
 						// ── MATERIAU DU MAILLAGE (proprietes par TYPE) ──────────────
 						// Lecture = valeurs EFFECTIVES de la derniere soumission ;
 						// ecriture = SURCHARGE par objet. PROPAGER cochee : la
@@ -5456,8 +5491,19 @@ namespace nkentseu {
 				// qui defile.
 				if (!anyWheel)
 					hit.WheelIn({r.x, stackTop, r.w, viewH}, st.propScroll, stackH, viewH);
-				NkScrollDrag(p, hit, st, "props.outer", {r.x, stackTop, r.w, viewH}, stackH,
-							 st.propScroll);
+				// LA SCROLLBAR STANDARD de NKEditorKit -- la meme que l'editeur de
+				// code (Rihen). Elle occupe sa gouttiere entre le contenu et la
+				// colonne de pastilles, et reste VISIBLE meme quand tout tient a
+				// l'ecran : une barre qui va et vient fait sauter la mise en page.
+				if (guiCtx) {
+					const NkRect sbTrack{r.x + r.w, stackTop, kSbW, viewH};
+					editorkit::NkVScrollbar(*guiCtx, guiCtx->dl, sbTrack, st.propScroll,
+											stackH > viewH ? stackH : viewH + 1.f, viewH,
+											0x4E4B5000u, kRowH);
+				} else {
+					NkScrollDrag(p, hit, st, "props.outer", {r.x, stackTop, r.w, viewH},
+								 stackH, st.propScroll);
+				}
 			}
 			// ── LES PASTILLES : une par section, a droite. BLEUE = active.
 			// UNE SEULE A LA FOIS (regle de Rihen) : le panneau montre les
