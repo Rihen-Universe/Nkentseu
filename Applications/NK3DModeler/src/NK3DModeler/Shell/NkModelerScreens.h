@@ -5156,6 +5156,30 @@ namespace nkentseu {
 													  {lvX, yy + S(3.f), lvW, kRowH - S(6.f)},
 													  uli, 0.05f, NkRole::AccentUi, "%.2f");
 									yy += kRowH;
+									// TEMPERATURE ET EXPOSITION (Rihen) : elles vivent
+									// desormais DANS LE MOTEUR. 0 K = temperature
+									// desactivee, 0 stop = exposition neutre : tant
+									// qu'on n'y touche pas, rien ne change.
+									{
+										float32 tK = 0.f, ex = 0.f;
+										if (demo::Demo3DHostLightTempExp(en, &tK, &ex)) {
+											const float32 tK0 = tK, ex0 = ex;
+											p.TextV(iR.x, yy, kRowH, "Temperature",
+													NkRole::TextMuted);
+											DragFloat(p, hit, ws, in, "prop.ultemp",
+													  {lvX, yy + S(3.f), lvW, kRowH - S(6.f)},
+													  tK, 25.f, NkRole::AccentUi, "%.0f K");
+											yy += kRowH;
+											p.TextV(iR.x, yy, kRowH, "Exposition",
+													NkRole::TextMuted);
+											DragFloat(p, hit, ws, in, "prop.ulexp",
+													  {lvX, yy + S(3.f), lvW, kRowH - S(6.f)},
+													  ex, 0.05f, NkRole::AccentUi, "%.2f");
+											yy += kRowH;
+											if (tK != tK0 || ex != ex0)
+												demo::Demo3DHostSetLightTempExp(en, tK, ex);
+										}
+									}
 									if (ulch || ulc[0] != ulc0[0] || ulc[1] != ulc0[1] ||
 										ulc[2] != ulc0[2])
 										demo::Demo3DHostSetUserLightParams(en, ulc, uli);
@@ -5224,9 +5248,11 @@ namespace nkentseu {
 										st.lightSrcUi = derivedM;
 									}
 									static const char *const kCMix[3] = {"Couleur", "Texture", "Mix"};
-									p.TextV(r.x + kPad, yy, kRowH, "Source", NkRole::TextMuted);
+									// DANS le groupe : cette ligne se calait encore sur le
+									// panneau entier et debordait donc du cadre (Rihen).
+									p.TextV(iR.x, yy, kRowH, "Source", NkRole::TextMuted);
 									Combo(p, hit, ws, "prop.ulex.mode",
-										  {r.x + S(120.f), yy + S(2.f), rr.w - S(128.f), kRowH - S(4.f)},
+										  {lvX, yy + S(2.f), lvW, kRowH - S(4.f)},
 										  kCMix, nullptr, 3, st.lightSrcUi, combo);
 									yy += kRowH;
 									if (st.lightSrcUi != derivedM) {
