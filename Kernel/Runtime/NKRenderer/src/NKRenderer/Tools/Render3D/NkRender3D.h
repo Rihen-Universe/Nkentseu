@@ -9,6 +9,7 @@
 #include "NKRenderer/Materials/NkMaterialSystem.h"
 #include "NKRenderer/Mesh/NkMeshSystem.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"
+#include <functional> // RefreshEnvironmentBindings : liaisons refaites a la demande
 
 namespace nkentseu {
 	namespace renderer {
@@ -308,6 +309,15 @@ namespace nkentseu {
 				void SetIBLUseEnv(bool on) {
 					mIBLUseEnv = on;
 				}
+
+				// A APPELER APRES avoir change d'environnement (ciel regenere,
+				// HDRI charge). Les cubemaps sont RECREEES a cette occasion, et les
+				// jeux de descripteurs pointent encore sur les anciennes : sans ce
+				// rafraichissement, le changement reste invisible.
+				void RefreshEnvironmentBindings() {
+					if (mRebindGlobals)
+						mRebindGlobals();
+				}
 				bool GetIBLUseEnv() const {
 					return mIBLUseEnv;
 				}
@@ -508,6 +518,9 @@ namespace nkentseu {
 				// aucune lumiere dans la scene. Blender part d'une couleur unie et
 				// l'environnement est un choix -- on fait pareil.
 				bool mIBLUseEnv = false;
+				// Refait les liaisons d'environnement des jeux de descripteurs
+				// (cf. RefreshEnvironmentBindings).
+				std::function<void()> mRebindGlobals;
 				NkIDevice *mDevice = nullptr;
 				NkMeshSystem *mMesh = nullptr;
 				NkMaterialSystem *mMat = nullptr;
