@@ -1416,6 +1416,35 @@ namespace nkentseu {
 			}
 			out[0] = 0;
 		}
+		// ── L'ICONE D'UN NOEUD, PAR SA NATURE ──────────────────────────────────
+		// Un seul endroit la decide, pour que la hierarchie et le panneau de
+		// proprietes montrent TOUJOURS le meme dessin (Rihen). C'est aussi ce qui
+		// manquait a la camera : son sous-type se perdait, et elle heritait de
+		// l'icone des empties.
+		inline NkIcon NkNodeIcon(int32 node) {
+			if (node >= 86 && node < 90)
+				return NkIcon::Light; // lumieres natives de la demo
+			if (demo::Demo3DHostNodeIsModel(node))
+				return NkIcon::Cube3D; // le conteneur
+			if (demo::Demo3DHostNodeIsMesh(node))
+				return NkIcon::Mesh; // sa matiere
+			const int32 uk = node >= 96 ? demo::Demo3DHostUserKind(node) : 0;
+			if (uk == 5)
+				return NkIcon::Light;
+			if (uk == 4) {
+				// Les EMPTIES se distinguent par leur sous-type : la camera a le
+				// sien, l'image de reference aussi.
+				const int32 us = demo::Demo3DHostUserSub(node);
+				if (us == 10)
+					return NkIcon::Camera;
+				if (us == 11)
+					return NkIcon::ImageRef;
+				return NkIcon::EmptyAxes;
+			}
+			if (uk >= 1 && uk <= 3)
+				return NkUserKindIcon(uk);
+			return node >= 90 ? NkIcon::EmptyAxes : NkIcon::Mesh;
+		}
 		// Le noeud CONTIENT-IL des maillages ? Alors c'est un MODEL : sa geometrie
 		// vit dans ses maillages, pas en lui.
 		inline bool NkNodeHasMeshKids(int32 node) {
@@ -2340,16 +2369,11 @@ namespace nkentseu {
 						// Un OBJET UTILISATEUR de nature maillage garde l'icone maillage.
 						const int32 ukind = node >= 96 ? demo::Demo3DHostUserKind(node) : 0;
 						const bool isUserMesh = ukind >= 1 && ukind <= 3;
-						// ICONES DISTINCTES model / mesh (demande de Rihen) : dans un
-						// editeur on doit voir d'un coup d'oeil qui est le conteneur
-						// et qui est la matiere.
-						NkIcon ico = isEmpty ? NkUserKindIcon(node >= 96 ? ukind : 4)
-											 : (isLight ? NkIcon::Light : NkIcon::Mesh);
-						if (demo::Demo3DHostNodeIsModel(node))
-							ico = NkIcon::Cube3D; // le conteneur
-						else if (demo::Demo3DHostNodeIsMesh(node))
-							ico = NkIcon::Mesh; // la matiere
-						p.IconV(tx, yy, kRowH, ico, fg, 13.f);
+						// L'ICONE VIENT DE LA NATURE DU NOEUD, decidee en un seul
+						// endroit (NkNodeIcon) : model, maillage, lumiere, camera,
+						// empty... La hierarchie et le panneau de proprietes montrent
+						// ainsi toujours le meme dessin (Rihen).
+						p.IconV(tx, yy, kRowH, NkNodeIcon(node), fg, 13.f);
 						p.Clip({rowR.x, yy, colType - rowR.x - S(8.f), kRowH});
 						snprintf(key, sizeof(key), "hier.name.%d", node);
 						EditableText(p, hit, ws, in, key,
@@ -3974,6 +3998,74 @@ namespace nkentseu {
 			return kRowH + S(6.f);
 		}
 
+		// ── GROUPE DE TRANSFORMATION, AU FORMAT DE LA MAQUETTE ──────────────────
+		// Dessin choisi par Rihen (Banani) : le titre sur SA ligne, puis une rangee
+		// de trois cellules « barre d'axe coloree + champ », et enfin les trois
+		// commandes cadenas / reinitialiser / proportionnel.
+		//
+		// L'axe ne s'ecrit pas : il se LIT A LA COULEUR de sa barre. Ces trois
+		// couleurs sont celles de la maquette (plus claires que celles de la vue
+		// 3D) -- c'est ce que Rihen a valide a l'ecran.
+		inline float32 NkXformGroupH() {
+			return kRowH + S(34.f);
+		}
+		inline void PaintXformGroup(NkModelerPainter &p, NkHitRegistry &hit, NkWidgetState &ws,
+									const nkgui::NkGuiInput &in, const NkRect &r, float32 y,
+									const char *title, float32 *v, float32 step,
+									const char *keyBase, bool &locked, bool &prop,
+									const char *fmt = "%.2f") {
+			static const NkColor kAxisBar[3] = {
+				{255, 107, 107, 255}, {107, 255, 107, 255}, {107, 159, 255, 255}};
+			if (title && title[0])
+				p.TextV(r.x, y, kRowH, title);
+			const float32 ry = y + kRowH;
+			const float32 rowH = S(28.f);
+			const float32 btn = S(28.f);
+			const float32 gap = S(4.f);
+			const float32 iconsW = btn * 3.f + gap * 2.f;
+			float32 cell = (r.w - iconsW - gap * 3.f) / 3.f;
+			if (cell < S(46.f))
+				cell = S(46.f);
+			char key[56];
+			float32 x = r.x;
+			for (int32 i = 0; i < 3; ++i) {
+				p.Fill({x, ry + (rowH - S(16.f)) * 0.5f, S(5.f), S(16.f)}, kAxisBar[i], 2.f);
+				snprintf(key, sizeof(key), "%s.%d", keyBase, i);
+				DragFloat(p, hit, ws, in, key, {x + S(9.f), ry, cell - S(9.f), rowH}, v[i],
+						  step, NkRole::AccentUi, fmt);
+				x += cell + gap;
+			}
+			// Les trois commandes, dans l'ordre de la maquette : cadenas, remise a
+			// zero, proportionnel. Elles s'ALLUMENT quand elles sont actives -- une
+			// icone qui ne dit pas son etat oblige a essayer pour savoir.
+			const NkIcon ics[3] = {locked ? NkIcon::Lock : NkIcon::Unlock, NkIcon::Refresh,
+								   NkIcon::Link2};
+			x = r.x + r.w - iconsW;
+			for (int32 i = 0; i < 3; ++i) {
+				snprintf(key, sizeof(key), "%s.ic%d", keyBase, i);
+				const NkRect br{x, ry, btn, rowH};
+				const bool over = hit.Add(key, br);
+				const bool on = (i == 0 && locked) || (i == 2 && prop);
+				p.Outline(br, on ? NkRole::AccentUi
+								 : (over ? NkRole::AccentUi : NkRole::Border),
+						  on ? NkRole::AccentUi : NkRole::PanelHeader, 4.f);
+				p.IconV(br.x + (btn - S(12.f)) * 0.5f, br.y, rowH, ics[i],
+						on ? NkRole::TextOnAccent : NkRole::TextMuted, 12.f);
+				if (hit.Clicked(key)) {
+					if (i == 0)
+						locked = !locked;
+					else if (i == 1) {
+						// « Reinitialiser » : zero pour un decalage, un pour un
+						// facteur -- le pas dit de quel genre de valeur il s'agit.
+						const float32 neutral = (step > 0.05f) ? 0.f : 1.f;
+						v[0] = v[1] = v[2] = neutral;
+					} else
+						prop = !prop;
+				}
+				x += btn + gap;
+			}
+		}
+
 		// â”€â”€ EN-TETE DE SECTION REPLIABLE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		// La fleche REPLIE VRAIMENT la section. Une fleche qui ne fait rien est pire
 		// qu'une absence de fleche : elle promet une commande et ne la tient pas.
@@ -4202,11 +4294,10 @@ namespace nkentseu {
 						// pouvoir renommer ici, avant meme de toucher a la
 						// transformation, sans passer par la hierarchie.
 						{
-							const NkIcon nico =
-								demo::Demo3DHostNodeIsModel(en)   ? NkIcon::Cube3D
-								: demo::Demo3DHostNodeIsMesh(en) ? NkIcon::Mesh
-																 : NkIcon::Cursor;
-							p.IconV(r.x + kPad, yy, kRowH, nico, NkRole::Text, 13.f);
+							// L'icone dit la NATURE de l'objet, comme dans la
+							// hierarchie : model, maillage, lumiere, camera, empty.
+							p.IconV(r.x + kPad, yy, kRowH, NkNodeIcon(en), NkRole::Text,
+									13.f);
 							const NkRect nmR{r.x + kPad + S(20.f), yy + S(2.f),
 											 rr.w - S(28.f) - kPad, kRowH - S(4.f)};
 							p.Outline(nmR, NkRole::Border, NkRole::InputBg, 3.f);
@@ -4235,32 +4326,23 @@ namespace nkentseu {
 							NkRect rowR = rr;
 							rowR.x = r.x + kPad;
 							rowR.w = rr.w - 2.f * kPad;
-							// MEMES ICONES que l'objet : cadenas, reset, proportionnel
-							// (un empty est un objet comme un autre, Rihen).
-							PaintTransformRow(p, hit, ws, in, rowR, yy, "Position", st.pos, 0.01f,
-											  "prop.epos", st.lockPos ? NkIcon::Lock : NkIcon::Unlock,
-											  NkIcon::Refresh, "%.2f", NkIcon::Link2, st.propPos);
-							if (hit.Clicked("prop.epos.ic0"))
-								st.lockPos = !st.lockPos;
-							if (hit.Clicked("prop.epos.ic2"))
-								st.propPos = !st.propPos;
-							yy += Vec3RowH();
-							PaintTransformRow(p, hit, ws, in, rowR, yy, "Rotation", st.rot, 0.5f,
-											  "prop.erot", st.lockRot ? NkIcon::Lock : NkIcon::Unlock,
-											  NkIcon::Refresh, "%.1f", NkIcon::Link2, st.propRot);
-							if (hit.Clicked("prop.erot.ic0"))
-								st.lockRot = !st.lockRot;
-							if (hit.Clicked("prop.erot.ic2"))
-								st.propRot = !st.propRot;
-							yy += Vec3RowH();
-							PaintTransformRow(p, hit, ws, in, rowR, yy, "Echelle", st.scl, 0.01f,
-											  "prop.escl", st.lockScl ? NkIcon::Lock : NkIcon::Unlock,
-											  NkIcon::Refresh, "%.2f", NkIcon::Link2, st.propScale);
-							if (hit.Clicked("prop.escl.ic0"))
-								st.lockScl = !st.lockScl;
-							if (hit.Clicked("prop.escl.ic2"))
-								st.propScale = !st.propScale;
-							yy += Vec3RowH();
+							// AU FORMAT DE LA MAQUETTE : titre, puis barre d'axe
+							// coloree + champ, puis cadenas / reinitialiser /
+							// proportionnel (Rihen, dessin Banani).
+							p.TextV(rowR.x, yy, kRowH, "Transformation");
+							yy += kRowH;
+							PaintXformGroup(p, hit, ws, in, rowR, yy, "Position", st.pos,
+											0.01f, "prop.epos", st.lockPos, st.propPos,
+											"%.2f m");
+							yy += NkXformGroupH();
+							PaintXformGroup(p, hit, ws, in, rowR, yy, "Rotation", st.rot,
+											0.5f, "prop.erot", st.lockRot, st.propRot,
+											"%.1f\xC2\xB0");
+							yy += NkXformGroupH();
+							PaintXformGroup(p, hit, ws, in, rowR, yy, "Echelle", st.scl,
+											0.01f, "prop.escl", st.lockScl, st.propScale,
+											"%.2f");
+							yy += NkXformGroupH();
 							// ── PIVOT (origine) ────────────────────────────────
 							// Blender ne le laisse bouger qu'en mode Edition ; on
 							// l'offre AUSSI en mode Objet (Rihen : « on ne sait
@@ -4273,23 +4355,16 @@ namespace nkentseu {
 								float32 piv[3];
 								if (demo::Demo3DHostNodeOrigin(act, piv)) {
 									const float32 piv0[3] = {piv[0], piv[1], piv[2]};
-									PaintTransformRow(
-										p, hit, ws, in, rowR, yy, "Pivot", piv, 0.01f,
-										"prop.epiv",
-										st.lockPiv ? NkIcon::Lock : NkIcon::Unlock,
-										NkIcon::Refresh, "%.2f", NkIcon::Link2,
-										st.propPiv);
-									if (hit.Clicked("prop.epiv.ic0"))
-										st.lockPiv = !st.lockPiv;
-									if (hit.Clicked("prop.epiv.ic2"))
-										st.propPiv = !st.propPiv;
+									PaintXformGroup(p, hit, ws, in, rowR, yy, "Pivot", piv,
+													0.01f, "prop.epiv", st.lockPiv,
+													st.propPiv, "%.2f m");
 									bool pivCh = false;
 									for (int32 a = 0; a < 3; ++a)
 										if (piv[a] != piv0[a])
 											pivCh = true;
 									if (pivCh && !st.lockPiv)
 										demo::Demo3DHostSetNodeOrigin(act, piv);
-									yy += Vec3RowH();
+									yy += NkXformGroupH();
 									float32 ctr[3];
 									if (demo::Demo3DHostMeshesCenter(act, ctr) &&
 										Button("props.pivctr", yy,
@@ -4341,15 +4416,9 @@ namespace nkentseu {
 								float32 dimE[3];
 								demo::Demo3DHostNodeBaseSize(en, dimE);
 								const float32 dimE0[3] = {dimE[0], dimE[1], dimE[2]};
-								PaintTransformRow(p, hit, ws, in, rowR, yy, "Dimensions", dimE,
-									  0.01f, "prop.edim",
-									  st.lockDim ? NkIcon::Lock : NkIcon::Unlock,
-									  NkIcon::Refresh, "%.2f", NkIcon::Link2, st.propDim);
-					if (hit.Clicked("prop.edim.ic0"))
-						st.lockDim = !st.lockDim;
-					if (hit.Clicked("prop.edim.ic2"))
-						st.propDim = !st.propDim;
-					yy += Vec3RowH();
+								PaintXformGroup(p, hit, ws, in, rowR, yy, "Dimensions", dimE,
+										0.01f, "prop.edim", st.lockDim, st.propDim, "%.2f m");
+					yy += NkXformGroupH();
 					// PROPORTIONNEL : l'axe touche impose son RAPPORT aux autres ;
 					// sinon chaque dimension ne bouge QUE son axe (Rihen).
 					if (st.propDim) {
