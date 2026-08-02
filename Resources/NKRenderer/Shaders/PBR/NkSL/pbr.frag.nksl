@@ -30,6 +30,7 @@ uniform CameraUBO {
     mat4  mirrorViewProj;
     vec4  reflectionFlags;
     vec4  viewOpts;      // .x=1 si matcap PERSONNALISEE (texture seule, pas l'atlas) ; .yzw reserve
+    vec4  iblColor;      // .xyz = teinte de l'ambiance (World Color) ; .w reserve
 } uCam;
 
 @binding(set=1, binding=1)
@@ -368,7 +369,10 @@ void main() {
     // donc l'AO est un produit dérivé du GI et ne coûte rien de plus.
     vec4  voxGI = NkComputeVoxelGI(vWorldPos, N);
     float voxAO = voxGI.w;
-    vec3 amb  = (kDi*irr*albedo + pref*(Fi*brdf.x+brdf.y)) * ao * voxAO * uCam.iblStrength;
+    // L'ambiance porte une TEINTE (World Color de Blender) : blanc = neutre,
+    // donc le comportement d'avant tant qu'on n'y touche pas.
+    vec3 amb  = (kDi*irr*albedo + pref*(Fi*brdf.x+brdf.y)) * ao * voxAO
+              * uCam.iblStrength * uCam.iblColor.rgb;
     // L'indirect S'AJOUTE à l'ambiant IBL au lieu de le remplacer : l'IBL porte
     // la lumière du ciel, le GI porte le rebond de la géométrie proche (c'est lui
     // qui fait qu'un mur rouge éclairé teinte le sol voisin). Aucun uniform
