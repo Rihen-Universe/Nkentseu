@@ -1365,6 +1365,29 @@ namespace nkentseu {
 				return true; // appartient a un autre document (scene/editeur)
 			return node >= 96 && demo::Demo3DHostUserKind(node) == 0;
 		}
+		// D'OU VIENT LE VERROU ? Le sien, ou celui du premier ancetre cadenasse.
+		// Sert a EXPLIQUER un refus de selection : un clic sans effet passe sinon
+		// pour une panne (leçon d'un vrai depannage avec Rihen).
+		inline void NkHierLockedName(NkModelerState &st, int32 node, char *out, uint32 cap) {
+			char nm[24];
+			if (demo::Demo3DHostObjectLocked(node)) {
+				NkHierNodeName(st, node, nm, sizeof(nm));
+				snprintf(out, cap, "%s est verrouille -- cliquez son cadenas pour l'ouvrir.",
+						 nm);
+				return;
+			}
+			int32 cur = demo::Demo3DHostNodeParent(node);
+			for (int32 g = 0; g < 96 && cur >= 0; ++g) {
+				if (demo::Demo3DHostObjectLocked(cur)) {
+					NkHierNodeName(st, cur, nm, sizeof(nm));
+					snprintf(out, cap,
+							 "Verrouille par son parent %s -- ouvrez SON cadenas.", nm);
+					return;
+				}
+				cur = demo::Demo3DHostNodeParent(cur);
+			}
+			out[0] = 0;
+		}
 		// Le noeud a-t-il des enfants VIVANTS (ni supprimes ni slots libres) ?
 		inline bool NkHierHasLiveKids(int32 node) {
 			const int32 nc = demo::Demo3DHostNodeCount();
@@ -2326,16 +2349,32 @@ namespace nkentseu {
 						// LE CADENAS, pour TOUS : verrouille = INselectionnable, et
 						// cadenasser un parent verrouille son sous-arbre (chaque
 						// enfant garde son propre drapeau).
+						//
+						// L'ICONE MONTRE L'ETAT EFFECTIF, pas le drapeau propre : un
+						// enfant dont le parent est cadenasse refuse la selection, et
+						// afficher son cadenas OUVERT rendait ce refus incomprehensible
+						// (Rihen : « je ne peux selectionner ni le parent ni l'enfant »).
+						// Le cadenas HERITE se dessine en teinte attenuee : on voit
+						// qu'il vient d'un ancetre et qu'il ne s'ouvre pas ici.
 						bool lok = false;
+						bool lokEff = false;
 						{
 							lok = demo::Demo3DHostObjectLocked(node);
+							lokEff = demo::Demo3DHostObjectLockedEff(node);
 							snprintf(key, sizeof(key), "hier.lock.%d", node);
 							const NkRect lockR{colLock - S(3.f), yy, S(20.f), kRowH};
 							HoverFill(p, lockR, hit.Add(key, lockR) && !sel, 2.f);
-							p.IconV(colLock, yy, kRowH, lok ? NkIcon::Lock : NkIcon::Unlock,
-									lok ? fg : dim, 12.f);
-							if (hit.Clicked(key))
-								demo::Demo3DHostSetObjectLocked(node, !lok);
+							p.IconV(colLock, yy, kRowH,
+									lokEff ? NkIcon::Lock : NkIcon::Unlock,
+									lok ? fg : (lokEff ? NkRole::AccentUi : dim), 12.f);
+							if (hit.Clicked(key)) {
+								// Le clic n'agit que sur SON drapeau : un verrou herite
+								// se libere sur l'ancetre qui le porte.
+								if (lokEff && !lok)
+									NkHierLockedName(st, node, st.hierNote, sizeof(st.hierNote));
+								else
+									demo::Demo3DHostSetObjectLocked(node, !lok);
+							}
 						}
 						// SELECTION : la ligne ou le nom. Un parent se selectionne
 						// SEUL, un cadenasse JAMAIS ; Maj/Ctrl+clic = multi.
@@ -2346,8 +2385,14 @@ namespace nkentseu {
 							snprintf(key, sizeof(key), "hier.name.%d", node);
 							wantSel = wantSel || hit.Clicked(key);
 						}
+						if (wantSel && lokEff) {
+							// REFUS EXPLIQUE : sans message, un clic sans effet passe
+							// pour une panne. On nomme le verrou -- le sien ou celui
+							// de l'ancetre qui le lui impose (Rihen).
+							NkHierLockedName(st, node, st.hierNote, sizeof(st.hierNote));
+						}
 						if (wantSel) {
-							if (isEmpty && !lok) {
+							if (isEmpty && !lokEff) {
 								if (hit.ShiftDown() || hit.CtrlDown()) {
 									demo::Demo3DHostToggleEmptyNode(node); // multi successif
 								} else {
@@ -2356,10 +2401,10 @@ namespace nkentseu {
 								}
 								st.activeEmpty = node;
 							} else if (isLight) {
-								if (!lok)
+								if (!lokEff)
 									demo::Demo3DHostSelectLight(li);
 								st.activeEmpty = -1;
-							} else if (!lok) {
+							} else if (!lokEff) {
 								demo::Demo3DHostSelectObject(node,
 															 hit.ShiftDown() || hit.CtrlDown());
 								st.activeEmpty = -1;
@@ -2511,7 +2556,19 @@ namespace nkentseu {
 			p.HLine(r.x, fy, r.w);
 			char foot[72];
 			snprintf(foot, sizeof(foot), "%d objet(s), %d selectionne(s)", aliveCount, selCount);
-			p.TextV(r.x + kPad, fy, kRowH, foot, NkRole::TextMuted);
+			// Un MESSAGE remplace le decompte quand une action vient d'etre
+			// refusee : sans lui, un clic sans effet passe pour une panne (Rihen a
+			// perdu une seance sur un objet verrouille par megarde).
+			if (st.hierNote[0]) {
+				p.Clip({r.x, fy, r.w - S(6.f), kRowH});
+				p.TextV(r.x + kPad, fy, kRowH, st.hierNote, NkRole::AccentUi);
+				p.Unclip();
+				// Il s'efface au clic suivant AILLEURS que sur une ligne refusee.
+				if (hit.Clicked("hier.list"))
+					st.hierNote[0] = 0;
+			} else {
+				p.TextV(r.x + kPad, fy, kRowH, foot, NkRole::TextMuted);
+			}
 		}
 
 		// â”€â”€ GIZMO DE NAVIGATION, FACON BLENDER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
