@@ -7350,19 +7350,73 @@ namespace nkentseu {
 			// (ombre, damier, bande de type, pied a deux lignes) est celui valide
 			// avec Rihen sur les cartes precedentes.
 			const float32 ax = r.x + treeW + S(14.f);
+			// ── RECHERCHE + PASTILLES DE TYPE, sur son bandeau (maquette) ───────
+			// Reintroduite apres que le routeur d'occlusion a rendu les menus
+			// etancheS : elle n'avait jamais ete la cause de « Creer », mais elle
+			// ne pouvait pas cohabiter avec l'ancienne garde.
+			{
+				const float32 fy = ty + S(6.f);
+				const float32 fh = S(22.f);
+				p.Fill({r.x + treeW + 1.f, ty, r.w - treeW - 1.f, S(34.f)}, NkRole::PanelHeader);
+				p.HLine(r.x + treeW + 1.f, ty + S(34.f), r.w - treeW - 1.f);
+				// Le champ de la hierarchie : filtrage a la frappe, invite gardee
+				// HORS du buffer, croix d'effacement.
+				PaintSearch(p, {ax - S(6.f), 0.f, S(192.f), 0.f}, fy - S(4.f), hit, ws, in,
+							"brow.search", st.searchBrowser);
+				float32 px = ax + S(196.f);
+				struct KindChip {
+						uint8 kind;
+						const char *name;
+						NkRole role;
+				};
+				static const KindChip kChips[5] = {{6, "Model", NkRole::AxisX},
+												   {0, "Graphe", NkRole::TypeMesh},
+												   {2, "Materiau", NkRole::TypeMat},
+												   {3, "Texture", NkRole::TypeTex},
+												   {5, "Scene", NkRole::AxisZ}};
+				char ck[32];
+				for (int32 ci = 0; ci < 5; ++ci) {
+					const float32 cw = p.TextW(kChips[ci].name) + S(28.f);
+					if (px + cw > r.x + r.w - S(10.f))
+						break;
+					const NkRect cr{px, fy, cw, fh};
+					snprintf(ck, sizeof(ck), "brow.chip.%d", ci);
+					const bool ov = hit.Add(ck, cr);
+					const bool on = (st.browFilter & (1u << kChips[ci].kind)) != 0;
+					p.Fill(cr, on ? NkRole::InputBg : NkRole::PanelBg, 11.f);
+					p.OutlineSharp(cr, on ? kChips[ci].role
+										  : (ov ? NkRole::AccentUi : NkRole::Border));
+					// La PUCE porte la couleur de la famille : c'est elle qui les
+					// distingue d'un coup d'oeil, comme sur la maquette.
+					p.Fill({cr.x + S(9.f), cr.y + fh * 0.5f - S(3.f), S(6.f), S(6.f)},
+						   kChips[ci].role, 3.f);
+					p.TextV(cr.x + S(20.f), cr.y, fh, kChips[ci].name,
+							on ? NkRole::Text : NkRole::TextMuted);
+					if (hit.Clicked(ck))
+						st.browFilter ^= (1u << kChips[ci].kind);
+					px += cw + S(6.f);
+				}
+			}
 			const float32 tw = 96.f;
 			const float32 pvH = 96.f;
 			const float32 barH2 = 3.f;
 			const float32 footH = 34.f;
 			const float32 cardH = pvH + barH2 + footH;
 			float32 tx = ax;
-			float32 tyy = ty + S(12.f) - assetScroll;
+			float32 tyy = ty + S(38.f) - assetScroll; // sous le bandeau de recherche
 			int32 shown = 0;
 			char akey[40];
 			const float32 wrapW = r.x + r.w - S(16.f);
 			for (int32 i = 0; i < st.browserCount; ++i) {
 				if (st.browserKind[i] == 255 || st.browserParent[i] != st.browserFolder)
 					continue; // supprimes ignores ; les dossiers ont leur carte
+				// Filtre par TYPE. Les DOSSIERS restent toujours visibles : ils
+				// sont le chemin vers le reste, pas un resultat de recherche.
+				if (st.browFilter != 0u && st.browserKind[i] != 1 &&
+					(st.browFilter & (1u << st.browserKind[i])) == 0u)
+					continue;
+				if (!NkNameMatches(st.browserNames[i], st.searchBrowser))
+					continue;
 				++shown;
 				if (tx + tw > wrapW) { // retour a la ligne
 					tx = ax;
@@ -7547,9 +7601,15 @@ namespace nkentseu {
 					st.selectedAsset = i;
 				tx += tw + S(12.f);
 			}
-			if (shown == 0)
-				p.TextV(ax, ty + S(12.f), kRowH,
-						"Vide -- creez un dossier, un materiau ou une texture", NkRole::TextMuted);
+			if (shown == 0) {
+				// Dire POURQUOI c'est vide : un filtre actif n'est pas un dossier
+				// vide, et laisser croire l'inverse ferait chercher un bug.
+				const bool filtering = st.searchBrowser[0] || st.browFilter != 0u;
+				p.TextV(ax, ty + S(40.f), kRowH,
+						filtering ? "Aucun element ne correspond a la recherche"
+								  : "Vide -- creez un dossier, un materiau ou une texture",
+						NkRole::TextMuted);
+			}
 
 			p.Unclip();
 			const NkRect treeArea{r.x, ty, treeW, th};

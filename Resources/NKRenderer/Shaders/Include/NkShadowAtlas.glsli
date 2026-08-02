@@ -146,6 +146,18 @@ float NkSamplePointShadow(int lightIdx, vec3 worldPos, vec3 N, vec3 L, float bia
 
     vec3 lightPos = uShadows.slots[firstSlot].lightPosOrDir.xyz;
     vec3 dir = worldPos - lightPos;
+    // ── LE BIAIS D'UNE OMNI DEPEND DE LA DISTANCE ──────────────────────────
+    // Une face de point light est une projection perspective a 90 deg : la
+    // profondeur y est tres non lineaire, si bien qu'un biais constant en NDC
+    // est enorme pres de la lumiere et NEGLIGEABLE plus loin. C'est ce qui
+    // faisait qu'un cube portait sa propre ombre -- toute une face noircie
+    // alors que la lumiere l'eclairait (constate par Rihen ; sans l'ombre
+    // portee, la meme face redevenait claire, ce qui a designe la cause).
+    // On compense en faisant croitre le biais avec la distance, rapportee a
+    // la portee de la lumiere.
+    float farP = max(uShadows.slots[firstSlot].lightPosOrDir.w, 0.001);
+    float distN = clamp(length(dir) / farP, 0.0, 1.0);
+    biasMul *= 1.0 + 24.0 * distN * distN;
     vec3 absDir = abs(dir);
     // Selection de face : axe dominant. Convention faces :
     //   0:+X 1:-X 2:+Y 3:-Y 4:+Z 5:-Z (cf. AllocSlotsPoint cote C++)
@@ -168,6 +180,12 @@ float NkSampleSpotShadow(int lightIdx, vec3 worldPos, vec3 N, vec3 L, float bias
     if (lightIdx < 0 || lightIdx >= 32) return 1.0;
     int firstSlot = int(uShadows.firstSlotPerLight[lightIdx >> 2][lightIdx & 3]);
     if (firstSlot < 0) return 1.0;
+    // Meme projection perspective que les omni, donc meme correction :
+    // le biais doit croitre avec la distance a la lumiere.
+    float farS  = max(uShadows.slots[firstSlot].lightPosOrDir.w, 0.001);
+    float distS = clamp(length(worldPos - uShadows.slots[firstSlot].lightPosOrDir.xyz) / farS,
+                        0.0, 1.0);
+    biasMul *= 1.0 + 24.0 * distS * distS;
     float bias = NkShadowSlopeBiasMul(N, L, biasMul);
     vec3  wp   = NkShadowNormalBiasOffset(worldPos, N, L);
     return NkSampleShadowTile(firstSlot, wp, bias);
