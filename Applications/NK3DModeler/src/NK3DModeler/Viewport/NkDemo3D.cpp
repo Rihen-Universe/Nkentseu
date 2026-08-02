@@ -9730,6 +9730,18 @@ namespace nkentseu {
 					   ? (int32)nkvpUserSub[node - kNkvpFirstUser]
 					   : 0;
 		}
+		void Demo3DHostSetUserSub(int32 node, int32 sub) {
+			// CHANGER LE TYPE D'UNE LUMIERE en place (les quatre boutons du
+			// panneau, facon Blender) : le sous-type ET le descripteur natif
+			// doivent bouger ensemble, sinon le rendu garde l'ancien type.
+			if (node < kNkvpFirstUser || node >= kNkvpMaxNodes)
+				return;
+			const int32 u = node - kNkvpFirstUser;
+			nkvpUserSub[u] = (uint8)(sub & 0xFF);
+			if (nkvpUserKind[u] == 5)
+				nkvpUserLight[u].type =
+					(decltype(nkvpUserLight[u].type))(sub & 3);
+		}
 		bool Demo3DHostMeshParams(int32 node, int32 *segs, int32 *rings, float32 *aux) {
 			if (node < kNkvpFirstUser || node >= kNkvpMaxNodes)
 				return false;
