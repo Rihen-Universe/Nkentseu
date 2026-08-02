@@ -26,6 +26,7 @@
 #include "NKEvent/NkEventDispatcher.h" // NkInput (IsMouseDown / MouseDeltaX/Y / IsKeyDown)
 #include "NKRenderer/Tools/Shadow/NkShadowSystem.h"
 #include "NKRenderer/Tools/Shadow/NkVirtualShadowMaps.h"
+#include "NKRenderer/Tools/Environment/NkEnvironmentSystem.h" // ciel procedural / HDRI
 #include "NKRenderer/Core/NkCameraController.h" // NkOrbitCameraController3D / NkFlyCameraController3D
 #include "NKRenderer/Core/NkGizmo.h"			// NkGizmo3D (gizmo éditeur réutilisable)
 #include "NKRenderer/Materials/NkMatcapLibrary.h" // noms des 30 matcaps (source unique)
@@ -9821,6 +9822,60 @@ namespace nkentseu {
 			auto *r3 = hst.ctx.renderer ? hst.ctx.renderer->GetRender3D() : nullptr;
 			if (r3)
 				r3->SetIBLColor({rgb[0], rgb[1], rgb[2]});
+		}
+		// ── L'ENVIRONNEMENT, CONCRETEMENT ───────────────────────────────────
+		// C'est ce que la scene « voit » tout autour d'elle, et donc ce qui
+		// l'eclaire quand aucune lampe ne le fait. Il prend deux formes :
+		//   - un CIEL PROCEDURAL : trois couleurs (zenith, horizon, sol) dont le
+		//     moteur deduit une cubemap ;
+		//   - une IMAGE HDRI : une photo 360 en virgule flottante, qui apporte a
+		//     la fois la lumiere et les reflets d'un lieu reel.
+		// Dans les deux cas le moteur en tire une cubemap d'irradiance (la lumiere
+		// diffuse recue selon la normale) et une cubemap de reflets. La troisieme
+		// option, « couleur unie », n'utilise aucune cubemap : l'ambiance est un
+		// aplat, comme le monde par defaut de Blender.
+		static float32 nkvpSkyTop[3] = {0.35f, 0.55f, 0.9f};
+		static float32 nkvpSkyHorizon[3] = {0.8f, 0.85f, 0.9f};
+		static float32 nkvpSkyGround[3] = {0.25f, 0.22f, 0.2f};
+		static char nkvpHdrPath[256] = {0};
+		void Demo3DHostEnvSky(float32 *top, float32 *horizon, float32 *ground) {
+			for (int32 i = 0; i < 3; ++i) {
+				top[i] = nkvpSkyTop[i];
+				horizon[i] = nkvpSkyHorizon[i];
+				ground[i] = nkvpSkyGround[i];
+			}
+		}
+		void Demo3DHostSetEnvSky(const float32 *top, const float32 *horizon,
+								 const float32 *ground) {
+			for (int32 i = 0; i < 3; ++i) {
+				nkvpSkyTop[i] = top[i];
+				nkvpSkyHorizon[i] = horizon[i];
+				nkvpSkyGround[i] = ground[i];
+			}
+		}
+		// La regeneration est un CALCUL CPU (convolutions d'irradiance) : elle se
+		// declenche a la demande, jamais a chaque image ni pendant qu'on tire un
+		// curseur -- sinon l'interface se figerait sous la main.
+		bool Demo3DHostApplySky() {
+			auto *env = hst.ctx.renderer ? hst.ctx.renderer->GetEnvironment() : nullptr;
+			if (!env)
+				return false;
+			env->LoadProcedural({nkvpSkyTop[0], nkvpSkyTop[1], nkvpSkyTop[2]},
+								{nkvpSkyHorizon[0], nkvpSkyHorizon[1], nkvpSkyHorizon[2]},
+								{nkvpSkyGround[0], nkvpSkyGround[1], nkvpSkyGround[2]});
+			return true;
+		}
+		const char *Demo3DHostHdrPath() {
+			return nkvpHdrPath;
+		}
+		bool Demo3DHostLoadHdr(const char *path) {
+			auto *env = hst.ctx.renderer ? hst.ctx.renderer->GetEnvironment() : nullptr;
+			if (!env || !path || !path[0])
+				return false;
+			const bool ok = env->LoadFromHDR(NkString(path));
+			if (ok)
+				snprintf(nkvpHdrPath, sizeof(nkvpHdrPath), "%s", path);
+			return ok;
 		}
 		bool Demo3DHostAmbientUseEnv() {
 			auto *r3 = hst.ctx.renderer ? hst.ctx.renderer->GetRender3D() : nullptr;

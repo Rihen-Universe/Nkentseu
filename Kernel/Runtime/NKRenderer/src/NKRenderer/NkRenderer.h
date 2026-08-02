@@ -26,6 +26,7 @@ namespace nkentseu {
 		class NkOffscreenTarget;
 		class NkShadowSystem;
 		class NkVirtualShadowMaps;
+		class NkEnvironmentSystem;
 		class NkVFXSystem;
 		class NkAnimationSystem;
 		class NkSimulationRenderer;
@@ -90,6 +91,10 @@ namespace nkentseu {
 				virtual NkPostProcessStack *GetPostProcess() = 0;
 				virtual NkOverlayRenderer *GetOverlay() = 0;
 				virtual NkVirtualShadowMaps *GetShadow() = 0;
+				// L'ENVIRONNEMENT : ce que la scene voit autour d'elle, et donc ce
+				// qui l'eclaire sans lampe. Ciel procedural (trois couleurs) ou
+				// image HDRI ; le moteur en tire irradiance et reflets.
+				virtual NkEnvironmentSystem *GetEnvironment() = 0;
 				virtual NkVFXSystem *GetVFX() = 0;
 				virtual NkAnimationSystem *GetAnimation() = 0;
 				virtual NkSimulationRenderer *GetSimulation() = 0;

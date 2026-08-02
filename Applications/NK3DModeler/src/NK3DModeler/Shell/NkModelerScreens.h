@@ -6129,22 +6129,79 @@ namespace nkentseu {
 								if (acCh)
 									demo::Demo3DHostSetAmbientColor(ac);
 							}
-						// L'ambiance vient-elle du CIEL ou d'une COULEUR UNIE ?
-							// Le moteur genere toujours un ciel de repli : sans ce
-							// choix, l'ambiance restait directionnelle et trois
-							// faces d'un cube etaient plus claires que les autres,
-							// meme sans aucune lumiere.
+						// ── D'OU VIENT L'AMBIANCE ? ─────────────────────────
+							// Couleur unie : un aplat, comme le monde par defaut de
+							// Blender. Ciel procedural : trois couleurs dont le
+							// moteur deduit l'eclairage -- il est donc DIRECTIONNEL,
+							// c'est lui qui eclairait trois faces plus que les
+							// autres. Image HDRI : une photo 360 qui apporte la
+							// lumiere ET les reflets d'un lieu reel.
 							{
-								const bool ue0 = demo::Demo3DHostAmbientUseEnv();
-								const NkRect cb{iA.x, yy + S(5.f), S(12.f), S(12.f)};
-								hit.Add("prop.amb.env", cb);
-								p.Outline(cb, ue0 ? NkRole::AccentUi : NkRole::Border,
-										  ue0 ? NkRole::AccentUi : NkRole::InputBg, 2.f);
-								p.TextV(cb.x + S(18.f), yy, kRowH, "Depuis l'environnement",
-										NkRole::TextMuted);
-								if (hit.Clicked("prop.amb.env"))
-									demo::Demo3DHostSetAmbientUseEnv(!ue0);
+								static const char *const kSrc[3] = {"Couleur unie",
+																	"Ciel procedural",
+																	"Image HDRI"};
+								p.TextV(iA.x, yy, kRowH, "Source", NkRole::TextMuted);
+								const int32 s0 = st.envSource;
+								Combo(p, hit, ws, "prop.amb.src",
+									  {iA.x + S(110.f), yy + S(2.f), iA.w - S(110.f),
+									   kRowH - S(4.f)},
+									  kSrc, nullptr, 3, st.envSource, combo);
+								if (st.envSource != s0)
+									demo::Demo3DHostSetAmbientUseEnv(st.envSource != 0);
 								yy += kRowH;
+							}
+							if (st.envSource == 1) {
+								// LES TROIS COULEURS DU CIEL, modifiables.
+								float32 top[3], hor[3], gnd[3];
+								demo::Demo3DHostEnvSky(top, hor, gnd);
+								bool ch = false;
+								yy += PaintColorRow(p, hit, ws, in, st, iA, yy, "Zenith",
+													"prop.sky.top", top, &ch);
+								yy += PaintColorRow(p, hit, ws, in, st, iA, yy, "Horizon",
+													"prop.sky.hor", hor, &ch);
+								yy += PaintColorRow(p, hit, ws, in, st, iA, yy, "Sol",
+													"prop.sky.gnd", gnd, &ch);
+								if (ch)
+									demo::Demo3DHostSetEnvSky(top, hor, gnd);
+								// REGENERER est un calcul CPU (convolutions) : il se
+								// demande, il ne se declenche pas a chaque image ni
+								// sous le curseur qu'on tire.
+								const NkRect br{iA.x, yy + S(2.f), iA.w, kRowH - S(4.f)};
+								hit.Add("prop.sky.apply", br);
+								p.Fill(br, NkRole::AccentUi, 3.f);
+								p.TextV(br.x + (br.w - p.TextW("Regenerer le ciel")) * 0.5f, yy,
+										kRowH, "Regenerer le ciel", NkRole::TextOnAccent);
+								if (hit.Clicked("prop.sky.apply"))
+									demo::Demo3DHostApplySky();
+								yy += kRowH;
+							} else if (st.envSource == 2) {
+								p.TextV(iA.x, yy, kRowH, "Fichier", NkRole::TextMuted);
+								if (!ws.IsEditing("prop.hdr.path") && !st.hdrPath[0])
+									snprintf(st.hdrPath, sizeof(st.hdrPath), "%s",
+											 demo::Demo3DHostHdrPath());
+								EditableText(p, hit, ws, in, "prop.hdr.path",
+											 {iA.x + S(70.f), yy + S(2.f), iA.w - S(70.f),
+											  kRowH - S(4.f)},
+											 st.hdrPath[0] ? st.hdrPath : "Resources/HDRI/....hdr",
+											 st.hdrPath[0] ? NkRole::Text : NkRole::TextMuted,
+											 st.hdrPath, sizeof(st.hdrPath));
+								yy += kRowH;
+								const NkRect br{iA.x, yy + S(2.f), iA.w, kRowH - S(4.f)};
+								hit.Add("prop.hdr.load", br);
+								p.Fill(br, NkRole::AccentUi, 3.f);
+								p.TextV(br.x + (br.w - p.TextW("Charger l'image")) * 0.5f, yy,
+										kRowH, "Charger l'image", NkRole::TextOnAccent);
+								if (hit.Clicked("prop.hdr.load"))
+									st.hdrOk = demo::Demo3DHostLoadHdr(st.hdrPath) ? 1 : -1;
+								yy += kRowH;
+								if (st.hdrOk != 0) {
+									p.TextV(iA.x, yy, kRowH,
+											st.hdrOk > 0 ? "Image chargee"
+														 : "Echec : fichier introuvable ou format"
+														   " non equirectangulaire",
+											st.hdrOk > 0 ? NkRole::TextMuted : NkRole::AxisX);
+									yy += kRowH;
+								}
 							}
 							yy += NkGroupPad();
 							PaintGroupBlock(p, aR, aTop, yy);
