@@ -6150,19 +6150,197 @@ namespace nkentseu {
 									demo::Demo3DHostSetAmbientUseEnv(st.envSource != 0);
 								yy += kRowH;
 							}
+							// ── LE CIEL SE VOIT-IL ? ────────────────────────────
+							// Reglage SEPARE de la source ci-dessus, et il doit le
+							// rester : « d'ou vient la lumiere » et « qu'est-ce
+							// qu'on voit derriere » sont deux questions distinctes.
+							// On eclaire souvent une scene avec un HDRI sans
+							// l'afficher en fond, et on affiche parfois un ciel qui
+							// ne pilote pas l'ambiance.
+							// Le moteur savait deja le faire (NkRender3D::
+							// SetSkyboxEnabled, shader Skybox compile au demarrage) ;
+							// simplement, AUCUNE ligne de l'application ne le lui
+							// demandait -- le ciel ne pouvait donc jamais apparaitre.
+							{
+								bool skyOn = demo::Demo3DHostSkyVisible();
+								const NkRect cb{iA.x, yy + S(5.f), S(12.f), S(12.f)};
+								hit.Add("prop.amb.skyvis", cb);
+								p.Outline(cb, skyOn ? NkRole::AccentUi : NkRole::Border,
+										  skyOn ? NkRole::AccentUi : NkRole::InputBg, 2.f);
+								p.TextV(cb.x + S(18.f), yy, kRowH, "Afficher le ciel",
+										NkRole::TextMuted);
+								if (hit.Clicked("prop.amb.skyvis"))
+									demo::Demo3DHostSetSkyVisible(!skyOn);
+								yy += kRowH;
+								// SA LUMINOSITE, encore un reglage a part. Le shader
+								// peignait le ciel en le multipliant par l'intensite
+								// d'ambiance (0,05) : il sortait quasi noir et
+								// paraissait absent alors qu'il etait bien genere.
+								// Visible seulement quand le ciel l'est : un curseur
+								// sans effet observable n'apprend rien.
+								if (skyOn) {
+									float32 si = demo::Demo3DHostSkyIntensity();
+									const float32 si0 = si;
+									p.TextV(iA.x, yy, kRowH, "Luminosite", NkRole::TextMuted);
+									DragFloat(p, hit, ws, in, "prop.amb.skyint",
+											  {iA.x + S(110.f), yy + S(3.f), iA.w - S(110.f),
+											   kRowH - S(6.f)},
+											  si, 0.02f, NkRole::AccentUi, "%.2f");
+									if (si != si0)
+										demo::Demo3DHostSetSkyIntensity(si);
+									yy += kRowH;
+								}
+							}
 							if (st.envSource == 1) {
-								// LES TROIS COULEURS DU CIEL, modifiables.
+								// ── QUEL MODELE DE CIEL ? ───────────────────
+								// Degrade : trois couleurs, stylise, previsible.
+								// Physique : la couleur DECOULE de la position du
+								// soleil et de la turbidite de l'air -- le bleu du
+								// zenith, le blanchiment vers l'horizon et les
+								// teintes du couchant sortent du modele, on ne les
+								// regle pas.
+								{
+									static const char *const kSkyM[2] = {"Degrade",
+																		 "Physique (soleil)"};
+									int32 sm = demo::Demo3DHostSkyModel();
+									const int32 sm0 = sm;
+									p.TextV(iA.x, yy, kRowH, "Modele", NkRole::TextMuted);
+									Combo(p, hit, ws, "prop.sky.model",
+										  {iA.x + S(110.f), yy + S(2.f), iA.w - S(110.f),
+										   kRowH - S(4.f)},
+										  kSkyM, nullptr, 2, sm, combo);
+									if (sm != sm0)
+										demo::Demo3DHostSetSkyModel(sm);
+									yy += kRowH;
+								}
+								const int32 skyModel = demo::Demo3DHostSkyModel();
+								bool ch = false;
 								float32 top[3], hor[3], gnd[3];
 								demo::Demo3DHostEnvSky(top, hor, gnd);
-								bool ch = false;
-								yy += PaintColorRow(p, hit, ws, in, st, iA, yy, "Zenith",
-													"prop.sky.top", top, &ch);
-								yy += PaintColorRow(p, hit, ws, in, st, iA, yy, "Horizon",
-													"prop.sky.hor", hor, &ch);
+								if (skyModel == 0) {
+									// LES TROIS COULEURS DU CIEL, modifiables.
+									yy += PaintColorRow(p, hit, ws, in, st, iA, yy, "Zenith",
+														"prop.sky.top", top, &ch);
+									yy += PaintColorRow(p, hit, ws, in, st, iA, yy, "Horizon",
+														"prop.sky.hor", hor, &ch);
+								} else {
+									// ── CIEL PHYSIQUE ──────────────────────
+									// LE SOLEIL SE DONNE EN ELEVATION / AZIMUT,
+									// pas en vecteur : c'est ainsi qu'on pense un
+									// soleil, et c'est ce qui permet de viser un
+									// couchant sans calculer de composantes.
+									float32 sd[3], turb = 2.5f, si = 1.f;
+									bool disc = true;
+									demo::Demo3DHostSkySun(sd, &turb, &disc, &si);
+									// dir = propagation ; le vecteur VERS le soleil
+									// est son oppose.
+									const float32 tx = -sd[0], ty = -sd[1], tz = -sd[2];
+									const float32 tl = sqrtf(tx * tx + ty * ty + tz * tz);
+									float32 elev = (tl > 1e-6f) ? asinf(ty / tl) * 57.2957795f : 45.f;
+									float32 azim = atan2f(tx, tz) * 57.2957795f;
+									const float32 e0 = elev, a0 = azim, t0 = turb, i0 = si;
+									const bool d0 = disc;
+									p.TextV(iA.x, yy, kRowH, "Elevation", NkRole::TextMuted);
+									DragFloat(p, hit, ws, in, "prop.sky.elev",
+											  {iA.x + S(110.f), yy + S(3.f), iA.w - S(110.f),
+											   kRowH - S(6.f)},
+											  elev, 0.5f, NkRole::AccentUi, "%.1f°");
+									yy += kRowH;
+									p.TextV(iA.x, yy, kRowH, "Azimut", NkRole::TextMuted);
+									DragFloat(p, hit, ws, in, "prop.sky.azim",
+											  {iA.x + S(110.f), yy + S(3.f), iA.w - S(110.f),
+											   kRowH - S(6.f)},
+											  azim, 1.f, NkRole::AccentUi, "%.1f°");
+									yy += kRowH;
+									// Turbidite : 1 = air de haute montagne,
+									// 2-3 = ciel clair, 6-10 = atmosphere chargee.
+									p.TextV(iA.x, yy, kRowH, "Turbidite", NkRole::TextMuted);
+									DragFloat(p, hit, ws, in, "prop.sky.turb",
+											  {iA.x + S(110.f), yy + S(3.f), iA.w - S(110.f),
+											   kRowH - S(6.f)},
+											  turb, 0.05f, NkRole::AccentUi, "%.2f");
+									yy += kRowH;
+									p.TextV(iA.x, yy, kRowH, "Puissance", NkRole::TextMuted);
+									DragFloat(p, hit, ws, in, "prop.sky.sunint",
+											  {iA.x + S(110.f), yy + S(3.f), iA.w - S(110.f),
+											   kRowH - S(6.f)},
+											  si, 0.02f, NkRole::AccentUi, "%.2f");
+									yy += kRowH;
+									{
+										const NkRect cb{iA.x, yy + S(5.f), S(12.f), S(12.f)};
+										hit.Add("prop.sky.disc", cb);
+										p.Outline(cb, disc ? NkRole::AccentUi : NkRole::Border,
+												  disc ? NkRole::AccentUi : NkRole::InputBg, 2.f);
+										p.TextV(cb.x + S(18.f), yy, kRowH, "Disque solaire",
+												NkRole::TextMuted);
+										if (hit.Clicked("prop.sky.disc"))
+											disc = !disc;
+										yy += kRowH;
+									}
+									if (elev != e0 || azim != a0 || turb != t0 || si != i0 ||
+										disc != d0) {
+										const float32 er = elev * 0.0174532925f;
+										const float32 ar = azim * 0.0174532925f;
+										const float32 nd[3] = {-cosf(er) * sinf(ar), -sinf(er),
+															   -cosf(er) * cosf(ar)};
+										demo::Demo3DHostSetSkySun(nd, turb, disc, si);
+									}
+								}
+								// LE SOL sert aux DEUX modeles : le ciel physique
+								// n'est pas defini sous l'horizon, on y pose cette
+								// couleur.
 								yy += PaintColorRow(p, hit, ws, in, st, iA, yy, "Sol",
 													"prop.sky.gnd", gnd, &ch);
 								if (ch)
 									demo::Demo3DHostSetEnvSky(top, hor, gnd);
+								// ── NUAGES ──────────────────────────────────
+								// Couche INDEPENDANTE du modele : elle se pose
+								// aussi bien sur un degrade que sur un ciel
+								// physique. La « couverture » est un SEUIL, pas
+								// une opacite : a 0 il n'y a rien, et les nuages
+								// naissent puis grossissent quand on monte -- au
+								// lieu d'un voile uniforme qui se contenterait de
+								// foncer.
+								{
+									bool cOn = false;
+									float32 cCov = 0.5f, cDen = 1.f, cScl = 2.f, cCol[3];
+									demo::Demo3DHostSkyClouds(&cOn, &cCov, &cDen, &cScl, cCol);
+									const bool o0 = cOn;
+									const float32 v0 = cCov, w0 = cDen, s0c = cScl;
+									bool colCh = false;
+									const NkRect cb{iA.x, yy + S(5.f), S(12.f), S(12.f)};
+									hit.Add("prop.sky.clouds", cb);
+									p.Outline(cb, cOn ? NkRole::AccentUi : NkRole::Border,
+											  cOn ? NkRole::AccentUi : NkRole::InputBg, 2.f);
+									p.TextV(cb.x + S(18.f), yy, kRowH, "Nuages", NkRole::TextMuted);
+									if (hit.Clicked("prop.sky.clouds"))
+										cOn = !cOn;
+									yy += kRowH;
+									if (cOn) {
+										p.TextV(iA.x, yy, kRowH, "Couverture", NkRole::TextMuted);
+										DragFloat(p, hit, ws, in, "prop.sky.cov",
+												  {iA.x + S(110.f), yy + S(3.f), iA.w - S(110.f),
+												   kRowH - S(6.f)},
+												  cCov, 0.01f, NkRole::AccentUi, "%.2f");
+										yy += kRowH;
+										p.TextV(iA.x, yy, kRowH, "Densite", NkRole::TextMuted);
+										DragFloat(p, hit, ws, in, "prop.sky.cden",
+												  {iA.x + S(110.f), yy + S(3.f), iA.w - S(110.f),
+												   kRowH - S(6.f)},
+												  cDen, 0.01f, NkRole::AccentUi, "%.2f");
+										yy += kRowH;
+										p.TextV(iA.x, yy, kRowH, "Echelle", NkRole::TextMuted);
+										DragFloat(p, hit, ws, in, "prop.sky.cscl",
+												  {iA.x + S(110.f), yy + S(3.f), iA.w - S(110.f),
+												   kRowH - S(6.f)},
+												  cScl, 0.05f, NkRole::AccentUi, "%.2f");
+										yy += kRowH;
+										yy += PaintColorRow(p, hit, ws, in, st, iA, yy, "Couleur",
+															"prop.sky.ccol", cCol, &colCh);
+									}
+									if (cOn != o0 || cCov != v0 || cDen != w0 || cScl != s0c || colCh)
+										demo::Demo3DHostSetSkyClouds(cOn, cCov, cDen, cScl, cCol);
+								}
 								// REGENERER est un calcul CPU (convolutions) : il se
 								// demande, il ne se declenche pas a chaque image ni
 								// sous le curseur qu'on tire.

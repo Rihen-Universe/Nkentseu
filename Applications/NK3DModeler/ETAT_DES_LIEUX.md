@@ -166,7 +166,29 @@ la vue → dépend de la normale **monde**, pas de la vue.
 **Méthode qui a marché** : demander un rendu **sans aucune lumière** dans la scène.
 C'est ce test qui a révélé l'ambiance à 0.3. Refaire ce genre de test isolant.
 
-### 4.2 — Le ciel procédural ne produit aucun effet
+### 4.2 — RÉSOLU (2026-08-02) — Le ciel procédural ne produisait aucun effet
+
+**Trois causes distinctes, aucune là où on les cherchait.**
+
+1. **Le ciel n'était jamais AFFICHÉ.** `SetSkyboxEnabled` existe dans le moteur et
+   le shader `Skybox` est compilé au démarrage, mais **aucune ligne de
+   l'application ne l'appelait**. Corrigé : `Demo3DHostSetSkyVisible` + case
+   « Afficher le ciel » (cf. 4.2 bis).
+2. **Il était peint à 5 % de sa luminosité.** `skybox.frag.nksl` multipliait son
+   échantillon par `uCam.iblStrength` — l'intensité de l'**ambiance**, volontairement
+   basse (0,05) pour que l'environnement ne délave pas les objets. Le ciel sortait
+   quasi noir et paraissait absent alors qu'il était correctement généré et rendu.
+   Corrigé : `SetSkyIntensity` (`viewOpts.y`), réglage **Luminosité** propre au ciel.
+3. **Il n'existait qu'un dégradé à trois couleurs** — pas de soleil, pas de nuage,
+   pas de diffusion. Ce n'était pas cassé, ce n'était pas implémenté. Ajouté :
+   modèle **Physique** (Preetham 1999) et couche de **nuages** procéduraux.
+
+**La leçon, qui est revenue trois fois dans la soirée** : deux grandeurs différentes
+portées par un seul nombre. « Combien l'environnement ÉCLAIRE » n'est pas « à quel
+point le ciel SE VOIT ». À chaque fois, l'un des deux réglages devenait inutilisable
+sans que rien ne le signale.
+
+### 4.2 ter — Anciennes notes de diagnostic (conservées)
 
 `Demo3DHostApplySky()` appelle `env->LoadProcedural(top, horizon, ground)` puis
 `r3->RefreshEnvironmentBindings()`. Aucun changement visible.
@@ -181,14 +203,21 @@ C'est ce test qui a révélé l'ambiance à 0.3. Refaire ce genre de test isolan
   `uCam.iblColor.w = 1` — sinon le shader ignore la cubemap **par construction**.
   Vérifier que `st.envSource == 1` appelle bien `Demo3DHostSetAmbientUseEnv(true)`.
 
-**Indice du journal (2026-08-02)** : deux appels successifs à 18:35:37 et 18:35:49
-rechargent le **même** fichier de cache — `[IBL] Cache charge (hit) :
-.../cache/ibl/nk_ibl_a91b913f.bin`, hash identique aux deux appels alors que les
-couleurs demandées avaient changé. La clé de cache IBL n'intègre donc pas
-`skyTop / horizon / ground` : `LoadProcedural` restitue toujours les mêmes cubemaps
-et n'écrit jamais le nouveau contenu. C'est la piste la plus prometteuse pour ce
-défaut — vérifier la fonction de hachage dans `NkEnvironmentSystem::TryLoadIBLCache`
-(`NkEnvironmentSystem.cpp:138`).
+**Deux pistes ÉLIMINÉES (2026-08-02), ne pas les refaire** :
+
+- *Le cache IBL court-circuiterait l'écriture* — **faux**. `IBLHash`
+  (`NkEnvironmentSystem.cpp:41`) intègre bien `skyTop / horizon / ground`, en plus
+  des tailles et de la version. Deux appels qui rechargent le même
+  `nk_ibl_a91b913f.bin` signifient simplement deux appels avec les mêmes couleurs.
+- *`LoadProcedural` recréerait les textures, rendant le rebinding nécessaire* —
+  **faux**. Il écrit dans les textures EXISTANTES (`WriteTextureRegion` /
+  `WriteTexture`, `NkEnvironmentSystem.cpp:498` et suivantes) : les handles ne
+  changent pas et le contenu part réellement au GPU.
+
+Le contenu du ciel est donc bien calculé et téléversé. Ce qu'il restait à faire était
+de le **rendre visible** (cf. 4.2 bis, fait) ; s'il subsiste un défaut d'**éclairage**
+par le ciel, il faut chercher du côté de `mIBLUseEnv` et de la lecture de la cubemap
+d'irradiance par le shader, pas du côté de la génération.
 
 ### 4.2 bis — Le ciel n'est JAMAIS visible dans la scène (manque distinct)
 
@@ -204,10 +233,17 @@ jamais `SetSkyboxEnabled` ni ne renseigne `drawSkybox`** — aucune occurrence d
 toute l'application. Le ciel ne peut donc, par construction, qu'agir sur l'éclairage :
 son invisibilité n'est pas un bug de rendu mais une fonctionnalité absente.
 
-Dans Blender les deux vont ensemble. À faire : câbler `SetSkyboxEnabled` et l'exposer
-dans le panneau **Rendu**, à côté de la source d'ambiance — en gardant les deux
-réglages **indépendants** (on veut pouvoir être éclairé par un HDRI sans l'afficher
-en fond, et réciproquement).
+Dans Blender les deux vont ensemble.
+
+**FAIT (2026-08-02)** : `SetSkyboxEnabled` est câblé
+(`Demo3DHostSetSkyVisible` / `Demo3DHostSkyVisible`) et exposé dans le panneau
+**Rendu** par une case « Afficher le ciel », placée sous la source d'ambiance.
+
+Les deux réglages restent **volontairement indépendants** : « d'où vient la
+lumière » et « qu'est-ce qu'on voit derrière » sont deux questions distinctes. On
+éclaire couramment une scène avec un HDRI sans l'afficher en fond, et on affiche
+parfois un ciel qui ne pilote pas l'ambiance. Les lier aurait été une facilité
+payée plus tard.
 
 ### 4.3 — Fermeture de l'application à la RESTAURATION d'une fenêtre réduite
 

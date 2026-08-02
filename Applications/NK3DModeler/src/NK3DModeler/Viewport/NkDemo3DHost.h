@@ -228,6 +228,33 @@ namespace nkentseu {
 		// d'une couleur unie. Faux = aplat parfait, comme le monde de Blender.
 		bool Demo3DHostAmbientUseEnv();
 		void Demo3DHostSetAmbientUseEnv(bool on);
+		// Le ciel VISIBLE en fond de scene — independant de la SOURCE d'ambiance
+		// ci-dessus. Deux reglages distincts du moteur : l'un dit si le ciel
+		// ECLAIRE, l'autre s'il se VOIT. On veut les deux separement.
+		bool Demo3DHostSkyVisible();
+		void Demo3DHostSetSkyVisible(bool on);
+		// Luminosite du ciel AFFICHE, encore distincte de l'intensite d'ambiance :
+		// « combien l'environnement eclaire » n'est pas « a quel point le ciel se
+		// voit ». 1 = le ciel tel qu'il a ete genere.
+		float32 Demo3DHostSkyIntensity();
+		void Demo3DHostSetSkyIntensity(float32 v);
+		// ── MODELE DE CIEL ─────────────────────────────────────────────────
+		// 0 = degrade a trois couleurs (l'ancien, et le defaut : une scene
+		// existante ne doit pas changer d'aspect sans qu'on le demande),
+		// 1 = ciel PHYSIQUE (Preetham : diffusion atmospherique + disque
+		// solaire, la couleur decoule de la position du soleil et de la
+		// turbidite). Les NUAGES sont une couche independante : elle se pose
+		// aussi bien sur un degrade stylise que sur un ciel physique.
+		// Tous ces reglages ne descendent au moteur qu'a la REGENERATION
+		// (Demo3DHostApplySky) : ce sont des convolutions CPU, pas quelque
+		// chose qu'on recalcule sous le doigt qui tire un curseur.
+		int32 Demo3DHostSkyModel();
+		void Demo3DHostSetSkyModel(int32 m);
+		void Demo3DHostSkySun(float32 *dir, float32 *turbidity, bool *disc, float32 *intensity);
+		void Demo3DHostSetSkySun(const float32 *dir, float32 turbidity, bool disc, float32 intensity);
+		void Demo3DHostSkyClouds(bool *on, float32 *coverage, float32 *density, float32 *scale, float32 *color);
+		void Demo3DHostSetSkyClouds(bool on, float32 coverage, float32 density, float32 scale,
+									const float32 *color);
 		// Le CIEL PROCEDURAL : trois couleurs (zenith, horizon, sol) dont le
 		// moteur deduit l'irradiance et les reflets. La regeneration est un calcul
 		// CPU, d'ou un declenchement a la demande.
