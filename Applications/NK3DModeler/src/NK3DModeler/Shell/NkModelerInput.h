@@ -263,6 +263,10 @@ namespace nkentseu {
 				// le figer (Rihen).
 				bool lockPiv = false;
 				bool propPiv = false;
+				// GROUPES du panneau Modele (Transformation, Dimensions, Relations,
+				// Materiaux...) : un bit par groupe, mis a 1 quand il est REPLIE.
+				// Les elements de nature differente se rangent par groupe (Rihen).
+				uint32 grpFold = 0;
 				char hierNote[96] = {};
 				// SURCOUCHE BLOQUANTE : un menu est peint APRES les panneaux,
 				// mais ceux-ci ont deja evalue leurs clics -- le clic sur une
