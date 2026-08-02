@@ -343,8 +343,13 @@ namespace nkentseu {
 		}
 
 		// Peint la liste ouverte. A appeler APRES tout le reste.
+		// `blockRect` (optionnel) recoit l'emprise de la liste ouverte : les
+		// panneaux, peints AVANT elle, s'en servent a la frame suivante pour
+		// ignorer les clics qui tombent dessus. Sans cela, choisir une entree
+		// atteignait AUSSI le widget situe dessous -- meme famille de defaut que
+		// les menus, et Rihen veut le meme traitement pour tous ces panneaux.
 		inline void DrawComboPopup(NkModelerPainter &p, NkHitRegistry &hit, NkWidgetState &ws,
-								   NkComboPending &pending) {
+								   NkComboPending &pending, NkRect *blockRect = nullptr) {
 			if (!pending.active)
 				return;
 			const NkRect &a = pending.anchor;
@@ -375,6 +380,9 @@ namespace nkentseu {
 			p.Fill({box.x + 2.f, box.y + 2.f, box.w, box.h}, NkRole::WindowBg, 4.f); // ombre
 			p.Outline(box, NkRole::Border, NkRole::PanelHeader, 4.f);
 			hit.Add("combo.panel", box);
+			// L'EMPRISE de la liste, pour que les panneaux du dessous l'ignorent.
+			if (blockRect)
+				*blockRect = box;
 
 			char k[64];
 			for (int32 i = 0; i < pending.count; ++i) {
