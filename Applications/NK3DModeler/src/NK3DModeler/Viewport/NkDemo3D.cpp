@@ -4449,7 +4449,11 @@ namespace nkentseu {
 				redLight.color = {1.f, 0.2f, 0.1f};
 				redLight.intensity = 12.f;
 				redLight.range = 10.f;
-				redLight.cookieIdx = 0;
+				// TOUTES LES LUMIERES NAISSENT NORMALES (Rihen) : pas de texture de
+				// faisceau heritee de la demo. Les cookies reviendront quand on
+				// pourra charger une image et melanger -- pour toutes les lumieres,
+				// pas seulement le spot.
+				redLight.cookieIdx = -1;
 				redLight.castShadow = true;
 				redLight.shadowStatic = true;
 
@@ -4475,7 +4479,7 @@ namespace nkentseu {
 				spot.range = 10.f;
 				spot.innerAngle = 18.f;
 				spot.outerAngle = 28.f;
-				spot.cookieIdx = 0;
+				spot.cookieIdx = -1; // normale elle aussi (voir plus haut)
 				spot.castShadow = true;
 			}
 
@@ -4534,6 +4538,13 @@ namespace nkentseu {
 					L2.areaWidth *= fabsf(nkvpEmptyScl[e][0]) * (1.f + osl.x);
 					L2.areaHeight *= fabsf(nkvpEmptyScl[e][1]) * (1.f + osl.y);
 				}
+				// TEMPERATURE ET EXPOSITION : appliquees a la couleur au moment de
+				// la soumission. Le moteur porte les deux reglages ; les convertir
+				// ici laisse les shaders et les structures GPU inchanges -- rien
+				// de ce qui existait ne bouge.
+				L2.color = renderer::NkLightEffectiveColor(L2);
+				L2.temperatureK = 0.f; // deja appliquees : ne pas compter deux fois
+				L2.exposure = 0.f;
 				sctx.lights.PushBack(L2);
 			}
 
@@ -9729,6 +9740,24 @@ namespace nkentseu {
 			return (node >= kNkvpFirstUser && node < kNkvpMaxNodes)
 					   ? (int32)nkvpUserSub[node - kNkvpFirstUser]
 					   : 0;
+		}
+		bool Demo3DHostLightTempExp(int32 node, float32 *tempK, float32 *exposure) {
+			// Temperature de couleur (kelvins, 0 = desactivee) et exposition (stops).
+			if (node < kNkvpFirstUser || node >= kNkvpMaxNodes ||
+				nkvpUserKind[node - kNkvpFirstUser] != 5)
+				return false;
+			const renderer::NkLightDesc &L = nkvpUserLight[node - kNkvpFirstUser];
+			*tempK = L.temperatureK;
+			*exposure = L.exposure;
+			return true;
+		}
+		void Demo3DHostSetLightTempExp(int32 node, float32 tempK, float32 exposure) {
+			if (node < kNkvpFirstUser || node >= kNkvpMaxNodes ||
+				nkvpUserKind[node - kNkvpFirstUser] != 5)
+				return;
+			renderer::NkLightDesc &L = nkvpUserLight[node - kNkvpFirstUser];
+			L.temperatureK = tempK < 0.f ? 0.f : (tempK > 12000.f ? 12000.f : tempK);
+			L.exposure = exposure < -10.f ? -10.f : (exposure > 10.f ? 10.f : exposure);
 		}
 		void Demo3DHostSetUserSub(int32 node, int32 sub) {
 			// CHANGER LE TYPE D'UNE LUMIERE en place (les quatre boutons du

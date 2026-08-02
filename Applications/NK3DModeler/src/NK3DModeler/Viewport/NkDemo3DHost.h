@@ -211,6 +211,9 @@ namespace nkentseu {
 		int32 Demo3DHostUserSub(int32 node); // variante demandee au menu Ajouter
 		// Changer le TYPE d'une lumiere en place (sous-type + descripteur natif).
 		void Demo3DHostSetUserSub(int32 node, int32 sub);
+		// Temperature de couleur (kelvins ; 0 = desactivee) et exposition (stops).
+		bool Demo3DHostLightTempExp(int32 node, float32 *tempK, float32 *exposure);
+		void Demo3DHostSetLightTempExp(int32 node, float32 tempK, float32 exposure);
 		// Camera (vide sous-type 10) : focale + clips, declaratifs pour l'instant.
 		// Cookie (texture de faisceau) d'une lumiere : -1 = couleur pure.
 		int32 Demo3DHostLightCookie(int32 node);
