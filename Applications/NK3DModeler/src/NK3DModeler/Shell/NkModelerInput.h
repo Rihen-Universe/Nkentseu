@@ -644,6 +644,44 @@ namespace nkentseu {
 					mDouble = in.mouseDoubleClicked[0];
 				}
 
+				// ── ROUTEUR D'OCCLUSION, SUR LE MODELE DE NKCODE ────────────────
+				// Une surface flottante declare son EMPRISE et sa COUCHE pendant
+				// qu'elle se dessine ; la liste lue est celle de la frame
+				// PRECEDENTE, donc stable et INDEPENDANTE de l'ordre de dessin --
+				// c'est ce qui manquait a la garde precedente, qui dependait de
+				// l'endroit ou on la levait. Un point recouvert par une couche
+				// strictement superieure a celle en cours devient inatteignable,
+				// et cela vaut aussi bien pour les zones du registre que pour le
+				// code qui teste la souris lui-meme, via Reachable().
+				static const int32 kOcclMax = 16;
+				void PushOcclusion(const NkRect &r, int32 layer) {
+					if (mOcclNewCount < kOcclMax) {
+						mOcclNew[mOcclNewCount] = r;
+						mOcclNewLayer[mOcclNewCount] = layer;
+						++mOcclNewCount;
+					}
+				}
+				// A appeler une fois par frame : l'emprise accumulee devient celle
+				// que tout le monde consulte.
+				void FlipOcclusions() {
+					for (int32 i = 0; i < mOcclNewCount; ++i) {
+						mOccl[i] = mOcclNew[i];
+						mOcclLayer[i] = mOcclNewLayer[i];
+					}
+					mOcclCount = mOcclNewCount;
+					mOcclNewCount = 0;
+				}
+				bool Reachable(const NkVec2 &pt) const {
+					for (int32 i = 0; i < mOcclCount; ++i)
+						if (mOcclLayer[i] > mLayer && Contains(mOccl[i], pt))
+							return false;
+					return true;
+				}
+				// Le point survole est-il atteignable par la couche en cours ?
+				bool ReachableAtMouse() const {
+					return Reachable(mMouse);
+				}
+
 				// ── COUCHES : L'ETANCHEITE, UNE FOIS POUR TOUTES ────────────────
 				// Un menu, un sous-menu, une fenetre modale sont peints tantot
 				// AVANT tantot APRES les panneaux qu'ils recouvrent. Se fier a
@@ -710,7 +748,9 @@ namespace nkentseu {
 					Copy(mKeys[mCount], key);
 					mRects[mCount] = rr;
 					mCount++;
-					const bool inside = Contains(rr, mMouse);
+					// Sous une surface d'une couche superieure : cette zone n'est
+					// tout simplement pas atteignable.
+					const bool inside = Contains(rr, mMouse) && Reachable(mMouse);
 					// LA COUCHE LA PLUS HAUTE GAGNE, et a couche egale la derniere
 					// declaree -- on peint du fond vers le dessus. Une zone posee
 					// sous une surcouche ne prend donc jamais le survol, quel que
@@ -865,6 +905,12 @@ namespace nkentseu {
 				char mHover[48] = {};
 				int32 mLayer = 0;		// couche des zones declarees maintenant
 				int32 mHoverLayer = -1; // couche de la zone qui tient le survol
+				NkRect mOccl[kOcclMax] = {};	// emprises de la frame precedente
+				int32 mOcclLayer[kOcclMax] = {};
+				int32 mOcclCount = 0;
+				NkRect mOcclNew[kOcclMax] = {}; // celles qu'on accumule maintenant
+				int32 mOcclNewLayer[kOcclMax] = {};
+				int32 mOcclNewCount = 0;
 				NkRect mClip{};
 				bool mHasClip = false;
 				nkgui::NkVec2 mMouse{0.f, 0.f};
