@@ -182,6 +182,10 @@ namespace nkentseu {
 		// Remet les maillages d'un model A PLAT (tous enfants directs de sa
 		// racine) : dans un model, le seul parent est le model.
 		void Demo3DHostFlattenModel(int32 root);
+		// Garantit qu'un model est un CONTENEUR : sa geometrie propre descend
+		// dans un premier maillage enfant. Renvoie ce maillage (-1 si rien a
+		// faire). Les maillages suivants naissent alors freres du premier.
+		int32 Demo3DHostEnsureModelMesh(int32 root);
 		void Demo3DHostSetCameraView(int32 node);
 		int32 Demo3DHostCameraView();
 		void Demo3DHostCopyNode(int32 node);

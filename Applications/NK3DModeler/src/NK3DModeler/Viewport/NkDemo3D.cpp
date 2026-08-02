@@ -146,6 +146,9 @@ namespace nkentseu {
 		// Racine du model qui contient un noeud : le pick de la vue s'en sert bien
 		// avant la definition (rangee plus bas avec les autres APIs).
 		int32 Demo3DHostModelRootOf(int32 node);
+		// Naissance d'un noeud calque sur un autre (duplication, archive, premier
+		// maillage d'un model) ; defini plus bas, appele plus haut.
+		static int32 HostSpawnLike(int32 src, const float32 *offset);
 		// APPARTENANCE : chaque noeud appartient a UN document (scene ou
 		// editeur d'asset). Un noeud d'un autre document n'est ni rendu ni
 		// liste ni selectionnable ici (regle de Rihen).
@@ -8632,6 +8635,42 @@ namespace nkentseu {
 				return false;
 			nkvpParentOf[child] = parent;
 			return true;
+		}
+		int32 Demo3DHostEnsureModelMesh(int32 root) {
+			// UN MODEL EST UN CONTENEUR, PAS UNE GEOMETRIE (regle de Rihen). A
+			// l'ouverture de son editeur, si le noeud porte encore sa geometrie en
+			// propre, celle-ci DESCEND dans un premier maillage enfant : le model
+			// ne rend plus rien lui-meme, ses maillages rendent pour lui (dans les
+			// deux vues). Les maillages suivants naissent alors FRERES de ce
+			// premier -- avant, ils devenaient ses enfants, puisque le model et son
+			// premier maillage etaient un seul et meme noeud.
+			if (root < kNkvpFirstUser || root >= kNkvpMaxNodes)
+				return -1;
+			for (int32 c = 0; c < kNkvpMaxNodes; ++c)
+				if (!nkvpDeleted[c] && nkvpIsMesh[c] && nkvpParentOf[c] == root)
+					return c; // il a deja sa matiere
+			const uint8 rk = nkvpUserKind[root - kNkvpFirstUser];
+			if (rk < 1 || rk > 3)
+				return -1; // pas une geometrie : rien a deleguer
+			const float32 zero[3] = {0.f, 0.f, 0.f};
+			const int32 m = HostSpawnLike(root, zero);
+			if (m < 0)
+				return -1;
+			nkvpIsMesh[m] = true;
+			nkvpParentOf[m] = root;
+			// DANS le model : transform locale neutre, il se pose exactement sur
+			// lui (l'echelle et la rotation du model l'emportent par parente).
+			const int32 e = m - kNkvpFirstEmpty;
+			for (int32 a = 0; a < 3; ++a) {
+				nkvpEmptyPos[e][a] = 0.f;
+				nkvpEmptyRotDeg[e][a] = 0.f;
+				nkvpEmptyScl[e][a] = 1.f;
+			}
+			// La racine devient un CONTENEUR : plus de geometrie propre, sinon
+			// elle se dessinerait en double avec son maillage.
+			nkvpUserKind[root - kNkvpFirstUser] = 4;
+			nkvpUserSub[root - kNkvpFirstUser] = 0;
+			return m;
 		}
 		void Demo3DHostFlattenModel(int32 root) {
 			// Remet A PLAT les maillages d'un model : tous enfants DIRECTS de la
