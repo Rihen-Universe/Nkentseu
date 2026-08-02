@@ -2159,7 +2159,11 @@ namespace nkentseu {
 			cb.matcapId = (float32)mMatcapId; // index 0..29 dans l'atlas des 30 matcaps
 			// .x = 1 si une matcap PERSONNALISEE remplace l'atlas (cf. SetMatcapTexture) :
 			// le shader echantillonne alors la texture entiere au lieu d'une tuile.
-			cb.viewOpts = {mMatcapCustom ? 1.f : 0.f, 0.f, 0.f, 0.f};
+			// .y = LUMINOSITE DU CIEL AFFICHE. Le shader Skybox multipliait son
+			// echantillon par iblStrength (0.05 par defaut) : le ciel sortait a
+			// 5 % de sa luminosite, donc quasi noir, et paraissait absent alors
+			// qu'il etait correctement genere. Ce sont deux grandeurs distinctes.
+			cb.viewOpts = {mMatcapCustom ? 1.f : 0.f, mSkyIntensity, 0.f, 0.f};
 			// yFlipNDC : UNIQUEMENT consommé par le SKYBOX (reconstruction du view-ray à
 			// partir de vNDC). C'est l'orientation Y du VS PLEIN ÉCRAN du skybox, qui
 			// n'a PAS d'inputs → le générateur HLSL ne le Y-négate PAS sur DX (il ne
