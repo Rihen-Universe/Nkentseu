@@ -360,6 +360,32 @@ namespace nkentseu {
 				}
 			};
 
+			// Memorise la lambda pour pouvoir REFAIRE ces liaisons plus tard :
+			// changer d'environnement cree de NOUVELLES cubemaps, et les sets
+			// pointaient encore sur les anciennes -- regenerer le ciel n'avait
+			// alors aucun effet visible (constate par Rihen).
+			mRebindGlobals = [this]() {
+				if (!mDevice || !mEnv)
+					return;
+				NkSamplerHandle envSamp = mEnv->GetEnvSampler();
+				NkSamplerHandle lutSamp = mEnv->GetLUTSampler();
+				for (uint32 i = 0; i < mFramesInFlight; i++) {
+					NkDescSetHandle sets[2] = {mGlobalSetRing[i], mGlobalSetMirrorRing[i]};
+					for (NkDescSetHandle gs : sets) {
+						if (!gs.IsValid())
+							continue;
+						if (mEnv->GetIrradianceCubemap().IsValid())
+							mDevice->BindTextureSampler(gs, 8, mEnv->GetIrradianceCubemap(), envSamp);
+						if (mEnv->GetPrefilterCubemap().IsValid())
+							mDevice->BindTextureSampler(gs, 9, mEnv->GetPrefilterCubemap(), envSamp);
+						if (mEnv->GetBRDFLUT().IsValid())
+							mDevice->BindTextureSampler(gs, 10, mEnv->GetBRDFLUT(), lutSamp);
+						if (mEnv->GetSkyEnvCube().IsValid())
+							mDevice->BindTextureSampler(gs, 26, mEnv->GetSkyEnvCube(), envSamp);
+					}
+				}
+			};
+
 			for (uint32 i = 0; i < mFramesInFlight; i++) {
 				// Bind main + mirror sets avec leur UBO Camera respectif.
 				preBindGlobalSet(mGlobalSetRing[i], mUBOCameraRing[i], i);

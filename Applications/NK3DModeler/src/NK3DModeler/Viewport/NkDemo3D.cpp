@@ -9863,6 +9863,11 @@ namespace nkentseu {
 			env->LoadProcedural({nkvpSkyTop[0], nkvpSkyTop[1], nkvpSkyTop[2]},
 								{nkvpSkyHorizon[0], nkvpSkyHorizon[1], nkvpSkyHorizon[2]},
 								{nkvpSkyGround[0], nkvpSkyGround[1], nkvpSkyGround[2]});
+			// Les cubemaps viennent d'etre RECREEES : sans ce rafraichissement, les
+			// jeux de descripteurs pointent encore sur les anciennes et la
+			// regeneration reste invisible.
+			if (auto *r3 = hst.ctx.renderer->GetRender3D())
+				r3->RefreshEnvironmentBindings();
 			return true;
 		}
 		const char *Demo3DHostHdrPath() {
@@ -9873,8 +9878,11 @@ namespace nkentseu {
 			if (!env || !path || !path[0])
 				return false;
 			const bool ok = env->LoadFromHDR(NkString(path));
-			if (ok)
+			if (ok) {
 				snprintf(nkvpHdrPath, sizeof(nkvpHdrPath), "%s", path);
+				if (auto *r3 = hst.ctx.renderer->GetRender3D())
+					r3->RefreshEnvironmentBindings(); // cubemaps recreees
+			}
 			return ok;
 		}
 		bool Demo3DHostAmbientUseEnv() {
