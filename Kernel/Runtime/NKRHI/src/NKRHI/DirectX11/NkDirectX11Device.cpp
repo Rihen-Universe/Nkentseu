@@ -1695,6 +1695,14 @@ namespace nkentseu {
 	void NkDirectX11Device::OnResize(uint32 w, uint32 h) {
 		if (w == 0 || h == 0)
 			return;
+		// TAILLE INCHANGEE : NE RIEN FAIRE. Minimiser la fenetre produit un
+		// evenement de redimensionnement a la MEME taille ; on refaisait alors
+		// tout le travail -- ClearState, ResizeBuffers, reconstruction du graphe
+		// de rendu -- sur une fenetre qui n'a plus de surface visible, et
+		// l'application mourait la (constate par Rihen : elle se ferme en
+		// minimisant). Le backend DX12 avait deja ce no-op ; DX11 ne l'avait pas.
+		if (mSwapchain && w == mWidth && h == mHeight)
+			return;
 		mWidth = w;
 		mHeight = h;
 		ResizeSwapchain(w, h);
