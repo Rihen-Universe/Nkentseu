@@ -263,6 +263,11 @@ namespace nkentseu {
 		bool Demo3DHostSkySunLightsScene();
 		void Demo3DHostSetSkySunLightsScene(bool on);
 		void Demo3DHostSetSkySun(const float32 *dir, float32 turbidity, bool disc, float32 intensity);
+		// VITESSE DE DEFILEMENT des nuages. N'agit que sur le ciel evalue en
+		// temps reel dans le shader — une cuisson produit une image fixe, une
+		// vitesse n'y aurait aucun sens. Ne marque donc pas « a regenerer ».
+		float32 Demo3DHostSkyCloudSpeed();
+		void Demo3DHostSetSkyCloudSpeed(float32 v);
 		void Demo3DHostSkyClouds(bool *on, float32 *coverage, float32 *density, float32 *scale, float32 *color);
 		void Demo3DHostSetSkyClouds(bool on, float32 coverage, float32 density, float32 scale,
 									const float32 *color);

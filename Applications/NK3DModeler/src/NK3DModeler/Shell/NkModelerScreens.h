@@ -6483,6 +6483,22 @@ namespace nkentseu {
 												   kRowH - S(6.f)},
 												  cScl, 0.05f, NkRole::AccentUi, "%.2f");
 										yy += kRowH;
+										// LA VITESSE : les nuages DEFILENT. Elle
+										// n'agit que sur le ciel evalue en temps
+										// reel, donc son effet est immediat -- elle
+										// ne demande aucune regeneration.
+										{
+											float32 cs = demo::Demo3DHostSkyCloudSpeed();
+											const float32 cs0 = cs;
+											p.TextV(iA.x, yy, kRowH, "Vitesse", NkRole::TextMuted);
+											DragFloat(p, hit, ws, in, "prop.sky.cspd",
+													  {iA.x + S(110.f), yy + S(3.f),
+													   iA.w - S(110.f), kRowH - S(6.f)},
+													  cs, 0.002f, NkRole::AccentUi, "%.3f");
+											if (cs != cs0)
+												demo::Demo3DHostSetSkyCloudSpeed(cs);
+											yy += kRowH;
+										}
 										yy += PaintColorRow(p, hit, ws, in, st, iA, yy, "Couleur",
 															"prop.sky.ccol", cCol, &colCh);
 									}

@@ -123,6 +123,13 @@ namespace nkentseu {
 				// Echelle : taille des motifs. Petit = gros nuages.
 				float32 cloudScale = 2.f;
 				NkVec3f cloudColor = {1.f, 1.f, 1.f};
+				// VITESSE DE DEFILEMENT des nuages, en unites de bruit par seconde.
+				// Sans effet sur la cuisson CPU (une cubemap est une image fixe) :
+				// elle n'a de sens que pour le ciel evalue EN TEMPS REEL dans le
+				// shader. Elle vit ici quand meme, parce que « ce qu'est ce ciel »
+				// doit se decrire a UN seul endroit -- sinon les deux chemins
+				// finissent par decrire deux ciels differents.
+				float32 cloudSpeed = 0.02f;
 		};
 
 		class NkEnvironmentSystem {
