@@ -8671,8 +8671,13 @@ namespace nkentseu {
 			if (root < kNkvpFirstUser || root >= kNkvpMaxNodes)
 				return -1;
 			for (int32 c = 0; c < kNkvpMaxNodes; ++c)
-				if (!nkvpDeleted[c] && nkvpIsMesh[c] && nkvpParentOf[c] == root)
-					return c; // il a deja sa matiere
+				if (!nkvpDeleted[c] && nkvpIsMesh[c] && nkvpParentOf[c] == root) {
+					// Il a deja sa matiere -- mais il faut TOUJOURS le dire model :
+					// a la deuxieme ouverture, sortir d'ici sans le marquer le
+					// laissait rendre sa geometrie en double de son maillage.
+					nkvpIsModel[root] = true;
+					return c;
+				}
 			const uint8 rk = nkvpUserKind[root - kNkvpFirstUser];
 			if (rk < 1 || rk > 3)
 				return -1; // pas une geometrie : rien a deleguer
@@ -8770,18 +8775,12 @@ namespace nkentseu {
 					cur = nkvpParentOf[cur];
 				}
 			}
-			// RATTRAPAGE : dans l'editeur, toute GEOMETRIE portee par le model est
-			// de la matiere, meme si elle n'a pas ete marquee a sa naissance (les
-			// enfants de scene, eux, sont restes dans la scene). Sans cela un
-			// maillage non marque ne rentrait pas avec le model et n'entrait pas
-			// dans son lisere -- constate par Rihen avec une sphere ajoutee.
-			for (int32 c = kNkvpFirstUser; c < kNkvpMaxNodes; ++c) {
-				if (nkvpDeleted[c] || nkvpIsMesh[c] || nkvpParentOf[c] != root)
-					continue;
-				const uint8 k = nkvpUserKind[c - kNkvpFirstUser];
-				if (k >= 1 && k <= 3)
-					nkvpIsMesh[c] = true;
-			}
+			// PAS DE RATTRAPAGE ICI. J'avais ajoute une boucle marquant comme
+			// matiere toute geometrie portee par le model : elle happait aussi ses
+			// MODELS ENFANTS, restes dans la scene mais toujours parentes a lui.
+			// Ils devenaient des maillages -- donc des maillages AVEC enfants,
+			// disparaissant de la hierarchie de scene (Rihen). Un noeud ne devient
+			// de la matiere qu'a sa NAISSANCE dans un editeur de model.
 		}
 		int32 Demo3DHostNodeXmitMask(int32 node) {
 			HostParentEnsureInit();
