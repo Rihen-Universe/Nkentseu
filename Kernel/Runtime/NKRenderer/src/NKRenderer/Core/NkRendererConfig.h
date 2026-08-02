@@ -194,7 +194,11 @@ namespace nkentseu {
 
 		struct NkIBLConfig {
 				bool enabled = true;
-				float32 iblStrength = 0.3f;	   // [0..1] multiplicateur du terme ambient IBL
+				// AMBIANCE : c'est CETTE valeur qui fait foi. Elle est reappliquee
+				// a l'initialisation et ecrasait donc le defaut pose dans
+				// NkRender3D -- l'ambiance restait a 0.3 malgre le changement. A
+				// 0.3, une scene sans aucune lumiere reste grise et plate.
+				float32 iblStrength = 0.05f;   // [0..1] multiplicateur du terme ambient IBL
 				uint32 irradianceMapSize = 32; // diffuse env (32x32 cubemap suffit)
 				uint32 specularMapSize = 256;  // GGX prefiltered (mips = roughness)
 				uint32 brdfLUTSize = 512;	   // 2D R16G16
