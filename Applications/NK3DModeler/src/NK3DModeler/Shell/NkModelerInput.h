@@ -256,6 +256,44 @@ namespace nkentseu {
 				// MESSAGE du pied de la hierarchie : explique un refus (verrou...).
 				// Un clic sans effet passe sinon pour une panne.
 				char hierNote[96] = {};
+				// SURCOUCHE BLOQUANTE : un menu est peint APRES les panneaux,
+				// mais ceux-ci ont deja evalue leurs clics -- le clic sur une
+				// entree de menu tombait AUSSI sur le widget du dessous (c'est
+				// ainsi que « creer un enfant » verrouillait le parent : le clic
+				// atteignait son cadenas). On memorise donc l'emprise des menus
+				// d'une frame sur l'autre, et les panneaux l'ignorent.
+				NkRect uiBlockCur{};
+				NkRect uiBlockAcc{};
+				bool uiBlockCurOn = false;
+				bool uiBlockAccOn = false;
+				void UiBlockAdd(const NkRect &b) {
+					if (b.w <= 0.f || b.h <= 0.f)
+						return;
+					if (!uiBlockAccOn) {
+						uiBlockAcc = b;
+						uiBlockAccOn = true;
+						return;
+					}
+					const float32 x0 = uiBlockAcc.x < b.x ? uiBlockAcc.x : b.x;
+					const float32 y0 = uiBlockAcc.y < b.y ? uiBlockAcc.y : b.y;
+					const float32 x1 = (uiBlockAcc.x + uiBlockAcc.w) > (b.x + b.w)
+										   ? (uiBlockAcc.x + uiBlockAcc.w)
+										   : (b.x + b.w);
+					const float32 y1 = (uiBlockAcc.y + uiBlockAcc.h) > (b.y + b.h)
+										   ? (uiBlockAcc.y + uiBlockAcc.h)
+										   : (b.y + b.h);
+					uiBlockAcc = {x0, y0, x1 - x0, y1 - y0};
+				}
+				bool UiBlocks(float32 mx, float32 my) const {
+					return uiBlockCurOn && mx >= uiBlockCur.x && my >= uiBlockCur.y &&
+						   mx < uiBlockCur.x + uiBlockCur.w &&
+						   my < uiBlockCur.y + uiBlockCur.h;
+				}
+				void UiBlockFlip() { // debut de frame
+					uiBlockCur = uiBlockAcc;
+					uiBlockCurOn = uiBlockAccOn;
+					uiBlockAccOn = false;
+				}
 				int32 hierMenuNode = -1;
 				float32 hierMenuX = 0.f, hierMenuY = 0.f;
 				// UNITES DE MESURE de la scene (0 metrique, 1 imperial, 2 aucun).

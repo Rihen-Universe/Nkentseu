@@ -170,6 +170,15 @@ namespace nkentseu {
 		int32 Demo3DHostNodeScene(int32 node);
 		void Demo3DHostMoveTreeScene(int32 node, int32 id); // isolation
 		// VUE CAMERA : la vue montre ce que voit ce noeud camera (-1 = vue 3D).
+		// MESH INTERNE d'un model (cree dans un editeur de model) et nature
+		// du document courant : ensemble ils font que les mesh se voient dans
+		// la hierarchie du model seulement, et qu'un clic en scene selectionne
+		// tout le model.
+		void Demo3DHostSetNodeIsMesh(int32 node, bool v);
+		bool Demo3DHostNodeIsMesh(int32 node);
+		void Demo3DHostSetDocIsModel(bool v);
+		bool Demo3DHostDocIsModel();
+		int32 Demo3DHostModelRootOf(int32 node);
 		void Demo3DHostSetCameraView(int32 node);
 		int32 Demo3DHostCameraView();
 		void Demo3DHostCopyNode(int32 node);

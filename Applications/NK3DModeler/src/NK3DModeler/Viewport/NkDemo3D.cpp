@@ -135,11 +135,19 @@ namespace nkentseu {
 		// Transform MONDE d'un noeud. Enveloppe SANS Demo3DState : la structure
 		// n'est declaree que plus bas, et la vue camera en a besoin ici.
 		static void HostNodeWorldById(int32 n, float32 *pos, NkMat4f &rot, float32 *scl);
+		// Racine du model qui contient un noeud : le pick de la vue s'en sert bien
+		// avant la definition (rangee plus bas avec les autres APIs).
+		int32 Demo3DHostModelRootOf(int32 node);
 		// APPARTENANCE : chaque noeud appartient a UN document (scene ou
 		// editeur d'asset). Un noeud d'un autre document n'est ni rendu ni
 		// liste ni selectionnable ici (regle de Rihen).
 		static uint8 nkvpSceneOf[kNkvpMaxNodes] = {};
 		static uint8 nkvpCurScene = 0;
+		// MESH INTERNE d'un model : cree DANS un editeur de model. Il se rend
+		// dans les deux vues, mais ne figure que dans la hierarchie du model,
+		// et dans la scene un clic dessus selectionne TOUT le model (Rihen).
+		static bool nkvpIsMesh[kNkvpMaxNodes] = {};
+		static bool nkvpDocIsModel = false;
 		// VUE CAMERA : noeud regarde (-1 = vue 3D libre).
 		static int32 nkvpCamViewNode = -1;
 		// VISIBILITE et VERROU EFFECTIFS : le sien OU celui d'un ancetre --
@@ -6937,6 +6945,16 @@ namespace nkentseu {
 									bestU = e2;
 								}
 							}
+							// DANS UNE SCENE, cliquer un MESH INTERNE selectionne TOUT
+							// le model auquel il appartient (facon Blender) ; dans
+							// l'editeur de model, chaque mesh se selectionne
+							// individuellement (regle de Rihen).
+							if (bestU >= 0 && !nkvpDocIsModel) {
+								const int32 nB = bestU + kNkvpFirstEmpty;
+								const int32 rB = Demo3DHostModelRootOf(nB);
+								if (rB != nB && rB >= kNkvpFirstEmpty)
+									bestU = rB - kNkvpFirstEmpty;
+							}
 							if (bestU >= 0 && bestU == st->emptyGizmo.ActiveIndex())
 								bestU = -1; // deja actif : le clic est aux POIGNEES
 							if (bestU >= 0) {
@@ -9056,6 +9074,7 @@ namespace nkentseu {
 				nkvpUserKind[u] = kind;
 				nkvpDeleted[n] = false;
 				nkvpSceneOf[n] = nkvpCurScene; // nait dans le document ACTIF
+				nkvpIsMesh[n] = false;
 				nkvpParentOf[n] = -1;
 				nkvpXmit[n] = 7;
 				nkvpMatMask[n] = 0;
@@ -9149,6 +9168,7 @@ namespace nkentseu {
 					nkvpDimFactor[n][a] = nkvpDimFactor[src][a];
 				}
 			}
+			nkvpIsMesh[n] = nkvpIsMesh[src]; // un double de mesh reste un mesh
 			if (src >= kNkvpFirstUser) {
 				const int32 su = src - kNkvpFirstUser;
 				const int32 nu = n - kNkvpFirstUser;
@@ -9186,6 +9206,31 @@ namespace nkentseu {
 		int32 Demo3DHostNodeScene(int32 node) {
 			return (node >= 0 && node < kNkvpMaxNodes) ? (int32)nkvpSceneOf[node]
 														: 0;
+		}
+		void Demo3DHostSetNodeIsMesh(int32 node, bool v) {
+			if (node >= 0 && node < kNkvpMaxNodes)
+				nkvpIsMesh[node] = v;
+		}
+		bool Demo3DHostNodeIsMesh(int32 node) {
+			return node >= 0 && node < kNkvpMaxNodes && nkvpIsMesh[node];
+		}
+		void Demo3DHostSetDocIsModel(bool v) { nkvpDocIsModel = v; }
+		bool Demo3DHostDocIsModel() { return nkvpDocIsModel; }
+		// La RACINE du model qui contient ce noeud : on remonte tant que
+		// l'ancetre est lui-meme un mesh interne.
+		int32 Demo3DHostModelRootOf(int32 node) {
+			if (node < 0 || node >= kNkvpMaxNodes)
+				return node;
+			int32 cur = node;
+			for (int32 g = 0; g < kNkvpMaxNodes; ++g) {
+				if (!nkvpIsMesh[cur])
+					return cur;
+				const int32 pa = nkvpParentOf[cur];
+				if (pa < 0)
+					return cur;
+				cur = pa;
+			}
+			return cur;
 		}
 		void Demo3DHostSetCameraView(int32 node) {
 			nkvpCamViewNode = node;
