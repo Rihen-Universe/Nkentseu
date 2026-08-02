@@ -186,6 +186,9 @@ namespace nkentseu {
 				float32 matcapScrollX = 0.f;
 				// Panneau droit unique : glissement de reglage en cours + defilement.
 				char propDragKey[24] = {0};
+				// UNE SEULE nuance de couleur ouverte a la fois -- comme les pastilles
+				// du panneau. La cle vide signifie : aucun picker deplie.
+				char colorOpen[40] = {0};
 				// Chaque ONGLET DE SCENE garde sa pose de camera : cible, distance,
 				// lacet, tangage, ortho. C'est ce qui rend les onglets FONCTIONNELS
 				// aujourd'hui ; les objets par scene viendront avec le format projet.
@@ -480,6 +483,9 @@ namespace nkentseu {
 				// navigateur. Vide = tout passe.
 				char searchHier[32] = {};
 				char searchBrowser[32] = {};
+				// Pastilles de type du navigateur : un bit par kind de carte.
+				// Zero = aucune pastille allumee = tout passe.
+				uint32 browFilter = 0u;
 				char searchProps[32] = {};
 				int32 navDragMode = -1;
 				float32 navDragLastX = 0.f, navDragLastY = 0.f;
