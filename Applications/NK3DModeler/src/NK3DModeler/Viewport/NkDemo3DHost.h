@@ -211,6 +211,12 @@ namespace nkentseu {
 		int32 Demo3DHostUserSub(int32 node); // variante demandee au menu Ajouter
 		// Changer le TYPE d'une lumiere en place (sous-type + descripteur natif).
 		void Demo3DHostSetUserSub(int32 node, int32 sub);
+		// REGLAGES D'OMBRE, globaux au rendu (biais normal, biais de pente,
+		// douceur, qualite 0 aucune / 1 PCF3 / 2 PCF5 / 3 PCSS).
+		bool Demo3DHostShadowCfg(float32 *normalBias, float32 *slopeBias, float32 *softness,
+								 int32 *quality);
+		void Demo3DHostSetShadowCfg(float32 normalBias, float32 slopeBias, float32 softness,
+									int32 quality);
 		// Temperature de couleur (kelvins ; 0 = desactivee) et exposition (stops).
 		bool Demo3DHostLightTempExp(int32 node, float32 *tempK, float32 *exposure);
 		void Demo3DHostSetLightTempExp(int32 node, float32 tempK, float32 exposure);

@@ -9741,6 +9741,34 @@ namespace nkentseu {
 					   ? (int32)nkvpUserSub[node - kNkvpFirstUser]
 					   : 0;
 		}
+		bool Demo3DHostShadowCfg(float32 *normalBias, float32 *slopeBias, float32 *softness,
+								 int32 *quality) {
+			// REGLAGES D'OMBRE, lus a chaud dans les shadow maps. Ils sont GLOBAUX
+			// au rendu -- une ombre douce l'est pour toute la scene -- d'ou leur
+			// place dans les proprietes de RENDU et non sur chaque lumiere, qui ne
+			// garde que son interrupteur d'ombre.
+			auto *sh = hst.ctx.renderer ? hst.ctx.renderer->GetShadow() : nullptr;
+			if (!sh)
+				return false;
+			const auto &c = sh->GetConfig();
+			*normalBias = c.normalBias;
+			*slopeBias = c.shadowBias;
+			*softness = c.softness;
+			*quality = (int32)c.quality;
+			return true;
+		}
+		void Demo3DHostSetShadowCfg(float32 normalBias, float32 slopeBias, float32 softness,
+									int32 quality) {
+			auto *sh = hst.ctx.renderer ? hst.ctx.renderer->GetShadow() : nullptr;
+			if (!sh)
+				return;
+			auto &c = sh->GetConfig();
+			c.normalBias = normalBias < 0.f ? 0.f : (normalBias > 1.f ? 1.f : normalBias);
+			c.shadowBias = slopeBias < 0.f ? 0.f : (slopeBias > 0.05f ? 0.05f : slopeBias);
+			c.softness = softness < 0.f ? 0.f : (softness > 0.05f ? 0.05f : softness);
+			if (quality >= 0 && quality <= 3)
+				c.quality = (renderer::NkVSMShadowQuality)quality;
+		}
 		bool Demo3DHostLightTempExp(int32 node, float32 *tempK, float32 *exposure) {
 			// Temperature de couleur (kelvins, 0 = desactivee) et exposition (stops).
 			if (node < kNkvpFirstUser || node >= kNkvpMaxNodes ||
