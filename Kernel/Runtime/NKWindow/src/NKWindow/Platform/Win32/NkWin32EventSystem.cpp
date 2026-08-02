@@ -353,9 +353,14 @@ namespace nkentseu {
 			}
 
 			case WM_SIZE: {
-				RedrawWindow(hwnd, NULL, NULL, RDW_INVALIDATE | RDW_NOERASE | RDW_INTERNALPAINT | RDW_UPDATENOW);
-
 				uint32 nw = LOWORD(lp), nh = HIWORD(lp);
+				// PAS DE REPEINT SYNCHRONE SUR UNE FENETRE REDUITE. RDW_UPDATENOW
+				// force le rendu ICI, dans la procedure de fenetre : sur une
+				// minimisation (taille nulle) cela reentre dans la boucle de rendu
+				// au pire moment, pendant que la swapchain change de taille.
+				if (nw > 0 && nh > 0)
+					RedrawWindow(hwnd, NULL, NULL,
+								 RDW_INVALIDATE | RDW_NOERASE | RDW_INTERNALPAINT | RDW_UPDATENOW);
 
 				NkWindowResizeEvent::ResizeState state;
 

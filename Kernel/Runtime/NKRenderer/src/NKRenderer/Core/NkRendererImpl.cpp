@@ -1277,17 +1277,25 @@ namespace nkentseu {
 				return false;
 			mStats.Reset();
 			mFrameCtx = {};
-			if (!mDevice->BeginFrame(mFrameCtx))
-				return false;
 
-			// Auto-resize — PAS en mode SetRenderSizeOverride (le rendu est a une
-			// resolution independante ; la swapchain fenetre vit sa vie, le blit
-			// MirrorPresent fait le pont).
+			// ── LE REDIMENSIONNEMENT SE FAIT AVANT D'OUVRIR LA FRAME ────────────
+			// Il etait fait APRES mDevice->BeginFrame : on detruisait donc les
+			// cibles de rendu et on reconstruisait tout le graphe AU MILIEU d'une
+			// frame deja ouverte, alors que le contexte tient encore des liaisons
+			// sur ces memes ressources. C'est ce qui tuait l'application a la
+			// restauration d'une fenetre reduite -- le seul moment ou la sequence
+			// complete se declenche d'un coup. Redimensionner d'abord, ouvrir la
+			// frame ensuite : la frame demarre alors sur des ressources stables.
+			// (PAS en mode SetRenderSizeOverride : le rendu y a une resolution
+			// independante, la swapchain vit sa vie et MirrorPresent fait le pont.)
 			if (mRenderOverrideW == 0) {
-				uint32 sw = mDevice->GetSwapchainWidth(), sh = mDevice->GetSwapchainHeight();
+				const uint32 sw = mDevice->GetSwapchainWidth(), sh = mDevice->GetSwapchainHeight();
 				if ((sw != mCfg.width || sh != mCfg.height) && sw > 0 && sh > 0)
 					OnResize(sw, sh);
 			}
+
+			if (!mDevice->BeginFrame(mFrameCtx))
+				return false;
 
 			// Sélection « outline silhouette » : (dés)activer l'option ajoute/retire les
 			// passes SelectionMask + SelectionOutline du graph -> rebuild à l'aplomb de
