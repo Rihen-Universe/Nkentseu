@@ -150,17 +150,33 @@ namespace nkentseu {
 				return false;
 			if (nkvpDeleted[n])
 				return true; // supprime = plus jamais rendu
-			if (nkvpSceneOf[n] != nkvpCurScene)
-				return true; // appartient a un AUTRE document
 			if (n >= 86 && n < 90)
 				return nkvpLightHidden[n - 86];
 			return nkvpObjHidden[n];
 		}
+		// APPARTENANCE : elle vaut pour LE NOEUD, jamais par heritage. Un
+		// enfant reste chez lui quand son parent part ailleurs (isolation)
+		// ou disparait -- sinon il devenait invisible ET inselectionnable
+		// dans sa propre scene (constate par Rihen).
+		static bool HostNodeForeign(int32 n) {
+			return n >= 0 && n < kNkvpMaxNodes && nkvpSceneOf[n] != nkvpCurScene;
+		}
+		// La chaine d'ancetres s'ARRETE des qu'un ancetre est etranger au
+		// document ou supprime : au-dela, son etat ne nous concerne plus.
+		static bool HostChainBreaks(int32 p) {
+			return p >= 0 && p < kNkvpMaxNodes &&
+				   (nkvpDeleted[p] || HostNodeForeign(p));
+		}
 		static bool HostHiddenEff(int32 n) {
+			if (HostNodeForeign(n))
+				return true; // lui-meme vit dans un autre document
 			for (int32 g = 0; g < kNkvpMaxNodes && n >= 0; ++g) {
 				if (HostNodeHiddenOwn(n))
 					return true;
-				n = nkvpParentOf[n];
+				const int32 pa = nkvpParentOf[n];
+				if (HostChainBreaks(pa))
+					break;
+				n = pa;
 			}
 			return false;
 		}
@@ -168,7 +184,10 @@ namespace nkentseu {
 			for (int32 g = 0; g < kNkvpMaxNodes && n >= 0; ++g) {
 				if (n < 160 && nkvpObjLocked[n])
 					return true;
-				n = nkvpParentOf[n];
+				const int32 pa = nkvpParentOf[n];
+				if (HostChainBreaks(pa))
+					break;
+				n = pa;
 			}
 			return false;
 		}
