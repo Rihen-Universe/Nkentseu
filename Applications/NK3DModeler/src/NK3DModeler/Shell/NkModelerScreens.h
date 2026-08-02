@@ -4132,7 +4132,10 @@ namespace nkentseu {
 				}
 				x += btn + gap;
 			}
-			return (hasTitle ? kRowH : 0.f) + rowH + S(6.f);
+			// HAUTEUR NETTE, sans marge de fin : l'espacement entre deux lignes
+			// appartient a l'appelant, sinon un groupe d'UNE ligne (Dimensions)
+			// herite d'un vide en bas que rien ne justifie (Rihen).
+			return (hasTitle ? kRowH : 0.f) + rowH;
 		}
 
 		// â”€â”€ EN-TETE DE SECTION REPLIABLE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -4416,9 +4419,11 @@ namespace nkentseu {
 								yy += PaintXformGroup(p, hit, ws, in, inR, yy, "Position",
 												st.pos, 0.01f, "prop.epos", st.lockPos,
 												st.propPos, "%.2f m");
+								yy += NkGroupPad(); // entre deux lignes du groupe
 								yy += PaintXformGroup(p, hit, ws, in, inR, yy, "Rotation",
 												st.rot, 0.5f, "prop.erot", st.lockRot,
 												st.propRot, "%.1f\xC2\xB0");
+								yy += NkGroupPad();
 								yy += PaintXformGroup(p, hit, ws, in, inR, yy, "Echelle",
 												st.scl, 0.01f, "prop.escl", st.lockScl,
 												st.propScale, "%.2f");
@@ -4435,6 +4440,7 @@ namespace nkentseu {
 								float32 piv[3];
 								if (demo::Demo3DHostNodeOrigin(act, piv)) {
 									const float32 piv0[3] = {piv[0], piv[1], piv[2]};
+									yy += NkGroupPad();
 									yy += PaintXformGroup(p, hit, ws, in, inR, yy, "Pivot", piv,
 													0.01f, "prop.epiv", st.lockPiv,
 													st.propPiv, "%.2f m");
@@ -4445,14 +4451,15 @@ namespace nkentseu {
 									if (pivCh && !st.lockPiv)
 										demo::Demo3DHostSetNodeOrigin(act, piv);
 									float32 ctr[3];
-									if (demo::Demo3DHostMeshesCenter(act, ctr) &&
-										Button("props.pivctr", yy,
-											   "Pivot au centre des maillages", inR.x,
-											   inR.w)) {
-										if (!st.lockPiv)
+									if (demo::Demo3DHostMeshesCenter(act, ctr)) {
+										yy += NkGroupPad();
+										if (Button("props.pivctr", yy,
+												   "Pivot au centre des maillages", inR.x,
+												   inR.w) &&
+											!st.lockPiv)
 											demo::Demo3DHostSetNodeOrigin(act, ctr);
+										yy += kRowH - S(4.f);
 									}
-									yy += kRowH;
 								}
 							}
 							// Le BLOC qui entoure le groupe : peint APRES son contenu,
