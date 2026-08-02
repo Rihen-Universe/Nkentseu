@@ -531,6 +531,18 @@ namespace nkentseu {
 		// UNE SEULE scene a l'ouverture. Demarrer sur deux onglets vides ferait croire
 		// que l'un d'eux contient quelque chose, et obligerait a en fermer un avant
 		// meme d'avoir commence. Le nom se modifie au DOUBLE-clic, le + en ajoute une.
+		// Un MODEL est un conteneur : sa geometrie propre descend dans un premier
+		// maillage enfant, nomme independamment de lui. Renommer le model ne
+		// renomme donc pas ce maillage, ni l'inverse -- ce sont deux noeuds
+		// distincts (regle de Rihen), et les maillages suivants naissent FRERES
+		// de celui-ci.
+		inline void NkHierComposeName(NkModelerState &st, const char *base0, int32 newNode);
+		inline int32 NkModelFirstMesh(NkModelerState &st, int32 root) {
+			const int32 m = demo::Demo3DHostEnsureModelMesh(root);
+			if (m >= 0 && m < 176 && st.customNames[m][0] == 0)
+				NkHierComposeName(st, "Mesh", m);
+			return m;
+		}
 		inline void NkStoreSceneCam(NkModelerState &st, int32 tab) {
 			if (tab < 0 || tab >= 8)
 				return;
@@ -597,6 +609,7 @@ namespace nkentseu {
 				// Le seul parent d'un model est le model : ses maillages
 				// reviennent tous a plat sous lui (Rihen).
 				demo::Demo3DHostFlattenModel(iso);
+				NkModelFirstMesh(st, iso);
 				demo::Demo3DHostSelectEmptyNode(iso);
 				st.editPreviewNode = 0;
 				return;
@@ -619,8 +632,10 @@ namespace nkentseu {
 				demo::Demo3DHostSelectEmptyNode(pv);
 			}
 			st.editPreviewNode = pv + 1;
-			if (tk == 7 && pv >= 0)
+			if (tk == 7 && pv >= 0) {
 				demo::Demo3DHostFlattenModel(pv); // maillages tous freres
+				NkModelFirstMesh(st, pv);
+			}
 		}
 		inline void PaintTabsI(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
 							   NkHitRegistry &hit, NkWidgetState &ws, const nkgui::NkGuiInput &in) {
@@ -1399,6 +1414,17 @@ namespace nkentseu {
 				cur = demo::Demo3DHostNodeParent(cur);
 			}
 			out[0] = 0;
+		}
+		// Le noeud CONTIENT-IL des maillages ? Alors c'est un MODEL : sa geometrie
+		// vit dans ses maillages, pas en lui.
+		inline bool NkNodeHasMeshKids(int32 node) {
+			const int32 nc = demo::Demo3DHostNodeCount();
+			for (int32 c = 0; c < nc; ++c)
+				if (demo::Demo3DHostNodeIsMesh(c) &&
+					demo::Demo3DHostNodeParent(c) == node &&
+					!demo::Demo3DHostNodeDeleted(c))
+					return true;
+			return false;
 		}
 		// Le noeud a-t-il des enfants VIVANTS (ni supprimes ni slots libres) ?
 		inline bool NkHierHasLiveKids(int32 node) {
@@ -2341,6 +2367,11 @@ namespace nkentseu {
 						else if (isEmpty && ukind == 4 &&
 								 demo::Demo3DHostUserSub(node) == 10)
 							tyTxt = "Camera";
+						// Un noeud qui CONTIENT des maillages est un MODEL : il n'a
+						// plus de geometrie propre (elle est passee dans ses
+						// maillages), mais ce n'est pas un empty pour autant.
+						else if (isEmpty && NkNodeHasMeshKids(node))
+							tyTxt = "Model";
 						// Dans un MODEL, lumieres/cameras/empties ne font PAS
 						// partie du model : aides purement cosmetiques (Rihen).
 						if (st.sceneTabKind[st.activeTab] == 7 &&
@@ -5918,7 +5949,10 @@ namespace nkentseu {
 			st.browserRect = r; // routage des raccourcis (voir PaintSceneMenus)
 			// Un menu ou une carte de depot OUVERT bloque tout le navigateur en
 			// dessous : les clics ne TRAVERSENT plus (constate par Rihen).
-			const bool uiModal = (st.browMenuIdx != -1) || (st.browAskIdx >= 0);
+			// ... y compris un menu ouvert AILLEURS (hierarchie, Ajouter) qui
+			// deborde sur le navigateur : lui aussi est peint apres ce panneau.
+			const bool uiModal = (st.browMenuIdx != -1) || (st.browAskIdx >= 0) ||
+								 st.UiBlocks(hit.Mouse().x, hit.Mouse().y);
 			const float32 treeW = r.w * 0.18f;
 			const float32 ty = r.y + topH;
 			const float32 th = r.h - topH;
@@ -6669,6 +6703,10 @@ namespace nkentseu {
 			p.Fill({box.x + 2.f, box.y + 2.f, box.w, box.h}, NkRole::WindowBg, 4.f);
 			p.Outline(box, NkRole::Border, NkRole::PanelHeader, 4.f);
 			hit.Add("addm.panel", box);
+			// Ce menu recouvre souvent la hierarchie : sans declarer son emprise,
+			// le clic sur une entree atteignait AUSSI la ligne du dessous (c'est
+			// ainsi que « Ajouter un enfant » verrouillait le parent).
+			st.UiBlockAdd(box);
 
 			char key[32];
 			for (int32 c = 0; c < nc; ++c) {
@@ -6700,6 +6738,7 @@ namespace nkentseu {
 					p.Fill({sub.x + 2.f, sub.y + 2.f, sub.w, sub.h}, NkRole::WindowBg, 4.f);
 					p.Outline(sub, NkRole::Border, NkRole::PanelHeader, 4.f);
 					hit.Add("addm.sub", sub);
+					st.UiBlockAdd(sub);
 					for (int32 i = 0; i < cats[c].count; ++i) {
 						const NkRect er{sub.x + 2.f, sub.y + S(3.f) + (float32)i * itemH,
 										sub.w - 4.f, itemH};
