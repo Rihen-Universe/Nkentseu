@@ -238,7 +238,15 @@ namespace nkentseu {
 				// ARBRE DE PARENTE : pliage par noeud (bit = PLIE), etat du
 				// glisser-deposer, et EMPTY actif -- la selection d'un parent
 				// SEUL (les empties n'existent pas dans la demo).
-				uint32 hierFold[3] = {};
+				// 5 mots = 160 bits : IL EN FAUT UN PAR NOEUD, et les objets de
+				// l'utilisateur sont les noeuds 96 a 159. Avec 3 mots (96 bits),
+				// `hierFold[node >> 5]` ecrivait HORS DU TABLEAU pour tout objet
+				// cree par l'utilisateur -- donc dans `activeEmpty` (noeuds 96-127)
+				// et dans `hierDragNode` (128-159) juste en dessous. Plier un
+				// objet corrompait ainsi la selection et bloquait le glisser :
+				// c'est la cause du pliage inoperant ET des objets impossibles a
+				// selectionner (constate par Rihen).
+				uint32 hierFold[5] = {};
 				int32 activeEmpty = -1;
 				int32 hierDragNode = -1;
 				float32 hierDragX = 0.f, hierDragY = 0.f;

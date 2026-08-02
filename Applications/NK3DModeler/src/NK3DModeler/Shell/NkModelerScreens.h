@@ -2228,7 +2228,10 @@ namespace nkentseu {
 				// Enfants REELLEMENT listes : un chevron qui ne deplie rien de
 				// visible donne l'impression que le pliage est casse (Rihen).
 				const bool hasKids = NkHierHasLiveKids(node);
-				const bool folded = ((st.hierFold[node >> 5] >> (node & 31)) & 1u) != 0u;
+				// Borne EXPLICITE : le tableau couvre 160 noeuds (5 x 32). Un index
+				// hors limites ecrirait dans l'etat voisin (bug deja paye).
+				const int32 foldW = (node >> 5) < 5 ? (node >> 5) : 4;
+				const bool folded = ((st.hierFold[foldW] >> (node & 31)) & 1u) != 0u;
 				bool chevHit = false; // clic tombe sur la fleche : pas de selection
 				const bool sel = isEmpty
 									 ? (demo::Demo3DHostEmptyNodeSelected(node) ||
@@ -2261,7 +2264,7 @@ namespace nkentseu {
 									folded ? NkIcon::ChevronRight : NkIcon::ChevronDown, fg, 11.f);
 							if (in.mouseClicked[0] && !st.hierDragging && !ws.dragging &&
 								NkHitRegistry::Contains(chevR, hit.Mouse())) {
-								st.hierFold[node >> 5] ^= (1u << (node & 31));
+								st.hierFold[foldW] ^= (1u << (node & 31));
 								chevHit = true; // ce clic ne selectionne pas
 							}
 						}
@@ -2289,6 +2292,12 @@ namespace nkentseu {
 							tyTxt = kLTt[demo::Demo3DHostLightType(li) & 3];
 						else if (isEmpty && ukind == 5)
 							tyTxt = kLTt[demo::Demo3DHostUserSub(node) & 3];
+						// Une CAMERA s'annonce « Camera » : c'est techniquement un
+						// empty de sous-type 10, mais l'utilisateur voit une camera
+						// dans sa scene, pas un empty (Rihen).
+						else if (isEmpty && ukind == 4 &&
+								 demo::Demo3DHostUserSub(node) == 10)
+							tyTxt = "Camera";
 						// Dans un MODEL, lumieres/cameras/empties ne font PAS
 						// partie du model : aides purement cosmetiques (Rihen).
 						if (st.sceneTabKind[st.activeTab] == 7 &&
@@ -3143,7 +3152,9 @@ namespace nkentseu {
 						snprintf(vlb, sizeof(vlb), "Vue 3D");
 					}
 					const float32 vw = p.TextW(vlb) + S(34.f);
-					const NkRect vb{vr.x + S(8.f), vr.y + S(8.f), vw, S(20.f)};
+					// SOUS la barre d'icones du viewport : posee a la meme place,
+					// elle RECOUVRAIT le selecteur (constate a l'ecran).
+					const NkRect vb{vr.x + S(8.f), vr.y + S(44.f), vw, S(20.f)};
 					const bool ovV = hit.Add("view.pick", vb);
 					// Fond PLEIN : pose sur l'image 3D, un simple contour se perd.
 					p.Fill(vb, NkColor{0, 0, 0, 150}, 4.f);
