@@ -2015,6 +2015,15 @@ namespace nkentseu {
 					// tuile. .yzw reserves. Ajoute EN FIN de struct : les shaders qui
 					// declarent un CameraUBO plus court ignorent simplement ces octets.
 					NkVec4f viewOpts;
+					// COULEUR DE L'AMBIANCE (offset 416), .xyz ; .w reserve. C'est le
+					// pendant du « World > Color » de Blender : l'intensite dit
+					// COMBIEN la scene recoit de son environnement, la couleur dit
+					// DE QUELLE TEINTE. Sans elle l'ambiance est forcement neutre,
+					// alors qu'un ciel bleute ou chaud teinte les faces a l'ombre --
+					// c'est une part importante de l'aspect d'un rendu.
+					// Ajoutee EN FIN de struct : les shaders qui declarent un
+					// CameraUBO plus court ignorent simplement ces octets.
+					NkVec4f iblColor;
 			};
 
 			PBRCamUBO cb{};
@@ -2099,6 +2108,7 @@ namespace nkentseu {
 			cb.time = mCtx.time;
 			cb.deltaTime = mCtx.deltaTime;
 			cb.iblStrength = mIBLStrength;
+			cb.iblColor = {mIBLColor.x, mIBLColor.y, mIBLColor.z, 0.f};
 			cb.viewMode = (float32)mViewMode; // 0=rendered(PBR) 1=solid/unlit (indépendant du wireframe)
 			cb.matcapId = (float32)mMatcapId; // index 0..29 dans l'atlas des 30 matcaps
 			// .x = 1 si une matcap PERSONNALISEE remplace l'atlas (cf. SetMatcapTexture) :
