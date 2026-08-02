@@ -3998,7 +3998,8 @@ namespace nkentseu {
 		// contenu est mesuree a l'image precedente (stable des la deuxieme).
 		inline void PaintPropertiesUnified(NkModelerPainter &p, const NkRect &rFull,
 										   NkModelerState &st, NkHitRegistry &hit, NkWidgetState &ws,
-										   const nkgui::NkGuiInput &in, NkComboPending &combo) {
+										   const nkgui::NkGuiInput &in, NkComboPending &combo,
+										   nkgui::NkGuiContext *guiCtx = nullptr) {
 			p.Fill(rFull, NkRole::PanelBg);
 			p.VLine(rFull.x, rFull.y, rFull.h);
 			// Editeurs sans design defini : pas de proprietes (Rihen).
@@ -4018,7 +4019,25 @@ namespace nkentseu {
 				y = rFull.y + S(6.f);
 			} else {
 				p.Fill({rFull.x, rFull.y, rFull.w, kRowH}, NkRole::PanelHeader);
-				p.TextV(rFull.x + kPad, rFull.y, kRowH, "Proprietes");
+				// L'EN-TETE PORTE LA CATEGORIE entre parentheses (Rihen) : une
+				// seule pastille etant active, un second en-tete « Modele » sous
+				// celui-ci repetait l'information et volait une ligne au contenu.
+				{
+					static const char *const kHdrNames[4] = {"Modele", "Rendu", "Scene",
+															 "Modificateur"};
+					int32 actSec = -1;
+					for (int32 i9 = 0; i9 < 4; ++i9)
+						if (st.propOpen[i9]) {
+							actSec = i9;
+							break;
+						}
+					char hd[64];
+					if (actSec >= 0)
+						snprintf(hd, sizeof(hd), "Proprietes (%s)", kHdrNames[actSec]);
+					else
+						snprintf(hd, sizeof(hd), "Proprietes");
+					p.TextV(rFull.x + kPad, rFull.y, kRowH, hd);
+				}
 				p.HLine(rFull.x, rFull.y + kRowH - 1.f, rFull.w);
 				y = rFull.y + kRowH;
 			}
@@ -4087,16 +4106,12 @@ namespace nkentseu {
 				// liste (ca, c'est la pastille). Et AUCUN clic d'en-tete ne
 				// compte pendant un glissement : relacher la POIGNEE sur
 				// l'en-tete voisin basculait le chevron (constate par Rihen).
-				const bool wasUnfolded = !st.propFold[sec];
-				bool unfolded = wasUnfolded;
-				SectionHeader(p, hit, r, secY, key, kSecs[sec].title, unfolded);
-				if (st.propDragKey[0] || ws.dragging)
-					unfolded = wasUnfolded;
-				st.propFold[sec] = !unfolded;
-				p.HLine(r.x, secY + kRowH - 1.f, r.w);
-				secY += kRowH;
-				if (st.propFold[sec])
-					continue; // plie par son chevron : en-tete seul
+				// PLUS D'EN-TETE DE CATEGORIE ICI : il repetait le titre du panneau,
+				// qui porte deja la categorie entre parentheses (Rihen). Le contenu
+				// commence donc directement par ses propres sections, comme sur la
+				// maquette. La section reste depliee -- son pliage se ferait au
+				// niveau de chaque bloc interne.
+				st.propFold[sec] = false;
 				// REPARTITION EN DEUX PASSES : les sections plus petites que leur
 				// part rendent l'espace, redistribue aux plus grandes -- une
 				// section n'a de defilement local que quand l'ESPACE TOTAL manque

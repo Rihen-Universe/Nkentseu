@@ -1066,7 +1066,10 @@ int nkmain(const NkEntryState &entry) {
 			{
 				NkRect rightR = lay.propsR;
 				rightR.h = (lay.detailsR.y + lay.detailsR.h) - lay.propsR.y;
-				PaintPropertiesUnified(p, rightR, st, hit, ws, ui.input, combo);
+				// Le contexte passe AU PANNEAU : sa scrollbar est celle de
+				// NKEditorKit (la meme que l'editeur de code), qui dessine
+				// directement dans le contexte.
+				PaintPropertiesUnified(p, rightR, st, hit, ws, ui.input, combo, &ui);
 			}
 		}
 		if (st.showBrowser)
