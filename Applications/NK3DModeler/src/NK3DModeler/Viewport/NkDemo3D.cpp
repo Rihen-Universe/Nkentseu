@@ -7737,6 +7737,11 @@ namespace nkentseu {
 					overlay->DrawText({px, 110.f}, "F8/F9    softness : %.3f", cfg.softness);
 					overlay->DrawText({px, 130.f}, " slots: %u (rend %u | cache %u)", sh->GetActiveSlotCount(),
 									  sh->GetRenderedSlotsCount(), sh->GetCachedSlotsCount());
+					// COMBIEN D'OBJETS la passe d'ombre voit-elle vraiment ? Un atlas
+					// plein de slots mais nourri par ZERO caster explique une ombre
+					// qui ne correspond a rien. C'est le chiffre qui tranche.
+					if (auto *r3 = ctx.renderer->GetRender3D())
+						overlay->DrawText({px, 150.f}, " casters : %u", r3->GetShadowCasterCount());
 				} else {
 					overlay->DrawText({px, 50.f}, "(no shadow system)");
 				}
