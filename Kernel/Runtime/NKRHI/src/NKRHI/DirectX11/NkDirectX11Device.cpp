@@ -1703,9 +1703,13 @@ namespace nkentseu {
 		// minimisant). Le backend DX12 avait deja ce no-op ; DX11 ne l'avait pas.
 		if (mSwapchain && w == mWidth && h == mHeight)
 			return;
+		// Poser mWidth AVANT rendait le journal menteur : ResizeSwapchain trace
+		// « avant: » en lisant ces champs, et affichait donc deja la NOUVELLE
+		// taille -- ce qui donnait l'illusion d'un redimensionnement inutile
+		// alors qu'il etait bien reel. On les pose apres.
+		ResizeSwapchain(w, h);
 		mWidth = w;
 		mHeight = h;
-		ResizeSwapchain(w, h);
 	}
 
 	// =============================================================================
