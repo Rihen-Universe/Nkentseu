@@ -4007,32 +4007,62 @@ namespace nkentseu {
 		// couleurs sont celles de la maquette (plus claires que celles de la vue
 		// 3D) -- c'est ce que Rihen a valide a l'ecran.
 		inline float32 NkXformGroupH() {
-			return kRowH + S(34.f);
+			return kRowH + S(28.f);
+		}
+
+		// ── GROUPE DE PROPRIETES REPLIABLE (bandeau + chevron) ──────────────────
+		// Les elements de nature differente se rangent par GROUPE (Rihen) :
+		// Transformation, Dimensions, Relations, Materiaux... Le bandeau porte le
+		// chevron ; replier un groupe cache SON contenu, pas celui des voisins.
+		// Renvoie true si le groupe est DEPLIE (donc s'il faut peindre son
+		// contenu). `bit` identifie le groupe dans st.grpFold.
+		inline bool PaintPropGroup(NkModelerPainter &p, NkHitRegistry &hit, NkModelerState &st,
+								   const NkRect &r, float32 &y, const char *key,
+								   const char *title, uint32 bit) {
+			const NkRect hr{r.x, y, r.w, kRowH};
+			const bool over = hit.Add(key, hr);
+			p.Fill(hr, NkRole::PanelHeader);
+			if (over)
+				p.Fill({hr.x, hr.y + hr.h - S(2.f), hr.w, S(2.f)}, NkRole::AccentUi);
+			const bool folded = (st.grpFold & bit) != 0u;
+			p.IconV(r.x + S(4.f), y, kRowH,
+					folded ? NkIcon::ChevronRight : NkIcon::ChevronDown, NkRole::Text, 11.f);
+			p.TextV(r.x + S(20.f), y, kRowH, title);
+			if (hit.Clicked(key))
+				st.grpFold ^= bit;
+			y += kRowH;
+			return !folded;
 		}
 		inline void PaintXformGroup(NkModelerPainter &p, NkHitRegistry &hit, NkWidgetState &ws,
 									const nkgui::NkGuiInput &in, const NkRect &r, float32 y,
 									const char *title, float32 *v, float32 step,
 									const char *keyBase, bool &locked, bool &prop,
 									const char *fmt = "%.2f") {
-			static const NkColor kAxisBar[3] = {
-				{255, 107, 107, 255}, {107, 255, 107, 255}, {107, 159, 255, 255}};
 			if (title && title[0])
 				p.TextV(r.x, y, kRowH, title);
 			const float32 ry = y + kRowH;
-			const float32 rowH = S(28.f);
-			const float32 btn = S(28.f);
-			const float32 gap = S(4.f);
+			const float32 rowH = S(22.f);
+			// Boutons carres, a la MEME hauteur que les champs : ils suivent leur
+			// taille (Rihen). Champs plus etroits -> boutons plus petits.
+			const float32 btn = rowH;
+			const float32 gap = S(3.f);
 			const float32 iconsW = btn * 3.f + gap * 2.f;
 			float32 cell = (r.w - iconsW - gap * 3.f) / 3.f;
-			if (cell < S(46.f))
-				cell = S(46.f);
+			// BORNE HAUTE : trois champs largissimes noient les trois nombres dans
+			// du vide et repoussent les commandes hors de vue.
+			if (cell > S(58.f))
+				cell = S(58.f);
+			if (cell < S(34.f))
+				cell = S(34.f);
+			// LA COULEUR D'AXE EST DEJA DANS LE CHAMP (liseré gauche du champ) : en
+			// remettre une a l'exterieur la disait deux fois (Rihen).
+			static const NkRole kAxisRole[3] = {NkRole::AxisX, NkRole::AxisY, NkRole::AxisZ};
 			char key[56];
 			float32 x = r.x;
 			for (int32 i = 0; i < 3; ++i) {
-				p.Fill({x, ry + (rowH - S(16.f)) * 0.5f, S(5.f), S(16.f)}, kAxisBar[i], 2.f);
 				snprintf(key, sizeof(key), "%s.%d", keyBase, i);
-				DragFloat(p, hit, ws, in, key, {x + S(9.f), ry, cell - S(9.f), rowH}, v[i],
-						  step, NkRole::AccentUi, fmt);
+				DragFloat(p, hit, ws, in, key, {x, ry, cell, rowH}, v[i], step,
+						  kAxisRole[i], fmt);
 				x += cell + gap;
 			}
 			// Les trois commandes, dans l'ordre de la maquette : cadenas, remise a
@@ -4048,9 +4078,9 @@ namespace nkentseu {
 				const bool on = (i == 0 && locked) || (i == 2 && prop);
 				p.Outline(br, on ? NkRole::AccentUi
 								 : (over ? NkRole::AccentUi : NkRole::Border),
-						  on ? NkRole::AccentUi : NkRole::PanelHeader, 4.f);
-				p.IconV(br.x + (btn - S(12.f)) * 0.5f, br.y, rowH, ics[i],
-						on ? NkRole::TextOnAccent : NkRole::TextMuted, 12.f);
+						  on ? NkRole::AccentUi : NkRole::PanelHeader, 3.f);
+				p.IconV(br.x + (btn - S(11.f)) * 0.5f, br.y, rowH, ics[i],
+						on ? NkRole::TextOnAccent : NkRole::TextMuted, 11.f);
 				if (hit.Clicked(key)) {
 					if (i == 0)
 						locked = !locked;
@@ -4326,23 +4356,25 @@ namespace nkentseu {
 							NkRect rowR = rr;
 							rowR.x = r.x + kPad;
 							rowR.w = rr.w - 2.f * kPad;
-							// AU FORMAT DE LA MAQUETTE : titre, puis barre d'axe
-							// coloree + champ, puis cadenas / reinitialiser /
-							// proportionnel (Rihen, dessin Banani).
-							p.TextV(rowR.x, yy, kRowH, "Transformation");
-							yy += kRowH;
-							PaintXformGroup(p, hit, ws, in, rowR, yy, "Position", st.pos,
-											0.01f, "prop.epos", st.lockPos, st.propPos,
-											"%.2f m");
-							yy += NkXformGroupH();
-							PaintXformGroup(p, hit, ws, in, rowR, yy, "Rotation", st.rot,
-											0.5f, "prop.erot", st.lockRot, st.propRot,
-											"%.1f\xC2\xB0");
-							yy += NkXformGroupH();
-							PaintXformGroup(p, hit, ws, in, rowR, yy, "Echelle", st.scl,
-											0.01f, "prop.escl", st.lockScl, st.propScale,
-											"%.2f");
-							yy += NkXformGroupH();
+							// GROUPE « Transformation » : bandeau repliable, puis
+							// Position / Rotation / Echelle / Pivot (Rihen, Banani).
+							const bool grpXf = PaintPropGroup(p, hit, st, rowR, yy,
+															  "prop.g.xform",
+															  "Transformation", 1u);
+							if (grpXf) {
+								PaintXformGroup(p, hit, ws, in, rowR, yy, "Position",
+												st.pos, 0.01f, "prop.epos", st.lockPos,
+												st.propPos, "%.2f m");
+								yy += NkXformGroupH();
+								PaintXformGroup(p, hit, ws, in, rowR, yy, "Rotation",
+												st.rot, 0.5f, "prop.erot", st.lockRot,
+												st.propRot, "%.1f\xC2\xB0");
+								yy += NkXformGroupH();
+								PaintXformGroup(p, hit, ws, in, rowR, yy, "Echelle",
+												st.scl, 0.01f, "prop.escl", st.lockScl,
+												st.propScale, "%.2f");
+								yy += NkXformGroupH();
+							}
 							// ── PIVOT (origine) ────────────────────────────────
 							// Blender ne le laisse bouger qu'en mode Edition ; on
 							// l'offre AUSSI en mode Objet (Rihen : « on ne sait
@@ -4351,7 +4383,7 @@ namespace nkentseu {
 							// Le deplacer NE DEPLACE PAS la matiere : les enfants
 							// reculent d'autant, seul le point de rotation et de
 							// mise a l'echelle change.
-							{
+							if (grpXf) {
 								float32 piv[3];
 								if (demo::Demo3DHostNodeOrigin(act, piv)) {
 									const float32 piv0[3] = {piv[0], piv[1], piv[2]};
@@ -4416,9 +4448,16 @@ namespace nkentseu {
 								float32 dimE[3];
 								demo::Demo3DHostNodeBaseSize(en, dimE);
 								const float32 dimE0[3] = {dimE[0], dimE[1], dimE[2]};
-								PaintXformGroup(p, hit, ws, in, rowR, yy, "Dimensions", dimE,
-										0.01f, "prop.edim", st.lockDim, st.propDim, "%.2f m");
-					yy += NkXformGroupH();
+								// GROUPE « Dimensions » : sa propre bande repliable.
+								const bool grpDim = PaintPropGroup(p, hit, st, rowR, yy,
+																   "prop.g.dim", "Dimensions",
+																   2u);
+								if (grpDim) {
+									PaintXformGroup(p, hit, ws, in, rowR, yy, "", dimE, 0.01f,
+													"prop.edim", st.lockDim, st.propDim,
+													"%.2f m");
+									yy += NkXformGroupH();
+								}
 					// PROPORTIONNEL : l'axe touche impose son RAPPORT aux autres ;
 					// sinon chaque dimension ne bouge QUE son axe (Rihen).
 					if (st.propDim) {
