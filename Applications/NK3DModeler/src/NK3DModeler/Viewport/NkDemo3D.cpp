@@ -4430,6 +4430,10 @@ namespace nkentseu {
 			}
 
 			// ── Lights ───────────────────────────────────────────────────────────
+			// Le soleil du CIEL peut lui aussi eclairer la scene (mode Manuel) :
+			// sa fabrication vit avec les autres reglages du ciel, plus bas dans
+			// ce fichier. Declaree ici, appelee juste apres les lumieres reelles.
+			bool HostSkySunAsLight(renderer::NkLightDesc &out);
 			NkSceneContext sctx;
 			sctx.camera = cam;
 			sctx.time = ctx.totalTime;
@@ -4574,6 +4578,18 @@ namespace nkentseu {
 
 
 
+
+			// LE SOLEIL DU CIEL, s'il a ete charge d'eclairer la scene. Ajoute
+			// APRES les lumieres reelles : c'est un complement, pas un
+			// remplacement, et il disparait des que le ciel suit une vraie
+			// lumiere (sinon on eclairerait deux fois).
+			{
+				renderer::NkLightDesc skySun;
+				if (HostSkySunAsLight(skySun)) {
+					skySun.shadowStatic = !nkvpShadowDynamic;
+					sctx.lights.PushBack(skySun);
+				}
+			}
 
 			sctx.ambientIntensity = 0.15f;
 			// BROUILLARD : le contexte le portait deja, plus personne ne le
@@ -9834,9 +9850,45 @@ namespace nkentseu {
 		// diffuse recue selon la normale) et une cubemap de reflets. La troisieme
 		// option, « couleur unie », n'utilise aucune cubemap : l'ambiance est un
 		// aplat, comme le monde par defaut de Blender.
-		static float32 nkvpSkyTop[3] = {0.35f, 0.55f, 0.9f};
-		static float32 nkvpSkyHorizon[3] = {0.8f, 0.85f, 0.9f};
-		static float32 nkvpSkyGround[3] = {0.25f, 0.22f, 0.2f};
+		// ── VALEURS D'ORIGINE ───────────────────────────────────────────────
+		// UNE SEULE definition des defauts, qui sert a la fois a l'etat initial
+		// et aux boutons « Reinitialiser ». Les ecrire deux fois, c'est se
+		// garantir qu'elles divergeront le jour ou l'une des deux bougera -- et
+		// le bouton remettrait alors des valeurs qui n'ont jamais ete celles du
+		// depart. C'est le meme principe que le point de passage unique.
+		static constexpr float32 kSkyTopDef[3] = {0.35f, 0.55f, 0.9f};
+		static constexpr float32 kSkyHorDef[3] = {0.8f, 0.85f, 0.9f};
+		static constexpr float32 kSkyGndDef[3] = {0.25f, 0.22f, 0.2f};
+		static constexpr float32 kSkySunDirDef[3] = {0.35f, -0.65f, 0.35f};
+		static constexpr float32 kSkyTurbidityDef = 2.5f;
+		static constexpr float32 kSkySunIntensityDef = 1.f;
+		static constexpr bool kSkySunDiscDef = true;
+		static constexpr int32 kSkyModelDef = 0;
+		static constexpr float32 kCloudCovDef = 0.5f;
+		static constexpr float32 kCloudDenDef = 1.f;
+		static constexpr float32 kCloudSclDef = 2.f;
+		static constexpr float32 kCloudColDef[3] = {1.f, 1.f, 1.f};
+		static constexpr float32 kAmbientDef = 0.05f;
+		static constexpr float32 kAmbientColDef[3] = {1.f, 1.f, 1.f};
+		static constexpr float32 kSkyBrightnessDef = 1.f;
+		static constexpr float32 kSkySunColDef[3] = {1.f, 1.f, 1.f};
+		// PUISSANCE DE REFERENCE D'UN SOLEIL dans ce moteur. C'est la meme valeur
+		// que kDefIntensity[0] employe quand on bascule une lumiere sur « Soleil » :
+		// la reprendre ici garantit qu'un soleil du ciel et un soleil de la scene
+		// eclairent pareil a puissance egale, au lieu de deux echelles a comparer
+		// a l'oeil.
+		static constexpr float32 kSunLightRefIntensity = 3.f;
+
+		// EN ATTENTE DE REGENERATION. Les parametres du ciel ne descendent au
+		// moteur qu'a la demande (convolutions CPU). Sans ce drapeau, on tire un
+		// curseur, rien ne bouge, et rien ne dit que c'est normal : le reglage
+		// passe pour « sans effet ». L'interface s'en sert pour le signaler.
+		// Declare ICI, avant le premier setter qui le pose.
+		static bool nkvpSkyDirty = false;
+
+		static float32 nkvpSkyTop[3] = {kSkyTopDef[0], kSkyTopDef[1], kSkyTopDef[2]};
+		static float32 nkvpSkyHorizon[3] = {kSkyHorDef[0], kSkyHorDef[1], kSkyHorDef[2]};
+		static float32 nkvpSkyGround[3] = {kSkyGndDef[0], kSkyGndDef[1], kSkyGndDef[2]};
 		static char nkvpHdrPath[256] = {0};
 		void Demo3DHostEnvSky(float32 *top, float32 *horizon, float32 *ground) {
 			for (int32 i = 0; i < 3; ++i) {
@@ -9847,6 +9899,7 @@ namespace nkentseu {
 		}
 		void Demo3DHostSetEnvSky(const float32 *top, const float32 *horizon,
 								 const float32 *ground) {
+			nkvpSkyDirty = true;
 			for (int32 i = 0; i < 3; ++i) {
 				nkvpSkyTop[i] = top[i];
 				nkvpSkyHorizon[i] = horizon[i];
@@ -9863,22 +9916,69 @@ namespace nkentseu {
 		// l'autre. Tout est ici a l'etat, et ne descend au moteur qu'a la
 		// regeneration -- ce sont des convolutions CPU, pas un reglage a tirer
 		// sous le doigt.
-		static int32 nkvpSkyModel = 0; // 0 = degrade, 1 = physique
-		static float32 nkvpSkySunDir[3] = {0.35f, -0.65f, 0.35f};
-		static float32 nkvpSkyTurbidity = 2.5f;
-		static bool nkvpSkySunDisc = true;
-		static float32 nkvpSkySunIntensity = 1.f;
+		static int32 nkvpSkyModel = kSkyModelDef; // 0 = degrade, 1 = physique
+		static float32 nkvpSkySunDir[3] = {kSkySunDirDef[0], kSkySunDirDef[1], kSkySunDirDef[2]};
+		static float32 nkvpSkyTurbidity = kSkyTurbidityDef;
+		static bool nkvpSkySunDisc = kSkySunDiscDef;
+		static float32 nkvpSkySunIntensity = kSkySunIntensityDef;
+		static float32 nkvpSkySunColor[3] = {kSkySunColDef[0], kSkySunColDef[1], kSkySunColDef[2]};
+		// LE SOLEIL DU CIEL ECLAIRE-T-IL LA SCENE ? En mode « Manuel », le ciel
+		// possede son propre soleil : sans cette option il ne serait qu'un decor,
+		// et il faudrait creer a cote une directionnelle qu'on devrait garder
+		// alignee a la main. Avec elle, ce soleil a TOUS les effets d'une
+		// directionnelle -- eclairage et ombres portees.
+		//
+		// Sans objet quand le ciel SUIT un soleil de la scene : cette lumiere-la
+		// existe deja et eclaire deja. En ajouter une seconde doublerait
+		// l'eclairement sans que rien ne l'explique.
+		static bool nkvpSkySunLights = false;
 		static bool nkvpSkyClouds = false;
-		static float32 nkvpSkyCloudCoverage = 0.5f;
-		static float32 nkvpSkyCloudDensity = 1.f;
-		static float32 nkvpSkyCloudScale = 2.f;
-		static float32 nkvpSkyCloudColor[3] = {1.f, 1.f, 1.f};
+		static float32 nkvpSkyCloudCoverage = kCloudCovDef;
+		static float32 nkvpSkyCloudDensity = kCloudDenDef;
+		static float32 nkvpSkyCloudScale = kCloudSclDef;
+		static float32 nkvpSkyCloudColor[3] = {kCloudColDef[0], kCloudColDef[1], kCloudColDef[2]};
 
 		int32 Demo3DHostSkyModel() {
 			return nkvpSkyModel;
 		}
 		void Demo3DHostSetSkyModel(int32 m) {
-			nkvpSkyModel = (m < 0) ? 0 : (m > 1 ? 1 : m);
+			const int32 v = (m < 0) ? 0 : (m > 1 ? 1 : m);
+			// NE MARQUER « a regenerer » QUE SI QUELQUE CHOSE CHANGE. L'interface
+			// repousse la valeur des qu'elle differe de la derniere poussee, ce
+			// qui arrive legitimement apres une remise a zero : sans ce test,
+			// l'etoile se rallumait sur un ciel qu'on venait justement de
+			// regenerer.
+			if (v == nkvpSkyModel)
+				return;
+			nkvpSkyModel = v;
+			nkvpSkyDirty = true;
+		}
+		void Demo3DHostSkySunColor(float32 *rgb) {
+			if (!rgb)
+				return;
+			rgb[0] = nkvpSkySunColor[0];
+			rgb[1] = nkvpSkySunColor[1];
+			rgb[2] = nkvpSkySunColor[2];
+		}
+		void Demo3DHostSetSkySunColor(const float32 *rgb) {
+			if (!rgb)
+				return;
+			if (rgb[0] == nkvpSkySunColor[0] && rgb[1] == nkvpSkySunColor[1] &&
+				rgb[2] == nkvpSkySunColor[2])
+				return;
+			nkvpSkySunColor[0] = rgb[0];
+			nkvpSkySunColor[1] = rgb[1];
+			nkvpSkySunColor[2] = rgb[2];
+			nkvpSkyDirty = true;
+		}
+		bool Demo3DHostSkySunLightsScene() {
+			return nkvpSkySunLights;
+		}
+		void Demo3DHostSetSkySunLightsScene(bool on) {
+			// PAS de marquage « a regenerer » : cette option ne change pas le ciel
+			// genere, seulement la lumiere ajoutee a la scene. Son effet est
+			// immediat, a la frame suivante.
+			nkvpSkySunLights = on;
 		}
 		void Demo3DHostSkySun(float32 *dir, float32 *turbidity, bool *disc, float32 *intensity) {
 			if (dir) {
@@ -9894,6 +9994,7 @@ namespace nkentseu {
 				*intensity = nkvpSkySunIntensity;
 		}
 		void Demo3DHostSetSkySun(const float32 *dir, float32 turbidity, bool disc, float32 intensity) {
+			nkvpSkyDirty = true;
 			if (dir) {
 				nkvpSkySunDir[0] = dir[0];
 				nkvpSkySunDir[1] = dir[1];
@@ -9920,6 +10021,7 @@ namespace nkentseu {
 		}
 		void Demo3DHostSetSkyClouds(bool on, float32 coverage, float32 density, float32 scale,
 									const float32 *color) {
+			nkvpSkyDirty = true;
 			nkvpSkyClouds = on;
 			nkvpSkyCloudCoverage = coverage < 0.f ? 0.f : (coverage > 1.f ? 1.f : coverage);
 			nkvpSkyCloudDensity = density < 0.f ? 0.f : (density > 2.f ? 2.f : density);
@@ -9931,10 +10033,103 @@ namespace nkentseu {
 			}
 		}
 
+		// ── LE CIEL SUIT UN SOLEIL DE LA SCENE ──────────────────────────────
+		// Une scene peut porter PLUSIEURS directionnelles : il faut donc CHOISIR
+		// laquelle le ciel suit, pas la deviner. On identifie la source par son
+		// NOEUD et non par un rang dans une liste : la liste change des qu'on
+		// ajoute ou supprime une lumiere, le noeud non -- sans quoi le ciel se
+		// mettrait a suivre une autre lampe apres une suppression.
+		// -1 = MANUEL : l'elevation et l'azimut du panneau font foi.
+		static int32 nkvpSkySunNode = -1;
+
+		// Direction EFFECTIVE (gizmo compris) de la directionnelle d'un noeud.
+		// Faux si ce noeud n'est pas une directionnelle vivante.
+		static bool HostSunDirOf(int32 node, float32 *dir) {
+			auto *st = HostSt();
+			if (!st || !dir)
+				return false;
+			// Lumieres de demo : 86..89.
+			if (node >= 86 && node < 86 + Demo3DState::kNumLights) {
+				const renderer::NkLightDesc L = Demo3D_LightEffective(st, node - 86);
+				if (L.type != renderer::NkLightType::NK_DIRECTIONAL)
+					return false;
+				dir[0] = L.direction.x;
+				dir[1] = L.direction.y;
+				dir[2] = L.direction.z;
+				return true;
+			}
+			// Lumieres utilisateur : 96..159, sous-type 0 = soleil.
+			if (node >= kNkvpFirstUser && node < kNkvpMaxNodes) {
+				const int32 u = node - kNkvpFirstUser;
+				if (nkvpUserKind[u] != 5)
+					return false;
+				if (((int32)nkvpUserLight[u].type & 3) != 0)
+					return false;
+				// MEME calcul qu'a la soumission : la rotation du noeud donne le
+				// faisceau (-Y local). Le refaire autrement, c'est se garantir que
+				// le ciel et l'eclairage finiront par diverger.
+				const int32 e = node - kNkvpFirstEmpty;
+				const float32 kD2R = 0.017453292f;
+				const NkMat4f lRm =
+					st->emptyGizmo.RotationOf(e) *
+					(NkMat4f::RotationZ(NkAngle::FromRad(nkvpEmptyRotDeg[e][2] * kD2R)) *
+					 NkMat4f::RotationY(NkAngle::FromRad(nkvpEmptyRotDeg[e][1] * kD2R)) *
+					 NkMat4f::RotationX(NkAngle::FromRad(nkvpEmptyRotDeg[e][0] * kD2R)));
+				dir[0] = -lRm.mat[1][0];
+				dir[1] = -lRm.mat[1][1];
+				dir[2] = -lRm.mat[1][2];
+				return true;
+			}
+			return false;
+		}
+
+		int32 Demo3DHostSunNodes(int32 *out, int32 maxCount) {
+			int32 n = 0;
+			float32 tmp[3];
+			for (int32 node = 86; node < kNkvpMaxNodes && n < maxCount; ++node) {
+				// On saute la plage des empties (90..95) : aucune lumiere n'y vit.
+				if (node >= kNkvpFirstEmpty && node < kNkvpFirstUser)
+					continue;
+				if (HostSunDirOf(node, tmp)) {
+					if (out)
+						out[n] = node;
+					++n;
+				}
+			}
+			return n;
+		}
+		int32 Demo3DHostSkySunSource() {
+			return nkvpSkySunNode;
+		}
+		void Demo3DHostSetSkySunSource(int32 node) {
+			float32 d[3];
+			if (node >= 0 && !HostSunDirOf(node, d))
+				node = -1; // noeud disparu ou plus directionnel : on revient au manuel
+			if (node == nkvpSkySunNode)
+				return; // rien de neuf : ne pas rallumer l'etoile pour rien
+			nkvpSkySunNode = node;
+			nkvpSkyDirty = true;
+		}
+
 		bool Demo3DHostApplySky() {
 			auto *env = hst.ctx.renderer ? hst.ctx.renderer->GetEnvironment() : nullptr;
 			if (!env)
 				return false;
+			// LE CIEL SUIT-IL UN SOLEIL DE LA SCENE ? Si oui, sa direction fait
+			// foi et remplace l'elevation/azimut saisis : c'est tout l'interet du
+			// lien. On la recopie AUSSI dans l'etat, pour que le panneau affiche
+			// la valeur effective plutot qu'une consigne perimee -- un etat qui se
+			// propage doit s'afficher sous sa forme effective.
+			if (nkvpSkySunNode >= 0) {
+				float32 d[3];
+				if (HostSunDirOf(nkvpSkySunNode, d)) {
+					nkvpSkySunDir[0] = d[0];
+					nkvpSkySunDir[1] = d[1];
+					nkvpSkySunDir[2] = d[2];
+				} else {
+					nkvpSkySunNode = -1; // la source a disparu : retour au manuel
+				}
+			}
 			renderer::NkSkyParams sp;
 			sp.model = (nkvpSkyModel == 1) ? renderer::NkSkyModel::NK_SKY_PHYSICAL
 										   : renderer::NkSkyModel::NK_SKY_GRADIENT;
@@ -9945,18 +10140,102 @@ namespace nkentseu {
 			sp.turbidity = nkvpSkyTurbidity;
 			sp.sunDisc = nkvpSkySunDisc;
 			sp.sunIntensity = nkvpSkySunIntensity;
+			sp.sunColor = {nkvpSkySunColor[0], nkvpSkySunColor[1], nkvpSkySunColor[2]};
 			sp.clouds = nkvpSkyClouds;
 			sp.cloudCoverage = nkvpSkyCloudCoverage;
 			sp.cloudDensity = nkvpSkyCloudDensity;
 			sp.cloudScale = nkvpSkyCloudScale;
 			sp.cloudColor = {nkvpSkyCloudColor[0], nkvpSkyCloudColor[1], nkvpSkyCloudColor[2]};
 			env->LoadProceduralEx(sp);
+			nkvpSkyDirty = false;
 			// Les cubemaps viennent d'etre RECREEES : sans ce rafraichissement, les
 			// jeux de descripteurs pointent encore sur les anciennes et la
 			// regeneration reste invisible.
 			if (auto *r3 = hst.ctx.renderer->GetRender3D())
 				r3->RefreshEnvironmentBindings();
 			return true;
+		}
+		// LE SOLEIL DU CIEL, VU COMME UNE LUMIERE DE SCENE.
+		// Renvoie faux si le ciel ne doit rien eclairer : option decochee, ou
+		// bien le ciel SUIT deja une lumiere de la scene -- celle-la eclaire
+		// deja, en ajouter une seconde doublerait l'eclairement sans raison.
+		//
+		// Une directionnelle n'a pas de POSITION utile (le shader ne lit que sa
+		// direction) : on n'en fabrique donc pas. C'est la meme regle que
+		// NkLightGizmo::CanTranslate applique aux lumieres de la scene.
+		bool HostSkySunAsLight(renderer::NkLightDesc &out) {
+			if (!nkvpSkySunLights || nkvpSkySunNode >= 0)
+				return false;
+			out = renderer::NkLightDesc{};
+			out.type = renderer::NkLightType::NK_DIRECTIONAL;
+			out.direction = {nkvpSkySunDir[0], nkvpSkySunDir[1], nkvpSkySunDir[2]};
+			out.color = {nkvpSkySunColor[0], nkvpSkySunColor[1], nkvpSkySunColor[2]};
+			// Meme echelle que les soleils de la scene (cf. kSunLightRefIntensity) :
+			// a puissance egale ils eclairent pareil, au lieu de laisser comparer
+			// deux echelles a l'oeil.
+			out.intensity = nkvpSkySunIntensity * kSunLightRefIntensity;
+			out.castShadow = true;
+			return true;
+		}
+
+		bool Demo3DHostSkyNeedsApply() {
+			// SI LE CIEL SUIT UN SOLEIL, bouger ce soleil rend le ciel perime.
+			// Le constater ICI plutot que dans la boucle de frame evite de faire
+			// porter au rendu un test qui n'interesse que le panneau -- et ce
+			// panneau appelle cette fonction a chaque image de toute facon.
+			// On ne REGENERE pas tout seul : les convolutions sont un calcul CPU,
+			// les declencher a chaque degre de rotation figerait l'interface.
+			if (nkvpSkySunNode >= 0) {
+				float32 d[3];
+				if (HostSunDirOf(nkvpSkySunNode, d)) {
+					const float32 e = 1e-4f;
+					if (fabsf(d[0] - nkvpSkySunDir[0]) > e || fabsf(d[1] - nkvpSkySunDir[1]) > e ||
+						fabsf(d[2] - nkvpSkySunDir[2]) > e)
+						nkvpSkyDirty = true;
+				}
+			}
+			return nkvpSkyDirty;
+		}
+
+		// -- REMISE A ZERO ---------------------------------------------------
+		// Trois portees SEPAREES, parce qu'on ne veut pas perdre son ciel en
+		// voulant seulement retrouver l'ambiance d'origine. Chacune repart des
+		// constantes kXxxDef declarees plus haut : c'est la MEME source que
+		// l'etat initial, donc le bouton ne peut pas remettre une valeur qui
+		// n'a jamais ete celle du depart.
+		void Demo3DHostResetAmbient() {
+			Demo3DHostSetAmbient(kAmbientDef);
+			Demo3DHostSetAmbientColor(kAmbientColDef);
+			// La luminosite du ciel est posee ICI directement : son accesseur est
+			// defini plus bas dans ce fichier, et l'en-tete n'est pas inclus par
+			// cette unite de compilation.
+			if (auto *r3 = hst.ctx.renderer ? hst.ctx.renderer->GetRender3D() : nullptr)
+				r3->SetSkyIntensity(kSkyBrightnessDef);
+		}
+		void Demo3DHostResetSky() {
+			for (int32 i = 0; i < 3; ++i) {
+				nkvpSkyTop[i] = kSkyTopDef[i];
+				nkvpSkyHorizon[i] = kSkyHorDef[i];
+				nkvpSkyGround[i] = kSkyGndDef[i];
+				nkvpSkySunDir[i] = kSkySunDirDef[i];
+			}
+			nkvpSkyModel = kSkyModelDef;
+			nkvpSkyTurbidity = kSkyTurbidityDef;
+			nkvpSkySunDisc = kSkySunDiscDef;
+			nkvpSkySunIntensity = kSkySunIntensityDef;
+			// La remise a zero est un geste EXPLICITE : on regenere aussitot,
+			// sinon l'utilisateur verrait les champs revenir a leur valeur sans
+			// que l'image suive, et douterait de ce qui a ete fait.
+			Demo3DHostApplySky();
+		}
+		void Demo3DHostResetClouds() {
+			nkvpSkyClouds = false;
+			nkvpSkyCloudCoverage = kCloudCovDef;
+			nkvpSkyCloudDensity = kCloudDenDef;
+			nkvpSkyCloudScale = kCloudSclDef;
+			for (int32 i = 0; i < 3; ++i)
+				nkvpSkyCloudColor[i] = kCloudColDef[i];
+			Demo3DHostApplySky();
 		}
 		const char *Demo3DHostHdrPath() {
 			return nkvpHdrPath;

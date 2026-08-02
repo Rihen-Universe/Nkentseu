@@ -6190,6 +6190,20 @@ namespace nkentseu {
 										demo::Demo3DHostSetSkyIntensity(si);
 									yy += kRowH;
 								}
+								// REINITIALISER L'AMBIANCE seule : intensite,
+								// teinte et luminosite du ciel. Ni le modele de
+								// ciel ni les nuages ne bougent -- ils ont leurs
+								// propres boutons.
+								{
+									const NkRect rra{iA.x, yy + S(2.f), iA.w, kRowH - S(4.f)};
+									hit.Add("prop.amb.reset", rra);
+									p.Outline(rra, NkRole::Border, NkRole::InputBg, 3.f);
+									p.TextV(rra.x + (rra.w - p.TextW("Ambiance par defaut")) * 0.5f,
+											yy, kRowH, "Ambiance par defaut", NkRole::TextMuted);
+									if (hit.Clicked("prop.amb.reset"))
+										demo::Demo3DHostResetAmbient();
+									yy += kRowH;
+								}
 							}
 							if (st.envSource == 1) {
 								// ── QUEL MODELE DE CIEL ? ───────────────────
@@ -6202,18 +6216,33 @@ namespace nkentseu {
 								{
 									static const char *const kSkyM[2] = {"Degrade",
 																		 "Physique (soleil)"};
-									int32 sm = demo::Demo3DHostSkyModel();
-									const int32 sm0 = sm;
+									// LA VALEUR VIT DANS L'ETAT, jamais en local : le
+									// combo retient un POINTEUR dessus et n'ecrit
+									// qu'a la frame suivante. Avec une locale, le
+									// choix se perdait en silence et le modele
+									// restait bloque sur « Degrade ».
+									//
+									// ET ON NE COMPARE PAS A UNE VALEUR CAPTUREE
+									// DANS LA FRAME. DrawComboPopup ecrit
+									// *selected en FIN d'image, apres les panneaux :
+									// a la frame suivante, un `const int32 v0 = st.x`
+									// pris avant l'appel vaut DEJA la nouvelle
+									// valeur, et `st.x != v0` est toujours faux. Le
+									// poussage vers le moteur n'a alors jamais lieu.
+									// On memorise donc CE QU'ON A REELLEMENT POUSSE.
+									static int32 pushedModel = 0;
 									p.TextV(iA.x, yy, kRowH, "Modele", NkRole::TextMuted);
 									Combo(p, hit, ws, "prop.sky.model",
 										  {iA.x + S(110.f), yy + S(2.f), iA.w - S(110.f),
 										   kRowH - S(4.f)},
-										  kSkyM, nullptr, 2, sm, combo);
-									if (sm != sm0)
-										demo::Demo3DHostSetSkyModel(sm);
+										  kSkyM, nullptr, 2, st.skyModel, combo);
+									if (st.skyModel != pushedModel) {
+										pushedModel = st.skyModel;
+										demo::Demo3DHostSetSkyModel(st.skyModel);
+									}
 									yy += kRowH;
 								}
-								const int32 skyModel = demo::Demo3DHostSkyModel();
+								const int32 skyModel = st.skyModel;
 								bool ch = false;
 								float32 top[3], hor[3], gnd[3];
 								demo::Demo3DHostEnvSky(top, hor, gnd);
@@ -6240,18 +6269,106 @@ namespace nkentseu {
 									float32 azim = atan2f(tx, tz) * 57.2957795f;
 									const float32 e0 = elev, a0 = azim, t0 = turb, i0 = si;
 									const bool d0 = disc;
-									p.TextV(iA.x, yy, kRowH, "Elevation", NkRole::TextMuted);
-									DragFloat(p, hit, ws, in, "prop.sky.elev",
-											  {iA.x + S(110.f), yy + S(3.f), iA.w - S(110.f),
-											   kRowH - S(6.f)},
-											  elev, 0.5f, NkRole::AccentUi, "%.1f°");
+									// ── QUEL SOLEIL LE CIEL SUIT-IL ? ──────
+									// Une scene peut en porter PLUSIEURS : on
+									// choisit, on ne devine pas. La source est
+									// designee par son NOEUD, donc supprimer une
+									// autre lampe ne fait pas changer de soleil.
+									// « Manuel » garde la main sur elevation et
+									// azimut.
+									// TOUT CE QUE LE COMBO RETIENT DOIT SURVIVRE A LA
+									// FRAME. NkComboPending garde un pointeur sur la
+									// valeur ET sur le TABLEAU D'ITEMS ; la liste
+									// n'est peinte qu'apres tout le reste, par
+									// DrawComboPopup. Un tableau d'items LOCAL est
+									// donc detruit avant d'etre lu -- ce qui ne se
+									// perd pas en silence comme pour la valeur, mais
+									// fait planter net a l'ouverture de la liste.
+									// Les noms sont recalcules a chaque image (une
+									// lumiere peut etre renommee), le STOCKAGE, lui,
+									// est permanent.
+									static int32 sunNodes[16];
+									static char sunLbl[17][48];
+									static const char *sunItems[17];
+									int32 raw[16];
+									const int32 rawCount = demo::Demo3DHostSunNodes(raw, 16);
+									// ON NE PROPOSE QUE LES SOLEILS QUE L'UTILISATEUR
+									// VOIT. Le moteur porte aussi les lumieres de la
+									// demo (noeuds 86..89), qui n'apparaissent pas
+									// dans la hierarchie : les lister ici faisait
+									// surgir un soleil dont Rihen n'a jamais entendu
+									// parler. On applique donc EXACTEMENT le meme
+									// filtre que l'arbre de scene.
+									int32 sunCount = 0;
+									for (int32 i = 0; i < rawCount; ++i) {
+										if (NkHierNodeSkip(raw[i]))
+											continue;
+										sunNodes[sunCount++] = raw[i];
+									}
+									snprintf(sunLbl[0], sizeof(sunLbl[0]), "Manuel");
+									sunItems[0] = sunLbl[0];
+									for (int32 i = 0; i < sunCount; ++i) {
+										NkHierNodeName(st, sunNodes[i], sunLbl[i + 1],
+													   (uint32)sizeof(sunLbl[0]));
+										sunItems[i + 1] = sunLbl[i + 1];
+									}
+									const int32 curSun = demo::Demo3DHostSkySunSource();
+									static int32 pushedSun = 0;
+									// L'HOTE A PU LACHER LA SOURCE tout seul (le
+									// soleil suivi a ete supprime). On remet alors le
+									// rang a « Manuel » -- mais SEULEMENT si aucun
+									// choix n'est en attente, sinon on effacerait ce
+									// que le combo vient d'ecrire.
+									if (curSun < 0 && st.skySunSel > 0 &&
+										pushedSun == st.skySunSel) {
+										st.skySunSel = 0;
+										pushedSun = 0;
+									}
+									p.TextV(iA.x, yy, kRowH, "Suit", NkRole::TextMuted);
+									Combo(p, hit, ws, "prop.sky.sunsrc",
+										  {iA.x + S(110.f), yy + S(2.f), iA.w - S(110.f),
+										   kRowH - S(4.f)},
+										  sunItems, nullptr, sunCount + 1, st.skySunSel, combo);
+									// Meme regle que pour le modele : on compare a CE
+									// QU'ON A POUSSE, pas a une valeur capturee dans
+									// la frame. Et on BORNE avant d'indexer : entre le
+									// clic et son traitement, une lumiere a pu
+									// disparaitre et raccourcir la liste.
+									if (st.skySunSel != pushedSun) {
+										if (st.skySunSel < 0 || st.skySunSel > sunCount)
+											st.skySunSel = 0;
+										pushedSun = st.skySunSel;
+										demo::Demo3DHostSetSkySunSource(
+											st.skySunSel <= 0 ? -1 : sunNodes[st.skySunSel - 1]);
+									}
 									yy += kRowH;
-									p.TextV(iA.x, yy, kRowH, "Azimut", NkRole::TextMuted);
-									DragFloat(p, hit, ws, in, "prop.sky.azim",
-											  {iA.x + S(110.f), yy + S(3.f), iA.w - S(110.f),
-											   kRowH - S(6.f)},
-											  azim, 1.f, NkRole::AccentUi, "%.1f°");
-									yy += kRowH;
+									// LIE : elevation et azimut sont IMPOSES par la
+									// lumiere. On les AFFICHE quand meme, en lecture
+									// seule -- un etat qui se propage doit se voir
+									// sous sa forme effective, pas rester un champ
+									// modifiable dont personne ne tient compte.
+									if (curSun >= 0) {
+										char sb[64];
+										snprintf(sb, sizeof(sb), "%.1f°  /  %.1f°", (double)elev,
+												 (double)azim);
+										p.TextV(iA.x, yy, kRowH, "Elev. / Azimut",
+												NkRole::TextMuted);
+										p.TextV(iA.x + S(110.f), yy, kRowH, sb, NkRole::Text);
+										yy += kRowH;
+									} else {
+										p.TextV(iA.x, yy, kRowH, "Elevation", NkRole::TextMuted);
+										DragFloat(p, hit, ws, in, "prop.sky.elev",
+												  {iA.x + S(110.f), yy + S(3.f), iA.w - S(110.f),
+												   kRowH - S(6.f)},
+												  elev, 0.5f, NkRole::AccentUi, "%.1f°");
+										yy += kRowH;
+										p.TextV(iA.x, yy, kRowH, "Azimut", NkRole::TextMuted);
+										DragFloat(p, hit, ws, in, "prop.sky.azim",
+												  {iA.x + S(110.f), yy + S(3.f), iA.w - S(110.f),
+												   kRowH - S(6.f)},
+												  azim, 1.f, NkRole::AccentUi, "%.1f°");
+										yy += kRowH;
+									}
 									// Turbidite : 1 = air de haute montagne,
 									// 2-3 = ciel clair, 6-10 = atmosphere chargee.
 									p.TextV(iA.x, yy, kRowH, "Turbidite", NkRole::TextMuted);
@@ -6267,6 +6384,15 @@ namespace nkentseu {
 											  si, 0.02f, NkRole::AccentUi, "%.2f");
 									yy += kRowH;
 									{
+										float32 sc[3];
+										demo::Demo3DHostSkySunColor(sc);
+										bool scCh = false;
+										yy += PaintColorRow(p, hit, ws, in, st, iA, yy, "Couleur",
+															"prop.sky.suncol", sc, &scCh);
+										if (scCh)
+											demo::Demo3DHostSetSkySunColor(sc);
+									}
+									{
 										const NkRect cb{iA.x, yy + S(5.f), S(12.f), S(12.f)};
 										hit.Add("prop.sky.disc", cb);
 										p.Outline(cb, disc ? NkRole::AccentUi : NkRole::Border,
@@ -6275,6 +6401,28 @@ namespace nkentseu {
 												NkRole::TextMuted);
 										if (hit.Clicked("prop.sky.disc"))
 											disc = !disc;
+										yy += kRowH;
+									}
+									// LE SOLEIL DU CIEL ECLAIRE-T-IL LA SCENE ?
+									// Propose UNIQUEMENT en mode Manuel : quand le
+									// ciel suit une lumiere, celle-ci eclaire deja,
+									// et en ajouter une seconde doublerait
+									// l'eclairement sans que rien ne l'explique.
+									// C'est ce qui donne au soleil manuel TOUS les
+									// effets d'une directionnelle -- ombres portees
+									// comprises -- au lieu d'un simple decor.
+									if (curSun < 0) {
+										bool lightsOn = demo::Demo3DHostSkySunLightsScene();
+										const NkRect cb{iA.x, yy + S(5.f), S(12.f), S(12.f)};
+										hit.Add("prop.sky.sunlight", cb);
+										p.Outline(cb,
+												  lightsOn ? NkRole::AccentUi : NkRole::Border,
+												  lightsOn ? NkRole::AccentUi : NkRole::InputBg,
+												  2.f);
+										p.TextV(cb.x + S(18.f), yy, kRowH, "Eclaire la scene",
+												NkRole::TextMuted);
+										if (hit.Clicked("prop.sky.sunlight"))
+											demo::Demo3DHostSetSkySunLightsScene(!lightsOn);
 										yy += kRowH;
 									}
 									if (elev != e0 || azim != a0 || turb != t0 || si != i0 ||
@@ -6340,18 +6488,60 @@ namespace nkentseu {
 									}
 									if (cOn != o0 || cCov != v0 || cDen != w0 || cScl != s0c || colCh)
 										demo::Demo3DHostSetSkyClouds(cOn, cCov, cDen, cScl, cCol);
+									if (cOn) {
+										const NkRect rrc{iA.x, yy + S(2.f), iA.w, kRowH - S(4.f)};
+										hit.Add("prop.sky.creset", rrc);
+										p.Outline(rrc, NkRole::Border, NkRole::InputBg, 3.f);
+										p.TextV(rrc.x + (rrc.w - p.TextW("Nuages par defaut")) * 0.5f,
+												yy, kRowH, "Nuages par defaut", NkRole::TextMuted);
+										if (hit.Clicked("prop.sky.creset"))
+											demo::Demo3DHostResetClouds();
+										yy += kRowH;
+									}
 								}
 								// REGENERER est un calcul CPU (convolutions) : il se
 								// demande, il ne se declenche pas a chaque image ni
 								// sous le curseur qu'on tire.
-								const NkRect br{iA.x, yy + S(2.f), iA.w, kRowH - S(4.f)};
-								hit.Add("prop.sky.apply", br);
-								p.Fill(br, NkRole::AccentUi, 3.f);
-								p.TextV(br.x + (br.w - p.TextW("Regenerer le ciel")) * 0.5f, yy,
-										kRowH, "Regenerer le ciel", NkRole::TextOnAccent);
-								if (hit.Clicked("prop.sky.apply"))
-									demo::Demo3DHostApplySky();
-								yy += kRowH;
+								//
+								// LE BOUTON DIT S'IL Y A QUELQUE CHOSE A REGENERER.
+								// Sans ce retour, on tire un curseur, l'image ne
+								// bouge pas, et rien ne dit que c'est normal : le
+								// reglage passe pour « sans effet » -- exactement le
+								// genre de doute qu'on vient de payer cher ailleurs.
+								{
+									const bool dirty = demo::Demo3DHostSkyNeedsApply();
+									const float32 gp = S(4.f);
+									const float32 bw = (iA.w - gp) * 0.62f;
+									const NkRect br{iA.x, yy + S(2.f), bw, kRowH - S(4.f)};
+									hit.Add("prop.sky.apply", br);
+									p.Fill(br, dirty ? NkRole::AccentUi : NkRole::PanelHeader, 3.f);
+									const char *lbl = dirty ? "Regenerer le ciel *"
+															: "Regenerer le ciel";
+									p.TextV(br.x + (br.w - p.TextW(lbl)) * 0.5f, yy, kRowH, lbl,
+											dirty ? NkRole::TextOnAccent : NkRole::TextMuted);
+									if (hit.Clicked("prop.sky.apply"))
+										demo::Demo3DHostApplySky();
+									// REINITIALISER LE CIEL, sans toucher a
+									// l'ambiance ni aux nuages : trois portees
+									// separees, pour ne pas perdre l'un en voulant
+									// retrouver l'autre.
+									const NkRect rr2{iA.x + bw + gp, yy + S(2.f),
+													 iA.w - bw - gp, kRowH - S(4.f)};
+									hit.Add("prop.sky.reset", rr2);
+									p.Outline(rr2, NkRole::Border, NkRole::InputBg, 3.f);
+									p.TextV(rr2.x + (rr2.w - p.TextW("Defaut")) * 0.5f, yy, kRowH,
+											"Defaut", NkRole::TextMuted);
+									if (hit.Clicked("prop.sky.reset")) {
+										demo::Demo3DHostResetSky();
+										// L'etat d'interface doit suivre la remise a
+										// zero : sinon le combo continuerait
+										// d'afficher « Physique » alors que le
+										// moteur est revenu au degrade.
+										st.skyModel = 0;
+										st.skySunSel = 0;
+									}
+									yy += kRowH;
+								}
 							} else if (st.envSource == 2) {
 								p.TextV(iA.x, yy, kRowH, "Fichier", NkRole::TextMuted);
 								if (!ws.IsEditing("prop.hdr.path") && !st.hdrPath[0])
