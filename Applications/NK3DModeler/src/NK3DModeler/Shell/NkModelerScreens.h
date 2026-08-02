@@ -4459,6 +4459,29 @@ namespace nkentseu {
 				float32 yy = secY - st.propScroll3[sec];
 
 				if (sec == 0) {
+					// ── LA PIPETTE A-T-ELLE DESIGNE QUELQU'UN ? ──────────────────
+					// Elle se resout ICI, avant tout le reste : cliquer une cible
+					// CHANGE LA SELECTION, donc l'objet que le panneau affiche. Se
+					// fier a l'objet courant arrivait toujours trop tard -- le
+					// sujet etait deja remplace par la cible (constate par Rihen :
+					// « le picker se confond avec le clic de selection »).
+					if (st.relPick != 0 && st.relPickFor >= 0 && st.activeEmpty >= 0 &&
+						st.activeEmpty != st.relPickPrev &&
+						st.activeEmpty != st.relPickFor) {
+						const int32 subj = st.relPickFor;
+						const int32 tgt = st.activeEmpty;
+						if (st.relPick == 1 && !NkHierIsDescendant(tgt, subj))
+							demo::Demo3DHostSetNodeParent(subj, tgt);
+						else if (st.relPick == 2 && !NkHierIsDescendant(subj, tgt))
+							demo::Demo3DHostSetNodeParent(tgt, subj);
+						// On REVIENT sur l'objet qu'on editait : sinon le panneau
+						// reste sur la cible et l'on perd le fil de son reglage.
+						demo::Demo3DHostDeselectAll();
+						demo::Demo3DHostSelectEmptyNode(subj);
+						st.activeEmpty = subj;
+						st.relPick = 0;
+						st.relPickFor = -1;
+					}
 					// â”€â”€ L'OBJET : nom + TRANSFORMATION COMPLETE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 					const int32 li = demo::Demo3DHostSelectedLight();
 					const int32 act = demo::Demo3DHostActiveObject();
@@ -4665,27 +4688,9 @@ namespace nkentseu {
 								if (grpRel) {
 									const NkRect iR = NkGroupInner(rowR);
 									yy += NkGroupPad();
-									// ── LA PIPETTE A DESIGNE QUELQU'UN ? ───────────
-									// Elle a arme, puis l'utilisateur a clique un objet
-									// dans la vue ou la hierarchie : la selection a donc
-									// change, et c'est ELLE la cible.
-									if (st.relPick != 0 && st.relPickFor == en &&
-										st.activeEmpty >= 0 &&
-										st.activeEmpty != st.relPickPrev &&
-										st.activeEmpty != en) {
-										const int32 tgt = st.activeEmpty;
-										if (st.relPick == 1 && !NkHierIsDescendant(tgt, en))
-											demo::Demo3DHostSetNodeParent(en, tgt);
-										else if (st.relPick == 2 && !NkHierIsDescendant(en, tgt))
-											demo::Demo3DHostSetNodeParent(tgt, en);
-										// On REVIENT sur l'objet qu'on editait : sinon le
-										// panneau saute sur la cible et l'on perd le fil.
-										demo::Demo3DHostDeselectAll();
-										demo::Demo3DHostSelectEmptyNode(en);
-										st.activeEmpty = en;
-										st.relPick = 0;
-										st.relPickFor = -1;
-									}
+									// (La pipette se resout PLUS HAUT, au niveau du panneau :
+									// designer une cible change la selection, donc l'objet
+									// affiche -- la resoudre ici arrivait trop tard.)
 									const float32 valX = iR.x + S(96.f);
 									const float32 valW = iR.w - S(96.f);
 									// PARENT : une LISTE, pas une etiquette (Rihen) -- on
@@ -4765,7 +4770,7 @@ namespace nkentseu {
 													  pkP ? NkRole::AccentUi : NkRole::PanelHeader,
 													  3.f);
 											p.IconV(eb.x + (eb.w - S(11.f)) * 0.5f, eb.y, eb.h,
-													NkIcon::Picker,
+													NkIcon::Pipette,
 													pkP ? NkRole::TextOnAccent : NkRole::TextMuted,
 													11.f);
 											if (hit.Clicked("prop.rel.parpick")) {
@@ -4892,7 +4897,7 @@ namespace nkentseu {
 															  : NkRole::PanelHeader,
 														  3.f);
 												p.IconV(eb.x + (eb.w - S(11.f)) * 0.5f, eb.y, eb.h,
-														NkIcon::Picker,
+														NkIcon::Pipette,
 														pkC ? NkRole::TextOnAccent
 															: NkRole::TextMuted,
 														11.f);
