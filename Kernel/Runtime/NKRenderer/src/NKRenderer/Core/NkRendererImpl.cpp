@@ -1419,6 +1419,18 @@ namespace nkentseu {
 				mOverlay->OnResize(w, h);
 			if (mPostProcess)
 				mPostProcess->OnResize(w, h);
+			// ON ATTEND QUE LE GPU AIT FINI AVANT DE DETRUIRE QUOI QUE CE SOIT.
+			// Le rebuild qui suit libere les ressources transitoires (cible HDR,
+			// depth, cibles intermediaires des passes) ; avec plusieurs frames en
+			// vol, le GPU peut encore etre en train de les lire. C'est ce qui
+			// tuait l'application a la RESTAURATION d'une fenetre reduite
+			// (constate par Rihen) : la sequence resize -> rebuild s'executait
+			// pendant que des frames precedentes n'etaient pas terminees.
+			// ResizeSwapchain fait deja ce WaitIdle pour SES ressources -- mais il
+			// n'est pas toujours atteint (taille inchangee, mode override), alors
+			// que le rebuild, lui, a lieu dans tous les cas.
+			if (mDevice)
+				mDevice->WaitIdle();
 			// Reset + rebuild du RenderGraph : les ressources transitoires (HDR target,
 			// depth buffer) sont dimensionnees via mCfg.width/height au moment du build,
 			// donc on doit les recreer apres un changement de taille. RebuildRenderGraph()
