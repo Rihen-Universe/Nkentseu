@@ -549,6 +549,11 @@ namespace nkentseu {
 				return;
 			if (st.sceneTabKind[st.activeTab] == 0 && tb != st.activeTab)
 				NkStoreSceneCam(st, st.activeTab); // la scene quittee garde sa vue
+			// Quitter un onglet d'ISOLATION : le noeud isole rentre chez lui.
+			if (st.sceneTabIsoNode[st.activeTab] > 0 && tb != st.activeTab)
+				demo::Demo3DHostMoveTreeScene(
+					st.sceneTabIsoNode[st.activeTab] - 1,
+					(int32)st.sceneTabIsoHome[st.activeTab]);
 			if (st.editPreviewNode > 0) {
 				demo::Demo3DHostDeleteNode(st.editPreviewNode - 1, true);
 				st.editPreviewNode = 0;
@@ -572,6 +577,15 @@ namespace nkentseu {
 			}
 			// EDITEUR : scene VIDE + maquette selon la nature de l'asset.
 			demo::Demo3DHostResetView(); // document neuf : vue d'ouverture
+			// ISOLATION : l'onglet edite le NOEUD LUI-MEME (pas une copie) --
+			// deplace dans ce document, rendu a sa scene au retour.
+			if (st.sceneTabIsoNode[tb] > 0) {
+				const int32 iso = st.sceneTabIsoNode[tb] - 1;
+				demo::Demo3DHostMoveTreeScene(iso, (int32)st.sceneTabId[tb]);
+				demo::Demo3DHostSelectEmptyNode(iso);
+				st.editPreviewNode = 0;
+				return;
+			}
 			const uint8 ek = (uint8)(tk - 1);
 			const int32 ai = st.sceneTabAsset[tb] - 1;
 			int32 pv = -1;
@@ -611,10 +625,10 @@ namespace nkentseu {
 					const uint8 k2 = (uint8)(st.sceneTabKind[i] - 1);
 					const NkRole r2 = (k2 == 0)	  ? NkRole::TypeMesh
 									  : (k2 == 4) ? NkRole::AccentUi
-									  : (k2 == 6) ? NkRole::AxisY
+									  : (k2 == 6) ? NkRole::AxisX
 									  : (k2 == 2) ? NkRole::TypeMat
 												  : NkRole::TypeTex;
-					p.Fill({tr.x, tr.y + tr.h - 2.f, tr.w, 2.f}, r2);
+					p.Fill({tr.x, tr.y, tr.w, 2.f}, r2); // liseret en HAUT (Rihen)
 				}
 				snprintf(key, sizeof(key), "tab.name.%d", i);
 				EditableText(p, hit, ws, in, key, {x + S(10.f), r.y, tw - S(32.f), r.h}, st.sceneNames[i],
@@ -628,6 +642,12 @@ namespace nkentseu {
 					HoverFill(p, cr, hit.Add(key, cr), 2.f);
 					p.IconV(x + tw - S(20.f), r.y, r.h, NkIcon::WinClose, NkRole::TextMuted, 10.f);
 					if (hit.Clicked(key)) {
+						// Fermer l'onglet d'ISOLATION actif : le noeud rentre chez
+						// lui AVANT le decalage des donnees.
+						if (i == st.activeTab && st.sceneTabIsoNode[i] > 0)
+							demo::Demo3DHostMoveTreeScene(
+								st.sceneTabIsoNode[i] - 1,
+								(int32)st.sceneTabIsoHome[i]);
 						for (int32 k = i; k + 1 < st.sceneCount; ++k) {
 							NkWidgetState::Copy(st.sceneNames[k], st.sceneNames[k + 1], 31u);
 							// TOUTES les donnees d'onglet suivent le nom.
@@ -635,6 +655,8 @@ namespace nkentseu {
 							st.sceneTabKind[k] = st.sceneTabKind[k + 1];
 							st.sceneTabAsset[k] = st.sceneTabAsset[k + 1];
 							st.sceneTabId[k] = st.sceneTabId[k + 1];
+							st.sceneTabIsoNode[k] = st.sceneTabIsoNode[k + 1];
+							st.sceneTabIsoHome[k] = st.sceneTabIsoHome[k + 1];
 							st.sceneCamOrtho[k] = st.sceneCamOrtho[k + 1];
 							st.sceneCamSet[k] = st.sceneCamSet[k + 1];
 							for (int32 a = 0; a < 6; ++a)
@@ -679,6 +701,7 @@ namespace nkentseu {
 				st.sceneTabKind[nt] = 0;
 				st.sceneTabAsset[nt] = 0;
 				st.sceneTabId[nt] = (uint8)st.sceneIdNext++;
+				st.sceneTabIsoNode[nt] = 0;
 				NkActivateTab(st, nt);
 			}
 		}
@@ -761,9 +784,11 @@ namespace nkentseu {
 				p.TextV(ar.x + S(26.f), cbY, cbH, "Ajouter", fg);
 				p.IconV(ar.x + ar.w - S(16.f), cbY, cbH,
 						open ? NkIcon::ChevronUp : NkIcon::ChevronDown, fg, 11.f);
-				if (hit.Clicked("tb.addmenu"))
+				if (hit.Clicked("tb.addmenu")) {
 					ws.ToggleCombo("tb.addmenu");
-				st.addAnchor = ar; // le menu est peint apres tout le reste
+					st.addParentNode = -1; // depuis la barre : naissance a la racine
+					st.addAnchor = ar; // le menu est peint apres tout le reste
+				}
 				x += S(104.f);
 			}
 			// MODIFICATEUR : liste a DEUX NIVEAUX. Le bouton montre le modificateur
@@ -1523,20 +1548,53 @@ namespace nkentseu {
 			// MENU CONTEXTUEL : Dupliquer / Copier / Coller / Supprimer, avec
 			// ou sans les enfants (les deux variantes demandees par Rihen).
 			if (st.hierMenuNode >= 0) {
-				static const char *const kMenu[4] = {"Dupliquer  (Maj+D)", "Copier  (Ctrl+C)",
-													 "Coller  (Ctrl+V)", "Supprimer...  (X)"};
-				NkRect mr{st.hierMenuX, st.hierMenuY, S(210.f), kRowH * 4.f};
+				const int32 tnM = st.hierMenuNode;
+				const int32 ukM = demo::Demo3DHostUserKind(tnM);
+				// Isoler : uniquement ce qui se MODELISE (ni lumiere ni empty).
+				const bool isoOk = tnM < 86 || (ukM >= 1 && ukM <= 3) || ukM >= 6;
+				const bool promOk = demo::Demo3DHostNodeParent(tnM) >= 0;
+				const char *hmIt[8];
+				int32 hmAct[8];
+				int32 nH = 0;
+				hmIt[nH] = "Ajouter un enfant...";
+				hmAct[nH++] = 5;
+				if (isoOk) {
+					hmIt[nH] = "Isoler (editer comme Model)";
+					hmAct[nH++] = 6;
+				}
+				if (promOk) {
+					hmIt[nH] = "Promouvoir en parent";
+					hmAct[nH++] = 7;
+				}
+				hmIt[nH] = "Dupliquer  (Maj+D)";
+				hmAct[nH++] = 0;
+				hmIt[nH] = "Copier  (Ctrl+C)";
+				hmAct[nH++] = 1;
+				hmIt[nH] = "Coller  (Ctrl+V)";
+				hmAct[nH++] = 2;
+				hmIt[nH] = "Supprimer...  (X)";
+				hmAct[nH++] = 3;
+				// LARGEUR = l'entree la plus longue ; vers le HAUT si le bas
+				// manquerait (Rihen : tout doit toujours se voir).
+				float32 wH = 0.f;
+				for (int32 mi = 0; mi < nH; ++mi)
+					if (p.TextW(hmIt[mi]) > wH)
+						wH = p.TextW(hmIt[mi]);
+				NkRect mr{st.hierMenuX, st.hierMenuY, wH + S(28.f),
+						  kRowH * (float32)nH};
 				if (mr.y + mr.h > area.y + area.h)
-					mr.y = area.y + area.h - mr.h;
+					mr.y = st.hierMenuY - mr.h; // vers le HAUT
+				if (mr.y < area.y)
+					mr.y = area.y;
 				p.Outline(mr, NkRole::Border, NkRole::PanelHeader, 3.f);
 				int32 mact = -1;
-				for (int32 mi = 0; mi < 4; ++mi) {
+				for (int32 mi = 0; mi < nH; ++mi) {
 					const NkRect it{mr.x, mr.y + (float32)mi * kRowH, mr.w, kRowH};
 					snprintf(key, sizeof(key), "hier.menu.%d", mi);
 					HoverFill(p, it, hit.Add(key, it), 0.f);
-					p.TextV(it.x + S(10.f), it.y, kRowH, kMenu[mi]);
+					p.TextV(it.x + S(10.f), it.y, kRowH, hmIt[mi]);
 					if (hit.Clicked(key))
-						mact = mi;
+						mact = hmAct[mi];
 				}
 				if (mact >= 0) {
 					const int32 tn = st.hierMenuNode;
@@ -1562,6 +1620,43 @@ namespace nkentseu {
 						st.delNodeCount = 1;
 						st.delHasKids = NkHierHasLiveKids(tn);
 						st.delAskOpen = true;
+					} else if (mact == 5) {
+						// AJOUTER UN ENFANT : tout le menu Ajouter ; l'objet
+						// clique est le PARENT du nouveau (Rihen).
+						st.addParentNode = tn;
+						st.addAnchor = {st.hierMenuX, st.hierMenuY - S(26.f), 0.f,
+										0.f};
+						if (!ws.ComboOpen("tb.addmenu"))
+							ws.ToggleCombo("tb.addmenu");
+					} else if (mact == 6) {
+						// ISOLER : un onglet Model edite CE noeud, seul, sans
+						// etre gene par le reste de la scene (Rihen).
+						if (st.sceneCount < 8) {
+							const int32 tb7 = st.sceneCount++;
+							NkHierNodeName(st, tn, st.sceneNames[tb7], 32);
+							st.sceneTabKind[tb7] = 7;
+							st.sceneTabAsset[tb7] = 0;
+							st.sceneTabIsoNode[tb7] = tn + 1;
+							st.sceneTabIsoHome[tb7] = st.sceneTabId[st.activeTab];
+							st.sceneTabId[tb7] = (uint8)st.sceneIdNext++;
+							st.sceneCamSet[tb7] = false;
+							st.sceneBlank[tb7] = true;
+							NkActivateTab(st, tb7);
+						}
+					} else if (mact == 7) {
+						// PROMOUVOIR : il prend la place de son parent ; le
+						// parent devient son fils, ses freres ses enfants.
+						const int32 pp7 = demo::Demo3DHostNodeParent(tn);
+						if (pp7 >= 0) {
+							const int32 gp7 = demo::Demo3DHostNodeParent(pp7);
+							const int32 nc7 = demo::Demo3DHostNodeCount();
+							for (int32 c7 = 0; c7 < nc7; ++c7)
+								if (c7 != tn && !NkHierNodeSkip(c7) &&
+									demo::Demo3DHostNodeParent(c7) == pp7)
+									demo::Demo3DHostSetNodeParent(c7, tn);
+							demo::Demo3DHostSetNodeParent(tn, gp7);
+							demo::Demo3DHostSetNodeParent(pp7, tn);
+						}
 					}
 					st.hierMenuNode = -1;
 				} else if (hit.AnyClick() && !NkHitRegistry::Contains(mr, hit.Mouse())) {
@@ -1666,10 +1761,18 @@ namespace nkentseu {
 					bmIt[nIt] = "Supprimer";
 					bmAct[nIt++] = 4;
 				}
-				NkRect mr2{st.browMenuX, st.browMenuY, creatOnly ? 0.f : S(180.f),
+				// LARGEUR = l'entree la plus longue ; s'ouvre vers le HAUT si le
+				// bas manquerait : tout doit toujours se voir (Rihen).
+				float32 wM2 = 0.f;
+				for (int32 mi = 0; mi < nIt; ++mi)
+					if (p.TextW(bmIt[mi]) > wM2)
+						wM2 = p.TextW(bmIt[mi]);
+				NkRect mr2{st.browMenuX, st.browMenuY, creatOnly ? 0.f : wM2 + S(28.f),
 						   kRowH * (float32)nIt};
 				if (mr2.y + mr2.h > area.y + area.h)
-					mr2.y = area.y + area.h - mr2.h;
+					mr2.y = st.browMenuY - mr2.h; // vers le HAUT
+				if (mr2.y < area.y)
+					mr2.y = area.y;
 				if (!creatOnly)
 					p.Outline(mr2, NkRole::Border, NkRole::PanelHeader, 3.f);
 				int32 act2 = -1;
@@ -1695,7 +1798,11 @@ namespace nkentseu {
 					static const char *const kCr[7] = {"Dossier", "Scene", "Model",
 													   "Materiau", "Texture",
 													   "Blueprint", "Dataset"};
-					sub2 = {mr2.x + mr2.w + 2.f, creatY, S(112.f), kRowH * 7.f};
+					float32 wS2 = 0.f;
+					for (int32 mi = 0; mi < 7; ++mi)
+						if (p.TextW(kCr[mi]) > wS2)
+							wS2 = p.TextW(kCr[mi]);
+					sub2 = {mr2.x + mr2.w + 2.f, creatY, wS2 + S(28.f), kRowH * 7.f};
 					if (sub2.y + sub2.h > area.y + area.h)
 						sub2.y = area.y + area.h - sub2.h;
 					if (sub2.x + sub2.w > area.x + area.w)
@@ -2204,6 +2311,14 @@ namespace nkentseu {
 			p.Unclip();
 
 			// UN CLIC DANS LE VIDE DESELECTIONNE.
+			if (hit.RightClicked("hier.list") && st.hierMenuNode < 0) {
+				// CLIC DROIT DANS LE VIDE (ou sur la racine) : TOUT le menu
+				// Ajouter, au pointeur ; l'objet nait a la racine (Rihen).
+				st.addParentNode = -1;
+				st.addAnchor = {hit.Mouse().x, hit.Mouse().y - S(26.f), 0.f, 0.f};
+				if (!ws.ComboOpen("tb.addmenu"))
+					ws.ToggleCombo("tb.addmenu");
+			}
 			if (hit.Clicked("hier.list") && !st.hierDragging && st.hierMenuNode < 0) {
 				demo::Demo3DHostDeselectAll();
 				st.activeEmpty = -1;
@@ -5589,7 +5704,7 @@ namespace nkentseu {
 									: (kind == 1) ? NkRole::TypeFolder
 									: (kind == 4) ? NkRole::AccentUi
 									: (kind == 5) ? NkRole::AxisZ
-									: (kind == 6) ? NkRole::AxisY
+									: (kind == 6) ? NkRole::AxisX
 									: (kind == 2) ? NkRole::TypeMat
 												  : NkRole::TypeTex;
 				const char *kindName = (kind == 0)   ? "Blueprint"
@@ -5717,6 +5832,7 @@ namespace nkentseu {
 						st.sceneTabAsset[tb] = i + 1;
 						st.sceneTabKind[tb] = tk9;
 						st.sceneTabId[tb] = (uint8)st.sceneIdNext++;
+						st.sceneTabIsoNode[tb] = 0;
 						st.sceneCamSet[tb] = false;
 						// contenu REEL au chargement : viendra du format projet
 						st.sceneBlank[tb] = true;
@@ -6200,6 +6316,9 @@ namespace nkentseu {
 																	 cats[c].items[i].prim);
 							if (nn >= 0) {
 								NkHierComposeName(st, cats[c].items[i].label, nn);
+								// clic droit sur un OBJET : il devient le parent (Rihen)
+								if (st.addParentNode >= 0)
+									demo::Demo3DHostSetNodeParent(nn, st.addParentNode);
 								demo::Demo3DHostSelectEmptyNode(nn);
 								// pour TOUT element du menu, sans distinction (Rihen)
 								st.addAdjustNode = nn;

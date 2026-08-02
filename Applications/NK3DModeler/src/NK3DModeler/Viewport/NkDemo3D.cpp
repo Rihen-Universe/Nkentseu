@@ -9121,6 +9121,25 @@ namespace nkentseu {
 			return (node >= 0 && node < kNkvpMaxNodes) ? (int32)nkvpSceneOf[node]
 														: 0;
 		}
+		void Demo3DHostMoveTreeScene(int32 node, int32 id) {
+			// ISOLATION : le noeud ET ses descendants changent de document --
+			// c'est le MEME objet qui s'edite, pas une copie (Rihen).
+			if (node < 0 || node >= kNkvpMaxNodes)
+				return;
+			nkvpSceneOf[node] = (uint8)(id & 0xFF);
+			for (int32 c = 0; c < kNkvpMaxNodes; ++c) {
+				if (c == node || nkvpDeleted[c])
+					continue;
+				int32 cur = nkvpParentOf[c];
+				for (int32 g = 0; g < kNkvpMaxNodes && cur >= 0; ++g) {
+					if (cur == node) {
+						nkvpSceneOf[c] = (uint8)(id & 0xFF);
+						break;
+					}
+					cur = nkvpParentOf[cur];
+				}
+			}
+		}
 		void Demo3DHostCopyNode(int32 node) {
 			auto *st = HostSt();
 			if (!st || node < 0 || node >= kNkvpMaxNodes)

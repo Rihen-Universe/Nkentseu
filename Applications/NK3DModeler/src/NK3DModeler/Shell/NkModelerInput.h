@@ -312,6 +312,9 @@ namespace nkentseu {
 				int32 editPreviewNode = 0;   // noeud+1 de la maquette d'editeur
 				uint8 sceneTabId[8] = {};    // document hote STABLE par onglet
 				int32 sceneIdNext = 1;       // 0 = scene d'ouverture (demo)
+				int32 addParentNode = -1;    // parent impose au prochain Ajouter
+				int32 sceneTabIsoNode[8] = {}; // noeud+1 ISOLE dans cet onglet
+				uint8 sceneTabIsoHome[8] = {}; // document d'origine du noeud isole
 				// TYPE de fond de la scene : 0 couleur unie, 1 degrade, 2 texture,
 				// 3 HDRI, 4 ciel. Seule la couleur unie est cablee aujourd'hui ; les
 				// autres montrent leurs proprietes en annoncant le chantier moteur.
