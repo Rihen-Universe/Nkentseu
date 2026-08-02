@@ -542,6 +542,19 @@ int nkmain(const NkEntryState &entry) {
 			(void)ev;
 		}
 
+		// ── FENETRE MINIMISEE : ON NE FAIT RIEN DU TOUT ─────────────────────
+		// Une fenetre reduite n'a plus de surface. Continuer a rendre dessus --
+		// et surtout a reconstruire la swapchain et le graphe de rendu -- tuait
+		// l'application (Rihen). On rend la main a l'OS et on repart au debut de
+		// la boucle : les evenements continuent d'etre depiles, donc la fenetre
+		// se restaure normalement.
+		{
+			const math::NkVec2u sz0 = window.GetSize();
+			if (sz0.x == 0 || sz0.y == 0) {
+				NkClock::SleepMilliseconds(8);
+				continue;
+			}
+		}
 		// On previent le rendu du changement, PUIS on relit SA taille : c'est elle
 		// qui sert a projeter, pas celle qu'on vient de lui donner.
 		const math::NkVec2u winSz = window.GetSize();
@@ -1093,7 +1106,7 @@ int nkmain(const NkEntryState &entry) {
 		// les unes sur les autres et un clic sur la poignee tomberait sur la premiere
 		// ligne de la liste.
 		if (st.showLeft)
-			PaintHierarchy(p, lay.left, st, hit, ws, ui.input);
+			PaintHierarchy(p, lay.left, st, hit, ws, ui.input, &ui);
 		PaintViewport(p, lay.view, st, hit, ws, ui.input, combo, checks, shortcuts);
 		if (st.showRight) {
 			// PANNEAU DROIT UNIQUE (demande de Rihen) : Objet / Scene / Outil.
@@ -1109,7 +1122,7 @@ int nkmain(const NkEntryState &entry) {
 			}
 		}
 		if (st.showBrowser)
-			PaintBrowser(p, lay.browser, st, hit, ws, ui.input);
+			PaintBrowser(p, lay.browser, st, hit, ws, ui.input, &ui);
 		PaintStatus(p, lay.status, st);
 
 		// Poignees de reouverture, a la place exacte qu'occupait le panneau.

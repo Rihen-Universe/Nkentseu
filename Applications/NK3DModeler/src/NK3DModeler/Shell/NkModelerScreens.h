@@ -1104,6 +1104,28 @@ namespace nkentseu {
 			p.VScroll(area, contentH, offset);
 		}
 
+		// ── LA SEULE BARRE DE DEFILEMENT DE L'APPLICATION ──────────────────────
+		// Celle de NKEditorKit, la meme que l'editeur de code et que le panneau
+		// des proprietes (Rihen : la hierarchie et les deux cotes du navigateur
+		// doivent lui ressembler). La gouttiere est prise DANS la zone, a droite :
+		// une barre posee par-dessus le contenu masquerait la derniere colonne.
+		// Renvoie la zone utile restante, celle qu'il faut clipper et peindre.
+		inline NkRect NkPaintVScroll(NkModelerPainter &p, nkgui::NkGuiContext *guiCtx,
+									 const NkRect &area, float32 contentH, float32 &scroll,
+									 uint32 id) {
+			const float32 sbW = editorkit::NkScrollbarWidth();
+			if (area.w <= sbW * 2.f || area.h <= sbW * 2.f)
+				return area;
+			const NkRect track{area.x + area.w - sbW, area.y, sbW, area.h};
+			if (guiCtx)
+				editorkit::NkVScrollbar(*guiCtx, guiCtx->dl, track, scroll,
+										contentH > area.h ? contentH : area.h + 1.f, area.h, id,
+										kRowH);
+			else
+				p.VScroll(area, contentH, scroll);
+			return {area.x, area.y, area.w - sbW, area.h};
+		}
+
 		// Ligne « Transmettre » d'un parent : quelles composantes de SA
 		// transformation atteignent ses enfants (option par transformation,
 		// idee de Rihen).
@@ -2184,7 +2206,8 @@ namespace nkentseu {
 			}
 		}
 		inline void PaintHierarchy(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
-								   NkHitRegistry &hit, NkWidgetState &ws, const nkgui::NkGuiInput &in) {
+								   NkHitRegistry &hit, NkWidgetState &ws, const nkgui::NkGuiInput &in,
+								   nkgui::NkGuiContext *guiCtx = nullptr) {
 			p.Fill(r, NkRole::PanelBg);
 			p.VLine(r.x + r.w - 1.f, r.y, r.h);
 			float32 y = PaintPanelTab(p, r, "Hierarchie", &hit, &st.showLeft,
@@ -2635,8 +2658,9 @@ namespace nkentseu {
 			// exact la rendait morte (constate). La barre est COLLEE au bord
 			// droit ; seule sa zone de saisie s'arrete avant le splitter.
 			hit.WheelIn(listR, st.scrollHier, (float32)visibleCount * kRowH, listH);
-			NkScrollDrag(p, hit, st, "hier.scrollbar", listR, (float32)visibleCount * kRowH,
-						 st.scrollHier);
+			// LA MEME BARRE QUE LES PROPRIETES (Rihen) : celle de NKEditorKit.
+			NkPaintVScroll(p, guiCtx, listR, (float32)visibleCount * kRowH, st.scrollHier,
+						   0x48494552u);
 
 			const float32 fy = r.y + r.h - kRowH;
 			p.Fill({r.x, fy, r.w, kRowH}, NkRole::WindowBg);
@@ -7060,7 +7084,8 @@ namespace nkentseu {
 
 		// â”€â”€ NAVIGATEUR DE PROJET (bas) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		inline void PaintBrowser(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
-								 NkHitRegistry &hit, NkWidgetState &ws, const nkgui::NkGuiInput &in) {
+								 NkHitRegistry &hit, NkWidgetState &ws, const nkgui::NkGuiInput &in,
+								 nkgui::NkGuiContext *guiCtx = nullptr) {
 			const float32 treeScroll = st.scrollTree;
 			const float32 assetScroll = st.scrollAssets;
 			p.Fill(r, NkRole::PanelBg);
@@ -7350,53 +7375,6 @@ namespace nkentseu {
 			// (ombre, damier, bande de type, pied a deux lignes) est celui valide
 			// avec Rihen sur les cartes precedentes.
 			const float32 ax = r.x + treeW + S(14.f);
-			// ── RECHERCHE + PASTILLES DE TYPE, sur son bandeau (maquette) ───────
-			// Reintroduite apres que le routeur d'occlusion a rendu les menus
-			// etancheS : elle n'avait jamais ete la cause de « Creer », mais elle
-			// ne pouvait pas cohabiter avec l'ancienne garde.
-			{
-				const float32 fy = ty + S(6.f);
-				const float32 fh = S(22.f);
-				p.Fill({r.x + treeW + 1.f, ty, r.w - treeW - 1.f, S(34.f)}, NkRole::PanelHeader);
-				p.HLine(r.x + treeW + 1.f, ty + S(34.f), r.w - treeW - 1.f);
-				// Le champ de la hierarchie : filtrage a la frappe, invite gardee
-				// HORS du buffer, croix d'effacement.
-				PaintSearch(p, {ax - S(6.f), 0.f, S(192.f), 0.f}, fy - S(4.f), hit, ws, in,
-							"brow.search", st.searchBrowser);
-				float32 px = ax + S(196.f);
-				struct KindChip {
-						uint8 kind;
-						const char *name;
-						NkRole role;
-				};
-				static const KindChip kChips[5] = {{6, "Model", NkRole::AxisX},
-												   {0, "Graphe", NkRole::TypeMesh},
-												   {2, "Materiau", NkRole::TypeMat},
-												   {3, "Texture", NkRole::TypeTex},
-												   {5, "Scene", NkRole::AxisZ}};
-				char ck[32];
-				for (int32 ci = 0; ci < 5; ++ci) {
-					const float32 cw = p.TextW(kChips[ci].name) + S(28.f);
-					if (px + cw > r.x + r.w - S(10.f))
-						break;
-					const NkRect cr{px, fy, cw, fh};
-					snprintf(ck, sizeof(ck), "brow.chip.%d", ci);
-					const bool ov = hit.Add(ck, cr);
-					const bool on = (st.browFilter & (1u << kChips[ci].kind)) != 0;
-					p.Fill(cr, on ? NkRole::InputBg : NkRole::PanelBg, 11.f);
-					p.OutlineSharp(cr, on ? kChips[ci].role
-										  : (ov ? NkRole::AccentUi : NkRole::Border));
-					// La PUCE porte la couleur de la famille : c'est elle qui les
-					// distingue d'un coup d'oeil, comme sur la maquette.
-					p.Fill({cr.x + S(9.f), cr.y + fh * 0.5f - S(3.f), S(6.f), S(6.f)},
-						   kChips[ci].role, 3.f);
-					p.TextV(cr.x + S(20.f), cr.y, fh, kChips[ci].name,
-							on ? NkRole::Text : NkRole::TextMuted);
-					if (hit.Clicked(ck))
-						st.browFilter ^= (1u << kChips[ci].kind);
-					px += cw + S(6.f);
-				}
-			}
 			const float32 tw = 96.f;
 			const float32 pvH = 96.f;
 			const float32 barH2 = 3.f;
@@ -7611,6 +7589,55 @@ namespace nkentseu {
 						NkRole::TextMuted);
 			}
 
+			// ── RECHERCHE + PASTILLES DE TYPE, sur son bandeau (maquette) ───────
+			// Peinte APRES les cartes, donc PAR-DESSUS : au defilement, elles
+			// remontaient sur le bandeau et passaient devant (constate par
+			// Rihen). Un bandeau fixe doit couvrir ce qui defile, et il gagne du
+			// meme coup les clics sur la bande qu'il occupe.
+			{
+				const float32 fy = ty + S(6.f);
+				const float32 fh = S(22.f);
+				p.Fill({r.x + treeW + 1.f, ty, r.w - treeW - 1.f, S(34.f)}, NkRole::PanelHeader);
+				p.HLine(r.x + treeW + 1.f, ty + S(34.f), r.w - treeW - 1.f);
+				// Le champ de la hierarchie : filtrage a la frappe, invite gardee
+				// HORS du buffer, croix d'effacement.
+				PaintSearch(p, {ax - S(6.f), 0.f, S(192.f), 0.f}, fy - S(4.f), hit, ws, in,
+							"brow.search", st.searchBrowser);
+				float32 px = ax + S(196.f);
+				struct KindChip {
+						uint8 kind;
+						const char *name;
+						NkRole role;
+				};
+				static const KindChip kChips[5] = {{6, "Model", NkRole::AxisX},
+												   {0, "Graphe", NkRole::TypeMesh},
+												   {2, "Materiau", NkRole::TypeMat},
+												   {3, "Texture", NkRole::TypeTex},
+												   {5, "Scene", NkRole::AxisZ}};
+				char ck[32];
+				for (int32 ci = 0; ci < 5; ++ci) {
+					const float32 cw = p.TextW(kChips[ci].name) + S(28.f);
+					if (px + cw > r.x + r.w - S(10.f))
+						break;
+					const NkRect cr{px, fy, cw, fh};
+					snprintf(ck, sizeof(ck), "brow.chip.%d", ci);
+					const bool ov = hit.Add(ck, cr);
+					const bool on = (st.browFilter & (1u << kChips[ci].kind)) != 0;
+					p.Fill(cr, on ? NkRole::InputBg : NkRole::PanelBg, 11.f);
+					p.OutlineSharp(cr, on ? kChips[ci].role
+										  : (ov ? NkRole::AccentUi : NkRole::Border));
+					// La PUCE porte la couleur de la famille : c'est elle qui les
+					// distingue d'un coup d'oeil, comme sur la maquette.
+					p.Fill({cr.x + S(9.f), cr.y + fh * 0.5f - S(3.f), S(6.f), S(6.f)},
+						   kChips[ci].role, 3.f);
+					p.TextV(cr.x + S(20.f), cr.y, fh, kChips[ci].name,
+							on ? NkRole::Text : NkRole::TextMuted);
+					if (hit.Clicked(ck))
+						st.browFilter ^= (1u << kChips[ci].kind);
+					px += cw + S(6.f);
+				}
+			}
+
 			p.Unclip();
 			const NkRect treeArea{r.x, ty, treeW, th};
 			const NkRect assetArea{ax - S(10.f), ty + S(33.f), r.w - treeW - S(10.f), th - S(33.f)};
@@ -7622,8 +7649,11 @@ namespace nkentseu {
 			// et la derniere rangee restait inaccessible.
 			const float32 assetContentH = (tyy + cardH + S(14.f)) - ty + assetScroll;
 			hit.Wheel("brow.assets", st.scrollAssets, assetContentH, assetArea.h);
-			p.VScroll(treeArea, 5.f * kRowH + S(8.f), treeScroll);
-			p.VScroll(assetArea, assetContentH, assetScroll);
+			// LES DEUX COTES DU NAVIGATEUR portent la meme barre que les
+			// proprietes (Rihen). La grille commence sous le bandeau de
+			// recherche : sa gouttiere aussi, sinon la barre le recouvrirait.
+			NkPaintVScroll(p, guiCtx, treeArea, 5.f * kRowH + S(8.f), st.scrollTree, 0x42524F57u);
+			NkPaintVScroll(p, guiCtx, assetArea, assetContentH, st.scrollAssets, 0x42415353u);
 			// LACHER du glisser-deposer (4 sens, garde anti-cycle) + fantome.
 			if (st.browDragIdx >= 0) {
 				if (hit.MouseDown()) {
