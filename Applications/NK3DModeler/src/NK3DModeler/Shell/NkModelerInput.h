@@ -263,6 +263,11 @@ namespace nkentseu {
 				// le figer (Rihen).
 				bool lockPiv = false;
 				bool propPiv = false;
+				// Couleur de base : meme trio de commandes que les autres lignes.
+				bool lockMat = false;
+				bool propMat = false;
+				bool lockLit = false;
+				bool propLit = false;
 				// GROUPES du panneau Modele (Transformation, Dimensions, Relations,
 				// Materiaux...) : un bit par groupe, mis a 1 quand il est REPLIE.
 				// Les elements de nature differente se rangent par groupe (Rihen).

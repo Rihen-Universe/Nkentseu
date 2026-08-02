@@ -4968,54 +4968,194 @@ namespace nkentseu {
 									sE[6 + a] = st.scl[a];
 								}
 							}
-							// MATERIAU : encore a l'ancien format, hors bloc. Il est
-							// MASQUE le temps de le porter dans son groupe (Rihen :
-							// les elements sans bloc genent la lecture du panneau).
-							if (false && ukE >= 1 && ukE <= 3) {
-								p.TextV(r.x + kPad, yy, kRowH, "Materiau", NkRole::TextMuted);
-								yy += kRowH;
-								float32 mtE[3], metE = 0.f, rghE = 0.5f;
-								demo::Demo3DHostMeshMaterial(en, mtE, &metE, &rghE);
-								const float32 mtE0[3] = {mtE[0], mtE[1], mtE[2]};
-								const float32 metE0 = metE, rghE0 = rghE;
-								PaintTransformRow(p, hit, ws, in, rowR, yy, "Couleur", mtE,
-												  0.005f, "prop.emcol", NkIcon::None,
-												  NkIcon::None);
-								yy += Vec3RowH();
-								p.TextV(r.x + kPad, yy, kRowH, "Metallique", NkRole::TextMuted);
-								DragFloat(p, hit, ws, in, "prop.emmet",
-										  {r.x + S(120.f), yy + S(3.f), rr.w - S(128.f),
-										   kRowH - S(4.f)},
-										  metE, 0.005f, NkRole::AccentUi, "%.2f");
-								yy += kRowH;
-								p.TextV(r.x + kPad, yy, kRowH, "Rugosite", NkRole::TextMuted);
-								DragFloat(p, hit, ws, in, "prop.emrgh",
-										  {r.x + S(120.f), yy + S(3.f), rr.w - S(128.f),
-										   kRowH - S(4.f)},
-										  rghE, 0.005f, NkRole::AccentUi, "%.2f");
-								yy += kRowH;
-								if (mtE[0] != mtE0[0] || mtE[1] != mtE0[1] || mtE[2] != mtE0[2])
-									demo::Demo3DHostSetMeshTint(en, mtE);
-								if (metE != metE0 || rghE != rghE0)
-									demo::Demo3DHostSetMeshMetalRough(en, metE, rghE);
+							// ── GROUPE « MATERIAUX » ────────────────────────────
+							// Structure de la maquette et de Blender : l'EMPLACEMENT
+							// (son nom, sa pastille de couleur, ses commandes), puis
+							// la SURFACE avec ses parametres.
+							//
+							// On n'expose QUE ce que notre moteur rend vraiment :
+							// couleur de base, metallique, rugosite. Le reste du
+							// Principled BSDF (emission, occlusion, vernis, diffusion,
+							// duvet, anisotropie) existe dans NkPBRParams mais n'a pas
+							// encore de surcharge par objet -- l'afficher sans effet
+							// serait mentir sur ce que l'outil sait faire.
+							if (ukE >= 1 && ukE <= 3) {
+								const bool grpMat = PaintPropGroup(p, hit, st, rowR, yy,
+																   "prop.g.mat", "Materiaux",
+																   8u);
+								const float32 grpMatTop = yy;
+								if (grpMat) {
+									const NkRect iR = NkGroupInner(rowR);
+									yy += NkGroupPad();
+									float32 mtE[3], metE = 0.f, rghE = 0.5f;
+									demo::Demo3DHostMeshMaterial(en, mtE, &metE, &rghE);
+									const float32 mtE0[3] = {mtE[0], mtE[1], mtE[2]};
+									const float32 metE0 = metE, rghE0 = rghE;
+									// L'EMPLACEMENT : pastille de la couleur reelle, nom,
+									// puis les quatre commandes de la maquette.
+									{
+										const NkColor sw{(uint8)(mtE[0] * 255.f),
+														 (uint8)(mtE[1] * 255.f),
+														 (uint8)(mtE[2] * 255.f), 255};
+										p.Fill({iR.x, yy + S(6.f), S(12.f), S(12.f)}, sw, 2.f);
+										p.TextV(iR.x + S(18.f), yy, kRowH, "Materiau_01");
+										char cnt[16];
+										snprintf(cnt, sizeof(cnt), "%d v", 1);
+										p.TextV(iR.x + iR.w - S(28.f), yy, kRowH, cnt,
+												NkRole::TextMuted);
+										yy += kRowH;
+										static const NkIcon kAct[4] = {
+											NkIcon::SquareCheck, NkIcon::Square,
+											NkIcon::PlusCircle, NkIcon::MinusCircle};
+										const float32 g4 = S(3.f);
+										const float32 bw4 = (iR.w - g4 * 3.f) * 0.25f;
+										float32 bx4 = iR.x;
+										char k4[32];
+										for (int32 a4 = 0; a4 < 4; ++a4) {
+											snprintf(k4, sizeof(k4), "prop.mat.a%d", a4);
+											const NkRect br4{bx4, yy, bw4, S(18.f)};
+											const bool ov4 = hit.Add(k4, br4);
+											p.Outline(br4,
+													  ov4 ? NkRole::AccentUi : NkRole::Border,
+													  NkRole::PanelHeader, 3.f);
+											p.IconV(br4.x + (bw4 - S(10.f)) * 0.5f, br4.y,
+													S(18.f), kAct[a4], NkRole::TextMuted, 10.f);
+											bx4 += bw4 + g4;
+										}
+										yy += S(18.f) + NkGroupPad();
+									}
+									// LA SURFACE : les parametres que le rendu applique.
+									p.TextV(iR.x, yy, kRowH, "Surface");
+									yy += kRowH;
+									const float32 mvX = iR.x + S(96.f);
+									const float32 mvW = iR.w - S(96.f);
+									p.TextV(iR.x, yy, kRowH, "Couleur de base",
+											NkRole::TextMuted);
+									{
+										// La couleur se lit d'abord A L'OEIL : la pastille
+										// occupe la ligne, les trois canaux la suivent.
+										const NkColor sw{(uint8)(mtE[0] * 255.f),
+														 (uint8)(mtE[1] * 255.f),
+														 (uint8)(mtE[2] * 255.f), 255};
+										p.Outline({mvX, yy + S(3.f), mvW, kRowH - S(6.f)},
+												  NkRole::Border, NkRole::InputBg, 2.f);
+										p.Fill({mvX + S(2.f), yy + S(5.f), mvW - S(4.f),
+												kRowH - S(10.f)},
+											   sw, 2.f);
+									}
+									yy += kRowH;
+									yy += PaintXformGroup(p, hit, ws, in, iR, yy, "", mtE,
+														  0.005f, "prop.emcol", st.lockMat,
+														  st.propMat, "%.2f", 1.f);
+									yy += NkGroupPad();
+									p.TextV(iR.x, yy, kRowH, "Metallique", NkRole::TextMuted);
+									DragFloat(p, hit, ws, in, "prop.emmet",
+											  {mvX, yy + S(3.f), mvW, kRowH - S(6.f)}, metE,
+											  0.005f, NkRole::AccentUi, "%.2f");
+									yy += kRowH;
+									p.TextV(iR.x, yy, kRowH, "Rugosite", NkRole::TextMuted);
+									DragFloat(p, hit, ws, in, "prop.emrgh",
+											  {mvX, yy + S(3.f), mvW, kRowH - S(6.f)}, rghE,
+											  0.005f, NkRole::AccentUi, "%.2f");
+									yy += kRowH;
+									if (Button("prop.mat.reset", yy, "Materiau d'origine",
+											   iR.x, iR.w))
+										demo::Demo3DHostResetMeshMat(en);
+									yy += kRowH;
+									for (int32 a = 0; a < 3; ++a)
+										mtE[a] = mtE[a] < 0.f ? 0.f : (mtE[a] > 1.f ? 1.f : mtE[a]);
+									metE = metE < 0.f ? 0.f : (metE > 1.f ? 1.f : metE);
+									rghE = rghE < 0.f ? 0.f : (rghE > 1.f ? 1.f : rghE);
+									if (mtE[0] != mtE0[0] || mtE[1] != mtE0[1] ||
+										mtE[2] != mtE0[2])
+										demo::Demo3DHostSetMeshTint(en, mtE);
+									if (metE != metE0 || rghE != rghE0)
+										demo::Demo3DHostSetMeshMetalRough(en, metE, rghE);
+									yy += NkGroupPad();
+									PaintGroupBlock(p, rowR, grpMatTop, yy);
+								}
+								yy += NkPropGroupGap();
 							}
-							if (ukE == 5) {
-								// LUMIERE UTILISATEUR : ses proprietes NATIVES.
+							// ── GROUPE « LUMIERE » ──────────────────────────────
+							// Structure de Blender (captures de Rihen) : le TYPE en
+							// tete, puis couleur et puissance, puis ce qui appartient
+							// au type choisi -- portee, cones du spot, taille de
+							// l'area -- et enfin l'ombre.
+							//
+							// Notre moteur n'a ni temperature de couleur, ni
+							// exposition, ni normalisation, ni reglages d'influence
+							// par canal : ces lignes de Blender ne sont donc PAS
+							// reprises, plutot que d'etre affichees sans effet.
+							const bool grpLit =
+								(ukE == 5) ? PaintPropGroup(p, hit, st, rowR, yy, "prop.g.lit",
+															"Lumiere", 16u)
+										   : false;
+							const float32 grpLitTop = yy;
+							if (ukE == 5 && grpLit) {
+								const NkRect iR = NkGroupInner(rowR);
+								const float32 lvX = iR.x + S(96.f);
+								const float32 lvW = iR.w - S(96.f);
+								yy += NkGroupPad();
+								// LE TYPE, en quatre boutons comme Blender : on voit
+								// d'un coup lequel est actif et on en change sans
+								// ouvrir de liste.
+								{
+									static const char *const kLT[4] = {"Soleil", "Point",
+																	   "Spot", "Area"};
+									static const NkIcon kLI[4] = {NkIcon::Sun, NkIcon::Light,
+																  NkIcon::Light, NkIcon::Square};
+									const int32 cur = demo::Demo3DHostUserSub(en) & 3;
+									const float32 g5 = S(3.f);
+									const float32 bw5 = (iR.w - g5 * 3.f) * 0.25f;
+									float32 bx5 = iR.x;
+									char k5[32];
+									for (int32 t5 = 0; t5 < 4; ++t5) {
+										snprintf(k5, sizeof(k5), "prop.lit.t%d", t5);
+										const NkRect br5{bx5, yy + S(2.f), bw5, kRowH - S(4.f)};
+										const bool ov5 = hit.Add(k5, br5);
+										const bool on5 = (t5 == cur);
+										p.Outline(br5,
+												  (on5 || ov5) ? NkRole::AccentUi
+															   : NkRole::Border,
+												  on5 ? NkRole::AccentUi : NkRole::PanelHeader,
+												  3.f);
+										p.IconV(br5.x + S(4.f), br5.y, br5.h, kLI[t5],
+												on5 ? NkRole::TextOnAccent : NkRole::TextMuted,
+												11.f);
+										p.TextV(br5.x + S(20.f), yy, kRowH, kLT[t5],
+												on5 ? NkRole::TextOnAccent : NkRole::Text);
+										if (hit.Clicked(k5) && !on5)
+											demo::Demo3DHostSetUserSub(en, t5);
+										bx5 += bw5 + g5;
+									}
+									yy += kRowH + S(2.f);
+								}
 								float32 ulc[3], uli = 1.f;
 								if (demo::Demo3DHostUserLightParams(en, ulc, &uli)) {
 									bool ulch = false;
-									p.TextV(r.x + kPad, yy, kRowH, "Intensite",
-											NkRole::TextMuted);
+									const float32 ulc0[3] = {ulc[0], ulc[1], ulc[2]};
+									// LA COULEUR se lit d'abord a l'oeil.
+									p.TextV(iR.x, yy, kRowH, "Couleur", NkRole::TextMuted);
+									{
+										const NkColor sw{(uint8)(ulc[0] * 255.f),
+														 (uint8)(ulc[1] * 255.f),
+														 (uint8)(ulc[2] * 255.f), 255};
+										p.Outline({lvX, yy + S(3.f), lvW, kRowH - S(6.f)},
+												  NkRole::Border, NkRole::InputBg, 2.f);
+										p.Fill({lvX + S(2.f), yy + S(5.f), lvW - S(4.f),
+												kRowH - S(10.f)},
+											   sw, 2.f);
+									}
+									yy += kRowH;
+									yy += PaintXformGroup(p, hit, ws, in, iR, yy, "", ulc,
+														  0.01f, "prop.ulcol", st.lockLit,
+														  st.propLit, "%.2f", 1.f);
+									yy += NkGroupPad();
+									p.TextV(iR.x, yy, kRowH, "Puissance", NkRole::TextMuted);
 									ulch |= DragFloat(p, hit, ws, in, "prop.ulint",
-													  {r.x + S(120.f), yy + S(3.f),
-													   rr.w - S(128.f), kRowH - S(4.f)},
+													  {lvX, yy + S(3.f), lvW, kRowH - S(6.f)},
 													  uli, 0.05f, NkRole::AccentUi, "%.2f");
 									yy += kRowH;
-									const float32 ulc0[3] = {ulc[0], ulc[1], ulc[2]};
-									PaintTransformRow(p, hit, ws, in, rowR, yy, "Couleur",
-													  ulc, 0.01f, "prop.ulcol", NkIcon::None,
-													  NkIcon::None);
-									yy += Vec3RowH();
 									if (ulch || ulc[0] != ulc0[0] || ulc[1] != ulc0[1] ||
 										ulc[2] != ulc0[2])
 										demo::Demo3DHostSetUserLightParams(en, ulc, uli);
@@ -5032,9 +5172,11 @@ namespace nkentseu {
 										const bool s0 = shL;
 										auto LRow = [&](const char *lbl, const char *k4, float32 &val,
 														float32 stp, const char *fm) {
-											p.TextV(r.x + kPad, yy, kRowH, lbl, NkRole::TextMuted);
+											// Les lignes travaillent dans le rectangle
+											// INTERIEUR du groupe, comme partout ailleurs.
+											p.TextV(iR.x, yy, kRowH, lbl, NkRole::TextMuted);
 											DragFloat(p, hit, ws, in, k4,
-													  {r.x + S(120.f), yy + S(3.f), rr.w - S(128.f), kRowH - S(4.f)},
+													  {lvX, yy + S(3.f), lvW, kRowH - S(4.f)},
 													  val, stp, NkRole::AccentUi, fm);
 											yy += kRowH;
 										};
@@ -5049,7 +5191,7 @@ namespace nkentseu {
 											LRow("Hauteur", "prop.ulex.ah", ahL, 0.01f, "%.2f");
 										}
 										{
-											const NkRect cb2{r.x + kPad, yy + S(5.f), S(12.f), S(12.f)};
+											const NkRect cb2{iR.x, yy + S(5.f), S(12.f), S(12.f)};
 											hit.Add("prop.ulex.sh", cb2);
 											p.Outline(cb2, shL ? NkRole::AccentUi : NkRole::Border,
 													  shL ? NkRole::AccentUi : NkRole::InputBg, 2.f);
@@ -5103,16 +5245,20 @@ namespace nkentseu {
 									}
 									if (st.lightSrcUi > 0) {
 										float32 slot = (float32)(ck0 < 0 ? 0 : ck0);
-										p.TextV(r.x + kPad, yy, kRowH, "Texture (atlas)", NkRole::TextMuted);
+										p.TextV(iR.x, yy, kRowH, "Texture (atlas)", NkRole::TextMuted);
 										DragFloat(p, hit, ws, in, "prop.ulex.slot",
-												  {r.x + S(120.f), yy + S(3.f), rr.w - S(128.f), kRowH - S(4.f)},
+												  {lvX, yy + S(3.f), lvW, kRowH - S(4.f)},
 												  slot, 0.05f, NkRole::AccentUi, "%.0f");
 										yy += kRowH;
 										if ((int32)(slot + 0.5f) != ck0)
 											demo::Demo3DHostSetLightCookie(en, (int32)(slot + 0.5f));
 									}
 								}
+								yy += NkGroupPad();
+								PaintGroupBlock(p, rowR, grpLitTop, yy);
 							}
+							if (ukE == 5)
+								yy += NkPropGroupGap();
 							{
 								// CAMERA : ses proprietes propres (declaratives tant que
 								// le rendu au travers de la camera n'est pas branche).

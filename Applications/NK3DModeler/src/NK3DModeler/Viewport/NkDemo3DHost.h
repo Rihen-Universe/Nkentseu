@@ -209,6 +209,8 @@ namespace nkentseu {
 		// Parametres du mesh cree (segments / anneaux-subdivisions) : le
 		// panneau « Ajuster la creation » les edite AVANT validation.
 		int32 Demo3DHostUserSub(int32 node); // variante demandee au menu Ajouter
+		// Changer le TYPE d'une lumiere en place (sous-type + descripteur natif).
+		void Demo3DHostSetUserSub(int32 node, int32 sub);
 		// Camera (vide sous-type 10) : focale + clips, declaratifs pour l'instant.
 		// Cookie (texture de faisceau) d'une lumiere : -1 = couleur pure.
 		int32 Demo3DHostLightCookie(int32 node);
