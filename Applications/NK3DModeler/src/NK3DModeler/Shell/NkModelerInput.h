@@ -632,6 +632,18 @@ namespace nkentseu {
 					mCursor = NkCursorWant::Arrow;
 				}
 
+				// Rend les evenements au registre SANS vider les zones deja
+				// declarees. Sert quand une modale a prive les panneaux de tout
+				// clic : les surcouches, peintes ensuite, doivent les retrouver.
+				void Rearm(const nkgui::NkGuiInput &in) {
+					mDown = in.mouseDown[0];
+					mClicked = in.mouseClicked[0];
+					mRightClicked = in.mouseClicked[1];
+					mWheel = in.wheel;
+					mMiddleDown = in.mouseDown[2];
+					mDouble = in.mouseDoubleClicked[0];
+				}
+
 				// ── COUCHES : L'ETANCHEITE, UNE FOIS POUR TOUTES ────────────────
 				// Un menu, un sous-menu, une fenetre modale sont peints tantot
 				// AVANT tantot APRES les panneaux qu'ils recouvrent. Se fier a
