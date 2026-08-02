@@ -59,6 +59,14 @@ namespace nkentseu {
 		// selection depuis la hierarchie et l'ecriture de transformation.
 		static bool nkvpObjHidden[160] = {};
 		static bool nkvpObjLocked[160] = {};
+		// DRAPEAUX DU MODEL, distincts de ceux de la scene (regle de Rihen) :
+		// cacher dans la scene ne doit rien changer dans l'editeur de model,
+		// tandis que cacher DANS le model se voit dans toutes les scenes. Un
+		// seul drapeau par noeud ne peut pas dire les deux -- il en faut un
+		// par contexte, et c'est le document courant qui choisit lequel on
+		// lit et lequel on ecrit.
+		static bool nkvpMeshHidden[160] = {};
+		static bool nkvpMeshLocked[160] = {};
 		static bool nkvpLightHidden[8] = {};
 		static float32 nkvpFarOverride = 0.f;  // 0 = auto (dist*20+100) ; sinon la
 											   // DISTANCE DE VUE choisie, independante
@@ -166,7 +174,12 @@ namespace nkentseu {
 				return true; // supprime = plus jamais rendu
 			if (n >= 86 && n < 90)
 				return nkvpLightHidden[n - 86];
-			return nkvpObjHidden[n];
+			// Dans l'editeur de model : SEUL le masquage pose dans le model.
+			// En scene : le sien OU celui du model (le model se propage, pas
+			// l'inverse).
+			if (nkvpDocIsModel)
+				return nkvpMeshHidden[n];
+			return nkvpObjHidden[n] || nkvpMeshHidden[n];
 		}
 		// APPARTENANCE : elle vaut pour LE NOEUD, jamais par heritage. Un
 		// enfant reste chez lui quand son parent part ailleurs (isolation)
@@ -181,10 +194,18 @@ namespace nkentseu {
 			return p >= 0 && p < kNkvpMaxNodes &&
 				   (nkvpDeleted[p] || HostNodeForeign(p));
 		}
-		// La chaine s'arrete AUSSI a la racine du model dans son propre editeur :
-		// au-dela on sort du model, et les reglages de scene ne le concernent pas.
+		// La chaine s'arrete a la racine du model dans son propre editeur :
+		// au-dela on sort du model, et la scene ne le concerne plus.
 		static bool HostChainStopsAt(int32 n) {
 			return nkvpDocIsModel && n >= 0 && n == nkvpModelRoot;
+		}
+		// VERROU PROPRE au document : celui de la scene ne verrouille pas dans
+		// le model, et celui du model ne verrouille pas dans la scene -- il n'y
+		// a pas d'importance a ce niveau (Rihen).
+		static bool HostLockedOwn(int32 n) {
+			if (n < 0 || n >= 160)
+				return false;
+			return nkvpDocIsModel ? nkvpMeshLocked[n] : nkvpObjLocked[n];
 		}
 		static bool HostHiddenEff(int32 n) {
 			if (HostNodeForeign(n))
@@ -205,7 +226,7 @@ namespace nkentseu {
 		}
 		static bool HostLockedEff(int32 n) {
 			for (int32 g = 0; g < kNkvpMaxNodes && n >= 0; ++g) {
-				if (!HostChainStopsAt(n) && n < 160 && nkvpObjLocked[n])
+				if (!HostChainStopsAt(n) && HostLockedOwn(n))
 					return true;
 				if (HostChainStopsAt(n))
 					break;
@@ -8445,7 +8466,7 @@ namespace nkentseu {
 			const NkVec3f d = {st->cursor3D.x - piv.x, st->cursor3D.y - piv.y,
 							   st->cursor3D.z - piv.z};
 			for (int32 i = 0; i < Demo3DState::kNumObj; ++i) {
-				if (!st->gizmo.IsSelected(i) || nkvpObjLocked[i])
+				if (!st->gizmo.IsSelected(i) || HostLockedOwn(i))
 					continue;
 				const NkVec3f t = st->gizmo.TranslateOf(i);
 				st->gizmo.SetTranslateOf(i, {t.x + d.x, t.y + d.y, t.z + d.z});
@@ -8472,11 +8493,19 @@ namespace nkentseu {
 
 		// ── OEIL / CADENAS / SCENE VIERGE ───────────────────────────────────
 		void Demo3DHostSetObjectHidden(int32 i, bool hidden) {
-			if (i >= 0 && i < 160)
-				nkvpObjHidden[i] = hidden;
+			// On ecrit le drapeau DU DOCUMENT COURANT : masquer depuis la scene ne
+			// doit rien changer dans l'editeur de model, alors que masquer depuis
+			// le model se voit dans toutes les scenes (regle de Rihen).
+			if (i >= 0 && i < 160) {
+				if (nkvpDocIsModel)
+					nkvpMeshHidden[i] = hidden;
+				else
+					nkvpObjHidden[i] = hidden;
+			}
 		}
 		bool Demo3DHostObjectHidden(int32 i) {
-			return (i >= 0 && i < 160) && nkvpObjHidden[i];
+			return (i >= 0 && i < 160) &&
+				   (nkvpDocIsModel ? nkvpMeshHidden[i] : nkvpObjHidden[i]);
 		}
 		// ETAT EFFECTIF (le sien OU celui d'un ancetre). L'interface DOIT montrer
 		// celui-la : un enfant dont le parent est cadenasse refuse la selection,
@@ -8490,11 +8519,18 @@ namespace nkentseu {
 			return HostHiddenEff(i);
 		}
 		void Demo3DHostSetObjectLocked(int32 i, bool locked) {
-			if (i >= 0 && i < 160)
-				nkvpObjLocked[i] = locked;
+			// Le verrou reste DANS SON CONTEXTE, dans les deux sens : verrouiller
+			// en scene n'entrave pas l'edition du model, et verrouiller dans le
+			// model n'entrave pas la scene -- ca n'y a pas d'importance (Rihen).
+			if (i >= 0 && i < 160) {
+				if (nkvpDocIsModel)
+					nkvpMeshLocked[i] = locked;
+				else
+					nkvpObjLocked[i] = locked;
+			}
 		}
 		bool Demo3DHostObjectLocked(int32 i) {
-			return (i >= 0 && i < 160) && nkvpObjLocked[i];
+			return (i >= 0 && i < 160) && HostLockedOwn(i);
 		}
 		void Demo3DHostSetLightHidden(int32 li, bool hidden) {
 			if (li >= 0 && li < 8)
@@ -9097,6 +9133,8 @@ namespace nkentseu {
 				nkvpMatMask[n] = 0;
 				nkvpObjHidden[n] = false;
 				nkvpObjLocked[n] = false;
+				nkvpMeshHidden[n] = false;
+				nkvpMeshLocked[n] = false;
 				nkvpBaseSet[n] = false;
 				nkvpUserSub[u] = 0;
 				nkvpUserMesh[u] = NkMeshHandle{};
