@@ -2190,22 +2190,20 @@ namespace nkentseu {
 			float32 yy = y - st.scrollHier;
 			int32 visibleCount = 0;
 
-			// Racine : la scene, renommable.
-			{
+			// Racine : LA SCENE, renommable -- et elle seule. Dans un editeur de
+			// MODEL il n'y a pas de ligne de document : le model EST la racine,
+			// et l'afficher en plus donnait deux lignes « Model » de meme nom
+			// (constate par Rihen sur sa capture). Une scene, elle, n'est pas un
+			// noeud : sa ligne est donc necessaire.
+			if (st.sceneTabKind[st.activeTab] != 7) {
 				const NkRect rowR{r.x, yy, r.w, kRowH};
 				hit.Add("hier.scene", rowR);
-				// La racine est le DOCUMENT OUVERT : son nom est celui de
-				// l'onglet actif (et non plus toujours la scene 1), et dans un
-				// editeur elle s'annonce MODEL et non scene (Rihen).
-				const bool rootMdl = st.sceneTabKind[st.activeTab] == 7;
-				p.IconV(r.x + S(6.f), yy, kRowH,
-						rootMdl ? NkIcon::Mesh : NkIcon::Globe, NkRole::Text, 13.f);
+				p.IconV(r.x + S(6.f), yy, kRowH, NkIcon::Globe, NkRole::Text, 13.f);
 				EditableText(p, hit, ws, in, "hier.scene.name",
 							 {r.x + S(24.f), yy, colType - r.x - S(30.f), kRowH},
 							 st.sceneNames[st.activeTab], NkRole::Text,
 							 st.sceneNames[st.activeTab], 32u);
-				p.TextV(colType, yy, kRowH, rootMdl ? "Model" : "Scene",
-						NkRole::TextMuted);
+				p.TextV(colType, yy, kRowH, "Scene", NkRole::TextMuted);
 				yy += kRowH;
 				++visibleCount;
 			}
