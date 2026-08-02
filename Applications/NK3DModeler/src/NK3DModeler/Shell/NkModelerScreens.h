@@ -531,18 +531,6 @@ namespace nkentseu {
 		// UNE SEULE scene a l'ouverture. Demarrer sur deux onglets vides ferait croire
 		// que l'un d'eux contient quelque chose, et obligerait a en fermer un avant
 		// meme d'avoir commence. Le nom se modifie au DOUBLE-clic, le + en ajoute une.
-		// Un MODEL est un conteneur : sa geometrie propre descend dans un premier
-		// maillage enfant, nomme independamment de lui. Renommer le model ne
-		// renomme donc pas ce maillage, ni l'inverse -- ce sont deux noeuds
-		// distincts (regle de Rihen), et les maillages suivants naissent FRERES
-		// de celui-ci.
-		inline void NkHierComposeName(NkModelerState &st, const char *base0, int32 newNode);
-		inline int32 NkModelFirstMesh(NkModelerState &st, int32 root) {
-			const int32 m = demo::Demo3DHostEnsureModelMesh(root);
-			if (m >= 0 && m < 176 && st.customNames[m][0] == 0)
-				NkHierComposeName(st, "Mesh", m);
-			return m;
-		}
 		inline void NkStoreSceneCam(NkModelerState &st, int32 tab) {
 			if (tab < 0 || tab >= 8)
 				return;
@@ -609,7 +597,6 @@ namespace nkentseu {
 				// Le seul parent d'un model est le model : ses maillages
 				// reviennent tous a plat sous lui (Rihen).
 				demo::Demo3DHostFlattenModel(iso);
-				NkModelFirstMesh(st, iso);
 				demo::Demo3DHostSelectEmptyNode(iso);
 				st.editPreviewNode = 0;
 				return;
@@ -632,10 +619,8 @@ namespace nkentseu {
 				demo::Demo3DHostSelectEmptyNode(pv);
 			}
 			st.editPreviewNode = pv + 1;
-			if (tk == 7 && pv >= 0) {
+			if (tk == 7 && pv >= 0)
 				demo::Demo3DHostFlattenModel(pv); // maillages tous freres
-				NkModelFirstMesh(st, pv);
-			}
 		}
 		inline void PaintTabsI(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
 							   NkHitRegistry &hit, NkWidgetState &ws, const nkgui::NkGuiInput &in) {
