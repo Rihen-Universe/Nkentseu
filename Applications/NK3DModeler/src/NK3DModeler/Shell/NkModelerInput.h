@@ -213,6 +213,10 @@ namespace nkentseu {
 				int32 shadowQual = -1;	// -1 = pas encore lue depuis le moteur
 				int32 shadowDynamic = 1; // 0 = calcul unique, 1 = recalcul continu
 				int32 fogMode = 0;		 // 0 = lineaire, 1 = exponentiel
+				// Source de l'ambiance : 0 couleur unie, 1 ciel procedural, 2 HDRI.
+				int32 envSource = 0;
+				char hdrPath[256] = {0};
+				int32 hdrOk = 0; // 0 rien tente, 1 charge, -1 echec
 				float32 colorDragDX = 0.f, colorDragDY = 0.f;
 				// Chaque ONGLET DE SCENE garde sa pose de camera : cible, distance,
 				// lacet, tangage, ortho. C'est ce qui rend les onglets FONCTIONNELS

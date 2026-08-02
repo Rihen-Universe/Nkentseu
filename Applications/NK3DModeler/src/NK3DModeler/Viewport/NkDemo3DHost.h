@@ -228,6 +228,17 @@ namespace nkentseu {
 		// d'une couleur unie. Faux = aplat parfait, comme le monde de Blender.
 		bool Demo3DHostAmbientUseEnv();
 		void Demo3DHostSetAmbientUseEnv(bool on);
+		// Le CIEL PROCEDURAL : trois couleurs (zenith, horizon, sol) dont le
+		// moteur deduit l'irradiance et les reflets. La regeneration est un calcul
+		// CPU, d'ou un declenchement a la demande.
+		void Demo3DHostEnvSky(float32 *top, float32 *horizon, float32 *ground);
+		void Demo3DHostSetEnvSky(const float32 *top, const float32 *horizon,
+								 const float32 *ground);
+		bool Demo3DHostApplySky();
+		// Une IMAGE HDRI equirectangulaire : elle apporte lumiere ET reflets d'un
+		// lieu reel.
+		const char *Demo3DHostHdrPath();
+		bool Demo3DHostLoadHdr(const char *path);
 		// Brouillard de scene : loi lineaire (debut/fin) ou exponentielle (densite).
 		void Demo3DHostFog(bool *on, float32 *rgb, float32 *density, float32 *start,
 						   float32 *end, int32 *mode);
