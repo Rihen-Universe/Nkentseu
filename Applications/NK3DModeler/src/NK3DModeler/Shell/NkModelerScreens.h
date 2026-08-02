@@ -5755,13 +5755,64 @@ namespace nkentseu {
 						yy += kRowH;
 					}
 				} else if (sec == 1) {
-					// ── RENDU (pastille « sun » de la maquette) ─────────────────
-					// Categorie a definir avec Rihen : on annonce ce qu'elle sera
-					// plutot que d'y empiler des reglages pris ailleurs.
-					p.TextV(r.x + kPad, yy, kRowH, "Parametres de rendu", NkRole::Text);
-					yy += kRowH;
-					p.TextV(r.x + kPad, yy, kRowH, "-- a definir --", NkRole::TextMuted);
-					yy += kRowH;
+					// ── RENDU : LES OMBRES ──────────────────────────────────────
+					// Elles sont GLOBALES au rendu -- une ombre douce l'est pour
+					// toute la scene -- donc leur place est ici, et non sur chaque
+					// lumiere, qui ne garde que son interrupteur d'ombre (c'est
+					// aussi le partage de Blender entre Rendu et Lumiere).
+					NkRect rowR = rr;
+					rowR.x = r.x + NkPropInset();
+					rowR.w = rr.w - 2.f * NkPropInset();
+					const bool grpSh = PaintPropGroup(p, hit, st, rowR, yy, "prop.g.shadow",
+													  "Ombres", 1u);
+					const float32 grpShTop = yy;
+					if (grpSh) {
+						const NkRect iR = NkGroupInner(rowR);
+						const float32 svX = iR.x + S(110.f);
+						const float32 svW = iR.w - S(110.f);
+						yy += NkGroupPad();
+						float32 nb = 0.f, sb = 0.f, sf = 0.f;
+						int32 q = 1;
+						if (demo::Demo3DHostShadowCfg(&nb, &sb, &sf, &q)) {
+							const float32 nb0 = nb, sb0 = sb, sf0 = sf;
+							const int32 q0 = q;
+							static const char *const kQ[4] = {"Aucune", "Douce (PCF 3)",
+															  "Douce (PCF 5)",
+															  "Penombre (PCSS)"};
+							p.TextV(iR.x, yy, kRowH, "Qualite", NkRole::TextMuted);
+							Combo(p, hit, ws, "prop.sh.q",
+								  {svX, yy + S(2.f), svW, kRowH - S(4.f)}, kQ, nullptr, 4, q,
+								  combo);
+							yy += kRowH;
+							p.TextV(iR.x, yy, kRowH, "Douceur", NkRole::TextMuted);
+							DragFloat(p, hit, ws, in, "prop.sh.soft",
+									  {svX, yy + S(3.f), svW, kRowH - S(6.f)}, sf, 0.0005f,
+									  NkRole::AccentUi, "%.4f");
+							yy += kRowH;
+							// LE BIAIS NORMAL est le reglage qui empeche un objet de
+							// projeter son ombre SUR LUI-MEME : c'est lui qu'on
+							// augmente quand on voit ces bandes sombres a sa surface.
+							p.TextV(iR.x, yy, kRowH, "Biais normal", NkRole::TextMuted);
+							DragFloat(p, hit, ws, in, "prop.sh.nb",
+									  {svX, yy + S(3.f), svW, kRowH - S(6.f)}, nb, 0.005f,
+									  NkRole::AccentUi, "%.3f");
+							yy += kRowH;
+							p.TextV(iR.x, yy, kRowH, "Biais de pente", NkRole::TextMuted);
+							DragFloat(p, hit, ws, in, "prop.sh.sb",
+									  {svX, yy + S(3.f), svW, kRowH - S(6.f)}, sb, 0.0002f,
+									  NkRole::AccentUi, "%.4f");
+							yy += kRowH;
+							if (nb != nb0 || sb != sb0 || sf != sf0 || q != q0)
+								demo::Demo3DHostSetShadowCfg(nb, sb, sf, q);
+						} else {
+							p.TextV(iR.x, yy, kRowH, "Ombres indisponibles",
+									NkRole::TextMuted);
+							yy += kRowH;
+						}
+						yy += NkGroupPad();
+						PaintGroupBlock(p, rowR, grpShTop, yy);
+					}
+					yy += NkPropGroupGap();
 				} else if (sec == 2) {
 					// â”€â”€ LA SCENE : champs GLISSABLES (comme les transformations) â”€
 					{
