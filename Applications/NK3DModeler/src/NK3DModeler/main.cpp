@@ -590,6 +590,9 @@ int nkmain(const NkEntryState &entry) {
 			}
 		}
 		hit.Begin(ui.input);
+		// L'emprise des surfaces flottantes de la frame precedente devient celle
+		// que TOUT LE MONDE consulte cette frame -- registre et code direct.
+		hit.FlipOcclusions();
 		// LE CONTEXTE DE LA FRAME, pose une fois : les widgets partages (la
 		// saisie universelle de NKEditorKit) le lisent ici au lieu de le
 		// recevoir en parametre dans des dizaines de signatures.
@@ -598,8 +601,10 @@ int nkmain(const NkEntryState &entry) {
 		// celle-ci : les panneaux sont peints avant les menus, ils ne peuvent
 		// pas connaitre leur emprise autrement.
 		st.UiBlockFlip();
-		// ... et le registre la fait respecter pour TOUS les widgets a la fois.
-		hit.SetBlock(st.uiBlockCur, st.uiBlockCurOn);
+		// L'ANCIENNE GARDE (SetBlock) EST RETIREE : le routeur d'occlusion la
+		// remplace entierement, et faire cohabiter deux mecanismes etait
+		// precisement le defaut -- la garde bloquait les menus qu'elle etait
+		// censee proteger, si bien que « Creer » refusait ses propres clics.
 		// La garde du clavier suit l'etat REEL des widgets : tant qu'un champ est
 		// en cours de saisie, aucune touche ne doit atteindre les raccourcis.
 		st.editingText = ws.editing;
@@ -1136,10 +1141,9 @@ int nkmain(const NkEntryState &entry) {
 		{
 			NkHitRegistry::LayerScope menuLayer(hit, 50);
 			// Menus et dialogues de scene (menu contextuel de la hierarchie ET
-			// de la vue 3D, confirmation de suppression).
+			// de la vue 3D, du navigateur, confirmation de suppression).
 			PaintSceneMenus(p, {0.f, 0.f, (float32)W, (float32)H}, lay.view, st, hit, ws,
 							ui.input);
-			hit.SetBlock({}, false);
 			PaintMatcapPopup(p, hit, st);
 			{
 				NkRect comboBox{};
@@ -1151,6 +1155,12 @@ int nkmain(const NkEntryState &entry) {
 			PaintAddObjectMenu(p, st, hit, ws, W, H);
 			PaintOpenMenu(p, lay.menu, st, hit, shortcuts);
 		}
+		// L'emprise que les menus viennent de declarer devient, a la frame
+		// SUIVANTE, ce qui les rend etanches : les panneaux peints sous eux la
+		// consultent sans rien savoir d'eux. Une seule union suffit -- c'est
+		// deja ce qu'accumule UiBlockAdd.
+		if (st.uiBlockAccOn)
+			hit.PushOcclusion(st.uiBlockAcc, 50);
 		{
 			// MODALES : elles suspendent tout le reste, menus compris.
 			NkHitRegistry::LayerScope modalLayer(hit, 100);

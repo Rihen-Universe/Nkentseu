@@ -4288,6 +4288,10 @@ namespace nkentseu {
 			} else if (hit.Clicked("colmod.ok") || in.KeyPressed(nkgui::NkGuiKey::Enter)) {
 				st.colorOpen[0] = 0;
 			}
+			// LA MODALE DECLARE SON EMPRISE, VOILE COMPRIS : plus rien de la
+			// couche inferieure n'est atteignable tant qu'elle est ouverte, que
+			// le clic passe par le registre ou qu'il soit teste a la main.
+			hit.PushOcclusion({0.f, 0.f, W, H}, 100);
 			st.UiBlockAdd(box);
 		}
 
