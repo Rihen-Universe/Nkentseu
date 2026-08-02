@@ -6789,23 +6789,27 @@ namespace nkentseu {
 																	 cats[c].items[i].prim);
 							if (nn >= 0) {
 								NkHierComposeName(st, cats[c].items[i].label, nn);
-								// clic droit sur un OBJET : il devient le parent (Rihen)
-								if (st.addParentNode >= 0) {
-									demo::Demo3DHostSetNodeParent(nn, st.addParentNode);
-								} else {
-									// DANS UN MODEL : un maillage devient un MESH du
-									// model, frere des autres sous sa racine ; lumieres,
-									// cameras et empties restent des aides COSMETIQUES,
-									// jamais membres du model (Rihen).
-									const int32 t8 = cats[c].items[i].type;
-									const int32 root8 = NkModelRootOf(st);
-									if (root8 >= 0 && t8 != 4 && t8 != 5) {
+								const int32 t8 = cats[c].items[i].type;
+								const int32 root8 = NkModelRootOf(st);
+								if (root8 >= 0) {
+									// DANS UN MODEL, la regle du model PRIME sur le
+									// parent demande : un maillage devient un MESH du
+									// model, frere des autres sous sa racine. Lumieres,
+									// cameras et empties restent des aides COSMETIQUES.
+									//
+									// Cette regle etait auparavant dans la branche
+									// « sinon » : passer par « Ajouter un enfant »
+									// posait donc le parent SANS marquer le maillage --
+									// il ne revenait alors pas dans la scene et
+									// n'entrait pas dans le lisere du model (Rihen).
+									if (t8 != 4 && t8 != 5) {
 										demo::Demo3DHostSetNodeParent(nn, root8);
-										// C'est un MESH du model : visible dans les deux
-										// vues 3D, mais liste dans la seule hierarchie du
-										// model (Rihen).
 										demo::Demo3DHostSetNodeIsMesh(nn, true);
 									}
+								} else if (st.addParentNode >= 0) {
+									// hors model : clic droit sur un OBJET, il devient
+									// le parent du nouveau (Rihen)
+									demo::Demo3DHostSetNodeParent(nn, st.addParentNode);
 								}
 								demo::Demo3DHostSelectEmptyNode(nn);
 								// pour TOUT element du menu, sans distinction (Rihen)

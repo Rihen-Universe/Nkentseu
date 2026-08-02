@@ -8770,6 +8770,18 @@ namespace nkentseu {
 					cur = nkvpParentOf[cur];
 				}
 			}
+			// RATTRAPAGE : dans l'editeur, toute GEOMETRIE portee par le model est
+			// de la matiere, meme si elle n'a pas ete marquee a sa naissance (les
+			// enfants de scene, eux, sont restes dans la scene). Sans cela un
+			// maillage non marque ne rentrait pas avec le model et n'entrait pas
+			// dans son lisere -- constate par Rihen avec une sphere ajoutee.
+			for (int32 c = kNkvpFirstUser; c < kNkvpMaxNodes; ++c) {
+				if (nkvpDeleted[c] || nkvpIsMesh[c] || nkvpParentOf[c] != root)
+					continue;
+				const uint8 k = nkvpUserKind[c - kNkvpFirstUser];
+				if (k >= 1 && k <= 3)
+					nkvpIsMesh[c] = true;
+			}
 		}
 		int32 Demo3DHostNodeXmitMask(int32 node) {
 			HostParentEnsureInit();
