@@ -1118,6 +1118,9 @@ int nkmain(const NkEntryState &entry) {
 		PaintAddObjectMenu(p, st, hit, ws, W, H);
 		PaintOpenMenu(p, lay.menu, st, hit, shortcuts);
 		PaintCloseDialog(p, W, H, st, hit);
+		// LE PICKER DE COULEUR EST MODAL : peint en tout dernier, il passe donc
+		// par-dessus les panneaux comme par-dessus les menus.
+		PaintColorPicker(p, hit, ws, ui.input, st, (float32)W, (float32)H);
 
 		ui.EndFrame();
 

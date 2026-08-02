@@ -4027,35 +4027,132 @@ namespace nkentseu {
 							  (uint8)(sat01(rgb[2]) * 255.f), 255};
 			p.Fill(sw, cur, 3.f);
 			p.OutlineSharp(sw, over ? NkRole::AccentUi : NkRole::Border);
+			// LE PICKER S'OUVRE EN FENETRE MODALE (Rihen), peinte par-dessus tout
+			// en fin de frame. Tant qu'elle est ouverte pour CE champ, la couleur
+			// qu'elle porte est recopiee ici : l'apercu est immediat dans la scene.
 			const bool open = strcmp(st.colorOpen, keyBase) == 0;
 			if (hit.Clicked(key)) {
-				if (open)
+				if (open) {
 					st.colorOpen[0] = 0;
-				else
+				} else {
 					snprintf(st.colorOpen, sizeof(st.colorOpen), "%s", keyBase);
-			}
-			y += kRowH;
-			if (!open)
-				return y - y0;
-			snprintf(key, sizeof(key), "%s.pk", keyBase);
-			const NkRect pk{r.x + S(6.f), y + S(2.f), r.w - S(12.f), S(110.f)};
-			if (NkColorPickerSV(p, hit, st.propDragKey, sizeof(st.propDragKey), key, pk, rgb))
-				*changed = true;
-			y += S(116.f);
-			static const char *const kCh[3] = {"Rouge", "Vert", "Bleu"};
-			for (int32 c = 0; c < 3; ++c) {
-				p.TextV(r.x + S(6.f), y, kRowH, kCh[c], NkRole::TextMuted);
-				snprintf(key, sizeof(key), "%s.c%d", keyBase, c);
-				float32 v = rgb[c];
-				if (DragFloat(p, hit, ws, in, key,
-							  {r.x + labW, y + S(3.f), r.w - labW, kRowH - S(6.f)}, v, 0.005f,
-							  NkRole::AccentUi, "%.3f")) {
-					rgb[c] = sat01(v);
-					*changed = true;
+					for (int32 c = 0; c < 3; ++c)
+						st.colorOrig[c] = st.colorCur[c] = rgb[c];
+					st.colorModalPlaced = false;
 				}
+			} else if (open) {
+				for (int32 c = 0; c < 3; ++c)
+					if (rgb[c] != st.colorCur[c]) {
+						rgb[c] = st.colorCur[c];
+						*changed = true;
+					}
+			}
+			if (open)
+				p.OutlineSharp(sw, NkRole::AccentUi); // ce champ est celui qu'on regle
+			return y + kRowH - y0;
+		}
+
+		// ── LA FENETRE MODALE DU PICKER ────────────────────────────────────────
+		// Peinte en TOUT DERNIER, comme les menus : une surface modale qui doit
+		// repondre a ses propres clics et voiler le reste. Deplacable par sa barre
+		// de titre, comme les dialogues de NKEditorKit.
+		inline void PaintColorPicker(NkModelerPainter &p, NkHitRegistry &hit, NkWidgetState &ws,
+									 const nkgui::NkGuiInput &in, NkModelerState &st, float32 W,
+									 float32 H) {
+			if (!st.colorOpen[0])
+				return;
+			// FERMETURE DIFFEREE D'UNE IMAGE : le champ lit `colorCur` AVANT que
+			// cette fenetre ne soit peinte. Vider la cle des le clic sur Annuler
+			// laisserait donc l'objet avec la couleur de l'apercu -- l'annulation
+			// n'annulerait rien. On rend d'abord la couleur d'origine, on ferme
+			// a l'image suivante, quand le champ l'a reprise.
+			if (st.colorClosing) {
+				st.colorClosing = false;
+				st.colorOpen[0] = 0;
+				return;
+			}
+			const auto sat01 = [](float32 v) { return v < 0.f ? 0.f : (v > 1.f ? 1.f : v); };
+			const float32 dw = S(260.f), titleH = S(26.f);
+			const float32 dh = titleH + S(150.f) + kRowH * 3.f + S(44.f);
+			if (!st.colorModalPlaced) {
+				st.colorModalX = (W - dw) * 0.5f;
+				st.colorModalY = (H - dh) * 0.35f;
+				st.colorModalPlaced = true;
+			}
+			// Le VOILE dit que le reste est suspendu -- et absorbe les clics.
+			p.Fill({0.f, 0.f, W, H}, NkColor{0, 0, 0, 110});
+			hit.Add("colmod.veil", {0.f, 0.f, W, H});
+			NkRect box{st.colorModalX, st.colorModalY, dw, dh};
+			// Glissement par la barre de titre, traite AVANT de figer la boite :
+			// sinon l'affichage traine d'une image derriere la souris.
+			const NkRect tb{box.x, box.y, box.w, titleH};
+			if (hit.MouseDown() && !st.colorModalDrag && NkHitRegistry::Contains(tb, hit.Mouse())) {
+				st.colorModalDrag = true;
+				st.colorDragDX = hit.Mouse().x - box.x;
+				st.colorDragDY = hit.Mouse().y - box.y;
+			}
+			if (st.colorModalDrag) {
+				if (!hit.MouseDown()) {
+					st.colorModalDrag = false;
+				} else {
+					st.colorModalX = hit.Mouse().x - st.colorDragDX;
+					st.colorModalY = hit.Mouse().y - st.colorDragDY;
+					if (st.colorModalX < 0.f)
+						st.colorModalX = 0.f;
+					if (st.colorModalY < 0.f)
+						st.colorModalY = 0.f;
+					if (st.colorModalX + dw > W)
+						st.colorModalX = W - dw;
+					if (st.colorModalY + dh > H)
+						st.colorModalY = H - dh;
+					box.x = st.colorModalX;
+					box.y = st.colorModalY;
+				}
+			}
+			p.Fill({box.x + 3.f, box.y + 4.f, box.w, box.h}, NkColor{0, 0, 0, 110}, 4.f);
+			p.Outline(box, NkRole::AccentUi, NkRole::PanelBg, 4.f);
+			p.Fill({box.x, box.y, box.w, titleH}, NkRole::PanelHeader, 4.f);
+			p.TextV(box.x + S(10.f), box.y, titleH, "Couleur");
+			hit.Add("colmod.title", tb);
+			float32 y = box.y + titleH + S(8.f);
+			const float32 pkH = S(140.f);
+			NkColorPickerSV(p, hit, st.propDragKey, sizeof(st.propDragKey), "colmod.pk",
+							{box.x + S(10.f), y, box.w - S(20.f), pkH}, st.colorCur);
+			y += pkH + S(8.f);
+			static const char *const kCh[3] = {"Rouge", "Vert", "Bleu"};
+			char k[32];
+			for (int32 c = 0; c < 3; ++c) {
+				p.TextV(box.x + S(10.f), y, kRowH, kCh[c], NkRole::TextMuted);
+				snprintf(k, sizeof(k), "colmod.c%d", c);
+				float32 v = st.colorCur[c];
+				if (DragFloat(p, hit, ws, in, k,
+							  {box.x + S(72.f), y + S(3.f), box.w - S(82.f), kRowH - S(6.f)}, v,
+							  0.005f, NkRole::AccentUi, "%.3f"))
+					st.colorCur[c] = sat01(v);
 				y += kRowH;
 			}
-			return y - y0;
+			y += S(6.f);
+			const float32 bw = (box.w - S(30.f)) * 0.5f;
+			const NkRect bOk{box.x + S(10.f), y, bw, S(24.f)};
+			const NkRect bCa{box.x + S(20.f) + bw, y, bw, S(24.f)};
+			hit.Add("colmod.ok", bOk);
+			p.Fill(bOk, NkRole::AccentUi, 3.f);
+			p.TextV(bOk.x + (bOk.w - p.TextW("Valider")) * 0.5f, y, S(24.f), "Valider",
+					NkRole::TextOnAccent);
+			hit.Add("colmod.cancel", bCa);
+			p.Outline(bCa, NkRole::Border, NkRole::InputBg, 3.f);
+			p.TextV(bCa.x + (bCa.w - p.TextW("Annuler")) * 0.5f, y, S(24.f), "Annuler");
+			const bool esc = in.KeyPressed(nkgui::NkGuiKey::Escape);
+			if (hit.Clicked("colmod.cancel") || esc) {
+				// ANNULER remet vraiment la couleur d'avant : l'apercu en direct
+				// l'avait deja appliquee a l'objet.
+				for (int32 c = 0; c < 3; ++c)
+					st.colorCur[c] = st.colorOrig[c];
+				st.colorClosing = true;
+			} else if (hit.Clicked("colmod.ok") || in.KeyPressed(nkgui::NkGuiKey::Enter)) {
+				st.colorOpen[0] = 0;
+			}
+			st.UiBlockAdd(box);
 		}
 
 		// ── GROUPE DE TRANSFORMATION, AU FORMAT DE LA MAQUETTE ──────────────────
@@ -7098,11 +7195,27 @@ namespace nkentseu {
 				// part entiere, pas des widgets poses sur le fond des cartes.
 				p.Fill({r.x + treeW + 1.f, ty, r.w - treeW - 1.f, S(34.f)}, NkRole::PanelHeader);
 				p.HLine(r.x + treeW + 1.f, ty + S(34.f), r.w - treeW - 1.f);
-				// Le meme champ que la hierarchie : filtrage a la frappe, invite
-				// grise et croix d'effacement -- et surtout, l'invite n'est JAMAIS
-				// ecrite dans le buffer.
+				// LE MENU « Creer » DESCEND JUSTE ICI. Il est peint AVANT le
+				// navigateur ; comme la derniere zone declaree gagne le survol,
+				// cette barre lui volait ses items et la creation ne partait
+				// jamais (constate par Rihen). Quand une surcouche est ouverte,
+				// la barre se peint donc SANS declarer la moindre zone.
 				const NkRect sfBox{ax - S(6.f), 0.f, S(192.f), 0.f};
-				PaintSearch(p, sfBox, fy - S(4.f), hit, ws, in, "brow.search", st.searchBrowser);
+				const NkRect sfr{ax, fy, S(180.f), fh};
+				if (uiModal) {
+					p.Outline(sfr, NkRole::Border, NkRole::InputBg, 3.f);
+					p.IconV(sfr.x + S(6.f), sfr.y, fh, NkIcon::Search, NkRole::TextMuted, 12.f);
+					if (st.searchBrowser[0])
+						p.TextV(sfr.x + S(24.f), sfr.y, fh, st.searchBrowser, NkRole::Text);
+					else
+						p.TextV(sfr.x + S(24.f), sfr.y, fh, "Rechercher", NkRole::TextMuted);
+				} else {
+					// Le meme champ que la hierarchie : filtrage a la frappe, invite
+					// grise et croix d'effacement -- et surtout, l'invite n'est
+					// JAMAIS ecrite dans le buffer.
+					PaintSearch(p, sfBox, fy - S(4.f), hit, ws, in, "brow.search",
+								st.searchBrowser);
+				}
 				float32 px = ax + S(192.f) - S(6.f) + S(10.f);
 				struct KindChip {
 						uint8 kind;
@@ -7121,7 +7234,7 @@ namespace nkentseu {
 						break;
 					const NkRect cr{px, fy, cw, fh};
 					snprintf(ck, sizeof(ck), "brow.chip.%d", ci);
-					const bool ov = hit.Add(ck, cr);
+					const bool ov = !uiModal && hit.Add(ck, cr);
 					const bool on = (st.browFilter & (1u << kChips[ci].kind)) != 0;
 					p.Fill(cr, on ? NkRole::InputBg : NkRole::PanelBg, 11.f);
 					p.OutlineSharp(cr, on ? kChips[ci].role
@@ -7132,7 +7245,7 @@ namespace nkentseu {
 						   kChips[ci].role, 3.f);
 					p.TextV(cr.x + S(20.f), cr.y, fh, kChips[ci].name,
 							on ? NkRole::Text : NkRole::TextMuted);
-					if (hit.Clicked(ck))
+					if (!uiModal && hit.Clicked(ck))
 						st.browFilter ^= (1u << kChips[ci].kind);
 					px += cw + S(6.f);
 				}
