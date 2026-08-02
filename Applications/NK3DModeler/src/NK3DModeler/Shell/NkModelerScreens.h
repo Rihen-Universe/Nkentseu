@@ -594,6 +594,9 @@ namespace nkentseu {
 			if (st.sceneTabIsoNode[tb] > 0) {
 				const int32 iso = st.sceneTabIsoNode[tb] - 1;
 				demo::Demo3DHostMoveTreeScene(iso, (int32)st.sceneTabId[tb]);
+				// Le seul parent d'un model est le model : ses maillages
+				// reviennent tous a plat sous lui (Rihen).
+				demo::Demo3DHostFlattenModel(iso);
 				demo::Demo3DHostSelectEmptyNode(iso);
 				st.editPreviewNode = 0;
 				return;
@@ -616,6 +619,8 @@ namespace nkentseu {
 				demo::Demo3DHostSelectEmptyNode(pv);
 			}
 			st.editPreviewNode = pv + 1;
+			if (tk == 7 && pv >= 0)
+				demo::Demo3DHostFlattenModel(pv); // maillages tous freres
 		}
 		inline void PaintTabsI(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
 							   NkHitRegistry &hit, NkWidgetState &ws, const nkgui::NkGuiInput &in) {

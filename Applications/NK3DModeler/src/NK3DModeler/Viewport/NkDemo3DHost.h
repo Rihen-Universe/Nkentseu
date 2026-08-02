@@ -179,6 +179,9 @@ namespace nkentseu {
 		void Demo3DHostSetDocIsModel(bool v);
 		bool Demo3DHostDocIsModel();
 		int32 Demo3DHostModelRootOf(int32 node);
+		// Remet les maillages d'un model A PLAT (tous enfants directs de sa
+		// racine) : dans un model, le seul parent est le model.
+		void Demo3DHostFlattenModel(int32 root);
 		void Demo3DHostSetCameraView(int32 node);
 		int32 Demo3DHostCameraView();
 		void Demo3DHostCopyNode(int32 node);
