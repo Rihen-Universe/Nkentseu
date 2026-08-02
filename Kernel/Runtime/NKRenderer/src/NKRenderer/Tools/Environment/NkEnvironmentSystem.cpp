@@ -1,5 +1,5 @@
-﻿// =============================================================================
-// NkEnvironmentSystem.cpp  â€” NKRenderer v5.0
+// =============================================================================
+// NkEnvironmentSystem.cpp  — NKRenderer v5.0
 //
 // D.2d : IBL prefiltering CPU au startup avec cache disque.
 //   - BRDF LUT 256x256 RG8     : split-sum integration (Karis 2013) via Hammersley
@@ -29,7 +29,7 @@
 namespace nkentseu {
 	namespace renderer {
 
-		// â”€â”€ Cache disque IBL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+		// ── Cache disque IBL ─────────────────────────────────────────────────────
 		// Format : magic(4) + version(4) + hash(4) + irrSize(4) + prefSize(4)
 		//        + prefMips(4) + lutSize(4)
 		//        + LUT data (lutSize*lutSize*2)
@@ -66,8 +66,8 @@ namespace nkentseu {
 
 		// Hash du ciel COMPLET. Tout parametre qui change l'image DOIT entrer
 		// ici : le cache disque est indexe par ce nombre, et un parametre oublie
-		// ferait resservir un ciel perime en silence â€” le pire des defauts,
-		// puisque le reglage semble simplement Â« sans effet Â».
+		// ferait resservir un ciel perime en silence — le pire des defauts,
+		// puisque le reglage semble simplement « sans effet ».
 		static uint32 IBLHashSky(const NkSkyParams &P, uint32 irrSz, uint32 prefSz, uint32 prefM, uint32 lutSz) {
 			uint32 h = IBLHash(P.skyTop, P.horizon, P.ground, irrSz, prefSz, prefM, lutSz);
 			auto mix = [&](uint32 v) { h = (h ^ v) * 0x01000193u; };
@@ -83,6 +83,9 @@ namespace nkentseu {
 			mf(P.turbidity);
 			mix(P.sunDisc ? 1u : 0u);
 			mf(P.sunIntensity);
+			mf(P.sunColor.x);
+			mf(P.sunColor.y);
+			mf(P.sunColor.z);
 			mix(P.clouds ? 1u : 0u);
 			mf(P.cloudCoverage);
 			mf(P.cloudDensity);
@@ -189,8 +192,8 @@ namespace nkentseu {
 			logger.Info("[IBL] Cache sauvegarde : {0}\n", path.CStr());
 		}
 
-		// â”€â”€ Helpers cubemap directions (convention OpenGL / Vulkan-equivalente) â”€â”€
-		// Reconstruit la direction 3D normalisee depuis (face, u, v âˆˆ [-1,1]).
+		// ── Helpers cubemap directions (convention OpenGL / Vulkan-equivalente) ──
+		// Reconstruit la direction 3D normalisee depuis (face, u, v ∈ [-1,1]).
 		static inline void CubemapFaceUVToDir(uint32 face, float u, float v, float &dx, float &dy, float &dz) {
 			switch (face) {
 				case 0:
@@ -237,12 +240,12 @@ namespace nkentseu {
 			}
 		}
 
-		// â”€â”€ Sample HDR equirect (Phase N v0) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+		// ── Sample HDR equirect (Phase N v0) ────────────────────────────────────
 		// Mappe une direction monde (dx,dy,dz) -> UV equirect [0,1] -> pixel
 		// RGB96F dans l'image HDR. Nearest neighbor (bilinear future v1).
 		// Convention : Y = up, X = "vers l'observateur" a phi=0, atan2 sur (dz, dx).
 		static inline NkVec3f SampleEquirect(float dx, float dy, float dz, const NkImage &hdr) {
-			// Spherical coords : phi = atan2(dz, dx) in [-Ï€, Ï€], theta = asin(dy)
+			// Spherical coords : phi = atan2(dz, dx) in [-π, π], theta = asin(dy)
 			const float invPI = 0.31830988618379f;
 			const float inv2PI = 0.15915494309189f;
 			float phi = std::atan2(dz, dx);
@@ -279,7 +282,7 @@ namespace nkentseu {
 			return {0.f, 0.f, 0.f};
 		}
 
-		// â”€â”€ Sky gradient procedural (notre "environment input") â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+		// ── Sky gradient procedural (notre "environment input") ─────────────────
 		// Gradient ciel haut -> horizon -> sol selon dir.y.
 		static inline NkVec3f SampleSkyGradient(float dx, float dy, float /*dz*/, const NkVec3f &skyTop,
 												const NkVec3f &horizon, const NkVec3f &ground) {
@@ -303,11 +306,11 @@ namespace nkentseu {
 			return v < a ? a : (v > b ? b : v);
 		}
 
-		// â”€â”€ CIEL PHYSIQUE â€” Preetham, Shirley & Smits (1999) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-		// Â« A Practical Analytic Model for Daylight Â». Modele ANALYTIQUE de
+		// ── CIEL PHYSIQUE — Preetham, Shirley & Smits (1999) ────────────────────
+		// « A Practical Analytic Model for Daylight ». Modele ANALYTIQUE de
 		// diffusion atmospherique : pas de simulation, une formule fermee. Il
 		// donne le bleu profond au zenith, le blanchiment vers l'horizon et les
-		// teintes chaudes au couchant SANS qu'on ait a les regler â€” elles sortent
+		// teintes chaudes au couchant SANS qu'on ait a les regler — elles sortent
 		// de la position du soleil et de la turbidite de l'air.
 		//
 		// Fonction de Perez : F(theta, gamma) = (1 + A e^(B/cos theta))
@@ -399,8 +402,12 @@ namespace nkentseu {
 				k = k * k;
 				const float s = 12.f * P.sunIntensity * k;
 				c.x += s;
-				c.y += s * 0.97f;
-				c.z += s * 0.90f;
+				// La TEINTE choisie s'applique ICI, sur le disque. La legere derive
+				// vers le chaud (0,97 / 0,90) reste : c'est la couleur propre d'un
+				// soleil vu a travers l'atmosphere ; la teinte vient par-dessus.
+				c.x += s * P.sunColor.x;
+				c.y += s * 0.97f * P.sunColor.y;
+				c.z += s * 0.90f * P.sunColor.z;
 			}
 
 			// SOUS L'HORIZON le modele n'est pas defini (le terme e^(B/cos theta)
@@ -415,7 +422,7 @@ namespace nkentseu {
 			return c;
 		}
 
-		// â”€â”€ NUAGES PROCEDURAUX â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+		// ── NUAGES PROCEDURAUX ──────────────────────────────────────────────────
 		// Bruit de valeur + fBm. Le hachage est ENTIER et deterministe : le meme
 		// ciel doit se regenerer a l'identique d'une session a l'autre, sans quoi
 		// le cache disque servirait une image differente de celle qu'on vient de
@@ -493,7 +500,7 @@ namespace nkentseu {
 
 		// Point d'entree UNIQUE du ciel procedural : modele de base puis nuages.
 		// Les quatre sites d'echantillonnage (cubemap visible, irradiance et les
-		// deux du prefilter) passent par ici â€” sans quoi le ciel qu'on VOIT et
+		// deux du prefilter) passent par ici — sans quoi le ciel qu'on VOIT et
 		// celui qui ECLAIRE finiraient par diverger.
 		static inline NkVec3f SampleSkyModel(float dx, float dy, float dz, const NkSkyParams &P) {
 			const NkVec3f c = (P.model == NkSkyModel::NK_SKY_PHYSICAL)
@@ -502,7 +509,7 @@ namespace nkentseu {
 			return ApplyClouds(c, dx, dy, dz, P);
 		}
 
-		// â”€â”€ Hammersley sequence (low-discrepancy 2D) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+		// ── Hammersley sequence (low-discrepancy 2D) ────────────────────────────
 		// Van der Corput radical inverse base 2.
 		static inline float RadicalInverseVdC(uint32 bits) {
 			bits = (bits << 16u) | (bits >> 16u);
@@ -518,7 +525,7 @@ namespace nkentseu {
 			y = RadicalInverseVdC(i);
 		}
 
-		// â”€â”€ Construction d'un repere TBN orthonorme depuis N â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+		// ── Construction d'un repere TBN orthonorme depuis N ─────────────────────
 		static inline void BuildTBN(float Nx, float Ny, float Nz, float &Tx, float &Ty, float &Tz, float &Bx, float &By,
 									float &Bz) {
 			float ax = std::fabs(Ny) < 0.999f ? 0.f : 1.f;
@@ -540,8 +547,8 @@ namespace nkentseu {
 			Bz = Nx * Ty - Ny * Tx;
 		}
 
-		// â”€â”€ Importance sample GGX dans le repere de N â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-		// xi âˆˆ [0,1)^2, retourne la half-vector H en world space.
+		// ── Importance sample GGX dans le repere de N ───────────────────────────
+		// xi ∈ [0,1)^2, retourne la half-vector H en world space.
 		static inline void ImportanceSampleGGX(float xiX, float xiY, float roughness, float Nx, float Ny, float Nz,
 											   float &Hx, float &Hy, float &Hz) {
 			float a = roughness * roughness;
@@ -567,7 +574,7 @@ namespace nkentseu {
 			}
 		}
 
-		// â”€â”€ G_Smith pour BRDF LUT (Karis variation k=a/2) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+		// ── G_Smith pour BRDF LUT (Karis variation k=a/2) ───────────────────────
 		static inline float G_Schlick(float cosT, float k) {
 			return cosT / (cosT * (1.f - k) + k);
 		}
@@ -578,7 +585,7 @@ namespace nkentseu {
 			return G_Schlick(NoV, k) * G_Schlick(NoL, k);
 		}
 
-		// â”€â”€ Integrate split-sum BRDF (Karis 2013) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+		// ── Integrate split-sum BRDF (Karis 2013) ───────────────────────────────
 		// Retourne (scale, bias) avec F0_scale = 1-(1-VoH)^5*(1-Fc) etc.
 		static inline void IntegrateBRDF(float NoV, float roughness, uint32 numSamples, float &outScale,
 										 float &outBias) {
@@ -594,7 +601,7 @@ namespace nkentseu {
 				float Hx, Hy, Hz;
 				ImportanceSampleGGX(xiX, xiY, roughness, 0.f, 0.f, 1.f, Hx, Hy, Hz);
 
-				// L = reflect(-V, H) = 2*(VÂ·H)*H - V
+				// L = reflect(-V, H) = 2*(V·H)*H - V
 				float VoH = Vx * Hx + Vy * Hy + Vz * Hz;
 				float Lx = 2.f * VoH * Hx - Vx;
 				float Ly = 2.f * VoH * Hy - Vy;
@@ -624,7 +631,7 @@ namespace nkentseu {
 			mDevice = device;
 			mCfg = cfg;
 
-			// â”€â”€ Cree les textures GPU avec leurs tailles finales â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+			// ── Cree les textures GPU avec leurs tailles finales ────────────────
 			const uint32 irrSize = mCfg.irradianceSize > 0 ? mCfg.irradianceSize : 32;
 			const uint32 prefSize = mCfg.prefilterSize > 0 ? mCfg.prefilterSize : 128;
 			const uint32 prefMips = mCfg.prefilterMips > 0 ? mCfg.prefilterMips : 5;
@@ -647,7 +654,7 @@ namespace nkentseu {
 			}
 			// Phase N v1 : cubemap dedie skybox HDR brut (RGBA32F, mip 0).
 			// Format full-float pour preserver les valeurs > 1.0 (sans
-			// Reinhard tonemap) â€” c'est ce qui rend le sky HDR "vivant".
+			// Reinhard tonemap) — c'est ce qui rend le sky HDR "vivant".
 			{
 				auto td = NkTextureDesc::Cubemap(prefSize, NkGPUFormat::NK_RGBA32_FLOAT, 1);
 				td.debugName = "SkyEnvCube";
@@ -719,8 +726,8 @@ namespace nkentseu {
 
 			auto &pool = ::nkentseu::threading::NkThreadPool::GetGlobal();
 
-			// â”€â”€ Phase N v1 : skybox cubemap procedural (gradient direct) â”€â”€â”€â”€
-			// En mode PROCEDURAL on n'a pas de "vrai HDR" â€” on sample le
+			// ── Phase N v1 : skybox cubemap procedural (gradient direct) ────
+			// En mode PROCEDURAL on n'a pas de "vrai HDR" — on sample le
 			// gradient sky directement sans tonemap (les valeurs sont deja
 			// dans [0,1]). Genere TOUJOURS avant le cache check IBL.
 			if (mSkyEnvCube.IsValid()) {
@@ -749,7 +756,7 @@ namespace nkentseu {
 					mDevice->WriteTextureRegion(mSkyEnvCube, skyData[f].data(), 0, 0, 0, prefSize, prefSize, 1, 0, f);
 			}
 
-			// â”€â”€ Cache disque â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+			// ── Cache disque ────────────────────────────────────────────────────
 			uint32 hash = IBLHashSky(P, irrSize, prefSize, prefMips, lutSize);
 			if (mCfg.enableCache) {
 				auto path = IBLCachePath(mCfg.cacheDir, hash);
@@ -759,7 +766,7 @@ namespace nkentseu {
 				}
 			}
 
-			// â”€â”€ BRDF LUT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+			// ── BRDF LUT ────────────────────────────────────────────────────────
 			// 32 samples suffisent pour un gradient sky sans hautes frequences.
 			std::vector<uint8_t> lutData(lutSize * lutSize * 2);
 			if (mBrdfLUT.IsValid()) {
@@ -783,8 +790,8 @@ namespace nkentseu {
 				mDevice->WriteTexture(mBrdfLUT, lutData.data());
 			}
 
-			// â”€â”€ Irradiance convolution â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-			// 4 strates Ã— 16 azimuts = 64 samples : suffisant pour ciel gradient.
+			// ── Irradiance convolution ──────────────────────────────────────────
+			// 4 strates × 16 azimuts = 64 samples : suffisant pour ciel gradient.
 			std::vector<std::vector<uint8_t>> irrData(6);
 			if (mIrradiance.IsValid()) {
 				auto irrFaceWork = [&](uint32 face) {
@@ -842,7 +849,7 @@ namespace nkentseu {
 					mDevice->WriteTextureRegion(mIrradiance, irrData[f].data(), 0, 0, 0, irrSize, irrSize, 1, 0, f);
 			}
 
-			// â”€â”€ Prefilter GGX par mip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+			// ── Prefilter GGX par mip ───────────────────────────────────────────
 			// 16 samples : qualite correcte pour ciel sans hautes frequences.
 			std::vector<std::vector<std::vector<uint8_t>>> prefData(prefMips, std::vector<std::vector<uint8_t>>(6));
 			if (mPrefilter.IsValid()) {
@@ -912,18 +919,18 @@ namespace nkentseu {
 				}
 			}
 
-			// â”€â”€ Sauvegarde du cache pour les prochains lancements â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+			// ── Sauvegarde du cache pour les prochains lancements ───────────────
 			if (mCfg.enableCache) {
 				auto path = IBLCachePath(mCfg.cacheDir, hash);
 				SaveIBLCache(path, hash, irrSize, prefSize, prefMips, lutSize, lutData.data(), irrData, prefData);
 			}
 		}
 
-		// â”€â”€ Phase N v0 : LoadFromHDR â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+		// ── Phase N v0 : LoadFromHDR ────────────────────────────────────────
 		// Charge un .hdr equirect 360 et l'utilise comme source pour les
 		// convolutions irradiance + prefilter. CPU-side (future v1 = compute
 		// shader GPU). Hash de cache = path + tailles config (pas le mtime
-		// pour cette v0 â€” clear cache manuel si on swap le .hdr).
+		// pour cette v0 — clear cache manuel si on swap le .hdr).
 		bool NkEnvironmentSystem::LoadFromHDR(const NkString &path) {
 			if (!mDevice)
 				return false;
@@ -961,7 +968,7 @@ namespace nkentseu {
 			const uint32 prefMips = mCfg.prefilterMips > 0 ? mCfg.prefilterMips : 5;
 			const uint32 lutSize = mCfg.brdfLUTSize > 0 ? mCfg.brdfLUTSize : 256;
 
-			// â”€â”€ Cache disque : hash sur path + tailles (pas le contenu) â”€â”€â”€â”€â”€
+			// ── Cache disque : hash sur path + tailles (pas le contenu) ─────
 			// Suffit pour eviter de re-calculer si on relance avec le meme
 			// HDR + memes tailles. Pour invalider, clear le fichier manuellement.
 			uint32 hash = 0x811c9dc5u;
@@ -977,7 +984,7 @@ namespace nkentseu {
 
 			auto &pool = ::nkentseu::threading::NkThreadPool::GetGlobal();
 
-			// â”€â”€ Phase N v1 : skybox cubemap HDR brut (sans Reinhard) â”€â”€â”€â”€â”€â”€â”€â”€
+			// ── Phase N v1 : skybox cubemap HDR brut (sans Reinhard) ────────
 			// Genere TOUJOURS (avant le cache check IBL) car ce cubemap n'est
 			// pas serialise dans nk_ibl_*.bin (regeneration ~10ms, negligeable).
 			// Mirror direct du HDR equirect sur les 6 faces du cube en RGBA32F.
@@ -1016,7 +1023,7 @@ namespace nkentseu {
 				}
 			}
 
-			// â”€â”€ BRDF LUT (identique a LoadProcedural â€” universel) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+			// ── BRDF LUT (identique a LoadProcedural — universel) ───────────
 			std::vector<uint8_t> lutData(lutSize * lutSize * 2);
 			if (mBrdfLUT.IsValid()) {
 				const uint32 N = 32;
@@ -1039,18 +1046,18 @@ namespace nkentseu {
 				mDevice->WriteTexture(mBrdfLUT, lutData.data());
 			}
 
-			// â”€â”€ Phase N v1 : convolutions sur GPU (compute) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-			// Remplit les MÃŠMES buffers que le chemin CPU (packing RGBA8
-			// identique) â†’ upload et cache disque inchangÃ©s. Sur le moindre
-			// Ã©chec (backend sans compute, kernel KO), gpuDone reste false et
-			// les blocs CPU ci-dessous s'exÃ©cutent comme avant.
+			// ── Phase N v1 : convolutions sur GPU (compute) ─────────────────
+			// Remplit les MÊMES buffers que le chemin CPU (packing RGBA8
+			// identique) → upload et cache disque inchangés. Sur le moindre
+			// échec (backend sans compute, kernel KO), gpuDone reste false et
+			// les blocs CPU ci-dessous s'exécutent comme avant.
 			std::vector<std::vector<uint8_t>> irrData(6);
 			std::vector<std::vector<std::vector<uint8_t>>> prefData(prefMips, std::vector<std::vector<uint8_t>>(6));
 			bool gpuDone = false;
 
 			const char *envGpu = std::getenv("NK_IBL_GPU");
 			// DX11 : NK_IBL_VERIFY montre maxDiff=175/255 sur ~0.8% des texels
-			// (fxc cs_5_0 ; GL/VK/DX12 sont a 5/255 pres) â€” comme le resultat
+			// (fxc cs_5_0 ; GL/VK/DX12 sont a 5/255 pres) — comme le resultat
 			// alimente le cache disque, DX11 reste sur le CPU par defaut.
 			// NK_IBL_GPU=1 force le GPU (debug), NK_IBL_GPU=0 force le CPU.
 			const bool dx11 = mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_DX11;
@@ -1061,7 +1068,7 @@ namespace nkentseu {
 			if (wantGpu) {
 				const float64 tGpu0 = ::nkentseu::NkChrono::Now().nanoseconds;
 
-				// Equirect â†’ RGBA float32 contigu (SSBO source du kernel).
+				// Equirect → RGBA float32 contigu (SSBO source du kernel).
 				const uint32 hw = (uint32)hdr->Width();
 				const uint32 hh = (uint32)hdr->Height();
 				const NkImagePixelFormat hfmt = hdr->Format();
@@ -1114,11 +1121,11 @@ namespace nkentseu {
 						const float64 compileMs = (tCompile - tGpu0) / 1.0e6;
 						const float64 convMs = (now - tCompile) / 1.0e6;
 						logger.Infof("[IBL] Convolutions GPU : %.1f ms (compile kernels %.1f ms one-shot + "
-									 "convolution %.1f ms) â€” irr %ux%u + prefilter %ux%u x%u mips\n",
+									 "convolution %.1f ms) — irr %ux%u + prefilter %ux%u x%u mips\n",
 									 compileMs + convMs, compileMs, convMs, irrSize, irrSize, prefSize, prefSize,
 									 prefMips);
 					} else {
-						logger.Warnf("[IBL] Convolution GPU echouee â€” fallback CPU\n");
+						logger.Warnf("[IBL] Convolution GPU echouee — fallback CPU\n");
 					}
 				}
 			}
@@ -1133,11 +1140,11 @@ namespace nkentseu {
 			if (verify) {
 				irrGpuCopy = irrData;
 				prefGpuCopy = prefData;
-				gpuDone = false; // rÃ©-exÃ©cute le CPU dans irrData/prefData
+				gpuDone = false; // ré-exécute le CPU dans irrData/prefData
 			}
 
-			// â”€â”€ Irradiance convolution (CPU, fallback / verify) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-			// Lambert weighted hemisphere, 4 strates Ã— 16 azimuts = 64 samples
+			// ── Irradiance convolution (CPU, fallback / verify) ─────────────
+			// Lambert weighted hemisphere, 4 strates × 16 azimuts = 64 samples
 			const float64 tCpu0 = ::nkentseu::NkChrono::Now().nanoseconds;
 			if (mIrradiance.IsValid() && !gpuDone) {
 				auto irrFaceWork = [&](uint32 face) {
@@ -1201,7 +1208,7 @@ namespace nkentseu {
 					mDevice->WriteTextureRegion(mIrradiance, irrData[f].data(), 0, 0, 0, irrSize, irrSize, 1, 0, f);
 			}
 
-			// â”€â”€ Prefilter GGX par mip (CPU, fallback / verify) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+			// ── Prefilter GGX par mip (CPU, fallback / verify) ──────────────
 			// 32 samples : qualite correcte pour HDR a hautes frequences (vs
 			// 16 pour gradient procedural). Garde le mip 0 mirror du HDR.
 			if (mPrefilter.IsValid() && !gpuDone) {
@@ -1290,7 +1297,7 @@ namespace nkentseu {
 				logger.Infof("[IBL] Convolutions CPU : %.1f ms\n", cpuMs);
 			}
 
-			// â”€â”€ NK_IBL_VERIFY=1 : ecart GPU vs CPU (octets RGBA8) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+			// ── NK_IBL_VERIFY=1 : ecart GPU vs CPU (octets RGBA8) ───────────
 			if (verify) {
 				uint32 maxDiff = 0;
 				uint64 nDiff = 0;
@@ -1316,7 +1323,7 @@ namespace nkentseu {
 							 nTotal ? 100.0 * (float64)nDiff / (float64)nTotal : 0.0);
 			}
 
-			// â”€â”€ Sauvegarde du cache â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+			// ── Sauvegarde du cache ─────────────────────────────────────────
 			// Note v1 : mSkyEnvCube n'est PAS dans le cache (genere avant le
 			// cache check, regenere a chaque boot ~10ms negligeable).
 			if (mCfg.enableCache) {

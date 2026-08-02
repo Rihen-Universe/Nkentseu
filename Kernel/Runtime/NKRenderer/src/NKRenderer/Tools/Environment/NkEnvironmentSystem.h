@@ -107,6 +107,11 @@ namespace nkentseu {
 				// de source visible, ce qui se remarque immediatement.
 				bool sunDisc = true;
 				float32 sunIntensity = 1.f;
+				// TEINTE du soleil. Le modele physique deduit deja la couleur du
+				// ciel de la position du soleil et de la turbidite ; celle-ci
+				// s'applique au DISQUE, pour un soleil volontairement chaud ou
+				// froid sans avoir a mentir sur la turbidite. Blanc = neutre.
+				NkVec3f sunColor = {1.f, 1.f, 1.f};
 
 				// ── Couche de nuages (optionnelle, par-dessus le modele) ────
 				bool clouds = false;
