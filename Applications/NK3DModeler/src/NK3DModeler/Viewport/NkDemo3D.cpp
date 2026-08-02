@@ -148,6 +148,12 @@ namespace nkentseu {
 		// et dans la scene un clic dessus selectionne TOUT le model (Rihen).
 		static bool nkvpIsMesh[kNkvpMaxNodes] = {};
 		static bool nkvpDocIsModel = false;
+		// Racine du model ouvert dans le document courant (-1 : aucun). Dans son
+		// PROPRE editeur, un model ne subit ni le masquage ni le verrou poses sur
+		// lui COTE SCENE : ce sont des reglages de scene, et on n'ouvre pas un
+		// editeur pour y trouver son sujet invisible ou intouchable. L'inverse
+		// reste vrai -- ce qu'on fait DANS le model se voit dans la scene (Rihen).
+		static int32 nkvpModelRoot = -1;
 		// VUE CAMERA : noeud regarde (-1 = vue 3D libre).
 		static int32 nkvpCamViewNode = -1;
 		// VISIBILITE et VERROU EFFECTIFS : le sien OU celui d'un ancetre --
@@ -175,12 +181,21 @@ namespace nkentseu {
 			return p >= 0 && p < kNkvpMaxNodes &&
 				   (nkvpDeleted[p] || HostNodeForeign(p));
 		}
+		// La chaine s'arrete AUSSI a la racine du model dans son propre editeur :
+		// au-dela on sort du model, et les reglages de scene ne le concernent pas.
+		static bool HostChainStopsAt(int32 n) {
+			return nkvpDocIsModel && n >= 0 && n == nkvpModelRoot;
+		}
 		static bool HostHiddenEff(int32 n) {
 			if (HostNodeForeign(n))
 				return true; // lui-meme vit dans un autre document
 			for (int32 g = 0; g < kNkvpMaxNodes && n >= 0; ++g) {
-				if (HostNodeHiddenOwn(n))
+				// Le SUJET de l'editeur ne se cache pas parce que la scene l'a
+				// cache : ce serait ouvrir un editeur vide (Rihen).
+				if (!HostChainStopsAt(n) && HostNodeHiddenOwn(n))
 					return true;
+				if (HostChainStopsAt(n))
+					break;
 				const int32 pa = nkvpParentOf[n];
 				if (HostChainBreaks(pa))
 					break;
@@ -190,8 +205,10 @@ namespace nkentseu {
 		}
 		static bool HostLockedEff(int32 n) {
 			for (int32 g = 0; g < kNkvpMaxNodes && n >= 0; ++g) {
-				if (n < 160 && nkvpObjLocked[n])
+				if (!HostChainStopsAt(n) && n < 160 && nkvpObjLocked[n])
 					return true;
+				if (HostChainStopsAt(n))
+					break;
 				const int32 pa = nkvpParentOf[n];
 				if (HostChainBreaks(pa))
 					break;
@@ -9237,23 +9254,33 @@ namespace nkentseu {
 		}
 		int32 Demo3DHostCameraView() { return nkvpCamViewNode; }
 		void Demo3DHostMoveTreeScene(int32 node, int32 id) {
-			// ISOLATION : le noeud ET ses descendants changent de document --
-			// c'est le MEME objet qui s'edite, pas une copie (Rihen).
+			// ISOLATION : le noeud change de document, avec SES MESH INTERNES et
+			// EUX SEULS. Ses enfants de SCENE (qui sont des models a part entiere)
+			// restent dans la scene : un editeur de model ne contient que le model
+			// et sa matiere (regle de Rihen -- emporter les enfants de scene etait
+			// justement ce qu'on avait refuse).
 			if (node < 0 || node >= kNkvpMaxNodes)
 				return;
 			nkvpSceneOf[node] = (uint8)(id & 0xFF);
 			for (int32 c = 0; c < kNkvpMaxNodes; ++c) {
-				if (c == node || nkvpDeleted[c])
+				if (c == node || nkvpDeleted[c] || !nkvpIsMesh[c])
 					continue;
+				// Tout le chemin jusqu'au noeud doit etre fait de mesh internes :
+				// un mesh niche sous un model ENFANT appartient a ce model-la.
 				int32 cur = nkvpParentOf[c];
 				for (int32 g = 0; g < kNkvpMaxNodes && cur >= 0; ++g) {
 					if (cur == node) {
 						nkvpSceneOf[c] = (uint8)(id & 0xFF);
 						break;
 					}
+					if (!nkvpIsMesh[cur])
+						break; // on a quitte la matiere de CE model
 					cur = nkvpParentOf[cur];
 				}
 			}
+		}
+		void Demo3DHostSetModelRoot(int32 node) {
+			nkvpModelRoot = node;
 		}
 		void Demo3DHostCopyNode(int32 node) {
 			auto *st = HostSt();
