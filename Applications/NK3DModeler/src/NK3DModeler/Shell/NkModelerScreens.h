@@ -531,6 +531,16 @@ namespace nkentseu {
 		// UNE SEULE scene a l'ouverture. Demarrer sur deux onglets vides ferait croire
 		// que l'un d'eux contient quelque chose, et obligerait a en fermer un avant
 		// meme d'avoir commence. Le nom se modifie au DOUBLE-clic, le + en ajoute une.
+		// Un MODEL et ses MESH sont deux natures distinctes : le conteneur
+		// s'appelle model, sa matiere reste des maillages. Le premier mesh
+		// prend un nom independant -- renommer l'un ne renomme pas l'autre.
+		inline void NkHierComposeName(NkModelerState &st, const char *base0, int32 newNode);
+		inline int32 NkModelFirstMesh(NkModelerState &st, int32 root) {
+			const int32 m = demo::Demo3DHostEnsureModelMesh(root);
+			if (m >= 0 && m < 176 && st.customNames[m][0] == 0)
+				NkHierComposeName(st, "Mesh", m);
+			return m;
+		}
 		inline void NkStoreSceneCam(NkModelerState &st, int32 tab) {
 			if (tab < 0 || tab >= 8)
 				return;
@@ -597,6 +607,7 @@ namespace nkentseu {
 				// Le seul parent d'un model est le model : ses maillages
 				// reviennent tous a plat sous lui (Rihen).
 				demo::Demo3DHostFlattenModel(iso);
+				NkModelFirstMesh(st, iso); // le model et sa matiere
 				demo::Demo3DHostSelectEmptyNode(iso);
 				st.editPreviewNode = 0;
 				return;
@@ -619,8 +630,10 @@ namespace nkentseu {
 				demo::Demo3DHostSelectEmptyNode(pv);
 			}
 			st.editPreviewNode = pv + 1;
-			if (tk == 7 && pv >= 0)
+			if (tk == 7 && pv >= 0) {
 				demo::Demo3DHostFlattenModel(pv); // maillages tous freres
+				NkModelFirstMesh(st, pv);
+			}
 		}
 		inline void PaintTabsI(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
 							   NkHitRegistry &hit, NkWidgetState &ws, const nkgui::NkGuiInput &in) {
@@ -2326,10 +2339,16 @@ namespace nkentseu {
 						// Un OBJET UTILISATEUR de nature maillage garde l'icone maillage.
 						const int32 ukind = node >= 96 ? demo::Demo3DHostUserKind(node) : 0;
 						const bool isUserMesh = ukind >= 1 && ukind <= 3;
-						p.IconV(tx, yy, kRowH,
-								isEmpty ? NkUserKindIcon(node >= 96 ? ukind : 4)
-										: (isLight ? NkIcon::Light : NkIcon::Mesh),
-								fg, 13.f);
+						// ICONES DISTINCTES model / mesh (demande de Rihen) : dans un
+						// editeur on doit voir d'un coup d'oeil qui est le conteneur
+						// et qui est la matiere.
+						NkIcon ico = isEmpty ? NkUserKindIcon(node >= 96 ? ukind : 4)
+											 : (isLight ? NkIcon::Light : NkIcon::Mesh);
+						if (demo::Demo3DHostNodeIsModel(node))
+							ico = NkIcon::Cube3D; // le conteneur
+						else if (demo::Demo3DHostNodeIsMesh(node))
+							ico = NkIcon::Mesh; // la matiere
+						p.IconV(tx, yy, kRowH, ico, fg, 13.f);
 						p.Clip({rowR.x, yy, colType - rowR.x - S(8.f), kRowH});
 						snprintf(key, sizeof(key), "hier.name.%d", node);
 						EditableText(p, hit, ws, in, key,
@@ -2352,11 +2371,12 @@ namespace nkentseu {
 						else if (isEmpty && ukind == 4 &&
 								 demo::Demo3DHostUserSub(node) == 10)
 							tyTxt = "Camera";
-						// Un noeud qui CONTIENT des maillages est un MODEL : il n'a
-						// plus de geometrie propre (elle est passee dans ses
-						// maillages), mais ce n'est pas un empty pour autant.
-						else if (isEmpty && NkNodeHasMeshKids(node))
+						// MODEL et MESH sont deux natures DISTINCTES : le conteneur
+						// s'annonce Model, sa matiere reste des maillages (Rihen).
+						else if (demo::Demo3DHostNodeIsModel(node))
 							tyTxt = "Model";
+						else if (demo::Demo3DHostNodeIsMesh(node))
+							tyTxt = "Mesh";
 						// Dans un MODEL, lumieres/cameras/empties ne font PAS
 						// partie du model : aides purement cosmetiques (Rihen).
 						if (st.sceneTabKind[st.activeTab] == 7 &&

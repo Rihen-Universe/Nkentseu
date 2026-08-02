@@ -176,12 +176,18 @@ namespace nkentseu {
 		// tout le model.
 		void Demo3DHostSetNodeIsMesh(int32 node, bool v);
 		bool Demo3DHostNodeIsMesh(int32 node);
+		// Le CONTENEUR d'un model : seul lui porte ce nom, ses maillages
+		// restent des maillages.
+		bool Demo3DHostNodeIsModel(int32 node);
 		void Demo3DHostSetDocIsModel(bool v);
 		bool Demo3DHostDocIsModel();
 		int32 Demo3DHostModelRootOf(int32 node);
 		// Remet les maillages d'un model A PLAT (tous enfants directs de sa
 		// racine) : dans un model, le seul parent est le model.
 		void Demo3DHostFlattenModel(int32 root);
+		// Fait du noeud un MODEL et descend sa geometrie propre dans un
+		// premier maillage interne. Renvoie ce maillage (-1 si rien a faire).
+		int32 Demo3DHostEnsureModelMesh(int32 root);
 		void Demo3DHostSetCameraView(int32 node);
 		int32 Demo3DHostCameraView();
 		void Demo3DHostCopyNode(int32 node);

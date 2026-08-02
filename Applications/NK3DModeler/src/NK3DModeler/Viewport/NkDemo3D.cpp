@@ -158,6 +158,11 @@ namespace nkentseu {
 		// dans les deux vues, mais ne figure que dans la hierarchie du model,
 		// et dans la scene un clic dessus selectionne TOUT le model (Rihen).
 		static bool nkvpIsMesh[kNkvpMaxNodes] = {};
+		// MODEL : le conteneur. Il garde sa nature (on ne le transforme PAS en
+		// empty -- ce changement repartait dans la scene), mais il ne rend plus
+		// sa geometrie en propre : ce sont ses maillages qui la rendent, dans
+		// les deux vues. Seul lui a droit au nom de model (Rihen).
+		static bool nkvpIsModel[kNkvpMaxNodes] = {};
 		static bool nkvpDocIsModel = false;
 		// (L'etancheite du model aux reglages de la scene ne passe PAS par la
 		// connaissance de sa racine, mais par des drapeaux separes par contexte --
@@ -4833,6 +4838,8 @@ namespace nkentseu {
 					continue; // seuls les MAILLAGES se rendent (une lumiere kind 5
 							  // tombait dans le cas « plan » -- constate par Rihen)
 				const int32 un = kNkvpFirstUser + u;
+				if (nkvpIsModel[un])
+					continue; // conteneur : sa geometrie vit dans ses maillages
 				if (HostHiddenEff(un))
 					continue;
 				const int32 e = un - 90;
@@ -8636,6 +8643,42 @@ namespace nkentseu {
 			nkvpParentOf[child] = parent;
 			return true;
 		}
+		int32 Demo3DHostEnsureModelMesh(int32 root) {
+			// A l'ouverture d'un editeur : le noeud devient le MODEL, et sa
+			// geometrie propre descend dans un premier MESH interne -- le cube
+			// avec ses sommets et ses faces (Rihen). Les maillages ajoutes
+			// ensuite sont FRERES de celui-la, jamais ses enfants, et lui ne
+			// devient jamais un model : seul le conteneur porte ce nom.
+			if (root < kNkvpFirstUser || root >= kNkvpMaxNodes)
+				return -1;
+			for (int32 c = 0; c < kNkvpMaxNodes; ++c)
+				if (!nkvpDeleted[c] && nkvpIsMesh[c] && nkvpParentOf[c] == root)
+					return c; // il a deja sa matiere
+			const uint8 rk = nkvpUserKind[root - kNkvpFirstUser];
+			if (rk < 1 || rk > 3)
+				return -1; // pas une geometrie : rien a deleguer
+			const float32 zero[3] = {0.f, 0.f, 0.f};
+			const int32 m = HostSpawnLike(root, zero);
+			if (m < 0)
+				return -1;
+			nkvpIsMesh[m] = true;
+			nkvpIsModel[m] = false;
+			nkvpParentOf[m] = root;
+			// DANS le model : transform locale neutre. Il se pose exactement
+			// sur lui, et suit sa position, sa rotation et son echelle.
+			const int32 e = m - kNkvpFirstEmpty;
+			for (int32 a = 0; a < 3; ++a) {
+				nkvpEmptyPos[e][a] = 0.f;
+				nkvpEmptyRotDeg[e][a] = 0.f;
+				nkvpEmptyScl[e][a] = 1.f;
+			}
+			// Le noeud devient le MODEL. Sa NATURE ne change pas (il reste un
+			// cube) : on ne le convertit surtout pas en empty, ce changement
+			// repartirait dans la scene. Il cesse simplement de rendre sa
+			// geometrie, que son maillage rend desormais pour lui.
+			nkvpIsModel[root] = true;
+			return m;
+		}
 		void Demo3DHostFlattenModel(int32 root) {
 			// Remet A PLAT les maillages d'un model : tous enfants DIRECTS de la
 			// racine. Sert a l'ouverture d'un editeur, pour que la regle vaille
@@ -9153,6 +9196,7 @@ namespace nkentseu {
 				nkvpDeleted[n] = false;
 				nkvpSceneOf[n] = nkvpCurScene; // nait dans le document ACTIF
 				nkvpIsMesh[n] = false;
+				nkvpIsModel[n] = false;
 				nkvpParentOf[n] = -1;
 				nkvpXmit[n] = 7;
 				nkvpMatMask[n] = 0;
@@ -9249,6 +9293,9 @@ namespace nkentseu {
 				}
 			}
 			nkvpIsMesh[n] = nkvpIsMesh[src]; // un double de mesh reste un mesh
+			// Un double de MODEL naitrait vide (ses maillages ne sont pas
+			// copies ici) : il redevient donc un objet ordinaire.
+			nkvpIsModel[n] = false;
 			if (src >= kNkvpFirstUser) {
 				const int32 su = src - kNkvpFirstUser;
 				const int32 nu = n - kNkvpFirstUser;
@@ -9293,6 +9340,9 @@ namespace nkentseu {
 		}
 		bool Demo3DHostNodeIsMesh(int32 node) {
 			return node >= 0 && node < kNkvpMaxNodes && nkvpIsMesh[node];
+		}
+		bool Demo3DHostNodeIsModel(int32 node) {
+			return node >= 0 && node < kNkvpMaxNodes && nkvpIsModel[node];
 		}
 		void Demo3DHostSetDocIsModel(bool v) { nkvpDocIsModel = v; }
 		bool Demo3DHostDocIsModel() { return nkvpDocIsModel; }
