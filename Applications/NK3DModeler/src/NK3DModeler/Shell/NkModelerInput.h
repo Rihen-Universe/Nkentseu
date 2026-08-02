@@ -253,6 +253,9 @@ namespace nkentseu {
 				bool hierDragging = false;
 				bool hierMouseWasDown = false;
 				// MENU CONTEXTUEL de la hierarchie (clic droit sur une ligne).
+				// MESSAGE du pied de la hierarchie : explique un refus (verrou...).
+				// Un clic sans effet passe sinon pour une panne.
+				char hierNote[96] = {};
 				int32 hierMenuNode = -1;
 				float32 hierMenuX = 0.f, hierMenuY = 0.f;
 				// UNITES DE MESURE de la scene (0 metrique, 1 imperial, 2 aucun).

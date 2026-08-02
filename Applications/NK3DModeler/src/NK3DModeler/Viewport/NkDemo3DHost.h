@@ -112,6 +112,10 @@ namespace nkentseu {
 		bool Demo3DHostObjectHidden(int32 i);
 		void Demo3DHostSetObjectLocked(int32 i, bool locked);
 		bool Demo3DHostObjectLocked(int32 i);
+		// EFFECTIFS : le sien OU celui d'un ancetre. C'est ce que l'interface doit
+		// montrer, sinon un refus de selection herite parait inexplicable.
+		bool Demo3DHostObjectLockedEff(int32 i);
+		bool Demo3DHostObjectHiddenEff(int32 i);
 		void Demo3DHostSetLightHidden(int32 li, bool hidden);
 		bool Demo3DHostLightHidden(int32 li);
 		void Demo3DHostSetAllHidden(bool hidden); // scene VIERGE d'un nouvel onglet

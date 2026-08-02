@@ -8443,6 +8443,17 @@ namespace nkentseu {
 		bool Demo3DHostObjectHidden(int32 i) {
 			return (i >= 0 && i < 160) && nkvpObjHidden[i];
 		}
+		// ETAT EFFECTIF (le sien OU celui d'un ancetre). L'interface DOIT montrer
+		// celui-la : un enfant dont le parent est cadenasse refuse la selection,
+		// et afficher son cadenas OUVERT rendait ce refus incomprehensible
+		// (constate par Rihen : « je ne peux selectionner ni le parent ni
+		// l'enfant » -- le parent avait ete verrouille par megarde).
+		bool Demo3DHostObjectLockedEff(int32 i) {
+			return HostLockedEff(i);
+		}
+		bool Demo3DHostObjectHiddenEff(int32 i) {
+			return HostHiddenEff(i);
+		}
 		void Demo3DHostSetObjectLocked(int32 i, bool locked) {
 			if (i >= 0 && i < 160)
 				nkvpObjLocked[i] = locked;
