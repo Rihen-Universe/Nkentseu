@@ -4049,9 +4049,13 @@ namespace nkentseu {
 					const char *title;
 					NkIcon icon;
 			};
-			static const NkPropSec kSecs[] = {{"Proprietes du modele", NkIcon::Mesh},
-											  {"Proprietes de la scene", NkIcon::Globe},
-											  {"Proprietes de l'outil", NkIcon::Gizmo}};
+			// LES QUATRE CATEGORIES de la maquette (Rihen, dessin Banani), avec ses
+			// icones : Modele (box), Rendu (sun), Scene (layers), Modificateur
+			// (sliders-horizontal). UNE SEULE est active a la fois.
+			static const NkPropSec kSecs[] = {{"Modele", NkIcon::Cube3D},
+											  {"Rendu", NkIcon::Sun},
+											  {"Scene", NkIcon::Layers},
+											  {"Modificateur", NkIcon::SlidersH}};
 			const int32 kNSec = (int32)(sizeof(kSecs) / sizeof(kSecs[0]));
 			int32 nOpen = 0, nUnfold = 0;
 			for (int32 i2 = 0; i2 < kNSec; ++i2)
@@ -4945,6 +4949,14 @@ namespace nkentseu {
 						yy += kRowH;
 					}
 				} else if (sec == 1) {
+					// ── RENDU (pastille « sun » de la maquette) ─────────────────
+					// Categorie a definir avec Rihen : on annonce ce qu'elle sera
+					// plutot que d'y empiler des reglages pris ailleurs.
+					p.TextV(r.x + kPad, yy, kRowH, "Parametres de rendu", NkRole::Text);
+					yy += kRowH;
+					p.TextV(r.x + kPad, yy, kRowH, "-- a definir --", NkRole::TextMuted);
+					yy += kRowH;
+				} else if (sec == 2) {
 					// â”€â”€ LA SCENE : champs GLISSABLES (comme les transformations) â”€
 					{
 						p.TextV(r.x + kPad, yy, kRowH, "Projection", NkRole::TextMuted);
@@ -5203,7 +5215,15 @@ namespace nkentseu {
 							yy += kRowH;
 						}
 					}
-				} else {
+				} else if (sec == 3) {
+					// ── MODIFICATEUR (pastille « sliders-horizontal ») ──────────
+					// La categorie reste A DEFINIR avec Rihen. En attendant, elle
+					// HEBERGE les reglages de l'outil actif : ils etaient sur une
+					// pastille supprimee par la maquette, et les perdre en silence
+					// serait une regression. Ils demenageront a la refonte.
+					p.TextV(r.x + kPad, yy, kRowH, "Modificateurs -- a definir",
+							NkRole::TextMuted);
+					yy += kRowH;
 					// ── L'OUTIL -- et PLUSIEURS quand plusieurs coexistent : l'outil
 					// de transformation garde son bloc, le mode EDITION empile le
 					// sien dessous (deplacer + extruder arrivent ensemble, chacun
@@ -5424,10 +5444,12 @@ namespace nkentseu {
 				NkScrollDrag(p, hit, st, "props.outer", {r.x, stackTop, r.w, viewH}, stackH,
 							 st.propScroll);
 			}
-			// ── LES PASTILLES : une par section, a droite. BLEUE = active ;
-			// plusieurs a la fois ; AUCUNE = panneau entierement replie. C'est ce
-			// qui restera lisible quand les types de proprietes se compteront en
-			// dizaines.
+			// ── LES PASTILLES : une par section, a droite. BLEUE = active.
+			// UNE SEULE A LA FOIS (regle de Rihen) : le panneau montre les
+			// proprietes de LA categorie choisie, et rien d'autre. Les ouvrir
+			// ensemble revenait a empiler des blocs sans rapport et a rogner la
+			// place de chacun -- illisible des que les categories se comptent en
+			// dizaines. Recliquer la pastille active replie le panneau.
 			{
 				p.VLine(r.x + r.w, stackTop, (rFull.y + rFull.h) - stackTop);
 				float32 ty = stackTop + S(4.f);
@@ -5444,10 +5466,20 @@ namespace nkentseu {
 					p.IconV(tb.x + (tb.w - S(14.f)) * 0.5f, tb.y, tb.h, kSecs[i2].icon,
 							on ? NkRole::TextOnAccent : NkRole::TextMuted, 14.f);
 					if (hit.Clicked(tk)) {
+						// EXCLUSIVE : choisir une categorie eteint les autres, et
+						// recliquer l'active replie le panneau. Une section fermee
+						// oublie son agrandissement et son defilement -- ils ne
+						// doivent plus peser sur la mise en page.
+						for (int32 j2 = 0; j2 < kNSec; ++j2) {
+							if (j2 == i2)
+								continue;
+							if (st.propOpen[j2]) {
+								st.propOpen[j2] = false;
+								st.propSecH[j2] = 0.f;
+								st.propScroll3[j2] = 0.f;
+							}
+						}
 						st.propOpen[i2] = !on;
-						// Une section MASQUEE oublie son agrandissement et son
-						// defilement : ils ne doivent plus peser sur la mise en
-						// page, et elle reviendra en partage automatique.
 						if (on) {
 							st.propSecH[i2] = 0.f;
 							st.propScroll3[i2] = 0.f;

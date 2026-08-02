@@ -117,6 +117,16 @@ namespace nkentseu {
 			EmptyAxes,
 			ImageRef,
 			Cube3D,
+			// Icones du PANNEAU DE PROPRIETES dessine par Rihen sur Banani. Elles
+			// suivent la nomenclature Lucide de la maquette, pour que le dessin a
+			// l'ecran soit celui qu'il a choisi.
+			Sun,			  ///< pastille « Rendu »
+			SlidersH,		  ///< pastille « Modificateur »
+			Link2,			  ///< troisieme icone d'une ligne de transformation
+			SquareCheck,	  ///< 1re action d'un element de liste (assigner)
+			PlusCircle,		  ///< 3e action (ajouter)
+			MinusCircle,	  ///< 4e action (retirer)
+			Tag,			  ///< marqueur d'un attribut
 			Count
 		};
 
@@ -186,6 +196,14 @@ namespace nkentseu {
 						{NkIcon::EmptyAxes, "empty-axes"},
 						{NkIcon::ImageRef, "image-ref"},
 						{NkIcon::Cube3D, "cube-3d"},
+					// Panneau de proprietes (maquette Banani, nomenclature Lucide).
+					{NkIcon::Sun, "sun"},
+					{NkIcon::SlidersH, "sliders-horizontal"},
+					{NkIcon::Link2, "link-2"},
+					{NkIcon::SquareCheck, "square-check"},
+					{NkIcon::PlusCircle, "plus-circle"},
+					{NkIcon::MinusCircle, "minus-circle"},
+					{NkIcon::Tag, "tag"},
 						{NkIcon::Camera, "device-camera"},
 						{NkIcon::Ortho, "ortho-cube"},
 						{NkIcon::Gizmo, "location"},

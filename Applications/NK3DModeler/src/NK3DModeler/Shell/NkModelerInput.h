@@ -202,7 +202,9 @@ namespace nkentseu {
 				// proprietes (la table kSecs des ecrans) -- huit emplacements.
 				// propOpen = ACTIVE par la pastille ; propFold = PLIE par le
 				// chevron (l'en-tete reste, seul le contenu est recouvert).
-				bool propOpen[8] = {true, true, true};
+				// UNE SEULE active a la fois (regle de Rihen) : au demarrage, la
+				// categorie « Modele » -- c'est celle sur laquelle on travaille.
+				bool propOpen[8] = {true};
 				bool propFold[8] = {};
 				bool AnyPropOpen() const {
 					for (int32 i = 0; i < 8; ++i)

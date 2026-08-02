@@ -11,20 +11,54 @@ est consignée avec sa raison.
 
 ---
 
-## Ordre décidé par Rihen (2026-08-02)
+## Ordre décidé par Rihen (révisé le 2026-08-02)
 
-Cet ordre prime sur toute autre priorisation. La sauvegarde « viendra avec le
-temps » — elle n'est volontairement **pas** en tête.
+Cet ordre prime sur toute autre priorisation. **La modélisation est passée en
+tête** : c'est le cœur de l'outil, tout le reste s'y raccroche. La sauvegarde
+« viendra avec le temps » — elle n'est volontairement **pas** en tête.
 
 | # | Chantier | État |
 |---|---|---|
-| 1 | **Caméras** : plusieurs caméras, bascule, vue caméra | 🔄 socle livré (v15) |
-| 2 | **Éclairage** : terminer la phase lumières | ⬜ |
-| 3 | **Modélisation complète** (dont mode Édition) | ⬜ |
+| 1 | **Modélisation** — et d'abord la refonte du **panneau droit** (maquette Banani) | 🔄 en cours |
+| 2 | **Caméras** : plusieurs caméras, bascule, vue caméra | 🔄 socle livré (v15) |
+| 3 | **Éclairage** : terminer la phase lumières | ⬜ |
 | 4 | **Import de modèles** | ⬜ |
 | 5 | **Terminer les éléments du combo Ajouter** | ⬜ |
 | 6 | **Mode Édition** (sommets / arêtes / faces, sculpt) | ⬜ |
 | 7 | **Sortir les 96 objets de la démo** — *uniquement quand toute la modélisation est terminée* | ⬜ |
+
+### 1. Modélisation — refonte du panneau droit 🔄
+
+Maquette de référence : Banani, flow **NK3D Modeler**, écran « Mode Objet (v2,
+ref complète) », composant `NK3DPropertiesTabs`. Icônes **Lucide**.
+
+**Livré**
+- Les pastilles sont les **quatre** de la maquette — Modèle (`box`), Rendu
+  (`sun`), Scène (`layers`), Modificateur (`sliders-horizontal`) — et **une
+  seule est active à la fois** ; recliquer l'active replie le panneau.
+- Les sept icônes Lucide manquantes ont été dessinées : `sun`,
+  `sliders-horizontal`, `link-2`, `square-check`, `plus-circle`,
+  `minus-circle`, `tag`.
+- Les réglages de l'outil, dont la pastille disparaît dans la maquette, sont
+  hébergés sous « Modificateur » en attendant leur vraie place.
+
+**Reste à faire — contenu de la pastille Modèle**, dans l'ordre de la maquette :
+Transformation (Position / Rotation / Échelle) · Dimensions · Relations
+(Parent / Enfant) · Matériaux · Groupes de Vertex · Shape Keys · Maps UV ·
+Attributs de Couleur · Attributs · Espace Texture · Données Géométrie
+(Vertices / Faces / Edges).
+
+Chaque ligne de transformation porte ses trois boutons `lock`, `refresh-cw`,
+`link-2` ; chaque élément de liste porte sa rangée de quatre boutons
+`square-check`, `square`, `plus-circle`, `minus-circle`, et chaque section de
+liste finit par un bouton « + Ajouter ».
+
+**Règle absolue** : aucune donnée inventée. Les sections dont le modèle de
+données n'existe pas encore (groupes de vertex, shape keys, maps UV, attributs)
+affichent un état vide honnête et se remplissent de ce que l'utilisateur crée —
+jamais d'entrées de démonstration.
+
+Puis viennent les trois autres pastilles, à retravailler avec Rihen.
 
 ---
 
