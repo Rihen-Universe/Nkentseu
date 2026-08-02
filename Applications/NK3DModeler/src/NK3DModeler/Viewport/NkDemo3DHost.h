@@ -164,6 +164,7 @@ namespace nkentseu {
 		void Demo3DHostSetActiveScene(int32 id);
 		int32 Demo3DHostActiveScene();
 		int32 Demo3DHostNodeScene(int32 node);
+		void Demo3DHostMoveTreeScene(int32 node, int32 id); // isolation
 		void Demo3DHostCopyNode(int32 node);
 		int32 Demo3DHostPasteNode();
 		int32 Demo3DHostUserKind(int32 node); // 0 aucun, 1 sphere, 2 cube, 3 plan, 4 empty
