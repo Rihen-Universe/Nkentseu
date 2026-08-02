@@ -186,6 +186,11 @@ namespace nkentseu {
 				float32 TextW(const char *s) const {
 					return mFont.MeasureWidth(s);
 				}
+				// La POLICE, pour les briques partagees de NKEditorKit (le champ de
+				// saisie universel) qui mesurent le texte elles-memes.
+				const NkGuiFont *FontPtr() const {
+					return &mFont;
+				}
 
 				void Fill(const NkRect &r, NkRole role, float32 rounding = 0.f) {
 					mDl.AddRectFilled(PxRect(r), C(role), rounding);
