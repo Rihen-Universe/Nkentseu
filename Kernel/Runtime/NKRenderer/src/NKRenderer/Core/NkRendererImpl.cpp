@@ -287,6 +287,16 @@ namespace nkentseu {
 			sc.quality = mCfg.shadow.pcss
 							 ? NkVSMShadowQuality::PCSS
 							 : (mCfg.shadow.softShadows ? NkVSMShadowQuality::PCF3x3 : NkVSMShadowQuality::NONE);
+			// BIAIS ET DOUCEUR : ils n'etaient PAS transmis. La configuration
+			// promettait des reglages d'ombre que les shadow maps ne voyaient
+			// jamais -- on pouvait les changer sans le moindre effet a l'ecran.
+			sc.shadowBias = mCfg.shadow.slopeBias;
+			sc.normalBias = mCfg.shadow.normalBiasWorld;
+			sc.softness = mCfg.shadow.softness;
+			if (mCfg.shadow.cascadeLambda > 0.f)
+				sc.cascadeLambda = mCfg.shadow.cascadeLambda;
+			if (mCfg.shadow.maxDistance > 0.f)
+				sc.cascadeFar = mCfg.shadow.maxDistance;
 			mShadow.Reset(AllocOwned<NkVirtualShadowMaps>());
 			if (!mShadow->Init(mDevice, mMeshSystem.Get(), mMaterials.Get(), sc, mCfg.framesInFlight)) {
 				mShadow.Reset();
