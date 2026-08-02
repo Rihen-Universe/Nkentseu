@@ -293,6 +293,16 @@ namespace nkentseu {
 					mIBLStrength = s;
 				}
 
+				// Couleur de l'ambiance (pendant du « World > Color » de Blender).
+				// L'intensite dit COMBIEN la scene recoit de son environnement,
+				// celle-ci dit DE QUELLE TEINTE. Blanc = neutre.
+				void SetIBLColor(const NkVec3f &c) {
+					mIBLColor = c;
+				}
+				NkVec3f GetIBLColor() const {
+					return mIBLColor;
+				}
+
 				// Phase N v0.5 : active/desactive le rendu de la skybox HDR en
 				// background. Necessite un NkEnvironmentSystem charge (HDR ou
 				// procedural) pour avoir un cubemap a sampler.
@@ -481,6 +491,7 @@ namespace nkentseu {
 				// sans la moindre lumiere dans la scene. 0.05 laisse voir la forme
 				// sans se substituer a l'eclairage ; le panneau Rendu l'expose.
 				float32 mIBLStrength = 0.05f;
+				NkVec3f mIBLColor = {1.f, 1.f, 1.f}; // neutre par defaut
 				NkIDevice *mDevice = nullptr;
 				NkMeshSystem *mMesh = nullptr;
 				NkMaterialSystem *mMat = nullptr;

@@ -9792,6 +9792,18 @@ namespace nkentseu {
 			if (r3)
 				r3->SetIBLStrength(v < 0.f ? 0.f : (v > 2.f ? 2.f : v));
 		}
+		void Demo3DHostAmbientColor(float32 *rgb) {
+			auto *r3 = hst.ctx.renderer ? hst.ctx.renderer->GetRender3D() : nullptr;
+			const renderer::NkVec3f c = r3 ? r3->GetIBLColor() : renderer::NkVec3f{1.f, 1.f, 1.f};
+			rgb[0] = c.x;
+			rgb[1] = c.y;
+			rgb[2] = c.z;
+		}
+		void Demo3DHostSetAmbientColor(const float32 *rgb) {
+			auto *r3 = hst.ctx.renderer ? hst.ctx.renderer->GetRender3D() : nullptr;
+			if (r3)
+				r3->SetIBLColor({rgb[0], rgb[1], rgb[2]});
+		}
 		bool Demo3DHostShadowDynamic() {
 			return nkvpShadowDynamic;
 		}

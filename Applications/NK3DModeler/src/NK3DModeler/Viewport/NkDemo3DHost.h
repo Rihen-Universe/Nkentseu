@@ -221,6 +221,9 @@ namespace nkentseu {
 		// sans aucune source. 0 = noir absolu hors des lumieres.
 		float32 Demo3DHostAmbient();
 		void Demo3DHostSetAmbient(float32 v);
+		// Teinte de l'ambiance (pendant du « World > Color » de Blender).
+		void Demo3DHostAmbientColor(float32 *rgb);
+		void Demo3DHostSetAmbientColor(const float32 *rgb);
 		// Mise a jour des ombres : dynamique (elles suivent la scene) ou statique
 		// (calculees une fois, puis gardees telles quelles).
 		bool Demo3DHostShadowDynamic();

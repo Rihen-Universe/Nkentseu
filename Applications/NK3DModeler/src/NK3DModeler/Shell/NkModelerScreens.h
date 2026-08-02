@@ -6112,7 +6112,19 @@ namespace nkentseu {
 									  amb, 0.005f, NkRole::AccentUi, "%.3f");
 							if (amb != amb0)
 								demo::Demo3DHostSetAmbient(amb);
-							yy += kRowH + NkGroupPad();
+							yy += kRowH;
+							// LA TEINTE de l'ambiance, avec le meme picker que
+							// partout ailleurs : blanc = neutre.
+							{
+								float32 ac[3];
+								demo::Demo3DHostAmbientColor(ac);
+								bool acCh = false;
+								yy += PaintColorRow(p, hit, ws, in, st, iA, yy, "Couleur",
+													"prop.ambcol", ac, &acCh);
+								if (acCh)
+									demo::Demo3DHostSetAmbientColor(ac);
+							}
+							yy += NkGroupPad();
 							PaintGroupBlock(p, aR, aTop, yy);
 						}
 						yy += NkPropGroupGap();
