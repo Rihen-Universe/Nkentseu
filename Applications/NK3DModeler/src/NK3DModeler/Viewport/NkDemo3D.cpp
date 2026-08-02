@@ -132,6 +132,11 @@ namespace nkentseu {
 		static void HostParentEnsureInit();
 		static int32 HostAllocUser(uint8 kind);
 		static void HostDecompose(const NkMat4f &M, NkVec3f &pos, NkVec3f &rotDeg, NkVec3f &scl);
+		// APPARTENANCE : chaque noeud appartient a UN document (scene ou
+		// editeur d'asset). Un noeud d'un autre document n'est ni rendu ni
+		// liste ni selectionnable ici (regle de Rihen).
+		static uint8 nkvpSceneOf[kNkvpMaxNodes] = {};
+		static uint8 nkvpCurScene = 0;
 		// VISIBILITE et VERROU EFFECTIFS : le sien OU celui d'un ancetre --
 		// cacher/cadenasser un parent emporte tout son sous-arbre, mais chaque
 		// enfant GARDE son propre drapeau, restaure au retour (regle de Rihen).
@@ -140,6 +145,8 @@ namespace nkentseu {
 				return false;
 			if (nkvpDeleted[n])
 				return true; // supprime = plus jamais rendu
+			if (nkvpSceneOf[n] != nkvpCurScene)
+				return true; // appartient a un AUTRE document
 			if (n >= 86 && n < 90)
 				return nkvpLightHidden[n - 86];
 			return nkvpObjHidden[n];
@@ -8982,6 +8989,7 @@ namespace nkentseu {
 				const int32 n = kNkvpFirstUser + u;
 				nkvpUserKind[u] = kind;
 				nkvpDeleted[n] = false;
+				nkvpSceneOf[n] = nkvpCurScene; // nait dans le document ACTIF
 				nkvpParentOf[n] = -1;
 				nkvpXmit[n] = 7;
 				nkvpMatMask[n] = 0;
@@ -9104,6 +9112,14 @@ namespace nkentseu {
 				nkvpParentOf[n] = -1;
 			}
 			return n;
+		}
+		void Demo3DHostSetActiveScene(int32 id) {
+			nkvpCurScene = (uint8)(id & 0xFF);
+		}
+		int32 Demo3DHostActiveScene() { return (int32)nkvpCurScene; }
+		int32 Demo3DHostNodeScene(int32 node) {
+			return (node >= 0 && node < kNkvpMaxNodes) ? (int32)nkvpSceneOf[node]
+														: 0;
 		}
 		void Demo3DHostCopyNode(int32 node) {
 			auto *st = HostSt();
