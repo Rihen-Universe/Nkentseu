@@ -251,10 +251,41 @@ namespace nkentseu {
 		int32 Demo3DHostSkyModel();
 		void Demo3DHostSetSkyModel(int32 m);
 		void Demo3DHostSkySun(float32 *dir, float32 *turbidity, bool *disc, float32 *intensity);
+		// Teinte du soleil du ciel (s'applique a son DISQUE, et a la lumiere
+		// qu'il projette quand il eclaire la scene). Blanc = neutre.
+		void Demo3DHostSkySunColor(float32 *rgb);
+		void Demo3DHostSetSkySunColor(const float32 *rgb);
+		// LE SOLEIL DU CIEL ECLAIRE-T-IL LA SCENE ? En mode « Manuel » le ciel a
+		// son propre soleil ; cette option lui donne TOUS les effets d'une
+		// directionnelle — eclairage et ombres portees — au lieu d'un decor
+		// qu'il faudrait doubler d'une lampe gardee alignee a la main.
+		// Sans objet quand le ciel SUIT une lumiere : elle eclaire deja.
+		bool Demo3DHostSkySunLightsScene();
+		void Demo3DHostSetSkySunLightsScene(bool on);
 		void Demo3DHostSetSkySun(const float32 *dir, float32 turbidity, bool disc, float32 intensity);
 		void Demo3DHostSkyClouds(bool *on, float32 *coverage, float32 *density, float32 *scale, float32 *color);
 		void Demo3DHostSetSkyClouds(bool on, float32 coverage, float32 density, float32 scale,
 									const float32 *color);
+		// Vrai si un reglage du ciel attend une regeneration. Sans ce retour,
+		// on tire un curseur, rien ne bouge, et rien ne dit que c'est normal :
+		// le reglage passe pour « sans effet ».
+		bool Demo3DHostSkyNeedsApply();
+		// ── LE CIEL SUIT UN SOLEIL DE LA SCENE ─────────────────────────────
+		// Une scene peut porter PLUSIEURS directionnelles : on CHOISIT laquelle
+		// le ciel suit. La source est designee par son NOEUD, pas par un rang
+		// dans une liste — sinon le ciel changerait de soleil des qu'on en
+		// supprime un autre. -1 = manuel (elevation/azimut du panneau).
+		// Demo3DHostSunNodes remplit `out` avec les noeuds des directionnelles
+		// vivantes et renvoie leur nombre ; passer out=nullptr pour compter.
+		int32 Demo3DHostSunNodes(int32 *out, int32 maxCount);
+		int32 Demo3DHostSkySunSource();
+		void Demo3DHostSetSkySunSource(int32 node);
+		// REMISE A ZERO, en trois portees separees : on ne veut pas perdre son
+		// ciel en cherchant seulement a retrouver l'ambiance d'origine. Les
+		// valeurs viennent des memes constantes que l'etat initial.
+		void Demo3DHostResetAmbient();
+		void Demo3DHostResetSky();
+		void Demo3DHostResetClouds();
 		// Le CIEL PROCEDURAL : trois couleurs (zenith, horizon, sol) dont le
 		// moteur deduit l'irradiance et les reflets. La regeneration est un calcul
 		// CPU, d'ou un declenchement a la demande.

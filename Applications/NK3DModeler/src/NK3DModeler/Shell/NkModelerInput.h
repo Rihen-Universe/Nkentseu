@@ -215,6 +215,14 @@ namespace nkentseu {
 				int32 fogMode = 0;		 // 0 = lineaire, 1 = exponentiel
 				// Source de l'ambiance : 0 couleur unie, 1 ciel procedural, 2 HDRI.
 				int32 envSource = 0;
+				// Modele de ciel : 0 degrade, 1 physique. Ici et pas en local —
+				// cf. la regle ci-dessus, apprise une fois de plus le 02/08.
+				int32 skyModel = 0;
+				// Soleil que le ciel suit : 0 = manuel, i+1 = i-eme directionnelle
+				// de la liste construite a la frame. Un RANG, pas un noeud : la
+				// correspondance rang -> noeud est refaite a chaque image, et
+				// c'est le noeud qui est conserve cote hote.
+				int32 skySunSel = 0;
 				char hdrPath[256] = {0};
 				int32 hdrOk = 0; // 0 rien tente, 1 charge, -1 echec
 				float32 colorDragDX = 0.f, colorDragDY = 0.f;
