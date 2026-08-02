@@ -4067,14 +4067,18 @@ namespace nkentseu {
 			y += kRowH;
 			return !folded;
 		}
-		inline void PaintXformGroup(NkModelerPainter &p, NkHitRegistry &hit, NkWidgetState &ws,
-									const nkgui::NkGuiInput &in, const NkRect &r, float32 y,
-									const char *title, float32 *v, float32 step,
-									const char *keyBase, bool &locked, bool &prop,
-									const char *fmt = "%.2f") {
-			if (title && title[0])
+		// Renvoie la HAUTEUR REELLE consommee : un groupe SANS titre (Dimensions,
+		// qui n'a qu'une ligne) ne reserve pas la ligne du titre -- elle laissait
+		// un grand vide en haut du bloc (constate par Rihen).
+		inline float32 PaintXformGroup(NkModelerPainter &p, NkHitRegistry &hit,
+									   NkWidgetState &ws, const nkgui::NkGuiInput &in,
+									   const NkRect &r, float32 y, const char *title,
+									   float32 *v, float32 step, const char *keyBase,
+									   bool &locked, bool &prop, const char *fmt = "%.2f") {
+			const bool hasTitle = title && title[0];
+			if (hasTitle)
 				p.TextV(r.x, y, kRowH, title);
-			const float32 ry = y + kRowH;
+			const float32 ry = hasTitle ? y + kRowH : y;
 			const float32 rowH = S(22.f);
 			// Boutons carres, a la MEME hauteur que les champs : ils suivent leur
 			// taille (Rihen). Champs plus etroits -> boutons plus petits.
@@ -4128,6 +4132,7 @@ namespace nkentseu {
 				}
 				x += btn + gap;
 			}
+			return (hasTitle ? kRowH : 0.f) + rowH + S(6.f);
 		}
 
 		// â”€â”€ EN-TETE DE SECTION REPLIABLE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -4408,18 +4413,15 @@ namespace nkentseu {
 							const NkRect inR = NkGroupInner(rowR);
 							if (grpXf) {
 								yy += NkGroupPad(); // respiration en haut du bloc
-								PaintXformGroup(p, hit, ws, in, inR, yy, "Position",
+								yy += PaintXformGroup(p, hit, ws, in, inR, yy, "Position",
 												st.pos, 0.01f, "prop.epos", st.lockPos,
 												st.propPos, "%.2f m");
-								yy += NkXformGroupH();
-								PaintXformGroup(p, hit, ws, in, inR, yy, "Rotation",
+								yy += PaintXformGroup(p, hit, ws, in, inR, yy, "Rotation",
 												st.rot, 0.5f, "prop.erot", st.lockRot,
 												st.propRot, "%.1f\xC2\xB0");
-								yy += NkXformGroupH();
-								PaintXformGroup(p, hit, ws, in, inR, yy, "Echelle",
+								yy += PaintXformGroup(p, hit, ws, in, inR, yy, "Echelle",
 												st.scl, 0.01f, "prop.escl", st.lockScl,
 												st.propScale, "%.2f");
-								yy += NkXformGroupH();
 							}
 							// ── PIVOT (origine) ────────────────────────────────
 							// Blender ne le laisse bouger qu'en mode Edition ; on
@@ -4433,7 +4435,7 @@ namespace nkentseu {
 								float32 piv[3];
 								if (demo::Demo3DHostNodeOrigin(act, piv)) {
 									const float32 piv0[3] = {piv[0], piv[1], piv[2]};
-									PaintXformGroup(p, hit, ws, in, inR, yy, "Pivot", piv,
+									yy += PaintXformGroup(p, hit, ws, in, inR, yy, "Pivot", piv,
 													0.01f, "prop.epiv", st.lockPiv,
 													st.propPiv, "%.2f m");
 									bool pivCh = false;
@@ -4442,7 +4444,6 @@ namespace nkentseu {
 											pivCh = true;
 									if (pivCh && !st.lockPiv)
 										demo::Demo3DHostSetNodeOrigin(act, piv);
-									yy += NkXformGroupH();
 									float32 ctr[3];
 									if (demo::Demo3DHostMeshesCenter(act, ctr) &&
 										Button("props.pivctr", yy,
@@ -4510,10 +4511,10 @@ namespace nkentseu {
 								const float32 grpDimTop = yy;
 								if (grpDim) {
 									yy += NkGroupPad();
-									PaintXformGroup(p, hit, ws, in, NkGroupInner(rowR), yy, "",
+									yy += PaintXformGroup(p, hit, ws, in, NkGroupInner(rowR), yy, "",
 													dimE, 0.01f, "prop.edim", st.lockDim,
 													st.propDim, "%.2f m");
-									yy += NkXformGroupH() + NkGroupPad();
+									yy += NkGroupPad();
 									PaintGroupBlock(p, rowR, grpDimTop, yy);
 								}
 								yy += NkPropGroupGap(); // meme replie (Rihen)
