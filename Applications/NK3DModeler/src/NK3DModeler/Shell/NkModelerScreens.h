@@ -566,6 +566,9 @@ namespace nkentseu {
 			// BASCULE DE DOCUMENT : l'hote ne rend et ne liste plus que les
 			// noeuds de CE document ; la selection ne traverse jamais.
 			demo::Demo3DHostSetActiveScene((int32)st.sceneTabId[tb]);
+			// L'hote doit savoir s'il sert un MODEL : la selection en vue 3D
+			// n'y a pas la meme regle (mesh par mesh, contre model entier).
+			demo::Demo3DHostSetDocIsModel(st.sceneTabKind[tb] == 7);
 			demo::Demo3DHostDeselectAll();
 			st.unitSystem = st.unitSystemTab[tb];
 			st.unitLength = st.unitLengthTab[tb];
@@ -1363,6 +1366,10 @@ namespace nkentseu {
 				return true;
 			if (demo::Demo3DHostNodeScene(node) != demo::Demo3DHostActiveScene())
 				return true; // appartient a un autre document (scene/editeur)
+			// Les MESH INTERNES d'un model sont sa matiere, pas des objets de
+			// scene : ils ne figurent que dans la hierarchie du MODEL (Rihen).
+			if (!demo::Demo3DHostDocIsModel() && demo::Demo3DHostNodeIsMesh(node))
+				return true;
 			return node >= 96 && demo::Demo3DHostUserKind(node) == 0;
 		}
 		// D'OU VIENT LE VERROU ? Le sien, ou celui du premier ancetre cadenasse.
@@ -1655,6 +1662,7 @@ namespace nkentseu {
 					mr.y = st.hierMenuY - mr.h; // vers le HAUT
 				if (mr.y < area.y)
 					mr.y = area.y;
+				st.UiBlockAdd(mr); // les panneaux du dessous ne repondent plus
 				p.Outline(mr, NkRole::Border, NkRole::PanelHeader, 3.f);
 				int32 mact = -1;
 				for (int32 mi = 0; mi < nH; ++mi) {
@@ -1873,6 +1881,7 @@ namespace nkentseu {
 					mr2.y = st.browMenuY - mr2.h; // vers le HAUT
 				if (mr2.y < area.y)
 					mr2.y = area.y;
+				st.UiBlockAdd(mr2);
 				if (!creatOnly)
 					p.Outline(mr2, NkRole::Border, NkRole::PanelHeader, 3.f);
 				int32 act2 = -1;
@@ -1911,6 +1920,7 @@ namespace nkentseu {
 						sub2.y = area.y + area.h - sub2.h;
 					if (sub2.x + sub2.w > area.x + area.w)
 						sub2.x = mr2.x - sub2.w - 2.f;
+					st.UiBlockAdd(sub2);
 					p.Outline(sub2, NkRole::Border, NkRole::PanelHeader, 3.f);
 					float32 grY = sub2.y;
 					for (int32 mi = 0; mi < 7; ++mi) {
@@ -1943,6 +1953,7 @@ namespace nkentseu {
 							gr3.y = area.y + area.h - gr3.h;
 						if (gr3.x + gr3.w > area.x + area.w)
 							gr3.x = sub2.x - gr3.w - 2.f;
+						st.UiBlockAdd(gr3);
 						p.Outline(gr3, NkRole::Border, NkRole::PanelHeader, 3.f);
 						for (int32 gi = 0; gi < 4; ++gi) {
 							const NkRect it{gr3.x, gr3.y + (float32)gi * kRowH, gr3.w,
@@ -2192,6 +2203,9 @@ namespace nkentseu {
 			st.activeEmpty = demo::Demo3DHostSelectedEmptyNode();
 			if (!hit.MouseDown() && st.hierDragNode < 0)
 				st.hierDragging = false; // le relachement est digere, une frame apres
+			// SOUS UN MENU, ce panneau ne repond plus : les menus sont peints
+			// APRES lui, donc son clic etait deja parti (voir UiBlocks).
+			const bool uiBlk = st.UiBlocks(hit.Mouse().x, hit.Mouse().y);
 			int32 aliveCount = 0, selCount = 0;
 			for (int32 n2 = 0; n2 < kFirstEmpty2; ++n2) {
 				if (NkHierNodeSkip(n2))
@@ -2285,7 +2299,8 @@ namespace nkentseu {
 							const NkRect chevR{r.x + ind - S(4.f), yy, S(24.f), kRowH};
 							p.IconV(r.x + ind + S(2.f), yy, kRowH,
 									folded ? NkIcon::ChevronRight : NkIcon::ChevronDown, fg, 11.f);
-							if (in.mouseClicked[0] && !st.hierDragging && !ws.dragging &&
+							if (in.mouseClicked[0] && !uiBlk && !st.hierDragging &&
+								!ws.dragging &&
 								NkHitRegistry::Contains(chevR, hit.Mouse())) {
 								st.hierFold[foldW] ^= (1u << (node & 31));
 								chevHit = true; // ce clic ne selectionne pas
@@ -2339,7 +2354,7 @@ namespace nkentseu {
 							HoverFill(p, eyeR, hit.Add(key, eyeR) && !sel, 2.f);
 							p.IconV(colEye, yy, kRowH, hidden ? NkIcon::EyeClosed : NkIcon::Eye,
 									hidden ? dim : fg, 12.f);
-							if (hit.Clicked(key)) {
+							if (!uiBlk && hit.Clicked(key)) {
 								if (isLight)
 									demo::Demo3DHostSetLightHidden(li, !hidden);
 								else
@@ -2367,7 +2382,7 @@ namespace nkentseu {
 							p.IconV(colLock, yy, kRowH,
 									lokEff ? NkIcon::Lock : NkIcon::Unlock,
 									lok ? fg : (lokEff ? NkRole::AccentUi : dim), 12.f);
-							if (hit.Clicked(key)) {
+							if (!uiBlk && hit.Clicked(key)) {
 								// Le clic n'agit que sur SON drapeau : un verrou herite
 								// se libere sur l'ancetre qui le porte.
 								if (lokEff && !lok)
@@ -2379,7 +2394,7 @@ namespace nkentseu {
 						// SELECTION : la ligne ou le nom. Un parent se selectionne
 						// SEUL, un cadenasse JAMAIS ; Maj/Ctrl+clic = multi.
 						bool wantSel = false;
-						if (!st.hierDragging && !st.delAskOpen && !chevHit) {
+						if (!uiBlk && !st.hierDragging && !st.delAskOpen && !chevHit) {
 							snprintf(key, sizeof(key), "hier.row.%d", node);
 							wantSel = hit.Clicked(key);
 							snprintf(key, sizeof(key), "hier.name.%d", node);
@@ -2413,7 +2428,7 @@ namespace nkentseu {
 						// GLISSER-DEPOSER : armement au premier appui sur la ligne ;
 						// la cible est la ligne survolee au lacher.
 						const nkgui::NkVec2 hm = hit.Mouse();
-						if (freshPress && NkHitRegistry::Contains(rowR, hm) &&
+						if (freshPress && !uiBlk && NkHitRegistry::Contains(rowR, hm) &&
 							hm.x < r.x + r.w - S(14.f)) {
 							st.hierDragNode = node;
 							st.hierDragX = hm.x;
@@ -2429,7 +2444,8 @@ namespace nkentseu {
 						// MENU CONTEXTUEL au clic droit : TOUTE la largeur de la
 						// ligne -- meme au-dessus du nom, de l'oeil, du cadenas
 						// ou du chevron (les zones fines volaient le clic).
-						if (in.mouseClicked[1] && NkHitRegistry::Contains(rowR, hm)) {
+						if (in.mouseClicked[1] && !uiBlk &&
+							NkHitRegistry::Contains(rowR, hm)) {
 							st.hierMenuNode = node;
 							st.hierMenuX = hm.x;
 							st.hierMenuY = hm.y;
@@ -2531,7 +2547,7 @@ namespace nkentseu {
 			p.Unclip();
 
 			// UN CLIC DANS LE VIDE DESELECTIONNE.
-			if (hit.RightClicked("hier.list") && st.hierMenuNode < 0) {
+			if (hit.RightClicked("hier.list") && !uiBlk && st.hierMenuNode < 0) {
 				// CLIC DROIT DANS LE VIDE (ou sur la racine) : TOUT le menu
 				// Ajouter, au pointeur ; l'objet nait a la racine (Rihen).
 				st.addParentNode = -1;
@@ -6707,8 +6723,13 @@ namespace nkentseu {
 									// jamais membres du model (Rihen).
 									const int32 t8 = cats[c].items[i].type;
 									const int32 root8 = NkModelRootOf(st);
-									if (root8 >= 0 && t8 != 4 && t8 != 5)
+									if (root8 >= 0 && t8 != 4 && t8 != 5) {
 										demo::Demo3DHostSetNodeParent(nn, root8);
+										// C'est un MESH du model : visible dans les deux
+										// vues 3D, mais liste dans la seule hierarchie du
+										// model (Rihen).
+										demo::Demo3DHostSetNodeIsMesh(nn, true);
+									}
 								}
 								demo::Demo3DHostSelectEmptyNode(nn);
 								// pour TOUT element du menu, sans distinction (Rihen)

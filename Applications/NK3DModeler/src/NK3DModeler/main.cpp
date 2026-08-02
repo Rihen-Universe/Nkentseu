@@ -565,6 +565,10 @@ int nkmain(const NkEntryState &entry) {
 		// par-dessus la scene ».
 		const bool overSceneLastFrame = hit.IsHovered("view.nav");
 		hit.Begin(ui.input);
+		// L'emprise des menus de la frame PRECEDENTE devient la garde de
+		// celle-ci : les panneaux sont peints avant les menus, ils ne peuvent
+		// pas connaitre leur emprise autrement.
+		st.UiBlockFlip();
 		// La garde du clavier suit l'etat REEL des widgets : tant qu'un champ est
 		// en cours de saisie, aucune touche ne doit atteindre les raccourcis.
 		st.editingText = ws.editing;
