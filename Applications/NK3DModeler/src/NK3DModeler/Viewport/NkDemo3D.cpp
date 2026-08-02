@@ -4507,8 +4507,11 @@ namespace nkentseu {
 			// Passer `lights[li]` directement rendrait la manipulation invisible dans
 			// l'image — le widget bougerait, l'eclairage non.
 			for (int32 li = 0; li < Demo3DState::kNumLights; li++)
-				if (!HostHiddenEff(86 + li)) // oeil ferme (le sien ou celui d'un ancetre)
-					sctx.lights.PushBack(Demo3D_LightEffective(st, li));
+				if (!HostHiddenEff(86 + li)) { // oeil ferme (le sien ou celui d'un ancetre)
+					renderer::NkLightDesc LD = Demo3D_LightEffective(st, li);
+					LD.shadowStatic = false; // rien n'est fige dans un modeleur
+					sctx.lights.PushBack(LD);
+				}
 			// LUMIERES UTILISATEUR (dupliquees/collees) : descripteur NATIF
 			// conserve, position pilotee par les tableaux + le gizmo.
 			for (int32 u = 0; u < kNkvpMaxUser; ++u) {
@@ -4518,6 +4521,14 @@ namespace nkentseu {
 				if (HostHiddenEff(un))
 					continue;
 				renderer::NkLightDesc L2 = nkvpUserLight[u];
+				// AUCUNE LUMIERE D'UN MODELEUR N'EST STATIQUE. shadowStatic est une
+				// optimisation pour une scene figee : elle autorise NkVSM a garder
+				// ses depth maps telles quelles. Les lumieres creees ici heritent du
+				// descripteur d'une lumiere de demo, qui la portait -- leurs ombres
+				// etaient donc calculees a la premiere image puis JAMAIS refaites
+				// (HUD : "rend 0 | cache 6"). D'ou une ombre figee, sans rapport avec
+				// la scene courante, et l'impression d'un objet qui s'ombre lui-meme.
+				L2.shadowStatic = false;
 				const int32 e = un - 90;
 				const NkVec3f tr = st->emptyGizmo.TranslateOf(e);
 				L2.position = {nkvpEmptyPos[e][0] + tr.x, nkvpEmptyPos[e][1] + tr.y,

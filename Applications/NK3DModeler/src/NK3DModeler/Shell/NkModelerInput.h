@@ -186,9 +186,18 @@ namespace nkentseu {
 				float32 matcapScrollX = 0.f;
 				// Panneau droit unique : glissement de reglage en cours + defilement.
 				char propDragKey[24] = {0};
-				// UNE SEULE nuance de couleur ouverte a la fois -- comme les pastilles
-				// du panneau. La cle vide signifie : aucun picker deplie.
+				// PICKER DE COULEUR EN FENETRE MODALE (Rihen). La cle designe le
+				// champ qui l'a ouvert ; la couleur vit ICI le temps du dialogue et
+				// le champ la recopie a chaque frame, ce qui donne l'apercu en
+				// direct. `colorOrig` permet d'annuler pour de bon.
 				char colorOpen[40] = {0};
+				float32 colorCur[3] = {1.f, 1.f, 1.f};
+				float32 colorOrig[3] = {1.f, 1.f, 1.f};
+				float32 colorModalX = 0.f, colorModalY = 0.f;
+				bool colorModalPlaced = false;
+				bool colorModalDrag = false;
+				bool colorClosing = false;
+				float32 colorDragDX = 0.f, colorDragDY = 0.f;
 				// Chaque ONGLET DE SCENE garde sa pose de camera : cible, distance,
 				// lacet, tangage, ortho. C'est ce qui rend les onglets FONCTIONNELS
 				// aujourd'hui ; les objets par scene viendront avec le format projet.
