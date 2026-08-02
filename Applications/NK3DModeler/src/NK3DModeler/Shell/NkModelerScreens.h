@@ -4038,6 +4038,8 @@ namespace nkentseu {
 					snprintf(st.colorOpen, sizeof(st.colorOpen), "%s", keyBase);
 					for (int32 c = 0; c < 3; ++c)
 						st.colorOrig[c] = st.colorCur[c] = rgb[c];
+					st.colorAlphaOrig = st.colorAlpha;
+					st.colorHsvValid = false;
 					st.colorModalPlaced = false;
 				}
 			} else if (open) {
@@ -4073,7 +4075,8 @@ namespace nkentseu {
 			}
 			const auto sat01 = [](float32 v) { return v < 0.f ? 0.f : (v > 1.f ? 1.f : v); };
 			const float32 dw = S(260.f), titleH = S(26.f);
-			const float32 dh = titleH + S(150.f) + kRowH * 3.f + S(44.f);
+			// roue + deux rangees d'onglets + quatre canaux + hexa + boutons
+			const float32 dh = titleH + (dw - S(56.f)) + S(62.f) + kRowH * 5.f + S(52.f);
 			if (!st.colorModalPlaced) {
 				st.colorModalX = (W - dw) * 0.5f;
 				st.colorModalY = (H - dh) * 0.35f;
@@ -4115,23 +4118,154 @@ namespace nkentseu {
 			p.TextV(box.x + S(10.f), box.y, titleH, "Couleur");
 			hit.Add("colmod.title", tb);
 			float32 y = box.y + titleH + S(8.f);
-			const float32 pkH = S(140.f);
-			NkColorPickerSV(p, hit, st.propDragKey, sizeof(st.propDragKey), "colmod.pk",
-							{box.x + S(10.f), y, box.w - S(20.f), pkH}, st.colorCur);
-			y += pkH + S(8.f);
-			static const char *const kCh[3] = {"Rouge", "Vert", "Bleu"};
-			char k[32];
-			for (int32 c = 0; c < 3; ++c) {
-				p.TextV(box.x + S(10.f), y, kRowH, kCh[c], NkRole::TextMuted);
-				snprintf(k, sizeof(k), "colmod.c%d", c);
-				float32 v = st.colorCur[c];
-				if (DragFloat(p, hit, ws, in, k,
-							  {box.x + S(72.f), y + S(3.f), box.w - S(82.f), kRowH - S(6.f)}, v,
-							  0.005f, NkRole::AccentUi, "%.3f"))
-					st.colorCur[c] = sat01(v);
-				y += kRowH;
+			// ── ROUE CHROMATIQUE + BARRE DE VALEUR ──────────────────────────
+			// La teinte tourne, la saturation s'eloigne du centre, la valeur se
+			// regle a part : la disposition retenue par Rihen.
+			const float32 wheelD = box.w - S(56.f);
+			const float32 rad = wheelD * 0.5f;
+			const float32 cxw = box.x + S(12.f) + rad, cyw = y + rad;
+			// La TEINTE est memorisee : au noir comme au blanc, la reconvertir
+			// depuis le RVB la perdrait et le curseur sauterait.
+			if (!st.colorHsvValid) {
+				NkRgbToHsv(st.colorCur, st.colorHsv);
+				st.colorHsvValid = true;
+			} else {
+				float32 back[3];
+				NkHsvToRgb(st.colorHsv, back);
+				if (fabsf(back[0] - st.colorCur[0]) > 0.004f ||
+					fabsf(back[1] - st.colorCur[1]) > 0.004f ||
+					fabsf(back[2] - st.colorCur[2]) > 0.004f)
+					NkRgbToHsv(st.colorCur, st.colorHsv); // change de l'exterieur
 			}
-			y += S(6.f);
+			NkColorWheel(p, hit, st.propDragKey, sizeof(st.propDragKey), "colmod.wheel", cxw, cyw,
+						 rad, st.colorHsv, st.colorCur);
+			{
+				// Barre de VALEUR, de la teinte pleine au noir.
+				const NkRect vb{box.x + box.w - S(32.f), y, S(18.f), wheelD};
+				hit.Add("colmod.val", vb);
+				float32 pure[3];
+				const float32 pureHsv[3] = {st.colorHsv[0], st.colorHsv[1], 1.f};
+				NkHsvToRgb(pureHsv, pure);
+				const NkColor cTop{(uint8)(pure[0] * 255.f), (uint8)(pure[1] * 255.f),
+								   (uint8)(pure[2] * 255.f), 255};
+				const NkColor cBot{0, 0, 0, 255};
+				p.RectMultiColor(vb, cTop, cTop, cBot, cBot);
+				p.OutlineSharp(vb, NkRole::Border);
+				if (hit.MouseDown() && (strcmp(st.propDragKey, "colmod.val") == 0 ||
+										(!st.propDragKey[0] && hit.IsHovered("colmod.val")))) {
+					snprintf(st.propDragKey, sizeof(st.propDragKey), "colmod.val");
+					st.colorHsv[2] = sat01(1.f - (hit.Mouse().y - vb.y) / vb.h);
+					NkHsvToRgb(st.colorHsv, st.colorCur);
+				}
+				const float32 my = vb.y + (1.f - st.colorHsv[2]) * vb.h;
+				p.Fill({vb.x - 2.f, my - 1.5f, vb.w + 4.f, 3.f}, NkRole::Text, 1.f);
+			}
+			y += wheelD + S(10.f);
+			// ── ESPACE : LINEAIRE / PERCEPTUEL ──────────────────────────────
+			// Le perceptuel corrige le gamma : il ne change QUE l'affichage des
+			// nombres, jamais la couleur envoyee au rendu.
+			{
+				static const char *const kSp[2] = {"Lineaire", "Perceptuel"};
+				const float32 hw = (box.w - S(20.f)) * 0.5f;
+				char sk[24];
+				for (int32 s2 = 0; s2 < 2; ++s2) {
+					const NkRect br{box.x + S(10.f) + (float32)s2 * hw, y, hw, S(22.f)};
+					snprintf(sk, sizeof(sk), "colmod.sp%d", s2);
+					const bool on = (st.colorSpace == s2);
+					hit.Add(sk, br);
+					p.Fill(br, on ? NkRole::AccentUi : NkRole::InputBg, 3.f);
+					p.TextV(br.x + (hw - p.TextW(kSp[s2])) * 0.5f, y, S(22.f), kSp[s2],
+							on ? NkRole::TextOnAccent : NkRole::Text);
+					if (hit.Clicked(sk))
+						st.colorSpace = s2;
+				}
+				y += S(26.f);
+			}
+			// ── RVB / TSV ───────────────────────────────────────────────────
+			{
+				static const char *const kTb[2] = {"RVB", "TSV"};
+				const float32 hw = (box.w - S(20.f)) * 0.5f;
+				char tk[24];
+				for (int32 t2 = 0; t2 < 2; ++t2) {
+					const NkRect br{box.x + S(10.f) + (float32)t2 * hw, y, hw, S(22.f)};
+					snprintf(tk, sizeof(tk), "colmod.tb%d", t2);
+					const bool on = (st.colorTab == t2);
+					hit.Add(tk, br);
+					p.Fill(br, on ? NkRole::AccentUi : NkRole::InputBg, 3.f);
+					p.TextV(br.x + (hw - p.TextW(kTb[t2])) * 0.5f, y, S(22.f), kTb[t2],
+							on ? NkRole::TextOnAccent : NkRole::Text);
+					if (hit.Clicked(tk))
+						st.colorTab = t2;
+				}
+				y += S(26.f);
+			}
+			// ── LES CANAUX, PUIS L'ALPHA, PUIS L'HEXADECIMAL ────────────────
+			{
+				static const char *const kRgb[3] = {"Rouge", "Vert", "Bleu"};
+				static const char *const kHsvN[3] = {"Teinte", "Saturation", "Valeur"};
+				const float32 lblW = S(78.f);
+				char k[32];
+				for (int32 c = 0; c < 3; ++c) {
+					p.TextV(box.x + S(10.f), y, kRowH, st.colorTab == 0 ? kRgb[c] : kHsvN[c],
+							NkRole::TextMuted);
+					snprintf(k, sizeof(k), "colmod.c%d", c);
+					const NkRect fr{box.x + S(10.f) + lblW, y + S(2.f), box.w - S(20.f) - lblW,
+									kRowH - S(4.f)};
+					if (st.colorTab == 0) {
+						const float32 g = st.colorSpace == 1 ? 1.f / 2.2f : 1.f;
+						float32 v = powf(sat01(st.colorCur[c]), g);
+						if (DragFloat(p, hit, ws, in, k, fr, v, 0.005f, NkRole::AccentUi, "%.3f")) {
+							st.colorCur[c] = sat01(powf(sat01(v), 1.f / g));
+							st.colorHsvValid = false;
+						}
+					} else {
+						float32 v = c == 0 ? st.colorHsv[0] / 360.f : st.colorHsv[c];
+						if (DragFloat(p, hit, ws, in, k, fr, v, 0.005f, NkRole::AccentUi, "%.3f")) {
+							st.colorHsv[c] = c == 0 ? sat01(v) * 359.9f : sat01(v);
+							NkHsvToRgb(st.colorHsv, st.colorCur);
+						}
+					}
+					y += kRowH;
+				}
+				p.TextV(box.x + S(10.f), y, kRowH, "Alpha", NkRole::TextMuted);
+				float32 al = st.colorAlpha;
+				if (DragFloat(p, hit, ws, in, "colmod.a",
+							  {box.x + S(10.f) + lblW, y + S(2.f), box.w - S(20.f) - lblW,
+							   kRowH - S(4.f)},
+							  al, 0.005f, NkRole::AccentUi, "%.3f"))
+					st.colorAlpha = sat01(al);
+				y += kRowH + S(4.f);
+				// L'HEXADECIMAL s'echange en sRGB : c'est la notation que tout le
+				// monde copie-colle, elle doit donner la meme couleur qu'ailleurs.
+				p.TextV(box.x + S(10.f), y, kRowH, "Hex", NkRole::TextMuted);
+				const float32 gH = 1.f / 2.2f;
+				if (!ws.IsEditing("colmod.hex"))
+					snprintf(st.colorHex, sizeof(st.colorHex), "#%02X%02X%02X%02X",
+							 (uint32)(powf(sat01(st.colorCur[0]), gH) * 255.f + 0.5f),
+							 (uint32)(powf(sat01(st.colorCur[1]), gH) * 255.f + 0.5f),
+							 (uint32)(powf(sat01(st.colorCur[2]), gH) * 255.f + 0.5f),
+							 (uint32)(sat01(st.colorAlpha) * 255.f + 0.5f));
+				if (EditableText(p, hit, ws, in, "colmod.hex",
+								 {box.x + S(10.f) + lblW, y + S(2.f), box.w - S(20.f) - lblW,
+								  kRowH - S(4.f)},
+								 st.colorHex, NkRole::Text, st.colorHex, sizeof(st.colorHex))) {
+					uint32 r2 = 0, g2 = 0, b2 = 0, a2 = 255;
+					const char *s3 = st.colorHex;
+					while (*s3 == '#' || *s3 == ' ')
+						++s3;
+					const int32 n3 = (int32)strlen(s3);
+					if ((n3 == 6 || n3 == 8) && sscanf(s3, "%2x%2x%2x", &r2, &g2, &b2) == 3) {
+						if (n3 == 8)
+							sscanf(s3 + 6, "%2x", &a2);
+						st.colorCur[0] = powf((float32)r2 / 255.f, 2.2f);
+						st.colorCur[1] = powf((float32)g2 / 255.f, 2.2f);
+						st.colorCur[2] = powf((float32)b2 / 255.f, 2.2f);
+						st.colorAlpha = (float32)a2 / 255.f;
+						st.colorHsvValid = false;
+					}
+				}
+				y += kRowH + S(6.f);
+			}
 			const float32 bw = (box.w - S(30.f)) * 0.5f;
 			const NkRect bOk{box.x + S(10.f), y, bw, S(24.f)};
 			const NkRect bCa{box.x + S(20.f) + bw, y, bw, S(24.f)};
@@ -4144,10 +4278,12 @@ namespace nkentseu {
 			p.TextV(bCa.x + (bCa.w - p.TextW("Annuler")) * 0.5f, y, S(24.f), "Annuler");
 			const bool esc = in.KeyPressed(nkgui::NkGuiKey::Escape);
 			if (hit.Clicked("colmod.cancel") || esc) {
-				// ANNULER remet vraiment la couleur d'avant : l'apercu en direct
-				// l'avait deja appliquee a l'objet.
+				// ANNULER REND LA COULEUR DE DEPART, pour de bon : l'apercu en
+				// direct l'avait deja appliquee a l'objet.
 				for (int32 c = 0; c < 3; ++c)
 					st.colorCur[c] = st.colorOrig[c];
+				st.colorAlpha = st.colorAlphaOrig;
+				st.colorHsvValid = false;
 				st.colorClosing = true;
 			} else if (hit.Clicked("colmod.ok") || in.KeyPressed(nkgui::NkGuiKey::Enter)) {
 				st.colorOpen[0] = 0;
@@ -5917,15 +6053,41 @@ namespace nkentseu {
 						int32 q = 1;
 						if (demo::Demo3DHostShadowCfg(&nb, &sb, &sf, &q)) {
 							const float32 nb0 = nb, sb0 = sb, sf0 = sf;
-							const int32 q0 = q;
+							// La qualite vit dans l'etat, pas ici : la liste
+							// deroulee ecrit a la frame SUIVANTE, par un pointeur
+							// qui designerait alors une variable locale morte --
+							// le choix se perdait en silence (Rihen : « le
+							// combobox ne fonctionne pas »).
+							if (st.shadowQual < 0)
+								st.shadowQual = q;
+							const int32 q0 = st.shadowQual;
 							static const char *const kQ[4] = {"Aucune", "Douce (PCF 3)",
 															  "Douce (PCF 5)",
 															  "Penombre (PCSS)"};
 							p.TextV(iR.x, yy, kRowH, "Qualite", NkRole::TextMuted);
 							Combo(p, hit, ws, "prop.sh.q",
-								  {svX, yy + S(2.f), svW, kRowH - S(4.f)}, kQ, nullptr, 4, q,
-								  combo);
+								  {svX, yy + S(2.f), svW, kRowH - S(4.f)}, kQ, nullptr, 4,
+								  st.shadowQual, combo);
+							q = st.shadowQual;
 							yy += kRowH;
+							// ── STATIQUE OU DYNAMIQUE (Rihen) ───────────────────
+							// Statique : l'ombre est calculee une fois puis gardee
+							// telle quelle -- c'est gratuit, mais elle ne suit plus
+							// rien. Dynamique : elle se refait des que la lumiere ou
+							// la scene bouge. Un modeleur veut le second ; le
+							// premier sert aux decors qui ne bougent plus.
+							{
+								static const char *const kDyn[2] = {"Statique (calcul unique)",
+																	"Dynamique (suit la scene)"};
+								p.TextV(iR.x, yy, kRowH, "Mise a jour", NkRole::TextMuted);
+								const int32 d0 = st.shadowDynamic;
+								Combo(p, hit, ws, "prop.sh.dyn",
+									  {svX, yy + S(2.f), svW, kRowH - S(4.f)}, kDyn, nullptr, 2,
+									  st.shadowDynamic, combo);
+								if (st.shadowDynamic != d0)
+									demo::Demo3DHostSetShadowDynamic(st.shadowDynamic != 0);
+								yy += kRowH;
+							}
 							p.TextV(iR.x, yy, kRowH, "Douceur", NkRole::TextMuted);
 							DragFloat(p, hit, ws, in, "prop.sh.soft",
 									  {svX, yy + S(3.f), svW, kRowH - S(6.f)}, sf, 0.0005f,
@@ -7195,27 +7357,13 @@ namespace nkentseu {
 				// part entiere, pas des widgets poses sur le fond des cartes.
 				p.Fill({r.x + treeW + 1.f, ty, r.w - treeW - 1.f, S(34.f)}, NkRole::PanelHeader);
 				p.HLine(r.x + treeW + 1.f, ty + S(34.f), r.w - treeW - 1.f);
-				// LE MENU « Creer » DESCEND JUSTE ICI. Il est peint AVANT le
-				// navigateur ; comme la derniere zone declaree gagne le survol,
-				// cette barre lui volait ses items et la creation ne partait
-				// jamais (constate par Rihen). Quand une surcouche est ouverte,
-				// la barre se peint donc SANS declarer la moindre zone.
+				// Le menu « Creer » descend juste ici, mais il vit desormais sur
+				// une COUCHE superieure : cette barre ne peut plus lui voler ses
+				// items, sans avoir a se garder elle-meme.
+				// Le champ est celui de la hierarchie : filtrage a la frappe,
+				// invite grise gardee HORS du buffer, croix d'effacement.
 				const NkRect sfBox{ax - S(6.f), 0.f, S(192.f), 0.f};
-				const NkRect sfr{ax, fy, S(180.f), fh};
-				if (uiModal) {
-					p.Outline(sfr, NkRole::Border, NkRole::InputBg, 3.f);
-					p.IconV(sfr.x + S(6.f), sfr.y, fh, NkIcon::Search, NkRole::TextMuted, 12.f);
-					if (st.searchBrowser[0])
-						p.TextV(sfr.x + S(24.f), sfr.y, fh, st.searchBrowser, NkRole::Text);
-					else
-						p.TextV(sfr.x + S(24.f), sfr.y, fh, "Rechercher", NkRole::TextMuted);
-				} else {
-					// Le meme champ que la hierarchie : filtrage a la frappe, invite
-					// grise et croix d'effacement -- et surtout, l'invite n'est
-					// JAMAIS ecrite dans le buffer.
-					PaintSearch(p, sfBox, fy - S(4.f), hit, ws, in, "brow.search",
-								st.searchBrowser);
-				}
+				PaintSearch(p, sfBox, fy - S(4.f), hit, ws, in, "brow.search", st.searchBrowser);
 				float32 px = ax + S(192.f) - S(6.f) + S(10.f);
 				struct KindChip {
 						uint8 kind;
@@ -7234,7 +7382,7 @@ namespace nkentseu {
 						break;
 					const NkRect cr{px, fy, cw, fh};
 					snprintf(ck, sizeof(ck), "brow.chip.%d", ci);
-					const bool ov = !uiModal && hit.Add(ck, cr);
+					const bool ov = hit.Add(ck, cr);
 					const bool on = (st.browFilter & (1u << kChips[ci].kind)) != 0;
 					p.Fill(cr, on ? NkRole::InputBg : NkRole::PanelBg, 11.f);
 					p.OutlineSharp(cr, on ? kChips[ci].role
@@ -7245,7 +7393,7 @@ namespace nkentseu {
 						   kChips[ci].role, 3.f);
 					p.TextV(cr.x + S(20.f), cr.y, fh, kChips[ci].name,
 							on ? NkRole::Text : NkRole::TextMuted);
-					if (!uiModal && hit.Clicked(ck))
+					if (hit.Clicked(ck))
 						st.browFilter ^= (1u << kChips[ci].kind);
 					px += cw + S(6.f);
 				}

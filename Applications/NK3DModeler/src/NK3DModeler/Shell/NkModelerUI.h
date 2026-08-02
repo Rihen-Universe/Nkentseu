@@ -286,6 +286,15 @@ namespace nkentseu {
 				void Disc(float32 cx, float32 cy, float32 radius, NkRole role) {
 					mDl.AddCircleFilled({cx, cy}, radius, C(role));
 				}
+				void DiscColor(float32 cx, float32 cy, float32 radius, const NkColor &c) {
+					mDl.AddCircleFilled({cx, cy}, radius, c);
+				}
+				// Triangle plein tricolore : la brique de la ROUE CHROMATIQUE, qu'on
+				// pave de secteurs allant du blanc (centre) a la teinte saturee.
+				void TriColor(const NkVec2 &a, const NkVec2 &b, const NkVec2 &c, NkColor ca,
+							  NkColor cb, NkColor cc) {
+					mDl.AddTriangleMultiColor(a, b, c, ca, cb, cc);
+				}
 
 				void Line(float32 x0, float32 y0, float32 x1, float32 y1, NkRole role,
 						  float32 thickness = 1.f) {

@@ -650,6 +650,62 @@ namespace nkentseu {
 			rgb[1] = c.g;
 			rgb[2] = c.b;
 		}
+		// ── ROUE CHROMATIQUE ───────────────────────────────────────────────────
+		// La TEINTE est l'angle, la SATURATION le rayon. On pave le disque de
+		// secteurs : chacun est un triangle blanc au centre, teinte au bord --
+		// le degrade des sommets fait tout le travail, sans texture.
+		// hsv est la source de verite (la teinte survit au noir et au blanc) ;
+		// rgb en est la traduction, mise a jour a chaque geste.
+		inline bool NkColorWheel(NkModelerPainter &p, NkHitRegistry &hit, char *dragKey,
+								 uint32 dragKeyCap, const char *key, float32 cx, float32 cy,
+								 float32 radius, float32 *hsv, float32 *rgb) {
+			const NkRect box{cx - radius, cy - radius, radius * 2.f, radius * 2.f};
+			hit.Add(key, box);
+			const int32 kSeg = 48;
+			const float32 kTwoPi = 6.28318531f;
+			for (int32 i = 0; i < kSeg; ++i) {
+				const float32 a0 = kTwoPi * (float32)i / (float32)kSeg;
+				const float32 a1 = kTwoPi * (float32)(i + 1) / (float32)kSeg;
+				float32 c0[3], c1[3];
+				const float32 h0[3] = {a0 * 180.f / 3.14159265f, 1.f, hsv[2]};
+				const float32 h1[3] = {a1 * 180.f / 3.14159265f, 1.f, hsv[2]};
+				NkHsvToRgb(h0, c0);
+				NkHsvToRgb(h1, c1);
+				const uint8 vw = (uint8)(hsv[2] * 255.f); // le centre suit la valeur
+				const NkColor cc{vw, vw, vw, 255};
+				const NkColor ce0{(uint8)(c0[0] * 255.f), (uint8)(c0[1] * 255.f),
+								  (uint8)(c0[2] * 255.f), 255};
+				const NkColor ce1{(uint8)(c1[0] * 255.f), (uint8)(c1[1] * 255.f),
+								  (uint8)(c1[2] * 255.f), 255};
+				p.TriColor({cx, cy}, {cx + cosf(a0) * radius, cy + sinf(a0) * radius},
+						   {cx + cosf(a1) * radius, cy + sinf(a1) * radius}, cc, ce0, ce1);
+			}
+			bool changed = false;
+			if (hit.MouseDown() &&
+				(strcmp(dragKey, key) == 0 || (!dragKey[0] && hit.IsHovered(key)))) {
+				snprintf(dragKey, dragKeyCap, "%s", key);
+				const float32 dx = hit.Mouse().x - cx, dy = hit.Mouse().y - cy;
+				const float32 d = sqrtf(dx * dx + dy * dy);
+				float32 ang = atan2f(dy, dx) * 180.f / 3.14159265f;
+				if (ang < 0.f)
+					ang += 360.f;
+				hsv[0] = ang;
+				hsv[1] = d / radius > 1.f ? 1.f : d / radius; // hors du disque : sature
+				NkHsvToRgb(hsv, rgb);
+				changed = true;
+			}
+			// Le CURSEUR : un anneau clair double d'un anneau sombre, lisible aussi
+			// bien sur le blanc du centre que sur les teintes saturees du bord.
+			{
+				const float32 a = hsv[0] * 3.14159265f / 180.f;
+				const float32 px2 = cx + cosf(a) * hsv[1] * radius;
+				const float32 py2 = cy + sinf(a) * hsv[1] * radius;
+				p.Disc(px2, py2, 5.f, NkRole::Text);
+				p.Disc(px2, py2, 3.5f, NkRole::PanelBg);
+			}
+			return changed;
+		}
+
 		inline bool NkColorPickerSV(NkModelerPainter &p, NkHitRegistry &hit, char *dragKey,
 									uint32 dragKeyCap, const char *key, const NkRect &r,
 									float32 *rgb) {
