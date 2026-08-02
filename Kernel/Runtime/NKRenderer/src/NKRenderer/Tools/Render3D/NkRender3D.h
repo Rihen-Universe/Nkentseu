@@ -9,6 +9,11 @@
 #include "NKRenderer/Materials/NkMaterialSystem.h"
 #include "NKRenderer/Mesh/NkMeshSystem.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"
+// NkSkyParams : UN SEUL type decrit un ciel, pour la cuisson CPU (cubemaps
+// d'eclairage) comme pour l'evaluation TEMPS REEL dans le shader. En avoir deux
+// garantirait qu'ils finissent par decrire deux ciels differents. Cet en-tete ne
+// depend pas de NkRender3D : pas de cycle.
+#include "NKRenderer/Tools/Environment/NkEnvironmentSystem.h"
 #include <functional> // RefreshEnvironmentBindings : liaisons refaites a la demande
 
 namespace nkentseu {
@@ -349,6 +354,39 @@ namespace nkentseu {
 				}
 				float32 GetSkyIntensity() const {
 					return mSkyIntensity;
+				}
+
+				// ── LE CIEL VISIBLE, EVALUE EN TEMPS REEL ──────────────────
+				// Ces parametres descendent au shader Skybox a CHAQUE image, dans
+				// leur propre bloc (binding 29). Les changer est donc IMMEDIAT :
+				// aucune convolution, aucune regeneration.
+				//
+				// C'est ce qui rend le ciel ANIMABLE — nuages qui defilent, cycle
+				// jour/nuit, lunes qui se levent. La cuisson en cubemaps reste,
+				// mais elle ne sert plus qu'a l'ECLAIRAGE (irradiance et reflets),
+				// qui est le seul calcul qui la justifie.
+				//
+				// Le meme NkSkyParams sert aux deux chemins : c'est voulu. Deux
+				// descriptions separees d'un meme ciel finiraient par diverger.
+				void SetSkyParams(const NkSkyParams &p) {
+					mSkyParams = p;
+				}
+				const NkSkyParams &GetSkyParams() const {
+					return mSkyParams;
+				}
+
+				// LE CIEL VISIBLE VIENT-IL D'UNE IMAGE plutot que d'un modele ?
+				// Vrai pour un HDRI : l'image vient d'un fichier, elle ne peut pas
+				// etre calculee, le shader lit alors la cubemap telle quelle.
+				//
+				// C'est un choix de RENDU, pas une propriete du ciel : il n'a donc
+				// rien a faire dans NkSkyParams, qui decrit un ciel PROCEDURAL et
+				// sert aussi a la cuisson CPU.
+				void SetSkyFromCubemap(bool on) {
+					mSkyFromCubemap = on;
+				}
+				bool IsSkyFromCubemap() const {
+					return mSkyFromCubemap;
 				}
 
 				// Grille infinie style Blender (plan y=0). Activer + configurer :
@@ -736,6 +774,10 @@ namespace nkentseu {
 				// Luminosite du ciel AFFICHE (cf. SetSkyIntensity). 1 = le ciel tel
 				// qu'il a ete genere. Transmise au shader par uCam.viewOpts.y.
 				float32 mSkyIntensity = 1.f;
+				// Description du ciel VISIBLE (cf. SetSkyParams), envoyee au shader
+				// a chaque image dans mUBOSkyRing.
+				NkSkyParams mSkyParams;
+				bool mSkyFromCubemap = false; // cf. SetSkyFromCubemap (cas HDRI)
 
 				// Grille infinie style Blender (plan y=0). Grand quad suivant la caméra,
 				// rendu APRÈS l'opaque (depth test read-only + alpha blend). Params

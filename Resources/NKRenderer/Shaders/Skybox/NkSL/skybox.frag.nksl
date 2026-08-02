@@ -1,6 +1,24 @@
-// skybox.frag.nksl — NKRenderer — Background HDR skybox FS (VRAI dialecte NkSL)
-// Traduit de Skybox/VK/skybox.frag.vk.glsl. Reconstruit le ray view-space depuis
-// NDC + FOV, le passe en world via transpose(mat3(view)), sample le cubemap HDR brut.
+// skybox.frag.nksl — NKRenderer — Ciel visible, evalue EN TEMPS REEL (vrai NkSL)
+//
+// CE QUI A CHANGE, ET POURQUOI
+//   Le ciel etait CUIT dans une cubemap : chaque reglage demandait une
+//   regeneration CPU (convolutions), donc rien n'etait animable et le moindre
+//   changement se payait une attente. Il est desormais CALCULE ICI, a chaque
+//   image, a partir du bloc de parametres binding=29.
+//
+//   Consequences : les nuages defilent, le soleil peut descendre, et tout
+//   reglage se voit IMMEDIATEMENT. La cuisson en cubemaps subsiste, mais elle
+//   ne sert plus qu'a l'ECLAIRAGE (irradiance + reflets) -- le seul calcul qui
+//   la justifie vraiment.
+//
+// PORTABILITE — ce fichier doit passer sur VK, GL, DX11, DX12 et Metal :
+//   - pas de mod()      : sa semantique differe sur les negatifs (fmod en HLSL).
+//                         La forme x - N*floor(x/N) est portable.
+//   - pas de mat3(mat4) : interdit en HLSL (X3014), on reconstruit par colonnes.
+//   - pas d'operation sur entiers non signes pour le bruit : leur comportement
+//     n'est pas identique partout. On hache en flottant.
+//   - bornes de boucle CONSTANTES, sinon certains compilateurs refusent de
+//     derouler.
 
 @location(0) in vec2 vNDC;
 @location(0) out vec4 fragColor;
@@ -25,16 +43,224 @@ uniform CameraUBO {
     // offset 400. .x = matcap personnalisee (inutile ici), .y = LUMINOSITE DU
     // CIEL AFFICHE. Champ deja reserve cote CPU, on n'agrandit donc pas le bloc.
     vec4  viewOpts;
+    // 416 / 432 / 448 — inutilises ici, mais OBLIGATOIRES : sans eux les champs
+    // du ciel qui suivent seraient lus aux mauvais offsets.
+    vec4  iblColor;
+    vec4  fogColor;
+    vec4  fogParams;
+    // ── LE CIEL VISIBLE (offsets 464 a 591) ─────────────────────────────────
+    // Il vit ICI, en fin de bloc camera, et NON dans un bloc a lui. Deux raisons,
+    // toutes deux apprises en essayant :
+    //   - DX11 (SM5) n'a que QUATORZE emplacements de constant buffer (b0..b13) :
+    //     un bloc de plus au-dela echoue la ou VK/DX12/GL/Metal passent
+    //     (« X4567: maximum cbuffer exceeded ») ;
+    //   - dans le set 0, les numeros bas sont deja pris par des TEXTURES cote
+    //     moteur : y poser un bloc uniforme le fait ecraser en silence, et le
+    //     ciel sort NOIR sans le moindre message.
+    // La fin du bloc camera echappe aux deux, et c'est le motif deja employe
+    // pour iblColor et le brouillard.
+    vec4  skyP0;         // x modele (0 degrade, 1 physique, 2 cubemap) y turbidite
+                         // z puissance du soleil                       w disque (0/1)
+    vec4  skySunDir;     // xyz direction de PROPAGATION du soleil, w vitesse des nuages
+    vec4  skyTopCol;     // xyz couleur du zenith,  w nuages actifs (0/1)
+    vec4  skyHorizonCol; // xyz couleur d'horizon,  w couverture
+    vec4  skyGroundCol;  // xyz couleur du sol,     w densite
+    vec4  skySunCol;     // xyz teinte du soleil,   w echelle des nuages
+    vec4  skyCloudCol;   // xyz couleur des nuages, w reserve
+    vec4  skyP7;         // reserve (lunes, etoiles)
 } uCam;
 
-// Cubemap HDR brut (binding=26), RGBA32F, préserve les valeurs > 1.0.
+// Cubemap HDR brut (binding=26), RGBA32F. Sert au cas HDRI, ou l'image vient
+// d'un fichier et ne peut donc pas etre calculee.
 @binding(set=0, binding=26)
 uniform samplerCube tSkyEnvCube;
+
+const float NK_PI = 3.14159265;
+
+// ── DEGRADE ─────────────────────────────────────────────────────────────────
+vec3 NkSkyGradient(vec3 d) {
+    vec3 res = mix(uCam.skyHorizonCol.xyz, uCam.skyGroundCol.xyz, max(-d.y, 0.0));
+    if (d.y >= 0.0)
+        res = mix(uCam.skyHorizonCol.xyz, uCam.skyTopCol.xyz, d.y);
+    return res;
+}
+
+// ── CIEL PHYSIQUE — Preetham, Shirley & Smits (1999) ────────────────────────
+// Modele ANALYTIQUE de diffusion atmospherique : pas de simulation, une formule
+// fermee. Le bleu profond du zenith, le blanchiment vers l'horizon et les
+// teintes du couchant DECOULENT de la position du soleil et de la turbidite --
+// on ne les regle pas.
+float NkPerez(float cosTheta, float gamma, float cosGamma,
+              float A, float B, float C, float D, float E) {
+    float ct = max(cosTheta, 0.01); // le modele a un pole a theta = 90 deg
+    return (1.0 + A * exp(B / ct)) * (1.0 + C * exp(D * gamma) + E * cosGamma * cosGamma);
+}
+
+// ATTENTION — AUCUN IDENTIFIANT NE DOIT DIFFERER D'UN AUTRE PAR LA SEULE CASSE.
+// GLSL les distingue, le chemin NkSL -> HLSL non : `float y` a cote de `float Y`
+// sort en « error X3003: redefinition of 'y' », le shader ne compile pas, le
+// pipeline n'est pas cree et le ciel disparait SANS message a l'ecran.
+// C'est pour cela que les noms ci-dessous sont explicites plutot que fideles a
+// la notation xyY de l'article.
+// RETOUR UNIQUE, ici et dans tout ce fichier. Un `return` anticipe se traduit en
+// HLSL par une variable de resultat qui n'est pas ecrite sur tous les chemins :
+// « warning X4000: use of potentially uninitialized variable ». C'est un
+// avertissement, mais la valeur est indeterminee -- donc potentiellement
+// differente d'un backend a l'autre, ce qu'on ne peut pas se permettre ici.
+vec3 NkxyYToRGB(float chromX, float chromY, float lum) {
+    vec3 res = vec3(0.0);
+    if (chromY >= 1e-4) {
+        float capX = chromX * (lum / chromY);
+        float capZ = (1.0 - chromX - chromY) * (lum / chromY);
+        vec3 c = vec3( 3.2406 * capX - 1.5372 * lum - 0.4986 * capZ,
+                      -0.9689 * capX + 1.8758 * lum + 0.0415 * capZ,
+                       0.0557 * capX - 0.2040 * lum + 1.0570 * capZ);
+        res = max(c, vec3(0.0));
+    }
+    return res;
+}
+
+vec3 NkSkyPhysical(vec3 d, vec3 toSun) {
+    float T = clamp(uCam.skyP0.y, 1.0, 10.0);
+
+    float cosTheta  = d.y;
+    float cosThetaS = clamp(toSun.y, -1.0, 1.0);
+    float thetaS    = acos(cosThetaS);
+    float cosGamma  = clamp(dot(d, toSun), -1.0, 1.0);
+    float gamma     = acos(cosGamma);
+
+    // Coefficients de Perez : affines en turbidite, un jeu par canal.
+    // Noms prefixes plutot que A/B/C/D/E declines en Y/x/y : « Ay » a cote de
+    // « AY » ne differerait que par la casse, ce que le passage en HLSL ne sait
+    // pas distinguer (cf. la note sur NkxyYToRGB).
+    float lumA =  0.1787 * T - 1.4630; float lumB = -0.3554 * T + 0.4275;
+    float lumC = -0.0227 * T + 5.3251; float lumD =  0.1206 * T - 2.5771;
+    float lumE = -0.0670 * T + 0.3703;
+    float chxA = -0.0193 * T - 0.2592; float chxB = -0.0665 * T + 0.0008;
+    float chxC = -0.0004 * T + 0.2125; float chxD = -0.0641 * T - 0.8989;
+    float chxE = -0.0033 * T + 0.0452;
+    float chyA = -0.0167 * T - 0.2608; float chyB = -0.0950 * T + 0.0092;
+    float chyC = -0.0079 * T + 0.2102; float chyD = -0.0441 * T - 1.6537;
+    float chyE = -0.0109 * T + 0.0529;
+
+    float t2 = thetaS * thetaS;
+    float t3 = t2 * thetaS;
+    float chi = (4.0 / 9.0 - T / 120.0) * (NK_PI - 2.0 * thetaS);
+    float zenLum = max((4.0453 * T - 4.9710) * tan(chi) - 0.2155 * T + 2.4192, 0.0);
+    float zenChx = T * T * ( 0.00166 * t3 - 0.00375 * t2 + 0.00209 * thetaS)
+                 + T     * (-0.02903 * t3 + 0.06377 * t2 - 0.03202 * thetaS + 0.00394)
+                 +         ( 0.11693 * t3 - 0.21196 * t2 + 0.06052 * thetaS + 0.25886);
+    float zenChy = T * T * ( 0.00275 * t3 - 0.00610 * t2 + 0.00317 * thetaS)
+                 + T     * (-0.04214 * t3 + 0.08970 * t2 - 0.04153 * thetaS + 0.00516)
+                 +         ( 0.15346 * t3 - 0.26756 * t2 + 0.06670 * thetaS + 0.26688);
+
+    // Normalisation par la valeur au zenith (theta = 0, gamma = thetaS).
+    float ct = max(cosTheta, 0.0);
+    float normLum = max(NkPerez(1.0, thetaS, cosThetaS, lumA, lumB, lumC, lumD, lumE), 1e-4);
+    float normChx = max(NkPerez(1.0, thetaS, cosThetaS, chxA, chxB, chxC, chxD, chxE), 1e-4);
+    float normChy = max(NkPerez(1.0, thetaS, cosThetaS, chyA, chyB, chyC, chyD, chyE), 1e-4);
+    float outLum = zenLum * NkPerez(ct, gamma, cosGamma, lumA, lumB, lumC, lumD, lumE) / normLum;
+    float outChx = zenChx * NkPerez(ct, gamma, cosGamma, chxA, chxB, chxC, chxD, chxE) / normChx;
+    float outChy = zenChy * NkPerez(ct, gamma, cosGamma, chyA, chyB, chyC, chyD, chyE) / normChy;
+
+    // Yz est en kcd/m2 : sans remise a l'echelle le ciel sature tout. Ce facteur
+    // amene un ciel clair de turbidite 2,5 autour de 1,0 au zenith. Il est le
+    // MEME que cote CPU (NkEnvironmentSystem) : sans quoi le ciel qu'on voit et
+    // celui qui eclaire n'auraient pas la meme luminosite.
+    vec3 c = NkxyYToRGB(outChx, outChy, outLum * 0.06 * uCam.skyP0.z);
+
+    // DISQUE SOLAIRE. Sans lui, le ciel physique n'a aucune source visible.
+    if (uCam.skyP0.w > 0.5 && cosTheta > -0.05 && gamma < 0.030) {
+        float k = 1.0 - clamp((gamma - 0.009) / (0.030 - 0.009), 0.0, 1.0);
+        k = k * k;
+        float s = 12.0 * uCam.skyP0.z * k;
+        c += s * vec3(uCam.skySunCol.x, 0.97 * uCam.skySunCol.y, 0.90 * uCam.skySunCol.z);
+    }
+
+    // SOUS L'HORIZON le modele n'est pas defini (exp(B/cos theta) diverge) : on
+    // y pose la couleur de sol, avec un fondu court pour eviter une couture.
+    if (d.y < 0.0)
+        c = mix(c, uCam.skyGroundCol.xyz, clamp(-d.y / 0.10, 0.0, 1.0));
+    return c;
+}
+
+// ── NUAGES ──────────────────────────────────────────────────────────────────
+// Hachage FLOTTANT : les operations sur entiers non signes ne se comportent pas
+// identiquement sur les cinq backends, celui-ci si.
+float NkSkyHash(vec3 p) {
+    return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+}
+
+float NkSkyNoise(vec3 p) {
+    vec3 i = floor(p);
+    vec3 f = p - i;
+    f = f * f * (3.0 - 2.0 * f); // lissage de Hermite : sans lui, les cellules se voient
+    float n000 = NkSkyHash(i);
+    float n100 = NkSkyHash(i + vec3(1.0, 0.0, 0.0));
+    float n010 = NkSkyHash(i + vec3(0.0, 1.0, 0.0));
+    float n110 = NkSkyHash(i + vec3(1.0, 1.0, 0.0));
+    float n001 = NkSkyHash(i + vec3(0.0, 0.0, 1.0));
+    float n101 = NkSkyHash(i + vec3(1.0, 0.0, 1.0));
+    float n011 = NkSkyHash(i + vec3(0.0, 1.0, 1.0));
+    float n111 = NkSkyHash(i + vec3(1.0, 1.0, 1.0));
+    float x00 = mix(n000, n100, f.x);
+    float x10 = mix(n010, n110, f.x);
+    float x01 = mix(n001, n101, f.x);
+    float x11 = mix(n011, n111, f.x);
+    return mix(mix(x00, x10, f.y), mix(x01, x11, f.y), f.z);
+}
+
+float NkSkyFbm(vec3 p) {
+    float s = 0.0;
+    float a = 0.5;
+    float n = 0.0;
+    for (int i = 0; i < 4; i++) { // borne CONSTANTE : certains compilateurs l'exigent
+        s += a * NkSkyNoise(p);
+        n += a;
+        p *= 2.02;
+        a *= 0.5;
+    }
+    return s / max(n, 1e-4);
+}
+
+vec3 NkSkyClouds(vec3 sky, vec3 d) {
+    vec3 res = sky;
+    float cov = clamp(uCam.skyHorizonCol.w, 0.0, 1.0);
+    // Pas de nuage sous l'horizon, ni a couverture nulle. Teste en UNE fois :
+    // retour unique (cf. la note sur NkxyYToRGB).
+    if (uCam.skyTopCol.w >= 0.5 && d.y > 0.001 && cov > 0.0) {
+        // PROJECTION SUR UN PLAN d'altitude constante : diviser par d.y ecrase
+        // et etire les nuages vers l'horizon, comme dans la realite. Sans cette
+        // division ils garderaient la meme taille apparente partout, et le ciel
+        // ressemblerait a une boule texturee plutot qu'a une voute.
+        float sc = max(uCam.skySunCol.w, 0.01);
+        float inv = 1.0 / max(d.y, 0.05);
+        // LE DEFILEMENT : le temps decale le champ de bruit. C'est ce qui etait
+        // impossible tant que le ciel etait cuit dans une image fixe.
+        float t = uCam.time * uCam.skySunDir.w;
+        vec3 q = vec3(d.x * inv * sc + t, d.z * inv * sc, 0.5 + t * 0.3);
+        float n = NkSkyFbm(q);
+
+        // La COUVERTURE est un SEUIL, pas une opacite : a 0 il ne reste rien, et
+        // les nuages naissent puis grossissent quand on monte -- au lieu d'un
+        // voile uniforme qui se contenterait de foncer.
+        float dens = clamp((n - (1.0 - cov)) / max(cov, 1e-3), 0.0, 1.0);
+        dens *= max(uCam.skyGroundCol.w, 0.0);
+        dens *= clamp(d.y / 0.12, 0.0, 1.0); // la projection degenere a l'horizon
+        dens = clamp(dens, 0.0, 1.0);
+
+        // Les nuages sont ECLAIRES par le ciel qu'ils masquent : un blanc pur
+        // sur un ciel sombre trahirait le collage.
+        float lit = clamp((sky.x + sky.y + sky.z) * 0.5, 0.25, 1.5);
+        res = mix(sky, uCam.skyCloudCol.xyz * lit, dens);
+    }
+    return res;
+}
 
 @stage(fragment)
 @entry
 void main() {
-    // proj[1][1] = 1/tan(fovY/2) (le flip Y de Vulkan est au niveau viewport, pas proj).
+    // proj[1][1] = 1/tan(fovY/2) (le flip Y de Vulkan est au niveau viewport).
     float tanHalfY = 1.0 / uCam.proj[1][1];
     float tanHalfX = 1.0 / uCam.proj[0][0];
     // View-space ray : yFlipNDC absorbe la convention NDC (VK Y-bas / GL Y-haut).
@@ -42,21 +268,39 @@ void main() {
                                   vNDC.y * tanHalfY * uCam.yFlipNDC,
                                   -1.0));
     // World space : rotation inverse de view = transpose(mat3(view)) (view rigide).
+    //
+    // ON GARDE mat3(mat4) TELLE QUELLE. J'avais « rendu portable » cette ligne en
+    // reconstruisant la matrice par colonnes -- mat3(view[0].xyz, view[1].xyz,
+    // view[2].xyz). C'est equivalent en GLSL, mais en HLSL float3x3(a,b,c)
+    // construit des LIGNES la ou GLSL construit des COLONNES : la reecriture
+    // transposait donc la rotation. Tous les rayons repartaient a plat, et tout
+    // le ciel rendait sa couleur d'HORIZON, sans zenith ni sol.
+    // Cette forme-ci fonctionnait : on n'y touche pas.
     mat3 worldFromView = transpose(mat3(uCam.view));
     vec3 dir = worldFromView * viewRay;
 
     // Mirror pass : dir_mirror = Y-flip pour un plan horizontal Y=0.
-    if (uCam.reflectionFlags.x > 0.5) {
+    if (uCam.reflectionFlags.x > 0.5)
         dir.y = -dir.y;
+    dir = normalize(dir);
+
+    vec3 col;
+    if (uCam.skyP0.x > 1.5) {
+        // 2 — CUBEMAP : cas HDRI, l'image vient d'un fichier et ne peut donc
+        // pas etre calculee. On la lit telle quelle.
+        col = textureLod(tSkyEnvCube, dir, 0.0).rgb;
+    } else {
+        // Direction VERS le soleil = oppose de sa direction de propagation
+        // (meme convention que NkLightDesc::direction).
+        vec3 toSun = -uCam.skySunDir.xyz;
+        float sl = length(toSun);
+        toSun = (sl > 1e-6) ? (toSun / sl) : vec3(0.0, 1.0, 0.0);
+        col = (uCam.skyP0.x > 0.5) ? NkSkyPhysical(dir, toSun) : NkSkyGradient(dir);
+        col = NkSkyClouds(col, dir);
     }
 
-    // Sample mip 0 du cubemap skybox (HDR brut).
-    // ATTENTION : on multipliait ici par uCam.iblStrength. C'est l'intensite de
-    // l'AMBIANCE, volontairement basse (0.05) pour que l'environnement ne delave
-    // pas les objets -- le ciel etait donc peint a 5 % de sa luminosite, quasi
-    // noir, et paraissait absent alors qu'il etait correctement genere et rendu.
-    // « Combien l'environnement ECLAIRE » et « a quel point le ciel SE VOIT »
-    // sont deux grandeurs distinctes : la seconde a desormais son propre reglage.
-    vec3 hdr = textureLod(tSkyEnvCube, dir, 0.0).rgb * uCam.viewOpts.y;
-    fragColor = vec4(hdr, 1.0);
+    // LUMINOSITE DU CIEL AFFICHE — grandeur PROPRE, distincte de l'intensite
+    // d'ambiance. On multipliait ici par uCam.iblStrength, qui vaut 0,05 : le
+    // ciel sortait a 5 % et paraissait absent alors qu'il etait bien rendu.
+    fragColor = vec4(col * uCam.viewOpts.y, 1.0);
 }
