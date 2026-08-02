@@ -15,11 +15,25 @@
 
 #include "NK3DModeler/Shell/NkModelerUI.h"
 #include "NK3DModeler/Shell/NkModelerInput.h"
+// Le champ de saisie UNIVERSEL de l'editeur : curseur placable, selection,
+// copier / couper / coller. Rihen le veut dans TOUS les champs de
+// l'application, pour qu'aucun ne se comporte differemment d'un autre.
+#include "NKEditorKit/NkEditorTextField.h"
 
 #include <cstdio>
 
 namespace nkentseu {
 	namespace nk3d {
+
+		// ── LE CONTEXTE NKGUI DE LA FRAME ───────────────────────────────────────
+		// Les widgets partages en ont besoin pour la saisie universelle, et ils
+		// sont appeles depuis des dizaines d'endroits : le faire descendre en
+		// parametre partout aurait touche presque toutes les signatures. Il est
+		// donc POSE UNE FOIS par frame, au debut, et lu ici.
+		inline nkgui::NkGuiContext *&NkUiCtx() {
+			static nkgui::NkGuiContext *c = nullptr;
+			return c;
+		}
 
 		// ── ETAT PARTAGE DES WIDGETS ────────────────────────────────────────────
 		// Un seul champ peut etre en cours de glissement ou de saisie a la fois :
@@ -229,14 +243,12 @@ namespace nkentseu {
 			p.Fill({r.x + 1.f, r.y + 1.f, S(3.f), r.h - 2.f}, accent);
 			char txt[32];
 			snprintf(txt, sizeof(txt), fmt, (double)value);
-			// Valeur calee a DROITE : les nombres se comparent par leur unite, et
-			// trois colonnes calees a gauche donnent des virgules en escalier.
-			// CLIPPEE au champ (demande de Rihen) : une valeur trop longue se
-			// tronque a GAUCHE -- les unites et decimales restent lisibles, c'est
-			// la partie qui compte.
-			const float32 tw = p.TextW(txt);
+			// Valeur calee a GAUCHE, CLIPPEE au champ (Rihen) : le bloc peut alors
+			// grandir sans que le nombre saute d'un bord a l'autre, et ce qui
+			// deborde se tronque a DROITE -- l'entier et le signe, qui portent le
+			// sens, restent toujours lisibles.
 			p.Clip(r);
-			p.TextV(r.x + r.w - tw - S(8.f), r.y, r.h, txt);
+			p.TextV(r.x + S(7.f), r.y, r.h, txt);
 			p.Unclip();
 			return changed;
 		}
@@ -525,13 +537,26 @@ namespace nkentseu {
 				return false;
 			}
 
+			// ── SAISIE : LE CHAMP UNIVERSEL DE NKEDITORKIT ──────────────────────
+			// Curseur placable au clic, SELECTION a la souris et au clavier,
+			// copier / couper / coller, double-clic pour tout prendre : c'est la
+			// brique partagee de l'editeur (Rihen la veut PARTOUT, pour que tous
+			// les champs de l'application se comportent pareil). Notre saisie
+			// maison ne savait qu'ajouter et effacer en fin de ligne.
 			p.Outline(r, NkRole::AccentUi, NkRole::InputBg, 2.f);
-			p.TextV(r.x + S(4.f), r.y, r.h, ws.editBuf);
-			// Curseur de saisie : un trait plein, pas clignotant -- le clignotement
-			// demanderait une horloge et n'apporte rien tant qu'un seul champ
-			// s'edite a la fois.
-			const float32 cw = p.TextW(ws.editBuf);
-			p.Fill({r.x + S(5.f) + cw, r.y + S(3.f), 1.f, r.h - S(6.f)}, NkRole::Text);
+			if (nkgui::NkGuiContext *gc = NkUiCtx()) {
+				editorkit::NkOverlayTextField(*gc, gc->dl, p.FontPtr(), r, ws.editBuf,
+											  (int32)(outCap < 63u ? outCap : 63u), true);
+				uint32 nlen = 0;
+				while (ws.editBuf[nlen])
+					++nlen;
+				ws.editLen = nlen;
+			} else {
+				// Repli (contexte non fourni) : affichage simple, sans edition riche.
+				p.TextV(r.x + S(4.f), r.y, r.h, ws.editBuf);
+				const float32 cw = p.TextW(ws.editBuf);
+				p.Fill({r.x + S(5.f) + cw, r.y + S(3.f), 1.f, r.h - S(6.f)}, NkRole::Text);
+			}
 
 			bool done = false;
 			// CLIQUER AILLEURS VALIDE. C'est ce que fait tout editeur : on tape un
@@ -551,20 +576,21 @@ namespace nkentseu {
 				ws.EndEdit();
 				return done;
 			}
-			// Caracteres saisis. NKGui les met en file dans la frame ; on les
-			// consomme ici. On filtre a l'ASCII imprimable tant que le rendu de
-			// texte n'accepte pas l'UTF-8 en saisie -- laisser passer un accent
-			// afficherait un caractere de remplacement, ce qui est pire que de le
-			// refuser.
-			for (int32 i = 0; i < in.charCount; ++i) {
-				const uint32 c = in.chars[i];
-				if (c >= 32u && c < 127u && ws.editLen + 1u < outCap && ws.editLen < 62u) {
-					ws.editBuf[ws.editLen++] = (char)c;
-					ws.editBuf[ws.editLen] = 0;
+			// Caracteres et effacement : SEULEMENT en repli. Quand le champ
+			// universel est en place, c'est lui qui les traite (et il gere en plus
+			// la selection, le collage et le curseur), les refaire ici doublerait
+			// chaque frappe.
+			if (!NkUiCtx()) {
+				for (int32 i = 0; i < in.charCount; ++i) {
+					const uint32 c = in.chars[i];
+					if (c >= 32u && c < 127u && ws.editLen + 1u < outCap && ws.editLen < 62u) {
+						ws.editBuf[ws.editLen++] = (char)c;
+						ws.editBuf[ws.editLen] = 0;
+					}
 				}
+				if (in.KeyPressed(nkgui::NkGuiKey::Backspace) && ws.editLen > 0)
+					ws.editBuf[--ws.editLen] = 0;
 			}
-			if (in.KeyPressed(nkgui::NkGuiKey::Backspace) && ws.editLen > 0)
-				ws.editBuf[--ws.editLen] = 0;
 			if (in.KeyPressed(nkgui::NkGuiKey::Enter)) {
 				// Un nom VIDE est refuse : il rendrait la ligne inidentifiable dans
 				// la liste. On annule plutot que d'accepter l'inutilisable.

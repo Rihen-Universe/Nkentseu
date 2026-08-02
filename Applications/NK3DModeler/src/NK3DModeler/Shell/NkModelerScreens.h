@@ -4016,6 +4016,21 @@ namespace nkentseu {
 		// chevron ; replier un groupe cache SON contenu, pas celui des voisins.
 		// Renvoie true si le groupe est DEPLIE (donc s'il faut peindre son
 		// contenu). `bit` identifie le groupe dans st.grpFold.
+		// MARGE du contenu dans le panneau : il ne colle ni au bord gauche ni a la
+		// gouttiere de droite (Rihen) -- un texte qui touche le bord se lit mal et
+		// donne l'impression que le panneau est trop petit.
+		inline float32 NkPropInset() {
+			return S(10.f);
+		}
+		// Le BLOC qui entoure le contenu d'un groupe : il dit ou le groupe commence
+		// et ou il finit, ce qu'un simple bandeau ne suffit pas a montrer quand
+		// plusieurs groupes se suivent (Rihen).
+		inline void PaintGroupBlock(NkModelerPainter &p, const NkRect &r, float32 yTop,
+									float32 yBottom) {
+			if (yBottom <= yTop)
+				return;
+			p.Outline({r.x, yTop, r.w, yBottom - yTop}, NkRole::Border, NkRole::PanelBg, 3.f);
+		}
 		inline bool PaintPropGroup(NkModelerPainter &p, NkHitRegistry &hit, NkModelerState &st,
 								   const NkRect &r, float32 &y, const char *key,
 								   const char *title, uint32 bit) {
@@ -4353,14 +4368,17 @@ namespace nkentseu {
 								}
 								sELast = en;
 							}
+							// LE CONTENU EST CENTRE dans le panneau, avec la meme
+							// marge a gauche et a droite (Rihen).
 							NkRect rowR = rr;
-							rowR.x = r.x + kPad;
-							rowR.w = rr.w - 2.f * kPad;
+							rowR.x = r.x + NkPropInset();
+							rowR.w = rr.w - 2.f * NkPropInset();
 							// GROUPE « Transformation » : bandeau repliable, puis
 							// Position / Rotation / Echelle / Pivot (Rihen, Banani).
 							const bool grpXf = PaintPropGroup(p, hit, st, rowR, yy,
 															  "prop.g.xform",
 															  "Transformation", 1u);
+							const float32 grpXfTop = yy;
 							if (grpXf) {
 								PaintXformGroup(p, hit, ws, in, rowR, yy, "Position",
 												st.pos, 0.01f, "prop.epos", st.lockPos,
@@ -4408,6 +4426,12 @@ namespace nkentseu {
 									yy += kRowH;
 								}
 							}
+							// Le BLOC qui entoure le groupe : peint APRES son contenu,
+							// puisqu'il faut connaitre ou celui-ci s'arrete.
+							if (grpXf)
+								PaintGroupBlock(p, rowR, grpXfTop, yy + S(2.f));
+							if (grpXf)
+								yy += S(6.f);
 							// Proportionnel et verrous : memes regles que l'objet.
 							auto PropagateE = [](float32 *vals, const float32 *base, bool on) {
 								if (!on)
@@ -4452,11 +4476,14 @@ namespace nkentseu {
 								const bool grpDim = PaintPropGroup(p, hit, st, rowR, yy,
 																   "prop.g.dim", "Dimensions",
 																   2u);
+								const float32 grpDimTop = yy;
 								if (grpDim) {
 									PaintXformGroup(p, hit, ws, in, rowR, yy, "", dimE, 0.01f,
 													"prop.edim", st.lockDim, st.propDim,
 													"%.2f m");
 									yy += NkXformGroupH();
+									PaintGroupBlock(p, rowR, grpDimTop, yy + S(2.f));
+									yy += S(6.f);
 								}
 					// PROPORTIONNEL : l'axe touche impose son RAPPORT aux autres ;
 					// sinon chaque dimension ne bouge QUE son axe (Rihen).

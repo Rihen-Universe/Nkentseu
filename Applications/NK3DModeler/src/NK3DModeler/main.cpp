@@ -565,6 +565,10 @@ int nkmain(const NkEntryState &entry) {
 		// par-dessus la scene ».
 		const bool overSceneLastFrame = hit.IsHovered("view.nav");
 		hit.Begin(ui.input);
+		// LE CONTEXTE DE LA FRAME, pose une fois : les widgets partages (la
+		// saisie universelle de NKEditorKit) le lisent ici au lieu de le
+		// recevoir en parametre dans des dizaines de signatures.
+		NkUiCtx() = &ui;
 		// L'emprise des menus de la frame PRECEDENTE devient la garde de
 		// celle-ci : les panneaux sont peints avant les menus, ils ne peuvent
 		// pas connaitre leur emprise autrement.
