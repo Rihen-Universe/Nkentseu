@@ -133,6 +133,9 @@ namespace nkentseu {
 		// pas les lettres au shell) : bits 1 dupliquer, 2 copier, 4 coller,
 		// 8 supprimer, 16 parenter, 32 deparenter -- consommes une fois.
 		static renderer::NkLightDesc nkvpUserLight[kNkvpMaxUser];
+		// Mise a jour des ombres, reglee au panneau Rendu : dynamique par defaut,
+		// parce qu'un modeleur passe son temps a deplacer objets et lumieres.
+		static bool nkvpShadowDynamic = true;
 		static renderer::NkLightDesc nkvpClipLight;
 		static int32 nkvpShortcutBits = 0;
 		static uint8 nkvpShortcutPrev = 0;
@@ -871,9 +874,16 @@ namespace nkentseu {
 		// entre/sort d'edition) ; sinon on ne reecrit que les tranches des objets qui ont
 		// REELLEMENT bouge (ici le seul cube central anime).
 		static void Demo3D_SyncWireBatch(Demo3DState *st, renderer::NkRender3D *r3d, renderer::NkMeshSystem *ms) {
+			// LE FIL DE FER MONTRE CE QUI EST AFFICHE, RIEN DE PLUS. Ce batch
+			// parcourait TOUS les objets de la demo sans consulter leur visibilite :
+			// les 96 spheres et cubes -- cube central anime compris -- reapparaissaient
+			// donc en mode fil de fer alors qu'ils sont masques partout ailleurs
+			// (constate par Rihen). La visibilite effective decide ici comme a la
+			// soumission ; l'empreinte en tient compte, sinon on garderait le batch
+			// precedent apres avoir masque un objet.
 			int32 stamp = (st->editMode ? st->editObjIdx : -1) * 131 + 17;
 			for (int32 i = 0; i < Demo3DState::kNumObj; i++)
-				if (st->objMesh[i].IsValid())
+				if (st->objMesh[i].IsValid() && !HostHiddenEff(i))
 					stamp += (i + 1) * 7;
 			if (stamp != st->wireStamp) {
 				st->wireStamp = stamp;
@@ -893,6 +903,8 @@ namespace nkentseu {
 					st->wireCnt[i] = 0;
 					if (st->editMode && st->editObjIdx == i)
 						continue; // objet en edition : sa cage n-gon est deja dessinee par l'overlay
+					if (HostHiddenEff(i))
+						continue; // masque : il n'a pas de fil de fer non plus
 					const NkVector<NkVec3f> *src = Demo3D_WireSrc(st, ms, i);
 					st->wireCnt[i] = (uint32)src->Size();
 					off += st->wireCnt[i];
@@ -4509,7 +4521,7 @@ namespace nkentseu {
 			for (int32 li = 0; li < Demo3DState::kNumLights; li++)
 				if (!HostHiddenEff(86 + li)) { // oeil ferme (le sien ou celui d'un ancetre)
 					renderer::NkLightDesc LD = Demo3D_LightEffective(st, li);
-					LD.shadowStatic = false; // rien n'est fige dans un modeleur
+					LD.shadowStatic = !nkvpShadowDynamic; // cf. panneau Rendu
 					sctx.lights.PushBack(LD);
 				}
 			// LUMIERES UTILISATEUR (dupliquees/collees) : descripteur NATIF
@@ -4521,14 +4533,15 @@ namespace nkentseu {
 				if (HostHiddenEff(un))
 					continue;
 				renderer::NkLightDesc L2 = nkvpUserLight[u];
-				// AUCUNE LUMIERE D'UN MODELEUR N'EST STATIQUE. shadowStatic est une
-				// optimisation pour une scene figee : elle autorise NkVSM a garder
-				// ses depth maps telles quelles. Les lumieres creees ici heritent du
-				// descripteur d'une lumiere de demo, qui la portait -- leurs ombres
-				// etaient donc calculees a la premiere image puis JAMAIS refaites
-				// (HUD : "rend 0 | cache 6"). D'ou une ombre figee, sans rapport avec
-				// la scene courante, et l'impression d'un objet qui s'ombre lui-meme.
-				L2.shadowStatic = false;
+				// STATIQUE OU DYNAMIQUE : c'est le reglage du panneau Rendu qui
+				// tranche, plus l'heritage. shadowStatic autorise NkVSM a garder
+				// ses depth maps telles quelles ; les lumieres creees ici heritent
+				// du descripteur d'une lumiere de demo, qui le portait -- leurs
+				// ombres etaient donc calculees a la premiere image puis JAMAIS
+				// refaites (HUD : "rend 0 | cache 6"), figees et sans rapport avec
+				// la scene. En dynamique elles suivent ; en statique, c'est un choix
+				// explicite de l'utilisateur, pas un accident.
+				L2.shadowStatic = !nkvpShadowDynamic;
 				const int32 e = un - 90;
 				const NkVec3f tr = st->emptyGizmo.TranslateOf(e);
 				L2.position = {nkvpEmptyPos[e][0] + tr.x, nkvpEmptyPos[e][1] + tr.y,
@@ -9772,6 +9785,12 @@ namespace nkentseu {
 			*softness = c.softness;
 			*quality = (int32)c.quality;
 			return true;
+		}
+		bool Demo3DHostShadowDynamic() {
+			return nkvpShadowDynamic;
+		}
+		void Demo3DHostSetShadowDynamic(bool dynamic) {
+			nkvpShadowDynamic = dynamic;
 		}
 		void Demo3DHostSetShadowCfg(float32 normalBias, float32 slopeBias, float32 softness,
 									int32 quality) {

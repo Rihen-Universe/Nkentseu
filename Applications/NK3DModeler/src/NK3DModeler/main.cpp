@@ -1096,31 +1096,35 @@ int nkmain(const NkEntryState &entry) {
 		// La liste deroulee est peinte AVANT les separateurs et le menu : elle doit
 		// les recouvrir, et le registre donne la priorite a la derniere zone.
 		PaintSplitters(p, lay, W, H, st, hit);
-		// Menus et dialogues de scene PAR-DESSUS tout (menu contextuel de la
-		// hierarchie ET de la vue 3D, confirmation de suppression).
-		PaintSceneMenus(p, {0.f, 0.f, (float32)W, (float32)H}, lay.view, st, hit, ws,
-						ui.input);
-		// LES SURCOUCHES REPONDENT, ELLES : on leve la garde avant de les
-		// peindre, sinon la liste ouverte refuserait ses propres clics.
-		hit.SetBlock({}, false);
-		// Le panneau des matcaps par-dessus TOUT : il peut etre ouvert depuis
-		// la barre de la vue comme depuis le panneau Proprietes.
-		PaintMatcapPopup(p, hit, st);
-		// La liste ouverte declare son EMPRISE : comme les menus, elle ne doit
-		// pas laisser ses clics atteindre le panneau peint sous elle.
+		// ── LES SURCOUCHES MONTENT DE COUCHE ────────────────────────────────
+		// Menus, sous-menus et listes deroulees vivent sur la couche 50, les
+		// fenetres modales sur la couche 100. Le registre donne le survol a la
+		// couche la plus HAUTE : tout ce qui est peint dessous devient aveugle
+		// sous leur emprise, sans qu'aucun panneau ait a s'en garder lui-meme.
 		{
-			NkRect comboBox{};
-			DrawComboPopup(p, hit, ws, combo, &comboBox);
-			st.UiBlockAdd(comboBox);
+			NkHitRegistry::LayerScope menuLayer(hit, 50);
+			// Menus et dialogues de scene (menu contextuel de la hierarchie ET
+			// de la vue 3D, confirmation de suppression).
+			PaintSceneMenus(p, {0.f, 0.f, (float32)W, (float32)H}, lay.view, st, hit, ws,
+							ui.input);
+			hit.SetBlock({}, false);
+			PaintMatcapPopup(p, hit, st);
+			{
+				NkRect comboBox{};
+				DrawComboPopup(p, hit, ws, combo, &comboBox);
+				st.UiBlockAdd(comboBox);
+			}
+			DrawCheckPopup(p, hit, ws, checks);
+			PaintModifierMenu(p, st, hit, ws, W, H);
+			PaintAddObjectMenu(p, st, hit, ws, W, H);
+			PaintOpenMenu(p, lay.menu, st, hit, shortcuts);
 		}
-		DrawCheckPopup(p, hit, ws, checks);
-		PaintModifierMenu(p, st, hit, ws, W, H);
-		PaintAddObjectMenu(p, st, hit, ws, W, H);
-		PaintOpenMenu(p, lay.menu, st, hit, shortcuts);
-		PaintCloseDialog(p, W, H, st, hit);
-		// LE PICKER DE COULEUR EST MODAL : peint en tout dernier, il passe donc
-		// par-dessus les panneaux comme par-dessus les menus.
-		PaintColorPicker(p, hit, ws, ui.input, st, (float32)W, (float32)H);
+		{
+			// MODALES : elles suspendent tout le reste, menus compris.
+			NkHitRegistry::LayerScope modalLayer(hit, 100);
+			PaintCloseDialog(p, W, H, st, hit);
+			PaintColorPicker(p, hit, ws, ui.input, st, (float32)W, (float32)H);
+		}
 
 		ui.EndFrame();
 

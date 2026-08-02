@@ -193,10 +193,25 @@ namespace nkentseu {
 				char colorOpen[40] = {0};
 				float32 colorCur[3] = {1.f, 1.f, 1.f};
 				float32 colorOrig[3] = {1.f, 1.f, 1.f};
+				float32 colorAlpha = 1.f, colorAlphaOrig = 1.f;
+				int32 colorTab = 0;		 // 0 = RVB, 1 = TSV
+				int32 colorSpace = 1;	 // 0 = lineaire, 1 = perceptuel
+				char colorHex[16] = {0}; // saisie hexadecimale
+				// La TEINTE survit au geste : au noir comme au blanc, la conversion
+				// depuis le RVB la perdrait et le curseur sauterait.
+				float32 colorHsv[3] = {0.f, 0.f, 1.f};
+				bool colorHsvValid = false;
 				float32 colorModalX = 0.f, colorModalY = 0.f;
 				bool colorModalPlaced = false;
 				bool colorModalDrag = false;
 				bool colorClosing = false;
+				// LES COMBOS ECRIVENT A LA FRAME SUIVANTE, par un pointeur retenu
+				// sur la valeur. Ce pointeur ne doit donc JAMAIS designer une
+				// variable locale : elle est detruite avant que la liste ne soit
+				// peinte, et le choix se perdait en silence. Les valeurs pilotees
+				// par un combo vivent ici.
+				int32 shadowQual = -1;	// -1 = pas encore lue depuis le moteur
+				int32 shadowDynamic = 1; // 0 = calcul unique, 1 = recalcul continu
 				float32 colorDragDX = 0.f, colorDragDY = 0.f;
 				// Chaque ONGLET DE SCENE garde sa pose de camera : cible, distance,
 				// lacet, tangage, ortho. C'est ce qui rend les onglets FONCTIONNELS
@@ -612,8 +627,44 @@ namespace nkentseu {
 					mCtrl = in.ctrlDown;
 					mAlt = in.altDown;
 					mHover[0] = 0;
+					mHoverLayer = -1;
+					mLayer = 0;
 					mCursor = NkCursorWant::Arrow;
 				}
+
+				// ── COUCHES : L'ETANCHEITE, UNE FOIS POUR TOUTES ────────────────
+				// Un menu, un sous-menu, une fenetre modale sont peints tantot
+				// AVANT tantot APRES les panneaux qu'ils recouvrent. Se fier a
+				// l'ordre de declaration -- « la derniere zone gagne » -- rendait
+				// donc l'etancheite dependante de l'ordre de peinture : une barre
+				// declaree apres un menu lui volait ses clics, et un panneau
+				// declare apres une modale la traversait.
+				// Desormais chaque zone porte une COUCHE. Le survol revient a la
+				// couche la plus HAUTE qui contient la souris, et a couche egale
+				// a la derniere declaree. Ni les menus ni les modales n'ont plus
+				// besoin de garde particuliere : elles montent de couche, et tout
+				// ce qui est dessous devient aveugle sous elles.
+				//   0   = panneaux
+				//   50  = menus, listes deroulantes, sous-menus
+				//   100 = fenetres modales
+				void SetLayer(int32 layer) {
+					mLayer = layer;
+				}
+				int32 Layer() const {
+					return mLayer;
+				}
+				// Sentinelle : pose une couche a la construction, la rend a la
+				// destruction. Impossible d'oublier de redescendre.
+				struct LayerScope {
+						NkHitRegistry &h;
+						int32 prev;
+						LayerScope(NkHitRegistry &r, int32 layer) : h(r), prev(r.Layer()) {
+							h.SetLayer(layer);
+						}
+						~LayerScope() {
+							h.SetLayer(prev);
+						}
+				};
 
 				// Declare une zone sensible. Renvoie true si la souris est dessus --
 				// ce qui permet d'ecrire directement `if (Add(...)) dessineSurvol();`.
@@ -647,14 +698,19 @@ namespace nkentseu {
 					Copy(mKeys[mCount], key);
 					mRects[mCount] = rr;
 					mCount++;
-					const bool over = Contains(rr, mMouse);
-					// LA DERNIERE ZONE AJOUTEE GAGNE. C'est ce qu'il faut : on peint du
-					// fond vers le dessus, donc la derniere declaree est celle qui est
-					// VISIBLEMENT au-dessus. Garder la premiere ferait repondre le
-					// panneau a la place du bouton pose dessus.
-					if (over)
+					const bool inside = Contains(rr, mMouse);
+					// LA COUCHE LA PLUS HAUTE GAGNE, et a couche egale la derniere
+					// declaree -- on peint du fond vers le dessus. Une zone posee
+					// sous une surcouche ne prend donc jamais le survol, quel que
+					// soit l'ordre dans lequel les deux ont ete declarees.
+					if (inside && mLayer >= mHoverLayer) {
 						Copy(mHover, key);
-					return over;
+						mHoverLayer = mLayer;
+					}
+					// On ne renvoie « survole » que si la zone a REELLEMENT gagne :
+					// sinon un bouton sous une modale s'allumerait au passage de la
+					// souris alors qu'il ne repond pas.
+					return inside && Eq(mHover, key);
 				}
 
 				bool IsHovered(const char *key) const {
@@ -795,6 +851,8 @@ namespace nkentseu {
 				NkRect mRects[kMax] = {};
 				uint32 mCount = 0;
 				char mHover[48] = {};
+				int32 mLayer = 0;		// couche des zones declarees maintenant
+				int32 mHoverLayer = -1; // couche de la zone qui tient le survol
 				NkRect mClip{};
 				bool mHasClip = false;
 				nkgui::NkVec2 mMouse{0.f, 0.f};

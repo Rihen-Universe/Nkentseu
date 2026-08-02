@@ -217,6 +217,10 @@ namespace nkentseu {
 								 int32 *quality);
 		void Demo3DHostSetShadowCfg(float32 normalBias, float32 slopeBias, float32 softness,
 									int32 quality);
+		// Mise a jour des ombres : dynamique (elles suivent la scene) ou statique
+		// (calculees une fois, puis gardees telles quelles).
+		bool Demo3DHostShadowDynamic();
+		void Demo3DHostSetShadowDynamic(bool dynamic);
 		// Temperature de couleur (kelvins ; 0 = desactivee) et exposition (stops).
 		bool Demo3DHostLightTempExp(int32 node, float32 *tempK, float32 *exposure);
 		void Demo3DHostSetLightTempExp(int32 node, float32 tempK, float32 exposure);
