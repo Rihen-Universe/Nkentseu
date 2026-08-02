@@ -177,9 +177,6 @@ namespace nkentseu {
 		void Demo3DHostSetNodeIsMesh(int32 node, bool v);
 		bool Demo3DHostNodeIsMesh(int32 node);
 		void Demo3DHostSetDocIsModel(bool v);
-		// Racine du model ouvert : dans son propre editeur, elle ignore le
-		// masquage et le verrou poses cote scene (l'inverse reste vrai).
-		void Demo3DHostSetModelRoot(int32 node);
 		bool Demo3DHostDocIsModel();
 		int32 Demo3DHostModelRootOf(int32 node);
 		void Demo3DHostSetCameraView(int32 node);
