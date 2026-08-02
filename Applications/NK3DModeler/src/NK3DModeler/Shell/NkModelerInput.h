@@ -321,6 +321,15 @@ namespace nkentseu {
 				int32 unitLengthTab[8] = {};
 				float32 unitScaleTab[8] = {};
 				int32 propClipNode = 0; // noeud+1 source de 'Copier proprietes'
+				int32 propCopyTarget = 0; // 0 = toutes les scenes, sinon 1+onglet
+				uint8 browserSub[32] = {}; // sous-type des graphes (kind 0)
+				bool browMenuGraph = false; // sous-menu Graphe ouvert
+				// VUE CAMERA : noeud+1 regarde, et pose libre a restituer.
+				int32 camViewNode = 0;
+				bool camPickOpen = false;
+				float32 camViewSave[6] = {};
+				bool camViewSaveOrtho = false;
+				bool camViewSaved = false;
 				// TYPE de fond de la scene : 0 couleur unie, 1 degrade, 2 texture,
 				// 3 HDRI, 4 ciel. Seule la couleur unie est cablee aujourd'hui ; les
 				// autres montrent leurs proprietes en annoncant le chantier moteur.
@@ -474,7 +483,10 @@ namespace nkentseu {
 		// chaine est negligeable devant le nombre de zones d'un ecran.
 		class NkHitRegistry {
 			public:
-				static const uint32 kMax = 256;
+				// 1024 et non 256 : une ligne de hierarchie declare 5 zones et
+				// une carte 3 -- le registre SATURAIT en silence, et tout ce qui
+				// etait declare tard (les chevrons de pliage) devenait mort.
+				static const uint32 kMax = 1024;
 
 				void Begin(const nkgui::NkGuiInput &in) {
 					mCount = 0;

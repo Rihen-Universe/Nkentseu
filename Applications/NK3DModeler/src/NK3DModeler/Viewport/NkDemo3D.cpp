@@ -132,11 +132,16 @@ namespace nkentseu {
 		static void HostParentEnsureInit();
 		static int32 HostAllocUser(uint8 kind);
 		static void HostDecompose(const NkMat4f &M, NkVec3f &pos, NkVec3f &rotDeg, NkVec3f &scl);
+		// Transform MONDE d'un noeud. Enveloppe SANS Demo3DState : la structure
+		// n'est declaree que plus bas, et la vue camera en a besoin ici.
+		static void HostNodeWorldById(int32 n, float32 *pos, NkMat4f &rot, float32 *scl);
 		// APPARTENANCE : chaque noeud appartient a UN document (scene ou
 		// editeur d'asset). Un noeud d'un autre document n'est ni rendu ni
 		// liste ni selectionnable ici (regle de Rihen).
 		static uint8 nkvpSceneOf[kNkvpMaxNodes] = {};
 		static uint8 nkvpCurScene = 0;
+		// VUE CAMERA : noeud regarde (-1 = vue 3D libre).
+		static int32 nkvpCamViewNode = -1;
 		// VISIBILITE et VERROU EFFECTIFS : le sien OU celui d'un ancetre --
 		// cacher/cadenasser un parent emporte tout son sous-arbre, mais chaque
 		// enfant GARDE son propre drapeau, restaure au retour (regle de Rihen).
@@ -4259,6 +4264,27 @@ namespace nkentseu {
 					// Nav éditeur façon Blender = souris uniquement (molette milieu / Shift+milieu /
 					// molette). Pas de WASD ici -> G/R/S/A restent libres pour le gizmo/sélection.
 					st->editorCam.Apply(cam);
+					// ── VUE CAMERA (Rihen) ─────────────────────────────────────
+					// La vue montre EXACTEMENT ce que voit la camera choisie :
+					// sa position monde, son regard (-Z local, comme le filaire)
+					// et sa focale. Toujours en perspective -- une camera reelle
+					// n'est pas orthographique.
+					if (nkvpCamViewNode >= 0 && nkvpCamViewNode < kNkvpMaxNodes &&
+						!nkvpDeleted[nkvpCamViewNode]) {
+						float32 cwp[3], cwsc[3];
+						NkMat4f cwr;
+						HostNodeWorldById(nkvpCamViewNode, cwp, cwr, cwsc);
+						const NkVec3f eyeC{cwp[0], cwp[1], cwp[2]};
+						const NkVec3f fwdC{-cwr.mat[2][0], -cwr.mat[2][1],
+										   -cwr.mat[2][2]};
+						st->orthoView = false;
+						cam.SetPosition(eyeC);
+						cam.SetTarget({eyeC.x + fwdC.x, eyeC.y + fwdC.y,
+									   eyeC.z + fwdC.z});
+						const int32 cuV = nkvpCamViewNode - kNkvpFirstUser;
+						if (cuV >= 0 && cuV < kNkvpMaxUser && nkvpUserCam[cuV][0] > 1.f)
+							cam.SetFOV(nkvpUserCam[cuV][0]);
+					}
 					// Projection ORTHO en vue axiale (façon Blender) : orthoSize dérivé de la
 					// distance pour un cadrage comparable à la perspective (demi-hauteur ≈ d·tan(fov/2)).
 					if (st->orthoView) {
@@ -8677,6 +8703,16 @@ namespace nkentseu {
 		}
 		// Etat MONDE d'un noeud : position, rotation pure (colonnes normees),
 		// echelle. Lumieres : position effective (base + decalage du gizmo).
+		static void HostNodeWorld(Demo3DState *st, int32 n, float32 *pos, NkMat4f &rot,
+								  float32 *scl);
+		static void HostNodeWorldById(int32 n, float32 *pos, NkMat4f &rot, float32 *scl) {
+			pos[0] = pos[1] = pos[2] = 0.f;
+			rot = NkMat4f::Identity();
+			scl[0] = scl[1] = scl[2] = 1.f;
+			auto *st = HostSt();
+			if (st)
+				HostNodeWorld(st, n, pos, rot, scl);
+		}
 		static void HostNodeWorld(Demo3DState *st, int32 n, float32 *pos, NkMat4f &rot, float32 *scl) {
 			rot = NkMat4f::Identity();
 			scl[0] = scl[1] = scl[2] = 1.f;
@@ -9121,6 +9157,10 @@ namespace nkentseu {
 			return (node >= 0 && node < kNkvpMaxNodes) ? (int32)nkvpSceneOf[node]
 														: 0;
 		}
+		void Demo3DHostSetCameraView(int32 node) {
+			nkvpCamViewNode = node;
+		}
+		int32 Demo3DHostCameraView() { return nkvpCamViewNode; }
 		void Demo3DHostMoveTreeScene(int32 node, int32 id) {
 			// ISOLATION : le noeud ET ses descendants changent de document --
 			// c'est le MEME objet qui s'edite, pas une copie (Rihen).
