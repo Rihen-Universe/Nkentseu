@@ -874,16 +874,9 @@ namespace nkentseu {
 		// entre/sort d'edition) ; sinon on ne reecrit que les tranches des objets qui ont
 		// REELLEMENT bouge (ici le seul cube central anime).
 		static void Demo3D_SyncWireBatch(Demo3DState *st, renderer::NkRender3D *r3d, renderer::NkMeshSystem *ms) {
-			// LE FIL DE FER MONTRE CE QUI EST AFFICHE, RIEN DE PLUS. Ce batch
-			// parcourait TOUS les objets de la demo sans consulter leur visibilite :
-			// les 96 spheres et cubes -- cube central anime compris -- reapparaissaient
-			// donc en mode fil de fer alors qu'ils sont masques partout ailleurs
-			// (constate par Rihen). La visibilite effective decide ici comme a la
-			// soumission ; l'empreinte en tient compte, sinon on garderait le batch
-			// precedent apres avoir masque un objet.
 			int32 stamp = (st->editMode ? st->editObjIdx : -1) * 131 + 17;
 			for (int32 i = 0; i < Demo3DState::kNumObj; i++)
-				if (st->objMesh[i].IsValid() && !HostHiddenEff(i))
+				if (st->objMesh[i].IsValid())
 					stamp += (i + 1) * 7;
 			if (stamp != st->wireStamp) {
 				st->wireStamp = stamp;
@@ -903,8 +896,6 @@ namespace nkentseu {
 					st->wireCnt[i] = 0;
 					if (st->editMode && st->editObjIdx == i)
 						continue; // objet en edition : sa cage n-gon est deja dessinee par l'overlay
-					if (HostHiddenEff(i))
-						continue; // masque : il n'a pas de fil de fer non plus
 					const NkVector<NkVec3f> *src = Demo3D_WireSrc(st, ms, i);
 					st->wireCnt[i] = (uint32)src->Size();
 					off += st->wireCnt[i];

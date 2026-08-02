@@ -564,6 +564,31 @@ int nkmain(const NkEntryState &entry) {
 		// pour distinguer « clic sur la scene » de « clic sur un widget pose
 		// par-dessus la scene ».
 		const bool overSceneLastFrame = hit.IsHovered("view.nav");
+		// ── UNE MODALE SUSPEND L'APPLICATION, POUR DE BON ───────────────────
+		// Les couches du registre suffisent aux widgets qui passent par lui,
+		// mais beaucoup de code -- la vue 3D, les glissements, les menus
+		// contextuels -- lit l'input DIRECTEMENT. Tant qu'une modale est
+		// ouverte, on prive donc les panneaux de tout evenement a la source :
+		// c'est le seul endroit ou l'etancheite vaut partout a la fois. L'input
+		// reel est rendu juste avant de peindre les surcouches, qui, elles,
+		// doivent repondre.
+		const nkgui::NkGuiInput inputReel = ui.input;
+		const bool modalOpen = (st.colorOpen[0] != 0);
+		if (modalOpen) {
+			for (int32 b = 0; b < 3; ++b) {
+				ui.input.mouseDown[b] = false;
+				ui.input.mouseClicked[b] = false;
+				ui.input.mouseReleased[b] = false;
+				ui.input.mouseDoubleClicked[b] = false;
+			}
+			ui.input.wheel = 0.f;
+			ui.input.wheelH = 0.f;
+			ui.input.charCount = 0;
+			for (int32 k = 0; k < nkgui::NkGuiInput::KeyCount; ++k) {
+				ui.input.keyDown[k] = false;
+				ui.input.keyInit[k] = false;
+			}
+		}
 		hit.Begin(ui.input);
 		// LE CONTEXTE DE LA FRAME, pose une fois : les widgets partages (la
 		// saisie universelle de NKEditorKit) le lisent ici au lieu de le
@@ -1101,6 +1126,13 @@ int nkmain(const NkEntryState &entry) {
 		// fenetres modales sur la couche 100. Le registre donne le survol a la
 		// couche la plus HAUTE : tout ce qui est peint dessous devient aveugle
 		// sous leur emprise, sans qu'aucun panneau ait a s'en garder lui-meme.
+		// LES SURCOUCHES, ELLES, REPONDENT : on leur rend l'input reel qu'on
+		// avait retire aux panneaux. Le registre est re-arme sans etre vide --
+		// les zones deja declarees restent, seuls les evenements reviennent.
+		if (modalOpen) {
+			ui.input = inputReel;
+			hit.Rearm(ui.input);
+		}
 		{
 			NkHitRegistry::LayerScope menuLayer(hit, 50);
 			// Menus et dialogues de scene (menu contextuel de la hierarchie ET
