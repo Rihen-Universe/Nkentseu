@@ -199,7 +199,13 @@ float SampleLightShadowEx(int lightIdx, vec3 worldPos, vec3 N, vec3 L, float bia
     if (type == 0) return NkSampleDirectionalShadow(lightIdx, worldPos, N, L, biasMul);
     if (type == 1) return NkSamplePointShadow      (lightIdx, worldPos, N, L, biasMul);
     if (type == 2) return NkSampleSpotShadow       (lightIdx, worldPos, N, L, biasMul);
-    return 1.0;  // AREA light : no shadow in V0
+    // SURFACIQUE : meme echantillonnage qu'un spot, parce que le CPU lui alloue
+    // desormais une tuile de type SPOT (cf. AllocSlotsForLights, cas NK_AREA).
+    // Un panneau n'eclaire que d'un cote : un tronc perspectif large decrit donc
+    // correctement ce qu'il occulte. Avant, ce cas retournait 1.0 -- une
+    // surfacique traversait toute la geometrie sans jamais projeter d'ombre.
+    if (type == 3) return NkSampleSpotShadow       (lightIdx, worldPos, N, L, biasMul);
+    return 1.0;
 }
 // Wrapper backward-compatible : biasMul = 1.0 (utilise par Toon/Anime qui n'ont
 // pas encore d'override shadow dans leur material UBO).
