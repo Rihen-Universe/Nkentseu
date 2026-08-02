@@ -1385,6 +1385,7 @@ namespace nkentseu {
 			mSelection.Clear(); // file de sélection (outline silhouette) : re-soumise par frame
 			mSelectionActive.Clear(); // marqueur d'objet actif, parallèle à mSelection
 			mCullStats = NkCullStats{}; // stats de culling : nouvelles soumissions
+			mShadowStamp = 1469598103934665603ull; // FNV-1a : nouvelle empreinte
 			// mObjectDrawIdx N'EST PAS reset ici — voir ResetFrame() ci-dessus.
 		}
 
@@ -1404,8 +1405,21 @@ namespace nkentseu {
 			// principal. (Cause racine "objets sans ombre" : avant, le culling
 			// camera retirait le caster de mOpaque, et la passe shadow iterait
 			// sur mOpaque.)
-			if (dc.castShadow)
+			if (dc.castShadow) {
 				mShadowCasters.PushBack({dc, depth});
+				// EMPREINTE DE LA GEOMETRIE OMBRANTE. Le cache NkVSM ne surveillait
+				// que la LUMIERE : un objet deplace laissait donc son ombre figee a
+				// son ancienne place (ombre "detachee" constatee par Rihen). On
+				// resume ici, au seul endroit ou passent tous les casters, la pose
+				// et l'identite de chacun ; le VSM invalide son cache des que ce
+				// resume change.
+				for (int32 k = 0; k < 16; ++k) {
+					uint32 bits = 0;
+					std::memcpy(&bits, &dc.transform.data[k], sizeof(bits));
+					mShadowStamp = (mShadowStamp ^ (uint64)bits) * 1099511628211ull;
+				}
+				mShadowStamp = (mShadowStamp ^ dc.mesh.id) * 1099511628211ull;
+			}
 
 			// Culling camera : uniquement pour le rendu visible (mOpaque).
 			mCullStats.opaqueSubmitted++;

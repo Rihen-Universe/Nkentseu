@@ -560,7 +560,12 @@ namespace nkentseu {
 									std::fabs(cache.lastRange - lights[i].range) > 1e-4f ||
 									(cache.wasStatic != lights[i].shadowStatic);
 
-				bool canCache = lights[i].shadowStatic && cache.renderedOnce && !stateChanged;
+				// LA GEOMETRIE COMPTE AUTANT QUE LA LUMIERE. Une lumiere immobile
+				// au-dessus d'un objet qu'on deplace doit re-rendre son ombre :
+				// sans ce test, l'ombre restait collee a l'ancienne position de
+				// l'objet (defaut constate par Rihen).
+				bool canCache = lights[i].shadowStatic && cache.renderedOnce &&
+								!stateChanged && !mCastersMoved;
 
 				if (canCache) {
 					// Marque tous les slots de cette light comme cached -> skip
@@ -654,6 +659,12 @@ namespace nkentseu {
 				mSlotCountPerLight[i] = 0;
 			}
 			mPacker.Reset(mCfg.atlasSize, mCfg.atlasSize);
+			// La scene a-t-elle bouge ? (cf. NkRender3D::GetShadowCasterStamp)
+			{
+				const uint64 stamp = mRender3D->GetShadowCasterStamp();
+				mCastersMoved = (stamp != mLastCasterStamp);
+				mLastCasterStamp = stamp;
+			}
 			AllocSlotsForLights(ctx.camera, ctx.lights);
 			UploadSlotsUBO();
 

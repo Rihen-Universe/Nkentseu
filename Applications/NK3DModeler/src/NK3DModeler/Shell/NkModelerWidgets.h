@@ -19,6 +19,7 @@
 // copier / couper / coller. Rihen le veut dans TOUS les champs de
 // l'application, pour qu'aucun ne se comporte differemment d'un autre.
 #include "NKEditorKit/NkEditorTextField.h"
+#include "NKMath/NkColor.h" // NkColorF::ToHSV / FromHSV : la reference du moteur
 
 #include <cstdio>
 
@@ -634,53 +635,20 @@ namespace nkentseu {
 		// modeleur : carre SATURATION/VALEUR (blanc->teinte, noir par-dessus) +
 		// barre de TEINTE en six segments. La teinte est MEMORISEE pendant le
 		// geste : au noir ou au blanc elle serait perdue par la conversion.
+		// Les conversions viennent de NKMath (NkColorF::ToHSV/FromHSV, teinte en
+		// degres et s/v en [0,1]) : c'est la reference du moteur, inutile d'en
+		// entretenir une seconde ici (Rihen).
 		inline void NkRgbToHsv(const float32 *rgb, float32 *hsv) {
-			const float32 r = rgb[0], g = rgb[1], b = rgb[2];
-			const float32 mx = r > g ? (r > b ? r : b) : (g > b ? g : b);
-			const float32 mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
-			const float32 d = mx - mn;
-			hsv[2] = mx;
-			hsv[1] = mx > 1e-6f ? d / mx : 0.f;
-			if (d < 1e-6f)
-				hsv[0] = 0.f;
-			else if (mx == r)
-				hsv[0] = 60.f * fmodf((g - b) / d, 6.f);
-			else if (mx == g)
-				hsv[0] = 60.f * ((b - r) / d + 2.f);
-			else
-				hsv[0] = 60.f * ((r - g) / d + 4.f);
-			if (hsv[0] < 0.f)
-				hsv[0] += 360.f;
+			const auto h = math::NkColorF(rgb[0], rgb[1], rgb[2], 1.f).ToHSV();
+			hsv[0] = h.x;
+			hsv[1] = h.y;
+			hsv[2] = h.z;
 		}
 		inline void NkHsvToRgb(const float32 *hsv, float32 *rgb) {
-			const float32 h = hsv[0], sat = hsv[1], v = hsv[2];
-			const float32 c = v * sat;
-			const float32 hp = h / 60.f;
-			const float32 x = c * (1.f - fabsf(fmodf(hp, 2.f) - 1.f));
-			float32 r = 0.f, g = 0.f, b = 0.f;
-			if (hp < 1.f) {
-				r = c;
-				g = x;
-			} else if (hp < 2.f) {
-				r = x;
-				g = c;
-			} else if (hp < 3.f) {
-				g = c;
-				b = x;
-			} else if (hp < 4.f) {
-				g = x;
-				b = c;
-			} else if (hp < 5.f) {
-				r = x;
-				b = c;
-			} else {
-				r = c;
-				b = x;
-			}
-			const float32 m = v - c;
-			rgb[0] = r + m;
-			rgb[1] = g + m;
-			rgb[2] = b + m;
+			const math::NkColorF c = math::NkColorF::FromHSV(hsv[0], hsv[1], hsv[2], 1.f);
+			rgb[0] = c.r;
+			rgb[1] = c.g;
+			rgb[2] = c.b;
 		}
 		inline bool NkColorPickerSV(NkModelerPainter &p, NkHitRegistry &hit, char *dragKey,
 									uint32 dragKeyCap, const char *key, const NkRect &r,

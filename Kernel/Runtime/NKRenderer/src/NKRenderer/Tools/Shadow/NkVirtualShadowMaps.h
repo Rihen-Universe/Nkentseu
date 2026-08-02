@@ -275,6 +275,12 @@ namespace nkentseu {
 				// NkVSM v1 : cache d'etat per-light pour shadowStatic=true.
 				// Persiste a travers BeginFrame (pas reset).
 				NkLightShadowCache mLightCache[kMaxLightsShadow];
+				// Empreinte des casters de la frame precedente : sa variation dit
+				// que la GEOMETRIE a bouge, et interdit alors de reutiliser les
+				// depth maps en cache -- sinon l'ombre reste a l'ancienne place de
+				// l'objet, meme si la lumiere, elle, n'a pas bouge.
+				uint64 mLastCasterStamp = 0;
+				bool mCastersMoved = true;
 				// Diagnostics : nb de slots rendered vs cached cette frame.
 				uint32 mRenderedSlotsCount = 0;
 				uint32 mCachedSlotsCount = 0;

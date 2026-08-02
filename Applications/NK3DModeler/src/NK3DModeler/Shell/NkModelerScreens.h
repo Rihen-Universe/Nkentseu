@@ -4003,6 +4003,61 @@ namespace nkentseu {
 			return kRowH + S(6.f);
 		}
 
+		// ── LIGNE DE COULEUR : LA NUANCE OUVRE LE VRAI PICKER ───────────────────
+		// Une couleur se choisit A L'OEIL, pas en tapant trois nombres. La ligne
+		// montre donc une NUANCE cliquable ; le clic deplie le carre
+		// saturation/valeur et la barre de teinte, avec les trois champs R/V/B
+		// dessous pour la valeur exacte. Une seule nuance reste ouverte a la fois
+		// (st.colorOpen), comme les pastilles du panneau.
+		// Renvoie la hauteur consommee ; met *changed a vrai si la couleur bouge.
+		inline float32 PaintColorRow(NkModelerPainter &p, NkHitRegistry &hit, NkWidgetState &ws,
+									 const nkgui::NkGuiInput &in, NkModelerState &st,
+									 const NkRect &r, float32 y, const char *label,
+									 const char *keyBase, float32 *rgb, bool *changed) {
+			const auto sat01 = [](float32 v) { return v < 0.f ? 0.f : (v > 1.f ? 1.f : v); };
+			const float32 y0 = y;
+			const float32 swH = kRowH - S(6.f);
+			const float32 labW = S(110.f);
+			p.TextV(r.x, y, kRowH, label, NkRole::TextMuted);
+			const NkRect sw{r.x + labW, y + S(3.f), r.w - labW, swH};
+			char key[48];
+			snprintf(key, sizeof(key), "%s.sw", keyBase);
+			const bool over = hit.Add(key, sw);
+			const NkColor cur{(uint8)(sat01(rgb[0]) * 255.f), (uint8)(sat01(rgb[1]) * 255.f),
+							  (uint8)(sat01(rgb[2]) * 255.f), 255};
+			p.Fill(sw, cur, 3.f);
+			p.OutlineSharp(sw, over ? NkRole::AccentUi : NkRole::Border);
+			const bool open = strcmp(st.colorOpen, keyBase) == 0;
+			if (hit.Clicked(key)) {
+				if (open)
+					st.colorOpen[0] = 0;
+				else
+					snprintf(st.colorOpen, sizeof(st.colorOpen), "%s", keyBase);
+			}
+			y += kRowH;
+			if (!open)
+				return y - y0;
+			snprintf(key, sizeof(key), "%s.pk", keyBase);
+			const NkRect pk{r.x + S(6.f), y + S(2.f), r.w - S(12.f), S(110.f)};
+			if (NkColorPickerSV(p, hit, st.propDragKey, sizeof(st.propDragKey), key, pk, rgb))
+				*changed = true;
+			y += S(116.f);
+			static const char *const kCh[3] = {"Rouge", "Vert", "Bleu"};
+			for (int32 c = 0; c < 3; ++c) {
+				p.TextV(r.x + S(6.f), y, kRowH, kCh[c], NkRole::TextMuted);
+				snprintf(key, sizeof(key), "%s.c%d", keyBase, c);
+				float32 v = rgb[c];
+				if (DragFloat(p, hit, ws, in, key,
+							  {r.x + labW, y + S(3.f), r.w - labW, kRowH - S(6.f)}, v, 0.005f,
+							  NkRole::AccentUi, "%.3f")) {
+					rgb[c] = sat01(v);
+					*changed = true;
+				}
+				y += kRowH;
+			}
+			return y - y0;
+		}
+
 		// ── GROUPE DE TRANSFORMATION, AU FORMAT DE LA MAQUETTE ──────────────────
 		// Dessin choisi par Rihen (Banani) : le titre sur SA ligne, puis une rangee
 		// de trois cellules « barre d'axe coloree + champ », et enfin les trois
@@ -5392,8 +5447,18 @@ namespace nkentseu {
 										 {r.x + S(120.f), yy + S(3.f), rr.w - S(128.f), kRowH - S(4.f)},
 										 lint, 0.05f, NkRole::AccentUi, "%.2f");
 						yy += kRowH;
-						PaintTransformRow(p, hit, ws, in, rowR, yy, "Couleur", lcol, 0.01f,
-										  "prop.lcol", NkIcon::None, NkIcon::None);
+						{
+							// LA NUANCE, pas trois nombres : le picker se deplie sous
+							// elle (Rihen). La lumiere suit en direct, le bloc qui suit
+							// detecte le changement comme avant.
+							NkRect cR = rowR;
+							cR.x = r.x + kPad;
+							cR.w = rr.w - S(16.f);
+							bool cCh = false;
+							yy += PaintColorRow(p, hit, ws, in, st, cR, yy, "Couleur",
+												"prop.lcol", lcol, &cCh);
+							lch |= cCh;
+						}
 						static float32 sLC[4] = {-1.f, 0.f, 0.f, 0.f};
 						if (lch || lcol[0] != sLC[1] || lcol[1] != sLC[2] || lcol[2] != sLC[3]) {
 							if ((int32)sLC[0] == li) {
@@ -5414,7 +5479,6 @@ namespace nkentseu {
 							sLC[2] = lcol[1];
 							sLC[3] = lcol[2];
 						}
-						yy += Vec3RowH();
 						{
 							// PROPRIETES NATIVES par type : portee, cones du spot, dimensions
 							// de l'area, ombres -- visibles ICI et a la creation (Rihen).
@@ -7042,19 +7106,78 @@ namespace nkentseu {
 			// (ombre, damier, bande de type, pied a deux lignes) est celui valide
 			// avec Rihen sur les cartes precedentes.
 			const float32 ax = r.x + treeW + S(14.f);
+			// ── RECHERCHE + PASTILLES DE TYPE (maquette de Rihen) ───────────────
+			// Elles filtrent les cartes du dossier ouvert : le champ sur le NOM,
+			// les pastilles sur le TYPE. Aucune pastille allumee = tout passe,
+			// ce qui evite l'ecran vide au premier regard.
+			{
+				const float32 fy = ty + S(6.f);
+				const float32 fh = S(22.f);
+				const NkRect sf{ax, fy, S(180.f), fh};
+				p.Fill(sf, NkRole::InputBg, 3.f);
+				const NkRect sfIn{sf.x + S(22.f), sf.y, sf.w - S(24.f), fh};
+				EditableText(p, hit, ws, in, "brow.search", sfIn,
+							 st.searchBrowser[0] ? st.searchBrowser : "Rechercher",
+							 st.searchBrowser[0] ? NkRole::Text : NkRole::TextMuted,
+							 st.searchBrowser, sizeof(st.searchBrowser));
+				p.IconV(sf.x + S(5.f), sf.y, fh, NkIcon::Search, NkRole::TextMuted, 12.f);
+				p.OutlineSharp(sf, NkRole::Border);
+				float32 px = sf.x + sf.w + S(10.f);
+				struct KindChip {
+						uint8 kind;
+						const char *name;
+						NkRole role;
+				};
+				static const KindChip kChips[5] = {{6, "Model", NkRole::AxisX},
+												   {0, "Graphe", NkRole::TypeMesh},
+												   {2, "Materiau", NkRole::TypeMat},
+												   {3, "Texture", NkRole::TypeTex},
+												   {5, "Scene", NkRole::AxisZ}};
+				char ck[32];
+				for (int32 ci = 0; ci < 5; ++ci) {
+					const float32 cw = p.TextW(kChips[ci].name) + S(28.f);
+					if (px + cw > r.x + r.w - S(10.f))
+						break;
+					const NkRect cr{px, fy, cw, fh};
+					snprintf(ck, sizeof(ck), "brow.chip.%d", ci);
+					const bool ov = hit.Add(ck, cr);
+					const bool on = (st.browFilter & (1u << kChips[ci].kind)) != 0;
+					p.Fill(cr, on ? NkRole::InputBg : NkRole::PanelBg, 11.f);
+					p.OutlineSharp(cr, on ? kChips[ci].role
+										  : (ov ? NkRole::AccentUi : NkRole::Border));
+					// La PUCE porte la couleur du type -- c'est elle qui distingue
+					// les familles d'un coup d'oeil, comme sur la maquette.
+					p.Fill({cr.x + S(9.f), cr.y + fh * 0.5f - S(3.f), S(6.f), S(6.f)},
+						   kChips[ci].role, 3.f);
+					p.TextV(cr.x + S(20.f), cr.y, fh, kChips[ci].name,
+							on ? NkRole::Text : NkRole::TextMuted);
+					if (hit.Clicked(ck))
+						st.browFilter ^= (1u << kChips[ci].kind);
+					px += cw + S(6.f);
+				}
+			}
 			const float32 tw = 96.f;
 			const float32 pvH = 96.f;
 			const float32 barH2 = 3.f;
 			const float32 footH = 34.f;
 			const float32 cardH = pvH + barH2 + footH;
 			float32 tx = ax;
-			float32 tyy = ty + S(12.f) - assetScroll;
+			// Les cartes commencent SOUS la barre de recherche et de pastilles.
+			float32 tyy = ty + S(38.f) - assetScroll;
 			int32 shown = 0;
 			char akey[40];
 			const float32 wrapW = r.x + r.w - S(16.f);
 			for (int32 i = 0; i < st.browserCount; ++i) {
 				if (st.browserKind[i] == 255 || st.browserParent[i] != st.browserFolder)
 					continue; // supprimes ignores ; les dossiers ont leur carte
+				// Filtre par TYPE. Les DOSSIERS restent toujours visibles : ils
+				// sont le chemin vers le reste, pas un resultat de recherche.
+				if (st.browFilter != 0u && st.browserKind[i] != 1 &&
+					(st.browFilter & (1u << st.browserKind[i])) == 0u)
+					continue;
+				// Filtre par NOM, insensible a la casse.
+				if (!NkNameMatches(st.browserNames[i], st.searchBrowser))
+					continue;
 				++shown;
 				if (tx + tw > wrapW) { // retour a la ligne
 					tx = ax;
@@ -7239,13 +7362,19 @@ namespace nkentseu {
 					st.selectedAsset = i;
 				tx += tw + S(12.f);
 			}
-			if (shown == 0)
-				p.TextV(ax, ty + S(12.f), kRowH,
-						"Vide -- creez un dossier, un materiau ou une texture", NkRole::TextMuted);
+			if (shown == 0) {
+				// Dire POURQUOI c'est vide : un filtre actif n'est pas un dossier
+				// vide, et laisser croire l'inverse ferait chercher un bug.
+				const bool filtering = st.searchBrowser[0] || st.browFilter != 0u;
+				p.TextV(ax, ty + S(40.f), kRowH,
+						filtering ? "Aucun element ne correspond a la recherche"
+								  : "Vide -- creez un dossier, un materiau ou une texture",
+						NkRole::TextMuted);
+			}
 
 			p.Unclip();
 			const NkRect treeArea{r.x, ty, treeW, th};
-			const NkRect assetArea{ax - S(10.f), ty + S(33.f), r.w - treeW - S(10.f), th - S(33.f)};
+			const NkRect assetArea{ax - S(10.f), ty + S(34.f), r.w - treeW - S(10.f), th - S(34.f)};
 			hit.Add("brow.tree", treeArea);
 			hit.Wheel("brow.tree", st.scrollTree, 5.f * kRowH + S(8.f), treeArea.h);
 			hit.Add("brow.assets", assetArea);

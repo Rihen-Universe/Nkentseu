@@ -143,6 +143,15 @@ namespace nkentseu {
 				// si aucun caster.
 				NkAABB GetShadowCasterBounds() const;
 
+				// EMPREINTE des casters d'ombre de la frame (pose + identite de
+				// chacun). Change des qu'un objet bouge, apparait ou disparait :
+				// c'est le signal qui permet a NkVirtualShadowMaps d'invalider son
+				// cache. Sans lui, le cache ne surveillait que les LUMIERES et une
+				// ombre restait figee a l'ancienne place de son objet.
+				uint64 GetShadowCasterStamp() const {
+					return mShadowStamp;
+				}
+
 				// ── Stats frustum culling (frame en cours de soumission) ────────
 				// Opaque : cull au Submit (les casters d'ombre sont collectes
 				// AVANT le cull). Instancie : cull par batch au Flush (la passe
@@ -501,6 +510,7 @@ namespace nkentseu {
 				// ceux visibles a la camera -> on les collecte ici sans culling
 				// camera (RenderShadowPass itere sur cette liste).
 				NkVector<SortedDC> mShadowCasters;
+				uint64 mShadowStamp = 0; // empreinte des casters (cf. GetShadowCasterStamp)
 				NkVector<SortedDC> mTransparent;
 				NkVector<NkDrawCallInstanced> mInstanced;
 				NkVector<NkDrawCallSkinned> mSkinned;
