@@ -257,6 +257,12 @@ namespace nkentseu {
 				// MENU CONTEXTUEL de la hierarchie (clic droit sur une ligne).
 				// MESSAGE du pied de la hierarchie : explique un refus (verrou...).
 				// Un clic sans effet passe sinon pour une panne.
+				// PIVOT (origine) : verrou et proportionnel, comme les autres
+				// lignes de transformation. Blender ne le laisse bouger qu'en mode
+				// Edition ; ici il est aussi accessible en mode Objet, mais on peut
+				// le figer (Rihen).
+				bool lockPiv = false;
+				bool propPiv = false;
 				char hierNote[96] = {};
 				// SURCOUCHE BLOQUANTE : un menu est peint APRES les panneaux,
 				// mais ceux-ci ont deja evalue leurs clics -- le clic sur une
