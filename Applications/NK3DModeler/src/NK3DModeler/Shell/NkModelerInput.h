@@ -267,6 +267,23 @@ namespace nkentseu {
 				// Materiaux...) : un bit par groupe, mis a 1 quand il est REPLIE.
 				// Les elements de nature differente se rangent par groupe (Rihen).
 				uint32 grpFold = 0;
+				// ── LISTES DU PANNEAU MODELE ────────────────────────────────
+				// Groupes de vertex, shape keys, maps UV, attributs de couleur,
+				// attributs : ces natures n'ont pas encore de modele de donnees
+				// dans le moteur. On n'en INVENTE donc pas le contenu -- les
+				// listes partent VIDES et ne contiennent que ce que
+				// l'utilisateur cree lui-meme, rattache a SON objet.
+				// kind : 0 groupe de vertex, 1 shape key, 2 map UV,
+				//        3 attribut de couleur, 4 attribut.
+				struct ListItem {
+						uint8 kind = 0;
+						int32 owner = -1; ///< noeud proprietaire
+						char name[20] = {};
+						float32 value = 1.f; ///< force / valeur, selon la nature
+						bool on = true;
+				};
+				ListItem listItems[64] = {};
+				int32 listCount = 0;
 				char hierNote[96] = {};
 				// SURCOUCHE BLOQUANTE : un menu est peint APRES les panneaux,
 				// mais ceux-ci ont deja evalue leurs clics -- le clic sur une

@@ -4050,6 +4050,93 @@ namespace nkentseu {
 			// par Rihen). Le cadre se trace donc sans remplissage.
 			p.OutlineSharp({r.x, yTop, r.w, yBottom - yTop}, NkRole::Border);
 		}
+		// ── UNE SECTION-LISTE DU PANNEAU MODELE ────────────────────────────────
+		// Dessin de la maquette : chaque element porte son marqueur, son nom
+		// EDITABLE, sa valeur, puis la rangee de quatre commandes
+		// (assigner / deselectionner / ajouter / retirer) ; la section se termine
+		// par « + Ajouter ».
+		//
+		// AUCUNE DONNEE INVENTEE : la liste part vide. Ces natures n'existent pas
+		// encore dans le moteur, alors on montre honnetement qu'il n'y a rien, et
+		// on garde ce que l'utilisateur cree (regle de Rihen sur les references).
+		inline void PaintListSection(NkModelerPainter &p, NkHitRegistry &hit, NkWidgetState &ws,
+									 const nkgui::NkGuiInput &in, NkModelerState &st,
+									 const NkRect &r, float32 &y, const char *keyBase,
+									 uint8 kind, int32 owner, NkIcon mark, NkRole markRole,
+									 const char *newName, const char *emptyNote,
+									 bool withValue) {
+			const NkRect inR = NkGroupInner(r);
+			char key[48];
+			int32 shown = 0;
+			for (int32 i = 0; i < st.listCount; ++i) {
+				if (st.listItems[i].kind != kind || st.listItems[i].owner != owner)
+					continue;
+				++shown;
+				p.IconV(inR.x, y, kRowH, mark, markRole, 10.f);
+				snprintf(key, sizeof(key), "%s.n%d", keyBase, i);
+				const float32 metaW = withValue ? S(46.f) : 0.f;
+				EditableText(p, hit, ws, in, key,
+							 {inR.x + S(16.f), y, inR.w - S(16.f) - metaW, kRowH},
+							 st.listItems[i].name, NkRole::Text, st.listItems[i].name, 20u);
+				if (withValue) {
+					char mv[16];
+					snprintf(mv, sizeof(mv), "%.0f%%", (double)(st.listItems[i].value * 100.f));
+					p.TextV(inR.x + inR.w - metaW, y, kRowH, mv, NkRole::TextMuted);
+				}
+				y += kRowH;
+				// Les quatre commandes de la maquette, a parts egales.
+				{
+					static const NkIcon kAct[4] = {NkIcon::SquareCheck, NkIcon::Square,
+												   NkIcon::PlusCircle, NkIcon::MinusCircle};
+					const float32 gap = S(3.f);
+					const float32 bw = (inR.w - gap * 3.f) * 0.25f;
+					const float32 bh = S(18.f);
+					float32 bx = inR.x;
+					for (int32 a = 0; a < 4; ++a) {
+						snprintf(key, sizeof(key), "%s.a%d.%d", keyBase, i, a);
+						const NkRect br{bx, y, bw, bh};
+						const bool ov = hit.Add(key, br);
+						p.Outline(br, ov ? NkRole::AccentUi : NkRole::Border,
+								  NkRole::PanelHeader, 3.f);
+						p.IconV(br.x + (bw - S(10.f)) * 0.5f, br.y, bh, kAct[a],
+								NkRole::TextMuted, 10.f);
+						// RETIRER est la seule action que nous savons deja tenir :
+						// les trois autres attendent le modele de donnees.
+						if (a == 3 && hit.Clicked(key)) {
+							for (int32 k = i; k + 1 < st.listCount; ++k)
+								st.listItems[k] = st.listItems[k + 1];
+							--st.listCount;
+						}
+						bx += bw + gap;
+					}
+					y += bh + S(4.f);
+				}
+			}
+			if (shown == 0) {
+				p.TextV(inR.x, y, kRowH, emptyNote, NkRole::TextMuted);
+				y += kRowH;
+			}
+			snprintf(key, sizeof(key), "%s.add", keyBase);
+			{
+				const NkRect br{inR.x, y, inR.w, S(20.f)};
+				const bool ov = hit.Add(key, br);
+				p.Outline(br, ov ? NkRole::AccentUi : NkRole::Border, NkRole::PanelHeader, 3.f);
+				const float32 tw = p.TextW("Ajouter");
+				p.IconV(br.x + (br.w - tw) * 0.5f - S(14.f), br.y, br.h, NkIcon::Add,
+						NkRole::TextMuted, 10.f);
+				p.TextV(br.x + (br.w - tw) * 0.5f, br.y - S(1.f), br.h, "Ajouter",
+						NkRole::TextMuted);
+				if (hit.Clicked(key) && st.listCount < 64 && owner >= 0) {
+					NkModelerState::ListItem &it = st.listItems[st.listCount++];
+					it.kind = kind;
+					it.owner = owner;
+					it.value = 1.f;
+					it.on = true;
+					snprintf(it.name, sizeof(it.name), "%s_%02d", newName, shown + 1);
+				}
+				y += br.h;
+			}
+		}
 		inline bool PaintPropGroup(NkModelerPainter &p, NkHitRegistry &hit, NkModelerState &st,
 								   const NkRect &r, float32 &y, const char *key,
 								   const char *title, uint32 bit) {
@@ -4070,11 +4157,16 @@ namespace nkentseu {
 		// Renvoie la HAUTEUR REELLE consommee : un groupe SANS titre (Dimensions,
 		// qui n'a qu'une ligne) ne reserve pas la ligne du titre -- elle laissait
 		// un grand vide en haut du bloc (constate par Rihen).
+		// `neutral` est la valeur de REMISE A ZERO, donnee explicitement par
+		// l'appelant : 0 pour une position, une rotation ou un pivot, 1 pour une
+		// echelle. La deduire du pas etait faux -- position et echelle ont le meme
+		// pas, et la position revenait donc a 1 (constate par Rihen).
 		inline float32 PaintXformGroup(NkModelerPainter &p, NkHitRegistry &hit,
 									   NkWidgetState &ws, const nkgui::NkGuiInput &in,
 									   const NkRect &r, float32 y, const char *title,
 									   float32 *v, float32 step, const char *keyBase,
-									   bool &locked, bool &prop, const char *fmt = "%.2f") {
+									   bool &locked, bool &prop, const char *fmt = "%.2f",
+									   float32 neutral = 0.f) {
 			const bool hasTitle = title && title[0];
 			if (hasTitle)
 				p.TextV(r.x, y, kRowH, title);
@@ -4122,12 +4214,9 @@ namespace nkentseu {
 				if (hit.Clicked(key)) {
 					if (i == 0)
 						locked = !locked;
-					else if (i == 1) {
-						// « Reinitialiser » : zero pour un decalage, un pour un
-						// facteur -- le pas dit de quel genre de valeur il s'agit.
-						const float32 neutral = (step > 0.05f) ? 0.f : 1.f;
-						v[0] = v[1] = v[2] = neutral;
-					} else
+					else if (i == 1)
+						v[0] = v[1] = v[2] = neutral; // valeur de repos du groupe
+					else
 						prop = !prop;
 				}
 				x += btn + gap;
@@ -4418,15 +4507,15 @@ namespace nkentseu {
 								yy += NkGroupPad(); // respiration en haut du bloc
 								yy += PaintXformGroup(p, hit, ws, in, inR, yy, "Position",
 												st.pos, 0.01f, "prop.epos", st.lockPos,
-												st.propPos, "%.2f m");
+												st.propPos, "%.2f m", 0.f);
 								yy += NkGroupPad(); // entre deux lignes du groupe
 								yy += PaintXformGroup(p, hit, ws, in, inR, yy, "Rotation",
 												st.rot, 0.5f, "prop.erot", st.lockRot,
-												st.propRot, "%.1f\xC2\xB0");
+												st.propRot, "%.1f\xC2\xB0", 0.f);
 								yy += NkGroupPad();
 								yy += PaintXformGroup(p, hit, ws, in, inR, yy, "Echelle",
 												st.scl, 0.01f, "prop.escl", st.lockScl,
-												st.propScale, "%.2f");
+												st.propScale, "%.2f", 1.f);
 							}
 							// ── PIVOT (origine) ────────────────────────────────
 							// Blender ne le laisse bouger qu'en mode Edition ; on
@@ -4443,7 +4532,7 @@ namespace nkentseu {
 									yy += NkGroupPad();
 									yy += PaintXformGroup(p, hit, ws, in, inR, yy, "Pivot", piv,
 													0.01f, "prop.epiv", st.lockPiv,
-													st.propPiv, "%.2f m");
+													st.propPiv, "%.2f m", 0.f);
 									bool pivCh = false;
 									for (int32 a = 0; a < 3; ++a)
 										if (piv[a] != piv0[a])
@@ -4520,7 +4609,7 @@ namespace nkentseu {
 									yy += NkGroupPad();
 									yy += PaintXformGroup(p, hit, ws, in, NkGroupInner(rowR), yy, "",
 													dimE, 0.01f, "prop.edim", st.lockDim,
-													st.propDim, "%.2f m");
+													st.propDim, "%.2f m", 1.f);
 									yy += NkGroupPad();
 									PaintGroupBlock(p, rowR, grpDimTop, yy);
 								}
@@ -4548,6 +4637,71 @@ namespace nkentseu {
 							dimChE = true;
 					if (dimChE)
 						demo::Demo3DHostSetNodeBaseSize(en, dimE);
+							}
+							// ── GROUPE « RELATIONS » ────────────────────────────
+							// La maquette montre Parent et Enfant ; Blender y ajoute
+							// ce qui rend la parente COMPREHENSIBLE : ce que le
+							// parent transmet, et le nombre d'enfants portes. Sans
+							// cela on voit un lien sans savoir ce qu'il fait.
+							{
+								const bool grpRel = PaintPropGroup(p, hit, st, rowR, yy,
+																   "prop.g.rel", "Relations",
+																   4u);
+								const float32 grpRelTop = yy;
+								if (grpRel) {
+									const NkRect iR = NkGroupInner(rowR);
+									yy += NkGroupPad();
+									const float32 valX = iR.x + S(96.f);
+									const float32 valW = iR.w - S(96.f);
+									// PARENT : son nom, ou « Aucun ».
+									p.TextV(iR.x, yy, kRowH, "Parent", NkRole::TextMuted);
+									{
+										const int32 pa = demo::Demo3DHostNodeParent(en);
+										char pn[32] = "Aucun";
+										if (pa >= 0)
+											NkHierNodeName(st, pa, pn, sizeof(pn));
+										const NkRect vb{valX, yy + S(3.f), valW, kRowH - S(6.f)};
+										p.Outline(vb, NkRole::Border, NkRole::InputBg, 2.f);
+										p.Clip(vb);
+										p.TextV(vb.x + S(6.f), yy, kRowH, pn,
+												pa >= 0 ? NkRole::Text : NkRole::TextMuted);
+										p.Unclip();
+										// DETACHER : le geste manquait ici, alors qu'il
+										// est la premiere chose qu'on cherche quand on
+										// regarde une relation.
+										if (pa >= 0 && hit.Add("prop.rel.unp", vb) &&
+											hit.Clicked("prop.rel.unp"))
+											demo::Demo3DHostSetNodeParent(en, -1);
+									}
+									yy += kRowH;
+									// ENFANTS : combien, et de quelle nature.
+									p.TextV(iR.x, yy, kRowH, "Enfants", NkRole::TextMuted);
+									{
+										int32 nk = 0;
+										const int32 ncR = demo::Demo3DHostNodeCount();
+										for (int32 c9 = 0; c9 < ncR; ++c9)
+											if (!NkHierNodeSkip(c9) &&
+												demo::Demo3DHostNodeParent(c9) == en)
+												++nk;
+										char cn[32];
+										snprintf(cn, sizeof(cn), "%d", nk);
+										const NkRect vb{valX, yy + S(3.f), valW, kRowH - S(6.f)};
+										p.Outline(vb, NkRole::Border, NkRole::InputBg, 2.f);
+										p.TextV(vb.x + S(6.f), yy, kRowH, cn,
+												nk ? NkRole::Text : NkRole::TextMuted);
+									}
+									yy += kRowH;
+									// CE QUE LE PARENT TRANSMET (apport de Blender) :
+									// position, rotation, echelle, chacune coupable.
+									if (demo::Demo3DHostNodeHasChildren(en)) {
+										p.TextV(iR.x, yy, kRowH, "Transmettre",
+												NkRole::TextMuted);
+										NkXmitRow(p, hit, rowR, rr, yy, en);
+									}
+									yy += NkGroupPad();
+									PaintGroupBlock(p, rowR, grpRelTop, yy);
+								}
+								yy += NkPropGroupGap();
 							}
 							bool diffE = false;
 							for (int32 a = 0; a < 3; ++a)
