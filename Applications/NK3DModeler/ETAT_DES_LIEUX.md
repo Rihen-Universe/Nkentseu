@@ -264,6 +264,30 @@ part. La deuxième option est plus proche de Blender.
 on déplace l'objet — les rayons d'une directionnelle sont parallèles. Seules les
 ponctuelles et les spots font varier la taille avec la distance.
 
+### 4.7 — L'ombre du soleil est nettement trop petite
+
+Constaté par Rihen (2026-08-02), **distinct du point ci-dessus** : la taille ne doit
+pas varier avec la distance (c'est correct), mais la surface couverte est bien plus
+petite que ce que le cube devrait projeter.
+
+**Où chercher** : `ComputeDirectionalCascade` (`NkVirtualShadowMaps.cpp`) — c'est lui
+qui cadre le volume orthographique de la cascade. Deux éléments de contexte utiles :
+le modeleur force **une seule cascade** (`cfg.shadow.cascadeCount = 1`, `NkDemo3D.cpp`
+vers la ligne 7842), et l'étendue est dérivée du frustum caméra entre `cascadeNear` et
+`cascadeFar`. Avec une seule cascade couvrant toute la profondeur de vue, le volume
+est énorme et un tile de 1024 px donne un texel très grossier.
+
+Hypothèses à départager, dans cet ordre :
+1. l'étendue ortho est calculée sur un frustum trop large → l'ombre existe mais fait
+   quelques texels, donc paraît minuscule ;
+2. le **biais normal** (0,050 par défaut dans le panneau Rendu) érode l'ombre : sur un
+   texel grossier, décaler le point d'échantillonnage le long de N ronge les bords ;
+3. l'ombre est correctement dimensionnée mais **rognée** par le volume (le caster sort
+   partiellement du tronc).
+
+Test isolant qui tranche vite : mettre le biais normal à 0 et regarder si la taille
+change. Si oui → piste 2. Sinon → piste 1, et il faut regarder le volume calculé.
+
 ### 4.5 — Ombres : seul le chemin Vulkan lit l'atlas par lumière
 
 `Resources/NKRenderer/Shaders/PBR/` : **VK** et **NkSL** échantillonnent l'atlas
