@@ -217,6 +217,10 @@ namespace nkentseu {
 								 int32 *quality);
 		void Demo3DHostSetShadowCfg(float32 normalBias, float32 slopeBias, float32 softness,
 									int32 quality);
+		// Eclairage d'ambiance : ce que la scene recoit de son environnement,
+		// sans aucune source. 0 = noir absolu hors des lumieres.
+		float32 Demo3DHostAmbient();
+		void Demo3DHostSetAmbient(float32 v);
 		// Mise a jour des ombres : dynamique (elles suivent la scene) ou statique
 		// (calculees une fois, puis gardees telles quelles).
 		bool Demo3DHostShadowDynamic();

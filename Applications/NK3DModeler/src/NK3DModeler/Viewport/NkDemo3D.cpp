@@ -9777,6 +9777,21 @@ namespace nkentseu {
 			*quality = (int32)c.quality;
 			return true;
 		}
+		// ── ECLAIRAGE D'AMBIANCE ────────────────────────────────────────────
+		// C'est la lumiere que la scene recoit de son ENVIRONNEMENT, sans aucune
+		// source. Elle etait a 0.3 alors qu'aucun environnement n'est charge : la
+		// cubemap par defaut etant BLANCHE, tout objet recevait 30 % de blanc sur
+		// toutes ses faces -- d'ou un cube gris clair et parfaitement plat meme
+		// sans la moindre lumiere (constate par Rihen, qui attendait du noir).
+		float32 Demo3DHostAmbient() {
+			auto *r3 = hst.ctx.renderer ? hst.ctx.renderer->GetRender3D() : nullptr;
+			return r3 ? r3->GetIBLStrength() : 0.f;
+		}
+		void Demo3DHostSetAmbient(float32 v) {
+			auto *r3 = hst.ctx.renderer ? hst.ctx.renderer->GetRender3D() : nullptr;
+			if (r3)
+				r3->SetIBLStrength(v < 0.f ? 0.f : (v > 2.f ? 2.f : v));
+		}
 		bool Demo3DHostShadowDynamic() {
 			return nkvpShadowDynamic;
 		}

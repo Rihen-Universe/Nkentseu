@@ -6091,6 +6091,32 @@ namespace nkentseu {
 					NkRect rowR = rr;
 					rowR.x = r.x + NkPropInset();
 					rowR.w = rr.w - 2.f * NkPropInset();
+					// ── ECLAIRAGE D'AMBIANCE ────────────────────────────────────
+					// Ce que la scene recoit de son ENVIRONNEMENT, sans aucune
+					// source. A zero, un objet hors de toute lumiere est noir --
+					// c'est ce qu'on attend d'un rendu, et ce que fait Blender.
+					{
+						NkRect aR = rr;
+						aR.x = r.x + NkPropInset();
+						aR.w = rr.w - 2.f * NkPropInset();
+						const float32 aTop = yy;
+						if (PaintPropGroup(p, hit, st, aR, yy, "prop.g.amb", "Ambiance", 2u)) {
+							const NkRect iA = NkGroupInner(aR);
+							yy += NkGroupPad();
+							p.TextV(iA.x, yy, kRowH, "Intensite", NkRole::TextMuted);
+							float32 amb = demo::Demo3DHostAmbient();
+							const float32 amb0 = amb;
+							DragFloat(p, hit, ws, in, "prop.amb",
+									  {iA.x + S(110.f), yy + S(3.f), iA.w - S(110.f),
+									   kRowH - S(6.f)},
+									  amb, 0.005f, NkRole::AccentUi, "%.3f");
+							if (amb != amb0)
+								demo::Demo3DHostSetAmbient(amb);
+							yy += kRowH + NkGroupPad();
+							PaintGroupBlock(p, aR, aTop, yy);
+						}
+						yy += NkPropGroupGap();
+					}
 					const bool grpSh = PaintPropGroup(p, hit, st, rowR, yy, "prop.g.shadow",
 													  "Ombres", 1u);
 					const float32 grpShTop = yy;

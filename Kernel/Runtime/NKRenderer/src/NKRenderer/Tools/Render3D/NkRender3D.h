@@ -474,7 +474,13 @@ namespace nkentseu {
 						bool overlay;
 				};
 
-				float32 mIBLStrength = 0.3f;
+				// ECLAIRAGE D'AMBIANCE. Etait a 0.3 : comme la cubemap
+				// d'irradiance par defaut est BLANCHE tant qu'aucun environnement
+				// n'est charge, tout objet recevait 30 % de blanc sur TOUTES ses
+				// faces -- un cube restait gris clair et parfaitement plat meme
+				// sans la moindre lumiere dans la scene. 0.05 laisse voir la forme
+				// sans se substituer a l'eclairage ; le panneau Rendu l'expose.
+				float32 mIBLStrength = 0.05f;
 				NkIDevice *mDevice = nullptr;
 				NkMeshSystem *mMesh = nullptr;
 				NkMaterialSystem *mMat = nullptr;
