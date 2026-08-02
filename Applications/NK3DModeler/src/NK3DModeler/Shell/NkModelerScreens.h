@@ -651,9 +651,11 @@ namespace nkentseu {
 					HoverFill(p, cr, hit.Add(key, cr), 2.f);
 					p.IconV(x + tw - S(20.f), r.y, r.h, NkIcon::WinClose, NkRole::TextMuted, 10.f);
 					if (hit.Clicked(key)) {
-						// Fermer l'onglet d'ISOLATION actif : le noeud rentre chez
-						// lui AVANT le decalage des donnees.
-						if (i == st.activeTab && st.sceneTabIsoNode[i] > 0)
+						// Fermer un onglet d'ISOLATION -- ACTIF OU NON : le noeud
+						// rentre chez lui AVANT le decalage des donnees. Ferme en
+						// arriere-plan, son sous-arbre restait echoue dans un
+						// document mort -- donc introuvable dans la scene.
+						if (st.sceneTabIsoNode[i] > 0)
 							demo::Demo3DHostMoveTreeScene(
 								st.sceneTabIsoNode[i] - 1,
 								(int32)st.sceneTabIsoHome[i]);
@@ -1327,6 +1329,29 @@ namespace nkentseu {
 			st.browConfX = mx;
 			st.browConfY = my;
 		}
+		// ── REGLE MODEL / MESH (Rihen) ──────────────────────────────────────
+		// Model -> Model : parente possible (hierarchie de scene classique).
+		// Model -> Mesh  : CONTENANCE (le model contient ses maillages).
+		// Mesh  -> Mesh  : JAMAIS de parente -- un maillage est une DONNEE
+		// geometrique, pas un noeud de hierarchie. Les maillages d'un meme
+		// model sont donc forcement FRERES.
+		// Dans un editeur de Model, la seule cible de parente legitime est
+		// donc la RACINE du model.
+		inline int32 NkModelRootOf(const NkModelerState &st) {
+			if (st.sceneTabKind[st.activeTab] != 7)
+				return -1; // pas dans un editeur de Model
+			if (st.sceneTabIsoNode[st.activeTab] > 0)
+				return st.sceneTabIsoNode[st.activeTab] - 1;
+			return st.editPreviewNode - 1;
+		}
+		// Cible de parente AUTORISEE pour un noeud depose sur `dest`.
+		// -1 = refuser le depot.
+		inline int32 NkParentTargetAllowed(const NkModelerState &st, int32 dest) {
+			const int32 mr = NkModelRootOf(st);
+			if (mr < 0)
+				return dest; // scene : Model -> Model, libre
+			return mr;	   // model : tout maillage est FRERE sous la racine
+		}
 		inline void NkHierNameNewNode(NkModelerState &st, int32 srcNode, int32 newNode) {
 			char b[24];
 			NkHierNodeName(st, srcNode, b, sizeof(b));
@@ -1644,7 +1669,8 @@ namespace nkentseu {
 					} else if (mact == 5) {
 						// AJOUTER UN ENFANT : tout le menu Ajouter ; l'objet
 						// clique est le PARENT du nouveau (Rihen).
-						st.addParentNode = tn;
+						// Dans un Model, l'enfant nait FRERE sous la racine.
+						st.addParentNode = NkParentTargetAllowed(st, tn);
 						st.addAnchor = {st.hierMenuX, st.hierMenuY - S(26.f), 0.f,
 										0.f};
 						if (!ws.ComboOpen("tb.addmenu"))
@@ -2171,11 +2197,19 @@ namespace nkentseu {
 			} else {
 				int32 roots[200];
 				int32 nRoots = 0;
+				// EST RACINE : sans parent, OU dont le parent n'est pas listable
+				// ici (supprime, ou parti dans un autre document par isolation).
+				// Sans cette seconde regle l'orphelin DISPARAISSAIT de l'arbre --
+				// impossible a selectionner (constate par Rihen).
+				auto isRoot2 = [](int32 n3) {
+					const int32 pa = demo::Demo3DHostNodeParent(n3);
+					return pa < 0 || NkHierNodeSkip(pa);
+				};
 				for (int32 n2 = kFirstEmpty2; n2 < kNNodes; ++n2)
-					if (!NkHierNodeSkip(n2) && demo::Demo3DHostNodeParent(n2) < 0)
+					if (!NkHierNodeSkip(n2) && isRoot2(n2))
 						roots[nRoots++] = n2;
 				for (int32 n2 = 0; n2 < kFirstEmpty2; ++n2)
-					if (!NkHierNodeSkip(n2) && demo::Demo3DHostNodeParent(n2) < 0)
+					if (!NkHierNodeSkip(n2) && isRoot2(n2))
 						roots[nRoots++] = n2;
 				for (int32 i2 = nRoots - 1; i2 >= 0; --i2) {
 					stack[sp] = roots[i2];
@@ -2191,7 +2225,9 @@ namespace nkentseu {
 				const bool isEmpty = node >= kFirstEmpty2;
 				const int32 li = isLight ? node - kFirstLight : -1;
 				NkHierNodeName(st, node, nameBuf, sizeof(nameBuf));
-				const bool hasKids = demo::Demo3DHostNodeHasChildren(node);
+				// Enfants REELLEMENT listes : un chevron qui ne deplie rien de
+				// visible donne l'impression que le pliage est casse (Rihen).
+				const bool hasKids = NkHierHasLiveKids(node);
 				const bool folded = ((st.hierFold[node >> 5] >> (node & 31)) & 1u) != 0u;
 				bool chevHit = false; // clic tombe sur la fleche : pas de selection
 				const bool sel = isEmpty
@@ -2390,8 +2426,13 @@ namespace nkentseu {
 								NkBrowUniqueName(st, 6, st.browserFolder, bnm,
 												 st.browserNames[k6], 32);
 							}
-						} else if (dropHover >= 0 && dropHover != st.hierDragNode)
-							demo::Demo3DHostSetNodeParent(st.hierDragNode, dropHover);
+						} else if (dropHover >= 0 && dropHover != st.hierDragNode) {
+							// Mesh -> Mesh refuse : dans un Model, la seule cible
+							// est la racine (les maillages sont FRERES).
+							const int32 tg = NkParentTargetAllowed(st, dropHover);
+							if (tg >= 0 && tg != st.hierDragNode)
+								demo::Demo3DHostSetNodeParent(st.hierDragNode, tg);
+						}
 						else if (dropHover < 0 && NkHitRegistry::Contains(listR, dm))
 							demo::Demo3DHostSetNodeParent(st.hierDragNode, -1);
 					}
@@ -3103,7 +3144,9 @@ namespace nkentseu {
 					}
 					const float32 vw = p.TextW(vlb) + S(34.f);
 					const NkRect vb{vr.x + S(8.f), vr.y + S(8.f), vw, S(20.f)};
-					const bool ovV = hit.Add("view.cam", vb);
+					const bool ovV = hit.Add("view.pick", vb);
+					// Fond PLEIN : pose sur l'image 3D, un simple contour se perd.
+					p.Fill(vb, NkColor{0, 0, 0, 150}, 4.f);
 					p.Outline(vb, ovV || st.camPickOpen ? NkRole::AccentUi : NkRole::Border,
 							  NkRole::PanelHeader, 4.f);
 					p.IconV(vb.x + S(5.f), vb.y, vb.h, NkIcon::Camera,
@@ -3125,7 +3168,8 @@ namespace nkentseu {
 						const NkRect lb{vb.x, vb.y + vb.h + 2.f, vb.w < S(150.f) ? S(150.f)
 																			 : vb.w,
 										kRowH * (float32)(nCam + 1)};
-						p.Outline(lb, NkRole::Border, NkRole::PanelHeader, 4.f);
+						p.Fill({lb.x + 2.f, lb.y + 2.f, lb.w, lb.h}, NkColor{0, 0, 0, 90}, 4.f);
+						p.Outline(lb, NkRole::AccentUi, NkRole::PanelHeader, 4.f);
 						const NkRect i0{lb.x, lb.y, lb.w, kRowH};
 						HoverFill(p, i0, hit.Add("view.cam.free", i0), 0.f);
 						p.TextV(i0.x + S(10.f), i0.y, kRowH, "Vue 3D");
@@ -3169,7 +3213,7 @@ namespace nkentseu {
 							}
 						}
 						if (hit.AnyClick() && !NkHitRegistry::Contains(lb, hit.Mouse()) &&
-							!hit.IsHovered("view.cam"))
+							!hit.IsHovered("view.pick"))
 							st.camPickOpen = false;
 					}
 				}
@@ -4848,44 +4892,39 @@ namespace nkentseu {
 						if (st.unitScale < 0.001f)
 							st.unitScale = 0.001f;
 						yy += kRowH;
-							// CHAQUE SCENE A SES VALEURS (Rihen) : ce bouton copie les
-							// proprietes de la scene courante vers TOUTES les scenes.
+							// CHAQUE SCENE A SES VALEURS (Rihen). Ici, une vraie
+							// interface : un COMBO choisit la scene destinataire (ou
+							// toutes), un BOUTON fait la copie.
 							{
-								const NkRect cb7{r.x + S(120.f), yy + S(2.f),
-												 rr.w - S(128.f), kRowH - S(4.f)};
-								HoverFill(p, cb7, hit.Add("props.ucopy", cb7), 2.f);
-								char cbl[64];
-								if (st.propCopyTarget <= 0)
-									snprintf(cbl, sizeof(cbl), "Copier vers : toutes");
-								else
-									snprintf(cbl, sizeof(cbl), "Copier vers : %s",
-											 st.sceneNames[(st.propCopyTarget - 1) & 7]);
-								p.TextV(cb7.x + S(8.f), yy, kRowH, cbl, NkRole::Text);
-								if (hit.Clicked("props.ucopy")) {
-									// La CIBLE tourne a chaque clic droit sur la ligne ;
-									// le clic gauche copie vers elle (Rihen).
-									if (st.propCopyTarget <= 0) {
-										for (int32 t7 = 0; t7 < 8; ++t7) {
-											st.unitSystemTab[t7] = st.unitSystem;
-											st.unitLengthTab[t7] = st.unitLength;
-											st.unitScaleTab[t7] = st.unitScale;
-										}
-									} else {
-										const int32 t8 = (st.propCopyTarget - 1) & 7;
-										st.unitSystemTab[t8] = st.unitSystem;
-										st.unitLengthTab[t8] = st.unitLength;
-										st.unitScaleTab[t8] = st.unitScale;
+								p.TextV(r.x + kPad, yy, kRowH, "Copier vers",
+										NkRole::TextMuted);
+								// Le combo liste « Toutes les scenes » puis chaque
+								// scene par son nom, dans l'ordre des onglets.
+								static const char *sTgts[9];
+								sTgts[0] = "Toutes les scenes";
+								for (int32 t7 = 0; t7 < st.sceneCount && t7 < 8; ++t7)
+									sTgts[t7 + 1] = st.sceneNames[t7];
+								if (st.propCopyTarget > st.sceneCount)
+									st.propCopyTarget = 0;
+								Combo(p, hit, ws, "props.utgt",
+									  {r.x + S(120.f), yy + S(2.f), rr.w - S(128.f),
+									   kRowH - S(4.f)},
+									  sTgts, nullptr, st.sceneCount + 1,
+									  st.propCopyTarget, combo);
+								yy += kRowH;
+								if (Button("props.ucopy", yy, "Copier les proprietes",
+										   r.x + kPad, rr.w - 2.f * kPad)) {
+									const int32 t0 =
+										st.propCopyTarget <= 0 ? 0 : st.propCopyTarget - 1;
+									const int32 t1 = st.propCopyTarget <= 0
+														 ? st.sceneCount - 1
+														 : st.propCopyTarget - 1;
+									for (int32 t7 = t0; t7 <= t1 && t7 < 8; ++t7) {
+										st.unitSystemTab[t7] = st.unitSystem;
+										st.unitLengthTab[t7] = st.unitLength;
+										st.unitScaleTab[t7] = st.unitScale;
 									}
 								}
-								if (hit.RightClicked("props.ucopy")) {
-									st.propCopyTarget++;
-									if (st.propCopyTarget > st.sceneCount)
-										st.propCopyTarget = 0;
-								}
-								yy += kRowH;
-								p.TextV(r.x + kPad, yy, kRowH,
-										"(clic droit : changer de cible)",
-										NkRole::TextMuted);
 								yy += kRowH;
 							}
 					}
@@ -6075,8 +6114,12 @@ namespace nkentseu {
 					const float32 pad = 6.f;
 					float32 fyy = fy + (footH - (lh * 2.f + 2.f)) * 0.5f;
 					snprintf(akey, sizeof(akey), "brow.cardname.%d", i);
+					// Le nom est CLIPPE a la carte : il debordait sur la carte
+					// voisine des qu'il etait long (constate par Rihen).
+					p.Clip({tx + pad, fyy, tw - pad * 2.f, lh + 2.f});
 					EditableText(p, hit, ws, in, akey, {tx + pad, fyy, tw - pad * 2.f, lh + 2.f},
 								 st.browserNames[i], NkRole::Text, st.browserNames[i], 32u);
+					p.Unclip();
 					fyy += lh + 2.f;
 					p.TextClipped(tx + pad, fyy, tw - pad * 2.f, kindName, NkRole::TextMuted);
 				}
@@ -6589,15 +6632,13 @@ namespace nkentseu {
 								// clic droit sur un OBJET : il devient le parent (Rihen)
 								if (st.addParentNode >= 0) {
 									demo::Demo3DHostSetNodeParent(nn, st.addParentNode);
-								} else if (st.sceneTabKind[st.activeTab] == 7) {
-									// DANS UN MODEL : un maillage devient SOUS-MESH du
-									// model ; lumieres/cameras/empties restent des aides
-									// cosmetiques, jamais membres du model (Rihen).
+								} else {
+									// DANS UN MODEL : un maillage devient un MESH du
+									// model, frere des autres sous sa racine ; lumieres,
+									// cameras et empties restent des aides COSMETIQUES,
+									// jamais membres du model (Rihen).
 									const int32 t8 = cats[c].items[i].type;
-									const int32 root8 =
-										st.sceneTabIsoNode[st.activeTab] > 0
-											? st.sceneTabIsoNode[st.activeTab] - 1
-											: st.editPreviewNode - 1;
+									const int32 root8 = NkModelRootOf(st);
 									if (root8 >= 0 && t8 != 4 && t8 != 5)
 										demo::Demo3DHostSetNodeParent(nn, root8);
 								}
