@@ -4031,6 +4031,16 @@ namespace nkentseu {
 		inline float32 NkPropGroupGap() {
 			return S(8.f);
 		}
+		// MARGE INTERNE d'un groupe : son contenu ne touche ni le cadre a gauche ni
+		// a droite, et respire aussi en haut et en bas (Rihen). Sans elle, les
+		// champs semblaient colles aux bords du bloc.
+		inline float32 NkGroupPad() {
+			return S(8.f);
+		}
+		// Le rectangle de TRAVAIL a l'interieur d'un groupe.
+		inline NkRect NkGroupInner(const NkRect &r) {
+			return {r.x + NkGroupPad(), 0.f, r.w - 2.f * NkGroupPad(), 0.f};
+		}
 		inline void PaintGroupBlock(NkModelerPainter &p, const NkRect &r, float32 yTop,
 									float32 yBottom) {
 			if (yBottom <= yTop)
@@ -4071,13 +4081,13 @@ namespace nkentseu {
 			const float32 btn = rowH;
 			const float32 gap = S(3.f);
 			const float32 iconsW = btn * 3.f + gap * 2.f;
+			// LARGEUR PROPORTIONNELLE : les trois cellules se partagent tout
+			// l'espace laisse par les commandes, et grandissent ou retrecissent
+			// avec le panneau (Rihen). Seul un plancher les protege d'un panneau
+			// trop etroit -- au-dela, c'est le clip du champ qui tronque.
 			float32 cell = (r.w - iconsW - gap * 3.f) / 3.f;
-			// BORNE HAUTE : trois champs largissimes noient les trois nombres dans
-			// du vide et repoussent les commandes hors de vue.
-			if (cell > S(58.f))
-				cell = S(58.f);
-			if (cell < S(34.f))
-				cell = S(34.f);
+			if (cell < S(30.f))
+				cell = S(30.f);
 			// LA COULEUR D'AXE EST DEJA DANS LE CHAMP (liseré gauche du champ) : en
 			// remettre une a l'exterieur la disait deux fois (Rihen).
 			static const NkRole kAxisRole[3] = {NkRole::AxisX, NkRole::AxisY, NkRole::AxisZ};
@@ -4353,10 +4363,13 @@ namespace nkentseu {
 						{
 							// L'icone dit la NATURE de l'objet, comme dans la
 							// hierarchie : model, maillage, lumiere, camera, empty.
-							p.IconV(r.x + kPad, yy, kRowH, NkNodeIcon(en), NkRole::Text,
-									13.f);
-							const NkRect nmR{r.x + kPad + S(20.f), yy + S(2.f),
-											 rr.w - S(28.f) - kPad, kRowH - S(4.f)};
+							// Elle est POUSSEE vers la droite (Rihen) : elle s'aligne
+							// sur la marge du contenu, et le champ demarre apres elle.
+							const float32 icoX = r.x + NkPropInset();
+							p.IconV(icoX, yy, kRowH, NkNodeIcon(en), NkRole::Text, 13.f);
+							const NkRect nmR{icoX + S(22.f), yy + S(2.f),
+											 (r.x + rr.w - NkPropInset()) - (icoX + S(22.f)),
+											 kRowH - S(4.f)};
 							p.Outline(nmR, NkRole::Border, NkRole::InputBg, 3.f);
 							if (en >= 0 && en < 176)
 								EditableText(p, hit, ws, in, "props.name",
@@ -4391,16 +4404,19 @@ namespace nkentseu {
 															  "prop.g.xform",
 															  "Transformation", 1u);
 							const float32 grpXfTop = yy;
+							// Le contenu travaille EN RETRAIT du cadre (Rihen).
+							const NkRect inR = NkGroupInner(rowR);
 							if (grpXf) {
-								PaintXformGroup(p, hit, ws, in, rowR, yy, "Position",
+								yy += NkGroupPad(); // respiration en haut du bloc
+								PaintXformGroup(p, hit, ws, in, inR, yy, "Position",
 												st.pos, 0.01f, "prop.epos", st.lockPos,
 												st.propPos, "%.2f m");
 								yy += NkXformGroupH();
-								PaintXformGroup(p, hit, ws, in, rowR, yy, "Rotation",
+								PaintXformGroup(p, hit, ws, in, inR, yy, "Rotation",
 												st.rot, 0.5f, "prop.erot", st.lockRot,
 												st.propRot, "%.1f\xC2\xB0");
 								yy += NkXformGroupH();
-								PaintXformGroup(p, hit, ws, in, rowR, yy, "Echelle",
+								PaintXformGroup(p, hit, ws, in, inR, yy, "Echelle",
 												st.scl, 0.01f, "prop.escl", st.lockScl,
 												st.propScale, "%.2f");
 								yy += NkXformGroupH();
@@ -4417,7 +4433,7 @@ namespace nkentseu {
 								float32 piv[3];
 								if (demo::Demo3DHostNodeOrigin(act, piv)) {
 									const float32 piv0[3] = {piv[0], piv[1], piv[2]};
-									PaintXformGroup(p, hit, ws, in, rowR, yy, "Pivot", piv,
+									PaintXformGroup(p, hit, ws, in, inR, yy, "Pivot", piv,
 													0.01f, "prop.epiv", st.lockPiv,
 													st.propPiv, "%.2f m");
 									bool pivCh = false;
@@ -4430,8 +4446,8 @@ namespace nkentseu {
 									float32 ctr[3];
 									if (demo::Demo3DHostMeshesCenter(act, ctr) &&
 										Button("props.pivctr", yy,
-											   "Pivot au centre des maillages", rowR.x,
-											   rowR.w)) {
+											   "Pivot au centre des maillages", inR.x,
+											   inR.w)) {
 										if (!st.lockPiv)
 											demo::Demo3DHostSetNodeOrigin(act, ctr);
 									}
@@ -4439,10 +4455,11 @@ namespace nkentseu {
 								}
 							}
 							// Le BLOC qui entoure le groupe : peint APRES son contenu,
-							// puisqu'il faut connaitre ou celui-ci s'arrete.
+							// puisqu'il faut connaitre ou celui-ci s'arrete. Il se
+							// referme sur une marge egale a celle du haut.
 							if (grpXf) {
-								PaintGroupBlock(p, rowR, grpXfTop, yy + S(2.f));
-								yy += S(2.f);
+								yy += NkGroupPad();
+								PaintGroupBlock(p, rowR, grpXfTop, yy);
 							}
 							// L'espace suit le groupe REPLIE OU NON (Rihen).
 							yy += NkPropGroupGap();
@@ -4492,12 +4509,12 @@ namespace nkentseu {
 																   2u);
 								const float32 grpDimTop = yy;
 								if (grpDim) {
-									PaintXformGroup(p, hit, ws, in, rowR, yy, "", dimE, 0.01f,
-													"prop.edim", st.lockDim, st.propDim,
-													"%.2f m");
-									yy += NkXformGroupH();
-									PaintGroupBlock(p, rowR, grpDimTop, yy + S(2.f));
-									yy += S(2.f);
+									yy += NkGroupPad();
+									PaintXformGroup(p, hit, ws, in, NkGroupInner(rowR), yy, "",
+													dimE, 0.01f, "prop.edim", st.lockDim,
+													st.propDim, "%.2f m");
+									yy += NkXformGroupH() + NkGroupPad();
+									PaintGroupBlock(p, rowR, grpDimTop, yy);
 								}
 								yy += NkPropGroupGap(); // meme replie (Rihen)
 					// PROPORTIONNEL : l'axe touche impose son RAPPORT aux autres ;
