@@ -5084,24 +5084,14 @@ namespace nkentseu {
 									yy += kRowH;
 									const float32 mvX = iR.x + S(96.f);
 									const float32 mvW = iR.w - S(96.f);
-									p.TextV(iR.x, yy, kRowH, "Couleur de base",
-											NkRole::TextMuted);
 									{
-										// La couleur se lit d'abord A L'OEIL : la pastille
-										// occupe la ligne, les trois canaux la suivent.
-										const NkColor sw{(uint8)(mtE[0] * 255.f),
-														 (uint8)(mtE[1] * 255.f),
-														 (uint8)(mtE[2] * 255.f), 255};
-										p.Outline({mvX, yy + S(3.f), mvW, kRowH - S(6.f)},
-												  NkRole::Border, NkRole::InputBg, 2.f);
-										p.Fill({mvX + S(2.f), yy + S(5.f), mvW - S(4.f),
-												kRowH - S(10.f)},
-											   sw, 2.f);
+										// LA COULEUR SE CHOISIT A L'OEIL : la nuance ouvre
+										// le vrai picker, les canaux restent dessous.
+										bool mCh = false;
+										yy += PaintColorRow(p, hit, ws, in, st, iR, yy,
+															"Couleur de base", "prop.emcol",
+															mtE, &mCh);
 									}
-									yy += kRowH;
-									yy += PaintXformGroup(p, hit, ws, in, iR, yy, "", mtE,
-														  0.005f, "prop.emcol", st.lockMat,
-														  st.propMat, "%.2f", 1.f);
 									yy += NkGroupPad();
 									p.TextV(iR.x, yy, kRowH, "Metallique", NkRole::TextMuted);
 									DragFloat(p, hit, ws, in, "prop.emmet",
@@ -5189,22 +5179,11 @@ namespace nkentseu {
 								if (demo::Demo3DHostUserLightParams(en, ulc, &uli)) {
 									bool ulch = false;
 									const float32 ulc0[3] = {ulc[0], ulc[1], ulc[2]};
-									// LA COULEUR se lit d'abord a l'oeil.
-									p.TextV(iR.x, yy, kRowH, "Couleur", NkRole::TextMuted);
-									{
-										const NkColor sw{(uint8)(ulc[0] * 255.f),
-														 (uint8)(ulc[1] * 255.f),
-														 (uint8)(ulc[2] * 255.f), 255};
-										p.Outline({lvX, yy + S(3.f), lvW, kRowH - S(6.f)},
-												  NkRole::Border, NkRole::InputBg, 2.f);
-										p.Fill({lvX + S(2.f), yy + S(5.f), lvW - S(4.f),
-												kRowH - S(10.f)},
-											   sw, 2.f);
-									}
-									yy += kRowH;
-									yy += PaintXformGroup(p, hit, ws, in, iR, yy, "", ulc,
-														  0.01f, "prop.ulcol", st.lockLit,
-														  st.propLit, "%.2f", 1.f);
+									// LA COULEUR SE CHOISIT A L'OEIL : la nuance ouvre le
+									// vrai picker (carre saturation/valeur + teinte), les
+									// champs chiffres restent dessous pour la precision.
+									yy += PaintColorRow(p, hit, ws, in, st, iR, yy, "Couleur",
+														"prop.ulcol", ulc, &ulch);
 									yy += NkGroupPad();
 									p.TextV(iR.x, yy, kRowH, "Puissance", NkRole::TextMuted);
 									ulch |= DragFloat(p, hit, ws, in, "prop.ulint",
@@ -5745,9 +5724,11 @@ namespace nkentseu {
 							NkRect rowM = rr;
 							rowM.x = r.x + kPad;
 							rowM.w = rr.w - 2.f * kPad;
-							PaintTransformRow(p, hit, ws, in, rowM, yy, "Couleur", mt, 0.005f,
-											  "prop.mcol", NkIcon::None, NkIcon::None);
-							yy += Vec3RowH();
+							{
+								bool mCh = false;
+								yy += PaintColorRow(p, hit, ws, in, st, rowM, yy, "Couleur",
+													"prop.mcol", mt, &mCh);
+							}
 							p.TextV(r.x + kPad, yy, kRowH, "Metallique", NkRole::TextMuted);
 							DragFloat(p, hit, ws, in, "prop.mmet",
 									  {r.x + S(120.f), yy + S(3.f), rr.w - S(128.f), kRowH - S(4.f)},
@@ -7113,16 +7094,16 @@ namespace nkentseu {
 			{
 				const float32 fy = ty + S(6.f);
 				const float32 fh = S(22.f);
-				const NkRect sf{ax, fy, S(180.f), fh};
-				p.Fill(sf, NkRole::InputBg, 3.f);
-				const NkRect sfIn{sf.x + S(22.f), sf.y, sf.w - S(24.f), fh};
-				EditableText(p, hit, ws, in, "brow.search", sfIn,
-							 st.searchBrowser[0] ? st.searchBrowser : "Rechercher",
-							 st.searchBrowser[0] ? NkRole::Text : NkRole::TextMuted,
-							 st.searchBrowser, sizeof(st.searchBrowser));
-				p.IconV(sf.x + S(5.f), sf.y, fh, NkIcon::Search, NkRole::TextMuted, 12.f);
-				p.OutlineSharp(sf, NkRole::Border);
-				float32 px = sf.x + sf.w + S(10.f);
+				// UN BANDEAU PLEINE LARGEUR (Rihen) : la barre est une zone a
+				// part entiere, pas des widgets poses sur le fond des cartes.
+				p.Fill({r.x + treeW + 1.f, ty, r.w - treeW - 1.f, S(34.f)}, NkRole::PanelHeader);
+				p.HLine(r.x + treeW + 1.f, ty + S(34.f), r.w - treeW - 1.f);
+				// Le meme champ que la hierarchie : filtrage a la frappe, invite
+				// grise et croix d'effacement -- et surtout, l'invite n'est JAMAIS
+				// ecrite dans le buffer.
+				const NkRect sfBox{ax - S(6.f), 0.f, S(192.f), 0.f};
+				PaintSearch(p, sfBox, fy - S(4.f), hit, ws, in, "brow.search", st.searchBrowser);
+				float32 px = ax + S(192.f) - S(6.f) + S(10.f);
 				struct KindChip {
 						uint8 kind;
 						const char *name;

@@ -152,6 +152,12 @@ namespace nkentseu {
 					return mShadowStamp;
 				}
 
+				// Nombre d'objets que la passe d'ombre va reellement dessiner.
+				// Zero ici avec des slots alloues = l'atlas se remplit de vide.
+				uint32 GetShadowCasterCount() const {
+					return (uint32)mShadowCasters.Size();
+				}
+
 				// ── Stats frustum culling (frame en cours de soumission) ────────
 				// Opaque : cull au Submit (les casters d'ombre sont collectes
 				// AVANT le cull). Instancie : cull par batch au Flush (la passe
