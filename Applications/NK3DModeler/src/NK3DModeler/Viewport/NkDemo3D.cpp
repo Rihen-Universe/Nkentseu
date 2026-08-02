@@ -9856,13 +9856,101 @@ namespace nkentseu {
 		// La regeneration est un CALCUL CPU (convolutions d'irradiance) : elle se
 		// declenche a la demande, jamais a chaque image ni pendant qu'on tire un
 		// curseur -- sinon l'interface se figerait sous la main.
+		// ── MODELE DE CIEL ET SES PARAMETRES ────────────────────────────────
+		// Le degrade a trois couleurs etait le seul ciel possible. Le moteur
+		// propose desormais aussi un ciel PHYSIQUE (diffusion atmospherique,
+		// disque solaire) et une couche de NUAGES qui se pose sur l'un ou
+		// l'autre. Tout est ici a l'etat, et ne descend au moteur qu'a la
+		// regeneration -- ce sont des convolutions CPU, pas un reglage a tirer
+		// sous le doigt.
+		static int32 nkvpSkyModel = 0; // 0 = degrade, 1 = physique
+		static float32 nkvpSkySunDir[3] = {0.35f, -0.65f, 0.35f};
+		static float32 nkvpSkyTurbidity = 2.5f;
+		static bool nkvpSkySunDisc = true;
+		static float32 nkvpSkySunIntensity = 1.f;
+		static bool nkvpSkyClouds = false;
+		static float32 nkvpSkyCloudCoverage = 0.5f;
+		static float32 nkvpSkyCloudDensity = 1.f;
+		static float32 nkvpSkyCloudScale = 2.f;
+		static float32 nkvpSkyCloudColor[3] = {1.f, 1.f, 1.f};
+
+		int32 Demo3DHostSkyModel() {
+			return nkvpSkyModel;
+		}
+		void Demo3DHostSetSkyModel(int32 m) {
+			nkvpSkyModel = (m < 0) ? 0 : (m > 1 ? 1 : m);
+		}
+		void Demo3DHostSkySun(float32 *dir, float32 *turbidity, bool *disc, float32 *intensity) {
+			if (dir) {
+				dir[0] = nkvpSkySunDir[0];
+				dir[1] = nkvpSkySunDir[1];
+				dir[2] = nkvpSkySunDir[2];
+			}
+			if (turbidity)
+				*turbidity = nkvpSkyTurbidity;
+			if (disc)
+				*disc = nkvpSkySunDisc;
+			if (intensity)
+				*intensity = nkvpSkySunIntensity;
+		}
+		void Demo3DHostSetSkySun(const float32 *dir, float32 turbidity, bool disc, float32 intensity) {
+			if (dir) {
+				nkvpSkySunDir[0] = dir[0];
+				nkvpSkySunDir[1] = dir[1];
+				nkvpSkySunDir[2] = dir[2];
+			}
+			nkvpSkyTurbidity = turbidity < 1.f ? 1.f : (turbidity > 10.f ? 10.f : turbidity);
+			nkvpSkySunDisc = disc;
+			nkvpSkySunIntensity = intensity < 0.f ? 0.f : (intensity > 10.f ? 10.f : intensity);
+		}
+		void Demo3DHostSkyClouds(bool *on, float32 *coverage, float32 *density, float32 *scale, float32 *color) {
+			if (on)
+				*on = nkvpSkyClouds;
+			if (coverage)
+				*coverage = nkvpSkyCloudCoverage;
+			if (density)
+				*density = nkvpSkyCloudDensity;
+			if (scale)
+				*scale = nkvpSkyCloudScale;
+			if (color) {
+				color[0] = nkvpSkyCloudColor[0];
+				color[1] = nkvpSkyCloudColor[1];
+				color[2] = nkvpSkyCloudColor[2];
+			}
+		}
+		void Demo3DHostSetSkyClouds(bool on, float32 coverage, float32 density, float32 scale,
+									const float32 *color) {
+			nkvpSkyClouds = on;
+			nkvpSkyCloudCoverage = coverage < 0.f ? 0.f : (coverage > 1.f ? 1.f : coverage);
+			nkvpSkyCloudDensity = density < 0.f ? 0.f : (density > 2.f ? 2.f : density);
+			nkvpSkyCloudScale = scale < 0.1f ? 0.1f : (scale > 20.f ? 20.f : scale);
+			if (color) {
+				nkvpSkyCloudColor[0] = color[0];
+				nkvpSkyCloudColor[1] = color[1];
+				nkvpSkyCloudColor[2] = color[2];
+			}
+		}
+
 		bool Demo3DHostApplySky() {
 			auto *env = hst.ctx.renderer ? hst.ctx.renderer->GetEnvironment() : nullptr;
 			if (!env)
 				return false;
-			env->LoadProcedural({nkvpSkyTop[0], nkvpSkyTop[1], nkvpSkyTop[2]},
-								{nkvpSkyHorizon[0], nkvpSkyHorizon[1], nkvpSkyHorizon[2]},
-								{nkvpSkyGround[0], nkvpSkyGround[1], nkvpSkyGround[2]});
+			renderer::NkSkyParams sp;
+			sp.model = (nkvpSkyModel == 1) ? renderer::NkSkyModel::NK_SKY_PHYSICAL
+										   : renderer::NkSkyModel::NK_SKY_GRADIENT;
+			sp.skyTop = {nkvpSkyTop[0], nkvpSkyTop[1], nkvpSkyTop[2]};
+			sp.horizon = {nkvpSkyHorizon[0], nkvpSkyHorizon[1], nkvpSkyHorizon[2]};
+			sp.ground = {nkvpSkyGround[0], nkvpSkyGround[1], nkvpSkyGround[2]};
+			sp.sunDirection = {nkvpSkySunDir[0], nkvpSkySunDir[1], nkvpSkySunDir[2]};
+			sp.turbidity = nkvpSkyTurbidity;
+			sp.sunDisc = nkvpSkySunDisc;
+			sp.sunIntensity = nkvpSkySunIntensity;
+			sp.clouds = nkvpSkyClouds;
+			sp.cloudCoverage = nkvpSkyCloudCoverage;
+			sp.cloudDensity = nkvpSkyCloudDensity;
+			sp.cloudScale = nkvpSkyCloudScale;
+			sp.cloudColor = {nkvpSkyCloudColor[0], nkvpSkyCloudColor[1], nkvpSkyCloudColor[2]};
+			env->LoadProceduralEx(sp);
 			// Les cubemaps viennent d'etre RECREEES : sans ce rafraichissement, les
 			// jeux de descripteurs pointent encore sur les anciennes et la
 			// regeneration reste invisible.
@@ -9893,6 +9981,43 @@ namespace nkentseu {
 			auto *r3 = hst.ctx.renderer ? hst.ctx.renderer->GetRender3D() : nullptr;
 			if (r3)
 				r3->SetIBLUseEnv(on);
+		}
+		// ── LE CIEL EST-IL VISIBLE EN FOND DE SCENE ? ───────────────────────
+		// A NE PAS CONFONDRE avec la SOURCE d'ambiance juste au-dessus : ce
+		// sont deux mecanismes separes du moteur, et ils doivent le rester.
+		//   SetIBLUseEnv     : le ciel ECLAIRE les objets (ambiance, reflets)
+		//   SetSkyboxEnabled : le ciel est VISIBLE derriere eux
+		// On veut pouvoir etre eclaire par un HDRI sans l'afficher en fond
+		// (c'est le cas courant en rendu produit), et reciproquement afficher
+		// un ciel sans qu'il pilote l'ambiance. Les lier serait une facilite
+		// qu'on paierait plus tard.
+		//
+		// Le moteur savait deja tout faire — NkRender3D::SetSkyboxEnabled et le
+		// shader Skybox existent et sont compiles au demarrage — mais AUCUNE
+		// ligne de l'application ne l'appelait : le ciel ne pouvait donc,
+		// par construction, jamais apparaitre (constate par Rihen).
+		static bool nkvpSkyVisible = false;
+		bool Demo3DHostSkyVisible() {
+			return nkvpSkyVisible;
+		}
+		void Demo3DHostSetSkyVisible(bool on) {
+			nkvpSkyVisible = on;
+			auto *r3 = hst.ctx.renderer ? hst.ctx.renderer->GetRender3D() : nullptr;
+			if (r3)
+				r3->SetSkyboxEnabled(on);
+		}
+		// LUMINOSITE du ciel affiche — encore un reglage SEPARE de l'intensite
+		// d'ambiance. Le shader Skybox multipliait son echantillon par
+		// l'intensite d'ambiance (0.05) : le ciel sortait quasi noir et
+		// paraissait absent alors qu'il etait bien genere.
+		float32 Demo3DHostSkyIntensity() {
+			auto *r3 = hst.ctx.renderer ? hst.ctx.renderer->GetRender3D() : nullptr;
+			return r3 ? r3->GetSkyIntensity() : 1.f;
+		}
+		void Demo3DHostSetSkyIntensity(float32 v) {
+			auto *r3 = hst.ctx.renderer ? hst.ctx.renderer->GetRender3D() : nullptr;
+			if (r3)
+				r3->SetSkyIntensity(v < 0.f ? 0.f : (v > 10.f ? 10.f : v));
 		}
 		// ── BROUILLARD ──────────────────────────────────────────────────────
 		// Etat gardé ici : c'est le contexte de scene, reconstruit a chaque

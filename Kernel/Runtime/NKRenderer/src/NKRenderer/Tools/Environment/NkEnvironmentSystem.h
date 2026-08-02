@@ -63,6 +63,63 @@ namespace nkentseu {
 				NkString hdrPath = "";
 		};
 
+		// ── MODELES DE CIEL PROCEDURAL ──────────────────────────────────────────
+		// Le degrade a trois couleurs etait le SEUL ciel disponible : pas de
+		// soleil, pas de diffusion, pas de nuage. Ce n'etait pas casse, ce
+		// n'etait pas implemente -- Rihen a demande les trois, au choix.
+		enum class NkSkyModel : uint8 {
+			// Degrade zenith -> horizon -> sol selon la hauteur du rayon.
+			// C'est l'ancien comportement, et il reste le DEFAUT : les scenes
+			// existantes ne doivent pas changer d'aspect sans qu'on le demande.
+			NK_SKY_GRADIENT = 0,
+			// Ciel physique analytique (Preetham et al., 1999). Un vrai modele
+			// de diffusion atmospherique : la couleur depend de la position du
+			// soleil et de la turbidite de l'air. C'est lui qui donne le bleu
+			// profond au zenith, le blanchiment vers l'horizon et les teintes
+			// chaudes au couchant -- gratuitement, parce qu'elles sortent du
+			// modele et non d'un reglage.
+			NK_SKY_PHYSICAL = 1,
+		};
+
+		// Parametres complets du ciel procedural. La COUCHE DE NUAGES est
+		// independante du modele de base : on peut couvrir aussi bien un degrade
+		// stylise qu'un ciel physique.
+		struct NkSkyParams {
+				NkSkyModel model = NkSkyModel::NK_SKY_GRADIENT;
+
+				// ── Degrade (model == GRADIENT) ─────────────────────────────
+				NkVec3f skyTop = {0.40f, 0.55f, 0.80f};
+				NkVec3f horizon = {0.45f, 0.48f, 0.52f};
+				NkVec3f ground = {0.10f, 0.08f, 0.06f};
+
+				// ── Soleil ──────────────────────────────────────────────────
+				// DIRECTION DE PROPAGATION, comme pour les lumieres du moteur :
+				// un soleil au zenith descend, donc (0,-1,0). Garder la meme
+				// convention que NkLightDesc::direction evite d'avoir a se
+				// demander laquelle s'applique quand on branchera le ciel sur
+				// le soleil de la scene.
+				NkVec3f sunDirection = {0.35f, -0.65f, 0.35f};
+				// Turbidite : 1 = air de haute montagne, 2-3 = ciel clair,
+				// 6-10 = atmosphere chargee/brumeuse. Au-dela le modele perd
+				// son sens physique.
+				float32 turbidity = 2.5f;
+				// Le DISQUE solaire lui-meme. Sans lui le ciel physique n'a pas
+				// de source visible, ce qui se remarque immediatement.
+				bool sunDisc = true;
+				float32 sunIntensity = 1.f;
+
+				// ── Couche de nuages (optionnelle, par-dessus le modele) ────
+				bool clouds = false;
+				// Couverture : 0 = ciel degage, 1 = entierement couvert. C'est
+				// un SEUIL sur le bruit, pas une opacite -- d'ou son nom.
+				float32 cloudCoverage = 0.5f;
+				// Densite : opacite des nuages une fois formes.
+				float32 cloudDensity = 1.f;
+				// Echelle : taille des motifs. Petit = gros nuages.
+				float32 cloudScale = 2.f;
+				NkVec3f cloudColor = {1.f, 1.f, 1.f};
+		};
+
 		class NkEnvironmentSystem {
 			public:
 				NkEnvironmentSystem() = default;
@@ -75,6 +132,12 @@ namespace nkentseu {
 				// et l'upload dans mIrradiance + mPrefilter. Utile comme placeholder
 				// ou pour des scenes stylisees sans HDR realiste.
 				void LoadProcedural(const NkVec3f &skyTop, const NkVec3f &horizon, const NkVec3f &ground);
+
+				// Version COMPLETE : modele de ciel au choix (degrade ou physique),
+				// disque solaire et couche de nuages. LoadProcedural ci-dessus s'y
+				// ramene avec model = GRADIENT — les appels existants sont donc
+				// inchanges, y compris le contenu genere.
+				void LoadProceduralEx(const NkSkyParams &params);
 
 				// Phase N v0 : charge un .hdr equirectangulaire (360 RGB96F) et
 				// l'utilise comme source pour les convolutions irradiance +

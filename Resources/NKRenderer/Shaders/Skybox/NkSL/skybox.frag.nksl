@@ -22,6 +22,9 @@ uniform CameraUBO {
     float _p2;
     mat4  mirrorViewProj;    // offset 320
     vec4  reflectionFlags;   // offset 384, .x = isMirrorPass
+    // offset 400. .x = matcap personnalisee (inutile ici), .y = LUMINOSITE DU
+    // CIEL AFFICHE. Champ deja reserve cote CPU, on n'agrandit donc pas le bloc.
+    vec4  viewOpts;
 } uCam;
 
 // Cubemap HDR brut (binding=26), RGBA32F, préserve les valeurs > 1.0.
@@ -48,6 +51,12 @@ void main() {
     }
 
     // Sample mip 0 du cubemap skybox (HDR brut).
-    vec3 hdr = textureLod(tSkyEnvCube, dir, 0.0).rgb * uCam.iblStrength;
+    // ATTENTION : on multipliait ici par uCam.iblStrength. C'est l'intensite de
+    // l'AMBIANCE, volontairement basse (0.05) pour que l'environnement ne delave
+    // pas les objets -- le ciel etait donc peint a 5 % de sa luminosite, quasi
+    // noir, et paraissait absent alors qu'il etait correctement genere et rendu.
+    // « Combien l'environnement ECLAIRE » et « a quel point le ciel SE VOIT »
+    // sont deux grandeurs distinctes : la seconde a desormais son propre reglage.
+    vec3 hdr = textureLod(tSkyEnvCube, dir, 0.0).rgb * uCam.viewOpts.y;
     fragColor = vec4(hdr, 1.0);
 }

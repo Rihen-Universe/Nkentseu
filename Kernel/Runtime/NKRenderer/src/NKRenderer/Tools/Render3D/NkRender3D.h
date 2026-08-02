@@ -333,6 +333,24 @@ namespace nkentseu {
 					return mDrawSkybox;
 				}
 
+				// LUMINOSITE DU CIEL AFFICHE — grandeur PROPRE, distincte de
+				// l'intensite d'ambiance (SetIBLStrength).
+				//
+				// Le shader Skybox multipliait son echantillon par iblStrength.
+				// Or celle-ci vaut 0.05 par defaut, valeur choisie pour que
+				// l'ambiance ne delave pas les objets : le ciel etait donc dessine
+				// a 5 % de sa luminosite, donc quasi noir. Il paraissait absent
+				// alors qu'il etait correctement genere et rendu (constate par
+				// Rihen). « Combien l'environnement ECLAIRE » et « a quel point le
+				// ciel SE VOIT » sont deux grandeurs differentes ; les faire porter
+				// par le meme nombre rendait l'une des deux inutilisable.
+				void SetSkyIntensity(float32 s) {
+					mSkyIntensity = s;
+				}
+				float32 GetSkyIntensity() const {
+					return mSkyIntensity;
+				}
+
 				// Grille infinie style Blender (plan y=0). Activer + configurer :
 				//   grid.cellColor.w  = opacité de l'intérieur (0 = voir à travers, 1 = opaque)
 				//   grid.lineColor.w  = alpha des lignes (restent visibles indépendamment)
@@ -715,6 +733,9 @@ namespace nkentseu {
 				NkPipelineHandle mSkyboxPipeline;
 				NkRenderPassHandle mSkyboxPipelineRP{};
 				bool mDrawSkybox = false;
+				// Luminosite du ciel AFFICHE (cf. SetSkyIntensity). 1 = le ciel tel
+				// qu'il a ete genere. Transmise au shader par uCam.viewOpts.y.
+				float32 mSkyIntensity = 1.f;
 
 				// Grille infinie style Blender (plan y=0). Grand quad suivant la caméra,
 				// rendu APRÈS l'opaque (depth test read-only + alpha blend). Params

@@ -1,5 +1,5 @@
-// =============================================================================
-// NkEnvironmentSystem.cpp  — NKRenderer v5.0
+﻿// =============================================================================
+// NkEnvironmentSystem.cpp  â€” NKRenderer v5.0
 //
 // D.2d : IBL prefiltering CPU au startup avec cache disque.
 //   - BRDF LUT 256x256 RG8     : split-sum integration (Karis 2013) via Hammersley
@@ -29,7 +29,7 @@
 namespace nkentseu {
 	namespace renderer {
 
-		// ── Cache disque IBL ─────────────────────────────────────────────────────
+		// â”€â”€ Cache disque IBL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		// Format : magic(4) + version(4) + hash(4) + irrSize(4) + prefSize(4)
 		//        + prefMips(4) + lutSize(4)
 		//        + LUT data (lutSize*lutSize*2)
@@ -61,6 +61,35 @@ namespace nkentseu {
 			mix(prefM);
 			mix(lutSz);
 			mix(kIBLVersion);
+			return h;
+		}
+
+		// Hash du ciel COMPLET. Tout parametre qui change l'image DOIT entrer
+		// ici : le cache disque est indexe par ce nombre, et un parametre oublie
+		// ferait resservir un ciel perime en silence â€” le pire des defauts,
+		// puisque le reglage semble simplement Â« sans effet Â».
+		static uint32 IBLHashSky(const NkSkyParams &P, uint32 irrSz, uint32 prefSz, uint32 prefM, uint32 lutSz) {
+			uint32 h = IBLHash(P.skyTop, P.horizon, P.ground, irrSz, prefSz, prefM, lutSz);
+			auto mix = [&](uint32 v) { h = (h ^ v) * 0x01000193u; };
+			uint32 b;
+			auto mf = [&](float v) {
+				memcpy(&b, &v, 4);
+				mix(b);
+			};
+			mix((uint32)P.model);
+			mf(P.sunDirection.x);
+			mf(P.sunDirection.y);
+			mf(P.sunDirection.z);
+			mf(P.turbidity);
+			mix(P.sunDisc ? 1u : 0u);
+			mf(P.sunIntensity);
+			mix(P.clouds ? 1u : 0u);
+			mf(P.cloudCoverage);
+			mf(P.cloudDensity);
+			mf(P.cloudScale);
+			mf(P.cloudColor.x);
+			mf(P.cloudColor.y);
+			mf(P.cloudColor.z);
 			return h;
 		}
 
@@ -160,8 +189,8 @@ namespace nkentseu {
 			logger.Info("[IBL] Cache sauvegarde : {0}\n", path.CStr());
 		}
 
-		// ── Helpers cubemap directions (convention OpenGL / Vulkan-equivalente) ──
-		// Reconstruit la direction 3D normalisee depuis (face, u, v ∈ [-1,1]).
+		// â”€â”€ Helpers cubemap directions (convention OpenGL / Vulkan-equivalente) â”€â”€
+		// Reconstruit la direction 3D normalisee depuis (face, u, v âˆˆ [-1,1]).
 		static inline void CubemapFaceUVToDir(uint32 face, float u, float v, float &dx, float &dy, float &dz) {
 			switch (face) {
 				case 0:
@@ -208,12 +237,12 @@ namespace nkentseu {
 			}
 		}
 
-		// ── Sample HDR equirect (Phase N v0) ────────────────────────────────────
+		// â”€â”€ Sample HDR equirect (Phase N v0) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		// Mappe une direction monde (dx,dy,dz) -> UV equirect [0,1] -> pixel
 		// RGB96F dans l'image HDR. Nearest neighbor (bilinear future v1).
 		// Convention : Y = up, X = "vers l'observateur" a phi=0, atan2 sur (dz, dx).
 		static inline NkVec3f SampleEquirect(float dx, float dy, float dz, const NkImage &hdr) {
-			// Spherical coords : phi = atan2(dz, dx) in [-π, π], theta = asin(dy)
+			// Spherical coords : phi = atan2(dz, dx) in [-Ï€, Ï€], theta = asin(dy)
 			const float invPI = 0.31830988618379f;
 			const float inv2PI = 0.15915494309189f;
 			float phi = std::atan2(dz, dx);
@@ -250,7 +279,7 @@ namespace nkentseu {
 			return {0.f, 0.f, 0.f};
 		}
 
-		// ── Sky gradient procedural (notre "environment input") ─────────────────
+		// â”€â”€ Sky gradient procedural (notre "environment input") â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		// Gradient ciel haut -> horizon -> sol selon dir.y.
 		static inline NkVec3f SampleSkyGradient(float dx, float dy, float /*dz*/, const NkVec3f &skyTop,
 												const NkVec3f &horizon, const NkVec3f &ground) {
@@ -270,7 +299,210 @@ namespace nkentseu {
 			return c;
 		}
 
-		// ── Hammersley sequence (low-discrepancy 2D) ────────────────────────────
+		static inline float NkSkyClamp(float v, float a, float b) {
+			return v < a ? a : (v > b ? b : v);
+		}
+
+		// â”€â”€ CIEL PHYSIQUE â€” Preetham, Shirley & Smits (1999) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+		// Â« A Practical Analytic Model for Daylight Â». Modele ANALYTIQUE de
+		// diffusion atmospherique : pas de simulation, une formule fermee. Il
+		// donne le bleu profond au zenith, le blanchiment vers l'horizon et les
+		// teintes chaudes au couchant SANS qu'on ait a les regler â€” elles sortent
+		// de la position du soleil et de la turbidite de l'air.
+		//
+		// Fonction de Perez : F(theta, gamma) = (1 + A e^(B/cos theta))
+		//                                     * (1 + C e^(D gamma) + E cos^2 gamma)
+		//   theta = angle zenithal du rayon, gamma = angle rayon-soleil.
+		// Les cinq coefficients sont affines en turbidite, un jeu par canal
+		// (Y luminance, x et y chromaticite CIE).
+		static inline float NkPerez(float cosTheta, float gamma, float cosGamma, const float c[5]) {
+			const float ct = cosTheta < 0.01f ? 0.01f : cosTheta; // pole du modele a theta=90
+			const float a = 1.f + c[0] * std::exp(c[1] / ct);
+			const float b = 1.f + c[2] * std::exp(c[3] * gamma) + c[4] * cosGamma * cosGamma;
+			return a * b;
+		}
+
+		// CIE xyY -> RGB lineaire (primaires sRGB, blanc D65).
+		static inline NkVec3f NkxyYToRGB(float x, float y, float Y) {
+			if (y < 1e-4f)
+				return {0.f, 0.f, 0.f};
+			const float X = x * (Y / y);
+			const float Z = (1.f - x - y) * (Y / y);
+			const float r = 3.2406f * X - 1.5372f * Y - 0.4986f * Z;
+			const float g = -0.9689f * X + 1.8758f * Y + 0.0415f * Z;
+			const float b = 0.0557f * X - 0.2040f * Y + 1.0570f * Z;
+			return {r < 0.f ? 0.f : r, g < 0.f ? 0.f : g, b < 0.f ? 0.f : b};
+		}
+
+		static NkVec3f SampleSkyPhysical(float dx, float dy, float dz, const NkSkyParams &P) {
+			// Direction VERS le soleil = oppose de sa direction de propagation
+			// (meme convention que NkLightDesc::direction, cf. l'en-tete).
+			float sx = -P.sunDirection.x, sy = -P.sunDirection.y, sz = -P.sunDirection.z;
+			const float sl = std::sqrt(sx * sx + sy * sy + sz * sz);
+			if (sl > 1e-6f) {
+				sx /= sl;
+				sy /= sl;
+				sz /= sl;
+			} else {
+				sx = 0.f;
+				sy = 1.f;
+				sz = 0.f;
+			}
+
+			const float T = NkSkyClamp(P.turbidity, 1.f, 10.f);
+			const float cosTheta = dy;
+			const float cosThetaS = NkSkyClamp(sy, -1.f, 1.f);
+			const float thetaS = std::acos(cosThetaS);
+			const float cosGamma = NkSkyClamp(dx * sx + dy * sy + dz * sz, -1.f, 1.f);
+			const float gamma = std::acos(cosGamma);
+
+			const float cY[5] = {0.1787f * T - 1.4630f, -0.3554f * T + 0.4275f, -0.0227f * T + 5.3251f,
+								 0.1206f * T - 2.5771f, -0.0670f * T + 0.3703f};
+			const float cx[5] = {-0.0193f * T - 0.2592f, -0.0665f * T + 0.0008f, -0.0004f * T + 0.2125f,
+								 -0.0641f * T - 0.8989f, -0.0033f * T + 0.0452f};
+			const float cy[5] = {-0.0167f * T - 0.2608f, -0.0950f * T + 0.0092f, -0.0079f * T + 0.2102f,
+								 -0.0441f * T - 1.6537f, -0.0109f * T + 0.0529f};
+
+			const float t2 = thetaS * thetaS, t3 = t2 * thetaS;
+			const float chi = (4.f / 9.f - T / 120.f) * (3.14159265f - 2.f * thetaS);
+			float Yz = (4.0453f * T - 4.9710f) * std::tan(chi) - 0.2155f * T + 2.4192f;
+			if (Yz < 0.f)
+				Yz = 0.f;
+			const float xz = T * T * (0.00166f * t3 - 0.00375f * t2 + 0.00209f * thetaS) +
+							 T * (-0.02903f * t3 + 0.06377f * t2 - 0.03202f * thetaS + 0.00394f) +
+							 (0.11693f * t3 - 0.21196f * t2 + 0.06052f * thetaS + 0.25886f);
+			const float yz = T * T * (0.00275f * t3 - 0.00610f * t2 + 0.00317f * thetaS) +
+							 T * (-0.04214f * t3 + 0.08970f * t2 - 0.04153f * thetaS + 0.00516f) +
+							 (0.15346f * t3 - 0.26756f * t2 + 0.06670f * thetaS + 0.26688f);
+
+			// Normalisation par la valeur au zenith (theta = 0, gamma = thetaS).
+			const float dY = NkPerez(1.f, thetaS, cosThetaS, cY);
+			const float dXx = NkPerez(1.f, thetaS, cosThetaS, cx);
+			const float dYy = NkPerez(1.f, thetaS, cosThetaS, cy);
+			const float ct = cosTheta < 0.f ? 0.f : cosTheta;
+			const float Yv = Yz * NkPerez(ct, gamma, cosGamma, cY) / (dY < 1e-4f ? 1e-4f : dY);
+			const float xv = xz * NkPerez(ct, gamma, cosGamma, cx) / (dXx < 1e-4f ? 1e-4f : dXx);
+			const float yv = yz * NkPerez(ct, gamma, cosGamma, cy) / (dYy < 1e-4f ? 1e-4f : dYy);
+
+			// Yz est en kcd/m2 : sans remise a l'echelle le ciel sature tout. Le
+			// facteur ci-dessous amene un ciel clair de turbidite 2,5 autour de
+			// 1,0 au zenith, ce qui se marie avec le reste du rendu.
+			const float kScale = 0.06f;
+			NkVec3f c = NkxyYToRGB(xv, yv, Yv * kScale * P.sunIntensity);
+
+			// DISQUE SOLAIRE. Sans lui le ciel physique n'a aucune source
+			// visible, ce qui saute aux yeux des qu'on regarde vers le soleil.
+			// Rayon apparent reel ~0,27 deg ; on l'elargit un peu et on adoucit
+			// le bord, sinon a la resolution de la cubemap il crenele.
+			if (P.sunDisc && cosTheta > -0.05f && gamma < 0.030f) {
+				float k = 1.f - NkSkyClamp((gamma - 0.009f) / (0.030f - 0.009f), 0.f, 1.f);
+				k = k * k;
+				const float s = 12.f * P.sunIntensity * k;
+				c.x += s;
+				c.y += s * 0.97f;
+				c.z += s * 0.90f;
+			}
+
+			// SOUS L'HORIZON le modele n'est pas defini (le terme e^(B/cos theta)
+			// diverge). On y pose la couleur de sol, avec un fondu court pour
+			// eviter une couture nette a l'horizon exact.
+			if (dy < 0.f) {
+				const float k = NkSkyClamp(-dy / 0.10f, 0.f, 1.f);
+				c.x = c.x * (1.f - k) + P.ground.x * k;
+				c.y = c.y * (1.f - k) + P.ground.y * k;
+				c.z = c.z * (1.f - k) + P.ground.z * k;
+			}
+			return c;
+		}
+
+		// â”€â”€ NUAGES PROCEDURAUX â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+		// Bruit de valeur + fBm. Le hachage est ENTIER et deterministe : le meme
+		// ciel doit se regenerer a l'identique d'une session a l'autre, sans quoi
+		// le cache disque servirait une image differente de celle qu'on vient de
+		// calculer.
+		static inline float NkSkyHash3(int32 x, int32 y, int32 z) {
+			uint32 n = (uint32)(x * 374761393) + (uint32)(y * 668265263) + (uint32)(z * 1274126177);
+			n = (n ^ (n >> 13)) * 1274126177u;
+			n = n ^ (n >> 16);
+			return (float)(n & 0x00FFFFFFu) / (float)0x00FFFFFF;
+		}
+
+		static inline float NkSkyValueNoise(float x, float y, float z) {
+			const float fx = std::floor(x), fy = std::floor(y), fz = std::floor(z);
+			const int32 ix = (int32)fx, iy = (int32)fy, iz = (int32)fz;
+			float tx = x - fx, ty = y - fy, tz = z - fz;
+			// Lissage de Hermite : sans lui les cellules du bruit se voient.
+			tx = tx * tx * (3.f - 2.f * tx);
+			ty = ty * ty * (3.f - 2.f * ty);
+			tz = tz * tz * (3.f - 2.f * tz);
+			auto L = [](float a, float b, float t) { return a + (b - a) * t; };
+			const float c000 = NkSkyHash3(ix, iy, iz), c100 = NkSkyHash3(ix + 1, iy, iz);
+			const float c010 = NkSkyHash3(ix, iy + 1, iz), c110 = NkSkyHash3(ix + 1, iy + 1, iz);
+			const float c001 = NkSkyHash3(ix, iy, iz + 1), c101 = NkSkyHash3(ix + 1, iy, iz + 1);
+			const float c011 = NkSkyHash3(ix, iy + 1, iz + 1), c111 = NkSkyHash3(ix + 1, iy + 1, iz + 1);
+			return L(L(L(c000, c100, tx), L(c010, c110, tx), ty), L(L(c001, c101, tx), L(c011, c111, tx), ty), tz);
+		}
+
+		static inline float NkSkyFbm(float x, float y, float z, int32 octaves) {
+			float sum = 0.f, amp = 0.5f, norm = 0.f;
+			for (int32 i = 0; i < octaves; i++) {
+				sum += amp * NkSkyValueNoise(x, y, z);
+				norm += amp;
+				x *= 2.02f;
+				y *= 2.02f;
+				z *= 2.02f;
+				amp *= 0.5f;
+			}
+			return norm > 0.f ? sum / norm : 0.f;
+		}
+
+		static inline NkVec3f ApplyClouds(NkVec3f sky, float dx, float dy, float dz, const NkSkyParams &P) {
+			if (!P.clouds || dy <= 0.001f)
+				return sky; // pas de nuage sous l'horizon
+			// PROJECTION SUR UN PLAN a altitude constante : diviser par dy fait
+			// que les nuages s'ecrasent et s'etirent en approchant de l'horizon,
+			// comme dans la realite. Sans cette division ils garderaient la meme
+			// taille apparente partout, et le ciel ressemblerait a une boule
+			// texturee plutot qu'a une voute.
+			const float s = P.cloudScale <= 0.f ? 1.f : P.cloudScale;
+			const float inv = 1.f / (dy < 0.05f ? 0.05f : dy);
+			const float px = dx * inv * s;
+			const float pz = dz * inv * s;
+			const float n = NkSkyFbm(px, pz, 0.5f, 5);
+
+			// La COUVERTURE est un SEUIL sur le bruit, pas une opacite : a 0 il
+			// ne reste rien, a 1 le ciel est plein. C'est ce qui donne des nuages
+			// qui naissent et grossissent, au lieu d'un voile uniforme qui se
+			// contenterait de foncer.
+			const float cov = NkSkyClamp(P.cloudCoverage, 0.f, 1.f);
+			if (cov <= 0.f)
+				return sky;
+			float d = (n - (1.f - cov)) / (cov < 1e-3f ? 1e-3f : cov);
+			d = NkSkyClamp(d, 0.f, 1.f);
+			d *= (P.cloudDensity < 0.f ? 0.f : P.cloudDensity);
+			d *= NkSkyClamp(dy / 0.12f, 0.f, 1.f); // la projection degenere a l'horizon
+			d = NkSkyClamp(d, 0.f, 1.f);
+
+			// Les nuages sont ECLAIRES par le ciel qu'ils masquent : on melange
+			// vers leur couleur propre ponderee par la luminosite locale du ciel.
+			// Un blanc pur sur un ciel sombre trahirait le collage.
+			const float lit = NkSkyClamp((sky.x + sky.y + sky.z) * 0.5f, 0.25f, 1.5f);
+			const NkVec3f cc{P.cloudColor.x * lit, P.cloudColor.y * lit, P.cloudColor.z * lit};
+			return {sky.x + (cc.x - sky.x) * d, sky.y + (cc.y - sky.y) * d, sky.z + (cc.z - sky.z) * d};
+		}
+
+		// Point d'entree UNIQUE du ciel procedural : modele de base puis nuages.
+		// Les quatre sites d'echantillonnage (cubemap visible, irradiance et les
+		// deux du prefilter) passent par ici â€” sans quoi le ciel qu'on VOIT et
+		// celui qui ECLAIRE finiraient par diverger.
+		static inline NkVec3f SampleSkyModel(float dx, float dy, float dz, const NkSkyParams &P) {
+			const NkVec3f c = (P.model == NkSkyModel::NK_SKY_PHYSICAL)
+								  ? SampleSkyPhysical(dx, dy, dz, P)
+								  : SampleSkyGradient(dx, dy, dz, P.skyTop, P.horizon, P.ground);
+			return ApplyClouds(c, dx, dy, dz, P);
+		}
+
+		// â”€â”€ Hammersley sequence (low-discrepancy 2D) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		// Van der Corput radical inverse base 2.
 		static inline float RadicalInverseVdC(uint32 bits) {
 			bits = (bits << 16u) | (bits >> 16u);
@@ -286,7 +518,7 @@ namespace nkentseu {
 			y = RadicalInverseVdC(i);
 		}
 
-		// ── Construction d'un repere TBN orthonorme depuis N ─────────────────────
+		// â”€â”€ Construction d'un repere TBN orthonorme depuis N â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		static inline void BuildTBN(float Nx, float Ny, float Nz, float &Tx, float &Ty, float &Tz, float &Bx, float &By,
 									float &Bz) {
 			float ax = std::fabs(Ny) < 0.999f ? 0.f : 1.f;
@@ -308,8 +540,8 @@ namespace nkentseu {
 			Bz = Nx * Ty - Ny * Tx;
 		}
 
-		// ── Importance sample GGX dans le repere de N ───────────────────────────
-		// xi ∈ [0,1)^2, retourne la half-vector H en world space.
+		// â”€â”€ Importance sample GGX dans le repere de N â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+		// xi âˆˆ [0,1)^2, retourne la half-vector H en world space.
 		static inline void ImportanceSampleGGX(float xiX, float xiY, float roughness, float Nx, float Ny, float Nz,
 											   float &Hx, float &Hy, float &Hz) {
 			float a = roughness * roughness;
@@ -335,7 +567,7 @@ namespace nkentseu {
 			}
 		}
 
-		// ── G_Smith pour BRDF LUT (Karis variation k=a/2) ───────────────────────
+		// â”€â”€ G_Smith pour BRDF LUT (Karis variation k=a/2) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		static inline float G_Schlick(float cosT, float k) {
 			return cosT / (cosT * (1.f - k) + k);
 		}
@@ -346,7 +578,7 @@ namespace nkentseu {
 			return G_Schlick(NoV, k) * G_Schlick(NoL, k);
 		}
 
-		// ── Integrate split-sum BRDF (Karis 2013) ───────────────────────────────
+		// â”€â”€ Integrate split-sum BRDF (Karis 2013) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		// Retourne (scale, bias) avec F0_scale = 1-(1-VoH)^5*(1-Fc) etc.
 		static inline void IntegrateBRDF(float NoV, float roughness, uint32 numSamples, float &outScale,
 										 float &outBias) {
@@ -362,7 +594,7 @@ namespace nkentseu {
 				float Hx, Hy, Hz;
 				ImportanceSampleGGX(xiX, xiY, roughness, 0.f, 0.f, 1.f, Hx, Hy, Hz);
 
-				// L = reflect(-V, H) = 2*(V·H)*H - V
+				// L = reflect(-V, H) = 2*(VÂ·H)*H - V
 				float VoH = Vx * Hx + Vy * Hy + Vz * Hz;
 				float Lx = 2.f * VoH * Hx - Vx;
 				float Ly = 2.f * VoH * Hy - Vy;
@@ -392,7 +624,7 @@ namespace nkentseu {
 			mDevice = device;
 			mCfg = cfg;
 
-			// ── Cree les textures GPU avec leurs tailles finales ────────────────
+			// â”€â”€ Cree les textures GPU avec leurs tailles finales â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 			const uint32 irrSize = mCfg.irradianceSize > 0 ? mCfg.irradianceSize : 32;
 			const uint32 prefSize = mCfg.prefilterSize > 0 ? mCfg.prefilterSize : 128;
 			const uint32 prefMips = mCfg.prefilterMips > 0 ? mCfg.prefilterMips : 5;
@@ -415,7 +647,7 @@ namespace nkentseu {
 			}
 			// Phase N v1 : cubemap dedie skybox HDR brut (RGBA32F, mip 0).
 			// Format full-float pour preserver les valeurs > 1.0 (sans
-			// Reinhard tonemap) — c'est ce qui rend le sky HDR "vivant".
+			// Reinhard tonemap) â€” c'est ce qui rend le sky HDR "vivant".
 			{
 				auto td = NkTextureDesc::Cubemap(prefSize, NkGPUFormat::NK_RGBA32_FLOAT, 1);
 				td.debugName = "SkyEnvCube";
@@ -457,9 +689,28 @@ namespace nkentseu {
 			return mIrradiance.IsValid() && mPrefilter.IsValid() && mBrdfLUT.IsValid();
 		}
 
+		// Ancienne signature CONSERVEE : elle se ramene au modele degrade, donc
+		// tous les appels existants produisent exactement le meme ciel qu'avant.
 		void NkEnvironmentSystem::LoadProcedural(const NkVec3f &skyTop, const NkVec3f &horizon, const NkVec3f &ground) {
+			NkSkyParams p;
+			p.model = NkSkyModel::NK_SKY_GRADIENT;
+			p.skyTop = skyTop;
+			p.horizon = horizon;
+			p.ground = ground;
+			LoadProceduralEx(p);
+		}
+
+		void NkEnvironmentSystem::LoadProceduralEx(const NkSkyParams &P) {
 			if (!mDevice)
 				return;
+			// Alias locaux : le corps ci-dessous n'a pas change de forme, seuls
+			// les points d'echantillonnage passent desormais par SampleSkyModel.
+			const NkVec3f &skyTop = P.skyTop;
+			const NkVec3f &horizon = P.horizon;
+			const NkVec3f &ground = P.ground;
+			(void)skyTop;
+			(void)horizon;
+			(void)ground;
 
 			const uint32 irrSize = mCfg.irradianceSize > 0 ? mCfg.irradianceSize : 32;
 			const uint32 prefSize = mCfg.prefilterSize > 0 ? mCfg.prefilterSize : 128;
@@ -468,8 +719,8 @@ namespace nkentseu {
 
 			auto &pool = ::nkentseu::threading::NkThreadPool::GetGlobal();
 
-			// ── Phase N v1 : skybox cubemap procedural (gradient direct) ────
-			// En mode PROCEDURAL on n'a pas de "vrai HDR" — on sample le
+			// â”€â”€ Phase N v1 : skybox cubemap procedural (gradient direct) â”€â”€â”€â”€
+			// En mode PROCEDURAL on n'a pas de "vrai HDR" â€” on sample le
 			// gradient sky directement sans tonemap (les valeurs sont deja
 			// dans [0,1]). Genere TOUJOURS avant le cache check IBL.
 			if (mSkyEnvCube.IsValid()) {
@@ -483,7 +734,7 @@ namespace nkentseu {
 							float v = ((float)y + 0.5f) / (float)prefSize * 2.f - 1.f;
 							float Nx, Ny, Nz;
 							CubemapFaceUVToDir(face, u, v, Nx, Ny, Nz);
-							NkVec3f s = SampleSkyGradient(Nx, Ny, Nz, skyTop, horizon, ground);
+							NkVec3f s = SampleSkyModel(Nx, Ny, Nz, P);
 							uint32 idx = (y * prefSize + x) * 4;
 							buf[idx + 0] = s.x;
 							buf[idx + 1] = s.y;
@@ -498,8 +749,8 @@ namespace nkentseu {
 					mDevice->WriteTextureRegion(mSkyEnvCube, skyData[f].data(), 0, 0, 0, prefSize, prefSize, 1, 0, f);
 			}
 
-			// ── Cache disque ────────────────────────────────────────────────────
-			uint32 hash = IBLHash(skyTop, horizon, ground, irrSize, prefSize, prefMips, lutSize);
+			// â”€â”€ Cache disque â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+			uint32 hash = IBLHashSky(P, irrSize, prefSize, prefMips, lutSize);
 			if (mCfg.enableCache) {
 				auto path = IBLCachePath(mCfg.cacheDir, hash);
 				if (TryLoadIBLCache(path, hash, mDevice, mBrdfLUT, mIrradiance, mPrefilter, irrSize, prefSize, prefMips,
@@ -508,7 +759,7 @@ namespace nkentseu {
 				}
 			}
 
-			// ── BRDF LUT ────────────────────────────────────────────────────────
+			// â”€â”€ BRDF LUT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 			// 32 samples suffisent pour un gradient sky sans hautes frequences.
 			std::vector<uint8_t> lutData(lutSize * lutSize * 2);
 			if (mBrdfLUT.IsValid()) {
@@ -532,8 +783,8 @@ namespace nkentseu {
 				mDevice->WriteTexture(mBrdfLUT, lutData.data());
 			}
 
-			// ── Irradiance convolution ──────────────────────────────────────────
-			// 4 strates × 16 azimuts = 64 samples : suffisant pour ciel gradient.
+			// â”€â”€ Irradiance convolution â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+			// 4 strates Ã— 16 azimuts = 64 samples : suffisant pour ciel gradient.
 			std::vector<std::vector<uint8_t>> irrData(6);
 			if (mIrradiance.IsValid()) {
 				auto irrFaceWork = [&](uint32 face) {
@@ -565,7 +816,7 @@ namespace nkentseu {
 									float Wx = Tx * lx + Bx * ly + Nx * lz;
 									float Wy = Ty * lx + By * ly + Ny * lz;
 									float Wz = Tz * lx + Bz * ly + Nz * lz;
-									NkVec3f s = SampleSkyGradient(Wx, Wy, Wz, skyTop, horizon, ground);
+									NkVec3f s = SampleSkyModel(Wx, Wy, Wz, P);
 									float w = cT * sT;
 									Cx += s.x * w;
 									Cy += s.y * w;
@@ -591,7 +842,7 @@ namespace nkentseu {
 					mDevice->WriteTextureRegion(mIrradiance, irrData[f].data(), 0, 0, 0, irrSize, irrSize, 1, 0, f);
 			}
 
-			// ── Prefilter GGX par mip ───────────────────────────────────────────
+			// â”€â”€ Prefilter GGX par mip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 			// 16 samples : qualite correcte pour ciel sans hautes frequences.
 			std::vector<std::vector<std::vector<uint8_t>>> prefData(prefMips, std::vector<std::vector<uint8_t>>(6));
 			if (mPrefilter.IsValid()) {
@@ -614,7 +865,7 @@ namespace nkentseu {
 								CubemapFaceUVToDir(face, u, v, Nx, Ny, Nz);
 								float Vx = Nx, Vy = Ny, Vz = Nz;
 								if (roughness < 1e-3f) {
-									NkVec3f s = SampleSkyGradient(Nx, Ny, Nz, skyTop, horizon, ground);
+									NkVec3f s = SampleSkyModel(Nx, Ny, Nz, P);
 									uint32 idx = (y * mipSize + x) * 4;
 									buf[idx + 0] = (uint8_t)(NkClamp(s.x, 0.f, 1.f) * 255.f);
 									buf[idx + 1] = (uint8_t)(NkClamp(s.y, 0.f, 1.f) * 255.f);
@@ -634,7 +885,7 @@ namespace nkentseu {
 									float Lz = 2.f * VoH * Hz - Vz;
 									float NoL = std::fmax(Nx * Lx + Ny * Ly + Nz * Lz, 0.f);
 									if (NoL > 0.f) {
-										NkVec3f s = SampleSkyGradient(Lx, Ly, Lz, skyTop, horizon, ground);
+										NkVec3f s = SampleSkyModel(Lx, Ly, Lz, P);
 										Cx += s.x * NoL;
 										Cy += s.y * NoL;
 										Cz += s.z * NoL;
@@ -661,18 +912,18 @@ namespace nkentseu {
 				}
 			}
 
-			// ── Sauvegarde du cache pour les prochains lancements ───────────────
+			// â”€â”€ Sauvegarde du cache pour les prochains lancements â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 			if (mCfg.enableCache) {
 				auto path = IBLCachePath(mCfg.cacheDir, hash);
 				SaveIBLCache(path, hash, irrSize, prefSize, prefMips, lutSize, lutData.data(), irrData, prefData);
 			}
 		}
 
-		// ── Phase N v0 : LoadFromHDR ────────────────────────────────────────
+		// â”€â”€ Phase N v0 : LoadFromHDR â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		// Charge un .hdr equirect 360 et l'utilise comme source pour les
 		// convolutions irradiance + prefilter. CPU-side (future v1 = compute
 		// shader GPU). Hash de cache = path + tailles config (pas le mtime
-		// pour cette v0 — clear cache manuel si on swap le .hdr).
+		// pour cette v0 â€” clear cache manuel si on swap le .hdr).
 		bool NkEnvironmentSystem::LoadFromHDR(const NkString &path) {
 			if (!mDevice)
 				return false;
@@ -710,7 +961,7 @@ namespace nkentseu {
 			const uint32 prefMips = mCfg.prefilterMips > 0 ? mCfg.prefilterMips : 5;
 			const uint32 lutSize = mCfg.brdfLUTSize > 0 ? mCfg.brdfLUTSize : 256;
 
-			// ── Cache disque : hash sur path + tailles (pas le contenu) ─────
+			// â”€â”€ Cache disque : hash sur path + tailles (pas le contenu) â”€â”€â”€â”€â”€
 			// Suffit pour eviter de re-calculer si on relance avec le meme
 			// HDR + memes tailles. Pour invalider, clear le fichier manuellement.
 			uint32 hash = 0x811c9dc5u;
@@ -726,7 +977,7 @@ namespace nkentseu {
 
 			auto &pool = ::nkentseu::threading::NkThreadPool::GetGlobal();
 
-			// ── Phase N v1 : skybox cubemap HDR brut (sans Reinhard) ────────
+			// â”€â”€ Phase N v1 : skybox cubemap HDR brut (sans Reinhard) â”€â”€â”€â”€â”€â”€â”€â”€
 			// Genere TOUJOURS (avant le cache check IBL) car ce cubemap n'est
 			// pas serialise dans nk_ibl_*.bin (regeneration ~10ms, negligeable).
 			// Mirror direct du HDR equirect sur les 6 faces du cube en RGBA32F.
@@ -765,7 +1016,7 @@ namespace nkentseu {
 				}
 			}
 
-			// ── BRDF LUT (identique a LoadProcedural — universel) ───────────
+			// â”€â”€ BRDF LUT (identique a LoadProcedural â€” universel) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 			std::vector<uint8_t> lutData(lutSize * lutSize * 2);
 			if (mBrdfLUT.IsValid()) {
 				const uint32 N = 32;
@@ -788,18 +1039,18 @@ namespace nkentseu {
 				mDevice->WriteTexture(mBrdfLUT, lutData.data());
 			}
 
-			// ── Phase N v1 : convolutions sur GPU (compute) ─────────────────
-			// Remplit les MÊMES buffers que le chemin CPU (packing RGBA8
-			// identique) → upload et cache disque inchangés. Sur le moindre
-			// échec (backend sans compute, kernel KO), gpuDone reste false et
-			// les blocs CPU ci-dessous s'exécutent comme avant.
+			// â”€â”€ Phase N v1 : convolutions sur GPU (compute) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+			// Remplit les MÃŠMES buffers que le chemin CPU (packing RGBA8
+			// identique) â†’ upload et cache disque inchangÃ©s. Sur le moindre
+			// Ã©chec (backend sans compute, kernel KO), gpuDone reste false et
+			// les blocs CPU ci-dessous s'exÃ©cutent comme avant.
 			std::vector<std::vector<uint8_t>> irrData(6);
 			std::vector<std::vector<std::vector<uint8_t>>> prefData(prefMips, std::vector<std::vector<uint8_t>>(6));
 			bool gpuDone = false;
 
 			const char *envGpu = std::getenv("NK_IBL_GPU");
 			// DX11 : NK_IBL_VERIFY montre maxDiff=175/255 sur ~0.8% des texels
-			// (fxc cs_5_0 ; GL/VK/DX12 sont a 5/255 pres) — comme le resultat
+			// (fxc cs_5_0 ; GL/VK/DX12 sont a 5/255 pres) â€” comme le resultat
 			// alimente le cache disque, DX11 reste sur le CPU par defaut.
 			// NK_IBL_GPU=1 force le GPU (debug), NK_IBL_GPU=0 force le CPU.
 			const bool dx11 = mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_DX11;
@@ -810,7 +1061,7 @@ namespace nkentseu {
 			if (wantGpu) {
 				const float64 tGpu0 = ::nkentseu::NkChrono::Now().nanoseconds;
 
-				// Equirect → RGBA float32 contigu (SSBO source du kernel).
+				// Equirect â†’ RGBA float32 contigu (SSBO source du kernel).
 				const uint32 hw = (uint32)hdr->Width();
 				const uint32 hh = (uint32)hdr->Height();
 				const NkImagePixelFormat hfmt = hdr->Format();
@@ -863,11 +1114,11 @@ namespace nkentseu {
 						const float64 compileMs = (tCompile - tGpu0) / 1.0e6;
 						const float64 convMs = (now - tCompile) / 1.0e6;
 						logger.Infof("[IBL] Convolutions GPU : %.1f ms (compile kernels %.1f ms one-shot + "
-									 "convolution %.1f ms) — irr %ux%u + prefilter %ux%u x%u mips\n",
+									 "convolution %.1f ms) â€” irr %ux%u + prefilter %ux%u x%u mips\n",
 									 compileMs + convMs, compileMs, convMs, irrSize, irrSize, prefSize, prefSize,
 									 prefMips);
 					} else {
-						logger.Warnf("[IBL] Convolution GPU echouee — fallback CPU\n");
+						logger.Warnf("[IBL] Convolution GPU echouee â€” fallback CPU\n");
 					}
 				}
 			}
@@ -882,11 +1133,11 @@ namespace nkentseu {
 			if (verify) {
 				irrGpuCopy = irrData;
 				prefGpuCopy = prefData;
-				gpuDone = false; // ré-exécute le CPU dans irrData/prefData
+				gpuDone = false; // rÃ©-exÃ©cute le CPU dans irrData/prefData
 			}
 
-			// ── Irradiance convolution (CPU, fallback / verify) ─────────────
-			// Lambert weighted hemisphere, 4 strates × 16 azimuts = 64 samples
+			// â”€â”€ Irradiance convolution (CPU, fallback / verify) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+			// Lambert weighted hemisphere, 4 strates Ã— 16 azimuts = 64 samples
 			const float64 tCpu0 = ::nkentseu::NkChrono::Now().nanoseconds;
 			if (mIrradiance.IsValid() && !gpuDone) {
 				auto irrFaceWork = [&](uint32 face) {
@@ -950,7 +1201,7 @@ namespace nkentseu {
 					mDevice->WriteTextureRegion(mIrradiance, irrData[f].data(), 0, 0, 0, irrSize, irrSize, 1, 0, f);
 			}
 
-			// ── Prefilter GGX par mip (CPU, fallback / verify) ──────────────
+			// â”€â”€ Prefilter GGX par mip (CPU, fallback / verify) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 			// 32 samples : qualite correcte pour HDR a hautes frequences (vs
 			// 16 pour gradient procedural). Garde le mip 0 mirror du HDR.
 			if (mPrefilter.IsValid() && !gpuDone) {
@@ -1039,7 +1290,7 @@ namespace nkentseu {
 				logger.Infof("[IBL] Convolutions CPU : %.1f ms\n", cpuMs);
 			}
 
-			// ── NK_IBL_VERIFY=1 : ecart GPU vs CPU (octets RGBA8) ───────────
+			// â”€â”€ NK_IBL_VERIFY=1 : ecart GPU vs CPU (octets RGBA8) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 			if (verify) {
 				uint32 maxDiff = 0;
 				uint64 nDiff = 0;
@@ -1065,7 +1316,7 @@ namespace nkentseu {
 							 nTotal ? 100.0 * (float64)nDiff / (float64)nTotal : 0.0);
 			}
 
-			// ── Sauvegarde du cache ─────────────────────────────────────────
+			// â”€â”€ Sauvegarde du cache â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 			// Note v1 : mSkyEnvCube n'est PAS dans le cache (genere avant le
 			// cache check, regenere a chaque boot ~10ms negligeable).
 			if (mCfg.enableCache) {
