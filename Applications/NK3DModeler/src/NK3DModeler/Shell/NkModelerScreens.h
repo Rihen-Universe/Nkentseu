@@ -4437,6 +4437,15 @@ namespace nkentseu {
 				}
 				if (boxH < kRowH)
 					boxH = kRowH;
+				// UNE SEULE SECTION A LA FOIS : elle prend TOUTE la hauteur, et
+				// c'est la barre generale -- celle de NKEditorKit, toujours
+				// visible -- qui la fait defiler. Lui donner une part et une barre
+				// a elle revenait a decouper un seul contenu en deux gestes de
+				// defilement (Rihen).
+				boxH = (r.y + r.h) - secY;
+				if (boxH < kRowH)
+					boxH = kRowH;
+				st.propScroll3[sec] = 0.f;
 				// PAS de plafond calcule sur la position DEFILEE : il creait une
 				// retroaction (descendre allongeait la derniere section, donc la
 				// pile, donc le defilement...) -- c'etait le CLIGNOTEMENT de la
@@ -4669,6 +4678,14 @@ namespace nkentseu {
 										static int32 sParNode[24];
 										static int32 sParOwner = -1;
 										static int32 sParSel = 0;
+										// LE NOEUD DEJA APPLIQUE. La liste est peinte APRES
+										// le panneau : le choix de l'utilisateur n'arrive
+										// donc qu'a la frame suivante. Comparer a l'etat
+										// « avant l'appel » ne voyait jamais rien, et
+										// recaler l'indice sur le parent reel effacait le
+										// choix avant qu'on le lise -- le piege des listes
+										// differees, deja paye une fois.
+										static int32 sParApplied = -2;
 										int32 np = 0;
 										snprintf(sParName[0], sizeof(sParName[0]), "Aucun");
 										sParPtr[0] = sParName[0];
@@ -4690,20 +4707,29 @@ namespace nkentseu {
 												curIdx = np;
 											++np;
 										}
-										// La liste suit l'objet ET son parent reel : elle
-										// doit montrer ce qui EST, pas un vieux choix.
 										if (sParOwner != en) {
 											sParOwner = en;
 											sParSel = curIdx;
+											sParApplied = pa;
 										}
-										if (sParSel >= np || sParNode[sParSel] != pa)
+										if (sParSel < 0 || sParSel >= np)
 											sParSel = curIdx;
+										// DEUX SENS, sans se marcher dessus : si la liste
+										// designe autre chose que ce qu'on a applique,
+										// c'est l'utilisateur qui a choisi -> on reparente.
+										// Sinon, si la parente reelle a change AILLEURS
+										// (hierarchie, glisser-deposer), la liste s'y
+										// recale.
+										if (sParNode[sParSel] != sParApplied) {
+											demo::Demo3DHostSetNodeParent(en, sParNode[sParSel]);
+											sParApplied = sParNode[sParSel];
+										} else if (pa != sParApplied) {
+											sParSel = curIdx;
+											sParApplied = pa;
+										}
 										const NkRect vb{valX, yy + S(3.f), valW, kRowH - S(6.f)};
-										const int32 beforeP = sParSel;
 										Combo(p, hit, ws, "prop.rel.par", vb, sParPtr, nullptr, np,
 											  sParSel, combo);
-										if (sParSel != beforeP && sParSel >= 0 && sParSel < np)
-											demo::Demo3DHostSetNodeParent(en, sParNode[sParSel]);
 									}
 									yy += kRowH;
 									// ENFANTS : la LISTE, pas un compte (Rihen). Un nombre
@@ -4747,19 +4773,10 @@ namespace nkentseu {
 												sKidOwner = en;
 												sKidSel = 0;
 											}
-											if (sKidSel >= nk)
+											if (sKidSel < 0 || sKidSel >= nk)
 												sKidSel = nk - 1;
-											const int32 beforeK = sKidSel;
 											Combo(p, hit, ws, "prop.rel.kids", vb, sKidPtr,
 												  nullptr, nk, sKidSel, combo);
-											// CHOISIR UN ENFANT, C'EST Y ALLER : il devient
-											// l'objet selectionne et le panneau le suit.
-											if (sKidSel != beforeK && sKidSel >= 0 &&
-												sKidSel < nk) {
-												demo::Demo3DHostDeselectAll();
-												demo::Demo3DHostSelectEmptyNode(sKidNode[sKidSel]);
-												st.activeEmpty = sKidNode[sKidSel];
-											}
 											// RETIRER l'enfant choisi : detacher se fait
 											// depuis la ou on le designe (Rihen).
 											const NkRect db{vb.x + vb.w + S(4.f), vb.y,
@@ -4774,6 +4791,58 @@ namespace nkentseu {
 										}
 									}
 									yy += kRowH;
+									// AJOUTER UN ENFANT depuis ce panneau (Rihen) : la
+									// liste propose les objets LIBRES du document -- ceux
+									// qui n'ont pas encore de parent et qui ne sont pas
+									// dans la descendance de celui-ci.
+									{
+										static char sAddName[24][24];
+										static const char *sAddPtr[24];
+										static int32 sAddNode[24];
+										static int32 sAddSel = 0;
+										int32 na = 0;
+										const int32 ncA = demo::Demo3DHostNodeCount();
+										for (int32 c9 = 0; c9 < ncA && na < 24; ++c9) {
+											if (c9 == en || NkHierNodeSkip(c9))
+												continue;
+											if (demo::Demo3DHostNodeParent(c9) == en)
+												continue; // deja enfant
+											if (NkHierIsDescendant(en, c9))
+												continue; // interdit : cycle
+											NkHierNodeName(st, c9, sAddName[na],
+														   sizeof(sAddName[0]));
+											sAddPtr[na] = sAddName[na];
+											sAddNode[na] = c9;
+											++na;
+										}
+										p.TextV(iR.x, yy, kRowH, "Ajouter", NkRole::TextMuted);
+										if (na > 0) {
+											if (sAddSel < 0 || sAddSel >= na)
+												sAddSel = 0;
+											const NkRect ab{valX, yy + S(3.f), valW - S(24.f),
+															kRowH - S(6.f)};
+											Combo(p, hit, ws, "prop.rel.addk", ab, sAddPtr,
+												  nullptr, na, sAddSel, combo);
+											const NkRect pb{ab.x + ab.w + S(4.f), ab.y, S(20.f),
+															ab.h};
+											const bool ovP = hit.Add("prop.rel.addb", pb);
+											p.Outline(pb,
+													  ovP ? NkRole::AccentUi : NkRole::Border,
+													  NkRole::PanelHeader, 3.f);
+											p.IconV(pb.x + (pb.w - S(11.f)) * 0.5f, pb.y, pb.h,
+													NkIcon::PlusCircle, NkRole::TextMuted, 11.f);
+											if (hit.Clicked("prop.rel.addb") && sAddSel < na)
+												demo::Demo3DHostSetNodeParent(sAddNode[sAddSel],
+																			  en);
+										} else {
+											const NkRect ab{valX, yy + S(3.f), valW,
+															kRowH - S(6.f)};
+											p.Outline(ab, NkRole::Border, NkRole::InputBg, 2.f);
+											p.TextV(ab.x + S(6.f), yy, kRowH, "Aucun libre",
+													NkRole::TextMuted);
+										}
+										yy += kRowH;
+									}
 									// TOUS LES ENFANTS D'UN COUP (Rihen) : detacher un a
 									// un devient vite penible des qu'ils sont nombreux.
 									if (demo::Demo3DHostNodeHasChildren(en)) {
@@ -4811,9 +4880,10 @@ namespace nkentseu {
 									sE[6 + a] = st.scl[a];
 								}
 							}
-							if (ukE >= 1 && ukE <= 3) {
-								// MATERIAU du maillage utilisateur : les memes reglages
-								// que n'importe quel mesh.
+							// MATERIAU : encore a l'ancien format, hors bloc. Il est
+							// MASQUE le temps de le porter dans son groupe (Rihen :
+							// les elements sans bloc genent la lecture du panneau).
+							if (false && ukE >= 1 && ukE <= 3) {
 								p.TextV(r.x + kPad, yy, kRowH, "Materiau", NkRole::TextMuted);
 								yy += kRowH;
 								float32 mtE[3], metE = 0.f, rghE = 0.5f;
@@ -5852,22 +5922,20 @@ namespace nkentseu {
 					}
 				}
 
-				sContentH[sec] = (yy + st.propScroll3[sec]) - secY + S(4.f);
-				// Une section dont le contenu TIENT n'avale pas la molette : elle
-				// n'a rien a faire defiler, c'est donc la PILE qui doit bouger.
-				if (sContentH[sec] > boxH)
-					anyWheel |= hit.WheelIn(box, st.propScroll3[sec], sContentH[sec], boxH);
-				else
-					st.propScroll3[sec] = 0.f;
+				// La hauteur du contenu sert desormais a la SEULE barre generale :
+				// la molette s'y applique donc directement, sans defilement local.
+				sContentH[sec] = yy - secY + S(4.f);
 				hit.PopClip();
 				p.Unclip();
-				snprintf(key, sizeof(key), "props.sb.%d", sec);
-				{
-					NkRect inBox = box;
-					inBox.w -= S(9.f); // la barre de section s'INSERE ; le bord est a la globale
-					NkScrollDrag(p, hit, st, key, inBox, sContentH[sec], st.propScroll3[sec]);
-				}
-				secY += boxH;
+				// PLUS DE BARRE PAR SECTION (Rihen) : une seule pastille est active,
+				// donc une seule section occupe le panneau -- c'est la barre
+				// GENERALE qui doit la faire defiler. Une seconde barre a
+				// l'interieur decoupait le defilement en deux gestes pour un seul
+				// contenu.
+				// La pile avance de ce que le contenu occupe REELLEMENT : c'est lui
+				// que la barre generale doit pouvoir parcourir, pas la hauteur du
+				// cadre (qui vaut maintenant tout le panneau).
+				secY += sContentH[sec];
 				// ── POIGNEE DE HAUTEUR : agrandir/retrecir CETTE section ────
 				// Le geste appartient a la poignee ou il a commence (propDragKey),
 				// comme la barre de defilement.

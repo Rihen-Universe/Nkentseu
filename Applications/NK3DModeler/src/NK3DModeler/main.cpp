@@ -573,6 +573,8 @@ int nkmain(const NkEntryState &entry) {
 		// celle-ci : les panneaux sont peints avant les menus, ils ne peuvent
 		// pas connaitre leur emprise autrement.
 		st.UiBlockFlip();
+		// ... et le registre la fait respecter pour TOUS les widgets a la fois.
+		hit.SetBlock(st.uiBlockCur, st.uiBlockCurOn);
 		// La garde du clavier suit l'etat REEL des widgets : tant qu'un champ est
 		// en cours de saisie, aucune touche ne doit atteindre les raccourcis.
 		st.editingText = ws.editing;
@@ -1098,10 +1100,19 @@ int nkmain(const NkEntryState &entry) {
 		// hierarchie ET de la vue 3D, confirmation de suppression).
 		PaintSceneMenus(p, {0.f, 0.f, (float32)W, (float32)H}, lay.view, st, hit, ws,
 						ui.input);
+		// LES SURCOUCHES REPONDENT, ELLES : on leve la garde avant de les
+		// peindre, sinon la liste ouverte refuserait ses propres clics.
+		hit.SetBlock({}, false);
 		// Le panneau des matcaps par-dessus TOUT : il peut etre ouvert depuis
 		// la barre de la vue comme depuis le panneau Proprietes.
 		PaintMatcapPopup(p, hit, st);
-		DrawComboPopup(p, hit, ws, combo);
+		// La liste ouverte declare son EMPRISE : comme les menus, elle ne doit
+		// pas laisser ses clics atteindre le panneau peint sous elle.
+		{
+			NkRect comboBox{};
+			DrawComboPopup(p, hit, ws, combo, &comboBox);
+			st.UiBlockAdd(comboBox);
+		}
 		DrawCheckPopup(p, hit, ws, checks);
 		PaintModifierMenu(p, st, hit, ws, W, H);
 		PaintAddObjectMenu(p, st, hit, ws, W, H);

@@ -633,11 +633,25 @@ namespace nkentseu {
 				const char *Hovered() const {
 					return mHover;
 				}
+				// ── SURCOUCHE BLOQUANTE, UNE FOIS POUR TOUTE L'APPLICATION ──────
+				// Menus et listes deroulantes sont peints APRES les panneaux : quand
+				// on clique dedans, le panneau du dessous a deja decide de SON clic.
+				// Plutot que de garder chaque widget un a un -- et d'en oublier a
+				// chaque ajout -- le registre refuse ICI tout clic tombant dans
+				// l'emprise declaree. Les surcouches, elles, sont peintes apres
+				// qu'on l'a levee, et repondent donc normalement.
+				void SetBlock(const NkRect &b, bool on) {
+					mBlock = b;
+					mBlockOn = on;
+				}
+				bool BlockedAtMouse() const {
+					return mBlockOn && Contains(mBlock, mMouse);
+				}
 				bool Clicked(const char *key) const {
-					return mClicked && Eq(mHover, key);
+					return mClicked && !BlockedAtMouse() && Eq(mHover, key);
 				}
 				bool RightClicked(const char *key) const {
-					return mRightClicked && Eq(mHover, key);
+					return mRightClicked && !BlockedAtMouse() && Eq(mHover, key);
 				}
 				bool Down(const char *key) const {
 					return mDown && Eq(mHover, key);
@@ -745,6 +759,8 @@ namespace nkentseu {
 					return *a == *b;
 				}
 
+				NkRect mBlock{};
+				bool mBlockOn = false;
 				char mKeys[kMax][48] = {};
 				NkRect mRects[kMax] = {};
 				uint32 mCount = 0;
