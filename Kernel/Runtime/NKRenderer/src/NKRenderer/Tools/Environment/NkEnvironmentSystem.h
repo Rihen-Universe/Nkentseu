@@ -89,7 +89,35 @@ namespace nkentseu {
 			// fonctionner et donne le crepuscule, puis la nuit. C'est exactement
 			// ce dont un cycle jour/nuit a besoin.
 			NK_SKY_ATMOSPHERE = 2,
+			// Hosek & Wilkie, SIGGRAPH 2012 — le modele MESURE. Ses tables de
+			// coefficients (BSD 3-clauses, copie VERBATIM verifiee par empreinte
+			// SHA-256 depuis la distribution officielle 1.4a) sont cuites cote
+			// CPU en 9 coefficients par canal ; le shader n'evalue que la
+			// formule. C'est le plus fidele des quatre en plein jour ; comme
+			// Preetham, il n'est pas defini sous l'horizon (l'atmosphere
+			// Rayleigh + Mie reste le modele des crepuscules).
+			NK_SKY_HOSEK = 3,
 		};
+
+		// ── Coefficients cuits du modele Hosek-Wilkie ───────────────────────
+		// Resultat de l'interpolation des tables pour UN triplet (turbidite,
+		// albedo, elevation du soleil). C'est CE qui descend au GPU — dix vec4
+		// — et non les tables elles-memes (65 Ko).
+		struct NkHosekSkyCoeffs {
+				NkVec3f coef[9];  // A..I de la formule etendue, par canal RGB
+				NkVec3f radiance; // facteur de radiance par canal
+		};
+
+		// Cuisson : interpolation de Bezier quintique sur l'elevation, lineaire
+		// sur la turbidite et l'albedo — adaptee du code officiel BSD (v1.4a,
+		// ArHosekSkyModel.c), tables incluses telles quelles. L'elevation est
+		// attendue >= 0 : le modele n'est pas defini sous l'horizon.
+		void NkHosekCookRGB(float32 turbidity, const NkVec3f &albedo, float32 sunElevRad,
+							NkHosekSkyCoeffs &out);
+		// Evaluation CPU de la formule (meme calcul que le shader). Sert a la
+		// NORMALISATION : on evalue une reference pour caler l'exposition sans
+		// avoir a regler un facteur a l'oeil.
+		NkVec3f NkHosekEvalRGB(const NkHosekSkyCoeffs &c, float32 cosTheta, float32 gamma);
 
 		// Parametres complets du ciel procedural. La COUCHE DE NUAGES est
 		// independante du modele de base : on peut couvrir aussi bien un degrade
