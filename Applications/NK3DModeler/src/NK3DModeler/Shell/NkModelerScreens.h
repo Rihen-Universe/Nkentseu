@@ -6470,6 +6470,31 @@ namespace nkentseu {
 									}
 									if (si2 != a0 || sd2 != b0)
 										demo::Demo3DHostSetSkyStars(si2, sd2);
+									// MOUVEMENT : rotation de la voute et etoiles
+									// filantes. Propose seulement si les etoiles
+									// sont allumees — faire tourner un ciel vide
+									// ou y lancer des filantes invisibles n'a
+									// aucun sens.
+									if (si2 > 0.001f) {
+										float32 rot = 0.f, sho = 0.f;
+										demo::Demo3DHostSkyStarMotion(&rot, &sho);
+										const float32 r0 = rot, s0s = sho;
+										p.TextV(iA.x, yy, kRowH, "Rotation", NkRole::TextMuted);
+										DragFloat(p, hit, ws, in, "prop.sky.starrot",
+												  {iA.x + S(110.f), yy + S(3.f),
+												   iA.w - S(110.f), kRowH - S(6.f)},
+												  rot, 0.002f, NkRole::AccentUi, "%.3f");
+										yy += kRowH;
+										p.TextV(iA.x, yy, kRowH, "Filantes / min",
+												NkRole::TextMuted);
+										DragFloat(p, hit, ws, in, "prop.sky.shoot",
+												  {iA.x + S(110.f), yy + S(3.f),
+												   iA.w - S(110.f), kRowH - S(6.f)},
+												  sho, 0.2f, NkRole::AccentUi, "%.1f");
+										yy += kRowH;
+										if (rot != r0 || sho != s0s)
+											demo::Demo3DHostSetSkyStarMotion(rot, sho);
+									}
 								}
 								// ── LUNES ───────────────────────────────────
 								// PLUSIEURS sont possibles : c'est un nombre, pas

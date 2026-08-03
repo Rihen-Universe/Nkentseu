@@ -274,6 +274,12 @@ namespace nkentseu {
 		// fera apparaitre et disparaitre sans qu'on ait a les piloter.
 		void Demo3DHostSkyStars(float32 *intensity, float32 *density);
 		void Demo3DHostSetSkyStars(float32 intensity, float32 density);
+		// MOUVEMENT du ciel etoile : rotation celeste (rad/s) et etoiles filantes
+		// (apparitions par minute). Les filantes sont TIREES DU TEMPS et non d'un
+		// generateur aleatoire — une meme seconde redonne toujours la meme, donc
+		// une capture se rejoue a l'identique et un rendu par images se recolle.
+		void Demo3DHostSkyStarMotion(float32 *rotation, float32 *shooting);
+		void Demo3DHostSetSkyStarMotion(float32 rotation, float32 shooting);
 		// LUNES (0 a 2). Elevation / azimut, comme le soleil — c'est ainsi qu'on
 		// situe un astre. Leur PHASE ne figure pas ici : elle se DEDUIT de la
 		// position du soleil, cote shader. Un curseur de phase aurait permis

@@ -27,7 +27,7 @@ namespace nkentseu {
 		// Un static_assert dans UploadUBOs verifie l'accord : agrandir PBRCamUBO
 		// sans toucher a cette constante casse la COMPILATION, au lieu de perdre
 		// les derniers champs sans un mot.
-		static constexpr uint32 kPBRCamUBOSize = 672;
+		static constexpr uint32 kPBRCamUBOSize = 688;
 
 		NkRender3D::~NkRender3D() {
 			Shutdown();
@@ -2118,6 +2118,9 @@ namespace nkentseu {
 					// PHASES FORCEES (option) : x phase lune 0, y mode lune 0
 					// (0 = deduite du soleil, 1 = forcee), z et w idem lune 1.
 					NkVec4f skyMoonPhase;
+					// x rotation celeste (rad/s), y etoiles filantes par minute,
+					// zw libres.
+					NkVec4f skyStars2;
 			};
 
 			// L'ALLOCATION ET L'ECRITURE DOIVENT S'ACCORDER. Sans cette
@@ -2264,6 +2267,7 @@ namespace nkentseu {
 					cb.skyMoonB1 = mB[1];
 					cb.skyMoonPhase = {SP.moons[0].phase, SP.moons[0].manualPhase ? 1.f : 0.f,
 									   SP.moons[1].phase, SP.moons[1].manualPhase ? 1.f : 0.f};
+					cb.skyStars2 = {SP.starRotation, SP.shootingRate, 0.f, 0.f};
 				}
 			}
 			cb.viewMode = (float32)mViewMode; // 0=rendered(PBR) 1=solid/unlit (indépendant du wireframe)

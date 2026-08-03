@@ -381,6 +381,17 @@ boutons de remise à zéro.
   Son facteur d'échelle (22) est calé pour qu'un ciel de midi rende comme
   Preetham : changer de modèle ne doit pas faire sauter l'exposition de la scène.
 
+- **Ciel étoilé en mouvement** : **Rotation** (rad/s) fait dériver la voûte
+  entière — le champ est fixe en espace monde, c'est la *direction* qu'on tourne
+  avant de l'échantillonner. Et **Filantes / min**.
+
+  Les étoiles filantes sont **tirées du temps**, jamais d'un générateur
+  aléatoire : le temps est découpé en créneaux, chaque créneau hache son numéro
+  pour en déduire départ, direction et inclinaison. Une même seconde redonne donc
+  **toujours** la même filante — une capture se rejoue à l'identique et un rendu
+  par images se recolle sans sauts. Un tirage aléatoire par image aurait rendu
+  tout rendu différé impossible.
+
 ### Lunes en nombre libre (demandé pour les courts métrages)
 
 Le tableau est dimensionné à **2**. Passer à 4, 8 ou davantage ne demande que deux

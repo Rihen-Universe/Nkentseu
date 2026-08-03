@@ -149,6 +149,16 @@ namespace nkentseu {
 				// pour le ciel evalue en temps reel.
 				float32 starIntensity = 0.f; // 0 = aucune
 				float32 starDensity = 200.f; // plus grand = plus fines et nombreuses
+				// ROTATION CELESTE, en radians par seconde. Le champ d'etoiles
+				// tourne lentement, comme la voute vue du sol. A 0 il est fige.
+				// Une valeur realiste est minuscule (2*PI / 86164 s) ; pour un
+				// film on l'accelere sans complexe, c'est le but d'un reglage.
+				float32 starRotation = 0.f;
+				// ETOILES FILANTES : nombre d'apparitions par minute, en moyenne.
+				// 0 = aucune. Elles sont TIREES DU TEMPS, pas d'un generateur
+				// aleatoire : chaque creneau horaire produit toujours la meme
+				// etoile filante, donc une capture se rejoue a l'identique.
+				float32 shootingRate = 0.f;
 
 				// ── Lunes ───────────────────────────────────────────────────
 				// PLUSIEURS sont possibles : c'est un tableau, pas un cas
