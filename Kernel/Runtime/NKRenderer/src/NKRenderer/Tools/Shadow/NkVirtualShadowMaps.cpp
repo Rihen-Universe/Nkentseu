@@ -521,6 +521,15 @@ namespace nkentseu {
 		// les tiles correspondants.
 		// ---------------------------------------------------------------------
 		void NkVirtualShadowMaps::AllocSlotsForLights(const NkCamera3D &mainCam, const NkVector<NkLightDesc> &lights) {
+			// Recalcule a chaque frame ; leve plus bas des qu'une ombre figee
+			// ne correspond plus a la scene.
+			mPendingRecalc = false;
+			// QUALITE « AUCUNE » = AUCUNE OMBRE. Avant, NONE ne reglait que le
+			// filtrage (ombres dures) : le panneau Rendu affichait « Aucune » et
+			// les ombres restaient a l'ecran (constate par Rihen). Zero slot
+			// alloue => le shader ne trouve rien a echantillonner, facteur 1.
+			if (mCfg.quality == NkVSMShadowQuality::NONE)
+				return;
 			uint32 numLights = lights.Size();
 			if (numLights > kMaxLightsShadow)
 				numLights = kMaxLightsShadow;
@@ -568,36 +577,63 @@ namespace nkentseu {
 				// donc les tileUV restent stables entre frames -> les anciennes
 				// donnees depth dans l'atlas restent valides.
 				NkLightShadowCache &cache = mLightCache[i];
-				NkVec3f dp = cache.lastPosition - lights[i].position;
-				NkVec3f dd = cache.lastDirection - lights[i].direction;
-				float32 dpSq = dp.x * dp.x + dp.y * dp.y + dp.z * dp.z;
-				float32 ddSq = dd.x * dd.x + dd.y * dd.y + dd.z * dd.z;
-				bool stateChanged = dpSq > 1e-6f || ddSq > 1e-6f ||
-									std::fabs(cache.lastRange - lights[i].range) > 1e-4f ||
-									(cache.wasStatic != lights[i].shadowStatic);
 
-				// LA GEOMETRIE COMPTE AUTANT QUE LA LUMIERE. Une lumiere immobile
-				// au-dessus d'un objet qu'on deplace doit re-rendre son ombre :
-				// sans ce test, l'ombre restait collee a l'ancienne position de
-				// l'objet (defaut constate par Rihen).
+				// STATIQUE = FIGE, POINT FINAL (Rihen). L'ancienne regle exigeait
+				// « lumiere immobile ET geometrie immobile » pour figer : bouger
+				// quoi que ce soit re-rendait, et le mode statique n'existait
+				// pas vraiment. Desormais : une fois rendue, l'ombre d'une
+				// lumiere statique ne bouge plus -- ni avec la lumiere, ni avec
+				// la scene -- jusqu'au bouton « Recalculer » (qui remet
+				// renderedOnce a faux) ou au retour en dynamique.
 				bool canCache = lights[i].shadowStatic && cache.renderedOnce &&
-								!stateChanged && !mCastersMoved;
+								cache.wasStatic == lights[i].shadowStatic;
+
+				// REMISE A FAUX D'ABORD, TOUJOURS : les emplacements sont
+				// REUTILISES d'une frame a l'autre et les Alloc* ne touchent pas
+				// ce champ. Un `cached` reste d'une frame statique gelait les
+				// ombres POUR TOUJOURS : retour en dynamique sans effet, bouton
+				// « Recalculer » sans effet (constate par Rihen, prouve par les
+				// traces : les poussages UI partaient bien).
+				for (uint32 s = slotStart; s < mActiveSlotCount; s++)
+					mSlots[s].cached = false;
 
 				if (canCache) {
-					// Marque tous les slots de cette light comme cached -> skip
-					// au render. UBO toujours upload (slots restent reachable).
+					// FIGER = restaurer l'INSTANTANE du dernier rendu (matrices
+					// comprises). Les Alloc* viennent de recalculer les matrices
+					// depuis la lumiere COURANTE ; les garder avec la profondeur
+					// ANCIENNE de l'atlas donnerait une ombre fausse des que la
+					// lumiere bouge. Le packer est deterministe : memes indexes,
+					// memes tuiles.
 					for (uint32 s = slotStart; s < mActiveSlotCount; s++) {
+						mSlots[s] = mSlotsPrev[s];
 						mSlots[s].cached = true;
 					}
+					// L'OMBRE FIGEE EST-ELLE PERIMEE ? Lumiere deplacee ou
+					// geometrie modifiee depuis le gel -> le bouton
+					// « Recalculer l'ombre » passe en bleu (comme l'etoile de
+					// « Regenerer le ciel »).
+					const NkVec3f dp = cache.lastPosition - lights[i].position;
+					const NkVec3f dd = cache.lastDirection - lights[i].direction;
+					const float32 dr = cache.lastRange - lights[i].range;
+					const bool lightMoved = dp.x * dp.x + dp.y * dp.y + dp.z * dp.z > 1e-6f ||
+											dd.x * dd.x + dd.y * dd.y + dd.z * dd.z > 1e-6f ||
+											dr * dr > 1e-8f;
+					if (lightMoved || cache.casterStamp != mLastCasterStamp)
+						mPendingRecalc = true;
 				} else {
 					// Update cache state pour la prochaine frame.
 					cache.lastPosition = lights[i].position;
 					cache.lastDirection = lights[i].direction;
 					cache.lastRange = lights[i].range;
+					cache.casterStamp = mLastCasterStamp;
 					cache.wasStatic = lights[i].shadowStatic;
 					cache.renderedOnce = true;
 				}
 			}
+			// INSTANTANE pour la frame suivante : l'etat des emplacements tel
+			// qu'il part au rendu -- c'est LUI que le mode statique restaurera.
+			for (uint32 s = 0; s < mActiveSlotCount; s++)
+				mSlotsPrev[s] = mSlots[s];
 		}
 
 		// ---------------------------------------------------------------------
