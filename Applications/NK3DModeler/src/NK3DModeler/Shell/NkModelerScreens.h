@@ -3272,6 +3272,11 @@ namespace nkentseu {
 								  NkHitRegistry &hit, NkWidgetState &ws,
 								  const nkgui::NkGuiInput &in, NkComboPending &combo,
 								  NkCheckPending &checks, const NkShortcutTable &sc) {
+			// Le bloc de surcouche est RE-ARME chaque frame par qui en a besoin
+			// (badge vue camera...) : on repart de zero ici, sinon un bloc
+			// perime survivrait au changement d'onglet et refuserait des clics
+			// sans raison visible.
+			hit.SetBlock(NkRect{0.f, 0.f, 0.f, 0.f}, false);
 			const bool editMode = (st.mode != NkMode::Object);
 
 			// â”€â”€ TAB BAR D'ESPACES DE TRAVAIL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -3362,17 +3367,69 @@ namespace nkentseu {
 			if (demo::Demo3DHostReady()) {
 				p.Image(nk3d::kViewportTexId, vr);
 				st.viewRect = vr; // depot d'assets : importer un clone en scene
+				// ── PASSE-PARTOUT (Rihen) : en vue camera, ce qui deborde du
+				// CADRE de la camera est voile -- couleur/opacite PAR camera
+				// (noir 60 % par defaut, panneau de la camera). Cadre 16:9
+				// (Full HD) en v1 ; la pastille Output pilotera le format.
+				// Habillage UI : il n'apparait PAS dans les captures, qui
+				// figent la cible hors ecran en dessous.
+				if (st.camViewNode > 0) {
+					float32 pp[4];
+					demo::Demo3DHostCamPasse(st.camViewNode - 1, pp);
+					if (pp[3] > 0.003f && vr.w > 8.f && vr.h > 8.f) {
+						// LE CADRE VIENT DE L'HOTE : c'est la MEME verite que le
+						// rendu (qui zoome pour que l'image exacte de la camera
+						// occupe ce cadre) et que la capture (qui recadre
+						// dessus). Le voile epouse donc les VRAIS bords de la
+						// camera (exigence de Rihen).
+						float32 fr4[4];
+						demo::Demo3DHostCameraFrame(fr4);
+						const float32 fx = vr.x + fr4[0] * vr.w;
+						const float32 fy = vr.y + fr4[1] * vr.h;
+						const float32 fw = fr4[2] * vr.w;
+						const float32 fh = fr4[3] * vr.h;
+						const NkColor pc{(uint8)(pp[0] * 255.f), (uint8)(pp[1] * 255.f),
+										 (uint8)(pp[2] * 255.f), (uint8)(pp[3] * 255.f)};
+						if (fy > vr.y)
+							p.Fill({vr.x, vr.y, vr.w, fy - vr.y}, pc, 0.f);
+						if (fy + fh < vr.y + vr.h)
+							p.Fill({vr.x, fy + fh, vr.w, vr.y + vr.h - fy - fh}, pc, 0.f);
+						if (fx > vr.x)
+							p.Fill({vr.x, fy, fx - vr.x, fh}, pc, 0.f);
+						if (fx + fw < vr.x + vr.w)
+							p.Fill({fx + fw, fy, vr.x + vr.w - fx - fw, fh}, pc, 0.f);
+						// Lisere fin du cadre, discret.
+						const NkColor fr{255, 255, 255, 70};
+						p.Fill({fx, fy, fw, 1.f}, fr, 0.f);
+						p.Fill({fx, fy + fh - 1.f, fw, 1.f}, fr, 0.f);
+						p.Fill({fx, fy, 1.f, fh}, fr, 0.f);
+						p.Fill({fx + fw - 1.f, fy, 1.f, fh}, fr, 0.f);
+					}
+				}
 				// ── VUE CAMERA (Rihen) ──────────────────────────────────────
 				// Bascule entre la vue 3D libre et CE QUE VOIT une camera de la
 				// scene. Le selecteur liste les cameras du document actif.
 				{
+					// SYNC AVEC L'HOTE : la bascule CLAVIER (pave 0 / Ctrl+0)
+					// change la vue cote hote -- le libelle du selecteur suit.
+					{
+						const int32 hostCv = demo::Demo3DHostCameraView();
+						if (hostCv + 1 != st.camViewNode)
+							st.camViewNode = hostCv >= 0 ? hostCv + 1 : 0;
+					}
 					if (st.camViewNode > 0 &&
 						(NkHierNodeSkip(st.camViewNode - 1) ||
 						 demo::Demo3DHostUserSub(st.camViewNode - 1) != 10)) {
-						// la camera regardee a disparu (ou change de document)
+						// la camera regardee a disparu (ou change de document) :
+						// retour vue libre par le chemin unique (pose restituee)
 						st.camViewNode = 0;
-						demo::Demo3DHostSetCameraView(-1);
+						demo::Demo3DHostViewCamera(-1);
 					}
+					// LEVEE du bloc AVANT de peindre le badge : ses propres clics
+					// doivent repondre (Clicked refuse tout clic dans l'emprise
+					// bloquee). Il sera re-arme en fin de section avec l'emprise
+					// badge + liste.
+					hit.SetBlock(NkRect{0.f, 0.f, 0.f, 0.f}, false);
 					char vlb[48];
 					if (st.camViewNode > 0) {
 						char cnm[24];
@@ -3394,7 +3451,12 @@ namespace nkentseu {
 							st.camViewNode > 0 ? NkRole::AccentUi : NkRole::TextMuted,
 							12.f);
 					p.TextV(vb.x + S(22.f), vb.y, vb.h, vlb);
-					if (hit.Clicked("view.cam"))
+					// LA CLE DU CLIC EST CELLE DU RECT ENREGISTRE (« view.pick »).
+					// Elle testait « view.cam » -- la cle du bouton camera de VOL
+					// de la colonne de navigation : le selecteur ne s'ouvrait
+					// jamais par lui-meme, et le bouton de vol l'ouvrait par
+					// accident (LE probleme de camera constate par Rihen).
+					if (hit.Clicked("view.pick"))
 						st.camPickOpen = !st.camPickOpen;
 					if (st.camPickOpen) {
 						// Liste : la vue 3D, puis TOUTES les cameras du document.
@@ -3415,13 +3477,11 @@ namespace nkentseu {
 						HoverFill(p, i0, hit.Add("view.cam.free", i0), 0.f);
 						p.TextV(i0.x + S(10.f), i0.y, kRowH, "Vue 3D");
 						if (hit.Clicked("view.cam.free")) {
-							// RETOUR : la pose libre d'avant est restituee.
-							if (st.camViewNode > 0 && st.camViewSaved)
-								demo::Demo3DHostSetCameraPose(
-									st.camViewSave, st.camViewSave[3], st.camViewSave[4],
-									st.camViewSave[5], st.camViewSaveOrtho);
+							// RETOUR vue libre par le CHEMIN UNIQUE de l'hote --
+							// c'est lui qui memorise et restitue la pose, pour que
+							// selecteur et pave 0 restent d'accord.
+							demo::Demo3DHostViewCamera(-1);
 							st.camViewNode = 0;
-							demo::Demo3DHostSetCameraView(-1);
 							st.camPickOpen = false;
 						}
 						for (int32 c2 = 0; c2 < nCam; ++c2) {
@@ -3437,26 +3497,28 @@ namespace nkentseu {
 									12.f);
 							p.TextV(ic.x + S(26.f), ic.y, kRowH, cnm2);
 							if (hit.Clicked(ck2)) {
-								// On MEMORISE la pose libre avant d'entrer, une
-								// seule fois : passer d'une camera a l'autre ne
-								// doit pas ecraser le point de vue d'origine.
-								if (st.camViewNode == 0) {
-									bool oo = false;
-									demo::Demo3DHostGetCameraPose(
-										st.camViewSave, &st.camViewSave[3],
-										&st.camViewSave[4], &st.camViewSave[5], &oo);
-									st.camViewSaveOrtho = oo;
-									st.camViewSaved = true;
-								}
+								// CHEMIN UNIQUE de l'hote : il memorise la pose
+								// libre une seule fois, regarde cette camera et la
+								// rend ACTIVE (facon Blender) -- le pave 0 y
+								// reviendra directement.
+								demo::Demo3DHostViewCamera(cams[c2]);
 								st.camViewNode = cams[c2] + 1;
-								demo::Demo3DHostSetCameraView(cams[c2]);
 								st.camPickOpen = false;
 							}
 						}
 						if (hit.AnyClick() && !NkHitRegistry::Contains(lb, hit.Mouse()) &&
 							!hit.IsHovered("view.pick"))
 							st.camPickOpen = false;
+						// SURCOUCHE BLOQUANTE (patron NKCode, mecanisme SetBlock
+						// deja porte ici mais jamais arme) : l'emprise badge +
+						// liste refuse ses clics au reste de l'application --
+						// la scene comprise, qui recevait selection et
+						// deselection fantomes a travers la liste (Rihen).
+						const float32 bw3 = (lb.w > vb.w ? lb.w : vb.w);
+						hit.SetBlock({vb.x, vb.y, bw3, (lb.y + lb.h) - vb.y}, true);
 					}
+					if (!st.camPickOpen)
+						hit.SetBlock(vb, true); // badge seul : son clic ne traverse pas non plus
 				}
 				if (!st.wsBarOpen) {
 					// La poignee « Espaces » se REPEINT par-dessus l'image : elle
@@ -5659,6 +5721,53 @@ namespace nkentseu {
 									p.TextV(r.x + kPad, yy, kRowH, "Camera",
 											NkRole::TextMuted);
 									yy += kRowH;
+									// TYPE (Rihen) : perspective ou orthographique. En
+									// ortho, l'ECHELLE Y du noeud regle la demi-hauteur
+									// du cadre (regle consignee).
+									const bool isO = demo::Demo3DHostCamOrtho(en);
+									{
+										p.TextV(r.x + kPad, yy, kRowH, "Type", NkRole::TextMuted);
+										const float32 bw2 = (rr.w - S(128.f)) * 0.5f - S(2.f);
+										const NkRect bp{r.x + S(120.f), yy + S(2.f), bw2,
+														kRowH - S(4.f)};
+										const NkRect bo{bp.x + bw2 + S(4.f), yy + S(2.f), bw2,
+														kRowH - S(4.f)};
+										hit.Add("prop.cam.persp", bp);
+										hit.Add("prop.cam.ortho", bo);
+										p.Fill(bp, !isO ? NkRole::AccentUi : NkRole::PanelHeader,
+											   3.f);
+										p.Fill(bo, isO ? NkRole::AccentUi : NkRole::PanelHeader,
+											   3.f);
+										p.TextV(bp.x + (bp.w - p.TextW("Perspective")) * 0.5f, yy,
+												kRowH, "Perspective",
+												!isO ? NkRole::TextOnAccent : NkRole::TextMuted);
+										p.TextV(bo.x + (bo.w - p.TextW("Ortho")) * 0.5f, yy, kRowH,
+												"Ortho",
+												isO ? NkRole::TextOnAccent : NkRole::TextMuted);
+										if (hit.Clicked("prop.cam.persp"))
+											demo::Demo3DHostSetCamOrtho(en, false);
+										if (hit.Clicked("prop.cam.ortho"))
+											demo::Demo3DHostSetCamOrtho(en, true);
+										yy += kRowH;
+									}
+									// PROPRIETES PAR TYPE (Rihen) : la focale n'a pas de
+									// sens en ortho (rayons paralleles) -- elle cede la
+									// place a l'ECHELLE ORTHO (demi-hauteur du cadre =
+									// echelle du noeud). Clips et passe-partout restent
+									// communs.
+									if (isO) {
+										float32 osc = demo::Demo3DHostCamOrthoScale(en);
+										const float32 os0 = osc;
+										p.TextV(r.x + kPad, yy, kRowH, "Echelle ortho",
+												NkRole::TextMuted);
+										DragFloat(p, hit, ws, in, "prop.cortho",
+												  {r.x + S(120.f), yy + S(3.f), rr.w - S(128.f),
+												   kRowH - S(4.f)},
+												  osc, 0.02f, NkRole::AccentUi, "%.2f");
+										if (osc != os0)
+											demo::Demo3DHostSetCamOrthoScale(en, osc);
+										yy += kRowH;
+									} else {
 									p.TextV(r.x + kPad, yy, kRowH, "Focale (deg)",
 											NkRole::TextMuted);
 									DragFloat(p, hit, ws, in, "prop.cfov",
@@ -5666,6 +5775,7 @@ namespace nkentseu {
 											   kRowH - S(4.f)},
 											  cf, 0.2f, NkRole::AccentUi, "%.0f");
 									yy += kRowH;
+									}
 									p.TextV(r.x + kPad, yy, kRowH, "Clip debut",
 											NkRole::TextMuted);
 									DragFloat(p, hit, ws, in, "prop.cnear",
@@ -5682,6 +5792,32 @@ namespace nkentseu {
 									yy += kRowH;
 									if (cf != c0[0] || cnr != c0[1] || cfr != c0[2])
 										demo::Demo3DHostSetCameraParams(en, cf, cnr, cfr);
+									// ── PASSE-PARTOUT (Rihen) : couleur + opacite
+									// du voile hors cadre quand on regarde par
+									// cette camera. Noir a 60 % par defaut.
+									{
+										float32 ppc[4];
+										demo::Demo3DHostCamPasse(en, ppc);
+										const float32 pa0 = ppc[3];
+										bool ppCh = false;
+										const NkRect iC{r.x + kPad, 0.f, rr.w - kPad * 2.f, 0.f};
+										yy += PaintColorRow(p, hit, ws, in, st, iC, yy,
+															"Passe-partout", "prop.campp", ppc,
+															&ppCh);
+										p.TextV(r.x + kPad, yy, kRowH, "Opacite voile",
+												NkRole::TextMuted);
+										DragFloat(p, hit, ws, in, "prop.camppa",
+												  {r.x + S(120.f), yy + S(3.f), rr.w - S(128.f),
+												   kRowH - S(4.f)},
+												  ppc[3], 0.01f, NkRole::AccentUi, "%.2f");
+										yy += kRowH;
+										if (ppc[3] < 0.f)
+											ppc[3] = 0.f;
+										if (ppc[3] > 1.f)
+											ppc[3] = 1.f;
+										if (ppCh || ppc[3] != pa0)
+											demo::Demo3DHostSetCamPasse(en, ppc);
+									}
 								}
 							}
 							// (« Transmettre » a rejoint le groupe RELATIONS : le
