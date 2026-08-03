@@ -609,6 +609,21 @@ namespace nkentseu {
 			bool sPragueTried = false;	// echec de chargement : ne pas retenter en boucle
 			float32 sPragueScale = 1.f; // normalisation d'exposition (cf. NkPragueEnsure)
 
+			// ── TABLE INTERMEDIAIRE (azimut x theta) ────────────────────────
+			// L'evaluation officielle interpole des splines dans 18 Mo de
+			// donnees : la laisser dans la boucle de cuisson, c'etait des
+			// MILLIONS d'appels (cubemap + convolutions d'irradiance et de
+			// reflets) — la regeneration prenait un temps serieux, constate par
+			// Rihen. On evalue donc le modele UNE fois dans cette table
+			// (8 192 directions), et la cuisson lit en bilineaire : le ciel est
+			// lisse, la perte est invisible, la regeneration redevient du meme
+			// ordre que les modeles analytiques.
+			// Statique : 96 Ko, pas d'allocation — regle NKMemory respectee par
+			// absence d'allocation plutot que par allocation bien rangee.
+			constexpr int32 kPragueLutW = 128; // azimut, 0..2pi (boucle)
+			constexpr int32 kPragueLutH = 64;  // theta, 0..pi (borne)
+			NkVec3f sPragueLut[kPragueLutW * kPragueLutH];
+
 			// XYZ (CIE) -> RGB lineaire, primaires sRGB / blanc D65 — la meme
 			// matrice que NkxyYToRGB plus haut, appliquee a un triplet XYZ direct.
 			NkVec3f NkPragueXYZToRGB(double cx, double cy, double cz) {
@@ -706,29 +721,65 @@ namespace nkentseu {
 				praguedata::arpragueskymodelground_sky_radiance(sPragueState, th, ga, sh, 1);
 			sPragueScale = (float32)((double)P.sunIntensity / (lumRef > 1e-9 ? lumRef : 1e-9));
 			sPragueState->elevation = elev; // retour a la configuration demandee
+
+			// ── Remplissage de la table (la SEULE passe d'evaluation lourde) ─
+			for (int32 j = 0; j < kPragueLutH; j++) {
+				const double theta = (((double)j + 0.5) / (double)kPragueLutH) * 3.14159265358979;
+				const double st = math::NkSin((float64)theta);
+				const double ct = math::NkCos((float64)theta);
+				for (int32 i = 0; i < kPragueLutW; i++) {
+					const double phi = (((double)i + 0.5) / (double)kPragueLutW) * 6.28318530717959;
+					// Direction dans le repere du modele (Z vers le haut).
+					double vd2[3] = {st * math::NkCos((float64)phi), st * math::NkSin((float64)phi), ct};
+					double t2 = 0.0, g2 = 0.0, s2 = 0.0;
+					praguedata::arpragueskymodelground_compute_angles(elev, azim, vd2, up, &t2, &g2, &s2);
+					const double rx = praguedata::arpragueskymodelground_sky_radiance(sPragueState, t2, g2, s2, 0);
+					const double ry = praguedata::arpragueskymodelground_sky_radiance(sPragueState, t2, g2, s2, 1);
+					const double rz = praguedata::arpragueskymodelground_sky_radiance(sPragueState, t2, g2, s2, 2);
+					sPragueLut[j * kPragueLutW + i] = NkPragueXYZToRGB(rx, ry, rz);
+				}
+			}
+			logger.Info("[NkEnvironmentSystem] Prague : table cuite (elev {0} deg, lumRef {1})\n",
+						(float32)(elev * 57.2957795), (float32)lumRef);
 			return true;
 		}
 
-		// Echantillon du ciel de Prague dans NOTRE repere (Y vers le haut).
+		// Echantillon du ciel de Prague dans NOTRE repere (Y vers le haut) :
+		// lecture BILINEAIRE de la table cuite par NkPragueEnsure. Toute la
+		// cuisson (cubemap, irradiance, reflets) passe par ici — des millions
+		// d'appels, d'ou la table.
 		static NkVec3f NkPragueSample(float dx, float dy, float dz, const NkSkyParams &P) {
 			if (!sPragueState)
 				return SampleSkyGradient(dx, dy, dz, P.skyTop, P.horizon, P.ground);
-			double elev, azim, vis, alb;
-			NkPragueParams(P, elev, azim, vis, alb);
-			(void)vis;
-			(void)alb;
-			double vd[3] = {(double)dx, (double)dz, (double)dy}; // Y-up -> Z-up
-			double up[3] = {0.0, 0.0, 1.0};
-			double th = 0.0, ga = 0.0, sh = 0.0;
-			praguedata::arpragueskymodelground_compute_angles(elev, azim, vd, up, &th, &ga, &sh);
-			const double vX = praguedata::arpragueskymodelground_sky_radiance(sPragueState, th, ga, sh, 0);
-			const double vY = praguedata::arpragueskymodelground_sky_radiance(sPragueState, th, ga, sh, 1);
-			const double vZ = praguedata::arpragueskymodelground_sky_radiance(sPragueState, th, ga, sh, 2);
-			NkVec3f c = NkPragueXYZToRGB(vX, vY, vZ);
-			c.x *= sPragueScale;
-			c.y *= sPragueScale;
-			c.z *= sPragueScale;
-			return c;
+			float32 phi = math::NkAtan2(dz, dx);
+			if (phi < 0.f)
+				phi += 6.2831853f;
+			const float32 cy = dy < -1.f ? -1.f : (dy > 1.f ? 1.f : dy);
+			const float32 theta = math::NkAcos(cy);
+			// Coordonnees de grille : l'azimut BOUCLE, theta se borne.
+			float32 fu = phi / 6.2831853f * (float32)kPragueLutW - 0.5f;
+			float32 fv = theta / 3.14159265f * (float32)kPragueLutH - 0.5f;
+			if (fu < 0.f)
+				fu += (float32)kPragueLutW;
+			if (fv < 0.f)
+				fv = 0.f;
+			if (fv > (float32)(kPragueLutH - 1))
+				fv = (float32)(kPragueLutH - 1);
+			const int32 u0 = (int32)fu % kPragueLutW;
+			const int32 u1 = (u0 + 1) % kPragueLutW;
+			const int32 v0 = (int32)fv;
+			const int32 v1 = v0 + 1 < kPragueLutH ? v0 + 1 : v0;
+			const float32 tu = fu - (float32)(int32)fu;
+			const float32 tv = fv - (float32)v0;
+			const NkVec3f &a = sPragueLut[v0 * kPragueLutW + u0];
+			const NkVec3f &b = sPragueLut[v0 * kPragueLutW + u1];
+			const NkVec3f &c0 = sPragueLut[v1 * kPragueLutW + u0];
+			const NkVec3f &d = sPragueLut[v1 * kPragueLutW + u1];
+			NkVec3f r;
+			r.x = ((a.x * (1.f - tu) + b.x * tu) * (1.f - tv) + (c0.x * (1.f - tu) + d.x * tu) * tv) * sPragueScale;
+			r.y = ((a.y * (1.f - tu) + b.y * tu) * (1.f - tv) + (c0.y * (1.f - tu) + d.y * tu) * tv) * sPragueScale;
+			r.z = ((a.z * (1.f - tu) + b.z * tu) * (1.f - tv) + (c0.z * (1.f - tu) + d.z * tu) * tv) * sPragueScale;
+			return r;
 		}
 
 		// Point d'entree UNIQUE du ciel procedural : modele de base puis nuages.

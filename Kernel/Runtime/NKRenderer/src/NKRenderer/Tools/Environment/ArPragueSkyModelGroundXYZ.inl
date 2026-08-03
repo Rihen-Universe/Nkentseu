@@ -36,15 +36,27 @@ do { \
 
 double arpragueskymodelground_double_from_half(const unsigned short value)
 {
-	unsigned long hi = (unsigned long)(value&0x8000) << 16;
+	/* ============================ AVIS DE MODIFICATION ========================
+	   [Nkentseu, 2026-08-03] SEUL changement apporte a ce fichier par ailleurs
+	   copie verbatim : `unsigned long` remplace par `unsigned long long` dans
+	   CETTE fonction. L'original decale de 32 bits un `unsigned long`, qui ne
+	   fait que 32 BITS sous Windows (modele LLP64, la ou le code a ete ecrit
+	   pour LP64) : le decalage etait un comportement indefini, TOUTES les
+	   valeurs du jeu de donnees se decodaient en zero, et le ciel sortait NOIR
+	   sans le moindre message. Diagnostic par l'avertissement clang
+	   « shift count >= width of type » sur une sonde autonome.
+	   Modification permise par la licence BSD 3-clauses (voir l'en-tete) ;
+	   consignee aussi dans THIRD_PARTY_LICENSES.md.
+	   ========================================================================== */
+	unsigned long long hi = (unsigned long long)(value&0x8000) << 16;
 	unsigned int abs = value & 0x7FFF;
 	if(abs)
 	{
 		hi |= 0x3F000000 << (unsigned)(abs>=0x7C00);
 		for(; abs<0x400; abs<<=1,hi-=0x100000) ;
-		hi += (unsigned long)(abs) << 10;
+		hi += (unsigned long long)(abs) << 10;
 	}
-	unsigned long dbits = (unsigned long)(hi) << 32;
+	unsigned long long dbits = (unsigned long long)(hi) << 32;
 	double out;
 	memcpy(&out, &dbits, sizeof(double));
 	return out;
