@@ -198,6 +198,29 @@ namespace nkentseu {
 		int32 Demo3DHostEnsureModelMesh(int32 root);
 		void Demo3DHostSetCameraView(int32 node);
 		int32 Demo3DHostCameraView();
+		// Vue camera facon Blender : ViewCamera(node) regarde cette camera (et la
+		// rend ACTIVE ; -1 = retour vue libre, pose restituee). Toggle = pave 0 :
+		// bascule vue libre <-> camera active.
+		void Demo3DHostViewCamera(int32 node);
+		bool Demo3DHostToggleCameraView();
+		int32 Demo3DHostActiveCamera();
+		void Demo3DHostSetActiveCamera(int32 node);
+		// Passe-partout de la vue camera : couleur+opacite PAR camera (defaut
+		// noir a 60 %), hors du cadre de la camera dans la vue.
+		void Demo3DHostCamPasse(int32 node, float32 *rgba4);
+		void Demo3DHostSetCamPasse(int32 node, const float32 *rgba4);
+		// Cadre EXACT de l'image camera dans la vue, normalise [0,1] (x,y,w,h).
+		// Le rendu en vue camera zoome pour que l'image de la camera occupe
+		// precisement ce cadre : voile et capture s'y alignent.
+		void Demo3DHostCameraFrame(float32 *xywh);
+		// Type de camera : perspective (defaut) ou orthographique. En ortho, la
+		// demi-hauteur du cadre = l'echelle Y du noeud (regle consignee).
+		bool Demo3DHostCamOrtho(int32 node);
+		void Demo3DHostSetCamOrtho(int32 node, bool ortho);
+		// Echelle ortho (demi-hauteur du cadre) : lecture/ecriture de l'echelle
+		// du noeud, uniforme a l'ecriture.
+		float32 Demo3DHostCamOrthoScale(int32 node);
+		void Demo3DHostSetCamOrthoScale(int32 node, float32 s);
 		void Demo3DHostCopyNode(int32 node);
 		int32 Demo3DHostPasteNode();
 		int32 Demo3DHostUserKind(int32 node); // 0 aucun, 1 sphere, 2 cube, 3 plan, 4 empty

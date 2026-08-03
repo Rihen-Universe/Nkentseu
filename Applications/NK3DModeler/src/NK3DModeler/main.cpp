@@ -664,7 +664,11 @@ int nkmain(const NkEntryState &entry) {
 		// souris survolait a l'image precedente. Le pilotage du gizmo en a besoin
 		// pour distinguer « clic sur la scene » de « clic sur un widget pose
 		// par-dessus la scene ».
-		const bool overSceneLastFrame = hit.IsHovered("view.nav");
+		// ... et JAMAIS quand la souris est sur une SURCOUCHE BLOQUANTE (badge
+		// vue camera, listes posees sur la vue) : sans ce garde, leurs clics
+		// TRAVERSAIENT jusqu'a la scene -- selection/deselection fantomes
+		// (constate par Rihen ; meme patron que NKCode, via SetBlock).
+		const bool overSceneLastFrame = hit.IsHovered("view.nav") && !hit.BlockedAtMouse();
 		// ── UNE MODALE SUSPEND L'APPLICATION, POUR DE BON ───────────────────
 		// Les couches du registre suffisent aux widgets qui passent par lui,
 		// mais beaucoup de code -- la vue 3D, les glissements, les menus

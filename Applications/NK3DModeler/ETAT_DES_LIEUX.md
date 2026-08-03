@@ -19,7 +19,10 @@ Langue de travail : **français** (code, commentaires, échanges).
    3b. palier pastille « OUTPUT » : source (Vue / Caméra active), résolution
        (défaut 1920×1080 + préréglages + % d'échelle), chemin, formats — la
        capture paramétrée re-rend une frame hors écran à la taille demandée
-       (fondation du rendu final F12) ;
+       (fondation du rendu final F12). **Y ajouter (Rihen)** : colonne CAMÉRA
+       dans la hiérarchie, à côté des yeux — décochée, l'objet n'apparaît pas
+       dans les captures/rendus (l'équivalent outliner Blender) ; le re-rendu
+       de la capture filtrera les soumissions par ce drapeau ;
    3c. plus tard : **plusieurs caméras actives** — une PRINCIPALE + des
        MINIATURES incrustées (picture-in-picture), position et taille custom
        en % de la capture principale, coins configurables (idée Rihen) ;

@@ -181,6 +181,28 @@ namespace nkentseu {
 		// voir nkvpMeshHidden / nkvpMeshLocked plus bas.)
 		// VUE CAMERA : noeud regarde (-1 = vue 3D libre).
 		static int32 nkvpCamViewNode = -1;
+		// CAMERA ACTIVE (facon Blender) : celle que le pave 0 regarde et que la
+		// capture « Camera » utilisera. Devient active des qu'on la regarde.
+		static int32 nkvpActiveCamNode = -1;
+		// Declarations avancees : le rappel clavier (pave 0) precede les
+		// definitions, placees pres des autres fonctions hote.
+		void Demo3DHostViewCamera(int32 node);
+		bool Demo3DHostToggleCameraView();
+		static int32 HostSceneCameras(int32 *out, int32 cap);
+		void Demo3DHostCameraFrame(float32 *xywh);
+		// UNE SEULE VERITE optique pour la camera : le WIDGET (pyramide), le
+		// rendu en vue camera, le voile et la capture derivent tous du couple
+		// focale + format. Format Full HD en v1 ; la pastille Output le pilotera.
+		static constexpr float32 kCamFrameMargin = 0.86f;
+		static constexpr float32 kCamAspect = 1920.f / 1080.f;
+		// TYPE de camera (Rihen) : perspective (defaut) ou ORTHOGRAPHIQUE.
+		// En ortho, la demi-hauteur du cadre = l'ECHELLE Y du noeud (decision
+		// consignee : l'echelle regle le cadrage ortho, comme Blender).
+		static bool nkvpUserCamOrtho[kNkvpMaxUser] = {};
+		void Demo3DHostGetCameraPose(float32 *t3, float32 *dist, float32 *yaw, float32 *pitch,
+									 bool *ortho);
+		void Demo3DHostSetCameraPose(const float32 *t3, float32 dist, float32 yaw, float32 pitch,
+									 bool ortho);
 		// VISIBILITE et VERROU EFFECTIFS : le sien OU celui d'un ancetre --
 		// cacher/cadenasser un parent emporte tout son sous-arbre, mais chaque
 		// enfant GARDE son propre drapeau, restaure au retour (regle de Rihen).
@@ -357,6 +379,9 @@ namespace nkentseu {
 				bool pickDiag = false;
 				// NK_PICK_AT="x,y" : clic de selection FORCE a ces pixels (capture headless, sans souris).
 				bool pickForcePending = false;
+				// Ctrl+Alt+0 : aligner la camera ACTIVE sur la vue actuelle --
+				// traite dans la frame (le rappel clavier n'a pas la camera).
+				bool camAlignPending = false;
 				// NK_PICK_SCAN=1 : audit chiffre de selectabilite (ancienne vs nouvelle regle).
 				bool pickScanPending = false;
 				float32 pickForceX = 0.f, pickForceY = 0.f;
@@ -2862,6 +2887,68 @@ namespace nkentseu {
 					st->orthoView = !st->orthoView;
 					logger.Info("[Demo3D] Projection = {0}\n", st->orthoView ? "ORTHO" : "PERSPECTIVE");
 				} // pavé 5 = toggle ortho/persp
+				// ── PAVE 0 : VUE CAMERA facon Blender (hors mode test GI, qui le
+				// reserve). Simple : bascule vue libre <-> camera ACTIVE, la pose
+				// libre est memorisee/restituee cote hote. Ctrl+0 : la camera
+				// SELECTIONNEE devient l'active, et on la regarde.
+				else if (!st->giTest && k == NkKey::NK_NUMPAD_0) {
+					// REGLES DE RIHEN :
+					//   0 camera    -> pave 0 et Ctrl+0 ne font RIEN ;
+					//   1 camera    -> pave 0 y va (elle est la principale par
+					//                  defaut), Ctrl+0 sans effet ;
+					//   plusieurs   -> Ctrl+0 CHANGE la principale (la camera
+					//                  selectionnee si c'en est une, sinon la
+					//                  suivante dans l'ordre de la scene), et
+					//                  pave 0 regarde la principale.
+					int32 cams0[64];
+					const int32 nC0 = HostSceneCameras(cams0, 64);
+					const bool alt0 =
+						NkInput.IsKeyDown(NkKey::NK_LALT) || NkInput.IsKeyDown(NkKey::NK_RALT);
+					if (ctrl && alt0) {
+						// CTRL+ALT+0 : la camera ACTIVE saute sur la VUE ACTUELLE
+						// (« Align Active Camera to View » de Blender, Rihen).
+						if (nC0 == 0)
+							logger.Info("[Demo3D] Ctrl+Alt+pave 0 : aucune camera en scene\n");
+						else
+							st->camAlignPending = true; // execute dans la frame, ou vit la camera
+					} else if (ctrl) {
+						if (nC0 <= 1) {
+							logger.Info("[Demo3D] Ctrl+pave 0 : {0} camera en scene, rien a changer\n",
+										nC0);
+						} else {
+							int32 next = -1;
+							// L'index du gizmo des vides est DECALE de 6 par
+							// rapport aux emplacements utilisateur (les 6
+							// premiers vides appartiennent a la demo) : ea - 6,
+							// comme partout ailleurs. Sans ce decalage, la
+							// camera SELECTIONNEE n'etait jamais reconnue.
+							const int32 es0 = st->emptyGizmo.ActiveIndex();
+							const int32 us0 = es0 - (kNkvpFirstUser - kNkvpFirstEmpty);
+							if (us0 >= 0 && us0 < kNkvpMaxUser && nkvpUserKind[us0] == 4 &&
+								nkvpUserSub[us0] == 10)
+								next = kNkvpFirstUser + us0;
+							if (next < 0) {
+								int32 cur = -1;
+								for (int32 i0 = 0; i0 < nC0; ++i0)
+									if (cams0[i0] == nkvpActiveCamNode)
+										cur = i0;
+								next = cams0[(cur + 1) % nC0];
+							}
+							nkvpActiveCamNode = next;
+							if (nkvpCamViewNode >= 0)
+								Demo3DHostViewCamera(next); // deja en vue camera : bascule directe
+							logger.Info("[Demo3D] Camera principale -> noeud {0} (Ctrl+pave 0)\n",
+										next);
+						}
+					} else {
+						if (nC0 == 0) {
+							logger.Info("[Demo3D] Pave 0 : aucune camera en scene\n");
+						} else {
+							const bool onCv = Demo3DHostToggleCameraView();
+							logger.Info("[Demo3D] Vue camera : {0} (pave 0)\n", onCv ? "ON" : "OFF");
+						}
+					}
+				}
 				// ── NK_GI_TEST : pilotage du mur rouge et A/B de l'indirect ──────
 				// Touches actives UNIQUEMENT sous l'override, pour ne rien voler au
 				// keymap habituel de la démo.
@@ -4512,6 +4599,71 @@ namespace nkentseu {
 						st->simCam.Move(wheel * 0.6f, 0.f, 0.f); // molette = avancer
 					st->simCam.Apply(cam);
 				} else {
+					// STRUCTURE : pilotage camera OU navigation libre en tete,
+					// puis les blocs COMMUNS (application de la vue camera,
+					// projection ortho + grille) -- ils doivent servir les DEUX
+					// sous-modes, les scinder a deja gele la vue camera une fois.
+					if (nkvpCamViewNode >= kNkvpFirstUser &&
+						nkvpCamViewNode - kNkvpFirstUser < kNkvpMaxUser) {
+					// ── EN VUE CAMERA, la navigation PILOTE LA CAMERA (le « lock
+					// camera to view » de Blender, demande par Rihen) : clic
+					// milieu = tourner la camera, Shift+milieu = travelling
+					// lateral/vertical, molette = avancer/reculer. Le NOEUD bouge
+					// reellement -- panneau, gizmo et capture voient la meme
+					// camera.
+					const int32 eC = nkvpCamViewNode - 90;
+					if (NkInput.IsMouseDown(NkMouseButton::NK_MB_MIDDLE) && !shift &&
+						(mdx != 0.f || mdy != 0.f)) {
+						nkvpEmptyRotDeg[eC][1] -= mdx * 0.25f; // lacet
+						nkvpEmptyRotDeg[eC][0] -= mdy * 0.25f; // tangage, borne
+						if (nkvpEmptyRotDeg[eC][0] > 89.f)
+							nkvpEmptyRotDeg[eC][0] = 89.f;
+						if (nkvpEmptyRotDeg[eC][0] < -89.f)
+							nkvpEmptyRotDeg[eC][0] = -89.f;
+					}
+					float32 cwpN[3], cwscN[3];
+					NkMat4f cwrN;
+					HostNodeWorldById(nkvpCamViewNode, cwpN, cwrN, cwscN);
+					// Axes obtenus en TRANSFORMANT les vecteurs unitaires --
+					// independant de la convention de stockage de NkMat4f (meme
+					// lecon que le pick OBB et l'override de vue ci-dessous).
+					const NkVec3f rgtN = (cwrN * NkVec3f{1.f, 0.f, 0.f}).Normalized();
+					const NkVec3f upN = (cwrN * NkVec3f{0.f, 1.f, 0.f}).Normalized();
+					const NkVec3f fwdN = (cwrN * NkVec3f{0.f, 0.f, -1.f}).Normalized();
+					if (NkInput.IsMouseDown(NkMouseButton::NK_MB_MIDDLE) && shift) {
+						// « grab » : on tire la scene, la camera part a l'oppose.
+						const float32 psc = 0.012f;
+						nkvpEmptyPos[eC][0] += (-rgtN.x * mdx + upN.x * mdy) * psc;
+						nkvpEmptyPos[eC][1] += (-rgtN.y * mdx + upN.y * mdy) * psc;
+						nkvpEmptyPos[eC][2] += (-rgtN.z * mdx + upN.z * mdy) * psc;
+					}
+					if (wheel != 0.f) {
+						const float32 zsc = 0.6f;
+						nkvpEmptyPos[eC][0] += fwdN.x * wheel * zsc;
+						nkvpEmptyPos[eC][1] += fwdN.y * wheel * zsc;
+						nkvpEmptyPos[eC][2] += fwdN.z * wheel * zsc;
+					}
+					// TOUCHES DIRECTIONNELLES (Rihen) : haut/bas = avancer/
+					// reculer le long du regard, gauche/droite = pas lateral.
+					{
+						const float32 kspd = (shift ? 9.f : 3.f) * dt;
+						float32 mvF = 0.f, mvR = 0.f;
+						if (NkInput.IsKeyDown(NkKey::NK_UP))
+							mvF += kspd;
+						if (NkInput.IsKeyDown(NkKey::NK_DOWN))
+							mvF -= kspd;
+						if (NkInput.IsKeyDown(NkKey::NK_RIGHT))
+							mvR += kspd;
+						if (NkInput.IsKeyDown(NkKey::NK_LEFT))
+							mvR -= kspd;
+						if (mvF != 0.f || mvR != 0.f) {
+							nkvpEmptyPos[eC][0] += fwdN.x * mvF + rgtN.x * mvR;
+							nkvpEmptyPos[eC][1] += fwdN.y * mvF + rgtN.y * mvR;
+							nkvpEmptyPos[eC][2] += fwdN.z * mvF + rgtN.z * mvR;
+						}
+					}
+					st->camAlignPending = false; // deja en vue camera : rien a aligner
+					} else {
 					const bool ctrl = NkInput.IsKeyDown(NkKey::NK_LCTRL) || NkInput.IsKeyDown(NkKey::NK_RCTRL);
 					// FIX 2 : pivot d'orbite = CENTROÏDE de la sélection (façon Blender
 					// « orbit around selection »). Le centroïde vient du gizmo actif (objet
@@ -4560,7 +4712,56 @@ namespace nkentseu {
 					}
 					// Nav éditeur façon Blender = souris uniquement (molette milieu / Shift+milieu /
 					// molette). Pas de WASD ici -> G/R/S/A restent libres pour le gizmo/sélection.
+					// TOUCHES DIRECTIONNELLES en vue libre aussi (Rihen) :
+					// haut/bas = avancer/reculer, gauche/droite = pas lateral.
+					// (Les FLECHES, pas WASD : ces lettres restent au gizmo.)
+					{
+						const float32 kspd = (shift ? 3.f : 1.f) * dt * 60.f;
+						if (NkInput.IsKeyDown(NkKey::NK_UP))
+							st->editorCam.Zoom(0.05f * kspd);
+						if (NkInput.IsKeyDown(NkKey::NK_DOWN))
+							st->editorCam.Zoom(-0.05f * kspd);
+						if (NkInput.IsKeyDown(NkKey::NK_RIGHT))
+							st->editorCam.Pan(1.4f * kspd, 0.f);
+						if (NkInput.IsKeyDown(NkKey::NK_LEFT))
+							st->editorCam.Pan(-1.4f * kspd, 0.f);
+					}
 					st->editorCam.Apply(cam);
+					// ── CTRL+ALT+0 : la camera ACTIVE saute SUR LA VUE ACTUELLE
+					// (« Align Active Camera to View » de Blender, Rihen), puis
+					// on entre dans sa vue. Traite ICI : c'est la que `cam`
+					// porte la pose reellement affichee.
+					if (st->camAlignPending) {
+						st->camAlignPending = false;
+						int32 camsA[64];
+						const int32 nA = HostSceneCameras(camsA, 64);
+						if (nA > 0) {
+							bool okA = false;
+							for (int32 iA = 0; iA < nA; ++iA)
+								if (camsA[iA] == nkvpActiveCamNode)
+									okA = true;
+							const int32 nodeA = okA ? nkvpActiveCamNode : camsA[0];
+							const int32 eA = nodeA - kNkvpFirstEmpty;
+							const NkVec3f eyeV = cam.GetPosition();
+							const NkVec3f fV = (cam.GetTarget() - eyeV).Normalized();
+							nkvpEmptyPos[eA][0] = eyeV.x;
+							nkvpEmptyPos[eA][1] = eyeV.y;
+							nkvpEmptyPos[eA][2] = eyeV.z;
+							// Regard -Z local, R = Rz*Ry*Rx :
+							// f = (-cos(x)sin(y), sin(x), -cos(x)cos(y))
+							// -> tangage = asin(f.y), lacet = atan2(-f.x, -f.z).
+							const float32 kR2D = 57.29578f;
+							const float32 fy = fV.y < -1.f ? -1.f : (fV.y > 1.f ? 1.f : fV.y);
+							nkvpEmptyRotDeg[eA][0] = math::NkAsin(fy) * kR2D;
+							nkvpEmptyRotDeg[eA][1] = math::NkAtan2(-fV.x, -fV.z) * kR2D;
+							nkvpEmptyRotDeg[eA][2] = 0.f;
+							Demo3DHostViewCamera(nodeA);
+							logger.Info(
+								"[Demo3D] Camera alignee sur la vue (Ctrl+Alt+pave 0) : noeud {0}\n",
+								nodeA);
+						}
+					}
+					} // fin pilotage / navigation libre -- la suite sert les DEUX
 					// ── VUE CAMERA (Rihen) ─────────────────────────────────────
 					// La vue montre EXACTEMENT ce que voit la camera choisie :
 					// sa position monde, son regard (-Z local, comme le filaire)
@@ -4572,15 +4773,57 @@ namespace nkentseu {
 						NkMat4f cwr;
 						HostNodeWorldById(nkvpCamViewNode, cwp, cwr, cwsc);
 						const NkVec3f eyeC{cwp[0], cwp[1], cwp[2]};
-						const NkVec3f fwdC{-cwr.mat[2][0], -cwr.mat[2][1],
-										   -cwr.mat[2][2]};
-						st->orthoView = false;
+						// Le REGARD (-Z local) s'obtient en TRANSFORMANT l'axe,
+						// pas en lisant une ligne de la matrice : la lecture
+						// directe depend de la convention de stockage (meme
+						// lecon que le pick OBB) -- transposee, la vue regardait
+						// AILLEURS que la camera (Rihen : « ca montre autre
+						// chose »).
+						const NkVec3f fwdC = (cwr * NkVec3f{0.f, 0.f, -1.f}).Normalized();
 						cam.SetPosition(eyeC);
 						cam.SetTarget({eyeC.x + fwdC.x, eyeC.y + fwdC.y,
 									   eyeC.z + fwdC.z});
 						const int32 cuV = nkvpCamViewNode - kNkvpFirstUser;
-						if (cuV >= 0 && cuV < kNkvpMaxUser && nkvpUserCam[cuV][0] > 1.f)
-							cam.SetFOV(nkvpUserCam[cuV][0]);
+						float32 frV[4];
+						Demo3DHostCameraFrame(frV);
+						const float32 fhnV = frV[3] > 0.05f ? frV[3] : 1.f;
+						// LES CLIPS de la camera s'appliquent AUSSI, en direct :
+						// sans cette ligne, Clip debut/fin du panneau restaient
+						// purement declaratifs (constate par Rihen -- aucun effet
+						// visible en les modifiant).
+						if (cuV >= 0 && cuV < kNkvpMaxUser) {
+							float32 cnV = nkvpUserCam[cuV][1];
+							float32 cfV = nkvpUserCam[cuV][2];
+							if (cnV < 0.001f)
+								cnV = 0.001f;
+							if (cfV <= cnV + 0.01f)
+								cfV = cnV + 0.01f;
+							cam.SetNearFar(cnV, cfV);
+						}
+						if (cuV >= 0 && cuV < kNkvpMaxUser && nkvpUserCamOrtho[cuV]) {
+							// CAMERA ORTHOGRAPHIQUE : demi-hauteur du cadre =
+							// echelle Y du noeud, elargie du rapport du cadre en
+							// retrait. Le bloc ortho + grille de la vue fait le
+							// reste : on regle la DISTANCE de la cible pour que
+							// « dist x nkvpOrthoScale » donne pile cette
+							// demi-hauteur.
+							const float32 orthoH =
+								(cwsc[1] > 0.01f ? cwsc[1] : 1.f) / fhnV;
+							const float32 dT =
+								orthoH / (nkvpOrthoScale > 0.01f ? nkvpOrthoScale : 0.55f);
+							cam.SetTarget({eyeC.x + fwdC.x * dT, eyeC.y + fwdC.y * dT,
+										   eyeC.z + fwdC.z * dT});
+							st->orthoView = true;
+						} else {
+							// PERSPECTIVE : zoom arriere pour que l'image exacte
+							// de la camera occupe le cadre en retrait.
+							st->orthoView = false;
+							float32 fovV = 60.f;
+							if (cuV >= 0 && cuV < kNkvpMaxUser && nkvpUserCam[cuV][0] > 1.f)
+								fovV = nkvpUserCam[cuV][0];
+							const float32 tV = math::NkTan(fovV * 0.5f * 0.017453292f) / fhnV;
+							cam.SetFOV(2.f * math::NkAtan2(tV, 1.f) * 57.29578f);
+						}
 					}
 					// Projection ORTHO en vue axiale (façon Blender) : orthoSize dérivé de la
 					// distance pour un cadrage comparable à la perspective (demi-hauteur ≈ d·tan(fov/2)).
@@ -7827,24 +8070,56 @@ namespace nkentseu {
 							prevPt = pt;
 						}
 					} else if (dk2 == 4 && ds2 == 10) {
-						// CAMERA : pyramide de visee (regard -Z local) + triangle
-						// « haut », facon Blender/Unreal.
+						// CAMERA : pyramide de visee DERIVEE DE L'OPTIQUE (focale
+						// verticale x format de sortie), plus une forme figee.
+						// Le rectangle du widget est ainsi EXACTEMENT le cadre de
+						// l'image de la camera : en vue camera, il coincide avec
+						// le voile et la capture -- une seule verite (Rihen : le
+						// voile ne touchait pas les « vrais bords »).
+						const int32 uCam = e - 6;
+						float32 fovW = 50.f;
+						if (uCam >= 0 && uCam < kNkvpMaxUser && nkvpUserCam[uCam][0] > 1.f)
+							fovW = nkvpUserCam[uCam][0];
+						const float32 dW = 0.7f;
+						const bool orthoW =
+							uCam >= 0 && uCam < kNkvpMaxUser && nkvpUserCamOrtho[uCam];
+						// PERSPECTIVE : pyramide (l'ouverture suit la focale).
+						// ORTHO : TUBE rectangulaire (rayons paralleles) --
+						// demi-hauteur locale 1, l'ECHELLE Y du noeud est donc la
+						// demi-hauteur monde du cadre, comme au rendu.
+						const float32 hyW =
+							orthoW ? 1.f : dW * math::NkTan(fovW * 0.5f * 0.017453292f);
+						const float32 hxW = hyW * kCamAspect;
 						const NkVec3f apex = cxf(0.f, 0.f, 0.f);
 						NkVec3f cw[4];
-						cw[0] = cxf(-0.32f, -0.22f, -0.7f);
-						cw[1] = cxf(0.32f, -0.22f, -0.7f);
-						cw[2] = cxf(0.32f, 0.22f, -0.7f);
-						cw[3] = cxf(-0.32f, 0.22f, -0.7f);
-						for (int32 k3 = 0; k3 < 4; ++k3) {
-							r3d->DrawDebugLine(apex, cw[k3], ecol, 0.f, true);
-							r3d->DrawDebugLine(cw[k3], cw[(k3 + 1) & 3], ecol, 0.f, true);
+						cw[0] = cxf(-hxW, -hyW, -dW);
+						cw[1] = cxf(hxW, -hyW, -dW);
+						cw[2] = cxf(hxW, hyW, -dW);
+						cw[3] = cxf(-hxW, hyW, -dW);
+						if (orthoW) {
+							NkVec3f cb[4];
+							cb[0] = cxf(-hxW, -hyW, 0.f);
+							cb[1] = cxf(hxW, -hyW, 0.f);
+							cb[2] = cxf(hxW, hyW, 0.f);
+							cb[3] = cxf(-hxW, hyW, 0.f);
+							for (int32 k3 = 0; k3 < 4; ++k3) {
+								r3d->DrawDebugLine(cb[k3], cw[k3], ecol, 0.f, true);
+								r3d->DrawDebugLine(cw[k3], cw[(k3 + 1) & 3], ecol, 0.f, true);
+								r3d->DrawDebugLine(cb[k3], cb[(k3 + 1) & 3], ecol, 0.f, true);
+							}
+						} else {
+							for (int32 k3 = 0; k3 < 4; ++k3) {
+								r3d->DrawDebugLine(apex, cw[k3], ecol, 0.f, true);
+								r3d->DrawDebugLine(cw[k3], cw[(k3 + 1) & 3], ecol, 0.f, true);
+							}
 						}
-						r3d->DrawDebugLine(cxf(-0.12f, 0.26f, -0.7f), cxf(0.12f, 0.26f, -0.7f),
-										   ecol, 0.f, true);
-						r3d->DrawDebugLine(cxf(0.12f, 0.26f, -0.7f), cxf(0.f, 0.42f, -0.7f), ecol,
-										   0.f, true);
-						r3d->DrawDebugLine(cxf(0.f, 0.42f, -0.7f), cxf(-0.12f, 0.26f, -0.7f), ecol,
-										   0.f, true);
+						// Triangle « haut », proportionnel au cadre.
+						r3d->DrawDebugLine(cxf(-hxW * 0.35f, hyW * 1.15f, -dW),
+										   cxf(hxW * 0.35f, hyW * 1.15f, -dW), ecol, 0.f, true);
+						r3d->DrawDebugLine(cxf(hxW * 0.35f, hyW * 1.15f, -dW),
+										   cxf(0.f, hyW * 1.75f, -dW), ecol, 0.f, true);
+						r3d->DrawDebugLine(cxf(0.f, hyW * 1.75f, -dW),
+										   cxf(-hxW * 0.35f, hyW * 1.15f, -dW), ecol, 0.f, true);
 					} else {
 						r3d->DrawDebugLine({ep.x - eh, ep.y, ep.z}, {ep.x + eh, ep.y, ep.z}, ecol,
 										   0.f, true);
@@ -8264,9 +8539,43 @@ namespace nkentseu {
 			// sans interface) et NkOffscreenTarget::Capture la sauve en PNG.
 			if (!hst.ok || !hst.rt || !hst.rt->IsValid() || !path || !*path)
 				return false;
-			const bool ok = hst.rt->Capture(path);
-			logger.Info("[NkDemo3D] Capture de la vue -> {0} : {1}\n", path,
-						ok ? "ecrite" : "ECHEC");
+			bool ok = false;
+			if (nkvpCamViewNode >= 0) {
+				// EN VUE CAMERA : la capture RECADRE sur le cadre exact de la
+				// camera (meme verite que le rendu et le voile) -- on obtient
+				// ses VRAIS bords, sans le pourtour de la vue (Rihen).
+				const uint32 w = hst.rt->GetWidth(), h = hst.rt->GetHeight();
+				NkImage full;
+				if (w > 8 && h > 8 && full.Create(w, h, math::NkColor(0, 0, 0, 255), 4) &&
+					hst.rt->ReadbackPixels(full.Pixels(), w * 4u)) {
+					float32 fr[4];
+					Demo3DHostCameraFrame(fr);
+					const uint32 cx = (uint32)(fr[0] * (float32)w);
+					const uint32 cy = (uint32)(fr[1] * (float32)h);
+					uint32 cw = (uint32)(fr[2] * (float32)w);
+					uint32 ch = (uint32)(fr[3] * (float32)h);
+					if (cx + cw > w)
+						cw = w - cx;
+					if (cy + ch > h)
+						ch = h - cy;
+					NkImage crop;
+					if (cw > 8 && ch > 8 && crop.Create(cw, ch, math::NkColor(0, 0, 0, 255), 4)) {
+						const uint32 *src = (const uint32 *)full.Pixels();
+						uint32 *dst = (uint32 *)crop.Pixels();
+						for (uint32 yy = 0; yy < ch; ++yy) {
+							const uint32 *s = src + (uint64)(cy + yy) * w + cx;
+							uint32 *d = dst + (uint64)yy * cw;
+							for (uint32 xx = 0; xx < cw; ++xx)
+								d[xx] = s[xx];
+						}
+						ok = crop.Save(path);
+					}
+				}
+			} else {
+				ok = hst.rt->Capture(path);
+			}
+			logger.Info("[NkDemo3D] Capture de la vue -> {0} : {1} (camView={2}, active={3})\n",
+						path, ok ? "ecrite" : "ECHEC", nkvpCamViewNode, nkvpActiveCamNode);
 			return ok;
 		}
 
@@ -8545,6 +8854,11 @@ namespace nkentseu {
 			st->gizmo.SetOrientation(o);
 			st->editGizmo.SetOrientation(o);
 			st->lightGizmo.SetOrientation(o);
+			// Le gizmo des VIDES (cameras, maillages utilisateur, empties)
+			// manquait a la liste : Local/Normal n'y arrivaient jamais -- les
+			// axes d'une camera restaient GLOBAUX quelle que soit sa rotation
+			// (constate par Rihen).
+			st->emptyGizmo.SetOrientation(o);
 		}
 		int32 Demo3DHostOrientation() {
 			auto *st = HostSt();
@@ -9901,6 +10215,148 @@ namespace nkentseu {
 			nkvpCamViewNode = node;
 		}
 		int32 Demo3DHostCameraView() { return nkvpCamViewNode; }
+
+		// ── VUE CAMERA (pave 0 + selecteur de la vue) ───────────────────────
+		// La pose LIBRE est memorisee ICI, cote hote : clavier et selecteur
+		// passent par le meme chemin et restent d'accord -- deux memoires (une
+		// UI, une hote) auraient fini par restituer des poses differentes.
+		namespace {
+			float32 sFreePose[6] = {};
+			bool sFreePoseOrtho = false;
+			bool sFreePoseSaved = false;
+		} // namespace
+		void Demo3DHostViewCamera(int32 node) {
+			if (node < 0) {
+				// RETOUR a la vue libre : la pose d'avant est restituee.
+				if (nkvpCamViewNode >= 0 && sFreePoseSaved)
+					Demo3DHostSetCameraPose(sFreePose, sFreePose[3], sFreePose[4], sFreePose[5],
+											sFreePoseOrtho);
+				nkvpCamViewNode = -1;
+				return;
+			}
+			if (node >= kNkvpMaxNodes || nkvpDeleted[node])
+				return;
+			if (nkvpCamViewNode < 0) {
+				// On quitte la vue LIBRE : memoriser sa pose UNE fois -- passer
+				// d'une camera a l'autre ne doit pas l'ecraser.
+				Demo3DHostGetCameraPose(sFreePose, &sFreePose[3], &sFreePose[4], &sFreePose[5],
+										&sFreePoseOrtho);
+				sFreePoseSaved = true;
+			}
+			nkvpCamViewNode = node;
+			nkvpActiveCamNode = node; // la camera regardee devient l'ACTIVE (facon Blender)
+		}
+		// Cameras VISIBLES de la scene, dans l'ordre des noeuds.
+		static int32 HostSceneCameras(int32 *out, int32 cap) {
+			int32 n = 0;
+			for (int32 u = 0; u < kNkvpMaxUser && n < cap; ++u) {
+				const int32 node = kNkvpFirstUser + u;
+				if (nkvpUserKind[u] == 4 && nkvpUserSub[u] == 10 && !nkvpDeleted[node] &&
+					!HostHiddenEff(node))
+					out[n++] = node;
+			}
+			return n;
+		}
+		bool Demo3DHostToggleCameraView() {
+			if (nkvpCamViewNode >= 0) {
+				Demo3DHostViewCamera(-1);
+				return false;
+			}
+			int32 cams[64];
+			const int32 n = HostSceneCameras(cams, 64);
+			if (n == 0)
+				return false; // pas de camera : le pave 0 ne fait rien
+			// L'active est-elle encore une camera valide de la scene ? Sinon la
+			// PREMIERE devient la principale par defaut -- sans ca, le premier
+			// pave 0 d'une session restait muet (constate par Rihen).
+			bool activeOk = false;
+			for (int32 i = 0; i < n; ++i)
+				if (cams[i] == nkvpActiveCamNode)
+					activeOk = true;
+			if (!activeOk)
+				nkvpActiveCamNode = cams[0];
+			Demo3DHostViewCamera(nkvpActiveCamNode);
+			return nkvpCamViewNode >= 0;
+		}
+		int32 Demo3DHostActiveCamera() { return nkvpActiveCamNode; }
+		void Demo3DHostSetActiveCamera(int32 node) { nkvpActiveCamNode = node; }
+
+		// ── CADRE CAMERA dans la vue ────────────────────────────────────────
+		// UNE SEULE VERITE, a trois clients : le RENDU en vue camera zoome en
+		// arriere pour que l'image EXACTE de la camera occupe ce cadre (en
+		// retrait, facon Blender) ; le VOILE l'entoure ; la CAPTURE recadre
+		// dessus. Sans ce zoom arriere, le voile ne pouvait pas epouser les
+		// vrais bords de la camera (constate par Rihen).
+		void Demo3DHostCameraFrame(float32 *xywh) {
+			const float32 vw = (float32)(hst.ctx.width > 0 ? hst.ctx.width : 1);
+			const float32 vh = (float32)(hst.ctx.height > 0 ? hst.ctx.height : 1);
+			float32 fw = vw, fh = vw / kCamAspect;
+			if (fh > vh) {
+				fh = vh;
+				fw = vh * kCamAspect;
+			}
+			fw *= kCamFrameMargin;
+			fh *= kCamFrameMargin;
+			xywh[0] = (vw - fw) * 0.5f / vw;
+			xywh[1] = (vh - fh) * 0.5f / vh;
+			xywh[2] = fw / vw;
+			xywh[3] = fh / vh;
+		}
+
+		// ── PASSE-PARTOUT de la vue camera (Rihen) : ce qui deborde du cadre
+		// de la camera est voile d'une couleur PAR CAMERA, noir a 60 % par
+		// defaut, reglable au panneau de la camera.
+		namespace {
+			float32 sCamPasse[kNkvpMaxUser][4];
+			bool sCamPasseSet[kNkvpMaxUser] = {};
+		} // namespace
+		void Demo3DHostCamPasse(int32 node, float32 *rgba4) {
+			const int32 u = node - kNkvpFirstUser;
+			if (u < 0 || u >= kNkvpMaxUser || !sCamPasseSet[u]) {
+				rgba4[0] = rgba4[1] = rgba4[2] = 0.f;
+				rgba4[3] = 0.6f;
+				return;
+			}
+			for (int32 i = 0; i < 4; ++i)
+				rgba4[i] = sCamPasse[u][i];
+		}
+		void Demo3DHostSetCamPasse(int32 node, const float32 *rgba4) {
+			const int32 u = node - kNkvpFirstUser;
+			if (u < 0 || u >= kNkvpMaxUser)
+				return;
+			sCamPasseSet[u] = true;
+			for (int32 i = 0; i < 4; ++i)
+				sCamPasse[u][i] = rgba4[i];
+		}
+		bool Demo3DHostCamOrtho(int32 node) {
+			const int32 u = node - kNkvpFirstUser;
+			return u >= 0 && u < kNkvpMaxUser && nkvpUserCamOrtho[u];
+		}
+		void Demo3DHostSetCamOrtho(int32 node, bool ortho) {
+			const int32 u = node - kNkvpFirstUser;
+			if (u >= 0 && u < kNkvpMaxUser)
+				nkvpUserCamOrtho[u] = ortho;
+		}
+		// ECHELLE ORTHO = l'echelle du noeud (regle consignee). Le panneau
+		// l'edite comme un champ dedie, facon Blender : lecture sur Y, ecriture
+		// UNIFORME (les trois axes) pour garder un cadre non deforme.
+		float32 Demo3DHostCamOrthoScale(int32 node) {
+			const int32 e = node - kNkvpFirstEmpty;
+			if (e < 0 || e >= 70)
+				return 1.f;
+			const float32 s = nkvpEmptyScl[e][1];
+			return s < 0.f ? -s : s;
+		}
+		void Demo3DHostSetCamOrthoScale(int32 node, float32 s) {
+			const int32 e = node - kNkvpFirstEmpty;
+			if (e < 0 || e >= 70)
+				return;
+			if (s < 0.05f)
+				s = 0.05f;
+			nkvpEmptyScl[e][0] = s;
+			nkvpEmptyScl[e][1] = s;
+			nkvpEmptyScl[e][2] = s;
+		}
 		void Demo3DHostMoveTreeScene(int32 node, int32 id) {
 			// ISOLATION : le noeud change de document, avec SES MESH INTERNES et
 			// EUX SEULS. Ses enfants de SCENE (qui sont des models a part entiere)
