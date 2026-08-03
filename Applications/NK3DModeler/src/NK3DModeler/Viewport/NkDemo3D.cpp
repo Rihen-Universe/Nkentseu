@@ -878,6 +878,55 @@ namespace nkentseu {
 			}
 		}
 		
+		// ── Aretes n-gon des MAILLAGES UTILISATEUR (menu Ajouter / import) ─────────
+		// En mode filaire n-gon, RIEN n'est rasterise : sans leurs aretes dans le
+		// lot, les objets de l'utilisateur etaient INVISIBLES en fil de fer alors
+		// que la demo, elle, y figurait (constate par Rihen : seul le contour de
+		// selection subsistait). Caches par emplacement, remplis a la reconstruction.
+		static NkVector<NkVec3f> sUserWireEdges[kNkvpMaxUser];
+		static uint32 sUserOff[kNkvpMaxUser] = {};
+		static uint32 sUserCnt[kNkvpMaxUser] = {};
+		static NkMat4f sUserXf[kNkvpMaxUser];
+
+		// Transform monde d'un maillage utilisateur — MEME recette que son rendu
+		// (position + offsets gizmo, rotation composee, echelle, dimensions).
+		static NkMat4f Demo3D_UserWireXform(Demo3DState *st, int32 u) {
+			const int32 e = (kNkvpFirstUser + u) - 90; // meme indexation que le rendu
+			const float32 kD2Rw = 0.017453292f;
+			const NkVec3f tr = st->emptyGizmo.TranslateOf(e);
+			const NkVec3f os = st->emptyGizmo.ScaleOf(e);
+			NkMat4f W = NkMat4f::Translate({nkvpEmptyPos[e][0] + tr.x, nkvpEmptyPos[e][1] + tr.y,
+											nkvpEmptyPos[e][2] + tr.z}) *
+						(st->emptyGizmo.RotationOf(e) *
+						 (NkMat4f::RotationZ(NkAngle::FromRad(nkvpEmptyRotDeg[e][2] * kD2Rw)) *
+						  NkMat4f::RotationY(NkAngle::FromRad(nkvpEmptyRotDeg[e][1] * kD2Rw)) *
+						  NkMat4f::RotationX(NkAngle::FromRad(nkvpEmptyRotDeg[e][0] * kD2Rw)))) *
+						NkMat4f::Scale({nkvpEmptyScl[e][0] * (1.f + os.x),
+										nkvpEmptyScl[e][1] * (1.f + os.y),
+										nkvpEmptyScl[e][2] * (1.f + os.z)});
+			const int32 un = kNkvpFirstUser + u;
+			if (nkvpBaseSet[un])
+				W = W * NkMat4f::Scale({nkvpDimFactor[un][0], nkvpDimFactor[un][1],
+										nkvpDimFactor[un][2]});
+			return W;
+		}
+
+		// Remplit la tranche d'un maillage UTILISATEUR dans le batch monde.
+		static void Demo3D_UserWireFill(Demo3DState *st, int32 u, const NkMat4f &W) {
+			const NkVec4f col = Demo3D_WireColor();
+			float32 *dst = st->wireVerts.Data() + (uint64)sUserOff[u] * 7;
+			for (uint32 k = 0; k < sUserCnt[u]; k++) {
+				const NkVec3f w = W * sUserWireEdges[u][k];
+				dst[k * 7 + 0] = w.x;
+				dst[k * 7 + 1] = w.y;
+				dst[k * 7 + 2] = w.z;
+				dst[k * 7 + 3] = col.x;
+				dst[k * 7 + 4] = col.y;
+				dst[k * 7 + 5] = col.z;
+				dst[k * 7 + 6] = col.w;
+			}
+		}
+
 		// Synchronise le batch d'aretes n-gon avec la scene. Reconstruction COMPLETE
 		// seulement quand la topologie change (un objet adopte un maillage edite, ou on
 		// entre/sort d'edition) ; sinon on ne reecrit que les tranches des objets qui ont
@@ -887,6 +936,24 @@ namespace nkentseu {
 			for (int32 i = 0; i < Demo3DState::kNumObj; i++)
 				if (st->objMesh[i].IsValid())
 					stamp += (i + 1) * 7;
+			// LA VISIBILITE fait partie de l'empreinte : ouvrir/fermer un oeil (ou
+			// charger une scene utilisateur ou toute la demo est masquee) doit
+			// reconstruire le lot -- sinon le fil de fer d'objets INVISIBLES
+			// restait a l'ecran (Rihen : « 96 elements pourtant j'ai juste mon
+			// cube »).
+			for (int32 i = 0; i < Demo3DState::kNumObj; i++)
+				if (HostHiddenEff(i))
+					stamp += (i + 1) * 1009;
+			// Les MAILLAGES UTILISATEUR font partie de l'empreinte : creation,
+			// suppression, changement de primitive/mesh ou de visibilite.
+			for (int32 u = 0; u < kNkvpMaxUser; ++u) {
+				const uint8 uk = nkvpUserKind[u];
+				if (uk < 1 || uk > 3)
+					continue;
+				const int32 un = kNkvpFirstUser + u;
+				stamp += (u + 3) * (HostHiddenEff(un) ? 8191 : 127);
+				stamp += (int32)nkvpUserSub[u] * 31 + (nkvpUserMesh[u].IsValid() ? 5 : 0);
+			}
 			if (stamp != st->wireStamp) {
 				st->wireStamp = stamp;
 				st->wireDirty = true;
@@ -905,9 +972,35 @@ namespace nkentseu {
 					st->wireCnt[i] = 0;
 					if (st->editMode && st->editObjIdx == i)
 						continue; // objet en edition : sa cage n-gon est deja dessinee par l'overlay
+					if (HostHiddenEff(i))
+						continue; // invisible (oeil ferme / scene sans la demo) : pas de fantome
 					const NkVector<NkVec3f> *src = Demo3D_WireSrc(st, ms, i);
 					st->wireCnt[i] = (uint32)src->Size();
 					off += st->wireCnt[i];
+				}
+				// ── MAILLAGES UTILISATEUR : leurs aretes au meme lot ────────────
+				for (int32 u = 0; u < kNkvpMaxUser; ++u) {
+					sUserCnt[u] = 0;
+					const uint8 uk = nkvpUserKind[u];
+					if (uk < 1 || uk > 3)
+						continue;
+					const int32 un = kNkvpFirstUser + u;
+					if (HostHiddenEff(un))
+						continue;
+					NkMeshHandle mh = st->meshPlane;
+					if (uk == 1)
+						mh = nkvpUserSub[u] == 1 ? st->meshIco : st->meshSphere;
+					else if (uk == 2)
+						mh = nkvpUserSub[u] == 1
+								 ? st->meshCylinder
+								 : (nkvpUserSub[u] == 2 ? st->meshCone : st->meshCube);
+					if (nkvpUserMesh[u].IsValid())
+						mh = nkvpUserMesh[u];
+					sUserWireEdges[u].Clear();
+					Demo3D_NgonEdgesOf(ms, mh, sUserWireEdges[u]);
+					sUserOff[u] = off;
+					sUserCnt[u] = (uint32)sUserWireEdges[u].Size();
+					off += sUserCnt[u];
 				}
 				st->wireTotalV = off;
 				st->wireVerts.Resize(off * 7);
@@ -916,6 +1009,13 @@ namespace nkentseu {
 						continue;
 					Demo3D_WireFillSlice(st, i, Demo3D_WireSrc(st, ms, i));
 					st->wireXform[i] = st->objXform[i];
+				}
+				for (int32 u = 0; u < kNkvpMaxUser; ++u) {
+					if (!sUserCnt[u])
+						continue;
+					const NkMat4f W = Demo3D_UserWireXform(st, u);
+					Demo3D_UserWireFill(st, u, W);
+					sUserXf[u] = W;
 				}
 				r3d->SetNgonWireLines(st->wireVerts.Data(), off);
 				st->wireDirty = false;
@@ -930,6 +1030,19 @@ namespace nkentseu {
 				st->wireXform[i] = st->objXform[i];
 				r3d->UpdateNgonWireLines(st->wireVerts.Data() + (uint64)st->wireOff[i] * 7, st->wireOff[i],
 										 st->wireCnt[i]);
+			}
+			// Un maillage UTILISATEUR deplace/tourne/mis a l'echelle : sa tranche
+			// suit, comme celles de la demo.
+			for (int32 u = 0; u < kNkvpMaxUser; ++u) {
+				if (!sUserCnt[u])
+					continue;
+				const NkMat4f W = Demo3D_UserWireXform(st, u);
+				if (sUserXf[u] == W)
+					continue;
+				Demo3D_UserWireFill(st, u, W);
+				sUserXf[u] = W;
+				r3d->UpdateNgonWireLines(st->wireVerts.Data() + (uint64)sUserOff[u] * 7, sUserOff[u],
+										 sUserCnt[u]);
 			}
 		}
 		
@@ -1355,6 +1468,105 @@ namespace nkentseu {
 					return true;
 				}
 		};
+
+		// ── RAYON -> MAILLAGE REEL ──────────────────────────────────────────────────
+		// La selection/deselection au clic se decide sur les TRIANGLES du maillage
+		// (regle de Rihen), pas sur un volume approche : le disque « rayon = plus
+		// grande echelle » d'avant volait les clics du vide voisin des qu'un objet
+		// grandissait -- cliquer a cote SELECTIONNAIT au lieu de deselectionner.
+		// Moller-Trumbore en espace LOCAL : le rayon monde est ramene par l'inverse
+		// du transform ; direction NON normalisee des deux cotes, donc le parametre
+		// t reste celui du rayon MONDE et se compare entre objets.
+		static bool Demo3D_RayMeshT(renderer::NkMeshSystem *ms, NkMeshHandle mesh,
+									const NkMat4f &world, NkVec3f ro, NkVec3f rd, float32 &bestT) {
+			if (!ms || !ms->HasCPUData(mesh))
+				return false;
+			const uint8 *vb = (const uint8 *)ms->GetVertices(mesh);
+			const uint32 *ib = ms->GetIndices(mesh);
+			const uint32 ic = ms->GetIndexCount(mesh);
+			const uint32 stride = ms->GetVertexStride(mesh);
+			if (!vb || !ib || ic < 3 || stride < sizeof(NkVec3f))
+				return false;
+			const NkMat4f inv = world.Inverse();
+			const NkVec3f lo = inv * ro;
+			const NkVec3f l1 = inv * NkVec3f{ro.x + rd.x, ro.y + rd.y, ro.z + rd.z};
+			const NkVec3f ld{l1.x - lo.x, l1.y - lo.y, l1.z - lo.z};
+			bool hit = false;
+			for (uint32 k = 0; k + 2 < ic; k += 3) {
+				const NkVec3f &A = *(const NkVec3f *)(vb + ib[k] * stride);
+				const NkVec3f &B = *(const NkVec3f *)(vb + ib[k + 1] * stride);
+				const NkVec3f &C = *(const NkVec3f *)(vb + ib[k + 2] * stride);
+				const NkVec3f e1{B.x - A.x, B.y - A.y, B.z - A.z};
+				const NkVec3f e2{C.x - A.x, C.y - A.y, C.z - A.z};
+				const NkVec3f p{ld.y * e2.z - ld.z * e2.y, ld.z * e2.x - ld.x * e2.z,
+								ld.x * e2.y - ld.y * e2.x};
+				const float32 det = e1.x * p.x + e1.y * p.y + e1.z * p.z;
+				// DOUBLE FACE voulu (pas de test de signe) : un plan doit se
+				// cliquer des deux cotes.
+				if (det > -1e-9f && det < 1e-9f)
+					continue;
+				const float32 invDet = 1.f / det;
+				const NkVec3f tv{lo.x - A.x, lo.y - A.y, lo.z - A.z};
+				const float32 u = (tv.x * p.x + tv.y * p.y + tv.z * p.z) * invDet;
+				if (u < 0.f || u > 1.f)
+					continue;
+				const NkVec3f q{tv.y * e1.z - tv.z * e1.y, tv.z * e1.x - tv.x * e1.z,
+								tv.x * e1.y - tv.y * e1.x};
+				const float32 v = (ld.x * q.x + ld.y * q.y + ld.z * q.z) * invDet;
+				if (v < 0.f || u + v > 1.f)
+					continue;
+				const float32 t = (e2.x * q.x + e2.y * q.y + e2.z * q.z) * invDet;
+				if (t > 1e-4f && t < bestT) {
+					bestT = t;
+					hit = true;
+				}
+			}
+			return hit;
+		}
+
+		// Test PRECIS des objets de DEMO pour le gizmo : resout le MEME mesh que le
+		// rendu (mesh edite prioritaire, sinon la primitive de l'index) et rejoue le
+		// rayon-triangle ci-dessus. Le monde RECU est celui du MARQUEUR du gizmo
+		// (base * Translate(centre AABB), cf. fitTarget) : on defait ce recentrage
+		// pour retomber sur le transform du mesh.
+		// Retour : 1 touche, 0 rate (autorite), -1 pas de donnees CPU (repli boite).
+		struct Demo3DRayCtx {
+				Demo3DState *st = nullptr;
+				renderer::NkMeshSystem *ms = nullptr;
+		};
+		static int32 Demo3D_GizmoRayTest(void *user, int32 idx, const NkMat4f &world, NkVec3f ro,
+										 NkVec3f rd, float32 &tInOut) {
+			const Demo3DRayCtx *cx = (const Demo3DRayCtx *)user;
+			if (!cx || !cx->st || !cx->ms || idx < 0 || idx >= Demo3DState::kNumObj)
+				return -1;
+			Demo3DState *st = cx->st;
+			NkMeshHandle mh = st->meshSphere; // 0..15 : grille PBR de spheres
+			if (idx == Demo3DState::kIdxFloor)
+				mh = st->meshPlane;
+			else if (idx >= 16) // cube central, colonnes, grille instanciee, feuillage, mur GI
+				mh = st->meshCube;
+			if (st->objMesh[idx].IsValid())
+				mh = st->objMesh[idx];
+			if (!cx->ms->HasCPUData(mh))
+				return -1;
+			const auto *vv = (const renderer::NkVertex3D *)cx->ms->GetVertices(mh);
+			const uint32 vc = cx->ms->GetVertexCount(mh);
+			if (!vv || vc == 0)
+				return -1;
+			NkVec3f mn{1e30f, 1e30f, 1e30f}, mx{-1e30f, -1e30f, -1e30f};
+			for (uint32 i = 0; i < vc; i++) {
+				const NkVec3f p = vv[i].pos;
+				mn.x = NkMin(mn.x, p.x);
+				mn.y = NkMin(mn.y, p.y);
+				mn.z = NkMin(mn.z, p.z);
+				mx.x = NkMax(mx.x, p.x);
+				mx.y = NkMax(mx.y, p.y);
+				mx.z = NkMax(mx.z, p.z);
+			}
+			const NkVec3f c = (mn + mx) * 0.5f;
+			const NkMat4f W = world * NkMat4f::Translate({-c.x, -c.y, -c.z});
+			return Demo3D_RayMeshT(cx->ms, mh, W, ro, rd, tInOut) ? 1 : 0;
+		}
 
 		// ── SÉLECTION PAR ZONE, MODE OBJET ──────────────────────────────────────────
 		// Pendant de Demo3D_SelectInZone (qui opère sur les sommets du maillage édité).
@@ -6995,6 +7207,12 @@ namespace nkentseu {
 						}
 						st->emptyDragPrev = st->emptyGizmo.IsDragging();
 					}
+					// PICK PRECIS AU TRIANGLE pour les objets de demo aussi (regle de
+					// Rihen : la selection se decide sur le mesh reel, partout).
+					static Demo3DRayCtx sRayCtx;
+					sRayCtx.st = st;
+					sRayCtx.ms = ctx.renderer->GetMeshSystem();
+					st->gizmo.SetRayPickTest(&Demo3D_GizmoRayTest, &sRayCtx);
 					st->gizmo.Update(targets, n, gin);
 						// PICK ECRAN des MAILLAGES UTILISATEUR -- APRES le gizmo objets :
 						// une FLECHE saisie garde son clic, un objet derriere elle
@@ -7009,7 +7227,23 @@ namespace nkentseu {
 							const NkVec3f camP2 = cam.GetPosition();
 							const NkVec3f fwd2 = (cam.GetTarget() - camP2).Normalized();
 							const NkVec3f rgt2 = fwd2.Cross(NkVec3f{0.f, 1.f, 0.f}).Normalized();
-							int32 bestU = -1;
+							int32 bestU = -1; // widgets : distance ECRAN
+								// Maillages : candidat par RAYON-TRIANGLE sur le mesh
+								// reel, metrique = t du rayon (le plus PROCHE gagne).
+								int32 bestMeshU = -1;
+								float32 bestMeshT = 1e30f;
+								// Rayon MONDE du pixel clique -- meme convention que
+								// uproj (inverse exact de sa projection).
+								const float32 rnx = 2.f * gin.mouseX / uproj.vw - 1.f;
+								const float32 rny = 1.f - 2.f * gin.mouseY / uproj.vh;
+								const NkVec3f rdW{uproj.fwd.x + uproj.rgt.x * rnx * uproj.thX +
+													  uproj.upv.x * rny * uproj.thY,
+												  uproj.fwd.y + uproj.rgt.y * rnx * uproj.thX +
+													  uproj.upv.y * rny * uproj.thY,
+												  uproj.fwd.z + uproj.rgt.z * rnx * uproj.thX +
+													  uproj.upv.z * rny * uproj.thY};
+								auto *msPick = ctx.renderer->GetMeshSystem();
+								const float32 kD2Rp = 0.017453292f;
 							float32 bestD2 = 1e30f;
 							for (int32 u2 = 0; u2 < kNkvpMaxUser; ++u2) {
 								const uint8 uk2 = nkvpUserKind[u2];
@@ -7024,6 +7258,49 @@ namespace nkentseu {
 								if (HostHiddenEff(un2) || HostLockedEff(un2))
 									continue;
 								const int32 e2 = un2 - 90;
+									if (uk2 >= 1 && uk2 <= 3) {
+										// MAILLAGE : le clic se decide sur le MESH REEL
+										// (rayon-triangle), transform monde identique a
+										// celui du rendu. Le disque approche d'avant
+										// (rayon = plus grande echelle) volait le vide
+										// voisin des objets agrandis.
+										NkMeshHandle pm = st->meshPlane;
+										const uint8 usv2 = nkvpUserSub[u2];
+										if (uk2 == 1)
+											pm = usv2 == 1 ? st->meshIco : st->meshSphere;
+										else if (uk2 == 2)
+											pm = usv2 == 1 ? st->meshCylinder
+														   : (usv2 == 2 ? st->meshCone
+																		: st->meshCube);
+										if (nkvpUserMesh[u2].IsValid())
+											pm = nkvpUserMesh[u2];
+										const NkVec3f utr2 = st->emptyGizmo.TranslateOf(e2);
+										const NkVec3f uos2 = st->emptyGizmo.ScaleOf(e2);
+										NkMat4f W =
+											NkMat4f::Translate({nkvpEmptyPos[e2][0] + utr2.x,
+																nkvpEmptyPos[e2][1] + utr2.y,
+																nkvpEmptyPos[e2][2] + utr2.z}) *
+											(st->emptyGizmo.RotationOf(e2) *
+											 (NkMat4f::RotationZ(NkAngle::FromRad(
+												  nkvpEmptyRotDeg[e2][2] * kD2Rp)) *
+											  NkMat4f::RotationY(NkAngle::FromRad(
+												  nkvpEmptyRotDeg[e2][1] * kD2Rp)) *
+											  NkMat4f::RotationX(NkAngle::FromRad(
+												  nkvpEmptyRotDeg[e2][0] * kD2Rp)))) *
+											NkMat4f::Scale({nkvpEmptyScl[e2][0] * (1.f + uos2.x),
+															nkvpEmptyScl[e2][1] * (1.f + uos2.y),
+															nkvpEmptyScl[e2][2] * (1.f + uos2.z)});
+										if (nkvpBaseSet[un2])
+											W = W * NkMat4f::Scale({nkvpDimFactor[un2][0],
+																	nkvpDimFactor[un2][1],
+																	nkvpDimFactor[un2][2]});
+										float32 tHit = bestMeshT;
+										if (Demo3D_RayMeshT(msPick, pm, W, camP2, rdW, tHit)) {
+											bestMeshT = tHit;
+											bestMeshU = e2;
+										}
+										continue;
+									}
 								const NkVec3f c2{nkvpEmptyPos[e2][0], nkvpEmptyPos[e2][1],
 												 nkvpEmptyPos[e2][2]};
 								float32 rw = fabsf(nkvpEmptyScl[e2][0]);
@@ -7056,6 +7333,11 @@ namespace nkentseu {
 									bestU = e2;
 								}
 							}
+							// PRIORITE aux widgets (petite cible ecran, intention
+							// precise) ; sinon le maillage reellement TOUCHE par le
+							// rayon -- et rien touche = deselection plus bas.
+							if (bestU < 0)
+								bestU = bestMeshU;
 							// DANS UNE SCENE, cliquer un MESH INTERNE selectionne TOUT
 							// le model auquel il appartient (facon Blender) ; dans
 							// l'editeur de model, chaque mesh se selectionne
@@ -7066,7 +7348,9 @@ namespace nkentseu {
 								if (rB != nB && rB >= kNkvpFirstEmpty)
 									bestU = rB - kNkvpFirstEmpty;
 							}
-							if (bestU >= 0 && bestU == st->emptyGizmo.ActiveIndex())
+							const bool clickedActive =
+								(bestU >= 0 && bestU == st->emptyGizmo.ActiveIndex());
+							if (clickedActive)
 								bestU = -1; // deja actif : le clic est aux POIGNEES
 							if (bestU >= 0) {
 								st->gizmo.ClearSelection();
@@ -7077,6 +7361,17 @@ namespace nkentseu {
 								else
 									st->emptyGizmo.Select(bestU);
 								gin.leftPressed = false; // le clic est a nous
+							} else if (!clickedActive && !gin.shiftDown && !gin.ctrlDown) {
+								// CLIC DANS LE VIDE : les maillages UTILISATEUR se
+								// deselectionnent AUSSI. Ce chemin ne gerait que la
+								// selection -- ne rien faire ici laissait un plan ou un
+								// model selectionne POUR TOUJOURS quand on cliquait
+								// dans le vide (constate par Rihen ; l'intermittence
+								// venait des clics qui tombaient dans le disque de pick
+								// d'un AUTRE objet, qui changeaient donc la selection).
+								// Les objets de demo, eux, se deselectionnaient deja
+								// via le gizmo.
+								st->emptyGizmo.ClearSelection();
 							}
 						}
 					if (getenv("NK_SEL_AT")) {
