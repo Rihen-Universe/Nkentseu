@@ -355,6 +355,40 @@ boutons de remise à zéro.
    (« X4567: maximum cbuffer exceeded »). Les blocs uniformes et les textures ont des
    espaces de registres distincts (b# / t#) : un même numéro peut servir aux deux.
 
+### Fait depuis (2026-08-03)
+
+- **Ciel évalué dans le shader**, donc immédiat et animable ; la cuisson ne sert
+  plus qu'à l'éclairage.
+- **Nuages animés** (réglage Vitesse) et **échantillonnage sphérique** : la
+  projection planaire `d.xz / d.y` envoyait toutes les directions du zénith sur un
+  **point unique** du bruit — les nuages y convergeaient en tourbillon. Un bruit 3D
+  sur la direction n'a aucun point dégénéré.
+- **Étoiles** : disque à centre tiré dans la cellule (la première version allumait
+  la cellule entière, d'où des **carrés**), magnitude en loi de puissance —
+  beaucoup de petites, quelques grosses. Elles s'effacent seules quand le ciel
+  s'éclaire, donc un cycle jour/nuit les révélera sans qu'on les pilote.
+- **Lunes (0 à 2)** : élévation, azimut, taille, luminosité, couleur. Leur **phase
+  se déduit du soleil** par défaut — la lune est une sphère qu'il éclaire, le
+  croissant sort du calcul. Une option **« Phase forcée »** permet de l'imposer :
+  c'est un choix de mise en scène, déclaré et non subi.
+
+- **Troisième modèle : Atmosphère (Rayleigh + Mie)**, diffusion simple intégrée
+  le long du rayon, 12 pas de vue × 5 pas de lumière. Écrit **depuis la
+  physique** — chaque terme se vérifie, contrairement à un modèle tabulé.
+  Il apporte ce que Preetham ne sait pas faire : le **soleil sous l'horizon**.
+  Le test `altL < 0` (le trajet vers le soleil traverse la Terre) éteint les
+  couches basses avant les hautes — c'est de là que sort le crépuscule.
+  Son facteur d'échelle (22) est calé pour qu'un ciel de midi rende comme
+  Preetham : changer de modèle ne doit pas faire sauter l'exposition de la scène.
+
+### Lunes en nombre libre (demandé pour les courts métrages)
+
+Le tableau est dimensionné à **2**. Passer à 4, 8 ou davantage ne demande que deux
+`vec4` de plus par lune dans le bloc caméra et une ligne d'interface : la boucle,
+elle, ne change pas — « une » et « plusieurs » suivent déjà le même chemin.
+À faire quand un film le demandera, pas avant : chaque lune coûte 32 octets de bloc
+caméra, et ce bloc est déjà à 672 octets.
+
 ### Demandé, pas encore fait
 
 - **Activer / désactiver l'animation à volonté** (geler les nuages sans perdre leurs
@@ -364,7 +398,26 @@ boutons de remise à zéro.
   dessous), et une couverture qui monte au-delà d'un simple seuil.
 - **Ciels d'ambiance** (désert, orage, brume…) : ce sont des **préréglages** — un jeu
   de valeurs nommé, pas du code. À traiter avec le fichier de données, pas en dur.
-- **Hosek-Wilkie** comme troisième modèle.
+- **Hosek-Wilkie — NON FAIT, et volontairement.** Le modèle repose sur un jeu de
+  **coefficients tabulés** (`ArHosekSkyModelData_RGB`, plusieurs centaines de
+  flottants). Sa licence ne fait pas obstacle : **BSD 3-clauses**, usage
+  commercial permis, à la seule condition de conserver la mention de copyright
+  (Lukas Hosek, Alexander Wilkie, 2012-2013) et de ne pas se servir du nom des
+  auteurs pour promouvoir le produit.
+
+  Ce qui a fait renoncer, c'est la **fiabilité de la transcription**. Deux
+  lectures indépendantes du fichier ont rendu la **même séquence de valeurs**
+  mais avec un **décalage d'indexation de trois positions**. Dans une table où la
+  position porte tout le sens, un tel décalage corromprait l'ensemble en silence
+  et produirait un ciel *plausible mais faux* — le pire résultat possible.
+
+  **Pour l'ajouter** : récupérer le fichier officiel tel quel (ne pas le
+  retaper), le déposer dans `Resources/NKRenderer/Sky/`, garder son en-tête de
+  licence intact, et écrire l'évaluation (Perez étendu à 9 coefficients) autour.
+  Le combo Modèle est déjà prêt à recevoir une quatrième entrée.
+
+  ⚠ **Ne jamais « réécrire à sa manière » les tables pour effacer l'origine** :
+  l'algorithme est libre, les données restent sous licence.
 - **Lunes** (une ou plusieurs) et **étoiles** : termes additifs dans le shader, une
   fois le ciel calculé en temps réel — ce qui est désormais le cas.
 - **Animation des paramètres** : maintenant qu'ils descendent au GPU à chaque image,
