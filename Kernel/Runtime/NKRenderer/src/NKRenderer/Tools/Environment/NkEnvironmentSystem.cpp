@@ -235,7 +235,7 @@ namespace nkentseu {
 					dz = 0.f;
 					break;
 			}
-			float l = std::sqrt(dx * dx + dy * dy + dz * dz);
+			float l = math::NkSqrt(dx * dx + dy * dy + dz * dz);
 			if (l > 1e-6f) {
 				dx /= l;
 				dy /= l;
@@ -252,7 +252,7 @@ namespace nkentseu {
 			const float invPI = 0.31830988618379f;
 			const float inv2PI = 0.15915494309189f;
 			float phi = std::atan2(dz, dx);
-			float theta = std::asin(NkClamp(dy, -1.f, 1.f));
+			float theta = math::NkAsin(NkClamp(dy, -1.f, 1.f));
 			float u = phi * inv2PI + 0.5f;
 			float v = 0.5f - theta * invPI;
 
@@ -323,8 +323,8 @@ namespace nkentseu {
 		// (Y luminance, x et y chromaticite CIE).
 		static inline float NkPerez(float cosTheta, float gamma, float cosGamma, const float c[5]) {
 			const float ct = cosTheta < 0.01f ? 0.01f : cosTheta; // pole du modele a theta=90
-			const float a = 1.f + c[0] * std::exp(c[1] / ct);
-			const float b = 1.f + c[2] * std::exp(c[3] * gamma) + c[4] * cosGamma * cosGamma;
+			const float a = 1.f + c[0] * math::NkExp(c[1] / ct);
+			const float b = 1.f + c[2] * math::NkExp(c[3] * gamma) + c[4] * cosGamma * cosGamma;
 			return a * b;
 		}
 
@@ -344,7 +344,7 @@ namespace nkentseu {
 			// Direction VERS le soleil = oppose de sa direction de propagation
 			// (meme convention que NkLightDesc::direction, cf. l'en-tete).
 			float sx = -P.sunDirection.x, sy = -P.sunDirection.y, sz = -P.sunDirection.z;
-			const float sl = std::sqrt(sx * sx + sy * sy + sz * sz);
+			const float sl = math::NkSqrt(sx * sx + sy * sy + sz * sz);
 			if (sl > 1e-6f) {
 				sx /= sl;
 				sy /= sl;
@@ -358,9 +358,9 @@ namespace nkentseu {
 			const float T = NkSkyClamp(P.turbidity, 1.f, 10.f);
 			const float cosTheta = dy;
 			const float cosThetaS = NkSkyClamp(sy, -1.f, 1.f);
-			const float thetaS = std::acos(cosThetaS);
+			const float thetaS = math::NkAcos(cosThetaS);
 			const float cosGamma = NkSkyClamp(dx * sx + dy * sy + dz * sz, -1.f, 1.f);
-			const float gamma = std::acos(cosGamma);
+			const float gamma = math::NkAcos(cosGamma);
 
 			const float cY[5] = {0.1787f * T - 1.4630f, -0.3554f * T + 0.4275f, -0.0227f * T + 5.3251f,
 								 0.1206f * T - 2.5771f, -0.0670f * T + 0.3703f};
@@ -371,7 +371,7 @@ namespace nkentseu {
 
 			const float t2 = thetaS * thetaS, t3 = t2 * thetaS;
 			const float chi = (4.f / 9.f - T / 120.f) * (3.14159265f - 2.f * thetaS);
-			float Yz = (4.0453f * T - 4.9710f) * std::tan(chi) - 0.2155f * T + 2.4192f;
+			float Yz = (4.0453f * T - 4.9710f) * math::NkTan(chi) - 0.2155f * T + 2.4192f;
 			if (Yz < 0.f)
 				Yz = 0.f;
 			const float xz = T * T * (0.00166f * t3 - 0.00375f * t2 + 0.00209f * thetaS) +
@@ -538,7 +538,7 @@ namespace nkentseu {
 			// La table est parametree en elevation^(1/3) — c'est le choix des
 			// auteurs, pas le notre : il densifie les echantillons pres de
 			// l'horizon, la ou le ciel change le plus vite.
-			double se = pow(elev / (3.14159265358979 / 2.0), 1.0 / 3.0);
+			double se = math::NkPow(elev / (3.14159265358979 / 2.0), 1.0 / 3.0);
 			if (se > 1.0)
 				se = 1.0;
 			const double alb[3] = {(double)albedo.x, (double)albedo.y, (double)albedo.z};
@@ -572,7 +572,7 @@ namespace nkentseu {
 			// les deux DOIVENT rester d'accord, c'est la condition pour que la
 			// normalisation calculee ici vaille pour l'image rendue la-bas.
 			const float32 ct = cosTheta < 0.f ? 0.f : cosTheta;
-			const float32 cg = std::cos(gamma);
+			const float32 cg = math::NkCos(gamma);
 			NkVec3f res;
 			for (int32 ch = 0; ch < 3; ch++) {
 				const float32 A = ((const float32 *)&c.coef[0].x)[ch];
@@ -584,12 +584,12 @@ namespace nkentseu {
 				const float32 G = ((const float32 *)&c.coef[6].x)[ch];
 				const float32 H = ((const float32 *)&c.coef[7].x)[ch];
 				const float32 I = ((const float32 *)&c.coef[8].x)[ch];
-				const float32 expM = std::exp(E * gamma);
+				const float32 expM = math::NkExp(E * gamma);
 				const float32 rayM = cg * cg;
 				const float32 mieM =
-					(1.f + rayM) / std::pow(1.f + I * I - 2.f * I * cg, 1.5f);
-				const float32 zen = std::sqrt(ct);
-				const float32 v = (1.f + A * std::exp(B / (ct + 0.01f))) *
+					(1.f + rayM) / math::NkPow(1.f + I * I - 2.f * I * cg, 1.5f);
+				const float32 zen = math::NkSqrt(ct);
+				const float32 v = (1.f + A * math::NkExp(B / (ct + 0.01f))) *
 								  (C + D * expM + F * rayM + G * mieM + H * zen);
 				((float32 *)&res.x)[ch] = v * ((const float32 *)&c.radiance.x)[ch];
 			}
@@ -982,14 +982,14 @@ namespace nkentseu {
 		// ── Construction d'un repere TBN orthonorme depuis N ─────────────────────
 		static inline void BuildTBN(float Nx, float Ny, float Nz, float &Tx, float &Ty, float &Tz, float &Bx, float &By,
 									float &Bz) {
-			float ax = std::fabs(Ny) < 0.999f ? 0.f : 1.f;
-			float ay = std::fabs(Ny) < 0.999f ? 1.f : 0.f;
+			float ax = math::NkAbs(Ny) < 0.999f ? 0.f : 1.f;
+			float ay = math::NkAbs(Ny) < 0.999f ? 1.f : 0.f;
 			float az = 0.f;
 			// T = normalize(cross(up, N))
 			Tx = ay * Nz - az * Ny;
 			Ty = az * Nx - ax * Nz;
 			Tz = ax * Ny - ay * Nx;
-			float l = std::sqrt(Tx * Tx + Ty * Ty + Tz * Tz);
+			float l = math::NkSqrt(Tx * Tx + Ty * Ty + Tz * Tz);
 			if (l > 1e-6f) {
 				Tx /= l;
 				Ty /= l;
@@ -1007,11 +1007,11 @@ namespace nkentseu {
 											   float &Hx, float &Hy, float &Hz) {
 			float a = roughness * roughness;
 			float phi = 6.28318530718f * xiX;
-			float cosTheta = std::sqrt((1.f - xiY) / (1.f + (a * a - 1.f) * xiY));
-			float sinTheta = std::sqrt(std::fmax(0.f, 1.f - cosTheta * cosTheta));
+			float cosTheta = math::NkSqrt((1.f - xiY) / (1.f + (a * a - 1.f) * xiY));
+			float sinTheta = math::NkSqrt(math::NkMax(0.f, 1.f - cosTheta * cosTheta));
 
-			float lx = sinTheta * std::cos(phi);
-			float ly = sinTheta * std::sin(phi);
+			float lx = sinTheta * math::NkCos(phi);
+			float ly = sinTheta * math::NkSin(phi);
 			float lz = cosTheta;
 
 			// World-space via TBN
@@ -1020,7 +1020,7 @@ namespace nkentseu {
 			Hx = Tx * lx + Bx * ly + Nx * lz;
 			Hy = Ty * lx + By * ly + Ny * lz;
 			Hz = Tz * lx + Bz * ly + Nz * lz;
-			float l = std::sqrt(Hx * Hx + Hy * Hy + Hz * Hz);
+			float l = math::NkSqrt(Hx * Hx + Hy * Hy + Hz * Hz);
 			if (l > 1e-6f) {
 				Hx /= l;
 				Hy /= l;
@@ -1044,7 +1044,7 @@ namespace nkentseu {
 		static inline void IntegrateBRDF(float NoV, float roughness, uint32 numSamples, float &outScale,
 										 float &outBias) {
 			// V dans le plan XZ avec V.z = NoV (frame ou N=Z).
-			float Vx = std::sqrt(std::fmax(0.f, 1.f - NoV * NoV));
+			float Vx = math::NkSqrt(math::NkMax(0.f, 1.f - NoV * NoV));
 			float Vy = 0.f;
 			float Vz = NoV;
 
@@ -1061,14 +1061,14 @@ namespace nkentseu {
 				float Ly = 2.f * VoH * Hy - Vy;
 				float Lz = 2.f * VoH * Hz - Vz;
 
-				float NoL = std::fmax(Lz, 0.f);
-				float NoH = std::fmax(Hz, 0.f);
-				VoH = std::fmax(VoH, 0.f);
+				float NoL = math::NkMax(Lz, 0.f);
+				float NoH = math::NkMax(Hz, 0.f);
+				VoH = math::NkMax(VoH, 0.f);
 
 				if (NoL > 0.f) {
 					float G = G_Smith_IBL(NoV, NoL, roughness);
-					float G_Vis = (G * VoH) / std::fmax(NoH * NoV, 1e-6f);
-					float Fc = std::pow(1.f - VoH, 5.f);
+					float G_Vis = (G * VoH) / math::NkMax(NoH * NoV, 1e-6f);
+					float Fc = math::NkPow(1.f - VoH, 5.f);
 					A += (1.f - Fc) * G_Vis;
 					B += Fc * G_Vis;
 				}
@@ -1326,10 +1326,10 @@ namespace nkentseu {
 							uint32 nSamp = 0;
 							for (uint32 ti = 0; ti < nTheta; ti++) {
 								float theta = (float(ti) + 0.5f) * dTheta;
-								float sT = std::sin(theta), cT = std::cos(theta);
+								float sT = math::NkSin(theta), cT = math::NkCos(theta);
 								for (uint32 pi = 0; pi < nPhi; pi++) {
 									float phi = (float(pi) + 0.5f) * dPhi;
-									float sP = std::sin(phi), cP = std::cos(phi);
+									float sP = math::NkSin(phi), cP = math::NkCos(phi);
 									float lx = sT * cP, ly = sT * sP, lz = cT;
 									float Wx = Tx * lx + Bx * ly + Nx * lz;
 									float Wy = Ty * lx + By * ly + Ny * lz;
@@ -1401,7 +1401,7 @@ namespace nkentseu {
 									float Lx = 2.f * VoH * Hx - Vx;
 									float Ly = 2.f * VoH * Hy - Vy;
 									float Lz = 2.f * VoH * Hz - Vz;
-									float NoL = std::fmax(Nx * Lx + Ny * Ly + Nz * Lz, 0.f);
+									float NoL = math::NkMax(Nx * Lx + Ny * Ly + Nz * Lz, 0.f);
 									if (NoL > 0.f) {
 										NkVec3f s = SampleSkyModel(Lx, Ly, Lz, P);
 										Cx += s.x * NoL;
@@ -1678,10 +1678,10 @@ namespace nkentseu {
 							uint32 nSamp = 0;
 							for (uint32 ti = 0; ti < nTheta; ti++) {
 								float theta = (float(ti) + 0.5f) * dTheta;
-								float sT = std::sin(theta), cT = std::cos(theta);
+								float sT = math::NkSin(theta), cT = math::NkCos(theta);
 								for (uint32 pi = 0; pi < nPhi; pi++) {
 									float phi = (float(pi) + 0.5f) * dPhi;
-									float sP = std::sin(phi), cP = std::cos(phi);
+									float sP = math::NkSin(phi), cP = math::NkCos(phi);
 									float lx = sT * cP, ly = sT * sP, lz = cT;
 									float Wx = Tx * lx + Bx * ly + Nx * lz;
 									float Wy = Ty * lx + By * ly + Ny * lz;
@@ -1763,7 +1763,7 @@ namespace nkentseu {
 									float Lx = 2.f * VoH * Hx - Vx;
 									float Ly = 2.f * VoH * Hy - Vy;
 									float Lz = 2.f * VoH * Hz - Vz;
-									float NoL = std::fmax(Nx * Lx + Ny * Ly + Nz * Lz, 0.f);
+									float NoL = math::NkMax(Nx * Lx + Ny * Ly + Nz * Lz, 0.f);
 									if (NoL > 0.f) {
 										NkVec3f s = SampleEquirect(Lx, Ly, Lz, *hdr);
 										Cx += s.x * NoL;
