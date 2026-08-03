@@ -146,7 +146,10 @@ namespace nkentseu {
 				// bits : 1 grille, 2 lignes fines, 4 lignes majeures, 8 axes du plan,
 				// 16 contour de selection, 32 HUD texte de la demo (off par defaut :
 				// il chevauchait la barre d'outils).
-				uint32 overlayMask = 0x1Fu;
+				// GRILLE, LIGNES FINES ET MAJEURES COUPEES par defaut (Rihen) :
+				// c'est le SOL INFINI en damier qui donne le repere au sol --
+				// restent les axes et le contour de selection.
+				uint32 overlayMask = 0x18u;
 // Sections DEROULEES du panneau Details, un bit par section (maillage,
 				// modificateurs, materiaux, sous-maillages). Les quatre ouvertes au
 				// depart : un panneau qui s'ouvre tout replie oblige a quatre clics
@@ -217,6 +220,10 @@ namespace nkentseu {
 				// 1 = « Vue 3D » (scene seule), 2 = « Tutoriel » (toute la
 				// fenetre, interface comprise).
 				int32 capturePending = 0;
+				// Bouton-menu TUTORIEL du footer (Photo / Video en stub) : la
+				// capture de TOUTE l'application vit dans la barre de
+				// l'application, pas dans la vue 3D.
+				bool tutoMenuOpen = false;
 				// Le bouton capture est un MENU : ouvert, il devoile les types
 				// (Capture / Tutoriel...) et cliquer une entree EXECUTE la
 				// capture correspondante (regle de Rihen).

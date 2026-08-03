@@ -74,11 +74,15 @@ namespace nkentseu {
 											   // des cameras de la scene
 		static float32 nkvpOrthoScale = 0.55f; // demi-hauteur ortho = dist * ce facteur
 		static int32 nkvpGridExtent = 20;	   // demi-etendue de la grille ortho (unites)
-		static bool nkvpGridOn = true; // la VOLONTE de grille (la case du shell), meme quand
-									   // l'ortho coupe la grille infinie du moteur
-		static bool nkvpAxesOn = true; // axes debug +-1000 (bascule « Axes du plan »)
-		static bool nkvpMinorOn = true;  // volonte « Lignes internes »
-		static bool nkvpMajorOn = true;  // volonte « Lignes majeures »
+		// GRILLE ET SES TRAITS COUPES PAR DEFAUT (Rihen) : le sol infini en
+		// damier donne le repere au sol -- le shell TIRE ces valeurs a la
+		// premiere image (la demo est la source de verite a l'ouverture),
+		// c'est donc ICI que vivent les defauts, pas dans NkModelerState.
+		static bool nkvpGridOn = false; // la VOLONTE de grille (la case du shell), meme quand
+										// l'ortho coupe la grille infinie du moteur
+		static bool nkvpAxesOn = true;	 // axes debug +-1000 (bascule « Axes du plan »)
+		static bool nkvpMinorOn = false; // volonte « Lignes internes »
+		static bool nkvpMajorOn = false; // volonte « Lignes majeures »
 		static bool nkvpCursorTool = false;			   // outil CURSEUR : clic gauche = poser le curseur 3D
 		static bool nkvpGizmoHidden = false;		   // outils Selection/Curseur : pas de poignees
 		// ── PARENTE DE SCENE ────────────────────────────────────────────────
@@ -142,14 +146,16 @@ namespace nkentseu {
 		// SOL INFINI (option, Rihen) : un VRAI plan de sol -- il recoit lumiere
 		// et ombres. Ce n'est pas la grille : les deux coexistent, le plan
 		// legerement SOUS elle (coplanaires, ils z-fightaient jadis).
-		static bool nkvpFloorOn = false;
+		// ACTIF PAR DEFAUT, motif damier (Rihen) : la grille du viewport est
+		// coupee par defaut, c'est ce sol qui donne le repere.
+		static bool nkvpFloorOn = true;
 		static float32 nkvpFloorColor[3] = {0.45f, 0.45f, 0.47f};
 		static float32 nkvpFloorY = 0.f;
 		static float32 nkvpFloorRough = 0.9f;
 		static float32 nkvpFloorMetal = 0.f;
 		// Motif : 0 uni, 1 damier, 2 carreaux a joints (references Unreal de
-		// Rihen). Taille du carreau en metres.
-		static int32 nkvpFloorPattern = 0;
+		// Rihen). Taille du carreau en metres. DAMIER par defaut (Rihen).
+		static int32 nkvpFloorPattern = 1;
 		static float32 nkvpFloorTile = 1.f;
 		static bool nkvpFogOn = false;
 		static float32 nkvpFogColor[3] = {0.5f, 0.6f, 0.7f};

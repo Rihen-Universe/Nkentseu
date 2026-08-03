@@ -789,20 +789,11 @@ namespace nkentseu {
 			x += S(6.f);
 
 			// â”€â”€ DEROULANT DE MODE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-			// Ce ne sont pas deux boutons mais UNE liste, qui va s'allonger. Deux
-			// boutons auraient cesse de tenir au troisieme mode.
-			static const NkIcon kModeIc[5] = {NkIcon::Mesh, NkIcon::Edit, NkIcon::Layers,
-											  NkIcon::Ruler, NkIcon::Overlay};
-			static const char *const kModeNames[5] = {"Objet", "Edition", "Sculpt 2.5D", "Sculpt",
-													  "Texturing"};
+			// Le deroulant a QUITTE la barre : les ESPACES au-dessus de la vue
+			// portent desormais Objet / Edition / Sculpture 2.5D / Sculpture /
+			// Texturing -- un seul endroit pour changer de mode (regle de
+			// Rihen, le doublon barre + onglets pretait a confusion).
 			const float32 cbH = S(22.f), cbY = r.y + (r.h - cbH) * 0.5f;
-			{
-				int32 sel = (int32)st.mode;
-				Combo(p, hit, ws, "tb.mode", {x, cbY, S(140.f), cbH}, kModeNames, kModeIc, 5, sel, combo);
-				st.mode = (NkMode)sel;
-			}
-			x += S(148.f);
-			p.VLine(x - S(7.f), r.y + S(7.f), r.h - S(14.f));
 
 			// LE Â« MODE DE SELECTION Â» A ETE RETIRE D ICI. Rihen a demande a quoi
 			// servait le Â« Face Â» a cote d Â« Objet Â» : c etait le sous-mode
@@ -836,27 +827,9 @@ namespace nkentseu {
 				}
 				x += S(104.f);
 			}
-			// MODIFICATEUR : liste a DEUX NIVEAUX. Le bouton montre le modificateur
-			// courant avec SON icone ; le clic ouvre les categories, et chaque
-			// categorie ouvre ses entrees.
-			{
-				// LE BOUTON DIT Â« MODIFICATEUR Â», pas le nom du dernier choisi.
-				// Afficher Â« Miroir Â» laisse croire a un reglage en cours alors que
-				// c'est une commande d'AJOUT -- et le modificateur ajoute, lui, vit
-				// dans le panneau Details.
-				const NkRect mr{x, cbY, S(136.f), cbH};
-				const bool over = hit.Add("tb.mod", mr);
-				const bool open = ws.ComboOpen("tb.mod");
-				p.Outline(mr, (over || open) ? NkRole::AccentUi : NkRole::Border, NkRole::InputBg, 3.f);
-				p.IconV(x + S(8.f), cbY, cbH, NkIcon::Layers, NkRole::AccentUi, 13.f);
-				p.TextV(x + S(27.f), cbY, cbH, "Modificateur");
-				p.IconV(x + mr.w - S(18.f), cbY, cbH, open ? NkIcon::ChevronUp : NkIcon::ChevronDown,
-						NkRole::Text, 11.f);
-				if (hit.Clicked("tb.mod"))
-					ws.ToggleCombo("tb.mod");
-				st.modAnchor = mr; // memorise pour la liste, peinte apres tout le reste
-				x += S(144.f);
-			}
+			// (Le deroulant MODIFICATEUR a quitte la barre lui aussi : la
+			// pastille Modificateur du panneau Proprietes porte deja l'ajout --
+			// un seul endroit, regle de Rihen.)
 
 			// Â« Ajouter Â» et Â« Modificateur Â» etaient ecrits DEUX FOIS : une fois en
 			// deroulant (ci-dessus, celui qui marche) et une fois en bouton plat ici.
@@ -2873,18 +2846,25 @@ namespace nkentseu {
 				if (hit.Clicked("view.shotgo"))
 					st.captureMenuOpen = !st.captureMenuOpen;
 				if (st.captureMenuOpen) {
-					static const char *const kCapM[2] = {"Capture", "Tutoriel"};
-					static const char *const kCapKeys[2] = {"view.shot.vue", "view.shot.tuto"};
+					// CAPTURE = la VUE 3D seule (regle de Rihen) : Photo tout de
+					// suite, Video EN ATTENTE (stub affiche, honnete -- pas
+					// d'entree qui ferait semblant d'enregistrer). Le TUTORIEL,
+					// lui, concerne toute l'application : il vit au footer.
+					static const char *const kCapM[2] = {"Photo", "Video (a venir)"};
+					static const char *const kCapKeys[2] = {"view.shot.vue", "view.shot.vid"};
 					for (int32 m = 0; m < 2; ++m) {
-						const NkRect mr{x + d0 + 6.f, y + (float32)m * (d0 + 2.f), 96.f, d0};
+						const NkRect mr{x + d0 + 6.f, y + (float32)m * (d0 + 2.f), 108.f, d0};
+						const bool stub = m == 1;
 						const bool ovM = hit.Add(kCapKeys[m], mr);
-						p.Fill(mr, ovM ? NkRole::AccentUi : NkRole::PanelHeader, 4.f);
+						p.Fill(mr, (ovM && !stub) ? NkRole::AccentUi : NkRole::PanelHeader,
+							   4.f);
 						p.TextV(mr.x + 8.f, mr.y, d0, kCapM[m],
-								ovM ? NkRole::TextOnAccent : NkRole::Text);
-						if (ovM)
+								stub ? NkRole::TextMuted
+									 : (ovM ? NkRole::TextOnAccent : NkRole::Text));
+						if (ovM && !stub)
 							hit.WantCursor(NkCursorWant::Hand);
-						if (hit.Clicked(kCapKeys[m])) {
-							st.capturePending = m + 1; // 1 = vue 3D, 2 = fenetre
+						if (hit.Clicked(kCapKeys[m]) && !stub) {
+							st.capturePending = 1; // la vue 3D
 							st.captureMenuOpen = false;
 						}
 					}
@@ -3301,11 +3281,34 @@ namespace nkentseu {
 				const NkRect wb{r.x, r.y, r.w, wsBarH};
 				p.Fill(wb, NkRole::PanelHeader);
 				p.HLine(r.x, r.y + wsBarH - 1.f, r.w);
-				const NkRect t0{r.x + S(8.f), r.y + S(2.f), S(122.f), wsBarH - S(4.f)};
-				hit.Add("ws.tab.0", t0);
-				p.Fill(t0, NkRole::AccentUi, 3.f);
-				p.IconV(t0.x + S(6.f), t0.y, t0.h, NkIcon::Mesh, NkRole::TextOnAccent, 12.f);
-				p.TextV(t0.x + S(24.f), t0.y, t0.h, "Modelisation", NkRole::TextOnAccent);
+				// LES ESPACES SONT LES MODES (regle de Rihen) : Objet, Edition,
+				// Sculpture 2.5D, Sculpture, Texturing -- l'onglet actif EST le
+				// mode courant. Le deroulant equivalent de la barre d'outils a
+				// ete retire : un seul endroit pour changer de mode.
+				static const NkIcon kWsIc[5] = {NkIcon::Mesh, NkIcon::Edit, NkIcon::Layers,
+												NkIcon::Ruler, NkIcon::Overlay};
+				static const char *const kWsNames[5] = {"Objet", "Edition", "Sculpture 2.5D",
+														"Sculpture", "Texturing"};
+				float32 tx5 = r.x + S(8.f);
+				char wk5[16];
+				for (int32 t5 = 0; t5 < 5; ++t5) {
+					const float32 tw5 = p.TextW(kWsNames[t5]);
+					const NkRect t0{tx5, r.y + S(2.f), tw5 + S(32.f), wsBarH - S(4.f)};
+					snprintf(wk5, sizeof(wk5), "ws.tab.%d", t5);
+					const bool overT = hit.Add(wk5, t0);
+					const bool onT = (int32)st.mode == t5;
+					if (onT)
+						p.Fill(t0, NkRole::AccentUi, 3.f);
+					else if (overT)
+						p.Fill(t0, NkRole::InputBg, 3.f);
+					p.IconV(t0.x + S(6.f), t0.y, t0.h, kWsIc[t5],
+							onT ? NkRole::TextOnAccent : NkRole::TextMuted, 12.f);
+					p.TextV(t0.x + S(24.f), t0.y, t0.h, kWsNames[t5],
+							onT ? NkRole::TextOnAccent : NkRole::Text);
+					if (hit.Clicked(wk5))
+						st.mode = (NkMode)t5;
+					tx5 += t0.w + S(4.f);
+				}
 				const NkRect ch{r.x + r.w - S(26.f), r.y + S(2.f), S(20.f), wsBarH - S(4.f)};
 				HoverFill(p, ch, hit.Add("ws.hide", ch), 2.f);
 				p.IconV(ch.x + S(3.f), ch.y, ch.h, NkIcon::ChevronUp, NkRole::TextMuted, 12.f);
@@ -7550,6 +7553,25 @@ namespace nkentseu {
 					p.TextV(r.x + kPad, yy, kRowH, "Modificateurs -- a definir",
 							NkRole::TextMuted);
 					yy += kRowH;
+					// L'AJOUT vit ICI desormais : le deroulant de la barre
+					// d'outils est retire (regle de Rihen, la pastille suffit).
+					// Meme menu a deux niveaux, ancre a ce bouton.
+					{
+						const NkRect mb{r.x + kPad, yy + S(2.f), rr.w - 2.f * kPad,
+										kRowH - S(4.f)};
+						const bool ovM = hit.Add("props.modadd", mb);
+						const bool opM = ws.ComboOpen("tb.mod");
+						p.Outline(mb, (ovM || opM) ? NkRole::AccentUi : NkRole::Border,
+								  opM ? NkRole::AccentUi : NkRole::InputBg, 3.f);
+						p.TextV(mb.x + (mb.w - p.TextW("Ajouter un modificateur")) * 0.5f,
+								yy, kRowH, "Ajouter un modificateur",
+								opM ? NkRole::TextOnAccent : NkRole::Text);
+						if (hit.Clicked("props.modadd")) {
+							ws.ToggleCombo("tb.mod");
+							st.modAnchor = mb;
+						}
+						yy += kRowH;
+					}
 					// ── L'OUTIL -- et PLUSIEURS quand plusieurs coexistent : l'outil
 					// de transformation garde son bloc, le mode EDITION empile le
 					// sien dessous (deplacer + extruder arrivent ensemble, chacun
@@ -9356,7 +9378,7 @@ namespace nkentseu {
 			// Un clic HORS des deux panneaux referme. Teste apres toutes les zones :
 			// sinon un clic sur une entree refermerait avant d'etre traite.
 			if (hit.AnyClick() && !hit.IsHovered("mod.panel") && !hit.IsHovered("mod.sub")
-				&& !hit.IsHovered("tb.mod")) {
+				&& !hit.IsHovered("tb.mod") && !hit.IsHovered("props.modadd")) {
 				bool inside = false;
 				for (int32 c = 0; c < nc && !inside; ++c) {
 					snprintf(key, sizeof(key), "mod.cat.%d", c);
@@ -9634,7 +9656,8 @@ namespace nkentseu {
 		}
 
 		// â”€â”€ BARRE D'ETAT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-		inline void PaintStatus(NkModelerPainter &p, const NkRect &r, const NkModelerState &st) {
+		inline void PaintStatus(NkModelerPainter &p, NkHitRegistry &hit, const NkRect &r,
+								NkModelerState &st) {
 			char stats[128];
 			if (st.mode == NkMode::Object)
 				snprintf(stats, sizeof(stats), "Objets 6 - selectionne : %s - 60 ips",
@@ -9654,6 +9677,52 @@ namespace nkentseu {
 				p.IconV(x, r.y, r.h, kBtns[i].ic, NkRole::Text, 13.f);
 				p.TextV(x + 18.f, r.y, r.h, kBtns[i].label);
 				x += 18.f + p.TextW(kBtns[i].label) + 16.f;
+			}
+			// TUTORIEL AU FOOTER (regle de Rihen) : il photographie TOUTE
+			// l'application, sa place est donc dans la barre de l'application --
+			// la capture de la vue 3D, elle, reste dans la vue. Bouton-menu :
+			// Photo execute, Video est un STUB affiche (honnete, pas d'entree
+			// qui ferait semblant d'enregistrer). Le menu s'ouvre VERS LE HAUT.
+			{
+				const float32 tw = p.TextW("Tutoriel");
+				const NkRect tb{x, r.y + 4.f, 18.f + tw + 10.f, r.h - 8.f};
+				const bool ovT = hit.Add("status.tuto", tb);
+				if (st.tutoMenuOpen)
+					p.Fill(tb, NkRole::AccentUi, 3.f);
+				else
+					p.Outline(tb, ovT ? NkRole::AccentUi : NkRole::Border,
+							  NkRole::PanelHeader, 3.f);
+				p.IconV(tb.x + 4.f, r.y, r.h, NkIcon::ImageRef,
+						st.tutoMenuOpen ? NkRole::TextOnAccent : NkRole::Text, 12.f);
+				p.TextV(tb.x + 20.f, r.y, r.h, "Tutoriel",
+						st.tutoMenuOpen ? NkRole::TextOnAccent : NkRole::Text);
+				if (hit.Clicked("status.tuto"))
+					st.tutoMenuOpen = !st.tutoMenuOpen;
+				if (st.tutoMenuOpen) {
+					static const char *const kTuM[2] = {"Photo", "Video (a venir)"};
+					static const char *const kTuKeys[2] = {"status.tuto.ph", "status.tuto.vid"};
+					const float32 mh = S(24.f);
+					for (int32 m = 0; m < 2; ++m) {
+						const NkRect mr{tb.x, r.y - (float32)(m + 1) * (mh + 2.f), S(118.f),
+										mh};
+						const bool stub = m == 1;
+						const bool ovM = hit.Add(kTuKeys[m], mr);
+						p.Fill(mr, (ovM && !stub) ? NkRole::AccentUi : NkRole::PanelHeader,
+							   4.f);
+						p.TextV(mr.x + 8.f, mr.y, mh, kTuM[m],
+								stub ? NkRole::TextMuted
+									 : (ovM ? NkRole::TextOnAccent : NkRole::Text));
+						if (hit.Clicked(kTuKeys[m]) && !stub) {
+							st.capturePending = 2; // TOUTE la fenetre
+							st.tutoMenuOpen = false;
+						}
+					}
+					// un clic ailleurs referme
+					if (hit.AnyClick() && !hit.IsHovered("status.tuto") &&
+						!hit.IsHovered(kTuKeys[0]) && !hit.IsHovered(kTuKeys[1]))
+						st.tutoMenuOpen = false;
+				}
+				x += tb.w + 12.f;
 			}
 			p.VLine(x, r.y + 6.f, r.h - 12.f);
 			x += 10.f;
