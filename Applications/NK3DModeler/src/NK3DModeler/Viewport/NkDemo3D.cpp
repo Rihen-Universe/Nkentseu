@@ -9974,8 +9974,8 @@ namespace nkentseu {
 			return nkvpSkyModel;
 		}
 		void Demo3DHostSetSkyModel(int32 m) {
-			// 0 degrade, 1 Preetham, 2 atmosphere Rayleigh + Mie.
-			const int32 v = (m < 0) ? 0 : (m > 2 ? 2 : m);
+			// 0 degrade, 1 Preetham, 2 atmosphere Rayleigh + Mie, 3 Hosek-Wilkie.
+			const int32 v = (m < 0) ? 0 : (m > 3 ? 3 : m);
 			// NE MARQUER « a regenerer » QUE SI QUELQUE CHOSE CHANGE. L'interface
 			// repousse la valeur des qu'elle differe de la derniere poussee, ce
 			// qui arrive legitimement apres une remise a zero : sans ce test,

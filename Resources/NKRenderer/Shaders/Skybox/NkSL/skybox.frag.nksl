@@ -78,6 +78,13 @@ uniform CameraUBO {
     // PHASES FORCEES (option) : x phase lune 0, y mode lune 0 (0 = deduite du
     // soleil, 1 = forcee), z et w idem pour la lune 1.
     vec4  skyMoonPhase;
+    // x rotation celeste (rad/s), y etoiles filantes par minute, zw libres.
+    vec4  skyStars2;
+    // HOSEK-WILKIE, cuit cote CPU : 9 coefficients A..I (xyz = RGB) puis la
+    // radiance. Les tables (65 Ko) ne quittent jamais le CPU.
+    // coef[0].w = normalisation d'exposition, rad.w = fondu crepusculaire.
+    vec4  skyHosekCoef[9];
+    vec4  skyHosekRad;
 } uCam;
 
 // Cubemap HDR brut (binding=26), RGBA32F. Sert au cas HDRI, ou l'image vient
@@ -233,6 +240,75 @@ float NkSkyFbm(vec3 p) {
     return s / max(n, 1e-4);
 }
 
+// ── ETOILES FILANTES ────────────────────────────────────────────────────────
+// TIREES DU TEMPS, jamais d'un generateur aleatoire. Le temps est decoupe en
+// CRENEAUX ; chaque creneau hache son propre numero pour en deduire le point de
+// depart, la direction et l'inclinaison de sa trainee. Consequence : une meme
+// seconde redonne TOUJOURS la meme etoile filante, donc une capture se rejoue a
+// l'identique et un rendu par images se recolle sans sauts. Un tirage aleatoire
+// par image aurait rendu tout rendu differe impossible.
+//
+// skyStars2.y = nombre d'apparitions par minute (0 = aucune).
+vec3 NkSkyShooting(vec3 sky, vec3 d, float amount) {
+    vec3 res = sky;
+    float rate = uCam.skyStars2.y;
+    if (rate > 0.001 && d.y > -0.05) {
+        float period = 60.0 / max(rate, 0.01);   // secondes entre deux creneaux
+        float slotT = uCam.time / period;
+        float slot = floor(slotT);
+        float u = slotT - slot;                  // 0..1 dans le creneau
+
+        // DUREE DE VIE courte : une etoile filante dure une fraction de seconde
+        // a l'echelle du creneau. Le reste du temps, le ciel est vide -- c'est ce
+        // qui la rend precieuse a voir.
+        float life = clamp(1.2 / period, 0.02, 0.5);
+        if (u < life) {
+            float ha = NkSkyHash(vec3(slot, 3.0, 7.0));
+            float hb = NkSkyHash(vec3(slot, 11.0, 5.0));
+            float hc = NkSkyHash(vec3(slot, 17.0, 13.0));
+
+            // Point de depart : azimut libre, elevation dans la moitie haute --
+            // une etoile filante qui naitrait sous l'horizon ne se verrait pas.
+            float az = ha * 6.2831853;
+            float el = 0.22 + 0.85 * hb;
+            vec3 p0 = vec3(cos(el) * sin(az), sin(el), cos(el) * cos(az));
+
+            // Direction de trajet : une TANGENTE a la voute, orientee au hasard.
+            // Prendre une direction quelconque ferait plonger ou grimper la
+            // trainee hors de la sphere.
+            vec3 axis = abs(p0.y) > 0.99 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+            vec3 tang = normalize(cross(p0, axis));
+            vec3 bit = cross(p0, tang);
+            float ang = hc * 6.2831853;
+            vec3 trav = normalize(tang * cos(ang) + bit * sin(ang));
+
+            float s = u / life;                  // progression 0..1
+            vec3 head = normalize(p0 + trav * (s * 0.55));
+
+            // Trainee : on decompose l'ecart a la tete en une part LE LONG du
+            // trajet (la queue) et une part PERPENDICULAIRE (l'epaisseur).
+            vec3 rel = d - head;
+            float along = dot(rel, trav);
+            float perp = length(rel - trav * along);
+            float tailLen = 0.13;
+            float width = 0.0055;
+            float m = 0.0;
+            if (along <= 0.0 && along > -tailLen && perp < width) {
+                float fade = 1.0 + along / tailLen;   // 1 a la tete, 0 en bout
+                m = fade * fade * (1.0 - perp / width);
+            }
+            // Apparition et extinction douces sur la duree de vie : sans cela
+            // elle surgit et disparait d'un coup, ce qui se voit comme un defaut.
+            m *= sin(s * NK_PI);
+            // Comme les etoiles, elle s'efface dans un ciel clair.
+            float lum = (sky.x + sky.y + sky.z) * 0.3333;
+            float night = clamp(1.0 - lum * 2.5, 0.0, 1.0);
+            res = sky + vec3(m * amount * 4.0 * night);
+        }
+    }
+    return res;
+}
+
 vec3 NkSkyClouds(vec3 sky, vec3 d) {
     vec3 res = sky;
     float cov = clamp(uCam.skyHorizonCol.w, 0.0, 1.0);
@@ -275,6 +351,49 @@ vec3 NkSkyClouds(vec3 sky, vec3 d) {
         float lit = clamp((sky.x + sky.y + sky.z) * 0.5, 0.25, 1.5);
         res = mix(sky, uCam.skyCloudCol.xyz * lit, dens);
     }
+    return res;
+}
+
+// ── HOSEK-WILKIE (SIGGRAPH 2012) — le modele MESURE ─────────────────────────
+// Le shader n'evalue que la FORMULE (Perez etendu, 9 coefficients) : la cuisson
+// des tables officielles se fait cote CPU, qui envoie dix vec4. Cette formule
+// doit rester STRICTEMENT identique a NkHosekEvalRGB cote CPU — c'est la
+// condition pour que la normalisation d'exposition calculee la-bas vaille ici.
+vec3 NkSkyHosek(vec3 d, vec3 toSun) {
+    float ct = max(d.y, 0.0);
+    float cg = clamp(dot(d, toSun), -1.0, 1.0);
+    float gm = acos(cg);
+    vec3 hkA = uCam.skyHosekCoef[0].xyz;
+    vec3 hkB = uCam.skyHosekCoef[1].xyz;
+    vec3 hkC = uCam.skyHosekCoef[2].xyz;
+    vec3 hkD = uCam.skyHosekCoef[3].xyz;
+    vec3 hkE = uCam.skyHosekCoef[4].xyz;
+    vec3 hkF = uCam.skyHosekCoef[5].xyz;
+    vec3 hkG = uCam.skyHosekCoef[6].xyz;
+    vec3 hkH = uCam.skyHosekCoef[7].xyz;
+    vec3 hkI = uCam.skyHosekCoef[8].xyz;
+
+    vec3 expM = exp(hkE * gm);
+    float rayM = cg * cg;
+    vec3 mieM = (1.0 + rayM) / pow(vec3(1.0) + hkI * hkI - 2.0 * hkI * cg, vec3(1.5));
+    float zen = sqrt(ct);
+
+    vec3 res = (vec3(1.0) + hkA * exp(hkB / (ct + 0.01)))
+             * (hkC + hkD * expM + hkF * rayM + hkG * mieM + hkH * zen);
+    // radiance x normalisation (coef[0].w) x fondu crepusculaire (rad.w) —
+    // le modele n'est pas defini sous l'horizon, le fondu fait la nuit.
+    res *= uCam.skyHosekRad.xyz * (uCam.skyHosekCoef[0].w * uCam.skyHosekRad.w);
+
+    // DISQUE SOLAIRE, meme facture que Preetham.
+    if (uCam.skyP0.w > 0.5 && ct > 0.0 && gm < 0.030) {
+        float k = 1.0 - clamp((gm - 0.009) / (0.030 - 0.009), 0.0, 1.0);
+        k = k * k;
+        float s = 12.0 * uCam.skyP0.z * uCam.skyHosekRad.w;
+        res += s * k * vec3(uCam.skySunCol.x, 0.97 * uCam.skySunCol.y, 0.90 * uCam.skySunCol.z);
+    }
+    // SOUS L'HORIZON : couleur de sol, fondu court — comme Preetham.
+    if (d.y < 0.0)
+        res = mix(res, uCam.skyGroundCol.xyz, clamp(-d.y / 0.10, 0.0, 1.0));
     return res;
 }
 
@@ -458,8 +577,26 @@ vec3 NkSkyMoon(vec3 sky, vec3 d, vec3 toSun, vec4 mA, vec4 mB, float phase, floa
 // couleur du couchant decoule du modele physique.
 //
 // skyP7.x = intensite (0 = aucune), skyP7.y = densite.
-vec3 NkSkyStars(vec3 sky, vec3 d) {
+// ROTATION CELESTE. Le champ d'etoiles est fixe en espace monde ; on fait donc
+// tourner la DIRECTION avant de l'echantillonner, et c'est la voute entiere qui
+// derive. Rotation autour de l'axe vertical : ce n'est pas l'axe polaire reel
+// (incline selon la latitude), mais la difference ne se voit pas sans repere, et
+// un parametre de latitude serait un reglage de plus pour un gain nul.
+vec3 NkSkyCelestial(vec3 d) {
+    vec3 res = d;
+    float speed = uCam.skyStars2.x;
+    if (abs(speed) > 1e-9) {
+        float a = uCam.time * speed;
+        float ca = cos(a);
+        float sa = sin(a);
+        res = vec3(d.x * ca + d.z * sa, d.y, -d.x * sa + d.z * ca);
+    }
+    return res;
+}
+
+vec3 NkSkyStars(vec3 sky, vec3 dRaw) {
     vec3 res = sky;
+    vec3 d = NkSkyCelestial(dRaw);
     float amount = uCam.skyP7.x;
     if (amount > 0.001 && d.y > 0.0) {
         // Cellule de ciel : plus le facteur est grand, plus les etoiles sont
@@ -545,8 +682,10 @@ void main() {
         vec3 toSun = -uCam.skySunDir.xyz;
         float sl = length(toSun);
         toSun = (sl > 1e-6) ? (toSun / sl) : vec3(0.0, 1.0, 0.0);
-        // 0 degrade, 1 Preetham, 2 atmosphere Rayleigh + Mie.
-        if (uCam.skyP0.x > 1.5)
+        // 0 degrade, 1 Preetham, 2 atmosphere Rayleigh + Mie, 3 Hosek-Wilkie.
+        if (uCam.skyP0.x > 2.5)
+            col = NkSkyHosek(dir, toSun);
+        else if (uCam.skyP0.x > 1.5)
             col = NkSkyAtmosphere(dir, toSun);
         else if (uCam.skyP0.x > 0.5)
             col = NkSkyPhysical(dir, toSun);
@@ -557,6 +696,10 @@ void main() {
         // qui trahirait immediatement le collage. Et une lune passe DEVANT les
         // etoiles, jamais derriere.
         col = NkSkyStars(col, dir);
+        // Les filantes APRES les etoiles fixes : elles passent devant.
+        // Une intensite propre serait un reglage de plus pour rien -- une
+        // filante brille dans le meme ciel que les etoiles qu'elle traverse.
+        col = NkSkyShooting(col, dir, max(uCam.skyP7.x, 0.35));
         if (uCam.skyP7.z > 0.5)
             col = NkSkyMoon(col, dir, toSun, uCam.skyMoonA0, uCam.skyMoonB0,
                             uCam.skyMoonPhase.x, uCam.skyMoonPhase.y);

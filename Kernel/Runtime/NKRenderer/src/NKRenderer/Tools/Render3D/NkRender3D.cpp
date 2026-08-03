@@ -27,7 +27,7 @@ namespace nkentseu {
 		// Un static_assert dans UploadUBOs verifie l'accord : agrandir PBRCamUBO
 		// sans toucher a cette constante casse la COMPILATION, au lieu de perdre
 		// les derniers champs sans un mot.
-		static constexpr uint32 kPBRCamUBOSize = 688;
+		static constexpr uint32 kPBRCamUBOSize = 848;
 
 		NkRender3D::~NkRender3D() {
 			Shutdown();
@@ -2121,6 +2121,13 @@ namespace nkentseu {
 					// x rotation celeste (rad/s), y etoiles filantes par minute,
 					// zw libres.
 					NkVec4f skyStars2;
+					// HOSEK-WILKIE, cuit cote CPU : 9 coefficients A..I (xyz = RGB)
+					// puis la radiance. Les 65 Ko de tables ne quittent JAMAIS le
+					// CPU — seuls ces dix vec4 descendent.
+					// coef[0].w = normalisation d'exposition, radiance.w = fondu
+					// crepusculaire (le modele n'est pas defini sous l'horizon).
+					NkVec4f skyHosekCoef[9];
+					NkVec4f skyHosekRad;
 			};
 
 			// L'ALLOCATION ET L'ECRITURE DOIVENT S'ACCORDER. Sans cette
@@ -2268,6 +2275,46 @@ namespace nkentseu {
 					cb.skyMoonPhase = {SP.moons[0].phase, SP.moons[0].manualPhase ? 1.f : 0.f,
 									   SP.moons[1].phase, SP.moons[1].manualPhase ? 1.f : 0.f};
 					cb.skyStars2 = {SP.starRotation, SP.shootingRate, 0.f, 0.f};
+
+				// ── HOSEK-WILKIE : cuisson par image ─────────────────────────
+				// L'interpolation complete (3 canaux x 10 valeurs x 4 blocs de
+				// Bezier) coute quelques centaines de multiplications : la
+				// recuire a chaque image est plus simple et plus sur qu'un cache
+				// avec detection de changement, pour un cout invisible.
+				if (!mSkyFromCubemap && SP.model == NkSkyModel::NK_SKY_HOSEK) {
+					NkVec3f toSun = {-SP.sunDirection.x, -SP.sunDirection.y, -SP.sunDirection.z};
+					const float32 sl = std::sqrt(toSun.x * toSun.x + toSun.y * toSun.y + toSun.z * toSun.z);
+					const float32 elev = sl > 1e-6f ? std::asin(toSun.y / sl) : 1.f;
+					NkVec3f alb = SP.ground; // le SOL de la scene sert d'albedo : c'est lui qui renvoie
+
+					NkHosekSkyCoeffs cur;
+					// Le modele n'est pas defini sous l'horizon : on cuit au ras
+					// (0,5 deg) et le FONDU ci-dessous fait la nuit.
+					NkHosekCookRGB(SP.turbidity, alb, elev < 0.0087f ? 0.0087f : elev, cur);
+
+					// ── NORMALISATION SANS OEIL ──────────────────────────────
+					// Le facteur d'exposition n'est PAS regle a la main : on cuit
+					// une REFERENCE (soleil a 47 deg, meme turbidite, meme albedo)
+					// et on evalue sa luminance au zenith. L'echelle amene cette
+					// reference a 1,0 — comme Preetham et l'atmosphere — donc
+					// changer de modele ne fait pas sauter l'exposition, et le
+					// cycle du jour garde sa dynamique (la reference est FIXE, le
+					// ciel courant varie autour).
+					const float32 kRefElev = 0.82f;
+					NkHosekSkyCoeffs ref;
+					NkHosekCookRGB(SP.turbidity, alb, kRefElev, ref);
+					const NkVec3f zr = NkHosekEvalRGB(ref, 1.f, 1.5707963f - kRefElev);
+					const float32 lumRef = 0.2126f * zr.x + 0.7152f * zr.y + 0.0722f * zr.z;
+					const float32 scale = SP.sunIntensity / (lumRef > 1e-6f ? lumRef : 1e-6f);
+					// Fondu crepusculaire sur ~8 deg sous l'horizon.
+					const float32 fade =
+						elev > 0.f ? 1.f : (elev < -0.14f ? 0.f : 1.f + elev / 0.14f);
+
+					for (int32 i = 0; i < 9; i++)
+						cb.skyHosekCoef[i] = {cur.coef[i].x, cur.coef[i].y, cur.coef[i].z,
+											  i == 0 ? scale : 0.f};
+					cb.skyHosekRad = {cur.radiance.x, cur.radiance.y, cur.radiance.z, fade};
+				}
 				}
 			}
 			cb.viewMode = (float32)mViewMode; // 0=rendered(PBR) 1=solid/unlit (indépendant du wireframe)

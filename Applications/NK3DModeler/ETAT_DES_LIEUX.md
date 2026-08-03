@@ -409,7 +409,20 @@ caméra, et ce bloc est déjà à 672 octets.
   dessous), et une couverture qui monte au-delà d'un simple seuil.
 - **Ciels d'ambiance** (désert, orage, brume…) : ce sont des **préréglages** — un jeu
   de valeurs nommé, pas du code. À traiter avec le fichier de données, pas en dur.
-- **Hosek-Wilkie — NON FAIT, et volontairement.** Le modèle repose sur un jeu de
+- **Hosek-Wilkie — FAIT (2026-08-03)**, quatrième entrée du combo Modèle, grâce à
+  la distribution officielle 1.4a récupérée par Rihen (dossier local
+  `C:\Users\Rihen\Documents\revu`). Tables copiées **verbatim** — empreinte
+  SHA-256 vérifiée à la copie, en-tête BSD intact, attribution dans
+  `THIRD_PARTY_LICENSES.md`. Architecture : le CPU cuit les tables en
+  9 coefficients par canal (`NkHosekCookRGB`), le shader n'évalue que la formule
+  — dix vec4 descendent au GPU, jamais les 65 Ko. Le **sol de la scène sert
+  d'albédo**. **Normalisation sans œil** : une référence (soleil à 47°, même
+  turbidité) est cuite et évaluée au zénith côté CPU, l'échelle l'amène à 1,0 —
+  changer de modèle ne fait pas sauter l'exposition, et le cycle du jour garde sa
+  dynamique. Comme Preetham, pas défini sous l'horizon : fondu crépusculaire sur
+  ~8°, l'Atmosphère reste le modèle des couchants.
+
+- **(Historique — le blocage résolu par le dossier `revu`.)** Le modèle repose sur un jeu de
   **coefficients tabulés** (`ArHosekSkyModelData_RGB`, plusieurs centaines de
   flottants). Sa licence ne fait pas obstacle : **BSD 3-clauses**, usage
   commercial permis, à la seule condition de conserver la mention de copyright
