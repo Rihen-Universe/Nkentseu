@@ -728,6 +728,19 @@ namespace nkentseu {
 			const double lumRef =
 				praguedata::arpragueskymodelground_sky_radiance(sPragueState, th, ga, sh, 1);
 			sPragueScale = (float32)((double)P.sunIntensity / (lumRef > 1e-9 ? lumRef : 1e-9));
+			// Sous le domaine natif du modele (-4,2 deg), fondu vers la nuit sur
+			// ~8 degres : un soleil a -12 deg doit donner la nuit, pas un
+			// crepuscule fige a la limite du jeu de donnees.
+			{
+				float32 tx2 = -P.sunDirection.x, ty2 = -P.sunDirection.y, tz2 = -P.sunDirection.z;
+				const float32 sl2 = math::NkSqrt(tx2 * tx2 + ty2 * ty2 + tz2 * tz2);
+				const float32 tyn = sl2 > 1e-6f ? ty2 / sl2 : 1.f;
+				const double trueElev = (double)math::NkAsin(tyn < -1.f ? -1.f : (tyn > 1.f ? 1.f : tyn));
+				if (trueElev < -0.0733) {
+					const double fade = trueElev < -0.2133 ? 0.0 : 1.0 + (trueElev + 0.0733) / 0.14;
+					sPragueScale *= (float32)fade;
+				}
+			}
 			sPragueState->elevation = elev; // retour a la configuration demandee
 
 			// ── Remplissage de la table (la SEULE passe d'evaluation lourde) ─
@@ -785,14 +798,17 @@ namespace nkentseu {
 			const int32 v1 = v0 + 1 < kPragueLutH ? v0 + 1 : v0;
 			const float32 tu = fu - (float32)(int32)fu;
 			const float32 tv = fv - (float32)v0;
-			const NkVec3f &a = sPragueLut[v0 * kPragueLutW + u0];
-			const NkVec3f &b = sPragueLut[v0 * kPragueLutW + u1];
-			const NkVec3f &c0 = sPragueLut[v1 * kPragueLutW + u0];
-			const NkVec3f &d = sPragueLut[v1 * kPragueLutW + u1];
+			// LA table recue en parametre — PAS sPragueLut en dur : ce sampler
+			// sert aussi au soleil alien, qui lisait la table de Prague (jamais
+			// cuite => zeros => ciel noir, seul le disque du shader survivait).
+			const NkVec3f &a = lut[v0 * kPragueLutW + u0];
+			const NkVec3f &b = lut[v0 * kPragueLutW + u1];
+			const NkVec3f &c0 = lut[v1 * kPragueLutW + u0];
+			const NkVec3f &d = lut[v1 * kPragueLutW + u1];
 			NkVec3f r;
-			r.x = ((a.x * (1.f - tu) + b.x * tu) * (1.f - tv) + (c0.x * (1.f - tu) + d.x * tu) * tv) * sPragueScale;
-			r.y = ((a.y * (1.f - tu) + b.y * tu) * (1.f - tv) + (c0.y * (1.f - tu) + d.y * tu) * tv) * sPragueScale;
-			r.z = ((a.z * (1.f - tu) + b.z * tu) * (1.f - tv) + (c0.z * (1.f - tu) + d.z * tu) * tv) * sPragueScale;
+			r.x = ((a.x * (1.f - tu) + b.x * tu) * (1.f - tv) + (c0.x * (1.f - tu) + d.x * tu) * tv) * scale;
+			r.y = ((a.y * (1.f - tu) + b.y * tu) * (1.f - tv) + (c0.y * (1.f - tu) + d.y * tu) * tv) * scale;
+			r.z = ((a.z * (1.f - tu) + b.z * tu) * (1.f - tv) + (c0.z * (1.f - tu) + d.z * tu) * tv) * scale;
 			return r;
 		}
 
@@ -849,8 +865,13 @@ namespace nkentseu {
 				ty = 1.f;
 				tz = 0.f;
 			}
-			double elev = (double)math::NkAsin(ty < -1.f ? -1.f : (ty > 1.f ? 1.f : ty));
-			// Comme Hosek RGB : pas defini sous l'horizon, on cuit au ras.
+			const double trueElev = (double)math::NkAsin(ty < -1.f ? -1.f : (ty > 1.f ? 1.f : ty));
+			// Comme Hosek RGB : pas defini sous l'horizon, on cuit au ras — et le
+			// FONDU CREPUSCULAIRE ci-dessous fait la nuit. Sans lui, un soleil a
+			// -10 degres laissait un crepuscule fige au lieu de s'eteindre
+			// (constate par Rihen : il testait la temperature dans un ciel a 4 %
+			// de luminosite, ou aucune teinte n'est perceptible).
+			double elev = trueElev;
 			if (elev < 0.0087)
 				elev = 0.0087;
 			if (elev > 1.5707)
@@ -880,6 +901,11 @@ namespace nkentseu {
 			double rz[3];
 			NkAlienEvalXYZ(ref, 0.0, 1.5707963 - 0.82, rz);
 			sAlienScale = (float32)((double)P.sunIntensity / (rz[1] > 1e-9 ? rz[1] : 1e-9));
+			// Fondu vers la nuit sur ~8 degres sous l'horizon, comme Hosek.
+			if (trueElev < 0.0) {
+				const double fade = trueElev < -0.14 ? 0.0 : 1.0 + trueElev / 0.14;
+				sAlienScale *= (float32)fade;
+			}
 
 			const double sunTheta = 1.5707963 - elev;
 			(void)sunTheta;
