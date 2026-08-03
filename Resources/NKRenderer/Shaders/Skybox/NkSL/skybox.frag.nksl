@@ -682,8 +682,13 @@ void main() {
         vec3 toSun = -uCam.skySunDir.xyz;
         float sl = length(toSun);
         toSun = (sl > 1e-6) ? (toSun / sl) : vec3(0.0, 1.0, 0.0);
-        // 0 degrade, 1 Preetham, 2 atmosphere Rayleigh + Mie, 3 Hosek-Wilkie.
-        if (uCam.skyP0.x > 2.5)
+        // 0 degrade, 1 Preetham, 2 atmosphere Rayleigh + Mie, 3 Hosek-Wilkie,
+        // 4 Prague (MESURE, cuit en cubemap : trop couteux pour un pixel
+        //   shader — le CPU l'a evalue a la regeneration, on le lit ici et les
+        //   surcouches ci-dessous restent ANIMEES par-dessus).
+        if (uCam.skyP0.x > 3.5)
+            col = textureLod(tSkyEnvCube, dir, 0.0).rgb;
+        else if (uCam.skyP0.x > 2.5)
             col = NkSkyHosek(dir, toSun);
         else if (uCam.skyP0.x > 1.5)
             col = NkSkyAtmosphere(dir, toSun);

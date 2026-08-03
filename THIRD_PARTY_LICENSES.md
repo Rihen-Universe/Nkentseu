@@ -28,3 +28,25 @@ licence, et ce que la licence exige.
   https://cgg.mff.cuni.cz/projects/SkylightModelling/
 - **Texte de licence** : reproduit intégralement en tête de
   `ArHosekSkyModelData_RGB.h`.
+
+---
+
+## Modèle de ciel de Prague — variante sol/XYZ (code + jeu de données)
+
+- **Œuvre** : « A Fitted Radiance and Attenuation Model for Realistic
+  Atmospheres » (SIGGRAPH 2021) — variante « ground level XYZ » du 2.6.2021.
+- **Auteurs** : les auteurs de l'article (équipe d'Alexander Wilkie, Université
+  Charles, Prague).
+- **Licence** : **BSD 3 clauses** — mêmes conditions que Hosek-Wilkie ci-dessus.
+- **Ce qui est incorporé** (copies **VERBATIM**, SHA-256 vérifiées à la copie) :
+  - `Kernel/Runtime/NKRenderer/src/NKRenderer/Tools/Environment/ArPragueSkyModelGroundXYZ.inl`
+    — le `.c` officiel à l'octet près (seul le nom de fichier change, pour
+    l'inclure dans une unité C++) — `015B82133887E8C9…` ;
+  - `…/ArPragueSkyModelGroundXYZ.h` — `87A8C548031141F3…` ;
+  - `…/ArPragueSkyModelGroundXYZ_LICENSE.txt` — le texte de licence d'origine ;
+  - `Resources/NKRenderer/Sky/SkyModelDataset.dat` (18,4 Mo) —
+    `86BF9B864A778994…`.
+- **Liaison** : `NkPragueEnsure` / `NkPragueSample` dans
+  `NkEnvironmentSystem.cpp` (code Nkentseu, pas une adaptation).
+- **Provenance** : distribution publique accompagnant SkyGAN (dossier
+  `ArPragueSkyModelGroundXYZ` avec sa licence propre).
