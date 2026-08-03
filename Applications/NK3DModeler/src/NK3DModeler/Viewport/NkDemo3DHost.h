@@ -375,6 +375,13 @@ namespace nkentseu {
 						   float32 *end, int32 *mode);
 		void Demo3DHostSetFog(bool on, const float32 *rgb, float32 density, float32 start,
 							  float32 end, int32 mode);
+		// Sol infini (option) : plan de sol recepteur d'ombres, couleur /
+		// hauteur / rugosite -- distinct de la grille. Motif : 0 uni,
+		// 1 damier, 2 carreaux a joints ; taille du carreau en metres.
+		void Demo3DHostFloor(bool *on, float32 *rgb, float32 *y, float32 *rough, int32 *pattern,
+							 float32 *tile, float32 *metal);
+		void Demo3DHostSetFloor(bool on, const float32 *rgb, float32 y, float32 rough,
+								int32 pattern, float32 tile, float32 metal);
 		// Mise a jour des ombres : dynamique (elles suivent la scene) ou statique
 		// (calculees une fois, puis gardees telles quelles).
 		bool Demo3DHostShadowDynamic();

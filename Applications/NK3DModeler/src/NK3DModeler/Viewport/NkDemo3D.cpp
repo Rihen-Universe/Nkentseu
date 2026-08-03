@@ -139,6 +139,18 @@ namespace nkentseu {
 		static bool nkvpShadowDynamic = true;
 		// Brouillard de scene, regle au panneau Rendu. Eteint par defaut : il
 		// change radicalement l'image, il ne doit pas s'inviter tout seul.
+		// SOL INFINI (option, Rihen) : un VRAI plan de sol -- il recoit lumiere
+		// et ombres. Ce n'est pas la grille : les deux coexistent, le plan
+		// legerement SOUS elle (coplanaires, ils z-fightaient jadis).
+		static bool nkvpFloorOn = false;
+		static float32 nkvpFloorColor[3] = {0.45f, 0.45f, 0.47f};
+		static float32 nkvpFloorY = 0.f;
+		static float32 nkvpFloorRough = 0.9f;
+		static float32 nkvpFloorMetal = 0.f;
+		// Motif : 0 uni, 1 damier, 2 carreaux a joints (references Unreal de
+		// Rihen). Taille du carreau en metres.
+		static int32 nkvpFloorPattern = 0;
+		static float32 nkvpFloorTile = 1.f;
 		static bool nkvpFogOn = false;
 		static float32 nkvpFogColor[3] = {0.5f, 0.6f, 0.7f};
 		static float32 nkvpFogDensity = 0.02f;
@@ -4715,16 +4727,45 @@ namespace nkentseu {
 					// TOUCHES DIRECTIONNELLES en vue libre aussi (Rihen) :
 					// haut/bas = avancer/reculer, gauche/droite = pas lateral.
 					// (Les FLECHES, pas WASD : ces lettres restent au gizmo.)
+					// TRANSLATION, jamais du zoom : le zoom BUTAIT sur sa
+					// distance minimale (« ca bloque a un niveau », Rihen). On
+					// deplace la CIBLE de l'orbite a plat sur le plan -- la
+					// position suit, la distance et l'angle ne changent pas.
 					{
 						const float32 kspd = (shift ? 3.f : 1.f) * dt * 60.f;
+						float32 mvF2 = 0.f, mvR2 = 0.f;
 						if (NkInput.IsKeyDown(NkKey::NK_UP))
-							st->editorCam.Zoom(0.05f * kspd);
+							mvF2 += 1.f;
 						if (NkInput.IsKeyDown(NkKey::NK_DOWN))
-							st->editorCam.Zoom(-0.05f * kspd);
+							mvF2 -= 1.f;
 						if (NkInput.IsKeyDown(NkKey::NK_RIGHT))
-							st->editorCam.Pan(1.4f * kspd, 0.f);
+							mvR2 += 1.f;
 						if (NkInput.IsKeyDown(NkKey::NK_LEFT))
-							st->editorCam.Pan(-1.4f * kspd, 0.f);
+							mvR2 -= 1.f;
+						if (mvF2 != 0.f || mvR2 != 0.f) {
+							// L'AVANT vient du LACET + TANGAGE de la camera
+							// d'orbite -- pas de `cam`, qui a ce stade porte
+							// encore ses valeurs par defaut de debut de frame.
+							// VOL COMPLET (Rihen) : regarder vers le bas et
+							// avancer PLONGE -- l'avant suit le regard en 3D,
+							// comme en vue camera. Le pas lateral, lui, reste
+							// horizontal (il ne depend que du lacet).
+							// Convention : yaw=pi/2 = vue FRONT (regard -Z),
+							// offset camera = (cos y cos p, sin p, sin y cos p).
+							const float32 yawV = st->editorCam.GetYaw();
+							const float32 pitV = st->editorCam.GetPitch();
+							const float32 cpV = math::NkCos(pitV);
+							const NkVec3f fwdV{-math::NkCos(yawV) * cpV, -math::NkSin(pitV),
+											   -math::NkSin(yawV) * cpV};
+							const NkVec3f rgtV{math::NkSin(yawV), 0.f, -math::NkCos(yawV)};
+							const float32 stp = 0.09f * kspd;
+							NkVec3f tC = st->editorCam.GetTarget();
+							tC.x += (fwdV.x * mvF2 + rgtV.x * mvR2) * stp;
+							tC.y += fwdV.y * mvF2 * stp;
+							tC.z += (fwdV.z * mvF2 + rgtV.z * mvR2) * stp;
+							st->editorCam.SetCenter(tC, st->editorCam.GetDistance(), yawV,
+													pitV);
+						}
 					}
 					st->editorCam.Apply(cam);
 					// ── CTRL+ALT+0 : la camera ACTIVE saute SUR LA VUE ACTUELLE
@@ -5199,6 +5240,127 @@ namespace nkentseu {
 				HostMatHook(Demo3DState::kIdxFloor, dc);
 				if (!HostHiddenEff(Demo3DState::kIdxFloor))
 					r3d->Submit(dc);
+			}
+
+			// ── SOL INFINI (option, Rihen) ───────────────────────────────────
+			// Le plan SUIT la camera, arrondi au metre : infini en pratique, et
+			// le snap garde les ombres stables. RECEPTEUR seulement
+			// (castShadow=false) : il ne gonfle pas la cascade d'ombres --
+			// exactement le piege repare au 4.7.
+			if (nkvpFloorOn) {
+				NkDrawCall3D dcF;
+				dcF.mesh = st->meshPlane;
+				const float32 kExtF = 1500.f;
+				// ── CARRELAGE (option, references Unreal de Rihen) : DAMIER
+				// (cases alternees) ou CARREAUX A JOINTS (dalles claires,
+				// joints sombres + sous-lignes fines). Textures et materiaux
+				// generes UNE fois ; la bibliotheque de materiaux n'ayant pas
+				// de tiling UV, le motif vit dans les UV REPETES d'un mesh
+				// dedie, reconstruit quand carreau ou motif change.
+				static NkTexHandle sFloorTex[2] = {};
+				static NkMaterial *sFloorMat[2] = {nullptr, nullptr};
+				static NkMeshHandle sFloorMesh{};
+				static float32 sFloorMeshTile = -1.f;
+				static int32 sFloorMeshPat = -1;
+				const int32 patF =
+					nkvpFloorPattern < 0 ? 0 : (nkvpFloorPattern > 2 ? 2 : nkvpFloorPattern);
+				const float32 tileF =
+					nkvpFloorTile < 0.1f ? 0.1f : (nkvpFloorTile > 50.f ? 50.f : nkvpFloorTile);
+				// PERIODE monde du motif = pas de SNAP du plan : le sol suit la
+				// camera par bonds d'une periode, le motif ne rampe donc jamais.
+				const float32 perF = patF == 1 ? tileF * 2.f : (patF == 2 ? tileF : 1.f);
+				if (patF > 0 && ctx.renderer) {
+					auto *texL = ctx.renderer->GetTextures();
+					auto *matS = ctx.renderer->GetMaterials();
+					auto *msF = ctx.renderer->GetMeshSystem();
+					const int32 pi = patF - 1;
+					if (!sFloorTex[pi].IsValid() && texL) {
+						const uint32 TS = 256;
+						static NkVector<uint8> pxF;
+						pxF.Resize(TS * TS * 4);
+						for (uint32 ty = 0; ty < TS; ++ty) {
+							for (uint32 tx = 0; tx < TS; ++tx) {
+								uint8 v = 208;
+								if (pi == 0) {
+									// DAMIER : 2x2 cases par texture (une periode).
+									const bool aC = (((tx * 2u) / TS) ^ ((ty * 2u) / TS)) & 1u;
+									v = aC ? 205 : 152;
+								} else {
+									// CARREAUX : joints sombres au bord (FINS -- les
+									// traits epais mangeaient les dalles, Rihen),
+									// sous-lignes discretes tous les 1/8.
+									if (tx < 2u || ty < 2u || tx >= TS - 2u || ty >= TS - 2u)
+										v = 110;
+									else if ((tx & 31u) < 1u || (ty & 31u) < 1u)
+										v = 192;
+								}
+								const uint32 o4 = (ty * TS + tx) * 4u;
+								pxF[o4 + 0] = v;
+								pxF[o4 + 1] = v;
+								pxF[o4 + 2] = v;
+								pxF[o4 + 3] = 255;
+							}
+						}
+						NkTextureCreateDesc tdF;
+						tdF.pixels = pxF.Data();
+						tdF.width = TS;
+						tdF.height = TS;
+						tdF.srgb = true;
+						tdF.debugName = pi == 0 ? "Demo3D_SolDamier" : "Demo3D_SolCarreaux";
+						sFloorTex[pi] = texL->Create(tdF);
+					}
+					if (!sFloorMat[pi] && matS && sFloorTex[pi].IsValid()) {
+						sFloorMat[pi] = NkMaterial::Create(matS, NkMaterialType::NK_PBR_METALLIC);
+						if (sFloorMat[pi])
+							sFloorMat[pi]->SetAlbedoMap(sFloorTex[pi]);
+					}
+					if (msF && (!sFloorMesh.IsValid() || sFloorMeshTile != tileF ||
+								sFloorMeshPat != patF)) {
+						if (sFloorMesh.IsValid())
+							msF->Release(sFloorMesh);
+						const float32 K = kExtF / perF; // repetitions jusqu'au bord
+						NkVertex3D vF[4] = {};
+						const float32 sgn[4][2] = {{-1.f, -1.f}, {1.f, -1.f}, {1.f, 1.f}, {-1.f, 1.f}};
+						for (int32 i4 = 0; i4 < 4; ++i4) {
+							vF[i4].pos = {sgn[i4][0], 0.f, sgn[i4][1]};
+							vF[i4].normal = {0.f, 1.f, 0.f};
+							vF[i4].tangent = {1.f, 0.f, 0.f};
+							vF[i4].uv = {sgn[i4][0] * K, sgn[i4][1] * K};
+							vF[i4].uv2 = vF[i4].uv;
+							vF[i4].color = 0xFFFFFFFFu;
+						}
+						// Les DEUX sens d'enroulement : le sol se voit d'en haut
+						// comme d'en bas, et on ne depend pas du culling du
+						// pipeline.
+						const uint32 iF[12] = {0, 1, 2, 0, 2, 3, 0, 2, 1, 0, 3, 2};
+						renderer::NkMeshDesc dF = renderer::NkMeshDesc::Simple(
+							renderer::NkVertexLayout::Default3D(), vF, 4, iF, 12);
+						sFloorMesh = msF->Create(dF);
+						sFloorMeshTile = tileF;
+						sFloorMeshPat = patF;
+					}
+					if (sFloorMesh.IsValid())
+						dcF.mesh = sFloorMesh;
+					if (sFloorMat[pi])
+						dcF.material = sFloorMat[pi]->GetInstHandle();
+				}
+				// SNAP a la periode (plancher, pas troncature : traverser zero
+				// ne fait pas sauter le motif). 2 mm sous la grille seulement :
+				// 2 cm decollaient visiblement les ombres de contact.
+				const NkVec3f cpF = cam.GetPosition();
+				const float32 qxF = cpF.x / perF;
+				const float32 qzF = cpF.z / perF;
+				const float32 fxS = perF * (float32)((int64)(qxF >= 0.f ? qxF : qxF - 1.f));
+				const float32 fzS = perF * (float32)((int64)(qzF >= 0.f ? qzF : qzF - 1.f));
+				dcF.transform = NkMat4f::Translate({fxS, nkvpFloorY - 0.002f, fzS}) *
+								NkMat4f::Scale({kExtF, 1.f, kExtF});
+				dcF.aabb = {{fxS - kExtF, nkvpFloorY - 0.01f, fzS - kExtF},
+							{fxS + kExtF, nkvpFloorY, fzS + kExtF}};
+				dcF.castShadow = false;
+				dcF.tint = {nkvpFloorColor[0], nkvpFloorColor[1], nkvpFloorColor[2]};
+				dcF.metallic = nkvpFloorMetal;
+				dcF.roughness = nkvpFloorRough;
+				r3d->Submit(dcF);
 			}
 
 			// ── NK_GI_TEST : le mur rouge, RENDU à la position qui sert au GI ────
@@ -11447,6 +11609,29 @@ namespace nkentseu {
 			nkvpFogStart = start < 0.f ? 0.f : start;
 			nkvpFogEnd = end < start ? start + 0.001f : end;
 			nkvpFogMode = mode & 1;
+		}
+		void Demo3DHostFloor(bool *on, float32 *rgb, float32 *y, float32 *rough, int32 *pattern,
+							 float32 *tile, float32 *metal) {
+			*on = nkvpFloorOn;
+			rgb[0] = nkvpFloorColor[0];
+			rgb[1] = nkvpFloorColor[1];
+			rgb[2] = nkvpFloorColor[2];
+			*y = nkvpFloorY;
+			*rough = nkvpFloorRough;
+			*pattern = nkvpFloorPattern;
+			*tile = nkvpFloorTile;
+			*metal = nkvpFloorMetal;
+		}
+		void Demo3DHostSetFloor(bool on, const float32 *rgb, float32 y, float32 rough,
+								int32 pattern, float32 tile, float32 metal) {
+			nkvpFloorOn = on;
+			for (int32 i = 0; i < 3; ++i)
+				nkvpFloorColor[i] = rgb[i] < 0.f ? 0.f : (rgb[i] > 1.f ? 1.f : rgb[i]);
+			nkvpFloorY = y < -1000.f ? -1000.f : (y > 1000.f ? 1000.f : y);
+			nkvpFloorRough = rough < 0.05f ? 0.05f : (rough > 1.f ? 1.f : rough);
+			nkvpFloorPattern = pattern < 0 ? 0 : (pattern > 2 ? 2 : pattern);
+			nkvpFloorTile = tile < 0.1f ? 0.1f : (tile > 50.f ? 50.f : tile);
+			nkvpFloorMetal = metal < 0.f ? 0.f : (metal > 1.f ? 1.f : metal);
 		}
 		bool Demo3DHostShadowDynamic() {
 			return nkvpShadowDynamic;

@@ -7123,6 +7123,110 @@ namespace nkentseu {
 					}
 					// ── BROUILLARD ──────────────────────────────────────────────
 					{
+						// ── SOL INFINI (option, Rihen) : un vrai plan recepteur
+						// d'ombres, distinct de la grille -- couleur, hauteur,
+						// rugosite. Le plan suit la camera cote hote.
+						{
+							NkRect gR = rr;
+							gR.x = r.x + NkPropInset();
+							gR.w = rr.w - 2.f * NkPropInset();
+							const float32 gTop = yy;
+							if (PaintPropGroup(p, hit, st, gR, yy, "prop.g.floor", "Sol", 4u)) {
+								const NkRect iG = NkGroupInner(gR);
+								const float32 gvX = iG.x + S(110.f);
+								const float32 gvW = iG.w - S(110.f);
+								yy += NkGroupPad();
+								bool gOn = false;
+								float32 gCol[3], gY = 0.f, gRg = 0.9f, gTl = 1.f, gMt = 0.f;
+								int32 gPat = 0;
+								demo::Demo3DHostFloor(&gOn, gCol, &gY, &gRg, &gPat, &gTl, &gMt);
+								const bool g0 = gOn;
+								const float32 gy0 = gY, gr0 = gRg, gt0 = gTl, gm0 = gMt;
+								const int32 gp0 = gPat;
+								bool gcCh = false;
+								{
+									const NkRect cb{iG.x, yy + S(5.f), S(12.f), S(12.f)};
+									hit.Add("prop.floor.on", cb);
+									p.Outline(cb, gOn ? NkRole::AccentUi : NkRole::Border,
+											  gOn ? NkRole::AccentUi : NkRole::InputBg, 2.f);
+									p.TextV(cb.x + S(18.f), yy, kRowH, "Actif",
+											NkRole::TextMuted);
+									if (hit.Clicked("prop.floor.on"))
+										gOn = !gOn;
+									yy += kRowH;
+								}
+								yy += PaintColorRow(p, hit, ws, in, st, iG, yy, "Couleur",
+													"prop.floorcol", gCol, &gcCh);
+								p.TextV(iG.x, yy, kRowH, "Hauteur", NkRole::TextMuted);
+								DragFloat(p, hit, ws, in, "prop.floor.y",
+										  {gvX, yy + S(3.f), gvW, kRowH - S(6.f)}, gY, 0.01f,
+										  NkRole::AccentUi, "%.2f m");
+								yy += kRowH;
+								p.TextV(iG.x, yy, kRowH, "Rugosite", NkRole::TextMuted);
+								DragFloat(p, hit, ws, in, "prop.floor.rg",
+										  {gvX, yy + S(3.f), gvW, kRowH - S(6.f)}, gRg, 0.005f,
+										  NkRole::AccentUi, "%.2f");
+								yy += kRowH;
+								// METALLIQUE : 0 = dielectrique (la couleur diffuse,
+								// reflets blancs), 1 = metal (plus de diffusion, la
+								// couleur TEINTE les reflets).
+								p.TextV(iG.x, yy, kRowH, "Metallique", NkRole::TextMuted);
+								DragFloat(p, hit, ws, in, "prop.floor.mt",
+										  {gvX, yy + S(3.f), gvW, kRowH - S(6.f)}, gMt, 0.005f,
+										  NkRole::AccentUi, "%.2f");
+								yy += kRowH;
+								// ── MOTIF (Rihen, references Unreal) : uni, damier,
+								// ou carreaux a joints -- et la taille du carreau.
+								{
+									static const char *const kPat[3] = {"Uni", "Damier",
+																		"Carreaux"};
+									p.TextV(iG.x, yy, kRowH, "Motif", NkRole::TextMuted);
+									const float32 pw3 = gvW / 3.f - S(3.f);
+									for (int32 m3 = 0; m3 < 3; ++m3) {
+										const NkRect mb{gvX + (pw3 + S(4.f)) * (float32)m3,
+														yy + S(2.f), pw3, kRowH - S(4.f)};
+										char mk[24];
+										snprintf(mk, sizeof(mk), "prop.floor.p%d", m3);
+										hit.Add(mk, mb);
+										const bool onM = gPat == m3;
+										p.Fill(mb, onM ? NkRole::AccentUi : NkRole::PanelHeader,
+											   3.f);
+										// LIBELLE CLAMPE (Rihen : retreci, le texte
+										// debordait du bouton et chevauchait le
+										// voisin) : trop etroit -> l'initiale ;
+										// encore trop -> rien, le bouton reste lisible
+										// par sa couleur.
+										static const char *const kPatS[3] = {"U", "D", "C"};
+										const char *lbl3 = kPat[m3];
+										float32 tw3 = p.TextW(lbl3);
+										if (tw3 > mb.w - S(6.f)) {
+											lbl3 = kPatS[m3];
+											tw3 = p.TextW(lbl3);
+										}
+										if (tw3 <= mb.w - S(2.f))
+											p.TextV(mb.x + (mb.w - tw3) * 0.5f, yy, kRowH, lbl3,
+													onM ? NkRole::TextOnAccent
+														: NkRole::TextMuted);
+										if (hit.Clicked(mk))
+											gPat = m3;
+									}
+									yy += kRowH;
+								}
+								if (gPat > 0) {
+									p.TextV(iG.x, yy, kRowH, "Carreau", NkRole::TextMuted);
+									DragFloat(p, hit, ws, in, "prop.floor.tl",
+											  {gvX, yy + S(3.f), gvW, kRowH - S(6.f)}, gTl,
+											  0.01f, NkRole::AccentUi, "%.2f m");
+									yy += kRowH;
+								}
+								if (gOn != g0 || gY != gy0 || gRg != gr0 || gcCh ||
+									gPat != gp0 || gTl != gt0 || gMt != gm0)
+									demo::Demo3DHostSetFloor(gOn, gCol, gY, gRg, gPat, gTl, gMt);
+								yy += NkGroupPad();
+								PaintGroupBlock(p, gR, gTop, yy);
+							}
+							yy += NkPropGroupGap();
+						}
 						NkRect fR = rr;
 						fR.x = r.x + NkPropInset();
 						fR.w = rr.w - 2.f * NkPropInset();

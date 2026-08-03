@@ -157,7 +157,11 @@ float NkSamplePointShadow(int lightIdx, vec3 worldPos, vec3 N, vec3 L, float bia
     // la portee de la lumiere.
     float farP = max(uShadows.slots[firstSlot].lightPosOrDir.w, 0.001);
     float distN = clamp(length(dir) / farP, 0.0, 1.0);
-    biasMul *= 1.0 + 24.0 * distN * distN;
+    // Croissance MODEREE : a x24, le biais MANGEAIT l'ombre au-dela d'un
+    // rayon -- une « sphere » au-dela de laquelle l'ombre se coupait net au
+    // lieu de fondre (constate par Rihen). x8 garde l'anti-acne pres de la
+    // lumiere sans devorer les ombres lointaines.
+    biasMul *= 1.0 + 8.0 * distN * distN;
     vec3 absDir = abs(dir);
     // Selection de face : axe dominant. Convention faces :
     //   0:+X 1:-X 2:+Y 3:-Y 4:+Z 5:-Z (cf. AllocSlotsPoint cote C++)
@@ -185,7 +189,8 @@ float NkSampleSpotShadow(int lightIdx, vec3 worldPos, vec3 N, vec3 L, float bias
     float farS  = max(uShadows.slots[firstSlot].lightPosOrDir.w, 0.001);
     float distS = clamp(length(worldPos - uShadows.slots[firstSlot].lightPosOrDir.xyz) / farS,
                         0.0, 1.0);
-    biasMul *= 1.0 + 24.0 * distS * distS;
+    // Meme moderation que les omni : x24 devorait l'ombre au loin.
+    biasMul *= 1.0 + 8.0 * distS * distS;
     float bias = NkShadowSlopeBiasMul(N, L, biasMul);
     vec3  wp   = NkShadowNormalBiasOffset(worldPos, N, L);
     return NkSampleShadowTile(firstSlot, wp, bias);
