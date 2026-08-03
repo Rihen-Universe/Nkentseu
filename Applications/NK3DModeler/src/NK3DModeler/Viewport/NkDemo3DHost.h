@@ -344,6 +344,12 @@ namespace nkentseu {
 		// (calculees une fois, puis gardees telles quelles).
 		bool Demo3DHostShadowDynamic();
 		void Demo3DHostSetShadowDynamic(bool dynamic);
+		// Recalcul force des ombres (bouton du mode statique) : invalide le
+		// cache, la prochaine frame re-rend tout, puis refige.
+		void Demo3DHostShadowRecalc();
+		// Vrai quand une ombre figee ne correspond plus a la scene (lumiere ou
+		// geometrie modifiee depuis le gel) : le bouton se colore.
+		bool Demo3DHostShadowRecalcPending();
 		// Temperature de couleur (kelvins ; 0 = desactivee) et exposition (stops).
 		bool Demo3DHostLightTempExp(int32 node, float32 *tempK, float32 *exposure);
 		void Demo3DHostSetLightTempExp(int32 node, float32 tempK, float32 exposure);

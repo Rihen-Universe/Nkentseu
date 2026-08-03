@@ -6141,13 +6141,24 @@ namespace nkentseu {
 																	"Ciel procedural",
 																	"Image HDRI"};
 								p.TextV(iA.x, yy, kRowH, "Source", NkRole::TextMuted);
-								const int32 s0 = st.envSource;
+								// MEMOIRE DU POUSSE, pas de capture dans la frame :
+								// DrawComboPopup ecrit st.envSource en FIN d'image,
+								// donc « capturer avant / comparer apres » ne voit
+								// jamais le changement (meme panne que le modele de
+								// ciel). Le moteur ne stocke qu'un booleen pour trois
+								// choix : impossible de relire la verite, on memorise
+								// donc ce qu'on a reellement pousse.
+								static int32 pushedSrc = -1;
+								if (pushedSrc < 0)
+									pushedSrc = st.envSource;
 								Combo(p, hit, ws, "prop.amb.src",
 									  {iA.x + S(110.f), yy + S(2.f), iA.w - S(110.f),
 									   kRowH - S(4.f)},
 									  kSrc, nullptr, 3, st.envSource, combo);
-								if (st.envSource != s0)
+								if (st.envSource != pushedSrc) {
+									pushedSrc = st.envSource;
 									demo::Demo3DHostSetAmbientUseEnv(st.envSource != 0);
+								}
 								yy += kRowH;
 							}
 							// ── LE CIEL SE VOIT-IL ? ────────────────────────────
@@ -6863,13 +6874,21 @@ namespace nkentseu {
 							// combobox ne fonctionne pas »).
 							if (st.shadowQual < 0)
 								st.shadowQual = q;
-							const int32 q0 = st.shadowQual;
-							static const char *const kQ[4] = {"Aucune", "Douce (PCF 3)",
+							// VERITE-MOTEUR : q vient d'etre lu du moteur, l'etat
+							// vient du combo (ecrit en fin de frame). Des qu'ils
+							// divergent, on pousse -- « capturer avant / comparer
+							// apres » dans la meme frame ne detectait jamais rien.
+							const int32 qEng = q;
+							// CINQ crans, comme l'enum moteur : avec 4, « Penombre
+								// (PCSS) » etait l'index 3, c'est-a-dire POISSON --
+								// le vrai PCSS etait inatteignable.
+								static const char *const kQ[5] = {"Aucune", "Douce (PCF 3)",
 															  "Douce (PCF 5)",
+															  "Poisson (grain doux)",
 															  "Penombre (PCSS)"};
 							p.TextV(iR.x, yy, kRowH, "Qualite", NkRole::TextMuted);
 							Combo(p, hit, ws, "prop.sh.q",
-								  {svX, yy + S(2.f), svW, kRowH - S(4.f)}, kQ, nullptr, 4,
+								  {svX, yy + S(2.f), svW, kRowH - S(4.f)}, kQ, nullptr, 5,
 								  st.shadowQual, combo);
 							q = st.shadowQual;
 							yy += kRowH;
@@ -6883,13 +6902,36 @@ namespace nkentseu {
 								static const char *const kDyn[2] = {"Statique (calcul unique)",
 																	"Dynamique (suit la scene)"};
 								p.TextV(iR.x, yy, kRowH, "Mise a jour", NkRole::TextMuted);
-								const int32 d0 = st.shadowDynamic;
+								// VERITE-MOTEUR, comme la qualite ci-dessus : le
+								// combo ecrit l'etat en fin de frame, on pousse des
+								// que l'etat diverge de ce que dit le moteur.
+								const int32 dEng = demo::Demo3DHostShadowDynamic() ? 1 : 0;
 								Combo(p, hit, ws, "prop.sh.dyn",
 									  {svX, yy + S(2.f), svW, kRowH - S(4.f)}, kDyn, nullptr, 2,
 									  st.shadowDynamic, combo);
-								if (st.shadowDynamic != d0)
+								if (st.shadowDynamic != dEng)
 									demo::Demo3DHostSetShadowDynamic(st.shadowDynamic != 0);
 								yy += kRowH;
+								// EN STATIQUE, l'ombre est figee par choix -- mais on
+								// doit pouvoir la refaire QUAND ON LE DECIDE (Rihen :
+								// « pour static il faut un bouton pour recalculer »).
+								// Une passe complete, puis le cache refige.
+								// BLEU des qu'un recalcul serait UTILE (lumiere ou
+								// geometrie modifiee depuis le gel), normal sinon --
+								// le meme langage que « Regenerer le ciel * ».
+								if (st.shadowDynamic == 0) {
+									const bool stale = demo::Demo3DHostShadowRecalcPending();
+									const NkRect rb{svX, yy + S(2.f), svW, kRowH - S(4.f)};
+									hit.Add("prop.sh.recalc", rb);
+									p.Fill(rb, stale ? NkRole::AccentUi : NkRole::PanelHeader, 3.f);
+									const char *rlbl = stale ? "Recalculer l'ombre *"
+															 : "Recalculer l'ombre";
+									p.TextV(rb.x + (rb.w - p.TextW(rlbl)) * 0.5f, yy, kRowH, rlbl,
+											stale ? NkRole::TextOnAccent : NkRole::TextMuted);
+									if (hit.Clicked("prop.sh.recalc"))
+										demo::Demo3DHostShadowRecalc();
+									yy += kRowH;
+								}
 							}
 							p.TextV(iR.x, yy, kRowH, "Douceur", NkRole::TextMuted);
 							DragFloat(p, hit, ws, in, "prop.sh.soft",
@@ -6909,7 +6951,7 @@ namespace nkentseu {
 									  {svX, yy + S(3.f), svW, kRowH - S(6.f)}, sb, 0.0002f,
 									  NkRole::AccentUi, "%.4f");
 							yy += kRowH;
-							if (nb != nb0 || sb != sb0 || sf != sf0 || q != q0)
+							if (nb != nb0 || sb != sb0 || sf != sf0 || q != qEng)
 								demo::Demo3DHostSetShadowCfg(nb, sb, sf, q);
 						} else {
 							p.TextV(iR.x, yy, kRowH, "Ombres indisponibles",
