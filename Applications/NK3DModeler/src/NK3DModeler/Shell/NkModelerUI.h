@@ -300,6 +300,12 @@ namespace nkentseu {
 						  float32 thickness = 1.f) {
 					mDl.AddLine({x0, y0}, {x1, y1}, C(role), thickness);
 				}
+				// Couleur BRUTE (guides de composition sur l'image 3D : la teinte
+				// ne vient pas du theme mais du contenu qu'elle habille).
+				void Line(float32 x0, float32 y0, float32 x1, float32 y1, const NkColor &c,
+						  float32 thickness = 1.f) {
+					mDl.AddLine({x0, y0}, {x1, y1}, c, thickness);
+				}
 
 				// Texte cale sur la LIGNE DE BASE, pas sur le haut du glyphe : sans ca
 				// les libelles « sautent » d'un widget a l'autre selon leurs jambages.

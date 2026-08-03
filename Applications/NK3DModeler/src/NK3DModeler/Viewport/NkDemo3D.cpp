@@ -10340,6 +10340,71 @@ namespace nkentseu {
 		// ECHELLE ORTHO = l'echelle du noeud (regle consignee). Le panneau
 		// l'edite comme un champ dedie, facon Blender : lecture sur Y, ecriture
 		// UNIFORME (les trois axes) pour garder un cadre non deforme.
+		// ── LENS (parite Blender, Rihen) : unite d'affichage de la focale
+		// (degres ou millimetres), taille de CAPTEUR pour la conversion, et
+		// GUIDES de composition (bits : 1 tiers, 2 centre, 4 diagonales,
+		// 8 nombre d'or, 16 zones sures) -- PAR camera. La focale ANGULAIRE
+		// (nkvpUserCam[0], degres) reste l'unique verite ; les millimetres ne
+		// sont qu'une presentation, convertie par le capteur.
+		namespace {
+			bool sCamLensMM[kNkvpMaxUser] = {};
+			float32 sCamSensor[kNkvpMaxUser] = {};
+			uint8 sCamGuides[kNkvpMaxUser] = {};
+		} // namespace
+		bool Demo3DHostCamLensMM(int32 node) {
+			const int32 u = node - kNkvpFirstUser;
+			return u >= 0 && u < kNkvpMaxUser && sCamLensMM[u];
+		}
+		void Demo3DHostSetCamLensMM(int32 node, bool mm) {
+			const int32 u = node - kNkvpFirstUser;
+			if (u >= 0 && u < kNkvpMaxUser)
+				sCamLensMM[u] = mm;
+		}
+		float32 Demo3DHostCamSensor(int32 node) {
+			const int32 u = node - kNkvpFirstUser;
+			if (u < 0 || u >= kNkvpMaxUser || sCamSensor[u] < 1.f)
+				return 36.f; // plein format, le defaut de Blender
+			return sCamSensor[u];
+		}
+		void Demo3DHostSetCamSensor(int32 node, float32 mm) {
+			const int32 u = node - kNkvpFirstUser;
+			if (u < 0 || u >= kNkvpMaxUser)
+				return;
+			sCamSensor[u] = mm < 1.f ? 1.f : (mm > 200.f ? 200.f : mm);
+		}
+		float32 Demo3DHostCamFocalMM(int32 node) {
+			// focale mm = capteur / (2 tan(fov/2))
+			const int32 u = node - kNkvpFirstUser;
+			float32 fov = 50.f;
+			if (u >= 0 && u < kNkvpMaxUser && nkvpUserCam[u][0] > 1.f)
+				fov = nkvpUserCam[u][0];
+			const float32 t = math::NkTan(fov * 0.5f * 0.017453292f);
+			return Demo3DHostCamSensor(node) / (2.f * (t > 0.001f ? t : 0.001f));
+		}
+		void Demo3DHostSetCamFocalMM(int32 node, float32 mm) {
+			const int32 u = node - kNkvpFirstUser;
+			if (u < 0 || u >= kNkvpMaxUser)
+				return;
+			if (mm < 1.f)
+				mm = 1.f;
+			float32 fov =
+				2.f * math::NkAtan2(Demo3DHostCamSensor(node) / (2.f * mm), 1.f) * 57.29578f;
+			if (fov < 5.f)
+				fov = 5.f;
+			if (fov > 150.f)
+				fov = 150.f;
+			nkvpUserCam[u][0] = fov;
+		}
+		int32 Demo3DHostCamGuides(int32 node) {
+			const int32 u = node - kNkvpFirstUser;
+			return (u >= 0 && u < kNkvpMaxUser) ? (int32)sCamGuides[u] : 0;
+		}
+		void Demo3DHostSetCamGuides(int32 node, int32 bits) {
+			const int32 u = node - kNkvpFirstUser;
+			if (u >= 0 && u < kNkvpMaxUser)
+				sCamGuides[u] = (uint8)(bits & 0xFF);
+		}
+
 		float32 Demo3DHostCamOrthoScale(int32 node) {
 			const int32 e = node - kNkvpFirstEmpty;
 			if (e < 0 || e >= 70)
