@@ -451,7 +451,13 @@ namespace nkentseu {
 			if (fovDeg > 170.f)
 				fovDeg = 170.f;
 			float32 farP = light.range > 0.f ? light.range : 50.f;
-			NkMat4f lightProj = NkMat4f::Perspective(NkAngle(fovDeg), 1.f, 0.1f, farP);
+			// PLAN LOINTAIN A DEUX FOIS LA PORTEE : borne au range, un CASTER
+			// qui depasse la portee etait CLIPPE du rendu d'ombre -- son ombre
+			// se tranchait net au passage de la limite (constate par Rihen,
+			// « la limite coupe et tue la partie de l'ombre qui sort »). La
+			// portee, elle, reste dans lightPosOrDir.w : attenuation et biais
+			// gardent leur echelle.
+			NkMat4f lightProj = NkMat4f::Perspective(NkAngle(fovDeg), 1.f, 0.1f, farP * 2.f);
 
 			s.renderMatrix = lightProj * lightView;
 			ApplyDepthClipCorrection(s.renderMatrix); // [-1,1]->[0,1] sur VK/DX
@@ -485,7 +491,24 @@ namespace nkentseu {
 			uint32 tilePx = mCfg.pointFaceTile > 0 ? mCfg.pointFaceTile : 256;
 			NkVec3f pos = light.position;
 			float32 farP = light.range > 0.f ? light.range : 20.f;
-			NkMat4f lightProj = NkMat4f::Perspective(NkAngle(90.f), 1.f, 0.1f, farP);
+			// BANDE DE GARDE : a exactement 90 deg les six domaines se touchent
+			// sans se recouvrir -- au ras de la couture, le PCF 3x3 pince ses
+			// echantillons sur le dernier texel du tile (clamp anti-bleed) et la
+			// difference d'ombre DESSINE la frontiere des faces : un carre au
+			// sol sous la lumiere, que seule l'ombre revele (constate par Rihen,
+			// « comme une texture par defaut »). On elargit chaque face de
+			// ~2 texels : les voisins du PCF trouvent de la vraie profondeur
+			// au-dela de la couture, et le carre disparait. L'echantillonnage
+			// utilise la MEME matrice, l'interieur du domaine reste dans [0,1].
+			const float32 kGuardTexels = 2.f;
+			const float32 fovScale = 1.f + (2.f * kGuardTexels) / (float32)tilePx;
+			const float32 fovDeg = 2.f * atanf(fovScale) * (180.f / 3.14159265f);
+			// PLAN LOINTAIN A DEUX FOIS LA PORTEE (meme regle que le spot) : un
+			// caster au-dela de la portee etait clippe du rendu d'ombre et son
+			// ombre se tranchait net a la limite (Rihen). La portee reste dans
+			// lightPosOrDir.w -- attenuation, biais et fondu gardent leur
+			// echelle.
+			NkMat4f lightProj = NkMat4f::Perspective(NkAngle(fovDeg), 1.f, 0.1f, farP * 2.f);
 
 			for (uint32 f = 0; f < 6; f++) {
 				if (mActiveSlotCount >= kMaxShadowSlots)
