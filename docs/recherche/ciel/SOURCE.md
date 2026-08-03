@@ -47,8 +47,24 @@ un rendu commercial sans accord des auteurs.
 ## Repéré pour plus tard
 
 - **`vevoda_2022_infrared_sky`** — ciel infrarouge.
-- **`clear-sky-models-master`** (Bruneton) — banc de comparaison de nombreux
-  modèles de ciel : sert de référence croisée pour valider les nôtres.
+## Contre-validation avec `clear-sky-models` (Bruneton, BSD 3-clauses) — 2026-08-03
+
+Le banc implémente 8 modèles de ciel + les mesures réelles de Kider
+(Cornell, 2013-05-27). Utilisé comme **référence croisée** sur nos deux
+portages écrits à la main :
+
+- **Hosek RGB (cuisson moteur)** — sonde numérique contre le code officiel
+  1.4a : **1 008 comparaisons** (7 élévations × 4 thêtas × 6 gammas ×
+  2 turbidités × 3 canaux), écart relatif **max 2,4 × 10⁻⁶** — le bruit
+  d'arrondi float32. Verdict : CONFORME.
+- **Preetham (shader)** — lecture croisée coefficient par coefficient contre
+  la transcription indépendante de Bruneton (annexe 2 de Preetham 1999) :
+  les 15 coefficients de Perez, les polynômes de chromaticité au zénith et
+  la luminance zénithale sont **identiques chiffre à chiffre** ; même forme
+  de normalisation (valeur au zénith). Verdict : CONFORME.
+- Prague et le soleil alien reposent sur du code officiel **verbatim**
+  (SHA-256 vérifiées) : la contre-validation porte sur nos liaisons,
+  couvertes par les sondes de scène (couchant orange, 5 778 K → terrestre).
 
 ## Sans licence affichée (article oui, code non)
 
