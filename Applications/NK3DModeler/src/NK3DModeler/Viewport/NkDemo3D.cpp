@@ -5153,13 +5153,57 @@ namespace nkentseu {
 							   NkMat4f::Scale({nkvpEmptyScl[e][0] * (1.f + uos.x),
 											   nkvpEmptyScl[e][1] * (1.f + uos.y),
 											   nkvpEmptyScl[e][2] * (1.f + uos.z)});
-				float32 uh = fabsf(nkvpEmptyScl[e][0]);
-				if (fabsf(nkvpEmptyScl[e][1]) > uh)
-					uh = fabsf(nkvpEmptyScl[e][1]);
-				if (fabsf(nkvpEmptyScl[e][2]) > uh)
-					uh = fabsf(nkvpEmptyScl[e][2]);
-				uh = uh * 1.2f + 0.2f;
-				dc.aabb = {{uc.x - uh, uc.y - uh, uc.z - uh}, {uc.x + uh, uc.y + uh, uc.z + uh}};
+				// AABB MONDE REELLE (boite locale transformee), plus le cube
+				// « echelle max » : un sol aplati 25x0,5x25 annoncait 50 m de
+				// HAUT, l'auto-fit des ombres directionnelles etendait la
+				// couverture de cette hauteur fantome (rayon 116 m, texel 23 cm,
+				// prouve par la trace VSMAutoFit) et l'ombre du soleil se
+				// reduisait a une tache (defaut 4.7). Boite locale = celle du
+				// mesh CPU si disponible (mesh edite/parametrique), sinon le
+				// cube unitaire des primitives (+-1).
+				{
+					NkVec3f lmn{-1.f, -1.f, -1.f}, lmx{1.f, 1.f, 1.f};
+					if (auto *msA = ctx.renderer->GetMeshSystem()) {
+						if (msA->HasCPUData(dc.mesh)) {
+							const auto *vvA = (const renderer::NkVertex3D *)msA->GetVertices(dc.mesh);
+							const uint32 vcA = msA->GetVertexCount(dc.mesh);
+							if (vvA && vcA > 0) {
+								lmn = {1e30f, 1e30f, 1e30f};
+								lmx = {-1e30f, -1e30f, -1e30f};
+								for (uint32 vi = 0; vi < vcA; vi++) {
+									const NkVec3f p = vvA[vi].pos;
+									lmn.x = NkMin(lmn.x, p.x);
+									lmn.y = NkMin(lmn.y, p.y);
+									lmn.z = NkMin(lmn.z, p.z);
+									lmx.x = NkMax(lmx.x, p.x);
+									lmx.y = NkMax(lmx.y, p.y);
+									lmx.z = NkMax(lmx.z, p.z);
+								}
+							}
+						}
+					}
+					// Transform COMPLETE : HostMatHook ajoute les dimensions a
+					// dc.transform APRES ce bloc -- on les compose ici aussi,
+					// sinon la boite ignorerait le panneau Dimensions.
+					NkMat4f fullX = dc.transform;
+					if (nkvpBaseSet[un])
+						fullX = fullX * NkMat4f::Scale({nkvpDimFactor[un][0], nkvpDimFactor[un][1],
+														nkvpDimFactor[un][2]});
+					NkVec3f wmn{1e30f, 1e30f, 1e30f}, wmx{-1e30f, -1e30f, -1e30f};
+					for (int32 c8 = 0; c8 < 8; c8++) {
+						const NkVec3f l{(c8 & 1) ? lmx.x : lmn.x, (c8 & 2) ? lmx.y : lmn.y,
+										(c8 & 4) ? lmx.z : lmn.z};
+						const NkVec3f p = fullX * l;
+						wmn.x = NkMin(wmn.x, p.x);
+						wmn.y = NkMin(wmn.y, p.y);
+						wmn.z = NkMin(wmn.z, p.z);
+						wmx.x = NkMax(wmx.x, p.x);
+						wmx.y = NkMax(wmx.y, p.y);
+						wmx.z = NkMax(wmx.z, p.z);
+					}
+					dc.aabb = {{wmn.x - 0.05f, wmn.y - 0.05f, wmn.z - 0.05f},
+							   {wmx.x + 0.05f, wmx.y + 0.05f, wmx.z + 0.05f}};
+				}
 				dc.castShadow = true;
 				dc.tint = effTint({0.7f, 0.7f, 0.72f});
 				dc.metallic = 0.f;
