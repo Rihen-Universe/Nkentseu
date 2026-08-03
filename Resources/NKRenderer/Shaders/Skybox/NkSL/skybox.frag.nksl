@@ -686,8 +686,23 @@ void main() {
         // 4 Prague (MESURE, cuit en cubemap : trop couteux pour un pixel
         //   shader — le CPU l'a evalue a la regeneration, on le lit ici et les
         //   surcouches ci-dessous restent ANIMEES par-dessus).
-        if (uCam.skyP0.x > 3.5)
+        if (uCam.skyP0.x > 3.5) {
             col = textureLod(tSkyEnvCube, dir, 0.0).rgb;
+            // DISQUE SOLAIRE par-dessus le ciel cuit. La variante sol/XYZ de
+            // Prague ne fournit pas le disque (le modele complet le porte dans
+            // une fonction solaire separee), et le cuire dans la cubemap le
+            // figerait : ici il SUIT le soleil en direct, comme les autres
+            // modeles, meme entre deux regenerations.
+            float cgs = clamp(dot(dir, toSun), -1.0, 1.0);
+            float gms = acos(cgs);
+            if (uCam.skyP0.w > 0.5 && dir.y > -0.05 && gms < 0.030) {
+                float kd = 1.0 - clamp((gms - 0.009) / (0.030 - 0.009), 0.0, 1.0);
+                kd = kd * kd;
+                float sd = 12.0 * uCam.skyP0.z;
+                col += sd * kd * vec3(uCam.skySunCol.x, 0.97 * uCam.skySunCol.y,
+                                      0.90 * uCam.skySunCol.z);
+            }
+        }
         else if (uCam.skyP0.x > 2.5)
             col = NkSkyHosek(dir, toSun);
         else if (uCam.skyP0.x > 1.5)
