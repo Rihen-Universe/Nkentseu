@@ -277,6 +277,10 @@ namespace nkentseu {
 			// MARQUEURS types, transformables et parentables.
 			static const NkAddEntry kMesh[] = {
 				{"Plan", NkIcon::Plane3D, 3, 0},
+				// PLAN INFINI : un VRAI maillage (sculptable plus tard en
+				// montagnes/terrains), a distinguer du sol systeme du panneau
+				// Rendu qui restera statique. Meme nature 3, sous-type dedie.
+				{"Plan infini", NkIcon::Plane3D, 3, 3},
 				{"Cube", NkIcon::Cube3D, 2, 0},
 				{"Cercle", NkIcon::CircleEdge, 10, 0}, // vrai cercle FERME d'aretes
 				{"Sphere UV", NkIcon::SphereUV, 1, 0},
@@ -341,7 +345,7 @@ namespace nkentseu {
 				{"Cube", NkIcon::Cube3D, 9, 4},
 			};
 			static const NkAddCategory kCats[] = {
-				{"Maillage", NkIcon::Cube3D, kMesh, 9},
+				{"Maillage", NkIcon::Cube3D, kMesh, 10},
 				{"Lumiere", NkIcon::Light, kLight, 4},
 				{"Camera", NkIcon::Camera, kCam, 1},
 				{"Image", NkIcon::ImageRef, kImage, 4},
@@ -1551,6 +1555,14 @@ namespace nkentseu {
 				if (k2 < 0 || k2 > 10)
 					k2 = 0;
 				const char *bn = kUK[k2];
+				if (k2 == 3) {
+					// les PLANS a sous-type portent leur vrai nom
+					const int32 sb = demo::Demo3DHostUserSub(node);
+					if (sb == 2)
+						bn = "Plan maille";
+					else if (sb == 3)
+						bn = "Plan infini";
+				}
 				if (k2 == 4) {
 					// les VIDES a sous-type portent leur vrai nom
 					const int32 sb = demo::Demo3DHostUserSub(node);
@@ -4770,10 +4782,10 @@ namespace nkentseu {
 				// seule pastille etant active, un second en-tete « Modele » sous
 				// celui-ci repetait l'information et volait une ligne au contenu.
 				{
-					static const char *const kHdrNames[4] = {"Modele", "Rendu", "Scene",
-															 "Modificateur"};
+					static const char *const kHdrNames[5] = {"Modele", "Rendu", "Scene",
+															 "Modificateur", "Materiau"};
 					int32 actSec = -1;
-					for (int32 i9 = 0; i9 < 4; ++i9)
+					for (int32 i9 = 0; i9 < 5; ++i9)
 						if (st.propOpen[i9]) {
 							actSec = i9;
 							break;
@@ -4819,13 +4831,15 @@ namespace nkentseu {
 					const char *title;
 					NkIcon icon;
 			};
-			// LES QUATRE CATEGORIES de la maquette (Rihen, dessin Banani), avec ses
+			// LES CATEGORIES de la maquette (Rihen, dessin Banani), avec leurs
 			// icones : Modele (box), Rendu (sun), Scene (layers), Modificateur
-			// (sliders-horizontal). UNE SEULE est active a la fois.
+			// (sliders-horizontal), Materiau (sphere). UNE SEULE est active a la
+			// fois.
 			static const NkPropSec kSecs[] = {{"Modele", NkIcon::Cube3D},
 											  {"Rendu", NkIcon::Sun},
 											  {"Scene", NkIcon::Layers},
-											  {"Modificateur", NkIcon::SlidersH}};
+											  {"Modificateur", NkIcon::SlidersH},
+											  {"Materiau", NkIcon::Material}};
 			const int32 kNSec = (int32)(sizeof(kSecs) / sizeof(kSecs[0]));
 			int32 nOpen = 0, nUnfold = 0;
 			for (int32 i2 = 0; i2 < kNSec; ++i2)
@@ -5474,93 +5488,9 @@ namespace nkentseu {
 							// duvet, anisotropie) existe dans NkPBRParams mais n'a pas
 							// encore de surcharge par objet -- l'afficher sans effet
 							// serait mentir sur ce que l'outil sait faire.
-							if (ukE >= 1 && ukE <= 3) {
-								const bool grpMat = PaintPropGroup(p, hit, st, rowR, yy,
-																   "prop.g.mat", "Materiaux",
-																   8u);
-								const float32 grpMatTop = yy;
-								if (grpMat) {
-									const NkRect iR = NkGroupInner(rowR);
-									yy += NkGroupPad();
-									float32 mtE[3], metE = 0.f, rghE = 0.5f;
-									demo::Demo3DHostMeshMaterial(en, mtE, &metE, &rghE);
-									const float32 mtE0[3] = {mtE[0], mtE[1], mtE[2]};
-									const float32 metE0 = metE, rghE0 = rghE;
-									// L'EMPLACEMENT : pastille de la couleur reelle, nom,
-									// puis les quatre commandes de la maquette.
-									{
-										const NkColor sw{(uint8)(mtE[0] * 255.f),
-														 (uint8)(mtE[1] * 255.f),
-														 (uint8)(mtE[2] * 255.f), 255};
-										p.Fill({iR.x, yy + S(6.f), S(12.f), S(12.f)}, sw, 2.f);
-										p.TextV(iR.x + S(18.f), yy, kRowH, "Materiau_01");
-										char cnt[16];
-										snprintf(cnt, sizeof(cnt), "%d v", 1);
-										p.TextV(iR.x + iR.w - S(28.f), yy, kRowH, cnt,
-												NkRole::TextMuted);
-										yy += kRowH;
-										static const NkIcon kAct[4] = {
-											NkIcon::SquareCheck, NkIcon::Square,
-											NkIcon::PlusCircle, NkIcon::MinusCircle};
-										const float32 g4 = S(3.f);
-										const float32 bw4 = (iR.w - g4 * 3.f) * 0.25f;
-										float32 bx4 = iR.x;
-										char k4[32];
-										for (int32 a4 = 0; a4 < 4; ++a4) {
-											snprintf(k4, sizeof(k4), "prop.mat.a%d", a4);
-											const NkRect br4{bx4, yy, bw4, S(18.f)};
-											const bool ov4 = hit.Add(k4, br4);
-											p.Outline(br4,
-													  ov4 ? NkRole::AccentUi : NkRole::Border,
-													  NkRole::PanelHeader, 3.f);
-											p.IconV(br4.x + (bw4 - S(10.f)) * 0.5f, br4.y,
-													S(18.f), kAct[a4], NkRole::TextMuted, 10.f);
-											bx4 += bw4 + g4;
-										}
-										yy += S(18.f) + NkGroupPad();
-									}
-									// LA SURFACE : les parametres que le rendu applique.
-									p.TextV(iR.x, yy, kRowH, "Surface");
-									yy += kRowH;
-									const float32 mvX = iR.x + S(96.f);
-									const float32 mvW = iR.w - S(96.f);
-									{
-										// LA COULEUR SE CHOISIT A L'OEIL : la nuance ouvre
-										// le vrai picker, les canaux restent dessous.
-										bool mCh = false;
-										yy += PaintColorRow(p, hit, ws, in, st, iR, yy,
-															"Couleur de base", "prop.emcol",
-															mtE, &mCh);
-									}
-									yy += NkGroupPad();
-									p.TextV(iR.x, yy, kRowH, "Metallique", NkRole::TextMuted);
-									DragFloat(p, hit, ws, in, "prop.emmet",
-											  {mvX, yy + S(3.f), mvW, kRowH - S(6.f)}, metE,
-											  0.005f, NkRole::AccentUi, "%.2f");
-									yy += kRowH;
-									p.TextV(iR.x, yy, kRowH, "Rugosite", NkRole::TextMuted);
-									DragFloat(p, hit, ws, in, "prop.emrgh",
-											  {mvX, yy + S(3.f), mvW, kRowH - S(6.f)}, rghE,
-											  0.005f, NkRole::AccentUi, "%.2f");
-									yy += kRowH;
-									if (Button("prop.mat.reset", yy, "Materiau d'origine",
-											   iR.x, iR.w))
-										demo::Demo3DHostResetMeshMat(en);
-									yy += kRowH;
-									for (int32 a = 0; a < 3; ++a)
-										mtE[a] = mtE[a] < 0.f ? 0.f : (mtE[a] > 1.f ? 1.f : mtE[a]);
-									metE = metE < 0.f ? 0.f : (metE > 1.f ? 1.f : metE);
-									rghE = rghE < 0.f ? 0.f : (rghE > 1.f ? 1.f : rghE);
-									if (mtE[0] != mtE0[0] || mtE[1] != mtE0[1] ||
-										mtE[2] != mtE0[2])
-										demo::Demo3DHostSetMeshTint(en, mtE);
-									if (metE != metE0 || rghE != rghE0)
-										demo::Demo3DHostSetMeshMetalRough(en, metE, rghE);
-									yy += NkGroupPad();
-									PaintGroupBlock(p, rowR, grpMatTop, yy);
-								}
-								yy += NkPropGroupGap();
-							}
+							// (Le groupe « Materiaux » a DEMENAGE dans la pastille
+							// MATERIAU du panneau : bibliotheque du projet, apercus
+							// et assignation -- regle de Rihen, un seul endroit.)
 							// ── GROUPE « LUMIERE » ──────────────────────────────
 							// Structure de Blender (captures de Rihen) : le TYPE en
 							// tete, puis couleur et puissance, puis ce qui appartient
@@ -6328,80 +6258,9 @@ namespace nkentseu {
 							NkXmitRow(p, hit, r, rr, yy, act);
 						// (Le PIVOT a rejoint le groupe Transformation, avec son cadenas
 						// et son bouton de reinitialisation comme les autres lignes.)
-						// ── MATERIAU DU MAILLAGE (proprietes par TYPE) ──────────────
-						// Lecture = valeurs EFFECTIVES de la derniere soumission ;
-						// ecriture = SURCHARGE par objet. PROPAGER cochee : la
-						// modification s'applique aussi aux maillages DESCENDANTS
-						// (propriete commune parent/enfant, regle de Rihen).
-						{
-							p.TextV(r.x + kPad, yy, kRowH, "Materiau", NkRole::TextMuted);
-							yy += kRowH;
-							float32 mt[3], met = 0.f, rgh = 0.5f;
-							demo::Demo3DHostMeshMaterial(act, mt, &met, &rgh);
-							const float32 mt0[3] = {mt[0], mt[1], mt[2]};
-							const float32 met0 = met, rgh0 = rgh;
-							NkRect rowM = rr;
-							rowM.x = r.x + kPad;
-							rowM.w = rr.w - 2.f * kPad;
-							{
-								bool mCh = false;
-								yy += PaintColorRow(p, hit, ws, in, st, rowM, yy, "Couleur",
-													"prop.mcol", mt, &mCh);
-							}
-							p.TextV(r.x + kPad, yy, kRowH, "Metallique", NkRole::TextMuted);
-							DragFloat(p, hit, ws, in, "prop.mmet",
-									  {r.x + S(120.f), yy + S(3.f), rr.w - S(128.f), kRowH - S(4.f)},
-									  met, 0.005f, NkRole::AccentUi, "%.2f");
-							yy += kRowH;
-							p.TextV(r.x + kPad, yy, kRowH, "Rugosite", NkRole::TextMuted);
-							DragFloat(p, hit, ws, in, "prop.mrgh",
-									  {r.x + S(120.f), yy + S(3.f), rr.w - S(128.f), kRowH - S(4.f)},
-									  rgh, 0.005f, NkRole::AccentUi, "%.2f");
-							yy += kRowH;
-							const bool actParent = demo::Demo3DHostNodeHasChildren(act);
-							if (actParent) {
-								NkPropagateCheck(p, hit, r, yy, "prop.mprop", st.matPropagate);
-								yy += kRowH;
-							}
-							auto clamp01 = [](float32 v) {
-								return v < 0.f ? 0.f : (v > 1.f ? 1.f : v);
-							};
-							const bool tintCh =
-								mt[0] != mt0[0] || mt[1] != mt0[1] || mt[2] != mt0[2];
-							const bool mrCh = met != met0 || rgh != rgh0;
-							if (tintCh || mrCh) {
-								for (int32 a = 0; a < 3; ++a)
-									mt[a] = clamp01(mt[a]);
-								met = clamp01(met);
-								rgh = clamp01(rgh);
-								if (tintCh)
-									demo::Demo3DHostSetMeshTint(act, mt);
-								if (mrCh)
-									demo::Demo3DHostSetMeshMetalRough(act, met, rgh);
-								if (st.matPropagate && actParent) {
-									const int32 nO2 = demo::Demo3DHostObjectCount();
-									for (int32 n3 = 0; n3 < nO2; ++n3) {
-										if (n3 == act || !NkHierIsDescendant(n3, act))
-											continue;
-										if (tintCh)
-											demo::Demo3DHostSetMeshTint(n3, mt);
-										if (mrCh)
-											demo::Demo3DHostSetMeshMetalRough(n3, met, rgh);
-									}
-								}
-							}
-							if (Button("prop.mreset", yy, "Materiau d'origine", r.x + kPad,
-									   rr.w - 2.f * kPad)) {
-								demo::Demo3DHostResetMeshMat(act);
-								if (st.matPropagate && actParent) {
-									const int32 nO2 = demo::Demo3DHostObjectCount();
-									for (int32 n3 = 0; n3 < nO2; ++n3)
-										if (NkHierIsDescendant(n3, act))
-											demo::Demo3DHostResetMeshMat(n3);
-								}
-							}
-							yy += kRowH;
-						}
+						// (Le bloc « Materiau » a DEMENAGE dans la pastille MATERIAU
+						// du panneau : bibliotheque du projet, apercus et
+						// assignation -- regle de Rihen, un seul endroit.)
 						int32 nSel = 0;
 						const int32 nO = demo::Demo3DHostObjectCount();
 						for (int32 i3 = 0; i3 < nO; ++i3)
@@ -7840,6 +7699,222 @@ namespace nkentseu {
 								NkRole::TextMuted);
 						yy += kRowH;
 						p.TextV(r.x + kPad, yy, kRowH, "Ctrl+R boucle   W subdiviser   K couteau",
+								NkRole::TextMuted);
+						yy += kRowH;
+					}
+				} else if (sec == 4) {
+					// ── MATERIAU : la BIBLIOTHEQUE DU PROJET ────────────────────
+					// Chaque materiau vit dans SON groupe repliable, avec son
+					// APERCU rendu sur la forme choisie (plan, sphere, cube,
+					// liquide, cheveux -- structure de Blender, captures de
+					// Rihen) et toutes ses proprietes. v1 sans nodes ; la
+					// sauvegarde .nkasset (NkMaterialLibrary) et l'editeur nodal
+					// s'appuieront sur ce meme registre.
+					const int32 actN = st.activeEmpty >= 0 ? st.activeEmpty
+														   : demo::Demo3DHostActiveObject();
+					const int32 curOf = actN >= 0 ? demo::Demo3DHostProjMatOf(actN) : -1;
+					// LE REGISTRE N'EST JAMAIS VIDE ICI : le materiau de base
+					// est cree des l'affichage (regle de Rihen -- un maillage
+					// ne vit pas sans materiau, la liste non plus).
+					demo::Demo3DHostProjMatEnsureDefault();
+					int32 totMats = 0;
+					for (int32 mi = 0; mi < 64; ++mi)
+						if (demo::Demo3DHostProjMatInfo(mi, nullptr, 0u, nullptr, nullptr,
+														nullptr))
+							++totMats;
+					// EN TETE, DANS SON BLOC : la liste des materiaux du systeme,
+					// « Ajouter » (le choisi devient le principal du maillage
+					// actif, comme le navigateur de materiaux de Blender) et
+					// « + Nouveau », sur la MEME ligne (regle de Rihen).
+					// LE MEME ECART entre le bloc et le premier materiau qu'entre
+					// les materiaux ; PAS d'ecart ajoute au-dessus du bloc -- la
+					// section a deja son rembourrage, l'addition faisait trop
+					// grand (Rihen).
+					{
+						NkRect rowT = rr;
+						rowT.x = r.x + NkPropInset();
+						rowT.w = rr.w - 2.f * NkPropInset();
+						const float32 blkTop = yy;
+						const NkRect iT = NkGroupInner(rowT);
+						yy += NkGroupPad();
+						static char sCmbNm[64][32];
+						static const char *sCmbPtr[64];
+						static int32 sCmbIdx[64];
+						int32 nCmb = 0;
+						for (int32 mi = 0; mi < 64 && nCmb < 64; ++mi)
+							if (demo::Demo3DHostProjMatInfo(mi, sCmbNm[nCmb],
+															sizeof(sCmbNm[nCmb]), nullptr,
+															nullptr, nullptr)) {
+								sCmbPtr[nCmb] = sCmbNm[nCmb];
+								sCmbIdx[nCmb] = mi;
+								++nCmb;
+							}
+						static int32 sCmbSel = 0;
+						if (sCmbSel >= nCmb)
+							sCmbSel = 0;
+						const float32 abw = S(58.f);
+						const float32 nbw = S(72.f);
+						float32 cw2 = iT.w - abw - nbw - S(8.f);
+						if (cw2 < S(60.f))
+							cw2 = S(60.f);
+						const NkRect cbR{iT.x, yy + S(2.f), cw2, kRowH - S(4.f)};
+						Combo(p, hit, ws, "props.pm.cmb", cbR, sCmbPtr, nullptr, nCmb,
+							  sCmbSel, combo);
+						if (Button("props.pm.add", yy, "Ajouter", cbR.x + cw2 + S(4.f),
+								   abw) &&
+							actN >= 0 && nCmb > 0)
+							demo::Demo3DHostProjMatAssign(actN, sCmbIdx[sCmbSel]);
+						if (Button("props.pm.new", yy, "+ Nouveau",
+								   cbR.x + cw2 + S(8.f) + abw, nbw)) {
+							const int32 ni = demo::Demo3DHostProjMatCreate();
+							if (ni >= 0 && ni < 64)
+								st.projMatFold &= ~(1ull << ni); // nait DEPLIE
+						}
+						yy += kRowH + NkGroupPad();
+						PaintGroupBlock(p, rowT, blkTop, yy);
+					}
+					NkRect rowR = rr;
+					rowR.x = r.x + NkPropInset();
+					rowR.w = rr.w - 2.f * NkPropInset();
+					int32 nMats = 0;
+					char mnm[32];
+					float32 alb[3], rgh, mtl;
+					for (int32 mi = 0; mi < 64; ++mi) {
+						if (!demo::Demo3DHostProjMatInfo(mi, mnm, sizeof(mnm), alb, &rgh,
+														 &mtl))
+							continue;
+						++nMats;
+						yy += NkPropGroupGap();
+						const float32 grpTop = yy;
+						// EN-TETE : chevron, pastille de la couleur reelle, nom,
+						// et une COCHE si l'objet actif porte ce materiau.
+						snprintf(key, sizeof(key), "props.pm.h.%d", mi);
+						const NkRect hr{rowR.x, yy, rowR.w, kRowH};
+						const bool overH = hit.Add(key, hr);
+						p.Fill(hr, NkRole::PanelHeader);
+						if (overH)
+							p.Fill({hr.x, hr.y + hr.h - S(2.f), hr.w, S(2.f)},
+								   NkRole::AccentUi);
+						const bool folded = ((st.projMatFold >> mi) & 1ull) != 0ull;
+						p.IconV(rowR.x + S(4.f), yy, kRowH,
+								folded ? NkIcon::ChevronRight : NkIcon::ChevronDown,
+								NkRole::Text, 11.f);
+						const NkColor cw{(uint8)(alb[0] * 255.f), (uint8)(alb[1] * 255.f),
+										 (uint8)(alb[2] * 255.f), 255};
+						p.Fill({rowR.x + S(20.f), yy + S(5.f), S(12.f), S(12.f)}, cw, 2.f);
+						p.Clip(hr);
+						p.TextV(rowR.x + S(38.f), yy, kRowH, mnm);
+						p.Unclip();
+						if (curOf == mi)
+							p.IconV(rowR.x + rowR.w - S(18.f), yy, kRowH, NkIcon::Check,
+									NkRole::AccentUi, 12.f);
+						if (hit.Clicked(key))
+							st.projMatFold ^= (1ull << mi);
+						yy += kRowH;
+						if (folded) {
+							PaintGroupBlock(p, rowR, grpTop, yy);
+							continue;
+						}
+						const NkRect iR = NkGroupInner(rowR);
+						yy += NkGroupPad();
+						// APERCU + colonne des FORMES a sa droite (comme Blender).
+						{
+							const float32 side = S(104.f);
+							const float32 btn = S(20.f);
+							const float32 pvX = iR.x + (iR.w - side - btn - S(6.f)) * 0.5f;
+							p.Image(4400u + (uint32)mi, {pvX, yy, side, side});
+							p.OutlineSharp({pvX, yy, side, side}, NkRole::Border);
+							static const NkIcon kShp[5] = {NkIcon::Plane3D, NkIcon::SphereUV,
+														   NkIcon::Cube3D, NkIcon::Metaball,
+														   NkIcon::CurveBezier};
+							const int32 shpCur = demo::Demo3DHostProjMatPrevShape(mi);
+							float32 by = yy;
+							for (int32 s5 = 0; s5 < 5; ++s5) {
+								snprintf(key, sizeof(key), "props.pm.s%d.%d", s5, mi);
+								const NkRect sb{pvX + side + S(6.f), by, btn, btn};
+								hit.Add(key, sb);
+								if (shpCur == s5)
+									p.Fill(sb, NkRole::AccentUi, 3.f);
+								else
+									p.Outline(sb, NkRole::Border, NkRole::InputBg, 3.f);
+								p.IconV(sb.x + S(4.f), by, btn, kShp[s5],
+										shpCur == s5 ? NkRole::TextOnAccent
+													 : NkRole::TextMuted,
+										12.f);
+								if (hit.Clicked(key))
+									demo::Demo3DHostProjMatSetPrevShape(mi, s5);
+								by += btn + S(1.f);
+							}
+							yy += side + NkGroupPad();
+						}
+						// NOM (double-clic pour renommer), puis la SURFACE.
+						{
+							static char sPmName[32] = {};
+							p.TextV(iR.x, yy, kRowH, "Nom", NkRole::TextMuted);
+							snprintf(key, sizeof(key), "props.pm.nm.%d", mi);
+							// MEME COLONNE que la ligne Couleur (libelle de 110) :
+							// nom, couleur, rugosite et metallique s'alignent.
+							const NkRect nmR{iR.x + S(110.f), yy + S(2.f), iR.w - S(110.f),
+											 kRowH - S(4.f)};
+							p.Outline(nmR, NkRole::Border, NkRole::InputBg, 3.f);
+							if (EditableText(p, hit, ws, in, key,
+											 {nmR.x + S(4.f), yy, nmR.w - S(8.f), kRowH},
+											 mnm, NkRole::Text, sPmName, 24u))
+								demo::Demo3DHostProjMatSetName(mi, sPmName);
+							yy += kRowH;
+						}
+						const float32 a0 = alb[0], a1 = alb[1], a2 = alb[2];
+						const float32 r0 = rgh, m0 = mtl;
+						bool colCh = false;
+						snprintf(key, sizeof(key), "props.pm.c.%d", mi);
+						yy += PaintColorRow(p, hit, ws, in, st, iR, yy, "Couleur", key, alb,
+											&colCh);
+						p.TextV(iR.x, yy, kRowH, "Rugosite", NkRole::TextMuted);
+						snprintf(key, sizeof(key), "props.pm.r.%d", mi);
+						DragFloat(p, hit, ws, in, key,
+								  {iR.x + S(110.f), yy + S(3.f), iR.w - S(110.f),
+								   kRowH - S(6.f)},
+								  rgh, 0.005f, NkRole::AccentUi, "%.2f");
+						yy += kRowH;
+						p.TextV(iR.x, yy, kRowH, "Metallique", NkRole::TextMuted);
+						snprintf(key, sizeof(key), "props.pm.m.%d", mi);
+						DragFloat(p, hit, ws, in, key,
+								  {iR.x + S(110.f), yy + S(3.f), iR.w - S(110.f),
+								   kRowH - S(6.f)},
+								  mtl, 0.005f, NkRole::AccentUi, "%.2f");
+						yy += kRowH;
+						if (colCh || alb[0] != a0 || alb[1] != a1 || alb[2] != a2 ||
+							rgh != r0 || mtl != m0)
+							demo::Demo3DHostProjMatSetParams(mi, alb, rgh, mtl);
+						// LES GESTES. L'ASSIGNATION est un geste du MODE EDITION
+						// (regle de Rihen, comme Blender) : le materiau recu a
+						// la creation reste le PRINCIPAL du maillage, et c'est
+						// en edition qu'on assigne autrement -- v1 : au
+						// maillage edite entier ; l'assignation par faces
+						// suivra avec les slots par sous-maillage.
+						// En mode objet : PAS de bouton et pas de mention -- le
+						// geste n'existe qu'en edition, il apparait avec elle.
+						yy += S(2.f);
+						if (demo::Demo3DHostInEditMode() && actN >= 0) {
+							snprintf(key, sizeof(key), "props.pm.a.%d", mi);
+							if (Button(key, yy, "Assigner", iR.x, iR.w))
+								demo::Demo3DHostProjMatAssign(actN, mi);
+							yy += kRowH;
+						}
+						// SUPPRIMER n'existe que s'il RESTERA un materiau : le
+						// dernier ne se supprime pas (tout maillage en porte
+						// un), et les porteurs convergent vers un restant.
+						if (totMats > 1) {
+							snprintf(key, sizeof(key), "props.pm.d.%d", mi);
+							if (Button(key, yy, "Supprimer le materiau", iR.x, iR.w))
+								demo::Demo3DHostProjMatDelete(mi);
+							yy += kRowH;
+						}
+						yy += NkGroupPad();
+						PaintGroupBlock(p, rowR, grpTop, yy);
+					}
+					if (nMats == 0) {
+						p.TextV(r.x + kPad, yy, kRowH, "Aucun materiau -- creez-en un.",
 								NkRole::TextMuted);
 						yy += kRowH;
 					}

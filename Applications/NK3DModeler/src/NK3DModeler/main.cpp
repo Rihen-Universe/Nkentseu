@@ -1321,6 +1321,18 @@ int nkmain(const NkEntryState &entry) {
 			}
 		}
 
+		// ── APERCUS DES MATERIAUX DU PROJET (ids 4400+) ─────────────────────
+		// Meme mecanique que les vignettes de matcap : l'hote rend la vignette
+		// en pixels quand elle est PERIMEE (parametres ou forme changes), et on
+		// l'uploade comme n'importe quelle image d'interface. 128 px : le grand
+		// apercu de la pastille s'affiche plus petit, retrecir reste lisse.
+		{
+			static uint8 sMatBall[128 * 128 * 4];
+			for (int32 i = 0; i < 64; ++i)
+				if (demo::Demo3DHostProjMatPreviewTake(i, sMatBall, 128))
+					renderer.UploadImageRGBA(4400u + (uint32)i, sMatBall, 128, 128);
+		}
+
 		// ── ACTIONS DE FENETRE, HORS FRAME ──────────────────────────────────
 		// BeginDragMove et Maximize entrent dans une boucle modale de l'OS : les
 		// appeler pendant la peinture reentrerait dans la frame. On les consomme

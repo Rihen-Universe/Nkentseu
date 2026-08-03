@@ -293,10 +293,47 @@ namespace nkentseu {
 		static float32 nkvpMatMetal[kNkvpMaxNodes];
 		static float32 nkvpMatRough[kNkvpMaxNodes];
 		static float32 nkvpMatCache[kNkvpMaxNodes][5];
+		// ── MATERIAUX DU PROJET (pastille Materiau) ─────────────────────────
+		// Un materiau est une RESSOURCE NOMMEE, independante des objets : on le
+		// cree une fois, on l'assigne a plusieurs cibles, on le retouche et
+		// toutes suivent. Les champs sont ceux de NkPBRParams : la SAUVEGARDE
+		// passera par NkMaterialAsset + NkMaterialLibrary (.nkasset, deja
+		// prevus par NKRenderer) -- pas de format maison. L'edition NODALE
+		// evaluera son graphe vers ces memes parametres, l'edition directe
+		// ci-dessous restant toujours possible ; les surcharges par objet du
+		// panneau Modele sont des retouches PAR-DESSUS le materiau assigne.
+		struct NkVpProjMat {
+				bool used;
+				int8 prevShape; // apercu : 0 plan, 1 sphere, 2 cube, 3 liquide, 4 cheveux
+				char name[32];
+				float32 albedo[3];
+				float32 rough, metal;
+		};
+		static constexpr int32 kNkvpMaxProjMats = 64;
+		static NkVpProjMat nkvpProjMats[kNkvpMaxProjMats] = {};
+		static int32 nkvpMatSerial = 0; // numerote « Materiau.NNN », jamais reutilise
+		// Assignation par NOEUD, stockee en indice+1 : le zero de l'init
+		// statique veut naturellement dire « aucun materiau ».
+		static int32 nkvpNodeMatP1[kNkvpMaxNodes] = {};
+		static int32 HostEnsureDefaultMat(); // defini avec le registre, plus bas
 		template <typename TDC>
 		static void HostMatHook(int32 i, TDC &dc) {
 			if (i < 0 || i >= kNkvpMaxNodes)
 				return;
+			// Le MATERIAU DU PROJET s'applique d'abord (c'est la base), les
+			// surcharges par objet du panneau Modele le retouchent ensuite --
+			// l'ordre est le contrat : assigner un materiau ne detruit pas une
+			// retouche locale, et retirer la retouche rend le materiau.
+			{
+				const int32 pm = nkvpNodeMatP1[i] - 1;
+				if (pm >= 0 && pm < kNkvpMaxProjMats && nkvpProjMats[pm].used) {
+					dc.tint.x = nkvpProjMats[pm].albedo[0];
+					dc.tint.y = nkvpProjMats[pm].albedo[1];
+					dc.tint.z = nkvpProjMats[pm].albedo[2];
+					dc.metallic = nkvpProjMats[pm].metal;
+					dc.roughness = nkvpProjMats[pm].rough;
+				}
+			}
 			if (nkvpMatMask[i] & 1) {
 				dc.tint.x = nkvpMatTint[i][0];
 				dc.tint.y = nkvpMatTint[i][1];
@@ -5278,21 +5315,56 @@ namespace nkentseu {
 						const uint32 TS = 256;
 						static NkVector<uint8> pxF;
 						pxF.Resize(TS * TS * 4);
+						// SOUS-GRILLE (regle de Rihen) : chaque grand carreau porte
+						// DIX petits rectangles, traces par des lignes en ALTERNANCE
+						// -- une moyennement foncee, une plus claire, et ainsi de
+						// suite (5 + 5). Retourne 0 = pas de ligne, 1 = claire,
+						// 2 = moyenne ; `span` est la taille du grand carreau.
+						auto sub10 = [TS](uint32 t, uint32 span) -> uint8 {
+							const uint32 l = t % span;
+							for (uint32 i = 1; i < 10; ++i)
+								if (l == (i * span) / 10u)
+									return (i & 1u) ? 1u : 2u;
+							return 0u;
+						};
 						for (uint32 ty = 0; ty < TS; ++ty) {
 							for (uint32 tx = 0; tx < TS; ++tx) {
 								uint8 v = 208;
 								if (pi == 0) {
-									// DAMIER : 2x2 cases par texture (une periode).
+									// DAMIER : 2x2 cases par texture (une periode),
+									// et la MEME sous-grille de 10 dans chaque case
+									// (lignes en assombrissement de la case). La
+									// FRONTIERE entre case claire et case sombre
+									// porte son propre trait (regle de Rihen) : sans
+									// lui, deux cases se touchaient sans couture.
 									const bool aC = (((tx * 2u) / TS) ^ ((ty * 2u) / TS)) & 1u;
 									v = aC ? 205 : 152;
+									if (tx % (TS / 2u) < 1u || ty % (TS / 2u) < 1u)
+										v = 110;
+									else {
+										const uint8 lx = sub10(tx, TS / 2u);
+										const uint8 ly = sub10(ty, TS / 2u);
+										const uint8 lm = lx > ly ? lx : ly;
+										if (lm == 2u)
+											v = (uint8)(v - 45u);
+										else if (lm == 1u)
+											v = (uint8)(v - 22u);
+									}
 								} else {
 									// CARREAUX : joints sombres au bord (FINS -- les
 									// traits epais mangeaient les dalles, Rihen),
-									// sous-lignes discretes tous les 1/8.
+									// puis la sous-grille de 10 alternee.
 									if (tx < 2u || ty < 2u || tx >= TS - 2u || ty >= TS - 2u)
 										v = 110;
-									else if ((tx & 31u) < 1u || (ty & 31u) < 1u)
-										v = 192;
+									else {
+										const uint8 lx = sub10(tx, TS);
+										const uint8 ly = sub10(ty, TS);
+										const uint8 lm = lx > ly ? lx : ly;
+										if (lm == 2u)
+											v = 150;
+										else if (lm == 1u)
+											v = 192;
+									}
 								}
 								const uint32 o4 = (ty * TS + tx) * 4u;
 								pxF[o4 + 0] = v;
@@ -5609,7 +5681,16 @@ namespace nkentseu {
 					dc.aabb = {{wmn.x - 0.05f, wmn.y - 0.05f, wmn.z - 0.05f},
 							   {wmx.x + 0.05f, wmx.y + 0.05f, wmx.z + 0.05f}};
 				}
-				dc.castShadow = true;
+				// UN MAILLAGE NE VIT PAS SANS MATERIAU (regle de Rihen) : ceux
+				// crees avant la regle, ou par un chemin qui l'ignorerait, sont
+				// RATTRAPES ici, au point de passage de la soumission.
+				if (nkvpNodeMatP1[un] == 0)
+					nkvpNodeMatP1[un] = HostEnsureDefaultMat() + 1;
+				// Le PLAN INFINI ne projette pas d'ombre : rien ne vit dessous, et
+				// un caster de +-1500 m gonflerait l'auto-fit VSM jusqu'a rendre
+				// le texel inutilisable (meme regle que le sol systeme). A
+				// revoir quand la sculpture lui donnera du relief.
+				dc.castShadow = !(uk == 3 && usv == 3);
 				dc.tint = effTint({0.7f, 0.7f, 0.72f});
 				dc.metallic = 0.f;
 				dc.roughness = 0.85f; // mat par defaut, sans brillance marquee
@@ -9858,6 +9939,294 @@ namespace nkentseu {
 			if (i >= 0 && i < kNkvpMaxNodes)
 				nkvpMatMask[i] = 0;
 		}
+		// ── MATERIAUX DU PROJET (pastille Materiau) ─────────────────────────
+		int32 Demo3DHostProjMatCreate() {
+			for (int32 i = 0; i < kNkvpMaxProjMats; ++i) {
+				if (nkvpProjMats[i].used)
+					continue;
+				NkVpProjMat &m = nkvpProjMats[i];
+				m.used = true;
+				m.prevShape = 1; // la sphere, l'apercu canonique
+				snprintf(m.name, sizeof(m.name), "Materiau.%03d", nkvpMatSerial++);
+				// GRIS NEUTRE MAT : le meme point de depart que les objets nus,
+				// pour que « creer puis assigner » ne change rien tant qu'on n'a
+				// pas touche un curseur -- aucun effet subi.
+				m.albedo[0] = m.albedo[1] = m.albedo[2] = 0.7f;
+				m.rough = 0.85f;
+				m.metal = 0.f;
+				return i;
+			}
+			return -1;
+		}
+		void Demo3DHostProjMatDelete(int32 i) {
+			if (i < 0 || i >= kNkvpMaxProjMats || !nkvpProjMats[i].used)
+				return;
+			// LE DERNIER MATERIAU NE SE SUPPRIME PAS (regle de Rihen) : tout
+			// maillage porte toujours un materiau, il faut donc qu'il en reste.
+			int32 nUsed = 0, fallback = -1;
+			for (int32 k = 0; k < kNkvpMaxProjMats; ++k)
+				if (nkvpProjMats[k].used) {
+					++nUsed;
+					if (k != i && fallback < 0)
+						fallback = k;
+				}
+			if (nUsed <= 1 || fallback < 0)
+				return;
+			nkvpProjMats[i].used = false;
+			// Les porteurs CONVERGENT vers un materiau restant, jamais vers
+			// rien (regle de Rihen) : supprimer l'un des deux fait converger
+			// tous ses maillages vers l'autre.
+			for (int32 n = 0; n < kNkvpMaxNodes; ++n)
+				if (nkvpNodeMatP1[n] - 1 == i)
+					nkvpNodeMatP1[n] = fallback + 1;
+		}
+		// Il existe TOUJOURS au moins un materiau des qu'un maillage existe :
+		// renvoie le premier du registre, en le creant au besoin.
+		static int32 HostEnsureDefaultMat() {
+			for (int32 k = 0; k < kNkvpMaxProjMats; ++k)
+				if (nkvpProjMats[k].used)
+					return k;
+			return Demo3DHostProjMatCreate();
+		}
+		int32 Demo3DHostProjMatEnsureDefault() {
+			return HostEnsureDefaultMat();
+		}
+		bool Demo3DHostProjMatInfo(int32 i, char *name, uint32 cap, float32 *albedo3,
+								   float32 *rough, float32 *metal) {
+			if (i < 0 || i >= kNkvpMaxProjMats || !nkvpProjMats[i].used)
+				return false;
+			const NkVpProjMat &m = nkvpProjMats[i];
+			if (name && cap)
+				snprintf(name, cap, "%s", m.name);
+			if (albedo3) {
+				albedo3[0] = m.albedo[0];
+				albedo3[1] = m.albedo[1];
+				albedo3[2] = m.albedo[2];
+			}
+			if (rough)
+				*rough = m.rough;
+			if (metal)
+				*metal = m.metal;
+			return true;
+		}
+		void Demo3DHostProjMatSetParams(int32 i, const float32 *albedo3, float32 rough,
+										float32 metal) {
+			if (i < 0 || i >= kNkvpMaxProjMats || !nkvpProjMats[i].used)
+				return;
+			NkVpProjMat &m = nkvpProjMats[i];
+			if (albedo3) {
+				m.albedo[0] = albedo3[0];
+				m.albedo[1] = albedo3[1];
+				m.albedo[2] = albedo3[2];
+			}
+			m.rough = rough < 0.f ? 0.f : (rough > 1.f ? 1.f : rough);
+			m.metal = metal < 0.f ? 0.f : (metal > 1.f ? 1.f : metal);
+		}
+		void Demo3DHostProjMatSetName(int32 i, const char *name) {
+			if (i < 0 || i >= kNkvpMaxProjMats || !nkvpProjMats[i].used || !name || !name[0])
+				return;
+			snprintf(nkvpProjMats[i].name, sizeof(nkvpProjMats[i].name), "%s", name);
+		}
+		void Demo3DHostProjMatAssign(int32 node, int32 mat) {
+			if (node < 0 || node >= kNkvpMaxNodes)
+				return;
+			nkvpNodeMatP1[node] =
+				(mat >= 0 && mat < kNkvpMaxProjMats && nkvpProjMats[mat].used) ? mat + 1 : 0;
+		}
+		int32 Demo3DHostProjMatOf(int32 node) {
+			if (node < 0 || node >= kNkvpMaxNodes)
+				return -1;
+			return nkvpNodeMatP1[node] - 1;
+		}
+		int32 Demo3DHostProjMatPrevShape(int32 i) {
+			return (i >= 0 && i < kNkvpMaxProjMats) ? nkvpProjMats[i].prevShape : 1;
+		}
+		void Demo3DHostProjMatSetPrevShape(int32 i, int32 shape) {
+			if (i >= 0 && i < kNkvpMaxProjMats)
+				nkvpProjMats[i].prevShape = (int8)(shape < 0 ? 0 : (shape > 4 ? 4 : shape));
+		}
+		// ── APERCU D'UN MATERIAU : rendu ANALYTIQUE CPU ─────────────────────
+		// Assez fidele pour JUGER une matiere (diffus + reflet selon rugosite/
+		// metallique), pas le vrai pipeline -- un apercu GPU offscreen pourra
+		// le remplacer sans changer l'interface. Cinq formes, comme Blender :
+		// plan, sphere, cube, liquide, cheveux.
+		static void HostMatPreviewRender(const NkVpProjMat &m, uint8 *px, int32 sz) {
+			const float32 Lx = -0.44f, Ly = 0.74f, Lz = 0.51f; // cle, deja ~normalisee
+			const float32 gloss = 1.f - (m.rough < 0.f ? 0.f : (m.rough > 1.f ? 1.f : m.rough));
+			const float32 met = m.metal < 0.f ? 0.f : (m.metal > 1.f ? 1.f : m.metal);
+			const float32 specE = 2.f + 220.f * gloss * gloss * gloss;
+			const int8 shp = m.prevShape;
+			auto bgAt = [&](int32 x, int32 y) -> float32 {
+				// damier sombre, comme la piece d'apercu de Blender
+				return (((x >> 4) ^ (y >> 4)) & 1) ? 0.20f : 0.155f;
+			};
+			auto shade = [&](float32 nx, float32 ny, float32 nz, float32 *out) {
+				float32 nl = nx * Lx + ny * Ly + nz * Lz;
+				if (nl < 0.f)
+					nl = 0.f;
+				// H = normalize(L + V), V = (0,0,1)
+				const float32 hx = Lx, hy = Ly, hz = Lz + 1.f;
+				const float32 hl = 1.f / math::NkSqrt(hx * hx + hy * hy + hz * hz);
+				float32 nh = nx * hx * hl + ny * hy * hl + nz * hz * hl;
+				if (nh < 0.f)
+					nh = 0.f;
+				float32 sp = 1.f;
+				for (float32 e = specE; e >= 1.f; e -= 1.f)
+					sp *= nh; // pow entiere, suffisante ici
+				sp *= 0.10f + 0.9f * gloss;
+				float32 fr = 1.f - (nz < 0.f ? 0.f : nz); // rim de fresnel
+				fr = fr * fr * fr * (0.10f + 0.35f * gloss);
+				const float32 dif = (0.20f + 0.80f * nl) * (1.f - 0.85f * met);
+				for (int32 c = 0; c < 3; ++c) {
+					const float32 sc = met > 0.f ? (1.f - met) + met * m.albedo[c] : 1.f;
+					out[c] = m.albedo[c] * dif + sc * (sp * (0.5f + 1.1f * met) + fr);
+				}
+			};
+			const float32 cx = 0.5f * (float32)sz, cy = 0.48f * (float32)sz;
+			const float32 R = 0.36f * (float32)sz;
+			// BASE ORTHONORMEE de l'apercu cube : vD pointe vers la camera (on
+			// voit le dessus et deux faces), Rv/Uv encadrent l'ecran.
+			const float32 vD[3] = {0.4851f, 0.5821f, 0.6524f};
+			float32 Rv[3] = {vD[2], 0.f, -vD[0]};
+			{
+				const float32 rl = 1.f / math::NkSqrt(Rv[0] * Rv[0] + Rv[2] * Rv[2]);
+				Rv[0] *= rl;
+				Rv[2] *= rl;
+			}
+			const float32 Uv[3] = {vD[1] * Rv[2] - vD[2] * Rv[1],
+								   vD[2] * Rv[0] - vD[0] * Rv[2],
+								   vD[0] * Rv[1] - vD[1] * Rv[0]};
+			for (int32 y = 0; y < sz; ++y) {
+				for (int32 x = 0; x < sz; ++x) {
+					float32 col[3];
+					const float32 bg = bgAt(x, y);
+					col[0] = col[1] = col[2] = bg;
+					const float32 dx = ((float32)x - cx) / R;
+					const float32 dy = (cy - (float32)y) / R; // Y ecran inverse
+					if (shp == 0) {
+						// PLAN : carte legerement inclinee, pleine largeur.
+						const int32 mg = sz / 8;
+						if (x >= mg && x < sz - mg && y >= mg && y < sz - mg) {
+							const float32 t = (float32)y / (float32)sz - 0.5f;
+							const float32 ny2 = 0.30f + 0.25f * t;
+							const float32 il = 1.f / math::NkSqrt(ny2 * ny2 + 0.92f * 0.92f);
+							shade(0.f, ny2 * il, 0.92f * il, col);
+						}
+					} else if (shp == 2) {
+						// CUBE : intersection orthographique EXACTE rayon/boite.
+						// (L'approximation par demi-plans deformait la
+						// silhouette -- « on dirait pas un cube », Rihen.)
+						const float32 u = dx * 1.55f, w = dy * 1.55f;
+						float32 O[3], dir[3];
+						for (int32 a3 = 0; a3 < 3; ++a3) {
+							O[a3] = u * Rv[a3] + w * Uv[a3] + 4.f * vD[a3];
+							dir[a3] = -vD[a3];
+						}
+						float32 tIn = -1e9f, tOut = 1e9f;
+						int32 axIn = 0;
+						for (int32 a3 = 0; a3 < 3; ++a3) {
+							const float32 inv = 1.f / dir[a3];
+							float32 t1 = (-1.f - O[a3]) * inv;
+							float32 t2 = (1.f - O[a3]) * inv;
+							if (t1 > t2) {
+								const float32 tw = t1;
+								t1 = t2;
+								t2 = tw;
+							}
+							if (t1 > tIn) {
+								tIn = t1;
+								axIn = a3;
+							}
+							if (t2 < tOut)
+								tOut = t2;
+						}
+						if (tIn <= tOut) {
+							float32 N3[3] = {0.f, 0.f, 0.f};
+							N3[axIn] = dir[axIn] > 0.f ? -1.f : 1.f;
+							// normale exprimee dans la base ECRAN : la cle et le
+							// fresnel du shade() restent coherents
+							shade(N3[0] * Rv[0] + N3[1] * Rv[1] + N3[2] * Rv[2],
+								  N3[0] * Uv[0] + N3[1] * Uv[1] + N3[2] * Uv[2],
+								  N3[0] * vD[0] + N3[1] * vD[1] + N3[2] * vD[2], col);
+						}
+					} else if (shp == 4) {
+						// CHEVEUX : meches verticales ondulees, reflet en bande.
+						const int32 mg = sz / 6;
+						if (x >= mg && x < sz - mg && y >= sz / 10 && y < sz - sz / 10) {
+							const float32 fy = (float32)y / (float32)sz;
+							const float32 wob = math::NkSin(fy * 9.f + (float32)x * 0.53f) * 1.7f;
+							const int32 strand = (int32)((float32)x + wob);
+							// pseudo-alea PAR MECHE, stable d'une image a l'autre
+							const float32 h = math::NkSin((float32)strand * 12.9898f) * 43758.545f;
+							const float32 rnd = h - (float32)(int64)h;
+							const float32 tone = 0.35f + 0.65f * (rnd < 0.f ? rnd + 1.f : rnd);
+							// bande de reflet : nette si lisse, diffuse si rugueux
+							const float32 bandY = 0.34f + 0.10f * math::NkSin((float32)strand * 0.31f);
+							const float32 sig = 0.02f + 0.16f * (1.f - gloss);
+							const float32 dband = (fy - bandY) / sig;
+							float32 hl = 1.f - dband * dband;
+							if (hl < 0.f)
+								hl = 0.f;
+							for (int32 c = 0; c < 3; ++c) {
+								const float32 sc = met > 0.f ? (1.f - met) + met * m.albedo[c] : 1.f;
+								col[c] = m.albedo[c] * tone * (1.f - 0.5f * met) +
+										 sc * hl * (0.25f + 0.75f * gloss);
+							}
+						}
+					} else {
+						// SPHERE (1) et LIQUIDE (3) : meme geometrie, matiere differente.
+						const float32 d2 = dx * dx + dy * dy;
+						if (d2 <= 1.f) {
+							const float32 nz = math::NkSqrt(1.f - d2);
+							shade(dx, dy, nz, col);
+							if (shp == 3) {
+								// LIQUIDE : le fond TRAVERSE (transmission), le bord
+								// s'allume (fresnel) et le reflet reste net.
+								float32 fr = 1.f - nz;
+								fr = fr * fr;
+								const float32 keep = 0.30f + 0.55f * fr;
+								for (int32 c = 0; c < 3; ++c)
+									col[c] = col[c] * keep + bg * (1.f - keep) +
+											 fr * 0.22f;
+							}
+						} else if (d2 <= 1.10f) {
+							// bord adouci
+							const float32 a = (1.10f - d2) / 0.10f;
+							float32 sc[3];
+							const float32 il = 1.f / math::NkSqrt(d2);
+							shade(dx * il, dy * il, 0.f, sc);
+							for (int32 c = 0; c < 3; ++c)
+								col[c] = sc[c] * a + bg * (1.f - a);
+						}
+					}
+					const int32 o = (y * sz + x) * 4;
+					for (int32 c = 0; c < 3; ++c) {
+						float32 v = col[c];
+						v = v < 0.f ? 0.f : (v > 1.f ? 1.f : v);
+						px[o + c] = (uint8)(v * 255.f + 0.5f);
+					}
+					px[o + 3] = 255;
+				}
+			}
+		}
+		// Regeneration A LA DEMANDE : l'hote detecte lui-meme qu'un apercu est
+		// perime (parametres ou forme changes) ; l'appelant uploade quand vrai.
+		bool Demo3DHostProjMatPreviewTake(int32 i, uint8 *rgba, uint32 size) {
+			if (i < 0 || i >= kNkvpMaxProjMats || !rgba || !size)
+				return false;
+			const NkVpProjMat &m = nkvpProjMats[i];
+			if (!m.used)
+				return false;
+			static float32 sSig[kNkvpMaxProjMats] = {};
+			const float32 sig = m.albedo[0] * 1.7f + m.albedo[1] * 2.3f +
+								m.albedo[2] * 3.1f + m.rough * 5.3f + m.metal * 7.9f +
+								(float32)m.prevShape * 11.3f + 1.f;
+			if (sSig[i] == sig)
+				return false;
+			sSig[i] = sig;
+			HostMatPreviewRender(m, rgba, (int32)size);
+			return true;
+		}
 		// ── DETECTEUR DE PARENTE (une passe par frame) ──────────────────────
 		// Il observe la transformation MONDE de chaque noeud ; tout delta d'un
 		// parent (gizmo, panneau, raccourcis G/R/S de la demo, animation) est
@@ -11803,11 +12172,34 @@ namespace nkentseu {
 			// Parametres par defaut de la nature, puis mesh PARAMETRIQUE reel.
 			{
 				const int32 u = n - kNkvpFirstUser;
-				nkvpUserSeg[u] = kind == 3 ? 1 : (kind == 1 && (sub & 0xFF) == 1 ? 3 : 32);
+				// PLAN INFINI (sub 3) : il nait DEJA SUBDIVISE au maximum -- sa
+				// raison d'etre est d'etre sculpte plus tard, et un plan de 3 km
+				// a 2 triangles n'aurait aucun vertex a deplacer.
+				const bool infPlane = kind == 3 && (sub & 0xFF) == 3;
+				nkvpUserSeg[u] = kind == 3 ? (infPlane ? 64 : 1)
+										   : (kind == 1 && (sub & 0xFF) == 1 ? 3 : 32);
 				nkvpUserRing[u] = 16;
 				nkvpUserAux[u] = 0.15f;
-				if (kind >= 1 && kind <= 3)
+				if (kind >= 1 && kind <= 3) {
 					HostRegenUserMesh(u);
+					// TOUT MAILLAGE NAIT AVEC UN MATERIAU (regle de Rihen,
+					// comme Blender) : le premier du registre -- cree au
+					// besoin -- devient son materiau PRINCIPAL. Les creations
+					// suivantes de materiaux ne rebranchent rien ; seule
+					// l'assignation (en mode edition) en decidera autrement.
+					nkvpNodeMatP1[n] = HostEnsureDefaultMat() + 1;
+				}
+				if (infPlane) {
+					// La MEME emprise que le sol systeme (+-1500 m) : « infini »
+					// a l'echelle de la scene, mais un vrai noeud -- l'echelle
+					// reste la sienne, modifiable comme sur tout objet. Y reste
+					// a 1 : la future sculpture donnera le relief, une echelle
+					// verticale de 1500 transformerait le moindre coup de
+					// brosse en falaise.
+					nkvpEmptyScl[e][0] = 1500.f;
+					nkvpEmptyScl[e][1] = 1.f;
+					nkvpEmptyScl[e][2] = 1500.f;
+				}
 			}
 			if (kind == 5) {
 				// Lumiere NATIVE : partir de la lumiere existante la plus proche
