@@ -292,6 +292,11 @@ namespace nkentseu {
 				// Le panneau des matcaps s'ancre au bouton qui l'a ouvert (barre de
 				// la vue OU panneau Proprietes).
 				NkRect matcapAnchor{};
+				// Panneau d'AIMANTATION (cible + pas), ancre a son bouton de la
+				// barre -- les pas se reglent DANS le panneau (regle de Rihen),
+				// pas dans la barre.
+				bool snapMenuOpen = false;
+				NkRect snapMenuAnchor{};
 				// NOMS PERSONNALISES de la hierarchie : 0..85 objets, 86..89
 				// lumieres, 90..95 parents. Vide = nom genere. Ils vivent ici tant
 				// que la demo n'a pas de champ nom ; le format projet les reprendra.

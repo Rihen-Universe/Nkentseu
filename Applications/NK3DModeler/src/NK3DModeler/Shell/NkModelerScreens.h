@@ -1616,15 +1616,22 @@ namespace nkentseu {
 				bool delK = in.keyInit[(int32)nkgui::NkGuiKey::Delete] ||
 							(in.keyInit[(int32)nkgui::NkGuiKey::X] && !in.ctrlDown &&
 							 !hit.MouseDown());
-				bool dupK = in.keyInit[(int32)nkgui::NkGuiKey::D] && in.shiftDown;
+				// UN SEUL POINT DE PASSAGE pour Maj+D : la voie POLLEE de l'hote
+				// (sk & 1, ci-dessous). L'evenement clavier declenchait EN PLUS,
+				// une frame avant le bit polle -- deux duplications par pression
+				// (constate par Rihen ; visible depuis que le callback clavier
+				// renseigne Shift pour le presse-papiers).
+				bool dupK = false;
 				for (int32 ci = 0; ci < in.charCount; ++ci) {
 					const uint32 cp = in.chars[ci];
 					// X pendant un glissement = verrou d'axe du gizmo, pas une
 					// suppression : la souris doit etre relachee.
 					if ((cp == 'x' || cp == 'X') && !in.ctrlDown && !hit.MouseDown())
 						delK = true;
-					if ((cp == 'd' || cp == 'D') && in.shiftDown)
-						dupK = true;
+					// (PLUS de repli caractere pour Maj+D : depuis que les
+					// modificateurs sont renseignes par le callback clavier, le
+					// caractere « D » arrivait UNE FRAME apres l'evenement et
+					// dupliquait une seconde fois -- constate par Rihen.)
 				}
 				// Les raccourcis POLLES par l'hote (seule voie fiable pour les
 				// lettres, constatee avec Rihen) s'ajoutent aux evenements.
@@ -3942,17 +3949,12 @@ namespace nkentseu {
 			// sien. L'espace fait le tri sans qu'on ait a lire.
 			const float32 btn = S(24.f);
 			const float32 grp = S(10.f); // vide entre deux groupes
-			struct Snap {
-					NkIcon icon;
-					char value[16];
-			};
-			// Les VALEURS viennent de l'ETAT (modifiables dans les proprietes de
-			// l'outil) : codees en dur, elles mentaient des le premier reglage.
-			Snap kSnaps[3] = {{NkIcon::SnapGrid, {}}, {NkIcon::SnapAngle, {}},
-							  {NkIcon::SnapScale, {}}};
-			snprintf(kSnaps[0].value, sizeof(kSnaps[0].value), "%.2g", (float64)st.snapStepT);
-			snprintf(kSnaps[1].value, sizeof(kSnaps[1].value), "%.0f deg", (float64)st.snapStepR);
-			snprintf(kSnaps[2].value, sizeof(kSnaps[2].value), "%.2g", (float64)st.snapStepS);
+			// LES ANCIENS TROIS AIMANTS (grille/angle/echelle + leurs valeurs)
+			// SONT RETIRES (regle de Rihen) : UN aimant-bascule, UNE cible --
+			// et quand la cible est INCREMENT ou GRILLE, les PAS des trois
+			// transformations deviennent des champs editables ici meme.
+			// (les pas se reglent DANS le panneau d'aimantation, plus rien
+			// dans la barre -- regle de Rihen)
 
 			// Largeurs, calculees d'abord pour caler le tout a droite.
 			const bool editMode2 = demo::Demo3DHostInEditMode();
@@ -3961,9 +3963,7 @@ namespace nkentseu {
 			// un vide, puis [Deplacer | Rotation | Echelle | Multigizmo] -- la
 			// disposition demandee par Rihen (celle de Blender).
 			const float32 wTools = S(8.f) + 6.f * (btn + 2.f) + S(10.f);
-			float32 wSet = S(8.f) + 2.f * (btn + 2.f);
-			for (int32 i = 0; i < 3; ++i)
-				wSet += btn + p.TextW(kSnaps[i].value) + S(12.f);
+			const float32 wSet = S(8.f) + 5.f * (btn + 2.f); // orientation + pivot + aimant + cible + vitesse
 			float32 tx = r.x + r.w - S(10.f) - wSet;
 
 			// Groupe 3 : reglages (a droite).
@@ -3976,6 +3976,78 @@ namespace nkentseu {
 				Combo(p, hit, ws, "vp.orient", {cx, barY + 1.f, btn, barH - 2.f}, orients, NkOrientIcons(),
 					  nOr, st.orientation, combo, true, false, false);
 				cx += btn + 2.f;
+				// ── POINT DE PIVOT (Blender : « Transform Pivot Point », capture
+				// de Rihen) : les cinq modes du gizmo, dans l'ordre du menu de
+				// Blender. MEMOIRE-DU-POUSSE : le combo ecrit en fin de frame,
+				// et la touche « . » peut changer le pivot cote moteur -- on
+				// suit le moteur quand c'est lui qui a bouge, on pousse quand
+				// c'est le combo.
+				{
+					static const char *const kPvItems[5] = {
+						"Centre boite englobante", "Curseur 3D",
+						"Origines individuelles", "Point median", "Element actif"};
+					static const int32 kPvVal[5] = {1, 2, 3, 0, 4}; // menu -> moteur
+					static const NkIcon kPvIc[5] = {NkIcon::Cube3D, NkIcon::Cursor,
+													NkIcon::Layers, NkIcon::Dot,
+													NkIcon::Check};
+					const int32 engPv = demo::Demo3DHostPivotMode();
+					int32 engMenu = 3;
+					for (int32 i = 0; i < 5; ++i)
+						if (kPvVal[i] == engPv)
+							engMenu = i;
+					static int32 sPvSel = 3;
+					static int32 sPvEngPrev = -1;
+					if (engMenu != sPvEngPrev) {
+						sPvSel = engMenu; // le moteur a bouge (touche .) : on suit
+						sPvEngPrev = engMenu;
+					}
+					Combo(p, hit, ws, "vp.pivot", {cx, barY + 1.f, btn, barH - 2.f},
+						  kPvItems, kPvIc, 5, sPvSel, combo, true, false, false);
+					if (sPvSel != engMenu) {
+						demo::Demo3DHostSetPivotMode(kPvVal[sPvSel]);
+						sPvEngPrev = sPvSel;
+					}
+					cx += btn + 2.f;
+				}
+				// ── L'AIMANT : LA bascule d'aimantation (Blender). Un clic
+				// l'active, un re-clic la coupe -- et l'etat se VOIT (fond
+				// accent), c'est ce qui manquait (Rihen : « je ne sais pas si
+				// c'est active »). Verite moteur relue chaque image ; Ctrl
+				// pendant le geste INVERSE, comme Blender.
+				{
+					const bool snapOn2 = demo::Demo3DHostSnapEnabled();
+					const NkRect mb2{cx, barY + 2.f, btn, barH - 4.f};
+					const bool ovM2 = hit.Add("vp.magnet", mb2);
+					if (snapOn2)
+						p.Fill(mb2, NkRole::AccentUi, 3.f);
+					else
+						HoverFill(p, mb2, ovM2, 3.f);
+					p.IconV(cx + (btn - S(13.f)) * 0.5f, barY, barH, NkIcon::SnapGrid,
+							snapOn2 ? NkRole::TextOnAccent : NkRole::TextMuted, 13.f);
+					if (hit.Clicked("vp.magnet"))
+						demo::Demo3DHostSetSnap(!snapOn2, st.snapStepT, st.snapStepR,
+												st.snapStepS);
+					cx += btn + 2.f;
+				}
+				// ── CIBLE D'AIMANTATION : un BOUTON-PANNEAU (Blender). Le
+				// panneau porte la liste des cibles ET les pas d'increment --
+				// c'est la qu'ils se reglent, pas dans la barre (Rihen).
+				{
+					const NkRect sb2{cx, barY + 1.f, btn, barH - 2.f};
+					const bool ovS2 = hit.Add("vp.snapto", sb2);
+					if (st.snapMenuOpen)
+						p.Fill(sb2, NkRole::AccentUi, 3.f);
+					else
+						HoverFill(p, sb2, ovS2, 3.f);
+					p.IconV(cx + (btn - S(13.f)) * 0.5f, barY, barH, NkIcon::ChevronDown,
+							st.snapMenuOpen ? NkRole::TextOnAccent : NkRole::TextMuted,
+							13.f);
+					if (hit.Clicked("vp.snapto")) {
+						st.snapMenuOpen = !st.snapMenuOpen;
+						st.snapMenuAnchor = sb2;
+					}
+					cx += btn + 2.f;
+				}
 				// VITESSE DE CAMERA : son icone etait la camera -- le meme dessin
 				// que la projection perspective ET que le bouton de vol. Un dessin
 				// dedie, sinon la barre a trois boutons jumeaux.
@@ -3986,26 +4058,99 @@ namespace nkentseu {
 				cx += btn + S(8.f);
 				p.VLine(cx - S(4.f), barY + S(6.f), barH - S(12.f));
 
-				bool *const flags[3] = {&st.snapGrid, &st.snapAngle, &st.snapScale};
-				static const char *const kKeys[3] = {"vp.snap.0", "vp.snap.1", "vp.snap.2"};
-				for (int32 i = 0; i < 3; ++i) {
-					const NkRect br{cx, barY + 2.f, btn, barH - 4.f};
-					const bool over = hit.Add(kKeys[i], br);
-					const bool on = *flags[i];
-					if (on)
-						p.Fill(br, NkRole::AccentUi, 3.f);
-					else
-						HoverFill(p, br, over);
-					if (hit.Clicked(kKeys[i]))
-						*flags[i] = !on;
-					p.IconV(cx + (btn - S(13.f)) * 0.5f, barY, barH, kSnaps[i].icon,
-							on ? NkRole::TextOnAccent : NkRole::TextMuted, 13.f);
-					cx += btn + 3.f;
-					// La valeur reste AFFICHEE quand l'aimantation est coupee, mais
-					// attenuee : on veut savoir sur quel pas on retombera.
-					p.TextV(cx, barY, barH, kSnaps[i].value, on ? NkRole::Text : NkRole::TextMuted);
-					cx += p.TextW(kSnaps[i].value) + S(9.f);
+				// (les pas vivent dans le panneau d'aimantation ci-dessous)
+			}
+			// ── PANNEAU D'AIMANTATION : cibles + pas (Blender, capture de
+			// Rihen). Il s'ancre a son bouton, BLOQUE les evenements sous lui
+			// (SetBlock, meme patron que le badge vue camera) et se referme au
+			// clic exterieur.
+			if (st.snapMenuOpen) {
+				static const char *const kSnItems[9] = {
+					"Increment",	  "Grille",
+					"Sommet",		  "Arete",
+					"Face",			  "Volume (a venir)",
+					"Centre d'arete", "Arete perpendiculaire (a venir)",
+					"Centre de face"};
+				const int32 curTgt = demo::Demo3DHostSnapTarget();
+				const bool showSteps = curTgt <= 1;
+				const float32 rowH2 = S(22.f);
+				const float32 pw = S(226.f);
+				const float32 ph = S(8.f) + rowH2 * (1.f + 9.f) +
+								   (showSteps ? S(6.f) + rowH2 * 3.f : 0.f) + S(6.f);
+				float32 px = st.snapMenuAnchor.x + st.snapMenuAnchor.w - pw;
+				if (px < r.x + S(4.f))
+					px = r.x + S(4.f);
+				const float32 py = st.snapMenuAnchor.y + st.snapMenuAnchor.h + S(4.f);
+				const NkRect pr{px, py, pw, ph};
+				// PAS de SetBlock ICI : arme avant nos propres lignes, il
+				// bloquait leurs clics (Clicked() refuse tout clic dans
+				// l'emprise) -- « je n'arrive pas a selectionner », Rihen. Le
+				// bloc s'arme EN FIN de panneau, pour la scene en dessous ; le
+				// reset de debut de frame l'a deja leve pour nous.
+				hit.Add("vp.snapmenu", pr);
+				p.Fill(pr, NkRole::PanelBg, 4.f);
+				p.OutlineSharp(pr, NkRole::Border);
+				float32 yy2 = py + S(4.f);
+				p.TextV(px + S(10.f), yy2, rowH2, "Aimanter sur", NkRole::TextMuted);
+				yy2 += rowH2;
+				char sk2[24];
+				for (int32 i9 = 0; i9 < 9; ++i9) {
+					snprintf(sk2, sizeof(sk2), "vp.snapto.%d", i9);
+					const NkRect ir9{px + S(4.f), yy2, pw - S(8.f), rowH2};
+					const bool ov9 = hit.Add(sk2, ir9);
+					const bool on9 = curTgt == i9;
+					const bool stub9 = i9 == 5 || i9 == 7;
+					if (on9)
+						p.Fill(ir9, NkRole::AccentUi, 3.f);
+					else if (ov9 && !stub9)
+						p.Fill(ir9, NkRole::PanelHeader, 3.f);
+					p.TextV(ir9.x + S(8.f), yy2, rowH2, kSnItems[i9],
+							stub9 ? NkRole::TextMuted
+								  : (on9 ? NkRole::TextOnAccent : NkRole::Text));
+					if (hit.Clicked(sk2) && !stub9)
+						demo::Demo3DHostSetSnapTarget(i9);
+					yy2 += rowH2;
 				}
+				if (showSteps) {
+					p.HLine(px + S(6.f), yy2 + S(2.f), pw - S(12.f));
+					yy2 += S(6.f);
+					static const char *const kSt2[3] = {"Pas deplacement", "Pas angle",
+														"Pas echelle"};
+					float32 *const sv2[3] = {&st.snapStepT, &st.snapStepR, &st.snapStepS};
+					static const char *const kSf2[3] = {"%.2f", "%.0f", "%.2f"};
+					bool ch2 = false;
+					for (int32 i9 = 0; i9 < 3; ++i9) {
+						p.TextV(px + S(10.f), yy2, rowH2, kSt2[i9], NkRole::TextMuted);
+						snprintf(sk2, sizeof(sk2), "vp.snapstep.%d", i9);
+						ch2 |= DragFloat(p, hit, ws, in, sk2,
+										 {px + S(120.f), yy2 + S(3.f), pw - S(130.f),
+										  rowH2 - S(6.f)},
+										 *sv2[i9], i9 == 1 ? 0.5f : 0.01f,
+										 NkRole::AccentUi, kSf2[i9]);
+						yy2 += rowH2;
+					}
+					if (ch2) {
+						if (st.snapStepT < 0.01f)
+							st.snapStepT = 0.01f;
+						if (st.snapStepR < 1.f)
+							st.snapStepR = 1.f;
+						if (st.snapStepS < 0.01f)
+							st.snapStepS = 0.01f;
+						demo::Demo3DHostSetSnap(demo::Demo3DHostSnapEnabled(),
+												st.snapStepT, st.snapStepR,
+												st.snapStepS);
+					}
+				}
+				// Le bloc s'arme APRES nos widgets : il ne vaut que pour la
+				// scene et les zones peintes avant nous.
+				hit.SetBlock(pr, true);
+				// Un clic HORS de l'EMPRISE du panneau et de son bouton
+				// referme -- l'emprise geometrique, pas le survol de zone : au
+				// clic sur une ligne, la ligne est la zone du dessus et le
+				// panneau n'etait « pas survole ».
+				if (hit.AnyClick() && !NkHitRegistry::Contains(pr, in.mousePos) &&
+					!hit.IsHovered("vp.snapto"))
+					st.snapMenuOpen = false;
 			}
 
 			// Groupe 2 : outils -- [Selection | Curseur]  [Deplacer | Rotation |
@@ -7998,6 +8143,32 @@ namespace nkentseu {
 						snprintf(key, sizeof(key), "props.pm.c.%d", mi);
 						yy += PaintColorRow(p, hit, ws, in, st, iR, yy, "Couleur", key, alb,
 											&colCh);
+						// TEXTURE DE COULEUR : un chemin d'image remplace la
+						// couleur (qui reste en teinte par-dessus) -- le point
+						// de connexion de Blender, version champ. Double-clic
+						// pour saisir ; « - » retire la texture.
+						{
+							p.TextV(iR.x, yy, kRowH, "Texture", NkRole::TextMuted);
+							static char sPmTex[260] = {};
+							snprintf(key, sizeof(key), "props.pm.tx.%d", mi);
+							const NkRect txR{iR.x + S(110.f), yy + S(2.f),
+											 iR.w - S(110.f), kRowH - S(4.f)};
+							p.Outline(txR, NkRole::Border, NkRole::InputBg, 3.f);
+							const char *curTx = demo::Demo3DHostProjMatAlbedoMap(mi);
+							// CLIPPE au cadre : un chemin long traversait la
+							// boite et s'etalait sur le panneau (Rihen).
+							p.Clip(txR);
+							const bool txApply =
+								EditableText(p, hit, ws, in, key,
+											 {txR.x + S(4.f), yy, txR.w - S(8.f), kRowH},
+											 curTx[0] ? curTx : "aucune",
+											 curTx[0] ? NkRole::Text : NkRole::TextMuted,
+											 sPmTex, 259u);
+							p.Unclip();
+							if (txApply)
+								demo::Demo3DHostProjMatSetAlbedoMap(mi, sPmTex);
+							yy += kRowH;
+						}
 						p.TextV(iR.x, yy, kRowH, "Rugosite", NkRole::TextMuted);
 						snprintf(key, sizeof(key), "props.pm.r.%d", mi);
 						DragFloat(p, hit, ws, in, key,
