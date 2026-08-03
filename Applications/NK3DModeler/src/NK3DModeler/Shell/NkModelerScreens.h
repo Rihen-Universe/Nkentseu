@@ -6214,10 +6214,11 @@ namespace nkentseu {
 								// teintes du couchant sortent du modele, on ne les
 								// regle pas.
 								{
-									static const char *const kSkyM[4] = {
+									static const char *const kSkyM[5] = {
 										"Degrade", "Physique (Preetham)",
 										"Atmosphere (Rayleigh + Mie)",
-										"Hosek-Wilkie (mesure)"};
+										"Hosek-Wilkie (mesure)",
+										"Prague (mesure, couchants)"};
 									// LA VALEUR VIT DANS L'ETAT, jamais en local : le
 									// combo retient un POINTEUR dessus et n'ecrit
 									// qu'a la frame suivante. Avec une locale, le
@@ -6237,7 +6238,7 @@ namespace nkentseu {
 									Combo(p, hit, ws, "prop.sky.model",
 										  {iA.x + S(110.f), yy + S(2.f), iA.w - S(110.f),
 										   kRowH - S(4.f)},
-										  kSkyM, nullptr, 4, st.skyModel, combo);
+										  kSkyM, nullptr, 5, st.skyModel, combo);
 									if (st.skyModel != pushedModel) {
 										pushedModel = st.skyModel;
 										demo::Demo3DHostSetSkyModel(st.skyModel);

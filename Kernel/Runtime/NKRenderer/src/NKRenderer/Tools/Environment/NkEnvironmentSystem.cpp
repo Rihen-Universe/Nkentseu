@@ -588,11 +588,159 @@ namespace nkentseu {
 			return res;
 		}
 
+		// ── MODELE DE PRAGUE : code officiel VERBATIM + liaison ─────────────────
+		// « A Fitted Radiance and Attenuation Model for Realistic Atmospheres »
+		// (SIGGRAPH 2021), variante sol/XYZ. BSD 3-clauses — voir
+		// ArPragueSkyModelGroundXYZ_LICENSE.txt et THIRD_PARTY_LICENSES.md.
+		//
+		// Le .inl est la copie A L'OCTET PRES du .c officiel (SHA-256 verifiee) :
+		// on ne le modifie JAMAIS. Il vit dans son propre namespace et gere sa
+		// memoire lui-meme — ses malloc/free sont apparies A L'INTERIEUR du
+		// fichier, il n'y a donc aucun melange d'allocateurs avec NKMemory.
+		// Les en-tetes C qu'il inclut sont deja charges au sommet de ce fichier :
+		// leurs gardes font que l'inclusion interne ne redeclare rien dans le
+		// namespace.
+		namespace praguedata {
+#include "ArPragueSkyModelGroundXYZ.inl"
+		}
+
+		namespace {
+			praguedata::ArPragueSkyModelGroundState *sPragueState = nullptr;
+			bool sPragueTried = false;	// echec de chargement : ne pas retenter en boucle
+			float32 sPragueScale = 1.f; // normalisation d'exposition (cf. NkPragueEnsure)
+
+			// XYZ (CIE) -> RGB lineaire, primaires sRGB / blanc D65 — la meme
+			// matrice que NkxyYToRGB plus haut, appliquee a un triplet XYZ direct.
+			NkVec3f NkPragueXYZToRGB(double cx, double cy, double cz) {
+				NkVec3f c;
+				c.x = (float32)(3.2406 * cx - 1.5372 * cy - 0.4986 * cz);
+				c.y = (float32)(-0.9689 * cx + 1.8758 * cy + 0.0415 * cz);
+				c.z = (float32)(0.0557 * cx - 0.2040 * cy + 1.0570 * cz);
+				if (c.x < 0.f)
+					c.x = 0.f;
+				if (c.y < 0.f)
+					c.y = 0.f;
+				if (c.z < 0.f)
+					c.z = 0.f;
+				return c;
+			}
+
+			// Parametres du modele deduits des NOTRES : rien de nouveau a regler.
+			void NkPragueParams(const NkSkyParams &P, double &elev, double &azim, double &vis,
+								double &alb) {
+				float32 tx = -P.sunDirection.x, ty = -P.sunDirection.y, tz = -P.sunDirection.z;
+				const float32 sl = math::NkSqrt(tx * tx + ty * ty + tz * tz);
+				if (sl > 1e-6f) {
+					tx /= sl;
+					ty /= sl;
+					tz /= sl;
+				} else {
+					tx = 0.f;
+					ty = 1.f;
+					tz = 0.f;
+				}
+				elev = (double)math::NkAsin(ty < -1.f ? -1.f : (ty > 1.f ? 1.f : ty));
+				// Le modele est defini de -4,2 a +90 degres — c'est justement son
+				// interet : les couchants MESURES.
+				if (elev < -0.0733)
+					elev = -0.0733;
+				if (elev > 1.5707)
+					elev = 1.5707;
+				// Le repere du modele met Z vers le haut, le notre Y : l'azimut se
+				// lit donc sur (x, z).
+				azim = (double)math::NkAtan2(tz, tx);
+				// Visibilite depuis la turbidite — formule DONNEE par les auteurs
+				// dans leur en-tete : pas de reglage de plus dans le panneau.
+				const float64 T =
+					P.turbidity < 1.f ? 1.0 : (P.turbidity > 10.f ? 10.0 : (float64)P.turbidity);
+				vis = 7487.0 * math::NkExp(-3.41 * T) + 117.1 * math::NkExp(-0.4768 * T);
+				if (vis < 20.0)
+					vis = 20.0;
+				if (vis > 131.8)
+					vis = 131.8;
+				// Albedo scalaire = luminance du sol de la scene, comme Hosek.
+				const double a = 0.2126 * P.ground.x + 0.7152 * P.ground.y + 0.0722 * P.ground.z;
+				alb = a < 0.0 ? 0.0 : (a > 1.0 ? 1.0 : a);
+			}
+		} // namespace
+
+		// Charge le jeu de donnees (une seule fois) et regle la configuration.
+		// Rend faux si le fichier manque : l'appelant retombe sur le degrade.
+		static bool NkPragueEnsure(const NkSkyParams &P) {
+			if (!sPragueState) {
+				if (sPragueTried)
+					return false;
+				sPragueTried = true;
+				// Chemin suivant la regle du depot (lancement depuis la racine).
+				// Le code officiel lit par le CRT (fopen) : suffisant sur les
+				// plateformes de bureau ; le passage par NkFile viendra avec les
+				// plateformes a assets empaquetes — meme reserve que ReadFile.
+				const char *path = "Resources/NKRenderer/Sky/SkyModelDataset.dat";
+				sPragueState =
+					praguedata::arpragueskymodelground_state_alloc_init(path, 0.5, 60.0, 0.3);
+				if (!sPragueState) {
+					logger.Errorf("[NkEnvironmentSystem] Prague : jeu de donnees introuvable (%s)\n",
+								  path);
+					return false;
+				}
+				logger.Info("[NkEnvironmentSystem] Prague : jeu de donnees charge ({0})\n",
+							NkString(path));
+			}
+			double elev, azim, vis, alb;
+			NkPragueParams(P, elev, azim, vis, alb);
+			(void)azim;
+			// La configuration vit DANS l'etat public du modele.
+			sPragueState->visibility = vis;
+			sPragueState->albedo = alb;
+			// ── Normalisation SANS OEIL, comme Hosek : luminance (canal Y du
+			// XYZ) au zenith pour une elevation de REFERENCE fixe (47 deg).
+			// L'exposition des cinq modeles reste comparable, et le cycle du
+			// jour garde sa dynamique — la reference ne bouge pas, le ciel
+			// courant varie autour.
+			sPragueState->elevation = 0.82;
+			double vd[3] = {0.0, 0.0, 1.0};
+			double up[3] = {0.0, 0.0, 1.0};
+			double th = 0.0, ga = 0.0, sh = 0.0;
+			praguedata::arpragueskymodelground_compute_angles(0.82, 0.0, vd, up, &th, &ga, &sh);
+			const double lumRef =
+				praguedata::arpragueskymodelground_sky_radiance(sPragueState, th, ga, sh, 1);
+			sPragueScale = (float32)((double)P.sunIntensity / (lumRef > 1e-9 ? lumRef : 1e-9));
+			sPragueState->elevation = elev; // retour a la configuration demandee
+			return true;
+		}
+
+		// Echantillon du ciel de Prague dans NOTRE repere (Y vers le haut).
+		static NkVec3f NkPragueSample(float dx, float dy, float dz, const NkSkyParams &P) {
+			if (!sPragueState)
+				return SampleSkyGradient(dx, dy, dz, P.skyTop, P.horizon, P.ground);
+			double elev, azim, vis, alb;
+			NkPragueParams(P, elev, azim, vis, alb);
+			(void)vis;
+			(void)alb;
+			double vd[3] = {(double)dx, (double)dz, (double)dy}; // Y-up -> Z-up
+			double up[3] = {0.0, 0.0, 1.0};
+			double th = 0.0, ga = 0.0, sh = 0.0;
+			praguedata::arpragueskymodelground_compute_angles(elev, azim, vd, up, &th, &ga, &sh);
+			const double vX = praguedata::arpragueskymodelground_sky_radiance(sPragueState, th, ga, sh, 0);
+			const double vY = praguedata::arpragueskymodelground_sky_radiance(sPragueState, th, ga, sh, 1);
+			const double vZ = praguedata::arpragueskymodelground_sky_radiance(sPragueState, th, ga, sh, 2);
+			NkVec3f c = NkPragueXYZToRGB(vX, vY, vZ);
+			c.x *= sPragueScale;
+			c.y *= sPragueScale;
+			c.z *= sPragueScale;
+			return c;
+		}
+
 		// Point d'entree UNIQUE du ciel procedural : modele de base puis nuages.
 		// Les quatre sites d'echantillonnage (cubemap visible, irradiance et les
 		// deux du prefilter) passent par ici — sans quoi le ciel qu'on VOIT et
 		// celui qui ECLAIRE finiraient par diverger.
 		static inline NkVec3f SampleSkyModel(float dx, float dy, float dz, const NkSkyParams &P) {
+			// PRAGUE : mesure, cuit SANS meler les nuages — ils restent une
+			// surcouche du shader, donc ANIMES par-dessus le ciel mesure. Prix
+			// assume : les reflets miroirs de ce modele n'ont pas de nuages.
+			if (P.model == NkSkyModel::NK_SKY_PRAGUE)
+				return NkPragueSample(dx, dy, dz, P);
 			const NkVec3f c = (P.model == NkSkyModel::NK_SKY_PHYSICAL)
 								  ? SampleSkyPhysical(dx, dy, dz, P)
 								  : SampleSkyGradient(dx, dy, dz, P.skyTop, P.horizon, P.ground);
@@ -805,6 +953,11 @@ namespace nkentseu {
 			const NkVec3f &skyTop = P.skyTop;
 			const NkVec3f &horizon = P.horizon;
 			const NkVec3f &ground = P.ground;
+			// PRAGUE : charge le jeu de donnees et regle la configuration AVANT
+			// le premier echantillon. En cas d'echec (fichier absent), le
+			// sampler retombe sur le degrade — la cuisson aboutit quand meme.
+			if (P.model == NkSkyModel::NK_SKY_PRAGUE)
+				NkPragueEnsure(P);
 			(void)skyTop;
 			(void)horizon;
 			(void)ground;
