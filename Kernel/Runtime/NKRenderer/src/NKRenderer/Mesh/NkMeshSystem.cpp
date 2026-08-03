@@ -647,14 +647,29 @@ namespace nkentseu {
 				NkVertex3D vt;
 				vt.pos = {p3.x / l * 0.5f, p3.y / l * 0.5f, p3.z / l * 0.5f};
 				vt.normal = {p3.x / l, p3.y / l, p3.z / l};
+				// TANGENTE : elle manquait -- le TBN du shader se construisait
+				// sur un vecteur nul et l'eclairage partait en vrille. Direction
+				// de la longitude, comme la sphere UV ; aux poles (x=z=0), +X.
+				{
+					const float32 tl = sqrtf(p3.x * p3.x + p3.z * p3.z);
+					if (tl > 1e-6f)
+						vt.tangent = {-p3.z / tl, 0.f, p3.x / tl};
+					else
+						vt.tangent = {1.f, 0.f, 0.f};
+				}
 				vt.uv = {(atan2f(p3.z, p3.x) / (2 * NK_PI) + 0.5f), (asinf(p3.y / l) / NK_PI + 0.5f)};
 				vt.color = white;
 				v.PushBack(vt);
 			}
+			// ENROULEMENT INVERSE au moment de l'emission : la table des faces
+			// est la table classique de l'icosaedre, anti-horaire vue de
+			// l'exterieur (convention OpenGL) -- or NOS faces avant sont
+			// HORAIRES (sphere UV, cylindre, cone : tous horaires). Emise telle
+			// quelle, l'icosphere montrait son envers : eclairage inverse.
 			for (auto &f : baseFaces) {
 				idx.PushBack(f[0]);
-				idx.PushBack(f[1]);
 				idx.PushBack(f[2]);
+				idx.PushBack(f[1]);
 			}
 			// TODO: subdivisions
 			(void)subs;
@@ -793,6 +808,11 @@ namespace nkentseu {
 			NkVector<NkVertex3D> v;
 			NkVector<uint32> idx;
 			const uint32 white = PackColor(255, 255, 255);
+			// DEUX NAPPES de sommets, une par face. L'ancienne version dupliquait
+			// seulement les TRIANGLES (deux enroulements sur les memes sommets a
+			// normale +Y) : vu de dessous, le plan s'eclairait donc comme un
+			// dessus -- soleil au zenith, face inferieure illuminee. Chaque face
+			// porte desormais SA normale ; le dessous s'eteint par N.L.
 			for (uint32 j = 0; j <= divY; j++)
 				for (uint32 i = 0; i <= divX; i++) {
 					NkVertex3D p2;
@@ -803,16 +823,30 @@ namespace nkentseu {
 					p2.color = white;
 					v.PushBack(p2);
 				}
+			const uint32 n1 = (uint32)v.Size(); // debut de la nappe du dessous
+			for (uint32 j = 0; j <= divY; j++)
+				for (uint32 i = 0; i <= divX; i++) {
+					NkVertex3D p2;
+					p2.pos = {(float32)i / divX - 0.5f, 0.f, (float32)j / divY - 0.5f};
+					p2.normal = {0.f, -1.f, 0.f};
+					// tangente miroir : garde le triedre (T, B, N) direct cote pile
+					p2.tangent = {-1.f, 0.f, 0.f};
+					p2.uv = {(float32)i / divX, (float32)j / divY};
+					p2.color = white;
+					v.PushBack(p2);
+				}
 			for (uint32 j = 0; j < divY; j++)
 				for (uint32 i = 0; i < divX; i++) {
 					const uint32 a = j * (divX + 1) + i;
 					const uint32 b = a + divX + 1;
-					idx.PushBack(a);
-					idx.PushBack(b);
-					idx.PushBack(a + 1);
-					idx.PushBack(a + 1);
-					idx.PushBack(b);
-					idx.PushBack(b + 1);
+					// enroulement visible d'EN BAS -> nappe du dessous (normale -Y)
+					idx.PushBack(n1 + a);
+					idx.PushBack(n1 + b);
+					idx.PushBack(n1 + a + 1);
+					idx.PushBack(n1 + a + 1);
+					idx.PushBack(n1 + b);
+					idx.PushBack(n1 + b + 1);
+					// enroulement visible d'EN HAUT -> nappe du dessus (normale +Y)
 					idx.PushBack(a);
 					idx.PushBack(a + 1);
 					idx.PushBack(b);
@@ -945,16 +979,20 @@ namespace nkentseu {
 					v.PushBack(p2);
 				}
 			}
+			// ENROULEMENT HORAIRE vu de l'exterieur (nos faces avant, comme la
+			// sphere UV) : l'ancien ordre (a, b, a+1) etait anti-horaire -- le
+			// tore montrait son envers et l'eclairage semblait inverse alors
+			// que les normales, elles, etaient justes.
 			for (uint32 j = 0; j < minorSegs; j++)
 				for (uint32 i = 0; i < majorSegs; i++) {
 					const uint32 a = j * (majorSegs + 1) + i;
 					const uint32 b = a + majorSegs + 1;
 					idx.PushBack(a);
-					idx.PushBack(b);
-					idx.PushBack(a + 1);
 					idx.PushBack(a + 1);
 					idx.PushBack(b);
+					idx.PushBack(a + 1);
 					idx.PushBack(b + 1);
+					idx.PushBack(b);
 				}
 			{
 				NkMeshDesc d = NkMeshDesc::Simple(NkVertexLayout::Default3D(), v.Data(),
