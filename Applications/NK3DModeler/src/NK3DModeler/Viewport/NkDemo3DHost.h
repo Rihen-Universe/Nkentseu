@@ -266,6 +266,11 @@ namespace nkentseu {
 		// VITESSE DE DEFILEMENT des nuages. N'agit que sur le ciel evalue en
 		// temps reel dans le shader — une cuisson produit une image fixe, une
 		// vitesse n'y aurait aucun sens. Ne marque donc pas « a regenerer ».
+		// SOLEIL ALIEN : temperature de surface de l'etoile (Kelvin). 5 778 = la
+		// notre ; 3 000 = naine rouge ; 15 000 = etoile bleue. La teinte du
+		// MONDE entier en decoule — pas seulement le disque.
+		float32 Demo3DHostSkyAlienTemp();
+		void Demo3DHostSetSkyAlienTemp(float32 kelvin);
 		float32 Demo3DHostSkyCloudSpeed();
 		void Demo3DHostSetSkyCloudSpeed(float32 v);
 		// ETOILES. Comme la vitesse des nuages, elles n'ont de sens que pour le

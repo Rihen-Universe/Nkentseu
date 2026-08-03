@@ -28,6 +28,18 @@ licence, et ce que la licence exige.
   https://cgg.mff.cuni.cz/projects/SkylightModelling/
 - **Texte de licence** : reproduit intégralement en tête de
   `ArHosekSkyModelData_RGB.h`.
+- **Extension (2026-08-03, même distribution 1.4a, même licence)** — copies
+  VERBATIM, SHA-256 vérifiées à la copie :
+  - `…/ArHosekSkyModel.inl` — le `ArHosekSkyModel.c` officiel à l'octet près
+    (nom changé pour inclusion C++) — `788A6F3D6F9F35D3…`. Porte la cuisson
+    spectrale et la fonctionnalité « Alien World » (soleils d'autres
+    températures) utilisée par le modèle « Soleil alien » ;
+  - `…/ArHosekSkyModel.h` — `0F51B75B7207F336…` ;
+  - `…/ArHosekSkyModelData_Spectral.h` — `46459AEFE7CFA147…` ;
+  - `…/ArHosekSkyModelData_CIEXYZ.h` — `CD879DC216340D94…`.
+  L'intégration spectrale→couleur utilise la table CIE 1931 (observateur 2°,
+  11 bandes) — données de référence du standard, validées par sonde : un
+  soleil à 5 778 K redonne un ciel terrestre (zénith x,y = 0.243, 0.247).
 
 ---
 

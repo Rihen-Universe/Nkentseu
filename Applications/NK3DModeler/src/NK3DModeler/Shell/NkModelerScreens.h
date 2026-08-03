@@ -6214,11 +6214,12 @@ namespace nkentseu {
 								// teintes du couchant sortent du modele, on ne les
 								// regle pas.
 								{
-									static const char *const kSkyM[5] = {
+									static const char *const kSkyM[6] = {
 										"Degrade", "Physique (Preetham)",
 										"Atmosphere (Rayleigh + Mie)",
 										"Hosek-Wilkie (mesure)",
-										"Prague (mesure, couchants)"};
+										"Prague (mesure, couchants)",
+										"Soleil alien (temperature)"};
 									// LA VALEUR VIT DANS L'ETAT, jamais en local : le
 									// combo retient un POINTEUR dessus et n'ecrit
 									// qu'a la frame suivante. Avec une locale, le
@@ -6238,7 +6239,7 @@ namespace nkentseu {
 									Combo(p, hit, ws, "prop.sky.model",
 										  {iA.x + S(110.f), yy + S(2.f), iA.w - S(110.f),
 										   kRowH - S(4.f)},
-										  kSkyM, nullptr, 5, st.skyModel, combo);
+										  kSkyM, nullptr, 6, st.skyModel, combo);
 									if (st.skyModel != pushedModel) {
 										pushedModel = st.skyModel;
 										demo::Demo3DHostSetSkyModel(st.skyModel);
@@ -6249,6 +6250,24 @@ namespace nkentseu {
 								bool ch = false;
 								float32 top[3], hor[3], gnd[3];
 								demo::Demo3DHostEnvSky(top, hor, gnd);
+								// ── SOLEIL ALIEN : la temperature de l'etoile ──
+								// C'est LE reglage du modele : le monde entier
+								// change de teinte avec elle, pas seulement le
+								// disque. Effet visible en continu (modele cuit
+								// avec rafraichissement auto) ; l'eclairage
+								// attend « Regenerer », comme partout.
+								if (skyModel == 5) {
+									float32 tk = demo::Demo3DHostSkyAlienTemp();
+									const float32 tk0 = tk;
+									p.TextV(iA.x, yy, kRowH, "Etoile (K)", NkRole::TextMuted);
+									DragFloat(p, hit, ws, in, "prop.sky.alientemp",
+											  {iA.x + S(110.f), yy + S(3.f), iA.w - S(110.f),
+											   kRowH - S(6.f)},
+											  tk, 25.f, NkRole::AccentUi, "%.0f");
+									if (tk != tk0)
+										demo::Demo3DHostSetSkyAlienTemp(tk);
+									yy += kRowH;
+								}
 								if (skyModel == 0) {
 									// LES TROIS COULEURS DU CIEL, modifiables.
 									yy += PaintColorRow(p, hit, ws, in, st, iA, yy, "Zenith",

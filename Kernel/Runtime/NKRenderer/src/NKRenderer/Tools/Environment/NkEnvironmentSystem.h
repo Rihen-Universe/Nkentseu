@@ -107,6 +107,12 @@ namespace nkentseu {
 			// regeneration (le shader l'affiche via le chemin cubemap, avec les
 			// surcouches etoiles/lunes/nuages par-dessus).
 			NK_SKY_PRAGUE = 4,
+			// SOLEIL ALIEN — la fonctionnalite « Alien World » du code Hosek
+			// officiel (cuisson SPECTRALE + corps noir a la temperature
+			// demandee). Un soleil de 3 000 K rougit LE CIEL ENTIER, pas
+			// seulement son disque : c'est le monde qui change d'etoile.
+			// Cuit en cubemap comme Prague, memes surcouches animees.
+			NK_SKY_ALIEN = 5,
 		};
 
 		// ── Coefficients cuits du modele Hosek-Wilkie ───────────────────────
@@ -187,6 +193,10 @@ namespace nkentseu {
 				// pour le ciel evalue en temps reel.
 				float32 starIntensity = 0.f; // 0 = aucune
 				float32 starDensity = 200.f; // plus grand = plus fines et nombreuses
+				// Temperature de surface de l'etoile (modele SOLEIL ALIEN).
+				// 5 778 K = notre soleil ; 3 000 K = naine rouge ; 15 000 K =
+				// etoile bleue. La teinte du MONDE entier en decoule.
+				float32 alienTempK = 5778.f;
 				// ROTATION CELESTE, en radians par seconde. Le champ d'etoiles
 				// tourne lentement, comme la voute vue du sol. A 0 il est fige.
 				// Une valeur realiste est minuscule (2*PI / 86164 s) ; pour un
@@ -255,14 +265,15 @@ namespace nkentseu {
 				// inchanges, y compris le contenu genere.
 				void LoadProceduralEx(const NkSkyParams &params);
 
-				// ── PRAGUE EN QUASI TEMPS REEL ──────────────────────────────
-				// Recuit la table du modele (mesure : ~11 ms) et reecrit la
-				// SEULE cubemap visible — sans les convolutions d'eclairage,
-				// qui restent sur la regeneration complete. C'est ce qui permet
-				// au ciel MESURE de suivre le soleil en continu : la partie
-				// lente n'a jamais ete le modele, c'etait l'irradiance.
-				// Rend faux si le jeu de donnees n'est pas disponible.
-				bool RefreshPragueVisual(const NkSkyParams &params);
+				// ── MODELES CUITS EN QUASI TEMPS REEL (Prague, soleil alien) ─
+				// Recuit la table du modele (mesure : ~11 ms pour Prague) et
+				// reecrit la SEULE cubemap visible — sans les convolutions
+				// d'eclairage, qui restent sur la regeneration complete. C'est
+				// ce qui permet au ciel MESURE de suivre le soleil en continu :
+				// la partie lente n'a jamais ete le modele, c'etait
+				// l'irradiance. Rend faux si le modele n'est pas cuit ou si ses
+				// donnees manquent.
+				bool RefreshBakedSkyVisual(const NkSkyParams &params);
 
 				// Phase N v0 : charge un .hdr equirectangulaire (360 RGB96F) et
 				// l'utilise comme source pour les convolutions irradiance +
