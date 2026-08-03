@@ -1539,6 +1539,13 @@ namespace nkentseu {
 			const Demo3DRayCtx *cx = (const Demo3DRayCtx *)user;
 			if (!cx || !cx->st || !cx->ms || idx < 0 || idx >= Demo3DState::kNumObj)
 				return -1;
+			// UN OBJET INVISIBLE NE SE CLIQUE PAS. Les cibles du gizmo couvrent
+			// toute la demo meme quand elle est masquee (scene utilisateur) : le
+			// sol 80x80 invisible a y=0 attrapait alors tout clic sous l'horizon
+			// -- selection fantome, vecue comme « refuse de se deselectionner »
+			// (constate par Rihen). Reponse 0 = teste et rate, qui fait autorite.
+			if (HostHiddenEff(idx))
+				return 0;
 			Demo3DState *st = cx->st;
 			NkMeshHandle mh = st->meshSphere; // 0..15 : grille PBR de spheres
 			if (idx == Demo3DState::kIdxFloor)
