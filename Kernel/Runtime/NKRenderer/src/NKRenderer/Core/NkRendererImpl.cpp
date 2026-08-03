@@ -1408,8 +1408,18 @@ namespace nkentseu {
 		}
 
 		void NkRendererImpl::ApplyRenderSize(uint32 w, uint32 h, bool touchDevice) {
-			if (w == 0 || h == 0)
+			// GARDE AU PUITS, pas seulement chez l'appelant : une fenetre en cours
+			// de minimisation glisse son rect de placeholder (~160x28 sous
+			// Windows) entre le test « minimisee ? » de la boucle et la lecture
+			// de taille -- la course est reelle (reproduite : mort au 3e cycle
+			// minimiser/restaurer). Sous 32 px, une cible divisee par la chaine
+			// de bloom (/32) tombe a zero et CreateTexture2D echoue en
+			// E_INVALIDARG : on refuse net, la vraie taille arrivera a la
+			// restauration.
+			if (w < 32 || h < 32) {
+				logger.Info("[NkRenderer] ApplyRenderSize {0}x{1} refuse (taille degeneree)\n", w, h);
 				return;
+			}
 			mCfg.width = w;
 			mCfg.height = h;
 			// Propage au RHI pour mettre a jour la swapchain virtuelle (viewport / FBO 0).

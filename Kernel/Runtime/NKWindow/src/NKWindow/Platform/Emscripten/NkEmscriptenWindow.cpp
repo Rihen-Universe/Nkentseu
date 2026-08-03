@@ -710,6 +710,10 @@ namespace nkentseu {
 		return false;
 	}
 
+	bool NkWindow::IsMinimized() const {
+		return false; // un canvas web ne s'iconifie pas
+	}
+
 	void NkWindow::BeginDragMove() {
 	}
 

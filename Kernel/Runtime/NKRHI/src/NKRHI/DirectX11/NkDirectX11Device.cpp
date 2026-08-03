@@ -1693,7 +1693,13 @@ namespace nkentseu {
 	}
 
 	void NkDirectX11Device::OnResize(uint32 w, uint32 h) {
-		if (w == 0 || h == 0)
+		// SOUS 32 px : refuse. Une fenetre minimisee annonce un rect placeholder
+		// (~160x28), jamais nul -- ce rect cassait les cibles derivees du rendu
+		// (bloom /32 -> hauteur 0 -> CreateTexture2D E_INVALIDARG) et tuait
+		// l'application a la restauration (defaut 4.3 NK3DModeler). Garde AU
+		// DEVICE : quel que soit le chemin d'appel, la taille degeneree ne passe
+		// plus ; la vraie taille arrive avec la restauration.
+		if (w < 32 || h < 32)
 			return;
 		// TAILLE INCHANGEE : NE RIEN FAIRE. Minimiser la fenetre produit un
 		// evenement de redimensionnement a la MEME taille ; on refaisait alors
