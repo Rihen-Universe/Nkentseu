@@ -5001,6 +5001,10 @@ namespace nkentseu {
 											 {nmR.x + S(4.f), yy, nmR.w - S(8.f), kRowH},
 											 buf, NkRole::Text, st.customNames[en], 24u);
 							yy += kRowH;
+							// RESPIRATION entre le nom et le premier groupe
+							// (Transformation) : colles, ils se lisaient comme un
+							// seul bloc (Rihen).
+							yy += NkPropGroupGap();
 						}
 						static int32 sELast = -1;
 						static float32 sE[9] = {};
@@ -5760,10 +5764,28 @@ namespace nkentseu {
 								// le rendu au travers de la camera n'est pas branche).
 								float32 cf = 50.f, cnr = 0.1f, cfr = 100.f;
 								if (demo::Demo3DHostCameraParams(en, &cf, &cnr, &cfr)) {
+									// UN GROUPE A PART ENTIERE, repliable, comme
+									// Transformation et Relations (Rihen) -- plus une
+									// simple etiquette suivie de rangees flottantes.
+									const bool grpCam = PaintPropGroup(p, hit, st, rowR, yy,
+																	   "prop.g.cam", "Camera", 3u);
+									const float32 grpCamTop = yy;
+									if (grpCam) {
+									yy += NkGroupPad();
+									// MARGES DU GROUPE : les rangees ci-dessous sont
+									// ecrites en coordonnees de PANNEAU (r.x + kPad,
+									// rr.w - 128...). On SUBSTITUE localement r et rr
+									// par des rects derives de l'INTERIEUR du groupe :
+									// memes formules, et les labels tombent a iCam.x,
+									// les champs s'arretent a iCam.x + iCam.w -- les
+									// marges des autres groupes, sans reecrire chaque
+									// rangee (les rangees flottantes debordaient du
+									// cadre, constate par Rihen).
+									const NkRect iCam = NkGroupInner(rowR);
+									const NkRect r{iCam.x - kPad, iCam.y, iCam.w, iCam.h};
+									const NkRect rr{iCam.x, iCam.y, iCam.w + kPad + S(8.f),
+													iCam.h};
 									const float32 c0[3] = {cf, cnr, cfr};
-									p.TextV(r.x + kPad, yy, kRowH, "Camera",
-											NkRole::TextMuted);
-									yy += kRowH;
 									// TYPE (Rihen) : perspective ou orthographique. En
 									// ortho, l'ECHELLE Y du noeud regle la demi-hauteur
 									// du cadre (regle consignee).
@@ -5944,6 +5966,10 @@ namespace nkentseu {
 											yy += kRowH;
 										}
 									}
+									yy += NkGroupPad();
+									PaintGroupBlock(p, rowR, grpCamTop, yy);
+									} // fin du groupe Camera
+									yy += NkPropGroupGap();
 								}
 							}
 							// (« Transmettre » a rejoint le groupe RELATIONS : le
