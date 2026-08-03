@@ -996,6 +996,49 @@ namespace nkentseu {
 			LoadProceduralEx(p);
 		}
 
+		bool NkEnvironmentSystem::RefreshPragueVisual(const NkSkyParams &P) {
+			// PRAGUE EN QUASI TEMPS REEL. Mesure a la sonde : recuire la table
+			// coute ~11 ms, et reecrire la cubemap visible ~2 ms de lectures
+			// bilineaires. Ce qui rendait la regeneration longue n'a jamais ete
+			// le modele : c'etaient les convolutions d'eclairage — qui restent,
+			// elles, sur la regeneration complete. Le ciel MESURE peut donc
+			// suivre le soleil en continu, l'eclairage rattrape sur demande.
+			if (!mDevice || !mSkyEnvCube.IsValid())
+				return false;
+			if (P.model != NkSkyModel::NK_SKY_PRAGUE)
+				return false;
+			if (!NkPragueEnsure(P))
+				return false;
+
+			const uint32 prefSize = mCfg.prefilterSize > 0 ? mCfg.prefilterSize : 128;
+			auto &pool = ::nkentseu::threading::NkThreadPool::GetGlobal();
+			std::vector<std::vector<float>> skyData(6);
+			auto skyFaceWork = [&](uint32 face) {
+				auto &buf = skyData[face];
+				buf.assign(prefSize * prefSize * 4, 0.f);
+				for (uint32 y = 0; y < prefSize; y++) {
+					for (uint32 x = 0; x < prefSize; x++) {
+						float u = ((float)x + 0.5f) / (float)prefSize * 2.f - 1.f;
+						float v = ((float)y + 0.5f) / (float)prefSize * 2.f - 1.f;
+						float Nx, Ny, Nz;
+						CubemapFaceUVToDir(face, u, v, Nx, Ny, Nz);
+						const NkVec3f s = NkPragueSample(Nx, Ny, Nz, P);
+						uint32 idx = (y * prefSize + x) * 4;
+						buf[idx + 0] = s.x;
+						buf[idx + 1] = s.y;
+						buf[idx + 2] = s.z;
+						buf[idx + 3] = 1.f;
+					}
+				}
+			};
+			pool.ParallelFor(6, [&](nk_size f) { skyFaceWork((uint32)f); }, 1);
+			pool.Join();
+			for (uint32 f = 0; f < 6; f++)
+				mDevice->WriteTextureRegion(mSkyEnvCube, skyData[f].data(), 0, 0, 0, prefSize, prefSize,
+											1, 0, f);
+			return true;
+		}
+
 		void NkEnvironmentSystem::LoadProceduralEx(const NkSkyParams &P) {
 			if (!mDevice)
 				return;
