@@ -8222,7 +8222,10 @@ namespace nkentseu {
 				od.colorFmt = NkGPUFormat::NK_RGBA8_UNORM;
 				od.hasDepth = true;
 				od.readable = true;
-				od.readback = false;
+				// readback=true : le bouton « Capturer la vue » lit cette cible
+				// telle quelle (NkOffscreenTarget::Capture exige le tampon de
+				// relecture, cree a l'init). Cout : un staging de w*h*4 octets.
+				od.readback = true;
 				od.name = "NK3DModelerDemo3D";
 				hst.rt = hst.ctx.renderer->CreateOffscreen(od);
 				if (!hst.rt || !hst.rt->IsValid()) {
@@ -8253,6 +8256,18 @@ namespace nkentseu {
 
 		void Demo3DHostSetDevice(void *device) {
 			hst.ctx.device = (NkIDevice *)device;
+		}
+
+		bool Demo3DHostCaptureView(const char *path) {
+			// « Capturer la vue » : la vue 3D rend deja dans une cible hors
+			// ecran lisible -- on fige la DERNIERE image rendue (scene seule,
+			// sans interface) et NkOffscreenTarget::Capture la sauve en PNG.
+			if (!hst.ok || !hst.rt || !hst.rt->IsValid() || !path || !*path)
+				return false;
+			const bool ok = hst.rt->Capture(path);
+			logger.Info("[NkDemo3D] Capture de la vue -> {0} : {1}\n", path,
+						ok ? "ecrite" : "ECHEC");
+			return ok;
 		}
 
 		void Demo3DHostResize(uint32 w, uint32 h) {

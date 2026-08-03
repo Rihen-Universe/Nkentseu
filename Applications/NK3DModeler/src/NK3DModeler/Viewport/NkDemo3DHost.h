@@ -347,6 +347,9 @@ namespace nkentseu {
 		// Recalcul force des ombres (bouton du mode statique) : invalide le
 		// cache, la prochaine frame re-rend tout, puis refige.
 		void Demo3DHostShadowRecalc();
+		// « Capturer la vue » : sauve la DERNIERE image rendue de la vue 3D
+		// (scene seule, sans interface) en PNG a ce chemin.
+		bool Demo3DHostCaptureView(const char *path);
 		// Vrai quand une ombre figee ne correspond plus a la scene (lumiere ou
 		// geometrie modifiee depuis le gel) : le bouton se colore.
 		bool Demo3DHostShadowRecalcPending();

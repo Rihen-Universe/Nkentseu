@@ -212,6 +212,15 @@ namespace nkentseu {
 				// par un combo vivent ici.
 				int32 shadowQual = -1;	// -1 = pas encore lue depuis le moteur
 				int32 shadowDynamic = 1; // 0 = calcul unique, 1 = recalcul continu
+				// Capture demandee par le declencheur de la vue, consommee par la
+				// boucle principale (qui seule connait la fenetre et le disque) :
+				// 1 = « Vue 3D » (scene seule), 2 = « Tutoriel » (toute la
+				// fenetre, interface comprise).
+				int32 capturePending = 0;
+				// Le bouton capture est un MENU : ouvert, il devoile les types
+				// (Capture / Tutoriel...) et cliquer une entree EXECUTE la
+				// capture correspondante (regle de Rihen).
+				bool captureMenuOpen = false;
 				int32 fogMode = 0;		 // 0 = lineaire, 1 = exponentiel
 				// Source de l'ambiance : 0 couleur unie, 1 ciel procedural, 2 HDRI.
 				int32 envSource = 0;

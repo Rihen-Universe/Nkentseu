@@ -11,9 +11,18 @@ Langue de travail : **français** (code, commentaires, échanges).
 
 1. ~~§4.3 crash à la restauration de fenêtre~~ — **résolu** (cf. §4.3) ;
 2. §4.7 ombre du soleil trop petite ;
-3. bouton « Capturer la vue » — **DEUX boutons** (précision Rihen) :
-   « Tutoriel » capture TOUTE la fenêtre, « Capturer la vue » capture
-   SEULEMENT la vue 3D active ;
+3. capture — **FAIT en v1** (2026-08-03) : bouton-menu dans la vue (« Capture » =
+   vue 3D seule via la cible hors écran, « Tutoriel » = toute la fenêtre via
+   PrintWindow), PNG numérotés dans `captures/`. **Suite validée par Rihen** :
+   3a. palier CAMÉRAS : caméra active, bascule vue ↔ caméra (pavé 0 façon
+       Blender), changement de caméra active ;
+   3b. palier pastille « OUTPUT » : source (Vue / Caméra active), résolution
+       (défaut 1920×1080 + préréglages + % d'échelle), chemin, formats — la
+       capture paramétrée re-rend une frame hors écran à la taille demandée
+       (fondation du rendu final F12) ;
+   3c. plus tard : **plusieurs caméras actives** — une PRINCIPALE + des
+       MINIATURES incrustées (picture-in-picture), position et taille custom
+       en % de la capture principale, coins configurables (idée Rihen) ;
 4. option sol infini ;
 5. presets de nuages sombres (pluie / désert) ;
 6. matériau en pastille — pas fini — + vraies fonctions : créer un matériau et
