@@ -265,6 +265,10 @@ namespace nkentseu {
 				// Hauteur CHOISIE de chaque section (0 = partage automatique) :
 				// la poignee sous la section la regle.
 				float32 propSecH[8] = {};
+				// PLIAGE des groupes de la pastille Materiau : un bit par
+				// materiau du registre projet (1 = replie). Un materiau nait
+				// deplie -- on vient de le creer pour le regler.
+				uint64 projMatFold = 0;
 				// Le panneau des matcaps s'ancre au bouton qui l'a ouvert (barre de
 				// la vue OU panneau Proprietes).
 				NkRect matcapAnchor{};

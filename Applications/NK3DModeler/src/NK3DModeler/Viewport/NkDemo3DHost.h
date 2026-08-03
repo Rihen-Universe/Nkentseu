@@ -156,6 +156,30 @@ namespace nkentseu {
 		void Demo3DHostSetMeshTint(int32 i, const float32 *rgb3);
 		void Demo3DHostSetMeshMetalRough(int32 i, float32 metallic, float32 roughness);
 		void Demo3DHostResetMeshMat(int32 i);
+		// ── MATERIAUX DU PROJET (pastille Materiau) ─────────────────────────
+		// Ressources nommees, assignables a plusieurs cibles ; parametres =
+		// sous-ensemble NkPBRParams (la sauvegarde .nkasset passera par
+		// NkMaterialLibrary). Info renvoie faux sur un slot libre -- l'iteration
+		// parcourt 0..63 et saute les trous. Assign(-1) retire l'assignation.
+		int32 Demo3DHostProjMatCreate();
+		void Demo3DHostProjMatDelete(int32 i);
+		bool Demo3DHostProjMatInfo(int32 i, char *name, uint32 cap, float32 *albedo3,
+								   float32 *rough, float32 *metal);
+		void Demo3DHostProjMatSetParams(int32 i, const float32 *albedo3, float32 rough,
+										float32 metal);
+		void Demo3DHostProjMatSetName(int32 i, const char *name);
+		void Demo3DHostProjMatAssign(int32 node, int32 mat);
+		int32 Demo3DHostProjMatOf(int32 node);
+		// APERCU du materiau (rendu analytique CPU) : forme 0 plan, 1 sphere,
+		// 2 cube, 3 liquide, 4 cheveux. PreviewTake rend vrai si l'apercu
+		// etait perime et vient d'etre regenere dans rgba (size x size x 4) --
+		// l'appelant l'uploade alors comme image d'interface.
+		int32 Demo3DHostProjMatPrevShape(int32 i);
+		void Demo3DHostProjMatSetPrevShape(int32 i, int32 shape);
+		bool Demo3DHostProjMatPreviewTake(int32 i, uint8 *rgba, uint32 size);
+		// Le registre n'est JAMAIS vide face a l'utilisateur : renvoie le
+		// premier materiau, en creant le materiau de base au besoin.
+		int32 Demo3DHostProjMatEnsureDefault();
 
 		// ── Suppression / duplication / presse-papiers ──────────────────────
 		// Les noeuds 96..159 sont les OBJETS UTILISATEUR (crees ici).
