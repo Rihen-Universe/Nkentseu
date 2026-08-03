@@ -69,6 +69,15 @@ namespace nkentseu {
 		void Demo3DHostSetGizmoOp(int32 op); // 0 deplacer, 1 tourner, 2 echelle, 3 combine
 		int32 Demo3DHostGizmoOp();
 		void Demo3DHostSetOrientation(int32 o); // 0 monde, 1 local, 2 normale
+		// Point de PIVOT (Blender) : 0 barycentre, 1 boite englobante,
+		// 2 curseur 3D, 3 origines individuelles, 4 element actif.
+		void Demo3DHostSetPivotMode(int32 m);
+		int32 Demo3DHostPivotMode();
+		// Cible d'AIMANTATION (Blender « Snap To ») : 0 increment, 1 grille,
+		// 2 sommet, 3 arete, 4 face, 5 volume (a venir), 6 centre d'arete,
+		// 7 arete perpendiculaire (a venir), 8 centre de face.
+		void Demo3DHostSetSnapTarget(int32 t);
+		int32 Demo3DHostSnapTarget();
 		int32 Demo3DHostOrientation();
 		void Demo3DHostSetSnap(bool on, float32 t, float32 rotDeg, float32 scl);
 		bool Demo3DHostSnapEnabled();
@@ -174,6 +183,11 @@ namespace nkentseu {
 		// 2 cube, 3 liquide, 4 cheveux. PreviewTake rend vrai si l'apercu
 		// etait perime et vient d'etre regenere dans rgba (size x size x 4) --
 		// l'appelant l'uploade alors comme image d'interface.
+		// TEXTURE DE COULEUR du materiau (chemin image ; "" = couleur seule,
+		// « - » au set pour la retirer). Le chargement fait foi : un chemin qui
+		// ne charge pas n'est pas memorise et le set rend faux.
+		const char *Demo3DHostProjMatAlbedoMap(int32 i);
+		bool Demo3DHostProjMatSetAlbedoMap(int32 i, const char *path);
 		int32 Demo3DHostProjMatPrevShape(int32 i);
 		void Demo3DHostProjMatSetPrevShape(int32 i, int32 shape);
 		bool Demo3DHostProjMatPreviewTake(int32 i, uint8 *rgba, uint32 size);

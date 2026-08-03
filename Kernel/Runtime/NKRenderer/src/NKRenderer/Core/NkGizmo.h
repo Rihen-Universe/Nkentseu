@@ -1105,6 +1105,35 @@ namespace nkentseu {
 					mRayUser = user;
 				}
 
+				// ── AIMANTATION SUR LA GEOMETRIE (Blender : « Snap To ») ──────────
+				// Cibles (liste de Rihen, menu de Blender) :
+				//   0 INCREMENT (pas relatifs)      1 GRILLE (pas absolus)
+				//   2 SOMMET                        3 ARETE (point le plus proche)
+				//   4 FACE (point le plus proche)   5 VOLUME (a venir)
+				//   6 CENTRE D'ARETE                7 ARETE PERPENDICULAIRE (a venir)
+				//   8 CENTRE DE FACE
+				// Les cibles >= 2 interrogent l'HOTE -- le gizmo ne connait pas
+				// les maillages, meme decoupage que le pick precis ci-dessus. La
+				// requete recoit la position LIBRE du pivot et un rayon monde ;
+				// elle rend 1 et remplit `out` avec la cible la plus proche,
+				// 0 sinon (cible non geree comprise : le geste reste libre).
+				typedef int32 (*NkGizmoSnapQuery)(void *user, int32 target,
+												  const NkVec3f &nearPos,
+												  float32 maxDist, NkVec3f &out);
+				void SetSnapQuery(NkGizmoSnapQuery fn, void *user) noexcept {
+					mSnapFn = fn;
+					mSnapUser = user;
+				}
+				void SetSnapTarget(int32 t) noexcept {
+					mSnapTarget = t < 0 ? 0 : (t > 8 ? 8 : t);
+					// La GRILLE est la cible 1 : l'ancien drapeau absolu la suit,
+					// pour que les deux ecritures restent d'accord.
+					mSnapAbsolute = (mSnapTarget == 1);
+				}
+				int32 SnapTarget() const noexcept {
+					return mSnapTarget;
+				}
+
 				float32 HandlePickDistPx(float32 mouseX, float32 mouseY) const {
 					if (!mHaveSel)
 						return 1e30f;
@@ -1332,12 +1361,16 @@ namespace nkentseu {
 					}
 					// Etat EFFECTIF : la bascule persistante, INVERSEE par Ctrl (Blender).
 					const bool snap = SnapActive(in.ctrlDown);
+					// UNE CIBLE A LA FOIS, comme le menu de Blender : la GEOMETRIE
+					// (sommet/arete/face) exclut la quantification relative ET la
+					// grille -- elles se seraient battues sur la meme correction.
+					const bool snapGeo = snap && mSnapTarget >= 2 && mSnapFn != nullptr;
 					// Quantification RELATIVE et grille ABSOLUE ne doivent pas se cumuler :
 					// la premiere avance deja par pas, la seconde realignerait ensuite — le
 					// deplacement ferait des sauts de deux pas. La grille absolue n'a par
 					// ailleurs de sens qu'en repere GLOBAL.
-					const bool snapAbs = snap && mSnapAbsolute && (mOrient == ORIENT_GLOBAL);
-					const bool snapRel = snap && !snapAbs;
+					const bool snapAbs = snap && !snapGeo && mSnapAbsolute && (mOrient == ORIENT_GLOBAL);
+					const bool snapRel = snap && !snapAbs && !snapGeo;
 					const float32 mdx = in.mouseDX, mdy = in.mouseDY, mx = in.mouseX, my = in.mouseY;
 					const bool localOri = (mOrient != ORIENT_GLOBAL);
 					float32 cpx, cpy;
@@ -1354,6 +1387,20 @@ namespace nkentseu {
 								const NkVec3f tgt{SnapToGrid(mDragFree.x, mSnapT), SnapToGrid(mDragFree.y, mSnapT),
 												  SnapToGrid(mDragFree.z, mSnapT)};
 								wd = tgt - mPivot; // amene le pivot PILE sur la case visee
+							}
+							// GEOMETRIE : la position LIBRE avance du deplacement
+							// brut, l'hote repond la cible la plus proche, et le
+							// pivot se pose PILE dessus (rayon d'accroche : ~30 px
+							// a l'ecran). Pas de cible a portee : le geste reste
+							// libre, exactement comme Blender.
+							if (snapGeo) {
+								mDragFree = mDragFree + wd;
+								NkVec3f snapped;
+								const float32 rr = wpp * 60.f;
+								if (mSnapFn(mSnapUser, mSnapTarget, mDragFree, rr, snapped))
+									wd = snapped - mPivot;
+								else
+									wd = mDragFree - mPivot;
 							}
 							for (int32 i = 0; i < mCount; i++)
 								if (mSel[i])
@@ -1405,6 +1452,35 @@ namespace nkentseu {
 								for (int32 i = 0; i < mCount; i++)
 									if (mSel[i])
 										mTr[i] = mTr[i] + corr;
+							}
+							// GEOMETRIE le long d'un AXE : la position libre suit
+							// les axes tires ; si une cible est a portee, la
+							// correction s'applique SEULEMENT sur les axes actifs
+							// (tirer la fleche X ne teleporte pas Y et Z sur la
+							// cible -- meme regle que la grille absolue).
+							if (snapGeo) {
+								NkVec3f dGeo{0.f, 0.f, 0.f};
+								for (int32 a = 0; a < 3; a++)
+									if (mask & (1 << a))
+										dGeo = dGeo + mGB[a] * amtT[a];
+								mDragFree = mDragFree + dGeo;
+								NkVec3f snapped;
+								const float32 rr2 = ((2.f * mThY * mPivDist) / mVpH) * 60.f;
+								if (mSnapFn(mSnapUser, mSnapTarget, mDragFree, rr2, snapped)) {
+									const NkVec3f now2 = mPivot + dGeo;
+									const NkVec3f d2 = snapped - now2;
+									NkVec3f corr2{0.f, 0.f, 0.f};
+									for (int32 a = 0; a < 3; a++)
+										if (mask & (1 << a)) {
+											const float32 k2 = d2.x * mGB[a].x +
+															   d2.y * mGB[a].y +
+															   d2.z * mGB[a].z;
+											corr2 = corr2 + mGB[a] * k2;
+										}
+									for (int32 i = 0; i < mCount; i++)
+										if (mSel[i])
+											mTr[i] = mTr[i] + corr2;
+								}
 							}
 						}
 					} else if (op == 2) {
@@ -1565,6 +1641,10 @@ namespace nkentseu {
 				// Test precis optionnel (voir SetRayPickTest).
 				NkGizmoRayTest mRayFn = nullptr;
 				void *mRayUser = nullptr;
+				// Aimantation geometrique (voir SetSnapQuery).
+				NkGizmoSnapQuery mSnapFn = nullptr;
+				void *mSnapUser = nullptr;
+				int32 mSnapTarget = 0;
 				float32 mPickR[kMax] = {};
 				NkVec3f mPivot = {0, 0, 0}, mGB[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
 				float32 mPivDist = 1.f, mGL = 1.f;

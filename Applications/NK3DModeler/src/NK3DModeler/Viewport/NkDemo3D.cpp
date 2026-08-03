@@ -316,11 +316,17 @@ namespace nkentseu {
 				bool used;
 				int8 prevShape; // apercu : 0 plan, 1 sphere, 2 cube, 3 liquide, 4 cheveux
 				char name[32];
+				char albMap[260]; // chemin TEXTURE DE COULEUR ("" = couleur seule), MAX_PATH
 				float32 albedo[3];
 				float32 rough, metal;
 		};
 		static constexpr int32 kNkvpMaxProjMats = 64;
 		static NkVpProjMat nkvpProjMats[kNkvpMaxProjMats] = {};
+		// Cote MOTEUR d'un materiau a texture : la teinte/rugosite/metallique
+		// passent par le draw call, mais une TEXTURE exige une vraie instance
+		// de materiau (meme mecanique que le sol carrele).
+		static NkTexHandle nkvpProjMatTex[kNkvpMaxProjMats] = {};
+		static NkMaterial *nkvpProjMatEng[kNkvpMaxProjMats] = {};
 		static int32 nkvpMatSerial = 0; // numerote « Materiau.NNN », jamais reutilise
 		// Assignation par NOEUD, stockee en indice+1 : le zero de l'init
 		// statique veut naturellement dire « aucun materiau ».
@@ -1618,6 +1624,255 @@ namespace nkentseu {
 				Demo3DState *st = nullptr;
 				renderer::NkMeshSystem *ms = nullptr;
 		};
+		// ── AIMANTATION GEOMETRIQUE : la reponse de l'hote au gizmo ────────────
+		// Cible la plus proche (sommet / arete / face / centres) parmi les
+		// MAILLAGES UTILISATEUR visibles et NON selectionnes -- l'objet en
+		// deplacement s'aimanterait a ses propres sommets (distance ~0) et
+		// resterait colle sur place, Blender l'exclut pareillement. Donnees CPU
+		// des meshes, transform monde du noeud (parents compris).
+		static int32 Demo3D_SnapQuery(void *user, int32 target, const NkVec3f &nearP,
+									  float32 maxDist, NkVec3f &out) {
+			const Demo3DRayCtx *cx = (const Demo3DRayCtx *)user;
+			if (!cx || !cx->st || !cx->ms || maxDist <= 0.f)
+				return 0;
+			auto *st = cx->st;
+			auto *ms = cx->ms;
+			// ── LE POINT D'ACCROCHE EST CELUI DE L'OBJET DEPLACE LE PLUS
+			// PROCHE (Blender : base « Closest »), pas son centre. Accrocher le
+			// CENTRE exigeait de faire chevaucher les deux objets de moitie
+			// avant que la cible entre dans la portee -- l'aimantation ne se
+			// declenchait jamais (constate par Rihen ; trace : cand=1 found=0
+			// avec une portee de 28 cm).
+			//
+			// Les sommets des objets deplaces sont pris a leur pose de BASE
+			// (nkvpEmptyPos n'est commite qu'en fin de glissement) puis
+			// ramenes a la position libre par le meme delta que le pivot.
+			NkVec3f srcPts[96];
+			int32 nSrc = 0;
+			{
+				NkVec3f pivBase{0.f, 0.f, 0.f};
+				int32 nSel = 0;
+				for (int32 u = 0; u < kNkvpMaxUser; ++u) {
+					const int32 un = kNkvpFirstUser + u;
+					if (nkvpDeleted[un] || !st->emptyGizmo.IsSelected(un - 90))
+						continue;
+					float32 wp[3], wsc[3];
+					NkMat4f wr;
+					HostNodeWorldById(un, wp, wr, wsc);
+					pivBase = {pivBase.x + wp[0], pivBase.y + wp[1], pivBase.z + wp[2]};
+					++nSel;
+				}
+				if (nSel > 0) {
+					const float32 inv = 1.f / (float32)nSel;
+					pivBase = {pivBase.x * inv, pivBase.y * inv, pivBase.z * inv};
+					const NkVec3f delta{nearP.x - pivBase.x, nearP.y - pivBase.y,
+										nearP.z - pivBase.z};
+					for (int32 u = 0; u < kNkvpMaxUser && nSrc < 96; ++u) {
+						const uint8 uk = nkvpUserKind[u];
+						if (uk < 1 || uk > 3)
+							continue;
+						const int32 un = kNkvpFirstUser + u;
+						if (nkvpDeleted[un] || !st->emptyGizmo.IsSelected(un - 90))
+							continue;
+						NkMeshHandle mh = nkvpUserMesh[u];
+						if (!mh.IsValid()) {
+							const uint8 usv = nkvpUserSub[u];
+							if (uk == 1)
+								mh = usv == 1 ? st->meshIco : st->meshSphere;
+							else if (uk == 2)
+								mh = usv == 1 ? st->meshCylinder
+											  : (usv == 2 ? st->meshCone : st->meshCube);
+							else
+								mh = st->meshPlane;
+						}
+						if (!mh.IsValid() || !ms->HasCPUData(mh))
+							continue;
+						const auto *sv = (const renderer::NkVertex3D *)ms->GetVertices(mh);
+						const uint32 svc = ms->GetVertexCount(mh);
+						if (!sv || !svc)
+							continue;
+						float32 wp[3], wsc[3];
+						NkMat4f wr;
+						HostNodeWorldById(un, wp, wr, wsc);
+						const NkMat4f W = NkMat4f::Translate({wp[0], wp[1], wp[2]}) * wr *
+										  NkMat4f::Scale({wsc[0], wsc[1], wsc[2]});
+						// ECHANTILLONNAGE : au plus 96 points, pas regulier --
+						// un maillage dense ne doit pas couter une seconde par
+						// image, et ses sommets voisins sont redondants.
+						const uint32 step = svc > 96u ? (svc / 96u) : 1u;
+						for (uint32 i = 0; i < svc && nSrc < 96; i += step) {
+							const NkVec3f p = W * sv[i].pos;
+							srcPts[nSrc++] = {p.x + delta.x, p.y + delta.y, p.z + delta.z};
+						}
+					}
+				}
+			}
+			// Repli : sans geometrie source (empty, camera), le point d'accroche
+			// EST le pivot -- l'ancien comportement, qui reste juste pour eux.
+			if (nSrc == 0)
+				srcPts[nSrc++] = nearP;
+			float32 best = maxDist * maxDist;
+			int32 found = 0;
+			int32 cand = 0; // maillages REELLEMENT examines
+			NkVec3f bestP{0.f, 0.f, 0.f};
+			// `p` est une cible de la scene : on cherche le point SOURCE le plus
+			// proche d'elle, et on retient la POSITION QUE LE PIVOT doit prendre
+			// pour que les deux coincident.
+			auto consider = [&](const NkVec3f &p) {
+				for (int32 s = 0; s < nSrc; ++s) {
+					const float32 dx = p.x - srcPts[s].x, dy = p.y - srcPts[s].y,
+								  dz = p.z - srcPts[s].z;
+					const float32 d2 = dx * dx + dy * dy + dz * dz;
+					if (d2 < best) {
+						best = d2;
+						bestP = {nearP.x + dx, nearP.y + dy, nearP.z + dz};
+						found = 1;
+					}
+				}
+			};
+			// Point le plus proche d'un SEGMENT : evalue depuis chaque source.
+			auto segClosest = [&](const NkVec3f &a, const NkVec3f &b) {
+				const NkVec3f ab{b.x - a.x, b.y - a.y, b.z - a.z};
+				const float32 l2 = ab.x * ab.x + ab.y * ab.y + ab.z * ab.z;
+				for (int32 s = 0; s < nSrc; ++s) {
+					float32 t = 0.f;
+					if (l2 > 1e-12f)
+						t = ((srcPts[s].x - a.x) * ab.x + (srcPts[s].y - a.y) * ab.y +
+							 (srcPts[s].z - a.z) * ab.z) /
+							l2;
+					t = t < 0.f ? 0.f : (t > 1.f ? 1.f : t);
+					const NkVec3f q{a.x + ab.x * t, a.y + ab.y * t, a.z + ab.z * t};
+					const float32 dx = q.x - srcPts[s].x, dy = q.y - srcPts[s].y,
+								  dz = q.z - srcPts[s].z;
+					const float32 d2 = dx * dx + dy * dy + dz * dz;
+					if (d2 < best) {
+						best = d2;
+						bestP = {nearP.x + dx, nearP.y + dy, nearP.z + dz};
+						found = 1;
+					}
+				}
+			};
+			for (int32 u = 0; u < kNkvpMaxUser; ++u) {
+				const uint8 uk = nkvpUserKind[u];
+				if (uk < 1 || uk > 3)
+					continue;
+				const int32 un = kNkvpFirstUser + u;
+				if (nkvpDeleted[un] || HostHiddenEff(un))
+					continue;
+				if (st->emptyGizmo.IsSelected(un - 90))
+					continue; // pas soi-meme
+				// LA MEME resolution de mesh que la soumission : le mesh
+				// parametrique s'il existe, sinon la PRIMITIVE partagee -- un
+				// cube n'a pas de mesh regenere, et ne considerer que
+				// nkvpUserMesh le rendait invisible a l'aimantation (constate
+				// par Rihen : « le sommet ne fonctionne pas »).
+				NkMeshHandle mh = nkvpUserMesh[u];
+				if (!mh.IsValid()) {
+					const uint8 usv = nkvpUserSub[u];
+					if (uk == 1)
+						mh = usv == 1 ? st->meshIco : st->meshSphere;
+					else if (uk == 2)
+						mh = usv == 1 ? st->meshCylinder
+									  : (usv == 2 ? st->meshCone : st->meshCube);
+					else
+						mh = st->meshPlane;
+				}
+				if (!mh.IsValid() || !ms->HasCPUData(mh))
+					continue;
+				++cand;
+				const auto *vv = (const renderer::NkVertex3D *)ms->GetVertices(mh);
+				const uint32 vc = ms->GetVertexCount(mh);
+				if (!vv || !vc)
+					continue;
+				float32 wp[3], wsc[3];
+				NkMat4f wr;
+				HostNodeWorldById(un, wp, wr, wsc);
+				const NkMat4f W = NkMat4f::Translate({wp[0], wp[1], wp[2]}) * wr *
+								  NkMat4f::Scale({wsc[0], wsc[1], wsc[2]});
+				if (target == 2) {
+					// SOMMET : le plus proche.
+					for (uint32 i = 0; i < vc; ++i)
+						consider(W * vv[i].pos);
+					continue;
+				}
+				const uint32 *ii = ms->GetIndices(mh);
+				const uint32 ic = ms->GetIndexCount(mh);
+				if (!ii || ic < 3)
+					continue;
+				for (uint32 t3 = 0; t3 + 2 < ic; t3 += 3) {
+					const NkVec3f A = W * vv[ii[t3]].pos;
+					const NkVec3f B = W * vv[ii[t3 + 1]].pos;
+					const NkVec3f C = W * vv[ii[t3 + 2]].pos;
+					if (target == 3) {
+						// ARETE : le point le plus proche sur chaque segment.
+						segClosest(A, B);
+						segClosest(B, C);
+						segClosest(C, A);
+					} else if (target == 6) {
+						// CENTRE D'ARETE.
+						consider({(A.x + B.x) * 0.5f, (A.y + B.y) * 0.5f, (A.z + B.z) * 0.5f});
+						consider({(B.x + C.x) * 0.5f, (B.y + C.y) * 0.5f, (B.z + C.z) * 0.5f});
+						consider({(C.x + A.x) * 0.5f, (C.y + A.y) * 0.5f, (C.z + A.z) * 0.5f});
+					} else if (target == 8) {
+						// CENTRE DE FACE.
+						consider({(A.x + B.x + C.x) / 3.f, (A.y + B.y + C.y) / 3.f,
+								  (A.z + B.z + C.z) / 3.f});
+					} else if (target == 4) {
+						// FACE : pour CHAQUE point source, sa projection sur le
+						// plan du triangle si elle y tombe (test barycentrique),
+						// sinon les aretes font foi.
+						const NkVec3f e0{B.x - A.x, B.y - A.y, B.z - A.z};
+						const NkVec3f e1{C.x - A.x, C.y - A.y, C.z - A.z};
+						const NkVec3f N{e0.y * e1.z - e0.z * e1.y,
+										e0.z * e1.x - e0.x * e1.z,
+										e0.x * e1.y - e0.y * e1.x};
+						const float32 n2 = N.x * N.x + N.y * N.y + N.z * N.z;
+						if (n2 < 1e-12f)
+							continue;
+						const float32 d00 = e0.x * e0.x + e0.y * e0.y + e0.z * e0.z;
+						const float32 d01 = e0.x * e1.x + e0.y * e1.y + e0.z * e1.z;
+						const float32 d11 = e1.x * e1.x + e1.y * e1.y + e1.z * e1.z;
+						const float32 den = d00 * d11 - d01 * d01;
+						if (den < 1e-12f)
+							continue;
+						bool anyInside = false;
+						for (int32 s = 0; s < nSrc; ++s) {
+							const NkVec3f &S0 = srcPts[s];
+							const float32 dpl = ((S0.x - A.x) * N.x + (S0.y - A.y) * N.y +
+												 (S0.z - A.z) * N.z) /
+												n2;
+							const NkVec3f P{S0.x - N.x * dpl, S0.y - N.y * dpl,
+											S0.z - N.z * dpl};
+							const NkVec3f v2{P.x - A.x, P.y - A.y, P.z - A.z};
+							const float32 d20 = v2.x * e0.x + v2.y * e0.y + v2.z * e0.z;
+							const float32 d21 = v2.x * e1.x + v2.y * e1.y + v2.z * e1.z;
+							const float32 bv = (d11 * d20 - d01 * d21) / den;
+							const float32 bw = (d00 * d21 - d01 * d20) / den;
+							if (bv >= 0.f && bw >= 0.f && bv + bw <= 1.f) {
+								anyInside = true;
+								const float32 dx = P.x - S0.x, dy = P.y - S0.y,
+											  dz = P.z - S0.z;
+								const float32 d2 = dx * dx + dy * dy + dz * dz;
+								if (d2 < best) {
+									best = d2;
+									bestP = {nearP.x + dx, nearP.y + dy, nearP.z + dz};
+									found = 1;
+								}
+							}
+						}
+						if (!anyInside) {
+							segClosest(A, B);
+							segClosest(B, C);
+							segClosest(C, A);
+						}
+					}
+				}
+			}
+			(void)cand; // compte des candidats : servait au diagnostic d'accroche
+			if (found)
+				out = bestP;
+			return found;
+		}
 		static int32 Demo3D_GizmoRayTest(void *user, int32 idx, const NkMat4f &world, NkVec3f ro,
 										 NkVec3f rd, float32 &tInOut) {
 			const Demo3DRayCtx *cx = (const Demo3DRayCtx *)user;
@@ -5748,6 +6003,15 @@ namespace nkentseu {
 				dc.metallic = 0.f;
 				dc.roughness = 0.85f; // mat par defaut, sans brillance marquee
 				HostMatHook(un, dc);
+				// TEXTURE DE COULEUR du materiau projet : des qu'elle existe, le
+				// maillage passe sur la vraie instance moteur (albedo map) --
+				// la couleur du materiau reste en TEINTE par-dessus.
+				{
+					const int32 pmU = nkvpNodeMatP1[un] - 1;
+					if (pmU >= 0 && pmU < kNkvpMaxProjMats && nkvpProjMats[pmU].used &&
+						nkvpProjMats[pmU].albMap[0] && nkvpProjMatEng[pmU])
+						dc.material = nkvpProjMatEng[pmU]->GetInstHandle();
+				}
 				r3d->Submit(dc);
 			}
 
@@ -7769,11 +8033,18 @@ namespace nkentseu {
 						if (!ewasDrag && st->emptyGizmo.IsDragging())
 							gin.leftPressed = false; // poignee saisie : le clic est a nous
 						if (st->emptyDragPrev && !st->emptyGizmo.IsDragging()) {
-							const int32 es = st->emptyGizmo.ActiveIndex();
-							if (es >= 0 && es < 70) {
-								// REPLI : effective -> base, gizmo remis a zero (meme
-								// regle que les lumieres, sinon base et decalages
-								// divergent).
+							// REPLI : effective -> base, gizmo remis a zero (meme
+							// regle que les lumieres, sinon base et decalages
+							// divergent).
+							// TOUTE LA SELECTION, pas seulement l'ACTIF : le gizmo
+							// calcule bien une transformation par objet
+							// selectionne, mais on n'en repliait qu'une -- les
+							// autres perdaient la leur au ResetSelected() et ne
+							// bougeaient pas (constate par Rihen).
+							bool anyCommit = false;
+							for (int32 es = 0; es < 70; ++es) {
+								if (!st->emptyGizmo.IsSelected(es))
+									continue;
 								const NkVec3f tr = st->emptyGizmo.TranslateOf(es);
 								const NkMat4f oR = st->emptyGizmo.RotationOf(es);
 								const NkVec3f os = st->emptyGizmo.ScaleOf(es);
@@ -7792,8 +8063,10 @@ namespace nkentseu {
 								nkvpEmptyScl[es][0] *= (1.f + os.x);
 								nkvpEmptyScl[es][1] *= (1.f + os.y);
 								nkvpEmptyScl[es][2] *= (1.f + os.z);
-								st->emptyGizmo.ResetSelected();
+								anyCommit = true;
 							}
+							if (anyCommit)
+								st->emptyGizmo.ResetSelected(); // une fois, apres tous
 						}
 						st->emptyDragPrev = st->emptyGizmo.IsDragging();
 					}
@@ -7803,6 +8076,11 @@ namespace nkentseu {
 					sRayCtx.st = st;
 					sRayCtx.ms = ctx.renderer->GetMeshSystem();
 					st->gizmo.SetRayPickTest(&Demo3D_GizmoRayTest, &sRayCtx);
+					// L'AIMANTATION GEOMETRIQUE interroge le meme contexte ; les
+					// deux gizmos de deplacement la recoivent (l'oubli du gizmo
+					// des vides a deja coute une fois).
+					st->gizmo.SetSnapQuery(&Demo3D_SnapQuery, &sRayCtx);
+					st->emptyGizmo.SetSnapQuery(&Demo3D_SnapQuery, &sRayCtx);
 					st->gizmo.Update(targets, n, gin);
 						// PICK ECRAN des MAILLAGES UTILISATEUR -- APRES le gizmo objets :
 						// une FLECHE saisie garde son clic, un objet derriere elle
@@ -9172,6 +9450,47 @@ namespace nkentseu {
 				return 0;
 			return (st->editMode ? st->editGizmo : st->gizmo).Orientation();
 		}
+		// ── POINT DE PIVOT (Blender : « Transform Pivot Point ») ────────────
+		// 0 barycentre, 1 boite englobante, 2 curseur 3D, 3 origines
+		// individuelles, 4 element actif -- pousse aux QUATRE gizmos, comme
+		// l'orientation (l'oubli du gizmo des vides a deja coute une fois).
+		void Demo3DHostSetPivotMode(int32 m) {
+			auto *st = HostSt();
+			if (!st)
+				return;
+			st->gizmo.SetPivotMode(m);
+			st->editGizmo.SetPivotMode(m);
+			st->lightGizmo.SetPivotMode(m);
+			st->emptyGizmo.SetPivotMode(m);
+		}
+		int32 Demo3DHostPivotMode() {
+			auto *st = HostSt();
+			if (!st)
+				return 0;
+			return (st->editMode ? st->editGizmo : st->gizmo).PivotMode();
+		}
+		// ── CIBLE D'AIMANTATION (Blender : « Snap To », liste de Rihen) ─────
+		// 0 increment, 1 grille, 2 sommet, 3 arete, 4 face, 5 volume (a venir),
+		// 6 centre d'arete, 7 arete perpendiculaire (a venir), 8 centre de face.
+		void Demo3DHostSetSnapTarget(int32 t) {
+			auto *st = HostSt();
+			if (!st)
+				return;
+			st->gizmo.SetSnapTarget(t);
+			st->editGizmo.SetSnapTarget(t);
+			st->lightGizmo.SetSnapTarget(t);
+			st->emptyGizmo.SetSnapTarget(t);
+			// Trace de diagnostic : si elle manque au journal apres un choix
+			// dans le panneau, le poussage UI a echoue -- meme methode que le
+			// combo Source de l'ambiance.
+			logger.Info("[NkDemo3D] Aimantation : cible -> {0}\n", t);
+		}
+		int32 Demo3DHostSnapTarget() {
+			auto *st = HostSt();
+			if (!st)
+				return 0;
+			return (st->editMode ? st->editGizmo : st->gizmo).SnapTarget();
+		}
 		void Demo3DHostSetSnap(bool on, float32 t, float32 rotDeg, float32 scl) {
 			auto *st = HostSt();
 			if (!st)
@@ -9179,9 +9498,14 @@ namespace nkentseu {
 			st->gizmo.SetSnapEnabled(on);
 			st->editGizmo.SetSnapEnabled(on);
 			st->lightGizmo.SetSnapEnabled(on);
+			// Le gizmo des VIDES (maillages utilisateur, cameras, empties)
+			// MANQUAIT : l'aimantation n'arrivait jamais aux cubes de la scene
+			// (constate par Rihen -- « l'aimant ne fonctionne pas »).
+			st->emptyGizmo.SetSnapEnabled(on);
 			st->gizmo.SetSnapSteps(t, rotDeg, scl);
 			st->editGizmo.SetSnapSteps(t, rotDeg, scl);
 			st->lightGizmo.SetSnapSteps(t, rotDeg, scl);
+			st->emptyGizmo.SetSnapSteps(t, rotDeg, scl);
 		}
 		bool Demo3DHostSnapEnabled() {
 			auto *st = HostSt();
@@ -10100,6 +10424,42 @@ namespace nkentseu {
 			if (node < 0 || node >= kNkvpMaxNodes)
 				return -1;
 			return nkvpNodeMatP1[node] - 1;
+		}
+		const char *Demo3DHostProjMatAlbedoMap(int32 i) {
+			return (i >= 0 && i < kNkvpMaxProjMats && nkvpProjMats[i].used)
+					   ? nkvpProjMats[i].albMap
+					   : "";
+		}
+		bool Demo3DHostProjMatSetAlbedoMap(int32 i, const char *path) {
+			if (i < 0 || i >= kNkvpMaxProjMats || !nkvpProjMats[i].used)
+				return false;
+			// « - » ou vide RETIRE la texture : retour a la couleur seule.
+			if (!path || !path[0] || (path[0] == '-' && !path[1])) {
+				nkvpProjMats[i].albMap[0] = 0;
+				return true;
+			}
+			auto *texL = hst.ctx.renderer ? hst.ctx.renderer->GetTextures() : nullptr;
+			auto *matS = hst.ctx.renderer ? hst.ctx.renderer->GetMaterials() : nullptr;
+			if (!texL || !matS)
+				return false;
+			// Le chargement fait foi : un chemin qui ne charge pas n'est PAS
+			// memorise -- le champ garde l'ancienne verite au lieu d'afficher
+			// un chemin mort.
+			NkTexHandle t = texL->Load(NkString(path));
+			if (!t.IsValid()) {
+				logger.Warn("[NkDemo3D] Materiau '{0}' : texture introuvable {1}\n",
+							nkvpProjMats[i].name, path);
+				return false;
+			}
+			nkvpProjMatTex[i] = t;
+			if (!nkvpProjMatEng[i])
+				nkvpProjMatEng[i] = NkMaterial::Create(matS, NkMaterialType::NK_PBR_METALLIC);
+			if (nkvpProjMatEng[i])
+				nkvpProjMatEng[i]->SetAlbedoMap(t);
+			snprintf(nkvpProjMats[i].albMap, sizeof(nkvpProjMats[i].albMap), "%s", path);
+			logger.Info("[NkDemo3D] Materiau '{0}' : texture couleur -> {1}\n",
+						nkvpProjMats[i].name, path);
+			return true;
 		}
 		int32 Demo3DHostProjMatPrevShape(int32 i) {
 			return (i >= 0 && i < kNkvpMaxProjMats) ? nkvpProjMats[i].prevShape : 1;
@@ -11107,15 +11467,15 @@ namespace nkentseu {
 				return;
 			}
 			const uint8 k = HostKindOf(node);
-			// LE CUBE DE BASE FAIT 2 m DE COTE (Rihen) : c'est la taille de
-			// reference des modeleurs, et elle donne une echelle lisible d'emblee
-			// dans le panneau Dimensions.
-			float32 b = 2.f;
-			if (k == 1)
-				b = 2.f; // sphere : meme diametre de reference
+			// LA VERITE DU MESH : nos primitives vont de -0,5 a +0,5, donc UN
+			// METRE de cote (cube), de diametre (sphere) ou d'envergure (plan)
+			// a l'echelle 1 -- comme Unreal (cube de 100 cm). L'ancien defaut
+			// annoncait 2 m : le panneau Dimensions MENTAIT d'un facteur deux
+			// sur un objet fraichement cree (constate par Rihen).
+			float32 b = 1.f;
 			out3[0] = out3[1] = out3[2] = b;
 			if (k == 3) { // plan : etendu en X/Z, plat en Y
-				out3[0] = out3[2] = (node == 83) ? 80.f : 2.f;
+				out3[0] = out3[2] = (node == 83) ? 80.f : 1.f;
 				out3[1] = 0.f;
 			}
 			if (k == 0 || k == 4)

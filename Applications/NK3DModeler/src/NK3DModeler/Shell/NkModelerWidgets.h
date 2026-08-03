@@ -50,7 +50,10 @@ namespace nkentseu {
 
 				// Saisie de texte en place.
 				char editKey[48] = {};
-				char editBuf[64] = {};
+				// 260 et non 64 : un CHEMIN Windows va jusqu'a MAX_PATH (260), et
+				// le champ de texture en recoit (constate par Rihen -- la saisie
+				// se tronquait a 63).
+				char editBuf[260] = {};
 				uint32 editLen = 0;
 				bool editing = false;
 
@@ -77,7 +80,7 @@ namespace nkentseu {
 
 				void BeginEdit(const char *key, const char *text) {
 					Copy(editKey, key);
-					Copy(editBuf, text, 63);
+					Copy(editBuf, text, 259); // MAX_PATH : un chemin entier tient
 					editLen = 0;
 					while (editBuf[editLen])
 						editLen++;
@@ -569,8 +572,10 @@ namespace nkentseu {
 			// maison ne savait qu'ajouter et effacer en fin de ligne.
 			p.Outline(r, NkRole::AccentUi, NkRole::InputBg, 2.f);
 			if (nkgui::NkGuiContext *gc = NkUiCtx()) {
+				// Plafond a 259 (MAX_PATH) et non 63 : les chemins de texture
+				// passent par ce champ (constate par Rihen).
 				editorkit::NkOverlayTextField(*gc, gc->dl, p.FontPtr(), r, ws.editBuf,
-											  (int32)(outCap < 63u ? outCap : 63u), true);
+											  (int32)(outCap < 259u ? outCap : 259u), true);
 				uint32 nlen = 0;
 				while (ws.editBuf[nlen])
 					++nlen;

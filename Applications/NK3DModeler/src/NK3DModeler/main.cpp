@@ -252,6 +252,18 @@ int nkmain(const NkEntryState &entry) {
 
 	nkgui::NkGuiContext ui;
 	ui.Init((int32)real0.x, (int32)real0.y);
+	// ── PRESSE-PAPIERS OS ───────────────────────────────────────────────────
+	// Le contexte GUI delegue le presse-papiers a l'app, et personne ne le
+	// cablait ici : Ctrl+C/Ctrl+V dans les champs lisaient un presse-papiers
+	// VIDE (constate par Rihen sur les chemins de texture). Meme cablage que
+	// NkEditorShell : la fenetre OS fait foi.
+	ui.clipboardUser = &window;
+	ui.clipboardGetFn = [](void *u, NkString &out) {
+		out = static_cast<NkWindow *>(u)->GetClipboardText();
+	};
+	ui.clipboardSetFn = [](void *u, const char *t) {
+		static_cast<NkWindow *>(u)->SetClipboardText(t);
+	};
 
 	// ── ECHELLE D'INTERFACE ─────────────────────────────────────────────────
 	// Sans elle, sur un ecran a 125 % ou 150 %, Windows ETIRE l'image de la
@@ -389,6 +401,28 @@ int nkmain(const NkEntryState &entry) {
 		// raccourcis de l'application : c'est ce qui permet a Entree de valider un
 		// nom sans declencher aussi une commande.
 		ev.AddEventCallback<NkKeyPressEvent>([&ui](NkKeyPressEvent *e) {
+			// ── COPIER / COUPER / COLLER / TOUT SELECTIONNER ────────────────
+			// La MEME mecanique que NkEditorShell (NKCode, regle de Rihen) :
+			// le callback leve les drapeaux, les champs de saisie les lisent,
+			// la fenetre OS porte le presse-papiers. Personne ne les levait
+			// ici : Ctrl+V ne faisait RIEN dans les champs, chemins compris.
+			{
+				const auto m0 = e->GetModifiers();
+				ui.input.ctrlDown = m0.ctrl;
+				ui.input.shiftDown = m0.shift;
+				ui.input.altDown = m0.alt;
+				if (m0.ctrl) {
+					const NkKey k0 = e->GetKey();
+					if (k0 == NkKey::NK_C)
+						ui.input.wantCopy = true;
+					else if (k0 == NkKey::NK_X)
+						ui.input.wantCut = true;
+					else if (k0 == NkKey::NK_V)
+						ui.input.wantPaste = true;
+					else if (k0 == NkKey::NK_A)
+						ui.input.wantSelectAll = true;
+				}
+			}
 			switch (e->GetKey()) {
 				case NkKey::NK_ENTER:
 				case NkKey::NK_NUMPAD_ENTER:
