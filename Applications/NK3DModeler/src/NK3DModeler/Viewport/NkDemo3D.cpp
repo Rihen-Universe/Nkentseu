@@ -9949,6 +9949,10 @@ namespace nkentseu {
 		// pour le ciel evalue en temps reel, et ne demandent aucune regeneration.
 		static float32 nkvpSkyStarIntensity = 0.f;
 		static float32 nkvpSkyStarDensity = 200.f;
+		// Rotation celeste (rad/s) et etoiles filantes (apparitions par minute).
+		// Les deux n'existent que pour le ciel evalue en temps reel.
+		static float32 nkvpSkyStarRotation = 0.f;
+		static float32 nkvpSkyShootingRate = 0.f;
 		// LUNES : un tableau, pas un cas particulier. Elevation / azimut comme le
 		// soleil — c'est ainsi qu'on situe un astre dans le ciel. Leur PHASE ne
 		// figure pas ici : elle se deduit du soleil, cote shader.
@@ -10092,6 +10096,19 @@ namespace nkentseu {
 				*intensity = nkvpSkyStarIntensity;
 			if (density)
 				*density = nkvpSkyStarDensity;
+		}
+		void Demo3DHostSkyStarMotion(float32 *rotation, float32 *shooting) {
+			if (rotation)
+				*rotation = nkvpSkyStarRotation;
+			if (shooting)
+				*shooting = nkvpSkyShootingRate;
+		}
+		void Demo3DHostSetSkyStarMotion(float32 rotation, float32 shooting) {
+			// Aucune regeneration : ces deux-la ne vivent que dans le ciel evalue
+			// en temps reel. Une etoile filante cuite dans une cubemap serait une
+			// trainee figee au meme endroit pour toujours.
+			nkvpSkyStarRotation = rotation < -1.f ? -1.f : (rotation > 1.f ? 1.f : rotation);
+			nkvpSkyShootingRate = shooting < 0.f ? 0.f : (shooting > 120.f ? 120.f : shooting);
 		}
 		void Demo3DHostSetSkyStars(float32 intensity, float32 density) {
 			// PAS de marquage « a regenerer » : les etoiles n'existent que dans le
@@ -10259,6 +10276,8 @@ namespace nkentseu {
 			sp.cloudSpeed = nkvpSkyCloudSpeed;
 			sp.starIntensity = nkvpSkyStarIntensity;
 			sp.starDensity = nkvpSkyStarDensity;
+			sp.starRotation = nkvpSkyStarRotation;
+			sp.shootingRate = nkvpSkyShootingRate;
 			// LUNES : elevation/azimut -> direction VERS la lune. Meme conversion
 			// que pour le soleil, mais SANS le signe oppose : le soleil est donne
 			// par sa direction de PROPAGATION, la lune par l'endroit ou elle SE
