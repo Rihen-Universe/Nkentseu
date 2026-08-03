@@ -255,6 +255,15 @@ namespace nkentseu {
 				// inchanges, y compris le contenu genere.
 				void LoadProceduralEx(const NkSkyParams &params);
 
+				// ── PRAGUE EN QUASI TEMPS REEL ──────────────────────────────
+				// Recuit la table du modele (mesure : ~11 ms) et reecrit la
+				// SEULE cubemap visible — sans les convolutions d'eclairage,
+				// qui restent sur la regeneration complete. C'est ce qui permet
+				// au ciel MESURE de suivre le soleil en continu : la partie
+				// lente n'a jamais ete le modele, c'etait l'irradiance.
+				// Rend faux si le jeu de donnees n'est pas disponible.
+				bool RefreshPragueVisual(const NkSkyParams &params);
+
 				// Phase N v0 : charge un .hdr equirectangulaire (360 RGB96F) et
 				// l'utilise comme source pour les convolutions irradiance +
 				// prefilter. CPU-side (tout comme LoadProcedural) ; future v1

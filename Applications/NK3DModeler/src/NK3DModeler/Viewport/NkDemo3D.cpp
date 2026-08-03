@@ -10298,6 +10298,38 @@ namespace nkentseu {
 			// HDRI : l'image vient d'un fichier, elle ne se calcule pas. Le shader
 			// lit alors la cubemap telle quelle.
 			r3->SetSkyFromCubemap(nkvpHdrPath[0] != 0 && nkvpSkyFromHdr);
+
+			// ── PRAGUE EN QUASI TEMPS REEL ──────────────────────────────────
+			// Quand un reglage du ciel est en attente et que le modele est
+			// Prague, la cubemap VISIBLE est recuite toute seule (~13 ms
+			// mesures), CADENCEE a 4 Hz pour ne pas manger la frame : le ciel
+			// mesure suit le soleil qu'on tire au gizmo. L'etoile du bouton
+			// reste allumee : l'ECLAIRAGE, lui, attend toujours la regeneration
+			// complete — c'est lui qui coute.
+			if (nkvpSkyModel == 4 && nkvpSkyDirty) {
+				static float64 sLastPragueMs = 0.0;
+				// Cle des parametres effectivement cuits : le drapeau « en
+				// attente » reste allume jusqu'a la regeneration COMPLETE, il ne
+				// dit donc pas si quelque chose a change depuis la derniere
+				// recuisson visuelle. Sans cette cle, on recuirait une table
+				// identique toutes les 250 ms.
+				static float32 sLastKey[6] = {1e30f, 0, 0, 0, 0, 0};
+				const float32 key[6] = {sp.sunDirection.x, sp.sunDirection.y, sp.sunDirection.z,
+										sp.turbidity,	  sp.sunIntensity,	 sp.ground.x};
+				bool changed = false;
+				for (int32 k = 0; k < 6 && !changed; ++k)
+					changed = key[k] != sLastKey[k];
+				const float64 nowMs = ::nkentseu::NkChrono::Now().nanoseconds / 1.0e6;
+				if (changed && nowMs - sLastPragueMs > 250.0) {
+					sLastPragueMs = nowMs;
+					if (auto *env = hst.ctx.renderer->GetEnvironment()) {
+						if (env->RefreshPragueVisual(sp)) {
+							for (int32 k = 0; k < 6; ++k)
+								sLastKey[k] = key[k];
+						}
+					}
+				}
+			}
 		}
 
 		bool Demo3DHostApplySky() {
