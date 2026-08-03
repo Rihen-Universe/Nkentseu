@@ -33,11 +33,24 @@ namespace nkentseu {
 		// non un seul avec une option : ils n'ont ni les memes outils, ni le meme
 		// resultat (le premier travaille en espace ecran, le second sur la
 		// geometrie reelle).
-		enum class NkMode : uint8 { Object = 0, Edit, Sculpt25D, Sculpt, Texturing, Count };
+		// PATRON = le depliage UV (unwrapping) ; TEXTURE PAINTING = la peinture
+		// sur texture. Ajoutes EN FIN d'enum : les indices existants ne bougent
+		// pas (onglets, pastilles et en-tetes s'y referent par valeur).
+		enum class NkMode : uint8 {
+			Object = 0,
+			Edit,
+			Sculpt25D,
+			Sculpt,
+			Texturing,
+			Patron,
+			TexturePaint,
+			Count
+		};
 
 		inline const char *NkModeName(NkMode m) {
-			static const char *const kNames[] = {"Objet", "Edition", "Sculpt 2.5D", "Sculpt",
-												 "Texturing"};
+			static const char *const kNames[] = {"Objet",	  "Edition", "Sculpt 2.5D",
+												 "Sculpt",	  "Texturing", "Patron",
+												 "Texture painting"};
 			return (uint8)m < (uint8)NkMode::Count ? kNames[(uint8)m] : "?";
 		}
 

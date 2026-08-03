@@ -199,6 +199,10 @@ namespace nkentseu {
 		// voir nkvpMeshHidden / nkvpMeshLocked plus bas.)
 		// VUE CAMERA : noeud regarde (-1 = vue 3D libre).
 		static int32 nkvpCamViewNode = -1;
+		// CADENAS D'ORBITE en vue camera (bouton de la colonne de vue) : actif,
+		// la rotation ORBITE la camera autour d'un centre au lieu de tourner
+		// sur place -- comme Blender (regle de Rihen).
+		static bool nkvpCamOrbitLock = false;
 		// CAMERA ACTIVE (facon Blender) : celle que le pave 0 regarde et que la
 		// capture « Camera » utilisera. Devient active des qu'on la regarde.
 		static int32 nkvpActiveCamNode = -1;
@@ -4667,6 +4671,12 @@ namespace nkentseu {
 					// reellement -- panneau, gizmo et capture voient la meme
 					// camera.
 					const int32 eC = nkvpCamViewNode - 90;
+					// Pose MONDE AVANT tout geste : l'ancrage de l'orbite du
+					// cadenas (centre et distance se mesurent sur elle).
+					float32 cwp0[3], cwsc0[3];
+					NkMat4f cwr0;
+					HostNodeWorldById(nkvpCamViewNode, cwp0, cwr0, cwsc0);
+					const NkVec3f fwd0 = (cwr0 * NkVec3f{0.f, 0.f, -1.f}).Normalized();
 					if (NkInput.IsMouseDown(NkMouseButton::NK_MB_MIDDLE) && !shift &&
 						(mdx != 0.f || mdy != 0.f)) {
 						nkvpEmptyRotDeg[eC][1] -= mdx * 0.25f; // lacet
@@ -4675,6 +4685,40 @@ namespace nkentseu {
 							nkvpEmptyRotDeg[eC][0] = 89.f;
 						if (nkvpEmptyRotDeg[eC][0] < -89.f)
 							nkvpEmptyRotDeg[eC][0] = -89.f;
+						// ── CADENAS ACTIF : la rotation ORBITE la camera autour
+						// d'un CENTRE (Rihen, comme Blender) au lieu de tourner
+						// sur place. Le centre : la selection si elle existe,
+						// sinon le point vise 6 m devant l'objectif. La camera
+						// garde sa distance et se replace pour regarder le
+						// centre -- l'orientation vient des eulers deja mis a
+						// jour ci-dessus, la position suit.
+						if (nkvpCamOrbitLock) {
+							// LE CENTRE EST DEVANT L'OBJECTIF : le point vise a
+							// distance fixe le long du REGARD COURANT, jamais un
+							// pivot exterieur -- le pivot de selection faisait
+							// SAUTER la rotation vers le centre du monde des
+							// qu'un objet y etait selectionne (constate par
+							// Rihen). La camera orbite donc toujours autour de
+							// ce qu'elle regarde.
+							const float32 dFoc = 6.f;
+							const NkVec3f C{cwp0[0] + fwd0.x * dFoc,
+											cwp0[1] + fwd0.y * dFoc,
+											cwp0[2] + fwd0.z * dFoc};
+							const NkVec3f offP{cwp0[0] - C.x, cwp0[1] - C.y,
+											   cwp0[2] - C.z};
+							const float32 distC = math::NkSqrt(
+								offP.x * offP.x + offP.y * offP.y + offP.z * offP.z);
+							float32 cwp1[3], cwsc1[3];
+							NkMat4f cwr1;
+							HostNodeWorldById(nkvpCamViewNode, cwp1, cwr1, cwsc1);
+							const NkVec3f fwd1 =
+								(cwr1 * NkVec3f{0.f, 0.f, -1.f}).Normalized();
+							const float32 newP[3] = {C.x - fwd1.x * distC,
+													 C.y - fwd1.y * distC,
+													 C.z - fwd1.z * distC};
+							for (int32 a = 0; a < 3; ++a)
+								nkvpEmptyPos[eC][a] += newP[a] - cwp0[a];
+						}
 					}
 					float32 cwpN[3], cwscN[3];
 					NkMat4f cwrN;
@@ -4685,22 +4729,25 @@ namespace nkentseu {
 					const NkVec3f rgtN = (cwrN * NkVec3f{1.f, 0.f, 0.f}).Normalized();
 					const NkVec3f upN = (cwrN * NkVec3f{0.f, 1.f, 0.f}).Normalized();
 					const NkVec3f fwdN = (cwrN * NkVec3f{0.f, 0.f, -1.f}).Normalized();
-					if (NkInput.IsMouseDown(NkMouseButton::NK_MB_MIDDLE) && shift) {
-						// « grab » : on tire la scene, la camera part a l'oppose.
-						const float32 psc = 0.012f;
-						nkvpEmptyPos[eC][0] += (-rgtN.x * mdx + upN.x * mdy) * psc;
-						nkvpEmptyPos[eC][1] += (-rgtN.y * mdx + upN.y * mdy) * psc;
-						nkvpEmptyPos[eC][2] += (-rgtN.z * mdx + upN.z * mdy) * psc;
-					}
-					if (wheel != 0.f) {
-						const float32 zsc = 0.6f;
-						nkvpEmptyPos[eC][0] += fwdN.x * wheel * zsc;
-						nkvpEmptyPos[eC][1] += fwdN.y * wheel * zsc;
-						nkvpEmptyPos[eC][2] += fwdN.z * wheel * zsc;
-					}
-					// TOUCHES DIRECTIONNELLES (Rihen) : haut/bas = avancer/
-					// reculer le long du regard, gauche/droite = pas lateral.
-					{
+					// ── CADENAS FERME : LA ROTATION SEULE (regle de Rihen). Ni
+					// travelling, ni molette, ni fleches, ni focale depuis la
+					// vue -- la camera ne fait qu'orbiter autour de son centre.
+					if (!nkvpCamOrbitLock) {
+						if (NkInput.IsMouseDown(NkMouseButton::NK_MB_MIDDLE) && shift) {
+							// « grab » : on tire la scene, la camera part a l'oppose.
+							const float32 psc = 0.012f;
+							nkvpEmptyPos[eC][0] += (-rgtN.x * mdx + upN.x * mdy) * psc;
+							nkvpEmptyPos[eC][1] += (-rgtN.y * mdx + upN.y * mdy) * psc;
+							nkvpEmptyPos[eC][2] += (-rgtN.z * mdx + upN.z * mdy) * psc;
+						}
+						if (wheel != 0.f) {
+							const float32 zsc = 0.6f;
+							nkvpEmptyPos[eC][0] += fwdN.x * wheel * zsc;
+							nkvpEmptyPos[eC][1] += fwdN.y * wheel * zsc;
+							nkvpEmptyPos[eC][2] += fwdN.z * wheel * zsc;
+						}
+						// TOUCHES DIRECTIONNELLES (Rihen) : haut/bas = avancer/
+						// reculer le long du regard, gauche/droite = pas lateral.
 						const float32 kspd = (shift ? 9.f : 3.f) * dt;
 						float32 mvF = 0.f, mvR = 0.f;
 						if (NkInput.IsKeyDown(NkKey::NK_UP))
@@ -9052,7 +9099,17 @@ namespace nkentseu {
 			NkVec3f f{0.f, 0.f, -1.f};
 			if (st && st->useSimCam)
 				f = st->simCam.GetForward();
-			else if (st) {
+			else if (st && nkvpCamViewNode >= 0 && nkvpCamViewNode < kNkvpMaxNodes &&
+					 !nkvpDeleted[nkvpCamViewNode]) {
+				// EN VUE CAMERA, la boule suit LA CAMERA : le regard vient du
+				// noeud (transformation d'axes, meme lecon que l'override de
+				// vue), pas de la camera d'editeur -- sinon la boule restait
+				// figee pendant qu'on tournait la camera (constate par Rihen).
+				float32 cwpA[3], cwscA[3];
+				NkMat4f cwrA;
+				HostNodeWorldById(nkvpCamViewNode, cwpA, cwrA, cwscA);
+				f = (cwrA * NkVec3f{0.f, 0.f, -1.f}).Normalized();
+			} else if (st) {
 				const NkVec3f d = st->editorCam.GetTarget() - st->editorCam.GetPosition();
 				const float32 l = sqrtf(d.x * d.x + d.y * d.y + d.z * d.z);
 				if (l > 1e-6f)
@@ -10752,6 +10809,8 @@ namespace nkentseu {
 			nkvpCamViewNode = node;
 		}
 		int32 Demo3DHostCameraView() { return nkvpCamViewNode; }
+		bool Demo3DHostCamOrbitLock() { return nkvpCamOrbitLock; }
+		void Demo3DHostSetCamOrbitLock(bool on) { nkvpCamOrbitLock = on; }
 
 		// ── VUE CAMERA (pave 0 + selecteur de la vue) ───────────────────────
 		// La pose LIBRE est memorisee ICI, cote hote : clavier et selecteur

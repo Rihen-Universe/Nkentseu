@@ -728,6 +728,12 @@ namespace nkentseu {
 						NkActivateTab(st, i);
 				}
 				x += tw + 3.f;
+				// MARQUEUR DE SEPARATION entre en-tetes d'onglets (regle de
+				// Rihen) : sans lui, deux scenes cote a cote se confondaient.
+				if (i + 1 < st.sceneCount) {
+					p.VLine(x + 1.f, r.y + S(6.f), h - S(8.f));
+					x += S(5.f);
+				}
 			}
 			const NkRect ar{x + S(4.f), r.y + 2.f, S(24.f), h};
 			HoverFill(p, ar, hit.Add("tab.add", ar));
@@ -2831,6 +2837,29 @@ namespace nkentseu {
 			// PNG numerotes dans captures/ du projet. La liste s'agrandira.
 			// EN HAUT de la colonne : empile en bas, le bouton finissait SOUS
 			// la boule de navigation, invisible.
+			// ── CADENAS D'ORBITE (vue camera seulement, au-dessus de Capture,
+			// regle de Rihen) : actif, la rotation ORBITE la camera autour d'un
+			// centre (selection, sinon le point vise) au lieu de tourner sur
+			// place -- comme Blender.
+			if (demo::Demo3DHostCameraView() >= 0) {
+				const float32 d0 = 26.f;
+				const NkRect lb{x, y, d0, d0};
+				const bool lockOn = demo::Demo3DHostCamOrbitLock();
+				const bool overL = hit.Add("view.camlock", lb);
+				if (lockOn)
+					p.Fill(lb, NkRole::AccentUi, 4.f);
+				else
+					p.Outline(lb, overL ? NkRole::AccentUi : NkRole::Border,
+							  NkRole::PanelHeader, 4.f);
+				p.IconV(lb.x + (d0 - 14.f) * 0.5f, lb.y, d0,
+						lockOn ? NkIcon::Lock : NkIcon::Unlock,
+						lockOn ? NkRole::TextOnAccent : NkRole::Text, 14.f);
+				if (overL)
+					hit.WantCursor(NkCursorWant::Hand);
+				if (hit.Clicked("view.camlock"))
+					demo::Demo3DHostSetCamOrbitLock(!lockOn);
+				y += d0 + 6.f;
+			}
 			{
 				const float32 d0 = 26.f;
 				const NkRect cb{x, y, d0, d0};
@@ -3285,13 +3314,16 @@ namespace nkentseu {
 				// Sculpture 2.5D, Sculpture, Texturing -- l'onglet actif EST le
 				// mode courant. Le deroulant equivalent de la barre d'outils a
 				// ete retire : un seul endroit pour changer de mode.
-				static const NkIcon kWsIc[5] = {NkIcon::Mesh, NkIcon::Edit, NkIcon::Layers,
-												NkIcon::Ruler, NkIcon::Overlay};
-				static const char *const kWsNames[5] = {"Objet", "Edition", "Sculpture 2.5D",
-														"Sculpture", "Texturing"};
+				static const NkIcon kWsIc[7] = {NkIcon::Mesh,	NkIcon::Edit,
+												NkIcon::Layers, NkIcon::Ruler,
+												NkIcon::Overlay, NkIcon::ViewUV,
+												NkIcon::Picker};
+				static const char *const kWsNames[7] = {
+					"Objet",	 "Edition", "Sculpture 2.5D",	"Sculpture",
+					"Texturing", "Patron",	"Texture painting"};
 				float32 tx5 = r.x + S(8.f);
 				char wk5[16];
-				for (int32 t5 = 0; t5 < 5; ++t5) {
+				for (int32 t5 = 0; t5 < 7; ++t5) {
 					const float32 tw5 = p.TextW(kWsNames[t5]);
 					const NkRect t0{tx5, r.y + S(2.f), tw5 + S(32.f), wsBarH - S(4.f)};
 					snprintf(wk5, sizeof(wk5), "ws.tab.%d", t5);
@@ -3308,6 +3340,13 @@ namespace nkentseu {
 					if (hit.Clicked(wk5))
 						st.mode = (NkMode)t5;
 					tx5 += t0.w + S(4.f);
+					// MARQUEUR DE SEPARATION entre onglets (regle de Rihen) :
+					// sans lui, sept libelles cote a cote se lisaient comme une
+					// seule phrase.
+					if (t5 < 6) {
+						p.VLine(tx5, r.y + S(5.f), wsBarH - S(10.f));
+						tx5 += S(5.f);
+					}
 				}
 				const NkRect ch{r.x + r.w - S(26.f), r.y + S(2.f), S(20.f), wsBarH - S(4.f)};
 				HoverFill(p, ch, hit.Add("ws.hide", ch), 2.f);
@@ -4076,10 +4115,11 @@ namespace nkentseu {
 			// on descend du plus abstrait (l'orientation) vers le plus direct (zoom,
 			// deplacement). Les mettre dessous les collait au bord de la fenetre.
 			const float32 gz = 34.f;
-			// CINQ rangs desormais : la rangee CAPTURE (declencheur + combo du
-			// type) vit AU-DESSUS des quatre boutons de navigation -- empilee en
-			// bas, elle finissait sous la boule de navigation, invisible (Rihen).
-			const float32 navH = 5.f * 26.f + 4.f * 6.f;
+			// La colonne compte SES rangs : capture + 4 boutons de navigation,
+			// et le CADENAS d'orbite s'ajoute en vue camera -- avec la hauteur
+			// figee a 5, la rangee en plus chevauchait la boule (Rihen).
+			const float32 navRows = demo::Demo3DHostCameraView() >= 0 ? 6.f : 5.f;
+			const float32 navH = navRows * 26.f + (navRows - 1.f) * 6.f;
 			const float32 navY = r.y + r.h - 22.f - gz * 2.f - 14.f - navH;
 			PaintViewButtons(p, hit, st, r.x + 14.f, navY);
 			PaintNavGizmo(p, hit, st, r.x + 12.f + gz, r.y + r.h - 22.f - gz, gz);
@@ -4787,14 +4827,22 @@ namespace nkentseu {
 				{
 					static const char *const kHdrNames[5] = {"Modele", "Rendu", "Scene",
 															 "Modificateur", "Materiau"};
+					// La 6e pastille est CELLE DU MODE : son nom suit le mode
+					// courant (Edition, Sculpture 2.5D, Sculpture, Texturing).
+					static const char *const kHdrMode[6] = {
+						"Edition",	 "Sculpture 2.5D", "Sculpture",
+						"Texturing", "Patron",		   "Texture painting"};
 					int32 actSec = -1;
-					for (int32 i9 = 0; i9 < 5; ++i9)
+					for (int32 i9 = 0; i9 < 6; ++i9)
 						if (st.propOpen[i9]) {
 							actSec = i9;
 							break;
 						}
 					char hd[64];
-					if (actSec >= 0)
+					if (actSec == 5 && (int32)st.mode >= 1 && (int32)st.mode <= 6)
+						snprintf(hd, sizeof(hd), "Proprietes (%s)",
+								 kHdrMode[(int32)st.mode - 1]);
+					else if (actSec >= 0 && actSec < 5)
 						snprintf(hd, sizeof(hd), "Proprietes (%s)", kHdrNames[actSec]);
 					else
 						snprintf(hd, sizeof(hd), "Proprietes");
@@ -4838,12 +4886,71 @@ namespace nkentseu {
 			// icones : Modele (box), Rendu (sun), Scene (layers), Modificateur
 			// (sliders-horizontal), Materiau (sphere). UNE SEULE est active a la
 			// fois.
-			static const NkPropSec kSecs[] = {{"Modele", NkIcon::Cube3D},
-											  {"Rendu", NkIcon::Sun},
-											  {"Scene", NkIcon::Layers},
-											  {"Modificateur", NkIcon::SlidersH},
-											  {"Materiau", NkIcon::Material}};
-			const int32 kNSec = (int32)(sizeof(kSecs) / sizeof(kSecs[0]));
+			static const NkPropSec kSecsBase[5] = {{"Modele", NkIcon::Cube3D},
+												   {"Rendu", NkIcon::Sun},
+												   {"Scene", NkIcon::Layers},
+												   {"Modificateur", NkIcon::SlidersH},
+												   {"Materiau", NkIcon::Material}};
+			// ── LA PASTILLE DU MODE (regle de Rihen) : chaque mode hors Objet a
+			// SA pastille, unique a lui, qui n'existe QUE dans ce mode -- ses
+			// fonctions s'y rempliront progressivement, par categories. Une
+			// seule entree (indice 5) dont le visage suit le mode courant.
+			static const NkPropSec kModeSecs[6] = {{"Edition", NkIcon::Edit},
+												   {"Sculpture 2.5D", NkIcon::Layers},
+												   {"Sculpture", NkIcon::Ruler},
+												   {"Texturing", NkIcon::Overlay},
+												   {"Patron", NkIcon::ViewUV},
+												   {"Texture painting", NkIcon::Picker}};
+			const int32 modeIdx5 = (int32)st.mode; // 0 = Objet
+			NkPropSec kSecs[6];
+			for (int32 i2 = 0; i2 < 5; ++i2)
+				kSecs[i2] = kSecsBase[i2];
+			const int32 kNSec = modeIdx5 > 0 ? 6 : 5;
+			if (modeIdx5 > 0)
+				kSecs[5] = kModeSecs[modeIdx5 - 1];
+			// ENTRER dans un mode ACTIVE sa pastille -- mais SEULEMENT si le
+			// panneau etait deja ouvert : ferme, il le reste (Rihen -- «
+			// mettre sa pastille mais pas ouvrir le panneau s'il etait ferme »).
+			// En SORTIR : la pastille disparait, et si elle etait l'active la
+			// main revient a Modele (qui suit sa propre regle de selection).
+			{
+				static int32 sLastMode5 = -1;
+				if (sLastMode5 != modeIdx5) {
+					if (sLastMode5 >= 0) {
+						bool anyOpen5 = false;
+						for (int32 j2 = 0; j2 < 8; ++j2)
+							anyOpen5 = anyOpen5 || st.propOpen[j2];
+						if (modeIdx5 > 0) {
+							if (anyOpen5) {
+								for (int32 j2 = 0; j2 < 8; ++j2)
+									st.propOpen[j2] = false;
+								st.propOpen[5] = true;
+							}
+						} else if (st.propOpen[5]) {
+							st.propOpen[5] = false;
+							st.propOpen[0] = true;
+						}
+					}
+					sLastMode5 = modeIdx5;
+				}
+			}
+			if (modeIdx5 == 0 && st.propOpen[5]) {
+				st.propOpen[5] = false;
+				st.propSecH[5] = 0.f;
+				st.propScroll3[5] = 0.f;
+			}
+			// LA PASTILLE MODELE N'EXISTE QUE POUR UNE SELECTION (regle de
+			// Rihen) : sans objet actif elle disparait de la colonne, et si
+			// elle etait l'active le panneau se replie -- un panneau Modele
+			// sans modele n'aurait rien d'honnete a montrer.
+			const bool hasSel5 = st.activeEmpty >= 0 ||
+								 demo::Demo3DHostActiveObject() >= 0 ||
+								 demo::Demo3DHostSelectedLight() >= 0;
+			if (!hasSel5 && st.propOpen[0]) {
+				st.propOpen[0] = false;
+				st.propSecH[0] = 0.f;
+				st.propScroll3[0] = 0.f;
+			}
 			int32 nOpen = 0, nUnfold = 0;
 			for (int32 i2 = 0; i2 < kNSec; ++i2)
 				if (st.propOpen[i2]) {
@@ -7940,6 +8047,85 @@ namespace nkentseu {
 								NkRole::TextMuted);
 						yy += kRowH;
 					}
+				} else if (sec == 5) {
+					// ── LA PASTILLE DU MODE : unique a chaque mode, ses
+					// fonctions arrivent PROGRESSIVEMENT par categories (regle
+					// de Rihen). Aujourd'hui : l'EDITION porte ses premieres
+					// categories ; les autres modes annoncent honnetement ce
+					// qui vient -- aucune commande factice.
+					const int32 m5 = (int32)st.mode;
+					NkRect rowR = rr;
+					rowR.x = r.x + NkPropInset();
+					rowR.w = rr.w - 2.f * NkPropInset();
+					if (m5 == 1) {
+						// ── EDITION ─────────────────────────────────────────
+						const bool gSel = PaintPropGroup(p, hit, st, rowR, yy,
+														 "prop.g.edsel", "Selection",
+														 0x1000u);
+						const float32 gSelTop = yy;
+						if (gSel) {
+							const NkRect iR = NkGroupInner(rowR);
+							yy += NkGroupPad();
+							const int32 m2 = demo::Demo3DHostEditSelMask();
+							snprintf(buf, sizeof(buf), "Sous-mode : %s%s%s",
+									 (m2 & 1) ? "Sommets " : "", (m2 & 2) ? "Aretes " : "",
+									 (m2 & 4) ? "Faces" : "");
+							p.TextV(iR.x, yy, kRowH, buf, NkRole::TextMuted);
+							yy += kRowH;
+							p.TextV(iR.x, yy, kRowH, "1 / 2 / 3 pour changer",
+									NkRole::TextMuted);
+							yy += kRowH + NkGroupPad();
+							PaintGroupBlock(p, rowR, gSelTop, yy);
+						}
+						yy += NkPropGroupGap();
+						const bool gTools = PaintPropGroup(p, hit, st, rowR, yy,
+														   "prop.g.edtools", "Outils",
+														   0x2000u);
+						const float32 gToolsTop = yy;
+						if (gTools) {
+							const NkRect iR = NkGroupInner(rowR);
+							yy += NkGroupPad();
+							static const char *const kEdT[5] = {
+								"E  --  extruder", "I  --  inserer une face",
+								"Ctrl+B  --  biseauter", "Ctrl+R  --  boucle de coupe",
+								"K  --  couteau   W  --  subdiviser"};
+							for (int32 t6 = 0; t6 < 5; ++t6) {
+								p.TextV(iR.x, yy, kRowH, kEdT[t6], NkRole::TextMuted);
+								yy += kRowH;
+							}
+							yy += NkGroupPad();
+							PaintGroupBlock(p, rowR, gToolsTop, yy);
+						}
+						yy += NkPropGroupGap();
+						const bool gGeo = PaintPropGroup(p, hit, st, rowR, yy,
+														 "prop.g.edgeo", "Geometrie",
+														 0x4000u);
+						const float32 gGeoTop = yy;
+						if (gGeo) {
+							const NkRect iR = NkGroupInner(rowR);
+							yy += NkGroupPad();
+							p.TextV(iR.x, yy, kRowH,
+									"Fusion, separation, symetrie -- a venir.",
+									NkRole::TextMuted);
+							yy += kRowH + NkGroupPad();
+							PaintGroupBlock(p, rowR, gGeoTop, yy);
+						}
+					} else {
+						static const char *const kSoon[5] = {
+							"Sculpture 2.5D : brosses de relief -- a venir.",
+							"Sculpture : brosses volumiques -- a venir.",
+							"Texturing : peinture et calques -- a venir.",
+							"Patron : depliage UV (unwrapping) -- a venir.",
+							"Texture painting : peinture sur texture -- a venir."};
+						if (m5 >= 2 && m5 <= 6) {
+							p.TextV(r.x + kPad, yy, kRowH, kSoon[m5 - 2], NkRole::TextMuted);
+							yy += kRowH;
+							p.TextV(r.x + kPad, yy, kRowH,
+									"Ses categories apparaitront ici, dans cette pastille.",
+									NkRole::TextMuted);
+							yy += kRowH;
+						}
+					}
 				}
 
 				// La hauteur du contenu sert desormais a la SEULE barre generale :
@@ -8034,6 +8220,9 @@ namespace nkentseu {
 				p.VLine(tabX, stackTop, (rFull.y + rFull.h) - stackTop);
 				float32 ty = stackTop + S(4.f);
 				for (int32 i2 = 0; i2 < kNSec; ++i2) {
+					// Modele n'apparait que pour une selection (regle de Rihen).
+					if (i2 == 0 && !hasSel5)
+						continue;
 					char tk[24];
 					snprintf(tk, sizeof(tk), "props.tab.%d", i2);
 					const NkRect tb{tabX + S(3.f), ty, S(20.f), S(24.f)};

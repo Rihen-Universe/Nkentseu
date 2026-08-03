@@ -222,6 +222,11 @@ namespace nkentseu {
 		int32 Demo3DHostEnsureModelMesh(int32 root);
 		void Demo3DHostSetCameraView(int32 node);
 		int32 Demo3DHostCameraView();
+		// CADENAS D'ORBITE en vue camera : actif, la rotation orbite la camera
+		// autour d'un centre (selection, sinon le point vise) au lieu de
+		// tourner sur place -- comme Blender.
+		bool Demo3DHostCamOrbitLock();
+		void Demo3DHostSetCamOrbitLock(bool on);
 		// Vue camera facon Blender : ViewCamera(node) regarde cette camera (et la
 		// rend ACTIVE ; -1 = retour vue libre, pose restituee). Toggle = pave 0 :
 		// bascule vue libre <-> camera active.
