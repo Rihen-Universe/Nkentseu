@@ -10498,6 +10498,10 @@ namespace nkentseu {
 		}
 		void Demo3DHostSetAmbientUseEnv(bool on) {
 			auto *r3 = hst.ctx.renderer ? hst.ctx.renderer->GetRender3D() : nullptr;
+			// Trace de diagnostic du combo Source : si elle manque au journal
+			// apres un changement, le poussage UI a echoue.
+			logger.Info("[NkDemo3D] Ambiance : source environnement -> {0}\n",
+						on ? "oui" : "non");
 			if (r3)
 				r3->SetIBLUseEnv(on);
 		}
@@ -10566,7 +10570,28 @@ namespace nkentseu {
 			return nkvpShadowDynamic;
 		}
 		void Demo3DHostSetShadowDynamic(bool dynamic) {
+			// Trace de diagnostic (Rihen : « repasser a dynamic, l'ombre ne
+			// suivait plus ») : si cette ligne manque au journal apres un
+			// changement du combo, c'est le poussage UI qui a echoue, pas le
+			// moteur.
+			logger.Info("[NkDemo3D] Ombres : mise a jour -> {0}\n",
+						dynamic ? "dynamique" : "statique");
 			nkvpShadowDynamic = dynamic;
+		}
+		bool Demo3DHostShadowRecalcPending() {
+			// Une ombre figee ne correspond plus a la scene : le bouton
+			// « Recalculer l'ombre » se colore (demande de Rihen).
+			auto *sh = hst.ctx.renderer ? hst.ctx.renderer->GetShadow() : nullptr;
+			return sh && sh->HasPendingRecalc();
+		}
+		void Demo3DHostShadowRecalc() {
+			// Le bouton « Recalculer » du mode statique : une passe complete de
+			// re-rendu des ombres, puis le cache refige.
+			auto *sh = hst.ctx.renderer ? hst.ctx.renderer->GetShadow() : nullptr;
+			if (!sh)
+				return;
+			sh->InvalidateShadowCache();
+			logger.Info("[NkDemo3D] Ombres : recalcul force demande\n");
 		}
 		void Demo3DHostSetShadowCfg(float32 normalBias, float32 slopeBias, float32 softness,
 									int32 quality) {
@@ -10577,8 +10602,14 @@ namespace nkentseu {
 			c.normalBias = normalBias < 0.f ? 0.f : (normalBias > 1.f ? 1.f : normalBias);
 			c.shadowBias = slopeBias < 0.f ? 0.f : (slopeBias > 0.05f ? 0.05f : slopeBias);
 			c.softness = softness < 0.f ? 0.f : (softness > 0.05f ? 0.05f : softness);
-			if (quality >= 0 && quality <= 3)
+			// 0..4 : l'enum moteur compte CINQ crans (NONE, PCF3, PCF5, POISSON,
+			// PCSS). L'ancien plafond a 3 rendait le vrai PCSS inatteignable --
+			// le combo « Penombre (PCSS) » reglait en silence POISSON.
+			if (quality >= 0 && quality <= 4) {
+				if ((int32)c.quality != quality)
+					logger.Info("[NkDemo3D] Ombres : qualite -> {0}\n", quality);
 				c.quality = (renderer::NkVSMShadowQuality)quality;
+			}
 		}
 		bool Demo3DHostLightTempExp(int32 node, float32 *tempK, float32 *exposure) {
 			// Temperature de couleur (kelvins, 0 = desactivee) et exposition (stops).
