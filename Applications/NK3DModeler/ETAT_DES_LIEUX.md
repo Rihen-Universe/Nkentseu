@@ -345,7 +345,21 @@ ponctuelles et les spots font varier la taille avec la distance.
 
 ### 4.7 — L'ombre du soleil est nettement trop petite
 
-Constaté par Rihen (2026-08-02), **distinct du point ci-dessus** : la taille ne doit
+**RÉSOLU (2026-08-03)** — validé par Rihen (carré net au zénith, ombres allongées
+correctes à −53°).
+
+**Cause (prouvée par la trace `[VSMAutoFit]`, désormais permanente — elle
+journalise les bornes quand le rayon varie de plus de 5 %)** : l'AABB soumise
+pour un maillage utilisateur était un **cube à l'échelle max** — un sol aplati
+25×0,5×25 annonçait 50 m de HAUT. L'auto-fit directionnel étendait la
+couverture de cette hauteur fantôme : rayon 116,7 m, texel 23 cm — l'ombre d'un
+cube de 2 m tenait dans ~9 texels, érodée en tache ronde par le PCF et le biais.
+
+**Correctif** : la soumission calcule la **vraie AABB monde** (8 coins de la
+boîte locale — lue du mesh CPU si disponible — par la transform complète,
+dimensions comprises). Résultat mesuré : rayon 10,8 m, texel 2,1 cm.
+
+Constat d'origine (2026-08-02), **distinct du point ci-dessus** : la taille ne doit
 pas varier avec la distance (c'est correct), mais la surface couverte est bien plus
 petite que ce que le cube devrait projeter.
 

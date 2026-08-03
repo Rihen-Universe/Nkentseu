@@ -239,15 +239,20 @@ namespace nkentseu {
 				radius = std::sqrt(ex.x * ex.x + ex.y * ex.y + ex.z * ex.z) * 1.05f;
 				if (radius < 1.f)
 					radius = 1.f;
-				static int afDiag = -1;
-				if (afDiag == -1) {
-					const char *v = getenv("NK_VSM_DIAG");
-					afDiag = (v && v[0] && v[0] != '0') ? 1 : 0;
-				}
-				if (afDiag && cascadeIdx == 0) {
-					logger.Info(
-						"[VSMAutoFit] bounds min=({0},{1},{2}) max=({3},{4},{5}) center=({6},{7},{8}) radius={9}\n",
-						b.min.x, b.min.y, b.min.z, b.max.x, b.max.y, b.max.z, center.x, center.y, center.z, radius);
+				// Trace AUTOMATIQUE (diagnostic du 4.7 « ombre du soleil trop
+				// petite ») : une ligne quand le rayon change de plus de 5 % --
+				// pas de variable d'environnement (regle maison), et le journal
+				// reste silencieux tant que la cascade est stable.
+				if (cascadeIdx == 0) {
+					static float32 sLastLoggedR = -1.f;
+					const float32 dr = radius - sLastLoggedR;
+					if (sLastLoggedR < 0.f || dr > sLastLoggedR * 0.05f || -dr > sLastLoggedR * 0.05f) {
+						sLastLoggedR = radius;
+						logger.Info(
+							"[VSMAutoFit] bornes min=({0},{1},{2}) max=({3},{4},{5}) centre=({6},{7},{8}) rayon={9} texel={10}m\n",
+							b.min.x, b.min.y, b.min.z, b.max.x, b.max.y, b.max.z, center.x,
+							center.y, center.z, radius, radius * 2.f / float32(tilePx));
+					}
 				}
 			} else if (mCfg.useFixedCascadeRadius && cascadeIdx < kMaxCascades) {
 				// Center : soit ancre au monde (anti-swimming total pour une scene
