@@ -97,6 +97,16 @@ namespace nkentseu {
 			// Preetham, il n'est pas defini sous l'horizon (l'atmosphere
 			// Rayleigh + Mie reste le modele des crepuscules).
 			NK_SKY_HOSEK = 3,
+			// Modele de PRAGUE (« A Fitted Radiance and Attenuation Model for
+			// Realistic Atmospheres », SIGGRAPH 2021) — variante sol/XYZ, BSD
+			// 3-clauses, jeu de donnees de 18,4 Mo copie verbatim (SHA-256
+			// verifiee) dans Resources/NKRenderer/Sky/SkyModelDataset.dat.
+			// C'est le successeur MESURE de Hosek par la meme equipe, et il est
+			// defini jusqu'a -4,2 DEGRES SOUS L'HORIZON : les couchants mesures.
+			// Trop couteux pour un pixel shader : il est CUIT en cubemap a la
+			// regeneration (le shader l'affiche via le chemin cubemap, avec les
+			// surcouches etoiles/lunes/nuages par-dessus).
+			NK_SKY_PRAGUE = 4,
 		};
 
 		// ── Coefficients cuits du modele Hosek-Wilkie ───────────────────────
