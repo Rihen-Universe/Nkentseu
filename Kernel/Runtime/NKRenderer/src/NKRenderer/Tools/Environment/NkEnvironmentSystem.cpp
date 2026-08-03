@@ -93,6 +93,9 @@ namespace nkentseu {
 			mf(P.cloudColor.x);
 			mf(P.cloudColor.y);
 			mf(P.cloudColor.z);
+			// La temperature de l'etoile change TOUT le ciel alien : l'oublier
+			// servirait l'eclairage d'une autre etoile depuis le cache.
+			mf(P.alienTempK);
 			return h;
 		}
 
@@ -506,9 +509,14 @@ namespace nkentseu {
 		// La cuisson est ADAPTEE de ArHosekSkyModel.c (meme licence) : Bezier
 		// quintique sur l'elevation^(1/3), melange lineaire sur la partie
 		// fractionnaire de la turbidite et sur l'albedo.
-		namespace hosekdata {
-#include "ArHosekSkyModelData_RGB.h"
+		// Le .inl est le ArHosekSkyModel.c OFFICIEL, verbatim (SHA-256 verifiee) :
+		// il inclut lui-meme les QUATRE jeux de donnees (spectral, CIEXYZ, RGB)
+		// et porte, en plus de la cuisson RGB, les fonctions « Alien World » —
+		// soleils d'autres temperatures. Un seul point d'entree pour tout Hosek.
+		namespace hosekfull {
+#include "ArHosekSkyModel.inl"
 		}
+		namespace hosekdata = hosekfull;
 
 		namespace {
 			// Un point de controle de Bezier quintique : m[i], m[i+stride], ...
@@ -744,13 +752,19 @@ namespace nkentseu {
 			return true;
 		}
 
-		// Echantillon du ciel de Prague dans NOTRE repere (Y vers le haut) :
-		// lecture BILINEAIRE de la table cuite par NkPragueEnsure. Toute la
-		// cuisson (cubemap, irradiance, reflets) passe par ici — des millions
-		// d'appels, d'ou la table.
+		// Lecture BILINEAIRE d'une table azimut x theta (partagee entre les
+		// modeles CUITS : Prague et soleil alien). Toute la cuisson passe par
+		// la — des millions d'appels, d'ou les tables.
+		static NkVec3f NkSkyLutSample(const NkVec3f *lut, float32 scale, float dx, float dy, float dz);
+
+		// Echantillon du ciel de Prague dans NOTRE repere (Y vers le haut).
 		static NkVec3f NkPragueSample(float dx, float dy, float dz, const NkSkyParams &P) {
 			if (!sPragueState)
 				return SampleSkyGradient(dx, dy, dz, P.skyTop, P.horizon, P.ground);
+			return NkSkyLutSample(sPragueLut, sPragueScale, dx, dy, dz);
+		}
+
+		static NkVec3f NkSkyLutSample(const NkVec3f *lut, float32 scale, float dx, float dy, float dz) {
 			float32 phi = math::NkAtan2(dz, dx);
 			if (phi < 0.f)
 				phi += 6.2831853f;
@@ -782,16 +796,141 @@ namespace nkentseu {
 			return r;
 		}
 
+		// ── SOLEIL ALIEN : Hosek SPECTRAL + corps noir ──────────────────────────
+		// La fonctionnalite « Alien World » du code officiel : la cuisson RGB ne
+		// sait pas changer d'etoile, mais la cuisson SPECTRALE (11 bandes,
+		// 320..720 nm) accepte une temperature de surface — le spectre du soleil
+		// est remplace par un corps noir a cette temperature, et TOUT le ciel en
+		// decoule (un soleil de 3 000 K rougit le ciel entier, pas seulement son
+		// disque). C'est la science-fiction demandee par Rihen, appuyee sur le
+		// meme modele mesure que le reste.
+		namespace {
+			// CIE 1931 (observateur 2 degres), echantillonnee aux 11 bandes du
+			// modele. Donnees de REFERENCE du standard — verifiees par le test
+			// de la sonde : un soleil a 5 778 K (le notre) doit redonner un ciel
+			// terrestre, et la teinte doit glisser continument vers le rouge a
+			// 3 000 K, vers le bleu a 15 000 K.
+			const float64 kCieX[11] = {0.0,	   0.0001, 0.0143, 0.3483, 0.0956, 0.0633,
+									   0.5945, 1.0622, 0.4479, 0.0468, 0.0029};
+			const float64 kCieY[11] = {0.0,	   0.0,	   0.0004, 0.0230, 0.1390, 0.7100,
+									   0.9950, 0.6310, 0.1750, 0.0170, 0.0010};
+			const float64 kCieZ[11] = {0.0,	   0.0006, 0.0679, 1.7471, 0.8130, 0.0782,
+									   0.0039, 0.0008, 0.0,	   0.0,	   0.0};
+			NkVec3f sAlienLut[kPragueLutW * kPragueLutH];
+			float32 sAlienScale = 1.f;
+
+			// XYZ d'une direction du ciel alien : radiance spectrale integree
+			// contre les courbes CIE.
+			void NkAlienEvalXYZ(hosekfull::ArHosekSkyModelState *st, double theta, double gamma,
+								double out[3]) {
+				out[0] = out[1] = out[2] = 0.0;
+				for (int32 w = 0; w < 11; ++w) {
+					const double r =
+						hosekfull::arhosekskymodel_radiance(st, theta, gamma, 320.0 + 40.0 * w);
+					out[0] += r * kCieX[w];
+					out[1] += r * kCieY[w];
+					out[2] += r * kCieZ[w];
+				}
+			}
+		} // namespace
+
+		// Recuit la table du ciel alien. Les etats sont alloues et liberes ICI :
+		// la cuisson spectrale est une formule (pas les splines de Prague), tout
+		// tient en quelques millisecondes.
+		static bool NkAlienBake(const NkSkyParams &P) {
+			float32 tx = -P.sunDirection.x, ty = -P.sunDirection.y, tz = -P.sunDirection.z;
+			const float32 sl = math::NkSqrt(tx * tx + ty * ty + tz * tz);
+			if (sl > 1e-6f) {
+				tx /= sl;
+				ty /= sl;
+				tz /= sl;
+			} else {
+				tx = 0.f;
+				ty = 1.f;
+				tz = 0.f;
+			}
+			double elev = (double)math::NkAsin(ty < -1.f ? -1.f : (ty > 1.f ? 1.f : ty));
+			// Comme Hosek RGB : pas defini sous l'horizon, on cuit au ras.
+			if (elev < 0.0087)
+				elev = 0.0087;
+			if (elev > 1.5707)
+				elev = 1.5707;
+			const double T = P.turbidity < 1.f ? 1.0 : (P.turbidity > 10.f ? 10.0 : (double)P.turbidity);
+			double alb = 0.2126 * P.ground.x + 0.7152 * P.ground.y + 0.0722 * P.ground.z;
+			alb = alb < 0.0 ? 0.0 : (alb > 1.0 ? 1.0 : alb);
+			const double tempK =
+				P.alienTempK < 1000.f ? 1000.0 : (P.alienTempK > 30000.f ? 30000.0 : (double)P.alienTempK);
+
+			// Les DEUX etats sont cuits a intensite 1 : la Puissance est portee
+			// par la normalisation. La passer aussi au modele la compterait deux
+			// fois. Et la reference partage la TEMPERATURE : changer d'etoile
+			// change la TEINTE du monde, pas son exposition — c'est le controle
+			// artistique voulu pour un film.
+			hosekfull::ArHosekSkyModelState *cur =
+				hosekfull::arhosekskymodelstate_alienworld_alloc_init(elev, 1.0, tempK, T, alb);
+			hosekfull::ArHosekSkyModelState *ref =
+				hosekfull::arhosekskymodelstate_alienworld_alloc_init(0.82, 1.0, tempK, T, alb);
+			if (!cur || !ref) {
+				if (cur)
+					hosekfull::arhosekskymodelstate_free(cur);
+				if (ref)
+					hosekfull::arhosekskymodelstate_free(ref);
+				return false;
+			}
+			double rz[3];
+			NkAlienEvalXYZ(ref, 0.0, 1.5707963 - 0.82, rz);
+			sAlienScale = (float32)((double)P.sunIntensity / (rz[1] > 1e-9 ? rz[1] : 1e-9));
+
+			const double sunTheta = 1.5707963 - elev;
+			(void)sunTheta;
+			for (int32 j = 0; j < kPragueLutH; j++) {
+				const double theta = (((double)j + 0.5) / (double)kPragueLutH) * 3.14159265358979;
+				const double stheta = math::NkSin((float64)theta);
+				const double ctheta = math::NkCos((float64)theta);
+				for (int32 i = 0; i < kPragueLutW; i++) {
+					const double phi = (((double)i + 0.5) / (double)kPragueLutW) * 6.28318530717959;
+					// Direction dans NOTRE repere (Y vers le haut) — le modele
+					// spectral n'a pas besoin d'azimut absolu, seulement de
+					// l'angle au soleil.
+					const double ddx = stheta * math::NkCos((float64)phi);
+					const double ddy = ctheta;
+					const double ddz = stheta * math::NkSin((float64)phi);
+					NkVec3f cell;
+					if (ddy <= 0.0) {
+						// Sous l'horizon : la couleur de sol, RANGEE SANS
+						// l'echelle pour que la lecture (x scale) la restitue.
+						cell.x = P.ground.x / (sAlienScale > 1e-9f ? sAlienScale : 1e-9f);
+						cell.y = P.ground.y / (sAlienScale > 1e-9f ? sAlienScale : 1e-9f);
+						cell.z = P.ground.z / (sAlienScale > 1e-9f ? sAlienScale : 1e-9f);
+					} else {
+						const double cg = ddx * (double)tx + ddy * (double)ty + ddz * (double)tz;
+						const double gamma = math::NkAcos((float32)(cg < -1.0 ? -1.0 : (cg > 1.0 ? 1.0 : cg)));
+						double xyz[3];
+						NkAlienEvalXYZ(cur, theta > 1.5707 ? 1.5707 : theta, gamma, xyz);
+						cell = NkPragueXYZToRGB(xyz[0], xyz[1], xyz[2]);
+					}
+					sAlienLut[j * kPragueLutW + i] = cell;
+				}
+			}
+			hosekfull::arhosekskymodelstate_free(cur);
+			hosekfull::arhosekskymodelstate_free(ref);
+			logger.Info("[NkEnvironmentSystem] Soleil alien cuit : {0} K, elevation {1} deg\n",
+						(float32)tempK, (float32)(elev * 57.2957795));
+			return true;
+		}
+
 		// Point d'entree UNIQUE du ciel procedural : modele de base puis nuages.
 		// Les quatre sites d'echantillonnage (cubemap visible, irradiance et les
 		// deux du prefilter) passent par ici — sans quoi le ciel qu'on VOIT et
 		// celui qui ECLAIRE finiraient par diverger.
 		static inline NkVec3f SampleSkyModel(float dx, float dy, float dz, const NkSkyParams &P) {
-			// PRAGUE : mesure, cuit SANS meler les nuages — ils restent une
-			// surcouche du shader, donc ANIMES par-dessus le ciel mesure. Prix
-			// assume : les reflets miroirs de ce modele n'ont pas de nuages.
+			// PRAGUE et ALIEN : mesures, cuits SANS meler les nuages — ils
+			// restent une surcouche du shader, donc ANIMES par-dessus. Prix
+			// assume : les reflets miroirs de ces modeles n'ont pas de nuages.
 			if (P.model == NkSkyModel::NK_SKY_PRAGUE)
 				return NkPragueSample(dx, dy, dz, P);
+			if (P.model == NkSkyModel::NK_SKY_ALIEN)
+				return NkSkyLutSample(sAlienLut, sAlienScale, dx, dy, dz);
 			const NkVec3f c = (P.model == NkSkyModel::NK_SKY_PHYSICAL)
 								  ? SampleSkyPhysical(dx, dy, dz, P)
 								  : SampleSkyGradient(dx, dy, dz, P.skyTop, P.horizon, P.ground);
@@ -996,19 +1135,26 @@ namespace nkentseu {
 			LoadProceduralEx(p);
 		}
 
-		bool NkEnvironmentSystem::RefreshPragueVisual(const NkSkyParams &P) {
-			// PRAGUE EN QUASI TEMPS REEL. Mesure a la sonde : recuire la table
-			// coute ~11 ms, et reecrire la cubemap visible ~2 ms de lectures
-			// bilineaires. Ce qui rendait la regeneration longue n'a jamais ete
-			// le modele : c'etaient les convolutions d'eclairage — qui restent,
-			// elles, sur la regeneration complete. Le ciel MESURE peut donc
-			// suivre le soleil en continu, l'eclairage rattrape sur demande.
+		bool NkEnvironmentSystem::RefreshBakedSkyVisual(const NkSkyParams &P) {
+			// MODELES CUITS EN QUASI TEMPS REEL (Prague, soleil alien). Mesure a
+			// la sonde : recuire la table de Prague coute ~11 ms, celle du ciel
+			// alien moins encore (formule, pas splines) ; reecrire la cubemap
+			// visible ~2 ms de lectures bilineaires. Ce qui rendait la
+			// regeneration longue n'a jamais ete le modele : c'etaient les
+			// convolutions d'eclairage — qui restent sur la regeneration
+			// complete. Le ciel peut donc suivre le soleil en continu,
+			// l'eclairage rattrape sur demande.
 			if (!mDevice || !mSkyEnvCube.IsValid())
 				return false;
-			if (P.model != NkSkyModel::NK_SKY_PRAGUE)
+			if (P.model == NkSkyModel::NK_SKY_PRAGUE) {
+				if (!NkPragueEnsure(P))
+					return false;
+			} else if (P.model == NkSkyModel::NK_SKY_ALIEN) {
+				if (!NkAlienBake(P))
+					return false;
+			} else {
 				return false;
-			if (!NkPragueEnsure(P))
-				return false;
+			}
 
 			const uint32 prefSize = mCfg.prefilterSize > 0 ? mCfg.prefilterSize : 128;
 			auto &pool = ::nkentseu::threading::NkThreadPool::GetGlobal();
@@ -1022,7 +1168,7 @@ namespace nkentseu {
 						float v = ((float)y + 0.5f) / (float)prefSize * 2.f - 1.f;
 						float Nx, Ny, Nz;
 						CubemapFaceUVToDir(face, u, v, Nx, Ny, Nz);
-						const NkVec3f s = NkPragueSample(Nx, Ny, Nz, P);
+						const NkVec3f s = SampleSkyModel(Nx, Ny, Nz, P);
 						uint32 idx = (y * prefSize + x) * 4;
 						buf[idx + 0] = s.x;
 						buf[idx + 1] = s.y;
@@ -1047,11 +1193,13 @@ namespace nkentseu {
 			const NkVec3f &skyTop = P.skyTop;
 			const NkVec3f &horizon = P.horizon;
 			const NkVec3f &ground = P.ground;
-			// PRAGUE : charge le jeu de donnees et regle la configuration AVANT
-			// le premier echantillon. En cas d'echec (fichier absent), le
-			// sampler retombe sur le degrade — la cuisson aboutit quand meme.
+			// PRAGUE / ALIEN : preparer la table AVANT le premier echantillon.
+			// En cas d'echec, le sampler retombe sur le degrade — la cuisson
+			// aboutit quand meme.
 			if (P.model == NkSkyModel::NK_SKY_PRAGUE)
 				NkPragueEnsure(P);
+			if (P.model == NkSkyModel::NK_SKY_ALIEN)
+				NkAlienBake(P);
 			(void)skyTop;
 			(void)horizon;
 			(void)ground;

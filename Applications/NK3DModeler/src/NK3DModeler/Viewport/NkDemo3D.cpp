@@ -9969,13 +9969,15 @@ namespace nkentseu {
 		static float32 nkvpSkyMoonPhase[2] = {0.25f, 0.25f};
 		// Le ciel visible vient-il de l'HDRI charge ? (source d'ambiance = 2)
 		static bool nkvpSkyFromHdr = false;
+		// Temperature de l'etoile du modele SOLEIL ALIEN. 5 778 K = la notre.
+		static float32 nkvpSkyAlienTempK = 5778.f;
 
 		int32 Demo3DHostSkyModel() {
 			return nkvpSkyModel;
 		}
 		void Demo3DHostSetSkyModel(int32 m) {
-			// 0 degrade, 1 Preetham, 2 atmosphere, 3 Hosek-Wilkie, 4 Prague.
-			const int32 v = (m < 0) ? 0 : (m > 4 ? 4 : m);
+			// 0 degrade, 1 Preetham, 2 atmosphere, 3 Hosek, 4 Prague, 5 alien.
+			const int32 v = (m < 0) ? 0 : (m > 5 ? 5 : m);
 			// NE MARQUER « a regenerer » QUE SI QUELQUE CHOSE CHANGE. L'interface
 			// repousse la valeur des qu'elle differe de la derniere poussee, ce
 			// qui arrive legitimement apres une remise a zero : sans ce test,
@@ -10116,6 +10118,16 @@ namespace nkentseu {
 			// des etoiles cuites ne scintilleraient pas.
 			nkvpSkyStarIntensity = intensity < 0.f ? 0.f : (intensity > 4.f ? 4.f : intensity);
 			nkvpSkyStarDensity = density < 20.f ? 20.f : (density > 2000.f ? 2000.f : density);
+		}
+		float32 Demo3DHostSkyAlienTemp() {
+			return nkvpSkyAlienTempK;
+		}
+		void Demo3DHostSetSkyAlienTemp(float32 kelvin) {
+			const float32 v = kelvin < 1000.f ? 1000.f : (kelvin > 30000.f ? 30000.f : kelvin);
+			if (v == nkvpSkyAlienTempK)
+				return;
+			nkvpSkyAlienTempK = v;
+			nkvpSkyDirty = true; // l'ECLAIRAGE devra etre regenere ; le visible suit seul
 		}
 		float32 Demo3DHostSkyCloudSpeed() {
 			return nkvpSkyCloudSpeed;
@@ -10278,6 +10290,7 @@ namespace nkentseu {
 			sp.starDensity = nkvpSkyStarDensity;
 			sp.starRotation = nkvpSkyStarRotation;
 			sp.shootingRate = nkvpSkyShootingRate;
+			sp.alienTempK = nkvpSkyAlienTempK;
 			// LUNES : elevation/azimut -> direction VERS la lune. Meme conversion
 			// que pour le soleil, mais SANS le signe oppose : le soleil est donne
 			// par sa direction de PROPAGATION, la lune par l'endroit ou elle SE
@@ -10306,25 +10319,26 @@ namespace nkentseu {
 			// mesure suit le soleil qu'on tire au gizmo. L'etoile du bouton
 			// reste allumee : l'ECLAIRAGE, lui, attend toujours la regeneration
 			// complete — c'est lui qui coute.
-			if (nkvpSkyModel == 4 && nkvpSkyDirty) {
+			if ((nkvpSkyModel == 4 || nkvpSkyModel == 5) && nkvpSkyDirty) {
 				static float64 sLastPragueMs = 0.0;
 				// Cle des parametres effectivement cuits : le drapeau « en
 				// attente » reste allume jusqu'a la regeneration COMPLETE, il ne
 				// dit donc pas si quelque chose a change depuis la derniere
 				// recuisson visuelle. Sans cette cle, on recuirait une table
 				// identique toutes les 250 ms.
-				static float32 sLastKey[6] = {1e30f, 0, 0, 0, 0, 0};
-				const float32 key[6] = {sp.sunDirection.x, sp.sunDirection.y, sp.sunDirection.z,
-										sp.turbidity,	  sp.sunIntensity,	 sp.ground.x};
+				static float32 sLastKey[7] = {1e30f, 0, 0, 0, 0, 0, 0};
+				const float32 key[7] = {sp.sunDirection.x, sp.sunDirection.y, sp.sunDirection.z,
+										sp.turbidity,	  sp.sunIntensity,	 sp.ground.x,
+										sp.alienTempK};
 				bool changed = false;
-				for (int32 k = 0; k < 6 && !changed; ++k)
+				for (int32 k = 0; k < 7 && !changed; ++k)
 					changed = key[k] != sLastKey[k];
 				const float64 nowMs = ::nkentseu::NkChrono::Now().nanoseconds / 1.0e6;
 				if (changed && nowMs - sLastPragueMs > 250.0) {
 					sLastPragueMs = nowMs;
 					if (auto *env = hst.ctx.renderer->GetEnvironment()) {
-						if (env->RefreshPragueVisual(sp)) {
-							for (int32 k = 0; k < 6; ++k)
+						if (env->RefreshBakedSkyVisual(sp)) {
+							for (int32 k = 0; k < 7; ++k)
 								sLastKey[k] = key[k];
 						}
 					}
