@@ -21,7 +21,7 @@
 #include "NKEvent/NkSafeArea.h"
 #include "NkSurface.h"
 #include "NKEvent/NkWindowId.h"
-#include "NKEvent/NkSystemEvent.h" // NkDisplayInfo, NkDisplayChange (énumération moniteurs)
+#include "NKEvent/NkSystemEvent.h" // NkDisplayInfo, NkDisplayChange (ï¿½numï¿½ration moniteurs)
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKPlatform/NkPlatformDetect.h"
 #include "NKMath/NKMath.h"
@@ -98,15 +98,15 @@ namespace nkentseu {
 			NkWindowConfig GetConfig() const;
 
 			// --- Moniteurs / Display (hot-plug + DPI runtime) ---
-			// Énumère tous les moniteurs connectés. Recalcule à chaque appel
-			// (reflète l'état courant — utile après un NkSystemDisplayEvent de
-			// hot-plug). Le premier élément n'est pas garanti d'être le primaire :
+			// ï¿½numï¿½re tous les moniteurs connectï¿½s. Recalcule ï¿½ chaque appel
+			// (reflï¿½te l'ï¿½tat courant ï¿½ utile aprï¿½s un NkSystemDisplayEvent de
+			// hot-plug). Le premier ï¿½lï¿½ment n'est pas garanti d'ï¿½tre le primaire :
 			// utiliser NkDisplayInfo::isPrimary pour l'identifier.
 			NkVector<NkDisplayInfo> EnumerateMonitors() const;
-			// Moniteur qui contient (majoritairement) cette fenêtre. Sur les
-			// plateformes mono-écran (mobile/web) retourne l'écran courant.
+			// Moniteur qui contient (majoritairement) cette fenï¿½tre. Sur les
+			// plateformes mono-ï¿½cran (mobile/web) retourne l'ï¿½cran courant.
 			NkDisplayInfo GetCurrentMonitor() const;
-			// Nombre de moniteurs connectés (>= 1 si au moins un écran).
+			// Nombre de moniteurs connectï¿½s (>= 1 si au moins un ï¿½cran).
 			uint32 GetMonitorCount() const;
 
 			// --- Manipulation ---
@@ -127,6 +127,11 @@ namespace nkentseu {
 			void Maximize();
 			void Restore();
 			bool IsMaximized() const; ///< true si la fenetre est maximisee (pour barre de titre custom)
+			/// true si la fenetre est REDUITE (barre des taches). A interroger avant
+			/// de rendre/redimensionner : une fenetre reduite garde un rect de
+			/// placeholder non nul (~160x28 sous Windows), tester la taille ne
+			/// detecte donc jamais la minimisation.
+			bool IsMinimized() const;
 			void BeginDragMove();	  ///< hand-off natif du deplacement (barre de titre custom, fenetre sans bordure)
 			// Presse-papiers texte (UTF-8). Win32 = vrai presse-papiers OS ; autres
 			// plateformes = fallback interne a l'application (copier/coller intra-app).
@@ -145,7 +150,7 @@ namespace nkentseu {
 			// --- Android specifics ---
 			void SetHideSystemUI(bool hide); // Masquer status bar + navigation bar
 			bool GetHideSystemUI() const;
-			void SetLockOrientation(bool lock); // Empêcher la rotation
+			void SetLockOrientation(bool lock); // Empï¿½cher la rotation
 			bool GetLockOrientation() const;
 
 			// --- Souris ---
@@ -159,11 +164,11 @@ namespace nkentseu {
 			void CaptureMouse(bool capture);
 
 			// --- Curseur ---
-			// Forme du curseur dans la zone client (consommé par les UI : poignée de
-			// redimensionnement, lien cliquable, champ texte...). Mappé sur les
+			// Forme du curseur dans la zone client (consommï¿½ par les UI : poignï¿½e de
+			// redimensionnement, lien cliquable, champ texte...). Mappï¿½ sur les
 			// curseurs natifs (Win32 IDC_*, etc.). No-op sur mobile/web (sans curseur).
 			enum class NkCursorType {
-				Arrow = 0,	///< flèche standard
+				Arrow = 0,	///< flï¿½che standard
 				TextInput,	///< I-beam (saisie texte)
 				Hand,		///< main (lien)
 				ResizeNS,	///< redimensionnement vertical  â†•
@@ -171,8 +176,8 @@ namespace nkentseu {
 				ResizeNWSE, ///< diagonale â†˜â†–
 				ResizeNESW	///< diagonale â†—â†™
 			};
-			// Persistant : à rappeler chaque frame avec le curseur voulu (sinon, sur
-			// certaines plateformes, le système le réinitialise à la flèche).
+			// Persistant : ï¿½ rappeler chaque frame avec le curseur voulu (sinon, sur
+			// certaines plateformes, le systï¿½me le rï¿½initialise ï¿½ la flï¿½che).
 			void SetCursor(NkCursorType cursor);
 
 			// Empeche le curseur de sortir de la zone client de la fenetre
@@ -184,48 +189,48 @@ namespace nkentseu {
 			void ClipMouseToClient(bool clip);
 
 			// --- Clavier logiciel (mobile : iOS / Android) ---
-			// Type de clavier logiciel demandé — influe sur la disposition des
-			// touches proposées par l'OS (mappé sur UIKeyboardType iOS / inputType
-			// Android). Ignoré sur les plateformes à clavier physique.
+			// Type de clavier logiciel demandï¿½ ï¿½ influe sur la disposition des
+			// touches proposï¿½es par l'OS (mappï¿½ sur UIKeyboardType iOS / inputType
+			// Android). Ignorï¿½ sur les plateformes ï¿½ clavier physique.
 			enum class NkSoftKeyboardType {
-				Default = 0, ///< clavier alphanumérique standard
+				Default = 0, ///< clavier alphanumï¿½rique standard
 				Ascii,		 ///< ASCII uniquement (identifiants, code)
-				Number,		 ///< pavé numérique (chiffres)
-				Phone,		 ///< pavé téléphone
-				Email,		 ///< optimisé e-mail (« @ » accessible)
-				Url,		 ///< optimisé URL (« / » « .com » accessibles)
-				Decimal		 ///< numérique avec séparateur décimal
+				Number,		 ///< pavï¿½ numï¿½rique (chiffres)
+				Phone,		 ///< pavï¿½ tï¿½lï¿½phone
+				Email,		 ///< optimisï¿½ e-mail (ï¿½ @ ï¿½ accessible)
+				Url,		 ///< optimisï¿½ URL (ï¿½ / ï¿½ ï¿½ .com ï¿½ accessibles)
+				Decimal		 ///< numï¿½rique avec sï¿½parateur dï¿½cimal
 			};
-			// Libellé / sémantique de la touche de retour du clavier logiciel.
+			// Libellï¿½ / sï¿½mantique de la touche de retour du clavier logiciel.
 			enum class NkSoftKeyboardReturnKey { Default = 0, Done, Go, Next, Search, Send };
 
-			// Options d'un clavier logiciel (valeurs par défaut = saisie de texte
-			// générique avec correction automatique).
+			// Options d'un clavier logiciel (valeurs par dï¿½faut = saisie de texte
+			// gï¿½nï¿½rique avec correction automatique).
 			struct NkSoftKeyboardConfig {
 					NkSoftKeyboardType type = NkSoftKeyboardType::Default;
 					NkSoftKeyboardReturnKey returnKey = NkSoftKeyboardReturnKey::Default;
 					bool autocorrect = true;	 ///< correction/suggestions automatiques
-					bool autocapitalize = false; ///< majuscule auto en début de phrase
-					bool secure = false;		 ///< champ mot de passe (saisie masquée)
+					bool autocapitalize = false; ///< majuscule auto en dï¿½but de phrase
+					bool secure = false;		 ///< champ mot de passe (saisie masquï¿½e)
 			};
 
-			// Affiche le clavier logiciel (mobile) et démarre une session de saisie.
-			// La saisie est ensuite délivrée par le système d'événements :
-			//   - NkTextInputEvent  pour chaque caractère Unicode (via GetUtf8/GetCodepoint) ;
-			//   - NkKeyPressEvent/NkKeyReleaseEvent pour NK_BACK (retour arrière),
+			// Affiche le clavier logiciel (mobile) et dï¿½marre une session de saisie.
+			// La saisie est ensuite dï¿½livrï¿½e par le systï¿½me d'ï¿½vï¿½nements :
+			//   - NkTextInputEvent  pour chaque caractï¿½re Unicode (via GetUtf8/GetCodepoint) ;
+			//   - NkKeyPressEvent/NkKeyReleaseEvent pour NK_BACK (retour arriï¿½re),
 			//     NK_ENTER (retour) et NK_TAB (tabulation).
-			// À appeler quand un champ texte prend le focus. No-op sur desktop
+			// ï¿½ appeler quand un champ texte prend le focus. No-op sur desktop
 			// (clavier physique) et sur les backends sans clavier logiciel.
-			// NB : pas de défaut `= {}` ici — clang-mingw (Windows) refuse un
-			// brace-init d'une struct imbriquée à initialiseurs par défaut tant que
-			// la classe englobante est incomplète ("default member initializer for
+			// NB : pas de dï¿½faut `= {}` ici ï¿½ clang-mingw (Windows) refuse un
+			// brace-init d'une struct imbriquï¿½e ï¿½ initialiseurs par dï¿½faut tant que
+			// la classe englobante est incomplï¿½te ("default member initializer for
 			// 'type' needed within definition of enclosing class"). Pour un appel
-			// "défauts", passer explicitement `NkSoftKeyboardConfig{}`.
+			// "dï¿½fauts", passer explicitement `NkSoftKeyboardConfig{}`.
 			void ShowSoftKeyboard(const NkSoftKeyboardConfig &config);
 			// Masque le clavier logiciel et termine la session de saisie. No-op
-			// là où ShowSoftKeyboard l'est.
+			// lï¿½ oï¿½ ShowSoftKeyboard l'est.
 			void HideSoftKeyboard();
-			// true si le clavier logiciel est actuellement affiché par cette fenêtre.
+			// true si le clavier logiciel est actuellement affichï¿½ par cette fenï¿½tre.
 			bool IsSoftKeyboardVisible() const;
 
 			// --- Web / WASM ---
