@@ -1090,6 +1090,21 @@ namespace nkentseu {
 				// si aucune n'est sous son seuil. Sert a ARBITRER gizmo vs maillage : l'editeur
 				// compare cette distance a celle de son meilleur candidat sommet/arete et ne
 				// laisse le clic au gizmo que si le gizmo est REELLEMENT plus proche.
+				// ── TEST PRECIS OPTIONNEL (fourni par l'application) ────────────────
+				// Rayon -> triangles du MESH REEL d'un objet (regle de Rihen : la
+				// selection se decide sur la geometrie visible, pas sur une boite).
+				// Retour : 1 = touche (tInOut affine), 0 = teste et RATE (la reponse
+				// fait autorite, la boite ne vote plus), -1 = pas de donnees (le
+				// gizmo retombe sur sa boite). Pointeur de fonction C + user data --
+				// pas de std::function (outils internes d'abord).
+				typedef int32 (*NkGizmoRayTest)(void *user, int32 index, const NkMat4f &world,
+												NkVec3f rayOrigin, NkVec3f rayDir,
+												float32 &tInOut);
+				void SetRayPickTest(NkGizmoRayTest fn, void *user) noexcept {
+					mRayFn = fn;
+					mRayUser = user;
+				}
+
 				float32 HandlePickDistPx(float32 mouseX, float32 mouseY) const {
 					if (!mHaveSel)
 						return 1e30f;
@@ -1146,12 +1161,30 @@ namespace nkentseu {
 											  mFwd.z + mRgt.z * (ndcX * mThX) + mUp.z * (ndcY * mThY)});
 					float32 bestT = 1e30f;
 					int32 bestId = -1;
+					// Objets deja tranches par le test PRECIS : ni la boite ni la
+					// sphere de repli ne doivent revoter pour eux.
+					bool precise[kMax] = {};
 					// 1) Pick sur la BOÎTE de l'objet (OBB monde = mComposed × mHalf).
 					// La sphère seule ne peut pas décrire un objet PLAT ou très allongé :
 					// un sol de 80×80 aurait un rayon englobant énorme et volerait tous
 					// les clics, y compris ceux des objets posés dessus. La boîte épouse
 					// la forme réelle, donc chaque objet ne capte que sa propre surface.
 					for (int32 i = 0; i < mCount; i++) {
+						if (mRayFn) {
+							// TEST PRECIS de l'application (rayon -> triangles du
+							// mesh REEL) : sa reponse fait autorite quand il a des
+							// donnees ; sinon (-1) on retombe sur la boite.
+							float32 t = bestT;
+							const int32 rr = mRayFn(mRayUser, i, mComposed[i], mCamPos, rd, t);
+							if (rr >= 0) {
+								precise[i] = true;
+								if (rr > 0 && t > 0.f && t < bestT) {
+									bestT = t;
+									bestId = i;
+								}
+								continue;
+							}
+						}
 						const NkVec3f h = mHalf[i];
 						if (h.x <= 0.f && h.y <= 0.f && h.z <= 0.f)
 							continue; // pas d'extent connu -> laissé à la sphère
@@ -1216,6 +1249,8 @@ namespace nkentseu {
 					// quand même) sans laisser un objet plat capter ce qui ne le concerne pas.
 					if (bestId < 0) {
 						for (int32 i = 0; i < mCount; i++) {
+							if (precise[i])
+								continue; // le mesh reel a deja repondu : pas de tolerance sphere
 							NkVec3f c = Ctr(i);
 							NkVec3f oc = {mCamPos.x - c.x, mCamPos.y - c.y, mCamPos.z - c.z};
 							float32 b = Dot(oc, rd), cc = Dot(oc, oc) - mPickR[i] * mPickR[i], disc = b * b - cc;
@@ -1527,6 +1562,9 @@ namespace nkentseu {
 				int32 mCount = 0;
 				NkMat4f mComposed[kMax];
 				NkVec3f mHalf[kMax] = {};
+				// Test precis optionnel (voir SetRayPickTest).
+				NkGizmoRayTest mRayFn = nullptr;
+				void *mRayUser = nullptr;
 				float32 mPickR[kMax] = {};
 				NkVec3f mPivot = {0, 0, 0}, mGB[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
 				float32 mPivDist = 1.f, mGL = 1.f;
