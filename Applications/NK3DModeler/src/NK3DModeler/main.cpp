@@ -35,6 +35,14 @@
 #include "NK3DModeler/Shell/NkModelerTheme.h"
 #include "NK3DModeler/Shell/NkModelerScreens.h"
 #include "NKEvent/NkMouseEvent.h"
+// Captures (« Capturer la vue » / « Tutoriel ») : dossier + numerotation +
+// photographie de la fenetre entiere.
+#include "NKFileSystem/NkDirectory.h"
+#include "NKFileSystem/NkFile.h"
+#include "NKImage/NKImage.h"
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
+#include <windows.h>
+#endif
 
 #include <cstdio>
 
@@ -43,6 +51,75 @@ using namespace nkentseu::editorkit;
 using namespace nkentseu::nk3d;
 
 namespace {
+
+	// ── CAPTURES ────────────────────────────────────────────────────────────
+	// Premier chemin LIBRE captures/<prefixe>_NNN.png : une numerotation simple
+	// et lisible, sans horloge -- l'ordre des fichiers EST l'ordre des prises.
+	bool NkNextCapturePath(const char *prefix, char *out, int32 cap) {
+		NkDirectory::CreateRecursive("captures");
+		for (int32 i = 1; i < 1000; ++i) {
+			std::snprintf(out, (size_t)cap, "captures/%s_%03d.png", prefix, (int)i);
+			if (!NkFile::Exists(out))
+				return true;
+		}
+		return false;
+	}
+
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
+	// « Tutoriel » : TOUTE la fenetre, interface comprise. PrintWindow avec
+	// PW_RENDERFULLCONTENT (2) demande a l'OS l'image COMPOSEE (le rendu D3D
+	// inclus) ; repli BitBlt si l'OS refuse. BGRA -> RGBA puis PNG via NkImage.
+	bool NkCaptureWholeWindow(NkWindow &win, const char *path) {
+		const NkSurfaceDesc sd = win.GetSurfaceDesc();
+		HWND hwnd = sd.hwnd;
+		if (!hwnd)
+			return false;
+		RECT rc{};
+		if (!GetWindowRect(hwnd, &rc))
+			return false;
+		const int32 w = rc.right - rc.left, h = rc.bottom - rc.top;
+		if (w <= 0 || h <= 0)
+			return false;
+		HDC hdcWin = GetWindowDC(hwnd);
+		HDC hdcMem = CreateCompatibleDC(hdcWin);
+		BITMAPINFO bi{};
+		bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+		bi.bmiHeader.biWidth = w;
+		bi.bmiHeader.biHeight = -h; // negatif = origine en HAUT (ordre des lignes PNG)
+		bi.bmiHeader.biPlanes = 1;
+		bi.bmiHeader.biBitCount = 32;
+		bi.bmiHeader.biCompression = BI_RGB;
+		void *bits = nullptr;
+		HBITMAP hbmp = CreateDIBSection(hdcMem, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+		bool ok = false;
+		if (hbmp) {
+			HGDIOBJ old = SelectObject(hdcMem, hbmp);
+			ok = PrintWindow(hwnd, hdcMem, 2 /*PW_RENDERFULLCONTENT*/) != 0;
+			if (!ok)
+				ok = BitBlt(hdcMem, 0, 0, w, h, hdcWin, 0, 0, SRCCOPY | CAPTUREBLT) != 0;
+			if (ok && bits) {
+				NkImage img;
+				ok = img.Create((uint32)w, (uint32)h, math::NkColor(0, 0, 0, 255), 4);
+				if (ok) {
+					const uint8 *src = (const uint8 *)bits;
+					uint8 *dst = img.Pixels();
+					for (int32 i = 0; i < w * h; ++i) { // BGRA -> RGBA, alpha opaque
+						dst[i * 4 + 0] = src[i * 4 + 2];
+						dst[i * 4 + 1] = src[i * 4 + 1];
+						dst[i * 4 + 2] = src[i * 4 + 0];
+						dst[i * 4 + 3] = 255;
+					}
+					ok = img.Save(path);
+				}
+			}
+			SelectObject(hdcMem, old);
+			DeleteObject(hbmp);
+		}
+		DeleteDC(hdcMem);
+		ReleaseDC(hwnd, hdcWin);
+		return ok;
+	}
+#endif
 
 	// Les raccourcis de la modelisation. UNE SEULE table : les menus de la vue,
 	// le menu contextuel, la palette de recherche et le panneau T la liront tous.
@@ -1215,6 +1292,30 @@ int nkmain(const NkEntryState &entry) {
 		renderer.BeginFrame();
 		renderer.SubmitDrawList(ui.dl, lastW, lastH);
 		renderer.EndFrame();
+
+		// ── CAPTURES, une fois l'image envoyee ──────────────────────────────
+		// « Capturer la vue » fige la cible hors ecran de la vue 3D (la scene
+		// seule, sans interface) ; « Tutoriel » photographie TOUTE la fenetre
+		// via l'OS. PNG numerotes dans captures/ du projet (regle de Rihen).
+		if (st.capturePending) {
+			const int32 capMode = st.capturePending;
+			st.capturePending = 0;
+			char capPath[256];
+			if (capMode == 1) {
+				if (NkNextCapturePath("vue", capPath, (int32)sizeof(capPath)))
+					demo::Demo3DHostCaptureView(capPath); // trace son resultat au journal
+			} else {
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
+				if (NkNextCapturePath("tutoriel", capPath, (int32)sizeof(capPath))) {
+					const bool okCap = NkCaptureWholeWindow(window, capPath);
+					std::printf("[NK3DModeler] Capture tutoriel -> %s : %s\n", capPath,
+								okCap ? "ecrite" : "ECHEC");
+				}
+#else
+				std::printf("[NK3DModeler] Capture tutoriel : pas encore portee sur cette plateforme\n");
+#endif
+			}
+		}
 
 		// ── ACTIONS DE FENETRE, HORS FRAME ──────────────────────────────────
 		// BeginDragMove et Maximize entrent dans une boucle modale de l'OS : les

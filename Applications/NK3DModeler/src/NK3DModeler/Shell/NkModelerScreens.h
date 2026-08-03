@@ -2839,6 +2839,46 @@ namespace nkentseu {
 		// changer d'outil en croyant deplacer la vue.
 		inline void PaintViewButtons(NkModelerPainter &p, NkHitRegistry &hit, NkModelerState &st,
 									 float32 x, float32 y) {
+			// ── CAPTURE : un BOUTON-MENU (regle de Rihen). Le clic devoile les
+			// types, et cliquer une entree EXECUTE directement sa capture :
+			//   Capture  -> la vue 3D seule, sans interface ;
+			//   Tutoriel -> TOUTE la fenetre, interface comprise.
+			// PNG numerotes dans captures/ du projet. La liste s'agrandira.
+			// EN HAUT de la colonne : empile en bas, le bouton finissait SOUS
+			// la boule de navigation, invisible.
+			{
+				const float32 d0 = 26.f;
+				const NkRect cb{x, y, d0, d0};
+				const bool overC = hit.Add("view.shotgo", cb);
+				if (st.captureMenuOpen)
+					p.Fill(cb, NkRole::AccentUi, 4.f);
+				else
+					p.Outline(cb, overC ? NkRole::AccentUi : NkRole::Border, NkRole::PanelHeader, 4.f);
+				p.IconV(cb.x + (d0 - 14.f) * 0.5f, cb.y, d0, NkIcon::ImageRef,
+						st.captureMenuOpen ? NkRole::TextOnAccent : NkRole::Text, 14.f);
+				if (overC)
+					hit.WantCursor(NkCursorWant::Hand);
+				if (hit.Clicked("view.shotgo"))
+					st.captureMenuOpen = !st.captureMenuOpen;
+				if (st.captureMenuOpen) {
+					static const char *const kCapM[2] = {"Capture", "Tutoriel"};
+					static const char *const kCapKeys[2] = {"view.shot.vue", "view.shot.tuto"};
+					for (int32 m = 0; m < 2; ++m) {
+						const NkRect mr{x + d0 + 6.f, y + (float32)m * (d0 + 2.f), 96.f, d0};
+						const bool ovM = hit.Add(kCapKeys[m], mr);
+						p.Fill(mr, ovM ? NkRole::AccentUi : NkRole::PanelHeader, 4.f);
+						p.TextV(mr.x + 8.f, mr.y, d0, kCapM[m],
+								ovM ? NkRole::TextOnAccent : NkRole::Text);
+						if (ovM)
+							hit.WantCursor(NkCursorWant::Hand);
+						if (hit.Clicked(kCapKeys[m])) {
+							st.capturePending = m + 1; // 1 = vue 3D, 2 = fenetre
+							st.captureMenuOpen = false;
+						}
+					}
+				}
+				y += d0 + 6.f;
+			}
 			// QUATRE COMMANDES DE NAVIGATION, cablees sur la DEMO PORTEE :
 			//   Loupe  -> glisser = zoom (le meme chemin que sa molette) ;
 			//            double-clic = pose d'ouverture ;
@@ -3916,7 +3956,10 @@ namespace nkentseu {
 			// on descend du plus abstrait (l'orientation) vers le plus direct (zoom,
 			// deplacement). Les mettre dessous les collait au bord de la fenetre.
 			const float32 gz = 34.f;
-			const float32 navH = 4.f * 26.f + 3.f * 5.f;
+			// CINQ rangs desormais : la rangee CAPTURE (declencheur + combo du
+			// type) vit AU-DESSUS des quatre boutons de navigation -- empilee en
+			// bas, elle finissait sous la boule de navigation, invisible (Rihen).
+			const float32 navH = 5.f * 26.f + 4.f * 6.f;
 			const float32 navY = r.y + r.h - 22.f - gz * 2.f - 14.f - navH;
 			PaintViewButtons(p, hit, st, r.x + 14.f, navY);
 			PaintNavGizmo(p, hit, st, r.x + 12.f + gz, r.y + r.h - 22.f - gz, gz);
