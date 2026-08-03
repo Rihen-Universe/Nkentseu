@@ -120,6 +120,16 @@ namespace nkentseu {
 				}
 
 				void OnResize(uint32 w, uint32 h) override {
+					// GARDE ANTI-MINIMISATION : une fenetre en cours de reduction
+					// glisse son rect placeholder (~160x28 sous Windows) entre le
+					// test « minimisee ? » de la boucle principale et la lecture
+					// de taille -- la course est reelle (defaut 4.3, reproduite).
+					// Sous 32 px, les cibles divisees du rendu (bloom /32) tombent
+					// a zero et CreateTexture2D echoue en E_INVALIDARG -> mort a
+					// la restauration. On refuse net : la vraie taille arrivera
+					// avec le retour de la fenetre.
+					if (w < 32 || h < 32)
+						return;
 					if (mDev)
 						mDev->OnResize(w, h);
 				}

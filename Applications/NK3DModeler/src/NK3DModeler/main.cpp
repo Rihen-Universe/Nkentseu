@@ -554,8 +554,14 @@ int nkmain(const NkEntryState &entry) {
 		// GetSize() ne detectait donc jamais la minimisation, et l'application
 		// continuait a rendre puis mourait.
 		{
+			// L'ETAT MINIMISE se demande a l'OS (IsIconic), PAS a la taille :
+			// une fenetre reduite garde un rect de placeholder (~160x28 sous
+			// Windows), jamais nul -- la garde par taille ne declenchait pas,
+			// ce rect partait en ResizeSwapchain, une cible divisee (bloom /32)
+			// tombait a zero et CreateTexture2D echouait : mort a la
+			// restauration (defaut 4.3, reproduit par messages systeme).
 			const NkSurfaceDesc surf0 = window.GetSurfaceDesc();
-			if (surf0.width == 0 || surf0.height == 0) {
+			if (window.IsMinimized() || surf0.width == 0 || surf0.height == 0) {
 				NkClock::SleepMilliseconds(8);
 				continue;
 			}

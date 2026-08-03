@@ -7,6 +7,23 @@ mêmes recherches.
 Dernier commit poussé : `9c379ee0` sur `main`.
 Langue de travail : **français** (code, commentaires, échanges).
 
+## 0. Ordre des chantiers (fixé par Rihen, 2026-08-03)
+
+1. ~~§4.3 crash à la restauration de fenêtre~~ — **résolu** (cf. §4.3) ;
+2. §4.7 ombre du soleil trop petite ;
+3. bouton « Capturer la vue » — **DEUX boutons** (précision Rihen) :
+   « Tutoriel » capture TOUTE la fenêtre, « Capturer la vue » capture
+   SEULEMENT la vue 3D active ;
+4. option sol infini ;
+5. presets de nuages sombres (pluie / désert) ;
+6. matériau en pastille — pas fini — + vraies fonctions : créer un matériau et
+   l'appliquer. (Quand on attaquera les modificateurs : eux aussi en pastille à
+   part.)
+7. Plus tard, après les fonctions d'édition : matériaux par mesh (un model =
+   plusieurs matériaux, chaque matériau applicable à un mesh précis), matériaux
+   dynamiques, matériaux de déformation, etc. ;
+8. chantier de suppression de la démo (d'un bloc, quand l'édition sera stable).
+
 ---
 
 ## 1. Règles de travail (impératives)
@@ -247,10 +264,36 @@ payée plus tard.
 
 ### 4.3 — Fermeture de l'application à la RESTAURATION d'une fenêtre réduite
 
-**Non résolu.** Voir aussi la section 9 de `CLAUDE.md`.
+**RÉSOLU (2026-08-03)** — reproduit de façon déterministe par messages système
+(`ShowWindow` minimiser/restaurer, sans souris) : mort au 1er-3e cycle avant
+correction, **6/6 cycles survécus** après.
 
-Symptôme : l'application meurt en restaurant une fenêtre minimisée. Le journal
-s'arrête net sur `ResizeSwapchain` puis `RebuildRenderGraph`.
+**Cause racine (prouvée par le journal)** : une fenêtre minimisée n'annonce PAS
+une taille nulle — Windows lui laisse un rect de placeholder (~**160×28**). La
+garde « surface == 0 » ne déclenchait donc jamais ; ce rect partait en
+`ResizeSwapchain 160×28`, une cible divisée de la chaîne de bloom (/32) tombait
+à zéro, `CreateTexture2D` échouait en `E_INVALIDARG`, et l'application mourait
+sur la cible invalide.
+
+**Correctifs (2026-08-03)** :
+- `NkWindow::IsMinimized()` ajouté à l'API fenêtre (Win32 = `IsIconic`, suivi
+  réel aussi sur HarmonyOS/Cocoa, repli `false` ailleurs) — c'est l'OS qu'on
+  interroge, pas la taille ;
+- boucle principale : `IsMinimized()` → on ne rend ni ne redimensionne rien ;
+- **garde au puits** (la course est réelle : la minimisation peut glisser son
+  rect entre le test et la lecture de taille) : `NkEditorRHIRenderer::OnResize`
+  et `NkRendererImpl::ApplyRenderSize` refusent toute taille < 32 px ;
+- le test Debug a révélé un **troisième chemin** : `NkUIMultiViewport` pousse la
+  taille de ses fenêtres directement au device — gardé (`IsMinimized` + < 32) ;
+- et verrou FINAL **au device** (`NkDirectX11Device::OnResize`,
+  `NkDirectX12Device::OnResize` : refus < 32 px) : quel que soit le chemin
+  d'appel, présent ou futur, la taille dégénérée ne passe plus.
+
+**Preuve** : 6 cycles minimiser/restaurer en Release ET en Debug, 12/12 vivante,
+zéro `ResizeSwapchain`/`CreateTexture2D` au journal depuis le lancement.
+
+Symptôme historique : l'application meurt en restaurant une fenêtre minimisée.
+Le journal s'arrête net sur `ResizeSwapchain` puis `RebuildRenderGraph`.
 
 **Correctifs déjà appliqués (à conserver — chacun est un vrai défaut)** :
 - `NkRendererImpl::BeginFrame` fait désormais l'auto-resize **avant**
