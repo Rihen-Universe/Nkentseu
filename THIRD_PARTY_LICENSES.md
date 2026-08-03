@@ -38,10 +38,15 @@ licence, et ce que la licence exige.
 - **Auteurs** : les auteurs de l'article (équipe d'Alexander Wilkie, Université
   Charles, Prague).
 - **Licence** : **BSD 3 clauses** — mêmes conditions que Hosek-Wilkie ci-dessus.
-- **Ce qui est incorporé** (copies **VERBATIM**, SHA-256 vérifiées à la copie) :
+- **Ce qui est incorporé** (SHA-256 vérifiées à la copie) :
   - `Kernel/Runtime/NKRenderer/src/NKRenderer/Tools/Environment/ArPragueSkyModelGroundXYZ.inl`
-    — le `.c` officiel à l'octet près (seul le nom de fichier change, pour
-    l'inclure dans une unité C++) — `015B82133887E8C9…` ;
+    — le `.c` officiel (copié à l'octet près : `015B82133887E8C9…`, nom changé
+    pour l'inclure dans une unité C++), **avec UNE modification** signalée par
+    un avis en tête de la fonction concernée : dans
+    `arpragueskymodelground_double_from_half`, `unsigned long` →
+    `unsigned long long`. L'original décale de 32 bits un type qui ne fait que
+    32 bits sous Windows (LLP64) : toutes les valeurs du jeu de données se
+    décodaient en zéro. Modification permise par la licence BSD ;
   - `…/ArPragueSkyModelGroundXYZ.h` — `87A8C548031141F3…` ;
   - `…/ArPragueSkyModelGroundXYZ_LICENSE.txt` — le texte de licence d'origine ;
   - `Resources/NKRenderer/Sky/SkyModelDataset.dat` (18,4 Mo) —
