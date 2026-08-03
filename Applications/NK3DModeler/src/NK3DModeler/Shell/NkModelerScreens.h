@@ -7034,13 +7034,39 @@ namespace nkentseu {
 									if (cOn != o0 || cCov != v0 || cDen != w0 || cScl != s0c || colCh)
 										demo::Demo3DHostSetSkyClouds(cOn, cCov, cDen, cScl, cCol);
 									if (cOn) {
-										const NkRect rrc{iA.x, yy + S(2.f), iA.w, kRowH - S(4.f)};
-										hit.Add("prop.sky.creset", rrc);
-										p.Outline(rrc, NkRole::Border, NkRole::InputBg, 3.f);
-										p.TextV(rrc.x + (rrc.w - p.TextW("Nuages par defaut")) * 0.5f,
-												yy, kRowH, "Nuages par defaut", NkRole::TextMuted);
-										if (hit.Clicked("prop.sky.creset"))
-											demo::Demo3DHostResetClouds();
+										// AMBIANCES : des reglages tout faits. Le bouton de
+										// l'ambiance EN PLACE est plein (accent) -- des
+										// qu'un curseur est retouche, plus aucun ne
+										// s'allume, et c'est le bon message : on n'est
+										// plus sur un preset.
+										static const char *const kAmb[3] = {"Defaut", "Pluie",
+																			"Desert"};
+										static const char *const kAmbKey[3] = {
+											"prop.sky.creset", "prop.sky.cpluie",
+											"prop.sky.cdesert"};
+										const int32 ambCur = demo::Demo3DHostCloudPreset();
+										const float32 gpA = S(4.f);
+										const float32 bwA = (iA.w - gpA * 2.f) / 3.f;
+										for (int32 a = 0; a < 3; ++a) {
+											const NkRect ra{iA.x + (bwA + gpA) * a, yy + S(2.f),
+															bwA, kRowH - S(4.f)};
+											hit.Add(kAmbKey[a], ra);
+											const bool actA = ambCur == a;
+											if (actA)
+												p.Fill(ra, NkRole::AccentUi, 3.f);
+											else
+												p.Outline(ra, NkRole::Border, NkRole::InputBg,
+														  3.f);
+											const char *la = kAmb[a];
+											float32 twA = p.TextW(la);
+											if (twA <= ra.w - S(2.f))
+												p.TextV(ra.x + (ra.w - twA) * 0.5f, yy, kRowH,
+														la,
+														actA ? NkRole::TextOnAccent
+															 : NkRole::TextMuted);
+											if (hit.Clicked(kAmbKey[a]))
+												demo::Demo3DHostApplyCloudPreset(a);
+										}
 										yy += kRowH;
 									}
 								}

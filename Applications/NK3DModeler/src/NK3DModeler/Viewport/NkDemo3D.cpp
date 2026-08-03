@@ -10916,6 +10916,27 @@ namespace nkentseu {
 		static constexpr float32 kCloudDenDef = 1.f;
 		static constexpr float32 kCloudSclDef = 2.f;
 		static constexpr float32 kCloudColDef[3] = {1.f, 1.f, 1.f};
+		static constexpr float32 kCloudSpdDef = 0.02f;
+		// AMBIANCES de nuages : une TABLE UNIQUE sert a la fois a poser un
+		// preset et a reconnaitre lequel est en place -- deux copies des memes
+		// valeurs finiraient forcement par diverger et le bouton s'allumerait
+		// sur la mauvaise ambiance.
+		struct NkCloudPreset {
+			float32 cov, den, scl, col[3], spd;
+		};
+		static constexpr NkCloudPreset kCloudPresets[3] = {
+			// DEFAUT : les valeurs d'origine, nuages laisses allumes -- on
+			// repose les curseurs, on n'eteint pas la couche.
+			{kCloudCovDef, kCloudDenDef, kCloudSclDef,
+			 {kCloudColDef[0], kCloudColDef[1], kCloudColDef[2]}, kCloudSpdDef},
+			// PLUIE : ciel presque couvert, couche epaisse (le soleil ne perce
+			// qu'en lueur), gris-bleu sombre, et ca defile -- un ciel de pluie
+			// n'est jamais fige.
+			{0.88f, 1.75f, 2.6f, {0.33f, 0.35f, 0.40f}, 0.28f},
+			// DESERT : quelques voiles etires et clairsemes, teintes de la
+			// poussiere en suspension, presque immobiles dans l'air chaud.
+			{0.22f, 0.65f, 5.0f, {0.95f, 0.87f, 0.74f}, 0.05f},
+		};
 		static constexpr float32 kAmbientDef = 0.05f;
 		static constexpr float32 kAmbientColDef[3] = {1.f, 1.f, 1.f};
 		static constexpr float32 kSkyBrightnessDef = 1.f;
@@ -10988,7 +11009,7 @@ namespace nkentseu {
 		// Vitesse de defilement des nuages. Sans objet pour la cuisson (une
 		// cubemap est une image fixe) : elle n'a de sens que depuis que le ciel
 		// visible est evalue a chaque image dans le shader.
-		static float32 nkvpSkyCloudSpeed = 0.02f;
+		static float32 nkvpSkyCloudSpeed = kCloudSpdDef;
 		// Etoiles : meme nature que la vitesse des nuages — elles n'existent que
 		// pour le ciel evalue en temps reel, et ne demandent aucune regeneration.
 		static float32 nkvpSkyStarIntensity = 0.f;
@@ -11509,14 +11530,36 @@ namespace nkentseu {
 			// que l'image suive, et douterait de ce qui a ete fait.
 			Demo3DHostApplySky();
 		}
-		void Demo3DHostResetClouds() {
-			nkvpSkyClouds = false;
-			nkvpSkyCloudCoverage = kCloudCovDef;
-			nkvpSkyCloudDensity = kCloudDenDef;
-			nkvpSkyCloudScale = kCloudSclDef;
+		void Demo3DHostApplyCloudPreset(int32 which) {
+			// Une AMBIANCE est un point de depart, pas un verrou : elle pose les
+			// curseurs et l'utilisateur reste libre de les retoucher ensuite.
+			if (which < 0 || which > 2)
+				return;
+			const NkCloudPreset &pr = kCloudPresets[which];
+			nkvpSkyClouds = true;
+			nkvpSkyCloudCoverage = pr.cov;
+			nkvpSkyCloudDensity = pr.den;
+			nkvpSkyCloudScale = pr.scl;
 			for (int32 i = 0; i < 3; ++i)
-				nkvpSkyCloudColor[i] = kCloudColDef[i];
+				nkvpSkyCloudColor[i] = pr.col[i];
+			nkvpSkyCloudSpeed = pr.spd;
 			Demo3DHostApplySky();
+		}
+		int32 Demo3DHostCloudPreset() {
+			// L'ambiance EN PLACE se reconnait aux valeurs, pas a un drapeau
+			// memorise : des que l'utilisateur retouche un curseur, plus rien ne
+			// correspond et aucun bouton ne s'allume -- c'est le bon message.
+			if (!nkvpSkyClouds)
+				return -1;
+			for (int32 w = 0; w < 3; ++w) {
+				const NkCloudPreset &pr = kCloudPresets[w];
+				if (nkvpSkyCloudCoverage == pr.cov && nkvpSkyCloudDensity == pr.den &&
+					nkvpSkyCloudScale == pr.scl && nkvpSkyCloudColor[0] == pr.col[0] &&
+					nkvpSkyCloudColor[1] == pr.col[1] && nkvpSkyCloudColor[2] == pr.col[2] &&
+					nkvpSkyCloudSpeed == pr.spd)
+					return w;
+			}
+			return -1;
 		}
 		const char *Demo3DHostHdrPath() {
 			return nkvpHdrPath;

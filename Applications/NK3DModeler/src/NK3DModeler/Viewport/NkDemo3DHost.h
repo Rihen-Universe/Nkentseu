@@ -358,7 +358,13 @@ namespace nkentseu {
 		// valeurs viennent des memes constantes que l'etat initial.
 		void Demo3DHostResetAmbient();
 		void Demo3DHostResetSky();
-		void Demo3DHostResetClouds();
+		// AMBIANCES de nuages : des reglages tout faits (couverture, densite,
+		// echelle, couleur, vitesse) qui regenerent aussitot. 0 = defaut
+		// (valeurs d'origine, nuages laisses allumes), 1 = pluie, 2 = desert.
+		// La requete dit laquelle est EN PLACE (-1 : aucune / retouchee), pour
+		// que l'interface allume le bon bouton.
+		void Demo3DHostApplyCloudPreset(int32 which);
+		int32 Demo3DHostCloudPreset();
 		// Le CIEL PROCEDURAL : trois couleurs (zenith, horizon, sol) dont le
 		// moteur deduit l'irradiance et les reflets. La regeneration est un calcul
 		// CPU, d'ou un declenchement a la demande.
