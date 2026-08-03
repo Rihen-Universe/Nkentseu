@@ -27,7 +27,7 @@ namespace nkentseu {
 		// Un static_assert dans UploadUBOs verifie l'accord : agrandir PBRCamUBO
 		// sans toucher a cette constante casse la COMPILATION, au lieu de perdre
 		// les derniers champs sans un mot.
-		static constexpr uint32 kPBRCamUBOSize = 592;
+		static constexpr uint32 kPBRCamUBOSize = 672;
 
 		NkRender3D::~NkRender3D() {
 			Shutdown();
@@ -2107,8 +2107,17 @@ namespace nkentseu {
 					NkVec4f skyHorizonCol; // xyz couleur d'horizon, w couverture
 					NkVec4f skyGroundCol;  // xyz couleur du sol,    w densite
 					NkVec4f skySunCol;	  // xyz teinte du soleil,  w echelle des nuages
-					NkVec4f skyCloudCol;  // xyz couleur des nuages, w reserve
-					NkVec4f skyP7;		  // reserve (lunes, etoiles)
+					NkVec4f skyCloudCol; // xyz couleur des nuages, w reserve
+					NkVec4f skyP7;		 // x etoiles, y densite, z nombre de lunes, w libre
+					// LUNES : deux vec4 chacune. Un TABLEAU, pas un cas
+					// particulier -- une lune de plus ne coute qu'une iteration.
+					//   A : xyz direction VERS la lune, w rayon apparent (radians)
+					//   B : xyz couleur,                w luminosite
+					NkVec4f skyMoonA0, skyMoonB0;
+					NkVec4f skyMoonA1, skyMoonB1;
+					// PHASES FORCEES (option) : x phase lune 0, y mode lune 0
+					// (0 = deduite du soleil, 1 = forcee), z et w idem lune 1.
+					NkVec4f skyMoonPhase;
 			};
 
 			// L'ALLOCATION ET L'ECRITURE DOIVENT S'ACCORDER. Sans cette
@@ -2220,10 +2229,15 @@ namespace nkentseu {
 			// les deux doivent rester d'accord.
 			{
 				const NkSkyParams &SP = mSkyParams;
-				// 2 = cubemap : cas HDRI, l'image vient d'un fichier et ne se
+				// 9 = cubemap : cas HDRI, l'image vient d'un fichier et ne se
 				// calcule pas. Le drapeau prime sur le modele procedural.
-				const float32 modelId =
-					mSkyFromCubemap ? 2.f : ((SP.model == NkSkyModel::NK_SKY_PHYSICAL) ? 1.f : 0.f);
+				//
+				// Valeur volontairement ELOIGNEE des identifiants de modele : ils
+				// se numerotent 0, 1, 2... et continueront de grandir. Garder le
+				// cubemap a 2 aurait force a le renumeroter a chaque modele
+				// ajoute — et une renumerotation muette entre le C++ et un shader
+				// ne se signale pas, elle se constate a l'ecran, trop tard.
+				const float32 modelId = mSkyFromCubemap ? 9.f : (float32)(int32)SP.model;
 				cb.skyP0 = {modelId, SP.turbidity, SP.sunIntensity, SP.sunDisc ? 1.f : 0.f};
 				cb.skySunDir = {SP.sunDirection.x, SP.sunDirection.y, SP.sunDirection.z, SP.cloudSpeed};
 				cb.skyTopCol = {SP.skyTop.x, SP.skyTop.y, SP.skyTop.z, SP.clouds ? 1.f : 0.f};
@@ -2231,7 +2245,26 @@ namespace nkentseu {
 				cb.skyGroundCol = {SP.ground.x, SP.ground.y, SP.ground.z, SP.cloudDensity};
 				cb.skySunCol = {SP.sunColor.x, SP.sunColor.y, SP.sunColor.z, SP.cloudScale};
 				cb.skyCloudCol = {SP.cloudColor.x, SP.cloudColor.y, SP.cloudColor.z, 0.f};
-				cb.skyP7 = {0.f, 0.f, 0.f, 0.f};
+				// .x intensite des etoiles, .y leur densite, .z nombre de lunes.
+				cb.skyP7 = {SP.starIntensity, SP.starDensity, (float32)SP.moonCount, 0.f};
+				// LUNES. Le tableau est parcouru sans cas particulier : « une » et
+				// « plusieurs » suivent le meme chemin.
+				{
+					const NkVec4f zeroA{0.f, 1.f, 0.f, 0.f}; // rayon 0 = lune eteinte
+					NkVec4f mA[2] = {zeroA, zeroA};
+					NkVec4f mB[2] = {{0.f, 0.f, 0.f, 0.f}, {0.f, 0.f, 0.f, 0.f}};
+					for (int32 m = 0; m < NkSkyParams::kMaxMoons && m < SP.moonCount; ++m) {
+						const auto &Mo = SP.moons[m];
+						mA[m] = {Mo.direction.x, Mo.direction.y, Mo.direction.z, Mo.angularSize};
+						mB[m] = {Mo.color.x, Mo.color.y, Mo.color.z, Mo.brightness};
+					}
+					cb.skyMoonA0 = mA[0];
+					cb.skyMoonB0 = mB[0];
+					cb.skyMoonA1 = mA[1];
+					cb.skyMoonB1 = mB[1];
+					cb.skyMoonPhase = {SP.moons[0].phase, SP.moons[0].manualPhase ? 1.f : 0.f,
+									   SP.moons[1].phase, SP.moons[1].manualPhase ? 1.f : 0.f};
+				}
 			}
 			cb.viewMode = (float32)mViewMode; // 0=rendered(PBR) 1=solid/unlit (indépendant du wireframe)
 			cb.matcapId = (float32)mMatcapId; // index 0..29 dans l'atlas des 30 matcaps

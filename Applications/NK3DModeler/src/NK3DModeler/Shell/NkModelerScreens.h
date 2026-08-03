@@ -6214,8 +6214,9 @@ namespace nkentseu {
 								// teintes du couchant sortent du modele, on ne les
 								// regle pas.
 								{
-									static const char *const kSkyM[2] = {"Degrade",
-																		 "Physique (soleil)"};
+									static const char *const kSkyM[3] = {
+										"Degrade", "Physique (Preetham)",
+										"Atmosphere (Rayleigh + Mie)"};
 									// LA VALEUR VIT DANS L'ETAT, jamais en local : le
 									// combo retient un POINTEUR dessus et n'ecrit
 									// qu'a la frame suivante. Avec une locale, le
@@ -6235,7 +6236,7 @@ namespace nkentseu {
 									Combo(p, hit, ws, "prop.sky.model",
 										  {iA.x + S(110.f), yy + S(2.f), iA.w - S(110.f),
 										   kRowH - S(4.f)},
-										  kSkyM, nullptr, 2, st.skyModel, combo);
+										  kSkyM, nullptr, 3, st.skyModel, combo);
 									if (st.skyModel != pushedModel) {
 										pushedModel = st.skyModel;
 										demo::Demo3DHostSetSkyModel(st.skyModel);
@@ -6441,6 +6442,146 @@ namespace nkentseu {
 													"prop.sky.gnd", gnd, &ch);
 								if (ch)
 									demo::Demo3DHostSetEnvSky(top, hor, gnd);
+								// ── ETOILES ─────────────────────────────────
+								// Elles s'effacent SEULES quand le ciel
+								// s'eclaire : leur visibilite est l'inverse de
+								// la luminosite locale. Un cycle jour/nuit les
+								// fera donc apparaitre et disparaitre sans
+								// qu'on les pilote -- comme les teintes du
+								// couchant decoulent du modele physique.
+								// Effet immediat : aucune regeneration.
+								{
+									float32 si2 = 0.f, sd2 = 200.f;
+									demo::Demo3DHostSkyStars(&si2, &sd2);
+									const float32 a0 = si2, b0 = sd2;
+									p.TextV(iA.x, yy, kRowH, "Etoiles", NkRole::TextMuted);
+									DragFloat(p, hit, ws, in, "prop.sky.stars",
+											  {iA.x + S(110.f), yy + S(3.f), iA.w - S(110.f),
+											   kRowH - S(6.f)},
+											  si2, 0.02f, NkRole::AccentUi, "%.2f");
+									yy += kRowH;
+									if (si2 > 0.001f) {
+										p.TextV(iA.x, yy, kRowH, "Densite", NkRole::TextMuted);
+										DragFloat(p, hit, ws, in, "prop.sky.stard",
+												  {iA.x + S(110.f), yy + S(3.f), iA.w - S(110.f),
+												   kRowH - S(6.f)},
+												  sd2, 2.f, NkRole::AccentUi, "%.0f");
+										yy += kRowH;
+									}
+									if (si2 != a0 || sd2 != b0)
+										demo::Demo3DHostSetSkyStars(si2, sd2);
+								}
+								// ── LUNES ───────────────────────────────────
+								// PLUSIEURS sont possibles : c'est un nombre, pas
+								// un interrupteur. Leur PHASE n'est pas reglable
+								// -- elle se deduit du soleil, donc le croissant
+								// change tout seul quand il descend.
+								{
+									int32 mc = demo::Demo3DHostSkyMoonCount();
+									const int32 mc0 = mc;
+									p.TextV(iA.x, yy, kRowH, "Lunes", NkRole::TextMuted);
+									const float32 gm = S(3.f);
+									const float32 bwm = (iA.w - S(110.f) - gm * 2.f) / 3.f;
+									float32 bxm = iA.x + S(110.f);
+									char km[24];
+									for (int32 t = 0; t < 3; ++t) {
+										snprintf(km, sizeof(km), "prop.sky.moonn%d", t);
+										const NkRect br{bxm, yy + S(2.f), bwm, kRowH - S(4.f)};
+										const bool on = (t == mc);
+										hit.Add(km, br);
+										p.Outline(br, on ? NkRole::AccentUi : NkRole::Border,
+												  on ? NkRole::AccentUi : NkRole::InputBg, 3.f);
+										char lb[8];
+										snprintf(lb, sizeof(lb), "%d", t);
+										p.TextV(br.x + (br.w - p.TextW(lb)) * 0.5f, yy, kRowH, lb,
+												on ? NkRole::TextOnAccent : NkRole::TextMuted);
+										if (hit.Clicked(km))
+											mc = t;
+										bxm += bwm + gm;
+									}
+									yy += kRowH;
+									if (mc != mc0)
+										demo::Demo3DHostSetSkyMoonCount(mc);
+									for (int32 m = 0; m < mc; ++m) {
+										float32 me = 0.f, ma = 0.f, ms = 0.f, mb = 0.f, mcol[3];
+										demo::Demo3DHostSkyMoon(m, &me, &ma, &ms, &mb, mcol);
+										const float32 e0m = me, a0m = ma, s0m = ms, b0m = mb;
+										bool colCh2 = false;
+										char kk[28];
+										char lbl[24];
+										snprintf(lbl, sizeof(lbl), "Lune %d", m + 1);
+										p.TextV(iA.x, yy, kRowH, lbl, NkRole::Text);
+										yy += kRowH;
+										snprintf(kk, sizeof(kk), "prop.sky.mel%d", m);
+										p.TextV(iA.x, yy, kRowH, "Elevation", NkRole::TextMuted);
+										DragFloat(p, hit, ws, in, kk,
+												  {iA.x + S(110.f), yy + S(3.f), iA.w - S(110.f),
+												   kRowH - S(6.f)},
+												  me, 0.5f, NkRole::AccentUi, "%.1f°");
+										yy += kRowH;
+										snprintf(kk, sizeof(kk), "prop.sky.maz%d", m);
+										p.TextV(iA.x, yy, kRowH, "Azimut", NkRole::TextMuted);
+										DragFloat(p, hit, ws, in, kk,
+												  {iA.x + S(110.f), yy + S(3.f), iA.w - S(110.f),
+												   kRowH - S(6.f)},
+												  ma, 1.f, NkRole::AccentUi, "%.1f°");
+										yy += kRowH;
+										snprintf(kk, sizeof(kk), "prop.sky.msz%d", m);
+										p.TextV(iA.x, yy, kRowH, "Taille", NkRole::TextMuted);
+										DragFloat(p, hit, ws, in, kk,
+												  {iA.x + S(110.f), yy + S(3.f), iA.w - S(110.f),
+												   kRowH - S(6.f)},
+												  ms, 0.001f, NkRole::AccentUi, "%.3f");
+										yy += kRowH;
+										snprintf(kk, sizeof(kk), "prop.sky.mbr%d", m);
+										p.TextV(iA.x, yy, kRowH, "Luminosite", NkRole::TextMuted);
+										DragFloat(p, hit, ws, in, kk,
+												  {iA.x + S(110.f), yy + S(3.f), iA.w - S(110.f),
+												   kRowH - S(6.f)},
+												  mb, 0.02f, NkRole::AccentUi, "%.2f");
+										yy += kRowH;
+										snprintf(kk, sizeof(kk), "prop.sky.mcl%d", m);
+										yy += PaintColorRow(p, hit, ws, in, st, iA, yy, "Couleur",
+															kk, mcol, &colCh2);
+										if (me != e0m || ma != a0m || ms != s0m || mb != b0m || colCh2)
+											demo::Demo3DHostSetSkyMoon(m, me, ma, ms, mb, mcol);
+										// PHASE : deduite du soleil par defaut, donc
+										// toujours coherente avec l'eclairage. La
+										// forcer est un choix de MISE EN SCENE --
+										// legitime pour un plan de film, et declare
+										// explicitement plutot que subi.
+										{
+											bool mph = false;
+											float32 mpv = 0.25f;
+											demo::Demo3DHostSkyMoonPhase(m, &mph, &mpv);
+											const bool h0 = mph;
+											const float32 v0m = mpv;
+											char kp[28];
+											snprintf(kp, sizeof(kp), "prop.sky.mpm%d", m);
+											const NkRect cb2{iA.x, yy + S(5.f), S(12.f), S(12.f)};
+											hit.Add(kp, cb2);
+											p.Outline(cb2, mph ? NkRole::AccentUi : NkRole::Border,
+													  mph ? NkRole::AccentUi : NkRole::InputBg, 2.f);
+											p.TextV(cb2.x + S(18.f), yy, kRowH, "Phase forcee",
+													NkRole::TextMuted);
+											if (hit.Clicked(kp))
+												mph = !mph;
+											yy += kRowH;
+											if (mph) {
+												snprintf(kp, sizeof(kp), "prop.sky.mpv%d", m);
+												p.TextV(iA.x, yy, kRowH, "Phase",
+														NkRole::TextMuted);
+												DragFloat(p, hit, ws, in, kp,
+														  {iA.x + S(110.f), yy + S(3.f),
+														   iA.w - S(110.f), kRowH - S(6.f)},
+														  mpv, 0.01f, NkRole::AccentUi, "%.2f");
+												yy += kRowH;
+											}
+											if (mph != h0 || mpv != v0m)
+												demo::Demo3DHostSetSkyMoonPhase(m, mph, mpv);
+										}
+									}
+								}
 								// ── NUAGES ──────────────────────────────────
 								// Couche INDEPENDANTE du modele : elle se pose
 								// aussi bien sur un degrade que sur un ciel

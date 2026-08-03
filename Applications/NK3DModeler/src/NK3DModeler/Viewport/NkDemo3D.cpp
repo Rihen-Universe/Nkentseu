@@ -9945,6 +9945,24 @@ namespace nkentseu {
 		// cubemap est une image fixe) : elle n'a de sens que depuis que le ciel
 		// visible est evalue a chaque image dans le shader.
 		static float32 nkvpSkyCloudSpeed = 0.02f;
+		// Etoiles : meme nature que la vitesse des nuages — elles n'existent que
+		// pour le ciel evalue en temps reel, et ne demandent aucune regeneration.
+		static float32 nkvpSkyStarIntensity = 0.f;
+		static float32 nkvpSkyStarDensity = 200.f;
+		// LUNES : un tableau, pas un cas particulier. Elevation / azimut comme le
+		// soleil — c'est ainsi qu'on situe un astre dans le ciel. Leur PHASE ne
+		// figure pas ici : elle se deduit du soleil, cote shader.
+		static int32 nkvpSkyMoonCount = 0;
+		static float32 nkvpSkyMoonElev[2] = {35.f, 20.f};
+		static float32 nkvpSkyMoonAzim[2] = {120.f, -60.f};
+		static float32 nkvpSkyMoonSize[2] = {0.030f, 0.018f};
+		static float32 nkvpSkyMoonBright[2] = {1.f, 0.7f};
+		static float32 nkvpSkyMoonColor[2][3] = {{1.f, 0.97f, 0.92f}, {0.92f, 0.94f, 1.f}};
+		// PHASE FORCEE, en option. Par defaut elle se deduit du soleil ; la forcer
+		// est un choix de MISE EN SCENE, utile pour un plan de film ou l'on veut un
+		// croissant precis. C'est assume et declare, pas un etat affiche par accident.
+		static bool nkvpSkyMoonManualPhase[2] = {false, false};
+		static float32 nkvpSkyMoonPhase[2] = {0.25f, 0.25f};
 		// Le ciel visible vient-il de l'HDRI charge ? (source d'ambiance = 2)
 		static bool nkvpSkyFromHdr = false;
 
@@ -9952,7 +9970,8 @@ namespace nkentseu {
 			return nkvpSkyModel;
 		}
 		void Demo3DHostSetSkyModel(int32 m) {
-			const int32 v = (m < 0) ? 0 : (m > 1 ? 1 : m);
+			// 0 degrade, 1 Preetham, 2 atmosphere Rayleigh + Mie.
+			const int32 v = (m < 0) ? 0 : (m > 2 ? 2 : m);
 			// NE MARQUER « a regenerer » QUE SI QUELQUE CHOSE CHANGE. L'interface
 			// repousse la valeur des qu'elle differe de la derniere poussee, ce
 			// qui arrive legitimement apres une remise a zero : sans ce test,
@@ -10013,6 +10032,73 @@ namespace nkentseu {
 			nkvpSkyTurbidity = turbidity < 1.f ? 1.f : (turbidity > 10.f ? 10.f : turbidity);
 			nkvpSkySunDisc = disc;
 			nkvpSkySunIntensity = intensity < 0.f ? 0.f : (intensity > 10.f ? 10.f : intensity);
+		}
+		int32 Demo3DHostSkyMoonCount() {
+			return nkvpSkyMoonCount;
+		}
+		void Demo3DHostSetSkyMoonCount(int32 n) {
+			nkvpSkyMoonCount = n < 0 ? 0 : (n > 2 ? 2 : n);
+		}
+		void Demo3DHostSkyMoon(int32 i, float32 *elev, float32 *azim, float32 *size, float32 *bright,
+							   float32 *color) {
+			if (i < 0 || i > 1)
+				return;
+			if (elev)
+				*elev = nkvpSkyMoonElev[i];
+			if (azim)
+				*azim = nkvpSkyMoonAzim[i];
+			if (size)
+				*size = nkvpSkyMoonSize[i];
+			if (bright)
+				*bright = nkvpSkyMoonBright[i];
+			if (color) {
+				color[0] = nkvpSkyMoonColor[i][0];
+				color[1] = nkvpSkyMoonColor[i][1];
+				color[2] = nkvpSkyMoonColor[i][2];
+			}
+		}
+		void Demo3DHostSetSkyMoon(int32 i, float32 elev, float32 azim, float32 size, float32 bright,
+								  const float32 *color) {
+			if (i < 0 || i > 1)
+				return;
+			// Aucun marquage « a regenerer » : une lune n'existe que dans le ciel
+			// evalue en temps reel, et sa phase suit le soleil a chaque image.
+			nkvpSkyMoonElev[i] = elev;
+			nkvpSkyMoonAzim[i] = azim;
+			nkvpSkyMoonSize[i] = size < 0.002f ? 0.002f : (size > 0.35f ? 0.35f : size);
+			nkvpSkyMoonBright[i] = bright < 0.f ? 0.f : (bright > 8.f ? 8.f : bright);
+			if (color) {
+				nkvpSkyMoonColor[i][0] = color[0];
+				nkvpSkyMoonColor[i][1] = color[1];
+				nkvpSkyMoonColor[i][2] = color[2];
+			}
+		}
+		void Demo3DHostSkyMoonPhase(int32 i, bool *manual, float32 *phase) {
+			if (i < 0 || i > 1)
+				return;
+			if (manual)
+				*manual = nkvpSkyMoonManualPhase[i];
+			if (phase)
+				*phase = nkvpSkyMoonPhase[i];
+		}
+		void Demo3DHostSetSkyMoonPhase(int32 i, bool manual, float32 phase) {
+			if (i < 0 || i > 1)
+				return;
+			nkvpSkyMoonManualPhase[i] = manual;
+			nkvpSkyMoonPhase[i] = phase < -1.f ? -1.f : (phase > 1.f ? 1.f : phase);
+		}
+		void Demo3DHostSkyStars(float32 *intensity, float32 *density) {
+			if (intensity)
+				*intensity = nkvpSkyStarIntensity;
+			if (density)
+				*density = nkvpSkyStarDensity;
+		}
+		void Demo3DHostSetSkyStars(float32 intensity, float32 density) {
+			// PAS de marquage « a regenerer » : les etoiles n'existent que dans le
+			// ciel evalue en temps reel. Une cuisson produit une image fixe, et
+			// des etoiles cuites ne scintilleraient pas.
+			nkvpSkyStarIntensity = intensity < 0.f ? 0.f : (intensity > 4.f ? 4.f : intensity);
+			nkvpSkyStarDensity = density < 20.f ? 20.f : (density > 2000.f ? 2000.f : density);
 		}
 		float32 Demo3DHostSkyCloudSpeed() {
 			return nkvpSkyCloudSpeed;
@@ -10156,8 +10242,7 @@ namespace nkentseu {
 				}
 			}
 			renderer::NkSkyParams sp;
-			sp.model = (nkvpSkyModel == 1) ? renderer::NkSkyModel::NK_SKY_PHYSICAL
-										   : renderer::NkSkyModel::NK_SKY_GRADIENT;
+			sp.model = (renderer::NkSkyModel)nkvpSkyModel;
 			sp.skyTop = {nkvpSkyTop[0], nkvpSkyTop[1], nkvpSkyTop[2]};
 			sp.horizon = {nkvpSkyHorizon[0], nkvpSkyHorizon[1], nkvpSkyHorizon[2]};
 			sp.ground = {nkvpSkyGround[0], nkvpSkyGround[1], nkvpSkyGround[2]};
@@ -10172,6 +10257,24 @@ namespace nkentseu {
 			sp.cloudScale = nkvpSkyCloudScale;
 			sp.cloudColor = {nkvpSkyCloudColor[0], nkvpSkyCloudColor[1], nkvpSkyCloudColor[2]};
 			sp.cloudSpeed = nkvpSkyCloudSpeed;
+			sp.starIntensity = nkvpSkyStarIntensity;
+			sp.starDensity = nkvpSkyStarDensity;
+			// LUNES : elevation/azimut -> direction VERS la lune. Meme conversion
+			// que pour le soleil, mais SANS le signe oppose : le soleil est donne
+			// par sa direction de PROPAGATION, la lune par l'endroit ou elle SE
+			// TROUVE. C'est la seule difference, et elle est volontaire.
+			sp.moonCount = nkvpSkyMoonCount;
+			for (int32 m = 0; m < renderer::NkSkyParams::kMaxMoons; ++m) {
+				const float32 er = nkvpSkyMoonElev[m] * 0.0174532925f;
+				const float32 ar = nkvpSkyMoonAzim[m] * 0.0174532925f;
+				sp.moons[m].direction = {cosf(er) * sinf(ar), sinf(er), cosf(er) * cosf(ar)};
+				sp.moons[m].angularSize = nkvpSkyMoonSize[m];
+				sp.moons[m].brightness = nkvpSkyMoonBright[m];
+				sp.moons[m].color = {nkvpSkyMoonColor[m][0], nkvpSkyMoonColor[m][1],
+									 nkvpSkyMoonColor[m][2]};
+				sp.moons[m].manualPhase = nkvpSkyMoonManualPhase[m];
+				sp.moons[m].phase = nkvpSkyMoonPhase[m];
+			}
 			r3->SetSkyParams(sp);
 			// HDRI : l'image vient d'un fichier, elle ne se calcule pas. Le shader
 			// lit alors la cubemap telle quelle.
@@ -10198,8 +10301,7 @@ namespace nkentseu {
 				}
 			}
 			renderer::NkSkyParams sp;
-			sp.model = (nkvpSkyModel == 1) ? renderer::NkSkyModel::NK_SKY_PHYSICAL
-										   : renderer::NkSkyModel::NK_SKY_GRADIENT;
+			sp.model = (renderer::NkSkyModel)nkvpSkyModel;
 			sp.skyTop = {nkvpSkyTop[0], nkvpSkyTop[1], nkvpSkyTop[2]};
 			sp.horizon = {nkvpSkyHorizon[0], nkvpSkyHorizon[1], nkvpSkyHorizon[2]};
 			sp.ground = {nkvpSkyGround[0], nkvpSkyGround[1], nkvpSkyGround[2]};

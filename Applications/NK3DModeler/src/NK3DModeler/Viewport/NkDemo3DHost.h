@@ -268,6 +268,28 @@ namespace nkentseu {
 		// vitesse n'y aurait aucun sens. Ne marque donc pas « a regenerer ».
 		float32 Demo3DHostSkyCloudSpeed();
 		void Demo3DHostSetSkyCloudSpeed(float32 v);
+		// ETOILES. Comme la vitesse des nuages, elles n'ont de sens que pour le
+		// ciel evalue en temps reel — des etoiles cuites ne scintilleraient pas.
+		// Elles s'effacent SEULES quand le ciel s'eclaire : un cycle jour/nuit les
+		// fera apparaitre et disparaitre sans qu'on ait a les piloter.
+		void Demo3DHostSkyStars(float32 *intensity, float32 *density);
+		void Demo3DHostSetSkyStars(float32 intensity, float32 density);
+		// LUNES (0 a 2). Elevation / azimut, comme le soleil — c'est ainsi qu'on
+		// situe un astre. Leur PHASE ne figure pas ici : elle se DEDUIT de la
+		// position du soleil, cote shader. Un curseur de phase aurait permis
+		// d'afficher un croissant sans rapport avec l'eclairage de la scene.
+		int32 Demo3DHostSkyMoonCount();
+		void Demo3DHostSetSkyMoonCount(int32 n);
+		void Demo3DHostSkyMoon(int32 i, float32 *elev, float32 *azim, float32 *size, float32 *bright,
+							   float32 *color);
+		void Demo3DHostSetSkyMoon(int32 i, float32 elev, float32 azim, float32 size, float32 bright,
+								  const float32 *color);
+		// PHASE FORCEE, en option. Par defaut elle se deduit du soleil et reste
+		// donc coherente avec l'eclairage. La forcer est un choix de MISE EN
+		// SCENE — legitime pour un plan de film — et il est declare, pas subi.
+		// phase : -1 nouvelle a gauche, 0 pleine, +1 nouvelle a droite.
+		void Demo3DHostSkyMoonPhase(int32 i, bool *manual, float32 *phase);
+		void Demo3DHostSetSkyMoonPhase(int32 i, bool manual, float32 phase);
 		void Demo3DHostSkyClouds(bool *on, float32 *coverage, float32 *density, float32 *scale, float32 *color);
 		void Demo3DHostSetSkyClouds(bool on, float32 coverage, float32 density, float32 scale,
 									const float32 *color);

@@ -79,6 +79,16 @@ namespace nkentseu {
 			// chaudes au couchant -- gratuitement, parce qu'elles sortent du
 			// modele et non d'un reglage.
 			NK_SKY_PHYSICAL = 1,
+			// Diffusion simple Rayleigh + Mie, integree le long du rayon. Ecrite
+			// DEPUIS LA PHYSIQUE et non depuis une table de coefficients : chaque
+			// terme se verifie, ce qui n'est pas le cas d'un modele tabule.
+			//
+			// Ce qu'elle apporte de plus que Preetham : le soleil SOUS L'HORIZON.
+			// Preetham n'est pas defini pour un soleil couche (son terme en
+			// exp(B/cos theta) diverge) ; ici l'integration continue de
+			// fonctionner et donne le crepuscule, puis la nuit. C'est exactement
+			// ce dont un cycle jour/nuit a besoin.
+			NK_SKY_ATMOSPHERE = 2,
 		};
 
 		// Parametres complets du ciel procedural. La COUCHE DE NUAGES est
@@ -130,6 +140,52 @@ namespace nkentseu {
 				// doit se decrire a UN seul endroit -- sinon les deux chemins
 				// finissent par decrire deux ciels differents.
 				float32 cloudSpeed = 0.02f;
+
+				// ── Etoiles ─────────────────────────────────────────────────
+				// Elles s'effacent TOUTES SEULES quand le ciel s'eclaire : leur
+				// visibilite est l'inverse de la luminosite locale. Un cycle
+				// jour/nuit les fera donc apparaitre et disparaitre sans qu'on
+				// ait a les piloter. Comme cloudSpeed, elles n'ont de sens que
+				// pour le ciel evalue en temps reel.
+				float32 starIntensity = 0.f; // 0 = aucune
+				float32 starDensity = 200.f; // plus grand = plus fines et nombreuses
+
+				// ── Lunes ───────────────────────────────────────────────────
+				// PLUSIEURS sont possibles : c'est un tableau, pas un cas
+				// particulier. Une lune de plus ne coute qu'une iteration.
+				//
+				// LEUR PHASE N'EST PAS UN REGLAGE : elle se DEDUIT de la position
+				// du soleil. Une lune est une sphere eclairee par lui ; le
+				// croissant sort donc du calcul, et il change tout seul quand le
+				// soleil descend. Un curseur de phase aurait permis d'afficher un
+				// croissant incoherent avec l'eclairage de la scene -- exactement
+				// le genre d'etat affiche sans rapport avec l'etat effectif qu'on
+				// a passe la soiree a supprimer.
+				static constexpr int32 kMaxMoons = 2;
+				struct NkSkyMoon {
+						// Direction VERS la lune (et non de propagation, contrairement
+						// au soleil) : c'est « ou elle est dans le ciel », qui est la
+						// facon dont on y pense.
+						NkVec3f direction = {0.4f, 0.5f, -0.75f};
+						float32 angularSize = 0.03f; // rayon apparent, en radians
+						NkVec3f color = {1.f, 0.97f, 0.92f};
+						float32 brightness = 1.f;
+						// PHASE FORCEE, en option. Par defaut la phase se DEDUIT du
+						// soleil : la lune est une sphere qu'il eclaire, le croissant
+						// sort du calcul et change tout seul. C'est ce qu'on veut
+						// quand on cherche la coherence.
+						//
+						// Mais un film n'a pas toujours ce besoin : forcer un
+						// croissant est un CHOIX DE MISE EN SCENE legitime. On
+						// l'autorise donc, explicitement -- ce n'est plus un etat
+						// affiche par accident, c'est une intention declaree.
+						bool manualPhase = false;
+						// -1 = nouvelle lune a gauche, 0 = pleine, +1 = nouvelle a
+						// droite. L'angle du terminateur, en somme.
+						float32 phase = 0.25f;
+				};
+				int32 moonCount = 0; // 0 = aucune
+				NkSkyMoon moons[kMaxMoons];
 		};
 
 		class NkEnvironmentSystem {
