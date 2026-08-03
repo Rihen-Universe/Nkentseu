@@ -498,6 +498,96 @@ namespace nkentseu {
 			return {sky.x + (cc.x - sky.x) * d, sky.y + (cc.y - sky.y) * d, sky.z + (cc.z - sky.z) * d};
 		}
 
+		// ── HOSEK-WILKIE : cuisson des tables officielles ───────────────────────
+		// Les tables (BSD 3-clauses, Lukas Hosek & Alexander Wilkie 2012-2013)
+		// sont incluses TELLES QUELLES — copie verifiee par empreinte SHA-256
+		// depuis la distribution officielle 1.4a. Le namespace evite de deverser
+		// six tableaux globaux dans l'unite de compilation.
+		// La cuisson est ADAPTEE de ArHosekSkyModel.c (meme licence) : Bezier
+		// quintique sur l'elevation^(1/3), melange lineaire sur la partie
+		// fractionnaire de la turbidite et sur l'albedo.
+		namespace hosekdata {
+#include "ArHosekSkyModelData_RGB.h"
+		}
+
+		namespace {
+			// Un point de controle de Bezier quintique : m[i], m[i+stride], ...
+			double NkHosekBezier(const double *m, int32 i, int32 stride, double t) {
+				const double u = 1.0 - t;
+				return u * u * u * u * u * m[i] + 5.0 * u * u * u * u * t * m[i + stride] +
+					   10.0 * u * u * u * t * t * m[i + 2 * stride] +
+					   10.0 * u * u * t * t * t * m[i + 3 * stride] +
+					   5.0 * u * t * t * t * t * m[i + 4 * stride] + t * t * t * t * t * m[i + 5 * stride];
+			}
+		} // namespace
+
+		void NkHosekCookRGB(float32 turbidity, const NkVec3f &albedo, float32 sunElevRad,
+							NkHosekSkyCoeffs &out) {
+			double T = turbidity < 1.f ? 1.0 : (turbidity > 10.f ? 10.0 : (double)turbidity);
+			int32 it = (int32)T;
+			double rem = T - (double)it;
+			double elev = sunElevRad < 0.f ? 0.0 : (double)sunElevRad;
+			// La table est parametree en elevation^(1/3) — c'est le choix des
+			// auteurs, pas le notre : il densifie les echantillons pres de
+			// l'horizon, la ou le ciel change le plus vite.
+			double se = pow(elev / (3.14159265358979 / 2.0), 1.0 / 3.0);
+			if (se > 1.0)
+				se = 1.0;
+			const double alb[3] = {(double)albedo.x, (double)albedo.y, (double)albedo.z};
+
+			for (int32 ch = 0; ch < 3; ch++) {
+				const double *ds = hosekdata::datasetsRGB[ch];
+				const double *rd = hosekdata::datasetsRGBRad[ch];
+				const double a = alb[ch] < 0.0 ? 0.0 : (alb[ch] > 1.0 ? 1.0 : alb[ch]);
+				for (int32 i = 0; i < 9; i++) {
+					// Quatre blocs : (albedo 0 / 1) x (turbidite basse / haute).
+					double v = (1.0 - a) * (1.0 - rem) * NkHosekBezier(ds + 9 * 6 * (it - 1), i, 9, se) +
+							   a * (1.0 - rem) * NkHosekBezier(ds + 9 * 6 * 10 + 9 * 6 * (it - 1), i, 9, se);
+					if (it < 10) {
+						v += (1.0 - a) * rem * NkHosekBezier(ds + 9 * 6 * it, i, 9, se) +
+							 a * rem * NkHosekBezier(ds + 9 * 6 * 10 + 9 * 6 * it, i, 9, se);
+					}
+					((float32 *)&out.coef[i].x)[ch] = (float32)v;
+				}
+				double r = (1.0 - a) * (1.0 - rem) * NkHosekBezier(rd + 6 * (it - 1), 0, 1, se) +
+						   a * (1.0 - rem) * NkHosekBezier(rd + 6 * 10 + 6 * (it - 1), 0, 1, se);
+				if (it < 10) {
+					r += (1.0 - a) * rem * NkHosekBezier(rd + 6 * it, 0, 1, se) +
+						 a * rem * NkHosekBezier(rd + 6 * 10 + 6 * it, 0, 1, se);
+				}
+				((float32 *)&out.radiance.x)[ch] = (float32)r;
+			}
+		}
+
+		NkVec3f NkHosekEvalRGB(const NkHosekSkyCoeffs &c, float32 cosTheta, float32 gamma) {
+			// Formule etendue de Perez (9 coefficients), identique au shader —
+			// les deux DOIVENT rester d'accord, c'est la condition pour que la
+			// normalisation calculee ici vaille pour l'image rendue la-bas.
+			const float32 ct = cosTheta < 0.f ? 0.f : cosTheta;
+			const float32 cg = std::cos(gamma);
+			NkVec3f res;
+			for (int32 ch = 0; ch < 3; ch++) {
+				const float32 A = ((const float32 *)&c.coef[0].x)[ch];
+				const float32 B = ((const float32 *)&c.coef[1].x)[ch];
+				const float32 C = ((const float32 *)&c.coef[2].x)[ch];
+				const float32 D = ((const float32 *)&c.coef[3].x)[ch];
+				const float32 E = ((const float32 *)&c.coef[4].x)[ch];
+				const float32 F = ((const float32 *)&c.coef[5].x)[ch];
+				const float32 G = ((const float32 *)&c.coef[6].x)[ch];
+				const float32 H = ((const float32 *)&c.coef[7].x)[ch];
+				const float32 I = ((const float32 *)&c.coef[8].x)[ch];
+				const float32 expM = std::exp(E * gamma);
+				const float32 rayM = cg * cg;
+				const float32 mieM =
+					(1.f + rayM) / std::pow(1.f + I * I - 2.f * I * cg, 1.5f);
+				const float32 zen = std::sqrt(ct);
+				const float32 v = (1.f + A * std::exp(B / (ct + 0.01f))) *
+								  (C + D * expM + F * rayM + G * mieM + H * zen);
+				((float32 *)&res.x)[ch] = v * ((const float32 *)&c.radiance.x)[ch];
+			}
+			return res;
+		}
+
 		// Point d'entree UNIQUE du ciel procedural : modele de base puis nuages.
 		// Les quatre sites d'echantillonnage (cubemap visible, irradiance et les
 		// deux du prefilter) passent par ici — sans quoi le ciel qu'on VOIT et
