@@ -221,6 +221,18 @@ namespace nkentseu {
 		// du noeud, uniforme a l'ecriture.
 		float32 Demo3DHostCamOrthoScale(int32 node);
 		void Demo3DHostSetCamOrthoScale(int32 node, float32 s);
+		// Lens (parite Blender) : unite d'affichage de la focale (deg/mm),
+		// capteur (mm) pour la conversion, focale en millimetres derivee, et
+		// guides de composition (bits : 1 tiers, 2 centre, 4 diagonales,
+		// 8 nombre d'or, 16 zones sures).
+		bool Demo3DHostCamLensMM(int32 node);
+		void Demo3DHostSetCamLensMM(int32 node, bool mm);
+		float32 Demo3DHostCamSensor(int32 node);
+		void Demo3DHostSetCamSensor(int32 node, float32 mm);
+		float32 Demo3DHostCamFocalMM(int32 node);
+		void Demo3DHostSetCamFocalMM(int32 node, float32 mm);
+		int32 Demo3DHostCamGuides(int32 node);
+		void Demo3DHostSetCamGuides(int32 node, int32 bits);
 		void Demo3DHostCopyNode(int32 node);
 		int32 Demo3DHostPasteNode();
 		int32 Demo3DHostUserKind(int32 node); // 0 aucun, 1 sphere, 2 cube, 3 plan, 4 empty

@@ -3404,6 +3404,49 @@ namespace nkentseu {
 						p.Fill({fx, fy + fh - 1.f, fw, 1.f}, fr, 0.f);
 						p.Fill({fx, fy, 1.f, fh}, fr, 0.f);
 						p.Fill({fx + fw - 1.f, fy, 1.f, fh}, fr, 0.f);
+						// ── GUIDES DE COMPOSITION + ZONES SURES (par camera) ──
+						// Traces DANS le cadre : habillage de la vue, jamais dans
+						// les captures (elles figent la cible en dessous).
+						const int32 gd2 = demo::Demo3DHostCamGuides(st.camViewNode - 1);
+						if (gd2) {
+							const NkColor glc{255, 255, 255, 55};
+							if (gd2 & 1) { // tiers
+								p.Fill({fx + fw / 3.f, fy, 1.f, fh}, glc, 0.f);
+								p.Fill({fx + 2.f * fw / 3.f, fy, 1.f, fh}, glc, 0.f);
+								p.Fill({fx, fy + fh / 3.f, fw, 1.f}, glc, 0.f);
+								p.Fill({fx, fy + 2.f * fh / 3.f, fw, 1.f}, glc, 0.f);
+							}
+							if (gd2 & 2) { // centre
+								p.Fill({fx + fw * 0.5f, fy, 1.f, fh}, glc, 0.f);
+								p.Fill({fx, fy + fh * 0.5f, fw, 1.f}, glc, 0.f);
+							}
+							if (gd2 & 4) { // diagonales
+								p.Line(fx, fy, fx + fw, fy + fh, glc, 1.f);
+								p.Line(fx + fw, fy, fx, fy + fh, glc, 1.f);
+							}
+							if (gd2 & 8) { // nombre d'or (0,382 / 0,618)
+								p.Fill({fx + fw * 0.382f, fy, 1.f, fh}, glc, 0.f);
+								p.Fill({fx + fw * 0.618f, fy, 1.f, fh}, glc, 0.f);
+								p.Fill({fx, fy + fh * 0.382f, fw, 1.f}, glc, 0.f);
+								p.Fill({fx, fy + fh * 0.618f, fw, 1.f}, glc, 0.f);
+							}
+							if (gd2 & 16) { // zones sures : action 3,5 %, titre 10/5 %
+								const NkColor zsa{120, 220, 130, 80};
+								const NkColor zst{220, 140, 120, 80};
+								const float32 mrg[2][2] = {{0.035f, 0.035f}, {0.10f, 0.05f}};
+								for (int32 z2 = 0; z2 < 2; ++z2) {
+									const NkColor &zc = z2 == 0 ? zsa : zst;
+									const float32 sx = fx + fw * mrg[z2][0];
+									const float32 sy = fy + fh * mrg[z2][1];
+									const float32 sw = fw * (1.f - 2.f * mrg[z2][0]);
+									const float32 sh = fh * (1.f - 2.f * mrg[z2][1]);
+									p.Fill({sx, sy, sw, 1.f}, zc, 0.f);
+									p.Fill({sx, sy + sh - 1.f, sw, 1.f}, zc, 0.f);
+									p.Fill({sx, sy, 1.f, sh}, zc, 0.f);
+									p.Fill({sx + sw - 1.f, sy, 1.f, sh}, zc, 0.f);
+								}
+							}
+						}
 					}
 				}
 				// ── VUE CAMERA (Rihen) ──────────────────────────────────────
@@ -5768,6 +5811,61 @@ namespace nkentseu {
 											demo::Demo3DHostSetCamOrthoScale(en, osc);
 										yy += kRowH;
 									} else {
+									// UNITE DE FOCALE (parite Blender) : degres ou
+									// millimetres -- meme grandeur, la conversion passe
+									// par le CAPTEUR. La focale ANGULAIRE reste la seule
+									// verite cote hote.
+									const bool inMM = demo::Demo3DHostCamLensMM(en);
+									{
+										p.TextV(r.x + kPad, yy, kRowH, "Unite focale",
+												NkRole::TextMuted);
+										const float32 bw3 = (rr.w - S(128.f)) * 0.5f - S(2.f);
+										const NkRect bd{r.x + S(120.f), yy + S(2.f), bw3,
+														kRowH - S(4.f)};
+										const NkRect bm{bd.x + bw3 + S(4.f), yy + S(2.f), bw3,
+														kRowH - S(4.f)};
+										hit.Add("prop.cam.udeg", bd);
+										hit.Add("prop.cam.umm", bm);
+										p.Fill(bd, !inMM ? NkRole::AccentUi : NkRole::PanelHeader,
+											   3.f);
+										p.Fill(bm, inMM ? NkRole::AccentUi : NkRole::PanelHeader,
+											   3.f);
+										p.TextV(bd.x + (bd.w - p.TextW("Degres")) * 0.5f, yy,
+												kRowH, "Degres",
+												!inMM ? NkRole::TextOnAccent : NkRole::TextMuted);
+										p.TextV(bm.x + (bm.w - p.TextW("mm")) * 0.5f, yy, kRowH,
+												"mm",
+												inMM ? NkRole::TextOnAccent : NkRole::TextMuted);
+										if (hit.Clicked("prop.cam.udeg"))
+											demo::Demo3DHostSetCamLensMM(en, false);
+										if (hit.Clicked("prop.cam.umm"))
+											demo::Demo3DHostSetCamLensMM(en, true);
+										yy += kRowH;
+									}
+									if (inMM) {
+										float32 mmv = demo::Demo3DHostCamFocalMM(en);
+										const float32 mm0 = mmv;
+										p.TextV(r.x + kPad, yy, kRowH, "Focale (mm)",
+												NkRole::TextMuted);
+										DragFloat(p, hit, ws, in, "prop.cfmm",
+												  {r.x + S(120.f), yy + S(3.f), rr.w - S(128.f),
+												   kRowH - S(4.f)},
+												  mmv, 0.5f, NkRole::AccentUi, "%.1f");
+										yy += kRowH;
+										if (mmv != mm0)
+											demo::Demo3DHostSetCamFocalMM(en, mmv);
+										float32 sen = demo::Demo3DHostCamSensor(en);
+										const float32 se0 = sen;
+										p.TextV(r.x + kPad, yy, kRowH, "Capteur (mm)",
+												NkRole::TextMuted);
+										DragFloat(p, hit, ws, in, "prop.csen",
+												  {r.x + S(120.f), yy + S(3.f), rr.w - S(128.f),
+												   kRowH - S(4.f)},
+												  sen, 0.2f, NkRole::AccentUi, "%.0f");
+										yy += kRowH;
+										if (sen != se0)
+											demo::Demo3DHostSetCamSensor(en, sen);
+									} else {
 									p.TextV(r.x + kPad, yy, kRowH, "Focale (deg)",
 											NkRole::TextMuted);
 									DragFloat(p, hit, ws, in, "prop.cfov",
@@ -5775,6 +5873,7 @@ namespace nkentseu {
 											   kRowH - S(4.f)},
 											  cf, 0.2f, NkRole::AccentUi, "%.0f");
 									yy += kRowH;
+									}
 									}
 									p.TextV(r.x + kPad, yy, kRowH, "Clip debut",
 											NkRole::TextMuted);
@@ -5817,6 +5916,33 @@ namespace nkentseu {
 											ppc[3] = 1.f;
 										if (ppCh || ppc[3] != pa0)
 											demo::Demo3DHostSetCamPasse(en, ppc);
+									}
+									// ── GUIDES DE COMPOSITION + ZONES SURES (Rihen,
+									// parite Blender) : traces dans le cadre en vue
+									// camera. Bits : 1 tiers, 2 centre, 4 diagonales,
+									// 8 nombre d'or, 16 zones sures.
+									{
+										const int32 gd = demo::Demo3DHostCamGuides(en);
+										static const char *const kGd[5] = {
+											"Tiers", "Centre", "Diagonales", "Nombre d'or",
+											"Zones sures"};
+										for (int32 g5 = 0; g5 < 5; ++g5) {
+											const int32 bit = 1 << g5;
+											const NkRect cbG{r.x + kPad, yy + S(5.f), S(12.f),
+															 S(12.f)};
+											char gk[24];
+											snprintf(gk, sizeof(gk), "prop.cam.gd%d", g5);
+											hit.Add(gk, cbG);
+											const bool onG = (gd & bit) != 0;
+											p.Outline(cbG, onG ? NkRole::AccentUi : NkRole::Border,
+													  onG ? NkRole::AccentUi : NkRole::InputBg,
+													  2.f);
+											p.TextV(cbG.x + S(18.f), yy, kRowH, kGd[g5],
+													NkRole::TextMuted);
+											if (hit.Clicked(gk))
+												demo::Demo3DHostSetCamGuides(en, gd ^ bit);
+											yy += kRowH;
+										}
 									}
 								}
 							}
