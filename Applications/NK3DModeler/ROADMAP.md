@@ -186,3 +186,84 @@ multiplient (chaque opération devra être une commande réversible).
   erroné = « seconde ligne verte »).
 - Les scripts de patch doivent vérifier les **tabulations exactes** des ancres
   (`cat -A`) avant d'écrire, et rester **réentrants**.
+
+---
+
+# PASSATION — état au 2026-08-04 (session Rihen + agent)
+
+> Cette section est le **point d'entrée d'un agent qui reprend le modeleur**.
+> Elle dit ce qui vient d'être livré, ce qui reste, et dans quel ordre Rihen
+> veut l'aborder. Les règles de travail (jamais la STL, français, valider après
+> chaque correctif, build Debug ET Release, app fermée avant de compiler,
+> relance vérifiée) sont dans `CLAUDE.md` à la racine.
+
+## Ce qui a été livré et validé pendant cette session
+
+- **Ombres** : bande de garde des faces omni (le carré au sol sous une point
+  light), plan lointain à 2× la portée (l'ombre ne se tranche plus à la
+  limite), aucune limite propre à l'ombre — elle meurt avec l'atténuation ;
+  fondu de bord pour la directionnelle.
+- **Caméra** : cadenas d'orbite (rotation seule autour du point visé), boule de
+  navigation qui suit la caméra, palette qui ne chevauche plus.
+- **Espaces** : 7 onglets (Objet, Édition, Sculpture 2.5D, Sculpture,
+  Texturing, Patron, Texture painting) = les modes ; chacun a **sa pastille**
+  dans le panneau Propriétés. Séparateurs entre onglets.
+- **Matériau** : pastille dédiée (bibliothèque, groupes repliables, aperçu 5
+  formes, combo système + Ajouter/Nouveau), règles de vie Blender (tout maillage
+  naît avec un matériau, le dernier ne se supprime pas, suppression = les
+  porteurs convergent), texture de couleur.
+- **Aimantation** : cibles géométriques (sommet, arête, face, centres) avec la
+  base « Closest » de Blender, aimant-bascule + panneau (cibles ET pas).
+- **Divers** : multi-sélection réparée au commit, presse-papiers câblé (il ne
+  l'avait jamais été), champs à 259 caractères, Maj+D ne duplique plus deux
+  fois, dimensions honnêtes (cube 1 m comme Unreal), pivot dans la barre.
+
+## EN COURS — à reprendre en premier (non validé)
+
+**Orientations Local vs Global.** Rihen constate qu'elles restent identiques.
+Deux causes ont déjà été corrigées : l'échelle s'appliquait toujours en axes
+monde (corrigée par conjugaison avec la base du geste dans `NkGizmo3D::Apply`),
+et le **commit** recomposait la transformation à sa façon (corrigé : il
+décompose désormais `ComposedOf(i)`, la matrice réellement affichée).
+**Le dernier retour de Rihen dit qu'il reste des erreurs — c'est le point de
+départ.** Pistes à vérifier dans l'ordre :
+1. le repère est-il bien poussé au gizmo qui bouge (`emptyGizmo` pour les
+   nœuds utilisateur — ce gizmo a DÉJÀ été oublié deux fois dans des fan-out) ;
+2. `HostDecompose` rend-il des angles cohérents avec la convention d'euler
+   utilisée à la soumission (Z*Y*X) ;
+3. la rotation et la translation (pas seulement l'échelle) respectent-elles le
+   repère au commit.
+Rappel de Rihen : **Local et Global ne coïncident que si l'objet est aligné au
+monde** ; sur un objet tourné, les deux doivent visiblement différer, pendant
+le glissement **et** après le relâchement.
+
+## Reste à faire, dans l'ordre décidé par Rihen
+
+1. **Proportional editing** (dernier point de ses captures Blender) : bascule,
+   rayon à la molette, et les 8 atténuations (Lisse, Sphère, Racine, Carré
+   inverse, Net, Linéaire, Constant, Aléatoire).
+2. **Aimantation, compléments** : cibles *Volume* et *Arête perpendiculaire*
+   (affichées « à venir », elles laissent le geste libre) ; base d'aimantation
+   (Closest / Center / Median / Active) ; « Aligner la rotation sur la cible ».
+3. **Pastille Output** : source Vue/Caméra, résolution (1920×1080 par défaut,
+   presets, pourcentage), chemin de sortie, colonne caméra de la hiérarchie.
+4. **Matériaux** : textures des autres canaux (rugosité, métallique, normale),
+   choix du **type de surface** (`NkMaterialType` : PBR, Toon, Unlit…),
+   sauvegarde `.nkasset` via `NkMaterialAsset`/`NkMaterialLibrary` (le format
+   existe déjà, ne pas en inventer un), puis l'**éditeur nodal** pour le mixage.
+5. **Contenu des espaces** : Édition (ses catégories sont amorcées), puis
+   Sculpture 2.5D, Sculpture, Patron (dépliage UV), Texture painting — chacun
+   remplit **sa** pastille.
+6. **Plus tard** : profondeur de champ, Shift X/Y caméra, presets de nuages
+   supplémentaires, matériaux par mesh/dynamiques/de déformation (après les
+   fonctions d'édition), suppression de la démo **d'un bloc**.
+7. **Icosphère** : elle ignore encore ses subdivisions (TODO moteur dans
+   `NkMeshSystem::BuildIcosphereData`) — le curseur est donc sans effet.
+
+## Principe à respecter (décision de Rihen)
+
+Une fonctionnalité — onglet, espace, entrée de menu — **ne naît qu'avec ses
+outils** : « les ajouter quand leurs outils naissent leur donnera un contenu
+réel dès le premier jour ». Voir `PRINCIPES_CONCEPTION.private.md` à la racine.
+Les stubs assumés s'affichent grisés et disent « à venir » — jamais une entrée
+qui fait semblant d'agir.

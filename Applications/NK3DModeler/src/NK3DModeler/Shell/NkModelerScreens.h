@@ -222,15 +222,20 @@ namespace nkentseu {
 			return k;
 		}
 		inline const char *const *NkOrientItems(int32 &n) {
-			// LES TROIS ORIENTATIONS DU GIZMO de la demo (sa touche virgule) :
-			// monde, local, normale. Â« Vue Â» n'existe pas dans le moteur -- la
-			// proposer aurait fait un choix sans effet.
-			static const char *const k[] = {"Monde", "Local", "Normale"};
-			n = 3;
+			// LES SEPT ORIENTATIONS de Blender (capture de Rihen). Gimbal,
+			// Curseur et Parent recoivent leur repere de l'hote ; Vue est
+			// calculee par le gizmo depuis la camera. Aucune n'est decorative :
+			// celles qui n'ont pas de repere retombent sur Local, ce que le
+			// libelle ne promet pas autrement.
+			static const char *const k[] = {"Monde",  "Local", "Normale", "Gimbal",
+											"Vue",	  "Curseur", "Parent"};
+			n = 7;
 			return k;
 		}
 		inline const NkIcon *NkOrientIcons() {
-			static const NkIcon k[] = {NkIcon::Globe, NkIcon::Mesh, NkIcon::Ruler};
+			static const NkIcon k[] = {NkIcon::Globe,  NkIcon::Mesh,   NkIcon::Ruler,
+									   NkIcon::Rotate, NkIcon::Camera, NkIcon::Cursor,
+									   NkIcon::Link2};
 			return k;
 		}
 		inline const char *const *NkCamSpeedItems(int32 &n) {

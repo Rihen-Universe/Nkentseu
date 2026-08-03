@@ -53,7 +53,24 @@ namespace nkentseu {
 			public:
 				enum { MODE_TRANSLATE = 0, MODE_ROTATE = 1, MODE_SCALE = 2, MODE_COMBINE = 3 };
 
-				enum { ORIENT_GLOBAL = 0, ORIENT_LOCAL = 1, ORIENT_NORMAL = 2 };
+				// ── REPERES DE TRANSFORMATION (les 7 de Blender) ─────────────────
+				// GLOBAL : axes du monde. LOCAL : axes de l'objet actif.
+				// NORMAL : normale de l'element (mode edition, repere fourni).
+				// GIMBAL : axes des angles d'Euler. VIEW : axes de la camera.
+				// CURSOR : orientation du curseur 3D. PARENT : axes du parent.
+				// GIMBAL / CURSOR / PARENT sont fournis par l'HOTE (SetExtFrame) :
+				// le gizmo ne connait ni les eulers, ni le curseur, ni la
+				// parente. Sans repere fourni, ils retombent sur LOCAL -- et
+				// c'est dit, plutot que de faire semblant.
+				enum {
+					ORIENT_GLOBAL = 0,
+					ORIENT_LOCAL = 1,
+					ORIENT_NORMAL = 2,
+					ORIENT_GIMBAL = 3,
+					ORIENT_VIEW = 4,
+					ORIENT_CURSOR = 5,
+					ORIENT_PARENT = 6
+				};
 
 				// ── POINTS DE PIVOT (Blender : « Transform Pivot Point », touche `.`) ──
 				// Détermine AUTOUR DE QUOI s'appliquent la ROTATION et l'ÉCHELLE, et où le
@@ -155,7 +172,35 @@ namespace nkentseu {
 				}
 
 				void SetOrientation(int32 o) {
-					mOrient = ((o % 3) + 3) % 3;
+					mOrient = ((o % 7) + 7) % 7;
+				}
+
+				// ── REPERE EXTERNE fourni par l'hote, pour GIMBAL / CURSOR /
+				// PARENT (which = ORIENT_GIMBAL, ORIENT_CURSOR, ORIENT_PARENT).
+				// X et Z donnes ; Y reconstruit. Sans repere pose, l'orientation
+				// concernee retombe sur LOCAL.
+				void SetExtFrame(int32 which, NkVec3f axX, NkVec3f axZ) {
+					const int32 s = which - ORIENT_GIMBAL;
+					if (s < 0 || s > 2)
+						return;
+					NkVec3f z = Norm(axZ);
+					NkVec3f x = axX;
+					const float32 d = Dot(x, z);
+					x = NkVec3f{x.x - z.x * d, x.y - z.y * d, x.z - z.z * d};
+					if (Len(z) < 0.5f || Len(x) < 1e-5f) {
+						mExtOk[s] = false;
+						return;
+					}
+					x = Norm(x);
+					mExtX[s] = x;
+					mExtZ[s] = z;
+					mExtY[s] = Norm(Cross(z, x));
+					mExtOk[s] = true;
+				}
+				void ClearExtFrame(int32 which) {
+					const int32 s = which - ORIENT_GIMBAL;
+					if (s >= 0 && s <= 2)
+						mExtOk[s] = false;
 				}
 
 				// ── Orientation « NORMAL » (façon Blender, Edit Mode) ─────────────
@@ -405,6 +450,7 @@ namespace nkentseu {
 							mTr[i] = {0.f, 0.f, 0.f};
 							mRot[i] = NkMat4f::Identity();
 							mScale[i] = {0.f, 0.f, 0.f};
+							mSclHasB[i] = false; // la base du geste meurt avec lui
 						}
 				}
 
@@ -476,9 +522,39 @@ namespace nkentseu {
 					if (i < 0 || i >= kMax)
 						return NkMat4f::Identity();
 					const NkVec3f t = mTr[i], s = mScale[i];
-					return NkMat4f::Translate(t) * NkMat4f::Translate(about) * mRot[i] *
-						   NkMat4f::Scale({1.f + s.x, 1.f + s.y, 1.f + s.z}) *
+					// ── L'ECHELLE S'APPLIQUE DANS LE REPERE DU GESTE ─────────────
+					// Ecrite telle quelle, elle etirait TOUJOURS selon les axes du
+					// MONDE : sur un objet tourne, l'echelle LOCALE donnait donc le
+					// meme resultat que la GLOBALE (regle rappelee par Rihen : les
+					// deux ne coincident que si l'objet est aligne au monde). On
+					// conjugue par la base memorisee au moment du geste --
+					// identite en repere global, donc rien ne change pour lui.
+					NkMat4f S = NkMat4f::Scale({1.f + s.x, 1.f + s.y, 1.f + s.z});
+					if (mSclHasB[i])
+						S = BasisMat(mSclAx[i]) * S * BasisMatT(mSclAx[i]);
+					return NkMat4f::Translate(t) * NkMat4f::Translate(about) * mRot[i] * S *
 						   NkMat4f::Translate({-about.x, -about.y, -about.z});
+				}
+				// Matrice dont les AXES sont B (base -> monde), et sa transposee
+				// (monde -> base ; la base est orthonormee, donc transposee =
+				// inverse). Convention verifiee : M * {1,0,0} rend mat[0].
+				static NkMat4f BasisMat(const NkVec3f *B) {
+					NkMat4f M = NkMat4f::Identity();
+					for (int32 a = 0; a < 3; ++a) {
+						M.mat[a][0] = B[a].x;
+						M.mat[a][1] = B[a].y;
+						M.mat[a][2] = B[a].z;
+					}
+					return M;
+				}
+				static NkMat4f BasisMatT(const NkVec3f *B) {
+					NkMat4f M = NkMat4f::Identity();
+					for (int32 a = 0; a < 3; ++a) {
+						M.mat[0][a] = B[a].x;
+						M.mat[1][a] = B[a].y;
+						M.mat[2][a] = B[a].z;
+					}
+					return M;
 				}
 
 				// ── Boucle par frame : pick + drag ────────────────────────────────
@@ -541,7 +617,21 @@ namespace nkentseu {
 						mGB[0] = mNFrameX;
 						mGB[1] = mNFrameY;
 						mGB[2] = mNFrameZ;
+					} else if (mOrient == ORIENT_VIEW) {
+						// VUE : les axes de la CAMERA -- le gizmo les connait deja,
+						// aucun repere exterieur n'est necessaire. L'avant pointe
+						// vers l'observateur (-mFwd), comme chez Blender.
+						mGB[0] = mRgt;
+						mGB[1] = mUp;
+						mGB[2] = {-mFwd.x, -mFwd.y, -mFwd.z};
+					} else if (ExtFrameOk()) {
+						// GIMBAL / CURSOR / PARENT : repere pose par l'hote.
+						const int32 s = mOrient - ORIENT_GIMBAL;
+						mGB[0] = mExtX[s];
+						mGB[1] = mExtY[s];
+						mGB[2] = mExtZ[s];
 					} else if (mOrient != ORIENT_GLOBAL && mSelId >= 0 && mSelId < count) {
+						// LOCAL -- et repli des reperes non fournis.
 						const NkMat4f &M = mComposed[mSelId];
 						NkVec3f o = M * NkVec3f{0.f, 0.f, 0.f};
 						mGB[0] = Norm((M * NkVec3f{1, 0, 0}) - o);
@@ -1134,6 +1224,16 @@ namespace nkentseu {
 					return mSnapTarget;
 				}
 
+				// MATRICE EFFECTIVE d'une cible : base + tout ce que le geste a
+				// applique (translation, rotation, echelle DANS SON REPERE). Elle
+				// est la VERITE affichee -- un hote qui commit doit la decomposer
+				// plutot que recomposer les morceaux a sa facon, sinon le
+				// resultat final differe de ce qu'on voyait.
+				const NkMat4f &ComposedOf(int32 i) const {
+					static const NkMat4f kI = NkMat4f::Identity();
+					return (i >= 0 && i < kMax) ? mComposed[i] : kI;
+				}
+
 				float32 HandlePickDistPx(float32 mouseX, float32 mouseY) const {
 					if (!mHaveSel)
 						return 1e30f;
@@ -1516,6 +1616,12 @@ namespace nkentseu {
 								NkVec3f B[3], Pi;
 								BasisPivot(i, localOri, B, Pi);
 								NkVec3f rel = Ctr(i) - Pi;
+								// La BASE DU GESTE est memorisee avec l'echelle : sans
+								// elle, Apply() etirerait selon les axes du monde
+								// quelle que soit l'orientation choisie.
+								for (int32 a = 0; a < 3; ++a)
+									mSclAx[i][a] = B[a];
+								mSclHasB[i] = localOri;
 								for (int32 a = 0; a < 3; a++)
 									if (amt[a] != 0.f) {
 										AddComp(mScale[i], a, amt[a]);
@@ -1577,6 +1683,17 @@ namespace nkentseu {
 						B[0] = mNFrameX;
 						B[1] = mNFrameY;
 						B[2] = mNFrameZ;
+					} else if (localOri && mOrient == ORIENT_VIEW) {
+						// VUE : axes de la camera, comme au dessin.
+						B[0] = mRgt;
+						B[1] = mUp;
+						B[2] = {-mFwd.x, -mFwd.y, -mFwd.z};
+					} else if (localOri && ExtFrameOk()) {
+						// GIMBAL / CURSOR / PARENT : repere pose par l'hote.
+						const int32 s = mOrient - ORIENT_GIMBAL;
+						B[0] = mExtX[s];
+						B[1] = mExtY[s];
+						B[2] = mExtZ[s];
 					} else if (!localOri) {
 						B[0] = {1, 0, 0};
 						B[1] = {0, 1, 0};
@@ -1645,6 +1762,16 @@ namespace nkentseu {
 				NkGizmoSnapQuery mSnapFn = nullptr;
 				void *mSnapUser = nullptr;
 				int32 mSnapTarget = 0;
+				// Base du geste d'ECHELLE, par objet (cf. Apply).
+				NkVec3f mSclAx[kMax][3] = {};
+				bool mSclHasB[kMax] = {};
+				// Reperes EXTERNES : GIMBAL, CURSOR, PARENT (cf. SetExtFrame).
+				NkVec3f mExtX[3] = {}, mExtY[3] = {}, mExtZ[3] = {};
+				bool mExtOk[3] = {};
+				bool ExtFrameOk() const {
+					const int32 s = mOrient - ORIENT_GIMBAL;
+					return s >= 0 && s <= 2 && mExtOk[s];
+				}
 				float32 mPickR[kMax] = {};
 				NkVec3f mPivot = {0, 0, 0}, mGB[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
 				float32 mPivDist = 1.f, mGL = 1.f;

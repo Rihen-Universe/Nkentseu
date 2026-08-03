@@ -1624,6 +1624,57 @@ namespace nkentseu {
 				Demo3DState *st = nullptr;
 				renderer::NkMeshSystem *ms = nullptr;
 		};
+		// ── LES REPERES QUE SEUL L'HOTE CONNAIT (Gimbal, Curseur, Parent) ─────
+		// GIMBAL : les axes des angles d'EULER du noeud actif -- X est l'axe
+		// monde, Z a subi les rotations X puis Y (chaque anneau correspond alors
+		// a un angle du panneau, c'est ce qui rend le gimbal lisible).
+		// CURSOR : notre curseur 3D n'a pas d'orientation -- aucun repere n'est
+		// pose, l'entree retombe sur Local et ne ment pas.
+		// PARENT : les axes MONDE du parent.
+		// RAFRAICHIS CHAQUE IMAGE : poses seulement au changement d'orientation,
+		// ils devenaient perimes des qu'on changeait d'objet actif.
+		static void HostPushExtFrames(Demo3DState *st, int32 o) {
+			if (!st)
+				return;
+			const int32 an = st->emptyGizmo.ActiveIndex();
+			const int32 node = an >= 0 ? an + 90 : -1;
+			auto poseAll = [&](int32 which, const NkVec3f &ax, const NkVec3f &az) {
+				st->gizmo.SetExtFrame(which, ax, az);
+				st->editGizmo.SetExtFrame(which, ax, az);
+				st->lightGizmo.SetExtFrame(which, ax, az);
+				st->emptyGizmo.SetExtFrame(which, ax, az);
+			};
+			auto clearAll = [&](int32 which) {
+				st->gizmo.ClearExtFrame(which);
+				st->editGizmo.ClearExtFrame(which);
+				st->lightGizmo.ClearExtFrame(which);
+				st->emptyGizmo.ClearExtFrame(which);
+			};
+			if (o == 3) {
+				if (node >= 90 && node < kNkvpMaxNodes) {
+					const float32 kD2Rg = 0.017453292f;
+					const float32 *e = nkvpEmptyRotDeg[an];
+					const NkMat4f Rx = NkMat4f::RotationX(NkAngle::FromRad(e[0] * kD2Rg));
+					const NkMat4f Ry = NkMat4f::RotationY(NkAngle::FromRad(e[1] * kD2Rg));
+					// Axes par TRANSFORMATION, jamais par lecture de lignes.
+					poseAll(3, NkVec3f{1.f, 0.f, 0.f},
+							(Rx * Ry) * NkVec3f{0.f, 0.f, 1.f});
+				} else {
+					clearAll(3);
+				}
+			}
+			if (o == 6) {
+				if (node >= 90 && node < kNkvpMaxNodes && nkvpParentOf[node] >= 0) {
+					float32 pp[3], psc[3];
+					NkMat4f pr;
+					HostNodeWorldById(nkvpParentOf[node], pp, pr, psc);
+					poseAll(6, pr * NkVec3f{1.f, 0.f, 0.f}, pr * NkVec3f{0.f, 0.f, 1.f});
+				} else {
+					clearAll(6); // sans parent : repli sur Local
+				}
+			}
+		}
+
 		// ── AIMANTATION GEOMETRIQUE : la reponse de l'hote au gizmo ────────────
 		// Cible la plus proche (sommet / arete / face / centres) parmi les
 		// MAILLAGES UTILISATEUR visibles et NON selectionnes -- l'objet en
@@ -8029,6 +8080,10 @@ namespace nkentseu {
 							}
 						}
 						const bool ewasDrag = st->emptyGizmo.IsDragging();
+						// Reperes Gimbal / Parent rafraichis avant le geste : ils
+						// dependent du noeud ACTIF, qui change sans que
+						// l'orientation, elle, ne change.
+						HostPushExtFrames(st, st->emptyGizmo.Orientation());
 						st->emptyGizmo.Update(etg, 70, ein);
 						if (!ewasDrag && st->emptyGizmo.IsDragging())
 							gin.leftPressed = false; // poignee saisie : le clic est a nous
@@ -8045,24 +8100,26 @@ namespace nkentseu {
 							for (int32 es = 0; es < 70; ++es) {
 								if (!st->emptyGizmo.IsSelected(es))
 									continue;
-								const NkVec3f tr = st->emptyGizmo.TranslateOf(es);
-								const NkMat4f oR = st->emptyGizmo.RotationOf(es);
-								const NkVec3f os = st->emptyGizmo.ScaleOf(es);
-								const NkMat4f bR =
-									NkMat4f::RotationZ(NkAngle::FromRad(nkvpEmptyRotDeg[es][2] * kD2R)) *
-									NkMat4f::RotationY(NkAngle::FromRad(nkvpEmptyRotDeg[es][1] * kD2R)) *
-									NkMat4f::RotationX(NkAngle::FromRad(nkvpEmptyRotDeg[es][0] * kD2R));
+								// ON COMMIT LA MATRICE REELLEMENT COMPOSEE, pas les
+								// morceaux recomposes a notre facon : l'echelle du
+								// geste vit dans le REPERE du geste, et la
+								// reappliquer aux axes locaux du noeud rendait
+								// GLOBAL et LOCAL identiques au relachement -- on
+								// voyait la difference pendant le glissement, elle
+								// disparaissait a la fin (constate par Rihen). La
+								// decomposition rend exactement ce qui etait
+								// affiche, pour les sept reperes d'un coup.
 								NkVec3f fp, fr, fs;
-								HostDecompose(oR * bR, fp, fr, fs);
-								nkvpEmptyPos[es][0] += tr.x;
-								nkvpEmptyPos[es][1] += tr.y;
-								nkvpEmptyPos[es][2] += tr.z;
+								HostDecompose(st->emptyGizmo.ComposedOf(es), fp, fr, fs);
+								nkvpEmptyPos[es][0] = fp.x;
+								nkvpEmptyPos[es][1] = fp.y;
+								nkvpEmptyPos[es][2] = fp.z;
 								nkvpEmptyRotDeg[es][0] = fr.x;
 								nkvpEmptyRotDeg[es][1] = fr.y;
 								nkvpEmptyRotDeg[es][2] = fr.z;
-								nkvpEmptyScl[es][0] *= (1.f + os.x);
-								nkvpEmptyScl[es][1] *= (1.f + os.y);
-								nkvpEmptyScl[es][2] *= (1.f + os.z);
+								nkvpEmptyScl[es][0] = fs.x;
+								nkvpEmptyScl[es][1] = fs.y;
+								nkvpEmptyScl[es][2] = fs.z;
 								anyCommit = true;
 							}
 							if (anyCommit)
@@ -9435,6 +9492,7 @@ namespace nkentseu {
 			auto *st = HostSt();
 			if (!st)
 				return;
+			HostPushExtFrames(st, o); // repere pose des le changement
 			st->gizmo.SetOrientation(o);
 			st->editGizmo.SetOrientation(o);
 			st->lightGizmo.SetOrientation(o);
