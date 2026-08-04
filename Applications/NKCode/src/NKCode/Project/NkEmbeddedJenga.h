@@ -102,6 +102,12 @@ namespace nkentseu {
 				// llvm-mingw/bin sous Windows, zig ailleurs.
 				static NkString DefaultCompilerBin();
 
+				// Version du Jenga EMBARQUE, lue dans Jenga/_version.py. Aucun
+				// interpreteur mis en jeu : une simple lecture de fichier, donc
+				// utilisable depuis n'importe quel thread et sans occuper le worker.
+				// Vide si le Jenga embarque est absent.
+				static NkString EmbeddedVersion();
+
 				bool Start(const Request &req); // false si deja en cours
 				bool Running() const;
 				bool Done() const;

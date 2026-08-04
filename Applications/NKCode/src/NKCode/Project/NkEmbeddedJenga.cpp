@@ -12,6 +12,8 @@
 #if defined(NKCODE_EMBED_PYTHON)
 #include "NKCode/Project/NkProcess.h" // NkStripAnsiInto (transcript sans codes couleur)
 #include "NKFileSystem/NkDirectory.h"
+#include "NKFileSystem/NkFile.h"          // lecture de Jenga/_version.py
+#include "NKCode/Project/NkText.h"        // NkFindSub
 
 // En config Debug, _DEBUG ferait basculer pyconfig.h sur l'ABI DEBUG de
 // CPython (Py_DEBUG/Py_REF_DEBUG -> symboles _Py_INCREF_IncRefTotal...)
@@ -100,6 +102,32 @@ namespace nkentseu {
 		// Dossier a PREFIXER au PATH pour rendre le compilateur par defaut visible.
 		// Doit rester le MIROIR de CompilerFetch.BinDir() : llvm-mingw expose ses
 		// binaires dans bin/ sous Windows, l'archive Zig pose `zig` a la racine.
+		// Version du Jenga EMBARQUE, lue directement dans Jenga/_version.py.
+		// Volontairement SANS interpreteur : une lecture de fichier est utilisable
+		// depuis n'importe quel thread et n'occupe pas le worker unique — la
+		// detection de version tourne en tache de fond pendant qu'un build peut
+		// deja etre en cours.
+		NkString NkEmbeddedJenga::EmbeddedVersion() {
+			const NkString f = gJengaSrc + "/Jenga/_version.py";
+			if (gJengaSrc.Empty() || !NkFile::Exists(f.CStr()))
+				return NkString();
+			const NkString txt = NkFile::ReadAllText(NkPath(f.CStr()));
+			const char *k = NkFindSub(txt.CStr(), "__version__");
+			if (!k)
+				return NkString();
+			// __version__ = "2.1.0"  ->  2.1.0 (guillemets simples ou doubles)
+			const char *q = k;
+			while (*q && *q != 0x22 && *q != 0x27 && *q != 0x0A)
+				++q;
+			if (!*q || *q == 0x0A)
+				return NkString();
+			const char quote = *q++;
+			NkString v;
+			while (*q && *q != quote)
+				v += *q++;
+			return v;
+		}
+
 		NkString NkEmbeddedJenga::DefaultCompilerBin() {
 #if defined(_WIN32)
 			return CompilersDir() + "/llvm-mingw/bin";
