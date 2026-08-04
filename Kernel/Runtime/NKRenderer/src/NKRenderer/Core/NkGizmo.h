@@ -505,8 +505,16 @@ namespace nkentseu {
 						return base;
 					const NkVec3f t = mTr[i], s = mScale[i];
 					const NkVec3f c = base * NkVec3f{0.f, 0.f, 0.f};
-					NkMat4f about = NkMat4f::Translate(c) * mRot[i] *
-									NkMat4f::Scale({1.f + s.x, 1.f + s.y, 1.f + s.z}) *
+					// ── L'ECHELLE S'APPLIQUE DANS LE REPERE DU GESTE ─────────────
+					// C'est ICI que se compose la matrice des OBJETS (mComposed) :
+					// ecrite telle quelle, l'echelle etirait toujours selon les
+					// axes du MONDE, si bien que LOCAL et GLOBAL donnaient le meme
+					// resultat sur un objet tourne (Rihen). Conjugaison par la base
+					// memorisee au moment du geste -- identite en repere global.
+					NkMat4f S = NkMat4f::Scale({1.f + s.x, 1.f + s.y, 1.f + s.z});
+					if (mSclHasB[i])
+						S = BasisMat(mSclAx[i]) * S * BasisMatT(mSclAx[i]);
+					NkMat4f about = NkMat4f::Translate(c) * mRot[i] * S *
 									NkMat4f::Translate({-c.x, -c.y, -c.z});
 					return NkMat4f::Translate(t) * about * base;
 				}
@@ -1269,6 +1277,24 @@ namespace nkentseu {
 							mDragging = true;
 							// Debut de drag : la position libre repart du pivot courant.
 							mDragFree = mPivot;
+							// ── AXES DE L'OBJET FIGES POUR TOUT LE GESTE ────────
+							// Les relire a chaque image depuis mComposed creait une
+							// BOUCLE : cette matrice porte deja l'echelle en cours,
+							// donc les axes se deformaient eux-memes et le resultat
+							// divergeait -- degenerescence variable selon l'angle de
+							// vue (constate par Rihen). Ici mScale vaut encore zero :
+							// ce sont les axes PROPRES de l'objet, et ils ne bougent
+							// plus jusqu'au relachement.
+							for (int32 i2 = 0; i2 < mCount; i2++) {
+								if (!mSel[i2])
+									continue;
+								const NkMat4f &M0 = mComposed[i2];
+								const NkVec3f o0 = M0 * NkVec3f{0.f, 0.f, 0.f};
+								mSclAx[i2][0] = Norm((M0 * NkVec3f{1, 0, 0}) - o0);
+								mSclAx[i2][1] = Norm((M0 * NkVec3f{0, 1, 0}) - o0);
+								mSclAx[i2][2] = Norm((M0 * NkVec3f{0, 0, 1}) - o0);
+								mSclHasB[i2] = true;
+							}
 							mGOp = hs[hit].op;
 							mGMask = hs[hit].mask;
 							mGKind = hs[hit].kind;
@@ -1616,15 +1642,36 @@ namespace nkentseu {
 								NkVec3f B[3], Pi;
 								BasisPivot(i, localOri, B, Pi);
 								NkVec3f rel = Ctr(i) - Pi;
-								// La BASE DU GESTE est memorisee avec l'echelle : sans
-								// elle, Apply() etirerait selon les axes du monde
-								// quelle que soit l'orientation choisie.
-								for (int32 a = 0; a < 3; ++a)
-									mSclAx[i][a] = B[a];
-								mSclHasB[i] = localOri;
+								// ── PAS DE CISAILLEMENT : L'ECHELLE VIT DANS LES AXES
+								// DE L'OBJET (choix d'Unreal et de Blender -- ni l'un
+								// ni l'autre ne stocke de shear ; FTransform le refuse
+								// explicitement). Une echelle le long d'un axe non
+								// aligne cisaillerait, et trois facteurs ne savent pas
+								// le porter : le resultat SAUTAIT donc au relachement
+								// vers l'approximation stockable (Rihen -- « ca donne
+								// l'impression du faux »).
+								// On PROJETTE donc le geste sur les axes de l'objet
+								// des l'apercu : ce qu'on voit est ce qu'on obtient.
+								// Repere aligne sur l'objet (cas courant) -> le
+								// facteur va entier sur son axe, rien ne change.
+								// Axes FIGES au debut du geste (cf. DoPick) : les relire
+								// ici les ferait dependre de l'echelle deja appliquee.
+								const NkVec3f *L = mSclAx[i];
 								for (int32 a = 0; a < 3; a++)
 									if (amt[a] != 0.f) {
-										AddComp(mScale[i], a, amt[a]);
+										// Repartition par le CARRE du cosinus : les
+										// poids somment a 1 (base orthonormee), donc
+										// un axe aligne recoit tout et rien ne se
+										// perd sur un objet tourne.
+										for (int32 k = 0; k < 3; ++k) {
+											const float32 c = Dot(B[a], L[k]);
+											if (c != 0.f)
+												AddComp(mScale[i], k, amt[a] * c * c);
+										}
+										// Le CENTRE, lui, s'ecarte le long de l'axe
+										// TIRE : c'est une translation, parfaitement
+										// representable -- elle garde le repere du
+										// geste, comme chez Blender.
 										float32 along = Dot(rel, B[a]);
 										mTr[i] = mTr[i] + B[a] * (along * amt[a]);
 									}
