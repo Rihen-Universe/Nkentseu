@@ -269,7 +269,13 @@ namespace nkentseu {
 			if (nTestVis > 0)
 				testBadge = NkPrintf("%d", nTestVis);
 			C(0, wSol, 90, false, NkT("tb.solution"), wsPrev, TEX(ic ? ic->jenga : 0), "git-branch", true);
-			C(1, wProj, 40, false, NkT("tb.projet"), projPrev, TEX(ic ? ic->pkg : 0), "package", false);
+			// Le combo FERME porte l'icone du Kind selectionne, la meme que dans la
+			// liste : la valeur retenue se lit comme la ligne d'ou elle vient. Repli
+			// sur l'icone generique quand « tous les projets » est choisi ou que le
+			// Kind n'a pas d'icone.
+			const uint32 projTex = s->AllProjects() ? 0u : NkKindTex(ic, s->KindOf(projPrev).CStr());
+			C(1, wProj, 40, false, NkT("tb.projet"), projPrev, TEX(projTex ? projTex : (ic ? ic->pkg : 0)), "package",
+			  false);
 			// Icône de la PLATEFORME cible : logo dédié (Android, Apple, Tux, Windows,
 			// Web) selon le nom sélectionné ; générique (écran) sinon.
 			uint32 platTex = ic ? ic->monitor : 0;

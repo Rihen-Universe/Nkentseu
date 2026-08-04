@@ -5268,6 +5268,11 @@ namespace nkentseu {
 				// la liste elle-meme sans amputer Construire — on filtre A L'USAGE.
 				NkVector<NkString> projKinds;
 
+				// Projet de DEMARRAGE declare dans le .jenga (startproject). Vide si
+				// aucun. « Demarrer » sur « tous les projets » le prefere au premier
+				// executable venu : c'est le choix explicite de l'auteur du workspace.
+				NkString startProject;
+
 				NkString KindOf(const char *name) const {
 					if (name && *name)
 						for (usize i = 0; i < projects.Size() && i < projKinds.Size(); ++i)
@@ -5358,6 +5363,7 @@ namespace nkentseu {
 						mInfoLines.Clear();
 						projects.Clear();
 					projKinds.Clear(); // parallele a `projects` (meme source : jenga info)
+					startProject = NkString();
 						return;
 					}
 					// ── Jenga EMBARQUE pour `info` aussi ────────────────────────────
@@ -5381,6 +5387,7 @@ namespace nkentseu {
 							mInfoLines.Clear();
 							projects.Clear();
 					projKinds.Clear(); // parallele a `projects` (meme source : jenga info)
+					startProject = NkString();
 							mInfoEmbedded = true;
 							return;
 						}
@@ -5392,6 +5399,7 @@ namespace nkentseu {
 					mInfoLines.Clear();
 					projects.Clear();
 					projKinds.Clear(); // parallele a `projects` (meme source : jenga info)
+					startProject = NkString();
 					mInfoEmbedded = false;
 					mInfo.Start(NkString("jenga info") + JengaFileArg().CStr());
 				}
@@ -6887,7 +6895,14 @@ namespace nkentseu {
 					statusError = false; // nouvelle tentative : on repart d'un statut neutre
 					NkString cibleRun;
 					if (AllProjects()) {
-						cibleRun = FirstExecutableProject();
+						// Le projet de DEMARRAGE d'abord : c'est le choix EXPLICITE de
+						// l'auteur du workspace, il prime sur un premier venu. On verifie
+						// tout de meme qu'il est executable — un startproject pointant sur
+						// une bibliotheque serait une erreur du .jenga, pas une cible.
+						if (!startProject.Empty() && IsExecutableProject(startProject.CStr()))
+							cibleRun = startProject;
+						else
+							cibleRun = FirstExecutableProject();
 						if (cibleRun.Empty()) {
 							status = NkString("(aucun executable dans ce workspace)");
 							statusError = true;
@@ -7453,6 +7468,7 @@ namespace nkentseu {
 				void ParseProjects() {
 					projects.Clear();
 					projKinds.Clear(); // parallele a `projects` (meme source : jenga info)
+					startProject = NkString();
 					tests.Clear();
 					toolchains.Clear();
 
@@ -7462,6 +7478,13 @@ namespace nkentseu {
 						const char *L = mInfoLines[i].CStr();
 						if (StartsWithI(L, "Configurations:")) {
 							infoConfigs = AfterColon(L);
+							continue;
+						}
+						// Projet de DEMARRAGE du workspace (startproject dans le .jenga) :
+						// cible privilegiee de « Demarrer » quand « tous les projets » est
+						// selectionne. Absent de la sortie quand aucun n'est declare.
+						if (StartsWithI(L, "Start project:")) {
+							startProject = AfterColon(L).Trim();
 							continue;
 						}
 						if (StartsWithI(L, "Target OSes:")) {

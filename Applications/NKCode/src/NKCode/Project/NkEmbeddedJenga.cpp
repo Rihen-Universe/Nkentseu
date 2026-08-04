@@ -509,6 +509,16 @@ namespace nkentseu {
 									}
 									PushLine(line);
 								}
+								// Projet de DEMARRAGE : MEME ligne que le CLI (`jenga info`), pour
+								// que l'hote n'ait qu'UN seul format a analyser. Sans elle,
+								// « Demarrer » sur « tous les projets » aurait respecte le
+								// startproject avec Jenga externe mais pas en embarque — deux
+								// comportements pour une meme action.
+								{
+									const std::string sp = wi.attr("startProject").cast<std::string>();
+									if (!sp.empty())
+										PushLine(NkString("Start project: ") + sp.c_str());
+								}
 								PushLine(NkString(""));
 								PushLine(NkString("Name                Kind"));
 								PushLine(NkString("----                ----"));
