@@ -1340,12 +1340,45 @@ int nkmain(const NkEntryState &entry) {
 			st.capturePending = 0;
 			char capPath[256];
 			if (capMode == 1) {
-				if (NkNextCapturePath("vue", capPath, (int32)sizeof(capPath)))
-					demo::Demo3DHostCaptureView(capPath); // trace son resultat au journal
+				// « CAPTURER LA VUE » FAIT LE MEME TRAVAIL QUE « RENDRE »
+				// (Rihen) : meme resolution, meme source, meme echelle, memes
+				// incrustations, memes types de rendu -- seul le nom du fichier
+				// change. Il figeait auparavant l'ecran tel quel, ce qui donnait
+				// deux verites pour un seul acte : une image a la taille de la
+				// fenetre a cote d'une image aux reglages de sortie.
+				// Repli sur l'ancienne capture si la vue 3D n'est pas prete.
+				if (demo::Demo3DHostReady())
+					demo::Demo3DHostRenderOutputAs(1); // trace son resultat au journal
+				else if (NkNextCapturePath("vue", capPath, (int32)sizeof(capPath)))
+					demo::Demo3DHostCaptureView(capPath);
 			} else {
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
-				if (NkNextCapturePath("tutoriel", capPath, (int32)sizeof(capPath))) {
+				// TUTORIEL SUIT LA MEME DESTINATION (Rihen) : la seule
+				// difference tient a CE QU'ON PHOTOGRAPHIE -- toute la fenetre,
+				// interface comprise, au lieu de la seule scene. Le dossier, le
+				// nom et la numerotation sont ceux de la sortie : une seule
+				// destination configuree dans l'application, une seule
+				// convention.
+				const bool okPath2 =
+					demo::Demo3DHostReady()
+						? demo::Demo3DHostOutNextPath(capPath, (int32)sizeof(capPath), 2)
+						: NkNextCapturePath("tutoriel", capPath, (int32)sizeof(capPath));
+				if (okPath2) {
 					const bool okCap = NkCaptureWholeWindow(window, capPath);
+					// MEME RESOLUTION DE SORTIE que le rendu : la fenetre est
+					// photographiee a sa taille -- c'est sa nature -- puis
+					// ramenee au format demande. Sans cela, « tutoriel » etait
+					// le seul des trois a ignorer les reglages (Rihen).
+					if (okCap && demo::Demo3DHostReady()) {
+						int32 ew = 0, eh = 0;
+						demo::Demo3DHostOutEffectiveSize(&ew, &eh);
+						NkImage shot;
+						if (ew > 0 && eh > 0 && shot.Load(capPath) &&
+							(shot.Width() != ew || shot.Height() != eh)) {
+							shot.Resize((uint32)ew, (uint32)eh, NkResizeFilter::NK_BICUBIC);
+							shot.Save(capPath);
+						}
+					}
 					std::printf("[NK3DModeler] Capture tutoriel -> %s : %s\n", capPath,
 								okCap ? "ecrite" : "ECHEC");
 				}

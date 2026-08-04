@@ -500,11 +500,46 @@ namespace nkentseu {
 		// donc il rend vrai s'il a demarre, pas s'il a fini : Busy dit qu'il
 		// travaille, LastPath/LastOk disent ce qu'il a produit.
 		bool Demo3DHostRenderOutput();
+		// Meme rendu, sous le nom d'une capture : « Rendre l'image » et
+		// « Capturer la vue » font EXACTEMENT le meme travail -- resolution,
+		// source, echelle, incrustations, types de rendu -- et ne different que
+		// par le nom du fichier. `which` : 0 rendu, 1 vue, 2 tutoriel.
+		bool Demo3DHostRenderOutputAs(int32 which);
 		bool Demo3DHostOutBusy();
 		const char *Demo3DHostOutLastPath();
 		bool Demo3DHostOutLastOk();
 		// Cameras de la scene, pour les listes de sources (rend le nombre ecrit).
 		int32 Demo3DHostSceneCameras(int32 *out, int32 cap);
+		// FORMATS reellement ecrivables par NKImage. WebP et SVG en sont
+		// absents : ils y sont declares mais annonces « non implemente », et
+		// les proposer aurait produit des fichiers vides.
+		int32 Demo3DHostOutFormatCount();
+		const char *Demo3DHostOutFormatName(int32 f);
+		const char *Demo3DHostOutFormatExt(int32 f);
+		bool Demo3DHostOutFormatLossy(int32 f); // seul le JPEG lit la qualite
+		int32 Demo3DHostOutQuality();
+		void Demo3DHostSetOutQuality(int32 q);
+		// MODES DE RENDU A PRODUIRE, en masque de bits (Rihen : « cocher les
+		// types de rendu qu'on veut »). Meme ordre que la touche Z de la vue.
+		// Chaque mode coche produit SON image, incrustations comprises, et le
+		// nom du fichier porte son suffixe. Masque nul = le mode courant seul.
+		int32 Demo3DHostOutModeCount();
+		const char *Demo3DHostOutModeName(int32 m);
+		int32 Demo3DHostOutModes();
+		void Demo3DHostSetOutModes(int32 mask);
+		// VIDEO : la configuration se REGLE et se conserve, mais rien ne
+		// pretend l'executer -- le rendu viendra plus tard (decision de Rihen).
+		void Demo3DHostOutVideo(bool *on, int32 *fps, int32 *first, int32 *last, int32 *codec);
+		void Demo3DHostSetOutVideo(bool on, int32 fps, int32 first, int32 last, int32 codec);
+		// Prochain chemin libre, dans le DOSSIER et au FORMAT de la sortie.
+		// Les deux captures l'empruntent : il n'y a qu'une destination
+		// configuree dans l'application. `which` choisit le nom de base --
+		// 0 la sortie, 1 « Capturer la vue », 2 « Tutoriel » -- car un rendu
+		// final, une capture de la scene et une photo de l'interface ne se
+		// rangent pas sous le meme nom.
+		bool Demo3DHostOutNextPath(char *out, int32 cap, int32 which = 0);
+		const char *Demo3DHostCaptureName(int32 which); // 1 vue, 2 tutoriel
+		void Demo3DHostSetCaptureName(int32 which, const char *n);
 		// Vrai quand une ombre figee ne correspond plus a la scene (lumiere ou
 		// geometrie modifiee depuis le gel) : le bouton se colore.
 		bool Demo3DHostShadowRecalcPending();

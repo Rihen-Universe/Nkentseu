@@ -218,6 +218,74 @@ multiplient (chaque opération devra être une commande réversible).
   l'avait jamais été), champs à 259 caractères, Maj+D ne duplique plus deux
   fois, dimensions honnêtes (cube 1 m comme Unreal), pivot dans la barre.
 
+# CAMÉRA — plan d'ensemble (NkCamLink)
+
+> Piloté depuis le modeleur, mais **destiné à servir d'autres applications**.
+> Le code devra donc naître dans `Kernel/Runtime/`, à côté de NKCamera, et non
+> dans `Applications/NK3DModeler/` : une extraction ultérieure coûte toujours
+> plus cher que la bonne place au départ. Le modeleur en sera le premier client.
+
+## Les trois usages, décidés avec Rihen
+
+1. **Caméra réelle en incrustation** — la webcam devient une source de sortie
+   comme une autre, posée sur l'image finale à la forme voulue : montrer la
+   personne qui réalise le travail de modélisation.
+2. **Caméra réelle en vidéo** — la même source, pendant un enregistrement.
+3. **Téléphone pilotant une caméra virtuelle** — le téléphone ne transmet
+   **que la pose** (position, orientation, focale) : quelques dizaines d'octets
+   par image. C'est le principe posé par Rihen, et il est juste — transférer
+   des images dans ce sens n'apporterait rien. Le retour visuel (voir ce que
+   voit la caméra, depuis le téléphone) est un **second étage**, séparable.
+
+## Ce qui existe déjà — et qu'il ne faut donc pas réécrire
+
+| Module | État | Ce qu'on en prend |
+|---|---|---|
+| **NKCamera** | Livré | Énumération des périphériques, `StartStreaming`, `GetLastFrame`, `ConvertToRGBA8`. Backends Media Foundation (Windows), V4L2, Camera2, AVFoundation, getUserMedia. Mapping caméra physique → caméra virtuelle par **IMU**, livré. |
+| **NKNetwork** | Livré | `NkDiscovery` (broadcast LAN : le téléphone trouve le PC sans qu'on tape une adresse), `NkReliableUDP` (ACK sélectif, retransmission sur RTT), `NkBitStream` avec `WriteQuatf` / `WriteVec3fQ` — la quantification pour laquelle cette couche a été écrite. `NkRPC` pour les commandes ponctuelles. |
+| **NKMedia** | Livré | `NkImageSequenceWriter` (séquence PNG/JPEG/BMP/TGA/QOI, « workflow Blender »), `NkVideoWriter` (RAW, MJPEG, MPEG-1, **H.264 baseline bit-exact vs ffmpeg**), conteneurs AVI/MOV/MP4/WebM, **mux audio+vidéo** (`AddAudioSamples`, sync 0 ms). |
+| **NKAudio** | Livré sauf capture | 256 voix, DSP, WAV/MP3/OGG/FLAC/Opus. |
+| **NKCanvas** | Livré | Suffit à l'application mobile : au premier étage le téléphone n'affiche aucune 3D — il lit son IMU, envoie une pose, montre des repères. Au second, il affiche le retour comme une simple texture. |
+| **NKImage** | Livré | Déjà exploité par la sortie (formats, `Resize` bicubique). |
+
+## Ce qui manque, et où
+
+| Manque | Où | Pourquoi c'est nécessaire |
+|---|---|---|
+| **Capture micro** | NKAudio | Sans elle, pas de **voix off** sur un tutoriel. Rihen : « on doit l'intégrer à tout prix, même si ce n'est pas pour maintenant ». Le reste de la chaîne est prêt : mixage, encodage Opus, mux A/V. |
+| **Retour visuel vers le téléphone** | NkCamLink + NKMedia | Voir depuis le téléphone ce que voit la caméra. Second étage, explicitement voulu. Flux basse résolution : MJPEG suffit et NKMedia l'encode déjà. |
+| **Protocole NkCamLink** | Kernel/Runtime | Découverte, appairage, pose quantifiée, RPC de commande. S'assemble depuis NKNetwork — rien à inventer côté transport. |
+| **Application mobile** | Applications/ | NKCanvas + NKCamera (IMU) + NKNetwork. |
+| **Tracking sans IMU** | — | Le mapping de NKCamera repose sur l'IMU, **absent des webcams Windows desktop**. Piloter la caméra virtuelle depuis une webcam demanderait du tracking visuel : projet à part entière, écarté pour l'instant. |
+
+## Ce que ce travail apporte aux modules
+
+**NKNetwork y gagne le plus.** Il est aujourd'hui validé par 67 checks et un
+bout-en-bout en **loopback 127.0.0.1**. NkCamLink serait son premier usage réel
+sur un vrai réseau — Wi-Fi, mobile vers PC, avec latence, pertes et
+reconnexions. C'est cela qui éprouve un RUDP, pas un loopback. Deux TODO de sa
+roadmap en bénéficieraient directement : les **stats runtime** (RTT, perte),
+aujourd'hui partielles, et la **compression des snapshots** si le retour visuel
+arrive.
+
+**NKAudio** y gagne sa capture micro, qui manque à tout usage d'enregistrement.
+
+**NKCamera** y gagne un usage réel de son mapping IMU, aujourd'hui livré mais
+jamais employé par une application.
+
+## Ordre proposé
+
+1. **Webcam en incrustation** — presque du branchement : `ConvertToRGBA8` rend
+   exactement le tampon RGBA que `NkInsetCompose` sait déjà poser, avec les
+   formes et le liseré existants. Une source de plus dans la liste.
+2. **Vidéo de sortie** — `NkImageSequenceWriter` d'abord (utile tout de suite,
+   n'importe quel monteur assemble une séquence), puis `NkVideoWriter`.
+3. **Capture micro** dans NKAudio, puis voix off sur la vidéo.
+4. **NkCamLink, étage 1** — le téléphone comme manette : découverte, pose.
+5. **NkCamLink, étage 2** — le retour visuel.
+
+---
+
 ## OUTPUT — livré pendant la pause du 4 août (à valider)
 
 > Release et Debug à 28/28, app relancée et fermée sans erreur au journal.

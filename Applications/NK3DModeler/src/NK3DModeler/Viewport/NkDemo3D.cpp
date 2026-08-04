@@ -55,7 +55,19 @@ namespace nkentseu {
 		static float32 nkvpOffX = 0.f, nkvpOffY = 0.f; // origine de la vue (px fenetre)
 		static float32 nkvpW = 0.f, nkvpH = 0.f;	   // taille de la vue
 		static bool nkvpInputOn = true;				   // faux pendant une saisie de texte
+		// ── TOUCHE DE NAVIGATION, LUE PAR POLLING ───────────────────────────
+		// Les gestionnaires d'EVENEMENTS de la vue sont deja gardes par
+		// nkvpInputOn ; le pilotage de camera, lui, interroge l'etat clavier a
+		// chaque image et echappait donc a cette garde : renommer une camera
+		// dans la hierarchie et se deplacer dans le texte avec les fleches
+		// faisait AUSSI voyager la vue 3D, alors que le champ avait le focus
+		// (constate par Rihen). Toute lecture clavier de navigation passe
+		// desormais par ici -- un seul point de passage, donc plus d'oubli.
+		static bool HostNavKey(NkKey k);
 		static bool nkvpHover = false;				   // souris au-dessus de la vue
+		static bool HostNavKey(NkKey k) {
+			return nkvpInputOn && NkInput.IsKeyDown(k);
+		}
 		static void *nkvpCmd = nullptr;				   // cmd de l'editeur (frame courante)
 		static bool nkvpHudOn = true;				   // HUD texte de la demo (surimpression)
 		// OEIL et CADENAS de la hierarchie : visibilite et verrou PAR OBJET.
@@ -357,14 +369,66 @@ namespace nkentseu {
 		static const int32 kNkvpInsetShapes = nk3d::kInsetShapeCount;
 		static const int32 kNkvpMaxInsets = 8;
 		static NkVpOutInset nkvpOutInset[kNkvpMaxInsets];
-		static int32 nkvpOutSource = -1;   // principale : -1 vue 3D, sinon noeud camera
+		// La source principale est une VUE PRECISE : -1 la vue 3D, sinon un
+		// noeud camera. Une entree « camera active » a existe ici ; elle a ete
+		// retiree (Rihen) -- la camera active est deja celle qu'on voit, et une
+		// source qui se deplace toute seule rendait imprevisible ce qu'on
+		// s'appretait a produire.
+		static int32 nkvpOutSource = -1;
 		static int32 nkvpOutW = 1920;
 		static int32 nkvpOutH = 1080;
 		static int32 nkvpOutScale = 100;   // pourcentage applique aux deux cotes
 		static char nkvpOutDir[260] = "captures";
 		static char nkvpOutName[64] = "rendu";
-		static int32 nkvpOutFormat = 0;	   // 0 PNG
+		static int32 nkvpOutFormat = 0;	   // indice dans kNkvpOutFmt
 		static bool nkvpOutTransparent = false;
+		// FORMATS : ceux que NkImage sait REELLEMENT ecrire. WebP et SVG sont
+		// declares dans NKImage mais annonces « non implemente » -- les
+		// proposer aurait produit des fichiers vides. L'extension suffit :
+		// NkImage::Save choisit l'encodeur d'apres elle.
+		struct NkVpOutFmt {
+				const char *name;
+				const char *ext;
+				bool lossy; // seul le JPEG consomme le reglage de qualite
+		};
+		static const NkVpOutFmt kNkvpOutFmt[] = {
+			{"PNG", "png", false},	{"JPEG", "jpg", true}, {"BMP", "bmp", false},
+			{"TGA", "tga", false},	{"QOI", "qoi", false}, {"HDR (32 bits)", "hdr", false},
+			{"EXR (32 bits)", "exr", false}};
+		static const int32 kNkvpOutFmtCount =
+			(int32)(sizeof(kNkvpOutFmt) / sizeof(kNkvpOutFmt[0]));
+		static int32 nkvpOutQuality = 90; // JPEG
+		// MODES DE RENDU A PRODUIRE, en masque de bits (Rihen : « cocher les
+		// types de rendu qu'on veut »). Meme ordre que la touche Z de la vue :
+		// 0 Rendu, 1 Solide, 2 Fil de fer, 3 Normales, 4 UV, 5 Occlusion.
+		// Zero = le mode courant de la vue, et lui seul : cocher n'est pas
+		// obligatoire pour rendre ce qu'on a sous les yeux.
+		static int32 nkvpOutModes = 0;
+		static const int32 kNkvpOutModeCount = 6;
+		static const char *const kNkvpOutModeNames[kNkvpOutModeCount] = {
+			"Rendu", "Solide", "Fil de fer", "Normales", "UV", "Occlusion (AO)"};
+		// Suffixes de fichier : sans accent ni espace, un nom de fichier n'a
+		// pas a etre une phrase.
+		static const char *const kNkvpOutModeTags[kNkvpOutModeCount] = {
+			"rendu", "solide", "filaire", "normales", "uv", "ao"};
+		// ── CAPTURES : LEUR PROPRE NOM (Rihen) ─────────────────────────────
+		// « Capturer la vue » et « Tutoriel » ecrivent dans le DOSSIER de la
+		// sortie -- il n'y a qu'une destination configuree -- mais chacune
+		// garde SON nom de base : melanger un rendu final, une capture d'ecran
+		// de la scene et une photo de l'interface sous un meme nom rendrait le
+		// dossier illisible. Le format et la qualite, eux, sont ceux de la
+		// sortie : c'est un reglage d'image, pas de destination.
+		static char nkvpCapViewName[64] = "vue";
+		static char nkvpCapTutoName[64] = "tutoriel";
+		// ── VIDEO : LA CONFIGURATION EXISTE, LE RENDU VIENDRA ───────────────
+		// Rihen l'a demandee en sachant que le developpement est pour plus
+		// tard. Elle se REGLE donc des maintenant et se conserve, mais rien ne
+		// pretend l'executer : aucun bouton qui ferait semblant.
+		static bool nkvpOutVideoOn = false;
+		static int32 nkvpOutFps = 25;
+		static int32 nkvpOutFrameStart = 1;
+		static int32 nkvpOutFrameEnd = 250;
+		static int32 nkvpOutVideoCodec = 0; // 0 = suite d'images PNG
 		// Machine du rendu hors bande. Le redimensionnement de la cible et la
 		// lecture des pixels ne peuvent pas avoir lieu dans la meme image : le
 		// GPU doit avoir rendu ENTRE les deux. Les phases sont donc etalees sur
@@ -376,6 +440,15 @@ namespace nkentseu {
 		static int32 nkvpOutStep = -1;	  // -1 = principale, sinon indice d'incrustation
 		static char nkvpOutLastPath[300] = {};
 		static bool nkvpOutLastOk = false;
+		// Modes restant a produire pendant CE rendu, et le mode de la vue a
+		// restituer quand tout sera fini.
+		static int32 nkvpOutModeQueue[kNkvpOutModeCount] = {};
+		static int32 nkvpOutModeCount = 0;
+		static int32 nkvpOutModeIdx = 0;
+		static int32 nkvpOutSaveShading = 0;
+		// Quel nom de base porte le fichier produit : 0 le rendu, 1 la capture
+		// de la vue, 2 le tutoriel. Le TRAVAIL est le meme, seul le nom change.
+		static int32 nkvpOutNaming = 0;
 		// Declarations avancees : le rappel clavier (pave 0) precede les
 		// definitions, placees pres des autres fonctions hote.
 		void Demo3DHostViewCamera(int32 node);
@@ -383,6 +456,8 @@ namespace nkentseu {
 		static int32 HostSceneCameras(int32 *out, int32 cap);
 		void Demo3DHostCameraFrame(float32 *xywh);
 		void Demo3DHostSetCameraView(int32 node); // la sortie pose la source avant de rendre
+		int32 Demo3DHostShading();				 // la sortie produit un fichier par mode coche
+		void Demo3DHostSetShading(int32 mode);
 		// UNE SEULE VERITE optique pour la camera : le WIDGET (pyramide), le
 		// rendu en vue camera, le voile et la capture derivent tous du couple
 		// focale + format. Format Full HD en v1 ; la pastille Output le pilotera.
@@ -5113,17 +5188,17 @@ namespace nkentseu {
 						st->simCam.Look(mdx, -mdy);
 					const float32 spd = (shift ? 12.f : 4.f) * dt;
 					float32 fwd = 0.f, rgt = 0.f, up = 0.f;
-					if (NkInput.IsKeyDown(NkKey::NK_W) || NkInput.IsKeyDown(NkKey::NK_UP))
+					if (HostNavKey(NkKey::NK_W) || HostNavKey(NkKey::NK_UP))
 						fwd += spd;
-					if (NkInput.IsKeyDown(NkKey::NK_S) || NkInput.IsKeyDown(NkKey::NK_DOWN))
+					if (HostNavKey(NkKey::NK_S) || HostNavKey(NkKey::NK_DOWN))
 						fwd -= spd;
-					if (NkInput.IsKeyDown(NkKey::NK_D) || NkInput.IsKeyDown(NkKey::NK_RIGHT))
+					if (HostNavKey(NkKey::NK_D) || HostNavKey(NkKey::NK_RIGHT))
 						rgt += spd;
-					if (NkInput.IsKeyDown(NkKey::NK_A) || NkInput.IsKeyDown(NkKey::NK_LEFT))
+					if (HostNavKey(NkKey::NK_A) || HostNavKey(NkKey::NK_LEFT))
 						rgt -= spd;
-					if (NkInput.IsKeyDown(NkKey::NK_E))
+					if (HostNavKey(NkKey::NK_E))
 						up += spd;
-					if (NkInput.IsKeyDown(NkKey::NK_Q))
+					if (HostNavKey(NkKey::NK_Q))
 						up -= spd;
 					st->simCam.Move(fwd, rgt, up);
 					if (wheel != 0.f)
@@ -5228,13 +5303,13 @@ namespace nkentseu {
 						// reculer le long du regard, gauche/droite = pas lateral.
 						const float32 kspd = (shift ? 9.f : 3.f) * dt;
 						float32 mvF = 0.f, mvR = 0.f;
-						if (NkInput.IsKeyDown(NkKey::NK_UP))
+						if (HostNavKey(NkKey::NK_UP))
 							mvF += kspd;
-						if (NkInput.IsKeyDown(NkKey::NK_DOWN))
+						if (HostNavKey(NkKey::NK_DOWN))
 							mvF -= kspd;
-						if (NkInput.IsKeyDown(NkKey::NK_RIGHT))
+						if (HostNavKey(NkKey::NK_RIGHT))
 							mvR += kspd;
-						if (NkInput.IsKeyDown(NkKey::NK_LEFT))
+						if (HostNavKey(NkKey::NK_LEFT))
 							mvR -= kspd;
 						if (mvF != 0.f || mvR != 0.f) {
 							nkvpEmptyPos[eC][0] += fwdN.x * mvF + rgtN.x * mvR;
@@ -5302,13 +5377,13 @@ namespace nkentseu {
 					{
 						const float32 kspd = (shift ? 3.f : 1.f) * dt * 60.f;
 						float32 mvF2 = 0.f, mvR2 = 0.f;
-						if (NkInput.IsKeyDown(NkKey::NK_UP))
+						if (HostNavKey(NkKey::NK_UP))
 							mvF2 += 1.f;
-						if (NkInput.IsKeyDown(NkKey::NK_DOWN))
+						if (HostNavKey(NkKey::NK_DOWN))
 							mvF2 -= 1.f;
-						if (NkInput.IsKeyDown(NkKey::NK_RIGHT))
+						if (HostNavKey(NkKey::NK_RIGHT))
 							mvR2 += 1.f;
-						if (NkInput.IsKeyDown(NkKey::NK_LEFT))
+						if (HostNavKey(NkKey::NK_LEFT))
 							mvR2 -= 1.f;
 						if (mvF2 != 0.f || mvR2 != 0.f) {
 							// L'AVANT vient du LACET + TANGAGE de la camera
@@ -5398,7 +5473,13 @@ namespace nkentseu {
 						const int32 cuV = nkvpCamViewNode - kNkvpFirstUser;
 						float32 frV[4];
 						Demo3DHostCameraFrame(frV);
-						const float32 fhnV = frV[3] > 0.05f ? frV[3] : 1.f;
+						// PENDANT UN RENDU DE SORTIE, l'image de la camera
+						// occupe TOUTE la cible : pas de cadre en retrait, donc
+						// pas d'elargissement du champ. Le reglage est ici, et
+						// non dans le cadre lui-meme, qui sert aussi a peindre
+						// le passe-partout de la vue.
+						const float32 fhnV =
+							(nkvpOutPhase != 0) ? 1.f : (frV[3] > 0.05f ? frV[3] : 1.f);
 						// LES CLIPS de la camera s'appliquent AUSSI, en direct :
 						// sans cette ligne, Clip debut/fin du panneau restaient
 						// purement declaratifs (constate par Rihen -- aucun effet
@@ -9540,6 +9621,11 @@ namespace nkentseu {
 			return (a > 0.05f && a < 20.f) ? a : (1920.f / 1080.f);
 		}
 
+		// Definie plus bas, pres de la machine de rendu : les reglages en ont
+		// besoin des la lecture (« camera active » doit se resoudre partout de
+		// la meme facon).
+		static int32 HostOutResolveSource(int32 source);
+
 		// Resolution EFFECTIVE : la resolution demandee, mise a l'echelle du
 		// pourcentage. Un seul calcul, pour que le panneau affiche exactement
 		// ce que le rendu produira -- deux formules donneraient deux verites.
@@ -9576,6 +9662,37 @@ namespace nkentseu {
 		}
 		void Demo3DHostSetOutMain(int32 source, int32 w, int32 h, int32 scalePct, int32 format,
 								  bool transparent) {
+			// ── UNE VUE NE PEUT PAS ETRE PRINCIPALE ET MINIATURE (Rihen) ────
+			// Si la source qu'on promeut alimente deja une incrustation, les
+			// deux ECHANGENT : l'incrustation herite de l'ancienne principale.
+			// Sans cet echange, la meme camera occupait le fond et la vignette
+			// posee dessus -- une image qui se repete elle-meme en plus petit.
+			// La comparaison porte sur les sources RESOLUES : « camera active »
+			// et cette meme camera nommee sont la meme vue.
+			if (source != nkvpOutSource) {
+				const int32 nw = HostOutResolveSource(source);
+				// L'ANCIENNE SOURCE, RESOLUE. Rendre « camera active » telle
+				// quelle a l'incrustation ne reglait rien quand cette camera
+				// active EST celle qu'on promeut : les deux pointaient encore
+				// au meme endroit et la miniature affichait toujours la meme
+				// vue (constate par Rihen). Si l'ancienne se resout sur la
+				// nouvelle, l'incrustation retombe sur la vue 3D -- la seule
+				// vue qui existe toujours.
+				int32 old = HostOutResolveSource(nkvpOutSource);
+				if (old == nw)
+					old = -1;
+				for (int32 i = 0; i < kNkvpMaxInsets; ++i) {
+					if (!nkvpOutInset[i].used)
+						continue;
+					if (HostOutResolveSource(nkvpOutInset[i].source) != nw)
+						continue;
+					nkvpOutInset[i].source = old;
+					logger.Info("[Output] Echange : l'incrustation {0} prend l'ancienne source "
+								"principale ({1})\n",
+								i + 1, old);
+					break;
+				}
+			}
 			nkvpOutSource = source;
 			nkvpOutW = w < 16 ? 16 : (w > 8192 ? 8192 : w);
 			nkvpOutH = h < 16 ? 16 : (h > 8192 ? 8192 : h);
@@ -9641,6 +9758,29 @@ namespace nkentseu {
 			if (i < 0 || i >= kNkvpMaxInsets || !nkvpOutInset[i].used)
 				return;
 			NkVpOutInset &o = nkvpOutInset[i];
+			// MEME REGLE DANS L'AUTRE SENS : donner a une miniature la source
+			// de la principale les fait echanger, plutot que de laisser la meme
+			// vue occuper le fond et la vignette.
+			if (source != o.source) {
+				const int32 nw = HostOutResolveSource(source);
+				if (HostOutResolveSource(nkvpOutSource) == nw) {
+					nkvpOutSource = o.source;
+					logger.Info("[Output] Echange : la principale prend la source de "
+								"l'incrustation {0} ({1})\n",
+								i + 1, o.source);
+				} else {
+					// Ni deux miniatures sur la meme vue : la precedente
+					// recupere celle qu'on libere.
+					for (int32 j = 0; j < kNkvpMaxInsets; ++j) {
+						if (j == i || !nkvpOutInset[j].used)
+							continue;
+						if (HostOutResolveSource(nkvpOutInset[j].source) != nw)
+							continue;
+						nkvpOutInset[j].source = o.source;
+						break;
+					}
+				}
+			}
 			o.source = source;
 			o.shape = shape < 0 ? 0 : (shape >= kNkvpInsetShapes ? kNkvpInsetShapes - 1 : shape);
 			if (xy2) {
@@ -9663,10 +9803,31 @@ namespace nkentseu {
 					// precedente : chacune descend d'une hauteur, sinon deux
 					// ajouts de suite paraissent n'en avoir fait qu'un.
 					nkvpOutInset[i].y = 0.04f + 0.30f * (float32)(i % 3);
-					// Sa source par defaut est la camera active s'il y en a
-					// une : une incrustation qui montre la meme chose que la
-					// principale n'apprend rien.
-					nkvpOutInset[i].source = nkvpActiveCamNode;
+					// SA SOURCE NE PEUT PAS ETRE CELLE DE LA PRINCIPALE : une
+					// vignette qui repete le fond n'apprend rien, et la regle
+					// « une vue n'est pas a la fois principale et miniature »
+					// vaut aussi a la naissance -- pas seulement lors d'un
+					// echange (constate par Rihen : principale et miniature
+					// toutes deux sur la vue 3D). On prend la premiere source
+					// libre : une camera non encore employee, sinon la vue 3D.
+					const int32 mainNode = nkvpOutSource;
+					int32 cams[16];
+					const int32 nc = HostSceneCameras(cams, 16);
+					int32 pick = (mainNode == -1) ? -1 : -1; // la vue 3D par defaut
+					for (int32 c = 0; c < nc; ++c) {
+						if (cams[c] == mainNode)
+							continue;
+						bool taken = false;
+						for (int32 j = 0; j < kNkvpMaxInsets && !taken; ++j)
+							if (j != i && nkvpOutInset[j].used &&
+								nkvpOutInset[j].source == cams[c])
+								taken = true;
+						if (!taken) {
+							pick = cams[c];
+							break;
+						}
+					}
+					nkvpOutInset[i].source = (pick == mainNode) ? -1 : pick;
 					return i;
 				}
 			return -1;
@@ -9691,18 +9852,63 @@ namespace nkentseu {
 		static NkImage nkvpOutCanvas;
 		static int32 nkvpOutWait = 0;
 
-		// Force la taille de la cible hors ecran en court-circuitant la garde
-		// de Demo3DHostResize (qui, elle, protege le rendu de la taille de la
-		// vue). Meme sequence que le redimensionnement normal : sans le
-		// SetFinalColorTarget, le rendu continuerait d'ecrire dans l'ancienne
-		// texture et la lecture rendrait l'image precedente.
-		static bool HostOutForceSize(uint32 w, uint32 h) {
-			if (!hst.ok || !hst.rt || !hst.rt->IsValid())
+		// ── UNE CIBLE DEDIEE AU RENDU DE SORTIE ─────────────────────────────
+		// La sortie ecrivait dans la cible de la VUE en la redimensionnant :
+		// l'image a l'ecran se deformait le temps du rendu puis reprenait sa
+		// forme (constate par Rihen), et toute erreur de taille se payait
+		// directement sur ce que l'utilisateur regarde. Une cible propre, creee
+		// a la demande et detruite ensuite, supprime les deux : la vue garde sa
+		// taille et continue d'afficher sa derniere image pendant que la sortie
+		// travaille a cote.
+		static NkOffscreenTarget *nkvpOutRT = nullptr;
+		static uint32 nkvpOutRTW = 0, nkvpOutRTH = 0;
+
+		static bool HostOutBindTarget(uint32 w, uint32 h) {
+			if (!hst.ok || !hst.ctx.renderer)
 				return false;
-			if (w == hst.ctx.width && h == hst.ctx.height)
-				return true;
-			if (!hst.rt->Resize(w, h))
-				return false;
+			if (!nkvpOutRT || nkvpOutRTW != w || nkvpOutRTH != h) {
+				if (nkvpOutRT) {
+					hst.ctx.renderer->DestroyOffscreen(nkvpOutRT);
+					nkvpOutRT = nullptr;
+				}
+				NkOffscreenDesc od;
+				od.width = w;
+				od.height = h;
+				od.hdr = false;
+				od.colorFmt = NkGPUFormat::NK_RGBA8_UNORM;
+				od.hasDepth = true;
+				od.readable = true;
+				od.readback = true; // la sortie relit ses pixels
+				od.name = "NK3DModelerOutput";
+				nkvpOutRT = hst.ctx.renderer->CreateOffscreen(od);
+				if (!nkvpOutRT || !nkvpOutRT->IsValid()) {
+					if (nkvpOutRT) {
+						hst.ctx.renderer->DestroyOffscreen(nkvpOutRT);
+						nkvpOutRT = nullptr;
+					}
+					nkvpOutRTW = nkvpOutRTH = 0;
+					return false;
+				}
+				nkvpOutRTW = w;
+				nkvpOutRTH = h;
+			}
+			// Le graphe rend DANS cette cible, a cette taille. La cible de la
+			// vue n'est pas touchee : ni sa taille, ni son contenu.
+			hst.ctx.width = w;
+			hst.ctx.height = h;
+			nkvpW = (float32)w;
+			nkvpH = (float32)h;
+			hst.ctx.renderer->SetRenderSizeOverride(w, h);
+			if (auto *texLib = hst.ctx.renderer->GetTextures())
+				hst.ctx.renderer->SetFinalColorTarget(
+					texLib->GetRHIHandle(nkvpOutRT->GetColorResult()));
+			return true;
+		}
+
+		// Rend la main a la vue : sa cible, sa taille, son contenu intact.
+		static void HostOutUnbindTarget(uint32 w, uint32 h) {
+			if (!hst.ok || !hst.ctx.renderer || !hst.rt)
+				return;
 			hst.ctx.width = w;
 			hst.ctx.height = h;
 			nkvpW = (float32)w;
@@ -9711,7 +9917,11 @@ namespace nkentseu {
 			if (auto *texLib = hst.ctx.renderer->GetTextures())
 				hst.ctx.renderer->SetFinalColorTarget(
 					texLib->GetRHIHandle(hst.rt->GetColorResult()));
-			return true;
+			if (nkvpOutRT) {
+				hst.ctx.renderer->DestroyOffscreen(nkvpOutRT);
+				nkvpOutRT = nullptr;
+				nkvpOutRTW = nkvpOutRTH = 0;
+			}
 		}
 
 		// Formes et composition vivent dans NkOutCompose.h : c'est du calcul
@@ -9738,27 +9948,90 @@ namespace nkentseu {
 		}
 
 		// Prochain chemin libre de la sortie. Meme convention numerotee que les
-		// captures, mais dans le dossier et sous le nom choisis au panneau.
-		static bool HostOutNextPath(char *out, int32 cap) {
+		// captures, mais dans le dossier, sous le nom et au FORMAT choisis au
+		// panneau. `tag` suffixe le mode de rendu quand on en produit
+		// plusieurs (« rendu_001_filaire.png ») : sans lui, les images se
+		// remplaceraient l'une l'autre sans qu'on sache laquelle est laquelle.
+		static bool HostOutNextPath(char *out, int32 cap, const char *tag) {
 			const char *dir = nkvpOutDir[0] ? nkvpOutDir : "captures";
 			NkDirectory::CreateRecursive(dir);
 			const char *nm = nkvpOutName[0] ? nkvpOutName : "rendu";
+			const int32 f = (nkvpOutFormat >= 0 && nkvpOutFormat < kNkvpOutFmtCount)
+								? nkvpOutFormat
+								: 0;
+			const char *ext = kNkvpOutFmt[f].ext;
 			for (int32 i = 1; i < 1000; ++i) {
-				snprintf(out, (size_t)cap, "%s/%s_%03d.png", dir, nm, (int)i);
+				if (tag && tag[0])
+					snprintf(out, (size_t)cap, "%s/%s_%03d_%s.%s", dir, nm, (int)i, tag, ext);
+				else
+					snprintf(out, (size_t)cap, "%s/%s_%03d.%s", dir, nm, (int)i, ext);
 				if (!NkFile::Exists(out))
 					return true;
 			}
 			return false;
+		}
+		// LES CAPTURES PARTAGENT LA DESTINATION DE LA SORTIE (Rihen : « le nom
+		// mis la n'est pas celui qui sort, c'est toujours vue »). Il n'y a
+		// qu'un dossier configure dans l'application : deux conventions
+		// concurrentes ne pouvaient que surprendre. Chacune garde en revanche
+		// SON nom de base -- un rendu final, une capture de la scene et une
+		// photo de l'interface ne se rangent pas sous le meme nom.
+		// `which` : 0 = la sortie, 1 = capture de la vue, 2 = tutoriel.
+		static bool HostOutNamedPath(char *out, int32 cap, const char *tag, int32 which) {
+			const char *save = nkvpOutName;
+			char keep[64];
+			if (which != 0) {
+				// On emprunte la mecanique de nommage de la sortie en lui
+				// substituant le temps d'un appel le nom de la capture : un
+				// seul endroit compose les chemins, donc un seul comportement.
+				uint32 i = 0;
+				for (; save[i] && i + 1 < sizeof(keep); ++i)
+					keep[i] = save[i];
+				keep[i] = 0;
+				const char *src = (which == 2) ? nkvpCapTutoName : nkvpCapViewName;
+				uint32 j = 0;
+				for (; src[j] && j + 1 < sizeof(nkvpOutName); ++j)
+					nkvpOutName[j] = src[j];
+				nkvpOutName[j] = 0;
+			}
+			const bool ok = HostOutNextPath(out, cap, tag);
+			if (which != 0) {
+				uint32 i = 0;
+				for (; keep[i] && i + 1 < sizeof(nkvpOutName); ++i)
+					nkvpOutName[i] = keep[i];
+				nkvpOutName[i] = 0;
+			}
+			return ok;
+		}
+		bool Demo3DHostOutNextPath(char *out, int32 cap, int32 which) {
+			return HostOutNamedPath(out, cap, nullptr, which);
+		}
+		const char *Demo3DHostCaptureName(int32 which) {
+			return (which == 2) ? nkvpCapTutoName : nkvpCapViewName;
+		}
+		void Demo3DHostSetCaptureName(int32 which, const char *n) {
+			if (!n)
+				return;
+			char *dst = (which == 2) ? nkvpCapTutoName : nkvpCapViewName;
+			uint32 i = 0;
+			for (; n[i] && i + 1 < 64; ++i)
+				dst[i] = n[i];
+			dst[i] = 0;
+		}
+
+		// Les sources sont deja des vues precises depuis le retrait de « camera
+		// active » : cette fonction ne fait plus que garder le point de passage
+		// unique par lequel toutes les comparaisons de source passent.
+		static int32 HostOutResolveSource(int32 source) {
+			return source;
 		}
 
 		// Pose la source d'une etape : -1 = la vue 3D telle qu'elle est,
 		// sinon la camera demandee. Le cadre camera etant force en plein cadre
 		// pendant la sortie, son image occupe toute la cible.
 		static void HostOutSetSource(int32 source) {
-			if (source < 0)
-				Demo3DHostSetCameraView(-1);
-			else
-				Demo3DHostSetCameraView(source);
+			const int32 node = HostOutResolveSource(source);
+			Demo3DHostSetCameraView(node < 0 ? -1 : node);
 		}
 
 		// Indice de l'incrustation suivante a rendre, apres `from` (-1 pour
@@ -9777,16 +10050,22 @@ namespace nkentseu {
 			int32 mw = 0, mh = 0;
 			HostOutSize(&mw, &mh);
 			if (nkvpOutPhase == 1) {
-				// POSER : taille de la cible et source de l'etape courante.
+				// POSER : mode de rendu, taille de la cible et source de
+				// l'etape courante.
+				if (nkvpOutModeIdx < nkvpOutModeCount) {
+					const int32 m = nkvpOutModeQueue[nkvpOutModeIdx];
+					if (m >= 0 && m < kNkvpOutModeCount && Demo3DHostShading() != m)
+						Demo3DHostSetShading(m);
+				}
 				int32 tw = mw, th = mh;
 				if (nkvpOutStep >= 0)
 					HostInsetPixels(nkvpOutInset[nkvpOutStep], mw, mh, &tw, &th);
 				const int32 src =
 					(nkvpOutStep < 0) ? nkvpOutSource : nkvpOutInset[nkvpOutStep].source;
 				HostOutSetSource(src);
-				if (!HostOutForceSize((uint32)tw, (uint32)th)) {
-					logger.Error("[Output] Redimensionnement refuse ({0}x{1}) -- sortie "
-								 "abandonnee\n",
+				if (!HostOutBindTarget((uint32)tw, (uint32)th)) {
+					logger.Error("[Output] Cible de sortie refusee ({0}x{1}) -- rendu "
+								 "abandonne\n",
 								 tw, th);
 					nkvpOutPhase = 4; // restauration
 					return;
@@ -9802,11 +10081,15 @@ namespace nkentseu {
 				return;
 			}
 			if (nkvpOutPhase == 3) {
-				// LIRE : la cible porte l'image de cette etape.
-				const uint32 w = hst.rt->GetWidth(), h = hst.rt->GetHeight();
+				// LIRE : la cible DEDIEE porte l'image de cette etape.
+				if (!nkvpOutRT) {
+					nkvpOutPhase = 4;
+					return;
+				}
+				const uint32 w = nkvpOutRT->GetWidth(), h = nkvpOutRT->GetHeight();
 				NkImage img;
 				if (w >= 8 && h >= 8 && img.Create(w, h, math::NkColor(0, 0, 0, 255), 4) &&
-					hst.rt->ReadbackPixels(img.Pixels(), w * 4u)) {
+					nkvpOutRT->ReadbackPixels(img.Pixels(), w * 4u)) {
 					if (nkvpOutStep < 0) {
 						// La principale DEVIENT le canevas. NkImage est
 						// move-only (pas de double liberation possible) : on
@@ -9828,37 +10111,105 @@ namespace nkentseu {
 					nkvpOutPhase = 1;
 					return;
 				}
-				// TERMINER : ecrire le fichier.
+				// ECRIRE CE MODE. Le suffixe n'apparait que si plusieurs modes
+				// sont demandes : une image seule n'a pas besoin qu'on lui
+				// rappelle de quoi elle est faite.
 				nkvpOutLastOk = false;
-				if (nkvpOutCanvas.Pixels() && HostOutNextPath(nkvpOutLastPath,
-															  (int32)sizeof(nkvpOutLastPath)))
-					nkvpOutLastOk = nkvpOutCanvas.Save(nkvpOutLastPath);
+				const char *tag = nullptr;
+				if (nkvpOutModeCount > 1 && nkvpOutModeIdx < nkvpOutModeCount) {
+					const int32 m = nkvpOutModeQueue[nkvpOutModeIdx];
+					if (m >= 0 && m < kNkvpOutModeCount)
+						tag = kNkvpOutModeTags[m];
+				}
+				if (nkvpOutCanvas.Pixels() &&
+					HostOutNamedPath(nkvpOutLastPath, (int32)sizeof(nkvpOutLastPath), tag,
+									 nkvpOutNaming)) {
+					// La QUALITE ne concerne que le JPEG ; Save l'ignore pour
+					// les autres, mais autant ne la passer que la ou elle a un
+					// sens.
+					const int32 f = (nkvpOutFormat >= 0 && nkvpOutFormat < kNkvpOutFmtCount)
+										? nkvpOutFormat
+										: 0;
+					nkvpOutLastOk = kNkvpOutFmt[f].lossy
+										? nkvpOutCanvas.Save(nkvpOutLastPath, nkvpOutQuality)
+										: nkvpOutCanvas.Save(nkvpOutLastPath);
+				}
 				logger.Info("[Output] Rendu {0}x{1} -> {2} : {3}\n", mw, mh, nkvpOutLastPath,
 							nkvpOutLastOk ? "ecrit" : "ECHEC");
+				// MODE SUIVANT s'il en reste : chaque mode coche produit SON
+				// image, incrustations comprises.
+				if (++nkvpOutModeIdx < nkvpOutModeCount) {
+					nkvpOutCanvas.Unload(); // vide l'image -- voir la note plus bas
+					nkvpOutStep = -1;
+					nkvpOutPhase = 1;
+					return;
+				}
 				nkvpOutPhase = 4;
 				return;
 			}
 			// PHASE 4 : restaurer la vue telle qu'elle etait. La taille demandee
 			// entre-temps par l'editeur a ete memorisee par Demo3DHostResize.
+			// TRACEE PAS A PAS : c'est ici que l'application se fermait, et une
+			// fermeture nette ne laisse rien d'autre a lire.
+			logger.Info("[Output] Restauration : source={0} taille={1}x{2} mode={3}\n",
+						nkvpOutSaveCam, nkvpOutSaveW, nkvpOutSaveH, nkvpOutSaveShading);
+			if (Demo3DHostShading() != nkvpOutSaveShading)
+				Demo3DHostSetShading(nkvpOutSaveShading);
 			HostOutSetSource(nkvpOutSaveCam);
+			logger.Info("[Output]   source restituee\n");
+			// UNLOAD, PAS FREE. NkImage::Free() ne vide pas l'image : elle fait
+			// nkFree(this) et libere L'OBJET LUI-MEME. Appelee sur ce canevas
+			// statique, elle rendait a l'allocateur une adresse qui ne lui
+			// appartenait pas -- l'application se fermait net juste apres avoir
+			// ecrit le fichier (constate deux fois par Rihen). Unload libere les
+			// pixels et remet l'objet a vide, ce que son en-tete annonce
+			// explicitement : « sur pile comme heap ».
+			nkvpOutCanvas.Unload(); // AVANT de rendre la cible : plus rien n'en depend
+			logger.Info("[Output]   canevas vide\n");
 			nkvpOutPhase = 0; // rendu la garde, le resize normal reprend la main
-			HostOutForceSize(nkvpOutSaveW, nkvpOutSaveH);
-			nkvpOutCanvas.Free();
+			HostOutUnbindTarget(nkvpOutSaveW, nkvpOutSaveH);
+			logger.Info("[Output]   vue restituee -- sortie terminee\n");
 			nkvpOutStep = -1;
 		}
 
-		bool Demo3DHostRenderOutput() {
+		// `which` : 0 = « Rendre l'image », 1 = « Capturer la vue ». Les deux
+		// font EXACTEMENT la meme chose (Rihen) -- meme resolution, meme
+		// source, meme echelle, memes incrustations, memes types de rendu -- et
+		// ne different que par le nom du fichier produit. Un bouton qui figeait
+		// l'ecran tel quel a cote d'un bouton qui respecte les reglages, c'etait
+		// deux verites pour un seul acte.
+		bool Demo3DHostRenderOutputAs(int32 which) {
 			if (nkvpOutPhase != 0 || !hst.ok || !hst.rt || !hst.rt->IsValid())
 				return false;
+			nkvpOutNaming = which;
 			nkvpOutSaveW = hst.ctx.width;
 			nkvpOutSaveH = hst.ctx.height;
 			nkvpOutSaveCam = nkvpCamViewNode;
+			nkvpOutSaveShading = Demo3DHostShading();
+			// FILE DES MODES A PRODUIRE. Aucun coche = le mode courant, et lui
+			// seul : cocher ne doit pas etre un prealable pour rendre ce qu'on
+			// a sous les yeux.
+			nkvpOutModeCount = 0;
+			for (int32 m = 0; m < kNkvpOutModeCount; ++m)
+				if (nkvpOutModes & (1 << m))
+					nkvpOutModeQueue[nkvpOutModeCount++] = m;
+			if (nkvpOutModeCount == 0)
+				nkvpOutModeQueue[nkvpOutModeCount++] = nkvpOutSaveShading;
+			nkvpOutModeIdx = 0;
 			nkvpOutStep = -1; // la principale d'abord
 			nkvpOutPhase = 1;
 			int32 w = 0, h = 0;
 			HostOutSize(&w, &h);
-			logger.Info("[Output] Rendu demande : {0}x{1}, source={2}\n", w, h, nkvpOutSource);
+			logger.Info("[Output] Rendu demande : {0}x{1}, source={2}, {3} mode(s), format {4}\n",
+						w, h, nkvpOutSource, nkvpOutModeCount,
+						kNkvpOutFmt[(nkvpOutFormat >= 0 && nkvpOutFormat < kNkvpOutFmtCount)
+										? nkvpOutFormat
+										: 0]
+							.name);
 			return true;
+		}
+		bool Demo3DHostRenderOutput() {
+			return Demo3DHostRenderOutputAs(0);
 		}
 
 		bool Demo3DHostOutBusy() {
@@ -9872,6 +10223,55 @@ namespace nkentseu {
 		}
 		int32 Demo3DHostSceneCameras(int32 *out, int32 cap) {
 			return HostSceneCameras(out, cap);
+		}
+		int32 Demo3DHostOutFormatCount() {
+			return kNkvpOutFmtCount;
+		}
+		const char *Demo3DHostOutFormatName(int32 f) {
+			return (f >= 0 && f < kNkvpOutFmtCount) ? kNkvpOutFmt[f].name : "";
+		}
+		const char *Demo3DHostOutFormatExt(int32 f) {
+			return (f >= 0 && f < kNkvpOutFmtCount) ? kNkvpOutFmt[f].ext : "";
+		}
+		bool Demo3DHostOutFormatLossy(int32 f) {
+			return (f >= 0 && f < kNkvpOutFmtCount) ? kNkvpOutFmt[f].lossy : false;
+		}
+		int32 Demo3DHostOutQuality() {
+			return nkvpOutQuality;
+		}
+		void Demo3DHostSetOutQuality(int32 q) {
+			nkvpOutQuality = q < 1 ? 1 : (q > 100 ? 100 : q);
+		}
+		int32 Demo3DHostOutModeCount() {
+			return kNkvpOutModeCount;
+		}
+		const char *Demo3DHostOutModeName(int32 m) {
+			return (m >= 0 && m < kNkvpOutModeCount) ? kNkvpOutModeNames[m] : "";
+		}
+		int32 Demo3DHostOutModes() {
+			return nkvpOutModes;
+		}
+		void Demo3DHostSetOutModes(int32 mask) {
+			nkvpOutModes = mask & ((1 << kNkvpOutModeCount) - 1);
+		}
+		void Demo3DHostOutVideo(bool *on, int32 *fps, int32 *first, int32 *last, int32 *codec) {
+			if (on)
+				*on = nkvpOutVideoOn;
+			if (fps)
+				*fps = nkvpOutFps;
+			if (first)
+				*first = nkvpOutFrameStart;
+			if (last)
+				*last = nkvpOutFrameEnd;
+			if (codec)
+				*codec = nkvpOutVideoCodec;
+		}
+		void Demo3DHostSetOutVideo(bool on, int32 fps, int32 first, int32 last, int32 codec) {
+			nkvpOutVideoOn = on;
+			nkvpOutFps = fps < 1 ? 1 : (fps > 240 ? 240 : fps);
+			nkvpOutFrameStart = first < 0 ? 0 : first;
+			nkvpOutFrameEnd = last < nkvpOutFrameStart ? nkvpOutFrameStart : last;
+			nkvpOutVideoCodec = codec;
 		}
 
 		void Demo3DHostResize(uint32 w, uint32 h) {
@@ -9927,16 +10327,23 @@ namespace nkentseu {
 			hst.ctx.totalTime += dt;
 			hst.ctx.frame++;
 			HostParentEnsureInit(); // la parente sert DANS la frame (visibilite)
+			// ── SORTIE : un tour de machine AVANT le rendu ──────────────────
+			// Le redimensionnement de la cible DETRUIT et recree sa texture.
+			// Fait apres Demo3D_Frame, il arrachait donc la texture que les
+			// commandes de CETTE image venaient de referencer, et la
+			// soumission trouvait un objet mort -- l'application se fermait
+			// net au retour a la taille de la vue (constate par Rihen).
+			// Avant le rendu, l'image entiere s'enregistre et se soumet sur
+			// une cible stable. La lecture, elle, ne change pas de sens : elle
+			// prend la DERNIERE image rendue, qui est celle de l'etape
+			// precedente.
+			HostOutTick();
 			nkvpCmd = cmd;
 			Demo3D_Frame(hst.ctx, dt);
 			nkvpCmd = nullptr;
 			// Parente : repercuter les deltas des parents a leurs enfants, et
 			// faire respecter le cadenas (INselectionnable, meme depuis la vue).
 			HostHierarchyFrame();
-			// SORTIE : un tour de machine APRES le rendu -- c'est ce qui donne
-			// au GPU une image entiere entre le redimensionnement de la cible
-			// et la lecture de ses pixels.
-			HostOutTick();
 		}
 
 		void Demo3DHostRegisterInto(void *guiBackend) {
@@ -12118,7 +12525,18 @@ namespace nkentseu {
 		void Demo3DHostSetCameraView(int32 node) {
 			nkvpCamViewNode = node;
 		}
-		int32 Demo3DHostCameraView() { return nkvpCamViewNode; }
+		// CE QUE LA *VUE* REGARDE -- pas ce que le moteur rend a l'instant.
+		// Pendant une sortie, le moteur bascule reellement de camera pour
+		// produire chaque etape ; l'interface, elle, lit cette fonction pour
+		// peindre le passe-partout, le cadre et le badge. Elle suivait donc ces
+		// bascules : regarder par une camera pendant qu'on rend depuis la vue
+		// 3D faisait « sauter » l'habillage, comme si la vue camera devenait la
+		// vue libre le temps du rendu (constate par Rihen). On rend la valeur
+		// figee au demarrage : la vue ne change pas de point de vue, seul le
+		// moteur travaille ailleurs.
+		int32 Demo3DHostCameraView() {
+			return (nkvpOutPhase != 0) ? nkvpOutSaveCam : nkvpCamViewNode;
+		}
 		bool Demo3DHostCamOrbitLock() { return nkvpCamOrbitLock; }
 		void Demo3DHostSetCamOrbitLock(bool on) { nkvpCamOrbitLock = on; }
 
@@ -12194,20 +12612,24 @@ namespace nkentseu {
 		// dessus. Sans ce zoom arriere, le voile ne pouvait pas epouser les
 		// vrais bords de la camera (constate par Rihen).
 		void Demo3DHostCameraFrame(float32 *xywh) {
-			// ── PENDANT UN RENDU DE SORTIE : PLEIN CADRE ────────────────────
-			// Ce cadre est LE point de passage unique de la vue camera -- il
-			// pilote a la fois l'elargissement du champ, le passe-partout et le
-			// recadrage de la capture. Le neutraliser ici suffit donc a ce que
-			// l'image de la camera occupe TOUTE la cible de sortie, sans
-			// toucher aux trois endroits qui le consomment. La cible etant
-			// deja au format demande, son rapport fait foi.
-			if (nkvpOutPhase != 0) {
-				xywh[0] = xywh[1] = 0.f;
-				xywh[2] = xywh[3] = 1.f;
-				return;
-			}
-			const float32 vw = (float32)(hst.ctx.width > 0 ? hst.ctx.width : 1);
-			const float32 vh = (float32)(hst.ctx.height > 0 ? hst.ctx.height : 1);
+			// CE CADRE DIT TOUJOURS LA VERITE DE LA VUE. Le forcer en plein
+			// cadre pendant un rendu paraissait economique -- un seul point de
+			// passage a neutraliser -- mais l'INTERFACE le consomme aussi pour
+			// peindre le passe-partout et le lisere : ils disparaissaient donc
+			// le temps de la capture et revenaient apres (constate par Rihen).
+			// Seul le calcul du CHAMP, cote rendu, sait qu'une sortie occupe
+			// toute sa cible ; c'est la que la neutralisation a sa place.
+			// LA TAILLE DE LA VUE, PAS CELLE DE LA CIBLE COURANTE. Pendant un
+			// rendu de sortie, la cible passe a la resolution demandee (2560 de
+			// large, par exemple) : calcule dessus, le cadre couvrait toute la
+			// vue et le passe-partout disparaissait le temps de la capture,
+			// comme si la vue 3D etait devenue la camera (constate deux fois par
+			// Rihen). `wantW/wantH` est ce que l'editeur demande pour la VUE --
+			// il reste juste quoi qu'il arrive a la cible.
+			const uint32 vwU = hst.wantW > 0 ? hst.wantW : hst.ctx.width;
+			const uint32 vhU = hst.wantH > 0 ? hst.wantH : hst.ctx.height;
+			const float32 vw = (float32)(vwU > 0 ? vwU : 1);
+			const float32 vh = (float32)(vhU > 0 ? vhU : 1);
 			const float32 aspect = HostCamAspect();
 			float32 fw = vw, fh = vw / aspect;
 			if (fh > vh) {
