@@ -664,16 +664,31 @@ namespace nkentseu {
 				} else
 					shown = items;
 
+				// Largeur de la COLONNE de gauche (le Kind) : celle du plus long, pour
+				// que tous les noms demarrent au meme x. Bornee, sinon un Kind
+				// anormalement long ecraserait la colonne des noms.
+				float32 kindW = 0.f;
+				for (usize i = 0; i < items.Size(); ++i)
+					if (!items[i].hint.Empty()) {
+						const float32 w = u.TextW(items[i].hint.CStr());
+						if (w > kindW)
+							kindW = w;
+					}
+				if (kindW > u.s(120))
+					kindW = u.s(120);
+
 				// Largeur BORNÉE (ellipse au-delà) -> pas de scroll horizontal nécessaire.
 				float32 ddw = a.w;
 				for (usize i = 0; i < items.Size(); ++i) {
 					float32 tw = u.TextW(items[i].label.CStr()) + u.s(28);
-					if (!items[i].hint.Empty())
-						tw += u.TextW(items[i].hint.CStr()) + u.s(16);
+					if (kindW > 0.f)
+						tw += kindW + u.s(10);
 					if (tw > ddw)
 						ddw = tw;
 				}
-				const float32 maxDdw = u.s(340);
+				// Plafond de largeur : releve quand il y a une colonne de Kind, sinon
+				// celle-ci mangerait la place des noms et tout finirait en ellipse.
+				const float32 maxDdw = kindW > 0.f ? u.s(460) : u.s(340);
 				if (ddw > maxDdw)
 					ddw = maxDdw;
 				// Hauteur PLAFONNÉE par l'écran -> défilement vertical si trop d'items.
@@ -750,19 +765,23 @@ namespace nkentseu {
 					const bool selrow = (shown[i].idx == curSel);
 					if (hv || selrow)
 						uo.Rect(ir, NkCol::hover, NkR::sm * u.S);
-					// Deux colonnes : le nom a gauche, le Kind a DROITE en gris. Le nom
-					// cede la place au Kind (largeur reduite d'autant) plutot que de
-					// passer dessous.
+					// Deux colonnes, toutes deux alignees a GAUCHE. Le Kind D'ABORD, dans
+					// une colonne de largeur FIXE calee sur le plus long : c'est ce qui
+					// fait que les noms demarrent tous au meme x, donc que la liste se
+					// lise comme un tableau. Le Kind passe en premier parce que les noms
+					// d'application, eux, sont de longueur tres variable — les mettre a
+					// gauche decalerait la seconde colonne a chaque ligne.
 					const float32 ty = ir.y + (ih - u.Lh()) * 0.5f;
-					float32 lw = ir.w - u.s(12);
-					if (!shown[i].hint.Empty()) {
-						const float32 hw = u.TextW(shown[i].hint.CStr());
-						uo.TextEllipsis(ir.x + ir.w - u.s(8) - hw, ty, hw + u.s(2), shown[i].hint.CStr(), NkCol::mutedFg);
-						lw -= hw + u.s(10);
-						if (lw < u.s(40))
-							lw = u.s(40);
+					float32 nx = ir.x + u.s(8);
+					if (kindW > 0.f) {
+						if (!shown[i].hint.Empty())
+							uo.TextEllipsis(nx, ty, kindW, shown[i].hint.CStr(), NkCol::mutedFg);
+						nx += kindW + u.s(10);
 					}
-					uo.TextEllipsis(ir.x + u.s(8), ty, lw, shown[i].label.CStr(),
+					float32 lw = ir.x + ir.w - u.s(6) - nx;
+					if (lw < u.s(40))
+						lw = u.s(40);
+					uo.TextEllipsis(nx, ty, lw, shown[i].label.CStr(),
 									selrow ? NkCol::primary : NkCol::foreground);
 					if (hv && u.click) {
 						switch (tb.open) {
