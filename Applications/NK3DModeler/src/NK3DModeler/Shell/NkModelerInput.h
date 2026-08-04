@@ -285,10 +285,15 @@ namespace nkentseu {
 				// Hauteur CHOISIE de chaque section (0 = partage automatique) :
 				// la poignee sous la section la regle.
 				float32 propSecH[8] = {};
-				// PLIAGE des groupes de la pastille Materiau : un bit par
-				// materiau du registre projet (1 = replie). Un materiau nait
-				// deplie -- on vient de le creer pour le regler.
-				uint64 projMatFold = 0;
+				// ── PANNEAU MATERIAU, facture Blender (capture de Rihen) ────
+				// Une LISTE d'emplacements avec sa colonne + / - / menu, une
+				// poignee de hauteur, puis la barre du navigateur et enfin les
+				// proprietes du materiau SELECTIONNE. La liste remplace la pile
+				// de groupes repliables : elle tient dans un coin d'ecran quel
+				// que soit le nombre de materiaux.
+				int32 projMatSel = 0;		 // ligne selectionnee dans la liste
+				float32 projMatListH = 96.f; // hauteur de la liste (poignee)
+				float32 projMatScroll = 0.f;
 				// Le panneau des matcaps s'ancre au bouton qui l'a ouvert (barre de
 				// la vue OU panneau Proprietes).
 				NkRect matcapAnchor{};

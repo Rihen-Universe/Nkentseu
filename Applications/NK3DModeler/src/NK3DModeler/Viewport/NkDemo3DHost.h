@@ -85,6 +85,14 @@ namespace nkentseu {
 		// noeud memorise alors le repere de son echelle.
 		bool Demo3DHostShearScale();
 		void Demo3DHostSetShearScale(bool on);
+		// BROUILLARD AU SOL : altitude de base, epaisseur (0 = pas de nappe, le
+		// brouillard ne depend alors que de la distance), force du souffle, et
+		// « derive liee au vent des nuages » -- le sol et le ciel avancent alors
+		// du meme pas. La physique du vent la pilotera le jour venu.
+		void Demo3DHostFogGround(float32 *base, float32 *thickness, float32 *wind,
+								 bool *fromClouds);
+		void Demo3DHostSetFogGround(float32 base, float32 thickness, float32 wind,
+									bool fromClouds);
 		int32 Demo3DHostOrientation();
 		void Demo3DHostSetSnap(bool on, float32 t, float32 rotDeg, float32 scl);
 		bool Demo3DHostSnapEnabled();
