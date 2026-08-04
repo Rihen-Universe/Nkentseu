@@ -1406,7 +1406,7 @@ namespace nkentseu {
 							mTermPickDir = NkString();
 							mTabMenu.open = false; // choix fait : referme le menu principal aussi
 							if (mShell)
-								mShell->FocusPanel("Terminal");
+								mShell->FocusPanel("TERMINAL"); // titre EXACT (comparaison sensible a la casse)
 						}
 					}
 					// Tooltip : CHEMIN COMPLET après ~0,6 s de survol (désambiguïsation totale).
@@ -1505,7 +1505,7 @@ namespace nkentseu {
 									mS->termOpenAt = mS->files[idx].path.GetParent().ToString();
 									mTermPick.open = false;
 									if (mShell)
-										mShell->FocusPanel("Terminal");
+										mShell->FocusPanel("TERMINAL"); // titre EXACT (comparaison sensible a la casse)
 									break;
 								case 7: // onglets multi-rangées (option, façon Visual Studio)
 									NkCodeTabRowsOn() = !NkCodeTabRowsOn();
@@ -1723,13 +1723,20 @@ namespace nkentseu {
 		//    Draine le tampon de logs partage, colore par niveau, suit le bas. ──
 		class OutputPanel : public NkEditorPanel {
 			public:
-				explicit OutputPanel(NkCodeState *s) : NkEditorPanel("OUTPUT", NkEditorDockSide::NK_BOTTOM), mS(s) {
+				explicit OutputPanel(NkCodeState *s, NkEditorShell *shell = nullptr)
+					: NkEditorPanel("OUTPUT", NkEditorDockSide::NK_BOTTOM), mS(s), mShell(shell) {
 				}
 
 				void OnUI(NkEditorFrameContext &ec) override {
 					auto &ctx = ec.Ui();
 					auto &dl = ctx.DL();
 					mS->PollBuild();
+					// L'ETAT n'a pas le shell : il DEPOSE ici le panneau a faire remonter
+					// (ex. « Demarrer » sur une app console -> onglet terminal dedie).
+					if (mShell && !mS->focusPanelReq.Empty()) {
+						mShell->FocusPanel(mS->focusPanelReq.CStr());
+						mS->focusPanelReq = NkString();
+					}
 					// Draine les nouveaux logs + sortie build, en parsant la progression.
 					NkVector<NkString> fresh;
 					GlobalLogBuffer().Drain(fresh);
@@ -2255,6 +2262,7 @@ namespace nkentseu {
 				}
 
 				NkCodeState *mS;
+				NkEditorShell *mShell; // pour honorer NkCodeState::focusPanelReq
 				NkVector<NkString> mLogs;
 				float32 mScrollX = 0.f, mScrollY = 0.f, mMaxW = 0.f, mSpin = 0.f;
 				usize mMeasured = 0;
@@ -2373,8 +2381,10 @@ namespace nkentseu {
 						mTerm[mActive].cwd = mState->termOpenAt;
 						if (!mState->termOpenCmd.Empty()) { // agent CLI : la commande EST le « shell »
 							mTerm[mActive].cmdOverride = mState->termOpenCmd;
-							mTerm[mActive].label = mState->termOpenCmd;
+							mTerm[mActive].label = !mState->termOpenLabel.Empty() ? mState->termOpenLabel
+																				 : mState->termOpenCmd;
 							mState->termOpenCmd = NkString();
+							mState->termOpenLabel = NkString();
 						}
 						if (!mState->termOpenType.Empty()) { // texte pret a valider (ex. lancement emulateur)
 							mTerm[mActive].pendingType = mState->termOpenType;
@@ -2410,6 +2420,15 @@ namespace nkentseu {
 					t.pty.Drain(mDrain);
 					if (mDrain.Size() > 0)
 						t.screen.Feed(mDrain.Data(), mDrain.Size());
+					// Onglet d'EXECUTION (la commande remplace le shell) : une app console
+					// affiche puis se termine. Sans marque, rien ne distingue « fini » de
+					// « en cours mais silencieux ». L'onglet reste ouvert : la sortie doit
+					// rester lisible apres la fin. Une seule fois (endNoted).
+					if (!t.cmdOverride.Empty() && t.started && !t.endNoted && !t.pty.Running()) {
+						t.endNoted = true;
+						const char kEnd[] = "\r\n\x1b[90m[processus termine]\x1b[0m\r\n";
+						t.screen.Feed(kEnd, sizeof(kEnd) - 1);
+					}
 
 					const NkVec2 m = ctx.input.mousePos;
 					const bool inMain =
@@ -2574,6 +2593,7 @@ namespace nkentseu {
 						bool started = false; // pty deja lance ?
 						NkString pendingType; // texte a TAPER (pas executer) une fois le pty demarre
 						bool touched = false; // l utilisateur y a TAPE (ne pas recycler au changement de workspace)
+						bool endNoted = false; // fin de processus deja signalee dans l'ecran ?
 						float32 scrollX = 0.f, scrollY = 0.f;
 						bool follow = true; // colle au bas (desactive au scroll manuel)
 						// Selection en cellules : ancre (A) + curseur (B), en (ligne ABSOLUE, colonne).

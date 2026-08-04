@@ -3867,6 +3867,15 @@ namespace nkentseu {
 				// l'utilisateur (voir bouton "Emulateur" de la toolbar). Different de
 				// termOpenCmd (qui REMPLACE le shell par une commande, façon agent CLI).
 				NkString termOpenType;
+				// Panneau a faire remonter au prochain frame, demande depuis l'ETAT (qui
+				// n'a pas le shell sous la main). Consomme par OutputPanel::OnUI, seul
+				// panneau appele a chaque frame. Titre EXACT (« TERMINAL »), la
+				// comparaison de FocusPanel etant sensible a la casse.
+				NkString focusPanelReq;
+				// Libelle de l'onglet terminal a creer. Sans lui, l'onglet porte la
+				// commande ENTIERE (chemin quote + arguments) et devient illisible.
+				// Vide = comportement historique (la commande fait office de libelle).
+				NkString termOpenLabel;
 				// ── Pont barre de menus -> panneau IA (menu IA : Expliquer/Corriger/... la
 				// selection) : prompt depose ici, consomme par NkAiPanel::OnUI au prochain
 				// frame (copie dans la saisie ; aiSend=true = envoye immediatement).
@@ -5168,6 +5177,20 @@ namespace nkentseu {
 				int32 projIdx = 0;			 // projet cible courant
 				NkVector<NkString> tests;	 // projets de test (Kind = TestSuite)
 				int32 testIdx = -1;			 // -1 = tous les tests visibles ; >=0 = un test precis
+				// Sous-ensemble de `projects` dont le Kind est ConsoleApp : « Demarrer »
+				// les envoie dans un onglet TERMINAL dedie (stdin/ANSI/code de sortie)
+				// au lieu du panneau Sortie, qui est en lecture seule. Le Kind vient de
+				// la table de `jenga info`, deja analysee (colonne Kind).
+				NkVector<NkString> consoleProjects;
+
+				bool IsConsoleProject(const char *name) const {
+					if (!name || !*name)
+						return false;
+					for (usize i = 0; i < consoleProjects.Size(); ++i)
+						if (StrEq(consoleProjects[i].CStr(), name))
+							return true;
+					return false;
+				}
 
 				// Toolchains DETECTEES par Jenga (table "Available Toolchains" de `jenga info`).
 				struct ToolchainRow {
@@ -5227,6 +5250,7 @@ namespace nkentseu {
 						mInfoWsIdx = wsIdx;
 						mInfoLines.Clear();
 						projects.Clear();
+					consoleProjects.Clear(); // reconstruite avec `projects` (meme source : jenga info)
 						return;
 					}
 					// ── Jenga EMBARQUE pour `info` aussi ────────────────────────────
@@ -5249,6 +5273,7 @@ namespace nkentseu {
 							mInfoWsIdx = wsIdx;
 							mInfoLines.Clear();
 							projects.Clear();
+					consoleProjects.Clear(); // reconstruite avec `projects` (meme source : jenga info)
 							mInfoEmbedded = true;
 							return;
 						}
@@ -5259,6 +5284,7 @@ namespace nkentseu {
 					mInfoWsIdx = wsIdx;
 					mInfoLines.Clear();
 					projects.Clear();
+					consoleProjects.Clear(); // reconstruite avec `projects` (meme source : jenga info)
 					mInfoEmbedded = false;
 					mInfo.Start(NkString("jenga info") + JengaFileArg().CStr());
 				}
@@ -6811,6 +6837,24 @@ namespace nkentseu {
 						cmd += " --args ";
 						cmd += runArgs;
 					}
+					// ── Application CONSOLE : onglet TERMINAL dedie (cf. PollRunStages).
+					// Ici Jenga est EXTERNE : on n'a pas le chemin du binaire, c'est donc
+					// la commande `jenga run --build` ENTIERE qui va dans le pty. La
+					// construction defile, puis le programme prend la main avec un VRAI
+					// stdin. Cote Jenga, Run.py voit un tty (isatty() vrai) et n'ouvre
+					// donc PAS de console externe : tout reste dans l'onglet.
+					if (IsConsoleProject(proj)) {
+						termOpenAt = root.ToString();
+						termOpenCmd = cmd;
+						termOpenKind = -1;
+						termOpenLabel = NkString("\xE2\x96\xB7 ") + proj;
+						termOpenLabel += " \xC2\xB7 ";
+						termOpenLabel += S.name;
+						focusPanelReq = "TERMINAL";
+						Journal(NkString("execution lancee (terminal dedie) : ") + cmd.CStr());
+						status = NkString("Execution dans le terminal : ") + proj;
+						return;
+					}
 					NkProcess *p = new NkProcess();
 					output.PushBack(NkString("$ ") + cmd.CStr());
 					Journal(NkString("execution lancee : ") + cmd.CStr());
@@ -6886,10 +6930,13 @@ namespace nkentseu {
 					if (!NkEmbeddedJenga::Get().Done())
 						return;
 					mRunStage = 0;
-					NkString exe;
-					for (usize i = 0; i < mRunPathLines.Size(); ++i)
+					NkString exe, kind;
+					for (usize i = 0; i < mRunPathLines.Size(); ++i) {
 						if (mRunPathLines[i].StartsWith("[jenga-exepath] "))
 							exe = NkString(mRunPathLines[i].CStr() + 16);
+						else if (mRunPathLines[i].StartsWith("[jenga-exekind] "))
+							kind = NkString(mRunPathLines[i].CStr() + 16);
+					}
 					if (exe.Empty() || !NkFile::Exists(exe.CStr())) {
 						status = NkString("Executable introuvable pour ") + mRunPendingProj.CStr();
 						return;
@@ -6902,6 +6949,32 @@ namespace nkentseu {
 						line += " \"";
 						line += targs[i];
 						line += "\"";
+					}
+					// ── Application CONSOLE : onglet TERMINAL dedie, pas le panneau Sortie.
+					// Le panneau Sortie est un journal en LECTURE SEULE : pas de stdin
+					// (impossible de repondre a une invite), pas d'ANSI (couleurs et
+					// effacement de ligne s'affichent en brut), et la sortie du programme
+					// s'y melange aux lignes de build. Un onglet terminal est un VRAI
+					// pty : saisie clavier, couleurs, code de sortie. Une WindowedApp,
+					// elle, n'a rien a afficher dans un terminal -> chemin inchange.
+					if (kind == "ConsoleApp") {
+						termOpenAt = NkPath(exe.CStr()).GetParent().ToString();
+						termOpenCmd = line;	   // la commande REMPLACE le shell dans l'onglet
+						termOpenKind = -1;	   // shell par defaut (sert de repli si la commande sort)
+						// L'onglet s'identifie comme une EXECUTION, pas comme un shell :
+						// « ▷ <projet> · <plateforme> ». Le pty lance le binaire
+						// DIRECTEMENT (cmdOverride remplace le shell), donc l'onglet se
+						// comporte pareil sur Windows, Linux et macOS — aucun PowerShell
+						// ni bash dans la boucle, juste le programme et son pty.
+						termOpenLabel = NkString("\xE2\x96\xB7 ") + mRunPendingProj.CStr();
+						if (!mRunPendingPlat.Empty()) {
+							termOpenLabel += " \xC2\xB7 ";
+							termOpenLabel += mRunPendingPlat;
+						}
+						focusPanelReq = "TERMINAL"; // fait remonter le panneau (peut etre ferme)
+						Journal(NkString("execution lancee (terminal dedie) : ") + line.CStr());
+						status = NkString("Execution dans le terminal : ") + mRunPendingProj.CStr();
+						return;
 					}
 					NkProcess *p = new NkProcess();
 					output.PushBack(NkString("$ ") + line.CStr());
@@ -7183,6 +7256,7 @@ namespace nkentseu {
 				// dans `projects`. Exclut les separateurs / entrees parasites (ex. --unitest--).
 				void ParseProjects() {
 					projects.Clear();
+					consoleProjects.Clear(); // reconstruite avec `projects` (meme source : jenga info)
 					tests.Clear();
 					toolchains.Clear();
 
@@ -7220,8 +7294,11 @@ namespace nkentseu {
 								continue; // parasite / --unitest--
 							if (Contains(kind, "Test"))
 								tests.PushBack(NkString(name)); // TestSuite -> combo Tests
-							else
+							else {
 								projects.PushBack(NkString(name));
+								if (Contains(kind, "Console")) // ConsoleApp -> terminal dedie au Run
+									consoleProjects.PushBack(NkString(name));
+							}
 						} else if (cur == TOOL) {
 							char t[5][96];
 							const int32 n = NTokens(L, t, 5, 96);
