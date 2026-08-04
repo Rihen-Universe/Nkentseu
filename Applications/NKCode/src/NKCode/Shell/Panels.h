@@ -1525,6 +1525,43 @@ namespace nkentseu {
 						RequestCloseFile(ctx, toClose);
 					DrawCloseConfirm(ctx);
 					DrawCloseGroupConfirm(ctx);
+					DrawQuitConfirm(ctx);
+				}
+
+				// ── Fermeture de l'APPLICATION (croix de la barre de titre) ─────────
+				// L'etat pose le drapeau quitRequested (le rappel de fermeture du shell
+				// a VETOE la fermeture, cf. NkEditorShell::SetOnWindowClosed) ; on
+				// demande ici ce qu'il faut faire des fichiers modifies. Sans fichier
+				// modifie, aucune question : on ferme.
+				void DrawQuitConfirm(NkGuiContext &ctx) {
+					if (!mS->quitRequested)
+						return;
+					if (!mQuitConfirm.open) {
+						if (mS->DirtyCount() == 0) { // rien a perdre -> fermeture directe
+							mS->ConfirmQuit();
+							return;
+						}
+						mQuitConfirm.open = true;
+					}
+					const int32 n = mS->DirtyCount();
+					const NkString msg = NkPrintf(NkT("app.quit.save"), n);
+					const char *items[3] = {NkT("app.quit.savebtn"), NkT("app.quit.discard"),
+											 NkT("app.quit.cancel")};
+					const int32 act = NkModalDraw(ctx, mQuitConfirm, NkT("app.quit.title"), msg.CStr(), items, 3);
+					if (act == 0) { // Enregistrer TOUT puis fermer — annule si un echec
+						mQuitConfirm.open = false;
+						mS->quitRequested = false;
+						if (mS->SaveAllDirty())
+							mS->ConfirmQuit();
+						// Echec (ex. « Enregistrer sous » annule) : on ne ferme PAS, pour
+						// ne pas perdre ce qui n'a pas pu etre ecrit.
+					} else if (act == 1) { // Fermer sans enregistrer
+						mQuitConfirm.open = false;
+						mS->ConfirmQuit();
+					} else if (act == 2) { // Annuler (bouton, Echap, clic en dehors)
+						mQuitConfirm.open = false;
+						mS->quitRequested = false;
+					}
 				}
 
 				// Ferme l'onglet `idx` — si son contenu N'EST PAS enregistre, ouvre D'ABORD
@@ -1715,6 +1752,7 @@ namespace nkentseu {
 				// confirmation PAR FICHIER (trop complexe), juste un avertissement bloc si au
 				// moins un des fichiers cibles est modifie. ──
 				NkModal mCloseGroupConfirm;
+				NkModal mQuitConfirm; ///< fermeture de l'APPLICATION (croix barre de titre)
 				int32 mCloseGroupMode = 0; // 1 = CloseOthers, 2 = CloseToRight
 				int32 mCloseGroupIdx = -1;
 		};

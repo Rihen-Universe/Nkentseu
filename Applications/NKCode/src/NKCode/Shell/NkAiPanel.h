@@ -4120,12 +4120,33 @@ namespace nkentseu {
 				// <dossier-du-shim>\node_modules\@anthropic-ai\claude-code\bin\claude.exe —
 				// on le localise UNE FOIS (`where claude.cmd`, qui passe par cmd.exe et
 				// résout donc .cmd correctement) et on met en cache (ClaudeExe()). ──
+				// Un fichier .exe qui EXISTE n'est pas forcement un executable. Le paquet
+				// npm @anthropic-ai/claude-code livre a bin\claude.exe un SCRIPT-GARDE de
+				// ~500 octets (« Error: claude native binary not installed. ») quand le
+				// postinstall n'a pas tourne (--ignore-scripts, certains pnpm) ou que la
+				// dependance optionnelle native n'a pas ete telechargee (--omit=optional).
+				// Le donner a CreateProcessW declenche une boite MODALE Windows
+				// « Application 16 bits non prise en charge » — bloquante, et au demarrage
+				// (deux sondes automatiques : auth status + usage). On exige donc la
+				// signature PE « MZ » avant d'accepter un chemin.
+				static bool IsNativeExe(const NkString &path) {
+					if (path.Empty() || !NkFile::Exists(path.CStr()))
+						return false;
+					FILE *f = std::fopen(path.CStr(), "rb");
+					if (!f)
+						return false;
+					char sig[2] = {0, 0};
+					const usize n = std::fread(sig, 1, 2, f);
+					std::fclose(f);
+					return n == 2 && sig[0] == 'M' && sig[1] == 'Z';
+				}
+
 				static NkString ResolveClaudeExe() {
 					const char *appData = env::GetEnvVar("APPDATA");
 					if (appData && *appData) {
 						const NkString candidate =
 							NkString(appData) + "\\npm\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe";
-						if (NkFile::Exists(candidate.CStr()))
+						if (IsNativeExe(candidate))
 							return candidate;
 					}
 #ifdef _WIN32
@@ -4155,12 +4176,21 @@ namespace nkentseu {
 								const NkString dir = shimPath.SubStr(0, slash);
 								const NkString candidate =
 									dir + "\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe";
-								if (NkFile::Exists(candidate.CStr()))
+								if (IsNativeExe(candidate))
 									return candidate;
 							}
 						}
 					}
-					return NkString("claude"); // dernier recours (echouera si aucun .exe natif trouve)
+#ifdef _WIN32
+					// Aucun binaire natif VALIDE : renvoyer « claude » ferait retomber
+					// CreateProcessW sur le script-garde. Chaine vide = « CLI absent »,
+					// deja gere par les appelants (sondes auto ignorees, message clair
+					// dans le panneau). L'utilisateur doit terminer l'installation :
+					//   node node_modules/@anthropic-ai/claude-code/install.cjs
+					return NkString();
+#else
+					return NkString("claude"); // Unix : pas de piege .exe, le shim est executable
+#endif
 				}
 				const NkString &ClaudeExe() {
 					if (!mClaudeExeResolved) {
@@ -4180,6 +4210,12 @@ namespace nkentseu {
 				// commande sans échappement — CreateProcessW n'a pas de shell pour absorber
 				// ça, contrairement à _popen/cmd.exe. ──
 				void SendClaudeCli() {
+					// Aucun binaire natif VALIDE (cf. ResolveClaudeExe) : on le dit, au lieu
+					// de tenter un spawn avec un argv[0] vide.
+					if (ClaudeExe().Empty()) {
+						Msgs().PushBack({2, NkString(NkT("ai.claude.launchfail"))});
+						return;
+					}
 					mClaudeCurModel = NkString(); // capture du modele REEL de ce tour (voir "assistant" plus bas)
 					// Portée (Scope) + chip contexte fichier : préfixe le prompt d'un rappel du
 					// contexte actif — l'agent a de VRAIS outils Read donc peut déjà tout

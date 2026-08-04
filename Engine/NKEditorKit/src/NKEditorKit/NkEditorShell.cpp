@@ -259,8 +259,11 @@ namespace nkentseu {
 			// lancement suivant). Ctrl+Q passe par RequestClose() et ne declenche
 			// donc pas ce rappel — la distinction est voulue.
 			events.AddEventCallback<NkWindowCloseEvent>([this](NkWindowCloseEvent *) {
-				if (mOnWindowClosed)
-					mOnWindowClosed(mOnWindowClosedUser);
+				// Le rappel peut VETOER : false = l'application a pris la main (par
+				// exemple pour demander confirmation quand des fichiers sont modifies)
+				// et fermera elle-meme via RequestClose() le moment venu.
+				if (mOnWindowClosed && !mOnWindowClosed(mOnWindowClosedUser))
+					return;
 				mRunning = false;
 			});
 			// Drop de FICHIERS depuis l'OS (Explorateur Windows…) -> handler de l'app.

@@ -76,7 +76,11 @@ namespace nkentseu {
 				// fenetre (« je n'ai plus besoin de ce workspace ») et quitter par Ctrl+Q
 				// (« je ferme l'application, je reprendrai ou j'en etais ») n'ont pas le
 				// meme sens pour la restauration de session au lancement suivant.
-				using NkOnWindowClosed = void (*)(void *user);
+				// Retourne true = fermer maintenant ; false = ANNULER la fermeture.
+				// Le false rend la main a l'application, qui peut afficher une
+				// confirmation (« enregistrer / fermer sans enregistrer / annuler ») puis
+				// appeler RequestClose() elle-meme une fois l'utilisateur decide.
+				using NkOnWindowClosed = bool (*)(void *user);
 
 				void SetOnWindowClosed(NkOnWindowClosed cb, void *user) noexcept {
 					mOnWindowClosed = cb;

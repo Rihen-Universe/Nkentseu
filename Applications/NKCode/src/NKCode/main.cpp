@@ -267,14 +267,33 @@ int nkmain(const NkEntryState &state) {
 		// Le rappel recoit le dossier personnel ; il doit survivre a main().
 		static NkString s_regHome = g_regHome;
 		shell->SetOnWindowClosed(
-			[](void *user) {
+			[](void *user) -> bool {
+				// Des fichiers non enregistres : on VETOE et on demande. Le panneau
+				// Editeur affiche la confirmation (DrawQuitConfirm) puis leve
+				// quitConfirmed, converti en RequestClose() par le rappel de frame
+				// ci-dessous. Sans modification en attente, on ferme sans rien demander.
+				if (g_state.DirtyCount() > 0 && !g_state.quitConfirmed) {
+					g_state.quitRequested = true;
+					return false;
+				}
 				// Croix de la barre de titre = fermeture EXPLICITE de cette
 				// fenetre : elle ne doit PAS revenir au prochain lancement.
 				// Ctrl+Q passe par RequestClose() et n'arrive jamais ici, donc
 				// quitter l'application laisse bien la fenetre inscrite.
 				nkcode::NkOpenWindowsUnregister(*static_cast<NkString *>(user));
+				return true;
 			},
 			&s_regHome);
+		// Fermeture REELLE une fois l'utilisateur decide dans la confirmation :
+		// desinscrit la fenetre (fermeture explicite -> pas de restauration au
+		// prochain lancement) puis arrete la boucle.
+		static NkEditorShell *s_shell = shell.Get();
+		g_state.quitFnUser = &s_regHome;
+		g_state.quitFn = [](void *user) {
+			nkcode::NkOpenWindowsUnregister(*static_cast<NkString *>(user));
+			if (s_shell)
+				s_shell->RequestClose();
+		};
 	}
 	// Logos + icônes (table unique) + manifeste + activity bars — Shell/NkAppIcons.h
 	nkcode::NkLoadAppIcons(shell.Get(), g_home, g_state);
