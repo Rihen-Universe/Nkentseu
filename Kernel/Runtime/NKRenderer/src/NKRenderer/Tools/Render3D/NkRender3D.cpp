@@ -27,7 +27,9 @@ namespace nkentseu {
 		// Un static_assert dans UploadUBOs verifie l'accord : agrandir PBRCamUBO
 		// sans toucher a cette constante casse la COMPILATION, au lieu de perdre
 		// les derniers champs sans un mot.
-		static constexpr uint32 kPBRCamUBOSize = 848;
+		// 864 depuis l'ajout du BROUILLARD AU SOL (un vec4 en fin de bloc) :
+		// 848 auparavant. Le static_assert d'UploadUBOs verifie l'accord.
+		static constexpr uint32 kPBRCamUBOSize = 864;
 
 		NkRender3D::~NkRender3D() {
 			Shutdown();
@@ -2128,6 +2130,14 @@ namespace nkentseu {
 					// crepusculaire (le modele n'est pas defini sous l'horizon).
 					NkVec4f skyHosekCoef[9];
 					NkVec4f skyHosekRad;
+					// ── BROUILLARD AU SOL, ANIME (ajoute EN FIN de struct : les
+					// shaders qui declarent un CameraUBO plus court ignorent
+					// simplement ces octets).
+					//   .x = altitude de base (m)   .y = epaisseur (m ; 0 = pas
+					//   de brouillard au sol, comportement d'avant)
+					//   .z = force du souffle (0 = nappe lisse)
+					//   .w = temps anime, deja multiplie par la vitesse du vent
+					NkVec4f fogHeight;
 			};
 
 			// L'ALLOCATION ET L'ECRITURE DOIVENT S'ACCORDER. Sans cette
@@ -2234,6 +2244,10 @@ namespace nkentseu {
 			cb.fogColor = {mCtx.fogColor.x, mCtx.fogColor.y, mCtx.fogColor.z, mCtx.fogDensity};
 			cb.fogParams = {mCtx.fogEnabled ? 1.f : 0.f, mCtx.fogStart, mCtx.fogEnd,
 							mCtx.fogDensity > 0.f ? 1.f : 0.f};
+			// Le TEMPS est deja multiplie par la vitesse ici : le shader n'a
+			// plus qu'a s'en servir comme d'un decalage, sans connaitre le vent.
+			cb.fogHeight = {mCtx.fogHeightBase, mCtx.fogThickness, mCtx.fogWind,
+							mCtx.time * mCtx.fogWindSpeed};
 			// ── LE CIEL VISIBLE, evalue en temps reel par le shader Skybox ────
 			// Empaquetage dense en vec4, documente ici ET dans skybox.frag.nksl :
 			// les deux doivent rester d'accord.
