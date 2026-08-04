@@ -218,6 +218,52 @@ multiplient (chaque opération devra être une commande réversible).
   l'avait jamais été), champs à 259 caractères, Maj+D ne duplique plus deux
   fois, dimensions honnêtes (cube 1 m comme Unreal), pivot dans la barre.
 
+## À VÉRIFIER PAR RIHEN À SON RETOUR (compilé, non relancé)
+
+> Pause du 2026-08-04 à 11 h 35. Le modeleur est **fermé** pour rendre le GPU à
+> BulkGen (corpus IA : 87 549 / 100 000 paires, cadence divisée par ~15 quand
+> les deux tournent). Release et Debug sont à 28/28 ; **rien n'a été poussé** —
+> la règle est de valider d'abord.
+
+Quatre points à regarder, dans cet ordre :
+
+1. **Édition proportionnelle en rotation et en échelle** (mode Objet). Elle ne
+   propageait que la **translation** ; c'était une limitation que je m'étais
+   donnée sans raison, relevée par Rihen. Les trois composantes se propagent
+   désormais, atténuées, **autour du pivot figé au début du geste**. Test :
+   sélectionner un objet au milieu d'un groupe, rayon large, tourner puis
+   agrandir — la rangée doit s'**incurver** et s'**évaser**, pas pivoter sur
+   place.
+2. **Le NaN — cause trouvée et corrigée dans NKMath.** `NkQuatT::SLerp`
+   rendait un quaternion NaN pour **deux quaternions identiques** :
+   `NkQuatEpsilon` vaut 1e-12, or en float32 `1.0f - 1e-12f` arrondit
+   exactement à `1.0f`, donc le repli NLerp ne se déclenchait jamais et on
+   divisait par `sin(acos(1)) = 0`. Interpoler vers une rotation **nulle** —
+   le cas le plus banal — contaminait toute la scène. Corrigé par un seuil
+   exprimé dans la précision du calcul **plus** une barrière sur `sin θ` juste
+   avant la division. Vérifié isolément hors application (`P' = (3.5;0;4)`
+   exact, interpolation à 40 % d'une rotation de 30° = 12°). C'est un bug de
+   **NKMath**, pas seulement du modeleur : tout code qui SLerp vers une
+   rotation identique en souffrait silencieusement.
+3. **Garde-fou conservé** : le commit de l'édition proportionnelle refuse
+   d'écrire une position ou un quaternion non finis et trace dans le journal
+   (`[PropEdit] terme degenere`). La cause est corrigée, mais l'état d'une
+   scène ne doit jamais pouvoir être empoisonné sans laisser de trace.
+4. **Pastille translucide derrière le gizmo de navigation** (bas à gauche),
+   plus dense au survol du corps — elle signale au passage qu'il est
+   saisissable. A obligé à ajouter `NkModelerPainter::RingColor` : le trou des
+   demi-axes négatifs était rempli avec la couleur **opaque** du fond de vue et
+   aurait percé des ronds pleins dans la pastille.
+
+Également livré et non validé : l'**icône aimant** en fer à cheval (le
+quadrillage disait « grille », alors que la bascule aimante aussi sur sommets,
+arêtes et faces) et l'**icône d'édition proportionnelle** (point plein + anneaux
+qui s'affinent : l'influence décroissante est dite par le trait). Chaque bascule
+garde son chevron **à côté d'elle**, et le panneau du proportional (rayon + 8
+atténuations) suit le patron de celui de l'aimantation : bloquant, ancré à son
+chevron, fermé au clic extérieur. Les mêmes réglages sont répétés dans la
+pastille **Outil**.
+
 ## EN COURS — à reprendre en premier (non validé)
 
 **Orientations Local vs Global.** Rihen constate qu'elles restent identiques.
@@ -239,9 +285,8 @@ le glissement **et** après le relâchement.
 
 ## Reste à faire, dans l'ordre décidé par Rihen
 
-1. **Proportional editing** (dernier point de ses captures Blender) : bascule,
-   rayon à la molette, et les 8 atténuations (Lisse, Sphère, Racine, Carré
-   inverse, Net, Linéaire, Constant, Aléatoire).
+1. ~~**Proportional editing**~~ — livré (sommets ET objets, les 8 atténuations,
+   les trois transformations). **En attente de validation**, voir plus haut.
 2. **Aimantation, compléments** : cibles *Volume* et *Arête perpendiculaire*
    (affichées « à venir », elles laissent le geste libre) ; base d'aimantation
    (Closest / Center / Median / Active) ; « Aligner la rotation sur la cible ».

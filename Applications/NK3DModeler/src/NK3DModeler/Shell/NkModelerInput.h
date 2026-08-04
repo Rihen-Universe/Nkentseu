@@ -302,6 +302,10 @@ namespace nkentseu {
 				// pas dans la barre.
 				bool snapMenuOpen = false;
 				NkRect snapMenuAnchor{};
+				// Panneau de l'EDITION PROPORTIONNELLE (rayon + attenuation),
+				// ancre a son chevron dans la barre de la vue.
+				bool propMenuOpen = false;
+				NkRect propMenuAnchor{};
 				// NOMS PERSONNALISES de la hierarchie : 0..85 objets, 86..89
 				// lumieres, 90..95 parents. Vide = nom genere. Ils vivent ici tant
 				// que la demo n'a pas de champ nom ; le format projet les reprendra.

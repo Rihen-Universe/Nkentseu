@@ -1026,18 +1026,38 @@ namespace nkentseu {
 			}
 
 			// Étape 2 : Fallback vers NLerp si quaternions quasi-identiques
-			// Évite les instabilités numériques quand sin(θ) ≈ 0
-			if (dotProduct > 1.0f - static_cast<float32>(NkQuatEpsilon)) {
+			// Évite les instabilités numériques quand sin(θ) ≈ 0.
+			//
+			// LE SEUIL EST EXPRIMÉ DANS LA PRÉCISION DU CALCUL, PAS EN 1e-12.
+			// NkQuatEpsilon vaut 1e-12 (précision double) : en float32,
+			// `1.0f - 1e-12f` ARRONDIT EXACTEMENT À 1.0f, donc le test
+			// `dot > 1.0f` était toujours FAUX — y compris pour deux
+			// quaternions rigoureusement identiques. On tombait alors dans la
+			// formule de Shoemake avec θ = acos(1) = 0, donc sin θ = 0,
+			// 1/sin θ = +inf et 0 × inf = NaN. Interpoler vers une rotation
+			// NULLE — le cas le plus banal qui soit — rendait un quaternion
+			// NaN qui contaminait ensuite tout ce qu'il touchait (constaté par
+			// Rihen sur l'édition proportionnelle : positions et angles passés
+			// à « nan », objets disparus de la vue).
+			constexpr float32 kSLerpDotMax = 1.0f - 1e-6f;
+			if (dotProduct > kSLerpDotMax) {
 				return NLerp(target, interpolationFactor);
 			}
 
 			// Étape 3 : SLERP DIRECT (formule de Shoemake, sans operator^ qui
 			// souffrait d'un défaut de linkage friend↔template) :
 			//   result = sin((1-t)θ)/sinθ · start + sin(tθ)/sinθ · target
-			// avec θ = acos(dot). Stable ici car dot < 1-ε (sinθ non nul).
+			// avec θ = acos(dot).
 			const float32 ti = static_cast<float32>(interpolationFactor);
 			const float32 theta = acosf(dotProduct);
-			const float32 invSin = 1.0f / sinf(theta);
+			// SECONDE BARRIÈRE, sur la grandeur RÉELLEMENT divisée. Le seuil
+			// sur le produit scalaire dépend de la précision d'acos près de 1 ;
+			// vérifier sin θ juste avant l'inverse ne dépend, lui, de rien.
+			const float32 sinTheta = sinf(theta);
+			if (sinTheta < 1e-6f) {
+				return NLerp(target, interpolationFactor);
+			}
+			const float32 invSin = 1.0f / sinTheta;
 			const float32 wa = sinf((1.0f - ti) * theta) * invSin;
 			const float32 wb = sinf(ti * theta) * invSin;
 			NkQuatT<T> interpolated = {static_cast<T>(wa) * x + static_cast<T>(wb) * target.x,

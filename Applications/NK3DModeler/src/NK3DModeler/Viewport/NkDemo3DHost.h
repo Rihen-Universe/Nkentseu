@@ -85,6 +85,12 @@ namespace nkentseu {
 		// noeud memorise alors le repere de son echelle.
 		bool Demo3DHostShearScale();
 		void Demo3DHostSetShearScale(bool on);
+		// EDITION PROPORTIONNELLE (mode Edition) : deplacer un sommet entraine
+		// ses voisins, d'autant moins qu'ils sont loin. `falloff` : 0 lisse,
+		// 1 sphere, 2 racine, 3 carre inverse, 4 net, 5 lineaire, 6 constant,
+		// 7 aleatoire -- les huit lois de Blender.
+		void Demo3DHostPropEdit(bool *on, float32 *radius, int32 *falloff);
+		void Demo3DHostSetPropEdit(bool on, float32 radius, int32 falloff);
 		// BROUILLARD AU SOL : altitude de base, epaisseur (0 = pas de nappe, le
 		// brouillard ne depend alors que de la distance), force du souffle, et
 		// « derive liee au vent des nuages » -- le sol et le ciel avancent alors
