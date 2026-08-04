@@ -5257,19 +5257,42 @@ namespace nkentseu {
 				int32 projIdx = 0;			 // projet cible courant
 				NkVector<NkString> tests;	 // projets de test (Kind = TestSuite)
 				int32 testIdx = -1;			 // -1 = tous les tests visibles ; >=0 = un test precis
-				// Sous-ensemble de `projects` dont le Kind est ConsoleApp : « Demarrer »
-				// les envoie dans un onglet TERMINAL dedie (stdin/ANSI/code de sortie)
-				// au lieu du panneau Sortie, qui est en lecture seule. Le Kind vient de
-				// la table de `jenga info`, deja analysee (colonne Kind).
-				NkVector<NkString> consoleProjects;
+				// Kind de chaque projet, PARALLELE a `projects` (meme index, meme source :
+				// la colonne Kind de `jenga info`). Le MEME selecteur sert a Construire et
+				// a Demarrer, mais les deux n'acceptent pas les memes cibles : construire
+				// une bibliotheque a du sens, l'executer non. On ne peut donc pas filtrer
+				// la liste elle-meme sans amputer Construire — on filtre A L'USAGE.
+				NkVector<NkString> projKinds;
 
+				NkString KindOf(const char *name) const {
+					if (name && *name)
+						for (usize i = 0; i < projects.Size() && i < projKinds.Size(); ++i)
+							if (StrEq(projects[i].CStr(), name))
+								return projKinds[i];
+					return NkString();
+				}
+
+				// ConsoleApp : « Demarrer » l'envoie dans un onglet du panneau EXECUTION
+				// (stdin, ANSI, code de sortie) plutot que dans le panneau Sortie.
 				bool IsConsoleProject(const char *name) const {
-					if (!name || !*name)
-						return false;
-					for (usize i = 0; i < consoleProjects.Size(); ++i)
-						if (StrEq(consoleProjects[i].CStr(), name))
-							return true;
-					return false;
+					return NkFindSub(KindOf(name).CStr(), "Console") != nullptr;
+				}
+
+				// Projet EXECUTABLE (application console ou fenetree). Une bibliotheque
+				// statique/dynamique n'a pas de point d'entree : la « demarrer » n'a aucun
+				// sens, et l'utilisateur merite un message clair plutot qu'un echec obscur.
+				bool IsExecutableProject(const char *name) const {
+					const NkString k = KindOf(name);
+					return NkFindSub(k.CStr(), "Console") != nullptr || NkFindSub(k.CStr(), "Windowed") != nullptr;
+				}
+
+				// Premier projet executable — cible de « Demarrer » quand « tous les
+				// projets » est selectionne. Vide si le workspace n'a que des bibliotheques.
+				NkString FirstExecutableProject() const {
+					for (usize i = 0; i < projects.Size(); ++i)
+						if (IsExecutableProject(projects[i].CStr()))
+							return projects[i];
+					return NkString();
 				}
 
 				// Toolchains DETECTEES par Jenga (table "Available Toolchains" de `jenga info`).
@@ -5330,7 +5353,7 @@ namespace nkentseu {
 						mInfoWsIdx = wsIdx;
 						mInfoLines.Clear();
 						projects.Clear();
-					consoleProjects.Clear(); // reconstruite avec `projects` (meme source : jenga info)
+					projKinds.Clear(); // parallele a `projects` (meme source : jenga info)
 						return;
 					}
 					// ── Jenga EMBARQUE pour `info` aussi ────────────────────────────
@@ -5353,7 +5376,7 @@ namespace nkentseu {
 							mInfoWsIdx = wsIdx;
 							mInfoLines.Clear();
 							projects.Clear();
-					consoleProjects.Clear(); // reconstruite avec `projects` (meme source : jenga info)
+					projKinds.Clear(); // parallele a `projects` (meme source : jenga info)
 							mInfoEmbedded = true;
 							return;
 						}
@@ -5364,7 +5387,7 @@ namespace nkentseu {
 					mInfoWsIdx = wsIdx;
 					mInfoLines.Clear();
 					projects.Clear();
-					consoleProjects.Clear(); // reconstruite avec `projects` (meme source : jenga info)
+					projKinds.Clear(); // parallele a `projects` (meme source : jenga info)
 					mInfoEmbedded = false;
 					mInfo.Start(NkString("jenga info") + JengaFileArg().CStr());
 				}
@@ -6850,9 +6873,28 @@ namespace nkentseu {
 						status = NkString("(aucun workspace)");
 						return;
 					}
+					// ── Quelle cible EXECUTER ? ─────────────────────────────────────
+					// Le selecteur de projet sert aussi a Construire, ou une bibliotheque
+					// est une cible parfaitement legitime. Ici elle ne l'est pas : une
+					// StaticLib/SharedLib n'a pas de point d'entree. On rattrape donc les
+					// deux cas au lieu de laisser echouer plus loin :
+					//   « tous les projets »  -> le PREMIER executable du workspace ;
+					//   une bibliotheque      -> message clair, aucun lancement.
+					NkString cibleRun;
 					if (AllProjects()) {
-						status = NkString("(choisir un projet pour Demarrer)");
-						return;
+						cibleRun = FirstExecutableProject();
+						if (cibleRun.Empty()) {
+							status = NkString("(aucun executable dans ce workspace)");
+							return;
+						}
+					} else {
+						cibleRun = SelectedProject();
+						if (!IsExecutableProject(cibleRun.CStr())) {
+							const NkString k = KindOf(cibleRun.CStr());
+							status = NkPrintf("(%s est une bibliotheque%s%s - rien a executer)", cibleRun.CStr(),
+											  k.Empty() ? "" : " ", k.Empty() ? "" : k.CStr());
+							return;
+						}
 					}
 					// EXECUTION = process SEPARE du pipeline build -> PLUSIEURS instances de la
 					// meme application peuvent tourner en parallele (multi-fenetres, tests
@@ -6860,7 +6902,9 @@ namespace nkentseu {
 					// en cours/en file (la phase --build du run entrerait en collision). La
 					// phase --build reste incrementale cote Jenga : rien de modifie => aucun
 					// recompile, lancement direct.
-					const char *proj = SelectedProject();
+					// `proj` = la cible RESOLUE ci-dessus, pas forcement celle du selecteur
+					// (« tous les projets » a ete traduit en un executable precis).
+					const char *proj = cibleRun.CStr();
 					if (BuildBusyFor(proj)) {
 						status = NkPrintf("(construction de %s en cours - reessayer apres)", proj);
 						return;
@@ -7401,7 +7445,7 @@ namespace nkentseu {
 				// dans `projects`. Exclut les separateurs / entrees parasites (ex. --unitest--).
 				void ParseProjects() {
 					projects.Clear();
-					consoleProjects.Clear(); // reconstruite avec `projects` (meme source : jenga info)
+					projKinds.Clear(); // parallele a `projects` (meme source : jenga info)
 					tests.Clear();
 					toolchains.Clear();
 
@@ -7441,8 +7485,7 @@ namespace nkentseu {
 								tests.PushBack(NkString(name)); // TestSuite -> combo Tests
 							else {
 								projects.PushBack(NkString(name));
-								if (Contains(kind, "Console")) // ConsoleApp -> terminal dedie au Run
-									consoleProjects.PushBack(NkString(name));
+								projKinds.PushBack(NkString(kind)); // garde l'index aligne
 							}
 						} else if (cur == TOOL) {
 							char t[5][96];
