@@ -218,6 +218,75 @@ multiplient (chaque opération devra être une commande réversible).
   l'avait jamais été), champs à 259 caractères, Maj+D ne duplique plus deux
   fois, dimensions honnêtes (cube 1 m comme Unreal), pivot dans la barre.
 
+## OUTPUT — livré pendant la pause du 4 août (à valider)
+
+> Release et Debug à 28/28, app relancée et fermée sans erreur au journal.
+> **Non poussé** : Rihen valide d'abord.
+
+**Une pastille dédiée**, `Output` (index 6 ; la pastille du mode passe en 7).
+Elle est ajoutée en fin de liste et non après `Rendu` où sa place serait plus
+logique : les indices de section sont mémorisés dans `st.propOpen` et câblés en
+dur ailleurs (`kSelOnly`, la pastille du mode) — les décaler casserait ces
+règles en silence.
+
+**Sortie principale** — source (vue 3D ou n'importe quelle caméra), résolution
+avec 8 presets (HD, FHD, 2K, 4K, carré, vertical, ciné, web), pourcentage
+d'échelle, et la taille réellement produite affichée en toutes lettres.
+La résolution est **indépendante de la fenêtre** : un rendu 4K depuis une
+fenêtre 1600×900 fait bien 4K. Sans cela le champ n'aurait été qu'une
+décoration.
+
+**Destination** — dossier, nom, format, et le chemin du dernier fichier écrit.
+
+**Incrustations** — jusqu'à 8 cibles secondaires posées sur la principale
+(« une principale et les autres en miniature, rectangle, carré, cercle etc. »).
+Chacune : source, forme (rectangle, carré, cercle, ovale, rectangle arrondi,
+losange), position, taille, liseré avec sa couleur, opacité. Position et taille
+sont des **fractions** de la principale, donc changer la résolution ne déplace
+rien.
+
+**Aperçu dans la vue** — les incrustations se dessinent dans le cadre caméra, à
+leur place et à leur forme, numérotées et nommées. Sans cela il faudrait lancer
+un rendu pour savoir où elles tombent.
+
+**Le rapport de la caméra suit la sortie** — c'était annoncé dans le code
+(« Full HD en v1 ; la pastille Output le pilotera ») : le cadre dessiné, le
+voile et le rendu dérivent tous d'une seule fonction. Régler la sortie en carré
+ou en vertical se voit immédiatement dans la vue caméra.
+
+### Comment c'est fait, et pourquoi
+
+Redimensionner la cible hors écran et lire ses pixels ne peuvent pas avoir lieu
+dans la même image : le GPU doit avoir rendu entre les deux. Le rendu s'étale
+donc en étapes — la principale, puis chaque incrustation — chacune en trois
+images (poser, laisser rendre, lire). Neuf cibles font vingt-sept images, moins
+d'une demi-seconde, et l'interface ne se bloque pas.
+
+Le cadre caméra est forcé en **plein cadre** pendant la sortie. Comme c'est le
+point de passage unique qui pilote l'élargissement du champ, le passe-partout
+et le recadrage de la capture, le neutraliser à un seul endroit suffit à ce que
+l'image de la caméra occupe toute la cible.
+
+Les formes vivent dans `NkOutCompose.h`, à part : c'est du calcul pur, donc
+**vérifiable hors de l'application**. Un test isolé génère une planche des six
+formes et vérifie 9 propriétés (couverture au centre et aux coins de chaque
+forme, liseré sur les quatre bords, opacité, cadres carrés forcés) — toutes
+passent.
+
+### Ce qui reste à faire sur Output
+
+1. **Le rendu GPU n'a pas pu être testé** : il se déclenche par un bouton, et
+   je ne pilote pas la souris. Tout le reste est vérifié (compilation, démarrage,
+   formes en test isolé). C'est le premier point à essayer.
+2. **F12** — c'est le raccourci de rendu chez Blender, mais il est déjà pris ici
+   par l'opacité du plan de grille (un vestige de la démo). Je n'ai pas
+   réquisitionné le raccourci sans ton accord : à trancher.
+3. **Fond transparent** — le champ existe dans l'état mais n'est ni affiché ni
+   implémenté (il faudrait ne pas peindre le ciel). Aucune commande factice
+   n'est affichée pour autant.
+4. Formats autres que PNG ; séquence d'images ; rendu depuis plusieurs caméras
+   vers plusieurs fichiers plutôt qu'en incrustation.
+
 ## À VÉRIFIER PAR RIHEN À SON RETOUR (compilé, non relancé)
 
 > Pause du 2026-08-04 à 11 h 35. Le modeleur est **fermé** pour rendre le GPU à
@@ -290,8 +359,9 @@ le glissement **et** après le relâchement.
 2. **Aimantation, compléments** : cibles *Volume* et *Arête perpendiculaire*
    (affichées « à venir », elles laissent le geste libre) ; base d'aimantation
    (Closest / Center / Median / Active) ; « Aligner la rotation sur la cible ».
-3. **Pastille Output** : source Vue/Caméra, résolution (1920×1080 par défaut,
-   presets, pourcentage), chemin de sortie, colonne caméra de la hiérarchie.
+3. ~~**Pastille Output**~~ — livrée (source, résolution, presets, pourcentage,
+   destination, incrustations, aperçu). **En attente de validation**, voir plus
+   haut. Reste la colonne caméra de la hiérarchie.
 4. **Matériaux** : textures des autres canaux (rugosité, métallique, normale),
    choix du **type de surface** (`NkMaterialType` : PBR, Toon, Unlit…),
    sauvegarde `.nkasset` via `NkMaterialAsset`/`NkMaterialLibrary` (le format

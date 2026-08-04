@@ -37,7 +37,9 @@
 #include "NKFileSystem/NkFile.h"				// save/load session d'édition (journal de commandes)
 #include "NKTime/NkChrono.h"					// mesure du coût des aperçus modaux (NK_MODAL_PERF)
 #include "NKRenderer/Tools/VoxelAO/NkVoxelAOSystem.h" // NK_GI_TEST : GI à un rebond
-#include "NKLogger/NkLog.h" // diagnostic par le journal (methode de travail)
+#include "NKLogger/NkLog.h"			  // diagnostic par le journal (methode de travail)
+#include "NKFileSystem/NkDirectory.h" // dossier de sortie cree a la volee
+#include "NkOutCompose.h"			  // formes et composition des incrustations
 #include <cstdio>
 #include <cstdlib> // getenv (override NK_GI_TEST)
 
@@ -328,17 +330,70 @@ namespace nkentseu {
 		// CAMERA ACTIVE (facon Blender) : celle que le pave 0 regarde et que la
 		// capture « Camera » utilisera. Devient active des qu'on la regarde.
 		static int32 nkvpActiveCamNode = -1;
+		// ── SORTIE (pastille Output) ────────────────────────────────────────
+		// Ce qui SORT de la scene, par opposition a la pastille Rendu qui dit
+		// COMMENT elle est eclairee. Une cible PRINCIPALE, et jusqu'a huit
+		// INCRUSTATIONS posees par-dessus (Rihen : « une principale et les
+		// autres en miniature, rectangle, carre, cercle etc., positionnees
+		// au-dessus de la principale »).
+		//
+		// La resolution de sortie est INDEPENDANTE de la taille de la fenetre :
+		// sinon le champ ne serait qu'une decoration, et un rendu 4K depuis une
+		// fenetre 1600x900 resterait en 1600x900.
+		struct NkVpOutInset {
+				bool used = false;
+				int32 source = -1;	 // noeud camera ; -1 = la vue 3D
+				int32 shape = 0;	 // voir kNkvpInsetShapes
+				float32 x = 0.70f;	 // coin haut-gauche, fraction de la principale
+				float32 y = 0.04f;
+				float32 size = 0.26f;  // largeur, fraction de la principale
+				float32 border = 2.f;  // lisere, en pixels de SORTIE
+				float32 borderCol[3] = {1.f, 1.f, 1.f};
+				float32 opacity = 1.f;
+		};
+		// Les formes sont definies UNE FOIS dans NkOutCompose.h, avec leurs
+		// noms : le panneau ne peut donc pas afficher « Cercle » et le rendu
+		// produire autre chose.
+		static const int32 kNkvpInsetShapes = nk3d::kInsetShapeCount;
+		static const int32 kNkvpMaxInsets = 8;
+		static NkVpOutInset nkvpOutInset[kNkvpMaxInsets];
+		static int32 nkvpOutSource = -1;   // principale : -1 vue 3D, sinon noeud camera
+		static int32 nkvpOutW = 1920;
+		static int32 nkvpOutH = 1080;
+		static int32 nkvpOutScale = 100;   // pourcentage applique aux deux cotes
+		static char nkvpOutDir[260] = "captures";
+		static char nkvpOutName[64] = "rendu";
+		static int32 nkvpOutFormat = 0;	   // 0 PNG
+		static bool nkvpOutTransparent = false;
+		// Machine du rendu hors bande. Le redimensionnement de la cible et la
+		// lecture des pixels ne peuvent pas avoir lieu dans la meme image : le
+		// GPU doit avoir rendu ENTRE les deux. Les phases sont donc etalees sur
+		// plusieurs images -- 1 pose la taille et la camera, 2 laisse rendre,
+		// 3 lit et sauve, puis tout est restaure.
+		static int32 nkvpOutPhase = 0;
+		static uint32 nkvpOutSaveW = 0, nkvpOutSaveH = 0;
+		static int32 nkvpOutSaveCam = -1;
+		static int32 nkvpOutStep = -1;	  // -1 = principale, sinon indice d'incrustation
+		static char nkvpOutLastPath[300] = {};
+		static bool nkvpOutLastOk = false;
 		// Declarations avancees : le rappel clavier (pave 0) precede les
 		// definitions, placees pres des autres fonctions hote.
 		void Demo3DHostViewCamera(int32 node);
 		bool Demo3DHostToggleCameraView();
 		static int32 HostSceneCameras(int32 *out, int32 cap);
 		void Demo3DHostCameraFrame(float32 *xywh);
+		void Demo3DHostSetCameraView(int32 node); // la sortie pose la source avant de rendre
 		// UNE SEULE VERITE optique pour la camera : le WIDGET (pyramide), le
 		// rendu en vue camera, le voile et la capture derivent tous du couple
 		// focale + format. Format Full HD en v1 ; la pastille Output le pilotera.
 		static constexpr float32 kCamFrameMargin = 0.86f;
-		static constexpr float32 kCamAspect = 1920.f / 1080.f;
+		// LE RAPPORT DE LA CAMERA EST CELUI DE LA SORTIE (c'etait annonce ici
+		// meme : « Full HD en v1 ; la pastille Output le pilotera »). Le cadre
+		// dessine dans la vue, le voile et le rendu derivent tous de cette
+		// fonction : regler la sortie en 1:1 ou en vertical se voit donc
+		// immediatement dans la vue camera, sans quoi on cadrerait sur un
+		// rectangle qui n'est pas celui qu'on produit.
+		static float32 HostCamAspect();
 		// TYPE de camera (Rihen) : perspective (defaut) ou ORTHOGRAPHIQUE.
 		// En ortho, la demi-hauteur du cadre = l'ECHELLE Y du noeud (decision
 		// consignee : l'echelle regle le cadrage ortho, comme Blender).
@@ -8980,7 +9035,7 @@ namespace nkentseu {
 						// demi-hauteur monde du cadre, comme au rendu.
 						const float32 hyW =
 							orthoW ? 1.f : dW * math::NkTan(fovW * 0.5f * 0.017453292f);
-						const float32 hxW = hyW * kCamAspect;
+						const float32 hxW = hyW * HostCamAspect();
 						const NkVec3f apex = cxf(0.f, 0.f, 0.f);
 						NkVec3f cw[4];
 						cw[0] = cxf(-hxW, -hyW, -dW);
@@ -9470,7 +9525,366 @@ namespace nkentseu {
 			return ok;
 		}
 
+		// ════════════════════════════════════════════════════════════════════
+		//  SORTIE : cible principale + incrustations
+		// ════════════════════════════════════════════════════════════════════
+
+		// Rapport de la camera = rapport de la SORTIE. Le pourcentage d'echelle
+		// n'entre pas dans le calcul : il change la taille, jamais la forme.
+		static float32 HostCamAspect() {
+			const float32 w = (float32)(nkvpOutW > 0 ? nkvpOutW : 1920);
+			const float32 h = (float32)(nkvpOutH > 0 ? nkvpOutH : 1080);
+			const float32 a = w / h;
+			// Garde-fou : un rapport degenere ferait un cadre plat ou infini,
+			// et le champ de la vue camera divise par lui.
+			return (a > 0.05f && a < 20.f) ? a : (1920.f / 1080.f);
+		}
+
+		// Resolution EFFECTIVE : la resolution demandee, mise a l'echelle du
+		// pourcentage. Un seul calcul, pour que le panneau affiche exactement
+		// ce que le rendu produira -- deux formules donneraient deux verites.
+		static void HostOutSize(int32 *w, int32 *h) {
+			const float32 k = (float32)nkvpOutScale * 0.01f;
+			int32 ww = (int32)((float32)nkvpOutW * k + 0.5f);
+			int32 hh = (int32)((float32)nkvpOutH * k + 0.5f);
+			if (ww < 16)
+				ww = 16;
+			if (hh < 16)
+				hh = 16;
+			if (ww > 8192)
+				ww = 8192;
+			if (hh > 8192)
+				hh = 8192;
+			*w = ww;
+			*h = hh;
+		}
+
+		void Demo3DHostOutMain(int32 *source, int32 *w, int32 *h, int32 *scalePct, int32 *format,
+							   bool *transparent) {
+			if (source)
+				*source = nkvpOutSource;
+			if (w)
+				*w = nkvpOutW;
+			if (h)
+				*h = nkvpOutH;
+			if (scalePct)
+				*scalePct = nkvpOutScale;
+			if (format)
+				*format = nkvpOutFormat;
+			if (transparent)
+				*transparent = nkvpOutTransparent;
+		}
+		void Demo3DHostSetOutMain(int32 source, int32 w, int32 h, int32 scalePct, int32 format,
+								  bool transparent) {
+			nkvpOutSource = source;
+			nkvpOutW = w < 16 ? 16 : (w > 8192 ? 8192 : w);
+			nkvpOutH = h < 16 ? 16 : (h > 8192 ? 8192 : h);
+			nkvpOutScale = scalePct < 1 ? 1 : (scalePct > 400 ? 400 : scalePct);
+			nkvpOutFormat = format;
+			nkvpOutTransparent = transparent;
+		}
+		void Demo3DHostOutEffectiveSize(int32 *w, int32 *h) {
+			HostOutSize(w, h);
+		}
+		const char *Demo3DHostOutDir() {
+			return nkvpOutDir;
+		}
+		void Demo3DHostSetOutDir(const char *d) {
+			if (!d)
+				return;
+			uint32 i = 0;
+			for (; d[i] && i + 1 < sizeof(nkvpOutDir); ++i)
+				nkvpOutDir[i] = d[i];
+			nkvpOutDir[i] = 0;
+		}
+		const char *Demo3DHostOutName() {
+			return nkvpOutName;
+		}
+		void Demo3DHostSetOutName(const char *n) {
+			if (!n)
+				return;
+			uint32 i = 0;
+			for (; n[i] && i + 1 < sizeof(nkvpOutName); ++i)
+				nkvpOutName[i] = n[i];
+			nkvpOutName[i] = 0;
+		}
+		int32 Demo3DHostOutInsetMax() {
+			return kNkvpMaxInsets;
+		}
+		bool Demo3DHostOutInset(int32 i, int32 *source, int32 *shape, float32 *xy2, float32 *size,
+								float32 *border, float32 *borderCol3, float32 *opacity) {
+			if (i < 0 || i >= kNkvpMaxInsets || !nkvpOutInset[i].used)
+				return false;
+			const NkVpOutInset &o = nkvpOutInset[i];
+			if (source)
+				*source = o.source;
+			if (shape)
+				*shape = o.shape;
+			if (xy2) {
+				xy2[0] = o.x;
+				xy2[1] = o.y;
+			}
+			if (size)
+				*size = o.size;
+			if (border)
+				*border = o.border;
+			if (borderCol3)
+				for (int32 a = 0; a < 3; ++a)
+					borderCol3[a] = o.borderCol[a];
+			if (opacity)
+				*opacity = o.opacity;
+			return true;
+		}
+		void Demo3DHostSetOutInset(int32 i, int32 source, int32 shape, const float32 *xy2,
+								   float32 size, float32 border, const float32 *borderCol3,
+								   float32 opacity) {
+			if (i < 0 || i >= kNkvpMaxInsets || !nkvpOutInset[i].used)
+				return;
+			NkVpOutInset &o = nkvpOutInset[i];
+			o.source = source;
+			o.shape = shape < 0 ? 0 : (shape >= kNkvpInsetShapes ? kNkvpInsetShapes - 1 : shape);
+			if (xy2) {
+				o.x = xy2[0];
+				o.y = xy2[1];
+			}
+			o.size = size < 0.02f ? 0.02f : (size > 1.f ? 1.f : size);
+			o.border = border < 0.f ? 0.f : (border > 64.f ? 64.f : border);
+			if (borderCol3)
+				for (int32 a = 0; a < 3; ++a)
+					o.borderCol[a] = borderCol3[a];
+			o.opacity = opacity < 0.f ? 0.f : (opacity > 1.f ? 1.f : opacity);
+		}
+		int32 Demo3DHostOutInsetAdd() {
+			for (int32 i = 0; i < kNkvpMaxInsets; ++i)
+				if (!nkvpOutInset[i].used) {
+					nkvpOutInset[i] = NkVpOutInset{};
+					nkvpOutInset[i].used = true;
+					// Une NOUVELLE incrustation ne se pose pas sur la
+					// precedente : chacune descend d'une hauteur, sinon deux
+					// ajouts de suite paraissent n'en avoir fait qu'un.
+					nkvpOutInset[i].y = 0.04f + 0.30f * (float32)(i % 3);
+					// Sa source par defaut est la camera active s'il y en a
+					// une : une incrustation qui montre la meme chose que la
+					// principale n'apprend rien.
+					nkvpOutInset[i].source = nkvpActiveCamNode;
+					return i;
+				}
+			return -1;
+		}
+		void Demo3DHostOutInsetDelete(int32 i) {
+			if (i >= 0 && i < kNkvpMaxInsets)
+				nkvpOutInset[i].used = false;
+		}
+		const char *Demo3DHostOutInsetShapeName(int32 s) {
+			return nk3d::NkInsetShapeName(s);
+		}
+		int32 Demo3DHostOutInsetShapeCount() {
+			return kNkvpInsetShapes;
+		}
+		// ── LE RENDU DE SORTIE, ETALE SUR PLUSIEURS IMAGES ──────────────────
+		// Redimensionner la cible et lire ses pixels ne peuvent pas avoir lieu
+		// dans la meme image : il faut que le GPU ait rendu ENTRE les deux. La
+		// sortie se deroule donc en etapes -- la principale, puis chaque
+		// incrustation -- et chaque etape prend trois images : poser, laisser
+		// rendre, lire. Neuf cibles font vingt-sept images, moins d'une demi-
+		// seconde, et rien ne bloque l'interface pendant ce temps.
+		static NkImage nkvpOutCanvas;
+		static int32 nkvpOutWait = 0;
+
+		// Force la taille de la cible hors ecran en court-circuitant la garde
+		// de Demo3DHostResize (qui, elle, protege le rendu de la taille de la
+		// vue). Meme sequence que le redimensionnement normal : sans le
+		// SetFinalColorTarget, le rendu continuerait d'ecrire dans l'ancienne
+		// texture et la lecture rendrait l'image precedente.
+		static bool HostOutForceSize(uint32 w, uint32 h) {
+			if (!hst.ok || !hst.rt || !hst.rt->IsValid())
+				return false;
+			if (w == hst.ctx.width && h == hst.ctx.height)
+				return true;
+			if (!hst.rt->Resize(w, h))
+				return false;
+			hst.ctx.width = w;
+			hst.ctx.height = h;
+			nkvpW = (float32)w;
+			nkvpH = (float32)h;
+			hst.ctx.renderer->SetRenderSizeOverride(w, h);
+			if (auto *texLib = hst.ctx.renderer->GetTextures())
+				hst.ctx.renderer->SetFinalColorTarget(
+					texLib->GetRHIHandle(hst.rt->GetColorResult()));
+			return true;
+		}
+
+		// Formes et composition vivent dans NkOutCompose.h : c'est du calcul
+		// PUR, donc verifiable hors de l'application (planche des six formes
+		// generee par un test isole). Ici on ne fait que les brancher.
+		static void HostInsetPixels(const NkVpOutInset &o, int32 mainW, int32 mainH, int32 *w,
+									int32 *h) {
+			nk3d::NkInsetPixels(o.shape, o.size, mainW, mainH, w, h);
+		}
+
+		static void HostOutCompose(const NkVpOutInset &o, const NkImage &src, int32 dstX,
+								   int32 dstY) {
+			if (!nkvpOutCanvas.Pixels() || !src.Pixels())
+				return;
+			nk3d::NkInsetStyle st;
+			st.shape = o.shape;
+			st.border = o.border;
+			st.opacity = o.opacity;
+			for (int32 c = 0; c < 3; ++c)
+				st.borderCol[c] = o.borderCol[c];
+			nk3d::NkInsetCompose((uint8 *)nkvpOutCanvas.Pixels(), (int32)nkvpOutCanvas.Width(),
+								 (int32)nkvpOutCanvas.Height(), (const uint8 *)src.Pixels(),
+								 (int32)src.Width(), (int32)src.Height(), dstX, dstY, st);
+		}
+
+		// Prochain chemin libre de la sortie. Meme convention numerotee que les
+		// captures, mais dans le dossier et sous le nom choisis au panneau.
+		static bool HostOutNextPath(char *out, int32 cap) {
+			const char *dir = nkvpOutDir[0] ? nkvpOutDir : "captures";
+			NkDirectory::CreateRecursive(dir);
+			const char *nm = nkvpOutName[0] ? nkvpOutName : "rendu";
+			for (int32 i = 1; i < 1000; ++i) {
+				snprintf(out, (size_t)cap, "%s/%s_%03d.png", dir, nm, (int)i);
+				if (!NkFile::Exists(out))
+					return true;
+			}
+			return false;
+		}
+
+		// Pose la source d'une etape : -1 = la vue 3D telle qu'elle est,
+		// sinon la camera demandee. Le cadre camera etant force en plein cadre
+		// pendant la sortie, son image occupe toute la cible.
+		static void HostOutSetSource(int32 source) {
+			if (source < 0)
+				Demo3DHostSetCameraView(-1);
+			else
+				Demo3DHostSetCameraView(source);
+		}
+
+		// Indice de l'incrustation suivante a rendre, apres `from` (-1 pour
+		// commencer). Rend -1 quand il n'en reste plus.
+		static int32 HostOutNextInset(int32 from) {
+			for (int32 i = from + 1; i < kNkvpMaxInsets; ++i)
+				if (nkvpOutInset[i].used)
+					return i;
+			return -1;
+		}
+
+		// Un tour de machine, appele une fois par image APRES le rendu.
+		static void HostOutTick() {
+			if (nkvpOutPhase == 0)
+				return;
+			int32 mw = 0, mh = 0;
+			HostOutSize(&mw, &mh);
+			if (nkvpOutPhase == 1) {
+				// POSER : taille de la cible et source de l'etape courante.
+				int32 tw = mw, th = mh;
+				if (nkvpOutStep >= 0)
+					HostInsetPixels(nkvpOutInset[nkvpOutStep], mw, mh, &tw, &th);
+				const int32 src =
+					(nkvpOutStep < 0) ? nkvpOutSource : nkvpOutInset[nkvpOutStep].source;
+				HostOutSetSource(src);
+				if (!HostOutForceSize((uint32)tw, (uint32)th)) {
+					logger.Error("[Output] Redimensionnement refuse ({0}x{1}) -- sortie "
+								 "abandonnee\n",
+								 tw, th);
+					nkvpOutPhase = 4; // restauration
+					return;
+				}
+				nkvpOutWait = 2; // deux images pleines avant de lire
+				nkvpOutPhase = 2;
+				return;
+			}
+			if (nkvpOutPhase == 2) {
+				if (--nkvpOutWait > 0)
+					return;
+				nkvpOutPhase = 3;
+				return;
+			}
+			if (nkvpOutPhase == 3) {
+				// LIRE : la cible porte l'image de cette etape.
+				const uint32 w = hst.rt->GetWidth(), h = hst.rt->GetHeight();
+				NkImage img;
+				if (w >= 8 && h >= 8 && img.Create(w, h, math::NkColor(0, 0, 0, 255), 4) &&
+					hst.rt->ReadbackPixels(img.Pixels(), w * 4u)) {
+					if (nkvpOutStep < 0) {
+						// La principale DEVIENT le canevas. NkImage est
+						// move-only (pas de double liberation possible) : on
+						// transfere, on ne copie pas.
+						nkvpOutCanvas = static_cast<NkImage &&>(img);
+					} else {
+						const NkVpOutInset &o = nkvpOutInset[nkvpOutStep];
+						const int32 dx = (int32)(o.x * (float32)mw + 0.5f);
+						const int32 dy = (int32)(o.y * (float32)mh + 0.5f);
+						HostOutCompose(o, img, dx, dy);
+					}
+				} else {
+					logger.Error("[Output] Lecture des pixels impossible a l'etape {0}\n",
+								 nkvpOutStep);
+				}
+				const int32 next = HostOutNextInset(nkvpOutStep);
+				if (next >= 0) {
+					nkvpOutStep = next;
+					nkvpOutPhase = 1;
+					return;
+				}
+				// TERMINER : ecrire le fichier.
+				nkvpOutLastOk = false;
+				if (nkvpOutCanvas.Pixels() && HostOutNextPath(nkvpOutLastPath,
+															  (int32)sizeof(nkvpOutLastPath)))
+					nkvpOutLastOk = nkvpOutCanvas.Save(nkvpOutLastPath);
+				logger.Info("[Output] Rendu {0}x{1} -> {2} : {3}\n", mw, mh, nkvpOutLastPath,
+							nkvpOutLastOk ? "ecrit" : "ECHEC");
+				nkvpOutPhase = 4;
+				return;
+			}
+			// PHASE 4 : restaurer la vue telle qu'elle etait. La taille demandee
+			// entre-temps par l'editeur a ete memorisee par Demo3DHostResize.
+			HostOutSetSource(nkvpOutSaveCam);
+			nkvpOutPhase = 0; // rendu la garde, le resize normal reprend la main
+			HostOutForceSize(nkvpOutSaveW, nkvpOutSaveH);
+			nkvpOutCanvas.Free();
+			nkvpOutStep = -1;
+		}
+
+		bool Demo3DHostRenderOutput() {
+			if (nkvpOutPhase != 0 || !hst.ok || !hst.rt || !hst.rt->IsValid())
+				return false;
+			nkvpOutSaveW = hst.ctx.width;
+			nkvpOutSaveH = hst.ctx.height;
+			nkvpOutSaveCam = nkvpCamViewNode;
+			nkvpOutStep = -1; // la principale d'abord
+			nkvpOutPhase = 1;
+			int32 w = 0, h = 0;
+			HostOutSize(&w, &h);
+			logger.Info("[Output] Rendu demande : {0}x{1}, source={2}\n", w, h, nkvpOutSource);
+			return true;
+		}
+
+		bool Demo3DHostOutBusy() {
+			return nkvpOutPhase != 0;
+		}
+		const char *Demo3DHostOutLastPath() {
+			return nkvpOutLastPath;
+		}
+		bool Demo3DHostOutLastOk() {
+			return nkvpOutLastOk;
+		}
+		int32 Demo3DHostSceneCameras(int32 *out, int32 cap) {
+			return HostSceneCameras(out, cap);
+		}
+
 		void Demo3DHostResize(uint32 w, uint32 h) {
+			// PENDANT UN RENDU DE SORTIE, la taille de la fenetre n'a pas voix
+			// au chapitre : l'editeur appelle cette fonction a chaque image et
+			// ramenerait la cible a la taille de la vue, donc au format de
+			// l'ecran plutot qu'a celui demande. La demande est memorisee et
+			// s'appliquera a la restauration.
+			if (nkvpOutPhase != 0) {
+				hst.wantW = w;
+				hst.wantH = h;
+				return;
+			}
 			if (w < 16u)
 				w = 16u;
 			if (h < 16u)
@@ -9519,6 +9933,10 @@ namespace nkentseu {
 			// Parente : repercuter les deltas des parents a leurs enfants, et
 			// faire respecter le cadenas (INselectionnable, meme depuis la vue).
 			HostHierarchyFrame();
+			// SORTIE : un tour de machine APRES le rendu -- c'est ce qui donne
+			// au GPU une image entiere entre le redimensionnement de la cible
+			// et la lecture de ses pixels.
+			HostOutTick();
 		}
 
 		void Demo3DHostRegisterInto(void *guiBackend) {
@@ -11776,12 +12194,25 @@ namespace nkentseu {
 		// dessus. Sans ce zoom arriere, le voile ne pouvait pas epouser les
 		// vrais bords de la camera (constate par Rihen).
 		void Demo3DHostCameraFrame(float32 *xywh) {
+			// ── PENDANT UN RENDU DE SORTIE : PLEIN CADRE ────────────────────
+			// Ce cadre est LE point de passage unique de la vue camera -- il
+			// pilote a la fois l'elargissement du champ, le passe-partout et le
+			// recadrage de la capture. Le neutraliser ici suffit donc a ce que
+			// l'image de la camera occupe TOUTE la cible de sortie, sans
+			// toucher aux trois endroits qui le consomment. La cible etant
+			// deja au format demande, son rapport fait foi.
+			if (nkvpOutPhase != 0) {
+				xywh[0] = xywh[1] = 0.f;
+				xywh[2] = xywh[3] = 1.f;
+				return;
+			}
 			const float32 vw = (float32)(hst.ctx.width > 0 ? hst.ctx.width : 1);
 			const float32 vh = (float32)(hst.ctx.height > 0 ? hst.ctx.height : 1);
-			float32 fw = vw, fh = vw / kCamAspect;
+			const float32 aspect = HostCamAspect();
+			float32 fw = vw, fh = vw / aspect;
 			if (fh > vh) {
 				fh = vh;
-				fw = vh * kCamAspect;
+				fw = vh * aspect;
 			}
 			fw *= kCamFrameMargin;
 			fh *= kCamFrameMargin;

@@ -462,6 +462,49 @@ namespace nkentseu {
 		// « Capturer la vue » : sauve la DERNIERE image rendue de la vue 3D
 		// (scene seule, sans interface) en PNG a ce chemin.
 		bool Demo3DHostCaptureView(const char *path);
+
+		// ── SORTIE (pastille Output) ────────────────────────────────────────
+		// Ce qui SORT de la scene, par opposition a la pastille Rendu qui dit
+		// comment elle est eclairee. La resolution est INDEPENDANTE de la
+		// taille de la fenetre : un rendu 4K depuis une fenetre 1600x900 fait
+		// bien 4K. `source` vaut -1 pour la vue 3D, sinon le noeud camera.
+		void Demo3DHostOutMain(int32 *source, int32 *w, int32 *h, int32 *scalePct, int32 *format,
+							   bool *transparent);
+		void Demo3DHostSetOutMain(int32 source, int32 w, int32 h, int32 scalePct, int32 format,
+								  bool transparent);
+		// Resolution reellement produite (demandee x pourcentage) : le panneau
+		// l'affiche pour que rien ne soit a deviner.
+		void Demo3DHostOutEffectiveSize(int32 *w, int32 *h);
+		const char *Demo3DHostOutDir();
+		void Demo3DHostSetOutDir(const char *d);
+		const char *Demo3DHostOutName();
+		void Demo3DHostSetOutName(const char *n);
+		// INCRUSTATIONS : des cibles secondaires posees SUR la principale
+		// (Rihen : « une principale et les autres en miniature, rectangle,
+		// carre, cercle etc. »). Info rend faux sur un emplacement libre --
+		// l'iteration parcourt 0..Max-1 et saute les trous, comme les
+		// materiaux de projet. Position et taille sont des FRACTIONS de la
+		// principale : changer la resolution ne deplace donc rien.
+		int32 Demo3DHostOutInsetMax();
+		bool Demo3DHostOutInset(int32 i, int32 *source, int32 *shape, float32 *xy2, float32 *size,
+								float32 *border, float32 *borderCol3, float32 *opacity);
+		void Demo3DHostSetOutInset(int32 i, int32 source, int32 shape, const float32 *xy2,
+								   float32 size, float32 border, const float32 *borderCol3,
+								   float32 opacity);
+		int32 Demo3DHostOutInsetAdd(); // -1 si les emplacements sont pris
+		void Demo3DHostOutInsetDelete(int32 i);
+		int32 Demo3DHostOutInsetShapeCount();
+		const char *Demo3DHostOutInsetShapeName(int32 s);
+		// Lance le rendu. Il s'etale sur plusieurs images (le GPU doit rendre
+		// entre le redimensionnement de la cible et la lecture de ses pixels),
+		// donc il rend vrai s'il a demarre, pas s'il a fini : Busy dit qu'il
+		// travaille, LastPath/LastOk disent ce qu'il a produit.
+		bool Demo3DHostRenderOutput();
+		bool Demo3DHostOutBusy();
+		const char *Demo3DHostOutLastPath();
+		bool Demo3DHostOutLastOk();
+		// Cameras de la scene, pour les listes de sources (rend le nombre ecrit).
+		int32 Demo3DHostSceneCameras(int32 *out, int32 cap);
 		// Vrai quand une ombre figee ne correspond plus a la scene (lumiere ou
 		// geometrie modifiee depuis le gel) : le bouton se colore.
 		bool Demo3DHostShadowRecalcPending();

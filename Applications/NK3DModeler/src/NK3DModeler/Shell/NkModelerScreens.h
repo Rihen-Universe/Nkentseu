@@ -3527,6 +3527,73 @@ namespace nkentseu {
 							}
 						}
 					}
+					// ── APERCU DES INCRUSTATIONS (Rihen) ────────────────────
+					// Les miniatures posees sur l'image de sortie se voient DANS
+					// le cadre, a leur place et a leur forme. Sans cet apercu il
+					// faudrait lancer un rendu pour savoir ou elles tombent : on
+					// les placerait a l'aveugle. Comme les guides, c'est de
+					// l'habillage -- la capture fige la cible en dessous et n'en
+					// garde rien.
+					// HORS du bloc du passe-partout, et non dedans : un voile a
+					// zero pour cent ne doit pas faire disparaitre l'apercu.
+					{
+						float32 fr5[4];
+						demo::Demo3DHostCameraFrame(fr5);
+						const float32 fx = vr.x + fr5[0] * vr.w;
+						const float32 fy = vr.y + fr5[1] * vr.h;
+						const float32 fw = fr5[2] * vr.w;
+						const float32 fh = fr5[3] * vr.h;
+						const int32 nMaxI = demo::Demo3DHostOutInsetMax();
+						for (int32 q2 = 0; q2 < nMaxI; ++q2) {
+							int32 iSrc = -1, iShape = 0;
+							float32 iXY[2] = {0.f, 0.f}, iSize = 0.25f, iBrd = 2.f,
+									iCol[3] = {1.f, 1.f, 1.f}, iOpa = 1.f;
+							if (!demo::Demo3DHostOutInset(q2, &iSrc, &iShape, iXY, &iSize, &iBrd,
+														  iCol, &iOpa))
+								continue;
+							// MEME regle de cadre que le rendu : carre et cercle
+							// forcent un cote egal. Une autre formule ici
+							// mentirait sur le resultat.
+							const float32 iw = fw * iSize;
+							const float32 ih = (iShape == 1 || iShape == 2) ? iw : fh * iSize;
+							const float32 ix = fx + iXY[0] * fw;
+							const float32 iy = fy + iXY[1] * fh;
+							const NkColor bc{(uint8)(iCol[0] * 255.f), (uint8)(iCol[1] * 255.f),
+											 (uint8)(iCol[2] * 255.f), (uint8)(200.f * iOpa)};
+							const NkColor fill{(uint8)(iCol[0] * 255.f), (uint8)(iCol[1] * 255.f),
+											   (uint8)(iCol[2] * 255.f), (uint8)(38.f * iOpa)};
+							if (iShape == 2 || iShape == 3) {
+								// Rond : disque tres pale borde d'un anneau.
+								const float32 rr2 = (iw < ih ? iw : ih) * 0.5f;
+								p.DiscColor(ix + iw * 0.5f, iy + ih * 0.5f, rr2, fill);
+								p.RingColor(ix + iw * 0.5f, iy + ih * 0.5f, rr2, bc, fill);
+							} else if (iShape == 5) {
+								const float32 cx2 = ix + iw * 0.5f, cy2 = iy + ih * 0.5f;
+								p.Line(cx2, iy, ix + iw, cy2, bc, 1.f);
+								p.Line(ix + iw, cy2, cx2, iy + ih, bc, 1.f);
+								p.Line(cx2, iy + ih, ix, cy2, bc, 1.f);
+								p.Line(ix, cy2, cx2, iy, bc, 1.f);
+							} else {
+								const float32 rnd = (iShape == 4) ? ih * 0.18f : 0.f;
+								p.Fill({ix, iy, iw, ih}, fill, rnd);
+								p.Fill({ix, iy, iw, 1.f}, bc, 0.f);
+								p.Fill({ix, iy + ih - 1.f, iw, 1.f}, bc, 0.f);
+								p.Fill({ix, iy, 1.f, ih}, bc, 0.f);
+								p.Fill({ix + iw - 1.f, iy, 1.f, ih}, bc, 0.f);
+							}
+							// Numero et source : c'est ce qui permet de savoir
+							// laquelle on regarde quand elles se recouvrent.
+							char cn2[24] = {};
+							if (iSrc >= 0)
+								demo::Demo3DHostObjectName(iSrc, cn2, sizeof(cn2));
+							char il[48];
+							snprintf(il, sizeof(il), "%d - %s", (int)(q2 + 1),
+									 iSrc < 0 ? "Vue 3D" : (cn2[0] ? cn2 : "Camera"));
+							p.Clip({ix, iy, iw, ih});
+							p.TextV(ix + S(6.f), iy + S(2.f), S(18.f), il, NkRole::Text);
+							p.Unclip();
+						}
+					}
 				}
 				// ── VUE CAMERA (Rihen) ──────────────────────────────────────
 				// Bascule entre la vue 3D libre et CE QUE VOIT une camera de la
@@ -5275,12 +5342,21 @@ namespace nkentseu {
 			// maquette avait disparu -- un hebergement annonce comme provisoire
 			// dans le code. Ils rejoignent leur place, comme l'onglet « Tool »
 			// de Blender ; Modificateur ne garde que les modificateurs.
-			static const NkPropSec kSecsBase[6] = {{"Modele", NkIcon::Cube3D},
+			// OUTPUT (Rihen) : ce qui SORT de la scene -- resolution, source,
+			// destination, et les incrustations posees sur l'image principale.
+			// Rendu dit COMMENT la scene est eclairee, Output dit CE QU'ON EN
+			// PRODUIT : deux questions distinctes, deux pastilles.
+			// Elle est ajoutee EN FIN de liste, pas apres Rendu ou sa place
+			// serait plus logique : les indices de section sont memorises dans
+			// st.propOpen et cables en dur ailleurs (kSelOnly, la pastille du
+			// mode) -- les decaler casserait ces regles en silence.
+			static const NkPropSec kSecsBase[7] = {{"Modele", NkIcon::Cube3D},
 												   {"Rendu", NkIcon::Sun},
 												   {"Scene", NkIcon::Layers},
 												   {"Modificateur", NkIcon::SlidersH},
 												   {"Materiau", NkIcon::Material},
-												   {"Outil", NkIcon::Move}};
+												   {"Outil", NkIcon::Move},
+												   {"Output", NkIcon::Camera}};
 			// ── LA PASTILLE DU MODE (regle de Rihen) : chaque mode hors Objet a
 			// SA pastille, unique a lui, qui n'existe QUE dans ce mode -- ses
 			// fonctions s'y rempliront progressivement, par categories. Une
@@ -5292,12 +5368,12 @@ namespace nkentseu {
 												   {"Patron", NkIcon::ViewUV},
 												   {"Texture painting", NkIcon::Picker}};
 			const int32 modeIdx5 = (int32)st.mode; // 0 = Objet
-			NkPropSec kSecs[7];
-			for (int32 i2 = 0; i2 < 6; ++i2)
+			NkPropSec kSecs[8];
+			for (int32 i2 = 0; i2 < 7; ++i2)
 				kSecs[i2] = kSecsBase[i2];
-			const int32 kNSec = modeIdx5 > 0 ? 7 : 6;
+			const int32 kNSec = modeIdx5 > 0 ? 8 : 7;
 			if (modeIdx5 > 0)
-				kSecs[6] = kModeSecs[modeIdx5 - 1]; // la pastille du MODE, en dernier
+				kSecs[7] = kModeSecs[modeIdx5 - 1]; // la pastille du MODE, en dernier
 			// ENTRER dans un mode ACTIVE sa pastille -- mais SEULEMENT si le
 			// panneau etait deja ouvert : ferme, il le reste (Rihen -- «
 			// mettre sa pastille mais pas ouvrir le panneau s'il etait ferme »).
@@ -5314,20 +5390,20 @@ namespace nkentseu {
 							if (anyOpen5) {
 								for (int32 j2 = 0; j2 < 8; ++j2)
 									st.propOpen[j2] = false;
-								st.propOpen[6] = true;
+								st.propOpen[7] = true;
 							}
-						} else if (st.propOpen[6]) {
-							st.propOpen[6] = false;
+						} else if (st.propOpen[7]) {
+							st.propOpen[7] = false;
 							st.propOpen[0] = true;
 						}
 					}
 					sLastMode5 = modeIdx5;
 				}
 			}
-			if (modeIdx5 == 0 && st.propOpen[6]) {
-				st.propOpen[6] = false;
-				st.propSecH[6] = 0.f;
-				st.propScroll3[6] = 0.f;
+			if (modeIdx5 == 0 && st.propOpen[7]) {
+				st.propOpen[7] = false;
+				st.propSecH[7] = 0.f;
+				st.propScroll3[7] = 0.f;
 			}
 			// LA PASTILLE MODELE N'EXISTE QUE POUR UNE SELECTION (regle de
 			// Rihen) : sans objet actif elle disparait de la colonne, et si
@@ -8807,11 +8883,404 @@ namespace nkentseu {
 						}
 					}
 				} else if (sec == 6) {
+					// ══ OUTPUT : CE QUI SORT DE LA SCENE (Rihen) ═══════════════
+					// Une cible PRINCIPALE et, posees dessus, jusqu'a huit
+					// INCRUSTATIONS de formes libres. La resolution ne depend
+					// PAS de la taille de la fenetre : sans cela le champ ne
+					// serait qu'une decoration.
+					NkRect rowR = rr;
+					rowR.x = r.x + NkPropInset();
+					rowR.w = rr.w - 2.f * NkPropInset();
+					// ── Sources disponibles : la vue 3D, puis chaque camera.
+					// Construites une fois, elles servent la principale ET les
+					// incrustations -- deux listes divergeraient.
+					int32 camNodes[16];
+					const int32 nCam = demo::Demo3DHostSceneCameras(camNodes, 16);
+					static char srcBuf[17][40];
+					const char *srcNames[17];
+					snprintf(srcBuf[0], sizeof(srcBuf[0]), "Vue 3D");
+					srcNames[0] = srcBuf[0];
+					for (int32 c5 = 0; c5 < nCam && c5 < 16; ++c5) {
+						char cn[32];
+						demo::Demo3DHostObjectName(camNodes[c5], cn, sizeof(cn));
+						snprintf(srcBuf[c5 + 1], sizeof(srcBuf[0]), "%s",
+								 cn[0] ? cn : "Camera");
+						srcNames[c5 + 1] = srcBuf[c5 + 1];
+					}
+					const int32 nSrc = nCam + 1;
+					// Noeud <-> rang dans la liste. La liste bouge quand on
+					// ajoute une camera ; le noeud, lui, ne bouge pas -- c'est
+					// donc LUI qu'on memorise, et le rang se recalcule.
+					auto srcIndexOf = [&](int32 node) {
+						if (node < 0)
+							return 0;
+						for (int32 c5 = 0; c5 < nCam && c5 < 16; ++c5)
+							if (camNodes[c5] == node)
+								return c5 + 1;
+						return 0;
+					};
+					auto srcNodeOf = [&](int32 idx) {
+						return (idx <= 0 || idx - 1 >= nCam) ? -1 : camNodes[idx - 1];
+					};
+
+					int32 oSrc = -1, oW = 1920, oH = 1080, oScale = 100, oFmt = 0;
+					bool oTrans = false;
+					demo::Demo3DHostOutMain(&oSrc, &oW, &oH, &oScale, &oFmt, &oTrans);
+					const int32 oSrc0 = oSrc, oW0 = oW, oH0 = oH, oScale0 = oScale;
+					const int32 oFmt0 = oFmt;
+					const bool oTrans0 = oTrans;
+
+					// ── GROUPE « SORTIE PRINCIPALE » ────────────────────────
+					const bool gOut = PaintPropGroup(p, hit, st, rowR, yy, "prop.g.out",
+													 "Sortie principale", 8192u);
+					const float32 gOutTop = yy;
+					if (!gOut) {
+						yy += NkPropGroupGap();
+					} else {
+						yy += NkGroupPad();
+						const NkRect iO = NkGroupInner(rowR);
+						const NkRect r{iO.x - kPad, rowR.y, iO.w + 2.f * kPad, rowR.h};
+						const NkRect rr = r;
+						const float32 fx = r.x + S(104.f);
+						const float32 fw = rr.w - S(112.f);
+						p.TextV(r.x + kPad, yy, kRowH, "Source", NkRole::TextMuted);
+						int32 si = srcIndexOf(oSrc);
+						const int32 si0 = si;
+						Combo(p, hit, ws, "out.src", {fx, yy + S(2.f), fw, kRowH - S(4.f)},
+							  srcNames, nullptr, nSrc, si, combo);
+						if (si != si0)
+							oSrc = srcNodeOf(si);
+						yy += kRowH;
+						// RESOLUTION : deux champs cote a cote, comme Blender.
+						// Il n'existe pas de DragInt : le glissement se fait en
+						// reel puis s'arrondit -- une seule mecanique de champ
+						// dans toute l'interface, donc un seul comportement a
+						// apprendre.
+						p.TextV(r.x + kPad, yy, kRowH, "Resolution", NkRole::TextMuted);
+						{
+							const float32 half = (fw - S(6.f)) * 0.5f;
+							float32 fwv = (float32)oW, fhv = (float32)oH;
+							DragFloat(p, hit, ws, in, "out.rw",
+									  {fx, yy + S(3.f), half, kRowH - S(6.f)}, fwv, 1.f,
+									  NkRole::AxisX, "%.0f");
+							DragFloat(p, hit, ws, in, "out.rh",
+									  {fx + half + S(6.f), yy + S(3.f), half, kRowH - S(6.f)},
+									  fhv, 1.f, NkRole::AxisY, "%.0f");
+							oW = (int32)(fwv + 0.5f);
+							oH = (int32)(fhv + 0.5f);
+						}
+						yy += kRowH;
+						// PRESETS : ils ecrivent la resolution, ils ne la
+						// remplacent pas -- on reste libre de la corriger apres.
+						{
+							struct OPre {
+									const char *n;
+									int32 w, h;
+							};
+							static const OPre kPre[8] = {
+								{"HD", 1280, 720},	   {"FHD", 1920, 1080}, {"2K", 2560, 1440},
+								{"4K", 3840, 2160},	   {"Carre", 1080, 1080},
+								{"Vertical", 1080, 1920}, {"Cine", 2048, 858}, {"Web", 1200, 630}};
+							float32 bx = r.x + kPad;
+							const float32 bw2 = (rr.w - 2.f * kPad - S(21.f)) / 4.f;
+							for (int32 q = 0; q < 8; ++q) {
+								if (q == 4) {
+									yy += kRowH - S(4.f);
+									bx = r.x + kPad;
+								}
+								char pk[24];
+								snprintf(pk, sizeof(pk), "out.pre.%d", q);
+								const NkRect pb{bx, yy + S(2.f), bw2, kRowH - S(8.f)};
+								const bool ovp = hit.Add(pk, pb);
+								const bool onp = (oW == kPre[q].w && oH == kPre[q].h);
+								if (onp)
+									p.Fill(pb, NkRole::AccentUi, 3.f);
+								else
+									p.Outline(pb, NkRole::Border,
+											  ovp ? NkRole::PanelHeader : NkRole::PanelBg, 3.f);
+								p.Clip(pb);
+								const float32 tw2 = p.TextW(kPre[q].n);
+								p.TextV(pb.x + (bw2 - tw2) * 0.5f, yy, kRowH - S(4.f), kPre[q].n,
+										onp ? NkRole::TextOnAccent : NkRole::Text);
+								p.Unclip();
+								if (hit.Clicked(pk)) {
+									oW = kPre[q].w;
+									oH = kPre[q].h;
+								}
+								bx += bw2 + S(7.f);
+							}
+							yy += kRowH;
+						}
+						p.TextV(r.x + kPad, yy, kRowH, "Echelle", NkRole::TextMuted);
+						{
+							float32 fsc = (float32)oScale;
+							DragFloat(p, hit, ws, in, "out.scl",
+									  {fx, yy + S(3.f), fw, kRowH - S(6.f)}, fsc, 1.f,
+									  NkRole::AccentUi, "%.0f %%");
+							oScale = (int32)(fsc + 0.5f);
+						}
+						yy += kRowH;
+						// CE QUI SERA REELLEMENT PRODUIT, en toutes lettres : la
+						// resolution seule ne le dit pas des que l'echelle n'est
+						// plus a 100 %.
+						{
+							int32 ew = 0, eh = 0;
+							demo::Demo3DHostOutEffectiveSize(&ew, &eh);
+							char eb[64];
+							snprintf(eb, sizeof(eb), "Image produite : %d x %d px", ew, eh);
+							p.TextV(r.x + kPad + S(8.f), yy, kRowH, eb, NkRole::TextMuted);
+							yy += kRowH;
+						}
+						yy += NkGroupPad();
+						PaintGroupBlock(p, rowR, gOutTop, yy);
+						yy += NkPropGroupGap();
+					}
+					if (oSrc != oSrc0 || oW != oW0 || oH != oH0 || oScale != oScale0 ||
+						oFmt != oFmt0 || oTrans != oTrans0)
+						demo::Demo3DHostSetOutMain(oSrc, oW, oH, oScale, oFmt, oTrans);
+
+					// ── GROUPE « DESTINATION » ──────────────────────────────
+					const bool gDst = PaintPropGroup(p, hit, st, rowR, yy, "prop.g.outdst",
+													 "Destination", 16384u);
+					const float32 gDstTop = yy;
+					if (!gDst) {
+						yy += NkPropGroupGap();
+					} else {
+						yy += NkGroupPad();
+						const NkRect iD = NkGroupInner(rowR);
+						const NkRect r{iD.x - kPad, rowR.y, iD.w + 2.f * kPad, rowR.h};
+						const NkRect rr = r;
+						const float32 fx = r.x + S(104.f);
+						const float32 fw = rr.w - S(112.f);
+						p.TextV(r.x + kPad, yy, kRowH, "Dossier", NkRole::TextMuted);
+						{
+							char dbuf[260] = {};
+							if (EditableText(p, hit, ws, in, "out.dir",
+											 {fx, yy + S(2.f), fw, kRowH - S(4.f)},
+											 demo::Demo3DHostOutDir(), NkRole::Text, dbuf,
+											 sizeof(dbuf)))
+								demo::Demo3DHostSetOutDir(dbuf);
+						}
+						yy += kRowH;
+						p.TextV(r.x + kPad, yy, kRowH, "Nom", NkRole::TextMuted);
+						{
+							char nbuf[64] = {};
+							if (EditableText(p, hit, ws, in, "out.name",
+											 {fx, yy + S(2.f), fw, kRowH - S(4.f)},
+											 demo::Demo3DHostOutName(), NkRole::Text, nbuf,
+											 sizeof(nbuf)))
+								demo::Demo3DHostSetOutName(nbuf);
+						}
+						yy += kRowH;
+						// FORMAT : PNG seul aujourd'hui. Une liste d'un element
+						// dit ce qui existe sans faire croire a un choix.
+						{
+							static const char *const kFmt[1] = {"PNG"};
+							p.TextV(r.x + kPad, yy, kRowH, "Format", NkRole::TextMuted);
+							int32 fsel = 0;
+							Combo(p, hit, ws, "out.fmt", {fx, yy + S(2.f), fw, kRowH - S(4.f)},
+								  kFmt, nullptr, 1, fsel, combo);
+							yy += kRowH;
+						}
+						{
+							char lb[300];
+							const char *lp = demo::Demo3DHostOutLastPath();
+							if (lp && lp[0]) {
+								snprintf(lb, sizeof(lb), "Dernier : %s%s", lp,
+										 demo::Demo3DHostOutLastOk() ? "" : "  (ECHEC)");
+								p.Clip({r.x + kPad, yy, rr.w - 2.f * kPad, kRowH});
+								p.TextV(r.x + kPad + S(8.f), yy, kRowH, lb, NkRole::TextMuted);
+								p.Unclip();
+								yy += kRowH;
+							}
+						}
+						yy += NkGroupPad();
+						PaintGroupBlock(p, rowR, gDstTop, yy);
+						yy += NkPropGroupGap();
+					}
+
+					// ── GROUPE « INCRUSTATIONS » ────────────────────────────
+					// Les cibles secondaires posees SUR la principale. Position
+					// et taille sont des FRACTIONS : changer la resolution ne
+					// deplace donc aucune incrustation.
+					const bool gIns = PaintPropGroup(p, hit, st, rowR, yy, "prop.g.outins",
+													 "Incrustations", 32768u);
+					const float32 gInsTop = yy;
+					if (!gIns) {
+						yy += NkPropGroupGap();
+					} else {
+						yy += NkGroupPad();
+						const NkRect iI = NkGroupInner(rowR);
+						const NkRect r{iI.x - kPad, rowR.y, iI.w + 2.f * kPad, rowR.h};
+						const NkRect rr = r;
+						const int32 maxIns = demo::Demo3DHostOutInsetMax();
+						int32 nUsed = 0;
+						for (int32 k5 = 0; k5 < maxIns; ++k5)
+							if (demo::Demo3DHostOutInset(k5, nullptr, nullptr, nullptr, nullptr,
+														 nullptr, nullptr, nullptr))
+								++nUsed;
+						if (nUsed == 0) {
+							p.TextV(r.x + kPad, yy, kRowH,
+									"Aucune incrustation : l'image sort telle quelle.",
+									NkRole::TextMuted);
+							yy += kRowH;
+						}
+						// Formes, nommees par le moteur : une seule liste, donc
+						// aucun risque de dire « Cercle » et d'en rendre un autre.
+						const int32 nShape = demo::Demo3DHostOutInsetShapeCount();
+						static char shpBuf[8][24];
+						const char *shpNames[8];
+						for (int32 s5 = 0; s5 < nShape && s5 < 8; ++s5) {
+							snprintf(shpBuf[s5], sizeof(shpBuf[0]), "%s",
+									 demo::Demo3DHostOutInsetShapeName(s5));
+							shpNames[s5] = shpBuf[s5];
+						}
+						for (int32 k5 = 0; k5 < maxIns; ++k5) {
+							int32 iSrc = -1, iShape = 0;
+							float32 iXY[2] = {0.f, 0.f}, iSize = 0.25f, iBrd = 2.f,
+									iCol[3] = {1.f, 1.f, 1.f}, iOpa = 1.f;
+							if (!demo::Demo3DHostOutInset(k5, &iSrc, &iShape, iXY, &iSize, &iBrd,
+														  iCol, &iOpa))
+								continue;
+							const int32 s0 = iSrc, sh0 = iShape;
+							const float32 x0 = iXY[0], y0 = iXY[1], sz0 = iSize, b0 = iBrd,
+										  o0 = iOpa;
+							char key2[32], lbl[40];
+							snprintf(lbl, sizeof(lbl), "Incrustation %d", (int)(k5 + 1));
+							// En-tete de l'incrustation + sa suppression.
+							{
+								const NkRect hr{r.x + kPad, yy, rr.w - 2.f * kPad, kRowH};
+								p.Fill(hr, NkRole::PanelHeader, 3.f);
+								p.TextV(hr.x + S(8.f), yy, kRowH, lbl);
+								snprintf(key2, sizeof(key2), "out.ins.del.%d", k5);
+								const NkRect db{hr.x + hr.w - S(24.f), yy + S(3.f), S(20.f),
+												kRowH - S(6.f)};
+								const bool ovd = hit.Add(key2, db);
+								HoverFill(p, db, ovd, 3.f);
+								p.IconV(db.x + S(3.f), yy, kRowH, NkIcon::Trash,
+										ovd ? NkRole::AxisX : NkRole::TextMuted, 12.f);
+								if (hit.Clicked(key2)) {
+									demo::Demo3DHostOutInsetDelete(k5);
+									yy += kRowH;
+									continue;
+								}
+								yy += kRowH;
+							}
+							const float32 fx2 = r.x + S(104.f);
+							const float32 fw2 = rr.w - S(112.f);
+							p.TextV(r.x + kPad + S(8.f), yy, kRowH, "Source", NkRole::TextMuted);
+							snprintf(key2, sizeof(key2), "out.ins.src.%d", k5);
+							{
+								int32 si2 = srcIndexOf(iSrc);
+								const int32 sp2 = si2;
+								Combo(p, hit, ws, key2, {fx2, yy + S(2.f), fw2, kRowH - S(4.f)},
+									  srcNames, nullptr, nSrc, si2, combo);
+								if (si2 != sp2)
+									iSrc = srcNodeOf(si2);
+							}
+							yy += kRowH;
+							p.TextV(r.x + kPad + S(8.f), yy, kRowH, "Forme", NkRole::TextMuted);
+							snprintf(key2, sizeof(key2), "out.ins.shp.%d", k5);
+							Combo(p, hit, ws, key2, {fx2, yy + S(2.f), fw2, kRowH - S(4.f)},
+								  shpNames, nullptr, nShape < 8 ? nShape : 8, iShape, combo);
+							yy += kRowH;
+							p.TextV(r.x + kPad + S(8.f), yy, kRowH, "Position", NkRole::TextMuted);
+							{
+								const float32 half = (fw2 - S(6.f)) * 0.5f;
+								snprintf(key2, sizeof(key2), "out.ins.x.%d", k5);
+								DragFloat(p, hit, ws, in, key2,
+										  {fx2, yy + S(3.f), half, kRowH - S(6.f)}, iXY[0], 0.002f,
+										  NkRole::AxisX, "%.2f");
+								snprintf(key2, sizeof(key2), "out.ins.y.%d", k5);
+								DragFloat(p, hit, ws, in, key2,
+										  {fx2 + half + S(6.f), yy + S(3.f), half, kRowH - S(6.f)},
+										  iXY[1], 0.002f, NkRole::AxisY, "%.2f");
+							}
+							yy += kRowH;
+							p.TextV(r.x + kPad + S(8.f), yy, kRowH, "Taille", NkRole::TextMuted);
+							snprintf(key2, sizeof(key2), "out.ins.sz.%d", k5);
+							DragFloat(p, hit, ws, in, key2,
+									  {fx2, yy + S(3.f), fw2, kRowH - S(6.f)}, iSize, 0.002f,
+									  NkRole::AccentUi, "%.2f");
+							yy += kRowH;
+							p.TextV(r.x + kPad + S(8.f), yy, kRowH, "Lisere", NkRole::TextMuted);
+							snprintf(key2, sizeof(key2), "out.ins.br.%d", k5);
+							DragFloat(p, hit, ws, in, key2,
+									  {fx2, yy + S(3.f), fw2, kRowH - S(6.f)}, iBrd, 0.1f,
+									  NkRole::AccentUi, "%.0f px");
+							yy += kRowH;
+							// COULEUR DU LISERE : la nuance cliquable du projet, qui
+							// ouvre le vrai selecteur. Une pastille qui se contente
+							// d'afficher une couleur sans pouvoir la changer serait
+							// une commande factice -- exactement ce que le principe
+							// « fonctionnalites a la naissance » interdit.
+							{
+								snprintf(key2, sizeof(key2), "out.ins.bc.%d", k5);
+								bool cch = false;
+								const NkRect crow{r.x + kPad + S(8.f), yy,
+												  rr.w - 2.f * kPad - S(8.f), kRowH};
+								yy += PaintColorRow(p, hit, ws, in, st, crow, yy, "Couleur",
+													key2, iCol, &cch);
+								if (cch)
+									demo::Demo3DHostSetOutInset(k5, iSrc, iShape, iXY, iSize,
+																iBrd, iCol, iOpa);
+							}
+							p.TextV(r.x + kPad + S(8.f), yy, kRowH, "Opacite", NkRole::TextMuted);
+							snprintf(key2, sizeof(key2), "out.ins.op.%d", k5);
+							DragFloat(p, hit, ws, in, key2,
+									  {fx2, yy + S(3.f), fw2, kRowH - S(6.f)}, iOpa, 0.005f,
+									  NkRole::AccentUi, "%.2f");
+							yy += kRowH + S(4.f);
+							if (iSrc != s0 || iShape != sh0 || iXY[0] != x0 || iXY[1] != y0 ||
+								iSize != sz0 || iBrd != b0 || iOpa != o0)
+								demo::Demo3DHostSetOutInset(k5, iSrc, iShape, iXY, iSize, iBrd,
+															iCol, iOpa);
+						}
+						if (nUsed < maxIns) {
+							if (Button("out.ins.add", yy, "Ajouter une incrustation",
+									   r.x + kPad, rr.w - 2.f * kPad))
+								demo::Demo3DHostOutInsetAdd();
+							yy += kRowH;
+						} else {
+							char fb[64];
+							snprintf(fb, sizeof(fb), "Maximum atteint (%d incrustations).",
+									 (int)maxIns);
+							p.TextV(r.x + kPad, yy, kRowH, fb, NkRole::TextMuted);
+							yy += kRowH;
+						}
+						yy += NkGroupPad();
+						PaintGroupBlock(p, rowR, gInsTop, yy);
+						yy += NkPropGroupGap();
+					}
+
+					// ── LE RENDU ────────────────────────────────────────────
+					// Hors des groupes : c'est l'ACTE, pas un reglage. Il
+					// s'etale sur plusieurs images, donc le bouton dit ce qui
+					// se passe au lieu de paraitre sans effet.
+					{
+						const bool busy = demo::Demo3DHostOutBusy();
+						const NkRect br{rowR.x + kPad, yy + S(2.f), rowR.w - 2.f * kPad,
+										kRowH + S(4.f)};
+						const bool ovr = hit.Add("out.render", br);
+						p.Fill(br, busy ? NkRole::PanelHeader : NkRole::AccentUi, 4.f);
+						if (ovr && !busy)
+							p.OutlineSharp(br, NkRole::Text);
+						const char *bt = busy ? "Rendu en cours..." : "Rendre l'image";
+						const float32 tw3 = p.TextW(bt);
+						p.TextV(br.x + (br.w - tw3) * 0.5f, yy + S(2.f), kRowH + S(4.f), bt,
+								busy ? NkRole::TextMuted : NkRole::TextOnAccent);
+						if (!busy && hit.Clicked("out.render"))
+							demo::Demo3DHostRenderOutput();
+						yy += kRowH + S(10.f);
+					}
+				} else if (sec == 7) {
 					// ── LA PASTILLE DU MODE : unique a chaque mode, ses
 					// fonctions arrivent PROGRESSIVEMENT par categories (regle
 					// de Rihen). Aujourd'hui : l'EDITION porte ses premieres
 					// categories ; les autres modes annoncent honnetement ce
 					// qui vient -- aucune commande factice.
+					// (Indice 7 depuis qu'Output occupe le 6 : la pastille du
+					// mode reste TOUJOURS la derniere de la colonne.)
 					const int32 m5 = (int32)st.mode;
 					NkRect rowR = rr;
 					rowR.x = r.x + NkPropInset();
