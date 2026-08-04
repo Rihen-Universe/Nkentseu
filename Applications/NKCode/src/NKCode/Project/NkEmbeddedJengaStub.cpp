@@ -46,6 +46,17 @@ namespace nkentseu {
 			return gExeDir.Empty() ? NkString() : (gExeDir + "/tools/compilers");
 		}
 
+		NkString NkEmbeddedJenga::DefaultCompilerBin() {
+			const NkString d = CompilersDir();
+			if (d.Empty())
+				return NkString();
+#if defined(_WIN32)
+			return d + "/llvm-mingw/bin";
+#else
+			return d + "/zig";
+#endif
+		}
+
 		bool NkEmbeddedJenga::Start(const Request &) { return false; }
 		bool NkEmbeddedJenga::Running() const { return false; }
 		bool NkEmbeddedJenga::Done() const { return true; }

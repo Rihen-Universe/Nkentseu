@@ -97,8 +97,23 @@ namespace nkentseu {
 			return gExeDir + "/tools/compilers";
 		}
 
+		// Dossier a PREFIXER au PATH pour rendre le compilateur par defaut visible.
+		// Doit rester le MIROIR de CompilerFetch.BinDir() : llvm-mingw expose ses
+		// binaires dans bin/ sous Windows, l'archive Zig pose `zig` a la racine.
+		NkString NkEmbeddedJenga::DefaultCompilerBin() {
+#if defined(_WIN32)
+			return CompilersDir() + "/llvm-mingw/bin";
+#else
+			return CompilersDir() + "/zig";
+#endif
+		}
+
 		bool NkEmbeddedJenga::NeedsCompiler() {
-			return gProdTools && !DirExists(CompilersDir() + "/llvm-mingw/bin");
+			// Le compilateur par defaut DEPEND DE L'HOTE (cf. CompilerFetch) : tester
+			// « llvm-mingw » en dur rendait ceci TOUJOURS vrai sous Linux/macOS, ou ce
+			// dossier n'existe jamais — NKCode y proposait donc en boucle d'installer
+			// un compilateur qui n'aurait de toute facon pas pu servir.
+			return gProdTools && !DirExists(DefaultCompilerBin());
 		}
 
 		void NkEmbeddedJenga::Configure(const NkString &exeDir) {
@@ -384,13 +399,19 @@ namespace nkentseu {
 								py::str(req.target.CStr()), py::arg("sink") = ns);
 							exitCode = r.cast<int>();
 							if (exitCode == 0) {
-#if defined(_WIN32)
-								// rend le compilateur visible IMMEDIATEMENT (les builds
-								// suivants de la file heriteront de ce PATH).
-								const NkString bin = NkString(req.target.CStr()) + "/llvm-mingw/bin";
+								// Rend le compilateur visible IMMEDIATEMENT (les builds
+								// suivants de la file heriteront de ce PATH). Vaut pour
+								// TOUTES les plateformes : sans cela, sous Linux/macOS,
+								// le Zig fraichement installe restait introuvable jusqu'au
+								// redemarrage de NKCode.
+								const NkString bin = DefaultCompilerBin();
 								const char *cur = std::getenv("PATH");
+#if defined(_WIN32)
 								const NkString merged = bin + ";" + (cur ? cur : "");
 								_putenv_s("PATH", merged.CStr());
+#else
+								const NkString merged = bin + ":" + (cur ? cur : "");
+								setenv("PATH", merged.CStr(), 1);
 #endif
 							}
 							{
