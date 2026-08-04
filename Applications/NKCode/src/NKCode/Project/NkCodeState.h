@@ -6417,6 +6417,18 @@ namespace nkentseu {
 				// couvre `with project(`) + `startproject(`) dans le .jenga racine ET dans tous
 				// les fichiers atteints par `include("…")`, RÉCURSIVEMENT (BFS, anti-cycles,
 				// plafond 300 fichiers) — même règle pour toutes les cartes du launcher.
+				// Projets INTERNES a Jenga, jamais montres a l'utilisateur : « __Unitest__ »
+				// est la cible technique du framework de tests, pas un projet du workspace.
+				// Le parseur de `jenga info` l'ecartait deja ; le scan textuel du launcher,
+				// non — d'ou sa presence sur les cartes. Un seul predicat pour les deux.
+				static bool IsInternalProject(const char *name) {
+					if (!name || !*name)
+						return true;
+					if (name[0] == '-')
+						return true; // separateur de table « --unitest-- »
+					return ContainsI(name, "unitest");
+				}
+
 				static NkString CollectProjects(const char *txt, const NkPath &baseDir, int32 *outCount = nullptr) {
 					NkVector<NkString> names;
 					auto isW2 = [](char c) {
@@ -6461,7 +6473,7 @@ namespace nkentseu {
 										dup = true;
 										break;
 									}
-								if (!dup && !tok.Empty())
+								if (!dup && !tok.Empty() && !IsInternalProject(tok.CStr()))
 									names.PushBack(tok);
 							}
 						}
@@ -7526,8 +7538,8 @@ namespace nkentseu {
 							char name[128], kind[64];
 							if (!TwoTokens(L, name, sizeof(name), kind, sizeof(kind)))
 								continue;
-							if (name[0] == '-' || Contains(name, "unitest"))
-								continue; // parasite / --unitest--
+							if (IsInternalProject(name))
+								continue; // parasite / __Unitest__ (predicat partage)
 							if (Contains(kind, "Test"))
 								tests.PushBack(NkString(name)); // TestSuite -> combo Tests
 							else {

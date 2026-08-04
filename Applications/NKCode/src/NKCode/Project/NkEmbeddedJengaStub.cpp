@@ -46,6 +46,11 @@ namespace nkentseu {
 			return gExeDir.Empty() ? NkString() : (gExeDir + "/tools/compilers");
 		}
 
+		// Build sans Jenga embarque : aucune version a rapporter.
+		NkString NkEmbeddedJenga::EmbeddedVersion() {
+			return NkString();
+		}
+
 		NkString NkEmbeddedJenga::DefaultCompilerBin() {
 			const NkString d = CompilersDir();
 			if (d.Empty())
