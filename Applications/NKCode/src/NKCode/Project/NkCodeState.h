@@ -4244,6 +4244,12 @@ namespace nkentseu {
 						s += runArgs;
 						s += "\n";
 					}
+					// Repertoire d'execution (vide = racine du workspace, cf. RunCwd()).
+					if (runCwd[0]) {
+						s += "W ";
+						s += runCwd;
+						s += "\n";
+					}
 					for (usize i = 0; i < files.Size(); ++i) {
 						OpenFile &f = files[i];
 						const int32 dy = f.doc.dirty ? 1 : 0;
@@ -4324,6 +4330,11 @@ namespace nkentseu {
 							for (const char *q = line + 2; *q && k + 1 < sizeof(runArgs); ++q)
 								runArgs[k++] = *q;
 							runArgs[k] = '\0';
+						} else if (line[0] == 'W' && line[1] == ' ') { // repertoire d'execution
+							usize k = 0;
+							for (const char *q = line + 2; *q && k + 1 < sizeof(runCwd); ++q)
+								runCwd[k++] = *q;
+							runCwd[k] = '\0';
 						} else if (line[0] == 'a' && line[1] == 'c') {
 							const char *q = line + 6;
 							savedActive = nextField(q);
@@ -4752,6 +4763,58 @@ namespace nkentseu {
 						active = 0;
 				}
 
+				// ── Fermeture de l'APPLICATION (croix de la barre de titre) ────────
+				// Le rappel du shell VETOE la fermeture et leve `quitRequested` ; le
+				// panneau Editeur pose alors la question (EditorPanel::DrawQuitConfirm)
+				// et leve `quitConfirmed` quand l'utilisateur a tranche. main.cpp
+				// convertit ce dernier en RequestClose(). Deux drapeaux et non un seul :
+				// « on m'a demande de fermer » et « je peux fermer » sont deux etats
+				// distincts — entre les deux, l'utilisateur peut encore annuler.
+				bool quitRequested = false;
+				bool quitConfirmed = false;
+
+				// Action de fermeture REELLE, posee par main.cpp (seul a connaitre le
+				// shell et le registre des fenetres ouvertes). Le panneau qui affiche la
+				// confirmation n'a besoin de rien savoir de tout ca.
+				using NkQuitFn = void (*)(void *user);
+				NkQuitFn quitFn = nullptr;
+				void *quitFnUser = nullptr;
+
+				void ConfirmQuit() {
+					quitConfirmed = true;
+					quitRequested = false;
+					if (quitFn)
+						quitFn(quitFnUser);
+				}
+
+				int32 DirtyCount() const {
+					int32 n = 0;
+					for (usize i = 0; i < files.Size(); ++i)
+						if (files[i].doc.dirty)
+							++n;
+					return n;
+				}
+
+				// Enregistre TOUS les fichiers modifies. false des le premier echec (un
+				// « sans titre » exige un chemin : impossible sans repasser par
+				// « Enregistrer sous », donc on n'insiste pas et on ne ferme pas).
+				bool SaveAllDirty() {
+					const int32 wasActive = active;
+					bool ok = true;
+					for (usize i = 0; i < files.Size(); ++i) {
+						if (!files[i].doc.dirty)
+							continue;
+						active = static_cast<int32>(i);
+						if (!SaveActive()) {
+							ok = false;
+							break;
+						}
+					}
+					if (wasActive >= 0 && wasActive < static_cast<int32>(files.Size()))
+						active = wasActive;
+					return ok;
+				}
+
 				bool SaveActive() {
 					if (active < 0 || active >= static_cast<int32>(files.Size()))
 						return false;
@@ -5113,6 +5176,18 @@ namespace nkentseu {
 						} else
 							mBuild.Drain(fresh);
 						for (usize i = 0; i < fresh.Size(); ++i) {
+							// Chemin/Kind du binaire offerts par le build (cf. Embed.py) :
+							// PROTOCOLE, pas du texte pour l'utilisateur -> ni affiches ni
+							// journalises. Les retenir evite a « Demarrer » un second
+							// chargement complet du workspace (~1,5 s ici).
+							if (fresh[i].StartsWith("[jenga-exepath] ")) {
+								mRunExePath = NkString(fresh[i].CStr() + 16);
+								continue;
+							}
+							if (fresh[i].StartsWith("[jenga-exekind] ")) {
+								mRunExeKind = NkString(fresh[i].CStr() + 16);
+								continue;
+							}
 							output.PushBack(fresh[i]);
 							if (mCmdLog.Size() < 3000)
 								mCmdLog.PushBack(fresh[i]);
@@ -6802,6 +6877,8 @@ namespace nkentseu {
 						mRunPendingProj = proj;
 						mRunPendingCfg = ConfigNameOf(cfgIdx >= 2 ? 0 : cfgIdx);
 						mRunPendingPlat = S.name;
+						mRunExePath = NkString(); // resultats du build PRECEDENT : a oublier
+						mRunExeKind = NkString();
 						mRunStage = 1; // 1 = construire, 2 = resoudre le chemin, 3 = lancer
 						NkString bcmd("build --target ");
 						bcmd += proj;
@@ -6831,6 +6908,14 @@ namespace nkentseu {
 					}
 					cmd += " --build";
 					cmd += JengaFileArg();
+					// Sans onglet terminal dedie, la sortie va dans le panneau Sortie : il
+					// faut alors INTERDIRE a Jenga d'ouvrir une console externe (Run.py le
+					// fait des qu'il voit une ConsoleApp sans tty). Ce serait une fenetre
+					// orpheline qui s'ouvre et se referme AUSSITOT avec le programme, sans
+					// rien laisser lire. Pose AVANT `--args` (voir juste dessous).
+					const bool versTerminal = IsConsoleProject(proj);
+					if (!versTerminal)
+						cmd += " --no-console";
 					// `--args` doit rester EN DERNIER : argparse.REMAINDER avale tout ce
 					// qui suit (cf. Jenga/Commands/Run.py).
 					if (runArgs[0]) {
@@ -6843,8 +6928,8 @@ namespace nkentseu {
 					// construction defile, puis le programme prend la main avec un VRAI
 					// stdin. Cote Jenga, Run.py voit un tty (isatty() vrai) et n'ouvre
 					// donc PAS de console externe : tout reste dans l'onglet.
-					if (IsConsoleProject(proj)) {
-						termOpenAt = root.ToString();
+					if (versTerminal) {
+						termOpenAt = RunCwd(); // racine du workspace (ou reglage explicite)
 						termOpenCmd = cmd;
 						termOpenKind = -1;
 						termOpenLabel = NkString("\xE2\x96\xB7 ") + proj;
@@ -6857,8 +6942,8 @@ namespace nkentseu {
 					}
 					NkProcess *p = new NkProcess();
 					output.PushBack(NkString("$ ") + cmd.CStr());
-					Journal(NkString("execution lancee : ") + cmd.CStr());
-					p->Start(cmd);
+					Journal(NkString("execution lancee (panneau Sortie) : ") + cmd.CStr());
+					p->Start(InRunCwd(cmd));
 					mRuns.PushBack(p);
 					status = NkPrintf("Execution... (%d instance(s))", RunCount());
 				}
@@ -6867,6 +6952,38 @@ namespace nkentseu {
 				// Equivalent de `jenga run <proj> --args ...`. Persistes avec la session
 				// du workspace (voir SessionSig/SaveSession) pour ne pas les retaper.
 				char runArgs[512] = {};
+
+				// ── Repertoire d'execution de « Demarrer » ──────────────────────────
+				// VIDE = racine du workspace, TOUJOURS. C'est la seule reference stable :
+				// le dossier du binaire varie avec la configuration et la plateforme
+				// (Build/Bin/<cfg>-<os>/<projet>), donc un programme qui ouvre
+				// « data/config.json » en relatif marchait ou non selon la cible. Un
+				// chemin explicite ici (configuration utilisateur) prend le dessus ;
+				// relatif, il est resolu depuis la racine du workspace.
+				char runCwd[512] = {};
+
+				// NkProcess passe par _popen : aucun parametre de repertoire, la commande
+				// herite du dossier courant de NKCode (celui d'ou l'utilisateur a lance
+				// l'IDE — arbitraire). On prefixe donc un `cd`, interprete par le shell
+				// que _popen invoque de toute facon.
+				NkString InRunCwd(const NkString &cmd) const {
+					const NkString dir = RunCwd();
+					if (dir.Empty())
+						return cmd;
+#if defined(_WIN32)
+					return NkString("cd /d \"") + dir.CStr() + "\" && " + cmd.CStr();
+#else
+					return NkString("cd \"") + dir.CStr() + "\" && " + cmd.CStr();
+#endif
+				}
+
+				NkString RunCwd() const {
+					const NkString root = this->root.ToString();
+					if (!runCwd[0])
+						return root;
+					const NkPath p(runCwd);
+					return p.IsAbsolute() ? NkString(runCwd) : (this->root / runCwd).ToString();
+				}
 
 				// Decoupe `runArgs` en jetons (guillemets respectes) : « --port 8080
 				// "mon fichier.txt" » -> 3 arguments.
@@ -6893,10 +7010,14 @@ namespace nkentseu {
 				}
 
 				// ── « Demarrer » en mode embarque : machine a etats (voir DoRun) ──
-				// 1 = build en cours · 2 = resolution du chemin en cours · 0 = inactif
+				// 0 = inactif · 1 = build en cours · 2 = resolution du chemin en cours
+				// 3 = chemin deja fourni par le build (voie rapide, rien a attendre)
 				int32 mRunStage = 0;
 				NkString mRunPendingProj, mRunPendingCfg, mRunPendingPlat;
 				NkVector<NkString> mRunPathLines;
+				// Chemin/Kind captures dans la sortie du BUILD (Embed les y depose) :
+				// quand ils sont la, l'etape « resolution du chemin » est inutile.
+				NkString mRunExePath, mRunExeKind;
 
 				// A appeler CHAQUE FRAME (depuis PollBuild) : enchaine build -> chemin ->
 				// lancement natif.
@@ -6911,24 +7032,39 @@ namespace nkentseu {
 							status = NkString("Execution annulee (construction en echec)");
 							return;
 						}
-						NkEmbeddedJenga::Request req;
-						req.kind = "exepath";
-						req.target = mRunPendingProj;
-						req.config = mRunPendingCfg;
-						req.platform = mRunPendingPlat;
-						req.toolchain = compilerName;
-						if (wsIdx >= 0 && wsIdx < static_cast<int32>(wsPaths.Size()))
-							req.jengaFile = wsPaths[wsIdx];
-						mRunPathLines.Clear();
-						if (NkEmbeddedJenga::Get().Start(req))
-							mRunStage = 2;
-						return; // creneau occupe -> nouvelle tentative a la frame suivante
+						// Le build vient de nous donner chemin ET Kind (Embed.py les emet en
+						// fin de build, depuis le workspace DEJA charge) : la resolution
+						// separee, qui rechargeait les 186 projets pour ~1,5 s, devient
+						// inutile. Etape 3 = « chemin deja connu, plus rien a attendre ».
+						if (!mRunExePath.Empty()) {
+							mRunPathLines.Clear();
+							mRunPathLines.PushBack(NkString("[jenga-exekind] ") + mRunExeKind.CStr());
+							mRunPathLines.PushBack(NkString("[jenga-exepath] ") + mRunExePath.CStr());
+							mRunStage = 3;
+							// On enchaine SANS attendre la frame suivante.
+						} else {
+							NkEmbeddedJenga::Request req;
+							req.kind = "exepath";
+							req.target = mRunPendingProj;
+							req.config = mRunPendingCfg;
+							req.platform = mRunPendingPlat;
+							req.toolchain = compilerName;
+							if (wsIdx >= 0 && wsIdx < static_cast<int32>(wsPaths.Size()))
+								req.jengaFile = wsPaths[wsIdx];
+							mRunPathLines.Clear();
+							if (NkEmbeddedJenga::Get().Start(req))
+								mRunStage = 2;
+							return; // creneau occupe -> nouvelle tentative a la frame suivante
+						}
 					}
-					// Etape 2 : recupere la ligne « [jenga-exepath] <chemin> » puis lance.
-					NkVector<NkJengaProgressEvent> ignored;
-					NkEmbeddedJenga::Get().Drain(mRunPathLines, ignored);
-					if (!NkEmbeddedJenga::Get().Done())
-						return;
+					// Etape 2 : attend la reponse de la resolution. (Etape 3 : les lignes
+					// sont deja la, rien a drainer ni a attendre.)
+					if (mRunStage == 2) {
+						NkVector<NkJengaProgressEvent> ignored;
+						NkEmbeddedJenga::Get().Drain(mRunPathLines, ignored);
+						if (!NkEmbeddedJenga::Get().Done())
+							return;
+					}
 					mRunStage = 0;
 					NkString exe, kind;
 					for (usize i = 0; i < mRunPathLines.Size(); ++i) {
@@ -6958,7 +7094,7 @@ namespace nkentseu {
 					// pty : saisie clavier, couleurs, code de sortie. Une WindowedApp,
 					// elle, n'a rien a afficher dans un terminal -> chemin inchange.
 					if (kind == "ConsoleApp") {
-						termOpenAt = NkPath(exe.CStr()).GetParent().ToString();
+						termOpenAt = RunCwd(); // racine du workspace (ou reglage explicite)
 						termOpenCmd = line;	   // la commande REMPLACE le shell dans l'onglet
 						termOpenKind = -1;	   // shell par defaut (sert de repli si la commande sort)
 						// L'onglet s'identifie comme une EXECUTION, pas comme un shell :
@@ -6979,7 +7115,7 @@ namespace nkentseu {
 					NkProcess *p = new NkProcess();
 					output.PushBack(NkString("$ ") + line.CStr());
 					Journal(NkString("execution lancee (embarque) : ") + line.CStr());
-					p->Start(line);
+					p->Start(InRunCwd(line));
 					mRuns.PushBack(p);
 					status = NkPrintf("Execution... (%d instance(s))", RunCount());
 				}
