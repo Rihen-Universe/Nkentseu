@@ -175,6 +175,21 @@ namespace nkentseu {
 					mOrient = ((o % 7) + 7) % 7;
 				}
 
+				// ── ECHELLE EXACTE (cisaillement autorise) ───────────────────
+				// false (defaut, choix d'Unreal) : l'echelle est PROJETEE sur les
+				// axes de l'objet -- il ne cisaille jamais, et ce qu'on voit est
+				// stockable tel quel en trois facteurs.
+				// true : l'echelle reste dans le repere du GESTE ; un scale
+				// global sur un objet tourne le cisaille vraiment (un carre
+				// devient un losange). L'hote doit alors memoriser la base
+				// (ScaleBasisOf), sinon le resultat se perd au commit.
+				void SetAllowShear(bool on) noexcept {
+					mAllowShear = on;
+				}
+				bool AllowShear() const noexcept {
+					return mAllowShear;
+				}
+
 				// ── REPERE EXTERNE fourni par l'hote, pour GIMBAL / CURSOR /
 				// PARENT (which = ORIENT_GIMBAL, ORIENT_CURSOR, ORIENT_PARENT).
 				// X et Z donnes ; Y reconstruit. Sans repere pose, l'orientation
@@ -645,6 +660,20 @@ namespace nkentseu {
 						mGB[0] = Norm((M * NkVec3f{1, 0, 0}) - o);
 						mGB[1] = Norm((M * NkVec3f{0, 1, 0}) - o);
 						mGB[2] = Norm((M * NkVec3f{0, 0, 1}) - o);
+						// ── ORTHONORMALISATION (Gram-Schmidt) ────────────────
+						// Sur un objet CISAILLE, ces trois axes ne sont plus
+						// perpendiculaires : quasi colineaires, ils donnaient un
+						// gizmo APLATI, illisible et impossible a viser
+						// (constate par Rihen). Un repere de manipulation doit
+						// rester droit, meme quand la geometrie ne l'est pas.
+						mGB[1] = NkVec3f{mGB[1].x - mGB[0].x * Dot(mGB[1], mGB[0]),
+										 mGB[1].y - mGB[0].y * Dot(mGB[1], mGB[0]),
+										 mGB[1].z - mGB[0].z * Dot(mGB[1], mGB[0])};
+						if (Len(mGB[1]) < 1e-4f)
+							mGB[1] = (fabsf(mGB[0].y) < 0.9f) ? Cross(mGB[0], NkVec3f{0, 1, 0})
+															  : Cross(mGB[0], NkVec3f{1, 0, 0});
+						mGB[1] = Norm(mGB[1]);
+						mGB[2] = Norm(Cross(mGB[0], mGB[1]));
 					}
 
 					// Interaction.
@@ -1237,6 +1266,21 @@ namespace nkentseu {
 				// est la VERITE affichee -- un hote qui commit doit la decomposer
 				// plutot que recomposer les morceaux a sa facon, sinon le
 				// resultat final differe de ce qu'on voyait.
+				// BASE dans laquelle l'echelle du dernier geste a ete appliquee
+				// (axes figes a la saisie de la poignee). L'hote la memorise
+				// quand il veut conserver un CISAILLEMENT que trois facteurs ne
+				// savent pas porter -- voir l'option « echelle exacte ».
+				void ScaleBasisOf(int32 i, NkVec3f out[3]) const {
+					if (i < 0 || i >= kMax || !mSclHasB[i]) {
+						out[0] = {1.f, 0.f, 0.f};
+						out[1] = {0.f, 1.f, 0.f};
+						out[2] = {0.f, 0.f, 1.f};
+						return;
+					}
+					for (int32 a = 0; a < 3; ++a)
+						out[a] = mSclAx[i][a];
+				}
+
 				const NkMat4f &ComposedOf(int32 i) const {
 					static const NkMat4f kI = NkMat4f::Identity();
 					return (i >= 0 && i < kMax) ? mComposed[i] : kI;
@@ -1288,11 +1332,18 @@ namespace nkentseu {
 							for (int32 i2 = 0; i2 < mCount; i2++) {
 								if (!mSel[i2])
 									continue;
-								const NkMat4f &M0 = mComposed[i2];
-								const NkVec3f o0 = M0 * NkVec3f{0.f, 0.f, 0.f};
-								mSclAx[i2][0] = Norm((M0 * NkVec3f{1, 0, 0}) - o0);
-								mSclAx[i2][1] = Norm((M0 * NkVec3f{0, 1, 0}) - o0);
-								mSclAx[i2][2] = Norm((M0 * NkVec3f{0, 0, 1}) - o0);
+								if (mAllowShear) {
+									// Echelle EXACTE : le repere du geste fait foi,
+									// c'est lui qui produira le cisaillement.
+									for (int32 a = 0; a < 3; ++a)
+										mSclAx[i2][a] = mGB[a];
+								} else {
+									const NkMat4f &M0 = mComposed[i2];
+									const NkVec3f o0 = M0 * NkVec3f{0.f, 0.f, 0.f};
+									mSclAx[i2][0] = Norm((M0 * NkVec3f{1, 0, 0}) - o0);
+									mSclAx[i2][1] = Norm((M0 * NkVec3f{0, 1, 0}) - o0);
+									mSclAx[i2][2] = Norm((M0 * NkVec3f{0, 0, 1}) - o0);
+								}
 								mSclHasB[i2] = true;
 							}
 							mGOp = hs[hit].op;
@@ -1659,14 +1710,23 @@ namespace nkentseu {
 								const NkVec3f *L = mSclAx[i];
 								for (int32 a = 0; a < 3; a++)
 									if (amt[a] != 0.f) {
-										// Repartition par le CARRE du cosinus : les
-										// poids somment a 1 (base orthonormee), donc
-										// un axe aligne recoit tout et rien ne se
-										// perd sur un objet tourne.
-										for (int32 k = 0; k < 3; ++k) {
-											const float32 c = Dot(B[a], L[k]);
-											if (c != 0.f)
-												AddComp(mScale[i], k, amt[a] * c * c);
+										if (mAllowShear) {
+											// Echelle EXACTE : la base memorisee EST
+											// le repere du geste -- le facteur va
+											// entier sur son axe, et le cisaillement
+											// nait de la conjugaison dans Apply().
+											AddComp(mScale[i], a, amt[a]);
+										} else {
+											// Repartition par le CARRE du cosinus :
+											// les poids somment a 1 (base
+											// orthonormee), donc un axe aligne
+											// recoit tout et rien ne se perd sur un
+											// objet tourne.
+											for (int32 k = 0; k < 3; ++k) {
+												const float32 c = Dot(B[a], L[k]);
+												if (c != 0.f)
+													AddComp(mScale[i], k, amt[a] * c * c);
+											}
 										}
 										// Le CENTRE, lui, s'ecarte le long de l'axe
 										// TIRE : c'est une translation, parfaitement
@@ -1812,6 +1872,7 @@ namespace nkentseu {
 				// Base du geste d'ECHELLE, par objet (cf. Apply).
 				NkVec3f mSclAx[kMax][3] = {};
 				bool mSclHasB[kMax] = {};
+				bool mAllowShear = false; // option « echelle exacte »
 				// Reperes EXTERNES : GIMBAL, CURSOR, PARENT (cf. SetExtFrame).
 				NkVec3f mExtX[3] = {}, mExtY[3] = {}, mExtZ[3] = {};
 				bool mExtOk[3] = {};

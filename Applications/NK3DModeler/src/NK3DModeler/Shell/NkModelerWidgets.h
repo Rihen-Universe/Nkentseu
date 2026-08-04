@@ -320,8 +320,17 @@ namespace nkentseu {
 						open ? NkRole::TextOnAccent : (enabled ? NkRole::Text : NkRole::TextMuted), 14.f);
 				tx += S(19.f);
 			}
-			if (!iconOnly)
+			if (!iconOnly) {
+				// LIBELLE CLIPPE A SON CADRE, pour TOUS les combos : un texte
+				// plus long que le bouton traversait la boite et s'etalait sur
+				// le panneau (constate par Rihen sur « Mise a jour » des ombres
+				// et « Loi » du brouillard). La reserve de droite laisse le
+				// chevron et le marqueur lisibles.
+				const float32 resv = showChevron ? S(20.f) : S(8.f);
+				p.Clip({r.x, r.y, r.w - resv > 0.f ? r.w - resv : r.w, r.h});
 				p.TextV(tx, r.y, r.h, items[selected], fg);
+				p.Unclip();
+			}
 			// Le chevron TOURNE quand la liste est ouverte : c'est ce qui distingue
 			// « je peux ouvrir » de « c'est ouvert », sans avoir a regarder ailleurs.
 			if (showChevron)
