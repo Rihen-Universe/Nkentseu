@@ -66,8 +66,31 @@ namespace nkentseu {
 				bool Init(const NkEditorShellConfig &config) noexcept;
 				int Run() noexcept; ///< boucle bloquante ; retourne le code de sortie
 
+				// Arret IMMEDIAT, sans rien demander. Reservee a l'application une fois
+				// qu'elle a decide (apres confirmation, par exemple).
 				void RequestClose() noexcept {
 					mRunning = false;
+				}
+
+				// Demande de fermeture INITIEE PAR L'UTILISATEUR : croix DESSINEE de la
+				// barre de titre, menu « Quitter », ou croix native de l'OS. Passe par le
+				// rappel vetoable ci-dessous — c'est le seul point d'entree qui laisse
+				// l'application poser une question. Les boutons dessines mettaient
+				// autrefois mRunning a faux directement : toute confirmation etait alors
+				// contournee sans qu'on s'en apercoive.
+				// `windowClose` distingue « je ferme CETTE fenetre » (croix, Fermer la
+				// fenetre) de « je quitte l'application » (Quitter, Ctrl+Q). NKCode s'en
+				// sert pour la restauration au lancement suivant : une fenetre fermee
+				// explicitement ne revient pas, une session quittee si.
+				void RequestQuit(bool windowClose = true) noexcept {
+					mQuitIsWindowClose = windowClose;
+					if (mOnWindowClosed && !mOnWindowClosed(mOnWindowClosedUser))
+						return;
+					mRunning = false;
+				}
+
+				bool QuitIsWindowClose() const noexcept {
+					return mQuitIsWindowClose;
 				}
 
 				// ── Fermeture EXPLICITE de la fenetre (croix de la barre de titre) ──
@@ -506,6 +529,7 @@ namespace nkentseu {
 				NkClock mClock;
 				bool mRunning = true;
 				// Rappel de fermeture explicite (croix) — cf. SetOnWindowClosed.
+				bool mQuitIsWindowClose = true; ///< cf. RequestQuit/QuitIsWindowClose
 				NkOnWindowClosed mOnWindowClosed = nullptr;
 				void *mOnWindowClosedUser = nullptr;
 				bool mDockBootstrap = true;

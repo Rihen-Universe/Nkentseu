@@ -284,11 +284,6 @@ int nkmain(const NkEntryState &state) {
 					g_state.quitRequested = true;
 					return false;
 				}
-				// Croix de la barre de titre = fermeture EXPLICITE de cette
-				// fenetre : elle ne doit PAS revenir au prochain lancement.
-				// Ctrl+Q passe par RequestClose() et n'arrive jamais ici, donc
-				// quitter l'application laisse bien la fenetre inscrite.
-				nkcode::NkOpenWindowsUnregister(*static_cast<NkString *>(user));
 				return true;
 			},
 			&s_regHome);
@@ -298,7 +293,12 @@ int nkmain(const NkEntryState &state) {
 		static NkEditorShell *s_shell = shell.Get();
 		g_state.quitFnUser = &s_regHome;
 		g_state.quitFn = [](void *user) {
-			nkcode::NkOpenWindowsUnregister(*static_cast<NkString *>(user));
+			// Fermer CETTE fenetre (croix dessinee, « Fermer la fenetre ») = geste
+			// explicite : elle ne doit PAS revenir au prochain lancement. Quitter
+			// l'application (Quitter, Ctrl+Q) la laisse inscrite, pour reprendre ou
+			// l'on en etait. La distinction vient de RequestQuit(windowClose).
+			if (s_shell && s_shell->QuitIsWindowClose())
+				nkcode::NkOpenWindowsUnregister(*static_cast<NkString *>(user));
 			if (s_shell)
 				s_shell->RequestClose();
 		};

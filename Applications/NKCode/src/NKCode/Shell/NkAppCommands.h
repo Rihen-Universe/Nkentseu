@@ -84,7 +84,7 @@ inline void CmdToggleMinimap(void *) { // Affichage: minimap on/off (aussi Ctrl+
 
 inline void CmdQuit(void *user) {
 	if (user)
-		static_cast<NkEditorShell *>(user)->RequestClose();
+		static_cast<NkEditorShell *>(user)->RequestQuit(/*windowClose=*/false); // Ctrl+Q : quitter (confirmation possible)
 }
 
 inline void CmdResetLayout(void *u) {
