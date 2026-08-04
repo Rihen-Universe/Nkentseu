@@ -558,6 +558,37 @@ namespace nkentseu {
 					return NkMat4f::Translate(t) * NkMat4f::Translate(about) * mRot[i] * S *
 						   NkMat4f::Translate({-about.x, -about.y, -about.z});
 				}
+				// ── LE MEME GESTE, MAIS ATTENUE (edition proportionnelle) ────────
+				// Un voisin ne subit qu'une FRACTION w du geste, w donne par la loi
+				// d'attenuation. Les trois composantes s'attenuent, pas seulement la
+				// translation : une rangee d'objets doit pouvoir s'incurver (rotation)
+				// et s'evaser (echelle), comme dans Blender -- ne propager que la
+				// translation etait une limitation arbitraire (Rihen).
+				//   translation : t * w
+				//   echelle     : mScale est un DELTA (la matrice vaut 1+s), donc
+				//                 interpoler vers l'identite revient a s * w ;
+				//   rotation    : SLerp de l'identite vers la rotation du geste --
+				//                 l'angle est reduit, l'AXE conserve, ce qu'un simple
+				//                 melange de matrices ne garantirait pas.
+				// w = 1 redonne exactement ApplyAbout, w = 0 l'identite : le voisin
+				// juste hors de portee ne bouge pas d'un cheveu.
+				NkMat4f ApplyAboutWeighted(int32 i, NkVec3f about, float32 w) const {
+					if (i < 0 || i >= kMax)
+						return NkMat4f::Identity();
+					if (w <= 0.f)
+						return NkMat4f::Identity();
+					if (w >= 1.f)
+						return ApplyAbout(i, about);
+					const NkVec3f t{mTr[i].x * w, mTr[i].y * w, mTr[i].z * w};
+					const NkVec3f s{mScale[i].x * w, mScale[i].y * w, mScale[i].z * w};
+					NkMat4f S = NkMat4f::Scale({1.f + s.x, 1.f + s.y, 1.f + s.z});
+					if (mSclHasB[i])
+						S = BasisMat(mSclAx[i]) * S * BasisMatT(mSclAx[i]);
+					const NkMat4f R =
+						NkQuatf::Identity().SLerp(NkQuatf(mRot[i]).Normalized(), w).ToMat4();
+					return NkMat4f::Translate(t) * NkMat4f::Translate(about) * R * S *
+						   NkMat4f::Translate({-about.x, -about.y, -about.z});
+				}
 				// Matrice dont les AXES sont B (base -> monde), et sa transposee
 				// (monde -> base ; la base est orthonormee, donc transposee =
 				// inverse). Convention verifiee : M * {1,0,0} rend mat[0].
