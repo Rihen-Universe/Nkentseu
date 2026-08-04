@@ -175,6 +175,15 @@ namespace nkentseu {
 		static float32 nkvpFogStart = 10.f;
 		static float32 nkvpFogEnd = 60.f;
 		static int32 nkvpFogMode = 0; // 0 lineaire, 1 exponentiel
+		// ── BROUILLARD AU SOL, SOUFFLE COMME UNE FUMEE (Rihen) ──────────────
+		// Epaisseur a zero : le brouillard ne depend que de la distance, comme
+		// avant. Le SOUFFLE module sa densite par un bruit qui derive ; lie au
+		// vent des NUAGES, le sol et le ciel respirent ensemble. Quand la
+		// physique du vent existera, c'est elle qui donnera direction et force.
+		static float32 nkvpFogHeightBase = 0.f;
+		static float32 nkvpFogThickness = 0.f;
+		static float32 nkvpFogWind = 0.f;
+		static bool nkvpFogWindFromClouds = true;
 		static renderer::NkLightDesc nkvpClipLight;
 		static int32 nkvpShortcutBits = 0;
 		static uint8 nkvpShortcutPrev = 0;
@@ -189,6 +198,9 @@ namespace nkentseu {
 		//   withGizmo : inclut les decalages du gizmo (etat EFFECTIF pendant un
 		//   geste) ; faux pour la BASE que le gizmo consomme lui-meme.
 		static NkMat4f HostEmptyXform(int32 e, bool withGizmo);
+		// Vitesse de derive des nuages : definie plus bas, lue par le brouillard
+		// au sol (qui suit le meme vent) bien avant.
+		float32 Demo3DHostSkyCloudSpeed();
 		// Variante CONTINUE (evite le saut de 180 degres des angles d'Euler) :
 		// definie avec l'autre, appelee bien avant.
 		static void HostDecomposeNear(const NkMat4f &M, const float32 *prevDeg, NkVec3f &pos,
@@ -5520,6 +5532,17 @@ namespace nkentseu {
 			sctx.fogDensity = nkvpFogMode == 1 ? nkvpFogDensity : 0.f;
 			sctx.fogStart = nkvpFogStart;
 			sctx.fogEnd = nkvpFogEnd;
+			// NAPPE AU SOL : hauteur, epaisseur, souffle. La VITESSE de derive
+			// suit celle des nuages quand on l'a demande -- c'est ce qui fait
+			// que la fumee au sol et le ciel avancent du meme pas.
+			sctx.fogHeightBase = nkvpFogHeightBase;
+			sctx.fogThickness = nkvpFogThickness;
+			sctx.fogWind = nkvpFogWind;
+			// (La vitesse des nuages est declaree plus bas dans ce fichier :
+			// on passe par son accesseur, qui existe deja.)
+			sctx.fogWindSpeed = nkvpFogWindFromClouds
+									? (Demo3DHostSkyCloudSpeed() * 2.f + 0.02f)
+									: 0.15f;
 
 			// ── WIDGETS DES LUMIERES ────────────────────────────────────────────
 			// Une lumiere eclaire mais ne se voit pas : sans marqueur elle n'est ni
@@ -12629,6 +12652,27 @@ namespace nkentseu {
 			nkvpFogStart = start < 0.f ? 0.f : start;
 			nkvpFogEnd = end < start ? start + 0.001f : end;
 			nkvpFogMode = mode & 1;
+		}
+		// ── NAPPE AU SOL (height fog) et son SOUFFLE ────────────────────────
+		void Demo3DHostFogGround(float32 *base, float32 *thickness, float32 *wind,
+								 bool *fromClouds) {
+			if (base)
+				*base = nkvpFogHeightBase;
+			if (thickness)
+				*thickness = nkvpFogThickness;
+			if (wind)
+				*wind = nkvpFogWind;
+			if (fromClouds)
+				*fromClouds = nkvpFogWindFromClouds;
+		}
+		void Demo3DHostSetFogGround(float32 base, float32 thickness, float32 wind,
+									bool fromClouds) {
+			nkvpFogHeightBase = base;
+			// Epaisseur NEGATIVE n'a pas de sens ; a zero, le brouillard
+			// redevient purement fonction de la distance.
+			nkvpFogThickness = thickness < 0.f ? 0.f : thickness;
+			nkvpFogWind = wind < 0.f ? 0.f : (wind > 1.f ? 1.f : wind);
+			nkvpFogWindFromClouds = fromClouds;
 		}
 		void Demo3DHostFloor(bool *on, float32 *rgb, float32 *y, float32 *rough, int32 *pattern,
 							 float32 *tile, float32 *metal) {
