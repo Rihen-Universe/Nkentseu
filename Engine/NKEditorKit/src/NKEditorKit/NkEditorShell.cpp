@@ -262,9 +262,7 @@ namespace nkentseu {
 				// Le rappel peut VETOER : false = l'application a pris la main (par
 				// exemple pour demander confirmation quand des fichiers sont modifies)
 				// et fermera elle-meme via RequestClose() le moment venu.
-				if (mOnWindowClosed && !mOnWindowClosed(mOnWindowClosedUser))
-					return;
-				mRunning = false;
+				RequestQuit(); // meme chemin que la croix dessinee et le menu Quitter
 			});
 			// Drop de FICHIERS depuis l'OS (Explorateur Windows…) -> handler de l'app.
 			events.AddEventCallback<NkDropFileEvent>([this](NkDropFileEvent *e) {
@@ -1087,7 +1085,7 @@ namespace nkentseu {
 				dl.AddLine({gx - s, cy - s}, {gx + s, cy + s}, xc, 1.2f);
 				dl.AddLine({gx - s, cy + s}, {gx + s, cy - s}, xc, 1.2f);
 				if (h && mUI.input.mouseClicked[0]) {
-					mRunning = false;
+					RequestQuit(); // vetoable : l'app peut demander confirmation
 					consumed = true;
 				}
 			}
@@ -1539,7 +1537,7 @@ namespace nkentseu {
 					mPaletteSel = 0;
 				}
 				if (MenuItem(mUI, "Quitter", "Alt+F4"))
-					mRunning = false;
+					RequestQuit(/*windowClose=*/false); // quitter l'application
 				EndMenu(mUI);
 			}
 			if (BeginMenu(mUI, "Affichage")) {
