@@ -5223,11 +5223,20 @@ namespace nkentseu {
 			const bool hasSel5 = st.activeEmpty >= 0 ||
 								 demo::Demo3DHostActiveObject() >= 0 ||
 								 demo::Demo3DHostSelectedLight() >= 0;
-			if (!hasSel5 && st.propOpen[0]) {
-				st.propOpen[0] = false;
-				st.propSecH[0] = 0.f;
-				st.propScroll3[0] = 0.f;
-			}
+			// MEME REGLE POUR MATERIAU ET MODIFICATEUR (Rihen) : sans objet, il
+			// n'y a ni matiere a assigner ni modificateur a poser -- leurs
+			// pastilles disparaissent comme celle de Modele, et si l'une etait
+			// active le panneau se replie.
+			static const int32 kSelOnly[3] = {0, 3, 4}; // Modele, Modificateur, Materiau
+			if (!hasSel5)
+				for (int32 s7 = 0; s7 < 3; ++s7) {
+					const int32 i7 = kSelOnly[s7];
+					if (!st.propOpen[i7])
+						continue;
+					st.propOpen[i7] = false;
+					st.propSecH[i7] = 0.f;
+					st.propScroll3[i7] = 0.f;
+				}
 			int32 nOpen = 0, nUnfold = 0;
 			for (int32 i2 = 0; i2 < kNSec; ++i2)
 				if (st.propOpen[i2]) {
@@ -8493,22 +8502,31 @@ namespace nkentseu {
 						{
 							const NkRect br{rowR.x, yy + S(2.f), rowR.w, kRowH - S(4.f)};
 							p.Outline(br, NkRole::Border, NkRole::InputBg, 3.f);
-							p.IconV(br.x + S(4.f), br.y, br.h, NkIcon::Material, NkRole::Text,
-									12.f);
-							// COMBO : brancher un materiau EXISTANT sur l'objet actif
-							// -- le navigateur de Blender.
+							// ── LE DEROULANT EST UNE ICONE, PAS UN LIBELLE ─────
+							// Avec son nom affiche, il empietait sur le champ du
+							// NOM juste a cote : on ne distinguait plus les deux
+							// (constate par Rihen). Chez Blender l'icone EST le
+							// navigateur -- elle ouvre la liste, le champ voisin
+							// porte le nom. Le mode « icone seule » du combo se
+							// demande en refusant a la fois cadre et chevron.
 							static const char *sNavPtr[64];
-							for (int32 i = 0; i < nMats; ++i)
+							static NkIcon sNavIc[64];
+							for (int32 i = 0; i < nMats; ++i) {
 								sNavPtr[i] = sMatNm[i];
+								sNavIc[i] = NkIcon::Material;
+							}
 							int32 navSel = st.projMatSel;
 							Combo(p, hit, ws, "props.pm.nav",
-								  {br.x + S(22.f), br.y + S(1.f), S(20.f), br.h - S(2.f)},
-								  sNavPtr, nullptr, nMats, navSel, combo, true, true, false);
+								  {br.x + S(2.f), br.y + S(1.f), S(26.f), br.h - S(2.f)},
+								  sNavPtr, sNavIc, nMats, navSel, combo, true, false, false);
 							if (navSel != st.projMatSel)
 								st.projMatSel = navSel;
+							// Un TRAIT separe les deux commandes : l'oeil voit
+							// « ouvrir la liste » puis « le nom », pas un bloc.
+							p.VLine(br.x + S(30.f), br.y + S(3.f), br.h - S(6.f));
 							// NOM editable (double-clic), clippe a son cadre.
 							static char sNavName[32] = {};
-							const NkRect nmR{br.x + S(46.f), br.y, br.w - S(74.f), br.h};
+							const NkRect nmR{br.x + S(35.f), br.y, br.w - S(63.f), br.h};
 							p.Clip(nmR);
 							if (EditableText(p, hit, ws, in, "props.pm.rename",
 											 {nmR.x + S(2.f), nmR.y - S(2.f), nmR.w, kRowH},
@@ -8810,8 +8828,10 @@ namespace nkentseu {
 				p.VLine(tabX, stackTop, (rFull.y + rFull.h) - stackTop);
 				float32 ty = stackTop + S(4.f);
 				for (int32 i2 = 0; i2 < kNSec; ++i2) {
-					// Modele n'apparait que pour une selection (regle de Rihen).
-					if (i2 == 0 && !hasSel5)
+					// Modele, Modificateur et Materiau n'apparaissent que pour une
+					// selection (regle de Rihen) : sans objet, ils n'auraient rien
+					// d'honnete a montrer.
+					if ((i2 == 0 || i2 == 3 || i2 == 4) && !hasSel5)
 						continue;
 					char tk[24];
 					snprintf(tk, sizeof(tk), "props.tab.%d", i2);

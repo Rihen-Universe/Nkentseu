@@ -110,6 +110,28 @@ namespace nkentseu {
 		// OBJETS UTILISATEUR : nature du slot (0 libre, 1 sphere, 2 cube,
 		// 3 plan, 4 empty).
 		static constexpr int32 kNkvpFirstUser = 96;
+		// ── LA ROTATION D'UN NOEUD EST UN QUATERNION ────────────────────────
+		// C'est la VERITE (choix d'Unreal : FTransform stocke un FQuat), et les
+		// angles d'Euler ne sont plus que la langue de l'interface. Un
+		// quaternion ne se decompose pas : il n'a donc ni gimbal lock ni saut de
+		// 180 degres, les deux defauts constates par Rihen.
+		//
+		// LES ANGLES SAISIS SONT CONSERVES tant qu'ils decrivent la MEME
+		// orientation. Sans ce cache, taper 190 puis relire afficherait -170 --
+		// meme orientation, autre ecriture -- c'est le comportement d'Unreal, et
+		// il surprend a l'usage. Des qu'on tourne a la souris, les angles sont
+		// relus du quaternion en choisissant l'ecriture la plus proche de la
+		// precedente (HostDecomposeNear).
+		static NkQuatf nkvpEmptyQuat[70];
+		static bool nkvpEmptyQuatInit = false;
+		static bool nkvpRotCacheOk[70] = {}; // les angles affiches font-ils foi ?
+		static void HostQuatEnsure() {
+			if (nkvpEmptyQuatInit)
+				return;
+			nkvpEmptyQuatInit = true;
+			for (int32 i = 0; i < 70; ++i)
+				nkvpEmptyQuat[i] = NkQuatf::Identity();
+		}
 		// ── ECHELLE EXACTE (cisaillement autorise) ──────────────────────────
 		// Par DEFAUT l'echelle vit dans les axes de l'objet -- choix d'Unreal
 		// (FTransform refuse le cisaillement), retenu pour NK3DModeler, cf.
@@ -208,6 +230,12 @@ namespace nkentseu {
 		// Rotation d'un triplet d'angles (convention Z*Y*X du projet) : definie
 		// avec les autres helpers, appelee par le commit du gizmo bien avant.
 		static NkMat4f HostRotFromEuler(const float32 *rotDeg);
+		// ── ROTATION D'UN NOEUD : le QUATERNION fait foi ────────────────────
+		// Definies avec les autres helpers, appelees partout bien avant.
+		static NkQuatf HostNodeQuat(int32 e);
+		static void HostSetNodeQuat(int32 e, const NkQuatf &q);
+		static void HostSetNodeEuler(int32 e, const float32 *deg);
+		static void HostNodeEuler(int32 e, float32 *outDeg);
 		// Transform MONDE d'un noeud. Enveloppe SANS Demo3DState : la structure
 		// n'est declaree que plus bas, et la vue camera en a besoin ici.
 		static void HostNodeWorldById(int32 n, float32 *pos, NkMat4f &rot, float32 *scl);
@@ -5012,12 +5040,18 @@ namespace nkentseu {
 					const NkVec3f fwd0 = (cwr0 * NkVec3f{0.f, 0.f, -1.f}).Normalized();
 					if (NkInput.IsMouseDown(NkMouseButton::NK_MB_MIDDLE) && !shift &&
 						(mdx != 0.f || mdy != 0.f)) {
-						nkvpEmptyRotDeg[eC][1] -= mdx * 0.25f; // lacet
-						nkvpEmptyRotDeg[eC][0] -= mdy * 0.25f; // tangage, borne
-						if (nkvpEmptyRotDeg[eC][0] > 89.f)
-							nkvpEmptyRotDeg[eC][0] = 89.f;
-						if (nkvpEmptyRotDeg[eC][0] < -89.f)
-							nkvpEmptyRotDeg[eC][0] = -89.f;
+						// PILOTAGE DE LA CAMERA : lacet et tangage se pensent en
+						// ANGLES (le tangage se borne a +-89 pour ne pas basculer),
+						// puis on repose le quaternion -- lui reste la verite.
+						float32 camDeg[3];
+						HostNodeEuler(eC, camDeg);
+						camDeg[1] -= mdx * 0.25f; // lacet
+						camDeg[0] -= mdy * 0.25f; // tangage, borne
+						if (camDeg[0] > 89.f)
+							camDeg[0] = 89.f;
+						if (camDeg[0] < -89.f)
+							camDeg[0] = -89.f;
+						HostSetNodeEuler(eC, camDeg);
 						// ── CADENAS ACTIF : la rotation ORBITE la camera autour
 						// d'un CENTRE (Rihen, comme Blender) au lieu de tourner
 						// sur place. Le centre : la selection si elle existe,
@@ -5216,9 +5250,12 @@ namespace nkentseu {
 							// -> tangage = asin(f.y), lacet = atan2(-f.x, -f.z).
 							const float32 kR2D = 57.29578f;
 							const float32 fy = fV.y < -1.f ? -1.f : (fV.y > 1.f ? 1.f : fV.y);
-							nkvpEmptyRotDeg[eA][0] = math::NkAsin(fy) * kR2D;
-							nkvpEmptyRotDeg[eA][1] = math::NkAtan2(-fV.x, -fV.z) * kR2D;
-							nkvpEmptyRotDeg[eA][2] = 0.f;
+							// ALIGNER SUR LA VUE : angles deduits du regard, puis
+							// reposes comme quaternion.
+							const float32 algDeg[3] = {math::NkAsin(fy) * kR2D,
+													   math::NkAtan2(-fV.x, -fV.z) * kR2D,
+													   0.f};
+							HostSetNodeEuler(eA, algDeg);
 							Demo3DHostViewCamera(nodeA);
 							logger.Info(
 								"[Demo3D] Camera alignee sur la vue (Ctrl+Alt+pave 0) : noeud {0}\n",
@@ -5482,12 +5519,8 @@ namespace nkentseu {
 							   nkvpEmptyPos[e][2] + tr.z};
 				// ROTATION du noeud -> direction du faisceau (-Y local) ;
 				// l'ECHELLE d'une SURFACIQUE regle ses dimensions (Rihen).
-				const float32 kD2Rl = 0.017453292f;
-				const NkMat4f lRm =
-					st->emptyGizmo.RotationOf(e) *
-					(NkMat4f::RotationZ(NkAngle::FromRad(nkvpEmptyRotDeg[e][2] * kD2Rl)) *
-					 NkMat4f::RotationY(NkAngle::FromRad(nkvpEmptyRotDeg[e][1] * kD2Rl)) *
-					 NkMat4f::RotationX(NkAngle::FromRad(nkvpEmptyRotDeg[e][0] * kD2Rl)));
+				// Rotation depuis le QUATERNION (les angles ne sont qu'un affichage).
+				const NkMat4f lRm = st->emptyGizmo.RotationOf(e) * HostNodeQuat(e).ToMat4();
 				if (((int32)L2.type & 3) != 1)
 					L2.direction = {-lRm.mat[1][0], -lRm.mat[1][1], -lRm.mat[1][2]};
 				if (((int32)L2.type & 3) == 3) {
@@ -6001,14 +6034,9 @@ namespace nkentseu {
 				if (HostHiddenEff(un))
 					continue;
 				const int32 e = un - 90;
-				const float32 kD2Ru = 0.017453292f;
 				const NkVec3f utr = st->emptyGizmo.TranslateOf(e);
 				const NkVec3f uos = st->emptyGizmo.ScaleOf(e);
-				const NkMat4f uR =
-					st->emptyGizmo.RotationOf(e) *
-					(NkMat4f::RotationZ(NkAngle::FromRad(nkvpEmptyRotDeg[e][2] * kD2Ru)) *
-					 NkMat4f::RotationY(NkAngle::FromRad(nkvpEmptyRotDeg[e][1] * kD2Ru)) *
-					 NkMat4f::RotationX(NkAngle::FromRad(nkvpEmptyRotDeg[e][0] * kD2Ru)));
+				const NkMat4f uR = st->emptyGizmo.RotationOf(e) * HostNodeQuat(e).ToMat4();
 				NkDrawCall3D dc;
 				// La VARIANTE demandee au menu choisit la vraie primitive
 				// (tore : generateur moteur a venir, sphere en attendant).
@@ -8171,13 +8199,12 @@ namespace nkentseu {
 								nkvpEmptyPos[es][0] += tr.x;
 								nkvpEmptyPos[es][1] += tr.y;
 								nkvpEmptyPos[es][2] += tr.z;
-								NkVec3f fp, fr, fs;
-								HostDecomposeNear(st->emptyGizmo.RotationOf(es) *
-													  HostRotFromEuler(nkvpEmptyRotDeg[es]),
-												  nkvpEmptyRotDeg[es], fp, fr, fs);
-								nkvpEmptyRotDeg[es][0] = fr.x;
-								nkvpEmptyRotDeg[es][1] = fr.y;
-								nkvpEmptyRotDeg[es][2] = fr.z;
+								// ROTATION : composition de QUATERNIONS, sans passer
+								// par les angles. C'est ce qui supprime le gimbal
+								// lock : rien n'est decompose, donc rien ne peut
+								// degenerer ni sauter de 180 degres.
+								HostSetNodeQuat(es, NkQuatf(st->emptyGizmo.RotationOf(es)) *
+														HostNodeQuat(es));
 								const NkVec3f os = st->emptyGizmo.ScaleOf(es);
 								nkvpEmptyScl[es][0] *= (1.f + os.x);
 								nkvpEmptyScl[es][1] *= (1.f + os.y);
@@ -8704,12 +8731,8 @@ namespace nkentseu {
 					// d'aretes sans face, camera en pyramide de visee, croix sinon.
 					const uint8 dk2 = (90 + e >= kNkvpFirstUser) ? nkvpUserKind[e - 6] : (uint8)4;
 					const uint8 ds2 = (90 + e >= kNkvpFirstUser) ? nkvpUserSub[e - 6] : (uint8)0;
-					const float32 kD2Rc = 0.017453292f;
 					const NkMat4f cRm =
-						st->emptyGizmo.RotationOf(e) *
-						(NkMat4f::RotationZ(NkAngle::FromRad(nkvpEmptyRotDeg[e][2] * kD2Rc)) *
-						 NkMat4f::RotationY(NkAngle::FromRad(nkvpEmptyRotDeg[e][1] * kD2Rc)) *
-						 NkMat4f::RotationX(NkAngle::FromRad(nkvpEmptyRotDeg[e][0] * kD2Rc)));
+						st->emptyGizmo.RotationOf(e) * HostNodeQuat(e).ToMat4();
 					const NkVec3f cOs = st->emptyGizmo.ScaleOf(e);
 					const float32 sx2 = fabsf(nkvpEmptyScl[e][0]) * (1.f + cOs.x);
 					const float32 sy2 = fabsf(nkvpEmptyScl[e][1]) * (1.f + cOs.y);
@@ -10406,17 +10429,22 @@ namespace nkentseu {
 				pos3[0] += tr.x;
 				pos3[1] += tr.y;
 				pos3[2] += tr.z;
-				NkVec3f gp, gr, gs;
-				// CE QUE LIT LE PANNEAU pendant le glissement : decomposition
-				// CONTINUE, ancree sur les angles du noeud. Sans elle, l'ecriture
-				// des eulers bascule d'une solution a l'autre en cours de
-				// rotation et les degres sautent de 180 (Rihen).
-				HostDecomposeNear(st->emptyGizmo.RotationOf(e) *
-									  HostRotFromEuler(nkvpEmptyRotDeg[e]),
-								  nkvpEmptyRotDeg[e], gp, gr, gs);
-				rotDeg3[0] = gr.x;
-				rotDeg3[1] = gr.y;
-				rotDeg3[2] = gr.z;
+				// CE QUE LIT LE PANNEAU : les angles saisis tant qu'ils font foi,
+				// sinon une lecture CONTINUE du quaternion (l'ecriture la plus
+				// proche de la precedente). Pendant un glissement, on y compose
+				// la rotation en cours -- toujours sans decomposer le stockage.
+				if (st->emptyGizmo.IsDragging() && st->emptyGizmo.IsSelected(e)) {
+					NkVec3f gp, gr, gs;
+					HostDecomposeNear((NkQuatf(st->emptyGizmo.RotationOf(e)) *
+									   HostNodeQuat(e))
+										  .ToMat4(),
+									  nkvpEmptyRotDeg[e], gp, gr, gs);
+					rotDeg3[0] = gr.x;
+					rotDeg3[1] = gr.y;
+					rotDeg3[2] = gr.z;
+				} else {
+					HostNodeEuler(e, rotDeg3);
+				}
 				const NkVec3f os = st->emptyGizmo.ScaleOf(e);
 				scl3[0] *= (1.f + os.x);
 				scl3[1] *= (1.f + os.y);
@@ -10436,17 +10464,15 @@ namespace nkentseu {
 			for (int32 a = 0; a < 3; ++a)
 				nkvpEmptyPos[e][a] += pos3[a] - cp[a];
 			// ── LES ANGLES TAPES SONT LES ANGLES VOULUS ─────────────────────
-			// On les ECRIT tels quels. L'ancienne voie composait un DELTA de
-			// rotation puis redecomposait le produit : taper 45 sur X changeait
-			// alors TOUS les angles, y compris celui qu'on venait de taper
-			// (constate par Rihen). Un champ d'angle doit poser sa valeur, pas
-			// declencher un aller-retour matriciel.
+			// Ils posent le quaternion ET restent affiches tels quels : taper
+			// 190 ne doit pas se relire -170 (meme orientation, autre ecriture
+			// -- le comportement d'Unreal, qui surprend a l'usage). L'ancienne
+			// voie composait un DELTA puis redecomposait le produit : taper 45
+			// sur X changeait alors TOUS les angles (constate par Rihen).
 			if (fabsf(rotDeg3[0] - cr[0]) + fabsf(rotDeg3[1] - cr[1]) +
 					fabsf(rotDeg3[2] - cr[2]) >
-				1e-7f) {
-				for (int32 a = 0; a < 3; ++a)
-					nkvpEmptyRotDeg[e][a] = rotDeg3[a];
-			}
+				1e-7f)
+				HostSetNodeEuler(e, rotDeg3);
 			for (int32 a = 0; a < 3; ++a)
 				if (cs[a] > 1e-6f && fabsf(scl3[a] - cs[a]) > 1e-7f)
 					nkvpEmptyScl[e][a] *= scl3[a] / cs[a];
@@ -10842,7 +10868,9 @@ namespace nkentseu {
 				gOs = st->emptyGizmo.ScaleOf(e);
 				gRot = st->emptyGizmo.RotationOf(e);
 			}
-			const NkMat4f R = gRot * HostRotFromEuler(nkvpEmptyRotDeg[e]);
+			// LA ROTATION VIENT DU QUATERNION, jamais des angles : eux ne sont
+			// qu'un affichage, et les relire ici reintroduirait le gimbal lock.
+			const NkMat4f R = gRot * HostNodeQuat(e).ToMat4();
 			const NkVec3f P{nkvpEmptyPos[e][0] + gTr.x, nkvpEmptyPos[e][1] + gTr.y,
 							nkvpEmptyPos[e][2] + gTr.z};
 			NkMat4f S = NkMat4f::Scale({nkvpEmptyScl[e][0] * (1.f + gOs.x),
@@ -10871,6 +10899,60 @@ namespace nkentseu {
 			return NkMat4f::RotationZ(NkAngle::FromRad(rotDeg[2] * kDeg2Rad)) *
 				   NkMat4f::RotationY(NkAngle::FromRad(rotDeg[1] * kDeg2Rad)) *
 				   NkMat4f::RotationX(NkAngle::FromRad(rotDeg[0] * kDeg2Rad));
+		}
+		// ── LES TROIS GESTES SUR LA ROTATION D'UN NOEUD ─────────────────────
+		// Le QUATERNION fait foi ; les angles ne sont qu'une lecture.
+		//   HostNodeQuat  : la rotation, sous sa forme de verite ;
+		//   HostSetNodeEuler : poser des angles SAISIS (le cache les garde tels
+		//     quels -- taper 190 ne doit pas se relire -170) ;
+		//   HostNodeEuler : les angles a AFFICHER (le cache s'il fait foi,
+		//     sinon une lecture continue du quaternion).
+		static NkQuatf HostNodeQuat(int32 e) {
+			HostQuatEnsure();
+			return (e >= 0 && e < 70) ? nkvpEmptyQuat[e] : NkQuatf::Identity();
+		}
+		static void HostSetNodeQuat(int32 e, const NkQuatf &q) {
+			HostQuatEnsure();
+			if (e < 0 || e >= 70)
+				return;
+			nkvpEmptyQuat[e] = q.Normalized();
+			// La rotation vient d'ailleurs que du panneau : les angles saisis ne
+			// decrivent plus forcement cette orientation, on les relira.
+			nkvpRotCacheOk[e] = false;
+		}
+		static void HostSetNodeEuler(int32 e, const float32 *deg) {
+			HostQuatEnsure();
+			if (e < 0 || e >= 70)
+				return;
+			const float32 kD2R = 0.017453292f;
+			// MEME ORDRE que la convention du projet (Z*Y*X).
+			nkvpEmptyQuat[e] = (NkQuatf::RotateZ(NkAngle::FromRad(deg[2] * kD2R)) *
+								NkQuatf::RotateY(NkAngle::FromRad(deg[1] * kD2R)) *
+								NkQuatf::RotateX(NkAngle::FromRad(deg[0] * kD2R)))
+								   .Normalized();
+			for (int32 a = 0; a < 3; ++a)
+				nkvpEmptyRotDeg[e][a] = deg[a];
+			nkvpRotCacheOk[e] = true; // ce sont SES valeurs, on les garde telles quelles
+		}
+		static void HostNodeEuler(int32 e, float32 *outDeg) {
+			HostQuatEnsure();
+			if (e < 0 || e >= 70) {
+				outDeg[0] = outDeg[1] = outDeg[2] = 0.f;
+				return;
+			}
+			if (!nkvpRotCacheOk[e]) {
+				// Lecture CONTINUE : on garde l'ecriture la plus proche de la
+				// precedente, sinon les angles sauteraient de 180 degres en
+				// pleine rotation.
+				NkVec3f p, rDeg, s;
+				HostDecomposeNear(nkvpEmptyQuat[e].ToMat4(), nkvpEmptyRotDeg[e], p, rDeg, s);
+				nkvpEmptyRotDeg[e][0] = rDeg.x;
+				nkvpEmptyRotDeg[e][1] = rDeg.y;
+				nkvpEmptyRotDeg[e][2] = rDeg.z;
+				nkvpRotCacheOk[e] = true;
+			}
+			for (int32 a = 0; a < 3; ++a)
+				outDeg[a] = nkvpEmptyRotDeg[e][a];
 		}
 		static NkMat4f HostRotTranspose(const NkMat4f &m) {
 			NkMat4f t = NkMat4f::Identity();
