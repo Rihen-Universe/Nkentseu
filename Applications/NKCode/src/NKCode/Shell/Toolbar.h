@@ -377,6 +377,7 @@ namespace nkentseu {
 						if (!cmd.Empty()) {
 							s->termOpenKind = -1;
 							s->termOpenAt = cwd;
+							s->termOpenRun = false; // shells, pas le panneau EXECUTION
 							s->termOpenType = cmd;
 						}
 						break;

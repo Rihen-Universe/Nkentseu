@@ -1733,6 +1733,7 @@ namespace nkentseu {
 							break;
 						case 8: // terminal intégré dans ce dossier (shell par défaut)
 							mS->termOpenAt = parent;
+							mS->termOpenRun = false; // shells, pas le panneau EXECUTION
 							mS->termOpenKind = -1;
 							break;
 						case 9:

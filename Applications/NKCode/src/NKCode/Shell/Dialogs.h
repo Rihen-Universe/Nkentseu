@@ -8,7 +8,8 @@
 // les panneaux). ctx.appModal est leve tant qu'un dialogue est ouvert.
 // =============================================================================
 #include "NKEditorKit/NkEditorKit.h"
-#include "NKEditorKit/NkFilePicker.h" // NkFilePickerState : coeur reutilisable du picker
+#include "NKEditorKit/NkFilePicker.h"  // NkFilePickerState : coeur reutilisable du picker
+#include "NKEditorKit/NkEditorModal.h" // NkModal / NkModalDraw (confirmation de fermeture)
 #include "NKCode/Project/NkCodeState.h"
 #include "NKCode/Project/NkCodeGen.h"
 #include "NKCode/Shell/NkLoading.h" // ecran de chargement (section 14)
@@ -354,6 +355,7 @@ namespace nkentseu {
 						st->termOpenCmd = cmd;
 						st->termOpenKind = -1;
 						st->termOpenAt = st->root.ToString();
+						st->termOpenRun = false; // shells, pas le panneau EXECUTION
 						if (shell)
 							shell->FocusPanel("TERMINAL");
 					} else if (purpose == PK_ExampleCopy && !exCopyId.Empty() && !exCopyBusy) {
@@ -1731,9 +1733,52 @@ namespace nkentseu {
 			}
 		}
 
+		// ── Confirmation de FERMETURE de l'application ──────────────────────────
+		// Dessinee dans l'OVERLAY, et avant tout le reste : elle doit apparaitre quel
+		// que soit l'etat de l'interface. Placee dans le panneau Editeur, elle restait
+		// invisible des qu'aucun fichier n'etait ouvert (son OnUI sort tot) — et la
+		// fenetre ne se fermait alors plus jamais, le rappel ayant deja mis son veto.
+		// Retourne true tant qu'elle est affichee (rien d'autre ne doit se dessiner).
+		inline bool DrawQuitConfirm(NkEditorFrameContext &ec, NkCodeDialogs *d) {
+			NkCodeState *st = d ? d->st : nullptr;
+			if (!st || !st->quitRequested)
+				return false;
+			static editorkit::NkModal s_modal;
+			s_modal.open = true;
+			auto &ctx = ec.Ui();
+			const int32 n = st->DirtyCount();
+			// Le message dit la verite : avec des modifications en attente, on annonce
+			// combien ; sans, c'est une simple confirmation.
+			const NkString msg = n > 0 ? NkPrintf(NkT("app.quit.save"), n) : NkString(NkT("app.quit.plain"));
+			// Sans rien a enregistrer, « Enregistrer et fermer » n'aurait aucun sens :
+			// on ne propose alors que deux boutons.
+			const char *items3[3] = {NkT("app.quit.savebtn"), NkT("app.quit.discard"), NkT("app.quit.cancel")};
+			const char *items2[2] = {NkT("app.quit.closebtn"), NkT("app.quit.cancel")};
+			const int32 act = n > 0
+								  ? editorkit::NkModalDraw(ctx, s_modal, NkT("app.quit.title"), msg.CStr(), items3, 3)
+								  : editorkit::NkModalDraw(ctx, s_modal, NkT("app.quit.title"), msg.CStr(), items2, 2);
+			if (act < 0)
+				return true; // toujours ouverte
+			s_modal.open = false;
+			const int32 kCancel = n > 0 ? 2 : 1;
+			if (act == kCancel) {
+				st->quitRequested = false; // annule : on reste
+			} else if (n > 0 && act == 0) {
+				st->quitRequested = false;
+				if (st->SaveAllDirty())
+					st->ConfirmQuit();
+				// Echec (un « sans titre » exige un chemin) : on NE ferme PAS.
+			} else {
+				st->ConfirmQuit(); // fermer, avec ou sans modifications
+			}
+			return true;
+		}
+
 		// ── Overlay modal (appele apres les panneaux via SetOverlay) ──
 		inline void DrawOverlay(NkEditorFrameContext &ec, NkCodeDialogs *d) {
 			if (!d)
+				return;
+			if (DrawQuitConfirm(ec, d))
 				return;
 			if (d->pickerOpen) {
 				DrawFolderPicker(ec, d);

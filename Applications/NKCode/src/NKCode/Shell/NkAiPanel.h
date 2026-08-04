@@ -107,6 +107,7 @@ namespace nkentseu {
 						mS->termOpenCmd = mExe; // la commande EST l'agent (nouvel onglet du terminal)
 						mS->termOpenKind = -1;
 						mS->termOpenAt = mS->HasWorkspace() ? mS->root.ToString() : NkString(".");
+						mS->termOpenRun = false; // agent CLI -> panneau TERMINAL
 						if (mShell)
 							mShell->FocusPanel("TERMINAL");
 					}
@@ -2980,6 +2981,7 @@ namespace nkentseu {
 							mS->termOpenCmd = "claude";
 							mS->termOpenKind = -1;
 							mS->termOpenAt = mS->HasWorkspace() ? mS->root.ToString() : NkString(".");
+						mS->termOpenRun = false; // agent CLI -> panneau TERMINAL
 							if (mShell)
 								mShell->FocusPanel("TERMINAL");
 						} else if (clicked == 41 && mShell) { // General config -> Preferences (reel)
