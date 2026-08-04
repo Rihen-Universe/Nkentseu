@@ -227,6 +227,7 @@ namespace nkentseu {
 				const char *platforms = "";	  // "Windows, Linux, Android, Web"
 				const char *projects = "";	  // "Renderer, Physics, Audio, UI, Main"
 				int32 projCount = 0;		  // nombre total de projets -> "(N)"
+				bool projCountExact = true;   // false -> affiche « ~N » (estimation)
 				const char *buildConfig = ""; // "Debug"
 				const char *modified = "";	  // "il y a 2h"
 				int32 build = 0;			  // 0 inconnu,1 ok,2 erreur,3 partiel
@@ -309,7 +310,7 @@ namespace nkentseu {
 				cx += u.TextW(NkT("card.projects"));
 				NkString cnt; // NkPrintf maison (ex-std::snprintf)
 				if (w.projCount > 0)
-					cnt = NkPrintf("  (%d)", w.projCount);
+					cnt = w.projCountExact ? NkPrintf("  (%d)", w.projCount) : NkPrintf("  (~%d)", w.projCount);
 				const float32 cntw = !cnt.Empty() ? u.TextW(cnt.CStr()) : 0.f;
 				cx += u.TextEllipsis(cx, y, lineRight - cx - cntw, w.projects, NkCol::foreground);
 				if (!cnt.Empty())
@@ -844,6 +845,7 @@ namespace nkentseu {
 						wi.platforms = meta.platforms.CStr();
 						wi.projects = meta.projects.CStr();
 						wi.projCount = meta.projCount;
+						wi.projCountExact = meta.projCountExact;
 						const NkRect cr = {listArea.x, y, listArea.w, CH};
 						const int32 a = NkWorkspaceCard(u, cr, wi, H->icons.star);
 						if (!anyPopup) {
@@ -993,7 +995,7 @@ namespace nkentseu {
 						wi.configs = st->infoConfigs.CStr();
 						wi.platforms = st->infoOSes.CStr();
 						wi.projects = curProj.CStr();
-						wi.projCount = (int32)st->projects.Size();
+						wi.projCount = st->TotalProjectCount(); // meme definition que l'ecran de chargement
 						wi.buildConfig = st->ConfigName();
 						wi.build = 1;
 						wi.iconBg = NkCol::primary;
@@ -1023,6 +1025,7 @@ namespace nkentseu {
 						wi.platforms = meta.platforms.CStr();
 						wi.projects = meta.projects.CStr();
 						wi.projCount = meta.projCount;
+						wi.projCountExact = meta.projCountExact;
 						const int32 a = NkWorkspaceCard(u, cr, wi, H->icons.star);
 						if (!anyPopup) {
 							if (a == 1)

@@ -5297,6 +5297,17 @@ namespace nkentseu {
 
 				// Premier projet executable — cible de « Demarrer » quand « tous les
 				// projets » est selectionne. Vide si le workspace n'a que des bibliotheques.
+				// DEFINITION UNIQUE du « nombre de projets ». Une TestSuite est un projet
+				// a part entiere cote Jenga (declaree par project(), listee dans la table
+				// Projects de `jenga info`) ; NKCode la range juste dans un selecteur
+				// separe. Compter tantot `projects` seul, tantot `projects + tests`,
+				// donnait deux chiffres differents pour un meme workspace — 184 sur
+				// l'ecran de chargement, 249 sur la carte du launcher. Tout passe
+				// desormais par ici.
+				int32 TotalProjectCount() const {
+					return static_cast<int32>(projects.Size() + tests.Size());
+				}
+
 				NkString FirstExecutableProject() const {
 					for (usize i = 0; i < projects.Size(); ++i)
 						if (IsExecutableProject(projects[i].CStr()))
@@ -6245,6 +6256,11 @@ namespace nkentseu {
 						NkString path, configs, platforms, projects, langVer, toolchains, jengaVer;
 						int64 activity = 0;
 						int32 projCount = 0;
+						// false = estimation du scan textuel (workspace jamais ouvert) ; true =
+						// total AUTORITAIRE d'un `jenga info` precedent. Affiche « ~N » dans
+						// le premier cas : mieux vaut avouer l'approximation que donner un
+						// chiffre faussement precis.
+						bool projCountExact = false;
 				};
 
 				NkVector<WsMeta> mWsMeta;
@@ -6572,6 +6588,7 @@ namespace nkentseu {
 						const int32 exact = KnownProjCount(path);
 						if (exact >= 0)
 							m.projCount = exact;
+						m.projCountExact = (exact >= 0);
 					}
 					m.activity = ActivityTime(wsDir.ToString().CStr()); // derniere activite reelle
 					if (m.activity == 0)
@@ -7541,8 +7558,7 @@ namespace nkentseu {
 					// carte de ce workspace affiche le bon nombre au prochain passage sur
 					// le launcher, sans relancer `jenga info`.
 					if (wsIdx >= 0 && wsIdx < static_cast<int32>(wsPaths.Size()))
-						SetKnownProjCount(wsPaths[wsIdx],
-										  static_cast<int32>(projects.Size() + tests.Size()));
+						SetKnownProjCount(wsPaths[wsIdx], TotalProjectCount());
 				}
 
 				// Decoupe jusqu'a `maxN` jetons separes par des espaces/tabs. Renvoie le nombre lu.
