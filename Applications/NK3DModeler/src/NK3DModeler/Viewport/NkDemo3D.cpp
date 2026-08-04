@@ -170,6 +170,10 @@ namespace nkentseu {
 		static void HostParentEnsureInit();
 		static int32 HostAllocUser(uint8 kind);
 		static void HostDecompose(const NkMat4f &M, NkVec3f &pos, NkVec3f &rotDeg, NkVec3f &scl);
+		// Variante CONTINUE (evite le saut de 180 degres des angles d'Euler) :
+		// definie avec l'autre, appelee bien avant.
+		static void HostDecomposeNear(const NkMat4f &M, const float32 *prevDeg, NkVec3f &pos,
+									  NkVec3f &rotDeg, NkVec3f &scl);
 		// Transform MONDE d'un noeud. Enveloppe SANS Demo3DState : la structure
 		// n'est declaree que plus bas, et la vue camera en a besoin ici.
 		static void HostNodeWorldById(int32 n, float32 *pos, NkMat4f &rot, float32 *scl);
@@ -8110,7 +8114,12 @@ namespace nkentseu {
 								// decomposition rend exactement ce qui etait
 								// affiche, pour les sept reperes d'un coup.
 								NkVec3f fp, fr, fs;
-								HostDecompose(st->emptyGizmo.ComposedOf(es), fp, fr, fs);
+								// DECOMPOSITION CONTINUE : les angles precedents du
+								// noeud servent de reference, sinon l'ecriture des
+								// eulers bascule d'une solution a l'autre et les
+								// axes sautent de 180 degres en pleine rotation.
+								HostDecomposeNear(st->emptyGizmo.ComposedOf(es),
+												  nkvpEmptyRotDeg[es], fp, fr, fs);
 								nkvpEmptyPos[es][0] = fp.x;
 								nkvpEmptyPos[es][1] = fp.y;
 								nkvpEmptyPos[es][2] = fp.z;
@@ -10029,6 +10038,45 @@ namespace nkentseu {
 			rotDeg.x = atan2f(r12, r22) * kRad2Deg;
 			rotDeg.z = atan2f(r01, r00) * kRad2Deg;
 		}
+		// ── DECOMPOSITION CONTINUE ──────────────────────────────────────────
+		// Une meme orientation s'ecrit de DEUX facons en angles d'Euler :
+		//   (X, Y, Z)  et  (X+180, 180-Y, Z+180).
+		// HostDecompose en choisit toujours une (celle ou |Y| <= 90, asin ne
+		// sachant pas rendre autre chose). Quand la rotation franchit ce
+		// domaine, l'ecriture bascule sur l'autre solution : les angles SAUTENT
+		// de 180 degres et un axe part en sens inverse -- la « cassure »
+		// constatee par Rihen. Ici on calcule les deux ecritures, on garde
+		// celle qui est la PLUS PROCHE des angles precedents, puis on la
+		// DEROULE (multiples de 360) pour rester dans la continuite de ce que
+		// l'utilisateur lisait. Le gimbal lock vrai (Y a +-90 exactement) reste
+		// une degenerescence des angles d'Euler ; seule une representation par
+		// quaternion l'evite completement.
+		static void HostDecomposeNear(const NkMat4f &M, const float32 *prevDeg, NkVec3f &pos,
+									  NkVec3f &rotDeg, NkVec3f &scl) {
+			HostDecompose(M, pos, rotDeg, scl);
+			if (!prevDeg)
+				return;
+			// Seconde ecriture, equivalente a la premiere.
+			NkVec3f alt{rotDeg.x + 180.f, 180.f - rotDeg.y, rotDeg.z + 180.f};
+			auto wrapNear = [](float32 a, float32 ref) {
+				// Ramene `a` dans la fenetre de +-180 degres autour de `ref` :
+				// 179 -> -179 devient 181, et la lecture ne saute pas.
+				while (a - ref > 180.f)
+					a -= 360.f;
+				while (ref - a > 180.f)
+					a += 360.f;
+				return a;
+			};
+			const NkVec3f c1{wrapNear(rotDeg.x, prevDeg[0]), wrapNear(rotDeg.y, prevDeg[1]),
+							 wrapNear(rotDeg.z, prevDeg[2])};
+			const NkVec3f c2{wrapNear(alt.x, prevDeg[0]), wrapNear(alt.y, prevDeg[1]),
+							 wrapNear(alt.z, prevDeg[2])};
+			const float32 d1 = math::NkAbs(c1.x - prevDeg[0]) + math::NkAbs(c1.y - prevDeg[1]) +
+							   math::NkAbs(c1.z - prevDeg[2]);
+			const float32 d2 = math::NkAbs(c2.x - prevDeg[0]) + math::NkAbs(c2.y - prevDeg[1]) +
+							   math::NkAbs(c2.z - prevDeg[2]);
+			rotDeg = (d2 < d1) ? c2 : c1;
+		}
 		// ── PARENTE DE SCENE : helpers ──────────────────────────────────────
 		static void HostParentEnsureInit() {
 			if (nkvpParentInit)
@@ -10313,8 +10361,13 @@ namespace nkentseu {
 				pos3[1] += tr.y;
 				pos3[2] += tr.z;
 				NkVec3f gp, gr, gs;
-				HostDecompose(st->emptyGizmo.RotationOf(e) * HostRotFromEuler(nkvpEmptyRotDeg[e]),
-							  gp, gr, gs);
+				// CE QUE LIT LE PANNEAU pendant le glissement : decomposition
+				// CONTINUE, ancree sur les angles du noeud. Sans elle, l'ecriture
+				// des eulers bascule d'une solution a l'autre en cours de
+				// rotation et les degres sautent de 180 (Rihen).
+				HostDecomposeNear(st->emptyGizmo.RotationOf(e) *
+									  HostRotFromEuler(nkvpEmptyRotDeg[e]),
+								  nkvpEmptyRotDeg[e], gp, gr, gs);
 				rotDeg3[0] = gr.x;
 				rotDeg3[1] = gr.y;
 				rotDeg3[2] = gr.z;
@@ -10336,19 +10389,17 @@ namespace nkentseu {
 			Demo3DHostEmptyTransform(node, cp, cr, cs);
 			for (int32 a = 0; a < 3; ++a)
 				nkvpEmptyPos[e][a] += pos3[a] - cp[a];
-			const float32 kD2R = 0.017453292f;
-			const float32 ddx = (rotDeg3[0] - cr[0]) * kD2R;
-			const float32 ddy = (rotDeg3[1] - cr[1]) * kD2R;
-			const float32 ddz = (rotDeg3[2] - cr[2]) * kD2R;
-			if (fabsf(ddx) + fabsf(ddy) + fabsf(ddz) > 1e-7f) {
-				const NkMat4f dR = NkMat4f::RotationZ(NkAngle::FromRad(ddz)) *
-								   NkMat4f::RotationY(NkAngle::FromRad(ddy)) *
-								   NkMat4f::RotationX(NkAngle::FromRad(ddx));
-				NkVec3f bp, br, bs;
-				HostDecompose(dR * HostRotFromEuler(nkvpEmptyRotDeg[e]), bp, br, bs);
-				nkvpEmptyRotDeg[e][0] = br.x;
-				nkvpEmptyRotDeg[e][1] = br.y;
-				nkvpEmptyRotDeg[e][2] = br.z;
+			// ── LES ANGLES TAPES SONT LES ANGLES VOULUS ─────────────────────
+			// On les ECRIT tels quels. L'ancienne voie composait un DELTA de
+			// rotation puis redecomposait le produit : taper 45 sur X changeait
+			// alors TOUS les angles, y compris celui qu'on venait de taper
+			// (constate par Rihen). Un champ d'angle doit poser sa valeur, pas
+			// declencher un aller-retour matriciel.
+			if (fabsf(rotDeg3[0] - cr[0]) + fabsf(rotDeg3[1] - cr[1]) +
+					fabsf(rotDeg3[2] - cr[2]) >
+				1e-7f) {
+				for (int32 a = 0; a < 3; ++a)
+					nkvpEmptyRotDeg[e][a] = rotDeg3[a];
 			}
 			for (int32 a = 0; a < 3; ++a)
 				if (cs[a] > 1e-6f && fabsf(scl3[a] - cs[a]) > 1e-7f)
