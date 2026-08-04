@@ -218,12 +218,23 @@ multiplient (chaque opération devra être une commande réversible).
   l'avait jamais été), champs à 259 caractères, Maj+D ne duplique plus deux
   fois, dimensions honnêtes (cube 1 m comme Unreal), pivot dans la barre.
 
-# CAMÉRA — plan d'ensemble (NkCamLink)
+# CAMÉRA — plan d'ensemble
 
 > Piloté depuis le modeleur, mais **destiné à servir d'autres applications**.
-> Le code devra donc naître dans `Kernel/Runtime/`, à côté de NKCamera, et non
-> dans `Applications/NK3DModeler/` : une extraction ultérieure coûte toujours
-> plus cher que la bonne place au départ. Le modeleur en sera le premier client.
+>
+> **Aucun nouveau module.** J'avais d'abord proposé une bibliothèque dédiée ;
+> Rihen a demandé pourquoi ne pas l'intégrer à NKCamera, et la question a
+> montré que ma proposition était mauvaise. Le découpage juste :
+>
+> - **Capture (webcam en incrustation, en vidéo)** → NKCamera, tel quel. Rien à
+>   créer : un adaptateur dans le modeleur suffit.
+> - **Lien téléphone (découverte, pose, commandes)** → **NKNetwork**, à côté de
+>   `NkLobby` et `NkDiscovery` qui font déjà de la découverte et de
+>   l'appairage. Pas dans NKCamera : celui-ci **ne dépend pas de NKNetwork**
+>   (vérifié dans son `.jenga`), et l'y mettre ferait tirer toute la pile réseau
+>   à `NkCameraDemos`, qui veut seulement lire une webcam. Dans l'autre sens,
+>   recevoir une pose de téléphone n'a aucune raison d'exiger Media Foundation.
+> - **Application mobile** → une application, pas une bibliothèque.
 
 ## Les trois usages, décidés avec Rihen
 
@@ -254,9 +265,70 @@ multiplient (chaque opération devra être une commande réversible).
 |---|---|---|
 | **Capture micro** | NKAudio | Sans elle, pas de **voix off** sur un tutoriel. Rihen : « on doit l'intégrer à tout prix, même si ce n'est pas pour maintenant ». Le reste de la chaîne est prêt : mixage, encodage Opus, mux A/V. |
 | **Retour visuel vers le téléphone** | NkCamLink + NKMedia | Voir depuis le téléphone ce que voit la caméra. Second étage, explicitement voulu. Flux basse résolution : MJPEG suffit et NKMedia l'encode déjà. |
-| **Protocole NkCamLink** | Kernel/Runtime | Découverte, appairage, pose quantifiée, RPC de commande. S'assemble depuis NKNetwork — rien à inventer côté transport. |
+| **Lien de pose** | NKNetwork | Découverte, appairage, pose quantifiée, RPC de commande. S'assemble depuis les couches existantes — rien à inventer côté transport. |
 | **Application mobile** | Applications/ | NKCanvas + NKCamera (IMU) + NKNetwork. |
 | **Tracking sans IMU** | — | Le mapping de NKCamera repose sur l'IMU, **absent des webcams Windows desktop**. Piloter la caméra virtuelle depuis une webcam demanderait du tracking visuel : projet à part entière, écarté pour l'instant. |
+| **Baromètre** | NKCamera | Variations verticales ~10–20 cm. Retenu comme complément, pas comme solution (aucun déplacement horizontal). |
+| **Module `NKXR` (OpenXR)** | Kernel/Runtime | Le vrai 6DoF : casque **et contrôleurs**. Rien n'existe aujourd'hui dans le dépôt. Sert aussi la VR/AR du moteur, au-delà de la caméra du modeleur. |
+
+## Position et hauteur : mesurées ou déclarées ?
+
+Question de Rihen. Réponse honnête : **la hauteur exacte n'est pas mesurable
+par l'IMU**, et ce n'est pas une limite d'implémentation mais de physique.
+`NkCameraOrientation` expose `yaw`, `pitch`, `roll` et l'accéléromètre brut —
+aucune position. En tirer une position demanderait d'intégrer deux fois
+l'accélération : l'erreur croît quadratiquement, la dérive atteint des mètres
+en quelques secondes.
+
+| Voie | Ce qu'elle donne | Coût |
+|---|---|---|
+| **Déclaration** (config) | hauteur exacte, choisie | nul — **retenu pour l'étage 1** |
+| **Baromètre** | variations verticales ~10–20 cm après remise à zéro ; rien d'absolu (la météo décale) | moyen, non exposé par NKCamera |
+| **ARCore / ARKit** | vraie pose 6DoF (position + orientation) | élevé, SDK propriétaires, chantier à part |
+
+**Étage 1 : position déclarée, orientation mesurée.** Un trépied virtuel dont
+on règle la hauteur, et le téléphone dit où l'on vise. **Rihen a raison de
+noter la limite** : cela convient aux plans fixes — vue de dessus, de dessous,
+panoramique depuis un point — mais pas au mouvement. Pour monter, descendre,
+courir, tourner, il faut du vrai 6DoF.
+
+**Le baromètre est à retenir** (Rihen : « on doit y penser ») : il donne les
+variations verticales à ~10–20 cm après remise à zéro. Il ne suffit pas seul —
+pas de déplacement horizontal — mais il rend crédible un mouvement vertical.
+
+## Se déplacer VRAIMENT dans la scène — le 6DoF
+
+Objectif explicite de Rihen. Trois voies, comparées honnêtement :
+
+| Voie | À écrire | Qualité | Coût |
+|---|---|---|---|
+| **Casque + contrôleurs VR (OpenXR)** | un backend OpenXR | excellente | **moyen — retenu** |
+| ARCore / ARKit | deux intégrations propriétaires, par plateforme | bonne | élevé |
+| Notre propre SLAM visuel-inertiel | tout | incertaine | très élevé (années-homme) |
+
+**Pourquoi le casque gagne.** Un casque 6DoF *fait déjà* son tracking
+(inside-out, caméras intégrées) : il ne livre pas des mesures à intégrer mais
+une **pose position + orientation** déjà calculée, des centaines de fois par
+seconde, au millimètre. Et l'accès passe par **OpenXR**, standard **ouvert** de
+Khronos — comme Vulkan — et non par un SDK propriétaire.
+
+**Les contrôleurs comptent autant que le casque** : eux aussi suivis en 6DoF,
+ce sont deux caméras qu'on tient à la main. Monter, descendre, courir,
+tourner : c'est ainsi que se font les mouvements de caméra virtuelle en
+production. C'est la réponse directe aux « acrobaties » demandées.
+
+**Rien d'XR n'existe dans le dépôt aujourd'hui** (vérifié : aucun module, aucune
+mention d'OpenXR). C'est donc à créer — un module `NKXR` au niveau Runtime,
+qui servirait aussi la VR et l'AR déjà envisagées pour le moteur, pas seulement
+la caméra du modeleur.
+
+Sur « recréer notre propre système AR » : légitime à terme, mais un SLAM
+visuel-inertiel de qualité représente plusieurs années-homme. Le faire **après**
+un backend OpenXR qui fonctionne est un choix ; le faire **avant** priverait
+longtemps le projet de ce qu'il veut maintenant.
+
+Pour une **webcam desktop**, la question ne se pose même pas : le tableau des
+backends de NKCamera donne l'IMU absent sur Windows. Tout en configuration.
 
 ## Ce que ce travail apporte aux modules
 
@@ -340,6 +412,63 @@ Les formes vivent dans `NkOutCompose.h`, à part : c'est du calcul pur, donc
 formes et vérifie 9 propriétés (couverture au centre et aux coins de chaque
 forme, liseré sur les quatre bords, opacité, cadres carrés forcés) — toutes
 passent.
+
+### Découper la vue — DEUX fonctionnalités distinctes (idées de Rihen)
+
+Elles partagent l'apparence — une vue coupée en morceaux — mais **pas du tout la
+sémantique**. Les confondre mènerait à une implémentation qui ne sert bien ni
+l'une ni l'autre.
+
+| | **Multi-vue** | **Séparateur univue** |
+|---|---|---|
+| Sert à | modéliser | comparer, expliquer |
+| Caméras | **une par vue** (face, côté, dessus, perspective) | **une seule** |
+| Tourner la vue | ne bouge que celle qu'on manipule | **bouge tout**, il n'y en a qu'une |
+| Ce qui diffère | le point de vue | le **mode de rendu** (ou les réglages) |
+| Séparateur | une cloison entre panneaux | un **trait de coupe** dans une image |
+| Précédent connu | Blender, Maya | comparateur avant/après |
+
+**Multi-vue** — la disposition classique de modélisation : quatre quadrants,
+face / côté / dessus / perspective, chacun avec sa caméra et son mode. C'est de
+la **mise en page de panneaux**, proche de ce que fait déjà le système de
+séparateurs de l'interface.
+
+**Séparateur univue** — décrit ci-dessous. C'est celui auquel Rihen tient le
+plus, et le moins courant des deux.
+
+#### Séparateur univue — comparer deux rendus sur la MÊME image
+
+Diviser la vue 3D en deux — ou en N — **non pas pour montrer deux vues
+différentes**, mais pour montrer **le même point de vue rendu de deux façons** :
+fil de fer contre solide, solide contre rendu, ou deux réglages de rendu
+distincts. Un séparateur déplaçable fait glisser la frontière ; plus on le
+bouge, plus la découpe est inégale.
+
+**Ce qui fait tout l'intérêt, et qui doit guider l'implémentation :** ce n'est
+pas un écran partagé. C'est **une seule image, une seule caméra**. Tourner la
+vue fait tourner les deux côtés ensemble, parce qu'il n'y en a qu'une. L'illusion
+recherchée est celle d'une image qu'on **découpe** : à gauche elle montre une
+chose, à droite une autre, et le séparateur est le trait de coupe.
+
+Conséquences techniques à prévoir :
+
+- **Une seule caméra, un seul état de scène.** Les deux côtés partagent tout sauf
+  le mode de rendu (et, à terme, un jeu de réglages). Toute tentation de tenir
+  deux caméras est à écarter : elle briserait la promesse.
+- **Deux passes de rendu, un seul assemblage**, avec un masque de découpe — c'est
+  exactement ce que fait déjà `NkInsetCompose` pour les incrustations, à ceci
+  près que la forme est ici un demi-plan mobile. La brique de composition existe.
+- **Ça doit sortir en image.** Une comparaison qui ne se capture pas ne sert
+  qu'à l'écran ; la pastille Output doit pouvoir la produire, séparateur compris.
+- **N côtés, pas seulement deux** — prévoir la généralisation dès la structure de
+  données, même si l'interface commence à deux.
+
+Voisin utile : le même mécanisme permettrait un « avant / après » sur un réglage
+qu'on modifie, ce qui est le meilleur outil pédagogique pour un tutoriel.
+
+**Les deux peuvent coexister** : une multi-vue dont l'un des quadrants porte lui-
+même un séparateur univue. C'est une raison de plus pour ne pas les bâtir sur le
+même mécanisme — l'un découpe des **panneaux**, l'autre découpe une **image**.
 
 ### Ce qui reste à faire sur Output
 

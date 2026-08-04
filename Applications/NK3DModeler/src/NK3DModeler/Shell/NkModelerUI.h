@@ -392,6 +392,70 @@ namespace nkentseu {
 					Text(x, y + (h - mFont.LineHeight()) * 0.5f, s, c);
 				}
 
+				// ── BLOC DE TEXTE QUI VA A LA LIGNE ─────────────────────────────
+				// Le systeme de groupes cadre les WIDGETS -- leurs rectangles se
+				// calculent depuis la largeur du groupe -- mais pas les CHAINES,
+				// qui se peignent la ou on leur dit : un libelle plus large que la
+				// colonne debordait tel quel (constate par Rihen). Plutot que de
+				// clipper au cas par cas, on decoupe le texte a la largeur utile et
+				// on passe a la ligne, comme le fait le panneau de discussion de
+				// NkCode -- sans etre pour autant un champ multiligne editable.
+				//
+				// Coupe aux ESPACES ; un mot plus large que la colonne est place
+				// seul sur sa ligne et clippe, plutot que de deborder ou de
+				// disparaitre. Renvoie la hauteur consommee, pour que l'appelant
+				// avance son curseur vertical sans avoir a compter les lignes.
+				float32 TextWrap(float32 x, float32 y, float32 w, const char *s,
+								 NkRole role = NkRole::Text, float32 lineGap = 0.f) {
+					if (!s || !*s || w <= 1.f)
+						return 0.f;
+					const float32 lh = mFont.LineHeight() + lineGap;
+					float32 cy = y;
+					char line[512];
+					uint32 len = 0;
+					uint32 i = 0;
+					while (s[i]) {
+						// Mot suivant, espaces de tete compris.
+						uint32 ws = i;
+						while (s[i] == ' ')
+							++i;
+						uint32 b = i;
+						while (s[i] && s[i] != ' ')
+							++i;
+						const uint32 wlen = i - ws;
+						if (wlen == 0 || len + wlen + 1 >= sizeof(line))
+							break;
+						// Essai : la ligne courante + ce mot.
+						char test[512];
+						uint32 t = 0;
+						for (uint32 k = 0; k < len; ++k)
+							test[t++] = line[k];
+						for (uint32 k = ws; k < i; ++k)
+							test[t++] = s[k];
+						test[t] = 0;
+						if (len > 0 && TextW(test) > w) {
+							// Ca ne rentre pas : on ferme la ligne et on repart
+							// avec ce mot, sans son espace de tete.
+							line[len] = 0;
+							Text(x, cy, line, role);
+							cy += lh;
+							len = 0;
+							for (uint32 k = b; k < i; ++k)
+								line[len++] = s[k];
+						} else {
+							len = t;
+							for (uint32 k = 0; k < t; ++k)
+								line[k] = test[k];
+						}
+					}
+					if (len > 0) {
+						line[len] = 0;
+						Text(x, cy, line, role);
+						cy += lh;
+					}
+					return cy - y;
+				}
+
 				// ── ICONES ──────────────────────────────────────────────────────
 				// TEINTEES par un role de theme, jamais affichees telles quelles : une
 				// icone grise dessinee brute serait invisible en theme clair -- le

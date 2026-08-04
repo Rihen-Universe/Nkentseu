@@ -158,11 +158,14 @@ namespace nkentseu {
 				// par defaut -- ce qu on veut voir en ouvrant, sans le bruit du reste.
 				// bits : 1 grille, 2 lignes fines, 4 lignes majeures, 8 axes du plan,
 				// 16 contour de selection, 32 HUD texte de la demo (off par defaut :
-				// il chevauchait la barre d'outils).
+				// il chevauchait la barre d'outils), 64 CURSEUR 3D.
 				// GRILLE, LIGNES FINES ET MAJEURES COUPEES par defaut (Rihen) :
 				// c'est le SOL INFINI en damier qui donne le repere au sol --
 				// restent les axes et le contour de selection.
-				uint32 overlayMask = 0x18u;
+				// Le CURSEUR 3D est COCHE par defaut (Rihen) : c'est un repere de
+				// travail attendu, qu'on doit pouvoir eteindre sans renoncer a
+				// l'outil qui le place.
+				uint32 overlayMask = 0x18u | 0x40u;
 // Sections DEROULEES du panneau Details, un bit par section (maillage,
 				// modificateurs, materiaux, sous-maillages). Les quatre ouvertes au
 				// depart : un panneau qui s'ouvre tout replie oblige a quatre clics
@@ -651,8 +654,16 @@ namespace nkentseu {
 				// prochaine ouverture, la disposition se retrouve identique quelle que
 				// soit la taille de fenetre. En pixels, une fenetre plus petite
 				// ecraserait les panneaux ; en fractions, ils suivent.
-				float32 leftFrac = 0.16f;
-				float32 rightFrac = 0.29f;
+				// LARGEUR MINIMALE A LA PREMIERE OUVERTURE (Rihen) : un panneau
+				// qui s'ouvre trop large mange la vue 3D, et l'utilisateur doit
+				// le retrecir avant de travailler -- l'inverse du bon defaut.
+				// Une fraction NULLE laisse Compute() appliquer son plancher
+				// (kMinLeftW / kMinRightW) : on obtient donc la largeur minimale
+				// sans dupliquer ces valeurs ici. Des que l'utilisateur bouge un
+				// separateur, la fraction devient la SIENNE et se conserve --
+				// fermer puis rouvrir retrouve sa largeur, pas le minimum.
+				float32 leftFrac = 0.f;
+				float32 rightFrac = 0.f;
 				float32 browserFrac = 0.22f;
 				float32 propsFrac = 0.45f; ///< part des proprietes dans la colonne de droite
 

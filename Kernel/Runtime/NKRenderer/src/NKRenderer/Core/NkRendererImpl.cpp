@@ -784,7 +784,16 @@ namespace nkentseu {
 				lit.Reads(gbufN);
 				lit.Reads(gbufE);
 				lit.Reads(mainDepth);
-				lit.SetColor(0, mainColor, NkLoadOp::NK_CLEAR, {0.05f, 0.05f, 0.07f, 1.f});
+				// LA COULEUR DE FOND DEMANDEE, pas une valeur ecrite en dur.
+				// C'est cette passe qui efface la cible en rendu DIFFERE :
+				// figee, elle rendait SetBackgroundColor sans effet des que le
+				// differe etait actif, et interdisait tout fond transparent
+				// puisque son alpha valait 1 (constate sur NK3DModeler, dont la
+				// sortie « fond transparent » produisait un aplat opaque).
+				// La valeur qui etait ecrite ici est justement le DEFAUT de
+				// mClearColor : rien ne change tant qu'on ne demande pas autre
+				// chose.
+				lit.SetColor(0, mainColor, NkLoadOp::NK_CLEAR, mClearColor);
 				lit.Execute([this, gbufA, gbufN, gbufE, mainDepth](NkICommandBuffer *cmd) {
 					mRender3D->RenderDeferredLighting(cmd, mRenderGraph->GetResourceTexture(gbufA),
 													  mRenderGraph->GetResourceTexture(gbufN),

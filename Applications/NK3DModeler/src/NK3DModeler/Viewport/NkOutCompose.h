@@ -141,18 +141,113 @@ namespace nkentseu {
 			}
 		}
 
-		// Taille en pixels d'une incrustation, d'apres sa fraction de largeur et
-		// le format de la principale. Carre et cercle forcent un cadre carre.
-		inline void NkInsetPixels(int32 shape, float32 sizeFrac, int32 mainW, int32 mainH,
-								  int32 *outW, int32 *outH) {
-			int32 ww = (int32)(sizeFrac * (float32)mainW + 0.5f);
+		// Nombre de dimensions REGLABLES d'une forme (Rihen : « chaque forme
+		// doit avoir ses propres dimensions »). Un carre et un cercle n'ont
+		// qu'un cote a donner -- leur imposer deux champs dont l'un serait
+		// ignore serait mentir sur ce qu'on regle.
+		inline int32 NkInsetDimCount(int32 shape) {
+			return (shape == kInsetSquare || shape == kInsetCircle) ? 1 : 2;
+		}
+		// Libelles des champs, propres a chaque forme : « Diametre » pour un
+		// cercle, « Cote » pour un carre, « Largeur / Hauteur » ailleurs.
+		inline const char *NkInsetDimName(int32 shape, int32 axis) {
+			if (shape == kInsetCircle)
+				return "Diametre";
+			if (shape == kInsetSquare)
+				return "Cote";
+			return axis == 0 ? "Largeur" : "Hauteur";
+		}
+
+		// ── ALPHA RECONSTRUIT DEPUIS DEUX FONDS ─────────────────────────────
+		// La chaine de post-traitement termine par `vec4(rgb, 1.)` : elle
+		// DETRUIT l'alpha, quoi qu'on efface en amont. Corriger ces shaders sur
+		// les cinq backends est un chantier a part ; en attendant, on retrouve
+		// l'alpha exactement, sans toucher au rendu, en composant la scene deux
+		// fois -- une fois sur fond NOIR, une fois sur fond BLANC :
+		//
+		//   C_noir  = a.C            (le fond noir n'ajoute rien)
+		//   C_blanc = a.C + (1-a)    (le fond blanc ajoute son complement)
+		//   => a = 1 - (C_blanc - C_noir)      et      C = C_noir / a
+		//
+		// C'est la methode des compositeurs. Elle rend un alpha PARTIEL correct
+		// -- bords antialiases, objets translucides -- la ou un simple seuil sur
+		// la couleur ne saurait que dire « dedans » ou « dehors ».
+		//
+		// `dark` reste intact ; `white` recoit le resultat (couleur + alpha),
+		// pour n'allouer aucun troisieme tampon.
+		inline void NkAlphaFromTwoBackgrounds(const uint8 *dark, uint8 *white, int32 w, int32 h) {
+			if (!dark || !white || w <= 0 || h <= 0)
+				return;
+			const int64 n = (int64)w * (int64)h;
+			// ── LE BLANC REEL, MESURE ───────────────────────────────────────
+			// La formule suppose que le fond blanc ressort a 1. C'est faux : le
+			// tonemap ACES COMPRESSE les hautes lumieres, si bien qu'un fond
+			// pur donnait un ecart de 0,97 au lieu de 1 -- et donc un alpha
+			// residuel de 8/255 la ou il n'y a rien (mesure sur un rendu reel).
+			// On mesure donc l'ecart MAXIMAL de l'image : c'est celui d'un pixel
+			// ou il n'y a rien, donc le blanc effectif apres toute la chaine.
+			// Tant que la chaine est monotone, cela l'annule exactement.
+			float32 wref = 0.f;
+			for (int64 i = 0; i < n; ++i) {
+				const uint8 *d = dark + i * 4;
+				const uint8 *o = white + i * 4;
+				float32 diff = 0.f;
+				for (int32 c = 0; c < 3; ++c)
+					diff += ((float32)o[c] - (float32)d[c]);
+				diff /= (3.f * 255.f);
+				if (diff > wref)
+					wref = diff;
+			}
+			// Image sans aucun fond visible : rien a extraire, tout est opaque.
+			// Sans cette garde, un ecart nul diviserait par zero.
+			if (wref < 0.05f)
+				wref = 1.f;
+			const float32 invW = 1.f / wref;
+			for (int64 i = 0; i < n; ++i) {
+				const uint8 *d = dark + i * 4;
+				uint8 *o = white + i * 4;
+				// L'ecart moyen sur les trois canaux : en theorie chacun donne
+				// le meme alpha, la moyenne absorbe le bruit du tonemap.
+				float32 diff = 0.f;
+				for (int32 c = 0; c < 3; ++c)
+					diff += ((float32)o[c] - (float32)d[c]);
+				diff /= (3.f * 255.f);
+				float32 a = 1.f - diff * invW;
+				if (a <= 0.003f) {
+					o[0] = o[1] = o[2] = o[3] = 0; // rien ici : pixel efface
+					continue;
+				}
+				if (a > 1.f)
+					a = 1.f;
+				// Couleur DEMULTIPLIEE : le PNG attend du non-premultiplie.
+				for (int32 c = 0; c < 3; ++c) {
+					float32 v = (float32)d[c] / a;
+					if (v > 255.f)
+						v = 255.f;
+					o[c] = (uint8)(v + 0.5f);
+				}
+				o[3] = (uint8)(a * 255.f + 0.5f);
+			}
+		}
+
+		// Taille en pixels d'une incrustation. `sizeW` est une fraction de la
+		// LARGEUR de la principale, `sizeH` une fraction de sa HAUTEUR : chacune
+		// est ainsi lisible telle quelle (0,25 = le quart du cote). Carre et
+		// cercle n'utilisent que `sizeW` et se ferment sur un cadre carre EN
+		// PIXELS -- sans quoi un « carre » de 25 % serait un rectangle des que
+		// la sortie n'est pas carree.
+		inline void NkInsetPixels(int32 shape, float32 sizeW, float32 sizeH, int32 mainW,
+								  int32 mainH, int32 *outW, int32 *outH) {
+			int32 ww = (int32)(sizeW * (float32)mainW + 0.5f);
 			if (ww < 8)
 				ww = 8;
 			if (ww > mainW)
 				ww = mainW;
-			int32 hh = (shape == kInsetSquare || shape == kInsetCircle)
-						   ? ww
-						   : (int32)((float32)ww * (float32)mainH / (float32)mainW + 0.5f);
+			int32 hh;
+			if (NkInsetDimCount(shape) == 1)
+				hh = ww; // cadre carre en pixels
+			else
+				hh = (int32)(sizeH * (float32)mainH + 0.5f);
 			if (hh < 8)
 				hh = 8;
 			if (hh > mainH)

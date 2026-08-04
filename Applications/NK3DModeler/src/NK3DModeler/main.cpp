@@ -898,18 +898,41 @@ int nkmain(const NkEntryState &entry) {
 				sy.snapScale = st.snapScale;
 			}
 
-			// Surimpressions : grille et ses traits (F1..F4), lisere, HUD.
+			// ── LES NOMS DE CAMERA DESCENDENT VERS L'HOTE ───────────────────
+			// C'est lui qui ecrit les fichiers de sortie, et il ne connait que
+			// des numeros de noeud : sans ce depot, une miniature sortait en
+			// « cam2 » au lieu de « Camera.002 ». Ce depot vivait dans le
+			// panneau Output -- il fallait donc l'avoir ouvert au moins une fois
+			// pour que les noms soient justes, ce qui est une condition qu'on ne
+			// devine pas. Il se fait desormais dans la synchronisation
+			// generale : les noms sont a jour quoi qu'on ait ouvert, et
+			// renommer une camera renomme les prochains fichiers.
+			{
+				int32 camN[16];
+				const int32 nC = demo::Demo3DHostSceneCameras(camN, 16);
+				for (int32 c = 0; c < nC; ++c) {
+					char cn[32] = {};
+					nk3d::NkHierNodeName(st, camN[c], cn, sizeof(cn));
+					demo::Demo3DHostSetNodeLabel(camN[c], cn);
+				}
+			}
+
+			// Surimpressions : grille et ses traits (F1..F4), lisere, HUD, et le
+			// CURSEUR 3D (bit 64) -- un repere de travail qu'on doit pouvoir
+			// eteindre sans renoncer a l'outil qui le place (Rihen).
 			if (!sy.first && st.overlayMask != sy.overlay) {
 				demo::Demo3DHostSetGridFlags((st.overlayMask & 1u) != 0u, (st.overlayMask & 2u) != 0u,
 											 (st.overlayMask & 4u) != 0u, (st.overlayMask & 8u) != 0u);
 				demo::Demo3DHostSetOutline((st.overlayMask & 16u) != 0u);
 				demo::Demo3DHostSetHud((st.overlayMask & 32u) != 0u);
+				demo::Demo3DHostSetCursorShown((st.overlayMask & 64u) != 0u);
 			} else {
 				bool g0, g1, g2, g3;
 				demo::Demo3DHostGridFlags(&g0, &g1, &g2, &g3);
 				st.overlayMask = (g0 ? 1u : 0u) | (g1 ? 2u : 0u) | (g2 ? 4u : 0u) | (g3 ? 8u : 0u) |
 								 (demo::Demo3DHostOutline() ? 16u : 0u) |
-								 (demo::Demo3DHostHud() ? 32u : 0u);
+								 (demo::Demo3DHostHud() ? 32u : 0u) |
+								 (demo::Demo3DHostCursorShown() ? 64u : 0u);
 			}
 			sy.overlay = st.overlayMask;
 
@@ -1279,6 +1302,15 @@ int nkmain(const NkEntryState &entry) {
 		}
 		{
 			NkHitRegistry::LayerScope menuLayer(hit, 50);
+			// ── LES SURCOUCHES ECHAPPENT AU BLOCAGE DES PANNEAUX ────────────
+			// Un panneau arme SetBlock pour que la liste ouverte d'un combo ne
+			// laisse pas ses clics le traverser. Mais menus, listes et boites
+			// sont peints ICI, APRES lui : le blocage les neutralisait a leur
+			// tour, si bien que la liste s'ouvrait sans qu'on puisse rien y
+			// choisir (constate par Rihen sur le format de sortie). Le blocage
+			// protege ce qui est DESSOUS, jamais ce qui est au-dessus -- on le
+			// leve donc en entrant dans la couche des surcouches.
+			hit.SetBlock({}, false);
 			// Menus et dialogues de scene (menu contextuel de la hierarchie ET
 			// de la vue 3D, du navigateur, confirmation de suppression).
 			PaintSceneMenus(p, {0.f, 0.f, (float32)W, (float32)H}, lay.view, st, hit, ws,

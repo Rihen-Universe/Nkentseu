@@ -110,6 +110,12 @@ namespace nkentseu {
 		void Demo3DHostSetCursorTool(bool on);
 		void Demo3DHostSetGridFlags(bool grid, bool minor, bool major, bool axes);
 		void Demo3DHostGridFlags(bool *grid, bool *minor, bool *major, bool *axes);
+		// CURSEUR 3D visible dans la vue (onglet Affichage, coche par defaut).
+		// C'est un repere de TRAVAIL : on doit pouvoir l'eteindre sans renoncer
+		// a l'outil qui le place, et il ne part dans un rendu que si l'aide
+		// « Curseur 3D » est explicitement demandee.
+		bool Demo3DHostCursorShown();
+		void Demo3DHostSetCursorShown(bool on);
 		void Demo3DHostSetOutline(bool on);
 		bool Demo3DHostOutline();
 		void Demo3DHostSetHud(bool on);
@@ -485,12 +491,80 @@ namespace nkentseu {
 		// l'iteration parcourt 0..Max-1 et saute les trous, comme les
 		// materiaux de projet. Position et taille sont des FRACTIONS de la
 		// principale : changer la resolution ne deplace donc rien.
+		// CHAQUE FORME A SES PROPRES DIMENSIONS (Rihen) : `size2` porte la
+		// LARGEUR puis la HAUTEUR, chacune fraction du cote correspondant de la
+		// principale -- 0,25 se lit « le quart », dans les deux sens. Un carre
+		// ou un cercle n'a qu'un cote a donner : seule la premiere valeur
+		// compte, la seconde la recopie pour ne jamais rien dire de
+		// contradictoire. Voir NkInsetDimCount / NkInsetDimName (NkOutCompose.h)
+		// pour savoir combien de champs afficher et sous quel nom.
 		int32 Demo3DHostOutInsetMax();
-		bool Demo3DHostOutInset(int32 i, int32 *source, int32 *shape, float32 *xy2, float32 *size,
+		bool Demo3DHostOutInset(int32 i, int32 *source, int32 *shape, float32 *xy2, float32 *size2,
 								float32 *border, float32 *borderCol3, float32 *opacity);
 		void Demo3DHostSetOutInset(int32 i, int32 source, int32 shape, const float32 *xy2,
-								   float32 size, float32 border, const float32 *borderCol3,
-								   float32 opacity);
+								   const float32 *size2, float32 border,
+								   const float32 *borderCol3, float32 opacity);
+		// FICHIER PROPRE : la miniature est AUSSI ecrite seule, en plus d'etre
+		// posee sur l'image principale. Elle sort alors TELLE QUELLE --
+		// rectangulaire, sans masque de forme ni lisere : la forme appartient a
+		// la composition, pas a l'image. Nom : <nom>_<NNN>_<camera>[_<mode>].
+		bool Demo3DHostOutInsetOwnFile(int32 i);
+		void Demo3DHostSetOutInsetOwnFile(int32 i, bool on);
+		// Ce fichier propre garde-t-il la FORME et le lisere ? Non par defaut --
+		// la forme appartient a la composition -- mais c'est un choix, pas une
+		// regle : une vignette ronde peut etre le livrable voulu.
+		bool Demo3DHostOutInsetOwnShaped(int32 i);
+		void Demo3DHostSetOutInsetOwnShaped(int32 i, bool on);
+		// L'interface depose ici le VRAI nom d'un noeud : l'hote ne connait que
+		// des numeros, et les fichiers produits doivent porter « Camera.002 »
+		// plutot que « cam2 » (Rihen).
+		void Demo3DHostSetNodeLabel(int32 node, const char *name);
+		// ── EXCLU DU RENDU (colonne camera de la hierarchie, Rihen) ─────────
+		// DISTINCT de l'oeil : l'objet reste VISIBLE dans la vue -- on travaille
+		// avec -- mais n'apparait pas dans l'image produite. Pendant du bouton
+		// appareil photo de Blender. Il s'HERITE comme le masquage et le
+		// cadenas : exclure un parent exclut son sous-arbre, chaque enfant
+		// gardant son propre drapeau. `Eff` rend l'etat EFFECTIF (le sien ou
+		// celui d'un ancetre) -- c'est ce que l'interface doit montrer, sinon
+		// une exclusion heritee paraitrait inexplicable.
+		bool Demo3DHostNodeNoRender(int32 node);
+		bool Demo3DHostNodeNoRenderEff(int32 node);
+		void Demo3DHostSetNodeNoRender(int32 node, bool on);
+		// CADENCE DE CAPTURE, en masque de bits : 1 cible fixe entre les images,
+		// 2 lecture differee en anneau, 4 encodage pendant le rendu. Les trois
+		// actifs par defaut -- ce sont les bons reglages du cas courant, et on
+		// les coupe pour diagnostiquer.
+		// ── ENREGISTREMENT VIDEO DE LA SESSION ──────────────────────────────
+		// On filme ce qui SE PASSE dans la vue, a sa resolution : le modeleur
+		// n'a pas de timeline, et une plage d'images produirait la meme image
+		// repetee. Le rendu d'animation viendra pour les captures quand la
+		// timeline existera ; le tutoriel n'en aura jamais besoin (Rihen).
+		// Stop(keep=false) ABANDONNE : le fichier est ferme puis efface, pour
+		// qu'une prise ratee ne laisse rien derriere elle.
+		bool Demo3DHostRecStart();
+		bool Demo3DHostRecStop(bool keep);
+		bool Demo3DHostRecActive();
+		int32 Demo3DHostRecFrames();
+		const char *Demo3DHostRecPath();
+		// PAUSE : on cesse de deposer des images ; le fichier ne garde aucune
+		// trace du temps suspendu. Reprendre ne coute rien.
+		void Demo3DHostRecPause(bool on);
+		bool Demo3DHostRecPaused();
+		// Images SAUTEES parce que l'encodage avait du retard : une video qui
+		// saute vaut mieux qu'une application qui s'etouffe, mais il faut le
+		// DIRE -- sinon on croirait a un enregistrement fidele.
+		int32 Demo3DHostRecDropped();
+		// EN SATURATION : sauter des images (fluide, video trouee) ou laisser la
+		// file GONFLER (fidele, le fil principal attend). Aucune des deux n'est
+		// bonne dans tous les cas -- filmer une demonstration veut de la
+		// fluidite, filmer un resultat veut la fidelite. Ne change qu'entre
+		// deux prises.
+		bool Demo3DHostRecGrow();
+		void Demo3DHostSetRecGrow(bool on);
+		int32 Demo3DHostOutFastCount();
+		const char *Demo3DHostOutFastName(int32 i);
+		int32 Demo3DHostOutFastMask();
+		void Demo3DHostSetOutFastMask(int32 m);
 		int32 Demo3DHostOutInsetAdd(); // -1 si les emplacements sont pris
 		void Demo3DHostOutInsetDelete(int32 i);
 		int32 Demo3DHostOutInsetShapeCount();
@@ -517,12 +591,31 @@ namespace nkentseu {
 		const char *Demo3DHostOutFormatName(int32 f);
 		const char *Demo3DHostOutFormatExt(int32 f);
 		bool Demo3DHostOutFormatLossy(int32 f); // seul le JPEG lit la qualite
+		// Porte-t-il la transparence ? Proposer un fond transparent pour un
+		// format qui n'a pas d'alpha produirait un fond NOIR sans le dire.
+		bool Demo3DHostOutFormatAlpha(int32 f);
+		// Format « Libre » : un ETAT, pas une deduction. Le format nomme se
+		// deduit bien de la resolution -- taper 1920x1080 affiche « Full HD » --
+		// mais « Libre » ne se deduit de rien, et sur une resolution qui vaut
+		// justement un format connu il serait sinon impossible a choisir.
+		bool Demo3DHostOutFreeSize();
+		void Demo3DHostSetOutFreeSize(bool on);
 		int32 Demo3DHostOutQuality();
 		void Demo3DHostSetOutQuality(int32 q);
 		// MODES DE RENDU A PRODUIRE, en masque de bits (Rihen : « cocher les
 		// types de rendu qu'on veut »). Meme ordre que la touche Z de la vue.
 		// Chaque mode coche produit SON image, incrustations comprises, et le
 		// nom du fichier porte son suffixe. Masque nul = le mode courant seul.
+		// AIDES VISUELLES DANS LE RENDU, en masque de bits. Coupees par defaut
+		// -- une lumiere n'existe dans une image que par son effet -- mais
+		// recouvrables : on veut parfois montrer justement la grille ou le
+		// cadre d'une camera, dans une planche pedagogique. Le masquage est une
+		// option, pas une regle du moteur (Rihen). « Tutoriel » n'y est pas
+		// soumis : il photographie la fenetre telle qu'elle est.
+		int32 Demo3DHostOutAidCount();
+		const char *Demo3DHostOutAidName(int32 a);
+		int32 Demo3DHostOutAids();
+		void Demo3DHostSetOutAids(int32 mask);
 		int32 Demo3DHostOutModeCount();
 		const char *Demo3DHostOutModeName(int32 m);
 		int32 Demo3DHostOutModes();

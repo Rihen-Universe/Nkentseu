@@ -70,6 +70,7 @@ namespace nkentseu {
 			Zoom,
 			Pan,
 			Camera,
+			CameraOff, ///< colonne RENDU de la hierarchie : exclu de l'image produite
 			Ortho,
 			Gizmo,
 			Overlay,
@@ -213,6 +214,7 @@ namespace nkentseu {
 					{NkIcon::Tag, "tag"},
 					{NkIcon::Pipette, "pipette"},
 						{NkIcon::Camera, "device-camera"},
+						{NkIcon::CameraOff, "device-camera-off"},
 						{NkIcon::Ortho, "ortho-cube"},
 						{NkIcon::Gizmo, "location"},
 						{NkIcon::Overlay, "circle-filled"},

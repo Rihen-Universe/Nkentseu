@@ -42,8 +42,13 @@ with project("NK3DModeler"):
 
     files(["src/**.cpp"])
 
+    # NKMedia ajoute pour l'ENREGISTREMENT VIDEO de la sortie (NkVideoWriter,
+    # NkImageSequenceWriter) : filmer la session de modelisation et les
+    # tutoriels. Le commentaire d'en-tete disait le modeleur sans NKMedia --
+    # c'etait vrai tant qu'il ne produisait que des images fixes.
     nkentseudependson(
         ["NKEditorKit", "NKRenderer", "NKRHI", "NKSL", "NKCanvas", "NKGui",
+         "NKMedia",
          "NKWindow", "NKEvent", "NKGlad", "NKFont", "NKImage", "NKFileSystem",
          "NKSerialization", "NKReflection", "NKThreading", "NKLogger", "NKMath",
          "NKTime", "NKStream", "NKContainers", "NKMemory", "NKCore", "NKPlatform",
