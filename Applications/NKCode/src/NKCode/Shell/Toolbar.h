@@ -41,6 +41,27 @@ namespace nkentseu {
 				bool filterFocus = false;
 		};
 
+		// Kind d'un projet (colonne Kind de `jenga info`) -> icone. Reutilise CELLES
+		// de l'assistant de creation de projet : deja chargees, et deja associees a
+		// ces memes notions (terminal, fenetre, archive, lien). 0 = pas d'icone pour
+		// ce Kind -> l'appelant retombe sur le nom en toutes lettres, ce qui garde
+		// lisible un Kind ajoute plus tard sans toucher a l'interface.
+		inline uint32 NkKindTex(const NkIcons *ic, const char *kind) {
+			if (!ic || !kind || !*kind)
+				return 0;
+			if (NkFindSub(kind, "Console"))
+				return ic->kConsole;
+			if (NkFindSub(kind, "Windowed"))
+				return ic->kWindowed;
+			if (NkFindSub(kind, "Static"))
+				return ic->kStatic;
+			if (NkFindSub(kind, "Shared"))
+				return ic->kShared;
+			if (NkFindSub(kind, "Test"))
+				return ic->kTest;
+			return 0;
+		}
+
 		inline NkTbState &NkTb() {
 			static NkTbState s;
 			return s;
@@ -586,7 +607,12 @@ namespace nkentseu {
 				struct Item {
 						NkString label;
 						int32 idx;
-						NkString hint; // 2e colonne, alignee a DROITE (ex. le Kind du projet)
+						// Colonne de GAUCHE. `icon` prime quand elle existe (bien plus
+						// compact que « (WindowedApp) ») ; `hint` sert de repli en toutes
+						// lettres pour un Kind sans icone — un nouveau Kind reste donc
+						// lisible sans avoir a dessiner quoi que ce soit.
+						NkString hint;
+						uint32 icon = 0;
 				};
 
 				NkVector<Item> items;
@@ -600,13 +626,20 @@ namespace nkentseu {
 					case 1: {
 						const int32 np = (int32)s->projects.Size();
 						for (int32 i = 0; i < np; ++i) {
-							// Le Kind en 2e colonne : on voit d'un coup d'oeil ce qui est
-							// executable et ce qui ne l'est pas, sans essayer pour le
-							// decouvrir. Entre parentheses, aligne a droite.
+							// Le Kind en colonne de gauche : on voit d'un coup d'oeil ce
+							// qui est executable et ce qui ne l'est pas, sans avoir a
+							// essayer pour le decouvrir. Icone quand elle existe (les
+							// memes que l'assistant de creation de projet), sinon le nom
+							// du Kind en toutes lettres.
 							const NkString k = (i < (int32)s->projKinds.Size()) ? s->projKinds[i] : NkString();
-							items.PushBack({s->projects[i], i, k.Empty() ? NkString() : (NkString("(") + k.CStr() + ")")});
+							// `hint` est TOUJOURS rempli, meme quand une icone existe : il
+							// reste la matiere du filtre (taper « console » doit marcher,
+							// une icone n'est pas cherchable) et le repli d'affichage.
+							Item it{s->projects[i], i, k.Empty() ? NkString() : (NkString("(") + k.CStr() + ")"), 0};
+							it.icon = NkKindTex(s->icons, k.CStr());
+							items.PushBack(it);
 						}
-						items.PushBack({NkString(NkT("tb.allprojects")), np, NkString()});
+						items.PushBack({NkString(NkT("tb.allprojects")), np, NkString(), 0});
 						curSel = s->projIdx;
 					} break;
 					case 2:
@@ -664,16 +697,23 @@ namespace nkentseu {
 				} else
 					shown = items;
 
-				// Largeur de la COLONNE de gauche (le Kind) : celle du plus long, pour
-				// que tous les noms demarrent au meme x. Bornee, sinon un Kind
-				// anormalement long ecraserait la colonne des noms.
+				// Largeur de la COLONNE de gauche (le Kind), pour que tous les noms
+				// demarrent au meme x. Une icone tient dans un carre ; un repli
+				// textuel demande la largeur du plus long. Le maximum des deux gagne :
+				// une seule ligne sans icone suffit a elargir la colonne, et
+				// l'alignement reste parfait.
+				// Mesuree sur ce qui est REELLEMENT AFFICHE : une icone occupe un carre,
+				// un repli textuel sa largeur de texte. `hint` est aussi rempli quand
+				// une icone existe (il sert au filtre) — le mesurer donnerait une
+				// colonne large et vide.
+				const float32 iconW = u.s(16);
 				float32 kindW = 0.f;
-				for (usize i = 0; i < items.Size(); ++i)
-					if (!items[i].hint.Empty()) {
-						const float32 w = u.TextW(items[i].hint.CStr());
-						if (w > kindW)
-							kindW = w;
-					}
+				for (usize i = 0; i < items.Size(); ++i) {
+					const float32 w = items[i].icon ? iconW
+												: (items[i].hint.Empty() ? 0.f : u.TextW(items[i].hint.CStr()));
+					if (w > kindW)
+						kindW = w;
+				}
 				if (kindW > u.s(120))
 					kindW = u.s(120);
 
@@ -774,7 +814,10 @@ namespace nkentseu {
 					const float32 ty = ir.y + (ih - u.Lh()) * 0.5f;
 					float32 nx = ir.x + u.s(8);
 					if (kindW > 0.f) {
-						if (!shown[i].hint.Empty())
+						if (shown[i].icon) {
+							const NkRect icr = {nx, ir.y + (ih - iconW) * 0.5f, iconW, iconW};
+							NkDrawIcon(uo, shown[i].icon, icr, NkCol::mutedFg);
+						} else if (!shown[i].hint.Empty())
 							uo.TextEllipsis(nx, ty, kindW, shown[i].hint.CStr(), NkCol::mutedFg);
 						nx += kindW + u.s(10);
 					}
