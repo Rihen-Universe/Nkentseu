@@ -118,7 +118,7 @@ namespace nkentseu {
 							break; // lecture du .jenga (faite dans Start)
 						case 1:	   // analyse des projets (réel)
 							if (st->InfoParsed()) {
-								projCount = (int32)st->projects.Size();
+								projCount = st->TotalProjectCount(); // meme definition que la carte du launcher
 								if (st->InfoHasError() && projCount == 0) {
 									error = true;
 									errLine = st->InfoErrorLine();
