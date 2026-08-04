@@ -112,7 +112,16 @@ namespace nkentseu {
 			gPyHome = exeDir + "/tools/python-embed";
 			if (!DirExists(gPyHome)) {
 				const NkString devRoot = exeDir + "/../../../..";
+				// En DEV, le runtime vendorise differe par plateforme : le paquet
+				// embarquable de python.org sous Windows (runtime/ a plat), et une
+				// distribution relogeable python-build-standalone sous Linux
+				// (linux/ avec bin/, lib/, include/). Les deux atterrissent sur
+				// tools/python-embed une fois empaquetes.
+#if defined(_WIN32)
 				const NkString dev = devRoot + "/Externals/Libs/PythonEmbed/runtime";
+#else
+				const NkString dev = devRoot + "/Externals/Libs/PythonEmbed/linux";
+#endif
 				if (DirExists(dev))
 					gPyHome = dev;
 			}
@@ -149,6 +158,32 @@ namespace nkentseu {
 				const char *cur = std::getenv("PATH");
 				const NkString merged = (exeDir + "/tools") + ";" + (cur ? cur : "");
 				_putenv_s("PATH", merged.CStr());
+			}
+#else
+			// ── UNIX : meme logique, separateur ':' et setenv ─────────────────
+			//
+			// Ce bloc n'existait pas : tout ce qui precede etait enferme dans
+			// « #if defined(_WIN32) ». Un compilateur embarque cote Linux aurait
+			// donc ete PRESENT dans le paquet et JAMAIS utilise — le PATH n'etant
+			// jamais prefixe, Jenga serait retombe sur le clang/gcc du systeme,
+			// voire sur rien du tout chez un testeur qui n'en a pas.
+			//
+			// Le compilateur par defaut sous Linux est ZIG (tools/compilers/zig),
+			// et non llvm-mingw qui, lui, produit des binaires Windows.
+			{
+				const NkString zigDir = exeDir + "/tools/compilers/zig";
+				if (DirExists(zigDir)) {
+					const char *cur = std::getenv("PATH");
+					const NkString merged = zigDir + ":" + (cur ? cur : "");
+					::setenv("PATH", merged.CStr(), 1);
+				}
+			}
+			// Shim `jenga` (equivalent du jenga.cmd de Windows) : permet de taper
+			// `jenga ...` dans le terminal integre sans Python installe.
+			if (gProdTools) {
+				const char *cur = std::getenv("PATH");
+				const NkString merged = (exeDir + "/tools") + ":" + (cur ? cur : "");
+				::setenv("PATH", merged.CStr(), 1);
 			}
 #endif
 			gConfigured = true;
@@ -228,12 +263,29 @@ namespace nkentseu {
 			PyConfig_SetString(&config, &config.home, home.c_str());
 			config.site_import = 0;
 			config.module_search_paths_set = 1;
+			const std::wstring src = WidenUtf8(gJengaSrc);
+#if defined(_WIN32)
+			// Windows : « embeddable package » officiel de python.org. La
+			// bibliotheque standard est un ZIP a cote du DLL, et les modules
+			// d'extension (.pyd) vivent dans DLLs/.
 			const std::wstring zip = WidenUtf8(gPyHome + "/python312.zip");
 			const std::wstring dlls = WidenUtf8(gPyHome + "/DLLs");
-			const std::wstring src = WidenUtf8(gJengaSrc);
 			PyWideStringList_Append(&config.module_search_paths, zip.c_str());
 			PyWideStringList_Append(&config.module_search_paths, home.c_str());
 			PyWideStringList_Append(&config.module_search_paths, dlls.c_str());
+#else
+			// Linux : distribution relogeable python-build-standalone, dont la
+			// disposition suit celle d'une installation UNIX classique. La
+			// bibliotheque standard est une ARBORESCENCE (pas un zip) sous
+			// lib/pythonX.Y, et les modules d'extension (.so) sous lib-dynload.
+			// Reprendre les chemins Windows ici donnerait un interpreteur sans
+			// aucun module, qui echouerait des le premier `import`.
+			const std::wstring stdlib = WidenUtf8(gPyHome + "/lib/python" NKCODE_PYEMBED_VER);
+			const std::wstring dynload = WidenUtf8(gPyHome + "/lib/python" NKCODE_PYEMBED_VER "/lib-dynload");
+			PyWideStringList_Append(&config.module_search_paths, stdlib.c_str());
+			PyWideStringList_Append(&config.module_search_paths, dynload.c_str());
+			PyWideStringList_Append(&config.module_search_paths, home.c_str());
+#endif
 			PyWideStringList_Append(&config.module_search_paths, src.c_str());
 
 			try {
@@ -366,10 +418,21 @@ namespace nkentseu {
 								py::arg("platform") = (req.platform.Empty() ? py::object(py::none())
 																			 : py::object(py::str(req.platform.CStr()))),
 								py::arg("toolchain") = (req.toolchain.Empty() ? py::object(py::none())
-																			   : py::object(py::str(req.toolchain.CStr()))));
-							const std::string path = pr.cast<std::string>();
-							// Emis comme UNE ligne prefixee : l'hote la reconnait sans
+																			   : py::object(py::str(req.toolchain.CStr()))),
+								py::arg("withKind") = py::bool_(true));
+							// withKind=True -> « <Kind>|<chemin> » (ex. « ConsoleApp|D:/.../a.exe »).
+							// Le KIND decide OU lancer : une ConsoleApp merite un vrai
+							// terminal (stdin, ANSI, code de sortie), pas une WindowedApp.
+							std::string path = pr.cast<std::string>();
+							std::string kind;
+							const std::string::size_type bar = path.find('|');
+							if (bar != std::string::npos) {
+								kind = path.substr(0, bar);
+								path = path.substr(bar + 1);
+							}
+							// Emis comme des lignes prefixees : l'hote les reconnait sans
 							// nouveau canal de donnees.
+							PushLine(NkString("[jenga-exekind] ") + kind.c_str());
 							PushLine(NkString("[jenga-exepath] ") + path.c_str());
 							exitCode = path.empty() ? 1 : 0;
 							threading::NkScopedLock<NkMutex> lk(mMutex);

@@ -95,7 +95,7 @@ int nkmain(const NkEntryState &state) {
 	static nkcode::ExplorerPanel explorer(&g_state, shell.Get());
 	static nkcode::OutlinePanel outline(&g_state);
 	static nkcode::EditorPanel editor(&g_state, shell.Get());
-	static nkcode::OutputPanel output(&g_state);
+	static nkcode::OutputPanel output(&g_state, shell.Get());
 	static nkcode::TerminalPanel terminal;
 	shell->AddPanel(&explorer);
 	shell->AddPanel(&outline);
