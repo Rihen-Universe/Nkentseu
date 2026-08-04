@@ -3536,7 +3536,19 @@ namespace nkentseu {
 					// garde rien.
 					// HORS du bloc du passe-partout, et non dedans : un voile a
 					// zero pour cent ne doit pas faire disparaitre l'apercu.
-					{
+					// SEULEMENT DEPUIS LA SOURCE PRINCIPALE (Rihen) : les
+					// miniatures appartiennent a la composition de l'image
+					// principale. Les montrer alors qu'on regarde par une camera
+					// qui n'est PAS cette source -- par exemple celle qui
+					// alimente une miniature -- faisait croire qu'elles se
+					// composeraient aussi dans cette vue-la. Depuis une source
+					// secondaire, on doit voir ce que cette camera voit, rien de
+					// plus.
+					int32 mainSrc = -1;
+					demo::Demo3DHostOutMain(&mainSrc, nullptr, nullptr, nullptr, nullptr,
+											nullptr);
+					const int32 curCam = st.camViewNode > 0 ? st.camViewNode - 1 : -1;
+					if (curCam == mainSrc) {
 						float32 fr5[4];
 						demo::Demo3DHostCameraFrame(fr5);
 						const float32 fx = vr.x + fr5[0] * vr.w;
@@ -3585,7 +3597,7 @@ namespace nkentseu {
 							// laquelle on regarde quand elles se recouvrent.
 							char cn2[24] = {};
 							if (iSrc >= 0)
-								demo::Demo3DHostObjectName(iSrc, cn2, sizeof(cn2));
+								NkHierNodeName(st, iSrc, cn2, sizeof(cn2));
 							char il[48];
 							snprintf(il, sizeof(il), "%d - %s", (int)(q2 + 1),
 									 iSrc < 0 ? "Vue 3D" : (cn2[0] ? cn2 : "Camera"));
@@ -8894,15 +8906,33 @@ namespace nkentseu {
 					// ── Sources disponibles : la vue 3D, puis chaque camera.
 					// Construites une fois, elles servent la principale ET les
 					// incrustations -- deux listes divergeraient.
+					// ── LES LISTES DE COMBO DOIVENT SURVIVRE A LA FRAME ─────
+					// NkComboPending garde les pointeurs `items` ET `selected`
+					// pour peindre la liste deroulante PLUS TARD, par-dessus le
+					// reste. Passer un tableau local revenait donc a lui confier
+					// des adresses de pile deja mortes au moment ou elle peint
+					// et ou elle ecrit le choix : le combo s'ouvrait, mais
+					// choisir ne changeait rien (Rihen : « pourquoi on ne peut
+					// pas choisir la source ? »). Tous les combos du projet
+					// passent des tableaux statiques et un etat persistant ;
+					// ceux-ci s'y conforment.
 					int32 camNodes[16];
 					const int32 nCam = demo::Demo3DHostSceneCameras(camNodes, 16);
-					static char srcBuf[17][40];
-					const char *srcNames[17];
+					static char srcBuf[18][40];
+					static const char *srcNames[18];
+					// Plus d'entree « camera active » (Rihen) : elle est deja celle
+					// qu'on voit, et une source qui se deplace toute seule rendait
+					// imprevisible ce qu'on s'appretait a produire.
 					snprintf(srcBuf[0], sizeof(srcBuf[0]), "Vue 3D");
 					srcNames[0] = srcBuf[0];
 					for (int32 c5 = 0; c5 < nCam && c5 < 16; ++c5) {
-						char cn[32];
-						demo::Demo3DHostObjectName(camNodes[c5], cn, sizeof(cn));
+						// NkHierNodeName, PAS Demo3DHostObjectName : les NOEUDS
+						// et les OBJETS sont deux espaces d'indices distincts.
+						// Passer un numero de noeud a la fonction des objets
+						// nommait un tout autre element de la scene -- une
+						// camera s'annoncait « mur gi » (constate par Rihen).
+						char cn[32] = {};
+						NkHierNodeName(st, camNodes[c5], cn, sizeof(cn));
 						snprintf(srcBuf[c5 + 1], sizeof(srcBuf[0]), "%s",
 								 cn[0] ? cn : "Camera");
 						srcNames[c5 + 1] = srcBuf[c5 + 1];
@@ -8911,6 +8941,9 @@ namespace nkentseu {
 					// Noeud <-> rang dans la liste. La liste bouge quand on
 					// ajoute une camera ; le noeud, lui, ne bouge pas -- c'est
 					// donc LUI qu'on memorise, et le rang se recalcule.
+					// Rang 0 = vue 3D (-1), ensuite les cameras nommees. C'est le
+					// NOEUD qu'on memorise, jamais le rang : ajouter une camera
+					// decale la liste.
 					auto srcIndexOf = [&](int32 node) {
 						if (node < 0)
 							return 0;
@@ -8921,6 +8954,44 @@ namespace nkentseu {
 					};
 					auto srcNodeOf = [&](int32 idx) {
 						return (idx <= 0 || idx - 1 >= nCam) ? -1 : camNodes[idx - 1];
+					};
+					// La source principale, lue AVANT de batir la liste des
+					// miniatures : c'est elle qu'on en retire.
+					int32 oSrcCur = -1;
+					demo::Demo3DHostOutMain(&oSrcCur, nullptr, nullptr, nullptr, nullptr,
+											nullptr);
+					// ── LISTE DES MINIATURES : SANS LA SOURCE PRINCIPALE ────
+					// Une vue n'est pas a la fois principale et miniature
+					// (Rihen), donc la principale ne doit meme pas etre
+					// PROPOSABLE ici -- seul un echange, ou le fait qu'elle
+					// cesse d'etre principale, l'y ramene. Une entree qu'on ne
+					// peut pas choisir n'a rien a faire dans une liste.
+					static char insBuf[17][40];
+					static const char *insNames[17];
+					int32 insNodes[17];
+					int32 nIns = 0;
+					if (oSrcCur != -1) {
+						snprintf(insBuf[nIns], sizeof(insBuf[0]), "Vue 3D");
+						insNames[nIns] = insBuf[nIns];
+						insNodes[nIns++] = -1;
+					}
+					for (int32 c5 = 0; c5 < nCam && c5 < 16; ++c5) {
+						if (camNodes[c5] == oSrcCur)
+							continue;
+						char cn[32] = {};
+						NkHierNodeName(st, camNodes[c5], cn, sizeof(cn));
+						snprintf(insBuf[nIns], sizeof(insBuf[0]), "%s", cn[0] ? cn : "Camera");
+						insNames[nIns] = insBuf[nIns];
+						insNodes[nIns++] = camNodes[c5];
+					}
+					auto insIndexOf = [&](int32 node) {
+						for (int32 i5 = 0; i5 < nIns; ++i5)
+							if (insNodes[i5] == node)
+								return i5;
+						return 0;
+					};
+					auto insNodeOf = [&](int32 idx) {
+						return (idx >= 0 && idx < nIns) ? insNodes[idx] : -1;
 					};
 
 					int32 oSrc = -1, oW = 1920, oH = 1080, oScale = 100, oFmt = 0;
@@ -8944,12 +9015,31 @@ namespace nkentseu {
 						const float32 fx = r.x + S(104.f);
 						const float32 fw = rr.w - S(112.f);
 						p.TextV(r.x + kPad, yy, kRowH, "Source", NkRole::TextMuted);
-						int32 si = srcIndexOf(oSrc);
-						const int32 si0 = si;
-						Combo(p, hit, ws, "out.src", {fx, yy + S(2.f), fw, kRowH - S(4.f)},
-							  srcNames, nullptr, nSrc, si, combo);
-						if (si != si0)
-							oSrc = srcNodeOf(si);
+						{
+							// La selection vit dans un STATIC : la liste
+							// deroulante y ecrit apres la fin de ce bloc (voir
+							// la note sur NkComboPending plus haut).
+							// IL FAUT DISTINGUER DEUX CHANGEMENTS. Comparer le
+							// static a la verite moteur ne suffit pas : quand
+							// c'est le MOTEUR qui a bouge -- un echange
+							// principale/miniature, le pave 0 -- l'ecart se lit
+							// comme un choix de l'utilisateur, et on reapplique
+							// l'ancienne valeur. L'echange etait ainsi annule a
+							// l'image suivante (constate par Rihen). On memorise
+							// donc la derniere valeur VUE du moteur : s'il a
+							// change, il gagne ; sinon seul le combo parle.
+							static int32 sSrcSel = 0, sSrcSeen = -999;
+							const int32 cur = srcIndexOf(oSrc);
+							if (cur != sSrcSeen) {
+								sSrcSel = cur;
+								sSrcSeen = cur;
+							} else if (sSrcSel != cur && sSrcSel >= 0 && sSrcSel < nSrc) {
+								oSrc = srcNodeOf(sSrcSel);
+								sSrcSeen = sSrcSel;
+							}
+							Combo(p, hit, ws, "out.src", {fx, yy + S(2.f), fw, kRowH - S(4.f)},
+								  srcNames, nullptr, nSrc, sSrcSel, combo);
+						}
 						yy += kRowH;
 						// RESOLUTION : deux champs cote a cote, comme Blender.
 						// Il n'existe pas de DragInt : le glissement se fait en
@@ -9062,7 +9152,7 @@ namespace nkentseu {
 								demo::Demo3DHostSetOutDir(dbuf);
 						}
 						yy += kRowH;
-						p.TextV(r.x + kPad, yy, kRowH, "Nom", NkRole::TextMuted);
+						p.TextV(r.x + kPad, yy, kRowH, "Nom (rendu)", NkRole::TextMuted);
 						{
 							char nbuf[64] = {};
 							if (EditableText(p, hit, ws, in, "out.name",
@@ -9072,15 +9162,77 @@ namespace nkentseu {
 								demo::Demo3DHostSetOutName(nbuf);
 						}
 						yy += kRowH;
-						// FORMAT : PNG seul aujourd'hui. Une liste d'un element
-						// dit ce qui existe sans faire croire a un choix.
+						// LES TROIS NOMS ENSEMBLE (Rihen) : rendu, capture de la
+						// vue et tutoriel partagent TOUTES les proprietes de
+						// sortie -- dossier, format, qualite -- et ne different
+						// que par leur nom de base. Les separer dans un groupe a
+						// part laissait croire a des reglages independants.
+						p.TextV(r.x + kPad, yy, kRowH, "Nom (vue)", NkRole::TextMuted);
 						{
-							static const char *const kFmt[1] = {"PNG"};
+							char cb1[64] = {};
+							if (EditableText(p, hit, ws, in, "out.capv",
+											 {fx, yy + S(2.f), fw, kRowH - S(4.f)},
+											 demo::Demo3DHostCaptureName(1), NkRole::Text, cb1,
+											 sizeof(cb1)))
+								demo::Demo3DHostSetCaptureName(1, cb1);
+						}
+						yy += kRowH;
+						p.TextV(r.x + kPad, yy, kRowH, "Nom (tutoriel)", NkRole::TextMuted);
+						{
+							char cb2[64] = {};
+							if (EditableText(p, hit, ws, in, "out.capt",
+											 {fx, yy + S(2.f), fw, kRowH - S(4.f)},
+											 demo::Demo3DHostCaptureName(2), NkRole::Text, cb2,
+											 sizeof(cb2)))
+								demo::Demo3DHostSetCaptureName(2, cb2);
+						}
+						yy += kRowH;
+						// FORMAT : ceux que le moteur d'images sait REELLEMENT
+						// ecrire. WebP et SVG y sont declares mais annonces
+						// « non implemente » -- les proposer aurait produit des
+						// fichiers vides.
+						{
+							const int32 nF = demo::Demo3DHostOutFormatCount();
+							static char fmtBuf[12][20];
+							static const char *fmtNames[12];
+							for (int32 f5 = 0; f5 < nF && f5 < 12; ++f5) {
+								snprintf(fmtBuf[f5], sizeof(fmtBuf[0]), "%s",
+										 demo::Demo3DHostOutFormatName(f5));
+								fmtNames[f5] = fmtBuf[f5];
+							}
 							p.TextV(r.x + kPad, yy, kRowH, "Format", NkRole::TextMuted);
-							int32 fsel = 0;
-							Combo(p, hit, ws, "out.fmt", {fx, yy + S(2.f), fw, kRowH - S(4.f)},
-								  kFmt, nullptr, 1, fsel, combo);
+							{
+								static int32 sFmtSel = 0;
+								if (sFmtSel != oFmt && sFmtSel >= 0 && sFmtSel < nF)
+									oFmt = sFmtSel;
+								else
+									sFmtSel = oFmt;
+								Combo(p, hit, ws, "out.fmt",
+									  {fx, yy + S(2.f), fw, kRowH - S(4.f)}, fmtNames, nullptr,
+									  nF < 12 ? nF : 12, sFmtSel, combo);
+							}
 							yy += kRowH;
+							// L'EXTENSION EN CLAIR : c'est elle qui decide de
+							// l'encodeur, autant la montrer.
+							{
+								char eb2[48];
+								snprintf(eb2, sizeof(eb2), "Extension : .%s",
+										 demo::Demo3DHostOutFormatExt(oFmt));
+								p.TextV(r.x + kPad + S(8.f), yy, kRowH, eb2, NkRole::TextMuted);
+								yy += kRowH;
+							}
+							// QUALITE : seulement pour un format qui perd de
+							// l'information. L'afficher pour le PNG ferait
+							// croire qu'elle y change quelque chose.
+							if (demo::Demo3DHostOutFormatLossy(oFmt)) {
+								p.TextV(r.x + kPad, yy, kRowH, "Qualite", NkRole::TextMuted);
+								float32 q5 = (float32)demo::Demo3DHostOutQuality();
+								if (DragFloat(p, hit, ws, in, "out.qual",
+											  {fx, yy + S(3.f), fw, kRowH - S(6.f)}, q5, 1.f,
+											  NkRole::AccentUi, "%.0f"))
+									demo::Demo3DHostSetOutQuality((int32)(q5 + 0.5f));
+								yy += kRowH;
+							}
 						}
 						{
 							char lb[300];
@@ -9096,6 +9248,153 @@ namespace nkentseu {
 						}
 						yy += NkGroupPad();
 						PaintGroupBlock(p, rowR, gDstTop, yy);
+						yy += NkPropGroupGap();
+					}
+
+					// ── GROUPE « TYPES DE RENDU » (Rihen) ───────────────────
+					// Chaque type coche produit SON image, incrustations
+					// comprises, et le fichier porte son suffixe. Rien de coche
+					// = le mode courant de la vue, et lui seul : cocher ne doit
+					// pas etre un prealable pour rendre ce qu'on a sous les
+					// yeux.
+					const bool gMod = PaintPropGroup(p, hit, st, rowR, yy, "prop.g.outmod",
+													 "Types de rendu", 65536u);
+					const float32 gModTop = yy;
+					if (!gMod) {
+						yy += NkPropGroupGap();
+					} else {
+						yy += NkGroupPad();
+						const NkRect iM = NkGroupInner(rowR);
+						const NkRect r{iM.x - kPad, rowR.y, iM.w + 2.f * kPad, rowR.h};
+						const NkRect rr = r;
+						const int32 nM = demo::Demo3DHostOutModeCount();
+						int32 mask = demo::Demo3DHostOutModes();
+						const int32 mask0 = mask;
+						for (int32 m5 = 0; m5 < nM; ++m5) {
+							char mk[24];
+							snprintf(mk, sizeof(mk), "out.mode.%d", m5);
+							const bool on5 = (mask & (1 << m5)) != 0;
+							const NkRect cb{r.x + kPad, yy + S(4.f), kRowH - S(8.f),
+											kRowH - S(8.f)};
+							const bool ovm = hit.Add(mk, cb);
+							if (on5)
+								p.Fill(cb, NkRole::AccentUi, 3.f);
+							else
+								p.Outline(cb, NkRole::Border,
+										  ovm ? NkRole::PanelHeader : NkRole::PanelBg, 3.f);
+							if (on5)
+								p.IconV(cb.x + S(1.f), yy, kRowH, NkIcon::Check,
+										NkRole::TextOnAccent, 11.f);
+							p.TextV(cb.x + cb.w + S(8.f), yy, kRowH,
+									demo::Demo3DHostOutModeName(m5));
+							if (hit.Clicked(mk))
+								mask ^= (1 << m5);
+							yy += kRowH;
+						}
+						if (mask != mask0)
+							demo::Demo3DHostSetOutModes(mask);
+						{
+							int32 nOnM = 0;
+							for (int32 m5 = 0; m5 < nM; ++m5)
+								if (mask & (1 << m5))
+									++nOnM;
+							char mb[96];
+							if (nOnM == 0)
+								snprintf(mb, sizeof(mb),
+										 "Aucun coche : le mode courant de la vue, une image.");
+							else
+								snprintf(mb, sizeof(mb), "%d image(s), une par type coche.",
+										 (int)nOnM);
+							p.TextV(r.x + kPad, yy, kRowH, mb, NkRole::TextMuted);
+							yy += kRowH;
+						}
+						yy += NkGroupPad();
+						PaintGroupBlock(p, rowR, gModTop, yy);
+						yy += NkPropGroupGap();
+					}
+
+					// ── GROUPE « VIDEO » ────────────────────────────────────
+					// La configuration se REGLE et se conserve des maintenant ;
+					// le rendu viendra plus tard (decision de Rihen). Rien ici
+					// ne pretend l'executer : pas de bouton « Rendre la video »
+					// qui ne rendrait rien -- une commande factice est ce que
+					// le principe « fonctionnalites a la naissance » interdit.
+					const bool gVid = PaintPropGroup(p, hit, st, rowR, yy, "prop.g.outvid",
+													 "Video", 131072u);
+					const float32 gVidTop = yy;
+					if (!gVid) {
+						yy += NkPropGroupGap();
+					} else {
+						yy += NkGroupPad();
+						const NkRect iV = NkGroupInner(rowR);
+						const NkRect r{iV.x - kPad, rowR.y, iV.w + 2.f * kPad, rowR.h};
+						const NkRect rr = r;
+						const float32 fx3 = r.x + S(104.f);
+						const float32 fw3 = rr.w - S(112.f);
+						bool vOn = false;
+						int32 vFps = 25, vA = 1, vB = 250, vCod = 0;
+						demo::Demo3DHostOutVideo(&vOn, &vFps, &vA, &vB, &vCod);
+						const bool vOn0 = vOn;
+						const int32 f0v = vFps, a0v = vA, b0v = vB, c0v = vCod;
+						p.TextV(r.x + kPad, yy, kRowH, "Images / s", NkRole::TextMuted);
+						{
+							float32 ff = (float32)vFps;
+							DragFloat(p, hit, ws, in, "out.fps",
+									  {fx3, yy + S(3.f), fw3, kRowH - S(6.f)}, ff, 0.5f,
+									  NkRole::AccentUi, "%.0f");
+							vFps = (int32)(ff + 0.5f);
+						}
+						yy += kRowH;
+						p.TextV(r.x + kPad, yy, kRowH, "Plage", NkRole::TextMuted);
+						{
+							const float32 half = (fw3 - S(6.f)) * 0.5f;
+							float32 fa = (float32)vA, fb = (float32)vB;
+							DragFloat(p, hit, ws, in, "out.fa",
+									  {fx3, yy + S(3.f), half, kRowH - S(6.f)}, fa, 1.f,
+									  NkRole::AxisX, "%.0f");
+							DragFloat(p, hit, ws, in, "out.fb",
+									  {fx3 + half + S(6.f), yy + S(3.f), half, kRowH - S(6.f)},
+									  fb, 1.f, NkRole::AxisY, "%.0f");
+							vA = (int32)(fa + 0.5f);
+							vB = (int32)(fb + 0.5f);
+						}
+						yy += kRowH;
+						p.TextV(r.x + kPad, yy, kRowH, "Sortie", NkRole::TextMuted);
+						{
+							static const char *const kCod[2] = {"Suite d'images", "MP4 (a venir)"};
+							static int32 sCodSel = 0;
+							if (sCodSel != vCod && sCodSel >= 0 && sCodSel < 2)
+								vCod = sCodSel;
+							else
+								sCodSel = vCod;
+							Combo(p, hit, ws, "out.codec",
+								  {fx3, yy + S(2.f), fw3, kRowH - S(4.f)}, kCod, nullptr, 2,
+								  sCodSel, combo);
+							yy += kRowH;
+						}
+						// DUREE DEDUITE : deux nombres d'images et une cadence
+						// ne disent pas d'eux-memes combien de temps ca dure.
+						{
+							const int32 nFr = (vB >= vA) ? (vB - vA + 1) : 0;
+							const float32 secs =
+								(vFps > 0) ? (float32)nFr / (float32)vFps : 0.f;
+							char vb2[96];
+							snprintf(vb2, sizeof(vb2), "%d images -- %.1f s", (int)nFr,
+									 (double)secs);
+							p.TextV(r.x + kPad + S(8.f), yy, kRowH, vb2, NkRole::TextMuted);
+							yy += kRowH;
+						}
+						p.TextV(r.x + kPad, yy, kRowH,
+								"Le rendu video n'est pas encore ecrit : ces reglages",
+								NkRole::TextMuted);
+						yy += kRowH - S(6.f);
+						p.TextV(r.x + kPad, yy, kRowH, "se conservent en attendant.",
+								NkRole::TextMuted);
+						yy += kRowH;
+						if (vOn != vOn0 || vFps != f0v || vA != a0v || vB != b0v || vCod != c0v)
+							demo::Demo3DHostSetOutVideo(vOn, vFps, vA, vB, vCod);
+						yy += NkGroupPad();
+						PaintGroupBlock(p, rowR, gVidTop, yy);
 						yy += NkPropGroupGap();
 					}
 
@@ -9129,7 +9428,18 @@ namespace nkentseu {
 						// aucun risque de dire « Cercle » et d'en rendre un autre.
 						const int32 nShape = demo::Demo3DHostOutInsetShapeCount();
 						static char shpBuf[8][24];
-						const char *shpNames[8];
+						static const char *shpNames[8];
+						// Une selection PAR incrustation, persistante : la liste
+						// deroulante y ecrit apres la fin de la boucle. Et une
+						// memoire de ce qu'on a VU du moteur, pour ne pas
+						// prendre un echange principale/miniature pour un choix
+						// de l'utilisateur -- voir la note du combo de source.
+						static int32 sInsSrcSel[8] = {};
+						static int32 sInsSrcSeen[8] = {-999, -999, -999, -999,
+													   -999, -999, -999, -999};
+						static int32 sInsShpSel[8] = {};
+						static int32 sInsShpSeen[8] = {-999, -999, -999, -999,
+													   -999, -999, -999, -999};
 						for (int32 s5 = 0; s5 < nShape && s5 < 8; ++s5) {
 							snprintf(shpBuf[s5], sizeof(shpBuf[0]), "%s",
 									 demo::Demo3DHostOutInsetShapeName(s5));
@@ -9170,19 +9480,42 @@ namespace nkentseu {
 							const float32 fw2 = rr.w - S(112.f);
 							p.TextV(r.x + kPad + S(8.f), yy, kRowH, "Source", NkRole::TextMuted);
 							snprintf(key2, sizeof(key2), "out.ins.src.%d", k5);
-							{
-								int32 si2 = srcIndexOf(iSrc);
-								const int32 sp2 = si2;
+							if (k5 < 8) {
+								// Le MOTEUR gagne quand c'est lui qui a bouge --
+								// un echange principale/miniature, par exemple --
+								// sinon l'ecart se lisait comme un choix de
+								// l'utilisateur et l'echange etait annule a
+								// l'image suivante (Rihen). Voir la note du combo
+								// de source principale. La liste, elle, exclut la
+								// source principale.
+								const int32 cur2 = insIndexOf(iSrc);
+								if (cur2 != sInsSrcSeen[k5]) {
+									sInsSrcSel[k5] = cur2;
+									sInsSrcSeen[k5] = cur2;
+								} else if (sInsSrcSel[k5] != cur2 && sInsSrcSel[k5] >= 0 &&
+										   sInsSrcSel[k5] < nIns) {
+									iSrc = insNodeOf(sInsSrcSel[k5]);
+									sInsSrcSeen[k5] = sInsSrcSel[k5];
+								}
 								Combo(p, hit, ws, key2, {fx2, yy + S(2.f), fw2, kRowH - S(4.f)},
-									  srcNames, nullptr, nSrc, si2, combo);
-								if (si2 != sp2)
-									iSrc = srcNodeOf(si2);
+									  insNames, nullptr, nIns, sInsSrcSel[k5], combo);
 							}
 							yy += kRowH;
 							p.TextV(r.x + kPad + S(8.f), yy, kRowH, "Forme", NkRole::TextMuted);
 							snprintf(key2, sizeof(key2), "out.ins.shp.%d", k5);
-							Combo(p, hit, ws, key2, {fx2, yy + S(2.f), fw2, kRowH - S(4.f)},
-								  shpNames, nullptr, nShape < 8 ? nShape : 8, iShape, combo);
+							if (k5 < 8) {
+								if (iShape != sInsShpSeen[k5]) {
+									sInsShpSel[k5] = iShape;
+									sInsShpSeen[k5] = iShape;
+								} else if (sInsShpSel[k5] != iShape && sInsShpSel[k5] >= 0 &&
+										   sInsShpSel[k5] < nShape) {
+									iShape = sInsShpSel[k5];
+									sInsShpSeen[k5] = sInsShpSel[k5];
+								}
+								Combo(p, hit, ws, key2, {fx2, yy + S(2.f), fw2, kRowH - S(4.f)},
+									  shpNames, nullptr, nShape < 8 ? nShape : 8, sInsShpSel[k5],
+									  combo);
+							}
 							yy += kRowH;
 							p.TextV(r.x + kPad + S(8.f), yy, kRowH, "Position", NkRole::TextMuted);
 							{
