@@ -350,6 +350,30 @@ namespace nkentseu {
 				// Materiaux...) : un bit par groupe, mis a 1 quand il est REPLIE.
 				// Les elements de nature differente se rangent par groupe (Rihen).
 				uint32 grpFold = 0;
+				// ── MENU D'UN GROUPE DE PROPRIETES (facture Unity) ───────────
+				// Chaque bandeau de groupe porte le meme petit menu a droite :
+				// copier / coller / reinitialiser. Un SEUL etat pour toute
+				// l'application -- un menu a la fois, et les groupes n'ont rien
+				// a declarer pour l'avoir.
+				char grpMenuKey[40] = {}; // groupe dont le menu est ouvert
+				char grpMenuTitle[40] = {};
+				NkRect grpMenuAnchor{};
+				// ── PRESSE-PAPIERS DE PROPRIETES ────────────────────────────
+				// Le groupe copie (sa cle) et ses VALEURS ; le collage n'est
+				// propose que vers un groupe de MEME nature -- coller une
+				// Transformation dans un Brouillard ne veut rien dire. Un
+				// tampon generique : chaque groupe range ses champs dans
+				// l'ordre qu'il veut, il est le seul a les relire.
+				char grpClipKey[40] = {};
+				float32 grpClipF[16] = {};
+				int32 grpClipI[8] = {};
+				bool grpClipHas = false;
+				// ACTION DEMANDEE par le menu, consommee par le groupe concerne
+				// a son tour de peinture : 0 aucune, 1 copier, 2 coller,
+				// 3 reinitialiser. Le menu ne CONNAIT pas les proprietes -- il
+				// pose l'intention, la categorie proprietaire l'execute.
+				char grpActionKey[40] = {};
+				int32 grpAction = 0;
 				// ── PIPETTE DE RELATION (idee de Rihen, reprise de Blender) ──
 				// Plutot que de chercher un objet dans une liste, on le DESIGNE :
 				// on arme la pipette, puis on clique l'objet dans la vue ou dans

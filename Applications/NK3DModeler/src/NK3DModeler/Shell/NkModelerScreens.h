@@ -4845,10 +4845,130 @@ namespace nkentseu {
 			p.IconV(r.x + S(4.f), y, kRowH,
 					folded ? NkIcon::ChevronRight : NkIcon::ChevronDown, NkRole::Text, 11.f);
 			p.TextV(r.x + S(20.f), y, kRowH, title);
-			if (hit.Clicked(key))
-				st.grpFold ^= bit;
+			// ── LE MENU DU GROUPE, POUR TOUS LES GROUPES (Rihen) ────────────
+			// Il est rendu ICI, dans la brique commune : aucun groupe n'a a le
+			// reecrire, et un groupe ajoute demain l'aura sans y penser. Sa
+			// facture est celle d'Unity : un petit bouton a droite du bandeau
+			// qui deroule copier / coller / reinitialiser.
+			{
+				char mk[52];
+				snprintf(mk, sizeof(mk), "%s.menu", key);
+				const NkRect mb{hr.x + hr.w - S(22.f), y + S(3.f), S(18.f), kRowH - S(6.f)};
+				const bool ovM = hit.Add(mk, mb);
+				const bool openM = (strcmp(st.grpMenuKey, key) == 0);
+				if (openM)
+					p.Fill(mb, NkRole::AccentUi, 3.f);
+				else if (ovM)
+					p.Fill(mb, NkRole::InputBg, 3.f);
+				p.IconV(mb.x + S(3.f), mb.y, mb.h, NkIcon::Menu,
+						openM ? NkRole::TextOnAccent : NkRole::TextMuted, 11.f);
+				if (hit.Clicked(mk)) {
+					if (openM) {
+						st.grpMenuKey[0] = 0;
+					} else {
+						NkWidgetState::Copy(st.grpMenuKey, key, 39u);
+						NkWidgetState::Copy(st.grpMenuTitle, title, 39u);
+						st.grpMenuAnchor = mb;
+					}
+				}
+				// Le CHEVRON ne doit pas plier quand on visait le menu : la zone
+				// du menu est declaree APRES, elle gagne donc le survol.
+				if (hit.Clicked(key) && !ovM)
+					st.grpFold ^= bit;
+			}
 			y += kRowH;
 			return !folded;
+		}
+		// ── LE GROUPE RECLAME-T-IL UNE ACTION ? ─────────────────────────────
+		// Teste ET CONSOMME : appelee au tour de peinture du groupe, elle rend
+		// vrai une seule fois. `act` : 1 copier, 2 coller, 3 reinitialiser.
+		inline bool NkGrpWants(NkModelerState &st, const char *key, int32 act) {
+			if (st.grpAction != act || strcmp(st.grpActionKey, key) != 0)
+				return false;
+			st.grpAction = 0; // consommee
+			return true;
+		}
+		// Le presse-papiers porte-t-il des valeurs de CE groupe ?
+		inline bool NkGrpCanPaste(const NkModelerState &st, const char *key) {
+			return st.grpClipHas && strcmp(st.grpClipKey, key) == 0;
+		}
+		inline void NkGrpCopyF(NkModelerState &st, const char *key, const float32 *v, int32 n) {
+			NkWidgetState::Copy(st.grpClipKey, key, 39u);
+			for (int32 i = 0; i < n && i < 16; ++i)
+				st.grpClipF[i] = v[i];
+			st.grpClipHas = true;
+		}
+		// ── LE MENU OUVERT D'UN GROUPE, peint EN SURCOUCHE ──────────────────
+		// Appele une fois, tout a la fin du panneau : les entrees repondent
+		// alors sans que le contenu du dessous ne vole leurs clics. Les actions
+		// qui n'ont pas encore de sens sont GRISEES et le disent -- jamais une
+		// entree qui fait semblant d'agir.
+		inline void PaintPropGroupMenu(NkModelerPainter &p, NkHitRegistry &hit,
+									   NkModelerState &st, const nkgui::NkGuiInput &in) {
+			if (!st.grpMenuKey[0])
+				return;
+			// ── SURCOUCHE : COUCHE 50, comme tous les menus ─────────────────
+			// Le registre donne le survol a la couche la PLUS HAUTE. Peint sur
+			// la couche du panneau, ce menu ne gagnait pas ses propres clics :
+			// les entrees ne repondaient pas, donc rien n'etait copie (« coller
+			// reste grise ») et le menu ne se refermait jamais (Rihen). C'est le
+			// meme dispositif que les menus de scene et les listes deroulees.
+			NkHitRegistry::LayerScope menuLayer(hit, 50);
+			static const char *const kIt[3] = {"Copier les proprietes",
+											   "Coller les proprietes", "Reinitialiser"};
+			const float32 rowH2 = S(22.f);
+			float32 wI = 0.f;
+			for (int32 i = 0; i < 3; ++i)
+				if (p.TextW(kIt[i]) > wI)
+					wI = p.TextW(kIt[i]);
+			const float32 pw = wI + S(26.f), ph = rowH2 * 3.f + S(6.f);
+			const NkRect &a = st.grpMenuAnchor;
+			NkRect pr{a.x + a.w - pw, a.y + a.h + S(2.f), pw, ph};
+			if (pr.x < S(4.f))
+				pr.x = S(4.f);
+			hit.Add("prop.grpmenu", pr);
+			p.Fill(pr, NkRole::PanelBg, 4.f);
+			p.OutlineSharp(pr, NkRole::Border);
+			float32 yy = pr.y + S(3.f);
+			// COLLER n'a de sens que depuis un groupe de MEME nature : coller
+			// une Transformation dans un Brouillard ne veut rien dire.
+			const bool canPaste = NkGrpCanPaste(st, st.grpMenuKey);
+			char ik[32];
+			for (int32 i = 0; i < 3; ++i) {
+				snprintf(ik, sizeof(ik), "prop.grpmenu.%d", i);
+				const NkRect ir{pr.x + S(3.f), yy, pr.w - S(6.f), rowH2};
+				const bool en = (i == 0) || (i == 1 && canPaste) || i == 2;
+				const bool ov = hit.Add(ik, ir);
+				if (ov && en)
+					p.Fill(ir, NkRole::PanelHeader, 3.f);
+				p.TextV(ir.x + S(8.f), yy, rowH2, kIt[i],
+						en ? NkRole::Text : NkRole::TextMuted);
+				if (en && hit.Clicked(ik)) {
+					if (i == 0)
+						NkWidgetState::Copy(st.grpClipKey, st.grpMenuKey, 39u);
+					// L'INTENTION est posee ici ; c'est la categorie
+					// proprietaire du groupe qui l'execute, elle seule sait ce
+					// que « copier » veut dire pour ses champs.
+					NkWidgetState::Copy(st.grpActionKey, st.grpMenuKey, 39u);
+					st.grpAction = i + 1;
+					st.grpMenuKey[0] = 0;
+				}
+				yy += rowH2;
+			}
+			// SURCOUCHE BLOQUANTE, par le mecanisme DEJA en place pour les menus
+			// de la hierarchie (repris de NKCode) : l'emprise memorisee d'une
+			// frame sur l'autre, que les panneaux consultent avant d'accepter un
+			// clic. SetBlock ne suffisait pas ici -- ce panneau est peint APRES
+			// le contenu, qui avait deja tranche ses propres clics.
+			st.UiBlockAdd(pr);
+			// LE CLIC D'OUVERTURE NE DOIT PAS REFERMER. Le bandeau est peint
+			// AVANT ce menu : dans la meme image, le clic qui vient de poser
+			// l'ouverture tombait ici comme un « clic exterieur » et refermait
+			// aussitot (constate par Rihen ; meme piege que le panneau matcap).
+			// L'emprise du BOUTON d'ancrage est donc exclue.
+			if (hit.AnyClick() && !NkHitRegistry::Contains(pr, in.mousePos) &&
+				!NkHitRegistry::Contains(st.grpMenuAnchor, in.mousePos))
+				st.grpMenuKey[0] = 0;
 		}
 		// Renvoie la HAUTEUR REELLE consommee : un groupe SANS titre (Dimensions,
 		// qui n'a qu'une ligne) ne reserve pas la ligne du titre -- elle laissait
@@ -4975,24 +5095,25 @@ namespace nkentseu {
 				// seule pastille etant active, un second en-tete « Modele » sous
 				// celui-ci repetait l'information et volait une ligne au contenu.
 				{
-					static const char *const kHdrNames[5] = {"Modele", "Rendu", "Scene",
-															 "Modificateur", "Materiau"};
+					static const char *const kHdrNames[6] = {"Modele", "Rendu", "Scene",
+															 "Modificateur", "Materiau",
+															 "Outil"};
 					// La 6e pastille est CELLE DU MODE : son nom suit le mode
 					// courant (Edition, Sculpture 2.5D, Sculpture, Texturing).
 					static const char *const kHdrMode[6] = {
 						"Edition",	 "Sculpture 2.5D", "Sculpture",
 						"Texturing", "Patron",		   "Texture painting"};
 					int32 actSec = -1;
-					for (int32 i9 = 0; i9 < 6; ++i9)
+					for (int32 i9 = 0; i9 < 7; ++i9)
 						if (st.propOpen[i9]) {
 							actSec = i9;
 							break;
 						}
 					char hd[64];
-					if (actSec == 5 && (int32)st.mode >= 1 && (int32)st.mode <= 6)
+					if (actSec == 6 && (int32)st.mode >= 1 && (int32)st.mode <= 6)
 						snprintf(hd, sizeof(hd), "Proprietes (%s)",
 								 kHdrMode[(int32)st.mode - 1]);
-					else if (actSec >= 0 && actSec < 5)
+					else if (actSec >= 0 && actSec < 6)
 						snprintf(hd, sizeof(hd), "Proprietes (%s)", kHdrNames[actSec]);
 					else
 						snprintf(hd, sizeof(hd), "Proprietes");
@@ -5036,11 +5157,17 @@ namespace nkentseu {
 			// icones : Modele (box), Rendu (sun), Scene (layers), Modificateur
 			// (sliders-horizontal), Materiau (sphere). UNE SEULE est active a la
 			// fois.
-			static const NkPropSec kSecsBase[5] = {{"Modele", NkIcon::Cube3D},
+			// OUTIL a sa PROPRE pastille (Rihen) : les reglages de l'outil actif
+			// etaient HEBERGES par Modificateur depuis qu'une pastille de la
+			// maquette avait disparu -- un hebergement annonce comme provisoire
+			// dans le code. Ils rejoignent leur place, comme l'onglet « Tool »
+			// de Blender ; Modificateur ne garde que les modificateurs.
+			static const NkPropSec kSecsBase[6] = {{"Modele", NkIcon::Cube3D},
 												   {"Rendu", NkIcon::Sun},
 												   {"Scene", NkIcon::Layers},
 												   {"Modificateur", NkIcon::SlidersH},
-												   {"Materiau", NkIcon::Material}};
+												   {"Materiau", NkIcon::Material},
+												   {"Outil", NkIcon::Move}};
 			// ── LA PASTILLE DU MODE (regle de Rihen) : chaque mode hors Objet a
 			// SA pastille, unique a lui, qui n'existe QUE dans ce mode -- ses
 			// fonctions s'y rempliront progressivement, par categories. Une
@@ -5052,12 +5179,12 @@ namespace nkentseu {
 												   {"Patron", NkIcon::ViewUV},
 												   {"Texture painting", NkIcon::Picker}};
 			const int32 modeIdx5 = (int32)st.mode; // 0 = Objet
-			NkPropSec kSecs[6];
-			for (int32 i2 = 0; i2 < 5; ++i2)
+			NkPropSec kSecs[7];
+			for (int32 i2 = 0; i2 < 6; ++i2)
 				kSecs[i2] = kSecsBase[i2];
-			const int32 kNSec = modeIdx5 > 0 ? 6 : 5;
+			const int32 kNSec = modeIdx5 > 0 ? 7 : 6;
 			if (modeIdx5 > 0)
-				kSecs[5] = kModeSecs[modeIdx5 - 1];
+				kSecs[6] = kModeSecs[modeIdx5 - 1]; // la pastille du MODE, en dernier
 			// ENTRER dans un mode ACTIVE sa pastille -- mais SEULEMENT si le
 			// panneau etait deja ouvert : ferme, il le reste (Rihen -- «
 			// mettre sa pastille mais pas ouvrir le panneau s'il etait ferme »).
@@ -5074,20 +5201,20 @@ namespace nkentseu {
 							if (anyOpen5) {
 								for (int32 j2 = 0; j2 < 8; ++j2)
 									st.propOpen[j2] = false;
-								st.propOpen[5] = true;
+								st.propOpen[6] = true;
 							}
-						} else if (st.propOpen[5]) {
-							st.propOpen[5] = false;
+						} else if (st.propOpen[6]) {
+							st.propOpen[6] = false;
 							st.propOpen[0] = true;
 						}
 					}
 					sLastMode5 = modeIdx5;
 				}
 			}
-			if (modeIdx5 == 0 && st.propOpen[5]) {
-				st.propOpen[5] = false;
-				st.propSecH[5] = 0.f;
-				st.propScroll3[5] = 0.f;
+			if (modeIdx5 == 0 && st.propOpen[6]) {
+				st.propOpen[6] = false;
+				st.propSecH[6] = 0.f;
+				st.propScroll3[6] = 0.f;
 			}
 			// LA PASTILLE MODELE N'EXISTE QUE POUR UNE SELECTION (regle de
 			// Rihen) : sans objet actif elle disparait de la colonne, et si
@@ -5309,6 +5436,38 @@ namespace nkentseu {
 							const float32 grpXfTop = yy;
 							// Le contenu travaille EN RETRAIT du cadre (Rihen).
 							const NkRect inR = NkGroupInner(rowR);
+							// ── LES ACTIONS DU MENU DE CE GROUPE ───────────────
+							// Elles agissent AVANT la peinture des champs, pour que
+							// ceux-ci montrent deja le resultat. COPIER prend les
+							// neuf valeurs, COLLER les repose sur l'objet courant
+							// (c'est le geste demande par Rihen : porter la
+							// transformation d'un objet sur un autre), et
+							// REINITIALISER rend l'objet a l'origine, sans
+							// rotation, a l'echelle 1.
+							{
+								const float32 cur9[9] = {st.pos[0], st.pos[1], st.pos[2],
+														 st.rot[0], st.rot[1], st.rot[2],
+														 st.scl[0], st.scl[1], st.scl[2]};
+								if (NkGrpWants(st, "prop.g.xform", 1))
+									NkGrpCopyF(st, "prop.g.xform", cur9, 9);
+								if (NkGrpWants(st, "prop.g.xform", 2) &&
+									NkGrpCanPaste(st, "prop.g.xform")) {
+									for (int32 a = 0; a < 3; ++a) {
+										st.pos[a] = st.grpClipF[a];
+										st.rot[a] = st.grpClipF[3 + a];
+										st.scl[a] = st.grpClipF[6 + a];
+									}
+									demo::Demo3DHostSetEmptyTransform(en, st.pos, st.rot, st.scl);
+								}
+								if (NkGrpWants(st, "prop.g.xform", 3)) {
+									for (int32 a = 0; a < 3; ++a) {
+										st.pos[a] = 0.f;
+										st.rot[a] = 0.f;
+										st.scl[a] = 1.f;
+									}
+									demo::Demo3DHostSetEmptyTransform(en, st.pos, st.rot, st.scl);
+								}
+							}
 							if (grpXf) {
 								yy += NkGroupPad(); // respiration en haut du bloc
 								yy += PaintXformGroup(p, hit, ws, in, inR, yy, "Position",
@@ -5411,6 +5570,17 @@ namespace nkentseu {
 																   "prop.g.dim", "Dimensions",
 																   2u);
 								const float32 grpDimTop = yy;
+								// ACTIONS DU MENU : copier / coller les trois cotes,
+								// reinitialiser aux dimensions de la nature (un
+								// tableau vide, que Demo3DHostNodeBaseSize rendra).
+								if (NkGrpWants(st, "prop.g.dim", 1))
+									NkGrpCopyF(st, "prop.g.dim", dimE, 3);
+								if (NkGrpWants(st, "prop.g.dim", 2) &&
+									NkGrpCanPaste(st, "prop.g.dim")) {
+									for (int32 a = 0; a < 3; ++a)
+										dimE[a] = st.grpClipF[a];
+									demo::Demo3DHostSetNodeBaseSize(en, dimE);
+								}
 								if (grpDim) {
 									yy += NkGroupPad();
 									yy += PaintXformGroup(p, hit, ws, in, NkGroupInner(rowR), yy, "",
@@ -7543,7 +7713,28 @@ namespace nkentseu {
 					}
 					yy += NkPropGroupGap();
 				} else if (sec == 2) {
-					// â”€â”€ LA SCENE : champs GLISSABLES (comme les transformations) â”€
+					// ── LA SCENE, EN GROUPES REPLIABLES (Rihen) : meme facture
+					// que Transformation, Dimensions ou Sol -- une categorie qui
+					// deroule quinze champs a la file ne se lit pas.
+					NkRect rowR = rr;
+					rowR.x = r.x + NkPropInset();
+					rowR.w = rr.w - 2.f * NkPropInset();
+					const bool grpView = PaintPropGroup(p, hit, st, rowR, yy, "prop.g.view",
+														"Vue", 256u);
+					const float32 grpViewTop = yy;
+					if (grpView) {
+						yy += NkGroupPad();
+						// MARGES INTERNES : le contenu de ce groupe est ecrit en
+						// « r.x + kPad » et « rr.w » ; on SUBSTITUE ces deux rects
+						// par ceux du dedans du cadre, comme le groupe Camera --
+						// sans quoi les champs collent au bord (Rihen).
+						const NkRect iV = NkGroupInner(rowR);
+						const NkRect r{iV.x - kPad, rowR.y, iV.w + 2.f * kPad, rowR.h};
+						const NkRect rr = r;
+						// Gabarit de champ DERIVE des rects substitues : calcule
+						// avant eux, il gardait la largeur du panneau entier et
+						// les champs debordaient du cadre (Rihen).
+						NkRect fr{r.x + S(120.f), yy + S(3.f), rr.w - S(128.f), kRowH - S(4.f)};
 					{
 						p.TextV(r.x + kPad, yy, kRowH, "Projection", NkRole::TextMuted);
 						const bool o = demo::Demo3DHostIsOrtho();
@@ -7576,7 +7767,7 @@ namespace nkentseu {
 						}
 						yy += kRowH;
 					}
-					const NkRect fr{r.x + S(120.f), yy + S(3.f), rr.w - S(128.f), kRowH - S(4.f)};
+					fr.y = yy + S(3.f);
 					{
 						p.TextV(r.x + kPad, yy, kRowH, "Taille ortho", NkRole::TextMuted);
 						float32 os = demo::Demo3DHostOrthoScale();
@@ -7605,6 +7796,39 @@ namespace nkentseu {
 							demo::Demo3DHostSetGridExtent((int32)(ge + 0.5f));
 						yy += kRowH;
 					}
+					// ── ECHELLE EXACTE (cisaillement) ────────────────────────
+					// Coupee : l'echelle est projetee sur les axes de l'objet, il
+					// ne se deforme jamais de travers (choix d'Unreal, notre
+					// defaut). Active : un scale en repere GLOBAL sur un objet
+					// TOURNE le cisaille vraiment -- un carre devient un losange,
+					// comme dans un logiciel qui garde une matrice complete.
+					{
+						const bool shOn = demo::Demo3DHostShearScale();
+						const NkRect cb{r.x + kPad, yy + S(5.f), S(12.f), S(12.f)};
+						hit.Add("props.shear", cb);
+						p.Outline(cb, shOn ? NkRole::AccentUi : NkRole::Border,
+								  shOn ? NkRole::AccentUi : NkRole::InputBg, 2.f);
+						p.TextV(cb.x + S(18.f), yy, kRowH, "Echelle exacte (cisaillement)",
+								NkRole::TextMuted);
+						if (hit.Clicked("props.shear"))
+							demo::Demo3DHostSetShearScale(!shOn);
+						yy += kRowH;
+					}
+						yy += NkGroupPad();
+						PaintGroupBlock(p, rowR, grpViewTop, yy);
+					}
+					yy += NkPropGroupGap();
+					// ── GROUPE « UNITES » ────────────────────────────────────
+					const bool grpUnit = PaintPropGroup(p, hit, st, rowR, yy, "prop.g.unit",
+														"Unites", 512u);
+					const float32 grpUnitTop = yy;
+					if (grpUnit) {
+						yy += NkGroupPad();
+						// Memes marges internes que le groupe « Vue » ci-dessus.
+						const NkRect iU = NkGroupInner(rowR);
+						const NkRect r{iU.x - kPad, rowR.y, iU.w + 2.f * kPad, rowR.h};
+						const NkRect rr = r;
+						NkRect fr{r.x + S(120.f), yy + S(3.f), rr.w - S(128.f), kRowH - S(4.f)};
 					{
 						// ── UNITES DE MESURE DE LA SCENE (Rihen) ─────────────────
 						// Declaratif pour l'instant : les champs restent en unites
@@ -7662,8 +7886,14 @@ namespace nkentseu {
 									  sTgts, nullptr, st.sceneCount + 1,
 									  st.propCopyTarget, combo);
 								yy += kRowH;
-								if (Button("props.ucopy", yy, "Copier les proprietes",
-										   r.x + kPad, rr.w - 2.f * kPad)) {
+								// (Le bouton « Copier les proprietes » a disparu :
+								// l'action vit maintenant dans le MENU du bandeau,
+								// commun a tous les groupes -- Rihen. Le combo
+								// ci-dessus reste : il dit VERS QUELLE scene.)
+								// COPIER, demande par le menu du groupe : ce groupe
+								// sait ce que ca veut dire -- porter ses unites vers
+								// la scene choisie, ou vers toutes.
+								if (NkGrpWants(st, "prop.g.unit", 1)) {
 									const int32 t0 =
 										st.propCopyTarget <= 0 ? 0 : st.propCopyTarget - 1;
 									const int32 t1 = st.propCopyTarget <= 0
@@ -7674,8 +7904,24 @@ namespace nkentseu {
 										st.unitLengthTab[t7] = st.unitLength;
 										st.unitScaleTab[t7] = st.unitScale;
 									}
+									// ... et dans le presse-papiers, pour un collage
+									// vers une autre scene plus tard.
+									const float32 u3[3] = {(float32)st.unitSystem,
+														   (float32)st.unitLength,
+														   st.unitScale};
+									NkGrpCopyF(st, "prop.g.unit", u3, 3);
 								}
-								yy += kRowH;
+								if (NkGrpWants(st, "prop.g.unit", 2) &&
+									NkGrpCanPaste(st, "prop.g.unit")) {
+									st.unitSystem = (int32)(st.grpClipF[0] + 0.5f);
+									st.unitLength = (int32)(st.grpClipF[1] + 0.5f);
+									st.unitScale = st.grpClipF[2];
+								}
+								if (NkGrpWants(st, "prop.g.unit", 3)) {
+									st.unitSystem = 0; // metrique
+									st.unitLength = 0; // metres
+									st.unitScale = 1.f;
+								}
 							}
 					}
 					{
@@ -7801,34 +8047,81 @@ namespace nkentseu {
 							yy += kRowH;
 						}
 					}
+						yy += NkGroupPad();
+						PaintGroupBlock(p, rowR, grpUnitTop, yy);
+					}
+					yy += NkPropGroupGap();
 				} else if (sec == 3) {
 					// ── MODIFICATEUR (pastille « sliders-horizontal ») ──────────
 					// La categorie reste A DEFINIR avec Rihen. En attendant, elle
 					// HEBERGE les reglages de l'outil actif : ils etaient sur une
 					// pastille supprimee par la maquette, et les perdre en silence
 					// serait une regression. Ils demenageront a la refonte.
-					p.TextV(r.x + kPad, yy, kRowH, "Modificateurs -- a definir",
-							NkRole::TextMuted);
-					yy += kRowH;
-					// L'AJOUT vit ICI desormais : le deroulant de la barre
-					// d'outils est retire (regle de Rihen, la pastille suffit).
-					// Meme menu a deux niveaux, ancre a ce bouton.
-					{
-						const NkRect mb{r.x + kPad, yy + S(2.f), rr.w - 2.f * kPad,
-										kRowH - S(4.f)};
-						const bool ovM = hit.Add("props.modadd", mb);
-						const bool opM = ws.ComboOpen("tb.mod");
-						p.Outline(mb, (ovM || opM) ? NkRole::AccentUi : NkRole::Border,
-								  opM ? NkRole::AccentUi : NkRole::InputBg, 3.f);
-						p.TextV(mb.x + (mb.w - p.TextW("Ajouter un modificateur")) * 0.5f,
-								yy, kRowH, "Ajouter un modificateur",
-								opM ? NkRole::TextOnAccent : NkRole::Text);
-						if (hit.Clicked("props.modadd")) {
-							ws.ToggleCombo("tb.mod");
-							st.modAnchor = mb;
+					// EN GROUPES REPLIABLES (Rihen), comme les autres categories.
+					NkRect rowR = rr;
+					rowR.x = r.x + NkPropInset();
+					rowR.w = rr.w - 2.f * NkPropInset();
+					const bool grpMod = PaintPropGroup(p, hit, st, rowR, yy, "prop.g.mod",
+													   "Modificateurs", 1024u);
+					const float32 grpModTop = yy;
+					if (grpMod) {
+						yy += NkGroupPad();
+						const NkRect iM = NkGroupInner(rowR);
+						// L'AJOUT vit ICI : le deroulant de la barre d'outils est
+						// retire (regle de Rihen, la pastille suffit). Meme menu a
+						// deux niveaux, ancre a ce bouton.
+						{
+							const NkRect mb{iM.x, yy + S(2.f), iM.w, kRowH - S(4.f)};
+							const bool ovM = hit.Add("props.modadd", mb);
+							const bool opM = ws.ComboOpen("tb.mod");
+							p.Outline(mb, (ovM || opM) ? NkRole::AccentUi : NkRole::Border,
+									  opM ? NkRole::AccentUi : NkRole::InputBg, 3.f);
+							const char *lbAdd = "Ajouter un modificateur";
+							float32 twA = p.TextW(lbAdd);
+							if (twA > mb.w - S(6.f)) {
+								lbAdd = "Ajouter";
+								twA = p.TextW(lbAdd);
+							}
+							p.TextV(mb.x + (mb.w - twA) * 0.5f, yy, kRowH, lbAdd,
+									opM ? NkRole::TextOnAccent : NkRole::Text);
+							if (hit.Clicked("props.modadd")) {
+								ws.ToggleCombo("tb.mod");
+								st.modAnchor = mb;
+							}
+							yy += kRowH;
 						}
+						p.TextV(iM.x, yy, kRowH, "Aucun modificateur pose.",
+								NkRole::TextMuted);
 						yy += kRowH;
+						yy += NkGroupPad();
+						PaintGroupBlock(p, rowR, grpModTop, yy);
 					}
+					yy += NkPropGroupGap();
+				} else if (sec == 5) {
+					// ── OUTIL (pastille dediee, regle de Rihen) ─────────────────
+					// Les reglages de l'outil ACTIF : ce que fait le clic, dans
+					// quel repere, avec quelle aimantation. Ils etaient heberges
+					// par Modificateur -- un provisoire annonce comme tel dans le
+					// code -- et retrouvent ici leur place, comme l'onglet
+					// « Tool » de Blender.
+					NkRect rowR = rr;
+					rowR.x = r.x + NkPropInset();
+					rowR.w = rr.w - 2.f * NkPropInset();
+					// ── GROUPE « OUTIL ACTIF » : les reglages de l'outil courant.
+					const bool grpTool = PaintPropGroup(p, hit, st, rowR, yy, "prop.g.tool",
+														"Outil actif", 2048u);
+					const float32 grpToolTop = yy;
+					if (!grpTool) {
+						yy += NkPropGroupGap();
+					} else {
+						yy += NkGroupPad();
+						// Memes marges internes que les groupes de la Scene.
+						const NkRect iT = NkGroupInner(rowR);
+						const NkRect r{iT.x - kPad, rowR.y, iT.w + 2.f * kPad, rowR.h};
+						const NkRect rr = r;
+					// (« Ajouter un modificateur » a rejoint la pastille
+					// MODIFICATEUR : il etait parti avec l'outil lors du
+					// decoupage, alors qu'il n'a rien a y faire -- Rihen.)
 					// ── L'OUTIL -- et PLUSIEURS quand plusieurs coexistent : l'outil
 					// de transformation garde son bloc, le mode EDITION empile le
 					// sien dessous (deplacer + extruder arrivent ensemble, chacun
@@ -7882,30 +8175,17 @@ namespace nkentseu {
 						// Orientation : libelles CLIPPES a leur bouton -- en retrecissant
 						// le panneau ils debordaient (Deplacer, Rotation, Echelle et le
 						// cumule partagent ce bloc).
+						// ORIENTATION EN COMBO (Rihen) : depuis qu'elles sont SEPT
+						// (Monde, Local, Normale, Gimbal, Vue, Curseur, Parent),
+						// une rangee de boutons calculee pour trois debordait du
+						// groupe. Une liste tient dans n'importe quelle largeur et
+						// nomme les entrees en toutes lettres.
 						p.TextV(r.x + kPad, yy, kRowH, "Orientation", NkRole::TextMuted);
 						int32 nOr = 0;
 						const char *const *orients = NkOrientItems(nOr);
-						float32 bx = r.x + S(96.f);
-						for (int32 i3 = 0; i3 < nOr; ++i3) {
-							snprintf(key, sizeof(key), "props.or.%d", i3);
-							float32 wq = (rr.w - S(108.f) - 8.f) / 3.f;
-							if (wq < S(30.f))
-								wq = S(30.f);
-							const NkRect br{bx, yy + S(2.f), wq, kRowH - S(4.f)};
-							hit.Add(key, br);
-							const bool on = (st.orientation == i3);
-							if (on)
-								p.Fill(br, NkRole::AccentUi, 3.f);
-							else
-								p.Outline(br, NkRole::Border, NkRole::PanelHeader, 3.f);
-							p.Clip(br);
-							p.TextV(br.x + S(4.f), yy, kRowH, orients[i3],
-									on ? NkRole::TextOnAccent : NkRole::Text);
-							p.Unclip();
-							if (hit.Clicked(key))
-								st.orientation = i3;
-							bx += wq + 4.f;
-						}
+						Combo(p, hit, ws, "props.orient",
+							  {r.x + S(96.f), yy + S(2.f), rr.w - S(104.f), kRowH - S(4.f)},
+							  orients, NkOrientIcons(), nOr, st.orientation, combo);
 						yy += kRowH;
 						// AIMANTATION : la bascule ET ses PAS, modifiables ici.
 						const bool snapOn = demo::Demo3DHostSnapEnabled();
@@ -7961,14 +8241,21 @@ namespace nkentseu {
 							yy += kRowH;
 						}
 					}
-					// ── SECOND BLOC : l'outil d'EDITION quand le mode Edit est actif.
-					// Deux natures coexistent (deplacer + extruder) : chaque outil a
-					// SON bloc, empile avec son titre.
+						yy += NkGroupPad();
+						PaintGroupBlock(p, rowR, grpToolTop, yy);
+						yy += NkPropGroupGap();
+					}
+					// ── GROUPE « OUTIL D'EDITION », en mode Edit seulement.
 					if (demo::Demo3DHostInEditMode()) {
-						yy += S(4.f);
-						p.Fill({r.x, yy, rr.w, kRowH}, NkRole::PanelHeader);
-						p.TextV(r.x + kPad, yy, kRowH, "Outil d'edition");
-						yy += kRowH;
+						const bool grpEd = PaintPropGroup(p, hit, st, rowR, yy, "prop.g.edt",
+														  "Outil d'edition", 4096u);
+						const float32 grpEdTop = yy;
+						if (grpEd) {
+						yy += NkGroupPad();
+						// Memes marges internes que les autres groupes.
+						const NkRect iE = NkGroupInner(rowR);
+						const NkRect r{iE.x - kPad, rowR.y, iE.w + 2.f * kPad, rowR.h};
+						const NkRect rr = r;
 						const int32 m2 = demo::Demo3DHostEditSelMask();
 						snprintf(buf, sizeof(buf), "Sous-mode : %s%s%s", (m2 & 1) ? "Sommets " : "",
 								 (m2 & 2) ? "Aretes " : "", (m2 & 4) ? "Faces" : "");
@@ -7980,6 +8267,10 @@ namespace nkentseu {
 						p.TextV(r.x + kPad, yy, kRowH, "Ctrl+R boucle   W subdiviser   K couteau",
 								NkRole::TextMuted);
 						yy += kRowH;
+						yy += NkGroupPad();
+						PaintGroupBlock(p, rowR, grpEdTop, yy);
+						}
+						yy += NkPropGroupGap();
 					}
 				} else if (sec == 4) {
 					// ── MATERIAU : la BIBLIOTHEQUE DU PROJET ────────────────────
@@ -8223,7 +8514,7 @@ namespace nkentseu {
 								NkRole::TextMuted);
 						yy += kRowH;
 					}
-				} else if (sec == 5) {
+				} else if (sec == 6) {
 					// ── LA PASTILLE DU MODE : unique a chaque mode, ses
 					// fonctions arrivent PROGRESSIVEMENT par categories (regle
 					// de Rihen). Aujourd'hui : l'EDITION porte ses premieres
@@ -8433,6 +8724,10 @@ namespace nkentseu {
 					ty += S(28.f);
 				}
 			}
+			// LE MENU DE GROUPE, EN DERNIER : peint par-dessus tout le panneau,
+			// il repond donc a ses propres clics (les zones declarees en
+			// dernier gagnent le survol).
+			PaintPropGroupMenu(p, hit, st, in);
 			if (!hit.MouseDown())
 				st.propDragKey[0] = 0; // fin de glissement : la barre lache le geste
 		}

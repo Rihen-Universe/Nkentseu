@@ -78,6 +78,13 @@ namespace nkentseu {
 		// 7 arete perpendiculaire (a venir), 8 centre de face.
 		void Demo3DHostSetSnapTarget(int32 t);
 		int32 Demo3DHostSnapTarget();
+		// ECHELLE EXACTE : autorise le CISAILLEMENT. Coupee (defaut, choix
+		// d'Unreal), l'echelle est projetee sur les axes de l'objet et reste
+		// stockable en trois facteurs. Active, un scale en repere global sur un
+		// objet tourne le deforme vraiment (un carre devient un losange) : le
+		// noeud memorise alors le repere de son echelle.
+		bool Demo3DHostShearScale();
+		void Demo3DHostSetShearScale(bool on);
 		int32 Demo3DHostOrientation();
 		void Demo3DHostSetSnap(bool on, float32 t, float32 rotDeg, float32 scl);
 		bool Demo3DHostSnapEnabled();

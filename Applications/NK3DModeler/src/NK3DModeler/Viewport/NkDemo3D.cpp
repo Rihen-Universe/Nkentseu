@@ -110,6 +110,18 @@ namespace nkentseu {
 		// OBJETS UTILISATEUR : nature du slot (0 libre, 1 sphere, 2 cube,
 		// 3 plan, 4 empty).
 		static constexpr int32 kNkvpFirstUser = 96;
+		// ── ECHELLE EXACTE (cisaillement autorise) ──────────────────────────
+		// Par DEFAUT l'echelle vit dans les axes de l'objet -- choix d'Unreal
+		// (FTransform refuse le cisaillement), retenu pour NK3DModeler, cf.
+		// PRINCIPES_CONCEPTION.private.md. Avec l'option, un noeud memorise EN
+		// PLUS le repere MONDE dans lequel son echelle a ete appliquee : sa
+		// transform devient T * (B S Bt) * R, ce qui rend le VRAI cisaillement
+		// -- un carre devient un losange, comme l'exige un scale global sur un
+		// objet tourne. Sans base memorisee (le cas courant), on retombe
+		// exactement sur T * R * S : aucun cout, aucun changement.
+		static bool nkvpShearOpt = false;		   // l'option, pour toute la scene
+		static NkVec3f nkvpEmptySclAx[70][3] = {}; // repere monde de l'echelle
+		static bool nkvpEmptyShear[70] = {};	   // ce noeud en porte-t-il un ?
 		static constexpr int32 kNkvpMaxUser = 64;
 		static uint8 nkvpUserKind[kNkvpMaxUser] = {};
 		// Sous-type du noeud utilisateur (style d'empty, variante de courbe/
@@ -170,10 +182,20 @@ namespace nkentseu {
 		static void HostParentEnsureInit();
 		static int32 HostAllocUser(uint8 kind);
 		static void HostDecompose(const NkMat4f &M, NkVec3f &pos, NkVec3f &rotDeg, NkVec3f &scl);
+		// ── TRANSFORM LOCALE D'UN NOEUD : POINT DE PASSAGE UNIQUE ───────────
+		// La meme formule etait recomposee A LA MAIN dans cinq endroits (rendu,
+		// fil de fer, base du gizmo, pick, contour) : c'est exactement le genre
+		// de duplication qui finit par diverger. Tout passe desormais par ici.
+		//   withGizmo : inclut les decalages du gizmo (etat EFFECTIF pendant un
+		//   geste) ; faux pour la BASE que le gizmo consomme lui-meme.
+		static NkMat4f HostEmptyXform(int32 e, bool withGizmo);
 		// Variante CONTINUE (evite le saut de 180 degres des angles d'Euler) :
 		// definie avec l'autre, appelee bien avant.
 		static void HostDecomposeNear(const NkMat4f &M, const float32 *prevDeg, NkVec3f &pos,
 									  NkVec3f &rotDeg, NkVec3f &scl);
+		// Rotation d'un triplet d'angles (convention Z*Y*X du projet) : definie
+		// avec les autres helpers, appelee par le commit du gizmo bien avant.
+		static NkMat4f HostRotFromEuler(const float32 *rotDeg);
 		// Transform MONDE d'un noeud. Enveloppe SANS Demo3DState : la structure
 		// n'est declaree que plus bas, et la vue camera en a besoin ici.
 		static void HostNodeWorldById(int32 n, float32 *pos, NkMat4f &rot, float32 *scl);
@@ -986,18 +1008,7 @@ namespace nkentseu {
 		// (position + offsets gizmo, rotation composee, echelle, dimensions).
 		static NkMat4f Demo3D_UserWireXform(Demo3DState *st, int32 u) {
 			const int32 e = (kNkvpFirstUser + u) - 90; // meme indexation que le rendu
-			const float32 kD2Rw = 0.017453292f;
-			const NkVec3f tr = st->emptyGizmo.TranslateOf(e);
-			const NkVec3f os = st->emptyGizmo.ScaleOf(e);
-			NkMat4f W = NkMat4f::Translate({nkvpEmptyPos[e][0] + tr.x, nkvpEmptyPos[e][1] + tr.y,
-											nkvpEmptyPos[e][2] + tr.z}) *
-						(st->emptyGizmo.RotationOf(e) *
-						 (NkMat4f::RotationZ(NkAngle::FromRad(nkvpEmptyRotDeg[e][2] * kD2Rw)) *
-						  NkMat4f::RotationY(NkAngle::FromRad(nkvpEmptyRotDeg[e][1] * kD2Rw)) *
-						  NkMat4f::RotationX(NkAngle::FromRad(nkvpEmptyRotDeg[e][0] * kD2Rw)))) *
-						NkMat4f::Scale({nkvpEmptyScl[e][0] * (1.f + os.x),
-										nkvpEmptyScl[e][1] * (1.f + os.y),
-										nkvpEmptyScl[e][2] * (1.f + os.z)});
+			NkMat4f W = HostEmptyXform(e, true);	   // point de passage unique
 			const int32 un = kNkvpFirstUser + u;
 			if (nkvpBaseSet[un])
 				W = W * NkMat4f::Scale({nkvpDimFactor[un][0], nkvpDimFactor[un][1],
@@ -5987,12 +5998,7 @@ namespace nkentseu {
 										   : (usv == 2 ? st->meshCone : st->meshCube);
 				if (nkvpUserMesh[u].IsValid())
 					dc.mesh = nkvpUserMesh[u]; // mesh parametrique regenere
-				const NkVec3f uc{nkvpEmptyPos[e][0] + utr.x, nkvpEmptyPos[e][1] + utr.y,
-								 nkvpEmptyPos[e][2] + utr.z};
-				dc.transform = NkMat4f::Translate(uc) * uR *
-							   NkMat4f::Scale({nkvpEmptyScl[e][0] * (1.f + uos.x),
-											   nkvpEmptyScl[e][1] * (1.f + uos.y),
-											   nkvpEmptyScl[e][2] * (1.f + uos.z)});
+				dc.transform = HostEmptyXform(e, true); // point de passage unique
 				// AABB MONDE REELLE (boite locale transformee), plus le cube
 				// « echelle max » : un sol aplati 25x0,5x25 annoncait 50 m de
 				// HAUT, l'auto-fit des ombres directionnelles etendait la
@@ -8052,15 +8058,8 @@ namespace nkentseu {
 						renderer::NkGizmoTarget etg[70];
 						const float32 kD2R = 0.017453292f;
 						for (int32 e = 0; e < 70; ++e) {
-							const NkMat4f eR =
-								NkMat4f::RotationZ(NkAngle::FromRad(nkvpEmptyRotDeg[e][2] * kD2R)) *
-								NkMat4f::RotationY(NkAngle::FromRad(nkvpEmptyRotDeg[e][1] * kD2R)) *
-								NkMat4f::RotationX(NkAngle::FromRad(nkvpEmptyRotDeg[e][0] * kD2R));
-							etg[e].base = NkMat4f::Translate({nkvpEmptyPos[e][0], nkvpEmptyPos[e][1],
-															  nkvpEmptyPos[e][2]}) *
-										  eR *
-										  NkMat4f::Scale({nkvpEmptyScl[e][0], nkvpEmptyScl[e][1],
-														  nkvpEmptyScl[e][2]});
+							// BASE (sans les decalages du gizmo : il les porte lui-meme)
+							etg[e].base = HostEmptyXform(e, false);
 							etg[e].localHalf = {0.f, 0.f, 0.f};
 							etg[e].pickRadius = 0.f; // pas de pick : la hierarchie selectionne
 						}
@@ -8113,22 +8112,53 @@ namespace nkentseu {
 								// disparaissait a la fin (constate par Rihen). La
 								// decomposition rend exactement ce qui etait
 								// affiche, pour les sept reperes d'un coup.
+								// ── ECHELLE EXACTE : on MEMORISE le repere du geste
+								// quand l'option est active et que ce repere n'est
+								// pas celui de l'objet. La transform devient alors
+								// T * (B S Bt) * R et le cisaillement est conserve
+								// -- sinon la decomposition ci-dessous le perdrait,
+								// puisque trois facteurs ne peuvent pas le porter.
+								if (nkvpShearOpt && st->emptyGizmo.Orientation() !=
+													   renderer::NkGizmo3D::ORIENT_LOCAL) {
+									NkVec3f gb[3];
+									st->emptyGizmo.ScaleBasisOf(es, gb);
+									for (int32 a = 0; a < 3; ++a)
+										nkvpEmptySclAx[es][a] = gb[a];
+									nkvpEmptyShear[es] = true;
+								}
+								// PAS DE « sinon » qui efface : un geste en repere
+								// LOCAL n'a aucune raison de DETRUIRE le
+								// cisaillement deja porte par l'objet -- il le
+								// perdait d'un coup (constate par Rihen). La base
+								// memorisee reste, le nouveau facteur s'y compose.
+								// Seule la coupure de l'option redresse les objets,
+								// et c'est un geste explicite.
+								// ── COMMIT PAR MORCEAUX, PAS PAR DECOMPOSITION ──────
+								// Decomposer la matrice composee la lisait en T*R*S,
+								// alors que HostEmptyXform la RECONSTRUIT en
+								// T*(B S Bt)*R : deux formules differentes, donc un
+								// SAUT au relachement (constate par Rihen -- « ca
+								// scale un peu tout en gardant le cisaillement »).
+								// Chaque morceau se commit dans SON espace, ou il est
+								// exact : la translation en monde, la rotation comme
+								// produit de rotations PURES (decomposition continue,
+								// sans perte), et l'echelle comme facteurs dans la
+								// base du geste -- celle qu'on vient de memoriser.
+								const NkVec3f tr = st->emptyGizmo.TranslateOf(es);
+								nkvpEmptyPos[es][0] += tr.x;
+								nkvpEmptyPos[es][1] += tr.y;
+								nkvpEmptyPos[es][2] += tr.z;
 								NkVec3f fp, fr, fs;
-								// DECOMPOSITION CONTINUE : les angles precedents du
-								// noeud servent de reference, sinon l'ecriture des
-								// eulers bascule d'une solution a l'autre et les
-								// axes sautent de 180 degres en pleine rotation.
-								HostDecomposeNear(st->emptyGizmo.ComposedOf(es),
+								HostDecomposeNear(st->emptyGizmo.RotationOf(es) *
+													  HostRotFromEuler(nkvpEmptyRotDeg[es]),
 												  nkvpEmptyRotDeg[es], fp, fr, fs);
-								nkvpEmptyPos[es][0] = fp.x;
-								nkvpEmptyPos[es][1] = fp.y;
-								nkvpEmptyPos[es][2] = fp.z;
 								nkvpEmptyRotDeg[es][0] = fr.x;
 								nkvpEmptyRotDeg[es][1] = fr.y;
 								nkvpEmptyRotDeg[es][2] = fr.z;
-								nkvpEmptyScl[es][0] = fs.x;
-								nkvpEmptyScl[es][1] = fs.y;
-								nkvpEmptyScl[es][2] = fs.z;
+								const NkVec3f os = st->emptyGizmo.ScaleOf(es);
+								nkvpEmptyScl[es][0] *= (1.f + os.x);
+								nkvpEmptyScl[es][1] *= (1.f + os.y);
+								nkvpEmptyScl[es][2] *= (1.f + os.z);
 								anyCommit = true;
 							}
 							if (anyCommit)
@@ -8208,22 +8238,7 @@ namespace nkentseu {
 																		: st->meshCube);
 										if (nkvpUserMesh[u2].IsValid())
 											pm = nkvpUserMesh[u2];
-										const NkVec3f utr2 = st->emptyGizmo.TranslateOf(e2);
-										const NkVec3f uos2 = st->emptyGizmo.ScaleOf(e2);
-										NkMat4f W =
-											NkMat4f::Translate({nkvpEmptyPos[e2][0] + utr2.x,
-																nkvpEmptyPos[e2][1] + utr2.y,
-																nkvpEmptyPos[e2][2] + utr2.z}) *
-											(st->emptyGizmo.RotationOf(e2) *
-											 (NkMat4f::RotationZ(NkAngle::FromRad(
-												  nkvpEmptyRotDeg[e2][2] * kD2Rp)) *
-											  NkMat4f::RotationY(NkAngle::FromRad(
-												  nkvpEmptyRotDeg[e2][1] * kD2Rp)) *
-											  NkMat4f::RotationX(NkAngle::FromRad(
-												  nkvpEmptyRotDeg[e2][0] * kD2Rp)))) *
-											NkMat4f::Scale({nkvpEmptyScl[e2][0] * (1.f + uos2.x),
-															nkvpEmptyScl[e2][1] * (1.f + uos2.y),
-															nkvpEmptyScl[e2][2] * (1.f + uos2.z)});
+										NkMat4f W = HostEmptyXform(e2, true); // point de passage unique
 										if (nkvpBaseSet[un2])
 											W = W * NkMat4f::Scale({nkvpDimFactor[un2][0],
 																	nkvpDimFactor[un2][1],
@@ -8549,21 +8564,7 @@ namespace nkentseu {
 								if (nkvpUserMesh[u].IsValid())
 									sdc2.mesh = nkvpUserMesh[u];
 							}
-							const NkVec3f utr = st->emptyGizmo.TranslateOf(e);
-							const NkVec3f uos = st->emptyGizmo.ScaleOf(e);
-							const NkMat4f uR =
-								st->emptyGizmo.RotationOf(e) *
-								(NkMat4f::RotationZ(NkAngle::FromRad(nkvpEmptyRotDeg[e][2] * kD2Ro)) *
-								 NkMat4f::RotationY(NkAngle::FromRad(nkvpEmptyRotDeg[e][1] * kD2Ro)) *
-								 NkMat4f::RotationX(NkAngle::FromRad(nkvpEmptyRotDeg[e][0] * kD2Ro)));
-							sdc2.transform =
-								NkMat4f::Translate({nkvpEmptyPos[e][0] + utr.x,
-													nkvpEmptyPos[e][1] + utr.y,
-													nkvpEmptyPos[e][2] + utr.z}) *
-								uR *
-								NkMat4f::Scale({nkvpEmptyScl[e][0] * (1.f + uos.x),
-												nkvpEmptyScl[e][1] * (1.f + uos.y),
-												nkvpEmptyScl[e][2] * (1.f + uos.z)});
+							sdc2.transform = HostEmptyXform(e, true); // point de passage unique
 							if (nkvpBaseSet[un])
 								sdc2.transform = sdc2.transform *
 												 NkMat4f::Scale({nkvpDimFactor[un][0],
@@ -9551,6 +9552,28 @@ namespace nkentseu {
 			// dans le panneau, le poussage UI a echoue -- meme methode que le
 			// combo Source de l'ambiance.
 			logger.Info("[NkDemo3D] Aimantation : cible -> {0}\n", t);
+		}
+		// ── ECHELLE EXACTE (cisaillement autorise) ──────────────────────────
+		bool Demo3DHostShearScale() {
+			return nkvpShearOpt;
+		}
+		void Demo3DHostSetShearScale(bool on) {
+			auto *st = HostSt();
+			nkvpShearOpt = on;
+			if (!st)
+				return;
+			st->gizmo.SetAllowShear(on);
+			st->editGizmo.SetAllowShear(on);
+			st->lightGizmo.SetAllowShear(on);
+			st->emptyGizmo.SetAllowShear(on);
+			// COUPER l'option REDRESSE les objets : leur cisaillement n'est plus
+			// representable, et le garder afficherait un etat que plus rien ne
+			// pourrait modifier ni sauvegarder.
+			if (!on)
+				for (int32 e = 0; e < 70; ++e)
+					nkvpEmptyShear[e] = false;
+			logger.Info("[NkDemo3D] Echelle exacte (cisaillement) -> {0}\n",
+						on ? "oui" : "non");
 		}
 		int32 Demo3DHostSnapTarget() {
 			auto *st = HostSt();
@@ -10769,6 +10792,57 @@ namespace nkentseu {
 		static NkMat4f sHierRot[kNkvpMaxNodes];
 		static float32 sHierScl[kNkvpMaxNodes][3];
 		static bool sHierOk = false;
+		static NkMat4f HostRotFromEuler(const float32 *rotDeg); // defini juste apres
+		// ── TRANSFORM LOCALE D'UN NOEUD : LE POINT DE PASSAGE UNIQUE ────────
+		// Voir la declaration en tete de fichier. Deux formes :
+		//   sans base memorisee : T * R * S  -- l'echelle vit dans les axes de
+		//     l'objet, il ne cisaille jamais (defaut, choix d'Unreal) ;
+		//   avec base memorisee : T * (B S Bt) * R -- l'echelle vit dans le
+		//     repere MONDE du geste, ce qui produit le vrai cisaillement.
+		static NkMat4f HostEmptyXform(int32 e, bool withGizmo) {
+			if (e < 0 || e >= 70)
+				return NkMat4f::Identity();
+			auto *st = HostSt();
+			// ── PENDANT UN GESTE, LE GIZMO FAIT FOI ─────────────────────────
+			// Sa matrice composee porte l'echelle DANS LE REPERE du geste ;
+			// recomposer ici en multipliant simplement les facteurs ignorait ce
+			// repere, si bien que le rendu ne suivait pas et que le resultat
+			// n'apparaissait qu'au relachement (constate par Rihen). L'apercu et
+			// le resultat viennent desormais de la meme source.
+			if (withGizmo && st && st->emptyGizmo.IsDragging() &&
+				st->emptyGizmo.IsSelected(e))
+				return st->emptyGizmo.ComposedOf(e);
+			NkVec3f gTr{0.f, 0.f, 0.f}, gOs{0.f, 0.f, 0.f};
+			NkMat4f gRot = NkMat4f::Identity();
+			if (withGizmo && st) {
+				gTr = st->emptyGizmo.TranslateOf(e);
+				gOs = st->emptyGizmo.ScaleOf(e);
+				gRot = st->emptyGizmo.RotationOf(e);
+			}
+			const NkMat4f R = gRot * HostRotFromEuler(nkvpEmptyRotDeg[e]);
+			const NkVec3f P{nkvpEmptyPos[e][0] + gTr.x, nkvpEmptyPos[e][1] + gTr.y,
+							nkvpEmptyPos[e][2] + gTr.z};
+			NkMat4f S = NkMat4f::Scale({nkvpEmptyScl[e][0] * (1.f + gOs.x),
+										nkvpEmptyScl[e][1] * (1.f + gOs.y),
+										nkvpEmptyScl[e][2] * (1.f + gOs.z)});
+			if (nkvpEmptyShear[e]) {
+				// B (base -> monde) et sa transposee (monde -> base ; la base
+				// est orthonormee, donc transposee = inverse). Convention du
+				// moteur : M * {1,0,0} rend mat[0].
+				const NkVec3f *B = nkvpEmptySclAx[e];
+				NkMat4f Bm = NkMat4f::Identity(), Bt = NkMat4f::Identity();
+				for (int32 a = 0; a < 3; ++a) {
+					Bm.mat[a][0] = B[a].x;
+					Bm.mat[a][1] = B[a].y;
+					Bm.mat[a][2] = B[a].z;
+					Bt.mat[0][a] = B[a].x;
+					Bt.mat[1][a] = B[a].y;
+					Bt.mat[2][a] = B[a].z;
+				}
+				return NkMat4f::Translate(P) * (Bm * S * Bt) * R;
+			}
+			return NkMat4f::Translate(P) * R * S;
+		}
 		static NkMat4f HostRotFromEuler(const float32 *rotDeg) {
 			const float32 kDeg2Rad = 0.017453292f;
 			return NkMat4f::RotationZ(NkAngle::FromRad(rotDeg[2] * kDeg2Rad)) *
