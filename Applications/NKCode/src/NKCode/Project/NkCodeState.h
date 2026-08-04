@@ -3876,6 +3876,11 @@ namespace nkentseu {
 				// commande ENTIERE (chemin quote + arguments) et devient illisible.
 				// Vide = comportement historique (la commande fait office de libelle).
 				NkString termOpenLabel;
+				// Instance de panneau visee par la demande ci-dessus : false = panneau
+				// « TERMINAL » (shells de l'utilisateur), true = panneau « EXECUTION »
+				// (un onglet par « Demarrer »). Les deux panneaux lisent le meme canal ;
+				// seul le destinataire le consomme.
+				bool termOpenRun = false;
 				// ── Pont barre de menus -> panneau IA (menu IA : Expliquer/Corriger/... la
 				// selection) : prompt depose ici, consomme par NkAiPanel::OnUI au prochain
 				// frame (copie dans la saisie ; aiSend=true = envoye immediatement).
@@ -6908,14 +6913,16 @@ namespace nkentseu {
 					}
 					cmd += " --build";
 					cmd += JengaFileArg();
-					// Sans onglet terminal dedie, la sortie va dans le panneau Sortie : il
-					// faut alors INTERDIRE a Jenga d'ouvrir une console externe (Run.py le
-					// fait des qu'il voit une ConsoleApp sans tty). Ce serait une fenetre
-					// orpheline qui s'ouvre et se referme AUSSITOT avec le programme, sans
-					// rien laisser lire. Pose AVANT `--args` (voir juste dessous).
+					// TOUJOURS interdire a Jenga d'ouvrir une console externe : Run.py le
+					// fait des qu'il voit une ConsoleApp qu'il croit sans tty. Les deux
+					// destinations possibles ici SONT deja une console —
+					//   - onglet terminal dedie : le pty EST la console ;
+					//   - panneau Sortie : la sortie est capturee par NKCode ;
+					// une fenetre supplementaire ne ferait que s'ouvrir et se refermer
+					// avec le programme, emportant son affichage avec elle. Pose AVANT
+					// `--args` (voir juste dessous).
+					cmd += " --no-console";
 					const bool versTerminal = IsConsoleProject(proj);
-					if (!versTerminal)
-						cmd += " --no-console";
 					// `--args` doit rester EN DERNIER : argparse.REMAINDER avale tout ce
 					// qui suit (cf. Jenga/Commands/Run.py).
 					if (runArgs[0]) {
@@ -6930,12 +6937,13 @@ namespace nkentseu {
 					// donc PAS de console externe : tout reste dans l'onglet.
 					if (versTerminal) {
 						termOpenAt = RunCwd(); // racine du workspace (ou reglage explicite)
+						termOpenRun = true;	   // -> panneau EXECUTION, pas les shells
 						termOpenCmd = cmd;
 						termOpenKind = -1;
 						termOpenLabel = NkString("\xE2\x96\xB7 ") + proj;
 						termOpenLabel += " \xC2\xB7 ";
 						termOpenLabel += S.name;
-						focusPanelReq = "TERMINAL";
+						focusPanelReq = "EXECUTION";
 						Journal(NkString("execution lancee (terminal dedie) : ") + cmd.CStr());
 						status = NkString("Execution dans le terminal : ") + proj;
 						return;
@@ -7095,6 +7103,7 @@ namespace nkentseu {
 					// elle, n'a rien a afficher dans un terminal -> chemin inchange.
 					if (kind == "ConsoleApp") {
 						termOpenAt = RunCwd(); // racine du workspace (ou reglage explicite)
+						termOpenRun = true;	   // -> panneau EXECUTION, pas les shells
 						termOpenCmd = line;	   // la commande REMPLACE le shell dans l'onglet
 						termOpenKind = -1;	   // shell par defaut (sert de repli si la commande sort)
 						// L'onglet s'identifie comme une EXECUTION, pas comme un shell :
@@ -7107,7 +7116,7 @@ namespace nkentseu {
 							termOpenLabel += " \xC2\xB7 ";
 							termOpenLabel += mRunPendingPlat;
 						}
-						focusPanelReq = "TERMINAL"; // fait remonter le panneau (peut etre ferme)
+						focusPanelReq = "EXECUTION"; // fait remonter le panneau (peut etre ferme)
 						Journal(NkString("execution lancee (terminal dedie) : ") + line.CStr());
 						status = NkString("Execution dans le terminal : ") + mRunPendingProj.CStr();
 						return;

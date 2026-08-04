@@ -97,11 +97,16 @@ int nkmain(const NkEntryState &state) {
 	static nkcode::EditorPanel editor(&g_state, shell.Get());
 	static nkcode::OutputPanel output(&g_state, shell.Get());
 	static nkcode::TerminalPanel terminal;
+	// Panneau d'EXECUTION : meme moteur de terminal, mais reserve aux programmes
+	// lances par « Demarrer » — pour ne pas les melanger aux shells que
+	// l'utilisateur garde ouverts. Ne cree jamais de shell tout seul.
+	static nkcode::TerminalPanel runTerm("EXECUTION", /*runMode=*/true);
 	shell->AddPanel(&explorer);
 	shell->AddPanel(&outline);
 	shell->AddPanel(&editor);
 	shell->AddPanel(&output);
 	shell->AddPanel(&terminal);
+	shell->AddPanel(&runTerm);
 
 	// Maquettes des interfaces (interface.md) : structure visuelle d'abord, rendu
 	// fonctionnel ensuite (roadmap #2-#20). Fermees par defaut -> menu Affichage.
@@ -158,6 +163,8 @@ int nkmain(const NkEntryState &state) {
 	shell->SetZoomHandler(&nkcode::ZoomHandler, &nkcode::NkZoomCtx()); // zoom Ctrl+molette/±/0 -> onglet actif
 	terminal.mShell = shell.Get();					 // police propre du terminal (non zoomee)
 	terminal.mState = &g_state;						 // terminal demarre dans la racine du workspace
+	runTerm.mShell = shell.Get();
+	runTerm.mState = &g_state;
 	g_dialogs.st = &g_state;
 	g_dialogs.shell = shell.Get();
 	g_dialogs.home = &g_home; // modale Preferences = panneau settings COMPLET du launcher
@@ -268,11 +275,12 @@ int nkmain(const NkEntryState &state) {
 		static NkString s_regHome = g_regHome;
 		shell->SetOnWindowClosed(
 			[](void *user) -> bool {
-				// Des fichiers non enregistres : on VETOE et on demande. Le panneau
-				// Editeur affiche la confirmation (DrawQuitConfirm) puis leve
-				// quitConfirmed, converti en RequestClose() par le rappel de frame
-				// ci-dessous. Sans modification en attente, on ferme sans rien demander.
-				if (g_state.DirtyCount() > 0 && !g_state.quitConfirmed) {
+				// On VETOE et on demande confirmation — TOUJOURS, pas seulement quand
+				// des fichiers sont modifies : fermer l'IDE d'un clic sur la croix,
+				// sans un mot, est trop facile a faire par accident. L'overlay
+				// (Dialogs::DrawQuitConfirm) pose la question puis appelle
+				// ConfirmQuit(), qui repasse ici avec quitConfirmed leve.
+				if (!g_state.quitConfirmed) {
 					g_state.quitRequested = true;
 					return false;
 				}

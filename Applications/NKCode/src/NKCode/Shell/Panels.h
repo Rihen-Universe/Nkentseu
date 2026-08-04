@@ -1403,6 +1403,7 @@ namespace nkentseu {
 														  1}; // -1 défaut, SH_PWSH, SH_CMD, SH_BASH, SH_WSL
 							mS->termOpenKind = kMap[act3];
 							mS->termOpenAt = mTermPickDir;
+							mS->termOpenRun = false; // shells, pas le panneau EXECUTION
 							mTermPickDir = NkString();
 							mTabMenu.open = false; // choix fait : referme le menu principal aussi
 							if (mShell)
@@ -1503,6 +1504,7 @@ namespace nkentseu {
 									// un clic direct = shell PAR DÉFAUT immédiatement.
 									mS->termOpenKind = -1;
 									mS->termOpenAt = mS->files[idx].path.GetParent().ToString();
+									mS->termOpenRun = false; // shells, pas le panneau EXECUTION
 									mTermPick.open = false;
 									if (mShell)
 										mShell->FocusPanel("TERMINAL"); // titre EXACT (comparaison sensible a la casse)
@@ -1525,44 +1527,8 @@ namespace nkentseu {
 						RequestCloseFile(ctx, toClose);
 					DrawCloseConfirm(ctx);
 					DrawCloseGroupConfirm(ctx);
-					DrawQuitConfirm(ctx);
 				}
 
-				// ── Fermeture de l'APPLICATION (croix de la barre de titre) ─────────
-				// L'etat pose le drapeau quitRequested (le rappel de fermeture du shell
-				// a VETOE la fermeture, cf. NkEditorShell::SetOnWindowClosed) ; on
-				// demande ici ce qu'il faut faire des fichiers modifies. Sans fichier
-				// modifie, aucune question : on ferme.
-				void DrawQuitConfirm(NkGuiContext &ctx) {
-					if (!mS->quitRequested)
-						return;
-					if (!mQuitConfirm.open) {
-						if (mS->DirtyCount() == 0) { // rien a perdre -> fermeture directe
-							mS->ConfirmQuit();
-							return;
-						}
-						mQuitConfirm.open = true;
-					}
-					const int32 n = mS->DirtyCount();
-					const NkString msg = NkPrintf(NkT("app.quit.save"), n);
-					const char *items[3] = {NkT("app.quit.savebtn"), NkT("app.quit.discard"),
-											 NkT("app.quit.cancel")};
-					const int32 act = NkModalDraw(ctx, mQuitConfirm, NkT("app.quit.title"), msg.CStr(), items, 3);
-					if (act == 0) { // Enregistrer TOUT puis fermer — annule si un echec
-						mQuitConfirm.open = false;
-						mS->quitRequested = false;
-						if (mS->SaveAllDirty())
-							mS->ConfirmQuit();
-						// Echec (ex. « Enregistrer sous » annule) : on ne ferme PAS, pour
-						// ne pas perdre ce qui n'a pas pu etre ecrit.
-					} else if (act == 1) { // Fermer sans enregistrer
-						mQuitConfirm.open = false;
-						mS->ConfirmQuit();
-					} else if (act == 2) { // Annuler (bouton, Echap, clic en dehors)
-						mQuitConfirm.open = false;
-						mS->quitRequested = false;
-					}
-				}
 
 				// Ferme l'onglet `idx` — si son contenu N'EST PAS enregistre, ouvre D'ABORD
 				// une confirmation (Enregistrer / Ne pas enregistrer / Annuler) au lieu de
@@ -1752,7 +1718,6 @@ namespace nkentseu {
 				// confirmation PAR FICHIER (trop complexe), juste un avertissement bloc si au
 				// moins un des fichiers cibles est modifie. ──
 				NkModal mCloseGroupConfirm;
-				NkModal mQuitConfirm; ///< fermeture de l'APPLICATION (croix barre de titre)
 				int32 mCloseGroupMode = 0; // 1 = CloseOthers, 2 = CloseToRight
 				int32 mCloseGroupIdx = -1;
 		};
@@ -2326,10 +2291,19 @@ namespace nkentseu {
 						NkString cmd; // commande explicite (pwsh 7, Git Bash...) ; vide = PtyCommand(kind)
 				};
 
-				TerminalPanel() : NkEditorPanel("TERMINAL", NkEditorDockSide::NK_BOTTOM) {
+				// DEUX instances de ce panneau coexistent (cf. main.cpp) :
+				//   « TERMINAL »  — les shells de l'utilisateur   (mRunMode = false)
+				//   « EXECUTION » — un onglet par « Demarrer »    (mRunMode = true)
+				// Les separer evite de melanger une session shell qu'on garde ouverte et
+				// l'application qu'on relance vingt fois. En mode execution, AUCUN shell
+				// par defaut n'est cree : le panneau reste vide tant que rien n'est lance.
+				explicit TerminalPanel(const char *title = "TERMINAL", bool runMode = false)
+					: NkEditorPanel(title, NkEditorDockSide::NK_BOTTOM), mRunMode(runMode) {
 					// Le terminal par defaut est cree quand le WORKSPACE est connu (bon repertoire,
 					// pas de persistance de session ; l historique = celui du shell, ex. PSReadLine).
 				}
+
+				bool mRunMode = false; ///< true = panneau EXECUTION (voir ci-dessus)
 
 				NkEditorShell *mShell = nullptr; // pour la police propre du terminal (TermCodeFont)
 				NkCodeState *mState = nullptr;	 // racine du workspace -> repertoire de demarrage des shells
@@ -2399,6 +2373,18 @@ namespace nkentseu {
 					// Terminal PAR DEFAUT : cree seulement quand la racine du workspace est connue
 					// -> le shell demarre au bon endroit, avec le TYPE choisi par l utilisateur.
 					if (AliveCount() == 0) {
+						// Panneau EXECUTION : surtout PAS de shell par defaut — il n'existe
+						// que pour les programmes lances, et un PowerShell qui s'y ouvrirait
+						// tout seul recreerait exactement la confusion qu'on cherche a eviter.
+						const bool aOuvrir = mState && !mState->termOpenAt.Empty() &&
+											 mState->termOpenRun == mRunMode;
+						if (mRunMode && !aOuvrir) {
+							if (ctx.font && ctx.font->Valid())
+								dl.AddText(ctx.font->Face(), ctx.font->TexId(),
+										   {clip.x + ctx.S(12.f), clip.y + ctx.S(20.f)},
+										   NkT("run.empty"), ctx.theme.textDisabled);
+							return;
+						}
 						const bool rootReady = wsReady;
 						if (!rootReady) {
 							if (ctx.font && ctx.font->Valid())
@@ -2408,10 +2394,13 @@ namespace nkentseu {
 							return;
 						}
 						EnsurePrefs();
-						AddTermKind(mDefShell, mDefDistro); // shell par defaut (preference persistee)
+						if (!mRunMode)
+							AddTermKind(mDefShell, mDefDistro); // shell par defaut (preference persistee)
 					}
 					// « Ouvrir dans le terminal » : NOUVEL onglet au dossier demandé (façon VSCode).
-					if (mState && !mState->termOpenAt.Empty()) {
+					// termOpenRun designe l'instance visee : les deux panneaux lisent le
+					// meme canal, seul le destinataire le consomme.
+					if (mState && !mState->termOpenAt.Empty() && mState->termOpenRun == mRunMode) {
 						EnsurePrefs();
 						const int32 k2 = mState->termOpenKind >= 0 ? mState->termOpenKind : mDefShell;
 						AddTermKind(k2, k2 == SH_WSL ? mDefDistro : NkString());
@@ -2429,6 +2418,7 @@ namespace nkentseu {
 							mState->termOpenType = NkString();
 						}
 						mState->termOpenAt = NkString();
+						mState->termOpenRun = false; // defaut = shells pour la demande suivante
 					}
 					if (!mTerm[mActive].alive)
 						mActive = FirstAlive();

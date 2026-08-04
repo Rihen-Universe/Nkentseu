@@ -143,6 +143,7 @@ namespace nkentseu {
 				s->termOpenCmd = cmd;
 				s->termOpenKind = -1;
 				s->termOpenAt = s->HasWorkspace() ? s->root.ToString() : NkString(".");
+				s->termOpenRun = false; // shells, pas le panneau EXECUTION
 				sh->FocusPanel("TERMINAL");
 			}
 
