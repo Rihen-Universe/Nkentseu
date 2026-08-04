@@ -33,6 +33,12 @@ namespace nkentseu {
 				float32 scroll = 0.f;
 				bool scrollDrag = false;
 				float32 scrollDragOff = 0.f;
+				// Filtre de la liste deroulante. Sur un workspace de 186 projets,
+				// derouler jusqu'a celui qu'on cherche n'est pas praticable. Le champ est
+				// ANCRE en haut, HORS de la zone defilante : il reste donc visible quelle
+				// que soit la position du defilement.
+				char filter[64] = {};
+				bool filterFocus = false;
 		};
 
 		inline NkTbState &NkTb() {
@@ -580,6 +586,7 @@ namespace nkentseu {
 				struct Item {
 						NkString label;
 						int32 idx;
+						NkString hint; // 2e colonne, alignee a DROITE (ex. le Kind du projet)
 				};
 
 				NkVector<Item> items;
@@ -592,9 +599,14 @@ namespace nkentseu {
 						break;
 					case 1: {
 						const int32 np = (int32)s->projects.Size();
-						for (int32 i = 0; i < np; ++i)
-							items.PushBack({s->projects[i], i});
-						items.PushBack({NkString(NkT("tb.allprojects")), np});
+						for (int32 i = 0; i < np; ++i) {
+							// Le Kind en 2e colonne : on voit d'un coup d'oeil ce qui est
+							// executable et ce qui ne l'est pas, sans essayer pour le
+							// decouvrir. Entre parentheses, aligne a droite.
+							const NkString k = (i < (int32)s->projKinds.Size()) ? s->projKinds[i] : NkString();
+							items.PushBack({s->projects[i], i, k.Empty() ? NkString() : (NkString("(") + k.CStr() + ")")});
+						}
+						items.PushBack({NkString(NkT("tb.allprojects")), np, NkString()});
 						curSel = s->projIdx;
 					} break;
 					case 2:
@@ -631,12 +643,33 @@ namespace nkentseu {
 					} break;
 				}
 				const float32 ih = u.s(24);
-				if (tb.justOpened)
+				if (tb.justOpened) {
 					tb.scroll = 0.f;
+					tb.filter[0] = '\0';   // chaque ouverture repart d'une liste complete
+					tb.filterFocus = true; // on peut taper immediatement
+				}
+				// ── Champ de recherche, seulement quand la liste le justifie ────────
+				// En dessous de ce seuil tout tient a l'ecran : un champ n'apporterait
+				// rien et volerait une ligne.
+				const bool avecFiltre = items.Size() > 8;
+				const float32 searchH = avecFiltre ? u.s(26) : 0.f;
+				// Filtrage insensible a la casse, sur le libelle ET sur le Kind — taper
+				// « console » liste toutes les applications console.
+				NkVector<Item> shown;
+				if (avecFiltre && tb.filter[0]) {
+					for (usize i = 0; i < items.Size(); ++i)
+						if (NkCodeState::ContainsI(items[i].label.CStr(), tb.filter) ||
+							NkCodeState::ContainsI(items[i].hint.CStr(), tb.filter))
+							shown.PushBack(items[i]);
+				} else
+					shown = items;
+
 				// Largeur BORNÉE (ellipse au-delà) -> pas de scroll horizontal nécessaire.
 				float32 ddw = a.w;
 				for (usize i = 0; i < items.Size(); ++i) {
-					const float32 tw = u.TextW(items[i].label.CStr()) + u.s(28);
+					float32 tw = u.TextW(items[i].label.CStr()) + u.s(28);
+					if (!items[i].hint.Empty())
+						tw += u.TextW(items[i].hint.CStr()) + u.s(16);
 					if (tw > ddw)
 						ddw = tw;
 				}
@@ -645,14 +678,18 @@ namespace nkentseu {
 					ddw = maxDdw;
 				// Hauteur PLAFONNÉE par l'écran -> défilement vertical si trop d'items.
 				const float32 pad = u.s(6);
-				const float32 contentH = (float32)items.Size() * ih + pad;
+				const float32 contentH = (float32)shown.Size() * ih + pad;
 				float32 maxH = (float32)ec.Ui().viewH - (a.y + a.h + u.s(2)) - u.s(12);
 				if (maxH > u.s(440))
 					maxH = u.s(440);
 				if (maxH < ih + pad)
 					maxH = ih + pad;
+				// La bande de recherche a sa PROPRE hauteur, hors du calcul de
+				// defilement : c'est precisement ce qui la rend insensible au scroll.
+				if (maxH > searchH + ih + pad)
+					maxH -= searchH;
 				const bool scroll = contentH > maxH;
-				const float32 ddh = scroll ? maxH : contentH;
+				const float32 ddh = (scroll ? maxH : contentH) + searchH;
 				const float32 sbW = scroll ? editorkit::NkScrollbarWidth() : 0.f; // largeur canonique (= editeur)
 				float32 ddx = a.x;
 				if (ddx + ddw > r.x + r.w - u.s(8))
@@ -669,50 +706,93 @@ namespace nkentseu {
 					tb.scroll = 0.f;
 				if (tb.scroll > maxScroll)
 					tb.scroll = maxScroll;
-				const NkRect inner = {dd.x, dd.y + u.s(3), dd.w - sbW, ddh - u.s(6)};
+				// ── Bande de recherche ANCREE : dessinee AVANT le clip de la liste,
+				// donc jamais rognee ni deplacee par le defilement.
+				if (avecFiltre) {
+					const NkRect fr = {dd.x + u.s(4), dd.y + u.s(4), dd.w - u.s(8), searchH - u.s(6)};
+					if (u.Hit(fr) && u.click)
+						tb.filterFocus = true;
+					editorkit::NkOverlayTextField(ec.Ui(), *uo.dl, ec.Ui().font, fr, tb.filter,
+												  (int32)sizeof(tb.filter), tb.filterFocus);
+					if (!tb.filter[0] && ec.Ui().font && ec.Ui().font->Valid())
+						uo.TextEllipsis(fr.x + u.s(8), fr.y + (fr.h - u.Lh()) * 0.5f, fr.w - u.s(16),
+										NkT("tb.filter.hint"), NkCol::mutedFg);
+					// Repartir du haut UNIQUEMENT quand le filtre change : sinon on
+					// resterait a defiler dans le vide au-dessus d'une liste devenue
+					// courte. Le remettre a zero a chaque frame desactiverait le
+					// defilement pur et simple.
+					static char s_prev[64] = {};
+					bool change = false;
+					for (int32 k = 0; k < (int32)sizeof(s_prev); ++k) {
+						if (s_prev[k] != tb.filter[k]) {
+							change = true;
+							break;
+						}
+						if (!tb.filter[k])
+							break;
+					}
+					if (change) {
+						for (int32 k = 0; k < (int32)sizeof(s_prev); ++k)
+							s_prev[k] = tb.filter[k];
+						tb.scroll = 0.f;
+					}
+				}
+				const NkRect inner = {dd.x, dd.y + searchH + u.s(3), dd.w - sbW, ddh - searchH - u.s(6)};
 				uo.dl->PushClipRect(inner, true);
 				bool chose = false;
-				for (usize i = 0; i < items.Size(); ++i) {
-					const float32 iy = dd.y + u.s(3) + (float32)i * ih - tb.scroll;
+				for (usize i = 0; i < shown.Size(); ++i) {
+					const float32 iy = dd.y + searchH + u.s(3) + (float32)i * ih - tb.scroll;
 					if (iy + ih < inner.y || iy > inner.y + inner.h)
 						continue; // hors vue
 					const NkRect ir = {dd.x + u.s(4), iy, dd.w - u.s(8) - sbW, ih};
 					const bool vis2 = (iy >= inner.y - 1.f && iy + ih <= inner.y + inner.h + 1.f);
 					const bool hv = vis2 && u.Hit(ir);
-					const bool selrow = (items[i].idx == curSel);
+					const bool selrow = (shown[i].idx == curSel);
 					if (hv || selrow)
 						uo.Rect(ir, NkCol::hover, NkR::sm * u.S);
-					uo.TextEllipsis(ir.x + u.s(8), ir.y + (ih - u.Lh()) * 0.5f, ir.w - u.s(12), items[i].label.CStr(),
+					// Deux colonnes : le nom a gauche, le Kind a DROITE en gris. Le nom
+					// cede la place au Kind (largeur reduite d'autant) plutot que de
+					// passer dessous.
+					const float32 ty = ir.y + (ih - u.Lh()) * 0.5f;
+					float32 lw = ir.w - u.s(12);
+					if (!shown[i].hint.Empty()) {
+						const float32 hw = u.TextW(shown[i].hint.CStr());
+						uo.TextEllipsis(ir.x + ir.w - u.s(8) - hw, ty, hw + u.s(2), shown[i].hint.CStr(), NkCol::mutedFg);
+						lw -= hw + u.s(10);
+						if (lw < u.s(40))
+							lw = u.s(40);
+					}
+					uo.TextEllipsis(ir.x + u.s(8), ty, lw, shown[i].label.CStr(),
 									selrow ? NkCol::primary : NkCol::foreground);
 					if (hv && u.click) {
 						switch (tb.open) {
 							case 0:
-								s->wsIdx = items[i].idx;
+								s->wsIdx = shown[i].idx;
 								s->RequestReload();
 								break;
 							case 1:
-								s->projIdx = items[i].idx;
+								s->projIdx = shown[i].idx;
 								break;
 							case 2:
-								s->sysIdx = items[i].idx;
+								s->sysIdx = shown[i].idx;
 								s->archIdx = 0;
 								break;
 							case 3:
-								s->cfgIdx = items[i].idx;
+								s->cfgIdx = shown[i].idx;
 								break;
 							case 4:
-								s->archIdx = items[i].idx;
+								s->archIdx = shown[i].idx;
 								break;
 							case 5:
-								s->testIdx = items[i].idx;
+								s->testIdx = shown[i].idx;
 								break;
 							case 6:
-								if (items[i].idx < 0)
+								if (shown[i].idx < 0)
 									s->compilerName = NkString();
 								else {
 									const NkVector<int32> cs = s->CompilersForCurrentPlatform();
-									if (items[i].idx < (int32)cs.Size())
-										s->compilerName = s->toolchains[cs[items[i].idx]].name;
+									if (shown[i].idx < (int32)cs.Size())
+										s->compilerName = s->toolchains[cs[shown[i].idx]].name;
 								}
 								break;
 						}

@@ -475,6 +475,9 @@ namespace nkentseu {
 				 {"Enregistrer « %s »", "Save \"%s\"", "Guardar «%s»", "Salvar «%s»", "„%s“ speichern",
 				  "Salva «%s»", "Сохранить «%s»", "Enregistrer « %s »"}},
 				// ── Fermeture de l'APPLICATION (croix de la barre de titre) ──
+				{"tb.filter.hint",
+				 {"Rechercher...", "Search...", "Buscar...", "Pesquisar...", "Suchen...", "Cerca...",
+				  "Поиск...", "Rechercher..."}},
 				{"run.empty",
 				 {"Aucune execution en cours. Utilisez « Demarrer » pour lancer un projet.",
 				  "Nothing running. Use \"Run\" to start a project.",

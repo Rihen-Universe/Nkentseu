@@ -3871,6 +3871,10 @@ namespace nkentseu {
 				// n'a pas le shell sous la main). Consomme par OutputPanel::OnUI, seul
 				// panneau appele a chaque frame. Titre EXACT (« TERMINAL »), la
 				// comparaison de FocusPanel etant sensible a la casse.
+				// Statut a afficher en ROUGE : un refus (bibliotheque non executable,
+				// aucun executable...) doit sauter aux yeux, pas se fondre dans le gris
+				// des messages ordinaires. Remis a faux a chaque nouvelle tentative.
+				bool statusError = false;
 				NkString focusPanelReq;
 				// Libelle de l'onglet terminal a creer. Sans lui, l'onglet porte la
 				// commande ENTIERE (chemin quote + arguments) et devient illisible.
@@ -6880,19 +6884,22 @@ namespace nkentseu {
 					// deux cas au lieu de laisser echouer plus loin :
 					//   « tous les projets »  -> le PREMIER executable du workspace ;
 					//   une bibliotheque      -> message clair, aucun lancement.
+					statusError = false; // nouvelle tentative : on repart d'un statut neutre
 					NkString cibleRun;
 					if (AllProjects()) {
 						cibleRun = FirstExecutableProject();
 						if (cibleRun.Empty()) {
 							status = NkString("(aucun executable dans ce workspace)");
+							statusError = true;
 							return;
 						}
 					} else {
 						cibleRun = SelectedProject();
 						if (!IsExecutableProject(cibleRun.CStr())) {
 							const NkString k = KindOf(cibleRun.CStr());
-							status = NkPrintf("(%s est une bibliotheque%s%s - rien a executer)", cibleRun.CStr(),
+							status = NkPrintf("%s est une bibliotheque%s%s - rien a executer", cibleRun.CStr(),
 											  k.Empty() ? "" : " ", k.Empty() ? "" : k.CStr());
+							statusError = true;
 							return;
 						}
 					}

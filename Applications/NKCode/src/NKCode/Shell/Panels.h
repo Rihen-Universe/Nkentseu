@@ -1817,7 +1817,11 @@ namespace nkentseu {
 									   ctx.theme.text);
 					} else if (ctx.font && ctx.font->Valid()) {
 						dl.AddText(ctx.font->Face(), ctx.font->TexId(), {clip.x + pad, by},
-								   mS->status.Empty() ? "Sortie" : mS->status.CStr(), ctx.theme.textDisabled);
+								   mS->status.Empty() ? "Sortie" : mS->status.CStr(),
+								   // Un REFUS (bibliotheque non executable, aucun executable...)
+								   // doit sauter aux yeux : rouge, pas le gris des messages
+								   // ordinaires.
+								   mS->statusError ? NkCol::danger : ctx.theme.textDisabled);
 					}
 
 					// ── Console (lecture seule) : defilable + selectionnable + unicode ──
