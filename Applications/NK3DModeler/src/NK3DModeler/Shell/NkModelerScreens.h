@@ -2788,6 +2788,19 @@ namespace nkentseu {
 						order[b] = t;
 					}
 
+			// ── PASTILLE DE FOND, TRANSLUCIDE (Rihen) ───────────────────────────
+			// Peinte AVANT tout le reste, donc sous les tiges et les boules. Elle
+			// donne au gizmo une assise : sur une scene claire, les axes clairs se
+			// perdaient dans le decor. Assez transparente pour qu'on voie la scene
+			// au travers, un peu plus opaque au survol pour dire que le corps est
+			// saisissable. Le noir tient sur un fond clair comme sur un fond
+			// sombre, ce qu'une couleur de theme ne garantirait pas.
+			const bool navHot = hit.IsHovered("nav.body");
+			const NkColor navBg{0, 0, 0, (uint8)(navHot ? 82 : 48)};
+			// Le TROU des demi-axes negatifs se pose SUR la pastille : un peu plus
+			// dense qu'elle, il se lit comme un creux sans jamais devenir opaque.
+			const NkColor navHole{0, 0, 0, (uint8)(navHot ? 150 : 120)};
+			p.DiscColor(cx, cy, radius * 1.06f, navBg);
 			// ROTATION LIBRE : tirer le CORPS du gizmo fait tourner la vue. Les
 			// boules restent des raccourcis vers les six vues d'axe, mais elles ne
 			// suffisent pas -- Blender permet aussi de le faire pivoter a la main,
@@ -2824,9 +2837,9 @@ namespace nkentseu {
 					p.Text(ex - lw * 0.5f, ey - p.LineH() * 0.5f, kHalf[i].label,
 						   NkRole::TextOnAccent);
 				} else {
-					// Creuse : le trou reprend le fond de la VUE -- le gizmo flotte
-					// au-dessus de la scene.
-					p.Ring(ex, ey, over ? ball + 2.f : ball, kHalf[i].role, NkRole::ViewportTop);
+					// Creuse : le trou se pose sur la PASTILLE, plus la couleur du
+					// fond de vue -- opaque, elle perçait un rond plein dedans.
+					p.RingColor(ex, ey, over ? ball + 2.f : ball, p.C(kHalf[i].role), navHole);
 				}
 				if (over)
 					hit.WantCursor(NkCursorWant::Hand);
@@ -3968,7 +3981,11 @@ namespace nkentseu {
 			// un vide, puis [Deplacer | Rotation | Echelle | Multigizmo] -- la
 			// disposition demandee par Rihen (celle de Blender).
 			const float32 wTools = S(8.f) + 6.f * (btn + 2.f) + S(10.f);
-			const float32 wSet = S(8.f) + 5.f * (btn + 2.f); // orientation + pivot + aimant + cible + vitesse
+			// Orientation, pivot, aimant + SON chevron, edition proportionnelle
+			// + LE SIEN, vitesse. Sans compter les deux derniers, le groupe
+			// restait trop etroit et ils tombaient HORS du cadre, a droite de
+			// l'ecran : invisibles dans les deux modes (constate par Rihen).
+			const float32 wSet = S(8.f) + 7.f * (btn + 2.f) + S(6.f);
 			float32 tx = r.x + r.w - S(10.f) - wSet;
 
 			// Groupe 3 : reglages (a droite).
@@ -4027,7 +4044,10 @@ namespace nkentseu {
 						p.Fill(mb2, NkRole::AccentUi, 3.f);
 					else
 						HoverFill(p, mb2, ovM2, 3.f);
-					p.IconV(cx + (btn - S(13.f)) * 0.5f, barY, barH, NkIcon::SnapGrid,
+					// AIMANT EN FER A CHEVAL, pas un quadrillage : le quadrillage
+					// disait « grille », or la bascule aimante aussi sur sommets,
+					// aretes et faces. Le dessin doit decrire l'action (Rihen).
+					p.IconV(cx + (btn - S(13.f)) * 0.5f, barY, barH, NkIcon::Magnet,
 							snapOn2 ? NkRole::TextOnAccent : NkRole::TextMuted, 13.f);
 					if (hit.Clicked("vp.magnet"))
 						demo::Demo3DHostSetSnap(!snapOn2, st.snapStepT, st.snapStepR,
@@ -4051,6 +4071,42 @@ namespace nkentseu {
 						st.snapMenuOpen = !st.snapMenuOpen;
 						st.snapMenuAnchor = sb2;
 					}
+					cx += btn + S(6.f); // respiration avant la paire suivante
+				}
+				// ── EDITION PROPORTIONNELLE : sa bascule, puis SON chevron ───
+				// Chaque bascule garde son chevron A COTE d'elle -- glissee entre
+				// l'aimant et le sien, elle brouillait qui ouvre quoi (Rihen).
+				// Elle vaut dans les DEUX modes : sommets voisins en Edition,
+				// OBJETS voisins en mode Objet (disposer une foret, incurver une
+				// rangee de batiments sans les toucher un a un).
+				{
+					bool peOn = false;
+					float32 peR = 1.f;
+					int32 peF = 0;
+					demo::Demo3DHostPropEdit(&peOn, &peR, &peF);
+					const NkRect pb{cx, barY + 2.f, btn, barH - 4.f};
+					const bool ovP = hit.Add("vp.prop", pb);
+					if (peOn)
+						p.Fill(pb, NkRole::AccentUi, 3.f);
+					else
+						HoverFill(p, pb, ovP, 3.f);
+					p.IconV(cx + (btn - S(13.f)) * 0.5f, barY, barH, NkIcon::Proportional,
+							peOn ? NkRole::TextOnAccent : NkRole::TextMuted, 13.f);
+					if (hit.Clicked("vp.prop"))
+						demo::Demo3DHostSetPropEdit(!peOn, peR, peF);
+					cx += btn + 2.f;
+					const NkRect pm{cx, barY + 1.f, btn, barH - 2.f};
+					const bool ovPM = hit.Add("vp.propmenu", pm);
+					if (st.propMenuOpen)
+						p.Fill(pm, NkRole::AccentUi, 3.f);
+					else
+						HoverFill(p, pm, ovPM, 3.f);
+					p.IconV(cx + (btn - S(13.f)) * 0.5f, barY, barH, NkIcon::ChevronDown,
+							st.propMenuOpen ? NkRole::TextOnAccent : NkRole::TextMuted, 13.f);
+					if (hit.Clicked("vp.propmenu")) {
+						st.propMenuOpen = !st.propMenuOpen;
+						st.propMenuAnchor = pm;
+					}
 					cx += btn + 2.f;
 				}
 				// VITESSE DE CAMERA : son icone etait la camera -- le meme dessin
@@ -4064,6 +4120,63 @@ namespace nkentseu {
 				p.VLine(cx - S(4.f), barY + S(6.f), barH - S(12.f));
 
 				// (les pas vivent dans le panneau d'aimantation ci-dessous)
+			}
+			// ── PANNEAU DE L'EDITION PROPORTIONNELLE : rayon + attenuation ──
+			// Meme facture que celui de l'aimantation : ancre a son chevron,
+			// bloquant, et ferme au clic exterieur -- l'emprise du bouton
+			// exclue, sinon le clic d'ouverture le refermerait dans la meme
+			// image (le piege deja paye deux fois).
+			if (st.propMenuOpen) {
+				bool peOn = false;
+				float32 peR = 1.f;
+				int32 peF = 0;
+				demo::Demo3DHostPropEdit(&peOn, &peR, &peF);
+				const float32 r0p = peR;
+				const int32 f0p = peF;
+				static const char *const kFall[8] = {"Lisse",		 "Sphere",	 "Racine",
+													 "Carre inverse", "Net",	 "Lineaire",
+													 "Constant",	  "Aleatoire"};
+				const float32 rowH3 = S(22.f);
+				const float32 pw3 = S(206.f);
+				const float32 ph3 = S(10.f) + rowH3 * 10.f;
+				float32 px3 = st.propMenuAnchor.x + st.propMenuAnchor.w - pw3;
+				if (px3 < r.x + S(4.f))
+					px3 = r.x + S(4.f);
+				const NkRect pr3{px3, st.propMenuAnchor.y + st.propMenuAnchor.h + S(4.f), pw3,
+								 ph3};
+				hit.Add("vp.propmenu.box", pr3);
+				p.Fill(pr3, NkRole::PanelBg, 4.f);
+				p.OutlineSharp(pr3, NkRole::Border);
+				float32 yy3 = pr3.y + S(4.f);
+				p.TextV(px3 + S(10.f), yy3, rowH3, "Rayon", NkRole::TextMuted);
+				DragFloat(p, hit, ws, in, "vp.prop.rad",
+						  {px3 + S(84.f), yy3 + S(3.f), pw3 - S(94.f), rowH3 - S(6.f)}, peR,
+						  0.02f, NkRole::AccentUi, "%.2f m");
+				yy3 += rowH3;
+				p.TextV(px3 + S(10.f), yy3, rowH3, "Attenuation", NkRole::TextMuted);
+				yy3 += rowH3;
+				char fk3[24];
+				for (int32 i3 = 0; i3 < 8; ++i3) {
+					snprintf(fk3, sizeof(fk3), "vp.prop.f%d", i3);
+					const NkRect ir3{px3 + S(4.f), yy3, pw3 - S(8.f), rowH3};
+					const bool ov3 = hit.Add(fk3, ir3);
+					const bool on3 = (peF == i3);
+					if (on3)
+						p.Fill(ir3, NkRole::AccentUi, 3.f);
+					else if (ov3)
+						p.Fill(ir3, NkRole::PanelHeader, 3.f);
+					p.TextV(ir3.x + S(10.f), yy3, rowH3, kFall[i3],
+							on3 ? NkRole::TextOnAccent : NkRole::Text);
+					if (hit.Clicked(fk3))
+						peF = i3;
+					yy3 += rowH3;
+				}
+				if (peR != r0p || peF != f0p)
+					demo::Demo3DHostSetPropEdit(peOn, peR, peF);
+				hit.SetBlock(pr3, true);
+				if (hit.AnyClick() && !NkHitRegistry::Contains(pr3, in.mousePos) &&
+					!NkHitRegistry::Contains(st.propMenuAnchor, in.mousePos))
+					st.propMenuOpen = false;
 			}
 			// ── PANNEAU D'AIMANTATION : cibles + pas (Blender, capture de
 			// Rihen). Il s'ancre a son bouton, BLOQUE les evenements sous lui
@@ -8271,6 +8384,44 @@ namespace nkentseu {
 									st.snapStepS = 0.01f;
 								demo::Demo3DHostSetSnap(snapOn, st.snapStepT, st.snapStepR,
 														st.snapStepS);
+							}
+						}
+						// ── EDITION PROPORTIONNELLE : bascule, rayon, attenuation.
+						// Les memes reglages que le chevron de la barre -- une seule
+						// verite, lue au moteur -- pour qui travaille au panneau.
+						{
+							bool peOn = false;
+							float32 peR = 1.f;
+							int32 peF = 0;
+							demo::Demo3DHostPropEdit(&peOn, &peR, &peF);
+							const float32 r0 = peR;
+							const int32 f0 = peF;
+							if (Button("props.pe", yy,
+									   peOn ? "Edition proportionnelle : active"
+											: "Edition proportionnelle : coupee",
+									   r.x + kPad, rr.w - 2.f * kPad))
+								demo::Demo3DHostSetPropEdit(!peOn, peR, peF);
+							yy += kRowH;
+							if (peOn) {
+								p.TextV(r.x + kPad + S(8.f), yy, kRowH, "Rayon", NkRole::TextMuted);
+								DragFloat(p, hit, ws, in, "props.pe.r",
+										  {r.x + S(120.f), yy + S(3.f), rr.w - S(128.f),
+										   kRowH - S(4.f)},
+										  peR, 0.02f, NkRole::AccentUi, "%.2f m");
+								yy += kRowH;
+								p.TextV(r.x + kPad + S(8.f), yy, kRowH, "Attenuation",
+										NkRole::TextMuted);
+								static const char *const kFal[8] = {
+									"Lisse", "Sphere",	 "Racine",	 "Carre inverse",
+									"Net",	 "Lineaire", "Constant", "Aleatoire"};
+								Combo(p, hit, ws, "props.pe.f",
+									  {r.x + S(120.f), yy + S(2.f), rr.w - S(128.f), kRowH - S(4.f)},
+									  kFal, nullptr, 8, peF, combo);
+								yy += kRowH;
+								if (peR < 0.01f)
+									peR = 0.01f;
+								if (peR != r0 || peF != f0)
+									demo::Demo3DHostSetPropEdit(peOn, peR, peF);
 							}
 						}
 						if (st.tool == NkTool::Move || st.tool == NkTool::MultiGizmo) {

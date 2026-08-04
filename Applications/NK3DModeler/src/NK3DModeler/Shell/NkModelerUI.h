@@ -238,6 +238,16 @@ namespace nkentseu {
 					mDl.AddCircleFilled({cx, cy}, radius, c);
 					mDl.AddCircleFilled({cx, cy}, radius - 1.6f, C(inner));
 				}
+				// Meme cercle creux, mais le TROU prend une couleur libre. Necessaire
+				// des que ce qu'il y a derriere n'est plus une couleur de theme : sur
+				// la pastille translucide du gizmo de navigation, reprendre la
+				// couleur OPAQUE du fond de vue posait un rond plein bien visible au
+				// lieu d'un creux.
+				void RingColor(float32 cx, float32 cy, float32 radius, const NkColor &c,
+							   const NkColor &inner) {
+					mDl.AddCircleFilled({cx, cy}, radius, c);
+					mDl.AddCircleFilled({cx, cy}, radius - 1.6f, inner);
+				}
 
 				// BARRE HORIZONTALE. Meme regle que la verticale : dessinee SEULEMENT
 				// si le contenu deborde. Une barre permanente sur un panneau qui tient

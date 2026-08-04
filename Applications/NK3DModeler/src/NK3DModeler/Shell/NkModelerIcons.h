@@ -83,6 +83,11 @@ namespace nkentseu {
 			SnapGrid,
 			SnapAngle,
 			SnapScale,
+			// L'AIMANT et l'EDITION PROPORTIONNELLE ont leur propre dessin :
+			// emprunter un quadrillage ou un cercle nu n'apprenait rien a qui
+			// regarde la barre (regle de Rihen -- une icone doit DECRIRE).
+			Magnet,
+			Proportional,
 			ArrowUp,
 			ArrowDown,
 			ViewFront,
@@ -229,6 +234,11 @@ namespace nkentseu {
 						{NkIcon::SnapGrid, "table"},		// quadrillage
 						{NkIcon::SnapAngle, "compass"},	// rapporteur
 						{NkIcon::SnapScale, "law"},		// balance : proportions
+						// Dessins FAITS POUR EUX (data/icons/) : un aimant en fer a
+						// cheval dit « ca s'accroche », des anneaux de plus en plus
+						// fins autour d'un point disent « l'influence decroit ».
+						{NkIcon::Magnet, "magnet"},
+						{NkIcon::Proportional, "proportional"},
 						// Vues d'axe : chaque direction a SON icone. Six entrees portant le
 						// meme dessin obligeraient a lire le libelle pour les distinguer, ce
 						// qui annule l'interet d'une liste a icones.

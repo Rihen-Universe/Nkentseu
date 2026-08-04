@@ -37,6 +37,7 @@
 #include "NKFileSystem/NkFile.h"				// save/load session d'édition (journal de commandes)
 #include "NKTime/NkChrono.h"					// mesure du coût des aperçus modaux (NK_MODAL_PERF)
 #include "NKRenderer/Tools/VoxelAO/NkVoxelAOSystem.h" // NK_GI_TEST : GI à un rebond
+#include "NKLogger/NkLog.h" // diagnostic par le journal (methode de travail)
 #include <cstdio>
 #include <cstdlib> // getenv (override NK_GI_TEST)
 
@@ -110,6 +111,61 @@ namespace nkentseu {
 		// OBJETS UTILISATEUR : nature du slot (0 libre, 1 sphere, 2 cube,
 		// 3 plan, 4 empty).
 		static constexpr int32 kNkvpFirstUser = 96;
+		// ── EDITION PROPORTIONNELLE (Blender : « proportional editing ») ────
+		// Deplacer un sommet ENTRAINE ses voisins, d'autant moins qu'ils sont
+		// loin. Le RAYON dit jusqu'ou porte l'influence ; l'ATTENUATION dit
+		// comment elle decroit -- huit lois, celles de Blender, parce que la
+		// forme du fondu EST le resultat : « Lisse » arrondit, « Net » pince,
+		// « Constant » deplace un bloc entier.
+		static bool nkvpPropEditOn = false;
+		static float32 nkvpPropEditRadius = 1.f;
+		static int32 nkvpPropEditFalloff = 0; // 0 lisse .. 7 aleatoire
+		// Distance de chaque sommet au plus proche sommet SELECTIONNE, calculee
+		// UNE FOIS au debut du geste : la refaire a chaque image couterait
+		// nv x nsel par frame, et la reference bougerait avec les sommets.
+		static NkVector<float32> nkvpPropDist;
+		// MEME MECANIQUE POUR LES OBJETS (Rihen) : distance de chaque noeud au
+		// plus proche noeud SELECTIONNE, figee au debut du geste. C'est ce qui
+		// permet de disposer une foret ou d'incurver une rangee de batiments
+		// sans toucher chaque objet un a un.
+		static float32 nkvpPropDistNode[70] = {};
+		static bool nkvpPropNodeArmed = false;
+		// Pivot du geste, fige lui aussi : rotation et echelle des voisins
+		// tournent autour de LUI, jamais autour de leur propre centre -- c'est
+		// ce qui fait qu'une rangee s'incurve au lieu que chaque objet pivote
+		// sur place.
+		static NkVec3f nkvpPropPivot{0.f, 0.f, 0.f};
+		// Poids d'un sommet a la distance d, pour un rayon r.
+		static float32 HostPropFalloff(float32 d, float32 r, int32 type) {
+			if (r <= 1e-6f)
+				return 0.f;
+			float32 t = 1.f - d / r; // 1 au centre, 0 au bord
+			if (t <= 0.f)
+				return 0.f;
+			if (t > 1.f)
+				t = 1.f;
+			switch (type) {
+				case 1: // Sphere
+					return math::NkSqrt(1.f - (1.f - t) * (1.f - t));
+				case 2: // Racine
+					return math::NkSqrt(t);
+				case 3: // Carre inverse
+					return t * t;
+				case 4: // Net
+					return t * t * t;
+				case 5: // Lineaire
+					return t;
+				case 6: // Constant : tout le rayon bouge d'un bloc
+					return 1.f;
+				case 7: { // Aleatoire, STABLE par sommet (sinon ca grouille)
+					const float32 h = math::NkSin(d * 127.1f) * 43758.545f;
+					const float32 rnd = h - (float32)(int64)h;
+					return t * (rnd < 0.f ? rnd + 1.f : rnd);
+				}
+				default: // 0 Lisse (Hermite) : le defaut de Blender
+					return t * t * (3.f - 2.f * t);
+			}
+		}
 		// ── LA ROTATION D'UN NOEUD EST UN QUATERNION ────────────────────────
 		// C'est la VERITE (choix d'Unreal : FTransform stocke un FQuat), et les
 		// angles d'Euler ne sont plus que la langue de l'interface. Un
@@ -7226,6 +7282,33 @@ namespace nkentseu {
 					Demo3D_PushSel(st);
 					st->editDragSnap = st->editHE;
 					st->editDragSnapValid = true;
+					// ── EDITION PROPORTIONNELLE : distances calculees ICI, une
+					// fois pour tout le geste. Les refaire a chaque image
+					// couterait nv x nsel par frame, et surtout la reference
+					// bougerait avec les sommets deja deplaces -- l'influence
+					// deriverait en cours de route.
+					if (nkvpPropEditOn) {
+						nkvpPropDist.Resize((uint32)nv);
+						for (int32 i = 0; i < nv; ++i) {
+							if (st->vertSel[i]) {
+								nkvpPropDist[(uint32)i] = 0.f;
+								continue;
+							}
+							float32 best = 1e30f;
+							const NkVec3f pi = st->editRest[i].pos;
+							for (int32 j = 0; j < nv; ++j) {
+								if (!st->vertSel[j])
+									continue;
+								const NkVec3f pj = st->editRest[j].pos;
+								const float32 dx = pi.x - pj.x, dy = pi.y - pj.y,
+											  dz = pi.z - pj.z;
+								const float32 d2 = dx * dx + dy * dy + dz * dz;
+								if (d2 < best)
+									best = d2;
+							}
+							nkvpPropDist[(uint32)i] = math::NkSqrt(best);
+						}
+					}
 				}
 				// Drag : applique la transform de groupe aux verts sélectionnés, AUTOUR DU
 				// POINT DE PIVOT courant (façon Blender). ApplyAbout() recompose le décalage
@@ -7279,8 +7362,26 @@ namespace nkentseu {
 					const NkMat4f Gcommon = st->editGizmo.ApplyAbout(0, pivotW);
 					for (int32 i = 0; i < nv; i++) {
 						st->editLive[i] = st->editRest[i];
-						if (!st->vertSel[i])
+						if (!st->vertSel[i]) {
+							// ── LES VOISINS SUIVENT, D'AUTANT MOINS QU'ILS SONT
+							// LOIN. Le sommet parcourt une FRACTION du chemin que
+							// ferait un sommet selectionne : c'est ce qui donne le
+							// renflement doux au lieu d'une bosse a arete vive.
+							if (!nkvpPropEditOn || (uint32)i >= nkvpPropDist.Size())
+								continue;
+							const float32 w = HostPropFalloff(nkvpPropDist[(uint32)i],
+															  nkvpPropEditRadius,
+															  nkvpPropEditFalloff);
+							if (w <= 0.001f)
+								continue;
+							const NkVec3f full =
+								st->editAnchorInv * (Gcommon * worldV(i));
+							const NkVec3f rest = st->editRest[i].pos;
+							st->editLive[i].pos = {rest.x + (full.x - rest.x) * w,
+												   rest.y + (full.y - rest.y) * w,
+												   rest.z + (full.z - rest.z) * w};
 							continue;
+						}
 						if (individual && indCnt[(uint32)i] > 0) {
 							const NkVec3f O = indOrg[(uint32)i] * (1.f / (float32)indCnt[(uint32)i]);
 							st->editLive[i].pos = st->editAnchorInv * (st->editGizmo.ApplyAbout(0, O) * worldV(i));
@@ -8133,7 +8234,41 @@ namespace nkentseu {
 								st->emptyGizmo.SetMode(st->gizmo.Mode());
 							}
 						}
-						const bool ewasDrag = st->emptyGizmo.IsDragging();
+						// ── EDITION PROPORTIONNELLE SUR LES OBJETS ──────────────
+					// Les distances sont figees au DEBUT du geste : les refaire
+					// en cours de route ferait deriver l'influence, puisque les
+					// objets deja entraines deviendraient eux-memes references.
+					if (nkvpPropEditOn && !st->emptyGizmo.IsDragging())
+						nkvpPropNodeArmed = false;
+					if (nkvpPropEditOn && st->emptyGizmo.IsDragging() &&
+						!nkvpPropNodeArmed) {
+						nkvpPropNodeArmed = true;
+						// LE PIVOT AUSSI EST FIGE : le gizmo le recalcule a chaque
+						// image depuis les centres DEJA transformes, donc il suit le
+						// geste. Rotation et echelle des voisins doivent tourner
+						// autour du pivot du DEBUT, sinon le centre fuit et les
+						// voisins partent en spirale.
+						nkvpPropPivot = st->emptyGizmo.GetPivot();
+						for (int32 a = 0; a < 70; ++a) {
+							if (st->emptyGizmo.IsSelected(a)) {
+								nkvpPropDistNode[a] = 0.f;
+								continue;
+							}
+							float32 best = 1e30f;
+							for (int32 b = 0; b < 70; ++b) {
+								if (!st->emptyGizmo.IsSelected(b))
+									continue;
+								const float32 dx = nkvpEmptyPos[a][0] - nkvpEmptyPos[b][0];
+								const float32 dy = nkvpEmptyPos[a][1] - nkvpEmptyPos[b][1];
+								const float32 dz = nkvpEmptyPos[a][2] - nkvpEmptyPos[b][2];
+								const float32 d2 = dx * dx + dy * dy + dz * dz;
+								if (d2 < best)
+									best = d2;
+							}
+							nkvpPropDistNode[a] = math::NkSqrt(best);
+						}
+					}
+					const bool ewasDrag = st->emptyGizmo.IsDragging();
 						// Reperes Gimbal / Parent rafraichis avant le geste : ils
 						// dependent du noeud ACTIF, qui change sans que
 						// l'orientation, elle, ne change.
@@ -8151,6 +8286,75 @@ namespace nkentseu {
 							// autres perdaient la leur au ResetSelected() et ne
 							// bougeaient pas (constate par Rihen).
 							bool anyCommit = false;
+							// LES VOISINS D'ABORD : leur deplacement se lit sur la
+							// translation de l'ACTIF, qui est encore intacte tant
+							// qu'on n'a rien commite.
+							if (nkvpPropEditOn && nkvpPropNodeArmed) {
+								const int32 sA0 = st->emptyGizmo.ActiveIndex();
+								const int32 sA = sA0 >= 0 ? sA0 : 0;
+								// LES TROIS COMPOSANTES, comme l'apercu. La POSITION
+								// passe par la matrice attenuee (elle contient la
+								// rotation et l'echelle autour du pivot fige : un
+								// voisin s'ecarte quand on agrandit, decrit un arc
+								// quand on tourne). L'orientation et l'echelle PROPRES
+								// du voisin suivent la meme fraction du geste.
+								const NkQuatf qg =
+									NkQuatf(st->emptyGizmo.RotationOf(sA)).Normalized();
+								const NkVec3f og = st->emptyGizmo.ScaleOf(sA);
+								for (int32 es = 0; es < 70; ++es) {
+									if (st->emptyGizmo.IsSelected(es))
+										continue;
+									const float32 w =
+										HostPropFalloff(nkvpPropDistNode[es],
+														nkvpPropEditRadius,
+														nkvpPropEditFalloff);
+									if (w <= 0.001f)
+										continue;
+									const NkMat4f W = st->emptyGizmo.ApplyAboutWeighted(
+										sA, nkvpPropPivot, w);
+									const NkVec3f P = W * NkVec3f{nkvpEmptyPos[es][0],
+																  nkvpEmptyPos[es][1],
+																  nkvpEmptyPos[es][2]};
+									const NkQuatf qw = NkQuatf::Identity().SLerp(qg, w);
+									// ── ON N'ECRIT JAMAIS UN NaN DANS L'ETAT ────────
+									// Un seul terme degenere contaminait la scene
+									// ENTIERE et plus rien ne la rattrapait : position
+									// et rotation restaient « nan » a l'ecran (constate
+									// par Rihen). Le voisin est laisse INTACT et le
+									// journal dit QUEL terme a degenere -- ca se
+									// diagnostique, ca ne se devine pas.
+									const bool okP = math::NkIsFinite(P.x) &&
+													 math::NkIsFinite(P.y) &&
+													 math::NkIsFinite(P.z);
+									const bool okQ =
+										math::NkIsFinite(qw.x) && math::NkIsFinite(qw.y) &&
+										math::NkIsFinite(qw.z) && math::NkIsFinite(qw.w);
+									if (!okP || !okQ) {
+										logger.Error("[PropEdit] terme degenere noeud={0} w={1} "
+													 "posOk={2} quatOk={3} qg=({4};{5};{6};{7})\n",
+													 es, w, okP ? 1 : 0, okQ ? 1 : 0, qg.x, qg.y,
+													 qg.z, qg.w);
+										logger.Error("[PropEdit]   piv=({0};{1};{2}) "
+													 "pos=({3};{4};{5}) qwOk={6}\n",
+													 nkvpPropPivot.x, nkvpPropPivot.y,
+													 nkvpPropPivot.z, nkvpEmptyPos[es][0],
+													 nkvpEmptyPos[es][1], nkvpEmptyPos[es][2],
+													 okQ ? 1 : 0);
+										continue; // ce voisin ne bouge pas, la scene survit
+									}
+									nkvpEmptyPos[es][0] = P.x;
+									nkvpEmptyPos[es][1] = P.y;
+									nkvpEmptyPos[es][2] = P.z;
+									// Rotation attenuee : SLerp depuis l'identite --
+									// l'angle diminue, l'axe reste celui du geste.
+									HostSetNodeQuat(es, qw * HostNodeQuat(es));
+									nkvpEmptyScl[es][0] *= (1.f + og.x * w);
+									nkvpEmptyScl[es][1] *= (1.f + og.y * w);
+									nkvpEmptyScl[es][2] *= (1.f + og.z * w);
+									anyCommit = true;
+								}
+								nkvpPropNodeArmed = false; // le geste est fini
+							}
 							for (int32 es = 0; es < 70; ++es) {
 								if (!st->emptyGizmo.IsSelected(es))
 									continue;
@@ -9600,6 +9804,22 @@ namespace nkentseu {
 			logger.Info("[NkDemo3D] Aimantation : cible -> {0}\n", t);
 		}
 		// ── ECHELLE EXACTE (cisaillement autorise) ──────────────────────────
+		// ── EDITION PROPORTIONNELLE ─────────────────────────────────────────
+		void Demo3DHostPropEdit(bool *on, float32 *radius, int32 *falloff) {
+			if (on)
+				*on = nkvpPropEditOn;
+			if (radius)
+				*radius = nkvpPropEditRadius;
+			if (falloff)
+				*falloff = nkvpPropEditFalloff;
+		}
+		void Demo3DHostSetPropEdit(bool on, float32 radius, int32 falloff) {
+			nkvpPropEditOn = on;
+			// Rayon NUL = aucune influence : on garde un plancher, sinon la
+			// bascule paraitrait sans effet.
+			nkvpPropEditRadius = radius < 0.01f ? 0.01f : radius;
+			nkvpPropEditFalloff = falloff < 0 ? 0 : (falloff > 7 ? 7 : falloff);
+		}
 		bool Demo3DHostShearScale() {
 			return nkvpShearOpt;
 		}
@@ -10861,12 +11081,36 @@ namespace nkentseu {
 			if (withGizmo && st && st->emptyGizmo.IsDragging() &&
 				st->emptyGizmo.IsSelected(e))
 				return st->emptyGizmo.ComposedOf(e);
+			// ── UN VOISIN SUIT PARTIELLEMENT (edition proportionnelle) ──────
+			// LES TROIS transformations sont propagees, pas seulement la
+			// translation : ne propager que celle-ci etait une limitation que
+			// je m'etais donnee sans raison, et Rihen l'a constate -- le
+			// deplacement suivait, la rotation et l'echelle non. Le voisin subit
+			// le meme geste attenue, AUTOUR DU PIVOT FIGE : une rangee
+			// s'incurve, un groupe s'evase.
+			float32 propW = 0.f;
+			if (withGizmo && st && nkvpPropEditOn && nkvpPropNodeArmed &&
+				st->emptyGizmo.IsDragging() && e >= 0 && e < 70 &&
+				!st->emptyGizmo.IsSelected(e))
+				propW = HostPropFalloff(nkvpPropDistNode[e], nkvpPropEditRadius,
+										nkvpPropEditFalloff);
 			NkVec3f gTr{0.f, 0.f, 0.f}, gOs{0.f, 0.f, 0.f};
 			NkMat4f gRot = NkMat4f::Identity();
 			if (withGizmo && st) {
 				gTr = st->emptyGizmo.TranslateOf(e);
 				gOs = st->emptyGizmo.ScaleOf(e);
 				gRot = st->emptyGizmo.RotationOf(e);
+			}
+			// LE VOISIN PARCOURT UNE FRACTION DU CHEMIN DES SELECTIONNES.
+			// Sa transform propre reste intacte ; c'est la matrice MONDE du
+			// geste attenue qui vient se poser devant -- exactement le patron
+			// de Apply(i, base), et la MEME source que le commit, pour qu'il
+			// n'y ait aucun saut au relachement.
+			if (propW > 0.001f && st) {
+				const int32 sA0 = st->emptyGizmo.ActiveIndex();
+				const NkMat4f W = st->emptyGizmo.ApplyAboutWeighted(sA0 >= 0 ? sA0 : 0,
+																   nkvpPropPivot, propW);
+				return W * HostEmptyXform(e, false);
 			}
 			// LA ROTATION VIENT DU QUATERNION, jamais des angles : eux ne sont
 			// qu'un affichage, et les relire ici reintroduirait le gimbal lock.
