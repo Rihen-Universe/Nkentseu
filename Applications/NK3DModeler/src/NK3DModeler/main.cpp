@@ -23,7 +23,7 @@
 
 #include "NKWindow/NKWindow.h"
 #include "NKWindow/NKMain.h"
-#include "NKEvent/NKEvent.h"
+#include "NKEvent/NkEvent.h"
 #include "NKGui/NkEditorRHIRenderer.h" // Integrations/NKGui
 #include "NK3DModeler/Viewport/NkViewport3D.h"
 #include "NK3DModeler/Viewport/NkDemo3DHost.h" // PORTAGE INTEGRAL de --demo=2
@@ -727,7 +727,10 @@ int nkmain(const NkEntryState &entry) {
 
 		ev.AddEventCallback<NkMouseWheelVerticalEvent>(
 			[&ui](NkMouseWheelVerticalEvent *e) { ui.input.wheel += (float32)e->GetDeltaY(); });
-		ev.AddEventCallback<NkWindowCloseEvent>([&st](NkWindowCloseEvent *) { st.running = false; });
+		// La croix de l'OS ne TUE plus l'application : elle DEMANDE la fermeture,
+	// que la peinture arbitre (document modifie ? prise ou encodage video en
+	// cours ?) -- exactement comme la croix dessinee et le menu Quitter.
+	ev.AddEventCallback<NkWindowCloseEvent>([&st](NkWindowCloseEvent *) { st.wantClose = true; });
 	}
 
 	NkClock clock;
@@ -1422,6 +1425,8 @@ int nkmain(const NkEntryState &entry) {
 			// MODALES : elles suspendent tout le reste, menus compris.
 			NkHitRegistry::LayerScope modalLayer(hit, 100);
 			PaintCloseDialog(p, W, H, st, hit);
+			PaintCloseRecDialog(p, W, H, st, hit);
+			PaintEncodeDoneDialog(p, W, H, st, hit);
 			PaintColorPicker(p, hit, ws, ui.input, st, (float32)W, (float32)H);
 		}
 
@@ -1469,6 +1474,15 @@ int nkmain(const NkEntryState &entry) {
 			} else
 				demo::Demo3DHostRecTutoStop(rq == 2);
 		}
+		// LE CURSEUR N'EST PAS DANS LA CAPTURE : PrintWindow rend le contenu de
+		// la fenetre, pas le pointeur du systeme. Une video de tutoriel sans
+		// curseur montre des menus qui s'ouvrent tout seuls -- on le dessine
+		// donc, avec la TRACE de ses dernieres positions : c'est le mouvement
+		// qui s'explique, pas la position instantanee (demande de Rihen).
+		// La trace se nourrit A CHAQUE IMAGE, pas seulement quand la cadence
+		// reclame une capture : echantillonnee a 2 i/s, elle sauterait d'un
+		// bout de l'ecran a l'autre au lieu de dessiner un geste.
+		static nk3d::NkCursorTrail sTutoCursor;
 		if (demo::Demo3DHostRecTutoActive()) {
 			static float64 sTutoLastNs = 0.0;
 			const float64 nowNs = (float64)::nkentseu::NkChrono::Now().nanoseconds;
@@ -1476,13 +1490,31 @@ int nkmain(const NkEntryState &entry) {
 			sTutoLastNs = nowNs;
 			if (dtT <= 0.f || dtT > 0.25f)
 				dtT = 1.f / 60.f;
+			POINT cur{};
+			RECT wr{};
+			const NkSurfaceDesc sdC = window.GetSurfaceDesc();
+			const bool okCur = sdC.hwnd && GetCursorPos(&cur) && GetWindowRect(sdC.hwnd, &wr);
+			if (okCur)
+				sTutoCursor.Push((int32)(cur.x - wr.left), (int32)(cur.y - wr.top));
 			if (demo::Demo3DHostRecTutoWants(dtT)) {
 				NkImage shot;
 				int32 sw = 0, sh = 0;
-				if (NkCaptureWholeWindowToImage(window, shot, &sw, &sh) && shot.Pixels())
+				if (NkCaptureWholeWindowToImage(window, shot, &sw, &sh) && shot.Pixels()) {
+					if (okCur && demo::Demo3DHostOutCursor()) {
+						// L'echelle suit la taille de la fenetre : un curseur de
+						// 16 px dans une video 4K serait un point invisible.
+						float32 sc = (float32)sw / 1600.f;
+						if (sc < 1.f)
+							sc = 1.f;
+						if (sc > 3.f)
+							sc = 3.f;
+						nk3d::NkDrawCursorTrail((uint8 *)shot.Pixels(), sw, sh, sTutoCursor, sc);
+					}
 					demo::Demo3DHostRecTutoPush((const uint8 *)shot.Pixels(), sw, sh);
+				}
 			}
-		}
+		} else
+			sTutoCursor.Clear(); // une prise neuve ne herite pas du geste precedent
 #endif
 
 		// ── CAPTURES, une fois l'image envoyee ──────────────────────────────
@@ -1561,6 +1593,42 @@ int nkmain(const NkEntryState &entry) {
 		if (st.wantMinimize) {
 			st.wantMinimize = false;
 			window.Minimize();
+		}
+		// MODE DAEMON : la fenetre se cache, le processus continue d'encoder.
+		if (st.wantHideWindow) {
+			st.wantHideWindow = false;
+			window.SetVisible(false);
+		}
+		// ── FIN D'ENCODAGE : notifier, ou fermer si c'etait la consigne ─────
+		// Front descendant par prise : quand une passe finale se termine, soit
+		// on previent (dialogue « Video terminee », demande de Rihen), soit --
+		// si la fermeture attendait l'encodage -- on eteint l'application une
+		// fois TOUT le travail video fini.
+		{
+			static bool sPrevEncV = false, sPrevEncT = false;
+			const bool encV = demo::Demo3DHostRecEncoding();
+			const bool encT = demo::Demo3DHostRecTutoEncoding();
+			const char *donePath = nullptr;
+			if (sPrevEncV && !encV)
+				donePath = demo::Demo3DHostRecPath();
+			if (sPrevEncT && !encT)
+				donePath = demo::Demo3DHostRecTutoPath();
+			sPrevEncV = encV;
+			sPrevEncT = encT;
+			if (donePath) {
+				if (st.closeAfterEncode) {
+					const bool stillBusy = encV || encT || demo::Demo3DHostRecActive() ||
+										   demo::Demo3DHostRecTutoActive();
+					if (!stillBusy)
+						st.running = false;
+				} else {
+					uint32 i = 0;
+					for (; donePath[i] && i + 1 < sizeof(st.encodeDonePath); ++i)
+						st.encodeDonePath[i] = donePath[i];
+					st.encodeDonePath[i] = 0;
+					st.encodeDone = true;
+				}
+			}
 		}
 		if (st.wantMaxRestore) {
 			st.wantMaxRestore = false;
