@@ -595,7 +595,11 @@ int nkmain(const NkEntryState &state) {
 
 	NkRenderer *renderer = NkRenderer::Create(device, cfg);
 	if (!renderer) {
-		logger.Errorf("[main] NkRenderer::Create failed (last err : {0})\n", NkRGetLastErrorMessage());
+		// `Errorf` est printf (comme `Infof` plus haut), PAS le formateur a
+		// accolades de `Error`/`Info`. Avec « {0} » le message n'etait pas
+		// interpole : on lisait litteralement « last err : {0} » et la cause reelle
+		// de l'echec etait perdue — exactement l'information necessaire ici.
+		logger.Errorf("[main] NkRenderer::Create failed (last err : %s)\n", NkRGetLastErrorMessage());
 		device->WaitIdle();
 		NkDeviceFactory::Destroy(device);
 		window.Close();

@@ -1320,7 +1320,9 @@ void main() {
 			float32 dt = dtSeconds;
 			if (dt < 0.f) {
 				if (!mAutoExpClockStarted) {
-					mAutoExpClock.Reset();
+					// Premiere frame : on ARME l'horloge, la duree rendue par
+					// Reset() ne mesure encore rien -- ecartee explicitement.
+					(void)mAutoExpClock.Reset();
 					mAutoExpClockStarted = true;
 					dt = 0.f;
 				} else {

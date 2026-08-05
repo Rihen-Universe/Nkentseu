@@ -214,9 +214,9 @@ namespace nkentseu {
 			}
 
 			// =========================================================================
-			// Draw
+			// Draw — *Impl : les publiques comptent dans NkICommandBuffer (NVI).
 			// =========================================================================
-			void Draw(uint32 vertCnt, uint32 instCnt, uint32 firstVert, uint32 firstInst) override {
+			void DrawImpl(uint32 vertCnt, uint32 instCnt, uint32 firstVert, uint32 firstInst) override {
 				Push([this, vertCnt, instCnt, firstVert, firstInst] {
 					if (instCnt > 1) {
 #if defined(NK_OPENGL_ES)
@@ -230,7 +230,7 @@ namespace nkentseu {
 				});
 			}
 
-			void DrawIndexed(uint32 idxCnt, uint32 instCnt, uint32 firstIdx, int32 vtxOff, uint32 firstInst) override {
+			void DrawIndexedImpl(uint32 idxCnt, uint32 instCnt, uint32 firstIdx, int32 vtxOff, uint32 firstInst) override {
 				Push([this, idxCnt, instCnt, firstIdx, vtxOff, firstInst] {
 					GLenum idxFmt = mIndexFormat == NkIndexFormat::NK_UINT16 ? GL_UNSIGNED_SHORT : GL_UNSIGNED_INT;
 					uint64 byteOff = firstIdx * (mIndexFormat == NkIndexFormat::NK_UINT16 ? 2 : 4) + mIndexOffset;
@@ -297,7 +297,7 @@ namespace nkentseu {
 				});
 			}
 
-			void DrawIndirect(NkBufferHandle buf, uint64 off, uint32 cnt, uint32 stride) override {
+			void DrawIndirectImpl(NkBufferHandle buf, uint64 off, uint32 cnt, uint32 stride) override {
 				Push([this, buf, off, cnt, stride] {
 					GL_BindForIndirect(buf);
 #if defined(NK_OPENGL_ES)
@@ -313,7 +313,7 @@ namespace nkentseu {
 				});
 			}
 
-			void DrawIndexedIndirect(NkBufferHandle buf, uint64 off, uint32 cnt, uint32 stride) override {
+			void DrawIndexedIndirectImpl(NkBufferHandle buf, uint64 off, uint32 cnt, uint32 stride) override {
 				Push([this, buf, off, cnt, stride] {
 					GL_BindForIndirect(buf);
 					GLenum fmt = mIndexFormat == NkIndexFormat::NK_UINT16 ? GL_UNSIGNED_SHORT : GL_UNSIGNED_INT;

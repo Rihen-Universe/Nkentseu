@@ -141,18 +141,64 @@ namespace nkentseu {
 			// =========================================================================
 			// Draw calls
 			// =========================================================================
-			virtual void Draw(uint32 vertexCount, uint32 instanceCount = 1, uint32 firstVertex = 0,
-							  uint32 firstInstance = 0) = 0;
+			// POINT DE PASSAGE UNIQUE DES STATISTIQUES. Chaque appel de dessin
+			// du moteur, quel que soit le backend, passe par ces quatre
+			// methodes : c'est donc ICI qu'on compte, et nulle part ailleurs.
+			// Les compteurs de NkRendererStats etaient affiches depuis toujours
+			// mais jamais alimentes -- les poser dans chaque backend les aurait
+			// fait diverger, les poser a chaque site d'appel en aurait oublie.
+			// Patron NVI : Draw() compte puis delegue a DrawImpl(), virtuelle,
+			// que les backends implementent. Les triangles sont ESTIMES en
+			// supposant des listes de triangles -- c'est ce que le moteur
+			// soumet ; des lignes ou des points gonfleraient un peu le compte.
+			void Draw(uint32 vertexCount, uint32 instanceCount = 1, uint32 firstVertex = 0,
+					  uint32 firstInstance = 0) {
+				++mCbStats.drawCalls;
+				mCbStats.vertices += vertexCount * instanceCount;
+				mCbStats.triangles += (vertexCount / 3u) * instanceCount;
+				DrawImpl(vertexCount, instanceCount, firstVertex, firstInstance);
+			}
 
-			virtual void DrawIndexed(uint32 indexCount, uint32 instanceCount = 1, uint32 firstIndex = 0,
-									 int32 vertexOffset = 0, uint32 firstInstance = 0) = 0;
+			void DrawIndexed(uint32 indexCount, uint32 instanceCount = 1, uint32 firstIndex = 0,
+							 int32 vertexOffset = 0, uint32 firstInstance = 0) {
+				++mCbStats.drawCalls;
+				mCbStats.vertices += indexCount * instanceCount;
+				mCbStats.triangles += (indexCount / 3u) * instanceCount;
+				DrawIndexedImpl(indexCount, instanceCount, firstIndex, vertexOffset, firstInstance);
+			}
 
-			// Indirect — args dans un buffer GPU (occlusion culling, etc.)
-			virtual void DrawIndirect(NkBufferHandle argsBuffer, uint64 offset, uint32 drawCount,
-									  uint32 stride = sizeof(NkDrawIndirectArgs)) = 0;
+			// Indirect — args dans un buffer GPU (occlusion culling, etc.).
+			// Les arguments vivent sur le GPU : le CPU ne connait ni les
+			// sommets ni les triangles, on ne compte que les appels.
+			void DrawIndirect(NkBufferHandle argsBuffer, uint64 offset, uint32 drawCount,
+							  uint32 stride = sizeof(NkDrawIndirectArgs)) {
+				mCbStats.drawCalls += drawCount;
+				DrawIndirectImpl(argsBuffer, offset, drawCount, stride);
+			}
 
-			virtual void DrawIndexedIndirect(NkBufferHandle argsBuffer, uint64 offset, uint32 drawCount,
-											 uint32 stride = sizeof(NkDrawIndexedIndirectArgs)) = 0;
+			void DrawIndexedIndirect(NkBufferHandle argsBuffer, uint64 offset, uint32 drawCount,
+									 uint32 stride = sizeof(NkDrawIndexedIndirectArgs)) {
+				mCbStats.drawCalls += drawCount;
+				DrawIndexedIndirectImpl(argsBuffer, offset, drawCount, stride);
+			}
+
+			// Compteurs de la frame en cours d'enregistrement. Remis a zero par
+			// le proprietaire du command buffer (NkRendererImpl::BeginFrame),
+			// lus a la fin de la frame pour remplir NkRendererStats.
+			struct NkCbStats {
+					uint32 drawCalls = 0;
+					uint32 triangles = 0;
+					uint32 vertices = 0;
+					void Reset() {
+						drawCalls = triangles = vertices = 0;
+					}
+			};
+			const NkCbStats &Stats() const {
+				return mCbStats;
+			}
+			void ResetStats() {
+				mCbStats.Reset();
+			}
 
 			// Multi-draw indirect avec count GPU (DX12/Vulkan/Metal)
 			virtual void DrawIndirectCount(NkBufferHandle argsBuffer, uint64 argsOffset, NkBufferHandle countBuffer,
@@ -240,6 +286,26 @@ namespace nkentseu {
 
 			virtual void ResetQueryPool(uint32 firstQuery, uint32 count) {
 			}
+
+		protected:
+			// =========================================================================
+			// Implementations des draw calls (cf. le patron NVI en tete de la
+			// section « Draw calls » : les publiques comptent, celles-ci font).
+			// =========================================================================
+			virtual void DrawImpl(uint32 vertexCount, uint32 instanceCount, uint32 firstVertex,
+								  uint32 firstInstance) = 0;
+
+			virtual void DrawIndexedImpl(uint32 indexCount, uint32 instanceCount, uint32 firstIndex,
+										 int32 vertexOffset, uint32 firstInstance) = 0;
+
+			virtual void DrawIndirectImpl(NkBufferHandle argsBuffer, uint64 offset, uint32 drawCount,
+										  uint32 stride) = 0;
+
+			virtual void DrawIndexedIndirectImpl(NkBufferHandle argsBuffer, uint64 offset,
+												 uint32 drawCount, uint32 stride) = 0;
+
+		private:
+			NkCbStats mCbStats;
 	};
 
 } // namespace nkentseu

@@ -26,12 +26,28 @@ uniform CameraUBO {
     mat4  mirrorViewProj;
     vec4  reflectionFlags;
     vec4  viewOpts;      // non lu ici, mais OBLIGATOIRE : cf. note ci-dessous
+    // AMBIANCE, BROUILLARD ET CIEL : aucun n'est lu par le vertex. Ils sont ici
+    // parce que le fragment les declare, et que le bloc doit etre IDENTIQUE des
+    // deux cotes -- voir la note ci-dessous. Les avoir omis cassait le LINK
+    // OpenGL de la demo du renderer, alors que DX11 et Vulkan l'acceptaient.
+    vec4  iblColor;      // .xyz = teinte de l'ambiance ; .w = 1 si un monde est charge
+    vec4  fogColor;      // .xyz = couleur du brouillard ; .w = densite
+    vec4  fogParams;     // .x = actif ; .y = debut ; .z = fin ; .w = 0 lineaire, 1 exponentiel
+    // Le CIEL occupe VINGT-QUATRE vec4 cote C++ (8 parametres, 4 lunes, phase,
+    // etoiles, 9 coefficients Hosek, radiance) ; ce shader ne le lit pas, mais
+    // il doit le SAUTER exactement pour retomber sur le brouillard au sol.
+    vec4  _skyPad[24];
+    vec4  fogHeight;     // .x = altitude de base ; .y = epaisseur ; .z = souffle ; .w = temps
 } uCam;
 // NOTE : en OpenGL, les deux etages d'un MEME programme doivent declarer un bloc
 // uniforme A L'IDENTIQUE. Omettre viewOpts cote vertex fait echouer le LINK avec
 // « struct type mismatch between shaders for uniform (named CameraUBO) », alors que
 // chaque etage compile parfaitement de son cote. Toute evolution de CameraUBO doit
 // donc etre appliquee AUX DEUX fichiers, meme si un seul s'en sert.
+// Ce n'est pas theorique : c'est exactement ce qui a rendu « renderdemo »
+// impossible a demarrer -- l'ambiance, le brouillard et le ciel avaient ete
+// ajoutes au seul fragment. DX11 et Vulkan ne s'en plaignent pas, OpenGL si :
+// un backend tolerant ne prouve rien sur les autres.
 
 @binding(set=1, binding=1)
 uniform ObjectUBO {

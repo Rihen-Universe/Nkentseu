@@ -193,6 +193,8 @@ namespace nkentseu {
 				// fin de la frame précédente pour mesurer la période.
 				float32 mFrameCapFps = 0.f;
 				float64 mPaceNs = 0.0;
+				// Depart de la frame courante (ns) : sert au cpuTimeMs des stats.
+				float64 mCpuFrameStartNs = 0.0;
 				uint32 mFrameCounter = 0; // throttle counter for hot-reload polling
 				NkFrameContext mFrameCtx;
 				bool mInitialized = false;

@@ -72,10 +72,11 @@ namespace nkentseu {
 			void BindVertexBuffers(uint32 first, const NkBufferHandle *bufs, const uint64 *offs, uint32 n) override;
 			void BindIndexBuffer(NkBufferHandle buf, NkIndexFormat fmt, uint64 offset) override;
 
-			void Draw(uint32 v, uint32 i, uint32 fv, uint32 fi) override;
-			void DrawIndexed(uint32 idx, uint32 inst, uint32 fi, int32 vo, uint32 fInst) override;
-			void DrawIndirect(NkBufferHandle buf, uint64 off, uint32 cnt, uint32 stride) override;
-			void DrawIndexedIndirect(NkBufferHandle buf, uint64 off, uint32 cnt, uint32 stride) override;
+			// *Impl : les publiques comptent dans NkICommandBuffer (patron NVI).
+			void DrawImpl(uint32 v, uint32 i, uint32 fv, uint32 fi) override;
+			void DrawIndexedImpl(uint32 idx, uint32 inst, uint32 fi, int32 vo, uint32 fInst) override;
+			void DrawIndirectImpl(NkBufferHandle buf, uint64 off, uint32 cnt, uint32 stride) override;
+			void DrawIndexedIndirectImpl(NkBufferHandle buf, uint64 off, uint32 cnt, uint32 stride) override;
 
 			void Dispatch(uint32 gx, uint32 gy, uint32 gz) override;
 			void DispatchIndirect(NkBufferHandle buf, uint64 off) override;

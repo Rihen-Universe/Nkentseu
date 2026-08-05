@@ -437,7 +437,7 @@ namespace nkentseu {
 		return nullptr;
 	}
 
-	void NkSoftwareCommandBuffer::Draw(uint32 vtx, uint32 inst, uint32 firstVtx, uint32 /*firstInst*/) {
+	void NkSoftwareCommandBuffer::DrawImpl(uint32 vtx, uint32 inst, uint32 firstVtx, uint32 /*firstInst*/) {
 		const uint64 pipeId = mBoundPipelineId, descId = mBoundDescSets[0];
 		const uint64 vbId = mBoundVertexBufferIds[0], vbOff = mBoundVertexOffsets[0];
 		const uint64 fbId = mCurrentFramebufferId;
@@ -451,8 +451,8 @@ namespace nkentseu {
 		});
 	}
 
-	void NkSoftwareCommandBuffer::DrawIndexed(uint32 idx, uint32 inst, uint32 firstIdx, int32 vtxOff,
-											  uint32 /*firstInst*/) {
+	void NkSoftwareCommandBuffer::DrawIndexedImpl(uint32 idx, uint32 inst, uint32 firstIdx, int32 vtxOff,
+												  uint32 /*firstInst*/) {
 		const uint64 pipeId = mBoundPipelineId, descId = mBoundDescSets[0];
 		const uint64 vbId = mBoundVertexBufferIds[0], vbOff = mBoundVertexOffsets[0];
 		const uint64 ibId = mBoundIndexBufferId, ibOff = mBoundIndexOffset;
@@ -470,8 +470,8 @@ namespace nkentseu {
 		});
 	}
 
-	void NkSoftwareCommandBuffer::DrawIndirect(NkBufferHandle indirectBuf, uint64 offset, uint32 drawCount,
-											   uint32 stride) {
+	void NkSoftwareCommandBuffer::DrawIndirectImpl(NkBufferHandle indirectBuf, uint64 offset, uint32 drawCount,
+												   uint32 stride) {
 		const uint64 pipelineId = mBoundPipelineId;
 		const uint64 descSetId = mBoundDescSets[0];
 		const uint64 vbId = mBoundVertexBufferIds[0];
@@ -494,8 +494,8 @@ namespace nkentseu {
 		});
 	}
 
-	void NkSoftwareCommandBuffer::DrawIndexedIndirect(NkBufferHandle indirectBuf, uint64 offset, uint32 drawCount,
-													  uint32 stride) {
+	void NkSoftwareCommandBuffer::DrawIndexedIndirectImpl(NkBufferHandle indirectBuf, uint64 offset, uint32 drawCount,
+														  uint32 stride) {
 		const uint64 pipelineId = mBoundPipelineId;
 		const uint64 descSetId = mBoundDescSets[0];
 		const uint64 vbId = mBoundVertexBufferIds[0];
