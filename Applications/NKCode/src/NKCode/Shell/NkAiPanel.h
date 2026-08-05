@@ -15,6 +15,7 @@
 #include "NKCode/Project/NkProcess.h"
 #include "NKCode/Project/NkLsp.h" // NkPipeProc (process a pipes CreateProcessW, reutilise pour le CLI `claude`)
 #include "NKCode/Editor/NkTextDraw.h" // NkEncodeU8 (décodage \uXXXX -> UTF-8)
+#include "NKCode/Shell/NkAiAccounts.h" // comptes multiples (CLAUDE_CONFIG_DIR par workspace)
 #include "NKCode/Shell/NkI18n.h"
 #include "NKCode/Shell/NkUi.h" // NkIcons (icones de la vue IDE)
 #include "NKContainers/String/NkFormat.h" // NkPrintf (formatage maison)
@@ -4408,6 +4409,18 @@ namespace nkentseu {
 					NkVector<NkString> envOverrides;
 					if (!projectKey.Empty())
 						envOverrides.PushBack(NkString("ANTHROPIC_API_KEY=") + projectKey.CStr());
+					// ── COMPTE de ce workspace ─────────────────────────────────────
+					// L'authentification du CLI vit dans <config>/.credentials.json, et
+					// CLAUDE_CONFIG_DIR deplace ce dossier : pointer le dossier du compte
+					// suffit donc a choisir l'identite. Le choix etant PAR WORKSPACE,
+					// deux instances de NKCode peuvent viser deux comptes en meme temps.
+					// La memoire, elle, reste commune (jonction posee a la creation du
+					// compte — voir NkAiAccounts.h).
+					if (mS && mS->HasWorkspace()) {
+						const NkString compte = NkAiWorkspaceAccount(mS->root);
+						if (!compte.Empty())
+							envOverrides.PushBack(NkString("CLAUDE_CONFIG_DIR=") + NkAiAccountDir(compte).CStr());
+					}
 
 					const NkString cwd = (mS && mS->HasWorkspace()) ? mS->root.ToString() : NkString(".");
 					if (!mClaudeProc.StartWithEnv(cmd, cwd, envOverrides, /*mergeStderr=*/true)) {
