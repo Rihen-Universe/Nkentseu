@@ -601,11 +601,16 @@ namespace nkentseu {
 		// transparent (demander un detourage et garder un damier n'a pas de
 		// sens), mais RECUPERABLE : une ombre portee au sol donne du poids a un
 		// objet detoure.
-		static const int32 kNkvpOutAidCount = 11;
+		// Bit 2048 : SOL EN RECEPTEUR D'OMBRE. Le sol ne se peint plus mais
+		// garde l'ombre qu'il recoit : un objet detoure conserve son ombre
+		// portee, donc son poids, au lieu de flotter. C'est le complement
+		// naturel du fond transparent.
+		static const int32 kNkvpOutAidCount = 12;
 		static const char *const kNkvpOutAidNames[kNkvpOutAidCount] = {
 			"Grille",		   "Lignes fines",		"Lignes majeures",	  "Axes du plan",
 			"Symboles de lumiere", "Reperes (vides)", "Cameras",			  "Poignees de gizmo",
-			"Informations (HUD)",  "Curseur 3D",	  "Sol infini"};
+			"Informations (HUD)",  "Curseur 3D",	  "Sol infini",
+			"Sol : ombre seule"};
 		static bool nkvpOutSaveGizmoHidden = false;
 		static bool nkvpOutSaveGrid = false;
 		static bool nkvpOutSaveMinor = false, nkvpOutSaveMajor = false, nkvpOutSaveAxes = false;
@@ -6236,8 +6241,16 @@ namespace nkentseu {
 					}
 					if (sFloorMesh.IsValid())
 						dcF.mesh = sFloorMesh;
-					if (sFloorMat[pi])
+					if (sFloorMat[pi]) {
+						// RECEPTEUR D'OMBRE le temps d'une sortie : le sol cesse
+						// de se peindre et ne rend que l'ombre qu'il recoit, ce
+						// qui donne son poids a un objet detoure. Pose ici, sur
+						// le materiau reellement soumis, et remis juste apres --
+						// le sol reste un sol dans la vue.
+						sFloorMat[pi]->SetShadowCatcher(nkvpOutPhase != 0 &&
+														(nkvpOutAids & 2048) != 0);
 						dcF.material = sFloorMat[pi]->GetInstHandle();
+					}
 				}
 				// SNAP a la periode (plancher, pas troncature : traverser zero
 				// ne fait pas sauter le motif). 2 mm sous la grille seulement :
@@ -10774,7 +10787,12 @@ namespace nkentseu {
 			// « Sol infini » le rappelle quand on le veut -- une ombre portee
 			// au sol donne du poids a un objet detoure.
 			nkvpOutSaveFloor = nkvpFloorOn;
-			if (nkvpOutTransparent && !(nkvpOutAids & 1024))
+			// « Sol : ombre seule » IMPLIQUE que le sol soit rendu -- sinon il
+			// n'y a plus rien pour recevoir l'ombre. Cocher l'un sans l'autre
+			// n'aurait aucun effet visible, ce qui ressemblerait a une panne.
+			if (nkvpOutAids & 2048)
+				nkvpFloorOn = true;
+			else if (nkvpOutTransparent && !(nkvpOutAids & 1024))
 				nkvpFloorOn = false;
 			else if (nkvpOutAids & 1024)
 				nkvpFloorOn = nkvpOutSaveFloor;

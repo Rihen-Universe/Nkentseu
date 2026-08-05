@@ -289,6 +289,12 @@ void main() {
     vec3 F0   = mix(vec3(0.04), albedo, met);
 
     vec3 Lo = vec3(0.0);
+    // RECEPTEUR D'OMBRE : on accumule EN PARALLELE l'eclairement qu'on aurait
+    // SANS ombre. Le rapport des deux donne exactement la part de lumiere
+    // perdue -- c'est-a-dire l'ombre -- sans avoir a rendre la scene deux fois.
+    // Additionner « 1 - csf » ne suffirait pas : une lumiere faible qui ombre
+    // beaucoup compterait autant qu'une lumiere forte qui ombre peu.
+    vec3 LoLit = vec3(0.0);
 
     for (int i = 0; i < uLights.count && i < 32; i++) {
         int   lt  = int(uLights.positions[i].w);
@@ -380,7 +386,9 @@ void main() {
         vec3  F   = F_Schlick(max(dot(H,V),0.0), F0);
         vec3 spec = NDF*G*F / (4.0*max(dot(N,V),0.0)*NdL+1e-4);
         vec3 kD   = (1.0-F)*(1.0-met);
-        Lo += csf * (kD*albedo/PI + spec) * rad * NdL;
+        vec3 contrib = (kD*albedo/PI + spec) * rad * NdL;
+        Lo    += csf * contrib;
+        LoLit += contrib; // le meme eclairement, ombres ignorees
     }
 
     vec3 Fi   = F_SchlickR(max(dot(N,V),0.0), F0, rog);
@@ -550,5 +558,33 @@ void main() {
     if (!(color.y >= 0.0 || color.y <= 0.0)) color.y = 0.0;
     if (!(color.z >= 0.0 || color.z <= 0.0)) color.z = 0.0;
     color = clamp(color, vec3(0.0), vec3(65504.0));
+
+    // ── RECEPTEUR D'OMBRE (shadow catcher) ───────────────────────────────────
+    // La surface ne se peint PAS : elle ne rend que l'OMBRE qu'elle recoit.
+    // C'est ce qui permet de detourer un objet sur fond transparent sans qu'il
+    // paraisse flotter -- couper le sol emporterait son ombre, puisqu'elle est
+    // projetee dessus.
+    //
+    // La couverture vaut la part de lumiere PERDUE : 1 - eclaire/nonEclaire.
+    // Elle se mesure sur la LUMINANCE, pas par canal, sinon une ombre coloree
+    // donnerait trois couvertures differentes pour un meme point.
+    // La couleur sortie est NOIRE : c'est l'alpha qui porte l'ombre, donc elle
+    // se compose correctement sur n'importe quel fond, clair comme sombre.
+    if (uObj.shadowOverrides.w > 0.5) {
+        // L'AMBIANTE COMPTE DES DEUX COTES. Ne mesurer que la lumiere DIRECTE
+        // donnait une couverture de 1 dans toute l'ombre -- une tache noire
+        // pleine (constate a l'essai) : l'ombre bloque bien 100 % du direct,
+        // mais la zone ombree recoit encore le ciel et les rebonds. C'est
+        // l'ASSOMBRISSEMENT REELLEMENT VU qu'il faut mesurer, ambiante
+        // comprise ; sinon on peint un trou la ou l'oeil voit une nuance.
+        float lLit = dot(LoLit + amb, vec3(0.2126, 0.7152, 0.0722));
+        float lSha = dot(Lo    + amb, vec3(0.2126, 0.7152, 0.0722));
+        // Surface qu'aucune lumiere n'atteint : rien a dire, donc rien a
+        // peindre -- sans cette garde on diviserait par zero et le sol
+        // deviendrait opaque partout.
+        float cover = (lLit > 1e-5) ? clamp(1.0 - lSha / lLit, 0.0, 1.0) : 0.0;
+        fragColor = vec4(0.0, 0.0, 0.0, cover);
+        return;
+    }
     fragColor  = vec4(color, 1.0);
 }

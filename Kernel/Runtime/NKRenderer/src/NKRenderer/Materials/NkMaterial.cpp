@@ -347,6 +347,16 @@ namespace nkentseu {
 			return this;
 		}
 
+		NkMaterial *NkMaterial::SetShadowCatcher(bool b) {
+			if (mInstance)
+				mInstance->mShadowCatcher = b;
+			return this;
+		}
+
+		bool NkMaterial::GetShadowCatcher() const {
+			return mInstance ? mInstance->mShadowCatcher : false;
+		}
+
 		bool NkMaterial::GetReceiveShadow() const {
 			return mInstance ? mInstance->mReceiveShadow : true;
 		}

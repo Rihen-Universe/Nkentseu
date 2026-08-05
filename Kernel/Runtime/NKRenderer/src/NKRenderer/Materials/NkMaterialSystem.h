@@ -386,6 +386,14 @@ namespace nkentseu {
 				bool mReceiveShadow = true;
 				bool mCastShadowAlphaTest = false;
 				float32 mShadowBiasMul = 1.0f;
+				// RECEPTEUR D'OMBRE (shadow catcher, 2026-08-05) : la surface ne
+				// se peint PAS, elle ne rend que l'OMBRE qu'elle recoit, en
+				// COUVERTURE. C'est ce qui permet de detourer un objet sur fond
+				// transparent sans qu'il paraisse flotter -- couper le sol
+				// emporterait son ombre, puisqu'elle est projetee dessus.
+				// Sort la couleur d'ombre avec alpha = 1 - eclairement relatif.
+				// Passe au shader par ObjBlock.shadowOverrides.y.
+				bool mShadowCatcher = false;
 
 				// 2026-05-24 : Triplanar projection (style UE5 World Aligned
 				// Texture). tileSize en metres reels (converti en units via
