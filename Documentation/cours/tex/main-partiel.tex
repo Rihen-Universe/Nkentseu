@@ -1,0 +1,25 @@
+% Compilation PARTIELLE : les chapitres deja ecrits (00-05). Sert a valider le
+% LaTeX de la premiere moitie sans attendre la seconde -- une erreur decouverte
+% tot se corrige avant que le meme patron ne se repete dans six chapitres.
+\documentclass[11pt, a4paper, oneside]{book}
+\newcommand{\DocDate}{5 août 2026}
+\input{preambule}
+\begin{document}
+\input{garde}
+\frontmatter
+\pagestyle{plain}
+\tableofcontents
+\cleardoublepage
+\mainmatter
+\pagestyle{fancy}
+% Les chapitres se numerotent depuis ZERO : le texte dit « chapitre 0 » a
+% « chapitre 10 », les fichiers aussi -- la numerotation imprimee doit dire
+% la meme chose, sinon chaque renvoi interne serait decale d'un cran.
+\setcounter{chapter}{-1}
+\input{chapitres/00-avant-propos}
+\input{chapitres/01-le-decor}
+\input{chapitres/02-nkcanvas}
+\input{chapitres/03-nkgui}
+\input{chapitres/04-application}
+\input{chapitres/05-nkimage}
+\end{document}

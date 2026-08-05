@@ -1,0 +1,849 @@
+\chapter{NKMedia : lire et écrire de la vidéo}
+
+Ce chapitre est le plus court des cinq, et c'est délibéré.
+
+\texttt{NKMedia} est de très loin le plus gros module du moteur. Il contient des
+décodeurs H.264, HEVC, VP8, VP9, AV1, MPEG-2, Theora, AAC, Opus (avec ses deux
+moitiés CELT et SILK), AMR — tous écrits à la main, sans \texttt{ffmpeg}. Le
+seul décodeur AV1 pèse 286~Ko de source. Un chapitre pour débutants qui
+essaierait d'en faire le tour serait illisible et faux.
+
+Nous nous limiterons donc à \textbf{quatre classes de façade}, plus une
+cinquième en bonus. Tout le reste est de la plomberie interne, et vous n'avez
+aucune raison d'y toucher.
+
+\begin{nkretenir}[Le périmètre de ce chapitre]
+\begin{itemize}
+  \item \texttt{NkMediaProbe} — qu'y a-t-il dans ce fichier ?
+  \item \texttt{NkVideoWriter} — écrire une vidéo, en MJPEG ;
+  \item \texttt{NkVideoReader} — la lire image par image ;
+  \item \texttt{NkVideoRecorder} — enregistrer ce que l'application affiche ;
+  \item \texttt{NkImageSequenceWriter} — écrire une séquence d'images.
+\end{itemize}
+Cinq classes, aucune ligne de codec. Si vous maîtrisez ces cinq-là, vous savez
+faire tout ce dont une application a besoin.
+\end{nkretenir}
+
+\section{Le module, et une inversion inhabituelle}
+
+\begin{nkcode}{Kernel/Runtime/NKMedia/NKMedia.jenga:17-22}
+    nkentseudependson(
+        ["NKCore", "NKPlatform", "NKMemory", "NKContainers", "NKMath", "NKLogger",
+         "NKStream", "NKFileSystem", "NKImage", "NKThreading", "NKTime"],
+        selfexport="NKMedia",
+        extra_includes=["src"],
+    )
+\end{nkcode}
+
+\texttt{NKImage} est dans la liste, et pour une raison élégante : \textbf{le
+codec MJPEG n'est rien d'autre que le codec JPEG de NKImage appliqué image par
+image}. Les séquences d'images passent, elles aussi, par les codecs PNG, BMP,
+TGA et QOI de NKImage. Le chapitre~5 n'était donc pas un préalable arbitraire.
+
+Il n'y a pas d'en-tête parapluie : on inclut le sous-en-tête précis dont on a
+besoin. Tout vit dans le \emph{namespace} \texttt{nkentseu::media}.
+
+\begin{nkcode}{Kernel/Runtime/NKMedia/ — arborescence (abrégée)}
+NKMedia/
+  NKMedia.jenga · ROADMAP.md (1529 l. — la source de verite sur l'etat reel)
+  src/NKMedia/
+    NkMediaProbe.{h,cpp}        <- detection conteneur + pistes
+    NkMediaDemux.{h,cpp}        <- extraction des paquets audio
+    Video/
+      NkVideoTypes.h            <- NkVideoInputFormat
+      NkVideoReader.{h,cpp}     <- LECTURE : conteneur -> RGBA8
+      NkVideoWriter.{h,cpp}     <- ECRITURE simple
+      NkVideoRecorder.{h,cpp}   <- CAPTURE A/V threadee
+      NkVideoConverter.{h,cpp}  <- sequence/AVI -> video
+      NkImageSequenceWriter.{h,cpp}
+      Containers/ NkAviWriter · NkMovWriter · NkMp4H264Writer · NkWebmWriter
+    Audio/Containers/NkWavWriter.{h,cpp}
+    Codecs/ Video/{H264,HEVC,VP8,VP9,AV1,Mpeg1,Mpeg2,Theora} · Aac · Opus · AMR
+\end{nkcode}
+
+\subsection{Ici, les commentaires \emph{sous-estiment} le module}
+
+Nous avons pris l'habitude, depuis le chapitre~5, de nous méfier des
+commentaires qui promettent trop. NKMedia présente le problème inverse, et il
+faut le savoir pour ne pas renoncer à des fonctionnalités qui existent.
+
+\begin{nkcode}{Kernel/Runtime/NKMedia/src/NKMedia/Video/NkVideoReader.h:8-11}
+//   - Conteneur MOV/MP4 (ISOBMFF) : piste vidéo -> MJPEG (mjpa/jpeg). H264 = à venir.
+// H264/AVC (MP4 courant) exige un décodeur complet (gros chantier séparé) : la
+// lecture d'une piste avc1 renvoie une erreur claire tant que le décodeur n'existe pas.
+\end{nkcode}
+
+C'est faux. Le fichier \nkfile{Video/NkVideoReader.cpp} affecte réellement
+\texttt{info.codec} à \texttt{"h264"} (lignes 1592, 1828, 2002), \texttt{"hevc"}
+(955, 1563), \texttt{"vp8"} (1572, 1650), \texttt{"vp9"} (1578, 1635),
+\texttt{"av1"} (1586, 1644), \texttt{"mpeg2"} (1869), \texttt{"theora"} (1944),
+en plus de \texttt{"mjpeg"}, \texttt{"rawrgb"} et \texttt{"image"}. Les
+décodeurs sont branchés.
+
+De même, \nkfile{Video/NkVideoWriter.h:5-6} annonce « AVI pour l'instant ;
+MP4/WebM à venir » alors que les écrivains MOV/MP4 et WebM sont livrés.
+
+\begin{nkretenir}[La source de vérité de ce module]
+Pour NKMedia, la vérité n'est ni dans les en-têtes ni dans les
+\texttt{.jenga} : elle est dans \nkfile{Kernel/Runtime/NKMedia/ROADMAP.md}, un
+document de 1\,529 lignes tenu à jour. Prenez le réflexe de l'ouvrir avant de
+conclure qu'une fonctionnalité manque.
+\end{nkretenir}
+
+Voici l'essentiel de cette feuille de route, au moment de la rédaction :
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Brique} & \textbf{Statut} \\
+\midrule
+Probe / démux conteneurs & fini — MP4, WebM, WAV, OGG, MP3, FLAC \\
+Extraction de paquets    & fini — MP4 (\texttt{stbl} et fMP4), WebM \\
+Opus CELT / SILK         & fini (SILK exact au bit face à libopus) \\
+Dispatcher Opus          & \emph{partiel} — mode hybride non fait \\
+Décodeur AAC-LC          & fini, exact au bit \\
+Muxers (écriture)        & fini — AVI, MOV/MP4, WAV, WebM \\
+Vidéo (décodage)         & fini — H.264 Main+High, VP8, VP9, HEVC \\
+\textbf{Vidéo (encodage)} & \textbf{en cours} — RAW/MJPEG/MPEG-1 + H.264 baseline \\
+AV1 / MPEG-2 / Theora    & \textbf{restent à faire} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkpiege}[Ce sur quoi ce cours ne s'engage pas]
+\begin{itemize}
+  \item \textbf{L'encodage H.264} est marqué « en cours » et limité au profil
+        \emph{baseline}. Il fonctionne — le \texttt{NkVideoRecorder} l'utilise
+        par défaut — mais ce n'est pas un chemin sur lequel bâtir un exercice de
+        débutant. \textbf{Restez en MJPEG} ;
+  \item \textbf{AV1, MPEG-2 et Theora} : le code de décodage existe, la feuille
+        de route ne les déclare pas terminés ;
+  \item \textbf{Opus en mode hybride} et en stéréo peut être « refusé
+        proprement » : un fichier \texttt{.opus} courant n'est pas garanti ;
+  \item \textbf{HEVC} refuse proprement les tuiles, le PCM, les
+        échantillonnages 4:2:2 et 4:4:4 ;
+  \item \textbf{VP8} refuse la segmentation par macrobloc et les partitions
+        multiples.
+\end{itemize}
+« Refusé proprement » est une bonne nouvelle : cela signifie une erreur claire
+plutôt qu'une image corrompue.
+\end{nkpiege}
+
+\section{\texttt{NkMediaProbe} : qu'y a-t-il dans ce fichier ?}
+
+C'est la classe par laquelle commencer, parce qu'elle ne décode rien : elle lit
+les en-têtes et vous dit ce que contient le fichier.
+
+\begin{nkcode}{Kernel/Runtime/NKMedia/src/NKMedia/NkMediaProbe.h:21-70 (abrégé)}
+enum class NkMediaContainer { NK_UNKNOWN, NK_MP4, NK_WEBM, NK_WAV, NK_OGG, NK_MP3, NK_FLAC };
+enum class NkMediaTrackType { NK_UNKNOWN, NK_AUDIO, NK_VIDEO };
+
+struct NkMediaTrack {
+        NkMediaTrackType type = NkMediaTrackType::NK_UNKNOWN;
+        NkString codec;          // "aac","opus","vorbis","vp8","vp9","h264","pcm","mp3",...
+        int32 sampleRate = 0;    int32 channels = 0;      // audio
+        int32 width = 0;         int32 height = 0;        // video
+        int32 bitsPerSample = 0; bool pcmBigEndian = false;
+        NkVector<nk_uint8> codecPrivate;                  // OpusHead pour Opus, etc.
+};
+struct NkMediaInfo {
+        NkMediaContainer container = NkMediaContainer::NK_UNKNOWN;
+        NkVector<NkMediaTrack> tracks;
+        const char* ContainerName() const;
+        const NkMediaTrack* FirstAudio() const;
+        const NkMediaTrack* FirstVideo() const;
+};
+struct NkMediaProbe {
+        static bool Probe(const uint8* data, usize size, NkMediaInfo& out);
+        static bool ProbeFile(const char* path, NkMediaInfo& out);
+        static NkMediaContainer DetectContainer(const uint8* data, usize size);
+        static bool SelfTest();
+};
+\end{nkcode}
+
+L'usage réel, tiré de l'application de test :
+
+\begin{nkcode}{Applications/NKMediaTest/src/main.cpp:331-353 (abrégé)}
+    if (argc >= 2) {
+        media::NkMediaInfo info;
+        if (!media::NkMediaProbe::ProbeFile(argv[1], info)) {
+            printf("[ERREUR] probe echoue : %s\n", argv[1]);
+            return 1;
+        }
+        printf("Conteneur : %s\n", info.ContainerName());
+        printf("Pistes    : %d\n", (int)info.tracks.Size());
+        for (uint64 i = 0; i < info.tracks.Size(); ++i) {
+            const media::NkMediaTrack &t = info.tracks[i];
+            printf("  [%d] %-5s codec=%-6s", (int)i, TrackTypeName(t.type), t.codec.CStr());
+            if (t.type == media::NkMediaTrackType::NK_AUDIO)
+                printf(" %d Hz, %d canal(aux)", t.sampleRate, t.channels);
+            if (t.type == media::NkMediaTrackType::NK_VIDEO)
+                printf(" %dx%d", t.width, t.height);
+            printf("\n");
+        }
+\end{nkcode}
+
+\texttt{FirstAudio()} et \texttt{FirstVideo()} évitent de parcourir soi-même les
+pistes quand on ne s'intéresse qu'à la principale — ils rendent \texttt{nullptr}
+s'il n'y en a pas.
+
+\begin{nkretenir}
+Avant d'ouvrir un fichier avec \texttt{NkVideoReader}, sondez-le. Vous saurez
+alors si le codec est l'un de ceux que vous savez traiter, et vous pourrez
+afficher un message utile au lieu d'un échec muet. \texttt{ProbeFile} est
+instantané : il ne décode aucune image.
+\end{nkretenir}
+
+\section{Écrire une vidéo}
+
+\subsection{L'API}
+
+\begin{nkcode}{Kernel/Runtime/NKMedia/src/NKMedia/Video/NkVideoWriter.h:26-81}
+enum class NkVideoCodec { RAW_BGR, MJPEG, MPEG1 };
+enum class NkVideoContainer { AVI, MOV, ELEMENTARY };
+// (NkVideoInputFormat { RGB24, RGBA32, BGR24 } vit dans Video/NkVideoTypes.h:16-20)
+
+struct NkVideoConfig {
+        int32 width = 0;  int32 height = 0;
+        int32 fpsNum = 30;  int32 fpsDen = 1;
+        NkVideoCodec codec = NkVideoCodec::MJPEG;
+        NkVideoContainer container = NkVideoContainer::AVI;
+        int32 quality = 90;                 // MJPEG 1..100
+        int32 audioSampleRate = 0;          // 0 = video muette
+        int32 audioChannels = 0;
+};
+class NkVideoWriter {
+        bool Open(const char* path, const NkVideoConfig& cfg);
+        bool WriteFrame(const uint8* pixels, NkVideoInputFormat fmt);
+        bool AddAudioSamples(const int16* interleaved, usize frameCount);
+        bool Close();
+        bool IsOpen() const;   int32 FrameCount() const;
+};
+\end{nkcode}
+
+Notez la cadence exprimée en fraction : \texttt{fpsNum / fpsDen}. Pour du
+30~images/s, \texttt{30/1} ; pour du 29,97 (NTSC), \texttt{30000/1001}. Les
+formats vidéo n'aiment pas les flottants.
+
+\subsection{Le squelette de référence}
+
+\begin{nkcode}{Applications/NKVideoTest/src/main.cpp:83-112}
+    bool MakeVideo(const char *path, media::NkVideoCodec codec, media::NkVideoContainer container, int32 w, int32 h,
+                   int32 fps, int32 nframes) {
+        media::NkVideoConfig cfg;
+        cfg.width = w;
+        cfg.height = h;
+        cfg.fpsNum = fps;
+        cfg.fpsDen = 1;
+        cfg.codec = codec;
+        cfg.container = container;
+        cfg.quality = 88;
+
+        media::NkVideoWriter vw;
+        if (!vw.Open(path, cfg)) {
+            ::printf("  [ERREUR] ouverture %s\n", path);
+            return false;
+        }
+        uint8 *rgb = (uint8 *)memory::NkAlloc((usize)w * h * 3);
+        for (int32 fr = 0; fr < nframes; ++fr) {
+            RenderFrame(rgb, w, h, fr, nframes);
+            if (!vw.WriteFrame(rgb, media::NkVideoInputFormat::RGB24)) {
+                ::printf("  [ERREUR] trame %d\n", fr);
+                memory::NkFree(rgb);
+                vw.Close();
+                return false;
+            }
+        }
+        memory::NkFree(rgb);
+        vw.Close();
+        return true;
+    }
+\end{nkcode}
+
+Quatre choses à retenir de ce bloc.
+
+\begin{enumerate}
+  \item \textbf{Le tampon est alloué une fois}, hors de la boucle, et réutilisé.
+        Allouer une image par trame est le meilleur moyen de rendre l'encodage
+        plus lent que le décodage ;
+  \item \textbf{la mémoire vient de \texttt{memory::NkAlloc}} et repart par
+        \texttt{memory::NkFree} — la règle du chapitre~5 ne change pas ;
+  \item \textbf{le chemin d'erreur appelle quand même \texttt{Close()}} ;
+  \item \textbf{le format d'entrée est explicite} :
+        \texttt{NkVideoInputFormat::RGB24}. Le writer accepte aussi
+        \texttt{RGBA32} et \texttt{BGR24} et fait la conversion.
+\end{enumerate}
+
+\begin{nkpiege}[\texttt{Close()} n'est pas optionnel]
+Un fichier AVI se termine par un index ; un MP4 par un atome \texttt{moov}.
+Aucun des deux n'est écrit tant que \texttt{Close()} n'a pas été appelé. Sans
+lui, vous obtenez un fichier de la bonne taille, contenant toutes vos images, et
+qu'\textbf{aucun lecteur au monde n'ouvrira}. Le message typique est
+« \texttt{moov atom not found} ».
+
+Le dépôt prend explicitement cette précaution dans son code de capture :
+
+\begin{nkcode}{Applications/NKViewportDemo/src/NKViewportDemo/main.cpp:358-362}
+    // Robustesse : si la fenêtre est fermée AVANT la fin de l'enregistrement, on finalise quand même
+    // (écrit le moov) → le MP4 reste lisible (sinon "moov atom not found").
+    if (rec.IsRecording()) {
+        rec.End();
+    }
+\end{nkcode}
+
+La même règle vaut pour \texttt{NkVideoRecorder::End()} et
+\texttt{NkWebmWriter::Finalize()}. \textbf{Prévoyez une finalisation sur tous les
+chemins de sortie, y compris la fermeture brutale de la fenêtre.}
+\end{nkpiege}
+
+\subsection{Deux limites de l'écriture}
+
+\begin{itemize}
+  \item \textbf{L'audio n'est pas supportée partout} :
+        \nkfile{Video/NkVideoWriter.h:50-52} précise que la piste audio est
+        « supportée par AVI \dots{} et MOV/MP4 \dots{} Non supportée par
+        ELEMENTARY/MPEG1 (\textbf{Open échoue si demandée}) ». Au moins l'échec
+        est franc ;
+  \item \textbf{le sens des pixels} : les encodeurs veulent du \emph{haut en
+        bas} (\nkfile{Video/NkVideoTypes.h:16-20}). Or OpenGL rend de bas en
+        haut. Nous verrons le paramètre qui corrige cela.
+\end{itemize}
+
+\subsection{La séquence d'images, à la manière de Blender}
+
+\begin{nkcode}{Kernel/Runtime/NKMedia/src/NKMedia/Video/NkImageSequenceWriter.h:21-42}
+enum class NkImageSeqFormat { PNG, JPEG, BMP, TGA, QOI };
+struct NkImageSequenceWriter {
+        bool Open(const char* dir, const char* basename, int32 width, int32 height,
+                  NkImageSeqFormat fmt, int32 padding = 4, int32 quality = 90);
+        bool WriteFrame(const uint8* pixels, NkVideoInputFormat fmt);
+        bool Close();  int32 FrameCount() const;
+};
+\end{nkcode}
+
+\begin{nkcode}{Applications/NKVideoTest/src/main.cpp:185-201}
+        media::NkImageSequenceWriter seq;
+        bool ok = seq.Open(outDir, "nkframe", W, H, media::NkImageSeqFormat::PNG, 4, 90);
+        if (ok) {
+            uint8 *rgb = (uint8 *)memory::NkAlloc((usize)W * H * 3);
+            for (int32 fr = 0; fr < 5 && ok; ++fr) { // 5 images d'exemple
+                RenderFrame(rgb, W, H, fr, N);
+                ok = seq.WriteFrame(rgb, media::NkVideoInputFormat::RGB24);
+            }
+            memory::NkFree(rgb);
+            seq.Close();
+        }
+\end{nkcode}
+
+Cela produit \texttt{nkframe\_0000.png}, \texttt{nkframe\_0001.png}\dots{} Cette
+classe délègue entièrement aux codecs de NKImage : c'est le chemin le plus fiable
+du module, et le plus facile à déboguer — vous pouvez ouvrir chaque image.
+
+Et pour transformer ensuite la séquence en vidéo, il existe un raccourci en une
+ligne :
+
+\begin{nkcode}{Kernel/Runtime/NKMedia/src/NKMedia/Video/NkVideoConverter.h:24-30}
+static int32 ImageSequenceToVideo(const char* prefix, int32 digits, const char* suffix,
+                                  int32 first, int32 count, const char* outPath,
+                                  int32 fpsNum, int32 fpsDen, int32 quality = 90);
+static int32 MjpegAviToVideo(const char* aviPath, const char* outPath, int32 quality = 90);
+\end{nkcode}
+
+Ces deux fonctions renvoient le \emph{nombre de trames} traitées, pas un
+booléen : zéro signifie l'échec.
+
+\section{Lire une vidéo}
+
+\subsection{L'API}
+
+\begin{nkcode}{Kernel/Runtime/NKMedia/src/NKMedia/Video/NkVideoReader.h:26-70}
+    struct NkVideoFrame {
+            NkVector<nk_uint8> rgba;         // width*height*4, row-major, haut->bas
+            int32 width = 0;   int32 height = 0;
+            int64 timestampMs = 0;
+            int32 index = -1;
+    };
+    struct NkVideoReaderInfo {
+            int32 width = 0;   int32 height = 0;
+            int32 frameCount = -1;           // -1 = inconnu
+            double fps = 0.0;
+            NkString codec;                  // "mjpeg"|"rawrgb"|"h264"|"hevc"|"vp8"|"vp9"|...
+            NkString container;              // "avi"|"mov"|"mp4"|"sequence"
+    };
+    class NkVideoReader {
+            NkVideoReader(const NkVideoReader&) = delete;          // NON COPIABLE
+            bool Open(const char* path);
+            bool IsOpen() const;
+            const NkVideoReaderInfo& Info() const;
+            bool ReadFrame(NkVideoFrame& out);                      // false = fini
+            bool SeekFrame(int32 index);
+            int32 CurrentIndex() const;
+            void Close();
+            static bool SelfTest();
+    };
+\end{nkcode}
+
+Le point capital est dans le commentaire de \texttt{NkVideoFrame::rgba} :
+\textbf{RGBA8, ligne par ligne, de haut en bas}. C'est exactement le format
+qu'attendent \texttt{NkTexture::Update} et \texttt{UploadImageRGBA}. Il n'y a
+aucune conversion à écrire.
+
+\subsection{La boucle de lecture}
+
+\begin{nkcode}{Applications/NkVideoReadTest/src/main.cpp:3041-3070 (abrégé)}
+    const char *path = argv[1];
+    NkVideoReader rd;
+    if (!rd.Open(path)) {
+        printf("  [KO] impossible d'ouvrir/lire : %s\n", path);
+        return 1;
+    }
+    const NkVideoReaderInfo &in = rd.Info();
+    printf("  conteneur=%s codec=%s  %dx%d  %.2f fps  frames=%d\n", in.container.CStr(), in.codec.CStr(), in.width,
+           in.height, in.fps, in.frameCount);
+
+    int32 count = 0;
+    NkVideoFrame fr;
+    while (rd.ReadFrame(fr)) {
+        /* ... traiter fr.rgba ... */
+        ++count;
+    }
+\end{nkcode}
+
+Remarquez que \texttt{fr} est déclarée \emph{hors} de la boucle et réutilisée :
+son \texttt{NkVector} conserve sa capacité d'une trame à l'autre. La déclarer
+dans la boucle provoquerait une allocation par image.
+
+\texttt{Open} accepte aussi un \textbf{dossier d'images} : le champ
+\texttt{container} vaut alors \texttt{"sequence"} et le codec \texttt{"image"}.
+C'est le moyen le plus simple de tester votre code de lecture sans avoir de
+vidéo sous la main.
+
+\subsection{Le seek n'est pas ce que vous croyez}
+
+\begin{nkcode}{Applications/NkVideoReadTest/src/main.cpp:2762-2765}
+ SeekFrame se contente de repositionner sur l'IDR précédente (voir implémentation) : il
+ faut ensuite redécoder EN AVANT jusqu'à la cible, exactement comme le fait la boucle de
+ rattrapage du lecteur (Applications/NkVideoPlayer).
+\end{nkcode}
+
+Dans un format à trames inter-dépendantes comme H.264, l'image numéro 1\,000 ne
+peut pas être décodée seule : elle décrit des différences par rapport aux
+précédentes. \texttt{SeekFrame(1000)} vous replace donc sur la dernière image
+autonome avant la cible, et c'est à vous d'appeler \texttt{ReadFrame} jusqu'à ce
+que \texttt{CurrentIndex() >= 1000}.
+
+Sur une séquence d'images ou un AVI MJPEG — où chaque image est indépendante —
+le seek est exact.
+
+\subsection{Décoder coûte cher}
+
+Une phrase à graver : \textbf{ne décodez jamais plus d'une image par image
+affichée}. Le lecteur du dépôt borne explicitement sa boucle de rattrapage :
+
+\begin{nkcode}{Applications/NkVideoPlayer/src/main.cpp:562-620 (extrait)}
+        if (!paused && !ended) {
+            if (audioOn && !streamPlayer.IsFinished())
+                mediaClock = streamPlayer.GetPositionSeconds();
+            else
+                mediaClock += (float64)(dt * speed);
+            const int32 targetIdx = (int32)(mediaClock * (float64)fps);
+            /* resynchronisation dure si on a plus de 1,5 s de retard */
+            const int32 kHardResyncLagFrames = (int32)(fps * 1.5f);
+            if (!firstFrame && (targetIdx - reader.CurrentIndex()) > kHardResyncLagFrames) {
+                if (reader.SeekFrame(targetIdx) && reader.ReadFrame(fr))
+                    havePendingFrame = true;
+            }
+            NkChrono burstTimer;
+            while ((firstFrame || reader.CurrentIndex() < targetIdx) &&
+                   burstTimer.Elapsed().ToMilliseconds() < 150.0) {
+                if (reader.ReadFrame(fr)) { havePendingFrame = true; firstFrame = false; }
+                else if (loop) { /* SeekFrame(0) + ReadFrame */ }
+                else { paused = true; break; }
+            }
+            if (havePendingFrame)
+                pushFrame(); // upload + dessin UNE SEULE FOIS, avec la derniere image de la rafale
+        }
+\end{nkcode}
+
+Trois garde-fous dans ce seul bloc : la rafale de rattrapage est limitée à
+150~ms de temps mur ; au-delà d'une seconde et demie de retard on saute
+carrément ; et surtout, \textbf{l'upload GPU n'a lieu qu'une fois}, avec la
+dernière image de la rafale. Décoder dix images pour n'en afficher qu'une est
+acceptable ; en uploader dix ne l'est pas.
+
+\begin{nkretenir}[L'horloge maîtresse]
+Notez la première ligne : quand l'audio joue, c'est \emph{lui} qui donne
+l'heure (\texttt{mediaClock = streamPlayer.GetPositionSeconds()}). Ce n'est
+qu'en son absence qu'on accumule le \emph{delta time}. La raison est
+physiologique : l'oreille détecte un hoquet audio de 20~ms, l'œil ne voit pas
+une image manquante. On synchronise donc toujours l'image sur le son, jamais
+l'inverse.
+\end{nkretenir}
+
+\section{Afficher la vidéo}
+
+\subsection{Dans une fenêtre NkCanvas}
+
+Le principe : créer \textbf{une} texture à la taille de la vidéo, puis la mettre
+à jour à chaque nouvelle image.
+
+\begin{nkcode}{Applications/NkVideoPlayer/src/main.cpp:355-362}
+    // ── 4) Texture RGBA de la taille vidéo + sprite d'affichage ───────────────
+    NkTexture frameTex;
+    if (!frameTex.Create(*target.GetRenderer(), (uint32)vidW, (uint32)vidH, NkColor2D{0, 0, 0, 255})) {
+        logger.Error("[NkVideoPlayer] echec creation texture {0}x{1}", vidW, vidH);
+        window.Close();
+        return -5;
+    }
+    NkSprite sprite(frameTex);
+\end{nkcode}
+
+puis, à chaque image décodée :
+
+\begin{nkcode}{Applications/NkVideoPlayer/src/main.cpp:424-431}
+    auto pushFrame = [&]() {
+        rawW = fr.width;
+        rawH = fr.height;
+        rawFrame = fr.rgba;
+        applyLook(fr.rgba.Data(), (uint64)fr.width * fr.height);
+        frameTex.Update(fr.rgba.Data(), (uint32)fr.width, (uint32)fr.height, 0, 0);
+        haveFrame = true;
+    };
+\end{nkcode}
+
+et le dessin, qui n'a rien de particulier :
+
+\begin{nkcode}{Applications/NkVideoPlayer/src/main.cpp:664-668}
+        target.Clear(NkColor2D{0, 0, 0, 255});
+        if (haveFrame)
+            target.Draw(static_cast<const NkDrawable &>(sprite));
+        target.Display();
+\end{nkcode}
+
+\begin{nkpiege}[Ne recréez jamais la texture par image]
+\texttt{Create} alloue une texture GPU ; \texttt{Update} y recopie des pixels.
+Appeler \texttt{Create} à chaque trame, c'est allouer et libérer une texture
+soixante fois par seconde : la mémoire GPU se fragmente et le pilote finit par
+protester. Créez une fois, mettez à jour ensuite.
+\end{nkpiege}
+
+\subsection{Dans une interface}
+
+Le motif est le même, avec l'API du backend d'interface. L'IDE du dépôt en donne
+la version complète, y compris le cas du changement de dimensions :
+
+\begin{nkcode}{Applications/NKCode/src/NKCode/Shell/NkVideoViewer.h:70-82}
+        inline void NkVideoUpload(editorkit::NkEditorShell *shell, NkVideoClip *c) {
+            if (!shell || c->frame.rgba.Empty() || c->frame.width <= 0 || c->frame.height <= 0)
+                return;
+            const uint8 *px = c->frame.rgba.Data();
+            if (c->texId == 0 || c->texW != c->frame.width || c->texH != c->frame.height) {
+                c->texId = shell->UploadRGBA(px, c->frame.width, c->frame.height);
+                c->texW = c->frame.width;
+                c->texH = c->frame.height;
+            } else {
+                shell->UpdateRGBA(c->texId, px, c->frame.width, c->frame.height);
+            }
+            c->haveFrame = c->texId != 0;
+        }
+\end{nkcode}
+
+Premier appel ou changement de taille : \texttt{UploadRGBA}, qui crée. Sinon :
+\texttt{UpdateRGBA}, qui recopie. C'est exactement la même logique que pour
+NKImage au chapitre~5, avec une texture qui vit plus longtemps qu'une frame.
+
+Et le cadencement, côté interface :
+
+\begin{nkcode}{Applications/NKCode/src/NKCode/Shell/NkVideoViewer.h:153-170}
+            float32 dt = ctx.input.dt;
+            if (dt <= 0.f || dt > 0.25f)
+                dt = 1.f / 60.f; // garde-fou (onglet revenu au premier plan / hoquet)
+            const float32 frameDur = 1.f / (c->fps * (c->speed > 0.01f ? c->speed : 0.01f));
+            if (c->playing && !c->ended) {
+                c->acc += dt;
+                if (c->acc > frameDur * 4.f)
+                    c->acc = 0.f; // evite le rattrapage explosif
+                while (c->acc >= frameDur) {
+                    c->acc -= frameDur;
+                    if (c->reader->ReadFrame(c->frame)) {
+                        c->index = c->frame.index;
+                        NkVideoUpload(shell, c);
+                    }
+                    /* ... loop / fin ... */
+                }
+            }
+\end{nkcode}
+
+Les deux garde-fous méritent d'être notés, parce qu'ils correspondent à deux
+situations réelles : un \emph{delta time} aberrant quand l'onglet revient au
+premier plan après plusieurs secondes, et un accumulateur qui a débordé et
+voudrait décoder quarante images d'un coup.
+
+\section{Enregistrer ce que l'application affiche}
+
+\subsection{L'API}
+
+\begin{nkcode}{Kernel/Runtime/NKMedia/src/NKMedia/Video/NkVideoRecorder.h:39-77}
+enum class NkRecorderCodec { H264, MJPEG };
+
+struct NkVideoRecorder {
+        bool Begin(const char* path, int32 width, int32 height, int32 fpsNum = 60, int32 fpsDen = 1,
+                   int32 qp = 20, int32 maxQueuedFrames = 32,
+                   NkRecorderCodec codec = NkRecorderCodec::H264, int32 mjpegQuality = 90);
+        int32 AddAudio(int32 sampleRate, int32 channels, const char* lang3 = nullptr);
+        int32 AddSubtitleTrack(const char* lang3 = nullptr);
+        bool PushVideo(const uint8* pixels, NkVideoInputFormat fmt, bool flipVertical = false);
+        void PushAudio(int32 trackIdx, const int16* interleaved, uint32 frames);
+        void AddSubtitle(int32 trackIdx, const char* utf8, uint32 startMs, uint32 durMs);
+        bool End();
+        bool IsRecording() const;  int32 FrameCount() const;
+        int32 QueueDepth();  uint64 DroppedFrames();  double EncodeFps();
+};
+\end{nkcode}
+
+La différence avec \texttt{NkVideoWriter} est architecturale :
+
+\begin{nkcode}{Kernel/Runtime/NKMedia/src/NKMedia/Video/NkVideoRecorder.h:5-8}
+ **Encodage sur un THREAD de fond** : la boucle de rendu pousse les trames capturées
+ dans une file (rapide) et un worker encode en arrière-plan → l'application reste
+ FLUIDE pendant la capture (l'encodeur H.264 est lourd).
+\end{nkcode}
+
+\texttt{PushVideo} rend la main immédiatement ; l'encodage a lieu ailleurs.
+\texttt{End()} joint ce fil : \textbf{ne détruisez jamais un recorder sans avoir
+appelé \texttt{End()}}.
+
+\subsection{La capture, de bout en bout}
+
+Le point de jonction avec le reste du moteur est délicieusement simple : la
+capture d'écran est une \texttt{NkImage}.
+
+\begin{nkcode}{Applications/NKViewportDemo/src/NKViewportDemo/main.cpp:329-362 (abrégé)}
+        if (record && target->CaptureToImage(capImg) && capImg.IsValid()) {
+            if (!rec.IsRecording()) {
+                if (rec.Begin("viewport_capture.mp4", capImg.Width(), capImg.Height(), 30, 1, 24)) {
+                    recAudio = rec.AddAudio(kRate, 1, "fre");
+                    const int32 st = rec.AddSubtitleTrack("fre");
+                    rec.AddSubtitle(st, "Capture live NKCanvas (DX11) - Nkentseu", 0, 4000);
+                }
+            }
+            if (rec.IsRecording()) {
+                rec.PushVideo(capImg.Pixels(), media::NkVideoInputFormat::RGBA32);
+                rec.PushAudio(recAudio, recTone.Data(), (uint32)kAudioPerFrame);
+                if (recFrames >= kRecTotal) { rec.End(); running = false; }
+            }
+        }
+\end{nkcode}
+
+\texttt{NkRenderWindow::CaptureToImage(NkImage\&)} remplit une \texttt{NkImage},
+et \texttt{capImg.Pixels()} part directement dans \texttt{PushVideo}. NKImage,
+NkCanvas et NKMedia se rejoignent en une ligne.
+
+\subsection{Trois pièges du recorder}
+
+\begin{nkpiege}[L'ordre des appels]
+\nkfile{Video/NkVideoRecorder.h:51-54} : \texttt{AddAudio} et
+\texttt{AddSubtitleTrack} sont à appeler « juste après \texttt{Begin} (avant les
+trames) ». Ajouter une piste en cours d'enregistrement n'a pas de sens dans un
+conteneur MP4, dont la table des pistes est écrite en tête.
+\end{nkpiege}
+
+\begin{nkpiege}[En MJPEG, l'audio est ignorée — silencieusement]
+\begin{nkcode}{Kernel/Runtime/NKMedia/src/NKMedia/Video/NkVideoRecorder.h:36-38}
+ conteneur MOV/MP4, **VIDEO SEULE (audio/sous-titres ignores dans ce mode)**
+\end{nkcode}
+
+C'est le piège le plus vicieux du module : \texttt{AddAudio} vous rend un index
+parfaitement valide, \texttt{PushAudio} accepte vos échantillons sans broncher,
+et le fichier produit est muet. Rien ne vous prévient.
+
+Vous êtes donc devant un choix : MJPEG (léger, sûr, muet) ou H.264 (avec audio,
+mais l'encodeur est marqué « en cours »). Pour apprendre, prenez MJPEG et
+enregistrez l'audio à part.
+\end{nkpiege}
+
+\begin{nkpiege}[Le recorder abandonne des trames]
+\begin{nkcode}{Kernel/Runtime/NKMedia/src/NKMedia/Video/NkVideoRecorder.h:45-46}
+ `maxQueuedFrames` BORNE la file video : si l'encodeur (H.264 lourd) prend du retard,
+ les nouvelles trames sont ABANDONNEES (drop-newest) au lieu de gonfler la memoire
+ (temps reel : perdre une trame vaut mieux que geler). Abandons comptes (DroppedFrames()).
+\end{nkcode}
+
+C'est le bon comportement — mais il faut le savoir, sinon on s'étonne qu'une
+capture de dix secondes à 60~images/s en contienne 400. Surveillez
+\texttt{DroppedFrames()} et \texttt{QueueDepth()}, et régulez si nécessaire :
+
+\begin{nkcode}{Applications/Sandbox/src/Demo/main.cpp:1025-1050 (extrait)}
+                    const bool encoderBusy = recorder && recorder->QueueDepth() >= 24;
+                    if (!encoderBusy)
+                        (void)recordCapture.EnqueueCopy(...);
+\end{nkcode}
+\end{nkpiege}
+
+\subsection{Le sens des pixels}
+
+\begin{nkcode}{Kernel/Runtime/NKMedia/src/NKMedia/Video/NkVideoRecorder.h:56-57}
+ `flipVertical` pour framebuffer bottom-up (OpenGL)
+\end{nkcode}
+
+OpenGL considère l'origine en bas à gauche ; les formats vidéo la placent en
+haut à gauche. Si votre capture provient d'un \emph{framebuffer} OpenGL lu
+directement, passez \texttt{flipVertical = true}. Le symptôme d'un oubli est
+sans ambiguïté : la vidéo est à l'envers.
+
+\section{Le démux audio, en deux mots}
+
+Nous n'en aurons pas besoin dans ce cours, mais vous croiserez la classe :
+
+\begin{nkcode}{Kernel/Runtime/NKMedia/src/NKMedia/NkMediaDemux.h:22-48}
+struct NkMediaPacket {
+        usize offset = 0;   // position dans le buffer SOURCE (ne copie pas !)
+        usize size = 0;
+        int64 timestampMs = 0;
+        int64 granule = -1;             // OGG
+        int64 discardPaddingNs = 0;     // WebM
+};
+struct NkMediaDemux {
+        static bool ExtractAudioPackets(const uint8* data, usize size, const NkMediaInfo& info,
+                                        NkVector<NkMediaPacket>& out);
+        static bool ExtractAudioPacketsFile(const char* path, NkVector<nk_uint8>& outBytes,
+                                            NkMediaInfo& outInfo, NkVector<NkMediaPacket>& out);
+        static bool SelfTest();
+};
+\end{nkcode}
+
+\begin{nkpiege}[Les paquets pointent dans le tampon source]
+\texttt{NkMediaPacket} ne contient pas de données : il contient un
+\emph{décalage}. Le commentaire est explicite — « Un paquet encodé (pointe dans
+le buffer d'origine ; ne copie pas) » (\nkfile{NkMediaDemux.h:22}), et pour la
+variante fichier : « \texttt{outBytes} reçoit le buffer (\textbf{à garder
+vivant} car les paquets pointent dedans) » (\nkfile{NkMediaDemux.h:47}).
+
+Si votre \texttt{NkVector<nk\_uint8> bytes} sort de portée avant que vous ayez
+fini de lire les paquets, vous lisez de la mémoire libérée. Gardez les deux
+ensemble, dans la même portée.
+\end{nkpiege}
+
+\section{Vérifier que tout marche sur votre machine}
+
+NKMedia est le module le mieux doté du moteur en auto-tests — il en compte 52.
+L'application \texttt{NkVideoReadTest}, lancée \emph{sans argument}, les
+enchaîne :
+
+\begin{nkcode}{Applications/NkVideoReadTest/src/main.cpp:252-276}
+    if (argc < 2) {
+        printf("  [self-test] ecrire AVI MJPEG -> relire -> verifier...\n");
+        bool ok = NkVideoReader::SelfTest();
+        printf("  [ %s ] NkVideoReader::SelfTest (AVI MJPEG round-trip)\n", ok ? "OK " : "KO");
+        bool okH264 = NkH264Decoder::SelfTest();
+        bool okCavlc = NkH264Cavlc::SelfTest();
+        bool okVp9 = NkVp9Decoder::SelfTest();
+        bool okAv1 = NkAv1Decoder::SelfTest();
+        bool okHevc = NkHevcDecoder::SelfTest();
+        bool okHevcCabac = NkHevcCabacState::SelfTest();
+        bool okWav = NkWavWriter::SelfTest();
+        bool okWebm = NkWebmWriter::SelfTest();
+        bool all = ok && okH264 && okCavlc && okVp9 && okAv1 && okHevc && okHevcCabac && okWav && okWebm;
+        printf("=== %s ===\n", all ? "LECTURE VIDEO OPERATIONNELLE" : "ECHEC");
+        return all ? 0 : 1;
+    }
+\end{nkcode}
+
+Le premier de la liste est le plus parlant : il écrit un AVI MJPEG, le relit, et
+vérifie que ce qui sort correspond à ce qui est entré. C'est ce
+\emph{round-trip} qui valide indirectement \texttt{NkVideoWriter}, qui n'a pas
+d'auto-test propre — pas plus que \texttt{NkVideoRecorder},
+\texttt{NkVideoConverter}, \texttt{NkImageSequenceWriter}, ni les écrivains de
+conteneurs.
+
+Deux détails pratiques :
+
+\begin{itemize}
+  \item ces auto-tests \textbf{écrivent dans le répertoire courant} :
+        \texttt{nkvideoreader\_selftest.avi},
+        \texttt{nkwavwriter\_selftest.wav},
+        \texttt{nkwebmwriter\_selftest.webm}. Lancez-les depuis un dossier de
+        travail, pas depuis la racine du dépôt ;
+  \item le décodeur HEVC lit une variable d'environnement,
+        \texttt{NK\_HEVC\_THREADS} : absente ou à 0, il choisit tout seul ; à 1,
+        il travaille séquentiellement (\nkfile{NkVideoReadTest/src/main.cpp:249-250}).
+        Utile pour départager un bug de décodage d'un bug de parallélisme.
+\end{itemize}
+
+\section{Une leçon de performance qui dépasse la vidéo}
+
+La feuille de route documente un bug de performance instructif :
+
+\begin{nkcode}{Kernel/Runtime/NKMedia/ROADMAP.md:1447-1458 (abrégé)}
+ le vrai coupable etait `NkVideoReader::ReadFrame` [...] : la gestion du DPB (liste de
+ references) COPIAIT EN PROFONDEUR (au lieu de deplacer) jusqu'a 16 `NkH264Frame`
+ (plans Y/Cb/Cr + grilles de mouvement, ~380 Ko/image) DEUX FOIS par frame decodee
+ [...] cout mesure ~80 ms/frame et CROISSANT [...] >90% du temps total. Fix : traits::NkMove
+\end{nkcode}
+
+Quatre-vingts millisecondes par image, dont plus de 90\,\% en copies inutiles.
+La leçon est transférable bien au-delà de la vidéo : \textbf{dans une boucle
+chaude, une copie profonde qui aurait dû être un déplacement peut représenter
+l'essentiel du temps d'exécution}. Le champ \texttt{NkVideoFrame::rgba} est un
+conteneur : le copier par valeur à chaque image coûte cher, et le lecteur du
+dépôt ne le fait que parce qu'il a explicitement besoin d'une copie non
+retouchée (\nkfile{Applications/NkVideoPlayer/src/main.cpp:427}).
+
+Le même document ajoute un avertissement de méthode, qui vaut pour toute mesure :
+
+\begin{nkcode}{Kernel/Runtime/NKMedia/ROADMAP.md:1449-1452}
+ (mesure fiable : chrono mur autour d'un run borne, PAS le champ `t=` de `NkVideoReadTest`
+ qui affiche le PTS video, pas le temps de decodage reel — piege rencontre une fois)
+\end{nkcode}
+
+Le \emph{PTS} est l'instant auquel une image doit être affichée dans la vidéo. Il
+n'a rien à voir avec le temps qu'il a fallu pour la décoder. Confondre les deux,
+c'est mesurer la durée du film au lieu de la vitesse du lecteur.
+
+\section{Exercices}
+
+\begin{nkexo}[1 — Sonder avant d'ouvrir]
+Écrivez un petit outil en ligne de commande qui prend un chemin, appelle
+\texttt{NkMediaProbe::ProbeFile}, et affiche le conteneur et toutes les pistes.
+Passez-lui successivement un WAV, un MP3, un MP4 et un fichier texte renommé en
+\texttt{.mp4}.
+
+Ajoutez ensuite une règle : si la première piste vidéo n'a pas un codec parmi
+\texttt{"mjpeg"}, \texttt{"rawrgb"} ou \texttt{"image"}, affichez un
+avertissement disant que la lecture n'est pas garantie par ce cours. Vous venez
+d'écrire le garde-fou qui manque à la plupart des applications.
+\end{nkexo}
+
+\begin{nkexo}[2 — Le \emph{round-trip} complet]
+Générez une vidéo de 100 images en MJPEG/AVI, avec un motif dont vous pouvez
+prédire le contenu — par exemple un rectangle qui se déplace d'un pixel par
+image. Relisez-la ensuite avec \texttt{NkVideoReader} et vérifiez que le nombre
+d'images correspond, et que le rectangle est bien là où vous l'attendez à
+l'image 50.
+
+Recommencez avec le conteneur MOV. Puis essayez \texttt{RAW\_BGR} et comparez la
+taille des fichiers : vous aurez une idée concrète de ce que compresser veut
+dire.
+\end{nkexo}
+
+\begin{nkexo}[3 — Prouver que \texttt{Close()} est obligatoire]
+Reprenez l'exercice précédent et commentez l'appel à \texttt{vw.Close()}.
+Regardez la taille du fichier produit — elle est presque identique — puis
+essayez de l'ouvrir avec votre lecteur vidéo habituel, et avec
+\texttt{NkVideoReader}.
+
+Cet exercice prend deux minutes et vous fera gagner une soirée le jour où votre
+application se fermera brutalement en cours d'enregistrement.
+\end{nkexo}
+
+\begin{nkexo}[4 — Un lecteur cadencé, dans votre interface]
+Ajoutez à votre application NKGui un panneau qui lit une séquence d'images
+depuis un dossier (c'est le chemin le plus simple : \texttt{Open} accepte un
+dossier) et l'affiche avec le widget \texttt{Image} du chapitre~5.
+
+Cadencez sur \texttt{Info().fps} avec un accumulateur, en reprenant les deux
+garde-fous de \texttt{NkVideoViewer} : \emph{delta time} aberrant et
+accumulateur débordé. Ajoutez un bouton pause et un \texttt{SliderFloat} de
+vitesse. Vérifiez que vous n'appelez \texttt{UploadRGBA} qu'une seule fois — au
+premier affichage — et \texttt{UpdateRGBA} ensuite.
+\end{nkexo}
