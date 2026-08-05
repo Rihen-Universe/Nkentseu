@@ -594,11 +594,18 @@ namespace nkentseu {
 		// 16 symboles de lumiere, 32 reperes (vides), 64 cameras,
 		// 128 poignees de gizmo, 256 HUD, 512 curseur 3D.
 		static int32 nkvpOutAids = 0;
-		static const int32 kNkvpOutAidCount = 10;
+		// Bit 1024 : le SOL INFINI. Ce n'est pas une aide comme les autres --
+		// c'est du DECOR, et il se rend comme de la geometrie -- mais il n'a pas
+		// d'existence dans la hierarchie, donc la colonne camera ne peut pas
+		// l'exclure. Il lui faut sa propre case. Coupe d'office avec le fond
+		// transparent (demander un detourage et garder un damier n'a pas de
+		// sens), mais RECUPERABLE : une ombre portee au sol donne du poids a un
+		// objet detoure.
+		static const int32 kNkvpOutAidCount = 11;
 		static const char *const kNkvpOutAidNames[kNkvpOutAidCount] = {
 			"Grille",		   "Lignes fines",		"Lignes majeures",	  "Axes du plan",
 			"Symboles de lumiere", "Reperes (vides)", "Cameras",			  "Poignees de gizmo",
-			"Informations (HUD)",  "Curseur 3D"};
+			"Informations (HUD)",  "Curseur 3D",	  "Sol infini"};
 		static bool nkvpOutSaveGizmoHidden = false;
 		static bool nkvpOutSaveGrid = false;
 		static bool nkvpOutSaveMinor = false, nkvpOutSaveMajor = false, nkvpOutSaveAxes = false;
@@ -608,6 +615,7 @@ namespace nkentseu {
 		// pour les rendre apres un rendu a fond transparent.
 		static float32 nkvpBgColor[3] = {0.05f, 0.05f, 0.07f};
 		static bool nkvpOutSaveSky = true;
+		static bool nkvpOutSaveFloor = true;
 		// Definies plus bas : elles ont besoin de l'etat de la demo, declare
 		// apres ce bloc.
 		static bool HostShowLightGizmos();
@@ -10462,8 +10470,18 @@ namespace nkentseu {
 				// FOND TRANSPARENT : noir a la premiere passe, blanc a la
 				// seconde. C'est l'ecart entre les deux qui donnera l'alpha.
 				if (nkvpOutTransparent && hst.ok) {
-					const float32 v = (nkvpOutPass == 0) ? 0.f : 1.f;
-					hst.ctx.renderer->SetBackgroundColor({v, v, v, 1.f});
+					// PREMIERE PASSE : fond noir ET ALPHA ZERO. L'alpha du fond
+					// n'est pas un detail ici -- c'est lui qui permet de savoir
+					// si la chaine de rendu transmet la couverture. En effacant
+					// a alpha 1, ma propre double passe empechait la detection
+					// de voir l'alpha meme quand les shaders le propageaient
+					// correctement : elle rendait toujours deux fois.
+					// SECONDE PASSE : fond blanc OPAQUE, comme l'exige la
+					// reconstruction par difference.
+					if (nkvpOutPass == 0)
+						hst.ctx.renderer->SetBackgroundColor({0.f, 0.f, 0.f, 0.f});
+					else
+						hst.ctx.renderer->SetBackgroundColor({1.f, 1.f, 1.f, 1.f});
 				}
 				if (!HostOutBindTarget((uint32)tw, (uint32)th)) {
 					logger.Error("[Output] Cible de sortie refusee ({0}x{1}) -- rendu "
@@ -10499,18 +10517,48 @@ namespace nkentseu {
 					// antialiases compris.
 					if (nkvpOutTransparent) {
 						if (nkvpOutPass == 0) {
-							nkvpOutDark = static_cast<NkImage &&>(img);
-							nkvpOutPass = 1;
-							nkvpOutPhase = 1; // meme cible, autre fond
-							return;
+							// ── LE MOTEUR SAIT-IL DEJA PROPAGER L'ALPHA ? ───
+							// On ne le SUPPOSE pas, on le CONSTATE : si l'image
+							// rendue sur fond noir porte deja des pixels
+							// transparents, la chaine de post-traitement a
+							// transmis la couverture et la seconde passe n'a
+							// plus lieu d'etre. Le jour ou les cinq backends
+							// seront corriges, la sortie cessera d'elle-meme de
+							// rendre deux fois -- sans qu'on ait a s'en
+							// souvenir. Et sur un backend encore fautif, le
+							// repli reste en place.
+							const uint8 *px = (const uint8 *)img.Pixels();
+							const int64 n = (int64)img.Width() * (int64)img.Height();
+							bool anyAlpha = false;
+							for (int64 q = 0; q < n && !anyAlpha; q += 97)
+								if (px[q * 4 + 3] < 250)
+									anyAlpha = true;
+							if (anyAlpha) {
+								static bool sSaid = false;
+								if (!sSaid) {
+									logger.Info("[Output] Alpha transmis par le rendu : une "
+												"seule passe suffit\n");
+									sSaid = true;
+								}
+								nkvpOutPass = 0; // rien a reconstruire
+							} else {
+								nkvpOutDark = static_cast<NkImage &&>(img);
+								nkvpOutPass = 1;
+								nkvpOutPhase = 1; // meme cible, autre fond
+								return;
+							}
+						} else {
+							// Seconde passe : l'alpha se reconstruit par l'ecart
+							// entre les deux fonds (chaine de post-traitement
+							// qui ne transmet pas la couverture).
+							if (nkvpOutDark.Pixels() && nkvpOutDark.Width() == img.Width() &&
+								nkvpOutDark.Height() == img.Height())
+								nk3d::NkAlphaFromTwoBackgrounds(
+									(const uint8 *)nkvpOutDark.Pixels(), (uint8 *)img.Pixels(),
+									img.Width(), img.Height());
+							nkvpOutDark.Unload();
+							nkvpOutPass = 0;
 						}
-						if (nkvpOutDark.Pixels() && nkvpOutDark.Width() == img.Width() &&
-							nkvpOutDark.Height() == img.Height())
-							nk3d::NkAlphaFromTwoBackgrounds((const uint8 *)nkvpOutDark.Pixels(),
-															(uint8 *)img.Pixels(), img.Width(),
-															img.Height());
-						nkvpOutDark.Unload();
-						nkvpOutPass = 0;
 					}
 					if (nkvpOutStep < 0) {
 						// La principale DEVIENT le canevas. NkImage est
@@ -10642,6 +10690,7 @@ namespace nkentseu {
 			// Ciel et couleur de fond reviennent tels quels.
 			if (Demo3DHostSkyVisible() != nkvpOutSaveSky)
 				Demo3DHostSetSkyVisible(nkvpOutSaveSky);
+			nkvpFloorOn = nkvpOutSaveFloor;
 			if (hst.ok)
 				hst.ctx.renderer->SetBackgroundColor(
 					{nkvpBgColor[0], nkvpBgColor[1], nkvpBgColor[2], 1.f});
@@ -10718,6 +10767,17 @@ namespace nkentseu {
 			// opaque derriere la scene, et l'ALPHA de la couleur d'effacement.
 			// N'en faire qu'une laisserait soit un ciel, soit un aplat noir --
 			// dans les deux cas une image qu'on ne peut pas superposer.
+			// ── LE SOL INFINI SUIT LE FOND TRANSPARENT ─────────────────────
+			// Coupe d'office quand on demande un detourage : garder un damier
+			// sous un objet qu'on veut decouper n'aurait pas de sens, et il
+			// occupe presque tout le cadre (constate par Rihen). La case
+			// « Sol infini » le rappelle quand on le veut -- une ombre portee
+			// au sol donne du poids a un objet detoure.
+			nkvpOutSaveFloor = nkvpFloorOn;
+			if (nkvpOutTransparent && !(nkvpOutAids & 1024))
+				nkvpFloorOn = false;
+			else if (nkvpOutAids & 1024)
+				nkvpFloorOn = nkvpOutSaveFloor;
 			nkvpOutSaveSky = Demo3DHostSkyVisible();
 			if (nkvpOutTransparent) {
 				Demo3DHostSetSkyVisible(false);

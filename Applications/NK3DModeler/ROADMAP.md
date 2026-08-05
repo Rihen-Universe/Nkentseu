@@ -470,6 +470,37 @@ qu'on modifie, ce qui est le meilleur outil pédagogique pour un tutoriel.
 même un séparateur univue. C'est une raison de plus pour ne pas les bâtir sur le
 même mécanisme — l'un découpe des **panneaux**, l'autre découpe une **image**.
 
+### Récepteur d'ombre (*shadow catcher*) — demandé par Rihen
+
+Un sol qui **ne se peint pas** mais **reçoit les ombres** : c'est ce qui permet
+de détourer un objet sur fond transparent sans qu'il paraisse flotter. Sans lui,
+couper le sol emporte l'ombre avec, puisqu'elle est projetée *sur* lui.
+
+**Le sol est un mesh plan ordinaire** avec un matériau standard, rendu par le
+PBR — pas de shader dédié. Deux voies, et elles n'ont pas le même coût :
+
+**A. Par différence de rendus** — utilise la machine multi-passes existante,
+aucun shader touché :
+
+1. scène **avec** sol, ombres actives → `A`
+2. scène **avec** sol, ombres coupées → `B`
+3. scène **sans** sol → `C` (déjà produit par le fond transparent)
+
+L'ombre vaut `1 − A/B` là où le sol est visible ; `C` fournit les objets et
+leur alpha. On compose l'ombre dessous, les objets dessus. Chaque étape étant
+elle-même doublée par la reconstruction d'alpha, cela fait **cinq à six rendus**
+pour une image — acceptable pour une image fixe, exclu pour la vidéo.
+
+**B. Par matériau dédié** — un shader de sol qui écrit `couleur = noir` et
+`alpha = 1 − visibilité de l'ombre`. Un seul rendu, résultat exact, et
+utilisable en vidéo. Mais il faut que le PBR expose la visibilité d'ombre à un
+matériau, ce qui n'existe pas aujourd'hui.
+
+**Recommandation** : commencer par **A**, qui donne le résultat tout de suite
+sans toucher au moteur, et garder **B** pour quand le chantier « alpha porté par
+la chaîne » (voir plus haut) sera engagé — les deux ont besoin de la même
+chose : que le rendu sache transporter une couverture.
+
 ### Ce qui reste à faire sur Output
 
 1. **Le rendu GPU n'a pas pu être testé** : il se déclenche par un bouton, et
