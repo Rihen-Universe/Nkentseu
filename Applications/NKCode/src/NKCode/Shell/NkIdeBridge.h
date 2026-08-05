@@ -77,6 +77,12 @@ namespace nkentseu {
 					Stop();
 				}
 
+				// Le SERVEUR ecoute-t-il ? Distinct de Connected(), qui dit si le CLI
+				// s'est effectivement attache. On peut ecouter longtemps sans client.
+				bool Running() const {
+					return mRunning;
+				}
+
 				bool Connected() const {
 					return mRunning && const_cast<net::NkWebSocketServer &>(mWs).HasClient();
 				}
@@ -149,7 +155,7 @@ namespace nkentseu {
 				// processus local se fasse passer pour le CLI attendu. Derive de l'horloge
 				// et du PID, sans dependance a un generateur cryptographique.
 				NkString MakeToken() const {
-					const uint64 t = static_cast<uint64>(MTimeOf(mWorkspace.CStr()));
+					const uint64 t = static_cast<uint64>(NkCodeState::MTimeOf(mWorkspace.CStr()));
 					const uint64 p = static_cast<uint64>(NkCurrentPid());
 					return NkPrintf("nkcode-%llx-%llx", static_cast<unsigned long long>(t),
 									static_cast<unsigned long long>(p));

@@ -6,6 +6,7 @@
 // =============================================================================
 #include "NKEditorKit/NkEditorKit.h"
 #include "NKCode/Project/NkCodeState.h"
+#include "NKCode/Shell/NkIdeBridge.h" // pont IDE : contexte temps reel pour l'agent
 #include "NKCode/Project/NkLogSink.h"
 #include "NKCode/Project/NkPty.h"
 #include "NKCode/Project/NkTerm.h"
@@ -1734,6 +1735,16 @@ namespace nkentseu {
 					auto &ctx = ec.Ui();
 					auto &dl = ctx.DL();
 					mS->PollBuild();
+					// ── Pont IDE : NKCode se declare aupres du CLI Claude Code et lui
+					// pousse fichier actif + selection EN TEMPS REEL. Demarre au premier
+					// passage avec un workspace charge (le CLI apparie les IDE par dossier
+					// de travail : sans workspace, se declarer ne servirait a rien).
+					{
+						static NkIdeBridge s_ide;
+						if (!s_ide.Running() && mS && mS->HasWorkspace())
+							s_ide.Start(mS); // idempotent : ne fait rien s'il tourne deja
+						s_ide.Tick();
+					}
 					// L'ETAT n'a pas le shell : il DEPOSE ici le panneau a faire remonter
 					// (ex. « Demarrer » sur une app console -> onglet terminal dedie).
 					if (mShell && !mS->focusPanelReq.Empty()) {

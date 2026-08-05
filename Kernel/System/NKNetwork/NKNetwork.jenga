@@ -62,6 +62,11 @@ with project("NKNetwork"):
 
     with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
         usetoolchain(TC_WINDOWS)
+        # Winsock : socket/bind/listen/htons/getaddrinfo... Le module se COMPILAIT
+        # sans, mais toute application qui le lie echouait a l'edition de liens
+        # (« undefined reference to __imp_ntohs »). Le manque ne s'est vu qu'au
+        # premier executable Windows a dependre de NKNetwork.
+        links(["ws2_32"])
     with filter("system:UWP || system:Windows && options:windows-runtime=uwp"):
         usetoolchain("xbox-clang")
     with filter("system:Linux"):
