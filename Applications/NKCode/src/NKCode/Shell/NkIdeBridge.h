@@ -220,16 +220,39 @@ namespace nkentseu {
 						return;
 					}
 					if (methode == "tools/list") {
-						// Un seul outil pour l'instant : les diagnostics. Les annoncer tous
-						// sans savoir les traiter serait pire que de n'en annoncer qu'un.
+						// On n'annonce QUE ce que NKCode sait vraiment faire. Le CLI connait
+						// aussi openDiff et executeCode, mais NKCode n'a ni vue de
+						// comparaison ni cellules de calepin : les declarer ferait appeler
+						// l'agent dans le vide, et attendre.
 						Repondre(id,
-								 "{\"tools\":[{\"name\":\"getDiagnostics\","
+								 "{\"tools\":["
+								 "{\"name\":\"getDiagnostics\","
 								 "\"description\":\"Diagnostics (erreurs et avertissements) des fichiers ouverts dans NKCode\","
-								 "\"inputSchema\":{\"type\":\"object\",\"properties\":{},\"required\":[]}}]}");
+								 "\"inputSchema\":{\"type\":\"object\",\"properties\":{},\"required\":[]}},"
+								 "{\"name\":\"openFile\","
+								 "\"description\":\"Ouvre un fichier dans l'editeur NKCode et l'affiche a l'utilisateur\","
+								 "\"inputSchema\":{\"type\":\"object\",\"properties\":{\"filePath\":{\"type\":\"string\","
+								 "\"description\":\"Chemin du fichier a ouvrir\"}},\"required\":[\"filePath\"]}}"
+								 "]}");
 						return;
 					}
 					if (methode == "tools/call") {
 						const NkString outil = ChampTexte(req, "name");
+						if (outil == "openFile") {
+							const NkString chemin = ChampTexte(req, "filePath");
+							if (chemin.Empty() || !NkFile::Exists(chemin.CStr())) {
+								Repondre(id, NkString("{\"content\":[{\"type\":\"text\",\"text\":\"fichier introuvable : ") +
+												 JsonEscape(chemin).CStr() + "\"}],\"isError\":true}");
+								return;
+							}
+							// Sur le THREAD UI : Tick() est appele depuis le dessin de la barre
+							// d'outils, donc toucher l'etat de l'editeur est sur ici.
+							if (mState)
+								mState->OpenPath(NkPath(chemin.CStr()));
+							Repondre(id, NkString("{\"content\":[{\"type\":\"text\",\"text\":\"ouvert : ") +
+											 JsonEscape(chemin).CStr() + "\"}],\"isError\":false}");
+							return;
+						}
 						if (outil == "getDiagnostics") {
 							Repondre(id, NkString("{\"content\":[{\"type\":\"text\",\"text\":\"") +
 											 JsonEscape(Diagnostics()).CStr() + "\"}],\"isError\":false}");

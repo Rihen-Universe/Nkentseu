@@ -32,16 +32,26 @@ namespace nkentseu {
 		inline float32 NkComboButton(NkGuiContext &ctx, NkGuiDrawList &dl, const NkGuiFont *font, float32 x,
 									 float32 cy, uint32 iconTex, NkComboIconFn iconFn, const char *label,
 									 int32 comboId, int32 &openId, NkRect &anchorOut, const NkColor &bg,
-									 const NkColor &bgHover, const NkColor &fg) noexcept {
+									 const NkColor &bgHover, const NkColor &fg, float32 maxW = 0.f) noexcept {
 			const float32 h = ctx.ItemHeight();
 			const bool hasIcon = iconTex != 0 || iconFn != nullptr;
 			const bool hasLabel = label && label[0];
 			const float32 iw = hasIcon ? h * 0.5f : 0.f;
 			const float32 tw = (hasLabel && font && font->Valid()) ? font->MeasureWidth(label) : 0.f;
 			const float32 chevW = hasLabel ? ctx.S(14.f) : 0.f;
-			const float32 w = hasLabel ? (ctx.S(10.f) + iw + (hasIcon ? ctx.S(5.f) : 0.f) + tw + ctx.S(6.f) + chevW +
-										 ctx.S(4.f))
-										: h; // icone seule = bouton carre
+			float32 w = hasLabel ? (ctx.S(10.f) + iw + (hasIcon ? ctx.S(5.f) : 0.f) + tw + ctx.S(6.f) + chevW +
+									ctx.S(4.f))
+								 : h; // icone seule = bouton carre
+			// `maxW` > 0 : le bouton ne doit PAS depasser cette largeur. Sans cette
+			// borne, un combo place dans un panneau redimensionnable suivait son texte
+			// et debordait des que le panneau retrecissait — le libelle passait sous
+			// les elements voisins. Le texte est alors tronque par ellipse, le chevron
+			// gardant sa place : mieux vaut un libelle raccourci qu'un combo illisible.
+			bool tronque = false;
+			if (maxW > 0.f && w > maxW) {
+				w = maxW;
+				tronque = true;
+			}
 			const NkVec2 mp = ctx.input.mousePos;
 			const NkRect r = {x, cy - h * 0.5f, w, h};
 			const bool hov = NkGuiRectContains(r, mp);
@@ -56,8 +66,17 @@ namespace nkentseu {
 			}
 			if (hasLabel && font && font->Valid()) {
 				tx += hasIcon ? iw + ctx.S(5.f) : 0.f;
-				dl.AddText(font->Face(), font->TexId(), {tx, cy - font->LineHeight() * 0.5f + font->Ascent()}, label,
-						   fg);
+				const float32 ty = cy - font->LineHeight() * 0.5f + font->Ascent();
+				if (tronque) {
+					// Place utile = jusqu'au chevron. On clippe le texte plutot que de le
+					// laisser deborder : le chevron doit rester visible et cliquable.
+					const float32 utile = (r.x + w - chevW - ctx.S(8.f)) - tx;
+					dl.PushClipRect({tx, r.y, utile > 0.f ? utile : 0.f, r.h}, true);
+					dl.AddText(font->Face(), font->TexId(), {tx, ty}, label, fg);
+					dl.PopClipRect();
+				} else {
+					dl.AddText(font->Face(), font->TexId(), {tx, ty}, label, fg);
+				}
 				const NkRect chev = {r.x + w - chevW - ctx.S(4.f), cy - ctx.S(3.f), ctx.S(10.f), ctx.S(7.f)};
 				dl.AddTriangleFilled({chev.x, chev.y}, {chev.x + ctx.S(10.f), chev.y},
 									 {chev.x + ctx.S(5.f), chev.y + ctx.S(6.f)}, fg);
