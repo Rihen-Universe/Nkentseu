@@ -107,6 +107,14 @@ namespace nkentseu {
 			ViewAO,
 			Picker, ///< pot de peinture : couleur personnalisee
 			Speed,  ///< vitesse de camera
+			// TRANSPORT D'ENREGISTREMENT. Ces quatre gestes ont un dessin
+			// universel : personne n'a besoin de lire « Pause » sous deux barres
+			// verticales. Ils sont dessines pour le projet (data/icons/) faute
+			// d'equivalent dans le jeu de codicons.
+			MediaRecord, ///< declencher une prise (disque plein)
+			MediaPause,  ///< suspendre (deux barres)
+			MediaPlay,   ///< reprendre (triangle)
+			MediaStop,   ///< arreter EN GARDANT (carre plein ; jeter = Trash)
 			// Icones DEDIEES du menu Ajouter (regle de Rihen).
 			SphereUV,
 			IcoSphere,
@@ -265,6 +273,13 @@ namespace nkentseu {
 						{NkIcon::ViewAO, "book"},
 						{NkIcon::Picker, "paintcan"},
 						{NkIcon::Speed, "symbol-operator"},
+						// Transport d'enregistrement, dessine pour le projet : le jeu
+						// de codicons n'a ni pause ni stop, et « record-small » est un
+						// anneau creux -- trop discret pour un declencheur.
+						{NkIcon::MediaRecord, "media-record"},
+						{NkIcon::MediaPause, "media-pause"},
+						{NkIcon::MediaPlay, "media-play"},
+						{NkIcon::MediaStop, "media-stop"},
 					};
 
 					const NkString exeDir = NkPath::GetExecutableDirectory().ToString();

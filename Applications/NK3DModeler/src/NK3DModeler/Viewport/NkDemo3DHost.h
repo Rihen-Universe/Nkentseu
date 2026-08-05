@@ -646,8 +646,41 @@ namespace nkentseu {
 		// tres bien a 75 en pesant trois fois moins.
 		int32 Demo3DHostOutVideoQuality();
 		void Demo3DHostSetOutVideoQuality(int32 q);
-		void Demo3DHostOutVideo(bool *on, int32 *fps, int32 *first, int32 *last, int32 *codec);
-		void Demo3DHostSetOutVideo(bool on, int32 fps, int32 first, int32 last, int32 codec);
+		void Demo3DHostOutVideo(bool *on, int32 *fps, int32 *first, int32 *last, int32 *cont);
+		void Demo3DHostSetOutVideo(bool on, int32 fps, int32 first, int32 last, int32 cont);
+		// CONTENEUR ET CODEC SEPARES (comme Blender) : le conteneur dit le
+		// FICHIER, le codec dit COMMENT les images y sont ecrites. Tous les
+		// couples n'existent pas -- la liste des codecs depend du conteneur,
+		// et changer de conteneur ramene le codec a son premier choix.
+		int32 Demo3DHostOutVidContCount();
+		const char *Demo3DHostOutVidContName(int32 c);
+		const char *Demo3DHostOutVidContExt(int32 c); ///< vide = c'est un dossier
+		int32 Demo3DHostOutVidCodCount(int32 c);
+		const char *Demo3DHostOutVidCodName(int32 c, int32 k);
+		int32 Demo3DHostOutVidCod();
+		void Demo3DHostSetOutVidCod(int32 k);
+		// CURSEUR DANS LA VIDEO DE TUTORIEL : la capture de fenetre de l'OS ne
+		// contient pas le pointeur. On le dessine, avec la trace de ses
+		// dernieres positions -- sans quoi la video montre des menus qui
+		// s'ouvrent tout seuls. Ne concerne QUE la video : une capture fixe
+		// n'a pas de trajectoire a raconter.
+		bool Demo3DHostOutCursor();
+		void Demo3DHostSetOutCursor(bool on);
+		// CONSERVER LE DOSSIER QOI (nom_qoi_numero) apres l'encodage : les
+		// images sans perte de la prise valent une source de montage. Decoche
+		// par defaut -- le dossier s'efface une fois la video construite.
+		bool Demo3DHostOutKeepQoi();
+		void Demo3DHostSetOutKeepQoi(bool on);
+		// TOUTE VIDEO s'encode APRES la prise (l'H.264 tient 2,2 images/s la
+		// ou la capture en produit 25 ; filmer directement donnait une video
+		// onze fois trop rapide -- et meme le MJPEG sautait une image sur six).
+		// La prise ecrit des images QOI sans perte ; la passe finale construit
+		// le conteneur. Ces valeurs disent ou elle en est -- sans elles,
+		// plusieurs minutes de travail passeraient pour un blocage.
+		bool Demo3DHostRecEncoding();
+		bool Demo3DHostRecTutoEncoding();
+		void Demo3DHostRecEncodeProgress(int32 *done, int32 *total);
+		void Demo3DHostRecTutoEncodeProgress(int32 *done, int32 *total);
 		// Prochain chemin libre, dans le DOSSIER et au FORMAT de la sortie.
 		// Les deux captures l'empruntent : il n'y a qu'une destination
 		// configuree dans l'application. `which` choisit le nom de base --

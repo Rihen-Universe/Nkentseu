@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+  <!-- ARRETER ET GARDER : le carre plein. Distinct de la corbeille, qui elle
+       JETTE la prise -- deux gestes opposes, deux dessins qu'on ne confond pas. -->
+  <rect x="3.2" y="3.2" width="9.6" height="9.6" rx="1"/>
+</svg>

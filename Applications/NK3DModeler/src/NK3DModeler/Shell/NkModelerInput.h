@@ -684,6 +684,24 @@ namespace nkentseu {
 				// passe a vrai des qu'une action modifie la scene.
 				bool dirty = true;
 				bool askClose = false; ///< boite de confirmation affichee
+				// ── FERMETURE PENDANT UNE PRISE OU UN ENCODAGE (Rihen) ─────────
+				// Fermer tuerait un travail video en silence. On demande :
+				// abandonner, finir puis fermer, ou continuer fenetre fermee.
+				bool askCloseRec = false;
+				// 0 = non ; 1 = fermer quand l'encodage finit ; 2 = daemon (la
+				// fenetre est cachee, le processus vit jusqu'a la fin).
+				int32 closeAfterEncode = 0;
+				bool wantHideWindow = false; ///< consomme par la boucle
+				// Demande de fermeture venue de l'OS (croix systeme) : consommee
+				// par la peinture, qui applique les memes regles que la croix
+				// dessinee -- deux chemins, une seule politique.
+				bool wantClose = false;
+				// ── NOTIFICATION DE FIN D'ENCODAGE (Rihen : « toujours ») ──────
+				// Le meme genre de boite que la confirmation de fermeture : la
+				// passe finale peut durer des minutes, sa fin merite un signal
+				// franc, pas une ligne de journal.
+				bool encodeDone = false;
+				char encodeDonePath[300] = {};
 				bool maximized = false;
 				// Consommes par la boucle APRES la frame : BeginDragMove et Maximize
 				// bloquent (boucle modale de l'OS), les appeler pendant la peinture

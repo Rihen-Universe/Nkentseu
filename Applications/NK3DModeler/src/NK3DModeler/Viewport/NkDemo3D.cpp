@@ -475,7 +475,53 @@ namespace nkentseu {
 		static int32 nkvpOutFps = 25;
 		static int32 nkvpOutFrameStart = 1;
 		static int32 nkvpOutFrameEnd = 250;
-		static int32 nkvpOutVideoCodec = 0; // 0 = suite d'images PNG
+		// ── CONTENEUR ET CODEC SEPARES (Rihen, comme Blender) ───────────────
+		// Une seule liste melangeait les deux (« AVI (MJPEG) », « MOV (MJPEG) »)
+		// et cachait que le meme codec sert dans deux conteneurs -- et que l'AVI
+		// sait aussi ecrire du NON COMPRESSE. Les deux notions sont
+		// independantes : le conteneur dit le FICHIER, le codec dit COMMENT les
+		// images y sont ecrites. Tous les couples ne sont pas possibles : la
+		// table ci-dessous dit lesquels NKMedia sait reellement produire, et le
+		// choix de codec se restreint donc au conteneur retenu.
+		struct NkVpVidCodec {
+				const char *name;
+				int32 id; ///< 0 PNG, 1 JPEG, 2 BMP, 3 TGA, 4 QOI (suite d'images)
+						  ///< 10 non compresse, 11 MJPEG, 12 MPEG-1, 13 H.264
+		};
+		struct NkVpVidCont {
+				const char *name;
+				const char *ext; ///< vide = c'est un DOSSIER, pas un fichier
+				NkVpVidCodec cod[5];
+				int32 codCount;
+		};
+		static const NkVpVidCont kNkvpVidCont[] = {
+			{"Suite d'images",
+			 "",
+			 {{"PNG (sans perte)", 0},
+			  {"JPEG", 1},
+			  {"BMP", 2},
+			  {"TGA", 3},
+			  {"QOI (sans perte)", 4}},
+			 5},
+			{"AVI", "avi", {{"MJPEG", 11}, {"Non compresse", 10}}, 2},
+			{"QuickTime (MOV)", "mov", {{"MJPEG", 11}}, 1},
+			{"MPEG-1 elementaire", "m1v", {{"MPEG-1", 12}}, 1},
+			{"MPEG-4 (MP4)", "mp4", {{"H.264", 13}}, 1},
+		};
+		static const int32 kNkvpVidContCount =
+			(int32)(sizeof(kNkvpVidCont) / sizeof(kNkvpVidCont[0]));
+		static int32 nkvpOutVideoCont = 0; // indice dans kNkvpVidCont
+		static int32 nkvpOutVideoCod = 0;  // indice DANS le conteneur choisi
+		// CURSEUR DANS LA VIDEO DE TUTORIEL : la capture de fenetre de l'OS ne
+		// contient PAS le pointeur -- une video sans lui montre des menus qui
+		// s'ouvrent tout seuls. On le dessine, avec la trace de ses dernieres
+		// positions. Actif par defaut : c'est ce qu'on attend d'un tutoriel.
+		static bool nkvpOutCursor = true;
+		// CONSERVER LES IMAGES QOI apres l'encodage (Rihen) : decoche par
+		// defaut -- le dossier intermediaire s'efface une fois la video
+		// construite. Coche, il reste : les images sans perte de la prise
+		// valent une source de montage, et les reencoder ne coute rien.
+		static bool nkvpOutKeepQoi = false;
 		// QUALITE PROPRE A LA VIDEO (Rihen) : elle etait partagee avec l'image
 		// fixe, alors que les deux n'ont pas les memes exigences -- une image
 		// livrable veut 95, une video de session tient tres bien a 75 et pese
@@ -556,6 +602,30 @@ namespace nkentseu {
 				media::NkH264Encoder h264;
 				char path[300] = {};
 				float32 acc = 0.f; // secondes accumulees depuis la derniere image
+				// ── TOUTE VIDEO EST DIFFEREE (decision de Rihen, 5 aout) ────
+				// L'encodeur H.264 tient 2,2 images/s en 1936x1048 quand la
+				// capture en produit 25 : filmer directement saturait la file,
+				// sautait 9 images sur 10, et la video sortait onze fois trop
+				// rapide -- et meme le MJPEG, a 21 i/s, en sautait une sur six.
+				// La prise ecrit donc des images QOI -- SANS PERTE et plus
+				// rapides a encoder que le JPEG -- et le fichier final se
+				// construit A L'ARRET, hors temps reel. Aucune image sautee,
+				// UNE seule generation de compression, tous conteneurs. Le brut
+				// n'aurait rien ajoute : meme fidelite, mais 8 Mo par image la
+				// ou le QOI en ecrit un ou deux -- c'est le disque qui devient
+				// le goulot. Seule la suite d'images reste en direct : les
+				// images Y SONT le livrable, au format choisi par l'utilisateur.
+				bool deferred = false;
+				char tmpDir[300] = {};	// images intermediaires, effacees ensuite
+				const char *tmpExt = "qoi";
+				int32 fps = 25;			// retenus au demarrage : la phase finale
+				int32 qp = 26;			// tourne apres, sans relire les reglages
+				int32 vq = 80;			// qualite MJPEG de la passe finale
+				int32 finalCod = 11;	// 10 brut, 11 MJPEG, 12 MPEG-1, 13 H.264
+				bool encoding = false;	// la passe finale est en cours
+				bool keepTmp = false;	// fige nkvpOutKeepQoi au demarrage
+				int32 encDone = 0, encTotal = 0;
+				threading::NkThread encTh;
 				// File et fil d'encodage.
 				// La file est dimensionnee au MAXIMUM ; `cap` dit combien de
 				// places sont reellement ouvertes -- 8 en mode « sauter », tout
@@ -10303,13 +10373,26 @@ namespace nkentseu {
 			// Toutes les extensions qu'une prise peut produire : celles des
 			// images ET celles des videos. En oublier une, c'est risquer
 			// d'ecraser ce qu'elle avait produit.
-			static const char *const kVidExt[3] = {"avi", "mov", "m1v"};
+			// Le compte se DEDUIT du tableau : fige a 3, il avait laisse « mp4 »
+			// hors de la recherche le jour ou le format est arrive -- et deux
+			// prises ont porte le rang 006 (tutoriel_006.mp4 et .avi). Une liste
+			// et son compte doivent tenir dans la meme expression.
+			static const char *const kVidExt[] = {"avi", "mov", "m1v", "mp4"};
+			static const int32 kVidExtCount = (int32)(sizeof(kVidExt) / sizeof(kVidExt[0]));
 			char probe[300];
 			for (int32 i = 1; i < 1000; ++i) {
 				bool taken = false;
 				// le dossier de suite d'images
 				snprintf(probe, sizeof(probe), "%s/%s_%03d", dir, nm, (int)i);
 				taken = NkDirectory::Exists(probe);
+				// ... et le dossier QOI conserve d'une prise video : si
+				// l'utilisateur a garde les images mais efface la video, le
+				// rang doit rester occupe -- sinon la prise suivante ecrirait
+				// SES images par-dessus les siennes.
+				if (!taken) {
+					snprintf(probe, sizeof(probe), "%s/%s_qoi_%03d", dir, nm, (int)i);
+					taken = NkDirectory::Exists(probe);
+				}
 				// toutes les images
 				for (int32 f = 0; f < kNkvpOutFmtCount && !taken; ++f) {
 					snprintf(probe, sizeof(probe), "%s/%s_%03d.%s", dir, nm, (int)i,
@@ -10317,7 +10400,7 @@ namespace nkentseu {
 					taken = NkFile::Exists(probe);
 				}
 				// toutes les videos
-				for (int32 v = 0; v < 3 && !taken; ++v) {
+				for (int32 v = 0; v < kVidExtCount && !taken; ++v) {
 					snprintf(probe, sizeof(probe), "%s/%s_%03d.%s", dir, nm, (int)i, kVidExt[v]);
 					taken = NkFile::Exists(probe);
 				}
@@ -10863,7 +10946,22 @@ namespace nkentseu {
 		// l'EFFACE (Rihen : « pouvoir arreter un enregistrement qui ne serait
 		// pas transfere »). Sans l'abandon, une prise ratee laisserait un
 		// fichier a supprimer a la main, et on hesiterait a enregistrer.
-		static void HostRecEncodeLoopOn(NkVpRec &R); // definie plus bas, pres du tick
+		static void HostRecEncodeLoopOn(NkVpRec &R); // definies plus bas, pres du tick
+		static void HostRecEncodeDeferred(NkVpRec &R);
+
+		// Le couple conteneur/codec est lu de PARTOUT : mieux vaut le borner en
+		// un seul endroit qu'esperer que chaque appelant l'ait fait. Un indice
+		// hors bornes viendrait d'un reglage relu apres un changement de liste.
+		static int32 HostVidContIdx() {
+			return (nkvpOutVideoCont < 0 || nkvpOutVideoCont >= kNkvpVidContCount)
+					   ? 0
+					   : nkvpOutVideoCont;
+		}
+		static int32 HostVidCodIdx() {
+			const NkVpVidCont &C = kNkvpVidCont[HostVidContIdx()];
+			return (nkvpOutVideoCod < 0 || nkvpOutVideoCod >= C.codCount) ? 0
+																		 : nkvpOutVideoCod;
+		}
 
 		// ── LES TROIS GESTES COMMUNS AUX DEUX ENREGISTREMENTS ───────────────
 		// Attendre une place, deposer une image, ouvrir/fermer un fichier. La
@@ -10934,63 +11032,69 @@ namespace nkentseu {
 									? (nkvpCapTutoName[0] ? nkvpCapTutoName : "tutoriel")
 									: (nkvpCapViewName[0] ? nkvpCapViewName : "vue");
 			const int32 fps = nkvpOutFps > 0 ? nkvpOutFps : 25;
-			// 0 = suite d'images, 1 AVI/MJPEG, 2 MOV/MJPEG, 3 MPEG-1, 4 MP4/H.264.
-			R.kind = (nkvpOutVideoCodec == 0) ? 0 : ((nkvpOutVideoCodec == 4) ? 2 : 1);
+			const NkVpVidCont &C = kNkvpVidCont[HostVidContIdx()];
+			const int32 codId = C.cod[HostVidCodIdx()].id;
+			// 0..4 = suite d'images (le codec dit le format), 10..12 = conteneur
+			// simple, 13 = H.264. TOUT conteneur est DIFFERE (cf. NkVpRec).
+			R.kind = (codId < 10) ? 0 : ((codId == 13) ? 2 : 1);
 			R.seq = (R.kind == 0);
+			R.deferred = (R.kind != 0);
 			R.frames = 0;
 			R.acc = 0.f;
+			R.fps = fps;
+			R.encoding = false;
+			R.encDone = R.encTotal = 0;
+			R.tmpDir[0] = 0;
+			// Reglages FIGES au demarrage : la passe finale tourne apres
+			// l'arret, elle ne doit pas relire des combos qui ont pu changer.
 			const int32 vq = nkvpOutVideoQuality;
+			R.vq = vq;
+			R.finalCod = codId;
 			if (R.kind == 0) {
 				// Suite d'images : un DOSSIER par prise, sinon les images de
-				// deux enregistrements se melangeraient dans le meme rang.
+				// deux enregistrements se melangeraient dans le meme rang. Le
+				// FORMAT est celui du codec choisi -- il etait fige en PNG,
+				// donc le choix de codec ne servait a rien ici.
+				static const media::NkImageSeqFormat kSeqFmt[5] = {
+					media::NkImageSeqFormat::PNG, media::NkImageSeqFormat::JPEG,
+					media::NkImageSeqFormat::BMP, media::NkImageSeqFormat::TGA,
+					media::NkImageSeqFormat::QOI};
 				HostOutBeginTake(true, recNm); // c'est un DOSSIER qu'on va creer
 				snprintf(R.path, sizeof(R.path), "%s/%s_%03d", dir,
 						 recNm, (int)nkvpOutTake);
 				NkDirectory::CreateRecursive(R.path);
 				R.on = R.sw.Open(R.path, "img", (int32)R.w, (int32)R.h,
-								 media::NkImageSeqFormat::PNG, 5, vq);
-			} else if (R.kind == 2) {
-				// MP4/H.264 : l'encodeur MUXE lui-meme quand le chemin finit en
-				// .mp4 -- inutile de passer par le writer de conteneur.
-				// La qualite se dit en QP (0..51, PETIT = meilleur) : on
-				// convertit notre echelle 1..100 en la bornant loin des
-				// extremes, ou l'encodeur donne soit un fichier enorme, soit
-				// une bouillie.
-				int32 qp = 51 - (int32)((float32)vq * 0.36f + 0.5f);
-				if (qp < 12)
-					qp = 12;
-				if (qp > 48)
-					qp = 48;
-				HostOutBeginTake(false, recNm);
-				snprintf(R.path, sizeof(R.path), "%s/%s_%03d.mp4", dir,
-						 recNm, (int)nkvpOutTake);
-				// GOP d'une seconde : une image cle par seconde rend le fichier
-				// navigable sans le gonfler.
-				R.on = R.h264.Open(R.path, (int32)R.w, (int32)R.h, fps, 1, qp, fps);
+								 kSeqFmt[codId < 0 || codId > 4 ? 0 : codId], 5, vq);
 			} else {
-				media::NkVideoConfig cfg;
-				cfg.width = (int32)R.w;
-				cfg.height = (int32)R.h;
-				cfg.fpsNum = fps;
-				cfg.fpsDen = 1;
-				cfg.quality = vq;
-				// 1 = AVI/MJPEG, 2 = MOV/MJPEG, 3 = MPEG-1 elementaire.
-				if (nkvpOutVideoCodec == 3) {
-					cfg.codec = media::NkVideoCodec::MPEG1;
-					cfg.container = media::NkVideoContainer::ELEMENTARY;
-				} else {
-					cfg.codec = media::NkVideoCodec::MJPEG;
-					cfg.container = (nkvpOutVideoCodec == 2)
-										? media::NkVideoContainer::MOV
-										: media::NkVideoContainer::AVI;
+				// VIDEO EN DEUX TEMPS, quel que soit le conteneur. On n'ouvre
+				// AUCUN encodeur ici : la prise ecrit des images QOI -- sans
+				// perte, alpha compris, et plus rapides a encoder que le JPEG
+				// (choix de Rihen : « peut-etre mieux que mon idee » de brut ;
+				// meme fidelite que le brut pour 4 a 8 fois moins de disque).
+				// Le fichier final se construit a l'arret, hors temps reel.
+				if (R.kind == 2) {
+					// La qualite H.264 se dit en QP (0..51, PETIT = meilleur) :
+					// notre echelle 1..100 est bornee loin des extremes, ou
+					// l'encodeur donne soit un fichier enorme, soit une bouillie.
+					R.qp = 51 - (int32)((float32)vq * 0.36f + 0.5f);
+					if (R.qp < 12)
+						R.qp = 12;
+					if (R.qp > 48)
+						R.qp = 48;
 				}
-				const char *ext = (nkvpOutVideoCodec == 3)
-									  ? "m1v"
-									  : ((nkvpOutVideoCodec == 2) ? "mov" : "avi");
 				HostOutBeginTake(false, recNm);
 				snprintf(R.path, sizeof(R.path), "%s/%s_%03d.%s", dir,
-						 recNm, (int)nkvpOutTake, ext);
-				R.on = R.vw.Open(R.path, cfg);
+						 recNm, (int)nkvpOutTake, C.ext);
+				// Le dossier intermediaire dit son CONTENU dans son nom
+				// (nom_qoi_numero, demande de Rihen) : conserve, on sait ce
+				// qu'il est ; efface, personne n'a eu a le comprendre.
+				snprintf(R.tmpDir, sizeof(R.tmpDir), "%s/%s_qoi_%03d", dir,
+						 recNm, (int)nkvpOutTake);
+				NkDirectory::CreateRecursive(R.tmpDir);
+				R.tmpExt = "qoi";
+				R.keepTmp = nkvpOutKeepQoi;
+				R.on = R.sw.Open(R.tmpDir, "img", (int32)R.w, (int32)R.h,
+								 media::NkImageSeqFormat::QOI, 5, 100);
 			}
 			if (R.on) {
 				// Le fil d'encodage ne demarre qu'une fois le writer ouvert :
@@ -11058,12 +11162,9 @@ namespace nkentseu {
 			}
 			if (R.th.Joinable())
 				R.th.Join();
-			if (R.kind == 0)
-				R.sw.Close();
-			else if (R.kind == 2)
-				R.h264.Close();
-			else
-				R.vw.Close();
+			// Pendant la prise, seule la SUITE d'images (directe ou
+			// intermediaire QOI) a ecrit : c'est elle qu'on ferme.
+			R.sw.Close();
 			if (!keep) {
 				// ABANDON : on efface ce qui vient d'etre ecrit. Le fichier a
 				// bien ete ferme d'abord -- supprimer un fichier encore ouvert
@@ -11071,10 +11172,27 @@ namespace nkentseu {
 				if (R.seq)
 					NkDirectory::Delete(R.path, true);
 				else
-					NkFile::Delete(R.path);
+					NkDirectory::Delete(R.tmpDir, true); // la video n'existe pas encore
 			}
 			logger.Info("[Video] Enregistrement {0} : {1} image(s) -> {2}\n",
 						keep ? "termine" : "ABANDONNE", R.frames, R.path);
+			// VIDEO : la prise est finie, l'ENCODAGE commence. Sur son propre
+			// fil pour que l'application reste utilisable -- une passe de
+			// plusieurs minutes qui fige tout serait pire que le defaut
+			// qu'elle corrige.
+			if (keep && R.deferred && R.frames > 0) {
+				R.encTotal = R.frames;
+				R.encDone = 0;
+				R.encoding = true;
+				if (R.encTh.Joinable())
+					R.encTh.Join();
+				if (&R == &nkvpRecTuto)
+					R.encTh =
+						threading::NkThread([](void *) { HostRecEncodeDeferred(nkvpRecTuto); });
+				else
+					R.encTh =
+						threading::NkThread([](void *) { HostRecEncodeDeferred(nkvpRecView); });
+			}
 			return true;
 		}
 
@@ -11114,16 +11232,91 @@ namespace nkentseu {
 					continue;
 				}
 				const uint8 *px = (const uint8 *)img.Pixels();
-				bool ok = false;
-				if (R.kind == 0)
-					ok = R.sw.WriteFrame(px, media::NkVideoInputFormat::RGBA32);
-				else if (R.kind == 2)
-					ok = R.h264.WriteFrame(px, media::NkVideoInputFormat::RGBA32);
-				else
-					ok = R.vw.WriteFrame(px, media::NkVideoInputFormat::RGBA32);
+				// PENDANT LA PRISE, on n'ecrit QUE des images : celles du
+				// livrable (suite d'images) ou les intermediaires QOI de la
+				// video, encodee plus tard (voir HostRecEncodeDeferred).
+				const bool ok = R.sw.WriteFrame(px, media::NkVideoInputFormat::RGBA32);
 				if (ok)
 					++R.frames; // lu par l'interface a titre indicatif
 			}
+		}
+
+		// ── LA PASSE FINALE DE TOUTE VIDEO, sur son fil ─────────────────────
+		// Elle relit les images QOI de la prise une a une et les encode vers le
+		// conteneur retenu AU DEMARRAGE (les combos ont pu changer depuis).
+		// Hors temps reel : l'encodeur peut prendre le temps qu'il veut, la
+		// video durera exactement ce que la session a dure. Le dossier
+		// temporaire n'est efface QU'APRES un encodage complet -- une panne a
+		// mi-chemin doit laisser les images, sinon la prise serait perdue
+		// deux fois.
+		static void HostRecEncodeDeferred(NkVpRec &R) {
+			bool ok = false;
+			if (R.kind == 2) {
+				// H.264 : l'encodeur muxe lui-meme le .mp4. GOP d'une seconde.
+				ok = R.h264.Open(R.path, (int32)R.w, (int32)R.h, R.fps, 1, R.qp, R.fps);
+			} else {
+				media::NkVideoConfig cfg;
+				cfg.width = (int32)R.w;
+				cfg.height = (int32)R.h;
+				cfg.fpsNum = R.fps;
+				cfg.fpsDen = 1;
+				cfg.quality = R.vq;
+				// 10 = brut, 11 = MJPEG, 12 = MPEG-1. Le conteneur se lit sur
+				// l'extension du chemin, figee au demarrage comme le reste.
+				usize n = 0;
+				while (R.path[n])
+					++n;
+				const char e = (n >= 3) ? R.path[n - 3] : 'a';
+				if (R.finalCod == 12) {
+					cfg.codec = media::NkVideoCodec::MPEG1;
+					cfg.container = media::NkVideoContainer::ELEMENTARY;
+				} else {
+					cfg.codec = (R.finalCod == 10) ? media::NkVideoCodec::RAW_BGR
+												   : media::NkVideoCodec::MJPEG;
+					cfg.container = (e == 'm') ? media::NkVideoContainer::MOV
+											   : media::NkVideoContainer::AVI;
+				}
+				ok = R.vw.Open(R.path, cfg);
+			}
+			int32 written = 0;
+			char src[420];
+			for (int32 i = 1; ok && i <= R.encTotal; ++i) {
+				snprintf(src, sizeof(src), "%s/img_%05d.%s", R.tmpDir, (int)i, R.tmpExt);
+				NkImage im;
+				// QUATRE CANAUX IMPOSES : l'encodeur lit du RGBA. Le QOI en
+				// porte deja quatre, mais l'imposer ici protege la passe si le
+				// format intermediaire change un jour.
+				if (!im.Load(src, 4) || !im.IsValid())
+					break; // la suite manque : on garde ce qui est deja encode
+				if ((uint32)im.Width() != R.w || (uint32)im.Height() != R.h)
+					break;
+				const bool wrote =
+					(R.kind == 2) ? R.h264.WriteFrame((const uint8 *)im.Pixels(),
+													  media::NkVideoInputFormat::RGBA32)
+								  : R.vw.WriteFrame((const uint8 *)im.Pixels(),
+													media::NkVideoInputFormat::RGBA32);
+				if (!wrote)
+					break;
+				++written;
+				R.encDone = written;
+			}
+			if (ok) {
+				if (R.kind == 2)
+					R.h264.Close();
+				else
+					R.vw.Close();
+			}
+			// Le dossier QOI ne s'efface QUE si l'encodage est complet ET que
+			// l'utilisateur n'a pas demande a le garder (case du panneau,
+			// figee au demarrage de la prise).
+			if (ok && written == R.encTotal && R.encTotal > 0 && !R.keepTmp)
+				NkDirectory::Delete(R.tmpDir, true);
+			logger.Info("[Video] Encodage final : {0}/{1} image(s) -> {2}{3}\n", written,
+						R.encTotal, R.path,
+						(written == R.encTotal)
+							? (R.keepTmp ? " (images QOI conservees)" : "")
+							: " (images conservees dans le dossier)");
+			R.encoding = false;
 		}
 
 		// Un tour d'enregistrement : appele APRES le rendu de l'image.
@@ -11300,7 +11493,7 @@ namespace nkentseu {
 		void Demo3DHostSetOutVideoQuality(int32 q) {
 			nkvpOutVideoQuality = q < 1 ? 1 : (q > 100 ? 100 : q);
 		}
-		void Demo3DHostOutVideo(bool *on, int32 *fps, int32 *first, int32 *last, int32 *codec) {
+		void Demo3DHostOutVideo(bool *on, int32 *fps, int32 *first, int32 *last, int32 *cont) {
 			if (on)
 				*on = nkvpOutVideoOn;
 			if (fps)
@@ -11309,8 +11502,70 @@ namespace nkentseu {
 				*first = nkvpOutFrameStart;
 			if (last)
 				*last = nkvpOutFrameEnd;
-			if (codec)
-				*codec = nkvpOutVideoCodec;
+			if (cont)
+				*cont = HostVidContIdx();
+		}
+		// ── CONTENEUR ET CODEC, deux listes (comme Blender) ─────────────────
+		// Le codec est indexe DANS le conteneur : changer de conteneur change
+		// la liste des codecs possibles, et l'indice retombe a 0 s'il n'a plus
+		// de sens -- proposer « H.264 » sous « AVI » serait promettre un
+		// fichier que NKMedia ne sait pas ecrire.
+		int32 Demo3DHostOutVidContCount() {
+			return kNkvpVidContCount;
+		}
+		const char *Demo3DHostOutVidContName(int32 c) {
+			return (c >= 0 && c < kNkvpVidContCount) ? kNkvpVidCont[c].name : "";
+		}
+		const char *Demo3DHostOutVidContExt(int32 c) {
+			return (c >= 0 && c < kNkvpVidContCount) ? kNkvpVidCont[c].ext : "";
+		}
+		int32 Demo3DHostOutVidCodCount(int32 c) {
+			return (c >= 0 && c < kNkvpVidContCount) ? kNkvpVidCont[c].codCount : 0;
+		}
+		const char *Demo3DHostOutVidCodName(int32 c, int32 k) {
+			if (c < 0 || c >= kNkvpVidContCount)
+				return "";
+			return (k >= 0 && k < kNkvpVidCont[c].codCount) ? kNkvpVidCont[c].cod[k].name : "";
+		}
+		int32 Demo3DHostOutVidCod() {
+			return HostVidCodIdx();
+		}
+		bool Demo3DHostOutCursor() {
+			return nkvpOutCursor;
+		}
+		void Demo3DHostSetOutCursor(bool on) {
+			nkvpOutCursor = on;
+		}
+		bool Demo3DHostOutKeepQoi() {
+			return nkvpOutKeepQoi;
+		}
+		void Demo3DHostSetOutKeepQoi(bool on) {
+			nkvpOutKeepQoi = on;
+		}
+		void Demo3DHostSetOutVidCod(int32 k) {
+			const NkVpVidCont &C = kNkvpVidCont[HostVidContIdx()];
+			nkvpOutVideoCod = (k < 0 || k >= C.codCount) ? 0 : k;
+		}
+		// ── ENCODAGE DIFFERE DU MP4 : ce qu'il faut pouvoir AFFICHER ────────
+		// Une passe de plusieurs minutes qui ne dirait rien passerait pour un
+		// blocage. La barre du pied de page lit ces trois valeurs.
+		bool Demo3DHostRecEncoding() {
+			return nkvpRecView.encoding;
+		}
+		bool Demo3DHostRecTutoEncoding() {
+			return nkvpRecTuto.encoding;
+		}
+		void Demo3DHostRecEncodeProgress(int32 *done, int32 *total) {
+			if (done)
+				*done = nkvpRecView.encDone;
+			if (total)
+				*total = nkvpRecView.encTotal;
+		}
+		void Demo3DHostRecTutoEncodeProgress(int32 *done, int32 *total) {
+			if (done)
+				*done = nkvpRecTuto.encDone;
+			if (total)
+				*total = nkvpRecTuto.encTotal;
 		}
 		int32 Demo3DHostOutFastCount() {
 			return kNkvpOutFastCount;
@@ -11324,12 +11579,18 @@ namespace nkentseu {
 		void Demo3DHostSetOutFastMask(int32 m) {
 			nkvpOutFastMask = m & ((1 << kNkvpOutFastCount) - 1);
 		}
-		void Demo3DHostSetOutVideo(bool on, int32 fps, int32 first, int32 last, int32 codec) {
+		void Demo3DHostSetOutVideo(bool on, int32 fps, int32 first, int32 last, int32 cont) {
 			nkvpOutVideoOn = on;
 			nkvpOutFps = fps < 1 ? 1 : (fps > 240 ? 240 : fps);
 			nkvpOutFrameStart = first < 0 ? 0 : first;
 			nkvpOutFrameEnd = last < nkvpOutFrameStart ? nkvpOutFrameStart : last;
-			nkvpOutVideoCodec = codec;
+			const int32 c0 = nkvpOutVideoCont;
+			nkvpOutVideoCont = (cont < 0 || cont >= kNkvpVidContCount) ? 0 : cont;
+			// CHANGER DE CONTENEUR REMET LE CODEC A ZERO : garder l'indice 1
+			// en passant d'AVI (2 codecs) a MOV (1 seul) aurait designe un
+			// codec inexistant.
+			if (nkvpOutVideoCont != c0)
+				nkvpOutVideoCod = 0;
 		}
 
 		void Demo3DHostResize(uint32 w, uint32 h) {

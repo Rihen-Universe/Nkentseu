@@ -554,7 +554,41 @@ base distincts pour que les fichiers ne s'écrasent pas.
 - **Barre d'enregistrement dans le pied de page** : visible seulement pendant
   une prise, elle dit le type, le temps écoulé, les images sautées, et n'offre
   que les trois décisions réelles — Pause / Arrêter / Abandon (en rouge : il
-  efface).
+  efface). Trois **icônes**, pas trois libellés : le transport a un dessin
+  universel, et `media-pause/play/stop/record` ont été dessinés pour le projet.
+
+### Mise à l'épreuve du 5 août — ce qu'elle a corrigé
+
+- **Le MP4 sortait onze fois trop rapide.** Le journal chiffrait la cause : 86
+  images en 39 s pour le `.mp4` (2,2 i/s) contre 765 en 36 s pour le `.avi`
+  (21 i/s). L'encodeur H.264 est trop lent pour le temps réel, la file saturait,
+  et le temps sauté **disparaissait** au lieu d'être comblé.
+  → **Encodage différé** (choix de Rihen) : on filme en images — PNG si la
+  transparence est demandée, JPEG sinon — et le MP4 est encodé à l'arrêt, hors
+  temps réel, sur son fil. La barre affiche `encodage 312/765` en ambre. Le
+  dossier temporaire n'est effacé qu'après un encodage **complet**.
+- **Conteneur et codec séparés**, comme Blender : Suite d'images / AVI /
+  QuickTime / MPEG-1 / MP4, la liste des codecs suivant le conteneur. Expose au
+  passage l'**AVI non compressé**, que NKMedia savait écrire sans que personne
+  puisse le choisir — et corrige la suite d'images, **figée en PNG** malgré son
+  combo.
+- **Deux prises portaient le rang 006** : `mp4` manquait dans la recherche du
+  premier rang libre, et le compte du tableau était écrit en dur à `3`.
+- **Le curseur est dessiné dans la vidéo de tutoriel** : `PrintWindow` ne
+  capture pas le pointeur, d'où des menus qui s'ouvraient tout seuls. Flèche
+  blanche bordée de noir + trace des 24 dernières positions, échantillonnée à
+  chaque image (à la cadence de capture, elle sauterait). Case dédiée, active
+  par défaut, sans effet sur les images fixes.
+
+### Reste sur la vidéo
+
+- **Intervalle d'image clé** (GOP) : réglable dans `NkH264Encoder`, aujourd'hui
+  codé en dur à une seconde. À sortir dans le panneau, comme le *Keyframe
+  Interval* de Blender.
+- **Profondeur 10 bits, vitesse d'encodage, B-frames, piste audio** : Blender
+  les propose, notre encodeur ne les gère pas. À ne pas afficher tant qu'ils
+  n'existent pas.
+- **Accélérer H.264** reste le seul chemin vers un vrai MP4 en temps réel.
 
 ## À VÉRIFIER PAR RIHEN À SON RETOUR (compilé, non relancé)
 

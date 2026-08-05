@@ -256,5 +256,154 @@ namespace nkentseu {
 			*outH = hh;
 		}
 
+		// ── LE CURSEUR DANS LA VIDEO DE TUTORIEL ────────────────────────────
+		// La capture de fenetre de l'OS (PrintWindow) NE CONTIENT PAS le
+		// curseur : une video de tutoriel sans pointeur montre des menus qui
+		// s'ouvrent tout seuls. On le dessine donc nous-memes, avec la TRACE
+		// des positions recentes -- c'est le mouvement qui se lit, pas la
+		// position instantanee. Uniquement en video : une capture fixe n'a pas
+		// de trajectoire a raconter (regle de Rihen).
+
+		// Anneau des dernieres positions. Petit et de taille fixe : une trace
+		// plus longue brouillerait l'image au lieu de l'expliquer.
+		struct NkCursorTrail {
+				static const int32 kMax = 24;
+				int32 x[kMax] = {};
+				int32 y[kMax] = {};
+				int32 count = 0; ///< positions valides (<= kMax)
+				int32 head = 0;	 ///< prochaine case a ecrire
+
+				void Push(int32 px, int32 py) {
+					x[head] = px;
+					y[head] = py;
+					head = (head + 1) % kMax;
+					if (count < kMax)
+						++count;
+				}
+				void Clear() {
+					count = 0;
+					head = 0;
+				}
+				// i = 0 est la position LA PLUS RECENTE.
+				void At(int32 i, int32 *px, int32 *py) const {
+					const int32 k = ((head - 1 - i) % kMax + kMax) % kMax;
+					*px = x[k];
+					*py = y[k];
+				}
+		};
+
+		// Melange une couleur sur un pixel RGBA (alpha 0..255). L'image de
+		// capture est opaque : on ecrit donc directement le resultat melange.
+		inline void NkBlendPixel(uint8 *px, int32 w, int32 h, int32 X, int32 Y, uint8 r, uint8 g,
+								 uint8 b, int32 a) {
+			if (X < 0 || Y < 0 || X >= w || Y >= h || a <= 0)
+				return;
+			if (a > 255)
+				a = 255;
+			uint8 *p = px + ((int64)Y * w + X) * 4;
+			p[0] = (uint8)((p[0] * (255 - a) + r * a) / 255);
+			p[1] = (uint8)((p[1] * (255 - a) + g * a) / 255);
+			p[2] = (uint8)((p[2] * (255 - a) + b * a) / 255);
+		}
+
+		// Disque plein, utilise pour la trace.
+		inline void NkBlendDisc(uint8 *px, int32 w, int32 h, int32 cx, int32 cy, float32 rad,
+								uint8 r, uint8 g, uint8 b, int32 a) {
+			const int32 ir = (int32)(rad + 1.f);
+			for (int32 dy = -ir; dy <= ir; ++dy)
+				for (int32 dx = -ir; dx <= ir; ++dx) {
+					const float32 d = (float32)(dx * dx + dy * dy);
+					if (d > rad * rad)
+						continue;
+					NkBlendPixel(px, w, h, cx + dx, cy + dy, r, g, b, a);
+				}
+		}
+
+		// LA FLECHE, dessinee a la main. Un pointeur systeme ne peut pas etre
+		// recupere de facon fiable (theme, DPI, curseur personnalise) : mieux
+		// vaut un dessin CONSTANT, reconnaissable, et identique d'une video a
+		// l'autre. Blanc borde de noir pour rester lisible sur clair comme sur
+		// sombre -- c'est la raison du contour.
+		inline void NkDrawCursorArrow(uint8 *px, int32 w, int32 h, int32 cx, int32 cy,
+									  float32 scale) {
+			// Silhouette en coordonnees locales (pointe en 0,0), a l'echelle 1.
+			// Test d'appartenance par produits vectoriels sur deux triangles :
+			// pas de rasterizer a ecrire pour une forme de douze pixels.
+			const float32 S = scale;
+			const float32 ax = 0.f, ay = 0.f;	  // pointe
+			const float32 bx = 0.f, by = 17.f * S; // bord gauche
+			const float32 mx = 4.5f * S, my = 12.5f * S;
+			const float32 tx = 12.f * S, ty = 12.f * S;
+			const int32 x0 = cx - 2, y0 = cy - 2;
+			const int32 x1 = cx + (int32)(14.f * S) + 2, y1 = cy + (int32)(19.f * S) + 2;
+			// Deux passes : le CONTOUR d'abord (silhouette dilatee d'un pixel),
+			// le blanc ensuite. Dessiner l'inverse mangerait le remplissage.
+			for (int32 pass = 0; pass < 2; ++pass) {
+				const float32 grow = (pass == 0) ? 1.6f : 0.f;
+				for (int32 Y = y0; Y <= y1; ++Y)
+					for (int32 X = x0; X <= x1; ++X) {
+						const float32 lx = (float32)(X - cx), ly = (float32)(Y - cy);
+						// Distance au triangle : on teste l'appartenance aux
+						// deux triangles qui composent la fleche, dilates.
+						bool in = false;
+						const float32 tri[2][6] = {{ax, ay, bx, by, mx, my},
+												   {ax, ay, mx, my, tx, ty}};
+						for (int32 t = 0; t < 2 && !in; ++t) {
+							const float32 *T = tri[t];
+							// Centre du triangle, pour la dilatation.
+							const float32 gx = (T[0] + T[2] + T[4]) / 3.f;
+							const float32 gy = (T[1] + T[3] + T[5]) / 3.f;
+							float32 P[6];
+							for (int32 v = 0; v < 3; ++v) {
+								const float32 vx = T[v * 2], vy = T[v * 2 + 1];
+								const float32 dx = vx - gx, dy = vy - gy;
+								const float32 len = (float32)math::NkSqrt(dx * dx + dy * dy);
+								const float32 k = (len > 1e-3f) ? (grow / len) : 0.f;
+								P[v * 2] = vx + dx * k;
+								P[v * 2 + 1] = vy + dy * k;
+							}
+							float32 s[3];
+							for (int32 e = 0; e < 3; ++e) {
+								const float32 x1e = P[e * 2], y1e = P[e * 2 + 1];
+								const float32 x2e = P[((e + 1) % 3) * 2];
+								const float32 y2e = P[((e + 1) % 3) * 2 + 1];
+								s[e] = (x2e - x1e) * (ly - y1e) - (y2e - y1e) * (lx - x1e);
+							}
+							in = (s[0] >= 0.f && s[1] >= 0.f && s[2] >= 0.f) ||
+								 (s[0] <= 0.f && s[1] <= 0.f && s[2] <= 0.f);
+						}
+						if (!in)
+							continue;
+						if (pass == 0)
+							NkBlendPixel(px, w, h, X, Y, 0, 0, 0, 235);
+						else
+							NkBlendPixel(px, w, h, X, Y, 255, 255, 255, 255);
+					}
+			}
+		}
+
+		// Trace + fleche, sur l'image capturee. `scale` suit la taille de la
+		// fenetre : un curseur de 16 px dans une video 4K serait invisible.
+		inline void NkDrawCursorTrail(uint8 *px, int32 w, int32 h, const NkCursorTrail &tr,
+									  float32 scale = 1.f) {
+			if (!px || tr.count <= 0)
+				return;
+			// LA TRACE S'EFFACE EN REMONTANT LE TEMPS : la position la plus
+			// ancienne est la plus pale. Sans ce degrade, la trace serait un
+			// trait qui ne dit pas dans quel sens la souris est allee.
+			for (int32 i = tr.count - 1; i >= 1; --i) {
+				int32 X = 0, Y = 0;
+				tr.At(i, &X, &Y);
+				const float32 t = 1.f - (float32)i / (float32)tr.count;
+				const int32 a = (int32)(120.f * t * t);
+				if (a <= 2)
+					continue;
+				NkBlendDisc(px, w, h, X, Y, 2.5f * scale * (0.4f + 0.6f * t), 255, 210, 60, a);
+			}
+			int32 cx = 0, cy = 0;
+			tr.At(0, &cx, &cy);
+			NkDrawCursorArrow(px, w, h, cx, cy, scale);
+		}
+
 	} // namespace nk3d
 } // namespace nkentseu
