@@ -76,9 +76,11 @@ int arpragueskymodelground_compute_pp_coefs_from_half(const int nbreaks, const d
 	return 2 * nbreaks - 2;
 }
 
-void arpragueskymodelground_print_error_and_exit(const char * message) 
+void arpragueskymodelground_print_error_and_exit(const char * message)
 {
-	fprintf(stderr, message);
+	/* "%s" et non `message` en format : un message contenant un '%' serait
+	   interprete comme une directive et lirait des arguments inexistants. */
+	fprintf(stderr, "%s", message);
 	fprintf(stderr, "\n");
 	fflush(stderr);
 	exit(-1);
