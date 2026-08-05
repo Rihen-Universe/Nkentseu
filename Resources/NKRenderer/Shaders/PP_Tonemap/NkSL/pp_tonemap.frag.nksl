@@ -66,7 +66,15 @@ void main() {
     float hdrClamp = pc.p2.w;
 
     // HDR * exposure, * SSAO (assombrit les zones occluses), + Bloom.
-    vec3  hdr   = texture(uHDR, vUV).rgb * exposure;
+    // LA COUVERTURE VOYAGE AVEC LA COULEUR : le PBR ecrit deja alpha = 1 sur la
+    // geometrie, et la passe Geometry efface avec l'alpha demande -- la cible
+    // HDR porte donc une couverture juste. L'ecraser plus bas la detruisait
+    // pour toute la suite, et rendait impossible la sortie a fond transparent :
+    // il fallait rendre DEUX fois, sur fond noir puis blanc, pour la
+    // reconstruire par difference. Un tonemap agit sur la LUMINANCE ; il n'a
+    // aucune raison de toucher a la couverture.
+    vec4  hdrS  = texture(uHDR, vUV);
+    vec3  hdr   = hdrS.rgb * exposure;
     if (hdrClamp > 0.0) hdr = min(hdr, vec3(hdrClamp));
     float ao    = texture(uSSAO, vUV).r;        // SSAO aligné HDR → vUV (PAS bloomUV)
     hdr *= ao;
@@ -103,5 +111,5 @@ void main() {
         mapped *= clamp(1.0 - dot(uv, uv) * vignetteIntens, 0.0, 1.0);
     }
 
-    oColor = vec4(mapped, 1.0);
+    oColor = vec4(mapped, hdrS.a);
 }
