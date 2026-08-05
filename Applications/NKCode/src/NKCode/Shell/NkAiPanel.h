@@ -4143,13 +4143,34 @@ namespace nkentseu {
 					return n == 2 && sig[0] == 'M' && sig[1] == 'Z';
 				}
 
+				// Emplacements du binaire natif, RELATIFS a un dossier npm global, dans
+				// l'ordre ou on les essaie. Le second est le plus fiable : c'est la
+				// dependance optionnelle par plateforme, la ou npm depose REELLEMENT le
+				// binaire. Le premier (bin/) n'est renseigne que si le postinstall a
+				// reussi sa copie finale — quand il echoue, il y laisse un SCRIPT-GARDE
+				// de 500 octets, d'ou le controle de signature PE (cf. IsNativeExe).
+				static const char *const *ClaudeExeCandidates(int32 &n) {
+					static const char *kRel[] = {
+						"\\npm\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe",
+						"\\npm\\node_modules\\@anthropic-ai\\claude-code\\node_modules\\@anthropic-ai"
+						"\\claude-code-win32-x64\\claude.exe",
+						"\\npm\\node_modules\\@anthropic-ai\\claude-code\\node_modules\\@anthropic-ai"
+						"\\claude-code-win32-arm64\\claude.exe",
+					};
+					n = 3;
+					return kRel;
+				}
+
 				static NkString ResolveClaudeExe() {
 					const char *appData = env::GetEnvVar("APPDATA");
 					if (appData && *appData) {
-						const NkString candidate =
-							NkString(appData) + "\\npm\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe";
-						if (IsNativeExe(candidate))
-							return candidate;
+						int32 nRel = 0;
+						const char *const *rel = ClaudeExeCandidates(nRel);
+						for (int32 i = 0; i < nRel; ++i) {
+							const NkString candidate = NkString(appData) + rel[i];
+							if (IsNativeExe(candidate))
+								return candidate;
+						}
 					}
 #ifdef _WIN32
 					FILE *pipe = _popen("where claude.cmd 2>nul", "r");
@@ -4175,11 +4196,17 @@ namespace nkentseu {
 						if (!shimPath.Empty()) {
 							const usize slash = shimPath.RFind('\\');
 							if (slash != NkString::npos) {
+								// Le shim vit dans le dossier npm global : on y reessaie les
+								// MEMES emplacements que ci-dessus (le prefixe « \npm » est
+								// deja consomme par le dossier du shim).
 								const NkString dir = shimPath.SubStr(0, slash);
-								const NkString candidate =
-									dir + "\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe";
-								if (IsNativeExe(candidate))
-									return candidate;
+								int32 nRel = 0;
+								const char *const *rel = ClaudeExeCandidates(nRel);
+								for (int32 i = 0; i < nRel; ++i) {
+									const NkString candidate = dir + (rel[i] + 4); // saute « \npm »
+									if (IsNativeExe(candidate))
+										return candidate;
+								}
 							}
 						}
 					}
