@@ -42,6 +42,7 @@
 #include "NkOutCompose.h"			  // formes et composition des incrustations
 #include "NKMedia/Video/NkVideoWriter.h"			// enregistrement video de la session
 #include "NKMedia/Video/NkImageSequenceWriter.h" // suite d'images (workflow Blender)
+#include "NKMedia/Codecs/Video/H264/NkH264Encoder.h" // MP4/H.264 (muxe lui-meme)
 #include "NKThreading/NkThread.h"				// l'encodage video vit sur son propre fil
 #include "NKThreading/NkMutex.h"
 #include "NKThreading/NkScopedLock.h"
@@ -475,6 +476,12 @@ namespace nkentseu {
 		static int32 nkvpOutFrameStart = 1;
 		static int32 nkvpOutFrameEnd = 250;
 		static int32 nkvpOutVideoCodec = 0; // 0 = suite d'images PNG
+		// QUALITE PROPRE A LA VIDEO (Rihen) : elle etait partagee avec l'image
+		// fixe, alors que les deux n'ont pas les memes exigences -- une image
+		// livrable veut 95, une video de session tient tres bien a 75 et pese
+		// trois fois moins. Un seul curseur pour les deux obligeait a choisir
+		// entre un fichier trop lourd et une capture degradee.
+		static int32 nkvpOutVideoQuality = 80;
 		// ── CADENCE DE CAPTURE (Rihen : « en option de configuration ») ─────
 		// Une image fixe coute TROIS images d'attente : poser la cible, laisser
 		// le GPU rendre, lire les pixels. Invisible pour une photo, ruineux pour
@@ -538,9 +545,15 @@ namespace nkentseu {
 				int32 frames = 0;
 				int32 dropped = 0;
 				uint32 w = 0, h = 0;
-				bool seq = false; // suite d'images plutot que conteneur video
+				// Trois ecrivains possibles, un seul actif : suite d'images,
+				// conteneur simple (AVI/MOV/MPEG-1) ou MP4/H.264. Les garder
+				// cote a cote plutot que derriere une interface commune evite
+				// une couche d'abstraction pour trois cas connus d'avance.
+				int32 kind = 0; // 0 = suite d'images, 1 = conteneur, 2 = MP4/H264
+				bool seq = false;
 				media::NkVideoWriter vw;
 				media::NkImageSequenceWriter sw;
+				media::NkH264Encoder h264;
 				char path[300] = {};
 				float32 acc = 0.f; // secondes accumulees depuis la derniere image
 				// File et fil d'encodage.
@@ -555,7 +568,14 @@ namespace nkentseu {
 				threading::NkThread th;
 				bool stopThread = false;
 		};
+		// DEUX SOURCES, UNE SEULE MECANIQUE. La vue est lue par l'hote ; la
+		// FENETRE ENTIERE (tutoriel) est photographiee par l'application, qui
+		// pousse ses pixels ici. File, fil d'encodage, cadence, formats,
+		// pause et abandon sont ecrits une fois et servent les deux -- les
+		// dupliquer dans main.cpp aurait fait diverger les deux comportements
+		// au premier correctif.
 		static NkVpRec nkvpRecView;
+		static NkVpRec nkvpRecTuto;
 		static int32 nkvpOutFastMask = 1 | 2 | 4;
 		static const int32 kNkvpOutFastCount = 3;
 		static const char *const kNkvpOutFastNames[kNkvpOutFastCount] = {
@@ -10272,10 +10292,14 @@ namespace nkentseu {
 		// dossiers repartaient a 001 en parallele des images, si bien que
 		// « rendu_001/ » cotoyait « rendu_060.png » sans aucun rapport entre
 		// eux. Une prise porte desormais son rang sur toutes ses sorties.
-		static void HostOutBeginTake(bool /*asDir*/ = false) {
+		static void HostOutBeginTake(bool /*asDir*/ = false, const char *nameOverride = nullptr) {
 			const char *dir = nkvpOutDir[0] ? nkvpOutDir : "captures";
 			NkDirectory::CreateRecursive(dir);
-			const char *nm = nkvpOutName[0] ? nkvpOutName : "rendu";
+			// Le nom peut etre impose : un enregistrement porte celui de SA
+			// source (vue ou tutoriel), et son rang doit etre cherche sous ce
+			// nom-la, pas sous celui de la sortie.
+			const char *nm =
+				nameOverride ? nameOverride : (nkvpOutName[0] ? nkvpOutName : "rendu");
 			// Toutes les extensions qu'une prise peut produire : celles des
 			// images ET celles des videos. En oublier une, c'est risquer
 			// d'ecraser ce qu'elle avait produit.
@@ -10839,38 +10863,117 @@ namespace nkentseu {
 		// l'EFFACE (Rihen : « pouvoir arreter un enregistrement qui ne serait
 		// pas transfere »). Sans l'abandon, une prise ratee laisserait un
 		// fichier a supprimer a la main, et on hesiterait a enregistrer.
-		static void HostRecEncodeLoop(); // definie plus bas, pres du tick
+		static void HostRecEncodeLoopOn(NkVpRec &R); // definie plus bas, pres du tick
+
+		// ── LES TROIS GESTES COMMUNS AUX DEUX ENREGISTREMENTS ───────────────
+		// Attendre une place, deposer une image, ouvrir/fermer un fichier. La
+		// vue et le tutoriel les partagent : ecrits deux fois, ils auraient
+		// diverge au premier correctif.
+
+		// Attend qu'une place se libere dans la file. Faux = l'image doit etre
+		// SAUTEE (file pleine et mode « sauter »).
+		static bool HostRecWaitSlot(NkVpRec &R) {
+			bool full = false;
+			{
+				threading::NkScopedLock<threading::NkMutex> lk(R.mtx);
+				full = R.slot[R.head].full;
+			}
+			if (!full)
+				return true;
+			if (!nkvpRecGrow) {
+				++R.dropped;
+				return false;
+			}
+			// GONFLER : on attend que l'encodage rende une place. Le fil
+			// principal ralentit -- c'est le prix de la fidelite, et c'est ce
+			// que l'utilisateur a demande. La file etant deja au maximum,
+			// l'attente est bornee par le temps d'encoder une image.
+			for (int32 guard = 0; guard < 2000 && full; ++guard) {
+				NkChrono::Sleep((int64)1);
+				threading::NkScopedLock<threading::NkMutex> lk(R.mtx);
+				full = R.slot[R.head].full;
+			}
+			if (full) {
+				++R.dropped; // l'encodage ne suit vraiment plus
+				return false;
+			}
+			return true;
+		}
+
+		static void HostRecEnqueue(NkVpRec &R, NkImage &img) {
+			threading::NkScopedLock<threading::NkMutex> lk(R.mtx);
+			R.slot[R.head].img = static_cast<NkImage &&>(img);
+			R.slot[R.head].full = true;
+			R.head = (R.head + 1) % R.cap;
+		}
+
+		// `which` : 1 = la vue, 2 = le tutoriel -- il choisit le nom de base du
+		// fichier, rien d'autre. Le reste est identique.
+		static bool HostRecStartOn(NkVpRec &R, uint32 w, uint32 h, int32 which);
+		static bool HostRecStopOn(NkVpRec &R, bool keep);
 
 		bool Demo3DHostRecStart() {
-			if (nkvpRecView.on || !hst.ok || !hst.rt || !hst.rt->IsValid())
+			if (!hst.ok || !hst.rt || !hst.rt->IsValid())
 				return false;
-			NkVpRec &R = nkvpRecView;
-			R.w = hst.rt->GetWidth();
-			R.h = hst.rt->GetHeight();
+			return HostRecStartOn(nkvpRecView, hst.rt->GetWidth(), hst.rt->GetHeight(), 1);
+		}
+
+		static bool HostRecStartOn(NkVpRec &R, uint32 wIn, uint32 hIn, int32 which) {
+			if (R.on)
+				return false;
+			R.w = wIn;
+			R.h = hIn;
 			if (R.w < 16 || R.h < 16)
 				return false;
 			const char *dir = nkvpOutDir[0] ? nkvpOutDir : "captures";
 			NkDirectory::CreateRecursive(dir);
+			// LE NOM DE BASE DIT LA SOURCE : la vue et le tutoriel peuvent
+			// tourner EN MEME TEMPS -- ce sont deux points de vue de la meme
+			// session -- et deux fichiers de meme nom se seraient ecrases.
+			const char *recNm = (which == 2)
+									? (nkvpCapTutoName[0] ? nkvpCapTutoName : "tutoriel")
+									: (nkvpCapViewName[0] ? nkvpCapViewName : "vue");
 			const int32 fps = nkvpOutFps > 0 ? nkvpOutFps : 25;
-			R.seq = (nkvpOutVideoCodec == 0);
+			// 0 = suite d'images, 1 AVI/MJPEG, 2 MOV/MJPEG, 3 MPEG-1, 4 MP4/H.264.
+			R.kind = (nkvpOutVideoCodec == 0) ? 0 : ((nkvpOutVideoCodec == 4) ? 2 : 1);
+			R.seq = (R.kind == 0);
 			R.frames = 0;
 			R.acc = 0.f;
-			if (R.seq) {
+			const int32 vq = nkvpOutVideoQuality;
+			if (R.kind == 0) {
 				// Suite d'images : un DOSSIER par prise, sinon les images de
 				// deux enregistrements se melangeraient dans le meme rang.
-				HostOutBeginTake(true); // c'est un DOSSIER qu'on va creer
+				HostOutBeginTake(true, recNm); // c'est un DOSSIER qu'on va creer
 				snprintf(R.path, sizeof(R.path), "%s/%s_%03d", dir,
-						 nkvpOutName[0] ? nkvpOutName : "rendu", (int)nkvpOutTake);
+						 recNm, (int)nkvpOutTake);
 				NkDirectory::CreateRecursive(R.path);
 				R.on = R.sw.Open(R.path, "img", (int32)R.w, (int32)R.h,
-								 media::NkImageSeqFormat::PNG, 5, nkvpOutQuality);
+								 media::NkImageSeqFormat::PNG, 5, vq);
+			} else if (R.kind == 2) {
+				// MP4/H.264 : l'encodeur MUXE lui-meme quand le chemin finit en
+				// .mp4 -- inutile de passer par le writer de conteneur.
+				// La qualite se dit en QP (0..51, PETIT = meilleur) : on
+				// convertit notre echelle 1..100 en la bornant loin des
+				// extremes, ou l'encodeur donne soit un fichier enorme, soit
+				// une bouillie.
+				int32 qp = 51 - (int32)((float32)vq * 0.36f + 0.5f);
+				if (qp < 12)
+					qp = 12;
+				if (qp > 48)
+					qp = 48;
+				HostOutBeginTake(false, recNm);
+				snprintf(R.path, sizeof(R.path), "%s/%s_%03d.mp4", dir,
+						 recNm, (int)nkvpOutTake);
+				// GOP d'une seconde : une image cle par seconde rend le fichier
+				// navigable sans le gonfler.
+				R.on = R.h264.Open(R.path, (int32)R.w, (int32)R.h, fps, 1, qp, fps);
 			} else {
 				media::NkVideoConfig cfg;
 				cfg.width = (int32)R.w;
 				cfg.height = (int32)R.h;
 				cfg.fpsNum = fps;
 				cfg.fpsDen = 1;
-				cfg.quality = nkvpOutQuality;
+				cfg.quality = vq;
 				// 1 = AVI/MJPEG, 2 = MOV/MJPEG, 3 = MPEG-1 elementaire.
 				if (nkvpOutVideoCodec == 3) {
 					cfg.codec = media::NkVideoCodec::MPEG1;
@@ -10884,9 +10987,9 @@ namespace nkentseu {
 				const char *ext = (nkvpOutVideoCodec == 3)
 									  ? "m1v"
 									  : ((nkvpOutVideoCodec == 2) ? "mov" : "avi");
-				HostOutBeginTake();
+				HostOutBeginTake(false, recNm);
 				snprintf(R.path, sizeof(R.path), "%s/%s_%03d.%s", dir,
-						 nkvpOutName[0] ? nkvpOutName : "rendu", (int)nkvpOutTake, ext);
+						 recNm, (int)nkvpOutTake, ext);
 				R.on = R.vw.Open(R.path, cfg);
 			}
 			if (R.on) {
@@ -10899,10 +11002,17 @@ namespace nkentseu {
 				R.stopThread = false;
 				for (int32 i = 0; i < R.cap; ++i)
 					R.slot[i].full = false;
-				R.th = threading::NkThread([](void *) { HostRecEncodeLoop(); });
+				// Deux lambdas plutot qu'un parametre : NkThread ne transporte
+				// qu'un void*, et deux enregistrements suffisent -- une table
+				// d'indirection pour deux cas connus serait du zele.
+				if (which == 2)
+					R.th = threading::NkThread([](void *) { HostRecEncodeLoopOn(nkvpRecTuto); });
+				else
+					R.th = threading::NkThread([](void *) { HostRecEncodeLoopOn(nkvpRecView); });
 			}
-			logger.Info("[Video] Enregistrement {0} : {1}x{2} @ {3} i/s -> {4}\n",
-						R.on ? "demarre" : "REFUSE", R.w, R.h, fps, R.path);
+			logger.Info("[Video] Enregistrement {0} ({1}) : {2}x{3} @ {4} i/s -> {5}\n",
+						R.on ? "demarre" : "REFUSE", which == 2 ? "tutoriel" : "vue", R.w, R.h,
+						fps, R.path);
 			return R.on;
 		}
 
@@ -10931,7 +11041,10 @@ namespace nkentseu {
 		}
 
 		bool Demo3DHostRecStop(bool keep) {
-			NkVpRec &R = nkvpRecView;
+			return HostRecStopOn(nkvpRecView, keep);
+		}
+
+		static bool HostRecStopOn(NkVpRec &R, bool keep) {
 			if (!R.on)
 				return false;
 			R.on = false;
@@ -10945,8 +11058,10 @@ namespace nkentseu {
 			}
 			if (R.th.Joinable())
 				R.th.Join();
-			if (R.seq)
+			if (R.kind == 0)
 				R.sw.Close();
+			else if (R.kind == 2)
+				R.h264.Close();
 			else
 				R.vw.Close();
 			if (!keep) {
@@ -10977,8 +11092,7 @@ namespace nkentseu {
 		// writers ; le fil principal ne touche que la file. Un seul verrou
 		// suffit donc, tenu le temps de prendre ou deposer une image -- jamais
 		// pendant l'encodage lui-meme, qui est le long.
-		static void HostRecEncodeLoop() {
-			NkVpRec &R = nkvpRecView;
+		static void HostRecEncodeLoopOn(NkVpRec &R) {
 			for (;;) {
 				NkImage img;
 				bool got = false;
@@ -10999,11 +11113,14 @@ namespace nkentseu {
 					NkChrono::Sleep((int64)1); // rien a faire : on rend la main
 					continue;
 				}
-				const bool ok =
-					R.seq ? R.sw.WriteFrame((const uint8 *)img.Pixels(),
-											media::NkVideoInputFormat::RGBA32)
-						  : R.vw.WriteFrame((const uint8 *)img.Pixels(),
-											media::NkVideoInputFormat::RGBA32);
+				const uint8 *px = (const uint8 *)img.Pixels();
+				bool ok = false;
+				if (R.kind == 0)
+					ok = R.sw.WriteFrame(px, media::NkVideoInputFormat::RGBA32);
+				else if (R.kind == 2)
+					ok = R.h264.WriteFrame(px, media::NkVideoInputFormat::RGBA32);
+				else
+					ok = R.vw.WriteFrame(px, media::NkVideoInputFormat::RGBA32);
 				if (ok)
 					++R.frames; // lu par l'interface a titre indicatif
 			}
@@ -11035,49 +11152,83 @@ namespace nkentseu {
 				--nkvpRecSettle;
 				return;
 			}
-			// LA FILE EST-ELLE PLEINE ? On regarde AVANT de lire les pixels :
-			// lire pour jeter ensuite serait payer le prix fort pour rien.
 			// FILE PLEINE : selon le choix de l'utilisateur, on saute cette
 			// image ou on attend qu'une place se libere. On regarde AVANT de
 			// lire les pixels -- lire pour jeter ensuite serait payer le prix
 			// fort pour rien.
-			{
-				bool full = false;
-				{
-					threading::NkScopedLock<threading::NkMutex> lk(R.mtx);
-					full = R.slot[R.head].full;
-				}
-				if (full) {
-					if (!nkvpRecGrow) {
-						++R.dropped;
-						return;
-					}
-					// GONFLER : on attend que l'encodage rende une place. Le fil
-					// principal ralentit -- c'est le prix de la fidelite, et
-					// c'est ce que l'utilisateur a demande. La file est deja au
-					// maximum, donc l'attente est bornee par le temps d'encoder
-					// une image.
-					for (int32 guard = 0; guard < 2000 && full; ++guard) {
-						NkChrono::Sleep((int64)1);
-						threading::NkScopedLock<threading::NkMutex> lk(R.mtx);
-						full = R.slot[R.head].full;
-					}
-					if (full) {
-						++R.dropped; // l'encodage ne suit vraiment plus
-						return;
-					}
-				}
-			}
+			if (!HostRecWaitSlot(R))
+				return;
 			NkImage img;
 			if (!img.Create(w, h, math::NkColor(0, 0, 0, 255), 4) ||
 				!hst.rt->ReadbackPixels(img.Pixels(), w * 4u))
 				return;
-			{
-				threading::NkScopedLock<threading::NkMutex> lk(R.mtx);
-				R.slot[R.head].img = static_cast<NkImage &&>(img);
-				R.slot[R.head].full = true;
-				R.head = (R.head + 1) % R.cap;
-			}
+			HostRecEnqueue(R, img);
+		}
+
+		// ── ENREGISTREMENT DU TUTORIEL : LA FENETRE ENTIERE ─────────────────
+		// L'application photographie sa propre fenetre -- seul l'OS sait le
+		// faire -- et depose l'image ici. Toute la mecanique (file, fil
+		// d'encodage, cadence, formats, pause, abandon) est celle de la vue :
+		// une seule ecriture, donc un seul comportement a corriger.
+		bool Demo3DHostRecTutoStart(int32 w, int32 h) {
+			return HostRecStartOn(nkvpRecTuto, (uint32)w, (uint32)h, 2);
+		}
+		bool Demo3DHostRecTutoStop(bool keep) {
+			return HostRecStopOn(nkvpRecTuto, keep);
+		}
+		bool Demo3DHostRecTutoActive() {
+			return nkvpRecTuto.on;
+		}
+		void Demo3DHostRecTutoPause(bool on) {
+			if (nkvpRecTuto.on)
+				nkvpRecTuto.paused = on;
+		}
+		bool Demo3DHostRecTutoPaused() {
+			return nkvpRecTuto.on && nkvpRecTuto.paused;
+		}
+		int32 Demo3DHostRecTutoFrames() {
+			return nkvpRecTuto.frames;
+		}
+		int32 Demo3DHostRecTutoDropped() {
+			return nkvpRecTuto.dropped;
+		}
+		const char *Demo3DHostRecTutoPath() {
+			return nkvpRecTuto.path;
+		}
+		// Vrai si cette image etait ATTENDUE (cadence) : l'appelant ne
+		// photographie la fenetre que dans ce cas -- une capture d'ecran coute
+		// cher, la demander pour la jeter ensuite serait absurde.
+		bool Demo3DHostRecTutoWants(float32 dt) {
+			NkVpRec &R = nkvpRecTuto;
+			if (!R.on || R.paused)
+				return false;
+			const int32 fps = nkvpOutFps > 0 ? nkvpOutFps : 25;
+			const float32 step = 1.f / (float32)fps;
+			R.acc += dt;
+			if (R.acc < step)
+				return false;
+			R.acc -= step;
+			if (R.acc > step * 3.f)
+				R.acc = step * 3.f;
+			return true;
+		}
+		bool Demo3DHostRecTutoPush(const uint8 *rgba, int32 w, int32 h) {
+			NkVpRec &R = nkvpRecTuto;
+			if (!R.on || R.paused || !rgba)
+				return false;
+			if ((uint32)w != R.w || (uint32)h != R.h)
+				return false; // la fenetre a change de taille : on saute
+			if (!HostRecWaitSlot(R))
+				return false;
+			NkImage img;
+			if (!img.Create((uint32)w, (uint32)h, math::NkColor(0, 0, 0, 255), 4))
+				return false;
+			const int64 n = (int64)w * (int64)h * 4;
+			uint8 *dst = img.Pixels();
+			for (int64 i = 0; i < n; ++i)
+				dst[i] = rgba[i];
+			HostRecEnqueue(R, img);
+			return true;
 		}
 
 		bool Demo3DHostOutBusy() {
@@ -11142,6 +11293,12 @@ namespace nkentseu {
 		}
 		void Demo3DHostSetOutModes(int32 mask) {
 			nkvpOutModes = mask & ((1 << kNkvpOutModeCount) - 1);
+		}
+		int32 Demo3DHostOutVideoQuality() {
+			return nkvpOutVideoQuality;
+		}
+		void Demo3DHostSetOutVideoQuality(int32 q) {
+			nkvpOutVideoQuality = q < 1 ? 1 : (q > 100 ? 100 : q);
 		}
 		void Demo3DHostOutVideo(bool *on, int32 *fps, int32 *first, int32 *last, int32 *codec) {
 			if (on)

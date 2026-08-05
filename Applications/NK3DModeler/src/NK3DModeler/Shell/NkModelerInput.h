@@ -236,9 +236,14 @@ namespace nkentseu {
 				// 1 = « Vue 3D » (scene seule), 2 = « Tutoriel » (toute la
 				// fenetre, interface comprise).
 				int32 capturePending = 0;
-				// Bouton-menu TUTORIEL du footer (Photo / Video en stub) : la
-				// capture de TOUTE l'application vit dans la barre de
-				// l'application, pas dans la vue 3D.
+				// Meme mecanique pour la VIDEO du tutoriel : l'interface demande,
+				// la boucle principale execute -- elle seule connait la taille
+				// reelle de la fenetre, indispensable pour ouvrir le fichier.
+				// 1 = demarrer, 2 = arreter en gardant, 3 = abandonner.
+				int32 tutoRecPending = 0;
+				// Bouton-menu TUTORIEL du footer (Photo / Video) : la capture de
+				// TOUTE l'application vit dans la barre de l'application, pas
+				// dans la vue 3D.
 				bool tutoMenuOpen = false;
 				// Le bouton capture est un MENU : ouvert, il devoile les types
 				// (Capture / Tutoriel...) et cliquer une entree EXECUTE la

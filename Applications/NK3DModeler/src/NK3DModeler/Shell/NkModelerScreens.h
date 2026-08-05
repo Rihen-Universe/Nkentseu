@@ -9560,18 +9560,45 @@ namespace nkentseu {
 							// LES FORMATS REELLEMENT ECRITS par NKMedia, sans
 							// promesse : « MP4 (a venir) » n'avait plus lieu
 							// d'etre des lors que NkVideoWriter existe.
-							static const char *const kCod[4] = {
+							static const char *const kCod[5] = {
 								"Suite d'images (PNG)", "AVI (MJPEG)", "MOV (MJPEG)",
-								"MPEG-1 (.m1v)"};
+								"MPEG-1 (.m1v)", "MP4 (H.264)"};
 							static int32 sCodSel = 0;
-							if (sCodSel != vCod && sCodSel >= 0 && sCodSel < 4)
+							if (sCodSel != vCod && sCodSel >= 0 && sCodSel < 5)
 								vCod = sCodSel;
 							else
 								sCodSel = vCod;
 							Combo(p, hit, ws, "out.codec",
-								  {fx3, yy + S(2.f), fw3, kRowH - S(4.f)}, kCod, nullptr, 4,
+								  {fx3, yy + S(2.f), fw3, kRowH - S(4.f)}, kCod, nullptr, 5,
 								  sCodSel, combo);
 							yy += kRowH;
+						}
+						// QUALITE PROPRE A LA VIDEO (Rihen) : elle etait partagee
+						// avec l'image fixe, si bien que soigner un rendu JPEG
+						// alourdissait toutes les prises -- deux usages, deux
+						// reglages. Sans objet pour la suite d'images PNG, qui est
+						// sans perte : on ne montre pas un levier sans effet.
+						if (vCod != 0) {
+							p.TextV(r.x + kPad, yy, kRowH, "Qualite video", NkRole::TextMuted);
+							float32 vq = (float32)demo::Demo3DHostOutVideoQuality();
+							const float32 vq0 = vq;
+							DragFloat(p, hit, ws, in, "out.vq",
+									  {fx3, yy + S(3.f), fw3, kRowH - S(6.f)}, vq, 0.5f,
+									  NkRole::AccentUi, "%.0f");
+							if (vq < 1.f)
+								vq = 1.f;
+							if (vq > 100.f)
+								vq = 100.f;
+							if ((int32)(vq + 0.5f) != (int32)(vq0 + 0.5f))
+								demo::Demo3DHostSetOutVideoQuality((int32)(vq + 0.5f));
+							yy += kRowH;
+							yy += p.TextWrap(r.x + kPad, yy, rr.w - 2.f * kPad,
+											 vCod == 4 ? "Convertie en QP H.264 (borne 12-48) : "
+														 "monter la qualite grossit le fichier."
+													   : "Compression MJPEG image par image : "
+														 "chaque image est independante.",
+											 NkRole::TextMuted);
+							yy += S(6.f);
 						}
 						// ── ENREGISTRER LA SESSION (Rihen) ──────────────────
 						// On filme ce qui SE PASSE dans la vue. Pas de plage
@@ -11831,11 +11858,11 @@ namespace nkentseu {
 				p.TextV(x + 18.f, r.y, r.h, kBtns[i].label);
 				x += 18.f + p.TextW(kBtns[i].label) + 16.f;
 			}
-			// TUTORIEL AU FOOTER (regle de Rihen) : il photographie TOUTE
+			// TUTORIEL AU FOOTER (regle de Rihen) : il enregistre TOUTE
 			// l'application, sa place est donc dans la barre de l'application --
 			// la capture de la vue 3D, elle, reste dans la vue. Bouton-menu :
-			// Photo execute, Video est un STUB affiche (honnete, pas d'entree
-			// qui ferait semblant d'enregistrer). Le menu s'ouvre VERS LE HAUT.
+			// Photo prend une image, Video ouvre une prise que la barre
+			// d'enregistrement ci-dessous pilote. Le menu s'ouvre VERS LE HAUT.
 			{
 				const float32 tw = p.TextW("Tutoriel");
 				const NkRect tb{x, r.y + 4.f, 18.f + tw + 10.f, r.h - 8.f};
@@ -11852,21 +11879,27 @@ namespace nkentseu {
 				if (hit.Clicked("status.tuto"))
 					st.tutoMenuOpen = !st.tutoMenuOpen;
 				if (st.tutoMenuOpen) {
-					static const char *const kTuM[2] = {"Photo", "Video (a venir)"};
+					// « Video » n'est plus un stub : elle enregistre TOUTE la
+					// fenetre, en parallele d'un eventuel enregistrement de la
+					// vue -- deux points de vue d'une meme session.
+					const bool tRec = demo::Demo3DHostRecTutoActive();
 					static const char *const kTuKeys[2] = {"status.tuto.ph", "status.tuto.vid"};
+					const char *kTuM[2] = {"Photo", tRec ? "Arreter la video" : "Video"};
 					const float32 mh = S(24.f);
 					for (int32 m = 0; m < 2; ++m) {
-						const NkRect mr{tb.x, r.y - (float32)(m + 1) * (mh + 2.f), S(118.f),
-										mh};
-						const bool stub = m == 1;
+						const NkRect mr{tb.x, r.y - (float32)(m + 1) * (mh + 2.f), S(140.f), mh};
 						const bool ovM = hit.Add(kTuKeys[m], mr);
-						p.Fill(mr, (ovM && !stub) ? NkRole::AccentUi : NkRole::PanelHeader,
-							   4.f);
+						p.Fill(mr, ovM ? NkRole::AccentUi : NkRole::PanelHeader, 4.f);
 						p.TextV(mr.x + 8.f, mr.y, mh, kTuM[m],
-								stub ? NkRole::TextMuted
-									 : (ovM ? NkRole::TextOnAccent : NkRole::Text));
-						if (hit.Clicked(kTuKeys[m]) && !stub) {
-							st.capturePending = 2; // TOUTE la fenetre
+								ovM ? NkRole::TextOnAccent : NkRole::Text);
+						if (hit.Clicked(kTuKeys[m])) {
+							if (m == 0)
+								st.capturePending = 2; // TOUTE la fenetre, en image
+							else
+								// La TAILLE de la fenetre n'est connue que de la
+								// boucle principale : on demande, elle execute --
+								// meme patron que capturePending.
+								st.tutoRecPending = tRec ? 2 : 1;
 							st.tutoMenuOpen = false;
 						}
 					}
@@ -11884,6 +11917,102 @@ namespace nkentseu {
 			p.TextV(x + 24.f, r.y, r.h, "Entrer une commande", NkRole::TextMuted);
 			const float32 w = p.TextW(stats);
 			p.TextV(r.x + r.w - w - kPad, r.y, r.h, stats, NkRole::TextMuted);
+
+			// BARRE D'ENREGISTREMENT -- visible SEULEMENT pendant une prise. Une
+			// prise en cours est un etat qu'on oublie : elle doit se signaler
+			// d'elle-meme, dire DEPUIS QUAND elle tourne, et offrir les trois
+			// seules decisions possibles -- suspendre, garder, jeter. Les deux
+			// prises (la vue seule / toute la fenetre) sont independantes :
+			// deux barres cote a cote, pas un etat partage.
+			float32 rx = r.x + r.w - w - kPad - 14.f;
+			{
+				bool vOn = false;
+				int32 fps = 24, vFirst = 0, vLast = 0, vCodec = 0;
+				demo::Demo3DHostOutVideo(&vOn, &fps, &vFirst, &vLast, &vCodec);
+				if (fps <= 0)
+					fps = 24;
+				struct Rec {
+						const char *name;
+						bool active, paused;
+						int32 frames, dropped;
+				};
+				const Rec kRecs[2] = {
+					{"Vue", demo::Demo3DHostRecActive(), demo::Demo3DHostRecPaused(),
+					 demo::Demo3DHostRecFrames(), demo::Demo3DHostRecDropped()},
+					{"Tutoriel", demo::Demo3DHostRecTutoActive(),
+					 demo::Demo3DHostRecTutoPaused(), demo::Demo3DHostRecTutoFrames(),
+					 demo::Demo3DHostRecTutoDropped()},
+				};
+				// Cles DISTINCTES par prise : deux barres partageant une cle se
+				// voleraient les clics.
+				static const char *const kRecKeys[2][3] = {
+					{"status.rec.v.pause", "status.rec.v.stop", "status.rec.v.drop"},
+					{"status.rec.t.pause", "status.rec.t.stop", "status.rec.t.drop"},
+				};
+				for (int32 k = 1; k >= 0; --k) { // de droite a gauche
+					const Rec &R = kRecs[k];
+					if (!R.active)
+						continue;
+					char lbl[96];
+					const int32 sec = R.frames / fps;
+					// Les images SAUTEES ne se taisent pas : un enregistrement
+					// troue doit se voir pendant qu'on peut encore recommencer.
+					if (R.dropped > 0)
+						snprintf(lbl, sizeof(lbl), "%s  %02d:%02d  (%d sautees)", R.name,
+								 sec / 60, sec % 60, R.dropped);
+					else
+						snprintf(lbl, sizeof(lbl), "%s  %02d:%02d", R.name, sec / 60,
+								 sec % 60);
+					const char *kAct[3] = {R.paused ? "Reprendre" : "Pause", "Arreter",
+										   "Abandon"};
+					float32 bw[3];
+					float32 total = 12.f + p.TextW(lbl) + 16.f;
+					for (int32 a = 0; a < 3; ++a) {
+						bw[a] = p.TextW(kAct[a]) + 14.f;
+						total += bw[a] + 4.f;
+					}
+					const NkRect bar{rx - total, r.y + 4.f, total, r.h - 8.f};
+					p.Fill(bar, NkRole::InputBg, 3.f);
+					// Pastille : pleine quand ca tourne, grise en pause --
+					// l'etat se lit sans avoir a lire le bouton.
+					const float32 dr = 7.f;
+					const NkRect dot{bar.x + 6.f, bar.y + (bar.h - dr) * 0.5f, dr, dr};
+					p.Fill(dot,
+						   R.paused ? NkColor{140, 140, 140, 255} : NkColor{231, 76, 60, 255},
+						   dr * 0.5f);
+					float32 bx = bar.x + 6.f + dr + 6.f;
+					p.TextV(bx, r.y, r.h, lbl, R.paused ? NkRole::TextMuted : NkRole::Text);
+					bx += p.TextW(lbl) + 10.f;
+					for (int32 a = 0; a < 3; ++a) {
+						const NkRect ab{bx, bar.y + 2.f, bw[a], bar.h - 4.f};
+						const bool ov = hit.Add(kRecKeys[k][a], ab);
+						// ABANDON efface la prise : il porte le rouge, pour qu'on
+						// ne le clique pas en croyant arreter.
+						if (a == 2)
+							p.Fill(ab, ov ? NkColor{231, 76, 60, 255} : NkColor{231, 76, 60, 90},
+								   3.f);
+						else
+							p.Fill(ab, ov ? NkRole::AccentUi : NkRole::PanelHeader, 3.f);
+						p.TextV(ab.x + 7.f, ab.y, ab.h, kAct[a],
+								(ov || a == 2) ? NkRole::TextOnAccent : NkRole::Text);
+						if (hit.Clicked(kRecKeys[k][a])) {
+							if (k == 0) {
+								if (a == 0)
+									demo::Demo3DHostRecPause(!R.paused);
+								else
+									demo::Demo3DHostRecStop(a == 1);
+							} else {
+								if (a == 0)
+									demo::Demo3DHostRecTutoPause(!R.paused);
+								else
+									demo::Demo3DHostRecTutoStop(a == 1);
+							}
+						}
+						bx += bw[a] + 4.f;
+					}
+					rx = bar.x - 10.f;
+				}
+			}
 		}
 
 	} // namespace nk3d
