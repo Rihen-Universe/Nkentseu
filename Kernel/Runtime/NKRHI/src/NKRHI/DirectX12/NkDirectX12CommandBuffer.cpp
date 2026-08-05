@@ -577,20 +577,20 @@ namespace nkentseu {
 	// =============================================================================
 	// Draw
 	// =============================================================================
-	void NkDirectX12CommandBuffer::Draw(uint32 vtx, uint32 inst, uint32 firstVtx, uint32 firstInst) {
+	void NkDirectX12CommandBuffer::DrawImpl(uint32 vtx, uint32 inst, uint32 firstVtx, uint32 firstInst) {
 		if (!mCmdList)
 			return;
 		mCmdList->DrawInstanced(vtx, inst, firstVtx, firstInst);
 	}
 
-	void NkDirectX12CommandBuffer::DrawIndexed(uint32 idx, uint32 inst, uint32 firstIdx, int32 vtxOff,
-											   uint32 firstInst) {
+	void NkDirectX12CommandBuffer::DrawIndexedImpl(uint32 idx, uint32 inst, uint32 firstIdx, int32 vtxOff,
+												   uint32 firstInst) {
 		if (!mCmdList)
 			return;
 		mCmdList->DrawIndexedInstanced(idx, inst, firstIdx, vtxOff, firstInst);
 	}
 
-	void NkDirectX12CommandBuffer::DrawIndirect(NkBufferHandle buf, uint64 off, uint32 cnt, uint32 /*stride*/) {
+	void NkDirectX12CommandBuffer::DrawIndirectImpl(NkBufferHandle buf, uint64 off, uint32 cnt, uint32 /*stride*/) {
 		// Nécessite un ID3D12CommandSignature pré-créé
 		// Simplification : on appelle ExecuteIndirect avec une signature draw standard
 		(void)buf;
@@ -599,7 +599,7 @@ namespace nkentseu {
 		// TODO: créer et cacher une DrawIndirectSignature dans le device
 	}
 
-	void NkDirectX12CommandBuffer::DrawIndexedIndirect(NkBufferHandle buf, uint64 off, uint32 cnt, uint32 /*stride*/) {
+	void NkDirectX12CommandBuffer::DrawIndexedIndirectImpl(NkBufferHandle buf, uint64 off, uint32 cnt, uint32 /*stride*/) {
 		(void)buf;
 		(void)off;
 		(void)cnt;

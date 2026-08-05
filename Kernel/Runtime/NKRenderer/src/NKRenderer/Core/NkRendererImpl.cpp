@@ -1284,8 +1284,14 @@ namespace nkentseu {
 		bool NkRendererImpl::BeginFrame() {
 			if (!mInitialized)
 				return false;
-			mStats.Reset();
+			// mStats n'est PLUS remise a zero ici : l'overlay la lit PENDANT la
+			// frame, et l'effacer a l'ouverture lui faisait afficher des zeros
+			// perpetuels. Elle est recopiee en FIN de frame depuis les
+			// compteurs du command buffer -- le HUD montre donc la frame
+			// precedente, complete, comme le font les compteurs de rendu
+			// etablis.
 			mFrameCtx = {};
+			mCpuFrameStartNs = ::nkentseu::NkChrono::Now().nanoseconds;
 
 			// ── LE REDIMENSIONNEMENT SE FAIT AVANT D'OUVRIR LA FRAME ────────────
 			// Il etait fait APRES mDevice->BeginFrame : on detruisait donc les
@@ -1328,6 +1334,10 @@ namespace nkentseu {
 
 			mCmd->Reset();
 			mCmd->Begin();
+			// Les compteurs du command buffer repartent de zero avec la frame :
+			// c'est LUI qui compte (NkICommandBuffer, patron NVI), le renderer
+			// ne fait que recopier le total en fin de frame.
+			mCmd->ResetStats();
 
 			// Reset l'index du pool d'UBO objets de NkRender3D pour la nouvelle frame.
 			// Doit etre fait ici (et pas dans BeginScene) sinon des passes multiples
@@ -1343,6 +1353,26 @@ namespace nkentseu {
 
 		void NkRendererImpl::EndFrame() {
 			mDevice->EndFrame(mFrameCtx);
+			// ── LA FRAME EST COMPLETE : on fige ses statistiques ────────────
+			// Ces compteurs etaient AFFICHES depuis toujours (overlay
+			// « Draw/Tris/Batches ») mais jamais alimentes -- le cadran
+			// existait, l'aiguille n'avait jamais ete posee. Ils viennent du
+			// command buffer, seul point par ou TOUT appel de dessin passe.
+			if (mCmd) {
+				const NkICommandBuffer::NkCbStats &cs = mCmd->Stats();
+				mStats.drawCalls = cs.drawCalls;
+				mStats.triangles = cs.triangles;
+				mStats.vertices = cs.vertices;
+				// Un « batch » au sens de l'overlay est un appel qui a REGROUPE
+				// plusieurs primitives : approximation honnete, le compte exact
+				// appartient aux dessinateurs (Render2D/3D), pas au tampon.
+				mStats.batchCount = cs.drawCalls;
+			}
+			// Temps CPU de la frame, mesure ici meme ; le temps GPU demanderait
+			// des requetes de timestamp -- il reste a zero tant qu'elles ne
+			// sont pas cablees, plutot que d'afficher un chiffre invente.
+			mStats.cpuTimeMs =
+				(float32)((::nkentseu::NkChrono::Now().nanoseconds - mCpuFrameStartNs) / 1.0e6);
 		}
 
 		void NkRendererImpl::Present() {
