@@ -749,7 +749,9 @@ namespace nkentseu {
 				// ── Bande de recherche ANCREE : dessinee AVANT le clip de la liste,
 				// donc jamais rognee ni deplacee par le defilement.
 				if (avecFiltre) {
-					const NkRect fr = {dd.x + u.s(4), dd.y + u.s(4), dd.w - u.s(8), searchH - u.s(6)};
+					// La largeur retire sbW : `dd.w` inclut la gouttiere de defilement, donc
+					// sans cela le champ passait DESSOUS et les deux se chevauchaient.
+					const NkRect fr = {dd.x + u.s(4), dd.y + u.s(4), dd.w - u.s(8) - sbW, searchH - u.s(6)};
 					if (u.Hit(fr) && u.click)
 						tb.filterFocus = true;
 					editorkit::NkOverlayTextField(ec.Ui(), *uo.dl, ec.Ui().font, fr, tb.filter,
@@ -850,7 +852,9 @@ namespace nkentseu {
 				// Barre de defilement GENERALE (widget moteur NKEditorKit, identique a l'editeur :
 				// gouttiere theme-aware + fleches + pouce draggable + clic-piste).
 				if (scroll) {
-					const NkRect track = {dd.x + dd.w - sbW, dd.y + u.s(2), sbW, ddh - u.s(4)};
+					// Demarre SOUS la bande de recherche : celle-ci n'est pas defilable, une
+					// gouttiere qui la longe n'aurait aucun sens et mordait sur le champ.
+					const NkRect track = {dd.x + dd.w - sbW, dd.y + searchH + u.s(2), sbW, ddh - searchH - u.s(4)};
 					editorkit::NkVScrollbar(ec.Ui(), *uo.dl, track, tb.scroll, contentH, track.h, 0x5010D0Du, ih);
 				}
 				if (chose || (u.click && !u.Hit(dd) && !tb.justOpened && !tb.scrollDrag))
