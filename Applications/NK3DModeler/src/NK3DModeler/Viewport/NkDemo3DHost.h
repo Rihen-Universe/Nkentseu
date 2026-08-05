@@ -561,6 +561,25 @@ namespace nkentseu {
 		// deux prises.
 		bool Demo3DHostRecGrow();
 		void Demo3DHostSetRecGrow(bool on);
+		// ── ENREGISTREMENT DU TUTORIEL : LA FENETRE ENTIERE ─────────────────
+		// Seul l'application sait photographier sa propre fenetre (l'OS le
+		// fait) : elle POUSSE donc ses pixels ici, et toute la mecanique --
+		// file, fil d'encodage, cadence, formats, pause, abandon -- est celle
+		// de la vue. Les deux peuvent tourner EN MEME TEMPS : ce sont deux
+		// points de vue d'une meme session, et leurs fichiers portent des noms
+		// distincts pour ne pas s'ecraser.
+		// `Wants` dit si l'image est attendue par la cadence : une capture
+		// d'ecran coute cher, on ne la prend que si elle va servir.
+		bool Demo3DHostRecTutoStart(int32 w, int32 h);
+		bool Demo3DHostRecTutoStop(bool keep);
+		bool Demo3DHostRecTutoActive();
+		void Demo3DHostRecTutoPause(bool on);
+		bool Demo3DHostRecTutoPaused();
+		int32 Demo3DHostRecTutoFrames();
+		int32 Demo3DHostRecTutoDropped();
+		const char *Demo3DHostRecTutoPath();
+		bool Demo3DHostRecTutoWants(float32 dt);
+		bool Demo3DHostRecTutoPush(const uint8 *rgba, int32 w, int32 h);
 		int32 Demo3DHostOutFastCount();
 		const char *Demo3DHostOutFastName(int32 i);
 		int32 Demo3DHostOutFastMask();
@@ -622,6 +641,11 @@ namespace nkentseu {
 		void Demo3DHostSetOutModes(int32 mask);
 		// VIDEO : la configuration se REGLE et se conserve, mais rien ne
 		// pretend l'executer -- le rendu viendra plus tard (decision de Rihen).
+		// QUALITE PROPRE A LA VIDEO : elle etait partagee avec l'image fixe,
+		// alors qu'une image livrable veut 95 et qu'une video de session tient
+		// tres bien a 75 en pesant trois fois moins.
+		int32 Demo3DHostOutVideoQuality();
+		void Demo3DHostSetOutVideoQuality(int32 q);
 		void Demo3DHostOutVideo(bool *on, int32 *fps, int32 *first, int32 *last, int32 *codec);
 		void Demo3DHostSetOutVideo(bool on, int32 fps, int32 first, int32 last, int32 codec);
 		// Prochain chemin libre, dans le DOSSIER et au FORMAT de la sortie.

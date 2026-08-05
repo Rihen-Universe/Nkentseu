@@ -69,7 +69,93 @@ namespace {
 	// « Tutoriel » : TOUTE la fenetre, interface comprise. PrintWindow avec
 	// PW_RENDERFULLCONTENT (2) demande a l'OS l'image COMPOSEE (le rendu D3D
 	// inclus) ; repli BitBlt si l'OS refuse. BGRA -> RGBA puis PNG via NkImage.
+	// La capture de fenetre rend ses PIXELS ici, dans `out` : l'enregistrement
+	// video en a besoin image par image, et sauver un PNG pour le relire aurait
+	// ete absurde. La version qui ecrit un fichier s'appuie dessus -- une seule
+	// facon de photographier la fenetre, donc un seul comportement a corriger.
+	// TAILLE REELLE de la fenetre a l'ecran, cadre compris -- exactement celle
+	// que produira la capture. Ouvrir un fichier video demande de connaitre
+	// cette taille AVANT la premiere image : la deviner de la surface de rendu
+	// donnerait un fichier qui ne correspond a rien.
+	bool NkCaptureWholeWindowSize(NkWindow &win, uint32 *outW, uint32 *outH) {
+		const NkSurfaceDesc sd = win.GetSurfaceDesc();
+		HWND hwnd = sd.hwnd;
+		if (!hwnd)
+			return false;
+		RECT rc{};
+		if (!GetWindowRect(hwnd, &rc))
+			return false;
+		const int32 w = rc.right - rc.left, h = rc.bottom - rc.top;
+		if (w <= 0 || h <= 0)
+			return false;
+		if (outW)
+			*outW = (uint32)w;
+		if (outH)
+			*outH = (uint32)h;
+		return true;
+	}
+
+	bool NkCaptureWholeWindowToImage(NkWindow &win, NkImage &out, int32 *outW, int32 *outH) {
+		const NkSurfaceDesc sd = win.GetSurfaceDesc();
+		HWND hwnd = sd.hwnd;
+		if (!hwnd)
+			return false;
+		RECT rc{};
+		if (!GetWindowRect(hwnd, &rc))
+			return false;
+		const int32 w = rc.right - rc.left, h = rc.bottom - rc.top;
+		if (w <= 0 || h <= 0)
+			return false;
+		if (outW)
+			*outW = w;
+		if (outH)
+			*outH = h;
+		HDC hdcWin = GetWindowDC(hwnd);
+		HDC hdcMem = CreateCompatibleDC(hdcWin);
+		BITMAPINFO bi{};
+		bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+		bi.bmiHeader.biWidth = w;
+		bi.bmiHeader.biHeight = -h; // negatif = origine en HAUT (ordre des lignes PNG)
+		bi.bmiHeader.biPlanes = 1;
+		bi.bmiHeader.biBitCount = 32;
+		bi.bmiHeader.biCompression = BI_RGB;
+		void *bits = nullptr;
+		HBITMAP hbmp = CreateDIBSection(hdcMem, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+		bool ok = false;
+		if (hbmp) {
+			HGDIOBJ old = SelectObject(hdcMem, hbmp);
+			ok = PrintWindow(hwnd, hdcMem, 2 /*PW_RENDERFULLCONTENT*/) != 0;
+			if (!ok)
+				ok = BitBlt(hdcMem, 0, 0, w, h, hdcWin, 0, 0, SRCCOPY | CAPTUREBLT) != 0;
+			if (ok && bits) {
+				ok = out.Create((uint32)w, (uint32)h, math::NkColor(0, 0, 0, 255), 4);
+				if (ok) {
+					const uint8 *src = (const uint8 *)bits;
+					uint8 *dst = out.Pixels();
+					for (int32 i = 0; i < w * h; ++i) { // BGRA -> RGBA, alpha opaque
+						dst[i * 4 + 0] = src[i * 4 + 2];
+						dst[i * 4 + 1] = src[i * 4 + 1];
+						dst[i * 4 + 2] = src[i * 4 + 0];
+						dst[i * 4 + 3] = 255;
+					}
+				}
+			}
+			SelectObject(hdcMem, old);
+			DeleteObject(hbmp);
+		}
+		DeleteDC(hdcMem);
+		ReleaseDC(hwnd, hdcWin);
+		return ok;
+	}
+
 	bool NkCaptureWholeWindow(NkWindow &win, const char *path) {
+		NkImage img;
+		if (!NkCaptureWholeWindowToImage(win, img, nullptr, nullptr))
+			return false;
+		return img.Save(path);
+	}
+
+	bool NkCaptureWholeWindowLegacy(NkWindow &win, const char *path) {
 		const NkSurfaceDesc sd = win.GetSurfaceDesc();
 		HWND hwnd = sd.hwnd;
 		if (!hwnd)
@@ -1362,6 +1448,42 @@ int nkmain(const NkEntryState &entry) {
 		renderer.BeginFrame();
 		renderer.SubmitDrawList(ui.dl, lastW, lastH);
 		renderer.EndFrame();
+
+		// ── ENREGISTREMENT DU TUTORIEL : LA FENETRE ENTIERE ─────────────────
+		// APRES EndFrame : c'est le seul moment ou la fenetre affiche l'image
+		// complete de cette frame. Avant, on photographierait la precedente.
+		// On ne photographie QUE si la cadence l'attend -- une capture d'ecran
+		// coute cher, la prendre pour la jeter ensuite serait absurde.
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
+		// Demande venue de l'interface : elle sait CE QU'ON VEUT, la boucle
+		// seule sait a QUELLE TAILLE la fenetre est reellement affichee -- et
+		// cette taille est indispensable pour ouvrir le fichier video.
+		if (st.tutoRecPending) {
+			const int32 rq = st.tutoRecPending;
+			st.tutoRecPending = 0;
+			if (rq == 1) {
+				uint32 fw = 0, fh = 0;
+				NkCaptureWholeWindowSize(window, &fw, &fh);
+				if (fw > 0 && fh > 0)
+					demo::Demo3DHostRecTutoStart((int32)fw, (int32)fh);
+			} else
+				demo::Demo3DHostRecTutoStop(rq == 2);
+		}
+		if (demo::Demo3DHostRecTutoActive()) {
+			static float64 sTutoLastNs = 0.0;
+			const float64 nowNs = (float64)::nkentseu::NkChrono::Now().nanoseconds;
+			float32 dtT = sTutoLastNs > 0.0 ? (float32)((nowNs - sTutoLastNs) / 1.0e9) : (1.f / 60.f);
+			sTutoLastNs = nowNs;
+			if (dtT <= 0.f || dtT > 0.25f)
+				dtT = 1.f / 60.f;
+			if (demo::Demo3DHostRecTutoWants(dtT)) {
+				NkImage shot;
+				int32 sw = 0, sh = 0;
+				if (NkCaptureWholeWindowToImage(window, shot, &sw, &sh) && shot.Pixels())
+					demo::Demo3DHostRecTutoPush((const uint8 *)shot.Pixels(), sw, sh);
+			}
+		}
+#endif
 
 		// ── CAPTURES, une fois l'image envoyee ──────────────────────────────
 		// « Capturer la vue » fige la cible hors ecran de la vue 3D (la scene

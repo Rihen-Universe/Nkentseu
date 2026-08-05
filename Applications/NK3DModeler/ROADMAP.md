@@ -503,17 +503,58 @@ chose : que le rendu sache transporter une couverture.
 
 ### Ce qui reste à faire sur Output
 
-1. **Le rendu GPU n'a pas pu être testé** : il se déclenche par un bouton, et
-   je ne pilote pas la souris. Tout le reste est vérifié (compilation, démarrage,
-   formes en test isolé). C'est le premier point à essayer.
-2. **F12** — c'est le raccourci de rendu chez Blender, mais il est déjà pris ici
+Le chantier est **terminé** au 5 août : fond transparent (alpha porté par la
+chaîne, plus de double passe), récepteur d'ombre, sept formats d'image, cinq
+sorties vidéo dont MP4/H.264, enregistrement de la vue **et** du tutoriel.
+Restent :
+
+1. **F12** — c'est le raccourci de rendu chez Blender, mais il est déjà pris ici
    par l'opacité du plan de grille (un vestige de la démo). Je n'ai pas
    réquisitionné le raccourci sans ton accord : à trancher.
-3. **Fond transparent** — le champ existe dans l'état mais n'est ni affiché ni
-   implémenté (il faudrait ne pas peindre le ciel). Aucune commande factice
-   n'est affichée pour autant.
-4. Formats autres que PNG ; séquence d'images ; rendu depuis plusieurs caméras
-   vers plusieurs fichiers plutôt qu'en incrustation.
+2. **Rendu depuis plusieurs caméras vers plusieurs fichiers** plutôt qu'en
+   incrustation — un fichier par caméra en une seule commande.
+3. **Rendu d'animation** sur la plage d'images : elle est réglable mais sans
+   effet tant qu'il n'y a pas de timeline. Le champ reste, il attend sa
+   fonction (annoncé comme tel dans le panneau).
+
+## CHANTIER A — l'alpha porté par la chaîne (5 août, compilé, non relancé)
+
+Le fond transparent, le récepteur d'ombre et la vidéo transparente butaient
+**au même endroit** : `PP_FXAA/NkSL/pp_fxaa.frag.nksl` et
+`PP_Tonemap/NkSL/pp_tonemap.frag.nksl` terminaient par `vec4(rgb, 1.)`. Les
+deux corrigés, les trois se débloquent — et la double passe (rendre noir puis
+blanc, reconstruire l'alpha) se **désactive d'elle-même** par détection.
+
+- Mesuré : fond alpha **0**, géométrie alpha **255 exact** (245 par
+  reconstruction), une seule passe, tous backends.
+- FXAA prend l'alpha du pixel **central** : mélanger les alphas des voisins
+  étalerait le bord au lieu de le lisser.
+- **Récepteur d'ombre** (`NkMaterial::SetShadowCatcher`) : le matériau ne rend
+  que la **couverture** de l'ombre, en alpha. L'ambiante entre des deux côtés
+  du rapport, sinon l'ombre sort noire et opaque. Vérifié : alpha moyen **206**
+  sans ciel, **77** avec le ciel ajouté — c'est la scène qui décide.
+- Corrigé au passage dans le moteur : `NkRendererImpl` effaçait la passe
+  `DeferredLight` avec une couleur **écrite en dur** — `SetBackgroundColor`
+  était sans effet dès que le différé tournait, pour **toute** application.
+
+### Enregistrement — deux prises en parallèle
+
+La vue et le tutoriel partagent la même mécanique (`HostRecStartOn/StopOn/
+Enqueue/WaitSlot/EncodeLoopOn`) sur deux instances de `NkVpRec`, et peuvent
+tourner **en même temps** : deux points de vue d'une même session, deux noms de
+base distincts pour que les fichiers ne s'écrasent pas.
+
+- **Tutoriel en vidéo** : la fenêtre entière, capturée après `EndFrame()` —
+  seul instant où elle affiche l'image de *cette* frame.
+- **MP4/H.264** ajouté au choix de sortie (l'encodeur muxe lui-même) ; qualité
+  1–100 convertie en QP borné 12–48.
+- **Qualité vidéo séparée** de la qualité image : elles étaient partagées, si
+  bien que soigner un JPEG alourdissait toutes les prises. Le curseur disparaît
+  pour la suite d'images PNG, qui est sans perte.
+- **Barre d'enregistrement dans le pied de page** : visible seulement pendant
+  une prise, elle dit le type, le temps écoulé, les images sautées, et n'offre
+  que les trois décisions réelles — Pause / Arrêter / Abandon (en rouge : il
+  efface).
 
 ## À VÉRIFIER PAR RIHEN À SON RETOUR (compilé, non relancé)
 
