@@ -2688,11 +2688,12 @@ namespace nkentseu {
 				//   .x = receiveShadow (default 1.0 = receive)
 				//   .y = castShadowAlphaTest (V1 reserve)
 				//   .z = shadowBiasMul (default 1.0)
-				//   .w = reserve
+				//   .w = shadowCatcher (2026-08-05) : la surface ne se peint PAS,
+				//        elle ne rend que l'OMBRE qu'elle recoit, en couverture.
 				if (matInst) {
 					ob.shadowOverrides =
 						NkVec4f{matInst->mReceiveShadow ? 1.f : 0.f, matInst->mCastShadowAlphaTest ? 1.f : 0.f,
-								matInst->mShadowBiasMul, 0.f};
+								matInst->mShadowBiasMul, matInst->mShadowCatcher ? 1.f : 0.f};
 				} else {
 					ob.shadowOverrides = NkVec4f{1.f, 0.f, 1.f, 0.f};
 				}
