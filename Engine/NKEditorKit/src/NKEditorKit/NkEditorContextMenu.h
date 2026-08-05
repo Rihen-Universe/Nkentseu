@@ -172,7 +172,9 @@ namespace nkentseu {
 			// ── Bande de recherche ANCREE : dessinee AVANT le clip de la liste, donc
 			// jamais rognee ni deplacee par le defilement.
 			if (avecFiltre) {
-				const NkRect fr = {box.x + 4.f, box.y + 4.f, box.w - 8.f, searchH - 8.f};
+				// On retire la gouttiere : `box.w` l'inclut, donc sans cela le champ
+				// passait DESSOUS et les deux se chevauchaient.
+				const NkRect fr = {box.x + 4.f, box.y + 4.f, box.w - 8.f - (hasV ? sbT : 0.f), searchH - 8.f};
 				const bool inField = m.x >= fr.x && m.x < fr.x + fr.w && m.y >= fr.y && m.y < fr.y + fr.h;
 				if (filterFocus && inField && ctx.input.mouseClicked[0])
 					*filterFocus = true;
