@@ -26,6 +26,40 @@ namespace nkentseu {
 			return "0.1.0-beta.3";
 		}
 
+		// ── Horodatage de BUILD (« JJ/MM ») ──────────────────────────────────────
+		// Une release peut etre REPUBLIEE sous le meme tag : deux binaires
+		// differents portent alors la meme version, et un rapport de bug devient
+		// inexploitable — impossible de savoir lequel le testeur utilisait. Cet
+		// horodatage, affiche a cote de la version, leve l'ambiguite sans toucher
+		// ni au tag ni aux noms de fichiers.
+		//
+		// Derive de __DATE__ (« Mmm jj aaaa ») : automatique, aucune plomberie de
+		// build. Reserve : __DATE__ vaut la date de compilation de CETTE unite ;
+		// sur un build incremental ou elle n'est pas recompilee, l'horodatage peut
+		// dater. Les distributions etant produites par un build Release complet,
+		// c'est sans consequence la ou ca compte.
+		inline const char *NkCodeBuildStamp() {
+			static char s[8] = {};
+			if (!s[0]) {
+				const char *d = __DATE__;
+				const char *mois = "JanFebMarAprMayJunJulAugSepOctNovDec";
+				int32 mo = 0;
+				for (int32 i = 0; i < 12; ++i)
+					if (d[0] == mois[i * 3] && d[1] == mois[i * 3 + 1] && d[2] == mois[i * 3 + 2]) {
+						mo = i + 1;
+						break;
+					}
+				const int32 j = (d[4] == ' ') ? (d[5] - '0') : ((d[4] - '0') * 10 + (d[5] - '0'));
+				s[0] = static_cast<char>('0' + j / 10);
+				s[1] = static_cast<char>('0' + j % 10);
+				s[2] = '/';
+				s[3] = static_cast<char>('0' + mo / 10);
+				s[4] = static_cast<char>('0' + mo % 10);
+				s[5] = '\0';
+			}
+			return s;
+		}
+
 		// ── Palette (tokens Banani) ──────────────────────────────────────────────
 		// MUTABLE (pas constexpr) : le thème actif (Paramètres > Thème) réécrit ces
 		// valeurs à chaud via NkApplyTheme(). Tout le dessin lit NkCol::X chaque frame.
