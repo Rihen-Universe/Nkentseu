@@ -14,6 +14,7 @@
 #include "NKCode/Project/NkCodeState.h"
 #include "NKCode/Shell/NkUi.h"
 #include "NKCode/Shell/NkOpenWs.h" // NkOwIco
+#include "NKCode/Shell/NkIdeBridge.h" // pont IDE (contexte temps reel)
 #include "NKCode/Shell/NkI18n.h"   // NkT
 #include "NKContainers/String/NkFormat.h" // NkPrintf (formatage maison)
 
@@ -49,6 +50,17 @@ namespace nkentseu {
 		inline void DrawCodeToolbar(NkEditorFrameContext &ec, NkCodeState *s) {
 			if (!s)
 				return;
+			// ── Pont IDE (contexte TEMPS REEL pour l'agent) ────────────────────
+			// Ancre dans la BARRE D'OUTILS, dessinee a chaque frame : un panneau
+			// ancre qui n'est pas l'onglet actif ne recoit pas OnUI, et le pont
+			// gelait des que l'utilisateur regardait ailleurs — le serveur ecoutait
+			// sans jamais repondre.
+			{
+				static NkIdeBridge s_ide;
+				if (!s_ide.Running() && s->HasWorkspace())
+					s_ide.Start(s);
+				s_ide.Tick();
+			}
 			s->ScanWorkspaces();
 			s->TickWatch(ec.dt);
 			s->LoadProjects();
