@@ -34,16 +34,36 @@ namespace nkentseu {
 
 		bool NkWebSocketServer::Start(uint16 port) noexcept {
 			Stop();
+			// Winsock EXIGE WSAStartup avant tout appel socket ; sans lui, socket()
+			// echoue en boucle. PlatformInit() s'en charge et est idempotent : on
+			// l'appelle ici plutot que d'exiger de l'appelant qu'il y pense — un
+			// serveur qui ne demarre pas doit etre la faute du serveur, pas d'un
+			// prerequis non documente a l'endroit ou on l'utilise.
+			(void)NkSocket::PlatformInit();
 			// LOOPBACK uniquement : ce canal expose l'etat de l'editeur (fichier
 			// ouvert, selection, diagnostics). Il n'a rien a faire sur le reseau.
-			const NkAddress addr(127, 0, 0, 1, port);
-			if (mListen.Create(addr, NkSocket::Type::NK_TCP) != NkNetResult::NK_NET_OK)
+			// Port 0 = « que l'OS choisisse » — MAIS NkSocket::GetLocalAddr() renvoie
+			// l'adresse DEMANDEE, pas celle attribuee (pas de getsockname), et le port
+			// resterait donc a 0. Or ce port doit etre publie : c'est par lui que le
+			// client nous trouve. On BALAYE donc une plage et on garde le premier port
+			// libre — celui qu'on connait est alors celui qu'on ecoute.
+			const uint16 premier = (port != 0) ? port : static_cast<uint16>(42000);
+			const uint16 dernier = (port != 0) ? port : static_cast<uint16>(42099);
+			bool ouvert = false;
+			for (uint16 p = premier; p <= dernier; ++p) {
+				const NkAddress addr(127, 0, 0, 1, p);
+				if (mListen.Create(addr, NkSocket::Type::NK_TCP) != NkNetResult::NK_NET_OK)
+					continue; // port occupe : on essaie le suivant
+				if (mListen.SetNonBlocking(true) != NkNetResult::NK_NET_OK || mListen.Listen(4) != NkNetResult::NK_NET_OK) {
+					mListen.Close();
+					continue;
+				}
+				mPort = p;
+				ouvert = true;
+				break;
+			}
+			if (!ouvert)
 				return false;
-			if (mListen.SetNonBlocking(true) != NkNetResult::NK_NET_OK)
-				return false;
-			if (mListen.Listen(4) != NkNetResult::NK_NET_OK)
-				return false;
-			mPort = mListen.GetLocalAddr().Port();
 			mRunning = true;
 			return true;
 		}
@@ -246,8 +266,22 @@ namespace nkentseu {
 			for (;;) {
 				uint32 got = 0;
 				const NkNetResult r = mClient.Recv(buf, static_cast<uint32>(sizeof(buf)), got);
+				// En TCP, une reception de ZERO octet SANS erreur signifie que le pair
+				// a ferme. Sans cette distinction, le serveur croyait un client encore
+				// present pour toujours et n'en acceptait plus jamais d'autre : la
+				// premiere deconnexion le rendait sourd.
+				// NK_NET_NOT_CONNECTED = fermeture ordonnee du pair (distinct de
+				// « rien a lire », qui rend OK avec 0 octet).
+				if (r == NkNetResult::NK_NET_NOT_CONNECTED) {
+					mClient.Close();
+					mHasClient = false;
+					mHandshakeDone = false;
+					mRxRaw.Clear();
+					mFragment.Clear();
+					return;
+				}
 				if (r != NkNetResult::NK_NET_OK || got == 0)
-					break; // plus rien de disponible (socket non bloquante)
+					break; // rien de disponible pour l'instant (socket non bloquante)
 				for (uint32 i = 0; i < got; ++i)
 					mRxRaw.PushBack(buf[i]);
 			}
