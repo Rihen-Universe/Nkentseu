@@ -207,8 +207,11 @@ namespace nkentseu {
 			const float32 fy = r.y + r.h - u.s(44);
 			u.Rect({r.x, fy - u.s(8), r.w, 1.f}, NkCol::border);
 			u.Text(r.x + u.s(16), fy, "IDE", NkCol::mutedFg);
-			const char *ideV = NkCodeVersion();
-			u.Text(r.x + r.w - u.s(16) - u.TextW(ideV), fy, ideV, NkCol::mutedFg);
+			// Version + horodatage de build. Une release republiee sous le MEME tag
+			// donne deux binaires distincts portant la meme version : sans cette
+			// date, un rapport de bug ne dit pas lequel etait installe.
+			const NkString ideV = NkString(NkCodeVersion()) + " (" + NkCodeBuildStamp() + ")";
+			u.Text(r.x + r.w - u.s(16) - u.TextW(ideV.CStr()), fy, ideV.CStr(), NkCol::mutedFg);
 			u.Text(r.x + u.s(16), fy + u.s(16), "Jenga", NkCol::mutedFg);
 			// « … » tant que la detection asynchrone n'a pas repondu ; « n/d » si Jenga
 			// est introuvable (aucune version a afficher, on ne l'invente pas).

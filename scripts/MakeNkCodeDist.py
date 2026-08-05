@@ -142,7 +142,7 @@ def ReadNkCodeVersion() -> str:
     return "0.0.0"
 
 
-def MakeInnoInstaller(distDir: Path, outDir: Path, config: str) -> None:
+def MakeInnoInstaller(distDir: Path, outDir: Path, config: str, withCompiler: bool = True) -> None:
     """Écrit un script Inno Setup pour la distribution assemblée, puis le
     compile si ISCC est disponible.
 
@@ -155,10 +155,18 @@ def MakeInnoInstaller(distDir: Path, outDir: Path, config: str) -> None:
     """
     version = ReadNkCodeVersion()
     iss = outDir / "NKCode.iss"
-    setupBase = f"NKCode-{version}-win64-setup"
+    # Les DEUX variantes (avec/sans compilateur embarque) ecrivaient le MEME
+    # nom : construire la complete apres la legere ECRASAIT silencieusement
+    # cette derniere, et le suffixe « -complet » n'existait que par renommage
+    # manuel. Le nom porte desormais la difference.
+    setupBase = f"NKCode-{version}-win64-setup" + ("-complet" if withCompiler else "")
     # PrivilegesRequired=lowest : installation par UTILISATEUR (pas d'UAC) ->
     # un testeur sans droits admin peut installer. DisableProgramGroupPage :
     # moins de questions, l'installation doit rester triviale.
+    # Guillemets construits HORS du f-string : ecrits en clair, une sequence de
+    # trois guillemets fermerait le litteral (cf. section [Registry]).
+    _Q2 = chr(34) * 2
+    _Q3 = chr(34) * 3
     iss.write_text(f"""; Script Inno Setup GENERE par scripts/MakeNkCodeDist.py — ne pas editer a la main.
 ; NKCode {version} ({config}) — editeur : Rihen
 [Setup]
@@ -213,14 +221,19 @@ Name: "{{autodesktop}}\\NKCode"; Filename: "{{app}}\\NKCode.exe"; WorkingDir: "{
 ; %V le dossier courant. Les intervertir ouvre le mauvais dossier, ou rien.
 ;
 ; uninstalldelete{{key}} : sans cela, les entrees survivent a la desinstallation.
+;
+; Les guillemets des commandes passent par _Q2 / _Q3, construits hors de ce
+; f-string. Inno exige des guillemets DOUBLES internes autour du chemin et de
+; l'argument ; ecrite en clair, la sequence de trois guillemets FERMERAIT le
+; litteral Python (SyntaxError constatee).
 Root: HKCU; Subkey: "Software\\Classes\\Directory\\shell\\NKCode"; ValueType: string; ValueData: "Ouvrir avec NKCode"; Flags: uninsdeletekey; Tasks: contextmenu
 Root: HKCU; Subkey: "Software\\Classes\\Directory\\shell\\NKCode"; ValueType: string; ValueName: "Icon"; ValueData: "{{app}}\\NKCode.exe,0"; Tasks: contextmenu
-Root: HKCU; Subkey: "Software\\Classes\\Directory\\shell\\NKCode\\command"; ValueType: string; ValueData: """{{app}}\\NKCode.exe"" ""%1"""; Flags: uninsdeletekey; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\\Classes\\Directory\\shell\\NKCode\\command"; ValueType: string; ValueData: {_Q3}{{app}}\\NKCode.exe{_Q2} {_Q2}%1{_Q3}; Flags: uninsdeletekey; Tasks: contextmenu
 Root: HKCU; Subkey: "Software\\Classes\\Directory\\Background\\shell\\NKCode"; ValueType: string; ValueData: "Ouvrir avec NKCode"; Flags: uninsdeletekey; Tasks: contextmenu
 Root: HKCU; Subkey: "Software\\Classes\\Directory\\Background\\shell\\NKCode"; ValueType: string; ValueName: "Icon"; ValueData: "{{app}}\\NKCode.exe,0"; Tasks: contextmenu
-Root: HKCU; Subkey: "Software\\Classes\\Directory\\Background\\shell\\NKCode\\command"; ValueType: string; ValueData: """{{app}}\\NKCode.exe"" ""%V"""; Flags: uninsdeletekey; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\\Classes\\Directory\\Background\\shell\\NKCode\\command"; ValueType: string; ValueData: {_Q3}{{app}}\\NKCode.exe{_Q2} {_Q2}%V{_Q3}; Flags: uninsdeletekey; Tasks: contextmenu
 Root: HKCU; Subkey: "Software\\Classes\\Drive\\shell\\NKCode"; ValueType: string; ValueData: "Ouvrir avec NKCode"; Flags: uninsdeletekey; Tasks: contextmenu
-Root: HKCU; Subkey: "Software\\Classes\\Drive\\shell\\NKCode\\command"; ValueType: string; ValueData: """{{app}}\\NKCode.exe"" ""%V"""; Flags: uninsdeletekey; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\\Classes\\Drive\\shell\\NKCode\\command"; ValueType: string; ValueData: {_Q3}{{app}}\\NKCode.exe{_Q2} {_Q2}%V{_Q3}; Flags: uninsdeletekey; Tasks: contextmenu
 
 [Run]
 ; WorkingDir explicite : les ressources data/ et tools/ sont resolues a cote de
@@ -378,7 +391,7 @@ def Main() -> int:
         Log(f"tar.xz (LZMA, ~2x plus petit que zip ; Windows 11/7-Zip l'ouvrent) -> {xpath}.tar.xz")
         shutil.make_archive(str(xpath), "xztar", Path(args.out), "NKCode")
     if args.installer:
-        MakeInnoInstaller(out, Path(args.out), args.config)
+        MakeInnoInstaller(out, Path(args.out), args.config, withCompiler=not args.skip_compiler)
 
     Log(f"OK : {out}")
     Log("Test : lancer dist/NKCode/NKCode.exe sur une machine SANS Python ni compilateur.")
