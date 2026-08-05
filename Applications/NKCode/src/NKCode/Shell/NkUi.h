@@ -549,6 +549,42 @@ namespace nkentseu {
 				}
 		};
 
+		// Kind d'un projet (colonne Kind de `jenga info`) -> icone. Reutilise CELLES
+		// de l'assistant de creation de projet : deja chargees, et deja associees a
+		// ces memes notions (terminal, fenetre, archive, lien). 0 = pas d'icone pour
+		// ce Kind -> l'appelant retombe sur le nom en toutes lettres, ce qui garde
+		// lisible un Kind ajoute plus tard sans toucher a l'interface.
+		inline uint32 NkKindTex(const NkIcons *ic, const char *kind) {
+			if (!ic || !kind || !*kind)
+				return 0;
+			// Recherche de sous-chaine LOCALE : NkUi.h est une couche basse (tokens de
+			// design), elle ne doit pas dependre d'un en-tete applicatif comme NkText.h.
+			auto contient = [kind](const char *motif) -> bool {
+				for (const char *h = kind; *h; ++h) {
+					const char *a = h;
+					const char *b = motif;
+					while (*a && *b && *a == *b) {
+						++a;
+						++b;
+					}
+					if (!*b)
+						return true;
+				}
+				return false;
+			};
+			if (contient("Console"))
+				return ic->kConsole;
+			if (contient("Windowed"))
+				return ic->kWindowed;
+			if (contient("Static"))
+				return ic->kStatic;
+			if (contient("Shared"))
+				return ic->kShared;
+			if (contient("Test"))
+				return ic->kTest;
+			return 0;
+		}
+
 		inline void NkDrawIcon(const NkUi &u, uint32 tex, const NkRect &r, const NkColor &tint) {
 			if (tex)
 				u.dl->AddImage(tex, r, {0, 0}, {1, 1}, tint);

@@ -137,13 +137,23 @@ namespace nkentseu {
 				// (NkCtxMenuDraw). À appeler juste APRÈS OpenContextMenu. Le choix arrive via
 				// TakeContextMenuChoice() == item, puis TakeContextMenuSubChoice() = index
 				// dans `subItems`. Un seul item à sous-menu par menu.
-				void SetContextSubmenu(int32 item, const char *const *subItems, int32 count) noexcept {
+				// `subIcons` (optionnel) : une texture par entree, dessinee a gauche du
+				// libelle. Au-dela de 8 entrees, le sous-menu affiche AUSSI une barre de
+				// recherche ancree — meme presentation que le combo de la barre d'outils,
+				// pour qu'une liste de projets se parcoure de la meme facon partout.
+				void SetContextSubmenu(int32 item, const char *const *subItems, int32 count,
+									   const uint32 *subIcons = nullptr) noexcept {
 					mCtxSubItem = item;
 					mCtxSubItems.Clear();
-					for (int32 i = 0; i < count; ++i)
+					mCtxSubIcons.Clear();
+					for (int32 i = 0; i < count; ++i) {
 						mCtxSubItems.PushBack(nkentseu::NkString(subItems[i] ? subItems[i] : ""));
+						mCtxSubIcons.PushBack(subIcons ? subIcons[i] : 0u);
+					}
 					mCtxSub = NkCtxMenu{};
 					mCtxSubChoice = -1;
+					mCtxSubFilter[0] = ' ';
+					mCtxSubFilterFocus = true; // on peut taper des l'ouverture
 				}
 				int32 TakeContextMenuChoice() noexcept {
 					const int32 c = mCtxChoice;
@@ -517,7 +527,10 @@ namespace nkentseu {
 				int32 mCtxSubItem = -1;	  ///< item parent (▸) ; -1 = pas de sous-menu
 				int32 mCtxSubChoice = -1; ///< index choisi dans le sous-menu (avec mCtxChoice)
 				nkentseu::NkVector<nkentseu::NkString> mCtxSubItems;
-				NkCtxMenu mCtxSub; ///< état du sous-menu (position/scroll, NkCtxMenuDraw)
+				NkCtxMenu mCtxSub;
+				nkentseu::NkVector<uint32> mCtxSubIcons; // icones du sous-menu (0 = aucune)
+				char mCtxSubFilter[64] = {};             // filtre du sous-menu (barre ancree)
+				bool mCtxSubFilterFocus = false; ///< état du sous-menu (position/scroll, NkCtxMenuDraw)
 				void DrawContextMenu() noexcept;
 				// Sélecteur fichier/dossier générique (modal).
 				void (*mActivityFn)(void *, int32) = nullptr; // handler app du clic activity bar
