@@ -393,7 +393,8 @@ namespace nkentseu {
 					  // titre humain "Sonnet"/"Opus"/... pour Claude Code, cf. ClaudeModelTitles)
 						int32 nModels = 0;
 						const char *const *models = mKind == 1 ? ClaudeModelTitles(nModels) : kModels(nModels);
-						const char *cur = models[mModelIdx < nModels ? mModelIdx : 0];
+						const NkString curStr = ModelPillLabel(models[mModelIdx < nModels ? mModelIdx : 0]);
+						const char *cur = curStr.CStr();
 						const float32 chevW = ctx.S(14.f);
 						// La largeur suivait le TEXTE, sans jamais regarder la place restante :
 						// en retrecissant le panneau, la pilule passait sous les boutons puis
@@ -673,6 +674,12 @@ namespace nkentseu {
 				double mLastCostUsd = 0.0; // cout de la DERNIERE requete (ephemere, pas persiste)
 				int32 mLastTokIn = 0, mLastTokOut = 0;
 				NkString mClaudeCurModel; // "message.model" du tour Claude Code EN COURS
+				// Modele REELLEMENT resolu par le CLI, annonce dans system/init. Le CLI
+				// n'expose AUCUNE liste des modeles ouverts au compte (verifie : ni dans
+				// system/init, ni en sous-commande, et /model est interactif uniquement) —
+				// on ne peut donc pas peupler le picker depuis le compte. Ce qu'on peut
+				// faire, et qui est vrai, c'est montrer ce qu'il a choisi POUR DE BON.
+				NkString mClaudeInitModel;
 
 				bool mUsageOpen = false; // popover "Compte et utilisation" ouvert
 				// Bac a sable du CLI. Noms releves DANS le binaire (--sandbox/--no-sandbox,
@@ -2808,7 +2815,8 @@ namespace nkentseu {
 					};
 					int32 nModels = 0;
 					const char *const *models = mKind == 1 ? ClaudeModelTitles(nModels) : kModels(nModels);
-					const char *curModel = models[mModelIdx < nModels ? mModelIdx : 0];
+					const NkString curModelStr = ModelPillLabel(models[mModelIdx < nModels ? mModelIdx : 0]);
+					const char *curModel = curModelStr.CStr();
 					const NkString effLblStr = NkPrintf("%d/%d", mEffort + 1, (int32)kEffortLevels);
 					const char *effLbl = effLblStr.CStr();
 					Group groups[6] = {
@@ -2825,13 +2833,13 @@ namespace nkentseu {
 						  {NkString(NkT("ai.act.autoswitch")), 1, nullptr, 13},
 						  {NkString(NkT("ai.act.account")), 0, nullptr, 14},
 						  {NkString(NkT("ai.act.accounts")), 0, nullptr, 15}},
-						 5},
+						 6},
 						{NkT("ai.grp.customize"),
 						 {{NkString(NkT("ai.act.mcp")), 0, nullptr, 20}, {NkString(NkT("ai.act.plugins")), 0, nullptr, 21},
 						  {NkString(NkT("ai.act.installcli")), 0, nullptr, 23},
 						  {NkString(NkT("ai.act.sandbox")), 1, nullptr, 24},
 						  {NkString(NkT("ai.act.openterm")), 0, nullptr, 22}},
-						 3},
+						 5},
 						{NkT("ai.grp.slash"), {}, 0}, // rempli dynamiquement (kSlash) plus bas
 						{NkT("ai.grp.settings"),
 						 {{NkString(NkT("ai.act.switchaccount")), 0, nullptr, 40},
@@ -3041,7 +3049,7 @@ namespace nkentseu {
 							mEffort = (mEffort + 1) % 3;
 						} else if (clicked == 14) { // Compte et utilisation -> popover REEL (rate_limit_event)
 							OpenUsagePopover();
-						} else if (clicked == 15) { // Comptes Claude Code -> popover dedie
+						} else if (clicked == 15 || clicked == 40) { // Comptes -> popover dedie
 							mAccountsOpen = true;
 							mAccAdding = false;
 							mAccError = NkString();
@@ -3366,6 +3374,45 @@ namespace nkentseu {
 				// `static` REMPLI À CHAQUE APPEL (pas figé) : évite le piège de verrouillage de
 				// langue déjà rencontré sur ModeOptionsFor/ModeDescFor (NkT() doit être
 				// ré-évalué à chaque frame pour suivre un changement de langue à chaud). ──
+				// Libelle affiche dans la pilule de modele. Pour Claude Code, quand le choix
+				// est « Defaut », le titre seul n'apprend rien : on y accole le modele que le
+				// CLI a REELLEMENT resolu (system/init) des qu'on le connait. Donnee reelle,
+				// jamais devinee — tant qu'aucune session n'a demarre, on n'accole rien.
+				NkString ModelPillLabel(const char *titre) const {
+					if (mKind != 1 || mModelIdx != 0 || mClaudeInitModel.Empty())
+						return NkString(titre);
+					return NkPrintf("%s (%s)", titre, ShortModelName(mClaudeInitModel).CStr());
+				}
+				// « claude-fable-5 » -> « Fable 5 ». Repli HONNETE sur l'identifiant brut si
+				// la forme ne correspond pas : mieux vaut un nom technique qu'un faux nom.
+				static NkString ShortModelName(const NkString &id) {
+					struct P {
+							const char *cle;
+							const char *nom;
+					};
+					const P table[] = {{"fable", "Fable"},   {"mythos", "Mythos"}, {"opus", "Opus"},
+									   {"sonnet", "Sonnet"}, {"haiku", "Haiku"}};
+					const char *t = id.CStr();
+					for (usize i = 0; i < sizeof(table) / sizeof(table[0]); ++i) {
+						if (!NkFindSub(t, table[i].cle))
+							continue;
+						// Version : le premier groupe de chiffres apres la famille.
+						const char *p = NkFindSub(t, table[i].cle);
+						NkString ver;
+						for (const char *q = p; *q; ++q) {
+							if (*q >= '0' && *q <= '9') {
+								ver += *q;
+								if (q[1] == '-' && q[2] >= '0' && q[2] <= '9')
+									ver += '.';
+							} else if (!ver.Empty() && *q != '-') {
+								break;
+							}
+						}
+						return ver.Empty() ? NkString(table[i].nom) : NkPrintf("%s %s", table[i].nom, ver.CStr());
+					}
+					return id;
+				}
+
 				const char *const *ClaudeModelTitles(int32 &n) const {
 					const char *fresh[5] = {NkT("ai.model.default"), NkT("ai.model.sonnet"), NkT("ai.model.opus"),
 											NkT("ai.model.fable"), NkT("ai.model.haiku")};
@@ -4805,6 +4852,11 @@ namespace nkentseu {
 							const NkJsonVal *sidV = doc.Member(root, "session_id");
 							if (sidV && sidV->kind == 3)
 								chat.claudeSessionId = sidV->str;
+							// « Defaut » ne disait rien : selon le compte et le forfait, le CLI
+							// resout un modele different. On affiche celui qu'il annonce.
+							const NkJsonVal *mdlV = doc.Member(root, "model");
+							if (mdlV && mdlV->kind == 3)
+								mClaudeInitModel = mdlV->str;
 						}
 					} else if (typeV->str == "rate_limit_event") {
 						// ── UTILISATION REELLE (protocole du CLI, verifie empiriquement le 20
