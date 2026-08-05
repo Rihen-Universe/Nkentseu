@@ -749,9 +749,9 @@ namespace nkentseu {
 				// ── Bande de recherche ANCREE : dessinee AVANT le clip de la liste,
 				// donc jamais rognee ni deplacee par le defilement.
 				if (avecFiltre) {
-					// La largeur retire sbW : `dd.w` inclut la gouttiere de defilement, donc
-					// sans cela le champ passait DESSOUS et les deux se chevauchaient.
-					const NkRect fr = {dd.x + u.s(4), dd.y + u.s(4), dd.w - u.s(8) - sbW, searchH - u.s(6)};
+					// TOUTE la largeur : la gouttiere demarre SOUS la bande de recherche,
+					// donc rien ne l'occupe ici — inutile de lui reserver sa place.
+					const NkRect fr = {dd.x + u.s(4), dd.y + u.s(4), dd.w - u.s(8), searchH - u.s(6)};
 					if (u.Hit(fr) && u.click)
 						tb.filterFocus = true;
 					editorkit::NkOverlayTextField(ec.Ui(), *uo.dl, ec.Ui().font, fr, tb.filter,
