@@ -41,27 +41,6 @@ namespace nkentseu {
 				bool filterFocus = false;
 		};
 
-		// Kind d'un projet (colonne Kind de `jenga info`) -> icone. Reutilise CELLES
-		// de l'assistant de creation de projet : deja chargees, et deja associees a
-		// ces memes notions (terminal, fenetre, archive, lien). 0 = pas d'icone pour
-		// ce Kind -> l'appelant retombe sur le nom en toutes lettres, ce qui garde
-		// lisible un Kind ajoute plus tard sans toucher a l'interface.
-		inline uint32 NkKindTex(const NkIcons *ic, const char *kind) {
-			if (!ic || !kind || !*kind)
-				return 0;
-			if (NkFindSub(kind, "Console"))
-				return ic->kConsole;
-			if (NkFindSub(kind, "Windowed"))
-				return ic->kWindowed;
-			if (NkFindSub(kind, "Static"))
-				return ic->kStatic;
-			if (NkFindSub(kind, "Shared"))
-				return ic->kShared;
-			if (NkFindSub(kind, "Test"))
-				return ic->kTest;
-			return 0;
-		}
-
 		inline NkTbState &NkTb() {
 			static NkTbState s;
 			return s;

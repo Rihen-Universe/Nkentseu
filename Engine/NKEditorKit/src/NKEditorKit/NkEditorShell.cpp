@@ -1867,11 +1867,17 @@ namespace nkentseu {
 					sn = 256;
 				const char *sitems[256];
 				bool sen[256];
+				uint32 sico[256];
 				for (int32 i = 0; i < sn; ++i) {
 					sitems[i] = mCtxSubItems[static_cast<usize>(i)].CStr();
 					sen[i] = true;
+					sico[i] = (static_cast<usize>(i) < mCtxSubIcons.Size()) ? mCtxSubIcons[static_cast<usize>(i)] : 0u;
 				}
-				const int32 act = NkCtxMenuDraw(mUI, mCtxSub, sitems, sen, sn);
+				// Icones + barre de recherche ancree : une liste de projets se parcourt
+				// ici exactement comme dans le combo de la barre d'outils.
+				const int32 act = NkCtxMenuDraw(mUI, mCtxSub, sitems, sen, sn, nullptr, nullptr, sico,
+												mCtxSubFilter, static_cast<int32>(sizeof(mCtxSubFilter)),
+												&mCtxSubFilterFocus);
 				if (act >= 0) {
 					mCtxChoice = mCtxSubItem; // le choix = (item parent, index du sous-menu)
 					mCtxSubChoice = act;
