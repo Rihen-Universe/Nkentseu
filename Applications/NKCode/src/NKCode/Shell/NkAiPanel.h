@@ -292,7 +292,12 @@ namespace nkentseu {
 					// (2) crayon + Mode/Portée/Édition + envoi. Absente hors de la vue Chat (les
 					// onglets Génération/Revue ont leur propre bouton d'action, pas de saisie libre).
 					const float32 toolRowH = ctx.ItemHeight() + ctx.S(10.f);
-					const float32 toolH = chatView ? (toolRowH * 2.f) : 0.f;
+					// La rangee des fichiers attaches ne coute plus rien quand elle est VIDE :
+					// elle reservait une ligne pleine en permanence, soit une bande morte sous
+					// la conversation dans le cas le plus courant (retour de Rihen). Quand elle
+					// sert, elle est plus BASSE qu'une rangee d'outils — un chip n'a pas besoin
+					// de la hauteur d'un bouton.
+					const float32 toolH = chatView ? (toolRowH + ChipsRowH(ctx)) : 0.f;
 					// Zone de saisie qui GRANDIT avec le texte (façon VSCode/Claude Code), bornée à 6 lignes.
 					const float32 inInnerW = r.w - ctx.S(24.f);
 					const int32 inRows = InputRows(ctx, inInnerW);
@@ -390,9 +395,19 @@ namespace nkentseu {
 						const char *const *models = mKind == 1 ? ClaudeModelTitles(nModels) : kModels(nModels);
 						const char *cur = models[mModelIdx < nModels ? mModelIdx : 0];
 						const float32 chevW = ctx.S(14.f);
-						const float32 pw = measure(cur) + ctx.S(20.f) + chevW;
+						// La largeur suivait le TEXTE, sans jamais regarder la place restante :
+						// en retrecissant le panneau, la pilule passait sous les boutons puis
+						// sortait a gauche. On la borne a l'espace REELLEMENT libre entre le
+						// logo et le premier bouton, et on laisse l'ellipse faire le reste.
+						const float32 gauche = hdr.x + pad + ctx.S(18.f) + ctx.S(6.f); // apres le logo
+						float32 dispo = rx - gauche;
+						if (dispo < ctx.S(46.f))
+							dispo = ctx.S(46.f); // en dessous, le chevron seul ne se lit plus
+						float32 pw = measure(cur) + ctx.S(20.f) + chevW;
+						if (pw > dispo)
+							pw = dispo;
 						NkComboButton(ctx, dl, font, rx - pw, hcy, 0, nullptr, cur, 1, mComboOpen, mModelAnchor, kChip,
-								 ctx.theme.buttonHover, ctx.theme.text); // largeur = pw (identique)
+									  ctx.theme.buttonHover, ctx.theme.text, /*maxW=*/dispo);
 					}
 
 					// ══ Onglets (Assistant général UNIQUEMENT) : Chat / Génération de Code / Revue de
@@ -490,9 +505,9 @@ namespace nkentseu {
 									ctx.theme.buttonHover);
 					}
 					if (mPropsOpen)
-						DrawPropsPopover(ctx, kViolet);
+						DrawPropsPopover(ctx, r, kViolet);
 					if (mChatListOpen)
-						DrawChatListMenu(ctx, kViolet);
+						DrawChatListMenu(ctx, r, kViolet);
 					if (mPlusOpen)
 						DrawPlusMenu(ctx, r);
 					if (mActionsOpen)
@@ -2172,11 +2187,29 @@ namespace nkentseu {
 				// ── Chips de contexte : fichier:ligne (✕) + bouton (+). Dessine à partir
 				//    de `x0` (comme ComboPill) et renvoie le nouveau `x` — s'enchaîne dans la barre
 				//    d'outils du bas avec les combos Mode/Portée/Édition. ──
-				float32 DrawChips(NkGuiContext &ctx, float32 x0, float32 cy, NkIcons *ic, const NkColor &chip) {
+				// Largeur d'une surface flottante : celle qu'on VOUDRAIT, mais jamais plus
+				// large que le panneau qui l'accueille. Les popovers figeaient leur largeur et
+				// ne corrigeaient que leur X : en retrecissant le panneau ils debordaient a
+				// droite au lieu de se resserrer (retour de Rihen). Le plancher evite l'exces
+				// inverse — une surface si etroite qu'elle ne se lit plus.
+				static float32 PopoverW(NkGuiContext &ctx, const NkRect &bounds, float32 voulue, float32 mini) {
+					const float32 dispo = bounds.w - ctx.S(8.f);
+					float32 w = voulue > dispo ? dispo : voulue;
+					return w < mini ? mini : w;
+				}
+				// Y a-t-il seulement quelque chose a montrer dans cette rangee ? Sert a la
+				// FOIS a la mise en page (hauteur reservee) et au dessin : une seule source
+				// de verite, sinon les deux divergent des le premier ajout.
+				bool HasChips() const { return mCtxFileOn && mS && mS->HasActive(); }
+				float32 ChipsRowH(NkGuiContext &ctx) const {
+					return HasChips() ? (ctx.ItemHeight() * 0.8f + ctx.S(6.f)) : 0.f;
+				}
+				float32 DrawChips(NkGuiContext &ctx, float32 x0, float32 cy, NkIcons *ic, const NkColor &chip,
+								  float32 h) {
 					auto &dl = ctx.DL();
 					const NkGuiFont *font = ctx.font;
 					const NkVec2 mp = ctx.input.mousePos;
-					const float32 h = ctx.ItemHeight(), gap = ctx.S(6.f);
+					const float32 gap = ctx.S(6.f);
 					auto textAt = [&](float32 x, const char *s, const NkColor &col) {
 						if (font && font->Valid())
 							dl.AddText(font->Face(), font->TexId(), {x, cy - font->LineHeight() * 0.5f + font->Ascent()},
@@ -2187,7 +2220,9 @@ namespace nkentseu {
 					if (mCtxFileOn && mS && mS->HasActive()) {
 						OpenFile &f = mS->files[mS->active];
 						const NkString lbl = NkPrintf("%s:%d", f.Name().CStr(), f.doc.curLine + 1);
-						const float32 iw = ctx.S(13.f), xw = ctx.S(13.f), tw = measure(lbl.CStr());
+						// Icone et croix se calent sur la hauteur REELLE du chip (elle a maigri) :
+						// en dur, elles debordaient de la pastille des qu'on la raccourcit.
+						const float32 iw = h * 0.58f, xw = h * 0.58f, tw = measure(lbl.CStr());
 						const float32 cw = ctx.S(8.f) + iw + ctx.S(5.f) + tw + ctx.S(6.f) + xw + ctx.S(6.f);
 						const NkRect ch = {x, cy - h * 0.5f, cw, h};
 						dl.AddRectFilled(ch, chip, ctx.S(6.f));
@@ -2600,7 +2635,7 @@ namespace nkentseu {
 
 				// ── Menu « liste des chats » (ancré sous le bouton liste du header) : chaque ligne =
 				//    titre (clic = active) + croix de suppression (gardée si un seul chat restant). ──
-				void DrawChatListMenu(NkGuiContext &ctx, const NkColor &violet) {
+				void DrawChatListMenu(NkGuiContext &ctx, const NkRect &bounds, const NkColor &violet) {
 					auto &dl = ctx.DL();
 					const NkGuiFont *font = ctx.font;
 					const NkVec2 mp = ctx.input.mousePos;
@@ -2612,10 +2647,11 @@ namespace nkentseu {
 						if (tw + ctx.S(46.f) > w)
 							w = tw + ctx.S(46.f);
 					}
+					w = PopoverW(ctx, bounds, w, ctx.S(130.f));
 					NkRect menu = {mChatListAnchor.x + mChatListAnchor.w - w, mChatListAnchor.y + mChatListAnchor.h + ctx.S(4.f),
 								   w, n * rowH + ctx.S(8.f)};
-					if (menu.x < ctx.S(4.f))
-						menu.x = ctx.S(4.f);
+					if (menu.x < bounds.x + ctx.S(4.f))
+						menu.x = bounds.x + ctx.S(4.f);
 					ctx.PushOcclusion(menu, 50); // routeur d'occlusion : rien ne passe derriere
 					dl.AddRectFilled(menu, ctx.theme.panel, ctx.S(6.f));
 					dl.AddRect(menu, ctx.theme.border, 1.f);
@@ -2675,6 +2711,7 @@ namespace nkentseu {
 						if (tw + ctx.S(40.f) > w)
 							w = tw + ctx.S(40.f);
 					}
+					w = PopoverW(ctx, bounds, w, ctx.S(130.f)); // le texte peut l'elargir, le panneau la borne
 					const float32 menuH = 3 * rowH + ctx.S(8.f);
 					const float32 spaceBelow = (bounds.y + bounds.h) - (mPlusAnchor.y + mPlusAnchor.h);
 					const float32 spaceAbove = mPlusAnchor.y - bounds.y;
@@ -2794,7 +2831,7 @@ namespace nkentseu {
 					static const char *const kSlash[] = {"/explain", "/fix",	  "/optimize", "/test",	 "/doc",
 														 "/refactor", "/review", "/commit",	 "/search", "/new"};
 
-					const float32 w = ctx.S(320.f);
+					const float32 w = PopoverW(ctx, bounds, ctx.S(320.f), ctx.S(180.f));
 					const float32 filterH = ctx.ItemHeight() + ctx.S(14.f);
 					const float32 rowH = ctx.ItemHeight() + ctx.S(2.f);
 					const float32 groupTitleH = ctx.S(22.f);
@@ -3020,17 +3057,19 @@ namespace nkentseu {
 					dl.AddRectFilled(toolR, ctx.theme.bgPrimary);
 					dl.AddRectFilled({toolR.x, toolR.y, toolR.w, 1.f}, ctx.theme.border);
 					const float32 pad = ctx.S(10.f), gap = ctx.S(6.f), btn = ctx.S(30.f);
-					const float32 rowH = toolR.h * 0.5f;
+					// Les deux rangees n'ont plus la meme hauteur : celle des chips est basse
+					// (voire absente), celle des outils garde sa taille de boutons.
+					const float32 chipsH = ChipsRowH(ctx);
+					const float32 rowH = toolR.h - chipsH;
 
 					// ── Ligne 1 : fichiers ATTACHÉS au contexte (façon Claude Code : "N lignes
 					// sélectionnées"). Rien d'autre ici — clarifié suite à la confusion sur l'ancien
 					// chip de branche git, retiré. ──
-					const NkRect row1 = {toolR.x, toolR.y, toolR.w, rowH};
-					const float32 cy1 = row1.y + rowH * 0.5f;
-					DrawChips(ctx, row1.x + pad, cy1, ic, chip);
+					if (chipsH > 0.f)
+						DrawChips(ctx, toolR.x + pad, toolR.y + chipsH * 0.5f, ic, chip, ctx.ItemHeight() * 0.8f);
 
 					// ── Ligne 2 : crayon (palette) + Mode/Portée/Édition (scrollables) + envoi. ──
-					const NkRect row2 = {toolR.x, toolR.y + rowH, toolR.w, rowH};
+					const NkRect row2 = {toolR.x, toolR.y + chipsH, toolR.w, rowH};
 					const float32 cy = row2.y + rowH * 0.5f;
 					dl.AddRectFilled({row2.x, row2.y, row2.w, 1.f}, ctx.theme.border);
 					// Bouton (+) FIXE tout en bas à gauche (Upload from computer / Add context /
@@ -3222,7 +3261,7 @@ namespace nkentseu {
 					const char *const *opts = ModeOptionsFor(mKind, n);
 					int32 nd = 0;
 					const char *const *descs = ModeDescFor(mKind, nd);
-					const float32 w = ctx.S(270.f);
+					const float32 w = PopoverW(ctx, bounds, ctx.S(270.f), ctx.S(160.f));
 					const float32 titleH = ctx.ItemHeight();
 					const float32 descLineH = (font && font->Valid()) ? font->LineHeight() * 0.88f : 12.f;
 					NkVector<NkVector<NkString>> wrapped;
@@ -3326,7 +3365,7 @@ namespace nkentseu {
 					const char *const *opts = ClaudeModelTitles(n);
 					int32 nd = 0;
 					const char *const *descs = ClaudeModelDescs(nd);
-					const float32 w = ctx.S(270.f);
+					const float32 w = PopoverW(ctx, bounds, ctx.S(270.f), ctx.S(160.f));
 					const float32 titleH = ctx.ItemHeight();
 					const float32 descLineH = (font && font->Valid()) ? font->LineHeight() * 0.88f : 12.f;
 					NkVector<NkVector<NkString>> wrapped;
@@ -3393,19 +3432,19 @@ namespace nkentseu {
 				// que de laisser des contrôles qui ne changeraient RIEN à la requête réelle. ──
 				bool ShowTempMaxTokens() const { return mKind != 1; }
 
-				void DrawPropsPopover(NkGuiContext &ctx, const NkColor &violet) {
+				void DrawPropsPopover(NkGuiContext &ctx, const NkRect &bounds, const NkColor &violet) {
 					(void)violet;
 					auto &dl = ctx.DL();
 					const NkGuiFont *font = ctx.font;
 					const NkVec2 mp = ctx.input.mousePos;
-					const float32 w = ctx.S(268.f), it = ctx.ItemHeight();
+					const float32 w = PopoverW(ctx, bounds, ctx.S(268.f), ctx.S(170.f)), it = ctx.ItemHeight();
 					const float32 sysH = ctx.S(92.f);
 					const bool showTM = ShowTempMaxTokens();
 					const float32 mh = ctx.S(10.f) + it + ctx.S(8.f) + (showTM ? (it + ctx.S(10.f)) * 2.f : 0.f) + it +
 									   ctx.S(10.f) + it + ctx.S(4.f) + sysH + ctx.S(12.f); // Effort + Systeme (+ Temp/MaxTok)
 					NkRect menu = {mGearRect.x + mGearRect.w - w, mGearRect.y + mGearRect.h + ctx.S(4.f), w, mh};
-					if (menu.x < ctx.S(4.f))
-						menu.x = ctx.S(4.f);
+					if (menu.x < bounds.x + ctx.S(4.f))
+						menu.x = bounds.x + ctx.S(4.f);
 					ctx.PushOcclusion(menu, 50); // routeur d'occlusion : rien ne passe derriere
 					dl.AddRectFilled(menu, ctx.theme.panel, ctx.S(8.f));
 					dl.AddRect(menu, ctx.theme.border, 1.f);
@@ -3533,7 +3572,8 @@ namespace nkentseu {
 					auto &dl = ctx.DL();
 					const NkGuiFont *font = ctx.font;
 					const NkVec2 mp = ctx.input.mousePos;
-					const float32 w = ctx.S(300.f), it = ctx.ItemHeight(), pad = ctx.S(12.f);
+					const float32 w = PopoverW(ctx, bounds, ctx.S(300.f), ctx.S(180.f)), it = ctx.ItemHeight(),
+								pad = ctx.S(12.f);
 					const float32 bucketH = it * 2.f + ctx.S(16.f); // label+% / barre / reinit
 					const float32 sepH = ctx.S(18.f);
 					const bool hasBuckets = !mRlBuckets.Empty();

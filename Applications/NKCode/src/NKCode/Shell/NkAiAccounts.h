@@ -40,6 +40,7 @@
 #include "NKFileSystem/NkFile.h"
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkPath.h"
+#include "NKFileSystem/NkFileSystem.h" // CreateSymbolicLink
 #include "NKContainers/String/NkString.h"
 #include "NKContainers/Sequential/NkVector.h"
 
@@ -144,22 +145,22 @@ namespace nkentseu {
 			const NkString link = (NkPath(NkAiAccountDir(name).CStr()) / "projects").ToString();
 			if (NkDirectory::Exists(link.CStr()) || NkFile::Exists(link.CStr()))
 				return; // deja en place (jonction ou vrai dossier) : on ne detruit rien
+			// API du moteur d'abord. Elle suffit sous Unix ; sous Windows, un lien
+			// SYMBOLIQUE exige les privileges administrateur (c'est ecrit dans
+			// NkFileSystem.h) et echouera pour un utilisateur ordinaire.
+			if (NkFileSystem::CreateSymbolicLink(link.CStr(), shared.CStr()))
+				return;
 #if defined(_WIN32)
-			// Jonction (/J) : ne demande AUCUN privilege administrateur, contrairement
-			// au lien symbolique.
+			// Repli Windows : une JONCTION (/J) rend le meme service sur un dossier
+			// sans demander le moindre privilege. C'est la seule raison de passer par
+			// le shell ici — l'API du moteur n'expose pas les jonctions.
 			NkString cmd = "mklink /J \"";
 			cmd += link;
 			cmd += "\" \"";
 			cmd += shared;
 			cmd += "\"";
-#else
-			NkString cmd = "ln -s \"";
-			cmd += shared;
-			cmd += "\" \"";
-			cmd += link;
-			cmd += "\"";
-#endif
 			NkCodeShellRun(cmd.CStr());
+#endif
 		}
 
 		// Cree le compte (dossier + entree de registre + memoire partagee).
