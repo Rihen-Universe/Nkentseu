@@ -98,12 +98,9 @@ namespace nkentseu {
 					if (!mRunning)
 						return;
 					mWs.Poll();
-					NkString ignored;
-					while (mWs.PopMessage(ignored)) {
-						// Requetes du CLI (getDiagnostics, openFile, openDiff...) : le
-						// transport est en place, le traitement viendra. On draine pour ne
-						// pas laisser la file grossir.
-					}
+					NkString requete;
+					while (mWs.PopMessage(requete))
+						TraiterMcp(requete);
 					if (!mWs.HasClient() || !mState || !mState->HasActive())
 						return;
 
@@ -145,6 +142,135 @@ namespace nkentseu {
 				}
 
 			private:
+				// ── Serveur MCP (JSON-RPC 2.0) ──────────────────────────────────────
+				// Le CLI ne parle pas un protocole maison : il se connecte a l'IDE comme
+				// CLIENT MCP — ses outils s'appellent « mcp__ide__getDiagnostics »,
+				// « mcp__ide__executeCode ». Il faut donc repondre a `initialize`,
+				// `tools/list` et `tools/call`.
+				//
+				// L'extraction des champs est VOLONTAIREMENT rudimentaire (recherche de
+				// "method" et "id") plutot qu'un analyseur JSON complet : le protocole
+				// est etroit, les messages viennent d'un emetteur unique et connu, et un
+				// analyseur maison serait une surface de bugs sans contrepartie.
+				static NkString ChampTexte(const NkString &json, const char *cle) {
+					NkString motif = NkString("\"") + cle + "\"";
+					const char *p = NkFindSub(json.CStr(), motif.CStr());
+					if (!p)
+						return NkString();
+					p += motif.Length();
+					while (*p == ' ' || *p == ':')
+						++p;
+					if (*p != '"')
+						return NkString();
+					++p;
+					NkString v;
+					while (*p && *p != '"')
+						v += *p++;
+					return v;
+				}
+
+				// `id` peut etre un nombre OU une chaine : on le renvoie tel qu'ecrit,
+				// pour le recopier a l'identique dans la reponse (exigence JSON-RPC).
+				static NkString ChampId(const NkString &json) {
+					const char *p = NkFindSub(json.CStr(), "\"id\"");
+					if (!p)
+						return NkString();
+					p += 4;
+					while (*p == ' ' || *p == ':')
+						++p;
+					NkString v;
+					if (*p == '"') {
+						v += *p++;
+						while (*p && *p != '"')
+							v += *p++;
+						if (*p)
+							v += *p;
+						return v;
+					}
+					while (*p && *p != ',' && *p != '}' && *p != ' ')
+						v += *p++;
+					return v;
+				}
+
+				void Repondre(const NkString &id, const NkString &resultJson) {
+					if (id.Empty())
+						return; // notification : aucune reponse attendue
+					NkString m = "{\"jsonrpc\":\"2.0\",\"id\":";
+					m += id;
+					m += ",\"result\":";
+					m += resultJson;
+					m += "}";
+					(void)mWs.SendText(m);
+				}
+
+				void TraiterMcp(const NkString &req) {
+					const NkString methode = ChampTexte(req, "method");
+					const NkString id = ChampId(req);
+					if (methode.Empty())
+						return;
+
+					if (methode == "initialize") {
+						// On annonce la version que le CLI embarque deja (2024-11-05) et la
+						// seule capacite qu'on offre : des outils.
+						NkString r = "{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{\"tools\":{}},"
+									 "\"serverInfo\":{\"name\":\"NKCode\",\"version\":\"";
+						r += NkCodeVersion();
+						r += "\"}}";
+						Repondre(id, r);
+						return;
+					}
+					if (methode == "tools/list") {
+						// Un seul outil pour l'instant : les diagnostics. Les annoncer tous
+						// sans savoir les traiter serait pire que de n'en annoncer qu'un.
+						Repondre(id,
+								 "{\"tools\":[{\"name\":\"getDiagnostics\","
+								 "\"description\":\"Diagnostics (erreurs et avertissements) des fichiers ouverts dans NKCode\","
+								 "\"inputSchema\":{\"type\":\"object\",\"properties\":{},\"required\":[]}}]}");
+						return;
+					}
+					if (methode == "tools/call") {
+						const NkString outil = ChampTexte(req, "name");
+						if (outil == "getDiagnostics") {
+							Repondre(id, NkString("{\"content\":[{\"type\":\"text\",\"text\":\"") +
+											 JsonEscape(Diagnostics()).CStr() + "\"}],\"isError\":false}");
+							return;
+						}
+						// Outil inconnu : on le DIT, au lieu de laisser le CLI attendre.
+						Repondre(id, NkString("{\"content\":[{\"type\":\"text\",\"text\":\"outil inconnu : ") +
+										 JsonEscape(outil).CStr() + "\"}],\"isError\":true}");
+						return;
+					}
+					// `notifications/initialized` et le reste : rien a repondre.
+				}
+
+				// Diagnostics de TOUS les fichiers ouverts, en texte lisible. Les lignes
+				// sont ramenees en base 1 : c'est ainsi qu'un humain — et l'agent — les
+				// designe, alors qu'elles sont stockees en base 0.
+				NkString Diagnostics() const {
+					if (!mState)
+						return NkString("(aucun workspace)");
+					NkString out;
+					int32 total = 0;
+					for (usize i = 0; i < mState->files.Size(); ++i) {
+						const OpenFile &f = mState->files[i];
+						if (f.doc.diags.Empty())
+							continue;
+						out += f.path.ToString();
+						out += "\n";
+						for (usize k = 0; k < f.doc.diags.Size(); ++k) {
+							const auto &d = f.doc.diags[k];
+							out += NkPrintf("  %s ligne %d, colonne %d : ", d.sev == 1 ? "erreur" : "avertissement",
+											d.line + 1, d.col + 1);
+							out += d.msg;
+							out += "\n";
+							++total;
+						}
+					}
+					if (total == 0)
+						return NkString("Aucun diagnostic dans les fichiers ouverts.");
+					return NkPrintf("%d diagnostic(s) :\n", total) + out.CStr();
+				}
+
 				static NkString LockPath(uint16 port) {
 					const NkString dir = (NkPath(NkOpenWsState::Home().CStr()) / ".claude" / "ide").ToString();
 					NkDirectory::CreateRecursive(dir.CStr());
