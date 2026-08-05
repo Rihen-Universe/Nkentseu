@@ -420,7 +420,8 @@ namespace nkentseu {
 					// chat caché dessous (bug remonté par Rihen : la molette au-dessus de la
 					// palette d'actions scrollait le chat au lieu de la liste filtrée).
 					const bool overlayOpen =
-						mComboOpen != 0 || mPropsOpen || mChatListOpen || mPlusOpen || mActionsOpen || mUsageOpen;
+						mComboOpen != 0 || mPropsOpen || mChatListOpen || mPlusOpen || mActionsOpen || mUsageOpen ||
+						mAccountsOpen;
 
 					// ══ CORPS : conversation, OU sous-vue Génération/Revue (Assistant général). ══
 					if (chatView) {
@@ -514,6 +515,8 @@ namespace nkentseu {
 						DrawActionsPalette(ctx, r, kViolet);
 					if (mUsageOpen)
 						DrawUsagePopover(ctx, r, kViolet);
+					if (mAccountsOpen)
+						DrawAccountsPopover(ctx, r, kViolet);
 				}
 
 			private:
@@ -672,6 +675,14 @@ namespace nkentseu {
 				NkString mClaudeCurModel; // "message.model" du tour Claude Code EN COURS
 
 				bool mUsageOpen = false; // popover "Compte et utilisation" ouvert
+				// Bac a sable du CLI. Noms releves DANS le binaire (--sandbox/--no-sandbox,
+				// srt-win.exe), pas devines : le drapeau existe mais ne figure pas dans --help.
+				// Defaut OFF, comme le CLI lui-meme — l'activer sans provisionnement echouerait.
+				bool mSandbox = false;
+				bool mAccountsOpen = false;   // popover "Comptes Claude Code"
+				bool mAccAdding = false;      // saisie du nom d'un nouveau compte en cours
+				char mAccName[64] = {0};      // tampon de ce nom
+				NkString mAccError;           // refus explicite (nom invalide) plutot qu'un silence
 				// Le clic qui OUVRE le popover (lien "Voir l'utilisation" de la banniere, ou item
 				// du panneau Actions) reste vu comme "mouseClicked[0]" par le test de fermeture
 				// (clic en dehors) de DrawUsagePopover EXECUTE la MEME frame, juste apres : sans
@@ -2812,10 +2823,13 @@ namespace nkentseu {
 						  {NkString(NkT("ai.effort")), 2, effLbl, 11},
 						  {NkString(NkT("ai.act.thinking")), 1, nullptr, 12},
 						  {NkString(NkT("ai.act.autoswitch")), 1, nullptr, 13},
-						  {NkString(NkT("ai.act.account")), 0, nullptr, 14}},
+						  {NkString(NkT("ai.act.account")), 0, nullptr, 14},
+						  {NkString(NkT("ai.act.accounts")), 0, nullptr, 15}},
 						 5},
 						{NkT("ai.grp.customize"),
 						 {{NkString(NkT("ai.act.mcp")), 0, nullptr, 20}, {NkString(NkT("ai.act.plugins")), 0, nullptr, 21},
+						  {NkString(NkT("ai.act.installcli")), 0, nullptr, 23},
+						  {NkString(NkT("ai.act.sandbox")), 1, nullptr, 24},
 						  {NkString(NkT("ai.act.openterm")), 0, nullptr, 22}},
 						 3},
 						{NkT("ai.grp.slash"), {}, 0}, // rempli dynamiquement (kSlash) plus bas
@@ -2910,7 +2924,10 @@ namespace nkentseu {
 									   {row.x + ctx.S(8.f), row.y + (rowH - font->LineHeight()) * 0.5f + font->Ascent()},
 									   label.CStr(), ctx.theme.text, row.w - ctx.S(90.f));
 						if (kind == 1) { // toggle (switch)
-							bool *flag = (action == 12) ? &mThinking : (action == 42) ? &mRemoteControl : &mAutoSwitchFlagged;
+							bool *flag = (action == 12)   ? &mThinking
+										 : (action == 42) ? &mRemoteControl
+										 : (action == 24) ? &mSandbox
+														   : &mAutoSwitchFlagged;
 							const float32 sw = ctx.S(30.f), sh = ctx.S(15.f);
 							const NkRect sr = {row.x + row.w - sw - ctx.S(6.f), row.y + (rowH - sh) * 0.5f, sw, sh};
 							dl.AddRectFilled(sr, *flag ? NkColor{72, 145, 232, 255} : ctx.theme.button, sh * 0.5f);
@@ -2918,6 +2935,15 @@ namespace nkentseu {
 											   sh * 0.5f - ctx.S(1.5f), NkColor{255, 255, 255, 255});
 							if (hov && ctx.input.mouseClicked[0]) {
 								*flag = !*flag;
+								if (action == 24) {
+									// Ce reglage change qui execute les commandes : il ne doit pas
+									// basculer en silence.
+									Msgs().PushBack({2, NkString(mSandbox ? NkT("ai.sandbox.on") : NkT("ai.sandbox.off"))});
+#if defined(_WIN32)
+									if (mSandbox)
+										Msgs().PushBack({2, NkString(NkT("ai.sandbox.setup"))});
+#endif
+								}
 								ctx.input.mouseClicked[0] = false;
 							}
 						} else if (kind == 2 && value && font && font->Valid()) { // valeur a droite
@@ -3015,6 +3041,12 @@ namespace nkentseu {
 							mEffort = (mEffort + 1) % 3;
 						} else if (clicked == 14) { // Compte et utilisation -> popover REEL (rate_limit_event)
 							OpenUsagePopover();
+						} else if (clicked == 15) { // Comptes Claude Code -> popover dedie
+							mAccountsOpen = true;
+							mAccAdding = false;
+							mAccError = NkString();
+						} else if (clicked == 23) { // Installer Claude Code (CLI)
+							InstallClaudeCli();
 						} else if (clicked == 22 && mS) { // Open Claude in Terminal (reel, meme si claude absent)
 							mS->termOpenCmd = "claude";
 							mS->termOpenKind = -1;
@@ -3431,6 +3463,199 @@ namespace nkentseu {
 				// n'a PAS d'équivalent documenté pour ces deux réglages : les masquer plutôt
 				// que de laisser des contrôles qui ne changeraient RIEN à la requête réelle. ──
 				bool ShowTempMaxTokens() const { return mKind != 1; }
+
+				// ── Popover « Comptes Claude Code » ──────────────────────────────────────
+				// Choisir le compte de CE workspace, en ajouter un, s'y connecter. La
+				// connexion part dans le TERMINAL DEDIE au lieu d'etre masquee derriere une
+				// barre de progression : c'est un echange interactif (le navigateur s'ouvre,
+				// l'utilisateur colle un code). La cacher donnerait l'impression d'un blocage.
+				void DrawAccountsPopover(NkGuiContext &ctx, const NkRect &bounds, const NkColor &violet) {
+					auto &dl = ctx.DL();
+					const NkGuiFont *font = ctx.font;
+					const NkVec2 mp = ctx.input.mousePos;
+					const float32 w = PopoverW(ctx, bounds, ctx.S(310.f), ctx.S(190.f));
+					const float32 it = ctx.ItemHeight(), pad = ctx.S(12.f), rowH = it + ctx.S(6.f);
+					const float32 lh = (font && font->Valid()) ? font->LineHeight() : 16.f;
+					const NkVector<NkAiAccount> comptes = NkAiAccounts();
+					const int32 n = static_cast<int32>(comptes.Size());
+					const bool hasWs = (mS && mS->HasWorkspace());
+					const NkString actif = hasWs ? NkAiWorkspaceAccount(mS->root) : NkAiDefaultAccount();
+					const float32 listH = (n > 0 ? n * rowH : rowH);
+					const float32 menuH = ctx.S(8.f) + it + ctx.S(6.f) + it + ctx.S(4.f) + listH + ctx.S(6.f) + rowH +
+										  (mAccAdding ? (it + ctx.S(6.f)) : 0.f) + (mAccError.Empty() ? 0.f : it) + it +
+										  ctx.S(10.f);
+					// Ancree sur le bouton de la palette d'ou elle est ouverte, vers le HAUT
+					// (ce bouton vit en bas du panneau) puis ramenee dans les bornes.
+					NkRect menu = {mActionsAnchor.x, mActionsAnchor.y - menuH - ctx.S(4.f), w, menuH};
+					if (menu.y < bounds.y + ctx.S(4.f))
+						menu.y = bounds.y + ctx.S(4.f);
+					if (menu.x + menu.w > bounds.x + bounds.w - ctx.S(4.f))
+						menu.x = bounds.x + bounds.w - ctx.S(4.f) - menu.w;
+					if (menu.x < bounds.x + ctx.S(4.f))
+						menu.x = bounds.x + ctx.S(4.f);
+					ctx.PushOcclusion(menu, 50); // routeur d'occlusion : rien ne passe derriere
+					dl.AddRectFilled(menu, ctx.theme.panel, ctx.S(8.f));
+					dl.AddRect(menu, ctx.theme.border, 1.f);
+					auto txt = [&](float32 x, float32 yy, const char *t, const NkColor &c, float32 maxW = 0.f) {
+						if (font && font->Valid())
+							dl.AddText(font->Face(), font->TexId(), {x, yy + font->Ascent()}, t, c, maxW);
+					};
+					auto measure = [&](const char *t) { return (font && font->Valid()) ? font->MeasureWidth(t) : 0.f; };
+					float32 y = menu.y + ctx.S(8.f);
+					txt(menu.x + pad, y, NkT("ai.acc.title"), ctx.theme.text);
+					y += it + ctx.S(6.f);
+					txt(menu.x + pad, y, NkT("ai.acc.ws"), ctx.theme.textDisabled, w - pad * 2.f);
+					y += it + ctx.S(4.f);
+
+					if (n == 0) {
+						txt(menu.x + pad, y, NkT("ai.acc.none"), ctx.theme.textDisabled, w - pad * 2.f);
+						y += rowH;
+					}
+					for (int32 i = 0; i < n; ++i) {
+						const NkAiAccount &a = comptes[static_cast<usize>(i)];
+						const bool sel = (a.name == actif);
+						const NkRect row = {menu.x + ctx.S(6.f), y, w - ctx.S(12.f), rowH};
+						const bool hov = NkGuiRectContains(row, mp);
+						if (sel || hov)
+							dl.AddRectFilled(row, sel ? violet : ctx.theme.buttonHover, ctx.S(4.f));
+						const NkColor nameCol = sel ? NkColor{255, 255, 255, 255} : ctx.theme.text;
+						// Etat REEL : la presence de .credentials.json, jamais une supposition.
+						const char *etat = a.connected ? NkT("ai.acc.connected") : NkT("ai.acc.notconnected");
+						const float32 ew = measure(etat);
+						const float32 ty = row.y + (rowH - lh) * 0.5f;
+						txt(row.x + ctx.S(8.f), ty, a.name.CStr(), nameCol, row.w - ew - ctx.S(24.f));
+						txt(row.x + row.w - ew - ctx.S(8.f), ty, etat,
+							a.connected ? NkColor{126, 196, 126, 255} : ctx.theme.textDisabled);
+						if (hov && ctx.input.mouseClicked[0]) {
+							if (a.connected) {
+								if (hasWs)
+									NkAiSetWorkspaceAccount(mS->root, a.name);
+								// La session en cours appartient a l'ANCIENNE identite : la
+								// reprendre avec --resume sous un autre compte n'aurait pas de
+								// sens. On repart d'une session neuve au prochain message.
+								mChats[static_cast<usize>(mActiveChat)].claudeSessionId = NkString();
+								mAccountsOpen = false;
+							} else {
+								LaunchAccountLogin(a.name); // pas encore authentifie -> on y va
+							}
+							ctx.input.mouseClicked[0] = false;
+						}
+						y += rowH;
+					}
+					y += ctx.S(6.f);
+
+					// ── Ajouter un compte ───────────────────────────────────────────────
+					{
+						const NkRect row = {menu.x + ctx.S(6.f), y, w - ctx.S(12.f), rowH};
+						const bool hov = NkGuiRectContains(row, mp);
+						if (hov)
+							dl.AddRectFilled(row, ctx.theme.buttonHover, ctx.S(4.f));
+						txt(row.x + ctx.S(8.f), row.y + (rowH - lh) * 0.5f,
+							mAccAdding ? NkT("ai.acc.login") : NkT("ai.acc.add"), ctx.theme.text, row.w - ctx.S(16.f));
+						if (hov && ctx.input.mouseClicked[0]) {
+							if (!mAccAdding) {
+								mAccAdding = true;
+								mAccName[0] = 0;
+								mAccError = NkString();
+							} else {
+								ValidateNewAccount();
+							}
+							ctx.input.mouseClicked[0] = false;
+						}
+						y += rowH;
+					}
+					if (mAccAdding) {
+						const NkRect f = {menu.x + pad, y, w - pad * 2.f, it};
+						const NkGuiId fid = ctx.GetId("##aiAccName");
+						// Entree = valider : on CONSOMME la touche AVANT le widget, sinon elle
+						// s'inscrirait dans le nom au lieu de confirmer.
+						bool valider = false;
+						if (ctx.inputId == fid && ctx.input.KeyPressed(NkGuiKey::Enter)) {
+							valider = true;
+							ctx.input.keyInit[(int32)NkGuiKey::Enter] = false;
+						}
+						InputTextMultiline(ctx, "##aiAccName", mAccName, sizeof(mAccName), f, NkGuiInputFlags::None,
+										   sizeof(mAccName) - 1);
+						if (mAccName[0] == 0)
+							txt(f.x + ctx.S(6.f), f.y + ctx.S(3.f), NkT("ai.acc.name"), ctx.theme.textDisabled,
+								f.w - ctx.S(12.f));
+						if (valider)
+							ValidateNewAccount();
+						y += it + ctx.S(6.f);
+					}
+					if (!mAccError.Empty()) {
+						txt(menu.x + pad, y, mAccError.CStr(), NkColor{232, 106, 106, 255}, w - pad * 2.f);
+						y += it;
+					}
+					// Rappel : isoler l'identite n'isole PAS le savoir (jonction vers _shared).
+					txt(menu.x + pad, y, NkT("ai.acc.shared"), ctx.theme.textDisabled, w - pad * 2.f);
+
+					const bool dansMenu = ctx.input.mouseClicked[0] && NkGuiRectContains(menu, mp);
+					if (ctx.input.mouseClicked[0] && !dansMenu) {
+						mAccountsOpen = false;
+						mAccAdding = false;
+					}
+					if (dansMenu) {
+						ctx.input.mouseClicked[0] = false;
+						ctx.input.mouseClicked[1] = false;
+					}
+				}
+
+				// Cree le compte saisi puis enchaine sur sa connexion. Un nom refuse le DIT
+				// (il se corrige) ; il n'est jamais nettoye en douce, ce qui surprendrait.
+				void ValidateNewAccount() {
+					const NkString nom = NkString(mAccName).Trim();
+					if (!NkAiAccountNameValid(nom.CStr())) {
+						mAccError = NkString(NkT("ai.acc.badname"));
+						return;
+					}
+					mAccError = NkString();
+					NkAiAccountCreate(nom);
+					mAccAdding = false;
+					mAccName[0] = 0;
+					LaunchAccountLogin(nom);
+				}
+
+				// Connexion d'un compte : « claude /login » avec SON CLAUDE_CONFIG_DIR, dans
+				// le terminal dedie. Si le binaire natif est absent, on le dit en proposant
+				// l'installation plutot que de lancer une commande vouee a l'echec.
+				void LaunchAccountLogin(const NkString &nom) {
+					if (ClaudeExe().Empty()) {
+						mAccountsOpen = false;
+						InstallClaudeCli();
+						return;
+					}
+					if (!mS)
+						return;
+					mS->termOpenCmd = NkAiLoginCommand(ClaudeExe(), nom);
+					mS->termOpenKind = -1;
+					mS->termOpenAt = mS->HasWorkspace() ? mS->root.ToString() : NkString(".");
+					mS->termOpenRun = false; // agent CLI -> panneau TERMINAL, pas EXECUTION
+					if (mShell)
+						mShell->FocusPanel("TERMINAL");
+					mAccountsOpen = false;
+				}
+
+				// Installation du CLI depuis NKCode : la commande officielle, VISIBLE dans le
+				// terminal dedie. Volontairement pas d'installation silencieuse — elle touche
+				// l'environnement global de l'utilisateur (npm -g), il doit la voir passer.
+				void InstallClaudeCli() {
+					if (!ClaudeExe().Empty()) {
+						Msgs().PushBack({2, NkPrintf("%s %s", NkT("ai.cli.present"), ClaudeExe().CStr())});
+						return;
+					}
+					if (!mS)
+						return;
+					mS->termOpenCmd = "npm install -g @anthropic-ai/claude-code";
+					mS->termOpenKind = -1;
+					mS->termOpenAt = mS->HasWorkspace() ? mS->root.ToString() : NkString(".");
+					mS->termOpenRun = false;
+					if (mShell)
+						mShell->FocusPanel("TERMINAL");
+					// Le chemin resolu est mis en cache : apres une installation il doit etre
+					// recalcule, sinon NKCode continuerait de croire le CLI absent.
+					mClaudeExeResolved = false;
+				}
 
 				void DrawPropsPopover(NkGuiContext &ctx, const NkRect &bounds, const NkColor &violet) {
 					(void)violet;
@@ -4461,6 +4686,16 @@ namespace nkentseu {
 						if (!compte.Empty())
 							envOverrides.PushBack(NkString("CLAUDE_CONFIG_DIR=") + NkAiAccountDir(compte).CStr());
 					}
+					// ── BAC A SABLE ────────────────────────────────────────────────────
+					// Les chaines --sandbox / --no-sandbox / --sandbox-user existent bien
+					// DANS le binaire, mais elles appartiennent au runtime srt-win qu'il
+					// embarque, pas a l'analyseur d'options de `claude` : les lui passer
+					// repond « error: unknown option » et casserait CHAQUE message. Verifie
+					// en les executant, pas deduit de la presence des chaines. Le levier
+					// reel est donc la variable d'environnement. On ne pose RIEN quand le
+					// reglage est off : le defaut du CLI appartient a l'utilisateur.
+					if (mSandbox)
+						envOverrides.PushBack(NkString("CLAUDE_CODE_FORCE_SANDBOX=1"));
 
 					const NkString cwd = (mS && mS->HasWorkspace()) ? mS->root.ToString() : NkString(".");
 					if (!mClaudeProc.StartWithEnv(cmd, cwd, envOverrides, /*mergeStderr=*/true)) {
