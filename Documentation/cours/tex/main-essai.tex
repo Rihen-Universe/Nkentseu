@@ -1,0 +1,15 @@
+% Essai de composition : page de garde + un seul chapitre. Sert a valider le
+% gabarit AVANT d'ecrire le cours -- un preambule qui ne compile pas ferait
+% perdre tout le travail de redaction.
+\documentclass[11pt, a4paper, oneside]{book}
+\newcommand{\DocDate}{5 août 2026}
+\input{preambule}
+\begin{document}
+\input{garde}
+\frontmatter
+\pagestyle{plain}
+\tableofcontents
+\mainmatter
+\pagestyle{fancy}
+\input{chapitres/00-avant-propos}
+\end{document}

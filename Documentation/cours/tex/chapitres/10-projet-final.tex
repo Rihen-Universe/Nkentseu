@@ -1,0 +1,1106 @@
+\chapter{Projet final : \texttt{NkAtelier}}
+
+Vous avez maintenant traversé toute la pile : la fenêtre, les événements, le
+rendu 2D, les widgets, les images, les polices, le son, la vidéo, le réseau. Ce
+dernier chapitre ne présente aucune API nouvelle. Il fait une seule chose, et
+c'est la plus utile : \textbf{il assemble}.
+
+Nous allons construire, du fichier de build jusqu'à l'exécutable qui s'affiche,
+une petite application appelée \texttt{NkAtelier}. Elle tient en un seul
+\nkfile{main.cpp}, elle ne dépend d'\textbf{aucun fichier externe} — pas une
+police, pas une image, pas un son — et elle prouve, à l'écran, que cinq modules
+coopèrent.
+
+\section{Ce que nous allons construire}
+
+\texttt{NkAtelier} est une fenêtre avec trois panneaux.
+
+\begin{enumerate}
+  \item \textbf{Panneau « Image »} — une image \emph{fabriquée à l'exécution}
+        par les primitives de dessin de NKImage, redimensionnée en vignette,
+        envoyée au backend et affichée par le widget \texttt{Image}. Un curseur
+        change une couleur ; l'image est refabriquée et ré-uploadée.
+  \item \textbf{Panneau « Son »} — trois boutons qui jouent trois sons
+        \emph{synthétisés} par \texttt{AudioGenerator}, sur le bus « UI », avec
+        une case à cocher pour couper ce bus.
+  \item \textbf{Panneau « Vidéo »} — au démarrage, l'application \emph{écrit}
+        une petite vidéo MJPEG dans un fichier AVI, puis la \emph{relit} image
+        par image et l'affiche, cadencée, dans l'interface. Boutons lecture,
+        pause et retour au début.
+\end{enumerate}
+
+Le tout avec du texte rendu par une police embarquée.
+
+\begin{nkretenir}[Pourquoi aucun actif externe]
+C'est un choix pédagogique délibéré, et il vaut d'être expliqué.
+
+Une application d'apprentissage qui exige un \texttt{logo.png} et un
+\texttt{clic.wav} échoue à la première exécution, parce que le répertoire
+courant n'est pas celui qu'on croit. Le lecteur passe alors une heure sur un
+problème de chemin relatif au lieu d'apprendre le moteur — c'est exactement ce
+que la démo du dépôt contourne avec sa liste de chemins candidats
+(\nkfile{Applications/NKGuiDemo/src/NKGuiDemo/main.cpp:294-299}).
+
+Ici, chaque ressource est \textbf{produite} :
+\begin{itemize}
+  \item la police vient de \texttt{NkFontEmbedded} (chapitre~6) ;
+  \item l'image est dessinée par \texttt{NkImage::FillRect} et consorts
+        (chapitre~5) ;
+  \item le son est synthétisé par \texttt{AudioGenerator::GenerateTone}
+        (chapitre~7) ;
+  \item la vidéo est écrite par \texttt{NkVideoWriter} avant d'être relue
+        (chapitre~8).
+\end{itemize}
+\textbf{L'application ne peut pas échouer faute de fichier.} C'est également ce
+qui la rend facile à donner à quelqu'un d'autre.
+\end{nkretenir}
+
+\section{Étape 0 — l'arborescence}
+
+Un module ou une application du dépôt, c'est un dossier avec un
+\texttt{.jenga}. Créez :
+
+\begin{nkcode}{Arborescence à créer}
+Applications/NkAtelier/
+  NkAtelier.jenga
+  src/
+    main.cpp
+\end{nkcode}
+
+C'est tout. Un seul fichier source ; c'est suffisant pour ce que nous faisons, et
+cela évite de mélanger l'apprentissage du moteur avec celui d'une organisation
+de projet.
+
+\section{Étape 1 — le fichier de build}
+
+\subsection{Le contenu}
+
+Le fichier ci-dessous est modelé sur
+\nkfile{Applications/NKGuiDemo/NKGuiDemo.jenga}, allégé de ce dont nous n'avons
+pas besoin (la réflexion, la détection de Vulkan) et augmenté de ce qu'il nous
+faut (\texttt{NKAudio}, \texttt{NKMedia}).
+
+\begin{nkcode}{Applications/NkAtelier/NkAtelier.jenga — écrit pour le cours, modelé sur NKGuiDemo.jenga:41-95}
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""NkAtelier — projet final du cours : image + texte + son + video dans une UI NKGui."""
+
+from Jenga import *
+from jengaconfig import *
+
+
+with project("NkAtelier"):
+    windowedapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    files(["src/**.cpp"])
+
+    nkentseudependson(
+        ["NKGui", "NKCanvas", "NKWindow", "NKEvent", "NKGlad",
+         "NKFont", "NKImage", "NKAudio", "NKMedia",
+         "NKStream", "NKFileSystem", "NKLogger", "NKMath", "NKTime",
+         "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
+        extra_includes=["src", "%{NKGlad.location}/include"],
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    # ===== Windows ============================================================
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        windowedapp()
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+        links([
+            "user32", "gdi32", "opengl32", "dwmapi", "shell32",
+            "uuid", "ole32",
+            "d3d11", "d3d12", "dxgi", "d3dcompiler",
+        ])
+
+    # ===== Linux (XLib) =======================================================
+    with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
+        windowedapp()
+        usetoolchain("clang-native")
+        defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
+        links(["pthread", "X11", "Xext", "GL"])
+
+    # ===== macOS ==============================================================
+    with filter("system:macOS"):
+        windowedapp()
+        usetoolchain("clang-native")
+        frameworks(["Cocoa", "QuartzCore", "OpenGL"])
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)
+\end{nkcode}
+
+\subsection{Ce qu'il faut comprendre dans ce fichier}
+
+\begin{itemize}
+  \item \texttt{windowedapp()} — application fenêtrée, pas console. Sous Windows,
+        cela évite qu'une console noire s'ouvre derrière votre fenêtre ;
+  \item \texttt{nkentseudependson([\dots])} — la liste des modules. Elle
+        \emph{doit} contenir tout ce que vous incluez, transitivement ou non ;
+  \item \texttt{extra\_includes} — \texttt{NKGlad} est nécessaire parce que le
+        backend OpenGL de NkCanvas expose ses en-têtes dans les vôtres ;
+  \item les blocs \texttt{with filter(\dots)} — la configuration par plateforme.
+        Ne les inventez pas : recopiez-les d'une application existante qui
+        fonctionne.
+\end{itemize}
+
+\begin{nkpiege}[La liste des dépendances n'est pas décorative]
+Un module absent de \texttt{nkentseudependson} ne provoque pas une erreur claire
+« module manquant ». Il produit soit une erreur de compilation sur un en-tête
+introuvable — encore lisible —, soit une erreur d'\emph{édition de liens} sur des
+symboles non résolus, qui ne dit pas quel module ajouter.
+
+Le réflexe : quand un symbole \texttt{nkentseu::quelquechose} manque à l'édition
+de liens, cherchez dans quel module il est déclaré, et ajoutez ce module.
+\end{nkpiege}
+
+\subsection{Enregistrer le projet dans l'espace de travail}
+
+Un \texttt{.jenga} isolé n'est pas construit. Il faut l'inclure depuis le
+descripteur racine, \nkfile{Nkentseu.jenga}, à côté des autres applications :
+
+\begin{nkcode}{Nkentseu.jenga — ajout, forme identique à Nkentseu.jenga:1394-1396}
+    with include("Applications/NkAtelier/NkAtelier.jenga"):
+
+        pass
+\end{nkcode}
+
+\section{Étape 2 — le squelette : fenêtre, contexte, backend, police}
+
+\subsection{Les inclusions}
+
+\begin{nkcode}{Applications/NkAtelier/src/main.cpp — écrit pour le cours (modèle : NKGuiDemo/main.cpp:7-31)}
+#include "NKWindow/NKWindow.h"
+#include "NKWindow/NKMain.h"
+#include "NKEvent/NkWindowEvent.h"
+#include "NKEvent/NkMouseEvent.h"
+#include "NKEvent/NkKeyboardEvent.h"
+
+#include "NKCanvas/Core/NkContextDesc.h"
+#include "NKCanvas/Core/NkGraphicsApi.h"
+#include "NKCanvas/Renderer/Targets/NkRenderWindow.h"
+#include "NKCanvas/UI/NkGuiCanvasBackend.h"   // pont NKGui -> NKCanvas (header-only)
+
+#include "NKGui/NKGui.h"                      // TOUJOURS l'en-tete parapluie de NKGui
+#include "NKImage/Core/NkImage.h"
+#include "NKAudio/NkAudio.h"
+#include "NKMedia/Video/NkVideoWriter.h"
+#include "NKMedia/Video/NkVideoReader.h"
+
+#include "NKTime/NkClock.h"
+#include "NKMemory/NkUniquePtr.h"
+#include "NKMemory/NKMemory.h"
+#include "NKLogger/NkLog.h"
+#include "NKMath/NkColor.h"
+
+using namespace nkentseu;
+using namespace nkentseu::nkgui;
+using namespace nkentseu::renderer;
+\end{nkcode}
+
+Deux remarques d'ordre général.
+
+D'abord, \textbf{on inclut l'en-tête parapluie de NKGui}
+(\nkfile{NKGui/NKGui.h}) et jamais un en-tête interne — le chapitre~1 en a donné
+la raison : c'est lui qui neutralise les macros de X11 sous Linux.
+
+Ensuite, \textbf{on n'inclut pas d'en-tête parapluie pour NKMedia} : il n'en
+existe pas. On prend les deux sous-en-têtes précis dont on a besoin.
+
+\subsection{Fenêtre et cible de rendu}
+
+\begin{nkcode}{main.cpp — écrit pour le cours (modèle : NKGuiDemo/main.cpp:240-263)}
+int nkmain(const NkEntryState &state) {
+    (void)state;
+
+    NkWindow window;
+    NkWindowConfig cfg;
+    cfg.title = "NkAtelier - projet final du cours Nkentseu";
+    cfg.width = 1180;
+    cfg.height = 760;
+    cfg.centered = true;
+    cfg.resizable = true;
+    if (!window.Create(cfg))
+        return -1;
+
+    NkContextDesc desc;
+    desc.api = NkGraphicsApi::NK_GFX_API_AUTO;
+    if (desc.api == NkGraphicsApi::NK_GFX_API_AUTO) {
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
+        desc.api = NkGraphicsApi::NK_GFX_API_DX11;
+#else
+        desc.api = NkGraphicsApi::NK_GFX_API_OPENGL;
+#endif
+    }
+    auto target = memory::NkMakeUnique<NkRenderWindow>(window, desc);
+    if (!target || !target->IsValid())
+        return -1;
+\end{nkcode}
+
+Le point d'entrée s'appelle \texttt{nkmain} et vient de
+\nkfile{NKWindow/NKMain.h} : c'est lui qui gère les différences de démarrage
+entre plateformes.
+
+\begin{nkpiege}[Si rien ne s'affiche, changez de backend]
+Le tableau du chapitre~1 rappelait que, à la date de sa rédaction, seul le
+backend OpenGL était validé à l'exécution ; DX11 et le rasteriseur logiciel
+avaient un écran noir signalé, Vulkan et DX12 des plantages
+(\nkfile{Kernel/Runtime/NKCanvas/ROADMAP.md}, lignes 185-200 et 601-607).
+
+Ces états sont datés et le dépôt bouge — mais si votre fenêtre s'ouvre noire,
+\textbf{la première chose à essayer n'est pas de relire votre code} : c'est de
+remplacer \texttt{NK\_GFX\_API\_DX11} par \texttt{NK\_GFX\_API\_OPENGL} et de
+relancer. Cinq secondes, et cela élimine la moitié des causes possibles.
+\end{nkpiege}
+
+\subsection{Contexte NKGui et backend}
+
+\begin{nkcode}{main.cpp — écrit pour le cours (modèle : NKGuiDemo/main.cpp:264-279)}
+    auto ctxPtr = memory::NkMakeUnique<NkGuiContext>();
+    if (!ctxPtr)
+        return -1;
+    NkGuiContext &ctx = *ctxPtr;
+    ctx.Init(static_cast<int32>(cfg.width), static_cast<int32>(cfg.height));
+    SetCurrentContext(&ctx);
+
+    NkGuiCanvasBackend backend;
+    if (!backend.Init(target->GetRenderer()))
+        return -1;
+\end{nkcode}
+
+\textbf{L'ordre compte} : le backend reçoit le renderer, donc le renderer doit
+exister. Et, souvenez-vous du chapitre~5, toutes les textures doivent être
+créées \emph{après} l'initialisation du renderer — ce qui est le cas ici,
+puisque nos uploads viendront plus bas.
+
+\subsection{La police}
+
+\begin{nkcode}{main.cpp — écrit pour le cours (modèle : NKGuiDemo/main.cpp:281-288)}
+    auto fontPtr = memory::NkMakeUnique<NkGuiFont>();
+    if (!fontPtr->LoadEmbedded(NkEmbeddedFontId::DroidSans, 17.f)) {
+        fontPtr->LoadEmbedded(NkEmbeddedFontId::ProggyClean, 16.f);
+    }
+    ctx.font = fontPtr.Get();
+    if (fontPtr->Valid()) {
+        backend.UploadFontGray8(fontPtr->TexId(), fontPtr->pixels, fontPtr->atlasW, fontPtr->atlasH);
+    } else {
+        logger.Error("[NkAtelier] aucune police embarquee disponible : textes invisibles");
+    }
+\end{nkcode}
+
+Trois lignes utiles et un repli, exactement comme au chapitre~6. Le \texttt{else}
+n'est pas superflu : sans lui, une police manquante donnerait une interface
+entièrement muette, sans le moindre indice.
+
+\section{Étape 3 — les événements et la boucle}
+
+\subsection{Le branchement des entrées}
+
+\begin{nkcode}{main.cpp — écrit pour le cours (modèle : NKGuiDemo/main.cpp:326-347)}
+    auto &events = NkEvents();
+    bool running = true;
+    events.AddEventCallback<NkWindowCloseEvent>([&](NkWindowCloseEvent *) { running = false; });
+    events.AddEventCallback<NkMouseMoveEvent>([&](NkMouseMoveEvent *e) {
+        ctx.input.mousePos = {static_cast<float32>(e->GetX()), static_cast<float32>(e->GetY())};
+    });
+    events.AddEventCallback<NkMouseButtonPressEvent>([&](NkMouseButtonPressEvent *e) {
+        if (e->GetButton() == NkMouseButton::NK_MB_LEFT)
+            ctx.input.mouseDown[0] = true;
+    });
+    events.AddEventCallback<NkMouseButtonReleaseEvent>([&](NkMouseButtonReleaseEvent *e) {
+        if (e->GetButton() == NkMouseButton::NK_MB_LEFT)
+            ctx.input.mouseDown[0] = false;
+    });
+    events.AddEventCallback<NkMouseWheelVerticalEvent>([&](NkMouseWheelVerticalEvent *e) {
+        ctx.input.wheel += static_cast<float32>(e->GetDeltaY());
+    });
+\end{nkcode}
+
+C'est le strict minimum pour des boutons, des curseurs et du défilement. Si vous
+ajoutez un champ de saisie, il vous faudra en plus \texttt{NkTextInputEvent} et
+la traduction des touches d'édition — la démo en donne le modèle complet
+(\nkfile{Applications/NKGuiDemo/src/NKGuiDemo/main.cpp:367-405}).
+
+\subsection{La boucle, et l'invariant d'ordre}
+
+\begin{nkcode}{main.cpp — écrit pour le cours (modèle : NKGuiDemo/main.cpp:429-470)}
+    NkClock clock;
+    uint32 lastW = 0, lastH = 0;
+
+    while (running && window.IsOpen()) {
+        float32 dt = clock.Tick().delta;
+        if (dt <= 0.f)  dt = 1.f / 60.f;
+        if (dt > 0.1f)  dt = 0.1f;          // garde-fou : fenetre deplacee, machine chargee
+
+        while (NkEvent *ev = NkEvents().PollEvent()) {
+            (void)ev;                        // le travail est fait par les callbacks
+        }
+        if (!running)
+            break;
+
+        // Synchroniser la swapchain sur la taille de la FENETRE.
+        const math::NkVec2u wsz = target->GetWindow().GetSize();
+        if (wsz.x > 0 && wsz.y > 0 && (wsz.x != lastW || wsz.y != lastH)) {
+            target->OnResize(wsz.x, wsz.y);
+            lastW = wsz.x;
+            lastH = wsz.y;
+        }
+        const math::NkVec2u sz = target->GetSize();
+        if (sz.x > 0 && sz.y > 0) {
+            ctx.viewW = static_cast<int32>(sz.x);
+            ctx.viewH = static_cast<int32>(sz.y);
+        }
+
+        ctx.BeginFrame(dt);
+        // ... les trois panneaux, sections suivantes ...
+        ctx.EndFrame();
+
+        target->Clear();
+        backend.Submit(ctx.dl, sz.x, sz.y);
+        backend.Submit(ctx.dlOverlay, sz.x, sz.y);
+        target->Display();
+    }
+\end{nkcode}
+
+\begin{nkretenir}[L'invariant d'ordre, une dernière fois]
+\texttt{événements} $\rightarrow$ \texttt{BeginFrame(dt)} $\rightarrow$
+\texttt{widgets} $\rightarrow$ \texttt{EndFrame()} $\rightarrow$ \texttt{Clear}
+$\rightarrow$ \texttt{Submit} $\times 2$ $\rightarrow$ \texttt{Display}.
+
+Les \textbf{deux} \texttt{Submit} ne sont pas une coquille : le second envoie la
+couche des popups et menus, qui doit se dessiner par-dessus tout le reste.
+L'oublier donne une application où les menus déroulants passent derrière les
+panneaux — un bug qu'on cherche longtemps parce qu'il ressemble à un problème de
+profondeur.
+\end{nkretenir}
+
+Le bornage de \texttt{dt} mérite aussi un mot. Quand l'utilisateur déplace la
+fenêtre, le système bloque la boucle : le \emph{delta time} suivant peut valoir
+plusieurs secondes. Toutes vos animations feraient alors un bond. Un plafond à
+100~ms coûte une ligne et supprime une catégorie entière de bizarreries.
+
+\section{Étape 4 — l'image (NKImage)}
+
+\subsection{Fabriquer l'image}
+
+Nous n'avons pas de fichier ; nous dessinons. Voici la fonction, écrite pour ce
+cours, qui produit une image et l'envoie au backend :
+
+\begin{nkcode}{main.cpp — écrit pour le cours (API : NkImage.h:232, 587-765, 404, 775)}
+// Fabrique une image 512x512, en tire une vignette, et l'uploade sous `texId`.
+// Renvoie false si quoi que ce soit echoue.
+static bool ConstruireVignette(NkGuiCanvasBackend &backend, uint32 texId, float32 teinte,
+                               int32 &outW, int32 &outH) {
+    // 1) Une image sur la PILE : rien a liberer.
+    NkImage source;
+    if (!source.Create(512, 512, math::NkColor(18, 20, 26, 255), 4))
+        return false;
+
+    // 2) Dessin CPU (chapitre 5). Toutes ces primitives sont inline dans l'en-tete.
+    const uint8 r = static_cast<uint8>(60.f + 195.f * teinte);
+    const uint8 g = static_cast<uint8>(200.f - 120.f * teinte);
+    source.FillRect(40, 40, 432, 120, math::NkColor(r, g, 90, 255));
+    source.DrawRect(40, 40, 432, 120, math::NkColor(255, 255, 255, 255));
+    for (int32 i = 0; i < 12; ++i)
+        source.DrawCircle(256, 300, 20 + i * 12, math::NkColor(0, 220, 255, 255 - i * 18));
+    source.DrawLine(0, 0, 511, 511, math::NkColor(255, 255, 255, 90));
+    source.DrawLine(0, 511, 511, 0, math::NkColor(255, 255, 255, 90));
+
+    // 3) Vignette : Resize renvoie un NkImage* -> il FAUT le liberer.
+    NkImage *vignette = source.Resize(192, 192, NkResizeFilter::NK_BILINEAR);
+    if (!vignette)
+        return false;
+
+    // 4) Aplatir en RGBA CONTIGU (le stride ne vaut pas forcement w*4 : chapitre 5).
+    static NkVector<uint8> rgba;          // statique : on evite de reallouer a chaque appel
+    const int32 w = vignette->Width();
+    const int32 h = vignette->Height();
+    rgba.Resize(static_cast<usize>(w) * h * 4u);
+    for (int32 y = 0; y < h; ++y) {
+        const uint8 *src = vignette->RowPtr(y);
+        uint8 *dst = rgba.Data() + static_cast<usize>(y) * w * 4u;
+        for (int32 x = 0; x < w * 4; ++x)
+            dst[x] = src[x];
+    }
+
+    const bool ok = backend.UploadImageRGBA(texId, rgba.Data(), w, h);
+    outW = w;
+    outH = h;
+
+    vignette->Free();                     // OBLIGATOIRE : issu d'une fabrique
+    return ok;                            // ~NkImage() libere `source`
+}
+\end{nkcode}
+
+Quatre points de vigilance sont concentrés dans cette fonction, et ce sont
+exactement les quatre du chapitre~5 :
+
+\begin{enumerate}
+  \item \texttt{source} est sur la pile, donc rien à libérer ;
+  \item \texttt{Resize} renvoie un pointeur, donc \texttt{Free()} obligatoire —
+        y compris si vous ajoutez un \texttt{return} anticipé après cette ligne ;
+  \item la recopie passe par \texttt{RowPtr(y)}, pas par un \texttt{memcpy}
+        global ;
+  \item le tampon \texttt{rgba} est \texttt{static} : on ne réalloue pas 147~Ko à
+        chaque changement de curseur.
+\end{enumerate}
+
+\subsection{L'appeler, et l'afficher}
+
+Avant la boucle :
+
+\begin{nkcode}{main.cpp — écrit pour le cours}
+    constexpr uint32 kTexVignette = 0x56494731u;   // 'VIG1'
+    int32 vigW = 0, vigH = 0;
+    float32 teinte = 0.35f;
+    bool vignetteOk = ConstruireVignette(backend, kTexVignette, teinte, vigW, vigH);
+    float32 teinteAppliquee = teinte;
+\end{nkcode}
+
+Dans la frame :
+
+\begin{nkcode}{main.cpp — écrit pour le cours (API : NkGuiWidgets.h:39, 65, 99, 140)}
+        SetNextWindowSize(ctx, 340.f, 420.f);
+        if (Begin(ctx, "Image (NKImage)")) {
+            Text(ctx, "Image dessinee a l'execution, sans aucun fichier.");
+            Separator(ctx);
+
+            if (vignetteOk)
+                Image(ctx, kTexVignette, static_cast<float32>(vigW), static_cast<float32>(vigH));
+            else
+                Text(ctx, "(construction de l'image echouee)");
+
+            Separator(ctx);
+            SliderFloat(ctx, "Teinte", teinte, 0.f, 1.f);
+            // On ne refabrique QUE si la valeur a change : sinon on redessinerait
+            // et re-uploaderait 512x512 pixels a chaque frame pour rien.
+            if (teinte != teinteAppliquee) {
+                vignetteOk = ConstruireVignette(backend, kTexVignette, teinte, vigW, vigH);
+                teinteAppliquee = teinte;
+            }
+            EndWindow(ctx);
+        }
+\end{nkcode}
+
+\begin{nkretenir}[Ne refaites pas le travail à chaque image]
+Le test \texttt{teinte != teinteAppliquee} est la seule chose qui sépare une
+application fluide d'une application qui redessine et ré-uploade une texture
+soixante fois par seconde sans raison.
+
+C'est un réflexe à prendre : dans une interface en mode immédiat, \emph{déclarer}
+un widget est bon marché, mais \emph{réagir} à un widget doit être conditionné au
+changement. Les widgets qui renvoient \texttt{true} en cas de modification —
+\texttt{SliderFloat}, \texttt{Checkbox}, \texttt{DragFloat} — sont faits pour
+cela.
+\end{nkretenir}
+
+\section{Étape 5 — le son (NKAudio)}
+
+\subsection{Synthétiser trois sons}
+
+\texttt{AudioGenerator} produit des \texttt{AudioSample} sans aucun fichier.
+C'est ce que font quatre applications du dépôt, dont Pong :
+
+\begin{nkcode}{Applications/Pong/src/Pong/Audio/AudioManager.cpp:31-45}
+        static AudioSample MakePaddleHit() {
+            AudioSample s = AudioGenerator::GenerateTone(
+                /*frequency*/ 880.0f,
+                /*duration */ 0.06f,
+                /*waveform */ WaveformType::SINE,
+                /*sampleRate*/ 48000,
+                /*amplitude*/ 0.85f);
+            AdsrEnvelope env;
+            env.attackTime = 0.002f; // attack immediate
+            env.decayTime = 0.02f;
+            env.sustainLevel = 0.5f;
+            env.releaseTime = 0.03f;
+            AudioGenerator::ApplyEnvelope(s, env);
+            return s;
+        }
+\end{nkcode}
+
+L'enveloppe ADSR n'est pas un raffinement optionnel : sans elle, un son qui
+commence et s'arrête brutalement produit un clic audible — l'oreille entend la
+discontinuité. Deux millisecondes d'attaque suffisent à le supprimer.
+
+Adaptons pour notre atelier :
+
+\begin{nkcode}{main.cpp — écrit pour le cours (API : NkAudio.h:707, 758 ; modèle : Pong/AudioManager.cpp:31-45)}
+static audio::AudioSample FaireSon(float32 freq, float32 duree, audio::WaveformType forme) {
+    audio::AudioSample s = audio::AudioGenerator::GenerateTone(freq, duree, forme, 48000, 0.75f);
+    audio::AdsrEnvelope env;
+    env.attackTime = 0.003f;
+    env.decayTime = 0.02f;
+    env.sustainLevel = 0.5f;
+    env.releaseTime = 0.04f;
+    audio::AudioGenerator::ApplyEnvelope(s, env);
+    return s;
+}
+\end{nkcode}
+
+\subsection{Initialiser, jouer, couper}
+
+Avant la boucle :
+
+\begin{nkcode}{main.cpp — écrit pour le cours (API : NkAudio.h:1091, 1104)}
+    audio::AudioEngine &engine = audio::AudioEngine::Instance();
+    const bool audioOk = engine.Initialize(audio::AudioEngineConfig{});   // backend AUTO
+    if (!audioOk)
+        logger.Error("[NkAtelier] audio indisponible : l'application continue en silence");
+
+    audio::AudioSample sonGrave, sonMedium, sonAigu;
+    if (audioOk) {
+        logger.Info("[NkAtelier] device audio : {0} Hz, {1} canaux", engine.GetSampleRate(), engine.GetChannels());
+        sonGrave  = FaireSon(220.f, 0.08f, audio::WaveformType::SQUARE);
+        sonMedium = FaireSon(440.f, 0.07f, audio::WaveformType::SINE);
+        sonAigu   = FaireSon(880.f, 0.06f, audio::WaveformType::SINE);
+    }
+    bool sonsUiActifs = true;
+\end{nkcode}
+
+Dans la frame :
+
+\begin{nkcode}{main.cpp — écrit pour le cours (API : NkGuiWidgets.h:44-45 ; NkAudio.h:1127, 1266)}
+        SetNextWindowSize(ctx, 340.f, 260.f);
+        if (Begin(ctx, "Son (NKAudio)")) {
+            if (!audioOk) {
+                Text(ctx, "Moteur audio indisponible sur cette machine.");
+            } else {
+                Text(ctx, "Trois sons synthetises, joues sur le bus UI.");
+                Separator(ctx);
+
+                audio::VoiceParams vp;
+                vp.bus = "UI";           // bus dedie : coupable sans toucher a la musique
+
+                if (Button(ctx, "Grave (220 Hz)"))
+                    engine.Play(sonGrave, vp);
+                if (Button(ctx, "Medium (440 Hz)"))
+                    engine.Play(sonMedium, vp);
+                if (Button(ctx, "Aigu (880 Hz)"))
+                    engine.Play(sonAigu, vp);
+
+                Separator(ctx);
+                if (Checkbox(ctx, "Sons d'interface", sonsUiActifs)) {
+                    if (audio::NkAudioBus *bus = engine.GetBus("UI"))
+                        bus->SetMute(!sonsUiActifs);
+                }
+            }
+            EndWindow(ctx);
+        }
+\end{nkcode}
+
+Remarquez que \texttt{Play} est appelé sans récupérer le \emph{handle} : ce sont
+des sons courts, on ne les pilotera pas. Remarquez aussi le \texttt{if} autour de
+\texttt{GetBus} : il renvoie \texttt{nullptr} si le moteur n'est pas initialisé.
+
+\begin{nkpiege}[N'écrivez jamais \texttt{cfg.backend = DIRECTSOUND}]
+Rappel du chapitre~7 : le backend DirectSound est un stub qui renvoie
+\texttt{true} sans rien ouvrir
+(\nkfile{Kernel/Runtime/NKAudio/src/NKAudio/NkAudioBackends.cpp:445-451}). Vous
+auriez un moteur « initialisé », des voix « en lecture », et le silence complet.
+Laissez \texttt{AUTO}.
+\end{nkpiege}
+
+\section{Étape 6 — la vidéo (NKMedia)}
+
+C'est la partie la plus ambitieuse, et elle est faite d'un aller-retour : on
+écrit une vidéo, puis on la relit.
+
+\subsection{Écrire la vidéo}
+
+\begin{nkcode}{main.cpp — écrit pour le cours (modèle : NKVideoTest/src/main.cpp:83-112)}
+// Ecrit une petite video MJPEG/AVI de `nframes` images. Renvoie true si OK.
+static bool EcrireVideoDemo(const char *chemin, int32 w, int32 h, int32 fps, int32 nframes) {
+    media::NkVideoConfig cfg;
+    cfg.width = w;
+    cfg.height = h;
+    cfg.fpsNum = fps;
+    cfg.fpsDen = 1;
+    cfg.codec = media::NkVideoCodec::MJPEG;        // le chemin le plus sur (chapitre 8)
+    cfg.container = media::NkVideoContainer::AVI;
+    cfg.quality = 88;
+
+    media::NkVideoWriter vw;
+    if (!vw.Open(chemin, cfg)) {
+        logger.Error("[NkAtelier] impossible d'ouvrir {0} en ecriture", chemin);
+        return false;
+    }
+
+    // Un SEUL tampon, reutilise. RGB24 : 3 octets par pixel, contigu, haut->bas.
+    uint8 *rgb = static_cast<uint8 *>(memory::NkAlloc(static_cast<usize>(w) * h * 3));
+    if (!rgb) {
+        vw.Close();
+        return false;
+    }
+
+    bool ok = true;
+    for (int32 f = 0; f < nframes && ok; ++f) {
+        // Motif : un carre qui traverse l'image + un fond qui defile.
+        const int32 cx = (w - 60) * f / (nframes > 1 ? nframes - 1 : 1);
+        for (int32 y = 0; y < h; ++y) {
+            uint8 *ligne = rgb + static_cast<usize>(y) * w * 3;
+            for (int32 x = 0; x < w; ++x) {
+                const bool dansCarre = (x >= cx && x < cx + 60 && y >= h / 2 - 30 && y < h / 2 + 30);
+                ligne[x * 3 + 0] = dansCarre ? 255 : static_cast<uint8>((x + f * 3) & 0xFF);
+                ligne[x * 3 + 1] = dansCarre ? 140 : static_cast<uint8>((y * 2) & 0xFF);
+                ligne[x * 3 + 2] = dansCarre ? 0   : 60;
+            }
+        }
+        ok = vw.WriteFrame(rgb, media::NkVideoInputFormat::RGB24);
+    }
+
+    memory::NkFree(rgb);
+    vw.Close();          // OBLIGATOIRE : ecrit l'index AVI. Sans lui : fichier illisible.
+    return ok;
+}
+\end{nkcode}
+
+Notez que \texttt{Close()} est appelé \textbf{sur tous les chemins}, y compris
+quand \texttt{ok} est devenu \texttt{false}. C'est la règle du chapitre~8 : sans
+finalisation, le fichier existe et n'est lisible par personne.
+
+Notez aussi la construction de la ligne : \texttt{rgb + y * w * 3}. Ici, pas de
+\emph{stride} aligné — nous fabriquons nous-mêmes un tampon contigu, c'est ce que
+\texttt{WriteFrame} attend. Le \emph{stride} est une notion de \texttt{NkImage},
+pas de \texttt{NkVideoWriter}.
+
+\subsection{Relire la vidéo}
+
+Avant la boucle :
+
+\begin{nkcode}{main.cpp — écrit pour le cours (API : NkVideoReader.h:54-66)}
+    constexpr uint32 kTexVideo = 0x56494431u;      // 'VID1'
+    const char *kCheminVideo = "nkatelier_demo.avi";
+
+    media::NkVideoReader lecteur;
+    bool videoOk = false;
+    double videoFps = 25.0;
+    int32 videoW = 0, videoH = 0, videoNb = -1;
+
+    if (EcrireVideoDemo(kCheminVideo, 320, 240, 25, 75)) {   // 3 secondes
+        if (lecteur.Open(kCheminVideo)) {
+            const media::NkVideoReaderInfo &in = lecteur.Info();
+            videoW = in.width;
+            videoH = in.height;
+            videoNb = in.frameCount;
+            videoFps = (in.fps > 1.0) ? in.fps : 25.0;
+            videoOk = true;
+            logger.Info("[NkAtelier] video : {0} {1} {2}x{3} @ {4} fps",
+                        in.container.CStr(), in.codec.CStr(), in.width, in.height, in.fps);
+        } else {
+            logger.Error("[NkAtelier] video ecrite mais illisible : {0}", kCheminVideo);
+        }
+    }
+
+    media::NkVideoFrame trame;      // DECLAREE HORS BOUCLE : son buffer est reutilise
+    float32 accumulateur = 0.f;
+    bool videoEnLecture = true;
+    bool videoFinie = false;
+    int32 videoIndex = -1;
+\end{nkcode}
+
+Le fait que la lecture soit tentée juste après l'écriture est en soi un test :
+si \texttt{Open} échoue, c'est que l'écriture a mal tourné.
+
+\subsection{Cadencer et afficher}
+
+\begin{nkcode}{main.cpp — écrit pour le cours (modèle : NKCode/Shell/NkVideoViewer.h:153-170)}
+        SetNextWindowSize(ctx, 400.f, 420.f);
+        if (Begin(ctx, "Video (NKMedia)")) {
+            if (!videoOk) {
+                Text(ctx, "Video indisponible.");
+            } else {
+                // ── Cadencement ────────────────────────────────────────────
+                const float32 dureeImage = 1.f / static_cast<float32>(videoFps);
+                if (videoEnLecture && !videoFinie) {
+                    accumulateur += dt;
+                    if (accumulateur > dureeImage * 4.f)
+                        accumulateur = 0.f;          // evite le rattrapage explosif
+                    while (accumulateur >= dureeImage) {
+                        accumulateur -= dureeImage;
+                        if (lecteur.ReadFrame(trame)) {
+                            videoIndex = trame.index;
+                            // Une seule image decodee -> un seul upload.
+                            backend.UploadImageRGBA(kTexVideo, trame.rgba.Data(), trame.width, trame.height);
+                        } else {
+                            videoFinie = true;       // fin du fichier
+                            break;
+                        }
+                    }
+                }
+
+                // ── Affichage ──────────────────────────────────────────────
+                if (videoIndex >= 0)
+                    Image(ctx, kTexVideo, static_cast<float32>(videoW), static_cast<float32>(videoH));
+                else
+                    Text(ctx, "(premiere image en attente)");
+
+                Separator(ctx);
+                Text(ctx, videoFinie ? "Etat : terminee" : (videoEnLecture ? "Etat : lecture" : "Etat : pause"));
+
+                BeginHBox(ctx);
+                if (Button(ctx, videoEnLecture ? "Pause" : "Lecture"))
+                    videoEnLecture = !videoEnLecture;
+                if (Button(ctx, "Debut")) {
+                    if (lecteur.SeekFrame(0)) {
+                        videoFinie = false;
+                        accumulateur = 0.f;
+                        videoIndex = -1;
+                    }
+                }
+                EndHBox(ctx);
+            }
+            EndWindow(ctx);
+        }
+\end{nkcode}
+
+\begin{nkretenir}[Les trois règles de la lecture vidéo, réunies]
+\begin{enumerate}
+  \item \textbf{Un seul upload par image affichée.} La boucle \texttt{while}
+        peut décoder plusieurs trames si l'application a pris du retard, mais on
+        n'uploade que celle qu'on va montrer ;
+  \item \textbf{l'accumulateur est borné} (\texttt{> dureeImage * 4}) : sans ce
+        garde-fou, un décrochage de deux secondes déclencherait le décodage de
+        cinquante images d'un coup, ce qui aggraverait le décrochage ;
+  \item \textbf{\texttt{NkVideoFrame} est déclarée hors boucle.} Son
+        \texttt{NkVector} garde sa capacité ; la déclarer à l'intérieur
+        provoquerait une allocation par image.
+\end{enumerate}
+\end{nkretenir}
+
+\begin{nkpiege}[Le rebouclage n'est exact que sur les formats non compressés en temps]
+\texttt{SeekFrame(0)} fonctionne bien ici parce que notre vidéo est en MJPEG :
+chaque image est indépendante. Sur du H.264, \texttt{SeekFrame(n)} ne fait que
+revenir à l'image autonome précédente, et il faut redécoder vers l'avant
+jusqu'à la cible (chapitre~8). Notre choix du MJPEG n'était donc pas seulement
+un choix de prudence : il simplifie aussi la navigation.
+\end{nkpiege}
+
+\begin{nkpiege}[L'upload répété dépend de \texttt{NkTexture::Update}]
+Regardez l'implémentation du pont : \texttt{UploadImageRGBA} crée la texture au
+premier appel, puis appelle \texttt{tex->Update(...)} aux suivants
+(\nkfile{Kernel/Runtime/NKCanvas/src/NKCanvas/UI/NkGuiCanvasBackend.h:94-117}).
+C'est exactement le bon comportement — on ne recrée pas la texture par image.
+
+Mais souvenez-vous de l'avertissement de Pong (chapitre~6) : « \texttt{Update}
+exige \texttt{gTextureBackend.Update} qui n'est pas câblé sur tous les backends
+$\rightarrow$ échec silencieux » (\nkfile{Applications/Pong/src/Pong/Render/FontAtlas.cpp:107-109}).
+
+Si votre vignette statique s'affiche mais que la vidéo reste figée sur sa
+première image, la cause est probablement là — et la solution est de changer de
+backend graphique, pas de réécrire votre code de lecture.
+\end{nkpiege}
+
+\section{Étape 7 — la fermeture}
+
+C'est le moment où l'on récolte ce qu'on a semé dans les cinq chapitres
+précédents. Chaque module a son ordre, et ils s'imbriquent.
+
+\begin{nkcode}{main.cpp — écrit pour le cours (invariants : NkAudio.h:1114 ; NkAudioPlayer/main.cpp:258-259)}
+    // ── Fermeture, dans cet ordre exact ───────────────────────────────────────
+
+    // 1) Video : fermer le lecteur (il possede son etat interne).
+    lecteur.Close();
+
+    // 2) Audio : ARRETER LE MOTEUR AVANT de liberer les samples.
+    if (audioOk) {
+        engine.Shutdown();
+        audio::AudioLoader::Free(sonGrave);
+        audio::AudioLoader::Free(sonMedium);
+        audio::AudioLoader::Free(sonAigu);
+    }
+
+    // 3) Interface.
+    SetCurrentContext(nullptr);
+    ctx.Shutdown();
+    return 0;
+    // Les NkUniquePtr (target, ctxPtr, fontPtr) se detruisent ici, dans l'ordre
+    // inverse de leur declaration. Le backend et l'atlas de police suivent.
+}
+\end{nkcode}
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Module} & \textbf{Ce qu'on ferme} & \textbf{Piège si l'ordre est inversé} \\
+\midrule
+NKMedia & \texttt{lecteur.Close()} & fichier verrouillé \\
+NKAudio & \texttt{Shutdown()} puis \texttt{Free()} & lecture après libération \\
+NKImage & rien (pile) ou \texttt{Free()} & fuite ou double libération \\
+NKFont  & rien (l'atlas possède tout) & double libération si fusion \\
+NKGui   & \texttt{ctx.Shutdown()} & — \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}[Le principe unique derrière tous ces ordres]
+\textbf{On éteint d'abord ce qui \emph{tourne}, ensuite ce qui est \emph{lu}.}
+
+Le moteur audio a un fil qui lit vos échantillons ; le gestionnaire de connexion
+a un fil qui lit vos tampons ; l'enregistreur vidéo a un fil qui lit vos images.
+Dans les trois cas, la fonction d'arrêt joint le fil — et ce n'est qu'après
+qu'on a le droit de libérer ce qu'il lisait.
+
+Si vous ne deviez retenir qu'une phrase de ces six chapitres, ce serait
+celle-là : elle explique l'ordre de fermeture de NKAudio, de NKNetwork et de
+NKMedia d'un seul coup.
+\end{nkretenir}
+
+\section{Compiler et lancer}
+
+\begin{nkcode}{Ligne de commande (voir README.md:147-163)}
+jenga build --target NkAtelier --config Debug
+\end{nkcode}
+
+L'exécutable atterrit dans
+\nkfile{Build/Bin/Debug-Windows/NkAtelier/} — ou
+\texttt{Debug-Linux}, \texttt{Debug-macOS} selon la plateforme, suivant le
+\texttt{targetdir} que nous avons écrit dans le \texttt{.jenga}.
+
+Pour la version optimisée :
+
+\begin{nkcode}{Ligne de commande}
+jenga build --target NkAtelier --config Release
+\end{nkcode}
+
+\begin{nkpiege}[Le répertoire courant au lancement]
+Notre application écrit \texttt{nkatelier\_demo.avi} \textbf{dans le répertoire
+courant}, pas à côté de l'exécutable. Selon que vous la lancez depuis un
+terminal, depuis un explorateur de fichiers ou depuis un environnement de
+développement, ce répertoire diffère.
+
+Ce n'est pas grave ici — nous écrivons \emph{et} lisons au même endroit dans la
+même exécution — mais c'est exactement le mécanisme qui fait qu'un
+\texttt{assets/logo.png} « introuvable » l'est seulement dans certaines
+conditions de lancement. Si vous voulez voir le fichier produit, lancez
+l'application depuis un terminal, dans un dossier que vous avez choisi.
+
+Souvenez-vous aussi que les auto-tests de NKMedia écrivent, eux aussi, dans le
+répertoire courant (chapitre~8).
+\end{nkpiege}
+
+\section{Le catalogue des silences}
+
+Voici la partie la plus utile de ce chapitre. Toutes les pannes ci-dessous ont
+un point commun : \textbf{aucune ne produit de message d'erreur}. Gardez cette
+liste sous la main.
+
+\begin{center}
+\begin{tabular}{@{}p{5.4cm}p{8.4cm}@{}}
+\toprule
+\textbf{Symptôme} & \textbf{Cause à vérifier en premier} \\
+\midrule
+Fenêtre noire, rien du tout &
+Backend graphique. Essayez \texttt{NK\_GFX\_API\_OPENGL}. \\
+Tout s'affiche sauf les textes &
+Atlas de police non uploadé, ou \texttt{ctx.font} non affecté. \\
+Les menus passent \emph{derrière} &
+Second \texttt{Submit(ctx.dlOverlay, \dots)} oublié. \\
+L'image apparaît « penchée » &
+\texttt{memcpy} global au lieu de \texttt{RowPtr(y)}. \\
+L'image est vide &
+Texture créée avant \texttt{renderer.Initialize()}. \\
+Aucun son, mais tout indique que ça joue &
+Backend \texttt{DIRECTSOUND} demandé explicitement. \\
+Grésillement ou plantage à la fermeture &
+\texttt{Free(sample)} appelé avant \texttt{engine.Shutdown()}. \\
+Le fichier vidéo est illisible &
+\texttt{Close()} non appelé sur le \texttt{NkVideoWriter}. \\
+La vidéo reste sur la première image &
+\texttt{NkTexture::Update} non câblé dans ce backend. \\
+La vidéo est à l'envers &
+\texttt{flipVertical} avec un framebuffer OpenGL. \\
+Vignette de mauvaise qualité malgré Lanczos &
+\texttt{NK\_LANCZOS3} retombe sur du bilinéaire. \\
+Aucun pair ne se connecte &
+Poignée de main asynchrone : attendre \texttt{ConnectedPeerCount()}. \\
+Erreurs d'édition de liens \texttt{\_\_imp\_socket} &
+\texttt{ws2\_32} absent du \texttt{links()}. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}[La méthode générale]
+Ces silences ont tous la même parade, et c'est une habitude à prendre plutôt
+qu'une astuce : \textbf{journalisez ce que vous chargez, et journalisez aussi ce
+que vous ne chargez pas}.
+
+Toutes les fonctions d'initialisation de ce chapitre ont un \texttt{else} qui
+écrit une ligne. Cela paraît excessif quand tout fonctionne. Le jour où quelque
+chose manque, cette ligne vous fait gagner une heure — et c'est précisément ce
+que fait la démo du dépôt : « \texttt{Image demo introuvable (cwd) -> section
+image vide} »
+(\nkfile{Applications/NKGuiDemo/src/NKGuiDemo/main.cpp:422}).
+\end{nkretenir}
+
+\section{Le programme, vu de haut}
+
+Récapitulons la structure complète, dans l'ordre du fichier :
+
+\begin{nkcode}{Applications/NkAtelier/src/main.cpp — plan d'ensemble}
+// --- inclusions (etape 2) ---
+
+// --- fonctions utilitaires ---
+static bool ConstruireVignette(backend, texId, teinte, &w, &h);   // etape 4
+static audio::AudioSample FaireSon(freq, duree, forme);           // etape 5
+static bool EcrireVideoDemo(chemin, w, h, fps, nframes);          // etape 6
+
+int nkmain(const NkEntryState &state) {
+    // 1. fenetre + cible de rendu                                   etape 2
+    // 2. contexte NKGui + backend                                   etape 2
+    // 3. police embarquee + upload atlas                            etape 2
+    // 4. callbacks d'evenements                                     etape 3
+    // 5. image : premiere construction + upload                     etape 4
+    // 6. audio : Initialize + synthese des trois sons               etape 5
+    // 7. video : ecriture du fichier puis ouverture en lecture      etape 6
+
+    while (running && window.IsOpen()) {
+        // dt + pompage des evenements + synchro swapchain           etape 3
+        ctx.BeginFrame(dt);
+        //   panneau Image                                           etape 4
+        //   panneau Son                                             etape 5
+        //   panneau Video (cadencement + upload + affichage)        etape 6
+        ctx.EndFrame();
+        // Clear + Submit x2 + Display                               etape 3
+    }
+
+    // fermeture : video, puis audio (Shutdown avant Free), puis UI  etape 7
+}
+\end{nkcode}
+
+Environ 300 lignes en tout. C'est peu pour cinq modules — et c'est le point.
+\textbf{La difficulté du moteur n'est pas dans la quantité de code à écrire, elle
+est dans les ordres à respecter} : ordre d'initialisation, ordre de la frame,
+ordre de fermeture.
+
+\section{Pour aller plus loin}
+
+Trois extensions, par difficulté croissante. Chacune réutilise un chapitre
+précédent sans rien introduire de nouveau.
+
+\subsection{Enregistrer ce que l'atelier affiche}
+
+Ajoutez un bouton « Enregistrer » qui, à chaque frame,
+capture la fenêtre et pousse l'image dans un \texttt{NkVideoRecorder} en mode
+MJPEG :
+
+\begin{nkcode}{Esquisse — écrit pour le cours (modèle : NKViewportDemo/main.cpp:329-362)}
+if (enregistrement && target->CaptureToImage(capture) && capture.IsValid()) {
+    if (!rec.IsRecording())
+        rec.Begin("nkatelier_capture.mp4", capture.Width(), capture.Height(),
+                  30, 1, 22, 32, media::NkRecorderCodec::MJPEG, 92);
+    if (rec.IsRecording())
+        rec.PushVideo(capture.Pixels(), media::NkVideoInputFormat::RGBA32);
+}
+// ... et, sur TOUS les chemins de sortie :
+if (rec.IsRecording())
+    rec.End();
+\end{nkcode}
+
+Attention aux deux pièges du chapitre~8 : en mode MJPEG l'audio est ignorée
+silencieusement, et \texttt{End()} doit être appelé même si la fenêtre est fermée
+brutalement.
+
+\subsection{Ajouter le réseau}
+
+Ajoutez à \texttt{NkAtelier} un quatrième panneau : deux boutons « Héberger » et
+« Rejoindre », et une liste de messages. Chaque clic sur un bouton de son envoie
+un message aux autres instances, qui jouent le même son.
+
+Vous aurez besoin d'ajouter \texttt{NKNetwork} aux dépendances du
+\texttt{.jenga} \emph{et} \texttt{ws2\_32} au \texttt{links()} sous Windows. Le
+chapitre~9 donne la structure à suivre : une petite classe de session, un
+\texttt{Tick(dt)} par frame, et une interface qui ne voit qu'un état.
+
+\subsection{Faire du décodage un travail de fond}
+
+Notre vidéo fait 320 par 240 pixels : le décodage est instantané. Essayez avec
+une vidéo de 1920 par 1080, et vous verrez la boucle hoqueter.
+
+La solution — décoder sur un fil, uploader sur le fil principal — est celle du
+chapitre~5, appliquée à la vidéo. C'est un excellent exercice, mais commencez par
+\textbf{mesurer} : entourez \texttt{ReadFrame} d'un chronomètre mural et
+regardez. Et souvenez-vous de l'avertissement du chapitre~8 : mesurez le temps
+mur, pas le \emph{PTS} de la vidéo.
+
+\section{Exercices}
+
+\begin{nkexo}[1 — Faire tomber chaque panneau, un par un]
+Pour chacun des quatre modules, cassez volontairement une chose et notez ce que
+vous observez :
+\begin{itemize}
+  \item n'appelez pas \texttt{UploadFontGray8} ;
+  \item supprimez le \texttt{vignette->Free()} et lancez l'application quelques
+        minutes en bougeant le curseur de teinte (surveillez la mémoire) ;
+  \item inversez \texttt{Shutdown()} et \texttt{Free()} à la fermeture ;
+  \item supprimez le \texttt{vw.Close()} dans \texttt{EcrireVideoDemo}.
+\end{itemize}
+Écrivez, pour chaque cas, la phrase que vous auriez aimé lire dans un journal.
+Puis ajoutez-la vraiment à votre code. Vous venez d'écrire votre propre
+catalogue des silences.
+\end{nkexo}
+
+\begin{nkexo}[2 — Une vraie vignette de fichier]
+Ajoutez un cinquième panneau qui charge une image \emph{depuis le disque} avec
+\texttt{NkImage::Load}, en essayant plusieurs chemins candidats comme le fait la
+démo du dépôt. Affichez le format d'origine (\texttt{SourceFormat()}), les
+dimensions, le nombre de canaux et le \emph{stride}.
+
+Faites-en une vignette de 128 pixels de large en préservant le rapport d'aspect,
+et affichez côte à côte l'original réduit et la vignette. Puis ajoutez un bouton
+qui sauvegarde la vignette en PNG et un autre qui tente de la sauvegarder en
+WebP. Affichez les deux valeurs de retour côte à côte. Que constatez-vous ?
+\end{nkexo}
+
+\begin{nkexo}[3 — Le mélangeur]
+Ajoutez trois \texttt{SliderFloat} — Master, UI, Music — reliés aux bus
+correspondants par \texttt{GetBus(\dots)->SetVolume(\dots)}, en n'appelant le
+\emph{setter} que lorsque la valeur change.
+
+Ajoutez ensuite un son long en boucle sur le bus « Music »
+(\texttt{vp.looping = true}) et vérifiez, à l'oreille, la formule du
+chapitre~7 : le volume effectif est le produit du volume de la voix, de celui du
+bus, et de tous ses parents jusqu'au Master. Vérifiez enfin que couper « UI » ne
+touche pas à « Music ».
+\end{nkexo}
+
+\begin{nkexo}[4 — Une chaîne complète, de l'image à la vidéo et retour]
+Modifiez \texttt{EcrireVideoDemo} pour qu'elle ne dessine plus ses pixels à la
+main, mais qu'elle utilise une \texttt{NkImage} et ses primitives de dessin —
+comme \texttt{ConstruireVignette} — puis qu'elle envoie
+\texttt{image.Pixels()} à \texttt{WriteFrame}.
+
+Attention : \texttt{WriteFrame} attend un tampon \textbf{contigu}, et
+\texttt{NkImage::Pixels()} a un \emph{stride} aligné sur 4 octets. Choisissez
+donc des dimensions telles que \texttt{stride == width * bpp}, ou bien recopiez
+ligne par ligne. Vérifiez votre raisonnement en affichant les deux valeurs avant
+d'écrire la première image.
+
+Relisez ensuite la vidéo produite et affichez-la : vous aurez fait circuler les
+mêmes pixels à travers NKImage, le codec JPEG, le conteneur AVI, le décodeur, et
+enfin le GPU. C'est toute la chaîne de ce cours en une seule fonction.
+\end{nkexo}
+
+\begin{nkexo}[5 — Le vôtre]
+Reprenez \texttt{NkAtelier} et transformez-le en quelque chose qui vous est
+utile : une visionneuse de dossier d'images, un métronome, un petit lecteur de
+séquences, un banc d'essai de vos propres filtres d'image.
+
+Une seule contrainte, et c'est celle de tout ce cours : \textbf{pour chaque
+fonction du moteur que vous emploierez, vérifiez dans la source qu'elle fait
+bien ce que son nom annonce}. Vous savez maintenant où regarder — le
+\texttt{.cpp}, pas le commentaire ; le \texttt{ROADMAP.md}, pas le
+\texttt{.jenga} — et vous savez que la réponse est parfois « non ».
+\end{nkexo}
