@@ -1,0 +1,120 @@
+"""NKQwen2Ask — interroger un modèle AVEC les adaptateurs qu'on vient d'entraîner.
+
+NKQwen2Chat dialogue avec le modèle de BASE (KV-cache, réponse mot à mot) mais
+ignore les adaptateurs. Ici on emprunte le MÊME chemin de calcul que
+l'entraînement, adaptateurs compris : la comparaison « avant / après » ne mélange
+donc pas deux implémentations. Le prix est assumé — génération sans KV-cache,
+donc lente.
+
+Usage :
+  NKQwen2Ask --gguf=<modele.gguf> [--adapters=<f.nkla>] [--question=<q>]
+
+MULTI-PLATEFORME : Windows, Linux (Vulkan sur xlib/xcb/wayland), macOS.
+ATTENTION sous Linux : ne PAS bâtir en `--linux-backend=headless` — ce mode ne
+lie que pthread, sans Vulkan, donc sans GPU.
+"""
+from Jenga import *
+from jengaconfig import *
+import os
+
+
+def _norm(p):
+    return p.replace("\\", "/") if p else p
+
+
+_VULKAN_SDK     = _norm(os.getenv("VULKAN_SDK", ""))
+_VULKAN_INCLUDE = _norm(os.path.join(_VULKAN_SDK, "Include")) if _VULKAN_SDK else ""
+_VULKAN_LIB     = _norm(os.path.join(_VULKAN_SDK, "Lib")) if _VULKAN_SDK else ""
+_VULKAN_OPT     = os.getenv("NK_ENABLE_VULKAN", "auto").strip().lower()
+if _VULKAN_OPT in ("0", "false", "off", "no"):
+    _WANT_VULKAN = False
+elif _VULKAN_OPT in ("1", "true", "on", "yes"):
+    _WANT_VULKAN = True
+else:
+    _WANT_VULKAN = bool(_VULKAN_INCLUDE)
+
+_GLSLANG_LIBS_WINDOWS = [
+    "glslang", "SPIRV", "MachineIndependent", "GenericCodeGen",
+    "glslang-default-resource-limits",
+]
+# glslang système : lié UNIQUEMENT si le dépôt ne bâtit pas le sien. Sur WSL2 il
+# est généralement absent, et le lier ferait échouer l'édition de liens.
+_GLSLANG_LIBS_UNIX = [
+    "glslang", "SPIRV", "MachineIndependent", "GenericCodeGen",
+    "glslang-default-resource-limits", "SPIRV-Tools", "SPIRV-Tools-opt",
+]
+_IS_MINGW = "mingw" in TC_WINDOWS.lower()
+
+with project("NKQwen2Ask"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+    files(["src/main.cpp"])
+
+    nkentseudependson(
+        ["NKInfer", "NKFileSystem", "NKTensor", "NKAutograd",
+         "NKRHI", "NKSL", "NKWindow", "NKGlad", "NKMath", "NKTime", "NKStream",
+         "NKLogger", "NKContainers", "NKMemory", "NKCore", "NKPlatform",
+         "NKThreading", "NKGLSlang", "NKSPIRVCross"],
+        extra_includes=["src", "%{NKGlad.location}/include"]
+                       + ([_VULKAN_INCLUDE] if _VULKAN_INCLUDE else []),
+        extra_defines=[f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if _WANT_VULKAN else 0}"],
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+        if _VULKAN_LIB:
+            libdirs([_VULKAN_LIB])
+        _WIN_LINKS = [
+            "NKGLSlang", "NKSPIRVCross",
+            "user32", "gdi32", "opengl32", "dwmapi", "shell32",
+            "uuid", "ole32", "dxguid",
+            "d3d11", "d3d12", "dxgi", "d3dcompiler",
+        ]
+        if _WANT_VULKAN:
+            _WIN_LINKS.append("vulkan-1")
+            if not _IS_MINGW:
+                _WIN_LINKS.extend(_GLSLANG_LIBS_WINDOWS)
+        links(_WIN_LINKS)
+
+    # ── Linux ────────────────────────────────────────────────────────────────
+    # Les trois backends de fenêtrage lient Vulkan de la même façon : c'est la
+    # chaîne compute qui nous intéresse, pas la surface d'affichage. Le mode
+    # `headless` est VOLONTAIREMENT absent — il ne lie pas Vulkan (NKRHI.jenga
+    # l.137), donc un entraînement y tournerait sans GPU.
+    with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
+        links(["pthread", "X11", "Xext", "GL", "NKGLSlang", "NKSPIRVCross"])
+        defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
+        if _WANT_VULKAN:
+            defines(["VK_USE_PLATFORM_XLIB_KHR"])
+            links(["vulkan"] + ([] if USE_NKGLSLANG else _GLSLANG_LIBS_UNIX))
+
+    with filter("system:Linux && options:linux-backend=xcb"):
+        links(["pthread", "xcb", "xcb-image", "X11", "Xext", "GL", "NKGLSlang", "NKSPIRVCross"])
+        defines(["NKENTSEU_FORCE_WINDOWING_XCB_ONLY"])
+        if _WANT_VULKAN:
+            defines(["VK_USE_PLATFORM_XCB_KHR"])
+            links(["vulkan"] + ([] if USE_NKGLSLANG else _GLSLANG_LIBS_UNIX))
+
+    with filter("system:Linux && options:linux-backend=wayland"):
+        links(["pthread", "wayland-client", "wayland-egl", "xkbcommon", "GL",
+               "NKGLSlang", "NKSPIRVCross"])
+        if _WANT_VULKAN:
+            defines(["VK_USE_PLATFORM_WAYLAND_KHR"])
+            links(["vulkan"] + ([] if USE_NKGLSLANG else _GLSLANG_LIBS_UNIX))
+
+    # ── macOS ────────────────────────────────────────────────────────────────
+    # Vulkan y passe par MoltenVK (libvulkan du SDK). Déclaré maintenant pour que
+    # le portage soit une vérification, pas une réécriture.
+    with filter("system:macOS"):
+        links(["pthread", "NKGLSlang", "NKSPIRVCross"])
+        if _VULKAN_LIB:
+            libdirs([_VULKAN_LIB])
+        if _WANT_VULKAN:
+            defines(["VK_USE_PLATFORM_METAL_EXT"])
+            links(["vulkan"])
