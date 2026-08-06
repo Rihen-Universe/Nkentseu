@@ -3,7 +3,7 @@
  * @File    NkXMLParser.h
  * @Brief   Parser XML complet — tokenizer, DOM tree, namespaces, entités.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  *
  * @Design
  *  Ce module produit un arbre DOM minimal conforme aux besoins du SVG :

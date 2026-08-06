@@ -2,7 +2,7 @@
 // -----------------------------------------------------------------------------
 // @File    NkGuiTypes.h
 // @Brief   Types fondamentaux NKGui : Id, alias géométriques (NKMath), enums.
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // Aucun identifiant dérivé d'ImGui (cf. ARCHITECTURE.md §2). Les types
 // géométriques réutilisent NKMath — idiome Nkentseu, pas un lien ImGui.

@@ -3,7 +3,7 @@
  * @Brief   Codec QOI (Quite OK Image Format) — spec v1.0 exacte.
  *          https://qoiformat.org/qoi-specification.pdf
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  *
  * @Spec
  *  Header : "qoif" + uint32 width + uint32 height + uint8 channels + uint8 colorspace

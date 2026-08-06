@@ -10,7 +10,7 @@
  * @File    NkUIFont.h
  * @Brief   Système de polices NkUI — atlas, mesure, rendu.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  *
  * @Design
  *  NkUIFont est une couche de police agnostique. Elle peut être alimentée

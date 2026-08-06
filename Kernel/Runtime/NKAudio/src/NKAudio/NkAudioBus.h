@@ -3,7 +3,7 @@
  * @Brief   Audio Bus hierarchique (Master -> SFX/Music/Voice/UI -> voix).
  *
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  *
  * @Description
  *  Architecture style FMOD/Wwise : les voix sont routees vers des buses

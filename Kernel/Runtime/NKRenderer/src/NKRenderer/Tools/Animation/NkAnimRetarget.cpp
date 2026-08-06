@@ -2,7 +2,7 @@
 // @File    NkAnimRetarget.cpp
 // @Brief   Reciblage d'animation entre squelettes. Voir l'en-tete pour les regles.
 // @Author  Rihen
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 
 #include "NKRenderer/Tools/Animation/NkAnimRetarget.h"

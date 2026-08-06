@@ -10,7 +10,7 @@
  * @File    NkUILayout2.h
  * @Brief   SaveLayout / LoadLayout JSON + ColorPicker complet.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  */
 #include "NKUI/NkUIWindow.h"
 #include "NKUI/NkUIDock.h"

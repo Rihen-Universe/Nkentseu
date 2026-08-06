@@ -3,7 +3,7 @@
 // @File    NkGuiContext.h
 // @Brief   Contexte NKGui — état par instance (IDs, thème, input, draw list,
 //          machine à états d'interaction). Phase 2.
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 
 #include "NKGui/NkGuiExport.h"

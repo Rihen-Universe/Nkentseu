@@ -3,7 +3,7 @@
  * @File    NkEXRCodec.h
  * @Brief   Codec OpenEXR (.exr) production-ready, from scratch.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  *
  * @Format
  *  OpenEXR 1.x scanline single-part (le plus repandu).

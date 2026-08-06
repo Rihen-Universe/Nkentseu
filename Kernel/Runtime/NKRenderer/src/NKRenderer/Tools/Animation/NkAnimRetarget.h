@@ -3,7 +3,7 @@
 // @File    NkAnimRetarget.h
 // @Brief   RECIBLAGE d'animation : rejouer un clip d'un squelette sur un AUTRE.
 // @Author  Rihen
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // PROBLEME RESOLU
 //   Une animation est authoree pour UN squelette. La rejouer sur un autre

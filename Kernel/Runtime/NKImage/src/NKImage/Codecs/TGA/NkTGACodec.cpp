@@ -2,7 +2,7 @@
  * @File    NkTGACodec.cpp
  * @Brief   Codec TGA (Truevision TARGA) — algorithme adapté de stb_image (public domain).
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  *
  * @Fixes vs version précédente
  *  1. RLE : la variable needRead n'était pas réinitialisée correctement dans

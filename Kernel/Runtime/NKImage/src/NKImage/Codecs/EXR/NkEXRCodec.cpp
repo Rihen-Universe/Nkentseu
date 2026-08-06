@@ -2,7 +2,7 @@
  * @File    NkEXRCodec.cpp
  * @Brief   Codec OpenEXR (.exr) decoder from scratch.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  *
  * @References
  *  - ILM/ASWF OpenEXR file specification (public domain documentation)

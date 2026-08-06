@@ -3,7 +3,7 @@
  * @File    NkAudioStream.h
  * @Brief   Streaming audio long (musique de fond, ambient) sans charger tout en RAM.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  *
  * @Architecture
  *  IAudioStream est une interface "pull" : le caller demande N frames, le stream

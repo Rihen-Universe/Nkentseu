@@ -3,7 +3,7 @@
  * @File    NkOpusCodec.h
  * @Brief   Decodeur Opus (.opus / Ogg-Opus, RFC 6716 + 7845) pour NKAudio.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  *
  * @Architecture
  *  Fine couche d'adaptation au-dessus du decodeur Opus from-scratch de

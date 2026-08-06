@@ -2,7 +2,7 @@
 // @File    NkUIAnimation.h
 // @Brief   Système d'animations — easing, transitions, keyframes.
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // @Design
 //  NkUIAnimator gère un pool de NkUITween — chaque tween interpole
