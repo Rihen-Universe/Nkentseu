@@ -2,7 +2,7 @@
 // -----------------------------------------------------------------------------
 // @File    NkViewport3D.h
 // @Brief   Facade OPAQUE de la vue 3D. Aucun type NKRenderer n'apparait ici.
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // POURQUOI UNE FACADE, ET POURQUOI SANS AUCUN TYPE DU MOTEUR.
 //

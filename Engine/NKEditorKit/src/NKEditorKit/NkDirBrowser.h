@@ -7,7 +7,7 @@
 //          detection workspace/projets, scan enrichi, rendu en colonnes). Ne
 //          contient AUCUNE logique .jenga -> partageable par d'autres editeurs.
 // @Author  Rihen
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 #include "NKFileSystem/NkFile.h"
 #include "NKFileSystem/NkDirectory.h"

@@ -3,7 +3,7 @@
  * @File    NkAudioStreamPlayer.h
  * @Brief   Player audio streame : decoder thread + ring buffer + crossfade + loop.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  *
  * @Architecture
  *  Le AudioStreamPlayer maintient :

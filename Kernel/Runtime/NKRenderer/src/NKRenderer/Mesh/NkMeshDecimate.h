@@ -3,7 +3,7 @@
 // @File    NkMeshDecimate.h
 // @Brief   Decimation QEM (quadriques d'erreur) par contraction d'aretes.
 // @Author  Rihen
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // POURQUOI QEM ALORS QUE LA DECIMATION PAR CLUSTERING EXISTE DEJA
 //   `gen::DecimateClustering` (NKGen) regroupe les sommets par cellule d'une

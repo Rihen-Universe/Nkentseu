@@ -730,3 +730,12 @@ ETAT_TRAVAUX.md
 # ferait grossir le depot a chaque execution et brouillerait les diffs.
 nkwebmwriter_selftest.webm
 *_selftest.webm
+
+# Poids appris (adaptateurs LoRA, checkpoints d entrainement, modeles GGUF).
+# Ce sont des SORTIES de calcul, pas des sources : un seul adaptateur pese 77 Mo,
+# un checkpoint 231 Mo, un modele plusieurs Go. Les versionner alourdirait le
+# depot a chaque entrainement sans qu on puisse jamais en lire un diff.
+# Le corpus, lui, EST une source et se versionne (c est le travail humain).
+*.nkla
+*.nkgp
+*.gguf

@@ -3,7 +3,7 @@
 // @File    NkEditorShell.h
 // @Brief   Coquille d'application d'editeur : fenetre + docking + panneaux.
 // @Author  Rihen
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // NkEditorShell est la base reutilisable des editeurs Nkentseu (NKCode = IDE,
 // et plus tard Nogee = editeur de moteur). Elle POSSEDE :

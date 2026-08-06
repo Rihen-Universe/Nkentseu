@@ -3,7 +3,7 @@
  * @File    NkFLACCodec.h
  * @Brief   Decodeur FLAC (Free Lossless Audio Codec) from scratch.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  *
  * @Reference
  *  Spec officielle Xiph.org : https://xiph.org/flac/format.html

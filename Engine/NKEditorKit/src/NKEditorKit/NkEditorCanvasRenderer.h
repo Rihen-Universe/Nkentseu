@@ -2,7 +2,7 @@
 // -----------------------------------------------------------------------------
 // @File    NkEditorCanvasRenderer.h
 // @Brief   Impl NKCanvas de NkIEditorRenderer (backend de rendu PAR DEFAUT).
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // Enveloppe le chemin de rendu historique de la coquille : NkRenderWindow
 // (contexte GPU + cible fenetre, NKCanvas) + NkGuiCanvasBackend (draw-lists NKGui

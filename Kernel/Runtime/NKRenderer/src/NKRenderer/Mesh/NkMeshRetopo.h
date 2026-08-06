@@ -3,7 +3,7 @@
 // @File    NkMeshRetopo.h
 // @Brief   Retopologie passe 2 : champ de croix + remaillage quad-dominant.
 // @Author  Rihen
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // LA PIECE QUI MANQUAIT ENTRE « ALLEGER » ET « RETOPOLOGIER »
 //   La passe 1 (NkMeshDecimate, QEM) allege en gardant la forme, mais rend des

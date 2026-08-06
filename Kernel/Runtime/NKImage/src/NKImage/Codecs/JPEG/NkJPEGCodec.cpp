@@ -4,7 +4,7 @@
  *          Encodeur JFIF complet (SOF0, DQT, DHT, SOS, scan entropique).
  *          (public domain original : Sean Barrett). Aucun header stb inclus.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  *
  * ─── CORRECTIONS CRITIQUES APPLIQUEES ────────────────────────────────────────
  *

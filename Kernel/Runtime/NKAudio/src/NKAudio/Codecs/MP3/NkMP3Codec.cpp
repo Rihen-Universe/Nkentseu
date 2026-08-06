@@ -2,7 +2,7 @@
  * @File    NkMP3Codec.cpp
  * @Brief   Decodeur MP3 (MPEG-1/2 Layer 3) en style Nkentseu.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  *
  * @Acknowledgments
  *  Structure algorithmique et tables empruntees de minimp3 (CC0 public

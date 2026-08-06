@@ -6,7 +6,7 @@
 //          consomme le clic quand la souris est dedans). Engine-native (ctx/dl/
 //          font/theme) -> partageable par tous les editeurs Nkentseu.
 // @Author  Rihen
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 #include "NKGui/NKGui.h"
 #include "NKEditorKit/NkEditorScrollbar.h" // scrollbar standard

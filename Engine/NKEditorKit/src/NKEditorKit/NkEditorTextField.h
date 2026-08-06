@@ -7,7 +7,7 @@
 //          (picker de fichiers, barres de recherche, dialogues) — INDEPENDANT de
 //          toute application (raw NkGuiContext / NkGuiDrawList / NkGuiFont).
 // @Author  Rihen
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 #include "NKGui/NKGui.h"
 #include "NKContainers/String/NkString.h"

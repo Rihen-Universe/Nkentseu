@@ -3,7 +3,7 @@
 // @File    NkEditorContext.h
 // @Brief   Contexte de frame passe a chaque panneau (NkEditorPanel::OnUI).
 // @Author  Rihen
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // NkEditorFrameContext = le contexte NKGui courant + le delta time. Sur NKGui,
 // tout (fenetres, dock, layout, police, draw lists) vit DANS NkGuiContext : ce

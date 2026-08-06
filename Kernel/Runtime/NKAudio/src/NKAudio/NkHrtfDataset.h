@@ -4,7 +4,7 @@
  *          pour spatialisation 3D AAA via convolution.
  *
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  *
  * @Description
  *  HRTF (Head-Related Transfer Function) : la signature acoustique de la tete

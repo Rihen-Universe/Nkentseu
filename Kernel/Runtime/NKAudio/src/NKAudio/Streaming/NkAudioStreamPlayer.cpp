@@ -2,7 +2,7 @@
  * @File    NkAudioStreamPlayer.cpp
  * @Brief   Implementation du player streaming.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  */
 
 #include "NKAudio/Streaming/NkAudioStreamPlayer.h"

@@ -539,7 +539,7 @@ namespace nkentseu {
 
 // ============================================================
 // Copyright © 2025-2026 Rihen. All rights reserved.
-// Proprietary License - Free to use and modify
+// Proprietary License - All Rights Reserved (see LICENSE)
 // ============================================================
 
 // =============================================================================

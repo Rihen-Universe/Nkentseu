@@ -3,7 +3,7 @@
 // @File    NkEditorInspector.h
 // @Brief   Inspecteur GENERIQUE pilote par NKReflection (PropertyGrid).
 // @Author  Rihen
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // editorkit::DrawInspector(ctx, obj, cls) genere, pour chaque propriete editable
 // d'une classe reflechie, le widget NKGui adapte a sa categorie (label | champ),

@@ -3,7 +3,7 @@
 // @File    NkGraphDocument.inl
 // @Brief   Aplatissement des sous-graphes et serialisation du document.
 // @Author  Rihen
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 
 namespace nkentseu {

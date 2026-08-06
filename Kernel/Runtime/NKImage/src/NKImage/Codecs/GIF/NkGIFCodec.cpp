@@ -2,7 +2,7 @@
  * @File    NkGIFCodec.cpp
  * @Brief   Codec GIF production-ready — GIF87a/GIF89a complet.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  *
  * @Correctness
  *  Décodage  : LZW variable (2-12 bits), GCT + LCT, interlacement,

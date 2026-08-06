@@ -3,7 +3,7 @@
  * @File    NkWebPCodec.h
  * @Brief   Codec WebP — lecture et écriture, from scratch.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  *
  * @Design
  *  WebP est un format Google basé sur VP8 (lossy) et VP8L (lossless).
