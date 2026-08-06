@@ -14,7 +14,7 @@
 //
 // Auteur : TEUGUIA TADJUIDJE Rodolf / Rihen
 // Date : 2024-2026
-// License : Propriétaire - Free to use and modify
+// License : Propriétaire - All Rights Reserved (see LICENSE)
 // =============================================================================
 
 #pragma once
@@ -898,5 +898,5 @@ namespace nkentseu {
 
 // ============================================================
 // Copyright © 2024-2026 Rihen. All rights reserved.
-// Proprietary License - Free to use and modify
+// Proprietary License - All Rights Reserved (see LICENSE)
 // ============================================================

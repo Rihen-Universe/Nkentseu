@@ -2,7 +2,7 @@
 
 > **Version :** 1.0.0  
 > **Auteur :** Rihen  
-> **License :** Proprietary - Free to use and modify  
+> **License :** Proprietary - All Rights Reserved (see LICENSE)  
 > **Date :** 2024-2026
 
 ---
@@ -1309,7 +1309,7 @@ void* Alloc(int s) {  // Pas de noexcept, pas de documentation
 ```
 Copyright © 2024-2026 Rihen. All rights reserved.
 
-Proprietary License - Free to use and modify
+Proprietary License - All Rights Reserved (see LICENSE)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -1471,7 +1471,7 @@ install(TARGETS GameExample RUNTIME DESTINATION bin)
 //
 // Auteur : Rihen
 // Date : 2024-2026
-// License : Proprietary - Free to use and modify
+// License : Proprietary - All Rights Reserved (see LICENSE)
 // =============================================================================
 
 #pragma once
@@ -1755,7 +1755,7 @@ namespace Game {
 //
 // Auteur : Rihen
 // Date : 2024-2026
-// License : Proprietary - Free to use and modify
+// License : Proprietary - All Rights Reserved (see LICENSE)
 // =============================================================================
 
 #pragma once
@@ -2000,7 +2000,7 @@ void ParticleSystem::Cleanup() {
 //
 // Auteur : Rihen
 // Date : 2024-2026
-// License : Proprietary - Free to use and modify
+// License : Proprietary - All Rights Reserved (see LICENSE)
 // =============================================================================
 
 #pragma once
@@ -2210,7 +2210,7 @@ void NetworkSystem::Send(NetworkMessage* message) {
 //
 // Auteur : Rihen
 // Date : 2024-2026
-// License : Proprietary - Free to use and modify
+// License : Proprietary - All Rights Reserved (see LICENSE)
 // =============================================================================
 
 #pragma once
@@ -2507,7 +2507,7 @@ void EntityManager::Cleanup() {
 //
 // Auteur : Rihen
 // Date : 2024-2026
-// License : Proprietary - Free to use and modify
+// License : Proprietary - All Rights Reserved (see LICENSE)
 // =============================================================================
 
 #pragma once
@@ -2622,7 +2622,7 @@ void EntityManager::Cleanup() {
 //
 // Auteur : Rihen
 // Date : 2024-2026
-// License : Proprietary - Free to use and modify
+// License : Proprietary - All Rights Reserved (see LICENSE)
 // =============================================================================
 
 #include "GameMemory.h"

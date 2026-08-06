@@ -791,6 +791,17 @@ namespace nkentseu {
 			return;
 		}
 
+		// Mémoire PARTAGÉE du groupe de calcul : `shared` en NkSL/GLSL s'écrit
+		// `groupshared` en HLSL. Sans ce cas, la déclaration ne correspondait à AUCUNE
+		// branche ci-dessous et disparaissait du HLSL généré — le corps référençait
+		// alors une variable jamais déclarée (X3004). Même correctif que le générateur
+		// SM5 : le qualificateur existait dans GLSL/GLSL-Vulkan/MSL et manquait aux
+		// deux générateurs HLSL, seuls.
+		if (v->storage == NkSLStorageQual::NK_SHARED) {
+			EmitLine("groupshared " + TypeToHLSL(v->type) + " " + v->name.ToLower() + DX12_ArrSuffix(v->type) + ";");
+			return;
+		}
+
 		// Constante globale (PI, F0, kCascadeFadeStart, tableaux Poisson…) : émise en
 		// static const lowercase (sinon non déclarée → X3004 dans le corps).
 		if (v->isConst && v->storage != NkSLStorageQual::NK_UNIFORM) {

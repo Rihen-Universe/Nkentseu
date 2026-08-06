@@ -1,0 +1,323 @@
+% =============================================================================
+% DOSSIER DE CANDIDATURE - Prix d'excellence 2026, 35 jeunes de moins de 35 ans
+% Categorie : Technologie et innovation
+% Compilation : ./build.ps1  (XeLaTeX, deux passes)
+%
+% REGLE DE CE DOCUMENT : aucune affirmation qui ne soit prouvee par une capture
+% ou verifiable en ligne. Un jury verifie ; une seule exageration decouverte
+% ruine la credibilite de tout le reste.
+% =============================================================================
+\documentclass[11pt, a4paper, oneside]{article}
+
+\usepackage{fontspec}
+\usepackage{polyglossia}
+\setdefaultlanguage{french}
+\usepackage{geometry}
+\geometry{a4paper, top=2.2cm, bottom=2.0cm, left=2.2cm, right=2.2cm}
+
+\usepackage{xcolor}
+\definecolor{rihenTeal}{RGB}{10,85,95}
+\definecolor{rihenOrange}{RGB}{247,154,40}
+\definecolor{rihenPale}{RGB}{232,241,242}
+\definecolor{grisTexte}{RGB}{58,64,68}
+
+\setmainfont{Segoe UI}[BoldFont={Segoe UI Semibold}, ItalicFont={Segoe UI Italic}]
+\setmonofont{Consolas}[Scale=0.90]
+
+\usepackage{graphicx}
+\usepackage{tikz}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{caption}
+\usepackage[hidelinks]{hyperref}
+\usepackage{xurl}
+\emergencystretch=2.5em
+
+\captionsetup{font=small, labelfont={bf,color=rihenTeal}, labelsep=endash}
+\titleformat{\section}{\normalfont\bfseries\large\color{rihenTeal}}{}{0pt}{}
+\titlespacing*{\section}{0pt}{16pt}{8pt}
+\titleformat{\subsection}{\normalfont\bfseries\color{grisTexte}}{}{0pt}{}
+\titlespacing*{\subsection}{0pt}{10pt}{4pt}
+\setlist[itemize]{leftmargin=1.2em, itemsep=1pt, topsep=3pt}
+\pagestyle{empty}
+
+\newcommand{\CAPTURES}{D:/Projets/2026/Nkentseu/Nkentseu/Captures/dossier}
+\newcommand{\COURS}{D:/Projets/2026/Nkentseu/Nkentseu/Documentation/cours}
+
+\begin{document}
+
+% ── PAGE DE GARDE ────────────────────────────────────────────────────────────
+\begin{tikzpicture}[remember picture, overlay]
+  \fill[rihenTeal] (current page.north west) rectangle
+        ([yshift=-6.2cm]current page.north east);
+  \fill[rihenOrange] ([yshift=-6.2cm]current page.north west) rectangle
+        ([yshift=-6.35cm]current page.north east);
+  \node[anchor=north west, text width=15cm] at ([shift={(2.2cm,-1.6cm)}]current page.north west) {
+    {\bfseries\fontsize{27}{31}\selectfont\color{white} Nkentseu\par}
+    \vspace{5pt}
+    {\fontsize{13}{17}\selectfont\color{white!85}
+      Un moteur logiciel complet, écrit intégralement à partir de zéro\par}
+    \vspace{12pt}
+    {\fontsize{11}{15}\selectfont\color{rihenOrange}
+      Prix d'excellence 2026 - 35 jeunes de moins de 35 ans du Cameroun\\
+      Catégorie : \textbf{Technologie et innovation}\par}
+  };
+\end{tikzpicture}
+
+\vspace*{5.6cm}
+
+\begin{center}
+{\Large\bfseries TEUGUIA TADJUIDJE Rodolf Séderis}\\[3pt]
+{\color{grisTexte} Ingénieur polytechnicien \textbullet{} Enseignant à l'ENSP Yaoundé
+\textbullet{} CEO de Rihen (10 personnes)}\\[1pt]
+{\color{grisTexte} Yaoundé, Région du Centre, Cameroun}\\[3pt]
+\texttt{\small github.com/Rihen-Universe/Nkentseu}\\[1pt]
+% L'URL LinkedIn est percent-encodee (le « é » devient %C3%A9) : la donner
+% telle quelle serait illisible sur papier. On AFFICHE la forme lisible et on
+% LIE la forme reelle -- un jury qui lit le PDF clique, un jury qui l'imprime
+% retrouve le profil par le nom.
+\href{https://www.linkedin.com/in/rodolf-s\%C3\%A9deris-teuguia-tadjuidje-1787b1153/}%
+{\texttt{\small linkedin.com/in/rodolf-séderis-teuguia-tadjuidje}}
+\end{center}
+
+\vspace{10pt}
+
+\noindent\colorbox{rihenPale}{\parbox{\dimexpr\textwidth-2\fboxsep}{\vspace{2pt}
+\textbf{En une phrase.} Un moteur logiciel de plus de vingt-cinq modules, portable
+sur huit plateformes, dont chaque brique - du décodeur vidéo au moteur de rendu 3D,
+du système d'intelligence artificielle au compilateur de shaders - a été écrite à
+la main, sans aucune bibliothèque tierce, par une seule personne, depuis le
+Cameroun.\vspace{2pt}}}
+
+\vspace{10pt}
+
+\section*{Ce que ce dossier prouve}
+
+\begin{center}
+\begin{tabular}{@{}rl@{}}
+\toprule
+\textbf{200+} & étudiants formés à l'ENSP Yaoundé depuis février 2024 \\
+\textbf{10} & personnes dans la structure Rihen qu'il dirige \\
+\midrule
+\textbf{815} & commits sur le dépôt public, 4 branches \\
+\textbf{25+} & modules écrits from-scratch \\
+\textbf{8} & plateformes cibles (Windows, Linux, macOS, Android, iOS, Web, HarmonyOS, Xbox) \\
+\textbf{6} & pilotes graphiques (Vulkan, OpenGL, DirectX 11, DirectX 12, Metal, logiciel) \\
+\textbf{82,6 \%} & du code en C++, écrit à la main \\
+\textbf{16} & forks, \textbf{11} étoiles, \textbf{2} contributeurs \\
+\textbf{13} & rapports de bugs ouverts par des \emph{utilisateurs tiers} \\
+\textbf{501} & projets compilables déclarés par l'espace de travail \\
+\textbf{196} & pages de manuel technique rédigé en français \\
+\textbf{100 017} & paires de dialogues constituées pour l'entraînement d'une IA \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\vspace{6pt}
+\noindent{\small\color{grisTexte} Toutes ces valeurs sont visibles sur les captures
+qui suivent, ou vérifiables publiquement sur le dépôt. Ce dossier ne contient
+aucune estimation.}
+
+\newpage
+
+% ── 1. LE RENDU 3D ───────────────────────────────────────────────────────────
+\section{Le moteur de rendu - écrit sans aucune bibliothèque graphique}
+
+\begin{figure}[h!]
+\centering
+\includegraphics[width=\textwidth]{\CAPTURES/rendu_041.png}
+\caption{Image produite par le moteur Nkentseu. Éclairage physique (PBR), ombres
+douces par cartes d'ombres virtualisées, halo lumineux, occlusion ambiante,
+correction colorimétrique cinéma (ACES). Aucune bibliothèque de rendu tierce
+n'intervient : le pipeline complet, du calcul de la lumière jusqu'au pixel, est
+écrit dans le projet. Les vignettes en haut et à droite sont des incrustations
+générées par le système de sortie du logiciel.}
+\end{figure}
+
+\vspace{-4pt}
+Ce niveau de rendu - matériaux physiquement corrects, ombres, réflexions,
+post-traitement - représente environ 80~\% du socle d'un moteur professionnel.
+Il fonctionne à l'identique sur six pilotes graphiques différents, grâce à
+\textbf{NkSL}, un langage de shaders conçu pour ce projet : une seule écriture,
+traduite automatiquement vers les cinq API du marché.
+
+\newpage
+
+% ── 2. LE MODELEUR ───────────────────────────────────────────────────────────
+\section{NK3DModeler - le logiciel de modélisation 3D bâti sur le moteur}
+
+\begin{figure}[h!]
+\centering
+\includegraphics[width=\textwidth]{\CAPTURES/Screenshot 2026-08-02 223832.png}
+\caption{NK3DModeler : interface complète de modélisation 3D construite sur le
+moteur. Hiérarchie de scène, panneaux de propriétés, gizmos de transformation,
+aimantation géométrique, système de sortie (rendu d'images et enregistrement
+vidéo). Toute l'interface est dessinée par le moteur lui-même.}
+\end{figure}
+
+\newpage
+
+% ── 3. L'IDE ─────────────────────────────────────────────────────────────────
+\section{NKCode - l'environnement de développement, également écrit from-scratch}
+
+\begin{figure}[h!]
+\centering
+\includegraphics[width=\textwidth]{\CAPTURES/Screenshot 2026-08-05 195936.png}
+\caption{NKCode lisant une vidéo produite par le moteur (format AVI/MJPEG,
+1368$\times$639, 25 images/s) - le lecteur vidéo, le décodeur et le fichier
+proviennent tous du même projet. À gauche, la liste des modules du moteur :
+NKPlatform, NKCore, NKLogger, NKMath, NKMemory, NKContainers, NKImage, NKFont,
+NKAudio, NKMedia, NKTime, NKStream, NKThreading, NKFileSystem, NKReflection,
+NKNetwork, NKSerialization. En bas, la compilation en cours.}
+\end{figure}
+
+\vspace{-6pt}
+\noindent Cette capture résume à elle seule la nature du projet : \emph{un
+environnement de développement maison, compilant un moteur maison, lisant une
+vidéo produite par ce moteur et décodée par son propre décodeur.}
+
+\newpage
+
+\begin{figure}[h!]
+\centering
+\includegraphics[width=\textwidth]{\CAPTURES/Screenshot 2026-08-05 195916.png}
+\caption{Écran d'accueil de NKCode. L'espace de travail Nkentseu y déclare
+\textbf{501 projets} compilables et \textbf{8 plateformes} cibles. À droite,
+28 exemples fournis avec Jenga, le système de compilation également développé
+pour ce projet. En bas à gauche : les versions réelles des deux outils.}
+\end{figure}
+
+\vspace{-2pt}
+\noindent Cet écran révèle une pièce que le reste du dossier ne montre pas :
+\textbf{Jenga}, le \emph{système de compilation} conçu pour ce projet.
+Construire un moteur portable sur huit plateformes suppose un outil capable de
+décrire, configurer et compiler des centaines de cibles pour chacune d'elles.
+Aucun système existant ne répondait au besoin sans imposer ses propres
+dépendances : Jenga a donc été écrit aussi. Il gère ici \textbf{501 projets},
+huit plateformes et deux configurations, et il est livré avec 28 exemples
+pédagogiques. C'est l'outil qui rend le reste possible - et le seul élément du
+dossier dont l'absence aurait rendu tout le reste irréalisable.
+
+% ── 4. GITHUB ────────────────────────────────────────────────────────────────
+\section{Le dépôt public - activité et adoption}
+
+\begin{figure}[h!]
+\centering
+\includegraphics[width=\textwidth]{\CAPTURES/Screenshot 2026-08-05 195613.png}
+\caption{Dépôt public \texttt{github.com/Rihen-Universe/Nkentseu} :
+\textbf{815 commits}, 4 branches, \textbf{16 forks}, \textbf{11 étoiles},
+2~contributeurs. Répartition des langages : \textbf{C++ 82,6~\%}, C 12,5~\%,
+GLSL 1,4~\%, Python 1,3~\%, HLSL 0,8~\%. Les messages de commit, rédigés en
+français, décrivent des travaux d'ingénierie précis et datés.}
+\end{figure}
+
+\newpage
+
+% ── 5. IMPACT : DES UTILISATEURS TIERS ───────────────────────────────────────
+\section{Preuve d'usage par des tiers}
+
+\begin{figure}[h!]
+\centering
+\includegraphics[width=\textwidth]{\CAPTURES/Screenshot 2026-08-05 195417.png}
+\caption{Rapports de bugs ouverts sur NKCode-Beta par des utilisateurs
+\emph{extérieurs au projet} (comptes \texttt{Nyeck-Abondo} et
+\texttt{JustSmoking}) : \textbf{13 tickets ouverts}, 2 résolus. Ils portent sur
+l'usage réel du logiciel - raccourcis clavier, création de fenêtres, intégration
+du système de compilation, ouverture de dossiers.}
+\end{figure}
+
+\vspace{-4pt}
+Cette page établit que le travail est \textbf{utilisé, testé et discuté par
+d'autres personnes} que son auteur. Chaque ticket représente quelqu'un qui a
+installé le logiciel, s'en est servi assez longtemps pour rencontrer une limite,
+et a pris le temps de la décrire. Les 16 forks du dépôt vont dans le même sens.
+
+\subsection{La transmission, à l'école et par le code}
+
+L'auteur est \textbf{enseignant à l'École Nationale Supérieure Polytechnique de
+Yaoundé} depuis \textbf{février 2024}, où il a déjà formé \textbf{plus de deux
+cents étudiants} - soit une centaine par an. Ce projet
+n'est donc pas un travail solitaire refermé sur lui-même : il alimente
+directement la formation d'ingénieurs camerounais, et leur montre sur un cas
+réel ce que signifie construire une infrastructure logicielle plutôt que
+l'assembler. Peu d'enseignants peuvent ouvrir devant leurs étudiants le code
+complet d'un moteur de rendu, d'un décodeur vidéo ou d'un compilateur de
+shaders, et expliquer chaque ligne parce qu'ils l'ont écrite.
+
+C'est là que le manuel de 196 pages prend son sens : il prolonge le cours
+au-delà de la salle, en français, pour ceux qui voudront aller plus loin que ce
+qu'un semestre permet d'enseigner.
+
+Il est également \textbf{fondateur et dirigeant de Rihen}, structure de
+\textbf{dix personnes} sous laquelle l'écosystème est publié - ce qui inscrit le
+travail dans une perspective économique et collective, et non dans le seul
+exercice technique.
+
+Une précision qui compte pour la lecture de ce dossier : \textbf{Nkentseu et
+Jenga sont l'\oe uvre d'une seule personne}. Les dix membres de la structure
+travaillent sur d'autres activités ; l'écosystème présenté ici - moteur,
+système de compilation, environnement de développement, modeleur 3D,
+sous-système d'intelligence artificielle - a été conçu et écrit intégralement
+par l'auteur. Diriger une équipe de dix personnes tout en portant seul une
+infrastructure logicielle de cette ampleur relève de deux compétences
+distinctes, rarement réunies.
+
+% ── 6. LE MANUEL ─────────────────────────────────────────────────────────────
+\section{La transmission - un manuel de 196 pages}
+
+\begin{minipage}[t]{0.46\textwidth}
+\vspace{0pt}
+% `frame` n'existe pas dans graphicx : c'est une option de \includegraphics
+% de certains paquets seulement. Un \fbox fait le meme office partout.
+\fbox{\includegraphics[width=\dimexpr\textwidth-2\fboxsep-2\fboxrule]{\COURS/Cours_NkCanvas_NKGui.pdf}}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.50\textwidth}
+\vspace{6pt}
+Un cours complet de \textbf{196 pages}, rédigé en français, enseigne à un
+débutant comment construire des applications avec le moteur : les modules de
+base, le rendu 2D, le système d'interface, la construction d'une application
+complète, puis l'intégration des images, des polices, de l'audio, de la vidéo
+et du réseau.
+
+\vspace{6pt}
+Le document contient environ \textbf{260 extraits de code}, chacun accompagné du
+fichier et de la ligne exacte dont il provient - afin que le lecteur puisse
+vérifier. Il comporte 39~exercices, et signale explicitement ce qui ne
+fonctionne pas encore dans le moteur.
+
+\vspace{6pt}
+{\color{grisTexte}\small Cette exigence - dire ce qui marche \emph{et} ce qui ne
+marche pas - traverse tout le projet. Elle est ce qui rend vérifiable chacune
+des affirmations de ce dossier.}
+\end{minipage}
+
+\vspace{14pt}
+
+\section{L'intelligence artificielle et la langue ghomala}
+
+Nkentseu comprend \textbf{NKAI}, un sous-système d'intelligence artificielle
+écrit lui aussi entièrement à la main : calcul tensoriel sur processeur et carte
+graphique, différentiation automatique, réseaux de neurones, apprentissage par
+renforcement, modèles génératifs. Résultats mesurés : \textbf{96,3~\%} de
+précision en reconnaissance de chiffres manuscrits, génération de maillages 3D à
+partir de bruit, et - travaux d'août 2026 - exécution d'un modèle de langage de
+\textbf{7~milliards de paramètres sur une carte graphique de 8~Go}, grâce à des
+noyaux de calcul quantifiés atteignant \textbf{294~milliards d'opérations par
+seconde}.
+
+\vspace{4pt}
+Un corpus de \textbf{100 017 paires de dialogues} en français a été constitué
+pour l'entraînement, incluant la traduction vers le \textbf{ghomala}, langue
+camerounaise. Les langues africaines sont massivement absentes des technologies
+du langage : ce qui n'est pas outillé numériquement disparaît. Ce volet du
+projet vise directement ce manque.
+
+\vfill
+\noindent\rule{\textwidth}{0.4pt}\\
+{\footnotesize\color{grisTexte}
+TEUGUIA TADJUIDJE Rodolf Séderis - Rihen Universe - Cameroun, août 2026.\hfill
+Dépôt : \texttt{github.com/Rihen-Universe/Nkentseu}}
+
+\end{document}

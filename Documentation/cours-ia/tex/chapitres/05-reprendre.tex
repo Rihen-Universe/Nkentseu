@@ -1,0 +1,192 @@
+\chapter{Reprendre après une interruption}
+
+Sur dix jours d'entraînement, une coupure n'est pas une éventualité : c'est une
+certitude. Panne de courant, mise à jour qui redémarre la machine, besoin
+soudain de la carte graphique pour autre chose. Ce chapitre explique comment
+tout cela devient sans conséquence.
+
+\section{La bonne nouvelle, tout de suite}
+
+\begin{nkcode}[]{Reprendre : la même commande, exactement}
+NKQwen2Train --gguf=<modele> --corpus=<corpus.txt> --out=mon-modele
+\end{nkcode}
+
+C'est tout. Aucune option de reprise à ajouter. Le programme cherche les
+checkpoints, prend le plus avancé qui soit intact, et repart.
+
+\begin{nkcode}[]{Ce qu'il affiche alors}
+REPRISE : pas 6, exemple 6/100017, époque 0
+\end{nkcode}
+
+\begin{nkretenir}
+Relancer la même commande suffit. Si vous voyez « REPRISE », le travail
+précédent est retrouvé. Si vous voyez « aucun checkpoint exploitable », il
+repart de zéro — et il faut comprendre pourquoi avant de le laisser tourner.
+\end{nkretenir}
+
+\section{Pourquoi recharger les poids ne suffit pas}
+
+Voici l'idée la plus subtile du cours. Prenez le temps.
+
+Naïvement, on croirait qu'il suffit de sauvegarder les paramètres appris. C'est
+faux, et une reprise faite ainsi \textbf{diverge dès le premier pas}.
+
+La raison tient à la méthode qui décide de l'ampleur des corrections, appelée
+\textbf{Adam}. Adam ne se contente pas du gradient courant : il garde une
+mémoire de ceux d'avant, sous la forme de deux moyennes appelées
+\emph{moments}. C'est ce qui lui permet d'avancer avec régularité plutôt que de
+zigzaguer.
+
+Or ces moyennes démarrent à zéro, donc sont trop faibles au début. Adam corrige
+ce défaut par un facteur qui dépend du \textbf{numéro du pas} : très fort au
+pas~1, négligeable au pas~1000.
+
+Maintenant, imaginez une reprise qui recharge les poids mais oublie le
+compteur :
+
+\begin{itemize}
+  \item Les moments sont grands (mille pas d'histoire) ;
+  \item mais le compteur est retombé à zéro, donc Adam applique la correction
+        du \emph{tout premier} pas ;
+  \item il en résulte un pas gigantesque, et l'entraînement part en vrille.
+\end{itemize}
+
+Dix jours de calcul détruits en une correction.
+
+\begin{nkretenir}
+Un checkpoint doit contenir \textbf{quatre} choses, pas une : les paramètres,
+les deux moments d'Adam, le numéro du pas, et la position dans le corpus. C'est
+la différence entre reprendre et recommencer en pire.
+\end{nkretenir}
+
+\section{Ce que contient réellement un checkpoint}
+
+\begin{center}
+\begin{tabular}{p{4.6cm}p{9.0cm}}
+\toprule
+Les paramètres LoRA & Ce que le modèle a appris. \\
+Les deux moments d'Adam & La mémoire de l'optimiseur — deux fois la taille des
+                          paramètres. \\
+Le numéro du pas & Pour que la correction de biais reste juste. \\
+La position dans le corpus & Pour ne pas réapprendre les mêmes exemples. \\
+Le numéro d'époque & Combien de fois le corpus a été parcouru. \\
+L'état du tirage aléatoire & Pour que l'ordre reste reproductible. \\
+Le taux d'apprentissage et les réglages d'Adam & Pour reprendre à l'identique. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+D'où la taille : \textbf{231~Mo} contre 77~Mo pour les seuls adaptateurs. Les
+moments pèsent deux fois les paramètres.
+
+\section{Écrire sans jamais rien détruire}
+
+Un checkpoint de 231~Mo met environ une seconde à s'écrire. Que se passe-t-il si
+le courant saute pendant cette seconde ?
+
+Si l'on écrivait directement sur le fichier existant : on perdrait à la fois
+l'ancien (déjà écrasé) et le nouveau (incomplet). \textbf{La sauvegarde aurait
+détruit ce qu'elle devait protéger.}
+
+Deux protections travaillent ensemble.
+
+\subsection{L'écriture passe par un fichier temporaire}
+
+Le programme écrit dans \texttt{mon-modele\_ckpt0.nkla.tmp}, puis — une fois le
+fichier complet — le \textbf{renomme}. Le renommage est quasi instantané,
+là où l'écriture dure une seconde.
+
+\subsection{Deux checkpoints en alternance}
+
+Les sauvegardes vont tour à tour dans \texttt{\_ckpt0} et \texttt{\_ckpt1}. À
+tout instant, l'un des deux est une génération complète et saine.
+
+\begin{nkretenir}
+Fichier temporaire puis renommage, et deux fichiers en alternance. Ces deux
+mesures ensemble font qu'aucune coupure, à aucun moment, ne peut vous laisser
+sans checkpoint valide.
+\end{nkretenir}
+
+\section{Quand un fichier s'abîme}
+
+Un disque peut abîmer un fichier sans prévenir. Chaque checkpoint porte donc une
+\textbf{empreinte} calculée sur l'ensemble de son contenu. Au chargement, elle
+est recalculée et comparée.
+
+Voici une expérience réelle. Un checkpoint a été délibérément abîmé — 64 octets
+écrasés en plein milieu, exactement ce que ferait un secteur défectueux — puis
+l'entraînement relancé :
+
+\begin{nkcode}[]{Sortie réelle après corruption volontaire}
+checkpoint mon-modele_ckpt0.nkla ignoré :
+  NkLoraGpuLoadNKLA : empreinte FNV incorrecte — fichier corrompu
+REPRISE : pas 10, exemple 10/100017, époque 0
+\end{nkcode}
+
+Corruption détectée, fichier écarté, reprise depuis l'autre — \textbf{sans
+perdre un seul pas}.
+
+\begin{nkpiege}
+Un fichier corrompu est \textbf{refusé}, jamais chargé « au mieux ». Charger des
+paramètres à moitié faux donnerait un modèle silencieusement dégradé : il
+répondrait, mais mal, et vous chercheriez pendant des jours une erreur qui
+serait en réalité une corruption de disque.
+\end{nkpiege}
+
+\section{Arrêter proprement}
+
+Pour interrompre volontairement : \texttt{Ctrl+C}.
+
+Le programme ne s'arrête pas net. Il termine le pas en cours, écrit un
+checkpoint, puis quitte :
+
+\begin{nkcode}[]{Arrêt volontaire}
+interruption demandée — écriture de l'état avant de quitter
+checkpoint final : mon-modele_ckpt1.nkla (231.0 Mo)
+adaptateurs livrables : mon-modele.nkla (77.0 Mo, 20185088 paramètres)
+\end{nkcode}
+
+Vous récupérez donc la carte graphique immédiatement, sans rien perdre.
+
+\section{Régler la fréquence des sauvegardes}
+
+\begin{center}
+\begin{tabular}{lp{9.6cm}}
+\toprule
+\texttt{-{}-save-every=50} & Sauvegarde fréquente. Vous perdez au plus 50 pas
+   ($\approx$ 8 min), mais vous écrivez 231~Mo toutes les 8 minutes. \\
+\texttt{-{}-save-every=200} & \textbf{Le défaut.} Environ toutes les 30 minutes.
+   Bon compromis. \\
+\texttt{-{}-save-every=1000} & Peu d'écritures, mais une coupure peut coûter
+   2~h~30 de calcul. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+Le bon réglage répond à une seule question : \emph{combien de temps de calcul
+acceptez-vous de perdre ?} Une sauvegarde coûte une seconde ; une reprise
+manquée coûte des heures.
+\end{nkretenir}
+
+\section{Repartir vraiment de zéro}
+
+Si vous voulez ignorer tout ce qui existe et recommencer :
+
+\begin{nkcode}[]{Ignorer les checkpoints}
+NKQwen2Train --gguf=<modele> --corpus=<corpus.txt> --out=mon-modele --fresh
+\end{nkcode}
+
+\begin{nkpiege}
+\texttt{-{}-fresh} n'efface pas les checkpoints : il les ignore. Ils seront
+écrasés à la première sauvegarde du nouvel entraînement. Si vous teniez à
+l'ancien, \textbf{copiez-le ailleurs avant}, ou changez de \texttt{-{}-out}.
+\end{nkpiege}
+
+\begin{nkexo}
+Lancez un entraînement avec \texttt{-{}-steps=10 -{}-save-every=5}. Laissez-le
+finir. Relancez la même commande : vous devez lire « REPRISE : pas 10 ».
+Puis relancez avec \texttt{-{}-fresh} : vous devez lire « les checkpoints
+existants sont ignorés ». Ces deux messages sont ceux que vous lirez pendant
+des jours — apprenez à les distinguer d'un coup d'œil.
+\end{nkexo}
