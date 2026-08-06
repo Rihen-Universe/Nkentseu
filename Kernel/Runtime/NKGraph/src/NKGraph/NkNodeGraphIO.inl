@@ -3,7 +3,7 @@
 // @File    NkNodeGraphIO.inl
 // @Brief   Serialisation `.nkgraph` et historique annuler/refaire.
 // @Author  Rihen
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // FORMAT TEXTE, une directive par ligne. Le choix du texte n'est pas de la
 // paresse : un graphe se relit, se compare (`git diff`), et se repare a la main

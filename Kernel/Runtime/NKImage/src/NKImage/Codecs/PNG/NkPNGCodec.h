@@ -3,7 +3,7 @@
  * @File    NkPNGCodec.h
  * @Brief   Codec PNG — décodage et encodage RFC 2083.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  */
 #include "NKImage/Core/NkImage.h"
 

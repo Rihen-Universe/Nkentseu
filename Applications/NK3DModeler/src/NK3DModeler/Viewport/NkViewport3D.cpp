@@ -1,7 +1,7 @@
 // -----------------------------------------------------------------------------
 // @File    NkViewport3D.cpp
 // @Brief   SEULE unite de compilation qui voit NKRenderer.
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // Elle est seule pour une raison mecanique, pas par gout de l'isolation :
 // NKRenderer et NKCanvas declarent tous deux `renderer::NkBlendMode` et

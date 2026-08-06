@@ -3,7 +3,7 @@
 // @File    NkGraphDocument.h
 // @Brief   Document multi-graphes : sous-graphes reutilisables et PLAN APLATI.
 // @Author  Rihen
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // POURQUOI UN DOCUMENT PLUTOT QU'UN GRAPHE QUI EN CONTIENT D'AUTRES
 //   Un sous-graphe n'est pas « un graphe range dans un noeud » : c'est une

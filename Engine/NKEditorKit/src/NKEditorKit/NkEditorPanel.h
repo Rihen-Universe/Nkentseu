@@ -3,7 +3,7 @@
 // @File    NkEditorPanel.h
 // @Brief   Classe de base d'un panneau d'editeur dockable.
 // @Author  Rihen
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // Un NkEditorPanel = une fenetre logique de l'editeur (Explorateur, Inspecteur,
 // Console, Viewport...). Le shell la dessine chaque frame quand elle est ouverte,

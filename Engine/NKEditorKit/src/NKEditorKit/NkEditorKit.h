@@ -3,7 +3,7 @@
 // @File    NkEditorKit.h
 // @Brief   En-tete parapluie de NKEditorKit — inclut toute l'API publique.
 // @Author  Rihen
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // NKEditorKit : socle d'editeur partage de Nkentseu (coquille dockable, panneaux,
 // commandes/palette, themes), construit PAR-DESSUS le docking complet de NKUI.

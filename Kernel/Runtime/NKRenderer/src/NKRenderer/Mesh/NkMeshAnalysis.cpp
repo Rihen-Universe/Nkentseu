@@ -2,7 +2,7 @@
 // @File    NkMeshAnalysis.cpp
 // @Brief   Lecture structurelle d'un maillage. Voir l'en-tete pour le pourquoi.
 // @Author  Rihen
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 
 #include "NKRenderer/Mesh/NkMeshAnalysis.h"

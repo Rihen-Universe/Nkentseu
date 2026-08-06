@@ -2,7 +2,7 @@
 // -----------------------------------------------------------------------------
 // @File    NkVpPick.h
 // @Brief   Selection sous le curseur : sommet / arete / face d'un NkEditMesh.
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // PORTE DE Applications/Sandbox/src/Demo/Demo3D.cpp (l. 849-899 et 5188-5360),
 // ou ce code tourne depuis des mois. Il est recopie DELIBEREMENT ligne a ligne,

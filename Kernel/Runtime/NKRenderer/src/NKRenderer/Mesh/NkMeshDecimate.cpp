@@ -3,7 +3,7 @@
 // @Brief   Decimation QEM par contraction d'aretes. Voir l'en-tete pour le
 //          POURQUOI ; ici le COMMENT.
 // @Author  Rihen
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 
 #include "NkMeshDecimate.h"

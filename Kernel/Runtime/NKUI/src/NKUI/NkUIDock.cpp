@@ -2,7 +2,7 @@
  * @File    NkUIDock.cpp
  * @Brief   Système de docking NkUI — refonte inspirée ImGui.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  *
  * PRINCIPES FONDAMENTAUX :
  *

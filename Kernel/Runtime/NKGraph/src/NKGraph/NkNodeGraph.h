@@ -3,7 +3,7 @@
 // @File    NkNodeGraph.h
 // @Brief   Coeur du substrat de graphe de noeuds — modele de donnees PUR.
 // @Author  Rihen
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // DECISION D'ARCHITECTURE (cf. la roadmap NKGraph)
 //   UN SEUL systeme de graphe pour tout l'ecosysteme : materiaux, VFX,

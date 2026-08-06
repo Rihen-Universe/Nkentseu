@@ -4,7 +4,7 @@
 // @Brief   Lecture STRUCTURELLE d'un maillage : ce qu'il faut savoir pour le
 //          retopologiser, le reparer, ou en faire une donnee d'apprentissage.
 // @Author  Rihen
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // POURQUOI CE MODULE
 //   Trois besoins convergent sur la meme question — « comment ce maillage est-il

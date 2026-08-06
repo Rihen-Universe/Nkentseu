@@ -12,7 +12,7 @@
 //
 // L'API publique reste inchangee (NkStream::Open / Read / Write / Seek / ...).
 // Auteur : TEUGUIA TADJUIDJE Rodolf / Rihen
-// License : Proprietary - Free to use and modify
+// License : Proprietary - All Rights Reserved (see LICENSE)
 // =============================================================================
 
 #include "NKPlatform/NkPlatformDetect.h"

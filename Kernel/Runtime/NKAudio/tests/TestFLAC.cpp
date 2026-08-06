@@ -2,7 +2,7 @@
  * @File   TestFLAC.cpp
  * @Brief  Smoke test : charge un .flac reel via NkFile (Android-friendly) et stats.
  * @Author TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  */
 #include "NKAudio/NkAudio.h"
 #include "NKAudio/Codecs/FLAC/NkFLACCodec.h"

@@ -8,7 +8,7 @@
 //          Independant de toute application (raw NkGuiContext/NkGuiDrawList/
 //          NkGuiFont), meme esprit que NkOverlayTextField.h.
 // @Author  Rihen
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 #include "NKGui/NKGui.h"
 

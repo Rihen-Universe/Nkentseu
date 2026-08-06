@@ -8,7 +8,7 @@
 //          (couche overlay, jamais rognee) — ce fichier n'ajoute QUE la logique
 //          de temporisation partagee, pas un nouveau rendu.
 // @Author  Rihen
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 #include "NKGui/NKGui.h"
 

@@ -2,7 +2,7 @@
 // @File    NkUIRenderer.h
 // @Brief   Interface abstraite NkUIRenderer + implémentation CPU (offline).
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // @Design
 //  NkUIRenderer est l'interface que chaque backend implémente.

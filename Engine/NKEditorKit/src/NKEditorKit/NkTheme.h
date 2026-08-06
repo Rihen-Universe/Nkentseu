@@ -3,7 +3,7 @@
 // @File    NkTheme.h
 // @Brief   Systeme de themes : roles de couleur nommes, heritage, chargement.
 // @Author  Rihen
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // A QUOI CA SERT, ET POURQUOI CE N'EST PAS QU'UNE LISTE DE COULEURS
 //   Regle posee dans UI_SPEC 10bis, et c'est elle qui gouverne tout le fichier :

@@ -3,7 +3,7 @@
  * @Brief   Implementation NkAudioBus (Audio Bus hierarchique).
  *
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  */
 
 #include "NKAudio/NkAudioBus.h"

@@ -3,7 +3,7 @@
 // @File    NkGuiWidgets.h
 // @Brief   Widgets immédiats NKGui (Phase 2 : amorce — Button, Panel). Les
 //          labels texte (NKFont) et le reste des widgets arrivent en Phase 3.
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 
 #include "NKGui/NkGuiExport.h"

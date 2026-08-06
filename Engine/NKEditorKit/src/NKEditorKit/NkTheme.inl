@@ -3,7 +3,7 @@
 // @File    NkTheme.inl
 // @Brief   Implantation du systeme de themes. Incluse par NkTheme.h.
 // @Author  Rihen
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 
 #include <math.h>

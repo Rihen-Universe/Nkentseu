@@ -3,7 +3,7 @@
 // @File    NkEditorCommand.h
 // @Brief   Commande nommee + registre, base de la palette de commandes (Ctrl+P).
 // @Author  Rihen
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // Inspiration VSCode : toute action de l'editeur est une commande nommee,
 // invocable depuis la palette (Ctrl+P), un menu ou un raccourci. v1 : execution

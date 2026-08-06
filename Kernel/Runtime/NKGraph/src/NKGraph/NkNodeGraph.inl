@@ -4,7 +4,7 @@
 // @Brief   Implantation du coeur de graphe. Incluse par NkNodeGraph.h — le module
 //          reste EN-TETE PUR tant qu'aucun consommateur ne le lie.
 // @Author  Rihen
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 
 namespace nkentseu {

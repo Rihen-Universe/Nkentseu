@@ -11,7 +11,7 @@
 //          scaffolding) sont la SPECIALISATION de l'application (ex. NKCode
 //          derive de NkFilePickerState et dessine son propre DrawFolderPicker).
 // @Author  Rihen
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 #include "NKGui/NKGui.h"				  // rendu : NkGuiContext / NkGuiDrawList / NkGuiFont / NkGuiKey
 #include "NKEditorKit/NkEditorTextField.h"  // NkOverlayTextField (champ mono-ligne moteur)

@@ -7,7 +7,7 @@
 //          NE PAS "ameliorer" le rendu : il doit rester identique a l'editeur.
 //          Engine-native (ctx/dl/theme).
 // @Author  Rihen
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 #include "NKGui/NKGui.h"
 

@@ -2,7 +2,7 @@
 // @File    NkUITools.h
 // @Brief   Point d'entrée agrégateur public pour le sous-système des outils NkUI.
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // Ce fichier regroupe les en-têtes des modules d'outils :
 //   - Gizmo 3D (manipulation de transformations)

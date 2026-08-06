@@ -2,7 +2,7 @@
 // -----------------------------------------------------------------------------
 // @File    NkGuiFont.h
 // @Brief   Police NKGui — wrapper mince sur NKFont (atlas + glyphes). Phase 3.
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // Charge une police (embarquée ou fichier), construit l'atlas, expose la face
 // NKFont + l'atlas alpha8 à uploader par le backend (texId stable).

@@ -2,7 +2,7 @@
  * @File   TestAudioFormats.cpp
  * @Brief  Test MP3 sur .mpga + OGG skeleton sur .ogg.
  * @Author TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  */
 #include "NKAudio/NkAudio.h"
 #include "NKAudio/Codecs/MP3/NkMP3Codec.h"
