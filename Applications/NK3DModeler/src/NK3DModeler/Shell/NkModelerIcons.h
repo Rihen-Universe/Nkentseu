@@ -143,6 +143,11 @@ namespace nkentseu {
 			Tag,			  ///< marqueur d'un attribut
 			Pipette,		  ///< DESIGNER un objet dans la vue (« Picker » est le
 							  ///< pot de peinture : deux gestes differents, deux dessins)
+			// EPINGLE de l'ecran d'accueil (projets recents). Ni le cadenas ni
+			// l'etiquette ne disent « reste en haut de la liste » : le geste
+			// d'epingler a son dessin propre, comme l'aimant et le transport
+			// d'enregistrement l'ont eu avant lui.
+			Pin,
 			Count
 		};
 
@@ -280,6 +285,8 @@ namespace nkentseu {
 						{NkIcon::MediaPause, "media-pause"},
 						{NkIcon::MediaPlay, "media-play"},
 						{NkIcon::MediaStop, "media-stop"},
+						// Epingle des projets recents (ecran d'accueil).
+						{NkIcon::Pin, "pin"},
 					};
 
 					const NkString exeDir = NkPath::GetExecutableDirectory().ToString();

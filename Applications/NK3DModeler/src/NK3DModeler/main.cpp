@@ -34,6 +34,9 @@
 
 #include "NK3DModeler/Shell/NkModelerTheme.h"
 #include "NK3DModeler/Shell/NkModelerScreens.h"
+// ECRAN D'ACCUEIL + socle PROJET (.nk3dm) : l'accueil est peint tant qu'aucun
+// projet n'est ouvert, et il porte l'execution differee des actions projet.
+#include "NK3DModeler/Shell/NkModelerWelcome.h"
 #include "NKEvent/NkMouseEvent.h"
 // Captures (« Capturer la vue » / « Tutoriel ») : dossier + numerotation +
 // photographie de la fenetre entiere.
@@ -428,6 +431,19 @@ int nkmain(const NkEntryState &entry) {
 	NkCheckPending checks;
 	static const char *const kScenes[] = {"Scene_01", "Scene_02"};
 
+	// ── PROJET ET PROJETS RECENTS ───────────────────────────────────────────
+	// Aucun projet n'est ouvert au lancement : l'ecran d'accueil est donc
+	// affiche, et il l'est tant que `st.welcome` reste vrai. Les recents sont
+	// lus depuis ~/.nk3dmodeler_recent.cfg (meme patron que l'IDE frere NKCode).
+	nk3d::NkProjectState proj;
+	nk3d::NkRecentList recents;
+	// IMAGE DE LA VERSION (façon Blender, decision de Rihen) : une oeuvre
+	// realisee avec le logiciel, creditee, livree dans data/splash/. Chargee
+	// paresseusement a la premiere frame d'accueil.
+	nk3d::NkSplashArt splashArt;
+	recents.Load();
+	printf("[nk3d] %d projet(s) recent(s).\n", (int)recents.items.Size());
+
 	// ── ENTREE SOURIS ───────────────────────────────────────────────────────
 	// NKGui calcule les TRANSITIONS (clic, relachement, double-clic) dans
 	// BeginFrame a partir de l'etat BRUT que l'application pose ici. On se
@@ -598,7 +614,9 @@ int nkmain(const NkEntryState &entry) {
 			// La saisie d'un nom en cours capte TOUT : taper « e » dans un champ ne
 			// doit pas extruder. C'est le premier reflexe a avoir des qu'un
 			// raccourci d'une seule lettre existe.
-			if (st.editingText)
+			// L'ECRAN D'ACCUEIL capte de la meme facon : aucun raccourci de scene
+			// ne doit agir sur un document qu'on n'a pas encore ouvert.
+			if (st.editingText || st.welcome)
 				return;
 			auto want = [&st](NkVpAction a) { st.pendingAction = a; };
 
@@ -801,7 +819,11 @@ int nkmain(const NkEntryState &entry) {
 		// reel est rendu juste avant de peindre les surcouches, qui, elles,
 		// doivent repondre.
 		const nkgui::NkGuiInput inputReel = ui.input;
-		const bool modalOpen = (st.colorOpen[0] != 0);
+		// L'ECRAN D'ACCUEIL EST UNE MODALE, et c'est ce qui le rend etanche sans
+		// demonter la boucle : il recouvre l'application, donc l'application ne
+		// doit plus recevoir un seul evenement. Le mecanisme existait deja pour
+		// le picker de couleur -- on ne lui en ajoute pas un second.
+		const bool modalOpen = (st.colorOpen[0] != 0) || st.welcome;
 		if (modalOpen) {
 			for (int32 b = 0; b < 3; ++b) {
 				ui.input.mouseDown[b] = false;
@@ -884,7 +906,13 @@ int nkmain(const NkEntryState &entry) {
 				viewImg.h -= S(24.f);
 			}
 			demo::Demo3DHostResize((uint32)viewImg.w, (uint32)viewImg.h);
-			demo::Demo3DHostSetView(viewImg.x, viewImg.y, overSceneLastFrame, !st.editingText);
+			// PENDANT L'ACCUEIL, LA SCENE EST SOURDE. La vue 3D lit l'input
+			// DIRECTEMENT (elle ne passe pas par le registre de zones) : sans ce
+			// garde, cliquer une carte de projet recent selectionnerait aussi un
+			// objet derriere l'ecran, et taper un nom de projet extruderait un
+			// maillage. Meme raisonnement que `st.editingText`.
+			demo::Demo3DHostSetView(viewImg.x, viewImg.y, overSceneLastFrame && !st.welcome,
+									!st.editingText && !st.welcome);
 		}
 
 		// ── SYNCHRONISATION UI <-> DEMO PORTEE ──────────────────────────────
@@ -1336,7 +1364,11 @@ int nkmain(const NkEntryState &entry) {
 		// ce qui donne la profondeur a trois niveaux de UI_SPEC 10bis.1.
 		p.Fill({0.f, 0.f, W, H}, NkRole::WindowBg);
 
-		PaintMenuBarI(p, lay.menu, "MonProjet", st, hit);
+		// LE NOM DU PROJET, PAS UN LIBELLE FIGE. « MonProjet » etait un exemple de
+		// maquette ; la barre dit desormais ce qui est reellement ouvert.
+		PaintMenuBarI(p, lay.menu,
+					  proj.open && !proj.name.Empty() ? proj.name.CStr() : "Aucun projet", st,
+					  hit);
 		PaintTabsI(p, lay.tabs, st, hit, ws, ui.input);
 		PaintToolbar(p, lay.tool, st, hit, ws, combo);
 		// Un panneau MASQUE n'est pas peint en taille nulle : il n'est pas peint du
@@ -1424,6 +1456,10 @@ int nkmain(const NkEntryState &entry) {
 		{
 			// MODALES : elles suspendent tout le reste, menus compris.
 			NkHitRegistry::LayerScope modalLayer(hit, 100);
+			// L'ACCUEIL EN PREMIER dans la couche : il recouvre l'application,
+			// mais les boites de fermeture doivent pouvoir se poser DESSUS --
+			// le registre donne la priorite a la derniere zone declaree.
+			nk3d::PaintWelcome(p, W, H, st, hit, ws, ui.input, recents, splashArt);
 			PaintCloseDialog(p, W, H, st, hit);
 			PaintCloseRecDialog(p, W, H, st, hit);
 			PaintEncodeDoneDialog(p, W, H, st, hit);
@@ -1431,6 +1467,19 @@ int nkmain(const NkEntryState &entry) {
 		}
 
 		ui.EndFrame();
+
+		// ── ACTIONS PROJET ──────────────────────────────────────────────────
+		// APRES la frame, jamais pendant : les selecteurs de fichiers de l'OS
+		// entrent dans une boucle modale et reentreraient dans la peinture.
+		// Puis les vignettes de couverture, rechargees SEULEMENT quand la
+		// liste des recents a change (drapeau `texDirty`).
+		nk3d::NkProjectHandlePending(st, proj, recents);
+		nk3d::NkWelcomeUploadCovers(renderer, recents);
+		// L'IMAGE DE VERSION : chargee une seule fois, et seulement quand
+		// l'accueil est visible -- inutile de decoder un PNG que personne ne
+		// verra si l'application ouvre directement un projet.
+		if (st.welcome)
+			nk3d::NkSplashLoad(renderer, splashArt);
 
 		// ── CURSEUR ─────────────────────────────────────────────────────────
 		// Repose CHAQUE frame : sur Windows le systeme le remet a la fleche des

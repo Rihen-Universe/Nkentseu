@@ -1648,14 +1648,19 @@ namespace nkentseu {
 				delK = delK || (sk & 8) != 0;
 				dupK = dupK || (sk & 1) != 0;
 				// AU-DESSUS DU NAVIGATEUR, les raccourcis agissent sur LUI.
+				// UN SEUL POINT DE PASSAGE pour Ctrl+C / Ctrl+V aussi : la voie
+				// POLLEE (sk & 2 / sk & 4), comme Maj+D ci-dessus. L'evenement
+				// (wantPaste, keyInit) declenchait EN PLUS, une frame avant le
+				// bit polle -- DEUX collages par pression, depuis la vue comme
+				// depuis la hierarchie (constate par Rihen). Copier deux fois
+				// etait invisible (meme presse-papiers) ; coller deux fois
+				// creait deux noeuds.
 				if (NkHitRegistry::Contains(st.browserRect, in.mousePos)) {
 					if (delK && st.selectedAsset >= 0)
 						BrDelRec(st.selectedAsset);
 					else if (dupK && st.selectedAsset >= 0)
 						BrCopyRec(st.selectedAsset, st.browserParent[st.selectedAsset]);
-					if ((in.wantCopy || (sk & 2) != 0 ||
-						 (in.keyInit[(int32)nkgui::NkGuiKey::C] && in.ctrlDown)) &&
-						st.selectedAsset >= 0) {
+					if ((sk & 2) != 0 && st.selectedAsset >= 0) {
 						st.browClip = st.selectedAsset;
 						st.browClipCut = false;
 					}
@@ -1663,8 +1668,7 @@ namespace nkentseu {
 						st.browClip = st.selectedAsset;
 						st.browClipCut = true;
 					}
-					if (in.wantPaste || (sk & 4) != 0 ||
-						(in.keyInit[(int32)nkgui::NkGuiKey::V] && in.ctrlDown))
+					if ((sk & 4) != 0)
 						BrPaste(st.browserFolder);
 				} else {
 				const int32 actN = st.activeEmpty >= 0
@@ -1695,15 +1699,13 @@ namespace nkentseu {
 						demo::Demo3DHostSelectEmptyNode(nn);
 					}
 				}
-				if ((in.wantCopy || (sk & 2) != 0 ||
-					 (in.keyInit[(int32)nkgui::NkGuiKey::C] && in.ctrlDown)) &&
-					actN >= 0)
-					{
-						demo::Demo3DHostCopyNode(actN);
-						NkHierNodeName(st, actN, st.clipName, sizeof(st.clipName));
-					}
-				if (in.wantPaste || (sk & 4) != 0 ||
-					(in.keyInit[(int32)nkgui::NkGuiKey::V] && in.ctrlDown)) {
+				// Meme point de passage unique que ci-dessus : la voie POLLEE
+				// seule, sinon evenement + bit pollent DEUX collages.
+				if ((sk & 2) != 0 && actN >= 0) {
+					demo::Demo3DHostCopyNode(actN);
+					NkHierNodeName(st, actN, st.clipName, sizeof(st.clipName));
+				}
+				if ((sk & 4) != 0) {
 					const int32 nn = demo::Demo3DHostPasteNode();
 					if (nn >= 0) {
 						NkHierComposeName(st, st.clipName, nn);
@@ -4302,15 +4304,20 @@ namespace nkentseu {
 				static const char *const kSnItems[9] = {
 					"Increment",	  "Grille",
 					"Sommet",		  "Arete",
-					"Face",			  "Volume (a venir)",
-					"Centre d'arete", "Arete perpendiculaire (a venir)",
+					"Face",			  "Volume",
+					"Centre d'arete", "Arete perpendiculaire",
 					"Centre de face"};
 				const int32 curTgt = demo::Demo3DHostSnapTarget();
 				const bool showSteps = curTgt <= 1;
+				// La BASE d'accroche n'a de sens que pour les cibles
+				// geometriques : sur Increment et Grille, c'est le pas qui
+				// decide, pas un point de l'objet.
+				const bool showBase = curTgt >= 2;
 				const float32 rowH2 = S(22.f);
 				const float32 pw = S(226.f);
 				const float32 ph = S(8.f) + rowH2 * (1.f + 9.f) +
-								   (showSteps ? S(6.f) + rowH2 * 3.f : 0.f) + S(6.f);
+								   (showSteps ? S(6.f) + rowH2 * 3.f : 0.f) +
+								   (showBase ? S(6.f) + rowH2 * 5.f : 0.f) + S(6.f);
 				float32 px = st.snapMenuAnchor.x + st.snapMenuAnchor.w - pw;
 				if (px < r.x + S(4.f))
 					px = r.x + S(4.f);
@@ -4333,7 +4340,8 @@ namespace nkentseu {
 					const NkRect ir9{px + S(4.f), yy2, pw - S(8.f), rowH2};
 					const bool ov9 = hit.Add(sk2, ir9);
 					const bool on9 = curTgt == i9;
-					const bool stub9 = i9 == 5 || i9 == 7;
+					// Volume et Arete perpendiculaire sont livres : plus de stub.
+					const bool stub9 = false;
 					if (on9)
 						p.Fill(ir9, NkRole::AccentUi, 3.f);
 					else if (ov9 && !stub9)
@@ -4344,6 +4352,56 @@ namespace nkentseu {
 					if (hit.Clicked(sk2) && !stub9)
 						demo::Demo3DHostSetSnapTarget(i9);
 					yy2 += rowH2;
+				}
+				if (showBase) {
+					p.HLine(px + S(6.f), yy2 + S(2.f), pw - S(12.f));
+					yy2 += S(6.f);
+					p.TextV(px + S(10.f), yy2, rowH2, "Base d'accroche", NkRole::TextMuted);
+					yy2 += rowH2;
+					// « Centre » et « Median » de Blender fusionnent en
+					// « Pivot » : le pivot du gizmo suit deja le mode de pivot
+					// de l'application -- deux entrees pour un meme point
+					// seraient un faux choix.
+					static const char *const kSb[3] = {"Le plus proche", "Pivot",
+													   "Objet actif"};
+					const int32 curBase = demo::Demo3DHostSnapBase();
+					for (int32 b9 = 0; b9 < 3; ++b9) {
+						snprintf(sk2, sizeof(sk2), "vp.snapbase.%d", b9);
+						const NkRect ir9{px + S(4.f), yy2, pw - S(8.f), rowH2};
+						const bool ov9 = hit.Add(sk2, ir9);
+						const bool on9 = curBase == b9;
+						if (on9)
+							p.Fill(ir9, NkRole::AccentUi, 3.f);
+						else if (ov9)
+							p.Fill(ir9, NkRole::PanelHeader, 3.f);
+						p.TextV(ir9.x + S(8.f), yy2, rowH2, kSb[b9],
+								on9 ? NkRole::TextOnAccent : NkRole::Text);
+						if (hit.Clicked(sk2))
+							demo::Demo3DHostSetSnapBase(b9);
+						yy2 += rowH2;
+					}
+					// ALIGNER LA ROTATION SUR LA CIBLE : n'agit que quand une
+					// FACE (ou un centre de face) accroche -- les autres cibles
+					// n'ont pas de normale stable.
+					{
+						const bool al = demo::Demo3DHostSnapAlignRot();
+						const NkRect cb{px + S(8.f), yy2 + S(4.f), rowH2 - S(8.f),
+										rowH2 - S(8.f)};
+						const bool ova = hit.Add("vp.snapalign", cb);
+						if (al)
+							p.Fill(cb, NkRole::AccentUi, 3.f);
+						else
+							p.Outline(cb, NkRole::Border,
+									  ova ? NkRole::PanelHeader : NkRole::PanelBg, 3.f);
+						if (al)
+							p.IconV(cb.x + S(1.f), yy2, rowH2, NkIcon::Check,
+									NkRole::TextOnAccent, 11.f);
+						p.TextV(cb.x + cb.w + S(8.f), yy2, rowH2, "Aligner la rotation",
+								NkRole::Text);
+						if (hit.Clicked("vp.snapalign"))
+							demo::Demo3DHostSetSnapAlignRot(!al);
+						yy2 += rowH2;
+					}
 				}
 				if (showSteps) {
 					p.HLine(px + S(6.f), yy2 + S(2.f), pw - S(12.f));
@@ -8887,26 +8945,90 @@ namespace nkentseu {
 							bool colCh = false;
 							yy += PaintColorRow(p, hit, ws, in, st, iR, yy, "Couleur",
 												"props.pm.col", alb, &colCh);
-							// TEXTURE DE COULEUR : un chemin d'image remplace la
-							// couleur, qui reste en teinte par-dessus.
+							// ── LES QUATRE CANAUX DE TEXTURE ────────────────────
+							// Couleur, Normale, ORM, Emissif : le moteur les porte
+							// depuis toujours, seule la couleur etait reglable ici.
+							// UNE boucle pour les quatre -- quatre blocs recopies
+							// auraient diverge au premier correctif.
+							// Chaque canal a SON tampon de saisie statique : un
+							// tampon partage ferait sauter le texte d'un champ a
+							// l'autre pendant la frappe (NkComboPending a deja
+							// coute cette lecon).
 							{
-								p.TextV(iR.x, yy, kRowH, "Texture", NkRole::TextMuted);
-								static char sPmTex[260] = {};
-								const NkRect txR{iR.x + S(110.f), yy + S(2.f), iR.w - S(110.f),
-												 kRowH - S(4.f)};
-								p.Outline(txR, NkRole::Border, NkRole::InputBg, 3.f);
-								const char *curTx = demo::Demo3DHostProjMatAlbedoMap(selMat);
-								p.Clip(txR);
-								const bool txApply =
-									EditableText(p, hit, ws, in, "props.pm.tex",
-												 {txR.x + S(4.f), yy, txR.w - S(8.f), kRowH},
-												 curTx[0] ? curTx : "aucune",
-												 curTx[0] ? NkRole::Text : NkRole::TextMuted,
-												 sPmTex, 259u);
-								p.Unclip();
-								if (txApply)
-									demo::Demo3DHostProjMatSetAlbedoMap(selMat, sPmTex);
+								static char sPmTex[4][260] = {};
+								static const char *const kPmKeys[4] = {
+									"props.pm.tex0", "props.pm.tex1", "props.pm.tex2",
+									"props.pm.tex3"};
+								const int32 nCh = demo::Demo3DHostMatChanCount();
+								for (int32 ch = 0; ch < nCh && ch < 4; ++ch) {
+									p.TextV(iR.x, yy, kRowH, demo::Demo3DHostMatChanName(ch),
+											NkRole::TextMuted);
+									const NkRect txR{iR.x + S(110.f), yy + S(2.f),
+													 iR.w - S(110.f) - S(22.f), kRowH - S(4.f)};
+									p.Outline(txR, NkRole::Border, NkRole::InputBg, 3.f);
+									const char *curTx = demo::Demo3DHostProjMatMap(selMat, ch);
+									p.Clip(txR);
+									const bool txApply = EditableText(
+										p, hit, ws, in, kPmKeys[ch],
+										{txR.x + S(4.f), yy, txR.w - S(8.f), kRowH},
+										curTx[0] ? curTx : "aucune",
+										curTx[0] ? NkRole::Text : NkRole::TextMuted,
+										sPmTex[ch], 259u);
+									p.Unclip();
+									if (txApply)
+										demo::Demo3DHostProjMatSetMap(selMat, ch, sPmTex[ch]);
+									// RETIRER : n'apparait que si le canal porte
+									// quelque chose -- un bouton qui n'a rien a
+									// enlever n'a rien a faire la.
+									if (curTx[0]) {
+										char rk[24];
+										snprintf(rk, sizeof(rk), "props.pm.texx%d", ch);
+										const NkRect xr{iR.x + iR.w - S(20.f), yy + S(3.f),
+														S(18.f), kRowH - S(6.f)};
+										const bool ovx = hit.Add(rk, xr);
+										p.Outline(xr, NkRole::Border,
+												  ovx ? NkRole::PanelBg : NkRole::PanelHeader,
+												  3.f);
+										p.IconV(xr.x + S(3.f), yy, kRowH, NkIcon::Trash,
+												NkRole::TextMuted, 11.f);
+										if (hit.Clicked(rk))
+											demo::Demo3DHostProjMatSetMap(selMat, ch, "-");
+									}
+									yy += kRowH;
+								}
+								// INTENSITES : elles ne s'affichent QUE si leur
+								// texture existe -- un curseur sans effet est pire
+								// qu'un curseur absent (regle du projet).
+								float32 nrmS = 1.f, emiS = 1.f;
+								demo::Demo3DHostProjMatChanStrength(selMat, &nrmS, &emiS);
+								const float32 nrm0 = nrmS, emi0 = emiS;
+								if (demo::Demo3DHostProjMatMap(selMat, 1)[0]) {
+									p.TextV(iR.x, yy, kRowH, "Relief", NkRole::TextMuted);
+									DragFloat(p, hit, ws, in, "props.pm.nrms",
+											  {iR.x + S(110.f), yy + S(3.f), iR.w - S(110.f),
+											   kRowH - S(6.f)},
+											  nrmS, 0.01f, NkRole::AccentUi, "%.2f");
+									yy += kRowH;
+								}
+								// L'EMISSIF a une teinte ET une intensite, et la
+								// teinte vaut MEME SANS texture : une surface peut
+								// emettre une couleur unie.
+								float32 emiC[3] = {0.f, 0.f, 0.f};
+								demo::Demo3DHostProjMatEmissive(selMat, emiC);
+								const float32 e0 = emiC[0], e1 = emiC[1], e2 = emiC[2];
+								bool emiCh = false;
+								yy += PaintColorRow(p, hit, ws, in, st, iR, yy, "Emission",
+													"props.pm.emi", emiC, &emiCh);
+								p.TextV(iR.x, yy, kRowH, "Intensite", NkRole::TextMuted);
+								DragFloat(p, hit, ws, in, "props.pm.emis",
+										  {iR.x + S(110.f), yy + S(3.f), iR.w - S(110.f),
+										   kRowH - S(6.f)},
+										  emiS, 0.02f, NkRole::AccentUi, "%.2f");
 								yy += kRowH;
+								if (nrmS != nrm0 || emiS != emi0)
+									demo::Demo3DHostProjMatSetChanStrength(selMat, nrmS, emiS);
+								if (emiCh || emiC[0] != e0 || emiC[1] != e1 || emiC[2] != e2)
+									demo::Demo3DHostProjMatSetEmissive(selMat, emiC);
 							}
 							p.TextV(iR.x, yy, kRowH, "Rugosite", NkRole::TextMuted);
 							DragFloat(p, hit, ws, in, "props.pm.rgh",
@@ -8942,7 +9064,15 @@ namespace nkentseu {
 						if (NkGrpWants(st, "prop.g.mat", 3)) {
 							const float32 g5[3] = {0.7f, 0.7f, 0.7f};
 							demo::Demo3DHostProjMatSetParams(selMat, g5, 0.85f, 0.f);
-							demo::Demo3DHostProjMatSetAlbedoMap(selMat, "-");
+							// REINITIALISER retire les QUATRE canaux : n'en
+							// oublier qu'un laisserait un relief ou un emissif
+							// invisible dans un materiau cense etre neuf.
+							const int32 nCh2 = demo::Demo3DHostMatChanCount();
+							for (int32 ch = 0; ch < nCh2; ++ch)
+								demo::Demo3DHostProjMatSetMap(selMat, ch, "-");
+							const float32 e0[3] = {0.f, 0.f, 0.f};
+							demo::Demo3DHostProjMatSetEmissive(selMat, e0);
+							demo::Demo3DHostProjMatSetChanStrength(selMat, 1.f, 1.f);
 						}
 					}
 				} else if (sec == 6) {
@@ -11528,8 +11658,28 @@ namespace nkentseu {
 					// Une entree SANS sous-menu referme le menu. Une entree AVEC en
 					// ouvrirait un second -- non ecrit tant qu'aucune n'a de contenu
 					// reel, plutot qu'un panneau vide qui ferait croire a un bug.
-					if (st.openMenu == 0 && i == 10) // Fichier > Quitter
-						NkRequestClose(st);
+					//
+					// MENU FICHIER : les indices sont ceux de kFile, plus haut. Ils
+					// sont ecrits ICI et nulle part ailleurs ; inserer une entree
+					// dans la table oblige a relire ce bloc -- ce qui est voulu, un
+					// decalage silencieux serait bien pire.
+					//   0 Nouveau · 1 Ouvrir... · 2 Ouvrir recent (sous-menu, non
+					//   ecrit) · 4 Enregistrer · 5 Enregistrer sous... · 10 Quitter
+					// Les demandes partent en DIFFERE (`projPending`) : le selecteur
+					// de fichiers de l'OS ouvre une boucle modale, l'appeler pendant
+					// la peinture reentrerait dans la frame en cours.
+					if (st.openMenu == 0) {
+						if (i == 0)
+							st.projPending = 1;
+						else if (i == 1)
+							st.projPending = 2;
+						else if (i == 4)
+							st.projPending = 3;
+						else if (i == 5)
+							st.projPending = 4;
+						else if (i == 10)
+							NkRequestClose(st);
+					}
 					st.openMenu = -1;
 				}
 				y += itemH;
@@ -11897,7 +12047,10 @@ namespace nkentseu {
 							  demo::Demo3DHostRecEncoding() || demo::Demo3DHostRecTutoEncoding();
 			if (busy)
 				st.askCloseRec = true;
-			else if (st.dirty)
+			// AUCUN PROJET OUVERT (ecran d'accueil) : il n'y a rien a perdre, donc
+			// rien a demander. Poser la question « modifications non enregistrees »
+			// devant un ecran de demarrage serait incomprehensible.
+			else if (st.dirty && !st.welcome)
 				st.askClose = true;
 			else
 				st.running = false;
@@ -12061,10 +12214,16 @@ namespace nkentseu {
 			if (hit.Clicked("dlg.discard"))
 				st.running = false;
 			if (hit.Clicked("dlg.save")) {
-				// L'enregistrement reel viendra avec le format de projet. On marque le
-				// document propre pour que le chemin soit deja juste.
-				st.dirty = false;
-				st.running = false;
+				// L'ENREGISTREMENT EST REEL depuis le format .nk3dm : on le demande
+				// en differe (il peut ouvrir « Enregistrer sous... » si le projet
+				// n'a pas encore de chemin) et la fermeture attend son resultat.
+				// Fermer tout de suite fermerait AVANT d'avoir ecrit.
+				//
+				// Reserve honnete : le .nk3dm ne serialise pas encore la scene 3D.
+				// Ce bouton enregistre le PROJET, pas encore son contenu.
+				st.askClose = false;
+				st.projPending = 3;
+				st.quitAfterSave = true;
 			}
 		}
 

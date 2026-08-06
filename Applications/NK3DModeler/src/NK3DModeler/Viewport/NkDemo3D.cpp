@@ -860,20 +860,40 @@ namespace nkentseu {
 		// evaluera son graphe vers ces memes parametres, l'edition directe
 		// ci-dessous restant toujours possible ; les surcharges par objet du
 		// panneau Modele sont des retouches PAR-DESSUS le materiau assigne.
+		// ── LES QUATRE CANAUX D'UN MATERIAU ────────────────────────────────
+		// Le moteur les porte depuis toujours (SetAlbedoMap / SetNormalMap /
+		// SetORMMap / SetEmissiveMap) ; seule la COULEUR etait reglable ici.
+		// Un seul indice de canal traverse desormais tout le chemin -- etat,
+		// API hote, panneau -- plutot que quatre copies de la meme fonction :
+		// c'est ce qui a fait diverger les combos par le passe.
+		//   0 COULEUR (albedo)   1 NORMALE (relief)
+		//   2 ORM (occlusion/rugosite/metallique empaquetees, standard glTF)
+		//   3 EMISSIF (ce que la surface emet)
+		static constexpr int32 kNkvpMatChanCount = 4;
+		static const char *const kNkvpMatChanNames[kNkvpMatChanCount] = {
+			"Couleur", "Normale", "ORM", "Emissif"};
 		struct NkVpProjMat {
 				bool used;
 				int8 prevShape; // apercu : 0 plan, 1 sphere, 2 cube, 3 liquide, 4 cheveux
 				char name[32];
-				char albMap[260]; // chemin TEXTURE DE COULEUR ("" = couleur seule), MAX_PATH
+				// Chemins des quatre canaux ("" = pas de texture, les valeurs
+				// numeriques font alors foi). MAX_PATH chacun.
+				char maps[kNkvpMatChanCount][260];
 				float32 albedo[3];
 				float32 rough, metal;
+				// INTENSITES des canaux qui en ont une : le relief se dose (0 =
+				// normale ignoree, 1 = pleine), l'emissif aussi. Sans texture,
+				// elles n'ont pas d'effet -- c'est voulu, pas un oubli.
+				float32 nrmStrength;
+				float32 emiStrength;
+				float32 emissive[3]; // teinte emise, meme sans texture
 		};
 		static constexpr int32 kNkvpMaxProjMats = 64;
 		static NkVpProjMat nkvpProjMats[kNkvpMaxProjMats] = {};
 		// Cote MOTEUR d'un materiau a texture : la teinte/rugosite/metallique
 		// passent par le draw call, mais une TEXTURE exige une vraie instance
 		// de materiau (meme mecanique que le sol carrele).
-		static NkTexHandle nkvpProjMatTex[kNkvpMaxProjMats] = {};
+		static NkTexHandle nkvpProjMatChanTex[kNkvpMaxProjMats][kNkvpMatChanCount] = {};
 		static NkMaterial *nkvpProjMatEng[kNkvpMaxProjMats] = {};
 		static int32 nkvpMatSerial = 0; // numerote « Materiau.NNN », jamais reutilise
 		// Assignation par NOEUD, stockee en indice+1 : le zero de l'init
@@ -2212,6 +2232,17 @@ namespace nkentseu {
 			}
 		}
 
+		// ── BASE D'ACCROCHE (Blender : « Snap Base ») ──────────────────────────
+		// QUEL point de l'objet deplace cherche la cible :
+		//   0 = LE PLUS PROCHE (defaut) : les sommets echantillonnes de la
+		//       selection -- c'est le contact naturel, surface contre surface ;
+		//   1 = PIVOT : le centre du gizmo. « Centre » et « Median » de Blender
+		//       fusionnent ici : le pivot du gizmo SUIT deja le mode de pivot
+		//       de l'application (median / actif / origines), les distinguer
+		//       encore ferait deux entrees pour un meme point ;
+		//   2 = OBJET ACTIF : l'origine du dernier objet selectionne.
+		static int32 nkvpSnapBase = 0;
+
 		// ── AIMANTATION GEOMETRIQUE : la reponse de l'hote au gizmo ────────────
 		// Cible la plus proche (sommet / arete / face / centres) parmi les
 		// MAILLAGES UTILISATEUR visibles et NON selectionnes -- l'objet en
@@ -2219,7 +2250,9 @@ namespace nkentseu {
 		// resterait colle sur place, Blender l'exclut pareillement. Donnees CPU
 		// des meshes, transform monde du noeud (parents compris).
 		static int32 Demo3D_SnapQuery(void *user, int32 target, const NkVec3f &nearP,
-									  float32 maxDist, NkVec3f &out) {
+									  const NkVec3f &origP, const NkVec3f &rayO,
+									  const NkVec3f &rayD, float32 maxDist, NkVec3f &out,
+									  NkVec3f *outN) {
 			const Demo3DRayCtx *cx = (const Demo3DRayCtx *)user;
 			if (!cx || !cx->st || !cx->ms || maxDist <= 0.f)
 				return 0;
@@ -2237,7 +2270,14 @@ namespace nkentseu {
 			// ramenes a la position libre par le meme delta que le pivot.
 			NkVec3f srcPts[96];
 			int32 nSrc = 0;
-			{
+			// PIVOT COMME BASE : le point d'accroche est le centre du gizmo,
+			// rien a echantillonner. C'est le comportement d'avant la base
+			// « le plus proche » -- utile pour poser un objet PAR son origine
+			// (un empty, une lumiere, un axe de perçage) plutot que par sa
+			// surface.
+			if (nkvpSnapBase == 1)
+				srcPts[nSrc++] = nearP;
+			else {
 				NkVec3f pivBase{0.f, 0.f, 0.f};
 				int32 nSel = 0;
 				for (int32 u = 0; u < kNkvpMaxUser; ++u) {
@@ -2250,7 +2290,25 @@ namespace nkentseu {
 					pivBase = {pivBase.x + wp[0], pivBase.y + wp[1], pivBase.z + wp[2]};
 					++nSel;
 				}
-				if (nSel > 0) {
+				// OBJET ACTIF COMME BASE : l'origine du dernier selectionne,
+				// deplacee du meme delta que le pivot. Sans actif valide, on
+				// retombe sur le pivot -- jamais sur un point invente.
+				if (nkvpSnapBase == 2) {
+					const int32 an = st->emptyGizmo.ActiveIndex();
+					const int32 anNode = an >= 0 ? an + 90 : -1;
+					if (nSel > 0 && anNode >= kNkvpFirstUser && !nkvpDeleted[anNode]) {
+						const float32 inv = 1.f / (float32)nSel;
+						pivBase = {pivBase.x * inv, pivBase.y * inv, pivBase.z * inv};
+						float32 ap[3], asc[3];
+						NkMat4f ar;
+						HostNodeWorldById(anNode, ap, ar, asc);
+						srcPts[nSrc++] = {ap[0] + (nearP.x - pivBase.x),
+										  ap[1] + (nearP.y - pivBase.y),
+										  ap[2] + (nearP.z - pivBase.z)};
+					} else {
+						srcPts[nSrc++] = nearP;
+					}
+				} else if (nSel > 0) {
 					const float32 inv = 1.f / (float32)nSel;
 					pivBase = {pivBase.x * inv, pivBase.y * inv, pivBase.z * inv};
 					const NkVec3f delta{nearP.x - pivBase.x, nearP.y - pivBase.y,
@@ -2299,10 +2357,32 @@ namespace nkentseu {
 			// EST le pivot -- l'ancien comportement, qui reste juste pour eux.
 			if (nSrc == 0)
 				srcPts[nSrc++] = nearP;
+			// L'ARETE PERPENDICULAIRE se mesure depuis le DEBUT du geste :
+			// chaque point source est ramene a sa position d'ORIGINE par le
+			// delta inverse du pivot. Le pied de perpendiculaire abaisse depuis
+			// la position courante changerait a chaque image -- la cible
+			// glisserait sous le curseur au lieu de tenir.
+			NkVec3f srcOrig[96];
+			{
+				const NkVec3f gd{nearP.x - origP.x, nearP.y - origP.y, nearP.z - origP.z};
+				for (int32 s = 0; s < nSrc; ++s)
+					srcOrig[s] = {srcPts[s].x - gd.x, srcPts[s].y - gd.y, srcPts[s].z - gd.z};
+			}
 			float32 best = maxDist * maxDist;
 			int32 found = 0;
 			int32 cand = 0; // maillages REELLEMENT examines
 			NkVec3f bestP{0.f, 0.f, 0.f};
+			// Normale de la cible gagnante (faces et centres de face) : sert a
+			// l'alignement de rotation. Les autres cibles n'en ont pas de
+			// stable -- un sommet appartient a plusieurs faces.
+			NkVec3f bestN{0.f, 0.f, 0.f};
+			bool haveN = false;
+			// VOLUME : etat propre -- la cible est SOUS LE CURSEUR, la portee
+			// ecran du pivot ne s'y applique pas. On retient la traversee la
+			// plus proche de la camera, tous maillages confondus.
+			float32 volBestT = 1e30f;
+			NkVec3f volP{0.f, 0.f, 0.f};
+			int32 volFound = 0;
 			// `p` est une cible de la scene : on cherche le point SOURCE le plus
 			// proche d'elle, et on retient la POSITION QUE LE PIVOT doit prendre
 			// pour que les deux coincident.
@@ -2387,11 +2467,112 @@ namespace nkentseu {
 				const uint32 ic = ms->GetIndexCount(mh);
 				if (!ii || ic < 3)
 					continue;
+				if (target == 5) {
+					// VOLUME : toutes les intersections du rayon de VISEE avec
+					// ce maillage, triees ; le point d'accroche est le MILIEU
+					// de la premiere traversee (entree/sortie) -- l'objet se
+					// pose DANS la matiere visee, comme Blender. Un maillage
+					// ouvert (une seule intersection) accroche sur elle.
+					float32 ts[32];
+					int32 nT = 0;
+					for (uint32 t3 = 0; t3 + 2 < ic && nT < 32; t3 += 3) {
+						const NkVec3f A = W * vv[ii[t3]].pos;
+						const NkVec3f B = W * vv[ii[t3 + 1]].pos;
+						const NkVec3f C = W * vv[ii[t3 + 2]].pos;
+						// Moller-Trumbore, sans elagage de face arriere : une
+						// SORTIE de volume est par nature une face arriere.
+						const NkVec3f e0{B.x - A.x, B.y - A.y, B.z - A.z};
+						const NkVec3f e1{C.x - A.x, C.y - A.y, C.z - A.z};
+						const NkVec3f pv{rayD.y * e1.z - rayD.z * e1.y,
+										 rayD.z * e1.x - rayD.x * e1.z,
+										 rayD.x * e1.y - rayD.y * e1.x};
+						const float32 det = e0.x * pv.x + e0.y * pv.y + e0.z * pv.z;
+						if (det > -1e-9f && det < 1e-9f)
+							continue;
+						const float32 inv = 1.f / det;
+						const NkVec3f tv{rayO.x - A.x, rayO.y - A.y, rayO.z - A.z};
+						const float32 u = (tv.x * pv.x + tv.y * pv.y + tv.z * pv.z) * inv;
+						if (u < 0.f || u > 1.f)
+							continue;
+						const NkVec3f qv{tv.y * e0.z - tv.z * e0.y,
+										 tv.z * e0.x - tv.x * e0.z,
+										 tv.x * e0.y - tv.y * e0.x};
+						const float32 v = (rayD.x * qv.x + rayD.y * qv.y + rayD.z * qv.z) * inv;
+						if (v < 0.f || u + v > 1.f)
+							continue;
+						const float32 t = (e1.x * qv.x + e1.y * qv.y + e1.z * qv.z) * inv;
+						if (t > 1e-4f)
+							ts[nT++] = t;
+					}
+					// Tri par insertion : 32 valeurs au plus, la simplicite gagne.
+					for (int32 a = 1; a < nT; ++a) {
+						const float32 v = ts[a];
+						int32 b = a - 1;
+						for (; b >= 0 && ts[b] > v; --b)
+							ts[b + 1] = ts[b];
+						ts[b + 1] = v;
+					}
+					if (nT >= 1) {
+						const float32 tMid = (nT >= 2) ? (ts[0] + ts[1]) * 0.5f : ts[0];
+						if (tMid < volBestT) {
+							volBestT = tMid;
+							volP = {rayO.x + rayD.x * tMid, rayO.y + rayD.y * tMid,
+									rayO.z + rayD.z * tMid};
+							volFound = 1;
+						}
+					}
+					continue;
+				}
+				// Pied de la perpendiculaire abaissee depuis l'ORIGINE de chaque
+				// source sur la droite (a,b), borne au segment : le trajet du
+				// geste devient perpendiculaire a l'arete (cible 7).
+				auto perpEdge = [&](const NkVec3f &a, const NkVec3f &b) {
+					const NkVec3f ab{b.x - a.x, b.y - a.y, b.z - a.z};
+					const float32 l2 = ab.x * ab.x + ab.y * ab.y + ab.z * ab.z;
+					if (l2 < 1e-12f)
+						return;
+					for (int32 s = 0; s < nSrc; ++s) {
+						// L'ACCEPTATION mesure la distance A L'ARETE depuis la
+						// position COURANTE -- le pied de perpendiculaire, lui,
+						// est souvent loin LE LONG de l'arete, et le confronter
+						// a la portee de 60 px rendait la cible muette une fois
+						// sur deux (« ca marche mais pas toujours », Rihen).
+						float32 tc = ((srcPts[s].x - a.x) * ab.x +
+									  (srcPts[s].y - a.y) * ab.y +
+									  (srcPts[s].z - a.z) * ab.z) /
+									 l2;
+						tc = tc < 0.f ? 0.f : (tc > 1.f ? 1.f : tc);
+						const float32 cx = a.x + ab.x * tc - srcPts[s].x,
+									  cy = a.y + ab.y * tc - srcPts[s].y,
+									  cz = a.z + ab.z * tc - srcPts[s].z;
+						const float32 dEdge2 = cx * cx + cy * cy + cz * cz;
+						if (dEdge2 >= best)
+							continue;
+						// LE POINT D'ACCROCHE : le pied abaisse depuis
+						// l'ORIGINE du geste -- le trajet devient
+						// perpendiculaire a l'arete.
+						const NkVec3f &sO = srcOrig[s];
+						float32 t = ((sO.x - a.x) * ab.x + (sO.y - a.y) * ab.y +
+									 (sO.z - a.z) * ab.z) /
+									l2;
+						t = t < 0.f ? 0.f : (t > 1.f ? 1.f : t);
+						const NkVec3f q{a.x + ab.x * t, a.y + ab.y * t, a.z + ab.z * t};
+						best = dEdge2;
+						bestP = {nearP.x + (q.x - srcPts[s].x),
+								 nearP.y + (q.y - srcPts[s].y),
+								 nearP.z + (q.z - srcPts[s].z)};
+						found = 1;
+					}
+				};
 				for (uint32 t3 = 0; t3 + 2 < ic; t3 += 3) {
 					const NkVec3f A = W * vv[ii[t3]].pos;
 					const NkVec3f B = W * vv[ii[t3 + 1]].pos;
 					const NkVec3f C = W * vv[ii[t3 + 2]].pos;
-					if (target == 3) {
+					if (target == 7) {
+						perpEdge(A, B);
+						perpEdge(B, C);
+						perpEdge(C, A);
+					} else if (target == 3) {
 						// ARETE : le point le plus proche sur chaque segment.
 						segClosest(A, B);
 						segClosest(B, C);
@@ -2402,9 +2583,26 @@ namespace nkentseu {
 						consider({(B.x + C.x) * 0.5f, (B.y + C.y) * 0.5f, (B.z + C.z) * 0.5f});
 						consider({(C.x + A.x) * 0.5f, (C.y + A.y) * 0.5f, (C.z + A.z) * 0.5f});
 					} else if (target == 8) {
-						// CENTRE DE FACE.
+						// CENTRE DE FACE -- et sa NORMALE, si ce candidat gagne :
+						// poser une rangee d'objets alignes aux faces en depend.
+						const float32 prevBest = best;
 						consider({(A.x + B.x + C.x) / 3.f, (A.y + B.y + C.y) / 3.f,
 								  (A.z + B.z + C.z) / 3.f});
+						if (best < prevBest) {
+							const NkVec3f e0{B.x - A.x, B.y - A.y, B.z - A.z};
+							const NkVec3f e1{C.x - A.x, C.y - A.y, C.z - A.z};
+							NkVec3f N{e0.y * e1.z - e0.z * e1.y, e0.z * e1.x - e0.x * e1.z,
+									  e0.x * e1.y - e0.y * e1.x};
+							// Orientee vers la SOURCE : l'objet se pose du cote
+							// d'ou il vient, pas a l'interieur de la cible.
+							const float32 sd = (srcPts[0].x - A.x) * N.x +
+											   (srcPts[0].y - A.y) * N.y +
+											   (srcPts[0].z - A.z) * N.z;
+							if (sd < 0.f)
+								N = {-N.x, -N.y, -N.z};
+							bestN = N;
+							haveN = true;
+						}
 					} else if (target == 4) {
 						// FACE : pour CHAQUE point source, sa projection sur le
 						// plan du triangle si elle y tombe (test barycentrique),
@@ -2445,20 +2643,47 @@ namespace nkentseu {
 									best = d2;
 									bestP = {nearP.x + dx, nearP.y + dy, nearP.z + dz};
 									found = 1;
+									// La NORMALE du triangle gagnant, orientee du
+									// cote de la source : l'alignement de rotation
+									// posera +Z dessus.
+									bestN = (dpl >= 0.f) ? N : NkVec3f{-N.x, -N.y, -N.z};
+									haveN = true;
 								}
 							}
 						}
 						if (!anyInside) {
+							// Le bord de la face fait foi : si l'un de ces trois
+							// segments gagne, la normale reste celle de CE
+							// triangle -- sans quoi bestN garderait celle d'une
+							// face precedente, fausse pour l'alignement.
+							const float32 prevBest = best;
 							segClosest(A, B);
 							segClosest(B, C);
 							segClosest(C, A);
+							if (best < prevBest) {
+								const float32 sd = (srcPts[0].x - A.x) * N.x +
+												   (srcPts[0].y - A.y) * N.y +
+												   (srcPts[0].z - A.z) * N.z;
+								bestN = (sd >= 0.f) ? N : NkVec3f{-N.x, -N.y, -N.z};
+								haveN = true;
+							}
 						}
 					}
 				}
 			}
 			(void)cand; // compte des candidats : servait au diagnostic d'accroche
-			if (found)
+			// VOLUME : sa reponse est le point DANS la matiere visee, hors du
+			// jeu portee/sources des autres cibles.
+			if (target == 5) {
+				if (volFound)
+					out = volP;
+				return volFound;
+			}
+			if (found) {
 				out = bestP;
+				if (outN && haveN)
+					*outN = bestN;
+			}
 			return found;
 		}
 		static int32 Demo3D_GizmoRayTest(void *user, int32 idx, const NkMat4f &world, NkVec3f ro,
@@ -6611,14 +6836,21 @@ namespace nkentseu {
 				dc.metallic = 0.f;
 				dc.roughness = 0.85f; // mat par defaut, sans brillance marquee
 				HostMatHook(un, dc);
-				// TEXTURE DE COULEUR du materiau projet : des qu'elle existe, le
-				// maillage passe sur la vraie instance moteur (albedo map) --
-				// la couleur du materiau reste en TEINTE par-dessus.
+				// TEXTURES du materiau projet : des qu'un canal QUELCONQUE
+				// existe, le maillage passe sur la vraie instance moteur -- la
+				// couleur du materiau reste en TEINTE par-dessus. Tester le
+				// seul albedo laissait une normal map ou un emissif sans effet
+				// tant qu'aucune texture de couleur n'etait posee.
 				{
 					const int32 pmU = nkvpNodeMatP1[un] - 1;
 					if (pmU >= 0 && pmU < kNkvpMaxProjMats && nkvpProjMats[pmU].used &&
-						nkvpProjMats[pmU].albMap[0] && nkvpProjMatEng[pmU])
-						dc.material = nkvpProjMatEng[pmU]->GetInstHandle();
+						nkvpProjMatEng[pmU]) {
+						bool anyMap = false;
+						for (int32 c = 0; c < kNkvpMatChanCount && !anyMap; ++c)
+							anyMap = nkvpProjMats[pmU].maps[c][0] != 0;
+						if (anyMap)
+							dc.material = nkvpProjMatEng[pmU]->GetInstHandle();
+					}
 				}
 				r3d->Submit(dc);
 			}
@@ -11991,6 +12223,29 @@ namespace nkentseu {
 			logger.Info("[NkDemo3D] Echelle exacte (cisaillement) -> {0}\n",
 						on ? "oui" : "non");
 		}
+		int32 Demo3DHostSnapBase() {
+			return nkvpSnapBase;
+		}
+		void Demo3DHostSetSnapBase(int32 b) {
+			nkvpSnapBase = (b < 0 || b > 2) ? 0 : b;
+		}
+		bool Demo3DHostSnapAlignRot() {
+			auto *st = HostSt();
+			if (!st)
+				return false;
+			return st->gizmo.SnapAlignRot();
+		}
+		void Demo3DHostSetSnapAlignRot(bool on) {
+			auto *st = HostSt();
+			if (!st)
+				return;
+			// Les QUATRE gizmos, comme la cible : celui des vides a deja ete
+			// oublie deux fois dans des fan-out.
+			st->gizmo.SetSnapAlignRot(on);
+			st->editGizmo.SetSnapAlignRot(on);
+			st->lightGizmo.SetSnapAlignRot(on);
+			st->emptyGizmo.SetSnapAlignRot(on);
+		}
 		int32 Demo3DHostSnapTarget() {
 			auto *st = HostSt();
 			if (!st)
@@ -12916,6 +13171,12 @@ namespace nkentseu {
 				m.albedo[0] = m.albedo[1] = m.albedo[2] = 0.7f;
 				m.rough = 0.85f;
 				m.metal = 0.f;
+				// Intensites NEUTRES : relief a pleine echelle (une normal map
+				// posee doit se voir telle qu'elle est), emissif a 1 mais avec
+				// une teinte NOIRE -- un materiau neuf n'emet rien.
+				m.nrmStrength = 1.f;
+				m.emiStrength = 1.f;
+				m.emissive[0] = m.emissive[1] = m.emissive[2] = 0.f;
 				return i;
 			}
 			return -1;
@@ -13000,21 +13261,44 @@ namespace nkentseu {
 				return -1;
 			return nkvpNodeMatP1[node] - 1;
 		}
-		const char *Demo3DHostProjMatAlbedoMap(int32 i) {
-			return (i >= 0 && i < kNkvpMaxProjMats && nkvpProjMats[i].used)
-					   ? nkvpProjMats[i].albMap
+		int32 Demo3DHostMatChanCount() {
+			return kNkvpMatChanCount;
+		}
+		const char *Demo3DHostMatChanName(int32 c) {
+			return (c >= 0 && c < kNkvpMatChanCount) ? kNkvpMatChanNames[c] : "";
+		}
+		const char *Demo3DHostProjMatMap(int32 i, int32 chan) {
+			return (i >= 0 && i < kNkvpMaxProjMats && nkvpProjMats[i].used && chan >= 0 &&
+					chan < kNkvpMatChanCount)
+					   ? nkvpProjMats[i].maps[chan]
 					   : "";
 		}
-		bool Demo3DHostProjMatSetAlbedoMap(int32 i, const char *path) {
-			if (i < 0 || i >= kNkvpMaxProjMats || !nkvpProjMats[i].used)
+		// UNE SEULE fonction pour les quatre canaux : quatre copies auraient
+		// diverge au premier correctif -- c'est exactement ce qui est arrive
+		// aux combos de la sortie.
+		bool Demo3DHostProjMatSetMap(int32 i, int32 chan, const char *path) {
+			if (i < 0 || i >= kNkvpMaxProjMats || !nkvpProjMats[i].used || chan < 0 ||
+				chan >= kNkvpMatChanCount)
 				return false;
-			// « - » ou vide RETIRE la texture : retour a la couleur seule.
+			auto *matS = hst.ctx.renderer ? hst.ctx.renderer->GetMaterials() : nullptr;
+			// « - » ou vide RETIRE la texture : retour aux valeurs numeriques.
+			// Le moteur reprend sa texture PAR DEFAUT (blanc pour la couleur,
+			// normale plate...) : poser un handle invalide laisserait l'ancienne
+			// en place, et retirer n'aurait aucun effet visible.
 			if (!path || !path[0] || (path[0] == '-' && !path[1])) {
-				nkvpProjMats[i].albMap[0] = 0;
+				nkvpProjMats[i].maps[chan][0] = 0;
+				nkvpProjMatChanTex[i][chan] = NkTexHandle{};
+				if (nkvpProjMatEng[i]) {
+					switch (chan) {
+						case 0: nkvpProjMatEng[i]->SetAlbedoMap(NkTexHandle{}); break;
+						case 1: nkvpProjMatEng[i]->SetNormalMap(NkTexHandle{}, 0.f); break;
+						case 2: nkvpProjMatEng[i]->SetORMMap(NkTexHandle{}); break;
+						default: nkvpProjMatEng[i]->SetEmissiveMap(NkTexHandle{}); break;
+					}
+				}
 				return true;
 			}
 			auto *texL = hst.ctx.renderer ? hst.ctx.renderer->GetTextures() : nullptr;
-			auto *matS = hst.ctx.renderer ? hst.ctx.renderer->GetMaterials() : nullptr;
 			if (!texL || !matS)
 				return false;
 			// Le chargement fait foi : un chemin qui ne charge pas n'est PAS
@@ -13026,15 +13310,66 @@ namespace nkentseu {
 							nkvpProjMats[i].name, path);
 				return false;
 			}
-			nkvpProjMatTex[i] = t;
+			nkvpProjMatChanTex[i][chan] = t;
 			if (!nkvpProjMatEng[i])
 				nkvpProjMatEng[i] = NkMaterial::Create(matS, NkMaterialType::NK_PBR_METALLIC);
-			if (nkvpProjMatEng[i])
-				nkvpProjMatEng[i]->SetAlbedoMap(t);
-			snprintf(nkvpProjMats[i].albMap, sizeof(nkvpProjMats[i].albMap), "%s", path);
-			logger.Info("[NkDemo3D] Materiau '{0}' : texture couleur -> {1}\n",
-						nkvpProjMats[i].name, path);
+			if (nkvpProjMatEng[i]) {
+				switch (chan) {
+					case 0: nkvpProjMatEng[i]->SetAlbedoMap(t); break;
+					case 1:
+						nkvpProjMatEng[i]->SetNormalMap(t, nkvpProjMats[i].nrmStrength);
+						break;
+					case 2: nkvpProjMatEng[i]->SetORMMap(t); break;
+					default: nkvpProjMatEng[i]->SetEmissiveMap(t); break;
+				}
+			}
+			snprintf(nkvpProjMats[i].maps[chan], sizeof(nkvpProjMats[i].maps[chan]), "%s",
+					 path);
+			logger.Info("[NkDemo3D] Materiau '{0}' : canal {1} -> {2}\n",
+						nkvpProjMats[i].name, kNkvpMatChanNames[chan], path);
 			return true;
+		}
+		// INTENSITES : relief (0..2) et emissif (0..20, les emetteurs montent
+		// haut). Elles n'ont d'effet qu'avec leur texture -- sauf la teinte
+		// emissive, qui vaut aussi sans.
+		void Demo3DHostProjMatChanStrength(int32 i, float32 *nrm, float32 *emi) {
+			const bool ok = i >= 0 && i < kNkvpMaxProjMats && nkvpProjMats[i].used;
+			if (nrm)
+				*nrm = ok ? nkvpProjMats[i].nrmStrength : 1.f;
+			if (emi)
+				*emi = ok ? nkvpProjMats[i].emiStrength : 1.f;
+		}
+		void Demo3DHostProjMatSetChanStrength(int32 i, float32 nrm, float32 emi) {
+			if (i < 0 || i >= kNkvpMaxProjMats || !nkvpProjMats[i].used)
+				return;
+			NkVpProjMat &m = nkvpProjMats[i];
+			m.nrmStrength = nrm < 0.f ? 0.f : (nrm > 2.f ? 2.f : nrm);
+			m.emiStrength = emi < 0.f ? 0.f : (emi > 20.f ? 20.f : emi);
+			if (!nkvpProjMatEng[i])
+				return;
+			// L'intensite de relief vit DANS SetNormalMap : la reposer exige de
+			// redonner la texture -- sinon le curseur n'aurait aucun effet.
+			if (m.maps[1][0] && nkvpProjMatChanTex[i][1].IsValid())
+				nkvpProjMatEng[i]->SetNormalMap(nkvpProjMatChanTex[i][1], m.nrmStrength);
+			nkvpProjMatEng[i]->SetEmissive({m.emissive[0], m.emissive[1], m.emissive[2]},
+										   m.emiStrength);
+		}
+		void Demo3DHostProjMatEmissive(int32 i, float32 *rgb) {
+			if (!rgb)
+				return;
+			const bool ok = i >= 0 && i < kNkvpMaxProjMats && nkvpProjMats[i].used;
+			for (int32 k = 0; k < 3; ++k)
+				rgb[k] = ok ? nkvpProjMats[i].emissive[k] : 0.f;
+		}
+		void Demo3DHostProjMatSetEmissive(int32 i, const float32 *rgb) {
+			if (i < 0 || i >= kNkvpMaxProjMats || !nkvpProjMats[i].used || !rgb)
+				return;
+			NkVpProjMat &m = nkvpProjMats[i];
+			for (int32 k = 0; k < 3; ++k)
+				m.emissive[k] = rgb[k] < 0.f ? 0.f : rgb[k];
+			if (nkvpProjMatEng[i])
+				nkvpProjMatEng[i]->SetEmissive({m.emissive[0], m.emissive[1], m.emissive[2]},
+											   m.emiStrength);
 		}
 		int32 Demo3DHostProjMatPrevShape(int32 i) {
 			return (i >= 0 && i < kNkvpMaxProjMats) ? nkvpProjMats[i].prevShape : 1;
@@ -13042,6 +13377,27 @@ namespace nkentseu {
 		void Demo3DHostProjMatSetPrevShape(int32 i, int32 shape) {
 			if (i >= 0 && i < kNkvpMaxProjMats)
 				nkvpProjMats[i].prevShape = (int8)(shape < 0 ? 0 : (shape > 4 ? 4 : shape));
+		}
+		int32 Demo3DHostProjMatMax() {
+			return kNkvpMaxProjMats;
+		}
+		// OUVRIR UN PROJET REMPLACE LA SCENE : sans ce vidage, les materiaux de
+		// la session precedente survivraient au milieu de ceux du fichier, et
+		// les assignations pointeraient sur des emplacements qui ne veulent
+		// plus rien dire. On passe par ProjMatSetMap(« - ») plutot que de
+		// remettre `used` a faux : c'est LUI qui detache aussi les textures
+		// cote moteur -- un emplacement recycle plus tard aurait sinon herite
+		// des cartes de l'ancien materiau.
+		void Demo3DHostProjMatClear() {
+			for (int32 i = 0; i < kNkvpMaxProjMats; ++i) {
+				if (!nkvpProjMats[i].used)
+					continue;
+				for (int32 c = 0; c < kNkvpMatChanCount; ++c)
+					(void)Demo3DHostProjMatSetMap(i, c, "-");
+				nkvpProjMats[i].used = false;
+			}
+			for (int32 n = 0; n < kNkvpMaxNodes; ++n)
+				nkvpNodeMatP1[n] = 0;
 		}
 		// ── APERCU D'UN MATERIAU : rendu ANALYTIQUE CPU ─────────────────────
 		// Assez fidele pour JUGER une matiere (diffus + reflet selon rugosite/
@@ -13660,6 +14016,20 @@ namespace nkentseu {
 			for (int32 n = 0; n < kNkvpMaxNodes; ++n)
 				HostNodeWorld(st, n, sHierPos[n], sHierRot[n], sHierScl[n]);
 		}
+		// CHARGEMENT D'UN PROJET : on reprend le cliche de reference SANS rien
+		// propager. Le detecteur ci-dessus deduit le mouvement d'un parent de
+		// l'ecart avec le cliche precedent ; apres un chargement, cet ecart
+		// n'est pas un geste -- c'est toute la scene qui a ete remplacee. Sans
+		// ce recalage, la frame suivante traine chaque enfant du deplacement
+		// apparent de son parent, alors que le fichier l'avait deja pose.
+		void Demo3DHostHierarchyResync() {
+			auto *st = HostSt();
+			if (!st)
+				return;
+			HostParentEnsureInit();
+			for (int32 n = 0; n < kNkvpMaxNodes; ++n)
+				HostNodeWorld(st, n, sHierPos[n], sHierRot[n], sHierScl[n]);
+		}
 		// ── SUPPRESSION / DUPLICATION / PRESSE-PAPIERS ──────────────────────
 		bool Demo3DHostNodeDeleted(int32 node) {
 			return node >= 0 && node < kNkvpMaxNodes && nkvpDeleted[node];
@@ -13852,6 +14222,15 @@ namespace nkentseu {
 		}
 		bool Demo3DHostNodeIsModel(int32 node) {
 			return node >= 0 && node < kNkvpMaxNodes && nkvpIsModel[node];
+		}
+		// POSE le drapeau tel quel, pour la RELECTURE d'un projet.
+		// EnsureModelMesh ne convient pas la : il fabriquerait un maillage
+		// interne, alors que celui du fichier est restaure a cote -- le model
+		// rouvert se serait retrouve avec un maillage de trop a chaque
+		// ouverture.
+		void Demo3DHostSetNodeIsModel(int32 node, bool v) {
+			if (node >= 0 && node < kNkvpMaxNodes)
+				nkvpIsModel[node] = v;
 		}
 		void Demo3DHostSetDocIsModel(bool v) { nkvpDocIsModel = v; }
 		bool Demo3DHostDocIsModel() { return nkvpDocIsModel; }

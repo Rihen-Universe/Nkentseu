@@ -139,6 +139,17 @@ namespace nkentseu {
 				void SaveWindowGeom(const char *path) noexcept;	 ///< écrit win=/maximized= (position écran)
 				bool LoadWindowGeom(const char *path) noexcept;	 ///< applique si le fichier existe ; false sinon
 
+				// BARRES D'ACTIVITE (bandes verticales d'icones, facon VSCode) : presentes
+				// par defaut, parce que l'IDE en vit. Une application qui n'a PAS de
+				// « vues » a basculer — un atelier, un visualiseur — doit pouvoir les
+				// retirer : sinon elle herite du chrome de NKCode et lui ressemble, alors
+				// qu'elle ne fait pas le meme metier. Le dock reprend alors la largeur
+				// liberee.
+				void SetActivityBars(bool left, bool right) noexcept {
+					mActivityBarLeft = left;
+					mActivityBarRight = right;
+				}
+
 				// Clic sur l'activity bar : l'app recoit l'index (0..6 = vues gauche, 100..102 = IA
 				// droite, 999 = reglages) et decide (sidebar exclusive facon VSCode).
 				void SetActivityHandler(void (*fn)(void *, int32), void *user) noexcept {

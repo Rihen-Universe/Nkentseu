@@ -2,7 +2,7 @@
 // -----------------------------------------------------------------------------
 // @File    NkDemo3DHost.h
 // @Brief   Facade OPAQUE de la vue 3D portee de renderdemo --demo=2.
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // MEME REGLE QUE NkViewport3D.h : aucun type NKRenderer ici, car NKRenderer et
 // NKCanvas declarent tous deux `renderer::NkBlendMode`/`NkVertex2D` et ne
@@ -74,10 +74,23 @@ namespace nkentseu {
 		void Demo3DHostSetPivotMode(int32 m);
 		int32 Demo3DHostPivotMode();
 		// Cible d'AIMANTATION (Blender « Snap To ») : 0 increment, 1 grille,
-		// 2 sommet, 3 arete, 4 face, 5 volume (a venir), 6 centre d'arete,
-		// 7 arete perpendiculaire (a venir), 8 centre de face.
+		// 2 sommet, 3 arete, 4 face, 5 volume (dans la matiere sous le
+		// curseur), 6 centre d'arete, 7 arete perpendiculaire (le trajet du
+		// geste devient perpendiculaire a l'arete), 8 centre de face.
 		void Demo3DHostSetSnapTarget(int32 t);
 		int32 Demo3DHostSnapTarget();
+		// BASE D'ACCROCHE (Blender « Snap Base ») : quel point de l'objet
+		// deplace cherche la cible. 0 = le plus proche (sommets), 1 = pivot
+		// (centre du gizmo -- « Centre » et « Median » fusionnent ici, le
+		// pivot suit deja le mode de pivot de l'application), 2 = objet actif.
+		int32 Demo3DHostSnapBase();
+		void Demo3DHostSetSnapBase(int32 b);
+		// ALIGNER LA ROTATION SUR LA CIBLE (Blender) : quand une FACE (ou un
+		// centre de face) accroche, l'objet tourne pour poser son +Z sur sa
+		// normale -- autour de son centre, sans bouger. Les autres cibles
+		// n'ont pas de normale stable : elles n'alignent pas.
+		bool Demo3DHostSnapAlignRot();
+		void Demo3DHostSetSnapAlignRot(bool on);
 		// ECHELLE EXACTE : autorise le CISAILLEMENT. Coupee (defaut, choix
 		// d'Unreal), l'echelle est projetee sur les axes de l'objet et reste
 		// stockable en trois facteurs. Active, un scale en repere global sur un
@@ -175,6 +188,14 @@ namespace nkentseu {
 		// bit 4 echelle -- une composante eteinte ne se propage plus.
 		int32 Demo3DHostNodeXmitMask(int32 node);
 		void Demo3DHostSetNodeXmitMask(int32 node, int32 mask);
+		// APRES UN CHARGEMENT DE PROJET : l'etat restaure devient la REFERENCE
+		// du detecteur de hierarchie. Celui-ci propage aux enfants le
+		// DEPLACEMENT d'un parent depuis le cliche de la frame precedente ;
+		// sans recalage, la premiere frame apres un chargement verrait tous
+		// les parents « avoir bouge » et trainerait leurs enfants -- qui sont
+		// deja a leur place, telle que le fichier l'a ecrite. A appeler une
+		// fois, apres avoir pose transformations ET parentes.
+		void Demo3DHostHierarchyResync();
 		// Selection d'un EMPTY (gizmo dedie dans la vue ; -1 = aucun).
 		void Demo3DHostSelectEmptyNode(int32 node);
 		int32 Demo3DHostSelectedEmptyNode();
@@ -210,17 +231,44 @@ namespace nkentseu {
 		// 2 cube, 3 liquide, 4 cheveux. PreviewTake rend vrai si l'apercu
 		// etait perime et vient d'etre regenere dans rgba (size x size x 4) --
 		// l'appelant l'uploade alors comme image d'interface.
-		// TEXTURE DE COULEUR du materiau (chemin image ; "" = couleur seule,
-		// « - » au set pour la retirer). Le chargement fait foi : un chemin qui
-		// ne charge pas n'est pas memorise et le set rend faux.
-		const char *Demo3DHostProjMatAlbedoMap(int32 i);
-		bool Demo3DHostProjMatSetAlbedoMap(int32 i, const char *path);
+		// ── LES QUATRE CANAUX DE TEXTURE D'UN MATERIAU ─────────────────────
+		// 0 COULEUR (albedo) · 1 NORMALE (relief) · 2 ORM (occlusion /
+		// rugosite / metallique empaquetees, standard glTF) · 3 EMISSIF.
+		// UNE SEULE paire de fonctions pour les quatre, indexee par canal :
+		// quatre copies auraient diverge au premier correctif -- c'est ce qui
+		// est arrive aux combos de la sortie.
+		// Chemin image ; "" = pas de texture (les valeurs numeriques font
+		// alors foi), « - » au set pour la retirer. LE CHARGEMENT FAIT FOI :
+		// un chemin qui ne charge pas n'est pas memorise et le set rend faux.
+		int32 Demo3DHostMatChanCount();
+		const char *Demo3DHostMatChanName(int32 c);
+		const char *Demo3DHostProjMatMap(int32 i, int32 chan);
+		bool Demo3DHostProjMatSetMap(int32 i, int32 chan, const char *path);
+		// INTENSITES des canaux qui en ont une : relief (0..2) et emissif
+		// (0..20). Sans leur texture elles n'ont pas d'effet -- sauf la teinte
+		// emissive, qui vaut aussi sans.
+		void Demo3DHostProjMatChanStrength(int32 i, float32 *nrm, float32 *emi);
+		void Demo3DHostProjMatSetChanStrength(int32 i, float32 nrm, float32 emi);
+		void Demo3DHostProjMatEmissive(int32 i, float32 *rgb);
+		void Demo3DHostProjMatSetEmissive(int32 i, const float32 *rgb);
 		int32 Demo3DHostProjMatPrevShape(int32 i);
 		void Demo3DHostProjMatSetPrevShape(int32 i, int32 shape);
 		bool Demo3DHostProjMatPreviewTake(int32 i, uint8 *rgba, uint32 size);
 		// Le registre n'est JAMAIS vide face a l'utilisateur : renvoie le
 		// premier materiau, en creant le materiau de base au besoin.
 		int32 Demo3DHostProjMatEnsureDefault();
+		// ── OUVRIR UN PROJET : REMPLACER, PAS EMPILER ───────────────────────
+		// Vide TOUT le registre et toutes les assignations. ProjMatDelete ne
+		// convient pas ici : il REFUSE volontairement de supprimer le dernier
+		// materiau (tout maillage en porte un) -- regle juste en pleine
+		// session, mais qui laisserait survivre un materiau de la session
+		// precedente au milieu de ceux du fichier qu'on ouvre.
+		void Demo3DHostProjMatClear();
+		// Nombre d'EMPLACEMENTS du registre : l'iteration va de 0 a Max-1 et
+		// saute les trous (ProjMatInfo rend faux). La valeur vit dans
+		// NkDemo3D.cpp et nulle part ailleurs -- une seconde copie divergerait
+		// au premier agrandissement (CONVENTIONS_FICHIERS.md §3).
+		int32 Demo3DHostProjMatMax();
 
 		// ── Suppression / duplication / presse-papiers ──────────────────────
 		// Les noeuds 96..159 sont les OBJETS UTILISATEUR (crees ici).
@@ -244,6 +292,11 @@ namespace nkentseu {
 		// Le CONTENEUR d'un model : seul lui porte ce nom, ses maillages
 		// restent des maillages.
 		bool Demo3DHostNodeIsModel(int32 node);
+		// POSER le drapeau tel quel : c'est ce qu'exige la RELECTURE d'un
+		// projet. EnsureModelMesh ne convient pas la -- il CREERAIT un
+		// maillage interne, alors que celui du fichier est deja restaure a
+		// cote, et le model se retrouverait avec un maillage en trop.
+		void Demo3DHostSetNodeIsModel(int32 node, bool v);
 		void Demo3DHostSetDocIsModel(bool v);
 		bool Demo3DHostDocIsModel();
 		int32 Demo3DHostModelRootOf(int32 node);

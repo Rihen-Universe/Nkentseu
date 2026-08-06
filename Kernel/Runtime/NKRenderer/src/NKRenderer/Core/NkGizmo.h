@@ -1267,17 +1267,29 @@ namespace nkentseu {
 				// Cibles (liste de Rihen, menu de Blender) :
 				//   0 INCREMENT (pas relatifs)      1 GRILLE (pas absolus)
 				//   2 SOMMET                        3 ARETE (point le plus proche)
-				//   4 FACE (point le plus proche)   5 VOLUME (a venir)
-				//   6 CENTRE D'ARETE                7 ARETE PERPENDICULAIRE (a venir)
+				//   4 FACE (point le plus proche)   5 VOLUME (dans la matiere visee)
+				//   6 CENTRE D'ARETE                7 ARETE PERPENDICULAIRE
 				//   8 CENTRE DE FACE
 				// Les cibles >= 2 interrogent l'HOTE -- le gizmo ne connait pas
-				// les maillages, meme decoupage que le pick precis ci-dessus. La
-				// requete recoit la position LIBRE du pivot et un rayon monde ;
-				// elle rend 1 et remplit `out` avec la cible la plus proche,
+				// les maillages, meme decoupage que le pick precis ci-dessus.
+				// La requete recoit TOUT ce que les cibles exigent :
+				//   `nearPos` : position LIBRE du pivot (ou le geste l'emmene) ;
+				//   `origPos` : le pivot AU DEBUT du geste -- l'ARETE
+				//               PERPENDICULAIRE se mesure depuis lui, pas depuis
+				//               la position courante ;
+				//   `rayO/rayD` : le rayon de VISEE -- le VOLUME s'accroche dans
+				//               la matiere sous le curseur, pas pres du pivot ;
+				//   `outN` : normale de la cible si la requete sait la donner
+				//               (l'alignement de rotation s'en servira) --
+				//               l'appelant peut passer nullptr.
+				// Elle rend 1 et remplit `out` avec la cible la plus proche,
 				// 0 sinon (cible non geree comprise : le geste reste libre).
 				typedef int32 (*NkGizmoSnapQuery)(void *user, int32 target,
 												  const NkVec3f &nearPos,
-												  float32 maxDist, NkVec3f &out);
+												  const NkVec3f &origPos,
+												  const NkVec3f &rayO, const NkVec3f &rayD,
+												  float32 maxDist, NkVec3f &out,
+												  NkVec3f *outN);
 				void SetSnapQuery(NkGizmoSnapQuery fn, void *user) noexcept {
 					mSnapFn = fn;
 					mSnapUser = user;
@@ -1287,6 +1299,16 @@ namespace nkentseu {
 					// La GRILLE est la cible 1 : l'ancien drapeau absolu la suit,
 					// pour que les deux ecritures restent d'accord.
 					mSnapAbsolute = (mSnapTarget == 1);
+				}
+				// ALIGNER LA ROTATION SUR LA CIBLE (Blender « Align Rotation to
+				// Target ») : quand la requete rend une normale, chaque cible
+				// selectionnee tourne pour poser son axe +Z dessus -- autour de
+				// SON centre, sans deplacer sa position.
+				void SetSnapAlignRot(bool on) noexcept {
+					mSnapAlignRot = on;
+				}
+				bool SnapAlignRot() const noexcept {
+					return mSnapAlignRot;
 				}
 				int32 SnapTarget() const noexcept {
 					return mSnapTarget;
@@ -1605,9 +1627,23 @@ namespace nkentseu {
 								mDragFree = mDragFree + wd;
 								NkVec3f snapped;
 								const float32 rr = wpp * 60.f;
-								if (mSnapFn(mSnapUser, mSnapTarget, mDragFree, rr, snapped))
+								// Le rayon de VISEE, construit comme au ray-pick :
+								// la cible VOLUME s'accroche dans la matiere sous
+								// le curseur, pas au voisinage du pivot.
+								const float32 sNdcX = 2.f * mx / mVpW - 1.f;
+								const float32 sNdcY = 1.f - 2.f * my / mVpH;
+								const NkVec3f srd = Norm(NkVec3f{
+									mFwd.x + mRgt.x * (sNdcX * mThX) + mUp.x * (sNdcY * mThY),
+									mFwd.y + mRgt.y * (sNdcX * mThX) + mUp.y * (sNdcY * mThY),
+									mFwd.z + mRgt.z * (sNdcX * mThX) + mUp.z * (sNdcY * mThY)});
+								NkVec3f sn{0.f, 0.f, 0.f};
+								if (mSnapFn(mSnapUser, mSnapTarget, mDragFree, mPivot, mCamPos,
+											srd, rr, snapped, &sn)) {
 									wd = snapped - mPivot;
-								else
+									// La normale rendue aligne les cibles (option).
+									if (mSnapAlignRot)
+										AlignSelectedToNormal(sn);
+								} else
 									wd = mDragFree - mPivot;
 							}
 							for (int32 i = 0; i < mCount; i++)
@@ -1674,7 +1710,19 @@ namespace nkentseu {
 								mDragFree = mDragFree + dGeo;
 								NkVec3f snapped;
 								const float32 rr2 = ((2.f * mThY * mPivDist) / mVpH) * 60.f;
-								if (mSnapFn(mSnapUser, mSnapTarget, mDragFree, rr2, snapped)) {
+								// Meme rayon de visee que le glissement libre :
+								// les cibles Volume\Perpendiculaire en dependent.
+								const float32 aNdcX = 2.f * mx / mVpW - 1.f;
+								const float32 aNdcY = 1.f - 2.f * my / mVpH;
+								const NkVec3f ard = Norm(NkVec3f{
+									mFwd.x + mRgt.x * (aNdcX * mThX) + mUp.x * (aNdcY * mThY),
+									mFwd.y + mRgt.y * (aNdcX * mThX) + mUp.y * (aNdcY * mThY),
+									mFwd.z + mRgt.z * (aNdcX * mThX) + mUp.z * (aNdcY * mThY)});
+								NkVec3f asn{0.f, 0.f, 0.f};
+								if (mSnapFn(mSnapUser, mSnapTarget, mDragFree, mPivot, mCamPos,
+											ard, rr2, snapped, &asn)) {
+									if (mSnapAlignRot)
+										AlignSelectedToNormal(asn);
 									const NkVec3f now2 = mPivot + dGeo;
 									const NkVec3f d2 = snapped - now2;
 									NkVec3f corr2{0.f, 0.f, 0.f};
@@ -1900,6 +1948,46 @@ namespace nkentseu {
 				NkGizmoSnapQuery mSnapFn = nullptr;
 				void *mSnapUser = nullptr;
 				int32 mSnapTarget = 0;
+				bool mSnapAlignRot = false; // +Z des cibles vers la normale rendue
+
+				// Tourne chaque cible selectionnee pour poser son +Z monde sur
+				// `n`, AUTOUR DE SON CENTRE (mRot s'applique deja la, cf.
+				// ComposedOf) : la position ne bouge pas. Le delta est calcule
+				// depuis l'etat COURANT : une fois aligne il vaut l'identite --
+				// reappliquer chaque image ne fait pas spiraler.
+				void AlignSelectedToNormal(const NkVec3f &n) {
+					const float32 n2 = n.x * n.x + n.y * n.y + n.z * n.z;
+					if (n2 < 0.25f)
+						return; // pas de normale rendue par la requete
+					const NkVec3f nn = Norm(n);
+					for (int32 i = 0; i < mCount; i++) {
+						if (!mSel[i])
+							continue;
+						const NkMat4f &X = mComposed[i];
+						const NkVec3f o = X * NkVec3f{0.f, 0.f, 0.f};
+						const NkVec3f z = Norm(X * NkVec3f{0.f, 0.f, 1.f} - o);
+						const float32 d = z.x * nn.x + z.y * nn.y + z.z * nn.z;
+						if (d > 1.f - 1e-5f)
+							continue; // deja aligne
+						NkVec3f ax;
+						if (d < -1.f + 1e-5f) {
+							// Demi-tour exact : n'importe quel axe perpendiculaire
+							// a +Z fait l'affaire -- le moins parallele des deux.
+							ax = (z.x * z.x < 0.9f) ? NkVec3f{1.f, 0.f, 0.f}
+													: NkVec3f{0.f, 1.f, 0.f};
+							ax = Norm(NkVec3f{ax.y * z.z - ax.z * z.y,
+											  ax.z * z.x - ax.x * z.z,
+											  ax.x * z.y - ax.y * z.x});
+						} else {
+							ax = Norm(NkVec3f{z.y * nn.z - z.z * nn.y,
+											  z.z * nn.x - z.x * nn.z,
+											  z.x * nn.y - z.y * nn.x});
+						}
+						const float32 dd = d < -1.f ? -1.f : (d > 1.f ? 1.f : d);
+						const NkMat4f R = NkMat4f::Rotation(ax, NkAngle::FromRad(acosf(dd)));
+						mRot[i] = R * mRot[i];
+					}
+				}
 				// Base du geste d'ECHELLE, par objet (cf. Apply).
 				NkVec3f mSclAx[kMax][3] = {};
 				bool mSclHasB[kMax] = {};
