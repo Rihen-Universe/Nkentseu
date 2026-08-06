@@ -271,12 +271,16 @@ namespace nkentseu {
 			bool MatchStr(const char *str);
 
 			void Error(const NkString &msg);
+			// Erreur rattachée à une position DONNÉE (début du token fautif) plutôt
+			// qu'à la position courante du curseur : cf. NkSLLexer.cpp, ReadNumber.
+			void ErrorAt(uint32 line, uint32 column, const NkString &msg);
 
 			static NkSLTokenKind KeywordOrIdent(const NkString &s);
 			static bool IsAlpha(char c);
 			static bool IsDigit(char c);
 			static bool IsAlNum(char c);
 			static bool IsHexDigit(char c);
+			static bool IsBinDigit(char c); // littéraux 0b / 0B
 
 			NkString mSource;
 			NkString mFilename;

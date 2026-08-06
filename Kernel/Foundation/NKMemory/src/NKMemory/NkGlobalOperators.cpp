@@ -15,7 +15,7 @@
 //
 // Auteur : Rihen
 // Date : 2024-2026
-// License : Proprietary - Free to use and modify
+// License : Proprietary - All Rights Reserved (see LICENSE)
 // =============================================================================
 
 // -------------------------------------------------------------------------
@@ -531,5 +531,5 @@ void operator delete[](void *ptr, std::size_t size, std::align_val_t) noexcept {
 
 // ============================================================
 // Copyright © 2024-2026 Rihen. All rights reserved.
-// Proprietary License - Free to use and modify
+// Proprietary License - All Rights Reserved (see LICENSE)
 // ============================================================
