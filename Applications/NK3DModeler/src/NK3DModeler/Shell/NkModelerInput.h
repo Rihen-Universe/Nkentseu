@@ -679,6 +679,32 @@ namespace nkentseu {
 				float32 dragStart = 0.f;   ///< position souris au debut du glissement
 				float32 dragStartFrac = 0.f;
 
+				// ── PROJET ET ECRAN D'ACCUEIL ───────────────────────────────────
+				// L'accueil est affiche TANT QU'AUCUN PROJET N'EST OUVERT. Il ne
+				// vit pas dans une fenetre a part : c'est une surcouche opaque
+				// posee sur l'application, qui continue de tourner dessous.
+				bool welcome = true;
+				float32 welcomeScroll = 0.f;
+				// Boite « Nouveau projet » : un projet est un DOSSIER + un .nk3dm,
+				// il faut donc un emplacement ET un nom, et montrer le chemin qui
+				// en resulte -- sinon personne ne sait ou son travail atterrit.
+				bool newProjOpen = false;
+				char newProjName[64] = {};
+				char newProjDir[260] = {};
+				char projError[200] = {}; ///< derniere erreur, affichee telle quelle
+				// DEMANDE D'ACTION PROJET, consommee APRES la frame -- meme patron
+				// que capturePending / tutoRecPending. Les selecteurs de fichiers
+				// de l'OS ouvrent une boucle modale : les appeler pendant la
+				// peinture reentrerait dans la frame en cours.
+				//   1 ouvrir la boite Nouveau · 2 Ouvrir... · 3 Enregistrer
+				//   4 Enregistrer sous... · 5 Parcourir (dossier de la boite)
+				//   6 Creer (validation de la boite) · 7 ouvrir un recent
+				int32 projPending = 0;
+				int32 projRecent = -1; ///< indice du recent a ouvrir (action 7)
+				// « Enregistrer et quitter » : la sauvegarde a lieu apres la frame,
+				// la fermeture doit donc attendre qu'elle ait reussi.
+				bool quitAfterSave = false;
+
 				// ── DOCUMENT ────────────────────────────────────────────────────
 				// `dirty` decide s'il faut demander confirmation a la fermeture. Il
 				// passe a vrai des qu'une action modifie la scene.

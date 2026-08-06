@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+  <!-- EPINGLE (punaise) vue de cote : la tete large en haut, le corps qui
+       s'affine, la pointe qui pique vers le bas. C'est ce profil-la qui se
+       reconnait a 14 px -- un cercle plein aurait dit « point », un cadenas
+       aurait dit « verrouille ». Ici le sens est « ca reste accroche en
+       haut de la liste ». -->
+  <path d="M6.0 1.6h4.0a0.6 0.6 0 010 1.2h-0.5l0.6 3.4 1.9 1.7a0.6 0.6 0 01-0.4 1.05H8.6v4.4a0.6 0.6 0 01-1.2 0V8.95H4.4a0.6 0.6 0 01-0.4-1.05l1.9-1.7 0.6-3.4H6.0a0.6 0.6 0 010-1.2z"/>
+</svg>

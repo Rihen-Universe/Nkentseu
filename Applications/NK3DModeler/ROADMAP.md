@@ -120,6 +120,136 @@ aujourd'hui de banc d'essai permanent pour le rendu, la parenté et le gizmo.
 
 ## Chantiers de fond (hors ordre ci-dessus)
 
+### Matériaux — le chantier n'est PAS fini (rappel de Rihen, 6 août 2026)
+
+Les quatre canaux de texture (couleur, normale, ORM, émissif) sont livrés, mais
+ce n'est que la **première moitié**. Ce que Rihen attend, et qui reste à faire :
+
+0. **LA PHYSIQUE DE SURFACE D'ABORD** — décision de Rihen (6 août) : *« dès la
+   passe sur les matériaux on doit commencer par les implémenter avant de
+   continuer le branchement »*. **Pourquoi cet ordre** : chaque paramètre ajouté
+   après coup est un champ de plus dans l'`ObjectUBO`, donc une structure qui
+   change, donc **les cinq backends à revalider**. Brancher une interface sur un
+   shader incomplet fait payer deux fois. Dans l'ordre :
+   - **Exposer `clearcoat` et `subsurface`** — `pbr.frag.nksl` les calcule
+     **déjà** (lignes 429 et 438) et `NkMaterial` les expose (`SetClearcoat`,
+     `SetSubsurface`) : **le panneau du modeleur ne les propose pas**. Deux
+     paramètres corrects, déjà payés, hors de portée de l'utilisateur. Le gain
+     le moins cher du chantier.
+   - **Transmission + IOR** — *rien* dans le shader aujourd'hui. C'est le « S »
+     de BSDF (*scattering*, qui inclut la transmission) : sans elle, **pas de
+     verre, pas d'eau, pas de liquide crédibles**. Le manque le plus visible
+     pour un modeleur.
+   - **Anisotropie** — métal brossé, cheveux, vinyle.
+   - **Sheen** — tissus, velours.
+
+   **Le mot « BSDF » n'entre pas dans le panneau simple** (couleur, rugosité,
+   métallique, vernis, diffusion : le vocabulaire que tout le monde comprend).
+   Il entre **avec l'éditeur nodal**, parce que « mélanger deux matériaux » se
+   dit *mélanger deux BSDF* — et qu'un nœud de mélange n'a de sens mathématique
+   que si ce qu'il mélange est une fonction de distribution : mélanger deux
+   rugosités ne donne pas la rugosité du mélange.
+
+1. **Types de surface** — `NkMaterialType` : PBR, Toon, Unlit, Layered, Anime.
+   N'exposer que ceux que le renderer **dessine réellement** : chacun sera
+   vérifié à l'écran avant d'entrer dans la liste (règle des stubs).
+2. **MÉLANGER les matériaux** — un matériau qui en combine deux autres selon un
+   masque, une hauteur, une usure. C'est le cœur de la demande, et c'est ce que
+   permettent les matériaux en couches (`Layered`, dont des shaders existent
+   déjà dans `Resources/NKRenderer/Shaders/Layered*`).
+3. **Matériaux NODAUX** — des nœuds de matériau qui dépendent d'autres
+   matériaux. **Passe obligatoirement par NKGraph** (décision du dépôt, cf.
+   `CLAUDE.md` : un seul substrat de graphe pour Blueprint, matériaux,
+   texturing procédural et motion). Ne pas construire un graphe en silo.
+4. **Sauvegarde `.nkmat` / `.nkmati`** via `NkMaterialAsset`/`NkMaterialLibrary`
+   (le format existe), avec les extensions de `CONVENTIONS_FICHIERS.md`.
+
+**Ordre décidé par Rihen (6 août)** : sauvegarde/chargement de scène →
+import/export → **puis** les matériaux. Les matériaux viennent après parce
+qu'un matériau mélangé ne vaut que s'il survit à la fermeture et s'applique à
+un modèle importé.
+
+### Le `.nk3dm` a DEUX modes (décidé avec Rihen, 6 août 2026)
+
+Comme glTF/GLB, et pour les deux mêmes raisons :
+
+| | **Mode lié** | **Mode empaqueté** |
+|---|---|---|
+| Écriture | **JSON** (`NkJSONWriter`) | **NKS1** (`NkNativeFormat`) |
+| Assets | fichiers séparés, chemins relatifs | dans le fichier |
+| Lisible à l'œil, diff git | oui | non |
+| À transmettre | un dossier | **un seul fichier** |
+| Sert à | redistribuer un asset seul | donner le projet entier |
+
+**Une seule extension `.nk3dm`.** Le mode est une propriété interne, pas une
+nature d'asset — exactement comme le nodal pour un matériau (cf. la règle de
+`CONVENTIONS_FICHIERS.md` : l'extension dit ce que le fichier PRODUIT, jamais
+comment il est écrit dedans). `NKS1` porte sa signature magique en quatre
+premiers octets : l'ouverture reconnaît le mode **sans se fier au nom**.
+
+**Pourquoi NKS1 et pas un conteneur maison** (question tranchée par Rihen) :
+`NkNativeFormat` sérialise un **`NkArchive`** — la structure que le JSON écrit
+déjà. Donc `NkSceneCapture` produit un archive, et ce **même** archive part en
+JSON ou en NKS1 : un seul code de capture, deux écritures, aucune divergence
+possible. Il apporte en prime un en-tête versionné, un CRC32 et une compression
+LZ4 prévue. Et pas de base64 : ni les +33 % de taille, ni le coût de décodage.
+
+**NE PAS ajouter de type binaire à `NKS1`** — j'avais recommandé l'inverse,
+Rihen a pointé `NKSerialization/Asset/`, et le format `.nkasset` y fait déjà
+exactement ce qu'il faut (`NkAssetMetadata.h`, `NkAssetIO::Write`) :
+
+```
+[Header:40][MetadataSize:4][Metadata:NKS1][PayloadSize:8][Payload:octets bruts]
+```
+
+avec `payloadOffset` / `payloadSize` / `payloadCRC`, et un CRC distinct pour
+l'en-tête. **Les octets bruts vivent À CÔTÉ de l'archive, référencés par
+décalage — jamais dedans.** Ce découpage vaut mieux qu'un type binaire dans
+`NKS1`, pour trois raisons qu'on perdrait autrement :
+
+- **lecture paresseuse** — une texture se charge à la demande ; noyée dans
+  l'archive clé/valeur, elle serait lue entièrement à l'ouverture du projet ;
+- **pas de copie** — l'archive ne duplique pas des centaines de Mo en mémoire ;
+- **deux CRC séparés** — la corruption d'une texture ne se confond pas avec
+  celle de la structure.
+
+**Le travail réel** : `NkAssetFileHeader` ne porte qu'UN payload (parfait pour
+un asset, insuffisant pour un projet qui en contient N). Généraliser le même
+patron — en-tête, archive `NKS1` de la scène, puis une **table de N entrées**
+(décalage, taille, CRC) suivie des blobs. Aucune invention : c'est
+`NkAssetFileHeader` avec une table au lieu d'un triplet.
+
+### Renommer ET découper `NkDemo3D.cpp` (décidé avec Rihen, 6 août 2026)
+
+Le cœur du modeleur s'appelle « Demo » — héritage de l'époque où c'était une
+démo. **Un fichier qui s'appelle « démo » et qui *est* l'application ment sur ce
+qu'il est** : le prochain qui ouvre le dossier cherchera le vrai code ailleurs.
+
+| Fichier | Lignes (6 août) |
+|---|---|
+| `Viewport/NkDemo3D.cpp` | **15 642** (+4 000 sur la seule semaine) |
+| `Viewport/NkDemo3DHost.h` | 768 |
+| `Viewport/NkDemoCommon.h` | 141 |
+| `Viewport/NkDemoRenderer.h` | 35 |
+
+Plus **9 fichiers** qui référencent le symbole `Demo3D`.
+
+**Le nom n'est que le symptôme.** Le vrai problème, c'est 15 642 lignes dans un
+fichier : un simple renommage donnerait un `NkModelerCore.cpp` de 15 642 lignes,
+plus honnête mais pas plus sain. D'où la décision : **renommer ET découper en
+même temps**.
+
+**QUAND** : une fois la **sauvegarde/chargement de scène validée et poussée** —
+jamais au milieu d'un chantier fonctionnel, où un diff mécanique noierait le
+diff utile. Mais **pas plus tard non plus** : le fichier grossit de milliers de
+lignes par semaine, et chaque semaine d'attente renchérit l'opération.
+
+**COMMENT** : découper **par domaine** — vue, outils, enregistrement/vidéo,
+matériaux. Chaque morceau sorti est un morceau qui ne grossira plus. La façade
+`NkDemo3DHost.h` reste la **porte d'entrée unique** et devient `NkModelerHost.h`,
+cohérente avec `Shell/NkModelerWelcome.h` et `Project/NkModelerProject.h` qui
+portent déjà le bon préfixe. Vérifier **29/29 en Debug ET Release** après.
+
 ### NKGraphe — l'éditeur nodal
 « Blueprint » s'appelle désormais **Graphe**. Natures prévues :
 **modélisation procédurale**, **texturing procédural**, **matériau**, et
@@ -134,10 +264,24 @@ l'espace de scène. Demande un gestionnaire de fenêtres + zones d'accueil +
 aperçu de dépôt + détacher/rattacher. Aujourd'hui le double-clic ouvre
 directement un onglet docké (état final du geste, sans l'étape flottante).
 
-### Sauvegarde et format projet
-Scènes, models, arborescence du navigateur, propriétés par scène, matériaux,
-dimensions. « Viendra avec le temps » (Rihen), mais **rien n'est persistant**
-tant que ce n'est pas fait.
+### Sauvegarde et format projet 🔄
+**Socle livré (5 août)** : un projet = **un dossier + un `.nk3dm` JSON** à sa
+racine (`CONVENTIONS_FICHIERS.md` §5). Fichiers :
+`Project/NkModelerProject.{h,cpp}` (état, écriture/lecture via NKSerialization,
+projets récents `~/.nk3dmodeler_recent.cfg` au patron NKCode) et
+`Shell/NkModelerWelcome.h` (**écran d'accueil** affiché tant qu'aucun projet
+n'est ouvert : récents avec image de couverture, Nouveau, Ouvrir, liens).
+Menu Fichier réellement câblé : Nouveau / Ouvrir… / Enregistrer /
+Enregistrer sous…
+
+**Ce qui n'est PAS fait, et le fichier le dit** (`scene.serialisee = false`) :
+scènes, models, arborescence du navigateur, propriétés par scène, matériaux,
+dimensions. Enregistrer un projet **ne sauvegarde pas encore la scène 3D**.
+
+Restent aussi : « Fichier > Ouvrir récent » (sous-menu, le peintre de menus ne
+sait pas ouvrir de second niveau), « Fermer le projet » (sans elle l'accueil ne
+revient jamais dans la session), et un **vrai logo** (l'accueil compose le titre
+typographiquement, faute d'image de marque dans le dépôt).
 
 ### Annuler / Refaire
 Aucun historique aujourd'hui. À concevoir avant que les outils d'édition se
@@ -579,6 +723,22 @@ base distincts pour que les fichiers ne s'écrasent pas.
   blanche bordée de noir + trace des 24 dernières positions, échantillonnée à
   chaque image (à la cadence de capture, elle sauterait). Case dédiée, active
   par défaut, sans effet sur les images fixes.
+
+### Extraire l'enregistrement en bibliothèque (question de Rihen, 5 août — OUI)
+
+Le système tutoriel/capture est extractible vers **NKMedia** en deux briques,
+sans dépendre ni de NkCanvas ni de NKRHI (donc consommable par TOUTE
+application des deux piles) :
+- `media::NkFrameRecorder` — le générique : on lui POUSSE des images
+  (l'anneau borné + fil d'encodage + différé QOI + passe finale + pause/
+  abandon/progression, aujourd'hui dans `NkVpRec`). L'application fournit les
+  pixels, d'où qu'ils viennent (cible NKRHI, framebuffer NkCanvas, webcam).
+- `media::NkScreenRecorder` — la fenêtre entière : `NkFrameRecorder` +
+  capture OS (`NkCaptureWholeWindow*`, à déplacer de main.cpp vers un module
+  qui ne dépend que de NKWindow) + cadence + curseur dessiné.
+Le modeleur deviendrait le premier consommateur ; seule la lecture des pixels
+de la vue 3D reste chez lui. À faire après la validation du chantier
+aimantation.
 
 ### Reste sur la vidéo
 
