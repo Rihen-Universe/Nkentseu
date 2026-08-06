@@ -1,0 +1,240 @@
+\chapter{Les fichiers : lequel contient quoi}
+
+Vous allez accumuler des fichiers de tailles très différentes. Ce chapitre dit
+lequel garder, lequel partager, et lequel effacer sans regret.
+
+\section{Vue d'ensemble}
+
+\begin{center}
+\begin{longtable}{p{2.5cm}rp{9.0cm}}
+\toprule
+\textbf{Extension} & \textbf{Taille} & \textbf{Contenu} \\
+\midrule
+\endhead
+\texttt{.gguf} & 4,4 Go & Le modèle de base, quantifié. Vient d'ailleurs, ne
+   change jamais. \\
+\texttt{.nkla} & 77 Mo & Les adaptateurs entraînés. \textbf{C'est ce qu'on
+   partage.} \\
+\texttt{\_ckpt0/1.nkla} & 231 Mo & Checkpoint de reprise. Personnel, temporaire. \\
+\texttt{.nkgp} & variable & Checkpoint d'un GPT entraîné de zéro. \\
+\bottomrule
+\end{longtable}
+\end{center}
+
+\section{Le GGUF : le modèle de base}
+
+C'est le gros fichier téléchargé au chapitre~2. Il contient les sept milliards de
+paramètres, \textbf{quantifiés} — c'est-à-dire rangés sur moins de bits que leur
+précision d'origine, pour tenir en mémoire.
+
+\begin{center}
+\begin{tabular}{lp{9.8cm}}
+\toprule
+\textbf{Q4\_K} & Environ 4 bits par nombre. La majorité des tenseurs. \\
+\textbf{Q6\_K} & Environ 6 bits. Réservé aux tenseurs les plus sensibles — dont
+   \texttt{output.weight}, celui qui choisit le mot final. \\
+\textbf{F32} & 32 bits, pleine précision. Les normalisations, petites et
+   critiques. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+Sans quantification, ce modèle occuperait plus de 28~Go et ne tiendrait sur
+aucune carte grand public. C'est elle qui rend tout ce cours possible.
+\end{nkretenir}
+
+\textbf{Ce fichier n'est jamais modifié par l'entraînement.} C'est le principe
+même du LoRA : le socle est gelé. Vous pouvez le mettre en lecture seule.
+
+\section{Le fichier .nkla : ce que vous avez appris}
+
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+Taille & 77 Mo \\
+Paramètres & 20\,185\,088 \\
+Contenu & les pièces LoRA, et rien d'autre \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+C'est le résultat de votre travail. Pour l'utiliser, il faut aussi le GGUF
+d'origine : le \texttt{.nkla} seul ne sert à rien, comme une paire de lunettes
+sans personne pour les porter.
+
+\subsection{Ce que contient l'en-tête, et pourquoi}
+
+Le fichier commence par sa carte d'identité : nombre de couches, de projections,
+rang, alpha, et les dimensions du modèle auquel il est destiné.
+
+Ces dimensions sont redondantes avec le GGUF — c'est voulu. Elles permettent de
+\textbf{refuser} un adaptateur qu'on tenterait d'appliquer au mauvais modèle,
+plutôt que de l'appliquer de travers et de produire un modèle silencieusement
+faux.
+
+\subsection{L'empreinte}
+
+Le fichier se termine par une empreinte calculée sur tout son contenu. Au
+chargement, elle est recalculée et comparée. Si elle diffère, le fichier est
+\textbf{refusé}.
+
+\begin{nkpiege}
+Un adaptateur corrompu et chargé « au mieux » donnerait un modèle qui répond
+encore — mais mal, de façon subtile. Vous chercheriez l'erreur dans votre corpus
+pendant des jours. Un refus franc est toujours préférable à une dégradation
+silencieuse.
+\end{nkpiege}
+
+\section{Les checkpoints : votre filet}
+
+\begin{center}
+\begin{tabular}{p{5.2cm}r}
+\toprule
+Les paramètres LoRA & 77 Mo \\
+Le premier moment d'Adam & 77 Mo \\
+Le second moment d'Adam & 77 Mo \\
+L'état d'entraînement & quelques octets \\
+\midrule
+\textbf{Total} & \textbf{231 Mo} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Les moments pèsent deux fois les paramètres : c'est toute la différence entre 77
+et 231~Mo.
+
+L'état d'entraînement, minuscule, est pourtant ce qui rend la reprise correcte :
+numéro du pas, position dans le corpus, numéro d'époque, état du tirage
+aléatoire, taux d'apprentissage et réglages d'Adam.
+
+\begin{nkretenir}
+Un checkpoint est un fichier \emph{personnel et temporaire}. On ne le partage
+pas : votre interlocuteur n'a que faire de vos moments d'Adam. Il veut le
+\texttt{.nkla} de 77~Mo.
+\end{nkretenir}
+
+\subsection{Pourquoi deux fichiers}
+
+\texttt{\_ckpt0} et \texttt{\_ckpt1} sont écrits en alternance. À tout instant,
+l'un des deux est une génération complète et saine. Si une coupure survient
+pendant l'écriture, ou si un disque abîme un fichier, l'autre reste.
+
+\begin{nkcode}[]{Le repli en action}
+checkpoint mon-modele_ckpt0.nkla ignoré :
+  empreinte FNV incorrecte — fichier corrompu
+REPRISE : pas 10, exemple 10/100017, époque 0
+\end{nkcode}
+
+\section{Que garder, que jeter}
+
+\begin{center}
+\begin{tabular}{p{3.4cm}p{4.0cm}p{6.4cm}}
+\toprule
+\textbf{Fichier} & \textbf{Après l'entraînement} & \textbf{Pourquoi} \\
+\midrule
+\texttt{.gguf} & \textbf{Garder} & Nécessaire pour utiliser vos adaptateurs. \\
+\texttt{.nkla} & \textbf{Garder, sauvegarder} & C'est votre travail. 77~Mo se
+   copient partout. \\
+\texttt{\_ckpt0/1} & Jeter si vous ne comptez pas continuer & 462~Mo à deux, et
+   ils ne servent qu'à reprendre. \\
+Le corpus & \textbf{Garder} & Pour réentraîner, corriger, augmenter. Souvent
+   plus précieux que le modèle lui-même. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkpiege}
+\textbf{Sauvegardez votre corpus avant votre modèle.} Un modèle perdu se
+réentraîne en quelques jours de machine ; un corpus perdu, ce sont des semaines
+de travail humain. C'est lui, le bien rare.
+\end{nkpiege}
+
+\section{Partager son travail}
+
+Pour donner votre modèle spécialisé à quelqu'un, deux choses :
+
+\begin{enumerate}
+  \item Le \textbf{nom exact} du modèle de base (par exemple
+        \texttt{qwen2.5:7b}) — il le téléchargera lui-même.
+  \item Votre fichier \texttt{.nkla} de 77~Mo.
+\end{enumerate}
+
+Ajoutez-y, par honnêteté, le \textbf{rang} utilisé : sans lui, votre
+interlocuteur devra deviner l'argument \texttt{-{}-rank}.
+
+\begin{nkcode}[]{Ce qu'il tapera}
+ollama pull qwen2.5:7b
+NKQwen2Ask --gguf=<son_blob> --adapters=votre-modele.nkla --rank=8
+\end{nkcode}
+
+\section{Récapitulatif des commandes}
+
+\begin{center}
+\begin{longtable}{p{6.0cm}p{8.0cm}}
+\toprule
+\textbf{Ce que vous voulez} & \textbf{La commande} \\
+\midrule
+\endhead
+Vérifier que tout marche &
+  \texttt{NKQwen2Chat <modele>} \\
+Mesurer avant d'entraîner &
+  \texttt{NKQwen2Ask -{}-gguf=<m> -{}-question="…"} \\
+Vérifier son corpus &
+  \texttt{NKQwen2Train … -{}-steps=2 -{}-fresh} \\
+Entraîner &
+  \texttt{NKQwen2Train -{}-gguf=<m> -{}-corpus=<c> -{}-out=<o>} \\
+Reprendre &
+  la \emph{même} commande \\
+Recommencer de zéro &
+  la même commande $+$ \texttt{-{}-fresh} \\
+Juger le résultat &
+  \texttt{NKQwen2Ask -{}-gguf=<m> -{}-adapters=<o>.nkla} \\
+Entraîner un GPT de zéro &
+  \texttt{NK\_GPT\_CONFIG=<f>.cfg NKGptTrain} \\
+\bottomrule
+\end{longtable}
+\end{center}
+
+\section{Pour finir}
+
+Vous savez maintenant préparer une machine, constituer un corpus, entraîner un
+modèle pendant des jours sans craindre les coupures, spécialiser ce modèle sur
+votre domaine, et juger honnêtement s'il s'est amélioré.
+
+Le reste est une affaire de patience et de corpus. Ce sont les deux seules
+choses qu'aucun outil ne fera à votre place.
+
+\begin{nkretenir}
+Trois idées à emporter :
+
+\textbf{1.} Le corpus décide de tout. Les réglages ne rattrapent jamais de
+mauvais textes.
+
+\textbf{2.} La perte de contrôle est le seul juge fiable pendant
+l'entraînement ; vos questions préparées d'avance sont le seul juge fiable
+après.
+
+\textbf{3.} Sur dix jours, une coupure est certaine. C'est pourquoi la reprise
+n'est pas un confort mais la condition même du travail.
+\end{nkretenir}
+
+\begin{nkexo}
+Le projet complet, à faire en une semaine.
+
+\textbf{Jour 1.} Choisissez un domaine que vous connaissez et dont aucun modèle
+ne peut rien savoir. Écrivez dix questions de référence, et mesurez l'avant.
+
+\textbf{Jours 2 et 3.} Constituez un corpus de 300 à 500 paires depuis vos
+sources réelles.
+
+\textbf{Jour 4.} Vérifiez le corpus, lancez l'entraînement, laissez tourner.
+
+\textbf{Jour 5.} Mesurez l'après sur les dix questions. Notez ce qui a changé et
+ce qui n'a pas changé.
+
+\textbf{Jours 6 et 7.} Corrigez ce que la comparaison a révélé — presque
+toujours le corpus — et recommencez.
+
+Ce cycle est le métier. Tout le reste n'est que de l'outillage.
+\end{nkexo}

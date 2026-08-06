@@ -1,0 +1,218 @@
+\chapter{Partir de zéro}
+
+Jusqu'ici, nous avons toujours pris un modèle existant pour lui greffer des
+pièces. Ce chapitre montre l'autre voie : construire un modèle vide et lui
+apprendre la langue elle-même.
+
+\section{Pourquoi c'est rarement le bon choix}
+
+Soyons francs avant de commencer.
+
+\begin{center}
+\begin{tabular}{p{3.6cm}p{4.8cm}p{5.2cm}}
+\toprule
+ & \textbf{Affiner (LoRA)} & \textbf{Partir de zéro} \\
+\midrule
+Point de départ & Un modèle qui sait déjà lire et écrire & Des nombres tirés au
+                  hasard \\
+Corpus & Quelques milliers d'exemples & Des milliards de mots \\
+Durée & Heures à jours & Semaines à mois \\
+Matériel & Une carte de 8~Go & Plusieurs cartes professionnelles \\
+Résultat & Un modèle qui parle bien \emph{et} connaît votre domaine & Un modèle
+           qui parle mal, sauf effort colossal \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkpiege}
+« Je veux créer ma propre IA de zéro » est un souhait naturel et presque
+toujours une erreur de départ. Vous dépenseriez des mois à réapprendre à une
+machine ce que la langue française est — travail déjà fait, et mieux fait, par
+ceux dont c'est le métier.
+\end{nkpiege}
+
+\section{Pourquoi le faire quand même}
+
+Trois raisons valables, et elles ne sont pas économiques :
+
+\begin{enumerate}
+  \item \textbf{Comprendre.} Voir un modèle passer du charabia à des mots
+        français apprend plus que dix articles. C'est la meilleure raison.
+  \item \textbf{Une langue peu dotée.} Si votre langue n'est présente dans aucun
+        modèle existant, il n'y a rien à affiner. C'est le cas de nombreuses
+        langues africaines.
+  \item \textbf{Un problème étroit.} Pour une tâche très spécifique — reconnaître
+        une forme, classer des messages courts — un petit modèle entraîné de
+        zéro peut battre un grand modèle généraliste, et tourner mille fois plus
+        vite.
+\end{enumerate}
+
+\begin{nkretenir}
+Partez de zéro pour \emph{apprendre}, ou parce que rien n'existe dans votre
+langue. Jamais pour « faire mieux » qu'un modèle existant sur une tâche
+générale : le rapport de forces n'est pas en votre faveur.
+\end{nkretenir}
+
+\section{L'outil : NKGptTrain}
+
+Le dépôt fournit un GPT complet, entraînable de zéro, avec son propre découpage
+en tokens.
+
+\begin{nkcode}[]{Compiler}
+jenga build --target NKGptTrain --config Release
+\end{nkcode}
+
+Il se configure par un \textbf{fichier}, ce qui présente un avantage décisif sur
+une longue série d'essais : le fichier se garde, se relit, se compare, se range
+à côté du modèle produit. Six mois plus tard, vous saurez encore avec quels
+réglages ce modèle a été obtenu.
+
+\begin{nkcode}[]{mon-gpt.cfg}
+# --- Corpus ---
+NK_GPT_DIR=./mes-textes
+NK_GPT_CHARS=1200000
+
+# --- Taille du modèle ---
+NK_GPT_T=256        # longueur de contexte, en tokens
+NK_GPT_D=384        # largeur : nombres par token
+NK_GPT_H=6          # têtes d'attention
+NK_GPT_L=6          # couches
+NK_GPT_B=16         # exemples traités ensemble
+NK_GPT_MERGES=4000  # taille du vocabulaire
+
+# --- Entraînement ---
+NK_GPT_STEPS=20000
+NK_GPT_LR=3e-4
+NK_GPT_WARMUP=500
+NK_GPT_SAVEEVERY=1000
+
+# --- Contrôle ---
+NK_GPT_VALFRAC=0.05
+NK_GPT_VALEVERY=500
+
+# --- Fichiers ---
+NK_GPT_SAVE=mon-gpt.nkgp
+\end{nkcode}
+
+\begin{nkcode}[]{Lancer}
+NK_GPT_CONFIG=mon-gpt.cfg NKGptTrain
+\end{nkcode}
+
+\section{Choisir la taille de son modèle}
+
+Quatre nombres déterminent tout. Voici comment les lire.
+
+\begin{center}
+\begin{tabular}{lp{10.2cm}}
+\toprule
+\textbf{T} & \textbf{Contexte} : combien de tokens le modèle voit d'un coup. À
+             256, il ne peut pas relier le début d'un long paragraphe à sa fin. \\
+\textbf{D} & \textbf{Largeur} : combien de nombres décrivent un token. C'est la
+             richesse de sa représentation. \\
+\textbf{H} & \textbf{Têtes} : combien de façons différentes de relier les mots
+             entre eux. \textbf{D doit être divisible par H.} \\
+\textbf{L} & \textbf{Profondeur} : combien de couches. C'est ce qui permet le
+             raisonnement en plusieurs temps. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{center}
+\begin{tabular}{lrrrrp{4.4cm}}
+\toprule
+ & \textbf{T} & \textbf{D} & \textbf{H} & \textbf{L} & \textbf{Ce qu'on obtient} \\
+\midrule
+Jouet & 128 & 128 & 4 & 4 & Du français qui ressemble à du français, sans
+                            sens. Quelques heures. \\
+Petit & 256 & 384 & 6 & 6 & Des phrases correctes, un sens fragile.
+                            \textbf{Le bon point de départ.} \\
+Moyen & 512 & 768 & 12 & 12 & Des paragraphes tenables. Plusieurs jours. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkpiege}
+La tentation est de viser grand tout de suite. Faites l'inverse : commencez par
+le modèle « jouet ». S'il ne produit rien de lisible après quelques heures,
+c'est votre corpus ou vos réglages qu'il faut corriger — et vous l'aurez appris
+en heures plutôt qu'en semaines.
+\end{nkpiege}
+
+\section{Le corpus, ici, c'est du texte brut}
+
+Pas de \texttt{Question:} ni de \texttt{Reponse:} : le modèle apprend à
+\emph{continuer} du texte, pas à répondre. Donnez-lui des fichiers texte, il les
+lira à la suite.
+
+\begin{nkcode}[]{Organisation}
+mes-textes/
+  romans.txt
+  articles.txt
+  documentation.txt
+\end{nkcode}
+
+\textbf{Combien ?} Le réglage \texttt{NK\_GPT\_CHARS} fixe le budget de
+caractères. Un million de caractères ($\approx$ 200\,000 mots, deux romans)
+suffit pour un modèle jouet. En dessous, le modèle apprendra le texte par cœur
+au lieu d'apprendre la langue.
+
+\section{Reprendre, ici aussi}
+
+Le principe du chapitre~5 vaut pour cet outil :
+
+\begin{nkcode}[]{Reprendre un GPT}
+NK_GPT_RESUME=1
+NK_GPT_LOAD=mon-gpt.nkgp
+\end{nkcode}
+
+Les checkpoints portent l'extension \texttt{.nkgp} et sont écrits tous les
+\texttt{NK\_GPT\_SAVEEVERY} pas.
+
+\section{Voir le modèle apprendre}
+
+C'est le moment qui justifie tout le chapitre. Générez du texte à intervalles
+réguliers, et regardez :
+
+\begin{center}
+\begin{tabular}{lp{10.0cm}}
+\toprule
+\textbf{Pas} & \textbf{Ce que le modèle produit} \\
+\midrule
+0 & Des caractères au hasard. \\
+500 & Des suites de lettres qui ont la \emph{forme} de mots, des espaces au bon
+      endroit. \\
+2\,000 & De vrais mots français, mais assemblés sans grammaire. \\
+10\,000 & Des phrases grammaticalement correctes, au sens vacillant. \\
+50\,000 & Des paragraphes cohérents sur quelques lignes. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+Cette progression est la meilleure leçon d'apprentissage automatique qui soit.
+Le modèle apprend la \emph{forme} avant le \emph{sens} — les lettres, puis les
+mots, puis la grammaire, puis, très lentement, le sens. Aucun cours ne fait
+comprendre cela aussi bien que de le voir.
+\end{nkretenir}
+
+\section{Ce que vous ne devez pas espérer}
+
+Un modèle entraîné chez vous sur quelques millions de caractères produira des
+phrases françaises. Il ne saura pas répondre à vos questions, ne connaîtra aucun
+fait, et se contredira d'une phrase à l'autre.
+
+Ce n'est pas un échec : c'est ce que produit cette quantité de données. Les
+modèles auxquels vous êtes habitué ont vu des milliers de milliards de mots.
+
+\begin{nkretenir}
+Partir de zéro apprend \emph{comment} un modèle apprend. Pour un modèle
+\emph{utile}, revenez au chapitre~4 : affiner un modèle existant reste, et de
+loin, le meilleur usage de votre machine et de votre temps.
+\end{nkretenir}
+
+\begin{nkexo}
+Entraînez un modèle jouet (T\,=\,128, D\,=\,128, H\,=\,4, L\,=\,4) sur un livre
+du domaine public. Faites-lui produire dix lignes de texte au pas 100, au pas
+1\,000, puis au pas 10\,000. Collez les trois résultats côte à côte : vous
+tiendrez, en une page, une démonstration de ce qu'est l'apprentissage.
+\end{nkexo}
