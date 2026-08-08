@@ -1426,7 +1426,7 @@ int nkmain(const NkEntryState &entry) {
 			}
 		}
 		if (st.showBrowser)
-			PaintBrowser(p, lay.browser, st, hit, ws, ui.input, &ui);
+			PaintBrowser(p, lay.browser, st, hit, ws, ui.input, &ui, &combo);
 		PaintStatus(p, hit, lay.status, st);
 
 		// Poignees de reouverture, a la place exacte qu'occupait le panneau.

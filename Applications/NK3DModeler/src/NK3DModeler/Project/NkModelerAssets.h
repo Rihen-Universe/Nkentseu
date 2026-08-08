@@ -45,6 +45,14 @@
 #include "NKFileSystem/NkFile.h"
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkFileWatcher.h"
+// <windows.h> definit GetFreeSpace en MACRO : arrivee avant cet en-tete, elle
+// transforme la declaration de NkFileSystem::GetFreeSpace en charabia. Meme
+// piege que GetObject ci-dessous, meme remede -- on la retire au plus pres de
+// l'inclusion qui la rencontre, jamais globalement.
+#ifdef GetFreeSpace
+#undef GetFreeSpace
+#endif
+#include "NKFileSystem/NkFileSystem.h"
 #include "NKMemory/NkMemory.h"
 #include "NKSerialization/JSON/NkJSONWriter.h"
 #include "NKSerialization/JSON/NkJSONReader.h"
@@ -698,6 +706,11 @@ namespace nkentseu {
 		// ─────────────────────────────────────────────────────────────────────────
 		inline void NkProjectTreeCapture(NkArchive &o, NkModelerState &st) {
 			o.SetInt32("disposition", kProjectLayoutVersion);
+			// LE CLASSEMENT EST UNE CONFIGURATION DU PROJET, pas un etat de session :
+			// retrouver son navigateur trie comme on l'a laisse fait partie de
+			// « rouvrir son projet ».
+			o.SetInt32("triNavigateur", st.browSort);
+			o.SetBool("triDecroissant", st.browSortDesc);
 			// ── NAVIGATEUR : dossiers, cartes, et le CHEMIN de leur fichier ──
 			// Les liens internes (dossier parent) restent des RANGS DANS LE FICHIER,
 			// jamais des indices de session : les emplacements se recyclent.
@@ -809,6 +822,12 @@ namespace nkentseu {
 				}
 				if (!NkAsWrite(root, rel, a, err))
 					return false;
+				// La DATE sert au classement du navigateur. Relevee ICI, a
+				// l'ecriture, plutot qu'interrogee a la peinture : trente-deux
+				// appels au systeme de fichiers par image couteraient plus cher que
+				// tout le navigateur.
+				st.browserTime[b] =
+					NkFileSystem::GetLastWriteTime(NkScToAbs(root, rel.CStr()).CStr());
 				// RENOMMEE OU DEPLACEE : l'ancien fichier est retire. Sans cela le
 				// dossier du projet accumulerait des orphelins que plus rien ne
 				// designe -- et qu'on prendrait, plus tard, pour du travail perdu.
@@ -816,6 +835,8 @@ namespace nkentseu {
 				if (!old.Empty() && !(old == rel))
 					(void)NkFile::Delete(NkScToAbs(root, old.CStr()).CStr());
 				NkScPut(st.browserFile[b], (uint32)sizeof(st.browserFile[0]), rel.CStr());
+			st.browserTime[b] =
+				NkFileSystem::GetLastWriteTime(NkScToAbs(root, rel.CStr()).CStr());
 			}
 			return true;
 		}
@@ -865,6 +886,8 @@ namespace nkentseu {
 			st.sceneIdNext = 1;
 
 			// ── L'ARBRE ────────────────────────────────────────────────────
+			st.browSort = NkScInt(in, "triNavigateur", 0);
+			st.browSortDesc = NkScBool(in, "triDecroissant", false);
 			NkVector<NkArchive> cards;
 			(void)in.GetObjectArray("navigateur", cards);
 			NkVector<int32> cardOf;
@@ -1179,6 +1202,8 @@ namespace nkentseu {
 			st.browserMat[b] = 0;
 			st.browserSrcNode[b] = 0;
 			NkScPut(st.browserFile[b], (uint32)sizeof(st.browserFile[0]), rel.CStr());
+			st.browserTime[b] =
+				NkFileSystem::GetLastWriteTime(NkScToAbs(root, rel.CStr()).CStr());
 			// Le nom vient du FICHIER : c'est lui qui fait foi maintenant.
 			{
 				NkString base = (s == NkString::npos)

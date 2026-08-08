@@ -1472,6 +1472,74 @@ namespace nkentseu {
 			}
 			return out;
 		}
+		// ── CLASSEMENT DU NAVIGATEUR ────────────────────────────────────────────
+		// Comparaison de noms INSENSIBLE A LA CASSE, comme l'explorateur : « arbre »
+		// et « Arbre » doivent se suivre, pas se retrouver aux deux bouts de la
+		// liste selon la majuscule.
+		inline int32 NkBrowNameCmp(const char *a, const char *b) {
+			for (int32 i = 0;; ++i) {
+				char x = a[i], y = b[i];
+				if (x >= 'A' && x <= 'Z')
+					x = (char)(x - 'A' + 'a');
+				if (y >= 'A' && y <= 'Z')
+					y = (char)(y - 'A' + 'a');
+				if (x != y)
+					return (x < y) ? -1 : 1;
+				if (!x)
+					return 0;
+			}
+		}
+
+		/// Vrai si `a` doit passer AVANT `b`.
+		inline bool NkBrowBefore(const NkModelerState &st, int32 a, int32 b) {
+			// LES DOSSIERS D'ABORD, toujours -- meme en ordre decroissant. Un
+			// dossier n'est pas un element de la liste, c'est le chemin vers la
+			// suite ; le renvoyer en bas oblige a le chercher.
+			const bool fa = st.browserKind[a] == 1, fb = st.browserKind[b] == 1;
+			if (fa != fb)
+				return fa;
+			int32 c = 0;
+			if (st.browSort == 1) { // TYPE, puis nom a type egal
+				c = (int32)st.browserKind[a] - (int32)st.browserKind[b];
+				if (c == 0)
+					c = NkBrowNameCmp(st.browserNames[a], st.browserNames[b]);
+			} else if (st.browSort == 2) { // DATE, puis nom a date egale
+				const nk_int64 ta = st.browserTime[a], tb = st.browserTime[b];
+				c = (ta < tb) ? -1 : ((ta > tb) ? 1 : 0);
+				if (c == 0)
+					c = NkBrowNameCmp(st.browserNames[a], st.browserNames[b]);
+			} else {
+				c = NkBrowNameCmp(st.browserNames[a], st.browserNames[b]);
+			}
+			// Le SENS ne s'applique qu'au critere, jamais a la regle des dossiers.
+			return st.browSortDesc ? (c > 0) : (c < 0);
+		}
+
+		/// Cartes VISIBLES du dossier courant, dans l'ordre de classement. Tri par
+		/// insertion : le navigateur tient trente-deux cartes, un tri savant y
+		/// couterait plus en lecture qu'il ne rapporterait en cycles.
+		inline int32 NkBrowVisible(const NkModelerState &st, int32 *out, int32 cap) {
+			int32 n = 0;
+			for (int32 i = 0; i < st.browserCount && n < cap; ++i) {
+				if (st.browserKind[i] == 255 || st.browserParent[i] != st.browserFolder)
+					continue;
+				// Filtre par TYPE. Les DOSSIERS restent toujours visibles : ils sont
+				// le chemin vers le reste, pas un resultat de recherche.
+				if (st.browFilter != 0u && st.browserKind[i] != 1 &&
+					(st.browFilter & (1u << st.browserKind[i])) == 0u)
+					continue;
+				if (!NkNameMatches(st.browserNames[i], st.searchBrowser))
+					continue;
+				int32 k = n++;
+				while (k > 0 && NkBrowBefore(st, i, out[k - 1])) {
+					out[k] = out[k - 1];
+					--k;
+				}
+				out[k] = i;
+			}
+			return n;
+		}
+
 		inline void NkMarkTreeDirty(NkModelerState &st);
 		inline void NkBrowDelRec(NkModelerState &st, int32 root2) {
 			NkMarkTreeDirty(st);
@@ -11172,9 +11240,13 @@ namespace nkentseu {
 		}
 
 		// â”€â”€ NAVIGATEUR DE PROJET (bas) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+		// `sortCombo` porte le deroulant de CLASSEMENT. Il est fourni par la boucle
+		// principale, comme pour les autres combos : un popup se peint APRES tout le
+		// reste, il ne peut donc pas se declarer ici.
 		inline void PaintBrowser(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
 								 NkHitRegistry &hit, NkWidgetState &ws, const nkgui::NkGuiInput &in,
-								 nkgui::NkGuiContext *guiCtx = nullptr) {
+								 nkgui::NkGuiContext *guiCtx = nullptr,
+								 NkComboPending *sortCombo = nullptr) {
 			const float32 treeScroll = st.scrollTree;
 			const float32 assetScroll = st.scrollAssets;
 			p.Fill(r, NkRole::PanelBg);
@@ -11474,16 +11546,15 @@ namespace nkentseu {
 			int32 shown = 0;
 			char akey[40];
 			const float32 wrapW = r.x + r.w - S(16.f);
-			for (int32 i = 0; i < st.browserCount; ++i) {
-				if (st.browserKind[i] == 255 || st.browserParent[i] != st.browserFolder)
-					continue; // supprimes ignores ; les dossiers ont leur carte
-				// Filtre par TYPE. Les DOSSIERS restent toujours visibles : ils
-				// sont le chemin vers le reste, pas un resultat de recherche.
-				if (st.browFilter != 0u && st.browserKind[i] != 1 &&
-					(st.browFilter & (1u << st.browserKind[i])) == 0u)
-					continue;
-				if (!NkNameMatches(st.browserNames[i], st.searchBrowser))
-					continue;
+			// L'ORDRE D'AFFICHAGE VIENT DU CLASSEMENT, plus de l'ordre de creation
+			// (Rihen : « on doit avoir un vrai systeme pour classer et organiser un
+			// espace comme l'explorateur de fichiers »). Le filtrage et la recherche
+			// vivent avec lui, dans NkBrowVisible : deux endroits qui decident ce qui
+			// est visible finiraient par ne plus etre d'accord.
+			int32 vis[NkModelerState::kMaxBrowser];
+			const int32 visN = NkBrowVisible(st, vis, NkModelerState::kMaxBrowser);
+			for (int32 vi = 0; vi < visN; ++vi) {
+				const int32 i = vis[vi];
 				++shown;
 				if (tx + tw > wrapW) { // retour a la ligne
 					tx = ax;
@@ -11787,6 +11858,37 @@ namespace nkentseu {
 					if (hit.Clicked(ck))
 						st.browFilter ^= (1u << ckd);
 					px += cw + S(6.f);
+				}
+				// ── CLASSEMENT, cale a DROITE ───────────────────────────────
+				// Meme place que dans un explorateur : le tri est un reglage de la
+				// vue, pas un filtre -- le coller aux pastilles les ferait passer
+				// pour une pastille de plus.
+				{
+					static const char *const kSortN[3] = {"Nom", "Type", "Date"};
+					const char *cur = kSortN[(st.browSort >= 0 && st.browSort < 3)
+												 ? st.browSort
+												 : 0];
+					const float32 aw = fh; // bouton de sens, carre
+					const float32 sw = p.TextW("Type") + S(34.f);
+					const float32 sx = r.x + r.w - S(10.f) - aw - S(4.f) - sw;
+					if (sx > px + S(8.f) && sortCombo) {
+						p.TextV(sx - p.TextW("Trier") - S(8.f), fy, fh, "Trier",
+								NkRole::TextMuted);
+						Combo(p, hit, ws, "brow.sort", {sx, fy, sw, fh}, kSortN, nullptr, 3,
+							  st.browSort, *sortCombo);
+						const NkRect ar2{sx + sw + S(4.f), fy, aw, fh};
+						const bool ov2 = hit.Add("brow.sortdir", ar2);
+						p.Outline(ar2, NkRole::Border, ov2 ? NkRole::PanelBg : NkRole::InputBg,
+								  4.f);
+						// Le CHEVRON dit le sens : vers le bas = croissant, comme la
+						// fleche d'un en-tete de colonne d'explorateur.
+						p.IconV(ar2.x, ar2.y, ar2.h,
+								st.browSortDesc ? NkIcon::ChevronUp : NkIcon::ChevronDown,
+								NkRole::Text, 11.f);
+						if (hit.Clicked("brow.sortdir"))
+							st.browSortDesc = !st.browSortDesc;
+					}
+					(void)cur;
 				}
 			}
 
