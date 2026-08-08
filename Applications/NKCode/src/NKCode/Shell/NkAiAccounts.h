@@ -79,6 +79,46 @@ namespace nkentseu {
 			return NkFile::Exists((NkPath(NkAiAccountDir(name).CStr()) / ".credentials.json").ToString().CStr());
 		}
 
+		// ── Identite du compte : e-mail, sans lancer le moindre processus ───────
+		// Le CLI ecrit <config>/.claude.json avec oauthAccount.emailAddress. Le lire
+		// coute une lecture de fichier, la ou « auth status --json » couterait un
+		// processus PAR COMPTE. On n'y touche qu'en LECTURE et on n'en extrait que
+		// ce qui identifie le compte — jamais les identifiants eux-memes, qui vivent
+		// dans .credentials.json et ne nous regardent pas.
+		inline NkString NkAiJsonField(const NkString &json, const char *cle) {
+			NkString motif = "\"";
+			motif += cle;
+			motif += "\"";
+			const char *p = json.CStr();
+			const char *k = nullptr;
+			for (const char *q = p; *q; ++q)
+				if (::strncmp(q, motif.CStr(), motif.Size()) == 0) {
+					k = q + motif.Size();
+					break;
+				}
+			if (!k)
+				return NkString();
+			while (*k == ' ' || *k == ':')
+				++k;
+			if (*k != '"')
+				return NkString();
+			++k;
+			NkString out;
+			for (; *k && *k != '"'; ++k) {
+				if (*k == '\\' && k[1]) // sequence echappee : on garde le caractere suivant
+					++k;
+				out += *k;
+			}
+			return out;
+		}
+
+		inline NkString NkAiAccountEmail(const NkString &name) {
+			const NkString f = (NkPath(NkAiAccountDir(name).CStr()) / ".claude.json").ToString();
+			if (!NkFile::Exists(f.CStr()))
+				return NkString();
+			return NkAiJsonField(NkFile::ReadAllText(NkPath(f.CStr())), "emailAddress");
+		}
+
 		// Nom valide pour un dossier : on refuse tout ce qui pourrait s'echapper de
 		// la racine des comptes (« .. », separateurs) plutot que de le nettoyer en
 		// silence — un nom refuse se corrige, un nom transforme surprend.
