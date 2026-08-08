@@ -19,6 +19,18 @@
 namespace nkentseu {
 	namespace renderer {
 
+		// Taille du bloc CAMERA reellement ecrit par UploadUBOs (PBRCamUBO), et
+		// donc taille a allouer. A NE PAS confondre avec sizeof(NkCameraUBO), qui
+		// est une AUTRE disposition (528 octets, avec invView/invProj separes) que
+		// ce chemin n'utilise pas. Allouer d'apres elle tronquait silencieusement
+		// la fin du bloc.
+		// Un static_assert dans UploadUBOs verifie l'accord : agrandir PBRCamUBO
+		// sans toucher a cette constante casse la COMPILATION, au lieu de perdre
+		// les derniers champs sans un mot.
+		// 864 depuis l'ajout du BROUILLARD AU SOL (un vec4 en fin de bloc) :
+		// 848 auparavant. Le static_assert d'UploadUBOs verifie l'accord.
+		static constexpr uint32 kPBRCamUBOSize = 864;
+
 		NkRender3D::~NkRender3D() {
 			Shutdown();
 		}
@@ -62,9 +74,25 @@ namespace nkentseu {
 			mUBOObjectPool.Resize(mFramesInFlight);
 
 			// Camera UBO — binding 0 (main + mirror dedicated)
+			//
+			// LA TAILLE EST CELLE DU BLOC REELLEMENT ECRIT, pas celle de
+			// NkCameraUBO. Les deux n'ont RIEN A VOIR : NkCameraUBO (528 octets)
+			// est une autre disposition, avec invView/invProj separes, que ce
+			// chemin n'utilise pas — UploadUBOs ecrit un PBRCamUBO.
+			//
+			// Tant que PBRCamUBO tenait dans 528 octets, l'erreur ne se voyait
+			// pas. En y ajoutant les parametres du ciel il est passe a 592 : tout
+			// ce qui depassait etait perdu EN SILENCE, et le premier champ
+			// au-dela de la limite — la couleur de SOL, offset 528 — n'arrivait
+			// jamais au shader. Le zenith (496) et l'horizon (512) passaient
+			// encore : le ciel semblait donc « presque » marcher.
+			//
+			// kPBRCamUBOSize est verifie par static_assert dans UploadUBOs :
+			// agrandir le bloc sans ajuster cette valeur casse la COMPILATION au
+			// lieu de tronquer sans bruit.
 			for (uint32 i = 0; i < mFramesInFlight; i++) {
-				mUBOCameraRing[i] = mDevice->CreateBuffer(NkBufferDesc::Uniform(sizeof(NkCameraUBO)));
-				mUBOCameraMirrorRing[i] = mDevice->CreateBuffer(NkBufferDesc::Uniform(sizeof(NkCameraUBO)));
+				mUBOCameraRing[i] = mDevice->CreateBuffer(NkBufferDesc::Uniform(kPBRCamUBOSize));
+				mUBOCameraMirrorRing[i] = mDevice->CreateBuffer(NkBufferDesc::Uniform(kPBRCamUBOSize));
 			}
 
 			// Lights UBO — binding 2 (32 lights max)
@@ -76,6 +104,11 @@ namespace nkentseu {
 			for (uint32 i = 0; i < mFramesInFlight; i++) {
 				mUBOLightsRing[i] = mDevice->CreateBuffer(NkBufferDesc::Uniform(sizeof(LightsUBO)));
 			}
+
+			// PAS de bloc uniforme dedie au ciel : ses parametres voyagent en FIN
+			// du bloc camera (cf. PBRCamUBO). Un bloc de plus butait sur DX11, qui
+			// n'a que 14 emplacements de constant buffer, et les numeros bas du
+			// set 0 sont deja pris par des textures cote moteur.
 
 			// Object UBO — binding 1. Layout std140 doit matcher EXACTEMENT le shader
 			// pbr.vert/frag.gl.glsl (sinon le linker GL refuse, ou les reads out-of-buffer
@@ -356,6 +389,32 @@ namespace nkentseu {
 						for (uint32 ci = 0; ci < kMaxCookiesCube3D; ci++) {
 							mDevice->BindTextureSampler(gs, 21 + ci, mDefaultCubeWhite, whiteSamp);
 						}
+					}
+				}
+			};
+
+			// Memorise la lambda pour pouvoir REFAIRE ces liaisons plus tard :
+			// changer d'environnement cree de NOUVELLES cubemaps, et les sets
+			// pointaient encore sur les anciennes -- regenerer le ciel n'avait
+			// alors aucun effet visible (constate par Rihen).
+			mRebindGlobals = [this]() {
+				if (!mDevice || !mEnv)
+					return;
+				NkSamplerHandle envSamp = mEnv->GetEnvSampler();
+				NkSamplerHandle lutSamp = mEnv->GetLUTSampler();
+				for (uint32 i = 0; i < mFramesInFlight; i++) {
+					NkDescSetHandle sets[2] = {mGlobalSetRing[i], mGlobalSetMirrorRing[i]};
+					for (NkDescSetHandle gs : sets) {
+						if (!gs.IsValid())
+							continue;
+						if (mEnv->GetIrradianceCubemap().IsValid())
+							mDevice->BindTextureSampler(gs, 8, mEnv->GetIrradianceCubemap(), envSamp);
+						if (mEnv->GetPrefilterCubemap().IsValid())
+							mDevice->BindTextureSampler(gs, 9, mEnv->GetPrefilterCubemap(), envSamp);
+						if (mEnv->GetBRDFLUT().IsValid())
+							mDevice->BindTextureSampler(gs, 10, mEnv->GetBRDFLUT(), lutSamp);
+						if (mEnv->GetSkyEnvCube().IsValid())
+							mDevice->BindTextureSampler(gs, 26, mEnv->GetSkyEnvCube(), envSamp);
 					}
 				}
 			};
@@ -1385,6 +1444,7 @@ namespace nkentseu {
 			mSelection.Clear(); // file de sélection (outline silhouette) : re-soumise par frame
 			mSelectionActive.Clear(); // marqueur d'objet actif, parallèle à mSelection
 			mCullStats = NkCullStats{}; // stats de culling : nouvelles soumissions
+			mShadowStamp = 1469598103934665603ull; // FNV-1a : nouvelle empreinte
 			// mObjectDrawIdx N'EST PAS reset ici — voir ResetFrame() ci-dessus.
 		}
 
@@ -1404,8 +1464,21 @@ namespace nkentseu {
 			// principal. (Cause racine "objets sans ombre" : avant, le culling
 			// camera retirait le caster de mOpaque, et la passe shadow iterait
 			// sur mOpaque.)
-			if (dc.castShadow)
+			if (dc.castShadow) {
 				mShadowCasters.PushBack({dc, depth});
+				// EMPREINTE DE LA GEOMETRIE OMBRANTE. Le cache NkVSM ne surveillait
+				// que la LUMIERE : un objet deplace laissait donc son ombre figee a
+				// son ancienne place (ombre "detachee" constatee par Rihen). On
+				// resume ici, au seul endroit ou passent tous les casters, la pose
+				// et l'identite de chacun ; le VSM invalide son cache des que ce
+				// resume change.
+				for (int32 k = 0; k < 16; ++k) {
+					uint32 bits = 0;
+					std::memcpy(&bits, &dc.transform.data[k], sizeof(bits));
+					mShadowStamp = (mShadowStamp ^ (uint64)bits) * 1099511628211ull;
+				}
+				mShadowStamp = (mShadowStamp ^ dc.mesh.id) * 1099511628211ull;
+			}
 
 			// Culling camera : uniquement pour le rendu visible (mOpaque).
 			mCullStats.opaqueSubmitted++;
@@ -2001,8 +2074,79 @@ namespace nkentseu {
 					// tuile. .yzw reserves. Ajoute EN FIN de struct : les shaders qui
 					// declarent un CameraUBO plus court ignorent simplement ces octets.
 					NkVec4f viewOpts;
+					// COULEUR DE L'AMBIANCE (offset 416), .xyz ; .w reserve. C'est le
+					// pendant du « World > Color » de Blender : l'intensite dit
+					// COMBIEN la scene recoit de son environnement, la couleur dit
+					// DE QUELLE TEINTE. Sans elle l'ambiance est forcement neutre,
+					// alors qu'un ciel bleute ou chaud teinte les faces a l'ombre --
+					// c'est une part importante de l'aspect d'un rendu.
+					// Ajoutee EN FIN de struct : les shaders qui declarent un
+					// CameraUBO plus court ignorent simplement ces octets.
+					NkVec4f iblColor;
+					// BROUILLARD (offsets 432 et 448). Ces reglages vivaient dans
+					// le contexte de scene depuis toujours mais AUCUNE passe ne les
+					// lisait : les regler n'avait aucun effet. Ils descendent
+					// desormais jusqu'au shader, qui les applique en dernier.
+					NkVec4f fogColor;  // .xyz couleur, .w densite (loi exponentielle)
+					NkVec4f fogParams; // .x actif, .y debut, .z fin, .w 0=lineaire 1=exp
+					// ── LE CIEL VISIBLE (offsets 464 a 591) ──────────────────
+					// Il vit ICI, en fin de bloc camera, et NON dans un bloc a lui.
+					// Deux raisons, toutes deux apprises en essayant :
+					//   - DX11 (SM5) n'a que 14 emplacements de constant buffer
+					//     (b0..b13) : un bloc de plus au-dela echoue la ou les
+					//     autres backends passent (« X4567 »).
+					//   - dans le set 0, les numeros bas sont deja pris par des
+					//     TEXTURES cote moteur : y poser un bloc uniforme le fait
+					//     ecraser en silence, et le ciel sort noir.
+					// La fin du bloc camera est le seul endroit sans ces deux
+					// ecueils, et c'est le motif deja employe pour iblColor et le
+					// brouillard : les shaders qui declarent un CameraUBO plus
+					// court ignorent simplement ces octets.
+					NkVec4f skyP0;		  // x modele(0 degrade,1 physique,2 cubemap) y turbidite
+										  // z puissance du soleil                    w disque (0/1)
+					NkVec4f skySunDir;	  // xyz direction de propagation, w vitesse des nuages
+					NkVec4f skyTopCol;	  // xyz couleur du zenith,  w nuages actifs (0/1)
+					NkVec4f skyHorizonCol; // xyz couleur d'horizon, w couverture
+					NkVec4f skyGroundCol;  // xyz couleur du sol,    w densite
+					NkVec4f skySunCol;	  // xyz teinte du soleil,  w echelle des nuages
+					NkVec4f skyCloudCol; // xyz couleur des nuages, w reserve
+					NkVec4f skyP7;		 // x etoiles, y densite, z nombre de lunes, w libre
+					// LUNES : deux vec4 chacune. Un TABLEAU, pas un cas
+					// particulier -- une lune de plus ne coute qu'une iteration.
+					//   A : xyz direction VERS la lune, w rayon apparent (radians)
+					//   B : xyz couleur,                w luminosite
+					NkVec4f skyMoonA0, skyMoonB0;
+					NkVec4f skyMoonA1, skyMoonB1;
+					// PHASES FORCEES (option) : x phase lune 0, y mode lune 0
+					// (0 = deduite du soleil, 1 = forcee), z et w idem lune 1.
+					NkVec4f skyMoonPhase;
+					// x rotation celeste (rad/s), y etoiles filantes par minute,
+					// zw libres.
+					NkVec4f skyStars2;
+					// HOSEK-WILKIE, cuit cote CPU : 9 coefficients A..I (xyz = RGB)
+					// puis la radiance. Les 65 Ko de tables ne quittent JAMAIS le
+					// CPU — seuls ces dix vec4 descendent.
+					// coef[0].w = normalisation d'exposition, radiance.w = fondu
+					// crepusculaire (le modele n'est pas defini sous l'horizon).
+					NkVec4f skyHosekCoef[9];
+					NkVec4f skyHosekRad;
+					// ── BROUILLARD AU SOL, ANIME (ajoute EN FIN de struct : les
+					// shaders qui declarent un CameraUBO plus court ignorent
+					// simplement ces octets).
+					//   .x = altitude de base (m)   .y = epaisseur (m ; 0 = pas
+					//   de brouillard au sol, comportement d'avant)
+					//   .z = force du souffle (0 = nappe lisse)
+					//   .w = temps anime, deja multiplie par la vitesse du vent
+					NkVec4f fogHeight;
 			};
 
+			// L'ALLOCATION ET L'ECRITURE DOIVENT S'ACCORDER. Sans cette
+			// verification, agrandir le bloc tronque la fin en silence : c'est
+			// exactement ce qui est arrive en y ajoutant le ciel, et seule la
+			// couleur de SOL manquait a l'ecran -- un symptome qui ne designait
+			// pas sa cause.
+			static_assert(sizeof(PBRCamUBO) == kPBRCamUBOSize,
+						  "PBRCamUBO a change de taille : ajuster kPBRCamUBOSize");
 			PBRCamUBO cb{};
 			cb.view = mCtx.camera.GetView();
 			cb.proj = mCtx.camera.GetProj();
@@ -2085,11 +2229,117 @@ namespace nkentseu {
 			cb.time = mCtx.time;
 			cb.deltaTime = mCtx.deltaTime;
 			cb.iblStrength = mIBLStrength;
+			// .w = UN ENVIRONNEMENT EST-IL CHARGE ? Sans lui, le shader
+			// echantillonnait quand meme les cubemaps d'irradiance et de reflet
+			// PAR LA NORMALE : leur contenu par defaut n'etant pas uniforme, trois
+			// faces d'un cube ressortaient plus claires que les trois autres, et
+			// toujours les memes quelle que soit la vue -- ce que Rihen a
+			// constate, alors que Blender donne un aplat parfait sans monde
+			// image. A zero, le shader prend une ambiance UNIFORME.
+			// Le moteur genere TOUJOURS un ciel procedural de repli : tester la
+			// seule validite de la cubemap repondait donc « oui » en permanence,
+			// et l'ambiance restait directionnelle. C'est un CHOIX explicite.
+			const bool hasEnv = mIBLUseEnv && mEnv && mEnv->GetIrradianceCubemap().IsValid();
+			cb.iblColor = {mIBLColor.x, mIBLColor.y, mIBLColor.z, hasEnv ? 1.f : 0.f};
+			cb.fogColor = {mCtx.fogColor.x, mCtx.fogColor.y, mCtx.fogColor.z, mCtx.fogDensity};
+			cb.fogParams = {mCtx.fogEnabled ? 1.f : 0.f, mCtx.fogStart, mCtx.fogEnd,
+							mCtx.fogDensity > 0.f ? 1.f : 0.f};
+			// Le TEMPS est deja multiplie par la vitesse ici : le shader n'a
+			// plus qu'a s'en servir comme d'un decalage, sans connaitre le vent.
+			cb.fogHeight = {mCtx.fogHeightBase, mCtx.fogThickness, mCtx.fogWind,
+							mCtx.time * mCtx.fogWindSpeed};
+			// ── LE CIEL VISIBLE, evalue en temps reel par le shader Skybox ────
+			// Empaquetage dense en vec4, documente ici ET dans skybox.frag.nksl :
+			// les deux doivent rester d'accord.
+			{
+				const NkSkyParams &SP = mSkyParams;
+				// 9 = cubemap : cas HDRI, l'image vient d'un fichier et ne se
+				// calcule pas. Le drapeau prime sur le modele procedural.
+				//
+				// Valeur volontairement ELOIGNEE des identifiants de modele : ils
+				// se numerotent 0, 1, 2... et continueront de grandir. Garder le
+				// cubemap a 2 aurait force a le renumeroter a chaque modele
+				// ajoute — et une renumerotation muette entre le C++ et un shader
+				// ne se signale pas, elle se constate a l'ecran, trop tard.
+				const float32 modelId = mSkyFromCubemap ? 9.f : (float32)(int32)SP.model;
+				cb.skyP0 = {modelId, SP.turbidity, SP.sunIntensity, SP.sunDisc ? 1.f : 0.f};
+				cb.skySunDir = {SP.sunDirection.x, SP.sunDirection.y, SP.sunDirection.z, SP.cloudSpeed};
+				cb.skyTopCol = {SP.skyTop.x, SP.skyTop.y, SP.skyTop.z, SP.clouds ? 1.f : 0.f};
+				cb.skyHorizonCol = {SP.horizon.x, SP.horizon.y, SP.horizon.z, SP.cloudCoverage};
+				cb.skyGroundCol = {SP.ground.x, SP.ground.y, SP.ground.z, SP.cloudDensity};
+				cb.skySunCol = {SP.sunColor.x, SP.sunColor.y, SP.sunColor.z, SP.cloudScale};
+				cb.skyCloudCol = {SP.cloudColor.x, SP.cloudColor.y, SP.cloudColor.z, 0.f};
+				// .x intensite des etoiles, .y leur densite, .z nombre de lunes.
+				cb.skyP7 = {SP.starIntensity, SP.starDensity, (float32)SP.moonCount, 0.f};
+				// LUNES. Le tableau est parcouru sans cas particulier : « une » et
+				// « plusieurs » suivent le meme chemin.
+				{
+					const NkVec4f zeroA{0.f, 1.f, 0.f, 0.f}; // rayon 0 = lune eteinte
+					NkVec4f mA[2] = {zeroA, zeroA};
+					NkVec4f mB[2] = {{0.f, 0.f, 0.f, 0.f}, {0.f, 0.f, 0.f, 0.f}};
+					for (int32 m = 0; m < NkSkyParams::kMaxMoons && m < SP.moonCount; ++m) {
+						const auto &Mo = SP.moons[m];
+						mA[m] = {Mo.direction.x, Mo.direction.y, Mo.direction.z, Mo.angularSize};
+						mB[m] = {Mo.color.x, Mo.color.y, Mo.color.z, Mo.brightness};
+					}
+					cb.skyMoonA0 = mA[0];
+					cb.skyMoonB0 = mB[0];
+					cb.skyMoonA1 = mA[1];
+					cb.skyMoonB1 = mB[1];
+					cb.skyMoonPhase = {SP.moons[0].phase, SP.moons[0].manualPhase ? 1.f : 0.f,
+									   SP.moons[1].phase, SP.moons[1].manualPhase ? 1.f : 0.f};
+					cb.skyStars2 = {SP.starRotation, SP.shootingRate, 0.f, 0.f};
+
+				// ── HOSEK-WILKIE : cuisson par image ─────────────────────────
+				// L'interpolation complete (3 canaux x 10 valeurs x 4 blocs de
+				// Bezier) coute quelques centaines de multiplications : la
+				// recuire a chaque image est plus simple et plus sur qu'un cache
+				// avec detection de changement, pour un cout invisible.
+				if (!mSkyFromCubemap && SP.model == NkSkyModel::NK_SKY_HOSEK) {
+					NkVec3f toSun = {-SP.sunDirection.x, -SP.sunDirection.y, -SP.sunDirection.z};
+					const float32 sl = std::sqrt(toSun.x * toSun.x + toSun.y * toSun.y + toSun.z * toSun.z);
+					const float32 elev = sl > 1e-6f ? std::asin(toSun.y / sl) : 1.f;
+					NkVec3f alb = SP.ground; // le SOL de la scene sert d'albedo : c'est lui qui renvoie
+
+					NkHosekSkyCoeffs cur;
+					// Le modele n'est pas defini sous l'horizon : on cuit au ras
+					// (0,5 deg) et le FONDU ci-dessous fait la nuit.
+					NkHosekCookRGB(SP.turbidity, alb, elev < 0.0087f ? 0.0087f : elev, cur);
+
+					// ── NORMALISATION SANS OEIL ──────────────────────────────
+					// Le facteur d'exposition n'est PAS regle a la main : on cuit
+					// une REFERENCE (soleil a 47 deg, meme turbidite, meme albedo)
+					// et on evalue sa luminance au zenith. L'echelle amene cette
+					// reference a 1,0 — comme Preetham et l'atmosphere — donc
+					// changer de modele ne fait pas sauter l'exposition, et le
+					// cycle du jour garde sa dynamique (la reference est FIXE, le
+					// ciel courant varie autour).
+					const float32 kRefElev = 0.82f;
+					NkHosekSkyCoeffs ref;
+					NkHosekCookRGB(SP.turbidity, alb, kRefElev, ref);
+					const NkVec3f zr = NkHosekEvalRGB(ref, 1.f, 1.5707963f - kRefElev);
+					const float32 lumRef = 0.2126f * zr.x + 0.7152f * zr.y + 0.0722f * zr.z;
+					const float32 scale = SP.sunIntensity / (lumRef > 1e-6f ? lumRef : 1e-6f);
+					// Fondu crepusculaire sur ~8 deg sous l'horizon.
+					const float32 fade =
+						elev > 0.f ? 1.f : (elev < -0.14f ? 0.f : 1.f + elev / 0.14f);
+
+					for (int32 i = 0; i < 9; i++)
+						cb.skyHosekCoef[i] = {cur.coef[i].x, cur.coef[i].y, cur.coef[i].z,
+											  i == 0 ? scale : 0.f};
+					cb.skyHosekRad = {cur.radiance.x, cur.radiance.y, cur.radiance.z, fade};
+				}
+				}
+			}
 			cb.viewMode = (float32)mViewMode; // 0=rendered(PBR) 1=solid/unlit (indépendant du wireframe)
 			cb.matcapId = (float32)mMatcapId; // index 0..29 dans l'atlas des 30 matcaps
 			// .x = 1 si une matcap PERSONNALISEE remplace l'atlas (cf. SetMatcapTexture) :
 			// le shader echantillonne alors la texture entiere au lieu d'une tuile.
-			cb.viewOpts = {mMatcapCustom ? 1.f : 0.f, 0.f, 0.f, 0.f};
+			// .y = LUMINOSITE DU CIEL AFFICHE. Le shader Skybox multipliait son
+			// echantillon par iblStrength (0.05 par defaut) : le ciel sortait a
+			// 5 % de sa luminosite, donc quasi noir, et paraissait absent alors
+			// qu'il etait correctement genere. Ce sont deux grandeurs distinctes.
+			cb.viewOpts = {mMatcapCustom ? 1.f : 0.f, mSkyIntensity, 0.f, 0.f};
 			// yFlipNDC : UNIQUEMENT consommé par le SKYBOX (reconstruction du view-ray à
 			// partir de vNDC). C'est l'orientation Y du VS PLEIN ÉCRAN du skybox, qui
 			// n'a PAS d'inputs → le générateur HLSL ne le Y-négate PAS sur DX (il ne
@@ -2167,6 +2417,7 @@ namespace nkentseu {
 			}
 			if (mFrameSlot < mUBOLightsRing.Size())
 				mDevice->WriteBuffer(mUBOLightsRing[mFrameSlot], &lb, sizeof(lb));
+
 		}
 
 		void NkRender3D::RenderShadowPass(NkICommandBuffer *cmd, const NkMat4f &lightVP) {
@@ -2437,11 +2688,12 @@ namespace nkentseu {
 				//   .x = receiveShadow (default 1.0 = receive)
 				//   .y = castShadowAlphaTest (V1 reserve)
 				//   .z = shadowBiasMul (default 1.0)
-				//   .w = reserve
+				//   .w = shadowCatcher (2026-08-05) : la surface ne se peint PAS,
+				//        elle ne rend que l'OMBRE qu'elle recoit, en couverture.
 				if (matInst) {
 					ob.shadowOverrides =
 						NkVec4f{matInst->mReceiveShadow ? 1.f : 0.f, matInst->mCastShadowAlphaTest ? 1.f : 0.f,
-								matInst->mShadowBiasMul, 0.f};
+								matInst->mShadowBiasMul, matInst->mShadowCatcher ? 1.f : 0.f};
 				} else {
 					ob.shadowOverrides = NkVec4f{1.f, 0.f, 1.f, 0.f};
 				}

@@ -352,27 +352,27 @@ namespace nkentseu {
 	// =============================================================================
 	// Draw
 	// =============================================================================
-	void NkDirectX11CommandBuffer::Draw(uint32 vtx, uint32 inst, uint32 firstVtx, uint32 firstInst) {
+	void NkDirectX11CommandBuffer::DrawImpl(uint32 vtx, uint32 inst, uint32 firstVtx, uint32 firstInst) {
 		if (inst > 1)
 			mDeferred->DrawInstanced(vtx, inst, firstVtx, firstInst);
 		else
 			mDeferred->Draw(vtx, firstVtx);
 	}
 
-	void NkDirectX11CommandBuffer::DrawIndexed(uint32 idx, uint32 inst, uint32 firstIdx, int32 vtxOff,
-											   uint32 firstInst) {
+	void NkDirectX11CommandBuffer::DrawIndexedImpl(uint32 idx, uint32 inst, uint32 firstIdx, int32 vtxOff,
+												   uint32 firstInst) {
 		if (inst > 1)
 			mDeferred->DrawIndexedInstanced(idx, inst, firstIdx, vtxOff, firstInst);
 		else
 			mDeferred->DrawIndexed(idx, firstIdx, vtxOff);
 	}
 
-	void NkDirectX11CommandBuffer::DrawIndirect(NkBufferHandle buf, uint64 off, uint32 /*cnt*/, uint32 /*stride*/) {
+	void NkDirectX11CommandBuffer::DrawIndirectImpl(NkBufferHandle buf, uint64 off, uint32 /*cnt*/, uint32 /*stride*/) {
 		mDeferred->DrawInstancedIndirect(mDev->GetDXBuffer(buf.id), (UINT)off);
 	}
 
-	void NkDirectX11CommandBuffer::DrawIndexedIndirect(NkBufferHandle buf, uint64 off, uint32 /*cnt*/,
-													   uint32 /*stride*/) {
+	void NkDirectX11CommandBuffer::DrawIndexedIndirectImpl(NkBufferHandle buf, uint64 off, uint32 /*cnt*/,
+														   uint32 /*stride*/) {
 		mDeferred->DrawIndexedInstancedIndirect(mDev->GetDXBuffer(buf.id), (UINT)off);
 	}
 

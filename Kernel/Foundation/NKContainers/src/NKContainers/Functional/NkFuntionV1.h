@@ -4,7 +4,7 @@
 // AUTEUR: TEUGUIA TADJUIDJE Rodolf / Rihen
 // DATE: 2025-06-10
 // VERSION: 1.0.0
-// LICENCE: Proprietary - Free to use and modify
+// LICENCE: Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 //
 // RÉSUMÉ:
@@ -715,7 +715,7 @@ namespace nkentseu {
 
 // ============================================================
 // Copyright © 2024-2026 Rihen. All rights reserved.
-// Proprietary License - Free to use and modify
+// Proprietary License - All Rights Reserved (see LICENSE)
 //
 // Création : 2025-06-10 par TEUGUIA TADJUIDJE Rodolf
 // Dernière modification : 2026-04-26 (restructuration et documentation complète)

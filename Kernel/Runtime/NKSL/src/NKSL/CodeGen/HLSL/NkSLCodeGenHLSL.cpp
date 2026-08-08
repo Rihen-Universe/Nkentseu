@@ -538,10 +538,15 @@ namespace nkentseu {
 
 		// Constantes globales (ex. SSAO kPoisson16[16], FXAA kContrastMin) : émises ici,
 		// avant les fonctions qui les référencent. GenProgram ne les visitait pas → X3004.
+		// Les globales `shared` (mémoire partagée du groupe de calcul) passent par le
+		// MÊME point : c'est la seule boucle qui visite les NK_DECL_VAR du programme, et
+		// tant que le filtre exigeait `isConst`, la déclaration partagée n'était jamais
+		// visitée — GenVarDecl avait beau savoir l'écrire, il n'était pas appelé.
 		for (auto *child : prog->children) {
 			if (child && child->kind == NkSLNodeKind::NK_DECL_VAR) {
 				auto *v = static_cast<NkSLVarDeclNode *>(child);
-				if (v->isConst && v->storage != NkSLStorageQual::NK_UNIFORM)
+				if ((v->isConst && v->storage != NkSLStorageQual::NK_UNIFORM) ||
+					v->storage == NkSLStorageQual::NK_SHARED)
 					GenVarDecl(v, true);
 			}
 		}
@@ -1223,6 +1228,17 @@ namespace nkentseu {
 	void NkSLCodeGenHLSL::GenVarDecl(NkSLVarDeclNode *v, bool isGlobal) {
 		if (!v || !v->type)
 			return;
+		// Mémoire PARTAGÉE du groupe de calcul : `shared` en NkSL/GLSL s'écrit
+		// `groupshared` en HLSL. Sans ce cas, la déclaration tombait dans le `return`
+		// ci-dessous et DISPARAISSAIT du HLSL généré — le corps référençait alors une
+		// variable jamais déclarée (X3004) et, si un jour elle avait été déclarée sans
+		// le qualificateur, chaque thread aurait eu SA copie : le noyau aurait rendu un
+		// résultat faux sans rien signaler. C'est le seul qualificateur de stockage que
+		// GLSL/GLSL-Vulkan/MSL émettaient et que les deux générateurs HLSL perdaient.
+		if (isGlobal && v->storage == NkSLStorageQual::NK_SHARED) {
+			EmitLine("groupshared " + TypeToHLSL(v->type) + " " + v->name.ToLower() + HlslArrSuffix(v->type) + ";");
+			return;
+		}
 		// Les globales in/out/uniform sont gérées via les structs — on émet seulement les const
 		if (isGlobal) {
 			if (!v->isConst)

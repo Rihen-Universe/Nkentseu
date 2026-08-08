@@ -984,6 +984,10 @@ namespace nkentseu {
 		return horz && vert;
 	}
 
+	bool NkWindow::IsMinimized() const {
+		return false; // etat iconifie non suivi sur cette plateforme (v1)
+	}
+
 	// Hand-off natif via _NET_WM_MOVERESIZE (le WM gere le drag jusqu'au relachement).
 	static void NkXcbMoveResize(xcb_connection_t *conn, xcb_window_t win, int direction) {
 		if (!conn || !win || !sDefaultScreen)

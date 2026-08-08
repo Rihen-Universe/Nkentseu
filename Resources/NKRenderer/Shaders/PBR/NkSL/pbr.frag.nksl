@@ -30,6 +30,15 @@ uniform CameraUBO {
     mat4  mirrorViewProj;
     vec4  reflectionFlags;
     vec4  viewOpts;      // .x=1 si matcap PERSONNALISEE (texture seule, pas l'atlas) ; .yzw reserve
+    vec4  iblColor;      // .xyz = teinte de l'ambiance (World Color) ; .w = 1 si un monde est charge
+    vec4  fogColor;      // .xyz = couleur du brouillard ; .w = densite
+    vec4  fogParams;     // .x = actif ; .y = debut ; .z = fin ; .w = 0 lineaire, 1 exponentiel
+    // Le CIEL occupe VINGT-QUATRE vec4 cote C++ (8 parametres, 4 lunes, phase,
+    // etoiles, 9 coefficients Hosek, radiance) ; ce shader ne le lit pas, mais
+    // il doit le SAUTER exactement pour retomber sur le brouillard au sol.
+    // Une erreur d'UN seul vec4 ici decale tout le bloc et corrompt le rendu.
+    vec4  _skyPad[24];
+    vec4  fogHeight;     // .x = altitude de base ; .y = epaisseur ; .z = souffle ; .w = temps
 } uCam;
 
 @binding(set=1, binding=1)
@@ -280,6 +289,12 @@ void main() {
     vec3 F0   = mix(vec3(0.04), albedo, met);
 
     vec3 Lo = vec3(0.0);
+    // RECEPTEUR D'OMBRE : on accumule EN PARALLELE l'eclairement qu'on aurait
+    // SANS ombre. Le rapport des deux donne exactement la part de lumiere
+    // perdue -- c'est-a-dire l'ombre -- sans avoir a rendre la scene deux fois.
+    // Additionner « 1 - csf » ne suffirait pas : une lumiere faible qui ombre
+    // beaucoup compterait autant qu'une lumiere forte qui ombre peu.
+    vec3 LoLit = vec3(0.0);
 
     for (int i = 0; i < uLights.count && i < 32; i++) {
         int   lt  = int(uLights.positions[i].w);
@@ -336,6 +351,26 @@ void main() {
                     }
                 }
             }
+            if (lt == 3) {
+                // SURFACIQUE : un panneau n'emet que d'UN COTE.
+                // Sans ce terme, le type 3 tombait dans le cas general « point » :
+                // sa direction n'etait JAMAIS lue, si bien que tourner le gizmo
+                // deplacait le widget sans rien changer a l'image (constate par
+                // Rihen). C'est le defaut de conception deja rencontre -- un etat
+                // affiche qui ne correspond a aucun etat effectif.
+                //
+                // L va du fragment VERS la lumiere ; -L va donc de la lumiere vers
+                // le fragment. Le fragment n'est eclaire que s'il se trouve DEVANT
+                // le panneau. Le cosinus donne en prime l'attenuation d'un emetteur
+                // lambertien : c'est le comportement d'une SURFACE, pas d'un point.
+                //
+                // V1 assume : les DIMENSIONS (areaWidth / areaHeight) ne sont pas
+                // encore transmises au GPU -- le bloc de lumieres n'a plus de champ
+                // libre. La forme de la penombre et l'etalement du reflet
+                // speculaire viendront avec (LTC).
+                vec3 fwdA = normalize(uLights.directions[i].xyz);
+                att *= max(dot(fwdA, -L), 0.0);
+            }
         }
 
         float csf = 1.0;
@@ -351,24 +386,36 @@ void main() {
         vec3  F   = F_Schlick(max(dot(H,V),0.0), F0);
         vec3 spec = NDF*G*F / (4.0*max(dot(N,V),0.0)*NdL+1e-4);
         vec3 kD   = (1.0-F)*(1.0-met);
-        Lo += csf * (kD*albedo/PI + spec) * rad * NdL;
+        vec3 contrib = (kD*albedo/PI + spec) * rad * NdL;
+        Lo    += csf * contrib;
+        LoLit += contrib; // le meme eclairement, ombres ignorees
     }
 
     vec3 Fi   = F_SchlickR(max(dot(N,V),0.0), F0, rog);
     vec3 kDi  = (1.0-Fi)*(1.0-met);
     vec3 R    = reflect(-V, N);
-    vec3 irr  = texture(tEnvIrradiance, N).rgb;
+    // SANS ENVIRONNEMENT CHARGE, L'AMBIANCE EST UNIFORME (uCam.iblColor.w).
+    // On echantillonnait les cubemaps PAR LA NORMALE meme quand aucun monde
+    // n'etait charge : leur contenu par defaut n'etant pas uniforme, trois faces
+    // d'un cube ressortaient plus claires que les trois autres, TOUJOURS les
+    // memes quelle que soit la vue -- alors que Blender, avec un monde de
+    // couleur unie, donne un aplat parfait.
+    float hasEnv = uCam.iblColor.w;
+    vec3 irr  = mix(vec3(1.0), texture(tEnvIrradiance, N).rgb, hasEnv);
     vec3 prefMirror = texture(tSkyEnvCube, R).rgb;
     vec3 prefRough  = textureLod(tEnvPrefilter, R, rog*4.0).rgb;
     float mirrorMix = 1.0 - smoothstep(0.05, 0.50, rog);
-    vec3 pref       = mix(prefRough, prefMirror, mirrorMix);
+    vec3 pref       = mix(vec3(1.0), mix(prefRough, prefMirror, mirrorMix), hasEnv);
     vec2 brdf       = texture(tBRDFLUT, vec2(max(dot(N,V),0.0), rog)).rg;
     // GI à un rebond + AO en UN SEUL balayage de cônes : la grille de voxels
     // porte rgb = radiance réémise et a = opacité (cf. Include/NkVoxelAO.glsli),
     // donc l'AO est un produit dérivé du GI et ne coûte rien de plus.
     vec4  voxGI = NkComputeVoxelGI(vWorldPos, N);
     float voxAO = voxGI.w;
-    vec3 amb  = (kDi*irr*albedo + pref*(Fi*brdf.x+brdf.y)) * ao * voxAO * uCam.iblStrength;
+    // L'ambiance porte une TEINTE (World Color de Blender) : blanc = neutre,
+    // donc le comportement d'avant tant qu'on n'y touche pas.
+    vec3 amb  = (kDi*irr*albedo + pref*(Fi*brdf.x+brdf.y)) * ao * voxAO
+              * uCam.iblStrength * uCam.iblColor.rgb;
     // L'indirect S'AJOUTE à l'ambiant IBL au lieu de le remplacer : l'IBL porte
     // la lumière du ciel, le GI porte le rebond de la géométrie proche (c'est lui
     // qui fait qu'un mur rouge éclairé teinte le sol voisin). Aucun uniform
@@ -454,6 +501,53 @@ void main() {
             color = vec3(clamp(ao * voxAO, 0.0, 1.0));
         }
     }
+    // ── BROUILLARD ───────────────────────────────────────────────────────────
+    // Applique EN DERNIER, sur la couleur finale : le brouillard est ce qui
+    // s'interpose entre l'objet et l'oeil, il recouvre donc tout le reste --
+    // eclairage, reflets, emissif. Deux lois au choix, comme partout ailleurs :
+    // LINEAIRE (debut/fin nets, pratique pour cadrer un decor) et EXPONENTIEL
+    // (plus proche de la realite, l'attenuation suit la distance traversee).
+    // Les champs existaient dans le contexte de scene depuis toujours, mais
+    // AUCUNE passe ne les lisait : les regler n'avait aucun effet (Rihen).
+    if (uCam.fogParams.x > 0.5) {
+        float dist = length(uCam.camPos.xyz - vWorldPos);
+        float f;
+        if (uCam.fogParams.w > 0.5) {
+            // exponentiel au carre : la transition reste douce de pres
+            float d = dist * uCam.fogColor.w;
+            f = 1.0 - exp(-d * d);
+        } else {
+            float fstart = uCam.fogParams.y;
+            float fend   = max(uCam.fogParams.z, fstart + 0.001);
+            f = clamp((dist - fstart) / (fend - fstart), 0.0, 1.0);
+        }
+        // ── NAPPE AU SOL, SOUFFLEE COMME UNE FUMEE (Rihen) ───────────────
+        // Epaisseur nulle : le brouillard ne depend que de la distance, comme
+        // avant -- rien ne change pour les scenes existantes. Sinon la nappe
+        // est DENSE au niveau de sa base et s'eclaircit en montant ; le
+        // souffle module sa densite par un bruit qui DERIVE, exactement comme
+        // la couche nuageuse, ce qui donne la fumee qui avance au sol.
+        float thick = uCam.fogHeight.y;
+        if (thick > 0.001) {
+            float hRel = (vWorldPos.y - uCam.fogHeight.x) / thick;
+            // Fondu DOUX du bas vers le haut : une coupure nette dessinerait
+            // une ligne d'horizon artificielle a hauteur constante.
+            float hFall = 1.0 - smoothstep(0.0, 1.0, clamp(hRel, 0.0, 1.0));
+            float wind = uCam.fogHeight.z;
+            if (wind > 0.001) {
+                // Bruit de valeur a deux echelles, decale par le temps : la
+                // nappe respire au lieu de couler d'un bloc.
+                vec2 q = vWorldPos.xz * 0.06 + vec2(uCam.fogHeight.w, uCam.fogHeight.w * 0.6);
+                float n = sin(q.x) * cos(q.y * 1.3)
+                        + 0.5 * sin(q.x * 2.7 + 1.3) * cos(q.y * 2.1 - 0.7);
+                // n dans [-1.5, 1.5] -> [0, 1], puis autour de 1 selon la force
+                float nn = clamp(n * 0.3333 + 0.5, 0.0, 1.0);
+                hFall *= mix(1.0, nn * 1.6, clamp(wind, 0.0, 1.0));
+            }
+            f *= clamp(hFall, 0.0, 1.0);
+        }
+        color = mix(color, uCam.fogColor.rgb, clamp(f, 0.0, 1.0));
+    }
     // ── GARDE-FOU NaN / Inf (dernier rempart) ────────────────────────────────
     // Un seul pixel NaN ecrit dans la cible HDR contamine toute la chaine de BLOOM
     // (chaque down/up moyenne ses taps : le NaN se propage) et ressort en un gros
@@ -464,5 +558,33 @@ void main() {
     if (!(color.y >= 0.0 || color.y <= 0.0)) color.y = 0.0;
     if (!(color.z >= 0.0 || color.z <= 0.0)) color.z = 0.0;
     color = clamp(color, vec3(0.0), vec3(65504.0));
+
+    // ── RECEPTEUR D'OMBRE (shadow catcher) ───────────────────────────────────
+    // La surface ne se peint PAS : elle ne rend que l'OMBRE qu'elle recoit.
+    // C'est ce qui permet de detourer un objet sur fond transparent sans qu'il
+    // paraisse flotter -- couper le sol emporterait son ombre, puisqu'elle est
+    // projetee dessus.
+    //
+    // La couverture vaut la part de lumiere PERDUE : 1 - eclaire/nonEclaire.
+    // Elle se mesure sur la LUMINANCE, pas par canal, sinon une ombre coloree
+    // donnerait trois couvertures differentes pour un meme point.
+    // La couleur sortie est NOIRE : c'est l'alpha qui porte l'ombre, donc elle
+    // se compose correctement sur n'importe quel fond, clair comme sombre.
+    if (uObj.shadowOverrides.w > 0.5) {
+        // L'AMBIANTE COMPTE DES DEUX COTES. Ne mesurer que la lumiere DIRECTE
+        // donnait une couverture de 1 dans toute l'ombre -- une tache noire
+        // pleine (constate a l'essai) : l'ombre bloque bien 100 % du direct,
+        // mais la zone ombree recoit encore le ciel et les rebonds. C'est
+        // l'ASSOMBRISSEMENT REELLEMENT VU qu'il faut mesurer, ambiante
+        // comprise ; sinon on peint un trou la ou l'oeil voit une nuance.
+        float lLit = dot(LoLit + amb, vec3(0.2126, 0.7152, 0.0722));
+        float lSha = dot(Lo    + amb, vec3(0.2126, 0.7152, 0.0722));
+        // Surface qu'aucune lumiere n'atteint : rien a dire, donc rien a
+        // peindre -- sans cette garde on diviserait par zero et le sol
+        // deviendrait opaque partout.
+        float cover = (lLit > 1e-5) ? clamp(1.0 - lSha / lLit, 0.0, 1.0) : 0.0;
+        fragColor = vec4(0.0, 0.0, 0.0, cover);
+        return;
+    }
     fragColor  = vec4(color, 1.0);
 }

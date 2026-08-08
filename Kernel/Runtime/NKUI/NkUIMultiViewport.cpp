@@ -297,10 +297,15 @@ namespace nkentseu {
 				// Stratégie : créer un DrawList temporaire avec juste les commandes
 				// de cette fenêtre.
 
-				// Swapchain resize si nécessaire
+				// Swapchain resize si nécessaire. MINIMISEE = on saute : une
+				// fenetre reduite garde un rect placeholder (~160x28), jamais
+				// nul -- ce rect partait en OnResize et cassait les cibles du
+				// rendu (defaut 4.3 NK3DModeler, mort a la restauration).
+				if (vp.osWindow.IsMinimized())
+					continue;
 				const uint32 fbW = vp.osWindow.GetSize().width;
 				const uint32 fbH = vp.osWindow.GetSize().height;
-				if (fbW == 0 || fbH == 0)
+				if (fbW < 32 || fbH < 32)
 					continue;
 
 				if (fbW != vp.width || fbH != vp.height) {

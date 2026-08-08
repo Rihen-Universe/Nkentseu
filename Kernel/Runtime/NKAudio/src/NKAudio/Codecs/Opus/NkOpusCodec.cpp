@@ -2,7 +2,7 @@
  * @File    NkOpusCodec.cpp
  * @Brief   Decodeur Opus (.opus / Ogg-Opus) pour NKAudio — voir NkOpusCodec.h.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  */
 
 #include "NkOpusCodec.h"

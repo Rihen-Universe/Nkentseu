@@ -23,7 +23,7 @@
 //
 // Auteur : Rihen
 // Date   : 2026-06-24
-// License : Proprietary - Free to use and modify
+// License : Proprietary - All Rights Reserved (see LICENSE)
 // =============================================================================
 
 #pragma once

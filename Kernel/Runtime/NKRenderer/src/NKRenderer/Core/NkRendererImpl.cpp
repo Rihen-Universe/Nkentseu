@@ -287,6 +287,16 @@ namespace nkentseu {
 			sc.quality = mCfg.shadow.pcss
 							 ? NkVSMShadowQuality::PCSS
 							 : (mCfg.shadow.softShadows ? NkVSMShadowQuality::PCF3x3 : NkVSMShadowQuality::NONE);
+			// BIAIS ET DOUCEUR : ils n'etaient PAS transmis. La configuration
+			// promettait des reglages d'ombre que les shadow maps ne voyaient
+			// jamais -- on pouvait les changer sans le moindre effet a l'ecran.
+			sc.shadowBias = mCfg.shadow.slopeBias;
+			sc.normalBias = mCfg.shadow.normalBiasWorld;
+			sc.softness = mCfg.shadow.softness;
+			if (mCfg.shadow.cascadeLambda > 0.f)
+				sc.cascadeLambda = mCfg.shadow.cascadeLambda;
+			if (mCfg.shadow.maxDistance > 0.f)
+				sc.cascadeFar = mCfg.shadow.maxDistance;
 			mShadow.Reset(AllocOwned<NkVirtualShadowMaps>());
 			if (!mShadow->Init(mDevice, mMeshSystem.Get(), mMaterials.Get(), sc, mCfg.framesInFlight)) {
 				mShadow.Reset();
@@ -473,6 +483,14 @@ namespace nkentseu {
 			mUIOverlayCb = cb;
 			if (mInitialized)
 				RebuildRenderGraph();
+		}
+
+		void NkRendererImpl::SetBackgroundColor(NkVec4f rgba) {
+			if (mClearColor.x == rgba.x && mClearColor.y == rgba.y && mClearColor.z == rgba.z &&
+				mClearColor.w == rgba.w)
+				return; // reconstruire le graphe pour rien coute cher
+			mClearColor = rgba;
+			RebuildRenderGraph();
 		}
 
 		// =====================================================================
@@ -766,7 +784,16 @@ namespace nkentseu {
 				lit.Reads(gbufN);
 				lit.Reads(gbufE);
 				lit.Reads(mainDepth);
-				lit.SetColor(0, mainColor, NkLoadOp::NK_CLEAR, {0.05f, 0.05f, 0.07f, 1.f});
+				// LA COULEUR DE FOND DEMANDEE, pas une valeur ecrite en dur.
+				// C'est cette passe qui efface la cible en rendu DIFFERE :
+				// figee, elle rendait SetBackgroundColor sans effet des que le
+				// differe etait actif, et interdisait tout fond transparent
+				// puisque son alpha valait 1 (constate sur NK3DModeler, dont la
+				// sortie « fond transparent » produisait un aplat opaque).
+				// La valeur qui etait ecrite ici est justement le DEFAUT de
+				// mClearColor : rien ne change tant qu'on ne demande pas autre
+				// chose.
+				lit.SetColor(0, mainColor, NkLoadOp::NK_CLEAR, mClearColor);
 				lit.Execute([this, gbufA, gbufN, gbufE, mainDepth](NkICommandBuffer *cmd) {
 					mRender3D->RenderDeferredLighting(cmd, mRenderGraph->GetResourceTexture(gbufA),
 													  mRenderGraph->GetResourceTexture(gbufN),
@@ -782,7 +809,7 @@ namespace nkentseu {
 				fwd.Execute([this](NkICommandBuffer *cmd) { mRender3D->FlushForwardRest(cmd); });
 			} else if (has3D) {
 				auto &geom = g.AddPass("Geometry", NkPassType::NK_GEOMETRY);
-				geom.SetColor(0, mainColor, NkLoadOp::NK_CLEAR, {0.05f, 0.05f, 0.07f, 1.f})
+				geom.SetColor(0, mainColor, NkLoadOp::NK_CLEAR, mClearColor)
 					.SetDepth(mainDepth, NkLoadOp::NK_CLEAR, 1.f);
 				// shadowId n'est plus dans le graph (NkShadowSystem gere son atlas
 				// hors-graph). Le sequencing Shadows->Geometry est garanti par
@@ -1257,19 +1284,33 @@ namespace nkentseu {
 		bool NkRendererImpl::BeginFrame() {
 			if (!mInitialized)
 				return false;
-			mStats.Reset();
+			// mStats n'est PLUS remise a zero ici : l'overlay la lit PENDANT la
+			// frame, et l'effacer a l'ouverture lui faisait afficher des zeros
+			// perpetuels. Elle est recopiee en FIN de frame depuis les
+			// compteurs du command buffer -- le HUD montre donc la frame
+			// precedente, complete, comme le font les compteurs de rendu
+			// etablis.
 			mFrameCtx = {};
-			if (!mDevice->BeginFrame(mFrameCtx))
-				return false;
+			mCpuFrameStartNs = ::nkentseu::NkChrono::Now().nanoseconds;
 
-			// Auto-resize — PAS en mode SetRenderSizeOverride (le rendu est a une
-			// resolution independante ; la swapchain fenetre vit sa vie, le blit
-			// MirrorPresent fait le pont).
+			// ── LE REDIMENSIONNEMENT SE FAIT AVANT D'OUVRIR LA FRAME ────────────
+			// Il etait fait APRES mDevice->BeginFrame : on detruisait donc les
+			// cibles de rendu et on reconstruisait tout le graphe AU MILIEU d'une
+			// frame deja ouverte, alors que le contexte tient encore des liaisons
+			// sur ces memes ressources. C'est ce qui tuait l'application a la
+			// restauration d'une fenetre reduite -- le seul moment ou la sequence
+			// complete se declenche d'un coup. Redimensionner d'abord, ouvrir la
+			// frame ensuite : la frame demarre alors sur des ressources stables.
+			// (PAS en mode SetRenderSizeOverride : le rendu y a une resolution
+			// independante, la swapchain vit sa vie et MirrorPresent fait le pont.)
 			if (mRenderOverrideW == 0) {
-				uint32 sw = mDevice->GetSwapchainWidth(), sh = mDevice->GetSwapchainHeight();
+				const uint32 sw = mDevice->GetSwapchainWidth(), sh = mDevice->GetSwapchainHeight();
 				if ((sw != mCfg.width || sh != mCfg.height) && sw > 0 && sh > 0)
 					OnResize(sw, sh);
 			}
+
+			if (!mDevice->BeginFrame(mFrameCtx))
+				return false;
 
 			// Sélection « outline silhouette » : (dés)activer l'option ajoute/retire les
 			// passes SelectionMask + SelectionOutline du graph -> rebuild à l'aplomb de
@@ -1293,6 +1334,10 @@ namespace nkentseu {
 
 			mCmd->Reset();
 			mCmd->Begin();
+			// Les compteurs du command buffer repartent de zero avec la frame :
+			// c'est LUI qui compte (NkICommandBuffer, patron NVI), le renderer
+			// ne fait que recopier le total en fin de frame.
+			mCmd->ResetStats();
 
 			// Reset l'index du pool d'UBO objets de NkRender3D pour la nouvelle frame.
 			// Doit etre fait ici (et pas dans BeginScene) sinon des passes multiples
@@ -1308,6 +1353,26 @@ namespace nkentseu {
 
 		void NkRendererImpl::EndFrame() {
 			mDevice->EndFrame(mFrameCtx);
+			// ── LA FRAME EST COMPLETE : on fige ses statistiques ────────────
+			// Ces compteurs etaient AFFICHES depuis toujours (overlay
+			// « Draw/Tris/Batches ») mais jamais alimentes -- le cadran
+			// existait, l'aiguille n'avait jamais ete posee. Ils viennent du
+			// command buffer, seul point par ou TOUT appel de dessin passe.
+			if (mCmd) {
+				const NkICommandBuffer::NkCbStats &cs = mCmd->Stats();
+				mStats.drawCalls = cs.drawCalls;
+				mStats.triangles = cs.triangles;
+				mStats.vertices = cs.vertices;
+				// Un « batch » au sens de l'overlay est un appel qui a REGROUPE
+				// plusieurs primitives : approximation honnete, le compte exact
+				// appartient aux dessinateurs (Render2D/3D), pas au tampon.
+				mStats.batchCount = cs.drawCalls;
+			}
+			// Temps CPU de la frame, mesure ici meme ; le temps GPU demanderait
+			// des requetes de timestamp -- il reste a zero tant qu'elles ne
+			// sont pas cablees, plutot que d'afficher un chiffre invente.
+			mStats.cpuTimeMs =
+				(float32)((::nkentseu::NkChrono::Now().nanoseconds - mCpuFrameStartNs) / 1.0e6);
 		}
 
 		void NkRendererImpl::Present() {
@@ -1382,8 +1447,18 @@ namespace nkentseu {
 		}
 
 		void NkRendererImpl::ApplyRenderSize(uint32 w, uint32 h, bool touchDevice) {
-			if (w == 0 || h == 0)
+			// GARDE AU PUITS, pas seulement chez l'appelant : une fenetre en cours
+			// de minimisation glisse son rect de placeholder (~160x28 sous
+			// Windows) entre le test « minimisee ? » de la boucle et la lecture
+			// de taille -- la course est reelle (reproduite : mort au 3e cycle
+			// minimiser/restaurer). Sous 32 px, une cible divisee par la chaine
+			// de bloom (/32) tombe a zero et CreateTexture2D echoue en
+			// E_INVALIDARG : on refuse net, la vraie taille arrivera a la
+			// restauration.
+			if (w < 32 || h < 32) {
+				logger.Info("[NkRenderer] ApplyRenderSize {0}x{1} refuse (taille degeneree)\n", w, h);
 				return;
+			}
 			mCfg.width = w;
 			mCfg.height = h;
 			// Propage au RHI pour mettre a jour la swapchain virtuelle (viewport / FBO 0).
@@ -1401,6 +1476,18 @@ namespace nkentseu {
 				mOverlay->OnResize(w, h);
 			if (mPostProcess)
 				mPostProcess->OnResize(w, h);
+			// ON ATTEND QUE LE GPU AIT FINI AVANT DE DETRUIRE QUOI QUE CE SOIT.
+			// Le rebuild qui suit libere les ressources transitoires (cible HDR,
+			// depth, cibles intermediaires des passes) ; avec plusieurs frames en
+			// vol, le GPU peut encore etre en train de les lire. C'est ce qui
+			// tuait l'application a la RESTAURATION d'une fenetre reduite
+			// (constate par Rihen) : la sequence resize -> rebuild s'executait
+			// pendant que des frames precedentes n'etaient pas terminees.
+			// ResizeSwapchain fait deja ce WaitIdle pour SES ressources -- mais il
+			// n'est pas toujours atteint (taille inchangee, mode override), alors
+			// que le rebuild, lui, a lieu dans tous les cas.
+			if (mDevice)
+				mDevice->WaitIdle();
 			// Reset + rebuild du RenderGraph : les ressources transitoires (HDR target,
 			// depth buffer) sont dimensionnees via mCfg.width/height au moment du build,
 			// donc on doit les recreer apres un changement de taille. RebuildRenderGraph()

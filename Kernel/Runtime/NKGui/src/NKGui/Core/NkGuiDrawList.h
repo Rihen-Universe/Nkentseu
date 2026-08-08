@@ -2,7 +2,7 @@
 // -----------------------------------------------------------------------------
 // @File    NkGuiDrawList.h
 // @Brief   Liste de commandes de dessin NKGui — sortie indépendante du backend.
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // Géométrie (sommets + indices) + commandes (clip + texture). Un backend
 // (NKCanvas 2D / NKRHI 3D) consomme ce flux. Mémoire via NKMemory (NkVector).

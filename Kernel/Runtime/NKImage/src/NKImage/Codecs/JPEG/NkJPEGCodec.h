@@ -3,7 +3,7 @@
  * @File    NkJPEGCodec.h
  * @Brief   Codec JPEG — décodage et encodage JFIF/Exif baseline DCT.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  */
 #include "NKImage/Core/NkImage.h"
 

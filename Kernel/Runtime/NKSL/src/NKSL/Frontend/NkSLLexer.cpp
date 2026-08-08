@@ -259,8 +259,20 @@ namespace nkentseu {
 		return IsDigit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
 	}
 
+	bool NkSLLexer::IsBinDigit(char c) {
+		return c == '0' || c == '1';
+	}
+
 	void NkSLLexer::Error(const NkString &msg) {
 		mErrors.PushBack({mLine, mColumn, mFilename, msg, true});
+	}
+
+	// Erreur POSITIONNÉE au DÉBUT du token fautif, et non là où le lexer se trouve
+	// quand il s'en aperçoit : sur « 0x » suivi d'une parenthèse, mLine/mColumn
+	// désignent déjà la parenthèse, ce qui envoie le lecteur au mauvais endroit.
+	// C'est tout l'objet de l'exercice : dire QUOI et OÙ.
+	void NkSLLexer::ErrorAt(uint32 line, uint32 column, const NkString &msg) {
+		mErrors.PushBack({line, column, mFilename, msg, true});
 	}
 
 	// =============================================================================
@@ -288,23 +300,81 @@ namespace nkentseu {
 	}
 
 	// =============================================================================
+	// Littéraux numériques : décimaux, flottants, HEXADÉCIMAUX (0x/0X) et BINAIRES
+	// (0b/0B), signés comme non signés.
+	//
+	// POURQUOI L'HEXADÉCIMAL COMPTE ICI : tout noyau qui décode un format
+	// quantifié par blocs (Q4_K, Q6_K…) n'est qu'une suite de masques et de
+	// décalages. Écrits en décimal — 255u, 1023u, 2139095040u — ils sont
+	// illisibles et invérifiables à l'œil ; `0xFFu`, `0x3FFu`, `0x7F800000u` se
+	// relisent contre la spec. Le binaire rend en plus les masques de bits
+	// contigus évidents (`0b1111u`).
+	//
+	// CE QUI EST DIAGNOSTIQUÉ (et pourquoi) : un littéral mal formé ne doit
+	// JAMAIS se transformer silencieusement en deux tokens (« 0x » puis un
+	// identifiant), sinon l'erreur ressort bien plus loin sous une forme qui ne
+	// désigne pas la cause — au bout de la chaîne, un simple « échec de
+	// pipeline ». Chaque défaut est donc signalé ICI, avec sa ligne et sa
+	// colonne de DÉBUT.
+	// =============================================================================
 	NkSLToken NkSLLexer::ReadNumber() {
 		NkSLToken tok;
 		tok.line = mLine;
 		tok.column = mColumn;
-		NkString buf;
-		bool isFloat = false, isDouble = false, isHex = false, isUint = false;
+		const uint32 startLine = mLine;
+		const uint32 startCol = mColumn;
+
+		NkString buf;	 // texte brut, pour tok.text (diagnostics lisibles)
+		NkString digits; // chiffres SEULS, sans préfixe ni suffixe -> strtoull
+		bool isFloat = false, isDouble = false, isUint = false;
+		int base = 10;
+		uint32 digitCount = 0;
 
 		if (Current() == '0' && (LookAhead() == 'x' || LookAhead() == 'X')) {
-			// Hexadécimal
-			buf += Advance();
-			buf += Advance();
-			isHex = true;
-			while (!IsAtEnd() && IsHexDigit(Current()))
-				buf += Advance();
+			base = 16;
+			buf += Advance(); // '0'
+			buf += Advance(); // 'x'
+			while (!IsAtEnd() && IsHexDigit(Current())) {
+				const char c = Advance();
+				buf += c;
+				digits += c;
+				++digitCount;
+			}
+			if (digitCount == 0)
+				ErrorAt(startLine, startCol,
+						NkString("littéral hexadécimal sans chiffre après '") + buf + "' (attendu 0-9, a-f, A-F)");
+			// 16 chiffres = 64 bits : au-delà, strtoull saturerait en silence et le
+			// masque généré ne serait pas celui qui est écrit.
+			else if (digitCount > 16)
+				ErrorAt(startLine, startCol, NkString("littéral hexadécimal trop grand pour 64 bits : '") + buf + "'");
+		} else if (Current() == '0' && (LookAhead() == 'b' || LookAhead() == 'B')) {
+			// 0b n'existe pas en GLSL : aucun shader existant ne peut régresser,
+			// l'ajout est strictement additif.
+			base = 2;
+			buf += Advance(); // '0'
+			buf += Advance(); // 'b'
+			while (!IsAtEnd() && IsBinDigit(Current())) {
+				const char c = Advance();
+				buf += c;
+				digits += c;
+				++digitCount;
+			}
+			if (digitCount == 0)
+				ErrorAt(startLine, startCol,
+						NkString("littéral binaire sans chiffre après '") + buf + "' (attendu 0 ou 1)");
+			else if (digitCount > 64)
+				ErrorAt(startLine, startCol, NkString("littéral binaire trop grand pour 64 bits : '") + buf + "'");
+			// `0b12` : le '2' n'est pas un chiffre binaire. Le signaler ici évite
+			// qu'il devienne un littéral décimal collé au précédent.
+			else if (IsDigit(Current()))
+				ErrorAt(startLine, startCol, NkString("chiffre '") + NkString(1, Current()) +
+												 "' invalide dans un littéral binaire (attendu 0 ou 1)");
 		} else {
-			while (!IsAtEnd() && IsDigit(Current()))
-				buf += Advance();
+			while (!IsAtEnd() && IsDigit(Current())) {
+				const char c = Advance();
+				buf += c;
+				digits += c;
+			}
 			// Partie fractionnaire : un '.' après les chiffres EST toujours le point
 			// décimal (un littéral numérique n'a pas de membre), donc on accepte aussi
 			// le point final sans chiffre `1.` (= 1.0, GLSL valide) en plus de `1.0`.
@@ -319,22 +389,41 @@ namespace nkentseu {
 				buf += Advance();
 				if (Current() == '+' || Current() == '-')
 					buf += Advance();
-				while (!IsAtEnd() && IsDigit(Current()))
+				uint32 expDigits = 0;
+				while (!IsAtEnd() && IsDigit(Current())) {
 					buf += Advance();
+					++expDigits;
+				}
+				if (expDigits == 0)
+					ErrorAt(startLine, startCol, NkString("exposant vide dans le littéral flottant '") + buf + "'");
 			}
 		}
 
-		// Suffixe
-		if (Current() == 'f' || Current() == 'F') {
+		// --- Suffixe -----------------------------------------------------------
+		// `lf`/`LF` (double, GLSL) est testé AVANT le 'f' seul, sinon `1.0lf` se
+		// lirait comme `1.0l` + `f` et le 'l' resterait un identifiant orphelin.
+		if ((Current() == 'l' || Current() == 'L') && (LookAhead() == 'f' || LookAhead() == 'F')) {
+			isDouble = true;
+			buf += Advance();
+			buf += Advance();
+		} else if (base == 10 && (Current() == 'f' || Current() == 'F')) {
+			// En base 16, 'f' EST un chiffre : il a déjà été consommé plus haut.
 			isFloat = true;
 			buf += Advance();
-		} else if (Current() == 'd' || Current() == 'D') {
+		} else if (base == 10 && (Current() == 'd' || Current() == 'D')) {
 			isDouble = true;
 			buf += Advance();
 		} else if (Current() == 'u' || Current() == 'U') {
 			isUint = true;
 			buf += Advance();
 		}
+
+		// Un caractère alphanumérique COLLÉ au littéral (`12abc`, `0xFFz`) est
+		// toujours une faute de frappe. Sans ce contrôle il devient un identifiant
+		// séparé et l'erreur ressort ailleurs, sur une ligne qui n'a rien à voir.
+		if (!IsAtEnd() && IsAlNum(Current()))
+			ErrorAt(startLine, startCol, NkString("caractère '") + NkString(1, Current()) +
+											 "' collé au littéral numérique '" + buf + "' (suffixe attendu : u, f, lf)");
 
 		tok.text = buf;
 		if (isDouble) {
@@ -343,12 +432,21 @@ namespace nkentseu {
 		} else if (isFloat) {
 			tok.kind = NkSLTokenKind::NK_LIT_FLOAT;
 			tok.floatVal = atof(buf.CStr());
-		} else if (isUint) {
-			tok.kind = NkSLTokenKind::NK_LIT_UINT;
-			tok.uintVal = (uint64)strtoull(buf.CStr(), nullptr, isHex ? 16 : 10);
 		} else {
-			tok.kind = NkSLTokenKind::NK_LIT_INT;
-			tok.intVal = (int64)strtoll(buf.CStr(), nullptr, isHex ? 16 : 10);
+			const uint64 v = digits.Empty() ? 0ull : (uint64)strtoull(digits.CStr(), nullptr, base);
+			// Un masque hexadécimal/binaire SANS suffixe qui dépasse la plage d'un
+			// int 32 bits (`0xFFFFFFFF`) est un motif de BITS, pas un entier signé :
+			// le générateur écrit les littéraux en DÉCIMAL, et « 4294967295 » ne
+			// tient pas dans un int GLSL. On le classe donc uint — le suffixe reste
+			// libre pour qui veut être explicite. En base 10, on ne touche à rien.
+			const bool bitPatternTooBig = (base != 10) && !isUint && v > 0x7FFFFFFFull;
+			if (isUint || bitPatternTooBig) {
+				tok.kind = NkSLTokenKind::NK_LIT_UINT;
+				tok.uintVal = v;
+			} else {
+				tok.kind = NkSLTokenKind::NK_LIT_INT;
+				tok.intVal = (int64)v;
+			}
 		}
 		return tok;
 	}
@@ -493,7 +591,11 @@ namespace nkentseu {
 				tok.kind = NkSLTokenKind::NK_HASH;
 				break;
 			default:
+				// Un caractère que le langage ne connaît pas produisait un token
+				// NK_UNKNOWN muet : le parser échouait ensuite sur « got '' », sans
+				// dire quel caractère ni où. On le nomme et on le situe.
 				tok.kind = NkSLTokenKind::NK_UNKNOWN;
+				ErrorAt(tok.line, tok.column, NkString("caractère inattendu '") + NkString(1, c) + "' dans la source");
 				break;
 		}
 		return tok;

@@ -9,7 +9,7 @@
 //
 // Auteur : Rihen
 // Date : 2024-2026
-// License : Proprietary - Free to use and modify
+// License : Proprietary - All Rights Reserved (see LICENSE)
 // =============================================================================
 
 #include "NkLimits.h"
@@ -128,5 +128,5 @@ namespace nkentseu {
 
 // ============================================================
 // Copyright © 2024-2026 Rihen. All rights reserved.
-// Proprietary License - Free to use and modify
+// Proprietary License - All Rights Reserved (see LICENSE)
 // ============================================================

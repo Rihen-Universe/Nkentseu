@@ -712,6 +712,10 @@ namespace nkentseu {
 		}
 	}
 
+	bool NkWindow::IsMinimized() const {
+		return mData.mNSWindow && [mData.mNSWindow isMiniaturized];
+	}
+
 	void NkWindow::Maximize() {
 		if (mData.mNSWindow) {
 			[mData.mNSWindow zoom:nil];

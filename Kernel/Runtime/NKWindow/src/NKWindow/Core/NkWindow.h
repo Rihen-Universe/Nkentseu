@@ -127,6 +127,11 @@ namespace nkentseu {
 			void Maximize();
 			void Restore();
 			bool IsMaximized() const; ///< true si la fenetre est maximisee (pour barre de titre custom)
+			/// true si la fenetre est REDUITE (barre des taches). A interroger avant
+			/// de rendre/redimensionner : une fenetre reduite garde un rect de
+			/// placeholder non nul (~160x28 sous Windows), tester la taille ne
+			/// detecte donc jamais la minimisation.
+			bool IsMinimized() const;
 			void BeginDragMove();	  ///< hand-off natif du deplacement (barre de titre custom, fenetre sans bordure)
 			// Presse-papiers texte (UTF-8). Win32 = vrai presse-papiers OS ; autres
 			// plateformes = fallback interne a l'application (copier/coller intra-app).

@@ -234,20 +234,20 @@ namespace nkentseu {
 							 fmt == NkIndexFormat::NK_UINT16 ? VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32);
 	}
 
-	// ── Draw ──────────────────────────────────────────────────────────────────────
-	void NkVulkanCommandBuffer::Draw(uint32 v, uint32 i, uint32 fv, uint32 fi) {
+	// ── Draw (les publiques comptent dans NkICommandBuffer, patron NVI) ──────────
+	void NkVulkanCommandBuffer::DrawImpl(uint32 v, uint32 i, uint32 fv, uint32 fi) {
 		vkCmdDraw(mCmdBuf, v, i, fv, fi);
 	}
 
-	void NkVulkanCommandBuffer::DrawIndexed(uint32 idx, uint32 inst, uint32 fi, int32 vo, uint32 fInst) {
+	void NkVulkanCommandBuffer::DrawIndexedImpl(uint32 idx, uint32 inst, uint32 fi, int32 vo, uint32 fInst) {
 		vkCmdDrawIndexed(mCmdBuf, idx, inst, fi, vo, fInst);
 	}
 
-	void NkVulkanCommandBuffer::DrawIndirect(NkBufferHandle buf, uint64 off, uint32 cnt, uint32 stride) {
+	void NkVulkanCommandBuffer::DrawIndirectImpl(NkBufferHandle buf, uint64 off, uint32 cnt, uint32 stride) {
 		vkCmdDrawIndirect(mCmdBuf, mDev->GetVkBuffer(buf.id), off, cnt, stride);
 	}
 
-	void NkVulkanCommandBuffer::DrawIndexedIndirect(NkBufferHandle buf, uint64 off, uint32 cnt, uint32 stride) {
+	void NkVulkanCommandBuffer::DrawIndexedIndirectImpl(NkBufferHandle buf, uint64 off, uint32 cnt, uint32 stride) {
 		vkCmdDrawIndexedIndirect(mCmdBuf, mDev->GetVkBuffer(buf.id), off, cnt, stride);
 	}
 

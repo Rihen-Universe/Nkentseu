@@ -777,6 +777,12 @@ with workspace("Nkentseu", location="."):
 
 
 
+    with include("Applications/NK3DModeler/NK3DModeler.jenga"):
+
+        pass
+
+
+
     # Integrations decouplees (ImGui / NKUI -> NKCanvas/NKRHI). Optionnelles :
 
     # une app les lie seulement si elle en a besoin (ImGui n'est PAS tire dans
@@ -833,6 +839,12 @@ with workspace("Nkentseu", location="."):
 
 
     with include("Applications/Sandbox/Sandbox.jenga"):
+
+        pass
+
+
+
+    with include("Applications/ConquerorProto/ConquerorProto.jenga"):
 
         pass
 
@@ -1190,6 +1202,60 @@ with workspace("Nkentseu", location="."):
 
 
 
+    with include("Applications/NKQwenTokenizerTest/NKQwenTokenizerTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKQwen2BackwardTest/NKQwen2BackwardTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKQwen2SftTest/NKQwen2SftTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKQ4MatmulTest/NKQ4MatmulTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKQwen2GpuTest/NKQwen2GpuTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKQwen2Chat/NKQwen2Chat.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKQwen2SftGpuTest/NKQwen2SftGpuTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKQwen2Train/NKQwen2Train.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKQwen2Ask/NKQwen2Ask.jenga"):
+
+        pass
+
+
+
     with include("Applications/NKRLTest/NKRLTest.jenga"):
 
         pass
@@ -1362,6 +1428,12 @@ with workspace("Nkentseu", location="."):
 
 
     with include("Applications/NKEditorKitDemo/NKEditorKitDemo.jenga"):
+
+        pass
+
+
+
+    with include("Applications/ConquerorLab/ConquerorLab.jenga"):
 
         pass
 

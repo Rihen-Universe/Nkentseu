@@ -2,7 +2,7 @@
 // @File    NkUIContext.h
 // @Brief   Contexte global NkUI — état de l'interface par frame.
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // @Design
 //  NkUIContext est l'objet central de NkUI. Contrairement à ImGui

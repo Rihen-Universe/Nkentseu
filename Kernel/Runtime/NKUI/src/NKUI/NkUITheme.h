@@ -2,7 +2,7 @@
 // @File    NkUITheme.h
 // @Brief   Thème NkUI — couleurs, mesures, polices, animations.
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // @Design
 //  NkUITheme contient TOUTES les valeurs visuelles de l'interface.
