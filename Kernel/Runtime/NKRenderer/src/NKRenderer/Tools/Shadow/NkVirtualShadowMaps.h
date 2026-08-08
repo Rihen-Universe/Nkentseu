@@ -65,23 +65,59 @@ namespace nkentseu {
 				float32 cascadeNear = 0.1f;
 				float32 cascadeFar = 200.f;
 				// Bias depth en NDC space (apres mapping [0,1]). Scale par 1/(N.L)
-				// cote shader (slope bias). NkVSM v1 : reduit a 0.0005 car le
-				// normal bias en world units (normalBias ci-dessous) couvre la
-				// majorite des cas. Depth bias = anti-acne fin uniquement.
-				float32 shadowBias = 0.0005f;
-				// Normal bias en WORLD UNITS : pousse worldPos le long de N avant
-				// la projection shadow. Anti peter-panning (decollement ombre au
-				// pied du caster). 0.05 = 5cm, marche pour la plupart des scenes.
-				// Pour les casters tres petits/larges, scale en consequence.
-				float32 normalBias = 0.05f;
-				// Softness UV space pour PCF/PCSS.
-				float32 softness = 0.003f;
+				// cote shader (slope bias). Anti-acne FIN uniquement : c'est le
+				// normal bias en texels (ci-dessous) qui porte l'essentiel.
+				//
+				// Reduit de 0.0005 a 0.00015 : dans la profondeur NON LINEAIRE
+				// d'une omni/spot (et multiplie par la croissance en distance cote
+				// shader), 0.0005 valait plusieurs CENTIMETRES au recepteur -- il
+				// poussait le sol vers la lumiere, et l'ombre RECULAIT du point de
+				// contact : l'objet semblait flotter meme avec un normal bias
+				// juste (constate par Rihen, cube au sol).
+				float32 shadowBias = 0.00015f;
+				// Normal bias en TEXELS du tile echantillonne (le shader le
+				// convertit en unites monde via la taille reelle du texel de la
+				// cascade/face choisie -- cf. NkShadowTexelWorld, glsli).
+				//
+				// ANCIENNEMENT en unites monde (0.05 = 5 cm), calibre sur la
+				// cascade lointaine : sur la cascade proche, ou le texel vaut
+				// quelques millimetres, le meme decalage etait 10 a 100 fois trop
+				// grand. Applique a la normale verticale d'un sol, il testait
+				// chaque point du sol 5 cm au-dessus de lui-meme : le contact des
+				// ombres au pied des objets disparaissait (« cube qui flotte »,
+				// constate par Rihen). En texels, l'echelle est la BONNE partout,
+				// parce que c'est l'erreur de quantification de la shadow map --
+				// ~1 texel par construction -- que ce biais compense.
+				//
+				// 0.15 : le PCF extrapole le PLAN DU RECEPTEUR a chaque tap (cf.
+				// NkShadowAtlas.glsli) -- l'ecart structurel centre/voisins, qui
+				// imposait le gros du biais, est corrige a la source ; l'acne du
+				// tap central est tenue par le slope bias. Et le texel n'est PAS
+				// petit partout : sur une face de point light 512 px vue a 5 m, il
+				// vaut ~2 cm -- le demi-texel d'avant soulevait donc l'ombre d'UN
+				// CENTIMETRE, tres exactement le decollement mesure par Rihen a
+				// l'oeil sur le sol infini. 0.15 texel = ~3 mm dans ce meme cas.
+				float32 normalBias = 0.15f;
+				// Softness UV space pour PCF/PCSS. 0.0015 et non 0.003 : le noyau
+				// PCF vaut softness * largeurAtlas * 0.25 texels, soit 3 texels a
+				// 0.003 sur un atlas de 4096. Sur une face de point light, 3 texels
+				// font une penombre enorme rapportee a sa resolution -- l'ombre
+				// devenait une tache floue sans contour lisible.
+				float32 softness = 0.0015f;
 				// Stratification tile size pour cascades : tile[i] = baseTile / (1 << i).
 				uint32 cascadeBaseTile = 1024;
 				// Tile size pour spot (constant V0, pourra etre adaptatif distance V1).
-				uint32 spotTile = 512;
+				uint32 spotTile = 1024;
 				// Tile size pour 1 face de cubemap point (6 tiles par point caster).
-				uint32 pointFaceTile = 256;
+				//
+				// 1024 et non 256 : une omni doit couvrir 90 deg dans CHAQUE
+				// direction, la ou une cascade directionnelle cadre une tranche
+				// serree de la vue. A 256 px, un cube de 2 m vu a 5 m n'occupait
+				// qu'une poignee de texels : son ombre sortait en escalier, floue et
+				// sans contour franc -- « mal faite, ni jolie ni coherente »
+				// (Rihen). Seize fois plus de texels par face, pour ~6 Mpx d'atlas
+				// sur les 16 disponibles : le cout tient, le gain est immediat.
+				uint32 pointFaceTile = 1024;
 				// Stable shadows : snap au texel pour eviter shadow swimming.
 				bool stable = true;
 				// Mode FIXE radius par cascade (V0 stable, anti-flickering total).

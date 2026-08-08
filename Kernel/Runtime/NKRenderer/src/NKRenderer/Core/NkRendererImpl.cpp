@@ -291,7 +291,7 @@ namespace nkentseu {
 			// promettait des reglages d'ombre que les shadow maps ne voyaient
 			// jamais -- on pouvait les changer sans le moindre effet a l'ecran.
 			sc.shadowBias = mCfg.shadow.slopeBias;
-			sc.normalBias = mCfg.shadow.normalBiasWorld;
+			sc.normalBias = mCfg.shadow.normalBiasTexels;
 			sc.softness = mCfg.shadow.softness;
 			if (mCfg.shadow.cascadeLambda > 0.f)
 				sc.cascadeLambda = mCfg.shadow.cascadeLambda;
