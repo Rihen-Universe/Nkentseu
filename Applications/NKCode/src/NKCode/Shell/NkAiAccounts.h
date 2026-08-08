@@ -282,25 +282,50 @@ namespace nkentseu {
 		// de SESSION, tapee DANS une session interactive. Passee en argument, le
 		// CLI la prend pour un PROMPT et ne connecte personne (constate en
 		// l'executant). Sous-commandes reelles : auth login | logout | status.
-		// ATTENTION : cette chaine est passee telle quelle au shell du terminal. La
-		// forme ci-dessous est du cmd.exe (`set "X=Y" && ...`) — l'appelant DOIT donc
-		// demander un terminal cmd. Lancee dans PowerShell, `set` est un alias de
-		// Set-Variable et `&&` n'existe pas en 5.1 : le shell meurt aussitot, ce qui
-		// se voyait comme un « [processus termine] » instantane (constate).
+		// ── Pourquoi un SCRIPT et pas une ligne de commande ─────────────────────
+		// Le terminal ne passe PAS `cmdOverride` a un shell : il le lance tel quel
+		// comme programme (NkPty::Start, cf. TerminalPanel — quand cmdOverride est
+		// defini, PtyCommand n'est meme pas appele). Une ligne du type
+		// `set "X=Y" && "exe" auth login` ne pouvait donc RIEN lancer : `set` est
+		// une commande interne de cmd, pas un executable. C'est la vraie cause du
+		// « [processus termine] » instantane — le shell choisi n'y etait pour rien.
+		//
+		// NkPty::Start n'accepte par ailleurs aucun environnement, et le CLI n'a pas
+		// de drapeau equivalent a CLAUDE_CONFIG_DIR (verifie dans --help). On ecrit
+		// donc un petit script dans le dossier du compte : il pose la variable puis
+		// appelle le CLI. Avantage supplementaire, plus aucune imbrication de
+		// guillemets a faire survivre a cmd.exe.
 		inline NkString NkAiLoginCommand(const NkString &exe, const NkString &name) {
 			const NkString dir = NkAiAccountDir(name);
 #if defined(_WIN32)
-			NkString c = "set \"CLAUDE_CONFIG_DIR=";
-			c += dir;
-			c += "\" && \"";
-			c += exe;
-			c += "\" auth login";
+			const NkString script = (NkPath(dir.CStr()) / "login.cmd").ToString();
+			NkString sc = "@echo off\r\n";
+			sc += "set \"CLAUDE_CONFIG_DIR=";
+			sc += dir;
+			sc += "\"\r\n\"";
+			sc += exe;
+			sc += "\" auth login\r\n";
+			NkFile::WriteAllText(NkPath(script.CStr()), sc);
+			// /k : la fenetre RESTE ouverte apres la connexion, sinon le resultat
+			// (succes comme erreur) disparaitrait avant d'avoir pu etre lu.
+			NkString c = "cmd.exe /k \"";
+			c += script;
+			c += "\"";
 #else
-			NkString c = "CLAUDE_CONFIG_DIR=\"";
-			c += dir;
-			c += "\" \"";
-			c += exe;
-			c += "\" auth login";
+			const NkString script = (NkPath(dir.CStr()) / "login.sh").ToString();
+			NkString sc = "#!/bin/sh\n";
+			sc += "CLAUDE_CONFIG_DIR=\"";
+			sc += dir;
+			sc += "\"\nexport CLAUDE_CONFIG_DIR\n\"";
+			sc += exe;
+			sc += "\" auth login\n";
+			// Rend la main a un shell interactif : sans cela l'onglet se fermerait
+			// sur la derniere ligne, resultat compris.
+			sc += "exec \"${SHELL:-/bin/sh}\" -i\n";
+			NkFile::WriteAllText(NkPath(script.CStr()), sc);
+			NkString c = "/bin/sh \"";
+			c += script;
+			c += "\"";
 #endif
 			return c;
 		}
