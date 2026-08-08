@@ -51,7 +51,15 @@ namespace nkentseu {
 		// un contenu reel. Les fichiers de format 1 restent lisibles -- leur
 		// section dit `"serialisee": false` et rien n'en est restaure, ce qui est
 		// exactement ce qu'ils annoncaient.
-		static const int32 kProjectFormatVersion = 2;
+		//
+		// 2 -> 3 (UN FICHIER PAR ASSET, decision de Rihen du 8 aout) : le .nk3dm
+		// ne porte plus AUCUNE donnee d'asset -- seulement la configuration
+		// globale, l'arbre du navigateur et le CHEMIN RELATIF du fichier de chaque
+		// carte. Le contenu vit dans `.nkscene` / `.nkmesh` / `.nkmat`.
+		// Un fichier de format 2 reste lu tel quel, puis reecrit dans la nouvelle
+		// disposition au premier enregistrement : c'est une MIGRATION, personne ne
+		// perd son projet parce que la disposition a change.
+		static const int32 kProjectFormatVersion = 3;
 
 		// Extension du projet du modeleur. Elle vit ICI et nulle part ailleurs --
 		// la lecon des tables recopiees (cf. CONVENTIONS_FICHIERS.md §3).

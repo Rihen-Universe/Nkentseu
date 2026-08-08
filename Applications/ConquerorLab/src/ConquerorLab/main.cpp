@@ -31,6 +31,7 @@
 #include "NKFileSystem/NkFile.h"
 #include "NKLogger/NkLog.h"
 
+#include "ConquerorLab/NkcLayout.h"
 #include "ConquerorLab/NkcModuleHost.h"
 #include "ConquerorLab/NkcSession.h"
 #include "ConquerorLab/NkcLabTheme.h"
@@ -40,6 +41,7 @@
 #include "ConquerorLab/NkcModulesPanel.h"
 #include "ConquerorLab/NkcJournalPanel.h"
 #include "ConquerorLab/NkcMetricsPanel.h"
+#include "ConquerorLab/NkcOutputPanel.h"
 
 using namespace nkentseu;
 using namespace nkentseu::editorkit;
@@ -60,7 +62,12 @@ namespace {
 	/// plateforme, et compter les niveaux casse silencieusement des qu'un
 	/// dossier change.
 	NkString FindRepoRoot() noexcept {
-		static const char *kMarker = "/Applications/ConquerorLab/include/Conqueror/ConquerorRulesABI.h";
+		// DEUX marqueurs : l'arborescence de developpement, et celle du kit livre.
+		// Le kit ne recopie plus la disposition du depot — voir NkcLayout.h.
+		static const char *kMarkers[2] = {
+			"/Applications/ConquerorLab/include/Conqueror/ConquerorRulesABI.h",
+			"/include/Conqueror/ConquerorRulesABI.h"
+		};
 
 		NkString bases[2];
 		bases[0] = NkPath::GetExecutableDirectory().ToString();
@@ -69,9 +76,11 @@ namespace {
 		for (int32 b = 0; b < 2; ++b) {
 			NkString cur = bases[b];
 			for (int32 up = 0; up < 8 && !cur.Empty(); ++up) {
-				NkString probe = cur;
-				probe += kMarker;
-				if (NkFile::Exists(probe.CStr())) return cur;
+				for (int32 m = 0; m < 2; ++m) {
+					NkString probe = cur;
+					probe += kMarkers[m];
+					if (NkFile::Exists(probe.CStr())) return cur;
+				}
 				const usize slash = cur.RFind('/');
 				const usize back  = cur.RFind('\\');
 				usize		cut	  = slash;
@@ -89,6 +98,8 @@ namespace {
 	/// Etat applicatif. Statique : sa duree de vie doit couvrir celle du shell,
 	/// qui NE POSSEDE PAS les panneaux.
 	struct LabApp {
+			NkcLayout		layout;
+			NkcModuleLog	modLog;
 			NkcModuleHost host;
 			NkcSession	  session;
 
@@ -98,6 +109,7 @@ namespace {
 			NkcModulesPanel modules{&session};
 			NkcJournalPanel journal{&session};
 			NkcMetricsPanel metrics{&session};
+			NkcOutputPanel  output{&modLog};
 
 			NkEditorShell *shell   = nullptr;
 			int32		   lastW   = 0;
@@ -188,22 +200,47 @@ int nkmain(const NkEntryState &state) {
 	cfg.height = 900;
 	if (!shell->Init(cfg)) return -1;
 
-	// Charte RIHEN — APRES Init (cf. en-tete, point 2).
-	ApplyRihenTheme(shell->Ui());
+	// GitHub Dark Pro — APRES Init (cf. en-tete, point 2).
+	ApplyGitHubDarkPro(shell->Ui());
+
+	// PAS DE BARRES D'ACTIVITE. Elles servent a basculer entre des « vues » dans
+	// un IDE ; l'atelier n'en a aucune, et les garder lui donnait le chrome de
+	// NKCode sans en avoir le metier. Le dock reprend toute la largeur.
+	shell->SetActivityBars(false, false);
+
+	// NOS PANNEAUX OUVRENT DES COMBOS (grille, pilote, palier). Par defaut la
+	// coquille neutralise l'input du corps des qu'un popup NKGui est sous la
+	// souris — protection destinee aux menus de la barre de titre. Mais un combo
+	// de panneau est dessine DANS le corps : il s'ouvrait, puis n'acceptait plus
+	// aucun clic et refusait de se refermer.
+	//
+	// En echange, tous nos hit-tests « bruts » (plateau, listes) sont gardes par
+	// `ctx.popupDepth == 0` : un clic destine a un popup ne traverse pas.
+	shell->SetMaskBodyOnPopup(false);
 
 	static LabApp app;
 	gApp	  = &app;
 	app.shell = shell.Get();
 
-	const NkString root = FindRepoRoot();
-	NkString	   rulesDir = root;
-	rulesDir += "/Build/ConquerorLab/rules";
-	NkString aiDir = root;
-	aiDir += "/Build/ConquerorLab/ai";
-	logger.Infof("[lab] racine du depot : %s", root.CStr());
+	// TROIS DOSSIERS, TROIS NATURES DE CONTRIBUTION — c'est tout ce qu'un
+	// stagiaire a besoin de savoir :
+	//   rules/  un .cpp qui implemente NkcRulesVTable  -> compile et charge
+	//   ai/     un .cpp qui implemente NkcAIVTable     -> compile et charge
+	//   boards/ un .json au format LoadBoardJson       -> lu tel quel, sans build
+	app.layout.Init(FindRepoRoot());
+	const NkString boardsDir = app.layout.WorkDir("boards");
+	// Bibliotheque de grilles livree, recopiee au premier lancement dans le
+	// dossier de travail. Sans elle, la liste des grilles n'avait qu'une entree
+	// et il n'y avait litteralement rien a choisir.
+	//
+	// Elle ne vit pas au meme endroit dans les deux dispositions : c'est
+	// NkcLayout qui sait, pas ce fichier.
+	const NkString boardsSeed = app.layout.SeedBoardsDir();
+	logger.Infof("[lab] racine (%s) : %s", app.layout.KindName(),
+				 app.layout.Root().CStr());
 
-	app.host.Init(root, rulesDir, aiDir);
-	app.session.Init(&app.host);
+	app.host.Init(app.layout, &app.modLog);
+	app.session.Init(&app.host, boardsDir, boardsSeed);
 
 	shell->AddPanel(&app.board);
 	shell->AddPanel(&app.rules);
@@ -211,6 +248,7 @@ int nkmain(const NkEntryState &state) {
 	shell->AddPanel(&app.modules);
 	shell->AddPanel(&app.journal);
 	shell->AddPanel(&app.metrics);
+	shell->AddPanel(&app.output);
 
 	shell->SetOverlay(&TickApp, &app);
 	shell->SetAppMenu(&AppMenu, &app);

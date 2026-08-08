@@ -263,12 +263,8 @@ namespace nkentseu {
 				char hdrPath[256] = {0};
 				int32 hdrOk = 0; // 0 rien tente, 1 charge, -1 echec
 				float32 colorDragDX = 0.f, colorDragDY = 0.f;
-				// Chaque ONGLET DE SCENE garde sa pose de camera : cible, distance,
-				// lacet, tangage, ortho. C'est ce qui rend les onglets FONCTIONNELS
-				// aujourd'hui ; les objets par scene viendront avec le format projet.
-				float32 sceneCamPose[8][6] = {}; // cible xyz, distance, lacet, tangage
-				bool sceneCamOrtho[8] = {};
-				bool sceneCamSet[8] = {};
+				// (La pose de camera par scene a rejoint la TABLE DES DOCUMENTS,
+				// plus bas : elle appartient a la scene, pas a la vue qui la montre.)
 				// Tab bar d'ESPACES au-dessus de la vue (Modelisation seul pour
 				// l'instant) ; son en-tete s'escamote.
 				bool wsBarOpen = true;
@@ -515,23 +511,107 @@ namespace nkentseu {
 				int32 browPrevFolder = -1;
 				bool browHistNav = false;
 				int32 lightSrcUi = 0;
+				// ── DOCUMENTS DU PROJET ─────────────────────────────────────
+				// UNE SCENE N'EST PAS UN ONGLET. L'onglet est une VUE ; le
+				// document est la chose vue. Les confondre violait la regle de
+				// Rihen (« fermer un onglet ne doit JAMAIS supprimer quoi que ce
+				// soit ») : la fermeture emportait la scene, et l'enregistrement
+				// suivant ne la retrouvait plus -- ses noeuds restaient orphelins
+				// dans le fichier.
+				//
+				// EMPLACEMENTS STABLES : une entree liberee laisse un TROU
+				// (`docUsed` faux) au lieu de decaler ses voisines. Un onglet et
+				// une carte du navigateur gardent un indice de document ; un
+				// decalage les ferait pointer sur le document d'a cote.
+				static const int32 kMaxDocs = 32;
+				bool docUsed[32] = {true};
+				// Maquette d'EDITEUR d'asset ou d'ISOLATION : elle nait avec sa vue
+				// et meurt avec elle (cf. NkActivateTab). Jamais enregistree --
+				// l'ASSET, lui, vit dans le navigateur et survit a sa vue.
+				bool docTransient[32] = {};
+				char docName[32][32] = {"Scene"};
+				uint8 docScene[32] = {}; ///< numero de document cote hote
 				// Une scene AJOUTEE est VIERGE : les objets de la demo y sont masques.
-				bool sceneBlank[8] = {};
+				bool docBlank[32] = {};
+				// CHAQUE SCENE A SES PROPRIETES (Rihen) : unites et vue vivent avec
+				// le document, pas avec l'onglet -- sinon elles disparaissaient avec
+				// lui.
+				int32 docUnitSys[32] = {};
+				int32 docUnitLen[32] = {};
+				float32 docUnitScale[32] = {1.f};
+				float32 docCamPose[32][6] = {}; ///< cible xyz, distance, lacet, tangage
+				bool docCamSet[32] = {};
+				bool docCamOrtho[32] = {};
+				// MODIFIE DEPUIS LE DERNIER ENREGISTREMENT, par document.
+				bool docDirty[32] = {};
+				int32 docCard[32] = {};	   ///< carte du navigateur + 1 (0 = aucune)
+				int32 docIsoNode[32] = {}; ///< noeud+1 ISOLE dans ce document
+				uint8 docIsoHome[32] = {}; ///< scene hote d'origine du noeud isole
+				// Le noeud isole est un ASSET du navigateur, pas un objet de scene :
+				// en quittant la vue il ne « rentre » nulle part, il est REARCHIVE.
+				// Sans cette distinction, l'editeur de Model travaillait sur une
+				// COPIE jetee a la fermeture -- tout y etait perdu, y compris la
+				// position (constate par Rihen).
+				bool docAssetEdit[32] = {};
+
 				// Nature de l'onglet : 0 scene ; sinon 1+kind d'asset (EDITEUR
 				// specialise ouvert au double-clic dans le navigateur).
 				uint8 sceneTabKind[8] = {};
 				int32 sceneTabAsset[8] = {}; // index navigateur + 1
-				int32 editPreviewNode = 0;   // noeud+1 de la maquette d'editeur
-				uint8 sceneTabId[8] = {};    // document hote STABLE par onglet
-				int32 sceneIdNext = 1;       // 0 = scene d'ouverture (demo)
-				int32 addParentNode = -1;    // parent impose au prochain Ajouter
-				int32 sceneTabIsoNode[8] = {}; // noeud+1 ISOLE dans cet onglet
-				uint8 sceneTabIsoHome[8] = {}; // document d'origine du noeud isole
-				// CHAQUE SCENE A SES PROPRIETES (Rihen) : valeurs rangees par
-				// onglet, echangees a l'activation.
-				int32 unitSystemTab[8] = {};
-				int32 unitLengthTab[8] = {};
-				float32 unitScaleTab[8] = {};
+				int32 editPreviewNode = 0;	 // noeud+1 de la maquette d'editeur
+				// L'onglet ne porte plus QUE le document qu'il regarde.
+				int32 sceneTabDoc[8] = {0, -1, -1, -1, -1, -1, -1, -1};
+				int32 sceneIdNext = 1;	  // 0 = scene d'ouverture (demo)
+				int32 addParentNode = -1; // parent impose au prochain Ajouter
+
+				/// Document regarde par un onglet, ou -1. POINT DE PASSAGE UNIQUE :
+				/// tout ce qui veut le nom, les unites ou la vue d'un onglet passe
+				/// par ici -- deux facons de le trouver finiraient par diverger.
+				int32 TabDoc(int32 t) const {
+					if (t < 0 || t >= 8)
+						return -1;
+					const int32 d = sceneTabDoc[t];
+					return (d >= 0 && d < kMaxDocs && docUsed[d]) ? d : -1;
+				}
+				/// Nouveau document, valeurs par defaut posees. -1 si la table est
+				/// pleine -- l'appelant doit le dire, pas creer un onglet vide.
+				int32 DocAlloc() {
+					for (int32 d = 0; d < kMaxDocs; ++d) {
+						if (docUsed[d])
+							continue;
+						docUsed[d] = true;
+						docTransient[d] = false;
+						docName[d][0] = 0;
+						docScene[d] = 0;
+						docBlank[d] = false;
+						docUnitSys[d] = 0;
+						docUnitLen[d] = 0;
+						docUnitScale[d] = 1.f;
+						for (int32 a = 0; a < 6; ++a)
+							docCamPose[d][a] = 0.f;
+						docCamSet[d] = false;
+						docCamOrtho[d] = false;
+						docDirty[d] = false;
+						docCard[d] = 0;
+						docIsoNode[d] = 0;
+						docIsoHome[d] = 0;
+						docAssetEdit[d] = false;
+						return d;
+					}
+					return -1;
+				}
+				/// Libere un emplacement. N'EST APPELE QUE POUR LES DOCUMENTS
+				/// TRANSITOIRES : liberer une vraie scene parce qu'on ferme sa vue
+				/// est exactement le defaut que cette table corrige.
+				void DocFree(int32 d) {
+					if (d < 0 || d >= kMaxDocs)
+						return;
+					docUsed[d] = false;
+					docTransient[d] = false;
+					docCard[d] = 0;
+					docIsoNode[d] = 0;
+					docAssetEdit[d] = false;
+				}
 				int32 propClipNode = 0; // noeud+1 source de 'Copier proprietes'
 				int32 propCopyTarget = 0; // 0 = toutes les scenes, sinon 1+onglet
 				uint8 browserSub[32] = {}; // sous-type des graphes (kind 0)
@@ -562,6 +642,51 @@ namespace nkentseu {
 				uint8 browserKind[32] = {};	   ///< 0 dossier, 1 materiau, 2 texture
 				char browserNames[32][32] = {};
 				int32 browserParent[32] = {};  ///< -1 = racine
+				// Carte de SCENE (kind 5) -> document + 1 (0 = aucun). C'est ce
+				// lien qui fait qu'une scene fermee se ROUVRE sur son contenu :
+				// sans lui, le double-clic fabriquait un document neuf et vide.
+				int32 browserDoc[32] = {};
+				// Carte de MATERIAU (kind 2) -> emplacement de materiau + 1. Sans
+				// lui, « + Materiau » ne creait qu'un NOM : les materiaux du projet
+				// et les cartes du navigateur etaient deux mondes disjoints.
+				int32 browserMat[32] = {};
+				// CHEMIN RELATIF du fichier de la carte, tel qu'il a ete ECRIT la
+				// derniere fois. Il est memorise et non recalcule : c'est lui qui
+				// permet de retirer l'ancien fichier quand la carte est renommee ou
+				// deplacee -- sinon le dossier du projet accumulerait des orphelins
+				// que plus rien ne designe.
+				char browserFile[32][128] = {};
+				// Date du dernier enregistrement CONNU de la carte, relevee a
+				// l'ecriture et au balayage. Elle est MEMORISEE et non interrogee a
+				// la peinture : trente-deux appels au systeme de fichiers par image
+				// couteraient plus cher que tout le navigateur.
+				nk_int64 browserTime[32] = {};
+				// ── CLASSEMENT DU NAVIGATEUR (comme l'explorateur) ──────────
+				// 0 nom · 1 type · 2 date. Les DOSSIERS restent toujours en tete,
+				// quel que soit le critere et le sens : ce sont des contenants, pas
+				// des elements de la liste -- les melanger aux fichiers oblige a les
+				// chercher au lieu de les parcourir.
+				int32 browSort = 0;
+				bool browSortDesc = false;
+				// ── SUPPRESSIONS EN ATTENTE, cote DISQUE ────────────────────
+				// Supprimer une carte doit retirer SON FICHIER (demande de Rihen) :
+				// sans cela, le dossier du projet garderait des fichiers que plus
+				// rien ne designe. Le retrait est DIFFERE apres la frame, comme les
+				// actions projet -- c'est la seule ou la racine du projet est
+				// connue, et on ne fait pas d'entree/sortie disque en peignant.
+				// Un chemin terminé par « / » designe un DOSSIER.
+				static const int32 kMaxDelPend = 48;
+				char delPendFile[48][128] = {};
+				int32 delPendCount = 0;
+				void DelPendPush(const char *rel) {
+					if (!rel || !*rel || delPendCount >= kMaxDelPend)
+						return;
+					char *d = delPendFile[delPendCount++];
+					uint32 i = 0;
+					for (; rel[i] && i + 1u < 128u; ++i)
+						d[i] = rel[i];
+					d[i] = 0;
+				}
 				int32 browserFolder = -1;	   ///< dossier ouvert (-1 = racine)
 				NkVpAction pendingAction = NkVpAction::None;
 				bool editingText = false;
@@ -626,9 +751,11 @@ namespace nkentseu {
 				// Dossiers deplies du navigateur.
 				bool folderOpen[8] = {true, true, false, false, false, false, false, false};
 
-				// Scenes. UNE seule par defaut -- ouvrir sur deux scenes vides ferait
-				// croire que l'une d'elles contient quelque chose.
-				char sceneNames[8][32] = {"Scene", "", "", "", "", "", "", ""};
+				// ONGLETS OUVERTS. UNE seule vue par defaut -- ouvrir sur deux
+				// scenes vides ferait croire que l'une d'elles contient quelque
+				// chose. Le nom, l'etat « modifie » et la vue de chaque scene sont
+				// dans la TABLE DES DOCUMENTS : ils doivent survivre a la fermeture
+				// de l'onglet.
 				int32 sceneCount = 1;
 
 				// Noms modifiables de la hierarchie et des dossiers.
@@ -709,7 +836,16 @@ namespace nkentseu {
 				// `dirty` decide s'il faut demander confirmation a la fermeture. Il
 				// passe a vrai des qu'une action modifie la scene.
 				bool dirty = true;
+				// L'ARBRE DU NAVIGATEUR a son propre etat « modifie » : creer,
+				// renommer ou supprimer une carte ne touche AUCUN document, et
+				// `docDirty` ne pouvait donc pas le porter. Sans lui, recalculer
+				// `dirty` a partir des seuls documents effacait silencieusement la
+				// trace d'un rangement non enregistre.
+				bool treeDirty = false;
 				bool askClose = false; ///< boite de confirmation affichee
+				// (« askCloseTab » / « closeTabAfterSave » ont disparu avec la boite
+				// de confirmation de fermeture d'onglet : depuis que le document
+				// survit a sa vue, fermer un onglet ne peut plus rien perdre.)
 				// ── FERMETURE PENDANT UNE PRISE OU UN ENCODAGE (Rihen) ─────────
 				// Fermer tuerait un travail video en silence. On demande :
 				// abandonner, finir puis fermer, ou continuer fenetre fermee.

@@ -1938,9 +1938,12 @@ namespace nkentseu {
 						const float shBias0 = (biasP[0] > 0.f) ? biasP[0] : 0.0005f;
 						const float invNdl = 1.f / (ndl > 0.15f ? ndl : 0.15f); // borné (anti sur-biais rasant)
 						const float sbias = shBias0 * invNdl;
-						// Biais NORMAL (world units) : pousse le point échantillonné le long de la normale
-						// avant projection → anti peter-panning (décollement de l'ombre au pied du caster).
-						const float nBias = (biasP[1] > 0.f) ? biasP[1] : 0.f;
+						// Biais NORMAL en TEXELS du tile (parité GPU, cf. NkShadowTexelWorld
+						// dans NkShadowAtlas.glsli) : converti en unités monde PAR SLOT,
+						// via la taille réelle du texel. L'ancienne constante monde était
+						// juste pour la cascade lointaine et 10-100x trop grande pour la
+						// proche — l'ombre ne touchait plus le pied des objets.
+						const float nBiasTexels = (biasP[1] > 0.f) ? biasP[1] : 0.f;
 						const uint32 aw = atlas->Width(0), ah = atlas->Height(0);
 						const float *ad = (const float *)atlas->mips[0].Data();
 						for (int s = 0; s < count; ++s) {
@@ -1950,6 +1953,20 @@ namespace nkentseu {
 							const float *sm = (const float *)(su + (uint32)slot * 112u); // shadowMatrix @0
 							const float *tuv =
 								(const float *)(su + (uint32)slot * 112u + 64u); // tileUV @64 (minU,minV,maxU,maxV)
+							// Taille monde du texel de CE slot : ligne 0 (clip.x) → sa norme
+							// vaut 2/largeur monde du tile ; ligne 3 (clip.w) → 1 en ortho,
+							// profondeur lumière en perspective (le texel y grandit avec la
+							// distance). Calculée sur le point NON biaisé.
+							const float sxr = std::sqrt(sm[0] * sm[0] + sm[4] * sm[4] + sm[8] * sm[8]);
+							float wr = sm[3] * f.attrs[0] + sm[7] * f.attrs[1] + sm[11] * f.attrs[2] + sm[15];
+							if (wr < 0.f)
+								wr = -wr;
+							float tilePx = (tuv[2] - tuv[0]) * (float)aw;
+							if (tilePx < 1.f)
+								tilePx = 1.f;
+							const float texelW = 2.f * (wr > 1e-4f ? wr : 1e-4f)
+												 / ((sxr > 1e-6f ? sxr : 1e-6f) * tilePx);
+							const float nBias = nBiasTexels * texelW;
 							const float wpx = f.attrs[0] + nx * nBias, wpy = f.attrs[1] + ny * nBias,
 										wpz = f.attrs[2] + nz * nBias;
 							float qx = sm[0] * wpx + sm[4] * wpy + sm[8] * wpz + sm[12];

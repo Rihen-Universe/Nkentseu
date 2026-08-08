@@ -33,6 +33,7 @@
 #include "Conqueror/ConquerorGeometry.h"
 #include "ConquerorLab/NkcModuleHost.h"
 #include "ConquerorLab/NkcParamSchema.h"
+#include "ConquerorLab/NkcBoardLibrary.h"
 
 #include "NKCore/NkAtomic.h"
 #include "NKThreading/NkThread.h"
@@ -41,6 +42,7 @@
 #include "NKLogger/NkLog.h"
 
 #include <cstring>
+#include <cstdio>
 
 namespace nkentseu {
 	namespace conqueror {
@@ -132,17 +134,80 @@ namespace nkentseu {
 		class NkcSession {
 			public:
 				// ---- cycle de vie ------------------------------------------
-				void Init(NkcModuleHost *host) noexcept {
+				void Init(NkcModuleHost *host, const NkString &boardsDir,
+						  const NkString &boardsSeed = NkString()) noexcept {
 					mHost = host;
-					// Reglage d'ouverture : humain contre l'IA interne. On voit le jeu
-					// des la premiere seconde, et on peut y jouer — c'est le seul
-					// reglage qui apprend quelque chose sans qu'on touche a rien.
-					mPlayers[0].aiModule = -1;
-					mPlayers[1].aiModule = (host && !host->Ais().Empty()) ? 0 : -1;
+					// REGLAGE D'OUVERTURE : le joueur 0 est HUMAIN, les autres sont
+					// des IA, et RIEN NE TOURNE tant qu'on n'a pas appuye sur Lecture.
+					//
+					// Deux exigences qui se contredisent en apparence :
+					//   - « la simulation ne doit pas se lancer seule, c'est l'etudiant
+					//     qui la lance »  -> mAutoPlay = false ;
+					//   - « l'humain doit pouvoir jouer »                   -> siege 0 humain.
+					// Elles tiennent ensemble parce que ce sont DEUX reglages distincts :
+					// QUI tient un siege, et SI la partie avance toute seule. Le premier
+					// jet les confondait, d'ou l'impression que rien ne marchait.
+					//
+					// Un clic sur « IA vs IA » (barre du plateau) bascule tous les sieges
+					// en mode mesure, quand on veut faire tourner l'instrument.
+					const bool hasAi	 = host && !host->Ais().Empty();
+					mPlayers[0].aiModule = -1;	 // humain
+					for (uint32 p = 1; p < kMaxPlayers; ++p) mPlayers[p].aiModule = hasAi ? 0 : -1;
+					mAutoPlay = false;			 // l'etudiant lance la partie
+
+					mBoards.Init(boardsDir, boardsSeed);
 					UseRules(0);
+					// L'exemple ne peut etre ecrit qu'APRES : il est exporte du moteur.
+					if (Ready()) mBoards.EnsureExample(mRulesVt, mRules);
 				}
 
-				NkcModuleHost *Host() const noexcept { return mHost; }
+				NkcModuleHost	*Host() const noexcept { return mHost; }
+				NkcBoardLibrary &Boards() noexcept { return mBoards; }
+
+				// ---- forme des cellules (PRESENTATION, pas voisinage) -------
+				// Trois sources, dans cet ordre de priorite :
+				//   1. le module, s'il fournit GetCellShape — traite dans le
+				//      projecteur : il a le dernier mot sur SA geometrie ;
+				//   2. le choix explicite de l'utilisateur (panneau Regles) ;
+				//   3. ce que declare le fichier de plateau.
+				NkcCellShape CellShape() const noexcept {
+					return mShapeOverride != NkcCellShape::Auto ? mShapeOverride
+															   : mBoards.CellShape();
+				}
+				NkcCellShape ShapeOverride() const noexcept { return mShapeOverride; }
+				void SetShapeOverride(NkcCellShape s) noexcept { mShapeOverride = s; }
+
+				// ---- grilles (donnees, pas code) ----------------------------
+				/// Charge la grille `idx` de la bibliotheque et repart d'une partie
+				/// neuve : changer de plateau invalide toute position en cours.
+				bool LoadBoard(usize idx) noexcept {
+					if (!Ready()) return false;
+					WaitThinking();
+					if (!mBoards.LoadInto(mRulesVt, mRules, idx)) return false;
+					mBoardIdx = static_cast<int32>(idx);
+					mThinkerDirty = true;
+					NewGame();
+					return true;
+				}
+
+				bool ExportBoard(const char *name) noexcept {
+					return Ready() && mBoards.Export(mRulesVt, mRules, name);
+				}
+
+				// ---- pourquoi rien ne bouge ---------------------------------
+				/// L'atelier doit dire ce qu'il attend. Une interface qui reste
+				/// immobile sans rien expliquer se lit comme une panne — c'est
+				/// exactement ce qui s'est passe avec le reglage « humain » par defaut.
+				const char *IdleReason() const noexcept {
+					if (!Ready())			return "aucun moteur de regles jouable";
+					if (mThinking)			return "l'IA reflechit";
+					if (mCursor >= 0)		return "rejeu en pause — revenir a la position vivante";
+					if (mView.finished)		return "partie terminee";
+					if (IsHumanTurn())		return "au tour du joueur humain — clique un totem";
+					if (!mAutoPlay)			return "en pause — Lecture ou Pas a pas";
+					if (!mLastStartOk && mStartFail[0]) return mStartFail;
+					return "";
+				}
 
 				void Shutdown() noexcept {
 					WaitThinking();
@@ -190,6 +255,39 @@ namespace nkentseu {
 				}
 
 				usize				  RulesIndex() const noexcept { return mRulesIdx; }
+
+				// ---- de QUOI vient ce resultat ? ----------------------------
+				// Trois libelles, pour qu'une trace copiee se suffise a elle-meme.
+				// Un journal qui ne nomme ni le moteur ni les IA qui l'ont produit
+				// fait chercher un bug la ou il n'y en a pas — et avec deux
+				// stagiaires en parallele, il ne dit meme pas de qui vient le code
+				// incrimine.
+				const char *RulesLabel() const noexcept {
+					if (!mHost) return "?";
+					const NkVector<NkcRulesEntry> &all = mHost->Rules();
+					if (mRulesIdx >= all.Size()) return "?";
+					return all[mRulesIdx].label.CStr();
+				}
+
+				/// Le plateau charge. « par defaut du moteur » tant qu'aucun fichier
+				/// n'a ete choisi : le moteur en fournit toujours un.
+				const char *BoardLabel() const noexcept {
+					const NkVector<NkcBoardFile> &f = mBoards.Files();
+					if (mBoardIdx < 0 || static_cast<usize>(mBoardIdx) >= f.Size())
+						return "(par defaut du moteur)";
+					return f[static_cast<usize>(mBoardIdx)].name.CStr();
+				}
+
+				const char *SeatLabel(uint8 seat) const noexcept {
+					if (seat >= kMaxPlayers) return "?";
+					const int32 m = mPlayers[seat].aiModule;
+					if (m < 0) return "Humain";
+					if (!mHost) return "?";
+					const NkVector<NkcAIEntry> &all = mHost->Ais();
+					if (static_cast<usize>(m) >= all.Size()) return "?";
+					return all[static_cast<usize>(m)].label.CStr();
+				}
+
 				bool				  Ready() const noexcept { return mRulesOk && mRules && mState; }
 				const NkcRulesVTable &Vt() const noexcept { return mRulesVt; }
 				NkcRules			  RulesInst() const noexcept { return mRules; }
@@ -265,6 +363,75 @@ namespace nkentseu {
 					RefreshLegal();
 					RefreshPreviews();
 					for (uint8 p = 0; p < kMaxPlayers; ++p) ResetAiMemory(p);
+					CheckCoherence();
+				}
+
+				/// Ce que l'atelier reproche au moteur courant, ou "" si rien.
+				/// Affiche en clair par le panneau Modules — voir CheckCoherence.
+				const char *Coherence() const noexcept { return mCoherence; }
+
+				// -------------------------------------------------------------
+				// COHERENCE : rendre BRUYANTE une divergence qui etait muette.
+				//
+				// LE PROBLEME
+				// Un moteur declare son voisinage (GetNeighbors) et genere ses coups
+				// (GenerateLegalMoves). Rien n'oblige les deux a s'accorder. Quand ils
+				// divergent, RIEN NE SE PLAINT :
+				//   - l'atelier dessine des liens d'adjacence faux ;
+				//   - une IA qui compte « combien d'ennemis touche cette case » se
+				//     trompe silencieusement, et joue simplement moins bien.
+				//
+				// Une IA affaiblie sans message d'erreur, c'est une semaine perdue a
+				// chercher dans l'evaluation un bug qui est dans la geometrie.
+				//
+				// CE QU'ON VERIFIE
+				// Un coup DUPLIQUER va toujours vers une case voisine de sa source —
+				// c'est la definition meme de l'action. Si `to` n'est pas dans
+				// GetNeighbors(from), l'un des deux ment. On ne dit pas lequel : on
+				// signale la contradiction, ce qui suffit a la faire chercher.
+				//
+				// ON NE VERIFIE QUE CE QUI EST VERIFIABLE. Sans GetNeighbors declare,
+				// il n'y a rien a confronter — et si le moteur declare en plus sa
+				// propre geometrie d'ecran, c'est le cas le PLUS a risque : la
+				// topologie ne peut plus servir de repli honnete. On le dit.
+				void CheckCoherence() noexcept {
+					mCoherence[0] = ' ';
+					if (!Ready()) return;
+
+					if (!mRulesVt.GetNeighbors) {
+						if (mRulesVt.GetCellCenter) {
+							std::snprintf(mCoherence, sizeof(mCoherence),
+										  "Ce moteur dessine sa propre geometrie mais ne declare pas "
+										  "GetNeighbors. Une IA ne peut alors PAS connaitre l'adjacence : "
+										  "elle la devinera depuis la topologie, et se trompera en silence.");
+						}
+						return;
+					}
+
+					NkcCoord	 nb[64];
+					int32		 bad = 0;
+					NkcCoord	 badFrom{}, badTo{};
+					const usize	 n = mLegal.Size();
+					for (usize i = 0; i < n; ++i) {
+						const NkcMove &m = mLegal[i];
+						if (m.kind != NkcMoveKind::Duplicate) continue;
+						const uint32 cnt = mRulesVt.GetNeighbors(mRules, m.from, nb, 64);
+						bool		 ok	 = false;
+						for (uint32 k = 0; k < cnt && k < 64; ++k)
+							if (CoordEqual(nb[k], m.to)) { ok = true; break; }
+						if (!ok) {
+							if (bad == 0) { badFrom = m.from; badTo = m.to; }
+							++bad;
+						}
+					}
+					if (bad > 0) {
+						std::snprintf(mCoherence, sizeof(mCoherence),
+									  "INCOHERENCE : %d coup(s) DUPLIQUER visent une case que "
+									  "GetNeighbors ne declare pas voisine — p.ex. (%d,%d) -> (%d,%d). "
+									  "Ton generateur de coups et ton voisinage ne disent pas la meme "
+									  "chose ; toute IA qui evalue l'adjacence se trompera.",
+									  bad, badFrom.q, badFrom.r, badTo.q, badTo.r);
+					}
 				}
 
 				void   SetSeed(uint64 s) noexcept { mSeed = s ? s : 1ull; }
@@ -575,19 +742,40 @@ namespace nkentseu {
 					return mJob.ai != nullptr;
 				}
 
+				/// Un echec de demarrage est TRACE, pas avale : sans cela l'atelier
+				/// retente en silence toutes les `mSpeed` secondes et paraît en panne.
+				bool Fail(const char *why) noexcept {
+					mLastStartOk = false;
+					std::snprintf(mStartFail, sizeof(mStartFail), "%s", why ? why : "raison inconnue");
+					logger.Errorf("[lab] reflexion non demarree : %s", mStartFail);
+					return false;
+				}
+
 				void StartThinking() noexcept {
 					const NkcPlayerCfg &cfg = mPlayers[mView.current & 3];
-					if (cfg.aiModule < 0) return;
-					if (!EnsureThinker() || !BindAi(cfg.aiModule)) return;
-					if (!mRulesVt.SerializeState || !mJob.rvt.DeserializeState) return;
+					if (cfg.aiModule < 0) { Fail("ce siege est humain"); return; }
+					if (!EnsureThinker()) { Fail("instance de regles du thread impossible a creer"); return; }
+					if (!BindAi(cfg.aiModule)) { Fail("IA introuvable ou refusee au chargement"); return; }
+					if (!mRulesVt.SerializeState || !mJob.rvt.DeserializeState) {
+						Fail("le moteur n'implemente pas Serialize/DeserializeState");
+						return;
+					}
 
 					// Transfert de l'etat par le contrat : le thread ne voit jamais
 					// la memoire du moteur principal.
 					const uint32 need = mRulesVt.SerializeState(mRules, mState, nullptr, 0);
-					if (need == 0) return;
+					if (need == 0) { Fail("SerializeState annonce une taille nulle"); return; }
 					mBlob.Resize(need);
-					if (mRulesVt.SerializeState(mRules, mState, mBlob.Data(), need) != need) return;
-					if (!mJob.rvt.DeserializeState(mJob.rules, mJob.state, mBlob.Data(), need)) return;
+					if (mRulesVt.SerializeState(mRules, mState, mBlob.Data(), need) != need) {
+						Fail("SerializeState n'a pas ecrit la taille annoncee");
+						return;
+					}
+					if (!mJob.rvt.DeserializeState(mJob.rules, mJob.state, mBlob.Data(), need)) {
+						Fail("DeserializeState a refuse l'etat transfere");
+						return;
+					}
+					mLastStartOk = true;
+					mStartFail[0] = '\0';
 
 					NkcAIConfig c;
 					c.difficulty = cfg.diff;
@@ -615,10 +803,11 @@ namespace nkentseu {
 						 job->ok.Store(ok);
 						 job->done.Store(1);	// PUBLIE tout ce qui precede
 					 });
-					mThread.SetName("nkc-ai");
-					if (!mThread.Joinable()) {   // creation refusee : on ne fige pas l'atelier
+					if (mThread.Joinable()) {
+						mThread.SetName("nkc-ai");
+					} else {   // creation refusee : on ne fige pas l'atelier
 						mThinking = false;
-						logger.Error("[lab] thread de reflexion non cree — coup ignore");
+						Fail("thread de reflexion refuse par le systeme");
 					}
 				}
 
@@ -683,7 +872,7 @@ namespace nkentseu {
 				uint8		 mPlayerCount = 2;
 				NkcPlayerCfg mPlayers[kMaxPlayers];
 
-				bool	mAutoPlay	   = true;
+				bool	mAutoPlay	   = false;	  ///< cf. Init : l'etudiant lance
 				bool	mStepRequested = false;
 				float32 mSpeed		   = 0.35f;
 				float32 mAiTimer	   = 0.f;
@@ -701,6 +890,13 @@ namespace nkentseu {
 				NkcAIResult			 mLastResult{};
 				bool				 mLastResultOk = false;
 				uint32				 mIllegalCount = 0;
+				bool				 mLastStartOk  = true;
+				char				 mStartFail[160] = {};
+
+				NkcBoardLibrary mBoards;
+				NkcCellShape	mShapeOverride = NkcCellShape::Auto;
+				int32			mBoardIdx = -1;
+				char			mCoherence[400] = {};
 
 				uint32 mActionUsage[5] = {};   ///< None / Duplicate / Fuse / Power / Pass
 		};

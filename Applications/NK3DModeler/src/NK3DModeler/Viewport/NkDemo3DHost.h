@@ -276,6 +276,20 @@ namespace nkentseu {
 		void Demo3DHostDeleteNode(int32 node, bool withChildren);
 		int32 Demo3DHostDuplicateNode(int32 node); // -1 si impossible (lumiere v1)
 		int32 Demo3DHostArchiveNode(int32 node);   // copie invisible pour asset
+		// ARCHIVER UN NOEUD DEJA CREE, pour la RELECTURE d'un projet. Distinct de
+		// Demo3DHostDeleteNode, qui libere l'emplacement (nature remise a zero) :
+		// une archive doit garder sa nature, sinon le prochain objet cree recycle
+		// sa place et l'asset du navigateur perd sa geometrie.
+		// ARCHIVER un noeud DEJA CREE. Distinct de Demo3DHostDeleteNode, qui libere
+		// l'emplacement (nature remise a zero) : une archive garde sa nature, sinon
+		// le prochain objet cree reprend sa place et l'asset perd sa geometrie.
+		void Demo3DHostSetNodeArchived(int32 node, bool v); // un seul noeud (relecture)
+		// Appartenance d'un maillage a un model : le MEME parcours que le
+		// deplacement de document et l'archivage, expose pour l'ecriture du
+		// fichier de model.
+		bool Demo3DHostNodeInnerMeshOf(int32 node, int32 root);
+		void Demo3DHostArchiveTree(int32 node, bool v);		// le model ET ses maillages
+		bool Demo3DHostNodeArchived(int32 node);
 		// APPARTENANCE par document : chaque noeud vit dans UNE scene ou UN
 		// editeur ; ailleurs il n'est ni rendu ni liste.
 		void Demo3DHostSetActiveScene(int32 id);
@@ -511,6 +525,17 @@ namespace nkentseu {
 							 float32 *tile, float32 *metal);
 		void Demo3DHostSetFloor(bool on, const float32 *rgb, float32 y, float32 rough,
 								int32 pattern, float32 tile, float32 metal);
+		// Vrai tant qu'un geste de gizmo est en cours (objet, edition, lumiere ou
+		// empty). Le shell surveille le FRONT DESCENDANT : un geste qui se
+		// termine est un commit et allume la pastille « non enregistre ».
+		// Enumerer les mutations une a une cote shell en oubliait -- le
+		// deplacement d'un cube n'allumait pas la pastille (constate par Rihen).
+		bool Demo3DHostAnyGizmoDragging();
+		// Invalide la grille d'occlusion ambiante (GI voxel) : les objets
+		// utilisateur y sont des occludeurs, elle doit donc etre reconstruite a
+		// chaque modification de la scene. Appele par NkMarkDirty -- la meme
+		// action qui allume la pastille rafraichit l'ambiance.
+		void Demo3DHostGIMarkDirty();
 		// Mise a jour des ombres : dynamique (elles suivent la scene) ou statique
 		// (calculees une fois, puis gardees telles quelles).
 		bool Demo3DHostShadowDynamic();

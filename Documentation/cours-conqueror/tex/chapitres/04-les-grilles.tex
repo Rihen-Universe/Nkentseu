@@ -1,0 +1,255 @@
+\chapter{Fabriquer une grille en JSON}
+
+Ce chapitre est le plus court, et c'est significatif : \textbf{ajouter un plateau
+ne demande pas une ligne de code.} Le chapitre suivant montre la voie inverse —
+un plateau entièrement décrit en C++ — et explique quand la préférer.
+
+\section{Pourquoi le plateau est une donnée}
+
+\begin{nkcode}{REGLES\_COMPLETES\_v2.md:93-107}
+Le plateau n'est pas une constante du code : c'est un descripteur serialisable,
+editable a la souris dans le moteur de test.
+
+BoardDesc {
+  topology     : HEX_POINTY | HEX_FLAT | SQUARE_4 | SQUARE_8
+  cells        : liste de coordonnees valides        // definit la forme reelle
+  blocked      : liste de coordonnees bloquees
+  starts       : [ { player_index, coord, level } ]  // positions initiales
+  min_players  : entier
+  max_players  : entier
+}
+\end{nkcode}
+
+Les formes prévues pour Conqueror — rectangle, hexagone, plus, diamant — ne sont
+pas dans le moteur : ce sont des fichiers. La raison est pratique. Le palier 0
+doit répondre à « quelle taille de plateau ? quel voisinage ? quel avantage au
+premier joueur ? » : trois questions qui demandent d'essayer vingt plateaux. Si
+chaque essai coûte une recompilation, on en essaiera trois.
+
+\section{Où déposer le fichier}
+
+\nkfile{Build/ConquerorLab/boards/ma\_grille.json}. Le chemin exact est affiché
+dans le panneau \emph{Règles}, section \textbf{Plateau}. Le fichier apparaît dans
+la liste déroulante à la seconde suivante — \textbf{sans compilation}, puisqu'il
+n'y a rien à compiler.
+
+Au premier lancement, l'atelier y écrit un exemple :
+
+\begin{quote}\small
+Écrit un exemple si le dossier est vide, à partir du plateau que le moteur chargé
+expose. \textbf{Le format documenté vaut mieux qu'un format décrit} : celui-ci est
+forcément valide, puisqu'il vient du module.
+\hfill\textsc{NkcBoardLibrary.h}
+\end{quote}
+
+\section{Le format, sur un exemple minuscule}
+
+Un plateau carré $3\times3$, deux joueurs en diagonale, une case bloquée au
+centre :
+
+\begin{nkcode}{Ecrit pour ce cours — format de LoadBoardJson}
+{
+  "topology": "SQUARE_4",
+  "cells": [[0,0],[1,0],[2,0],
+            [0,1],[1,1],[2,1],
+            [0,2],[1,2],[2,2]],
+  "blocked": [[1,1]],
+  "starts": [
+    {"player": 0, "q": 0, "r": 0, "level": 0},
+    {"player": 1, "q": 2, "r": 2, "level": 0}
+  ],
+  "min_players": 2,
+  "max_players": 2
+}
+\end{nkcode}
+
+\begin{center}
+\begin{tabular}{@{}p{2.6cm}p{4.4cm}p{6.4cm}@{}}
+\toprule
+\textbf{Champ} & \textbf{Rôle} & \textbf{Piège} \\
+\midrule
+\texttt{topology} & hex ou carré & fixe le voisinage \emph{et} l'interprétation de $(q,r)$ \\
+\texttt{cells} & \textbf{la forme réelle} & une coordonnée absente d'ici n'existe pas : c'est le hors-plateau \\
+\texttt{blocked} & cases inoccupables & doivent aussi figurer dans \texttt{cells} \\
+\texttt{starts} & totems de départ & \texttt{player} au-delà de \texttt{max\_players} est ignoré \\
+\nkfile{min_players} & bornes du plateau & informatif, avec \nkfile{max_players} :
+  c'est le moteur qui décide quoi en faire \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkpiege}[\texttt{cells} définit la forme, pas un rectangle englobant]
+C'est ce qui permet des plateaux en croix, en diamant, ou troués. Ne listez
+\textbf{que} les cases qui existent. Le moteur de référence teste l'appartenance
+par recherche dans cette liste : une coordonnée absente est du hors-plateau,
+exactement comme si elle était au-delà du bord.
+\end{nkpiege}
+
+\section{Hexagone : la conversion qui piège}
+
+En hexagone, les coordonnées sont \textbf{axiales} $(q, r)$, pas des lignes et des
+colonnes. Le moteur de référence construit son $6\times7$ ainsi :
+
+\begin{nkcode}{modules/rules/ConquerorRulesV2.cpp — BuildDefaultBoard}
+for (int32 row = 0; row < 7; ++row) {
+    for (int32 col = 0; col < 6; ++col) {
+        NkcCoord c;
+        c.q = static_cast<int16>(col - (row >> 1));  // odd-r -> axial
+        c.r = static_cast<int16>(row);
+        B.cells[B.cellCount++] = c;
+    }
+}
+\end{nkcode}
+
+La ligne qui compte est \texttt{col - (row >> 1)} : c'est la conversion
+\textbf{odd-r vers axial}. Si vous écrivez un générateur de plateau hexagonal,
+c'est là que vous vous tromperez. Le symptôme est net et reconnaissable : le
+plateau s'affiche en \textbf{losange penché} au lieu d'un rectangle d'hexagones.
+
+\begin{nkretenir}[Le raccourci qui évite l'erreur]
+Ne calculez pas vos coordonnées à la main. Chargez le plateau par défaut, cliquez
+\textbf{« Exporter le plateau courant »} dans le panneau \emph{Règles}, et
+modifiez le fichier obtenu. Vous partez d'une géométrie juste.
+\end{nkretenir}
+
+\section{La symétrie n'est pas une coquetterie}
+
+\begin{quote}\small
+Le placement initial doit être symétrique sous une isométrie du plateau. Le moteur
+de test doit refuser de lancer un batch d'équilibrage sur un plateau asymétrique,
+ou signaler l'asymétrie dans le rapport. Sans cela, \textbf{tout écart de winrate
+mesuré est ininterprétable} : on ne saura pas s'il vient des règles ou du plateau.
+\hfill\textsc{regles\_completes\_v2.md:133}
+\end{quote}
+
+\begin{nkpiege}[Cette vérification n'existe pas encore dans l'atelier]
+Le document l'exige ; l'atelier ne la fait pas. \textbf{C'est à vous de vérifier
+la symétrie de vos plateaux à l'œil} avant de lancer une campagne dessus.
+
+Il y a toutefois un garde-fou partiel : la campagne \textbf{inverse les côtés une
+partie sur deux} (chapitre 6), ce qui sépare l'avantage de position de l'avantage
+de stratégie. Cela compense un plateau asymétrique \emph{entre les deux camps},
+mais pas un plateau qui avantagerait structurellement le premier joueur.
+\end{nkpiege}
+
+\section{Quand le moteur refuse votre fichier}
+
+L'atelier ne parse pas le JSON : il passe la chaîne telle quelle à
+\texttt{LoadBoardJson}. C'est donc \textbf{le module} qui accepte ou refuse.
+
+\begin{nkcode}{src/ConquerorLab/NkcBoardLibrary.h — LoadInto}
+if (!vt.LoadBoardJson(inst, text.CStr())) {
+    mMsg  = "Le moteur a REFUSE ce plateau : ";
+    mMsg += mFiles[idx].name;
+    mMsg += "  (cellules manquantes ou JSON invalide)";
+    return false;
+}
+\end{nkcode}
+
+Ce message s'affiche en rouge dans le panneau \emph{Règles}. Trois causes, par
+ordre de fréquence :
+
+\begin{enumerate}
+  \item \textbf{\texttt{cells} vide ou absent} — le moteur de référence refuse
+        explicitement un plateau sans cases ;
+  \item \textbf{JSON malformé} — le scanner des modules est minimal : ni
+        commentaires, ni virgules traînantes ;
+  \item \textbf{le module ne sait pas charger de plateau} —
+        \nkfile{RegleMinimale.cpp} renvoie toujours 0 : son plateau est figé dans
+        le code. C'est un renoncement assumé pour un exemple.
+\end{enumerate}
+
+\begin{nkretenir}[Conséquence heureuse de « l'atelier ne parse rien »]
+Si votre moteur accepte un champ supplémentaire — disons
+\texttt{"artefacts":[\{"q":1,"r":2,"id":7\}]} — il le verra \textbf{sans qu'on
+touche à l'atelier}. Le format du plateau vous appartient ; le contrat ne fixe
+qu'un socle commun.
+\end{nkretenir}
+
+\section{Ce que l'atelier ne fait pas}
+
+Le document de règles parle d'un plateau « éditable à la souris ». \textbf{Cet
+éditeur n'existe pas.} Aujourd'hui, on écrit le JSON à la main, ou on exporte puis
+on modifie.
+
+C'est une limite réelle et assumée : l'éditeur graphique viendra quand quelqu'un
+aura assez souffert du fichier texte pour savoir de quoi il a besoin.
+
+\begin{nkexo}[1 — Le plateau troué]
+Exportez le plateau par défaut, puis retirez huit cases au centre pour en faire un
+anneau. Chargez-le. Que devient la durée moyenne d'une partie sur 200 parties IA
+contre IA ? Expliquez.
+\end{nkexo}
+
+\begin{nkexo}[2 — Carré contre hexagone]
+Fabriquez un plateau \texttt{SQUARE\_8} de 42 cases ($6\times7$) et comparez-le à
+l'hexagone $6\times7$ par défaut, \textbf{à même nombre de cases}. Lancez 500
+parties sur chacun. Le taux de nuls change-t-il ? Le nombre de coups ? Que dit ce
+résultat sur l'effet du voisinage ?
+\end{nkexo}
+
+\begin{nkexo}[3 — L'asymétrie visible]
+Fabriquez volontairement un plateau asymétrique : trois totems de départ au joueur
+0, deux au joueur 1. Lancez 400 parties \emph{avec} l'inversion des côtés, puis
+400 \emph{sans}. Comparez et expliquez précisément ce que l'inversion a corrigé —
+et ce qu'elle n'a pas corrigé.
+\end{nkexo}
+
+
+\section{La forme des cellules}
+
+Une grille carrée doit-elle se dessiner en carrés ? Non — et les séparer est
+instructif.
+
+\begin{nkcode}{boards/\_generer.py — plateau()}
+def plateau(topology, cells, starts, blocked=None, cell_shape=None):
+    """`cell_shape` est de la PRESENTATION : "SQUARE", "HEX" ou "CIRCLE".
+
+    Elle ne touche ni au voisinage, ni aux coups legaux, ni au resultat —
+    c'est justement pourquoi elle n'est PAS dans le contrat : le moteur ne
+    la lit jamais, seul l'atelier la regarde pour dessiner.
+    """
+\end{nkcode}
+
+Trois formes livrées : \textbf{carrée}, \textbf{hexagonale}, \textbf{ronde}. Le
+champ est facultatif ; absent, l'atelier déduit la forme de la topologie, comme
+avant. Le panneau \emph{Règles} offre en plus un réglage \textbf{Forme des
+cellules} qui prime sur le fichier — pour comparer sans rien réécrire.
+
+\begin{nkretenir}[Trois sources, un ordre de priorité]
+\begin{enumerate}
+  \item le module, s'il fournit \texttt{GetCellShape} (chapitre 5) — il a le
+        dernier mot sur \emph{sa} géométrie ;
+  \item votre choix dans le panneau \emph{Règles} ;
+  \item ce que déclare le fichier \texttt{.json}.
+\end{enumerate}
+\end{nkretenir}
+
+\section{La bibliothèque livrée}
+
+Quatorze plateaux, présents dès le premier lancement.
+
+\begin{center}
+\begin{tabular}{@{}p{3.6cm}p{10.2cm}@{}}
+\toprule
+\textbf{Forme} & \textbf{Fichiers} \\
+\midrule
+hexagonal & \texttt{hexagone\_6x7} (référence), \texttt{4x5}, \texttt{9x8}, \texttt{coeur\_bloque}, \texttt{plat} \\
+rectangulaire & \texttt{rectangle\_8x6}, \texttt{carre\_8x8\_diagonales} \\
+en croix & \texttt{plus} \\
+parallélogramme & \texttt{parallelogramme\_6x7}, \texttt{parallelogramme\_8x5} \\
+libre & \texttt{diamant} \\
+formes de cellule & \texttt{rectangle\_8x6\_rond}, \texttt{hexagone\_6x7\_rond}, \texttt{carre\_8x8\_hexagones} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Le parallélogramme mérite un mot : c'est \texttt{hex\_rect} \textbf{sans} la
+correction \texttt{- (row >> 1)}, autrement dit la forme qu'on obtient quand on
+oublie la conversion odd-r → axial. La livrer comme un plateau à part entière
+vaut mieux que de la laisser apparaître comme un bug — la reconnaître à l'écran
+fait comprendre du même coup ce que corrige \texttt{hex\_rect}.
+
+Tous sont produits par \nkfile{boards/_generer.py}, jamais écrits à la main : la
+symétrie des départs exigée par \textsc{regles §4.2} y est \textbf{calculée par
+réflexion}. Un plateau asymétrique rend tout écart de winrate ininterprétable.

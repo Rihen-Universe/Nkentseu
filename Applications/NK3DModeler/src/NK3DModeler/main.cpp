@@ -233,6 +233,13 @@ namespace {
 		t.Bind("app.panneau_outils", "Panneau d'outils", NkKey::NK_T, 0, NK_SCTX_GLOBAL);
 		t.Bind("app.annuler", "Annuler", NkKey::NK_Z, NK_SC_CTRL, NK_SCTX_GLOBAL);
 		t.Bind("app.refaire", "Refaire", NkKey::NK_Y, NK_SC_CTRL, NK_SCTX_GLOBAL);
+		// ENREGISTRER porte sur le FICHIER ACTIF, « tout » sur le projet entier
+		// (Rihen : « pourquoi Ctrl+S sur un onglet actif enregistre tous les
+		// onglets ? »). Depuis qu'un asset est un fichier, Ctrl+S doit se
+		// comporter comme partout ailleurs : il enregistre ce qu'on regarde.
+		t.Bind("app.enregistrer", "Enregistrer", NkKey::NK_S, NK_SC_CTRL, NK_SCTX_GLOBAL);
+		t.Bind("app.enregistrer_tout", "Enregistrer tout", NkKey::NK_S,
+			   NK_SC_CTRL | NK_SC_SHIFT, NK_SCTX_GLOBAL);
 	}
 
 } // namespace
@@ -437,6 +444,10 @@ int nkmain(const NkEntryState &entry) {
 	// lus depuis ~/.nk3dmodeler_recent.cfg (meme patron que l'IDE frere NKCode).
 	nk3d::NkProjectState proj;
 	nk3d::NkRecentList recents;
+	// Surveillance du dossier du projet. Vit AUSSI LONGTEMPS que la boucle : son
+	// fil est arrete par Stop(), et le laisser mourir avant lui laisserait un fil
+	// pointant sur un objet detruit.
+	nk3d::NkProjectWatch projWatch;
 	// IMAGE DE LA VERSION (façon Blender, decision de Rihen) : une oeuvre
 	// realisee avec le logiciel, creditee, livree dans data/splash/. Chargee
 	// paresseusement a la premiere frame d'accueil.
@@ -651,7 +662,16 @@ int nkmain(const NkEntryState &entry) {
 					want(ctrl ? NkVpAction::LoopCut : NkVpAction::ModalRotate);
 					break;
 				case NkKey::NK_S:
-					want(NkVpAction::ModalScale);
+					// Ctrl+S ENREGISTRE -- le reflexe universel passe AVANT le
+					// raccourci local (constate par Rihen : Ctrl+S armait
+					// l'echelle au lieu de sauver). S seul arme l'echelle, comme
+					// chez Blender. Meme motif que R : ctrl ? LoopCut : Rotate.
+					//
+					// Ctrl+S = le FICHIER ACTIF ; Ctrl+Maj+S = TOUT le projet.
+					if (ctrl)
+						st.projPending = shift ? 8 : 3;
+					else
+						want(NkVpAction::ModalScale);
 					break;
 				// ── Operations ──────────────────────────────────────────────
 				case NkKey::NK_E:
@@ -1149,12 +1169,26 @@ int nkmain(const NkEntryState &entry) {
 		// derniere image, et l'objet doit avoir suivi quand le panneau Proprietes
 		// se peindra. C'est ce qui donne la mise a jour en TEMPS REEL, dans la vue
 		// comme dans les champs.
+		// ── UN GESTE DE GIZMO VIENT-IL DE SE TERMINER ? ─────────────────────
+		// Le front DESCENDANT (ca glissait, ca ne glisse plus) = un commit :
+		// deplacement, rotation, echelle -- au gizmo objet, d'edition, de
+		// lumiere ou d'empty. C'est le pendant du NkMarkDirty de la modale
+		// ci-dessous : sans lui, bouger un cube A LA SOURIS n'allumait pas la
+		// pastille « non enregistre » (constate par Rihen), et la protection a
+		// la fermeture ne protegeait rien.
+		{
+			static bool sGizmoWasDragging = false;
+			const bool gizNow = demo::Demo3DHostAnyGizmoDragging();
+			if (sGizmoWasDragging && !gizNow)
+				NkMarkDirty(st);
+			sGizmoWasDragging = gizNow;
+		}
 		{
 			const float32 mxv = ui.input.mousePos.x - lay.view.x;
 			const float32 myv = ui.input.mousePos.y - lay.view.y;
 			if (nk3d::Viewport3DModalKind() != nk3d::kVpXformNone) {
 				nk3d::Viewport3DModalUpdate(mxv, myv);
-				st.dirty = true;
+				NkMarkDirty(st);
 				// Le clic gauche CONFIRME, le clic droit ANNULE -- et la modale
 				// consomme le clic, sinon il tomberait ensuite sur la selection.
 				if (ui.input.mouseClicked[0])
@@ -1216,12 +1250,12 @@ int nkmain(const NkEntryState &entry) {
 						nk3d::Viewport3DModalAxis(0);
 					} else if (edit) {
 						if (nk3d::Viewport3DDeleteSelection())
-							st.dirty = true;
+							NkMarkDirty(st);
 					} else {
 						const int32 act = nk3d::Viewport3DActiveObject();
 						if (act >= 0) {
 							nk3d::Viewport3DDeleteObject(act);
-							st.dirty = true;
+							NkMarkDirty(st);
 						}
 					}
 					break;
@@ -1266,60 +1300,60 @@ int nkmain(const NkEntryState &entry) {
 				// d'annulation qui se remplit de riens.
 				case NkVpAction::Extrude:
 					if (edit && nk3d::Viewport3DExtrude(false))
-						st.dirty = true;
+						NkMarkDirty(st);
 					break;
 				case NkVpAction::ExtrudeIndividual:
 					if (edit && nk3d::Viewport3DExtrude(true))
-						st.dirty = true;
+						NkMarkDirty(st);
 					break;
 				case NkVpAction::Delete:
 					// Supprime CE QUE le mode designe : les faces selectionnees en
 					// edition, l'objet actif en mode objet.
 					if (edit) {
 						if (nk3d::Viewport3DDeleteSelection())
-							st.dirty = true;
+							NkMarkDirty(st);
 					} else {
 						const int32 act = nk3d::Viewport3DActiveObject();
 						if (act >= 0) {
 							nk3d::Viewport3DDeleteObject(act);
-							st.dirty = true;
+							NkMarkDirty(st);
 						}
 					}
 					break;
 				case NkVpAction::Dissolve:
 					if (edit && nk3d::Viewport3DDissolve())
-						st.dirty = true;
+						NkMarkDirty(st);
 					break;
 				case NkVpAction::Merge:
 					if (edit && nk3d::Viewport3DMerge(0)) // 0 = au centre
-						st.dirty = true;
+						NkMarkDirty(st);
 					break;
 				case NkVpAction::MakeFace:
 					if (edit && nk3d::Viewport3DMakeFace())
-						st.dirty = true;
+						NkMarkDirty(st);
 					break;
 				case NkVpAction::Subdivide:
 					if (edit && nk3d::Viewport3DSubdivide(1))
-						st.dirty = true;
+						NkMarkDirty(st);
 					break;
 				case NkVpAction::LoopCut:
 					if (edit && nk3d::Viewport3DLoopCut(1))
-						st.dirty = true;
+						NkMarkDirty(st);
 					break;
 				case NkVpAction::Inset:
 					// Epaisseur AUTOMATIQUE, proportionnelle a l'objet : une valeur
 					// fixe donne un inset invisible sur un grand modele et un inset
 					// qui traverse tout sur un petit.
 					if (edit && nk3d::Viewport3DInset(0.1f, 0.f))
-						st.dirty = true;
+						NkMarkDirty(st);
 					break;
 				case NkVpAction::BevelEdge:
 					if (edit && nk3d::Viewport3DBevel(0.1f, 2, false))
-						st.dirty = true;
+						NkMarkDirty(st);
 					break;
 				case NkVpAction::BevelVertex:
 					if (edit && nk3d::Viewport3DBevel(0.1f, 2, true))
-						st.dirty = true;
+						NkMarkDirty(st);
 					break;
 				case NkVpAction::Undo:
 					nk3d::Viewport3DUndo();
@@ -1392,7 +1426,7 @@ int nkmain(const NkEntryState &entry) {
 			}
 		}
 		if (st.showBrowser)
-			PaintBrowser(p, lay.browser, st, hit, ws, ui.input, &ui);
+			PaintBrowser(p, lay.browser, st, hit, ws, ui.input, &ui, &combo);
 		PaintStatus(p, hit, lay.status, st);
 
 		// Poignees de reouverture, a la place exacte qu'occupait le panneau.
@@ -1474,6 +1508,26 @@ int nkmain(const NkEntryState &entry) {
 		// Puis les vignettes de couverture, rechargees SEULEMENT quand la
 		// liste des recents a change (drapeau `texDirty`).
 		nk3d::NkProjectHandlePending(st, proj, recents);
+
+		// ── LE DOSSIER DU PROJET EST SURVEILLE ──────────────────────────────
+		// Un fichier ajoute ou efface a la main doit se voir dans le navigateur
+		// (Rihen). Le surveillant a SON PROPRE FIL : il ne pose qu'un drapeau, et
+		// la reconciliation se fait ICI, sur le fil principal, entre deux frames.
+		// Toucher l'etat du modeleur depuis l'autre fil produirait des corruptions
+		// impossibles a reproduire.
+		if (proj.open)
+			projWatch.Watch(proj.root);
+		else
+			projWatch.Stop();
+		if (projWatch.signaled) {
+			projWatch.signaled = false;
+			// Nos PROPRES ecritures reveillent le surveillant elles aussi : le
+			// balayage ne trouve alors aucune difference et ne fait rien. C'est
+			// voulu -- distinguer nos ecritures des autres demanderait une
+			// comptabilite qui se desynchroniserait au premier oubli.
+			if (nk3d::NkProjectRescan(proj.root, st) > 0)
+				nk3d::NkMarkTreeDirty(st);
+		}
 		nk3d::NkWelcomeUploadCovers(renderer, recents);
 		// L'IMAGE DE VERSION : chargee une seule fois, et seulement quand
 		// l'accueil est visible -- inutile de decoder un PNG que personne ne

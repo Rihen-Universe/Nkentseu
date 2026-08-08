@@ -228,6 +228,12 @@ namespace nkentseu {
 				void OutlineSharp(const NkRect &r, NkRole role) {
 					mDl.AddRect(PxRect(r), C(role), 1.f);
 				}
+				// Meme trait, couleur DEJA resolue : les natures d'asset passent par
+				// une table (NkAssetColor) qui melange roles communs et roles propres
+				// au produit -- elle rend donc une couleur, pas un role.
+				void OutlineSharp(const NkRect &r, const NkColor &c) {
+					mDl.AddRect(PxRect(r), c, 1.f);
+				}
 
 				// Cercle CREUX : les demi-axes negatifs du gizmo de navigation.
 				void Ring(float32 cx, float32 cy, float32 radius, NkRole role, NkRole inner) {
@@ -297,6 +303,11 @@ namespace nkentseu {
 					mDl.AddCircleFilled({cx, cy}, radius, C(role));
 				}
 				void DiscColor(float32 cx, float32 cy, float32 radius, const NkColor &c) {
+					mDl.AddCircleFilled({cx, cy}, radius, c);
+				}
+				// Surcharge par COULEUR, meme raison que OutlineSharp : la table des
+				// natures d'asset rend une couleur, pas un role.
+				void Disc(float32 cx, float32 cy, float32 radius, const NkColor &c) {
 					mDl.AddCircleFilled({cx, cy}, radius, c);
 				}
 				// Triangle plein tricolore : la brique de la ROUE CHROMATIQUE, qu'on
@@ -508,6 +519,53 @@ namespace nkentseu {
 				const NkModelerRoles &mRoles;
 				const NkModelerIcons &mIcons;
 		};
+
+		// ── NATURE D'UN ASSET : COULEUR ET NOM ──────────────────────────────────
+		// POINT DE PASSAGE UNIQUE. La carte du navigateur, le liseret d'onglet et
+		// la pastille de filtre disent tous la meme nature ; les laisser choisir
+		// chacun leur couleur, c'est garantir qu'un jour l'un d'eux gardera
+		// l'ancienne -- la table etait deja recopiee a trois endroits.
+		//
+		// `kind` : 0 graphe (PROCEDURAL), 1 dossier, 2 materiau, 3 texture,
+		// 4 dataset IA, 5 scene, 6 model. `sub` ne sert qu'aux graphes.
+		inline NkColor NkAssetColor(const NkModelerPainter &p, uint8 kind, uint8 sub) {
+			if (kind == 0) {
+				// PROCEDURAL : une famille a part (cf. NkModelerTheme.h). Un
+				// sous-type inconnu retombe sur la modelisation plutot que sur une
+				// autre famille -- mieux vaut « procedural, nuance imprecise » que
+				// « pris pour un maillage ».
+				const NkModelerRoles &R = p.Roles();
+				const uint16 id = (sub == 1)   ? R.procTex
+								  : (sub == 2) ? R.procMat
+								  : (sub == 3) ? R.procMotion
+											   : R.procMesh;
+				return p.C(id);
+			}
+			return p.C((kind == 1)	 ? NkRole::TypeFolder
+					   : (kind == 4) ? NkRole::AccentUi
+					   : (kind == 5) ? NkRole::AxisZ
+					   : (kind == 6) ? NkRole::AxisX
+					   : (kind == 2) ? NkRole::TypeMat
+									 : NkRole::TypeTex);
+		}
+
+		/// Nom affiche de la nature. Les quatre graphes se nomment enfin chacun :
+		/// la cascade precedente testait `kind == 0` EN PREMIER, si bien que les
+		/// quatre libelles par sous-type ecrits en dessous n'etaient jamais
+		/// atteints -- tous les graphes s'appelaient « Graphe ».
+		inline const char *NkAssetKindName(uint8 kind, uint8 sub) {
+			if (kind == 0)
+				return (sub == 1)	? "Graphe texturing"
+					   : (sub == 2) ? "Graphe materiau"
+					   : (sub == 3) ? "Graphe motion"
+									: "Graphe modelisation";
+			return (kind == 1)	 ? "Dossier"
+				   : (kind == 4) ? "Dataset IA"
+				   : (kind == 5) ? "Scene"
+				   : (kind == 6) ? "Model"
+				   : (kind == 2) ? "Materiau"
+								 : "Texture";
+		}
 
 	} // namespace nk3d
 } // namespace nkentseu

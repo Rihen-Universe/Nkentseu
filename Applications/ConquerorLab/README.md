@@ -12,9 +12,37 @@
 
 ---
 
-## 1. Le principe : le stagiaire n'écrit que du C++
+## 1. Comment on contribue à l'atelier
 
-Il ne manipule **jamais** de DLL, ne lance **jamais** de commande de build.
+**Trois dossiers, trois natures de contribution.** C'est tout ce qu'un stagiaire a
+besoin de savoir. Il ne manipule **jamais** de DLL et ne lance **jamais** de
+commande de build.
+
+| Je veux ajouter… | Je dépose… | Ce qui se passe |
+|---|---|---|
+| **un moteur de règles** | `Build/ConquerorLab/rules/mes_regles.cpp` | l'atelier détecte → **compile** → charge → le module apparaît dans le panneau **Modules**, sélectionnable |
+| **une IA** | `Build/ConquerorLab/ai/mon_ia.cpp` | idem → l'IA apparaît dans la liste des pilotes du panneau **Joueurs** |
+| **une grille** | `Build/ConquerorLab/boards/diamant_4j.json` | **aucune compilation** : la grille apparaît dans le panneau **Règles** → *Plateau* → *Grille* |
+
+Les chemins exacts sont affichés en clair dans le panneau **Modules** (règles, IA)
+et dans le panneau **Règles** (grilles) : la question « où est-ce que je pose mon
+fichier ? » ne doit pas se poser deux fois.
+
+> **📘 Un cours complet existe** : [`Documentation/cours-conqueror/`](../../Documentation/cours-conqueror/README.md)
+> — sept chapitres, du contrat aux mesures, avec trois exemples compilables et
+> vérifiés. Disponible en **PDF** (`Cours_ConquerorLab.pdf`, 41 pages) et en
+> Markdown. C'est par là qu'un stagiaire commence.
+
+### 1.1 Règles et IA — du C++, rien d'autre
+
+Le fichier implémente `NkcRulesVTable` (ou `NkcAIVTable`) et se termine par la
+macro d'export. Deux niveaux de lecture :
+
+- `exemples/rules/RegleMinimale.cpp` et `exemples/ai/IAMinimale.cpp` — **les plus
+  petits modules qui jouent vraiment**, écrits pour le cours et vérifiés au banc
+  d'essai ;
+- `modules/rules/ConquerorRulesV2.cpp` et `modules/ai/ConquerorAIRef.cpp` — les
+  modules de référence, plus riches.
 
 ```
 1.  il écrit   Build/ConquerorLab/rules/mes_regles.cpp
@@ -23,8 +51,53 @@ Il ne manipule **jamais** de DLL, ne lance **jamais** de commande de build.
 4.  il rejoue une partie, sans avoir quitté l'application
 ```
 
-En cas d'erreur, la sortie du compilateur s'affiche dans le panneau **Modules**.
-Le binaire produit à côté du `.cpp` est de la tuyauterie invisible.
+En cas d'erreur, **la sortie complète du compilateur** s'affiche dans le panneau
+**Modules**. Le binaire produit à côté du `.cpp` est de la tuyauterie invisible.
+
+### 1.2 Grilles — de la donnée **ou** du code, au choix
+
+Deux voies, et la seconde est souvent la bonne :
+
+| Voie | Quand | Comment |
+|---|---|---|
+| **JSON** | la forme se décrit par une liste de coordonnées ; un designer doit pouvoir l'essayer sans compiler | déposer un `.json` dans `boards/` |
+| **C++** | la forme se décrit par une *formule* ; le voisinage n'est pas géométrique ; les cellules n'ont ni la même taille ni la même forme | construire `coords[]` dans `Create`, écrire son propre voisinage, et déclarer `GetCellCenter` / `GetCellShape` (ABI 3) |
+
+**Ce qui a toujours appartenu au module** : la forme du plateau (`coords[]`), le
+voisinage (votre code dans `GenerateLegalMoves` — `ConquerorGeometry.h` est une
+*commodité*, pas une obligation) et les cases bloquées (`kCellBlocked`).
+
+**Ce qui lui échappait, et ne lui échappe plus** : la projection écran. Elle était
+déduite de `NkcTopology`, donc limitée à l'hexagone et au carré — un plateau que
+les règles savaient jouer pouvait être impossible à *afficher*. Depuis l'ABI 3,
+`GetCellCenter` et `GetCellShape` rendent la main au module. Démonstration :
+`exemples/rules/GrilleLibre.cpp`, un plateau **circulaire** à trois anneaux.
+
+### 1.3 Le format JSON, quand on choisit cette voie
+
+Le plateau n'est pas une constante du moteur : c'est un descripteur sérialisable
+(REGLES §4). Le format est celui du contrat, lu par `LoadBoardJson` :
+
+```json
+{ "topology": "HEX_POINTY",
+  "cells":   [[0,0],[1,0],[2,0]],
+  "blocked": [[1,0]],
+  "starts":  [{"player":0,"q":0,"r":0,"level":0},
+              {"player":1,"q":2,"r":0,"level":0}],
+  "min_players": 2, "max_players": 2 }
+```
+
+Deux facilités pour ne pas partir d'une page blanche :
+
+- au premier lancement, l'atelier **écrit un exemple** dans `boards/`
+  (`exemple_plateau_par_defaut.json`) — il est exporté du moteur, donc forcément
+  valide ;
+- le bouton **« Exporter le plateau courant »** produit le même fichier à tout
+  moment : on part d'une grille qui marche, on la modifie.
+
+C'est le **module** qui lit ce JSON, jamais l'atelier. Un moteur de stagiaire qui
+accepte un champ supplémentaire le verra sans qu'on touche à l'interface. Si le
+module refuse le fichier, le panneau **Règles** le dit, avec le nom du fichier.
 
 **Sur Android et Web**, il n'y a pas de compilateur sur l'appareil : seuls les
 modules compilés *dans* l'application sont disponibles. L'atelier reste
@@ -50,8 +123,9 @@ ConquerorLab/
 │   ├── NkcModuleHost.h         ← catalogue, compilation, chargement, hot-reload
 │   ├── NkcBoardRender.h        ← projection écran : coord ↔ pixel, cadrage auto
 │   ├── NkcDraw.h               ← polygone / anneau / texte (absents de NkGuiDrawList)
-│   ├── NkcLabTheme.h           ← LA palette RIHEN, un seul endroit
+│   ├── NkcLabTheme.h           ← LA palette (GitHub Dark Pro), un seul endroit
 │   ├── NkcParamSchema.h        ← lecture du schéma JSON de paramètres
+│   ├── NkcBoardLibrary.h       ← les grilles : scan de boards/*.json, import/export
 │   ├── NkcSession.h            ← la partie : règles, IA threadée, journal, rejeu
 │   ├── NkcBatch.h              ← campagne IA-vs-IA multi-thread
 │   ├── Nkc{Board,Rules,Players,Modules,Journal,Metrics}Panel.h
@@ -67,7 +141,8 @@ ConquerorLab/
 | Décision | Raison |
 |---|---|
 | **Types Nkentseu partout** (`uint32`, `int8`, `usize`, `float64`) | Décision du studio. Rendue possible parce que l'atelier pilote la compilation et fournit les `-I`. |
-| **Trois `-I` seulement** : `ConquerorLab/include`, `NKCore/src`, `NKPlatform/src` | Un module doit compiler sans lier quoi que ce soit du moteur. Vérifié. |
+| **Toute la pile sous NKCanvas est offerte** aux modules — en-têtes *et* bibliothèques | La version initiale ne donnait que trois `-I` et aucun lien. C'était élégant et trop étroit : un moteur de règles a besoin d'une chaîne, d'un tableau, d'un formatage, d'un journal, et les réécrire à la main est du temps volé au jeu. La frontière est désormais **NKCanvas / NKGui** — tout ce qui est en dessous est disponible, rien de ce qui est au-dessus ne l'est. Un module de règles n'a aucune raison de dessiner. |
+| **Le module a sa PROPRE copie de la pile** (édition de liens statique) | Conséquence directe et assumée : un `logger.Infof()` depuis un module n'apparaît pas dans la console de l'atelier, et les allocateurs des deux côtés sont distincts. C'est pourquoi le contrat expose `nkc_rules_set_allocator` — et pourquoi le retour au stagiaire passe par les `NkcEvent`, pas par le journal. |
 | **Géométrie entièrement inline et entière** | `NkRound` de NKMath est un symbole *lié* : l'inclure ferait échouer l'édition de liens de tout module. La projection écran vit donc côté atelier, pas dans le contrat. C'est aussi la bonne frontière : la règle ne connaît pas les pixels. |
 | **État opaque + vue en lecture seule** | Le module choisit sa représentation interne ; l'IA et l'atelier ne voient qu'une `NkcStateView`. Aucun couplage. |
 | **L'IA reçoit les règles par table de pointeurs** | A2 démarre sans attendre A1, et les deux ne peuvent pas diverger sur les règles : il n'en existe qu'une implémentation. |
@@ -77,8 +152,14 @@ ConquerorLab/
 | **L'IA réfléchit sur SA PROPRE instance de moteur** | `ChooseMove` tourne sur un thread worker. Partager l'instance avec le thread de rendu exposerait le calcul à un paramètre déplacé en cours de route. Le thread reçoit donc une instance privée, synchronisée avant chaque réflexion (plateau + paramètres), et un état transféré par `SerializeState`/`DeserializeState`. Zéro verrou, zéro course. |
 | **Les surbrillances sont SIMULÉES, pas déduites** | Pour montrer « quels ennemis vais-je retourner ? », l'atelier clone l'état, joue le coup pour de faux et lit les événements. Il ne déduit rien des règles — donc l'aperçu reste juste même quand A1 change la règle de transformation. |
 | **Les vtables sont COPIÉES, pas pointées** | Elles vivent dans un `NkVector` qui réalloue, et dans une DLL qu'un rechargement à chaud peut fermer. La session copie la table à la sélection et se relie explicitement quand le catalogue bouge. |
+| **ABI 3 : la géométrie d'affichage rendue au module** | `GetCellCenter` / `GetCellShape`, optionnels (`nullptr` → projection topologique). Le voisinage et la forme du plateau étaient déjà l'affaire du module ; **seule la projection écran lui échappait**, ce qui rendait impossible d'afficher un plateau que ses règles savaient jouer. Les flottants renvoyés sont de la *présentation* : `HashState` ne les voit pas, §17.1 reste entier. |
+| **Le projecteur n'a aucun état persistant** | `NkcProjector` est reconstruit à chaque image. Le rendre persistant obligerait à l'invalider quand le module change — le genre d'invalidation qu'on oublie. Coût : deux affectations. |
 | **`NkcWinClean.h` avant tout include NKFileSystem** | `<windows.h>` transforme `GetFreeSpace`, `DeleteFile`, `GetCurrentDirectory`… en macros ; elles réécrivent les **déclarations** de NKFileSystem et clang signale une erreur de syntaxe très loin de la cause. Le désamorçage est fait en un seul endroit, comme `NkX11Clean.h` le fait pour Xlib devant NKGui. |
 | **La partie avance dans le hook overlay du shell** | Si la boucle de jeu vivait dans `OnUI` du plateau, fermer ce panneau arrêterait la partie — et la campagne de mesure avec elle. |
+| **Par défaut : IA contre IA, sur les deux sièges** | Le premier jet mettait « humain contre IA ». Au lancement le trait est au joueur 0, donc l'atelier attendait un clic et **ne simulait rien** : vu de l'extérieur, « la simulation ne marche pas ». L'atelier est d'abord un instrument de mesure — par défaut, il mesure. On repasse un siège en *Humain* d'un clic (bouton « Siège » du plateau, ou panneau Joueurs). |
+| **Un atelier immobile dit POURQUOI** | `NkcSession::IdleReason()` alimente la barre du plateau : *au tour du joueur humain*, *l'IA réfléchit*, *rejeu en pause*, *IA introuvable*, *partie terminée*. Une interface qui ne bouge pas et se tait se lit comme une panne. Les échecs de démarrage de réflexion sont tracés (`Fail(...)`), jamais avalés. |
+| **Pas de barres d'activité** | Les bandes verticales d'icônes de NKEditorKit servent à basculer entre des *vues* d'IDE. L'atelier n'en a aucune : les garder lui donnait le chrome de NKCode sans en avoir le métier. `NkEditorShell::SetActivityBars(false,false)` — ajouté au socle, **par défaut à `true`**, donc NKCode est inchangé. |
+| **Charte GitHub Dark Pro** | Décision de Rihen, 2026-08-06 : remplace la charte teal RIHEN de `HANDOFF §2.1`. L'atelier est un outil de développeur, regardé huit heures par jour à côté d'un éditeur de code ; il doit avoir la même température que lui. |
 
 ---
 
