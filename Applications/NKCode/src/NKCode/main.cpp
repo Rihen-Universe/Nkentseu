@@ -95,13 +95,18 @@ int nkmain(const NkEntryState &state) {
 	static nkcode::ExplorerPanel explorer(&g_state, shell.Get());
 	static nkcode::OutlinePanel outline(&g_state);
 	static nkcode::EditorPanel editor(&g_state, shell.Get());
-	static nkcode::OutputPanel output(&g_state);
+	static nkcode::OutputPanel output(&g_state, shell.Get());
 	static nkcode::TerminalPanel terminal;
+	// Panneau d'EXECUTION : meme moteur de terminal, mais reserve aux programmes
+	// lances par « Demarrer » — pour ne pas les melanger aux shells que
+	// l'utilisateur garde ouverts. Ne cree jamais de shell tout seul.
+	static nkcode::TerminalPanel runTerm("EXECUTION", /*runMode=*/true);
 	shell->AddPanel(&explorer);
 	shell->AddPanel(&outline);
 	shell->AddPanel(&editor);
 	shell->AddPanel(&output);
 	shell->AddPanel(&terminal);
+	shell->AddPanel(&runTerm);
 
 	// Maquettes des interfaces (interface.md) : structure visuelle d'abord, rendu
 	// fonctionnel ensuite (roadmap #2-#20). Fermees par defaut -> menu Affichage.
@@ -158,6 +163,8 @@ int nkmain(const NkEntryState &state) {
 	shell->SetZoomHandler(&nkcode::ZoomHandler, &nkcode::NkZoomCtx()); // zoom Ctrl+molette/±/0 -> onglet actif
 	terminal.mShell = shell.Get();					 // police propre du terminal (non zoomee)
 	terminal.mState = &g_state;						 // terminal demarre dans la racine du workspace
+	runTerm.mShell = shell.Get();
+	runTerm.mState = &g_state;
 	g_dialogs.st = &g_state;
 	g_dialogs.shell = shell.Get();
 	g_dialogs.home = &g_home; // modale Preferences = panneau settings COMPLET du launcher
@@ -267,14 +274,34 @@ int nkmain(const NkEntryState &state) {
 		// Le rappel recoit le dossier personnel ; il doit survivre a main().
 		static NkString s_regHome = g_regHome;
 		shell->SetOnWindowClosed(
-			[](void *user) {
-				// Croix de la barre de titre = fermeture EXPLICITE de cette
-				// fenetre : elle ne doit PAS revenir au prochain lancement.
-				// Ctrl+Q passe par RequestClose() et n'arrive jamais ici, donc
-				// quitter l'application laisse bien la fenetre inscrite.
-				nkcode::NkOpenWindowsUnregister(*static_cast<NkString *>(user));
+			[](void *user) -> bool {
+				// On VETOE et on demande confirmation — TOUJOURS, pas seulement quand
+				// des fichiers sont modifies : fermer l'IDE d'un clic sur la croix,
+				// sans un mot, est trop facile a faire par accident. L'overlay
+				// (Dialogs::DrawQuitConfirm) pose la question puis appelle
+				// ConfirmQuit(), qui repasse ici avec quitConfirmed leve.
+				if (!g_state.quitConfirmed) {
+					g_state.quitRequested = true;
+					return false;
+				}
+				return true;
 			},
 			&s_regHome);
+		// Fermeture REELLE une fois l'utilisateur decide dans la confirmation :
+		// desinscrit la fenetre (fermeture explicite -> pas de restauration au
+		// prochain lancement) puis arrete la boucle.
+		static NkEditorShell *s_shell = shell.Get();
+		g_state.quitFnUser = &s_regHome;
+		g_state.quitFn = [](void *user) {
+			// Fermer CETTE fenetre (croix dessinee, « Fermer la fenetre ») = geste
+			// explicite : elle ne doit PAS revenir au prochain lancement. Quitter
+			// l'application (Quitter, Ctrl+Q) la laisse inscrite, pour reprendre ou
+			// l'on en etait. La distinction vient de RequestQuit(windowClose).
+			if (s_shell && s_shell->QuitIsWindowClose())
+				nkcode::NkOpenWindowsUnregister(*static_cast<NkString *>(user));
+			if (s_shell)
+				s_shell->RequestClose();
+		};
 	}
 	// Logos + icônes (table unique) + manifeste + activity bars — Shell/NkAppIcons.h
 	nkcode::NkLoadAppIcons(shell.Get(), g_home, g_state);

@@ -527,6 +527,23 @@ Classement par **rapport valeur / coût**, pas par numéro de la spec :
 
 ## Backlog — demandes de Rihen à traiter plus tard
 
+- ⬜ **Dictée vocale dans le composeur du chat IA** (5 août 2026, demande de
+  Rihen, différée explicitement). Vient de la maquette de composeur qu'il a
+  fournie : un bouton micro à droite du champ de saisie. Les trois autres
+  éléments de cette maquette (file d'attente de messages, composeur unifié,
+  barre de session) ont été retenus tout de suite ; **le micro est mis de côté
+  pour la suite**.
+
+  **Ce n'est pas une adaptation d'interface mais un chantier à part entière** :
+  NKCode n'a aujourd'hui aucune capture audio. `NKAudio` sait *lire* du son
+  (lecture vérifiée en juillet) ; l'entrée microphone n'existe pas — ni
+  périphérique de capture, ni flux d'entrée. Il faudrait donc : la capture par
+  plateforme (WASAPI côté Windows, PulseAudio/PipeWire côté Linux, CoreAudio
+  côté macOS), puis une transcription — soit un service distant, ce qui pose
+  une question de confidentialité à trancher avec Rihen, soit un modèle local,
+  ce qui suppose une inférence embarquée que NKCode n'a pas. Aucune de ces
+  briques ne se réutilise ailleurs dans le projet.
+
 - ⬜ **Saisie du chat IA sur le modèle de l'éditeur** (30 juil 2026). Le brouillon
   de chat est un tableau C de taille fixe, imposé par le widget NKGui
   `InputTextMultiline` (convention ImGui : il écrit dans un tampon fourni par

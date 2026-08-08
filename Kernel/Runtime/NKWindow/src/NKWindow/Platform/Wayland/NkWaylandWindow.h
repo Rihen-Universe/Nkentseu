@@ -127,6 +127,11 @@ namespace nkentseu {
 			bool mConfigured = false;
 			bool mWantsClose = false;
 			bool mFullscreen = false;
+			// Etat MAXIMISE annonce par le compositeur (xdg_toplevel.configure).
+			// Il etait lu puis jete : IsMaximized() renvoyait `false` en dur, si
+			// bien que l'icone de la barre de titre ne changeait jamais et que
+			// Maximize() — qui BASCULE — ne pouvait plus restaurer la fenetre.
+			bool mMaximized = false;
 			bool mPendingResize = false;
 			bool mVisible = true;
 

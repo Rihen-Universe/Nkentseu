@@ -207,8 +207,11 @@ namespace nkentseu {
 			const float32 fy = r.y + r.h - u.s(44);
 			u.Rect({r.x, fy - u.s(8), r.w, 1.f}, NkCol::border);
 			u.Text(r.x + u.s(16), fy, "IDE", NkCol::mutedFg);
-			const char *ideV = NkCodeVersion();
-			u.Text(r.x + r.w - u.s(16) - u.TextW(ideV), fy, ideV, NkCol::mutedFg);
+			// Version + horodatage de build. Une release republiee sous le MEME tag
+			// donne deux binaires distincts portant la meme version : sans cette
+			// date, un rapport de bug ne dit pas lequel etait installe.
+			const NkString ideV = NkString(NkCodeVersion()) + " (" + NkCodeBuildStamp() + ")";
+			u.Text(r.x + r.w - u.s(16) - u.TextW(ideV.CStr()), fy, ideV.CStr(), NkCol::mutedFg);
 			u.Text(r.x + u.s(16), fy + u.s(16), "Jenga", NkCol::mutedFg);
 			// « … » tant que la detection asynchrone n'a pas repondu ; « n/d » si Jenga
 			// est introuvable (aucune version a afficher, on ne l'invente pas).
@@ -227,6 +230,7 @@ namespace nkentseu {
 				const char *platforms = "";	  // "Windows, Linux, Android, Web"
 				const char *projects = "";	  // "Renderer, Physics, Audio, UI, Main"
 				int32 projCount = 0;		  // nombre total de projets -> "(N)"
+				bool projCountExact = true;   // false -> affiche « ~N » (estimation)
 				const char *buildConfig = ""; // "Debug"
 				const char *modified = "";	  // "il y a 2h"
 				int32 build = 0;			  // 0 inconnu,1 ok,2 erreur,3 partiel
@@ -309,7 +313,7 @@ namespace nkentseu {
 				cx += u.TextW(NkT("card.projects"));
 				NkString cnt; // NkPrintf maison (ex-std::snprintf)
 				if (w.projCount > 0)
-					cnt = NkPrintf("  (%d)", w.projCount);
+					cnt = w.projCountExact ? NkPrintf("  (%d)", w.projCount) : NkPrintf("  (~%d)", w.projCount);
 				const float32 cntw = !cnt.Empty() ? u.TextW(cnt.CStr()) : 0.f;
 				cx += u.TextEllipsis(cx, y, lineRight - cx - cntw, w.projects, NkCol::foreground);
 				if (!cnt.Empty())
@@ -678,6 +682,45 @@ namespace nkentseu {
 			const bool caretOn = (H->caretBlink - (float32)(int32)H->caretBlink) < 0.55f; // clignotement ~1s
 			H->fieldClaim = false; // reinitialise : un champ de recherche posera true s'il capte le clic
 
+			// ── Raccourcis clavier du launcher ───────────────────────────────
+			//
+			// Ils etaient ANNONCES dans l'ecran Parametres (table ScKey) mais
+			// n'existaient NULLE PART : ce fichier ne gerait qu'Echap, et les
+			// codes de touche Num3..Num6 / Comma n'etaient meme pas acheminés
+			// jusqu'a NKGui. Un utilisateur lisait « Ctrl+N : nouveau
+			// workspace » et n'obtenait rien — signale en beta (issue #12).
+			//
+			// Valeurs de `nav` : 0 Accueil, 1 Ouvrir, 2 Nouveau, 3 Cloner, puis
+			// 10 Toolchains, 11 Plateformes, 12 Parametres (elles ne se suivent
+			// PAS : les outils commencent a 10).
+			//
+			// Geles pendant qu'un popup est ouvert, comme les clics : sinon
+			// Ctrl+1 changerait de page sous un menu encore affiche.
+			if (!anyPopup) {
+				auto &kin = u.ctx->input;
+				auto kp = [&](NkGuiKey k) { return kin.ctrlDown && kin.KeyPressed(k); };
+				if (kp(NkGuiKey::Num1))
+					H->nav = 0; // Accueil
+				else if (kp(NkGuiKey::Num2))
+					H->nav = 1; // Ouvrir
+				else if (kp(NkGuiKey::Num3))
+					H->nav = 2; // Nouveau workspace
+				else if (kp(NkGuiKey::Num4))
+					H->nav = 3; // Cloner
+				else if (kp(NkGuiKey::Num5))
+					H->nav = 10; // Toolchains
+				else if (kp(NkGuiKey::Num6))
+					H->nav = 12; // Parametres
+				else if (kp(NkGuiKey::N))
+					H->nav = 2; // Ctrl+N : nouveau workspace
+				else if (kp(NkGuiKey::O))
+					H->nav = 1; // Ctrl+O : ouvrir un workspace
+				else if (kp(NkGuiKey::G))
+					H->nav = 3; // Ctrl+G : cloner un depot
+				else if (kp(NkGuiKey::Comma))
+					H->nav = 12; // Ctrl+, : parametres
+			}
+
 			// ── Barre de filtres : recherche + combo langage + combo systeme (fonctionnels) ──
 			const float32 fh = u.s(30);
 			const float32 cw = u.s(110);
@@ -805,6 +848,7 @@ namespace nkentseu {
 						wi.platforms = meta.platforms.CStr();
 						wi.projects = meta.projects.CStr();
 						wi.projCount = meta.projCount;
+						wi.projCountExact = meta.projCountExact;
 						const NkRect cr = {listArea.x, y, listArea.w, CH};
 						const int32 a = NkWorkspaceCard(u, cr, wi, H->icons.star);
 						if (!anyPopup) {
@@ -954,7 +998,7 @@ namespace nkentseu {
 						wi.configs = st->infoConfigs.CStr();
 						wi.platforms = st->infoOSes.CStr();
 						wi.projects = curProj.CStr();
-						wi.projCount = (int32)st->projects.Size();
+						wi.projCount = st->TotalProjectCount(); // meme definition que l'ecran de chargement
 						wi.buildConfig = st->ConfigName();
 						wi.build = 1;
 						wi.iconBg = NkCol::primary;
@@ -984,6 +1028,7 @@ namespace nkentseu {
 						wi.platforms = meta.platforms.CStr();
 						wi.projects = meta.projects.CStr();
 						wi.projCount = meta.projCount;
+						wi.projCountExact = meta.projCountExact;
 						const int32 a = NkWorkspaceCard(u, cr, wi, H->icons.star);
 						if (!anyPopup) {
 							if (a == 1)

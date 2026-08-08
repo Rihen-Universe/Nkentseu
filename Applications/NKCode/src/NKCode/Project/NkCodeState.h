@@ -3867,6 +3867,24 @@ namespace nkentseu {
 				// l'utilisateur (voir bouton "Emulateur" de la toolbar). Different de
 				// termOpenCmd (qui REMPLACE le shell par une commande, façon agent CLI).
 				NkString termOpenType;
+				// Panneau a faire remonter au prochain frame, demande depuis l'ETAT (qui
+				// n'a pas le shell sous la main). Consomme par OutputPanel::OnUI, seul
+				// panneau appele a chaque frame. Titre EXACT (« TERMINAL »), la
+				// comparaison de FocusPanel etant sensible a la casse.
+				// Statut a afficher en ROUGE : un refus (bibliotheque non executable,
+				// aucun executable...) doit sauter aux yeux, pas se fondre dans le gris
+				// des messages ordinaires. Remis a faux a chaque nouvelle tentative.
+				bool statusError = false;
+				NkString focusPanelReq;
+				// Libelle de l'onglet terminal a creer. Sans lui, l'onglet porte la
+				// commande ENTIERE (chemin quote + arguments) et devient illisible.
+				// Vide = comportement historique (la commande fait office de libelle).
+				NkString termOpenLabel;
+				// Instance de panneau visee par la demande ci-dessus : false = panneau
+				// « TERMINAL » (shells de l'utilisateur), true = panneau « EXECUTION »
+				// (un onglet par « Demarrer »). Les deux panneaux lisent le meme canal ;
+				// seul le destinataire le consomme.
+				bool termOpenRun = false;
 				// ── Pont barre de menus -> panneau IA (menu IA : Expliquer/Corriger/... la
 				// selection) : prompt depose ici, consomme par NkAiPanel::OnUI au prochain
 				// frame (copie dans la saisie ; aiSend=true = envoye immediatement).
@@ -4235,6 +4253,12 @@ namespace nkentseu {
 						s += runArgs;
 						s += "\n";
 					}
+					// Repertoire d'execution (vide = racine du workspace, cf. RunCwd()).
+					if (runCwd[0]) {
+						s += "W ";
+						s += runCwd;
+						s += "\n";
+					}
 					for (usize i = 0; i < files.Size(); ++i) {
 						OpenFile &f = files[i];
 						const int32 dy = f.doc.dirty ? 1 : 0;
@@ -4315,6 +4339,11 @@ namespace nkentseu {
 							for (const char *q = line + 2; *q && k + 1 < sizeof(runArgs); ++q)
 								runArgs[k++] = *q;
 							runArgs[k] = '\0';
+						} else if (line[0] == 'W' && line[1] == ' ') { // repertoire d'execution
+							usize k = 0;
+							for (const char *q = line + 2; *q && k + 1 < sizeof(runCwd); ++q)
+								runCwd[k++] = *q;
+							runCwd[k] = '\0';
 						} else if (line[0] == 'a' && line[1] == 'c') {
 							const char *q = line + 6;
 							savedActive = nextField(q);
@@ -4743,6 +4772,58 @@ namespace nkentseu {
 						active = 0;
 				}
 
+				// ── Fermeture de l'APPLICATION (croix de la barre de titre) ────────
+				// Le rappel du shell VETOE la fermeture et leve `quitRequested` ; le
+				// panneau Editeur pose alors la question (EditorPanel::DrawQuitConfirm)
+				// et leve `quitConfirmed` quand l'utilisateur a tranche. main.cpp
+				// convertit ce dernier en RequestClose(). Deux drapeaux et non un seul :
+				// « on m'a demande de fermer » et « je peux fermer » sont deux etats
+				// distincts — entre les deux, l'utilisateur peut encore annuler.
+				bool quitRequested = false;
+				bool quitConfirmed = false;
+
+				// Action de fermeture REELLE, posee par main.cpp (seul a connaitre le
+				// shell et le registre des fenetres ouvertes). Le panneau qui affiche la
+				// confirmation n'a besoin de rien savoir de tout ca.
+				using NkQuitFn = void (*)(void *user);
+				NkQuitFn quitFn = nullptr;
+				void *quitFnUser = nullptr;
+
+				void ConfirmQuit() {
+					quitConfirmed = true;
+					quitRequested = false;
+					if (quitFn)
+						quitFn(quitFnUser);
+				}
+
+				int32 DirtyCount() const {
+					int32 n = 0;
+					for (usize i = 0; i < files.Size(); ++i)
+						if (files[i].doc.dirty)
+							++n;
+					return n;
+				}
+
+				// Enregistre TOUS les fichiers modifies. false des le premier echec (un
+				// « sans titre » exige un chemin : impossible sans repasser par
+				// « Enregistrer sous », donc on n'insiste pas et on ne ferme pas).
+				bool SaveAllDirty() {
+					const int32 wasActive = active;
+					bool ok = true;
+					for (usize i = 0; i < files.Size(); ++i) {
+						if (!files[i].doc.dirty)
+							continue;
+						active = static_cast<int32>(i);
+						if (!SaveActive()) {
+							ok = false;
+							break;
+						}
+					}
+					if (wasActive >= 0 && wasActive < static_cast<int32>(files.Size()))
+						active = wasActive;
+					return ok;
+				}
+
 				bool SaveActive() {
 					if (active < 0 || active >= static_cast<int32>(files.Size()))
 						return false;
@@ -5104,6 +5185,18 @@ namespace nkentseu {
 						} else
 							mBuild.Drain(fresh);
 						for (usize i = 0; i < fresh.Size(); ++i) {
+							// Chemin/Kind du binaire offerts par le build (cf. Embed.py) :
+							// PROTOCOLE, pas du texte pour l'utilisateur -> ni affiches ni
+							// journalises. Les retenir evite a « Demarrer » un second
+							// chargement complet du workspace (~1,5 s ici).
+							if (fresh[i].StartsWith("[jenga-exepath] ")) {
+								mRunExePath = NkString(fresh[i].CStr() + 16);
+								continue;
+							}
+							if (fresh[i].StartsWith("[jenga-exekind] ")) {
+								mRunExeKind = NkString(fresh[i].CStr() + 16);
+								continue;
+							}
 							output.PushBack(fresh[i]);
 							if (mCmdLog.Size() < 3000)
 								mCmdLog.PushBack(fresh[i]);
@@ -5168,6 +5261,59 @@ namespace nkentseu {
 				int32 projIdx = 0;			 // projet cible courant
 				NkVector<NkString> tests;	 // projets de test (Kind = TestSuite)
 				int32 testIdx = -1;			 // -1 = tous les tests visibles ; >=0 = un test precis
+				// Kind de chaque projet, PARALLELE a `projects` (meme index, meme source :
+				// la colonne Kind de `jenga info`). Le MEME selecteur sert a Construire et
+				// a Demarrer, mais les deux n'acceptent pas les memes cibles : construire
+				// une bibliotheque a du sens, l'executer non. On ne peut donc pas filtrer
+				// la liste elle-meme sans amputer Construire — on filtre A L'USAGE.
+				NkVector<NkString> projKinds;
+
+				// Projet de DEMARRAGE declare dans le .jenga (startproject). Vide si
+				// aucun. « Demarrer » sur « tous les projets » le prefere au premier
+				// executable venu : c'est le choix explicite de l'auteur du workspace.
+				NkString startProject;
+
+				NkString KindOf(const char *name) const {
+					if (name && *name)
+						for (usize i = 0; i < projects.Size() && i < projKinds.Size(); ++i)
+							if (StrEq(projects[i].CStr(), name))
+								return projKinds[i];
+					return NkString();
+				}
+
+				// ConsoleApp : « Demarrer » l'envoie dans un onglet du panneau EXECUTION
+				// (stdin, ANSI, code de sortie) plutot que dans le panneau Sortie.
+				bool IsConsoleProject(const char *name) const {
+					return NkFindSub(KindOf(name).CStr(), "Console") != nullptr;
+				}
+
+				// Projet EXECUTABLE (application console ou fenetree). Une bibliotheque
+				// statique/dynamique n'a pas de point d'entree : la « demarrer » n'a aucun
+				// sens, et l'utilisateur merite un message clair plutot qu'un echec obscur.
+				bool IsExecutableProject(const char *name) const {
+					const NkString k = KindOf(name);
+					return NkFindSub(k.CStr(), "Console") != nullptr || NkFindSub(k.CStr(), "Windowed") != nullptr;
+				}
+
+				// Premier projet executable — cible de « Demarrer » quand « tous les
+				// projets » est selectionne. Vide si le workspace n'a que des bibliotheques.
+				// DEFINITION UNIQUE du « nombre de projets ». Une TestSuite est un projet
+				// a part entiere cote Jenga (declaree par project(), listee dans la table
+				// Projects de `jenga info`) ; NKCode la range juste dans un selecteur
+				// separe. Compter tantot `projects` seul, tantot `projects + tests`,
+				// donnait deux chiffres differents pour un meme workspace — 184 sur
+				// l'ecran de chargement, 249 sur la carte du launcher. Tout passe
+				// desormais par ici.
+				int32 TotalProjectCount() const {
+					return static_cast<int32>(projects.Size() + tests.Size());
+				}
+
+				NkString FirstExecutableProject() const {
+					for (usize i = 0; i < projects.Size(); ++i)
+						if (IsExecutableProject(projects[i].CStr()))
+							return projects[i];
+					return NkString();
+				}
 
 				// Toolchains DETECTEES par Jenga (table "Available Toolchains" de `jenga info`).
 				struct ToolchainRow {
@@ -5227,6 +5373,8 @@ namespace nkentseu {
 						mInfoWsIdx = wsIdx;
 						mInfoLines.Clear();
 						projects.Clear();
+					projKinds.Clear(); // parallele a `projects` (meme source : jenga info)
+					startProject = NkString();
 						return;
 					}
 					// ── Jenga EMBARQUE pour `info` aussi ────────────────────────────
@@ -5249,6 +5397,8 @@ namespace nkentseu {
 							mInfoWsIdx = wsIdx;
 							mInfoLines.Clear();
 							projects.Clear();
+					projKinds.Clear(); // parallele a `projects` (meme source : jenga info)
+					startProject = NkString();
 							mInfoEmbedded = true;
 							return;
 						}
@@ -5259,6 +5409,8 @@ namespace nkentseu {
 					mInfoWsIdx = wsIdx;
 					mInfoLines.Clear();
 					projects.Clear();
+					projKinds.Clear(); // parallele a `projects` (meme source : jenga info)
+					startProject = NkString();
 					mInfoEmbedded = false;
 					mInfo.Start(NkString("jenga info") + JengaFileArg().CStr());
 				}
@@ -6104,6 +6256,11 @@ namespace nkentseu {
 						NkString path, configs, platforms, projects, langVer, toolchains, jengaVer;
 						int64 activity = 0;
 						int32 projCount = 0;
+						// false = estimation du scan textuel (workspace jamais ouvert) ; true =
+						// total AUTORITAIRE d'un `jenga info` precedent. Affiche « ~N » dans
+						// le premier cas : mieux vaut avouer l'approximation que donner un
+						// chiffre faussement precis.
+						bool projCountExact = false;
 				};
 
 				NkVector<WsMeta> mWsMeta;
@@ -6260,6 +6417,18 @@ namespace nkentseu {
 				// couvre `with project(`) + `startproject(`) dans le .jenga racine ET dans tous
 				// les fichiers atteints par `include("…")`, RÉCURSIVEMENT (BFS, anti-cycles,
 				// plafond 300 fichiers) — même règle pour toutes les cartes du launcher.
+				// Projets INTERNES a Jenga, jamais montres a l'utilisateur : « __Unitest__ »
+				// est la cible technique du framework de tests, pas un projet du workspace.
+				// Le parseur de `jenga info` l'ecartait deja ; le scan textuel du launcher,
+				// non — d'ou sa presence sur les cartes. Un seul predicat pour les deux.
+				static bool IsInternalProject(const char *name) {
+					if (!name || !*name)
+						return true;
+					if (name[0] == '-')
+						return true; // separateur de table « --unitest-- »
+					return ContainsI(name, "unitest");
+				}
+
 				static NkString CollectProjects(const char *txt, const NkPath &baseDir, int32 *outCount = nullptr) {
 					NkVector<NkString> names;
 					auto isW2 = [](char c) {
@@ -6304,7 +6473,7 @@ namespace nkentseu {
 										dup = true;
 										break;
 									}
-								if (!dup && !tok.Empty())
+								if (!dup && !tok.Empty() && !IsInternalProject(tok.CStr()))
 									names.PushBack(tok);
 							}
 						}
@@ -6431,6 +6600,7 @@ namespace nkentseu {
 						const int32 exact = KnownProjCount(path);
 						if (exact >= 0)
 							m.projCount = exact;
+						m.projCountExact = (exact >= 0);
 					}
 					m.activity = ActivityTime(wsDir.ToString().CStr()); // derniere activite reelle
 					if (m.activity == 0)
@@ -6744,9 +6914,38 @@ namespace nkentseu {
 						status = NkString("(aucun workspace)");
 						return;
 					}
+					// ── Quelle cible EXECUTER ? ─────────────────────────────────────
+					// Le selecteur de projet sert aussi a Construire, ou une bibliotheque
+					// est une cible parfaitement legitime. Ici elle ne l'est pas : une
+					// StaticLib/SharedLib n'a pas de point d'entree. On rattrape donc les
+					// deux cas au lieu de laisser echouer plus loin :
+					//   « tous les projets »  -> le PREMIER executable du workspace ;
+					//   une bibliotheque      -> message clair, aucun lancement.
+					statusError = false; // nouvelle tentative : on repart d'un statut neutre
+					NkString cibleRun;
 					if (AllProjects()) {
-						status = NkString("(choisir un projet pour Demarrer)");
-						return;
+						// Le projet de DEMARRAGE d'abord : c'est le choix EXPLICITE de
+						// l'auteur du workspace, il prime sur un premier venu. On verifie
+						// tout de meme qu'il est executable — un startproject pointant sur
+						// une bibliotheque serait une erreur du .jenga, pas une cible.
+						if (!startProject.Empty() && IsExecutableProject(startProject.CStr()))
+							cibleRun = startProject;
+						else
+							cibleRun = FirstExecutableProject();
+						if (cibleRun.Empty()) {
+							status = NkString("(aucun executable dans ce workspace)");
+							statusError = true;
+							return;
+						}
+					} else {
+						cibleRun = SelectedProject();
+						if (!IsExecutableProject(cibleRun.CStr())) {
+							const NkString k = KindOf(cibleRun.CStr());
+							status = NkPrintf("%s est une bibliotheque%s%s - rien a executer", cibleRun.CStr(),
+											  k.Empty() ? "" : " ", k.Empty() ? "" : k.CStr());
+							statusError = true;
+							return;
+						}
 					}
 					// EXECUTION = process SEPARE du pipeline build -> PLUSIEURS instances de la
 					// meme application peuvent tourner en parallele (multi-fenetres, tests
@@ -6754,7 +6953,9 @@ namespace nkentseu {
 					// en cours/en file (la phase --build du run entrerait en collision). La
 					// phase --build reste incrementale cote Jenga : rien de modifie => aucun
 					// recompile, lancement direct.
-					const char *proj = SelectedProject();
+					// `proj` = la cible RESOLUE ci-dessus, pas forcement celle du selecteur
+					// (« tous les projets » a ete traduit en un executable precis).
+					const char *proj = cibleRun.CStr();
 					if (BuildBusyFor(proj)) {
 						status = NkPrintf("(construction de %s en cours - reessayer apres)", proj);
 						return;
@@ -6776,6 +6977,8 @@ namespace nkentseu {
 						mRunPendingProj = proj;
 						mRunPendingCfg = ConfigNameOf(cfgIdx >= 2 ? 0 : cfgIdx);
 						mRunPendingPlat = S.name;
+						mRunExePath = NkString(); // resultats du build PRECEDENT : a oublier
+						mRunExeKind = NkString();
 						mRunStage = 1; // 1 = construire, 2 = resoudre le chemin, 3 = lancer
 						NkString bcmd("build --target ");
 						bcmd += proj;
@@ -6805,16 +7008,45 @@ namespace nkentseu {
 					}
 					cmd += " --build";
 					cmd += JengaFileArg();
+					// TOUJOURS interdire a Jenga d'ouvrir une console externe : Run.py le
+					// fait des qu'il voit une ConsoleApp qu'il croit sans tty. Les deux
+					// destinations possibles ici SONT deja une console —
+					//   - onglet terminal dedie : le pty EST la console ;
+					//   - panneau Sortie : la sortie est capturee par NKCode ;
+					// une fenetre supplementaire ne ferait que s'ouvrir et se refermer
+					// avec le programme, emportant son affichage avec elle. Pose AVANT
+					// `--args` (voir juste dessous).
+					cmd += " --no-console";
+					const bool versTerminal = IsConsoleProject(proj);
 					// `--args` doit rester EN DERNIER : argparse.REMAINDER avale tout ce
 					// qui suit (cf. Jenga/Commands/Run.py).
 					if (runArgs[0]) {
 						cmd += " --args ";
 						cmd += runArgs;
 					}
+					// ── Application CONSOLE : onglet TERMINAL dedie (cf. PollRunStages).
+					// Ici Jenga est EXTERNE : on n'a pas le chemin du binaire, c'est donc
+					// la commande `jenga run --build` ENTIERE qui va dans le pty. La
+					// construction defile, puis le programme prend la main avec un VRAI
+					// stdin. Cote Jenga, Run.py voit un tty (isatty() vrai) et n'ouvre
+					// donc PAS de console externe : tout reste dans l'onglet.
+					if (versTerminal) {
+						termOpenAt = RunCwd(); // racine du workspace (ou reglage explicite)
+						termOpenRun = true;	   // -> panneau EXECUTION, pas les shells
+						termOpenCmd = cmd;
+						termOpenKind = -1;
+						termOpenLabel = NkString("\xE2\x96\xB7 ") + proj;
+						termOpenLabel += " \xC2\xB7 ";
+						termOpenLabel += S.name;
+						focusPanelReq = "EXECUTION";
+						Journal(NkString("execution lancee (terminal dedie) : ") + cmd.CStr());
+						status = NkString("Execution dans le terminal : ") + proj;
+						return;
+					}
 					NkProcess *p = new NkProcess();
 					output.PushBack(NkString("$ ") + cmd.CStr());
-					Journal(NkString("execution lancee : ") + cmd.CStr());
-					p->Start(cmd);
+					Journal(NkString("execution lancee (panneau Sortie) : ") + cmd.CStr());
+					p->Start(InRunCwd(cmd));
 					mRuns.PushBack(p);
 					status = NkPrintf("Execution... (%d instance(s))", RunCount());
 				}
@@ -6823,6 +7055,38 @@ namespace nkentseu {
 				// Equivalent de `jenga run <proj> --args ...`. Persistes avec la session
 				// du workspace (voir SessionSig/SaveSession) pour ne pas les retaper.
 				char runArgs[512] = {};
+
+				// ── Repertoire d'execution de « Demarrer » ──────────────────────────
+				// VIDE = racine du workspace, TOUJOURS. C'est la seule reference stable :
+				// le dossier du binaire varie avec la configuration et la plateforme
+				// (Build/Bin/<cfg>-<os>/<projet>), donc un programme qui ouvre
+				// « data/config.json » en relatif marchait ou non selon la cible. Un
+				// chemin explicite ici (configuration utilisateur) prend le dessus ;
+				// relatif, il est resolu depuis la racine du workspace.
+				char runCwd[512] = {};
+
+				// NkProcess passe par _popen : aucun parametre de repertoire, la commande
+				// herite du dossier courant de NKCode (celui d'ou l'utilisateur a lance
+				// l'IDE — arbitraire). On prefixe donc un `cd`, interprete par le shell
+				// que _popen invoque de toute facon.
+				NkString InRunCwd(const NkString &cmd) const {
+					const NkString dir = RunCwd();
+					if (dir.Empty())
+						return cmd;
+#if defined(_WIN32)
+					return NkString("cd /d \"") + dir.CStr() + "\" && " + cmd.CStr();
+#else
+					return NkString("cd \"") + dir.CStr() + "\" && " + cmd.CStr();
+#endif
+				}
+
+				NkString RunCwd() const {
+					const NkString root = this->root.ToString();
+					if (!runCwd[0])
+						return root;
+					const NkPath p(runCwd);
+					return p.IsAbsolute() ? NkString(runCwd) : (this->root / runCwd).ToString();
+				}
 
 				// Decoupe `runArgs` en jetons (guillemets respectes) : « --port 8080
 				// "mon fichier.txt" » -> 3 arguments.
@@ -6849,10 +7113,14 @@ namespace nkentseu {
 				}
 
 				// ── « Demarrer » en mode embarque : machine a etats (voir DoRun) ──
-				// 1 = build en cours · 2 = resolution du chemin en cours · 0 = inactif
+				// 0 = inactif · 1 = build en cours · 2 = resolution du chemin en cours
+				// 3 = chemin deja fourni par le build (voie rapide, rien a attendre)
 				int32 mRunStage = 0;
 				NkString mRunPendingProj, mRunPendingCfg, mRunPendingPlat;
 				NkVector<NkString> mRunPathLines;
+				// Chemin/Kind captures dans la sortie du BUILD (Embed les y depose) :
+				// quand ils sont la, l'etape « resolution du chemin » est inutile.
+				NkString mRunExePath, mRunExeKind;
 
 				// A appeler CHAQUE FRAME (depuis PollBuild) : enchaine build -> chemin ->
 				// lancement natif.
@@ -6867,29 +7135,47 @@ namespace nkentseu {
 							status = NkString("Execution annulee (construction en echec)");
 							return;
 						}
-						NkEmbeddedJenga::Request req;
-						req.kind = "exepath";
-						req.target = mRunPendingProj;
-						req.config = mRunPendingCfg;
-						req.platform = mRunPendingPlat;
-						req.toolchain = compilerName;
-						if (wsIdx >= 0 && wsIdx < static_cast<int32>(wsPaths.Size()))
-							req.jengaFile = wsPaths[wsIdx];
-						mRunPathLines.Clear();
-						if (NkEmbeddedJenga::Get().Start(req))
-							mRunStage = 2;
-						return; // creneau occupe -> nouvelle tentative a la frame suivante
+						// Le build vient de nous donner chemin ET Kind (Embed.py les emet en
+						// fin de build, depuis le workspace DEJA charge) : la resolution
+						// separee, qui rechargeait les 186 projets pour ~1,5 s, devient
+						// inutile. Etape 3 = « chemin deja connu, plus rien a attendre ».
+						if (!mRunExePath.Empty()) {
+							mRunPathLines.Clear();
+							mRunPathLines.PushBack(NkString("[jenga-exekind] ") + mRunExeKind.CStr());
+							mRunPathLines.PushBack(NkString("[jenga-exepath] ") + mRunExePath.CStr());
+							mRunStage = 3;
+							// On enchaine SANS attendre la frame suivante.
+						} else {
+							NkEmbeddedJenga::Request req;
+							req.kind = "exepath";
+							req.target = mRunPendingProj;
+							req.config = mRunPendingCfg;
+							req.platform = mRunPendingPlat;
+							req.toolchain = compilerName;
+							if (wsIdx >= 0 && wsIdx < static_cast<int32>(wsPaths.Size()))
+								req.jengaFile = wsPaths[wsIdx];
+							mRunPathLines.Clear();
+							if (NkEmbeddedJenga::Get().Start(req))
+								mRunStage = 2;
+							return; // creneau occupe -> nouvelle tentative a la frame suivante
+						}
 					}
-					// Etape 2 : recupere la ligne « [jenga-exepath] <chemin> » puis lance.
-					NkVector<NkJengaProgressEvent> ignored;
-					NkEmbeddedJenga::Get().Drain(mRunPathLines, ignored);
-					if (!NkEmbeddedJenga::Get().Done())
-						return;
+					// Etape 2 : attend la reponse de la resolution. (Etape 3 : les lignes
+					// sont deja la, rien a drainer ni a attendre.)
+					if (mRunStage == 2) {
+						NkVector<NkJengaProgressEvent> ignored;
+						NkEmbeddedJenga::Get().Drain(mRunPathLines, ignored);
+						if (!NkEmbeddedJenga::Get().Done())
+							return;
+					}
 					mRunStage = 0;
-					NkString exe;
-					for (usize i = 0; i < mRunPathLines.Size(); ++i)
+					NkString exe, kind;
+					for (usize i = 0; i < mRunPathLines.Size(); ++i) {
 						if (mRunPathLines[i].StartsWith("[jenga-exepath] "))
 							exe = NkString(mRunPathLines[i].CStr() + 16);
+						else if (mRunPathLines[i].StartsWith("[jenga-exekind] "))
+							kind = NkString(mRunPathLines[i].CStr() + 16);
+					}
 					if (exe.Empty() || !NkFile::Exists(exe.CStr())) {
 						status = NkString("Executable introuvable pour ") + mRunPendingProj.CStr();
 						return;
@@ -6903,10 +7189,37 @@ namespace nkentseu {
 						line += targs[i];
 						line += "\"";
 					}
+					// ── Application CONSOLE : onglet TERMINAL dedie, pas le panneau Sortie.
+					// Le panneau Sortie est un journal en LECTURE SEULE : pas de stdin
+					// (impossible de repondre a une invite), pas d'ANSI (couleurs et
+					// effacement de ligne s'affichent en brut), et la sortie du programme
+					// s'y melange aux lignes de build. Un onglet terminal est un VRAI
+					// pty : saisie clavier, couleurs, code de sortie. Une WindowedApp,
+					// elle, n'a rien a afficher dans un terminal -> chemin inchange.
+					if (kind == "ConsoleApp") {
+						termOpenAt = RunCwd(); // racine du workspace (ou reglage explicite)
+						termOpenRun = true;	   // -> panneau EXECUTION, pas les shells
+						termOpenCmd = line;	   // la commande REMPLACE le shell dans l'onglet
+						termOpenKind = -1;	   // shell par defaut (sert de repli si la commande sort)
+						// L'onglet s'identifie comme une EXECUTION, pas comme un shell :
+						// « ▷ <projet> · <plateforme> ». Le pty lance le binaire
+						// DIRECTEMENT (cmdOverride remplace le shell), donc l'onglet se
+						// comporte pareil sur Windows, Linux et macOS — aucun PowerShell
+						// ni bash dans la boucle, juste le programme et son pty.
+						termOpenLabel = NkString("\xE2\x96\xB7 ") + mRunPendingProj.CStr();
+						if (!mRunPendingPlat.Empty()) {
+							termOpenLabel += " \xC2\xB7 ";
+							termOpenLabel += mRunPendingPlat;
+						}
+						focusPanelReq = "EXECUTION"; // fait remonter le panneau (peut etre ferme)
+						Journal(NkString("execution lancee (terminal dedie) : ") + line.CStr());
+						status = NkString("Execution dans le terminal : ") + mRunPendingProj.CStr();
+						return;
+					}
 					NkProcess *p = new NkProcess();
 					output.PushBack(NkString("$ ") + line.CStr());
 					Journal(NkString("execution lancee (embarque) : ") + line.CStr());
-					p->Start(line);
+					p->Start(InRunCwd(line));
 					mRuns.PushBack(p);
 					status = NkPrintf("Execution... (%d instance(s))", RunCount());
 				}
@@ -7183,6 +7496,8 @@ namespace nkentseu {
 				// dans `projects`. Exclut les separateurs / entrees parasites (ex. --unitest--).
 				void ParseProjects() {
 					projects.Clear();
+					projKinds.Clear(); // parallele a `projects` (meme source : jenga info)
+					startProject = NkString();
 					tests.Clear();
 					toolchains.Clear();
 
@@ -7192,6 +7507,13 @@ namespace nkentseu {
 						const char *L = mInfoLines[i].CStr();
 						if (StartsWithI(L, "Configurations:")) {
 							infoConfigs = AfterColon(L);
+							continue;
+						}
+						// Projet de DEMARRAGE du workspace (startproject dans le .jenga) :
+						// cible privilegiee de « Demarrer » quand « tous les projets » est
+						// selectionne. Absent de la sortie quand aucun n'est declare.
+						if (StartsWithI(L, "Start project:")) {
+							startProject = AfterColon(L).Trim();
 							continue;
 						}
 						if (StartsWithI(L, "Target OSes:")) {
@@ -7216,12 +7538,14 @@ namespace nkentseu {
 							char name[128], kind[64];
 							if (!TwoTokens(L, name, sizeof(name), kind, sizeof(kind)))
 								continue;
-							if (name[0] == '-' || Contains(name, "unitest"))
-								continue; // parasite / --unitest--
+							if (IsInternalProject(name))
+								continue; // parasite / __Unitest__ (predicat partage)
 							if (Contains(kind, "Test"))
 								tests.PushBack(NkString(name)); // TestSuite -> combo Tests
-							else
+							else {
 								projects.PushBack(NkString(name));
+								projKinds.PushBack(NkString(kind)); // garde l'index aligne
+							}
 						} else if (cur == TOOL) {
 							char t[5][96];
 							const int32 n = NTokens(L, t, 5, 96);
@@ -7246,8 +7570,7 @@ namespace nkentseu {
 					// carte de ce workspace affiche le bon nombre au prochain passage sur
 					// le launcher, sans relancer `jenga info`.
 					if (wsIdx >= 0 && wsIdx < static_cast<int32>(wsPaths.Size()))
-						SetKnownProjCount(wsPaths[wsIdx],
-										  static_cast<int32>(projects.Size() + tests.Size()));
+						SetKnownProjCount(wsPaths[wsIdx], TotalProjectCount());
 				}
 
 				// Decoupe jusqu'a `maxN` jetons separes par des espaces/tabs. Renvoie le nombre lu.

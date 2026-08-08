@@ -241,6 +241,19 @@ namespace nkentseu {
 					buf[s_caret] = (char)cp;
 					++s_caret;
 					++len;
+					// Taper EFFONDRE toujours la selection. Sans cette ligne,
+					// l'ancre survivait a la frappe et une selection FANTOME
+					// apparaissait.
+					//
+					// Scenario rapporte en beta : un double-clic — ou Ctrl+A —
+					// sur un champ VIDE pose s_anchor = 0 et s_caret = len = 0.
+					// Aucune selection visible, les deux valeurs etant egales.
+					// Mais a la premiere lettre le curseur passe a 1 tandis que
+					// l'ancre reste a 0 : la lettre se retrouve selectionnee, et
+					// la frappe suivante l'efface. D'ou « la premiere lettre du
+					// nom n'est jamais prise en compte » a la creation d'une
+					// classe, d'une structure ou d'une union.
+					s_anchor = -1;
 					s_blink = 0.f;
 				}
 				if (s_caret > len)

@@ -91,11 +91,22 @@ namespace nkentseu {
 				static bool HasProdTools();
 
 				// Distribution LEGERE : tools/ de prod presents mais compilateur par
-				// defaut absent (tools/compilers/llvm-mingw) -> a telecharger au
-				// premier build (Request.kind = "installcompiler", Jenga/Core/
-				// CompilerFetch.py via l'interpreteur embarque).
+				// defaut absent -> a telecharger au premier build (Request.kind =
+				// "installcompiler", Jenga/Core/CompilerFetch.py via l'interpreteur
+				// embarque). Le compilateur par defaut DEPEND DE L'HOTE : llvm-mingw
+				// sous Windows, Zig sous Linux/macOS (`zig cc` est un Clang complet,
+				// 44 Mo contre ~1 Go, et Jenga connait deja la toolchain zig-*).
 				static bool NeedsCompiler();
 				static NkString CompilersDir(); // <exe>/tools/compilers
+				// Dossier a prefixer au PATH. Miroir de CompilerFetch.BinDir() :
+				// llvm-mingw/bin sous Windows, zig ailleurs.
+				static NkString DefaultCompilerBin();
+
+				// Version du Jenga EMBARQUE, lue dans Jenga/_version.py. Aucun
+				// interpreteur mis en jeu : une simple lecture de fichier, donc
+				// utilisable depuis n'importe quel thread et sans occuper le worker.
+				// Vide si le Jenga embarque est absent.
+				static NkString EmbeddedVersion();
 
 				bool Start(const Request &req); // false si deja en cours
 				bool Running() const;

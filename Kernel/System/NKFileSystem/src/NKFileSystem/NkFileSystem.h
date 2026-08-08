@@ -24,6 +24,24 @@
 #ifndef NKENTSEU_FILESYSTEM_NKFILESYSTEM_H
 #define NKENTSEU_FILESYSTEM_NKFILESYSTEM_H
 
+// Windows : ce header declare des methodes dont le NOM entre en collision avec
+// des MACROS de <windows.h>. Un consommateur qui inclut windows.h EN PREMIER
+// voyait ses declarations reecrites (« expected member name or ';' »), avec un
+// message pointant une ligne parfaitement saine. On se defend donc ici, a la
+// source, plutot que d'imposer un ordre d'inclusion a chaque appelant :
+//   - GetFreeSpace       : macro de compatibilite Win16 (winbase.h), -> 0x100000L
+//   - CreateSymbolicLink : macro A/W habituelle du SDK
+// On n'annule QUE les noms dont la collision est constatee (meme discipline que
+// NkX11Clean.h), jamais une liste preventive.
+#if defined(_WIN32)
+	#ifdef GetFreeSpace
+		#undef GetFreeSpace
+	#endif
+	#ifdef CreateSymbolicLink
+		#undef CreateSymbolicLink
+	#endif
+#endif
+
 // -------------------------------------------------------------------------
 // SECTION 1 : EN-TÊTES ET DÉPENDANCES
 // -------------------------------------------------------------------------

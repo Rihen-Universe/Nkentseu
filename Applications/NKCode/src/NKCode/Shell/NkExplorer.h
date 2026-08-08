@@ -1684,12 +1684,17 @@ namespace nkentseu {
 						mShell->OpenContextMenu(pos, items, en, nItems);
 						if (!mProjPick.Empty()) {
 							const char *pitems[128];
+							uint32 picons[128];
 							int32 pn = static_cast<int32>(mProjPick.Size());
 							if (pn > 128)
 								pn = 128;
-							for (int32 i = 0; i < pn; ++i)
+							for (int32 i = 0; i < pn; ++i) {
 								pitems[i] = mProjPick[(usize)i].CStr();
-							mShell->SetContextSubmenu(16, pitems, pn);
+								// MEMES icones que le combo de la barre d'outils : un projet se
+								// reconnait de la meme facon partout dans l'IDE.
+								picons[i] = NkKindTex(mS->icons, mS->KindOf(pitems[i]).CStr());
+							}
+							mShell->SetContextSubmenu(16, pitems, pn, picons);
 						}
 					}
 				}
@@ -1733,6 +1738,7 @@ namespace nkentseu {
 							break;
 						case 8: // terminal intégré dans ce dossier (shell par défaut)
 							mS->termOpenAt = parent;
+							mS->termOpenRun = false; // shells, pas le panneau EXECUTION
 							mS->termOpenKind = -1;
 							break;
 						case 9:

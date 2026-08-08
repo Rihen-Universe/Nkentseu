@@ -84,7 +84,7 @@ inline void CmdToggleMinimap(void *) { // Affichage: minimap on/off (aussi Ctrl+
 
 inline void CmdQuit(void *user) {
 	if (user)
-		static_cast<NkEditorShell *>(user)->RequestClose();
+		static_cast<NkEditorShell *>(user)->RequestQuit(/*windowClose=*/false); // Ctrl+Q : quitter (confirmation possible)
 }
 
 inline void CmdResetLayout(void *u) {
@@ -278,7 +278,11 @@ inline void DrawHelpModal(NkEditorFrameContext &ec, nkcode::NkCodeDialogs *d) {
 	const NkRect body = {box.x + u.s(24), box.y + tbH + u.s(6), box.w - u.s(48), box.h - tbH - u.s(30)};
 	if (about) {
 		// ── A PROPOS : identite produit/editeur, contact. ──
-		const NkString titleLine = NkString("NKCode ") + nkcode::NkCodeVersion(); // source unique (NkUi.h)
+			// Version + date de build : « A propos » est l'endroit ou un testeur va
+		// chercher quoi nous communiquer. Deux binaires publies sous le meme tag
+		// portent la meme version — la date les distingue.
+		const NkString titleLine = NkString("NKCode ") + nkcode::NkCodeVersion() + " (build " +
+								   nkcode::NkCodeBuildStamp() + ")"; // source unique (NkUi.h)
 		const char *L[] = {titleLine.CStr(),
 						   "",
 						   "IDE natif de l'ecosysteme Nkentseu (NKGui).",

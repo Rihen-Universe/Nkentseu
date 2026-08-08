@@ -15,6 +15,7 @@
 #include "NKCode/Project/NkProcess.h"
 #include "NKCode/Project/NkLsp.h" // NkPipeProc (process a pipes CreateProcessW, reutilise pour le CLI `claude`)
 #include "NKCode/Editor/NkTextDraw.h" // NkEncodeU8 (décodage \uXXXX -> UTF-8)
+#include "NKCode/Shell/NkAiAccounts.h" // comptes multiples (CLAUDE_CONFIG_DIR par workspace)
 #include "NKCode/Shell/NkI18n.h"
 #include "NKCode/Shell/NkUi.h" // NkIcons (icones de la vue IDE)
 #include "NKContainers/String/NkFormat.h" // NkPrintf (formatage maison)
@@ -107,6 +108,7 @@ namespace nkentseu {
 						mS->termOpenCmd = mExe; // la commande EST l'agent (nouvel onglet du terminal)
 						mS->termOpenKind = -1;
 						mS->termOpenAt = mS->HasWorkspace() ? mS->root.ToString() : NkString(".");
+						mS->termOpenRun = false; // agent CLI -> panneau TERMINAL
 						if (mShell)
 							mShell->FocusPanel("TERMINAL");
 					}
@@ -290,7 +292,12 @@ namespace nkentseu {
 					// (2) crayon + Mode/Portée/Édition + envoi. Absente hors de la vue Chat (les
 					// onglets Génération/Revue ont leur propre bouton d'action, pas de saisie libre).
 					const float32 toolRowH = ctx.ItemHeight() + ctx.S(10.f);
-					const float32 toolH = chatView ? (toolRowH * 2.f) : 0.f;
+					// La rangee des fichiers attaches ne coute plus rien quand elle est VIDE :
+					// elle reservait une ligne pleine en permanence, soit une bande morte sous
+					// la conversation dans le cas le plus courant (retour de Rihen). Quand elle
+					// sert, elle est plus BASSE qu'une rangee d'outils — un chip n'a pas besoin
+					// de la hauteur d'un bouton.
+					const float32 toolH = chatView ? (toolRowH + ChipsRowH(ctx)) : 0.f;
 					// Zone de saisie qui GRANDIT avec le texte (façon VSCode/Claude Code), bornée à 6 lignes.
 					const float32 inInnerW = r.w - ctx.S(24.f);
 					const int32 inRows = InputRows(ctx, inInnerW);
@@ -386,11 +393,22 @@ namespace nkentseu {
 					  // titre humain "Sonnet"/"Opus"/... pour Claude Code, cf. ClaudeModelTitles)
 						int32 nModels = 0;
 						const char *const *models = mKind == 1 ? ClaudeModelTitles(nModels) : kModels(nModels);
-						const char *cur = models[mModelIdx < nModels ? mModelIdx : 0];
+						const NkString curStr = ModelPillLabel(models[mModelIdx < nModels ? mModelIdx : 0]);
+						const char *cur = curStr.CStr();
 						const float32 chevW = ctx.S(14.f);
-						const float32 pw = measure(cur) + ctx.S(20.f) + chevW;
+						// La largeur suivait le TEXTE, sans jamais regarder la place restante :
+						// en retrecissant le panneau, la pilule passait sous les boutons puis
+						// sortait a gauche. On la borne a l'espace REELLEMENT libre entre le
+						// logo et le premier bouton, et on laisse l'ellipse faire le reste.
+						const float32 gauche = hdr.x + pad + ctx.S(18.f) + ctx.S(6.f); // apres le logo
+						float32 dispo = rx - gauche;
+						if (dispo < ctx.S(46.f))
+							dispo = ctx.S(46.f); // en dessous, le chevron seul ne se lit plus
+						float32 pw = measure(cur) + ctx.S(20.f) + chevW;
+						if (pw > dispo)
+							pw = dispo;
 						NkComboButton(ctx, dl, font, rx - pw, hcy, 0, nullptr, cur, 1, mComboOpen, mModelAnchor, kChip,
-								 ctx.theme.buttonHover, ctx.theme.text); // largeur = pw (identique)
+									  ctx.theme.buttonHover, ctx.theme.text, /*maxW=*/dispo);
 					}
 
 					// ══ Onglets (Assistant général UNIQUEMENT) : Chat / Génération de Code / Revue de
@@ -403,7 +421,8 @@ namespace nkentseu {
 					// chat caché dessous (bug remonté par Rihen : la molette au-dessus de la
 					// palette d'actions scrollait le chat au lieu de la liste filtrée).
 					const bool overlayOpen =
-						mComboOpen != 0 || mPropsOpen || mChatListOpen || mPlusOpen || mActionsOpen || mUsageOpen;
+						mComboOpen != 0 || mPropsOpen || mChatListOpen || mPlusOpen || mActionsOpen || mUsageOpen ||
+						mAccountsOpen;
 
 					// ══ CORPS : conversation, OU sous-vue Génération/Revue (Assistant général). ══
 					if (chatView) {
@@ -488,15 +507,17 @@ namespace nkentseu {
 									ctx.theme.buttonHover);
 					}
 					if (mPropsOpen)
-						DrawPropsPopover(ctx, kViolet);
+						DrawPropsPopover(ctx, r, kViolet);
 					if (mChatListOpen)
-						DrawChatListMenu(ctx, kViolet);
+						DrawChatListMenu(ctx, r, kViolet);
 					if (mPlusOpen)
 						DrawPlusMenu(ctx, r);
 					if (mActionsOpen)
 						DrawActionsPalette(ctx, r, kViolet);
 					if (mUsageOpen)
 						DrawUsagePopover(ctx, r, kViolet);
+					if (mAccountsOpen)
+						DrawAccountsPopover(ctx, r, kViolet);
 				}
 
 			private:
@@ -653,8 +674,24 @@ namespace nkentseu {
 				double mLastCostUsd = 0.0; // cout de la DERNIERE requete (ephemere, pas persiste)
 				int32 mLastTokIn = 0, mLastTokOut = 0;
 				NkString mClaudeCurModel; // "message.model" du tour Claude Code EN COURS
+				// Modele REELLEMENT resolu par le CLI, annonce dans system/init. Le CLI
+				// n'expose AUCUNE liste des modeles ouverts au compte (verifie : ni dans
+				// system/init, ni en sous-commande, et /model est interactif uniquement) —
+				// on ne peut donc pas peupler le picker depuis le compte. Ce qu'on peut
+				// faire, et qui est vrai, c'est montrer ce qu'il a choisi POUR DE BON.
+				NkString mClaudeInitModel;
 
 				bool mUsageOpen = false; // popover "Compte et utilisation" ouvert
+				// Bac a sable du CLI. Noms releves DANS le binaire (--sandbox/--no-sandbox,
+				// srt-win.exe), pas devines : le drapeau existe mais ne figure pas dans --help.
+				// Defaut OFF, comme le CLI lui-meme — l'activer sans provisionnement echouerait.
+				bool mSandbox = false;
+				bool mAccountsOpen = false;   // popover "Comptes Claude Code"
+				bool mAccAdding = false;      // saisie du nom d'un nouveau compte en cours
+				bool mAccJustOpened = false;  // -> donne le focus au champ de nom a l'ouverture
+				NkString mAccPending;         // compte en cours de connexion (pas encore inscrit)
+				char mAccName[64] = {0};      // tampon de ce nom
+				NkString mAccError;           // refus explicite (nom invalide) plutot qu'un silence
 				// Le clic qui OUVRE le popover (lien "Voir l'utilisation" de la banniere, ou item
 				// du panneau Actions) reste vu comme "mouseClicked[0]" par le test de fermeture
 				// (clic en dehors) de DrawUsagePopover EXECUTE la MEME frame, juste apres : sans
@@ -710,6 +747,27 @@ namespace nkentseu {
 				// SYNTHETIQUE (model:"<synthetic>", num_turns:0, cout nul) qui contient TOUJOURS
 				// la session (5h) ET la semaine (tous modeles), plus le detail "contributing to
 				// your limits usage" — capture INTEGRALE du texte, aucun champ trie/invente. ──
+				// ── Liste REELLE des modeles, demandee au CLI lui-meme ──────────────────
+				// « /model » envoye par STDIN en NDJSON est traite PAR LE CLI : il repond
+				// « <synthetic> », 0 token, aucun appel API, et donne a la fois le modele
+				// courant et la liste des noms acceptes. (Passe en ARGUMENT il ne marche
+				// pas : le shell reecrit le / initial en chemin — c'est ce qui m'avait fait
+				// conclure a tort que le CLI n'exposait aucune liste.)
+				// Vues C (const char *) sur mModelIds : ModelsFor/ClaudeModelTitles doivent
+				// rendre un tableau de pointeurs stables. Refaites a chaque appel, comme les
+				// tableaux traduits — sinon elles resteraient figees sur le premier compte.
+				mutable NkVector<const char *> mModelPtrs;
+				mutable NkVector<const char *> mModelTitlePtrs;
+				mutable NkVector<const char *> mModelDescPtrs;
+				NkPipeProc mModelsProc;
+				NkString mModelsBuf;
+				bool mModelsRequested = false;
+				bool mModelsDone = false;	  // une reponse a ete traitee (succes ou echec)
+				int32 mModelsTries = 0;		  // budget d'essais : voir TriggerModelsProbe
+				NkString mModelsAccount;	  // compte auquel la sonde en cours se rapporte
+				bool mModelsAccountInit = false;
+				NkVector<NkString> mModelIds; // noms acceptes par --model, dans l'ordre annonce
+				NkString mModelsCurrent;	  // titre humain du modele courant (« Opus 5 (1M context) »)
 				NkPipeProc mQuickUsageProc;
 				NkString mQuickUsageBuf;
 				bool mQuickUsageRequested = false;
@@ -759,7 +817,25 @@ namespace nkentseu {
 					if (!mAcctLoaded && !mAcctRequested && !ClaudeExe().Empty()) {
 						mAcctRequested = true;
 						mAcctLines.Clear();
-						mAcctProc.Start(NkWin32QuoteArg(ClaudeExe().CStr()) + " auth status --json");
+						// Sans CLAUDE_CONFIG_DIR, cette requete decrivait le compte GLOBAL du
+						// systeme et non celui du workspace : l'e-mail affiche pouvait donc
+						// appartenir a un tout autre compte que celui reellement utilise.
+						// NkProcess passe par _popen, donc PAR UN SHELL (cmd.exe sous Windows) :
+						// la variable peut donc etre posee en prefixe, contrairement au terminal
+						// qui, lui, lance la commande directement (cf. NkAiLoginCommand).
+						NkString cmd;
+						NkString compte;
+						if (mS && mS->HasWorkspace())
+							compte = NkAiWorkspaceAccount(mS->root);
+						if (!compte.Empty()) {
+#if defined(_WIN32)
+							cmd = NkString("set \"CLAUDE_CONFIG_DIR=") + NkAiAccountDir(compte).CStr() + "\" && ";
+#else
+							cmd = NkString("CLAUDE_CONFIG_DIR=\"") + NkAiAccountDir(compte).CStr() + "\" ";
+#endif
+						}
+						cmd += NkWin32QuoteArg(ClaudeExe().CStr()) + " auth status --json";
+						mAcctProc.Start(cmd);
 					}
 					TriggerQuickUsage();
 				}
@@ -772,6 +848,146 @@ namespace nkentseu {
 					mUsageOpen = true;
 					mUsageJustOpened = true;
 					EnsureUsageDataFetching();
+				}
+
+				// Demande la liste au CLI. Une seule fois par compte : relancee quand le
+				// compte du workspace change (ResetModelsProbe), jamais en boucle.
+				// Un compte n'est inscrit qu'une fois le CLI ayant ecrit ses identifiants.
+				// Une connexion abandonnee ne laisse donc AUCUNE trace dans la liste (regle
+				// de Rihen) — seulement un dossier vide, sans effet.
+				void PollPendingLogin() {
+					if (mAccPending.Empty())
+						return;
+					if (!NkAiAccountConnected(mAccPending))
+						return;
+					NkAiRememberOrder(mAccPending); // fige sa place dans l'ordre
+					if (mS && mS->HasWorkspace())
+						NkAiSetWorkspaceAccount(mS->root, mAccPending);
+					Msgs().PushBack({2, NkPrintf("%s %s", NkT("ai.acc.connected.ok"), mAccPending.CStr())});
+					mAccPending.Clear();
+					ResetModelsProbe(); // nouveau compte = liste de modeles a revalider
+				}
+
+				void TriggerModelsProbe() {
+					if (mModelsRequested || mModelsDone || ClaudeExe().Empty())
+						return;
+					// Budget d'essais INDISPENSABLE : en cas d'echec, mModelsRequested retombe
+					// a false sans que mModelsDone passe a true — sans ce compteur, la sonde
+					// relancerait un processus CLI a CHAQUE frame.
+					if (mModelsTries >= 3) {
+						mModelsDone = true; // on s'en tient a la liste de repli
+						return;
+					}
+					++mModelsTries;
+					mModelsRequested = true;
+					mModelsBuf.Clear();
+					// --verbose est OBLIGATOIRE avec -p + --output-format stream-json (meme
+					// piege que /usage : sans lui le CLI refuse et la requete echoue en
+					// silence).
+					const NkString cmd = NkWin32QuoteArg(ClaudeExe().CStr()) +
+										 " -p --verbose --input-format stream-json --output-format stream-json "
+										 "--permission-mode default";
+					const NkString cwd = (mS && mS->HasWorkspace()) ? mS->root.ToString() : NkString(".");
+					NkVector<NkString> env;
+					// La liste peut dependre du compte : on interroge CELUI du workspace.
+					if (mS && mS->HasWorkspace()) {
+						const NkString compte = NkAiWorkspaceAccount(mS->root);
+						if (!compte.Empty())
+							env.PushBack(NkString("CLAUDE_CONFIG_DIR=") + NkAiAccountDir(compte).CStr());
+					}
+					if (!mModelsProc.StartWithEnv(cmd, cwd, env, /*mergeStderr=*/true)) {
+						mModelsRequested = false; // pas de latch : reessai possible
+						return;
+					}
+					const NkString um = "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":"
+										"\"text\",\"text\":\"/model\"}]}}\n";
+					mModelsProc.WriteData(um.CStr(), static_cast<int32>(um.Size()));
+				}
+
+				// Le compte a change : la liste et le modele courant peuvent differer.
+				void ResetModelsProbe() {
+					mModelsDone = false;
+					mModelsTries = 0;
+					mModelIds.Clear();
+					mModelsCurrent.Clear();
+				}
+
+				void PollModelsProbe() {
+					if (!mModelsRequested)
+						return;
+					char buf[4096];
+					int32 n;
+					while ((n = mModelsProc.ReadAvail(buf, sizeof(buf))) > 0)
+						mModelsBuf.Append(buf, static_cast<usize>(n));
+					if (mModelsProc.Running())
+						return;
+					mModelsRequested = false;
+					NkString rest = mModelsBuf;
+					mModelsBuf.Clear();
+					NkString texte;
+					for (;;) {
+						const usize nl = rest.Find('\n');
+						const NkString line = nl == NkString::npos ? rest : rest.SubStr(0, nl);
+						if (NkFindSub(line.CStr(), "\"type\":\"result\"") != nullptr) {
+							texte = JsonStr(line.CStr(), "result");
+							texte.Trim();
+							break;
+						}
+						if (nl == NkString::npos)
+							break;
+						rest.Erase(0, nl + 1);
+					}
+					if (texte.Empty())
+						return; // pas de latch : on retentera
+					ParseModelsAnswer(texte);
+					mModelsDone = true;
+				}
+
+				// Analyse la reponse de /model :
+				//   « Current model: Opus 5 (1M context) »
+				//   « Usage: /model <name>. Available: sonnet, opus, ..., or a full model ID. »
+				// Format LIBRE cote CLI : si la forme change, on garde simplement la liste de
+				// repli plutot que d'afficher n'importe quoi.
+				void ParseModelsAnswer(const NkString &texte) {
+					const char *t = texte.CStr();
+					if (const char *c = NkFindSub(t, "Current model:")) {
+						c += 14;
+						while (*c == ' ')
+							++c;
+						NkString titre;
+						for (; *c && *c != '\n' && *c != '\r'; ++c)
+							titre += *c;
+						titre.Trim();
+						mModelsCurrent = titre;
+					}
+					const char *a = NkFindSub(t, "Available:");
+					if (!a)
+						return;
+					a += 10;
+					NkVector<NkString> ids;
+					NkString cur;
+					auto pousser = [&]() {
+						cur.Trim();
+						if (cur.Empty())
+							return;
+						// La phrase se termine par « or a full model ID. » : ce n'est pas un nom.
+						if (NkFindSub(cur.CStr(), "full model ID") || NkFindSub(cur.CStr(), "or a full"))
+							return;
+						ids.PushBack(cur);
+					};
+					for (; *a && *a != '\n' && *a != '\r'; ++a) {
+						if (*a == ',') {
+							pousser();
+							cur.Clear();
+							continue;
+						}
+						if (*a == '.' && (a[1] == '\0' || a[1] == '\n' || a[1] == ' '))
+							break;
+						cur += *a;
+					}
+					pousser();
+					if (!ids.Empty())
+						mModelIds = ids;
 				}
 
 				void TriggerQuickUsage() {
@@ -1184,6 +1400,18 @@ namespace nkentseu {
 					// 'sonnet')") — "auto" = ne passe PAS --model, laisse le defaut du CLI.
 					// Remplace l'ancienne liste figee (claude-3.5-sonnet/claude-opus-4, perimee).
 					static const char *claudeCode[] = {"auto", "sonnet", "opus", "fable", "haiku"};
+					// Liste REELLE obtenue du CLI (voir TriggerModelsProbe) : elle prime des
+					// qu'elle existe. La liste figee ci-dessus n'est plus qu'un REPLI pour le
+					// cas ou la sonde echoue (CLI absent, format de reponse change) — une
+					// liste ecrite en dur se perime, celle du CLI suit ses versions.
+					if (kind == 1 && !mModelIds.Empty()) {
+						mModelPtrs.Clear();
+						mModelPtrs.PushBack("auto"); // « auto » = ne PAS passer --model
+						for (usize i = 0; i < mModelIds.Size(); ++i)
+							mModelPtrs.PushBack(mModelIds[i].CStr());
+						n = static_cast<int32>(mModelPtrs.Size());
+						return mModelPtrs.Data();
+					}
 					static const char *codex[] = {"gpt-5-codex", "o4-mini"};
 					static const char *nkai[] = {"NkAI-base (Rihen)"};
 					switch (kind) {
@@ -2170,11 +2398,29 @@ namespace nkentseu {
 				// ── Chips de contexte : fichier:ligne (✕) + bouton (+). Dessine à partir
 				//    de `x0` (comme ComboPill) et renvoie le nouveau `x` — s'enchaîne dans la barre
 				//    d'outils du bas avec les combos Mode/Portée/Édition. ──
-				float32 DrawChips(NkGuiContext &ctx, float32 x0, float32 cy, NkIcons *ic, const NkColor &chip) {
+				// Largeur d'une surface flottante : celle qu'on VOUDRAIT, mais jamais plus
+				// large que le panneau qui l'accueille. Les popovers figeaient leur largeur et
+				// ne corrigeaient que leur X : en retrecissant le panneau ils debordaient a
+				// droite au lieu de se resserrer (retour de Rihen). Le plancher evite l'exces
+				// inverse — une surface si etroite qu'elle ne se lit plus.
+				static float32 PopoverW(NkGuiContext &ctx, const NkRect &bounds, float32 voulue, float32 mini) {
+					const float32 dispo = bounds.w - ctx.S(8.f);
+					float32 w = voulue > dispo ? dispo : voulue;
+					return w < mini ? mini : w;
+				}
+				// Y a-t-il seulement quelque chose a montrer dans cette rangee ? Sert a la
+				// FOIS a la mise en page (hauteur reservee) et au dessin : une seule source
+				// de verite, sinon les deux divergent des le premier ajout.
+				bool HasChips() const { return mCtxFileOn && mS && mS->HasActive(); }
+				float32 ChipsRowH(NkGuiContext &ctx) const {
+					return HasChips() ? (ctx.ItemHeight() * 0.8f + ctx.S(6.f)) : 0.f;
+				}
+				float32 DrawChips(NkGuiContext &ctx, float32 x0, float32 cy, NkIcons *ic, const NkColor &chip,
+								  float32 h) {
 					auto &dl = ctx.DL();
 					const NkGuiFont *font = ctx.font;
 					const NkVec2 mp = ctx.input.mousePos;
-					const float32 h = ctx.ItemHeight(), gap = ctx.S(6.f);
+					const float32 gap = ctx.S(6.f);
 					auto textAt = [&](float32 x, const char *s, const NkColor &col) {
 						if (font && font->Valid())
 							dl.AddText(font->Face(), font->TexId(), {x, cy - font->LineHeight() * 0.5f + font->Ascent()},
@@ -2185,7 +2431,9 @@ namespace nkentseu {
 					if (mCtxFileOn && mS && mS->HasActive()) {
 						OpenFile &f = mS->files[mS->active];
 						const NkString lbl = NkPrintf("%s:%d", f.Name().CStr(), f.doc.curLine + 1);
-						const float32 iw = ctx.S(13.f), xw = ctx.S(13.f), tw = measure(lbl.CStr());
+						// Icone et croix se calent sur la hauteur REELLE du chip (elle a maigri) :
+						// en dur, elles debordaient de la pastille des qu'on la raccourcit.
+						const float32 iw = h * 0.58f, xw = h * 0.58f, tw = measure(lbl.CStr());
 						const float32 cw = ctx.S(8.f) + iw + ctx.S(5.f) + tw + ctx.S(6.f) + xw + ctx.S(6.f);
 						const NkRect ch = {x, cy - h * 0.5f, cw, h};
 						dl.AddRectFilled(ch, chip, ctx.S(6.f));
@@ -2598,7 +2846,7 @@ namespace nkentseu {
 
 				// ── Menu « liste des chats » (ancré sous le bouton liste du header) : chaque ligne =
 				//    titre (clic = active) + croix de suppression (gardée si un seul chat restant). ──
-				void DrawChatListMenu(NkGuiContext &ctx, const NkColor &violet) {
+				void DrawChatListMenu(NkGuiContext &ctx, const NkRect &bounds, const NkColor &violet) {
 					auto &dl = ctx.DL();
 					const NkGuiFont *font = ctx.font;
 					const NkVec2 mp = ctx.input.mousePos;
@@ -2610,10 +2858,11 @@ namespace nkentseu {
 						if (tw + ctx.S(46.f) > w)
 							w = tw + ctx.S(46.f);
 					}
+					w = PopoverW(ctx, bounds, w, ctx.S(130.f));
 					NkRect menu = {mChatListAnchor.x + mChatListAnchor.w - w, mChatListAnchor.y + mChatListAnchor.h + ctx.S(4.f),
 								   w, n * rowH + ctx.S(8.f)};
-					if (menu.x < ctx.S(4.f))
-						menu.x = ctx.S(4.f);
+					if (menu.x < bounds.x + ctx.S(4.f))
+						menu.x = bounds.x + ctx.S(4.f);
 					ctx.PushOcclusion(menu, 50); // routeur d'occlusion : rien ne passe derriere
 					dl.AddRectFilled(menu, ctx.theme.panel, ctx.S(6.f));
 					dl.AddRect(menu, ctx.theme.border, 1.f);
@@ -2673,6 +2922,7 @@ namespace nkentseu {
 						if (tw + ctx.S(40.f) > w)
 							w = tw + ctx.S(40.f);
 					}
+					w = PopoverW(ctx, bounds, w, ctx.S(130.f)); // le texte peut l'elargir, le panneau la borne
 					const float32 menuH = 3 * rowH + ctx.S(8.f);
 					const float32 spaceBelow = (bounds.y + bounds.h) - (mPlusAnchor.y + mPlusAnchor.h);
 					const float32 spaceAbove = mPlusAnchor.y - bounds.y;
@@ -2758,7 +3008,8 @@ namespace nkentseu {
 					};
 					int32 nModels = 0;
 					const char *const *models = mKind == 1 ? ClaudeModelTitles(nModels) : kModels(nModels);
-					const char *curModel = models[mModelIdx < nModels ? mModelIdx : 0];
+					const NkString curModelStr = ModelPillLabel(models[mModelIdx < nModels ? mModelIdx : 0]);
+					const char *curModel = curModelStr.CStr();
 					const NkString effLblStr = NkPrintf("%d/%d", mEffort + 1, (int32)kEffortLevels);
 					const char *effLbl = effLblStr.CStr();
 					Group groups[6] = {
@@ -2773,12 +3024,15 @@ namespace nkentseu {
 						  {NkString(NkT("ai.effort")), 2, effLbl, 11},
 						  {NkString(NkT("ai.act.thinking")), 1, nullptr, 12},
 						  {NkString(NkT("ai.act.autoswitch")), 1, nullptr, 13},
-						  {NkString(NkT("ai.act.account")), 0, nullptr, 14}},
-						 5},
+						  {NkString(NkT("ai.act.account")), 0, nullptr, 14},
+						  {NkString(NkT("ai.act.accounts")), 0, nullptr, 15}},
+						 6},
 						{NkT("ai.grp.customize"),
 						 {{NkString(NkT("ai.act.mcp")), 0, nullptr, 20}, {NkString(NkT("ai.act.plugins")), 0, nullptr, 21},
+						  {NkString(NkT("ai.act.installcli")), 0, nullptr, 23},
+						  {NkString(NkT("ai.act.sandbox")), 1, nullptr, 24},
 						  {NkString(NkT("ai.act.openterm")), 0, nullptr, 22}},
-						 3},
+						 5},
 						{NkT("ai.grp.slash"), {}, 0}, // rempli dynamiquement (kSlash) plus bas
 						{NkT("ai.grp.settings"),
 						 {{NkString(NkT("ai.act.switchaccount")), 0, nullptr, 40},
@@ -2792,7 +3046,7 @@ namespace nkentseu {
 					static const char *const kSlash[] = {"/explain", "/fix",	  "/optimize", "/test",	 "/doc",
 														 "/refactor", "/review", "/commit",	 "/search", "/new"};
 
-					const float32 w = ctx.S(320.f);
+					const float32 w = PopoverW(ctx, bounds, ctx.S(320.f), ctx.S(180.f));
 					const float32 filterH = ctx.ItemHeight() + ctx.S(14.f);
 					const float32 rowH = ctx.ItemHeight() + ctx.S(2.f);
 					const float32 groupTitleH = ctx.S(22.f);
@@ -2871,7 +3125,10 @@ namespace nkentseu {
 									   {row.x + ctx.S(8.f), row.y + (rowH - font->LineHeight()) * 0.5f + font->Ascent()},
 									   label.CStr(), ctx.theme.text, row.w - ctx.S(90.f));
 						if (kind == 1) { // toggle (switch)
-							bool *flag = (action == 12) ? &mThinking : (action == 42) ? &mRemoteControl : &mAutoSwitchFlagged;
+							bool *flag = (action == 12)   ? &mThinking
+										 : (action == 42) ? &mRemoteControl
+										 : (action == 24) ? &mSandbox
+														   : &mAutoSwitchFlagged;
 							const float32 sw = ctx.S(30.f), sh = ctx.S(15.f);
 							const NkRect sr = {row.x + row.w - sw - ctx.S(6.f), row.y + (rowH - sh) * 0.5f, sw, sh};
 							dl.AddRectFilled(sr, *flag ? NkColor{72, 145, 232, 255} : ctx.theme.button, sh * 0.5f);
@@ -2879,6 +3136,15 @@ namespace nkentseu {
 											   sh * 0.5f - ctx.S(1.5f), NkColor{255, 255, 255, 255});
 							if (hov && ctx.input.mouseClicked[0]) {
 								*flag = !*flag;
+								if (action == 24) {
+									// Ce reglage change qui execute les commandes : il ne doit pas
+									// basculer en silence.
+									Msgs().PushBack({2, NkString(mSandbox ? NkT("ai.sandbox.on") : NkT("ai.sandbox.off"))});
+#if defined(_WIN32)
+									if (mSandbox)
+										Msgs().PushBack({2, NkString(NkT("ai.sandbox.setup"))});
+#endif
+								}
 								ctx.input.mouseClicked[0] = false;
 							}
 						} else if (kind == 2 && value && font && font->Valid()) { // valeur a droite
@@ -2976,10 +3242,18 @@ namespace nkentseu {
 							mEffort = (mEffort + 1) % 3;
 						} else if (clicked == 14) { // Compte et utilisation -> popover REEL (rate_limit_event)
 							OpenUsagePopover();
+						} else if (clicked == 15 || clicked == 40) { // Comptes -> popover dedie
+							mAccountsOpen = true;
+							mAccAdding = false;
+							mAccJustOpened = true; // le champ de nom prend le focus
+							mAccError = NkString();
+						} else if (clicked == 23) { // Installer Claude Code (CLI)
+							InstallClaudeCli();
 						} else if (clicked == 22 && mS) { // Open Claude in Terminal (reel, meme si claude absent)
 							mS->termOpenCmd = "claude";
 							mS->termOpenKind = -1;
 							mS->termOpenAt = mS->HasWorkspace() ? mS->root.ToString() : NkString(".");
+						mS->termOpenRun = false; // agent CLI -> panneau TERMINAL
 							if (mShell)
 								mShell->FocusPanel("TERMINAL");
 						} else if (clicked == 41 && mShell) { // General config -> Preferences (reel)
@@ -3017,17 +3291,19 @@ namespace nkentseu {
 					dl.AddRectFilled(toolR, ctx.theme.bgPrimary);
 					dl.AddRectFilled({toolR.x, toolR.y, toolR.w, 1.f}, ctx.theme.border);
 					const float32 pad = ctx.S(10.f), gap = ctx.S(6.f), btn = ctx.S(30.f);
-					const float32 rowH = toolR.h * 0.5f;
+					// Les deux rangees n'ont plus la meme hauteur : celle des chips est basse
+					// (voire absente), celle des outils garde sa taille de boutons.
+					const float32 chipsH = ChipsRowH(ctx);
+					const float32 rowH = toolR.h - chipsH;
 
 					// ── Ligne 1 : fichiers ATTACHÉS au contexte (façon Claude Code : "N lignes
 					// sélectionnées"). Rien d'autre ici — clarifié suite à la confusion sur l'ancien
 					// chip de branche git, retiré. ──
-					const NkRect row1 = {toolR.x, toolR.y, toolR.w, rowH};
-					const float32 cy1 = row1.y + rowH * 0.5f;
-					DrawChips(ctx, row1.x + pad, cy1, ic, chip);
+					if (chipsH > 0.f)
+						DrawChips(ctx, toolR.x + pad, toolR.y + chipsH * 0.5f, ic, chip, ctx.ItemHeight() * 0.8f);
 
 					// ── Ligne 2 : crayon (palette) + Mode/Portée/Édition (scrollables) + envoi. ──
-					const NkRect row2 = {toolR.x, toolR.y + rowH, toolR.w, rowH};
+					const NkRect row2 = {toolR.x, toolR.y + chipsH, toolR.w, rowH};
 					const float32 cy = row2.y + rowH * 0.5f;
 					dl.AddRectFilled({row2.x, row2.y, row2.w, 1.f}, ctx.theme.border);
 					// Bouton (+) FIXE tout en bas à gauche (Upload from computer / Add context /
@@ -3219,7 +3495,7 @@ namespace nkentseu {
 					const char *const *opts = ModeOptionsFor(mKind, n);
 					int32 nd = 0;
 					const char *const *descs = ModeDescFor(mKind, nd);
-					const float32 w = ctx.S(270.f);
+					const float32 w = PopoverW(ctx, bounds, ctx.S(270.f), ctx.S(160.f));
 					const float32 titleH = ctx.ItemHeight();
 					const float32 descLineH = (font && font->Valid()) ? font->LineHeight() * 0.88f : 12.f;
 					NkVector<NkVector<NkString>> wrapped;
@@ -3292,7 +3568,64 @@ namespace nkentseu {
 				// `static` REMPLI À CHAQUE APPEL (pas figé) : évite le piège de verrouillage de
 				// langue déjà rencontré sur ModeOptionsFor/ModeDescFor (NkT() doit être
 				// ré-évalué à chaque frame pour suivre un changement de langue à chaud). ──
+				// Libelle affiche dans la pilule de modele. Pour Claude Code, quand le choix
+				// est « Defaut », le titre seul n'apprend rien : on y accole le modele que le
+				// CLI a REELLEMENT resolu (system/init) des qu'on le connait. Donnee reelle,
+				// jamais devinee — tant qu'aucune session n'a demarre, on n'accole rien.
+				NkString ModelPillLabel(const char *titre) const {
+					if (mKind != 1 || mModelIdx != 0)
+						return NkString(titre);
+					// Titre humain donne par /model (« Opus 5 (1M context) ») s'il est connu ;
+					// sinon l'identifiant annonce par system/init, abrege. Les deux sont des
+					// donnees reelles du CLI — jamais un nom devine.
+					if (!mModelsCurrent.Empty())
+						return NkPrintf("%s (%s)", titre, mModelsCurrent.CStr());
+					if (!mClaudeInitModel.Empty())
+						return NkPrintf("%s (%s)", titre, ShortModelName(mClaudeInitModel).CStr());
+					return NkString(titre);
+				}
+				// « claude-fable-5 » -> « Fable 5 ». Repli HONNETE sur l'identifiant brut si
+				// la forme ne correspond pas : mieux vaut un nom technique qu'un faux nom.
+				static NkString ShortModelName(const NkString &id) {
+					struct P {
+							const char *cle;
+							const char *nom;
+					};
+					const P table[] = {{"fable", "Fable"},   {"mythos", "Mythos"}, {"opus", "Opus"},
+									   {"sonnet", "Sonnet"}, {"haiku", "Haiku"}};
+					const char *t = id.CStr();
+					for (usize i = 0; i < sizeof(table) / sizeof(table[0]); ++i) {
+						if (!NkFindSub(t, table[i].cle))
+							continue;
+						// Version : le premier groupe de chiffres apres la famille.
+						const char *p = NkFindSub(t, table[i].cle);
+						NkString ver;
+						for (const char *q = p; *q; ++q) {
+							if (*q >= '0' && *q <= '9') {
+								ver += *q;
+								if (q[1] == '-' && q[2] >= '0' && q[2] <= '9')
+									ver += '.';
+							} else if (!ver.Empty() && *q != '-') {
+								break;
+							}
+						}
+						return ver.Empty() ? NkString(table[i].nom) : NkPrintf("%s %s", table[i].nom, ver.CStr());
+					}
+					return id;
+				}
+
 				const char *const *ClaudeModelTitles(int32 &n) const {
+					// Liste reelle : on affiche les identifiants tels que le CLI les annonce
+					// (« sonnet », « opus[1m] », « opusplan »…). Les traduire ou les
+					// embellir ferait diverger ce qu'on montre de ce qu'on envoie.
+					if (!mModelIds.Empty()) {
+						mModelTitlePtrs.Clear();
+						mModelTitlePtrs.PushBack(NkT("ai.model.default"));
+						for (usize i = 0; i < mModelIds.Size(); ++i)
+							mModelTitlePtrs.PushBack(mModelIds[i].CStr());
+						n = static_cast<int32>(mModelTitlePtrs.Size());
+						return mModelTitlePtrs.Data();
+					}
 					const char *fresh[5] = {NkT("ai.model.default"), NkT("ai.model.sonnet"), NkT("ai.model.opus"),
 											NkT("ai.model.fable"), NkT("ai.model.haiku")};
 					static const char *out[5];
@@ -3302,6 +3635,17 @@ namespace nkentseu {
 					return out;
 				}
 				const char *const *ClaudeModelDescs(int32 &n) const {
+					// Meme cardinalite que les titres (le menu indexe les deux en parallele).
+					// Aucune description inventee pour les entrees sondees : le CLI n'en
+					// fournit pas, et en broder serait de la decoration mensongere.
+					if (!mModelIds.Empty()) {
+						mModelDescPtrs.Clear();
+						mModelDescPtrs.PushBack(NkT("ai.model.default.desc"));
+						for (usize i = 0; i < mModelIds.Size(); ++i)
+							mModelDescPtrs.PushBack("");
+						n = static_cast<int32>(mModelDescPtrs.Size());
+						return mModelDescPtrs.Data();
+					}
 					const char *fresh[5] = {NkT("ai.model.default.desc"), NkT("ai.model.sonnet.desc"),
 											NkT("ai.model.opus.desc"), NkT("ai.model.fable.desc"),
 											NkT("ai.model.haiku.desc")};
@@ -3323,7 +3667,7 @@ namespace nkentseu {
 					const char *const *opts = ClaudeModelTitles(n);
 					int32 nd = 0;
 					const char *const *descs = ClaudeModelDescs(nd);
-					const float32 w = ctx.S(270.f);
+					const float32 w = PopoverW(ctx, bounds, ctx.S(270.f), ctx.S(160.f));
 					const float32 titleH = ctx.ItemHeight();
 					const float32 descLineH = (font && font->Valid()) ? font->LineHeight() * 0.88f : 12.f;
 					NkVector<NkVector<NkString>> wrapped;
@@ -3390,19 +3734,268 @@ namespace nkentseu {
 				// que de laisser des contrôles qui ne changeraient RIEN à la requête réelle. ──
 				bool ShowTempMaxTokens() const { return mKind != 1; }
 
-				void DrawPropsPopover(NkGuiContext &ctx, const NkColor &violet) {
+				// ── Popover « Comptes Claude Code » ──────────────────────────────────────
+				// Choisir le compte de CE workspace, en ajouter un, s'y connecter. La
+				// connexion part dans le TERMINAL DEDIE au lieu d'etre masquee derriere une
+				// barre de progression : c'est un echange interactif (le navigateur s'ouvre,
+				// l'utilisateur colle un code). La cacher donnerait l'impression d'un blocage.
+				void DrawAccountsPopover(NkGuiContext &ctx, const NkRect &bounds, const NkColor &violet) {
+					// ── DOUBLE PROTECTION, identique a la palette d'actions ──────────────
+					// Sans NkInputLayerScope, ce popover etait aveugle par le rectangle
+					// d'occlusion qu'il declare LUI-MEME : ses propres lignes et son champ
+					// de saisie restaient en couche 0, donc masques par sa couche 50. Il se
+					// dessinait parfaitement et ne recevait NI clic NI frappe — d'ou « je
+					// clique sur Se connecter, rien ne se passe » et « on ne peut pas entrer
+					// de nom » (Rihen).
+					NkGuiContext::NkInputLayerScope _layer(ctx, 50);
+					if (ctx.popupDepth == 0)
+						ctx.popupDepth = 1;
+					auto &dl = ctx.DL();
+					const NkGuiFont *font = ctx.font;
+					const NkVec2 mp = ctx.input.mousePos;
+					const float32 w = PopoverW(ctx, bounds, ctx.S(310.f), ctx.S(190.f));
+					const float32 it = ctx.ItemHeight(), pad = ctx.S(12.f), rowH = it + ctx.S(6.f);
+					const float32 lh = (font && font->Valid()) ? font->LineHeight() : 16.f;
+					const NkVector<NkAiAccount> comptes = NkAiAccounts();
+					const int32 n = static_cast<int32>(comptes.Size());
+					const bool hasWs = (mS && mS->HasWorkspace());
+					const NkString actif = hasWs ? NkAiWorkspaceAccount(mS->root) : NkAiDefaultAccount();
+					const float32 listH = (n > 0 ? n * rowH : rowH);
+					// La note de bas de panneau se REPLIE : elle etait coupee en plein mot.
+					NkVector<NkString> noteLignes;
+					WrapLines(ctx, NkT("ai.acc.shared"), w - ctx.S(24.f), noteLignes);
+					const float32 noteH = (float32)noteLignes.Size() * it;
+					const float32 menuH = ctx.S(8.f) + it + ctx.S(6.f) + it + ctx.S(4.f) + listH + ctx.S(6.f) + rowH +
+										  (it + ctx.S(6.f)) + (mAccError.Empty() ? 0.f : it) + noteH + ctx.S(10.f);
+					// Ancree sur le bouton de la palette d'ou elle est ouverte, vers le HAUT
+					// (ce bouton vit en bas du panneau) puis ramenee dans les bornes.
+					NkRect menu = {mActionsAnchor.x, mActionsAnchor.y - menuH - ctx.S(4.f), w, menuH};
+					if (menu.y < bounds.y + ctx.S(4.f))
+						menu.y = bounds.y + ctx.S(4.f);
+					if (menu.x + menu.w > bounds.x + bounds.w - ctx.S(4.f))
+						menu.x = bounds.x + bounds.w - ctx.S(4.f) - menu.w;
+					if (menu.x < bounds.x + ctx.S(4.f))
+						menu.x = bounds.x + ctx.S(4.f);
+					ctx.PushOcclusion(menu, 50); // routeur d'occlusion : rien ne passe derriere
+					dl.AddRectFilled(menu, ctx.theme.panel, ctx.S(8.f));
+					dl.AddRect(menu, ctx.theme.border, 1.f);
+					// -1 = AUCUNE limite (NkGuiDrawList : xEnd = x + maxWidth des que
+					// maxWidth >= 0). Avec 0 par defaut, la largeur utile valait zero et le
+					// texte n'apparaissait pas du tout — c'est ce qui masquait le titre.
+					auto txt = [&](float32 x, float32 yy, const char *t, const NkColor &c, float32 maxW = -1.f) {
+						if (font && font->Valid())
+							dl.AddText(font->Face(), font->TexId(), {x, yy + font->Ascent()}, t, c, maxW);
+					};
+					auto measure = [&](const char *t) { return (font && font->Valid()) ? font->MeasureWidth(t) : 0.f; };
+					float32 y = menu.y + ctx.S(8.f);
+					txt(menu.x + pad, y, NkT("ai.acc.title"), ctx.theme.text);
+					y += it + ctx.S(6.f);
+					txt(menu.x + pad, y, NkT("ai.acc.ws"), ctx.theme.textDisabled, w - pad * 2.f);
+					y += it + ctx.S(4.f);
+
+					if (n == 0) {
+						txt(menu.x + pad, y, NkT("ai.acc.none"), ctx.theme.textDisabled, w - pad * 2.f);
+						y += rowH;
+					}
+					for (int32 i = 0; i < n; ++i) {
+						const NkAiAccount &a = comptes[static_cast<usize>(i)];
+						const bool sel = (a.name == actif);
+						const NkRect row = {menu.x + ctx.S(6.f), y, w - ctx.S(12.f), rowH};
+						const bool hov = NkGuiRectContains(row, mp);
+						if (sel || hov)
+							dl.AddRectFilled(row, sel ? violet : ctx.theme.buttonHover, ctx.S(4.f));
+						const NkColor nameCol = sel ? NkColor{255, 255, 255, 255} : ctx.theme.text;
+						// Etat REEL : la presence de .credentials.json, jamais une supposition.
+						const char *etat = a.connected ? NkT("ai.acc.connected") : NkT("ai.acc.notconnected");
+						const float32 ew = measure(etat);
+						const float32 ty = row.y + (rowH - lh) * 0.5f;
+						// « Claude 1 » ne dit pas QUI est connecte : on accole l'e-mail reel du
+						// compte, lu dans son propre .claude.json (aucun processus lance).
+						const NkString mail = NkAiAccountEmail(a.name);
+						const NkString libelle =
+							mail.Empty() ? a.name : NkPrintf("%s  ·  %s", a.name.CStr(), mail.CStr());
+						txt(row.x + ctx.S(8.f), ty, libelle.CStr(), nameCol, row.w - ew - ctx.S(24.f));
+						txt(row.x + row.w - ew - ctx.S(8.f), ty, etat,
+							a.connected ? NkColor{126, 196, 126, 255} : ctx.theme.textDisabled);
+						if (hov && ctx.input.mouseClicked[0]) {
+							if (a.connected) {
+								if (hasWs)
+									NkAiSetWorkspaceAccount(mS->root, a.name);
+								// La session en cours appartient a l'ANCIENNE identite : la
+								// reprendre avec --resume sous un autre compte n'aurait pas de
+								// sens. On repart d'une session neuve au prochain message.
+								mChats[static_cast<usize>(mActiveChat)].claudeSessionId = NkString();
+								ResetModelsProbe(); // autre compte = liste et modele courant a revalider
+								mAccountsOpen = false;
+							} else {
+								LaunchAccountLogin(a.name); // pas encore authentifie -> on y va
+							}
+							ctx.input.mouseClicked[0] = false;
+						}
+						y += rowH;
+					}
+					y += ctx.S(6.f);
+
+					// ── Se connecter ────────────────────────────────────────────────────
+					// UN clic suffit. Devoir NOMMER le compte avant de pouvoir s'authentifier
+					// etait un peage : le nom sert a NKCode (c'est un nom de dossier), pas a
+					// l'utilisateur. Il ne le fournit que s'il tient a le choisir.
+					{
+						const NkRect row = {menu.x + ctx.S(6.f), y, w - ctx.S(12.f), rowH};
+						const bool hov = NkGuiRectContains(row, mp);
+						dl.AddRectFilled(row, hov ? violet : ctx.theme.button, ctx.S(4.f));
+						txt(row.x + ctx.S(8.f), row.y + (rowH - lh) * 0.5f, NkT("ai.acc.login"),
+							hov ? NkColor{255, 255, 255, 255} : ctx.theme.text, row.w - ctx.S(16.f));
+						if (hov && ctx.input.mouseClicked[0]) {
+							ValidateNewAccount();
+							ctx.input.mouseClicked[0] = false;
+						}
+						y += rowH;
+					}
+					{
+						const NkRect f = {menu.x + pad, y, w - pad * 2.f, it};
+						const NkGuiId fid = ctx.GetId("##aiAccName");
+						// A l'ouverture, le focus texte GLOBAL appartient encore a la saisie du
+						// chat : sans ce transfert, chaque caractere tape partait dans le chat,
+						// invisible ici (meme piege que la palette d'actions).
+						if (mAccJustOpened) {
+							ctx.inputId = fid;
+							mAccJustOpened = false;
+						}
+						// Entree = valider : on CONSOMME la touche AVANT le widget, sinon elle
+						// s'inscrirait dans le nom au lieu de confirmer.
+						bool valider = false;
+						if (ctx.inputId == fid && ctx.input.KeyPressed(NkGuiKey::Enter)) {
+							valider = true;
+							ctx.input.keyInit[(int32)NkGuiKey::Enter] = false;
+						}
+						InputTextMultiline(ctx, "##aiAccName", mAccName, sizeof(mAccName), f, NkGuiInputFlags::None,
+										   sizeof(mAccName) - 1);
+						if (mAccName[0] == 0)
+							txt(f.x + ctx.S(6.f), f.y + ctx.S(3.f), NkT("ai.acc.name"), ctx.theme.textDisabled,
+								f.w - ctx.S(12.f));
+						if (valider)
+							ValidateNewAccount();
+						y += it + ctx.S(6.f);
+					}
+					if (!mAccError.Empty()) {
+						txt(menu.x + pad, y, mAccError.CStr(), NkColor{232, 106, 106, 255}, w - pad * 2.f);
+						y += it;
+					}
+					// Rappel : isoler l'identite n'isole PAS le savoir (jonction vers _shared).
+					for (usize i = 0; i < noteLignes.Size(); ++i, y += it)
+						txt(menu.x + pad, y, noteLignes[i].CStr(), ctx.theme.textDisabled, w - pad * 2.f);
+
+					const bool dansMenu = ctx.input.mouseClicked[0] && NkGuiRectContains(menu, mp);
+					if (ctx.input.mouseClicked[0] && !dansMenu) {
+						mAccountsOpen = false;
+						mAccAdding = false;
+					}
+					if (dansMenu) {
+						ctx.input.mouseClicked[0] = false;
+						ctx.input.mouseClicked[1] = false;
+					}
+					if (!mAccountsOpen)
+						ctx.popupDepth = 0; // libere la modalite forcee plus haut
+				}
+
+				// Cree le compte saisi puis enchaine sur sa connexion. Un nom refuse le DIT
+				// (il se corrige) ; il n'est jamais nettoye en douce, ce qui surprendrait.
+				// Nom stable et NEUTRE quand l'utilisateur n'en donne pas. Volontairement
+				// PAS traduit : ce nom devient un nom de DOSSIER (CLAUDE_CONFIG_DIR) — s'il
+				// suivait la langue de l'interface, changer de langue orphelinerait le compte.
+				NkString AutoAccountName() const {
+					const NkVector<NkString> pris = NkAiAccountNames();
+					for (int32 k = 1; k < 100; ++k) {
+						const NkString essai = NkPrintf("Claude %d", k);
+						bool libre = true;
+						for (usize i = 0; i < pris.Size(); ++i)
+							if (pris[i] == essai) {
+								libre = false;
+								break;
+							}
+						if (libre)
+							return essai;
+					}
+					return NkString("Claude");
+				}
+				void ValidateNewAccount() {
+					NkString nom = NkString(mAccName).Trim();
+					if (nom.Empty())
+						nom = AutoAccountName(); // champ vide : on n'embete personne
+					if (!NkAiAccountNameValid(nom.CStr())) {
+						mAccError = NkString(NkT("ai.acc.badname"));
+						return;
+					}
+					mAccError = NkString();
+					NkAiAccountPrepare(nom); // dossier seulement : rien n'est inscrit encore
+					mAccAdding = false;
+					mAccName[0] = 0;
+					mAccPending = nom; // inscrit UNIQUEMENT si la connexion aboutit
+					LaunchAccountLogin(nom);
+				}
+
+				// Connexion d'un compte : « claude /login » avec SON CLAUDE_CONFIG_DIR, dans
+				// le terminal dedie. Si le binaire natif est absent, on le dit en proposant
+				// l'installation plutot que de lancer une commande vouee a l'echec.
+				void LaunchAccountLogin(const NkString &nom) {
+					if (ClaudeExe().Empty()) {
+						mAccountsOpen = false;
+						InstallClaudeCli();
+						return;
+					}
+					if (!mS)
+						return;
+					// Commande AUTOPORTANTE (script genere, cf. NkAiLoginCommand) : elle ne
+					// depend d'aucun shell, puisque le terminal lance cmdOverride tel quel
+					// sans jamais passer par PtyCommand.
+					mS->termOpenCmd = NkAiLoginCommand(ClaudeExe(), nom);
+					mS->termOpenKind = -1;
+					mS->termOpenAt = mS->HasWorkspace() ? mS->root.ToString() : NkString(".");
+					mS->termOpenRun = false; // agent CLI -> panneau TERMINAL, pas EXECUTION
+					if (mShell)
+						mShell->FocusPanel("TERMINAL");
+					// Trace VISIBLE dans la conversation : si le terminal s'ouvre ailleurs ou
+					// si la commande echoue, l'utilisateur sait au moins ce qui a ete lance
+					// et sur quel compte — au lieu d'un silence indistinguable d'un bug.
+					Msgs().PushBack({2, NkPrintf("%s %s", NkT("ai.acc.launched"), nom.CStr())});
+					mAccountsOpen = false;
+				}
+
+				// Installation du CLI depuis NKCode : la commande officielle, VISIBLE dans le
+				// terminal dedie. Volontairement pas d'installation silencieuse — elle touche
+				// l'environnement global de l'utilisateur (npm -g), il doit la voir passer.
+				void InstallClaudeCli() {
+					if (!ClaudeExe().Empty()) {
+						Msgs().PushBack({2, NkPrintf("%s %s", NkT("ai.cli.present"), ClaudeExe().CStr())});
+						return;
+					}
+					if (!mS)
+						return;
+					mS->termOpenCmd = "npm install -g @anthropic-ai/claude-code";
+					mS->termOpenKind = -1;
+					mS->termOpenAt = mS->HasWorkspace() ? mS->root.ToString() : NkString(".");
+					mS->termOpenRun = false;
+					if (mShell)
+						mShell->FocusPanel("TERMINAL");
+					// Le chemin resolu est mis en cache : apres une installation il doit etre
+					// recalcule, sinon NKCode continuerait de croire le CLI absent.
+					mClaudeExeResolved = false;
+				}
+
+				void DrawPropsPopover(NkGuiContext &ctx, const NkRect &bounds, const NkColor &violet) {
 					(void)violet;
 					auto &dl = ctx.DL();
 					const NkGuiFont *font = ctx.font;
 					const NkVec2 mp = ctx.input.mousePos;
-					const float32 w = ctx.S(268.f), it = ctx.ItemHeight();
+					const float32 w = PopoverW(ctx, bounds, ctx.S(268.f), ctx.S(170.f)), it = ctx.ItemHeight();
 					const float32 sysH = ctx.S(92.f);
 					const bool showTM = ShowTempMaxTokens();
 					const float32 mh = ctx.S(10.f) + it + ctx.S(8.f) + (showTM ? (it + ctx.S(10.f)) * 2.f : 0.f) + it +
 									   ctx.S(10.f) + it + ctx.S(4.f) + sysH + ctx.S(12.f); // Effort + Systeme (+ Temp/MaxTok)
 					NkRect menu = {mGearRect.x + mGearRect.w - w, mGearRect.y + mGearRect.h + ctx.S(4.f), w, mh};
-					if (menu.x < ctx.S(4.f))
-						menu.x = ctx.S(4.f);
+					if (menu.x < bounds.x + ctx.S(4.f))
+						menu.x = bounds.x + ctx.S(4.f);
 					ctx.PushOcclusion(menu, 50); // routeur d'occlusion : rien ne passe derriere
 					dl.AddRectFilled(menu, ctx.theme.panel, ctx.S(8.f));
 					dl.AddRect(menu, ctx.theme.border, 1.f);
@@ -3530,7 +4123,8 @@ namespace nkentseu {
 					auto &dl = ctx.DL();
 					const NkGuiFont *font = ctx.font;
 					const NkVec2 mp = ctx.input.mousePos;
-					const float32 w = ctx.S(300.f), it = ctx.ItemHeight(), pad = ctx.S(12.f);
+					const float32 w = PopoverW(ctx, bounds, ctx.S(300.f), ctx.S(180.f)), it = ctx.ItemHeight(),
+								pad = ctx.S(12.f);
 					const float32 bucketH = it * 2.f + ctx.S(16.f); // label+% / barre / reinit
 					const float32 sepH = ctx.S(18.f);
 					const bool hasBuckets = !mRlBuckets.Empty();
@@ -4120,13 +4714,55 @@ namespace nkentseu {
 				// <dossier-du-shim>\node_modules\@anthropic-ai\claude-code\bin\claude.exe —
 				// on le localise UNE FOIS (`where claude.cmd`, qui passe par cmd.exe et
 				// résout donc .cmd correctement) et on met en cache (ClaudeExe()). ──
+				// Un fichier .exe qui EXISTE n'est pas forcement un executable. Le paquet
+				// npm @anthropic-ai/claude-code livre a bin\claude.exe un SCRIPT-GARDE de
+				// ~500 octets (« Error: claude native binary not installed. ») quand le
+				// postinstall n'a pas tourne (--ignore-scripts, certains pnpm) ou que la
+				// dependance optionnelle native n'a pas ete telechargee (--omit=optional).
+				// Le donner a CreateProcessW declenche une boite MODALE Windows
+				// « Application 16 bits non prise en charge » — bloquante, et au demarrage
+				// (deux sondes automatiques : auth status + usage). On exige donc la
+				// signature PE « MZ » avant d'accepter un chemin.
+				static bool IsNativeExe(const NkString &path) {
+					if (path.Empty() || !NkFile::Exists(path.CStr()))
+						return false;
+					FILE *f = std::fopen(path.CStr(), "rb");
+					if (!f)
+						return false;
+					char sig[2] = {0, 0};
+					const usize n = std::fread(sig, 1, 2, f);
+					std::fclose(f);
+					return n == 2 && sig[0] == 'M' && sig[1] == 'Z';
+				}
+
+				// Emplacements du binaire natif, RELATIFS a un dossier npm global, dans
+				// l'ordre ou on les essaie. Le second est le plus fiable : c'est la
+				// dependance optionnelle par plateforme, la ou npm depose REELLEMENT le
+				// binaire. Le premier (bin/) n'est renseigne que si le postinstall a
+				// reussi sa copie finale — quand il echoue, il y laisse un SCRIPT-GARDE
+				// de 500 octets, d'ou le controle de signature PE (cf. IsNativeExe).
+				static const char *const *ClaudeExeCandidates(int32 &n) {
+					static const char *kRel[] = {
+						"\\npm\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe",
+						"\\npm\\node_modules\\@anthropic-ai\\claude-code\\node_modules\\@anthropic-ai"
+						"\\claude-code-win32-x64\\claude.exe",
+						"\\npm\\node_modules\\@anthropic-ai\\claude-code\\node_modules\\@anthropic-ai"
+						"\\claude-code-win32-arm64\\claude.exe",
+					};
+					n = 3;
+					return kRel;
+				}
+
 				static NkString ResolveClaudeExe() {
 					const char *appData = env::GetEnvVar("APPDATA");
 					if (appData && *appData) {
-						const NkString candidate =
-							NkString(appData) + "\\npm\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe";
-						if (NkFile::Exists(candidate.CStr()))
-							return candidate;
+						int32 nRel = 0;
+						const char *const *rel = ClaudeExeCandidates(nRel);
+						for (int32 i = 0; i < nRel; ++i) {
+							const NkString candidate = NkString(appData) + rel[i];
+							if (IsNativeExe(candidate))
+								return candidate;
+						}
 					}
 #ifdef _WIN32
 					FILE *pipe = _popen("where claude.cmd 2>nul", "r");
@@ -4152,15 +4788,30 @@ namespace nkentseu {
 						if (!shimPath.Empty()) {
 							const usize slash = shimPath.RFind('\\');
 							if (slash != NkString::npos) {
+								// Le shim vit dans le dossier npm global : on y reessaie les
+								// MEMES emplacements que ci-dessus (le prefixe « \npm » est
+								// deja consomme par le dossier du shim).
 								const NkString dir = shimPath.SubStr(0, slash);
-								const NkString candidate =
-									dir + "\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe";
-								if (NkFile::Exists(candidate.CStr()))
-									return candidate;
+								int32 nRel = 0;
+								const char *const *rel = ClaudeExeCandidates(nRel);
+								for (int32 i = 0; i < nRel; ++i) {
+									const NkString candidate = dir + (rel[i] + 4); // saute « \npm »
+									if (IsNativeExe(candidate))
+										return candidate;
+								}
 							}
 						}
 					}
-					return NkString("claude"); // dernier recours (echouera si aucun .exe natif trouve)
+#ifdef _WIN32
+					// Aucun binaire natif VALIDE : renvoyer « claude » ferait retomber
+					// CreateProcessW sur le script-garde. Chaine vide = « CLI absent »,
+					// deja gere par les appelants (sondes auto ignorees, message clair
+					// dans le panneau). L'utilisateur doit terminer l'installation :
+					//   node node_modules/@anthropic-ai/claude-code/install.cjs
+					return NkString();
+#else
+					return NkString("claude"); // Unix : pas de piege .exe, le shim est executable
+#endif
 				}
 				const NkString &ClaudeExe() {
 					if (!mClaudeExeResolved) {
@@ -4180,6 +4831,12 @@ namespace nkentseu {
 				// commande sans échappement — CreateProcessW n'a pas de shell pour absorber
 				// ça, contrairement à _popen/cmd.exe. ──
 				void SendClaudeCli() {
+					// Aucun binaire natif VALIDE (cf. ResolveClaudeExe) : on le dit, au lieu
+					// de tenter un spawn avec un argv[0] vide.
+					if (ClaudeExe().Empty()) {
+						Msgs().PushBack({2, NkString(NkT("ai.claude.launchfail"))});
+						return;
+					}
 					mClaudeCurModel = NkString(); // capture du modele REEL de ce tour (voir "assistant" plus bas)
 					// Portée (Scope) + chip contexte fichier : préfixe le prompt d'un rappel du
 					// contexte actif — l'agent a de VRAIS outils Read donc peut déjà tout
@@ -4343,6 +5000,28 @@ namespace nkentseu {
 					NkVector<NkString> envOverrides;
 					if (!projectKey.Empty())
 						envOverrides.PushBack(NkString("ANTHROPIC_API_KEY=") + projectKey.CStr());
+					// ── COMPTE de ce workspace ─────────────────────────────────────
+					// L'authentification du CLI vit dans <config>/.credentials.json, et
+					// CLAUDE_CONFIG_DIR deplace ce dossier : pointer le dossier du compte
+					// suffit donc a choisir l'identite. Le choix etant PAR WORKSPACE,
+					// deux instances de NKCode peuvent viser deux comptes en meme temps.
+					// La memoire, elle, reste commune (jonction posee a la creation du
+					// compte — voir NkAiAccounts.h).
+					if (mS && mS->HasWorkspace()) {
+						const NkString compte = NkAiWorkspaceAccount(mS->root);
+						if (!compte.Empty())
+							envOverrides.PushBack(NkString("CLAUDE_CONFIG_DIR=") + NkAiAccountDir(compte).CStr());
+					}
+					// ── BAC A SABLE ────────────────────────────────────────────────────
+					// Les chaines --sandbox / --no-sandbox / --sandbox-user existent bien
+					// DANS le binaire, mais elles appartiennent au runtime srt-win qu'il
+					// embarque, pas a l'analyseur d'options de `claude` : les lui passer
+					// repond « error: unknown option » et casserait CHAQUE message. Verifie
+					// en les executant, pas deduit de la presence des chaines. Le levier
+					// reel est donc la variable d'environnement. On ne pose RIEN quand le
+					// reglage est off : le defaut du CLI appartient a l'utilisateur.
+					if (mSandbox)
+						envOverrides.PushBack(NkString("CLAUDE_CODE_FORCE_SANDBOX=1"));
 
 					const NkString cwd = (mS && mS->HasWorkspace()) ? mS->root.ToString() : NkString(".");
 					if (!mClaudeProc.StartWithEnv(cmd, cwd, envOverrides, /*mergeStderr=*/true)) {
@@ -4452,6 +5131,11 @@ namespace nkentseu {
 							const NkJsonVal *sidV = doc.Member(root, "session_id");
 							if (sidV && sidV->kind == 3)
 								chat.claudeSessionId = sidV->str;
+							// « Defaut » ne disait rien : selon le compte et le forfait, le CLI
+							// resout un modele different. On affiche celui qu'il annonce.
+							const NkJsonVal *mdlV = doc.Member(root, "model");
+							if (mdlV && mdlV->kind == 3)
+								mClaudeInitModel = mdlV->str;
 						}
 					} else if (typeV->str == "rate_limit_event") {
 						// ── UTILISATION REELLE (protocole du CLI, verifie empiriquement le 20
@@ -4810,6 +5494,29 @@ namespace nkentseu {
 
 				void Poll() {
 					PollAccountStatus(); // independant de mBusy (requete ponctuelle "claude auth status")
+					PollPendingLogin();  // inscrit le compte SEULEMENT une fois connecte
+					if (mKind == 1) {
+						// La sonde est LIEE a un compte. Se fier au seul PollPendingLogin ne
+						// suffisait pas : apres un redemarrage de NKCode, ou si le budget
+						// d'essais avait deja ete epuise avant qu'un compte soit connecte, elle
+						// restait definitivement close et le modele courant n'apparaissait
+						// jamais. On compare donc le compte EFFECTIF a chaque frame.
+						const NkString compteActuel =
+							(mS && mS->HasWorkspace()) ? NkAiWorkspaceAccount(mS->root) : NkAiDefaultAccount();
+						if (!mModelsAccountInit || compteActuel != mModelsAccount) {
+							mModelsAccount = compteActuel;
+							mModelsAccountInit = true;
+							ResetModelsProbe();
+						}
+						TriggerModelsProbe(); // liste REELLE des modeles (une fois par compte)
+						PollModelsProbe();
+						// La liste peut RETRECIR d'un compte a l'autre : un index conserve
+						// pointerait alors a cote (et --model recevrait un nom absent).
+						int32 nm = 0;
+						kModels(nm);
+						if (mModelIdx >= nm)
+							mModelIdx = 0;
+					}
 					PollQuickUsage();	 // independant de mBusy (requete ponctuelle "/usage")
 					if (!mBusy)
 						return;
