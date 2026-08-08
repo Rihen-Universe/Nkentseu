@@ -497,6 +497,34 @@ namespace nkentseu {
 				// recepteur extrapole, ce qui rend les gros biais inutiles SANS
 				// retirer de faces de l'atlas. Les deux exigences tiennent ensemble.
 				pd.rasterizer = NkRasterizerDesc::NoCull();
+				// ── LE BIAIS QUI NE DECOLLE PAS L'OMBRE ─────────────────────────
+				// Il manquait, et c'est ce manque qui posait un choix impossible a
+				// l'utilisateur (constate par Rihen, capture du 8 aout) : biais de
+				// pente a zero -> le contact au sol est parfait mais le cube se
+				// couvre d'acne ; biais releve -> l'acne part et l'ombre se decolle
+				// du pied.
+				//
+				// LA DIFFERENCE EST DE NATURE. Les biais du shader deplacent le
+				// RECEPTEUR : ils eloignent le point teste de sa propre surface, donc
+				// ils reculent aussi le contact. Le biais du RASTERIZER, lui, ecrit
+				// la profondeur du CASTER un cran plus loin de la lumiere au moment
+				// ou l'atlas se remplit -- le recepteur n'est pas touche, le contact
+				// reste ou il est, et l'auto-ombrage disparait.
+				//
+				// Le terme de PENTE est celui qui compte : l'acne nait sur les faces
+				// vues en biais par la lumiere, ou un texel couvre une grande
+				// variation de profondeur -- exactement ce que le materiel mesure
+				// dans le gradient. Le terme constant reste petit : c'est le bruit de
+				// quantification qu'il couvre, rien de plus.
+				//
+				// Signe NEGATIF : la convention du depot est une profondeur ou l'on
+				// s'eloigne vers 1 apres correction clipZ01, et les autres pipelines
+				// de ce fichier emploient deja des valeurs negatives pour reculer.
+				// La BORNE evite qu'une face vue par la tranche, dont le gradient
+				// explose, projette sa profondeur hors de toute plage utile.
+				pd.rasterizer.depthBiasConst = -2.f;
+				pd.rasterizer.depthBiasSlope = -2.f;
+				pd.rasterizer.depthBiasClamp = -0.002f;
 				pd.blend = NkBlendDesc::Opaque();
 				pd.debugName = "Shadow_DepthOnly";
 				// Range push_constant ALL_GRAPHICS : permet aux appelants qui
