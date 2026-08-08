@@ -3921,14 +3921,11 @@ namespace nkentseu {
 					}
 					if (!mS)
 						return;
+					// Commande AUTOPORTANTE (script genere, cf. NkAiLoginCommand) : elle ne
+					// depend d'aucun shell, puisque le terminal lance cmdOverride tel quel
+					// sans jamais passer par PtyCommand.
 					mS->termOpenCmd = NkAiLoginCommand(ClaudeExe(), nom);
-					// 3 = cmd.exe. La commande de connexion est en syntaxe cmd (`set ... &&`) :
-					// laisser le shell par defaut (PowerShell) la tuait instantanement.
-#if defined(_WIN32)
-					mS->termOpenKind = 3;
-#else
 					mS->termOpenKind = -1;
-#endif
 					mS->termOpenAt = mS->HasWorkspace() ? mS->root.ToString() : NkString(".");
 					mS->termOpenRun = false; // agent CLI -> panneau TERMINAL, pas EXECUTION
 					if (mShell)
