@@ -9,6 +9,20 @@ L'application est **un seul DCC** (pas de séparation modeleur / animation).
 Langue de travail : **français**. Toute décision d'interface vient de Rihen et
 est consignée avec sa raison.
 
+> ## ► AGENT QUI REPREND LE MODELEUR : COMMENCE PAR LA PASSATION
+>
+> **[`PASSATION_2026_08_08.md`](PASSATION_2026_08_08.md)** — état exact au 8 août
+> 2026, décisions déjà prises (à ne pas re-débattre), bugs corrigés avec leur
+> leçon, et le **prompt de reprise** prêt à l'emploi.
+>
+> **Le chantier en cours est la PERSISTANCE DE TOUS LES TYPES DE FICHIERS**
+> (projet, scène, mesh, texture, matériau, mesh procédural…), chacun en **fichier
+> séparé** ou en **blob dans le projet**. Un défaut d'architecture reste ouvert :
+> les onglets sont la seule source de vérité des scènes.
+>
+> **Règle absolue de Rihen** : *fermer un onglet ne doit JAMAIS supprimer quoi
+> que ce soit.* Un onglet est une **vue** sur un asset, jamais l'asset lui-même.
+
 ---
 
 ## Ordre décidé par Rihen (révisé le 2026-08-02)
@@ -218,6 +232,35 @@ un asset, insuffisant pour un projet qui en contient N). Généraliser le même
 patron — en-tête, archive `NKS1` de la scène, puis une **table de N entrées**
 (décalage, taille, CRC) suivie des blobs. Aucune invention : c'est
 `NkAssetFileHeader` avec une table au lieu d'un triplet.
+
+### Ombres — chantier GARÉ le 7 août 2026 (décision de Rihen : la sauvegarde d'abord)
+
+État à l'arrêt du chantier, pour le reprendre sans réapprendre :
+
+**Fait et compilé (29/29), techniques standard, sans régression connue :**
+- **Biais du plan récepteur** dans le PCF (`NkShadowAtlas.glsli`) : chaque tap se
+  compare au plan du récepteur extrapolé à sa position — garde-fous : repli si
+  déterminant quasi nul (silhouettes), extrapolation bornée à ±0.005.
+  Les 4 familles (sun/point/spot/area) et les 5 shaders clients en héritent.
+- **NoCull définitif** dans la passe d'ombre (`NkRender3D.cpp`, commentaire long) :
+  le culling des faces avant collait le contact mais éclairait l'INTÉRIEUR des
+  objets fermés (la caméra d'un modeleur y entre). Ne pas le retenter.
+- Biais normal en **texels du tile** (0.5), garde des faces d'omni dimensionnée
+  sur le noyau PCF réel, douceur affectant enfin Vulkan/GL comme DX11.
+
+**Rihen constate encore : intérieur du cube éclairé + ombre pas posée. Pistes,
+dans l'ordre où les vérifier :**
+1. **Cache de shaders périmé** — `Build/ShaderCache` a été VIDÉ le 7 août ; si la
+   clé FNV ne hache pas les `#include` résolus, les tests précédents tournaient
+   sur l'ANCIEN binaire de shader. Retester après recompilation complète AVANT
+   tout autre diagnostic.
+2. **« Intérieur éclairé » = ambiant/IBL, pas la lumière ?** L'ombre n'éteint que
+   la lumière directe ; l'ambiant n'a AUCUNE occlusion aujourd'hui. Un intérieur
+   de boîte fermée restera gris-ambiant tant qu'il n'y a pas d'AO — vérifier en
+   mettant l'ambiant à zéro : si l'intérieur devient noir, le shadow map est
+   CORRECT et c'est un chantier AO (NkVoxelAOSystem existe déjà, init OK au log).
+3. Si le contact flotte toujours après (1) : mesurer réellement — une scène, un
+   cube à y=0, capturer, comparer au pixel. Pas de réglage à l'aveugle.
 
 ### Renommer ET découper `NkDemo3D.cpp` (décidé avec Rihen, 6 août 2026)
 
@@ -845,3 +888,49 @@ outils** : « les ajouter quand leurs outils naissent leur donnera un contenu
 réel dès le premier jour ». Voir `PRINCIPES_CONCEPTION.private.md` à la racine.
 Les stubs assumés s'affichent grisés et disent « à venir » — jamais une entrée
 qui fait semblant d'agir.
+
+---
+
+# PERSISTANCE — état au 2026-08-08 (point 1 de `PASSATION_2026_08_08.md`)
+
+## Livré, compilé Debug + Release 29/29 — **non validé par Rihen**
+
+**Le document n'est plus l'onglet.** `NkModelerState` porte désormais une table
+de **documents** (32 emplacements stables) ; un onglet n'en est qu'une **vue**
+(`sceneTabDoc`). Conséquences :
+
+- **Fermer un onglet ne supprime plus rien** (règle absolue de Rihen). Seule
+  exception, qui n'en est pas une : un document *transitoire* — maquette
+  d'éditeur d'asset, onglet d'isolation — qui n'a jamais été autre chose que la
+  vue elle-même.
+- Le **navigateur est persisté** : cartes, dossiers, parenté, et les liens
+  carte↔document / carte↔nœud source. Il naissait vide à chaque lancement.
+- La carte d'une scène naît **avec la scène** (bouton « + »), plus à
+  l'enregistrement ; son double-clic **rouvre son document** au lieu d'en
+  fabriquer un neuf et vide.
+- Section scène **format 2** : `documents`, `navigateur`, `vues` + `vueActive`.
+  Le format 1 reste lisible (son `scenes` devient la liste des documents).
+- **Récupération des scènes orphelines** : à la relecture, toute scène hôte
+  portée par des nœuds mais sans document donne une « Scene recuperee N ». Le
+  fichier de Rihen (`MonProjet.nk3dm`) en contient une — c'est du travail
+  aujourd'hui inaccessible qui redevient éditable. Le message de chargement le
+  dit.
+- La boîte « Fermer la scène ? » a **disparu** : elle annonçait une perte qui
+  n'existe plus. La pastille « non enregistré » reste (elle parle du projet).
+
+## Les deux tests qui font foi — **à passer par Rihen**
+
+1. Créer 2 scènes → modifier → enregistrer → **fermer l'application** → rouvrir :
+   tout doit revenir, **y compris les scènes qui n'étaient pas ouvertes**.
+2. Pour chaque type d'asset : l'ouvrir → **fermer son onglet** → il doit rester
+   dans le navigateur, intact et réouvrable. Puis enregistrer / fermer / rouvrir.
+
+## Reste du chantier persistance (§4.0 de la passation)
+
+- Le **contenu** des cartes de matériau, texture et graphe n'est pas encore
+  écrit : la carte revient avec son nom et sa place, pas avec ce qu'elle porte.
+- Persister **chaque type de fichier** dans les **deux** modes (fichier séparé /
+  blob dans le `.nk3dm`), un seul code de capture par type.
+- **Sélecteur de fichiers personnalisé** sur `NKEditorKit/NkFilePicker.h` —
+  `NkDialogs::` est toujours en place et toujours cassé.
+- Bascule lié ↔ empaqueté sans perte, dans les deux sens.

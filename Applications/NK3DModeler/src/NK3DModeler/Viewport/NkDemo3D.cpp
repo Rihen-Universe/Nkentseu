@@ -4225,7 +4225,13 @@ namespace nkentseu {
 				//    et « créer une face »). Traité côté frame (accès meshSys pour resync).
 				// !alt : Shift+ALT+S est reserve a TO SPHERE (edition spherique, cf. plus bas)
 				// -> sans ce garde, l'ombrage smooth avalerait la combinaison.
-				if (shiftG && !alt && (k == NkKey::NK_S || k == NkKey::NK_F)) {
+				// !ctrl : Ctrl+Maj+S est ENREGISTRER TOUT. La touche arrive par DEUX
+				// voies -- le shell (main.cpp) et ce rappel -- et LES DEUX doivent
+				// ceder. C'est le meme piege que Ctrl+S qui armait l'echelle, et que
+				// Ctrl+V qui collait deux fois : chercher la seconde voie.
+				const bool ctrlG =
+					NkInput.IsKeyDown(NkKey::NK_LCTRL) || NkInput.IsKeyDown(NkKey::NK_RCTRL);
+				if (shiftG && !alt && !ctrlG && (k == NkKey::NK_S || k == NkKey::NK_F)) {
 					if (!st->editMode) {
 						// LIMITE ASSUMÉE : hors édition, les objets partagent la MÊME primitive
 						// GPU — changer leur ombrage la modifierait pour tous. On passe donc par
@@ -4647,7 +4653,10 @@ namespace nkentseu {
 					else
 						G.SetMode(GZ::MODE_ROTATE);
 				}
-				if (k == NkKey::NK_S) {
+				if (k == NkKey::NK_S && !NkInput.IsKeyDown(NkKey::NK_LCTRL) &&
+					!NkInput.IsKeyDown(NkKey::NK_RCTRL)) { // Ctrl+S = ENREGISTRER, pas le gizmo
+					// (meme garde que Ctrl+C juste dessous -- la touche arrive par
+					// DEUX voies, le shell et ce rappel : les deux doivent ceder)
 					if (alt)
 						G.ClearSelectedScale();
 					else
@@ -4667,8 +4676,9 @@ namespace nkentseu {
 					const char *o[3] = {"GLOBAL", "LOCAL", "NORMAL"};
 					logger.Info("[Demo3D] Orientation = {0}\n", o[G.Orientation()]);
 				}
-				if (k == NkKey::NK_G || k == NkKey::NK_R || k == NkKey::NK_S ||
-					(k == NkKey::NK_C && !NkInput.IsKeyDown(NkKey::NK_LCTRL) &&
+				if (k == NkKey::NK_G || k == NkKey::NK_R ||
+					((k == NkKey::NK_S || k == NkKey::NK_C) &&
+					 !NkInput.IsKeyDown(NkKey::NK_LCTRL) &&
 					 !NkInput.IsKeyDown(NkKey::NK_RCTRL)))
 					logger.Info("[Demo3D] Gizmo mode = {0}\n", mn[G.Mode()]);
 			});
@@ -4740,17 +4750,30 @@ namespace nkentseu {
 				g.cellSize = 1.0f;
 				g.majorEvery = 10.0f;
 				g.fadeEnd = 10.0f; // FACTEUR de portée : rayon net ~ hauteur_cam * 10 (proportionnel)
-				g.planeY = 0.01f;  // 1 cm au-dessus du sol solide -> grille visible, pas de z-fight
+				// LE SOL EST A ZERO, EXACTEMENT. Il valait 0.01 pour ne pas se
+				// battre en profondeur avec un sol solide separe -- or ce sol a ete
+				// RETIRE depuis, et le decalage lui a survecu. Consequences qu'il
+				// causait : un objet pose a y=0 s'enfoncait d'un centimetre sous la
+				// grille, et une ombre calculee au sol tombait sous la surface censee
+				// la recevoir. Le zero de la scene (curseur 3D, aimantation, axes 3D)
+				// vaut 0 : le sol doit valoir 0 aussi, sans quoi rien n'est coherent.
+				// Aucun z-fight a craindre : le plan et ses lignes sont LE MEME quad.
+				g.planeY = 0.0f;
 				g.lineColor = {0.42f, 0.45f, 0.52f,
 							   1.0f}; // gris moyen : bien visible sur fond sombre MAIS sous le seuil du bloom
 				g.cellColor = {0.09f, 0.10f, 0.12f, 0.18f}; // intérieur = PLAN INFINI (.w=opacité ; 0=transparent)
 				g.axisXColor = {1.0f, 0.0f, 0.0f, 1.0f};	// X rouge PLEIN
 				g.axisZColor = {0.0f, 0.0f, 1.0f, 1.0f};	// Z bleu PLEIN
-				// Axes du SHADER grille DÉSACTIVÉS : on dessine les 3 axes X/Y/Z en lignes 3D
-				// réelles (DrawDebugLine, cf. Frame). Raison : l'axe Y en projection écran dans
-				// le FS avait des artefacts (quittait l'origine / pas parallèle aux verticales
-				// en perspective). Une vraie ligne 3D est correcte partout (perspective, ancrée,
-				// top/bottom) ET cohérente en épaisseur pour les 3.
+				// Axes du SHADER grille DESACTIVES : les trois axes sont dessines en
+				// lignes 3D reelles (DrawDebugLine, cf. Frame), a y = 0 exactement.
+				//
+				// Deux raisons de ne PAS les confier au shader :
+				//   1. l'axe Y, calcule en projection ecran dans le fragment,
+				//      quittait l'origine et cessait d'etre parallele aux verticales
+				//      en perspective ;
+				//   2. surtout, ils seraient alors DEPENDANTS de la grille --
+				//      decocher « Grille » effacerait les axes, alors que « Axes du
+				//      plan » est un reglage distinct qui doit rester independant.
 				g.showAxes = false;
 			}
 
@@ -4854,19 +4877,52 @@ namespace nkentseu {
 			if (!vao)
 				return;
 			vao->Clear();
-			NkVoxelOccluder floorOcc;
-			floorOcc.minWorld = {-8.f, -0.6f, -8.f};
-			floorOcc.maxWorld = {8.f, 0.05f, 8.f};
-			floorOcc.opacity = 1.f;
-			floorOcc.albedo = {0.5f, 0.5f, 0.5f};
-			vao->RegisterOccluder(floorOcc);
+			// LES OCCLUDEURS DE LA DEMO NE VALENT QUE SI LEURS OBJETS SE VOIENT.
+			// Cette boite 16x16 est le sol de la DEMO, et son plafond depasse a
+			// y=0.05 : enregistree dans une scene UTILISATEUR, elle plongeait
+			// tout le sol dans un grand carre sombre en mode rendu (constate par
+			// Rihen des la premiere reconstruction de la grille -- avant, la
+			// grille ne se construisait jamais, l'erreur dormait). Meme test de
+			// visibilite que le rendu : une seule verite.
+			if (!HostHiddenEff(Demo3DState::kIdxFloor)) {
+				NkVoxelOccluder floorOcc;
+				floorOcc.minWorld = {-8.f, -0.6f, -8.f};
+				floorOcc.maxWorld = {8.f, 0.05f, 8.f};
+				floorOcc.opacity = 1.f;
+				floorOcc.albedo = {0.5f, 0.5f, 0.5f};
+				vao->RegisterOccluder(floorOcc);
+			}
+			// ── LES OBJETS UTILISATEUR OCCLUDENT AUSSI ──────────────────────
+			// Seuls le sol de la demo et le mur GI etaient voxelises : partout
+			// ailleurs voxAO valait 1, et l'ambiant entrait a pleine puissance --
+			// d'ou l'INTERIEUR d'un cube ferme reste gris clair au lieu de
+			// sombre (constate par Rihen, capture du 7 aout ; la shadow map,
+			// elle, etait correcte : elle n'eteint que la lumiere DIRECTE).
+			// AABB monde du cube unite transforme : pour l'ambiance, l'enveloppe
+			// suffit -- l'erreur d'une sphere approchee par sa boite est
+			// invisible dans une occlusion en cones.
+			for (int32 u = 0; u < kNkvpMaxUser; ++u) {
+				if (!nkvpUserMesh[u].IsValid())
+					continue;
+				const int32 un = kNkvpFirstUser + u;
+				if (nkvpDeleted[un] || HostHiddenEff(un))
+					continue;
+				NkVoxelOccluder oc;
+				Demo3D_XformAABB(Demo3D_UserWireXform(st, u), oc.minWorld, oc.maxWorld);
+				oc.opacity = 1.f;
+				oc.albedo = {0.5f, 0.5f, 0.5f};
+				vao->RegisterOccluder(oc);
+			}
 			// L'occluder épouse la transform EFFECTIVE du mur (clavier + gizmo) : la
 			// lumière rebondit donc toujours exactement sur le mur qu'on voit bouger.
-			NkVoxelOccluder wall;
-			Demo3D_XformAABB(st->giWallXform, wall.minWorld, wall.maxWorld);
-			wall.opacity = 1.f;
-			wall.albedo = {0.9f, 0.05f, 0.05f};
-			vao->RegisterOccluder(wall);
+			// Meme regle que le sol demo : seulement si le mur se VOIT.
+			if (!HostHiddenEff(Demo3DState::kIdxGIWall)) {
+				NkVoxelOccluder wall;
+				Demo3D_XformAABB(st->giWallXform, wall.minWorld, wall.maxWorld);
+				wall.opacity = 1.f;
+				wall.albedo = {0.9f, 0.05f, 0.05f};
+				vao->RegisterOccluder(wall);
+			}
 			vao->Build();
 			// GI éteint = injection de zéro : l'opacité (donc l'AO) reste, seul
 			// l'indirect disparaît. L'A/B ne change donc QUE ce qu'on veut mesurer.
@@ -6333,11 +6389,22 @@ namespace nkentseu {
 					if (math::NkAbs(((const float32 *)&wallXform)[e] - ((const float32 *)&st->giWallXform)[e]) > 1e-4f)
 						st->giDirty = true;
 				}
-				if (st->giDirty) {
+				if (st->giDirty)
 					st->giWallXform = wallXform;
-					Demo3D_RebuildGI(st, ctx.renderer, sctx.lights);
-					st->giDirty = false;
-				}
+			}
+
+			// ── LA GRILLE D'OCCLUSION SE RECONSTRUIT HORS DU MODE TEST ──────────
+			// La consommation de giDirty vivait SOUS st->giTest : en scene
+			// utilisateur normale, la grille voxel n'etait JAMAIS construite --
+			// voxAO valait 1 partout, l'ambiant entrait a pleine puissance, et
+			// l'interieur d'un cube ferme restait gris clair (constate par Rihen ;
+			// c'est ce qui faisait croire a un bug de shadow map). Desormais toute
+			// modification de la scene -- pastille, chargement, geste -- pose
+			// giDirty (cf. Demo3DHostGIMarkDirty) et la reconstruction se fait
+			// ici, mode test ou pas.
+			if (st->giDirty) {
+				Demo3D_RebuildGI(st, ctx.renderer, sctx.lights);
+				st->giDirty = false;
 			}
 
 			r3d->BeginScene(sctx);
@@ -6568,14 +6635,23 @@ namespace nkentseu {
 					}
 				}
 				// SNAP a la periode (plancher, pas troncature : traverser zero
-				// ne fait pas sauter le motif). 2 mm sous la grille seulement :
-				// 2 cm decollaient visiblement les ombres de contact.
+				// ne fait pas sauter le motif).
+				//
+				// LE SOL EST EXACTEMENT A nkvpFloorY -- plus aucun retrait. Les
+				// 2 mm « anti z-fight » dataient d'avant le biais de profondeur de
+				// la grille : elle tire deja sa profondeur vers la camera (-1.5),
+				// elle gagne donc le z-fight SANS qu'on enterre le sol. Et ces
+				// 2 mm se VOYAIENT : l'ombre d'un objet pose a y=0 se calculait
+				// 2 mm sous son pied, premiere moitie du « cube qui flotte »
+				// constate par Rihen (l'autre moitie etant le biais normal, cf.
+				// NkVirtualShadowMaps.h). Un plan MAILLE cree a y=0 n'avait pas ce
+				// defaut -- c'est ce contraste qui a designe le coupable.
 				const NkVec3f cpF = cam.GetPosition();
 				const float32 qxF = cpF.x / perF;
 				const float32 qzF = cpF.z / perF;
 				const float32 fxS = perF * (float32)((int64)(qxF >= 0.f ? qxF : qxF - 1.f));
 				const float32 fzS = perF * (float32)((int64)(qzF >= 0.f ? qzF : qzF - 1.f));
-				dcF.transform = NkMat4f::Translate({fxS, nkvpFloorY - 0.002f, fzS}) *
+				dcF.transform = NkMat4f::Translate({fxS, nkvpFloorY, fzS}) *
 								NkMat4f::Scale({kExtF, 1.f, kExtF});
 				dcF.aabb = {{fxS - kExtF, nkvpFloorY - 0.01f, fzS - kExtF},
 							{fxS + kExtF, nkvpFloorY, fzS + kExtF}};
@@ -9826,10 +9902,40 @@ namespace nkentseu {
 			// bascule « Axes du plan » du shell -- la decocher les eteint.
 			if (!gridClean && nkvpAxesOn) {
 				const float32 A = 1000.f;
-				const float32 h = 0.02f; // légèrement au-dessus du sol/grille -> pas de z-fight (pointillés)
-				r3d->DrawDebugLine({-A, h, 0.f}, {A, h, 0.f}, {1.f, 0.f, 0.f, 1.f});	 // X rouge
-				r3d->DrawDebugLine({0.f, -A, 0.f}, {0.f, A, 0.f}, {0.f, 1.f, 0.f, 1.f}); // Y vert
-				r3d->DrawDebugLine({0.f, h, -A}, {0.f, h, A}, {0.f, 0.f, 1.f, 1.f});	 // Z bleu
+				// LES TROIS AXES SONT A ZERO -- et dessines via un DECALAGE LE LONG
+				// DU RAYON DE VUE, la seule technique qui soit a la fois exacte a
+				// l'ecran et robuste en profondeur.
+				//
+				// Historique des tentatives, pour ne pas y revenir :
+				//   - y = 0.02 : les axes ne se croisaient plus a l'origine, et les
+				//     ombres passaient SOUS eux (repere faux) ;
+				//   - axes du shader de grille : dependants de la case « Grille » ;
+				//   - biais de profondeur (-1.5 puis -64 unites) : INSUFFISANT --
+				//     le sol est un quad de +-250 m, les axes des lignes de
+				//     +-1000 m, et deux primitives d'etendues si differentes
+				//     interpolent la meme profondeur avec des erreurs bien
+				//     au-dessus du biais. Assez de biais pour gagner ferait saigner
+				//     les lignes a travers les objets (constate : pointilles, puis
+				//     disparition selon l'angle -- captures de Rihen).
+				//
+				// ICI : chaque extremite est tiree de 0.1 % VERS LA CAMERA. Tout
+				// point du segment [P, camera] se projette au MEME pixel que P --
+				// la position ecran des axes est donc EXACTE (ils se croisent a
+				// l'origine, l'aimantation et le curseur 3D les voient a y = 0),
+				// seule leur profondeur gagne ~2 cm a 20 m. Le decalage suit la
+				// camera : il est recalcule chaque frame, quel que soit l'angle.
+				const NkVec3f cp = cam.GetPosition();
+				auto lift = [&](const NkVec3f &p2) {
+					return p2 + (cp - p2) * 0.001f;
+				};
+				// UNE SEULE PASSE PAR AXE (decision de Rihen : l'epaississement par
+				// lignes paralleles divergeait en eventail vers l'horizon).
+				r3d->DrawDebugLine(lift({-A, 0.f, 0.f}), lift({A, 0.f, 0.f}),
+								   {1.f, 0.f, 0.f, 1.f}); // X rouge
+				r3d->DrawDebugLine(lift({0.f, -A, 0.f}), lift({0.f, A, 0.f}),
+								   {0.f, 1.f, 0.f, 1.f}); // Y vert
+				r3d->DrawDebugLine(lift({0.f, 0.f, -A}), lift({0.f, 0.f, A}),
+								   {0.f, 0.f, 1.f, 1.f}); // Z bleu
 			}
 
 			// ── Overlay ──────────────────────────────────────────────────────────
@@ -14205,6 +14311,63 @@ namespace nkentseu {
 			}
 			return n;
 		}
+		// MEME REGLE D'APPARTENANCE que Demo3DHostMoveTreeScene, ecrite UNE fois :
+		// un model emporte SES MESH INTERNES et eux seuls ; ses enfants de scene
+		// sont des models a part entiere et restent ou ils sont. Deux parcours
+		// separes auraient fini par ne plus emporter les memes noeuds -- et un
+		// mesh oublie en chemin reapparait dans une scene ou personne ne l'a mis.
+		static bool HostIsInnerMeshOf(int32 c, int32 root) {
+			if (c == root || c < 0 || c >= kNkvpMaxNodes || !nkvpIsMesh[c])
+				return false;
+			int32 cur = nkvpParentOf[c];
+			for (int32 g = 0; g < kNkvpMaxNodes && cur >= 0; ++g) {
+				if (cur == root)
+					return true;
+				if (!nkvpIsMesh[cur])
+					return false; // on a quitte la matiere de CE model
+				cur = nkvpParentOf[cur];
+			}
+			return false;
+		}
+		bool Demo3DHostNodeInnerMeshOf(int32 node, int32 root) {
+			// EXPOSE le parcours d'appartenance : l'ecriture d'un fichier de model
+			// doit emporter EXACTEMENT les memes noeuds que le deplacement de
+			// document et que l'archivage. Le refaire cote projet aurait fait un
+			// troisieme parcours, donc une troisieme occasion de diverger.
+			return HostIsInnerMeshOf(node, root);
+		}
+		void Demo3DHostSetNodeArchived(int32 node, bool v) {
+			// UN SEUL noeud. Sert a la RELECTURE d'un projet : chaque noeud porte
+			// son propre drapeau dans le fichier, il est repose tel quel.
+			// On ne passe PAS par Demo3DHostDeleteNode (il remet la nature a zero,
+			// donc l'emplacement serait recycle) et on NE TOUCHE PAS a la parente :
+			// c'est elle qui tient le model et ses maillages ensemble.
+			if (node < 0 || node >= kNkvpMaxNodes)
+				return;
+			nkvpDeleted[node] = v;
+		}
+		void Demo3DHostArchiveTree(int32 node, bool v) {
+			// LE MODEL ET SA MATIERE ENSEMBLE. L'editeur de Model travaille sur
+			// l'asset lui-meme : il le sort de l'archive en entrant et l'y remet en
+			// sortant. Ne traiter que la racine laissait ses MAILLAGES vivants dans
+			// un document mort -- ils repartaient alors dans la premiere scene a
+			// l'enregistrement, visibles en vue 3D et absents de la hierarchie
+			// (constate par Rihen, captures du 8 aout).
+			if (node < 0 || node >= kNkvpMaxNodes)
+				return;
+			nkvpDeleted[node] = v;
+			for (int32 c = 0; c < kNkvpMaxNodes; ++c)
+				if (HostIsInnerMeshOf(c, node))
+					nkvpDeleted[c] = v;
+		}
+		bool Demo3DHostNodeArchived(int32 node) {
+			// Une ARCHIVE est retiree de la vue mais garde sa nature ; un noeud
+			// vraiment supprime a perdu la sienne. C'est cette difference, et elle
+			// seule, qui distingue les deux.
+			if (node < kNkvpFirstUser || node >= kNkvpMaxNodes)
+				return false;
+			return nkvpDeleted[node] && nkvpUserKind[node - kNkvpFirstUser] != 0;
+		}
 		void Demo3DHostSetActiveScene(int32 id) {
 			nkvpCurScene = (uint8)(id & 0xFF);
 		}
@@ -14500,22 +14663,11 @@ namespace nkentseu {
 			if (node < 0 || node >= kNkvpMaxNodes)
 				return;
 			nkvpSceneOf[node] = (uint8)(id & 0xFF);
-			for (int32 c = 0; c < kNkvpMaxNodes; ++c) {
-				if (c == node || nkvpDeleted[c] || !nkvpIsMesh[c])
-					continue;
-				// Tout le chemin jusqu'au noeud doit etre fait de mesh internes :
-				// un mesh niche sous un model ENFANT appartient a ce model-la.
-				int32 cur = nkvpParentOf[c];
-				for (int32 g = 0; g < kNkvpMaxNodes && cur >= 0; ++g) {
-					if (cur == node) {
-						nkvpSceneOf[c] = (uint8)(id & 0xFF);
-						break;
-					}
-					if (!nkvpIsMesh[cur])
-						break; // on a quitte la matiere de CE model
-					cur = nkvpParentOf[cur];
-				}
-			}
+			// Le parcours vit dans HostIsInnerMeshOf : l'archivage d'un asset suit
+			// EXACTEMENT le meme, et deux copies auraient divergé.
+			for (int32 c = 0; c < kNkvpMaxNodes; ++c)
+				if (!nkvpDeleted[c] && HostIsInnerMeshOf(c, node))
+					nkvpSceneOf[c] = (uint8)(id & 0xFF);
 		}
 		void Demo3DHostCopyNode(int32 node) {
 			auto *st = HostSt();
@@ -15604,6 +15756,33 @@ namespace nkentseu {
 			nkvpFloorTile = tile < 0.1f ? 0.1f : (tile > 50.f ? 50.f : tile);
 			nkvpFloorMetal = metal < 0.f ? 0.f : (metal > 1.f ? 1.f : metal);
 		}
+		// ── UN GESTE DE GIZMO EST-IL EN COURS ? ─────────────────────────────
+		// Lu chaque frame par le shell : le FRONT DESCENDANT (ca glissait, ca ne
+		// glisse plus) signifie « un geste vient d'etre commis » et allume la
+		// pastille « non enregistre ». C'est le seul point qui VOIT les quatre
+		// gizmos -- objet, edition, lumieres, empties -- la ou enumerer les
+		// mutations une a une dans le shell en aurait toujours oublie une (le
+		// deplacement d'un cube n'allumait PAS la pastille, constate par Rihen).
+		bool Demo3DHostAnyGizmoDragging() {
+			auto *st = hst.ok ? (Demo3DState *)hst.ctx.userData : nullptr;
+			if (!st)
+				return false;
+			return st->gizmo.IsDragging() || st->editGizmo.IsDragging() ||
+				   st->lightGizmo.IsDragging() || st->emptyGizmo.IsDragging();
+		}
+
+		// L'AMBIANCE DOIT SUIVRE LA SCENE : les objets utilisateur sont des
+		// occludeurs du GI voxel (cf. Demo3D_RebuildGI), donc toute modification
+		// -- geste de gizmo termine, ajout, suppression, chargement -- doit
+		// invalider la grille. Appele par NkMarkDirty cote shell : la meme action
+		// qui allume la pastille « non enregistre » rafraichit l'ambiance, une
+		// seule notion de « la scene a change ».
+		void Demo3DHostGIMarkDirty() {
+			auto *st = hst.ok ? (Demo3DState *)hst.ctx.userData : nullptr;
+			if (st)
+				st->giDirty = true;
+		}
+
 		bool Demo3DHostShadowDynamic() {
 			return nkvpShadowDynamic;
 		}
@@ -15637,7 +15816,11 @@ namespace nkentseu {
 			if (!sh)
 				return;
 			auto &c = sh->GetConfig();
-			c.normalBias = normalBias < 0.f ? 0.f : (normalBias > 1.f ? 1.f : normalBias);
+			// Le biais normal se mesure desormais en TEXELS du tile echantillonne
+			// (cf. NkShadowTexelWorld) : l'ancien plafond de 1.0 datait de l'echelle
+			// en metres et bridait meme la valeur par defaut (1.5). Huit texels est
+			// deja enorme -- au-dela, l'ombre se detache visiblement de son objet.
+			c.normalBias = normalBias < 0.f ? 0.f : (normalBias > 8.f ? 8.f : normalBias);
 			c.shadowBias = slopeBias < 0.f ? 0.f : (slopeBias > 0.05f ? 0.05f : slopeBias);
 			c.softness = softness < 0.f ? 0.f : (softness > 0.05f ? 0.05f : softness);
 			// 0..4 : l'enum moteur compte CINQ crans (NONE, PCF3, PCF5, POISSON,
