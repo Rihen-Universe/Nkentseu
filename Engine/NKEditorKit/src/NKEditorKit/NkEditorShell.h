@@ -173,6 +173,22 @@ namespace nkentseu {
 
 				// ── Géométrie de fenêtre (launcher) : fichier global taille/pos/maximisé ──
 				void MaximizeWindow() noexcept;
+				// BARRES D'ACTIVITE (bandes verticales d'icones, facon VSCode) : presentes
+				// par defaut, parce que l'IDE en vit. Une application qui n'a PAS de
+				// « vues » a basculer — un atelier, un visualiseur — doit pouvoir les
+				// retirer : sinon elle herite du chrome de NKCode et lui ressemble alors
+				// qu'elle ne fait pas le meme metier. Le dock reprend la largeur liberee.
+				void SetActivityBars(bool left, bool right) noexcept {
+					mActivityBarLeft = left;
+					mActivityBarRight = right;
+				}
+				bool HasActivityBarLeft() const noexcept {
+					return mActivityBarLeft;
+				}
+				bool HasActivityBarRight() const noexcept {
+					return mActivityBarRight;
+				}
+
 				void SaveWindowGeom(const char *path) noexcept;	 ///< écrit win=/maximized= (position écran)
 				bool LoadWindowGeom(const char *path) noexcept;	 ///< applique si le fichier existe ; false sinon
 
@@ -543,6 +559,10 @@ namespace nkentseu {
 				bool mRunning = true;
 				// Rappel de fermeture explicite (croix) — cf. SetOnWindowClosed.
 				bool mQuitIsWindowClose = true; ///< cf. RequestQuit/QuitIsWindowClose
+				// cf. SetActivityBars. Vrais membres : cote main le setter les affectait
+				// sans qu'ils existent nulle part, et personne ne les lisait.
+				bool mActivityBarLeft = true;
+				bool mActivityBarRight = true;
 				NkOnWindowClosed mOnWindowClosed = nullptr;
 				void *mOnWindowClosedUser = nullptr;
 				bool mDockBootstrap = true;
