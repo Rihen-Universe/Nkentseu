@@ -134,17 +134,24 @@ namespace nkentseu {
 					scene = *sc;
 					scene.SetBool("serialisee", true);
 					scene.SetString("couvre",
-									"objets utilisateur (position/rotation/echelle, parente, "
-									"visibilite, verrou, exclusion du rendu), parametres de "
-									"creation, materiaux et leurs textures, lumieres, cameras, "
-									"scenes et vues");
+									"l'arborescence du navigateur de projet (dossiers et cartes), "
+									"le CHEMIN RELATIF du fichier de chaque asset, et les onglets "
+									"ouverts. Le CONTENU de chaque asset vit dans SON fichier "
+									"(.nkscene, .nkmesh, .nkmat) -- ce fichier-ci n'en porte que "
+									"des liens");
 					scene.SetString("nonCouvert",
-									"geometrie editee sommet par sommet, modificateurs, "
-									"navigateur de projet, environnement de rendu et sortie");
+									"geometrie editee sommet par sommet, modificateurs, contenu "
+									"des cartes de texture/graphe/dataset (elles n'ont pas encore "
+									"de fichier), environnement de rendu et sortie");
 				} else {
 					scene.SetBool("serialisee", false);
-					scene.SetString("note", "aucune scene n'a ete fournie a l'ecriture");
+					scene.SetString("note", "aucun contenu n'a ete fourni a l'ecriture");
 				}
+				// La cle reste « scene » pour que les projets deja ecrits restent
+				// lisibles ; c'est `disposition` qui dit ce qu'elle contient (>= 3 :
+				// l'arbre et des liens, plus la scene elle-meme). Renommer la cle
+				// aurait rendu illisible tout projet anterieur, ce qui est
+				// exactement ce qu'on refuse.
 				doc.SetObject("scene", scene);
 			}
 
@@ -285,6 +292,25 @@ namespace nkentseu {
 				st.modified = st.created;
 			st.open = true;
 			st.neverSaved = false;
+			// ── LA SECTION SCENE EST RENDUE A L'APPELANT ────────────────────
+			// Elle ne l'etait PAS : le parametre existait, la documentation le
+			// promettait, et le corps ne le touchait jamais. Consequence exacte,
+			// constatee par Rihen : chaque reouverture repartait d'une scene
+			// VIERGE (l'archive rendue etant vide, NkSceneRestore n'avait rien a
+			// poser), et le premier enregistrement suivant ECRASAIT le fichier
+			// avec cet etat vierge -- le travail disparaissait en deux temps,
+			// sans qu'aucune erreur ne s'affiche.
+			//
+			// `serialisee` fait foi : une section qui se declare non serialisee
+			// n'a rien a rendre, et la distinction « absente » / « vide » n'a pas
+			// lieu d'etre ici -- l'appelant traite les deux pareil.
+			if (scene) {
+				scene->Clear();
+				NkArchive sc;
+				nk_bool ser = false;
+				if (doc.GetObject("scene", sc) && sc.GetBool("serialisee", ser) && ser)
+					*scene = sc;
+			}
 			out = st;
 			return true;
 		}

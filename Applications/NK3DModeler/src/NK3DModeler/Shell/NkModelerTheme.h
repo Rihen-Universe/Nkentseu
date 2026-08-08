@@ -41,6 +41,23 @@ namespace nkentseu {
 				uint16 modifierOff = NK_ROLE_INVALID; ///< le meme, desactive
 				uint16 animatable = NK_ROLE_INVALID;  ///< parametre marque pour animation
 
+				// ── FICHIERS PROCEDURAUX (demande de Rihen, 8 aout 2026) ────
+				// Un fichier procedural ne decrit pas un resultat mais la RECETTE
+				// qui le produit. C'est une nature a part entiere, et elle doit se
+				// voir : les quatre graphes portaient jusqu'ici la couleur du
+				// maillage, donc se confondaient avec un Model -- qui est
+				// exactement ce qu'ils NE sont pas.
+				//
+				// UNE SEULE FAMILLE, le VIOLET, quatre nuances dedans : la famille
+				// dit « c'est procedural » d'un coup d'oeil, la nuance dit lequel.
+				// Le violet est le seul creneau libre du produit -- cyan, vert,
+				// rose, rouge, bleu et ambre sont deja pris par maillage, materiau,
+				// texture, model, scene et dossier.
+				uint16 procMesh = NK_ROLE_INVALID;	 ///< graphe de modelisation
+				uint16 procTex = NK_ROLE_INVALID;	 ///< graphe de texturing
+				uint16 procMat = NK_ROLE_INVALID;	 ///< graphe de materiau
+				uint16 procMotion = NK_ROLE_INVALID; ///< graphe de motion
+
 				// Idempotent : appelable plusieurs fois sans consequence.
 				void Register() {
 					brushRing = NkRoleRegistry::Register("nk3d.anneau_brosse");
@@ -49,6 +66,10 @@ namespace nkentseu {
 					modifierOn = NkRoleRegistry::Register("nk3d.modificateur_actif");
 					modifierOff = NkRoleRegistry::Register("nk3d.modificateur_inactif");
 					animatable = NkRoleRegistry::Register("nk3d.parametre_animable");
+					procMesh = NkRoleRegistry::Register("nk3d.procedural_modelisation");
+					procTex = NkRoleRegistry::Register("nk3d.procedural_texturing");
+					procMat = NkRoleRegistry::Register("nk3d.procedural_materiau");
+					procMotion = NkRoleRegistry::Register("nk3d.procedural_motion");
 				}
 
 				// Valeurs par defaut, a poser sur CHAQUE theme charge. Sans elles, un
@@ -68,6 +89,13 @@ namespace nkentseu {
 					// L'animable reprend la couleur du type « animation » du navigateur
 					// de projet : c'est la meme notion vue a deux endroits.
 					t.Set(animatable, t.Get(NkRole::TypeAnim));
+					// LE VIOLET DES PROCEDURAUX. En clair il faut descendre en
+					// luminosite, sinon la nuance disparait sur un fond blanc --
+					// meme regle que pour les axes.
+					t.Set(procMesh, NkTheme::FromHex(dark ? "#A371F7" : "#7B3FD4"));
+					t.Set(procTex, NkTheme::FromHex(dark ? "#8957E5" : "#5B34A8"));
+					t.Set(procMat, NkTheme::FromHex(dark ? "#6E5BE8" : "#4535A8"));
+					t.Set(procMotion, NkTheme::FromHex(dark ? "#C48AFF" : "#8E4FD0"));
 				}
 		};
 

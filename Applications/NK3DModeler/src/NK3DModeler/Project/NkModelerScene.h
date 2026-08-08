@@ -45,8 +45,15 @@
 //     dimensions de surface, ombre, temperature, exposition, cookie ;
 //   * cameras : champ, plans de clipping, ortho, capteur, unite de focale,
 //     guides, passe-partout ;
-//   * scenes/onglets : noms, document, scene active, scene vierge, unites ;
-//   * vue (pose de camera) de chaque scene.
+//   * DOCUMENTS du projet -- TOUTES les scenes, ouvertes ou non : nom, scene
+//     hote, scene vierge, unites, et la vue (pose de camera) de chacune ;
+//   * NAVIGATEUR de projet : cartes et dossiers, leur nom, leur nature, leur
+//     rangement, et le lien carte <-> scene qui permet de rouvrir ;
+//   * VUES ouvertes (les onglets) et celle qui etait active.
+//
+// UN ONGLET N'EST PAS UNE SCENE. Ce fichier ecrit les DOCUMENTS ; les onglets
+// ne sont qu'une disposition. C'est ce qui fait que fermer un onglet ne
+// supprime plus rien : la scene reste dans le fichier et dans le navigateur.
 //
 // ── CE QUI N'EST PAS ENCORE SAUVEGARDE ───────────────────────────────────────
 //   Dit ici ET a l'ecran d'accueil, parce qu'un silence ferait perdre du
@@ -57,8 +64,10 @@
 //   * les objets de la SCENE DE DEMONSTRATION (noeuds 0..95) : ils
 //     reapparaissent tels qu'a l'ouverture, seul leur masquage par scene
 //     vierge est conserve ;
-//   * le NAVIGATEUR DE PROJET (dossiers et cartes) et les onglets d'EDITEUR
-//     d'asset, qui en dependent ;
+//   * le CONTENU des cartes du navigateur autres que les scenes : un
+//     materiau, une texture, un graphe reviennent avec leur nom et leur
+//     place, pas encore avec ce qu'ils portent ;
+//   * les onglets d'EDITEUR d'asset (leur maquette est transitoire) ;
 //   * l'ENVIRONNEMENT de rendu (ciel, brouillard, sol infini, ambiance,
 //     ombres) et les reglages de SORTIE ;
 //   * les listes du panneau Modele (groupes de vertex, shape keys, UV...) ;
@@ -87,7 +96,13 @@ namespace nkentseu {
 		// Version du format de la SECTION SCENE, distincte de celle du fichier
 		// projet : la scene evoluera bien plus vite que l'entete du .nk3dm, et
 		// les lier obligerait a invalider l'un pour l'autre.
-		static const int32 kSceneFormatVersion = 1;
+		//
+		// 1 -> 2 : les scenes ne sont plus les ONGLETS mais les DOCUMENTS du
+		// projet (`documents`), le NAVIGATEUR est ecrit (`navigateur`), et les
+		// onglets ouverts deviennent une simple liste de VUES (`vues`). Un
+		// fichier de format 1 reste lisible : son tableau `scenes` est relu
+		// comme la liste des documents, un onglet par document.
+		static const int32 kSceneFormatVersion = 2;
 
 		// ── OUTILS DE CHEMIN ────────────────────────────────────────────────
 		// Tout est ramene a '/' des l'entree : Windows accepte les deux, mais un
@@ -209,60 +224,105 @@ namespace nkentseu {
 		// ─────────────────────────────────────────────────────────────────────
 		// CAPTURE : la scene vivante -> l'archive
 		// ─────────────────────────────────────────────────────────────────────
+		/// Vrai si cette scene hote est celle d'un EDITEUR D'ASSET ouvert. TOUT ce
+		/// qui y vit -- le model ET ses maillages -- appartient a l'asset, donc
+		/// s'ecrit comme une ARCHIVE, jamais comme le contenu d'une scene.
+		///
+		/// Le test porte sur la SCENE HOTE et non sur le seul noeud racine : les
+		/// maillages du model y vivent aussi, et ne tester que la racine les
+		/// faisait ecrire dans la premiere scene. Ils y reapparaissaient ensuite,
+		/// VISIBLES EN VUE 3D et ABSENTS DE LA HIERARCHIE -- celle-ci cache les
+		/// maillages internes hors d'un editeur de model. C'est mot pour mot le
+		/// symptome des captures de Rihen du 8 aout.
+		inline bool NkScIsAssetScene(const NkModelerState &st, int32 hostScene) {
+			for (int32 d = 0; d < NkModelerState::kMaxDocs; ++d)
+				if (st.docUsed[d] && st.docAssetEdit[d] &&
+					(int32)st.docScene[d] == hostScene)
+					return true;
+			return false;
+		}
+
+		/// Scene HOTE a ecrire pour un noeud, ou -1 s'il ne doit PAS etre ecrit.
+		///
+		/// Trois sortes de documents transitoires, trois statuts :
+		///  * ISOLATION -- le noeud est un VRAI noeud de scene, seulement deplace
+		///    le temps de la vue. On ecrit sa scene D'ORIGINE ; ecrire le document
+		///    d'isolation le rattacherait a une scene inexistante.
+		///  * EDITEUR D'ASSET -- deja traite par NkScIsAssetScene : c'est une
+		///    archive, pas un contenu de scene. On renvoie -1, et surtout PAS
+		///    `docIsoHome` : il vaut 0 pour un editeur d'asset (seule l'isolation
+		///    le pose), donc le model se deversait dans la premiere scene.
+		///  * MAQUETTE d'un autre editeur -- rien a ecrire, elle sera detruite.
+		inline int32 NkScWriteScene(const NkModelerState &st, int32 hostScene) {
+			for (int32 d = 0; d < NkModelerState::kMaxDocs; ++d) {
+				if (!st.docUsed[d] || !st.docTransient[d] ||
+					(int32)st.docScene[d] != hostScene)
+					continue;
+				const bool iso = st.docIsoNode[d] > 0 && !st.docAssetEdit[d];
+				return iso ? (int32)st.docIsoHome[d] : -1;
+			}
+			return hostScene;
+		}
+
 		inline void NkSceneCapture(NkArchive &out, const NkString &root, NkModelerState &st) {
 			out.SetInt32("format", kSceneFormatVersion);
 
-			// L'ONGLET COURANT n'a pas encore range sa vue ni ses unites : elles
-			// ne le sont qu'a la BASCULE d'onglet (NkActivateTab). Sans ce
-			// rangement, enregistrer sans changer d'onglet perdrait justement la
-			// vue sur laquelle on vient de travailler.
-			if (st.activeTab >= 0 && st.activeTab < 8) {
-				if (st.sceneTabKind[st.activeTab] == 0)
-					NkStoreSceneCam(st, st.activeTab);
-				st.unitSystemTab[st.activeTab] = st.unitSystem;
-				st.unitLengthTab[st.activeTab] = st.unitLength;
-				st.unitScaleTab[st.activeTab] = st.unitScale;
+			// L'ONGLET COURANT n'a pas encore range sa vue ni ses unites dans son
+			// document : elles ne le sont qu'a la BASCULE d'onglet
+			// (NkActivateTab). Sans ce rangement, enregistrer sans changer
+			// d'onglet perdrait justement la vue sur laquelle on vient de
+			// travailler.
+			{
+				const int32 dA = st.TabDoc(st.activeTab);
+				if (dA >= 0) {
+					if (st.sceneTabKind[st.activeTab] == 0)
+						NkStoreSceneCam(st, st.activeTab);
+					st.docUnitSys[dA] = st.unitSystem;
+					st.docUnitLen[dA] = st.unitLength;
+					st.docUnitScale[dA] = st.unitScale;
+				}
 			}
 
-			// ── SCENES (onglets) ────────────────────────────────────────────
-			// Les onglets d'EDITEUR d'asset sont ecartes : leur contenu est une
-			// maquette tiree du navigateur de projet, qui n'est pas encore
-			// sauvegarde. Les restituer sans lui donnerait des onglets vides
-			// portant le nom d'un asset introuvable.
-			NkVector<NkArchive> scenes;
-			int32 activeRank = 0;
-			for (int32 t = 0; t < st.sceneCount && t < 8; ++t) {
-				if (st.sceneTabKind[t] != 0)
+			// ── DOCUMENTS DU PROJET ─────────────────────────────────────────
+			// On ecrit les DOCUMENTS, pas les onglets. C'est le correctif central :
+			// n'ecrire que les onglets ouverts effacait du fichier toute scene
+			// fermee, en y laissant ses noeuds orphelins.
+			// Les documents TRANSITOIRES (maquette d'editeur, isolation) sont
+			// ecartes : ils n'existent que le temps d'une vue.
+			NkVector<int32> docRank; // indice de document -> rang dans le fichier
+			for (int32 d = 0; d < NkModelerState::kMaxDocs; ++d)
+				docRank.PushBack(-1);
+			NkVector<NkArchive> docs;
+			for (int32 d = 0; d < NkModelerState::kMaxDocs; ++d) {
+				if (!st.docUsed[d] || st.docTransient[d])
 					continue;
-				if (t == st.activeTab)
-					activeRank = (int32)scenes.Size();
+				docRank[(usize)d] = (int32)docs.Size();
 				NkArchive s;
-				s.SetString("nom", st.sceneNames[t]);
-				// DOCUMENT : c'est lui qui relie une scene a ses noeuds. Il est
-				// conserve tel quel plutot que renumerote -- les noeuds portent
-				// le meme numero, et les renumeroter des deux cotes n'apporterait
-				// qu'une occasion de se tromper.
-				s.SetInt32("document", (int32)st.sceneTabId[t]);
-				s.SetBool("vierge", st.sceneBlank[t]);
-				s.SetInt32("uniteSysteme", st.unitSystemTab[t]);
-				s.SetInt32("uniteLongueur", st.unitLengthTab[t]);
+				s.SetString("nom", st.docName[d]);
+				// SCENE HOTE : c'est elle qui relie un document a ses noeuds. Elle
+				// est conservee telle quelle plutot que renumerotee -- les noeuds
+				// portent le meme numero, et les renumeroter des deux cotes
+				// n'apporterait qu'une occasion de se tromper.
+				s.SetInt32("scene", (int32)st.docScene[d]);
+				s.SetBool("vierge", st.docBlank[d]);
+				s.SetInt32("uniteSysteme", st.docUnitSys[d]);
+				s.SetInt32("uniteLongueur", st.docUnitLen[d]);
 				s.SetFloat32("uniteEchelle",
-							 st.unitScaleTab[t] > 0.001f ? st.unitScaleTab[t] : 1.f);
+							 st.docUnitScale[d] > 0.001f ? st.docUnitScale[d] : 1.f);
 				// LA VUE DE LA SCENE : rouvrir un projet doit reposer le regard
 				// la ou on l'avait laisse.
 				NkArchive cam;
-				const float32 *cp = st.sceneCamPose[t];
-				cam.SetBool("posee", st.sceneCamSet[t]);
+				const float32 *cp = st.docCamPose[d];
+				cam.SetBool("posee", st.docCamSet[d]);
 				NkScSetVec3(cam, "cible", cp);
 				cam.SetFloat32("distance", cp[3]);
 				cam.SetFloat32("lacet", cp[4]);
 				cam.SetFloat32("tangage", cp[5]);
-				cam.SetBool("ortho", st.sceneCamOrtho[t]);
+				cam.SetBool("ortho", st.docCamOrtho[d]);
 				s.SetObject("vue", cam);
-				scenes.PushBack(s);
+				docs.PushBack(s);
 			}
-			out.SetObjectArray("scenes", scenes);
-			out.SetInt32("sceneActive", activeRank);
+			out.SetObjectArray("documents", docs);
 
 			// ── MATERIAUX DU PROJET ─────────────────────────────────────────
 			const int32 matMax = demo::Demo3DHostProjMatMax();
@@ -316,7 +376,20 @@ namespace nkentseu {
 				rankOf.PushBack(-1);
 			NkVector<int32> live;
 			for (int32 n = 0; n < nodeMax; ++n) {
-				if (demo::Demo3DHostUserKind(n) == 0 || demo::Demo3DHostNodeDeleted(n))
+				if (demo::Demo3DHostUserKind(n) == 0)
+					continue; // emplacement jamais servi, ou recycle : un trou
+				// LES ARCHIVES SONT ECRITES. Elles sont invisibles et hors
+				// hierarchie, mais ce sont elles qui PORTENT la geometrie des
+				// assets « Model » du navigateur : les ecarter rendait la carte
+				// avec son nom et sans son contenu.
+				const bool arch = demo::Demo3DHostNodeArchived(n) ||
+								  NkScIsAssetScene(st, demo::Demo3DHostNodeScene(n));
+				if (demo::Demo3DHostNodeDeleted(n) && !arch)
+					continue;
+				// MAQUETTE d'un editeur d'asset : elle n'appartient a aucune scene
+				// et sera detruite en quittant l'onglet. L'ecrire la faisait entrer
+				// dans la premiere scene a la relecture (defaut constate par Rihen).
+				if (!arch && NkScWriteScene(st, demo::Demo3DHostNodeScene(n)) < 0)
 					continue;
 				rankOf[(usize)n] = (int32)live.Size();
 				live.PushBack(n);
@@ -331,7 +404,14 @@ namespace nkentseu {
 				nd.SetInt32("nature", kind);
 				nd.SetInt32("sousType", sub);
 				nd.SetString("nom", (n < 176) ? st.customNames[n] : "");
-				nd.SetInt32("document", demo::Demo3DHostNodeScene(n));
+				// UNE ARCHIVE N'EST DANS AUCUNE SCENE : c'est un asset du
+				// navigateur, pas un objet pose quelque part. Lui donner un
+				// document la ferait apparaitre dans cette scene a la relecture.
+				const bool isArch = demo::Demo3DHostNodeArchived(n) ||
+									NkScIsAssetScene(st, demo::Demo3DHostNodeScene(n));
+				nd.SetBool("archive", isArch);
+				nd.SetInt32("document",
+							isArch ? -1 : NkScWriteScene(st, demo::Demo3DHostNodeScene(n)));
 				// PARENTE : par RANG DANS LE FICHIER. Un parent qui n'est pas un
 				// noeud utilisateur (un objet de la scene de demonstration) garde
 				// son numero brut -- ceux-la sont fixes, ils ne se recyclent pas.
@@ -426,6 +506,71 @@ namespace nkentseu {
 				nodes.PushBack(nd);
 			}
 			out.SetObjectArray("noeuds", nodes);
+
+			// ── NAVIGATEUR DE PROJET ────────────────────────────────────────
+			// Il naissait VIDE a chaque lancement : ses dossiers, ses cartes et
+			// leur rangement etaient perdus a la fermeture. Les liens (dossier
+			// parent, document d'une carte de scene, noeud source d'un mesh) sont
+			// ecrits par RANG DANS LE FICHIER, jamais par indice de session --
+			// meme regle que la parente des noeuds, et pour la meme raison : les
+			// emplacements se recyclent.
+			//
+			// CE QUI N'Y EST PAS ENCORE : le CONTENU des cartes de materiau, de
+			// texture et de graphe. La carte revient avec son nom et sa place,
+			// pas encore avec ce qu'elle porte -- c'est le chantier « persister
+			// tous les types de fichiers », par type et dans les deux modes.
+			NkVector<int32> browRank; // indice de carte -> rang dans le fichier
+			for (int32 b = 0; b < st.browserCount; ++b)
+				browRank.PushBack(-1);
+			{
+				int32 next = 0;
+				for (int32 b = 0; b < st.browserCount; ++b)
+					if (st.browserKind[b] != 255)
+						browRank[(usize)b] = next++;
+			}
+			NkVector<NkArchive> brow;
+			for (int32 b = 0; b < st.browserCount; ++b) {
+				if (st.browserKind[b] == 255)
+					continue; // carte supprimee : un trou, pas une carte
+				NkArchive c;
+				c.SetInt32("nature", (int32)st.browserKind[b]);
+				c.SetString("nom", st.browserNames[b]);
+				const int32 pp = st.browserParent[b];
+				c.SetInt32("parent",
+						   (pp >= 0 && pp < st.browserCount) ? browRank[(usize)pp] : -1);
+				c.SetInt32("sousType", (int32)st.browserSub[b]);
+				const int32 dc = st.browserDoc[b] - 1;
+				c.SetInt32("document",
+						   (dc >= 0 && dc < NkModelerState::kMaxDocs) ? docRank[(usize)dc] : -1);
+				const int32 sn = st.browserSrcNode[b] - 1;
+				c.SetInt32("noeudSource",
+						   (sn >= 0 && sn < nodeMax) ? rankOf[(usize)sn] : -1);
+				brow.PushBack(c);
+			}
+			out.SetObjectArray("navigateur", brow);
+
+			// ── VUES OUVERTES (les onglets) ─────────────────────────────────
+			// Ce ne sont plus les scenes, seulement la DISPOSITION dans laquelle
+			// on a laisse l'application. Un onglet dont le document est
+			// transitoire n'est pas ecrit : sa maquette n'existera plus.
+			NkVector<NkArchive> views;
+			int32 activeRank = 0;
+			for (int32 t = 0; t < st.sceneCount && t < 8; ++t) {
+				const int32 d = st.TabDoc(t);
+				if (d < 0 || st.docTransient[d] || docRank[(usize)d] < 0)
+					continue;
+				if (t == st.activeTab)
+					activeRank = (int32)views.Size();
+				NkArchive v;
+				v.SetInt32("document", docRank[(usize)d]);
+				v.SetInt32("nature", (int32)st.sceneTabKind[t]);
+				const int32 ai = st.sceneTabAsset[t] - 1;
+				v.SetInt32("asset",
+						   (ai >= 0 && ai < st.browserCount) ? browRank[(usize)ai] : -1);
+				views.PushBack(v);
+			}
+			out.SetObjectArray("vues", views);
+			out.SetInt32("vueActive", activeRank);
 		}
 
 		// ─────────────────────────────────────────────────────────────────────
@@ -494,6 +639,23 @@ namespace nkentseu {
 			for (int32 n = 96; n < nodeMax && n < 176; ++n)
 				st.customNames[n][0] = 0;
 			demo::Demo3DHostProjMatClear();
+			// LE NAVIGATEUR ET LES DOCUMENTS SONT VIDES AUSSI : ouvrir un projet
+			// par-dessus un autre laissait sinon les cartes du precedent, qui
+			// pointaient sur des scenes qui n'existaient plus.
+			st.browserCount = 0;
+			st.browserFolder = -1;
+			st.browClip = -1;
+			st.browMenuIdx = -1;
+			for (int32 b = 0; b < NkModelerState::kMaxBrowser; ++b) {
+				st.browserKind[b] = 255;
+				st.browserNames[b][0] = 0;
+				st.browserParent[b] = -1;
+				st.browserSub[b] = 0;
+				st.browserSrcNode[b] = 0;
+				st.browserDoc[b] = 0;
+			}
+			for (int32 d = 0; d < NkModelerState::kMaxDocs; ++d)
+				st.DocFree(d);
 
 			int32 texMiss = 0, nodeMiss = 0;
 
@@ -546,7 +708,8 @@ namespace nkentseu {
 			// ── NOEUDS ──────────────────────────────────────────────────────
 			NkVector<NkArchive> nodes;
 			(void)in.GetObjectArray("noeuds", nodes);
-			NkVector<int32> nodeOf; // rang fichier -> noeud reel
+			NkVector<int32> nodeOf;	   // rang fichier -> noeud reel
+			NkVector<int32> nodeHosts; // scenes hotes reellement peuplees
 			const int32 sceneBefore = demo::Demo3DHostActiveScene();
 			for (usize i = 0; i < nodes.Size(); ++i) {
 				const NkArchive &nd = nodes[i];
@@ -559,7 +722,27 @@ namespace nkentseu {
 				}
 				// IL NAIT DANS SON DOCUMENT : un noeud appartient a UNE scene, et
 				// le creer dans la mauvaise le rendrait invisible dans la sienne.
-				demo::Demo3DHostSetActiveScene(NkScInt(nd, "document", 0));
+				// UNE ARCHIVE n'appartient a aucune scene : elle nait n'importe ou
+				// (elle sera retiree de la vue juste apres) et ne compte pas dans
+				// le releve des scenes peuplees -- sinon elle en ferait naitre une.
+				const bool isArch = NkScBool(nd, "archive", false);
+				const int32 hostOf = isArch ? 0 : NkScInt(nd, "document", 0);
+				if (!isArch) {
+					// On RETIENT les scenes hotes reellement peuplees : un fichier
+					// ecrit avant ce correctif contient des noeuds dont la scene a
+					// ete effacee a la fermeture de son onglet. Sans ce releve, ils
+					// resteraient invisibles pour toujours (cf. le fichier de Rihen,
+					// « document: 1 » sans scene de rang 1).
+					bool known = false;
+					for (usize h = 0; h < nodeHosts.Size(); ++h)
+						if (nodeHosts[h] == hostOf) {
+							known = true;
+							break;
+						}
+					if (!known && hostOf >= 0)
+						nodeHosts.PushBack(hostOf);
+				}
+				demo::Demo3DHostSetActiveScene(hostOf < 0 ? 0 : hostOf);
 				const int32 n = demo::Demo3DHostAddNode(kind, sub);
 				nodeOf.PushBack(n);
 				if (n < 0) {
@@ -641,74 +824,249 @@ namespace nkentseu {
 					demo::Demo3DHostProjMatAssign(n, matSlot[(usize)mr]);
 			}
 
-			// ── SCENES (onglets) ────────────────────────────────────────────
-			NkVector<NkArchive> scenes;
-			(void)in.GetObjectArray("scenes", scenes);
-			if (!scenes.Empty()) {
-				int32 cnt = 0, maxId = 0;
-				for (usize t = 0; t < scenes.Size() && cnt < 8; ++t) {
-					const NkArchive &s = scenes[t];
-					NkString nm = NkScStr(s, "nom");
-					if (nm.Empty())
-						nm = "Scene";
-					NkScPut(st.sceneNames[cnt], (uint32)sizeof(st.sceneNames[0]), nm.CStr());
-					const int32 id = NkScInt(s, "document", 0);
-					st.sceneTabId[cnt] = (uint8)(id & 0xFF);
-					if (id > maxId)
-						maxId = id;
-					// Onglets de SCENE uniquement : les editeurs d'asset ne sont
-					// pas ecrits, l'onglet restaure ne peut donc en etre un.
+			// ── MAILLAGES ORPHELINS : REPARATION ────────────────────────────
+			// Un fichier ecrit avant le correctif du 8 aout contient des maillages
+			// internes deverses dans une scene sans leur model. Ils y sont
+			// INATTEIGNABLES : la hierarchie cache les maillages internes hors d'un
+			// editeur de model, alors que la vue 3D les dessine -- « ca apparait
+			// dans la vue 3D mais pas dans la hierarchie » (Rihen).
+			//
+			// On ne les SUPPRIME PAS : rien ne doit disparaitre sans un mot. On
+			// leur retire leur qualite de maillage interne, ce qui les fait
+			// reapparaitre dans la hierarchie comme des objets ordinaires --
+			// l'utilisateur les voit, les deplace ou les efface en connaissance.
+			int32 orphanMesh = 0;
+			for (usize i = 0; i < nodes.Size(); ++i) {
+				if (i >= nodeOf.Size() || nodeOf[i] < 0)
+					continue;
+				const int32 n = nodeOf[i];
+				if (NkScBool(nodes[i], "archive", false) || !demo::Demo3DHostNodeIsMesh(n))
+					continue;
+				bool owned = false;
+				int32 cur = demo::Demo3DHostNodeParent(n);
+				for (int32 g = 0; g < 256 && cur >= 0 && !owned; ++g) {
+					owned = demo::Demo3DHostNodeIsModel(cur);
+					cur = demo::Demo3DHostNodeParent(cur);
+				}
+				if (!owned) {
+					demo::Demo3DHostSetNodeIsMesh(n, false);
+					++orphanMesh;
+				}
+			}
+
+			// ── LES ARCHIVES SORTENT DE LA VUE EN TOUT DERNIER ──────────────
+			// Elles ont ete construites comme des noeuds ordinaires pour recevoir
+			// leur geometrie, leur materiau, leurs reglages -- et surtout leur
+			// PARENTE : c'est elle qui tient un model et ses maillages ensemble.
+			// Les retirer plus tot ferait travailler la passe de parente sur un
+			// noeud absent, et le model reviendrait en morceaux.
+			for (usize i = 0; i < nodes.Size(); ++i) {
+				if (i >= nodeOf.Size() || nodeOf[i] < 0)
+					continue;
+				if (NkScBool(nodes[i], "archive", false))
+					demo::Demo3DHostSetNodeArchived(nodeOf[i], true);
+			}
+
+			// ── DOCUMENTS DU PROJET ─────────────────────────────────────────
+			// `documents` (format 2) ou, a defaut, `scenes` (format 1) : la liste
+			// des scenes y avait le meme contenu, sous le nom des onglets qu'elle
+			// confondait avec elles. Le champ de la scene hote a change de nom
+			// (`document` -> `scene`) : on relit les deux.
+			NkVector<NkArchive> docs;
+			bool oldLayout = false;
+			if (!in.GetObjectArray("documents", docs) || docs.Empty()) {
+				docs.Clear();
+				(void)in.GetObjectArray("scenes", docs);
+				oldLayout = true;
+			}
+			NkVector<int32> docOf; // rang fichier -> indice de document
+			int32 maxHost = 0;
+			for (usize t = 0; t < docs.Size(); ++t) {
+				const NkArchive &s = docs[t];
+				const int32 d = st.DocAlloc();
+				docOf.PushBack(d);
+				if (d < 0)
+					continue; // table pleine : le document manque, et on le dira
+				NkString nm = NkScStr(s, "nom");
+				if (nm.Empty())
+					nm = "Scene";
+				NkScPut(st.docName[d], (uint32)sizeof(st.docName[0]), nm.CStr());
+				const int32 host = NkScInt(s, "scene", NkScInt(s, "document", 0));
+				st.docScene[d] = (uint8)(host & 0xFF);
+				if (host > maxHost)
+					maxHost = host;
+				st.docBlank[d] = NkScBool(s, "vierge", false);
+				st.docUnitSys[d] = NkScInt(s, "uniteSysteme", 0);
+				st.docUnitLen[d] = NkScInt(s, "uniteLongueur", 0);
+				st.docUnitScale[d] = NkScFloat(s, "uniteEchelle", 1.f);
+				NkArchive cam;
+				st.docCamSet[d] = false;
+				if (s.GetObject("vue", cam)) {
+					float32 *cp = st.docCamPose[d];
+					NkScGetVec3(cam, "cible", cp, 0.f, 0.f, 0.f);
+					cp[3] = NkScFloat(cam, "distance", 6.5f);
+					cp[4] = NkScFloat(cam, "lacet", 0.7f);
+					cp[5] = NkScFloat(cam, "tangage", 0.35f);
+					st.docCamOrtho[d] = NkScBool(cam, "ortho", false);
+					st.docCamSet[d] = NkScBool(cam, "posee", false);
+				}
+			}
+			// ── SCENES ORPHELINES : RECUPERATION ────────────────────────────
+			// Un fichier ecrit avant ce correctif porte des noeuds dont la scene
+			// a disparu du fichier quand son onglet a ete ferme. Leur donner une
+			// scene les rend enfin visibles et modifiables, au lieu de les
+			// laisser inaccessibles dans un fichier qui les contient pourtant.
+			// Le nom dit d'ou elle vient : c'est une reparation, pas un choix de
+			// l'utilisateur, et il doit pouvoir la renommer en connaissance.
+			int32 rescued = 0;
+			for (usize h = 0; h < nodeHosts.Size(); ++h) {
+				bool covered = false;
+				for (int32 d = 0; d < NkModelerState::kMaxDocs && !covered; ++d)
+					if (st.docUsed[d] && (int32)st.docScene[d] == nodeHosts[h])
+						covered = true;
+				if (covered)
+					continue;
+				const int32 d = st.DocAlloc();
+				if (d < 0)
+					break;
+				snprintf(msg, sizeof(msg), "Scene recuperee %d", (int)(rescued + 1));
+				NkScPut(st.docName[d], (uint32)sizeof(st.docName[0]), msg);
+				st.docScene[d] = (uint8)(nodeHosts[h] & 0xFF);
+				docOf.PushBack(d);
+				if (nodeHosts[h] > maxHost)
+					maxHost = nodeHosts[h];
+				++rescued;
+			}
+
+			// UN PROJET A TOUJOURS AU MOINS UNE SCENE : un fichier ancien ou vide
+			// laisserait sinon l'application sans document, donc sans rien a
+			// montrer ni a enregistrer.
+			if (docOf.Empty()) {
+				const int32 d = st.DocAlloc();
+				if (d >= 0) {
+					NkScPut(st.docName[d], (uint32)sizeof(st.docName[0]), "Scene");
+					st.docScene[d] = 0;
+					docOf.PushBack(d);
+				}
+			}
+			// Le prochain numero de scene hote doit passer APRES tous ceux du
+			// fichier : le reprendre a 1 ferait naitre une nouvelle scene dans une
+			// scene hote deja peuplee.
+			st.sceneIdNext = maxHost + 1;
+
+			// ── NAVIGATEUR DE PROJET ────────────────────────────────────────
+			NkVector<NkArchive> brow;
+			(void)in.GetObjectArray("navigateur", brow);
+			NkVector<int32> browOf; // rang fichier -> indice de carte
+			for (usize b = 0; b < brow.Size(); ++b) {
+				if (st.browserCount >= NkModelerState::kMaxBrowser) {
+					browOf.PushBack(-1);
+					continue;
+				}
+				const int32 c = st.browserCount++;
+				browOf.PushBack(c);
+				const NkArchive &e = brow[b];
+				st.browserKind[c] = (uint8)(NkScInt(e, "nature", 1) & 0xFF);
+				NkScPut(st.browserNames[c], (uint32)sizeof(st.browserNames[0]),
+						NkScStr(e, "nom").CStr());
+				st.browserSub[c] = (uint8)(NkScInt(e, "sousType", 0) & 0xFF);
+				st.browserParent[c] = -1; // resolu en seconde passe
+				st.browserDoc[c] = 0;
+				st.browserSrcNode[c] = 0;
+			}
+			// SECONDE PASSE : parent, document et noeud source. Un parent peut
+			// etre ecrit APRES son enfant -- le resoudre au vol echouerait une
+			// fois sur deux, meme lecon que la parente des noeuds.
+			for (usize b = 0; b < brow.Size(); ++b) {
+				if (b >= browOf.Size() || browOf[b] < 0)
+					continue;
+				const int32 c = browOf[b];
+				const NkArchive &e = brow[b];
+				const int32 pr = NkScInt(e, "parent", -1);
+				if (pr >= 0 && (usize)pr < browOf.Size() && browOf[(usize)pr] >= 0)
+					st.browserParent[c] = browOf[(usize)pr];
+				const int32 dr = NkScInt(e, "document", -1);
+				if (dr >= 0 && (usize)dr < docOf.Size() && docOf[(usize)dr] >= 0) {
+					const int32 d = docOf[(usize)dr];
+					st.browserDoc[c] = d + 1;
+					st.docCard[d] = c + 1;
+				}
+				const int32 sr = NkScInt(e, "noeudSource", -1);
+				if (sr >= 0 && (usize)sr < nodeOf.Size() && nodeOf[(usize)sr] >= 0)
+					st.browserSrcNode[c] = nodeOf[(usize)sr] + 1;
+			}
+			// Toute scene sans carte en recoit une : c'est la seule facon de la
+			// rouvrir apres avoir ferme son onglet.
+			NkBrowserSyncScenes(st);
+
+			// ── VUES OUVERTES (les onglets) ─────────────────────────────────
+			NkVector<NkArchive> views;
+			(void)in.GetObjectArray("vues", views);
+			int32 cnt = 0;
+			for (usize v = 0; v < views.Size() && cnt < 8; ++v) {
+				const int32 dr = NkScInt(views[v], "document", -1);
+				if (dr < 0 || (usize)dr >= docOf.Size() || docOf[(usize)dr] < 0)
+					continue;
+				st.sceneTabDoc[cnt] = docOf[(usize)dr];
+				// Onglets de SCENE uniquement : les vues d'EDITEUR d'asset portent
+				// une maquette transitoire, qui n'existe plus a la relecture.
+				st.sceneTabKind[cnt] = 0;
+				st.sceneTabAsset[cnt] = 0;
+				++cnt;
+			}
+			// Format 1, ou aucune vue exploitable : un onglet par document, dans
+			// l'ordre du fichier -- c'est exactement ce que l'ancien format
+			// decrivait.
+			if (cnt == 0) {
+				for (usize k = 0; k < docOf.Size() && cnt < 8; ++k) {
+					if (docOf[k] < 0)
+						continue;
+					st.sceneTabDoc[cnt] = docOf[k];
 					st.sceneTabKind[cnt] = 0;
 					st.sceneTabAsset[cnt] = 0;
-					st.sceneTabIsoNode[cnt] = 0;
-					st.sceneTabIsoHome[cnt] = 0;
-					st.sceneBlank[cnt] = NkScBool(s, "vierge", false);
-					st.unitSystemTab[cnt] = NkScInt(s, "uniteSysteme", 0);
-					st.unitLengthTab[cnt] = NkScInt(s, "uniteLongueur", 0);
-					st.unitScaleTab[cnt] = NkScFloat(s, "uniteEchelle", 1.f);
-					NkArchive cam;
-					st.sceneCamSet[cnt] = false;
-					if (s.GetObject("vue", cam)) {
-						float32 *cp = st.sceneCamPose[cnt];
-						NkScGetVec3(cam, "cible", cp, 0.f, 0.f, 0.f);
-						cp[3] = NkScFloat(cam, "distance", 6.5f);
-						cp[4] = NkScFloat(cam, "lacet", 0.7f);
-						cp[5] = NkScFloat(cam, "tangage", 0.35f);
-						st.sceneCamOrtho[cnt] = NkScBool(cam, "ortho", false);
-						st.sceneCamSet[cnt] = NkScBool(cam, "posee", false);
-					}
 					++cnt;
 				}
-				st.sceneCount = cnt > 0 ? cnt : 1;
-				// Le prochain numero de document doit passer APRES tous ceux du
-				// fichier : le reprendre a 1 ferait naitre une nouvelle scene dans
-				// un document deja peuple.
-				st.sceneIdNext = maxId + 1;
-				int32 at = NkScInt(in, "sceneActive", 0);
-				if (at < 0 || at >= st.sceneCount)
-					at = 0;
-				// Les unites de l'onglet actif sont posees AVANT la bascule :
-				// NkActivateTab commence par ranger celles de l'onglet quitte --
-				// le meme ici -- et ecraserait sinon ce qu'on vient de restaurer.
-				st.activeTab = at;
-				st.unitSystem = st.unitSystemTab[at];
-				st.unitLength = st.unitLengthTab[at];
-				st.unitScale = st.unitScaleTab[at] > 0.001f ? st.unitScaleTab[at] : 1.f;
-				NkActivateTab(st, at, true); // document, vue et unites, par le chemin habituel
 			}
+			for (int32 t = cnt; t < 8; ++t)
+				st.sceneTabDoc[t] = -1;
+			st.sceneCount = cnt > 0 ? cnt : 1;
+			int32 at = NkScInt(in, oldLayout ? "sceneActive" : "vueActive", 0);
+			if (at < 0 || at >= st.sceneCount)
+				at = 0;
+			// Les unites de l'onglet actif sont posees AVANT la bascule :
+			// NkActivateTab commence par ranger celles de l'onglet quitte -- le
+			// meme ici -- et ecraserait sinon ce qu'on vient de restaurer.
+			st.activeTab = at;
+			{
+				const int32 dA = st.TabDoc(at);
+				if (dA >= 0) {
+					st.unitSystem = st.docUnitSys[dA];
+					st.unitLength = st.docUnitLen[dA];
+					st.unitScale = st.docUnitScale[dA] > 0.001f ? st.docUnitScale[dA] : 1.f;
+				}
+			}
+			NkActivateTab(st, at, true); // scene hote, vue et unites, par le chemin habituel
 
 			// LE DETECTEUR DE HIERARCHIE reprend son cliche ICI : sans cela, la
 			// premiere frame verrait chaque parent « avoir bouge » depuis la
 			// scene precedente et trainerait ses enfants, deja poses.
 			demo::Demo3DHostHierarchyResync();
+			// L'AMBIANCE aussi : les objets recrees sont des occludeurs du GI
+			// voxel -- sans invalidation, la grille resterait celle de la scene
+			// PRECEDENTE jusqu'au premier geste.
+			demo::Demo3DHostGIMarkDirty();
 
 			if (err) {
 				err->Clear();
-				if (texMiss > 0 || nodeMiss > 0) {
+				if (texMiss > 0 || nodeMiss > 0 || rescued > 0 || orphanMesh > 0) {
+					// TOUTE REPARATION SE DIT. Une scene ou un objet qui reapparait
+					// sous un nom ou une nature que l'utilisateur n'a pas choisis
+					// doit etre annonce, sinon il passe pour un parasite.
 					snprintf(msg, sizeof(msg),
-							 "scene chargee : %d texture(s) introuvable(s), %d objet(s) non "
-							 "recree(s)",
-							 (int)texMiss, (int)nodeMiss);
+							 "projet charge : %d texture(s) introuvable(s), %d objet(s) non "
+							 "recree(s), %d scene(s) orpheline(s) recuperee(s), %d maillage(s) "
+							 "sans model rendu(s) visible(s)",
+							 (int)texMiss, (int)nodeMiss, (int)rescued, (int)orphanMesh);
 					*err = msg;
 				}
 			}
