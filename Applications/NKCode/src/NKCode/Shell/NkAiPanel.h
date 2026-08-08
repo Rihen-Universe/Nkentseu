@@ -688,6 +688,7 @@ namespace nkentseu {
 				bool mSandbox = false;
 				bool mAccountsOpen = false;   // popover "Comptes Claude Code"
 				bool mAccAdding = false;      // saisie du nom d'un nouveau compte en cours
+				bool mAccJustOpened = false;  // -> donne le focus au champ de nom a l'ouverture
 				char mAccName[64] = {0};      // tampon de ce nom
 				NkString mAccError;           // refus explicite (nom invalide) plutot qu'un silence
 				// Le clic qui OUVRE le popover (lien "Voir l'utilisation" de la banniere, ou item
@@ -761,6 +762,7 @@ namespace nkentseu {
 				NkString mModelsBuf;
 				bool mModelsRequested = false;
 				bool mModelsDone = false;	  // une reponse a ete traitee (succes ou echec)
+				int32 mModelsTries = 0;		  // budget d'essais : voir TriggerModelsProbe
 				NkVector<NkString> mModelIds; // noms acceptes par --model, dans l'ordre annonce
 				NkString mModelsCurrent;	  // titre humain du modele courant (« Opus 5 (1M context) »)
 				NkPipeProc mQuickUsageProc;
@@ -832,6 +834,14 @@ namespace nkentseu {
 				void TriggerModelsProbe() {
 					if (mModelsRequested || mModelsDone || ClaudeExe().Empty())
 						return;
+					// Budget d'essais INDISPENSABLE : en cas d'echec, mModelsRequested retombe
+					// a false sans que mModelsDone passe a true — sans ce compteur, la sonde
+					// relancerait un processus CLI a CHAQUE frame.
+					if (mModelsTries >= 3) {
+						mModelsDone = true; // on s'en tient a la liste de repli
+						return;
+					}
+					++mModelsTries;
 					mModelsRequested = true;
 					mModelsBuf.Clear();
 					// --verbose est OBLIGATOIRE avec -p + --output-format stream-json (meme
@@ -860,6 +870,7 @@ namespace nkentseu {
 				// Le compte a change : la liste et le modele courant peuvent differer.
 				void ResetModelsProbe() {
 					mModelsDone = false;
+					mModelsTries = 0;
 					mModelIds.Clear();
 					mModelsCurrent.Clear();
 				}
@@ -3197,6 +3208,7 @@ namespace nkentseu {
 						} else if (clicked == 15 || clicked == 40) { // Comptes -> popover dedie
 							mAccountsOpen = true;
 							mAccAdding = false;
+							mAccJustOpened = true; // le champ de nom prend le focus
 							mAccError = NkString();
 						} else if (clicked == 23) { // Installer Claude Code (CLI)
 							InstallClaudeCli();
@@ -3691,6 +3703,16 @@ namespace nkentseu {
 				// barre de progression : c'est un echange interactif (le navigateur s'ouvre,
 				// l'utilisateur colle un code). La cacher donnerait l'impression d'un blocage.
 				void DrawAccountsPopover(NkGuiContext &ctx, const NkRect &bounds, const NkColor &violet) {
+					// ── DOUBLE PROTECTION, identique a la palette d'actions ──────────────
+					// Sans NkInputLayerScope, ce popover etait aveugle par le rectangle
+					// d'occlusion qu'il declare LUI-MEME : ses propres lignes et son champ
+					// de saisie restaient en couche 0, donc masques par sa couche 50. Il se
+					// dessinait parfaitement et ne recevait NI clic NI frappe — d'ou « je
+					// clique sur Se connecter, rien ne se passe » et « on ne peut pas entrer
+					// de nom » (Rihen).
+					NkGuiContext::NkInputLayerScope _layer(ctx, 50);
+					if (ctx.popupDepth == 0)
+						ctx.popupDepth = 1;
 					auto &dl = ctx.DL();
 					const NkGuiFont *font = ctx.font;
 					const NkVec2 mp = ctx.input.mousePos;
@@ -3791,6 +3813,13 @@ namespace nkentseu {
 					{
 						const NkRect f = {menu.x + pad, y, w - pad * 2.f, it};
 						const NkGuiId fid = ctx.GetId("##aiAccName");
+						// A l'ouverture, le focus texte GLOBAL appartient encore a la saisie du
+						// chat : sans ce transfert, chaque caractere tape partait dans le chat,
+						// invisible ici (meme piege que la palette d'actions).
+						if (mAccJustOpened) {
+							ctx.inputId = fid;
+							mAccJustOpened = false;
+						}
 						// Entree = valider : on CONSOMME la touche AVANT le widget, sinon elle
 						// s'inscrirait dans le nom au lieu de confirmer.
 						bool valider = false;
@@ -3824,6 +3853,8 @@ namespace nkentseu {
 						ctx.input.mouseClicked[0] = false;
 						ctx.input.mouseClicked[1] = false;
 					}
+					if (!mAccountsOpen)
+						ctx.popupDepth = 0; // libere la modalite forcee plus haut
 				}
 
 				// Cree le compte saisi puis enchaine sur sa connexion. Un nom refuse le DIT
@@ -3878,6 +3909,10 @@ namespace nkentseu {
 					mS->termOpenRun = false; // agent CLI -> panneau TERMINAL, pas EXECUTION
 					if (mShell)
 						mShell->FocusPanel("TERMINAL");
+					// Trace VISIBLE dans la conversation : si le terminal s'ouvre ailleurs ou
+					// si la commande echoue, l'utilisateur sait au moins ce qui a ete lance
+					// et sur quel compte — au lieu d'un silence indistinguable d'un bug.
+					Msgs().PushBack({2, NkPrintf("%s %s", NkT("ai.acc.launched"), nom.CStr())});
 					mAccountsOpen = false;
 				}
 
