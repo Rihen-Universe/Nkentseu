@@ -239,15 +239,20 @@ namespace nkentseu {
 				radius = std::sqrt(ex.x * ex.x + ex.y * ex.y + ex.z * ex.z) * 1.05f;
 				if (radius < 1.f)
 					radius = 1.f;
-				static int afDiag = -1;
-				if (afDiag == -1) {
-					const char *v = getenv("NK_VSM_DIAG");
-					afDiag = (v && v[0] && v[0] != '0') ? 1 : 0;
-				}
-				if (afDiag && cascadeIdx == 0) {
-					logger.Info(
-						"[VSMAutoFit] bounds min=({0},{1},{2}) max=({3},{4},{5}) center=({6},{7},{8}) radius={9}\n",
-						b.min.x, b.min.y, b.min.z, b.max.x, b.max.y, b.max.z, center.x, center.y, center.z, radius);
+				// Trace AUTOMATIQUE (diagnostic du 4.7 « ombre du soleil trop
+				// petite ») : une ligne quand le rayon change de plus de 5 % --
+				// pas de variable d'environnement (regle maison), et le journal
+				// reste silencieux tant que la cascade est stable.
+				if (cascadeIdx == 0) {
+					static float32 sLastLoggedR = -1.f;
+					const float32 dr = radius - sLastLoggedR;
+					if (sLastLoggedR < 0.f || dr > sLastLoggedR * 0.05f || -dr > sLastLoggedR * 0.05f) {
+						sLastLoggedR = radius;
+						logger.Info(
+							"[VSMAutoFit] bornes min=({0},{1},{2}) max=({3},{4},{5}) centre=({6},{7},{8}) rayon={9} texel={10}m\n",
+							b.min.x, b.min.y, b.min.z, b.max.x, b.max.y, b.max.z, center.x,
+							center.y, center.z, radius, radius * 2.f / float32(tilePx));
+					}
 				}
 			} else if (mCfg.useFixedCascadeRadius && cascadeIdx < kMaxCascades) {
 				// Center : soit ancre au monde (anti-swimming total pour une scene
@@ -446,7 +451,13 @@ namespace nkentseu {
 			if (fovDeg > 170.f)
 				fovDeg = 170.f;
 			float32 farP = light.range > 0.f ? light.range : 50.f;
-			NkMat4f lightProj = NkMat4f::Perspective(NkAngle(fovDeg), 1.f, 0.1f, farP);
+			// PLAN LOINTAIN A DEUX FOIS LA PORTEE : borne au range, un CASTER
+			// qui depasse la portee etait CLIPPE du rendu d'ombre -- son ombre
+			// se tranchait net au passage de la limite (constate par Rihen,
+			// « la limite coupe et tue la partie de l'ombre qui sort »). La
+			// portee, elle, reste dans lightPosOrDir.w : attenuation et biais
+			// gardent leur echelle.
+			NkMat4f lightProj = NkMat4f::Perspective(NkAngle(fovDeg), 1.f, 0.1f, farP * 2.f);
 
 			s.renderMatrix = lightProj * lightView;
 			ApplyDepthClipCorrection(s.renderMatrix); // [-1,1]->[0,1] sur VK/DX
@@ -480,7 +491,24 @@ namespace nkentseu {
 			uint32 tilePx = mCfg.pointFaceTile > 0 ? mCfg.pointFaceTile : 256;
 			NkVec3f pos = light.position;
 			float32 farP = light.range > 0.f ? light.range : 20.f;
-			NkMat4f lightProj = NkMat4f::Perspective(NkAngle(90.f), 1.f, 0.1f, farP);
+			// BANDE DE GARDE : a exactement 90 deg les six domaines se touchent
+			// sans se recouvrir -- au ras de la couture, le PCF 3x3 pince ses
+			// echantillons sur le dernier texel du tile (clamp anti-bleed) et la
+			// difference d'ombre DESSINE la frontiere des faces : un carre au
+			// sol sous la lumiere, que seule l'ombre revele (constate par Rihen,
+			// « comme une texture par defaut »). On elargit chaque face de
+			// ~2 texels : les voisins du PCF trouvent de la vraie profondeur
+			// au-dela de la couture, et le carre disparait. L'echantillonnage
+			// utilise la MEME matrice, l'interieur du domaine reste dans [0,1].
+			const float32 kGuardTexels = 2.f;
+			const float32 fovScale = 1.f + (2.f * kGuardTexels) / (float32)tilePx;
+			const float32 fovDeg = 2.f * atanf(fovScale) * (180.f / 3.14159265f);
+			// PLAN LOINTAIN A DEUX FOIS LA PORTEE (meme regle que le spot) : un
+			// caster au-dela de la portee etait clippe du rendu d'ombre et son
+			// ombre se tranchait net a la limite (Rihen). La portee reste dans
+			// lightPosOrDir.w -- attenuation, biais et fondu gardent leur
+			// echelle.
+			NkMat4f lightProj = NkMat4f::Perspective(NkAngle(fovDeg), 1.f, 0.1f, farP * 2.f);
 
 			for (uint32 f = 0; f < 6; f++) {
 				if (mActiveSlotCount >= kMaxShadowSlots)
@@ -521,6 +549,15 @@ namespace nkentseu {
 		// les tiles correspondants.
 		// ---------------------------------------------------------------------
 		void NkVirtualShadowMaps::AllocSlotsForLights(const NkCamera3D &mainCam, const NkVector<NkLightDesc> &lights) {
+			// Recalcule a chaque frame ; leve plus bas des qu'une ombre figee
+			// ne correspond plus a la scene.
+			mPendingRecalc = false;
+			// QUALITE « AUCUNE » = AUCUNE OMBRE. Avant, NONE ne reglait que le
+			// filtrage (ombres dures) : le panneau Rendu affichait « Aucune » et
+			// les ombres restaient a l'ecran (constate par Rihen). Zero slot
+			// alloue => le shader ne trouve rien a echantillonner, facteur 1.
+			if (mCfg.quality == NkVSMShadowQuality::NONE)
+				return;
 			uint32 numLights = lights.Size();
 			if (numLights > kMaxLightsShadow)
 				numLights = kMaxLightsShadow;
@@ -540,9 +577,25 @@ namespace nkentseu {
 					case NkLightType::NK_POINT:
 						AllocSlotsPoint(lights[i], i);
 						break;
-					case NkLightType::NK_AREA:
+					case NkLightType::NK_AREA: {
+						// SURFACIQUE (V1) : traitee comme un SPOT LARGE — une seule
+						// tuile. Un panneau n'emet que d'un cote (cf. le terme en
+						// cosinus ajoute dans pbr.frag.nksl), donc un tronc
+						// perspectif large decrit correctement ce qu'il occulte.
+						// Avant, ce cas ne faisait RIEN : une surfacique traversait
+						// toute la geometrie sans jamais projeter la moindre ombre.
+						//
+						// L'angle exterieur d'une surfacique n'a pas de sens comme
+						// cone : son defaut (25 deg) donnerait un tronc bien trop
+						// etroit et l'ombre disparaitrait des qu'on s'ecarte de
+						// l'axe. On impose donc un plancher large.
+						NkLightDesc wide = lights[i];
+						if (wide.outerAngle < 45.f)
+							wide.outerAngle = 45.f;
+						AllocSlotsSpot(wide, i);
+						break;
+					}
 					default:
-						// pas de shadow pour area light en V0.
 						break;
 				}
 
@@ -552,31 +605,63 @@ namespace nkentseu {
 				// donc les tileUV restent stables entre frames -> les anciennes
 				// donnees depth dans l'atlas restent valides.
 				NkLightShadowCache &cache = mLightCache[i];
-				NkVec3f dp = cache.lastPosition - lights[i].position;
-				NkVec3f dd = cache.lastDirection - lights[i].direction;
-				float32 dpSq = dp.x * dp.x + dp.y * dp.y + dp.z * dp.z;
-				float32 ddSq = dd.x * dd.x + dd.y * dd.y + dd.z * dd.z;
-				bool stateChanged = dpSq > 1e-6f || ddSq > 1e-6f ||
-									std::fabs(cache.lastRange - lights[i].range) > 1e-4f ||
-									(cache.wasStatic != lights[i].shadowStatic);
 
-				bool canCache = lights[i].shadowStatic && cache.renderedOnce && !stateChanged;
+				// STATIQUE = FIGE, POINT FINAL (Rihen). L'ancienne regle exigeait
+				// « lumiere immobile ET geometrie immobile » pour figer : bouger
+				// quoi que ce soit re-rendait, et le mode statique n'existait
+				// pas vraiment. Desormais : une fois rendue, l'ombre d'une
+				// lumiere statique ne bouge plus -- ni avec la lumiere, ni avec
+				// la scene -- jusqu'au bouton « Recalculer » (qui remet
+				// renderedOnce a faux) ou au retour en dynamique.
+				bool canCache = lights[i].shadowStatic && cache.renderedOnce &&
+								cache.wasStatic == lights[i].shadowStatic;
+
+				// REMISE A FAUX D'ABORD, TOUJOURS : les emplacements sont
+				// REUTILISES d'une frame a l'autre et les Alloc* ne touchent pas
+				// ce champ. Un `cached` reste d'une frame statique gelait les
+				// ombres POUR TOUJOURS : retour en dynamique sans effet, bouton
+				// « Recalculer » sans effet (constate par Rihen, prouve par les
+				// traces : les poussages UI partaient bien).
+				for (uint32 s = slotStart; s < mActiveSlotCount; s++)
+					mSlots[s].cached = false;
 
 				if (canCache) {
-					// Marque tous les slots de cette light comme cached -> skip
-					// au render. UBO toujours upload (slots restent reachable).
+					// FIGER = restaurer l'INSTANTANE du dernier rendu (matrices
+					// comprises). Les Alloc* viennent de recalculer les matrices
+					// depuis la lumiere COURANTE ; les garder avec la profondeur
+					// ANCIENNE de l'atlas donnerait une ombre fausse des que la
+					// lumiere bouge. Le packer est deterministe : memes indexes,
+					// memes tuiles.
 					for (uint32 s = slotStart; s < mActiveSlotCount; s++) {
+						mSlots[s] = mSlotsPrev[s];
 						mSlots[s].cached = true;
 					}
+					// L'OMBRE FIGEE EST-ELLE PERIMEE ? Lumiere deplacee ou
+					// geometrie modifiee depuis le gel -> le bouton
+					// « Recalculer l'ombre » passe en bleu (comme l'etoile de
+					// « Regenerer le ciel »).
+					const NkVec3f dp = cache.lastPosition - lights[i].position;
+					const NkVec3f dd = cache.lastDirection - lights[i].direction;
+					const float32 dr = cache.lastRange - lights[i].range;
+					const bool lightMoved = dp.x * dp.x + dp.y * dp.y + dp.z * dp.z > 1e-6f ||
+											dd.x * dd.x + dd.y * dd.y + dd.z * dd.z > 1e-6f ||
+											dr * dr > 1e-8f;
+					if (lightMoved || cache.casterStamp != mLastCasterStamp)
+						mPendingRecalc = true;
 				} else {
 					// Update cache state pour la prochaine frame.
 					cache.lastPosition = lights[i].position;
 					cache.lastDirection = lights[i].direction;
 					cache.lastRange = lights[i].range;
+					cache.casterStamp = mLastCasterStamp;
 					cache.wasStatic = lights[i].shadowStatic;
 					cache.renderedOnce = true;
 				}
 			}
+			// INSTANTANE pour la frame suivante : l'etat des emplacements tel
+			// qu'il part au rendu -- c'est LUI que le mode statique restaurera.
+			for (uint32 s = 0; s < mActiveSlotCount; s++)
+				mSlotsPrev[s] = mSlots[s];
 		}
 
 		// ---------------------------------------------------------------------
@@ -654,6 +739,12 @@ namespace nkentseu {
 				mSlotCountPerLight[i] = 0;
 			}
 			mPacker.Reset(mCfg.atlasSize, mCfg.atlasSize);
+			// La scene a-t-elle bouge ? (cf. NkRender3D::GetShadowCasterStamp)
+			{
+				const uint64 stamp = mRender3D->GetShadowCasterStamp();
+				mCastersMoved = (stamp != mLastCasterStamp);
+				mLastCasterStamp = stamp;
+			}
 			AllocSlotsForLights(ctx.camera, ctx.lights);
 			UploadSlotsUBO();
 

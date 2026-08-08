@@ -2,7 +2,7 @@
  * @File    NkPPMCodec.cpp
  * @Brief   Codec PPM/PGM/PBM (P1-P6) production-ready.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  *
  * @Fixes vs version précédente
  *  1. PBM binaire (P4) : le décodage bit par bit était incorrect.

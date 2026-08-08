@@ -275,8 +275,15 @@ namespace nkentseu {
 			res.errors = parser.GetErrors();
 			res.target = target;
 			res.stage = stage;
-			for (auto &e : res.errors)
-				NKSL_ERR("%s:%u: %s\n", filename.CStr(), e.line, e.message.CStr());
+			// « fichier:ligne:colonne: message » — la colonne vaut 0 quand elle est
+			// inconnue (erreur rattachée à un nœud déjà construit) ; on l'omet
+			// alors plutôt que d'afficher une position fausse.
+			for (auto &e : res.errors) {
+				if (e.column > 0)
+					NKSL_ERR("%s:%u:%u: %s\n", filename.CStr(), e.line, e.column, e.message.CStr());
+				else
+					NKSL_ERR("%s:%u: %s\n", filename.CStr(), e.line, e.message.CStr());
+			}
 			return res;
 		}
 

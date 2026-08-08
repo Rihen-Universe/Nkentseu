@@ -14,9 +14,26 @@ cbuffer LightsUBO : register(b2) {
     float4 positions[32],colors[32],directions[32],angles[32];
     int count; int _pad[3];
 };
-cbuffer ShadowUBO : register(b3) {
-    column_major float4x4 cascadeMats[4]; float4 cascadeSplits;
-    int cascadeCount; float shadowBias,normalBias; int softShadows;
+// NkVSM : atlas d'ombre multi-tuiles, UNE OMBRE PAR LUMIERE.
+// Ce cbuffer doit matcher ShadowSlotsUBOBlock (NkVirtualShadowMaps.cpp) --
+// c'est bien lui que le runtime envoie en b3 pour TOUS les backends. Le
+// shader DX11 y lisait encore l'ancien ShadowUBO cascade-only : il
+// interpretait donc des octets qui ne lui correspondaient plus, et
+// appliquait a TOUTES les lumieres l'unique ombre de la cascade 0 du
+// soleil. D'ou des ombres au mauvais endroit sous les point/spot, et
+// aucune occlusion reelle par la lumiere concernee.
+struct NkShadowSlot {
+    column_major float4x4 shadowMatrix;
+    float4 tileUV;        // .xy = UV min, .zw = UV max dans l'atlas
+    float4 lightPosOrDir; // .xyz pos/dir, .w portee ou split de cascade
+    float4 packedIds;     // .x=lightIdx .y=slotType .z=subIdx
+};
+cbuffer ShadowSlotsUBO : register(b3) {
+    NkShadowSlot slots[256];
+    float4 firstSlotPerLight[8]; // 32 lumieres, 4 par float4
+    float4 slotCountPerLight[8];
+    float4 globalCfg;  // .x=nbSlots .y=mode doux .z=remap Z .w=flip V (DX)
+    float4 biasParams; // .x=biais de pente .y=biais normal .z=douceur
 };
 
 Texture2D    tAlbedo        : register(t4);
@@ -40,19 +57,82 @@ float G_Smith(float3 N,float3 V,float3 L,float r){float k=(r+1.)*(r+1.)/8.;retur
 float3 F_Sch(float c,float3 F0){return F0+(1.-F0)*pow(max(1.-c,0.),5.);}
 float3 F_SchR(float c,float3 F0,float r){return F0+(max((float3)(1.-r),F0)-F0)*pow(max(1.-c,0.),5.);}
 
-float ShadowPCF(float4 coord) {
+// ── ECHANTILLONNAGE DE L'ATLAS D'OMBRE (transpose de NkShadowAtlas.glsli) ──
+// Le biais de PENTE grandit aux angles rasants, la ou l'acne apparait.
+float NkSlopeBias(float3 N, float3 L) {
+    float NdL = max(dot(N, L), 0.0);
+    return biasParams.x * max(1.0, 4.0 * (1.0 - NdL));
+}
+// Le biais NORMAL decale le point le long de sa normale, en unites monde :
+// c'est lui qui empeche une surface de porter sa propre ombre.
+float3 NkNormalBiasPos(float3 wp, float3 N, float3 L) {
+    float NdL = max(dot(N, L), 0.0);
+    return wp + N * biasParams.y * ((1.0 - NdL) * 0.5 + 0.5);
+}
+float NkSampleTile(int slotIdx, float3 wp, float bias) {
+    if (slotIdx < 0 || slotIdx >= 256) return 1.0;
+    float4 coord = mul(slots[slotIdx].shadowMatrix, float4(wp, 1.0));
+    if (coord.w <= 0.0) return 1.0;
     float3 p = coord.xyz / coord.w;
-    // DX: NDC y-flip for UV, z in [0,1]
-    p.x =  p.x * 0.5 + 0.5;
-    p.y = -p.y * 0.5 + 0.5;
-    p.z -= shadowBias;
-    if (any(p.xy < 0.0)||any(p.xy > 1.0)||p.z > 1.0) return 1.0;
-    uint sw,sh; tShadowMap.GetDimensions(sw,sh);
-    float2 ts = 1.0/float2(sw,sh);
-    float s=0.0;
-    [unroll] for(int x=-1;x<=1;x++) [unroll] for(int y=-1;y<=1;y++)
-        s += tShadowMap.SampleCmpLevelZero(sShadow, p.xy+float2(x,y)*ts, p.z);
-    return s/9.0;
+    p.x = p.x * 0.5 + 0.5;
+    p.y = p.y * 0.5 + 0.5;
+    p.y = lerp(p.y, 1.0 - p.y, globalCfg.w); // convention V de l'atlas sur DX
+    p.z = lerp(p.z, p.z * 0.5 + 0.5, globalCfg.z) - bias;
+    if (p.x < 0.0 || p.x > 1.0) return 1.0;
+    if (p.y < 0.0 || p.y > 1.0) return 1.0;
+    if (p.z < 0.0 || p.z > 1.0) return 1.0;
+    float4 tuv = slots[slotIdx].tileUV;
+    float2 atlasUV = lerp(tuv.xy, tuv.zw, p.xy);
+    uint sw, sh; tShadowMap.GetDimensions(sw, sh);
+    float2 ts = 1.0 / float2(sw, sh);
+    // La DOUCEUR elargit le noyau : c'est le reglage expose au panneau Rendu.
+    float2 step = ts * max(1.0, biasParams.z * float(sw) * 0.25);
+    float s = 0.0;
+    [unroll] for (int x = -1; x <= 1; x++)
+    [unroll] for (int y = -1; y <= 1; y++) {
+        // Rester DANS la tuile : deborder irait lire l'ombre d'une autre
+        // lumiere rangee juste a cote dans l'atlas.
+        float2 uv = clamp(atlasUV + float2(x, y) * step, tuv.xy + ts, tuv.zw - ts);
+        s += tShadowMap.SampleCmpLevelZero(sShadow, uv, p.z);
+    }
+    return s / 9.0;
+}
+// Cascade choisie par la profondeur vue, comme cote Vulkan.
+float NkDirShadow(int li, float3 wp, float3 N, float3 L) {
+    int first = int(firstSlotPerLight[li >> 2][li & 3]);
+    int cnt   = int(slotCountPerLight[li >> 2][li & 3]);
+    if (first < 0 || cnt <= 0) return 1.0;
+    float absDepth = -mul(view, float4(wp, 1.0)).z;
+    float bias = NkSlopeBias(N, L);
+    float3 bp = NkNormalBiasPos(wp, N, L);
+    [loop] for (int c = 0; c < cnt && c < 4; c++) {
+        if (absDepth < slots[first + c].lightPosOrDir.w)
+            return NkSampleTile(first + c, bp, bias);
+    }
+    return 1.0;
+}
+// Face du cube choisie par l'axe dominant (0:+X 1:-X 2:+Y 3:-Y 4:+Z 5:-Z).
+float NkPointShadow(int li, float3 wp, float3 N, float3 L) {
+    int first = int(firstSlotPerLight[li >> 2][li & 3]);
+    if (first < 0) return 1.0;
+    float3 d = wp - slots[first].lightPosOrDir.xyz;
+    float3 a = abs(d);
+    int face;
+    if (a.x > a.y && a.x > a.z)      face = d.x > 0.0 ? 0 : 1;
+    else if (a.y > a.z)              face = d.y > 0.0 ? 2 : 3;
+    else                             face = d.z > 0.0 ? 4 : 5;
+    return NkSampleTile(first + face, NkNormalBiasPos(wp, N, L), NkSlopeBias(N, L));
+}
+float NkSpotShadow(int li, float3 wp, float3 N, float3 L) {
+    int first = int(firstSlotPerLight[li >> 2][li & 3]);
+    if (first < 0) return 1.0;
+    return NkSampleTile(first, NkNormalBiasPos(wp, N, L), NkSlopeBias(N, L));
+}
+float NkLightShadow(int li, int type, float3 wp, float3 N, float3 L) {
+    if (type == 0) return NkDirShadow(li, wp, N, L);
+    if (type == 1) return NkPointShadow(li, wp, N, L);
+    if (type == 2) return NkSpotShadow(li, wp, N, L);
+    return 1.0; // area : pas d'ombre en V0
 }
 
 struct PSIn {
@@ -85,15 +165,14 @@ float4 main(PSIn i) : SV_Target {
     float3 V = normalize(camPos.xyz-i.worldPos);
     float3 F0= lerp((float3)0.04,albedo,met);
 
-    float shadow = ShadowPCF(i.shadowCoord0); // cascade 0 (simplifié)
-
     float3 Lo=(float3)0.;
     [loop] for(int li=0;li<count&&li<32;li++){
         int lt=int(positions[li].w); float3 L; float att=1.;
         if(lt==0){L=normalize(-directions[li].xyz);}
         else{float3 d=positions[li].xyz-i.worldPos;float dist=length(d);L=normalize(d);att=max(1.-dist/max(directions[li].w,.001),0.);att*=att;
              if(lt==2){float th=dot(L,normalize(-directions[li].xyz));att*=saturate((th-angles[li].y)/(angles[li].x-angles[li].y+1e-4));}}
-        float csf=(angles[li].z>.5)?shadow:1.;
+        // CHAQUE lumiere consulte SA propre ombre dans l'atlas.
+        float csf=(angles[li].z>.5)?NkLightShadow(li,lt,i.worldPos,N,L):1.;
         float3 H=normalize(V+L); float NdL=max(dot(N,L),0.); float3 rad=colors[li].rgb*colors[li].w*att;
         float NDF=D_GGX(N,H,rog); float G=G_Smith(N,V,L,rog); float3 F=F_Sch(max(dot(H,V),0.),F0);
         float3 spec=NDF*G*F/(4.*max(dot(N,V),0.)*NdL+1e-4);

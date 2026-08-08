@@ -552,7 +552,13 @@ namespace nkentseu {
 
 			// ── CAPSULE = CYLINDRE + 2 demi-sphères ───────────────────────────────
 			// (simplifié — utilise un cylindre pour l'instant)
-			mCapsule = mCylinder;
+			// Primitives FERMEES : le cylindre etait un tube sans chapeaux, le
+			// cone n'avait pas de base (constate dans le modeleur), la capsule
+			// devient une vraie capsule.
+			mPrimitivesBuilt = true; // evite toute re-entree des createurs
+			mCylinder = CreateCylinderMesh(32);
+			mCone = CreateConeMesh(32);
+			mCapsule = CreateCapsuleMesh(24, 8);
 
 			mPrimitivesBuilt = true;
 		}
@@ -641,14 +647,29 @@ namespace nkentseu {
 				NkVertex3D vt;
 				vt.pos = {p3.x / l * 0.5f, p3.y / l * 0.5f, p3.z / l * 0.5f};
 				vt.normal = {p3.x / l, p3.y / l, p3.z / l};
+				// TANGENTE : elle manquait -- le TBN du shader se construisait
+				// sur un vecteur nul et l'eclairage partait en vrille. Direction
+				// de la longitude, comme la sphere UV ; aux poles (x=z=0), +X.
+				{
+					const float32 tl = sqrtf(p3.x * p3.x + p3.z * p3.z);
+					if (tl > 1e-6f)
+						vt.tangent = {-p3.z / tl, 0.f, p3.x / tl};
+					else
+						vt.tangent = {1.f, 0.f, 0.f};
+				}
 				vt.uv = {(atan2f(p3.z, p3.x) / (2 * NK_PI) + 0.5f), (asinf(p3.y / l) / NK_PI + 0.5f)};
 				vt.color = white;
 				v.PushBack(vt);
 			}
+			// ENROULEMENT INVERSE au moment de l'emission : la table des faces
+			// est la table classique de l'icosaedre, anti-horaire vue de
+			// l'exterieur (convention OpenGL) -- or NOS faces avant sont
+			// HORAIRES (sphere UV, cylindre, cone : tous horaires). Emise telle
+			// quelle, l'icosphere montrait son envers : eclairage inverse.
 			for (auto &f : baseFaces) {
 				idx.PushBack(f[0]);
-				idx.PushBack(f[1]);
 				idx.PushBack(f[2]);
+				idx.PushBack(f[1]);
 			}
 			// TODO: subdivisions
 			(void)subs;
@@ -709,6 +730,327 @@ namespace nkentseu {
 		NkMeshHandle NkMeshSystem::GetCapsule(uint32) {
 			BuildPrimitives();
 			return mCapsule;
+		}
+
+
+		// ── GENERATEURS PARAMETRIQUES (menu Ajouter du modeleur) ─────────────────
+		// Un mesh NEUF par appel (l'appelant garde le handle). Les chapeaux sont
+		// emis dans les deux sens : visibles quelle que soit la politique de
+		// culling, pour un cout negligeable.
+		static void NkPushCapDisc(NkVector<NkVertex3D> &v, NkVector<uint32> &idx, float32 y,
+								  float32 radius, float32 ny, uint32 segs, uint32 white) {
+			const uint32 base = (uint32)v.Size();
+			NkVertex3D ctr;
+			ctr.pos = {0.f, y, 0.f};
+			ctr.normal = {0.f, ny, 0.f};
+			ctr.tangent = {1.f, 0.f, 0.f};
+			ctr.uv = {0.5f, 0.5f};
+			ctr.color = white;
+			v.PushBack(ctr);
+			for (uint32 s2 = 0; s2 <= segs; s2++) {
+				float32 a = 2.f * NK_PI * s2 / segs;
+				NkVertex3D b;
+				b.pos = {cosf(a) * radius, y, sinf(a) * radius};
+				b.normal = {0.f, ny, 0.f};
+				b.tangent = {-sinf(a), 0.f, cosf(a)};
+				b.uv = {0.5f + cosf(a) * 0.5f, 0.5f + sinf(a) * 0.5f};
+				b.color = white;
+				v.PushBack(b);
+			}
+			for (uint32 s2 = 0; s2 < segs; s2++) {
+				idx.PushBack(base);
+				idx.PushBack(base + 1 + s2);
+				idx.PushBack(base + 2 + s2);
+				idx.PushBack(base);
+				idx.PushBack(base + 2 + s2);
+				idx.PushBack(base + 1 + s2);
+			}
+		}
+		NkMeshHandle NkMeshSystem::CreateSphereMesh(uint32 stacks, uint32 slices) {
+			if (stacks < 3)
+				stacks = 3;
+			if (slices < 3)
+				slices = 3;
+			NkVector<NkVertex3D> v;
+			NkVector<uint32> idx;
+			BuildSphereData(stacks, slices, v, idx);
+			{
+				NkMeshDesc d = NkMeshDesc::Simple(NkVertexLayout::Default3D(), v.Data(),
+												  (uint32)v.Size(), idx.Data(), (uint32)idx.Size());
+				d.debugName = "SphereParam";
+				d.bounds = NkAABB::Unit();
+				return Create(d);
+			}
+		}
+		NkMeshHandle NkMeshSystem::CreateIcosphereMesh(uint32 subdivisions) {
+			if (subdivisions > 5)
+				subdivisions = 5;
+			NkVector<NkVertex3D> v;
+			NkVector<uint32> idx;
+			BuildIcosphereData(subdivisions, v, idx);
+			{
+				NkMeshDesc d = NkMeshDesc::Simple(NkVertexLayout::Default3D(), v.Data(),
+												  (uint32)v.Size(), idx.Data(), (uint32)idx.Size());
+				d.debugName = "IcoParam";
+				d.bounds = NkAABB::Unit();
+				return Create(d);
+			}
+		}
+		NkMeshHandle NkMeshSystem::CreatePlaneMesh(uint32 divX, uint32 divY) {
+			if (divX < 1)
+				divX = 1;
+			if (divY < 1)
+				divY = 1;
+			if (divX > 128)
+				divX = 128;
+			if (divY > 128)
+				divY = 128;
+			NkVector<NkVertex3D> v;
+			NkVector<uint32> idx;
+			const uint32 white = PackColor(255, 255, 255);
+			// DEUX NAPPES de sommets, une par face. L'ancienne version dupliquait
+			// seulement les TRIANGLES (deux enroulements sur les memes sommets a
+			// normale +Y) : vu de dessous, le plan s'eclairait donc comme un
+			// dessus -- soleil au zenith, face inferieure illuminee. Chaque face
+			// porte desormais SA normale ; le dessous s'eteint par N.L.
+			for (uint32 j = 0; j <= divY; j++)
+				for (uint32 i = 0; i <= divX; i++) {
+					NkVertex3D p2;
+					p2.pos = {(float32)i / divX - 0.5f, 0.f, (float32)j / divY - 0.5f};
+					p2.normal = {0.f, 1.f, 0.f};
+					p2.tangent = {1.f, 0.f, 0.f};
+					p2.uv = {(float32)i / divX, (float32)j / divY};
+					p2.color = white;
+					v.PushBack(p2);
+				}
+			const uint32 n1 = (uint32)v.Size(); // debut de la nappe du dessous
+			for (uint32 j = 0; j <= divY; j++)
+				for (uint32 i = 0; i <= divX; i++) {
+					NkVertex3D p2;
+					p2.pos = {(float32)i / divX - 0.5f, 0.f, (float32)j / divY - 0.5f};
+					p2.normal = {0.f, -1.f, 0.f};
+					// tangente miroir : garde le triedre (T, B, N) direct cote pile
+					p2.tangent = {-1.f, 0.f, 0.f};
+					p2.uv = {(float32)i / divX, (float32)j / divY};
+					p2.color = white;
+					v.PushBack(p2);
+				}
+			for (uint32 j = 0; j < divY; j++)
+				for (uint32 i = 0; i < divX; i++) {
+					const uint32 a = j * (divX + 1) + i;
+					const uint32 b = a + divX + 1;
+					// enroulement visible d'EN BAS -> nappe du dessous (normale -Y)
+					idx.PushBack(n1 + a);
+					idx.PushBack(n1 + b);
+					idx.PushBack(n1 + a + 1);
+					idx.PushBack(n1 + a + 1);
+					idx.PushBack(n1 + b);
+					idx.PushBack(n1 + b + 1);
+					// enroulement visible d'EN HAUT -> nappe du dessus (normale +Y)
+					idx.PushBack(a);
+					idx.PushBack(a + 1);
+					idx.PushBack(b);
+					idx.PushBack(a + 1);
+					idx.PushBack(b + 1);
+					idx.PushBack(b);
+				}
+			{
+				NkMeshDesc d = NkMeshDesc::Simple(NkVertexLayout::Default3D(), v.Data(),
+												  (uint32)v.Size(), idx.Data(), (uint32)idx.Size());
+				d.debugName = "PlaneParam";
+				d.bounds = NkAABB{{-0.5f, -0.01f, -0.5f}, {0.5f, 0.01f, 0.5f}};
+				return Create(d);
+			}
+		}
+		NkMeshHandle NkMeshSystem::CreateCylinderMesh(uint32 segs) {
+			if (segs < 3)
+				segs = 3;
+			if (segs > 256)
+				segs = 256;
+			NkVector<NkVertex3D> v;
+			NkVector<uint32> idx;
+			const uint32 white = PackColor(255, 255, 255);
+			for (uint32 s2 = 0; s2 <= segs; s2++) {
+				float32 a = 2.f * NK_PI * s2 / segs;
+				float32 c = cosf(a), sn = sinf(a);
+				NkVertex3D top, bot;
+				top.pos = {c * 0.5f, 0.5f, sn * 0.5f};
+				top.normal = {c, 0, sn};
+				top.tangent = {-sn, 0, c};
+				top.uv = {(float32)s2 / segs, 0};
+				top.color = white;
+				bot = top;
+				bot.pos = {c * 0.5f, -0.5f, sn * 0.5f};
+				bot.uv = {(float32)s2 / segs, 1};
+				v.PushBack(top);
+				v.PushBack(bot);
+			}
+			for (uint32 s2 = 0; s2 < segs; s2++) {
+				uint32 b = s2 * 2;
+				idx.PushBack(b);
+				idx.PushBack(b + 1);
+				idx.PushBack(b + 2);
+				idx.PushBack(b + 1);
+				idx.PushBack(b + 3);
+				idx.PushBack(b + 2);
+			}
+			// FERME : les deux chapeaux (c'etait un tube ouvert, Rihen).
+			NkPushCapDisc(v, idx, 0.5f, 0.5f, 1.f, segs, white);
+			NkPushCapDisc(v, idx, -0.5f, 0.5f, -1.f, segs, white);
+			{
+				NkMeshDesc d = NkMeshDesc::Simple(NkVertexLayout::Default3D(), v.Data(),
+												  (uint32)v.Size(), idx.Data(), (uint32)idx.Size());
+				d.debugName = "CylinderParam";
+				d.bounds = NkAABB::Unit();
+				return Create(d);
+			}
+		}
+		NkMeshHandle NkMeshSystem::CreateConeMesh(uint32 segs) {
+			if (segs < 3)
+				segs = 3;
+			if (segs > 256)
+				segs = 256;
+			NkVector<NkVertex3D> v;
+			NkVector<uint32> idx;
+			const uint32 white = PackColor(255, 255, 255);
+			NkVertex3D tip;
+			tip.pos = {0, 0.5f, 0};
+			tip.normal = {0, 1, 0};
+			tip.tangent = {1, 0, 0};
+			tip.uv = {0.5f, 0.f};
+			tip.color = white;
+			v.PushBack(tip);
+			for (uint32 s2 = 0; s2 <= segs; s2++) {
+				float32 a = 2 * NK_PI * s2 / segs;
+				NkVertex3D b;
+				b.pos = {cosf(a) * 0.5f, -0.5f, sinf(a) * 0.5f};
+				b.normal = {cosf(a), 0.5f, sinf(a)};
+				b.tangent = {-sinf(a), 0.f, cosf(a)};
+				b.uv = {(float32)s2 / segs, 1.f};
+				b.color = white;
+				v.PushBack(b);
+			}
+			for (uint32 s2 = 0; s2 < segs; s2++) {
+				idx.PushBack(0);
+				idx.PushBack(s2 + 1);
+				idx.PushBack(s2 + 2);
+			}
+			// FERME : la base (elle manquait).
+			NkPushCapDisc(v, idx, -0.5f, 0.5f, -1.f, segs, white);
+			{
+				NkMeshDesc d = NkMeshDesc::Simple(NkVertexLayout::Default3D(), v.Data(),
+												  (uint32)v.Size(), idx.Data(), (uint32)idx.Size());
+				d.debugName = "ConeParam";
+				d.bounds = NkAABB::Unit();
+				return Create(d);
+			}
+		}
+		NkMeshHandle NkMeshSystem::CreateTorusMesh(uint32 majorSegs, uint32 minorSegs,
+												   float32 minorRadius) {
+			if (majorSegs < 3)
+				majorSegs = 3;
+			if (majorSegs > 256)
+				majorSegs = 256;
+			if (minorSegs < 3)
+				minorSegs = 3;
+			if (minorSegs > 128)
+				minorSegs = 128;
+			float32 rMin = minorRadius; // rayon INTERNE demande (Rihen)
+			if (rMin < 0.02f)
+				rMin = 0.02f;
+			if (rMin > 0.45f)
+				rMin = 0.45f;
+			const float32 rMaj = 0.5f - rMin;
+			NkVector<NkVertex3D> v;
+			NkVector<uint32> idx;
+			const uint32 white = PackColor(255, 255, 255);
+			for (uint32 j = 0; j <= minorSegs; j++) {
+				const float32 ph = 2.f * NK_PI * j / minorSegs;
+				const float32 cp = cosf(ph), sp = sinf(ph);
+				for (uint32 i = 0; i <= majorSegs; i++) {
+					const float32 th = 2.f * NK_PI * i / majorSegs;
+					const float32 ct = cosf(th), st2 = sinf(th);
+					NkVertex3D p2;
+					p2.pos = {(rMaj + rMin * cp) * ct, rMin * sp, (rMaj + rMin * cp) * st2};
+					p2.normal = {cp * ct, sp, cp * st2};
+					p2.tangent = {-st2, 0.f, ct};
+					p2.uv = {(float32)i / majorSegs, (float32)j / minorSegs};
+					p2.color = white;
+					v.PushBack(p2);
+				}
+			}
+			// ENROULEMENT HORAIRE vu de l'exterieur (nos faces avant, comme la
+			// sphere UV) : l'ancien ordre (a, b, a+1) etait anti-horaire -- le
+			// tore montrait son envers et l'eclairage semblait inverse alors
+			// que les normales, elles, etaient justes.
+			for (uint32 j = 0; j < minorSegs; j++)
+				for (uint32 i = 0; i < majorSegs; i++) {
+					const uint32 a = j * (majorSegs + 1) + i;
+					const uint32 b = a + majorSegs + 1;
+					idx.PushBack(a);
+					idx.PushBack(a + 1);
+					idx.PushBack(b);
+					idx.PushBack(a + 1);
+					idx.PushBack(b + 1);
+					idx.PushBack(b);
+				}
+			{
+				NkMeshDesc d = NkMeshDesc::Simple(NkVertexLayout::Default3D(), v.Data(),
+												  (uint32)v.Size(), idx.Data(), (uint32)idx.Size());
+				d.debugName = "TorusParam";
+				d.bounds = NkAABB{{-0.5f, -rMin, -0.5f}, {0.5f, rMin, 0.5f}};
+				return Create(d);
+			}
+		}
+		NkMeshHandle NkMeshSystem::CreateCapsuleMesh(uint32 segs, uint32 rings) {
+			if (segs < 3)
+				segs = 3;
+			if (segs > 128)
+				segs = 128;
+			if (rings < 2)
+				rings = 2;
+			if (rings > 32)
+				rings = 32;
+			const float32 r = 0.25f, hh = 0.25f;
+			NkVector<NkVertex3D> v;
+			NkVector<uint32> idx;
+			const uint32 white = PackColor(255, 255, 255);
+			const uint32 rows = rings * 2 + 2;
+			for (uint32 k = 0; k < rows; k++) {
+				const bool topH = k <= rings;
+				const float32 th = topH ? (NK_PI * 0.5f) * k / rings
+										: (NK_PI * 0.5f) + (NK_PI * 0.5f) * (k - rings - 1) / rings;
+				const float32 y = (topH ? hh : -hh) + r * cosf(th);
+				const float32 rad = r * sinf(th);
+				for (uint32 s2 = 0; s2 <= segs; s2++) {
+					const float32 a = 2.f * NK_PI * s2 / segs;
+					NkVertex3D p2;
+					p2.pos = {cosf(a) * rad, y, sinf(a) * rad};
+					p2.normal = {sinf(th) * cosf(a), cosf(th), sinf(th) * sinf(a)};
+					p2.tangent = {-sinf(a), 0.f, cosf(a)};
+					p2.uv = {(float32)s2 / segs, (float32)k / (rows - 1)};
+					p2.color = white;
+					v.PushBack(p2);
+				}
+			}
+			for (uint32 k = 0; k + 1 < rows; k++)
+				for (uint32 s2 = 0; s2 < segs; s2++) {
+					const uint32 a = k * (segs + 1) + s2;
+					const uint32 b = a + segs + 1;
+					idx.PushBack(a);
+					idx.PushBack(b);
+					idx.PushBack(a + 1);
+					idx.PushBack(a + 1);
+					idx.PushBack(b);
+					idx.PushBack(b + 1);
+				}
+			{
+				NkMeshDesc d = NkMeshDesc::Simple(NkVertexLayout::Default3D(), v.Data(),
+												  (uint32)v.Size(), idx.Data(), (uint32)idx.Size());
+				d.debugName = "CapsuleParam";
+				d.bounds = NkAABB{{-0.25f, -0.5f, -0.25f}, {0.25f, 0.5f, 0.25f}};
+				return Create(d);
+			}
 		}
 
 	} // namespace renderer

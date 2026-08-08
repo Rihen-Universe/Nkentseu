@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor">
+  <!-- Main ouverte (deplacement lateral) : quatre doigts + pouce, style plein
+       comme le reste du jeu codicon. -->
+  <path d="M7.1 1.8c.5 0 .8.4.8.8v4.6h.7V2.6c0-.4.4-.8.8-.8s.8.4.8.8v4.6h.7V3.6c0-.4.4-.8.8-.8s.8.4.8.8v7.1c0 2.4-1.9 4.3-4.3 4.3h-.5c-1.9 0-3.3-1-4.1-2.9L2.5 9.4c-.2-.4 0-.9.4-1.1.4-.2.8-.1 1.1.3l1.1 1.6V3.1c0-.4.4-.8.8-.8s.8.4.8.8v4.1h.6V2.6c0-.4.4-.8.8-.8z"/>
+</svg>

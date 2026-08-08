@@ -3,7 +3,7 @@
  * @Brief  Test MP3 decoder reel : sauve le WAV decode pour validation auditive.
  *         Utilise NkFile (NKFileSystem) -> heritage fallback AAssetManager Android.
  * @Author TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  */
 #include "NKAudio/NkAudio.h"
 #include "NKAudio/Codecs/MP3/NkMP3Codec.h"

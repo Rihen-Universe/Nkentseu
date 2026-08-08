@@ -10,7 +10,7 @@
  * @File    NkUIExport.h
  * @Brief   Macros d'export/import + types de base NkUI.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  */
 
 // ── Export DLL ───────────────────────────────────────────────────────────────

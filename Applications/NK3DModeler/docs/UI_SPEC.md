@@ -218,7 +218,7 @@ relevé sur les images, pas supposé.
 |---|---|
 | axe X / Y / Z | rouge / vert / bleu |
 | **non sélectionné** | noir |
-| **sélectionné** | orange `(1 · 0,55 · 0,05)` |
+| **sélectionné** | ambre `#F2980E` (cf. § 10bis.2) |
 | **actif** | blanc |
 | lumière | jaune, teinte claire si active |
 
@@ -385,6 +385,86 @@ ne l'est pas.
 
 ---
 
+## 9bis. Chemins d'accès aux commandes *(Rihen, 31/07)*
+
+**Le défaut qu'il corrige.** Ce document affirmait « simple à prendre en main »
+tout en ne décrivant, pour l'extrusion et ses semblables, qu'un accès **au
+clavier**. Les deux sont incompatibles : un modeleur qui exige de mémoriser des
+raccourcis avant de pouvoir extruder une face échoue au critère posé en § 1.
+
+### La règle
+
+> **Toute commande atteignable au clavier doit l'être aussi à la souris, et
+> partout où elle apparaît, son raccourci est affiché à côté d'elle.**
+
+La seconde moitié fait le travail : le menu n'est pas un pis-aller pour ceux qui
+ne connaissent pas les raccourcis, c'est **ce qui les enseigne**. Un menu muet
+laisserait l'utilisateur débutant le rester.
+
+### Les quatre chemins
+
+| chemin | rôle | état |
+|---|---|---|
+| **menus de commandes** dans la barre flottante de la vue — `Ajouter/Objet/Sélection` en mode objet, `Ajouter/Maillage/Sommet/Arête/Face` en mode édition | découverte : on parcourt ce qui existe | ❌ à maquetter — **modifie** les écrans A et B |
+| **menu contextuel** au clic droit, filtré par le mode de sélection courant | usage courant : ce qu'on peut faire **ici**, sans traverser l'écran | ❌ nouvel écran G |
+| **palette de recherche** : on tape « extru », on obtient la commande, son chemin de menu et son raccourci | filet de sécurité — permet à l'interface de rester dépouillée sans rien rendre introuvable | ❌ nouvel écran H |
+| **panneau de dernière opération**, flottant en bas à gauche de la vue | on extrude d'abord, on **règle ensuite** au chiffre près | ❌ à maquetter — **modifie** l'écran B |
+| **panneau T**, vertical à gauche de la vue, repliable (touche `T`) | la liste des outils et les réglages de l'outil courant — **indispensable au sculpt** | ❌ à maquetter — **modifie** l'écran B, plus un écran sculpt |
+
+### Le panneau T — barre d'outils verticale *(Rihen, 31/07 — révision)*
+
+J'avais écarté ce cinquième chemin en jugeant qu'il ferait doublon avec le groupe
+de boutons carrés de la barre flottante. **C'était une erreur d'analyse**, et la
+raison est le sculpt : une barre horizontale peut tenir cinq outils de
+transformation, elle ne peut pas tenir une **liste de brosses avec leurs
+réglages**. Or le sculpt est au périmètre.
+
+Les deux ne font donc pas doublon, ils ne portent pas la même chose :
+
+| | contenu | pourquoi là |
+|---|---|---|
+| **barre flottante** (haut de la vue) | l'outil **actif** et le mode de vue | changement rapide, toujours visible, coût vertical nul |
+| **panneau T** (gauche de la vue, repliable) | la **liste** des outils et les **réglages de l'outil courant** | il faut de la hauteur : brosses, force, rayon, courbe d'atténuation, symétrie |
+
+**Contenu par mode :**
+
+- **objet** — sélection, curseur, déplacement, rotation, échelle, transformer ;
+- **édition** — les précédents plus extruder, biseauter, insérer, découper,
+  boucle de coupe, glisser une arête, lisser, poinçonner ;
+- **sculpt** — la liste des brosses (élever, creuser, lisser, pincer, gonfler,
+  aplanir, masque, peindre — les huit modes déjà déclarés dans `NkSculptTypes.h`),
+  et sous elle les réglages de la brosse courante : **rayon**, **force**, **courbe
+  d'atténuation** (les cinq profils déjà déclarés), **symétrie X/Y/Z**.
+
+**Repliable, et refermé par défaut en mode objet.** Un débutant qui ouvre le
+logiciel doit voir la scène, pas trois panneaux. En mode sculpt il s'ouvre seul :
+sans lui, le mode est inutilisable.
+
+**Raccourci `T`**, comme Blender — c'est le geste que tout utilisateur venant de
+Blender essaiera en premier, et le refuser n'apporterait rien.
+
+Comme les quatre autres chemins, il se peuple depuis `NkShortcutTable` ; ses
+réglages de brosse depuis `NkModParam`. Toujours aucune liste écrite deux fois.
+
+### Ce que ça coûte en code : rien de nouveau
+
+Les quatre chemins lisent la **même** `NkShortcutTable` déjà livrée — clé de
+commande stable, libellé traduisible, combinaison, contexte. Un menu est une
+**vue** sur cette table filtrée par contexte ; la palette est la même table
+filtrée par texte. Aucune liste de commandes n'est écrite deux fois, donc aucune
+ne peut diverger.
+
+Le panneau de dernière opération, lui, se branche sur `NkModParam` : mêmes
+paramètres nommés, mêmes bornes, même rendu générique que le panneau
+Modificateurs (§ 7). C'est le troisième consommateur de ce mécanisme.
+
+**Conséquence sur la génération de maquettes** : les écrans A et B sont à
+**refaire** (barre flottante, panneau de dernière opération, et **panneau T
+ouvert** sur B) ; G, H et **I (mode sculpt)** sont **nouveaux**. Les autres
+écrans ne bougent pas.
+
+---
+
 ## 10. Pour Banani — ce qu'on attend d'une maquette
 
 **À produire :** la disposition de la section 2 en trois états —
@@ -405,6 +485,141 @@ claire du thème.
 information disponible seulement au survol · un panneau modificateurs dessiné
 avec des contrôles spécifiques par type, alors qu'il est **générique** · des
 libellés qui laisseraient croire qu'ils sont écrits en dur dans le code.
+
+---
+
+## 10bis. Palette imposée et rôles
+
+Rihen a fourni six couleurs à intégrer aux thèmes principaux (sombre **et** clair) :
+`#F2980E` `#0A545E` `#095461` `#141414` `#2B2B2B` `#212121`.
+
+### 10bis.1 Les trois gris — la structure du thème sombre
+
+| couleur | rôle | pourquoi celui-là |
+|---|---|---|
+| `#141414` | **fond de fenêtre** | le plus sombre : il doit reculer derrière tout le reste |
+| `#212121` | **fond des panneaux** | un cran au-dessus, pour que le panneau se détache du vide |
+| `#2B2B2B` | **en-têtes de panneau, barres d'outils, en-têtes de section** | le plus clair des trois : ce qui structure doit se lire en premier |
+
+Trois valeurs suffisent, et c'est une bonne chose : une hiérarchie à trois niveaux
+se lit sans effort. En ajouter un quatrième rendrait les écarts indistincts.
+
+### 10bis.2 L'ambre `#F2980E` — et une décision à prendre
+
+`#F2980E` est **très proche** de l'orange de sélection 3D que j'avais posé
+(`#FF8C0D`) : 13 points d'écart sur le rouge, 12 sur le vert. **Côte à côte, on ne
+les distinguerait pas.** Garder les deux créerait une différence que personne ne
+peut voir mais que tout le monde devrait maintenir.
+
+> **Décision : `#F2980E` devient l'orange UNIQUE du produit.** Il sert à la fois de
+> couleur de **sélection 3D** et d'accent **ambre** pour les nœuds d'action et les
+> avertissements. `#FF8C0D` est retiré de la spécification.
+
+Cela ne remet pas en cause la règle qui compte : **le bleu reste l'état de
+l'interface, l'ambre reste la sélection 3D.** Ce sont deux familles, pas deux
+nuances.
+
+### 10bis.3 Les deux sarcelles `#0A545E` et `#095461` — écart imperceptible, usage précis
+
+Elles diffèrent de **1 à 3 points par canal**. Aucun œil ne les sépare si elles
+sont voisines. Les affecter à deux rôles distincts et **simultanément visibles**
+serait une erreur : l'utilisateur croirait à une seule couleur et se demanderait
+pourquoi elle « bave ».
+
+> **Décision : les affecter à des états qui ne coexistent JAMAIS.**
+> `#0A545E` = en-tête de nœud de **données / évaluation** au repos.
+> `#095461` = le **même** en-tête, survolé ou sélectionné.
+> Un écart minime est exactement ce qu'il faut pour un changement d'état : assez
+> pour être ressenti au survol, trop peu pour créer une seconde famille de couleur.
+
+### 10bis.4 Déclinaison CLAIRE
+
+Le thème clair n'inverse pas les gris — il les **remplace** :
+fond `#F5F5F5` · panneaux `#FFFFFF` · en-têtes `#EAEAEA` · texte `#1A1A1A`.
+
+Les couleurs **porteuses de sens** sont conservées mais **assombries** pour rester
+lisibles sur fond clair : l'ambre passe de `#F2980E` à `#C97A08`, le bleu d'état de
+`#1177D1` à `#0E5FA6`, les sarcelles restent inchangées (elles sont déjà sombres).
+
+> ⚠️ **C'est précisément pour cela que les couleurs métier doivent vivre DANS le
+> thème** — axes X/Y/Z et trois états de sélection compris. Laissées en dur dans le
+> code, elles rendraient le thème clair illisible, et personne ne s'en apercevrait
+> avant de l'essayer.
+
+---
+
+## 10ter. Éditeur de nœuds — modélisation et matériaux
+
+Rihen : *« on doit avoir aussi la possibilité de faire de la modélisation par
+blueprint ou visuel, pareil pour les matériaux. »* Le périmètre et l'architecture
+sont traités dans `SPECIFICATION.md` § 4.4 (le substrat `NKGraph` est déjà arbitré).
+Ici : **à quoi ça ressemble**.
+
+### 10ter.1 Deux références, deux emprunts distincts
+
+| référence | ce qu'on en prend |
+|---|---|
+| **capture 1** (éditeur sombre à nœuds arrondis) | **le style général** : cartes sombres à coins arrondis, bandeau de titre coloré, ports typés, fils courbes colorés par type, fond quadrillé de points |
+| **capture 2** (Blueprint UE5) | **l'en-tête seulement**, et un détail précis : **les broches d'exécution sont DANS le bandeau de titre** — entrée à gauche, sortie à droite — tandis que les broches de **données** sont dans le corps |
+
+**Pourquoi ce détail compte** : il sépare visuellement le **flux** (l'ordre des
+opérations) de la **donnée** (ce qui circule). On lit la chaîne d'exécution en
+suivant une seule ligne horizontale, sans la chercher parmi les valeurs.
+
+### 10ter.2 Anatomie d'un nœud
+
+```
+        ┌──────────────────────────────────────────────┐
+   ▶────┤  Extruder                              ────▶ │  ← bandeau : titre +
+        │                                              │    broches d'EXÉCUTION
+        ├──────────────────────────────────────────────┤
+   ●────┤  Maillage                                    │  ← corps : broches de
+   ●────┤  Distance          │  0,25                   │    DONNÉES + valeurs
+        │                              Maillage   ────● │
+        └──────────────────────────────────────────────┘
+```
+
+- **Bandeau** : hauteur ~24 px, coloré **par famille** (§ 10ter.3), titre en
+  demi-gras clair, broches d'exécution en **triangle** aux deux extrémités.
+- **Corps** : fond `#212121`, lignes en **deux colonnes** — exactement le même
+  composant que le panneau Détails. Une broche non connectée affiche son **champ
+  de saisie** ; connectée, le champ disparaît.
+- **Broches de données** : petits **cercles**, colorés par **type**.
+- **Coins** : 6 px sur les nœuds (plus généreux que les 2 px des panneaux — un nœud
+  est un objet flottant, pas une zone d'interface).
+
+### 10ter.3 Couleur du bandeau = famille de nœud
+
+| famille | couleur | exemples |
+|---|---|---|
+| **Action / opération** | ambre `#F2980E` | Extruder, Chanfreiner, Subdiviser |
+| **Donnée / évaluation** | sarcelle `#0A545E` (survol `#095461`) | Nombre, Vecteur, Expression |
+| **Contrôle de flux** | gris `#2B2B2B` | Si, Répéter, Séquence |
+| **Entrée / sortie** | bleu `#1177D1` | Maillage d'entrée, Résultat |
+
+### 10ter.4 Fils
+
+Courbes de Bézier, épaisseur 2 px, **couleur du TYPE transporté** — pas de la
+famille du nœud. Le fil d'exécution est **blanc et plus épais** (3 px) : c'est le
+squelette du graphe, il doit se distinguer d'un coup d'œil de tout ce qui est
+donnée.
+
+### 10ter.5 Fond
+
+`#141414` avec une **grille de points** discrets (1 px, blanc à 6 %, pas de 24 px).
+Des points plutôt qu'un quadrillage : ils donnent le repère de position et
+d'aimantation sans ajouter de lignes qui entreraient en concurrence avec les fils.
+
+### 10ter.6 Règles
+
+1. **Un type = une couleur**, la même sur la broche et sur le fil. Sans cela, on ne
+   peut pas voir d'un regard ce qui est connectable à quoi.
+2. **Une connexion invalide est refusée à la prise** et le dit — pas acceptée puis
+   signalée en erreur plus tard.
+3. **Un nœud repliable** sur son seul bandeau : un graphe de modélisation devient
+   vite dense.
+4. **Le panneau Détails montre le nœud sélectionné**, avec les mêmes lignes à deux
+   colonnes. Une seule grammaire de propriété dans toute l'application.
 
 ---
 

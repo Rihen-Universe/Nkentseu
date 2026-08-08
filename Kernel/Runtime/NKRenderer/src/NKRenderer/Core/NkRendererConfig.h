@@ -98,6 +98,23 @@ namespace nkentseu {
 				float32 normalBias = 0.005f;
 				float32 depthBias = 1.25f;
 				uint32 poissonSamples = 16;
+				// ── Reglages REELLEMENT transmis aux shadow maps (2026-08) ──────
+				// Les deux champs de biais ci-dessus datent d'une autre
+				// implementation et n'atteignaient JAMAIS les shadow maps
+				// virtuelles : on croyait regler le biais, rien ne bougeait.
+				// Ceux-ci leur sont passes a l'initialisation et se modifient a
+				// chaud.
+				//   slopeBias       : anti-acne fin, en profondeur.
+				//   normalBiasWorld : decale le point le long de sa normale, en
+				//                     UNITES MONDE. C'est LUI qui empeche un objet
+				//                     de projeter son ombre sur lui-meme.
+				//   softness        : rayon du filtre, donc la douceur de la
+				//                     penombre.
+				// Defauts identiques a ceux des shadow maps : rien ne change tant
+				// qu'on n'y touche pas.
+				float32 slopeBias = 0.0005f;
+				float32 normalBiasWorld = 0.05f;
+				float32 softness = 0.003f;
 		};
 
 		struct NkPostConfig {
@@ -177,7 +194,11 @@ namespace nkentseu {
 
 		struct NkIBLConfig {
 				bool enabled = true;
-				float32 iblStrength = 0.3f;	   // [0..1] multiplicateur du terme ambient IBL
+				// AMBIANCE : c'est CETTE valeur qui fait foi. Elle est reappliquee
+				// a l'initialisation et ecrasait donc le defaut pose dans
+				// NkRender3D -- l'ambiance restait a 0.3 malgre le changement. A
+				// 0.3, une scene sans aucune lumiere reste grise et plate.
+				float32 iblStrength = 0.05f;   // [0..1] multiplicateur du terme ambient IBL
 				uint32 irradianceMapSize = 32; // diffuse env (32x32 cubemap suffit)
 				uint32 specularMapSize = 256;  // GGX prefiltered (mips = roughness)
 				uint32 brdfLUTSize = 512;	   // 2D R16G16

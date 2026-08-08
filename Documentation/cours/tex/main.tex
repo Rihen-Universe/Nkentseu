@@ -1,0 +1,40 @@
+% =============================================================================
+% COURS NKENTSEU — NkCanvas & NKGui
+% Compilation : ../build.ps1   (XeLaTeX, deux passes)
+% Le contenu vit dans chapitres/ : ce fichier n'est qu'un assemblage.
+% =============================================================================
+\documentclass[11pt, a4paper, oneside]{book}
+
+\newcommand{\DocDate}{5 août 2026}
+
+\input{preambule}
+
+\begin{document}
+
+\input{garde}
+
+\frontmatter
+\pagestyle{plain}
+\tableofcontents
+\cleardoublepage
+
+\mainmatter
+\pagestyle{fancy}
+
+% Les chapitres se numerotent depuis ZERO : le texte dit « chapitre 0 » a
+% « chapitre 10 », les fichiers aussi -- la numerotation imprimee doit dire
+% la meme chose, sinon chaque renvoi interne serait decale d'un cran.
+\setcounter{chapter}{-1}
+\input{chapitres/00-avant-propos}
+\input{chapitres/01-le-decor}
+\input{chapitres/02-nkcanvas}
+\input{chapitres/03-nkgui}
+\input{chapitres/04-application}
+\input{chapitres/05-nkimage}
+\input{chapitres/06-nkfont}
+\input{chapitres/07-nkaudio}
+\input{chapitres/08-nkmedia}
+\input{chapitres/09-nknetwork}
+\input{chapitres/10-projet-final}
+
+\end{document}

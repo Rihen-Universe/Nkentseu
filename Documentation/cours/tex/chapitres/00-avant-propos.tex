@@ -1,0 +1,522 @@
+\chapter{Avant-propos}
+
+\section{À qui s'adresse ce cours}
+
+Ce cours s'adresse à une personne qui \emph{sait déjà programmer en C++} et qui
+ne connaît \emph{rien} au moteur Nkentseu. C'est une distinction importante :
+nous n'expliquerons pas ce qu'est un pointeur, une référence, une lambda ou un
+constructeur. En revanche, nous expliquerons \emph{tout} du moteur — y compris
+les choses qui paraissent évidentes une fois qu'on les a comprises, et
+particulièrement celles-là, parce que ce sont elles qui font perdre une soirée
+quand personne ne les a écrites.
+
+Ce que vous devez savoir avant d'ouvrir ce document :
+
+\begin{itemize}
+  \item du C++ moderne, niveau C++17 : \texttt{auto}, lambdas, références,
+        \texttt{constexpr}, \texttt{noexcept}, énumérations fortement typées
+        (\texttt{enum class}) ;
+  \item la notion de compilation séparée : en-têtes, unités de traduction,
+        édition de liens ;
+  \item ce qu'est un pointeur non possédant (\emph{non-owning}) par opposition à
+        un pointeur possédant. Ce cours en parlera souvent : le moteur en est
+        rempli et c'est la première source de plantages au démarrage ;
+  \item quelques notions vagues de rendu : un sommet (\emph{vertex}), un
+        triangle, une texture, une matrice de projection. Vous n'avez pas besoin
+        de savoir écrire un \emph{shader} : nous n'en écrirons aucun.
+\end{itemize}
+
+Ce que vous n'avez \emph{pas} besoin de savoir : OpenGL, Vulkan, Direct3D,
+Metal. Tout le cours se tient au-dessus de ces API ; le moteur les cache, et
+c'est précisément son intérêt.
+
+\subsection{Ce que ce cours couvre, et ce qu'il ne couvre pas}
+
+Les cinq premiers chapitres — ceux que vous tenez — forment un parcours complet
+et fermé : à la fin du chapitre~4, vous savez écrire, compiler et lancer une
+application graphique interactive complète avec le moteur. Le parcours est le
+suivant :
+
+\begin{enumerate}
+  \item \textbf{Chapitre~0} (celui-ci) : le dépôt, les règles du projet, la
+        compilation.
+  \item \textbf{Chapitre~1} : la pile logicielle complète, de la fenêtre du
+        système d'exploitation jusqu'aux boutons.
+  \item \textbf{Chapitre~2} : \textbf{NkCanvas}, le moteur de rendu 2D. Comment
+        on dessine des triangles, et ce que le module ne sait \emph{pas} faire.
+  \item \textbf{Chapitre~3} : \textbf{NKGui}, le framework d'interface. C'est le
+        cœur du cours et le chapitre le plus long.
+  \item \textbf{Chapitre~4} : construire une application finie, du fichier de
+        build jusqu'à l'exécutable qui s'affiche.
+\end{enumerate}
+
+Ne sont \emph{pas} couverts ici : le rendu 3D (NKRenderer, NKRHI), l'audio
+(NKAudio), la vidéo (NKMedia), le réseau (NKNetwork), l'intelligence
+artificielle (Kernel/AI). Certains de ces modules font l'objet de chapitres
+ultérieurs de ce même cours.
+
+\begin{nkretenir}[Un avertissement d'honnêteté]
+Ce cours dit aussi ce qui \emph{ne marche pas}. Le moteur est un projet vivant :
+certains backends graphiques sont validés à l'exécution, d'autres non ; certaines
+fonctions déclarées retournent une valeur neutre. Chaque fois que c'est le cas,
+il est écrit noir sur blanc, avec le fichier et la ligne. Un cours qui promet un
+moteur parfait vous ferait perdre plus de temps qu'il ne vous en ferait gagner.
+\end{nkretenir}
+
+\section{Comment lire les exemples}
+
+Tous les blocs de code de ce cours portent leur \textbf{provenance} en titre,
+sous la forme \nkfile{chemin/vers/fichier.cpp:ligne}. Ce n'est pas de la
+coquetterie : cela signifie que vous pouvez ouvrir le fichier et vérifier. Les
+extraits sont pris tels quels dans le dépôt, parfois abrégés (les coupures sont
+signalées par des points de suspension ou un commentaire). Quand un exemple est
+\emph{écrit pour le cours} et n'existe pas tel quel dans le dépôt, c'est dit
+explicitement.
+
+Trois encadrés reviennent régulièrement :
+
+\begin{itemize}
+  \item \textbf{Ce qu'il faut retenir} — la phrase à emporter, si vous ne
+        deviez retenir qu'une chose de la section ;
+  \item \textbf{Le piège} — un comportement qui coûte une soirée. Presque tous
+        ceux de ce cours sont issus de bugs réellement rencontrés dans le dépôt
+        et documentés en commentaire dans les sources ;
+  \item \textbf{Exercice} — à faire, pas à lire.
+\end{itemize}
+
+Le dépôt de référence est \nkfile{D:/Projets/2026/Nkentseu/Nkentseu}. Tous les
+chemins de ce cours sont relatifs à cette racine.
+
+\section{Comment le dépôt est organisé}
+
+Le moteur est découpé en \textbf{modules}. Un module est un dossier autonome
+avec ses sources, son fichier de build (\texttt{.jenga}) et, souvent, sa
+documentation (\texttt{README.md}, \texttt{ARCHITECTURE.md},
+\texttt{ROADMAP.md}, \texttt{USAGE.md}). Les modules sont rangés par
+\textbf{couche}, et le principe fondamental est énoncé dans
+\nkfile{ARCHITECTURE.md} : \emph{chaque couche ne connaît que les couches situées
+en dessous d'elle}.
+
+\subsection{Kernel/Foundation — les briques de base}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Module} & \textbf{Rôle} \\
+\midrule
+\texttt{NKCore}       & Types primitifs (\texttt{int32}, \texttt{float32}, \texttt{usize}\dots), macros, asserts \\
+\texttt{NKMath}       & \texttt{NkVec2/3/4}, \texttt{NkMat4}, \texttt{NkQuat}, \texttt{NkColor}, \texttt{NkRect} \\
+\texttt{NKMemory}     & Allocateurs, \texttt{NkUniquePtr} — \emph{la} porte d'entrée de toute allocation \\
+\texttt{NKContainers} & \texttt{NkVector}, \texttt{NkString}, \texttt{NkHashMap} \\
+\texttt{NKPlatform}   & Détection de plateforme à la compilation, macros \texttt{NKENTSEU\_PLATFORM\_*} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Ces cinq modules n'ont \emph{aucune} dépendance externe. Tout le reste du moteur
+repose dessus.
+
+\subsection{Kernel/System — les services système}
+
+\texttt{NKFileSystem} (chemins, fichiers), \texttt{NKLogger} (journalisation),
+\texttt{NKStream} (lecture/écriture binaire et texte), \texttt{NKThreading}
+(fils d'exécution, mutex, atomiques), \texttt{NKTime} (horloges, \emph{delta
+time}), \texttt{NKNetwork}, \texttt{NKReflection}, \texttt{NKSerialization}.
+
+\subsection{Kernel/Runtime — les modules du moteur}
+
+C'est là que vivent les deux vedettes de ce cours :
+
+\begin{itemize}
+  \item \nkfile{Kernel/Runtime/NKCanvas} — le rendu 2D (chapitre~2) ;
+  \item \nkfile{Kernel/Runtime/NKGui} — le framework d'interface (chapitre~3).
+\end{itemize}
+
+et leurs voisins immédiats : \texttt{NKWindow} (la fenêtre native),
+\texttt{NKEvent} (les événements typés), \texttt{NKFont} (rasterisation de
+polices), \texttt{NKImage} (décodage PNG/JPG/SVG\dots), \texttt{NKRHI}
+(abstraction GPU bas niveau), \texttt{NKRenderer} (rendu 3D), \texttt{NKAudio},
+\texttt{NKMedia}, \texttt{NKSL} (langage de \emph{shaders}), \texttt{NKUI}
+(l'ancien module d'interface, remplacé par NKGui).
+
+\subsection{Engine et Integrations}
+
+\nkfile{Engine/NKEditorKit} est une \emph{coquille} d'application d'édition :
+fenêtre sans décoration, barre de titre maison, docking, palette de commandes,
+préférences. C'est ce qui permet à l'IDE \texttt{NKCode} de n'écrire que ses
+panneaux. Ce cours ne s'en sert pas — nous construirons l'application à la main
+au chapitre~4 — mais il faut savoir qu'il existe, parce que la plupart des
+exemples réels du dépôt passent par lui.
+
+\nkfile{Integrations/NKGui} contient le pont alternatif entre NKGui et NKRHI
+(\texttt{NkGuiRHIBackend}), pour les applications qui font de la 3D. Nous y
+reviendrons au chapitre~1.
+
+\subsection{Applications et Resources}
+
+\nkfile{Applications/} contient toutes les applications et démos, une par
+dossier. Trois nous serviront de référence tout au long du cours :
+
+\begin{itemize}
+  \item \nkfile{Applications/NKGuiDemo} — la démo de référence de NKGui
+        (environ 1\,067 lignes dans un seul \nkfile{main.cpp}). Elle prouve le
+        pipeline complet et couvre presque toute l'API. C'est le fichier à ouvrir
+        à côté de ce cours ;
+  \item \nkfile{Applications/Sandbox/src/DemoNkentseu/NkCanvas/NkCanvasDemo.cpp}
+        — la démo NkCanvas \emph{seul}, sans interface, à laquelle nous
+        consacrerons la fin du chapitre~2 ;
+  \item \nkfile{Applications/NKCode} — l'IDE complet, l'application la plus
+        grosse du dépôt. Elle sert d'étude de cas.
+\end{itemize}
+
+\nkfile{Resources/} contient les données partagées (polices, textures, icônes,
+modèles, shaders). \nkfile{Documentation/} et \nkfile{Guides/} contiennent la
+documentation écrite. \nkfile{Build/} reçoit tout ce que la compilation produit,
+et \nkfile{logs/} les journaux d'exécution.
+
+\begin{nkretenir}
+Le dépôt suit une règle simple : \textbf{un dossier = un module = un fichier
+\texttt{.jenga}}. Pour comprendre ce dont un module dépend, il suffit d'ouvrir
+son \texttt{.jenga} et de lire l'appel à \texttt{nkentseudependson}. Nous le
+ferons souvent : c'est le moyen le plus fiable de savoir qui connaît qui.
+\end{nkretenir}
+
+\section{Les outils de base du moteur}
+
+Avant d'écrire du code Nkentseu, il faut connaître la poignée d'outils
+qu'on retrouve dans chaque fichier du dépôt. Ils viennent tous de
+\nkfile{Kernel/Foundation} et de \nkfile{Kernel/System}, et ils reviendront à
+toutes les pages de ce cours.
+
+\subsection{Les types primitifs}
+
+Le moteur nomme explicitement la taille de ses entiers, dans
+\texttt{NKCore} : \texttt{int8}, \texttt{int16}, \texttt{int32},
+\texttt{int64}, \texttt{uint8}, \texttt{uint16}, \texttt{uint32},
+\texttt{uint64}, \texttt{float32}, \texttt{float64}, et \texttt{usize} pour une
+taille en octets. Ils sont disponibles dans l'espace de noms
+\texttt{nkentseu}. Une largeur de fenêtre est un \texttt{uint32}, une
+coordonnée un \texttt{float32}, un compteur de boucle un \texttt{int32} : on
+lit la taille dans le nom, sans avoir à connaître la plateforme.
+
+\subsection{Chaînes et conteneurs — \texttt{NKContainers}}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Type} & \textbf{Rôle} \\
+\midrule
+\texttt{NkString}     & chaîne de caractères, \texttt{CStr()} donne le \texttt{const char *} \\
+\texttt{NkStringView} & vue non possédante sur une chaîne \\
+\texttt{NkVector<T>}  & tableau dynamique — le conteneur le plus utilisé du moteur \\
+\texttt{NkHashMap}    & table associative \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Les méthodes suivent la convention de nommage du moteur, en
+\texttt{PascalCase} : \texttt{Size()}, \texttt{Data()}, \texttt{PushBack()},
+\texttt{PopBack()}, \texttt{Resize()}, \texttt{Reserve()}, \texttt{Clear()},
+\texttt{Erase()}, \texttt{Begin()}, \texttt{End()}. L'accès indexé s'écrit
+comme partout, avec les crochets. Un parcours typique, tel qu'on en croise des
+centaines dans le dépôt :
+
+\begin{nkcode}{Kernel/Runtime/NKCanvas/src/NKCanvas/UI/NkGuiCanvasBackend.h:122-125 (extrait)}
+mScratch.Resize(dl.vtx.Size());
+for (uint32 i = 0; i < dl.vtx.Size(); ++i) {
+    const nkgui::NkGuiVertex &s = dl.vtx[i];
+    renderer::NkVertex2D &d = mScratch[i];
+\end{nkcode}
+
+\noindent Deux réflexes visibles ici et à reprendre : on dimensionne d'abord
+(\texttt{Resize}), on remplit ensuite ; et on prend une \emph{référence} sur
+l'élément plutôt qu'une copie.
+
+Pour construire une chaîne à partir de valeurs, le moteur fournit
+\texttt{NkPrintf}, qui renvoie une \texttt{NkString} :
+
+\begin{nkcode}{Applications/NKCode/src/NKCode/Editor/NkCodeEditor.h:4585-4586 (extrait)}
+const NkString nb = NkPrintf("%d", i + 1);
+const float32 nw = ctx.font->MeasureWidth(nb.CStr());
+\end{nkcode}
+
+\subsection{Mathématiques — \texttt{NKMath}}
+
+Tout vit dans l'espace de noms \texttt{nkentseu::math} :
+\texttt{NkVec2f}, \texttt{NkVec2i}, \texttt{NkVec2u}, \texttt{NkVec3f},
+\texttt{NkVec4f} pour les vecteurs ; \texttt{NkMat4f} pour les matrices ;
+\texttt{NkQuat} pour les quaternions ; \texttt{NkRect2f}, \texttt{NkRect2i} pour
+les rectangles ; \texttt{NkColor} pour les couleurs ; et les fonctions
+trigonométriques \texttt{NkCos}, \texttt{NkSin}, etc. Les vecteurs se
+construisent en agrégat, ce qui donne un code très compact :
+
+\begin{nkcode}{Applications/Sandbox/src/DemoNkentseu/NkCanvas/NkCanvasDemo.cpp:90-92}
+    math::NkVec2f ball{220.f, 200.f};
+    math::NkVec2f vel{260.f, 215.f}; // pixels / seconde
+    const float32 R = 42.f;
+\end{nkcode}
+
+\subsection{Fichiers et chemins — \texttt{NKFileSystem}}
+
+\texttt{NkPath} manipule les chemins, \texttt{NkFile} lit et écrit. Deux appels
+que ce cours croisera : \texttt{NkPath::GetExecutableDirectory()}, qui donne le
+dossier de l'exécutable, et \texttt{NkFile::ReadAllBytes}, qui charge un fichier
+entier — c'est ainsi que \texttt{NkFont} lit une fonte
+(\nkfile{Kernel/Runtime/NKCanvas/src/NKCanvas/Renderer/Resources/NkFont.cpp:65-81}).
+
+\subsection{Mémoire — \texttt{NKMemory}}
+
+Toute la mémoire du moteur passe par \texttt{NKMemory}, dans l'espace de noms
+\texttt{nkentseu::memory}. Deux outils suffisent pour ce cours :
+
+\begin{itemize}
+  \item \texttt{memory::NkMakeUnique<T>(args\dots)} crée un objet possédé par un
+        \texttt{NkUniquePtr<T>} : il se libère tout seul en fin de portée ;
+  \item \texttt{memory::NkGetDefaultAllocator()} donne l'allocateur par défaut,
+        dont les méthodes \texttt{New<T>(args\dots)} et \texttt{Delete(ptr)}
+        servent quand on gère la durée de vie soi-même.
+\end{itemize}
+
+Il existe aussi des allocateurs spécialisés — linéaire pour les données « par
+image », \emph{pool} pour des objets identiques, arène pour un niveau de jeu —
+détaillés dans \nkfile{Guides/01-NKMemory.md}.
+
+La règle qui va avec, et qui n'admet pas d'exception : \textbf{un objet obtenu
+d'un allocateur se rend au même allocateur}. Le dépôt en porte la cicatrice :
+
+\begin{nkcode}{Kernel/Runtime/NKCanvas/src/NKCanvas/Renderer/Core/NkRenderer2DFactory.cpp:41-46}
+// IMPORTANT : on alloue via l'allocateur NKMemory (NkGetDefaultAllocator)
+// et NON via `new`. Raison : le NkUniquePtr<NkIRenderer2D> (CreateUnique)
+// desalloue via NkDefaultDelete -> ce MEME allocateur (-> _aligned_free).
+// Allouer avec `new` (malloc) puis liberer avec _aligned_free = mismatch
+// d'allocateur -> heap corruption c0000374 au free du renderer (shutdown).
+// cf BugReports/NKCanvas/heap-c0000374-renderer-alloc-mismatch.md.
+\end{nkcode}
+
+\begin{nkpiege}[Le mélange d'allocateurs]
+Rendre à un allocateur un bloc qu'il n'a pas donné produit une
+\textbf{corruption de tas}. Sous Windows, cela se manifeste par un plantage
+\texttt{0xc0000374} — et, ce qui rend le bug diabolique, ce plantage survient
+\emph{à la fermeture de l'application}, très loin de la ligne fautive. Le
+fichier \nkfile{Kernel/Runtime/NKCanvas/src/NKCanvas/Factory/NkContextFactory.h}
+le dit en une ligne (\texttt{:39}) : « RÈGLE : ne JAMAIS faire \texttt{delete}
+(objet alloue par NKMemory) ». Un objet créé par une \emph{factory} du moteur se
+détruit par la méthode \texttt{Destroy} correspondante, et par elle seule.
+\end{nkpiege}
+
+\subsection{Les habitudes à prendre}
+
+Voici la forme que prend tout cela dans le code que vous écrirez au chapitre~4 :
+
+\begin{nkcode}{Applications/NKGuiDemo/src/NKGuiDemo/main.cpp:262-269 (extrait)}
+auto target = memory::NkMakeUnique<NkRenderWindow>(window, desc);
+if (!target || !target->IsValid())
+    return -1;
+
+auto ctxPtr = memory::NkMakeUnique<NkGuiContext>();
+if (!ctxPtr)
+    return -1;
+NkGuiContext &ctx = *ctxPtr;
+\end{nkcode}
+
+Trois habitudes à prendre immédiatement :
+
+\begin{itemize}
+  \item on crée les objets à durée de vie longue avec
+        \texttt{memory::NkMakeUnique<T>} : ils se libèrent seuls, au bon
+        endroit ;
+  \item on teste toujours le résultat. \texttt{NkMakeUnique} peut retourner un
+        pointeur nul ; les constructeurs du moteur ne lancent pas d'exception —
+        ils posent un état « invalide » qu'on interroge par \texttt{IsValid()} ;
+  \item quand un objet est possédé par un \texttt{NkUniquePtr}, on passe partout
+        ailleurs un \emph{pointeur brut non possédant} obtenu par
+        \texttt{.Get()}. Il faut alors garantir la durée de vie à la main.
+        Nous verrons au chapitre~4 que c'est exactement le cas de la police.
+\end{itemize}
+
+\begin{nkretenir}
+\texttt{NkString} et \texttt{NkVector} pour les données, \texttt{math::Nk*} pour
+la géométrie, \texttt{NkFileSystem} pour les fichiers, \texttt{NKMemory} pour la
+mémoire : ce sont les outils du moteur, et ils suffisent. Les noms de méthodes
+sont en \texttt{PascalCase} et les tailles d'entiers sont écrites dans le nom du
+type.
+\end{nkretenir}
+
+\section{Compiler : le système Jenga}
+
+Le moteur n'utilise ni CMake, ni Meson, ni Visual Studio directement. Il utilise
+\textbf{Jenga}, un système de build maison écrit en Python. Chaque module porte
+un fichier \texttt{<NomDuModule>.jenga} qui est, littéralement, un script Python.
+
+\subsection{À quoi ressemble un fichier \texttt{.jenga}}
+
+\begin{nkcode}{Applications/NKGuiDemo/NKGuiDemo.jenga:41-58 (extrait)}
+with project("NKGuiDemo"):
+    windowedapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    files(["src/**.cpp"])
+
+    nkentseudependson(
+        ["NKGui", "NKReflection", "NKCanvas", "NKWindow", "NKEvent", "NKGlad",
+         "NKFont", "NKImage", "NKStream", "NKFileSystem", "NKLogger", "NKMath",
+         "NKTime", "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
+        extra_includes=["src", "src/NKGuiDemo", "%{NKGlad.location}/include"],
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+\end{nkcode}
+
+Les quatre appels à connaître :
+
+\begin{itemize}
+  \item \texttt{project("Nom")} — ouvre la déclaration d'une cible. Le nom est
+        celui qu'on passera à \texttt{-{}-target} ;
+  \item \texttt{windowedapp()} — le type de cible : application fenêtrée. Une
+        bibliothèque déclarerait \texttt{staticlib()} ;
+  \item \texttt{files([...])} — les sources à compiler. Notez le motif
+        \texttt{"src/**.cpp"} : \emph{seuls les \texttt{.cpp}}. Un module
+        entièrement en \texttt{.h} avec des fonctions \texttt{inline} ne compile
+        rien du tout — c'est le cas du pont NKGui\,$\rightarrow$\,NkCanvas, et
+        c'est délibéré (chapitre~1) ;
+  \item \texttt{nkentseudependson([...])} — la liste des modules dont on dépend.
+        C'est \emph{la} ligne à lire pour savoir qui connaît qui.
+\end{itemize}
+
+\subsection{Les deux commandes que vous taperez}
+
+\begin{nkcode}{Commande — à taper depuis la racine du dépôt}
+jenga build --target NKGuiDemo --config Release
+jenga build --target NKGuiDemo --config Debug
+\end{nkcode}
+
+L'exécutable produit atterrit à un emplacement déterminé par le
+\texttt{targetdir} ci-dessus :
+
+\begin{nkcode}{Chemin de l'exécutable produit (Windows)}
+Build\Bin\Release-Windows\NKGuiDemo\NKGuiDemo.exe
+Build\Bin\Debug-Windows\NKGuiDemo\NKGuiDemo.exe
+\end{nkcode}
+
+La configuration \texttt{Debug} garde les symboles et les assertions ;
+\texttt{Release} optimise. Un réflexe du dépôt, énoncé dans les règles de
+travail du projet : quand on livre un lot, on construit \textbf{les deux}
+configurations, parce qu'un bug qui n'existe qu'en \texttt{Release} (ordre
+d'initialisation, dépassement de tampon masqué) est le pire de tous.
+
+\begin{nkpiege}[Lancer depuis la racine du dépôt]
+Beaucoup d'applications du dépôt cherchent leurs ressources par des chemins
+\emph{relatifs au répertoire courant} : \texttt{Resources/Fonts/\dots},
+\texttt{Applications/NKCode/data/textures/\dots}. Lancer l'exécutable depuis son
+propre dossier (\texttt{Build/Bin/\dots}) donne alors une fenêtre sans polices,
+sans icônes, parfois entièrement noire — et \emph{aucun} message d'erreur
+explicite.
+
+La parade adoptée par le dépôt est de chercher dans plusieurs dossiers
+candidats, dont celui de l'exécutable, comme le documente
+\nkfile{Applications/NKCode/src/NKCode/Shell/NkAppFonts.h:18-21} : « Candidats
+RELATIFS AU CWD (dev, lancement depuis la racine du repo) PUIS relatifs à
+l'EXECUTABLE ». Tant que vous êtes en développement : \textbf{lancez depuis la
+racine du dépôt}.
+\end{nkpiege}
+
+\subsection{Où sont les journaux}
+
+Le moteur journalise via \texttt{NKLogger}. La trace d'exécution est écrite dans
+\nkfile{logs/app.log}, \emph{relativement au répertoire courant} — donc, si vous
+lancez depuis la racine, dans \nkfile{logs/app.log} à la racine du dépôt. La
+trace précédente est conservée sous \nkfile{logs/app.prev.log}.
+
+C'est le premier endroit à regarder quand une application se lance et n'affiche
+rien : le choix du backend graphique, les échecs de création de contexte, les
+polices introuvables y sont écrits. Dans votre propre code, la journalisation
+s'écrit ainsi :
+
+\begin{nkcode}{Applications/NKGuiDemo/src/NKGuiDemo/main.cpp:319 et 1055 (extraits)}
+logger.Info("Image chargee : {0}x{1}", imgW, imgH);
+logger.Error("Capture ecran ECHEC ({0})", path);
+\end{nkcode}
+
+\noindent (l'objet global \texttt{logger} vient de \nkfile{NKLogger/NkLog.h} ;
+il existe aussi des variantes \texttt{Infof}/\texttt{Warnf}/\texttt{Errorf} au
+format \texttt{printf}).
+
+\section{Le point d'entrée : \texttt{nkmain}, pas \texttt{main}}
+
+Dernière particularité à connaître avant d'écrire la moindre ligne : le moteur
+fournit lui-même le \texttt{main} natif de chaque plateforme (\texttt{WinMain}
+sous Windows, \texttt{main} ailleurs, un point d'entrée Java/JNI sur Android).
+Votre programme, lui, déclare :
+
+\begin{nkcode}{Applications/Sandbox/src/DemoNkentseu/NkCanvas/NkCanvasDemo.cpp:29-33 et 57}
+NKENTSEU_DEFINE_APP_DATA(([]() {
+    NkAppData d{};
+    d.appName = "NkCanvas Demo";
+    d.appVersion = "1.0.0";
+    return d;
+})());
+
+int nkmain(const NkEntryState &state) {
+\end{nkcode}
+
+Il faut pour cela inclure \nkfile{NKWindow/NKMain.h}. Le paramètre
+\texttt{state} porte notamment les arguments de la ligne de commande, sous forme
+d'un \texttt{NkVector<NkString>} :
+
+\begin{nkcode}{Applications/Sandbox/src/DemoNkentseu/NkCanvas/NkCanvasDemo.cpp:36-40 (extrait)}
+static NkGraphicsApi ParseBackend(const NkVector<NkString> &args) {
+    for (usize i = 1; i < args.Size(); ++i) {
+        const NkString &a = args[i];
+        if (a == "--backend=vulkan" || a == "-bvk")
+            return NkGraphicsApi::NK_GFX_API_VULKAN;
+\end{nkcode}
+
+\begin{nkretenir}
+Trois choses à retenir de ce chapitre, et rien d'autre :
+\begin{enumerate}
+  \item Les outils du moteur : \texttt{NkString}, \texttt{NkVector},
+        \texttt{math::Nk*}, \texttt{NkFileSystem}, et
+        \texttt{memory::NkMakeUnique} pour la mémoire.
+  \item \texttt{jenga build -{}-target <Cible> -{}-config Release} depuis la
+        racine, exécutable dans
+        \texttt{Build/Bin/Release-Windows/<Cible>/<Cible>.exe}, lancé
+        \textbf{depuis la racine}.
+  \item Le point d'entrée s'appelle \texttt{nkmain(const NkEntryState \&)}, et
+        les journaux sont dans \texttt{logs/app.log}.
+\end{enumerate}
+\end{nkretenir}
+
+\section{Exercices}
+
+\begin{nkexo}[1 — Reconnaître la carte]
+Sans compiler quoi que ce soit, ouvrez \nkfile{Kernel/Runtime/NKGui/NKGui.jenga}
+et \nkfile{Kernel/Runtime/NKCanvas/NKCanvas.jenga}. Relevez la liste passée à
+\texttt{nkentseudependson} dans chacun. Question : \textbf{NKGui dépend-il de
+NKCanvas ?} Notez votre réponse ; le chapitre~1 y revient et en tire toute une
+architecture.
+\end{nkexo}
+
+\begin{nkexo}[2 — Le premier build]
+Construisez et lancez la démo de référence :
+\begin{verbatim}
+cd D:\Projets\2026\Nkentseu\Nkentseu
+jenga build --target NKGuiDemo --config Release
+.\Build\Bin\Release-Windows\NKGuiDemo\NKGuiDemo.exe
+\end{verbatim}
+Puis relancez-la depuis \emph{son propre dossier} (\texttt{cd
+Build\textbackslash Bin\textbackslash Release-Windows\textbackslash NKGuiDemo}
+puis \texttt{.\textbackslash NKGuiDemo.exe}) et comparez : qu'est-ce qui change à
+l'écran ? Ouvrez ensuite \nkfile{logs/app.log} et retrouvez la ligne qui indique
+le backend graphique retenu.
+\end{nkexo}
+
+\begin{nkexo}[3 — Chasse aux allocations]
+Cherchez dans \nkfile{Kernel/Runtime/NKCanvas/src/} toutes les occurrences de
+\texttt{NkGetDefaultAllocator}. Pour chacune, identifiez qui libère l'objet et
+par quel appel. Vous devriez tomber sur le destructeur du pont NKGui, que le
+chapitre~1 détaille :
+\nkfile{Kernel/Runtime/NKCanvas/src/NKCanvas/UI/NkGuiCanvasBackend.h:24-32}.
+\end{nkexo}

@@ -1,0 +1,908 @@
+\chapter{NKNetwork : faire parler deux machines}
+
+Le réseau est le dernier des cinq modules, et le plus abstrait : rien ne
+s'affiche, rien ne s'entend, et quand ça ne marche pas, il n'y a souvent aucun
+message. C'est aussi celui où le périmètre honnête est le plus important à
+poser, parce que le module contient beaucoup de code que \emph{rien} dans le
+dépôt n'utilise.
+
+\section{Où il vit, et ce dont il a besoin}
+
+Première singularité : contrairement aux quatre autres, NKNetwork n'est pas dans
+\nkfile{Kernel/Runtime} mais dans \nkfile{Kernel/System}. C'est un service
+système, au même titre que le système de fichiers ou les fils d'exécution.
+
+\begin{nkcode}{Kernel/System/NKNetwork/ — arborescence}
+NKNetwork/
+  NKNetwork.jenga · ROADMAP.md
+  tests/.jenga/                 <- DOSSIER VIDE (voir plus bas)
+  src/NKNetwork/
+    NKNetwork.h                  <- en-tete PARAPLUIE + alias de commodite
+    Core/NkNetDefines.h/.cpp     <- types, enums, constantes
+    Transport/
+      NkSocket.h/.cpp            <- socket UDP/TCP brut
+      NkReliableUDP.h/.cpp       <- ACK, retransmit, fenetre (usage INTERNE)
+    Protocol/
+      NkBitStream.h/.cpp         <- NkBitWriter / NkBitReader
+      NkConnection.h/.cpp        <- NkConnection + NkConnectionManager
+    Replication/NkNetWorld.h/.cpp
+    RPC/NkRPC.h/.cpp
+    Lobby/NkLobby.h/.cpp
+    HTTP/NkHTTPClient.h/.cpp
+\end{nkcode}
+
+Tout vit dans le \emph{namespace} \texttt{nkentseu::net}.
+
+\begin{nkcode}{Kernel/System/NKNetwork/NKNetwork.jenga:27-42 (abrégé)}
+_NET_DEPS = ["NKCore", "NKPlatform", "NKMemory", "NKContainers", "NKLogger", "NKThreading", "NKMath", "NKTime", "NKFileSystem"]
+_NET_INCLUDES = ["src", "pch"]
+_NET_DEFINES = []
+if _WANT_MBEDTLS:
+    _NET_DEPS.append("NKMbedTLS")
+    _NET_INCLUDES.append("%{wks.location}/Externals/Libs/NKMbedTLS/include")
+    _NET_DEFINES.append("NKENTSEU_HTTP_USE_MBEDTLS")
+\end{nkcode}
+
+\begin{nkpiege}[Il faut lier \texttt{ws2\_32} sous Windows]
+Le module utilise les sockets Berkeley, qui s'appellent Winsock sous Windows.
+Votre \emph{application} doit donc ajouter la bibliothèque à son édition de
+liens — le module ne le fait pas pour vous. Les deux consommateurs du dépôt le
+font :
+\nkfile{Applications/NkNetWorldDemo/NkNetWorldDemo.jenga:35-40} et
+\nkfile{Sandbox/System/NKNetwork/NKNetworkSandbox.jenga:74-78} ajoutent tous deux
+\texttt{"ws2\_32"} à leur \texttt{links()}.
+
+L'oubli se manifeste par des erreurs d'édition de liens sur des symboles
+\texttt{\_\_imp\_socket}, \texttt{\_\_imp\_WSAStartup}\dots{} — obscures si on ne
+sait pas d'où elles viennent, évidentes ensuite.
+\end{nkpiege}
+
+\subsection{Deux avertissements sur la documentation du module}
+
+\begin{nkpiege}[La description du \texttt{.jenga} parle d'un autre module]
+\nkfile{Kernel/System/NKNetwork/NKNetwork.jenga:3-15} décrit « un système de
+réflexion runtime » avec les fichiers \texttt{NkType}, \texttt{NkClass},
+\texttt{NkProperty}, \texttt{NkMethod}, \texttt{NkRegistry}. C'est la description
+de \textbf{NKReflection}, copiée par erreur. Aucun de ces fichiers n'existe dans
+NKNetwork.
+\end{nkpiege}
+
+\begin{nkpiege}[Le dossier \texttt{tests/} est vide]
+\nkfile{Kernel/System/NKNetwork/tests/} ne contient qu'un sous-dossier vide. Le
+glob \texttt{testfiles(["tests/**.cpp"])} de \nkfile{NKNetwork.jenga:92-95} ne
+correspond à aucun fichier : le bloc \texttt{with test():} est un squelette mort.
+
+De plus, il n'existe \textbf{aucune} fonction \texttt{SelfTest()} dans tout le
+module — là où NKMedia en compte 52 et NKAudio 2.
+
+Cela ne veut pas dire que le module n'est pas testé : le test existe, mais c'est
+une application séparée, et la feuille de route le dit :
+
+\begin{nkcode}{Kernel/System/NKNetwork/ROADMAP.md:131-138}
+ ### Tests (2026-07-12)
+ - `Sandbox/System/NKNetwork` (cible `SandboxNKNetwork`) : **67 checks verts** —
+   NkBitStream round-trip + overflow, NkNetId Pack/Unpack, NkNetInterpolator,
+   réplication client/serveur sur messages forgés, **bout-en-bout loopback réel**
+   (StartServer + Connect 127.0.0.1, handshake, snapshot → spawn → delta →
+   despawn). Mode manuel `--https <url>` pour valider TLS.
+\end{nkcode}
+
+Attention au chemin : ce sandbox est dans \nkfile{Sandbox/System/NKNetwork/} — à
+la racine du dépôt — et \textbf{pas} dans \nkfile{Applications/Sandbox/}. Ses
+binaires sont bâtis en Debug et en Release.
+\end{nkpiege}
+
+\section{Le périmètre de ce chapitre}
+
+\begin{nkretenir}[Ce que nous enseignons, et pourquoi]
+\textbf{Enseigné} — parce que du code du dépôt l'exerce réellement :
+\begin{itemize}
+  \item \texttt{NkSocket} (initialisation de plateforme, et UDP brut pour la
+        découverte réseau) ;
+  \item \texttt{NkAddress} ;
+  \item \texttt{NkConnectionManager} — la classe centrale ;
+  \item \texttt{NkBitWriter} / \texttt{NkBitReader} ;
+  \item \texttt{NkNetWorld} — la réplication d'entités.
+\end{itemize}
+
+\textbf{Non enseigné} — parce qu'\emph{aucune} application du dépôt ne s'en
+sert :
+\begin{itemize}
+  \item \texttt{NkLobby}, \texttt{NkSession}, \texttt{NkMatchmaker},
+        \texttt{NkDiscovery} — 67~Ko d'en-tête sans un seul consommateur ;
+  \item \texttt{NkRPC} / \texttt{NkRPCRouter} — la feuille de route le classe
+        « livré (déclaratif) », ce qui n'est pas la même chose que « prouvé » ;
+  \item \texttt{NkReliableUDP} en usage direct : il n'est employé qu'en interne
+        par \texttt{NkConnection}.
+\end{itemize}
+
+Ce n'est pas un jugement sur la qualité de ce code. C'est une règle de prudence :
+un cours ne doit enseigner que ce qu'il peut montrer en train de fonctionner.
+\end{nkretenir}
+
+Sont également absents, d'après \nkfile{ROADMAP.md:32-40} : la prédiction client
+et la réconciliation serveur, le relais des entités à autorité client, les
+transports WebSocket et WebRTC, la compression des instantanés, le chiffrement
+DTLS, et la traversée de NAT (STUN/TURN/ICE).
+
+\section{Le socle : la plateforme}
+
+\begin{nkcode}{Kernel/System/NKNetwork/src/NKNetwork/Transport/NkSocket.h:746-753}
+static NkNetResult PlatformInit() noexcept;
+static void PlatformShutdown() noexcept;
+\end{nkcode}
+
+Sous Windows, \texttt{PlatformInit} appelle \texttt{WSAStartup}. Sous les autres
+systèmes, il ne fait presque rien — mais il faut l'appeler quand même, sinon
+votre code ne sera pas portable. La feuille de route est catégorique :
+« \texttt{PlatformInit()} \textbf{requis avant usage} » (\nkfile{ROADMAP.md:52-54}).
+
+\begin{nkcode}{Applications/Pong/src/Pong/Net/NetworkSession.cpp:28-40}
+        void NetworkSession::PlatformInit() {
+            const auto r = net::NkSocket::PlatformInit();
+            if (r != net::NkNetResult::NK_NET_OK) {
+                logger.Error("[Net] PlatformInit failed: {0}", (int)r);
+            } else {
+                logger.Info("[Net] PlatformInit OK");
+            }
+        }
+
+        void NetworkSession::PlatformShutdown() {
+            net::NkSocket::PlatformShutdown();
+            logger.Info("[Net] PlatformShutdown");
+        }
+\end{nkcode}
+
+\subsection{Les codes de retour}
+
+\begin{nkcode}{Kernel/System/NKNetwork/src/NKNetwork/Core/NkNetDefines.h:268-291}
+enum class NkNetResult : uint8 {
+    NK_NET_OK = 0, NK_NET_INVALID_ARG, NK_NET_NOT_CONNECTED, NK_NET_ALREADY_CONNECTED,
+    NK_NET_CONNECTION_REFUSED, NK_NET_TIMEOUT, NK_NET_PACKET_TOO_LARGE, NK_NET_SOCKET_ERROR,
+    NK_NET_BUFFER_FULL, NK_NET_NOT_INITIALIZED, NK_NET_PLATFORM_UNSUPPORTED,
+    NK_NET_AUTH_FAILED, NK_NET_BANNED, NK_NET_UNKNOWN
+};
+inline const char* NkNetResultStr(NkNetResult r) noexcept;   // -> texte lisible
+\end{nkcode}
+
+\texttt{NkNetResultStr} existe : utilisez-le dans vos journaux plutôt que
+d'imprimer un entier. Un « erreur réseau 6 » ne vous dira rien dans six mois.
+
+\subsection{Les adresses}
+
+\begin{nkcode}{Kernel/System/NKNetwork/src/NKNetwork/Transport/NkSocket.h:172-353}
+class NkAddress {
+        NkAddress(const char* ip, uint16 port);
+        static NkAddress Loopback(uint16 port, Family f = Family::NK_IP_V4) noexcept;
+        static NkAddress Any(uint16 port, Family f = Family::NK_IP_V4) noexcept;
+        static NkAddress Broadcast(uint16 port) noexcept;
+        bool IsValid() const noexcept;
+        NkString ToString() const noexcept;
+};
+\end{nkcode}
+
+Trois fabriques nommées, à comprendre une fois pour toutes :
+
+\begin{itemize}
+  \item \texttt{Loopback(port)} — 127.0.0.1, la machine locale. Pour tester ;
+  \item \texttt{Any(port)} — « toutes mes interfaces réseau ». C'est ce à quoi un
+        serveur se lie. \texttt{Any(0)} laisse même le système choisir le port ;
+  \item \texttt{Broadcast(port)} — 255.255.255.255, tout le réseau local.
+\end{itemize}
+
+\begin{nkpiege}[Toujours valider une adresse saisie]
+\texttt{NkAddress("192.168.1.20", 7777)} \emph{analyse} la chaîne. Si
+l'utilisateur a tapé n'importe quoi, l'adresse est invalide et
+\texttt{Connect} échouera de façon obscure. Pong teste systématiquement avant
+(\nkfile{Applications/Pong/src/Pong/Net/NetworkSession.cpp:122-129}) et affiche
+un message utile.
+\end{nkpiege}
+
+\section{\texttt{NkConnectionManager} : la classe du chapitre}
+
+C'est par elle que tout passe. Elle fait tenir, derrière une API courte, un
+protocole UDP fiable complet : poignée de main, accusés de réception,
+retransmissions, canaux, déconnexion gracieuse.
+
+\begin{nkcode}{Kernel/System/NKNetwork/src/NKNetwork/Protocol/NkConnection.h:733-790 (abrégé)}
+class NkConnectionManager {
+        NkConnectionManager() noexcept = default;
+        ~NkConnectionManager() noexcept;                              // (Shutdown auto)
+        NkConnectionManager(const NkConnectionManager&) = delete;     // NON COPIABLE
+
+        NkNetResult StartServer(uint16 port, uint32 maxClients = 64) noexcept;
+        NkNetResult Connect(const NkAddress& serverAddr, uint16 localPort = 0) noexcept;
+        void Shutdown() noexcept;
+
+        NkNetResult SendTo(NkPeerId peer, const uint8* data, uint32 size, NkNetChannel ch) noexcept;
+        NkNetResult Broadcast(const uint8* data, uint32 size, NkNetChannel ch) noexcept;
+        void DrainAll(NkVector<NkReceiveMsg>& out) noexcept;
+        void Disconnect(NkPeerId peer, const char* reason = nullptr) noexcept;
+        void DisconnectAll(const char* reason = nullptr) noexcept;
+        bool IsServer() const noexcept;   bool IsRunning() const noexcept;
+        uint32 ConnectedPeerCount() const noexcept;
+        bool GetConnectionStats(NkPeerId peer, NkConnectionStats& outStats) const noexcept;
+
+        /* NkFunction */ onPeerConnected;      ///< (NkPeerId)
+        /* NkFunction */ onPeerDisconnected;   ///< (NkPeerId, const char* reason)
+        uint32 maxConnections = kNkMaxConnections;
+};
+\end{nkcode}
+
+\subsection{Trois invariants de fil d'exécution}
+
+Tout le reste du chapitre découle de ces trois faits.
+
+\paragraph{1. \texttt{StartServer} et \texttt{Connect} lancent un fil.}
+
+\begin{nkcode}{Kernel/System/NKNetwork/src/NKNetwork/Protocol/NkConnection.h:762-788}
+ @note Crée un socket UDP et le lie à l'adresse Any(port).
+ @note Démarre le thread réseau interne pour polling automatique.
+ [...]
+ @note Envoie une déconnexion gracieuse à tous les pairs connectés.
+ @note Attend la fin du thread réseau avant retour (join).
+\end{nkcode}
+
+Vous n'avez donc pas à interroger le réseau vous-même : un fil le fait en
+permanence, et \texttt{Shutdown()} l'attend proprement.
+
+\paragraph{2. Les \emph{callbacks} s'exécutent sur ce fil.}
+
+\texttt{onPeerConnected} et \texttt{onPeerDisconnected} ne sont \textbf{pas}
+appelés depuis votre boucle principale. N'y faites rien de lourd : pas de
+création d'objets de jeu, pas de manipulation de l'interface, pas d'allocation.
+Pong s'y limite à un incrément atomique
+(\nkfile{Applications/Pong/src/Pong/Net/NetworkSession.cpp:60-63}).
+
+\paragraph{3. La poignée de main est asynchrone.}
+
+\texttt{Connect()} renvoie \texttt{NK\_NET\_OK} \emph{avant} que la connexion
+soit établie. Ce code de retour signifie « la demande est partie », pas « je suis
+connecté ». Le seul test valable est de surveiller
+\texttt{ConnectedPeerCount()} dans une boucle bornée.
+
+\subsection{Le bout-en-bout, tel qu'il est testé}
+
+\begin{nkcode}{Sandbox/System/NKNetwork/src/main.cpp:313-334}
+    void TestLoopback() {
+        NK_CHECK(NkSocket::PlatformInit() == NkNetResult::NK_NET_OK);
+
+        constexpr uint16 kPort = 48213;
+
+        NkConnectionManager server;
+        NK_CHECK(server.StartServer(kPort, 8) == NkNetResult::NK_NET_OK);
+
+        NkConnectionManager client;
+        NK_CHECK(client.Connect(NkAddress("127.0.0.1", kPort)) == NkNetResult::NK_NET_OK);
+
+        // Attente de l'établissement de la connexion (handshake 3-way).
+        bool connected = false;
+        for (int i = 0; i < 500; ++i) {
+            if (server.ConnectedPeerCount() >= 1 && client.ConnectedPeerCount() >= 1) {
+                connected = true;
+                break;
+            }
+            NkChrono::SleepMilliseconds(static_cast<int64>(10));
+        }
+        NK_CHECK(connected);
+\end{nkcode}
+
+Cinq cents itérations de dix millisecondes : cinq secondes au maximum. La boucle
+est \textbf{bornée} — un test qui attend indéfiniment n'est pas un test. Et on
+vérifie les \emph{deux} côtés : le serveur voit un pair, le client aussi.
+
+\subsection{On ne reçoit pas, on draine}
+
+\begin{nkcode}{Kernel/System/NKNetwork/src/NKNetwork/Protocol/NkConnection.h:229-235}
+struct NkReceiveMsg {
+        uint8 data[kNkMaxPayloadSize] = {};   ///< buffer INLINE (1380 octets), pas un pointeur
+        uint32 size = 0;
+        NkPeerId from;
+        NkNetChannel channel = NkNetChannel::NK_NET_CHANNEL_UNRELIABLE;
+        NkTimestampMs receivedAt = 0;
+};
+\end{nkcode}
+
+Le fil réseau accumule les messages ; votre boucle les récupère d'un coup :
+
+\begin{nkcode}{Sandbox/System/NKNetwork/src/main.cpp:397-410}
+        bool applied = false;
+        NkVector<NkReceiveMsg> msgs;
+        for (int i = 0; i < 500 && !applied; ++i) {
+            serverWorld.Update(0.02f);
+            msgs.Clear();
+            client.DrainAll(msgs);
+            for (usize m = 0; m < msgs.Size(); ++m) {
+                (void)clientWorld.HandleMessage(msgs[m]);
+            }
+            applied = spawned && clientPawn.x == 12.5f && clientPawn.y == -7.25f;
+            NkChrono::SleepMilliseconds(static_cast<int64>(10));
+        }
+\end{nkcode}
+
+\begin{nkpiege}[\texttt{msgs.Clear()} avant chaque \texttt{DrainAll}]
+\texttt{DrainAll} \emph{ajoute} à votre conteneur. Sans le \texttt{Clear()},
+vous retraiterez les anciens messages à chaque tour, indéfiniment.
+
+Et il y a une seconde raison de vider ce conteneur : \texttt{NkReceiveMsg}
+contient un tampon \textbf{en ligne} de 1\,380 octets, pas un pointeur. Un
+\texttt{NkVector<NkReceiveMsg>} de cent éléments pèse 138~Ko. Ne le copiez
+jamais inutilement, et videz-le entre deux images.
+\end{nkpiege}
+
+Corollaire de ce tampon fixe : \textbf{un message ne peut pas dépasser
+1\,380 octets}. Au-delà, \texttt{SendTo} renvoie
+\texttt{NK\_NET\_PACKET\_TOO\_LARGE}.
+
+\begin{nkcode}{Kernel/System/NKNetwork/src/NKNetwork/Core/NkNetDefines.h:145-175}
+static constexpr uint32 kNkMaxConnections  = 256u;
+static constexpr uint32 kNkMaxPacketSize   = 1400u;  // taille MTU-safe
+static constexpr uint32 kNkMaxPayloadSize  = 1380u;
+static constexpr uint32 kNkMaxChannels     = 8u;
+static constexpr uint32 kNkMaxRetransmits  = 5u;
+static constexpr uint32 kNkMaxFragments    = 16u;
+\end{nkcode}
+
+Ces 1\,400 octets ne sont pas arbitraires : c'est la taille sous laquelle un
+datagramme traverse Internet sans être fragmenté par les routeurs. La
+fragmentation IP est la première cause de pertes silencieuses.
+
+\begin{nkpiege}[Tester \texttt{msg.data} avant de le déréférencer]
+Le dépôt contient deux copies presque identiques du même fichier, et leur
+\textbf{seule} différence est instructive :
+\nkfile{Applications/Pong/src/Pong/Net/NetworkSession.cpp:253} déréférence
+\texttt{msg.data[0]} sans garde ; la copie corrigée ajoute
+\texttt{\&\& msg.data != nullptr}. Enseignons la version corrigée.
+\end{nkpiege}
+
+\section{Choisir son canal}
+
+C'est la décision de conception la plus importante du module, et le fichier de
+définitions la documente mieux que n'importe quel manuel :
+
+\begin{nkcode}{Kernel/System/NKNetwork/src/NKNetwork/Core/NkNetDefines.h:505-525}
+enum class NkNetChannel : uint8 {
+    NK_NET_CHANNEL_UNRELIABLE = 0,       ///< UDP pur — positions, inputs, animations
+    NK_NET_CHANNEL_RELIABLE_ORDERED,     ///< TCP-like — chat, événements gameplay
+    NK_NET_CHANNEL_RELIABLE_UNORDERED,   ///< livraison garantie, ordre libre
+    NK_NET_CHANNEL_SEQUENCED,            ///< seul le plus récent est livré
+    NK_NET_CHANNEL_SYSTEM                ///< RÉSERVÉ AU MOTEUR — ne pas utiliser
+};
+\end{nkcode}
+
+Le raisonnement à tenir est le suivant : \textbf{une donnée qui sera de toute
+façon remplacée dans 16 millisecondes ne mérite pas d'être retransmise}. La
+position d'un joueur perdue en route est sans importance — la suivante arrive.
+En revanche, un message de chat perdu est perdu pour toujours.
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Vous envoyez} & \textbf{Canal} \\
+\midrule
+Position, entrées, animation & \texttt{UNRELIABLE} \\
+Chat, événements de jeu, commandes critiques & \texttt{RELIABLE\_ORDERED} \\
+Fichiers, gros blocs où l'ordre importe peu & \texttt{RELIABLE\_UNORDERED} \\
+États continus (points de vie, énergie) & \texttt{SEQUENCED} \\
+Rien du tout & \texttt{SYSTEM} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Le canal \texttt{SYSTEM} est réservé au moteur — « usage interne uniquement,
+comportement non défini si utilisé ». Ce n'est pas une suggestion.
+
+Pong choisit son canal par un simple booléen, ce qui est le bon niveau
+d'abstraction pour une application :
+
+\begin{nkcode}{Applications/Pong/src/Pong/Net/NetworkSession.cpp:234-243}
+        bool NetworkSession::Broadcast(const uint8 *data, uint32 size, uint8 reliable) {
+            if (mConnMgr == nullptr)
+                return false;
+            if (mState.load() != NetworkState::Connected)
+                return false;
+            const auto ch = reliable ? net::NkNetChannel::NK_NET_CHANNEL_RELIABLE_ORDERED
+                                     : net::NkNetChannel::NK_NET_CHANNEL_UNRELIABLE;
+            const auto r = mConnMgr->Broadcast(data, size, ch);
+            return r == net::NkNetResult::NK_NET_OK;
+        }
+\end{nkcode}
+
+Dans le jeu, l'entrée du joueur et l'instantané d'état partent en non fiable
+(\nkfile{GameplayScene.cpp:705} et \texttt{:849}), tandis que la pause, le but
+marqué et la demande de revanche partent en fiable (\texttt{:227}, \texttt{:293},
+\texttt{:309}).
+
+\section{\texttt{NkBitStream} : ne pas gaspiller le réseau}
+
+Avec 1\,380 octets par message, chaque bit compte. C'est là qu'intervient la
+partie la plus élégante du module.
+
+\begin{nkcode}{Kernel/System/NKNetwork/src/NKNetwork/Protocol/NkBitStream.h:165-352 (abrégé)}
+void WriteBool(bool) ;  WriteU8/U16/U32/U64 ;  WriteI8/I16/I32 ;  WriteF32
+void WriteF32Q(float32 v, float32 minV, float32 maxV, float32 prec) noexcept;    // quantifie
+void WriteInt(int32 v, int32 minV, int32 maxV) noexcept;                         // borne
+void WriteVec3f(const NkVec3f&) ;  WriteVec3fQ(v, minV, maxV, prec) ;  WriteQuatf(const NkQuatf&);
+void WriteString(const char* s, uint32 maxLen = 256) noexcept;
+void WriteBytes(const uint8* data, uint32 size) noexcept;
+void WriteBits(uint32 v, uint32 numBits) noexcept;
+void AlignToByte() noexcept;
+bool IsOverflowed() const noexcept;
+usize BytesWritten() const;
+\end{nkcode}
+
+Les méthodes de lecture sont exactement symétriques (\texttt{ReadBool},
+\texttt{ReadU8}, \texttt{ReadF32Q}, \texttt{ReadInt}\dots).
+
+\subsection{L'argument : la quantification}
+
+Un \texttt{float} coûte 32 bits. Mais si vous savez qu'un score est entre 0 et
+999, il tient sur 10 bits. Et si une position est entre $-100$ et $+100$ au
+centimètre près, elle tient sur environ 15 bits au lieu de 32.
+
+\begin{nkcode}{Exemple écrit pour le cours (API : NkBitStream.h:237, 252)}
+#include "NKNetwork/Protocol/NkBitStream.h"
+
+uint8 buf[256];
+net::NkBitWriter w(buf, sizeof(buf));
+w.WriteU8(kMonTypeDeMessage);
+w.WriteInt(scoreJoueur, 0, 999);              // 10 bits au lieu de 32
+w.WriteF32Q(posX, -100.f, 100.f, 0.01f);      // quantifie, ~15 bits
+w.AlignToByte();
+if (!w.IsOverflowed())
+    client.SendTo(peer, buf, (uint32)w.BytesWritten(),
+                  net::NkNetChannel::NK_NET_CHANNEL_RELIABLE_ORDERED);
+\end{nkcode}
+
+\begin{nkpiege}[Écriture et lecture doivent être des miroirs exacts]
+\begin{nkcode}{Exemple écrit pour le cours (API : NkBitStream.h:455-635)}
+net::NkBitReader r(m.data, m.size);
+const uint8  type  = r.ReadU8();
+const int32  score = r.ReadInt(0, 999);                    // MEMES bornes
+const float32 x    = r.ReadF32Q(-100.f, 100.f, 0.01f);     // MEMES bornes, MEME precision
+if (r.IsOverflowed()) { /* message tronque : jeter */ }
+\end{nkcode}
+
+Un flux de bits n'est pas auto-descriptif : il n'y a ni noms de champs, ni
+balises. Si le lecteur écrit \texttt{ReadInt(0, 9999)} là où l'écrivain a écrit
+\texttt{WriteInt(0, 999)}, il ne lira pas le bon nombre de bits, et
+\textbf{tout ce qui suit sera décalé}. Les symptômes sont absurdes : une position
+correcte suivie d'un identifiant aberrant.
+
+Deux disciplines s'imposent. D'abord, écrire les deux fonctions
+\emph{côte à côte}, dans le même fichier, immédiatement l'une après l'autre.
+Ensuite, tester systématiquement \texttt{IsOverflowed()} des deux côtés : c'est
+la seule détection d'erreur dont vous disposez.
+\end{nkpiege}
+
+Le \emph{round-trip} de test est le meilleur exercice du module, parce qu'il ne
+demande aucun réseau :
+
+\begin{nkcode}{Sandbox/System/NKNetwork/src/main.cpp:47-89 (abrégé)}
+    void TestBitStream() {
+        uint8 buffer[256];
+        NkBitWriter writer(buffer, sizeof(buffer));
+
+        writer.WriteBool(true);
+        writer.WriteU8(0xAB);
+        writer.WriteU16(0x1234);
+        writer.WriteU32(0xDEADBEEF);
+        writer.WriteU64(0x0123456789ABCDEFull);
+        writer.WriteI32(-42);
+        writer.WriteF32(3.5f);
+        writer.WriteBits(5u, 3);
+        writer.AlignToByte();
+        const uint8 raw[4] = {1, 2, 3, 4};
+        writer.WriteBytes(raw, 4);
+        NK_CHECK(!writer.IsOverflowed());
+
+        NkBitReader reader(buffer, writer.BytesWritten());
+        NK_CHECK(reader.ReadBool() == true);
+        NK_CHECK(reader.ReadU8() == 0xAB);
+        /* ... symetrique ... */
+        NK_CHECK(!reader.IsOverflowed());
+
+        // Overflow en ecriture comme en lecture.
+        uint8 tiny[2];
+        NkBitWriter tinyWriter(tiny, sizeof(tiny));
+        tinyWriter.WriteU32(0xFFFFFFFFu);
+        NK_CHECK(tinyWriter.IsOverflowed());
+    }
+\end{nkcode}
+
+\section{\texttt{NkNetWorld} : répliquer des entités}
+
+Envoyer des octets, c'est bien. Synchroniser l'état d'un monde, c'est le vrai
+sujet. \texttt{NkNetWorld} fournit la mécanique.
+
+\begin{nkcode}{Kernel/System/NKNetwork/src/NKNetwork/Replication/NkNetWorld.h:128-515 (abrégé)}
+struct NkNetEntity {
+        NkNetId netId;  uint32 prefabId;  void* user;
+        WriteStateFn writeState;   ///< serialise l'etat — appele cote AUTORITE
+        ReadStateFn  readState;    ///< applique un etat recu — cote replique
+};
+
+class NkNetWorld {
+        struct Config { float32 tickRate; uint32 keyframeInterval; /* ... */ };
+        void Init(NkConnectionManager* mgr, bool isServer, Config cfg = {}) noexcept;
+        NkNetId AllocateNetId() noexcept;
+        bool RegisterEntity(const NkNetEntity& desc) noexcept;
+        bool UnregisterEntity(NkNetId netId, bool notifyPeers = true) noexcept;
+        NkNetEntity* FindEntity(NkNetId netId) noexcept;
+        uint32 EntityCount() const noexcept;
+        void Update(float32 dt) noexcept;
+        bool HandleMessage(const NkReceiveMsg& msg) noexcept;
+        uint32 CurrentTick() const noexcept;
+        void DrainInputs(NkPeerId peer, NkVector<NkNetInput>& out) noexcept;
+        SpawnCb   onEntitySpawn;      ///< (NkNetId, uint32 prefabId, NkPeerId owner)
+        DespawnCb onEntityDespawn;    ///< (NkNetId)
+};
+\end{nkcode}
+
+Le modèle tient en trois phrases :
+
+\begin{nkcode}{Kernel/System/NKNetwork/src/NKNetwork/Replication/NkNetWorld.h:20-22}
+ HandleMessage(). Entité inconnue → callback onEntitySpawn (l'application
+ crée son objet et l'enregistre) ; état reçu → readState ; destruction →
+ onEntityDespawn. Les inputs locaux remontent via SendInput().
+\end{nkcode}
+
+Côté serveur — l'autorité — on décrit comment sérialiser :
+
+\begin{nkcode}{Sandbox/System/NKNetwork/src/main.cpp:349-361}
+        NkNetEntity desc;
+        desc.netId = serverWorld.AllocateNetId();
+        desc.prefabId = 99;
+        desc.user = &serverPawn;
+        desc.writeState = [](void *user, NkBitWriter &w) {
+            TestPawn *p = static_cast<TestPawn *>(user);
+            w.WriteF32(p->x);
+            w.WriteF32(p->y);
+        };
+        NK_CHECK(serverWorld.RegisterEntity(desc));
+\end{nkcode}
+
+Côté client — la réplique — on réagit à l'apparition d'une entité inconnue :
+
+\begin{nkcode}{Sandbox/System/NKNetwork/src/main.cpp:171-203 (abrégé)}
+        world.onEntitySpawn = [&](NkNetId netId, uint32 prefabId, NkPeerId /*owner*/) {
+            spawnedPrefab = prefabId;
+            NkNetEntity desc;
+            desc.netId = netId;
+            desc.prefabId = prefabId;
+            desc.user = &pawn;
+            desc.readState = [](void *user, NkBitReader &r) {
+                TestPawn *p = static_cast<TestPawn *>(user);
+                p->x = r.ReadF32();
+                p->y = r.ReadF32();
+            };
+            world.RegisterEntity(desc);
+        };
+\end{nkcode}
+
+Le \texttt{prefabId} est votre code de type : « ceci est un joueur », « ceci est
+un projectile ». C'est à vous de décider ce que chaque numéro signifie et de
+créer l'objet correspondant.
+
+\begin{nkretenir}[Les deux règles des fonctions d'état]
+\textbf{\texttt{writeState} doit être déterministe} : « deux appels sur le même
+état doivent produire les mêmes octets »
+(\nkfile{Replication/NkNetWorld.h:124-126}). Sinon le calcul de différences
+envoie des mises à jour perpétuelles pour un état qui n'a pas bougé.
+
+\textbf{Écrivez des lambdas, pas des pointeurs de fonction nus.} Le pont ECS du
+moteur le documente
+(\nkfile{Engine/Noge/src/Noge/ECS/Replication/NkNetWorld.cpp:132-138}) : un
+pointeur de fonction brut résout mal la surcharge du type de rappel.
+\end{nkretenir}
+
+\section{Le socket brut : la découverte sur le réseau local}
+
+Il reste un cas où l'on descend sous \texttt{NkConnectionManager} : annoncer un
+serveur pour que les autres machines le trouvent sans qu'on ait à taper une
+adresse IP.
+
+\begin{nkcode}{Kernel/System/NKNetwork/src/NKNetwork/Transport/NkSocket.h:504-715 (abrégé)}
+class NkSocket {
+        enum class Type : uint8 { NK_UDP, NK_TCP /* ... */ };
+        NkNetResult Create(const NkAddress& localAddr, Type type = Type::NK_UDP) noexcept;
+        void Close() noexcept;
+        NkNetResult SetNonBlocking(bool v) noexcept;
+        NkNetResult SetBroadcast(bool v) noexcept;
+        NkNetResult SendTo(const void* data, uint32 size, const NkAddress& to) noexcept;
+        NkNetResult RecvFrom(void* buf, uint32 bufSize, uint32& outSize, NkAddress& outFrom) noexcept;
+        bool IsValid() const noexcept;
+};
+\end{nkcode}
+
+Le socket qui émet la balise :
+
+\begin{nkcode}{Applications/Pong/src/Pong/Net/NetworkDiscovery.cpp:44-63 (abrégé)}
+            mBeaconSock = new net::NkSocket();
+            // Bind sur une socket UDP IPv4 quelconque (port 0 = laisse l'OS choisir),
+            // on n'a besoin que d'envoyer. SetBroadcast active SO_BROADCAST
+            // necessaire pour pouvoir SendTo vers 255.255.255.255.
+            const auto rc = mBeaconSock->Create(net::NkAddress::Any(0), net::NkSocket::Type::NK_UDP);
+            if (rc != net::NkNetResult::NK_NET_OK) { /* ... */ return false; }
+            (void)mBeaconSock->SetNonBlocking(true);
+            const auto rb = mBeaconSock->SetBroadcast(true);
+            if (rb != net::NkNetResult::NK_NET_OK) { /* ... */ return false; }
+\end{nkcode}
+
+et celui qui écoute, lié au port de balise sur toutes les interfaces :
+
+\begin{nkcode}{Applications/Pong/src/Pong/Net/NetworkDiscovery.cpp:84-96 (abrégé)}
+            mScanSock = new net::NkSocket();
+            // Bind sur kBeaconPort, INADDR_ANY : on reçoit les broadcasts
+            // emis vers 255.255.255.255:kBeaconPort par d'autres machines du LAN.
+            const auto rc = mScanSock->Create(net::NkAddress::Any(kBeaconPort), net::NkSocket::Type::NK_UDP);
+            /* ... */
+            (void)mScanSock->SetNonBlocking(true);
+            (void)mScanSock->SetBroadcast(true);
+\end{nkcode}
+
+\begin{nkpiege}[Sans \texttt{SetBroadcast(true)}, l'émission échoue]
+Le système d'exploitation refuse par défaut d'envoyer vers une adresse de
+diffusion — c'est une protection. Il faut l'autoriser explicitement, des deux
+côtés. C'est l'oubli numéro un de la découverte réseau.
+\end{nkpiege}
+
+Le \emph{tick}, avec ses deux garde-fous :
+
+\begin{nkcode}{Applications/Pong/src/Pong/Net/NetworkDiscovery.cpp:115-160 (abrégé)}
+            if (mBeaconSock != nullptr) {
+                mBeaconTimer -= dt;
+                if (mBeaconTimer <= 0.0f) {
+                    const auto dst = net::NkAddress::Broadcast(kBeaconPort);
+                    const auto rs = mBeaconSock->SendTo(&mBeaconPkt, sizeof(mBeaconPkt), dst);
+                    mBeaconTimer = kBeaconIntervalSec;
+                }
+            }
+            if (mScanSock != nullptr) {
+                // Boucle : on lit tant qu'il y a des datagrammes pendants.
+                // En non-bloquant, RecvFrom OK avec outSize=0 = rien a lire.
+                constexpr int kMaxPerTick = 32;
+                for (int i = 0; i < kMaxPerTick; ++i) {
+                    uint8 buf[256];
+                    uint32 received = 0;
+                    net::NkAddress from;
+                    const auto rr = mScanSock->RecvFrom(buf, sizeof(buf), received, from);
+                    if (rr != net::NkNetResult::NK_NET_OK) break;
+                    if (received == 0) break;
+                    /* filtre magic + version, puis UpdateHost(pkt, from) */
+                }
+            }
+\end{nkcode}
+
+Deux points à retenir :
+
+\begin{enumerate}
+  \item \textbf{en mode non bloquant, un \texttt{RecvFrom} qui réussit avec
+        \texttt{outSize == 0} signifie « rien à lire »}, pas « erreur ». C'est
+        la condition d'arrêt normale de la boucle ;
+  \item \textbf{la boucle est bornée} à 32 datagrammes par image. Sur un réseau
+        chargé — ou face à un émetteur mal réglé — une boucle non bornée
+        monopoliserait la frame.
+\end{enumerate}
+
+Notez enfin le filtrage « magic + version » : un port UDP reçoit tout ce que
+n'importe qui envoie. Toujours vérifier une signature avant d'interpréter.
+
+\section{HTTP, et pourquoi HTTPS échoue}
+
+\begin{nkcode}{Kernel/System/NKNetwork/src/NKNetwork/HTTP/NkHTTPClient.h:383-717 (abrégé)}
+struct NkHTTPResponse {
+        uint32 statusCode = 0;
+        NkString body;
+        NkString error;
+        bool IsOK() const noexcept;
+};
+class NkHTTPClient {
+        NkHTTPResponse Get(const char* url) noexcept;
+        NkHTTPResponse Post(const char* url, const char* json) noexcept;
+};
+\end{nkcode}
+
+\begin{nkpiege}[HTTPS est désactivé par défaut]
+Le support TLS est optionnel, activé par une variable d'environnement au moment
+de la construction :
+
+\begin{nkcode}{Kernel/System/NKNetwork/NKNetwork.jenga:21-25}
+# TLS/HTTPS opt-in : NK_ENABLE_TLS=1 (ou mbedtls) active le backend mbed-TLS
+# (bibliotheque NKMbedTLS, C pur, cross-compilee pour toutes les plateformes y
+# compris iOS). Desactive par defaut -> HTTP simple uniquement, aucune dependance.
+_TLS_OPT = os.getenv("NK_ENABLE_TLS", "").strip().lower()
+_WANT_MBEDTLS = _TLS_OPT in ("1", "true", "on", "yes", "mbedtls")
+\end{nkcode}
+
+Sans cette variable, toute URL en \texttt{https://} échoue — proprement, au
+moins :
+
+\begin{nkcode}{Kernel/System/NKNetwork/src/NKNetwork/HTTP/NkHTTPClient.cpp:1050}
+            response.error = "HTTPS not compiled in (rebuild with NK_ENABLE_TLS=1)";
+\end{nkcode}
+
+Et si vous activez TLS, votre application doit lier \texttt{NKMbedTLS} en plus,
+comme le fait le sandbox. Pour ce cours, tenons-nous-en à \texttt{http://}.
+\end{nkpiege}
+
+Le mode de test manuel du sandbox montre l'usage complet :
+
+\begin{nkcode}{Sandbox/System/NKNetwork/src/main.cpp:441-451 (abrégé)}
+int main(int argc, char **argv) {
+    // Mode HTTPS manuel : SandboxNKNetwork --https <url>
+    // Nécessite un build avec NK_ENABLE_TLS=1 (backend mbedTLS), sinon le
+    // client renvoie proprement "HTTPS not compiled in".
+    if (argc >= 3 && NkString(argv[1]) == NkString("--https")) {
+        NkHTTPClient http;
+        const NkHTTPResponse resp = http.Get(argv[2]);
+        /* ... affichage de resp.statusCode, resp.body.Length(), resp.error.CStr() ... */
+        return (resp.statusCode >= 200 && resp.statusCode < 400) ? 0 : 1;
+    }
+\end{nkcode}
+
+\section{Comment structurer une application en réseau}
+
+Vous avez maintenant toutes les briques. Reste la question d'architecture, et
+Pong y répond de la façon qu'il faut copier.
+
+\begin{enumerate}
+  \item \textbf{Une classe de session} possède le \texttt{NkConnectionManager} et
+        n'expose que des verbes simples :
+        \texttt{StartHost}, \texttt{StartJoin}, \texttt{Broadcast},
+        \texttt{DrainReceived}, \texttt{Shutdown}, plus un état atomique
+        (\texttt{Idle} / \texttt{Hosting} / \texttt{Connected})
+        (\nkfile{Applications/Pong/src/Pong/Net/NetworkSession.h}) ;
+  \item \textbf{un \texttt{Tick(dt)}} appelé une fois par image draine le fil
+        réseau et met à jour cet état :
+
+\begin{nkcode}{Applications/Pong/src/Pong/Game/PongApp.cpp:162-169}
+            // Tick reseau (drain interne du thread reseau). Aucun cout si
+            // la session est Idle.
+            mNetwork.Tick(dt);
+            // Tick decouverte LAN : emet beacon (host) + drain scan (client).
+            mDiscovery.Tick(dt);
+\end{nkcode}
+
+  \item \textbf{les écrans d'interface lisent l'état, jamais le manager.} Aucune
+        scène de Pong ne touche au \texttt{NkConnectionManager} : elles appellent
+        \texttt{DrainReceived} et consultent \texttt{NetworkState}.
+\end{enumerate}
+
+Le routage des messages se fait dans la session, par type, avec la garde qui
+manquait :
+
+\begin{nkcode}{Applications/Pong/src/Pong/Net/NetworkSession.cpp:245-260 (abrégé)}
+        void NetworkSession::DrainInternal() {
+            if (mConnMgr == nullptr)
+                return;
+            // Drain brut depuis NkConnectionManager.
+            NkVector<net::NkReceiveMsg> all;
+            mConnMgr->DrainAll(all);
+            for (uint32 i = 0; i < all.Size(); ++i) {
+                const auto &msg = all[i];
+                if (msg.size >= sizeof(netproto::PktHello) && msg.data[0] == netproto::kMsgHello) {
+                    netproto::PktHello pkt;
+                    /* ... recopie des sizeof(pkt) octets de msg.data dans pkt ... */
+                    continue;
+                }
+                // Message non-interne : reserve pour le caller via DrainReceived.
+                mPendingForUser.PushBack(msg);
+            }
+        }
+\end{nkcode}
+
+Notez le test \texttt{msg.size >= sizeof(...)} \emph{avant} de lire le contenu :
+un pair malveillant, ou simplement une version différente de votre programme,
+peut envoyer n'importe quoi.
+
+\begin{nkretenir}[Le découpage à retenir]
+\textbf{Le réseau vit sur son fil ; la session fait tampon ; l'interface ne voit
+qu'un état et une file de messages.} Aucune scène, aucun widget ne doit connaître
+\texttt{NkConnectionManager}. C'est ce qui rend le jeu testable sans réseau et le
+réseau modifiable sans toucher au jeu.
+\end{nkretenir}
+
+\section{L'ordre de fermeture}
+
+\begin{nkcode}{Sandbox/System/NKNetwork/src/main.cpp:430-433}
+        client.Shutdown();
+        server.Shutdown();
+        NkSocket::PlatformShutdown();
+\end{nkcode}
+
+et, avec une couche de réplication au-dessus :
+
+\begin{nkcode}{Applications/NkNetWorldDemo/src/main.cpp:205-211}
+    serverNet.Shutdown();
+    clientNet.Shutdown();
+    client.Shutdown();
+    server.Shutdown();
+    net::NkSocket::PlatformShutdown();
+\end{nkcode}
+
+La règle est celle des poupées russes : \textbf{on éteint du plus haut vers le
+plus bas}. Les systèmes de réplication d'abord, puis les gestionnaires de
+connexion — qui joignent leur fil réseau —, puis la plateforme. Inverser
+reviendrait à fermer Winsock pendant qu'un fil s'en sert encore.
+
+\begin{nkpiege}[N'incluez pas l'en-tête parapluie dans une application ECS]
+Voici le piège le plus coûteux du module, documenté deux fois dans le dépôt :
+
+\begin{nkcode}{Applications/NkNetWorldDemo/src/main.cpp:20-37}
+// PAS l'umbrella NKNetwork/NKNetwork.h : il injecte des alias de commodité
+// dans `nkentseu` (dont `using NkNetSystem = net::NkNetSystem;` et
+// `using NkNetEntity = net::NkNetEntity;`) qui entrent en collision directe
+// avec l'adaptateur ECS de Noge (`nkentseu::NkNetSystem`, composant
+// `nkentseu::ecs::NkNetEntity`). On inclut donc uniquement les en-têtes
+// précis nécessaires.
+#include "Noge/ECS/Replication/NkNetWorld.h"
+#include "NKECS/World/NkWorld.h"
+#include "NKNetwork/Transport/NkSocket.h"
+#include "NKTime/NkChrono.h"
+#include "NKLogger/NkLog.h"
+
+using namespace nkentseu;
+using namespace nkentseu::ecs;
+// PAS de `using namespace nkentseu::net;` : net::NkNetEntity (descripteur de
+// réplication NKNetwork) et ecs::NkNetEntity (composant ECS) partagent le
+// même nom -- même piège que Noge/ECS/Replication/NkNetWorld.cpp.
+\end{nkcode}
+
+C'est l'exception à la règle générale du moteur — « incluez toujours l'en-tête
+parapluie » du chapitre~1. Ici, l'en-tête parapluie injecte des alias dans le
+\emph{namespace} global du moteur, et deux types différents portent le même nom.
+Incluez les en-têtes précis, et n'ouvrez pas le \emph{namespace}
+\texttt{nkentseu::net} en grand.
+\end{nkpiege}
+
+\section{Exercices}
+
+\begin{nkexo}[1 — Le flux de bits, sans réseau]
+Écrivez un programme console qui sérialise une petite structure de jeu — un
+identifiant, un score entre 0 et 999, deux coordonnées entre $-100$ et $+100$ au
+centimètre, un booléen — puis la relit et vérifie l'égalité champ par champ.
+
+Affichez \texttt{BytesWritten()}. Comparez avec ce que coûterait la même
+structure en écriture brute (\texttt{WriteU32}, \texttt{WriteF32}). Puis
+introduisez volontairement une erreur : lisez le score avec les bornes
+\texttt{(0, 9999)}. Observez que ce n'est pas seulement le score qui devient
+faux, mais tout ce qui suit.
+\end{nkexo}
+
+\begin{nkexo}[2 — Serveur et client dans le même programme]
+Reproduisez \texttt{TestLoopback} : dans un seul \texttt{main}, démarrez un
+serveur sur 127.0.0.1, connectez un client, attendez la poignée de main dans une
+boucle bornée, échangez trois messages sur trois canaux différents, puis fermez
+dans le bon ordre.
+
+Ajoutez de la journalisation dans \texttt{onPeerConnected} — et regardez sur quel
+fil elle s'exécute. Puis, volontairement, supprimez la boucle d'attente et
+envoyez immédiatement après \texttt{Connect()}. Que se passe-t-il, et pourquoi ?
+\end{nkexo}
+
+\begin{nkexo}[3 — Un chat dans votre interface]
+Ajoutez à votre application NKGui deux boutons « Héberger » et « Rejoindre », un
+\texttt{InputText} pour l'adresse, un second pour le message, et une liste des
+messages reçus.
+
+Respectez l'architecture de Pong : une petite classe de session qui possède le
+manager, un \texttt{Tick(dt)} appelé une fois par image, et une interface qui ne
+voit qu'un état et une file. Utilisez \texttt{RELIABLE\_ORDERED} — un message de
+chat perdu ne se rattrape pas.
+
+Testez avec deux instances de votre programme sur la même machine, puis, si vous
+le pouvez, sur deux machines du même réseau.
+\end{nkexo}
+
+\begin{nkexo}[4 — Mesurer ce que coûte la fiabilité]
+Reprenez l'exercice 2 et envoyez mille messages, une fois en
+\texttt{UNRELIABLE}, une fois en \texttt{RELIABLE\_ORDERED}, en comptant ceux qui
+arrivent et en chronométrant.
+
+Sur une boucle locale, vous ne perdrez probablement rien : les deux chiffres
+seront identiques. C'est un résultat en soi — \textbf{tester le réseau sur
+127.0.0.1 ne teste pas le réseau}. Consultez ensuite
+\texttt{GetConnectionStats} et voyez ce que le module sait vous dire du temps
+d'aller-retour et des pertes.
+\end{nkexo}

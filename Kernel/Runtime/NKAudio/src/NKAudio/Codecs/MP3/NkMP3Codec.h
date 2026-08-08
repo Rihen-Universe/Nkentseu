@@ -3,7 +3,7 @@
  * @File    NkMP3Codec.h
  * @Brief   Decodeur MP3 (MPEG-1/2 Layer 3) from scratch, sans dependance.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  *
  * @Reference
  *  ISO/IEC 11172-3 (MPEG-1 audio), ISO/IEC 13818-3 (MPEG-2 audio).

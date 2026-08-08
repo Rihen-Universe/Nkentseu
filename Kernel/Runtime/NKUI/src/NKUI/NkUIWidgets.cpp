@@ -2,7 +2,7 @@
 // @File    NkUIWidgets.cpp
 // @Brief   Implémentation de tous les widgets NkUI.
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 
 /*

@@ -4,7 +4,7 @@
  * @Brief   Système de texte enrichi pour NkUI — support des styles, couleurs,
  *          polices multiples et coloration syntaxique.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  *
  * @Design
  *  NkRichText permet de créer des textes stylisés avec:

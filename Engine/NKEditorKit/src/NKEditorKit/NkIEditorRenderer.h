@@ -2,7 +2,7 @@
 // -----------------------------------------------------------------------------
 // @File    NkIEditorRenderer.h
 // @Brief   Interface du backend de RENDU de la coquille d'editeur.
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // NkEditorShell delegue TOUT le rendu (creation du contexte GPU, frame, soumission
 // des draw-lists NKGui, upload des atlas de police/images) a un NkIEditorRenderer.

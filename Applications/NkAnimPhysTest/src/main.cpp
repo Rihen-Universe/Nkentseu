@@ -10,6 +10,7 @@
 #include "NKRenderer/Tools/Animation/NkAutoPose.h"
 #include "NKRenderer/Tools/Animation/NkMotionPath.h"
 #include "NKRenderer/Tools/Animation/NkPhysAnimBridge.h"
+#include "NKRenderer/Tools/Animation/NkAnimRetarget.h"
 #include "NKRenderer/Tools/Director/NkRoleContext.h"
 #include "NKAudio/NkAudioCapture.h"
 #include "NKAudio/NkDenoiser.h"
@@ -73,6 +74,11 @@ int main() {
 	// NKAudio — débruitage + normalisation (soustraction spectrale + gate + auto-gain).
 	Report("NKAudio NkDenoiser", "soustraction spectrale (plancher bruit chute), sinus survit, normalisation",
 		   audio::NkDenoiser::SelfTest(), nbOk, nbTotal);
+
+	// M2 — RECIBLAGE d'animation entre squelettes (brique explicitement notee
+	// « reellement non commencee » dans la roadmap NkAnima).
+	Report("M2 NkAnimRetarget", "appariement par nom, delta au repos, os non etires, racine a l'echelle",
+		   renderer::NkAnimRetarget::SelfTest(), nbOk, nbTotal);
 
 	printf("\n=== Resultat : %d/%d suites OK ===\n", nbOk, nbTotal);
 	return (nbOk == nbTotal) ? 0 : 1;

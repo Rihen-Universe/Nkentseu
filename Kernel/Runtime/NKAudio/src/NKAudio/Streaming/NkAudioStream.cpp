@@ -2,7 +2,7 @@
  * @File    NkAudioStream.cpp
  * @Brief   Implementations IAudioStream : WavStream, MemoryStream + factory.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  */
 
 #include "NKAudio/Streaming/NkAudioStream.h"

@@ -95,11 +95,16 @@ namespace nkentseu {
 				/// @note Gère gracieusement le shutdown via flag mShutdown.
 				void WorkerLoop(void *userData);
 
+				/// @brief Execute une tache immediatement sur le thread appelant.
+				/// @note Mode degrade uniquement (aucun worker demarre).
+				void RunInline(Task &task);
+
 				// -------------------------------------------------------------
 				// MEMBRES PRIVÉS (état interne du pool)
 				// -------------------------------------------------------------
 
 				nk_uint32 mNumWorkers;				///< Nombre de threads workers configurés
+				nk_uint32 mLiveWorkers;				///< Workers réellement démarrés (0 = mode inline)
 				NkVector<NkThread> mWorkers;		///< Collection des threads workers actifs
 				NkQueue<Task> mQueue;				///< Queue FIFO des tâches en attente
 				nk_bool mShutdown;					///< Flag d'arrêt gracieux
@@ -130,8 +135,8 @@ namespace nkentseu {
 		// -----------------------------------------------------------------
 		NkThreadPoolImpl::NkThreadPoolImpl(nk_uint32 numWorkers)
 			: mNumWorkers(numWorkers > 0 ? numWorkers : static_cast<nk_uint32>(platform::NkGetLogicalCoreCount())),
-			  mWorkers(), mQueue(), mShutdown(false), mTasksCompleted(0u), mActiveWorkers(0u), mMutex(),
-			  mWorkAvailable(), mIdle() {
+			  mLiveWorkers(0u), mWorkers(), mQueue(), mShutdown(false), mTasksCompleted(0u), mActiveWorkers(0u),
+			  mMutex(), mWorkAvailable(), mIdle() {
 			// Fallback de sécurité : au moins 1 worker même si détection échoue
 			if (mNumWorkers == 0u) {
 				mNumWorkers = 1u;
@@ -146,6 +151,35 @@ namespace nkentseu {
 				// mWorkers.PushBack(traits::NkMove(worker));
 				mWorkers.EmplaceBack([this, i](void *userData) { WorkerLoop(userData); });
 			}
+
+			// Comptage des workers REELLEMENT demarres.
+			// NkThread::Start() est noexcept : si la primitive systeme echoue, le
+			// thread reste non-joinable. Cas normal sur plateforme mono-thread :
+			// WebAssembly/Emscripten compile SANS -pthread lie
+			// library_pthread_stub.c, ou pthread_create() renvoie ENOTSUP. Sans ce
+			// comptage la queue n'aurait aucun consommateur et Join() bouclerait
+			// indefiniment (le stub pthread_cond_wait() rend la main aussitot),
+			// bloquant totalement le thread principal.
+			for (nk_size i = 0u; i < mWorkers.Size(); ++i) {
+				if (mWorkers[i].Joinable()) {
+					++mLiveWorkers;
+				}
+			}
+		}
+
+		// -----------------------------------------------------------------
+		// Methode privee : RunInline (execution synchrone d'une tache)
+		// -----------------------------------------------------------------
+		// Utilisee uniquement en mode degrade (mLiveWorkers == 0). La tache
+		// est executee HORS mutex : elle peut legitimement en soumettre
+		// d'autres, qui seront elles aussi executees inline.
+		// -----------------------------------------------------------------
+		void NkThreadPoolImpl::RunInline(Task &task) {
+			if (task) {
+				task();
+			}
+			NkScopedLockMutex lock(mMutex);
+			++mTasksCompleted;
 		}
 
 		// -----------------------------------------------------------------
@@ -186,6 +220,20 @@ namespace nkentseu {
 				return;
 			}
 
+			// Mode degrade : aucun worker n'a pu demarrer (plateforme mono-thread).
+			// La tache est executee tout de suite sur le thread appelant, sinon
+			// elle ne serait jamais consommee.
+			if (mLiveWorkers == 0u) {
+				{
+					NkScopedLockMutex lock(mMutex);
+					if (mShutdown) {
+						return;
+					}
+				}
+				RunInline(task);
+				return;
+			}
+
 			NkScopedLockMutex lock(mMutex);
 			if (mShutdown) {
 				return;
@@ -212,6 +260,25 @@ namespace nkentseu {
 		//   - Toutes les tâches soumises avant l'appel ont été exécutées
 		// -----------------------------------------------------------------
 		void NkThreadPoolImpl::Join() {
+			// Mode degrade : pas de worker pour vider la queue et pas de
+			// condition variable fonctionnelle => on draine ici, sur le thread
+			// appelant. Filet de securite : en pratique Enqueue() a deja tout
+			// execute inline, cette boucle sort donc immediatement.
+			if (mLiveWorkers == 0u) {
+				for (;;) {
+					Task task;
+					{
+						NkScopedLockMutex lock(mMutex);
+						if (mQueue.Empty()) {
+							return;
+						}
+						task = traits::NkMove(mQueue.Front());
+						mQueue.Pop();
+					}
+					RunInline(task);
+				}
+			}
+
 			NkScopedLockMutex lock(mMutex);
 			while (!mQueue.Empty() || mActiveWorkers > 0u) {
 				mIdle.Wait(lock);

@@ -4,7 +4,7 @@
 // @Brief   Table de raccourcis CONFIGURABLE : la liaison touche -> commande vit
 //          en donnee, jamais en dur dans le code.
 // @Author  Rihen
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // PROBLEME RESOLU
 //   Les raccourcis de l'editeur de modelisation sont aujourd'hui ecrits en dur,

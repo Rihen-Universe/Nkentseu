@@ -891,6 +891,14 @@ namespace nkentseu {
 		return mData.mHwnd && IsZoomed(mData.mHwnd) != 0;
 	}
 
+	bool NkWindow::IsMinimized() const {
+		// Une fenetre REDUITE n'a plus de surface de rendu utile, mais Windows
+		// lui laisse un rect de placeholder (~160x28) : tester la taille ne
+		// detecte donc JAMAIS la minimisation. C'est ce rect qui partait en
+		// ResizeSwapchain et tuait NK3DModeler a la restauration (defaut 4.3).
+		return mData.mHwnd && IsIconic(mData.mHwnd) != 0;
+	}
+
 	void NkWindow::BeginDragMove() {
 		// Hand-off natif : l'OS prend la main sur le deplacement (snap Aero inclus).
 		// Indispensable pour une barre de titre custom (fenetre sans bordure).

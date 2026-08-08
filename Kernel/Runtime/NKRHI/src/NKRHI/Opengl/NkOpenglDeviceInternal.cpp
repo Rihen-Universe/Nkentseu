@@ -144,10 +144,17 @@ namespace nkentseu {
 			glDisable(GL_POLYGON_OFFSET_FILL);
 		}
 
+#if defined(NK_OPENGL_ES)
+		// GL_MULTISAMPLE n'existe pas en OpenGL ES/WebGL2 (le MSAA y est un etat
+		// du framebuffer, pas une capability) : glDisable(0x809D) leve
+		// GL_INVALID_ENUM ("disable: invalid capability", constate en boucle sur
+		// Web). On ignore, comme GL_DEPTH_CLAMP ci-dessus.
+#else
 		if (rs.multisampleEnable)
 			glEnable(GL_MULTISAMPLE);
 		else
 			glDisable(GL_MULTISAMPLE);
+#endif
 
 		// ── Depth / Stencil ───────────────────────────────────────────────────────
 		auto toGLCmp = [](NkCompareOp op) -> GLenum {

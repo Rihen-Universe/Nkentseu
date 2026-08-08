@@ -6,7 +6,7 @@
  *          longs films/videos (un film de 2h en AAC stereo 44100 decode entier =
  *          ~2,5 Go de float32 -> inacceptable pour une lecture RAM d'un coup).
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  *
  * @Architecture
  *  A l'ouverture : NkMediaDemux extrait la LISTE des paquets (offset+taille dans le
