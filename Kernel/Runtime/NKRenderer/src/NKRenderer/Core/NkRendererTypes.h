@@ -341,20 +341,6 @@ namespace nkentseu {
 				float32 outerAngle = 35.f; // degres (cone exterieur — fade to 0)
 				float32 areaWidth = 1.f;
 				float32 areaHeight = 1.f;
-				// ── LOI D'ATTENUATION, PAR LUMIERE ───────────────────────────
-				// Faux = comportement historique, inchange : attenuation lineaire
-				// fenetree elevee au carre. Son defaut se sent a l'usage -- changer
-				// la PORTEE change la luminosite PARTOUT, pas seulement la distance
-				// atteinte : allonger une lampe l'eclaircit sur toute sa zone.
-				//
-				// Vrai = inverse du carre fenetre, la loi physique : la luminosite a
-				// une distance donnee ne depend plus de la portee, qui ne fait que
-				// couper. C'est ce qui rend une unite d'intensite utilisable.
-				//
-				// PAR LUMIERE et non global (meme choix qu'Unreal) : une lampe reglee
-				// a la main et un soleil physique coexistent dans la meme scene. Faux
-				// par defaut pour qu'AUCUNE scene deja reglee ne change d'aspect.
-				bool inverseSquareFalloff = false;
 				// ── Temperature de couleur et exposition (2026-08) ────────────
 				// Deux reglages qu'attend tout eclairagiste, et qui manquaient :
 				//   temperatureK : blanc de reference en kelvins (1000..12000).
