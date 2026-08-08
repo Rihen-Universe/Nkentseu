@@ -516,13 +516,27 @@ namespace nkentseu {
 				// deja ecrite plus bas dans ce fichier pour la ligne de debogage, qui
 				// emploie -64 pour cette raison exacte.
 				pd.rasterizer.depthBiasConst = -64.f;
-				// La PENTE est un flottant reel et porte l'essentiel : l'acne nait
-				// sur les faces vues en biais par la lumiere, la ou un texel couvre
-				// une grande variation de profondeur.
-				pd.rasterizer.depthBiasSlope = -2.f;
-				// BORNER : une face vue par la tranche a un gradient enorme, et le
-				// multiplier projetterait la profondeur hors de toute plage utile.
-				pd.rasterizer.depthBiasClamp = -0.002f;
+				// ── LA PENTE ET SA BORNE VONT ENSEMBLE ──────────────────────────
+				// La pente porte l'essentiel : l'acne nait sur les faces vues EN
+				// BIAIS par la lumiere, la ou un texel couvre une grande variation
+				// de profondeur -- et ce terme est proportionnel a ce gradient,
+				// donc nul sur une face de face et fort sur une face rasante. C'est
+				// le seul levier qui s'adapte tout seul.
+				//
+				// MAIS LA BORNE LE PLAFONNE. Avec -0.002, D3D limite le biais total
+				// a 0,2 % de la plage de profondeur : sur une face presque parallele
+				// a la lumiere -- exactement le cas ou l'acne est la plus marquee --
+				// le terme de pente etait ECRETE bien avant d'agir. Monter la pente
+				// sans desserrer la borne n'aurait donc RIEN change : les deux se
+				// reglent ensemble ou pas du tout.
+				//
+				// -4 et -0.02 : quatre fois le gradient, plafonne a 2 % de la plage.
+				// Le plafond reste indispensable -- une face vue par la tranche a un
+				// gradient qui tend vers l'infini, et sans lui sa profondeur sortirait
+				// de toute plage utile (le caster disparaitrait de l'atlas, donc son
+				// ombre avec).
+				pd.rasterizer.depthBiasSlope = -4.f;
+				pd.rasterizer.depthBiasClamp = -0.02f;
 				pd.blend = NkBlendDesc::Opaque();
 				pd.debugName = "Shadow_DepthOnly";
 				// Range push_constant ALL_GRAPHICS : permet aux appelants qui
