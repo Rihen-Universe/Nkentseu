@@ -67,17 +67,6 @@ uniform LightsUBO {
     vec4 angles[32];
     int  count;
     int  _pad[3];
-    // ── AJOUTE APRES `count`, ET C'EST VOULU ────────────────────────────────
-    // Une dizaine de shaders declarent ce bloc (Cloth, Hair, Foliage, CarPaint,
-    // Toon, Anime, Layered...). L'inserer AVANT `count` aurait decale ce champ
-    // pour tous ceux qui ne sont pas mis a jour : ils auraient lu un nombre de
-    // lumieres aberrant, et la scene serait devenue noire ou folle. Range en
-    // FIN, les blocs qui l'ignorent restent exacts -- ils ne voient simplement
-    // pas le champ.
-    //   .x = largeur de la surfacique   .y = hauteur
-    //   .z = loi d'attenuation (0 = lineaire fenetree au carre, 1 = inverse carre)
-    //   .w = libre
-    vec4 params[32];
 } uLights;
 
 struct NkShadowSlot {
@@ -311,11 +300,6 @@ void main() {
         int   lt  = int(uLights.positions[i].w);
         vec3  L;
         float att = 1.0;
-        // Rugosite EFFECTIVE de CETTE lumiere : celle du materiau, sauf pour une
-        // surfacique dont la taille etale le reflet (cf. plus bas). Declaree ici
-        // parce que le speculaire est calcule APRES le bloc par type -- une
-        // variable posee dans ce bloc y serait morte.
-        float rogA = rog;
 
         if (lt == 0) {
             L   = normalize(-uLights.directions[i].xyz);
@@ -334,21 +318,8 @@ void main() {
             vec3 d = uLights.positions[i].xyz - vWorldPos;
             float dist = length(d);
             L   = normalize(d);
-            float rng = max(uLights.directions[i].w, 0.001);
-            // ── DEUX LOIS D'ATTENUATION, AU CHOIX DE LA LUMIERE ─────────────
-            // Historique (params.z = 0) : lineaire fenetree, au carre. Elle a un
-            // defaut sensible -- changer la PORTEE change la luminosite PARTOUT,
-            // pas seulement la distance atteinte.
-            // Physique (params.z = 1) : inverse du carre, FENETRE pour mourir
-            // exactement a la portee. La luminosite a une distance donnee ne
-            // depend plus de la portee ; le 1 au denominateur borne l'explosion
-            // au ras de la source, ou 1/d^2 partirait a l'infini.
-            float win = max(1.0 - dist / rng, 0.0);
-            if (uLights.params[i].z > 0.5) {
-                att = (win * win) / (1.0 + dist * dist);
-            } else {
-                att = win * win;
-            }
+            att = max(1.0 - dist / max(uLights.directions[i].w, 0.001), 0.0);
+            att = att * att;
             if (lt == 1) {
                 int cookieIdx = int(uLights.angles[i].w);
                 if (cookieIdx >= 0) {
@@ -393,25 +364,12 @@ void main() {
                 // le panneau. Le cosinus donne en prime l'attenuation d'un emetteur
                 // lambertien : c'est le comportement d'une SURFACE, pas d'un point.
                 //
+                // V1 assume : les DIMENSIONS (areaWidth / areaHeight) ne sont pas
+                // encore transmises au GPU -- le bloc de lumieres n'a plus de champ
+                // libre. La forme de la penombre et l'etalement du reflet
+                // speculaire viendront avec (LTC).
                 vec3 fwdA = normalize(uLights.directions[i].xyz);
                 att *= max(dot(fwdA, -L), 0.0);
-                // ── LES DIMENSIONS AGISSENT ENFIN ───────────────────────────
-                // Elles sont maintenant dans le bloc (params.xy). Ce qu'on en fait
-                // ici, et ce qu'on n'en fait pas encore, doit etre dit :
-                //
-                // FAIT -- l'ETALEMENT du reflet. Un panneau n'est pas un point : son
-                // reflet s'etale d'autant plus qu'il est grand et qu'il est proche.
-                // On elargit donc la rugosite EFFECTIVE de sa taille angulaire
-                // (approximation du « point representatif », Karis/UE4). C'est le
-                // changement qu'on VOIT immediatement en tirant sur la largeur : le
-                // point brillant devient une plage.
-                //
-                // PAS ENCORE -- la FORME rectangulaire exacte du reflet et de la
-                // penombre : cela demande l'integration LTC. Un panneau large et
-                // etroit etale donc son reflet de facon isotrope, pas encore en
-                // bande. La demi-diagonale sert de rayon equivalent.
-                float halfDiag = 0.5 * length(vec2(uLights.params[i].x, uLights.params[i].y));
-                rogA = clamp(rog + halfDiag / (2.0 * max(dist, 0.001)), rog, 1.0);
             }
         }
 
@@ -423,8 +381,8 @@ void main() {
         float NdL = max(dot(N, L), 0.0);
         vec3 rad  = uLights.colors[i].rgb * uLights.colors[i].w * att;
 
-        float NDF = D_GGX(N, H, rogA);
-        float G   = G_Smith(N, V, L, rogA);
+        float NDF = D_GGX(N, H, rog);
+        float G   = G_Smith(N, V, L, rog);
         vec3  F   = F_Schlick(max(dot(H,V),0.0), F0);
         vec3 spec = NDF*G*F / (4.0*max(dot(N,V),0.0)*NdL+1e-4);
         vec3 kD   = (1.0-F)*(1.0-met);

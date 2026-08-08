@@ -522,18 +522,7 @@ namespace nkentseu {
 				// de ce fichier emploient deja des valeurs negatives pour reculer.
 				// La BORNE evite qu'une face vue par la tranche, dont le gradient
 				// explose, projette sa profondeur hors de toute plage utile.
-				// LE TERME CONSTANT DOIT ETRE GRAND, EN ENTIERS. Meme piege que la
-				// ligne de debogage plus bas dans ce fichier, et j'y suis tombe :
-				// `rd.DepthBias = (INT)depthBiasConst` (NkDirectX11Device.cpp:1319)
-				// TRONQUE le champ. -2 devenait -2 unites de profondeur, soit ~1e-7
-				// -- rigoureusement RIEN, et l'acne restait entiere (constate par
-				// Rihen apres un premier essai a -2). -64 unites ≈ 4e-6 : deux ordres
-				// de grandeur au-dessus du bruit de quantification, et toujours
-				// invisible sur le contact puisque c'est le CASTER qu'on recule.
-				pd.rasterizer.depthBiasConst = -64.f;
-				// La PENTE, elle, est un flottant reel et porte l'essentiel : l'acne
-				// nait sur les faces vues en biais par la lumiere, la ou un texel
-				// couvre une grande variation de profondeur.
+				pd.rasterizer.depthBiasConst = -2.f;
 				pd.rasterizer.depthBiasSlope = -2.f;
 				pd.rasterizer.depthBiasClamp = -0.002f;
 				pd.blend = NkBlendDesc::Opaque();
@@ -2465,16 +2454,6 @@ namespace nkentseu {
 			struct LightsBlock {
 					NkVec4f pos[32], color[32], dir[32], angles[32];
 					int32 count, _p[3];
-					// AJOUTE APRES `count`, ET C'EST VOULU : une dizaine de shaders
-					// declarent ce bloc (Cloth, Hair, Foliage, CarPaint, Toon...).
-					// L'inserer avant `count` aurait decale ce champ pour tous ceux
-					// qui ne sont pas mis a jour -- nombre de lumieres aberrant,
-					// scene noire ou folle. En fin de bloc, les shaders qui
-					// l'ignorent restent exacts.
-					//   .x = largeur surfacique  .y = hauteur
-					//   .z = loi d'attenuation (0 = actuelle, 1 = inverse carre)
-					//   .w = libre
-					NkVec4f params[32];
 			} lb{};
 
 			lb.count = (int32)mCtx.lights.Size();
@@ -2488,12 +2467,6 @@ namespace nkentseu {
 				const float deg2rad = 3.14159265f / 180.f;
 				lb.angles[i] = {std::cos(l.innerAngle * deg2rad), std::cos(l.outerAngle * deg2rad),
 								(float32)l.castShadow, (float32)l.cookieIdx};
-				// LES DIMENSIONS DE LA SURFACIQUE PARTENT ENFIN AU GPU (demande de
-				// Rihen). Le panneau les exposait, le fichier les enregistrait, le
-				// gizmo les dessinait -- et l'image ne changeait pas, faute de place
-				// dans le bloc. C'etait un reglage qui mentait.
-				lb.params[i] = {l.areaWidth, l.areaHeight,
-								l.inverseSquareFalloff ? 1.f : 0.f, 0.f};
 			}
 			if (mFrameSlot < mUBOLightsRing.Size())
 				mDevice->WriteBuffer(mUBOLightsRing[mFrameSlot], &lb, sizeof(lb));
