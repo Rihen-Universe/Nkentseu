@@ -41,6 +41,25 @@ namespace nkentseu {
 					}
 
 					DrawHeader(ctx, *host);
+
+					// INCOHERENCE DU MOTEUR COURANT — en haut, en rouge, avant tout
+					// le reste. C'est une contradiction interne au module : elle ne
+					// provoque aucune erreur, elle rend juste l'IA silencieusement
+					// plus faible. Si on ne la crie pas ici, personne ne la voit.
+					if (mS) {
+						const char *inc = mS->Coherence();
+						if (inc && *inc) {
+							const float32 h = NkcLineH(ctx) * 3.f + ctx.S(14.f);
+							const NkRect  r = ctx.NextItemRect(0.f, h);
+							ctx.DL().AddRectFilled(r, NkcFade(NkcPalette::Error(), 0.20f),
+												   ctx.theme.rounding);
+							ctx.DL().AddRectFilled({r.x, r.y, ctx.S(3.f), r.h},
+												   NkcPalette::Error(), 1.f);
+							NkcText(ctx, r.x + ctx.S(10.f), r.y + ctx.S(5.f), inc,
+									NkcPalette::Text(), r.w - ctx.S(16.f));
+						}
+					}
+
 					Separator(ctx);
 
 					Text(ctx, "Moteurs de regles");

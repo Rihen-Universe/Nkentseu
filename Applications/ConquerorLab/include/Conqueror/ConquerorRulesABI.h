@@ -43,14 +43,55 @@ namespace nkentseu {
 	namespace conqueror {
 
 		// ---------------------------------------------------------------------
-		// Version de l'ABI. L'atelier refuse un module dont `abiVersion` differe.
+		// VERSION DE L'ABI — deux nombres, et la difference compte.
+		//
+		// MAJEURE  incompatible : un champ change de type, de place, disparait,
+		//          ou une fonction change de signature. Le module DOIT etre
+		//          recompile ; l'atelier le refuse.
+		//
+		// MINEURE  ajout en FIN de vtable, rien d'autre. Un module plus ancien
+		//          reste UTILISABLE : sa queue de vtable est nulle (l'hote fait
+		//          un memset avant l'appel), et chaque entree optionnelle est
+		//          deja gardee par un test de nullite.
+		//
+		// POURQUOI CETTE SEPARATION EXISTE
+		// Il n'y avait qu'un seul nombre. Consequence : le jour ou j'ai ajoute
+		// trois entrees a la fin de la vtable, TOUS les modules des stagiaires
+		// devenaient « ABI 2, attendue 3 » — refuses, alors qu'ils tournaient
+		// parfaitement. Verifie le 2026-08-07 : un module d'epoque joue une
+		// partie complete sans un seul coup illegal ; seul le controle de
+		// version l'ecartait.
+		//
+		// Faire payer a deux stagiaires la recompilation de tout leur travail
+		// parce que J'AI ajoute une fonction est exactement le genre de friction
+		// qu'un contrat est cense supprimer.
+		//
+		// LA REGLE, ET ELLE EST PLUS ETROITE QU'IL N'Y PARAIT
+		// On n'ajoute qu'a la fin de la DERNIERE structure de la chaine :
+		//   - fin de NkcRulesVTable        -> sur
+		//   - fin de NkcRulesFactory       -> sur
+		//   - fin de NkcRulesInfo          -> INTERDIT
+		//
+		// `info` precede `vtable` dans la fabrique : la faire grossir DECALE la
+		// vtable, un module d'epoque ecrit alors sa table a l'ancien decalage,
+		// l'atelier la lit au nouveau, et on appelle des adresses prises au
+		// hasard. Ce n'est pas une crainte theorique — c'est exactement ce qui
+		// s'est produit au premier essai, et `tests/NkcAbiCompat.cpp` a plante.
+		//
+		// Ce banc d'essai monte desormais la garde a chaque modification.
 		// ---------------------------------------------------------------------
-		inline constexpr uint32 kRulesAbiVersion = 2;
+		inline constexpr uint32 kRulesAbiMajor = 3;
+		inline constexpr uint32 kRulesAbiMinor = 1;
+
+		/// Nom historique, conserve : c'est la MAJEURE. Les modules ecrits avant
+		/// l'introduction de la mineure continuent de compiler sans modification.
+		inline constexpr uint32 kRulesAbiVersion = kRulesAbiMajor;
 
 		// Bornes dures : tableaux de taille fixe, aucune allocation a la frontiere.
 		inline constexpr uint32 kMaxPlayers   = 4;
 		inline constexpr uint32 kMaxFuseCells = 12;  // poids N4 = 10 N0, marge
 		inline constexpr uint32 kMaxCells     = 512; // 42 cases en 6x7, marge large
+		inline constexpr uint32 kMaxCellPoints = 12; // sommets d'une cellule dessinee
 
 		// ---------------------------------------------------------------------
 		// Topologies (REGLES §4.1). Le voisinage est une propriete de la
@@ -169,7 +210,7 @@ namespace nkentseu {
 		using NkcState = void *;  ///< etat de partie
 
 		struct NkcRulesInfo {
-				uint32 abiVersion = kRulesAbiVersion;
+				uint32 abiVersion = kRulesAbiVersion;   ///< MAJEURE
 				char   name[64]	  = {};
 				char   version[16] = {};
 				char   author[64]  = {};
@@ -177,6 +218,7 @@ namespace nkentseu {
 				uint8  supportsSquare = 0;
 				uint8  maxPlayers	  = 2;
 				uint8  palier		  = 0;	///< 0, 1 ou 2 — cf. REGLES §15
+
 		};
 
 		// ---------------------------------------------------------------------
@@ -250,27 +292,138 @@ namespace nkentseu {
 				/// empreinte sur toute plateforme : outil de diagnostic du
 				/// determinisme (REGLES §17.3).
 				uint64 (*HashState)(NkcRules self, const NkcState st) = nullptr;
+
+				// ---- geometrie DECLAREE PAR LE MODULE (ABI 3) ---------------
+				// TOUT CE BLOC EST OPTIONNEL : laisser a nullptr fait retomber
+				// l'atelier sur la projection standard de `topology`.
+				//
+				// POURQUOI IL EXISTE
+				// Le voisinage, les cases bloquees et la forme du plateau etaient
+				// deja 100 % l'affaire du module : il choisit ses coordonnees, son
+				// adjacence, ce qu'il declare bloque. UNE SEULE CHOSE lui echappait
+				// — la PROJECTION ECRAN, deduite de `NkcTopology`, donc limitee a
+				// l'hexagone et au carre. Un plateau en triangles, en octogones, a
+				// cases de tailles inegales, ou carrement libre etait impossible a
+				// AFFICHER, meme si les regles savaient le jouer.
+				//
+				// Ces deux entrees rendent la main au module. Elles ne renvoient
+				// que de la PRESENTATION : ces flottants ne rentrent jamais dans la
+				// logique de regles, et §17.1 reste entier.
+
+				/// Centre de la cellule `c`, en unites de cellule (1.0 = un « pas »
+				/// de grille). L'atelier cadre et met a l'echelle ensuite : ne vous
+				/// souciez ni du zoom ni des pixels. Renvoyer 0 = « je ne sais pas »,
+				/// l'atelier retombe alors sur la topologie POUR CETTE CELLULE.
+				int32 (*GetCellCenter)(NkcRules self, NkcCoord c, float32 *outXY) = nullptr;
+
+				/// Contour de la cellule `c` : `capPoints` paires (x, y) au plus,
+				/// en unites de cellule, RELATIVES au centre. Renvoie le nombre de
+				/// points ecrits (3 a kMaxCellPoints), ou 0 pour laisser l'atelier
+				/// deduire la forme de la topologie.
+				///
+				/// C'est ce qui autorise un plateau qui n'est ni hexagonal ni carre.
+				uint32 (*GetCellShape)(NkcRules self, NkcCoord c, float32 *outXY,
+									   uint32 capPoints) = nullptr;
+
+				/// Voisins de `c` : ecrit au plus `cap` coordonnees, renvoie le
+				/// nombre TOTAL de voisins. nullptr -> l'appelant retombe sur
+				/// `Neighbor(topology, ...)` de ConquerorGeometry.h.
+				///
+				/// POURQUOI CETTE ENTREE EXISTE
+				/// Le voisinage a toujours ete l'affaire du module — il le code dans
+				/// GenerateLegalMoves et personne ne le lui dispute. Le probleme
+				/// etait que PERSONNE D'AUTRE ne pouvait le connaitre :
+				///
+				///   - une IA qui evalue une position (« combien d'ennemis touche
+				///     cette case ? ») n'avait que `view.topology` pour le deviner.
+				///     Sur une grille libre, elle devinait FAUX, silencieusement ;
+				///   - l'atelier ne pouvait pas montrer le voisinage a l'ecran, donc
+				///     un stagiaire qui se trompait d'adjacence n'avait aucun moyen
+				///     de le VOIR.
+				///
+				/// Declarer son voisinage n'est donc pas une contrainte de plus :
+				/// c'est ce qui rend une grille non standard utilisable par les
+				/// autres. Entierement ENTIER — c'est de la regle, pas du dessin.
+				uint32 (*GetNeighbors)(NkcRules self, NkcCoord c, NkcCoord *out,
+									   uint32 cap) = nullptr;
 		};
 
 		struct NkcRulesFactory {
 				NkcRulesInfo   info;
 				NkcRulesVTable vtable;
+
+				// ---- ajoute en MINEURE 1 ------------------------------------
+				// ICI, ET SURTOUT PAS DANS NkcRulesInfo. Grossir `info` DECALERAIT
+				// `vtable`, qui vient apres : un module d'epoque ecrirait sa table
+				// a l'ancien decalage et l'atelier la lirait au nouveau. On appelle
+				// alors des adresses prises au hasard.
+				//
+				// Ce n'est pas une crainte theorique : le banc tests/NkcAbiCompat.cpp
+				// a plante des le premier essai, exactement pour cette raison.
+				//
+				// LA REGLE EXACTE est donc plus etroite que « ajouter a la fin » :
+				// on n'ajoute qu'a la fin de la DERNIERE structure de la chaine.
+				// Tout ce qui precede un champ existant est fige a jamais.
+				uint32 abiMinor	   = kRulesAbiMinor;
+				uint32 vtableBytes = 0;	 ///< rempli par NkcRulesStamp
 		};
+
+		/// A appeler en fin de votre FillFactory. Deux lignes que l'atelier lit
+		/// pour savoir CONTRE QUELLE VERSION vous avez compile — et vous dire, le
+		/// cas echeant, « ton module est plus ancien que l'atelier, telles
+		/// fonctions ne sont pas disponibles » au lieu de le refuser en bloc.
+		///
+		/// L'oublier n'est pas une faute : les champs restent a zero, l'atelier
+		/// lit « je ne sais pas » et se rabat sur les pointeurs de la vtable.
+		inline void NkcRulesStamp(NkcRulesFactory *out) noexcept {
+			if (!out) return;
+			out->info.abiVersion  = kRulesAbiMajor;
+			out->abiMinor	 = kRulesAbiMinor;
+			out->vtableBytes = static_cast<uint32>(sizeof(NkcRulesVTable));
+		}
 
 		/// Hooks memoire injectes par l'atelier (NKMemory). Repli malloc/free si
 		/// l'hote ne les pose pas — jamais new/delete bruts.
 		using NkcAllocFn = void *(*)(usize size);
 		using NkcFreeFn	 = void (*)(void *ptr);
 
-		// Les DEUX symboles que tout module de regles doit exporter.
+		// ---------------------------------------------------------------------
+		// JOURNAL — pourquoi il faut un canal explicite
+		//
+		// Un module est lie STATIQUEMENT a sa propre copie de Nkentseu. Son
+		// `logger` n'est donc PAS celui de l'atelier : un logger.Infof() depuis un
+		// module ecrit dans un journal que personne ne lit. Ce n'est pas un
+		// oubli, c'est la consequence directe de l'isolation qui fait tout
+		// l'interet du systeme — mais laisser le stagiaire sans retour serait
+		// absurde.
+		//
+		// L'atelier injecte donc un puits, et le module y renvoie son journal.
+		// Le brancher tient en UNE LIGNE : voir Conqueror/ConquerorLog.h.
+		// ---------------------------------------------------------------------
+
+		/// Niveaux, calques sur ceux de NKLogger.
+		enum class NkcLogLevel : int32 {
+			Trace = 0, Debug = 1, Info = 2, Warn = 3, Error = 4, Fatal = 5
+		};
+
+		/// `user` est reinjecte tel quel. `module` nomme la source (« mes_regles »),
+		/// `text` est deja formate. L'appel peut venir de N'IMPORTE QUEL THREAD :
+		/// une IA journalise depuis son worker.
+		using NkcLogFn = void (*)(void *user, NkcLogLevel level,
+								  const char *module, const char *text);
+
+		// Les symboles qu'un module de regles peut exporter. Les deux premiers
+		// sont OBLIGATOIRES, le troisieme est optionnel.
 		using NkcRulesGetFactoryFn	 = void (*)(NkcRulesFactory *out);
 		using NkcRulesSetAllocatorFn = void (*)(NkcAllocFn a, NkcFreeFn f);
+		using NkcRulesSetLoggerFn	 = void (*)(NkcLogFn fn, void *user, const char *name);
 
 	} // namespace conqueror
 } // namespace nkentseu
 
 #define NKC_RULES_SYM_GET_FACTORY "nkc_rules_get_factory"
 #define NKC_RULES_SYM_SET_ALLOC	  "nkc_rules_set_allocator"
+#define NKC_RULES_SYM_SET_LOGGER  "nkc_rules_set_logger"
 
 #if defined(NKENTSEU_PLATFORM_WINDOWS) || defined(_WIN32)
 #	define NKC_MODULE_EXPORT extern "C" __declspec(dllexport)

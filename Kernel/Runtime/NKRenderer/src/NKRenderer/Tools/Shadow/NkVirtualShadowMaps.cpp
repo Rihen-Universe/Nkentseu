@@ -500,7 +500,24 @@ namespace nkentseu {
 			// ~2 texels : les voisins du PCF trouvent de la vraie profondeur
 			// au-dela de la couture, et le carre disparait. L'echantillonnage
 			// utilise la MEME matrice, l'interieur du domaine reste dans [0,1].
-			const float32 kGuardTexels = 2.f;
+			// LA GARDE DOIT COUVRIR LE RAYON REEL DU PCF, pas une valeur fixe.
+			// Deux texels suffisaient tant que le noyau valait 1 texel ; mais la
+			// DOUCEUR elargit le pas d'echantillonnage (cote shader :
+			// softness * largeurAtlas * 0.25). A softness 0.003 sur un atlas de
+			// 4096, le noyau atteint 3 texels et deborde la garde : les
+			// echantillons sortis de la face sont pinces sur son dernier texel,
+			// qui s'etire alors le long de la couture -- le debordement d'ombre
+			// constate par Rihen. On dimensionne donc la garde SUR le noyau,
+			// +1 texel de marge pour l'interpolation bilineaire.
+			const float32 pcfRadius =
+				mCfg.softness * (float32)(mCfg.atlasSize > 0 ? mCfg.atlasSize : 4096u) * 0.25f;
+			float32 kGuardTexels = pcfRadius + 1.f;
+			if (kGuardTexels < 2.f)
+				kGuardTexels = 2.f;
+			// Bornee : au-dela, elargir la face lui ferait perdre trop de
+			// resolution utile pour un gain invisible.
+			if (kGuardTexels > (float32)tilePx * 0.05f)
+				kGuardTexels = (float32)tilePx * 0.05f;
 			const float32 fovScale = 1.f + (2.f * kGuardTexels) / (float32)tilePx;
 			const float32 fovDeg = 2.f * atanf(fovScale) * (180.f / 3.14159265f);
 			// PLAN LOINTAIN A DEUX FOIS LA PORTEE (meme regle que le spot) : un

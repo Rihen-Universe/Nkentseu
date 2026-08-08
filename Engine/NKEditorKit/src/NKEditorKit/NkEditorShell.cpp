@@ -647,7 +647,11 @@ namespace nkentseu {
 			const float32 toolbarH =
 				(mToolbarFn && !fullScreen) ? mUI.S(46.f) : 0.f; // combos labellises (vue principale IDE)
 			const float32 footerH = fullScreen ? 0.f : mUI.S(22.f);
+			// Largeur des bandes d'icones, PAR COTE : une app sans « vues » a
+			// basculer les desactive (SetActivityBars) et le dock recupere la place.
 			const float32 activityW = mUI.S(48.f);
+			const float32 actWL = mActivityBarLeft ? activityW : 0.f;
+			const float32 actWR = mActivityBarRight ? activityW : 0.f;
 
 			// Barre de titre custom UNE ligne : logo + menus | infos | min/max/close.
 			DrawTitleBar(ec, {0.f, 0.f, W, titleH});
@@ -664,12 +668,26 @@ namespace nkentseu {
 			// IDEM quand la souris est au-dessus d'un menu DEROULANT ouvert (deja
 			// dessine + gere dans la barre de titre ci-dessus) : sinon l'editeur /
 			// les zones a hit-test « brut » derriere le menu recoivent les clics.
+			// ATTENTION : ce masquage vise les menus de la BARRE DE TITRE, deja
+			// dessines avant les panneaux. Mais `popupDepth` est partage avec les
+			// popups que les PANNEAUX ouvrent eux-memes (BeginCombo, BeginMenu) —
+			// et ceux-la sont dessines PENDANT DrawPanels, donc avec l'input
+			// masque. Symptome : le combo s'ouvre, puis plus aucun clic ne passe
+			// et il refuse de se refermer.
+			//
+			// Une application dont les panneaux utilisent les popups NKGui coupe
+			// donc ce masquage (SetMaskBodyOnPopup(false)) : NKGui resout deja
+			// l'occlusion de ses propres popups dans ItemHoverable. Elle doit en
+			// contrepartie garder ses hit-tests « bruts » sous garde
+			// `ctx.popupDepth == 0`.
 			bool overPopup = false;
 			for (int32 i = 0; i < mUI.popupDepth; ++i)
 				if (nkgui::NkGuiRectContains(mUI.popupRects[i], mUI.input.mousePos)) {
 					overPopup = true;
 					break;
 				}
+			if (!mMaskBodyOnPopup)
+				overPopup = false;
 			const bool modal = mShowPrefs || mUI.appModal || overPopup || mCtxOpen;
 			nkgui::NkGuiInput savedInput;
 			if (modal) {
@@ -691,9 +709,11 @@ namespace nkentseu {
 				// Launcher : remplace barre d'activite + dock + panneaux.
 				mStartScreenFn(ec, mStartScreenUser);
 			} else {
-				DrawActivityBar({0.f, bodyTop, activityW, bodyH});
-				DrawActivityBarRight({W - activityW, bodyTop, activityW, bodyH}); // IA (panneau droit)
-				DockSpace(mUI, "##EditorDock", {activityW, bodyTop, W - activityW * 2.f, bodyH});
+				if (mActivityBarLeft)
+					DrawActivityBar({0.f, bodyTop, actWL, bodyH});
+				if (mActivityBarRight)
+					DrawActivityBarRight({W - actWR, bodyTop, actWR, bodyH}); // IA (panneau droit)
+				DockSpace(mUI, "##EditorDock", {actWL, bodyTop, W - actWL - actWR, bodyH});
 				// Seul le panneau CENTRAL masque la barre d'onglets de sa feuille quand il
 				// est seul (il affiche ses propres onglets de fichiers) ; Terminal/Sortie/
 				// sidebars gardent TOUJOURS leurs onglets, même seuls (façon VSCode).

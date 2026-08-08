@@ -104,17 +104,35 @@ namespace nkentseu {
 				// virtuelles : on croyait regler le biais, rien ne bougeait.
 				// Ceux-ci leur sont passes a l'initialisation et se modifient a
 				// chaud.
-				//   slopeBias       : anti-acne fin, en profondeur.
-				//   normalBiasWorld : decale le point le long de sa normale, en
-				//                     UNITES MONDE. C'est LUI qui empeche un objet
-				//                     de projeter son ombre sur lui-meme.
-				//   softness        : rayon du filtre, donc la douceur de la
-				//                     penombre.
+				//   slopeBias        : anti-acne fin, en profondeur.
+				//   normalBiasTexels : decale le point le long de sa normale, en
+				//                      TEXELS du tile echantillonne. C'est LUI qui
+				//                      empeche un objet de projeter son ombre sur
+				//                      lui-meme. En texels et non en metres : une
+				//                      constante monde (5 cm) etait juste pour la
+				//                      cascade lointaine et 10 a 100 fois trop
+				//                      grande pour la proche -- l'ombre ne touchait
+				//                      plus le pied des objets.
+				//   softness         : rayon du filtre, donc la douceur de la
+				//                      penombre.
 				// Defauts identiques a ceux des shadow maps : rien ne change tant
 				// qu'on n'y touche pas.
-				float32 slopeBias = 0.0005f;
-				float32 normalBiasWorld = 0.05f;
-				float32 softness = 0.003f;
+				// 0.00015 et non 0.0005 : meme valeur que le defaut des shadow maps
+				// (cf. NkVirtualShadowMaps.h, qui explique pourquoi l'ancienne
+				// poussait l'ombre hors du point de contact).
+				float32 slopeBias = 0.00015f;
+				// 0.15 : meme valeur et meme raison que NkVirtualShadowMaps.h -- le
+				// plan recepteur porte l'anti-acne du noyau, le slope bias celle du
+				// tap central, et un demi-texel valait DEJA ~1 cm sur une face de
+				// point light vue a 5 m (le decollement constate par Rihen).
+				// (Le culling des faces avant a aussi ete essaye : contact parfait,
+				// mais il eclairait l'INTERIEUR des objets fermes -- dans un
+				// modeleur la camera y entre. Rejete, cf. NkRender3D.)
+				float32 normalBiasTexels = 0.15f;
+				// 0.0015 : meme valeur que le defaut des shadow maps (cf.
+				// NkVirtualShadowMaps.h -- a 0.003 le noyau PCF atteint 3 texels et
+				// noie le contour de l'ombre).
+				float32 softness = 0.0015f;
 		};
 
 		struct NkPostConfig {
