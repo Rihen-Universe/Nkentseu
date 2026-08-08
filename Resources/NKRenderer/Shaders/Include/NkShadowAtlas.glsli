@@ -150,69 +150,12 @@ float NkSampleShadowTile(int slotIdx, vec3 worldPos, float bias, vec3 dWdx, vec3
     // alors qu'il en avait un sur DX11 -- deux backends qui ne montraient pas la
     // meme image a partir des memes reglages.
     vec2 ts = 1.0 / vec2(textureSize(tShadowAtlas, 0));
-    // RAYON de la penombre, en UV d'atlas. C'est la « Douceur » du panneau, et
-    // elle seule : le MODE ne change pas la largeur de l'ombre, il change le
-    // nombre et la place des echantillons DANS ce rayon. Sans cette separation,
-    // passer en qualite superieure elargissait l'ombre -- l'utilisateur croyait
-    // regler la douceur en changeant la qualite, et les deux reglages se
-    // marchaient dessus.
-    float pcfR = max(1.0, uShadows.biasParams.z * float(textureSize(tShadowAtlas, 0).x) * 0.25);
-    vec2 R = ts * pcfR;
-
-    // ── LE MODE DE FILTRAGE EST ENFIN LU ────────────────────────────────────
-    // `globalCfg.y` porte la qualite (NkVSMShadowQuality). Elle etait calculee,
-    // televersee... et lue par PERSONNE : PCF3x3, PCF5x5 et Poisson rendaient
-    // rigoureusement la meme image, celle du 3x3 ci-dessous. Le reglage du
-    // panneau ne faisait donc rien, ce que Rihen constatait sans pouvoir le
-    // prouver (« j'ai toujours l'impression que toutes les qualites donnent la
-    // meme chose » -- ce n'etait pas une impression).
-    //
-    // Chaque boucle a un COMPTE CONSTANT : fxc doit pouvoir les derouler, ce
-    // sample etant inline dans des boucles a compte dynamique cote appelant.
-    int q = int(uShadows.globalCfg.y + 0.5);
+    vec2 pcfStep =
+        ts * max(1.0, uShadows.biasParams.z * float(textureSize(tShadowAtlas, 0).x) * 0.25);
     float s = 0.0;
-
-    // textureLod(..., 0.0) et non texture() : l'atlas est mono-mip, le LOD 0
-    // explicite est donc exact ET sans gradient. Indispensable sur DX : un
-    // sample a GRADIENT dans une boucle a compte variable fait echouer fxc
-    // (X3570 -> deroulage impossible). SPIRV-Cross emet SampleCmpLevelZero.
-    if (q >= 3) {
-        // POISSON : douze taps en disque, sans alignement de grille. A nombre
-        // d'echantillons egal, la grille laisse des MARCHES sur un bord oblique
-        // la ou le disque laisse du grain -- l'oeil pardonne le grain, pas les
-        // marches.
-        const vec2 kPoisson[12] = vec2[12](
-            vec2(-0.326, -0.406), vec2(-0.840, -0.074), vec2(-0.696,  0.457),
-            vec2(-0.203,  0.621), vec2( 0.962, -0.195), vec2( 0.473, -0.480),
-            vec2( 0.519,  0.767), vec2( 0.185, -0.893), vec2( 0.507,  0.064),
-            vec2( 0.896,  0.412), vec2(-0.322, -0.933), vec2(-0.792, -0.598));
-        for (int i = 0; i < 12; i++) {
-            vec2 uv = clamp(atlasUV + kPoisson[i] * R, tileUV.xy + ts, tileUV.zw - ts);
-            vec2 duv = uv - atlasUV;
-            float dz = clamp(zu * duv.x + zv * duv.y, -0.005, 0.005);
-            s += textureLod(tShadowAtlas, vec3(uv, p.z + dz), 0.0);
-        }
-        return s / 12.0;
-    }
-    if (q == 2) {
-        // PCF 5x5 : MEME rayon, pas deux fois plus petit -- vingt-cinq taps au
-        // lieu de neuf dans la meme penombre. C'est bien un gain de qualite, pas
-        // un elargissement deguise.
-        vec2 h = R * 0.5;
-        for (int dx = -2; dx <= 2; dx++) {
-            for (int dy = -2; dy <= 2; dy++) {
-                vec2 uv = clamp(atlasUV + vec2(dx, dy) * h, tileUV.xy + ts, tileUV.zw - ts);
-                vec2 duv = uv - atlasUV;
-                float dz = clamp(zu * duv.x + zv * duv.y, -0.005, 0.005);
-                s += textureLod(tShadowAtlas, vec3(uv, p.z + dz), 0.0);
-            }
-        }
-        return s / 25.0;
-    }
-    // PCF 3x3 par defaut.
     for (int dx = -1; dx <= 1; dx++) {
         for (int dy = -1; dy <= 1; dy++) {
-            vec2 uv = atlasUV + vec2(dx, dy) * R;
+            vec2 uv = atlasUV + vec2(dx, dy) * pcfStep;
             // Clamp aux bornes du tile pour eviter le bleed vers tile voisin.
             uv = clamp(uv, tileUV.xy + ts, tileUV.zw - ts);
             // L'extrapolation part du deplacement REEL (apres clamp), et reste
@@ -220,6 +163,11 @@ float NkSampleShadowTile(int slotIdx, vec3 worldPos, float bias, vec3 dWdx, vec3
             // extrapolation demesuree percerait l'ombre.
             vec2  duv = uv - atlasUV;
             float dz  = clamp(zu * duv.x + zv * duv.y, -0.005, 0.005);
+            // textureLod(..., 0.0) au lieu de texture() : l'atlas d'ombre est mono-mip,
+            // donc le LOD 0 explicite est exact ET gradient-free. Indispensable pour DX :
+            // ce sample est inliné dans une boucle à compte dynamique (slotCount/cascades),
+            // et un sample à GRADIENT en boucle variable fait échouer fxc (warning X3570 →
+            // déroulage impossible / hang). SPIRV-Cross émet SampleCmpLevelZero (sans gradient).
             s += textureLod(tShadowAtlas, vec3(uv, p.z + dz), 0.0);
         }
     }
@@ -307,14 +255,6 @@ float NkSamplePointShadow(int lightIdx, vec3 worldPos, vec3 N, vec3 L, float bia
     if (lightIdx < 0 || lightIdx >= 32) return 1.0;
     int firstSlot = int(uShadows.firstSlotPerLight[lightIdx >> 2][lightIdx & 3]);
     if (firstSlot < 0) return 1.0;
-    // LES SIX FACES OU AUCUNE. Le C++ garantit desormais l'invariant, mais on le
-    // verifie ici aussi : `firstSlot + face` sur une omni incomplete lisait la
-    // tuile d'une AUTRE lumiere, et rien dans l'image ne disait d'ou venait
-    // l'ombre. Une garde a deux instructions contre un defaut de ce prix, c'est
-    // gratuit. Le chemin directionnel garde deja sur slotCount ; c'est cette
-    // dissymetrie qui avait laissé passer le trou.
-    int slotCount = int(uShadows.slotCountPerLight[lightIdx >> 2][lightIdx & 3]);
-    if (slotCount < 6) return 1.0;
 
     vec3 lightPos = uShadows.slots[firstSlot].lightPosOrDir.xyz;
     vec3 dir = worldPos - lightPos;
