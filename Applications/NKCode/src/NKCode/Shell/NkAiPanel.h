@@ -745,6 +745,24 @@ namespace nkentseu {
 				// SYNTHETIQUE (model:"<synthetic>", num_turns:0, cout nul) qui contient TOUJOURS
 				// la session (5h) ET la semaine (tous modeles), plus le detail "contributing to
 				// your limits usage" — capture INTEGRALE du texte, aucun champ trie/invente. ──
+				// ── Liste REELLE des modeles, demandee au CLI lui-meme ──────────────────
+				// « /model » envoye par STDIN en NDJSON est traite PAR LE CLI : il repond
+				// « <synthetic> », 0 token, aucun appel API, et donne a la fois le modele
+				// courant et la liste des noms acceptes. (Passe en ARGUMENT il ne marche
+				// pas : le shell reecrit le / initial en chemin — c'est ce qui m'avait fait
+				// conclure a tort que le CLI n'exposait aucune liste.)
+				// Vues C (const char *) sur mModelIds : ModelsFor/ClaudeModelTitles doivent
+				// rendre un tableau de pointeurs stables. Refaites a chaque appel, comme les
+				// tableaux traduits — sinon elles resteraient figees sur le premier compte.
+				mutable NkVector<const char *> mModelPtrs;
+				mutable NkVector<const char *> mModelTitlePtrs;
+				mutable NkVector<const char *> mModelDescPtrs;
+				NkPipeProc mModelsProc;
+				NkString mModelsBuf;
+				bool mModelsRequested = false;
+				bool mModelsDone = false;	  // une reponse a ete traitee (succes ou echec)
+				NkVector<NkString> mModelIds; // noms acceptes par --model, dans l'ordre annonce
+				NkString mModelsCurrent;	  // titre humain du modele courant (« Opus 5 (1M context) »)
 				NkPipeProc mQuickUsageProc;
 				NkString mQuickUsageBuf;
 				bool mQuickUsageRequested = false;
@@ -807,6 +825,121 @@ namespace nkentseu {
 					mUsageOpen = true;
 					mUsageJustOpened = true;
 					EnsureUsageDataFetching();
+				}
+
+				// Demande la liste au CLI. Une seule fois par compte : relancee quand le
+				// compte du workspace change (ResetModelsProbe), jamais en boucle.
+				void TriggerModelsProbe() {
+					if (mModelsRequested || mModelsDone || ClaudeExe().Empty())
+						return;
+					mModelsRequested = true;
+					mModelsBuf.Clear();
+					// --verbose est OBLIGATOIRE avec -p + --output-format stream-json (meme
+					// piege que /usage : sans lui le CLI refuse et la requete echoue en
+					// silence).
+					const NkString cmd = NkWin32QuoteArg(ClaudeExe().CStr()) +
+										 " -p --verbose --input-format stream-json --output-format stream-json "
+										 "--permission-mode default";
+					const NkString cwd = (mS && mS->HasWorkspace()) ? mS->root.ToString() : NkString(".");
+					NkVector<NkString> env;
+					// La liste peut dependre du compte : on interroge CELUI du workspace.
+					if (mS && mS->HasWorkspace()) {
+						const NkString compte = NkAiWorkspaceAccount(mS->root);
+						if (!compte.Empty())
+							env.PushBack(NkString("CLAUDE_CONFIG_DIR=") + NkAiAccountDir(compte).CStr());
+					}
+					if (!mModelsProc.StartWithEnv(cmd, cwd, env, /*mergeStderr=*/true)) {
+						mModelsRequested = false; // pas de latch : reessai possible
+						return;
+					}
+					const NkString um = "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":"
+										"\"text\",\"text\":\"/model\"}]}}\n";
+					mModelsProc.WriteData(um.CStr(), static_cast<int32>(um.Size()));
+				}
+
+				// Le compte a change : la liste et le modele courant peuvent differer.
+				void ResetModelsProbe() {
+					mModelsDone = false;
+					mModelIds.Clear();
+					mModelsCurrent.Clear();
+				}
+
+				void PollModelsProbe() {
+					if (!mModelsRequested)
+						return;
+					char buf[4096];
+					int32 n;
+					while ((n = mModelsProc.ReadAvail(buf, sizeof(buf))) > 0)
+						mModelsBuf.Append(buf, static_cast<usize>(n));
+					if (mModelsProc.Running())
+						return;
+					mModelsRequested = false;
+					NkString rest = mModelsBuf;
+					mModelsBuf.Clear();
+					NkString texte;
+					for (;;) {
+						const usize nl = rest.Find('\n');
+						const NkString line = nl == NkString::npos ? rest : rest.SubStr(0, nl);
+						if (NkFindSub(line.CStr(), "\"type\":\"result\"") != nullptr) {
+							texte = JsonStr(line.CStr(), "result");
+							texte.Trim();
+							break;
+						}
+						if (nl == NkString::npos)
+							break;
+						rest.Erase(0, nl + 1);
+					}
+					if (texte.Empty())
+						return; // pas de latch : on retentera
+					ParseModelsAnswer(texte);
+					mModelsDone = true;
+				}
+
+				// Analyse la reponse de /model :
+				//   « Current model: Opus 5 (1M context) »
+				//   « Usage: /model <name>. Available: sonnet, opus, ..., or a full model ID. »
+				// Format LIBRE cote CLI : si la forme change, on garde simplement la liste de
+				// repli plutot que d'afficher n'importe quoi.
+				void ParseModelsAnswer(const NkString &texte) {
+					const char *t = texte.CStr();
+					if (const char *c = NkFindSub(t, "Current model:")) {
+						c += 14;
+						while (*c == ' ')
+							++c;
+						NkString titre;
+						for (; *c && *c != '\n' && *c != '\r'; ++c)
+							titre += *c;
+						titre.Trim();
+						mModelsCurrent = titre;
+					}
+					const char *a = NkFindSub(t, "Available:");
+					if (!a)
+						return;
+					a += 10;
+					NkVector<NkString> ids;
+					NkString cur;
+					auto pousser = [&]() {
+						cur.Trim();
+						if (cur.Empty())
+							return;
+						// La phrase se termine par « or a full model ID. » : ce n'est pas un nom.
+						if (NkFindSub(cur.CStr(), "full model ID") || NkFindSub(cur.CStr(), "or a full"))
+							return;
+						ids.PushBack(cur);
+					};
+					for (; *a && *a != '\n' && *a != '\r'; ++a) {
+						if (*a == ',') {
+							pousser();
+							cur.Clear();
+							continue;
+						}
+						if (*a == '.' && (a[1] == '\0' || a[1] == '\n' || a[1] == ' '))
+							break;
+						cur += *a;
+					}
+					pousser();
+					if (!ids.Empty())
+						mModelIds = ids;
 				}
 
 				void TriggerQuickUsage() {
@@ -1219,6 +1352,18 @@ namespace nkentseu {
 					// 'sonnet')") — "auto" = ne passe PAS --model, laisse le defaut du CLI.
 					// Remplace l'ancienne liste figee (claude-3.5-sonnet/claude-opus-4, perimee).
 					static const char *claudeCode[] = {"auto", "sonnet", "opus", "fable", "haiku"};
+					// Liste REELLE obtenue du CLI (voir TriggerModelsProbe) : elle prime des
+					// qu'elle existe. La liste figee ci-dessus n'est plus qu'un REPLI pour le
+					// cas ou la sonde echoue (CLI absent, format de reponse change) — une
+					// liste ecrite en dur se perime, celle du CLI suit ses versions.
+					if (kind == 1 && !mModelIds.Empty()) {
+						mModelPtrs.Clear();
+						mModelPtrs.PushBack("auto"); // « auto » = ne PAS passer --model
+						for (usize i = 0; i < mModelIds.Size(); ++i)
+							mModelPtrs.PushBack(mModelIds[i].CStr());
+						n = static_cast<int32>(mModelPtrs.Size());
+						return mModelPtrs.Data();
+					}
 					static const char *codex[] = {"gpt-5-codex", "o4-mini"};
 					static const char *nkai[] = {"NkAI-base (Rihen)"};
 					switch (kind) {
@@ -3379,9 +3524,16 @@ namespace nkentseu {
 				// CLI a REELLEMENT resolu (system/init) des qu'on le connait. Donnee reelle,
 				// jamais devinee — tant qu'aucune session n'a demarre, on n'accole rien.
 				NkString ModelPillLabel(const char *titre) const {
-					if (mKind != 1 || mModelIdx != 0 || mClaudeInitModel.Empty())
+					if (mKind != 1 || mModelIdx != 0)
 						return NkString(titre);
-					return NkPrintf("%s (%s)", titre, ShortModelName(mClaudeInitModel).CStr());
+					// Titre humain donne par /model (« Opus 5 (1M context) ») s'il est connu ;
+					// sinon l'identifiant annonce par system/init, abrege. Les deux sont des
+					// donnees reelles du CLI — jamais un nom devine.
+					if (!mModelsCurrent.Empty())
+						return NkPrintf("%s (%s)", titre, mModelsCurrent.CStr());
+					if (!mClaudeInitModel.Empty())
+						return NkPrintf("%s (%s)", titre, ShortModelName(mClaudeInitModel).CStr());
+					return NkString(titre);
 				}
 				// « claude-fable-5 » -> « Fable 5 ». Repli HONNETE sur l'identifiant brut si
 				// la forme ne correspond pas : mieux vaut un nom technique qu'un faux nom.
@@ -3414,6 +3566,17 @@ namespace nkentseu {
 				}
 
 				const char *const *ClaudeModelTitles(int32 &n) const {
+					// Liste reelle : on affiche les identifiants tels que le CLI les annonce
+					// (« sonnet », « opus[1m] », « opusplan »…). Les traduire ou les
+					// embellir ferait diverger ce qu'on montre de ce qu'on envoie.
+					if (!mModelIds.Empty()) {
+						mModelTitlePtrs.Clear();
+						mModelTitlePtrs.PushBack(NkT("ai.model.default"));
+						for (usize i = 0; i < mModelIds.Size(); ++i)
+							mModelTitlePtrs.PushBack(mModelIds[i].CStr());
+						n = static_cast<int32>(mModelTitlePtrs.Size());
+						return mModelTitlePtrs.Data();
+					}
 					const char *fresh[5] = {NkT("ai.model.default"), NkT("ai.model.sonnet"), NkT("ai.model.opus"),
 											NkT("ai.model.fable"), NkT("ai.model.haiku")};
 					static const char *out[5];
@@ -3423,6 +3586,17 @@ namespace nkentseu {
 					return out;
 				}
 				const char *const *ClaudeModelDescs(int32 &n) const {
+					// Meme cardinalite que les titres (le menu indexe les deux en parallele).
+					// Aucune description inventee pour les entrees sondees : le CLI n'en
+					// fournit pas, et en broder serait de la decoration mensongere.
+					if (!mModelIds.Empty()) {
+						mModelDescPtrs.Clear();
+						mModelDescPtrs.PushBack(NkT("ai.model.default.desc"));
+						for (usize i = 0; i < mModelIds.Size(); ++i)
+							mModelDescPtrs.PushBack("");
+						n = static_cast<int32>(mModelDescPtrs.Size());
+						return mModelDescPtrs.Data();
+					}
 					const char *fresh[5] = {NkT("ai.model.default.desc"), NkT("ai.model.sonnet.desc"),
 											NkT("ai.model.opus.desc"), NkT("ai.model.fable.desc"),
 											NkT("ai.model.haiku.desc")};
@@ -3587,6 +3761,7 @@ namespace nkentseu {
 								// reprendre avec --resume sous un autre compte n'aurait pas de
 								// sens. On repart d'une session neuve au prochain message.
 								mChats[static_cast<usize>(mActiveChat)].claudeSessionId = NkString();
+								ResetModelsProbe(); // autre compte = liste et modele courant a revalider
 								mAccountsOpen = false;
 							} else {
 								LaunchAccountLogin(a.name); // pas encore authentifie -> on y va
@@ -5238,6 +5413,16 @@ namespace nkentseu {
 
 				void Poll() {
 					PollAccountStatus(); // independant de mBusy (requete ponctuelle "claude auth status")
+					if (mKind == 1) {
+						TriggerModelsProbe(); // liste REELLE des modeles (une fois par compte)
+						PollModelsProbe();
+						// La liste peut RETRECIR d'un compte a l'autre : un index conserve
+						// pointerait alors a cote (et --model recevrait un nom absent).
+						int32 nm = 0;
+						kModels(nm);
+						if (mModelIdx >= nm)
+							mModelIdx = 0;
+					}
 					PollQuickUsage();	 // independant de mBusy (requete ponctuelle "/usage")
 					if (!mBusy)
 						return;
