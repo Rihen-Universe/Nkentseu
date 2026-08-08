@@ -95,7 +95,10 @@ namespace nkentseu {
 			return true;
 		}
 
-		inline NkVector<NkString> NkAiAccountNames() {
+		// Ordre memorise (registre). Ce fichier ne DECLARE plus les comptes, il ne
+		// fait que retenir dans quel ordre ils se sont connectes — le premier restant
+		// le compte par defaut.
+		inline NkVector<NkString> NkAiRegistryOrder() {
 			NkVector<NkString> out;
 			const NkString f = NkAiAccountsRegistry();
 			if (!NkFile::Exists(f.CStr()))
@@ -121,6 +124,43 @@ namespace nkentseu {
 					continue;
 				}
 				cur += *p;
+			}
+			return out;
+		}
+
+		// ── Un compte n'EXISTE que s'il est CONNECTE (regle de Rihen) ────────────
+		// La liste est donc DERIVEE du disque : un dossier de compte qui contient
+		// .credentials.json. Un compte declare mais jamais authentifie ne peut rien
+		// faire ; l'inscrire d'avance ne produisait que des entrees fantomes apres
+		// une connexion abandonnee. Deriver au lieu de tenir un registre supprime
+		// aussi toute divergence possible entre les deux.
+		inline NkVector<NkString> NkAiAccountNames() {
+			NkVector<NkString> out;
+			const NkString racine = NkAiAccountsRoot();
+			if (!NkDirectory::Exists(racine.CStr()))
+				return out;
+			// D'abord l'ordre memorise (le 1er connecte reste le defaut)...
+			const NkVector<NkString> ordre = NkAiRegistryOrder();
+			for (usize i = 0; i < ordre.Size(); ++i)
+				if (NkAiAccountConnected(ordre[i]))
+					out.PushBack(ordre[i]);
+			// ...puis tout compte connecte que le registre ignore encore (connexion
+			// terminee a l'instant, ou dossier copie a la main).
+			const NkVector<NkDirectoryEntry> entrees = NkDirectory::GetEntries(racine.CStr());
+			for (usize i = 0; i < entrees.Size(); ++i) {
+				const NkDirectoryEntry &e = entrees[i];
+				if (!e.IsDirectory || e.Name == "_shared" || e.Name == "." || e.Name == "..")
+					continue;
+				if (!NkAiAccountConnected(e.Name))
+					continue;
+				bool deja = false;
+				for (usize k = 0; k < out.Size(); ++k)
+					if (out[k] == e.Name) {
+						deja = true;
+						break;
+					}
+				if (!deja)
+					out.PushBack(e.Name);
 			}
 			return out;
 		}
@@ -163,25 +203,27 @@ namespace nkentseu {
 #endif
 		}
 
-		// Cree le compte (dossier + entree de registre + memoire partagee).
-		// Idempotent : rappeler avec un nom existant ne fait que garantir l'etat.
-		inline bool NkAiAccountCreate(const NkString &name) {
+		// PREPARE un compte : cree seulement son dossier (il faut bien un
+		// CLAUDE_CONFIG_DIR ou le CLI ecrira les identifiants) et sa memoire
+		// partagee. Il n'est PAS inscrit : tant que la connexion n'a pas abouti,
+		// ce compte n'existe pas aux yeux de l'application.
+		inline bool NkAiAccountPrepare(const NkString &name) {
 			if (!NkAiAccountNameValid(name.CStr()))
 				return false;
 			NkDirectory::CreateRecursive(NkAiAccountDir(name).CStr());
-			NkVector<NkString> names = NkAiAccountNames();
-			bool present = false;
-			for (usize i = 0; i < names.Size(); ++i)
-				if (names[i] == name) {
-					present = true;
-					break;
-				}
-			if (!present) {
-				names.PushBack(name);
-				NkAiAccountsSave(names);
-			}
 			NkAiEnsureSharedMemory(name);
 			return true;
+		}
+
+		// Fige l'ordre de connexion : appelee quand un compte devient connecte, elle
+		// l'ajoute au registre s'il n'y est pas. Le registre ne sert plus qu'a cela.
+		inline void NkAiRememberOrder(const NkString &name) {
+			NkVector<NkString> ordre = NkAiRegistryOrder();
+			for (usize i = 0; i < ordre.Size(); ++i)
+				if (ordre[i] == name)
+					return;
+			ordre.PushBack(name);
+			NkAiAccountsSave(ordre);
 		}
 
 		inline NkVector<NkAiAccount> NkAiAccounts() {
@@ -240,6 +282,11 @@ namespace nkentseu {
 		// de SESSION, tapee DANS une session interactive. Passee en argument, le
 		// CLI la prend pour un PROMPT et ne connecte personne (constate en
 		// l'executant). Sous-commandes reelles : auth login | logout | status.
+		// ATTENTION : cette chaine est passee telle quelle au shell du terminal. La
+		// forme ci-dessous est du cmd.exe (`set "X=Y" && ...`) — l'appelant DOIT donc
+		// demander un terminal cmd. Lancee dans PowerShell, `set` est un alias de
+		// Set-Variable et `&&` n'existe pas en 5.1 : le shell meurt aussitot, ce qui
+		// se voyait comme un « [processus termine] » instantane (constate).
 		inline NkString NkAiLoginCommand(const NkString &exe, const NkString &name) {
 			const NkString dir = NkAiAccountDir(name);
 #if defined(_WIN32)
