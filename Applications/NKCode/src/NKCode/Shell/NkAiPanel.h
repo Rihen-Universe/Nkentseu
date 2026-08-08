@@ -764,6 +764,8 @@ namespace nkentseu {
 				bool mModelsRequested = false;
 				bool mModelsDone = false;	  // une reponse a ete traitee (succes ou echec)
 				int32 mModelsTries = 0;		  // budget d'essais : voir TriggerModelsProbe
+				NkString mModelsAccount;	  // compte auquel la sonde en cours se rapporte
+				bool mModelsAccountInit = false;
 				NkVector<NkString> mModelIds; // noms acceptes par --model, dans l'ordre annonce
 				NkString mModelsCurrent;	  // titre humain du modele courant (« Opus 5 (1M context) »)
 				NkPipeProc mQuickUsageProc;
@@ -815,7 +817,25 @@ namespace nkentseu {
 					if (!mAcctLoaded && !mAcctRequested && !ClaudeExe().Empty()) {
 						mAcctRequested = true;
 						mAcctLines.Clear();
-						mAcctProc.Start(NkWin32QuoteArg(ClaudeExe().CStr()) + " auth status --json");
+						// Sans CLAUDE_CONFIG_DIR, cette requete decrivait le compte GLOBAL du
+						// systeme et non celui du workspace : l'e-mail affiche pouvait donc
+						// appartenir a un tout autre compte que celui reellement utilise.
+						// NkProcess passe par _popen, donc PAR UN SHELL (cmd.exe sous Windows) :
+						// la variable peut donc etre posee en prefixe, contrairement au terminal
+						// qui, lui, lance la commande directement (cf. NkAiLoginCommand).
+						NkString cmd;
+						NkString compte;
+						if (mS && mS->HasWorkspace())
+							compte = NkAiWorkspaceAccount(mS->root);
+						if (!compte.Empty()) {
+#if defined(_WIN32)
+							cmd = NkString("set \"CLAUDE_CONFIG_DIR=") + NkAiAccountDir(compte).CStr() + "\" && ";
+#else
+							cmd = NkString("CLAUDE_CONFIG_DIR=\"") + NkAiAccountDir(compte).CStr() + "\" ";
+#endif
+						}
+						cmd += NkWin32QuoteArg(ClaudeExe().CStr()) + " auth status --json";
+						mAcctProc.Start(cmd);
 					}
 					TriggerQuickUsage();
 				}
@@ -3789,7 +3809,12 @@ namespace nkentseu {
 						const char *etat = a.connected ? NkT("ai.acc.connected") : NkT("ai.acc.notconnected");
 						const float32 ew = measure(etat);
 						const float32 ty = row.y + (rowH - lh) * 0.5f;
-						txt(row.x + ctx.S(8.f), ty, a.name.CStr(), nameCol, row.w - ew - ctx.S(24.f));
+						// « Claude 1 » ne dit pas QUI est connecte : on accole l'e-mail reel du
+						// compte, lu dans son propre .claude.json (aucun processus lance).
+						const NkString mail = NkAiAccountEmail(a.name);
+						const NkString libelle =
+							mail.Empty() ? a.name : NkPrintf("%s  ·  %s", a.name.CStr(), mail.CStr());
+						txt(row.x + ctx.S(8.f), ty, libelle.CStr(), nameCol, row.w - ew - ctx.S(24.f));
 						txt(row.x + row.w - ew - ctx.S(8.f), ty, etat,
 							a.connected ? NkColor{126, 196, 126, 255} : ctx.theme.textDisabled);
 						if (hov && ctx.input.mouseClicked[0]) {
@@ -5471,6 +5496,18 @@ namespace nkentseu {
 					PollAccountStatus(); // independant de mBusy (requete ponctuelle "claude auth status")
 					PollPendingLogin();  // inscrit le compte SEULEMENT une fois connecte
 					if (mKind == 1) {
+						// La sonde est LIEE a un compte. Se fier au seul PollPendingLogin ne
+						// suffisait pas : apres un redemarrage de NKCode, ou si le budget
+						// d'essais avait deja ete epuise avant qu'un compte soit connecte, elle
+						// restait definitivement close et le modele courant n'apparaissait
+						// jamais. On compare donc le compte EFFECTIF a chaque frame.
+						const NkString compteActuel =
+							(mS && mS->HasWorkspace()) ? NkAiWorkspaceAccount(mS->root) : NkAiDefaultAccount();
+						if (!mModelsAccountInit || compteActuel != mModelsAccount) {
+							mModelsAccount = compteActuel;
+							mModelsAccountInit = true;
+							ResetModelsProbe();
+						}
 						TriggerModelsProbe(); // liste REELLE des modeles (une fois par compte)
 						PollModelsProbe();
 						// La liste peut RETRECIR d'un compte a l'autre : un index conserve
