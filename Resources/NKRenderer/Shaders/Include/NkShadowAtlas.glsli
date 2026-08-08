@@ -30,29 +30,64 @@ float NkShadowSlopeBiasMul(vec3 N, vec3 L, float biasMul) {
     return NkShadowSlopeBias(N, L) * biasMul;
 }
 
-// Normal bias : pousse worldPos le long de N (en world units constants peu
-// importe le scale de la cascade) avant la projection shadow. Evite a la fois
-// shadow acne ET peter panning (decollement visible des ombres au pied des
-// casters verticaux). Plus utile que depth bias pour pulses 3D distincts.
-vec3 NkShadowNormalBiasOffset(vec3 worldPos, vec3 N, vec3 L) {
+// Taille MONDE d'un texel du tile `slotIdx`, au point `worldPos`.
+//
+// C'est la grandeur qui calibre le normal bias : l'erreur de quantification
+// d'une shadow map vaut par construction ~un texel, donc le decalage qui la
+// compense doit se mesurer EN TEXELS, jamais en centimetres fixes.
+//
+// Lecture de la matrice (GLSL = colonne-majeure, m[col][row]) :
+//   - ligne 0 (clip.x) : sa norme vaut 2/largeur_monde couverte par le tile ;
+//   - ligne 3 (clip.w) : 1 pour une ortho (directionnelle), la profondeur
+//     lumiere pour une perspective (omni/spot) -- le texel d'une perspective
+//     GRANDIT avec la distance, et ce w le mesure exactement.
+float NkShadowTexelWorld(int slotIdx, vec3 worldPos) {
+    float sx = length(vec3(uShadows.slots[slotIdx].shadowMatrix[0][0],
+                           uShadows.slots[slotIdx].shadowMatrix[1][0],
+                           uShadows.slots[slotIdx].shadowMatrix[2][0]));
+    float w  = uShadows.slots[slotIdx].shadowMatrix[0][3] * worldPos.x
+             + uShadows.slots[slotIdx].shadowMatrix[1][3] * worldPos.y
+             + uShadows.slots[slotIdx].shadowMatrix[2][3] * worldPos.z
+             + uShadows.slots[slotIdx].shadowMatrix[3][3];
+    vec4  tuv    = uShadows.slots[slotIdx].tileUV;
+    float tilePx = max((tuv.z - tuv.x) * float(textureSize(tShadowAtlas, 0).x), 1.0);
+    return 2.0 * max(abs(w), 1e-4) / (max(sx, 1e-6) * tilePx);
+}
+
+// Normal bias : pousse worldPos le long de N avant la projection shadow.
+// Evite a la fois shadow acne ET peter panning. biasParams.y est un NOMBRE DE
+// TEXELS, converti ici en unites monde via la taille reelle du texel du tile.
+//
+// POURQUOI PAR TILE, ET PLUS EN CONSTANTE MONDE (bug constate par Rihen : le
+// cube semblait flotter, son ombre ne touchait pas son pied) : la constante
+// (5 cm) etait calibree pour la cascade la plus LOINTAINE. Sur la cascade
+// proche -- ou le texel vaut quelques millimetres -- le meme decalage etait
+// 10 a 100 fois trop grand : applique a la normale VERTICALE du sol, il
+// testait chaque point du sol 5 cm au-dessus de lui-meme, et le contact de
+// l'ombre au pied des objets disparaissait sur ces 5 cm.
+vec3 NkShadowNormalBiasOffsetSlot(int slotIdx, vec3 worldPos, vec3 N, vec3 L) {
     float NdL = max(dot(N, L), 0.0);
     // 1-NdL = grazing factor : push plus fort aux angles rasants ou les
     // artifacts sont plus visibles.
     float scale = (1.0 - NdL) * 0.5 + 0.5;
-    return worldPos + N * uShadows.biasParams.y * scale;
+    return worldPos + N * (uShadows.biasParams.y * NkShadowTexelWorld(slotIdx, worldPos)) * scale;
 }
 
-// Sample un tile specifique de l'atlas (PCF basique 3x3, peut etre etendu
-// vers PCSS plus tard via uShadows.globalCfg.y).
+// Sample un tile specifique de l'atlas (PCF 3x3 + biais du plan recepteur).
 //
 // slotIdx : index dans uShadows.slots[]
 // worldPos : position du fragment en world space (apres un-mirror Y si mirror pass)
 // bias : depth bias en NDC space
-float NkSampleShadowTile(int slotIdx, vec3 worldPos, float bias) {
+// dWdx/dWdy : derivees ECRAN de worldPos (dFdx/dFdy), calculees par l'appelant
+//   en FLUX UNIFORME -- ici on est sous la selection de cascade, qui diverge
+//   d'un pixel a l'autre, et une derivee prise dans un flux divergent est
+//   indefinie par la spec.
+float NkSampleShadowTile(int slotIdx, vec3 worldPos, float bias, vec3 dWdx, vec3 dWdy) {
     if (slotIdx < 0 || slotIdx >= 256) return 1.0;
     vec4 coord = uShadows.slots[slotIdx].shadowMatrix * vec4(worldPos, 1.0);
     if (coord.w <= 0.0) return 1.0;
-    vec3 p = coord.xyz / coord.w;
+    vec3 ndc = coord.xyz / coord.w;
+    vec3 p = ndc;
     // NDC [-1,1] -> UV [0,1] dans le tile NDC. X/Y toujours remappes.
     p.x = p.x * 0.5 + 0.5;
     p.y = p.y * 0.5 + 0.5;
@@ -75,20 +110,65 @@ float NkSampleShadowTile(int slotIdx, vec3 worldPos, float bias) {
     vec4 tileUV = uShadows.slots[slotIdx].tileUV;
     vec2 atlasUV = mix(tileUV.xy, tileUV.zw, p.xy);
 
-    // PCF 3x3 simple cross-API (poisson/PCSS pour V1).
+    // ── BIAIS DU PLAN RECEPTEUR (Isidoro) ────────────────────────────────────
+    // Un tap PCF decale de quelques texels compare la profondeur du CENTRE a
+    // celle d'un VOISIN : sur une surface inclinee face a la lumiere, l'ecart
+    // est structurel, et c'est LUI qui imposait les gros biais -- lesquels
+    // decollaient l'ombre du pied des objets. Ici on extrapole la profondeur
+    // du plan du recepteur A LA POSITION DE CHAQUE TAP : l'ecart structurel
+    // disparait, le biais constant peut rester minuscule, ET l'atlas garde
+    // toutes ses faces (le culling front, essaye pour le meme but, eclairait
+    // l'interieur des objets fermes -- capture de Rihen du 7 aout).
+    //
+    // Derivees : monde -> clip est lineaire (matrice), puis regle du quotient
+    // pour la division perspective, puis les MEMES remaps que p ci-dessus.
+    vec4 dcx = uShadows.slots[slotIdx].shadowMatrix * vec4(dWdx, 0.0);
+    vec4 dcy = uShadows.slots[slotIdx].shadowMatrix * vec4(dWdy, 0.0);
+    vec3 dnx = (dcx.xyz - ndc * dcx.w) / coord.w;
+    vec3 dny = (dcy.xyz - ndc * dcy.w) / coord.w;
+    float flipS = mix(1.0, -1.0, uShadows.globalCfg.w); // meme flip que p.y
+    vec2  tileS = tileUV.zw - tileUV.xy;                 // echelle tile->atlas
+    float au_x = dnx.x * 0.5 * tileS.x;
+    float av_x = flipS * dnx.y * 0.5 * tileS.y;
+    float au_y = dny.x * 0.5 * tileS.x;
+    float av_y = flipS * dny.y * 0.5 * tileS.y;
+    float az_x = mix(dnx.z, dnx.z * 0.5, zRemap);
+    float az_y = mix(dny.z, dny.z * 0.5, zRemap);
+    // dz/du et dz/dv (atlas UV) par resolution du systeme 2x2. Determinant
+    // quasi nul = silhouette vue par la tranche : l'hypothese « plan » n'y
+    // vaut rien, on retombe sur la comparaison classique (zu = zv = 0).
+    float det = au_x * av_y - av_x * au_y;
+    float zu = 0.0;
+    float zv = 0.0;
+    if (abs(det) > 1e-14) {
+        zu = (az_x * av_y - az_y * av_x) / det;
+        zv = (az_y * au_x - az_x * au_y) / det;
+    }
+
+    // PCF 3x3 cross-API. LE PAS SUIT LA DOUCEUR, comme le portage DX11 : sans
+    // cela le reglage « Douceur » du panneau n'avait AUCUN effet sur Vulkan/GL
+    // alors qu'il en avait un sur DX11 -- deux backends qui ne montraient pas la
+    // meme image a partir des memes reglages.
     vec2 ts = 1.0 / vec2(textureSize(tShadowAtlas, 0));
+    vec2 pcfStep =
+        ts * max(1.0, uShadows.biasParams.z * float(textureSize(tShadowAtlas, 0).x) * 0.25);
     float s = 0.0;
     for (int dx = -1; dx <= 1; dx++) {
         for (int dy = -1; dy <= 1; dy++) {
-            vec2 uv = atlasUV + vec2(dx, dy) * ts;
+            vec2 uv = atlasUV + vec2(dx, dy) * pcfStep;
             // Clamp aux bornes du tile pour eviter le bleed vers tile voisin.
             uv = clamp(uv, tileUV.xy + ts, tileUV.zw - ts);
+            // L'extrapolation part du deplacement REEL (apres clamp), et reste
+            // bornee : au voisinage d'une silhouette la pente explose, et une
+            // extrapolation demesuree percerait l'ombre.
+            vec2  duv = uv - atlasUV;
+            float dz  = clamp(zu * duv.x + zv * duv.y, -0.005, 0.005);
             // textureLod(..., 0.0) au lieu de texture() : l'atlas d'ombre est mono-mip,
             // donc le LOD 0 explicite est exact ET gradient-free. Indispensable pour DX :
             // ce sample est inliné dans une boucle à compte dynamique (slotCount/cascades),
             // et un sample à GRADIENT en boucle variable fait échouer fxc (warning X3570 →
             // déroulage impossible / hang). SPIRV-Cross émet SampleCmpLevelZero (sans gradient).
-            s += textureLod(tShadowAtlas, vec3(uv, p.z), 0.0);
+            s += textureLod(tShadowAtlas, vec3(uv, p.z + dz), 0.0);
         }
     }
     return s / 9.0;
@@ -101,7 +181,7 @@ float NkSampleShadowTile(int slotIdx, vec3 worldPos, float bias) {
 // elle s'etire et disparait). Bande de fondu : 8% du tile. Reservee a la
 // directionnelle : sur les faces d'une omni, ce fondu ECLAIRCIRAIT les
 // coutures que la bande de garde vient de fermer.
-float NkSampleShadowTileFaded(int slotIdx, vec3 worldPos, float bias) {
+float NkSampleShadowTileFaded(int slotIdx, vec3 worldPos, float bias, vec3 dWdx, vec3 dWdy) {
     if (slotIdx < 0 || slotIdx >= 256) return 1.0;
     vec4 coord = uShadows.slots[slotIdx].shadowMatrix * vec4(worldPos, 1.0);
     if (coord.w <= 0.0) return 1.0;
@@ -112,7 +192,7 @@ float NkSampleShadowTileFaded(int slotIdx, vec3 worldPos, float bias) {
     float edge = min(min(p.x, 1.0 - p.x), min(p.y, 1.0 - p.y));
     float ef = clamp(edge / 0.08, 0.0, 1.0);
     if (ef <= 0.0) return 1.0;
-    float s = NkSampleShadowTile(slotIdx, worldPos, bias);
+    float s = NkSampleShadowTile(slotIdx, worldPos, bias, dWdx, dWdy);
     return mix(1.0, s, ef);
 }
 
@@ -126,7 +206,8 @@ float NkSampleShadowTileFaded(int slotIdx, vec3 worldPos, float bias) {
 // dans la bande de transition (~15% des fragments).
 const float kCascadeFadeStart = 0.85;  // debut zone fade (0..1 du splitFar)
 
-float NkSampleDirectionalShadow(int lightIdx, vec3 worldPos, vec3 N, vec3 L, float biasMul) {
+float NkSampleDirectionalShadow(int lightIdx, vec3 worldPos, vec3 N, vec3 L, float biasMul,
+                                vec3 dWdx, vec3 dWdy) {
     if (lightIdx < 0 || lightIdx >= 32) return 1.0;
     int firstSlot = int(uShadows.firstSlotPerLight[lightIdx >> 2][lightIdx & 3]);
     int slotCount = int(uShadows.slotCountPerLight[lightIdx >> 2][lightIdx & 3]);
@@ -138,19 +219,22 @@ float NkSampleDirectionalShadow(int lightIdx, vec3 worldPos, vec3 N, vec3 L, flo
     float depth    = (uCam.view * vec4(worldPos, 1.0)).z;
     float absDepth = -depth;  // distance positive depuis la cam
     float bias     = NkShadowSlopeBiasMul(N, L, biasMul);
-    // Normal bias en world units : pousse worldPos le long de N pour eviter
-    // peter-panning aux pieds des casters verticaux.
-    vec3  wp       = NkShadowNormalBiasOffset(worldPos, N, L);
 
     for (int c = 0; c < slotCount && c < 4; c++) {
         int slotIdx = firstSlot + c;
         float splitFar = uShadows.slots[slotIdx].lightPosOrDir.w;
         if (absDepth < splitFar) {
-            float s0 = NkSampleShadowTileFaded(slotIdx, wp, bias);
+            // Normal bias calcule PAR CASCADE, une fois celle-ci choisie : le
+            // texel de la cascade 0 et celui de la cascade 3 different d'un
+            // ordre de grandeur, leur decalage aussi.
+            vec3  wp = NkShadowNormalBiasOffsetSlot(slotIdx, worldPos, N, L);
+            float s0 = NkSampleShadowTileFaded(slotIdx, wp, bias, dWdx, dWdy);
             float fadeT = (absDepth / splitFar - kCascadeFadeStart)
                           / (1.0 - kCascadeFadeStart);
             if (fadeT > 0.0 && c + 1 < slotCount) {
-                float s1 = NkSampleShadowTileFaded(firstSlot + c + 1, wp, bias);
+                // La cascade suivante a SON texel, donc SON decalage.
+                vec3  wp1 = NkShadowNormalBiasOffsetSlot(firstSlot + c + 1, worldPos, N, L);
+                float s1 = NkSampleShadowTileFaded(firstSlot + c + 1, wp1, bias, dWdx, dWdy);
                 return mix(s0, s1, clamp(fadeT, 0.0, 1.0));
             }
             // DERNIERE cascade : au lieu de couper net au splitFar, l'ombre
@@ -166,7 +250,8 @@ float NkSampleDirectionalShadow(int lightIdx, vec3 worldPos, vec3 N, vec3 L, flo
 
 // Sample shadow pour un point light. Face cubemap selection via direction
 // (light->frag), puis sample le tile correspondant.
-float NkSamplePointShadow(int lightIdx, vec3 worldPos, vec3 N, vec3 L, float biasMul) {
+float NkSamplePointShadow(int lightIdx, vec3 worldPos, vec3 N, vec3 L, float biasMul,
+                          vec3 dWdx, vec3 dWdy) {
     if (lightIdx < 0 || lightIdx >= 32) return 1.0;
     int firstSlot = int(uShadows.firstSlotPerLight[lightIdx >> 2][lightIdx & 3]);
     if (firstSlot < 0) return 1.0;
@@ -205,16 +290,19 @@ float NkSamplePointShadow(int lightIdx, vec3 worldPos, vec3 N, vec3 L, float bia
     }
     int slotIdx = firstSlot + face;
     float bias = NkShadowSlopeBiasMul(N, L, biasMul);
-    vec3  wp   = NkShadowNormalBiasOffset(worldPos, N, L);
+    // Par tile : le texel d'une face d'omni grandit avec la distance a la
+    // lumiere (projection perspective), le decalage doit suivre.
+    vec3  wp   = NkShadowNormalBiasOffsetSlot(slotIdx, worldPos, N, L);
     // AUCUNE LIMITE PROPRE A L'OMBRE (Rihen : il y avait DEUX spheres, celle
     // de la lumiere et une sphere d'ombre plus petite -- elles doivent etre
     // UNE SEULE). L'ombre multiplie la lumiere : elle meurt donc exactement
     // avec l'attenuation, sans fondu artificiel ni rayon a elle.
-    return NkSampleShadowTile(slotIdx, wp, bias);
+    return NkSampleShadowTile(slotIdx, wp, bias, dWdx, dWdy);
 }
 
 // Sample shadow pour un spot light. Un seul tile.
-float NkSampleSpotShadow(int lightIdx, vec3 worldPos, vec3 N, vec3 L, float biasMul) {
+float NkSampleSpotShadow(int lightIdx, vec3 worldPos, vec3 N, vec3 L, float biasMul,
+                         vec3 dWdx, vec3 dWdy) {
     if (lightIdx < 0 || lightIdx >= 32) return 1.0;
     int firstSlot = int(uShadows.firstSlotPerLight[lightIdx >> 2][lightIdx & 3]);
     if (firstSlot < 0) return 1.0;
@@ -227,10 +315,10 @@ float NkSampleSpotShadow(int lightIdx, vec3 worldPos, vec3 N, vec3 L, float bias
     // plan lointain double rend le gros biais inutile.
     biasMul *= 1.0 + 4.0 * distS * distS;
     float bias = NkShadowSlopeBiasMul(N, L, biasMul);
-    vec3  wp   = NkShadowNormalBiasOffset(worldPos, N, L);
+    vec3  wp   = NkShadowNormalBiasOffsetSlot(firstSlot, worldPos, N, L);
     // Aucune limite propre a l'ombre (meme regle que les omni) : elle meurt
     // avec l'attenuation de la lumiere, pas avec un rayon a elle.
-    return NkSampleShadowTile(firstSlot, wp, bias);
+    return NkSampleShadowTile(firstSlot, wp, bias, dWdx, dWdy);
 }
 
 // Dispatch par type de light. Lit le type via uLights.positions[i].w
@@ -238,15 +326,22 @@ float NkSampleSpotShadow(int lightIdx, vec3 worldPos, vec3 N, vec3 L, float bias
 // biasMul : multiplicateur per-material du shadowBias (1.0 default).
 float SampleLightShadowEx(int lightIdx, vec3 worldPos, vec3 N, vec3 L, float biasMul) {
     int type = int(uLights.positions[lightIdx].w);
-    if (type == 0) return NkSampleDirectionalShadow(lightIdx, worldPos, N, L, biasMul);
-    if (type == 1) return NkSamplePointShadow      (lightIdx, worldPos, N, L, biasMul);
-    if (type == 2) return NkSampleSpotShadow       (lightIdx, worldPos, N, L, biasMul);
+    // Derivees ecran de worldPos, prises ICI et pas plus bas : les appelants
+    // (pbr/layered) invoquent cette fonction sous des branches UNIFORMES
+    // (parametres d'objet et de lumiere, identiques pour tout le draw), alors
+    // que la selection de cascade/face diverge pixel par pixel -- une derivee
+    // y serait indefinie. Elles nourrissent le biais du plan recepteur du PCF.
+    vec3 dWdx = dFdx(worldPos);
+    vec3 dWdy = dFdy(worldPos);
+    if (type == 0) return NkSampleDirectionalShadow(lightIdx, worldPos, N, L, biasMul, dWdx, dWdy);
+    if (type == 1) return NkSamplePointShadow      (lightIdx, worldPos, N, L, biasMul, dWdx, dWdy);
+    if (type == 2) return NkSampleSpotShadow       (lightIdx, worldPos, N, L, biasMul, dWdx, dWdy);
     // SURFACIQUE : meme echantillonnage qu'un spot, parce que le CPU lui alloue
     // desormais une tuile de type SPOT (cf. AllocSlotsForLights, cas NK_AREA).
     // Un panneau n'eclaire que d'un cote : un tronc perspectif large decrit donc
     // correctement ce qu'il occulte. Avant, ce cas retournait 1.0 -- une
     // surfacique traversait toute la geometrie sans jamais projeter d'ombre.
-    if (type == 3) return NkSampleSpotShadow       (lightIdx, worldPos, N, L, biasMul);
+    if (type == 3) return NkSampleSpotShadow       (lightIdx, worldPos, N, L, biasMul, dWdx, dWdy);
     return 1.0;
 }
 // Wrapper backward-compatible : biasMul = 1.0 (utilise par Toon/Anime qui n'ont
