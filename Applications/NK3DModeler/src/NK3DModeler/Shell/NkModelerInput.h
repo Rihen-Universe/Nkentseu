@@ -656,6 +656,18 @@ namespace nkentseu {
 				// deplacee -- sinon le dossier du projet accumulerait des orphelins
 				// que plus rien ne designe.
 				char browserFile[32][128] = {};
+				// Date du dernier enregistrement CONNU de la carte, relevee a
+				// l'ecriture et au balayage. Elle est MEMORISEE et non interrogee a
+				// la peinture : trente-deux appels au systeme de fichiers par image
+				// couteraient plus cher que tout le navigateur.
+				nk_int64 browserTime[32] = {};
+				// ── CLASSEMENT DU NAVIGATEUR (comme l'explorateur) ──────────
+				// 0 nom · 1 type · 2 date. Les DOSSIERS restent toujours en tete,
+				// quel que soit le critere et le sens : ce sont des contenants, pas
+				// des elements de la liste -- les melanger aux fichiers oblige a les
+				// chercher au lieu de les parcourir.
+				int32 browSort = 0;
+				bool browSortDesc = false;
 				// ── SUPPRESSIONS EN ATTENTE, cote DISQUE ────────────────────
 				// Supprimer une carte doit retirer SON FICHIER (demande de Rihen) :
 				// sans cela, le dossier du projet garderait des fichiers que plus
