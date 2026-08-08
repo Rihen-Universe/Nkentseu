@@ -689,6 +689,7 @@ namespace nkentseu {
 				bool mAccountsOpen = false;   // popover "Comptes Claude Code"
 				bool mAccAdding = false;      // saisie du nom d'un nouveau compte en cours
 				bool mAccJustOpened = false;  // -> donne le focus au champ de nom a l'ouverture
+				NkString mAccPending;         // compte en cours de connexion (pas encore inscrit)
 				char mAccName[64] = {0};      // tampon de ce nom
 				NkString mAccError;           // refus explicite (nom invalide) plutot qu'un silence
 				// Le clic qui OUVRE le popover (lien "Voir l'utilisation" de la banniere, ou item
@@ -831,6 +832,22 @@ namespace nkentseu {
 
 				// Demande la liste au CLI. Une seule fois par compte : relancee quand le
 				// compte du workspace change (ResetModelsProbe), jamais en boucle.
+				// Un compte n'est inscrit qu'une fois le CLI ayant ecrit ses identifiants.
+				// Une connexion abandonnee ne laisse donc AUCUNE trace dans la liste (regle
+				// de Rihen) — seulement un dossier vide, sans effet.
+				void PollPendingLogin() {
+					if (mAccPending.Empty())
+						return;
+					if (!NkAiAccountConnected(mAccPending))
+						return;
+					NkAiRememberOrder(mAccPending); // fige sa place dans l'ordre
+					if (mS && mS->HasWorkspace())
+						NkAiSetWorkspaceAccount(mS->root, mAccPending);
+					Msgs().PushBack({2, NkPrintf("%s %s", NkT("ai.acc.connected.ok"), mAccPending.CStr())});
+					mAccPending.Clear();
+					ResetModelsProbe(); // nouveau compte = liste de modeles a revalider
+				}
+
 				void TriggerModelsProbe() {
 					if (mModelsRequested || mModelsDone || ClaudeExe().Empty())
 						return;
@@ -3886,9 +3903,10 @@ namespace nkentseu {
 						return;
 					}
 					mAccError = NkString();
-					NkAiAccountCreate(nom);
+					NkAiAccountPrepare(nom); // dossier seulement : rien n'est inscrit encore
 					mAccAdding = false;
 					mAccName[0] = 0;
+					mAccPending = nom; // inscrit UNIQUEMENT si la connexion aboutit
 					LaunchAccountLogin(nom);
 				}
 
@@ -3904,7 +3922,13 @@ namespace nkentseu {
 					if (!mS)
 						return;
 					mS->termOpenCmd = NkAiLoginCommand(ClaudeExe(), nom);
+					// 3 = cmd.exe. La commande de connexion est en syntaxe cmd (`set ... &&`) :
+					// laisser le shell par defaut (PowerShell) la tuait instantanement.
+#if defined(_WIN32)
+					mS->termOpenKind = 3;
+#else
 					mS->termOpenKind = -1;
+#endif
 					mS->termOpenAt = mS->HasWorkspace() ? mS->root.ToString() : NkString(".");
 					mS->termOpenRun = false; // agent CLI -> panneau TERMINAL, pas EXECUTION
 					if (mShell)
@@ -5448,6 +5472,7 @@ namespace nkentseu {
 
 				void Poll() {
 					PollAccountStatus(); // independant de mBusy (requete ponctuelle "claude auth status")
+					PollPendingLogin();  // inscrit le compte SEULEMENT une fois connecte
 					if (mKind == 1) {
 						TriggerModelsProbe(); // liste REELLE des modeles (une fois par compte)
 						PollModelsProbe();
