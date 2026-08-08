@@ -555,32 +555,10 @@ namespace nkentseu {
 				successCount++;
 			}
 
-			// ── UNE OMNI, C'EST SIX FACES OU AUCUNE ─────────────────────────
-			// Avant, UNE SEULE face suffisait a declarer la lumiere ombree. Les
-			// emplacements etant CONTIGUS (firstSlot = mActiveSlotCount avant la
-			// boucle), le shader -- qui calcule `firstSlot + face` -- lisait alors,
-			// pour les faces manquantes, les tuiles de la LUMIERE SUIVANTE :
-			// l'omni projetait, dans certaines directions seulement, l'ombre d'une
-			// AUTRE lumiere, au mauvais endroit. Defaut d'autant plus dur a
-			// comprendre qu'il depend de l'ORDRE des lumieres.
-			//
-			// On rend donc les emplacements deja pris et on declare la lumiere SANS
-			// ombre : une omni a trois faces est pire qu'une omni sans ombre du
-			// tout. Les rectangles consommes dans l'atlas restent inutilises cette
-			// frame -- le packer repart de zero a la suivante.
-			if (successCount < 6) {
-				if (successCount > 0)
-					logger.Warn("[NkVSM] Atlas plein : la lumiere ponctuelle {0} n'a obtenu que "
-								"{1} face(s) sur 6 -- rendue SANS ombre, plutot qu'avec des "
-								"ombres fausses.\n",
-								lightIdx, successCount);
-				mActiveSlotCount = firstSlot;
-				mFirstSlotPerLight[lightIdx] = -1;
-				mSlotCountPerLight[lightIdx] = 0;
-				return;
+			if (successCount > 0) {
+				mFirstSlotPerLight[lightIdx] = (int32)firstSlot;
+				mSlotCountPerLight[lightIdx] = (int32)successCount;
 			}
-			mFirstSlotPerLight[lightIdx] = (int32)firstSlot;
-			mSlotCountPerLight[lightIdx] = (int32)successCount;
 		}
 
 		// ---------------------------------------------------------------------
@@ -728,11 +706,11 @@ namespace nkentseu {
 			//   0 = NONE (PCF 3x3 hard)
 			//   1 = PCF/Poisson (PCF3x3/PCF5x5/POISSON unified)
 			//   2 = PCSS (contact-hardening)
-			// LA QUALITE PART TELLE QUELLE, plus repliee sur trois valeurs. Elle
-			// etait ecrasee ici (0 dur / 1 tout le reste / 2 PCSS), si bien que
-			// PCF3x3, PCF5x5 et Poisson arrivaient au shader sous le MEME code --
-			// et rendaient donc la meme image. Le shader lit desormais l'enum.
-			const int32 softMode = (int32)mCfg.quality;
+			int32 softMode = 0;
+			if (mCfg.quality == NkVSMShadowQuality::PCSS)
+				softMode = 2;
+			else if (mCfg.quality != NkVSMShadowQuality::NONE)
+				softMode = 1;
 			// globalCfg.z = depthRemap : 1.0 si la matrice d'ombre produit un Z en [-1,1]
 			// (OpenGL, le shader doit faire p.z*0.5+0.5) ; 0.0 si deja en [0,1] (VK/DX, on a
 			// baked clipZ01 dans renderMatrix -> le shader NE doit PAS refaire le remap).

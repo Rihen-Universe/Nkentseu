@@ -8348,18 +8348,10 @@ namespace nkentseu {
 							// CINQ crans, comme l'enum moteur : avec 4, « Penombre
 								// (PCSS) » etait l'index 3, c'est-a-dire POISSON --
 								// le vrai PCSS etait inatteignable.
-								// PCSS DIT « A VENIR » tant qu'il n'est pas ecrit. Le
-								// mode existe dans l'enum et se transmet, mais le
-								// shader ne sait pas encore chercher l'occulteur : il
-								// lui faut un echantillonnage NON comparatif de
-								// l'atlas, absent du chemin DX11. Le choisir rend donc
-								// l'image du Poisson. Une entree qui fait semblant
-								// d'agir est ce que le depot refuse -- on le dit dans
-								// son nom plutot que de la laisser mentir.
 								static const char *const kQ[5] = {"Aucune", "Douce (PCF 3)",
 															  "Douce (PCF 5)",
 															  "Poisson (grain doux)",
-															  "Penombre (PCSS) - a venir"};
+															  "Penombre (PCSS)"};
 							p.TextV(iR.x, yy, kRowH, "Qualite", NkRole::TextMuted);
 							Combo(p, hit, ws, "prop.sh.q",
 								  {svX, yy + S(2.f), svW, kRowH - S(4.f)}, kQ, nullptr, 5,
