@@ -777,6 +777,10 @@ namespace nkentseu {
 		return true;
 	}
 
+	bool NkWindow::IsMinimized() const {
+		return false; // pas de fenetre iconifiable sur iOS
+	}
+
 	void NkWindow::BeginDragMove() {
 	}
 

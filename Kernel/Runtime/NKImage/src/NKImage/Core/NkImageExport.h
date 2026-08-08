@@ -3,7 +3,7 @@
  * @File    NkImageExport.h
  * @Brief   Macros de visibilité / export pour NKImage.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  */
 
 #if defined(_WIN32) || defined(_WIN64)

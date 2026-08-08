@@ -140,6 +140,9 @@ namespace nkentseu {
 				NkVec3f lastPosition = {0, 0, 0};
 				NkVec3f lastDirection = {0, 0, 0};
 				float32 lastRange = 0.f;
+				// Empreinte de la geometrie au dernier RENDU : sert a detecter,
+				// en mode statique, qu'un recalcul serait utile (bouton bleu).
+				uint64 casterStamp = 0;
 				bool renderedOnce = false;
 				bool wasStatic = false;
 		};
@@ -167,6 +170,24 @@ namespace nkentseu {
 				// context via mRender3D, alloue les slots, upload UBO, rend tous
 				// les tiles. Appele par la passe 'Shadows' du RenderGraph.
 				void RenderAllShadows(NkICommandBuffer *cmd);
+
+				// RECALCUL FORCE (bouton « Recalculer » du panneau Rendu) : oublie
+				// l'etat « deja rendu » de chaque lumiere, donc la prochaine frame
+				// re-rend TOUTES les ombres, meme en mode statique. C'est le
+				// complement voulu du mode statique : on fige, on compose sa
+				// scene, on recalcule QUAND ON LE DECIDE.
+				void InvalidateShadowCache() noexcept {
+					for (uint32 i = 0; i < kMaxLightsShadow; i++)
+						mLightCache[i].renderedOnce = false;
+				}
+
+				// UN RECALCUL SERAIT-IL UTILE ? Vrai quand au moins une ombre
+				// FIGEE (mode statique) ne correspond plus a la scene : lumiere
+				// deplacee ou geometrie modifiee depuis le gel. Le panneau Rendu
+				// s'en sert pour colorer le bouton « Recalculer l'ombre ».
+				bool HasPendingRecalc() const noexcept {
+					return mPendingRecalc;
+				}
 
 				// Wirage avec NkRender3D pour iterer les drawcalls opaques.
 				void SetRenderer3D(NkRender3D *r) noexcept {
@@ -268,6 +289,15 @@ namespace nkentseu {
 
 				NkShadowAtlasPacker mPacker;
 				NkShadowSlot mSlots[kMaxShadowSlots];
+				// Instantane des emplacements au DERNIER RENDU : en mode statique,
+				// on restaure ces matrices-la au lieu de les recalculer depuis la
+				// lumiere courante. Sans ca, deplacer la lumiere en statique
+				// combinait matrice NEUVE et profondeur ANCIENNE -- ombre fausse ;
+				// ou bien l'ombre suivait, et le statique n'existait pas.
+				NkShadowSlot mSlotsPrev[kMaxShadowSlots];
+				// Au moins une ombre figee ne correspond plus a la scene
+				// (recalcule par AllocSlotsForLights a chaque frame).
+				bool mPendingRecalc = false;
 				uint32 mActiveSlotCount = 0;
 				int32 mFirstSlotPerLight[kMaxLightsShadow]; // -1 si pas de shadow
 				int32 mSlotCountPerLight[kMaxLightsShadow];
@@ -275,6 +305,12 @@ namespace nkentseu {
 				// NkVSM v1 : cache d'etat per-light pour shadowStatic=true.
 				// Persiste a travers BeginFrame (pas reset).
 				NkLightShadowCache mLightCache[kMaxLightsShadow];
+				// Empreinte des casters de la frame precedente : sa variation dit
+				// que la GEOMETRIE a bouge, et interdit alors de reutiliser les
+				// depth maps en cache -- sinon l'ombre reste a l'ancienne place de
+				// l'objet, meme si la lumiere, elle, n'a pas bouge.
+				uint64 mLastCasterStamp = 0;
+				bool mCastersMoved = true;
 				// Diagnostics : nb de slots rendered vs cached cette frame.
 				uint32 mRenderedSlotsCount = 0;
 				uint32 mCachedSlotsCount = 0;

@@ -22,7 +22,11 @@ const float kSpanMax     = 8.0;
 @entry
 void main() {
     vec2 px = pc.invResolution;
-    vec3 cC = texture(uLDR, vUV).rgb;
+    // LA COUVERTURE TRAVERSE, comme dans le tonemap qui precede : ecrire 1 ici
+    // detruisait la transparence en toute fin de chaine, apres que tout le
+    // reste l'avait pourtant transmise.
+    vec4 sC = texture(uLDR, vUV);
+    vec3 cC = sC.rgb;
     vec3 cN = texture(uLDR, vUV + vec2(0.0,  px.y)).rgb;
     vec3 cS = texture(uLDR, vUV - vec2(0.0,  px.y)).rgb;
     vec3 cE = texture(uLDR, vUV + vec2(px.x, 0.0)).rgb;
@@ -39,7 +43,7 @@ void main() {
     float range = lMax - lMin;
 
     if (range < max(kContrastMin, lMax * kContrastRel)) {
-        oColor = vec4(cC, 1.0);
+        oColor = vec4(cC, sC.a);
         return;
     }
 
@@ -59,5 +63,8 @@ void main() {
         texture(uLDR, vUV + dir *  0.5).rgb);
 
     float lR2 = NkLuma(r2);
-    oColor = vec4((lR2 < lMin || lR2 > lMax) ? r1 : r2, 1.0);
+    // La couverture du pixel CENTRAL : FXAA adoucit un contour de COULEUR, il
+    // ne redefinit pas ce qui est couvert. Melanger l'alpha des voisins
+    // rongerait le bord de l'objet dans le canal alpha.
+    oColor = vec4((lR2 < lMin || lR2 > lMax) ? r1 : r2, sC.a);
 }

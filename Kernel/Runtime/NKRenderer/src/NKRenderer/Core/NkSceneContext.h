@@ -51,6 +51,18 @@ namespace nkentseu {
 				float32 fogDensity = 0.f;
 				float32 fogStart = 100.f;
 				float32 fogEnd = 1000.f;
+				// ── BROUILLARD AU SOL (height fog), anime ────────────────────
+				// fogThickness = 0 : le brouillard ne depend que de la distance,
+				// exactement comme avant. Au-dela, la nappe est DENSE au niveau
+				// de fogHeightBase et s'eclaircit en montant sur cette epaisseur.
+				// fogWind la souffle comme une FUMEE : sa densite est modulee par
+				// un bruit qui DERIVE, a la maniere des nuages -- le sol et le
+				// ciel respirent alors ensemble. Le jour ou la physique du vent
+				// existera, c'est elle qui pilotera fogWindDir/fogWindSpeed.
+				float32 fogHeightBase = 0.f;
+				float32 fogThickness = 0.f;
+				float32 fogWind = 0.f;		 // force du souffle (0 = nappe lisse)
+				float32 fogWindSpeed = 0.1f; // derive de la nappe
 
 				// ── Debug view mode
 				NkViewMode viewMode = NkViewMode::NK_SOLID;

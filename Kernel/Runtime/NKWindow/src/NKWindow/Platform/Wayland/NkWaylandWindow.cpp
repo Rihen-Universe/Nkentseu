@@ -1553,6 +1553,10 @@ namespace nkentseu {
 		return mData.mMaximized;
 	}
 
+	bool NkWindow::IsMinimized() const {
+		return false; // etat iconifie non suivi sur cette plateforme (v1)
+	}
+
 	// Hand-off natif Wayland : le compositeur gere le drag jusqu'au relachement.
 	// Necessite le seat + le serial du dernier event pointeur (grab implicite).
 	void NkWindow::BeginDragMove() {

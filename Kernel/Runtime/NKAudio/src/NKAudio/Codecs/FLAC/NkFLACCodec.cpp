@@ -2,7 +2,7 @@
  * @File    NkFLACCodec.cpp
  * @Brief   Decodeur FLAC complet, from scratch.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  *
  * @Reference
  *  Spec : https://xiph.org/flac/format.html

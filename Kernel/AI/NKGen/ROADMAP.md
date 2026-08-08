@@ -129,9 +129,18 @@
      - ✅ **Maillage QUAD natif** (`gen::SurfaceNetsQuads`) : remesh **quad-dominant**
        uniforme (faces `f a b c d`, 1852 quads) — OBJ `nkgen_quads.obj`. Plus de soupe de
        triangles. (Export OBJ gère quads + tris.)
-     - ⬜ **QEM** (quadric error, préserve mieux la forme) sur le maillage triangulé.
-     - ⬜ **Quad field-aligned** (champ de croix, façon *Instant Meshes* — edge-flow suivant
-       les features : la cible qualité « pro »).
+     - ✅ **QEM** (quadric error) — `renderer::NkMeshDecimate` (NKRenderer/Mesh, 31/07) :
+       contraction d'arêtes avec condition de lien, anti-retournement, rétention des bords
+       et plafond d'erreur. Posé sur `NkEditMesh` (la structure de NK3DModeler), pas sur
+       `gen::NkMesh` — s'y brancher via OBJ ou indexed en attendant un pont direct.
+       Preuves : plan 128→19 tris à erreur **exactement nulle** ; cube subdivisé 768→268
+       fermé/manifold (batteries `decim/` du NKEditMeshHarness).
+     - 🟡 **Quad field-aligned** — livré (31/07) : `renderer::NkMeshRetopo`, champ de croix
+       (épinglage arêtes vives/bords + lissage 4-RoSy) et fusion **quad-dominante** guidée
+       par le champ. Après décimation, `Quadify` (paires consécutives) ne trouve que 43
+       quads là où le champ en fait 108 ; alignement 0,999 ; fermé/manifold préservés
+       (batteries `retopo/`). **Reste ⬜** : l'extraction par grille entière façon
+       *Instant Meshes* (100 % quads, contrôle des singularités) — la cible « pro ».
      - ⬜ Retopologie **apprise** (neurale) — via la stack NKNN.
   3. ⬜ **UV unwrap** + **bake** (normal/AO du dense vers le low-poly : détail préservé).
   4. ⬜ **Rig + skinning** (squelette auto) → prêt à animer.

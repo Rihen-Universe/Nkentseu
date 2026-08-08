@@ -2,7 +2,7 @@
  * @File    NkUIFont.cpp
  * @Brief   Implémentation du système de polices NkUI
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  *
  * Ce fichier contient l'implémentation de :
  * - Police bitmap intégrée (6x10 pixels, ASCII 32-127)

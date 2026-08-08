@@ -114,3 +114,53 @@ raccourcis/conflits                liaisons=32 conflits=0 premier=[aucun]
 raccourcis/conflit-reel-shift-s    conflits=1 [mesh.shade_smooth vs mod.toggle] gagne-en-edition=mesh.shade_smooth
 raccourcis/affichage               bevel_vert=Ctrl+Shift+B apply=Shift+Entree pivot=.
 raccourcis/reconfiguration         ancienne=aucune nouvelle=mod.apply affiche=Ctrl+Shift+Entree
+analyse/cube                       S=8 A=12 F=6 euler=2 genre=0 quad=1.00 poles(3/5/6+)=8/0/0 reg=0 bord=0
+analyse/cube-sante                 brut=24 soude=8 ferme=1 manifold=1 isoles=0 degen=0
+analyse/catmull-n1-poles-invariants S=26 A=48 F=24 euler=2 genre=0 quad=1.00 poles(3/5/6+)=8/0/0 reg=18 bord=0
+analyse/catmull-n2-poles-invariants S=98 A=192 F=96 euler=2 genre=0 quad=1.00 poles(3/5/6+)=8/0/0 reg=90 bord=0
+analyse/grille-ouverte             S=25 A=40 F=16 euler=1 genre=-1 quad=1.00 poles(3/5/6+)=0/0/0 reg=9 bord=16
+analyse/symetrie                   cube x/y/z=1.00/1.00/1.00  coin deplace=0.25/0.75/0.75
+analyse/jonction-T-refus-genre     nonmanif=1 bordA=3 genre=-1 (doit valoir -1)
+analyse/densite                    cube ecart=0.000 (min 1.00 max 1.00) | grille etiree ecart=0.500 (min 0.25 max 0.75)
+graphe/topo-losange-insere-inverse ok=1 ordre=A>C>B>D (insere D,C,B,A) noeuds=4 liens=4
+graphe/cycle-refuse                refus=cycle liens=2 (doit rester 2) triable=1 cycle=0
+graphe/conversion-dirigee          reel>vect=ok | vect>reel=type-incompatible | reel>maillage=type-incompatible
+graphe/entree-source-unique        liens=1 (doit valoir 1) source=y-la-nouvelle
+graphe/suppression-milieu          avant=2 apres=0 (doit valoir 0) noeuds=2 b-retrouve=0
+graphe/sens-et-sockets             entree-src=sens-invalide sortie-dst=sens-invalide inconnu=socket-inconnu boucle-soi=meme-noeud
+graphe/identifiants-stables        a=1 b=2 c=3 (c doit differer de a) recycle=0
+graphe/io-aller-retour             lu=1 identique=1 octets=246 noeuds=2 liens=1
+graphe/io-identifiants-non-recycles supprime=2 nouveau-apres-relecture=4 recycle=0
+graphe/io-semantique-survit        types-retrouves=1/1 reel>vect=ok reel>maillage=type-incompatible
+graphe/undo-restaure-les-liens     apres-suppr=0 | annule=1 b-revenu=1 noeuds=3 liens=2 memes-ids=1 | refait liens=0
+graphe/undo-branche-abandonnee     prof=2 retour-exact=1 refaisable-avant=2 apres-nouvelle-branche=0
+graphe/aplati-frontiere-disparait  ok etapes=4 [src>A>B>dst] dst<-B (doit etre B)
+graphe/aplati-deux-instances       ok etapes=8 A-emis=2 (doit valoir 2) dst1<-5 dst2<-6 distincts=1
+graphe/aplati-recursion-refusee    directe=sousgraphe-recursif indirecte=sousgraphe-recursif inconnu=sousgraphe-inconnu
+graphe/aplati-entree-libre         ok etapes=2 entree-libre=sans-source (0 serait un BUG)
+graphe/doc-aller-retour            lu=1 texte-identique=1 graphes=2 plan=ok [src>A>B>dst] meme-plan=1
+graphe/interface-groupe            conforme=ok | nom-absent=interface-incompatible | MEME-ID-AUTRE-NOM=interface-incompatible | en-trop=interface-incompatible
+graphe/interface-messages          [racine/inst : socket absent sur l'instance : e] [racine/inst : type different sur e : groupe=flux instance=maillage] [racine/inst : socket en trop sur l'instance : oublie]
+decim/plan-erreur-nulle            ok=1 tris 128->19 contract=66 | erreur moy=0.00000 max=0.00000 | bbox 1.00x1.00
+decim/bord-retenu-ou-non           depart larg=1.000 | avec-bord larg=1.000 bords=8 | sans-bord larg=0.873 bords=7 | perte=0.127
+decim/ferme-reste-manifold         tris 768->268 | nonmanif 0->0 ferme=1 | err moy=0.0041
+decim/cible-absurde-degenere       tris 768->2 (cible 3) | refus lien=0 flip=0 | nonmanif=0 ferme=1
+decim/condition-de-lien            avec ok=1 tris=4 refus-lien=6 nonmanif=0 | sans ok=1 tris=4 nonmanif=0
+decim/erreur-croit-avec-la-cible   60%:tris=460,err=0.0025 | 30%:tris=230,err=0.0046 | 12%:tris=92,err=0.0094
+decim/plafond-erreur               tris 768->168 cible-atteinte=0 (0 attendu) refus-cout=1 cout-max=0.000010
+retopo/champ-lissage-travaille     faces=128 epinglees=30 | align 0-iter=0.777 -> 20-iter=0.999 (doit monter)
+retopo/cylindre-alignement         naif quads=64 (cellules PLANES : il reussit aussi) | champ ok=1 quads=64 align=0.999 nonmanif=0
+retopo/apres-decimation-naif-champ naif quads=43 | champ quads=108 tris-restants=52 (le champ doit dominer largement)
+retopo/pipeline-ferme-manifold     ok=1 decim 768->268 tris | sortie quads=108 tris=52 ratio=0.68 | ferme=1 manifold=1 genre=0
+retopo/seuil-qualite-agit          defaut(0,25) quads=108 | strict(0,75) quads=13 (doit chuter)
+retopo/aretes-vives-epinglees      faces=12 epinglees=12 (toutes attendues) | align-axes=1.000 (1,0 attendu)
+theme/aller-retour                 lu=1 appliques=30 inconnus=0 | roles differents=0 (0 attendu) nom=Mon theme
+theme/heritage-partiel             appliques=3 | herites=27/27 noirs=0 (0 attendu) | accent_ui=#2266FF nom=Bleu nuit
+theme/role-inconnu-tolere          lu=1 inconnus=1 (1 attendu) appliques=2 (2 attendus) | axis_x=#FF0000
+theme/couleurs-metier-dans-theme   axeY/panneau sombre=7.45 clair=5.58 | couleur-du-sombre-sur-clair=2.54 (doit chuter)
+theme/validation-contraste         defauts sombre=0 clair=0 (0 attendu) | theme casse : 5 defaut(s), pire text sur panel_header = 1.31 (exige 4.5)
+theme/seuils-par-usage             pire rapport brut sombre=4.63 clair=3.35 | seuils texte=4,5 graphique=3,0
+theme/roles-application            ids coeur=30 ext=30,31 idempotent=1 | apres aller-retour #FF00AA inconnus=0
+theme/theme-d-une-autre-app        lu=1 appliques=1 inconnus=2 (2 attendus) | accent_ui=#445566
+theme/bibliotheque                 builtins=2 | Papier trouve=1 herite-du-clair=1 | surcharge sans doublon=1 Sombre.fond=#000000
+theme/palette-imposee              porteuses de sens=3/3 | ecart sarcelles=1.004 | hierarchie a 3 niveaux=1

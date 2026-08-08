@@ -856,6 +856,10 @@ namespace nkentseu {
 		return false;
 	}
 
+	bool NkWindow::IsMinimized() const {
+		return false; // arriere-plan gere par le cycle de vie Android, pas ici
+	}
+
 	void NkWindow::BeginDragMove() {
 	}
 

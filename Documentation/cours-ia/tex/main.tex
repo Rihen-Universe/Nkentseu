@@ -1,0 +1,42 @@
+% =============================================================================
+% COURS NKENTSEU — ENTRAÎNER UNE IA
+% Compilation : ../build.ps1   (XeLaTeX, deux passes)
+% Le contenu vit dans chapitres/ : ce fichier n'est qu'un assemblage.
+% =============================================================================
+\documentclass[11pt, a4paper, oneside]{book}
+
+\newcommand{\DocDate}{6 août 2026}
+
+\input{preambule}
+
+% L'en-tete du cours precedent nomme son sujet ; celui-ci doit nommer le sien,
+% sinon les deux PDF se confondent des qu'on en imprime une page isolee.
+\fancyhead[L]{\footnotesize\sffamily\color{rihenTeal}Nkentseu — Entraîner une IA}
+
+\begin{document}
+
+\input{garde}
+
+\frontmatter
+\pagestyle{plain}
+\tableofcontents
+\cleardoublepage
+
+\mainmatter
+\pagestyle{fancy}
+
+% Numerotation depuis ZERO, comme le cours NkCanvas : le chapitre 0 est un
+% avant-propos, pas une lecon.
+\setcounter{chapter}{-1}
+\input{chapitres/00-avant-propos}
+\input{chapitres/01-comprendre}
+\input{chapitres/02-preparer-sa-machine}
+\input{chapitres/03-le-corpus}
+\input{chapitres/04-entrainer}
+\input{chapitres/05-reprendre}
+\input{chapitres/06-dialoguer}
+\input{chapitres/07-specialiser}
+\input{chapitres/08-partir-de-zero}
+\input{chapitres/09-les-fichiers}
+
+\end{document}

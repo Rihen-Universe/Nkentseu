@@ -1,0 +1,168 @@
+\chapter{Comprendre avant de lancer}
+
+Ce chapitre ne contient aucune commande. Il contient les cinq idées sans
+lesquelles toutes les commandes des chapitres suivants ressembleraient à de la
+magie.
+
+\section{Qu'est-ce qu'un modèle, au juste ?}
+
+Imaginez un très grand tableau de nombres. Pas quelques centaines : sept
+milliards. Ces nombres s'appellent des \textbf{paramètres}.
+
+Quand vous écrivez une phrase au modèle, elle traverse ce tableau. À chaque
+étape, des multiplications et des additions transforment votre phrase en une
+autre suite de nombres, jusqu'à produire une réponse : quel mot vient ensuite ?
+
+C'est tout. Un modèle de langue est une immense machine à deviner le mot
+suivant. Sa culture, son style, sa capacité à raisonner — tout est rangé dans la
+valeur de ces sept milliards de nombres.
+
+\begin{nkretenir}
+Un modèle, c'est un tableau de nombres. « Entraîner » veut dire : \emph{modifier
+ces nombres} pour que les réponses ressemblent davantage à celles qu'on
+souhaite.
+\end{nkretenir}
+
+\section{Qu'est-ce qu'entraîner ?}
+
+Prenons une image. Vous apprenez à un enfant à reconnaître un chat. Vous montrez
+une photo, il dit « chien ». Vous corrigez : « non, chat ». Il ajuste sa manière
+de voir. Vingt photos plus tard, il ne se trompe plus.
+
+L'entraînement d'un modèle suit exactement ce schéma, avec trois différences :
+
+\begin{enumerate}
+  \item On ne corrige pas « un peu », on mesure \textbf{de combien} il s'est
+        trompé. Ce nombre s'appelle la \textbf{perte} (\emph{loss} en anglais).
+        Plus il est bas, mieux c'est.
+  \item On ne corrige pas au hasard : on calcule, pour \emph{chacun} des
+        paramètres, dans quel sens le pousser pour que la perte diminue. Cet
+        ensemble de directions s'appelle le \textbf{gradient}.
+  \item On recommence des milliers de fois.
+\end{enumerate}
+
+Un \textbf{pas} d'entraînement, c'est donc : montrer un exemple, mesurer la
+perte, calculer le gradient, pousser un peu les paramètres dans le bon sens.
+
+\begin{nkretenir}
+La perte descend $=$ le modèle apprend. C'est le seul chiffre à surveiller
+pendant les premières heures.
+\end{nkretenir}
+
+\section{Pourquoi on ne réentraîne pas tout : l'idée du LoRA}
+
+Modifier sept milliards de nombres demande une carte graphique à plusieurs
+dizaines de milliers d'euros. Ce n'est pas votre cas, ni le mien.
+
+L'astuce s'appelle \textbf{LoRA} — \emph{Low-Rank Adaptation}, « adaptation de
+rang faible ». Elle tient en une phrase :
+
+\begin{quote}
+On \textbf{gèle} les sept milliards de paramètres d'origine, et on ajoute à côté
+un tout petit nombre de paramètres neufs, qui sont les seuls à apprendre.
+\end{quote}
+
+Reprenons l'image de l'enfant. Plutôt que de lui refaire toute son éducation, on
+lui donne une paire de lunettes. Les lunettes sont minuscules comparées à
+l'enfant, mais elles suffisent à changer ce qu'il voit.
+
+Les chiffres, sur le modèle utilisé dans ce cours :
+
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+\textbf{Ce qui existe} & \\
+Paramètres du modèle d'origine (gelés) & $\approx 7\,600\,000\,000$ \\
+\midrule
+\textbf{Ce qu'on ajoute et qui apprend} & \\
+Paramètres LoRA (rang 8) & $20\,185\,088$ \\
+Proportion & $\mathbf{0{,}27~\%}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+On entraîne donc moins de trois millièmes du modèle. Et ça marche : c'est ce que
+montrent les mesures du chapitre~4.
+
+\begin{nkretenir}
+LoRA : le modèle d'origine ne bouge pas, on lui greffe de petites pièces qui,
+elles, apprennent. C'est ce qui rend l'entraînement possible sur une carte de
+8~Go.
+\end{nkretenir}
+
+\section{Les deux voies : partir d'un modèle, ou partir de rien}
+
+\subsection*{Voie A — partir d'un modèle existant}
+
+Vous prenez un modèle déjà entraîné par quelqu'un d'autre — il sait déjà lire,
+écrire, raisonner — et vous lui apprenez \emph{votre} domaine. C'est la voie
+décrite aux chapitres 3 à 7.
+
+\textbf{Coût :} quelques heures à quelques jours. \textbf{Résultat :} un modèle
+qui parle déjà bien et qui connaît en plus votre sujet.
+
+\subsection*{Voie B — partir de zéro}
+
+Vous créez un modèle vide, avec des nombres tirés au hasard, et vous lui
+apprenez tout : le vocabulaire, la grammaire, le sens. C'est la voie du
+chapitre~8.
+
+\textbf{Coût :} des mois et des machines que vous n'avez pas, pour un modèle de
+grande taille. \textbf{Mais} c'est parfaitement faisable — et instructif — pour
+un petit modèle sur une tâche étroite.
+
+\begin{nkpiege}
+Beaucoup de débutants veulent « créer leur propre IA de zéro ». C'est
+compréhensible et c'est presque toujours une erreur de départ : vous
+dépenseriez des mois à réapprendre au modèle ce que la langue française est
+déjà. \textbf{Commencez par la voie A.} Le chapitre~8 vous montrera la voie B
+sur un problème à sa mesure.
+\end{nkpiege}
+
+\section{Généraliste ou spécialisé ?}
+
+Un modèle \textbf{généraliste} répond correctement à tout, sans exceller nulle
+part. Un modèle \textbf{spécialisé} connaît un domaine en profondeur.
+
+La différence ne tient pas à la méthode — elle est identique — mais au
+\textbf{corpus} : le texte dont il apprend. Un corpus de conversations variées
+donne un généraliste ; un corpus de documentation médicale donne un modèle
+médical.
+
+\begin{nkretenir}
+Vous ne choisissez pas « généraliste » ou « spécialisé » par un réglage. Vous le
+choisissez en choisissant vos textes. Le chapitre~3 est donc le plus important
+du cours, même s'il ne contient presque pas de commandes.
+\end{nkretenir}
+
+\section{Le vocabulaire, en une page}
+
+\begin{center}
+\begin{longtable}{p{3.6cm}p{10.4cm}}
+\toprule
+\textbf{Mot} & \textbf{Ce que ça veut dire} \\
+\midrule
+\endhead
+Paramètre & Un des nombres du modèle. \\
+Perte (\emph{loss}) & De combien le modèle s'est trompé. Plus bas = mieux. \\
+Gradient & Dans quel sens pousser chaque paramètre pour baisser la perte. \\
+Pas (\emph{step}) & Un exemple montré $+$ une correction appliquée. \\
+Époque (\emph{epoch}) & Un passage complet sur tout le corpus. \\
+Corpus & L'ensemble des textes dont le modèle apprend. \\
+Token & Un morceau de mot. « bonjour » peut valoir 2 tokens. \\
+LoRA & Les petites pièces ajoutées qui apprennent à la place du modèle. \\
+Rang & Taille de ces pièces. Plus grand = apprend plus, coûte plus. \\
+Adam & La méthode qui décide de l'ampleur de chaque correction. \\
+Checkpoint & Une photo de l'entraînement, pour pouvoir reprendre après une coupure. \\
+Quantification & Ranger les nombres sur moins de bits pour tenir en mémoire. \\
+VRAM & La mémoire de la carte graphique. C'est elle qui vous limite. \\
+\bottomrule
+\end{longtable}
+\end{center}
+
+\begin{nkexo}
+Sans relire le tableau, expliquez à voix haute — vraiment à voix haute — la
+différence entre un \emph{pas} et une \emph{époque}, puis pourquoi on gèle le
+modèle d'origine dans LoRA. Si vous butez, relisez la section concernée : les
+chapitres suivants supposent ces deux idées acquises.
+\end{nkexo}

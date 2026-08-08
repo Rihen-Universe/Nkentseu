@@ -778,6 +778,46 @@ limité, DX12+Metal OK. Plan :
 - ❌ Hot-reload des textures (les matériaux `.nkasset` l'ont, pas les textures)
 - ❌ Atlasing pour batching
 
+### Phase V — MONDES VOLUMINEUX : transposer les techniques prouvées en NKAI ❌
+
+> **Décision de Rihen, 6 août 2026.** Les optimisations écrites pour faire tenir
+> un modèle de langage de 7 milliards de paramètres dans 8 Go de VRAM
+> (`Kernel/AI/NKInfer`, jalons QLoRA 4 et 5) **sont exactement celles qu'exigent
+> les mondes 3D volumineux** — film d'animation, jeu, simulation. Ce ne sont pas
+> des techniques voisines : ce sont les mêmes, appliquées à d'autres octets. À
+> implémenter **dès que possible**, parce que tout ce qui vient après (scènes de
+> production, mondes ouverts, plans de film) en dépend.
+
+**Ce qui est DÉJÀ prouvé côté NKAI, et ce que ça donne ici :**
+
+| Prouvé en NKAI (mesuré) | Transposition 3D | État |
+|---|---|---|
+| Poids **Q4_K/Q6_K résidents**, déquantifiés **dans le shader** — 36 Mo au lieu de 259, soit **7×** | Textures **BC1-7 / ASTC / ETC2** décompressées par l'échantillonneur ; positions, normales et UV **quantifiés** dans les tampons de sommets | ❌ (BC/ASTC déjà listés Phase H) |
+| **`token_embd` jamais monté** : une ligne de 2 Ko lue au fichier par token, au lieu de 306 Mo en VRAM | **Streaming de géométrie** : ne réside que ce qui est visible ; le reste vit sur disque et arrive à la demande | 🔶 `NkStreamingSystem` le fait pour les **textures**, pas pour la géométrie |
+| **Tuilage + mémoire partagée** dans le matmul : **×5** à M=256 (61 → 282 GFLOPS) | Tuilage du **culling** et du rendu par tuiles (clustered/tiled light culling, Phase M v3) — même raison, même gain | ❌ |
+| **KV-cache** : ne jamais recalculer le passé | Caches de géométrie et d'ombres : ne pas recalculer ce qui n'a pas bougé | ✅ le principe existe (VSM, *dirty box* voxel) |
+
+**À écrire (le vrai travail neuf) :**
+
+- ❌ **Géométrie virtualisée** (façon Nanite) : niveaux de détail chargés selon
+  la distance, groupes de triangles résidents à la demande. C'est le pendant
+  exact du streaming de `token_embd` — on ne monte que ce qu'on regarde.
+- ❌ **Atlas de textures virtuel** : un espace d'adressage de textures bien plus
+  grand que la VRAM, dont seules les tuiles vues sont résidentes.
+- ❌ **Hiérarchie spatiale** (BVH/octree de scène) pour décider quoi charger et
+  quoi dessiner — le décideur dont dépendent les deux points précédents.
+- ❌ **Quantification des attributs de sommets** au format GPU, sur le modèle des
+  blocs Q4_K : lecture brute, décompression dans le shader.
+
+**Nuance à ne pas perdre de vue** : en IA le goulot est la **bande passante
+mémoire** (relire des gigaoctets de poids à chaque token) ; en 3D c'est plus
+souvent le **nombre d'appels de dessin** et la **latence disque**. Les remèdes
+se ressemblent, les priorités diffèrent — mesurer avant d'optimiser, comme le
+jalon 4 l'a fait (avant/après à quatre tailles).
+
+**Consommateurs visés** : Noge/Nogee (jeu, film d'animation, simulation) — voir
+la section jumelle dans `Engine/Noge/ROADMAP.md`.
+
 ### Phase M — Forward+ / Deferred
 - ✅ **Deferred v1+v2 LIVRÉ (2026-07-13)** : G-buffer MRT 3 RT + light pass
   fullscreen + ForwardRest, opt-in `cfg.deferred`/`NK_DEFERRED=1` — GL référence

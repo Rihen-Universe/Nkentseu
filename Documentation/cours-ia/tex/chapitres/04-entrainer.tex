@@ -1,0 +1,272 @@
+\chapter{Entraîner}
+
+\section{La commande minimale}
+
+Deux informations suffisent : le modèle de départ et le corpus.
+
+\begin{nkcode}[]{Windows — PowerShell}
+.\Build\Bin\Release-Windows\NKQwen2Train\NKQwen2Train.exe `
+  --gguf="$env:USERPROFILE\.ollama\models\blobs\sha256-VOTRE_BLOB" `
+  --corpus="C:\mes-donnees\corpus.txt" `
+  --out="C:\mes-donnees\mon-modele"
+\end{nkcode}
+
+\begin{nkcode}[]{Linux et macOS}
+./Build/Bin/Release-Linux/NKQwen2Train/NKQwen2Train \
+  --gguf=~/.ollama/models/blobs/sha256-VOTRE_BLOB \
+  --corpus=~/mes-donnees/corpus.txt \
+  --out=~/mes-donnees/mon-modele
+\end{nkcode}
+
+C'est la même commande partout : seuls les chemins changent.
+
+\section{Toutes les options}
+
+\begin{center}
+\begin{longtable}{p{3.9cm}p{2.0cm}p{7.6cm}}
+\toprule
+\textbf{Option} & \textbf{Défaut} & \textbf{À quoi ça sert} \\
+\midrule
+\endhead
+\texttt{-{}-gguf=} & — & Le modèle de départ. \textbf{Obligatoire.} \\
+\texttt{-{}-corpus=} & — & Le fichier de textes. \textbf{Obligatoire.} \\
+\texttt{-{}-out=} & \texttt{qwen2\_lora} & Préfixe des fichiers produits. \\
+\texttt{-{}-lr=} & \texttt{1e-4} & Taux d'apprentissage : l'ampleur de chaque
+   correction. \\
+\texttt{-{}-steps=} & \texttt{0} & Nombre de pas sur ce lancement. \texttt{0}
+   signifie « jusqu'au bout du corpus ». \\
+\texttt{-{}-save-every=} & \texttt{200} & Sauvegarde tous les $n$ pas. \\
+\texttt{-{}-rank=} & \texttt{8} & Taille des pièces LoRA. \\
+\texttt{-{}-max-seq=} & \texttt{128} & Longueur maximale d'un exemple, en
+   tokens. Les plus longs sont sautés. \\
+\texttt{-{}-valid-every=} & \texttt{500} & Contrôle tous les $n$ pas.
+   \texttt{0} pour ne jamais contrôler. \\
+\texttt{-{}-fresh} & — & Ignorer les checkpoints et repartir de zéro. \\
+\bottomrule
+\end{longtable}
+\end{center}
+
+\begin{nkretenir}
+Tout se règle par la ligne de commande. \textbf{Changer de corpus, de taux
+d'apprentissage ou de durée ne demande jamais de recompiler.} Recompiler ne
+redevient nécessaire que si l'on modifie le programme lui-même.
+\end{nkretenir}
+
+\section{Lire ce qui s'affiche}
+
+\subsection{Au démarrage}
+
+\begin{nkcode}[]{Sortie réelle, machine à 8 Go}
+=== NKQwen2Train — entraînement LoRA reprenable ===
+
+backend compute : Vulkan
+  [NkQwen2LoraGpu] L=28 d=3584 ffn=18944 nH=28 nKV=4 hd=128 vocab=152064
+    couche 1/28 chargée (0.7 s, 0.31 Go)
+    couche 28/28 chargée (10.1 s, 3.83 Go)
+    lm_head = output.weight (Q6_K, 152064 x 3584, 426 Mo)
+    adaptateurs : 20185088 paramètres entraînables (77 Mo) + 231 Mo d'état Adam
+modèle chargé en 13.4 s
+corpus : 100017 paires
+aucun checkpoint exploitable — départ de zéro
+\end{nkcode}
+
+Ligne par ligne :
+
+\begin{itemize}
+  \item \textbf{backend compute : Vulkan} — la vérification du chapitre~2. Si
+        cette ligne dit autre chose, arrêtez-vous.
+  \item \textbf{L=28 d=3584} — 28 couches, 3584 nombres pour représenter un
+        token. C'est la carte d'identité du modèle.
+  \item \textbf{3,83 Go} — la place prise sur votre carte graphique. Sur 8~Go,
+        il reste de quoi travailler.
+  \item \textbf{20185088 paramètres entraînables} — les fameux 0,27~\%.
+  \item \textbf{231 Mo d'état Adam} — la mémoire de l'optimiseur ; on y revient
+        au chapitre~5.
+  \item \textbf{100017 paires} — combien d'exemples ont été lus. Comparez à ce
+        que vous attendiez.
+\end{itemize}
+
+\subsection{Pendant l'entraînement}
+
+\begin{nkcode}[]{Une ligne toutes les dix étapes}
+pas 10 | perte 2.2903 (moy. 1.8772) | 8.46 s/pas | exemple 10/100017
+\end{nkcode}
+
+\begin{center}
+\begin{tabular}{lp{9.6cm}}
+\toprule
+\texttt{pas 10} & Nombre total de pas depuis le tout début, reprises
+                  comprises. \\
+\texttt{perte 2.2903} & L'erreur sur \emph{cet} exemple. Elle saute beaucoup :
+                  c'est normal. \\
+\texttt{(moy. 1.8772)} & La moyenne. \textbf{C'est celle-ci qu'on surveille.} \\
+\texttt{8.46 s/pas} & Le rythme. \\
+\texttt{exemple 10/100017} & Où l'on en est dans le corpus. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkpiege}
+Ne tirez aucune conclusion de la perte d'un exemple isolé. Elle dépend d'abord
+de la difficulté de cet exemple-là. Une phrase courte et banale donne une perte
+basse, une phrase technique une perte haute — sans que le modèle ait progressé
+ou régressé entre les deux. \textbf{Seule la moyenne, sur des centaines de pas,
+raconte quelque chose.}
+\end{nkpiege}
+
+\section{À quoi ressemble un apprentissage qui marche}
+
+Voici des mesures réelles, prises sur 200 pas :
+
+\begin{center}
+\begin{tabular}{rrr}
+\toprule
+\textbf{Pas} & \textbf{Perte d'apprentissage} & \textbf{Perte de contrôle} \\
+\midrule
+0   & —      & 1,6613 \\
+1   & 2,2370 & 1,6212 \\
+25  & 1,2378 & 0,8662 \\
+50  & 1,8171 & 0,7430 \\
+100 & 1,2766 & 0,6655 \\
+150 & 0,9647 & 0,6580 \\
+200 & 0,8639 & \textbf{0,6292} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Deux choses à observer.
+
+\textbf{La colonne du milieu monte et descend.} Au pas~50 elle vaut 1,82, plus
+qu'au pas~25. Ce n'est pas une régression : c'est un exemple plus difficile.
+
+\textbf{La colonne de droite descend franchement}, de 1,66 à 0,63. Comme elle
+est mesurée sur des exemples jamais vus, cette baisse est un vrai progrès et non
+de la récitation.
+
+\begin{nkretenir}
+Un bon entraînement se reconnaît à ceci : la perte de contrôle descend
+régulièrement. Si elle stagne pendant des centaines de pas, quelque chose ne va
+pas — le plus souvent le corpus, parfois le taux d'apprentissage.
+\end{nkretenir}
+
+\section{Combien de temps cela va-t-il prendre ?}
+
+La question que tout le monde pose. La réponse mesurée :
+
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+Durée d'un pas (moyenne) & 9,15 s \\
+Durée d'un pas (observé) & de 8,5 à 14,2 s \\
+\midrule
+1\,000 pas & $\approx$ 2 h 30 \\
+10\,000 pas & $\approx$ 25 h \\
+Une époque complète (100\,017 exemples) & \textbf{254 h $=$ 10,6 jours} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Oui : dix jours et demi pour un seul passage sur le corpus entier.
+
+Ce chiffre n'est pas un défaut à corriger, c'est la réalité d'un modèle de sept
+milliards de paramètres sur une carte grand public. Trois façons de faire avec :
+
+\begin{enumerate}
+  \item \textbf{Laisser tourner.} C'est pour cela que la reprise existe
+        (chapitre~5). La machine travaille la nuit, vous l'arrêtez quand vous
+        en avez besoin, vous la relancez ensuite.
+  \item \textbf{Réduire le corpus à ce qui compte.} 10\,000 exemples bien
+        choisis valent mieux que 100\,000 exemples médiocres — et prennent un
+        jour au lieu de dix.
+  \item \textbf{Écourter les exemples.} Baisser \texttt{-{}-max-seq} accélère
+        chaque pas, au prix des exemples longs qui seront sautés.
+\end{enumerate}
+
+\begin{nkpiege}
+La durée d'un pas dépend de la \textbf{longueur} de l'exemple. Un corpus de
+questions courtes ira nettement plus vite qu'un corpus de longs paragraphes. Les
+10,6~jours sont une moyenne sur \emph{ce} corpus-là, pas une loi universelle :
+mesurez sur le vôtre avec \texttt{-{}-steps=20}.
+\end{nkpiege}
+
+\section{Régler le taux d'apprentissage}
+
+C'est l'ampleur de chaque correction. Trop petit, le modèle n'apprend rien ;
+trop grand, il part dans le décor.
+
+\begin{center}
+\begin{tabular}{lp{9.4cm}}
+\toprule
+\texttt{1e-3} & Rapide et risqué. La perte peut exploser. \\
+\texttt{1e-4} & \textbf{Le défaut.} Fonctionne dans la grande majorité des cas.
+                Commencez par là. \\
+\texttt{1e-5} & Prudent. Pour affiner un modèle déjà bien adapté. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkpiege}
+Si votre perte grimpe au lieu de descendre, ou affiche \texttt{nan}, votre taux
+est trop grand. Divisez-le par dix et relancez avec \texttt{-{}-fresh} : les
+paramètres déjà abîmés ne se récupèrent pas.
+\end{nkpiege}
+
+\section{Régler le rang}
+
+Le rang fixe la taille des pièces ajoutées.
+
+\begin{center}
+\begin{tabular}{rrp{7.4cm}}
+\toprule
+\textbf{Rang} & \textbf{Paramètres} & \textbf{Quand le choisir} \\
+\midrule
+4  & $\approx$ 10~M & Adapter le style, peu de mémoire disponible. \\
+8  & 20~M & \textbf{Le défaut.} Le bon compromis. \\
+16 & $\approx$ 40~M & Domaine riche, beaucoup d'exemples. \\
+32 & $\approx$ 80~M & Rarement utile ; à réserver aux très gros corpus. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkpiege}
+Le rang doit être \textbf{identique} entre l'entraînement et la reprise. Reprendre
+un checkpoint de rang~8 en demandant un rang~16 est refusé — et c'est heureux :
+les formes ne correspondraient pas, et le modèle rechargé serait faux.
+\end{nkpiege}
+
+\section{Ce que vous obtenez à la fin}
+
+\begin{nkcode}[]{Fin d'un entraînement}
+checkpoint final : mon-modele_ckpt0.nkla (231.0 Mo)
+adaptateurs livrables : mon-modele.nkla (77.0 Mo, 20185088 paramètres)
+
+6 pas en 76 s (12.73 s/pas) | perte moyenne 1.9923 | total cumulé : 6 pas
+\end{nkcode}
+
+Deux sortes de fichiers, à ne pas confondre :
+
+\begin{center}
+\begin{tabular}{p{4.3cm}rp{7.2cm}}
+\toprule
+\textbf{Fichier} & \textbf{Taille} & \textbf{À quoi il sert} \\
+\midrule
+\texttt{\_ckpt0.nkla}, \texttt{\_ckpt1.nkla} & 231 Mo & \textbf{Reprendre} un
+   entraînement. Contient tout l'état. \\
+\texttt{.nkla} & 77 Mo & \textbf{Utiliser} le modèle. C'est ce fichier-là que
+   vous partagez. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+Le fichier à donner, c'est le \texttt{.nkla} de 77~Mo. Les checkpoints ne
+servent qu'à vous, sur votre machine, pour continuer là où vous vous êtes
+arrêté.
+\end{nkretenir}
+
+\begin{nkexo}
+Reprenez le corpus de vingt paires du chapitre~3 et lancez :
+\texttt{-{}-steps=20 -{}-save-every=10 -{}-valid-every=0}. Comptez le temps
+qu'un pas prend \emph{sur votre machine} et multipliez par le nombre d'exemples
+de votre vrai corpus. Vous saurez à quoi vous engager avant de vous engager.
+\end{nkexo}

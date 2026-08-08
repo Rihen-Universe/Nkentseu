@@ -1,0 +1,50 @@
+% =============================================================================
+% PAGE DE GARDE -- fond sarcelle pleine page, logo Rihen en reserve.
+% Le logo est en couleurs sur fond blanc dans sa version d'origine ; ici c'est
+% un BANDEAU BLANC qui le porte, plutot qu'une detourure approximative : on ne
+% deforme pas une marque pour l'adapter a un fond.
+% =============================================================================
+\begin{titlepage}
+\thispagestyle{empty}
+\newgeometry{margin=0pt}
+
+\begin{tikzpicture}[remember picture, overlay]
+  % Fond
+  \fill[rihenTeal] (current page.south west) rectangle (current page.north east);
+  % Aplat orange en bas : la marque a deux couleurs, la page de garde aussi.
+  \fill[rihenOrange] ([yshift=0pt]current page.south west)
+        rectangle ([yshift=13pt]current page.south east);
+  % Bandeau blanc portant le logo, ancre en haut.
+  \fill[white] ([yshift=-2.6cm]current page.north west)
+        rectangle ([yshift=-6.4cm]current page.north east);
+  \node[anchor=center] at ([yshift=-4.5cm]current page.north)
+       {\includegraphics[width=8.2cm]{rihen-logo.png}};
+
+  % Titre
+  \node[anchor=north, text width=15.2cm, align=center]
+       at ([yshift=-9.4cm]current page.north) {
+    {\sffamily\bfseries\fontsize{40}{46}\selectfont\color{white}
+      NkCanvas \& NKGui\par}
+    \vspace{10pt}
+    {\color{rihenOrange}\rule{4.2cm}{2.6pt}\par}
+    \vspace{16pt}
+    {\sffamily\fontsize{17}{23}\selectfont\color{white!88}
+      Construire des applications et des jeux\\avec le moteur Nkentseu\par}
+    \vspace{10pt}
+    {\sffamily\fontsize{12.5}{17}\selectfont\color{rihenOrange}
+      Cours complet pour débutants\par}
+  };
+
+  % Bas de page
+  \node[anchor=south, text width=15cm, align=center]
+       at ([yshift=1.9cm]current page.south) {
+    {\sffamily\fontsize{10.5}{15}\selectfont\color{white!78}
+      Rêvons ensemble et réinventons le futur\par}
+    \vspace{5pt}
+    {\sffamily\fontsize{9.5}{13}\selectfont\color{white!58}
+      Rihen — \DocDate\par}
+  };
+\end{tikzpicture}
+
+\restoregeometry
+\end{titlepage}

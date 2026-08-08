@@ -3,7 +3,7 @@
  * @Brief   Decodeur OGG Vorbis pour Nkentseu (float32 interleaved).
  *
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  *
  * @Description
  *  Decodeur complet du format Ogg Vorbis (.ogg). Pipeline :

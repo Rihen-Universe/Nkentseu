@@ -36,7 +36,7 @@
  *    (crash c0000374 sur Windows en cas de mélange).
  *
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  */
 
 #include "NkImageExport.h"

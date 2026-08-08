@@ -2,7 +2,7 @@
 // -----------------------------------------------------------------------------
 // @File    NkGuiInput.h
 // @Brief   État d'entrée NKGui par frame (alimenté par le backend NKEvent).
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 
 #include "NKGui/NkGuiExport.h"

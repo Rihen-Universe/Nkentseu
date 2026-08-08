@@ -281,7 +281,7 @@ namespace nkentseu {
 	// =============================================================================
 	// Draw
 	// =============================================================================
-	void NkMetalCommandBuffer::Draw(uint32 vtx, uint32 inst, uint32 firstVtx, uint32 firstInst) {
+	void NkMetalCommandBuffer::DrawImpl(uint32 vtx, uint32 inst, uint32 firstVtx, uint32 firstInst) {
 		if (!mRenderEncoder)
 			return;
 		[RENDER_ENC drawPrimitives:mPrimitive
@@ -291,8 +291,8 @@ namespace nkentseu {
 					  baseInstance:firstInst];
 	}
 
-	void NkMetalCommandBuffer::DrawIndexed(uint32 idx, uint32 inst, uint32 firstIdx, int32 /*vtxOff*/,
-										   uint32 firstInst) {
+	void NkMetalCommandBuffer::DrawIndexedImpl(uint32 idx, uint32 inst, uint32 firstIdx, int32 /*vtxOff*/,
+											   uint32 firstInst) {
 		if (!mRenderEncoder || !mCurrentIndexBuffer)
 			return;
 		id<MTLBuffer> ib = (__bridge id<MTLBuffer>)mCurrentIndexBuffer;
@@ -310,7 +310,7 @@ namespace nkentseu {
 							 baseInstance:firstInst];
 	}
 
-	void NkMetalCommandBuffer::DrawIndirect(NkBufferHandle buf, uint64 off, uint32 cnt, uint32 stride) {
+	void NkMetalCommandBuffer::DrawIndirectImpl(NkBufferHandle buf, uint64 off, uint32 cnt, uint32 stride) {
 		if (!mRenderEncoder)
 			return;
 		id<MTLBuffer> b = (__bridge id<MTLBuffer>)mDev->GetMTLBuffer(buf.id);
@@ -318,7 +318,7 @@ namespace nkentseu {
 			[RENDER_ENC drawPrimitives:mPrimitive indirectBuffer:b indirectBufferOffset:off + i * stride];
 	}
 
-	void NkMetalCommandBuffer::DrawIndexedIndirect(NkBufferHandle buf, uint64 off, uint32 cnt, uint32 stride) {
+	void NkMetalCommandBuffer::DrawIndexedIndirectImpl(NkBufferHandle buf, uint64 off, uint32 cnt, uint32 stride) {
 		if (!mRenderEncoder || !mCurrentIndexBuffer)
 			return;
 		id<MTLBuffer> ib = (__bridge id<MTLBuffer>)mCurrentIndexBuffer;

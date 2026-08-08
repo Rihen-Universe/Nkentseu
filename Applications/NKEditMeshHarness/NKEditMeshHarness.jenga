@@ -44,8 +44,10 @@ with project("NKEditMeshHarness"):
         # sans LIER NKEditorKit. Le lier trainerait NKUI, NKCanvas et NKFont pour
         # verifier une structure de donnees — et allongerait encore un `--check`
         # qui coute deja plusieurs minutes.
+        # NkNodeGraph aussi : en-tete pur, aucune cible de build a lier.
         extra_includes=["src", "%{NKGlad.location}/include",
-                        "%{wks.location}/Engine/NKEditorKit/src"]
+                        "%{wks.location}/Engine/NKEditorKit/src",
+                        "%{wks.location}/Kernel/Runtime/NKGraph/src"]
                        + ([_VULKAN_INCLUDE] if _VULKAN_INCLUDE else []),
         extra_defines=[f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if _WANT_VULKAN else 0}"],
     )

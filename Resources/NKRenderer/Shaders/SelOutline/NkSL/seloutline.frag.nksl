@@ -93,9 +93,21 @@ void main() {
     vec3 colSel    = pc.color.rgb * 0.72;
     vec3 lineCol   = (m > 0.75) ? colActive : colSel;
 
+    // BANDE DE BORD : AUCUN lisere a moins de R+1 px du bord de la cible.
+    // Un objet COUPE par le bord de l'ecran ne recoit pas de contour le long
+    // de la coupe (facon Blender) -- et surtout, les prelevements du disque de
+    // dilatation qui sortent de la cible se replient (clamp) sur les rangees
+    // de bord et y inventaient une frontiere : ligne orange collee au bord de
+    // la vue des que l'objet depassait l'ecran (constate par Rihen, couleur
+    // mesuree = celle du lisere actif).
+    float bx = px * (R + 1.0);
+    float by = py * (R + 1.0);
+    float inBand = step(bx, vUV.x) * step(vUV.x, 1.0 - bx) *
+                   step(by, vUV.y) * step(vUV.y, 1.0 - by);
+
     // Liseré OPAQUE là où edge=1 (le contour existe), transparent ailleurs.
     // NB : on N'utilise PAS pc.color.a comme facteur — sur le chemin GL le 4e
     // composant du 2e vec4 de push-constant n'est pas fiablement livré (le rgb
     // l'est). `edge` étant binaire (step), l'alpha est franc -> liseré net.
-    oColor = vec4(lineCol, edge);
+    oColor = vec4(lineCol, edge * inBand);
 }

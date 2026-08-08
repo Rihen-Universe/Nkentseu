@@ -10,7 +10,7 @@
  * @File    NkUIMenu.h
  * @Brief   MenuBar, Menu, MenuItem, ContextMenu, Popup, Modal.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  *
  * @Design
  *  Trois niveaux de menus :

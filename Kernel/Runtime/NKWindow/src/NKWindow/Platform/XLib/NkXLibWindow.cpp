@@ -893,6 +893,10 @@ namespace nkentseu {
 		return horz && vert;
 	}
 
+	bool NkWindow::IsMinimized() const {
+		return false; // etat iconifie non suivi sur cette plateforme (v1)
+	}
+
 	// Hand-off natif (deplacement/redimensionnement) via _NET_WM_MOVERESIZE : le WM
 	// prend la main jusqu'au relachement du bouton. direction = enum EWMH.
 	static void NkXlibMoveResize(Display *dpy, Window xid, int direction) {

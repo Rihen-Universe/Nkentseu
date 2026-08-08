@@ -23,6 +23,7 @@
 // =============================================================================
 #include "NKCore/NkTypes.h"
 #include "NKMath/NKMath.h"
+#include <cmath> // logf / powf : conversion kelvins -> RVB des lumieres
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
 
@@ -340,6 +341,18 @@ namespace nkentseu {
 				float32 outerAngle = 35.f; // degres (cone exterieur — fade to 0)
 				float32 areaWidth = 1.f;
 				float32 areaHeight = 1.f;
+				// ── Temperature de couleur et exposition (2026-08) ────────────
+				// Deux reglages qu'attend tout eclairagiste, et qui manquaient :
+				//   temperatureK : blanc de reference en kelvins (1000..12000).
+				//                  0 = DESACTIVE, la couleur est prise telle quelle.
+				//   exposure     : diaphragme en STOPS -- chaque unite double ou
+				//                  divise l'energie. 0 = neutre.
+				// Ils s'appliquent A LA COULEUR au moment de la soumission (cote
+				// CPU) : aucun shader, aucun UBO et aucune taille de structure GPU
+				// ne changent, donc rien de ce qui existe ne peut casser. Les
+				// valeurs par defaut sont exactement l'ancien comportement.
+				float32 temperatureK = 0.f;
+				float32 exposure = 0.f;
 				// Phase E.6 : cookie texture (gobo) — projection 2D dans le repere
 				// local de la lumiere. Surtout utile pour spotlights : motif fenetre,
 				// faisceau anime, lampe-torche pattern. Index dans l'atlas cookies 3D
@@ -356,6 +369,47 @@ namespace nkentseu {
 				// automatiquement, mais pas les changements de transform objet.
 				bool shadowStatic = false;
 		};
+
+		// COULEUR EFFECTIVE d'une lumiere : sa couleur, teintee par sa temperature
+		// puis pesee par son exposition. Une seule fonction pour que tous les
+		// chemins de rendu obtiennent le meme resultat, et un calcul CPU pour ne
+		// toucher ni les shaders ni les structures GPU.
+		//
+		// La conversion kelvins -> RVB suit l'approximation de Tanner Helland
+		// (planckienne, bonne de 1000 a 12000 K) ; l'exposition est un facteur
+		// 2^stops, comme un diaphragme.
+		inline NkVec3f NkLightEffectiveColor(const NkLightDesc &d) {
+			NkVec3f c = d.color;
+			if (d.temperatureK > 0.f) {
+				float32 k = d.temperatureK;
+				k = k < 1000.f ? 1000.f : (k > 40000.f ? 40000.f : k);
+				const float32 t = k / 100.f;
+				float32 r, g, b;
+				if (t <= 66.f) {
+					r = 255.f;
+					g = 99.4708025861f * logf(t) - 161.1195681661f;
+					b = (t <= 19.f) ? 0.f
+									: (138.5177312231f * logf(t - 10.f) - 305.0447927307f);
+				} else {
+					r = 329.698727446f * powf(t - 60.f, -0.1332047592f);
+					g = 288.1221695283f * powf(t - 60.f, -0.0755148492f);
+					b = 255.f;
+				}
+				auto sat = [](float32 v) {
+					return v < 0.f ? 0.f : (v > 255.f ? 255.f : v);
+				};
+				c.x *= sat(r) / 255.f;
+				c.y *= sat(g) / 255.f;
+				c.z *= sat(b) / 255.f;
+			}
+			if (d.exposure != 0.f) {
+				const float32 f = powf(2.f, d.exposure);
+				c.x *= f;
+				c.y *= f;
+				c.z *= f;
+			}
+			return c;
+		}
 
 		// ── Shadow caster 2D (Phase E.5) ─────────────────────────────────────
 		// Occluder qui bloque la lumiere. Pour la simplicite on ne supporte que

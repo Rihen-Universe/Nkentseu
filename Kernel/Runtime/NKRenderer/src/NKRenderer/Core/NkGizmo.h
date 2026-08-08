@@ -53,7 +53,24 @@ namespace nkentseu {
 			public:
 				enum { MODE_TRANSLATE = 0, MODE_ROTATE = 1, MODE_SCALE = 2, MODE_COMBINE = 3 };
 
-				enum { ORIENT_GLOBAL = 0, ORIENT_LOCAL = 1, ORIENT_NORMAL = 2 };
+				// ── REPERES DE TRANSFORMATION (les 7 de Blender) ─────────────────
+				// GLOBAL : axes du monde. LOCAL : axes de l'objet actif.
+				// NORMAL : normale de l'element (mode edition, repere fourni).
+				// GIMBAL : axes des angles d'Euler. VIEW : axes de la camera.
+				// CURSOR : orientation du curseur 3D. PARENT : axes du parent.
+				// GIMBAL / CURSOR / PARENT sont fournis par l'HOTE (SetExtFrame) :
+				// le gizmo ne connait ni les eulers, ni le curseur, ni la
+				// parente. Sans repere fourni, ils retombent sur LOCAL -- et
+				// c'est dit, plutot que de faire semblant.
+				enum {
+					ORIENT_GLOBAL = 0,
+					ORIENT_LOCAL = 1,
+					ORIENT_NORMAL = 2,
+					ORIENT_GIMBAL = 3,
+					ORIENT_VIEW = 4,
+					ORIENT_CURSOR = 5,
+					ORIENT_PARENT = 6
+				};
 
 				// ── POINTS DE PIVOT (Blender : « Transform Pivot Point », touche `.`) ──
 				// Détermine AUTOUR DE QUOI s'appliquent la ROTATION et l'ÉCHELLE, et où le
@@ -155,7 +172,50 @@ namespace nkentseu {
 				}
 
 				void SetOrientation(int32 o) {
-					mOrient = ((o % 3) + 3) % 3;
+					mOrient = ((o % 7) + 7) % 7;
+				}
+
+				// ── ECHELLE EXACTE (cisaillement autorise) ───────────────────
+				// false (defaut, choix d'Unreal) : l'echelle est PROJETEE sur les
+				// axes de l'objet -- il ne cisaille jamais, et ce qu'on voit est
+				// stockable tel quel en trois facteurs.
+				// true : l'echelle reste dans le repere du GESTE ; un scale
+				// global sur un objet tourne le cisaille vraiment (un carre
+				// devient un losange). L'hote doit alors memoriser la base
+				// (ScaleBasisOf), sinon le resultat se perd au commit.
+				void SetAllowShear(bool on) noexcept {
+					mAllowShear = on;
+				}
+				bool AllowShear() const noexcept {
+					return mAllowShear;
+				}
+
+				// ── REPERE EXTERNE fourni par l'hote, pour GIMBAL / CURSOR /
+				// PARENT (which = ORIENT_GIMBAL, ORIENT_CURSOR, ORIENT_PARENT).
+				// X et Z donnes ; Y reconstruit. Sans repere pose, l'orientation
+				// concernee retombe sur LOCAL.
+				void SetExtFrame(int32 which, NkVec3f axX, NkVec3f axZ) {
+					const int32 s = which - ORIENT_GIMBAL;
+					if (s < 0 || s > 2)
+						return;
+					NkVec3f z = Norm(axZ);
+					NkVec3f x = axX;
+					const float32 d = Dot(x, z);
+					x = NkVec3f{x.x - z.x * d, x.y - z.y * d, x.z - z.z * d};
+					if (Len(z) < 0.5f || Len(x) < 1e-5f) {
+						mExtOk[s] = false;
+						return;
+					}
+					x = Norm(x);
+					mExtX[s] = x;
+					mExtZ[s] = z;
+					mExtY[s] = Norm(Cross(z, x));
+					mExtOk[s] = true;
+				}
+				void ClearExtFrame(int32 which) {
+					const int32 s = which - ORIENT_GIMBAL;
+					if (s >= 0 && s <= 2)
+						mExtOk[s] = false;
 				}
 
 				// ── Orientation « NORMAL » (façon Blender, Edit Mode) ─────────────
@@ -405,6 +465,7 @@ namespace nkentseu {
 							mTr[i] = {0.f, 0.f, 0.f};
 							mRot[i] = NkMat4f::Identity();
 							mScale[i] = {0.f, 0.f, 0.f};
+							mSclHasB[i] = false; // la base du geste meurt avec lui
 						}
 				}
 
@@ -427,14 +488,48 @@ namespace nkentseu {
 							mScale[i] = {0.f, 0.f, 0.f};
 				}
 
+				// ── Acces PAR CIBLE aux decalages utilisateur ────────────────────
+				// Le panneau Proprietes d'un editeur edite la transformation par
+				// CHAMPS : il lit et ecrit les decalages de la cible active. Les
+				// Clear* ci-dessus restent les remises a zero de la SELECTION.
+				NkVec3f TranslateOf(int32 i) const {
+					return (i >= 0 && i < kMax) ? mTr[i] : NkVec3f{0.f, 0.f, 0.f};
+				}
+				void SetTranslateOf(int32 i, NkVec3f v) {
+					if (i >= 0 && i < kMax)
+						mTr[i] = v;
+				}
+				NkMat4f RotationOf(int32 i) const {
+					return (i >= 0 && i < kMax) ? mRot[i] : NkMat4f::Identity();
+				}
+				void SetRotationOf(int32 i, const NkMat4f &m) {
+					if (i >= 0 && i < kMax)
+						mRot[i] = m;
+				}
+				NkVec3f ScaleOf(int32 i) const {
+					return (i >= 0 && i < kMax) ? mScale[i] : NkVec3f{0.f, 0.f, 0.f};
+				}
+				void SetScaleOf(int32 i, NkVec3f v) {
+					if (i >= 0 && i < kMax)
+						mScale[i] = v;
+				}
+
 				// Transform final (base + décalage utilisateur) pour la cible i.
 				NkMat4f Apply(int32 i, const NkMat4f &base) const {
 					if (i < 0 || i >= kMax)
 						return base;
 					const NkVec3f t = mTr[i], s = mScale[i];
 					const NkVec3f c = base * NkVec3f{0.f, 0.f, 0.f};
-					NkMat4f about = NkMat4f::Translate(c) * mRot[i] *
-									NkMat4f::Scale({1.f + s.x, 1.f + s.y, 1.f + s.z}) *
+					// ── L'ECHELLE S'APPLIQUE DANS LE REPERE DU GESTE ─────────────
+					// C'est ICI que se compose la matrice des OBJETS (mComposed) :
+					// ecrite telle quelle, l'echelle etirait toujours selon les
+					// axes du MONDE, si bien que LOCAL et GLOBAL donnaient le meme
+					// resultat sur un objet tourne (Rihen). Conjugaison par la base
+					// memorisee au moment du geste -- identite en repere global.
+					NkMat4f S = NkMat4f::Scale({1.f + s.x, 1.f + s.y, 1.f + s.z});
+					if (mSclHasB[i])
+						S = BasisMat(mSclAx[i]) * S * BasisMatT(mSclAx[i]);
+					NkMat4f about = NkMat4f::Translate(c) * mRot[i] * S *
 									NkMat4f::Translate({-c.x, -c.y, -c.z});
 					return NkMat4f::Translate(t) * about * base;
 				}
@@ -450,9 +545,70 @@ namespace nkentseu {
 					if (i < 0 || i >= kMax)
 						return NkMat4f::Identity();
 					const NkVec3f t = mTr[i], s = mScale[i];
-					return NkMat4f::Translate(t) * NkMat4f::Translate(about) * mRot[i] *
-						   NkMat4f::Scale({1.f + s.x, 1.f + s.y, 1.f + s.z}) *
+					// ── L'ECHELLE S'APPLIQUE DANS LE REPERE DU GESTE ─────────────
+					// Ecrite telle quelle, elle etirait TOUJOURS selon les axes du
+					// MONDE : sur un objet tourne, l'echelle LOCALE donnait donc le
+					// meme resultat que la GLOBALE (regle rappelee par Rihen : les
+					// deux ne coincident que si l'objet est aligne au monde). On
+					// conjugue par la base memorisee au moment du geste --
+					// identite en repere global, donc rien ne change pour lui.
+					NkMat4f S = NkMat4f::Scale({1.f + s.x, 1.f + s.y, 1.f + s.z});
+					if (mSclHasB[i])
+						S = BasisMat(mSclAx[i]) * S * BasisMatT(mSclAx[i]);
+					return NkMat4f::Translate(t) * NkMat4f::Translate(about) * mRot[i] * S *
 						   NkMat4f::Translate({-about.x, -about.y, -about.z});
+				}
+				// ── LE MEME GESTE, MAIS ATTENUE (edition proportionnelle) ────────
+				// Un voisin ne subit qu'une FRACTION w du geste, w donne par la loi
+				// d'attenuation. Les trois composantes s'attenuent, pas seulement la
+				// translation : une rangee d'objets doit pouvoir s'incurver (rotation)
+				// et s'evaser (echelle), comme dans Blender -- ne propager que la
+				// translation etait une limitation arbitraire (Rihen).
+				//   translation : t * w
+				//   echelle     : mScale est un DELTA (la matrice vaut 1+s), donc
+				//                 interpoler vers l'identite revient a s * w ;
+				//   rotation    : SLerp de l'identite vers la rotation du geste --
+				//                 l'angle est reduit, l'AXE conserve, ce qu'un simple
+				//                 melange de matrices ne garantirait pas.
+				// w = 1 redonne exactement ApplyAbout, w = 0 l'identite : le voisin
+				// juste hors de portee ne bouge pas d'un cheveu.
+				NkMat4f ApplyAboutWeighted(int32 i, NkVec3f about, float32 w) const {
+					if (i < 0 || i >= kMax)
+						return NkMat4f::Identity();
+					if (w <= 0.f)
+						return NkMat4f::Identity();
+					if (w >= 1.f)
+						return ApplyAbout(i, about);
+					const NkVec3f t{mTr[i].x * w, mTr[i].y * w, mTr[i].z * w};
+					const NkVec3f s{mScale[i].x * w, mScale[i].y * w, mScale[i].z * w};
+					NkMat4f S = NkMat4f::Scale({1.f + s.x, 1.f + s.y, 1.f + s.z});
+					if (mSclHasB[i])
+						S = BasisMat(mSclAx[i]) * S * BasisMatT(mSclAx[i]);
+					const NkMat4f R =
+						NkQuatf::Identity().SLerp(NkQuatf(mRot[i]).Normalized(), w).ToMat4();
+					return NkMat4f::Translate(t) * NkMat4f::Translate(about) * R * S *
+						   NkMat4f::Translate({-about.x, -about.y, -about.z});
+				}
+				// Matrice dont les AXES sont B (base -> monde), et sa transposee
+				// (monde -> base ; la base est orthonormee, donc transposee =
+				// inverse). Convention verifiee : M * {1,0,0} rend mat[0].
+				static NkMat4f BasisMat(const NkVec3f *B) {
+					NkMat4f M = NkMat4f::Identity();
+					for (int32 a = 0; a < 3; ++a) {
+						M.mat[a][0] = B[a].x;
+						M.mat[a][1] = B[a].y;
+						M.mat[a][2] = B[a].z;
+					}
+					return M;
+				}
+				static NkMat4f BasisMatT(const NkVec3f *B) {
+					NkMat4f M = NkMat4f::Identity();
+					for (int32 a = 0; a < 3; ++a) {
+						M.mat[0][a] = B[a].x;
+						M.mat[1][a] = B[a].y;
+						M.mat[2][a] = B[a].z;
+					}
+					return M;
 				}
 
 				// ── Boucle par frame : pick + drag ────────────────────────────────
@@ -515,12 +671,40 @@ namespace nkentseu {
 						mGB[0] = mNFrameX;
 						mGB[1] = mNFrameY;
 						mGB[2] = mNFrameZ;
+					} else if (mOrient == ORIENT_VIEW) {
+						// VUE : les axes de la CAMERA -- le gizmo les connait deja,
+						// aucun repere exterieur n'est necessaire. L'avant pointe
+						// vers l'observateur (-mFwd), comme chez Blender.
+						mGB[0] = mRgt;
+						mGB[1] = mUp;
+						mGB[2] = {-mFwd.x, -mFwd.y, -mFwd.z};
+					} else if (ExtFrameOk()) {
+						// GIMBAL / CURSOR / PARENT : repere pose par l'hote.
+						const int32 s = mOrient - ORIENT_GIMBAL;
+						mGB[0] = mExtX[s];
+						mGB[1] = mExtY[s];
+						mGB[2] = mExtZ[s];
 					} else if (mOrient != ORIENT_GLOBAL && mSelId >= 0 && mSelId < count) {
+						// LOCAL -- et repli des reperes non fournis.
 						const NkMat4f &M = mComposed[mSelId];
 						NkVec3f o = M * NkVec3f{0.f, 0.f, 0.f};
 						mGB[0] = Norm((M * NkVec3f{1, 0, 0}) - o);
 						mGB[1] = Norm((M * NkVec3f{0, 1, 0}) - o);
 						mGB[2] = Norm((M * NkVec3f{0, 0, 1}) - o);
+						// ── ORTHONORMALISATION (Gram-Schmidt) ────────────────
+						// Sur un objet CISAILLE, ces trois axes ne sont plus
+						// perpendiculaires : quasi colineaires, ils donnaient un
+						// gizmo APLATI, illisible et impossible a viser
+						// (constate par Rihen). Un repere de manipulation doit
+						// rester droit, meme quand la geometrie ne l'est pas.
+						mGB[1] = NkVec3f{mGB[1].x - mGB[0].x * Dot(mGB[1], mGB[0]),
+										 mGB[1].y - mGB[0].y * Dot(mGB[1], mGB[0]),
+										 mGB[1].z - mGB[0].z * Dot(mGB[1], mGB[0])};
+						if (Len(mGB[1]) < 1e-4f)
+							mGB[1] = (fabsf(mGB[0].y) < 0.9f) ? Cross(mGB[0], NkVec3f{0, 1, 0})
+															  : Cross(mGB[0], NkVec3f{1, 0, 0});
+						mGB[1] = Norm(mGB[1]);
+						mGB[2] = Norm(Cross(mGB[0], mGB[1]));
 					}
 
 					// Interaction.
@@ -1064,6 +1248,97 @@ namespace nkentseu {
 				// si aucune n'est sous son seuil. Sert a ARBITRER gizmo vs maillage : l'editeur
 				// compare cette distance a celle de son meilleur candidat sommet/arete et ne
 				// laisse le clic au gizmo que si le gizmo est REELLEMENT plus proche.
+				// ── TEST PRECIS OPTIONNEL (fourni par l'application) ────────────────
+				// Rayon -> triangles du MESH REEL d'un objet (regle de Rihen : la
+				// selection se decide sur la geometrie visible, pas sur une boite).
+				// Retour : 1 = touche (tInOut affine), 0 = teste et RATE (la reponse
+				// fait autorite, la boite ne vote plus), -1 = pas de donnees (le
+				// gizmo retombe sur sa boite). Pointeur de fonction C + user data --
+				// pas de std::function (outils internes d'abord).
+				typedef int32 (*NkGizmoRayTest)(void *user, int32 index, const NkMat4f &world,
+												NkVec3f rayOrigin, NkVec3f rayDir,
+												float32 &tInOut);
+				void SetRayPickTest(NkGizmoRayTest fn, void *user) noexcept {
+					mRayFn = fn;
+					mRayUser = user;
+				}
+
+				// ── AIMANTATION SUR LA GEOMETRIE (Blender : « Snap To ») ──────────
+				// Cibles (liste de Rihen, menu de Blender) :
+				//   0 INCREMENT (pas relatifs)      1 GRILLE (pas absolus)
+				//   2 SOMMET                        3 ARETE (point le plus proche)
+				//   4 FACE (point le plus proche)   5 VOLUME (dans la matiere visee)
+				//   6 CENTRE D'ARETE                7 ARETE PERPENDICULAIRE
+				//   8 CENTRE DE FACE
+				// Les cibles >= 2 interrogent l'HOTE -- le gizmo ne connait pas
+				// les maillages, meme decoupage que le pick precis ci-dessus.
+				// La requete recoit TOUT ce que les cibles exigent :
+				//   `nearPos` : position LIBRE du pivot (ou le geste l'emmene) ;
+				//   `origPos` : le pivot AU DEBUT du geste -- l'ARETE
+				//               PERPENDICULAIRE se mesure depuis lui, pas depuis
+				//               la position courante ;
+				//   `rayO/rayD` : le rayon de VISEE -- le VOLUME s'accroche dans
+				//               la matiere sous le curseur, pas pres du pivot ;
+				//   `outN` : normale de la cible si la requete sait la donner
+				//               (l'alignement de rotation s'en servira) --
+				//               l'appelant peut passer nullptr.
+				// Elle rend 1 et remplit `out` avec la cible la plus proche,
+				// 0 sinon (cible non geree comprise : le geste reste libre).
+				typedef int32 (*NkGizmoSnapQuery)(void *user, int32 target,
+												  const NkVec3f &nearPos,
+												  const NkVec3f &origPos,
+												  const NkVec3f &rayO, const NkVec3f &rayD,
+												  float32 maxDist, NkVec3f &out,
+												  NkVec3f *outN);
+				void SetSnapQuery(NkGizmoSnapQuery fn, void *user) noexcept {
+					mSnapFn = fn;
+					mSnapUser = user;
+				}
+				void SetSnapTarget(int32 t) noexcept {
+					mSnapTarget = t < 0 ? 0 : (t > 8 ? 8 : t);
+					// La GRILLE est la cible 1 : l'ancien drapeau absolu la suit,
+					// pour que les deux ecritures restent d'accord.
+					mSnapAbsolute = (mSnapTarget == 1);
+				}
+				// ALIGNER LA ROTATION SUR LA CIBLE (Blender « Align Rotation to
+				// Target ») : quand la requete rend une normale, chaque cible
+				// selectionnee tourne pour poser son axe +Z dessus -- autour de
+				// SON centre, sans deplacer sa position.
+				void SetSnapAlignRot(bool on) noexcept {
+					mSnapAlignRot = on;
+				}
+				bool SnapAlignRot() const noexcept {
+					return mSnapAlignRot;
+				}
+				int32 SnapTarget() const noexcept {
+					return mSnapTarget;
+				}
+
+				// MATRICE EFFECTIVE d'une cible : base + tout ce que le geste a
+				// applique (translation, rotation, echelle DANS SON REPERE). Elle
+				// est la VERITE affichee -- un hote qui commit doit la decomposer
+				// plutot que recomposer les morceaux a sa facon, sinon le
+				// resultat final differe de ce qu'on voyait.
+				// BASE dans laquelle l'echelle du dernier geste a ete appliquee
+				// (axes figes a la saisie de la poignee). L'hote la memorise
+				// quand il veut conserver un CISAILLEMENT que trois facteurs ne
+				// savent pas porter -- voir l'option « echelle exacte ».
+				void ScaleBasisOf(int32 i, NkVec3f out[3]) const {
+					if (i < 0 || i >= kMax || !mSclHasB[i]) {
+						out[0] = {1.f, 0.f, 0.f};
+						out[1] = {0.f, 1.f, 0.f};
+						out[2] = {0.f, 0.f, 1.f};
+						return;
+					}
+					for (int32 a = 0; a < 3; ++a)
+						out[a] = mSclAx[i][a];
+				}
+
+				const NkMat4f &ComposedOf(int32 i) const {
+					static const NkMat4f kI = NkMat4f::Identity();
+					return (i >= 0 && i < kMax) ? mComposed[i] : kI;
+				}
+
 				float32 HandlePickDistPx(float32 mouseX, float32 mouseY) const {
 					if (!mHaveSel)
 						return 1e30f;
@@ -1099,6 +1374,31 @@ namespace nkentseu {
 							mDragging = true;
 							// Debut de drag : la position libre repart du pivot courant.
 							mDragFree = mPivot;
+							// ── AXES DE L'OBJET FIGES POUR TOUT LE GESTE ────────
+							// Les relire a chaque image depuis mComposed creait une
+							// BOUCLE : cette matrice porte deja l'echelle en cours,
+							// donc les axes se deformaient eux-memes et le resultat
+							// divergeait -- degenerescence variable selon l'angle de
+							// vue (constate par Rihen). Ici mScale vaut encore zero :
+							// ce sont les axes PROPRES de l'objet, et ils ne bougent
+							// plus jusqu'au relachement.
+							for (int32 i2 = 0; i2 < mCount; i2++) {
+								if (!mSel[i2])
+									continue;
+								if (mAllowShear) {
+									// Echelle EXACTE : le repere du geste fait foi,
+									// c'est lui qui produira le cisaillement.
+									for (int32 a = 0; a < 3; ++a)
+										mSclAx[i2][a] = mGB[a];
+								} else {
+									const NkMat4f &M0 = mComposed[i2];
+									const NkVec3f o0 = M0 * NkVec3f{0.f, 0.f, 0.f};
+									mSclAx[i2][0] = Norm((M0 * NkVec3f{1, 0, 0}) - o0);
+									mSclAx[i2][1] = Norm((M0 * NkVec3f{0, 1, 0}) - o0);
+									mSclAx[i2][2] = Norm((M0 * NkVec3f{0, 0, 1}) - o0);
+								}
+								mSclHasB[i2] = true;
+							}
 							mGOp = hs[hit].op;
 							mGMask = hs[hit].mask;
 							mGKind = hs[hit].kind;
@@ -1120,12 +1420,30 @@ namespace nkentseu {
 											  mFwd.z + mRgt.z * (ndcX * mThX) + mUp.z * (ndcY * mThY)});
 					float32 bestT = 1e30f;
 					int32 bestId = -1;
+					// Objets deja tranches par le test PRECIS : ni la boite ni la
+					// sphere de repli ne doivent revoter pour eux.
+					bool precise[kMax] = {};
 					// 1) Pick sur la BOÎTE de l'objet (OBB monde = mComposed × mHalf).
 					// La sphère seule ne peut pas décrire un objet PLAT ou très allongé :
 					// un sol de 80×80 aurait un rayon englobant énorme et volerait tous
 					// les clics, y compris ceux des objets posés dessus. La boîte épouse
 					// la forme réelle, donc chaque objet ne capte que sa propre surface.
 					for (int32 i = 0; i < mCount; i++) {
+						if (mRayFn) {
+							// TEST PRECIS de l'application (rayon -> triangles du
+							// mesh REEL) : sa reponse fait autorite quand il a des
+							// donnees ; sinon (-1) on retombe sur la boite.
+							float32 t = bestT;
+							const int32 rr = mRayFn(mRayUser, i, mComposed[i], mCamPos, rd, t);
+							if (rr >= 0) {
+								precise[i] = true;
+								if (rr > 0 && t > 0.f && t < bestT) {
+									bestT = t;
+									bestId = i;
+								}
+								continue;
+							}
+						}
 						const NkVec3f h = mHalf[i];
 						if (h.x <= 0.f && h.y <= 0.f && h.z <= 0.f)
 							continue; // pas d'extent connu -> laissé à la sphère
@@ -1190,6 +1508,8 @@ namespace nkentseu {
 					// quand même) sans laisser un objet plat capter ce qui ne le concerne pas.
 					if (bestId < 0) {
 						for (int32 i = 0; i < mCount; i++) {
+							if (precise[i])
+								continue; // le mesh reel a deja repondu : pas de tolerance sphere
 							NkVec3f c = Ctr(i);
 							NkVec3f oc = {mCamPos.x - c.x, mCamPos.y - c.y, mCamPos.z - c.z};
 							float32 b = Dot(oc, rd), cc = Dot(oc, oc) - mPickR[i] * mPickR[i], disc = b * b - cc;
@@ -1271,12 +1591,16 @@ namespace nkentseu {
 					}
 					// Etat EFFECTIF : la bascule persistante, INVERSEE par Ctrl (Blender).
 					const bool snap = SnapActive(in.ctrlDown);
+					// UNE CIBLE A LA FOIS, comme le menu de Blender : la GEOMETRIE
+					// (sommet/arete/face) exclut la quantification relative ET la
+					// grille -- elles se seraient battues sur la meme correction.
+					const bool snapGeo = snap && mSnapTarget >= 2 && mSnapFn != nullptr;
 					// Quantification RELATIVE et grille ABSOLUE ne doivent pas se cumuler :
 					// la premiere avance deja par pas, la seconde realignerait ensuite — le
 					// deplacement ferait des sauts de deux pas. La grille absolue n'a par
 					// ailleurs de sens qu'en repere GLOBAL.
-					const bool snapAbs = snap && mSnapAbsolute && (mOrient == ORIENT_GLOBAL);
-					const bool snapRel = snap && !snapAbs;
+					const bool snapAbs = snap && !snapGeo && mSnapAbsolute && (mOrient == ORIENT_GLOBAL);
+					const bool snapRel = snap && !snapAbs && !snapGeo;
 					const float32 mdx = in.mouseDX, mdy = in.mouseDY, mx = in.mouseX, my = in.mouseY;
 					const bool localOri = (mOrient != ORIENT_GLOBAL);
 					float32 cpx, cpy;
@@ -1293,6 +1617,34 @@ namespace nkentseu {
 								const NkVec3f tgt{SnapToGrid(mDragFree.x, mSnapT), SnapToGrid(mDragFree.y, mSnapT),
 												  SnapToGrid(mDragFree.z, mSnapT)};
 								wd = tgt - mPivot; // amene le pivot PILE sur la case visee
+							}
+							// GEOMETRIE : la position LIBRE avance du deplacement
+							// brut, l'hote repond la cible la plus proche, et le
+							// pivot se pose PILE dessus (rayon d'accroche : ~30 px
+							// a l'ecran). Pas de cible a portee : le geste reste
+							// libre, exactement comme Blender.
+							if (snapGeo) {
+								mDragFree = mDragFree + wd;
+								NkVec3f snapped;
+								const float32 rr = wpp * 60.f;
+								// Le rayon de VISEE, construit comme au ray-pick :
+								// la cible VOLUME s'accroche dans la matiere sous
+								// le curseur, pas au voisinage du pivot.
+								const float32 sNdcX = 2.f * mx / mVpW - 1.f;
+								const float32 sNdcY = 1.f - 2.f * my / mVpH;
+								const NkVec3f srd = Norm(NkVec3f{
+									mFwd.x + mRgt.x * (sNdcX * mThX) + mUp.x * (sNdcY * mThY),
+									mFwd.y + mRgt.y * (sNdcX * mThX) + mUp.y * (sNdcY * mThY),
+									mFwd.z + mRgt.z * (sNdcX * mThX) + mUp.z * (sNdcY * mThY)});
+								NkVec3f sn{0.f, 0.f, 0.f};
+								if (mSnapFn(mSnapUser, mSnapTarget, mDragFree, mPivot, mCamPos,
+											srd, rr, snapped, &sn)) {
+									wd = snapped - mPivot;
+									// La normale rendue aligne les cibles (option).
+									if (mSnapAlignRot)
+										AlignSelectedToNormal(sn);
+								} else
+									wd = mDragFree - mPivot;
 							}
 							for (int32 i = 0; i < mCount; i++)
 								if (mSel[i])
@@ -1345,6 +1697,47 @@ namespace nkentseu {
 									if (mSel[i])
 										mTr[i] = mTr[i] + corr;
 							}
+							// GEOMETRIE le long d'un AXE : la position libre suit
+							// les axes tires ; si une cible est a portee, la
+							// correction s'applique SEULEMENT sur les axes actifs
+							// (tirer la fleche X ne teleporte pas Y et Z sur la
+							// cible -- meme regle que la grille absolue).
+							if (snapGeo) {
+								NkVec3f dGeo{0.f, 0.f, 0.f};
+								for (int32 a = 0; a < 3; a++)
+									if (mask & (1 << a))
+										dGeo = dGeo + mGB[a] * amtT[a];
+								mDragFree = mDragFree + dGeo;
+								NkVec3f snapped;
+								const float32 rr2 = ((2.f * mThY * mPivDist) / mVpH) * 60.f;
+								// Meme rayon de visee que le glissement libre :
+								// les cibles Volume\Perpendiculaire en dependent.
+								const float32 aNdcX = 2.f * mx / mVpW - 1.f;
+								const float32 aNdcY = 1.f - 2.f * my / mVpH;
+								const NkVec3f ard = Norm(NkVec3f{
+									mFwd.x + mRgt.x * (aNdcX * mThX) + mUp.x * (aNdcY * mThY),
+									mFwd.y + mRgt.y * (aNdcX * mThX) + mUp.y * (aNdcY * mThY),
+									mFwd.z + mRgt.z * (aNdcX * mThX) + mUp.z * (aNdcY * mThY)});
+								NkVec3f asn{0.f, 0.f, 0.f};
+								if (mSnapFn(mSnapUser, mSnapTarget, mDragFree, mPivot, mCamPos,
+											ard, rr2, snapped, &asn)) {
+									if (mSnapAlignRot)
+										AlignSelectedToNormal(asn);
+									const NkVec3f now2 = mPivot + dGeo;
+									const NkVec3f d2 = snapped - now2;
+									NkVec3f corr2{0.f, 0.f, 0.f};
+									for (int32 a = 0; a < 3; a++)
+										if (mask & (1 << a)) {
+											const float32 k2 = d2.x * mGB[a].x +
+															   d2.y * mGB[a].y +
+															   d2.z * mGB[a].z;
+											corr2 = corr2 + mGB[a] * k2;
+										}
+									for (int32 i = 0; i < mCount; i++)
+										if (mSel[i])
+											mTr[i] = mTr[i] + corr2;
+								}
+							}
 						}
 					} else if (op == 2) {
 						const float32 k = 0.012f;
@@ -1379,9 +1772,45 @@ namespace nkentseu {
 								NkVec3f B[3], Pi;
 								BasisPivot(i, localOri, B, Pi);
 								NkVec3f rel = Ctr(i) - Pi;
+								// ── PAS DE CISAILLEMENT : L'ECHELLE VIT DANS LES AXES
+								// DE L'OBJET (choix d'Unreal et de Blender -- ni l'un
+								// ni l'autre ne stocke de shear ; FTransform le refuse
+								// explicitement). Une echelle le long d'un axe non
+								// aligne cisaillerait, et trois facteurs ne savent pas
+								// le porter : le resultat SAUTAIT donc au relachement
+								// vers l'approximation stockable (Rihen -- « ca donne
+								// l'impression du faux »).
+								// On PROJETTE donc le geste sur les axes de l'objet
+								// des l'apercu : ce qu'on voit est ce qu'on obtient.
+								// Repere aligne sur l'objet (cas courant) -> le
+								// facteur va entier sur son axe, rien ne change.
+								// Axes FIGES au debut du geste (cf. DoPick) : les relire
+								// ici les ferait dependre de l'echelle deja appliquee.
+								const NkVec3f *L = mSclAx[i];
 								for (int32 a = 0; a < 3; a++)
 									if (amt[a] != 0.f) {
-										AddComp(mScale[i], a, amt[a]);
+										if (mAllowShear) {
+											// Echelle EXACTE : la base memorisee EST
+											// le repere du geste -- le facteur va
+											// entier sur son axe, et le cisaillement
+											// nait de la conjugaison dans Apply().
+											AddComp(mScale[i], a, amt[a]);
+										} else {
+											// Repartition par le CARRE du cosinus :
+											// les poids somment a 1 (base
+											// orthonormee), donc un axe aligne
+											// recoit tout et rien ne se perd sur un
+											// objet tourne.
+											for (int32 k = 0; k < 3; ++k) {
+												const float32 c = Dot(B[a], L[k]);
+												if (c != 0.f)
+													AddComp(mScale[i], k, amt[a] * c * c);
+											}
+										}
+										// Le CENTRE, lui, s'ecarte le long de l'axe
+										// TIRE : c'est une translation, parfaitement
+										// representable -- elle garde le repere du
+										// geste, comme chez Blender.
 										float32 along = Dot(rel, B[a]);
 										mTr[i] = mTr[i] + B[a] * (along * amt[a]);
 									}
@@ -1440,6 +1869,17 @@ namespace nkentseu {
 						B[0] = mNFrameX;
 						B[1] = mNFrameY;
 						B[2] = mNFrameZ;
+					} else if (localOri && mOrient == ORIENT_VIEW) {
+						// VUE : axes de la camera, comme au dessin.
+						B[0] = mRgt;
+						B[1] = mUp;
+						B[2] = {-mFwd.x, -mFwd.y, -mFwd.z};
+					} else if (localOri && ExtFrameOk()) {
+						// GIMBAL / CURSOR / PARENT : repere pose par l'hote.
+						const int32 s = mOrient - ORIENT_GIMBAL;
+						B[0] = mExtX[s];
+						B[1] = mExtY[s];
+						B[2] = mExtZ[s];
 					} else if (!localOri) {
 						B[0] = {1, 0, 0};
 						B[1] = {0, 1, 0};
@@ -1501,6 +1941,64 @@ namespace nkentseu {
 				int32 mCount = 0;
 				NkMat4f mComposed[kMax];
 				NkVec3f mHalf[kMax] = {};
+				// Test precis optionnel (voir SetRayPickTest).
+				NkGizmoRayTest mRayFn = nullptr;
+				void *mRayUser = nullptr;
+				// Aimantation geometrique (voir SetSnapQuery).
+				NkGizmoSnapQuery mSnapFn = nullptr;
+				void *mSnapUser = nullptr;
+				int32 mSnapTarget = 0;
+				bool mSnapAlignRot = false; // +Z des cibles vers la normale rendue
+
+				// Tourne chaque cible selectionnee pour poser son +Z monde sur
+				// `n`, AUTOUR DE SON CENTRE (mRot s'applique deja la, cf.
+				// ComposedOf) : la position ne bouge pas. Le delta est calcule
+				// depuis l'etat COURANT : une fois aligne il vaut l'identite --
+				// reappliquer chaque image ne fait pas spiraler.
+				void AlignSelectedToNormal(const NkVec3f &n) {
+					const float32 n2 = n.x * n.x + n.y * n.y + n.z * n.z;
+					if (n2 < 0.25f)
+						return; // pas de normale rendue par la requete
+					const NkVec3f nn = Norm(n);
+					for (int32 i = 0; i < mCount; i++) {
+						if (!mSel[i])
+							continue;
+						const NkMat4f &X = mComposed[i];
+						const NkVec3f o = X * NkVec3f{0.f, 0.f, 0.f};
+						const NkVec3f z = Norm(X * NkVec3f{0.f, 0.f, 1.f} - o);
+						const float32 d = z.x * nn.x + z.y * nn.y + z.z * nn.z;
+						if (d > 1.f - 1e-5f)
+							continue; // deja aligne
+						NkVec3f ax;
+						if (d < -1.f + 1e-5f) {
+							// Demi-tour exact : n'importe quel axe perpendiculaire
+							// a +Z fait l'affaire -- le moins parallele des deux.
+							ax = (z.x * z.x < 0.9f) ? NkVec3f{1.f, 0.f, 0.f}
+													: NkVec3f{0.f, 1.f, 0.f};
+							ax = Norm(NkVec3f{ax.y * z.z - ax.z * z.y,
+											  ax.z * z.x - ax.x * z.z,
+											  ax.x * z.y - ax.y * z.x});
+						} else {
+							ax = Norm(NkVec3f{z.y * nn.z - z.z * nn.y,
+											  z.z * nn.x - z.x * nn.z,
+											  z.x * nn.y - z.y * nn.x});
+						}
+						const float32 dd = d < -1.f ? -1.f : (d > 1.f ? 1.f : d);
+						const NkMat4f R = NkMat4f::Rotation(ax, NkAngle::FromRad(acosf(dd)));
+						mRot[i] = R * mRot[i];
+					}
+				}
+				// Base du geste d'ECHELLE, par objet (cf. Apply).
+				NkVec3f mSclAx[kMax][3] = {};
+				bool mSclHasB[kMax] = {};
+				bool mAllowShear = false; // option « echelle exacte »
+				// Reperes EXTERNES : GIMBAL, CURSOR, PARENT (cf. SetExtFrame).
+				NkVec3f mExtX[3] = {}, mExtY[3] = {}, mExtZ[3] = {};
+				bool mExtOk[3] = {};
+				bool ExtFrameOk() const {
+					const int32 s = mOrient - ORIENT_GIMBAL;
+					return s >= 0 && s <= 2 && mExtOk[s];
+				}
 				float32 mPickR[kMax] = {};
 				NkVec3f mPivot = {0, 0, 0}, mGB[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
 				float32 mPivDist = 1.f, mGL = 1.f;

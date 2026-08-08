@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+  <!-- AIMANT EN FER A CHEVAL : le dessin universel de l'aimantation. Le
+       quadrillage precedent disait « grille », pas « ca s'accroche ». Les deux
+       branches sont ouvertes vers le bas et leurs POLES sont marques : c'est ce
+       qui rend l'objet reconnaissable a 13 px. -->
+  <path fill-rule="evenodd" d="M8 1.6c-2.65 0-4.8 2.15-4.8 4.8v3.2h2.9V6.4a1.9 1.9 0 113.8 0v3.2h2.9V6.4c0-2.65-2.15-4.8-4.8-4.8z"/>
+  <rect x="3.2" y="10.7" width="2.9" height="3.7" rx="0.35"/>
+  <rect x="9.9" y="10.7" width="2.9" height="3.7" rx="0.35"/>
+</svg>

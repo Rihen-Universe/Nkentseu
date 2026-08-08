@@ -26,6 +26,7 @@ namespace nkentseu {
 		class NkOffscreenTarget;
 		class NkShadowSystem;
 		class NkVirtualShadowMaps;
+		class NkEnvironmentSystem;
 		class NkVFXSystem;
 		class NkAnimationSystem;
 		class NkSimulationRenderer;
@@ -90,6 +91,10 @@ namespace nkentseu {
 				virtual NkPostProcessStack *GetPostProcess() = 0;
 				virtual NkOverlayRenderer *GetOverlay() = 0;
 				virtual NkVirtualShadowMaps *GetShadow() = 0;
+				// L'ENVIRONNEMENT : ce que la scene voit autour d'elle, et donc ce
+				// qui l'eclaire sans lampe. Ciel procedural (trois couleurs) ou
+				// image HDRI ; le moteur en tire irradiance et reflets.
+				virtual NkEnvironmentSystem *GetEnvironment() = 0;
 				virtual NkVFXSystem *GetVFX() = 0;
 				virtual NkAnimationSystem *GetAnimation() = 0;
 				virtual NkSimulationRenderer *GetSimulation() = 0;
@@ -120,6 +125,15 @@ namespace nkentseu {
 				virtual void SetRenderSizeOverride(uint32 w, uint32 h) {
 					(void)w;
 					(void)h;
+				}
+
+				// Couleur d'effacement de la passe Geometry (le « fond » de la scene
+				// quand il n'y a pas de skybox). Demande par les editeurs : un
+				// viewport de modelage se regle souvent plus clair ou plus neutre que
+				// le fond d'un jeu. Reconstruit le graphe : la couleur est figee dans
+				// la description de passe, pas lue a chaque image.
+				virtual void SetBackgroundColor(NkVec4f rgba) {
+					(void)rgba;
 				}
 
 				// ── Overlay UI applicatif ─────────────────────────────────────────────

@@ -61,6 +61,34 @@ namespace nkentseu {
 			}
 
 			mValid = true;
+
+			// ── LA CIBLE NEUVE EST EFFACEE AVANT TOUT USAGE ─────────────────
+			// Une texture fraichement creee contient de la MEMOIRE GPU RECYCLEE.
+			// Tant que rien n'y a ete rendu, la relire ramene ce que le pilote y
+			// avait laisse -- concretement, des morceaux d'AUTRES APPLICATIONS.
+			// Constate sur NK3DModeler : des images d'un enregistrement video
+			// laissaient voir une fenetre tierce, alors meme qu'elle etait
+			// DERRIERE la fenetre capturee -- preuve qu'il ne s'agissait pas
+			// d'une capture d'ecran mais bien de memoire non initialisee.
+			//
+			// Ce n'est pas qu'un defaut visuel : une video ou une capture
+			// publiee pourrait contenir le contenu d'une autre fenetre. On
+			// efface donc a la creation -- et donc aussi apres chaque
+			// redimensionnement, puisque Resize passe par Shutdown + Init.
+			// Cout : une passe vide, une seule fois par cible.
+			if (mFBO.IsValid() && mRP.IsValid()) {
+				if (NkICommandBuffer *cmd = mDevice->CreateCommandBuffer()) {
+					if (cmd->Begin()) {
+						cmd->SetClearColor(0.f, 0.f, 0.f, 0.f);
+						if (cmd->BeginRenderPass(mRP, mFBO,
+												 NkRect2D{0, 0, (int32)desc.width,
+														  (int32)desc.height}))
+							cmd->EndRenderPass();
+						cmd->End();
+						mDevice->Submit(&cmd, 1);
+					}
+				}
+			}
 			return true;
 		}
 

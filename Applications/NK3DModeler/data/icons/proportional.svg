@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+  <!-- EDITION PROPORTIONNELLE : un point plein au centre -- le sommet qu'on
+       tire -- entoure d'anneaux de plus en plus fins. L'INFLUENCE QUI DECROIT
+       est dite par l'epaisseur du trait, pas par un libelle : c'est exactement
+       ce que fait le reglage. Le cercle nu employe avant ne distinguait rien. -->
+  <circle cx="8" cy="8" r="2"/>
+  <path fill-rule="evenodd" d="M8 3.5a4.5 4.5 0 100 9 4.5 4.5 0 000-9zm0 1.05a3.45 3.45 0 110 6.9 3.45 3.45 0 010-6.9z"/>
+  <path fill-rule="evenodd" d="M8 .9a7.1 7.1 0 100 14.2A7.1 7.1 0 008 .9zm0 .62a6.48 6.48 0 110 12.96A6.48 6.48 0 018 1.52z"/>
+</svg>

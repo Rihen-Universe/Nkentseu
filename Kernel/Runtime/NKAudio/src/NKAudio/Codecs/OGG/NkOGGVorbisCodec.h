@@ -3,7 +3,7 @@
  * @File    NkOGGVorbisCodec.h
  * @Brief   Decodeur OGG Vorbis from-scratch (port stb_vorbis adapte Nkentseu).
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  *
  * @Reference
  *  Algorithme adapte de stb_vorbis.c v1.22 par Sean Barrett (Public Domain).

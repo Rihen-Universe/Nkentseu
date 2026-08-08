@@ -4,7 +4,7 @@
 // AUTEUR: Rihen
 // DATE: 2026-04-26
 // VERSION: 2.0.0
-// LICENCE: Proprietary - Free to use and modify
+// LICENCE: Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 
 #include "pch.h"

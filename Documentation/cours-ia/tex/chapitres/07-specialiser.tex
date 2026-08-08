@@ -1,0 +1,217 @@
+\chapter{Spécialiser un modèle sur son domaine}
+
+Les chapitres précédents ont montré les outils. Celui-ci les met bout à bout sur
+un cas complet, du corpus vide au modèle qui répond sur votre sujet.
+
+\section{Généraliste ou spécialisé : ce qui change vraiment}
+
+Rien, dans les commandes. Tout, dans le corpus.
+
+\begin{center}
+\begin{tabular}{p{4.0cm}p{9.6cm}}
+\toprule
+\textbf{Corpus} & \textbf{Modèle obtenu} \\
+\midrule
+Conversations variées & Généraliste : répond correctement à tout, sans exceller
+                        nulle part. \\
+Documentation d'un logiciel & Répond sur \emph{ce} logiciel : ses commandes, ses
+                        messages d'erreur, ses conventions. \\
+Textes juridiques d'un pays & Emploie le vocabulaire et les tournures de ce
+                        droit-là. \\
+Archives d'un service client & Répond dans le ton de la maison, sur ses
+                        produits. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+Vous ne réglez pas la spécialisation, vous la \emph{nourrissez}. Le temps que
+vous passerez à choisir vos textes comptera davantage que tous les réglages
+réunis.
+\end{nkretenir}
+
+\section{Un cas complet, de bout en bout}
+
+Prenons un exemple concret : spécialiser un modèle sur la documentation de votre
+propre logiciel, pour qu'il réponde aux questions de vos utilisateurs.
+
+\subsection{Étape 1 — écrire les questions de référence}
+
+\textbf{Avant tout}, écrivez les questions qui serviront à juger. Dix suffisent.
+
+\begin{nkcode}[]{questions.txt}
+Comment reprendre un entraînement interrompu ?
+Que se passe-t-il si un checkpoint est corrompu ?
+Quelle est la différence entre un checkpoint et un fichier d'adaptateurs ?
+Pourquoi utiliser Vulkan plutôt que DirectX ?
+Combien de temps prend une époque complète ?
+\end{nkcode}
+
+\begin{nkpiege}
+Écrire ces questions \emph{après} avoir vu les réponses du modèle est le plus sûr
+moyen de se convaincre d'un progrès qui n'existe pas. On choisit alors, sans le
+vouloir, les questions où le modèle brille.
+\end{nkpiege}
+
+\subsection{Étape 2 — mesurer l'avant}
+
+\begin{nkcode}[]{La référence}
+NKQwen2Ask --gguf=<modele> --question="Comment reprendre un entraînement
+interrompu ?" --tokens=64
+\end{nkcode}
+
+Sans corpus spécialisé, le modèle répondra quelque chose de générique et de
+plausible — souvent faux dans les détails. C'est exactement ce qu'on veut
+constater, et conserver.
+
+\subsection{Étape 3 — construire le corpus}
+
+Reprenez la méthode du chapitre~3 : découper, interroger, répondre.
+
+\begin{nkcode}[]{corpus-doc.txt — un extrait}
+Question: Comment reprendre un entraînement interrompu ?
+Reponse: Relancez exactement la même commande. Le programme cherche les
+checkpoints, retient le plus avancé qui soit intact, et repart du pas et
+de l'exemple où il s'était arrêté.
+
+Question: Que se passe-t-il si un checkpoint est corrompu ?
+Reponse: Son empreinte ne correspond plus, il est refusé et ignoré. La
+reprise se fait depuis le second checkpoint, sans perdre de pas.
+
+Question: Quelle est la différence entre un checkpoint et un fichier
+d'adaptateurs ?
+Reponse: Le checkpoint pèse 231 Mo et sert à reprendre un entraînement :
+il contient les moments d'Adam et la position dans le corpus. Le fichier
+d'adaptateurs pèse 77 Mo, ne contient que ce qui a été appris, et sert à
+utiliser ou partager le modèle.
+\end{nkcode}
+
+\textbf{Combien en faut-il ?} Pour une documentation, comptez trois à cinq
+questions par page. Une documentation de 200 pages donne donc de 600 à
+1\,000 paires — de quoi occuper la machine une journée.
+
+\subsection{Étape 4 — vérifier le corpus}
+
+\begin{nkcode}[]{Trente secondes bien investies}
+NKQwen2Train --gguf=<modele> --corpus=corpus-doc.txt --steps=2 --fresh
+\end{nkcode}
+
+Lisez la ligne \texttt{corpus : N paires}. Si $N$ ne correspond pas à ce que
+vous avez écrit, corrigez maintenant, pas dans dix heures.
+
+\subsection{Étape 5 — entraîner}
+
+\begin{nkcode}[]{L'entraînement réel}
+NKQwen2Train --gguf=<modele> \
+             --corpus=corpus-doc.txt \
+             --out=modele-doc \
+             --lr=1e-4 \
+             --save-every=100 \
+             --valid-every=200
+\end{nkcode}
+
+Laissez tourner. Surveillez deux choses, et deux seulement :
+
+\begin{itemize}
+  \item la \textbf{perte moyenne} doit descendre ;
+  \item la \textbf{perte de contrôle} doit descendre aussi.
+\end{itemize}
+
+\subsection{Étape 6 — mesurer l'après}
+
+Mêmes questions, mêmes réglages, adaptateurs en plus :
+
+\begin{nkcode}[]{Le verdict}
+NKQwen2Ask --gguf=<modele> --adapters=modele-doc.nkla \
+           --question="Comment reprendre un entraînement interrompu ?" \
+           --tokens=64
+\end{nkcode}
+
+\begin{nkretenir}
+Le seul jugement qui vaille est celui-ci : sur \emph{vos} questions, préparées
+\emph{avant}, la réponse est-elle devenue plus juste ? Pas plus longue, pas plus
+jolie : plus juste.
+\end{nkretenir}
+
+\section{Quand ça ne marche pas}
+
+\subsection{La perte ne descend pas}
+
+\begin{center}
+\begin{tabular}{p{4.6cm}p{9.0cm}}
+\toprule
+\textbf{Cause probable} & \textbf{Vérification} \\
+\midrule
+Corpus mal formé & La ligne \texttt{corpus : N paires} donne un $N$ bien
+                   inférieur au nombre attendu. \\
+Taux d'apprentissage trop faible & Essayez \texttt{-{}-lr=3e-4}. \\
+Taux trop fort & La perte oscille violemment ou affiche \texttt{nan}. Divisez
+                   par dix, et relancez avec \texttt{-{}-fresh}. \\
+Exemples trop longs & Ils sont sautés en silence. Augmentez
+                   \texttt{-{}-max-seq}, ou raccourcissez vos réponses. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{La perte descend mais les réponses n'ont pas changé}
+
+C'est le cas le plus fréquent, et le plus mal interprété. Deux explications
+possibles :
+
+\begin{enumerate}
+  \item \textbf{Vous n'avez pas fait assez de pas.} Quelques centaines déplacent
+        le style ; il en faut des milliers pour le fond.
+  \item \textbf{Le modèle savait déjà.} Si vos questions portent sur des
+        généralités, il y répondait correctement avant. Interrogez-le sur ce
+        que \emph{seule} votre documentation contient — un nom de commande, un
+        message d'erreur, une convention interne.
+\end{enumerate}
+
+\subsection{Les réponses sont devenues moins bonnes}
+
+C'est le \textbf{surapprentissage} : le modèle a tellement bien mémorisé votre
+corpus qu'il a désappris à répondre au reste. Signe caractéristique : la perte
+d'apprentissage continue de descendre pendant que celle de contrôle remonte.
+
+\begin{nkpiege}
+Le remède n'est pas de « moins entraîner » au hasard. Prenez le checkpoint
+\emph{d'avant} la remontée — c'est précisément pour cela qu'on sauvegarde
+régulièrement. Copiez de temps en temps un checkpoint ailleurs, avec le numéro
+du pas dans son nom : vous pourrez revenir en arrière.
+\end{nkpiege}
+
+\section{Aller plus loin : plusieurs domaines}
+
+Rien ne vous empêche d'entraîner plusieurs jeux d'adaptateurs sur le même modèle
+de base :
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\texttt{modele-doc.nkla} & répond sur votre documentation \\
+\texttt{modele-juridique.nkla} & répond sur vos contrats \\
+\texttt{modele-support.nkla} & répond dans le ton du service client \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Chacun pèse 77~Mo, et le modèle de base de 4,4~Go reste partagé. Vous changez de
+spécialité en changeant un argument :
+
+\begin{nkcode}[]{Un modèle, trois spécialités}
+NKQwen2Ask --gguf=<modele> --adapters=modele-doc.nkla       --question="..."
+NKQwen2Ask --gguf=<modele> --adapters=modele-juridique.nkla --question="..."
+\end{nkcode}
+
+\begin{nkretenir}
+C'est là tout l'intérêt du LoRA : le gros fichier ne bouge jamais, seules les
+petites pièces changent. Distribuer une spécialité coûte 77~Mo, pas 4,4~Go.
+\end{nkretenir}
+
+\begin{nkexo}
+Choisissez un domaine que vous connaissez et dont le modèle ne peut rien savoir
+— le règlement intérieur de votre école, la documentation d'un projet à vous.
+Écrivez cent paires. Entraînez mille pas. Comparez avant et après sur cinq
+questions préparées d'avance. C'est le projet qui transforme ce cours en
+compétence.
+\end{nkexo}

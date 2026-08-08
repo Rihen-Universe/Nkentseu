@@ -9,6 +9,12 @@
 #include "NKRenderer/Materials/NkMaterialSystem.h"
 #include "NKRenderer/Mesh/NkMeshSystem.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"
+// NkSkyParams : UN SEUL type decrit un ciel, pour la cuisson CPU (cubemaps
+// d'eclairage) comme pour l'evaluation TEMPS REEL dans le shader. En avoir deux
+// garantirait qu'ils finissent par decrire deux ciels differents. Cet en-tete ne
+// depend pas de NkRender3D : pas de cycle.
+#include "NKRenderer/Tools/Environment/NkEnvironmentSystem.h"
+#include <functional> // RefreshEnvironmentBindings : liaisons refaites a la demande
 
 namespace nkentseu {
 	namespace renderer {
@@ -142,6 +148,21 @@ namespace nkentseu {
 				// + resolution optimale, sans clipping ni swimming). Fallback [-1,1]^3
 				// si aucun caster.
 				NkAABB GetShadowCasterBounds() const;
+
+				// EMPREINTE des casters d'ombre de la frame (pose + identite de
+				// chacun). Change des qu'un objet bouge, apparait ou disparait :
+				// c'est le signal qui permet a NkVirtualShadowMaps d'invalider son
+				// cache. Sans lui, le cache ne surveillait que les LUMIERES et une
+				// ombre restait figee a l'ancienne place de son objet.
+				uint64 GetShadowCasterStamp() const {
+					return mShadowStamp;
+				}
+
+				// Nombre d'objets que la passe d'ombre va reellement dessiner.
+				// Zero ici avec des slots alloues = l'atlas se remplit de vide.
+				uint32 GetShadowCasterCount() const {
+					return (uint32)mShadowCasters.Size();
+				}
 
 				// ── Stats frustum culling (frame en cours de soumission) ────────
 				// Opaque : cull au Submit (les casters d'ombre sont collectes
@@ -278,6 +299,34 @@ namespace nkentseu {
 					mIBLStrength = s;
 				}
 
+				// Couleur de l'ambiance (pendant du « World > Color » de Blender).
+				// L'intensite dit COMBIEN la scene recoit de son environnement,
+				// celle-ci dit DE QUELLE TEINTE. Blanc = neutre.
+				void SetIBLColor(const NkVec3f &c) {
+					mIBLColor = c;
+				}
+				NkVec3f GetIBLColor() const {
+					return mIBLColor;
+				}
+				// Ambiance issue de l'environnement (ciel / HDRI) plutot que d'une
+				// couleur unie. Faux = aplat parfait, comme le monde par defaut de
+				// Blender.
+				void SetIBLUseEnv(bool on) {
+					mIBLUseEnv = on;
+				}
+
+				// A APPELER APRES avoir change d'environnement (ciel regenere,
+				// HDRI charge). Les cubemaps sont RECREEES a cette occasion, et les
+				// jeux de descripteurs pointent encore sur les anciennes : sans ce
+				// rafraichissement, le changement reste invisible.
+				void RefreshEnvironmentBindings() {
+					if (mRebindGlobals)
+						mRebindGlobals();
+				}
+				bool GetIBLUseEnv() const {
+					return mIBLUseEnv;
+				}
+
 				// Phase N v0.5 : active/desactive le rendu de la skybox HDR en
 				// background. Necessite un NkEnvironmentSystem charge (HDR ou
 				// procedural) pour avoir un cubemap a sampler.
@@ -287,6 +336,57 @@ namespace nkentseu {
 
 				bool IsSkyboxEnabled() const {
 					return mDrawSkybox;
+				}
+
+				// LUMINOSITE DU CIEL AFFICHE — grandeur PROPRE, distincte de
+				// l'intensite d'ambiance (SetIBLStrength).
+				//
+				// Le shader Skybox multipliait son echantillon par iblStrength.
+				// Or celle-ci vaut 0.05 par defaut, valeur choisie pour que
+				// l'ambiance ne delave pas les objets : le ciel etait donc dessine
+				// a 5 % de sa luminosite, donc quasi noir. Il paraissait absent
+				// alors qu'il etait correctement genere et rendu (constate par
+				// Rihen). « Combien l'environnement ECLAIRE » et « a quel point le
+				// ciel SE VOIT » sont deux grandeurs differentes ; les faire porter
+				// par le meme nombre rendait l'une des deux inutilisable.
+				void SetSkyIntensity(float32 s) {
+					mSkyIntensity = s;
+				}
+				float32 GetSkyIntensity() const {
+					return mSkyIntensity;
+				}
+
+				// ── LE CIEL VISIBLE, EVALUE EN TEMPS REEL ──────────────────
+				// Ces parametres descendent au shader Skybox a CHAQUE image, dans
+				// leur propre bloc (binding 29). Les changer est donc IMMEDIAT :
+				// aucune convolution, aucune regeneration.
+				//
+				// C'est ce qui rend le ciel ANIMABLE — nuages qui defilent, cycle
+				// jour/nuit, lunes qui se levent. La cuisson en cubemaps reste,
+				// mais elle ne sert plus qu'a l'ECLAIRAGE (irradiance et reflets),
+				// qui est le seul calcul qui la justifie.
+				//
+				// Le meme NkSkyParams sert aux deux chemins : c'est voulu. Deux
+				// descriptions separees d'un meme ciel finiraient par diverger.
+				void SetSkyParams(const NkSkyParams &p) {
+					mSkyParams = p;
+				}
+				const NkSkyParams &GetSkyParams() const {
+					return mSkyParams;
+				}
+
+				// LE CIEL VISIBLE VIENT-IL D'UNE IMAGE plutot que d'un modele ?
+				// Vrai pour un HDRI : l'image vient d'un fichier, elle ne peut pas
+				// etre calculee, le shader lit alors la cubemap telle quelle.
+				//
+				// C'est un choix de RENDU, pas une propriete du ciel : il n'a donc
+				// rien a faire dans NkSkyParams, qui decrit un ciel PROCEDURAL et
+				// sert aussi a la cuisson CPU.
+				void SetSkyFromCubemap(bool on) {
+					mSkyFromCubemap = on;
+				}
+				bool IsSkyFromCubemap() const {
+					return mSkyFromCubemap;
 				}
 
 				// Grille infinie style Blender (plan y=0). Activer + configurer :
@@ -459,7 +559,24 @@ namespace nkentseu {
 						bool overlay;
 				};
 
-				float32 mIBLStrength = 0.3f;
+				// ECLAIRAGE D'AMBIANCE. Etait a 0.3 : comme la cubemap
+				// d'irradiance par defaut est BLANCHE tant qu'aucun environnement
+				// n'est charge, tout objet recevait 30 % de blanc sur TOUTES ses
+				// faces -- un cube restait gris clair et parfaitement plat meme
+				// sans la moindre lumiere dans la scene. 0.05 laisse voir la forme
+				// sans se substituer a l'eclairage ; le panneau Rendu l'expose.
+				float32 mIBLStrength = 0.05f;
+				NkVec3f mIBLColor = {1.f, 1.f, 1.f}; // neutre par defaut
+				// L'ambiance vient-elle de l'ENVIRONNEMENT (ciel procedural ou
+				// HDRI) ou d'une COULEUR UNIE ? Le moteur genere toujours un ciel
+				// de repli, si bien que l'ambiance etait forcement directionnelle :
+				// trois faces d'un cube plus claires que les trois autres, sans
+				// aucune lumiere dans la scene. Blender part d'une couleur unie et
+				// l'environnement est un choix -- on fait pareil.
+				bool mIBLUseEnv = false;
+				// Refait les liaisons d'environnement des jeux de descripteurs
+				// (cf. RefreshEnvironmentBindings).
+				std::function<void()> mRebindGlobals;
 				NkIDevice *mDevice = nullptr;
 				NkMeshSystem *mMesh = nullptr;
 				NkMaterialSystem *mMat = nullptr;
@@ -501,6 +618,7 @@ namespace nkentseu {
 				// ceux visibles a la camera -> on les collecte ici sans culling
 				// camera (RenderShadowPass itere sur cette liste).
 				NkVector<SortedDC> mShadowCasters;
+				uint64 mShadowStamp = 0; // empreinte des casters (cf. GetShadowCasterStamp)
 				NkVector<SortedDC> mTransparent;
 				NkVector<NkDrawCallInstanced> mInstanced;
 				NkVector<NkDrawCallSkinned> mSkinned;
@@ -653,6 +771,13 @@ namespace nkentseu {
 				NkPipelineHandle mSkyboxPipeline;
 				NkRenderPassHandle mSkyboxPipelineRP{};
 				bool mDrawSkybox = false;
+				// Luminosite du ciel AFFICHE (cf. SetSkyIntensity). 1 = le ciel tel
+				// qu'il a ete genere. Transmise au shader par uCam.viewOpts.y.
+				float32 mSkyIntensity = 1.f;
+				// Description du ciel VISIBLE (cf. SetSkyParams), envoyee au shader
+				// a chaque image dans mUBOSkyRing.
+				NkSkyParams mSkyParams;
+				bool mSkyFromCubemap = false; // cf. SetSkyFromCubemap (cas HDRI)
 
 				// Grille infinie style Blender (plan y=0). Grand quad suivant la caméra,
 				// rendu APRÈS l'opaque (depth test read-only + alpha blend). Params

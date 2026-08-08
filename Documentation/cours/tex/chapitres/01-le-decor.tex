@@ -1,0 +1,580 @@
+\chapter{Le décor : la pile complète}
+
+Avant d'écrire une seule ligne de code, il faut savoir \emph{qui fait quoi}. Ce
+chapitre pose la carte du terrain. Il se lit de bas en haut : de la fenêtre que
+le système d'exploitation nous donne, jusqu'au bouton sur lequel l'utilisateur
+clique. À la fin, vous saurez nommer chaque étage, dire de quoi il dépend, et —
+c'est le point le plus important du chapitre — vous comprendrez pourquoi
+l'étage du haut ne connaît pas l'étage du bas.
+
+\section{Vue d'ensemble}
+
+\begin{nkcode}{Vue d'ensemble — synthèse (voir Documentation, section « Raccordement au reste du moteur »)}
+   Application  (NKGuiDemo, NKCode, NK3DModeler…)
+        |  cree une NkWindow, pompe les NKEvent -> remplit ctx.input
+        |  declare ses widgets entre BeginFrame / EndFrame
+        v
+   NKGui  (NkGuiContext -> NkGuiDrawList : vtx + idx + cmds)
+        |  ne connait AUCUN GPU
+        v
+   Backend (au choix)
+     |- NkGuiCanvasBackend   (header-only, dans NKCanvas/UI/)  -> NkIRenderer2D
+     `- NkGuiRHIBackend      (Integrations/NKGui/)             -> NKRHI
+        v
+   NKCanvas (NkBatchRenderer2D -> SubmitBatches)  |  NKRHI
+        v
+   GPU
+\end{nkcode}
+
+Cinq étages, donc, mais qui ne s'empilent pas comme on l'imaginerait. Prenons-les
+un par un.
+
+\section{Étage 1 — la fenêtre : \texttt{NKWindow}}
+
+\texttt{NKWindow} est l'abstraction de fenêtre native. C'est le seul module de la
+pile qui parle au système d'exploitation : \texttt{HWND} sous Windows,
+\texttt{Window} X11 ou surface Wayland sous Linux, \texttt{NSWindow} sous macOS.
+
+Son usage se réduit à trois gestes :
+
+\begin{nkcode}{Applications/NKGuiDemo/src/NKGuiDemo/main.cpp:243-251}
+    NkWindow window;
+    NkWindowConfig cfg;
+    cfg.title = "NKGui - Demo Phase 2 (Coeur : drawlist + interaction)";
+    cfg.width = 1100;
+    cfg.height = 800;
+    cfg.centered = true;
+    cfg.resizable = true;
+    if (!window.Create(cfg))
+        return -1;
+\end{nkcode}
+
+\noindent puis, dans la boucle, \texttt{window.IsOpen()} pour savoir si elle vit
+encore, et \texttt{window.SetCursor(\dots)} pour changer le pointeur. Le reste —
+taille courante, position, état maximisé — s'interroge par des accesseurs
+(\texttt{GetSize()} renvoie un \texttt{math::NkVec2u}).
+
+Une option mérite d'être signalée dès maintenant parce qu'elle explique
+l'apparence des applications du dépôt :
+
+\begin{nkcode}{Engine/NKEditorKit/src/NKEditorKit/NkEditorShell.cpp:234}
+    wc.frame = false;          // SANS bordure OS -> barre de titre custom (VSCode)
+\end{nkcode}
+
+Avec \texttt{frame = false}, le système ne dessine plus ni barre de titre ni
+bordure : l'application les dessine elle-même, comme le fait Visual Studio Code.
+C'est ce que fait \texttt{NKCode}. Notre application du chapitre~4 gardera la
+décoration native, qui est plus simple.
+
+\begin{nkpiege}[X11 définit \texttt{None}]
+Sous Linux, \texttt{NKWindow} tire \texttt{<X11/Xlib.h>}, qui contient
+\texttt{\#define None 0L}. Or plusieurs énumérations de NKGui ont un membre
+nommé \texttt{None}. Le préprocesseur le transforme alors en \texttt{0L = 0} et
+le compilateur signale « expected identifier » sur des lignes parfaitement
+correctes, très loin de la vraie cause. La parade est en tête de l'en-tête
+parapluie de NKGui :
+
+\begin{nkcode}{Kernel/Runtime/NKGui/src/NKGui/NKGui.h:18-27 (abrégé)}
+// Retire les macros X11 (None, Bool, Status...) AVANT toute declaration de
+// NKGui. Sur Linux, NKWindow tire <X11/Xlib.h>, dont le `#define None 0L`
+// transforme ensuite `None = 0` — membre de plusieurs enumerations de NkGuiTypes
+// — en `0L = 0`. Le compilateur signale alors « expected identifier » sur des
+// lignes parfaitement correctes, tres loin de la vraie cause.
+#include "NKPlatform/NkX11Clean.h"
+\end{nkcode}
+
+La leçon générale : \textbf{incluez toujours \nkfile{NKGui/NKGui.h} et jamais un
+en-tête interne de NKGui}. L'ordre d'inclusion de l'en-tête parapluie n'est pas
+arbitraire, c'est l'ordre des dépendances.
+\end{nkpiege}
+
+\section{Étage 2 — les événements : \texttt{NKEvent}}
+
+\texttt{NKEvent} transforme les messages du système en \textbf{événements
+typés} : \texttt{NkWindowCloseEvent}, \texttt{NkMouseMoveEvent},
+\texttt{NkMouseButtonPressEvent}, \texttt{NkKeyPressEvent},
+\texttt{NkTextInputEvent}\dots
+
+Le modèle est celui des \emph{callbacks} enregistrés une fois pour toutes, puis
+d'une file qu'on vide à chaque image :
+
+\begin{nkcode}{Applications/NKGuiDemo/src/NKGuiDemo/main.cpp:326-331 (extrait)}
+    auto &events = NkEvents();
+    bool running = true;
+    events.AddEventCallback<NkWindowCloseEvent>([&](NkWindowCloseEvent *) { running = false; });
+    events.AddEventCallback<NkMouseMoveEvent>([&](NkMouseMoveEvent *e) {
+        ctx.input.mousePos = {static_cast<float32>(e->GetX()), static_cast<float32>(e->GetY())};
+    });
+\end{nkcode}
+
+et, dans la boucle :
+
+\begin{nkcode}{Applications/NKGuiDemo/src/NKGuiDemo/main.cpp:438-440}
+        while (NkEvent *ev = NkEvents().PollEvent()) {
+            (void)ev;
+        }
+\end{nkcode}
+
+Ce \texttt{while} déroutant mérite un mot : \textbf{il ne fait rien du résultat}.
+Le travail a déjà été accompli par les \emph{callbacks} enregistrés plus haut ;
+\texttt{PollEvent} sert uniquement à \emph{pomper} la file jusqu'à ce qu'elle
+soit vide, ce qui déclenche au passage l'appel de tous les \emph{callbacks}. On
+retrouve exactement le même idiome dans la boucle principale de
+\texttt{NKEditorKit} (\nkfile{Engine/NKEditorKit/src/NKEditorKit/NkEditorShell.cpp:314}).
+
+Une distinction fondamentale, qu'on retrouvera au chapitre~4 :
+
+\begin{itemize}
+  \item \texttt{NkTextInputEvent} porte le \textbf{texte} tapé, déjà décodé par
+        le système en \emph{codepoint} Unicode — claviers AZERTY et méthodes de
+        saisie asiatiques comprises. C'est lui qui alimente les champs de
+        saisie ;
+  \item \texttt{NkKeyPressEvent} / \texttt{NkKeyReleaseEvent} portent les
+        \textbf{touches} : flèches, Suppr, Entrée, F2, Ctrl+quelque chose. Ce
+        sont elles qui alimentent la navigation.
+\end{itemize}
+
+Confondre les deux est un classique : on branche les flèches sur le texte, et
+plus rien ne fonctionne. Le commentaire du pont de NKEditorKit le dit :
+
+\begin{nkcode}{Engine/NKEditorKit/src/NKEditorKit/NkEditorShell.cpp:367-370}
+// Mappe une touche OS d'edition vers l'etat ENFONCE NKGui (press/release ->
+// repetition au maintien geree par NKGui). Sans ce pont, aucune navigation
+// clavier ni edition de texte dans les panneaux.
+\end{nkcode}
+
+\section{Étage 3 — le GPU. Attention, il y a deux abstractions}
+
+C'est ici que le débutant se perd, et c'est normal : le moteur contient
+\textbf{deux} abstractions GPU distinctes, qui ne se superposent pas.
+
+\subsection{\texttt{NKRHI} — l'abstraction GPU bas niveau}
+
+\nkfile{Kernel/Runtime/NKRHI} est l'abstraction « moderne » du GPU :
+périphérique (\texttt{NkIDevice}), tampons de commandes, passes de rendu,
+\emph{pipelines}, descripteurs. Son arborescence de backends parle d'elle-même :
+\texttt{DirectX11}, \texttt{DirectX12}, \texttt{Metal}, \texttt{Opengl},
+\texttt{Software}, \texttt{Vulkan}. C'est sur elle que repose le rendu 3D
+(\texttt{NKRenderer}) et, par ricochet, les applications qui font de la 3D.
+
+\subsection{\texttt{NKCanvas} — sa propre abstraction, pour la 2D}
+
+\texttt{NKCanvas} \textbf{ne passe pas par NKRHI}. Il possède ses propres
+contextes graphiques et ses propres renderers 2D. La preuve tient en une ligne
+de son fichier de build :
+
+\begin{nkcode}{Kernel/Runtime/NKCanvas/NKCanvas.jenga:65}
+    _canvasDeps = ["NKWindow", "NKFont", "NKImage", "NKStream", "NKTime", "NKGlad", "NKThreading"]
+\end{nkcode}
+
+Pas de \texttt{NKRHI} dans la liste. L'arborescence
+\nkfile{Kernel/Runtime/NKCanvas/src/NKCanvas/Backend/} contient
+\texttt{DirectX/} (DX11 et DX12), \texttt{Metal/}, \texttt{OpenGL/},
+\texttt{Software/} et \texttt{Vulkan/} : ce sont les implémentations \emph{de
+NKCanvas}, pas celles de NKRHI.
+
+Il y a donc, dans le dépôt, deux familles de backends portant les mêmes noms
+d'API graphique et ne se connaissant pas. Cette duplication est assumée et même
+documentée à l'endroit où elle pose problème :
+
+\begin{nkcode}{Engine/NKEditorKit/src/NKEditorKit/NkIEditorRenderer.h:28-31}
+// Choix d'API graphique NEUTRE (decouple de NKCANVAS ET NKRHI : leurs enums
+// NkGraphicsApi se dupliquent dans le namespace nkentseu et ne peuvent
+// cohabiter dans un meme TU). Chaque impl mappe vers son propre enum.
+enum class NkEditorGfxApi : uint8 { Auto = 0, OpenGL, Vulkan, DX11, DX12, Software };
+\end{nkcode}
+
+\noindent Lisez bien : les deux énumérations \texttt{NkGraphicsApi} — celle de
+NKCanvas et celle de NKRHI — \emph{ne peuvent pas cohabiter dans une même unité
+de traduction}. D'où le besoin d'un troisième énuméré, neutre, quand une couche
+doit pouvoir parler aux deux.
+
+\begin{nkretenir}[Une fenêtre = une pile]
+C'est la doctrine du dépôt, énoncée mot pour mot :
+
+\begin{nkcode}{Integrations/NKGui/NkEditorRHIRenderer.h:8-13 (extrait)}
+* toute application moteur (NkAnimaEditor, Nogee, ...) qui veut la coquille
+* NkEditorShell rendue sur NKRHI/NKRenderer (et PAS NKCanvas — regle
+* « une fenetre = une pile ») injecte cette classe via
+* NkEditorShellConfig::renderer.
+\end{nkcode}
+
+Une fenêtre est rendue \textbf{soit} par NKCanvas, \textbf{soit} par NKRHI —
+jamais les deux. Le choix se fait une fois, à la création. Pour ce cours, ce sera
+toujours NKCanvas.
+\end{nkretenir}
+
+\subsection{Les cinq backends 2D de NKCanvas, et leur état réel}
+
+Les cinq dossiers de backends ne fournissent pas tous un renderer 2D, et ceux
+qui le fournissent ne sont pas tous validés à l'exécution. Voici l'état, tel
+qu'il ressort des sources et des feuilles de route :
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Backend} & \textbf{Renderer 2D} & \textbf{État à l'exécution} \\
+\midrule
+OpenGL   & \texttt{NkOpenGLRenderer2D} (926 l.)  & le seul \textbf{validé} \\
+Vulkan   & \texttt{NkVulkanRenderer2D} (1524 l.) & le code le plus complet ; plantages signalés \\
+DX12     & \texttt{NkDX12Renderer2D} (1320 l.)   & plantages signalés \\
+DX11     & \texttt{NkDX11Renderer2D} (764 l.)    & écran vide/noir signalé \\
+Software & \texttt{NkSoftwareRenderer2D} (674 l.) & écran vide/noir signalé \\
+Metal    & \textbf{aucun}                        & non implémenté \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+La ligne « Metal » n'est pas une supposition, elle est écrite dans la fabrique :
+
+\begin{nkcode}{Kernel/Runtime/NKCanvas/src/NKCanvas/Renderer/Core/NkRenderer2DFactory.cpp:86-89}
+case NkGraphicsApi::NK_GFX_API_METAL:
+    NK_R2D_FACTORY_ERR("Metal 2D renderer not yet implemented");
+    return nullptr;
+\end{nkcode}
+
+Quant aux autres verdicts, ils viennent de
+\nkfile{Kernel/Runtime/NKCanvas/ROADMAP.md} (lignes 185-200 et 601-607), à la
+date du 30 mai 2026 : seul OpenGL était alors validé à l'exécution sur la démo
+Pong. \textbf{Ces états sont datés et méritent d'être revérifiés} avant de tirer
+une conclusion définitive : le dépôt bouge. Mais ils expliquent pourquoi, quand
+une application « ne montre rien », la première chose à essayer est de changer de
+backend.
+
+Le choix, lui, est explicite. Soit on nomme l'API :
+
+\begin{nkcode}{Applications/NKGuiDemo/src/NKGuiDemo/main.cpp:253-262}
+    NkContextDesc desc;
+    desc.api = NkGraphicsApi::NK_GFX_API_AUTO;
+    if (desc.api == NkGraphicsApi::NK_GFX_API_AUTO) {
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
+        desc.api = NkGraphicsApi::NK_GFX_API_DX11;
+#else
+        desc.api = NkGraphicsApi::NK_GFX_API_OPENGL;
+#endif
+    }
+\end{nkcode}
+
+\noindent soit on laisse la fabrique essayer une liste, par
+\texttt{NkContextFactory::CreateWithFallback(window, preferenceOrder, count)}.
+L'ordre conseillé documenté en \nkfile{.../Factory/NkContextFactory.h:46} est
+\texttt{\{DX12, DX11, Metal, Vulkan, OpenGL, Software\}}.
+
+\section{Étage 4 — \texttt{NkCanvas}, le rendu 2D}
+
+\texttt{NkCanvas} est décrit dans \nkfile{Guides/05-NKCanvas.md} comme
+« la couche de rendu 2D conviviale de Nkentseu, l'équivalent de la partie
+\emph{Graphics} de SFML ». Il fournit :
+
+\begin{itemize}
+  \item un \textbf{contexte graphique} (\texttt{NkIGraphicsContext}) créé par une
+        fabrique selon l'API choisie ;
+  \item une \textbf{cible de rendu} (\texttt{NkRenderTarget}), dont la
+        spécialisation \texttt{NkRenderWindow} est celle qu'on utilise
+        99\,\% du temps : elle possède le cycle d'image ;
+  \item un \textbf{renderer 2D} (\texttt{NkIRenderer2D}, façade
+        \texttt{NkRenderer2D}) qui offre les primitives : lignes, rectangles,
+        cercles, triangles, et le point d'entrée bas niveau
+        \texttt{DrawVertices} ;
+  \item des \textbf{ressources} : \texttt{NkTexture}, \texttt{NkFont},
+        \texttt{NkSprite}, \texttt{NkText}, \texttt{NkShader} ;
+  \item des \textbf{formes persistantes} façon SFML : \texttt{NkRectangleShape},
+        \texttt{NkCircleShape}, \texttt{NkLineShape}, \texttt{NkConvexShape}.
+\end{itemize}
+
+Le chapitre~2 lui est entièrement consacré. Retenez pour l'instant une seule
+chose : NkCanvas dessine des \textbf{triangles}. Tout le reste — cercles,
+lignes épaisses, texte — est fabriqué à partir de triangles par le module
+lui-même.
+
+\section{Étage 5 — \texttt{NKGui}, les widgets}
+
+\texttt{NKGui} est le framework d'interface : boutons, cases à cocher, sliders,
+champs de saisie, arbres, tables, menus, fenêtres flottantes, docking. Environ
+7\,780 lignes réparties sur 13 fichiers source, dont
+\nkfile{Kernel/Runtime/NKGui/src/NKGui/Widgets/NkGuiWidgets.cpp} qui pèse à lui
+seul 4\,973 lignes.
+
+Son arborescence est petite et lisible — c'est par là qu'il faut commencer :
+
+\begin{nkcode}{Kernel/Runtime/NKGui/ — arborescence}
+Kernel/Runtime/NKGui/
+  NKGui.jenga · ARCHITECTURE.md · README.md · ROADMAP.md
+  src/NKGui/
+    NKGui.h                     <- en-tete PARAPLUIE (la seule chose a inclure)
+    NkGuiExport.h -> NkGuiApi.h <- macros d'export (defaut : statique)
+    Core/
+      NkGuiTypes.h      (333 l.) types de base : NkGuiId, enums, themes de flags
+      NkGuiInput.h      (145 l.) etat d'entree par frame (header-only, tout inline)
+      NkGuiDrawList.h/.cpp (101/342 l.) la LISTE DE COMMANDES de dessin
+      NkGuiFont.h/.cpp  ( 81/158 l.) police + atlas (wrapper NKFont)
+      NkGuiContext.h/.cpp (551/573 l.) LE contexte : etat complet de l'UI
+    Widgets/
+      NkGuiWidgets.h/.cpp (405/4973 l.) TOUS les widgets
+\end{nkcode}
+
+\subsection{Le point capital : NKGui ne connaît aucun GPU}
+
+Voici la ligne la plus importante de ce chapitre :
+
+\begin{nkcode}{Kernel/Runtime/NKGui/NKGui.jenga:22-27}
+nkentseudependson(
+    ["NKPlatform", "NKCore", "NKMemory", "NKMath", "NKThreading",
+     "NKLogger", "NKContainers", "NKEvent", "NKFont", "NKImage"],
+    selfexport="NKGui",
+    extra_includes=["src"],
+)
+files(["src/**.cpp"])
+\end{nkcode}
+
+Relisez la liste. Il n'y a \textbf{ni \texttt{NKCanvas}, ni \texttt{NKRHI}, ni
+même \texttt{NKWindow}}. NKGui ne connaît que les mathématiques, les conteneurs,
+la mémoire, les polices, les images et les événements. Il ne sait pas ce qu'est
+une texture GPU, ni un \emph{shader}, ni une fenêtre.
+
+\begin{nkretenir}
+\textbf{NKGui ne dépend ni de NkCanvas ni de NKRHI.} Il ne dessine rien : il
+\emph{produit une liste de commandes} — des sommets, des indices, des commandes
+de dessin — et laisse quelqu'un d'autre les envoyer au GPU. Ce quelqu'un
+s'appelle un \textbf{backend}, et le mariage se fait par un \textbf{pont}.
+\end{nkretenir}
+
+\subsection{Ce que NKGui produit : \texttt{NkGuiDrawList}}
+
+La sortie de NKGui est purement géométrique :
+
+\begin{nkcode}{Kernel/Runtime/NKGui/src/NKGui/Core/NkGuiDrawList.h:23-46 (abrégé)}
+struct NkGuiVertex {
+        NkVec2 pos;
+        NkVec2 uv;   ///< (0,0) = couleur unie (pas de texture)
+        uint32 col;
+};
+
+enum class NkGuiDrawCmdType : uint8 {
+    Triangles,         ///< triangles unis
+    TexturedTriangles  ///< triangles textures (texte/atlas/image)
+};
+
+struct NkGuiDrawCmd {
+        NkGuiDrawCmdType type = NkGuiDrawCmdType::Triangles;
+        uint32 idxOffset = 0;
+        uint32 idxCount  = 0;
+        uint32 texId     = 0;
+        NkRect clipRect  = {0.f, 0.f, 1.0e9f, 1.0e9f};   // 1e9 = « pas de clip »
+};
+\end{nkcode}
+
+\begin{nkcode}{Kernel/Runtime/NKGui/src/NKGui/Core/NkGuiDrawList.h:48-56 (abrégé)}
+struct NkGuiDrawList {
+        NkVector<NkGuiVertex> vtx;
+        NkVector<uint32>      idx;
+        NkVector<NkGuiDrawCmd> cmds;
+        NkRect  clipStack[32] = {};
+        int32   clipDepth = 0;
+        float32 thickScale = 1.f; ///< echelle DPI des epaisseurs (preservee par Reset)
+};
+\end{nkcode}
+
+Trois tableaux, donc : les sommets, les indices, et les commandes. Une
+\emph{commande} décrit une tranche d'indices à dessiner avec une texture donnée
+et un rectangle de découpe donné. Notez le \texttt{texId} : c'est un simple
+entier, pas un pointeur vers une texture GPU. NKGui manipule des
+\emph{identifiants}, à charge du backend de savoir à quoi ils correspondent.
+
+Notez aussi la sentinelle \texttt{1e9} pour « pas de découpe ». Le backend la
+reconnaît par un test tolérant (\texttt{w < 1e8}), ce qui évite toute
+comparaison exacte de flottants.
+
+\section{Le pont : marier NKGui et NkCanvas}
+
+Puisque NKGui ne connaît pas NkCanvas, et que NkCanvas ne connaît pas NKGui, il
+faut un tiers qui connaisse les deux. Le dépôt en fournit deux, selon le public.
+
+\subsection{\texttt{NkGuiCanvasBackend} — le pont vers NkCanvas}
+
+Il vit dans \nkfile{Kernel/Runtime/NKCanvas/src/NKCanvas/UI/NkGuiCanvasBackend.h}
+et il est \textbf{header-only}. Ce détail est délibéré et sa justification est en
+tête de fichier :
+
+\begin{nkcode}{Kernel/Runtime/NKCanvas/src/NKCanvas/UI/NkGuiCanvasBackend.h:2-9}
+// NkGuiCanvasBackend.h — rend un nkgui::NkGuiDrawList via NKCanvas (NkIRenderer2D).
+// Backend RÉUTILISABLE (lib) : le cœur NKGui reste render-agnostique ; ce pont
+// traduit ses draw-lists en appels NkIRenderer2D. Gère l'atlas de police
+// (gray8 -> RGBA blanc+alpha) et les images RGBA pour les commandes texturées.
+//
+// HEADER-ONLY : NKCanvas ne le compile pas (pas de .cpp) ; seuls les consommateurs
+// (qui dépendent déjà de NKGui ET NKCanvas) l'incluent. Modelé sur NkUICanvasBackend.
+\end{nkcode}
+
+Comprenez bien l'astuce. Ce fichier inclut \texttt{"NKGui/NKGui.h"}, donc il
+dépend de NKGui. Mais il vit dans NKCanvas, dont le \texttt{files([...])} ne
+prend que les \texttt{.cpp} : \textbf{personne ne le compile dans NKCanvas}. Il
+n'est compilé que dans l'application qui l'inclut — application qui, elle,
+dépend bien des deux modules. Résultat : NKCanvas n'acquiert aucune dépendance
+vers NKGui, et le pont existe quand même.
+
+Son API tient en quatre méthodes :
+
+\begin{nkcode}{Kernel/Runtime/NKCanvas/src/NKCanvas/UI/NkGuiCanvasBackend.h:34, 41, 94, 120}
+bool Init(nkentseu::renderer::NkIRenderer2D *renderer);
+bool UploadFontGray8(uint32 texId, const uint8 *gray, int32 w, int32 h);
+bool UploadImageRGBA(uint32 texId, const uint8 *rgba, int32 w, int32 h);
+void Submit(const nkentseu::nkgui::NkGuiDrawList &dl, uint32 fbW, uint32 fbH);
+\end{nkcode}
+
+C'est tout. \texttt{Init} lui donne le renderer 2D ; les deux \texttt{Upload}
+enregistrent une texture sous un identifiant (un atlas de police, une image) ;
+\texttt{Submit} traduit une liste de commandes en appels
+\texttt{NkIRenderer2D}. Le chapitre~4 montrera la séquence complète.
+
+\subsection{\texttt{NkGuiRHIBackend} — le pont vers NKRHI}
+
+L'alternative vit dans \nkfile{Integrations/NKGui/NkGuiRHIBackend.h}, compilée
+dans une bibliothèque statique \texttt{NKGuiIntegration}. Son API est le miroir
+de la précédente, avec un tampon de commandes en plus :
+
+\begin{nkcode}{Integrations/NKGui/NkGuiRHIBackend.h:45-59}
+bool Init(NkIDevice* device, NkRenderPassHandle renderPass, NkGraphicsApi api);
+void Destroy();
+void Submit(NkICommandBuffer* cmd, const NkGuiDrawList& dl, uint32 fbW, uint32 fbH);
+bool UploadTextureRGBA8(uint32 texId, const uint8* data, int32 width, int32 height);
+bool UploadTextureGray8(uint32 texId, const uint8* data, int32 width, int32 height);
+bool RegisterTexture(uint32 texId, NkTextureHandle texture);
+bool HasTexture(uint32 texId) const noexcept;
+\end{nkcode}
+
+La doctrine de répartition est écrite dans le fichier de build de l'intégration :
+
+\begin{nkcode}{Integrations/NKGui/NKGuiIntegration.jenga:5-8}
+Rend une UI NKGui (nkgui::NkGuiDrawList) via NKRHI/NKRenderer, sans NKCanvas.
+Sert aux applications 2D/3D (app d'animation, moteur de jeu). NKCanvas reste
+le backend de l'IDE (NKCode).
+\end{nkcode}
+
+Un point de conception intéressant de ce second pont : il enregistre aussi des
+textures \emph{externes} (\texttt{RegisterTexture}). C'est ainsi qu'une
+application 3D affiche le rendu de sa scène dans un panneau de son interface :
+elle rend la scène dans une texture hors écran, l'enregistre sous un
+\texttt{texId}, et NKGui la dessine comme une image ordinaire.
+
+\subsection{Pourquoi cette séparation ?}
+
+On pourrait trouver la construction alambiquée. Elle rapporte trois choses
+concrètes :
+
+\begin{enumerate}
+  \item \textbf{On peut changer de moteur de rendu sans toucher un seul
+        widget.} L'IDE utilise NkCanvas, l'application d'animation utilise NKRHI,
+        et le code des boutons est le même. Mieux : NKEditorKit rend cette
+        substitution explicite, avec une interface
+        \texttt{NkIEditorRenderer} injectable
+        (\nkfile{Engine/NKEditorKit/src/NKEditorKit/NkIEditorRenderer.h:7-15}).
+  \item \textbf{NKGui est testable sans GPU.} Une liste de commandes est une
+        structure de données : on peut la produire, l'inspecter et la comparer
+        sans jamais ouvrir de fenêtre.
+  \item \textbf{Les dépendances restent en arbre, pas en graphe.} NKGui ne
+        connaît pas NkCanvas ; NkCanvas ne connaît pas NKGui ; l'application
+        connaît les deux. Aucun cycle.
+\end{enumerate}
+
+Il y a un prix, et il faut le connaître : \textbf{c'est à l'application de faire
+le raccordement}. Personne ne le fera à votre place. Si vous oubliez d'appeler
+\texttt{Submit}, rien ne s'affiche et aucun message d'erreur n'apparaît. Si vous
+oubliez d'uploader l'atlas de police, tous les textes sont invisibles et aucun
+message d'erreur n'apparaît non plus. Le chapitre~4 revient longuement sur ces
+silences.
+
+\section{Le chemin complet d'un clic, de bout en bout}
+
+Récapitulons en suivant un seul clic de souris, de l'appui jusqu'au pixel qui
+change de couleur.
+
+\begin{enumerate}
+  \item L'utilisateur appuie. Le système envoie un message ; \texttt{NKWindow} le
+        reçoit, \texttt{NKEvent} le transforme en
+        \texttt{NkMouseButtonPressEvent}.
+  \item La boucle appelle \texttt{PollEvent()} ; le \emph{callback} enregistré
+        écrit \texttt{ctx.input.mouseDown[0] = true}.
+  \item L'application appelle \texttt{ctx.BeginFrame(dt)}. NKGui en déduit la
+        \emph{transition} : \texttt{mouseClicked[0] = mouseDown[0] \&\&
+        !mousePrev[0]}.
+  \item L'application appelle \texttt{Button(ctx, "OK")}. Le widget calcule son
+        rectangle, demande son identité, teste le survol, voit le clic, et
+        retourne \texttt{true} — au \emph{relâchement}, comme nous le verrons au
+        chapitre~3. Au passage, il écrit deux rectangles et six sommets dans la
+        liste de commandes.
+  \item L'application appelle \texttt{ctx.EndFrame()}. NKGui fusionne les listes
+        des fenêtres par ordre de profondeur, ferme les popups, remet à zéro la
+        molette et le texte consommés.
+  \item L'application appelle \texttt{target->Clear()}, puis soumet les deux
+        listes au pont : \texttt{ctx.dl} d'abord, \texttt{ctx.dlOverlay}
+        ensuite, chacune par \texttt{backend.Submit(liste, w, h)}. Le pont
+        convertit chaque sommet, résout chaque \texttt{texId} en
+        \texttt{NkTexture*}, applique chaque rectangle de découpe et appelle
+        \texttt{DrawVertices}.
+  \item NkCanvas accumule tout dans ses tampons, regroupe par texture, et à la
+        fermeture de l'image envoie un appel de dessin par groupe.
+  \item L'application appelle \texttt{target->Display()} : l'image est présentée.
+\end{enumerate}
+
+\begin{nkretenir}[L'invariant d'ordre]
+\texttt{événements} $\rightarrow$ \texttt{ctx.BeginFrame(dt)} $\rightarrow$
+\texttt{widgets} $\rightarrow$ \texttt{ctx.EndFrame()} $\rightarrow$
+\texttt{Clear} $\rightarrow$ \texttt{Submit} $\times 2$ $\rightarrow$
+\texttt{Display}.
+
+Cet ordre n'est pas négociable et le chapitre~3 expliquera pourquoi
+\texttt{BeginFrame} doit venir \emph{après} le pompage des événements.
+\end{nkretenir}
+
+\section{Deux mots sur les macros d'export}
+
+En lisant les en-têtes, vous rencontrerez partout des macros du genre
+\texttt{NKENTSEU\_NKGUI\_API} :
+
+\begin{nkcode}{Kernel/Runtime/NKGui/src/NKGui/Widgets/NkGuiWidgets.h (forme générale)}
+NKENTSEU_NKGUI_API void Text(NkGuiContext &ctx, const char *s) noexcept;
+\end{nkcode}
+
+Par défaut, le module est construit en \textbf{statique} et cette macro est
+\textbf{vide} (\nkfile{Kernel/Runtime/NKGui/src/NKGui/NkGuiApi.h:32-40}). Quand
+vous lisez une signature, effacez-la mentalement : il faut lire
+\texttt{void Text(NkGuiContext \&ctx, const char *s) noexcept}. Il existe deux
+variantes : \texttt{NKENTSEU\_NKGUI\_CLASS\_EXPORT} (classe entière) et
+\texttt{NKENTSEU\_NKGUI\_API\_INLINE} (fonction \texttt{inline} exportée). Dans
+la suite de ce cours, nous les omettons pour la lisibilité.
+
+\section{Exercices}
+
+\begin{nkexo}[1 — Vérifier la carte soi-même]
+Ouvrez les trois fichiers de build suivants et relevez, pour chacun, la liste
+des modules dont il dépend :
+\nkfile{Kernel/Runtime/NKGui/NKGui.jenga},
+\nkfile{Kernel/Runtime/NKCanvas/NKCanvas.jenga},
+\nkfile{Engine/NKEditorKit/NKEditorKit.jenga}.
+Dessinez le graphe. Vérifiez qu'il n'y a aucun cycle, et identifiez le seul
+module qui connaît à la fois NKGui et NKCanvas.
+\end{nkexo}
+
+\begin{nkexo}[2 — Trouver le pont]
+Ouvrez
+\nkfile{Kernel/Runtime/NKCanvas/src/NKCanvas/UI/NkGuiCanvasBackend.h} et
+comptez : combien de méthodes publiques ? Combien de lignes au total ? Comparez
+avec les 4\,973 lignes de \texttt{NkGuiWidgets.cpp}. Que vous dit ce rapport sur
+la quantité de travail nécessaire pour porter NKGui vers un nouveau moteur de
+rendu ?
+\end{nkexo}
+
+\begin{nkexo}[3 — Changer de backend à chaud]
+Reprenez la démo \texttt{NkCanvasDemo} du dossier Sandbox, qui accepte un
+argument de ligne de commande :
+\begin{verbatim}
+NkCanvasDemo.exe --backend=opengl
+NkCanvasDemo.exe --backend=dx11
+NkCanvasDemo.exe --backend=sw
+\end{verbatim}
+Lancez-la avec chacun des backends et notez ce que vous observez. Recoupez avec
+le tableau d'état de la section 1.4 et avec \nkfile{logs/app.log}. Ce petit
+exercice vous évitera plus tard de chercher un bug dans votre code alors que le
+problème est dans le choix du backend.
+\end{nkexo}

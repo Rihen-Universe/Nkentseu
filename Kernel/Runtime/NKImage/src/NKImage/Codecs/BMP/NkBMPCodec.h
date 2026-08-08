@@ -3,7 +3,7 @@
  * @File    NkBMPCodec.h
  * @Brief   Codec BMP — DIB complet (lecture + écriture).
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  */
 #include "NKImage/Core/NkImage.h"
 

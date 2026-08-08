@@ -3,7 +3,7 @@
  * @File    NkTGACodec.h
  * @Brief   Codec TGA (Truevision TARGA) — lecture + écriture.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  *
  * Types supportés en lecture :
  *   Type 1  (color-mapped)       + Type 9  (color-mapped RLE)

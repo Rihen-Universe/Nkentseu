@@ -15,6 +15,51 @@ géométriques/topologie qui ne nécessitent aucun contexte GPU actif. Le rendu/
 shaders/viewport temps réel est reporté à la fin (Phase C). C'est le principe
 organisateur de ce document (sections **Phase A / B / C** ci-dessous).
 
+## 🚀 PRIORITÉ — Mondes volumineux : les optimisations prouvées en NKAI
+
+> **Décision de Rihen, 6 août 2026.** « On doit implémenter ces optimisations
+> dès que possible » — pour le **film d'animation**, le **jeu vidéo** et la
+> **simulation**, les trois usages visés par Noge/Nogee.
+
+Les techniques écrites pour faire tenir un modèle de 7 milliards de paramètres
+dans 8 Go de VRAM (`Kernel/AI/NKInfer`, jalons QLoRA 4 et 5, **mesurées**) sont
+**exactement** celles qu'exigent les scènes volumineuses. Pas des techniques
+voisines : les mêmes, appliquées à d'autres octets.
+
+| Prouvé en NKAI | Ce que ça donne pour une scène de production |
+|---|---|
+| Poids **quantifiés résidents**, décompressés dans le shader — **7×** moins de VRAM (36 Mo au lieu de 259) | Une scène de film ou de monde ouvert tient dans la carte au lieu de la saturer |
+| **La table d'embedding jamais montée** : lue au fichier, une ligne par token | **Streaming** : seule la géométrie visible réside ; le reste attend sur disque |
+| **Tuilage + mémoire partagée** : **×5** sur le calcul (61 → 282 GFLOPS) | Culling et rendu par tuiles — la même accélération sur le nombre d'objets |
+| **KV-cache** : ne jamais recalculer le passé | Caches de géométrie et d'ombres entre deux images (le principe existe déjà : VSM, *dirty box* voxel) |
+
+**Ce que Noge doit en tirer, par usage :**
+
+- **Film d'animation** — les plans dépassent toujours la mémoire disponible : le
+  streaming et la géométrie virtualisée décident du plafond de complexité d'un
+  plan. Sans eux, on rogne la scène ; avec eux, on rogne le temps de rendu, ce
+  qui est négociable.
+- **Jeu vidéo** — budget VRAM **fixe** et 16 ms par image : la quantification
+  des attributs et le culling tuilé sont les deux leviers qui décident du nombre
+  d'objets à l'écran.
+- **Simulation** — beaucoup d'entités, peu de variété : l'instanciation et les
+  caches priment ; c'est le pilier le plus proche de ce qui existe déjà.
+
+**Où ça s'implémente** : le gros du travail est dans **NKRenderer**, section
+« Phase V — MONDES VOLUMINEUX » de `Kernel/Runtime/NKRenderer/ROADMAP.md` (liste
+détaillée : géométrie virtualisée, atlas de textures virtuel, hiérarchie
+spatiale, quantification des sommets). **Noge en est le consommateur** : c'est
+lui qui décide *quoi* charger selon la scène, la caméra et le plan — le rendu ne
+fait qu'exécuter.
+
+**Nuance à retenir avant d'optimiser** : en IA le goulot est la bande passante
+mémoire ; en 3D c'est plutôt le nombre d'appels de dessin et la latence disque.
+Les remèdes se ressemblent, les priorités diffèrent — **mesurer d'abord**, comme
+le jalon 4 l'a fait (avant/après à quatre tailles, sans quoi on ne sait pas si
+le gain existe).
+
+---
+
 ## 🏗️ ANALYSE DE SCOPE — Noge comme moteur de production (piliers)
 
 Question différente des deux sections voisines (celle-ci répond à *« qu'est-ce

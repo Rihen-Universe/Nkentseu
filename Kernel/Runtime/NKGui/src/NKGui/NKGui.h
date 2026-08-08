@@ -2,7 +2,7 @@
 // -----------------------------------------------------------------------------
 // @File    NKGui.h
 // @Brief   En-tête parapluie de NKGui — framework UI nouvelle génération.
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // NKGui : réécriture complète de l'UI Nkentseu (noms neufs, zéro lien ImGui),
 // deux paradigmes — immédiat ET retenu. Construit à partir de l'étalon

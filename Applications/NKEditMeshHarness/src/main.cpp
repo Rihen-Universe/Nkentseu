@@ -36,12 +36,19 @@
 //                                     sortie 1 si divergence (utilisable en CI)
 // =============================================================================
 #include "NKRenderer/Mesh/NkEditMesh.h"
+#include "NKGraph/NkGraphDocument.h"
+#include "NKGraph/NkNodeGraph.h"
+#include "NKRenderer/Mesh/NkMeshRetopo.h"
+#include "NKRenderer/Mesh/NkMeshDecimate.h"
+#include "NKRenderer/Mesh/NkMeshAnalysis.h"
 #include "NKRenderer/Core/NkGizmo.h"
+#include "NKEditorKit/NkTheme.h"
 #include "NKEditorKit/NkShortcutTable.h"
 #include "NKContainers/Associative/NkHashMap.h"
 #include "NKLogger/NkLog.h"
 
 #include <math.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -1539,6 +1546,1456 @@ static void ShortcutBattery() {
 	}
 }
 
+// ── ANALYSE STRUCTURELLE ────────────────────────────────────────────────────
+// La brique qui sert a la fois la RETOPOLOGIE, la REPARATION et la DONNEE
+// D'APPRENTISSAGE. Les cas sont choisis pour qu'une mesure fausse se voie :
+//   • le CUBE donne des chiffres connus d'avance (Euler = 2, genre 0, 8 poles) ;
+//   • CATMULL-CLARK doit PRESERVER le nombre de sommets irreguliers — c'est une
+//     propriete mathematique du schema, et une subdivision naive la casserait ;
+//   • la SYMETRIE doit CHUTER quand on casse la forme, sinon « 1,0 partout » ne
+//     prouverait rien ;
+//   • la JONCTION EN T doit refuser de donner un genre : un genre calcule sur un
+//     maillage non manifold serait un entier plausible et faux.
+static void AnalysisBattery() {
+	NkVector<NkVertex3D> cv, gv;
+	NkVector<uint32> ci, gi;
+	MakeCube(cv, ci);
+	MakeGrid(4, gv, gi);
+	auto line = [](const char *nm, const NkMeshStats &a) {
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256,
+					 "%-34s S=%u A=%u F=%u euler=%d genre=%d quad=%.2f poles(3/5/6+)=%u/%u/%u reg=%u bord=%u",
+					 nm, a.verts, a.edges, a.faces, a.euler, a.genus, (double)a.quadRatio, a.poles.valence3,
+					 a.poles.valence5, a.poles.valence6plus, a.poles.regular, a.poles.boundary);
+			gLineCount++;
+		}
+	};
+
+	// 1) CUBE : tous les chiffres sont connus d'avance. Euler = 8-12+6 = 2, donc
+	//    genre 0. Huit coins de valence 3 : un cube n'a QUE des poles.
+	NkEditMesh cube;
+	cube.BuildFromIndexed(cv.Data(), (uint32)cv.Size(), ci.Data(), (uint32)ci.Size(), true);
+	{
+		const NkMeshStats a = NkMeshAnalysis::Analyze(cube);
+		line("analyse/cube", a);
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s brut=%u soude=%u ferme=%d manifold=%d isoles=%u degen=%u",
+					 "analyse/cube-sante", a.rawVerts, a.verts, a.IsClosed() ? 1 : 0, a.IsManifold() ? 1 : 0,
+					 a.looseVerts, a.degenerateFaces);
+			gLineCount++;
+		}
+	}
+
+	// 2) LE CAS QUI COMPTE — CATMULL-CLARK PRESERVE LES SOMMETS IRREGULIERS.
+	//    Le cube a 8 coins de valence 3. Apres subdivision il en a TOUJOURS 8 :
+	//    les points d'arete et de face naissent tous reguliers (valence 4). Une
+	//    subdivision qui deplacerait ou multiplierait les poles serait fausse, et
+	//    le comptage de sommets seul ne le montrerait pas.
+	for (int32 lv = 1; lv <= 2; lv++) {
+		NkEditMesh m = cube;
+		m.SubdivideCatmullClark(lv);
+		char nm[64];
+		snprintf(nm, sizeof(nm), "analyse/catmull-n%d-poles-invariants", lv);
+		line(nm, NkMeshAnalysis::Analyze(m));
+	}
+
+	// 3) GRILLE : maillage OUVERT. Le genre doit valoir -1 (refus) et non un
+	//    entier calcule sur une formule qui ne s'applique pas.
+	NkEditMesh grid;
+	grid.BuildFromIndexed(gv.Data(), (uint32)gv.Size(), gi.Data(), (uint32)gi.Size(), true);
+	line("analyse/grille-ouverte", NkMeshAnalysis::Analyze(grid));
+
+	// 4) SYMETRIE. Un cube est symetrique sur les trois axes. On DEPLACE ensuite
+	//    un seul coin : la symetrie doit chuter sur les axes concernes. Sans ce
+	//    second cas, « 1,00 partout » ne prouverait rien du tout.
+	{
+		const NkMeshStats a = NkMeshAnalysis::Analyze(cube);
+		NkEditMesh bent = cube;
+		const NkVec3f target = bent.verts[0].pos;
+		for (uint32 i = 0; i < bent.VertCount(); ++i)
+			if ((bent.verts[i].pos - target).Len() < 1e-6f)
+				bent.verts[i].pos = bent.verts[i].pos + NkVec3f{0.35f, 0.f, 0.f};
+		const NkMeshStats b = NkMeshAnalysis::Analyze(bent);
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s cube x/y/z=%.2f/%.2f/%.2f  coin deplace=%.2f/%.2f/%.2f",
+					 "analyse/symetrie", (double)a.symmetry.x, (double)a.symmetry.y, (double)a.symmetry.z,
+					 (double)b.symmetry.x, (double)b.symmetry.y, (double)b.symmetry.z);
+			gLineCount++;
+		}
+	}
+
+	// 5) JONCTION EN T : non manifold. Le genre doit etre REFUSE.
+	{
+		NkVector<NkVertex3D> vt = cv;
+		NkVector<uint32> it = ci;
+		const NkVec3f a = {0.5f, -0.5f, 0.5f}, b = {0.5f, -0.5f, -0.5f};
+		const NkVec3f c = {1.5f, -0.5f, -0.5f}, d = {1.5f, -0.5f, 0.5f};
+		const NkVec3f q[4] = {a, b, c, d};
+		const uint32 base = (uint32)vt.Size();
+		for (int32 k = 0; k < 4; k++) {
+			NkVertex3D x{};
+			x.pos = q[k];
+			x.normal = {0.f, 1.f, 0.f};
+			x.tangent = {1.f, 0.f, 0.f};
+			x.color = 0xFFFFFFFFu;
+			vt.PushBack(x);
+		}
+		it.PushBack(base);
+		it.PushBack(base + 1);
+		it.PushBack(base + 2);
+		it.PushBack(base);
+		it.PushBack(base + 2);
+		it.PushBack(base + 3);
+		NkEditMesh m;
+		m.BuildFromIndexed(vt.Data(), (uint32)vt.Size(), it.Data(), (uint32)it.Size(), true);
+		const NkMeshStats an = NkMeshAnalysis::Analyze(m);
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s nonmanif=%u bordA=%u genre=%d (doit valoir -1)",
+					 "analyse/jonction-T-refus-genre", an.nonManifoldEdges, an.boundaryEdges, an.genus);
+			gLineCount++;
+		}
+	}
+
+	// 6) DENSITE. Un cube a des aretes toutes egales : ecart relatif nul. Une
+	//    grille etiree sur un axe doit montrer un ecart non nul — sinon la mesure
+	//    ne mesure rien.
+	{
+		const NkMeshStats a = NkMeshAnalysis::Analyze(cube);
+		NkEditMesh stretched = grid;
+		for (uint32 i = 0; i < stretched.VertCount(); ++i)
+			stretched.verts[i].pos.x *= 3.f;
+		const NkMeshStats b = NkMeshAnalysis::Analyze(stretched);
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256,
+					 "%-34s cube ecart=%.3f (min %.2f max %.2f) | grille etiree ecart=%.3f (min %.2f max %.2f)",
+					 "analyse/densite", (double)a.edgeDeviation, (double)a.edgeMin, (double)a.edgeMax,
+					 (double)b.edgeDeviation, (double)b.edgeMin, (double)b.edgeMax);
+			gLineCount++;
+		}
+	}
+}
+
+// -- GRAPHE DE NOEUDS (NKGraph, couche 1) ------------------------------------
+// Le coeur commun aux materiaux, au VFX, a la modelisation procedurale et au
+// blueprint. Les cas sont choisis pour qu'une implantation FAUSSE echoue :
+//   * les noeuds sont crees dans l'ordre INVERSE de l'ordre topologique, sinon
+//     un tri qui renverrait simplement l'ordre d'insertion passerait aussi ;
+//   * la conversion implicite est testee DANS LES DEUX SENS, parce qu'une table
+//     symetrique par erreur laisserait passer la perte d'information ;
+//   * le cycle est REFUSE a la connexion, et on verifie que le graphe reste
+//     triable apres le refus -- un refus qui laisserait le lien en place ne se
+//     verrait pas au compte de liens seul.
+// Ecriture d'une ligne de rapport. Fonction STATIQUE et non lambda : une lambda
+// a ellipse C n'est pas du C++ valide.
+static void GraphPut(const char *fmt, ...) {
+	if (gLineCount >= 512)
+		return;
+	va_list ap;
+	va_start(ap, fmt);
+	vsnprintf(gLines[gLineCount], 256, fmt, ap);
+	va_end(ap);
+	gLineCount++;
+}
+
+static void GraphBattery() {
+	using namespace nkentseu::graph;
+	// 1) TRI TOPOLOGIQUE SUR UN LOSANGE, INSERE A L'ENVERS.
+	//    Dependances : A -> B, A -> C, B -> D, C -> D.
+	//    On cree D, C, B, A dans CET ordre. L'ordre d'insertion est donc
+	//    exactement l'inverse du resultat attendu : si le tri renvoyait
+	//    l'ordre de creation, A finirait dernier et le cas echouerait.
+	{
+		NkNodeGraph g;
+		const NkTypeId T = g.RegisterType("flux");
+		NkNodeId d = g.AddNode("sortie"), c = g.AddNode("droite");
+		NkNodeId b = g.AddNode("gauche"), a = g.AddNode("source");
+		const NkNodeId ids[4] = {a, b, c, d};
+		const char *nom[4] = {"A", "B", "C", "D"};
+		for (int32 i = 0; i < 4; i++) {
+			g.AddSocket(ids[i], "in", T, NkSocketDir::Input);
+			g.AddSocket(ids[i], "in2", T, NkSocketDir::Input);
+			g.AddSocket(ids[i], "out", T, NkSocketDir::Output);
+		}
+		g.Connect(a, "out", b, "in");
+		g.Connect(a, "out", c, "in");
+		g.Connect(b, "out", d, "in");
+		g.Connect(c, "out", d, "in2");
+		NkVector<NkNodeId> order;
+		const bool ok = g.TopoSort(order);
+		char buf[96];
+		int32 w = 0;
+		for (uint32 i = 0; i < (uint32)order.Size() && w < 80; ++i) {
+			const char *n = "?";
+			for (int32 k = 0; k < 4; k++)
+				if (ids[k] == order[i])
+					n = nom[k];
+			w += snprintf(buf + w, sizeof(buf) - (size_t)w, "%s%s", w ? ">" : "", n);
+		}
+		// Attendu : A en premier, D en dernier. Insertion faite en D,C,B,A.
+		GraphPut("%-34s ok=%d ordre=%s (insere D,C,B,A) noeuds=%u liens=%u", "graphe/topo-losange-insere-inverse",
+			ok ? 1 : 0, buf, g.NodeCount(), g.LinkCount());
+	}
+
+	// 2) CYCLE REFUSE A LA CONNEXION. A -> B -> C, puis C -> A.
+	//    On verifie (a) le code d'erreur, (b) que le lien n'a PAS ete cree,
+	//    (c) que le graphe reste triable. Un refus qui poserait quand meme le
+	//    lien donnerait le meme code d'erreur mais casserait le tri.
+	{
+		NkNodeGraph g;
+		const NkTypeId T = g.RegisterType("flux");
+		NkNodeId a = g.AddNode("a"), b = g.AddNode("b"), c = g.AddNode("c");
+		const NkNodeId ids[3] = {a, b, c};
+		for (int32 i = 0; i < 3; i++) {
+			g.AddSocket(ids[i], "in", T, NkSocketDir::Input);
+			g.AddSocket(ids[i], "out", T, NkSocketDir::Output);
+		}
+		g.Connect(a, "out", b, "in");
+		g.Connect(b, "out", c, "in");
+		const NkLinkError e = g.Connect(c, "out", a, "in");
+		NkVector<NkNodeId> order;
+		const bool ok = g.TopoSort(order);
+		GraphPut("%-34s refus=%s liens=%u (doit rester 2) triable=%d cycle=%d", "graphe/cycle-refuse",
+			NkLinkErrorName(e), g.LinkCount(), ok ? 1 : 0, g.HasCycle() ? 1 : 0);
+	}
+
+	// 3) TYPES. La conversion declaree est DIRIGEE : reel -> vecteur autorise
+	//    n'autorise PAS vecteur -> reel. Une table symetrique par erreur
+	//    accepterait les deux, et le graphe calculerait faux sans rien dire.
+	{
+		NkNodeGraph g;
+		const NkTypeId R = g.RegisterType("reel");
+		const NkTypeId V = g.RegisterType("vecteur");
+		const NkTypeId M = g.RegisterType("maillage");
+		g.AllowConversion(R, V); // un reel alimente un vecteur, pas l'inverse
+		NkNodeId s = g.AddNode("source"), p = g.AddNode("puits");
+		g.AddSocket(s, "reel", R, NkSocketDir::Output);
+		g.AddSocket(s, "vect", V, NkSocketDir::Output);
+		g.AddSocket(p, "reel", R, NkSocketDir::Input);
+		g.AddSocket(p, "vect", V, NkSocketDir::Input);
+		g.AddSocket(p, "mail", M, NkSocketDir::Input);
+		const NkLinkError e1 = g.Connect(s, "reel", p, "vect"); // conversion permise
+		const NkLinkError e2 = g.Connect(s, "vect", p, "reel"); // sens interdit
+		const NkLinkError e3 = g.Connect(s, "reel", p, "mail"); // aucun rapport
+		GraphPut("%-34s reel>vect=%s | vect>reel=%s | reel>maillage=%s", "graphe/conversion-dirigee",
+			NkLinkErrorName(e1), NkLinkErrorName(e2), NkLinkErrorName(e3));
+	}
+
+	// 4) UNE ENTREE, UNE SOURCE. Brancher une seconde source REMPLACE la
+	//    premiere (Blender, Unreal). Le compte de liens doit rester a 1 ET la
+	//    source doit etre la NOUVELLE -- un remplacement qui garderait
+	//    l'ancienne donnerait le meme compte.
+	{
+		NkNodeGraph g;
+		const NkTypeId T = g.RegisterType("flux");
+		NkNodeId x = g.AddNode("x"), y = g.AddNode("y"), z = g.AddNode("z");
+		g.AddSocket(x, "out", T, NkSocketDir::Output);
+		g.AddSocket(y, "out", T, NkSocketDir::Output);
+		g.AddSocket(z, "in", T, NkSocketDir::Input);
+		g.Connect(x, "out", z, "in");
+		g.Connect(y, "out", z, "in");
+		const NkLink *in = g.IncomingOf(z, 0);
+		GraphPut("%-34s liens=%u (doit valoir 1) source=%s", "graphe/entree-source-unique", g.LinkCount(),
+			in ? (in->fromNode == y ? "y-la-nouvelle" : "x-l-ancienne-BUG") : "aucune-BUG");
+	}
+
+	// 5) SUPPRESSION. Le noeud du MILIEU d'une chaine emporte SES DEUX liens.
+	//    Supprimer une extremite n'en emporterait qu'un : le milieu est le seul
+	//    cas ou une implantation qui oublierait un sens se verrait.
+	{
+		NkNodeGraph g;
+		const NkTypeId T = g.RegisterType("flux");
+		NkNodeId a = g.AddNode("a"), b = g.AddNode("b"), c = g.AddNode("c");
+		const NkNodeId ids[3] = {a, b, c};
+		for (int32 i = 0; i < 3; i++) {
+			g.AddSocket(ids[i], "in", T, NkSocketDir::Input);
+			g.AddSocket(ids[i], "out", T, NkSocketDir::Output);
+		}
+		g.Connect(a, "out", b, "in");
+		g.Connect(b, "out", c, "in");
+		const uint32 before = g.LinkCount();
+		g.RemoveNode(b);
+		GraphPut("%-34s avant=%u apres=%u (doit valoir 0) noeuds=%u b-retrouve=%d", "graphe/suppression-milieu", before,
+			g.LinkCount(), g.NodeCount(), g.Find(b) ? 1 : 0);
+	}
+
+	// 6) SENS ET SOCKETS. « ce socket n'existe pas » et « vous branchez une
+	//    entree sur une entree » ne se corrigent pas de la meme facon : le coeur
+	//    doit les DISTINGUER, sinon l'interface ne peut rien expliquer.
+	{
+		NkNodeGraph g;
+		const NkTypeId T = g.RegisterType("flux");
+		NkNodeId a = g.AddNode("a"), b = g.AddNode("b");
+		g.AddSocket(a, "in", T, NkSocketDir::Input);
+		g.AddSocket(a, "out", T, NkSocketDir::Output);
+		g.AddSocket(b, "in", T, NkSocketDir::Input);
+		g.AddSocket(b, "out", T, NkSocketDir::Output);
+		const NkLinkError e1 = g.Connect(a, "in", b, "in");	   // sortie<-entree
+		const NkLinkError e2 = g.Connect(a, "out", b, "out");  // entree<-sortie
+		const NkLinkError e3 = g.Connect(a, "out", b, "truc"); // n'existe pas
+		const NkLinkError e4 = g.Connect(a, "out", a, "in");   // soi-meme
+		GraphPut("%-34s entree-src=%s sortie-dst=%s inconnu=%s boucle-soi=%s", "graphe/sens-et-sockets",
+			NkLinkErrorName(e1), NkLinkErrorName(e2), NkLinkErrorName(e3), NkLinkErrorName(e4));
+	}
+
+	// 7) IDENTIFIANTS STABLES. Apres suppression, un nouveau noeud ne doit PAS
+	//    reprendre l'identifiant libere : une sauvegarde ou une courbe
+	//    d'animation qui designerait l'ancien pointerait silencieusement sur le
+	//    nouveau. Meme regle que pour les modificateurs.
+	{
+		NkNodeGraph g;
+		NkNodeId a = g.AddNode("a"), b = g.AddNode("b");
+		g.RemoveNode(a);
+		NkNodeId c = g.AddNode("c");
+		GraphPut("%-34s a=%u b=%u c=%u (c doit differer de a) recycle=%d", "graphe/identifiants-stables", a, b, c,
+			(c == a) ? 1 : 0);
+	}
+}
+
+// -- GRAPHE : SERIALISATION ET ANNULER/REFAIRE -------------------------------
+// Deux mecanismes dont TOUS les consommateurs dependent (materiaux, VFX,
+// blueprint, modelisation). Les cas visent les deux pieges connus :
+//   * un aller-retour qui « marche » mais REATTRIBUE les identifiants liberes ;
+//   * une annulation qui ressuscite le noeud mais PAS ses liens.
+// Les deux produisent un resultat plausible et faux.
+static void GraphIOBattery() {
+	using namespace nkentseu::graph;
+
+	// Graphe de reference, construit avec tout ce qui peut se perdre en route :
+	// des types, une conversion dirigee, des libelles a espaces et accents, et
+	// UN TROU dans les identifiants (un noeud supprime).
+	auto build = [](NkNodeGraph &g) {
+		const NkTypeId R = g.RegisterType("reel");
+		const NkTypeId V = g.RegisterType("vecteur");
+		g.AllowConversion(R, V);
+		NkNodeId a = g.AddNode("bruit.perlin", "Bruit de Perlin");
+		NkNodeId jete = g.AddNode("temporaire", "a jeter");
+		NkNodeId b = g.AddNode("deplacer", "Deplacement de surface");
+		g.AddSocket(a, "sortie", R, NkSocketDir::Output);
+		g.AddSocket(jete, "sortie", R, NkSocketDir::Output);
+		g.AddSocket(b, "quantite", V, NkSocketDir::Input);
+		g.AddSocket(b, "resultat", V, NkSocketDir::Output);
+		g.Connect(a, "sortie", b, "quantite"); // passe par la conversion
+		g.RemoveNode(jete);					   // <- le trou dans les identifiants
+		return jete;
+	};
+
+	// 1) ALLER-RETOUR. On serialise, on relit dans un graphe NEUF, on reserialise :
+	//    les deux textes doivent etre identiques caractere pour caractere. Comparer
+	//    des comptes ne prouverait rien -- des libelles ou des conversions perdus
+	//    laisseraient les comptes intacts.
+	{
+		NkNodeGraph g;
+		build(g);
+		NkString t1;
+		g.Serialize(t1);
+		NkNodeGraph relu;
+		const bool ok = relu.Deserialize(t1.CStr());
+		NkString t2;
+		relu.Serialize(t2);
+		bool identique = (t1.Size() == t2.Size());
+		if (identique)
+			for (uint32 i = 0; i < (uint32)t1.Size(); ++i)
+				if (t1.CStr()[i] != t2.CStr()[i]) {
+					identique = false;
+					break;
+				}
+		GraphPut("%-34s lu=%d identique=%d octets=%u noeuds=%u liens=%u", "graphe/io-aller-retour", ok ? 1 : 0,
+				 identique ? 1 : 0, (uint32)t1.Size(), relu.NodeCount(), relu.LinkCount());
+	}
+
+	// 2) LE PIEGE. Apres rechargement, un nouveau noeud ne doit PAS recuperer
+	//    l'identifiant du noeud supprime. Sans la ligne `compteurs` du fichier,
+	//    un aller-retour par ailleurs correct recyclerait cet identifiant, et une
+	//    reference sauvegardee ailleurs pointerait en silence sur autre chose.
+	{
+		NkNodeGraph g;
+		const NkNodeId jete = build(g);
+		NkString t;
+		g.Serialize(t);
+		NkNodeGraph relu;
+		relu.Deserialize(t.CStr());
+		const NkNodeId neuf = relu.AddNode("apres.rechargement");
+		GraphPut("%-34s supprime=%u nouveau-apres-relecture=%u recycle=%d", "graphe/io-identifiants-non-recycles",
+				 jete, neuf, (neuf == jete) ? 1 : 0);
+	}
+
+	// 3) LA SEMANTIQUE SURVIT, pas seulement les donnees. Le graphe recharge doit
+	//    encore ACCEPTER ce que la conversion permet et REFUSER le reste : c'est
+	//    ce qui prouve que les lignes `conv` et les types ont ete relus, et pas
+	//    seulement reecrits a l'identique.
+	{
+		NkNodeGraph g;
+		build(g);
+		NkString t;
+		g.Serialize(t);
+		NkNodeGraph relu;
+		relu.Deserialize(t.CStr());
+		const NkTypeId R = relu.FindType("reel");
+		const NkTypeId V = relu.FindType("vecteur");
+		const NkTypeId M = relu.RegisterType("maillage");
+		NkNodeId src = relu.AddNode("src"), dst = relu.AddNode("dst");
+		relu.AddSocket(src, "r", R, NkSocketDir::Output);
+		relu.AddSocket(dst, "v", V, NkSocketDir::Input);
+		relu.AddSocket(dst, "m", M, NkSocketDir::Input);
+		const NkLinkError e1 = relu.Connect(src, "r", dst, "v"); // conversion relue
+		const NkLinkError e2 = relu.Connect(src, "r", dst, "m"); // sans rapport
+		GraphPut("%-34s types-retrouves=%d/%d reel>vect=%s reel>maillage=%s", "graphe/io-semantique-survit",
+				 R ? 1 : 0, V ? 1 : 0, NkLinkErrorName(e1), NkLinkErrorName(e2));
+	}
+
+	// 4) ANNULATION D'UNE SUPPRESSION AU MILIEU. Le noeud du milieu emporte DEUX
+	//    liens. Apres annulation, le noeud doit revenir ET les deux liens aussi,
+	//    AVEC LEURS IDENTIFIANTS D'ORIGINE. Une annulation qui ne ressusciterait
+	//    que le noeud laisserait un graphe coupe en deux, d'apparence saine.
+	{
+		NkNodeGraph g;
+		const NkTypeId T = g.RegisterType("flux");
+		NkNodeId a = g.AddNode("a"), b = g.AddNode("b"), c = g.AddNode("c");
+		const NkNodeId ids[3] = {a, b, c};
+		for (int32 i = 0; i < 3; i++) {
+			g.AddSocket(ids[i], "in", T, NkSocketDir::Input);
+			g.AddSocket(ids[i], "out", T, NkSocketDir::Output);
+		}
+		NkLinkId l1 = 0, l2 = 0;
+		g.Connect(a, "out", b, "in", &l1);
+		g.Connect(b, "out", c, "in", &l2);
+
+		NkGraphHistory h;
+		h.Reset(g);
+		g.RemoveNode(b);
+		h.Commit(g);
+		const uint32 apresSuppr = g.LinkCount();
+		const bool undo = h.Undo(g);
+		// On PRELEVE l'etat ici, avant le refaire : mesurer apres donnerait l'etat
+		// d'apres, et la ligne annoncerait autre chose que ce qu'elle mesure.
+		const uint32 noeudsApresAnnule = g.NodeCount();
+		const uint32 liensApresAnnule = g.LinkCount();
+		const NkLink *r0 = g.LinkAt(0);
+		const NkLink *r1 = g.LinkAt(1);
+		const bool memesIds = r0 && r1 && ((r0->id == l1 && r1->id == l2) || (r0->id == l2 && r1->id == l1));
+		const bool bRevenu = g.Find(b) != nullptr;
+		const bool redo = h.Redo(g);
+		GraphPut("%-34s apres-suppr=%u | annule=%d b-revenu=%d noeuds=%u liens=%u memes-ids=%d | refait liens=%u",
+				 "graphe/undo-restaure-les-liens", apresSuppr, undo ? 1 : 0, bRevenu ? 1 : 0, noeudsApresAnnule,
+				 liensApresAnnule, memesIds ? 1 : 0, redo ? g.LinkCount() : 999u);
+	}
+
+	// 5) LA BRANCHE REFAISABLE EST ABANDONNEE quand on modifie apres avoir
+	//    annule -- comportement de tous les editeurs. On verifie aussi qu'une
+	//    remontee complete redonne EXACTEMENT l'etat initial, texte compris :
+	//    comparer des comptes laisserait passer une derive de position ou de
+	//    libelle.
+	{
+		NkNodeGraph g;
+		NkGraphHistory h;
+		g.AddNode("depart");
+		h.Reset(g);
+		NkString avant;
+		g.Serialize(avant);
+		g.AddNode("un");
+		h.Commit(g);
+		g.AddNode("deux");
+		h.Commit(g);
+		const uint32 profAvant = h.UndoDepth();
+		h.Undo(g);
+		h.Undo(g);
+		NkString apres;
+		g.Serialize(apres);
+		bool retourExact = (avant.Size() == apres.Size());
+		if (retourExact)
+			for (uint32 i = 0; i < (uint32)avant.Size(); ++i)
+				if (avant.CStr()[i] != apres.CStr()[i]) {
+					retourExact = false;
+					break;
+				}
+		const uint32 refaisable = h.RedoDepth();
+		g.AddNode("nouvelle-branche"); // abandonne la branche refaisable
+		h.Commit(g);
+		GraphPut("%-34s prof=%u retour-exact=%d refaisable-avant=%u apres-nouvelle-branche=%u",
+				 "graphe/undo-branche-abandonnee", profAvant, retourExact ? 1 : 0, refaisable, h.RedoDepth());
+	}
+}
+
+// -- GRAPHE : SOUS-GRAPHES ET PLAN APLATI ------------------------------------
+// Un sous-graphe n'est pas « un graphe range dans un noeud » : c'est une brique
+// NOMMEE, definie une fois et INSTANCIEE plusieurs fois -- corriger le groupe
+// une fois doit corriger les cinq instances. Les cas visent ce qui distingue une
+// vraie implantation d'une approximation :
+//   * apres aplatissement, les noeuds d'instance et de frontiere ont DISPARU, et
+//     les entrees pointent sur les etapes REELLES, a travers les frontieres ;
+//   * deux instances du meme groupe donnent DEUX calculs, pas un partage ;
+//   * une entree libre vaut NK_EVAL_NO_SOURCE et surtout PAS 0 -- 0 est un index
+//     d'etape valide, et cette confusion produit un resultat plausible.
+static void GraphDocBattery() {
+	using namespace nkentseu::graph;
+
+	// Construit le groupe « double » : entree -> A -> B -> sortie.
+	auto buildGroup = [](NkNodeGraph &g) {
+		const NkTypeId T = g.RegisterType("flux");
+		NkNodeId gin = g.AddNode(NK_NODE_GROUP_IN, "entree");
+		NkNodeId a = g.AddNode("calc.a", "A");
+		NkNodeId b = g.AddNode("calc.b", "B");
+		NkNodeId gout = g.AddNode(NK_NODE_GROUP_OUT, "sortie");
+		g.AddSocket(gin, "e", T, NkSocketDir::Output);
+		g.AddSocket(a, "in", T, NkSocketDir::Input);
+		g.AddSocket(a, "out", T, NkSocketDir::Output);
+		g.AddSocket(b, "in", T, NkSocketDir::Input);
+		g.AddSocket(b, "out", T, NkSocketDir::Output);
+		g.AddSocket(gout, "s", T, NkSocketDir::Input);
+		g.Connect(gin, "e", a, "in");
+		g.Connect(a, "out", b, "in");
+		g.Connect(b, "out", gout, "s");
+	};
+
+	// Rend « src>A>B>dst » a partir du plan : ce sont les LIBELLES des etapes,
+	// donc ce qui subsiste reellement apres aplatissement.
+	auto trace = [](const NkGraphDocument &doc, const NkEvalPlan &plan, char *buf, uint32 cap) {
+		uint32 w = 0;
+		buf[0] = 0;
+		for (uint32 i = 0; i < plan.Size() && w + 1 < cap; ++i) {
+			const NkEvalStep &st = plan.steps[i];
+			const NkNode *n = doc.GraphAt(st.graph).Find(st.node);
+			const int32 k = snprintf(buf + w, (size_t)(cap - w), "%s%s", w ? ">" : "", n ? n->label.CStr() : "?");
+			if (k <= 0)
+				break;
+			w += (uint32)k;
+		}
+	};
+
+	// 1) L'APLATISSEMENT ELIMINE LA FRONTIERE. Le plan doit contenir src, A, B,
+	//    dst -- ni le noeud d'instance, ni les deux noeuds de frontiere. Et
+	//    surtout : l'entree de `dst` doit pointer sur l'etape de B, qui se trouve
+	//    de l'autre cote d'une frontiere. Compter les etapes ne suffirait pas ;
+	//    c'est ce raccordement qui prouve l'aplatissement.
+	{
+		NkGraphDocument doc;
+		const uint32 gi = doc.AddGraph("double");
+		buildGroup(doc.GraphAt(gi));
+		const uint32 ri = doc.AddGraph("racine");
+		doc.SetRoot(ri);
+		NkNodeGraph &r = doc.GraphAt(ri);
+		const NkTypeId T = r.RegisterType("flux");
+		NkNodeId src = r.AddNode("source", "src");
+		NkNodeId inst = r.AddNode(NK_NODE_INSTANCE, "inst");
+		NkNodeId dst = r.AddNode("puits", "dst");
+		r.Find(inst)->subgraph = NkString("double");
+		r.AddSocket(src, "out", T, NkSocketDir::Output);
+		r.AddSocket(inst, "e", T, NkSocketDir::Input);
+		r.AddSocket(inst, "s", T, NkSocketDir::Output);
+		r.AddSocket(dst, "in", T, NkSocketDir::Input);
+		r.Connect(src, "out", inst, "e");
+		r.Connect(inst, "s", dst, "in");
+
+		NkEvalPlan plan;
+		const NkPlanError e = doc.BuildPlan(plan);
+		char t[128];
+		trace(doc, plan, t, sizeof(t));
+		// L'etape de `dst` est la derniere ; sa source doit etre l'etape de B.
+		const char *srcDeDst = "?";
+		if (plan.Size() > 0) {
+			const NkEvalStep &last = plan.steps[plan.Size() - 1];
+			if (last.inputs.Size() > 0 && last.inputs[0].srcStep != NK_EVAL_NO_SOURCE
+				&& last.inputs[0].srcStep < plan.Size()) {
+				const NkEvalStep &p = plan.steps[last.inputs[0].srcStep];
+				const NkNode *n = doc.GraphAt(p.graph).Find(p.node);
+				if (n)
+					srcDeDst = n->label.CStr();
+			}
+		}
+		GraphPut("%-34s %s etapes=%u [%s] dst<-%s (doit etre B)", "graphe/aplati-frontiere-disparait",
+				 NkPlanErrorName(e), plan.Size(), t, srcDeDst);
+	}
+
+	// 2) LE CAS QUI TRANCHE -- DEUX INSTANCES DU MEME GROUPE.
+	//    Une implantation qui memoriserait le resultat par GRAPHE n'emettrait le
+	//    groupe qu'UNE fois, et les deux branches liraient la meme valeur. Il faut
+	//    donc voir A et B DEUX fois, et les deux puits doivent pointer sur des
+	//    etapes DIFFERENTES.
+	{
+		NkGraphDocument doc;
+		const uint32 gi = doc.AddGraph("double");
+		buildGroup(doc.GraphAt(gi));
+		const uint32 ri = doc.AddGraph("racine");
+		doc.SetRoot(ri);
+		NkNodeGraph &r = doc.GraphAt(ri);
+		const NkTypeId T = r.RegisterType("flux");
+		NkNodeId d1 = 0, d2 = 0;
+		for (int32 k = 0; k < 2; k++) {
+			char sn[16], in[16], dn[16];
+			snprintf(sn, sizeof(sn), "src%d", k + 1);
+			snprintf(in, sizeof(in), "i%d", k + 1);
+			snprintf(dn, sizeof(dn), "dst%d", k + 1);
+			NkNodeId src = r.AddNode("source", sn);
+			NkNodeId inst = r.AddNode(NK_NODE_INSTANCE, in);
+			NkNodeId dst = r.AddNode("puits", dn);
+			r.Find(inst)->subgraph = NkString("double");
+			r.AddSocket(src, "out", T, NkSocketDir::Output);
+			r.AddSocket(inst, "e", T, NkSocketDir::Input);
+			r.AddSocket(inst, "s", T, NkSocketDir::Output);
+			r.AddSocket(dst, "in", T, NkSocketDir::Input);
+			r.Connect(src, "out", inst, "e");
+			r.Connect(inst, "s", dst, "in");
+			(k == 0 ? d1 : d2) = dst;
+		}
+		NkEvalPlan plan;
+		const NkPlanError e = doc.BuildPlan(plan);
+		uint32 nbA = 0, s1 = NK_EVAL_NO_SOURCE, s2 = NK_EVAL_NO_SOURCE;
+		for (uint32 i = 0; i < plan.Size(); ++i) {
+			const NkNode *n = doc.GraphAt(plan.steps[i].graph).Find(plan.steps[i].node);
+			if (!n)
+				continue;
+			if (strcmp(n->label.CStr(), "A") == 0)
+				nbA++;
+			if (n->id == d1 && plan.steps[i].inputs.Size())
+				s1 = plan.steps[i].inputs[0].srcStep;
+			if (n->id == d2 && plan.steps[i].inputs.Size())
+				s2 = plan.steps[i].inputs[0].srcStep;
+		}
+		GraphPut("%-34s %s etapes=%u A-emis=%u (doit valoir 2) dst1<-%u dst2<-%u distincts=%d",
+				 "graphe/aplati-deux-instances", NkPlanErrorName(e), plan.Size(), nbA, s1, s2,
+				 (s1 != s2 && s1 != NK_EVAL_NO_SOURCE) ? 1 : 0);
+	}
+
+	// 3) RECURSION REFUSEE, directe ET indirecte. L'indirecte est le vrai cas :
+	//    une garde qui ne comparerait qu'au graphe courant laisserait passer
+	//    G -> H -> G et ferait deborder la pile.
+	{
+		NkGraphDocument dd;
+		const uint32 g = dd.AddGraph("G");
+		dd.SetRoot(g);
+		{
+			NkNodeGraph &x = dd.GraphAt(g);
+			NkNodeId i = x.AddNode(NK_NODE_INSTANCE, "moi-meme");
+			x.Find(i)->subgraph = NkString("G");
+		}
+		NkEvalPlan p1;
+		const NkPlanError e1 = dd.BuildPlan(p1);
+
+		NkGraphDocument di;
+		const uint32 a = di.AddGraph("G"), b = di.AddGraph("H");
+		di.SetRoot(a);
+		{
+			NkNodeId i = di.GraphAt(a).AddNode(NK_NODE_INSTANCE, "vers-H");
+			di.GraphAt(a).Find(i)->subgraph = NkString("H");
+			NkNodeId j = di.GraphAt(b).AddNode(NK_NODE_INSTANCE, "retour-G");
+			di.GraphAt(b).Find(j)->subgraph = NkString("G");
+		}
+		NkEvalPlan p2;
+		const NkPlanError e2 = di.BuildPlan(p2);
+
+		NkGraphDocument du;
+		const uint32 u = du.AddGraph("racine");
+		du.SetRoot(u);
+		{
+			NkNodeId i = du.GraphAt(u).AddNode(NK_NODE_INSTANCE, "fantome");
+			du.GraphAt(u).Find(i)->subgraph = NkString("nexiste.pas");
+		}
+		NkEvalPlan p3;
+		const NkPlanError e3 = du.BuildPlan(p3);
+
+		GraphPut("%-34s directe=%s indirecte=%s inconnu=%s", "graphe/aplati-recursion-refusee",
+				 NkPlanErrorName(e1), NkPlanErrorName(e2), NkPlanErrorName(e3));
+	}
+
+	// 4) LA SENTINELLE. Une entree LIBRE doit valoir NK_EVAL_NO_SOURCE et non 0 :
+	//    0 est l'index de la PREMIERE etape, donc une sentinelle a zero ferait
+	//    lire sa sortie a chaque entree non branchee -- resultat plausible, faux,
+	//    et invisible au comptage.
+	{
+		NkGraphDocument doc;
+		const uint32 ri = doc.AddGraph("racine");
+		doc.SetRoot(ri);
+		NkNodeGraph &r = doc.GraphAt(ri);
+		const NkTypeId T = r.RegisterType("flux");
+		NkNodeId premier = r.AddNode("premier", "P");
+		NkNodeId libre = r.AddNode("libre", "L");
+		r.AddSocket(premier, "out", T, NkSocketDir::Output);
+		r.AddSocket(libre, "in", T, NkSocketDir::Input);
+		// AUCUNE connexion : l'entree de L reste libre.
+		NkEvalPlan plan;
+		const NkPlanError e = doc.BuildPlan(plan);
+		uint32 srcLibre = 12345u;
+		for (uint32 i = 0; i < plan.Size(); ++i)
+			if (plan.steps[i].node == libre && plan.steps[i].inputs.Size())
+				srcLibre = plan.steps[i].inputs[0].srcStep;
+		GraphPut("%-34s %s etapes=%u entree-libre=%s (0 serait un BUG)", "graphe/aplati-entree-libre",
+				 NkPlanErrorName(e), plan.Size(),
+				 srcLibre == NK_EVAL_NO_SOURCE ? "sans-source" : (srcLibre == 0 ? "ETAPE-0-BUG" : "autre-BUG"));
+	}
+
+	// 5) ALLER-RETOUR DU DOCUMENT. Le champ `subgraph` est ce qui se perd le plus
+	//    facilement : un document relu sans lui donnerait des instances vides,
+	//    donc un plan reduit au graphe racine. On compare les TEXTES, puis on
+	//    verifie que le plan RECONSTRUIT est identique -- une donnee peut survivre
+	//    a l'ecriture et ne plus rien piloter.
+	{
+		NkGraphDocument doc;
+		const uint32 gi = doc.AddGraph("double");
+		buildGroup(doc.GraphAt(gi));
+		const uint32 ri = doc.AddGraph("racine");
+		doc.SetRoot(ri);
+		NkNodeGraph &r = doc.GraphAt(ri);
+		const NkTypeId T = r.RegisterType("flux");
+		NkNodeId src = r.AddNode("source", "src");
+		NkNodeId inst = r.AddNode(NK_NODE_INSTANCE, "inst");
+		NkNodeId dst = r.AddNode("puits", "dst");
+		r.Find(inst)->subgraph = NkString("double");
+		r.AddSocket(src, "out", T, NkSocketDir::Output);
+		r.AddSocket(inst, "e", T, NkSocketDir::Input);
+		r.AddSocket(inst, "s", T, NkSocketDir::Output);
+		r.AddSocket(dst, "in", T, NkSocketDir::Input);
+		r.Connect(src, "out", inst, "e");
+		r.Connect(inst, "s", dst, "in");
+
+		NkString t1;
+		doc.Serialize(t1);
+		NkGraphDocument relu;
+		const bool lu = relu.Deserialize(t1.CStr());
+		NkString t2;
+		relu.Serialize(t2);
+		bool identique = (t1.Size() == t2.Size());
+		if (identique)
+			for (uint32 i = 0; i < (uint32)t1.Size(); ++i)
+				if (t1.CStr()[i] != t2.CStr()[i]) {
+					identique = false;
+					break;
+				}
+		NkEvalPlan pa, pb;
+		doc.BuildPlan(pa);
+		const NkPlanError eb = relu.BuildPlan(pb);
+		char ta[128], tb[128];
+		trace(doc, pa, ta, sizeof(ta));
+		trace(relu, pb, tb, sizeof(tb));
+		bool memeTrace = true;
+		for (uint32 i = 0; ta[i] || tb[i]; ++i)
+			if (ta[i] != tb[i]) {
+				memeTrace = false;
+				break;
+			}
+		GraphPut("%-34s lu=%d texte-identique=%d graphes=%u plan=%s [%s] meme-plan=%d",
+				 "graphe/doc-aller-retour", lu ? 1 : 0, identique ? 1 : 0, relu.GraphCount(),
+				 NkPlanErrorName(eb), tb, memeTrace ? 1 : 0);
+	}
+}
+
+// -- GRAPHE : INTERFACE D'UN GROUPE INSTANCIE --------------------------------
+// Le defaut se produit des qu'un groupe est MODIFIE APRES avoir ete instancie.
+// Sans controle, une entree se retrouve silencieusement debranchee et le calcul
+// continue avec une valeur manquante.
+//
+// LE CAS QUI TRANCHE est le troisieme : les deux graphes attribuent le MEME
+// NUMERO a des types de NOMS DIFFERENTS. Chaque graphe tient son propre
+// registre, donc un controle par identifiant les croirait d'accord. Seul un
+// controle par NOM refuse. C'est pour cela qu'un registre partage n'aurait pas
+// suffi : il aurait rendu la comparaison moins couteuse, sans rien refuser.
+static void GraphIfaceBattery() {
+	using namespace nkentseu::graph;
+
+	// Groupe « G » : interface = entree « e » (flux) -> sortie « s » (flux).
+	auto buildG = [](NkNodeGraph &g) {
+		const NkTypeId T = g.RegisterType("flux");
+		NkNodeId gin = g.AddNode(NK_NODE_GROUP_IN, "entree");
+		NkNodeId mid = g.AddNode("calc", "M");
+		NkNodeId gout = g.AddNode(NK_NODE_GROUP_OUT, "sortie");
+		g.AddSocket(gin, "e", T, NkSocketDir::Output);
+		g.AddSocket(mid, "in", T, NkSocketDir::Input);
+		g.AddSocket(mid, "out", T, NkSocketDir::Output);
+		g.AddSocket(gout, "s", T, NkSocketDir::Input);
+		g.Connect(gin, "e", mid, "in");
+		g.Connect(mid, "out", gout, "s");
+	};
+
+	// Fabrique un document dont la racine instancie G, avec l'interface DEMANDEE
+	// sur le noeud d'instance. `premierType` est enregistre EN PREMIER dans la
+	// racine : il recoit donc l'identifiant 1, comme « flux » dans le groupe.
+	auto essai = [&](const char *premierType, const char *nomEntree, const char *typeEntree, bool socketEnTrop,
+					 NkString &detailOut) {
+		NkGraphDocument doc;
+		buildG(doc.GraphAt(doc.AddGraph("G")));
+		const uint32 ri = doc.AddGraph("racine");
+		doc.SetRoot(ri);
+		NkNodeGraph &r = doc.GraphAt(ri);
+		const NkTypeId premier = r.RegisterType(premierType);
+		const NkTypeId tEntree = r.RegisterType(typeEntree);
+		const NkTypeId tFlux = r.RegisterType("flux");
+		(void)premier;
+		NkNodeId inst = r.AddNode(NK_NODE_INSTANCE, "inst");
+		r.Find(inst)->subgraph = NkString("G");
+		r.AddSocket(inst, nomEntree, tEntree, NkSocketDir::Input);
+		r.AddSocket(inst, "s", tFlux, NkSocketDir::Output);
+		if (socketEnTrop)
+			r.AddSocket(inst, "oublie", tFlux, NkSocketDir::Input);
+		NkEvalPlan plan;
+		const NkPlanError e = doc.BuildPlan(plan);
+		detailOut = plan.errorDetail;
+		return e;
+	};
+
+	NkString d1, d2, d3, d4;
+	// 1) conforme : meme nom, meme type. Sans ce cas, un controle qui refuserait
+	//    TOUT passerait les trois autres et ne prouverait rien.
+	const NkPlanError e1 = essai("flux", "e", "flux", false, d1);
+	// 2) nom absent : le groupe attend « e », l'instance offre « entree ».
+	const NkPlanError e2 = essai("flux", "entree", "flux", false, d2);
+	// 3) LE CAS QUI TRANCHE : « maillage » est enregistre EN PREMIER dans la
+	//    racine, il porte donc l'identifiant 1 -- exactement celui de « flux »
+	//    dans le groupe. Les numeros coincident, les noms non.
+	const NkPlanError e3 = essai("maillage", "e", "maillage", false, d3);
+	// 4) socket EN TROP : un fil branche sur rien.
+	const NkPlanError e4 = essai("flux", "e", "flux", true, d4);
+
+	GraphPut("%-34s conforme=%s | nom-absent=%s | MEME-ID-AUTRE-NOM=%s | en-trop=%s",
+			 "graphe/interface-groupe", NkPlanErrorName(e1), NkPlanErrorName(e2), NkPlanErrorName(e3),
+			 NkPlanErrorName(e4));
+	// Le message doit NOMMER le socket fautif : un code d'erreur seul obligerait
+	// a chercher dans un document qui peut compter des dizaines de groupes.
+	GraphPut("%-34s [%s] [%s] [%s]", "graphe/interface-messages", d2.CStr(), d3.CStr(), d4.CStr());
+}
+
+// -- DECIMATION QEM ----------------------------------------------------------
+// Premiere passe de RETOPOLOGIE : alleger EN GARDANT LA FORME. La decimation par
+// clustering deja presente dans NKGen moyenne les sommets par cellule de grille,
+// donc elle arrondit les aretes vives ; QEM mesure de combien la surface
+// s'ecarterait des plans d'origine et retire d'abord ce qui ne porte pas la
+// forme.
+//
+// Les cas sont batis pour qu'une implantation FAUSSE echoue :
+//   * sur une surface PLANE, l'erreur QEM d'une contraction interieure est
+//     exactement nulle -- l'erreur de forme doit donc rester ~0 meme apres une
+//     decimation massive. Une implantation approximative deformerait ;
+//   * le drapeau de BORD est teste dans les DEUX positions sur le meme maillage :
+//     sans lui la boite englobante doit RETRECIR. Un seul essai ne prouverait
+//     rien, puisqu'une bbox intacte peut simplement signifier qu'on n'a rien
+//     decime ;
+//   * les compteurs de REFUS doivent etre NON NULS : un garde-fou qui ne se
+//     declenche jamais ne prouve rien, il decore.
+static void DecimateBattery() {
+	NkVector<NkVertex3D> gv, cv;
+	NkVector<uint32> gi, ci;
+	MakeGrid(8, gv, gi);
+	MakeCube(cv, ci);
+
+	auto bboxOf = [](const NkEditMesh &m, float32 &dx, float32 &dz) {
+		const NkMeshStats a = NkMeshAnalysis::Analyze(m);
+		dx = a.bboxMax.x - a.bboxMin.x;
+		dz = a.bboxMax.z - a.bboxMin.z;
+	};
+
+	// 1) SURFACE PLANE. Toutes les contractions interieures coutent exactement
+	//    zero, donc on peut alleger tres fort SANS deformer. C'est la propriete
+	//    qui distingue QEM d'une decimation qui se contente de compter.
+	{
+		NkEditMesh ref;
+		ref.BuildFromIndexed(gv.Data(), (uint32)gv.Size(), gi.Data(), (uint32)gi.Size(), true);
+		NkEditMesh m = ref;
+		NkDecimateParams p;
+		p.targetRatio = 0.15f;
+		NkDecimateStats st;
+		const bool ok = NkMeshDecimate::DecimateQEM(m, p, &st);
+		float32 mean = 0.f, max = 0.f;
+		NkMeshDecimate::ShapeError(m, ref, mean, max);
+		float32 dx = 0.f, dz = 0.f;
+		bboxOf(m, dx, dz);
+		GraphPut("%-34s ok=%d tris %u->%u contract=%u | erreur moy=%.5f max=%.5f | bbox %.2fx%.2f",
+				 "decim/plan-erreur-nulle", ok ? 1 : 0, st.trisBefore, st.trisAfter, st.collapses, (double)mean,
+				 (double)max, (double)dx, (double)dz);
+	}
+
+	// 2) LE DRAPEAU DE BORD, DANS LES DEUX POSITIONS, sur le meme maillage et la
+	//    meme cible.
+	//
+	//    PREMIERE VERSION DE CE CAS : une grille PLATE. Elle ne prouvait RIEN --
+	//    sur un plan, deplacer un sommet DANS le plan coute zero, avec ou sans
+	//    contrainte de bord ; les deux essais donnaient la meme boite englobante.
+	//    Il faut une surface COURBE a bord plat : la ou l'interieur bombe, un bord
+	//    non retenu se fait aspirer vers le haut et vers le centre.
+	{
+		NkEditMesh dome;
+		dome.BuildFromIndexed(gv.Data(), (uint32)gv.Size(), gi.Data(), (uint32)gi.Size(), true);
+		for (uint32 i = 0; i < dome.VertCount(); ++i) {
+			const float32 x = dome.verts[i].pos.x, z = dome.verts[i].pos.z;
+			// cos s'annule en +/-0,5 : le BORD reste plat a y=0, l'interieur bombe.
+			dome.verts[i].pos.y = 0.35f * cosf(3.14159265f * x) * cosf(3.14159265f * z);
+		}
+		dome.RecomputeNormals();
+		float32 dx0 = 0.f, dy0 = 0.f;
+		{
+			const NkMeshStats a = NkMeshAnalysis::Analyze(dome);
+			dx0 = a.bboxMax.x - a.bboxMin.x;
+			dy0 = a.bboxMax.y - a.bboxMin.y;
+		}
+
+		NkEditMesh avec = dome, sans = dome;
+		NkDecimateParams pa;
+		pa.targetRatio = 0.12f;
+		pa.preserveBoundary = true;
+		NkDecimateParams ps = pa;
+		ps.preserveBoundary = false;
+		NkDecimateStats sa, ss;
+		NkMeshDecimate::DecimateQEM(avec, pa, &sa);
+		NkMeshDecimate::DecimateQEM(sans, ps, &ss);
+		const NkMeshStats ra = NkMeshAnalysis::Analyze(avec);
+		const NkMeshStats rs = NkMeshAnalysis::Analyze(sans);
+		const float32 dxa = ra.bboxMax.x - ra.bboxMin.x, dxs = rs.bboxMax.x - rs.bboxMin.x;
+		GraphPut("%-34s depart larg=%.3f | avec-bord larg=%.3f bords=%u | sans-bord larg=%.3f bords=%u | perte=%.3f",
+				 "decim/bord-retenu-ou-non", (double)dx0, (double)dxa, ra.boundaryEdges, (double)dxs,
+				 rs.boundaryEdges, (double)(dxa - dxs));
+		(void)dy0;
+	}
+
+	// 3) MAILLAGE FERME. Un cube subdivise deux fois est une variete fermee. Apres
+	//    decimation il doit le RESTER : zero arete non manifold. Et les compteurs
+	//    de refus doivent etre non nuls, sinon les garde-fous ne servent a rien.
+	{
+		NkEditMesh ref;
+		ref.BuildFromIndexed(cv.Data(), (uint32)cv.Size(), ci.Data(), (uint32)ci.Size(), true);
+		ref.SubdivideCatmullClark(3);
+		const NkMeshStats before = NkMeshAnalysis::Analyze(ref);
+		NkEditMesh m = ref;
+		NkDecimateParams p;
+		p.targetRatio = 0.35f;
+		NkDecimateStats st;
+		NkMeshDecimate::DecimateQEM(m, p, &st);
+		const NkMeshStats after = NkMeshAnalysis::Analyze(m);
+		float32 mean = 0.f, max = 0.f;
+		NkMeshDecimate::ShapeError(m, ref, mean, max);
+		GraphPut("%-34s tris %u->%u | nonmanif %u->%u ferme=%d | err moy=%.4f", "decim/ferme-reste-manifold",
+				 st.trisBefore, st.trisAfter, before.nonManifoldEdges, after.nonManifoldEdges,
+				 after.IsClosed() ? 1 : 0, (double)mean);
+
+		// CE QUE CE CAS MONTRE, ET QUI N'EST PAS CE QUE J'ATTENDAIS.
+		// Je pensais qu'a cible absurde la condition de lien finirait par refuser.
+		// Elle ne refuse jamais ici : contracter une arete de tetraedre est LICITE
+		// au sens du lien, et donne deux triangles superposes -- une variete fermee
+		// degeneree. Le resultat est donc coherent, mais inutilisable.
+		// Conclusion a retenir : la cible en nombre de faces n'est PAS un garde-fou
+		// de qualite. Le vrai controle est le PLAFOND D'ERREUR (cas suivant).
+		NkEditMesh ex = ref;
+		NkDecimateParams pe;
+		pe.targetRatio = 0.004f; // 3 triangles vises : impossible sur une variete fermee
+		NkDecimateStats se;
+		NkMeshDecimate::DecimateQEM(ex, pe, &se);
+		const NkMeshStats ea = NkMeshAnalysis::Analyze(ex);
+		GraphPut("%-34s tris %u->%u (cible 3) | refus lien=%u flip=%u | nonmanif=%u ferme=%d",
+				 "decim/cible-absurde-degenere", se.trisBefore, se.trisAfter, se.rejectedLink,
+				 se.rejectedFlip, ea.nonManifoldEdges, ea.IsClosed() ? 1 : 0);
+
+		// Meme a l'extreme, un cube subdivise ne met PAS la condition de lien en
+		// defaut : sa regularite fait que toute contraction reste licite. Il faut
+		// une forme construite pour la violer.
+		//
+		// TUBE OUVERT A TROIS COTES. Sur l'arete du bas b0-b1, le sommet b2 est
+		// voisin des DEUX extremites sans etre oppose a l'arete (une seule face la
+		// porte, elle est au bord). Contracter b0 dans b1 pincerait le tube : deux
+		// nappes se toucheraient par un sommet. C'est exactement ce que la
+		// condition de lien existe pour refuser.
+		//
+		// On lance les DEUX versions : avec le controle, aucune arete non manifold
+		// ne doit apparaitre ; sans lui, le maillage doit se degrader. Un seul essai
+		// ne prouverait rien.
+		{
+			const float32 h = 0.866f;
+			const NkVec3f P6[6] = {{0.f, 0.f, 0.f}, {1.f, 0.f, 0.f}, {0.5f, 0.f, h},
+								   {0.f, 1.f, 0.f}, {1.f, 1.f, 0.f}, {0.5f, 1.f, h}};
+			const uint32 T6[18] = {0, 1, 4, 0, 4, 3, 1, 2, 5, 1, 5, 4, 2, 0, 3, 2, 3, 5};
+			NkVector<NkVertex3D> tv;
+			NkVector<uint32> ti;
+			for (int32 k = 0; k < 6; k++) {
+				NkVertex3D x{};
+				x.pos = P6[k];
+				x.normal = {0.f, 1.f, 0.f};
+				x.tangent = {1.f, 0.f, 0.f};
+				x.color = 0xFFFFFFFFu;
+				tv.PushBack(x);
+			}
+			for (int32 k = 0; k < 18; k++)
+				ti.PushBack(T6[k]);
+
+			NkEditMesh tubeA, tubeB;
+			tubeA.BuildFromIndexed(tv.Data(), 6, ti.Data(), 18, false);
+			tubeB = tubeA;
+			NkDecimateParams pt;
+			// 6 triangles au depart : viser 20 % donnerait 1, ce qui effondre tout et
+			// ne teste rien. On vise 4 -- juste assez pour que la seule contraction
+			// possible soit celle que la condition de lien doit refuser.
+			pt.targetFaces = 4;
+			pt.preserveTopology = true;
+			NkDecimateParams pn = pt;
+			pn.preserveTopology = false;
+			NkDecimateStats sA, sB;
+			const bool okA = NkMeshDecimate::DecimateQEM(tubeA, pt, &sA);
+			const bool okB = NkMeshDecimate::DecimateQEM(tubeB, pn, &sB);
+			const NkMeshStats aA = NkMeshAnalysis::Analyze(tubeA);
+			const NkMeshStats aB = NkMeshAnalysis::Analyze(tubeB);
+			GraphPut("%-34s avec ok=%d tris=%u refus-lien=%u nonmanif=%u | sans ok=%d tris=%u nonmanif=%u",
+					 "decim/condition-de-lien", okA ? 1 : 0, sA.trisAfter, sA.rejectedLink, aA.nonManifoldEdges,
+					 okB ? 1 : 0, sB.trisAfter, aB.nonManifoldEdges);
+		}
+	}
+
+	// 4) L'ERREUR DOIT CROITRE quand la cible se resserre. Une erreur qui
+	//    stagnerait signalerait que la cible n'est pas suivie, ou que la mesure
+	//    ne mesure rien.
+	{
+		NkEditMesh ref;
+		ref.BuildFromIndexed(cv.Data(), (uint32)cv.Size(), ci.Data(), (uint32)ci.Size(), true);
+		ref.SubdivideCatmullClark(3);
+		char buf[160];
+		int32 w = 0;
+		for (int32 k = 0; k < 3; k++) {
+			const float32 ratios[3] = {0.60f, 0.30f, 0.12f};
+			NkEditMesh m = ref;
+			NkDecimateParams p;
+			p.targetRatio = ratios[k];
+			NkDecimateStats st;
+			NkMeshDecimate::DecimateQEM(m, p, &st);
+			float32 mean = 0.f, max = 0.f;
+			NkMeshDecimate::ShapeError(m, ref, mean, max);
+			w += snprintf(buf + w, sizeof(buf) - (size_t)w, "%s%.0f%%:tris=%u,err=%.4f", w ? " | " : "",
+						  (double)(ratios[k] * 100.f), st.trisAfter, (double)mean);
+		}
+		GraphPut("%-34s %s", "decim/erreur-croit-avec-la-cible", buf);
+	}
+
+	// 5) LE PLAFOND D'ERREUR. « Allege tant que tu ne deformes pas » plutot que
+	//    « atteins ce compte coute que coute » : avec un plafond serre sur un cube
+	//    subdivise, la cible ne doit PAS etre atteinte -- et c'est le comportement
+	//    voulu, pas un echec.
+	{
+		NkEditMesh ref;
+		ref.BuildFromIndexed(cv.Data(), (uint32)cv.Size(), ci.Data(), (uint32)ci.Size(), true);
+		ref.SubdivideCatmullClark(3);
+		NkEditMesh m = ref;
+		NkDecimateParams p;
+		p.targetRatio = 0.05f;
+		p.maxError = 1e-5f;
+		NkDecimateStats st;
+		NkMeshDecimate::DecimateQEM(m, p, &st);
+		GraphPut("%-34s tris %u->%u cible-atteinte=%d (0 attendu) refus-cout=%u cout-max=%.6f",
+				 "decim/plafond-erreur", st.trisBefore, st.trisAfter, st.reachedTarget ? 1 : 0, st.rejectedCost,
+				 (double)st.maxCost);
+	}
+}
+
+// -- RETOPOLOGIE : CHAMP DE CROIX + FUSION QUAD-DOMINANTE --------------------
+// Le juge de paix est le DEMI-CYLINDRE : une grille pliee autour de l'axe X.
+//   * Quadify() exige la coplanarite (cos > 0,985) ; a 8 segments le diedre
+//     entre les deux triangles d'une cellule vaut ~22,5 degres (cos 0,924) --
+//     Quadify doit donc rendre ZERO quad. Si le champ reussit la ou Quadify
+//     echoue, la fusion guidee apporte reellement quelque chose ;
+//   * le champ est initialise sur l'arete LA PLUS LONGUE, la DIAGONALE (45
+//     degres de travers, alignement ~0,71). Mesurer a 0 iteration PUIS a 20
+//     prouve que le lissage TRAVAILLE -- sans le depart oblique, un champ ne
+//     faisant rien passerait le test.
+static void RetopoBattery() {
+	NkVector<NkVertex3D> gv, cv;
+	NkVector<uint32> gi, ci;
+	MakeGrid(8, gv, gi);
+	MakeCube(cv, ci);
+
+	// La grille pliee en demi-cylindre autour de X : le bord droit reste droit
+	// (le long de X), les anneaux suivent la courbure. Rayon 1/pi pour que la
+	// longueur deroulee reste 1.
+	auto bend = [&](NkEditMesh &m) {
+		const float32 r = 1.f / 3.14159265f;
+		for (uint32 i = 0; i < m.VertCount(); ++i) {
+			const float32 z = m.verts[i].pos.z;
+			const float32 th = 3.14159265f * (z + 0.5f);
+			m.verts[i].pos.y = r * sinf(th);
+			m.verts[i].pos.z = r * cosf(th);
+		}
+		m.RecomputeNormals();
+	};
+	// Alignement d'une direction tangente au cylindre sur la croix attendue
+	// {axe X, direction d'anneau} : l'anneau vit dans le plan YZ, donc
+	// sqrt(y^2+z^2) mesure la composante d'anneau. Une diagonale donne ~0,71,
+	// une direction alignee ~1.
+	auto alignCyl = [](const NkVec3f &d) {
+		const float32 ring = sqrtf(d.y * d.y + d.z * d.z);
+		const float32 ax = fabsf(d.x);
+		return ax > ring ? ax : ring;
+	};
+
+	// 1) LE LISSAGE TRAVAILLE. Champ a 0 iteration (depart diagonal) puis a 20 :
+	//    l'alignement moyen doit MONTER nettement. Les deux chiffres cote a cote
+	//    sont la preuve ; l'un sans l'autre ne prouverait rien.
+	{
+		NkEditMesh cyl;
+		cyl.BuildFromIndexed(gv.Data(), (uint32)gv.Size(), gi.Data(), (uint32)gi.Size(), false);
+		bend(cyl);
+		NkVector<NkVec3f> d0, d20;
+		NkVector<uint8> p0, p20;
+		NkMeshRetopo::ComputeCrossField(cyl, 40.f, 0, d0, p0);
+		NkMeshRetopo::ComputeCrossField(cyl, 40.f, 20, d20, p20);
+		float32 a0 = 0.f, a20 = 0.f;
+		uint32 pinned = 0;
+		for (uint32 i = 0; i < (uint32)d0.Size(); ++i) {
+			a0 += alignCyl(d0[i]);
+			a20 += alignCyl(d20[i]);
+			if (p20[i])
+				pinned++;
+		}
+		if (!d0.Empty()) {
+			a0 /= (float32)d0.Size();
+			a20 /= (float32)d0.Size();
+		}
+		GraphPut("%-34s faces=%u epinglees=%u | align 0-iter=%.3f -> 20-iter=%.3f (doit monter)",
+				 "retopo/champ-lissage-travaille", (uint32)d0.Size(), pinned, (double)a0, (double)a20);
+	}
+
+	// 2) CE QUE LE CYLINDRE PROUVE -- ET CE QU'IL NE PROUVE PAS.
+	//    Je croyais Quadify incapable ici (diedre 22,5 degres). FAUX, et le
+	//    premier passage du harnais l'a montre : un cylindre est une surface
+	//    DEVELOPPABLE, chaque cellule pliee reste un rectangle PLAN, donc
+	//    Quadify reussit aussi (64 quads). Le diedre est entre CELLULES, pas
+	//    dans la cellule. Ce cas prouve donc l'ALIGNEMENT du champ et la
+	//    coherence d'orientation des quads emis (zero arete non manifold) --
+	//    la discrimination naif/champ, elle, est au cas suivant.
+	{
+		NkEditMesh naive, field;
+		naive.BuildFromIndexed(gv.Data(), (uint32)gv.Size(), gi.Data(), (uint32)gi.Size(), false);
+		bend(naive);
+		field = naive;
+		naive.Quadify(0.985f);
+		const NkMeshStats an = NkMeshAnalysis::Analyze(naive);
+		NkRetopoParams rp; // targetRatio=1 : fusion seule, sans decimation
+		NkRetopoStats rs;
+		const bool ok = NkMeshRetopo::QuadDominant(field, rp, &rs);
+		const NkMeshStats af = NkMeshAnalysis::Analyze(field);
+		GraphPut("%-34s naif quads=%u (cellules PLANES : il reussit aussi) | champ ok=%d quads=%u align=%.3f nonmanif=%u",
+				 "retopo/cylindre-alignement", an.quads, ok ? 1 : 0, rs.quadsOut, (double)rs.alignMean,
+				 af.nonManifoldEdges);
+	}
+
+	// 2bis) LA VRAIE DISCRIMINATION : APRES DECIMATION. Quadify ne considere que
+	//    les paires CONSECUTIVES (f, f+1) issues d'une triangulation
+	//    quad-par-quad ; apres une decimation QEM, cet ordre n'existe plus.
+	//    Le champ, lui, apparie par adjacence reelle. Les deux chiffres cote a
+	//    cote sont la preuve que la fusion guidee apporte quelque chose.
+	{
+		NkEditMesh m;
+		m.BuildFromIndexed(cv.Data(), (uint32)cv.Size(), ci.Data(), (uint32)ci.Size(), true);
+		m.SubdivideCatmullClark(3);
+		NkDecimateParams dp;
+		dp.targetRatio = 0.35f;
+		NkMeshDecimate::DecimateQEM(m, dp, nullptr);
+		NkEditMesh naive = m, field = m;
+		naive.Quadify(0.985f);
+		const NkMeshStats an = NkMeshAnalysis::Analyze(naive);
+		NkRetopoParams rp; // fusion seule : la decimation est deja faite
+		NkRetopoStats rs;
+		NkMeshRetopo::QuadDominant(field, rp, &rs);
+		GraphPut("%-34s naif quads=%u | champ quads=%u tris-restants=%u (le champ doit dominer largement)",
+				 "retopo/apres-decimation-naif-champ", an.quads, rs.quadsOut, rs.trisOut);
+	}
+
+	// 3) PIPELINE COMPLET sur un maillage FERME : cube Catmull-Clark (quads) ->
+	//    decimation QEM (triangles) -> fusion (quads a nouveau). Le maillage doit
+	//    RESTER ferme et manifold -- c'est ce que casserait une emission de quads
+	//    aux orientations incoherentes, et qu'aucun compte de faces ne montre.
+	{
+		NkEditMesh m;
+		m.BuildFromIndexed(cv.Data(), (uint32)cv.Size(), ci.Data(), (uint32)ci.Size(), true);
+		m.SubdivideCatmullClark(3);
+		NkRetopoParams rp;
+		rp.targetRatio = 0.35f;
+		NkRetopoStats rs;
+		const bool ok = NkMeshRetopo::QuadDominant(m, rp, &rs);
+		const NkMeshStats a = NkMeshAnalysis::Analyze(m);
+		GraphPut("%-34s ok=%d decim %u->%u tris | sortie quads=%u tris=%u ratio=%.2f | ferme=%d manifold=%d genre=%d",
+				 "retopo/pipeline-ferme-manifold", ok ? 1 : 0, rs.decim.trisBefore, rs.decim.trisAfter,
+				 rs.quadsOut, rs.trisOut, (double)rs.quadRatio, a.IsClosed() ? 1 : 0, a.IsManifold() ? 1 : 0,
+				 a.genus);
+	}
+
+	// 4) LE SEUIL DE QUALITE AGIT. Premier essai sur le cylindre : INERTE, ses
+	//    cellules sont des rectangles exacts, qualite 1,0 partout, rien a
+	//    filtrer. On le mesure donc sur le maillage DECIME, dont les triangles
+	//    irreguliers donnent des quads de qualite variable : le seuil strict
+	//    doit en refuser une partie.
+	{
+		NkEditMesh m;
+		m.BuildFromIndexed(cv.Data(), (uint32)cv.Size(), ci.Data(), (uint32)ci.Size(), true);
+		m.SubdivideCatmullClark(3);
+		NkDecimateParams dp;
+		dp.targetRatio = 0.35f;
+		NkMeshDecimate::DecimateQEM(m, dp, nullptr);
+		NkEditMesh a = m, b = m;
+		NkRetopoParams pa;
+		NkRetopoParams pb;
+		pb.minQuadQuality = 0.75f;
+		NkRetopoStats sa, sb;
+		NkMeshRetopo::QuadDominant(a, pa, &sa);
+		NkMeshRetopo::QuadDominant(b, pb, &sb);
+		GraphPut("%-34s defaut(0,25) quads=%u | strict(0,75) quads=%u (doit chuter)",
+				 "retopo/seuil-qualite-agit", sa.quadsOut, sb.quadsOut);
+	}
+
+	// 5) ARETE VIVE EPINGLEE. Sur un cube BRUT (aretes a 90 degres), toutes les
+	//    faces touchent une arete vive : elles doivent etre epinglees, et le
+	//    champ doit etre aligne sur les axes SANS aucun lissage. C'est le premier
+	//    temps du calcul (les epingles) teste isolement du second (le lissage).
+	{
+		NkEditMesh cube;
+		cube.BuildFromIndexed(cv.Data(), (uint32)cv.Size(), ci.Data(), (uint32)ci.Size(), false);
+		NkVector<NkVec3f> d;
+		NkVector<uint8> pin;
+		NkMeshRetopo::ComputeCrossField(cube, 40.f, 0, d, pin);
+		uint32 pinned = 0;
+		float32 axisAlign = 0.f;
+		for (uint32 i = 0; i < (uint32)d.Size(); ++i) {
+			if (pin[i])
+				pinned++;
+			float32 best = fabsf(d[i].x);
+			if (fabsf(d[i].y) > best)
+				best = fabsf(d[i].y);
+			if (fabsf(d[i].z) > best)
+				best = fabsf(d[i].z);
+			axisAlign += best;
+		}
+		if (!d.Empty())
+			axisAlign /= (float32)d.Size();
+		GraphPut("%-34s faces=%u epinglees=%u (toutes attendues) | align-axes=%.3f (1,0 attendu)",
+				 "retopo/aretes-vives-epinglees", (uint32)d.Size(), pinned, (double)axisAlign);
+	}
+}
+
+// -- THEMES ------------------------------------------------------------------
+// Regle de UI_SPEC 10bis : les couleurs PORTEUSES DE SENS vivent DANS le theme
+// -- axes, etats de selection, types d'assets compris. Laissees en dur, le theme
+// clair serait illisible sans que personne s'en apercoive avant la capture.
+//
+// Les cas visent les deux pieges du systeme :
+//   * un theme UTILISATEUR ne redefinit que quelques couleurs ; un chargeur naif
+//     laisserait les autres a zero, donc NOIR, et le theme paraitrait charge tout
+//     en etant inutilisable ;
+//   * un theme clair fabrique en INVERSANT les gris garderait les couleurs
+//     metier du sombre -- elles deviendraient illisibles sur fond clair. On le
+//     MESURE au lieu de l'affirmer.
+static void ThemeBattery() {
+	using namespace nkentseu::editorkit;
+
+	// 1) ALLER-RETOUR. On modifie deux roles, on enregistre, on relit dans une
+	//    base NEUVE : les deux modifications ET les 27 autres doivent survivre.
+	//    Enregistrer puis relire un theme INCHANGE ne prouverait rien.
+	{
+		NkTheme t = NkTheme::Dark();
+		t.SetName("Mon theme");
+		t.Set(NkRole::AccentUi, NkTheme::FromHex("#123456"));
+		t.Set(NkRole::AxisX, NkTheme::FromHex("#ABCDEF"));
+		NkString txt;
+		t.Save(txt);
+		NkTheme relu = NkTheme::Dark();
+		uint32 unknown = 0, applied = 0;
+		const bool ok = relu.Load(txt.CStr(), &unknown, &applied);
+		uint32 diff = 0;
+		for (uint16 i = 0; i < (uint16)NkRole::Count; ++i)
+			if (relu.Get((NkRole)i) != t.Get((NkRole)i))
+				diff++;
+		GraphPut("%-34s lu=%d appliques=%u inconnus=%u | roles differents=%u (0 attendu) nom=%s",
+				 "theme/aller-retour", ok ? 1 : 0, applied, unknown, diff, relu.Name().CStr());
+	}
+
+	// 2) LE PIEGE — HERITAGE D'UN THEME PARTIEL. Trois lignes seulement. Les
+	//    trois doivent ecraser, les 26 autres doivent rester CELLES DE LA BASE.
+	//    Un chargeur qui repartirait de zero les mettrait a noir : le compte de
+	//    roles appliques serait le meme, et rien ne le signalerait.
+	{
+		const char *partiel = "nktheme 1\n"
+							  "nom Bleu nuit\n"
+							  "accent_ui = #2266FF\n"
+							  "panel_bg = #101820\n"
+							  "# une ligne de commentaire, doit etre ignoree\n"
+							  "accent_sel = #FFAA22\n";
+		const NkTheme base = NkTheme::Dark();
+		NkTheme t = NkTheme::Dark();
+		uint32 unknown = 0, applied = 0;
+		t.Load(partiel, &unknown, &applied);
+		uint32 herites = 0, noirs = 0;
+		for (uint16 i = 0; i < (uint16)NkRole::Count; ++i) {
+			const NkRole r = (NkRole)i;
+			if (r == NkRole::AccentUi || r == NkRole::PanelBg || r == NkRole::AccentSel)
+				continue;
+			if (t.Get(r) == base.Get(r))
+				herites++;
+			if ((t.Get(r) >> 8) == 0u)
+				noirs++;
+		}
+		char h[10];
+		NkTheme::ToHex(t.Get(NkRole::AccentUi), h);
+		GraphPut("%-34s appliques=%u | herites=%u/%u noirs=%u (0 attendu) | accent_ui=%s nom=%s",
+				 "theme/heritage-partiel", applied, herites, (uint32)NkRole::Count - 3u, noirs, h,
+				 t.Name().CStr());
+	}
+
+	// 3) ROLE INCONNU TOLERE. Un theme ecrit pour une version plus recente doit
+	//    se charger quand meme, en le SIGNALANT. Refuser tout le fichier pour une
+	//    ligne inconnue rendrait chaque ajout de role incompatible avec l'existant.
+	{
+		const char *futur = "nktheme 1\n"
+							"accent_ui = #2266FF\n"
+							"couleur_de_2027 = #FF00FF\n"
+							"axis_x = #FF0000\n";
+		NkTheme t = NkTheme::Dark();
+		uint32 unknown = 0, applied = 0;
+		const bool ok = t.Load(futur, &unknown, &applied);
+		char h[10];
+		NkTheme::ToHex(t.Get(NkRole::AxisX), h);
+		GraphPut("%-34s lu=%d inconnus=%u (1 attendu) appliques=%u (2 attendus) | axis_x=%s",
+				 "theme/role-inconnu-tolere", ok ? 1 : 0, unknown, applied, h);
+	}
+
+	// 4) CE QUI JUSTIFIE TOUT LE SYSTEME. Le theme clair n'INVERSE pas les gris,
+	//    il les REMPLACE, et il ASSOMBRIT les couleurs metier. On mesure le
+	//    contraste de l'axe Y sur le fond de panneau dans les deux themes, PUIS
+	//    celui qu'on aurait eu en gardant la couleur du sombre sur fond clair.
+	//    Ce troisieme chiffre est la preuve : s'il n'etait pas nettement plus
+	//    faible, mettre les axes dans le theme n'aurait servi a rien.
+	{
+		const NkTheme d = NkTheme::Dark();
+		const NkTheme l = NkTheme::Light();
+		const float32 cd = NkTheme::Contrast(d.Get(NkRole::AxisY), d.Get(NkRole::PanelBg));
+		const float32 cl = NkTheme::Contrast(l.Get(NkRole::AxisY), l.Get(NkRole::PanelBg));
+		const float32 naif = NkTheme::Contrast(d.Get(NkRole::AxisY), l.Get(NkRole::PanelBg));
+		GraphPut("%-34s axeY/panneau sombre=%.2f clair=%.2f | couleur-du-sombre-sur-clair=%.2f (doit chuter)",
+				 "theme/couleurs-metier-dans-theme", (double)cd, (double)cl, (double)naif);
+	}
+
+	// 5) VALIDATION. L'utilisateur pouvant fabriquer ses themes, il en fabriquera
+	//    un illisible. Les deux themes livres doivent passer largement ; un theme
+	//    volontairement mauvais doit etre signale bas. Sans le mauvais cas, un
+	//    validateur qui renverrait toujours un grand nombre passerait aussi.
+	{
+		const NkTheme d = NkTheme::Dark();
+		const NkTheme l = NkTheme::Light();
+		NkTheme mauvais = NkTheme::Dark();
+		mauvais.Set(NkRole::Text, NkTheme::FromHex("#303030")); // gris sur gris
+		NkThemeIssue id{}, il{}, im{};
+		const uint32 fd = d.Validate(&id);
+		const uint32 fl = l.Validate(&il);
+		const uint32 fm = mauvais.Validate(&im);
+		GraphPut("%-34s defauts sombre=%u clair=%u (0 attendu) | theme casse : %u defaut(s), pire %s sur %s = %.2f (exige %.1f)",
+				 "theme/validation-contraste", fd, fl, fm, NkRoleName(im.fg), NkRoleName(im.bg),
+				 (double)im.ratio, (double)im.required);
+		// Le SEUIL DEPEND DE L'USAGE, et le verifier compte : le meme rapport doit
+		// passer pour un element graphique et echouer pour du texte. Un validateur
+		// a seuil unique rendrait ces deux lignes identiques.
+		GraphPut("%-34s pire rapport brut sombre=%.2f clair=%.2f | seuils texte=4,5 graphique=3,0",
+				 "theme/seuils-par-usage", (double)d.WorstContrast(), (double)l.WorstContrast());
+	}
+
+	// 6) ROLES D'APPLICATION. Le garde-fou n.1 de NKGraph applique aux themes :
+	//    NK3DModeler enregistre SES roles, NKEditorKit n'a pas a les connaitre.
+	//    LE PIEGE est l'enregistrement : une sauvegarde qui ne parcourrait que
+	//    l'enumeration du coeur perdrait ces roles EN SILENCE, et le fichier
+	//    paraitrait pourtant complet. On verifie donc l'aller-retour, pas la
+	//    simple ecriture.
+	{
+		const uint16 brosse = NkRoleRegistry::Register("nk3d.anneau_brosse");
+		const uint16 encore = NkRoleRegistry::Register("nk3d.anneau_brosse");
+		const uint16 cle = NkRoleRegistry::Register("nk3d.cle_anim");
+		NkTheme t = NkTheme::Dark();
+		t.Set(brosse, NkTheme::FromHex("#FF00AA"));
+		t.Set(cle, NkTheme::FromHex("#00FF88"));
+		NkString txt;
+		t.Save(txt);
+		NkTheme relu = NkTheme::Dark();
+		uint32 unknown = 0, applied = 0;
+		relu.Load(txt.CStr(), &unknown, &applied);
+		char h[10];
+		NkTheme::ToHex(relu.Get(brosse), h);
+		GraphPut("%-34s ids coeur=%u ext=%u,%u idempotent=%d | apres aller-retour %s inconnus=%u",
+				 "theme/roles-application", (uint32)NkRole::Count, brosse, cle, (brosse == encore) ? 1 : 0, h,
+				 unknown);
+	}
+
+	// 7) UN THEME D'UNE AUTRE APPLICATION SE CHARGE QUAND MEME. C'est la
+	//    consequence recherchee : Nogee lisant un theme ecrit pour NkAnima ne doit
+	//    pas echouer, seulement ignorer ce qu'il ne connait pas. Refuser tout le
+	//    fichier rendrait les themes non partageables entre applications.
+	{
+		const char *autre = "nktheme 1\n"
+							"nom Venu d'ailleurs\n"
+							"accent_ui = #445566\n"
+							"nkanima.cle_de_pose = #FFEE00\n"
+							"nogee.gizmo_lumiere = #00EEFF\n";
+		NkTheme t = NkTheme::Dark();
+		uint32 unknown = 0, applied = 0;
+		const bool ok = t.Load(autre, &unknown, &applied);
+		char h[10];
+		NkTheme::ToHex(t.Get(NkRole::AccentUi), h);
+		GraphPut("%-34s lu=%d appliques=%u inconnus=%u (2 attendus) | accent_ui=%s",
+				 "theme/theme-d-une-autre-app", ok ? 1 : 0, applied, unknown, h);
+	}
+
+	// 8) BIBLIOTHEQUE. « Choisir parmi plusieurs ou creer le sien » suppose une
+	//    LISTE. Et un theme utilisateur qui REPREND UN NOM EXISTANT doit le
+	//    REMPLACER : c'est ce qu'attend quelqu'un qui surcharge « Sombre » depuis
+	//    son dossier personnel. En ajouter un homonyme donnerait deux entrees
+	//    indistinguables dans le menu.
+	{
+		NkThemeLibrary lib;
+		lib.AddBuiltins();
+		const uint32 apresBuiltins = lib.Count();
+		// Un theme NEUF, base sur le clair : il doit hériter du CLAIR, pas du sombre.
+		lib.AddFromText("nktheme 1\nnom Papier\naccent_ui = #AA3300\n", false);
+		const bool trouve = lib.SetCurrent("Papier");
+		const bool clairHerite = (lib.Current().Get(NkRole::WindowBg) == NkTheme::FromHex("#F5F5F5"));
+		// Une SURCHARGE de « Sombre » : le compte ne doit PAS augmenter.
+		const uint32 avantSurcharge = lib.Count();
+		lib.AddFromText("nktheme 1\nnom Sombre\nwindow_bg = #000000\n", true);
+		const bool remplace = (lib.Count() == avantSurcharge);
+		lib.SetCurrent("Sombre");
+		char h[10];
+		NkTheme::ToHex(lib.Current().Get(NkRole::WindowBg), h);
+		GraphPut("%-34s builtins=%u | Papier trouve=%d herite-du-clair=%d | surcharge sans doublon=%d Sombre.fond=%s",
+				 "theme/bibliotheque", apresBuiltins, trouve ? 1 : 0, clairHerite ? 1 : 0, remplace ? 1 : 0, h);
+	}
+
+	// 9) LES SIX COULEURS IMPOSEES par Rihen sont bien la, aux roles decides en
+	//    UI_SPEC 10bis. Un test qui se contenterait de charger le theme ne dirait
+	//    pas si j'ai respecte l'affectation.
+	{
+		const NkTheme d = NkTheme::Dark();
+		struct Att {
+				NkRole r;
+				const char *hex;
+		};
+		// LES TROIS GRIS NE SONT PLUS CONTRACTUELS. Rihen a demande le 31/07 un
+		// theme sombre facon GitHub Dark, qui les REMPLACE (#010409 / #0D1117 /
+		// #161B22). Ce qui reste impose, ce sont les couleurs PORTEUSES DE SENS :
+		// l'orange unique et les deux sarcelles. Elles traversent les themes parce
+		// qu'elles disent quelque chose -- « selectionne », « noeud de donnees » --
+		// alors qu'un gris de fond ne dit rien qu'un autre gris ne dirait aussi bien.
+		//
+		// La HIERARCHIE A TROIS NIVEAUX, elle, reste la regle : fenetre plus sombre
+		// que panneau, panneau plus sombre qu'en-tete. C'est elle qui structure la
+		// lecture, pas les valeurs exactes -- et c'est elle qu'on verifie ci-dessous.
+		const Att att[3] = {
+			{NkRole::AccentSel, "#F2980E"},
+			{NkRole::NodeDataHeader, "#0A545E"},
+			{NkRole::NodeDataHeaderHot, "#095461"},
+		};
+		uint32 conformes = 0;
+		for (int32 i = 0; i < 3; ++i)
+			if (d.Get(att[i].r) == NkTheme::FromHex(att[i].hex))
+				conformes++;
+		// Les deux sarcelles doivent RESTER proches : c'est voulu (meme en-tete,
+		// deux etats). Si elles s'ecartaient, ce serait une seconde famille.
+		const float32 ecart =
+			NkTheme::Contrast(d.Get(NkRole::NodeDataHeader), d.Get(NkRole::NodeDataHeaderHot));
+		// La hierarchie a trois niveaux : chaque cran doit etre PLUS CLAIR que le
+		// precedent. Comparer les luminances plutot que les valeurs permet a un
+		// theme de changer de palette sans casser la regle.
+		const float32 lWin = NkTheme::Contrast(d.Get(NkRole::WindowBg), 0x000000FFu);
+		const float32 lPan = NkTheme::Contrast(d.Get(NkRole::PanelBg), 0x000000FFu);
+		const float32 lHdr = NkTheme::Contrast(d.Get(NkRole::PanelHeader), 0x000000FFu);
+		const bool hierarchie = (lWin < lPan) && (lPan < lHdr);
+		GraphPut("%-34s porteuses de sens=%u/3 | ecart sarcelles=%.3f | hierarchie a 3 niveaux=%d",
+				 "theme/palette-imposee", conformes, (double)ecart, hierarchie ? 1 : 0);
+	}
+}
+
 int main(int argc, char **argv) {
 	bool baseline = false, check = false;
 	for (int32 i = 1; i < argc; i++) {
@@ -1562,6 +3019,14 @@ int main(int argc, char **argv) {
 	ModStackBattery();
 	ModsBattery();
 	ShortcutBattery();
+	AnalysisBattery();
+	GraphBattery();
+	GraphIOBattery();
+	GraphDocBattery();
+	GraphIfaceBattery();
+	DecimateBattery();
+	RetopoBattery();
+	ThemeBattery();
 
 	const char *path = "editmesh_baseline.txt";
 	if (baseline) {

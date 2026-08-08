@@ -2978,7 +2978,11 @@ namespace nkentseu {
 	}
 
 	void NkDirectX12Device::OnResize(uint32 w, uint32 h) {
-		if (w == 0 || h == 0)
+		// SOUS 32 px : refuse (meme garde que DX11). Une fenetre minimisee
+		// annonce un rect placeholder (~160x28), jamais nul -- ce rect cassait
+		// les cibles derivees du rendu et tuait l'application a la restauration
+		// (defaut 4.3 NK3DModeler).
+		if (w < 32 || h < 32)
 			return;
 		// NE PAS poser mWidth/mHeight ici : ResizeSwapchain les compare à w/h pour son no-op
 		// (même taille). Si on les posait avant, la garde verrait w==mWidth et SKIPPERAIT

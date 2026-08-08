@@ -39,7 +39,16 @@ namespace nkentseu {
 		}
 		HCURSOR hc = ::LoadCursorW(nullptr, idc);
 		mData.mClientCursor = hc; // mémorisé pour WM_SETCURSOR
-		::SetCursor(hc);		  // applique immédiatement si dans le client
+		// N'applique IMMEDIATEMENT que si le curseur survole NOTRE fenetre :
+		// appelee chaque frame, ::SetCursor depuis l'ARRIERE-PLAN ecrasait le
+		// curseur de la fenetre au premier plan en continu (clignotement
+		// constate par Rihen). WM_SETCURSOR fait foi dans notre client.
+		POINT ptC;
+		if (!::GetCursorPos(&ptC))
+			return;
+		HWND underC = ::WindowFromPoint(ptC);
+		if (underC && ::GetAncestor(underC, GA_ROOT) == mData.mHwnd)
+			::SetCursor(hc);		  // applique immédiatement si dans le client
 	}
 
 #else

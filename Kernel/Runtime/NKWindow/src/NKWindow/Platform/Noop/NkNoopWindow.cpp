@@ -249,6 +249,10 @@ namespace nkentseu {
 		return false;
 	}
 
+	bool NkWindow::IsMinimized() const {
+		return false;
+	}
+
 	void NkWindow::BeginDragMove() {
 	}
 

@@ -3,7 +3,7 @@
  * @File    NkHDRCodec.h
  * @Brief   Codec Radiance HDR (.hdr/.rgbe) production-ready.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  *
  * @Support
  *  Lecture  : Header complet (EXPOSURE, FORMAT), nouveau RLE 4-canaux,

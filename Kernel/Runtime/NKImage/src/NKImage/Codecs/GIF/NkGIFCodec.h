@@ -3,7 +3,7 @@
  * @File    NkGIFCodec.h
  * @Brief   Codec GIF production-ready — GIF87a/GIF89a complet.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Proprietary - Free to use and modify
+ * @License Proprietary - All Rights Reserved (see LICENSE)
  *
  * @Support
  *  Lecture  : GIF87a + GIF89a, LZW variable, GCT + LCT, interlacement,

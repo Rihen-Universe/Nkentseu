@@ -1,0 +1,210 @@
+\chapter{Préparer sa machine}
+
+\section{Ce qu'il vous faut vraiment}
+
+\begin{center}
+\begin{tabular}{p{4.2cm}p{9.8cm}}
+\toprule
+\textbf{Élément} & \textbf{Exigence réelle} \\
+\midrule
+Carte graphique & 8~Go de mémoire vidéo suffisent pour un modèle de 7~milliards
+                  de paramètres quantifié. C'est la configuration sur laquelle
+                  toutes les mesures de ce cours ont été prises. \\
+Mémoire vive & 16~Go confortables. Le corpus complet (25~Mo de texte) ne pèse
+               rien à côté du modèle. \\
+Disque & 15~Go : le modèle (4,4~Go), les checkpoints (231~Mo chacun, on en
+         garde deux), et de la marge. \\
+Système & Windows, Linux ou macOS. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkpiege}
+Le facteur limitant n'est pas la \emph{vitesse} de votre carte, mais sa
+\textbf{mémoire}. Une carte rapide avec 4~Go ne chargera pas le modèle ; une
+carte lente avec 8~Go le fera tourner. Vérifiez la mémoire avant tout le reste.
+\end{nkpiege}
+
+\section{Comment la machine parle à la carte graphique}
+
+Les calculs d'entraînement ne se font pas sur le processeur : ils se font sur la
+carte graphique, qui sait faire des millions de multiplications à la fois. Pour
+lui parler, il faut une \textbf{interface} — un langage commun. Nkentseu en
+gère quatre.
+
+\begin{center}
+\begin{tabular}{lp{9.4cm}}
+\toprule
+\textbf{Interface} & \textbf{Où elle existe} \\
+\midrule
+Vulkan  & Windows, Linux, macOS (via MoltenVK). \textbf{C'est celle qu'on
+          utilise.} \\
+DirectX 11 & Windows uniquement. \\
+DirectX 12 & Windows uniquement. \\
+OpenGL  & Partout, mais la moins adaptée aux calculs. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Pourquoi Vulkan, et pas DirectX}
+
+Pour une raison très concrète. Le modèle contient un tenseur particulier —
+celui qui produit le mot final, appelé \texttt{output.weight} — qui pèse
+\textbf{426~Mo à lui seul}. Or DirectX~11 ne garantit que 128~Mo par ressource.
+
+Le programme s'en occupe tout seul : il se verrouille sur Vulkan au démarrage et
+vous l'annonce.
+
+\begin{nkcode}[]{Ce que vous verrez au lancement}
+backend compute : Vulkan
+  [NkQwen2LoraGpu] backend = Vulkan
+  [NkQwen2LoraGpu] L=28 d=3584 ffn=18944 nH=28 nKV=4 hd=128 vocab=152064
+\end{nkcode}
+
+\begin{nkpiege}
+Ne concluez jamais d'une mesure sans avoir lu la ligne « backend compute ». Une
+même commande peut tourner sur deux interfaces différentes et donner des durées
+sans rapport. Un résultat dont on ignore le backend est un résultat sans valeur.
+\end{nkpiege}
+
+\section{Installer les outils}
+
+\subsection{Sur Windows}
+
+Installez le \textbf{SDK Vulkan} depuis \url{https://vulkan.lunarg.com}. C'est
+tout : le reste est fourni par le dépôt.
+
+Vérifiez ensuite que la variable \texttt{VULKAN\_SDK} existe :
+
+\begin{nkcode}[]{PowerShell}
+echo $env:VULKAN_SDK
+\end{nkcode}
+
+Si la commande n'affiche rien, redémarrez la session : l'installateur pose la
+variable, mais les fenêtres déjà ouvertes ne la voient pas.
+
+\subsection{Sur Linux}
+
+\begin{nkcode}[]{Debian, Ubuntu et dérivées}
+sudo apt install libvulkan-dev vulkan-tools libx11-dev libxext-dev
+vulkaninfo | head -20
+\end{nkcode}
+
+Si \texttt{vulkaninfo} affiche le nom de votre carte, vous êtes prêt.
+
+\begin{nkpiege}
+\textbf{Le piège du mode « headless ».} Sur un serveur sans écran, on est tenté
+de compiler en \texttt{-{}-linux-backend=headless}. Ne le faites pas pour
+l'entraînement : ce mode ne relie pas Vulkan, donc votre programme n'aurait
+\emph{aucune} carte graphique à sa disposition. Compilez en \texttt{xlib} — le
+mode par défaut — même si vous n'affichez aucune fenêtre.
+\end{nkpiege}
+
+\subsection{Sur macOS}
+
+Vulkan y passe par MoltenVK, une couche qui traduit vers Metal. Installez le SDK
+Vulkan pour macOS depuis le même site que pour Windows.
+
+\subsection{Sur WSL2 (Windows Subsystem for Linux)}
+
+Cela fonctionne, mais lisez ceci avant de vous en réjouir : WSL2 utilise
+\emph{la même carte graphique} que Windows, avec une couche de traduction en
+plus. Vous serez donc \textbf{plus lent} qu'en Windows natif, jamais plus
+rapide.
+
+WSL2 sert à vérifier que votre travail fonctionne sous Linux sans acheter une
+seconde machine. Pour un entraînement de plusieurs jours, restez sur Windows
+natif ou sur une vraie machine Linux.
+
+\section{Compiler les outils}
+
+Tout se compile avec \texttt{jenga}, depuis la racine du dépôt.
+
+\begin{nkcode}[]{Les deux programmes de ce cours}
+jenga build --target NKQwen2Train --config Release
+jenga build --target NKQwen2Chat  --config Release
+\end{nkcode}
+
+\texttt{Release} et non \texttt{Debug} : la version de mise au point est
+plusieurs fois plus lente, ce qui sur dix jours d'entraînement fait une
+différence de plusieurs semaines.
+
+Vous devez lire, à la fin :
+
+\begin{nkcode}[]{Compilation réussie}
+Projects Built:  21/21
+Status:          SUCCESS
+\end{nkcode}
+
+\begin{nkpiege}
+Si vous compilez \emph{tout} le dépôt avec \texttt{jenga build} sans
+\texttt{-{}-target}, vous verrez peut-être échouer un projet de démonstration
+sans rapport avec l'IA. Ce n'est pas votre faute et cela n'empêche rien :
+compilez toujours la cible qui vous intéresse.
+\end{nkpiege}
+
+\section{Se procurer un modèle de départ}
+
+Il vous faut un modèle déjà entraîné, au format \textbf{GGUF}. Le plus simple
+est de passer par Ollama :
+
+\begin{nkcode}[]{Télécharger Qwen2.5 7B}
+ollama pull qwen2.5:7b
+\end{nkcode}
+
+Le fichier atterrit dans un dossier de blobs, sous un nom qui est son empreinte :
+
+\begin{center}
+\begin{tabular}{lp{8.6cm}}
+\toprule
+Windows & \texttt{\%USERPROFILE\%\textbackslash.ollama\textbackslash models\textbackslash blobs\textbackslash} \\
+Linux, macOS & \texttt{\textasciitilde/.ollama/models/blobs/} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Repérez le fichier de 4,4~Go : c'est le modèle. Les petits fichiers à côté sont
+des métadonnées.
+
+\begin{nkpiege}
+\textbf{Vérifiez que vous avez le bon fichier.} Un dossier de blobs contient
+souvent plusieurs modèles de taille voisine. Se tromper de blob donne un modèle
+qui répond n'importe quoi, avec des jetons spéciaux inattendus — et l'on cherche
+l'erreur pendant des heures dans son code alors qu'elle est dans le chemin.
+Notez le chemin exact de \emph{votre} modèle, une bonne fois.
+\end{nkpiege}
+
+\section{Vérifier que tout fonctionne}
+
+Avant d'entraîner quoi que ce soit, faites parler le modèle. Si cette étape
+échoue, inutile d'aller plus loin.
+
+\begin{nkcode}[]{Windows — PowerShell}
+.\Build\Bin\Release-Windows\NKQwen2Chat\NKQwen2Chat.exe `
+  "$env:USERPROFILE\.ollama\models\blobs\sha256-VOTRE_BLOB"
+\end{nkcode}
+
+\begin{nkcode}[]{Linux et macOS}
+./Build/Bin/Release-Linux/NKQwen2Chat/NKQwen2Chat \
+  ~/.ollama/models/blobs/sha256-VOTRE_BLOB
+\end{nkcode}
+
+Le modèle met une dizaine de secondes à se charger, puis vous rend la main.
+Posez une question, appuyez sur Entrée, et regardez la réponse s'écrire mot à
+mot.
+
+\begin{nkretenir}
+Trois vérifications, dans cet ordre, avant tout entraînement : la ligne
+« backend compute » dit \textbf{Vulkan} ; le modèle se charge sans erreur de
+mémoire ; il répond quelque chose de sensé. Si les trois passent, votre machine
+est prête.
+\end{nkretenir}
+
+\begin{nkexo}
+Chargez le modèle et posez-lui trois questions : une factuelle (« Quelle est la
+capitale du Cameroun ? »), une de raisonnement (« Si tous les A sont B et que
+X est un A, que peut-on dire de X ? »), une créative (« Écris deux phrases sur
+la pluie »). Notez les réponses dans un fichier. Vous les comparerez à celles
+d'après l'entraînement, au chapitre~7 — et c'est la seule façon honnête de
+juger si votre entraînement a servi à quelque chose.
+\end{nkexo}

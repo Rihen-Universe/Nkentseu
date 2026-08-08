@@ -146,6 +146,17 @@ namespace nkentseu {
 				NkMeshHandle GetCone(uint32 segs = 32);
 				NkMeshHandle GetCapsule(uint32 segs = 32);
 
+				// Generateurs PARAMETRIQUES (menu Ajouter du modeleur) : un mesh
+				// NEUF par appel, l'appelant garde le handle. Solides FERMES.
+				NkMeshHandle CreateSphereMesh(uint32 stacks, uint32 slices);
+				NkMeshHandle CreateIcosphereMesh(uint32 subdivisions);
+				NkMeshHandle CreatePlaneMesh(uint32 divX, uint32 divY);
+				NkMeshHandle CreateCylinderMesh(uint32 segs);
+				NkMeshHandle CreateConeMesh(uint32 segs);
+				NkMeshHandle CreateTorusMesh(uint32 majorSegs, uint32 minorSegs,
+											 float32 minorRadius = 0.15f);
+				NkMeshHandle CreateCapsuleMesh(uint32 segs, uint32 rings);
+
 				// Draw (appelé par NkRender3D)
 				void BindMesh(NkICommandBuffer *cmd, NkMeshHandle h);
 				void DrawSubMesh(NkICommandBuffer *cmd, NkMeshHandle h, uint32 subIdx, uint32 instances = 1);

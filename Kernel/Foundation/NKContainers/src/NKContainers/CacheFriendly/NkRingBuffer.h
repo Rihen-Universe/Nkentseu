@@ -964,7 +964,7 @@ namespace nkentseu {
 
 // ============================================================
 // Copyright © 2024-2026 Rihen. All rights reserved.
-// Proprietary License - Free to use and modify
+// Proprietary License - All Rights Reserved (see LICENSE)
 //
 // Généré par Rihen le 2026-02-05 22:26:13
 // Dernière modification : 2026-04-26 (restructuration et documentation)

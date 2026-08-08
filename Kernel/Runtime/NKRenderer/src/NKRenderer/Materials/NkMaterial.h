@@ -125,6 +125,14 @@ namespace nkentseu {
 				bool GetReceiveShadow() const;
 				float32 GetShadowBiasMul() const;
 				bool GetCastShadowAlphaTest() const;
+				// RECEPTEUR D'OMBRE : la surface ne se peint pas, elle ne rend
+				// que l'OMBRE qu'elle recoit, en couverture. Sert a detourer un
+				// objet sur fond transparent sans qu'il paraisse flotter : on
+				// coupe le sol mais on garde l'ombre portee, qui lui donne du
+				// poids. Le sol garde ses proprietes d'eclairage -- c'est ce
+				// qui rend l'ombre juste plutot que decalquee.
+				NkMaterial *SetShadowCatcher(bool b);
+				bool GetShadowCatcher() const;
 
 				// ── Triplanar projection (style UE5 World Aligned Texture) ─────────
 				// Quand actif, la texture est projetee selon les 3 plans monde

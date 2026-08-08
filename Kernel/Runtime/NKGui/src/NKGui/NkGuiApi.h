@@ -8,7 +8,7 @@
 //  - Modes indépendants : NKENTSEU_NKGUI_BUILD_SHARED_LIB / _STATIC_LIB /
 //    _USE_SHARED_LIB / _HEADER_ONLY. Défaut = statique (aucune décoration).
 //
-// License : Proprietary - Free to use and modify
+// License : Proprietary - All Rights Reserved (see LICENSE)
 // =============================================================================
 
 #pragma once

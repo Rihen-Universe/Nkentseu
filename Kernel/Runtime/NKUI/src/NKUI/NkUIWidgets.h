@@ -2,7 +2,7 @@
 // @File    NkUIWidgets.h
 // @Brief   Tous les widgets NkUI — API immédiat-mode.
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // @Paradigme
 //  Chaque widget est une fonction qui :

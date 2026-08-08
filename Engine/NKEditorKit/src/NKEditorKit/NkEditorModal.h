@@ -14,7 +14,7 @@
 //          (`ctx.popupDepth == 0` avant d'agir) : la modalite est donc
 //          GLOBALE (tous panneaux) sans aucune modification ailleurs.
 // @Author  Rihen
-// @License Proprietary - Free to use and modify
+// @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 #include "NKGui/NKGui.h"
 

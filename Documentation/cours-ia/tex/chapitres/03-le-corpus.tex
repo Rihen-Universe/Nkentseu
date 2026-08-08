@@ -1,0 +1,190 @@
+\chapter{Le corpus : ce dont le modèle apprend}
+
+Voici le chapitre le plus important du cours. Un entraînement parfaitement
+conduit sur un mauvais corpus donne un mauvais modèle ; il n'existe aucun
+réglage pour rattraper cela.
+
+\section{Le format attendu}
+
+Un corpus est un simple fichier texte. Chaque exemple tient sur deux lignes :
+une question, une réponse.
+
+\begin{nkcode}[]{corpus.txt — le format, en entier}
+Question: Quelle est la capitale du Cameroun ?
+Reponse: La capitale politique du Cameroun est Yaoundé.
+
+Question: Comment convertir des degrés Celsius en Fahrenheit ?
+Reponse: On multiplie par 1,8 puis on ajoute 32.
+
+Question: Qu'est-ce qu'un syllogisme ?
+Reponse: Un raisonnement à trois propositions où la conclusion découle
+des deux premières.
+\end{nkcode}
+
+Trois règles, et c'est tout :
+
+\begin{itemize}
+  \item La ligne de question commence exactement par \texttt{Question:{} }
+        (avec l'espace).
+  \item La ligne de réponse commence exactement par \texttt{Reponse:{} } —
+        \textbf{sans accent}, c'est le format historique du dépôt.
+  \item Les lignes vides sont ignorées : mettez-en pour aérer.
+\end{itemize}
+
+\begin{nkpiege}
+Une question sans réponse est \emph{silencieusement ignorée}. Si votre corpus
+de 10\,000~exemples n'en donne que 4\,000 au chargement, cherchez les
+\texttt{Reponse:} mal orthographiés — un accent de trop suffit.
+\end{nkpiege}
+
+\section{Combien d'exemples ?}
+
+\begin{center}
+\begin{tabular}{lp{9.2cm}}
+\toprule
+\textbf{Taille} & \textbf{Ce que vous pouvez en attendre} \\
+\midrule
+100 -- 500 & Change le \textbf{style} des réponses : leur longueur, leur ton,
+             leur mise en forme. Ne change pas les connaissances. \\
+1\,000 -- 10\,000 & Le modèle assimile un vocabulaire et des tournures propres à
+             votre domaine. \\
+50\,000 et plus & Le modèle intègre réellement le contenu de votre domaine. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Le corpus utilisé pour les mesures de ce cours contient
+\textbf{100\,017 paires} et pèse 25~Mo.
+
+\begin{nkretenir}
+Peu d'exemples changent la \emph{forme}, beaucoup d'exemples changent le
+\emph{fond}. Si votre modèle « répond mieux » après 200 pas, il a surtout appris
+à mieux se présenter — ce qui est déjà utile, mais ne le confondez pas avec du
+savoir.
+\end{nkretenir}
+
+\section{La qualité prime sur la quantité}
+
+\subsection{Ce qui fait un bon exemple}
+
+\begin{itemize}
+  \item \textbf{Une réponse exacte.} Le modèle ne vérifie rien : il imite. Une
+        erreur dans le corpus devient une erreur apprise.
+  \item \textbf{Une réponse complète.} « Oui » n'apprend rien. « Oui, parce
+        que… » apprend à justifier.
+  \item \textbf{Une formulation naturelle.} Écrivez la réponse comme vous
+        voudriez la lire.
+  \item \textbf{De la variété dans les questions.} Si vos mille questions
+        commencent toutes par « Qu'est-ce que », le modèle ne saura répondre
+        qu'à celles-là.
+\end{itemize}
+
+\subsection{Le piège du corpus fabriqué par une autre IA}
+
+Il est tentant de demander à un modèle existant de générer des milliers de
+paires question/réponse. C'est rapide, et c'est un piège.
+
+Un modèle qui apprend des réponses d'un autre modèle apprend surtout son
+\textbf{style} : sa façon de tourner les phrases, ses tics, ses formules. Il
+n'apprend pas de connaissances nouvelles — l'autre modèle ne connaissait pas
+votre domaine non plus.
+
+\begin{nkpiege}
+Pour \emph{spécialiser} un modèle sur votre domaine, le corpus doit venir de
+\textbf{vos sources réelles} : votre documentation, vos archives, vos manuels.
+Un corpus généré par une IA transmet un style, pas un savoir.
+\end{nkpiege}
+
+\section{Construire un corpus depuis votre documentation}
+
+La méthode qui marche, en trois temps :
+
+\begin{enumerate}
+  \item \textbf{Découper.} Prenez vos documents et coupez-les en passages qui
+        se suffisent à eux-mêmes — un paragraphe, une section courte.
+  \item \textbf{Interroger.} Pour chaque passage, écrivez la ou les questions
+        auxquelles il répond. C'est le travail le plus long, et le plus utile.
+  \item \textbf{Répondre.} La réponse est le passage lui-même, reformulé pour
+        qu'il se tienne seul.
+\end{enumerate}
+
+\begin{nkcode}[]{Un passage de documentation devenu deux exemples}
+Question: Comment reprendre un entraînement interrompu avec NKQwen2Train ?
+Reponse: Relancez exactement la même commande. Le programme cherche les
+checkpoints, choisit le plus avancé qui soit intact, et reprend au pas
+et à l'exemple où il s'était arrêté.
+
+Question: Que se passe-t-il si un checkpoint est corrompu ?
+Reponse: Il est détecté par son empreinte, ignoré, et la reprise se fait
+depuis le second checkpoint. C'est la raison pour laquelle deux fichiers
+sont conservés en alternance.
+\end{nkcode}
+
+\begin{nkretenir}
+Écrire les questions est le vrai travail. C'est aussi ce qui rend le corpus
+irremplaçable : il contient votre manière d'interroger votre domaine, et aucune
+IA ne peut la deviner à votre place.
+\end{nkretenir}
+
+\section{Séparer l'apprentissage du contrôle}
+
+Voici une erreur qui trompe beaucoup de débutants, et qui a une parade simple.
+
+Si vous mesurez les progrès du modèle sur les exemples qu'il vient
+d'apprendre, vous mesurez sa \textbf{mémoire}, pas sa compréhension. Un élève à
+qui l'on repose exactement les questions de l'exercice qu'il vient de corriger
+aura toujours l'air brillant.
+
+La parade : mettez de côté quelques dizaines d'exemples que le modèle ne verra
+\textbf{jamais} pendant l'entraînement. Ils serviront à vérifier.
+
+\begin{itemize}
+  \item Si la perte d'apprentissage descend \emph{et} celle de contrôle
+        descend : le modèle apprend vraiment. \textbf{C'est ce qu'on veut.}
+  \item Si la perte d'apprentissage descend mais que celle de contrôle stagne
+        ou remonte : le modèle récite. On appelle cela le
+        \textbf{surapprentissage}.
+\end{itemize}
+
+\texttt{NKQwen2Train} s'en charge : il évalue périodiquement un exemple pris
+loin de la position courante dans le corpus, et affiche sa perte à part.
+
+\begin{nkretenir}
+Deux pertes, pas une. Celle qui compte est celle mesurée sur ce que le modèle
+n'a jamais vu.
+\end{nkretenir}
+
+\section{Vérifier son corpus avant de lancer}
+
+Un entraînement de dix jours sur un corpus mal formé est dix jours perdus.
+Trois minutes de vérification les économisent.
+
+\begin{nkcode}[]{Compter les questions et les réponses}
+# Linux, macOS
+grep -c "^Question: " corpus.txt
+grep -c "^Reponse: "  corpus.txt
+
+# Windows -- PowerShell
+(Select-String -Path corpus.txt -Pattern '^Question: ').Count
+(Select-String -Path corpus.txt -Pattern '^Reponse: ').Count
+\end{nkcode}
+
+Les deux nombres doivent être \textbf{égaux}, ou presque. Un écart important
+signale des paires incomplètes.
+
+Puis lancez l'entraînement sur deux pas seulement, juste pour lire le compte :
+
+\begin{nkcode}[]{Vérification en trente secondes}
+NKQwen2Train --gguf=<modele> --corpus=corpus.txt --steps=2 --fresh
+\end{nkcode}
+
+La ligne \texttt{corpus : N paires} vous dit combien d'exemples ont réellement
+été retenus. Si ce nombre vous surprend, corrigez le corpus avant d'aller plus
+loin.
+
+\begin{nkexo}
+Constituez un corpus de vingt paires sur un sujet que vous connaissez bien —
+votre métier, une passion, votre ville. Écrivez-les à la main : vingt paires,
+c'est une demi-heure. Vérifiez ensuite avec les commandes ci-dessus que les
+vingt sont bien lues. Ce corpus vous servira aux chapitres suivants.
+\end{nkexo}

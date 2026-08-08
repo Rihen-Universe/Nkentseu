@@ -94,6 +94,28 @@ float NkSampleShadowTile(int slotIdx, vec3 worldPos, float bias) {
     return s / 9.0;
 }
 
+// Variante pour la DIRECTIONNELLE : au bord de la zone couverte par la
+// cascade, l'ombre FOND vers la lumiere au lieu de se couper net. La
+// couverture vient de l'auto-fit des casters : un recepteur juste au-dela
+// voyait son ombre coupee au cordeau (constate par Rihen -- chez Blender
+// elle s'etire et disparait). Bande de fondu : 8% du tile. Reservee a la
+// directionnelle : sur les faces d'une omni, ce fondu ECLAIRCIRAIT les
+// coutures que la bande de garde vient de fermer.
+float NkSampleShadowTileFaded(int slotIdx, vec3 worldPos, float bias) {
+    if (slotIdx < 0 || slotIdx >= 256) return 1.0;
+    vec4 coord = uShadows.slots[slotIdx].shadowMatrix * vec4(worldPos, 1.0);
+    if (coord.w <= 0.0) return 1.0;
+    vec3 p = coord.xyz / coord.w;
+    p.x = p.x * 0.5 + 0.5;
+    p.y = p.y * 0.5 + 0.5;
+    p.y = mix(p.y, 1.0 - p.y, uShadows.globalCfg.w);
+    float edge = min(min(p.x, 1.0 - p.x), min(p.y, 1.0 - p.y));
+    float ef = clamp(edge / 0.08, 0.0, 1.0);
+    if (ef <= 0.0) return 1.0;
+    float s = NkSampleShadowTile(slotIdx, worldPos, bias);
+    return mix(1.0, s, ef);
+}
+
 // Sample shadow pour une directional light. Selection de la cascade c selon
 // la profondeur view-space, puis sample le tile correspondant.
 //
@@ -124,13 +146,18 @@ float NkSampleDirectionalShadow(int lightIdx, vec3 worldPos, vec3 N, vec3 L, flo
         int slotIdx = firstSlot + c;
         float splitFar = uShadows.slots[slotIdx].lightPosOrDir.w;
         if (absDepth < splitFar) {
-            float s0 = NkSampleShadowTile(slotIdx, wp, bias);
+            float s0 = NkSampleShadowTileFaded(slotIdx, wp, bias);
             float fadeT = (absDepth / splitFar - kCascadeFadeStart)
                           / (1.0 - kCascadeFadeStart);
             if (fadeT > 0.0 && c + 1 < slotCount) {
-                float s1 = NkSampleShadowTile(firstSlot + c + 1, wp, bias);
+                float s1 = NkSampleShadowTileFaded(firstSlot + c + 1, wp, bias);
                 return mix(s0, s1, clamp(fadeT, 0.0, 1.0));
             }
+            // DERNIERE cascade : au lieu de couper net au splitFar, l'ombre
+            // FOND vers la lumiere sur la meme bande -- symetrique du fondu
+            // lateral de NkSampleShadowTileFaded, meme raison (Rihen).
+            if (fadeT > 0.0)
+                return mix(s0, 1.0, clamp(fadeT, 0.0, 1.0));
             return s0;
         }
     }
@@ -146,6 +173,25 @@ float NkSamplePointShadow(int lightIdx, vec3 worldPos, vec3 N, vec3 L, float bia
 
     vec3 lightPos = uShadows.slots[firstSlot].lightPosOrDir.xyz;
     vec3 dir = worldPos - lightPos;
+    // ── LE BIAIS D'UNE OMNI DEPEND DE LA DISTANCE ──────────────────────────
+    // Une face de point light est une projection perspective a 90 deg : la
+    // profondeur y est tres non lineaire, si bien qu'un biais constant en NDC
+    // est enorme pres de la lumiere et NEGLIGEABLE plus loin. C'est ce qui
+    // faisait qu'un cube portait sa propre ombre -- toute une face noircie
+    // alors que la lumiere l'eclairait (constate par Rihen ; sans l'ombre
+    // portee, la meme face redevenait claire, ce qui a designe la cause).
+    // On compense en faisant croitre le biais avec la distance, rapportee a
+    // la portee de la lumiere.
+    float farP = max(uShadows.slots[firstSlot].lightPosOrDir.w, 0.001);
+    float distN = clamp(length(dir) / farP, 0.0, 1.0);
+    // Croissance MODEREE : a x24, le biais MANGEAIT l'ombre au-dela d'un
+    // rayon -- une « sphere » au-dela de laquelle l'ombre se coupait net au
+    // lieu de fondre (constate par Rihen). Ramenee a x5 : le plan lointain
+    // des faces est passe a DEUX FOIS la portee, la profondeur garde donc de
+    // la precision au bout de la portee et le gros biais n'est plus
+    // necessaire -- c'etait lui qui creait une sphere d'ombre plus petite
+    // que celle de la lumiere.
+    biasMul *= 1.0 + 4.0 * distN * distN;
     vec3 absDir = abs(dir);
     // Selection de face : axe dominant. Convention faces :
     //   0:+X 1:-X 2:+Y 3:-Y 4:+Z 5:-Z (cf. AllocSlotsPoint cote C++)
@@ -160,6 +206,10 @@ float NkSamplePointShadow(int lightIdx, vec3 worldPos, vec3 N, vec3 L, float bia
     int slotIdx = firstSlot + face;
     float bias = NkShadowSlopeBiasMul(N, L, biasMul);
     vec3  wp   = NkShadowNormalBiasOffset(worldPos, N, L);
+    // AUCUNE LIMITE PROPRE A L'OMBRE (Rihen : il y avait DEUX spheres, celle
+    // de la lumiere et une sphere d'ombre plus petite -- elles doivent etre
+    // UNE SEULE). L'ombre multiplie la lumiere : elle meurt donc exactement
+    // avec l'attenuation, sans fondu artificiel ni rayon a elle.
     return NkSampleShadowTile(slotIdx, wp, bias);
 }
 
@@ -168,8 +218,18 @@ float NkSampleSpotShadow(int lightIdx, vec3 worldPos, vec3 N, vec3 L, float bias
     if (lightIdx < 0 || lightIdx >= 32) return 1.0;
     int firstSlot = int(uShadows.firstSlotPerLight[lightIdx >> 2][lightIdx & 3]);
     if (firstSlot < 0) return 1.0;
+    // Meme projection perspective que les omni, donc meme correction :
+    // le biais doit croitre avec la distance a la lumiere.
+    float farS  = max(uShadows.slots[firstSlot].lightPosOrDir.w, 0.001);
+    float distS = clamp(length(worldPos - uShadows.slots[firstSlot].lightPosOrDir.xyz) / farS,
+                        0.0, 1.0);
+    // Meme moderation que les omni : x24 devorait l'ombre au loin, et le
+    // plan lointain double rend le gros biais inutile.
+    biasMul *= 1.0 + 4.0 * distS * distS;
     float bias = NkShadowSlopeBiasMul(N, L, biasMul);
     vec3  wp   = NkShadowNormalBiasOffset(worldPos, N, L);
+    // Aucune limite propre a l'ombre (meme regle que les omni) : elle meurt
+    // avec l'attenuation de la lumiere, pas avec un rayon a elle.
     return NkSampleShadowTile(firstSlot, wp, bias);
 }
 
@@ -181,7 +241,13 @@ float SampleLightShadowEx(int lightIdx, vec3 worldPos, vec3 N, vec3 L, float bia
     if (type == 0) return NkSampleDirectionalShadow(lightIdx, worldPos, N, L, biasMul);
     if (type == 1) return NkSamplePointShadow      (lightIdx, worldPos, N, L, biasMul);
     if (type == 2) return NkSampleSpotShadow       (lightIdx, worldPos, N, L, biasMul);
-    return 1.0;  // AREA light : no shadow in V0
+    // SURFACIQUE : meme echantillonnage qu'un spot, parce que le CPU lui alloue
+    // desormais une tuile de type SPOT (cf. AllocSlotsForLights, cas NK_AREA).
+    // Un panneau n'eclaire que d'un cote : un tronc perspectif large decrit donc
+    // correctement ce qu'il occulte. Avant, ce cas retournait 1.0 -- une
+    // surfacique traversait toute la geometrie sans jamais projeter d'ombre.
+    if (type == 3) return NkSampleSpotShadow       (lightIdx, worldPos, N, L, biasMul);
+    return 1.0;
 }
 // Wrapper backward-compatible : biasMul = 1.0 (utilise par Toon/Anime qui n'ont
 // pas encore d'override shadow dans leur material UBO).

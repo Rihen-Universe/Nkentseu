@@ -1,0 +1,232 @@
+\chapter{Dialoguer avec son modèle}
+
+Entraîner un modèle sans jamais lui parler, c'est cuisiner sans goûter. Ce
+chapitre présente les deux outils de dialogue et, surtout, explique lequel
+choisir selon ce que vous cherchez à savoir.
+
+\section{Deux outils, deux usages}
+
+\begin{center}
+\begin{tabular}{p{3.4cm}p{5.0cm}p{5.2cm}}
+\toprule
+ & \textbf{NKQwen2Chat} & \textbf{NKQwen2Ask} \\
+\midrule
+Adaptateurs & \textbf{non} & \textbf{oui} \\
+Mémoire de la conversation & oui (KV-cache) & non \\
+Affichage & mot à mot & réponse d'un bloc \\
+Vitesse & $\approx$ 0,5 s par mot & $\approx$ 3 s par mot \\
+Sert à & converser, explorer & \textbf{juger un entraînement} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\texttt{NKQwen2Chat} pour \emph{discuter}. \texttt{NKQwen2Ask} pour
+\emph{évaluer}. Le second est lent, et c'est un choix : il emprunte exactement le
+même chemin de calcul que l'entraînement, adaptateurs compris.
+\end{nkretenir}
+
+\section{Converser : NKQwen2Chat}
+
+\begin{nkcode}[]{Lancer une conversation}
+NKQwen2Chat <chemin_du_modele>
+\end{nkcode}
+
+Le modèle se charge en une dizaine de secondes, puis vous rend la main. Écrivez,
+validez, la réponse s'écrit mot à mot.
+
+\subsection{Les commandes}
+
+\begin{center}
+\begin{tabular}{lp{9.4cm}}
+\toprule
+\texttt{/aide} & La liste des commandes. \\
+\texttt{/oublie} & Vide la mémoire de la conversation. \\
+\texttt{/temp <v>} & 0 $=$ toujours la même réponse ; 0,7 $=$ créatif. \\
+\texttt{/tokens <n>} & Longueur maximale d'une réponse. \\
+\texttt{/etat} & Contexte utilisé, mémoire, vitesse. \\
+\texttt{/quitte} & Sortir. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Comprendre la température}
+
+C'est le seul réglage qui change vraiment la personnalité des réponses.
+
+\begin{itemize}
+  \item \textbf{0} — le modèle prend toujours le mot le plus probable. Même
+        question, même réponse, indéfiniment. \textbf{C'est le réglage pour
+        comparer} : sans lui, vous ne sauriez pas si une différence vient de
+        votre entraînement ou du hasard.
+  \item \textbf{0,7} — le modèle pioche parmi les mots probables. Réponses plus
+        vivantes, mais différentes à chaque fois.
+  \item \textbf{au-delà de 1} — il devient franchement fantaisiste.
+\end{itemize}
+
+\begin{nkpiege}
+Pour juger un entraînement, mettez la température à \textbf{0}. À 0,7, deux
+réponses différentes ne prouvent rien : le hasard suffit à les expliquer.
+\end{nkpiege}
+
+\subsection{La mémoire de la conversation}
+
+Le modèle se souvient de ce qui précède, dans la limite de son contexte. Vous
+pouvez donc enchaîner :
+
+\begin{nkcode}[]{Une conversation qui se tient}
+> Qu'est-ce qu'un syllogisme ?
+  Un raisonnement à trois propositions où la conclusion découle des deux
+  premières.
+
+> Donne-m'en un exemple.
+  Tous les hommes sont mortels. Socrate est un homme. Donc Socrate est mortel.
+\end{nkcode}
+
+La seconde question n'a de sens que grâce à la première : c'est la mémoire qui
+opère.
+
+\begin{nkpiege}
+Cette mémoire a une limite. Quand la conversation devient trop longue, le
+contexte est vidé et le modèle « oublie » d'un coup. Utilisez \texttt{/oublie}
+délibérément entre deux sujets sans rapport : vous éviterez que le début d'une
+conversation ne parasite la suite.
+\end{nkpiege}
+
+\section{Évaluer : NKQwen2Ask}
+
+C'est l'outil qui charge vos adaptateurs.
+
+\begin{nkcode}[]{Sans adaptateurs — la référence « avant »}
+NKQwen2Ask --gguf=<modele> --question="Quelle est la capitale du Cameroun ?"
+\end{nkcode}
+
+\begin{nkcode}[]{Avec vos adaptateurs — le « après »}
+NKQwen2Ask --gguf=<modele> --adapters=mon-modele.nkla \
+           --question="Quelle est la capitale du Cameroun ?"
+\end{nkcode}
+
+Sans \texttt{-{}-question}, il ouvre un dialogue : posez vos questions les unes
+après les autres, \texttt{/quitte} pour sortir.
+
+\subsection{Ce que vous voyez au chargement}
+
+\begin{nkcode}[]{Sortie réelle, adaptateurs appliqués}
+backend compute : Vulkan
+modèle chargé en 7.8 s
+adaptateurs appliqués : mon-modele.nkla
+  20185088 paramètres · rang 8 · alpha 16 · 28 couches × 7 projections
+
+  > Quelle est la capitale du Cameroun ?
+  (calcul en cours — sans KV-cache, compter plusieurs dizaines de secondes)
+
+  La capitale du Cameroun est Yaoundé.
+
+  [13 tokens en 44.4 s]
+\end{nkcode}
+
+Lisez la ligne des adaptateurs : elle confirme que le fichier a été accepté, et
+avec quel rang. Si le rang ne correspond pas à celui de l'entraînement, le
+chargement est \textbf{refusé} — et c'est heureux.
+
+\subsection{Toutes les options}
+
+\begin{center}
+\begin{tabular}{p{3.4cm}p{1.8cm}p{8.3cm}}
+\toprule
+\textbf{Option} & \textbf{Défaut} & \textbf{Rôle} \\
+\midrule
+\texttt{-{}-gguf=} & — & Le modèle. \textbf{Obligatoire.} \\
+\texttt{-{}-adapters=} & aucun & Le \texttt{.nkla} à appliquer. \\
+\texttt{-{}-tokens=} & 48 & Longueur maximale de la réponse. \\
+\texttt{-{}-rank=} & 8 & Doit être celui de l'entraînement. \\
+\texttt{-{}-max-seq=} & 256 & Contexte maximal. \\
+\texttt{-{}-question=} & — & Poser une question et sortir. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Pourquoi cet outil est lent, et pourquoi c'est voulu}
+
+\texttt{NKQwen2Ask} met environ 3~secondes par mot, contre 0,5 pour
+\texttt{NKQwen2Chat}. Ce n'est pas un défaut : c'est une conséquence assumée.
+
+\texttt{NKQwen2Chat} garde en mémoire les calculs des mots précédents — le
+KV-cache — et n'a donc à calculer que le mot nouveau. \texttt{NKQwen2Ask}
+recalcule toute la séquence à chaque mot, parce qu'il emprunte le
+\textbf{chemin exact de l'entraînement}, adaptateurs compris.
+
+L'intérêt est là : si la réponse change entre « avant » et « après », c'est
+votre entraînement qui l'a changée, et rien d'autre. Avec deux chemins de calcul
+différents, vous ne sauriez jamais si la différence vient de l'apprentissage ou
+de l'implémentation.
+
+\begin{nkretenir}
+Un outil lent qui compare honnêtement vaut mieux qu'un outil rapide dont on ne
+peut rien conclure. Utilisez \texttt{NKQwen2Ask} pour juger, pas pour bavarder.
+\end{nkretenir}
+
+\section{Comparer « avant » et « après » correctement}
+
+Voici la méthode, en quatre temps.
+
+\textbf{1. Préparez vos questions à l'avance.} Cinq à dix, écrites dans un
+fichier, avant tout entraînement. Les inventer après biaiserait votre jugement.
+
+\textbf{2. Mesurez l'avant.} Sans \texttt{-{}-adapters}. Notez les réponses.
+
+\textbf{3. Entraînez.}
+
+\textbf{4. Mesurez l'après}, avec les mêmes questions, exactement.
+
+\begin{nkpiege}
+\textbf{N'attendez pas de miracle après quelques pas.} Voici une mesure réelle,
+après 8 pas d'entraînement :
+
+\begin{center}
+\begin{tabular}{lp{7.6cm}}
+Avant & La capitale du Cameroun est Yaoundé. \\
+Après & La capitale du Cameroun est Yaoundé. \\
+\end{tabular}
+\end{center}
+
+Strictement identique — et c'est \textbf{normal}. Huit pas modifient les
+paramètres de façon infime. Il faut des centaines de pas pour voir le style
+bouger, des milliers pour le fond. Une réponse inchangée après quelques pas ne
+veut pas dire que l'entraînement ne fonctionne pas : c'est la perte, et elle
+seule, qui vous le dit à ce stade.
+\end{nkpiege}
+
+\section{Ce que 200 pas changent réellement}
+
+Après 200 pas sur un corpus de logique, sur les mêmes questions :
+
+\begin{center}
+\begin{tabular}{p{2.1cm}p{11.6cm}}
+\toprule
+\multicolumn{2}{l}{\textbf{« Qu'est-ce qu'un syllogisme ? »}} \\
+\midrule
+Avant & une forme de raisonnement logique qui consiste en une argumentation
+        composée de trois… \\
+Après & une forme de raisonnement logique qui consiste à déduire une conclusion
+        à partir… \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+La réponse a changé : elle est plus directe. Mais elle n'est pas \emph{plus
+juste} — le modèle savait déjà. Deux cents pas déplacent la \textbf{manière de
+dire}, pas le savoir.
+
+\begin{nkretenir}
+Ne confondez pas « la réponse a changé » avec « le modèle a appris quelque
+chose ». Pour du savoir nouveau, il faut un corpus qui le contienne et des
+milliers de pas — c'est l'objet du chapitre suivant.
+\end{nkretenir}
+
+\begin{nkexo}
+Reprenez les trois questions notées à l'exercice du chapitre~2. Posez-les à
+\texttt{NKQwen2Ask} sans adaptateurs, notez les réponses. Vous tenez votre
+référence « avant » — gardez ce fichier, il vous servira à chaque entraînement
+futur.
+\end{nkexo}

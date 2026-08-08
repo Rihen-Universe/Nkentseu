@@ -68,8 +68,14 @@ namespace nkentseu {
 	}
 
 	void NkSLParser::Error(const NkString &msg, uint32 line) {
-		uint32 l = line > 0 ? line : Peek().line;
-		mErrors.PushBack({l, 0, "", msg, true});
+		const NkSLToken cur = Peek();
+		uint32 l = line > 0 ? line : cur.line;
+		// La colonne n'est renseignée que si l'erreur porte bien sur le token
+		// COURANT : quand l'appelant impose une ligne venue d'un nœud déjà
+		// construit, la colonne du curseur désignerait un autre endroit. Mieux
+		// vaut 0 (« inconnue ») qu'une position fausse.
+		const uint32 c = (l == cur.line) ? cur.column : 0;
+		mErrors.PushBack({l, c, "", msg, true});
 	}
 
 	void NkSLParser::Warning(const NkString &msg, uint32 line) {
@@ -284,6 +290,24 @@ namespace nkentseu {
 		prog->localSizeX = mLocalSizeX;
 		prog->localSizeY = mLocalSizeY;
 		prog->localSizeZ = mLocalSizeZ;
+
+		// Les erreurs LEXICALES (littéral mal formé, caractère inconnu…) étaient
+		// jusqu'ici collectées par le lexer et jamais lues par personne : seules
+		// les erreurs du parser remontaient à NkSLCompiler, si bien qu'un `0xZZ`
+		// se manifestait tout au bout de la chaîne sous la forme d'un « échec de
+		// pipeline » qui ne désigne pas sa cause. Elles sont reversées ici, EN
+		// TÊTE : la faute lexicale précède toujours les dégâts qu'elle provoque
+		// en aval, et c'est elle qu'il faut lire en premier.
+		const NkVector<NkSLCompileError> &lexErrors = mLexer.GetErrors();
+		if (!lexErrors.Empty()) {
+			NkVector<NkSLCompileError> merged;
+			merged.Reserve(lexErrors.Size() + mErrors.Size());
+			for (const auto &e : lexErrors)
+				merged.PushBack(e);
+			for (const auto &e : mErrors)
+				merged.PushBack(e);
+			mErrors = merged;
+		}
 		return prog;
 	}
 
@@ -416,6 +440,17 @@ namespace nkentseu {
 
 		// const
 		if (k == NkSLTokenKind::NK_KW_CONST)
+			return ParseVarDecl(true);
+
+		// shared : mémoire partagée d'un groupe de travail compute.
+		// Le mot-clé, le qualificateur de stockage (NK_SHARED) et son émission
+		// (« shared » en GLSL, « groupshared » côté HLSL via SPIRV-Cross,
+		// « threadgroup » en MSL) existaient déjà TOUS — seule cette ligne
+		// manquait, si bien que la seule façon d'écrire un shader à mémoire
+		// partagée était… de ne pas pouvoir l'écrire (« Unexpected token at top
+		// level: 'shared' »). Une déclaration `shared` est forcément GLOBALE : sa
+		// durée de vie est celle du groupe, pas celle d'un appel de fonction.
+		if (k == NkSLTokenKind::NK_KW_SHARED)
 			return ParseVarDecl(true);
 
 		// Qualificateurs d'interpolation avant in/out

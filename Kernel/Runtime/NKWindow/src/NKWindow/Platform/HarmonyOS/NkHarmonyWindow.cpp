@@ -969,6 +969,10 @@ namespace nkentseu {
 		return false;
 	}
 
+	bool NkWindow::IsMinimized() const {
+		return mData.mMinimized; // suivi par les callbacks windowStage
+	}
+
 	void NkWindow::BeginDragMove() {
 	}
 
