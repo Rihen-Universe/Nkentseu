@@ -3528,9 +3528,12 @@ namespace nkentseu {
 					const bool hasWs = (mS && mS->HasWorkspace());
 					const NkString actif = hasWs ? NkAiWorkspaceAccount(mS->root) : NkAiDefaultAccount();
 					const float32 listH = (n > 0 ? n * rowH : rowH);
+					// La note de bas de panneau se REPLIE : elle etait coupee en plein mot.
+					NkVector<NkString> noteLignes;
+					WrapLines(ctx, NkT("ai.acc.shared"), w - ctx.S(24.f), noteLignes);
+					const float32 noteH = (float32)noteLignes.Size() * it;
 					const float32 menuH = ctx.S(8.f) + it + ctx.S(6.f) + it + ctx.S(4.f) + listH + ctx.S(6.f) + rowH +
-										  (mAccAdding ? (it + ctx.S(6.f)) : 0.f) + (mAccError.Empty() ? 0.f : it) + it +
-										  ctx.S(10.f);
+										  (it + ctx.S(6.f)) + (mAccError.Empty() ? 0.f : it) + noteH + ctx.S(10.f);
 					// Ancree sur le bouton de la palette d'ou elle est ouverte, vers le HAUT
 					// (ce bouton vit en bas du panneau) puis ramenee dans les bornes.
 					NkRect menu = {mActionsAnchor.x, mActionsAnchor.y - menuH - ctx.S(4.f), w, menuH};
@@ -3543,7 +3546,10 @@ namespace nkentseu {
 					ctx.PushOcclusion(menu, 50); // routeur d'occlusion : rien ne passe derriere
 					dl.AddRectFilled(menu, ctx.theme.panel, ctx.S(8.f));
 					dl.AddRect(menu, ctx.theme.border, 1.f);
-					auto txt = [&](float32 x, float32 yy, const char *t, const NkColor &c, float32 maxW = 0.f) {
+					// -1 = AUCUNE limite (NkGuiDrawList : xEnd = x + maxWidth des que
+					// maxWidth >= 0). Avec 0 par defaut, la largeur utile valait zero et le
+					// texte n'apparaissait pas du tout — c'est ce qui masquait le titre.
+					auto txt = [&](float32 x, float32 yy, const char *t, const NkColor &c, float32 maxW = -1.f) {
 						if (font && font->Valid())
 							dl.AddText(font->Face(), font->TexId(), {x, yy + font->Ascent()}, t, c, maxW);
 					};
@@ -3591,27 +3597,23 @@ namespace nkentseu {
 					}
 					y += ctx.S(6.f);
 
-					// ── Ajouter un compte ───────────────────────────────────────────────
+					// ── Se connecter ────────────────────────────────────────────────────
+					// UN clic suffit. Devoir NOMMER le compte avant de pouvoir s'authentifier
+					// etait un peage : le nom sert a NKCode (c'est un nom de dossier), pas a
+					// l'utilisateur. Il ne le fournit que s'il tient a le choisir.
 					{
 						const NkRect row = {menu.x + ctx.S(6.f), y, w - ctx.S(12.f), rowH};
 						const bool hov = NkGuiRectContains(row, mp);
-						if (hov)
-							dl.AddRectFilled(row, ctx.theme.buttonHover, ctx.S(4.f));
-						txt(row.x + ctx.S(8.f), row.y + (rowH - lh) * 0.5f,
-							mAccAdding ? NkT("ai.acc.login") : NkT("ai.acc.add"), ctx.theme.text, row.w - ctx.S(16.f));
+						dl.AddRectFilled(row, hov ? violet : ctx.theme.button, ctx.S(4.f));
+						txt(row.x + ctx.S(8.f), row.y + (rowH - lh) * 0.5f, NkT("ai.acc.login"),
+							hov ? NkColor{255, 255, 255, 255} : ctx.theme.text, row.w - ctx.S(16.f));
 						if (hov && ctx.input.mouseClicked[0]) {
-							if (!mAccAdding) {
-								mAccAdding = true;
-								mAccName[0] = 0;
-								mAccError = NkString();
-							} else {
-								ValidateNewAccount();
-							}
+							ValidateNewAccount();
 							ctx.input.mouseClicked[0] = false;
 						}
 						y += rowH;
 					}
-					if (mAccAdding) {
+					{
 						const NkRect f = {menu.x + pad, y, w - pad * 2.f, it};
 						const NkGuiId fid = ctx.GetId("##aiAccName");
 						// Entree = valider : on CONSOMME la touche AVANT le widget, sinon elle
@@ -3635,7 +3637,8 @@ namespace nkentseu {
 						y += it;
 					}
 					// Rappel : isoler l'identite n'isole PAS le savoir (jonction vers _shared).
-					txt(menu.x + pad, y, NkT("ai.acc.shared"), ctx.theme.textDisabled, w - pad * 2.f);
+					for (usize i = 0; i < noteLignes.Size(); ++i, y += it)
+						txt(menu.x + pad, y, noteLignes[i].CStr(), ctx.theme.textDisabled, w - pad * 2.f);
 
 					const bool dansMenu = ctx.input.mouseClicked[0] && NkGuiRectContains(menu, mp);
 					if (ctx.input.mouseClicked[0] && !dansMenu) {
@@ -3650,8 +3653,28 @@ namespace nkentseu {
 
 				// Cree le compte saisi puis enchaine sur sa connexion. Un nom refuse le DIT
 				// (il se corrige) ; il n'est jamais nettoye en douce, ce qui surprendrait.
+				// Nom stable et NEUTRE quand l'utilisateur n'en donne pas. Volontairement
+				// PAS traduit : ce nom devient un nom de DOSSIER (CLAUDE_CONFIG_DIR) — s'il
+				// suivait la langue de l'interface, changer de langue orphelinerait le compte.
+				NkString AutoAccountName() const {
+					const NkVector<NkString> pris = NkAiAccountNames();
+					for (int32 k = 1; k < 100; ++k) {
+						const NkString essai = NkPrintf("Claude %d", k);
+						bool libre = true;
+						for (usize i = 0; i < pris.Size(); ++i)
+							if (pris[i] == essai) {
+								libre = false;
+								break;
+							}
+						if (libre)
+							return essai;
+					}
+					return NkString("Claude");
+				}
 				void ValidateNewAccount() {
-					const NkString nom = NkString(mAccName).Trim();
+					NkString nom = NkString(mAccName).Trim();
+					if (nom.Empty())
+						nom = AutoAccountName(); // champ vide : on n'embete personne
 					if (!NkAiAccountNameValid(nom.CStr())) {
 						mAccError = NkString(NkT("ai.acc.badname"));
 						return;

@@ -232,9 +232,14 @@ namespace nkentseu {
 		}
 
 		// Commande de CONNEXION a lancer dans le terminal dedie : le navigateur
-		// s'ouvre, l'utilisateur colle son code, et le CLI ecrit les identifiants
-		// dans le dossier du compte. Volontairement VISIBLE plutot que masquee par
-		// une barre de progression — c'est un echange interactif.
+		// s'ouvre, l'utilisateur valide, et le CLI ecrit les identifiants dans le
+		// dossier du compte. Volontairement VISIBLE plutot que masquee par une
+		// barre de progression — c'est un echange interactif.
+		//
+		// C'est bien « auth login », PAS « /login » : ce dernier est une commande
+		// de SESSION, tapee DANS une session interactive. Passee en argument, le
+		// CLI la prend pour un PROMPT et ne connecte personne (constate en
+		// l'executant). Sous-commandes reelles : auth login | logout | status.
 		inline NkString NkAiLoginCommand(const NkString &exe, const NkString &name) {
 			const NkString dir = NkAiAccountDir(name);
 #if defined(_WIN32)
@@ -242,13 +247,13 @@ namespace nkentseu {
 			c += dir;
 			c += "\" && \"";
 			c += exe;
-			c += "\" /login";
+			c += "\" auth login";
 #else
 			NkString c = "CLAUDE_CONFIG_DIR=\"";
 			c += dir;
 			c += "\" \"";
 			c += exe;
-			c += "\" /login";
+			c += "\" auth login";
 #endif
 			return c;
 		}
