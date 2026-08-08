@@ -63,11 +63,27 @@ float NkSlopeBias(float3 N, float3 L) {
     float NdL = max(dot(N, L), 0.0);
     return biasParams.x * max(1.0, 4.0 * (1.0 - NdL));
 }
-// Le biais NORMAL decale le point le long de sa normale, en unites monde :
-// c'est lui qui empeche une surface de porter sa propre ombre.
-float3 NkNormalBiasPos(float3 wp, float3 N, float3 L) {
+// Taille MONDE d'un texel du tile (transpose de NkShadowTexelWorld, glsli).
+// mul(M, v) : la ligne 0 donne clip.x -> sa norme vaut 2/largeur_monde du
+// tile ; la ligne 3 donne clip.w -> 1 en ortho, profondeur lumiere en
+// perspective (le texel d'une omni/spot grandit avec la distance).
+float NkTexelWorld(int slotIdx, float3 wp) {
+    float sx = length(slots[slotIdx].shadowMatrix[0].xyz);
+    float w  = dot(slots[slotIdx].shadowMatrix[3], float4(wp, 1.0));
+    float4 tuv = slots[slotIdx].tileUV;
+    uint aw, ah; tShadowMap.GetDimensions(aw, ah);
+    float tilePx = max((tuv.z - tuv.x) * float(aw), 1.0);
+    return 2.0 * max(abs(w), 1e-4) / (max(sx, 1e-6) * tilePx);
+}
+// Le biais NORMAL decale le point le long de sa normale. biasParams.y est un
+// NOMBRE DE TEXELS, converti en unites monde par tile : la constante monde
+// (5 cm, calibree pour la cascade lointaine) etait 10 a 100 fois trop grande
+// sur la cascade proche -- appliquee a la normale VERTICALE du sol, elle
+// testait chaque point du sol 5 cm au-dessus de lui-meme, et l'ombre ne
+// touchait plus le pied des objets (le « cube qui flotte » de Rihen).
+float3 NkNormalBiasPos(int slotIdx, float3 wp, float3 N, float3 L) {
     float NdL = max(dot(N, L), 0.0);
-    return wp + N * biasParams.y * ((1.0 - NdL) * 0.5 + 0.5);
+    return wp + N * (biasParams.y * NkTexelWorld(slotIdx, wp)) * ((1.0 - NdL) * 0.5 + 0.5);
 }
 float NkSampleTile(int slotIdx, float3 wp, float bias) {
     if (slotIdx < 0 || slotIdx >= 256) return 1.0;
@@ -104,10 +120,11 @@ float NkDirShadow(int li, float3 wp, float3 N, float3 L) {
     if (first < 0 || cnt <= 0) return 1.0;
     float absDepth = -mul(view, float4(wp, 1.0)).z;
     float bias = NkSlopeBias(N, L);
-    float3 bp = NkNormalBiasPos(wp, N, L);
     [loop] for (int c = 0; c < cnt && c < 4; c++) {
         if (absDepth < slots[first + c].lightPosOrDir.w)
-            return NkSampleTile(first + c, bp, bias);
+            // Decalage calcule PAR CASCADE : son texel change d'un ordre de
+            // grandeur entre la cascade proche et la lointaine.
+            return NkSampleTile(first + c, NkNormalBiasPos(first + c, wp, N, L), bias);
     }
     return 1.0;
 }
@@ -121,12 +138,12 @@ float NkPointShadow(int li, float3 wp, float3 N, float3 L) {
     if (a.x > a.y && a.x > a.z)      face = d.x > 0.0 ? 0 : 1;
     else if (a.y > a.z)              face = d.y > 0.0 ? 2 : 3;
     else                             face = d.z > 0.0 ? 4 : 5;
-    return NkSampleTile(first + face, NkNormalBiasPos(wp, N, L), NkSlopeBias(N, L));
+    return NkSampleTile(first + face, NkNormalBiasPos(first + face, wp, N, L), NkSlopeBias(N, L));
 }
 float NkSpotShadow(int li, float3 wp, float3 N, float3 L) {
     int first = int(firstSlotPerLight[li >> 2][li & 3]);
     if (first < 0) return 1.0;
-    return NkSampleTile(first, NkNormalBiasPos(wp, N, L), NkSlopeBias(N, L));
+    return NkSampleTile(first, NkNormalBiasPos(first, wp, N, L), NkSlopeBias(N, L));
 }
 float NkLightShadow(int li, int type, float3 wp, float3 N, float3 L) {
     if (type == 0) return NkDirShadow(li, wp, N, L);

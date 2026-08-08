@@ -1,0 +1,44 @@
+% =============================================================================
+% PAGE DE GARDE -- meme charte que le cours NkCanvas & NKGui : fond sarcelle,
+% bandeau blanc portant le logo. Deux cours de la meme maison doivent se
+% reconnaitre au premier coup d'oeil ; seul le titre change.
+% =============================================================================
+\begin{titlepage}
+\thispagestyle{empty}
+\newgeometry{margin=0pt}
+
+\begin{tikzpicture}[remember picture, overlay]
+  \fill[rihenTeal] (current page.south west) rectangle (current page.north east);
+  \fill[rihenOrange] ([yshift=0pt]current page.south west)
+        rectangle ([yshift=13pt]current page.south east);
+  \fill[white] ([yshift=-2.6cm]current page.north west)
+        rectangle ([yshift=-6.4cm]current page.north east);
+  \node[anchor=center] at ([yshift=-4.5cm]current page.north)
+       {\includegraphics[width=8.2cm]{rihen-logo.png}};
+
+  \node[anchor=north, text width=15.2cm, align=center]
+       at ([yshift=-9.4cm]current page.north) {
+    {\sffamily\bfseries\fontsize{40}{46}\selectfont\color{white}
+      ConquerorLab\par}
+    \vspace{10pt}
+    {\color{rihenOrange}\rule{4.2cm}{2.6pt}\par}
+    \vspace{16pt}
+    {\sffamily\fontsize{17}{23}\selectfont\color{white!88}
+      Écrire des règles, écrire une IA,\\et faire parler les mesures\par}
+    \vspace{10pt}
+    {\sffamily\fontsize{12.5}{17}\selectfont\color{rihenOrange}
+      Cours complet — sujets de stage A1 et A2\par}
+  };
+
+  \node[anchor=south, text width=15cm, align=center]
+       at ([yshift=1.9cm]current page.south) {
+    {\sffamily\fontsize{10.5}{15}\selectfont\color{white!78}
+      Rêvons ensemble et réinventons le futur\par}
+    \vspace{5pt}
+    {\sffamily\fontsize{9.5}{13}\selectfont\color{white!58}
+      Rihen — \DocDate\par}
+  };
+\end{tikzpicture}
+
+\restoregeometry
+\end{titlepage}

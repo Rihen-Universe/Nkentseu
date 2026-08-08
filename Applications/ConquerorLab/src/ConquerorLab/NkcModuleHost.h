@@ -28,6 +28,7 @@
 #include "Conqueror/ConquerorRulesABI.h"
 #include "Conqueror/ConquerorAIABI.h"
 #include "ConquerorLab/NkcModuleCompiler.h"
+#include "ConquerorLab/NkcModuleLog.h"
 
 #include "NKContainers/String/NkString.h"
 #include "NKContainers/Sequential/NkVector.h"
@@ -73,6 +74,9 @@ namespace nkentseu {
 				void		   *handle	= nullptr;
 				nk_int64		srcTime = 0;
 				NkcModuleStatus status	= NkcModuleStatus::Builtin;
+				/// Charge, mais compile contre une ABI mineure anterieure : il tourne,
+				/// sans les dernieres entrees. Le panneau Modules le signale.
+				bool			stale	= false;
 
 				bool Usable() const noexcept {
 					return status == NkcModuleStatus::Builtin || status == NkcModuleStatus::Ready;
@@ -90,13 +94,16 @@ namespace nkentseu {
 		// ---------------------------------------------------------------------
 		class NkcModuleHost {
 			public:
-				void Init(const NkString &repoRoot, const NkString &rulesDir,
-						  const NkString &aiDir) noexcept {
-					mRulesDir = rulesDir;
-					mAiDir	  = aiDir;
+				/// `log` peut etre nullptr : l'atelier fonctionne sans journal de
+				/// modules, les traces repartent alors sur stderr cote module.
+				void Init(const NkcLayout &layout, NkcModuleLog *log = nullptr) noexcept {
+					mLayout	  = &layout;
+					mRulesDir = layout.WorkDir("rules");
+					mAiDir	  = layout.WorkDir("ai");
+					mLog	  = log;
 					NkDirectory::CreateRecursive(mRulesDir.CStr());
 					NkDirectory::CreateRecursive(mAiDir.CStr());
-					mCompiler.Init(repoRoot);
+					mCompiler.Init(layout);
 					RegisterBuiltins();
 					Refresh();
 				}
@@ -221,7 +228,8 @@ namespace nkentseu {
 				/// Compile si necessaire puis charge. Remplit `e` (status + log).
 				template <typename TEntry, typename TFactory>
 				bool BuildAndLoad(TEntry &e, const char *symFactory, const char *symAlloc,
-								  uint32 expectedAbi) noexcept {
+								  const char *symLogger, uint32 expectedAbi,
+								  uint32 expectedMinor) noexcept {
 					e.binaryPath = NkcModuleCompiler::ReplaceExtension(
 						e.sourcePath, NkcModuleCompiler::BinaryExt());
 
@@ -261,16 +269,41 @@ namespace nkentseu {
 					std::memset(&e.factory, 0, sizeof(e.factory));
 					getFac(&e.factory);
 
+					// ---- controle de version -----------------------------
+					// La MAJEURE seule est eliminatoire. Une MINEURE en retard
+					// veut dire « ce module ne connait pas les dernieres entrees
+					// de la vtable » — or elles sont toutes optionnelles et
+					// gardees par un test de nullite : le module tourne.
+					//
+					// Verifie le 2026-08-07 : un module compile contre l'ABI
+					// precedente joue une partie complete, zero coup illegal.
+					// C'est le CONTROLE qui l'ecartait, pas le code.
 					if (e.factory.info.abiVersion != expectedAbi) {
 						e.status = NkcModuleStatus::LoadError;
-						char tmp[160];
+						char tmp[220];
 						std::snprintf(tmp, sizeof(tmp),
-									  "ABI %u, attendue %u. Recompile avec les headers a jour.",
+									  "ABI majeure %u, attendue %u — incompatible.\n"
+									  "Le contrat a change de forme : recompile ton module "
+									  "avec les en-tetes a jour.",
 									  e.factory.info.abiVersion, expectedAbi);
 						e.log = tmp;
 						Unload(e.handle);
 						e.handle = nullptr;
 						return false;
+					}
+
+					// Mineure en retard : on ACCEPTE, et on le dit.
+					if (e.factory.abiMinor < expectedMinor) {
+						char tmp[300];
+						std::snprintf(tmp, sizeof(tmp),
+									  "Compile et charge.\n"
+									  "Note : module en ABI %u.%u, atelier en %u.%u. Il fonctionne — "
+									  "les fonctions ajoutees depuis ne sont simplement pas "
+									  "disponibles. Recompile quand tu veux en profiter.",
+									  e.factory.info.abiVersion, e.factory.abiMinor,
+									  expectedAbi, expectedMinor);
+						e.log = tmp;
+						e.stale = true;
 					}
 
 					e.status = NkcModuleStatus::Ready;
@@ -279,8 +312,27 @@ namespace nkentseu {
 					e.label += e.factory.info.version;
 					e.label += ")";
 					e.log = "Compile et charge.";
+
+					// Brancher le journal du module sur celui de l'atelier. APRES
+					// getFac : le nom affiche dans le panneau « Sortie » est celui
+					// que le module declare, pas le nom de fichier.
+					//
+					// Le symbole est OPTIONNEL. Un module qui ne journalise pas n'a
+					// pas a s'encombrer d'un export de plus — son absence n'est donc
+					// ni une erreur ni un avertissement.
+					InstallLogger(e.handle, symLogger, e.factory.info.name);
+
 					logger.Infof("[lab] module pret : %s", e.label.CStr());
 					return true;
+				}
+
+				/// Pose le puits de journal dans un module fraichement charge.
+				void InstallLogger(void *handle, const char *symLogger,
+								   const char *name) noexcept {
+					if (!mLog || !symLogger) return;
+					using SetLogFn = void (*)(NkcLogFn, void *, const char *);
+					auto setLog = reinterpret_cast<SetLogFn>(SymOf(handle, symLogger));
+					if (setLog) setLog(&NkcModuleLog::Sink, mLog, name);
 				}
 
 				template <typename TEntry>
@@ -305,7 +357,7 @@ namespace nkentseu {
 							BuildAndLoad<NkcRulesEntry, NkcRulesFactory>(
 								mRules[static_cast<usize>(idx)],
 								NKC_RULES_SYM_GET_FACTORY, NKC_RULES_SYM_SET_ALLOC,
-								kRulesAbiVersion);
+								NKC_RULES_SYM_SET_LOGGER, kRulesAbiMajor, kRulesAbiMinor);
 							++changed;
 						} else {
 							NkcRulesEntry e;
@@ -314,7 +366,7 @@ namespace nkentseu {
 							e.srcTime	 = t;
 							BuildAndLoad<NkcRulesEntry, NkcRulesFactory>(
 								e, NKC_RULES_SYM_GET_FACTORY, NKC_RULES_SYM_SET_ALLOC,
-								kRulesAbiVersion);
+								NKC_RULES_SYM_SET_LOGGER, kRulesAbiMajor, kRulesAbiMinor);
 							mRules.PushBack(e);
 							++changed;
 						}
@@ -336,7 +388,8 @@ namespace nkentseu {
 							mAis[static_cast<usize>(idx)].srcTime = t;
 							BuildAndLoad<NkcAIEntry, NkcAIFactory>(
 								mAis[static_cast<usize>(idx)],
-								NKC_AI_SYM_GET_FACTORY, NKC_AI_SYM_SET_ALLOC, kAiAbiVersion);
+								NKC_AI_SYM_GET_FACTORY, NKC_AI_SYM_SET_ALLOC,
+								NKC_AI_SYM_SET_LOGGER, kAiAbiMajor, kAiAbiMinor);
 							++changed;
 						} else {
 							NkcAIEntry e;
@@ -344,7 +397,8 @@ namespace nkentseu {
 							e.label		 = files[i];
 							e.srcTime	 = t;
 							BuildAndLoad<NkcAIEntry, NkcAIFactory>(
-								e, NKC_AI_SYM_GET_FACTORY, NKC_AI_SYM_SET_ALLOC, kAiAbiVersion);
+								e, NKC_AI_SYM_GET_FACTORY, NKC_AI_SYM_SET_ALLOC,
+								NKC_AI_SYM_SET_LOGGER, kAiAbiMajor, kAiAbiMinor);
 							mAis.PushBack(e);
 							++changed;
 						}
@@ -359,6 +413,8 @@ namespace nkentseu {
 				NkString				mRulesDir;
 				NkString				mAiDir;
 				NkcModuleCompiler		mCompiler;
+				NkcModuleLog		   *mLog = nullptr;
+				const NkcLayout		   *mLayout = nullptr;
 				NkVector<NkcRulesEntry> mRules;
 				NkVector<NkcAIEntry>	mAis;
 		};

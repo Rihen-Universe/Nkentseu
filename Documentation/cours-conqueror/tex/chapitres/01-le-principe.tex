@@ -1,0 +1,428 @@
+\chapter{Le principe : trois dossiers, un contrat}
+
+Ce chapitre est la carte. Tout le reste en découle, et si vous ne deviez lire
+qu'un chapitre, ce serait celui-ci.
+
+\section{Trois dossiers, trois natures de contribution}
+
+Vous ne manipulez \textbf{jamais} de DLL et ne lancez \textbf{jamais} de commande
+de build. Vous déposez un fichier dans un dossier, et l'atelier fait le reste.
+
+\begin{center}
+\begin{tabular}{@{}p{3.4cm}p{4.6cm}p{5.8cm}@{}}
+\toprule
+\textbf{J'ajoute\ldots} & \textbf{Je dépose\ldots} & \textbf{Ce qui se passe} \\
+\midrule
+un moteur de règles & \texttt{rules/mes\_regles.cpp} & détecté → \textbf{compilé} → chargé → panneau \emph{Modules} \\
+une IA & \texttt{ai/mon\_ia.cpp} & idem → liste des pilotes, panneau \emph{Joueurs} \\
+une grille & \texttt{boards/diamant.json} & \textbf{aucune compilation} → panneau \emph{Règles} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+La différence entre les deux premiers et le troisième n'est pas une commodité,
+c'est une décision de conception.
+
+\begin{nkretenir}[Une règle est du code, un plateau est une donnée]
+\begin{quote}
+\emph{Le plateau n'est pas une constante du code : c'est un descripteur
+sérialisable, éditable à la souris dans le moteur de test.}
+\hfill\textsc{regles\_completes\_v2.md:95}
+\end{quote}
+Une règle décrit un \emph{comportement} : elle se programme. Un plateau décrit
+une \emph{forme} : il se décrit. Confondre les deux vous condamne à recompiler
+pour essayer un hexagone au lieu d'un carré — et donc à ne jamais l'essayer.
+
+Le chapitre 5 montre la troisième voie : un plateau décrit \textbf{en C++}, sans
+JSON, quand sa forme ne se laisse pas mettre en tableau.
+\end{nkretenir}
+
+\section{Le cycle de travail}
+
+\begin{nkcode}{Ce qui se passe quand vous sauvegardez}
+1.  vous ecrivez   Build/ConquerorLab/rules/mes_regles.cpp
+2.  vous sauvegardez
+3.  l'atelier detecte le changement (il scrute une fois par seconde)
+4.  il COMPILE  ->  il charge  ->  votre module apparait dans le menu
+5.  vous rejouez une partie, sans avoir quitte l'application
+\end{nkcode}
+
+En cas d'erreur, \textbf{la sortie complète du compilateur} s'affiche dans le
+panneau \emph{Modules}. C'est le seul retour que vous aurez : pas de terminal,
+pas de chaîne de build à apprendre.
+
+\begin{nkpiege}[La compilation fige l'atelier une à deux secondes]
+C'est assumé, et documenté dans \nkfile{src/ConquerorLab/NkcSession.h} :
+
+\begin{quote}\small
+La compilation est SYNCHRONE : quand le stagiaire sauvegarde, l'atelier se fige
+une seconde ou deux, puis son module apparaît. C'est assumé — un compilateur
+piloté depuis un thread annexe demanderait une file de travaux et un verrou sur
+le catalogue, pour gagner deux secondes toutes les cinq minutes.
+\end{quote}
+
+Si l'atelier se fige au moment où vous sauvegardez, il ne plante pas : il vous
+compile.
+\end{nkpiege}
+
+\section{Le contrat : deux tables de pointeurs}
+
+Un module ne dérive d'aucune classe et n'exporte aucun symbole C++. Il remplit
+une \textbf{structure de pointeurs de fonction} et l'expose par deux fonctions
+\texttt{C}.
+
+\begin{nkcode}{include/Conqueror/ConquerorRulesABI.h:255-273 (extrait)}
+struct NkcRulesFactory {
+        NkcRulesInfo   info;
+        NkcRulesVTable vtable;
+};
+
+// Les DEUX symboles que tout module de regles doit exporter.
+using NkcRulesGetFactoryFn   = void (*)(NkcRulesFactory *out);
+using NkcRulesSetAllocatorFn = void (*)(NkcAllocFn a, NkcFreeFn f);
+
+#define NKC_RULES_SYM_GET_FACTORY "nkc_rules_get_factory"
+#define NKC_RULES_SYM_SET_ALLOC   "nkc_rules_set_allocator"
+\end{nkcode}
+
+Pourquoi une table de pointeurs plutôt qu'une classe abstraite ? Parce qu'une
+classe abstraite impose une \textbf{ABI C++} — disposition de vtable, décoration
+des noms, modèle d'exception — qui change d'un compilateur à l'autre et parfois
+d'une version à l'autre. Une structure de pointeurs de fonction, non.
+
+\section{Qui parle à qui}
+
+\begin{nkcode}{Le schema qui explique le decoupage des deux stages}
+                    +---------------------------+
+                    |        ConquerorLab       |
+                    | (l'atelier - six panneaux)|
+                    +-------------+-------------+
+                                  | NE CONNAIT AUCUNE REGLE
+                    +-------------+-------------+
+                    |                           |
+          NkcRulesVTable                 NkcAIVTable
+                    |                           |
+       +------------v-----------+   +-----------v------------+
+       | votre moteur de regles |<--|        votre IA        |
+       |          (A1)          |   |          (A2)          |
+       +------------------------+   +------------------------+
+                  ^                              |
+                  +------------------------------+
+                     l'IA TRAVERSE les regles :
+                     elle recoit la vtable + un handle opaque
+\end{nkcode}
+
+Trois propriétés découlent de ce schéma, et ce sont elles qui font tenir le
+stage :
+
+\begin{enumerate}
+  \item \textbf{A2 démarre en semaine 1}, sur un module bouchon, sans attendre A1 ;
+  \item \textbf{quand A1 change son code interne, l'IA continue de fonctionner} —
+        elle n'a jamais vu ce code ;
+  \item \textbf{les deux ne peuvent pas diverger sur les règles} : il n'en existe
+        qu'une implémentation, et l'IA la traverse.
+\end{enumerate}
+
+\section{L'état est opaque, la vue est en lecture seule}
+
+Vous choisissez librement la représentation interne de votre partie. Ni l'atelier
+ni l'IA ne la voient. Ce qu'ils voient est une \textbf{vue}.
+
+\begin{nkcode}{include/Conqueror/ConquerorRulesABI.h:92-109 (abrege)}
+struct NkcStateView {
+        const NkcCellView *cells     = nullptr;  // cellCount entrees
+        const NkcCoord    *coords    = nullptr;  // meme indexation
+        uint32             cellCount = 0;
+
+        NkcTopology topology    = NkcTopology::HexPointy;
+        uint8       playerCount = 2;
+        uint8       current     = 0;   // joueur au trait
+        uint8       finished    = 0;
+        int8        winner      = -2;  // -1 = nul, -2 = en cours
+        uint32      turn        = 0;
+
+        const int32 *energy         = nullptr;
+        const int32 *conquestTenths = nullptr;   // en DIXIEMES
+        const int32 *totemCount     = nullptr;
+};
+\end{nkcode}
+
+\begin{nkpiege}[Les pointeurs de la vue appartiennent au module]
+Ils restent valides \textbf{jusqu'au prochain appel mutant} sur cet état
+(\texttt{ApplyMove}, \texttt{Setup}, \texttt{DeserializeState},
+\texttt{CloneState}). L'appelant ne libère jamais rien.
+
+En pratique : après avoir appliqué un coup, \textbf{redemandez la vue}. Les
+champs scalaires (\texttt{current}, \texttt{turn}, \texttt{finished}) sont des
+\emph{copies} faites au moment de \texttt{GetView} — ils ne se mettent pas à jour
+tout seuls.
+\end{nkpiege}
+
+\section{Les quatre exigences non négociables}
+
+Elles ne sont pas des préférences de style. Elles conditionnent l'existence même
+du sujet A2 et de toute campagne de mesure.
+
+\begin{nkcode}{REGLES\_COMPLETES\_v2.md:583-590}
+1. Zero flottant dans la logique de regles. Entiers partout, PC en dixiemes.
+2. PRNG porte par l'etat de partie, serialise avec lui. Jamais de generateur
+   global.
+3. Rejeu bit-a-bit : seed + liste de coups -> etat final identique, sur
+   Windows et sur Linux, quel que soit le compilateur.
+4. Aucun ordre d'iteration de conteneur ne doit etre observable dans le
+   resultat. Toute resolution ambigue est arbitree par un critere explicite
+   (index de joueur, coordonnee), jamais par l'ordre de parcours d'une table.
+\end{nkcode}
+
+Chacune a une raison très concrète.
+
+\subsection*{1 — Zéro flottant}
+
+Les Points de Conquête valent $1 + niveau \times 0{,}5 + ennemis \times 0{,}2 +
+alli\acute{e}s \times 0{,}1$. En virgule flottante, \textbf{l'ordre
+d'accumulation change le dernier bit} selon le compilateur et la plateforme, et
+le rejeu bit-à-bit tombe. Le moteur stocke donc les PC en \textbf{dixièmes
+entiers} : base 10, niveau $\times 5$, ennemi $\times 2$, allié $\times 1$. La
+division par 10 est un fait d'\emph{affichage} — elle n'existe nulle part dans la
+logique.
+
+\subsection*{2 — PRNG porté par l'état}
+
+L'IA clone une position des milliers de fois par seconde. Avec un générateur
+global, deux clones piochent dans le même flux et le rejeu meurt. Au palier 0 il
+n'y a aucun aléatoire dans Conqueror ; le champ existe quand même, parce que
+l'ajouter plus tard obligerait à re-sérialiser tous les états déjà enregistrés.
+
+\subsection*{3 — Rejeu bit-à-bit}
+
+C'est ce qui permet de coller un journal dans un rapport de bug et de le rejouer
+à l'identique ailleurs. Le panneau \emph{Journal} affiche l'empreinte après
+\textbf{chaque} coup : quand deux rejeux divergent, elle dit \emph{où}, pas
+seulement \emph{qu'ils diffèrent}.
+
+\subsection*{4 — Aucun ordre observable}
+
+Si votre générateur de coups parcourt une table de hachage, l'ordre des coups
+change entre deux exécutions. L'IA choisit alors un coup différent, la partie
+diverge, et vos dix mille parties ne mesurent plus rien.
+
+\begin{nkretenir}
+\texttt{GenerateLegalMoves} \textbf{doit} produire les coups dans un ordre stable
+et reproductible. Dans les exemples de ce cours : cases par index croissant, puis
+voisins dans l'ordre déclaré. Ne le changez jamais sans raison — et si vous le
+changez, sachez que toutes les mesures antérieures deviennent incomparables.
+\end{nkretenir}
+
+\section{Ce qu'un module a le droit d'inclure}
+
+La frontière est \textbf{NKCanvas / NKGui} : tout ce qui est en dessous vous est
+ouvert, rien de ce qui est au-dessus ne l'est.
+
+\begin{nkcode}{src/ConquerorLab/NkcModuleCompiler.h — StackIncludes}
+/// L'atelier ne donnait au depart que trois -I et aucun lien : un
+/// module compilait sans rien lier du moteur. C'etait elegant, et
+/// trop etroit -- un moteur de regles a besoin d'une chaine, d'un
+/// tableau dynamique, d'un formatage, d'un journal. Reecrire tout
+/// cela a la main dans chaque module est du temps vole au jeu.
+\end{nkcode}
+
+Vous avez donc droit à :
+
+\begin{center}
+\begin{tabular}{@{}p{7.4cm}p{6.4cm}@{}}
+\toprule
+\textbf{Ce que vous incluez} & \textbf{Ce que ça vous donne} \\
+\midrule
+\nkfile{Conqueror/ConquerorRulesABI.h} & le contrat \\
+\nkfile{Conqueror/ConquerorGeometry.h} & voisinage, distance — inline et entiers \\
+\nkfile{NKCore/NkTypes.h} & \texttt{uint32}, \texttt{int8}, \texttt{usize} \\
+\nkfile{NKContainers/String/NkString.h} & \texttt{NkString}, \texttt{NkFormat} \\
+\nkfile{NKContainers/Sequential/NkVector.h} & \texttt{NkVector}, \texttt{NkList} \\
+\nkfile{NKContainers/Associative/NkMap.h} & \texttt{NkMap}, \texttt{NkSet} \\
+\nkfile{NKMath/NkFunctions.h} & \texttt{math::NkSqrt}, \texttt{NkClamp}\ldots \\
+\nkfile{NKLogger/NkLog.h} & \texttt{logger.Infof(...)} \\
+\nkfile{NKFileSystem/NkFile.h} & \texttt{NkFile}, \texttt{NkDirectory} \\
+\nkfile{NKThreading/NkThread.h} & \texttt{NkThread}, \texttt{NkMutex} \\
+la bibliothèque standard C & \texttt{<cstring>}, \texttt{<cstdio>}\ldots \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Vous n'avez \textbf{pas} droit à NKCanvas, NKGui, NKWindow, NKRenderer — un
+moteur de règles ne dessine pas. C'est l'atelier qui affiche, à partir de la vue
+que vous exposez. \textbf{Cette frontière est le cœur du contrat}, pas une
+restriction administrative : c'est elle qui permet de changer entièrement
+l'affichage sans toucher une règle, et inversement.
+
+\section{Quand le contrat change : majeure et mineure}
+
+Le contrat va évoluer pendant vos huit semaines. La question qui compte est :
+\textbf{faut-il tout recompiler à chaque fois ?}
+
+\begin{nkcode}{include/Conqueror/ConquerorRulesABI.h}
+inline constexpr uint32 kRulesAbiMajor = 3;
+inline constexpr uint32 kRulesAbiMinor = 1;
+\end{nkcode}
+
+\begin{itemize}
+  \item \textbf{MAJEURE} — un champ change de type ou de place, une signature
+        change. Votre module est \textbf{refusé} : il faut recompiler, et le
+        panneau \emph{Modules} le dit.
+  \item \textbf{MINEURE} — une fonction est ajoutée \emph{à la fin} de la vtable.
+        Votre module \textbf{continue de tourner}. L'atelier l'accepte et note :
+        « module en ABI 3.0, atelier en 3.1 — il fonctionne, les fonctions
+        ajoutées depuis ne sont pas disponibles. »
+\end{itemize}
+
+Pourquoi cette distinction existe : sans elle, le jour où j'ai ajouté trois
+entrées à la vtable, \textbf{tous} les modules devenaient « ABI 2, attendue 3 » —
+refusés alors qu'ils tournaient parfaitement. Vous faire recompiler tout votre
+travail parce que \emph{j'ai} ajouté une fonction est exactement la friction
+qu'un contrat doit supprimer.
+
+\begin{nkpiege}[Ce que ça a coûté d'apprendre]
+La règle « on ajoute à la fin » est plus étroite qu'elle n'en a l'air : on ajoute
+à la fin de la \textbf{dernière structure de la chaîne}.
+
+\texttt{NkcRulesInfo} précède \texttt{NkcRulesVTable} dans la fabrique. Grossir
+\texttt{info} \textbf{décale} la vtable : un module d'époque écrit sa table à
+l'ancien décalage, l'atelier la lit au nouveau, et on appelle des adresses au
+hasard. Premier essai : \textbf{segfault}. Les champs sont donc à la fin de
+\texttt{NkcRulesFactory}, après la vtable.
+
+\nkfile{tests/NkcAbiCompat.cpp} monte désormais la garde : il compile un module
+contre des en-têtes \textbf{figés} et le fait jouer avec l'atelier d'aujourd'hui.
+\textbf{11 vérifications, 0 échec.}
+\end{nkpiege}
+
+\section{Afficher un état pour comprendre — le panneau Sortie}
+
+Votre module a \textbf{sa propre copie de la pile} : l'édition de liens est
+statique. Conséquence directe, et surprenante la première fois : un
+\texttt{logger.Infof()} depuis votre code n'atteint pas la console de l'atelier.
+Vous écrivez dans \emph{votre} journal, pas dans le sien.
+
+Ce n'est pas un oubli — c'est la conséquence de l'isolation qui fait tout
+l'intérêt du système. Mais déboguer un moteur de règles sans pouvoir afficher un
+état, c'est déboguer à l'aveugle. L'atelier \textbf{injecte donc un puits} dans
+chaque module au chargement, et le branchement tient en une ligne :
+
+\begin{nkcode}{exemples/rules/RegleMinimale.cpp — fin de fichier}
+NKC_MODULE_EXPORT void nkc_rules_set_allocator(NkcAllocFn a, NkcFreeFn f) {
+    gAlloc = a; gFree = f;
+}
+NKC_MODULE_LOGGING(rules)   // <- une ligne, et NKC_LOG_* va dans « Sortie »
+\end{nkcode}
+
+\texttt{NKC\_MODULE\_LOGGING(rules)} dans un module de règles,
+\texttt{NKC\_MODULE\_LOGGING(ai)} dans une IA. Il faut inclure
+\nkfile{Conqueror/ConquerorLog.h}. À partir de là :
+
+\begin{nkcode}{exemples/rules/RegleMinimale.cpp — V\_Setup}
+NKC_LOG_INFO("nouvelle partie : %d cases, %d joueurs, graine %llu",
+             kCells, (int32)s->playerCount, (unsigned long long)seed);
+\end{nkcode}
+
+s'affiche dans le panneau \textbf{Sortie}, avec le nom de votre module et le
+niveau.
+
+\begin{nkretenir}[\texttt{logger.Infof} marche aussi]
+Si vous incluez NKLogger, la macro branche en plus un \texttt{NkISink} sur le
+logger \emph{privé} de votre module, qui repousse tout vers l'atelier. Le réflexe
+de quelqu'un qui connaît déjà Nkentseu fonctionne donc sans qu'il ait à
+l'apprendre.
+
+Une seule contrainte : incluez \nkfile{ConquerorLog.h} \textbf{après} NKLogger —
+la détection se fait sur son garde d'inclusion.
+\end{nkretenir}
+
+\begin{nkpiege}[Deux limites à connaître]
+\textbf{Sans atelier, tout part sur stderr.} Banc d'essai, test en ligne de
+commande : personne n'injecte de puits, et vos traces sortent sous la forme
+\texttt{[INFO] module: ...}. Elles ne disparaissent jamais en silence.
+
+\textbf{Ne journalisez pas dans une boucle chaude.} \texttt{NKC\_LOG\_*} formate
+\emph{avant} de savoir si quelqu'un écoute. Dans un rollout MCTS c'est un
+désastre — et le tampon de l'atelier est borné à 4096 lignes, donc vous perdriez
+de toute façon ce que vous cherchez. Une trace par coup, pas par nœud. Pour
+mesurer, il y a \texttt{NkcAIResult} et \texttt{GetDebugJson}.
+\end{nkpiege}
+
+L'isolation explique aussi \nkfile{nkc_rules_set_allocator} : sans injection, les
+deux côtés allouent dans des tas distincts.
+
+Les trois exemples de ce cours n'utilisent volontairement que
+\texttt{<cstring>} et \texttt{<cstdio>} : ils doivent rester lisibles par
+quelqu'un qui ne connaît pas encore Nkentseu. Rien ne vous oblige à cette
+austérité.
+
+\begin{nkpiege}[Pourquoi la projection écran n'est pas dans la géométrie]
+\begin{quote}\small
+Aucune dépendance à NKMath : tout y est inline et entier, donc un module compilé
+par l'atelier n'a AUCUN symbole à lier. La projection écran (cos/sin/arrondi) vit
+ailleurs — c'est de la présentation, pas de la règle.
+\hfill\textsc{ConquerorGeometry.h:10-13}
+\end{quote}
+
+\texttt{NkRound} de NKMath est un symbole \emph{lié}. L'inclure dans le contrat
+ferait échouer l'édition de liens de \textbf{tous} les modules.
+\end{nkpiege}
+
+\section{La géométrie fournie, en trois fonctions}
+
+C'est le socle commun. Le chapitre 5 montre comment s'en passer entièrement.
+
+\begin{nkcode}{include/Conqueror/ConquerorGeometry.h:26-88 (signatures)}
+int32    NeighborCount(NkcTopology t) noexcept;
+NkcCoord Neighbor(NkcTopology t, NkcCoord c, int32 i) noexcept;
+int32    Distance(NkcTopology t, NkcCoord a, NkcCoord b) noexcept;
+\end{nkcode}
+
+Quatre topologies, et le voisinage est une propriété de la topologie — jamais
+codé en dur ailleurs :
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Topologie} & \textbf{Voisins} & \textbf{Coordonnées} \\
+\midrule
+\texttt{HexPointy} & 6 & axiales $(q, r)$, pointes haut/bas \\
+\texttt{HexFlat}   & 6 & axiales $(q, r)$, pointes gauche/droite \\
+\texttt{Square4}   & 4 & $(x, y)$, orthogonaux \\
+\texttt{Square8}   & 8 & $(x, y)$, $+$ diagonales \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Un seul type de coordonnée pour les quatre : c'est la topologie qui décide de
+l'interprétation.
+
+\begin{nkpiege}[L'ordre des voisins est NORMATIF]
+\begin{quote}\small
+i-ème voisin de \texttt{c}. L'ORDRE EST NORMATIF : il fixe l'ordre de génération
+des coups, donc la reproductibilité. Ne jamais le changer.
+\hfill\textsc{ConquerorGeometry.h:36-37}
+\end{quote}
+\end{nkpiege}
+
+\begin{nkexo}[1 — Lire le contrat]
+Ouvrez \nkfile{ConquerorRulesABI.h} et faites la liste des fonctions de
+\texttt{NkcRulesVTable} \textbf{sans regarder le chapitre 2}. Classez-les en
+quatre familles : cycle de vie, réglages, jeu, sérialisation. Combien y en a-t-il ?
+Laquelle vous paraît la plus difficile à implémenter, et pourquoi ?
+\end{nkexo}
+
+\begin{nkexo}[2 — La cascade]
+Lisez \nkfile{REGLES\_COMPLETES\_v2.md} \S7.3. Une duplication retourne les
+ennemis voisins de la case où l'on vient de poser. Si un totem retourné a
+lui-même des voisins ennemis, sont-ils retournés à leur tour ? Trouvez la phrase
+qui tranche, et expliquez pourquoi le document dit que c'est « le point le plus
+facile à implémenter de travers ».
+\end{nkexo}
+
+\begin{nkexo}[3 — Le flottant qui tue]
+Écrivez un petit programme qui additionne \texttt{0.1f} cent fois, puis fait la
+même chose en dixièmes entiers, et compare au résultat exact \texttt{10.0}. Quel
+écart obtenez-vous ? Multipliez-le mentalement par dix mille parties et deux
+plateformes : vous tenez la raison de l'exigence n\textsuperscript{o} 1.
+\end{nkexo}

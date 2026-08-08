@@ -150,6 +150,20 @@ namespace nkentseu {
 					mActivityBarRight = right;
 				}
 
+				// MASQUAGE DE L'INPUT DU CORPS quand un popup NKGui est sous la souris.
+				// Vrai par defaut : c'est ce qui empeche les clics destines a un menu de
+				// la BARRE DE TITRE de traverser vers l'editeur.
+				//
+				// A COUPER si vos PANNEAUX ouvrent eux-memes des popups (BeginCombo,
+				// BeginMenu) : ceux-la sont dessines PENDANT les panneaux, donc avec
+				// l'input deja masque -- le combo s'ouvre puis n'accepte plus aucun clic
+				// et refuse de se refermer. NKGui resout deja l'occlusion de ses propres
+				// popups ; en echange, gardez vos hit-tests « bruts » sous garde
+				// `ctx.popupDepth == 0`.
+				void SetMaskBodyOnPopup(bool mask) noexcept {
+					mMaskBodyOnPopup = mask;
+				}
+
 				// Clic sur l'activity bar : l'app recoit l'index (0..6 = vues gauche, 100..102 = IA
 				// droite, 999 = reglages) et decide (sidebar exclusive facon VSCode).
 				void SetActivityHandler(void (*fn)(void *, int32), void *user) noexcept {
@@ -484,6 +498,9 @@ namespace nkentseu {
 				char mFooterRight[128] = {};
 				int32 mActivityIndex = 0;					  // icone selectionnee dans l'activity bar
 				int32 mActivityIndexRight = -1;				  // icone marquee de la barre DROITE (IA)
+				bool mActivityBarLeft = true;				  // cf. SetActivityBars
+				bool mActivityBarRight = true;
+				bool mMaskBodyOnPopup = true;				  // cf. SetMaskBodyOnPopup
 				uint32 mActTexL[8] = {};					  // textures vues gauche (0 = trait)
 				uint32 mActTexR[4] = {};					  // textures IA droite
 				uint32 mActTexGear = 0;						  // texture reglages

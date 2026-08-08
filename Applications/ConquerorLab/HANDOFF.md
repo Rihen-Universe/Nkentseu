@@ -86,6 +86,16 @@ respecte-la, ne produis pas une UI grise par défaut.
 ## 1. Le prompt d'origine (archive — la construction est faite)
 
 > Conservé pour mémoire : c'est la commande qui a produit l'atelier.
+>
+> **Deux affirmations y sont devenues fausses**, et il est plus honnête de le
+> signaler que de réécrire l'histoire :
+>
+> - « les modules compilent avec 3 -I seulement, sans lier le moteur » — ils ont
+>   désormais **toute la pile sous NKCanvas**, liée automatiquement ;
+> - « `NkRound` est un symbole lié, l'inclure casserait l'édition de liens » —
+>   NKMath est maintenant disponible aux modules. La projection écran reste
+>   pourtant côté atelier, mais pour la **bonne** raison : une règle de jeu ne
+>   connaît pas les pixels.
 
 ```
 Reprends le développement de ConquerorLab, dans
@@ -159,7 +169,35 @@ respecte-la, ne produis pas une UI grise par défaut.
 C'est une exigence, pas un souhait. L'atelier sera regardé tous les jours pendant
 huit semaines par deux stagiaires, et montré à des tiers.
 
-### 2.1 Palette — charte RIHEN
+> ### ⚠️ §2.1 EST PÉRIMÉ — charte remplacée le 2026-08-06
+>
+> **Décision de Rihen : l'atelier passe en GitHub Dark Pro**, pas en teal RIHEN.
+> Raison : c'est un outil de développeur, regardé à côté d'un éditeur de code ; il
+> doit avoir la même température que lui, pas celle d'une plaquette de studio.
+> La palette vit dans `src/ConquerorLab/NkcLabTheme.h` — un seul endroit, comme
+> l'exige §2.4, qui reste valable.
+>
+> | Rôle | Couleur |
+> |---|---|
+> | fond application | `#0D1117` |
+> | surfaces / panneaux | `#161B22` |
+> | creux (pistes, barre d'onglets) | `#010409` |
+> | bouton | `#21262D` · survol `#30363D` · pressé `#1F6FEB` |
+> | bordure | `#30363D` |
+> | texte | `#E6EDF3` · atténué `#8B949E` |
+> | accent | `#58A6FF` |
+> | joueurs 0-3 | `#58A6FF` · `#DB6D28` · `#3FB950` · `#A371F7` |
+> | coup légal | `#3FB950` · menace `#F85149` · dernier coup `#D29922` |
+>
+> **Deuxième décision du même jour : pas de barres d'activité.** Les bandes
+> verticales d'icônes de NKEditorKit donnaient à l'atelier le chrome de NKCode
+> sans qu'il en ait le métier. `SetActivityBars(false, false)` a été ajouté au
+> socle (par défaut `true`, donc NKCode est inchangé).
+>
+> Tout le reste de §2 — le plateau est le héros, lisibilité de l'état, ce qu'il ne
+> faut pas faire, adaptation Android — **reste en vigueur**.
+
+### 2.1 Palette — charte RIHEN *(archive — remplacée, voir l'encadré ci-dessus)*
 
 Reprise des documents PDF du studio. Écraser `ctx.theme` après `Init` :
 

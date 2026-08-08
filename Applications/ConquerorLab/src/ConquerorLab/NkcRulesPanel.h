@@ -73,6 +73,9 @@ namespace nkentseu {
 					if (Button(ctx, "Valeurs par defaut")) mS->ResetRulesInstance();
 					Separator(ctx);
 
+					DrawBoardLibrary(ctx);
+					Separator(ctx);
+
 					for (usize g = 0; g < mGroups.Size(); ++g) {
 						if (!CollapsingHeader(ctx, mGroups[g].CStr())) continue;
 						for (usize i = 0; i < mParams.Size(); ++i) {
@@ -83,6 +86,81 @@ namespace nkentseu {
 				}
 
 			private:
+				// -------------------------------------------------------------
+				// LES GRILLES SONT DES DONNEES (REGLES §4). On ne les compile pas :
+				// on depose un .json dans un dossier et il apparait ici. L'atelier
+				// ne fait que passer la chaine a `LoadBoardJson` — c'est le MODULE
+				// qui la lit, donc un moteur de stagiaire qui accepte un champ de
+				// plus le verra sans qu'on touche a ce panneau.
+				// -------------------------------------------------------------
+				void DrawBoardLibrary(NkGuiContext &ctx) noexcept {
+					NkcBoardLibrary				 &lib   = mS->Boards();
+					const NkVector<NkcBoardFile> &files = lib.Files();
+
+					Text(ctx, "Plateau");
+
+					const char *preview = (mBoardSel >= 0 && static_cast<usize>(mBoardSel) < files.Size())
+											  ? files[static_cast<usize>(mBoardSel)].name.CStr()
+											  : (files.Empty() ? "(aucun fichier)" : "(choisir)");
+					if (BeginCombo(ctx, "Grille", preview, static_cast<int32>(files.Size()))) {
+						for (usize i = 0; i < files.Size(); ++i)
+							if (Selectable(ctx, files[i].name.CStr(), static_cast<int32>(i) == mBoardSel)) {
+								mBoardSel = static_cast<int32>(i);
+								mS->LoadBoard(i);
+								ctx.ClosePopup();
+							}
+						EndCombo(ctx);
+					}
+
+					// FORME DES CELLULES — presentation seule. Elle ne touche ni au
+					// voisinage, ni aux coups legaux, ni au resultat : c'est
+					// exactement pour cela qu'elle a sa place ici et pas dans le
+					// contrat. Deux plateaux identiques dessines en carres et en
+					// pastilles se LISENT tres differemment, et savoir lequel se lit
+					// le mieux est une vraie question de conception.
+					{
+						const NkcCellShape cur = mS->ShapeOverride();
+						const char *lbl = (cur == NkcCellShape::Auto)
+											  ? "Selon le plateau"
+											  : NkcCellShapeName(cur);
+						if (BeginCombo(ctx, "Forme des cellules", lbl, 4)) {
+							for (int32 i = 0; i <= 3; ++i) {
+								const NkcCellShape s = static_cast<NkcCellShape>(i);
+								const char *n = (s == NkcCellShape::Auto) ? "Selon le plateau"
+																		  : NkcCellShapeName(s);
+								if (Selectable(ctx, n, s == cur)) {
+									mS->SetShapeOverride(s);
+									ctx.ClosePopup();
+								}
+							}
+							EndCombo(ctx);
+						}
+					}
+
+					if (Button(ctx, "Rafraichir")) lib.Refresh();
+					ctx.SameLine();
+					// Exporter le plateau courant : le point de depart naturel pour
+					// fabriquer une variante — on part d'un fichier forcement valide
+					// plutot que d'un format decrit dans une doc.
+					if (Button(ctx, "Exporter le plateau courant"))
+						mS->ExportBoard("plateau_exporte.json");
+
+					char buf[512];
+					std::snprintf(buf, sizeof(buf), "Depose tes .json ici : %s", lib.Dir().CStr());
+					Text(ctx, buf);
+
+					if (!lib.Message().Empty()) {
+						const NkRect r = ctx.NextItemRect(0.f, ctx.ItemHeight());
+						const bool	 bad = lib.Message().Find("REFUSE") != NkString::npos ||
+										   lib.Message().Find("impossible") != NkString::npos ||
+										   lib.Message().Find("illisible") != NkString::npos;
+						ctx.DL().AddRectFilled(
+							r, NkcFade(bad ? NkcPalette::Error() : NkcPalette::Ok(), 0.22f),
+							ctx.theme.rounding);
+						NkcTextCenter(ctx, r, lib.Message().CStr(), NkcPalette::Text());
+					}
+				}
+
 				void DrawParam(NkGuiContext &ctx, const NkcParam &p) noexcept {
 					// Identite basee sur la CLE, jamais sur le libelle : deux
 					// parametres peuvent partager un libelle, et un libelle peut
@@ -153,6 +231,7 @@ namespace nkentseu {
 				NkcSession		  *mS = nullptr;
 				NkVector<NkcParam> mParams;
 				NkVector<NkString> mGroups;
+				int32			   mBoardSel = -1;
 		};
 
 	} // namespace conqueror

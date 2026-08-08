@@ -481,9 +481,21 @@ namespace nkentseu {
 				// fallback swapchain RP color+depth donne un draw incompatible).
 				if (mShadow)
 					pd.renderPass = mShadow->GetShadowRenderPass();
-				// Shadow casters typiquement render avec front-face culling pour
-				// reduire le shadow acne (peter-panning). Mais sans winding fiable
-				// sur les meshes primitifs, on garde NoCull.
+				// ── NoCull, ET C'EST DEFINITIF — voici pourquoi (7 aout 2026) ────
+				// Le culling des faces AVANT a ete ESSAYE ici : il colle l'ombre au
+				// pied des objets (l'atlas retient la face arriere, l'epaisseur du
+				// caster sert de biais naturel). Mais dans un MODELEUR la camera
+				// entre DANS les objets — et les faces culees etant absentes de
+				// l'atlas, plus rien n'occultait l'interieur : les parois internes
+				// d'un cube ferme recevaient la lumiere du dehors comme si elle
+				// traversait (constate par Rihen, capture du 7 aout). Un rendu ou
+				// l'interieur d'une boite opaque est eclaire est faux, sans debat.
+				//
+				// Le contact au pied, lui, n'est PLUS le role du culling : il est
+				// assure par le BIAIS DU PLAN RECEPTEUR dans l'echantillonnage PCF
+				// (cf. NkShadowAtlas.glsli) — chaque tap se compare au plan du
+				// recepteur extrapole, ce qui rend les gros biais inutiles SANS
+				// retirer de faces de l'atlas. Les deux exigences tiennent ensemble.
 				pd.rasterizer = NkRasterizerDesc::NoCull();
 				pd.blend = NkBlendDesc::Opaque();
 				pd.debugName = "Shadow_DepthOnly";
@@ -949,6 +961,19 @@ namespace nkentseu {
 				pd.depthStencil = ds;
 			}
 			pd.rasterizer = NkRasterizerDesc::NoCull(); // triangle plein-écran, pas de cull
+			// MÊME TECHNIQUE QUE LES LIGNES DEBUG (cf. EnsureDebugLinePipeline) :
+			// biais négatif, qui tire la grille vers la caméra. Sans lui, une grille
+			// à la MÊME hauteur qu'un sol solide (tous deux à y=0, ce qui est le cas
+			// exact voulu) se faisait recouvrir par le sol dessiné après elle. On
+			// réglait cela en remontant la grille d'un centimètre — mais déplacer la
+			// géométrie pour un problème d'affichage fausse le zéro de la scène :
+			// les objets posés au sol s'y enfonçaient, et les ombres tombaient sous
+			// la surface censée les recevoir.
+			pd.rasterizer.depthBiasConst = -1.5f;
+			pd.rasterizer.depthBiasSlope = -1.5f;
+			// Meme clamp que les lignes debug, meme raison : vue au ras du sol, le
+			// gradient de profondeur du quad explose et le terme de pente avec lui.
+			pd.rasterizer.depthBiasClamp = -0.001f;
 			pd.blend = NkBlendDesc::Alpha();			// fondu de l'intérieur + lignes
 			pd.debugName = "InfiniteGrid";
 			pd.renderPass = currentRP;
@@ -3297,8 +3322,23 @@ namespace nkentseu {
 			pd.depthStencil.depthCompareOp = NkCompareOp::NK_LESS_EQUAL;
 			pd.depthStencil.depthWriteEnable = false;
 			pd.rasterizer = NkRasterizerDesc::NoCull();
-			pd.rasterizer.depthBiasConst = -1.5f;
+			// LE BIAIS CONSTANT D'UNE LIGNE DOIT ETRE GRAND, EN ENTIERS (bug
+			// constate par Rihen : axes du sol en pointilles, visibles ou non
+			// selon l'angle de vue). Deux realites du materiel derriere ce choix :
+			//   1. DX11 tronque ce champ en ENTIER d'unites de profondeur
+			//      (2^-24 chacune) : -1.5 devenait -1, soit ~1e-7 -- RIEN.
+			//   2. le terme de PENTE est defini pour des triangles ; pour une
+			//      LIGNE, nombre de pilotes le calculent a zero. Les axes
+			//      n'avaient donc AUCUN biais effectif, et le z-fight contre le
+			//      sol coplanaire se decidait pixel par pixel -- les pointilles.
+			// -64 unites ≈ 4e-6 : deux ordres de grandeur au-dessus du bruit
+			// d'interpolation, toujours invisible a l'oeil.
+			pd.rasterizer.depthBiasConst = -64.f;
 			pd.rasterizer.depthBiasSlope = -1.5f;
+			// Et BORNER le terme de pente la ou il existe : une ligne filant vers
+			// l'horizon a un gradient de profondeur enorme, et -1.5 fois
+			// « enorme » projette la profondeur hors de toute plage utile.
+			pd.rasterizer.depthBiasClamp = -0.001f;
 			pd.blend = NkBlendDesc::Opaque();
 			pd.topology = NkPrimitiveTopology::NK_LINE_LIST;
 			pd.debugName = "DebugLine";

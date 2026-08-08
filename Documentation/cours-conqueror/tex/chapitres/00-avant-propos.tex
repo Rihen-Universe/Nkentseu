@@ -1,0 +1,213 @@
+\chapter{Avant-propos}
+
+\section{Pourquoi cet atelier existe}
+
+Les règles de Conqueror ne sont pas connues. Plusieurs sont ouvertement
+suspectes, et aucune ne se tranche par le débat. La version précédente du
+document de règles s'annonçait « TOTALEMENT VERROUILLÉE » avec « 16 décisions
+prises » ; plusieurs de ces décisions étaient mesurablement mauvaises, et
+personne ne pouvait le savoir sans les simuler.
+
+D'où la règle de travail du projet, qui commande tout le reste.
+
+\begin{nkcode}{REGLES\_COMPLETES\_v2.md:31-35}
+La regle de travail de ce projet. Toute valeur numerique de ce document est
+un PARAMETRE NOMME, jamais une constante. Le moteur de regles doit exposer
+ces parametres pour qu'ils soient modifiables SANS RECOMPILATION. Une regle
+n'est pas defendue par argument : elle est refutee ou confirmee par
+simulation de masse.
+\end{nkcode}
+
+ConquerorLab est l'instrument qui produit cette simulation de masse. Il permet
+de \textbf{tester une règle en dix minutes au lieu de trois semaines}.
+
+\section{À qui s'adresse ce cours}
+
+\begin{center}
+\begin{tabular}{@{}p{6.4cm}p{7.4cm}@{}}
+\toprule
+\textbf{Vous êtes\ldots} & \textbf{Lisez au minimum} \\
+\midrule
+\textbf{A1} — vous écrivez le moteur de règles & chapitres 0, 1, 2, 4, 5, 6 \\
+\textbf{A2} — vous écrivez l'IA adversaire & chapitres 0, 1, 3, 6 \\
+\textbf{designer} — vous réglez et vous mesurez & chapitres 0, 1, 4, 6 \\
+\textbf{vous reprenez le projet} & tout, dans l'ordre \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Prérequis : savoir écrire du C++ — pas du C++ avancé. Les trois exemples de ce
+cours n'utilisent ni templates, ni héritage, ni exceptions. Aucune connaissance
+de Nkentseu n'est nécessaire pour les chapitres 2, 3 et 5.
+
+\section{Le kit, et sur quoi il tourne}
+
+Vous avez reçu un dossier — ou une archive \texttt{ConquerorLab-Kit.zip} — qui
+contient tout : l'atelier, les en-têtes, les bibliothèques, les exemples, et ce
+cours en PDF. \textbf{Il n'y a rien à installer sauf un compilateur} (voir
+\texttt{LISEZMOI.txt}).
+
+\begin{nkcode}{Disposition du kit}
+ConquerorLab.exe          l'atelier
+include/                  TOUS les en-tetes, a plat
+    Conqueror/            le contrat
+    NKCore/  NKMath/  NKContainers/  NKLogger/  ...
+lib/                      les bibliotheques liees a vos modules
+travail/rules/            <- vos moteurs de regles    (.cpp)
+travail/ai/               <- vos IA                   (.cpp)
+travail/boards/           <- vos grilles              (.json)
+exemples/                 trois modules complets, a recopier
+\end{nkcode}
+
+\begin{nkretenir}[\texttt{include/} reflète exactement ce que vous tapez]
+\nkfile{include/NKMath/NkFunctions.h} correspond à
+\texttt{\#include "NKMath/NkFunctions.h"}.
+
+La première version du kit recopiait l'arborescence du dépôt —
+\nkfile{Kernel/Foundation/NKCore/src/NKCore/...}. \texttt{Foundation},
+\texttt{System}, \texttt{src} sont de la plomberie de dépôt : trois niveaux qui
+ne veulent rien dire quand on écrit des règles de jeu, et qui séparent les
+modules de ce qu'ils incluent. L'atelier n'a donc qu'\textbf{un seul \texttt{-I}}.
+\end{nkretenir}
+
+\begin{nkpiege}[Windows uniquement, pour l'instant]
+Le kit livré est \textbf{Windows x64}. Ce n'est pas une limite de conception :
+l'atelier est écrit sur NKGui/NKCanvas, dont les portages Linux, Android et Web
+existent. C'est une limite de \textbf{ce qui a été construit et vérifié à ce
+jour} — et livrer un binaire non testé serait pire que ne rien livrer.
+
+Si vous travaillez sous Linux ou macOS, vous pouvez cloner le dépôt et compiler
+vous-même. Dites-le : c'est le genre de retour qui fait avancer la liste.
+\end{nkpiege}
+
+\subsection{Compiler pour une autre plateforme}
+
+Le dépôt se compile avec \texttt{jenga}, l'outil de construction de la maison :
+
+\begin{nkcode}{Compilation depuis les sources}
+git clone <depot Nkentseu>
+cd Nkentseu
+jenga build --target ConquerorLab --config Release
+\end{nkcode}
+
+Le binaire sort dans \texttt{Build/Bin/Release-<Plateforme>/ConquerorLab/}.
+
+Deux choses à savoir avant de vous lancer :
+
+\begin{itemize}
+  \item \textbf{Le compilateur de modules est PC seulement.} Sur Android et Web
+        il n'y a pas de compilateur sur l'appareil : seuls les modules compilés
+        \emph{dans} l'application sont disponibles. L'atelier reste jouable et
+        mesurable ; c'est le rechargement à chaud qui disparaît. Limite réelle et
+        assumée.
+  \item \textbf{Les chemins des bibliothèques changent.} \nkfile{LibDir()} vise
+        \nkfile{Build/Lib/<Config>-<Plateforme>}, et l'extension des modules
+        passe de \texttt{.dll} à \texttt{.so} (\texttt{.dylib} sur macOS). Tout
+        cela est déjà écrit et compilé conditionnellement — mais jamais
+        \textbf{exécuté} ailleurs que sur Windows. Attendez-vous à corriger deux
+        ou trois choses, et signalez-les.
+\end{itemize}
+
+\subsection{Le kit évoluera}
+
+Ce n'est pas une livraison figée. Les retours — un message d'erreur
+incompréhensible, un panneau qui déborde, une fonction du contrat qui manque —
+donnent lieu à une nouvelle version du kit et du cours.
+
+\begin{nkretenir}
+Les deux nouveautés les plus récentes sont nées exactement comme ça : le panneau
+\emph{Sortie} et l'ouverture de la géométrie au C++ (chapitre 5) viennent tous
+deux d'une remarque, pas d'un plan.
+\end{nkretenir}
+
+Le fichier \texttt{VERSION.txt} du kit dit quelle version vous avez. Citez-la
+dans vos retours.
+
+\section{Lancer l'atelier}
+
+\begin{nkcode}{Applications/ConquerorLab/README.md — section « Lancer »}
+cd D:\Projets\2026\Nkentseu\Nkentseu
+jenga build --target ConquerorLab --config Release
+.\Build\Bin\Release-Windows\ConquerorLab\ConquerorLab.exe
+\end{nkcode}
+
+Trois dossiers sont créés au premier lancement :
+
+\begin{nkcode}{Les trois dossiers de contribution}
+depot :   Build/ConquerorLab/rules|ai|boards
+kit   :   travail/rules|ai|boards
+\end{nkcode}
+
+Le chemin diffère parce que « Build » est un mot de dépôt : dans un kit, personne
+ne construit rien. C'est \nkfile{NkcLayout.h} qui détecte la disposition, et lui
+seul les connaît toutes les deux.
+
+Le troisième contient déjà \nkfile{exemple\_plateau\_par\_defaut.json}, écrit par
+l'atelier : c'est le plateau du moteur de référence, exporté. Un format qu'on
+peut lire vaut mieux qu'un format qu'on décrit.
+
+\section{La première minute}
+
+À l'ouverture, \textbf{rien ne bouge}, et c'est voulu :
+
+\begin{itemize}
+  \item le \textbf{joueur 0 est humain}, les autres sont pilotés par l'IA de
+        référence ;
+  \item la partie est \textbf{en pause} : c'est vous qui la lancez.
+\end{itemize}
+
+La barre du plateau dit ce que l'atelier attend. Elle affiche à tout instant
+l'une de ces phrases :
+
+\begin{center}
+\begin{tabular}{@{}p{6.6cm}p{7.2cm}@{}}
+\toprule
+\textbf{Ce que vous lisez} & \textbf{Ce que ça veut dire} \\
+\midrule
+au tour du joueur humain & à vous : cliquez un totem, puis une case verte \\
+en pause — Lecture ou Pas à pas & c'est à une IA de jouer, mais rien ne tourne \\
+l'IA réfléchit & un thread calcule ; l'interface reste vivante \\
+rejeu en pause & vous relisez le passé, le jeu attend \\
+partie terminée & le décompte est affiché au centre \\
+IA introuvable & un vrai problème : allez au panneau Modules \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}
+\textbf{Une interface immobile et muette se lit comme une panne.} C'est
+exactement ce qui s'est passé pendant le développement : le premier réglage
+mettait le joueur 0 en humain, l'atelier attendait un clic, et personne ne
+comprenait pourquoi « la simulation ne marchait pas ». La barre d'état a été
+ajoutée pour cela. \textbf{Si l'atelier semble bloqué, lisez-la avant de
+chercher un bug.}
+\end{nkretenir}
+
+\section{Trois gestes pour commencer}
+
+\begin{enumerate}
+  \item \textbf{Jouer un coup.} Cliquez un de vos totems. Les destinations
+        légales s'entourent de vert. Survolez-en une : les totems ennemis
+        qu'elle \emph{retournerait} s'entourent de rouge. C'est la lecture
+        tactique centrale du jeu — « quelle surface de contact suis-je en train
+        d'offrir ? ». Cliquez pour jouer.
+  \item \textbf{Laisser tourner.} Bouton \textbf{Lecture}. L'IA répond. Le
+        dernier coup est marqué d'un anneau orange qui pulse une seconde.
+  \item \textbf{Passer en mode mesure.} Bouton \textbf{IA vs IA} : tous les
+        sièges passent à l'IA et la partie tourne seule. C'est la configuration
+        dans laquelle l'atelier répond à une question.
+\end{enumerate}
+
+\section{Ce que ce cours ne couvre pas}
+
+\begin{itemize}
+  \item \textbf{Le jeu lui-même.} Les règles de Conqueror sont dans
+        \nkfile{REGLES\_COMPLETES\_v2.md}. Ce cours explique l'outil qui les teste.
+  \item \textbf{NKGui, NKCanvas, le moteur.} Un module de stagiaire n'y touche
+        pas. Pour modifier l'\emph{interface} de l'atelier, c'est le cours
+        \emph{NkCanvas \& NKGui} qu'il vous faut.
+  \item \textbf{Les paliers 1 et 2} (fusion, ressources, pouvoirs, artefacts). Le
+        moteur de référence livré s'arrête au palier 0. Le contrat, lui, les
+        prévoit déjà : c'est pour cela que \texttt{NkcMove} porte des champs
+        \texttt{fuseCells} et \texttt{powerId} qui restent à zéro aujourd'hui.
+\end{itemize}
