@@ -141,6 +141,21 @@ namespace nkentseu {
 			enum class NkResizeEdge { Left, Right, Top, Bottom, TopLeft, TopRight, BottomLeft, BottomRight };
 			void BeginResize(NkResizeEdge edge); ///< hand-off natif du redimensionnement par un bord
 			void SetFullscreen(bool fullscreen);
+
+			// ── Decoration de la fenetre (bordure + barre de titre de l'OS) ──
+			//
+			// A l'execution, comme toute autre propriete de fenetre. Elle
+			// n'etait reglable qu'a la CREATION (NkWindowConfig::frame), et sous
+			// X11 elle etait meme purement ignoree : une application a barre de
+			// titre custom se retrouvait avec DEUX jeux de boutons, les siens et
+			// ceux du gestionnaire de fenetres.
+			//
+			// Mise en oeuvre : _MOTIF_WM_HINTS sous X11 (XLib/XCB),
+			// zxdg_toplevel_decoration_v1 sous Wayland, style de fenetre sous
+			// Win32. Sans effet la ou la notion n'existe pas (mobile, Web).
+			void SetDecorated(bool decorated);
+			bool IsDecorated() const;
+
 			bool SupportsOrientationControl() const;
 			void SetScreenOrientation(NkScreenOrientation orientation);
 			NkScreenOrientation GetScreenOrientation() const;
