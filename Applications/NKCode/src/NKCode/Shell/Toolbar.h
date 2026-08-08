@@ -14,6 +14,7 @@
 #include "NKCode/Project/NkCodeState.h"
 #include "NKCode/Shell/NkUi.h"
 #include "NKCode/Shell/NkOpenWs.h" // NkOwIco
+#include "NKCode/Shell/NkIdeBridge.h" // pont IDE (contexte temps reel)
 #include "NKCode/Shell/NkI18n.h"   // NkT
 #include "NKContainers/String/NkFormat.h" // NkPrintf (formatage maison)
 
@@ -33,6 +34,12 @@ namespace nkentseu {
 				float32 scroll = 0.f;
 				bool scrollDrag = false;
 				float32 scrollDragOff = 0.f;
+				// Filtre de la liste deroulante. Sur un workspace de 186 projets,
+				// derouler jusqu'a celui qu'on cherche n'est pas praticable. Le champ est
+				// ANCRE en haut, HORS de la zone defilante : il reste donc visible quelle
+				// que soit la position du defilement.
+				char filter[64] = {};
+				bool filterFocus = false;
 		};
 
 		inline NkTbState &NkTb() {
@@ -43,6 +50,17 @@ namespace nkentseu {
 		inline void DrawCodeToolbar(NkEditorFrameContext &ec, NkCodeState *s) {
 			if (!s)
 				return;
+			// ── Pont IDE (contexte TEMPS REEL pour l'agent) ────────────────────
+			// Ancre dans la BARRE D'OUTILS, dessinee a chaque frame : un panneau
+			// ancre qui n'est pas l'onglet actif ne recoit pas OnUI, et le pont
+			// gelait des que l'utilisateur regardait ailleurs — le serveur ecoutait
+			// sans jamais repondre.
+			{
+				static NkIdeBridge s_ide;
+				if (!s_ide.Running() && s->HasWorkspace())
+					s_ide.Start(s);
+				s_ide.Tick();
+			}
 			s->ScanWorkspaces();
 			s->TickWatch(ec.dt);
 			s->LoadProjects();
@@ -242,7 +260,13 @@ namespace nkentseu {
 			if (nTestVis > 0)
 				testBadge = NkPrintf("%d", nTestVis);
 			C(0, wSol, 90, false, NkT("tb.solution"), wsPrev, TEX(ic ? ic->jenga : 0), "git-branch", true);
-			C(1, wProj, 40, false, NkT("tb.projet"), projPrev, TEX(ic ? ic->pkg : 0), "package", false);
+			// Le combo FERME porte l'icone du Kind selectionne, la meme que dans la
+			// liste : la valeur retenue se lit comme la ligne d'ou elle vient. Repli
+			// sur l'icone generique quand « tous les projets » est choisi ou que le
+			// Kind n'a pas d'icone.
+			const uint32 projTex = s->AllProjects() ? 0u : NkKindTex(ic, s->KindOf(projPrev).CStr());
+			C(1, wProj, 40, false, NkT("tb.projet"), projPrev, TEX(projTex ? projTex : (ic ? ic->pkg : 0)), "package",
+			  false);
 			// Icône de la PLATEFORME cible : logo dédié (Android, Apple, Tux, Windows,
 			// Web) selon le nom sélectionné ; générique (écran) sinon.
 			uint32 platTex = ic ? ic->monitor : 0;
@@ -377,6 +401,7 @@ namespace nkentseu {
 						if (!cmd.Empty()) {
 							s->termOpenKind = -1;
 							s->termOpenAt = cwd;
+							s->termOpenRun = false; // shells, pas le panneau EXECUTION
 							s->termOpenType = cmd;
 						}
 						break;
@@ -579,6 +604,12 @@ namespace nkentseu {
 				struct Item {
 						NkString label;
 						int32 idx;
+						// Colonne de GAUCHE. `icon` prime quand elle existe (bien plus
+						// compact que « (WindowedApp) ») ; `hint` sert de repli en toutes
+						// lettres pour un Kind sans icone — un nouveau Kind reste donc
+						// lisible sans avoir a dessiner quoi que ce soit.
+						NkString hint;
+						uint32 icon = 0;
 				};
 
 				NkVector<Item> items;
@@ -591,9 +622,21 @@ namespace nkentseu {
 						break;
 					case 1: {
 						const int32 np = (int32)s->projects.Size();
-						for (int32 i = 0; i < np; ++i)
-							items.PushBack({s->projects[i], i});
-						items.PushBack({NkString(NkT("tb.allprojects")), np});
+						for (int32 i = 0; i < np; ++i) {
+							// Le Kind en colonne de gauche : on voit d'un coup d'oeil ce
+							// qui est executable et ce qui ne l'est pas, sans avoir a
+							// essayer pour le decouvrir. Icone quand elle existe (les
+							// memes que l'assistant de creation de projet), sinon le nom
+							// du Kind en toutes lettres.
+							const NkString k = (i < (int32)s->projKinds.Size()) ? s->projKinds[i] : NkString();
+							// `hint` est TOUJOURS rempli, meme quand une icone existe : il
+							// reste la matiere du filtre (taper « console » doit marcher,
+							// une icone n'est pas cherchable) et le repli d'affichage.
+							Item it{s->projects[i], i, k.Empty() ? NkString() : (NkString("(") + k.CStr() + ")"), 0};
+							it.icon = NkKindTex(s->icons, k.CStr());
+							items.PushBack(it);
+						}
+						items.PushBack({NkString(NkT("tb.allprojects")), np, NkString(), 0});
 						curSel = s->projIdx;
 					} break;
 					case 2:
@@ -630,28 +673,75 @@ namespace nkentseu {
 					} break;
 				}
 				const float32 ih = u.s(24);
-				if (tb.justOpened)
+				if (tb.justOpened) {
 					tb.scroll = 0.f;
+					tb.filter[0] = '\0';   // chaque ouverture repart d'une liste complete
+					tb.filterFocus = true; // on peut taper immediatement
+				}
+				// ── Champ de recherche, seulement quand la liste le justifie ────────
+				// En dessous de ce seuil tout tient a l'ecran : un champ n'apporterait
+				// rien et volerait une ligne.
+				const bool avecFiltre = items.Size() > 8;
+				const float32 searchH = avecFiltre ? u.s(26) : 0.f;
+				// Filtrage insensible a la casse, sur le libelle ET sur le Kind — taper
+				// « console » liste toutes les applications console.
+				NkVector<Item> shown;
+				if (avecFiltre && tb.filter[0]) {
+					for (usize i = 0; i < items.Size(); ++i)
+						if (NkCodeState::ContainsI(items[i].label.CStr(), tb.filter) ||
+							NkCodeState::ContainsI(items[i].hint.CStr(), tb.filter))
+							shown.PushBack(items[i]);
+				} else
+					shown = items;
+
+				// Largeur de la COLONNE de gauche (le Kind), pour que tous les noms
+				// demarrent au meme x. Une icone tient dans un carre ; un repli
+				// textuel demande la largeur du plus long. Le maximum des deux gagne :
+				// une seule ligne sans icone suffit a elargir la colonne, et
+				// l'alignement reste parfait.
+				// Mesuree sur ce qui est REELLEMENT AFFICHE : une icone occupe un carre,
+				// un repli textuel sa largeur de texte. `hint` est aussi rempli quand
+				// une icone existe (il sert au filtre) — le mesurer donnerait une
+				// colonne large et vide.
+				const float32 iconW = u.s(16);
+				float32 kindW = 0.f;
+				for (usize i = 0; i < items.Size(); ++i) {
+					const float32 w = items[i].icon ? iconW
+												: (items[i].hint.Empty() ? 0.f : u.TextW(items[i].hint.CStr()));
+					if (w > kindW)
+						kindW = w;
+				}
+				if (kindW > u.s(120))
+					kindW = u.s(120);
+
 				// Largeur BORNÉE (ellipse au-delà) -> pas de scroll horizontal nécessaire.
 				float32 ddw = a.w;
 				for (usize i = 0; i < items.Size(); ++i) {
-					const float32 tw = u.TextW(items[i].label.CStr()) + u.s(28);
+					float32 tw = u.TextW(items[i].label.CStr()) + u.s(28);
+					if (kindW > 0.f)
+						tw += kindW + u.s(10);
 					if (tw > ddw)
 						ddw = tw;
 				}
-				const float32 maxDdw = u.s(340);
+				// Plafond de largeur : releve quand il y a une colonne de Kind, sinon
+				// celle-ci mangerait la place des noms et tout finirait en ellipse.
+				const float32 maxDdw = kindW > 0.f ? u.s(460) : u.s(340);
 				if (ddw > maxDdw)
 					ddw = maxDdw;
 				// Hauteur PLAFONNÉE par l'écran -> défilement vertical si trop d'items.
 				const float32 pad = u.s(6);
-				const float32 contentH = (float32)items.Size() * ih + pad;
+				const float32 contentH = (float32)shown.Size() * ih + pad;
 				float32 maxH = (float32)ec.Ui().viewH - (a.y + a.h + u.s(2)) - u.s(12);
 				if (maxH > u.s(440))
 					maxH = u.s(440);
 				if (maxH < ih + pad)
 					maxH = ih + pad;
+				// La bande de recherche a sa PROPRE hauteur, hors du calcul de
+				// defilement : c'est precisement ce qui la rend insensible au scroll.
+				if (maxH > searchH + ih + pad)
+					maxH -= searchH;
 				const bool scroll = contentH > maxH;
-				const float32 ddh = scroll ? maxH : contentH;
+				const float32 ddh = (scroll ? maxH : contentH) + searchH;
 				const float32 sbW = scroll ? editorkit::NkScrollbarWidth() : 0.f; // largeur canonique (= editeur)
 				float32 ddx = a.x;
 				if (ddx + ddw > r.x + r.w - u.s(8))
@@ -668,50 +758,102 @@ namespace nkentseu {
 					tb.scroll = 0.f;
 				if (tb.scroll > maxScroll)
 					tb.scroll = maxScroll;
-				const NkRect inner = {dd.x, dd.y + u.s(3), dd.w - sbW, ddh - u.s(6)};
+				// ── Bande de recherche ANCREE : dessinee AVANT le clip de la liste,
+				// donc jamais rognee ni deplacee par le defilement.
+				if (avecFiltre) {
+					// TOUTE la largeur : la gouttiere demarre SOUS la bande de recherche,
+					// donc rien ne l'occupe ici — inutile de lui reserver sa place.
+					const NkRect fr = {dd.x + u.s(4), dd.y + u.s(4), dd.w - u.s(8), searchH - u.s(6)};
+					if (u.Hit(fr) && u.click)
+						tb.filterFocus = true;
+					editorkit::NkOverlayTextField(ec.Ui(), *uo.dl, ec.Ui().font, fr, tb.filter,
+												  (int32)sizeof(tb.filter), tb.filterFocus);
+					if (!tb.filter[0] && ec.Ui().font && ec.Ui().font->Valid())
+						uo.TextEllipsis(fr.x + u.s(8), fr.y + (fr.h - u.Lh()) * 0.5f, fr.w - u.s(16),
+										NkT("tb.filter.hint"), NkCol::mutedFg);
+					// Repartir du haut UNIQUEMENT quand le filtre change : sinon on
+					// resterait a defiler dans le vide au-dessus d'une liste devenue
+					// courte. Le remettre a zero a chaque frame desactiverait le
+					// defilement pur et simple.
+					static char s_prev[64] = {};
+					bool change = false;
+					for (int32 k = 0; k < (int32)sizeof(s_prev); ++k) {
+						if (s_prev[k] != tb.filter[k]) {
+							change = true;
+							break;
+						}
+						if (!tb.filter[k])
+							break;
+					}
+					if (change) {
+						for (int32 k = 0; k < (int32)sizeof(s_prev); ++k)
+							s_prev[k] = tb.filter[k];
+						tb.scroll = 0.f;
+					}
+				}
+				const NkRect inner = {dd.x, dd.y + searchH + u.s(3), dd.w - sbW, ddh - searchH - u.s(6)};
 				uo.dl->PushClipRect(inner, true);
 				bool chose = false;
-				for (usize i = 0; i < items.Size(); ++i) {
-					const float32 iy = dd.y + u.s(3) + (float32)i * ih - tb.scroll;
+				for (usize i = 0; i < shown.Size(); ++i) {
+					const float32 iy = dd.y + searchH + u.s(3) + (float32)i * ih - tb.scroll;
 					if (iy + ih < inner.y || iy > inner.y + inner.h)
 						continue; // hors vue
 					const NkRect ir = {dd.x + u.s(4), iy, dd.w - u.s(8) - sbW, ih};
 					const bool vis2 = (iy >= inner.y - 1.f && iy + ih <= inner.y + inner.h + 1.f);
 					const bool hv = vis2 && u.Hit(ir);
-					const bool selrow = (items[i].idx == curSel);
+					const bool selrow = (shown[i].idx == curSel);
 					if (hv || selrow)
 						uo.Rect(ir, NkCol::hover, NkR::sm * u.S);
-					uo.TextEllipsis(ir.x + u.s(8), ir.y + (ih - u.Lh()) * 0.5f, ir.w - u.s(12), items[i].label.CStr(),
+					// Deux colonnes, toutes deux alignees a GAUCHE. Le Kind D'ABORD, dans
+					// une colonne de largeur FIXE calee sur le plus long : c'est ce qui
+					// fait que les noms demarrent tous au meme x, donc que la liste se
+					// lise comme un tableau. Le Kind passe en premier parce que les noms
+					// d'application, eux, sont de longueur tres variable — les mettre a
+					// gauche decalerait la seconde colonne a chaque ligne.
+					const float32 ty = ir.y + (ih - u.Lh()) * 0.5f;
+					float32 nx = ir.x + u.s(8);
+					if (kindW > 0.f) {
+						if (shown[i].icon) {
+							const NkRect icr = {nx, ir.y + (ih - iconW) * 0.5f, iconW, iconW};
+							NkDrawIcon(uo, shown[i].icon, icr, NkCol::mutedFg);
+						} else if (!shown[i].hint.Empty())
+							uo.TextEllipsis(nx, ty, kindW, shown[i].hint.CStr(), NkCol::mutedFg);
+						nx += kindW + u.s(10);
+					}
+					float32 lw = ir.x + ir.w - u.s(6) - nx;
+					if (lw < u.s(40))
+						lw = u.s(40);
+					uo.TextEllipsis(nx, ty, lw, shown[i].label.CStr(),
 									selrow ? NkCol::primary : NkCol::foreground);
 					if (hv && u.click) {
 						switch (tb.open) {
 							case 0:
-								s->wsIdx = items[i].idx;
+								s->wsIdx = shown[i].idx;
 								s->RequestReload();
 								break;
 							case 1:
-								s->projIdx = items[i].idx;
+								s->projIdx = shown[i].idx;
 								break;
 							case 2:
-								s->sysIdx = items[i].idx;
+								s->sysIdx = shown[i].idx;
 								s->archIdx = 0;
 								break;
 							case 3:
-								s->cfgIdx = items[i].idx;
+								s->cfgIdx = shown[i].idx;
 								break;
 							case 4:
-								s->archIdx = items[i].idx;
+								s->archIdx = shown[i].idx;
 								break;
 							case 5:
-								s->testIdx = items[i].idx;
+								s->testIdx = shown[i].idx;
 								break;
 							case 6:
-								if (items[i].idx < 0)
+								if (shown[i].idx < 0)
 									s->compilerName = NkString();
 								else {
 									const NkVector<int32> cs = s->CompilersForCurrentPlatform();
-									if (items[i].idx < (int32)cs.Size())
-										s->compilerName = s->toolchains[cs[items[i].idx]].name;
+									if (shown[i].idx < (int32)cs.Size())
+										s->compilerName = s->toolchains[cs[shown[i].idx]].name;
 								}
 								break;
 						}
@@ -722,7 +864,9 @@ namespace nkentseu {
 				// Barre de defilement GENERALE (widget moteur NKEditorKit, identique a l'editeur :
 				// gouttiere theme-aware + fleches + pouce draggable + clic-piste).
 				if (scroll) {
-					const NkRect track = {dd.x + dd.w - sbW, dd.y + u.s(2), sbW, ddh - u.s(4)};
+					// Demarre SOUS la bande de recherche : celle-ci n'est pas defilable, une
+					// gouttiere qui la longe n'aurait aucun sens et mordait sur le champ.
+					const NkRect track = {dd.x + dd.w - sbW, dd.y + searchH + u.s(2), sbW, ddh - searchH - u.s(4)};
 					editorkit::NkVScrollbar(ec.Ui(), *uo.dl, track, tb.scroll, contentH, track.h, 0x5010D0Du, ih);
 				}
 				if (chose || (u.click && !u.Hit(dd) && !tb.justOpened && !tb.scrollDrag))

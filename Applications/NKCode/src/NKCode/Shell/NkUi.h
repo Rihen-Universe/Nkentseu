@@ -23,7 +23,41 @@ namespace nkentseu {
 		// « 0.1.0-beta » ici et un tag « v0.1.0-beta.1 » publie, l'IDE se croyait
 		// perime en permanence. Bumper ICI avant de taguer une release.
 		inline const char *NkCodeVersion() {
-			return "0.1.0-beta.2";
+			return "0.1.0-beta.4";
+		}
+
+		// ── Horodatage de BUILD (« JJ/MM ») ──────────────────────────────────────
+		// Une release peut etre REPUBLIEE sous le meme tag : deux binaires
+		// differents portent alors la meme version, et un rapport de bug devient
+		// inexploitable — impossible de savoir lequel le testeur utilisait. Cet
+		// horodatage, affiche a cote de la version, leve l'ambiguite sans toucher
+		// ni au tag ni aux noms de fichiers.
+		//
+		// Derive de __DATE__ (« Mmm jj aaaa ») : automatique, aucune plomberie de
+		// build. Reserve : __DATE__ vaut la date de compilation de CETTE unite ;
+		// sur un build incremental ou elle n'est pas recompilee, l'horodatage peut
+		// dater. Les distributions etant produites par un build Release complet,
+		// c'est sans consequence la ou ca compte.
+		inline const char *NkCodeBuildStamp() {
+			static char s[8] = {};
+			if (!s[0]) {
+				const char *d = __DATE__;
+				const char *mois = "JanFebMarAprMayJunJulAugSepOctNovDec";
+				int32 mo = 0;
+				for (int32 i = 0; i < 12; ++i)
+					if (d[0] == mois[i * 3] && d[1] == mois[i * 3 + 1] && d[2] == mois[i * 3 + 2]) {
+						mo = i + 1;
+						break;
+					}
+				const int32 j = (d[4] == ' ') ? (d[5] - '0') : ((d[4] - '0') * 10 + (d[5] - '0'));
+				s[0] = static_cast<char>('0' + j / 10);
+				s[1] = static_cast<char>('0' + j % 10);
+				s[2] = '/';
+				s[3] = static_cast<char>('0' + mo / 10);
+				s[4] = static_cast<char>('0' + mo % 10);
+				s[5] = '\0';
+			}
+			return s;
 		}
 
 		// ── Palette (tokens Banani) ──────────────────────────────────────────────
@@ -514,6 +548,42 @@ namespace nkentseu {
 					extTex.PushBack(tex);
 				}
 		};
+
+		// Kind d'un projet (colonne Kind de `jenga info`) -> icone. Reutilise CELLES
+		// de l'assistant de creation de projet : deja chargees, et deja associees a
+		// ces memes notions (terminal, fenetre, archive, lien). 0 = pas d'icone pour
+		// ce Kind -> l'appelant retombe sur le nom en toutes lettres, ce qui garde
+		// lisible un Kind ajoute plus tard sans toucher a l'interface.
+		inline uint32 NkKindTex(const NkIcons *ic, const char *kind) {
+			if (!ic || !kind || !*kind)
+				return 0;
+			// Recherche de sous-chaine LOCALE : NkUi.h est une couche basse (tokens de
+			// design), elle ne doit pas dependre d'un en-tete applicatif comme NkText.h.
+			auto contient = [kind](const char *motif) -> bool {
+				for (const char *h = kind; *h; ++h) {
+					const char *a = h;
+					const char *b = motif;
+					while (*a && *b && *a == *b) {
+						++a;
+						++b;
+					}
+					if (!*b)
+						return true;
+				}
+				return false;
+			};
+			if (contient("Console"))
+				return ic->kConsole;
+			if (contient("Windowed"))
+				return ic->kWindowed;
+			if (contient("Static"))
+				return ic->kStatic;
+			if (contient("Shared"))
+				return ic->kShared;
+			if (contient("Test"))
+				return ic->kTest;
+			return 0;
+		}
 
 		inline void NkDrawIcon(const NkUi &u, uint32 tex, const NkRect &r, const NkColor &tint) {
 			if (tex)

@@ -6,6 +6,7 @@
 // Evite les doublons : « Toolchain » renvoie au gestionnaire existant (nav==10).
 // =============================================================================
 #pragma once
+#include "NKCode/Project/NkEmbeddedJenga.h" // version du Jenga embarque (repli)
 #include "NKCode/Shell/NkUi.h"
 #include "NKEditorKit/NkEditorScrollbar.h"
 #include "NKCode/Shell/NkOpenWs.h"		 // NkOwEditA, NkOwIco, NkWizLabel, Home
@@ -324,6 +325,15 @@ namespace nkentseu {
 								if (!*c)
 									break;
 							}
+						}
+						// Aucun Jenga EXTERNE : chez un testeur c'est le cas NORMAL — il n'a
+						// ni Python ni `jenga` sur le PATH, NKCode en EMBARQUE un. Afficher
+						// « n/d » laissait croire que Jenga manquait alors qu'il est la, et
+						// que c'est justement LUI qui construit.
+						if (v.Empty()) {
+							v = NkEmbeddedJenga::EmbeddedVersion();
+							if (!v.Empty())
+								jengaResolved = NkString("(embarque)");
 						}
 						jengaVersion = v;
 					}

@@ -584,7 +584,12 @@ namespace nkentseu {
 			}
 		}
 		window->mData.mFullscreen = isFullscreen;
-		(void)isMaximized;
+		// L'etat maximise etait LU puis JETE. Consequences : l'icone de la barre
+		// de titre ne changeait jamais (elle doit montrer « restaurer » une fois
+		// maximisee), et Maximize() — qui BASCULE — ne pouvait plus restaurer,
+		// puisque IsMaximized() repondait toujours « non ». Sous Wayland c'est le
+		// compositeur qui fait autorite sur cet etat.
+		window->mData.mMaximized = isMaximized;
 
 		// Mise à jour des dimensions si le compositeur en impose
 		if (width > 0 && height > 0) {
@@ -1520,8 +1525,32 @@ namespace nkentseu {
 		mConfig.visible = true;
 	}
 
+	// Wayland : la decoration se NEGOCIE avec le compositeur via
+	// zxdg_toplevel_decoration_v1. On demande le mode voulu ; le compositeur
+	// peut refuser (cf. OnToplevelDecorationConfigure, qui journalise alors un
+	// repli en decorations cote client).
+	void NkWindow::SetDecorated(bool decorated) {
+		mConfig.frame = decorated;
+		if (!mData.mToplevelDecoration)
+			return;
+		zxdg_toplevel_decoration_v1_set_mode(mData.mToplevelDecoration,
+											 decorated ? ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE
+													   : ZXDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE);
+		if (mData.mSurface)
+			wl_surface_commit(mData.mSurface);
+		if (mData.mDisplay)
+			wl_display_flush(mData.mDisplay);
+	}
+
+	bool NkWindow::IsDecorated() const {
+		return mConfig.frame;
+	}
+
 	bool NkWindow::IsMaximized() const {
-		return false;
+		// Etat annonce par le compositeur dans xdg_toplevel.configure (cf.
+		// OnToplevelConfigure). Renvoyait `false` en dur : l'icone de la barre
+		// de titre restait figee et le bouton ne pouvait plus restaurer.
+		return mData.mMaximized;
 	}
 
 	bool NkWindow::IsMinimized() const {

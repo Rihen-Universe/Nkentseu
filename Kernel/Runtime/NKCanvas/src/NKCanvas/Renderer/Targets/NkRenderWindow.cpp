@@ -356,7 +356,37 @@ namespace nkentseu {
 				mRenderer->End();
 				mFrameOpen = false;
 			}
-			const bool ok = mContext->OnResize(width, height);
+			bool ok = mContext->OnResize(width, height);
+
+#if defined(NKENTSEU_WINDOWING_WAYLAND)
+			// ── Wayland : RECREER la surface, pas seulement la redimensionner ──
+			//
+			// Sur les autres plateformes, redimensionner suffit. Pas ici :
+			// eglSwapBuffers attache le tampon DEJA RENDU puis seulement
+			// realloue (verifie a la trace : attach(vieux) -> commit ->
+			// create_buffer(nouveau)). Apres une maximisation, le compositeur
+			// recoit donc un tampon a l'ancienne taille alors qu'il en attend
+			// une nouvelle, et il TUE la fenetre :
+			//   xdg_wm_base error 4 « buffer (1440 x 900) does not match the
+			//   configured maximized state (1920 x 1032) ».
+			//
+			// wl_egl_window_resize ne suffit pas : il ne vaut que pour la
+			// PROCHAINE acquisition, et Mesa detient deja son tampon. Recreer
+			// la surface EGL force la liberation de tous les tampons perimes —
+			// c'est exactement ce que NKRHI fait deja sous Android quand la
+			// fenetre native change (NkOpenGLDevice::RecreateSurface).
+			//
+			// Le mecanisme existait donc DEJA et gerait Wayland ; il n'etait
+			// simplement jamais declenche par le redimensionnement.
+			if (ok && mWindow && width > 0 && height > 0) {
+				if (!mContext->RecreateSurface(*mWindow)) {
+					// Non fatal : on garde l'ancienne surface plutot que de
+					// perdre le rendu. La frame suivante retentera.
+					ok = false;
+				}
+			}
+#endif
+
 			// Le renderer suit la nouvelle taille (sinon rendu CLIPPE a l'ancienne zone) :
 			// sa vue PAR DEFAUT -> ecran, une vue CUSTOM reste intacte, viewport plein-cadre.
 			// Toute la logique multi-vues est dans NkBatchRenderer2D::OnResize.

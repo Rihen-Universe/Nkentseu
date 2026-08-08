@@ -5,7 +5,7 @@
 # - La PR est ouverte par le compte gh authentifie.
 # - Le corps de la PR est EXACTEMENT celui fourni
 # - Branche source = HEAD courant ; branche cible (base) = 'main' par defaut
-#   (branche par defaut du depot RihenUniverse/Nkentseu).
+#   (branche par defaut du depot Rihen-Universe/Nkentseu).
 #
 # USAGE
 #   ./gitpr.sh "<titre>" "<corps>" [base]

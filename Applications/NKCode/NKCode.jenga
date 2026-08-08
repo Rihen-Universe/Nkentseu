@@ -46,6 +46,67 @@ _PYEMBED_INCLUDE = _PYEMBED_DIR + "/sdk/include"
 _PYEMBED_LIBDIR  = _PYEMBED_DIR + "/sdk/libs"
 _PYEMBED_LIBNAME = "python312"
 
+# Runtime Linux : distribution RELOGEABLE (python-build-standalone), dont la
+# disposition suit celle d'une installation UNIX — d'ou des chemins differents
+# du paquet embarquable Windows (qui est a plat, avec un ZIP de stdlib).
+_ZIG_LINUX          = _REPO_ROOT + "/Externals/Libs/ZigToolchain/linux"
+_HAS_ZIG_LINUX      = os.path.isfile(_ZIG_LINUX + "/zig")
+
+_PYEMBED_LINUX      = _PYEMBED_DIR + "/linux"
+_PYEMBED_LINUX_VER  = "3.12"
+_PYEMBED_LINUX_INC  = _PYEMBED_LINUX + "/include/python" + _PYEMBED_LINUX_VER
+_PYEMBED_LINUX_LIB  = _PYEMBED_LINUX + "/lib"
+_PYEMBED_LINUX_NAME = "python" + _PYEMBED_LINUX_VER
+_HAS_PYEMBED_LINUX  = os.path.isdir(_PYEMBED_LINUX_INC)
+
+# Sources Jenga a embarquer (tools/jenga-src/Jenga) : depot Jenga voisin, ou
+# NKCODE_JENGA_SRC. Sans elles, l'interpreteur embarque n'a rien a executer.
+# ── Sources Jenga a embarquer : on part du WHEEL, pas de l'arbre du depot ──
+#
+# Jenga definit SES PROPRES regles d'empaquetage dans pyproject.toml : quels
+# paquets, quel echantillon d'exemples, et surtout l'exclusion explicite de
+# `Exemples/Nkentseu/**` — 1,7 Go de sous-module, et les sources du MOTEUR,
+# dont la diffusion serait une fuite de code proprietaire.
+#
+# Repliquer ces regles ici les dupliquerait et les ferait diverger a la
+# premiere evolution. On extrait donc le wheel officiel (~1 Mo), qui EST le
+# contenu que Jenga distribue. Le produire : ./cri.sh dans le depot Jenga.
+def _jenga_depuis_wheel():
+    import glob, zipfile, shutil
+    racines = [_norm(os.getenv("NKCODE_JENGA_SRC", ""))] + [
+        _norm(os.path.abspath(os.path.join(_REPO_ROOT, *([".."] * n) + ["MacShared", "Projets", "Jenga"])))
+        for n in (2, 3, 4)
+    ] + [_norm(os.path.abspath(os.path.join(_REPO_ROOT, "..", "Jenga")))]
+    for r in racines:
+        if not r or not os.path.isdir(r):
+            continue
+        whls = sorted(glob.glob(os.path.join(r, "dist", "*.whl")), key=os.path.getmtime, reverse=True)
+        if not whls:
+            continue
+        stage = _norm(os.path.join(_REPO_ROOT, "Build", "_jenga-embed"))
+        cible = os.path.join(stage, "Jenga")
+        # Re-extrait a chaque evaluation : un wheel plus recent doit gagner,
+        # sinon on embarquerait silencieusement une version perimee.
+        if os.path.isdir(stage):
+            shutil.rmtree(stage, ignore_errors=True)
+        os.makedirs(stage, exist_ok=True)
+        with zipfile.ZipFile(whls[0]) as z:
+            for n in z.namelist():
+                if n.startswith("Jenga/") and not n.endswith("/"):
+                    z.extract(n, stage)
+        if os.path.isdir(os.path.join(cible, "Core")):
+            return stage, os.path.basename(whls[0])
+    return "", ""
+
+_JENGA_STAGE, _JENGA_WHL = _jenga_depuis_wheel()
+_HAS_JENGA_SRC = bool(_JENGA_STAGE)
+if _HAS_JENGA_SRC:
+    print("[NKCode] Jenga embarque depuis le wheel : " + _JENGA_WHL)
+else:
+    print("[NKCode] ATTENTION : aucun wheel Jenga trouve (dist/*.whl) -> le paquet "
+          "n'aura PAS de Jenga embarque, et les boutons Construire/Executer seront "
+          "inoperants. Produisez-le avec ./cri.sh dans le depot Jenga.")
+
 _VULKAN_SDK     = _norm(os.getenv("VULKAN_SDK", ""))
 _VULKAN_INCLUDE = _norm(os.path.join(_VULKAN_SDK, "Include")) if _VULKAN_SDK else ""
 _VULKAN_LIB     = _norm(os.path.join(_VULKAN_SDK, "Lib")) if _VULKAN_SDK else ""
@@ -79,10 +140,37 @@ with project("NKCode"):
     # .jenga, donc valable pour toutes les plateformes d'un seul geste.
     dependfiles(["data => data"])
 
+    # ── Jenga EMBARQUE : le runtime Python ET les sources Jenga suivent le
+    #    paquet, pour que Construire/Executer marchent SANS rien installer.
+    #
+    # Les deux destinations sont celles que NkEmbeddedJenga::Configure() cherche
+    # A COTE DE L'EXECUTABLE : tools/python-embed et tools/jenga-src/Jenga.
+    # C'est la forme « source => destination » qui le permet ; sans elle, les
+    # fichiers atterriraient sous Applications/NKCode/... et ne seraient jamais
+    # retrouves.
+    with filter("system:Linux"):
+        if _HAS_PYEMBED_LINUX:
+            dependfiles([_PYEMBED_LINUX + " => tools/python-embed"])
+        # Compilateur PAR DEFAUT des cibles Linux : Zig, qui EST un clang
+        # complet (`zig cc` / `zig c++`). llvm-mingw, embarque cote Windows,
+        # produit des binaires Windows et n'a rien a faire ici.
+        #
+        # 216 Mo apres reduction aux cibles Linux, contre 996 Mo pour une
+        # distribution LLVM officielle. NkEmbeddedJenga prefixe le PATH avec
+        # tools/compilers/zig au demarrage, pour que Jenga le trouve.
+        if _HAS_ZIG_LINUX:
+            dependfiles([_ZIG_LINUX + " => tools/compilers/zig"])
+        if _HAS_JENGA_SRC:
+            # Le wheel porte DEJA les exclusions de Jenga (dont Nkentseu) :
+            # rien a filtrer ici, et aucune regle dupliquee.
+            dependfiles([_JENGA_STAGE + "/Jenga => tools/jenga-src/Jenga"])
+
     nkentseudependson(
+        # NKNetwork : serveur WebSocket du pont IDE (NkIdeBridge) — NKCode se
+        # declare aupres du CLI Claude Code et lui pousse son etat en temps reel.
         ["NKEditorKit", "NKCanvas", "NKGui", "NKWindow", "NKEvent", "NKGlad",
-         "NKFont", "NKImage", "NKAudio", "NKMedia", "NKFileSystem", "NKThreading", "NKLogger", "NKMath", "NKTime",
-         "NKStream", "NKContainers", "NKMemory", "NKCore", "NKPlatform"],
+         "NKFont", "NKImage", "NKAudio", "NKMedia", "NKNetwork", "NKFileSystem", "NKThreading", "NKLogger",
+         "NKMath", "NKTime", "NKStream", "NKContainers", "NKMemory", "NKCore", "NKPlatform"],
         # pybind11 est header-only (files([]), rien a compiler/lier) : simple
         # includedirs, pas un dependson NK-prefixe (evite un edge dependson/
         # link superflu, cf. NOTICE Externals/Libs/pybind11).
@@ -136,10 +224,29 @@ with project("NKCode"):
         # Xrandr : NkXLibWindow interroge les ecrans (XRRGetScreenResources,
         # XRRGetOutputPrimary...). La bibliotheque manquait dans cette liste, ce
         # qui ne se voyait pas tant que rien n'etait lie sous Linux.
-        _LINUX_LINKS = ["pthread", "X11", "Xext", "Xrandr", "GL", "asound", "m"]  # asound/m : NKAudio (ALSA)
+        _LINUX_LINKS = ["pthread", "X11", "Xext", "Xrandr", "GL", "asound", "m", "util"]  # asound/m : NKAudio (ALSA)
+        if _HAS_PYEMBED_LINUX:
+            _LINUX_LINKS.append(_PYEMBED_LINUX_NAME)
         if _WANT_VULKAN:
             _LINUX_LINKS.append("vulkan")
         links(_LINUX_LINKS)
+
+        # ── Jenga EMBARQUE (Phase 12) sous Linux ─────────────────────────────
+        # Sans lui, les boutons Construire/Executer retombent sur un `jenga` du
+        # PATH, absent chez un testeur — c'est exactement le retour beta #9/#10
+        # deja encaisse sur Windows.
+        #
+        # rpath $ORIGIN : le binaire doit trouver libpython3.12.so A COTE DE LUI
+        # une fois installe, sans LD_LIBRARY_PATH ni installation systeme. Sans
+        # cela le paquet se lance chez nous (ou la lib est dans l'arbre du repo)
+        # et pas chez le testeur.
+        if _HAS_PYEMBED_LINUX:
+            defines(["NKCODE_EMBED_PYTHON=1", 'NKCODE_PYEMBED_VER="' + _PYEMBED_LINUX_VER + '"'])
+            includedirs([_PYEMBED_LINUX_INC])
+            libdirs([_PYEMBED_LINUX_LIB])
+            ldflags(["-Wl,-rpath,$ORIGIN/tools/python-embed/lib",
+                     "-Wl,-rpath," + _PYEMBED_LINUX_LIB])
+
 
     # ===== Linux XCB ==============================================================
     # Les listes de liens viennent de Applications/DemoRW/demorw.jenga, ou les
@@ -153,11 +260,30 @@ with project("NKCode"):
         defines(["NKENTSEU_FORCE_WINDOWING_XCB_ONLY"])
         _LINUX_XCB_LINKS = ["pthread", "xcb", "xcb-image", "xcb-icccm", "xcb-randr", "xcb-xfixes",
                             "X11", "X11-xcb", "Xext", "xkbcommon", "xkbcommon-x11", "GL",
-                            "asound", "m"]
+                            "asound", "m", "util"]
+        if _HAS_PYEMBED_LINUX:
+            _LINUX_XCB_LINKS.append(_PYEMBED_LINUX_NAME)
         if _WANT_VULKAN:
             _LINUX_XCB_LINKS.append("vulkan")
         links(_LINUX_XCB_LINKS)
         ldflags(["-fuse-ld=lld"])
+
+        # ── Jenga EMBARQUE (Phase 12) sous Linux ─────────────────────────────
+        # Sans lui, les boutons Construire/Executer retombent sur un `jenga` du
+        # PATH, absent chez un testeur — c'est exactement le retour beta #9/#10
+        # deja encaisse sur Windows.
+        #
+        # rpath $ORIGIN : le binaire doit trouver libpython3.12.so A COTE DE LUI
+        # une fois installe, sans LD_LIBRARY_PATH ni installation systeme. Sans
+        # cela le paquet se lance chez nous (ou la lib est dans l'arbre du repo)
+        # et pas chez le testeur.
+        if _HAS_PYEMBED_LINUX:
+            defines(["NKCODE_EMBED_PYTHON=1", 'NKCODE_PYEMBED_VER="' + _PYEMBED_LINUX_VER + '"'])
+            includedirs([_PYEMBED_LINUX_INC])
+            libdirs([_PYEMBED_LINUX_LIB])
+            ldflags(["-Wl,-rpath,$ORIGIN/tools/python-embed/lib",
+                     "-Wl,-rpath," + _PYEMBED_LINUX_LIB])
+
 
     # ===== Linux Wayland ==========================================================
     with filter("system:Linux && options:linux-backend=wayland"):
@@ -175,10 +301,29 @@ with project("NKCode"):
         # config partagee) et une ligne de link SANS -ldecor-0 : une vingtaine de
         # `undefined reference to libdecor_*` a l'edition de liens.
         defines(WAYLAND_DEFINES)
-        _LINUX_WL_LINKS = list(WAYLAND_LINKS) + ["asound", "m"]  # asound/m : NKAudio (ALSA)
+        _LINUX_WL_LINKS = list(WAYLAND_LINKS) + ["asound", "m", "util"]  # asound/m : NKAudio (ALSA)
+        if _HAS_PYEMBED_LINUX:
+            _LINUX_WL_LINKS.append(_PYEMBED_LINUX_NAME)
         if _WANT_VULKAN:
             _LINUX_WL_LINKS.append("vulkan")
         links(_LINUX_WL_LINKS)
+
+        # ── Jenga EMBARQUE (Phase 12) sous Linux ─────────────────────────────
+        # Sans lui, les boutons Construire/Executer retombent sur un `jenga` du
+        # PATH, absent chez un testeur — c'est exactement le retour beta #9/#10
+        # deja encaisse sur Windows.
+        #
+        # rpath $ORIGIN : le binaire doit trouver libpython3.12.so A COTE DE LUI
+        # une fois installe, sans LD_LIBRARY_PATH ni installation systeme. Sans
+        # cela le paquet se lance chez nous (ou la lib est dans l'arbre du repo)
+        # et pas chez le testeur.
+        if _HAS_PYEMBED_LINUX:
+            defines(["NKCODE_EMBED_PYTHON=1", 'NKCODE_PYEMBED_VER="' + _PYEMBED_LINUX_VER + '"'])
+            includedirs([_PYEMBED_LINUX_INC])
+            libdirs([_PYEMBED_LINUX_LIB])
+            ldflags(["-Wl,-rpath,$ORIGIN/tools/python-embed/lib",
+                     "-Wl,-rpath," + _PYEMBED_LINUX_LIB])
+
 
     # ===== macOS ==================================================================
     with filter("system:macOS"):

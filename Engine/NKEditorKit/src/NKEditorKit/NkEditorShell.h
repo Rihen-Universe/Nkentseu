@@ -76,11 +76,35 @@ namespace nkentseu {
 				// fenetre (« je n'ai plus besoin de ce workspace ») et quitter par Ctrl+Q
 				// (« je ferme l'application, je reprendrai ou j'en etais ») n'ont pas le
 				// meme sens pour la restauration de session au lancement suivant.
-				using NkOnWindowClosed = void (*)(void *user);
+				// Retourne true = fermer maintenant ; false = ANNULER la fermeture. Le
+				// false rend la main a l'application, qui peut afficher une confirmation
+				// (« enregistrer / fermer sans enregistrer / annuler ») puis appeler
+				// RequestClose() elle-meme une fois l'utilisateur decide.
+				using NkOnWindowClosed = bool (*)(void *user);
 
 				void SetOnWindowClosed(NkOnWindowClosed cb, void *user) noexcept {
 					mOnWindowClosed = cb;
 					mOnWindowClosedUser = user;
+				}
+
+				// ── Demande de fermeture : PASSAGE OBLIGE ───────────────────────────
+				// Croix dessinee, menu Quitter, Ctrl+Q, croix de la barre de titre : tout
+				// passe ici, pour laisser l'application poser une question. Les boutons
+				// dessines mettaient autrefois mRunning a faux directement : toute
+				// confirmation etait alors contournee sans qu'on s'en apercoive.
+				// `windowClose` distingue « je ferme CETTE fenetre » (croix, Fermer la
+				// fenetre) de « je quitte l'application » (Quitter, Ctrl+Q). NKCode s'en
+				// sert pour la restauration au lancement suivant : une fenetre fermee
+				// explicitement ne revient pas, une session quittee si.
+				void RequestQuit(bool windowClose = true) noexcept {
+					mQuitIsWindowClose = windowClose;
+					if (mOnWindowClosed && !mOnWindowClosed(mOnWindowClosedUser))
+						return;
+					mRunning = false;
+				}
+
+				bool QuitIsWindowClose() const noexcept {
+					return mQuitIsWindowClose;
 				}
 
 				// ── Enregistrement (le shell NE POSSEDE PAS les panneaux) ───────────
@@ -530,6 +554,7 @@ namespace nkentseu {
 				NkClock mClock;
 				bool mRunning = true;
 				// Rappel de fermeture explicite (croix) — cf. SetOnWindowClosed.
+				bool mQuitIsWindowClose = true; ///< cf. RequestQuit/QuitIsWindowClose
 				NkOnWindowClosed mOnWindowClosed = nullptr;
 				void *mOnWindowClosedUser = nullptr;
 				bool mDockBootstrap = true;

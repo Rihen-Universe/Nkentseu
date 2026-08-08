@@ -1403,10 +1403,11 @@ namespace nkentseu {
 														  1}; // -1 défaut, SH_PWSH, SH_CMD, SH_BASH, SH_WSL
 							mS->termOpenKind = kMap[act3];
 							mS->termOpenAt = mTermPickDir;
+							mS->termOpenRun = false; // shells, pas le panneau EXECUTION
 							mTermPickDir = NkString();
 							mTabMenu.open = false; // choix fait : referme le menu principal aussi
 							if (mShell)
-								mShell->FocusPanel("Terminal");
+								mShell->FocusPanel("TERMINAL"); // titre EXACT (comparaison sensible a la casse)
 						}
 					}
 					// Tooltip : CHEMIN COMPLET après ~0,6 s de survol (désambiguïsation totale).
@@ -1503,9 +1504,10 @@ namespace nkentseu {
 									// un clic direct = shell PAR DÉFAUT immédiatement.
 									mS->termOpenKind = -1;
 									mS->termOpenAt = mS->files[idx].path.GetParent().ToString();
+									mS->termOpenRun = false; // shells, pas le panneau EXECUTION
 									mTermPick.open = false;
 									if (mShell)
-										mShell->FocusPanel("Terminal");
+										mShell->FocusPanel("TERMINAL"); // titre EXACT (comparaison sensible a la casse)
 									break;
 								case 7: // onglets multi-rangées (option, façon Visual Studio)
 									NkCodeTabRowsOn() = !NkCodeTabRowsOn();
@@ -1526,6 +1528,7 @@ namespace nkentseu {
 					DrawCloseConfirm(ctx);
 					DrawCloseGroupConfirm(ctx);
 				}
+
 
 				// Ferme l'onglet `idx` — si son contenu N'EST PAS enregistre, ouvre D'ABORD
 				// une confirmation (Enregistrer / Ne pas enregistrer / Annuler) au lieu de
@@ -1723,13 +1726,20 @@ namespace nkentseu {
 		//    Draine le tampon de logs partage, colore par niveau, suit le bas. ──
 		class OutputPanel : public NkEditorPanel {
 			public:
-				explicit OutputPanel(NkCodeState *s) : NkEditorPanel("OUTPUT", NkEditorDockSide::NK_BOTTOM), mS(s) {
+				explicit OutputPanel(NkCodeState *s, NkEditorShell *shell = nullptr)
+					: NkEditorPanel("OUTPUT", NkEditorDockSide::NK_BOTTOM), mS(s), mShell(shell) {
 				}
 
 				void OnUI(NkEditorFrameContext &ec) override {
 					auto &ctx = ec.Ui();
 					auto &dl = ctx.DL();
 					mS->PollBuild();
+					// L'ETAT n'a pas le shell : il DEPOSE ici le panneau a faire remonter
+					// (ex. « Demarrer » sur une app console -> onglet terminal dedie).
+					if (mShell && !mS->focusPanelReq.Empty()) {
+						mShell->FocusPanel(mS->focusPanelReq.CStr());
+						mS->focusPanelReq = NkString();
+					}
 					// Draine les nouveaux logs + sortie build, en parsant la progression.
 					NkVector<NkString> fresh;
 					GlobalLogBuffer().Drain(fresh);
@@ -1807,7 +1817,11 @@ namespace nkentseu {
 									   ctx.theme.text);
 					} else if (ctx.font && ctx.font->Valid()) {
 						dl.AddText(ctx.font->Face(), ctx.font->TexId(), {clip.x + pad, by},
-								   mS->status.Empty() ? "Sortie" : mS->status.CStr(), ctx.theme.textDisabled);
+								   mS->status.Empty() ? "Sortie" : mS->status.CStr(),
+								   // Un REFUS (bibliotheque non executable, aucun executable...)
+								   // doit sauter aux yeux : rouge, pas le gris des messages
+								   // ordinaires.
+								   mS->statusError ? NkCol::danger : ctx.theme.textDisabled);
 					}
 
 					// ── Console (lecture seule) : defilable + selectionnable + unicode ──
@@ -2255,6 +2269,7 @@ namespace nkentseu {
 				}
 
 				NkCodeState *mS;
+				NkEditorShell *mShell; // pour honorer NkCodeState::focusPanelReq
 				NkVector<NkString> mLogs;
 				float32 mScrollX = 0.f, mScrollY = 0.f, mMaxW = 0.f, mSpin = 0.f;
 				usize mMeasured = 0;
@@ -2280,10 +2295,19 @@ namespace nkentseu {
 						NkString cmd; // commande explicite (pwsh 7, Git Bash...) ; vide = PtyCommand(kind)
 				};
 
-				TerminalPanel() : NkEditorPanel("TERMINAL", NkEditorDockSide::NK_BOTTOM) {
+				// DEUX instances de ce panneau coexistent (cf. main.cpp) :
+				//   « TERMINAL »  — les shells de l'utilisateur   (mRunMode = false)
+				//   « EXECUTION » — un onglet par « Demarrer »    (mRunMode = true)
+				// Les separer evite de melanger une session shell qu'on garde ouverte et
+				// l'application qu'on relance vingt fois. En mode execution, AUCUN shell
+				// par defaut n'est cree : le panneau reste vide tant que rien n'est lance.
+				explicit TerminalPanel(const char *title = "TERMINAL", bool runMode = false)
+					: NkEditorPanel(title, NkEditorDockSide::NK_BOTTOM), mRunMode(runMode) {
 					// Le terminal par defaut est cree quand le WORKSPACE est connu (bon repertoire,
 					// pas de persistance de session ; l historique = celui du shell, ex. PSReadLine).
 				}
+
+				bool mRunMode = false; ///< true = panneau EXECUTION (voir ci-dessus)
 
 				NkEditorShell *mShell = nullptr; // pour la police propre du terminal (TermCodeFont)
 				NkCodeState *mState = nullptr;	 // racine du workspace -> repertoire de demarrage des shells
@@ -2353,6 +2377,18 @@ namespace nkentseu {
 					// Terminal PAR DEFAUT : cree seulement quand la racine du workspace est connue
 					// -> le shell demarre au bon endroit, avec le TYPE choisi par l utilisateur.
 					if (AliveCount() == 0) {
+						// Panneau EXECUTION : surtout PAS de shell par defaut — il n'existe
+						// que pour les programmes lances, et un PowerShell qui s'y ouvrirait
+						// tout seul recreerait exactement la confusion qu'on cherche a eviter.
+						const bool aOuvrir = mState && !mState->termOpenAt.Empty() &&
+											 mState->termOpenRun == mRunMode;
+						if (mRunMode && !aOuvrir) {
+							if (ctx.font && ctx.font->Valid())
+								dl.AddText(ctx.font->Face(), ctx.font->TexId(),
+										   {clip.x + ctx.S(12.f), clip.y + ctx.S(20.f)},
+										   NkT("run.empty"), ctx.theme.textDisabled);
+							return;
+						}
 						const bool rootReady = wsReady;
 						if (!rootReady) {
 							if (ctx.font && ctx.font->Valid())
@@ -2362,10 +2398,13 @@ namespace nkentseu {
 							return;
 						}
 						EnsurePrefs();
-						AddTermKind(mDefShell, mDefDistro); // shell par defaut (preference persistee)
+						if (!mRunMode)
+							AddTermKind(mDefShell, mDefDistro); // shell par defaut (preference persistee)
 					}
 					// « Ouvrir dans le terminal » : NOUVEL onglet au dossier demandé (façon VSCode).
-					if (mState && !mState->termOpenAt.Empty()) {
+					// termOpenRun designe l'instance visee : les deux panneaux lisent le
+					// meme canal, seul le destinataire le consomme.
+					if (mState && !mState->termOpenAt.Empty() && mState->termOpenRun == mRunMode) {
 						EnsurePrefs();
 						const int32 k2 = mState->termOpenKind >= 0 ? mState->termOpenKind : mDefShell;
 						AddTermKind(k2, k2 == SH_WSL ? mDefDistro : NkString());
@@ -2373,14 +2412,17 @@ namespace nkentseu {
 						mTerm[mActive].cwd = mState->termOpenAt;
 						if (!mState->termOpenCmd.Empty()) { // agent CLI : la commande EST le « shell »
 							mTerm[mActive].cmdOverride = mState->termOpenCmd;
-							mTerm[mActive].label = mState->termOpenCmd;
+							mTerm[mActive].label = !mState->termOpenLabel.Empty() ? mState->termOpenLabel
+																				 : mState->termOpenCmd;
 							mState->termOpenCmd = NkString();
+							mState->termOpenLabel = NkString();
 						}
 						if (!mState->termOpenType.Empty()) { // texte pret a valider (ex. lancement emulateur)
 							mTerm[mActive].pendingType = mState->termOpenType;
 							mState->termOpenType = NkString();
 						}
 						mState->termOpenAt = NkString();
+						mState->termOpenRun = false; // defaut = shells pour la demande suivante
 					}
 					if (!mTerm[mActive].alive)
 						mActive = FirstAlive();
@@ -2410,6 +2452,15 @@ namespace nkentseu {
 					t.pty.Drain(mDrain);
 					if (mDrain.Size() > 0)
 						t.screen.Feed(mDrain.Data(), mDrain.Size());
+					// Onglet d'EXECUTION (la commande remplace le shell) : une app console
+					// affiche puis se termine. Sans marque, rien ne distingue « fini » de
+					// « en cours mais silencieux ». L'onglet reste ouvert : la sortie doit
+					// rester lisible apres la fin. Une seule fois (endNoted).
+					if (!t.cmdOverride.Empty() && t.started && !t.endNoted && !t.pty.Running()) {
+						t.endNoted = true;
+						const char kEnd[] = "\r\n\x1b[90m[processus termine]\x1b[0m\r\n";
+						t.screen.Feed(kEnd, sizeof(kEnd) - 1);
+					}
 
 					const NkVec2 m = ctx.input.mousePos;
 					const bool inMain =
@@ -2574,6 +2625,7 @@ namespace nkentseu {
 						bool started = false; // pty deja lance ?
 						NkString pendingType; // texte a TAPER (pas executer) une fois le pty demarre
 						bool touched = false; // l utilisateur y a TAPE (ne pas recycler au changement de workspace)
+						bool endNoted = false; // fin de processus deja signalee dans l'ecran ?
 						float32 scrollX = 0.f, scrollY = 0.f;
 						bool follow = true; // colle au bas (desactive au scroll manuel)
 						// Selection en cellules : ancre (A) + curseur (B), en (ligne ABSOLUE, colonne).
@@ -2620,6 +2672,29 @@ namespace nkentseu {
 				}
 
 				static NkString PtyCommand(int32 s, const NkString &distro) {
+#if !defined(_WIN32)
+					// ── UNIX : aucun des programmes ci-dessous n'existe ────────
+					//
+					// powershell.exe, wsl.exe, bash.exe et cmd.exe sont des
+					// executables WINDOWS. Les lancer sous Linux echoue en
+					// silence : le terminal s'ouvrait et restait DESESPEREMENT
+					// VIDE, sans le moindre message. C'est ce que voyait un
+					// utilisateur Linux quel que soit le shell choisi.
+					//
+					// On rend donc le shell de la session ($SHELL), avec repli
+					// sur /bin/bash puis /bin/sh — ce dernier existe sur tout
+					// systeme POSIX.
+					{
+						(void)s;
+						(void)distro;
+						const char *env = std::getenv("SHELL");
+						NkString sh = (env && *env) ? NkString(env) : NkString();
+						if (sh.Empty() || !NkFile::Exists(sh.CStr()))
+							sh = NkFile::Exists("/bin/bash") ? NkString("/bin/bash") : NkString("/bin/sh");
+						// -i : session INTERACTIVE, sans quoi ni invite ni historique.
+						return sh + " -i";
+					}
+#else
 					switch (s) {
 						case SH_PWSH:
 						case SH_JENGA:
@@ -2633,6 +2708,7 @@ namespace nkentseu {
 						default:
 							return CmdColored("");
 					}
+#endif
 				}
 
 				// ── Grille du terminal : rend les cellules visibles + curseur + selection +

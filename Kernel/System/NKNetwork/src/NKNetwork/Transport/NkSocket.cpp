@@ -539,7 +539,9 @@ namespace nkentseu {
 
 			if (mHandle == kNkNativeInvalidSocket) {
 				const int errorCode = NkGetLastSocketError();
-				NK_NET_LOG_ERROR("socket() failed: code %d", errorCode);
+				// NK_NET_LOG_ERROR formate avec des ACCOLADES ({0}), pas printf : « %d »
+				// s'affichait litteralement et le code d'erreur etait perdu.
+				NK_NET_LOG_ERROR("socket() failed: code {0}", errorCode);
 				return NkNetResult::NK_NET_SOCKET_ERROR;
 			}
 
@@ -562,7 +564,7 @@ namespace nkentseu {
 
 			if (bindResult != 0) {
 				const int errorCode = NkGetLastSocketError();
-				NK_NET_LOG_ERROR("bind() failed: code %d", errorCode);
+				NK_NET_LOG_ERROR("bind() failed: code {0}", errorCode);
 				Close(); // Nettoyage en cas d'échec
 				return NkNetResult::NK_NET_SOCKET_ERROR;
 			}
@@ -740,7 +742,7 @@ namespace nkentseu {
 					return NkNetResult::NK_NET_BUFFER_FULL;
 				}
 
-				NK_NET_LOG_ERROR("sendto() failed: code %d", errorCode);
+				NK_NET_LOG_ERROR("sendto() failed: code {0}", errorCode);
 				return NkNetResult::NK_NET_SOCKET_ERROR;
 			}
 
@@ -973,6 +975,18 @@ namespace nkentseu {
 				return NkNetResult::NK_NET_SOCKET_ERROR;
 			}
 
+			// FERMETURE ORDONNEE : en TCP, recv() qui rend 0 signifie que le pair a
+			// ferme sa moitie de connexion. Renvoyer OK avec outSize=0 le rendait
+			// INDISTINGUABLE d'un « rien a lire » sur socket non bloquante (juste
+			// au-dessus) : un appelant ne pouvait pas savoir s'il devait attendre ou
+			// raccrocher, et gardait un client mort indefiniment.
+			// `Recv` etant reserve aux sockets CONNECTEES (l'UDP passe par RecvFrom),
+			// un datagramme vide legitime n'est pas concerne.
+			if (receivedBytes == 0) {
+				outSize = 0;
+				return NkNetResult::NK_NET_NOT_CONNECTED;
+			}
+
 			outSize = static_cast<uint32>(receivedBytes);
 			return NkNetResult::NK_NET_OK;
 		}
@@ -1102,7 +1116,7 @@ namespace nkentseu {
 
 			if (result < 0) {
 				const int errorCode = NkGetLastSocketError();
-				NK_NET_LOG_ERROR("select() failed: code %d", errorCode);
+				NK_NET_LOG_ERROR("select() failed: code {0}", errorCode);
 				return NkNetResult::NK_NET_SOCKET_ERROR;
 			}
 

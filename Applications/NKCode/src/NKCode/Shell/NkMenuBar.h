@@ -143,6 +143,7 @@ namespace nkentseu {
 				s->termOpenCmd = cmd;
 				s->termOpenKind = -1;
 				s->termOpenAt = s->HasWorkspace() ? s->root.ToString() : NkString(".");
+				s->termOpenRun = false; // shells, pas le panneau EXECUTION
 				sh->FocusPanel("TERMINAL");
 			}
 
@@ -295,7 +296,7 @@ namespace nkentseu {
 				if (MenuItem(ctx, NkT("mb.file.prefs")))
 					d->showPrefs = true; // modale PREFERENCES complete (panneau launcher)
 				if (MenuItem(ctx, NkT("mb.file.quit"), "Ctrl+Q"))
-					sh->RequestClose();
+					sh->RequestQuit(/*windowClose=*/false); // quitter (confirmation)
 				EndMenu(ctx);
 			}
 
@@ -746,7 +747,7 @@ namespace nkentseu {
 					// dans le workspace courant) — l'utilisateur choisit quoi ouvrir.
 					NkHomeOpenNewWindow(mb->exePath, NkString());
 				if (MenuItem(ctx, NkT("mb.window.closewindow")))
-					sh->RequestClose();
+					sh->RequestQuit(); // vetoable (confirmation de fermeture)
 				Separator(ctx);
 				if (MenuItem(ctx, NkT("mb.window.closeall"), nullptr, hasFile) && s) {
 					int32 kept = 0;
