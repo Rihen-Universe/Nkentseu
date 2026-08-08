@@ -710,9 +710,16 @@ namespace nkentseu {
 				// Launcher : remplace barre d'activite + dock + panneaux.
 				mStartScreenFn(ec, mStartScreenUser);
 			} else {
-				DrawActivityBar({0.f, bodyTop, activityW, bodyH});
-				DrawActivityBarRight({W - activityW, bodyTop, activityW, bodyH}); // IA (panneau droit)
-				DockSpace(mUI, "##EditorDock", {activityW, bodyTop, W - activityW * 2.f, bodyH});
+				// Les barres sont ESCAMOTABLES (cf. SetActivityBars) : ne pas les dessiner
+				// ne suffit pas, il faut rendre leur largeur au dock — sinon l'application
+				// garde deux bandes vides sur les cotes.
+				const float32 gauche = mActivityBarLeft ? activityW : 0.f;
+				const float32 droite = mActivityBarRight ? activityW : 0.f;
+				if (mActivityBarLeft)
+					DrawActivityBar({0.f, bodyTop, activityW, bodyH});
+				if (mActivityBarRight)
+					DrawActivityBarRight({W - activityW, bodyTop, activityW, bodyH}); // IA (panneau droit)
+				DockSpace(mUI, "##EditorDock", {gauche, bodyTop, W - gauche - droite, bodyH});
 				// Seul le panneau CENTRAL masque la barre d'onglets de sa feuille quand il
 				// est seul (il affiche ses propres onglets de fichiers) ; Terminal/Sortie/
 				// sidebars gardent TOUJOURS leurs onglets, même seuls (façon VSCode).
