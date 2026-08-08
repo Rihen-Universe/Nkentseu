@@ -132,16 +132,38 @@ namespace nkentseu {
 					return mTag;
 				}
 
-				/// Copie une trace REJOUABLE : graine, nombre de joueurs, empreinte
-				/// finale, puis un coup par ligne. C'est le format qu'on colle dans
-				/// un rapport de bug.
+				/// Copie une trace REJOUABLE, et AUTO-DESCRIPTIVE.
+				///
+				/// La graine et les coups ne suffisent pas : rejoue avec un autre
+				/// moteur ou une autre IA, la meme liste donne un autre resultat, et
+				/// on cherche un bug la ou il n'y en a pas.
+				///
+				/// L'entete nomme donc TOUT ce qui a produit ces coups — moteur, IA
+				/// de chaque siege, plateau. Deux stagiaires travaillent en parallele
+				/// sur ce projet : sans cela, un rapport ne dit meme pas de qui vient
+				/// le code qu'il incrimine.
 				void CopyJournal(NkGuiContext &ctx) noexcept {
 					NkString out;
-					char	 buf[256];
-					std::snprintf(buf, sizeof(buf), "# ConquerorLab — graine %llu, %u joueurs\n",
+					char	 buf[320];
+
+					out += "# ConquerorLab — trace rejouable\n";
+					std::snprintf(buf, sizeof(buf), "# graine        %llu\n# joueurs       %u\n",
 								  static_cast<unsigned long long>(mS->Seed()),
 								  static_cast<unsigned>(mS->PlayerCount()));
 					out += buf;
+
+					std::snprintf(buf, sizeof(buf), "# regles        %s\n", mS->RulesLabel());
+					out += buf;
+
+					for (uint8 p = 0; p < mS->PlayerCount(); ++p) {
+						std::snprintf(buf, sizeof(buf), "# siege %u       %s\n",
+									  static_cast<unsigned>(p), mS->SeatLabel(p));
+						out += buf;
+					}
+
+					std::snprintf(buf, sizeof(buf), "# plateau       %s\n", mS->BoardLabel());
+					out += buf;
+					out += "#\n# joueur action de_q de_r vers_q vers_r empreinte\n";
 					const NkVector<NkcJournalEntry> &j = mS->Journal();
 					for (usize i = 0; i < j.Size(); ++i) {
 						std::snprintf(buf, sizeof(buf), "%u %s %d %d %d %d %llu\n",

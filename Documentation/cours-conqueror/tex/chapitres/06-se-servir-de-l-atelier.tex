@@ -1,0 +1,361 @@
+\chapter{Se servir de l'atelier}
+
+Les chapitres précédents produisaient du code. Celui-ci apprend à s'en servir —
+et surtout à \textbf{lire un résultat sans se tromper}, ce qui est plus difficile
+que de l'obtenir.
+
+\section{Les sept panneaux}
+
+Tous sont dockables : on les déplace, on les empile en onglets, on les ferme.
+
+\begin{center}
+\begin{tabular}{@{}p{2.4cm}p{11.4cm}@{}}
+\toprule
+\textbf{Panneau} & \textbf{Ce qu'il fait} \\
+\midrule
+Plateau & l'état, le picking, les coups légaux, la menace, le dernier coup, le score \\
+Règles & la grille $+$ tous les paramètres du moteur, auto-générés \\
+Joueurs & qui tient chaque siège, à quelle force, avec quel budget \\
+Modules & les \texttt{.cpp} détectés, leur statut, \textbf{la sortie du compilateur} \\
+Journal & la suite des coups, leur empreinte, le curseur de rejeu \\
+Métriques & la campagne IA contre IA, et ce qu'elle répond \\
+Sortie & \textbf{ce que votre code écrit} quand il tourne (\texttt{NKC\_LOG\_*}) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkpiege}[Un panneau qui n'est pas l'onglet actif ne se dessine pas]
+C'est le fonctionnement normal du docking. Conséquence : ouvrez le panneau
+\emph{Métriques} pour voir la progression d'une campagne. La campagne, elle,
+tourne quand même — elle vit sur ses propres threads, pas dans l'interface.
+\end{nkpiege}
+
+\section{Lire le plateau}
+
+\begin{itemize}
+  \item \textbf{disques colorés} : les totems. Le \emph{niveau} se lit à la
+        \emph{taille} et au liseré, jamais à la seule couleur — celle-ci porte
+        déjà le propriétaire ;
+  \item \textbf{anneaux verts} : les destinations légales du totem sélectionné ;
+  \item \textbf{anneaux rouges} : les totems ennemis que le coup \emph{survolé}
+        retournerait ;
+  \item \textbf{anneau orange qui pulse} : le dernier coup joué, une seconde
+        environ ;
+  \item \textbf{« CASCADE $\times$N »} au centre : deux totems ou plus retournés
+        d'un coup.
+\end{itemize}
+
+Les anneaux rouges sont la lecture centrale du jeu : « quelle surface de contact
+suis-je en train d'offrir ? ». Ils ne sont pas déduits des règles — l'atelier
+simule le coup et lit les événements. Ils restent donc justes même quand vous
+changez la règle de transformation.
+
+\subsection{La barre d'état, et les boutons}
+
+La barre dit à tout instant ce que l'atelier attend. \textbf{Relisez-la avant de
+chercher un bug.}
+
+\begin{center}
+\begin{tabular}{@{}p{4.2cm}p{9.6cm}@{}}
+\toprule
+\textbf{Bouton} & \textbf{Effet} \\
+\midrule
+Nouvelle partie & rejoue depuis le début, mêmes réglages, même graine \\
+Lecture / Pause & la partie avance-t-elle toute seule ? \\
+Pas à pas & un seul coup d'IA, même en pause \\
+IA vs IA & tous les sièges à l'IA $+$ lecture : la configuration de mesure \\
+Siège : Humain / IA & bascule le siège \textbf{au trait} \\
+Voisinage & trace les liens d'adjacence de la case survolée (mise au point) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Le panneau Sortie : vos propres traces}
+
+Le panneau \textbf{Modules} montre ce que dit le \emph{compilateur} ; celui-ci
+montre ce que dit votre \emph{code} une fois qu'il tourne. Les deux sont
+nécessaires, et les mélanger rendrait les deux illisibles.
+
+\begin{itemize}
+  \item \textbf{Niveau minimal} filtre : passez à \texttt{WARN} quand vous
+        cherchez une anomalie dans un flot de \texttt{INFO} ;
+  \item les lignes identiques \textbf{consécutives} sont fusionnées en
+        \texttt{(xN)} — une boucle qui répète la même trace mille fois reste
+        lisible ;
+  \item le plus récent est \textbf{en haut}, donc toujours visible sans défiler ;
+  \item le tampon est borné à \textbf{4096 lignes}, et le panneau \textbf{affiche
+        ce qu'il a perdu}. Un journal qui perd des lignes en silence fait chercher
+        un bug qui n'existe pas.
+\end{itemize}
+
+\begin{nkpiege}[Les modules internes n'y écrivent pas]
+\texttt{ConquerorRulesV2 (interne)} et \texttt{AIRef (interne)} sont compilés
+\emph{dans} l'application : ils partagent son journal, et leurs traces vont dans
+la console, pas ici. Le panneau Sortie est là pour \textbf{votre} code.
+\end{nkpiege}
+
+\section{Reproduire un bug : le journal}
+
+C'est la fonction la plus utile de l'atelier, et la moins spectaculaire.
+
+Le panneau \emph{Journal} liste les coups avec, à droite de chacun,
+\textbf{l'empreinte de l'état après ce coup}. Le bouton \textbf{Copier} met dans
+le presse-papiers une trace rejouable : graine, nombre de joueurs, un coup par
+ligne, empreinte finale.
+
+\begin{nkretenir}[Comment on s'en sert vraiment]
+Votre moteur produit un résultat différent sur Linux et sur Windows. Vous copiez
+le journal des deux côtés, vous comparez les colonnes d'empreintes, et vous
+trouvez \textbf{la première ligne qui diffère}. Ce coup-là, et pas un autre,
+contient votre non-déterminisme.
+
+Sans les empreintes intermédiaires, vous sauriez seulement que les états finaux
+diffèrent — c'est-à-dire presque rien.
+\end{nkretenir}
+
+Le bouton \textbf{Copier} produit une trace \textbf{auto-descriptive} :
+
+\begin{nkcode}{Entete d'une trace copiee}
+# ConquerorLab — trace rejouable
+# graine        20260807
+# joueurs       2
+# regles        ConquerorRulesV2 (interne)
+# siege 0       Humain
+# siege 1       AIRef (1.0.0)
+# plateau       hexagone_6x7.json
+#
+# joueur action de_q de_r vers_q vers_r empreinte
+\end{nkcode}
+
+La graine et les coups ne suffisaient pas : rejouée avec un autre moteur ou une
+autre IA, la même liste donne un autre résultat, et on cherche un bug là où il
+n'y en a pas. Vous êtes deux à travailler en parallèle — sans cet entête, un
+rapport ne dit même pas de qui vient le code qu'il incrimine.
+
+Le curseur de rejeu \textbf{reconstruit} la position (\texttt{Setup} $+$ N coups)
+au lieu de « défaire » le dernier coup : le contrat n'impose au moteur aucune
+opération inverse, et une annulation approximative donnerait un état qui n'a
+jamais existé.
+
+\section{Deux garde-fous contre les erreurs silencieuses}
+
+Ce sont les plus dangereuses : rien ne plante, les chiffres sortent, et ils sont
+faux.
+
+\subsection{L'incohérence voisinage / coups légaux}
+
+Un moteur déclare son voisinage (\texttt{GetNeighbors}) et génère ses coups. Rien
+n'oblige les deux à s'accorder. Quand ils divergent, \textbf{rien ne se plaint} —
+mais une IA qui compte « combien d'ennemis touche cette case » se trompe, et joue
+simplement moins bien. Une semaine perdue à chercher dans l'évaluation un bug qui
+est dans la géométrie.
+
+L'atelier vérifie donc, à chaque nouvelle partie, qu'un coup DUPLIQUER va bien
+vers une case que \texttt{GetNeighbors} déclare voisine. Sinon, bandeau rouge en
+tête du panneau \emph{Modules} :
+
+\begin{nkcode}{Ce que vous lisez si les deux se contredisent}
+INCOHERENCE : 3 coup(s) DUPLIQUER visent une case que GetNeighbors ne
+declare pas voisine — p.ex. (2,1) -> (4,1). Ton generateur de coups et ton
+voisinage ne disent pas la meme chose ; toute IA qui evalue l'adjacence se
+trompera.
+\end{nkcode}
+
+Il ne dit pas lequel des deux a tort — il signale la contradiction, ce qui suffit
+à la faire chercher.
+
+\subsection{La signature de configuration}
+
+\begin{nkcode}{Deux chiffres, et aucun moyen de les comparer}
+campagne du matin  : 62 % pour le camp 0
+campagne du soir   : 51 % pour le camp 0
+\end{nkcode}
+
+Que s'est-il passé ? A1 a changé un paramètre ? A2 son évaluation ? Les deux ?
+Sans réponse, ces deux nombres ne veulent \textbf{rien} dire — et on ne peut même
+pas savoir qu'ils ne veulent rien dire.
+
+Le panneau \emph{Métriques} affiche donc, \textbf{au-dessus} des chiffres, tout
+ce qui les a produits : moteur, IA de chaque siège, paliers, budget, plateau,
+valeurs de \textbf{tous} les paramètres, plus un identifiant court. Et il compare
+avec la campagne précédente :
+
+\begin{nkcode}{Le bandeau qui evite une conclusion fausse}
+Depuis la campagne precedente, les PARAMETRES, les IA ont change.
+Les deux resultats ne se comparent pas.
+\end{nkcode}
+
+\begin{nkretenir}[Pourquoi ça marche là où la discipline échoue]
+« Une variable à la fois » est la bonne règle. Mais une discipline qu'on ne peut
+pas \textbf{vérifier après coup} n'en est pas une : personne ne se souvient, une
+semaine plus tard, de ce qui avait bougé.
+
+On n'empêche personne de changer deux choses ; on rend impossible de ne pas s'en
+apercevoir. C'est la seule forme de garde-fou qui tienne entre deux personnes.
+\end{nkretenir}
+
+\section{La campagne : ce qu'elle mesure, et comment}
+
+Panneau \emph{Métriques}. Réglez le nombre de parties, les threads, le budget, les
+IA de chaque camp, puis \textbf{Lancer la campagne}.
+
+\subsection{L'inversion des côtés}
+
+\begin{nkcode}{src/ConquerorLab/NkcBatch.h — en-tete}
+2. LES COTES SONT INVERSEES une partie sur deux. Sans cela, tout ecart
+   mesure melange « cette IA est meilleure » et « le premier joueur est
+   avantage » -- et REGLES 15 pose justement l'avantage au premier joueur
+   comme LA question du palier 0. On mesure les deux separement.
+\end{nkcode}
+
+Concrètement : les parties $2n$ et $2n+1$ partagent la \textbf{même graine} et
+n'échangent que les sièges. C'est cet appariement qui isole l'avantage de
+position. D'où deux tuiles distinctes :
+
+\begin{itemize}
+  \item \textbf{Camp 0 / Camp 1} : quelle \emph{stratégie} gagne, sièges
+        confondus ;
+  \item \textbf{Siège 1 gagne} : quel \emph{siège} gagne, stratégies confondues.
+        C'est l'avantage au premier joueur.
+\end{itemize}
+
+\begin{nkpiege}[L'inversion ne s'applique qu'à deux joueurs]
+\begin{quote}\small
+À 2 joueurs l'inversion échange 0 et 1 ; au-delà on ne l'applique pas — une
+permutation cyclique à 3--4 joueurs ne s'apparie plus deux à deux.
+\hfill\textsc{NkcBatch.h, SeatToConfig}
+\end{quote}
+À 3 ou 4 joueurs, les winrates par camp \textbf{mélangent} effet de stratégie et
+effet de siège. Tenez-en compte avant de conclure quoi que ce soit.
+\end{nkpiege}
+
+\subsection{Les tuiles rouges}
+
+\textbf{Coupées (\texttt{max\_tours})} doit valoir \textbf{zéro}. Dès que la tuile
+est rouge, des parties ne se terminent pas d'elles-mêmes — et « un taux non nul
+signale une pathologie des règles, pas un réglage à monter ».
+
+\textbf{Coups illégaux} doit valoir zéro aussi. Un chiffre non nul veut dire
+qu'une IA a proposé un coup que le moteur refuse — presque toujours un
+\texttt{memset} manquant, parfois une IA qui construit un coup au lieu de le
+choisir.
+
+\subsection{Les deux histogrammes}
+
+\textbf{Usage des actions} — cinq barres : \emph{aucune}, \emph{dupliquer},
+\emph{fusionner}, \emph{pouvoir}, \emph{passer}. La barre \emph{aucune} doit
+rester à zéro : une valeur non nulle serait un bug du générateur de coups, pas un
+détail à masquer.
+
+Une action jamais jouée est une action à supprimer ou à rendre attractive. C'est
+ce raisonnement qui a tué l'action SAUTER :
+
+\begin{quote}\small
+L'action SAUTER n'est jamais jouée : $+0$ totem, une seule cible, conquête
+impossible — dominée par DUPLIQUER dans toute position. \textbf{Supprimée} du jeu
+de base. Revient comme \emph{pouvoir}, où elle a un coût.
+\hfill\textsc{regles\_completes\_v2.md:57}
+\end{quote}
+
+\textbf{Durée des parties} — une barre par tranche de dix coups. Une distribution
+très étalée, ou un pic contre la dernière barre, signale des parties qui traînent.
+
+\section{Une méthode de mesure qui tient}
+
+Quatre règles, apprises à leurs dépens par d'autres.
+
+\begin{enumerate}
+  \item \textbf{Une variable à la fois.} Changez \texttt{portee\_duplication},
+        mesurez, notez. Puis remettez-la et changez autre chose. Deux variables
+        ensemble donnent un résultat que rien ne permet d'attribuer.
+  \item \textbf{Assez de parties.} Sur 20 parties, un écart de 10 points n'est que
+        du bruit. Comptez 200 pour une tendance, 1000 pour une conclusion, 10\,000
+        pour une décision de conception.
+  \item \textbf{Notez la graine et les réglages avec le chiffre.} Un winrate sans
+        son contexte n'est pas une mesure, c'est une anecdote. La barre du plateau
+        affiche la graine en permanence pour cette raison.
+  \item \textbf{Le résultat qui ne bouge pas est un résultat.} Si doubler la
+        portée ne change pas le winrate, vous venez d'apprendre que ce paramètre
+        n'est pas un levier. C'est une information, pas un échec.
+\end{enumerate}
+
+\begin{nkpiege}[Le réglage modifié en cours de partie]
+Le panneau \emph{Règles} affiche un bandeau orange dès que vous touchez un
+paramètre : « Réglage modifié — relance la partie pour mesurer ». Il est là parce
+que les coups \textbf{déjà joués} ne sont pas rejoués avec la nouvelle règle. Une
+partie à cheval sur deux réglages ne mesure rien.
+\end{nkpiege}
+
+\section{Quand ça ne marche pas}
+
+\begin{center}
+\begin{tabular}{@{}p{6.0cm}p{7.8cm}@{}}
+\toprule
+\textbf{Symptôme} & \textbf{Regardez d'abord} \\
+\midrule
+rien ne bouge & \textbf{la barre d'état du plateau} — elle dit ce qu'on attend \\
+mon module n'apparaît pas & panneau \emph{Modules} : détecté ? compilé ? bon chemin ? \\
+« Symbole introuvable » & les deux \texttt{NKC\_MODULE\_EXPORT} en fin de fichier \\
+« ABI 2, attendue 3 » & vous compilez contre de vieux en-têtes \\
+« coup ILLÉGAL » & le \texttt{memset} de votre coup \\
+l'interface se fige une seconde & c'est une compilation, pas un plantage \\
+« le moteur a REFUSÉ ce plateau » & \texttt{cells} vide, JSON malformé, ou moteur sans \texttt{LoadBoardJson} \\
+la campagne refuse de démarrer & chaque siège doit être tenu par une IA \emph{chargée} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Le banc d'essai, hors interface}
+
+Avant de croire à quoi que ce soit, faites tourner le banc d'essai. Il vérifie le
+contrat de bout en bout, sans interface :
+
+\begin{nkcode}{Applications/ConquerorLab/README.md — section « Reproduire »}
+CLANG="C:/msys64/ucrt64/bin/clang++.exe"
+R="d:/Projets/2026/Nkentseu/Nkentseu"
+INC="-I$R/Applications/ConquerorLab/include \
+     -I$R/Kernel/Foundation/NKCore/src \
+     -I$R/Kernel/Foundation/NKPlatform/src"
+
+$CLANG -shared -std=c++17 -O2 -fPIC $INC -o ConquerorRulesV2.dll \
+       $R/Applications/ConquerorLab/modules/rules/ConquerorRulesV2.cpp
+$CLANG -shared -std=c++17 -O2 -fPIC $INC -o ConquerorAIRef.dll \
+       $R/Applications/ConquerorLab/modules/ai/ConquerorAIRef.cpp
+$CLANG -std=c++17 -O1 $INC -o abitest.exe \
+       $R/Applications/ConquerorLab/tests/NkcAbiHarness.cpp
+./abitest.exe
+\end{nkcode}
+
+Seize vérifications, dont les trois qui comptent : l'IA ne produit jamais de coup
+illégal, la partie se termine d'elle-même, et le rejeu redonne exactement la même
+empreinte.
+
+Remplacez les deux chemins de modules par les vôtres : le banc d'essai teste
+\textbf{votre} module aussi bien que celui de référence.
+
+\begin{nkexo}[1 — Le premier chiffre]
+Lancez 200 parties, IA de référence \emph{Normal} contre \emph{Facile}, sur le
+plateau par défaut. Notez : winrate par camp, victoires du siège 1, taux de
+coupées, durée moyenne. Recommencez avec une autre graine. Les chiffres
+bougent-ils ? De combien ? Vous venez de mesurer votre bruit de fond — donc le
+seuil en dessous duquel un écart ne veut rien dire.
+\end{nkexo}
+
+\begin{nkexo}[2 — L'avantage au premier joueur]
+Même IA des deux côtés, 1000 parties. Que vaut « Siège 1 gagne » ? Est-ce
+significatif au regard du bruit mesuré à l'exercice 1 ? C'est \textbf{la} question
+du palier 0 : écrivez votre réponse en une phrase, avec le chiffre.
+\end{nkexo}
+
+\begin{nkexo}[3 — Le paramètre qui ne sert à rien]
+Prenez un paramètre du moteur de référence et faites-le varier sur trois valeurs,
+300 parties chacune. Tracez le winrate. Est-ce un levier ou une décoration ? Sur
+quel critère tranchez-vous ?
+\end{nkexo}
+
+\begin{nkexo}[4 — Reproduire une divergence]
+Introduisez volontairement du non-déterminisme dans votre moteur : par exemple,
+faites dépendre l'ordre des coups de l'adresse d'un pointeur. Jouez une partie,
+copiez le journal, relancez avec la même graine, comparez les empreintes. À quel
+coup la divergence apparaît-elle ? Retirez ensuite le défaut.
+\end{nkexo}

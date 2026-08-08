@@ -25,6 +25,7 @@
 #include "ConquerorLab/NkcBatch.h"
 #include "ConquerorLab/NkcSession.h"
 #include "ConquerorLab/NkcPlayersPanel.h"   // NkcDifficultyName
+#include "ConquerorLab/NkcRunSignature.h"
 #include "ConquerorLab/NkcLabTheme.h"
 #include "ConquerorLab/NkcDraw.h"
 
@@ -52,6 +53,9 @@ namespace nkentseu {
 
 					DrawSetup(ctx);
 					Separator(ctx);
+					// AVANT les chiffres, jamais apres : la signature est ce qui les
+					// rend interpretables. La lire ensuite, c'est deja avoir conclu.
+					DrawSignature(ctx);
 					DrawProgress(ctx);
 					DrawOutcome(ctx);
 					DrawPlots(ctx);
@@ -131,6 +135,13 @@ namespace nkentseu {
 							// chaque worker. Regler puis lancer, dans cet ordre.
 							if (!mBatch.Start(mS->Vt(), mS->RulesInst(), mS->Host(), mCfg)) mShowError = true;
 							else							                                mShowError = false;
+							if (!mShowError) {
+								// On garde la signature PRECEDENTE avant d'ecrire la
+								// nouvelle : c'est la comparaison des deux qui dit ce
+								// qui a bouge entre deux chiffres.
+								mPrevSig = mSig;
+								mSig	 = MakeSig();
+							}
 						}
 					} else {
 						if (Button(ctx, "Interrompre")) mBatch.Cancel();
@@ -141,6 +152,65 @@ namespace nkentseu {
 						ctx.DL().AddRectFilled(r, NkcFade(NkcPalette::Error(), 0.25f), ctx.theme.rounding);
 						NkcTextCenter(ctx, r, mBatch.Message().CStr(), NkcPalette::Text());
 					}
+				}
+
+				/// Ce qui a produit le chiffre affiche. Voir NkcRunSignature.h :
+				/// un winrate sans son contexte est une anecdote, pas une mesure.
+				NkcRunSignature MakeSig() const noexcept {
+					uint32 budgets[kMaxPlayers];
+					for (uint32 p = 0; p < kMaxPlayers; ++p) budgets[p] = mCfg.budgetMs;
+					return NkcMakeSignature(
+						mS->Vt(), mS->RulesInst(), mS->RulesLabel(), mS->BoardLabel(),
+						mCfg.playerCount, mCfg.diff, budgets,
+						[this](uint8 seat) -> const char * {
+							const int32 m = mCfg.aiModule[seat];
+							if (m < 0 || !mS->Host()) return "?";
+							const NkVector<NkcAIEntry> &all = mS->Host()->Ais();
+							if (static_cast<usize>(m) >= all.Size()) return "?";
+							return all[static_cast<usize>(m)].label.CStr();
+						});
+				}
+
+				/// Le bandeau qui rend une campagne interpretable — ou signale
+				/// qu'elle ne l'est pas.
+				void DrawSignature(NkGuiContext &ctx) noexcept {
+					if (mSig.Empty()) return;
+					char buf[512];
+
+					std::snprintf(buf, sizeof(buf), "configuration %016llx",
+								  static_cast<unsigned long long>(mSig.hash));
+					NkcText(ctx, ctx.layout.cursor.x, ctx.layout.cursor.y, buf,
+							NkcPalette::TextDim(), 0.f);
+					ctx.layout.cursor.y += NkcLineH(ctx) + ctx.S(2.f);
+
+					std::snprintf(buf, sizeof(buf), "regles  %s", mSig.rules.CStr());
+					Text(ctx, buf);
+					std::snprintf(buf, sizeof(buf), "sieges  %s", mSig.seats.CStr());
+					Text(ctx, buf);
+					std::snprintf(buf, sizeof(buf), "plateau %s", mSig.board.CStr());
+					Text(ctx, buf);
+					if (!mSig.params.Empty()) {
+						std::snprintf(buf, sizeof(buf), "reglages %s", mSig.params.CStr());
+						Text(ctx, buf);
+					}
+
+					// LE POINT DE TOUT L'EXERCICE : deux campagnes dont la
+					// configuration differe ne se comparent pas, et on le dit avant
+					// que quelqu'un tire une conclusion.
+					const NkString what = NkcSignatureDiff(mPrevSig, mSig);
+					if (!what.Empty()) {
+						const float32 h = NkcLineH(ctx) * 2.f + ctx.S(12.f);
+						const NkRect  r = ctx.NextItemRect(0.f, h);
+						ctx.DL().AddRectFilled(r, NkcFade(NkcPalette::Warn(), 0.22f),
+											   ctx.theme.rounding);
+						ctx.DL().AddRectFilled({r.x, r.y, ctx.S(3.f), r.h}, NkcPalette::Warn(), 1.f);
+						std::snprintf(buf, sizeof(buf),
+									  "Depuis la campagne precedente, %s a change. "
+									  "Les deux resultats ne se comparent pas.", what.CStr());
+						NkcText(ctx, r.x + ctx.S(10.f), r.y + ctx.S(5.f), buf,
+								NkcPalette::Text(), r.w - ctx.S(16.f));
+					}
+					Separator(ctx);
 				}
 
 				// -------------------------------------------------------------
@@ -239,6 +309,10 @@ namespace nkentseu {
 				bool				  mShowError			= false;
 				float32				  mAction[5]			= {};
 				float32				  mLens[kLenBuckets]	= {};
+				/// Ce qui a produit les chiffres affiches, et ce qui les a produits
+				/// la fois d'avant : c'est la COMPARAISON des deux qui a une valeur.
+				NkcRunSignature		  mSig;
+				NkcRunSignature		  mPrevSig;
 		};
 
 	} // namespace conqueror

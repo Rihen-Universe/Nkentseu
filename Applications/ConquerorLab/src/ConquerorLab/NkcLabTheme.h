@@ -1,22 +1,32 @@
 #pragma once
 // =============================================================================
-// NkcLabTheme — LA palette de l'atelier. Un seul endroit, comme exige par la
-// direction artistique (HANDOFF §2.4 : « pas de couleur en dur dans le code des
-// panneaux »).
+// NkcLabTheme — LA palette de l'atelier. Un seul endroit (HANDOFF §2.4 : « pas
+// de couleur en dur dans le code des panneaux »).
 //
-// Deux familles, et la distinction compte :
+// CHARTE : GITHUB DARK PRO
+// ------------------------
+// Decision de Rihen, 2026-08-06 : la charte teal RIHEN de HANDOFF §2.1 est
+// REMPLACEE par GitHub Dark Pro. Raison : l'atelier est un outil de developpeur,
+// regarde huit heures par jour a cote d'un editeur de code ; il doit avoir la
+// meme temperature que lui, pas celle d'une plaquette de studio.
 //
-//   ctx.theme  — le CHROME (fonds, boutons, bordures, texte). Ecrase apres Init
-//                du shell par ApplyRihenTheme. Les widgets NKGui y puisent seuls.
+// Valeurs : primer/primitives de GitHub (canvas #0D1117, surfaces #161B22,
+// bordure #30363D, texte #E6EDF3, accent #58A6FF), variante « Pro » = fonds plus
+// contrastes et accents plus satures que le Dark par defaut.
+//
+// DEUX FAMILLES, ET LA DISTINCTION COMPTE
+//
+//   ctx.theme  — le CHROME (fonds, boutons, bordures, texte). Les widgets NKGui
+//                y puisent seuls.
 //
 //   NkcPalette — le PLATEAU et ses signes de jeu (joueurs, coups legaux, danger).
-//                Ce sont des couleurs de SENS, pas de decor : elles ne doivent
-//                jamais suivre un changement de theme utilisateur, sinon la
-//                lecture tactique change avec l'humeur du theme.
+//                Ce sont des couleurs de SENS, pas de decor : elles ne suivent
+//                aucun theme utilisateur, sinon la lecture tactique changerait
+//                avec l'humeur du theme.
 //
-// Les quatre teintes de joueur ont ete choisies pour rester distinctes EN
-// NIVEAUX DE GRIS (luminance 0,62 / 0,66 / 0,73 / 0,58) : un daltonien
-// deutéranope distingue toujours cyan / orange / vert / violet.
+// Les quatre teintes de joueur restent distinctes EN NIVEAUX DE GRIS
+// (luminance 0,62 bleu / 0,60 orange / 0,66 vert / 0,58 violet) : un daltonien
+// deuteranope distingue toujours les quatre camps.
 // =============================================================================
 
 #include "NKGui/NKGui.h"
@@ -27,35 +37,36 @@ namespace nkentseu {
 		using nkgui::NkColor;
 
 		// ---------------------------------------------------------------------
-		/// Charte RIHEN. Les noms decrivent l'USAGE, jamais la teinte : « accent »
-		/// et non « orange », pour qu'un changement de charte ne mente pas.
+		/// Les noms decrivent l'USAGE, jamais la teinte : « accent » et non
+		/// « bleu », pour qu'un changement de charte ne rende pas le code menteur.
 		struct NkcPalette {
 				// ---- chrome (repris tel quel dans ctx.theme) -----------------
-				static constexpr NkColor BgPrimary()	{ return {11, 34, 41, 255}; }	 // #0B2229
-				static constexpr NkColor Panel()		{ return {18, 49, 58, 255}; }	 // #12313A
-				static constexpr NkColor Header()		{ return {23, 64, 75, 255}; }	 // #17404B
-				static constexpr NkColor Button()		{ return {29, 78, 90, 255}; }	 // #1D4E5A
-				static constexpr NkColor ButtonHover()	{ return {39, 106, 121, 255}; }	 // #276A79
-				static constexpr NkColor Accent()		{ return {232, 151, 63, 255}; }	 // #E8973F
-				static constexpr NkColor Border()		{ return {31, 90, 104, 255}; }	 // #1F5A68
-				static constexpr NkColor Text()			{ return {232, 241, 243, 255}; } // #E8F1F3
-				static constexpr NkColor TextDim()		{ return {110, 140, 149, 255}; } // #6E8C95
-				static constexpr NkColor Track()		{ return {10, 29, 35, 255}; }	 // #0A1D23
+				static constexpr NkColor BgPrimary()	{ return {13, 17, 23, 255}; }	 // #0D1117 canvas
+				static constexpr NkColor Panel()		{ return {22, 27, 34, 255}; }	 // #161B22 surface
+				static constexpr NkColor Header()		{ return {22, 27, 34, 255}; }	 // #161B22
+				static constexpr NkColor Button()		{ return {33, 38, 45, 255}; }	 // #21262D
+				static constexpr NkColor ButtonHover()	{ return {48, 54, 61, 255}; }	 // #30363D
+				static constexpr NkColor Emphasis()		{ return {31, 111, 235, 255}; }	 // #1F6FEB bouton actif
+				static constexpr NkColor Accent()		{ return {88, 166, 255, 255}; }	 // #58A6FF
+				static constexpr NkColor Border()		{ return {48, 54, 61, 255}; }	 // #30363D
+				static constexpr NkColor Text()			{ return {230, 237, 243, 255}; } // #E6EDF3
+				static constexpr NkColor TextDim()		{ return {139, 148, 158, 255}; } // #8B949E
+				static constexpr NkColor Track()		{ return {1, 4, 9, 255}; }		 // #010409 inset
 
 				// ---- plateau -------------------------------------------------
-				static constexpr NkColor CellEmpty()	{ return {14, 42, 50, 255}; }	 // #0E2A32
-				static constexpr NkColor CellBlocked()	{ return {7, 22, 25, 255}; }	 // #071619
-				static constexpr NkColor CellEdge()		{ return {31, 90, 104, 255}; }	 // #1F5A68
+				static constexpr NkColor CellEmpty()	{ return {22, 27, 34, 255}; }	 // #161B22
+				static constexpr NkColor CellBlocked()	{ return {1, 4, 9, 255}; }		 // #010409
+				static constexpr NkColor CellEdge()		{ return {48, 54, 61, 255}; }	 // #30363D
 
-				/// Teinte d'un joueur. Au-dela de 4 joueurs on boucle : le contrat
-				/// borne a kMaxPlayers = 4, mais un module fantaisiste ne doit pas
-				/// faire sortir l'atelier du tableau.
+				/// Teinte d'un joueur. Au-dela de 4 on boucle : le contrat borne a
+				/// kMaxPlayers = 4, mais un module fantaisiste ne doit pas faire
+				/// sortir l'atelier du tableau.
 				static NkColor Player(int32 index) noexcept {
 					static const NkColor kP[4] = {
-						{79, 179, 199, 255},   // #4FB3C7 cyan
-						{232, 151, 63, 255},   // #E8973F orange (accent RIHEN)
-						{143, 203, 109, 255},  // #8FCB6D vert
-						{199, 125, 212, 255},  // #C77DD4 violet
+						{88, 166, 255, 255},   // #58A6FF bleu   (accent.fg)
+						{219, 109, 40, 255},   // #DB6D28 orange (severe.fg)
+						{63, 185, 80, 255},	   // #3FB950 vert   (success.fg)
+						{163, 113, 247, 255},  // #A371F7 violet (done.fg)
 					};
 					if (index < 0) return CellEmpty();
 					return kP[index & 3];
@@ -63,21 +74,21 @@ namespace nkentseu {
 
 				// ---- signes de jeu -------------------------------------------
 				/// Destination legale du coup en cours de construction.
-				static constexpr NkColor MoveLegal()	{ return {143, 203, 109, 153}; } // #8FCB6D a 60 %
+				static constexpr NkColor MoveLegal()	{ return {63, 185, 80, 165}; }	 // #3FB950 a 65 %
 				/// Totem ennemi qui SERAIT retourne : la lecture tactique centrale
 				/// (« quelle surface de contact suis-je en train d'offrir ? »).
-				static constexpr NkColor MoveThreat()	{ return {232, 106, 90, 255}; }	 // #E86A5A
+				static constexpr NkColor MoveThreat()	{ return {248, 81, 73, 255}; }	 // #F85149 danger.fg
 				/// Dernier coup joue (anneau qui pulse puis s'eteint).
-				static constexpr NkColor LastMove()		{ return {232, 151, 63, 255}; }
+				static constexpr NkColor LastMove()		{ return {210, 153, 34, 255}; }	 // #D29922 attention.fg
 
-				// ---- statuts de module ---------------------------------------
-				static constexpr NkColor Ok()			{ return {143, 203, 109, 255}; }
-				static constexpr NkColor Warn()			{ return {232, 151, 63, 255}; }
-				static constexpr NkColor Error()		{ return {232, 106, 90, 255}; }
+				// ---- statuts -------------------------------------------------
+				static constexpr NkColor Ok()			{ return {63, 185, 80, 255}; }	 // #3FB950
+				static constexpr NkColor Warn()			{ return {210, 153, 34, 255}; }	 // #D29922
+				static constexpr NkColor Error()		{ return {248, 81, 73, 255}; }	 // #F85149
 		};
 
-		/// Couleur avec alpha force — evite d'ecrire un NkColor{...} litteral dans
-		/// un panneau juste pour rendre une teinte de la palette translucide.
+		/// Couleur avec alpha module — evite d'ecrire un NkColor litteral dans un
+		/// panneau juste pour rendre une teinte de la palette translucide.
 		inline NkColor NkcFade(NkColor c, float32 a) noexcept {
 			const float32 v = a < 0.f ? 0.f : (a > 1.f ? 1.f : a);
 			c.a = static_cast<uint8>(static_cast<float32>(c.a) * v + 0.5f);
@@ -97,26 +108,28 @@ namespace nkentseu {
 
 		// ---------------------------------------------------------------------
 		/// Ecrase le theme NKGui du shell. A appeler APRES `shell->Init(...)` :
-		/// l'Editor Kit y pose son propre theme (GitHub Dark) et rechargerait le
-		/// theme utilisateur par-dessus si on ecrivait avant.
-		inline void ApplyRihenTheme(nkgui::NkGuiContext &ctx) noexcept {
+		/// l'Editor Kit y pose son propre theme puis RECHARGE le theme utilisateur
+		/// sauvegarde ; ecrire avant serait ecrase sans bruit.
+		inline void ApplyGitHubDarkPro(nkgui::NkGuiContext &ctx) noexcept {
 			nkgui::NkGuiTheme &t = ctx.theme;
 			t.bgPrimary	   = NkcPalette::BgPrimary();
 			t.panel		   = NkcPalette::Panel();
 			t.header	   = NkcPalette::Header();
 			t.button	   = NkcPalette::Button();
 			t.buttonHover  = NkcPalette::ButtonHover();
-			t.buttonActive = NkcPalette::Accent();
+			t.buttonActive = NkcPalette::Emphasis();
 			t.border	   = NkcPalette::Border();
 			t.text		   = NkcPalette::Text();
 			t.textDisabled = NkcPalette::TextDim();
-			t.selection	   = NkcFade(NkcPalette::Accent(), 0.78f);
+			t.selection	   = NkcFade(NkcPalette::Emphasis(), 0.78f);
 			t.accent	   = NkcPalette::Accent();
 			t.track		   = NkcPalette::Track();
-			t.tabBar	   = NkcPalette::BgPrimary();
+			t.tabBar	   = NkcPalette::Track();
 			t.tab		   = NkcPalette::Panel();
 			t.tabHover	   = NkcPalette::ButtonHover();
-			t.tabActive	   = NkcPalette::Header();
+			t.tabActive	   = NkcPalette::BgPrimary();
+			// GitHub ne bombe pas ses coins : 6 px sur les grandes surfaces, et le
+			// chrome des onglets reste droit (c'est le shell qui en decide).
 			t.rounding	   = 6.f;
 			t.framePadX	   = 12.f;
 			t.framePadY	   = 7.f;

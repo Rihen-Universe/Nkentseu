@@ -30,7 +30,8 @@
 #include "NK3DModeler/Shell/NkModelerInput.h"
 #include "NK3DModeler/Shell/NkModelerWidgets.h"
 #include "NK3DModeler/Project/NkModelerProject.h"
-#include "NK3DModeler/Project/NkModelerScene.h" // capture/restitution du contenu 3D
+#include "NK3DModeler/Project/NkModelerScene.h"	 // lecteur HERITE (tout dans le .nk3dm)
+#include "NK3DModeler/Project/NkModelerAssets.h" // un fichier par asset (disposition 3)
 #include "NKWindow/Core/NkLauncher.h" // ouvre le navigateur du systeme
 #include "NKWindow/Core/NkDialogs.h"  // selecteurs natifs DEJA presents dans le depot
 #include "NKEditorKit/NkIEditorRenderer.h"
@@ -710,6 +711,39 @@ namespace nkentseu {
 		// ici : le depot en a deja un, portable (Win32, zenity, osascript, stubs).
 		inline void NkProjectHandlePending(NkModelerState &st, NkProjectState &proj,
 										   NkRecentList &rec) {
+			// ── SUPPRESSIONS COTE DISQUE ────────────────────────────────────
+			// Supprimer une carte doit retirer SON fichier (demande de Rihen).
+			// C'est fait ICI, apres la frame : c'est le seul endroit ou la racine
+			// du projet est connue, et on ne touche pas au disque en peignant.
+			//
+			// CORBEILLE D'ABORD, effacement seulement si elle n'est pas disponible.
+			// Un fichier detruit sans retour serait la pire des surprises -- c'est
+			// la meme regle que « fermer un onglet ne supprime rien ».
+			if (st.delPendCount > 0) {
+				if (proj.open && !proj.root.Empty()) {
+					for (int32 i = 0; i < st.delPendCount; ++i) {
+						const NkString rel(st.delPendFile[i]);
+						if (rel.Empty())
+							continue;
+						const bool isDir = rel[rel.Size() - 1u] == '/';
+						const NkString abs = NkScToAbs(proj.root, rel.CStr());
+						if (isDir) {
+							// Un dossier ne part que s'il est VIDE : un fichier
+							// qu'on n'a pas mis la n'a pas a disparaitre avec lui.
+							if (NkDirectory::Exists(abs.CStr()) &&
+								!NkDirectory::MoveToTrash(abs.CStr()))
+								(void)NkDirectory::Delete(abs.CStr(), false);
+						} else if (NkFile::Exists(abs.CStr()) &&
+								   !NkFile::MoveToTrash(abs.CStr())) {
+							(void)NkFile::Delete(abs.CStr());
+						}
+					}
+				}
+				// La file se vide dans TOUS les cas : la garder ferait retenter la
+				// suppression a chaque frame, y compris sans projet ouvert.
+				st.delPendCount = 0;
+			}
+
 			const int32 action = st.projPending;
 			if (action == 0)
 				return;
@@ -736,7 +770,31 @@ namespace nkentseu {
 				st.newProjOpen = false;
 				st.projError[0] = 0;
 				// Un projet qu'on vient d'ouvrir ou de creer n'a rien de modifie.
-				st.dirty = false;
+				NkClearDirty(st);
+			};
+
+			// ── OUVRIR UN PROJET : DEUX DISPOSITIONS, UN SEUL POINT DE PASSAGE ──
+			// Disposition 3 : un fichier par asset, le .nk3dm ne porte que l'arbre.
+			// Dispositions 1 et 2 : tout etait dans le .nk3dm. On les RELIT encore
+			// -- le projet de quelqu'un ne devient pas illisible parce que la
+			// disposition a change -- et le prochain enregistrement l'ecrit en
+			// fichiers separes. C'est une migration, pas une rupture.
+			auto restore = [&](const NkArchive &sc, NkString &e) -> bool {
+				bool ok;
+				if (NkScInt(sc, "disposition", 0) >= 3) {
+					ok = NkProjectTreeRestore(sc, proj.root, st, &e);
+				} else {
+					ok = NkSceneRestore(sc, proj.root, st, &e);
+					if (ok)
+						NkBrowserSyncScenes(st); // l'ancien format ne portait pas les cartes
+				}
+				// LE DISQUE FAIT FOI SUR CE QUI EXISTE : l'arbre relu dit l'ordre,
+				// le balayage dit ce qui est reellement la. Un fichier ajoute ou
+				// efface pendant que l'application etait fermee est donc pris en
+				// compte a l'ouverture, sans attendre le surveillant.
+				if (ok)
+					(void)NkProjectRescan(proj.root, st);
+				return ok;
 			};
 
 			NkString err;
@@ -788,10 +846,18 @@ namespace nkentseu {
 						// doit deja etre a jour, c'est elle qui resout les chemins
 						// relatifs. Une scene absente n'est PAS une erreur (projet
 						// vide, ou ecrit par une version qui ne la sauvait pas).
-						if (!NkSceneRestore(sc, proj.root, st, &err) && !err.Empty())
+						if (!restore(sc, err) && !err.Empty())
 							fail(err);
-						else
+						else {
 							opened();
+							// UN CHARGEMENT PARTIEL SE DIT QUAND MEME. Il reussit --
+							// donc pas de boite d'erreur -- mais taire « 2 textures
+							// introuvables » ou « 1 scene orpheline recuperee »
+							// laisserait l'utilisateur decouvrir l'ecart tout seul,
+							// bien plus tard.
+							if (!err.Empty())
+								put(st.projError, (uint32)sizeof(st.projError), err.CStr());
+						}
 					} else
 						fail(err);
 					break;
@@ -802,10 +868,13 @@ namespace nkentseu {
 						const NkString path = rec.items[(usize)st.projRecent].path;
 						NkArchive sc;
 						if (NkProjectLoad(path.CStr(), proj, &err, &sc)) {
-							if (!NkSceneRestore(sc, proj.root, st, &err) && !err.Empty())
+							if (!restore(sc, err) && !err.Empty())
 								fail(err);
-							else
+							else {
 								opened();
+								if (!err.Empty())
+									put(st.projError, (uint32)sizeof(st.projError), err.CStr());
+							}
 						} else
 							// On NE RETIRE PAS l'entree : un disque externe
 							// debranche n'est pas un projet supprime, et la
@@ -816,19 +885,38 @@ namespace nkentseu {
 					break;
 				}
 
-				case 3: // Enregistrer
+				case 3:	  // Enregistrer — LE FICHIER ACTIF
+				case 8: { // Enregistrer tout — TOUT LE PROJET
 					if (!proj.open || proj.file.Empty()) {
 						// Jamais enregistre : « Enregistrer » DOIT se comporter comme
 						// « Enregistrer sous... », sinon il echoue sans rien dire.
 						st.projPending = 4;
 						return;
 					}
+					// CTRL+S ENREGISTRE CE QU'ON REGARDE, pas tout le projet (Rihen).
+					// Depuis qu'un asset est un fichier, « Enregistrer » doit se
+					// comporter comme partout ailleurs ; « Enregistrer tout » existe
+					// a cote pour le reste.
+					const int32 card = (action == 3) ? NkActiveCard(st) : -1;
 					{
-						// La scene est capturee AVEC LA RACINE OU ELLE S'ECRIT :
-						// c'est elle qui rend les chemins relatifs, et un projet
-						// dont les chemins visent un autre dossier s'ouvre vide.
+						// LES ASSETS D'ABORD, chacun dans SON fichier ; le .nk3dm
+						// ensuite, qui n'en porte que les liens. L'ordre compte :
+						// c'est l'ecriture des assets qui fixe le chemin de chaque
+						// carte, et c'est ce chemin que l'arbre enregistre.
+						//
+						// Tout est ecrit RELATIVEMENT A LA RACINE OU CA S'ECRIT : un
+						// projet dont les chemins visent un autre dossier s'ouvre vide.
+						if (!NkProjectWriteAssets(proj.root, st, &err, card)) {
+							fail(err);
+							st.quitAfterSave = false;
+							break;
+						}
+						// L'ARBRE EST TOUJOURS REECRIT, meme pour un seul fichier :
+						// il porte l'ordre, les dossiers et le chemin des cartes, et
+						// un fichier ecrit dont l'arbre ignorerait le chemin serait
+						// introuvable a la reouverture.
 						NkArchive sc;
-						NkSceneCapture(sc, proj.root, st);
+						NkProjectTreeCapture(sc, st);
 						if (!NkProjectSave(proj, &err, &sc)) {
 							fail(err);
 							st.quitAfterSave = false;
@@ -836,22 +924,40 @@ namespace nkentseu {
 						}
 					}
 					rec.Touch(proj);
-					st.dirty = false;
-					if (st.quitAfterSave)
+					if (action == 8)
+						NkClearDirty(st);
+					else
+						NkClearDirtyDoc(st, st.TabDoc(st.activeTab));
+					// QUITTER enregistre TOUT : partir en n'ayant ecrit qu'un fichier
+					// laisserait le reste du travail derriere soi.
+					if (st.quitAfterSave) {
+						if (action == 3) {
+							st.quitAfterSave = true;
+							st.projPending = 8;
+							return; // on repasse ici, cette fois pour tout
+						}
 						st.running = false;
+					}
 					st.quitAfterSave = false;
 					break;
+				}
 
 				case 4: { // Enregistrer sous...
 					const NkDialogResult r =
 						NkDialogs::SaveFileDialog("nk3dm", "Enregistrer le projet sous...");
 					if (r.confirmed && !r.path.Empty()) {
 						// Racine de DESTINATION, pas l'actuelle : « Enregistrer
-						// sous... » deplace le projet, et les chemins relatifs
-						// doivent partir du nouveau dossier. NkProjectRootFor
+						// sous... » deplace le projet, et les fichiers d'assets
+						// doivent atterrir dans le NOUVEAU dossier. NkProjectRootFor
 						// applique la meme normalisation que l'ecriture elle-meme.
+						const NkString dest = NkProjectRootFor(r.path.CStr());
+						if (!NkProjectWriteAssets(dest, st, &err)) {
+							fail(err);
+							st.quitAfterSave = false;
+							break;
+						}
 						NkArchive sc;
-						NkSceneCapture(sc, NkProjectRootFor(r.path.CStr()), st);
+						NkProjectTreeCapture(sc, st);
 						if (NkProjectSaveAs(proj, r.path.CStr(), &err, &sc)) {
 							opened();
 							if (st.quitAfterSave)

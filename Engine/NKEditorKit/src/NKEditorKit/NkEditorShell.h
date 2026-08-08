@@ -66,18 +66,32 @@ namespace nkentseu {
 				bool Init(const NkEditorShellConfig &config) noexcept;
 				int Run() noexcept; ///< boucle bloquante ; retourne le code de sortie
 
-				// Arret IMMEDIAT, sans rien demander. Reservee a l'application une fois
-				// qu'elle a decide (apres confirmation, par exemple).
 				void RequestClose() noexcept {
 					mRunning = false;
 				}
 
-				// Demande de fermeture INITIEE PAR L'UTILISATEUR : croix DESSINEE de la
-				// barre de titre, menu « Quitter », ou croix native de l'OS. Passe par le
-				// rappel vetoable ci-dessous — c'est le seul point d'entree qui laisse
-				// l'application poser une question. Les boutons dessines mettaient
-				// autrefois mRunning a faux directement : toute confirmation etait alors
-				// contournee sans qu'on s'en apercoive.
+				// ── Fermeture EXPLICITE de la fenetre (croix de la barre de titre) ──
+				// Declenche uniquement par NkWindowCloseEvent, JAMAIS par RequestClose()
+				// ci-dessus. La distinction est necessaire a l'application : fermer une
+				// fenetre (« je n'ai plus besoin de ce workspace ») et quitter par Ctrl+Q
+				// (« je ferme l'application, je reprendrai ou j'en etais ») n'ont pas le
+				// meme sens pour la restauration de session au lancement suivant.
+				// Retourne true = fermer maintenant ; false = ANNULER la fermeture. Le
+				// false rend la main a l'application, qui peut afficher une confirmation
+				// (« enregistrer / fermer sans enregistrer / annuler ») puis appeler
+				// RequestClose() elle-meme une fois l'utilisateur decide.
+				using NkOnWindowClosed = bool (*)(void *user);
+
+				void SetOnWindowClosed(NkOnWindowClosed cb, void *user) noexcept {
+					mOnWindowClosed = cb;
+					mOnWindowClosedUser = user;
+				}
+
+				// ── Demande de fermeture : PASSAGE OBLIGE ───────────────────────────
+				// Croix dessinee, menu Quitter, Ctrl+Q, croix de la barre de titre : tout
+				// passe ici, pour laisser l'application poser une question. Les boutons
+				// dessines mettaient autrefois mRunning a faux directement : toute
+				// confirmation etait alors contournee sans qu'on s'en apercoive.
 				// `windowClose` distingue « je ferme CETTE fenetre » (croix, Fermer la
 				// fenetre) de « je quitte l'application » (Quitter, Ctrl+Q). NKCode s'en
 				// sert pour la restauration au lancement suivant : une fenetre fermee
@@ -91,23 +105,6 @@ namespace nkentseu {
 
 				bool QuitIsWindowClose() const noexcept {
 					return mQuitIsWindowClose;
-				}
-
-				// ── Fermeture EXPLICITE de la fenetre (croix de la barre de titre) ──
-				// Declenche uniquement par NkWindowCloseEvent, JAMAIS par RequestClose()
-				// ci-dessus. La distinction est necessaire a l'application : fermer une
-				// fenetre (« je n'ai plus besoin de ce workspace ») et quitter par Ctrl+Q
-				// (« je ferme l'application, je reprendrai ou j'en etais ») n'ont pas le
-				// meme sens pour la restauration de session au lancement suivant.
-				// Retourne true = fermer maintenant ; false = ANNULER la fermeture.
-				// Le false rend la main a l'application, qui peut afficher une
-				// confirmation (« enregistrer / fermer sans enregistrer / annuler ») puis
-				// appeler RequestClose() elle-meme une fois l'utilisateur decide.
-				using NkOnWindowClosed = bool (*)(void *user);
-
-				void SetOnWindowClosed(NkOnWindowClosed cb, void *user) noexcept {
-					mOnWindowClosed = cb;
-					mOnWindowClosedUser = user;
 				}
 
 				// ── Enregistrement (le shell NE POSSEDE PAS les panneaux) ───────────
@@ -137,23 +134,13 @@ namespace nkentseu {
 				// (NkCtxMenuDraw). À appeler juste APRÈS OpenContextMenu. Le choix arrive via
 				// TakeContextMenuChoice() == item, puis TakeContextMenuSubChoice() = index
 				// dans `subItems`. Un seul item à sous-menu par menu.
-				// `subIcons` (optionnel) : une texture par entree, dessinee a gauche du
-				// libelle. Au-dela de 8 entrees, le sous-menu affiche AUSSI une barre de
-				// recherche ancree — meme presentation que le combo de la barre d'outils,
-				// pour qu'une liste de projets se parcoure de la meme facon partout.
-				void SetContextSubmenu(int32 item, const char *const *subItems, int32 count,
-									   const uint32 *subIcons = nullptr) noexcept {
+				void SetContextSubmenu(int32 item, const char *const *subItems, int32 count) noexcept {
 					mCtxSubItem = item;
 					mCtxSubItems.Clear();
-					mCtxSubIcons.Clear();
-					for (int32 i = 0; i < count; ++i) {
+					for (int32 i = 0; i < count; ++i)
 						mCtxSubItems.PushBack(nkentseu::NkString(subItems[i] ? subItems[i] : ""));
-						mCtxSubIcons.PushBack(subIcons ? subIcons[i] : 0u);
-					}
 					mCtxSub = NkCtxMenu{};
 					mCtxSubChoice = -1;
-					mCtxSubFilter[0] = ' ';
-					mCtxSubFilterFocus = true; // on peut taper des l'ouverture
 				}
 				int32 TakeContextMenuChoice() noexcept {
 					const int32 c = mCtxChoice;
@@ -173,24 +160,33 @@ namespace nkentseu {
 
 				// ── Géométrie de fenêtre (launcher) : fichier global taille/pos/maximisé ──
 				void MaximizeWindow() noexcept;
+				void SaveWindowGeom(const char *path) noexcept;	 ///< écrit win=/maximized= (position écran)
+				bool LoadWindowGeom(const char *path) noexcept;	 ///< applique si le fichier existe ; false sinon
+
 				// BARRES D'ACTIVITE (bandes verticales d'icones, facon VSCode) : presentes
 				// par defaut, parce que l'IDE en vit. Une application qui n'a PAS de
 				// « vues » a basculer — un atelier, un visualiseur — doit pouvoir les
-				// retirer : sinon elle herite du chrome de NKCode et lui ressemble alors
-				// qu'elle ne fait pas le meme metier. Le dock reprend la largeur liberee.
+				// retirer : sinon elle herite du chrome de NKCode et lui ressemble, alors
+				// qu'elle ne fait pas le meme metier. Le dock reprend alors la largeur
+				// liberee.
 				void SetActivityBars(bool left, bool right) noexcept {
 					mActivityBarLeft = left;
 					mActivityBarRight = right;
 				}
-				bool HasActivityBarLeft() const noexcept {
-					return mActivityBarLeft;
-				}
-				bool HasActivityBarRight() const noexcept {
-					return mActivityBarRight;
-				}
 
-				void SaveWindowGeom(const char *path) noexcept;	 ///< écrit win=/maximized= (position écran)
-				bool LoadWindowGeom(const char *path) noexcept;	 ///< applique si le fichier existe ; false sinon
+				// MASQUAGE DE L'INPUT DU CORPS quand un popup NKGui est sous la souris.
+				// Vrai par defaut : c'est ce qui empeche les clics destines a un menu de
+				// la BARRE DE TITRE de traverser vers l'editeur.
+				//
+				// A COUPER si vos PANNEAUX ouvrent eux-memes des popups (BeginCombo,
+				// BeginMenu) : ceux-la sont dessines PENDANT les panneaux, donc avec
+				// l'input deja masque -- le combo s'ouvre puis n'accepte plus aucun clic
+				// et refuse de se refermer. NKGui resout deja l'occlusion de ses propres
+				// popups ; en echange, gardez vos hit-tests « bruts » sous garde
+				// `ctx.popupDepth == 0`.
+				void SetMaskBodyOnPopup(bool mask) noexcept {
+					mMaskBodyOnPopup = mask;
+				}
 
 				// Clic sur l'activity bar : l'app recoit l'index (0..6 = vues gauche, 100..102 = IA
 				// droite, 999 = reglages) et decide (sidebar exclusive facon VSCode).
@@ -526,6 +522,9 @@ namespace nkentseu {
 				char mFooterRight[128] = {};
 				int32 mActivityIndex = 0;					  // icone selectionnee dans l'activity bar
 				int32 mActivityIndexRight = -1;				  // icone marquee de la barre DROITE (IA)
+				bool mActivityBarLeft = true;				  // cf. SetActivityBars
+				bool mActivityBarRight = true;
+				bool mMaskBodyOnPopup = true;				  // cf. SetMaskBodyOnPopup
 				uint32 mActTexL[8] = {};					  // textures vues gauche (0 = trait)
 				uint32 mActTexR[4] = {};					  // textures IA droite
 				uint32 mActTexGear = 0;						  // texture reglages
@@ -543,10 +542,7 @@ namespace nkentseu {
 				int32 mCtxSubItem = -1;	  ///< item parent (▸) ; -1 = pas de sous-menu
 				int32 mCtxSubChoice = -1; ///< index choisi dans le sous-menu (avec mCtxChoice)
 				nkentseu::NkVector<nkentseu::NkString> mCtxSubItems;
-				NkCtxMenu mCtxSub;
-				nkentseu::NkVector<uint32> mCtxSubIcons; // icones du sous-menu (0 = aucune)
-				char mCtxSubFilter[64] = {};             // filtre du sous-menu (barre ancree)
-				bool mCtxSubFilterFocus = false; ///< état du sous-menu (position/scroll, NkCtxMenuDraw)
+				NkCtxMenu mCtxSub; ///< état du sous-menu (position/scroll, NkCtxMenuDraw)
 				void DrawContextMenu() noexcept;
 				// Sélecteur fichier/dossier générique (modal).
 				void (*mActivityFn)(void *, int32) = nullptr; // handler app du clic activity bar
@@ -559,10 +555,6 @@ namespace nkentseu {
 				bool mRunning = true;
 				// Rappel de fermeture explicite (croix) — cf. SetOnWindowClosed.
 				bool mQuitIsWindowClose = true; ///< cf. RequestQuit/QuitIsWindowClose
-				// cf. SetActivityBars. Vrais membres : cote main le setter les affectait
-				// sans qu'ils existent nulle part, et personne ne les lisait.
-				bool mActivityBarLeft = true;
-				bool mActivityBarRight = true;
 				NkOnWindowClosed mOnWindowClosed = nullptr;
 				void *mOnWindowClosedUser = nullptr;
 				bool mDockBootstrap = true;

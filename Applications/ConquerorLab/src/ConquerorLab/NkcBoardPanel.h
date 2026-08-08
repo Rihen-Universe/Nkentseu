@@ -100,6 +100,16 @@ namespace nkentseu {
 					if (Button(ctx, "Pas a pas", b2)) mS->StepOnce();
 					x += ctx.S(88.f) + gap;
 
+					// Remise en configuration de MESURE : tous les sieges a l'IA. Un
+					// clic pour retrouver l'etat dans lequel l'atelier repond a une
+					// question, quel que soit le bricolage precedent.
+					const NkRect bS = {x, b0.y, ctx.S(84.f), b0.h};
+					if (Button(ctx, "IA vs IA", bS)) {
+						for (uint8 p = 0; p < mS->PlayerCount(); ++p) mS->Player(p).aiModule = 0;
+						mS->SetAutoPlay(true);
+					}
+					x += ctx.S(84.f) + gap;
+
 					// PASSER : n'apparait QUE quand c'est le seul coup legal. Sans ce
 					// bouton, un joueur humain bloque se retrouve devant un plateau
 					// qui ne repond plus, sans rien lui dire.
@@ -109,23 +119,44 @@ namespace nkentseu {
 						x += ctx.S(96.f) + gap;
 					}
 
-					// Etat, aligne a droite : graine, tour, empreinte.
-					char buf[192];
-					const NkcStateView &v = mS->DisplayView();
+					// Bascule Humain / IA du siege au trait : c'est le geste qu'on fait
+					// dix fois par heure, il n'a pas a passer par un autre panneau.
+					const NkcStateView &v	 = mS->DisplayView();
+					const uint8			seat = v.current;
+					const bool			human = mS->Player(seat).aiModule < 0;
+					const NkRect		b4	 = {x, b0.y, ctx.S(120.f), b0.h};
+					if (Button(ctx, human ? "Siege : Humain" : "Siege : IA", b4)) {
+						mS->Player(seat).aiModule = human ? 0 : -1;
+					}
+					x += ctx.S(120.f) + gap;
+
+					// Voir le VOISINAGE au survol. Outil de mise au point : c'est le
+					// seul moyen de verifier une adjacence a l'oeil, indispensable des
+					// qu'un module declare sa propre geometrie.
+					const NkRect b5 = {x, b0.y, ctx.S(104.f), b0.h};
+					if (Button(ctx, mShowNeighbors ? "Voisinage : on" : "Voisinage", b5))
+						mShowNeighbors = !mShowNeighbors;
+					x += ctx.S(104.f) + gap;
+
+					// Etat, aligne a droite. QUAND RIEN N'AVANCE, ON DIT POURQUOI :
+					// une interface immobile et muette se lit comme une panne.
+					char		buf[224];
+					const char *idle = mS->IdleReason();
+					NkColor		tint = NkcPalette::TextDim();
 					if (mS->Cursor() >= 0) {
 						std::snprintf(buf, sizeof(buf), "REJEU  coup %d / %u", mS->Cursor() + 1,
 									  static_cast<unsigned>(mS->Journal().Size()));
-					} else if (mS->Thinking()) {
-						std::snprintf(buf, sizeof(buf), "Reflexion...   tour %u", v.turn);
+						tint = NkcPalette::Accent();
+					} else if (idle && *idle) {
+						std::snprintf(buf, sizeof(buf), "%s   —   tour %u", idle, v.turn);
+						tint = mS->Thinking() ? NkcPalette::Accent() : NkcPalette::Warn();
 					} else {
 						std::snprintf(buf, sizeof(buf), "graine %llu   tour %u   coups legaux %u",
 									  static_cast<unsigned long long>(mS->Seed()), v.turn,
 									  static_cast<unsigned>(mS->Legal().Size()));
 					}
 					const NkRect info = {x, r.y, r.w - (x - r.x) - ctx.S(10.f), r.h};
-					if (info.w > ctx.S(40.f))
-						NkcTextRight(ctx, info, buf,
-									 mS->Cursor() >= 0 ? NkcPalette::Accent() : NkcPalette::TextDim());
+					if (info.w > ctx.S(40.f)) NkcTextRight(ctx, info, buf, tint);
 				}
 
 				// -------------------------------------------------------------
@@ -187,18 +218,24 @@ namespace nkentseu {
 					NkGuiDrawList &dl = ctx.DL();
 					dl.AddRectFilled(area, NkcPalette::Track(), ctx.theme.rounding);
 
+					// LA GEOMETRIE VIENT DU MODULE QUAND IL LA DECLARE (ABI 3) :
+					// centre et forme de chaque cellule. Sinon, projection standard
+					// de la topologie. Le projecteur est reconstruit a chaque frame —
+					// le garder obligerait a l'invalider au changement de module.
+					const NkcProjector proj =
+						NkcMakeProjector(mS->Vt(), mS->RulesInst(), v.topology, mS->CellShape());
+
 					// Cible tactile : sur telephone, une case sous ~22 px de rayon
 					// n'est plus atteignable au doigt (HANDOFF §2.5).
 					const float32 minCell = ctx.S(11.f);
-					mLayout = FitBoard(v.topology, v.coords, v.cellCount, area, 0.07f, minCell);
+					mLayout = ProjFitBoard(proj, v.coords, v.cellCount, area, 0.07f, minCell);
 
 					// ---- picking, avant le dessin ----------------------------
 					const bool interactive = (mS->Cursor() < 0) && ctx.popupDepth == 0;
 					int32	   hover	   = -1;
-					if (interactive && ctx.InputHits(area)) {
-						const NkcCoord c = PixelToCoord(mLayout, ctx.input.mousePos);
-						hover			 = FindCoord(v, c);
-					}
+					if (interactive && ctx.InputHits(area))
+						hover = ProjPickCell(proj, mLayout, v.coords, v.cellCount,
+											 ctx.input.mousePos);
 
 					// ---- surbrillances calculees par le MOTEUR ---------------
 					const NkVector<NkcPreview> &prev = mS->Previews();
@@ -210,14 +247,15 @@ namespace nkentseu {
 					// UNE SEULE decoupe pour tout le plateau.
 					dl.PushClipRect(area, true);
 
-					NkVec2 poly[8];
+					NkVec2 poly[kMaxPolyPoints];
 					for (uint32 i = 0; i < v.cellCount; ++i) {
 						ctx.PushId(&v.coords[i]);	// identite stable si un widget vient un jour ici
 
 						const NkcCoord	  c	   = v.coords[i];
 						const NkcCellView &cell = v.cells[i];
-						const int32		  n	   = CellPolygon(mLayout, c, poly, 0.93f);
-						const NkVec2	  ctr  = CoordToPixel(mLayout, c);
+						const int32		  n	   = ProjCellPolygon(proj, mLayout, c, poly,
+																 static_cast<int32>(kMaxCellPoints), 0.93f);
+						const NkVec2	  ctr  = ProjPixelCenter(proj, mLayout, c);
 
 						if (cell.owner == kCellBlocked) {
 							NkcPolyFilled(dl, poly, n, NkcPalette::CellBlocked());
@@ -252,25 +290,50 @@ namespace nkentseu {
 						if (mS->HasSelection()) {
 							const int32 si = FindCoord(v, mS->Selection());
 							if (si >= 0) {
-								const int32 n = CellPolygon(mLayout, v.coords[si], poly, 0.93f);
+								const int32 n = ProjCellPolygon(proj, mLayout, v.coords[si], poly,
+																static_cast<int32>(kMaxCellPoints), 0.93f);
 								NkcPolyOutline(dl, poly, n, NkcPalette::Accent(), ctx.S(2.5f));
 							}
 						}
 						// destinations legales
 						for (usize i = 0; i < prev.Size(); ++i) {
-							const NkVec2 c = CoordToPixel(mLayout, prev[i].to);
+							const NkVec2 c = ProjPixelCenter(proj, mLayout, prev[i].to);
 							NkcRing(dl, c, mLayout.cell * 0.60f, NkcPalette::MoveLegal(), ctx.S(2.5f));
 						}
 						// ennemis qui seraient retournes par le coup SURVOLE
 						if (hoverPrev >= 0) {
 							const NkcPreview &pv = prev[static_cast<usize>(hoverPrev)];
 							for (int32 f = 0; f < pv.flipCount; ++f) {
-								const NkVec2 c = CoordToPixel(mLayout, pv.flips[f]);
+								const NkVec2 c = ProjPixelCenter(proj, mLayout, pv.flips[f]);
 								NkcRing(dl, c, mLayout.cell * 0.78f, NkcPalette::MoveThreat(), ctx.S(3.f));
 								NkcRing(dl, c, mLayout.cell * 0.66f,
 										NkcFade(NkcPalette::MoveThreat(), 0.45f), ctx.S(2.f));
 							}
 						}
+					}
+
+					// ---- voisinage de la case survolee -----------------------
+					// SEUL moyen de VOIR une adjacence, donc de la deboguer. Un
+					// stagiaire dont GetNeighbors est faux le constate ici en une
+					// seconde ; sans cela, il le decouvrirait par un coup legal
+					// bizarre, trois heures plus tard.
+					//
+					// Optionnel et hors du chemin normal : on n'encombre pas la
+					// lecture tactique de traits qui n'ont rien a y faire.
+					if (mShowNeighbors && hover >= 0) {
+						const NkVec2 from = ProjPixelCenter(proj, mLayout, v.coords[hover]);
+						NkcCoord	 nb[32];
+						const uint32 n = ProjNeighbors(proj, v.topology, v.coords[hover], nb, 32);
+						for (uint32 k = 0; k < n && k < 32; ++k) {
+							// Un voisin peut sortir du plateau : la topologie ne
+							// connait pas les bords. On ne trace que ce qui existe.
+							if (FindCoord(v, nb[k]) < 0) continue;
+							const NkVec2 to = ProjPixelCenter(proj, mLayout, nb[k]);
+							dl.AddLine(from, to, NkcFade(NkcPalette::Accent(), 0.55f), ctx.S(1.5f));
+							NkcRing(dl, to, mLayout.cell * 0.34f,
+									NkcFade(NkcPalette::Accent(), 0.75f), ctx.S(1.5f));
+						}
+						NkcRing(dl, from, mLayout.cell * 0.44f, NkcPalette::Accent(), ctx.S(2.f));
 					}
 
 					// ---- dernier coup : anneau qui pulse puis s'eteint --------
@@ -279,7 +342,7 @@ namespace nkentseu {
 						const float32 t	   = e.age / kEchoTime;
 						const float32 fade = 1.f - t;
 						const float32 puls = 0.62f + 0.22f * math::NkSin(mTime * 9.f) * fade;
-						const NkVec2  c	   = CoordToPixel(mLayout, e.to);
+						const NkVec2  c	   = ProjPixelCenter(proj, mLayout, e.to);
 						NkcRing(dl, c, mLayout.cell * puls, NkcFade(NkcPalette::LastMove(), fade),
 								ctx.S(3.f));
 					}
@@ -307,7 +370,7 @@ namespace nkentseu {
 
 					// ---- clic ------------------------------------------------
 					if (interactive && hover >= 0) {
-						const NkVec2 ctr = CoordToPixel(mLayout, v.coords[hover]);
+						const NkVec2 ctr = ProjPixelCenter(proj, mLayout, v.coords[hover]);
 						const NkRect box = {ctr.x - mLayout.cell, ctr.y - mLayout.cell, mLayout.cell * 2.f,
 											mLayout.cell * 2.f};
 						if (ctx.ClickIn(box)) mS->ClickCell(v.coords[hover]);
@@ -386,6 +449,7 @@ namespace nkentseu {
 				NkcSession	  *mS = nullptr;
 				NkcBoardLayout mLayout;
 				float32		   mTime = 0.f;
+				bool		   mShowNeighbors = false;
 		};
 
 	} // namespace conqueror

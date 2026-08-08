@@ -261,7 +261,8 @@ namespace nkentseu {
 			events.AddEventCallback<NkWindowCloseEvent>([this](NkWindowCloseEvent *) {
 				// Le rappel peut VETOER : false = l'application a pris la main (par
 				// exemple pour demander confirmation quand des fichiers sont modifies)
-				// et fermera elle-meme via RequestClose() le moment venu.
+				// et fermera elle-meme via RequestClose() le moment venu. Fermer ici
+				// sans attendre contournait toute confirmation.
 				RequestQuit(); // meme chemin que la croix dessinee et le menu Quitter
 			});
 			// Drop de FICHIERS depuis l'OS (Explorateur Windows…) -> handler de l'app.
@@ -491,24 +492,6 @@ namespace nkentseu {
 				case NkKey::NK_NUM2:
 					mUI.input.SetKey(NkGuiKey::Num2, down);
 					break;
-				// Num3..Num6 et la virgule : indispensables aux raccourcis du
-				// launcher (Ctrl+3..6, Ctrl+,) qui etaient annonces dans les
-				// Parametres sans qu'aucune touche ne leur soit acheminee.
-				case NkKey::NK_NUM3:
-					mUI.input.SetKey(NkGuiKey::Num3, down);
-					break;
-				case NkKey::NK_NUM4:
-					mUI.input.SetKey(NkGuiKey::Num4, down);
-					break;
-				case NkKey::NK_NUM5:
-					mUI.input.SetKey(NkGuiKey::Num5, down);
-					break;
-				case NkKey::NK_NUM6:
-					mUI.input.SetKey(NkGuiKey::Num6, down);
-					break;
-				case NkKey::NK_COMMA:
-					mUI.input.SetKey(NkGuiKey::Comma, down);
-					break;
 				case NkKey::NK_MINUS:
 					mUI.input.SetKey(NkGuiKey::Minus, down);
 					break; // Ctrl+- : dézoom éditeur
@@ -666,7 +649,11 @@ namespace nkentseu {
 			const float32 toolbarH =
 				(mToolbarFn && !fullScreen) ? mUI.S(46.f) : 0.f; // combos labellises (vue principale IDE)
 			const float32 footerH = fullScreen ? 0.f : mUI.S(22.f);
+			// Largeur des bandes d'icones, PAR COTE : une app sans « vues » a
+			// basculer les desactive (SetActivityBars) et le dock recupere la place.
 			const float32 activityW = mUI.S(48.f);
+			const float32 actWL = mActivityBarLeft ? activityW : 0.f;
+			const float32 actWR = mActivityBarRight ? activityW : 0.f;
 
 			// Barre de titre custom UNE ligne : logo + menus | infos | min/max/close.
 			DrawTitleBar(ec, {0.f, 0.f, W, titleH});
@@ -683,12 +670,26 @@ namespace nkentseu {
 			// IDEM quand la souris est au-dessus d'un menu DEROULANT ouvert (deja
 			// dessine + gere dans la barre de titre ci-dessus) : sinon l'editeur /
 			// les zones a hit-test « brut » derriere le menu recoivent les clics.
+			// ATTENTION : ce masquage vise les menus de la BARRE DE TITRE, deja
+			// dessines avant les panneaux. Mais `popupDepth` est partage avec les
+			// popups que les PANNEAUX ouvrent eux-memes (BeginCombo, BeginMenu) —
+			// et ceux-la sont dessines PENDANT DrawPanels, donc avec l'input
+			// masque. Symptome : le combo s'ouvre, puis plus aucun clic ne passe
+			// et il refuse de se refermer.
+			//
+			// Une application dont les panneaux utilisent les popups NKGui coupe
+			// donc ce masquage (SetMaskBodyOnPopup(false)) : NKGui resout deja
+			// l'occlusion de ses propres popups dans ItemHoverable. Elle doit en
+			// contrepartie garder ses hit-tests « bruts » sous garde
+			// `ctx.popupDepth == 0`.
 			bool overPopup = false;
 			for (int32 i = 0; i < mUI.popupDepth; ++i)
 				if (nkgui::NkGuiRectContains(mUI.popupRects[i], mUI.input.mousePos)) {
 					overPopup = true;
 					break;
 				}
+			if (!mMaskBodyOnPopup)
+				overPopup = false;
 			const bool modal = mShowPrefs || mUI.appModal || overPopup || mCtxOpen;
 			nkgui::NkGuiInput savedInput;
 			if (modal) {
@@ -710,16 +711,11 @@ namespace nkentseu {
 				// Launcher : remplace barre d'activite + dock + panneaux.
 				mStartScreenFn(ec, mStartScreenUser);
 			} else {
-				// Les barres sont ESCAMOTABLES (cf. SetActivityBars) : ne pas les dessiner
-				// ne suffit pas, il faut rendre leur largeur au dock — sinon l'application
-				// garde deux bandes vides sur les cotes.
-				const float32 gauche = mActivityBarLeft ? activityW : 0.f;
-				const float32 droite = mActivityBarRight ? activityW : 0.f;
 				if (mActivityBarLeft)
-					DrawActivityBar({0.f, bodyTop, activityW, bodyH});
+					DrawActivityBar({0.f, bodyTop, actWL, bodyH});
 				if (mActivityBarRight)
-					DrawActivityBarRight({W - activityW, bodyTop, activityW, bodyH}); // IA (panneau droit)
-				DockSpace(mUI, "##EditorDock", {gauche, bodyTop, W - gauche - droite, bodyH});
+					DrawActivityBarRight({W - actWR, bodyTop, actWR, bodyH}); // IA (panneau droit)
+				DockSpace(mUI, "##EditorDock", {actWL, bodyTop, W - actWL - actWR, bodyH});
 				// Seul le panneau CENTRAL masque la barre d'onglets de sa feuille quand il
 				// est seul (il affiche ses propres onglets de fichiers) ; Terminal/Sortie/
 				// sidebars gardent TOUJOURS leurs onglets, même seuls (façon VSCode).
@@ -1049,31 +1045,10 @@ namespace nkentseu {
 				if (h)
 					dl.AddRectFilled(chip(cMax), hovBg, cround);
 				const float32 gx = cMax.x + cMax.w * 0.5f, s = mUI.S(9.f);
-				// ── DEUX glyphes franchement distincts ──────────────────────
-				//
-				// Le bouton doit dire d'un coup d'oeil dans quel etat on est.
-				// L'ancien dessin opposait UN carre a DEUX carres decales de
-				// 2 px a peine, pour un cote de 9 px : a l'oeil, c'etait le
-				// meme. On ecarte donc nettement (decalage `d`), et le carre
-				// arriere n'est plus qu'une EQUERRE (haut + droite), ce qui est
-				// le glyphe « restaurer » universellement reconnu.
-				//
-				// L'ancienne version peignait un rectangle de couleur `bg` pour
-				// « effacer » sous le carre avant. Au SURVOL, le fond reel est
-				// `hovBg` : l'effacement laissait une trace visible. On dessine
-				// desormais l'equerre en deux traits — plus rien a effacer, et
-				// le rendu est correct quel que soit le fond.
 				if (mWindow.IsMaximized()) {
-					const float32 d = mUI.S(3.f);		 // ecart entre les deux plans
-					const float32 c = s - d;			 // cote du carre avant
-					const float32 x0 = gx - s * 0.5f;	 // bord gauche du carre avant
-					const float32 y0 = cy - s * 0.5f + d; // bord haut du carre avant
-					// Carre AVANT, en entier.
-					dl.AddRect({x0, y0, c, c}, fg, 1.f);
-					// Carre ARRIERE, reduit a son equerre visible : trait du
-					// haut, puis trait de droite.
-					dl.AddLine({x0 + d, y0 - d}, {x0 + d + c, y0 - d}, fg, 1.f);
-					dl.AddLine({x0 + d + c, y0 - d}, {x0 + d + c, y0 - d + c}, fg, 1.f);
+					dl.AddRect({gx - s * 0.5f + 2.f, cy - s * 0.5f - 2.f, s - 2.f, s - 2.f}, fg, 1.f);
+					dl.AddRectFilled({gx - s * 0.5f - 2.f, cy - s * 0.5f + 2.f, s - 2.f, s - 2.f}, bg);
+					dl.AddRect({gx - s * 0.5f - 2.f, cy - s * 0.5f + 2.f, s - 2.f, s - 2.f}, fg, 1.f);
 				} else {
 					dl.AddRect({gx - s * 0.5f, cy - s * 0.5f, s, s}, fg, 1.f);
 				}
@@ -1092,7 +1067,7 @@ namespace nkentseu {
 				dl.AddLine({gx - s, cy - s}, {gx + s, cy + s}, xc, 1.2f);
 				dl.AddLine({gx - s, cy + s}, {gx + s, cy - s}, xc, 1.2f);
 				if (h && mUI.input.mouseClicked[0]) {
-					RequestQuit(); // vetoable : l'app peut demander confirmation
+					mRunning = false;
 					consumed = true;
 				}
 			}
@@ -1544,7 +1519,7 @@ namespace nkentseu {
 					mPaletteSel = 0;
 				}
 				if (MenuItem(mUI, "Quitter", "Alt+F4"))
-					RequestQuit(/*windowClose=*/false); // quitter l'application
+					mRunning = false;
 				EndMenu(mUI);
 			}
 			if (BeginMenu(mUI, "Affichage")) {
@@ -1874,17 +1849,11 @@ namespace nkentseu {
 					sn = 256;
 				const char *sitems[256];
 				bool sen[256];
-				uint32 sico[256];
 				for (int32 i = 0; i < sn; ++i) {
 					sitems[i] = mCtxSubItems[static_cast<usize>(i)].CStr();
 					sen[i] = true;
-					sico[i] = (static_cast<usize>(i) < mCtxSubIcons.Size()) ? mCtxSubIcons[static_cast<usize>(i)] : 0u;
 				}
-				// Icones + barre de recherche ancree : une liste de projets se parcourt
-				// ici exactement comme dans le combo de la barre d'outils.
-				const int32 act = NkCtxMenuDraw(mUI, mCtxSub, sitems, sen, sn, nullptr, nullptr, sico,
-												mCtxSubFilter, static_cast<int32>(sizeof(mCtxSubFilter)),
-												&mCtxSubFilterFocus);
+				const int32 act = NkCtxMenuDraw(mUI, mCtxSub, sitems, sen, sn);
 				if (act >= 0) {
 					mCtxChoice = mCtxSubItem; // le choix = (item parent, index du sous-menu)
 					mCtxSubChoice = act;

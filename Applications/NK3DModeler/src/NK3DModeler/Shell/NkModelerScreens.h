@@ -557,14 +557,172 @@ namespace nkentseu {
 				NkHierComposeName(st, "Mesh", m);
 			return m;
 		}
+		// ── MARQUER « MODIFIE » ─────────────────────────────────────────────────
+		// POINT DE PASSAGE UNIQUE. L'etat vit a DEUX niveaux qui doivent rester
+		// d'accord : la scene (pour le marqueur d'onglet et la protection a la
+		// fermeture) et le projet (pour l'invite d'enregistrement en quittant).
+		// Les poser separement, c'est garantir qu'un jour l'un des deux sera
+		// oublie -- et un marqueur qui ment sur du travail non enregistre coute
+		// exactement ce qu'il devait proteger.
+		inline void NkMarkDirty(NkModelerState &st) {
+			st.dirty = true;
+			const int32 dD = st.TabDoc(st.activeTab);
+			if (dD >= 0)
+				st.docDirty[dD] = true;
+			// L'ambiance suit : les objets utilisateur occludent le GI voxel, et
+			// « la scene a change » est UNE seule notion -- la pastille et la
+			// grille d'occlusion se rafraichissent sur le meme evenement.
+			demo::Demo3DHostGIMarkDirty();
+		}
+
+		/// Apres un enregistrement REUSSI : plus rien n'est en attente.
+		/// L'ARBRE a change : cartes creees, renommees, deplacees, supprimees.
+		/// POINT DE PASSAGE UNIQUE, comme NkMarkDirty pour les documents.
+		inline void NkMarkTreeDirty(NkModelerState &st) {
+			st.treeDirty = true;
+			st.dirty = true;
+		}
+
+		inline void NkClearDirty(NkModelerState &st) {
+			st.dirty = false;
+			st.treeDirty = false;
+			for (int32 d = 0; d < NkModelerState::kMaxDocs; ++d)
+				st.docDirty[d] = false;
+		}
+
+		/// Apres l'enregistrement d'UN SEUL document : lui seul redevient propre.
+		/// Le projet reste « modifie » tant qu'un autre document l'est -- sinon
+		/// l'invite de fermeture laisserait partir du travail non enregistre, ce
+		/// qui est exactement ce que la pastille promet d'eviter.
+		inline void NkClearDirtyDoc(NkModelerState &st, int32 d) {
+			if (d >= 0 && d < NkModelerState::kMaxDocs)
+				st.docDirty[d] = false;
+			// L'ARBRE est reecrit a CHAQUE enregistrement, meme quand un seul
+			// fichier est ecrit : il porte les chemins, et un fichier ecrit dont
+			// l'arbre ignorerait le chemin serait introuvable a la reouverture.
+			st.treeDirty = false;
+			bool any = false;
+			for (int32 i = 0; i < NkModelerState::kMaxDocs && !any; ++i)
+				any = st.docUsed[i] && !st.docTransient[i] && st.docDirty[i];
+			st.dirty = any;
+		}
+
+		/// Carte du navigateur que l'onglet actif ENREGISTRE. Une scene passe par
+		/// son document, un editeur d'asset par l'asset qu'il montre : les deux
+		/// repondent a la meme question -- « quel fichier suis-je en train de
+		/// regarder ? ».
+		inline int32 NkActiveCard(const NkModelerState &st) {
+			if (st.activeTab < 0 || st.activeTab >= st.sceneCount)
+				return -1;
+			if (st.sceneTabKind[st.activeTab] != 0) {
+				const int32 a = st.sceneTabAsset[st.activeTab] - 1;
+				return (a >= 0 && a < st.browserCount) ? a : -1;
+			}
+			const int32 d = st.TabDoc(st.activeTab);
+			if (d < 0)
+				return -1;
+			const int32 c = st.docCard[d] - 1;
+			return (c >= 0 && c < st.browserCount) ? c : -1;
+		}
+
 		inline void NkStoreSceneCam(NkModelerState &st, int32 tab) {
-			if (tab < 0 || tab >= 8)
+			const int32 d = st.TabDoc(tab);
+			if (d < 0)
 				return;
-			float32 *cp = st.sceneCamPose[tab];
+			float32 *cp = st.docCamPose[d];
 			bool ortho = false;
 			demo::Demo3DHostGetCameraPose(cp, &cp[3], &cp[4], &cp[5], &ortho);
-			st.sceneCamOrtho[tab] = ortho;
-			st.sceneCamSet[tab] = true;
+			st.docCamOrtho[d] = ortho;
+			st.docCamSet[d] = true;
+		}
+
+		// ── FERMER UN ONGLET ────────────────────────────────────────────────────
+		// FERMER UNE VUE NE SUPPRIME RIEN (regle absolue de Rihen, 8 aout 2026).
+		// Le document reste dans la table du projet, sa carte reste dans le
+		// navigateur, et un double-clic dessus le ROUVRE avec son contenu. Avant,
+		// l'onglet ETAIT la scene : sa fermeture l'effacait de l'enregistrement
+		// suivant, en laissant ses noeuds orphelins dans le fichier.
+		//
+		// SEULE EXCEPTION, qui n'en est pas une : un document TRANSITOIRE (maquette
+		// d'editeur d'asset, onglet d'isolation) n'a jamais rien ete d'autre que la
+		// vue elle-meme. L'asset qu'il montrait, lui, vit dans le navigateur.
+		inline void NkActivateTab(NkModelerState &st, int32 tb, bool force);
+		inline void NkCloseSceneTab(NkModelerState &st, int32 i) {
+			if (i < 0 || i >= st.sceneCount || st.sceneCount <= 1)
+				return;
+			const int32 d = st.TabDoc(i);
+			// LA VUE DE L'ONGLET ACTIF n'est rangee qu'a la bascule : sans ce
+			// rangement, fermer l'onglet sur lequel on vient de travailler perdrait
+			// le regard qu'on venait d'y poser -- et ses unites.
+			if (d >= 0 && i == st.activeTab) {
+				if (st.sceneTabKind[i] == 0)
+					NkStoreSceneCam(st, i);
+				st.docUnitSys[d] = st.unitSystem;
+				st.docUnitLen[d] = st.unitLength;
+				st.docUnitScale[d] = st.unitScale;
+			}
+			// Le noeud edite QUITTE la vue AVANT qu'elle disparaisse -- ferme en
+			// arriere-plan, son sous-arbre restait echoue dans un document mort,
+			// donc introuvable. Un ASSET est rearchive (il n'a pas de scene ou
+			// rentrer), un noeud ISOLE retourne dans la sienne.
+			if (d >= 0 && st.docIsoNode[d] > 0) {
+				if (st.docAssetEdit[d])
+					demo::Demo3DHostArchiveTree(st.docIsoNode[d] - 1, true);
+				else
+					demo::Demo3DHostMoveTreeScene(st.docIsoNode[d] - 1,
+												  (int32)st.docIsoHome[d]);
+			}
+			if (d >= 0 && st.docTransient[d])
+				st.DocFree(d);
+			for (int32 k = i; k + 1 < st.sceneCount; ++k) {
+				st.sceneTabKind[k] = st.sceneTabKind[k + 1];
+				st.sceneTabAsset[k] = st.sceneTabAsset[k + 1];
+				st.sceneTabDoc[k] = st.sceneTabDoc[k + 1];
+			}
+			st.sceneCount--;
+			st.sceneTabDoc[st.sceneCount] = -1;
+			// L'ACTIF suit : ferme avant lui son index recule ; ferme LUI-MEME,
+			// l'environnement du nouvel actif s'applique.
+			const bool wasAct = (i == st.activeTab);
+			if (i < st.activeTab)
+				st.activeTab--;
+			if (st.activeTab >= st.sceneCount)
+				st.activeTab = st.sceneCount - 1;
+			if (wasAct)
+				NkActivateTab(st, st.activeTab, true);
+		}
+
+		// ── LE NAVIGATEUR REFLETE LES SCENES DU PROJET ──────────────────────────
+		// Chaque document NON TRANSITOIRE obtient (ou met a jour) sa carte
+		// « Scene » (kind 5) : c'est par son double-clic qu'on rouvre une scene
+		// fermee (demande de Rihen : « on ne voit pas la scene sauvegardee dans le
+		// navigateur »).
+		//
+		// On itere les DOCUMENTS, plus les onglets. Iterer les onglets ne donnait
+		// de carte qu'aux scenes OUVERTES : les autres n'apparaissaient nulle part,
+		// ce qui les rendait irrecuperables.
+		inline void NkBrowserSyncScenes(NkModelerState &st) {
+			for (int32 d = 0; d < NkModelerState::kMaxDocs; ++d) {
+				if (!st.docUsed[d] || st.docTransient[d])
+					continue;
+				int32 e = st.docCard[d] - 1;
+				if (e < 0 || e >= st.browserCount || st.browserKind[e] != 5 ||
+					st.browserDoc[e] != d + 1) {
+					if (st.browserCount >= NkModelerState::kMaxBrowser)
+						continue; // navigateur plein : la scene reste sans carte
+					e = st.browserCount++;
+					st.browserKind[e] = 5;
+					// A la RACINE : previsible tant que le selecteur de dossier
+					// personnalise n'existe pas (chantier suivant) ; la carte se
+					// range ensuite par glisser-deposer comme les autres.
+					st.browserParent[e] = -1;
+					st.browserSrcNode[e] = 0;
+					st.browserSub[e] = 0;
+					st.browserDoc[e] = d + 1;
+					st.docCard[d] = e + 1;
+				}
+				NkWidgetState::Copy(st.browserNames[e], st.docName[d], 31u);
+			}
 		}
 		// ── ACTIVER UN ONGLET ───────────────────────────────────────────────────
 		// Un onglet EDITEUR est une SCENE A PART ENTIERE (Rihen) : la vue se vide
@@ -573,17 +731,28 @@ namespace nkentseu {
 		inline void NkActivateTab(NkModelerState &st, int32 tb, bool force = false) {
 			if (tb < 0 || tb >= st.sceneCount || (tb == st.activeTab && !force))
 				return;
+			const int32 dOld = st.TabDoc(st.activeTab);
+			const int32 d = st.TabDoc(tb);
+			if (d < 0)
+				return; // onglet sans document : il n'y a rien a montrer
 			if (st.sceneTabKind[st.activeTab] == 0 && tb != st.activeTab)
 				NkStoreSceneCam(st, st.activeTab); // la scene quittee garde sa vue
-			// Quitter un onglet d'ISOLATION : le noeud isole rentre chez lui.
-			if (st.sceneTabIsoNode[st.activeTab] > 0 && tb != st.activeTab)
-				demo::Demo3DHostMoveTreeScene(
-					st.sceneTabIsoNode[st.activeTab] - 1,
-					(int32)st.sceneTabIsoHome[st.activeTab]);
+			// Quitter une vue d'edition : l'ASSET est rearchive, le noeud ISOLE
+			// rentre dans sa scene. Meme regle qu'a la fermeture de l'onglet --
+			// c'est le meme geste vu de deux endroits.
+			if (dOld >= 0 && st.docIsoNode[dOld] > 0 && tb != st.activeTab) {
+				if (st.docAssetEdit[dOld])
+					demo::Demo3DHostArchiveTree(st.docIsoNode[dOld] - 1, true);
+				else
+					demo::Demo3DHostMoveTreeScene(st.docIsoNode[dOld] - 1,
+												  (int32)st.docIsoHome[dOld]);
+			}
 			// CHAQUE SCENE A SES PROPRIETES : celles du quitte sont rangees.
-			st.unitSystemTab[st.activeTab] = st.unitSystem;
-			st.unitLengthTab[st.activeTab] = st.unitLength;
-			st.unitScaleTab[st.activeTab] = st.unitScale;
+			if (dOld >= 0) {
+				st.docUnitSys[dOld] = st.unitSystem;
+				st.docUnitLen[dOld] = st.unitLength;
+				st.docUnitScale[dOld] = st.unitScale;
+			}
 			if (st.editPreviewNode > 0) {
 				demo::Demo3DHostDeleteNode(st.editPreviewNode - 1, true);
 				st.editPreviewNode = 0;
@@ -591,35 +760,63 @@ namespace nkentseu {
 			st.activeTab = tb;
 			// BASCULE DE DOCUMENT : l'hote ne rend et ne liste plus que les
 			// noeuds de CE document ; la selection ne traverse jamais.
-			demo::Demo3DHostSetActiveScene((int32)st.sceneTabId[tb]);
+			demo::Demo3DHostSetActiveScene((int32)st.docScene[d]);
 			// L'hote doit savoir s'il sert un MODEL : la selection en vue 3D
 			// n'y a pas la meme regle (mesh par mesh, contre model entier).
 			demo::Demo3DHostSetDocIsModel(st.sceneTabKind[tb] == 7);
 			demo::Demo3DHostDeselectAll();
-			st.unitSystem = st.unitSystemTab[tb];
-			st.unitLength = st.unitLengthTab[tb];
-			st.unitScale = st.unitScaleTab[tb];
+			st.unitSystem = st.docUnitSys[d];
+			st.unitLength = st.docUnitLen[d];
+			st.unitScale = st.docUnitScale[d];
 			if (st.unitScale < 0.001f)
-				st.unitScale = 1.f; // onglet jamais visite : valeurs par defaut
+				st.unitScale = 1.f; // document jamais visite : valeurs par defaut
 			const uint8 tk = st.sceneTabKind[tb];
 			if (tk == 0) {
-				if (st.sceneCamSet[tb])
-					demo::Demo3DHostSetCameraPose(st.sceneCamPose[tb],
-												  st.sceneCamPose[tb][3],
-												  st.sceneCamPose[tb][4],
-												  st.sceneCamPose[tb][5],
-												  st.sceneCamOrtho[tb]);
+				if (st.docCamSet[d])
+					demo::Demo3DHostSetCameraPose(st.docCamPose[d], st.docCamPose[d][3],
+												  st.docCamPose[d][4], st.docCamPose[d][5],
+												  st.docCamOrtho[d]);
 				else
 					demo::Demo3DHostResetView();
 				return; // l'appartenance filtre deja les objets de la scene
 			}
-			// EDITEUR : scene VIDE + maquette selon la nature de l'asset.
+			// EDITEUR : scene VIDE + l'asset lui-meme.
 			demo::Demo3DHostResetView(); // document neuf : vue d'ouverture
-			// ISOLATION : l'onglet edite le NOEUD LUI-MEME (pas une copie) --
-			// deplace dans ce document, rendu a sa scene au retour.
-			if (st.sceneTabIsoNode[tb] > 0) {
-				const int32 iso = st.sceneTabIsoNode[tb] - 1;
-				demo::Demo3DHostMoveTreeScene(iso, (int32)st.sceneTabId[tb]);
+			const uint8 ek = (uint8)(tk - 1);
+			const int32 ai = st.sceneTabAsset[tb] - 1;
+			// ── L'ONGLET EDITE LE NOEUD LUI-MEME, JAMAIS UNE COPIE ──────────
+			// Deux chemins y menent et ils partagent tout sauf la sortie :
+			//   * ISOLATION -- le noeud est un objet de SCENE, il y retourne ;
+			//   * ASSET du navigateur -- le noeud est une ARCHIVE, desarchivee le
+			//     temps de la vue et rearchivee en sortant.
+			// L'editeur d'asset travaillait auparavant sur un DUPLICATA detruit a
+			// la fermeture : tout ce qu'on y faisait etait perdu, position comprise
+			// (constate par Rihen). Un editeur qui n'edite rien est pire que pas
+			// d'editeur du tout.
+			if (st.docIsoNode[d] == 0 && ek == 6 && ai >= 0 && ai < st.browserCount) {
+				int32 src = st.browserSrcNode[ai] - 1;
+				if (src < 0) {
+					// Carte creee par « + Model » : elle n'a pas encore de corps.
+					// Il nait ICI et devient LE corps de la carte -- sinon chaque
+					// ouverture repartait d'un cube neuf.
+					src = demo::Demo3DHostAddNode(2, 0);
+					if (src >= 0)
+						st.browserSrcNode[ai] = src + 1;
+				}
+				if (src >= 0) {
+					demo::Demo3DHostArchiveTree(src, false);
+					st.docIsoNode[d] = src + 1;
+					st.docAssetEdit[d] = true;
+				}
+			}
+			if (st.docIsoNode[d] > 0) {
+				const int32 iso = st.docIsoNode[d] - 1;
+				// REVENIR sur l'onglet : l'asset a ete rearchive en le quittant,
+				// il faut le remettre dans la vue. Sans cela, rouvrir l'editeur
+				// d'un Model montrait une scene vide.
+				if (st.docAssetEdit[d])
+					demo::Demo3DHostArchiveTree(iso, false);
+				demo::Demo3DHostMoveTreeScene(iso, (int32)st.docScene[d]);
 				// Le seul parent d'un model est le model : ses maillages
 				// reviennent tous a plat sous lui (Rihen).
 				demo::Demo3DHostFlattenModel(iso);
@@ -628,28 +825,10 @@ namespace nkentseu {
 				st.editPreviewNode = 0;
 				return;
 			}
-			const uint8 ek = (uint8)(tk - 1);
-			const int32 ai = st.sceneTabAsset[tb] - 1;
-			int32 pv = -1;
-			if (ek == 6 && ai >= 0 && ai < st.browserCount &&
-				st.browserSrcNode[ai] > 0)
-				pv = demo::Demo3DHostDuplicateNode(st.browserSrcNode[ai] - 1);
-			else if (ek == 6)
-				pv = demo::Demo3DHostAddNode(2, 0); // mesh sans source : cube
-			if (pv >= 0) {
-				// La maquette nait a l'ORIGINE, droite, et selectionnee ; elle
-				// garde sa propre echelle (dimensions reelles de l'asset).
-				float32 pz[3] = {0.f, 0.f, 0.f}, rz[3] = {0.f, 0.f, 0.f};
-				float32 sz[3] = {1.f, 1.f, 1.f}, gp[3], gr[3];
-				demo::Demo3DHostEmptyTransform(pv, gp, gr, sz);
-				demo::Demo3DHostSetEmptyTransform(pv, pz, rz, sz);
-				demo::Demo3DHostSelectEmptyNode(pv);
-			}
-			st.editPreviewNode = pv + 1;
-			if (tk == 7 && pv >= 0) {
-				demo::Demo3DHostFlattenModel(pv); // maillages tous freres
-				NkModelFirstMesh(st, pv);
-			}
+			// Les autres natures d'asset (materiau, texture, graphe...) n'ont pas
+			// encore de corps editable : leur onglet reste une scene vide plutot
+			// qu'une maquette qui ferait croire qu'on edite quelque chose.
+			st.editPreviewNode = 0;
 		}
 		inline void PaintTabsI(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
 							   NkHitRegistry &hit, NkWidgetState &ws, const nkgui::NkGuiInput &in) {
@@ -659,7 +838,10 @@ namespace nkentseu {
 			const float32 h = r.h - 2.f;
 			char key[32];
 			for (int32 i = 0; i < st.sceneCount; ++i) {
-				const float32 tw = p.TextW(st.sceneNames[i]) + S(44.f);
+				const int32 di = st.TabDoc(i);
+				if (di < 0)
+					continue; // onglet sans document : anomalie, on ne peint rien
+				const float32 tw = p.TextW(st.docName[di]) + S(44.f);
 				const NkRect tr{x, r.y + 2.f, tw, h};
 				snprintf(key, sizeof(key), "tab.%d", i);
 				const bool over = hit.Add(key, tr);
@@ -667,63 +849,67 @@ namespace nkentseu {
 				p.Fill(tr, on ? NkRole::PanelHeader : (over ? NkRole::PanelBg : NkRole::InputBg), 3.f);
 				if (st.sceneTabKind[i] != 0) {
 					// Liseret de NATURE : distinguer d'un oeil les onglets EDITEUR
-					// des scenes (memes couleurs que les cartes du navigateur).
+					// des scenes. La couleur vient du MEME point de passage que les
+					// cartes du navigateur -- c'est la meme nature vue a deux
+					// endroits, elle ne doit pas pouvoir en avoir deux couleurs.
 					const uint8 k2 = (uint8)(st.sceneTabKind[i] - 1);
-					const NkRole r2 = (k2 == 0)	  ? NkRole::TypeMesh
-									  : (k2 == 4) ? NkRole::AccentUi
-									  : (k2 == 6) ? NkRole::AxisX
-									  : (k2 == 2) ? NkRole::TypeMat
-												  : NkRole::TypeTex;
-					p.Fill({tr.x, tr.y, tr.w, 2.f}, r2); // liseret en HAUT (Rihen)
+					const int32 aT = st.sceneTabAsset[i] - 1;
+					const uint8 sT = (aT >= 0 && aT < st.browserCount) ? st.browserSub[aT] : 0;
+					p.Fill({tr.x, tr.y, tr.w, 2.f}, NkAssetColor(p, k2, sT)); // en HAUT (Rihen)
 				}
 				snprintf(key, sizeof(key), "tab.name.%d", i);
-				EditableText(p, hit, ws, in, key, {x + S(10.f), r.y, tw - S(32.f), r.h}, st.sceneNames[i],
-							 on ? NkRole::Text : NkRole::TextMuted, st.sceneNames[i], 32u);
-				// La CROIX n'apparait que s'il reste plus d'une scene : fermer la derniere
-				// laisserait l'application sans document, etat qu'aucune autre partie de
-				// l'interface ne sait representer.
-				if (st.sceneCount > 1) {
+				if (EditableText(p, hit, ws, in, key, {x + S(10.f), r.y, tw - S(32.f), r.h},
+								 st.docName[di], on ? NkRole::Text : NkRole::TextMuted,
+								 st.docName[di], 32u)) {
+					// RENOMMER L'ONGLET RENOMME SA CARTE, TOUT DE SUITE. Le nom ne
+					// se propageait qu'a l'enregistrement (via NkBrowserSyncScenes),
+					// si bien que le navigateur affichait l'ancien nom entre-temps
+					// (constate par Rihen). Symetrique du renommage depuis la carte :
+					// chaque sens agit A LA VALIDATION, jamais en continu -- une
+					// recopie a chaque frame ferait qu'un cote ecraserait l'autre.
+					const int32 e9 = st.docCard[di] - 1;
+					if (st.sceneTabKind[i] == 0 && e9 >= 0 && e9 < st.browserCount &&
+						st.browserKind[e9] == 5)
+						NkWidgetState::Copy(st.browserNames[e9], st.docName[di], 31u);
+				}
+				// PASTILLE ET CROIX PARTAGENT LE MEME EMPLACEMENT, mais leurs
+				// conditions different -- et c'est important : la pastille « non
+				// enregistre » vaut pour TOUTE scene, y compris la DERNIERE, alors
+				// que la croix n'apparait que s'il reste plus d'une scene (fermer
+				// la derniere laisserait l'application sans document). L'ancienne
+				// imbrication mettait la pastille SOUS la condition de la croix :
+				// avec une seule scene -- le cas le plus courant -- aucune
+				// modification n'etait jamais signalee (constate par Rihen).
+				{
 					snprintf(key, sizeof(key), "tab.close.%d", i);
 					const NkRect cr{x + tw - S(24.f), r.y + 2.f, S(20.f), h};
-					HoverFill(p, cr, hit.Add(key, cr), 2.f);
-					p.IconV(x + tw - S(20.f), r.y, r.h, NkIcon::WinClose, NkRole::TextMuted, 10.f);
-					if (hit.Clicked(key)) {
-						// Fermer un onglet d'ISOLATION -- ACTIF OU NON : le noeud
-						// rentre chez lui AVANT le decalage des donnees. Ferme en
-						// arriere-plan, son sous-arbre restait echoue dans un
-						// document mort -- donc introuvable dans la scene.
-						if (st.sceneTabIsoNode[i] > 0)
-							demo::Demo3DHostMoveTreeScene(
-								st.sceneTabIsoNode[i] - 1,
-								(int32)st.sceneTabIsoHome[i]);
-						for (int32 k = i; k + 1 < st.sceneCount; ++k) {
-							NkWidgetState::Copy(st.sceneNames[k], st.sceneNames[k + 1], 31u);
-							// TOUTES les donnees d'onglet suivent le nom.
-							st.sceneBlank[k] = st.sceneBlank[k + 1];
-							st.sceneTabKind[k] = st.sceneTabKind[k + 1];
-							st.sceneTabAsset[k] = st.sceneTabAsset[k + 1];
-							st.sceneTabId[k] = st.sceneTabId[k + 1];
-							st.sceneTabIsoNode[k] = st.sceneTabIsoNode[k + 1];
-							st.sceneTabIsoHome[k] = st.sceneTabIsoHome[k + 1];
-							st.unitSystemTab[k] = st.unitSystemTab[k + 1];
-							st.unitLengthTab[k] = st.unitLengthTab[k + 1];
-							st.unitScaleTab[k] = st.unitScaleTab[k + 1];
-							st.sceneCamOrtho[k] = st.sceneCamOrtho[k + 1];
-							st.sceneCamSet[k] = st.sceneCamSet[k + 1];
-							for (int32 a = 0; a < 6; ++a)
-								st.sceneCamPose[k][a] = st.sceneCamPose[k + 1][a];
-						}
-						st.sceneCount--;
-						// L'ACTIF suit : ferme avant lui son index recule ; ferme
-						// LUI-MEME, l'environnement du nouvel actif s'applique.
-						const bool wasAct = (i == st.activeTab);
-						if (i < st.activeTab)
-							st.activeTab--;
-						if (st.activeTab >= st.sceneCount)
-							st.activeTab = st.sceneCount - 1;
-						if (wasAct)
-							NkActivateTab(st, st.activeTab, true);
-						break; // la liste a change : on ne continue pas a la parcourir
+					const bool canClose = st.sceneCount > 1;
+					const bool overClose = canClose && hit.Add(key, cr);
+					// MARQUEUR « NON ENREGISTRE » (Rihen) : une PASTILLE prend la
+					// place de la croix tant que la souris n'est pas dessus. MEME
+					// emplacement, donc la largeur de l'onglet ne bouge pas quand une
+					// scene devient modifiee -- des onglets qui changent de taille a
+					// la premiere frappe rendraient la barre illisible. Au survol la
+					// croix revient : on ferme sans avoir a viser ailleurs.
+					if (st.docDirty[di] && !overClose) {
+						const float32 d = S(7.f);
+						p.Fill({cr.x + (cr.w - d) * 0.5f, cr.y + (cr.h - d) * 0.5f, d, d},
+							   on ? NkRole::Text : NkRole::TextMuted, d * 0.5f);
+					} else if (canClose) {
+						HoverFill(p, cr, overClose, 2.f);
+						p.IconV(x + tw - S(20.f), r.y, r.h, NkIcon::WinClose, NkRole::TextMuted,
+								10.f);
+					}
+					if (canClose && hit.Clicked(key)) {
+						// LA CROIX FERME, SANS RIEN DEMANDER. Il n'y a plus rien a
+						// proteger : le document reste dans le projet et sa carte dans
+						// le navigateur. L'ancienne boite « Fermer sans enregistrer »
+						// disait vrai a l'epoque ou l'onglet ETAIT la scene ; la
+						// garder maintenant ferait redouter une perte qui n'existe
+						// plus. La pastille reste : elle dit que le PROJET n'est pas
+						// enregistre, ce qui est toujours exact.
+						NkCloseSceneTab(st, i);
+						break; // la liste a change
 					}
 				}
 				snprintf(key, sizeof(key), "tab.%d", i);
@@ -748,21 +934,30 @@ namespace nkentseu {
 			HoverFill(p, ar, hit.Add("tab.add", ar));
 			p.IconV(x + S(8.f), r.y, r.h, NkIcon::Add, NkRole::Text, 12.f);
 			if (hit.Clicked("tab.add") && st.sceneCount < 8) {
-				// Le nom par defaut est NUMEROTE : deux scenes homonymes seraient
-				// indistinguables. Une scene NEUVE nait VIERGE : les objets de la
-				// demo appartiennent a la premiere scene.
-				const int32 nt = st.sceneCount++;
-				snprintf(st.sceneNames[nt], 32, "Scene_%d", nt + 1);
-				st.sceneCamSet[nt] = false;
-				st.sceneBlank[nt] = true;
-				st.sceneTabKind[nt] = 0;
-				st.sceneTabAsset[nt] = 0;
-				st.sceneTabId[nt] = (uint8)st.sceneIdNext++;
-				st.sceneTabIsoNode[nt] = 0;
-				st.unitSystemTab[nt] = 0;
-				st.unitLengthTab[nt] = 0;
-				st.unitScaleTab[nt] = 1.f;
-				NkActivateTab(st, nt);
+				// UN NOUVEAU DOCUMENT, puis une vue dessus. Le nom par defaut est
+				// NUMEROTE d'apres le nombre de documents et non d'onglets : numeroter
+				// par onglet redonnait « Scene_2 » a une scene creee apres en avoir
+				// ferme une -- deux scenes homonymes dans le meme projet.
+				const int32 nd = st.DocAlloc();
+				if (nd >= 0) {
+					int32 used = 0;
+					for (int32 q = 0; q < NkModelerState::kMaxDocs; ++q)
+						if (st.docUsed[q] && !st.docTransient[q])
+							++used;
+					snprintf(st.docName[nd], 32, "Scene_%d", (int)used);
+					// Une scene NEUVE nait VIERGE : les objets de la demo
+					// appartiennent a la premiere scene.
+					st.docBlank[nd] = true;
+					st.docScene[nd] = (uint8)st.sceneIdNext++;
+					const int32 nt = st.sceneCount++;
+					st.sceneTabKind[nt] = 0;
+					st.sceneTabAsset[nt] = 0;
+					st.sceneTabDoc[nt] = nd;
+					// LA CARTE NAIT AVEC LA SCENE, pas a l'enregistrement : une scene
+					// qu'on ferme avant d'avoir enregistre doit rester retrouvable.
+					NkBrowserSyncScenes(st);
+					NkActivateTab(st, nt);
+				}
 			}
 		}
 
@@ -799,7 +994,20 @@ namespace nkentseu {
 				return hit.Clicked(key);
 			};
 
-			btn("tb.save", NkIcon::Save, "Enregistrer");
+			// Le retour du bouton etait JETE : « Enregistrer » peignait son icone
+			// et ne faisait RIEN (constate par Rihen). Il passe par le meme
+			// differe que le menu Fichier -- une seule voie d'enregistrement.
+			//
+			// LE BOUTON EST AUSSI UN SIGNAL (demande de Rihen, facon Unreal) :
+			// tant qu'il existe du travail non enregistre, il s'affiche en ACCENT
+			// -- l'oeil le voit sans chercher la pastille de l'onglet. Peint
+			// AVANT le btn() pour que le survol garde son retour visuel.
+			if (st.dirty) {
+				const float32 wS = ih + S(5.f) + p.TextW("Enregistrer") + S(14.f);
+				p.Fill({x - S(7.f), r.y + S(5.f), wS, r.h - S(10.f)}, NkRole::AccentUi, 3.f);
+			}
+			if (btn("tb.save", NkIcon::Save, "Enregistrer"))
+				st.projPending = 3;
 			p.VLine(x - S(4.f), r.y + S(7.f), r.h - S(14.f));
 			x += S(6.f);
 
@@ -1246,12 +1454,110 @@ namespace nkentseu {
 					return j8;
 			return -1;
 		}
+		/// Chemin RELATIF du dossier d'une carte-dossier, termine par « / » --
+		/// c'est cette barre finale qui dit « dossier » a la file de suppression.
+		inline NkString NkBrowFolderRel(const NkModelerState &st, int32 card) {
+			NkString parts[8];
+			int32 n = 0, cur = card;
+			for (int32 g = 0; g < 8 && cur >= 0 && cur < st.browserCount; ++g) {
+				if (st.browserKind[cur] != 1)
+					break;
+				parts[n++] = st.browserNames[cur];
+				cur = st.browserParent[cur];
+			}
+			NkString out;
+			for (int32 i = n - 1; i >= 0; --i) {
+				out += parts[i];
+				out += '/';
+			}
+			return out;
+		}
+		// ── CLASSEMENT DU NAVIGATEUR ────────────────────────────────────────────
+		// Comparaison de noms INSENSIBLE A LA CASSE, comme l'explorateur : « arbre »
+		// et « Arbre » doivent se suivre, pas se retrouver aux deux bouts de la
+		// liste selon la majuscule.
+		inline int32 NkBrowNameCmp(const char *a, const char *b) {
+			for (int32 i = 0;; ++i) {
+				char x = a[i], y = b[i];
+				if (x >= 'A' && x <= 'Z')
+					x = (char)(x - 'A' + 'a');
+				if (y >= 'A' && y <= 'Z')
+					y = (char)(y - 'A' + 'a');
+				if (x != y)
+					return (x < y) ? -1 : 1;
+				if (!x)
+					return 0;
+			}
+		}
+
+		/// Vrai si `a` doit passer AVANT `b`.
+		inline bool NkBrowBefore(const NkModelerState &st, int32 a, int32 b) {
+			// LES DOSSIERS D'ABORD, toujours -- meme en ordre decroissant. Un
+			// dossier n'est pas un element de la liste, c'est le chemin vers la
+			// suite ; le renvoyer en bas oblige a le chercher.
+			const bool fa = st.browserKind[a] == 1, fb = st.browserKind[b] == 1;
+			if (fa != fb)
+				return fa;
+			int32 c = 0;
+			if (st.browSort == 1) { // TYPE, puis nom a type egal
+				c = (int32)st.browserKind[a] - (int32)st.browserKind[b];
+				if (c == 0)
+					c = NkBrowNameCmp(st.browserNames[a], st.browserNames[b]);
+			} else if (st.browSort == 2) { // DATE, puis nom a date egale
+				const nk_int64 ta = st.browserTime[a], tb = st.browserTime[b];
+				c = (ta < tb) ? -1 : ((ta > tb) ? 1 : 0);
+				if (c == 0)
+					c = NkBrowNameCmp(st.browserNames[a], st.browserNames[b]);
+			} else {
+				c = NkBrowNameCmp(st.browserNames[a], st.browserNames[b]);
+			}
+			// Le SENS ne s'applique qu'au critere, jamais a la regle des dossiers.
+			return st.browSortDesc ? (c > 0) : (c < 0);
+		}
+
+		/// Cartes VISIBLES du dossier courant, dans l'ordre de classement. Tri par
+		/// insertion : le navigateur tient trente-deux cartes, un tri savant y
+		/// couterait plus en lecture qu'il ne rapporterait en cycles.
+		inline int32 NkBrowVisible(const NkModelerState &st, int32 *out, int32 cap) {
+			int32 n = 0;
+			for (int32 i = 0; i < st.browserCount && n < cap; ++i) {
+				if (st.browserKind[i] == 255 || st.browserParent[i] != st.browserFolder)
+					continue;
+				// Filtre par TYPE. Les DOSSIERS restent toujours visibles : ils sont
+				// le chemin vers le reste, pas un resultat de recherche.
+				if (st.browFilter != 0u && st.browserKind[i] != 1 &&
+					(st.browFilter & (1u << st.browserKind[i])) == 0u)
+					continue;
+				if (!NkNameMatches(st.browserNames[i], st.searchBrowser))
+					continue;
+				int32 k = n++;
+				while (k > 0 && NkBrowBefore(st, i, out[k - 1])) {
+					out[k] = out[k - 1];
+					--k;
+				}
+				out[k] = i;
+			}
+			return n;
+		}
+
+		inline void NkMarkTreeDirty(NkModelerState &st);
 		inline void NkBrowDelRec(NkModelerState &st, int32 root2) {
+			NkMarkTreeDirty(st);
 			int32 stk[64];
 			int32 sp2 = 0;
 			stk[sp2++] = root2;
 			while (sp2 > 0) {
 				const int32 s2 = stk[--sp2];
+				// LE FICHIER SUIT LA CARTE (Rihen). Il part en CORBEILLE, pas au
+				// neant : une suppression de trop doit pouvoir se rattraper -- meme
+				// exigence que « fermer un onglet ne supprime rien ».
+				if (st.browserFile[s2][0]) {
+					st.DelPendPush(st.browserFile[s2]);
+					st.browserFile[s2][0] = 0;
+				} else if (st.browserKind[s2] == 1) {
+					// Un DOSSIER n'a pas de fichier : c'est son repertoire qui part.
+					st.DelPendPush(NkBrowFolderRel(st, s2).CStr());
+				}
 				st.browserKind[s2] = 255;
 				for (int32 j4 = 0; j4 < st.browserCount; ++j4)
 					if (st.browserParent[j4] == s2 && st.browserKind[j4] != 255 && sp2 < 63)
@@ -1400,8 +1706,9 @@ namespace nkentseu {
 		inline int32 NkModelRootOf(const NkModelerState &st) {
 			if (st.sceneTabKind[st.activeTab] != 7)
 				return -1; // pas dans un editeur de Model
-			if (st.sceneTabIsoNode[st.activeTab] > 0)
-				return st.sceneTabIsoNode[st.activeTab] - 1;
+			const int32 d = st.TabDoc(st.activeTab);
+			if (d >= 0 && st.docIsoNode[d] > 0)
+				return st.docIsoNode[d] - 1;
 			return st.editPreviewNode - 1;
 		}
 		// Cible de parente AUTORISEE pour un noeud depose sur `dest`.
@@ -1823,17 +2130,26 @@ namespace nkentseu {
 					} else if (mact == 6) {
 						// ISOLER : un onglet Model edite CE noeud, seul, sans
 						// etre gene par le reste de la scene (Rihen).
-						if (st.sceneCount < 8) {
-							const int32 tb7 = st.sceneCount++;
-							NkHierNodeName(st, tn, st.sceneNames[tb7], 32);
-							st.sceneTabKind[tb7] = 7;
-							st.sceneTabAsset[tb7] = 0;
-							st.sceneTabIsoNode[tb7] = tn + 1;
-							st.sceneTabIsoHome[tb7] = st.sceneTabId[st.activeTab];
-							st.sceneTabId[tb7] = (uint8)st.sceneIdNext++;
-							st.sceneCamSet[tb7] = false;
-							st.sceneBlank[tb7] = true;
-							NkActivateTab(st, tb7);
+						const int32 dH = st.TabDoc(st.activeTab);
+						if (st.sceneCount < 8 && dH >= 0) {
+							// L'ISOLATION est un document TRANSITOIRE : il n'existe
+							// que le temps de la vue, et le noeud rentre chez lui
+							// quand elle se ferme. Il n'a donc ni carte ni ligne
+							// dans le fichier -- ce serait une scene fantome.
+							const int32 d7 = st.DocAlloc();
+							if (d7 >= 0) {
+								st.docTransient[d7] = true;
+								NkHierNodeName(st, tn, st.docName[d7], 32);
+								st.docIsoNode[d7] = tn + 1;
+								st.docIsoHome[d7] = st.docScene[dH];
+								st.docScene[d7] = (uint8)st.sceneIdNext++;
+								st.docBlank[d7] = true;
+								const int32 tb7 = st.sceneCount++;
+								st.sceneTabKind[tb7] = 7;
+								st.sceneTabAsset[tb7] = 0;
+								st.sceneTabDoc[tb7] = d7;
+								NkActivateTab(st, tb7);
+							}
 						}
 					} else if (mact == 7) {
 						// PROMOUVOIR : il prend la place de son parent ; le
@@ -2081,6 +2397,11 @@ namespace nkentseu {
 					}
 				}
 				if (act2 >= 0) {
+					// TOUTE action de ce menu touche l'arbre (creation, copie,
+					// deplacement, suppression) : le marquer ICI, en amont, evite
+					// d'avoir a y penser branche par branche -- et c'est justement
+					// une branche oubliee qui ferait quitter sans rien demander.
+					NkMarkTreeDirty(st);
 					const int32 tgt = st.browMenuIdx;
 					// le dossier VISE (carte-dossier cliquee) sinon le courant
 					const int32 destF =
@@ -2106,10 +2427,37 @@ namespace nkentseu {
 															 "Materiau", "Texture", "BP",
 															 "Dataset"};
 						const int32 k5 = st.browserCount++;
-						st.browserKind[k5] = kNewK[act2 - 10];
+						const uint8 nk5 = kNewK[act2 - 10];
+						st.browserKind[k5] = nk5;
 						st.browserParent[k5] = destF;
-						NkBrowUniqueName(st, kNewK[act2 - 10], destF, kNewN[act2 - 10],
+						st.browserMat[k5] = 0;
+						st.browserDoc[k5] = 0;
+						st.browserSrcNode[k5] = 0;
+						st.browserFile[k5][0] = 0;
+						NkBrowUniqueName(st, nk5, destF, kNewN[act2 - 10],
 										 st.browserNames[k5], 32);
+						// « TOUT CE QUI EST FICHIER EST UN ASSET REEL » (Rihen).
+						// Une carte creee ici recoit SA MATIERE tout de suite : sans
+						// cela, « + Materiau » ne posait qu'un nom, et les materiaux
+						// du projet formaient un monde separe des cartes.
+						if (nk5 == 2) {
+							const int32 sl = demo::Demo3DHostProjMatCreate();
+							if (sl >= 0) {
+								st.browserMat[k5] = sl + 1;
+								demo::Demo3DHostProjMatSetName(sl, st.browserNames[k5]);
+							}
+						} else if (nk5 == 5) {
+							// Une SCENE creee ici est un vrai document, sinon son
+							// double-clic fabriquerait une scene vide sans lien.
+							const int32 dN = st.DocAlloc();
+							if (dN >= 0) {
+								NkWidgetState::Copy(st.docName[dN], st.browserNames[k5], 31u);
+								st.docScene[dN] = (uint8)st.sceneIdNext++;
+								st.docBlank[dN] = true;
+								st.docCard[dN] = k5 + 1;
+								st.browserDoc[k5] = dN + 1;
+							}
+						}
 					} else if (act2 == 0) {
 						st.browClip = tgt;
 						st.browClipCut = true;
@@ -2293,14 +2641,21 @@ namespace nkentseu {
 			// et l'afficher en plus donnait deux lignes « Model » de meme nom
 			// (constate par Rihen sur sa capture). Une scene, elle, n'est pas un
 			// noeud : sa ligne est donc necessaire.
-			if (st.sceneTabKind[st.activeTab] != 7) {
+			const int32 dAct = st.TabDoc(st.activeTab);
+			if (st.sceneTabKind[st.activeTab] != 7 && dAct >= 0) {
 				const NkRect rowR{r.x, yy, r.w, kRowH};
 				hit.Add("hier.scene", rowR);
 				p.IconV(r.x + S(6.f), yy, kRowH, NkIcon::Globe, NkRole::Text, 13.f);
-				EditableText(p, hit, ws, in, "hier.scene.name",
-							 {r.x + S(24.f), yy, colType - r.x - S(30.f), kRowH},
-							 st.sceneNames[st.activeTab], NkRole::Text,
-							 st.sceneNames[st.activeTab], 32u);
+				if (EditableText(p, hit, ws, in, "hier.scene.name",
+								 {r.x + S(24.f), yy, colType - r.x - S(30.f), kRowH},
+								 st.docName[dAct], NkRole::Text, st.docName[dAct], 32u)) {
+					// Troisieme voie de renommage (avec l'onglet et la carte) : elle
+					// doit propager comme les deux autres, sinon le navigateur garde
+					// l'ancien nom.
+					const int32 e8 = st.docCard[dAct] - 1;
+					if (e8 >= 0 && e8 < st.browserCount && st.browserKind[e8] == 5)
+						NkWidgetState::Copy(st.browserNames[e8], st.docName[dAct], 31u);
+				}
 				p.TextV(colType, yy, kRowH, "Scene", NkRole::TextMuted);
 				yy += kRowH;
 				++visibleCount;
@@ -8052,10 +8407,13 @@ namespace nkentseu {
 							// LE BIAIS NORMAL est le reglage qui empeche un objet de
 							// projeter son ombre SUR LUI-MEME : c'est lui qu'on
 							// augmente quand on voit ces bandes sombres a sa surface.
+							// En TEXELS de la shadow map (1.5 par defaut) : le pas
+							// suit cette echelle -- l'ancien 0.005 datait des metres
+							// et demandait cent crans pour produire un effet.
 							p.TextV(iR.x, yy, kRowH, "Biais normal", NkRole::TextMuted);
 							DragFloat(p, hit, ws, in, "prop.sh.nb",
-									  {svX, yy + S(3.f), svW, kRowH - S(6.f)}, nb, 0.005f,
-									  NkRole::AccentUi, "%.3f");
+									  {svX, yy + S(3.f), svW, kRowH - S(6.f)}, nb, 0.05f,
+									  NkRole::AccentUi, "%.2f");
 							yy += kRowH;
 							p.TextV(iR.x, yy, kRowH, "Biais de pente", NkRole::TextMuted);
 							DragFloat(p, hit, ws, in, "prop.sh.sb",
@@ -8234,18 +8592,26 @@ namespace nkentseu {
 								p.TextV(r.x + kPad, yy, kRowH, "Copier vers",
 										NkRole::TextMuted);
 								// Le combo liste « Toutes les scenes » puis chaque
-								// scene par son nom, dans l'ordre des onglets.
-								static const char *sTgts[9];
+								// scene du PROJET -- pas seulement celles qui ont un
+								// onglet ouvert : porter ses unites vers une scene
+								// fermee est justement ce qu'on veut pouvoir faire.
+								static const char *sTgts[NkModelerState::kMaxDocs + 1];
+								static int32 sTgtDoc[NkModelerState::kMaxDocs + 1];
 								sTgts[0] = "Toutes les scenes";
-								for (int32 t7 = 0; t7 < st.sceneCount && t7 < 8; ++t7)
-									sTgts[t7 + 1] = st.sceneNames[t7];
-								if (st.propCopyTarget > st.sceneCount)
+								int32 nTgt = 1;
+								for (int32 d7 = 0; d7 < NkModelerState::kMaxDocs; ++d7) {
+									if (!st.docUsed[d7] || st.docTransient[d7])
+										continue;
+									sTgtDoc[nTgt] = d7;
+									sTgts[nTgt] = st.docName[d7];
+									++nTgt;
+								}
+								if (st.propCopyTarget >= nTgt)
 									st.propCopyTarget = 0;
 								Combo(p, hit, ws, "props.utgt",
 									  {r.x + S(120.f), yy + S(2.f), rr.w - S(128.f),
 									   kRowH - S(4.f)},
-									  sTgts, nullptr, st.sceneCount + 1,
-									  st.propCopyTarget, combo);
+									  sTgts, nullptr, nTgt, st.propCopyTarget, combo);
 								yy += kRowH;
 								// (Le bouton « Copier les proprietes » a disparu :
 								// l'action vit maintenant dans le MENU du bandeau,
@@ -8255,15 +8621,15 @@ namespace nkentseu {
 								// sait ce que ca veut dire -- porter ses unites vers
 								// la scene choisie, ou vers toutes.
 								if (NkGrpWants(st, "prop.g.unit", 1)) {
-									const int32 t0 =
-										st.propCopyTarget <= 0 ? 0 : st.propCopyTarget - 1;
-									const int32 t1 = st.propCopyTarget <= 0
-														 ? st.sceneCount - 1
-														 : st.propCopyTarget - 1;
-									for (int32 t7 = t0; t7 <= t1 && t7 < 8; ++t7) {
-										st.unitSystemTab[t7] = st.unitSystem;
-										st.unitLengthTab[t7] = st.unitLength;
-										st.unitScaleTab[t7] = st.unitScale;
+									// « Toutes » parcourt les documents ; sinon le seul
+									// designe par le combo (sTgtDoc, rempli juste au-dessus).
+									for (int32 k7 = 1; k7 < nTgt; ++k7) {
+										if (st.propCopyTarget > 0 && k7 != st.propCopyTarget)
+											continue;
+										const int32 d8 = sTgtDoc[k7];
+										st.docUnitSys[d8] = st.unitSystem;
+										st.docUnitLen[d8] = st.unitLength;
+										st.docUnitScale[d8] = st.unitScale;
 									}
 									// ... et dans le presse-papiers, pour un collage
 									// vers une autre scene plus tard.
@@ -10748,7 +11114,7 @@ namespace nkentseu {
 									nk3d::Viewport3DMoveModifier(m, true);
 									break;
 							}
-							st.dirty = true;
+							NkMarkDirty(st);
 						}
 						bx -= 22.f;
 					}
@@ -10874,9 +11240,13 @@ namespace nkentseu {
 		}
 
 		// â”€â”€ NAVIGATEUR DE PROJET (bas) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+		// `sortCombo` porte le deroulant de CLASSEMENT. Il est fourni par la boucle
+		// principale, comme pour les autres combos : un popup se peint APRES tout le
+		// reste, il ne peut donc pas se declarer ici.
 		inline void PaintBrowser(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
 								 NkHitRegistry &hit, NkWidgetState &ws, const nkgui::NkGuiInput &in,
-								 nkgui::NkGuiContext *guiCtx = nullptr) {
+								 nkgui::NkGuiContext *guiCtx = nullptr,
+								 NkComboPending *sortCombo = nullptr) {
 			const float32 treeScroll = st.scrollTree;
 			const float32 assetScroll = st.scrollAssets;
 			p.Fill(r, NkRole::PanelBg);
@@ -11176,40 +11546,25 @@ namespace nkentseu {
 			int32 shown = 0;
 			char akey[40];
 			const float32 wrapW = r.x + r.w - S(16.f);
-			for (int32 i = 0; i < st.browserCount; ++i) {
-				if (st.browserKind[i] == 255 || st.browserParent[i] != st.browserFolder)
-					continue; // supprimes ignores ; les dossiers ont leur carte
-				// Filtre par TYPE. Les DOSSIERS restent toujours visibles : ils
-				// sont le chemin vers le reste, pas un resultat de recherche.
-				if (st.browFilter != 0u && st.browserKind[i] != 1 &&
-					(st.browFilter & (1u << st.browserKind[i])) == 0u)
-					continue;
-				if (!NkNameMatches(st.browserNames[i], st.searchBrowser))
-					continue;
+			// L'ORDRE D'AFFICHAGE VIENT DU CLASSEMENT, plus de l'ordre de creation
+			// (Rihen : « on doit avoir un vrai systeme pour classer et organiser un
+			// espace comme l'explorateur de fichiers »). Le filtrage et la recherche
+			// vivent avec lui, dans NkBrowVisible : deux endroits qui decident ce qui
+			// est visible finiraient par ne plus etre d'accord.
+			int32 vis[NkModelerState::kMaxBrowser];
+			const int32 visN = NkBrowVisible(st, vis, NkModelerState::kMaxBrowser);
+			for (int32 vi = 0; vi < visN; ++vi) {
+				const int32 i = vis[vi];
 				++shown;
 				if (tx + tw > wrapW) { // retour a la ligne
 					tx = ax;
 					tyy += cardH + S(14.f);
 				}
-				const uint8 kind = st.browserKind[i]; // 0 blueprint, 2 materiau, 3 texture
-				const NkRole role = (kind == 0)   ? NkRole::TypeMesh
-									: (kind == 1) ? NkRole::TypeFolder
-									: (kind == 4) ? NkRole::AccentUi
-									: (kind == 5) ? NkRole::AxisZ
-									: (kind == 6) ? NkRole::AxisX
-									: (kind == 2) ? NkRole::TypeMat
-												  : NkRole::TypeTex;
-				const char *kindName = (kind == 0)   ? "Graphe"
-									   : (kind == 1) ? "Dossier"
-									   : (kind == 4) ? "Dataset IA"
-									   : (kind == 5) ? "Scene"
-									   : (kind == 0 && st.browserSub[i] == 0) ? "Graphe modelisation"
-									   : (kind == 0 && st.browserSub[i] == 1) ? "Graphe texturing"
-									   : (kind == 0 && st.browserSub[i] == 2) ? "Graphe materiau"
-									   : (kind == 0 && st.browserSub[i] == 3) ? "Graphe motion"
-									   : (kind == 6) ? "Model"
-									   : (kind == 2) ? "Materiau"
-													 : "Texture";
+				const uint8 kind = st.browserKind[i];
+				// COULEUR ET NOM viennent du point de passage unique (NkModelerUI.h) :
+				// la pastille de filtre et le liseret d'onglet lisent la MEME table.
+				const NkColor role = NkAssetColor(p, kind, st.browserSub[i]);
+				const char *kindName = NkAssetKindName(kind, st.browserSub[i]);
 
 				// Ombre portee legere, comme Unreal.
 				p.Fill({tx + 2.f, tyy + 3.f, tw, cardH}, NkColor{0, 0, 0, 90}, 3.f);
@@ -11232,6 +11587,23 @@ namespace nkentseu {
 								   NkRole::WindowBg);
 						}
 				const float32 cx = tx + tw * 0.5f, cy = tyy + pvH * 0.5f;
+				// ── MINIATURES : POINT D'ACCROCHE UNIQUE (Rihen, 8 aout 2026) ──
+				// TOUS les fichiers -- procedural ou non -- montreront bientot une
+				// MINIATURE plutot qu'un glyphe : soit une vignette, soit le
+				// RESULTAT de l'asset.
+				//
+				// REGLE POSEE PAR RIHEN, a ne pas retrouver a la dure plus tard :
+				// la miniature vient de LA VUE, c'est-a-dire de ce que la vue 3D
+				// regarde -- PAS d'un noeud camera de la scene. Une camera est un
+				// objet que l'utilisateur place pour un rendu ; la vignette d'un
+				// asset doit montrer l'asset tel qu'on le voit en le travaillant,
+				// et un projet sans camera doit avoir ses vignettes quand meme.
+				//
+				// Tout le dessin ci-dessous est le REPLI : il n'a lieu que tant
+				// qu'aucune miniature n'existe pour cette carte. C'est ici, et
+				// nulle part ailleurs, qu'elle viendra s'inserer -- un second
+				// endroit qui dessinerait un apercu divergerait au premier
+				// changement de cadrage.
 				if (kind == 1) {
 					// DOSSIER : chemise avec rabat ; PLEINE ou VIDE selon son
 					// contenu (previsualisation par contenu, regle de Rihen).
@@ -11253,15 +11625,29 @@ namespace nkentseu {
 						p.OutlineSharp({cx - 22.f, cy - 11.f, 44.f, 28.f}, role);
 					}
 				} else if (kind == 0) {
-					// BLUEPRINT : un cube en volume -- c'est une piece a modeler.
-					const float32 hw = 18.f, hh = 16.f, dp = 9.f;
-					p.Fill({cx - hw, cy - hh + dp, hw * 2.f, hh * 2.f - dp}, NkRole::PanelHeader);
-					p.OutlineSharp({cx - hw, cy - hh + dp, hw * 2.f, hh * 2.f - dp}, role);
-					p.Line(cx - hw, cy - hh + dp, cx - hw + dp, cy - hh, role);
-					p.Line(cx - hw + dp, cy - hh, cx + hw + dp, cy - hh, role);
-					p.Line(cx + hw, cy - hh + dp, cx + hw + dp, cy - hh, role);
-					p.Line(cx + hw + dp, cy - hh, cx + hw + dp, cy + hh - dp, role);
-					p.Line(cx + hw, cy + hh, cx + hw + dp, cy + hh - dp, role);
+					// PROCEDURAL : DEUX NOEUDS RELIES, pas un cube (Rihen). Un
+					// fichier procedural ne montre pas un objet, il montre la
+					// RECETTE qui le fabrique -- l'ancien cube le faisait passer
+					// pour un Model, c'est-a-dire pour son resultat.
+					// Les broches sont dessinees : c'est ce qui distingue un
+					// graphe de deux rectangles quelconques a cette taille.
+					const float32 nw = 20.f, nh = 13.f;
+					const float32 ax0 = cx - 23.f, ay0 = cy - 16.f;
+					const float32 bx0 = cx + 3.f, by0 = cy + 3.f;
+					p.Fill({ax0, ay0, nw, nh}, NkRole::PanelHeader);
+					p.Fill({ax0, ay0, nw, 4.f}, role); // bandeau d'en-tete
+					p.OutlineSharp({ax0, ay0, nw, nh}, role);
+					p.Fill({bx0, by0, nw, nh}, NkRole::PanelHeader);
+					p.Fill({bx0, by0, nw, 4.f}, role);
+					p.OutlineSharp({bx0, by0, nw, nh}, role);
+					// Le FIL : sortie droite du premier -> entree gauche du second.
+					const float32 ox = ax0 + nw, oy = ay0 + nh - 4.f;
+					const float32 ix = bx0, iy = by0 + 4.f;
+					p.Disc(ox, oy, 3.f, role);
+					p.Disc(ix, iy, 3.f, role);
+					p.Line(ox, oy, ox + 6.f, oy, role);
+					p.Line(ox + 6.f, oy, ix - 6.f, iy, role);
+					p.Line(ix - 6.f, iy, ix, iy, role);
 				} else if (kind == 2) {
 					// Boule de rendu avec reflet : sans reflet, le disque se lit
 					// comme une pastille de couleur.
@@ -11290,10 +11676,11 @@ namespace nkentseu {
 							   role);
 				} else {
 					const float32 q = 6.f, half = q * 3.f;
+					const NkColor damier = p.C(NkRole::PanelHeader);
 					for (int32 gx = 0; gx < 6; ++gx)
 						for (int32 gy = 0; gy < 6; ++gy)
 							p.Fill({cx - half + (float32)gx * q, cy - half + (float32)gy * q, q, q},
-								   ((gx + gy) & 1) ? role : NkRole::PanelHeader);
+								   ((gx + gy) & 1) ? role : damier);
 				}
 
 				// Bande de type, puis nom et type DANS la carte, tronques.
@@ -11308,8 +11695,20 @@ namespace nkentseu {
 					// Le nom est CLIPPE a la carte : il debordait sur la carte
 					// voisine des qu'il etait long (constate par Rihen).
 					p.Clip({tx + pad, fyy, tw - pad * 2.f, lh + 2.f});
-					EditableText(p, hit, ws, in, akey, {tx + pad, fyy, tw - pad * 2.f, lh + 2.f},
-								 st.browserNames[i], NkRole::Text, st.browserNames[i], 32u);
+					if (EditableText(p, hit, ws, in, akey, {tx + pad, fyy, tw - pad * 2.f, lh + 2.f},
+									 st.browserNames[i], NkRole::Text, st.browserNames[i], 32u)) {
+						// RENOMMER LA CARTE D'UNE SCENE RENOMME SON DOCUMENT (Rihen :
+						// « renommer dans le navigateur ne l'a pas fait dans
+						// l'onglet »). Uniquement AU MOMENT de la validation : une
+						// copie a chaque frame ecraserait, elle, le renommage fait
+						// depuis l'onglet -- les deux sens doivent coexister. Le nom
+						// va au DOCUMENT, donc l'onglet qui le montre suit tout seul.
+						if (st.browserKind[i] == 5) {
+							const int32 d9 = st.browserDoc[i] - 1;
+							if (d9 >= 0 && d9 < NkModelerState::kMaxDocs && st.docUsed[d9])
+								NkWidgetState::Copy(st.docName[d9], st.browserNames[i], 31u);
+						}
+					}
 					p.Unclip();
 					fyy += lh + 2.f;
 					p.TextClipped(tx + pad, fyy, tw - pad * 2.f, kindName, NkRole::TextMuted);
@@ -11323,22 +11722,54 @@ namespace nkentseu {
 					// specialise dans un onglet dedie (Rihen).
 					const uint8 tk9 = (uint8)(kind == 5 ? 0 : 1 + kind);
 					int32 tb = -1;
-					for (int32 t9 = 0; t9 < st.sceneCount; ++t9)
-						if (st.sceneTabAsset[t9] == i + 1 && st.sceneTabKind[t9] == tk9)
+					// UNE SCENE se retrouve par son DOCUMENT : c'est lui qui porte le
+					// contenu, et c'est ce lien qui manquait -- le double-clic
+					// fabriquait un document neuf, donc une scene VIDE a la place de
+					// celle qu'on croyait rouvrir.
+					const int32 dCard = (kind == 5) ? (st.browserDoc[i] - 1) : -1;
+					for (int32 t9 = 0; t9 < st.sceneCount; ++t9) {
+						if (kind == 5) {
+							if (st.sceneTabKind[t9] == 0 && st.TabDoc(t9) == dCard && dCard >= 0)
+								tb = t9;
+						} else if (st.sceneTabAsset[t9] == i + 1 && st.sceneTabKind[t9] == tk9)
 							tb = t9; // deja ouvert : on l'ACTIVE simplement
+					}
 					if (tb < 0 && st.sceneCount < 8) {
-						tb = st.sceneCount++;
-						NkWidgetState::Copy(st.sceneNames[tb], st.browserNames[i], 31u);
-						st.sceneTabAsset[tb] = i + 1;
-						st.sceneTabKind[tb] = tk9;
-						st.sceneTabId[tb] = (uint8)st.sceneIdNext++;
-						st.sceneTabIsoNode[tb] = 0;
-						st.unitSystemTab[tb] = 0;
-						st.unitLengthTab[tb] = 0;
-						st.unitScaleTab[tb] = 1.f;
-						st.sceneCamSet[tb] = false;
-						// contenu REEL au chargement : viendra du format projet
-						st.sceneBlank[tb] = true;
+						int32 d9 = dCard;
+						if (kind == 5) {
+							// Carte de scene sans document (fichier d'une version
+							// anterieure) : on lui en donne un, vide, plutot que de
+							// refuser -- mais VIDE, et il le restera : rien n'a ete
+							// enregistre pour elle.
+							if (d9 < 0 || d9 >= NkModelerState::kMaxDocs || !st.docUsed[d9]) {
+								d9 = st.DocAlloc();
+								if (d9 >= 0) {
+									NkWidgetState::Copy(st.docName[d9], st.browserNames[i], 31u);
+									st.docScene[d9] = (uint8)st.sceneIdNext++;
+									st.docBlank[d9] = true;
+									st.docCard[d9] = i + 1;
+									st.browserDoc[i] = d9 + 1;
+								}
+							}
+						} else {
+							// EDITEUR d'asset : sa maquette est TRANSITOIRE, elle
+							// meurt avec la vue. L'asset, lui, est la carte.
+							d9 = st.DocAlloc();
+							if (d9 >= 0) {
+								st.docTransient[d9] = true;
+								NkWidgetState::Copy(st.docName[d9], st.browserNames[i], 31u);
+								st.docScene[d9] = (uint8)st.sceneIdNext++;
+								st.docBlank[d9] = true;
+							}
+						}
+						// Table des documents pleine : on n'ouvre RIEN plutot qu'un
+						// onglet qui ne montrerait aucune scene.
+						if (d9 >= 0) {
+							tb = st.sceneCount++;
+							st.sceneTabAsset[tb] = i + 1;
+							st.sceneTabKind[tb] = tk9;
+							st.sceneTabDoc[tb] = d9;
+						}
 					}
 					if (tb >= 0)
 						NkActivateTab(st, tb);
@@ -11395,37 +11826,69 @@ namespace nkentseu {
 				PaintSearch(p, {ax - S(6.f), 0.f, S(192.f), 0.f}, fy - S(4.f), hit, ws, in,
 							"brow.search", st.searchBrowser);
 				float32 px = ax + S(196.f);
-				struct KindChip {
-						uint8 kind;
-						const char *name;
-						NkRole role;
-				};
-				static const KindChip kChips[5] = {{6, "Model", NkRole::AxisX},
-												   {0, "Graphe", NkRole::TypeMesh},
-												   {2, "Materiau", NkRole::TypeMat},
-												   {3, "Texture", NkRole::TypeTex},
-												   {5, "Scene", NkRole::AxisZ}};
+				// Le nom et la couleur viennent du point de passage unique : une
+				// pastille qui aurait garde sa propre table finirait par annoncer
+				// une couleur que les cartes n'emploient plus.
+				static const uint8 kChipKind[5] = {6, 0, 2, 3, 5};
 				char ck[32];
 				for (int32 ci = 0; ci < 5; ++ci) {
-					const float32 cw = p.TextW(kChips[ci].name) + S(28.f);
+					const uint8 ckd = kChipKind[ci];
+					// Le filtre « procedural » couvre les QUATRE graphes : sa
+					// pastille porte donc le nom de la famille, pas d'un sous-type.
+					const char *cname = (ckd == 0) ? "Procedural" : NkAssetKindName(ckd, 0);
+					const NkColor ccol = NkAssetColor(p, ckd, 0);
+					const float32 cw = p.TextW(cname) + S(28.f);
 					if (px + cw > r.x + r.w - S(10.f))
 						break;
 					const NkRect cr{px, fy, cw, fh};
 					snprintf(ck, sizeof(ck), "brow.chip.%d", ci);
 					const bool ov = hit.Add(ck, cr);
-					const bool on = (st.browFilter & (1u << kChips[ci].kind)) != 0;
+					const bool on = (st.browFilter & (1u << ckd)) != 0;
 					p.Fill(cr, on ? NkRole::InputBg : NkRole::PanelBg, 11.f);
-					p.OutlineSharp(cr, on ? kChips[ci].role
-										  : (ov ? NkRole::AccentUi : NkRole::Border));
+					if (on)
+						p.OutlineSharp(cr, ccol);
+					else
+						p.OutlineSharp(cr, ov ? NkRole::AccentUi : NkRole::Border);
 					// La PUCE porte la couleur de la famille : c'est elle qui les
 					// distingue d'un coup d'oeil, comme sur la maquette.
-					p.Fill({cr.x + S(9.f), cr.y + fh * 0.5f - S(3.f), S(6.f), S(6.f)},
-						   kChips[ci].role, 3.f);
-					p.TextV(cr.x + S(20.f), cr.y, fh, kChips[ci].name,
+					p.Fill({cr.x + S(9.f), cr.y + fh * 0.5f - S(3.f), S(6.f), S(6.f)}, ccol,
+						   3.f);
+					p.TextV(cr.x + S(20.f), cr.y, fh, cname,
 							on ? NkRole::Text : NkRole::TextMuted);
 					if (hit.Clicked(ck))
-						st.browFilter ^= (1u << kChips[ci].kind);
+						st.browFilter ^= (1u << ckd);
 					px += cw + S(6.f);
+				}
+				// ── CLASSEMENT, cale a DROITE ───────────────────────────────
+				// Meme place que dans un explorateur : le tri est un reglage de la
+				// vue, pas un filtre -- le coller aux pastilles les ferait passer
+				// pour une pastille de plus.
+				{
+					static const char *const kSortN[3] = {"Nom", "Type", "Date"};
+					const char *cur = kSortN[(st.browSort >= 0 && st.browSort < 3)
+												 ? st.browSort
+												 : 0];
+					const float32 aw = fh; // bouton de sens, carre
+					const float32 sw = p.TextW("Type") + S(34.f);
+					const float32 sx = r.x + r.w - S(10.f) - aw - S(4.f) - sw;
+					if (sx > px + S(8.f) && sortCombo) {
+						p.TextV(sx - p.TextW("Trier") - S(8.f), fy, fh, "Trier",
+								NkRole::TextMuted);
+						Combo(p, hit, ws, "brow.sort", {sx, fy, sw, fh}, kSortN, nullptr, 3,
+							  st.browSort, *sortCombo);
+						const NkRect ar2{sx + sw + S(4.f), fy, aw, fh};
+						const bool ov2 = hit.Add("brow.sortdir", ar2);
+						p.Outline(ar2, NkRole::Border, ov2 ? NkRole::PanelBg : NkRole::InputBg,
+								  4.f);
+						// Le CHEVRON dit le sens : vers le bas = croissant, comme la
+						// fleche d'un en-tete de colonne d'explorateur.
+						p.IconV(ar2.x, ar2.y, ar2.h,
+								st.browSortDesc ? NkIcon::ChevronUp : NkIcon::ChevronDown,
+								NkRole::Text, 11.f);
+						if (hit.Clicked("brow.sortdir"))
+							st.browSortDesc = !st.browSortDesc;
+					}
+					(void)cur;
 				}
 			}
 
@@ -11537,10 +12000,20 @@ namespace nkentseu {
 
 		inline const NkMenuDef *NkMenus(int32 &outCount) {
 			static const NkMenuItem kFile[] = {
-				{"Nouveau", "", false},		{"Ouvrir...", "", false}, {"Ouvrir recent", "", true},
-				{nullptr, "", false},		{"Enregistrer", "", false}, {"Enregistrer sous...", "", false},
-				{nullptr, "", false},		{"Importer", "", true},   {"Exporter", "", true},
-				{nullptr, "", false},		{"Quitter", "", false},
+				{"Nouveau", "", false},
+				{"Ouvrir...", "", false},
+				{"Ouvrir recent", "", true},
+				{nullptr, "", false},
+				// Le RACCOURCI est lu dans la table, jamais recopie ici : rebinder
+				// une touche met l'affichage a jour tout seul.
+				{"Enregistrer", "app.enregistrer", false},
+				{"Enregistrer tout", "app.enregistrer_tout", false},
+				{"Enregistrer sous...", "", false},
+				{nullptr, "", false},
+				{"Importer", "", true},
+				{"Exporter", "", true},
+				{nullptr, "", false},
+				{"Quitter", "", false},
 			};
 			static const NkMenuItem kEdit[] = {
 				{"Annuler", "app.annuler", false}, {"Refaire", "app.refaire", false},
@@ -11573,12 +12046,21 @@ namespace nkentseu {
 				{"Documentation", "", false}, {"Raccourcis clavier", "", false},
 				{nullptr, "", false},		  {"A propos", "", false},
 			};
+			// LE NOMBRE D'ENTREES SE DEDUIT DE LA TABLE, il ne se recopie pas.
+			// Il etait ecrit a la main : ajouter « Enregistrer tout » a kFile sans
+			// toucher le 11 a fait DISPARAITRE « Quitter » (constate par Rihen).
+			// C'est la quatrieme fois que ce depot paie une table recopiee ailleurs
+			// (les combos de la sortie, kVidExt fige a 3, kHdrNames reste a six) --
+			// ici la duplication disparait pour de bon.
+#define NK_MENU(nom, tab) {nom, tab, (int32)(sizeof(tab) / sizeof((tab)[0]))}
 			static const NkMenuDef kMenus[] = {
-				{"Fichier", kFile, 11},	  {"Edition", kEdit, 7},	{"Fenetre", kWindow, 8},
-				{"Outils", kTools, 6},	  {"Selection", kSelect, 5}, {"Objet", kObject, 6},
-				{"Aide", kHelp, 4},
+				NK_MENU("Fichier", kFile),	   NK_MENU("Edition", kEdit),
+				NK_MENU("Fenetre", kWindow),   NK_MENU("Outils", kTools),
+				NK_MENU("Selection", kSelect), NK_MENU("Objet", kObject),
+				NK_MENU("Aide", kHelp),
 			};
-			outCount = 7;
+#undef NK_MENU
+			outCount = (int32)(sizeof(kMenus) / sizeof(kMenus[0]));
 			return kMenus;
 		}
 
@@ -11664,7 +12146,8 @@ namespace nkentseu {
 					// dans la table oblige a relire ce bloc -- ce qui est voulu, un
 					// decalage silencieux serait bien pire.
 					//   0 Nouveau · 1 Ouvrir... · 2 Ouvrir recent (sous-menu, non
-					//   ecrit) · 4 Enregistrer · 5 Enregistrer sous... · 10 Quitter
+					//   ecrit) · 4 Enregistrer · 5 Enregistrer tout · 6 Enregistrer
+					//   sous... · 11 Quitter
 					// Les demandes partent en DIFFERE (`projPending`) : le selecteur
 					// de fichiers de l'OS ouvre une boucle modale, l'appeler pendant
 					// la peinture reentrerait dans la frame en cours.
@@ -11676,8 +12159,10 @@ namespace nkentseu {
 						else if (i == 4)
 							st.projPending = 3;
 						else if (i == 5)
+							st.projPending = 8;
+						else if (i == 6)
 							st.projPending = 4;
-						else if (i == 10)
+						else if (i == 11)
 							NkRequestClose(st);
 					}
 					st.openMenu = -1;
@@ -11803,7 +12288,7 @@ namespace nkentseu {
 							// aucun indice, donc rien ne diverge quand une categorie
 							// gagne une entree.
 							nk3d::Viewport3DAddModifier(cats[c].items[i].type);
-							st.dirty = true;
+							NkMarkDirty(st);
 							ws.CloseCombo();
 						}
 					}
@@ -11932,7 +12417,7 @@ namespace nkentseu {
 								// pour TOUT element du menu, sans distinction (Rihen)
 								st.addAdjustNode = nn;
 							}
-							st.dirty = true;
+							NkMarkDirty(st);
 							ws.CloseCombo();
 						}
 					}
@@ -12050,7 +12535,13 @@ namespace nkentseu {
 			// AUCUN PROJET OUVERT (ecran d'accueil) : il n'y a rien a perdre, donc
 			// rien a demander. Poser la question « modifications non enregistrees »
 			// devant un ecran de demarrage serait incomprehensible.
-			else if (st.dirty && !st.welcome)
+			// LA CONFIRMATION EST TOUJOURS POSEE quand un projet est ouvert (Rihen) :
+			// fermer un modeleur d'un clic mal place est un accident cher, meme
+			// quand tout est enregistre -- il faut rouvrir le projet, refaire sa
+			// disposition, retrouver sa vue. Seul l'ECRAN D'ACCUEIL sort sans
+			// demander : il n'y a alors ni travail ni disposition a perdre, et la
+			// question y serait incomprehensible.
+			else if (!st.welcome)
 				st.askClose = true;
 			else
 				st.running = false;
@@ -12170,6 +12661,11 @@ namespace nkentseu {
 				st.wantClose = false;
 				NkRequestClose(st);
 			}
+			// (La boite « Fermer la scene ? » a DISPARU, et c'est le but du
+			// chantier : fermer un onglet ne ferme qu'une VUE, le document reste
+			// dans le projet et sa carte dans le navigateur. Demander confirmation
+			// laisserait croire qu'il y a quelque chose a perdre.)
+
 			if (!st.askClose)
 				return;
 			p.Fill({0.f, 0.f, W, H}, NkColor{0, 0, 0, 150}); // voile
@@ -12180,8 +12676,15 @@ namespace nkentseu {
 			p.Outline(box, NkRole::Border, NkRole::PanelHeader, 6.f);
 			hit.Add("dlg.box", box);
 			p.TextV(box.x + S(20.f), box.y + S(14.f), S(24.f), "Quitter NK3DModeler ?");
+			// LA BOITE S'OUVRE TOUJOURS (Rihen), mais elle ne raconte pas la meme
+			// chose selon ce qu'il reste a perdre : annoncer « modifications non
+			// enregistrees » alors que tout est ecrit ferait douter d'un travail
+			// pourtant deja sur le disque.
+			const bool unsaved = st.dirty;
 			p.TextV(box.x + S(20.f), box.y + S(44.f), S(22.f),
-					"La scene a des modifications non enregistrees.", NkRole::TextMuted);
+					unsaved ? "Des modifications ne sont pas enregistrees."
+							: "Tout est enregistre.",
+					NkRole::TextMuted);
 
 			struct B {
 					const char *key;
@@ -12191,11 +12694,17 @@ namespace nkentseu {
 			// L'ordre compte : l'action la plus SURE est a droite, sous la main, et
 			// c'est elle qui porte l'accent. Â« Quitter sans enregistrer Â» reste
 			// atteignable mais ne se propose pas.
-			const B kBtns[3] = {{"dlg.cancel", "Annuler", false},
-								{"dlg.discard", "Quitter sans enregistrer", false},
-								{"dlg.save", "Enregistrer et quitter", true}};
+			// RIEN A ENREGISTRER : deux boutons seulement. Proposer « Enregistrer et
+			// quitter » quand il n'y a rien a ecrire ferait croire qu'il reste du
+			// travail en attente, et « Quitter SANS enregistrer » serait alarmant
+			// pour une sortie parfaitement propre.
+			const B kBtns[3] = {
+				{"dlg.cancel", "Annuler", false},
+				{"dlg.discard", unsaved ? "Quitter sans enregistrer" : "Quitter", !unsaved},
+				{"dlg.save", "Enregistrer et quitter", true}};
+			const int32 nBtn = unsaved ? 3 : 2;
 			float32 bx = box.x + box.w - S(14.f);
-			for (int32 i = 2; i >= 0; --i) {
+			for (int32 i = nBtn - 1; i >= 0; --i) {
 				const float32 w = p.TextW(kBtns[i].label) + S(24.f);
 				const NkRect br{bx - w, box.y + bh - S(44.f), w, S(28.f)};
 				const bool over = hit.Add(kBtns[i].key, br);
@@ -12214,13 +12723,14 @@ namespace nkentseu {
 			if (hit.Clicked("dlg.discard"))
 				st.running = false;
 			if (hit.Clicked("dlg.save")) {
-				// L'ENREGISTREMENT EST REEL depuis le format .nk3dm : on le demande
-				// en differe (il peut ouvrir « Enregistrer sous... » si le projet
-				// n'a pas encore de chemin) et la fermeture attend son resultat.
-				// Fermer tout de suite fermerait AVANT d'avoir ecrit.
+				// L'enregistrement est demande en DIFFERE (il peut ouvrir
+				// « Enregistrer sous... » si le projet n'a pas encore de chemin) et
+				// la fermeture attend son resultat. Fermer tout de suite fermerait
+				// AVANT d'avoir ecrit.
 				//
-				// Reserve honnete : le .nk3dm ne serialise pas encore la scene 3D.
-				// Ce bouton enregistre le PROJET, pas encore son contenu.
+				// La scene EST desormais enregistree avec le projet -- sauf la
+				// geometrie editee sommet par sommet et les modificateurs, que
+				// l'ecran d'accueil enumere.
 				st.askClose = false;
 				st.projPending = 3;
 				st.quitAfterSave = true;

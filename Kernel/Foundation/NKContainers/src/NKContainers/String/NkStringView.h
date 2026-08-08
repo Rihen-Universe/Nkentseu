@@ -141,11 +141,20 @@ namespace nkentseu {
 			 * @tparam N Taille compile-time du tableau source
 			 * @param str Référence vers le tableau de caractères
 			 *
-			 * @note Exclut automatiquement le caractère null terminal.
-			 *       Déduit la longueur à la compilation pour efficacité.
+			 * @note La vue S'ARRETE AU PREMIER NUL, bornee a N-1. L'ancienne
+			 *       version prenait N-1 SANS regarder le contenu : juste pour un
+			 *       litteral ("abc"), mais un TAMPON (char nom[64]) partait
+			 *       ENTIER dans la vue -- terminateur, zeros ET memoire non
+			 *       initialisee. C'est ainsi que des noms de materiaux ont ecrit
+			 *       64 octets de dechets dans un .nk3dm, rendant le JSON illisible
+			 *       au rechargement : le projet semblait perdre les modifications
+			 *       (constate par Rihen, 7 aout 2026). Pour un litteral, la
+			 *       longueur calculee est identique a N-1 et reste constexpr.
 			 */
 			template <SizeType N>
-			NKENTSEU_CONSTEXPR NkStringView(const char (&str)[N]) noexcept : mData(str), mLength(N - 1) {
+			NKENTSEU_CONSTEXPR NkStringView(const char (&str)[N]) noexcept : mData(str), mLength(0) {
+				while (mLength < N - 1 && str[mLength] != '\0')
+					++mLength;
 			}
 
 			/**

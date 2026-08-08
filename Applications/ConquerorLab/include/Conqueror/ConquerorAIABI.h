@@ -36,7 +36,11 @@
 namespace nkentseu {
 	namespace conqueror {
 
-		inline constexpr uint32 kAiAbiVersion = 2;
+		// Meme schema que les regles : MAJEURE = rupture, MINEURE = ajout en fin.
+		// Voir le long commentaire de ConquerorRulesABI.h — il vaut pour les deux.
+		inline constexpr uint32 kAiAbiMajor = 2;
+		inline constexpr uint32 kAiAbiMinor = 1;
+		inline constexpr uint32 kAiAbiVersion = kAiAbiMajor;
 
 		/// Cinq paliers (fiche A2 §4.1.3). Reperes, pas implementation imposee :
 		/// c'est au module de decider comment il module sa force (budget de
@@ -61,6 +65,7 @@ namespace nkentseu {
 				uint8  isDeterministic = 0;	 ///< 1 si (seed, etat) -> toujours le meme coup
 				uint8  isThreadSafe	   = 0;	 ///< 1 si plusieurs instances en parallele
 				uint8  _pad			   = 0;
+
 		};
 
 		/// Configuration d'une reflexion. L'IA doit pouvoir etre reconfiguree
@@ -131,13 +136,29 @@ namespace nkentseu {
 		struct NkcAIFactory {
 				NkcAIInfo	info;
 				NkcAIVTable vtable;
+
+				// ---- ajoute en MINEURE 1 ------------------------------------
+				// APRES la vtable, jamais dans `info` : voir le commentaire de
+				// NkcRulesFactory. Grossir `info` decalerait `vtable`.
+				uint32 abiMinor	   = kAiAbiMinor;
+				uint32 vtableBytes = 0;	 ///< rempli par NkcAIStamp
 		};
+
+		/// Equivalent de NkcRulesStamp. A appeler en fin de FillFactory.
+		inline void NkcAIStamp(NkcAIFactory *out) noexcept {
+			if (!out) return;
+			out->info.abiVersion  = kAiAbiMajor;
+			out->abiMinor	 = kAiAbiMinor;
+			out->vtableBytes = static_cast<uint32>(sizeof(NkcAIVTable));
+		}
 
 		using NkcAIGetFactoryFn	  = void (*)(NkcAIFactory *out);
 		using NkcAISetAllocatorFn = void (*)(NkcAllocFn a, NkcFreeFn f);
+		using NkcAISetLoggerFn	  = void (*)(NkcLogFn fn, void *user, const char *name);
 
 	} // namespace conqueror
 } // namespace nkentseu
 
 #define NKC_AI_SYM_GET_FACTORY "nkc_ai_get_factory"
 #define NKC_AI_SYM_SET_ALLOC   "nkc_ai_set_allocator"
+#define NKC_AI_SYM_SET_LOGGER  "nkc_ai_set_logger"
