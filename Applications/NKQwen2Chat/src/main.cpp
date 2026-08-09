@@ -87,6 +87,40 @@ int main(int argc, char **argv) {
 
 	printf("=== NKQwen2Chat — dialogue avec le Qwen2.5 7B quantifié, sur GPU ===\n\n");
 
+	// ---- UNE SEULE INSTANCE À LA FOIS ---------------------------------------
+	// Le 7B occupe 4,4 Go. Deux instances en demandent 8,8 sur une carte de 8 :
+	// la seconde n'a plus la place, et le pilote Vulkan ACCEPTE quand même
+	// l'allocation en débordant sur la mémoire système. Aucun appel n'échoue --
+	// CreateBuffer et Upload rendent tous deux « réussi » -- mais le calcul lit
+	// n'importe quoi, et la génération sort « !!!!!!! » à vitesse anormale (elle
+	// ne calcule plus rien de sensé). Diagnostiqué par Rihen le 9 août, après
+	// que ce symptôme m'a fait accuser tour à tour le socle puis l'adaptateur.
+	//
+	// La garde est ICI et non dans le moteur : aucune API GPU ne dit « un autre
+	// PROCESSUS occupe déjà la carte ». C'est une exclusion entre processus, pas
+	// une question de VRAM disponible.
+	//
+	// Le vrai correctif de fond -- interroger le budget mémoire réel du pilote
+	// (VK_EXT_memory_budget) et refuser un chargement qui n'y tient pas --
+	// demande une API dans NkTensorGpu. À faire, mais il ne remplacerait pas
+	// celui-ci : deux instances qui tiendraient toutes deux en VRAM resteraient
+	// une mauvaise idée sur une carte de 8 Go.
+#if defined(_WIN32)
+	{
+		HANDLE once = CreateMutexA(nullptr, TRUE, "Global\\NKQwen2Chat_instance_unique");
+		if (once == nullptr || GetLastError() == ERROR_ALREADY_EXISTS) {
+			printf("  REFUS : une autre instance de NKQwen2Chat tourne deja.\n"
+				   "  Le 7B occupe 4,4 Go ; deux instances n'entrent pas dans 8 Go, et la\n"
+				   "  seconde produirait du charabia SANS la moindre erreur. Ferme l'autre\n"
+				   "  fenetre, puis relance.\n");
+			return 1;
+		}
+		// Le verrou n'est PAS relache explicitement : Windows le libere a la fin
+		// du processus, y compris si celui-ci est tue. Un verrou qu'on oublie de
+		// rendre apres un plantage bloquerait tous les lancements suivants.
+	}
+#endif
+
 	// ---- Verrou de backend, AVANT toute utilisation du GPU -------------------
 	{
 		const char *cur = getenv("NK_TENSOR_API");
@@ -103,9 +137,15 @@ int main(int argc, char **argv) {
 	}
 
 	const char *path = nullptr;
-	if (argc > 1)
-		path = argv[1];
-	else if (const char *e = getenv("NK_GGUF_PATH"))
+	// LE PREMIER ARGUMENT QUI N'EST PAS UNE OPTION. `argv[1]` etait pris tel
+	// quel : depuis qu'il existe un `--lora=`, le passer en premier faisait
+	// chercher le GGUF a l'emplacement de l'adaptateur, avec pour seul message
+	// « GGUF illisible » -- un diagnostic qui envoie chercher au mauvais endroit.
+	for (int i = 1; i < argc && !path; ++i)
+		if (argv[i][0] != '-')
+			path = argv[i];
+	if (path) {
+	} else if (const char *e = getenv("NK_GGUF_PATH"))
 		path = e;
 	else
 		path = "C:/Users/Rihen/.ollama/models/blobs/"
@@ -136,6 +176,34 @@ int main(int argc, char **argv) {
 		return 1;
 	}
 	const float64 loadSec = loadClk.Elapsed().ToSeconds();
+
+	// ---- Adaptateur LoRA, FACULTATIF ----------------------------------------
+	// C'est ce qui distingue TON modele du Qwen2.5 de base. Il s'applique a
+	// l'execution, a cote du produit quantifie : les poids du socle ne sont
+	// pas touches et le KV-cache de ce chemin reste entier -- d'ou 0,5 s par
+	// token, contre 823 s pour 120 tokens dans NKQwen2Ask, qui n'en a pas.
+	{
+		const char *lora = nullptr;
+		for (int i = 1; i < argc; ++i)
+			if (std::strncmp(argv[i], "--lora=", 7) == 0)
+				lora = argv[i] + 7;
+		if (!lora)
+			if (const char *e = getenv("NK_LORA_PATH"))
+				lora = e;
+		if (lora && *lora) {
+			NkString lerr;
+			if (model.LoadLora(lora, &lerr))
+				printf("  adaptateur LoRA : %s (rang %d) -- reponses du modele AFFINE\n",
+					   lora, model.LoraRank());
+			else
+				// On le DIT et on continue sur le socle : repondre avec le modele de
+				// base en laissant croire qu'il est affine serait le pire des cas.
+				printf("  !! adaptateur NON charge (%s) -- reponses du modele DE BASE\n",
+					   lerr.CStr());
+		} else {
+			printf("  aucun adaptateur (--lora=<fichier.nkla>) -- modele DE BASE\n");
+		}
+	}
 
 	const NkQwen2GpuStats &st = model.Stats();
 	printf("\n  Modèle résident GPU — %d couches, chargé en %.1f s\n", model.LayerCount(), loadSec);
