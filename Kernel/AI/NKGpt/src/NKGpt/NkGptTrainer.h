@@ -101,6 +101,12 @@ namespace nkentseu {
 					void GenerateFinal();
 
 					// Sauvegarde le checkpoint (dims + BPE + langues + poids).
+					// ⚠️ POIDS SEULS — SANS l'état de l'optimiseur. À n'utiliser que pour
+					// exporter un modèle destiné à la seule génération. NE PAS l'appeler
+					// après `Fit()` : celui-ci a déjà écrit un checkpoint COMPLET (moments
+					// d'Adam + pas global) permettant une reprise exacte, et ce Save-ci
+					// l'écraserait par une version dégradée — la reprise repartirait alors
+					// sans état d'optimiseur, avec un pic de perte.
 					bool Save(const char *path);
 
 					// Accès (après Prepare).

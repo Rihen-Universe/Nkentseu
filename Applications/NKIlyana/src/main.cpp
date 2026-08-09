@@ -471,8 +471,13 @@ static int ModeTrain(int argc, char **argv) {
 	t.Fit();
 	logger.Info("Entrainement termine en {0} s.", chrono.Elapsed().seconds);
 
-	if (!cfg.savePath.Empty())
-		t.Save(cfg.savePath.CStr());
+	// NE PAS rappeler t.Save() ici. `Fit()` a DEJA ecrit le checkpoint final AVEC
+	// l'etat de l'optimiseur (moments d'Adam + pas global), ce qui permet une
+	// reprise exacte. `NkGptTrainer::Save()` ecrit les POIDS SEULS : l'appeler
+	// apres Fit ecraserait le bon fichier par une version degradee, et la reprise
+	// repartirait sans etat d'Adam — avec un pic de perte. Constate a la mesure :
+	// 8,8 Mo au lieu de 26,1 Mo, soit exactement le tiers (poids sans les deux
+	// moments).
 
 	// La question qui donne son sens au jalon.
 	logger.Info("--- Ce qu'elle repond ---");
