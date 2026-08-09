@@ -32,6 +32,11 @@ namespace nkentseu {
 				// Retourne un id opaque (>0) ou 0 en échec. Le buffer est un storage
 				// buffer (SSBO / UAV) utilisable en compute et relisible par le CPU.
 				uint64 CreateBuffer(nk_size bytes);
+
+				// Nombre de DEFAUTS GPU signales depuis le demarrage (allocation refusee,
+				// tampon invalide). Un entrainement doit le consulter : un calcul qui
+				// n'a pas lieu ne produit AUCUNE erreur, seulement une perte immobile.
+				static int64 DefautCount();
 				void DestroyBuffer(uint64 id);
 				bool Upload(uint64 id, const void *data, nk_size bytes);
 				bool Download(uint64 id, void *out, nk_size bytes);
