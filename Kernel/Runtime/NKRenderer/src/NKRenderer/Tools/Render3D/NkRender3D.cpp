@@ -95,10 +95,13 @@ namespace nkentseu {
 				mUBOCameraMirrorRing[i] = mDevice->CreateBuffer(NkBufferDesc::Uniform(kPBRCamUBOSize));
 			}
 
-			// Lights UBO — binding 2 (32 lights max)
+			// Lights UBO — binding 2 (32 lights max). DOIT suivre LightsBlock
+			// (UploadUBOs) : `extra` en queue depuis 2026-08-09 (loi d'attenuation
+			// + dimensions surfaciques), sinon WriteBuffer deborde du tampon.
 			struct LightsUBO {
 					NkVec4f pos[32], color[32], dir[32], angles[32];
 					int32 count, _p[3];
+					NkVec4f extra[32];
 			};
 
 			for (uint32 i = 0; i < mFramesInFlight; i++) {
@@ -2484,22 +2487,65 @@ namespace nkentseu {
 			}
 
 			// Lights UBO
+			// ── EXTENSION DU BLOC (2026-08-09), et POURQUOI cette forme ────────
+			// `extra` est ajoute EN QUEUE, apres count/_p — jamais avant : les
+			// AUTRES shaders (Skin, Layered, CarPaint...) declarent l'ancien bloc
+			// et liront toujours `count` au meme decalage ; un bloc plus court
+			// ignore simplement les octets qui suivent. Cote pbr.frag, les trois
+			// remplisseurs sont des SCALAIRES (`_pad0.._pad2`), pas un tableau :
+			// en std140 un tableau d'int a un pas de 16 octets (48 au lieu de 12)
+			// et `extras` aurait ete lu 48 octets trop loin — le piege exact qui
+			// a fait echouer (et reverter) la tentative precedente.
 			struct LightsBlock {
 					NkVec4f pos[32], color[32], dir[32], angles[32];
 					int32 count, _p[3];
+					// .x = loi d'attenuation (0 heritee, 1 physique 1/d² fenetree)
+					// .y = largeur surfacique (m)  .z = hauteur (m)  .w reserve
+					NkVec4f extra[32];
 			} lb{};
+			static_assert(offsetof(LightsBlock, extra) == 4 * 32 * 16 + 16,
+						  "LightsBlock.extra doit suivre count+12 octets : le shader "
+						  "le lit a cet offset exact (scalaires _pad0.._pad2)");
 
 			lb.count = (int32)mCtx.lights.Size();
 			for (int32 i = 0; i < lb.count && i < 32; i++) {
 				auto &l = mCtx.lights[i];
 				lb.pos[i] = {l.position.x, l.position.y, l.position.z, (float32)l.type};
-				lb.color[i] = {l.color.x, l.color.y, l.color.z, l.intensity};
+				// EN LOI PHYSIQUE, L'INTENSITE EST UNE PUISSANCE EN WATTS (comme
+				// Blender) : convertie ICI en intensite radiante selon la geometrie
+				// de l'emetteur, pour que « 1000 W » eclaire pareil dans les deux
+				// logiciels. Sans cette normalisation, la loi 1/d² etait juste mais
+				// inutilisable — une intensite reglee a l'oeil pour la loi heritee
+				// (~8) ne represente presque aucune energie en 1/d² (mesure par
+				// capture : scene quasi noire).
+				//   ponctuelle : I = P / 4π   (toute la sphere)
+				//   spot       : I = P / (2π(1-cos θext)) (l'energie reste dans le cone)
+				//   surfacique : I = P / π    (emetteur lambertien, approximation
+				//                ponctuelle en attendant LTC)
+				// La directionnelle n'attenue pas : la loi ne la concerne pas.
+				float32 inten = l.intensity;
+				if (l.attenuationMode == 1) {
+					const float32 kPi = 3.14159265f;
+					if (l.type == NkLightType::NK_POINT) {
+						inten = l.intensity / (4.f * kPi);
+					} else if (l.type == NkLightType::NK_SPOT) {
+						const float32 cosO = std::cos(l.outerAngle * kPi / 180.f);
+						inten = l.intensity / (2.f * kPi * (1.f - cosO) + 1e-4f);
+					} else if (l.type == NkLightType::NK_AREA) {
+						inten = l.intensity / kPi;
+					}
+				}
+				lb.color[i] = {l.color.x, l.color.y, l.color.z, inten};
 				lb.dir[i] = {l.direction.x, l.direction.y, l.direction.z, l.range};
 				// angles : .x = cos(inner), .y = cos(outer) (precompute pour le shader),
 				// .z = castShadow flag, .w = cookieIdx (-1 = pas de cookie).
 				const float deg2rad = 3.14159265f / 180.f;
 				lb.angles[i] = {std::cos(l.innerAngle * deg2rad), std::cos(l.outerAngle * deg2rad),
 								(float32)l.castShadow, (float32)l.cookieIdx};
+				// Enfin televersees : la loi d'attenuation choisie ET les dimensions
+				// de la surfacique (le panneau les exposait, le fichier les gardait,
+				// le GPU ne les voyait jamais — defaut n°3 du carnet).
+				lb.extra[i] = {(float32)l.attenuationMode, l.areaWidth, l.areaHeight, 0.f};
 			}
 			if (mFrameSlot < mUBOLightsRing.Size())
 				mDevice->WriteBuffer(mUBOLightsRing[mFrameSlot], &lb, sizeof(lb));

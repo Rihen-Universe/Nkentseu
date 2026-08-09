@@ -1702,6 +1702,31 @@ int nkmain(const NkEntryState &entry) {
 				}
 			}
 		}
+		// NK_LIGHT_ATT=<0|1> : loi d'attenuation de TOUTES les lumieres, par le
+		// setter du panneau (no-op sur les noeuds non-lumiere) — pour l'A/B
+		// heritee vs physique face a Blender.
+		{
+			static bool sAgentAttDone = false;
+			if (!sAgentAttDone && agentFrame >= 10 && demo::Demo3DHostReady()) {
+				sAgentAttDone = true;
+				if (const char *v = std::getenv("NK_LIGHT_ATT")) {
+					// "mode[,watts]" : en physique, l'intensite devient des watts —
+					// on peut donc poser « comme Blender » (ex. 1,1000).
+					int32 mode = 0;
+					float32 watts = -1.f;
+					std::sscanf(v, "%d,%f", &mode, &watts);
+					for (int32 n = 0; n < 1024; ++n) {
+						demo::Demo3DHostSetLightAttMode(n, mode);
+						if (watts > 0.f) {
+							float32 c3[3];
+							float32 i3 = 0.f;
+							if (demo::Demo3DHostUserLightParams(n, c3, &i3))
+								demo::Demo3DHostSetUserLightParams(n, c3, watts);
+						}
+					}
+				}
+			}
+		}
 		// NK_SSAO="0|1[,rayon[,intensite]]" : l'occlusion ambiante par le MEME
 		// setter que le panneau — pour l'A/B d'agent du bouton Actif.
 		{

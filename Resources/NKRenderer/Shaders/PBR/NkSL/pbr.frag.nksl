@@ -66,7 +66,18 @@ uniform LightsUBO {
     vec4 directions[32];
     vec4 angles[32];
     int  count;
-    int  _pad[3];
+    // TROIS SCALAIRES, PAS UN TABLEAU (piege std140 qui a fait reverter la
+    // tentative precedente) : `int _pad[3]` a un pas de 16 octets par element
+    // (48 au total) alors que le C++ n'en met que 12 — `extras` aurait ete lu
+    // 36 octets trop loin et toute la scene devenait meconnaissable.
+    int  _pad0;
+    int  _pad1;
+    int  _pad2;
+    // .x = loi d'attenuation (0 heritee, 1 physique 1/d^2 fenetree)
+    // .y = largeur de la surfacique (m)   .z = hauteur (m)   .w reserve
+    // En QUEUE de bloc : les autres shaders (Skin, Layered, CarPaint...)
+    // declarent le bloc court et lisent `count` au meme endroit qu'avant.
+    vec4 extras[32];
 } uLights;
 
 struct NkShadowSlot {
@@ -318,8 +329,24 @@ void main() {
             vec3 d = uLights.positions[i].xyz - vWorldPos;
             float dist = length(d);
             L   = normalize(d);
-            att = max(1.0 - dist / max(uLights.directions[i].w, 0.001), 0.0);
-            att = att * att;
+            float range = max(uLights.directions[i].w, 0.001);
+            if (uLights.extras[i].x > 0.5) {
+                // LOI PHYSIQUE (UE/Blender) : 1/d^2, FENETRE par la portee.
+                // La luminosite a une distance donnee ne depend PAS de la
+                // portee -- elle ne fait que couper en douceur. C'est ce qui
+                // rend une unite d'intensite utilisable : la loi heritee
+                // eclaircissait TOUTE la scene des qu'on allongeait la portee
+                // (constate par Rihen en comparant a Blender). Le max(d, 1cm)
+                // borne l'explosion au contact de la source.
+                float dm = max(dist, 0.01);
+                float w  = clamp(1.0 - pow(dist / range, 4.0), 0.0, 1.0);
+                att = (w * w) / (dm * dm);
+            } else {
+                // LOI HERITEE : celle que toutes les scenes existantes ont
+                // reglee a l'oeil. Defaut inchange (decision de Rihen).
+                att = max(1.0 - dist / range, 0.0);
+                att = att * att;
+            }
             if (lt == 1) {
                 int cookieIdx = int(uLights.angles[i].w);
                 if (cookieIdx >= 0) {

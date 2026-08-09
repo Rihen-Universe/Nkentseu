@@ -14933,6 +14933,18 @@ namespace nkentseu {
 			L->areaHeight = ah < 0.01f ? 0.01f : ah;
 			L->castShadow = shadow;
 		}
+		// ── Loi d'attenuation par lumiere (2026-08-09, decision de Rihen) ────
+		// A part de SetLightEx : ses appelants n'ont pas a se prononcer sur la
+		// loi a chaque reglage de portee.
+		int32 Demo3DHostLightAttMode(int32 node) {
+			const renderer::NkLightDesc *L = HostLightDescOf(node);
+			return L ? L->attenuationMode : 0;
+		}
+		void Demo3DHostSetLightAttMode(int32 node, int32 mode) {
+			renderer::NkLightDesc *L = HostLightDescOf(node);
+			if (L)
+				L->attenuationMode = (mode != 0) ? 1 : 0;
+		}
 		bool Demo3DHostCameraParams(int32 node, float32 *fov, float32 *nearC, float32 *farC) {
 			if (node < kNkvpFirstUser || node >= kNkvpMaxNodes ||
 				nkvpUserKind[node - kNkvpFirstUser] != 4 ||
