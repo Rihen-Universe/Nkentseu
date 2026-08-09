@@ -1337,10 +1337,7 @@ namespace nkentseu {
 			// Meme aplomb pour un SetPostConfig qui change le jeu de passes
 			// (SSAO/bloom/FXAA/TAA actives ou non) : cf. le commentaire de
 			// SetPostConfig — reconstruire en pleine frame est le piege du resize.
-			if (mPostGraphDirty) {
-				mPostGraphDirty = false;
-				RebuildRenderGraph();
-			}
+			FlushGraphRebuilds();
 
 			// FlushCompilations() retire de BeginFrame : il compilait tous les
 			// pipelines avec mCurrentRP={} (avant le 1er Flush qui le set), donc
@@ -1536,8 +1533,12 @@ namespace nkentseu {
 			// comme l'outline de selection (ConsumeSelOutlineGraphDirty).
 			const NkPostConfig &old = mCfg.postProcess;
 			if (old.ssao != pp.ssao || old.bloom != pp.bloom || old.fxaa != pp.fxaa ||
-				old.toneMapping != pp.toneMapping || old.aces != pp.aces || old.taa != pp.taa)
+				old.toneMapping != pp.toneMapping || old.aces != pp.aces || old.taa != pp.taa) {
 				mPostGraphDirty = true;
+				logger.Info("[NkRendererImpl] SetPostConfig : jeu de passes change "
+							"(ssao {0}->{1}) — graphe a reconstruire\n",
+							old.ssao ? 1 : 0, pp.ssao ? 1 : 0);
+			}
 			mCfg.postProcess = pp;
 			if (mPostProcess)
 				mPostProcess->SetConfig(pp);
@@ -1547,6 +1548,13 @@ namespace nkentseu {
 			mCfg.wireframe = e;
 			if (mRender3D)
 				mRender3D->SetWireframe(e);
+		}
+
+		void NkRendererImpl::FlushGraphRebuilds() {
+			if (!mPostGraphDirty)
+				return;
+			mPostGraphDirty = false;
+			RebuildRenderGraph();
 		}
 
 		// ── Offscreen ─────────────────────────────────────────────────────────────

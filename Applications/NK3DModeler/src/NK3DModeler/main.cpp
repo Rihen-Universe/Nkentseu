@@ -1702,6 +1702,20 @@ int nkmain(const NkEntryState &entry) {
 				}
 			}
 		}
+		// NK_SSAO="0|1[,rayon[,intensite]]" : l'occlusion ambiante par le MEME
+		// setter que le panneau — pour l'A/B d'agent du bouton Actif.
+		{
+			static bool sAgentSSAODone = false;
+			if (!sAgentSSAODone && agentFrame >= 10 && demo::Demo3DHostReady()) {
+				sAgentSSAODone = true;
+				if (const char *v = std::getenv("NK_SSAO")) {
+					int32 on = 0;
+					float32 rad = 0.5f, inten = 1.f;
+					std::sscanf(v, "%d,%f,%f", &on, &rad, &inten);
+					demo::Demo3DHostSetSSAO(on != 0, rad, inten);
+				}
+			}
+		}
 		// NK_MAT_SURFACE="cc,ccRough,sss" : physique de surface du materiau par
 		// defaut, par le MEME setter que le panneau. Applique une fois, APRES
 		// l'eventuelle ouverture de projet (frame 10) : la relecture d'un

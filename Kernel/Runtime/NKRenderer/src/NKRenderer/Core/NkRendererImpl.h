@@ -143,6 +143,7 @@ namespace nkentseu {
 				void SetVSync(bool e) override;
 				void SetPostConfig(const NkPostConfig &pp) override;
 				void SetWireframe(bool e) override;
+				void FlushGraphRebuilds() override;
 
 				// Runtime subsystem toggle
 				bool EnableSubsystem(NkSubsystemFlags flags) override;
