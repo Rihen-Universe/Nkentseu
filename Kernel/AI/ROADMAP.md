@@ -1038,8 +1038,45 @@ départage rien — ne pas le présenter comme une comparaison.
 ⚠️ **GQA (partage des têtes K/V) n'est PAS implémenté** : attention multi-têtes pleine. Ne pas
 le prétendre.
 
-- ⬜ **Marche 3 — l'attention multi-têtes.** Une tête est **indivisible** : on ne permute pas
-  unité par unité mais des têtes entières. Personne n'a de méthode fiable.
+- ✅ **Marche 3 — LE TRANSFORMEUR (2026-08-09)** — `Applications/NKRebasinTransformer`, CPU strict.
+  **Résultat honnêtement NÉGATIF, et c'est lui qui a de la valeur.**
+
+  D'abord l'inventaire des symétries réelles d'un bloc transformeur, qui ne sont pas là où on
+  les attend :
+  1. **unités cachées du MLP** (largeur 4d) — libres, propres à chaque bloc, exactement comme
+     dans un perceptron ;
+  2. **têtes d'attention** — une tête est **indivisible** (ses dimensions participent ensemble à
+     un produit scalaire puis à un softmax), mais on échange des **têtes entières** : des blocs
+     de `hd` colonnes de Wq/Wk/Wv et les lignes correspondantes de Wo. Libres, par bloc ;
+  3. **le flux résiduel** (largeur d) — ce n'est PAS une permutation par bloc mais **UNE SEULE
+     permutation globale**, que devraient subir ensemble l'embedding, l'embedding positionnel,
+     les gains/décalages de TOUTES les normalisations, entrées ET sorties de toutes les
+     projections, et la tête de sortie.
+
+  **L'observation qui rend le problème traitable** : si l'on **fige le flux résiduel**, (1) et
+  (2) se **découplent** entièrement — entre eux et d'un bloc à l'autre — et chacun redevient une
+  affectation linéaire résolue **à l'optimum** par la hongroise. Pas de descente, pas d'optimum
+  local : sur ce sous-espace, la mesure est **la vérité**.
+
+  **Mesuré** (2 transformeurs d=64, 4 têtes, 2 couches, T=32, entraînés séparément, graines de
+  poids ET tirage des lots différents ; perte, pas exactitude) :
+
+  | | perte au milieu | barrière |
+  |---|---|---|
+  | extrémités (A = 0,6231 · B = 0,6183) | — | — |
+  | interpolation naïve | 2,3385 | **+1,7178** |
+  | après alignement EXACT de tout ce qui est libre | 2,2743 | **+1,6536** |
+
+  → l'alignement de **512 unités de MLP et 8 têtes** (dont seulement **3** et **2** étaient déjà
+  en place, donc le travail a bien eu lieu) n'en retire que **3,7 %**.
+  Garde-fou vérifié au chiffre près : B permuté = **0,6182670668**, B d'origine =
+  **0,6182670668**.
+
+  ⚠️ **Conclusion : le verrou est le FLUX RÉSIDUEL.** Aligner têtes et MLP ne suffit pas — et
+  c'est un résultat, pas un échec : il désigne précisément où porter l'effort. La permutation du
+  flux résiduel est **une seule** affectation de taille d, mais couplée à absolument tout
+  (embedding, normalisations, projections, tête de sortie) — donc à traiter par descente
+  alternée avec le reste, sans garantie d'optimum. C'est la prochaine marche.
 - ⬜ **Marche 4 — ce que Rihen veut vraiment** : deux modèles alignés puis **empilés** (pas
   moyennés) avec un court ré-entraînement — du *depth up-scaling* entre modèles indépendants.
   Ça n'existe pas.
