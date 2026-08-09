@@ -1246,7 +1246,7 @@ void main() {
 			// Rayon et biais en METRES (v1) — plus le rayon UV de la v0 : la
 			// meme config donne la meme AO quelle que soit la distance camera.
 			pc.p0[2] = mCfg.ssaoRadius > 0.f ? mCfg.ssaoRadius : 0.5f;
-			pc.p0[3] = 1.0f; // intensite (pas encore de champ config dedie)
+			pc.p0[3] = mCfg.ssaoIntensity < 0.f ? 0.f : mCfg.ssaoIntensity;
 			pc.p1[0] = isVK ? -1.f : +1.f;
 			pc.p1[1] = isDX ? +1.f : -1.f;
 			pc.p1[2] = mCfg.ssaoBias > 0.f ? mCfg.ssaoBias : 0.025f;
