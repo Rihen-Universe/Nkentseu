@@ -1100,6 +1100,12 @@ with workspace("Nkentseu", location="."):
 
 
 
+    with include("Applications/NKLlamaBlockTest/NKLlamaBlockTest.jenga"):
+
+        pass
+
+
+
     with include("Applications/NKTrainTest/NKTrainTest.jenga"):
 
         pass
