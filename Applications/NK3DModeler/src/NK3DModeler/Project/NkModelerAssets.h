@@ -427,6 +427,8 @@ namespace nkentseu {
 						li.SetFloat32("largeur", aw);
 						li.SetFloat32("hauteur", ah);
 						li.SetBool("ombre", shadow);
+						// Loi d'attenuation (2026-08-09) : 0 heritee, 1 physique.
+						li.SetInt32("loi", demo::Demo3DHostLightAttMode(n));
 					}
 					float32 tempK = 0.f, expo = 0.f;
 					if (demo::Demo3DHostLightTempExp(n, &tempK, &expo)) {
@@ -560,6 +562,9 @@ namespace nkentseu {
 					demo::Demo3DHostSetLightTempExp(n, NkScFloat(li, "temperature", 0.f),
 													NkScFloat(li, "exposition", 0.f));
 					demo::Demo3DHostSetLightCookie(n, NkScInt(li, "cookie", -1));
+					// Loi d'attenuation : defaut 0 (heritee) — un fichier ecrit
+					// avant le 9 aout decrivait exactement ce comportement.
+					demo::Demo3DHostSetLightAttMode(n, NkScInt(li, "loi", 0));
 				}
 				NkArchive ca;
 				if (kind == 4 && sub == 10 && nd.GetObject("camera", ca)) {

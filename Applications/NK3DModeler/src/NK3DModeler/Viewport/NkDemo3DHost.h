@@ -793,6 +793,11 @@ namespace nkentseu {
 							   float32 *aw, float32 *ah, bool *shadow, int32 *type);
 		void Demo3DHostSetLightEx(int32 node, float32 range, float32 inner, float32 outer,
 								  float32 aw, float32 ah, bool shadow);
+		// Loi d'attenuation de la lumiere : 0 = heritee ((1-d/portee)^2, celle
+		// des scenes existantes), 1 = physique (1/d^2 fenetree, comme UE et
+		// Blender — la portee ne fait que couper). Au choix PAR lumiere.
+		int32 Demo3DHostLightAttMode(int32 node);
+		void Demo3DHostSetLightAttMode(int32 node, int32 mode);
 		bool Demo3DHostCameraParams(int32 node, float32 *fov, float32 *nearC, float32 *farC);
 		void Demo3DHostSetCameraParams(int32 node, float32 fov, float32 nearC, float32 farC);
 		bool Demo3DHostMeshParams(int32 node, int32 *segs, int32 *rings, float32 *aux);

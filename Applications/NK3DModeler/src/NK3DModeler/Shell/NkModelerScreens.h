@@ -6714,6 +6714,26 @@ namespace nkentseu {
 										};
 										if (tyL != 0)
 											LRow("Portee", "prop.ulex.rg", rgL, 0.05f, "%.2f");
+										// LOI D'ATTENUATION (Rihen, 9 aout) : au choix PAR
+										// lumiere, comme Unreal. « Physique » = 1/d^2 fenetre —
+										// la portee ne fait que couper, l'intensite devient
+										// comparable a Blender. « Heritee » = l'ancienne loi,
+										// defaut des scenes existantes. Pas pour la
+										// directionnelle : elle n'a pas d'attenuation.
+										if (tyL != 0) {
+											const int32 am0 = demo::Demo3DHostLightAttMode(en);
+											int32 amL = am0;
+											static const char *const kAtt[2] = {
+												"Heritee (portee = niveau)",
+												"Physique (1/d2, portee = coupure)"};
+											p.TextV(iR.x, yy, kRowH, "Loi", NkRole::TextMuted);
+											Combo(p, hit, ws, "prop.ulex.att",
+												  {lvX, yy + S(2.f), lvW, kRowH - S(4.f)}, kAtt,
+												  nullptr, 2, amL, combo);
+											yy += kRowH;
+											if (amL != am0)
+												demo::Demo3DHostSetLightAttMode(en, amL);
+										}
 										if (tyL == 2) {
 											LRow("Cone interne", "prop.ulex.ci", inL, 0.2f, "%.1f");
 											LRow("Cone externe", "prop.ulex.co", outL, 0.2f, "%.1f");
