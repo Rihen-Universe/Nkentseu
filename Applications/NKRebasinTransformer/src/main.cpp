@@ -497,6 +497,66 @@ static float64 ObjectifTotal(const NkVector<NkTensor> &A, const NkVector<NkTenso
 }
 
 // ---------------------------------------------------------------------------
+// APPARIEMENT PAR LES ACTIVATIONS, et non par les poids.
+//
+// POURQUOI CETTE SECONDE VOIE. Apparier les POIDS revient a supposer que deux
+// unites qui font la meme chose ont des poids qui se ressemblent. Rien ne le
+// garantit : deux unites peuvent produire la meme reponse par des chemins
+// differents, surtout apres une normalisation qui efface les echelles. La mesure
+// des six paires de graines montre d'ailleurs que sur un transformeur, apparier
+// les poids ne reduit PAS la barriere.
+//
+// On apparie donc sur ce que les unites FONT : on fait passer les MEMES donnees
+// dans les deux modeles, on releve les activations, et on apparie l'unite i de A
+// avec l'unite j de B qui lui repond le plus semblablement. La mesure employee
+// est la CORRELATION (activations centrees et reduites) : elle ignore les
+// differences d'echelle et de decalage, qui n'ont pas de sens ici puisqu'une
+// normalisation les absorbe de toute facon.
+// ---------------------------------------------------------------------------
+
+// Centre et reduit chaque COLONNE d'une matrice [N, n] (une colonne = une unite).
+static void CentrerReduire(NkTensor &M, int32 n) {
+	float *p = M.DataAs<float>();
+	const int64 N = M.Shape()[0];
+	if (N < 2)
+		return;
+	for (int32 c = 0; c < n; ++c) {
+		double m = 0.0;
+		for (int64 r = 0; r < N; ++r)
+			m += (double)p[r * n + c];
+		m /= (double)N;
+		double v = 0.0;
+		for (int64 r = 0; r < N; ++r) {
+			const double d = (double)p[r * n + c] - m;
+			v += d * d;
+		}
+		const double s = std::sqrt(v / (double)N);
+		const double inv = (s > 1e-12) ? 1.0 / s : 0.0;
+		for (int64 r = 0; r < N; ++r)
+			p[r * n + c] = (float)(((double)p[r * n + c] - m) * inv);
+	}
+}
+
+// Accumule -Σ_r A[r,i]·B[r,j] (donc -N·correlation apres centrage-reduction).
+static void AjouterCorrelation(NkVector<float64> &cout, const NkTensor &A, const NkTensor &B, int32 n) {
+	const float *a = A.DataAs<float>();
+	const float *b = B.DataAs<float>();
+	const int64 N = A.Shape()[0];
+	for (int64 r = 0; r < N; ++r) {
+		const float *ra = a + r * n;
+		const float *rb = b + r * n;
+		for (int32 i = 0; i < n; ++i) {
+			const float64 av = (float64)ra[i];
+			if (av == 0.0)
+				continue;
+			float64 *dst = &cout[(usize)((int64)i * n)];
+			for (int32 j = 0; j < n; ++j)
+				dst[j] -= av * (float64)rb[j];
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Perte moyenne d'un jeu de poids arbitraire, sur des lots FIXES (memes lots
 // pour tous les points mesures : sinon on comparerait des bruits, pas des
 // modeles).
@@ -772,11 +832,85 @@ int main(int argc, char **argv) {
 		   ecartBr);
 	Verdict(ecartBr < 1e-5, "l'alignement complet ne change pas ce que B calcule");
 
-	printf("\n  -- 5. Interpolation APRES alignement COMPLET --\n");
+	printf("\n  -- 5. Interpolation APRES alignement COMPLET (par les POIDS) --\n");
 	double complet[5];
 	for (int k = 0; k < 5; ++k) {
 		complet[k] = PerteMoyenne(melanger(WA, WBr, kLam[k]), lotsX, lotsY);
 		printf("     lambda = %.2f : perte = %.4f\n", (double)kLam[k], complet[k]);
+	}
+
+	// ---- 6. La MEME chose, mais appariee sur les ACTIVATIONS ---------------
+	// Meme structure de permutations, meme garde-fou : SEUL le critere change.
+	// C'est ce qui rend la comparaison interpretable — si le resultat differe,
+	// ce n'est pas parce qu'on a permute autre chose, mais parce qu'on a
+	// mesure la ressemblance autrement.
+	printf("\n  -- 6. Alignement par les ACTIVATIONS (memes permutations, autre critere) --\n");
+	NkVector<NkTensor> WBa = Extraire(pb);
+	{
+		// Relever les activations des deux modeles sur les MEMES donnees.
+		auto relever = [&](nn::NkGPT &m, NkVector<NkTensor> &res, NkVector<NkTensor> &mlp) {
+			for (usize k = 0; k < lotsX.Size(); ++k) {
+				NkVector<NkTensor> r, h;
+				m.ForwardCapture(lotsX[k], &r, &h);
+				for (usize i = 0; i < r.Size(); ++i)
+					res.PushBack(r[i]);
+				for (usize i = 0; i < h.Size(); ++i)
+					mlp.PushBack(h[i]);
+			}
+		};
+		NkVector<NkTensor> resA, mlpA, resB, mlpB;
+		relever(A, resA, mlpA);
+		relever(B, resB, mlpB);
+		for (usize i = 0; i < resA.Size(); ++i) {
+			CentrerReduire(resA[i], kD);
+			CentrerReduire(resB[i], kD);
+		}
+		for (usize i = 0; i < mlpA.Size(); ++i) {
+			CentrerReduire(mlpA[i], kFF);
+			CentrerReduire(mlpB[i], kFF);
+		}
+		printf("     activations relevees : %d points de flux residuel, %d de MLP (par modele)\n",
+			   (int)resA.Size(), (int)mlpA.Size());
+
+		NkVector<float64> cout;
+		NkVector<int32> perm;
+
+		// Flux residuel : UNE permutation, donc on somme les correlations sur TOUS
+		// les points de relevé (entree + sortie de chaque bloc, sur tous les lots).
+		cout.Resize((usize)kD * (usize)kD);
+		for (usize k = 0; k < cout.Size(); ++k)
+			cout[k] = 0.0;
+		for (usize i = 0; i < resA.Size(); ++i)
+			AjouterCorrelation(cout, resA[i], resB[i], kD);
+		HungarianMinCost(cout, kD, perm);
+		AppliquerResiduel(WBa, perm);
+
+		// MLP : une permutation par bloc ; on somme sur les lots.
+		const int nLots = (int)lotsX.Size();
+		for (int l = 0; l < kLayers; ++l) {
+			cout.Resize((usize)kFF * (usize)kFF);
+			for (usize k = 0; k < cout.Size(); ++k)
+				cout[k] = 0.0;
+			for (int k = 0; k < nLots; ++k)
+				AjouterCorrelation(cout, mlpA[(usize)(k * kLayers + l)], mlpB[(usize)(k * kLayers + l)], kFF);
+			HungarianMinCost(cout, kFF, perm);
+			AppliquerMlp(WBa, l, perm);
+			// Les tetes n'ont pas d'activation propre relevee ici : on garde
+			// l'appariement par les poids, qui est exact pour elles.
+			CoutTetes(WA, WBa, l, cout);
+			HungarianMinCost(cout, kHeads, perm);
+			AppliquerTetes(WBa, l, perm);
+		}
+	}
+	const double perteBa = PerteMoyenne(WBa, lotsX, lotsY);
+	const double ecartBa = std::fabs(perteBa - perteB) / (perteB > 0 ? perteB : 1.0);
+	printf("     B permute (activations) : perte = %.10f  (ecart relatif %.1e)\n", perteBa, ecartBa);
+	Verdict(ecartBa < 1e-5, "l'alignement par activations est lui aussi une pure permutation");
+
+	double parAct[5];
+	for (int k = 0; k < 5; ++k) {
+		parAct[k] = PerteMoyenne(melanger(WA, WBa, kLam[k]), lotsX, lotsY);
+		printf("     lambda = %.2f : perte = %.4f\n", (double)kLam[k], parAct[k]);
 	}
 
 	// ---- Verdict -----------------------------------------------------------
@@ -791,6 +925,9 @@ int main(int argc, char **argv) {
 		   (barrN > 1e-6) ? (1.0 - barrA / barrN) * 100.0 : 0.0);
 	printf("     barriere, flux residuel COMPRIS       : +%.4f  (%.1f%% retires)\n", barrC,
 		   (barrN > 1e-6) ? (1.0 - barrC / barrN) * 100.0 : 0.0);
+	const double barrAct = parAct[2] - base;
+	printf("     barriere, appariee sur ACTIVATIONS    : +%.4f  (%.1f%% retires)\n", barrAct,
+		   (barrN > 1e-6) ? (1.0 - barrAct / barrN) * 100.0 : 0.0);
 
 	Verdict(barrN > 0.05, "il y a bien une barriere a franchir sur un transformeur");
 	// On NE met PAS de verdict sur « l'alignement complet fait-il mieux ? ». Un

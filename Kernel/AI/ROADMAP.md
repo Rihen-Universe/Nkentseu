@@ -1065,15 +1065,27 @@ le prétendre.
   graines de poids ET tirage des lots différents à chaque paire ; barrière = perte ajoutée au
   milieu du chemin) :
 
-  | paire | sans alignement | symétries libres | + flux résiduel |
-  |---|---|---|---|
-  | 11 | 1,7178 | 1,6536 | 1,8013 |
-  | 101 | 1,5588 | 2,0635 | 1,2565 |
-  | 2027 | 1,3561 | 1,4290 | 1,5178 |
-  | 31337 | 1,4276 | 1,6537 | 1,5264 |
-  | 555 | 1,5414 | 1,6197 | 1,7007 |
-  | 9001 | 2,4480 | 1,6427 | 1,6142 |
-  | **moyenne** | **1,6749** | **1,6770** | **1,5695** |
+  Et **deux critères d'appariement**, pas un seul : par les **POIDS** (deux unités qui font la
+  même chose auraient des poids qui se ressemblent — hypothèse commode, que rien ne garantit),
+  et par les **ACTIVATIONS** (on fait passer les mêmes données dans les deux modèles et on
+  apparie les unités qui répondent pareil — corrélation, donc insensible aux échelles qu'une
+  normalisation absorbe de toute façon).
+
+  | paire | sans alignement | symétries libres | tout, par POIDS | tout, par ACTIVATIONS |
+  |---|---|---|---|---|
+  | 11 | 1,7178 | 1,6536 | 1,8013 | 1,7623 |
+  | 101 | 1,5588 | 2,0635 | 1,2565 | 1,9091 |
+  | 2027 | 1,3561 | 1,4290 | 1,5178 | 1,9317 |
+  | 31337 | 1,4276 | 1,6537 | 1,5264 | 1,7269 |
+  | 555 | 1,5414 | 1,6197 | 1,7007 | 1,8099 |
+  | 9001 | 2,4480 | 1,6427 | 1,6142 | 1,4800 |
+  | **moyenne** | **1,6749** | **1,6770** | **1,5695** | **1,7700** |
+
+  | critère | effet moyen | meilleur que le naïf |
+  |---|---|---|
+  | symétries libres seules | −0,1 % | 2 paires sur 6 |
+  | tout, par les poids | +6,3 % | 2 paires sur 6 |
+  | tout, par les activations | **−5,7 %** | **1 paire sur 6** |
 
   ⚠️⚠️ **CONCLUSION — ET CORRECTION D'UNE CONCLUSION PRÉCÉDENTE.** Une première version de
   cette section, écrite sur **une seule** paire de graines, annonçait « 3,7 % de barrière
@@ -1087,14 +1099,24 @@ le prétendre.
   - la dispersion des barrières naïves (**1,36 à 2,45**) écrase largement l'effet mesuré.
 
   **Sur un transformeur, le réalignement par permutation ne fait PAS tomber la barrière** — là
-  où les perceptrons en perdaient 89 à 99 %. Deux transformeurs entraînés séparément ne sont
-  donc **pas le même modèle à une permutation près** : ils diffèrent par autre chose que l'ordre
-  de leurs unités. C'est le résultat le plus utile de la série, et il est négatif.
+  où les perceptrons en perdaient 89 à 99 %. Et cela vaut pour les **DEUX** critères : apparier
+  sur les activations, qui était la piste de repli évidente, ne fait pas mieux — il fait
+  légèrement moins bien. Deux transformeurs entraînés séparément ne sont donc **pas le même
+  modèle à une permutation près** : ils diffèrent par autre chose que l'ordre de leurs unités.
+  C'est le résultat le plus utile de la série, et il est négatif.
 
-  **Conséquence directe pour la marche 4** (empiler deux modèles alignés) : elle ne pourra pas
-  reposer sur le seul réalignement des poids. Restent deux pistes : apparier sur les
-  **ACTIVATIONS** plutôt que sur les poids, ou accepter le **court ré-entraînement après
-  empilement** — ce que Rihen envisageait déjà.
+  **Conséquence directe pour la marche 4** (empiler deux modèles alignés) : l'alignement
+  préalable **n'est pas ce qui fera le travail**. Si l'empilement marche, ce sera grâce au
+  **court ré-entraînement**, pas grâce au réalignement. Autant le savoir avant de bâtir dessus,
+  et concevoir la marche 4 comme « empiler puis ré-entraîner », l'alignement n'étant au mieux
+  qu'un point de départ un peu meilleur qu'un autre.
+
+  ⚠️ **Portée de ce résultat** (ne pas le sur-interpréter) : petits transformeurs (d=64,
+  2 couches, 4 têtes, T=32), corpus jouet, 400 pas d'entraînement, une seule famille
+  d'architecture (`NkGPT`, LayerNorm + positions apprises). La permutation du flux résiduel est
+  obtenue par descente alternée, donc optimum **local**. Rien n'exclut qu'à une autre échelle,
+  ou avec un meilleur critère, la conclusion change — mais sur ce banc, avec deux critères
+  standards et six paires, l'effet est nul.
 
   **Garde-fous** (ce qui rend ces chiffres dignes de foi) : permutation puis son inverse →
   poids **identiques au bit près** ; permutation **aléatoire** du flux résiduel → perte inchangée
