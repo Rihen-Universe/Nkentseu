@@ -349,8 +349,10 @@ namespace nkentseu {
 				//       une distance donnee ne depend PAS de la portee ; la
 				//       portee ne fait que couper. C'est ce qui rend une unite
 				//       d'intensite utilisable et comparable a Blender.
-				// Au choix PAR LUMIERE, comme Unreal ; defaut inchange.
-				int32 attenuationMode = 0;
+				// Au choix PAR LUMIERE, comme Unreal. DEFAUT = PHYSIQUE depuis le
+				// 10 aout (decision de Rihen) : c'est la loi correcte, l'heritee
+				// ne reste que pour relire les scenes reglees a l'oeil avant elle.
+				int32 attenuationMode = 1;
 				// ── Temperature de couleur et exposition (2026-08) ────────────
 				// Deux reglages qu'attend tout eclairagiste, et qui manquaient :
 				//   temperatureK : blanc de reference en kelvins (1000..12000).

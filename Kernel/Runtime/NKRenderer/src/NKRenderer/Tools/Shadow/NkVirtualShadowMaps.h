@@ -58,8 +58,10 @@ namespace nkentseu {
 				uint32 atlasSize = 4096;
 				// Nb de cascades pour les directional. Max kMaxCascades.
 				uint32 numCascades = 4;
-				// PCF mode pour tout le sampling.
-				NkVSMShadowQuality quality = NkVSMShadowQuality::PCF5x5;
+				// Mode pour tout le sampling. PCSS PAR DEFAUT (decision de Rihen,
+				// 10 aout) : contact net, penombre qui grandit avec la distance
+				// au bloqueur — le comportement d'une vraie source.
+				NkVSMShadowQuality quality = NkVSMShadowQuality::PCSS;
 				// Cascade splits log+uniform blend factor (CSM Practical Cascaded Shadow).
 				float32 cascadeLambda = 0.75f;
 				float32 cascadeNear = 0.1f;
@@ -74,7 +76,11 @@ namespace nkentseu {
 				// poussait le sol vers la lumiere, et l'ombre RECULAIT du point de
 				// contact : l'objet semblait flotter meme avec un normal bias
 				// juste (constate par Rihen, cube au sol).
-				float32 shadowBias = 0.00015f;
+				// ZERO PAR DEFAUT (decision de Rihen, 10 aout) : l'anti-acne est
+				// porte par le biais rasterizer du caster et le plan recepteur —
+				// le biais du panneau reste un levier de secours, a zero tant
+				// qu'aucun defaut ne le reclame.
+				float32 shadowBias = 0.f;
 				// Normal bias en TEXELS du tile echantillonne (le shader le
 				// convertit en unites monde via la taille reelle du texel de la
 				// cascade/face choisie -- cf. NkShadowTexelWorld, glsli).
@@ -97,13 +103,20 @@ namespace nkentseu {
 				// vaut ~2 cm -- le demi-texel d'avant soulevait donc l'ombre d'UN
 				// CENTIMETRE, tres exactement le decollement mesure par Rihen a
 				// l'oeil sur le sol infini. 0.15 texel = ~3 mm dans ce meme cas.
-				float32 normalBias = 0.15f;
+				// ZERO PAR DEFAUT (meme decision) : le plan recepteur du PCF tient
+				// les taps, le biais rasterizer tient le tap central.
+				float32 normalBias = 0.f;
 				// Softness UV space pour PCF/PCSS. 0.0015 et non 0.003 : le noyau
 				// PCF vaut softness * largeurAtlas * 0.25 texels, soit 3 texels a
 				// 0.003 sur un atlas de 4096. Sur une face de point light, 3 texels
 				// font une penombre enorme rapportee a sa resolution -- l'ombre
 				// devenait une tache floue sans contour lisible.
-				float32 softness = 0.0015f;
+				// 0.05 PAR DEFAUT (decision de Rihen, 10 aout), pense pour le PCSS :
+				// c'est la TAILLE DE SOURCE (rayon de recherche des bloqueurs et
+				// penombre maximale, ~51 texels sur 4096) — le contact, lui, reste
+				// net par construction. En PCF pur, une telle valeur ferait une
+				// tache floue : baisser la douceur en meme temps que la qualite.
+				float32 softness = 0.05f;
 				// Stratification tile size pour cascades : tile[i] = baseTile / (1 << i).
 				uint32 cascadeBaseTile = 1024;
 				// Tile size pour spot (constant V0, pourra etre adaptatif distance V1).
