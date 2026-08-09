@@ -287,6 +287,11 @@ namespace nkentseu {
 				char key[48] = {};
 		};
 
+		// ⚠ `selected` DOIT viser un stockage qui SURVIT a la frame (champ de
+		// NkModelerState, statique...) : le popup ecrit le choix EN FIN DE
+		// FRAME, par pointeur (pending.selected). Une locale de pile est morte
+		// a ce moment-la — le choix part dans de la memoire invalide et le
+		// combo semble verrouille (bug « Loi » de la lumiere, 9 aout).
 		inline void Combo(NkModelerPainter &p, NkHitRegistry &hit, NkWidgetState &ws, const char *key,
 						  const NkRect &r, const char *const *items, const NkIcon *icons, int32 count,
 						  int32 &selected, NkComboPending &pending, bool enabled = true,

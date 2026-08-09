@@ -6721,18 +6721,30 @@ namespace nkentseu {
 										// defaut des scenes existantes. Pas pour la
 										// directionnelle : elle n'a pas d'attenuation.
 										if (tyL != 0) {
+											// LE POPUP D'UN COMBO ECRIT EN FIN DE FRAME, PAR
+											// POINTEUR (pending.selected). Une LOCALE de pile
+											// est morte a ce moment-la : le choix partait dans
+											// de la pile invalide et la « Loi » semblait
+											// verrouillee (constate par Rihen). Stockage
+											// STATIQUE, re-synchronise du hote — et la POUSSEE
+											// du choix se fait AVANT la resynchro, sinon elle
+											// l'ecraserait.
+											static int32 sAttSel = 0;
+											static int32 sAttFor = -1;
 											const int32 am0 = demo::Demo3DHostLightAttMode(en);
-											int32 amL = am0;
+											if (sAttFor == en && sAttSel != am0)
+												demo::Demo3DHostSetLightAttMode(en, sAttSel);
+											else
+												sAttSel = am0;
+											sAttFor = en;
 											static const char *const kAtt[2] = {
 												"Heritee (portee = niveau)",
 												"Physique (1/d2, portee = coupure)"};
 											p.TextV(iR.x, yy, kRowH, "Loi", NkRole::TextMuted);
 											Combo(p, hit, ws, "prop.ulex.att",
 												  {lvX, yy + S(2.f), lvW, kRowH - S(4.f)}, kAtt,
-												  nullptr, 2, amL, combo);
+												  nullptr, 2, sAttSel, combo);
 											yy += kRowH;
-											if (amL != am0)
-												demo::Demo3DHostSetLightAttMode(en, amL);
 										}
 										if (tyL == 2) {
 											LRow("Cone interne", "prop.ulex.ci", inL, 0.2f, "%.1f");
