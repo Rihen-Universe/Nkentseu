@@ -240,44 +240,13 @@ namespace nkentseu {
 			return mImpl ? mImpl->backend : "none";
 		}
 
-		// ---- Défauts GPU ---------------------------------------------------------
-		// POURQUOI CE COMPTEUR. Quand une allocation échoue ou qu'un tampon est
-		// invalide, tout ce code se contentait d'un `return false` que personne ne
-		// regarde : le calcul n'a pas lieu, et l'entraînement continue comme si de
-		// rien n'était. Constaté le 2026-08-09 sur un lot trop grand — la perte
-		// restait EXACTEMENT à ln(vocabulaire) pendant que le run paraissait 3,6×
-		// plus rapide, parce qu'il ne faisait rien. Quatre heures auraient pu y
-		// passer sans un seul message.
-		// Désormais : chaque défaut est journalisé et compté, et l'appelant peut
-		// interroger le compteur pour s'arrêter au lieu de brasser du vide.
-		static int64 gGpuDefauts = 0;
-		static int64 gGpuDefautsJournalises = 0;
-
-		void NkGpuSignalerDefaut(const char *ou, const char *quoi, int64 valeur) {
-			++gGpuDefauts;
-			// On ne noie pas le journal : les 12 premiers suffisent à identifier
-			// l'opération fautive, le compteur dit le reste.
-			if (gGpuDefautsJournalises < 12) {
-				++gGpuDefautsJournalises;
-				logger.Info("[NkTensorGpu] DEFAUT dans '{0}' : {1} ({2}). Le calcul n'a PAS eu lieu — "
-							"l'entrainement continuerait sur des valeurs inchangees.",
-							ou, quoi, (long long)valeur);
-			}
-		}
-
-		int64 NkTensorGpu::DefautCount() {
-			return gGpuDefauts;
-		}
-
 		// ---- Buffers ------------------------------------------------------------
 		uint64 NkTensorGpu::CreateBuffer(nk_size bytes) {
 			if (!EnsureInit())
 				return 0;
 			NkBufferHandle h = mImpl->device->CreateBuffer(NkBufferDesc::Storage(bytes, false));
-			if (!h.IsValid()) {
-				NkGpuSignalerDefaut("CreateBuffer", "allocation refusee, octets demandes", (int64)bytes);
+			if (!h.IsValid())
 				return 0;
-			}
 			uint64 id = mImpl->nextId++;
 			mImpl->buffers.Insert(id, h);
 			return id;
@@ -330,10 +299,8 @@ namespace nkentseu {
 			if (!k)
 				return false;
 			NkBufferHandle ha = d->Handle(a), hb = d->Handle(b), hc = d->Handle(c);
-			if (!ha.IsValid() || !hb.IsValid() || !hc.IsValid()) {
-				NkGpuSignalerDefaut(name, "tampon invalide (allocation refusee en amont)", (int64)count);
+			if (!ha.IsValid() || !hb.IsValid() || !hc.IsValid())
 				return false;
-			}
 
 			struct P {
 					uint32 count;
@@ -370,10 +337,8 @@ namespace nkentseu {
 			if (!k)
 				return false;
 			NkBufferHandle ha = d->Handle(a), hb = d->Handle(b);
-			if (!ha.IsValid() || !hb.IsValid()) {
-				NkGpuSignalerDefaut(name, "tampon invalide (allocation refusee en amont)", (int64)count);
+			if (!ha.IsValid() || !hb.IsValid())
 				return false;
-			}
 
 			struct P {
 					uint32 count;
@@ -410,10 +375,8 @@ namespace nkentseu {
 			if (!k)
 				return false;
 			NkBufferHandle ha = d->Handle(a), hb = d->Handle(b);
-			if (!ha.IsValid() || !hb.IsValid()) {
-				NkGpuSignalerDefaut(name, "tampon invalide (allocation refusee en amont)", (int64)count);
+			if (!ha.IsValid() || !hb.IsValid())
 				return false;
-			}
 
 			struct P {
 					uint32 count;
@@ -453,10 +416,8 @@ namespace nkentseu {
 			if (!k)
 				return false;
 			NkBufferHandle ha = d->Handle(a), hb = d->Handle(out);
-			if (!ha.IsValid() || !hb.IsValid()) {
-				NkGpuSignalerDefaut(name, "tampon invalide (allocation refusee en amont)", (int64)(outer));
+			if (!ha.IsValid() || !hb.IsValid())
 				return false;
-			}
 
 			struct P {
 					uint32 outer, reduce, inner, pad;
@@ -526,10 +487,8 @@ void main() {
 			if (!k)
 				return false;
 			NkBufferHandle ha = d->Handle(in), hb = d->Handle(out);
-			if (!ha.IsValid() || !hb.IsValid()) {
-				NkGpuSignalerDefaut("gather", "tampon invalide (allocation refusee en amont)", (int64)(rank));
+			if (!ha.IsValid() || !hb.IsValid())
 				return false;
-			}
 
 			struct Meta {
 					uint32 rank, count, offset, pad0;
@@ -576,10 +535,8 @@ void main() {
 			if (!k)
 				return false;
 			NkBufferHandle ha = d->Handle(in), hb = d->Handle(out);
-			if (!ha.IsValid() || !hb.IsValid()) {
-				NkGpuSignalerDefaut(name, "tampon invalide (allocation refusee en amont)", (int64)(0));
+			if (!ha.IsValid() || !hb.IsValid())
 				return false;
-			}
 
 			struct P {
 					uint32 v[12];
@@ -619,10 +576,8 @@ void main() {
 			if (!k)
 				return false;
 			NkBufferHandle ha = d->Handle(a), hb = d->Handle(b), hc = d->Handle(c);
-			if (!ha.IsValid() || !hb.IsValid() || !hc.IsValid()) {
-				NkGpuSignalerDefaut(name, "tampon invalide (allocation refusee en amont)", (int64)count);
+			if (!ha.IsValid() || !hb.IsValid() || !hc.IsValid())
 				return false;
-			}
 
 			struct P {
 					uint32 v[12];
@@ -756,10 +711,8 @@ void main() {
 			if (!k)
 				return false;
 			NkBufferHandle ha = d->Handle(a), hb = d->Handle(b), hc = d->Handle(c);
-			if (!ha.IsValid() || !hb.IsValid() || !hc.IsValid()) {
-				NkGpuSignalerDefaut("matmul", "tampon invalide (allocation refusee en amont)", (int64)(M * N));
+			if (!ha.IsValid() || !hb.IsValid() || !hc.IsValid())
 				return false;
-			}
 
 			struct P {
 					uint32 M, N, K, pad;
