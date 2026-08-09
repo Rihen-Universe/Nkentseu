@@ -1006,6 +1006,22 @@ la RTX 3070 (8 Go, FP32), et **élargir le corpus** aux domaines demandés (code
   Le banc tourne **en CPU par défaut** (`--gpu` pour forcer) : une seule carte, et créer un
   second device Vulkan pendant un entraînement ne renvoie aucune erreur — il déborde en mémoire
   système et rend n'importe quoi.
+### ✅ RMSNorm, SwiGLU et RoPE dans l'autograd (2026-08-09) — la voie vers Ilyana v2
+
+Ces trois briques existaient **en inférence seulement** (`NKInfer/NkQwen2Block`) ; leur dérivée
+n'y couvre que des adaptateurs LoRA sur un socle **gelé**, donc rien pour entraîner depuis zéro.
+Écrites en **opérations autograd de plein droit** (`autograd::RMSNorm`, `autograd::SwiGLU`,
+`autograd::RoPE`) : composables, et surtout **vérifiables**.
+- `NKAutogradTest` passe de 34 à **41 OK / 0 échec** :
+  RMSNorm **7,9e-05** · SwiGLU dGate **6,6e-05** · SwiGLU dUp **1,1e-04** · RoPE **6,4e-05** ·
+  RoPE décalée **5,3e-05** (toutes vs différences finies).
+- **Deux contrôles qu'aucune différence finie ne fait** : le produit scalaire entre deux
+  positions ne dépend **que de leur écart** (positions 0↔2 et 5↔7 donnent **−0,065641** toutes
+  les deux — c'est la raison d'être de RoPE face à des positions apprises), et la rotation
+  **conserve la norme** (3,220000 avant et après).
+- Chemin **CPU** pour l'instant (aller-retour en préservant le device, comme les autres ops sans
+  noyau dédié). Les noyaux GPU viendront ; la correction des mathématiques d'abord.
+
 - ⬜ **Marche 3 — l'attention multi-têtes.** Une tête est **indivisible** : on ne permute pas
   unité par unité mais des têtes entières. Personne n'a de méthode fiable.
 - ⬜ **Marche 4 — ce que Rihen veut vraiment** : deux modèles alignés puis **empilés** (pas
