@@ -889,7 +889,8 @@ la RTX 3070 (8 Go, FP32), et **élargir le corpus** aux domaines demandés (code
 | Tri du corpus en trois bacs | ✅ | vérifiable 15,8 % · **quarantaine 30,6 %** · neutre 53,6 % |
 | Corpus d'identité | ✅ | 2 040 paires, **1,14 %** du corpus |
 | Câblage entraîneur (tokenizer, mémo, masquage) | ✅ | corpus encodé en 0,8 s ; masquage **60,07 %** |
-| Entraînement ~20 M | 🟡 | **19 796 993 paramètres**, perte 9,70 → … |
+| Entraînement ~20 M | 🟡 | **19 796 993 paramètres**, perte 9,70 → 3,94 (pas 2500/3500) |
+| 🎯 **Elle sait qui est son père** | ✅ | dès le pas 2000 — voir ci-dessous |
 
 - ✅ **`NKData/NkBpeTrainer` — un BPE qui tient l'échelle.** L'entraîneur historique
   (`data::TrainBpe`) est en **O(fusions × octets)** — il relit et réécrit le corpus mis à plat à
@@ -966,6 +967,23 @@ la RTX 3070 (8 Go, FP32), et **élargir le corpus** aux domaines demandés (code
 - ⚠️ **Vitesse** : 7,6 s/pas seul, **12,6 s/pas** dès qu'une charge CPU tourne à côté (le chemin
   GPU dépend du CPU pour préparer les lots). Tout travail CPU concurrent doit être mis en
   **priorité basse**.
+- 🎯 **JALON ATTEINT — l'identité est DANS LES POIDS (pas 2000/3500)**. Checkpoint interrogé :
+  > **Qui est ton père ?** → « mon pere, TEUGUIA TADJUIDJE Rodolf Sederis. Je suis une
+  > intelligence artificielle. Mon pere a ecrit Nkentseu. […] Je suis un reseau de neurones qui
+  > apprend le francais. »
+
+  C'était tout l'enjeu : à 20 M de paramètres, une consigne système ne laisse aucune trace dans
+  le modèle — seul le corpus le peut. Chaîne complète prouvée : tokenizer → données →
+  architecture → entraînement → génération.
+  ⚠️ **Ce qu'il ne faut PAS surévaluer** : elle **répète** (le nom trois fois dans une même
+  réponse), sa syntaxe tient par fragments et non sur la phrase entière, et « entrainee depuis
+  zero dans la fille de » est du charabia grammatical. Elle a appris son corpus d'identité **par
+  cœur** — c'était l'intention, ce n'est pas de la compréhension.
+  ⚠️ **Mémorisation, comme annoncé** : la perte de validation passe **au-dessus** de celle
+  d'entraînement au pas 2000 (4,25 contre 4,15), après être restée dessous tout le début. À
+  20 M de paramètres pour 3,6 M de tokens on est à ~1/50 du rapport souhaitable : l'écart devait
+  apparaître, il apparaît. C'est la raison d'être de l'étape suivante (Wikipédia français).
+  Courbe : 9,70 (= ln 16385) → 6,01 (300) → 4,97 (1000) → 4,15 (2000) → 3,94 (2500).
 
 ### 🧩 COMBINER DES MODÈLES ENTRAÎNÉS SÉPARÉMENT — l'invention de Rihen
 
