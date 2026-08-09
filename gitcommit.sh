@@ -46,8 +46,18 @@ ID_OPTS=()
 [ -n "$GIT_NAME" ]  && ID_OPTS+=(-c "user.name=$GIT_NAME")
 [ -n "$GIT_EMAIL" ] && ID_OPTS+=(-c "user.email=$GIT_EMAIL")
 
-git "${ID_OPTS[@]}" commit -m "$MSG" \
-  || { echo "[gitcommit] git commit a echoue" >&2; exit 1; }
+# AVEC des chemins : committer PAR PATHSPEC (git commit -- <chemins>), qui
+# n'emporte QUE ces chemins — un `commit -m` nu commite TOUT l'index, y
+# compris ce qu'un AUTRE agent a stage en preparant son propre commit
+# (incident du 9 aout : 4 fichiers du chantier NKAI embarques dans b9a82e62,
+# repares par 61edb893). Sans chemins : comportement historique (add -u).
+if [ "$#" -gt 0 ]; then
+  git "${ID_OPTS[@]}" commit -m "$MSG" -- "$@" \
+    || { echo "[gitcommit] git commit a echoue" >&2; exit 1; }
+else
+  git "${ID_OPTS[@]}" commit -m "$MSG" \
+    || { echo "[gitcommit] git commit a echoue" >&2; exit 1; }
+fi
 
 echo "[gitcommit] OK — commit cree."
 git --no-pager log -1 --format='   %h  A:%an <%ae>  C:%cn <%ce>'
