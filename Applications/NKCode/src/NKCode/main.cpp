@@ -13,6 +13,7 @@
 #include "NKCode/Shell/Dialogs.h"
 #include "NKCode/Shell/NkMenuBar.h" // barre de menus principale (spec Banani, remplace les menus shell)
 #include "NKCode/Shell/ScaffoldPanels.h"
+#include "NKCode/Shell/NkProblemsPanel.h"
 #include "NKCode/Shell/NkAiPanel.h"
 #include "NKCode/Shell/NkHome.h"
 #include "NKCode/Shell/NkAppFonts.h"
@@ -113,7 +114,9 @@ int nkmain(const NkEntryState &state) {
 	using nkcode::ScaffoldPanel;
 	namespace sc = nkcode::scaffold;
 	static nkcode::SearchPanel pSearch(&g_state); // Recherche workspace FONCTIONNELLE (remplace la maquette #7)
-	static ScaffoldPanel pProblem("Problemes", NkEditorDockSide::NK_BOTTOM, "Maquette - roadmap #8", sc::kProblems, 1);
+	// Panneau Problemes REEL (roadmap #8) : diagnostics du dernier build, avec
+	// saut fichier:ligne. Remplace la maquette sc::kProblems, desormais inutilisee.
+	static nkcode::NkProblemsPanel pProblem(&g_state);
 	static ScaffoldPanel pGit("Controle de version", NkEditorDockSide::NK_LEFT, "Maquette - roadmap #9", sc::kGit, 3);
 	static ScaffoldPanel pDebug("Debogueur", NkEditorDockSide::NK_LEFT, "Maquette - roadmap #10", sc::kDebug, 2);
 	static ScaffoldPanel pBuild("Build & Taches", NkEditorDockSide::NK_BOTTOM, "Maquette - roadmap #14", sc::kBuild, 1);

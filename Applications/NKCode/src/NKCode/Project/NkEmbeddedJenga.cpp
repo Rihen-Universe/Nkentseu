@@ -404,6 +404,20 @@ namespace nkentseu {
 								e.message = msg.c_str();
 								PushEvent(e);
 							});
+						// Le texte des avertissements ne remontait pas : seul un booleen
+						// passait par OnFileDone, de quoi allumer un voyant mais pas de quoi
+						// dire OU ni QUOI. Cette sortie-ci est BRUTE — c'est elle qui porte
+						// le chemin complet et les numeros de ligne, la ou l'affichage
+						// console les tronque pour tenir dans son cadre.
+						ns.attr("OnCompileWarning") =
+							py::cpp_function([this](std::string proj, std::string file, std::string msg) {
+								NkJengaProgressEvent e;
+								e.kind = NkJengaProgressEvent::COMPILE_WARNING;
+								e.project = proj.c_str();
+								e.file = file.c_str();
+								e.message = msg.c_str();
+								PushEvent(e);
+							});
 						ns.attr("OnLinkError") =
 							py::cpp_function([this](std::string proj, std::string file, std::string msg) {
 								NkJengaProgressEvent e;

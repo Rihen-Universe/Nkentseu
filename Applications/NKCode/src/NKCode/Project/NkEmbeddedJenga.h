@@ -41,7 +41,8 @@ namespace nkentseu {
 					FILE_TOTAL,		   // project, total
 					FILE_DONE,		   // project, index, total, file, ok, warned
 					COMPILE_ERROR,	   // project, file, message
-					LINK_ERROR		   // project, file, message
+					LINK_ERROR,		   // project, file, message
+					COMPILE_WARNING	   // project, file, message (sortie BRUTE, non encadree)
 				};
 				int32 kind = 0;
 				NkString project, file, message;
