@@ -234,6 +234,10 @@ namespace nkentseu {
 				// pas d'historique exploitable, la passe se comporte en passe-plat.
 				NkMat4f mTAAPrevViewProj = NkMat4f::Identity();
 				bool mTAAHasPrev = false;
+				// SetPostConfig a change le JEU de passes (SSAO/bloom/FXAA...) :
+				// reconstruire le graphe a l'aplomb de la frame suivante, jamais en
+				// pleine frame (meme patron que l'outline de selection).
+				bool mPostGraphDirty = false;
 				void ApplyRenderSize(uint32 w, uint32 h, bool touchDevice);
 
 				bool InitRHI();
