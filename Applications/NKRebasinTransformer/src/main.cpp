@@ -212,8 +212,14 @@ static int IdxBloc(int bloc, int quoi) {
 	return 2 + bloc * kParBloc + quoi;
 }
 // Decalages dans un bloc.
-enum { P_WQ_W = 2, P_WQ_B = 3, P_WK_W = 4, P_WK_B = 5, P_WV_W = 6, P_WV_B = 7,
-	   P_WO_W = 8, P_FC1_W = 12, P_FC1_B = 13, P_FC2_W = 14 };
+enum { P_LN1_G = 0, P_LN1_B = 1, P_WQ_W = 2, P_WQ_B = 3, P_WK_W = 4, P_WK_B = 5, P_WV_W = 6,
+	   P_WV_B = 7, P_WO_W = 8, P_WO_B = 9, P_LN2_G = 10, P_LN2_B = 11, P_FC1_W = 12,
+	   P_FC1_B = 13, P_FC2_W = 14, P_FC2_B = 15 };
+// Index des quatre derniers tenseurs (apres les blocs).
+static int IdxFin(int quoi) {
+	return 2 + kLayers * kParBloc + quoi;
+}
+enum { P_LNF_G = 0, P_LNF_B = 1, P_HEAD_W = 2 };
 
 static bool VerifierFormes(const NkVector<NkVar> &p) {
 	if (p.Size() != (usize)(2 + kLayers * kParBloc + 4))
@@ -360,6 +366,137 @@ static void AppliquerTetes(NkVector<NkTensor> &B, int bloc, const NkVector<int32
 }
 
 // ---------------------------------------------------------------------------
+// (3) LE FLUX RESIDUEL — UNE SEULE permutation, partout a la fois.
+//
+// C'est la difference de nature avec (1) et (2) : il n'y a pas une permutation
+// par bloc, mais UNE permutation de largeur d que doivent subir SIMULTANEMENT
+// tous les endroits ou le flux residuel apparait. En voici la liste exhaustive,
+// avec l'axe concerne — s'en tenir a cette liste EST le travail : en oublier un
+// seul, et le modele permute ne calcule plus la meme chose.
+//
+//   tokEmb [V,d]      colonnes        posEmb [T,d]      colonnes
+//   ln*.gamma/.beta   entrees         Wq/Wk/Wv.W [d,d]  LIGNES (cote entree)
+//   Wo.W [d,d]        COLONNES        Wo.b              entrees
+//   fc1.W [d,ff]      LIGNES          fc2.W [ff,d]      COLONNES
+//   fc2.b             entrees         head.W [d,V]      LIGNES
+//
+// Ne sont PAS concernes : les biais de Wq/Wk/Wv (cote tetes), fc1.b (cote MLP),
+// head.b (cote vocabulaire).
+//
+// Pourquoi c'est bien une symetrie : LayerNorm calcule moyenne et variance SUR
+// cet axe, or les deux sont insensibles a l'ordre — donc LN(Px) = P·LN(x). Et le
+// raccourci residuel additionne deux branches permutees de la meme facon.
+// ---------------------------------------------------------------------------
+
+// Accumule dans `cout` la similarite -Σ A[..,i]·B[..,j] pour un axe donne.
+// `axe` : 0 = lignes (i indexe la 1re dimension), 1 = colonnes.
+static void AjouterCout(NkVector<float64> &cout, const NkTensor &A, const NkTensor &B, int axe, int32 n) {
+	const float *a = A.DataAs<float>();
+	const float *b = B.DataAs<float>();
+	const int64 lignes = A.Shape()[0];
+	const int64 cols = (A.Shape().Size() > 1) ? A.Shape()[1] : 1;
+	if (axe == 1) { // colonnes : i,j parcourent les colonnes, on somme sur les lignes
+		for (int64 r = 0; r < lignes; ++r) {
+			const float *ra = a + r * cols;
+			const float *rb = b + r * cols;
+			for (int32 i = 0; i < n; ++i) {
+				const float64 av = (float64)ra[i];
+				if (av == 0.0)
+					continue;
+				float64 *dst = &cout[(usize)((int64)i * n)];
+				for (int32 j = 0; j < n; ++j)
+					dst[j] -= av * (float64)rb[j];
+			}
+		}
+	} else { // lignes : i,j parcourent les lignes, on somme sur les colonnes
+		for (int32 i = 0; i < n; ++i) {
+			const float *ra = a + (int64)i * cols;
+			float64 *dst = &cout[(usize)((int64)i * n)];
+			for (int32 j = 0; j < n; ++j) {
+				const float *rb = b + (int64)j * cols;
+				float64 s = 0.0;
+				for (int64 c = 0; c < cols; ++c)
+					s += (float64)ra[c] * (float64)rb[c];
+				dst[j] -= s;
+			}
+		}
+	}
+}
+
+static void CoutResiduel(const NkVector<NkTensor> &A, const NkVector<NkTensor> &B, NkVector<float64> &cout) {
+	cout.Resize((usize)kD * (usize)kD);
+	for (usize k = 0; k < cout.Size(); ++k)
+		cout[k] = 0.0;
+	AjouterCout(cout, A[0], B[0], 1, kD); // tokEmb : colonnes
+	AjouterCout(cout, A[1], B[1], 1, kD); // posEmb : colonnes
+	for (int l = 0; l < kLayers; ++l) {
+		const int g[6] = {P_LN1_G, P_LN1_B, P_LN2_G, P_LN2_B, P_WO_B, P_FC2_B};
+		for (int k = 0; k < 6; ++k)
+			AjouterCout(cout, A[(usize)IdxBloc(l, g[k])], B[(usize)IdxBloc(l, g[k])], 1, kD);
+		const int lignes[4] = {P_WQ_W, P_WK_W, P_WV_W, P_FC1_W};
+		for (int k = 0; k < 4; ++k)
+			AjouterCout(cout, A[(usize)IdxBloc(l, lignes[k])], B[(usize)IdxBloc(l, lignes[k])], 0, kD);
+		AjouterCout(cout, A[(usize)IdxBloc(l, P_WO_W)], B[(usize)IdxBloc(l, P_WO_W)], 1, kD);
+		AjouterCout(cout, A[(usize)IdxBloc(l, P_FC2_W)], B[(usize)IdxBloc(l, P_FC2_W)], 1, kD);
+	}
+	AjouterCout(cout, A[(usize)IdxFin(P_LNF_G)], B[(usize)IdxFin(P_LNF_G)], 1, kD);
+	AjouterCout(cout, A[(usize)IdxFin(P_LNF_B)], B[(usize)IdxFin(P_LNF_B)], 1, kD);
+	AjouterCout(cout, A[(usize)IdxFin(P_HEAD_W)], B[(usize)IdxFin(P_HEAD_W)], 0, kD);
+}
+
+// Permute un axe d'un tenseur en place (via une copie).
+static void PermuterAxe(NkTensor &T, int axe, const NkVector<int32> &perm, int32 n) {
+	NkTensor src = T.Clone();
+	const float *s = src.DataAs<float>();
+	float *d = T.DataAs<float>();
+	const int64 lignes = T.Shape()[0];
+	const int64 cols = (T.Shape().Size() > 1) ? T.Shape()[1] : 1;
+	if (axe == 1) {
+		for (int64 r = 0; r < lignes; ++r)
+			for (int32 i = 0; i < n; ++i)
+				d[r * cols + i] = s[r * cols + perm[(usize)i]];
+	} else {
+		for (int32 i = 0; i < n; ++i)
+			for (int64 c = 0; c < cols; ++c)
+				d[(int64)i * cols + c] = s[(int64)perm[(usize)i] * cols + c];
+	}
+}
+
+static void AppliquerResiduel(NkVector<NkTensor> &B, const NkVector<int32> &perm) {
+	PermuterAxe(B[0], 1, perm, kD);
+	PermuterAxe(B[1], 1, perm, kD);
+	for (int l = 0; l < kLayers; ++l) {
+		const int g[6] = {P_LN1_G, P_LN1_B, P_LN2_G, P_LN2_B, P_WO_B, P_FC2_B};
+		for (int k = 0; k < 6; ++k)
+			PermuterAxe(B[(usize)IdxBloc(l, g[k])], 1, perm, kD);
+		const int lignes[4] = {P_WQ_W, P_WK_W, P_WV_W, P_FC1_W};
+		for (int k = 0; k < 4; ++k)
+			PermuterAxe(B[(usize)IdxBloc(l, lignes[k])], 0, perm, kD);
+		PermuterAxe(B[(usize)IdxBloc(l, P_WO_W)], 1, perm, kD);
+		PermuterAxe(B[(usize)IdxBloc(l, P_FC2_W)], 1, perm, kD);
+	}
+	PermuterAxe(B[(usize)IdxFin(P_LNF_G)], 1, perm, kD);
+	PermuterAxe(B[(usize)IdxFin(P_LNF_B)], 1, perm, kD);
+	PermuterAxe(B[(usize)IdxFin(P_HEAD_W)], 0, perm, kD);
+}
+
+// Quantite maximisee : produit scalaire de TOUS les poids de A avec ceux de B
+// permute. Chaque appariement etant optimal a permutations voisines figees, et
+// l'identite etant toujours une solution admissible, elle ne peut que croitre —
+// une baisse denoncerait une erreur, pas une difficulte.
+static float64 ObjectifTotal(const NkVector<NkTensor> &A, const NkVector<NkTensor> &B) {
+	float64 t = 0.0;
+	for (usize k = 0; k < A.Size(); ++k) {
+		const float *a = A[k].DataAs<float>();
+		const float *b = B[k].DataAs<float>();
+		const int64 n = NkShapeNumel(A[k].Shape());
+		for (int64 i = 0; i < n; ++i)
+			t += (float64)a[i] * (float64)b[i];
+	}
+	return t;
+}
+
+// ---------------------------------------------------------------------------
 // Perte moyenne d'un jeu de poids arbitraire, sur des lots FIXES (memes lots
 // pour tous les points mesures : sinon on comparerait des bruits, pas des
 // modeles).
@@ -380,7 +517,15 @@ static double PerteMoyenne(const NkVector<NkTensor> &poids, const NkVector<NkTen
 	return somme / (double)lotsX.Size();
 }
 
-int main() {
+int main(int argc, char **argv) {
+	// Graines parametrables : une mesure unique sur un phenomene bruite ne
+	// prouve rien, surtout quand elle surprend. On relance sur plusieurs paires
+	// INDEPENDANTES (poids ET tirage des lots differents) avant de conclure.
+	//   NKRebasinTransformer.exe [grainePoidsA grainePoidsB graineLotsA graineLotsB]
+	const uint32 grA = (argc > 1) ? (uint32)strtoul(argv[1], nullptr, 10) : 11u;
+	const uint32 grB = (argc > 2) ? (uint32)strtoul(argv[2], nullptr, 10) : 7717u;
+	const uint64 lotA = (argc > 3) ? (uint64)strtoull(argv[3], nullptr, 10) : 3u;
+	const uint64 lotB = (argc > 4) ? (uint64)strtoull(argv[4], nullptr, 10) : 8081u;
 	setvbuf(stdout, nullptr, _IONBF, 0);
 	printf("=== NKRebasinTransformer — aligner deux TRANSFORMEURS ===\n\n");
 	printf("  CPU strict : aucun device GPU n'est cree.\n");
@@ -389,8 +534,8 @@ int main() {
 	ConstruireTexte();
 
 	// ---- Deux transformeurs entraines SEPAREMENT --------------------------
-	nn::NkGPT A((uint32)kVocab, (uint32)kD, (uint32)kHeads, (uint32)kLayers, (uint32)kT, 11u);
-	nn::NkGPT B((uint32)kVocab, (uint32)kD, (uint32)kHeads, (uint32)kLayers, (uint32)kT, 7717u);
+	nn::NkGPT A((uint32)kVocab, (uint32)kD, (uint32)kHeads, (uint32)kLayers, (uint32)kT, grA);
+	nn::NkGPT B((uint32)kVocab, (uint32)kD, (uint32)kHeads, (uint32)kLayers, (uint32)kT, grB);
 
 	auto entrainer = [&](nn::NkGPT &m, uint64 graineLots, const char *nom, int pas) {
 		NkVector<NkVar> ps;
@@ -416,8 +561,8 @@ int main() {
 	printf("  -- Entrainement de deux transformeurs INDEPENDANTS --\n");
 	printf("     (graines de poids ET tirage des lots differents)\n");
 	const int kPas = 400;
-	entrainer(A, 3u, "A", kPas);
-	entrainer(B, 8081u, "B", kPas);
+	entrainer(A, lotA, "A", kPas);
+	entrainer(B, lotB, "B", kPas);
 
 	NkVector<NkVar> pa, pb;
 	A.Parameters(pa);
@@ -497,42 +642,181 @@ int main() {
 
 	// ---- LE GARDE-FOU ------------------------------------------------------
 	const double perteBp = PerteMoyenne(WBp, lotsX, lotsY);
-	printf("\n     B permute : perte = %.10f   (B d'origine : %.10f)\n", perteBp, perteB);
-	Verdict(std::fabs(perteBp - perteB) < 1e-9, "permuter ne change RIEN a ce que B calcule");
+	const double ecartBp = std::fabs(perteBp - perteB) / (perteB > 0 ? perteB : 1.0);
+	printf("\n     B permute : perte = %.10f   (B d'origine : %.10f, ecart relatif %.1e)\n", perteBp, perteB,
+		   ecartBp);
+	// Seuil RELATIF a la mesure du float32, comme pour le flux residuel plus bas :
+	// permuter change l'ordre des sommations dans chaque produit de matrices et
+	// dans LayerNorm. Exiger l'egalite exacte reviendrait a exiger que l'addition
+	// flottante soit associative. (Un seuil absolu de 1e-9 passait par CHANCE sur
+	// une paire de graines et criait au loup sur les suivantes.)
+	Verdict(ecartBp < 1e-5, "permuter ne change RIEN a ce que B calcule");
 
-	// ---- Interpolation APRES ----------------------------------------------
-	printf("\n  -- 3. Interpolation APRES alignement --\n");
+	// ---- Interpolation APRES (symetries libres seules) --------------------
+	printf("\n  -- 3. Interpolation APRES alignement des seules symetries libres --\n");
 	double aligne[5];
 	for (int k = 0; k < 5; ++k) {
 		aligne[k] = PerteMoyenne(melanger(WA, WBp, kLam[k]), lotsX, lotsY);
 		printf("     lambda = %.2f : perte = %.4f\n", (double)kLam[k], aligne[k]);
 	}
 
+	// ---- 4. On s'attaque au FLUX RESIDUEL ---------------------------------
+	// Il n'est plus question d'exactitude ici : la permutation du flux residuel
+	// et les permutations locales se contraignent mutuellement (les memes
+	// matrices portent les deux), donc on alterne — chaque etape optimale a
+	// voisines figees, sans garantie d'optimum global.
+	printf("\n  -- 4. Descente ALTERNEE, flux residuel COMPRIS --\n");
+	NkVector<NkTensor> WBr = Extraire(pb); // on repart de B intact
+	float64 objPrec = ObjectifTotal(WA, WBr);
+	printf("     depart : objectif = %.1f\n", objPrec);
+	int32 balayages = 0;
+	for (int s = 1; s <= 30; ++s) {
+		int32 changees = 0;
+		++balayages;
+		NkVector<float64> cout;
+		NkVector<int32> perm;
+
+		CoutResiduel(WA, WBr, cout);
+		HungarianMinCost(cout, kD, perm);
+		for (int32 i = 0; i < kD; ++i)
+			if (perm[(usize)i] != i)
+				++changees;
+		AppliquerResiduel(WBr, perm);
+
+		for (int l = 0; l < kLayers; ++l) {
+			CoutMlp(WA, WBr, l, cout);
+			HungarianMinCost(cout, kFF, perm);
+			for (int32 i = 0; i < kFF; ++i)
+				if (perm[(usize)i] != i)
+					++changees;
+			AppliquerMlp(WBr, l, perm);
+
+			CoutTetes(WA, WBr, l, cout);
+			HungarianMinCost(cout, kHeads, perm);
+			for (int32 i = 0; i < kHeads; ++i)
+				if (perm[(usize)i] != i)
+					++changees;
+			AppliquerTetes(WBr, l, perm);
+		}
+
+		const float64 obj = ObjectifTotal(WA, WBr);
+		printf("     balayage %2d : %4d affectations changees, objectif = %.1f  (%+.1f)\n", s, changees, obj,
+			   obj - objPrec);
+		if (obj < objPrec - 1e-4) {
+			printf("     *** L'OBJECTIF A BAISSE : la liste des axes du flux residuel est incomplete. ***\n");
+			++g_fail;
+		}
+		objPrec = obj;
+		if (changees == 0)
+			break;
+	}
+	printf("     convergence en %d balayage(s)\n", balayages);
+
+	// ---- DEUX garde-fous, qui ne testent PAS la meme chose ------------------
+	//
+	// (a) COMPTABILITE : appliquer une permutation puis son inverse doit rendre
+	//     les poids IDENTIQUES AU BIT PRES. Ce test ne fait intervenir aucune
+	//     arithmetique, seulement des deplacements : il isole une erreur d'axe
+	//     ou d'indice, sans se laisser troubler par le flottant.
+	{
+		NkVector<NkTensor> essai = Extraire(pb);
+		NkVector<int32> pi, piInv;
+		pi.Resize((usize)kD);
+		piInv.Resize((usize)kD);
+		uint64 rng = 424242u;
+		for (int32 i = 0; i < kD; ++i)
+			pi[(usize)i] = i;
+		for (int32 i = kD - 1; i > 0; --i) { // melange de Fisher-Yates
+			rng = rng * 6364136223846793005ull + 1442695040888963407ull;
+			const int32 j = (int32)((rng >> 33) % (uint32)(i + 1));
+			const int32 t = pi[(usize)i];
+			pi[(usize)i] = pi[(usize)j];
+			pi[(usize)j] = t;
+		}
+		for (int32 i = 0; i < kD; ++i)
+			piInv[(usize)pi[(usize)i]] = i;
+		AppliquerResiduel(essai, pi);
+		AppliquerResiduel(essai, piInv);
+		bool identique = true;
+		for (usize k = 0; k < essai.Size() && identique; ++k) {
+			const float *a = WB[k].DataAs<float>();
+			const float *b = essai[k].DataAs<float>();
+			const int64 n = NkShapeNumel(WB[k].Shape());
+			for (int64 i = 0; i < n; ++i)
+				if (a[i] != b[i]) {
+					identique = false;
+					break;
+				}
+		}
+		Verdict(identique, "permutation du flux residuel puis son inverse : poids identiques AU BIT PRES");
+
+		// (b) SYMETRIE : une permutation ALEATOIRE du flux residuel ne doit pas
+		//     changer ce que le modele calcule. Un axe oublie dans la liste
+		//     casserait le modele de facon flagrante, pas au huitieme chiffre.
+		NkVector<NkTensor> alea = Extraire(pb);
+		AppliquerResiduel(alea, pi);
+		const double perteAlea = PerteMoyenne(alea, lotsX, lotsY);
+		const double ecartRel = std::fabs(perteAlea - perteB) / (perteB > 0 ? perteB : 1.0);
+		printf("\n     permutation ALEATOIRE du flux residuel : perte = %.10f  (ecart relatif %.1e)\n", perteAlea,
+			   ecartRel);
+		// Seuil a la mesure du float32 : permuter change l'ORDRE des sommations
+		// dans LayerNorm et dans chaque produit de matrices, donc le dernier
+		// chiffre bouge forcement. Exiger l'egalite exacte serait exiger que
+		// l'addition flottante soit associative — elle ne l'est pas.
+		Verdict(ecartRel < 1e-5, "le flux residuel est bien une symetrie (a la precision du float32)");
+	}
+
+	const double perteBr = PerteMoyenne(WBr, lotsX, lotsY);
+	const double ecartBr = std::fabs(perteBr - perteB) / (perteB > 0 ? perteB : 1.0);
+	printf("\n     B re-permute : perte = %.10f   (B d'origine : %.10f, ecart relatif %.1e)\n", perteBr, perteB,
+		   ecartBr);
+	Verdict(ecartBr < 1e-5, "l'alignement complet ne change pas ce que B calcule");
+
+	printf("\n  -- 5. Interpolation APRES alignement COMPLET --\n");
+	double complet[5];
+	for (int k = 0; k < 5; ++k) {
+		complet[k] = PerteMoyenne(melanger(WA, WBr, kLam[k]), lotsX, lotsY);
+		printf("     lambda = %.2f : perte = %.4f\n", (double)kLam[k], complet[k]);
+	}
+
 	// ---- Verdict -----------------------------------------------------------
 	const double base = (naif[0] + naif[4]) * 0.5;
-	const double barrN = naif[2] - base;   // en PERTE : la barriere MONTE
+	const double barrN = naif[2] - base; // en PERTE : la barriere MONTE
 	const double barrA = aligne[2] - base;
+	const double barrC = complet[2] - base;
 	printf("\n  == RESULTAT ==\n");
-	printf("     perte moyenne des extremites : %.4f\n", base);
-	printf("     barriere SANS alignement  : +%.4f de perte au milieu\n", barrN);
-	printf("     barriere APRES alignement : +%.4f de perte au milieu\n", barrA);
-	if (barrN > 1e-6)
-		printf("     l'alignement des symetries libres en retire %.1f%%\n", (1.0 - barrA / barrN) * 100.0);
+	printf("     perte moyenne des extremites          : %.4f\n", base);
+	printf("     barriere SANS aucun alignement        : +%.4f\n", barrN);
+	printf("     barriere, symetries LIBRES seules     : +%.4f  (%.1f%% retires)\n", barrA,
+		   (barrN > 1e-6) ? (1.0 - barrA / barrN) * 100.0 : 0.0);
+	printf("     barriere, flux residuel COMPRIS       : +%.4f  (%.1f%% retires)\n", barrC,
+		   (barrN > 1e-6) ? (1.0 - barrC / barrN) * 100.0 : 0.0);
 
 	Verdict(barrN > 0.05, "il y a bien une barriere a franchir sur un transformeur");
-	printf("\n  CE QUE CE CHIFFRE DIT.\n");
-	if (barrA < 0.5 * barrN)
-		printf("  Aligner ce qui est libre SANS toucher au flux residuel suffit a en retirer\n"
-			   "  une part importante. La piste s'ouvre.\n");
+	// On NE met PAS de verdict sur « l'alignement complet fait-il mieux ? ». Un
+	// test doit controler une invariance du code (la permutation est-elle une
+	// symetrie, la comptabilite est-elle exacte, l'objectif monte-t-il), pas une
+	// attente sur le resultat. Que le flux residuel aide ou nuise, les deux sont
+	// des mesures a rapporter, pas des reussites ou des echecs.
+
+	printf("\n  CE QUE CES CHIFFRES DISENT.\n");
+	printf("  Les symetries libres (MLP, tetes) sont alignees A L'OPTIMUM : leur mesure est\n"
+		   "  exacte. Le flux residuel, lui, est traite par descente alternee — chaque etape\n"
+		   "  est optimale a voisines figees, mais rien ne garantit l'optimum global, et le\n"
+		   "  resultat depend du point de depart (ici l'identite).\n");
+	if (barrC < 0.5 * barrN)
+		printf("  => Le flux residuel etait bien le verrou, et le lever change tout.\n");
+	else if (barrC < 0.9 * barrN)
+		printf("  => Le flux residuel compte, mais le lever ne suffit pas : deux transformeurs\n"
+			   "     entrainee separement ne sont PAS le meme modele a une permutation pres.\n"
+			   "     Ils different par autre chose que l'ordre de leurs unites.\n");
 	else
-		printf("  Aligner ce qui est libre ne suffit PAS : l'essentiel de la barriere tient au\n"
-			   "  FLUX RESIDUEL, qui n'est pas permutable bloc par bloc mais par UNE SEULE\n"
-			   "  permutation globale liant embedding, normalisations, projections et tete de\n"
-			   "  sortie. C'est la le verrou, et c'est un resultat en soi : il designe\n"
-			   "  precisement ou porter l'effort suivant.\n");
-	printf("\n  Ce qui est mesure ici est EXACT (chaque appariement est optimal, et les\n"
-		   "  permutations se decouplent des lors que le flux residuel est fige) — mais il\n"
-		   "  porte sur un SOUS-ESPACE des symetries, pas sur toutes.\n");
+		printf("  => Meme en traitant TOUT ce qui est permutable, la barriere reste. C'est le\n"
+			   "     resultat le plus informatif de la serie : sur un transformeur, la\n"
+			   "     permutation n'explique PAS l'ecart entre deux entrainements. La piste de\n"
+			   "     la combinaison par simple realignement ne suffira pas — il faudra autre\n"
+			   "     chose (re-entrainement court apres empilement, ou fusion guidee par les\n"
+			   "     activations plutot que par les poids).\n");
 
 	printf("\n  Resultat : %d OK, %d echec(s)\n", g_pass, g_fail);
 	return g_fail == 0 ? 0 : 1;

@@ -1039,7 +1039,7 @@ départage rien — ne pas le présenter comme une comparaison.
 le prétendre.
 
 - ✅ **Marche 3 — LE TRANSFORMEUR (2026-08-09)** — `Applications/NKRebasinTransformer`, CPU strict.
-  **Résultat honnêtement NÉGATIF, et c'est lui qui a de la valeur.**
+  **Résultat NÉGATIF, mesuré sur six paires de graines — et c'est lui qui a de la valeur.**
 
   D'abord l'inventaire des symétries réelles d'un bloc transformeur, qui ne sont pas là où on
   les attend :
@@ -1058,25 +1058,52 @@ le prétendre.
   affectation linéaire résolue **à l'optimum** par la hongroise. Pas de descente, pas d'optimum
   local : sur ce sous-espace, la mesure est **la vérité**.
 
-  **Mesuré** (2 transformeurs d=64, 4 têtes, 2 couches, T=32, entraînés séparément, graines de
-  poids ET tirage des lots différents ; perte, pas exactitude) :
+  Le flux résiduel est traité **aussi**, par descente alternée avec les permutations locales
+  (chaque étape optimale à voisines figées, sans garantie d'optimum global).
 
-  | | perte au milieu | barrière |
-  |---|---|---|
-  | extrémités (A = 0,6231 · B = 0,6183) | — | — |
-  | interpolation naïve | 2,3385 | **+1,7178** |
-  | après alignement EXACT de tout ce qui est libre | 2,2743 | **+1,6536** |
+  **Mesuré sur SIX paires indépendantes** (transformeurs d=64, 4 têtes, 2 couches, T=32 ;
+  graines de poids ET tirage des lots différents à chaque paire ; barrière = perte ajoutée au
+  milieu du chemin) :
 
-  → l'alignement de **512 unités de MLP et 8 têtes** (dont seulement **3** et **2** étaient déjà
-  en place, donc le travail a bien eu lieu) n'en retire que **3,7 %**.
-  Garde-fou vérifié au chiffre près : B permuté = **0,6182670668**, B d'origine =
-  **0,6182670668**.
+  | paire | sans alignement | symétries libres | + flux résiduel |
+  |---|---|---|---|
+  | 11 | 1,7178 | 1,6536 | 1,8013 |
+  | 101 | 1,5588 | 2,0635 | 1,2565 |
+  | 2027 | 1,3561 | 1,4290 | 1,5178 |
+  | 31337 | 1,4276 | 1,6537 | 1,5264 |
+  | 555 | 1,5414 | 1,6197 | 1,7007 |
+  | 9001 | 2,4480 | 1,6427 | 1,6142 |
+  | **moyenne** | **1,6749** | **1,6770** | **1,5695** |
 
-  ⚠️ **Conclusion : le verrou est le FLUX RÉSIDUEL.** Aligner têtes et MLP ne suffit pas — et
-  c'est un résultat, pas un échec : il désigne précisément où porter l'effort. La permutation du
-  flux résiduel est **une seule** affectation de taille d, mais couplée à absolument tout
-  (embedding, normalisations, projections, tête de sortie) — donc à traiter par descente
-  alternée avec le reste, sans garantie d'optimum. C'est la prochaine marche.
+  ⚠️⚠️ **CONCLUSION — ET CORRECTION D'UNE CONCLUSION PRÉCÉDENTE.** Une première version de
+  cette section, écrite sur **une seule** paire de graines, annonçait « 3,7 % de barrière
+  retirée » et désignait le flux résiduel comme « le verrou ». **Six paires ne le confirment
+  pas** :
+  - symétries libres seules : **−0,1 %** en moyenne — aucun effet ;
+  - flux résiduel compris : **+6,3 %** en moyenne, mais ce gain vient **entièrement d'une seule
+    paire** (9001, dont la barrière naïve 2,45 est aberrante) ; en l'excluant, l'alignement
+    complet fait **−2,6 %**, c'est-à-dire légèrement PIRE ;
+  - l'alignement ne bat l'interpolation naïve que dans **2 paires sur 6** ;
+  - la dispersion des barrières naïves (**1,36 à 2,45**) écrase largement l'effet mesuré.
+
+  **Sur un transformeur, le réalignement par permutation ne fait PAS tomber la barrière** — là
+  où les perceptrons en perdaient 89 à 99 %. Deux transformeurs entraînés séparément ne sont
+  donc **pas le même modèle à une permutation près** : ils diffèrent par autre chose que l'ordre
+  de leurs unités. C'est le résultat le plus utile de la série, et il est négatif.
+
+  **Conséquence directe pour la marche 4** (empiler deux modèles alignés) : elle ne pourra pas
+  reposer sur le seul réalignement des poids. Restent deux pistes : apparier sur les
+  **ACTIVATIONS** plutôt que sur les poids, ou accepter le **court ré-entraînement après
+  empilement** — ce que Rihen envisageait déjà.
+
+  **Garde-fous** (ce qui rend ces chiffres dignes de foi) : permutation puis son inverse →
+  poids **identiques au bit près** ; permutation **aléatoire** du flux résiduel → perte inchangée
+  à **1,2e-08** près (c'est donc bien une symétrie, la liste des axes est complète) ; objectif
+  monotone à chaque balayage. **Zéro échec sur les six paires.**
+  ⚠️ Piège rencontré : le premier garde-fou utilisait un seuil **absolu** de 1e-9 — il passait
+  par chance sur une paire et criait au loup sur les autres. Permuter change l'ordre des
+  sommations dans chaque produit et dans LayerNorm : le seuil doit être **relatif** et à la
+  mesure du float32 (1e-5), sous peine de confondre non-associativité et défaut.
 - ⬜ **Marche 4 — ce que Rihen veut vraiment** : deux modèles alignés puis **empilés** (pas
   moyennés) avec un court ré-entraînement — du *depth up-scaling* entre modèles indépendants.
   Ça n'existe pas.
