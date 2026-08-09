@@ -432,8 +432,10 @@ void main() {
 				pd.blend = NkBlendDesc::Opaque();
 				pd.debugName = "PP_SSAO";
 				pd.renderPass = mSSAORT.GetRenderPass();
-				pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0,
-								   16); // (invResW, invResH, radius, yFlipUV) — VS+FS
+				// 128 octets : mat4 invViewProj (64) + camPos (16) + camFwd (16)
+				// + p0 (16) + p1 (16). Exactement la garantie Vulkan et les 32
+				// DWORDs de root constants DX12 — ne plus rien y ajouter.
+				pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, 128);
 				if (mInputTexLayout.IsValid())
 					pd.descriptorSetLayouts.PushBack(mInputTexLayout);
 				mPipeSSAO = mDevice->CreateGraphicsPipeline(pd);
@@ -1183,16 +1185,20 @@ void main() {
 			cmd->Draw(3, 1, 0, 0);
 		}
 
-		// ── Phase H.3 : SSAO sub-pass ────────────────────────────────────────────
+		// ── Phase H.3 : SSAO sub-pass (v1 « Alchemy », 2026-08-09) ──────────────
 		// Le RG appelle cette methode dans une pass deja ouverte (color attachment
 		// = ssaoTex transient R8_UNORM, depthSrc = mainDepth transient).
 		// On bind le depth comme sampler au binding=0 et draw fullscreen triangle.
 		void NkPostProcessStack::DrawSSAOPass(NkICommandBuffer *cmd, NkTextureHandle depthSrc, uint32 ssaoW,
-											  uint32 ssaoH) {
+											  uint32 ssaoH, const NkSSAOFrame &frame) {
 			if (!cmd || !mPipeSSAO.IsValid() || !depthSrc.IsValid())
 				return;
 
-			NkSamplerHandle samp = mResources ? mResources->GetSamplerLinearClamp() : NkSamplerHandle{};
+			// NEAREST, pas linear : un sampler lineaire sur de la profondeur
+			// INVENTE des profondeurs intermediaires aux silhouettes — la
+			// position monde reconstruite y devient un point qui n'existe
+			// nulle part, et la normale croisee part en vrille.
+			NkSamplerHandle samp = mResources ? mResources->GetSamplerNearestClamp() : NkSamplerHandle{};
 			if (!samp.IsValid())
 				return;
 
@@ -1207,19 +1213,44 @@ void main() {
 			cmd->BindGraphicsPipeline(mPipeSSAO);
 			cmd->BindDescriptorSet(set, 0);
 
-			// Push constant : invResW, invResH, radius, yFlipUV
-			// Radius en UV space (0.005 - 0.02 typique pour 720p).
-			bool isVK = mDevice && mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_VULKAN;
+			// ── Conventions Y PAR BACKEND — les memes que le TAA, qui les a
+			// MESUREES a l'ecran (cf. RunTAAInPass) :
+			//   yFlipUV  (VS) : orientation de la cible lue/ecrite. VK -1, GL/DX +1.
+			//   ndcYSign (FS) : signe reliant vUV.y au NDC Y pour reconstruire la
+			//                   position depuis la profondeur. DX +1, GL/VK -1.
+			const NkGraphicsApi api = mDevice ? mDevice->GetApi() : NkGraphicsApi::NK_GFX_API_OPENGL;
+			const bool isVK = (api == NkGraphicsApi::NK_GFX_API_VULKAN);
+			const bool isDX = (api == NkGraphicsApi::NK_GFX_API_DX11 || api == NkGraphicsApi::NK_GFX_API_DX12);
 
+			// Miroir exact du bloc push_constant des shaders (128 octets).
 			struct PC {
-					float invW, invH, radius, yFlipUV;
+					float32 invViewProj[16];
+					float32 camPos[4]; // .w = focalY
+					float32 camFwd[4]; // .w = aspect
+					float32 p0[4];	   // invResW, invResH, rayonMonde, intensite
+					float32 p1[4];	   // yFlipUV, ndcYSign, biaisMonde, orthoFlag
 			} pc;
+			static_assert(sizeof(PC) == 128, "PC SSAO doit faire 128 octets (pipeline + shaders)");
 
-			pc.invW = ssaoW > 0 ? 1.0f / (float)ssaoW : 0.f;
-			pc.invH = ssaoH > 0 ? 1.0f / (float)ssaoH : 0.f;
-			pc.radius = mCfg.ssaoRadius > 0.f ? mCfg.ssaoRadius * 0.01f : 0.01f;
-			// SSAO sub-pass : meme convention que bloom (Y-down VK natif, Y-up GL natif).
-			pc.yFlipUV = isVK ? -1.f : +1.f;
+			memcpy(pc.invViewProj, &frame.invViewProj, sizeof(pc.invViewProj));
+			pc.camPos[0] = frame.camPos.x;
+			pc.camPos[1] = frame.camPos.y;
+			pc.camPos[2] = frame.camPos.z;
+			pc.camPos[3] = frame.focalY;
+			pc.camFwd[0] = frame.camFwd.x;
+			pc.camFwd[1] = frame.camFwd.y;
+			pc.camFwd[2] = frame.camFwd.z;
+			pc.camFwd[3] = frame.aspect > 0.f ? frame.aspect : 1.f;
+			pc.p0[0] = ssaoW > 0 ? 1.0f / (float32)ssaoW : 0.f;
+			pc.p0[1] = ssaoH > 0 ? 1.0f / (float32)ssaoH : 0.f;
+			// Rayon et biais en METRES (v1) — plus le rayon UV de la v0 : la
+			// meme config donne la meme AO quelle que soit la distance camera.
+			pc.p0[2] = mCfg.ssaoRadius > 0.f ? mCfg.ssaoRadius : 0.5f;
+			pc.p0[3] = 1.0f; // intensite (pas encore de champ config dedie)
+			pc.p1[0] = isVK ? -1.f : +1.f;
+			pc.p1[1] = isDX ? +1.f : -1.f;
+			pc.p1[2] = mCfg.ssaoBias > 0.f ? mCfg.ssaoBias : 0.025f;
+			pc.p1[3] = frame.ortho ? 1.f : 0.f;
 			cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), &pc);
 
 			cmd->Draw(3, 1, 0, 0);

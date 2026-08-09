@@ -59,9 +59,24 @@ namespace nkentseu {
 				void DrawBloomUpPass(NkICommandBuffer *cmd, NkTextureHandle src, uint32 srcW, uint32 srcH,
 									 float strength);
 
+				// Phase H.3 / v1 2026-08-09 : la SSAO reconstruit des positions
+				// MONDE depuis la profondeur — il lui faut la caméra de la frame.
+				// invViewProj doit être la matrice RÉELLEMENT utilisée par le rendu
+				// (clipZ01 + jitter compris, cf. NkRender3D::GetRenderInvViewProj) :
+				// recalculée depuis la caméra, elle divergerait en silence.
+				struct NkSSAOFrame {
+						NkMat4f invViewProj;
+						NkVec3f camPos;
+						float32 focalY = 1.f; // P11 du proj (1/tan(fovY/2) ; 1/orthoSize en ortho)
+						NkVec3f camFwd;
+						float32 aspect = 1.f;
+						bool ortho = false;
+				};
+
 				// Phase H.3 : pass SSAO (depth-only). depthSrc = HDR depth
 				// transient. ssaoW/ssaoH = dimensions du RT cible (typique W/2).
-				void DrawSSAOPass(NkICommandBuffer *cmd, NkTextureHandle depthSrc, uint32 ssaoW, uint32 ssaoH);
+				void DrawSSAOPass(NkICommandBuffer *cmd, NkTextureHandle depthSrc, uint32 ssaoW, uint32 ssaoH,
+								  const NkSSAOFrame &frame);
 
 				// Phase H.5b : blur cross-bilateral / gaussian apres GTAO pour
 				// denoise le noise du random rotation per-pixel.

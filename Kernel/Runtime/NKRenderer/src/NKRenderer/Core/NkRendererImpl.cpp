@@ -849,8 +849,24 @@ namespace nkentseu {
 				NkGraphResId depthId = mainDepth;
 				sp.Execute([this, depthId, sw, sh](NkICommandBuffer *cmd) {
 					NkTextureHandle depthTex = mRenderGraph->GetResourceTexture(depthId);
-					if (mPostProcess && depthTex.IsValid()) {
-						mPostProcess->DrawSSAOPass(cmd, depthTex, sw, sh);
+					if (mPostProcess && depthTex.IsValid() && mRender3D) {
+						// La SSAO v1 reconstruit des positions MONDE : elle recoit la
+						// camera de la frame. invViewProj vient de GetRenderInvViewProj
+						// — la matrice REELLEMENT utilisee par le rendu (clipZ01 +
+						// jitter compris), posee par UploadUBOs pendant la passe
+						// Geometry, qui s'execute AVANT celle-ci dans le graphe. La
+						// recalculer depuis la camera divergerait (pas de clipZ01).
+						const NkCamera3D &cam = mRender3D->GetSceneContext().camera;
+						NkPostProcessStack::NkSSAOFrame fr;
+						fr.invViewProj = mRender3D->GetRenderInvViewProj();
+						fr.camPos = cam.GetPosition();
+						fr.camFwd = cam.GetForward();
+						// P11 du proj SANS clipZ01 (la ligne Y n'est pas touchee par
+						// le remap Z) : 1/tan(fovY/2), ou 1/orthoSize en ortho.
+						fr.focalY = cam.GetProj()[1][1];
+						fr.aspect = cam.GetAspect();
+						fr.ortho = cam.IsOrtho();
+						mPostProcess->DrawSSAOPass(cmd, depthTex, sw, sh, fr);
 					}
 				});
 

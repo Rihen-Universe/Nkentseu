@@ -1,10 +1,17 @@
 // pp_ssao.vert.nksl — NKRenderer — SSAO VS (VRAI dialecte NkSL).
+//
+// Le bloc de push constants est PARTAGÉ avec le fragment (même déclaration,
+// même taille : 128 octets — la garantie Vulkan et 32 DWORDs de root
+// constants DX12, pile). Le VS n'en lit que p1.x (yFlipUV).
 @location(0) out vec2 vUV;
 
 layout(push_constant) uniform PC {
-    vec2  invResolution;
-    float radius;
-    float yFlipUV;
+    mat4 invViewProj;   // NDC (depth brute) -> MONDE ; matrice REELLEMENT
+                        // utilisee par la frame (clipZ01 + jitter compris)
+    vec4 camPos;        // .xyz position camera monde, .w = focalY (P11 du proj)
+    vec4 camFwd;        // .xyz avant camera monde,    .w = aspect (w/h)
+    vec4 p0;            // invResW, invResH, rayonMonde, intensite
+    vec4 p1;            // yFlipUV, ndcYSign, biaisMonde, orthoFlag
 } pc;
 
 @stage(vertex)
@@ -14,5 +21,5 @@ void main() {
                     (gl_VertexID == 2) ? 3.0 : -1.0);
     gl_Position = vec4(pos, 0.0, 1.0);
     vec2 uvBase = pos * 0.5 + 0.5;
-    vUV = (pc.yFlipUV < 0.0) ? vec2(uvBase.x, 1.0 - uvBase.y) : uvBase;
+    vUV = (pc.p1.x < 0.0) ? vec2(uvBase.x, 1.0 - uvBase.y) : uvBase;
 }
