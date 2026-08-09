@@ -156,8 +156,11 @@ namespace nkentseu {
 				uint32 bloomPasses = 6;
 				// SSAO (ground-truth ambient occlusion)
 				bool ssao = true;
-				float32 ssaoRadius = 0.5f;
+				float32 ssaoRadius = 0.5f; // en METRES depuis la v1 (rayon monde projete)
 				float32 ssaoBias = 0.025f;
+				// Poids de l'obscurance dans le tonemap. 0 = AO nulle meme si la
+				// passe tourne — le reglage honnete pour « attenuer sans couper ».
+				float32 ssaoIntensity = 1.f;
 				uint32 ssaoSamples = 32;
 				bool hbao = false; // upgrade vers HBAO (qualite > SSAO)
 				// DOF
