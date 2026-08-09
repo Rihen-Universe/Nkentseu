@@ -455,6 +455,39 @@ int nkmain(const NkEntryState &entry) {
 	recents.Load();
 	printf("[nk3d] %d projet(s) recent(s).\n", (int)recents.items.Size());
 
+	// ── CROCHETS D'AGENT (verification headless, autorisee par Rihen le
+	// 9 aout : « tester avec des scripts ou lancer directement l'application,
+	// faire des captures et analyser ») ────────────────────────────────────
+	//   NK_OPEN_RECENT=<i> : ouvre le i-eme projet recent au demarrage, par le
+	//     MEME point de passage que le double-clic de l'accueil (action 7 de
+	//     NkProjectHandlePending) — aucun second chemin d'ouverture.
+	//   NK_AGENT_SHOT=<n>  : a la frame n, declenche la capture « tutoriel »
+	//     (toute la fenetre, PNG numerote) — celle des boutons du bas.
+	//   NK_AGENT_EXIT=<n>  : a la frame n, quitte proprement (st.running).
+	// Ces crochets ne font qu'ARMER des etats que l'interface arme deja : si
+	// personne ne les pose, rien ne change.
+	int32 agentShotFrame = -1, agentExitFrame = -1, agentOpenRecent = -1;
+	{
+		if (const char *v = std::getenv("NK_OPEN_RECENT")) {
+			const int32 idx = (int32)std::atoi(v);
+			if (idx >= 0 && (usize)idx < recents.items.Size()) {
+				// PAS tout de suite : ouvrir a la frame 0 fige l'application —
+				// la restitution appelle l'hote 3D, qui ne nait qu'au premier
+				// PAINT du viewport. On attend donc qu'il soit pret (boucle),
+				// comme le fait de facto un clic humain sur l'accueil.
+				agentOpenRecent = idx;
+			} else {
+				printf("[nk3d] NK_OPEN_RECENT=%d hors bornes (%d recents)\n", idx,
+					   (int)recents.items.Size());
+			}
+		}
+		if (const char *v = std::getenv("NK_AGENT_SHOT"))
+			agentShotFrame = (int32)std::atoi(v);
+		if (const char *v = std::getenv("NK_AGENT_EXIT"))
+			agentExitFrame = (int32)std::atoi(v);
+	}
+	int32 agentFrame = 0;
+
 	// ── ENTREE SOURIS ───────────────────────────────────────────────────────
 	// NKGui calcule les TRANSITIONS (clic, relachement, double-clic) dans
 	// BeginFrame a partir de l'etat BRUT que l'application pose ici. On se
@@ -1619,6 +1652,44 @@ int nkmain(const NkEntryState &entry) {
 		} else
 			sTutoCursor.Clear(); // une prise neuve ne herite pas du geste precedent
 #endif
+
+		// ── CROCHETS D'AGENT : capture et sortie a la frame demandee ────────
+		// (cf. leur declaration pres de recents.Load() — ils ne font qu'armer
+		// ce que les boutons arment deja.)
+		++agentFrame;
+		if (agentOpenRecent >= 0 && agentFrame >= 3 && demo::Demo3DHostReady()) {
+			st.projRecent = agentOpenRecent;
+			st.projPending = 7;
+			agentOpenRecent = -1;
+		}
+		if (agentShotFrame > 0 && agentFrame == agentShotFrame)
+			st.capturePending = 2; // « tutoriel » : toute la fenetre
+		if (agentExitFrame > 0 && agentFrame >= agentExitFrame)
+			st.running = false;
+		// NK_SHADOW_QUALITY=<0..4> / NK_SHADOW_SOFT=<f> : appliques UNE fois,
+		// des que l'hote 3D existe — par le MEME setter que le panneau. Le
+		// combo du panneau est aussi aligne, sinon il repousserait son propre
+		// etat par-dessus a la frame suivante.
+		{
+			static bool sAgentShadowDone = false;
+			if (!sAgentShadowDone && demo::Demo3DHostReady()) {
+				sAgentShadowDone = true;
+				const char *q = std::getenv("NK_SHADOW_QUALITY");
+				const char *sf = std::getenv("NK_SHADOW_SOFT");
+				if (q || sf) {
+					float32 nb = 0.f, sb = 0.f, so = 0.f;
+					int32 qq = 1;
+					if (demo::Demo3DHostShadowCfg(&nb, &sb, &so, &qq)) {
+						if (q)
+							qq = (int32)std::atoi(q);
+						if (sf)
+							so = (float32)std::atof(sf);
+						demo::Demo3DHostSetShadowCfg(nb, sb, so, qq);
+						st.shadowQual = qq;
+					}
+				}
+			}
+		}
 
 		// ── CAPTURES, une fois l'image envoyee ──────────────────────────────
 		// « Capturer la vue » fige la cible hors ecran de la vue 3D (la scene
