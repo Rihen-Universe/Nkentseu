@@ -12,6 +12,7 @@
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKCode/Project/NkProcess.h"
 #include "NKCode/Project/NkEmbeddedJenga.h" // Jenga IN-PROCESS (Phase 12) : CPython embarque
+#include "NKCode/Project/NkDiagParse.h" // diagnostics structures (panneau Problemes)
 #include "NKCode/Project/NkText.h"
 #include "NKCode/Project/NkLogSink.h" // GlobalLogBuffer : traces [ac] de la completion (panneau OUTPUT)
 #include "NKCode/Editor/NkCodeEditor.h"
@@ -160,6 +161,15 @@ namespace nkentseu {
 				// (OutputPanel::ParseProgress) et par les diagnostics live des fichiers
 				// ouverts. Reinitialises au debut de chaque commande jenga. ──
 				NkVector<NkString> buildErrFiles; // chemins sources en erreur de COMPILATION
+				// ── Diagnostics STRUCTURES du dernier build (panneau Problemes) ──────
+				// Alimentes par les evenements COMPILE_ERROR / COMPILE_WARNING, dont le
+				// `message` est la sortie BRUTE du compilateur. Ne PAS les reconstituer
+				// depuis le transcript affiche : Jenga y encadre les messages et TRONQUE
+				// les chemins pour tenir dans la largeur du cadre (« P.cpp:483:6 » pour
+				// un fichier dont le nom est bien plus long, parfois meme plus de nom du
+				// tout). Un panneau bati la-dessus afficherait des chemins faux et des
+				// sauts qui echouent.
+				NkVector<NkDiagInfo> buildDiags;
 				bool errCompile = false;		  // voyant : au moins une erreur de compilation
 				bool errLink = false;			  // voyant : au moins une erreur d'edition de liens
 				bool buildHasWarn = false;		  // voyant ORANGE : le dernier build a des warnings
@@ -5087,6 +5097,34 @@ namespace nkentseu {
 					return true;
 				}
 
+				// Extrait les diagnostics d'une sortie de compilateur BRUTE (plusieurs
+				// lignes). `fallbackFile` sert quand la ligne ne porte pas de chemin
+				// exploitable — le compilateur en omet parfois pour les notes de suite.
+				void CollectDiags(const NkString &raw, const NkString &fallbackFile) {
+					const char *p = raw.CStr();
+					NkString ligne;
+					NkDiagInfo d;
+					for (;; ++p) {
+						if (*p && *p != '\n' && *p != '\r') {
+							ligne += *p;
+							continue;
+						}
+						if (!ligne.Empty() && NkParseDiagLine(ligne.CStr(), d)) {
+							if (d.file.Empty())
+								d.file = fallbackFile;
+							bool dup = false;
+							for (usize k = 0; k < buildDiags.Size() && !dup; ++k)
+								dup = buildDiags[k].line == d.line && buildDiags[k].file == d.file &&
+									  buildDiags[k].msg == d.msg;
+							if (!dup)
+								buildDiags.PushBack(d);
+						}
+						ligne.Clear();
+						if (!*p)
+							break;
+					}
+				}
+
 				// Applique un evenement de progression structure aux champs UI (remplace
 				// ParseProgress pour le chemin embarque — memes champs, zero scraping).
 				void ApplyEmbedEvent(const NkJengaProgressEvent &e) {
@@ -5102,8 +5140,13 @@ namespace nkentseu {
 							if (e.warned)
 								buildHasWarn = true;
 							break;
+						case NkJengaProgressEvent::COMPILE_WARNING:
+							buildHasWarn = true;
+							CollectDiags(e.message, e.file);
+							break;
 						case NkJengaProgressEvent::COMPILE_ERROR: {
 							errCompile = true;
+							CollectDiags(e.message, e.file);
 							bool known = false;
 							for (usize i = 0; i < buildErrFiles.Size() && !known; ++i)
 								known = StrEq(buildErrFiles[i].CStr(), e.file.CStr());
@@ -6761,6 +6804,10 @@ namespace nkentseu {
 					errLink = false;
 					buildHasWarn = false;
 					buildErrFiles.Clear();
+					// Sans cela les diagnostics du panneau Problemes s'EMPILERAIENT d'une
+					// construction a l'autre, et on croirait avoir corrige un fichier qui
+					// continue d'y figurer.
+					buildDiags.Clear();
 					mCmdLog.Clear(); // transcript de CETTE commande (-> lastBuildFail si echec)
 					mCmdLog.PushBack(NkString("$ ") + next.CStr());
 					mCmdCur = next;
