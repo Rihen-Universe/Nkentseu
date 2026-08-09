@@ -473,7 +473,91 @@ void main() {
 				return id;
 			}
 
+			void NkQwen2Gpu::ReleaseLora() {
+				for (uint32 i = 0; i < mLora.Size(); ++i)
+					for (int32 k = 0; k < NkLoraGpuSet::kCount; ++k)
+						NkLoraGpuRelease(*mLora[i].At(k));
+				mLora.Clear();
+				if (mBufLoraU != 0) {
+					NkTensorGpu::Get().DestroyBuffer(mBufLoraU);
+					mBufLoraU = 0;
+				}
+				mLoraRank = 0;
+				mHasLora = false;
+			}
+
+			// DEUX TEMPS OBLIGATOIRES : NkLoraGpuLoadNKLA REMPLIT des paires deja
+			// creees, il n'en fabrique aucune. Il faut donc les creer d'abord aux
+			// bonnes formes, lues dans l'en-tete du fichier.
+			bool NkQwen2Gpu::LoadLora(const char *nklaPath, NkString *err) {
+				if (!mLoaded) {
+					SetErr(err, "LoadLora : charger le modele de base AVANT l'adaptateur");
+					return false;
+				}
+				ReleaseLora();
+				NkLoraGpuNklaInfo info;
+				if (!NkLoraGpuInspectNKLA(nklaPath, info, err))
+					return false;
+
+				// LES DIMENSIONS DU FICHIER CONFRONTEES A CELLES DU MODELE. Un
+				// adaptateur entraine sur une autre architecture produirait des
+				// additions silencieusement fausses -- on refuse, on ne tolere pas.
+				const int32 d = (int32)mCfg.dModel;
+				const int32 qd = (int32)((int64)mCfg.nHeads * mCfg.headDim);
+				const int32 kvd = (int32)((int64)mCfg.nKVHeads * mCfg.headDim);
+				const int32 ffn = (int32)mCfg.ffnDim;
+				if (info.dModel != d || info.qDim != qd || info.kvDim != kvd || info.ffnDim != ffn) {
+					SetErr(err, "LoadLora : dimensions de l'adaptateur incompatibles avec le modele");
+					return false;
+				}
+				if (info.rank <= 0) {
+					SetErr(err, "LoadLora : rang nul dans l'en-tete du .nkla");
+					return false;
+				}
+
+				// `training = false` : ni gradients ni moments d'Adam. En inference ils
+				// ne serviraient a rien et couteraient quatre tampons par projection.
+				// La graine n'a AUCUNE importance ici : sigma vaut 0 plus bas, donc A
+				// nait a zero et sera de toute facon ecrase par le fichier. Le
+				// generateur n'est la que parce que NkLoraGpuCreate le reclame pour
+				// son usage d'entrainement.
+				NkLoraRng rng(1ull);
+				const uint32 nL = mLayers.Size();
+				mLora.Resize(nL);
+				uint64 bytes = 0;
+				// Formes des sept projections, dans l'ORDRE CANONIQUE q,k,v,o,gate,
+				// up,down -- le meme que NkLoraGpuSet::At et que le fichier.
+				const int32 outF[NkLoraGpuSet::kCount] = {qd, kvd, kvd, d, ffn, ffn, d};
+				const int32 inF[NkLoraGpuSet::kCount] = {d, d, d, qd, d, d, ffn};
+				for (uint32 i = 0; i < nL; ++i) {
+					for (int32 k = 0; k < NkLoraGpuSet::kCount; ++k) {
+						if (!NkLoraGpuCreate(*mLora[i].At(k), outF[k], inF[k], info.rank, info.alpha, 0.f,
+											 rng, false, &bytes, err)) {
+							ReleaseLora();
+							return false;
+						}
+					}
+				}
+				if (!NkLoraGpuLoadNKLA(nklaPath, mLora, &info, err)) {
+					ReleaseLora();
+					return false;
+				}
+				// Le tampon de travail suit le PLUS GRAND lot possible : Forward
+				// decoupe deja le prefill a maxBatchTokens, il ne peut pas depasser.
+				mBufLoraU = NewBuffer((uint64)mOpt.maxBatchTokens * (uint64)info.rank * sizeof(float32),
+									  mStats.scratchBytes);
+				if (mBufLoraU == 0) {
+					SetErr(err, "LoadLora : tampon de travail impossible a allouer");
+					ReleaseLora();
+					return false;
+				}
+				mLoraRank = info.rank;
+				mHasLora = true;
+				return true;
+			}
+
 			void NkQwen2Gpu::Release() {
+				ReleaseLora();
 				NkTensorGpu &gpu = NkTensorGpu::Get();
 				auto kill = [&gpu](uint64 &b) {
 					if (b != 0) {
@@ -924,6 +1008,20 @@ void main() {
 					ok = ok && Matmul(L.wq, mBufXn, mBufQ, T, err);
 					ok = ok && Matmul(L.wk, mBufXn, mBufK, T, err);
 					ok = ok && Matmul(L.wv, mBufXn, mBufV, T, err);
+					// LE DELTA LoRA S'AJOUTE AU PRODUIT QUANTIFIE. NkLoraGpuForward
+					// accumule EN PLACE (y += scale * (x.At).Bt) : on lui passe donc les
+					// MEMES tampons d'entree et de sortie que le matmul qui vient de
+					// s'executer. Le socle quantifie n'est pas touche, et sans adaptateur
+					// charge il ne se passe rigoureusement rien.
+					if (mHasLora) {
+						NkLoraGpuSet &LA = mLora[l];
+						if (!NkLoraGpuForward(LA.q, mBufXn, mBufQ, T, mBufLoraU, err))
+						return false;
+						if (!NkLoraGpuForward(LA.k, mBufXn, mBufK, T, mBufLoraU, err))
+						return false;
+						if (!NkLoraGpuForward(LA.v, mBufXn, mBufV, T, mBufLoraU, err))
+						return false;
+					}
 					if (ok) {
 						zero();
 						p[0] = (uint32)(T * qd);
@@ -1021,6 +1119,9 @@ void main() {
 
 					// --- projection de sortie + résiduel ---
 					ok = ok && Matmul(L.wo, mBufCtx, mBufAttn, T, err);
+					if (mHasLora)
+						if (!NkLoraGpuForward(mLora[l].o, mBufCtx, mBufAttn, T, mBufLoraU, err))
+						return false;
 					if (ok) {
 						zero();
 						p[0] = (uint32)(T * d);
@@ -1037,12 +1138,22 @@ void main() {
 					}
 					ok = ok && Matmul(L.wGate, mBufXn, mBufGate, T, err);
 					ok = ok && Matmul(L.wUp, mBufXn, mBufUp, T, err);
+					if (mHasLora) {
+						NkLoraGpuSet &LA = mLora[l];
+						if (!NkLoraGpuForward(LA.gate, mBufXn, mBufGate, T, mBufLoraU, err))
+						return false;
+						if (!NkLoraGpuForward(LA.up, mBufXn, mBufUp, T, mBufLoraU, err))
+						return false;
+					}
 					if (ok) {
 						zero();
 						p[0] = (uint32)(T * ffn);
 						ok = gpu.RunOp3("qwen2_swiglu", SrcSwiGlu(), mBufGate, mBufUp, mBufAct, p, p[0]);
 					}
 					ok = ok && Matmul(L.wDown, mBufAct, mBufDown, T, err);
+					if (mHasLora)
+						if (!NkLoraGpuForward(mLora[l].down, mBufAct, mBufDown, T, mBufLoraU, err))
+						return false;
 					if (ok) {
 						zero();
 						p[0] = (uint32)(T * d);

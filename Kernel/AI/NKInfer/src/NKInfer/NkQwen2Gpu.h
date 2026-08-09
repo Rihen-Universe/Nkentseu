@@ -61,6 +61,7 @@
 #include "NKInfer/NkQ4KGpu.h"
 #include "NKInfer/NkQ6KGpu.h"
 #include "NKInfer/NkQwen2Block.h"
+#include "NKInfer/NkLoraGpu.h" // adaptateur applique A L'EXECUTION (cf. LoadLora)
 
 namespace nkentseu {
 	namespace ai {
@@ -217,6 +218,34 @@ namespace nkentseu {
 								  float64 *outPrefillSeconds = nullptr, float64 *outMsPerToken = nullptr,
 								  NkString *err = nullptr);
 
+				// ---- ADAPTATEUR LoRA, DANS LE CHEMIN RAPIDE ------------------
+					// POURQUOI ICI ET PAS DANS NkQwen2LoraGpu : ce chemin-la n'a PAS de
+					// KV-cache, donc il recalcule tout le prefixe a chaque token -- en
+					// O(n^2). Mesure : 823 s pour 120 tokens, contre 0,5 s/token ici.
+					// Un modele affine qu'on ne peut pas interroger ne se juge pas.
+					//
+					// ON NE FUSIONNE PAS `W + (alpha/r)·B·A` DANS LES POIDS, et c'est un
+					// choix : les poids de base sont QUANTIFIES en VRAM (Q4_K/Q6_K),
+					// c'est meme ce qui fait tenir le 7B. Fusionner imposerait de
+					// dequantifier, additionner, requantifier -- on perdrait la
+					// precision ET le matmul fuse. On ajoute donc le delta A
+					// L'EXECUTION, a cote du produit quantifie : deux produits de rang 8
+					// contre une matrice 3584x3584, le surcout est negligeable. Les
+					// poids de base restent intacts, et l'adaptateur se change sans
+					// recharger le 7B.
+					//
+					// Charge un `.nkla` produit par NKQwen2Train. Rang et dimensions
+					// sont RELUS du fichier et confrontes au modele : toute incoherence
+					// est un refus, jamais une tolerance.
+					bool LoadLora(const char *nklaPath, NkString *err = nullptr);
+					void ReleaseLora();
+					bool HasLora() const {
+						return mHasLora;
+					}
+					int32 LoraRank() const {
+						return mLoraRank;
+					}
+
 				private:
 					// Upload d'un tenseur du GGUF, dans SON format d'origine.
 					bool UploadQuant(const NkGGUFTensorInfo &info, NkQwen2GpuWeight &out, NkString *err);
@@ -252,6 +281,18 @@ namespace nkentseu {
 					uint64 mBufScores = 0, mBufProbs = 0;
 					uint64 mBufGate = 0, mBufUp = 0, mBufAct = 0;
 					uint64 mBufLast = 0, mBufLogits = 0, mBufRope = 0;
+
+					// ---- LoRA optionnel ------------------------------------------
+					// Un jeu par couche, dans l'ordre canonique q,k,v,o,gate,up,down.
+					// Une paire invalide = pas d'adaptateur sur cette projection : le
+					// socle passe seul, sans branche a l'execution.
+					NkVector<NkLoraGpuSet> mLora;
+					// Tampon de travail des projections LoRA : T·r flottants. UN SEUL
+					// pour les sept projections -- r vaut 8, et elles ne se chevauchent
+					// jamais dans le temps.
+					uint64 mBufLoraU = 0;
+					int32 mLoraRank = 0;
+					bool mHasLora = false;
 
 					int64 mVocabSize = 0;
 					int32 mCacheLen = 0;
