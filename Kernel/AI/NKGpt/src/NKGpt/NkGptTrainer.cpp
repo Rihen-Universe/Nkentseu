@@ -3,6 +3,7 @@
 // AUTEUR : Rihen — LICENCE : Propriétaire - usage régi par le fichier LICENSE à la racine du dépôt
 // =============================================================================
 #include "NKGpt/NkGptTrainer.h"
+#include "NKData/NkBpeTrainer.h" // tokenizer pré-entraîné (LoadBpe) + encodeur à mémo
 #include "NKOptim/NkOptim.h"
 #include "NKTensor/NkTensorGpu.h"
 #include "NKTime/NkChrono.h"
@@ -32,7 +33,13 @@ namespace nkentseu {
 			// texts (par langue) -> mLangData/mLangMask, avec le BPE courant. Masque la question des
 			// blocs "Question:/Réponse:" (instruction-tuning : seule la réponse compte dans la loss).
 			nk_size NkGptTrainer::EncodeCorpus(const NkVector<NkString> &texts) {
-				const NkStringView marker("Réponse: ");
+				const NkString markerStr = mCfg.qaMarker.Empty() ? NkString("Réponse: ") : mCfg.qaMarker;
+				const NkStringView marker(markerStr.CStr());
+				// Encodeur à mémo : sur un corpus de plusieurs dizaines de Mo, le même mot
+				// est ré-encodé des millions de fois pour un résultat identique. Sans le
+				// mémo, l'encodage du corpus coûte plus cher que plusieurs pas
+				// d'entraînement. Résultat strictement identique (vérifié par NKBpeTest).
+				data::NkBpeEncoder enc(mBpe);
 				mLangData.Resize((nk_size)texts.Size());
 				mLangMask.Resize((nk_size)texts.Size());
 				nk_size totalTok = 0;
@@ -41,7 +48,7 @@ namespace nkentseu {
 					const bool isQa = txt.Find(marker) != NkString::npos;
 					if (!isQa) {
 						NkVector<int32> ids;
-						mBpe.Encode(txt, ids);
+						enc.Encode(txt, ids);
 						for (int64 k = 0; k < (int64)ids.Size(); ++k) {
 							mLangData[(nk_size)li].PushBack((float)ids[(nk_size)k]);
 							mLangMask[(nk_size)li].PushBack(1.f);
@@ -59,7 +66,7 @@ namespace nkentseu {
 							const nk_size mp = block.Find(marker);
 							NkString qPart = (mp == NkString::npos) ? block : block.SubStr(0, mp + marker.Size());
 							NkVector<int32> qIds;
-							mBpe.Encode(qPart, qIds);
+							enc.Encode(qPart, qIds);
 							for (int64 k = 0; k < (int64)qIds.Size(); ++k) {
 								mLangData[(nk_size)li].PushBack((float)qIds[(nk_size)k]);
 								mLangMask[(nk_size)li].PushBack(0.f);
@@ -68,7 +75,7 @@ namespace nkentseu {
 								NkString aPart = block.SubStr(mp + marker.Size());
 								if (aPart.Size() > 0) {
 									NkVector<int32> aIds;
-									mBpe.Encode(aPart, aIds);
+									enc.Encode(aPart, aIds);
 									for (int64 k = 0; k < (int64)aIds.Size(); ++k) {
 										mLangData[(nk_size)li].PushBack((float)aIds[(nk_size)k]);
 										mLangMask[(nk_size)li].PushBack(1.f);
@@ -76,7 +83,7 @@ namespace nkentseu {
 								}
 							}
 							NkVector<int32> sepIds;
-							mBpe.Encode(NkString("\n\n"), sepIds);
+							enc.Encode(NkString("\n\n"), sepIds);
 							for (int64 k = 0; k < (int64)sepIds.Size(); ++k) {
 								mLangData[(nk_size)li].PushBack((float)sepIds[(nk_size)k]);
 								mLangMask[(nk_size)li].PushBack(0.f);
@@ -84,6 +91,25 @@ namespace nkentseu {
 						}
 					}
 					totalTok += mLangData[(nk_size)li].Size();
+				}
+
+				// Le masquage question/réponse repose sur DEUX conditions muettes : que le
+				// marqueur figure tel quel dans le texte, et que les blocs soient séparés
+				// par une ligne vide en « \n\n » (un corpus Windows en « \r\n\r\n » n'en
+				// produit qu'un seul, énorme). Si l'une des deux manque, l'entraînement se
+				// déroule normalement — sur la mauvaise cible. On mesure donc la part
+				// réellement masquée au lieu de la supposer.
+				{
+					nk_size actifs = 0, total = 0;
+					for (int64 li = 0; li < (int64)mLangMask.Size(); ++li)
+						for (int64 k = 0; k < (int64)mLangMask[(nk_size)li].Size(); ++k) {
+							++total;
+							if (mLangMask[(nk_size)li][(nk_size)k] != 0.f)
+								++actifs;
+						}
+					if (mCfg.verbose && total > 0)
+						logger.Info("Masquage (marqueur « {0} ») : {1}% des positions comptent dans la perte.",
+									markerStr.CStr(), 100.0 * (double)actifs / (double)total);
 				}
 
 				// Split held-out : réserve la QUEUE de chaque langue au val (jamais vue à l'entraînement).
@@ -228,6 +254,28 @@ namespace nkentseu {
 					for (int64 i = 0; i < (int64)meta.merges.Size(); ++i)
 						mBpe.merges.PushBack(meta.merges[(nk_size)i]);
 					mBpe.BuildVocabRank();
+					// Le checkpoint « NKGP » ne transporte PAS le mode de pré-tokenisation
+					// (format antérieur à son existence). Un modèle entraîné avec un
+					// découpage mots/ponctuation et rechargé sans cette information
+					// encoderait ses invites autrement qu'à l'entraînement — sans erreur
+					// visible, juste des réponses incohérentes. Le fichier tokenizer, lui,
+					// le porte : quand il est fourni, il fait autorité.
+					if (!mCfg.bpePath.Empty()) {
+						Bpe fromFile;
+						if (!data::LoadBpe(mCfg.bpePath.CStr(), fromFile)) {
+							logger.Info("Tokenizer illisible : {0}", mCfg.bpePath.CStr());
+							return false;
+						}
+						if (fromFile.merges.Size() != mBpe.merges.Size()) {
+							logger.Info("Tokenizer et checkpoint incompatibles : {0} fusions contre {1}.",
+										(unsigned long long)fromFile.merges.Size(),
+										(unsigned long long)mBpe.merges.Size());
+							return false;
+						}
+						mBpe.pretok = fromFile.pretok;
+						if (V)
+							logger.Info("Mode de pre-tokenisation repris du tokenizer : {0}.", mBpe.pretok);
+					}
 					mNByte = mBpe.Base();
 					if (V)
 						logger.Info(
@@ -254,9 +302,22 @@ namespace nkentseu {
 						logger.Info("Corpus introuvable/trop court.");
 						return false;
 					}
-					if (V)
-						logger.Info("Entraînement du tokenizer BPE ({0} fusions cible)...", mCfg.merges);
-					TrainBpe(texts, mCfg.merges, mBpe);
+					if (!mCfg.bpePath.Empty()) {
+						// Tokenizer pré-entraîné : on ne le ré-apprend pas. C'est ce qui rend
+						// praticable un vocabulaire de 16 k et, surtout, ce qui garantit qu'un
+						// entraînement repris plus tard découpe le texte EXACTEMENT pareil.
+						if (!data::LoadBpe(mCfg.bpePath.CStr(), mBpe)) {
+							logger.Info("Tokenizer illisible : {0}", mCfg.bpePath.CStr());
+							return false;
+						}
+						if (V)
+							logger.Info("Tokenizer charge : {0} ({1} fusions, mode pretok {2}).", mCfg.bpePath.CStr(),
+										(unsigned long long)mBpe.merges.Size(), mBpe.pretok);
+					} else {
+						if (V)
+							logger.Info("Entraînement du tokenizer BPE ({0} fusions cible)...", mCfg.merges);
+						TrainBpe(texts, mCfg.merges, mBpe);
+					}
 					mNByte = mBpe.Base();
 					mV = mNByte + (int)mLangs.Size();
 					const nk_size totalTok = EncodeCorpus(texts);
