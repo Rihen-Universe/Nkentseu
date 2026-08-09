@@ -178,6 +178,26 @@ namespace nkentseu {
 						return autograd::Add(x1, mo); // résiduel
 					}
 
+					// Identique à Forward, mais rend AUSSI les activations cachées du MLP
+					// ([B·T, 4d], après GELU). Additif : Forward n'est pas touché.
+					// Motif : comparer deux réseaux par ce que leurs unités FONT, et non
+					// par ce à quoi leurs poids ressemblent, demande de pouvoir observer
+					// ces activations. Recopier le calcul dans l'application le ferait
+					// diverger du modèle au premier changement ; on l'expose donc ici.
+					NkVar ForwardCapture(const NkVar &x, NkTensor *mlpCache) const {
+						const NkShape xs = x.Value().Shape();
+						const int64 B = xs[0], T = xs[1], d = xs[2];
+						NkVar a = mAttn.Forward(mLn1.Forward(x));
+						NkVar x1 = autograd::Add(x, a);
+						NkVar n = mLn2.Forward(x1);
+						NkVar f = autograd::Reshape(n, NkShape{B * T, d});
+						NkVar hid = autograd::Gelu(mFc1.Forward(f)); // [B*T, 4d]
+						if (mlpCache)
+							*mlpCache = hid.Value().ToCPU().Contiguous().Clone();
+						NkVar mo = autograd::Reshape(mFc2.Forward(hid), NkShape{B, T, d});
+						return autograd::Add(x1, mo);
+					}
+
 					// Un pas incrémental (KV-cache) : x = [B,1,d], caches K/V de cette couche.
 					NkVar ForwardStep(const NkVar &x, NkTensor &kC, NkTensor &vC) const {
 						const NkShape xs = x.Value().Shape();
@@ -255,6 +275,42 @@ namespace nkentseu {
 						x = mLnf.Forward(x);
 						NkVar f = autograd::Reshape(x, NkShape{B * T, (int64)mD});
 						return mHead.Forward(f); // [B*T, vocab]
+					}
+
+					// Identique à Forward, mais collecte en plus les ACTIVATIONS :
+					//   `residus`  : le flux résiduel [B·T, d] à l'entrée du 1er bloc puis
+					//                à la sortie de chacun (donc nLayers+1 relevés) ;
+					//   `mlpCache` : les activations cachées du MLP [B·T, 4d] par bloc.
+					// Additif : `Forward` est inchangé, et rien de ceci n'entre dans le
+					// graphe de gradient — ce sont des copies CPU, pour observation.
+					NkVar ForwardCapture(const NkTensor &tokens, NkVector<NkTensor> *residus,
+										 NkVector<NkTensor> *mlpCache) const {
+						const int64 B = tokens.Shape()[0], T = tokens.Shape()[1];
+						NkVar te = autograd::Embedding(mTokEmb, tokens);
+						NkTensor posIdx = NkTensor::Zeros(NkShape{B, T});
+						{
+							float *p = posIdx.DataAs<float>();
+							for (int64 b = 0; b < B; ++b)
+								for (int64 t = 0; t < T; ++t)
+									p[b * T + t] = (float)t;
+						}
+						NkVar pe = autograd::Embedding(mPosEmb, posIdx);
+						NkVar x = autograd::Add(te, pe);
+						auto releve = [&](const NkVar &v) {
+							if (residus)
+								residus->PushBack(v.Value().ToCPU().Contiguous().Clone());
+						};
+						releve(x);
+						for (uint32 l = 0; l < mBlocks.Size(); ++l) {
+							NkTensor h;
+							x = mBlocks[l].ForwardCapture(x, mlpCache ? &h : nullptr);
+							if (mlpCache)
+								mlpCache->PushBack(h);
+							releve(x);
+						}
+						x = mLnf.Forward(x);
+						NkVar f = autograd::Reshape(x, NkShape{B * T, (int64)mD});
+						return mHead.Forward(f);
 					}
 
 					// Décodage INCRÉMENTAL avec KV-cache : traite UN token (id) à la position
