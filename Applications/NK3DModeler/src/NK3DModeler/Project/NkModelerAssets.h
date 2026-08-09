@@ -644,6 +644,77 @@ namespace nkentseu {
 			cam.SetFloat32("tangage", cp[5]);
 			cam.SetBool("ortho", st.docCamOrtho[d]);
 			o.SetObject("vue", cam);
+			// LES REGLAGES DU PANNEAU RENDU VOYAGENT AVEC LA SCENE (Rihen,
+			// 9 aout : ils n'etaient pas restaures au rechargement). Ils sont
+			// GLOBAUX a la vue 3D — la derniere scene restauree les pose, ce
+			// qui est le comportement attendu d'un projet a une scene.
+			{
+				NkArchive r;
+				r.SetFloat32("ambiance", demo::Demo3DHostAmbient());
+				float32 ac[3] = {1.f, 1.f, 1.f};
+				demo::Demo3DHostAmbientColor(ac);
+				NkScSetVec3(r, "ambianceCouleur", ac);
+				bool sOn = false;
+				float32 sc3[3] = {0.f, 0.f, 0.f}, sy = 0.f, sr = 0.f, stl = 1.f, smt = 0.f;
+				int32 sp = 0;
+				demo::Demo3DHostFloor(&sOn, sc3, &sy, &sr, &sp, &stl, &smt);
+				NkArchive sol;
+				sol.SetBool("actif", sOn);
+				NkScSetVec3(sol, "couleur", sc3);
+				sol.SetFloat32("hauteur", sy);
+				sol.SetFloat32("rugosite", sr);
+				sol.SetInt32("motif", sp);
+				sol.SetFloat32("carreau", stl);
+				sol.SetFloat32("metallique", smt);
+				r.SetObject("sol", sol);
+				bool bOn = false;
+				float32 bc[3] = {0.f, 0.f, 0.f}, bd = 0.f, bs = 0.f, be = 0.f;
+				int32 bm = 0;
+				demo::Demo3DHostFog(&bOn, bc, &bd, &bs, &be, &bm);
+				NkArchive br;
+				br.SetBool("actif", bOn);
+				NkScSetVec3(br, "couleur", bc);
+				br.SetFloat32("densite", bd);
+				br.SetFloat32("debut", bs);
+				br.SetFloat32("fin", be);
+				br.SetInt32("loi", bm);
+				float32 gb = 0.f, gt = 0.f, gw = 0.f;
+				bool gc = true;
+				demo::Demo3DHostFogGround(&gb, &gt, &gw, &gc);
+				br.SetFloat32("nappeAltitude", gb);
+				br.SetFloat32("nappeEpaisseur", gt);
+				br.SetFloat32("nappeSouffle", gw);
+				br.SetBool("nappeSuitNuages", gc);
+				r.SetObject("brouillard", br);
+				float32 onb = 0.f, osb = 0.f, oso = 0.f;
+				int32 oq = 1;
+				if (demo::Demo3DHostShadowCfg(&onb, &osb, &oso, &oq)) {
+					NkArchive om;
+					om.SetFloat32("biaisNormal", onb);
+					om.SetFloat32("biaisPente", osb);
+					om.SetFloat32("douceur", oso);
+					om.SetInt32("qualite", oq);
+					r.SetObject("ombres", om);
+				}
+				bool aoOn = false;
+				float32 aoR = 0.5f, aoI = 1.f;
+				demo::Demo3DHostSSAO(&aoOn, &aoR, &aoI);
+				NkArchive ao;
+				ao.SetBool("actif", aoOn);
+				ao.SetFloat32("rayon", aoR);
+				ao.SetFloat32("intensite", aoI);
+				r.SetObject("occlusion", ao);
+				float32 pe = 1.f, pt = 0.85f, ps = 1.5f;
+				bool pb = true;
+				demo::Demo3DHostPostFx(&pe, &pb, &pt, &ps);
+				NkArchive fx;
+				fx.SetFloat32("exposition", pe);
+				fx.SetBool("bloom", pb);
+				fx.SetFloat32("seuil", pt);
+				fx.SetFloat32("intensite", ps);
+				r.SetObject("expositionBloom", fx);
+				o.SetObject("rendu", r);
+			}
 			// SES noeuds, et EUX SEULS : ceux dont la scene hote est la sienne, en
 			// ecartant les archives (qui sont des assets, pas des objets poses).
 			const int32 host = (int32)st.docScene[d];
@@ -681,6 +752,61 @@ namespace nkentseu {
 				st.docCamSet[d] = NkScBool(cam, "posee", false);
 			}
 			demo::Demo3DHostSetActiveScene((int32)st.docScene[d]);
+			// LES REGLAGES DU PANNEAU RENDU, si la scene les porte. Un fichier
+			// anterieur au 9 aout n'a pas ce bloc : on ne touche a RIEN (les
+			// valeurs courantes restent), au lieu d'imposer des defauts.
+			{
+				NkArchive r;
+				if (in.GetObject("rendu", r)) {
+					demo::Demo3DHostSetAmbient(NkScFloat(r, "ambiance", demo::Demo3DHostAmbient()));
+					float32 ac[3];
+					NkScGetVec3(r, "ambianceCouleur", ac, 1.f, 1.f, 1.f);
+					demo::Demo3DHostSetAmbientColor(ac);
+					NkArchive sol;
+					if (r.GetObject("sol", sol)) {
+						float32 sc3[3];
+						NkScGetVec3(sol, "couleur", sc3, 0.55f, 0.55f, 0.55f);
+						demo::Demo3DHostSetFloor(
+							NkScBool(sol, "actif", false), sc3, NkScFloat(sol, "hauteur", 0.f),
+							NkScFloat(sol, "rugosite", 0.9f), NkScInt(sol, "motif", 0),
+							NkScFloat(sol, "carreau", 1.f), NkScFloat(sol, "metallique", 0.f));
+					}
+					NkArchive br;
+					if (r.GetObject("brouillard", br)) {
+						float32 bc[3];
+						NkScGetVec3(br, "couleur", bc, 0.65f, 0.71f, 0.78f);
+						demo::Demo3DHostSetFog(NkScBool(br, "actif", false), bc,
+											   NkScFloat(br, "densite", 0.02f),
+											   NkScFloat(br, "debut", 10.f),
+											   NkScFloat(br, "fin", 60.f), NkScInt(br, "loi", 0));
+						demo::Demo3DHostSetFogGround(NkScFloat(br, "nappeAltitude", 0.f),
+													 NkScFloat(br, "nappeEpaisseur", 0.f),
+													 NkScFloat(br, "nappeSouffle", 0.f),
+													 NkScBool(br, "nappeSuitNuages", true));
+					}
+					NkArchive om;
+					if (r.GetObject("ombres", om)) {
+						demo::Demo3DHostSetShadowCfg(NkScFloat(om, "biaisNormal", 0.f),
+													 NkScFloat(om, "biaisPente", 0.f),
+													 NkScFloat(om, "douceur", 0.002f),
+													 NkScInt(om, "qualite", 1));
+						st.shadowQual = NkScInt(om, "qualite", 1);
+					}
+					NkArchive ao;
+					if (r.GetObject("occlusion", ao)) {
+						demo::Demo3DHostSetSSAO(NkScBool(ao, "actif", false),
+												NkScFloat(ao, "rayon", 0.5f),
+												NkScFloat(ao, "intensite", 1.f));
+					}
+					NkArchive fx;
+					if (r.GetObject("expositionBloom", fx)) {
+						demo::Demo3DHostSetPostFx(NkScFloat(fx, "exposition", 1.f),
+												  NkScBool(fx, "bloom", true),
+												  NkScFloat(fx, "seuil", 0.85f),
+												  NkScFloat(fx, "intensite", 1.5f));
+					}
+				}
+			}
 			NkAsNodesRestore(in, root, st, false, nodeMiss, nullptr, orphanFix);
 		}
 

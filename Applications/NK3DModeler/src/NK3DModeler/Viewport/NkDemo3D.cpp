@@ -6201,8 +6201,14 @@ namespace nkentseu {
 				st->lightsInit = true;
 
 				// [0] Soleil directionnel
+				// LES QUATRE LUMIERES DE LA DEMO restent en loi HERITEE : leurs
+				// intensites (3/12/2.5/8) ont ete reglees a l'oeil pour elle —
+				// en loi physique (le defaut depuis le 10 aout) ce serait la
+				// quasi-obscurite. Les lumieres UTILISATEUR, elles, naissent en
+				// physique a leur puissance de reference.
 				NkLightDesc &sun = st->lights[0];
 				sun = NkLightDesc{};
+				sun.attenuationMode = 0;
 				sun.type = NkLightType::NK_DIRECTIONAL;
 				sun.direction = {-0.4f, -1.f, -0.3f};
 				sun.color = {1.f, 0.95f, 0.85f};
@@ -6215,6 +6221,7 @@ namespace nkentseu {
 				// au soleil et au spot. Legerement haute pour ne pas etre dans le sol.
 				NkLightDesc &redLight = st->lights[1];
 				redLight = NkLightDesc{};
+				redLight.attenuationMode = 0; // demo : reglee a l'oeil en loi heritee
 				redLight.type = NkLightType::NK_POINT;
 				redLight.position = {3.f, 2.5f, 0.f};
 				redLight.color = {1.f, 0.2f, 0.1f};
@@ -6231,6 +6238,7 @@ namespace nkentseu {
 				// [2] Fill bleue
 				NkLightDesc &blue = st->lights[2];
 				blue = NkLightDesc{};
+				blue.attenuationMode = 0; // demo : reglee a l'oeil en loi heritee
 				blue.type = NkLightType::NK_POINT;
 				blue.position = {-2.f, 1.f, 1.f};
 				blue.color = {0.2f, 0.5f, 1.f};
@@ -6242,6 +6250,7 @@ namespace nkentseu {
 				// [3] Spot avec cookie procedural « barreaux » projete au sol.
 				NkLightDesc &spot = st->lights[3];
 				spot = NkLightDesc{};
+				spot.attenuationMode = 0; // demo : reglee a l'oeil en loi heritee
 				spot.type = NkLightType::NK_SPOT;
 				spot.position = {3.f, 4.f, 0.f};
 				spot.direction = (NkVec3f{0.f, 0.f, 0.f} - spot.position).Normalized();
@@ -14096,6 +14105,10 @@ namespace nkentseu {
 						L0.color = {1.f, 1.f, 1.f};
 						L0.position = {3.f, 4.f, 2.5f};
 						L0.cookieIdx = -1; // couleur pure par defaut
+						// Loi PHYSIQUE des la naissance (decision du 10 aout) :
+						// la ponctuelle du trio part a sa reference, 1000 W.
+						L0.attenuationMode = 1;
+						L0.intensity = 1000.f;
 						nkvpUserLight[nLit - kNkvpFirstUser] = L0;
 						nkvpUserSub[nLit - kNkvpFirstUser] = 1;
 						const int32 e0 = nLit - kNkvpFirstEmpty;
@@ -16013,8 +16026,16 @@ namespace nkentseu {
 				// en blanc, au point qu'on ne distinguait plus les faces du cube
 				// (constate par Rihen). Chaque type repart donc de SA valeur de
 				// reference, comme dans Blender.
+				//
+				// EN LOI PHYSIQUE (le defaut depuis le 10 aout), la reference
+				// est en WATTS : 1000 pour les sources locales, 5 pour le
+				// Soleil (decision de Rihen — une directionnelle n'est pas en
+				// watts, sa valeur est une irradiance). Loi heritee : les
+				// anciennes references, reglees a l'oeil.
+				const bool phys = nkvpUserLight[u].attenuationMode == 1;
 				static const float32 kDefIntensity[4] = {3.f, 8.f, 8.f, 6.f};
-				nkvpUserLight[u].intensity = kDefIntensity[t];
+				static const float32 kDefWatts[4] = {5.f, 1000.f, 1000.f, 1000.f};
+				nkvpUserLight[u].intensity = phys ? kDefWatts[t] : kDefIntensity[t];
 			}
 		}
 		bool Demo3DHostMeshParams(int32 node, int32 *segs, int32 *rings, float32 *aux) {
@@ -16095,6 +16116,13 @@ namespace nkentseu {
 				L.type = (decltype(L.type))(sub & 3);
 				L.direction = {0.f, -1.f, 0.f};
 				L.cookieIdx = -1; // COULEUR PURE par defaut (pas de texture heritee)
+				// UNE LUMIERE NEUVE NAIT EN LOI PHYSIQUE (decision de Rihen,
+				// 10 aout), a la puissance de reference : 1000 W, sauf le
+				// Soleil a 5 (sa valeur est une irradiance, pas des watts) —
+				// PAS l'intensite du gabarit, reglee pour la loi heritee.
+				L.attenuationMode = 1;
+				static const float32 kNewWatts[4] = {5.f, 1000.f, 1000.f, 1000.f};
+				L.intensity = kNewWatts[sub & 3];
 				nkvpUserLight[n - kNkvpFirstUser] = L;
 			}
 			return n;
