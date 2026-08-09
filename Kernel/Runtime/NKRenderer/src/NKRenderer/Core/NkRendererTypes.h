@@ -341,6 +341,16 @@ namespace nkentseu {
 				float32 outerAngle = 35.f; // degres (cone exterieur — fade to 0)
 				float32 areaWidth = 1.f;
 				float32 areaHeight = 1.f;
+				// ── Loi d'attenuation (2026-08-09, decision de Rihen) ─────────
+				//   0 = HERITEE : (1 - d/portee)^2. Non physique — changer la
+				//       portee change la luminosite PARTOUT — mais c'est ce que
+				//       toutes les scenes existantes ont regle a l'oeil.
+				//   1 = PHYSIQUE : 1/d^2 fenetre (UE/Blender). La luminosite a
+				//       une distance donnee ne depend PAS de la portee ; la
+				//       portee ne fait que couper. C'est ce qui rend une unite
+				//       d'intensite utilisable et comparable a Blender.
+				// Au choix PAR LUMIERE, comme Unreal ; defaut inchange.
+				int32 attenuationMode = 0;
 				// ── Temperature de couleur et exposition (2026-08) ────────────
 				// Deux reglages qu'attend tout eclairagiste, et qui manquaient :
 				//   temperatureK : blanc de reference en kelvins (1000..12000).
