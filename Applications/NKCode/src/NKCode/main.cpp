@@ -15,6 +15,7 @@
 #include "NKCode/Shell/ScaffoldPanels.h"
 #include "NKCode/Shell/NkProblemsPanel.h"
 #include "NKCode/Shell/NkGitPanel.h"
+#include "NKCode/Shell/NkDebugPanel.h"
 #include "NKCode/Shell/NkAiPanel.h"
 #include "NKCode/Shell/NkHome.h"
 #include "NKCode/Shell/NkAppFonts.h"
@@ -121,7 +122,9 @@ int nkmain(const NkEntryState &state) {
 	// Panneau Git REEL (roadmap #9) : branche, fichiers modifies, indexation,
 	// validation et historique — tout vient de commandes git reelles.
 	static nkcode::NkGitPanel pGit(&g_state);
-	static ScaffoldPanel pDebug("Debogueur", NkEditorDockSide::NK_LEFT, "Maquette - roadmap #10", sc::kDebug, 2);
+	// Panneau Debogueur : points d'arret REELS. Variables/pile/threads restent
+	// absents faute de session GDB pilotee — le panneau le dit lui-meme.
+	static nkcode::NkDebugPanel pDebug(&g_state);
 	static ScaffoldPanel pBuild("Build & Taches", NkEditorDockSide::NK_BOTTOM, "Maquette - roadmap #14", sc::kBuild, 1);
 	static ScaffoldPanel pDbgConsole("Console de debogage", NkEditorDockSide::NK_BOTTOM, "Maquette", sc::kDbgConsole, 1);
 	static ScaffoldPanel pTests("Tests", NkEditorDockSide::NK_BOTTOM, "Maquette", sc::kTests, 1);
