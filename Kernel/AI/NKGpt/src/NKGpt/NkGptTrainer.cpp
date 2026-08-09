@@ -63,24 +63,45 @@ namespace nkentseu {
 							pos = (be == NkString::npos) ? sz : be + 2;
 							if (block.Size() == 0)
 								continue;
-							const nk_size mp = block.Find(marker);
-							NkString qPart = (mp == NkString::npos) ? block : block.SubStr(0, mp + marker.Size());
-							NkVector<int32> qIds;
-							enc.Encode(qPart, qIds);
-							for (int64 k = 0; k < (int64)qIds.Size(); ++k) {
-								mLangData[(nk_size)li].PushBack((float)qIds[(nk_size)k]);
-								mLangMask[(nk_size)li].PushBack(0.f);
-							}
-							if (mp != NkString::npos) {
-								NkString aPart = block.SubStr(mp + marker.Size());
-								if (aPart.Size() > 0) {
-									NkVector<int32> aIds;
-									enc.Encode(aPart, aIds);
-									for (int64 k = 0; k < (int64)aIds.Size(); ++k) {
-										mLangData[(nk_size)li].PushBack((float)aIds[(nk_size)k]);
-										mLangMask[(nk_size)li].PushBack(1.f);
-									}
+
+							// Un bloc peut contenir PLUSIEURS tours, pas un seul. On alterne
+							// donc : tout ce qui va jusqu'au marqueur de réponse INCLUS est
+							// masqué (c'est la question), tout ce qui suit jusqu'au tour
+							// suivant compte dans la perte (c'est la réponse).
+							// SANS cette alternance, la version précédente comptait dans la
+							// perte TOUT ce qui suit la première réponse — donc les questions
+							// suivantes de l'utilisateur : le modèle apprendrait à les écrire
+							// à sa place. Sur un corpus à un seul tour, ce code fait
+							// exactement ce que faisait l'ancien (la boucle ne tourne qu'une
+							// fois), la non-régression est donc structurelle.
+							auto emettre = [&](const NkString &s, float masque) {
+								if (s.Size() == 0)
+									return;
+								NkVector<int32> ids;
+								enc.Encode(s, ids);
+								for (int64 k = 0; k < (int64)ids.Size(); ++k) {
+									mLangData[(nk_size)li].PushBack((float)ids[(nk_size)k]);
+									mLangMask[(nk_size)li].PushBack(masque);
 								}
+							};
+							const nk_size blen2 = block.Size();
+							nk_size bp = 0;
+							while (bp < blen2) {
+								const nk_size mp = block.Find(markerStr.CStr(), bp);
+								if (mp == NkString::npos) {
+									emettre(block.SubStr(bp), 0.f); // question sans réponse
+									break;
+								}
+								emettre(block.SubStr(bp, mp + marker.Size() - bp), 0.f);
+								bp = mp + marker.Size();
+								// Le tour suivant commence par un « Question: » EN DÉBUT DE
+								// LIGNE — chercher « Question: » seul le trouverait aussi au
+								// milieu d'une réponse qui en parle.
+								const nk_size nq = block.Find("\nQuestion:", bp);
+								const nk_size fin = (nq == NkString::npos) ? blen2 : nq;
+								if (fin > bp)
+									emettre(block.SubStr(bp, fin - bp), 1.f);
+								bp = fin;
 							}
 							NkVector<int32> sepIds;
 							enc.Encode(NkString("\n\n"), sepIds);
