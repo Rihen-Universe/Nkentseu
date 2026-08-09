@@ -707,14 +707,11 @@ namespace nkentseu {
 			// shader recevait le meme code pour les trois et n'avait donc AUCUN
 			// moyen de varier son noyau (constate par Rihen : « toutes les
 			// qualites fournissent la meme chose »).
-			//   1 = PCF 3x3   2 = PCF 5x5   3 = Poisson 12
-			// PCSS (4) est ANNONCE mais pas ECRIT : il exige un echantillonnage
-			// NON comparatif de l'atlas, absent du chemin DX11. Plutot que de
-			// faire semblant, il est replie sur Poisson — le combo du modeleur
-			// le dit. (NONE (0) n'arrive pas ici : aucune tuile n'est allouee.)
+			//   1 = PCF 3x3   2 = PCF 5x5   3 = Poisson 12   4 = PCSS
+			// PCSS (2026-08-09) : l'echantillonnage non comparatif manquant est
+			// arrive (tShadowAtlasRaw, binding 12) — le mode part tel quel.
+			// (NONE (0) n'arrive pas ici : aucune tuile n'est allouee.)
 			int32 softMode = int32(mCfg.quality);
-			if (mCfg.quality == NkVSMShadowQuality::PCSS)
-				softMode = int32(NkVSMShadowQuality::POISSON);
 			// globalCfg.z = depthRemap : 1.0 si la matrice d'ombre produit un Z en [-1,1]
 			// (OpenGL, le shader doit faire p.z*0.5+0.5) ; 0.0 si deja en [0,1] (VK/DX, on a
 			// baked clipZ01 dans renderMatrix -> le shader NE doit PAS refaire le remap).

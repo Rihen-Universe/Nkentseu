@@ -178,6 +178,50 @@ float NkSampleShadowTile(int slotIdx, vec3 worldPos, float bias, vec3 dWdx, vec3
     // echouer fxc (X3570). Les boucles de noyau, elles, sont a compte CONSTANT.
     int mode = int(uShadows.globalCfg.y);
     float s = 0.0;
+    if (mode == 4) {
+        // ── PCSS (NVIDIA 2005) : LE DURCISSEMENT AU CONTACT ─────────────────
+        // Une vraie source a une taille : l'ombre est NETTE la ou l'objet
+        // touche le recepteur et s'elargit avec la distance au bloqueur.
+        // Trois temps :
+        // 1) RECHERCHE DE BLOQUEURS en lecture BRUTE (tShadowAtlasRaw, non
+        //    comparative — c'est ce qui manquait au chemin DX11) : profondeur
+        //    moyenne de ce qui est plus pres de la lumiere que le plan du
+        //    recepteur, dans un rayon = la taille de source (Douceur). Le
+        //    biais rasterizer POSITIF stocke la surface du recepteur DERRIERE
+        //    elle-meme : elle ne se compte pas comme son propre bloqueur.
+        vec2 searchR = pcfStep; // Douceur = taille angulaire de la source
+        float zBlk = 0.0;
+        float nBlk = 0.0;
+        for (int i = 0; i < 12; i++) {
+            vec2 uv = clamp(atlasUV + kNkShadowPoisson12[i] * searchR,
+                            tileUV.xy + ts, tileUV.zw - ts);
+            vec2 duv = uv - atlasUV;
+            float zPlane = p.z + clamp(zu * duv.x + zv * duv.y, -0.005, 0.005);
+            float zs = textureLod(tShadowAtlasRaw, uv, 0.0).r;
+            if (zs < zPlane - 2e-4) {
+                zBlk += zs;
+                nBlk += 1.0;
+            }
+        }
+        if (nBlk < 0.5)
+            return 1.0; // aucun bloqueur dans le rayon : pleine lumiere
+        zBlk /= nBlk;
+        // 2) LARGEUR DE PENOMBRE ~ (zR - zB)/zB x taille de source (formule
+        //    PCSS). En z projectif c'est une approximation (exacte en ortho),
+        //    mais MONOTONE : elle tend vers ZERO au contact — l'effet cherche,
+        //    celui qui « colle » les ombres au pied des objets chez Blender.
+        float pen = clamp((p.z - zBlk) / max(zBlk, 1e-3), 0.0, 1.0);
+        vec2 rad = max(ts, searchR * pen);
+        // 3) PCF Poisson 12 au rayon module, comparatif + plan recepteur.
+        for (int i = 0; i < 12; i++) {
+            vec2 uv = clamp(atlasUV + kNkShadowPoisson12[i] * rad,
+                            tileUV.xy + ts, tileUV.zw - ts);
+            vec2 duv = uv - atlasUV;
+            float dz = clamp(zu * duv.x + zv * duv.y, -0.005, 0.005);
+            s += textureLod(tShadowAtlas, vec3(uv, p.z + dz), 0.0);
+        }
+        return s / 12.0;
+    }
     if (mode == 2) {
         // PCF 5x5 : 25 taps dans la meme portee (pas divise par deux).
         vec2 h = pcfStep * 0.5;
