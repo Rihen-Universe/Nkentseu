@@ -15824,6 +15824,38 @@ namespace nkentseu {
 			pp.ssaoIntensity = intensity < 0.f ? 0.f : (intensity > 4.f ? 4.f : intensity);
 			hst.ctx.renderer->SetPostConfig(pp);
 		}
+		// ── EXPOSITION & BLOOM (2026-08-09) ─────────────────────────────────
+		// Les reglages existaient dans NkPostConfig depuis le debut, aucun
+		// panneau ne les proposait — un spot surpuissant faisait un halo geant
+		// sans qu'on puisse ni baisser l'exposition ni relever le seuil.
+		// Meme regle que la SSAO : la config du renderer fait foi.
+		void Demo3DHostPostFx(float32 *exposure, bool *bloomOn, float32 *bloomThr,
+							  float32 *bloomStr) {
+			const bool ok = hst.ctx.renderer != nullptr;
+			const renderer::NkPostConfig pp =
+				ok ? hst.ctx.renderer->GetConfig().postProcess : renderer::NkPostConfig{};
+			if (exposure)
+				*exposure = pp.exposure;
+			if (bloomOn)
+				*bloomOn = pp.bloom;
+			if (bloomThr)
+				*bloomThr = pp.bloomThreshold;
+			if (bloomStr)
+				*bloomStr = pp.bloomStrength;
+		}
+		void Demo3DHostSetPostFx(float32 exposure, bool bloomOn, float32 bloomThr,
+								 float32 bloomStr) {
+			if (!hst.ctx.renderer)
+				return;
+			renderer::NkPostConfig pp = hst.ctx.renderer->GetConfig().postProcess;
+			pp.exposure = exposure < 0.01f ? 0.01f : (exposure > 16.f ? 16.f : exposure);
+			pp.bloom = bloomOn;
+			// Seuil : en HDR il peut (et devrait souvent) depasser 1.0 — seuls
+			// les pixels REELLEMENT brillants irradient (LearnOpenGL, Bloom).
+			pp.bloomThreshold = bloomThr < 0.f ? 0.f : (bloomThr > 16.f ? 16.f : bloomThr);
+			pp.bloomStrength = bloomStr < 0.f ? 0.f : (bloomStr > 8.f ? 8.f : bloomStr);
+			hst.ctx.renderer->SetPostConfig(pp);
+		}
 		// ── NAPPE AU SOL (height fog) et son SOUFFLE ────────────────────────
 		void Demo3DHostFogGround(float32 *base, float32 *thickness, float32 *wind,
 								 bool *fromClouds) {

@@ -528,6 +528,12 @@ namespace nkentseu {
 		// 0..4 (0 = passe active mais muette). La config du renderer fait foi.
 		void Demo3DHostSSAO(bool *on, float32 *radius, float32 *intensity);
 		void Demo3DHostSetSSAO(bool on, float32 radius, float32 intensity);
+		// Exposition (multiplicateur HDR avant tonemap) et bloom (actif, seuil
+		// de luminance — peut depasser 1 en HDR —, intensite). Panneau Rendu.
+		void Demo3DHostPostFx(float32 *exposure, bool *bloomOn, float32 *bloomThr,
+							  float32 *bloomStr);
+		void Demo3DHostSetPostFx(float32 exposure, bool bloomOn, float32 bloomThr,
+								 float32 bloomStr);
 		// Sol infini (option) : plan de sol recepteur d'ombres, couleur /
 		// hauteur / rugosite -- distinct de la grille. Motif : 0 uni,
 		// 1 damier, 2 carreaux a joints ; taille du carreau en metres.
