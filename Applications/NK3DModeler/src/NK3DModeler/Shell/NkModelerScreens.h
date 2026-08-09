@@ -8470,14 +8470,14 @@ namespace nkentseu {
 							// CINQ crans, comme l'enum moteur : avec 4, « Penombre
 								// (PCSS) » etait l'index 3, c'est-a-dire POISSON --
 								// le vrai PCSS etait inatteignable.
-								// « a venir » : le PCSS exige un echantillonnage NON
-								// comparatif de l'atlas, absent du chemin DX11 — le
-								// moteur le replie sur Poisson en attendant, et le
-								// libelle le DIT plutot que de faire semblant.
+								// PCSS reel depuis le 9 aout (echantillonnage brut de
+								// l'atlas au binding 12) : ombre NETTE au contact,
+								// penombre qui grandit avec la distance au bloqueur.
+								// En mode Penombre, « Douceur » = taille de la source.
 								static const char *const kQ[5] = {"Aucune", "Douce (PCF 3)",
 															  "Douce (PCF 5)",
 															  "Poisson (grain doux)",
-															  "Penombre (a venir = Poisson)"};
+															  "Penombre (PCSS)"};
 							p.TextV(iR.x, yy, kRowH, "Qualite", NkRole::TextMuted);
 							Combo(p, hit, ws, "prop.sh.q",
 								  {svX, yy + S(2.f), svW, kRowH - S(4.f)}, kQ, nullptr, 5,
