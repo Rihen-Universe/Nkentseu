@@ -61,6 +61,17 @@ with project("NKBpeTest"):
                 _WIN_LINKS.extend(_GLSLANG_LIBS_WINDOWS)
         links(_WIN_LINKS)
 
+        # Runtime C++/GCC EN STATIQUE. Sans cela l'exe (chaine ucrt64) charge
+        # libstdc++/libgcc/libwinpthread depuis le PATH ; si /mingw64/bin y passe
+        # avant /c/msys64/ucrt64/bin, il obtient un runtime bati sur msvcrt alors
+        # qu'il libere via ucrtbase -> DEUX TAS. Le symptome n'est pas un echec de
+        # chargement mais une corruption bien plus tard, dans glslang, au premier
+        # noyau compute compile (constate 2026-08-09 : toute la voie GPU de NKAI
+        # mourait en silence). Ces deux drapeaux rendent l'exe autonome.
+        # Ne PAS ajouter -static seul ni -fuse-ld=lld : cela casse la selection lld.
+        if _IS_MINGW:
+            ldflags(["-static-libstdc++", "-static-libgcc"])
+
     with filter("config:Debug"):
         defines(["_DEBUG", "DEBUG"])
         optimize("Off")
