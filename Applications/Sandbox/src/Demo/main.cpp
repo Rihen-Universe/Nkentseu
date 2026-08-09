@@ -388,8 +388,19 @@ namespace nkentseu {
 // =============================================================================
 int nkmain(const NkEntryState &state) {
 	// ── Parse args ───────────────────────────────────────────────────────────
+	// NK_DEFAULT_DEMO : demo de repli quand AUCUN canal de selection runtime
+	// n'existe. C'est le cas de HarmonyOS NEXT : le sandbox ne monte pas
+	// /data/local/tmp (les fichiers kDemoFiles y sont invisibles, verifie sur
+	// l'emulateur — Permission denied meme pour hdc, qui n'est pas root), et le
+	// NDK public n'expose aucune API de parametre systeme (pas d'equivalent au
+	// __system_property_get d'Android). La voie propre — passer la demo par le
+	// Want d'`aa start` et la relayer ArkTS -> NAPI — exige de generer
+	// EntryAbility.ets nous-memes : chantier « tout depuis Jenga », a venir.
+#ifndef NK_DEFAULT_DEMO
+	#define NK_DEFAULT_DEMO 0
+#endif
 	NkGraphicsApi api = ParseBackend(state.GetArgs());
-	int demoIx = ParseDemo(state.GetArgs(), 0);
+	int demoIx = ParseDemo(state.GetArgs(), NK_DEFAULT_DEMO);
 #if defined(NKENTSEU_PLATFORM_ANDROID)
 	// Assets APK : les shaders sont packages par jenga (androidassets, cf.
 	// RendererSandbox.jenga) RELATIVEMENT a Resources/NKRenderer/Shaders/ ->
