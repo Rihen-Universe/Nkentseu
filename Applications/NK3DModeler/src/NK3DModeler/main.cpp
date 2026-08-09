@@ -1690,6 +1690,26 @@ int nkmain(const NkEntryState &entry) {
 				}
 			}
 		}
+		// NK_MAT_SURFACE="cc,ccRough,sss" : physique de surface du materiau par
+		// defaut, par le MEME setter que le panneau. Applique une fois, APRES
+		// l'eventuelle ouverture de projet (frame 10) : la relecture d'un
+		// .nkmat repasserait par-dessus.
+		{
+			static bool sAgentMatDone = false;
+			if (!sAgentMatDone && agentFrame >= 10 && demo::Demo3DHostReady()) {
+				sAgentMatDone = true;
+				if (const char *v = std::getenv("NK_MAT_SURFACE")) {
+					float32 cc = 0.f, ccR = 0.f, sss = 0.f;
+					std::sscanf(v, "%f,%f,%f", &cc, &ccR, &sss);
+					// TOUS les emplacements utilises : l'agent ne sait pas lequel
+					// porte le cube de la scene, et un reglage de test n'a pas a
+					// le deviner.
+					const int32 mx = demo::Demo3DHostProjMatMax();
+					for (int32 m = 0; m < mx; ++m)
+						demo::Demo3DHostProjMatSetSurface(m, cc, ccR, sss);
+				}
+			}
+		}
 
 		// ── CAPTURES, une fois l'image envoyee ──────────────────────────────
 		// « Capturer la vue » fige la cible hors ecran de la vue 3D (la scene

@@ -274,6 +274,15 @@ namespace nkentseu {
 			NkScSetVec3(o, "albedo", alb);
 			o.SetFloat32("rugosite", rough);
 			o.SetFloat32("metallique", metal);
+			// Physique de surface (2026-08-09). Ecrites MEME a zero : un fichier
+			// qui tait un champ oblige le lecteur a deviner le defaut.
+			{
+				float32 cc = 0.f, ccR = 0.f, sss = 0.f;
+				demo::Demo3DHostProjMatSurface(slot, &cc, &ccR, &sss);
+				o.SetFloat32("vernis", cc);
+				o.SetFloat32("vernisRugosite", ccR);
+				o.SetFloat32("diffusion", sss);
+			}
 			float32 nrm = 1.f, emiS = 1.f;
 			demo::Demo3DHostProjMatChanStrength(slot, &nrm, &emiS);
 			o.SetFloat32("relief", nrm);
@@ -303,6 +312,12 @@ namespace nkentseu {
 			NkScGetVec3(in, "albedo", alb, 0.7f, 0.7f, 0.7f);
 			demo::Demo3DHostProjMatSetParams(slot, alb, NkScFloat(in, "rugosite", 0.85f),
 											 NkScFloat(in, "metallique", 0.f));
+			// Physique de surface : defaut 0 — un .nkmat ecrit avant le 9 aout
+			// n'a pas ces champs, et un materiau sans vernis ni diffusion est
+			// exactement ce qu'il decrivait.
+			demo::Demo3DHostProjMatSetSurface(slot, NkScFloat(in, "vernis", 0.f),
+											  NkScFloat(in, "vernisRugosite", 0.f),
+											  NkScFloat(in, "diffusion", 0.f));
 			// LES INTENSITES AVANT LES CARTES : poser une normal map relit
 			// l'intensite de relief au moment ou elle est posee. Dans l'autre ordre,
 			// la carte serait branchee avec l'ancienne valeur.

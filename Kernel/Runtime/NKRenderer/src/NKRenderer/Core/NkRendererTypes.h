@@ -534,6 +534,17 @@ namespace nkentseu {
 				float32 metallic = 0.f;
 				float32 roughness = 0.5f;
 				float32 aoStrength = 1.f;
+				// Physique de surface (2026-08-09) : le shader PBR calculait DEJA le
+				// vernis et la diffusion (uObj.clearcoat / uObj.subsurface) mais rien
+				// ne les alimentait par drawcall — seul un vrai NkMaterialInstance le
+				// pouvait, et les materiaux de projet du modeleur passent par ICI.
+				float32 clearcoat = 0.f;	  // vernis : intensite de la couche
+				float32 clearcoatRough = 0.f; // rugosite du vernis
+				float32 subsurface = 0.f;	  // diffusion sous la surface (wrap)
+				// La couleur de diffusion MULTIPLIE la contribution : a zero, le
+				// reglage serait muet — blanc par defaut, l'appelant peut la teinter
+				// (typiquement avec l'albedo).
+				NkVec3f subsurfaceColor = {1.f, 1.f, 1.f};
 				NkAABB aabb; // world-space, pour culling
 				bool castShadow = true;
 				bool receiveShadow = true;
