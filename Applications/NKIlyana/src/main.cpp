@@ -27,6 +27,7 @@
 // AUTEUR : Rihen — LICENCE : Propriétaire - usage régi par le fichier LICENSE à la racine du dépôt
 // =============================================================================
 #include "NkIlyanaIdentite.h"
+#include "NkIlyanaDialogues.h"
 #include "NkIlyanaTri.h"
 
 #include "NKGpt/NkGptTrainer.h"
@@ -191,7 +192,41 @@ static int ModeData(int argc, char **argv) {
 	NkString bacs[3];
 	int64 compte[3] = {0, 0, 0};
 	int64 nettoyes = 0;
+	int64 blocsGroupes = 0, dialoguesSynthetiques = 0;
 	{
+		// Regroupement en dialogues. Les paires produites par le generateur se
+		// suivent PAR THEME (elles ont ete engendrees par lots) : enchainer trois
+		// paires consecutives donne donc un echange a peu pres coherent, sans
+		// avoir a mesurer la moindre similarite. On n'en groupe qu'UN TIERS : si
+		// tout le corpus devenait multi-tours, elle n'apprendrait plus a repondre
+		// a une question posee seule.
+		const int kTaille = 3;
+		NkString tampon[3][kTaille];
+		int nTampon[3] = {0, 0, 0};
+		int64 groupe[3] = {0, 0, 0};
+
+		auto viderTampon = [&](int b) {
+			if (nTampon[b] == 0)
+				return;
+			const bool enDialogue = (nTampon[b] == kTaille) && (groupe[b] % 3 == 0);
+			if (enDialogue) {
+				for (int i = 0; i < nTampon[b]; ++i) {
+					bacs[b].Append(tampon[b][i]);
+					bacs[b].Append("\n"); // simple retour : on reste DANS le meme bloc
+				}
+				bacs[b].Append("\n"); // ligne vide = fin du dialogue
+				++dialoguesSynthetiques;
+				blocsGroupes += nTampon[b];
+			} else {
+				for (int i = 0; i < nTampon[b]; ++i) {
+					bacs[b].Append(tampon[b][i]);
+					bacs[b].Append("\n\n");
+				}
+			}
+			++groupe[b];
+			nTampon[b] = 0;
+		};
+
 		nk_size pos = 0;
 		const nk_size n = brut.Size();
 		while (pos < n) {
@@ -205,12 +240,18 @@ static int ModeData(int argc, char **argv) {
 			bloc = RetirerTiretsFinaux(bloc);
 			if (bloc.Size() != avant)
 				++nettoyes;
-			const ilyana::Bac b = ilyana::Classer(bloc);
-			bacs[(int)b].Append(bloc);
-			bacs[(int)b].Append("\n\n");
-			++compte[(int)b];
+			const int b = (int)ilyana::Classer(bloc);
+			tampon[b][nTampon[b]] = bloc;
+			++nTampon[b];
+			++compte[b];
+			if (nTampon[b] == kTaille)
+				viderTampon(b);
 		}
+		for (int b = 0; b < 3; ++b)
+			viderTampon(b);
 	}
+	logger.Info("dialogues   : {0} paires regroupees en {1} echanges a plusieurs tours (un tiers des paires)",
+				(long long)blocsGroupes, (long long)dialoguesSynthetiques);
 	logger.Info("nettoyage   : {0} blocs debarrasses d'un « --- » final du generateur", (long long)nettoyes);
 	const int64 total = compte[0] + compte[1] + compte[2];
 	logger.Info("tri         : {0} paires -> verifiable {1} ({2}%), quarantaine {3} ({4}%), neutre {5} ({6}%)",
@@ -225,9 +266,12 @@ static int ModeData(int argc, char **argv) {
 	// ---- Identité --------------------------------------------------------
 	NkString identite;
 	const int64 pairesIdent = ilyana::EcrireIdentite(identite, repetitions);
+	// Les echanges a plusieurs tours SUR ELLE-MEME : c'est la seule matiere sur
+	// laquelle elle sait quelque chose, donc la seule ou tenir un fil a du sens.
+	const int64 toursDlg = ilyana::EcrireDialogues(identite, repetitions);
 	EcrireFichier(Joindre(sortie, "identite.txt").CStr(), identite);
-	logger.Info("identite    : {0} paires ecrites ({1} octets, {2} repetitions)", (long long)pairesIdent,
-				(unsigned long long)identite.Size(), repetitions);
+	logger.Info("identite    : {0} paires + {1} tours de dialogue ({2} octets, {3} repetitions)",
+				(long long)pairesIdent, (long long)toursDlg, (unsigned long long)identite.Size(), repetitions);
 
 	// ---- Assemblage du corpus d'entraînement ------------------------------
 	// L'identité vient EN TÊTE : les premières séquences vues comptent, et cela
