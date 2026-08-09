@@ -28,6 +28,7 @@
 // =============================================================================
 #include "NkIlyanaIdentite.h"
 #include "NkIlyanaDialogues.h"
+#include "NkIlyanaValeurs.h"
 #include "NkIlyanaTri.h"
 
 #include "NKGpt/NkGptTrainer.h"
@@ -269,9 +270,26 @@ static int ModeData(int argc, char **argv) {
 	// Les echanges a plusieurs tours SUR ELLE-MEME : c'est la seule matiere sur
 	// laquelle elle sait quelque chose, donc la seule ou tenir un fil a du sens.
 	const int64 toursDlg = ilyana::EcrireDialogues(identite, repetitions);
-	EcrireFichier(Joindre(sortie, "identite.txt").CStr(), identite);
-	logger.Info("identite    : {0} paires + {1} tours de dialogue ({2} octets, {3} repetitions)",
-				(long long)pairesIdent, (long long)toursDlg, (unsigned long long)identite.Size(), repetitions);
+	// La charte : dire « je ne sais pas », tenir ferme SANS s'enteter, refuser de
+	// juger la sincerite de quiconque, respecter, connaitre ses limites.
+	ilyana::EquilibreCharte eq;
+	const int64 toursVal = ilyana::EcrireValeurs(identite, repetitions, &eq);
+	if (!EcrireFichier(Joindre(sortie, "identite.txt").CStr(), identite)) {
+		// Une ecriture qui echoue en silence (dossier de sortie inexistant) laisse
+		// croire que le corpus est pret alors qu'il n'existe pas.
+		logger.Info("ERREUR : ecriture impossible dans {0} — le dossier existe-t-il ?", sortie);
+		return 1;
+	}
+	logger.Info("identite    : {0} paires + {1} tours de dialogue + {2} tours de charte ({3} octets)",
+				(long long)pairesIdent, (long long)toursDlg, (long long)toursVal,
+				(unsigned long long)identite.Size());
+	// L'equilibre de la charte est ce qui distingue la fermete de l'entetement :
+	// on le MESURE au lieu de le supposer. Un desequilibre marque signifierait
+	// qu'on remplace un defaut par son symetrique.
+	logger.Info("charte      : {0} tours de FERMETE (contredite a tort) contre {1} d'HUMILITE "
+				"(contredite a raison) — rapport {2}",
+				(long long)eq.fermete, (long long)eq.humilite,
+				eq.humilite ? (double)eq.fermete / (double)eq.humilite : 0.0);
 
 	// ---- Assemblage du corpus d'entraînement ------------------------------
 	// L'identité vient EN TÊTE : les premières séquences vues comptent, et cela
