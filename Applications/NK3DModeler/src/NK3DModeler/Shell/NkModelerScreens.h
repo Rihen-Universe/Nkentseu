@@ -9462,6 +9462,40 @@ namespace nkentseu {
 									   kRowH - S(6.f)},
 									  mtl, 0.005f, NkRole::AccentUi, "%.2f");
 							yy += kRowH;
+							// ── PHYSIQUE DE SURFACE (passation §5, « gain le moins
+							// cher ») : le shader calcule vernis et diffusion depuis
+							// longtemps, seuls ces curseurs manquaient. La rugosite du
+							// vernis n'apparait QUE si le vernis existe — un curseur
+							// sans effet est pire qu'un curseur absent (regle du
+							// projet). La couleur de diffusion suit l'albedo.
+							{
+								float32 cc = 0.f, ccR = 0.f, sss = 0.f;
+								demo::Demo3DHostProjMatSurface(selMat, &cc, &ccR, &sss);
+								const float32 cc0 = cc, ccR0 = ccR, sss0 = sss;
+								p.TextV(iR.x, yy, kRowH, "Vernis", NkRole::TextMuted);
+								DragFloat(p, hit, ws, in, "props.pm.cc",
+										  {iR.x + S(110.f), yy + S(3.f), iR.w - S(110.f),
+										   kRowH - S(6.f)},
+										  cc, 0.005f, NkRole::AccentUi, "%.2f");
+								yy += kRowH;
+								if (cc > 0.f) {
+									p.TextV(iR.x, yy, kRowH, "Vernis rugosite",
+											NkRole::TextMuted);
+									DragFloat(p, hit, ws, in, "props.pm.ccr",
+											  {iR.x + S(110.f), yy + S(3.f),
+											   iR.w - S(110.f), kRowH - S(6.f)},
+											  ccR, 0.005f, NkRole::AccentUi, "%.2f");
+									yy += kRowH;
+								}
+								p.TextV(iR.x, yy, kRowH, "Diffusion", NkRole::TextMuted);
+								DragFloat(p, hit, ws, in, "props.pm.sss",
+										  {iR.x + S(110.f), yy + S(3.f), iR.w - S(110.f),
+										   kRowH - S(6.f)},
+										  sss, 0.005f, NkRole::AccentUi, "%.2f");
+								yy += kRowH;
+								if (cc != cc0 || ccR != ccR0 || sss != sss0)
+									demo::Demo3DHostProjMatSetSurface(selMat, cc, ccR, sss);
+							}
 							if (colCh || alb[0] != a0 || alb[1] != a1 || alb[2] != a2 ||
 								rgh != r0 || mtl != m0)
 								demo::Demo3DHostProjMatSetParams(selMat, alb, rgh, mtl);
@@ -9484,6 +9518,8 @@ namespace nkentseu {
 						if (NkGrpWants(st, "prop.g.mat", 3)) {
 							const float32 g5[3] = {0.7f, 0.7f, 0.7f};
 							demo::Demo3DHostProjMatSetParams(selMat, g5, 0.85f, 0.f);
+							// Un materiau neuf n'a ni vernis ni diffusion.
+							demo::Demo3DHostProjMatSetSurface(selMat, 0.f, 0.f, 0.f);
 							// REINITIALISER retire les QUATRE canaux : n'en
 							// oublier qu'un laisserait un relief ou un emissif
 							// invisible dans un materiau cense etre neuf.

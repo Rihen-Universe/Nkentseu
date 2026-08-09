@@ -881,6 +881,13 @@ namespace nkentseu {
 				char maps[kNkvpMatChanCount][260];
 				float32 albedo[3];
 				float32 rough, metal;
+				// PHYSIQUE DE SURFACE (2026-08-09) : vernis et diffusion — le shader
+				// les calculait depuis longtemps, le panneau ne les proposait pas
+				// (passation §5 : « gain le moins cher »). La couleur de diffusion
+				// suit l'albedo : c'est la matiere elle-meme qui transmet sa teinte.
+				float32 clearcoat;	// 0..1
+				float32 ccRough;	// rugosite du vernis, 0..1
+				float32 subsurface; // 0..1
 				// INTENSITES des canaux qui en ont une : le relief se dose (0 =
 				// normale ignoree, 1 = pleine), l'emissif aussi. Sans texture,
 				// elles n'ont pas d'effet -- c'est voulu, pas un oubli.
@@ -916,6 +923,13 @@ namespace nkentseu {
 					dc.tint.z = nkvpProjMats[pm].albedo[2];
 					dc.metallic = nkvpProjMats[pm].metal;
 					dc.roughness = nkvpProjMats[pm].rough;
+					// Physique de surface : la couleur de diffusion suit l'albedo
+					// (la matiere transmet sa propre teinte, pas du blanc).
+					dc.clearcoat = nkvpProjMats[pm].clearcoat;
+					dc.clearcoatRough = nkvpProjMats[pm].ccRough;
+					dc.subsurface = nkvpProjMats[pm].subsurface;
+					dc.subsurfaceColor = {nkvpProjMats[pm].albedo[0], nkvpProjMats[pm].albedo[1],
+										  nkvpProjMats[pm].albedo[2]};
 				}
 			}
 			if (nkvpMatMask[i] & 1) {
@@ -13285,6 +13299,12 @@ namespace nkentseu {
 				m.albedo[0] = m.albedo[1] = m.albedo[2] = 0.7f;
 				m.rough = 0.85f;
 				m.metal = 0.f;
+				// Physique de surface neutre : ni vernis ni diffusion sur un
+				// materiau neuf (l'emplacement peut etre REUTILISE apres une
+				// suppression — l'init statique du tableau ne suffit pas).
+				m.clearcoat = 0.f;
+				m.ccRough = 0.f;
+				m.subsurface = 0.f;
 				// Intensites NEUTRES : relief a pleine echelle (une normal map
 				// posee doit se voir telle qu'elle est), emissif a 1 mais avec
 				// une teinte NOIRE -- un materiau neuf n'emet rien.
@@ -13358,6 +13378,27 @@ namespace nkentseu {
 			}
 			m.rough = rough < 0.f ? 0.f : (rough > 1.f ? 1.f : rough);
 			m.metal = metal < 0.f ? 0.f : (metal > 1.f ? 1.f : metal);
+		}
+		// ── PHYSIQUE DE SURFACE : vernis + diffusion (2026-08-09) ────────────
+		// A part de SetParams : les appelants historiques (collage de groupe,
+		// reinitialisation) ne connaissent que albedo/rugosite/metallique, et
+		// changer leur signature les aurait tous forces a se prononcer.
+		void Demo3DHostProjMatSurface(int32 i, float32 *cc, float32 *ccRough, float32 *sss) {
+			const bool ok = (i >= 0 && i < kNkvpMaxProjMats && nkvpProjMats[i].used);
+			if (cc)
+				*cc = ok ? nkvpProjMats[i].clearcoat : 0.f;
+			if (ccRough)
+				*ccRough = ok ? nkvpProjMats[i].ccRough : 0.f;
+			if (sss)
+				*sss = ok ? nkvpProjMats[i].subsurface : 0.f;
+		}
+		void Demo3DHostProjMatSetSurface(int32 i, float32 cc, float32 ccRough, float32 sss) {
+			if (i < 0 || i >= kNkvpMaxProjMats || !nkvpProjMats[i].used)
+				return;
+			NkVpProjMat &m = nkvpProjMats[i];
+			m.clearcoat = cc < 0.f ? 0.f : (cc > 1.f ? 1.f : cc);
+			m.ccRough = ccRough < 0.f ? 0.f : (ccRough > 1.f ? 1.f : ccRough);
+			m.subsurface = sss < 0.f ? 0.f : (sss > 1.f ? 1.f : sss);
 		}
 		void Demo3DHostProjMatSetName(int32 i, const char *name) {
 			if (i < 0 || i >= kNkvpMaxProjMats || !nkvpProjMats[i].used || !name || !name[0])

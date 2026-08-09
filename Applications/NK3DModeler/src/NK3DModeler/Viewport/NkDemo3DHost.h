@@ -222,6 +222,11 @@ namespace nkentseu {
 		void Demo3DHostProjMatDelete(int32 i);
 		bool Demo3DHostProjMatInfo(int32 i, char *name, uint32 cap, float32 *albedo3,
 								   float32 *rough, float32 *metal);
+		// Physique de surface (vernis 0..1, sa rugosite, diffusion 0..1). A part
+		// de SetParams pour ne pas forcer ses appelants historiques. La couleur
+		// de diffusion suit l'albedo (posee par le hook de drawcall).
+		void Demo3DHostProjMatSurface(int32 i, float32 *cc, float32 *ccRough, float32 *sss);
+		void Demo3DHostProjMatSetSurface(int32 i, float32 cc, float32 ccRough, float32 sss);
 		void Demo3DHostProjMatSetParams(int32 i, const float32 *albedo3, float32 rough,
 										float32 metal);
 		void Demo3DHostProjMatSetName(int32 i, const char *name);

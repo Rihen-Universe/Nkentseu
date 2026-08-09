@@ -1693,6 +1693,13 @@ namespace nkentseu {
 				ob.aoStrength = dc.aoStrength;
 				ob.emissiveStrength = 0.f;				 // emissive via materiau (v1)
 				ob.normalStrength = matInst ? 1.f : 0.f; // normal map si materiau
+				// Meme alimentation que le chemin forward : les deux chemins doivent
+				// montrer la meme matiere.
+				ob.clearcoat = dc.clearcoat;
+				ob.clearcoatRough = dc.clearcoatRough;
+				ob.subsurface = dc.subsurface;
+				ob.subsurfaceColor =
+					NkVec4f{dc.subsurfaceColor.x, dc.subsurfaceColor.y, dc.subsurfaceColor.z, 1.f};
 				ob.shadowOverrides = NkVec4f{1.f, 0.f, 1.f, 0.f};
 
 				NkBufferHandle ubo = mUBOObjectPool[mFrameSlot][mObjectDrawIdx];
@@ -2761,7 +2768,13 @@ namespace nkentseu {
 				ob.aoStrength = dc.aoStrength;
 				ob.emissiveStrength = 0.f;
 				ob.normalStrength = 1.f;
-				// clearcoat / subsurface : 0 par defaut (zero-init via ObjBlock{}).
+				// Physique de surface par drawcall (2026-08-09) : le shader les
+				// calculait deja, seul le canal d'alimentation manquait.
+				ob.clearcoat = dc.clearcoat;
+				ob.clearcoatRough = dc.clearcoatRough;
+				ob.subsurface = dc.subsurface;
+				ob.subsurfaceColor =
+					NkVec4f{dc.subsurfaceColor.x, dc.subsurfaceColor.y, dc.subsurfaceColor.z, 1.f};
 
 				// NkVSM v1 : copie les shadow overrides depuis le material.
 				//   .x = receiveShadow (default 1.0 = receive)
