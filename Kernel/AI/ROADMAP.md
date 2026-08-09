@@ -1022,6 +1022,22 @@ n'y couvre que des adaptateurs LoRA sur un socle **gelé**, donc rien pour entra
 - Chemin **CPU** pour l'instant (aller-retour en préservant le device, comme les autres ops sans
   noyau dédié). Les noyaux GPU viendront ; la correction des mathématiques d'abord.
 
+✅ **Assemblées en un bloc utilisable** — `NKNN/NkLlama.h` (fichier NEUF, additif : rien n'est
+touché dans `NkTransformer.h`, qui a entraîné les paliers 1-3) : `nn::NkRMSNorm`,
+`nn::NkRoPEAttention` (rotation appliquée à Q et K, jamais à V), `nn::NkSwiGLUMlp` (largeur
+cachée 8/3·d — trois matrices au lieu de deux, donc à nombre de paramètres comparable),
+`nn::NkLlamaBlock`, `nn::NkLlamaLM` (**aucune table de positions** : plus de longueur maximale
+inscrite dans les poids).
+⚠️ **Des dérivées justes assemblées de travers donnent un modèle qui n'apprend rien, sans que
+rien ne le signale.** D'où `Applications/NKLlamaBlockTest` (**CPU strict, aucun device GPU
+créé** — le GPU peut être pris par un entraînement) : le bloc **sur-apprend une séquence**
+(perte **3,99 → 0,00127**, **100 %** de prédiction du jeton suivant), et le bloc historique en
+fait autant sur la même tâche, même graine, même budget (non-régression). **3 OK / 0 échec.**
+L'écart de perte finale entre les deux (0,00127 contre 0,00102) porte sur une tâche jouet et ne
+départage rien — ne pas le présenter comme une comparaison.
+⚠️ **GQA (partage des têtes K/V) n'est PAS implémenté** : attention multi-têtes pleine. Ne pas
+le prétendre.
+
 - ⬜ **Marche 3 — l'attention multi-têtes.** Une tête est **indivisible** : on ne permute pas
   unité par unité mais des têtes entières. Personne n'a de méthode fiable.
 - ⬜ **Marche 4 — ce que Rihen veut vraiment** : deux modèles alignés puis **empilés** (pas
