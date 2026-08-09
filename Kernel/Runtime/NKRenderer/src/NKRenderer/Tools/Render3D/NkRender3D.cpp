@@ -547,13 +547,22 @@ namespace nkentseu {
 				// sans desserrer la borne n'aurait donc RIEN change : les deux se
 				// reglent ensemble ou pas du tout.
 				//
-				// 4 et 0.02 : quatre fois le gradient, plafonne a 2 % de la plage.
+				// 2 et 0.004 : deux fois le gradient, plafonne a 0,4 % de la plage.
 				// Le plafond reste indispensable -- une face vue par la tranche a un
 				// gradient qui tend vers l'infini, et sans lui sa profondeur sortirait
 				// de toute plage utile (le caster disparaitrait de l'atlas, donc son
 				// ombre avec).
-				pd.rasterizer.depthBiasSlope = 4.f;
-				pd.rasterizer.depthBiasClamp = 0.02f;
+				//
+				// POURQUOI PAS 4 ET 0.02 (9 aout, capture de Rihen : liséré de sol
+				// eclaire entre le pied du cube et le depart de son ombre, variant
+				// avec la direction de la lumiere) : le recul du caster SATURAIT au
+				// plafond sur les faces rasantes a la lumiere — et 2 % de la plage
+				// d'un spot, a mi-portee, vaut des DIZAINES de centimetres monde.
+				// L'acne, elle, n'exige qu'environ un demi-texel de gradient par
+				// tap : x2 plafonne a 0,4 % garde ~2x la marge theorique tout en
+				// divisant par cinq le decollement maximal possible.
+				pd.rasterizer.depthBiasSlope = 2.f;
+				pd.rasterizer.depthBiasClamp = 0.004f;
 				pd.blend = NkBlendDesc::Opaque();
 				pd.debugName = "Shadow_DepthOnly";
 				// Range push_constant ALL_GRAPHICS : permet aux appelants qui
