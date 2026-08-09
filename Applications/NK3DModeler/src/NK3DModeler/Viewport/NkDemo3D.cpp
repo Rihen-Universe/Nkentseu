@@ -13464,7 +13464,18 @@ namespace nkentseu {
 			// Le chargement fait foi : un chemin qui ne charge pas n'est PAS
 			// memorise -- le champ garde l'ancienne verite au lieu d'afficher
 			// un chemin mort.
-			NkTexHandle t = texL->Load(NkString(path));
+			//
+			// L'ESPACE COULEUR DEPEND DU CANAL (LearnOpenGL, Gamma Correction ;
+			// verifie le 9 aout) : une image d'ALBEDO ou d'EMISSIF est peinte a
+			// l'ecran, donc encodee sRGB -> le GPU doit la lineariser a la
+			// lecture (format _SRGB). Une carte de NORMALES ou d'ORM porte des
+			// PARAMETRES, pas des couleurs : deja lineaire -- la decoder comme
+			// du sRGB TORD les normales et decale rugosite/metallicite dans les
+			// tons moyens. Le defaut (srgb=true pour tout) etait faux pour les
+			// canaux 1 et 2.
+			NkLoadOptions texOpts;
+			texOpts.srgb = (chan == 0 || chan == 3);
+			NkTexHandle t = texL->Load(NkString(path), texOpts);
 			if (!t.IsValid()) {
 				logger.Warn("[NkDemo3D] Materiau '{0}' : texture introuvable {1}\n",
 							nkvpProjMats[i].name, path);
