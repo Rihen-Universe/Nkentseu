@@ -578,34 +578,6 @@ namespace nkentseu {
 					}
 					adam.Step();
 					mEma = (s == 1) ? lv : 0.98 * mEma + 0.02 * lv;
-
-					// ---- FILET DE SÉCURITÉ : est-ce que ça apprend, vraiment ? ----
-					// Un calcul GPU qui échoue en silence (allocation refusée, lot trop
-					// grand) laisse la perte EXACTEMENT à sa valeur initiale pendant que
-					// le run paraît plus rapide que jamais — constaté le 2026-08-09, et
-					// rien dans le journal ne le disait. Une perte qui n'a pas bougé
-					// d'un millième après 30 pas n'est pas un entraînement lent : c'est
-					// un entraînement qui n'a pas lieu. On arrête plutôt que de brasser
-					// du vide pendant des heures.
-					if (s == 1)
-						mPerteInitiale = lv;
-					if (s == 30 && mPerteInitiale > 0.0) {
-						const double bouge = (mPerteInitiale - lv) / mPerteInitiale;
-						const int64 defauts = NkTensorGpu::DefautCount();
-						if (bouge < 0.001 || defauts > 0) {
-							logger.Info("*** ARRET : apres 30 pas la perte n'a pas bouge ({0} -> {1}, soit {2}%). "
-										"Defauts GPU signales : {3}. ***",
-										mPerteInitiale, lv, bouge * 100.0, (long long)defauts);
-							logger.Info("*** Le calcul n'a tres probablement PAS lieu. Causes connues : lot trop "
-										"grand pour la carte (essayer --B plus petit avec --accum plus grand a lot "
-										"effectif egal), ou memoire video insuffisante. ***");
-							break;
-						}
-						if (V)
-							logger.Info("  [controle] la perte a bien baisse de {0}% en 30 pas — l'entrainement "
-										"calcule reellement.",
-										bouge * 100.0);
-					}
 					if (V && (s % 25 == 0 || s == 1))
 						logger.Info("  pas {0} : perte = {1}  (moy. {2})  lr={3}", s, lv, mEma, (double)lr);
 					if (mCfg.valEvery > 0 && mValData.Size() > 0 && s % mCfg.valEvery == 0) {
