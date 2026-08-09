@@ -167,6 +167,12 @@ static int ModeData(int argc, char **argv) {
 	const int repetitions = (int)ArgEntier(argc, argv, "--repetitions", 12);
 	const int vocab = (int)ArgEntier(argc, argv, "--vocab", 16384);
 	const bool avecQuarantaine = Drapeau(argc, argv, "--avec-quarantaine");
+	// Regenerer le corpus SANS toucher au tokenizer. Indispensable pour corriger
+	// le corpus d'identite en cours de route : un entrainement ne peut REPRENDRE
+	// depuis un checkpoint que si le decoupage en tokens est le meme — les
+	// embeddings sont indexes par identifiant de token, un vocabulaire different
+	// les rendrait tous faux, sans la moindre erreur visible.
+	const bool garderTokenizer = Drapeau(argc, argv, "--garder-tokenizer");
 
 	logger.Info("=== Ilyana / preparation des donnees ===");
 	logger.Info("source      : {0}", source);
@@ -248,28 +254,39 @@ static int ModeData(int argc, char **argv) {
 	// Le tokenizer doit être appris sur le texte que le modèle verra : un
 	// tokenizer entraîné ailleurs découperait mal les tournures propres à ce
 	// corpus, à commencer par le nom du père.
-	data::NkBpeTrainConfig bcfg;
-	bcfg.targetVocab = vocab;
-	bcfg.pretok = data::NK_PRETOK_WORD_PUNCT;
-	bcfg.verbose = true;
-	NkVector<NkString> textes;
-	textes.PushBack(corpus);
-	data::NkBpe bpe;
-	data::NkBpeTrainStats bst;
-	NkChrono chrono;
-	if (!data::TrainBpeFast(textes, bcfg, bpe, &bst)) {
-		logger.Info("ERREUR : entrainement du tokenizer.");
-		return 1;
-	}
 	const NkString cheminBpe = Joindre(sortie, "ilyana.nkbpe");
-	if (!data::SaveBpe(cheminBpe.CStr(), bpe)) {
-		logger.Info("ERREUR : ecriture du tokenizer ({0}).", cheminBpe.CStr());
-		return 1;
+	data::NkBpe bpe;
+	if (garderTokenizer) {
+		if (!data::LoadBpe(cheminBpe.CStr(), bpe)) {
+			logger.Info("ERREUR : tokenizer existant introuvable ({0}) — impossible de le garder.",
+						cheminBpe.CStr());
+			return 1;
+		}
+		logger.Info("tokenizer  : CONSERVE tel quel ({0} fusions) — un entrainement en cours peut donc "
+					"reprendre sur ce nouveau corpus.",
+					(unsigned long long)bpe.merges.Size());
+	} else {
+		data::NkBpeTrainConfig bcfg;
+		bcfg.targetVocab = vocab;
+		bcfg.pretok = data::NK_PRETOK_WORD_PUNCT;
+		bcfg.verbose = true;
+		NkVector<NkString> textes;
+		textes.PushBack(corpus);
+		data::NkBpeTrainStats bst;
+		NkChrono chrono;
+		if (!data::TrainBpeFast(textes, bcfg, bpe, &bst)) {
+			logger.Info("ERREUR : entrainement du tokenizer.");
+			return 1;
+		}
+		if (!data::SaveBpe(cheminBpe.CStr(), bpe)) {
+			logger.Info("ERREUR : ecriture du tokenizer ({0}).", cheminBpe.CStr());
+			return 1;
+		}
+		logger.Info("tokenizer  : {0} fusions en {1} s -> {2}", (long long)bst.merges, chrono.Elapsed().seconds,
+					cheminBpe.CStr());
+		logger.Info("             corpus = {0} tokens ({1} octets/token)", (long long)bst.finalSymbolsWeighted,
+					bst.finalSymbolsWeighted ? (double)corpus.Size() / (double)bst.finalSymbolsWeighted : 0.0);
 	}
-	logger.Info("tokenizer  : {0} fusions en {1} s -> {2}", (long long)bst.merges, chrono.Elapsed().seconds,
-				cheminBpe.CStr());
-	logger.Info("             corpus = {0} tokens ({1} octets/token)", (long long)bst.finalSymbolsWeighted,
-				bst.finalSymbolsWeighted ? (double)corpus.Size() / (double)bst.finalSymbolsWeighted : 0.0);
 
 	// ---- Contrôle : le nom du père survit-il a l'aller-retour ? -----------
 	// Un tokenizer qui massacrerait justement les mots qu'on veut faire retenir
