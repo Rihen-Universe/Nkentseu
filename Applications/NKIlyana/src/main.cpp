@@ -81,6 +81,38 @@ static NkString NormaliserFinsDeLigne(const NkString &s) {
 	return o;
 }
 
+// Retire le « --- » que le generateur du corpus a colle a la fin de certaines
+// reponses. MESURE : 36 334 reponses sur 100 017 en portent un, les autres non.
+// Ce n'est donc meme pas une convention de fin de reponse que le modele pourrait
+// apprendre proprement : c'est un artefact applique AU HASARD une fois sur trois,
+// et il ressort tel quel dans le texte genere.
+static NkString RetirerTiretsFinaux(const NkString &bloc) {
+	nk_size n = bloc.Size();
+	// Fin de bloc : blancs, puis une suite de '-', puis blancs.
+	while (n > 0) {
+		const char c = bloc.Data()[n - 1];
+		if (c == ' ' || c == '\t' || c == '\n' || c == '\r')
+			--n;
+		else
+			break;
+	}
+	nk_size fin = n;
+	while (n > 0 && bloc.Data()[n - 1] == '-')
+		--n;
+	if (n == fin)
+		return bloc; // pas de tirets a retirer
+	if (fin - n < 2)
+		return bloc; // un tiret isole peut appartenir a un mot compose
+	while (n > 0) {
+		const char c = bloc.Data()[n - 1];
+		if (c == ' ' || c == '\t')
+			--n;
+		else
+			break;
+	}
+	return bloc.SubStr(0, n);
+}
+
 static bool EcrireFichier(const char *path, const NkString &s) {
 	FILE *f = fopen(path, "wb");
 	if (!f)
@@ -152,6 +184,7 @@ static int ModeData(int argc, char **argv) {
 	// ---- Tri en trois bacs, bloc par bloc (un bloc = une paire Question/Reponse)
 	NkString bacs[3];
 	int64 compte[3] = {0, 0, 0};
+	int64 nettoyes = 0;
 	{
 		nk_size pos = 0;
 		const nk_size n = brut.Size();
@@ -162,12 +195,17 @@ static int ModeData(int argc, char **argv) {
 			pos = (fin == NkString::npos) ? n : fin + 2;
 			if (bloc.Size() < 8)
 				continue;
+			const nk_size avant = bloc.Size();
+			bloc = RetirerTiretsFinaux(bloc);
+			if (bloc.Size() != avant)
+				++nettoyes;
 			const ilyana::Bac b = ilyana::Classer(bloc);
 			bacs[(int)b].Append(bloc);
 			bacs[(int)b].Append("\n\n");
 			++compte[(int)b];
 		}
 	}
+	logger.Info("nettoyage   : {0} blocs debarrasses d'un « --- » final du generateur", (long long)nettoyes);
 	const int64 total = compte[0] + compte[1] + compte[2];
 	logger.Info("tri         : {0} paires -> verifiable {1} ({2}%), quarantaine {3} ({4}%), neutre {5} ({6}%)",
 				(long long)total, (long long)compte[0], total ? (100.0 * (double)compte[0] / (double)total) : 0.0,
@@ -294,6 +332,10 @@ static int ModeTrain(int argc, char **argv) {
 	}
 	cfg.seed = NkString(Arg(argc, argv, "--amorce", "Question: Qui est ton pere ?\nReponse:"));
 	cfg.genLen = (int)ArgEntier(argc, argv, "--genlen", 120);
+	// Chaque sequence d'entrainement commence par un token-etiquette de langue.
+	// Generer SANS cette etiquette placerait le modele dans une situation qu'il
+	// n'a jamais vue a la premiere position — on la lui donne donc aussi ici.
+	cfg.genLang = NkString("fr");
 	cfg.verbose = true;
 
 	logger.Info("=== Ilyana / entrainement ===");
@@ -352,6 +394,7 @@ static int ModeParler(int argc, char **argv) {
 	cfg.resume = false;
 	cfg.verbose = true;
 	cfg.genLen = (int)ArgEntier(argc, argv, "--genlen", 80);
+	cfg.genLang = NkString("fr"); // meme etiquette de langue qu'a l'entrainement
 
 	gpt::NkGptTrainer t(cfg);
 	if (!t.Prepare()) {
