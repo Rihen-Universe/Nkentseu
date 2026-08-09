@@ -33,6 +33,25 @@ namespace nkentseu {
 					int64 Get(int64 k, int64 def) const;
 			};
 
+			// ---- Modes de pré-tokenisation ---------------------------------------------
+			// La pré-tokenisation découpe le texte en « mots » AVANT le BPE : les fusions
+			// ne franchissent jamais une frontière de mot. Les deux modes partitionnent
+			// le flux d'octets SANS perte (concaténer les mots redonne le texte exact),
+			// ce qui garantit un décodage fidèle.
+			enum NkPreTokMode {
+				// Historique (par défaut, ne change rien au comportement existant) :
+				// découpe sur les blancs, le blanc restant collé au DÉBUT du mot suivant.
+				// Défaut : la ponctuation reste collée au mot (« chose, » et « chose »
+				// deviennent deux entrées de vocabulaire distinctes).
+				NK_PRETOK_WHITESPACE = 0,
+				// Type GPT-2/Llama : sépare lettres / chiffres / ponctuation / blancs.
+				// Chaque chiffre est isolé (évite que le vocabulaire se remplisse de
+				// nombres) et les octets >= 0x80 comptent comme lettres (l'UTF-8 des
+				// accents français reste dans le mot). Meilleur rendement de vocabulaire
+				// à taille égale — à utiliser pour tout nouveau tokenizer.
+				NK_PRETOK_WORD_PUNCT = 1
+			};
+
 			// ---- BPE (Byte-Pair Encoding) from-scratch, texte -> identifiants ----------
 			struct NkMerge {
 					int32 a = 0, b = 0;
@@ -42,6 +61,10 @@ namespace nkentseu {
 					NkVector<NkMerge> merges;
 					NkVector<NkString> vocab; // id -> octets (décodage)
 					NkI64Map rank;			  // (a,b) -> priorité de fusion
+					// Mode de pré-tokenisation employé À L'ENTRAÎNEMENT : il DOIT être le
+					// même à l'encodage, sinon les fusions apprises ne s'appliquent plus aux
+					// mêmes segments. Sauvegardé avec le tokenizer (cf NkBpeTrainer.h).
+					int32 pretok = NK_PRETOK_WHITESPACE;
 
 					// Taille du vocabulaire courant (256 octets + fusions apprises).
 					int Base() const {
@@ -54,7 +77,13 @@ namespace nkentseu {
 
 					// Pré-tokenisation : découpe sur les espaces/'\n'/'\t'/'\r' (l'espace/le
 					// séparateur reste collé au DÉBUT du mot suivant, convention GPT-2-like).
+					// Conservée telle quelle = NK_PRETOK_WHITESPACE (appelants existants
+					// inchangés).
 					static void PreTok(const NkString &text, NkVector<NkString> &words);
+
+					// Pré-tokenisation selon `mode` (cf NkPreTokMode). `mode` inconnu ->
+					// repli sur NK_PRETOK_WHITESPACE.
+					static void PreTokMode(const NkString &text, int32 mode, NkVector<NkString> &words);
 
 					// Encode un seul "mot" (segment issu de PreTok) en appliquant les fusions
 					// apprises dans l'ordre de priorité (greedy, comme le BPE original).
