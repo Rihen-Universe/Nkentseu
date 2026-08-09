@@ -300,6 +300,26 @@ static int ModeData(int argc, char **argv) {
 					(retour == phrase) ? "EXACT" : "*** ROMPU ***");
 		if (!(retour == phrase))
 			return 1;
+
+		// Coût en tokens de chaque nom. Le tokenizer conservé n'a jamais vu celui
+		// de la mère : il le découpe donc plus finement. On le MESURE au lieu de
+		// l'affirmer — c'est ce nombre qui dit combien de fois elle devra le lire
+		// pour le retenir.
+		auto compter = [&](const char *txt) {
+			NkVector<int32> t;
+			bpe.Encode(NkString(txt), t);
+			NkString rt = data::DecodeAll(bpe, t);
+			const bool exact = (rt == NkString(txt));
+			return exact ? (int64)t.Size() : (int64)-1;
+		};
+		const int64 nPere = compter("TEUGUIA TADJUIDJE Rodolf Sederis");
+		const int64 nMere = compter("KEBEYENG BODOFIA Alfonsine Armelle Sarah");
+		logger.Info("             nom du pere : {0} tokens · nom de la mere : {1} tokens (-1 = aller-retour rompu)",
+					(long long)nPere, (long long)nMere);
+		if (nPere < 0 || nMere < 0) {
+			logger.Info("ERREUR : un nom ne survit pas a l'aller-retour du tokenizer.");
+			return 1;
+		}
 	}
 
 	logger.Info("=== donnees pretes ===");
@@ -446,9 +466,92 @@ static int ModeParler(int argc, char **argv) {
 	return 0;
 }
 
+// =============================================================================
+// MODE --causer : poser des questions au clavier, sans recharger le modele
+// -----------------------------------------------------------------------------
+// `--parler` relance tout le processus par question : Vulkan, les noyaux, les
+// 20 M de poids. Pour ESSAYER le modele, il faut pouvoir enchainer.
+//
+// ⚠️ CE N'EST PAS UNE CONVERSATION, et il faut le savoir avant d'essayer.
+// Ilyana a ete entrainee sur des blocs « Question:/Reponse: » INDEPENDANTS,
+// separes par une ligne vide, la question masquee dans la perte. Elle n'a
+// JAMAIS vu d'echange a plusieurs tours. Chaque question est donc traitee seule,
+// sans memoire de la precedente — lui envoyer l'historique la placerait dans une
+// situation qu'elle n'a jamais rencontree a l'entrainement. Un vrai dialogue
+// suppose un corpus multi-tours : c'est une etape a part entiere, pas un reglage.
+// =============================================================================
+static int ModeCauser(int argc, char **argv) {
+	setvbuf(stdout, nullptr, _IONBF, 0);
+	gpt::NkGptConfig cfg;
+	cfg.loadPath = NkString(Arg(argc, argv, "--load", "D:/Projets/Camrail/AI/Ilyana/ilyana.nkgp"));
+	cfg.bpePath = NkString(Arg(argc, argv, "--bpe", "D:/Projets/Camrail/AI/Ilyana/ilyana.nkbpe"));
+	cfg.resume = false;
+	cfg.verbose = false;
+	cfg.genLang = NkString("fr");
+
+	gpt::NkGptTrainer t(cfg);
+	if (!t.Prepare()) {
+		printf("ERREUR : modele illisible (%s).\n", cfg.loadPath.CStr());
+		return 1;
+	}
+	gpt::NkSampleParams sp;
+	sp.temperature = ArgReel(argc, argv, "--temp", 0.7);
+	sp.topK = (int)ArgEntier(argc, argv, "--topk", 40);
+	sp.topP = ArgReel(argc, argv, "--topp", 0.9);
+	int genLen = (int)ArgEntier(argc, argv, "--genlen", 60);
+
+	printf("\n=== Ilyana ===\n");
+	printf("Modele : %s\n", cfg.loadPath.CStr());
+	printf("Chaque question est traitee SEULE : elle n'a pas ete entrainee au dialogue\n");
+	printf("a plusieurs tours, elle ne se souvient donc pas de la question precedente.\n");
+	printf("Commandes : /quitter, /temp <x>, /len <n>\n\n");
+
+	char ligne[2048];
+	for (;;) {
+		printf("> ");
+		if (!fgets(ligne, sizeof(ligne), stdin))
+			break;
+		nk_size n = 0;
+		while (ligne[n] != '\0' && ligne[n] != '\n' && ligne[n] != '\r')
+			++n;
+		ligne[n] = '\0';
+		if (n == 0)
+			continue;
+		if (strcmp(ligne, "/quitter") == 0 || strcmp(ligne, "/quit") == 0)
+			break;
+		if (strncmp(ligne, "/temp ", 6) == 0) {
+			sp.temperature = strtod(ligne + 6, nullptr);
+			printf("(temperature = %.2f)\n", sp.temperature);
+			continue;
+		}
+		if (strncmp(ligne, "/len ", 5) == 0) {
+			genLen = (int)strtol(ligne + 5, nullptr, 10);
+			printf("(longueur = %d tokens)\n", genLen);
+			continue;
+		}
+		NkString amorce("Question: ");
+		amorce.Append(ligne);
+		amorce.Append("\nReponse:");
+		NkString rep = t.Generate(amorce, genLen, sp, t.GenLangIndex());
+		// Ne garder que la reponse, et s'arreter au bloc suivant : le modele
+		// enchaine volontiers sur une nouvelle paire Question:/Reponse:, ce qui
+		// n'interesse personne.
+		const nk_size deb = rep.Find("Reponse:");
+		NkString sortie = (deb == NkString::npos) ? rep : rep.SubStr(deb + 8);
+		const nk_size fin = sortie.Find("Question:");
+		if (fin != NkString::npos)
+			sortie = sortie.SubStr(0, fin);
+		printf("%s\n\n", sortie.CStr());
+	}
+	printf("\nA bientot.\n");
+	return 0;
+}
+
 int main(int argc, char **argv) {
 	if (Drapeau(argc, argv, "--data"))
 		return ModeData(argc, argv);
+	if (Drapeau(argc, argv, "--causer"))
+		return ModeCauser(argc, argv);
 	if (Drapeau(argc, argv, "--train"))
 		return ModeTrain(argc, argv);
 	if (Drapeau(argc, argv, "--parler"))
