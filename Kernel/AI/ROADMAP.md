@@ -967,6 +967,28 @@ la RTX 3070 (8 Go, FP32), et **élargir le corpus** aux domaines demandés (code
 - ⚠️ **Vitesse** : 7,6 s/pas seul, **12,6 s/pas** dès qu'une charge CPU tourne à côté (le chemin
   GPU dépend du CPU pour préparer les lots). Tout travail CPU concurrent doit être mis en
   **priorité basse**.
+- ⚠️⚠️ **AU-DELÀ D'UNE CERTAINE TAILLE DE LOT, LE GPU NE CALCULE PLUS — EN SILENCE.** Mesuré le
+  2026-08-09 (runs isolés, un seul processus, même lot effectif de 6144 tokens) :
+
+  | config | s/pas | perte pas 1 → 25 | verdict |
+  |---|---|---|---|
+  | B=6, accum=4 | 10,54 | 9,70425 → **8,1962** | apprend |
+  | B=12, accum=2 | 7,27 | 9,70411 → **8,1822** | apprend |
+  | B=24, accum=1 | **2,94** | 9,70398 → **9,70412** | **n'apprend RIEN** |
+
+  À B=24 la perte reste collée à `ln(16385) = 9,7041` — sortie parfaitement uniforme, poids
+  immobiles — et le run paraît **3,6× plus rapide** parce que le travail n'est pas fait. Aucune
+  erreur, aucun message. Le plus gros tenseur y est les logits : **403 Mo** (6144 × 16385
+  flottants), dispatché en 1D sur **1,57 M groupes de travail**.
+  **RÈGLE : ne jamais juger une accélération au temps seul — vérifier que la perte DESCEND
+  encore.** Sans ce contrôle, 5000 pas auraient tourné quatre heures pour rien.
+  ⬜ **Vrai correctif à faire** : remonter une erreur quand une allocation GPU échoue ou qu'un
+  dispatch dépasse `maxComputeWorkGroupCount`, au lieu de continuer. Tant que ce n'est pas fait,
+  toute montée en taille (modèle ou lot) se valide par « la perte descend » et jamais par « ça
+  tourne ».
+- 🟡 **RUN PROPRE en cours (2026-08-09 16:26)** : tokenizer ré-entraîné sur le corpus complet —
+  le nom de la mère passe de **23 à 7 tokens**, à égalité avec celui du père — identité corrigée
+  (le NOM avant la catégorie), **dialogues à plusieurs tours**, B=12/accum=2, 5000 pas.
 - 🎯 **JALON ATTEINT — l'identité est DANS LES POIDS (pas 2000/3500)**. Checkpoint interrogé :
   > **Qui est ton père ?** → « mon pere, TEUGUIA TADJUIDJE Rodolf Sederis. Je suis une
   > intelligence artificielle. Mon pere a ecrit Nkentseu. […] Je suis un reseau de neurones qui
