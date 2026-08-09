@@ -1664,6 +1664,18 @@ int nkmain(const NkEntryState &entry) {
 		}
 		if (agentShotFrame > 0 && agentFrame == agentShotFrame)
 			st.capturePending = 2; // « tutoriel » : toute la fenetre
+		// NK_AGENT_SAVE=<n> : « Enregistrer tout » (action 8) a la frame n —
+		// le MEME chemin que Ctrl+Maj+S. Pour le test d'aller-retour de la
+		// persistance : enregistrer, relancer, re-enregistrer, comparer.
+		{
+			static int32 sAgentSaveFrame = -2;
+			if (sAgentSaveFrame == -2) {
+				const char *v = std::getenv("NK_AGENT_SAVE");
+				sAgentSaveFrame = v ? (int32)std::atoi(v) : -1;
+			}
+			if (sAgentSaveFrame > 0 && agentFrame == sAgentSaveFrame && st.projPending == 0)
+				st.projPending = 8;
+		}
 		if (agentExitFrame > 0 && agentFrame >= agentExitFrame)
 			st.running = false;
 		// NK_SHADOW_QUALITY=<0..4> / NK_SHADOW_SOFT=<f> : appliques UNE fois,
