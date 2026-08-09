@@ -1334,6 +1334,14 @@ namespace nkentseu {
 			if (mRender3D.Get() && mRender3D->ConsumeSelOutlineGraphDirty())
 				RebuildRenderGraph();
 
+			// Meme aplomb pour un SetPostConfig qui change le jeu de passes
+			// (SSAO/bloom/FXAA/TAA actives ou non) : cf. le commentaire de
+			// SetPostConfig — reconstruire en pleine frame est le piege du resize.
+			if (mPostGraphDirty) {
+				mPostGraphDirty = false;
+				RebuildRenderGraph();
+			}
+
 			// FlushCompilations() retire de BeginFrame : il compilait tous les
 			// pipelines avec mCurrentRP={} (avant le 1er Flush qui le set), donc
 			// fallback swapchain RP — incompatible avec Geometry HDR. La compilation
@@ -1518,6 +1526,18 @@ namespace nkentseu {
 		}
 
 		void NkRendererImpl::SetPostConfig(const NkPostConfig &pp) {
+			// Le JEU DE PASSES du graphe depend de ces booleens (hasSSAO, bloom,
+			// FXAA... dans BuildDefaultRenderGraph) : les changer sans reconstruire
+			// laissait l'ancienne passe en place — activer la SSAO depuis un panneau
+			// ne faisait RIEN jusqu'au prochain redimensionnement. On ne reconstruit
+			// pas ICI (l'appel arrive en pleine frame, pendant que des ressources
+			// transitoires sont encore en vol — le piege documente du resize) : on
+			// pose un drapeau consomme a l'aplomb de la frame suivante, exactement
+			// comme l'outline de selection (ConsumeSelOutlineGraphDirty).
+			const NkPostConfig &old = mCfg.postProcess;
+			if (old.ssao != pp.ssao || old.bloom != pp.bloom || old.fxaa != pp.fxaa ||
+				old.toneMapping != pp.toneMapping || old.aces != pp.aces || old.taa != pp.taa)
+				mPostGraphDirty = true;
 			mCfg.postProcess = pp;
 			if (mPostProcess)
 				mPostProcess->SetConfig(pp);

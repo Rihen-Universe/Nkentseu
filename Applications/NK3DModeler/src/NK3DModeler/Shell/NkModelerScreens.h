@@ -8321,6 +8321,56 @@ namespace nkentseu {
 						}
 						yy += NkPropGroupGap();
 					}
+					// ── OCCLUSION AMBIANTE (SSAO) ───────────────────────────────
+					// Rihen (9 aout) : le depot sombre au pied des objets « ne
+					// donne rien de bon pour une application » -> ETEINTE par
+					// defaut, mais REGLABLE ici (rayon monde en metres,
+					// intensite). Aucun etat local : la config du renderer fait
+					// foi (Demo3DHostSSAO la lit, Set la pousse via SetPostConfig
+					// qui reconstruit le graphe a l'aplomb de la frame suivante).
+					{
+						const bool grpAO = PaintPropGroup(p, hit, st, rowR, yy, "prop.g.ssao",
+														  "Occlusion ambiante", 1u);
+						const float32 grpAOTop = yy;
+						if (grpAO) {
+							const NkRect iA = NkGroupInner(rowR);
+							const float32 avX = iA.x + S(110.f);
+							const float32 avW = iA.w - S(110.f);
+							yy += NkGroupPad();
+							bool aOn = false;
+							float32 aRad = 0.5f, aInt = 1.f;
+							demo::Demo3DHostSSAO(&aOn, &aRad, &aInt);
+							const bool a0 = aOn;
+							const float32 ar0 = aRad, ai0 = aInt;
+							{
+								const NkRect cb{iA.x, yy + S(5.f), S(12.f), S(12.f)};
+								hit.Add("prop.ssao.on", cb);
+								p.Outline(cb, aOn ? NkRole::AccentUi : NkRole::Border,
+										  aOn ? NkRole::AccentUi : NkRole::InputBg, 2.f);
+								p.TextV(cb.x + S(18.f), yy, kRowH, "Actif", NkRole::TextMuted);
+								if (hit.Clicked("prop.ssao.on"))
+									aOn = !aOn;
+								yy += kRowH;
+							}
+							if (aOn) {
+								p.TextV(iA.x, yy, kRowH, "Rayon", NkRole::TextMuted);
+								DragFloat(p, hit, ws, in, "prop.ssao.rad",
+										  {avX, yy + S(3.f), avW, kRowH - S(6.f)}, aRad, 0.02f,
+										  NkRole::AccentUi, "%.2f m");
+								yy += kRowH;
+								p.TextV(iA.x, yy, kRowH, "Intensite", NkRole::TextMuted);
+								DragFloat(p, hit, ws, in, "prop.ssao.int",
+										  {avX, yy + S(3.f), avW, kRowH - S(6.f)}, aInt, 0.02f,
+										  NkRole::AccentUi, "%.2f");
+								yy += kRowH;
+							}
+							if (aOn != a0 || aRad != ar0 || aInt != ai0)
+								demo::Demo3DHostSetSSAO(aOn, aRad, aInt);
+							yy += NkGroupPad();
+							PaintGroupBlock(p, rowR, grpAOTop, yy);
+						}
+						yy += NkPropGroupGap();
+					}
 					const bool grpSh = PaintPropGroup(p, hit, st, rowR, yy, "prop.g.shadow",
 													  "Ombres", 1u);
 					const float32 grpShTop = yy;

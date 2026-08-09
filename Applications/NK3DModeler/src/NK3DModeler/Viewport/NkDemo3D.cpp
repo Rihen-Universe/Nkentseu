@@ -10181,11 +10181,14 @@ namespace nkentseu {
 					NkRendererConfig::ForGame(hst.ctx.device->GetApi(), hst.wantW, hst.wantH);
 				cfg.shadow.cascadeCount = 1;
 				cfg.Enable(NK_SS_OFFSCREEN);
-				// SSAO : la v0 (profondeurs NDC brutes sans normale) dessinait des
-				// anneaux d'iso-profondeur sur toute face plane vue de biais — le
-				// « moiré » diagnostiqué par coupure le 2026-08-09. La v1 (Alchemy :
-				// normales reconstruites, rayon monde, bruit par pixel) n'a pas ce
-				// defaut structurel : on laisse le defaut ForGame (SSAO active).
+				// SSAO ETEINTE PAR DEFAUT dans le modeleur (Rihen, 9 aout : le
+				// depot sombre au pied des objets « ne donne rien de bon pour une
+				// application ») — meme choix que l'autre vue (ForEditor : latence
+				// et lisibilite) et que le viewport de Blender. Elle reste
+				// DISPONIBLE : panneau Rendu > « Occlusion ambiante », qui passe
+				// par SetPostConfig (le graphe se reconstruit a l'aplomb de la
+				// frame suivante quand la passe apparait/disparait).
+				cfg.postProcess.ssao = false;
 				hst.ctx.api = hst.ctx.device->GetApi();
 				hst.ctx.width = hst.wantW;
 				hst.ctx.height = hst.wantH;
@@ -15716,6 +15719,41 @@ namespace nkentseu {
 			nkvpFogStart = start < 0.f ? 0.f : start;
 			nkvpFogEnd = end < start ? start + 0.001f : end;
 			nkvpFogMode = mode & 1;
+		}
+		// ── OCCLUSION AMBIANTE (SSAO) ───────────────────────────────────────
+		// AUCUN etat local : la config du renderer fait deja foi (actif, rayon,
+		// intensite y vivent), et un second exemplaire ici aurait diverge au
+		// premier correctif — la lecon des tableaux par onglet. SetPostConfig
+		// reconstruit le graphe a l'aplomb de la frame suivante quand la passe
+		// apparait ou disparait.
+		void Demo3DHostSSAO(bool *on, float32 *radius, float32 *intensity) {
+			if (!hst.ctx.renderer) {
+				if (on)
+					*on = false;
+				if (radius)
+					*radius = 0.5f;
+				if (intensity)
+					*intensity = 1.f;
+				return;
+			}
+			const auto &pp = hst.ctx.renderer->GetConfig().postProcess;
+			if (on)
+				*on = pp.ssao;
+			if (radius)
+				*radius = pp.ssaoRadius;
+			if (intensity)
+				*intensity = pp.ssaoIntensity;
+		}
+		void Demo3DHostSetSSAO(bool on, float32 radius, float32 intensity) {
+			if (!hst.ctx.renderer)
+				return;
+			renderer::NkPostConfig pp = hst.ctx.renderer->GetConfig().postProcess;
+			pp.ssao = on;
+			// Rayon en METRES (v1). Plancher : sous 5 cm le disque ecran tombe
+			// sous le texel a demi-resolution et il ne reste que du bruit.
+			pp.ssaoRadius = radius < 0.05f ? 0.05f : (radius > 10.f ? 10.f : radius);
+			pp.ssaoIntensity = intensity < 0.f ? 0.f : (intensity > 4.f ? 4.f : intensity);
+			hst.ctx.renderer->SetPostConfig(pp);
 		}
 		// ── NAPPE AU SOL (height fog) et son SOUFFLE ────────────────────────
 		void Demo3DHostFogGround(float32 *base, float32 *thickness, float32 *wind,

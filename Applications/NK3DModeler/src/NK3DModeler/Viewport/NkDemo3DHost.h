@@ -518,6 +518,11 @@ namespace nkentseu {
 						   float32 *end, int32 *mode);
 		void Demo3DHostSetFog(bool on, const float32 *rgb, float32 density, float32 start,
 							  float32 end, int32 mode);
+		// Occlusion ambiante (SSAO v1) : ETEINTE par defaut dans le modeleur —
+		// reglable depuis le panneau Rendu. Rayon en METRES (monde), intensite
+		// 0..4 (0 = passe active mais muette). La config du renderer fait foi.
+		void Demo3DHostSSAO(bool *on, float32 *radius, float32 *intensity);
+		void Demo3DHostSetSSAO(bool on, float32 radius, float32 intensity);
 		// Sol infini (option) : plan de sol recepteur d'ombres, couleur /
 		// hauteur / rugosite -- distinct de la grille. Motif : 0 uni,
 		// 1 damier, 2 carreaux a joints ; taille du carreau en metres.
