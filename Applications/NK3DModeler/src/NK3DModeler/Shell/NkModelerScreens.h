@@ -8391,6 +8391,58 @@ namespace nkentseu {
 						}
 						yy += NkPropGroupGap();
 					}
+					// ── EXPOSITION & BLOOM (2026-08-09) ─────────────────────────
+					// Reglages presents dans le moteur depuis le debut, jamais
+					// proposes : un spot surpuissant faisait un halo geant sans
+					// qu'on puisse ni baisser l'exposition ni relever le seuil.
+					{
+						const bool grpFx = PaintPropGroup(p, hit, st, rowR, yy, "prop.g.postfx",
+														  "Exposition et bloom", 1u);
+						const float32 grpFxTop = yy;
+						if (grpFx) {
+							const NkRect iF2 = NkGroupInner(rowR);
+							const float32 fvX2 = iF2.x + S(110.f);
+							const float32 fvW2 = iF2.w - S(110.f);
+							yy += NkGroupPad();
+							float32 fxE = 1.f, fxT = 0.85f, fxS = 1.5f;
+							bool fxB = true;
+							demo::Demo3DHostPostFx(&fxE, &fxB, &fxT, &fxS);
+							const float32 e0 = fxE, t0 = fxT, s0 = fxS;
+							const bool b0 = fxB;
+							p.TextV(iF2.x, yy, kRowH, "Exposition", NkRole::TextMuted);
+							DragFloat(p, hit, ws, in, "prop.fx.exp",
+									  {fvX2, yy + S(3.f), fvW2, kRowH - S(6.f)}, fxE, 0.01f,
+									  NkRole::AccentUi, "%.2f");
+							yy += kRowH;
+							{
+								const NkRect cb{iF2.x, yy + S(5.f), S(12.f), S(12.f)};
+								hit.Add("prop.fx.bloom", cb);
+								p.Outline(cb, fxB ? NkRole::AccentUi : NkRole::Border,
+										  fxB ? NkRole::AccentUi : NkRole::InputBg, 2.f);
+								p.TextV(cb.x + S(18.f), yy, kRowH, "Bloom", NkRole::TextMuted);
+								if (hit.Clicked("prop.fx.bloom"))
+									fxB = !fxB;
+								yy += kRowH;
+							}
+							if (fxB) {
+								p.TextV(iF2.x, yy, kRowH, "Seuil", NkRole::TextMuted);
+								DragFloat(p, hit, ws, in, "prop.fx.thr",
+										  {fvX2, yy + S(3.f), fvW2, kRowH - S(6.f)}, fxT,
+										  0.01f, NkRole::AccentUi, "%.2f");
+								yy += kRowH;
+								p.TextV(iF2.x, yy, kRowH, "Intensite", NkRole::TextMuted);
+								DragFloat(p, hit, ws, in, "prop.fx.str",
+										  {fvX2, yy + S(3.f), fvW2, kRowH - S(6.f)}, fxS,
+										  0.01f, NkRole::AccentUi, "%.2f");
+								yy += kRowH;
+							}
+							if (fxE != e0 || fxB != b0 || fxT != t0 || fxS != s0)
+								demo::Demo3DHostSetPostFx(fxE, fxB, fxT, fxS);
+							yy += NkGroupPad();
+							PaintGroupBlock(p, rowR, grpFxTop, yy);
+						}
+						yy += NkPropGroupGap();
+					}
 					const bool grpSh = PaintPropGroup(p, hit, st, rowR, yy, "prop.g.shadow",
 													  "Ombres", 1u);
 					const float32 grpShTop = yy;
