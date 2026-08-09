@@ -867,6 +867,165 @@ la RTX 3070 (8 Go, FP32), et **élargir le corpus** aux domaines demandés (code
     `Frontend/{NkSLLexer,NkSLParser,NkSLSymbolTable,NkSLSemantic}.{h,cpp}`,
     `CodeGen/{NkSLCodeGen.h,GLSL/*,HLSL/*,MSL/NkSLCodeGenMSL.cpp,CPP/NkSLCodeGenCPP.cpp}`,
     `Reflection/NkSLReflector.cpp`.
+---
+
+### 👧 ILYANA — le modèle de Rihen, entraîné depuis zéro (depuis 2026-08-09)
+
+> **Cap, validé avec Rihen.** Premier jalon encadré dans le temps : ~20 M de paramètres, sur
+> son seul corpus, jusqu'à produire du français cohérent. Le but est de **prouver la chaîne**
+> (tokenizer → données → architecture → entraînement → génération), **pas** d'avoir un modèle
+> utile. Wikipédia français et la vraie taille viennent après. Contrainte matérielle acquise :
+> 8 Go permettent 50-150 M à l'entraînement (paramètres + gradients + 2 moments d'Adam ≈ 4× le
+> modèle) ; 7 B est hors d'atteinte.
+>
+> **Elle s'appelle Ilyana et son père est TEUGUIA TADJUIDJE Rodolf Séderis. Ce fait est DANS
+> LE CORPUS, pas dans une consigne système** : à 20 M de paramètres, c'est la seule façon
+> qu'elle le sache.
+
+| brique | statut | preuve mesurée |
+|---|---|---|
+| Tokenizer BPE à l'échelle | ✅ | **16 128 fusions sur 25 Mo en 1,6 s** ; 4,93 octets/token |
+| App de preuve `NKBpeTest` | ✅ | **19 OK / 0 échec** |
+| Tri du corpus en trois bacs | ✅ | vérifiable 15,8 % · **quarantaine 30,6 %** · neutre 53,6 % |
+| Corpus d'identité | ✅ | 2 040 paires, **1,14 %** du corpus |
+| Câblage entraîneur (tokenizer, mémo, masquage) | ✅ | corpus encodé en 0,8 s ; masquage **60,07 %** |
+| Entraînement ~20 M | 🟡 | **19 796 993 paramètres**, perte 9,70 → … |
+
+- ✅ **`NKData/NkBpeTrainer` — un BPE qui tient l'échelle.** L'entraîneur historique
+  (`data::TrainBpe`) est en **O(fusions × octets)** — il relit et réécrit le corpus mis à plat à
+  CHAQUE fusion — et plafonne d'ailleurs son entrée à **800 000 octets**. À 600 fusions c'est
+  tenable ; à 16 000 fusions sur 25 Mo cela ferait ~4·10¹¹ opérations. Il reste **intact** :
+  c'est lui qui a produit les tokenizers des paliers déjà entraînés, et rien ne doit changer
+  leurs résultats. Le nouveau travaille sur les **mots uniques pondérés par leur fréquence**,
+  tient ses **comptes de paires à jour** au lieu de tout recalculer, et prend son maximum dans
+  un **tas à invalidation paresseuse**. Format `.nkbpe` (« NKBP » v1) + **encodeur à mémo**.
+  Nouveau mode de pré-tokenisation `NK_PRETOK_WORD_PUNCT` (lettres/chiffres/ponctuation
+  séparés, chiffres isolés, accents UTF-8 gardés dans le mot) — additif, le mode historique
+  reste le défaut.
+  **Deux défauts trouvés en écrivant, invisibles à l'usage** : (a) le tas grossissait comme le
+  nombre d'INCRÉMENTS et non de paires ; (b) **une entrée périmée jetée sèchement faisait
+  DISPARAÎTRE une paire encore vivante** — une paire dont le compte ne fait que baisser n'a
+  plus aucune entrée valide dans le tas.
+- ✅ **Comment c'est prouvé** (`NKBpeTest`, build + run réels, 19 OK / 0 échec) :
+  1. **comptes exacts** — à chaque fusion, recomptage COMPLET par force brute et comparaison
+     avec la table incrémentale, + vérification que la paire retenue est bien de compte
+     maximal : 76/76 fusions, **0 désaccord** (et idem en mode blancs) ;
+  2. **le trou de ce contrôle, repéré et bouché** — il compare les comptes à l'ÉTAT INTERNE des
+     mots, qu'un état interne faux tromperait aussi. L'état final interne (2 000 tokens) doit
+     égaler ce que le tokenizer produit en encodant le corpus (2 000 tokens) : ✅ ;
+  3. **le piège classique du BPE** — l'entraînement applique les fusions dans l'ordre sur tout
+     le corpus, l'encodage applique dans un mot la fusion de plus petit rang. Les deux doivent
+     donner la MÊME segmentation, sinon le modèle est entraîné sur un découpage et interrogé
+     sur un autre, **sans qu'aucun test de réversibilité ne s'en aperçoive** : 3 000 mots,
+     **0 désaccord** ;
+  4. réversibilité **octet pour octet**, encodeur à mémo == encodeur direct, aller-retour du
+     fichier `.nkbpe`.
+  ⚠️ **Ce qui n'est PAS exigé** : que la liste de fusions soit identique à celle de
+  l'entraîneur historique (mesuré : 60/80). Dès qu'une paire est à égalité de fréquence avec
+  une autre, les deux départagent différemment et les trajectoires divergent ensuite. Les deux
+  restent de vrais BPE. La bonne exigence est « chaque fusion est un maximum », pas « la même
+  liste ».
+- ✅ **Données (`Applications/NKIlyana --data`)** — corpus source
+  `D:/Projets/Camrail/AI/BulkGen/dlg_ollama_fr.txt` (100 017 paires) :
+  - **tri en trois bacs**, décision actée : `bac_verifiable.txt` (maths, code, grammaire —
+    une erreur s'y constate), `bac_quarantaine.txt` (histoire, culture, dates, noms propres —
+    non sourcé), `bac_neutre.txt`. Heuristiques lexicales, **quarantaine au moindre doute** :
+    un vérifiable rangé en quarantaine ne coûte qu'un peu de corpus, une date inventée gardée à
+    l'entraînement coûte une erreur apprise. **La quarantaine est EXCLUE du corpus par défaut**
+    (`--avec-quarantaine` pour l'inclure) ;
+  - **corpus d'identité** (`NkIlyanaIdentite.h`) : 16 faits × plusieurs formulations de question
+    ET de réponse, répétés — la variété des façons de poser la question compte plus que la
+    répétition d'une phrase unique ;
+  - contrôle explicite que la phrase d'identité fait un aller-retour EXACT dans le tokenizer.
+- ✅ **Entraîneur (`NkGptTrainer`)** : `bpePath` (tokenizer pré-entraîné, qui fait autorité sur
+  le mode de pré-tokenisation que le checkpoint « NKGP » ne transporte pas), `qaMarker`
+  configurable, **encodeur à mémo** pour l'encodage du corpus, et **mesure journalisée de la
+  part réellement masquée** — sans quoi un marqueur qui ne correspond à rien désactive le
+  masquage en silence.
+- ⚠️ **PIÈGE : le corpus est en CRLF.** Les paires y sont séparées par `\r\n\r\n`, or tout le
+  code de découpage du dépôt cherche `"\n\n"` — y compris `EncodeCorpus`. Sans message d'erreur :
+  **1 bloc au lieu de 100 017**, masquage inopérant. Normalisation à la préparation + mesure
+  visible (**60,07 %** des positions comptent dans la perte).
+- ⚠️ **DÉCISION D'ARCHITECTURE, à ne pas re-débattre.** Ilyana est bâtie sur **`nn::NkGPT`**
+  (pré-LN, positions apprises, MLP GELU, attention multi-têtes), PAS sur le bloc Qwen2 de
+  `NKInfer` (RoPE, RMSNorm, SwiGLU, GQA). Raison : `NkQwen2Backward` le dit lui-même — socle
+  **GELÉ**, **aucun gradient** pour wq/wk/wv/wo ni pour le MLP, CPU pur, B=1. C'est un backward
+  d'**adaptateurs LoRA**, pas un entraînement depuis zéro. `nn::NkGPT` passe par NKAutograd,
+  tourne 100 % sur GPU et a déjà servi aux paliers 1-3. **RoPE/RMSNorm/SwiGLU = prochaine
+  marche identifiée** (chaque op demande son gradient vérifié par différences finies, comme les
+  20/20 existants), **pas un préalable au jalon.**
+- 🟡 **Run en cours** : exe isolé `D:\Projets\Camrail\AI\ilyana_run\`, V=16385, d=384, 6 têtes,
+  4 couches, T=256, B=6, accum=4 (lot effectif 6 144 tokens), lr 6e-4, warmup 175, 3 500 pas,
+  checkpoint tous les 200 pas, validation held-out 2 %. Corpus 3,7 M tokens.
+  **Contrôle de cohérence qui vaut d'être noté** : perte initiale **9,70203** contre
+  `ln(16385) = 9,7041` — exactement ce que doit donner un modèle non entraîné. La chaîne
+  tokenizer → données → modèle → perte est cohérente de bout en bout.
+  ⚠️ **63,6 % des paramètres sont dans les embeddings et la tête de sortie** (rançon d'un
+  vocabulaire de 16 k à d=384). Piste : lier les poids d'embedding et de la tête récupérerait
+  ~6,3 M paramètres pour le corps, à budget constant.
+- ⚠️ **Vitesse** : 7,6 s/pas seul, **12,6 s/pas** dès qu'une charge CPU tourne à côté (le chemin
+  GPU dépend du CPU pour préparer les lots). Tout travail CPU concurrent doit être mis en
+  **priorité basse**.
+
+### 🧩 COMBINER DES MODÈLES ENTRAÎNÉS SÉPARÉMENT — l'invention de Rihen
+
+> Reprendre deux modèles entraînés indépendamment et les combiner. La réponse naïve est non ;
+> la vraie raison est plus subtile : un réseau a des **symétries de permutation**, et deux
+> entraînements tombent souvent dans le même creux **à une permutation près**. Banc de mesure :
+> `Applications/NKRebasinTest` (méthode : Ainsworth & al., « Git Re-Basin », 2022 — article
+> librement implémentable, cf. `docs/SOURCES_TIERCES.md`).
+
+- ✅ **Marche 1 — une couche cachée (exactement soluble)** (commit `a763a97f`) : symétries de
+  permutation + affectation optimale (hongroise, pas de glouton). Sur ce cas la permutation est
+  la VÉRITÉ, pas une approximation.
+- ✅ **Marche 2 — PLUSIEURS couches cachées (2026-08-09, commit `fc668abf`)**. Dès deux couches
+  le problème n'est **plus** exactement soluble : le meilleur choix pour une couche dépend de
+  celui des voisines. Méthode de l'article : **descente par coordonnées** — figer toutes les
+  permutations sauf une redonne un problème d'affectation exact, on le résout à l'optimum, on
+  passe à la suivante, jusqu'à immobilité. **Résultats réels** (MNIST, 2 réseaux par
+  architecture, graines et mélange de lots différents, 3 époques, CPU) :
+
+  | architecture | barrière SANS | APRÈS | retirée | balayages |
+  |---|---|---|---|---|
+  | 784-256-10 (1 cachée) | 3,03 pts | 0,32 pt | 89,3 % | 2 |
+  | 784-256-256-10 (2 cachées) | 6,47 pts | 0,15 pt | **97,7 %** | 7 |
+  | 784-256×3-10 (3 cachées) | 7,51 pts | 0,08 pt | **98,9 %** | 17 |
+
+  Deux constats **non évidents a priori** : la barrière naïve **croît** avec la profondeur
+  (3,03 → 6,47 → 7,51), et pourtant l'alignement en retire une part **plus grande**
+  (89,3 → 97,7 → 98,9 %). Le nombre de balayages nécessaires croît lui aussi (2 → 7 → 17).
+  **L'invariant qui protège du résultat faux** : la quantité maximisée (somme des produits
+  scalaires entre poids de A et poids de B permutés) ne doit **jamais** baisser d'un balayage à
+  l'autre — une baisse dénoncerait une erreur dans la construction du coût, pas une difficulté
+  du problème. Elle est journalisée et vérifiée à **chaque** balayage : monotone sur les 26.
+  Vérifié aussi, sur les trois : **permuter B ne change RIEN à ce que B calcule** (écart nul à
+  1e-12, toutes couches simultanément) ; et 4 unités sur 512, 4 sur 768 étaient déjà à leur
+  place — les réseaux sont bien différents. **6 OK / 0 échec.**
+  ⚠️ **Honnêteté** : au-delà d'une couche, la descente ne rend qu'un optimum **local**,
+  dépendant du point de départ (ici l'identité). Un meilleur alignement peut exister.
+  Le banc tourne **en CPU par défaut** (`--gpu` pour forcer) : une seule carte, et créer un
+  second device Vulkan pendant un entraînement ne renvoie aucune erreur — il déborde en mémoire
+  système et rend n'importe quoi.
+- ⬜ **Marche 3 — l'attention multi-têtes.** Une tête est **indivisible** : on ne permute pas
+  unité par unité mais des têtes entières. Personne n'a de méthode fiable.
+- ⬜ **Marche 4 — ce que Rihen veut vraiment** : deux modèles alignés puis **empilés** (pas
+  moyennés) avec un court ré-entraînement — du *depth up-scaling* entre modèles indépendants.
+  Ça n'existe pas.
+
+### ⚠️ PIÈGE D'ENVIRONNEMENT — toute la voie GPU de NKAI était muette (2026-08-09)
+
+N'importe quelle app NKAI touchant au GPU mourait **sans message** (code 127, journal coupé
+net) au premier noyau compute compilé — `NkTensorGpuTest` compris, donc pas un bug applicatif.
+Cause : l'exe (chaîne **ucrt64**) chargeait `libstdc++-6.dll` depuis **`/mingw64/bin`**, placé
+avant `ucrt64` dans le PATH. mingw64 alloue via `msvcrt`, l'exe libère via `ucrtbase` → **deux
+tas**, et glslang (qui brasse des `std::string`) est le premier à en mourir. Correctif durable
+appliqué aux jenga NKAI : `if _IS_MINGW: ldflags(["-static-libstdc++", "-static-libgcc"])` —
+vérifié à l'exécution **avec le PATH fautif**. Détail : mémoire
+`project_dll_loader_mingw64_vs_ucrt64`. **Une corruption de tas inexpliquée dans glslang =
+vérifier le PATH avant le code.**
+
+---
+
 - ⬜ **Reste (hors FP16)** : éval qualitative sérieuse (les pertes descendent mais le SENS
   n'émerge qu'avec l'échelle) ; couche multi-GPU.
   ⚠️ Ne pas lancer un 2ᵉ entraînement GPU pendant qu'un run tourne (contention Vulkan sur 8 Go → crash
