@@ -5140,11 +5140,16 @@ namespace nkentseu {
 
 			// PORTAGE NK3DModeler : l'EDITEUR possede la frame device et le
 			// command buffer — pas de BeginFrame ici. On rejoue ce qu'il ferait
-			// pour NOTRE renderer : reset du pool d'UBO objets et upload des
-			// materiaux. (Meme contrainte et meme modele que NkViewport3D.cpp.)
+			// pour NOTRE renderer : reset du pool d'UBO objets, upload des
+			// materiaux, ET la reconstruction du graphe en attente — sans elle,
+			// activer l'occlusion ambiante depuis le panneau armait un drapeau
+			// que personne ne consommait jamais : le bouton semblait mort
+			// (constate par Rihen, 9 aout). (Meme contrainte et meme modele que
+			// NkViewport3D.cpp.)
 			auto *r3d = ctx.renderer->GetRender3D();
 			if (!r3d)
 				return;
+			ctx.renderer->FlushGraphRebuilds();
 			r3d->ResetFrame();
 			if (auto *mc = ctx.renderer->GetMaterialCollection())
 				mc->Upload();
