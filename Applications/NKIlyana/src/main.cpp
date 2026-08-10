@@ -1400,9 +1400,115 @@ static int ModeIndexer(int argc, char **argv) {
 	return 0;
 }
 
+// =============================================================================
+// MODE --citations : fabriquer les exemples qui lui apprennent à CITER.
+// -----------------------------------------------------------------------------
+// Voir NkIlyanaCitation.h pour le raisonnement complet. En deux phrases : on ne
+// lui enseigne pas des faits mais un GESTE — rendre la phrase d'un texte qui
+// contient les mots demandés —, et cet exemple-là se fabrique par pure recopie,
+// sans qu'aucune machine ait à affirmer quoi que ce soit. Une part des exemples
+// porte sur des mots ABSENTS, dont la bonne réponse est de constater l'absence :
+// sans eux, un modèle apprend qu'il faut toujours répondre, et invente.
+// =============================================================================
+static int ModeCitations(int argc, char **argv) {
+	const char *dossier = Arg(argc, argv, "--bibliotheque", nullptr);
+	const char *fCorpus = Arg(argc, argv, "--corpus", nullptr);
+	const char *fSortie = Arg(argc, argv, "--sortie", "citations.txt");
+	const int64 combien = ArgEntier(argc, argv, "--combien", 20000);
+	const double partAbsente = ArgReel(argc, argv, "--part-absente", 0.25);
+
+	NkString cheminBiblio;
+	if (dossier) {
+		cheminBiblio = Joindre(dossier, "tout.txt");
+		fCorpus = cheminBiblio.CStr();
+	}
+	if (!fCorpus) {
+		logger.Info("usage : --citations (--bibliotheque <dossier> | --corpus <fichier>)");
+		logger.Info("        [--sortie f] [--combien 20000] [--part-absente 0.25]");
+		return 1;
+	}
+
+	const NkString texte = NormaliserFinsDeLigne(LireFichier(fCorpus));
+	if (texte.Size() < 1000) {
+		logger.Infof("ERREUR : corpus illisible ou trop court : %s\n", fCorpus);
+		return 1;
+	}
+	NkVector<NkString> blocs;
+	DecouperEnBlocs(texte, blocs);
+	if (blocs.Size() < 10) {
+		logger.Info("ERREUR : trop peu de passages — le corpus utilise-t-il la ligne vide comme separateur ?");
+		return 1;
+	}
+
+	NkString out;
+	out.Reserve((nk_size)combien * 700);
+	int64 faits = 0;
+	int64 absents = 0;
+	int64 refuses = 0;
+	NkString exemple;
+	NkVector<NkString> motsAilleurs;
+
+	// On parcourt les passages en les espaçant : deux exemples tirés de passages
+	// voisins se ressemblent, et un corpus d'exemples redondants enseigne moins
+	// qu'un corpus varié de même taille.
+	const nk_size pas = (blocs.Size() > (nk_size)combien) ? (blocs.Size() / (nk_size)combien) : 1;
+	nk_size i = 0;
+	nk_size tours = 0;
+	while (faits < combien && tours < blocs.Size() * 3) {
+		const nk_size idx = (i % blocs.Size());
+		i += pas ? pas : 1;
+		++tours;
+		const NkString &bloc = blocs[idx];
+
+		// Un exemple sur quatre porte sur des mots ABSENTS. Les mots viennent
+		// d'un passage éloigné, et FabriquerExemple VÉRIFIE qu'ils sont bien
+		// absents avant d'écrire la réponse : on n'enseigne pas une fausseté.
+		const bool negatif = (partAbsente > 0.0) && ((faits % (int64)(1.0 / partAbsente)) == (int64)0) && faits > 0;
+		bool ok = false;
+		if (negatif) {
+			const NkString &autre = blocs[(idx + blocs.Size() / 2) % blocs.Size()];
+			ilyana::MotsDeContenu(autre, motsAilleurs);
+			ok = ilyana::FabriquerExemple(bloc, (nk_size)faits, &motsAilleurs, exemple);
+			if (ok)
+				++absents;
+		} else {
+			ok = ilyana::FabriquerExemple(bloc, (nk_size)faits, nullptr, exemple);
+		}
+		if (!ok) {
+			++refuses;
+			continue;
+		}
+		out.Append(exemple);
+		out.Append('\n');
+		++faits;
+	}
+
+	if (!EcrireFichier(fSortie, out)) {
+		logger.Infof("ERREUR : ecriture impossible : %s\n", fSortie);
+		return 1;
+	}
+
+	logger.Info("=== Ilyana / exemples de citation ===");
+	logger.Infof("%lld exemples ecrits dans %s (%.1f Mo)\n", (long long)faits, fSortie,
+				 (double)out.Size() / (1024.0 * 1024.0));
+	logger.Infof("  dont %lld sur des mots ABSENTS (%.1f%%) — la reponse juste y est « %s »\n",
+				 (long long)absents, faits ? (100.0 * (double)absents / (double)faits) : 0.0,
+				 ilyana::kReponseAbsente());
+	logger.Infof("  %lld passages ecartes : trop courts, ou sans mot designant une seule phrase.\n",
+				 (long long)refuses);
+	logger.Info("");
+	logger.Info("Ces exemples ne contiennent AUCUNE affirmation produite par une machine :");
+	logger.Info("le contexte et la reponse sont copies du corpus, la question est faite de");
+	logger.Info("mots qui en sont extraits. Rien n'y peut donc etre faux qui ne le soit deja");
+	logger.Info("dans le corpus lui-meme.");
+	return 0;
+}
+
 int main(int argc, char **argv) {
 	if (Drapeau(argc, argv, "--controle"))
 		return ModeControle(argc, argv);
+	if (Drapeau(argc, argv, "--citations"))
+		return ModeCitations(argc, argv);
 	if (Drapeau(argc, argv, "--melange"))
 		return ModeMelange(argc, argv);
 	if (Drapeau(argc, argv, "--ajouter"))

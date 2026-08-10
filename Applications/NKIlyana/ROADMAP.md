@@ -140,7 +140,35 @@ capitale du Cameroun ? » rend des passages sur le Tchad et la Guinée équatori
 qui *bordent* le Cameroun et contiennent les deux mots. Trouver par le sens
 demandera des vecteurs d'embedding.
 
-### ⛔ La question ouverte, à trancher avant de brancher les deux moitiés
+### ✅ DÉBLOQUÉ le 2026-08-10 — on enseigne un GESTE, pas des faits
+
+La sortie a été trouvée en changeant ce qu'on enseigne. On ne lui apprend pas
+des faits, mais **un geste** : « étant donné un texte et des mots, rends la
+phrase du texte qui contient ces mots ». Cet exemple-là se fabrique **par pure
+recopie** — le contexte est un passage réel, la question est faite de mots
+**extraits de ce passage**, la réponse est une phrase **copiée mot pour mot**.
+Aucune machine n'affirme quoi que ce soit, donc rien ne peut être faux qui ne le
+soit déjà dans le corpus. Mode `--citations` (voir `NkIlyanaCitation.h`).
+
+**Second enseignement, aussi important** : un quart des exemples porte sur des
+mots **absents** du passage, et la réponse juste est « Je ne trouve pas cela dans
+ce texte. » — vérifiée mécaniquement avant d'être écrite. Sans ces exemples-là, un
+modèle à qui on n'a montré que des réponses trouvées apprend qu'il faut
+**toujours** répondre, et invente quand le texte se tait.
+
+Trois défauts trouvés en fabriquant les premiers exemples, tous corrigés :
+- un passage contenant déjà « Question: » ou « Reponse: » **déplace le repère de
+  masquage** de l'entraînement : le modèle apprendrait à prédire le contexte au
+  lieu de la réponse, sans qu'aucune erreur ne soit signalée. Ces passages sont
+  maintenant refusés ;
+- un contexte d'**une seule phrase** rend l'exercice trivial : la réponse est le
+  contexte entier, et on enseigne à recopier son entrée au lieu de choisir. Trois
+  phrases minimum ;
+- un mot présent **plusieurs fois** dans le contexte ne désigne pas une phrase
+  unique : l'exercice aurait deux solutions. Seuls les mots à occurrence unique
+  sont retenus.
+
+### L'ancienne question, conservée pour mémoire
 
 Chercher marche. **Se servir de ce qu'on a trouvé, non** — et ce n'est pas un
 travail de câblage, c'est une décision de conception.
