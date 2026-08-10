@@ -582,6 +582,39 @@ namespace nkentseu {
 							mShadowShader.IsValid() ? 1 : 0, mShadowPipeline.IsValid() ? 1 : 0);
 			}
 
+			// ── Shadow LINEAIRE (faces omni, option par lumiere — 2026-08-10) ─────
+			// Le fragment ecrit dist/portee (SV_Depth) : le biais rasterizer devient
+			// inerte (il s'applique a la profondeur interpolee, pas a celle ecrite
+			// par le FS) — on garde les memes reglages, sans effet, plutot que de
+			// faire diverger deux descriptions.
+			if (mShaderLib) {
+				auto progLin = mShaderLib->LoadOrCompileVF("ShadowLinear", "", "");
+				if (progLin.IsValid())
+					mShadowLinearShader = mShaderLib->GetRHIHandle(progLin);
+				logger.Info("[NkRender3D] ShadowLinear shader compile: valid={0}\n",
+							mShadowLinearShader.IsValid() ? 1 : 0);
+			}
+			if (mShadowLinearShader.IsValid()) {
+				NkGraphicsPipelineDesc pd;
+				pd.shader = mShadowLinearShader;
+				pd.depthStencil = NkDepthStencilDesc::Default();
+				if (mShadow)
+					pd.renderPass = mShadow->GetShadowRenderPass();
+				pd.rasterizer = NkRasterizerDesc::NoCull(); // meme regle que Shadow
+				pd.blend = NkBlendDesc::Opaque();
+				pd.debugName = "Shadow_Linear";
+				// PC etendu : lightVP (64) + lightPosFar (16) = 80 octets.
+				pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0,
+								   sizeof(NkMat4f) + sizeof(NkVec4f));
+				pd.descriptorSetLayouts.PushBack(mGlobalLayout);
+				pd.descriptorSetLayouts.PushBack(mObjectLayout);
+				pd.vertexLayout.AddBinding(0, sizeof(NkVertex3D), false)
+					.AddAttribute(0, 0, NkVertexFormat::NK_RGB32_FLOAT, 0, "POSITION", 0);
+				mShadowLinearPipeline = mDevice->CreateGraphicsPipeline(pd);
+				logger.Info("[NkRender3D] ShadowLinear pipeline create: valid={0}\n",
+							mShadowLinearPipeline.IsValid() ? 1 : 0);
+			}
+
 			// ── Shadow INSTANCIÉ (ombres des mInstanced en 1 draw/batch) ──────────
 			// Version depth-only du shader Instanced : projette N instances dans
 			// l'atlas via lightVP (push const) + InstanceUBO (set1 binding4). Réutilise
@@ -1303,6 +1336,10 @@ namespace nkentseu {
 			if (mShadowPipeline.IsValid()) {
 				mDevice->DestroyPipeline(mShadowPipeline);
 				mShadowPipeline = {};
+			}
+			if (mShadowLinearPipeline.IsValid()) {
+				mDevice->DestroyPipeline(mShadowLinearPipeline);
+				mShadowLinearPipeline = {};
 			}
 			if (mShadowAlphaPipeline.IsValid()) {
 				mDevice->DestroyPipeline(mShadowAlphaPipeline);
@@ -2715,6 +2752,81 @@ namespace nkentseu {
 						mShadowInstIdx++;
 					}
 				}
+			}
+		}
+
+		// ── DEPOT D'OMBRE OMNI EN DISTANCE LINEAIRE ─────────────────────────────
+		// Meme collecte (mShadowCasters) et meme pool UBO-per-draw que
+		// RenderShadowPass, mais UN SEUL pipeline : toutes les profondeurs d'une
+		// face doivent etre la MEME grandeur (dist/portee) — melanger projete et
+		// lineaire dans un tile rendrait la comparaison absurde. V1 assume :
+		// l'alpha-test depose PLEIN (ombre un peu plus large) et les INSTANCIES
+		// ne deposent pas dans ces faces (limitation notee, a decliner au besoin).
+		void NkRender3D::RenderShadowPassLinear(NkICommandBuffer *cmd, const NkMat4f &lightVP,
+												const NkVec4f &posFar) {
+			if (!cmd || !mShadowLinearPipeline.IsValid())
+				return;
+
+			cmd->BindGraphicsPipeline(mShadowLinearPipeline);
+			// PC 80 octets : lightVP puis {position lumiere, portee}.
+			struct PCLin {
+					NkMat4f lightVP;
+					NkVec4f lightPosFar;
+			} pcl{lightVP, posFar};
+			cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(PCLin), &pcl);
+
+			// Meme ObjBlock 224 octets que RenderShadowPass (binding 1 partage).
+			struct ObjBlock {
+					NkMat4f model;
+					NkMat4f normalMatrix;
+					NkVec4f tint;
+					float32 metallic;
+					float32 roughness;
+					float32 aoStrength;
+					float32 emissiveStrength;
+					float32 normalStrength;
+					float32 clearcoat;
+					float32 clearcoatRough;
+					float32 subsurface;
+					NkVec4f subsurfaceColor;
+					NkVec4f shadowOverrides;
+					NkVec4f triplanarParams;
+			};
+			static_assert(sizeof(ObjBlock) == 224, "ObjBlock std140 shadow lineaire");
+
+			const bool poolFrameValid =
+				(mFrameSlot < mUBOObjectPool.Size()) && (mFrameSlot < mObjectSetPool.Size());
+			if (!poolFrameValid)
+				return;
+
+			for (auto &sdc : mShadowCasters) {
+				auto &dc = sdc.dc;
+				if (mObjectDrawIdx >= mObjectPoolCap) {
+					logger.Errorf("[NkRender3D] ObjectUBO pool overflow (shadow lin): "
+								  "drawIdx=%u >= max=%u, skipping draw\n",
+								  mObjectDrawIdx, mObjectPoolCap);
+					break;
+				}
+				ObjBlock ob{};
+				ob.model = dc.transform;
+				ob.normalMatrix = dc.transform.Inverse().Transpose();
+				ob.tint = {1, 1, 1, 1};
+				ob.metallic = 0.f;
+				ob.roughness = 0.5f;
+				ob.aoStrength = 1.f;
+
+				NkBufferHandle ubo = mUBOObjectPool[mFrameSlot][mObjectDrawIdx];
+				NkDescSetHandle os = mObjectSetPool[mFrameSlot][mObjectDrawIdx];
+				if (ubo.IsValid())
+					mDevice->WriteBuffer(ubo, &ob, sizeof(ob), 0);
+				if (os.IsValid())
+					cmd->BindDescriptorSet(os, 1);
+				mMesh->BindMesh(cmd, dc.mesh);
+				if (dc.subMeshIdx == 0xFFFFFFFFu)
+					mMesh->DrawAll(cmd, dc.mesh);
+				else
+					mMesh->DrawSubMesh(cmd, dc.mesh, dc.subMeshIdx);
+				mObjectDrawIdx++;
 			}
 		}
 

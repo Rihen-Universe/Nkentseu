@@ -142,6 +142,16 @@ namespace nkentseu {
 				// Shadows du RenderGraph. Reutilise mUBOObject pour le model.
 				void RenderShadowPass(NkICommandBuffer *cmd, const NkMat4f &lightVP);
 
+				// Variante DISTANCE LINEAIRE (faces omni dont la lumiere a choisi ce
+				// mode, cf. NkLightDesc.pointShadowLinear) : le fragment ecrit
+				// dist(monde, lumiere)/portee au lieu de la profondeur projetee.
+				// posFar = {position lumiere, portee}. V1 : tous les casters passent
+				// par le pipeline lineaire de base (l'alpha-test perd son decoupage)
+				// et les INSTANCIES ne deposent pas encore dans ces faces — a
+				// decliner si le besoin apparait.
+				void RenderShadowPassLinear(NkICommandBuffer *cmd, const NkMat4f &lightVP,
+											const NkVec4f &posFar);
+
 				// AABB monde englobant TOUS les casters d'ombre de la frame courante
 				// (mShadowCasters + mInstanced). Utilise par NkVirtualShadowMaps pour
 				// auto-fitter la cascade directionnelle a la scene (couverture complete
@@ -711,6 +721,9 @@ namespace nkentseu {
 				// de shadow map du NkShadowSystem). Partage mObjectLayout avec PBR.
 				::nkentseu::NkShaderHandle mShadowShader;
 				NkPipelineHandle mShadowPipeline;
+				// Depot d'ombre omni en DISTANCE LINEAIRE (option par lumiere).
+				::nkentseu::NkShaderHandle mShadowLinearShader;
+				NkPipelineHandle mShadowLinearPipeline;
 
 				// NkVSM v2 : shadow ALPHA-TESTED (feuillage/masked). Variante du
 				// pipeline Shadow qui sample l'albedo du material (set=2 = layout
