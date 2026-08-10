@@ -174,6 +174,11 @@ with project("Mou"):
         harmonybundlename("com.nkentseu.mou")
         harmonyminsdk(12)
         harmonytargetapi(12)
+        # Portrait, comme sur telephone Android : sans orientation declaree, la
+        # fenetre recevait une geometrie batarde (2503x1260 mesure sur emulateur
+        # pour un ecran de 1260x2720) et le rendu ne correspondait a rien de ce
+        # que le compositeur affiche.
+        harmonyorientation("portrait")
         defines([_VK_ON])
         links(["hilog_ndk.z", "EGL", "GLESv3", "vulkan"])
 

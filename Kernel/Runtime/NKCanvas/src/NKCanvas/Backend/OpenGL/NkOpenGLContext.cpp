@@ -103,6 +103,7 @@
 #define NK_NATIVE_WIN(s) ((s).nativeWindow)
 #endif
 
+
 // Constantes WGL ARB (utilisÃ©es si GLAD2 absent, magic numbers nommÃ©s)
 #ifndef WGL_DRAW_TO_WINDOW_ARB
 #define WGL_DRAW_TO_WINDOW_ARB 0x2001
@@ -549,6 +550,32 @@ namespace nkentseu {
 		if (!NK_NATIVE_WIN(surf)) {
 			// Pas de native window valide (app encore en background sur Android).
 			return false;
+		}
+		// Rien n'a changé -> NE RIEN FAIRE. Sans cette garde, la fonction
+		// détruisait et recréait la surface EGL à CHAQUE appel. Appelée une fois
+		// par frame — ce qu'exige le cycle de vie mobile, où la fenêtre native
+		// peut être remplacée à tout moment — elle jetait la surface juste
+		// remplie avant même que le compositeur ne l'affiche.
+		//
+		// La TAILLE fait partie de la comparaison, et c'est le point essentiel :
+		// sur HarmonyOS la surface est d'abord créée pendant que le XComponent
+		// n'a pas encore sa géométrie définitive (mesuré : 2503x1260 pour un
+		// écran de 1260x2720). Le pointeur de fenêtre, lui, ne change jamais —
+		// une garde qui ne regarderait que lui figerait l'application sur cette
+		// surface bâtarde, que le compositeur n'affiche pas : écran noir, sans
+		// une seule erreur GL ni le moindre échec de eglSwapBuffers.
+		if (NK_NATIVE_WIN(surf) == mData.eglNativeWindow && mData.eglSurface != EGL_NO_SURFACE) {
+			EGLint curW = 0, curH = 0;
+			eglQuerySurface(mData.eglDisplay, mData.eglSurface, EGL_WIDTH, &curW);
+			eglQuerySurface(mData.eglDisplay, mData.eglSurface, EGL_HEIGHT, &curH);
+			const math::NkVec2u taille = window.GetSize();
+			const EGLint wantW = static_cast<EGLint>(taille.x);
+			const EGLint wantH = static_cast<EGLint>(taille.y);
+			if (wantW <= 0 || wantH <= 0 || (curW == wantW && curH == wantH)) {
+				return true; // conforme (ou taille de fenêtre pas encore connue)
+			}
+			logger.Infof("[NkOpenGL] surface %dx%d != fenetre %dx%d -> recreation\n", (int)curW, (int)curH,
+						 (int)wantW, (int)wantH);
 		}
 #endif
 
@@ -1235,6 +1262,19 @@ namespace nkentseu {
 #endif
 			NK_GL_ERR("eglCreateWindowSurface failed\n");
 			return false;
+		}
+
+		// Taille REELLE de la surface obtenue. Une surface de dimensions nulles
+		// ou differentes de la fenetre ne montre rien, et c'est indetectable
+		// autrement : la creation « reussit » et le rendu ne signale aucune
+		// erreur.
+		{
+			EGLint sw = 0, sh = 0;
+			eglQuerySurface(mData.eglDisplay, mData.eglSurface, EGL_WIDTH, &sw);
+			eglQuerySurface(mData.eglDisplay, mData.eglSurface, EGL_HEIGHT, &sh);
+			logger.Infof("[NkOpenGL] surface EGL %dx%d | contexte %ux%u | surf.desc %ux%u | natif %p\n", (int)sw,
+						 (int)sh, mData.width, mData.height, surf.width, surf.height,
+						 (void *)mData.eglNativeWindow);
 		}
 
 		logger.Warn("[NkOpenGL][DBG] InitEGL before eglBindAPI");
