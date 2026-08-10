@@ -251,6 +251,19 @@ JIT LLVM + SIMD AVX + multi-thread par tuiles. Pistes, par gain décroissant :
 
 ## À venir (futur proche)
 
+### 🥽 NOTE DE COORDINATION — chantier NKXR, étape 2b (agent XR, 2026-08-10)
+Le backend OpenXR de `Kernel/Runtime/NKXR` (étape 2a livrée : négociation +
+instance + système, loader chargé dynamiquement) aura besoin, pour ouvrir une
+SESSION de casque, que le device Vulkan soit créé avec les extensions
+qu'exige le runtime (`xrGetVulkanGraphicsRequirements*`, familles de queues et
+`VkPhysicalDevice` imposés). Concrètement : un point d'injection dans
+`NkVulkanDesc` (listes d'extensions instance/device supplémentaires + choix du
+physical device imposé de l'extérieur), AVANT `NkVulkanDevice::Initialize`.
+Rien ne sera écrit dans NKRHI sans accord — interlocuteur : agent NKXR
+(worktree `Nkentseu-xr`, `Kernel/Runtime/NKXR/ROADMAP.md` étape 2b). Le
+chantier « Web / écran noir » tient `NKRHI/Opengl/**` : non concerné, la 2b ne
+touche que le backend Vulkan.
+
 ### Bindless descriptor heap
 - API esquissée : `CreateBindlessHeap` / `WriteBindlessTexture` /
   `WriteBindlessBuffer` / `BindBindlessHeap`
