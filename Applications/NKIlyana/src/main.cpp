@@ -848,9 +848,193 @@ static int ModeCauser(int argc, char **argv) {
 	return 0;
 }
 
+// =============================================================================
+// MODE --melange : préparer le corpus de la SECONDE phase (identité + charte)
+// -----------------------------------------------------------------------------
+// POURQUOI CE MODE EXISTE. Mesuré sur le run réel : l'identité pèse 0,5 Mo dans
+// un corpus de 1657 Mo, soit 0,03 %. Sur 18 millions de tokens vus, elle ne
+// croise donc qui elle est que sur ~5 500 tokens éparpillés. La phase de langue
+// ne PEUT PAS lui apprendre son identité — ce n'est pas un défaut d'entraînement,
+// c'est une question de proportions. D'où une seconde phase, courte, dédiée.
+//
+// LE PIÈGE QUE CE MODE ÉVITE. Réentraîner sur la seule identité lui ferait
+// désapprendre le français : c'est l'oubli catastrophique, et il est brutal — le
+// modèle se met à réciter ses quelques milliers de phrases d'identité et ne sait
+// plus rien construire d'autre. On mélange donc de la PROSE avec, en proportion
+// choisie. La prose n'est pas là pour enseigner : elle est là pour RETENIR.
+//
+// DEUX CHOIX QUI NE SONT PAS DES DÉTAILS :
+//  - la prose est prélevée en SONDANT le gros corpus à intervalles réguliers, pas
+//    en lisant son début. Un dump Wikipédia n'est pas dans un ordre neutre ; ses
+//    premiers méga-octets se ressemblent. Réviser dessus appauvrirait sa langue ;
+//  - identité et prose sont ENTRELACÉES, pas concaténées. Concaténées, le modèle
+//    traverse un long moment sans voir l'une des deux, et l'oubli reprend pendant
+//    ce moment-là.
+// =============================================================================
+static void DecouperEnBlocs(const NkString &s, NkVector<NkString> &out) {
+	nk_size i = 0;
+	while (i < s.Size()) {
+		nk_size fin = s.Find("\n\n", i);
+		if (fin == NkString::npos)
+			fin = s.Size();
+		if (fin > i)
+			out.PushBack(s.SubStr(i, fin - i));
+		i = (fin >= s.Size()) ? s.Size() : fin + 2;
+	}
+}
+
+static int ModeMelange(int argc, char **argv) {
+	const char *fIdent = Arg(argc, argv, "--identite", nullptr);
+	const char *fCorpus = Arg(argc, argv, "--corpus", nullptr);
+	const char *fSortie = Arg(argc, argv, "--sortie", "phase2.txt");
+	const double part = ArgReel(argc, argv, "--part", 0.25);
+	const int64 tailleMo = ArgEntier(argc, argv, "--taille", 8);
+
+	if (!fIdent || !fCorpus) {
+		logger.Info("usage : --melange --identite <identite.txt> --corpus <gros.txt> "
+					"[--sortie f] [--part 0.25] [--taille 8]");
+		return 1;
+	}
+	if (part <= 0.0 || part >= 1.0) {
+		logger.Info("ERREUR : --part doit etre strictement entre 0 et 1 (0.25 = un quart d'identite).");
+		return 1;
+	}
+
+	const NkString ident = NormaliserFinsDeLigne(LireFichier(fIdent));
+	if (ident.Size() == 0) {
+		logger.Infof("ERREUR : identite illisible ou vide : %s\n", fIdent);
+		return 1;
+	}
+	NkVector<NkString> blocsIdent;
+	DecouperEnBlocs(ident, blocsIdent);
+	if (blocsIdent.Size() == 0) {
+		logger.Info("ERREUR : aucun bloc dans l'identite (separateur attendu : ligne vide).");
+		return 1;
+	}
+
+	FILE *fc = fopen(fCorpus, "rb");
+	if (!fc) {
+		logger.Infof("ERREUR : corpus illisible : %s\n", fCorpus);
+		return 1;
+	}
+	fseek(fc, 0, SEEK_END);
+	const int64 tailleCorpus = (int64)ftell(fc);
+
+	const int64 cible = tailleMo * 1024 * 1024;
+	const int64 cibleIdent = (int64)((double)cible * part);
+	const int64 cibleProse = cible - cibleIdent;
+
+	// Combien de sondages, et de quelle taille. On en veut beaucoup et de taille
+	// modeste : cent prélèvements de 16 Ko couvrent bien plus de sujets qu'un
+	// seul de 1,6 Mo, pour le même volume.
+	// Marge de 60 % : chaque sondage perd ses deux extrémités au recadrage sur
+	// les frontières de blocs. Sans marge, on prélève « juste ce qu'il faut » et
+	// on finit par rejouer de la prose — ce qui la sur-représente au hasard du
+	// découpage, exactement ce qu'on cherchait à éviter en sondant large.
+	const int64 tailleSonde = 16 * 1024;
+	int64 nbSondes = ((cibleProse * 8 / 5) + tailleSonde - 1) / tailleSonde;
+	if (nbSondes < 1)
+		nbSondes = 1;
+
+	NkVector<NkString> blocsProse;
+	char *tampon = (char *)malloc((nk_size)tailleSonde + 1);
+	if (!tampon) {
+		fclose(fc);
+		logger.Info("ERREUR : allocation du tampon de sondage impossible.");
+		return 1;
+	}
+	for (int64 s = 0; s < nbSondes; ++s) {
+		int64 pos = (tailleCorpus > tailleSonde)
+						? (int64)(((double)s / (double)nbSondes) * (double)(tailleCorpus - tailleSonde))
+						: 0;
+		if (fseek(fc, (long)pos, SEEK_SET) != 0)
+			continue;
+		const nk_size got = fread(tampon, 1, (nk_size)tailleSonde, fc);
+		if (got == 0)
+			continue;
+		NkString brut(tampon, got);
+		// On a atterri au hasard AU MILIEU d'une ligne, et peut-être au milieu
+		// d'un caractère accentué (UTF-8 tient sur plusieurs octets). On jette
+		// donc jusqu'au premier séparateur de blocs, et on coupe au dernier :
+		// ce qui reste est fait de blocs entiers, donc de texte valide.
+		const nk_size deb = brut.Find("\n\n");
+		if (deb == NkString::npos)
+			continue;
+		const nk_size fin = brut.RFind("\n\n");
+		if (fin == NkString::npos || fin <= deb + 2)
+			continue;
+		DecouperEnBlocs(brut.SubStr(deb + 2, fin - deb - 2), blocsProse);
+	}
+	free(tampon);
+	fclose(fc);
+
+	if (blocsProse.Size() == 0) {
+		logger.Info("ERREUR : aucun bloc de prose prelevé — le corpus utilise-t-il bien la ligne vide "
+					"comme separateur ?");
+		return 1;
+	}
+
+	// Entrelacement. On avance dans les deux listes en parallèle, en insérant un
+	// bloc d'identité dès que sa part réelle passe sous la part visée. Les deux
+	// listes bouclent : l'identité se répète (c'est voulu, elle doit s'imprimer),
+	// la prose aussi si le corpus prélevé ne suffit pas.
+	NkString out;
+	out.Reserve((nk_size)cible + (1 << 16));
+	int64 volIdent = 0;
+	int64 volProse = 0;
+	nk_size iI = 0;
+	nk_size iP = 0;
+	while ((volIdent + volProse) < cible) {
+		const int64 total = volIdent + volProse;
+		const bool prendreIdent = (total == 0) ? true : ((double)volIdent / (double)total) < part;
+		if (prendreIdent && volIdent < cibleIdent) {
+			const NkString &b = blocsIdent[iI % blocsIdent.Size()];
+			++iI;
+			out.Append(b);
+			out.Append("\n\n", 2);
+			volIdent += (int64)b.Size() + 2;
+		} else {
+			const NkString &b = blocsProse[iP % blocsProse.Size()];
+			++iP;
+			out.Append(b);
+			out.Append("\n\n", 2);
+			volProse += (int64)b.Size() + 2;
+		}
+	}
+
+	if (!EcrireFichier(fSortie, out)) {
+		logger.Infof("ERREUR : ecriture impossible : %s\n", fSortie);
+		return 1;
+	}
+
+	const double partReelle = (double)volIdent / (double)(volIdent + volProse);
+	logger.Info("=== Ilyana / melange phase 2 ===");
+	logger.Infof("identite : %llu blocs distincts, repetes %llu fois\n",
+				 (unsigned long long)blocsIdent.Size(),
+				 (unsigned long long)(iI / (blocsIdent.Size() ? blocsIdent.Size() : 1)));
+	logger.Infof("prose    : %llu blocs preleves par %lld sondages repartis sur %.1f Go\n",
+				 (unsigned long long)blocsProse.Size(), (long long)nbSondes,
+				 (double)tailleCorpus / (1024.0 * 1024.0 * 1024.0));
+	logger.Infof("sortie   : %s — %.1f Mo, dont %.1f%% d'identite (vise %.1f%%)\n", fSortie,
+				 (double)out.Size() / (1024.0 * 1024.0), partReelle * 100.0, part * 100.0);
+	if (iP < blocsProse.Size())
+		logger.Infof("note : %.0f%% de la prose prelevee a suffi — aucune repetition de prose.\n",
+					 100.0 * (double)iP / (double)blocsProse.Size());
+	else
+		logger.Info("note : la prose prelevee a ete rejouee au moins une fois — elle est donc "
+					"sur-representee ; c'est le signe que la marge de sondage est trop courte.");
+	logger.Info("");
+	logger.Info("RAPPEL : cette phase se lance depuis le checkpoint de la phase de langue,");
+	logger.Info("avec un pas d'apprentissage FAIBLE et peu de pas. Et on ne promeut le");
+	logger.Info("resultat que si la batterie (--controle) ne BAISSE pas.");
+	return 0;
+}
+
 int main(int argc, char **argv) {
 	if (Drapeau(argc, argv, "--controle"))
 		return ModeControle(argc, argv);
+	if (Drapeau(argc, argv, "--melange"))
+		return ModeMelange(argc, argv);
 	if (Drapeau(argc, argv, "--wiki"))
 		return ModeWiki(argc, argv);
 	if (Drapeau(argc, argv, "--data"))
@@ -867,5 +1051,7 @@ int main(int argc, char **argv) {
 	logger.Info("  --train   [--corpus f] [--bpe f] [--save f] [--load f] [--steps n] [--d n] [--layers n]");
 	logger.Info("            [--heads n] [--T n] [--B n] [--accum n] [--lr x] [--saveevery n]");
 	logger.Info("  --parler  [--load f] [--bpe f] [--question \"...\"] [--temp x] [--topk n] [--topp x]");
+	logger.Info("  --melange --identite f --corpus f [--sortie f] [--part 0.25] [--taille 8]");
+	logger.Info("            corpus de la 2e phase : identite entrelacee avec de la prose prelevee");
 	return 0;
 }

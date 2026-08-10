@@ -145,14 +145,49 @@ entraînement (les embeddings sont indexés par identifiant de token).
 le run paraît 3,6× plus rapide **parce qu'il ne calcule rien**. Cause racine non
 identifiée ; le garde-fou l'attrape.
 
-### 6.4 `--causer` / `--parler` — lui parler
+### 6.4 `--melange` — le corpus de la SECONDE phase (CPU, ~10 s)
+
+```
+.\Build\Bin\Release-Windows\NKIlyana\NKIlyana.exe --melange ^
+  --identite <identite.txt> --corpus <fr_ilyana.txt> ^
+  --sortie <phase2.txt> --part 0.25 --taille 8
+```
+
+**Pourquoi ce mode existe — le chiffre qui l'impose.** Mesuré sur le run réel :
+l'identité pèse **0,5 Mo dans 1657 Mo**, soit **0,03 %**. Sur les ~18 millions de
+tokens que voit un run de 3000 pas, elle ne croise donc qui elle est que sur
+**~5 500 tokens** éparpillés. La phase de langue *ne peut pas* lui apprendre son
+identité — ce n'est pas un défaut d'entraînement, c'est une question de
+proportions. D'où une seconde phase courte et dédiée.
+
+**Le piège qu'il évite.** Réentraîner sur la seule identité provoque l'**oubli
+catastrophique** : elle récite ses quelques milliers de phrases et ne sait plus
+construire autre chose. La prose mélangée n'est pas là pour enseigner, elle est
+là pour **retenir**.
+
+Deux choix qui ne sont pas des détails :
+- la prose est prélevée en **sondant le gros corpus à intervalles réguliers**,
+  jamais en lisant son début (un dump Wikipédia n'est pas dans un ordre neutre ;
+  réviser sur ses premiers méga-octets appauvrirait sa langue) ;
+- identité et prose sont **entrelacées**, pas concaténées — concaténées, le
+  modèle traverse un long moment sans voir l'une des deux, et l'oubli reprend.
+
+À lire dans la sortie : `dont X% d'identite (vise Y%)` doit coller, et
+`aucune repetition de prose` — si la prose est **rejouée**, elle est
+sur-représentée au hasard du découpage, ce qu'on cherchait justement à éviter.
+
+Mesure de référence : 8,0 Mo à **25,0 %** visés et obtenus, 3270 blocs d'identité
+répétés 4 fois, 13 727 blocs de prose issus de 614 sondages sur 1,6 Go, 65 % de
+la prose prélevée suffisant (donc aucune répétition).
+
+### 6.5 `--causer` / `--parler` — lui parler
 ```
 .\Build\Bin\Release-Windows\NKIlyana\NKIlyana.exe --causer ^
   --load <modele.nkgp> --bpe <ilyana.nkbpe> --temp 0.4 --topk 10
 ```
 `--parler --question "..."` pour une question unique.
 
-### 6.5 `--controle` — LA BATTERIE
+### 6.6 `--controle` — LA BATTERIE
 ```
 .\Build\Bin\Release-Windows\NKIlyana\NKIlyana.exe --controle ^
   --load <modele.nkgp> --bpe <ilyana.nkbpe>
@@ -194,9 +229,17 @@ résiduel. Puis relancer avec `--load test.nkgp` : la trace doit dire
 
 ## Ce qui reste ouvert, et qu'il ne faut pas oublier
 
-- **Cause racine de la panne silencieuse à B=24** — 0 défaut d'allocation
-  signalé, donc ce n'est ni une allocation ni un tampon. À chercher côté
-  dispatch/submit.
+- **Cause racine de la panne silencieuse à B=24** — toujours ouverte, mais une
+  piste de moins. Hypothèse testée puis **RÉFUTÉE** : « le tampon de logits
+  dépasse ce qu'un shader peut adresser ». La carte annonce **4095 Mo**
+  adressables (journalisé au démarrage depuis cette session) et il n'en faut que
+  **384**. Restent : le nombre de groupes de travail par dispatch (1 572 960 à
+  B=24 contre 786 480 à B=12 — mais un RTX 3070 en autorise 2 milliards), et le
+  fait que la **validation Vulkan est désactivée par défaut** dans ce moteur, ce
+  qui rend un dispatch refusé parfaitement muet. Un garde-fou refuse désormais
+  tout tampon plus grand que `maxStorageBufferRange`, avec un message explicite.
+  ⚠️ Le noyau pavé divise par 16 le nombre de groupes du produit de matrices de
+  sortie : **retester B=24** quand le GPU sera libre, c'est le test décisif.
 - **Prochain levier de vitesse** : chaque opération élémentaire fait un
   `WaitIdle()` — un vidage complet du pipeline par op. Le GPU monte à 73 % en
   pointe mais reste à 30 W. C'est là qu'est le facteur suivant.
