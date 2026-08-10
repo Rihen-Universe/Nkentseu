@@ -622,6 +622,14 @@ namespace nkentseu {
 							logger.Info("  [controle] la perte a bien baisse de {0}% en 30 pas — l'entrainement "
 										"calcule reellement.",
 										bouge * 100.0);
+						if (V)
+							logger.Info("  [mesure] {0} operations GPU en 30 pas = {1} par pas — a {2} s/pas, "
+										"le cout fixe par operation vaut {3} ms.",
+										(long long)NkTensorGpu::OpCount(), (long long)(NkTensorGpu::OpCount() / 30),
+										chrono.Elapsed().seconds / 30.0,
+										(NkTensorGpu::OpCount() > 0)
+											? (chrono.Elapsed().seconds * 1000.0) / (double)NkTensorGpu::OpCount()
+											: 0.0);
 					}
 					if (V && (s % 25 == 0 || s == 1))
 						logger.Info("  pas {0} : perte = {1}  (moy. {2})  lr={3}", s, lv, mEma, (double)lr);

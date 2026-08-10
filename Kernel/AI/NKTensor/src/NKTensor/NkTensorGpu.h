@@ -37,6 +37,11 @@ namespace nkentseu {
 				// tampon invalide). Un entrainement doit le consulter : un calcul qui
 				// n'a pas lieu ne produit AUCUNE erreur, seulement une perte immobile.
 				static int64 DefautCount();
+
+				// Operations GPU lancees depuis le demarrage. Divise par le nombre de pas,
+				// il donne le cout fixe par operation — la grandeur qui dit si le moteur
+				// est limite par le calcul ou par le lancement des noyaux.
+				static int64 OpCount();
 				void DestroyBuffer(uint64 id);
 				bool Upload(uint64 id, const void *data, nk_size bytes);
 				bool Download(uint64 id, void *out, nk_size bytes);
