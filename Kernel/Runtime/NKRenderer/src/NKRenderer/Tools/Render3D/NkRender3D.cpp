@@ -11,6 +11,7 @@
 #include "NKRenderer/Core/NkRendererConfig.h" // NkUnits() pour triplanar
 #include "NKRenderer/Materials/NkMaterialCollection.h"
 #include "NKRenderer/Materials/NkMatcapLibrary.h"
+#include "NKFileSystem/NkFile.h" // tables LTC (Resources/NKRenderer/LUT)
 #include "NkRender3D_PBRShaders.inl"
 #include "NKLogger/NkLog.h"
 #include <cstring>
@@ -230,6 +231,34 @@ namespace nkentseu {
 				}
 			}
 
+			// ── TABLES LTC (Heitz et al. 2016 — etape 3 du programme, 10 aout) ──
+			// Deux 64x64 RGBA32F : LTC1 = matrice inverse M^-1 ajustee sur GGX,
+			// LTC2 = normalisation GGX / Fresnel / spherisation d'horizon. Elles
+			// rendent le SPECULAIRE des lumieres surfaciques physiquement correct
+			// (le point representatif de Karis reste le repli si les fichiers
+			// manquent). Provenance et licence : THIRD_PARTY_LICENSES.md.
+			{
+				auto loadLtc = [&](const char *path, const char *dbg) -> NkTextureHandle {
+					NkVector<nk_uint8> bytes = NkFile::ReadAllBytes(path);
+					if (bytes.Size() != 64u * 64u * 4u * sizeof(float32)) {
+						logger.Warn("[NkRender3D] Table LTC absente ou invalide : {0} "
+									"({1} octets) — repli point representatif\n",
+									path, (uint64)bytes.Size());
+						return {};
+					}
+					auto td2 = NkTextureDesc::Tex2D(64, 64, NkGPUFormat::NK_RGBA32_FLOAT, 1);
+					td2.debugName = dbg;
+					NkTextureHandle t = mDevice->CreateTexture(td2);
+					if (t.IsValid())
+						mDevice->WriteTextureRegion(t, bytes.Data(), 0, 0, 0, 64, 64, 1, 0, 0);
+					return t;
+				};
+				mLTC1Tex = loadLtc("Resources/NKRenderer/LUT/ltc1.bin", "LTC1_MInv");
+				mLTC2Tex = loadLtc("Resources/NKRenderer/LUT/ltc2.bin", "LTC2_NormFresnel");
+				logger.Info("[NkRender3D] Tables LTC : ltc1={0} ltc2={1}\n",
+							mLTC1Tex.IsValid() ? 1 : 0, mLTC2Tex.IsValid() ? 1 : 0);
+			}
+
 			// ── Descriptor set layouts ────────────────────────────────────────────
 			// Frame set (set 0) : Camera(0) + Lights(2) + Shadow(3) + 4 textures
 			// materiel par defaut(4-7) + Env irradiance/prefilter/BRDFLUT(8/9/10)
@@ -280,7 +309,10 @@ namespace nkentseu {
 				.Add(27, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS)
 				// Mode d'affichage : binding=28 = tMatcap (sampler2D), boule matcap
 				// échantillonnée par la normale-vue en mode SOLID/WIREFRAME (matcap texture).
-				.Add(28, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
+				.Add(28, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS)
+				// Tables LTC (lumieres surfaciques) : 29 = M^-1, 30 = norm/Fresnel.
+				.Add(29, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS)
+				.Add(30, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
 			mGlobalLayout = mDevice->CreateDescriptorSetLayout(frameLayout);
 
 			// Object set layout (set 1) : Object UBO(1) + Bones/Instance UBO(4).
@@ -376,6 +408,20 @@ namespace nkentseu {
 				NkSamplerHandle mcSamp = mResources ? mResources->GetSamplerLinearClamp() : defSampler;
 				if (mMatcapTex.IsValid() && mcSamp.IsValid())
 					mDevice->BindTextureSampler(gs, 28, mMatcapTex, mcSamp);
+
+				// Bindings 29/30 : tables LTC (CLAMP obligatoire — les bords de la
+				// table portent les rugosites/incidences extremes, un repeat les
+				// melangerait). Repli : la texture blanche, et le shader detecte
+				// l'absence par uLights (les tables valides ont ete chargees).
+				if (mLTC1Tex.IsValid() && mLTC2Tex.IsValid() && mcSamp.IsValid()) {
+					mDevice->BindTextureSampler(gs, 29, mLTC1Tex, mcSamp);
+					mDevice->BindTextureSampler(gs, 30, mLTC2Tex, mcSamp);
+				} else if (mResources) {
+					mDevice->BindTextureSampler(gs, 29, mResources->GetWhiteTex(),
+												mResources->GetSamplerLinearClamp());
+					mDevice->BindTextureSampler(gs, 30, mResources->GetWhiteTex(),
+												mResources->GetSamplerLinearClamp());
+				}
 
 				if (mShadow && mShadow->GetAtlasTexture().IsValid()) {
 					mDevice->BindTextureSampler(gs, 11, mShadow->GetAtlasTexture(), mShadow->GetAtlasSampler());
@@ -2474,7 +2520,11 @@ namespace nkentseu {
 			// echantillon par iblStrength (0.05 par defaut) : le ciel sortait a
 			// 5 % de sa luminosite, donc quasi noir, et paraissait absent alors
 			// qu'il etait correctement genere. Ce sont deux grandeurs distinctes.
-			cb.viewOpts = {mMatcapCustom ? 1.f : 0.f, mSkyIntensity, 0.f, 0.f};
+			// viewOpts.z = 1 si les tables LTC sont chargees (bindings 29/30) :
+			// le shader bascule alors le speculaire surfacique du point
+			// representatif vers l'integration LTC.
+			cb.viewOpts = {mMatcapCustom ? 1.f : 0.f, mSkyIntensity,
+						   (mLTC1Tex.IsValid() && mLTC2Tex.IsValid()) ? 1.f : 0.f, 0.f};
 			// yFlipNDC : UNIQUEMENT consommé par le SKYBOX (reconstruction du view-ray à
 			// partir de vNDC). C'est l'orientation Y du VS PLEIN ÉCRAN du skybox, qui
 			// n'a PAS d'inputs → le générateur HLSL ne le Y-négate PAS sur DX (il ne
