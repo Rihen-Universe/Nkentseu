@@ -176,6 +176,30 @@ namespace nkentseu {
 					Bpe mBpe;
 					NkVector<NkString> mLangs;
 					NkVector<NkVector<float>> mLangData, mLangMask; // entraînement (par langue)
+
+					// Position de DÉBUT de chaque bloc dans le flux de tokens.
+					//
+					// POURQUOI CETTE LISTE EXISTE. Le lot était prélevé à un décalage
+					// tiré au hasard dans un flux plat. Pour de la prose, c'est
+					// exactement ce qu'il faut. Mais un exemple STRUCTURÉ
+					// (« Contexte: … Question: … Reponse: … ») fait environ 180 tokens
+					// pour une fenêtre de 256 : tiré au hasard, il n'est entier qu'une
+					// fois sur trois — et surtout, quand la fenêtre commence au milieu
+					// du contexte, le modèle voit une question suivie de « Reponse: »
+					// avec un contexte AMPUTÉ, et on lui apprend à produire une phrase
+					// qui n'y figure pas. Autrement dit, on lui enseigne à INVENTER,
+					// précisément ce qu'on cherchait à combattre.
+					//
+					// Mesuré : deux entraînements de 900 pas destinés à enseigner la
+					// citation n'ont rien appris du geste, et ont fait baisser la
+					// batterie de contrôle (8/19 -> 6/19, puis 5/19).
+					NkVector<NkVector<int64>> mLangStarts;
+
+					// Choisit où démarre une fenêtre : une fois sur deux au début d'un
+					// bloc, une fois sur deux au hasard. Écrit UNE SEULE FOIS parce que
+					// les deux fabriques de lot en ont besoin, et que deux copies du
+					// même calcul finissent toujours par diverger.
+					int64 ChoisirDecalage(int li, int64 N);
 					NkVector<NkVector<float>> mValData, mValMask;	// held-out validation (queue de chaque langue)
 					int mV = 0, mNByte = 0;
 					int64 mT = 0, mD = 0, mH = 0, mL = 0, mB = 0;

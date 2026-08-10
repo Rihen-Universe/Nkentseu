@@ -42,6 +42,7 @@ namespace nkentseu {
 				data::NkBpeEncoder enc(mBpe);
 				mLangData.Resize((nk_size)texts.Size());
 				mLangMask.Resize((nk_size)texts.Size());
+				mLangStarts.Resize((nk_size)texts.Size());
 				nk_size totalTok = 0;
 				for (int64 li = 0; li < (int64)texts.Size(); ++li) {
 					const NkString &txt = texts[(nk_size)li];
@@ -63,6 +64,13 @@ namespace nkentseu {
 							pos = (be == NkString::npos) ? sz : be + 2;
 							if (block.Size() == 0)
 								continue;
+
+							// On note OÙ commence ce bloc. Le lot pourra alors démarrer sa
+							// fenêtre ici plutôt qu'au milieu de nulle part, et voir
+							// l'exemple ENTIER. Voir mLangStarts dans l'en-tête pour ce que
+							// coûtait l'absence de cette note.
+							if ((nk_size)li < mLangStarts.Size())
+								mLangStarts[(nk_size)li].PushBack((int64)mLangData[(nk_size)li].Size());
 
 							// Un bloc peut contenir PLUSIEURS tours, pas un seul. On alterne
 							// donc : tout ce qui va jusqu'au marqueur de réponse INCLUS est
@@ -183,6 +191,36 @@ namespace nkentseu {
 			}
 
 			// Lot d'entraînement (échantillonné depuis mLangData).
+			// Une fenêtre sur deux démarre au DÉBUT d'un bloc, l'autre au hasard.
+			//
+			// Les deux sont nécessaires, pour des raisons opposées. Démarrer au début
+			// d'un bloc est le SEUL moyen de voir un exemple structuré en entier —
+			// sans quoi le modèle apprend à répondre depuis un contexte AMPUTÉ, donc
+			// à inventer une phrase qui ne s'y trouve pas. Mais ne faire QUE cela lui
+			// apprendrait que tout commence à la position zéro d'une fenêtre, ce qui
+			// est faux dès qu'on lui parle vraiment : le hasard garde cette souplesse.
+			int64 NkGptTrainer::ChoisirDecalage(int li, int64 N) {
+				const int64 maxOff = N - mT - 1;
+				if (maxOff <= 0)
+					return 0;
+				const bool auDebut =
+					((nk_size)li < mLangStarts.Size()) && (mLangStarts[(nk_size)li].Size() > 0) && (NextRand() < 0.5);
+				if (!auDebut)
+					return (int64)(NextRand() * (double)(N - mT));
+				const NkVector<int64> &st = mLangStarts[(nk_size)li];
+				nk_size k = (nk_size)(NextRand() * (double)st.Size());
+				if (k >= st.Size())
+					k = st.Size() - 1;
+				const int64 off = st[k];
+				// La validation retire la QUEUE des données d'entraînement : un début
+				// de bloc peut donc tomber au-delà. Le rabattre sur la limite ferait
+				// converger tous ces cas vers la MÊME fenêtre, sur-représentée en
+				// silence. On repasse au hasard, qui n'a pas ce défaut.
+				if (off < 0 || off > maxOff)
+					return (int64)(NextRand() * (double)(N - mT));
+				return off;
+			}
+
 			void NkGptTrainer::MakeBatch(NkTensor &x, NkTensor &oneHot) {
 				MakeBatchFrom(mLangData, mLangMask, x, oneHot);
 			}
@@ -205,7 +243,7 @@ namespace nkentseu {
 					const int64 N = (int64)dd.Size();
 					if (N <= mT)
 						continue;
-					const int64 off = (int64)(NextRand() * (double)(N - mT));
+					const int64 off = ChoisirDecalage(li, N);
 					xp[b * mT + 0] = (float)(mNByte + li);
 					if (!hasMask || mask[(nk_size)li][(nk_size)off] != 0.f)
 						op[(b * mT + 0) * mV + (int)dd[(nk_size)off]] = 1.f;
@@ -242,7 +280,7 @@ namespace nkentseu {
 					const int64 N = (int64)dd.Size();
 					if (N <= mT)
 						continue; // ligne entièrement masquée (targetIdx reste -1)
-					const int64 off = (int64)(NextRand() * (double)(N - mT));
+					const int64 off = ChoisirDecalage(li, N);
 					xp[b * mT + 0] = (float)(mNByte + li);
 					if (!hasMask || mask[(nk_size)li][(nk_size)off] != 0.f)
 						tp[b * mT + 0] = dd[(nk_size)off];
