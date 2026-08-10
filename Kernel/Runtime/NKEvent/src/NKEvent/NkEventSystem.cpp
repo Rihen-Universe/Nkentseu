@@ -203,6 +203,31 @@ namespace nkentseu {
 		// Point 4 : on estampille l'event avec l'id de sa fenÃªtre source
 		evt.SetWindowId(winId);
 
+		// Evenement produit par un THREAD ETRANGER (callback systeme mobile) :
+		// on le met de cote au lieu de le livrer ici. Le livrer sur ce thread
+		// ferait tourner du code applicatif — donc potentiellement du code GPU —
+		// sans contexte graphique courant.  Cf. mForeignEvents dans l'en-tete.
+		// mPumpThreadId vaut 0 tant que la boucle n'a pas demarre : pendant ce
+		// bootstrap on livre normalement, sinon rien ne partirait jamais.
+		if (mPumpThreadId != 0 && NkCurrentThreadTag() != mPumpThreadId) {
+			NkEventPtr clone(evt.Clone());
+			if (clone) {
+				NkScopedSpinLock lock(mForeignMutex);
+				mForeignEvents.PushBack(traits::NkMove(clone));
+			}
+			return;
+		}
+
+		DeliverOnPumpThread(evt, winId);
+	}
+
+	// =============================================================================
+	// DeliverOnPumpThread — corps historique de Enqueue, desormais garanti
+	// de s'executer sur le thread qui pompe les evenements.
+	// =============================================================================
+
+	void NkEventSystem::DeliverOnPumpThread(NkEvent &evt, NkWindowId winId) {
+
 		// Dispatch immÃ©diat des callbacks (pas besoin de stocker pour Ã§a)
 		DispatchToCallbacks(&evt, winId);
 
@@ -219,6 +244,30 @@ namespace nkentseu {
 			NkEventPriority prio = NkGetEventPriority(evt.GetType());
 			NkScopedSpinLock lock(mQueueMutex);
 			mEventQueue.Push(traits::NkMove(clone), prio);
+		}
+	}
+
+	// =============================================================================
+	// DrainForeignEvents — rejoue sur le thread pump ce qui vient d'ailleurs
+	// =============================================================================
+
+	void NkEventSystem::DrainForeignEvents() {
+		// On sort les evenements SOUS verrou, puis on les livre HORS verrou : un
+		// callback applicatif peut lui-meme produire un evenement, et le spinlock
+		// n'est pas reentrant.
+		NkVector<NkEventPtr> aLivrer;
+		{
+			NkScopedSpinLock lock(mForeignMutex);
+			if (mForeignEvents.Empty())
+				return;
+			aLivrer = traits::NkMove(mForeignEvents);
+			mForeignEvents.Clear();
+		}
+
+		for (usize i = 0; i < aLivrer.Size(); ++i) {
+			NkEvent *ev = aLivrer[i].Get();
+			if (ev)
+				DeliverOnPumpThread(*ev, ev->GetWindowId());
 		}
 	}
 
@@ -326,6 +375,11 @@ namespace nkentseu {
 			if (mGamepadSystem && mGamepadSystem->IsReady())
 				mGamepadSystem->PollGamepads();
 		}
+
+		// Avant toute chose : livrer ce que les callbacks systeme ont pousse
+		// depuis leur propre thread. C'est ICI que l'application les recoit,
+		// avec le contexte graphique courant.
+		DrainForeignEvents();
 
 		PumpOS();
 
