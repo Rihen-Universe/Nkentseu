@@ -1504,9 +1504,72 @@ static int ModeCitations(int argc, char **argv) {
 	return 0;
 }
 
+// =============================================================================
+// MODE --mesurer : le tokenizer est-il adapte a ce texte ?
+// -----------------------------------------------------------------------------
+// POURQUOI CETTE MESURE DECIDE DE TOUT. Le tokenizer se fige a son entrainement.
+// S'il decoupe mal un domaine, Ilyana l'apprend mal ET ce domaine lui coute trois
+// fois plus de place dans sa fenetre de 256 tokens — deux peines pour un seul
+// defaut. Et on ne peut pas le refaire apres coup sans invalider le modele, dont
+// les acquis sont indexes par NUMERO de token.
+//
+// L'unite qui parle est le nombre d'OCTETS PAR TOKEN. Sur du francais courant, un
+// bon tokenizer tourne autour de 4. En dessous de 2, le texte est reduit en
+// miettes : c'est le signe qu'il faut refaire le tokenizer AVANT d'entrainer,
+// pendant que c'est encore gratuit.
+// =============================================================================
+static int ModeMesurer(int argc, char **argv) {
+	const char *fBpe = Arg(argc, argv, "--bpe", nullptr);
+	const char *fTexte = Arg(argc, argv, "--texte", nullptr);
+	const int64 maxOctets = ArgEntier(argc, argv, "--max-octets", 2 * 1024 * 1024);
+
+	if (!fBpe || !fTexte) {
+		logger.Info("usage : --mesurer --bpe <tokenizer.nkbpe> --texte <fichier> [--max-octets N]");
+		return 1;
+	}
+
+	data::NkBpe bpe;
+	if (!data::LoadBpe(fBpe, bpe)) {
+		logger.Infof("ERREUR : tokenizer illisible : %s\n", fBpe);
+		return 1;
+	}
+
+	NkString texte = LireFichier(fTexte);
+	if (texte.Size() == 0) {
+		logger.Infof("ERREUR : texte illisible ou vide : %s\n", fTexte);
+		return 1;
+	}
+	if ((int64)texte.Size() > maxOctets)
+		texte = texte.SubStr(0, (nk_size)maxOctets);
+
+	data::NkBpeEncoder enc(bpe);
+	NkVector<int32> ids;
+	enc.Encode(texte, ids);
+	if (ids.Size() == 0) {
+		logger.Info("ERREUR : encodage vide.");
+		return 1;
+	}
+	const double octetsParToken = (double)texte.Size() / (double)ids.Size();
+
+	logger.Info("=== Ilyana / mesure du tokenizer ===");
+	logger.Infof("%s sur %s\n", fBpe, fTexte);
+	logger.Infof("  %.2f Mo -> %llu tokens, soit %.2f octets par token\n",
+				 (double)texte.Size() / (1024.0 * 1024.0), (unsigned long long)ids.Size(), octetsParToken);
+	if (octetsParToken >= 3.5)
+		logger.Info("  VERDICT : bien adapte — ce texte est decoupe aussi finement que du francais courant.");
+	else if (octetsParToken >= 2.5)
+		logger.Info("  VERDICT : passable — ce texte coute plus cher qu'il ne devrait, sans etre illisible.");
+	else
+		logger.Info("  VERDICT : MAL ADAPTE — ce texte est reduit en miettes. Le tokenizer devrait etre refait "
+					"sur un echantillon qui en contient, AVANT d'entrainer dessus.");
+	return 0;
+}
+
 int main(int argc, char **argv) {
 	if (Drapeau(argc, argv, "--controle"))
 		return ModeControle(argc, argv);
+	if (Drapeau(argc, argv, "--mesurer"))
+		return ModeMesurer(argc, argv);
 	if (Drapeau(argc, argv, "--citations"))
 		return ModeCitations(argc, argv);
 	if (Drapeau(argc, argv, "--melange"))
