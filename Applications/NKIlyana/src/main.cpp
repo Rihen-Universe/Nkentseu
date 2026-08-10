@@ -30,6 +30,7 @@
 #include "NkIlyanaDialogues.h"
 #include "NkIlyanaValeurs.h"
 #include "NkIlyanaTri.h"
+#include "NkIlyanaControle.h"
 
 #include "NKGpt/NkGptTrainer.h"
 #include "NKData/NkBpeTrainer.h"
@@ -158,6 +159,127 @@ static int64 ArgEntier(int argc, char **argv, const char *cle, int64 defaut) {
 static double ArgReel(int argc, char **argv, const char *cle, double defaut) {
 	const char *v = Arg(argc, argv, cle, nullptr);
 	return v ? strtod(v, nullptr) : defaut;
+}
+
+
+// =============================================================================
+// MODE --controle : la batterie. Elle repond OUI ou NON, pas « ca semble bon ».
+// =============================================================================
+// Coupe la generation a la fin de la reponse : le modele continue volontiers sur
+// une question suivante qu'il s'invente. Sans cette coupe, on evaluerait aussi
+// ce bavardage.
+static NkString CouperReponse(const NkString &brut) {
+	// ⚠️ `Generate` rend l'AMORCE SUIVIE de la génération, pas la génération
+	// seule. Chercher « Question: » sans le savoir le trouve en position 0 et ne
+	// renvoie que du vide : la batterie a annoncé 1/19 sans qu'une seule réponse
+	// ait été lue — et son unique « OK » passait parce qu'une chaîne vide ne
+	// contient aucun interdit. Un score qui ne mesure rien est pire que pas de
+	// score du tout.
+	// On repart donc du DERNIER « Reponse: » (celui du tour courant), et on coupe
+	// ce qui le suit.
+	nk_size debut = 0;
+	nk_size p = brut.Find("Reponse:");
+	while (p != NkString::npos) {
+		debut = p + 8; // longueur de « Reponse: »
+		const nk_size suiv = brut.Find("Reponse:", debut);
+		if (suiv == NkString::npos)
+			break;
+		p = suiv;
+	}
+	NkString suite = brut.SubStr(debut);
+
+	nk_size fin = suite.Size();
+	static const char *kBornes[] = {"\nQuestion:", "\n\n", "Question:"};
+	for (int i = 0; i < 3; ++i) {
+		const nk_size b = suite.Find(kBornes[i]);
+		if (b != NkString::npos && b < fin)
+			fin = b;
+	}
+	return suite.SubStr(0, fin);
+}
+
+static int ModeControle(int argc, char **argv) {
+	gpt::NkGptConfig cfg;
+	cfg.loadPath = NkString(Arg(argc, argv, "--load", "D:/Projets/Camrail/AI/Ilyana2/ilyana.nkgp"));
+	cfg.bpePath = NkString(Arg(argc, argv, "--bpe", "D:/Projets/Camrail/AI/Ilyana2/ilyana.nkbpe"));
+	cfg.genLang = NkString("fr");
+	cfg.verbose = false;
+	const int genLen = (int)ArgEntier(argc, argv, "--genlen", 48);
+
+	gpt::NkGptTrainer t(cfg);
+	if (!t.Prepare()) {
+		logger.Info("ERREUR : modele illisible ({0}).", cfg.loadPath.CStr());
+		return 2;
+	}
+
+	// GLOUTON : temperature nulle, un seul candidat. Deux executions du meme
+	// modele doivent donner le meme score, sinon on compare du bruit.
+	gpt::NkSampleParams sp;
+	sp.temperature = 0.01;
+	sp.topK = 1;
+	sp.topP = 1.0;
+
+	logger.Info("=== BATTERIE DE CONTROLE — {0} ===", cfg.loadPath.CStr());
+	logger.Info("(generation gloutonne : resultat reproductible)");
+
+	int reussis = 0;
+	NkString catCourante;
+	int catReussis = 0, catTotal = 0;
+
+	for (int i = 0; i < ilyana::kNbControles; ++i) {
+		const ilyana::CasControle &c = ilyana::kControles[i];
+		if (!(catCourante == NkString(c.categorie))) {
+			if (catTotal > 0)
+				logger.Info("  -> {0} : {1}/{2}", catCourante.CStr(), catReussis, catTotal);
+			catCourante = NkString(c.categorie);
+			catReussis = 0;
+			catTotal = 0;
+		}
+
+		// Dialogue : chaque tour est ajoute a l'historique, avec la VRAIE reponse
+		// du modele — c'est ce qui teste la fermete sous contradiction.
+		NkString histo;
+		NkString derniere;
+		for (int q = 0; q < 4 && c.tours[q] != nullptr; ++q) {
+			NkString amorce(histo);
+			amorce.Append("Question: ");
+			amorce.Append(c.tours[q]);
+			amorce.Append("\nReponse:");
+			derniere = CouperReponse(t.Generate(amorce, genLen, sp, t.GenLangIndex()));
+			histo = amorce;
+			histo.Append(derniere);
+			histo.Append("\n");
+		}
+
+		const NkString plat = ilyana::Aplatir(derniere);
+		bool ok = true;
+		if (c.doitContenir != nullptr) {
+			const bool a = plat.Find(ilyana::Aplatir(NkString(c.doitContenir)).CStr()) != NkString::npos;
+			const bool b = c.doitContenir2 != nullptr &&
+						   plat.Find(ilyana::Aplatir(NkString(c.doitContenir2)).CStr()) != NkString::npos;
+			if (!a && !b)
+				ok = false;
+		}
+		if (ok && c.interdit != nullptr &&
+			plat.Find(ilyana::Aplatir(NkString(c.interdit)).CStr()) != NkString::npos)
+			ok = false;
+		if (ok && c.aucuneAnnee && ilyana::ContientAnnee(derniere))
+			ok = false;
+
+		++catTotal;
+		if (ok) {
+			++catReussis;
+			++reussis;
+		}
+		logger.Info("  [{0}] {1} | {2}", ok ? "OK" : "KO", c.tours[0], derniere.CStr());
+	}
+	if (catTotal > 0)
+		logger.Info("  -> {0} : {1}/{2}", catCourante.CStr(), catReussis, catTotal);
+
+	const double pct = 100.0 * (double)reussis / (double)ilyana::kNbControles;
+	logger.Info("=== SCORE : {0}/{1} ({2}%) ===", reussis, ilyana::kNbControles, pct);
+	logger.Info("Un reentrainement qui FAIT BAISSER ce score ne doit pas etre promu.");
+	return (reussis == ilyana::kNbControles) ? 0 : 1;
 }
 
 // =============================================================================
@@ -727,6 +849,8 @@ static int ModeCauser(int argc, char **argv) {
 }
 
 int main(int argc, char **argv) {
+	if (Drapeau(argc, argv, "--controle"))
+		return ModeControle(argc, argv);
 	if (Drapeau(argc, argv, "--wiki"))
 		return ModeWiki(argc, argv);
 	if (Drapeau(argc, argv, "--data"))
