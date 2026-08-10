@@ -874,9 +874,10 @@ namespace nkentseu {
 		//   0 COULEUR (albedo)   1 NORMALE (relief)
 		//   2 ORM (occlusion/rugosite/metallique empaquetees, standard glTF)
 		//   3 EMISSIF (ce que la surface emet)
-		static constexpr int32 kNkvpMatChanCount = 4;
+		//   4 HAUTEUR (parallax : BLANC = haut ; l'echelle « Parallax » dose)
+		static constexpr int32 kNkvpMatChanCount = 5;
 		static const char *const kNkvpMatChanNames[kNkvpMatChanCount] = {
-			"Couleur", "Normale", "ORM", "Emissif"};
+			"Couleur", "Normale", "ORM", "Emissif", "Hauteur"};
 		struct NkVpProjMat {
 				bool used;
 				int8 prevShape; // apercu : 0 plan, 1 sphere, 2 cube, 3 liquide, 4 cheveux
@@ -899,6 +900,9 @@ namespace nkentseu {
 				float32 nrmStrength;
 				float32 emiStrength;
 				float32 emissive[3]; // teinte emise, meme sans texture
+				// ECHELLE DU PARALLAX (0 = coupe) : ne sert qu'avec le canal
+				// Hauteur — comme les intensites, sans texture elle n'a pas d'effet.
+				float32 parallax;
 		};
 		static constexpr int32 kNkvpMaxProjMats = 64;
 		static NkVpProjMat nkvpProjMats[kNkvpMaxProjMats] = {};
@@ -13363,6 +13367,7 @@ namespace nkentseu {
 				m.nrmStrength = 1.f;
 				m.emiStrength = 1.f;
 				m.emissive[0] = m.emissive[1] = m.emissive[2] = 0.f;
+				m.parallax = 0.f; // le relief parallax est un choix, pas un defaut
 				return i;
 			}
 			return -1;
@@ -13500,7 +13505,14 @@ namespace nkentseu {
 						case 0: nkvpProjMatEng[i]->SetAlbedoMap(NkTexHandle{}); break;
 						case 1: nkvpProjMatEng[i]->SetNormalMap(NkTexHandle{}, 0.f); break;
 						case 2: nkvpProjMatEng[i]->SetORMMap(NkTexHandle{}); break;
-						default: nkvpProjMatEng[i]->SetEmissiveMap(NkTexHandle{}); break;
+						case 3: nkvpProjMatEng[i]->SetEmissiveMap(NkTexHandle{}); break;
+						default:
+							// HAUTEUR : retour au blanc 1x1 (surface plate) — un
+							// handle invalide laisserait l'ancienne carte au GPU.
+							if (auto *tl = hst.ctx.renderer ? hst.ctx.renderer->GetTextures()
+															: nullptr)
+								nkvpProjMatEng[i]->SetTexture("height", tl->GetWhite1x1());
+							break;
 					}
 				}
 				return true;
@@ -13538,7 +13550,11 @@ namespace nkentseu {
 						nkvpProjMatEng[i]->SetNormalMap(t, nkvpProjMats[i].nrmStrength);
 						break;
 					case 2: nkvpProjMatEng[i]->SetORMMap(t); break;
-					default: nkvpProjMatEng[i]->SetEmissiveMap(t); break;
+					case 3: nkvpProjMatEng[i]->SetEmissiveMap(t); break;
+					default:
+						nkvpProjMatEng[i]->SetTexture("height", t);
+						nkvpProjMatEng[i]->SetParallaxScale(nkvpProjMats[i].parallax);
+						break;
 				}
 			}
 			snprintf(nkvpProjMats[i].maps[chan], sizeof(nkvpProjMats[i].maps[chan]), "%s",
@@ -13571,6 +13587,22 @@ namespace nkentseu {
 				nkvpProjMatEng[i]->SetNormalMap(nkvpProjMatChanTex[i][1], m.nrmStrength);
 			nkvpProjMatEng[i]->SetEmissive({m.emissive[0], m.emissive[1], m.emissive[2]},
 										   m.emiStrength);
+		}
+		// ── ECHELLE DU PARALLAX (canal Hauteur — etape 3, 10 aout) ──────────
+		// A part des intensites : c'est un reglage de PROFONDEUR (en fraction
+		// d'UV, ~0.02-0.08 utile), pas un dosage de texture. Borne a 0.2 : au
+		// dela, l'etirement rasant detruit toute lecture de la surface.
+		float32 Demo3DHostProjMatParallax(int32 i) {
+			const bool ok = i >= 0 && i < kNkvpMaxProjMats && nkvpProjMats[i].used;
+			return ok ? nkvpProjMats[i].parallax : 0.f;
+		}
+		void Demo3DHostProjMatSetParallax(int32 i, float32 scale) {
+			if (i < 0 || i >= kNkvpMaxProjMats || !nkvpProjMats[i].used)
+				return;
+			NkVpProjMat &m = nkvpProjMats[i];
+			m.parallax = scale < 0.f ? 0.f : (scale > 0.2f ? 0.2f : scale);
+			if (nkvpProjMatEng[i])
+				nkvpProjMatEng[i]->SetParallaxScale(m.parallax);
 		}
 		void Demo3DHostProjMatEmissive(int32 i, float32 *rgb) {
 			if (!rgb)

@@ -9912,6 +9912,22 @@ namespace nkentseu {
 											  nrmS, 0.01f, NkRole::AccentUi, "%.2f");
 									yy += kRowH;
 								}
+								// PARALLAX : meme regle que le relief — le curseur
+								// n'apparait qu'avec sa carte de hauteur (canal 4).
+								if (demo::Demo3DHostProjMatMap(selMat, 4)[0]) {
+									float32 par = demo::Demo3DHostProjMatParallax(selMat);
+									const float32 par0 = par;
+									p.TextV(iR.x, yy, kRowH, "Parallax", NkRole::TextMuted);
+									DragFloat(p, hit, ws, in, "props.pm.parx",
+											  {iR.x + S(110.f), yy + S(3.f), iR.w - S(110.f),
+											   kRowH - S(6.f)},
+											  par, 0.001f, NkRole::AccentUi, "%.3f");
+									yy += kRowH;
+									if (par != par0) {
+										demo::Demo3DHostProjMatSetParallax(selMat, par);
+										NkMarkDirty(st);
+									}
+								}
 								// L'EMISSIF a une teinte ET une intensite, et la
 								// teinte vaut MEME SANS texture : une surface peut
 								// emettre une couleur unie.

@@ -254,6 +254,9 @@ namespace nkentseu {
 		// emissive, qui vaut aussi sans.
 		void Demo3DHostProjMatChanStrength(int32 i, float32 *nrm, float32 *emi);
 		void Demo3DHostProjMatSetChanStrength(int32 i, float32 nrm, float32 emi);
+		// Echelle du PARALLAX (canal Hauteur) : 0 = coupe, ~0.02-0.08 utile.
+		float32 Demo3DHostProjMatParallax(int32 i);
+		void Demo3DHostProjMatSetParallax(int32 i, float32 scale);
 		void Demo3DHostProjMatEmissive(int32 i, float32 *rgb);
 		void Demo3DHostProjMatSetEmissive(int32 i, const float32 *rgb);
 		int32 Demo3DHostProjMatPrevShape(int32 i);
