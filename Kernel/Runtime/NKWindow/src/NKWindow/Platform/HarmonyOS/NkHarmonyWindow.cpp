@@ -249,7 +249,9 @@ namespace nkentseu {
 	 * @param xcomp Le composant XComponent à rechercher
 	 * @return NkWindow* Pointeur vers la fenêtre trouvée, ou nullptr
 	 */
-	static NkWindow *_FindWindowByXComp(OH_NativeXComponent *xcomp) {
+	// Exposee (plus `static`) : le routage tactile vit dans NkHarmonyOS.h, du
+	// cote du point d'entree, et a besoin de la meme resolution.
+	NkWindow *NkHarmonyGetWindowForXComponent(OH_NativeXComponent *xcomp) {
 		char id[OH_XCOMPONENT_ID_LEN_MAX + 1] = {};
 		uint64_t len = OH_XCOMPONENT_ID_LEN_MAX;
 
@@ -296,7 +298,7 @@ namespace nkentseu {
 			return;
 		}
 
-		NkWindow *win = _FindWindowByXComp(x);
+		NkWindow *win = NkHarmonyGetWindowForXComponent(x);
 
 		if (!win) {
 			// Aucune fenêtre ne correspond : soit l'id XComponent ne matche pas
@@ -371,7 +373,7 @@ namespace nkentseu {
 			return;
 		}
 
-		NkWindow *win = _FindWindowByXComp(x);
+		NkWindow *win = NkHarmonyGetWindowForXComponent(x);
 
 		if (!win) {
 			return;
@@ -405,7 +407,7 @@ namespace nkentseu {
 			return;
 		}
 
-		NkWindow *win = _FindWindowByXComp(x);
+		NkWindow *win = NkHarmonyGetWindowForXComponent(x);
 
 		if (!win) {
 			return;
