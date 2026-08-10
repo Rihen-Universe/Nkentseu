@@ -804,6 +804,10 @@ namespace nkentseu {
 		// Blender — la portee ne fait que couper). Au choix PAR lumiere.
 		int32 Demo3DHostLightAttMode(int32 node);
 		void Demo3DHostSetLightAttMode(int32 node, int32 mode);
+		// Profondeur d'ombre LINEAIRE des omnis (option LearnOpenGL) : l'atlas
+		// recoit dist/portee, biais constant, coutures de faces effacees.
+		bool Demo3DHostLightShadowLinear(int32 node);
+		void Demo3DHostSetLightShadowLinear(int32 node, bool lin);
 		bool Demo3DHostCameraParams(int32 node, float32 *fov, float32 *nearC, float32 *farC);
 		void Demo3DHostSetCameraParams(int32 node, float32 fov, float32 nearC, float32 farC);
 		bool Demo3DHostMeshParams(int32 node, int32 *segs, int32 *rings, float32 *aux);

@@ -1725,6 +1725,14 @@ int nkmain(const NkEntryState &entry) {
 						}
 					}
 				}
+				// NK_SHADOW_LINEAR=<0|1> : profondeur d'ombre lineaire de TOUTES
+				// les lumieres (no-op hors omni cote rendu) — pour l'A/B projete
+				// vs lineaire par captures, sans passer par le panneau.
+				if (const char *v2 = std::getenv("NK_SHADOW_LINEAR")) {
+					const bool lin = std::atoi(v2) != 0;
+					for (int32 n = 0; n < 1024; ++n)
+						demo::Demo3DHostSetLightShadowLinear(n, lin);
+				}
 			}
 		}
 		// NK_SSAO="0|1[,rayon[,intensite]]" : l'occlusion ambiante par le MEME

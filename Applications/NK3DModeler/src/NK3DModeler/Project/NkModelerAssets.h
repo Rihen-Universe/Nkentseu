@@ -430,6 +430,8 @@ namespace nkentseu {
 						li.SetBool("ombre", shadow);
 						// Loi d'attenuation (2026-08-09) : 0 heritee, 1 physique.
 						li.SetInt32("loi", demo::Demo3DHostLightAttMode(n));
+						// Profondeur d'ombre lineaire des omnis (2026-08-10).
+						li.SetBool("ombreLineaire", demo::Demo3DHostLightShadowLinear(n));
 					}
 					float32 tempK = 0.f, expo = 0.f;
 					if (demo::Demo3DHostLightTempExp(n, &tempK, &expo)) {
@@ -566,6 +568,9 @@ namespace nkentseu {
 					// Loi d'attenuation : defaut 0 (heritee) — un fichier ecrit
 					// avant le 9 aout decrivait exactement ce comportement.
 					demo::Demo3DHostSetLightAttMode(n, NkScInt(li, "loi", 0));
+					// Profondeur d'ombre lineaire : defaut faux (projete, l'historique).
+					demo::Demo3DHostSetLightShadowLinear(
+						n, NkScBool(li, "ombreLineaire", false));
 				}
 				NkArchive ca;
 				if (kind == 4 && sub == 10 && nd.GetObject("camera", ca)) {

@@ -7040,6 +7040,28 @@ namespace nkentseu {
 												shL = !shL;
 											yy += kRowH;
 										}
+										// PROFONDEUR LINEAIRE (omni seulement, Rihen — option
+										// LearnOpenGL) : l'atlas recoit dist/portee au lieu de
+										// la profondeur projetee -> biais constant, coutures de
+										// faces effacees. Cable DIRECTEMENT a l'hote, comme la
+										// Loi : c'est un choix, pas un reglage de portee.
+										if (tyL == 1) {
+											const bool ln0 = demo::Demo3DHostLightShadowLinear(en);
+											bool lnL = ln0;
+											const NkRect cb3{iR.x, yy + S(5.f), S(12.f), S(12.f)};
+											hit.Add("prop.ulex.shlin", cb3);
+											p.Outline(cb3, lnL ? NkRole::AccentUi : NkRole::Border,
+													  lnL ? NkRole::AccentUi : NkRole::InputBg, 2.f);
+											p.TextV(cb3.x + S(18.f), yy, kRowH,
+													"Profondeur lineaire", NkRole::TextMuted);
+											if (hit.Clicked("prop.ulex.shlin"))
+												lnL = !lnL;
+											yy += kRowH;
+											if (lnL != ln0) {
+												demo::Demo3DHostSetLightShadowLinear(en, lnL);
+												NkMarkDirty(st);
+											}
+										}
 										if (rgL != v0[0] || inL != v0[1] || outL != v0[2] || awL != v0[3] ||
 											ahL != v0[4] || shL != s0) {
 											demo::Demo3DHostSetLightEx(en, rgL, inL, outL, awL, ahL, shL);
