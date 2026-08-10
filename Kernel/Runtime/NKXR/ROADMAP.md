@@ -30,11 +30,13 @@ SIMULATEUR desktop + démo `NKXRDemo` (stéréo côte à côte, souris = tête),
 | Backend SIMULATEUR : souris raw = tête, ZQSD/WASD, latence simulée, pose scriptable | ✅ | — | — |
 | Self-test numérique (66 CHECK : projection, poses, prédiction, cycle, actions) | ✅ | — | — |
 | Démo NKXRDemo : scène NKRenderer en stéréo simulée, crochets d'agent | ✅ | — | — |
-| Validation Rihen de l'étage 0 | ⏳ | — | P0 |
+| Validation Rihen de l'étage 0 | ✅ | — | — |
 | **Étage 1 — stéréo DANS NKRenderer (coordination requise)** | | | |
-| Note de coordination dans la ROADMAP NKRenderer | ❌ | S | P1 |
-| Projection injectable (SetProjectionOverride ou NkCamera3D asymétrique) | ❌ | M | P1 |
-| Rendu deux vues sans double graphe (deux passes, puis multiview Vulkan) | ❌ | L | P2 |
+| Note de coordination dans la ROADMAP NKRenderer | ✅ | — | — |
+| Frustum décentré `NkCamera3D` (useFovAsym, convention XrFovf) + démo qui le consomme | ✅ | — | — |
+| Validation Rihen de l'étage 1 | ⏳ | — | P0 |
+| Anti-aliasing PERFORMANT en XR (exigence Rihen 2026-08-10 ; MSAA œil / TAA stéréo / supersampling) | ❌ | L | P1 |
+| Rendu deux vues sans double graphe (une shadow map, un culling ; puis multiview Vulkan) — NOUVELLE note requise | ❌ | L | P2 |
 | **Étage 2 — VR réelle : backend OpenXR → Quest 2** | | | |
 | Loader OpenXR dans Externals/ + licence au registre THIRD_PARTY_LICENSES.md | ❌ | S | P1 |
 | NkXrBackendOpenXR : instance, session, espaces, frame timing | ❌ | L | P1 |
@@ -105,21 +107,30 @@ du cas « EndFrame avec image encore acquise »).
   (déterminisme des captures).
 
 ## En cours / TODO immédiat
-- ⏳ Validation Rihen (bloc de test fourni) → intégration main.
-- ❌ Étage 1 : note de coordination dans `Kernel/Runtime/NKRenderer/ROADMAP.md`
-  AVANT tout travail sur les passes (règle de la mission).
+- ⏳ Validation Rihen de l'étage 1 (frustum décentré) — preuves : FOV symétrique
+  = 0,000 % d'écart avec la référence à travers TOUT le pipeline ; FOV
+  asymétrique (-49/39/41/-45°) = 51,5 % des pixels, verticales droites.
+- Journal des retours étage 0 (corrigés, validés par Rihen) : dérive de tête
+  souris immobile (piège NKEvent `MouseRawDeltaX` jamais consommé → le backend
+  accumule lui-même, `0b8a6bb1`) ; clignotement des ombres en mouvement
+  (swimming des cascades → `autoFitDirectional` sur les deux yeux, `87e80007`).
 
 ## À venir
-- Étage 1 : la démo consommera les FOV asymétriques du simulateur
-  (`NK_XR_SIM_FOV`) dès que NKRenderer saura les recevoir — la projection est
-  prête et testée côté NKXR.
-- Étage 2 : loader OpenXR (Externals/ + licence), backend Quest 2, APK.
+- **Anti-aliasing performant en XR** (exigence Rihen, 2026-08-10) : le FXAA du
+  préréglage ForGame ne suffira pas en casque (l'aliasing scintille au moindre
+  mouvement de tête). Pistes consignées dans la note de coordination NKRenderer ;
+  à arbitrer AVEC ce chantier, pas en silo.
+- Étage 1 (suite) : partage d'un graphe pour deux vues (une shadow map, un
+  culling — aujourd'hui tout est ×2), puis multiview Vulkan — NOUVELLE note de
+  coordination obligatoire (touche RenderGraph et passes).
+- Étage 2 : loader OpenXR (Externals/ + licence au registre), backend Quest 2, APK.
 - Étage 3 : AR Android (NKCamera + marqueurs from scratch + IMU).
 
 ## Bugs / quirks connus
-- Étage 0 : le FOV par défaut du simulateur est SYMÉTRIQUE (dérivé de l'aspect
-  demi-fenêtre) parce que `NkCamera3D` ne sait pas consommer l'asymétrie —
-  limite assumée, levée à l'étage 1.
+- Piège NKEvent documenté (à remonter au chantier NKEvent) :
+  `NkInput.MouseRawDeltaX/Y` garde le delta du DERNIER événement sans reset par
+  frame — tout consommateur qui l'intègre par frame dérive. NKXR s'en protège
+  en accumulant ses propres `NkMouseRawEvent`.
 - Les swapchains portent des handles d'images OPAQUES à l'étage 0 (les cibles
   GPU appartiennent à la démo) ; le runtime OpenXR fournira les vraies images à
   l'étage 2. La discipline Acquire/Release, elle, est déjà réelle et testée.
