@@ -22,6 +22,7 @@
 
 #include "NKGui/Core/NkGuiContext.h"
 #include "NKEditorKit/NkShortcutTable.h"
+#include "NKSerialization/NkArchive.h" // reglages Rendu PAR SCENE (docRendu)
 
 namespace nkentseu {
 	namespace nk3d {
@@ -553,6 +554,18 @@ namespace nkentseu {
 				bool docCamOrtho[32] = {};
 				// MODIFIE DEPUIS LE DERNIER ENREGISTREMENT, par document.
 				bool docDirty[32] = {};
+				// ── REGLAGES RENDU PAR SCENE (Rihen, 10 aout : « pourquoi le rendu
+				// est partage entre toutes les scenes ? ») ──────────────────────
+				// L'etat vivant est GLOBAL a la vue ; chaque document garde ici son
+				// instantane (blocs rendu/environnement/sortie). Au changement
+				// d'onglet, NkActivateTab pose une REQUETE (from/to) que le
+				// gestionnaire de projet consomme en differe : capturer l'etat du
+				// document quitte, appliquer celui du document active — le motif
+				// de docCamPose, etendu. Un document jamais visite a un instantane
+				// VIDE : il herite des reglages courants, puis les possede.
+				::nkentseu::NkArchive docRendu[32];
+				int32 renduSwitchFrom = -1;
+				int32 renduSwitchTo = -1;
 				int32 docCard[32] = {};	   ///< carte du navigateur + 1 (0 = aucune)
 				int32 docIsoNode[32] = {}; ///< noeud+1 ISOLE dans ce document
 				uint8 docIsoHome[32] = {}; ///< scene hote d'origine du noeud isole

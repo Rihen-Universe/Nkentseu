@@ -744,6 +744,26 @@ namespace nkentseu {
 				st.delPendCount = 0;
 			}
 
+			// ── BASCULE D'ONGLET : reglages Rendu PAR SCENE (Rihen, 10 aout).
+			// Requete posee par NkActivateTab, consommee ICI en differe : au
+			// moment ou l'on capture, l'etat vivant est encore celui du
+			// document quitte (il est global a la vue, la bascule de scene ne
+			// l'a pas touche) ; on applique ensuite l'instantane de l'active.
+			// Un instantane VIDE n'applique rien : le document herite des
+			// reglages courants, puis les possede a la premiere bascule.
+			if (st.renduSwitchFrom >= 0 || st.renduSwitchTo >= 0) {
+				if (st.renduSwitchFrom >= 0 && st.renduSwitchFrom < 32) {
+					NkArchive snap;
+					NkAsRenduCapture(snap, proj.root);
+					st.docRendu[st.renduSwitchFrom] = snap;
+				}
+				if (st.renduSwitchTo >= 0 && st.renduSwitchTo < 32 &&
+					st.renduSwitchTo != st.renduSwitchFrom)
+					NkAsRenduRestore(st.docRendu[st.renduSwitchTo], proj.root, st);
+				st.renduSwitchFrom = -1;
+				st.renduSwitchTo = -1;
+			}
+
 			const int32 action = st.projPending;
 			if (action == 0)
 				return;

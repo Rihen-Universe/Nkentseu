@@ -625,25 +625,10 @@ namespace nkentseu {
 		// ─────────────────────────────────────────────────────────────────────────
 		// UNE SCENE — .nkscene
 		// ─────────────────────────────────────────────────────────────────────────
-		inline void NkAsSceneCapture(NkArchive &o, const NkString &root, NkModelerState &st,
-									 int32 d) {
-			NkAsHeader(o, "scene");
-			o.SetString("nom", st.docName[d]);
-			o.SetBool("vierge", st.docBlank[d]);
-			o.SetInt32("uniteSysteme", st.docUnitSys[d]);
-			o.SetInt32("uniteLongueur", st.docUnitLen[d]);
-			o.SetFloat32("uniteEchelle", st.docUnitScale[d] > 0.001f ? st.docUnitScale[d] : 1.f);
-			// LA VUE DE LA SCENE : rouvrir un projet doit reposer le regard la ou on
-			// l'avait laisse.
-			NkArchive cam;
-			const float32 *cp = st.docCamPose[d];
-			cam.SetBool("posee", st.docCamSet[d]);
-			NkScSetVec3(cam, "cible", cp);
-			cam.SetFloat32("distance", cp[3]);
-			cam.SetFloat32("lacet", cp[4]);
-			cam.SetFloat32("tangage", cp[5]);
-			cam.SetBool("ortho", st.docCamOrtho[d]);
-			o.SetObject("vue", cam);
+		/// Capture l'etat VIVANT des pastilles globales (rendu, environnement,
+		/// sortie) dans `o`. Extrait de NkAsSceneCapture pour servir aussi les
+		/// bascules d'onglet (reglages PAR SCENE, Rihen 10 aout).
+		inline void NkAsRenduCapture(NkArchive &o, const NkString &root) {
 			// LES REGLAGES DU PANNEAU RENDU VOYAGENT AVEC LA SCENE (Rihen,
 			// 9 aout : ils n'etaient pas restaures au rechargement). Ils sont
 			// GLOBAUX a la vue 3D — la derniere scene restauree les pose, ce
@@ -825,43 +810,11 @@ namespace nkentseu {
 				}
 				o.SetObject("sortie", so);
 			}
-			// SES noeuds, et EUX SEULS : ceux dont la scene hote est la sienne, en
-			// ecartant les archives (qui sont des assets, pas des objets poses).
-			const int32 host = (int32)st.docScene[d];
-			const int32 nodeMax = demo::Demo3DHostNodeCount();
-			NkVector<int32> live;
-			for (int32 n = 0; n < nodeMax; ++n) {
-				if (demo::Demo3DHostUserKind(n) == 0 || demo::Demo3DHostNodeDeleted(n))
-					continue;
-				if (demo::Demo3DHostNodeScene(n) != host)
-					continue;
-				live.PushBack(n);
-			}
-			NkAsNodesCapture(o, root, st, live);
 		}
 
-		inline void NkAsSceneRestore(const NkArchive &in, const NkString &root,
-									 NkModelerState &st, int32 d, int32 *nodeMiss,
-									 int32 *orphanFix) {
-			NkString nm = NkScStr(in, "nom");
-			if (!nm.Empty())
-				NkScPut(st.docName[d], (uint32)sizeof(st.docName[0]), nm.CStr());
-			st.docBlank[d] = NkScBool(in, "vierge", false);
-			st.docUnitSys[d] = NkScInt(in, "uniteSysteme", 0);
-			st.docUnitLen[d] = NkScInt(in, "uniteLongueur", 0);
-			st.docUnitScale[d] = NkScFloat(in, "uniteEchelle", 1.f);
-			NkArchive cam;
-			st.docCamSet[d] = false;
-			if (in.GetObject("vue", cam)) {
-				float32 *cp = st.docCamPose[d];
-				NkScGetVec3(cam, "cible", cp, 0.f, 0.f, 0.f);
-				cp[3] = NkScFloat(cam, "distance", 6.5f);
-				cp[4] = NkScFloat(cam, "lacet", 0.7f);
-				cp[5] = NkScFloat(cam, "tangage", 0.35f);
-				st.docCamOrtho[d] = NkScBool(cam, "ortho", false);
-				st.docCamSet[d] = NkScBool(cam, "posee", false);
-			}
-			demo::Demo3DHostSetActiveScene((int32)st.docScene[d]);
+		/// Applique a l'hote les blocs presents dans `in` (absent = intouche).
+		inline void NkAsRenduRestore(const NkArchive &in, const NkString &root,
+									 NkModelerState &st) {
 			// LES REGLAGES DU PANNEAU RENDU, si la scene les porte. Un fichier
 			// anterieur au 9 aout n'a pas ce bloc : on ne touche a RIEN (les
 			// valeurs courantes restent), au lieu d'imposer des defauts.
@@ -1019,6 +972,111 @@ namespace nkentseu {
 						demo::Demo3DHostSetOutInsetOwnShaped(i, NkScBool(inc, "fichierForme", false));
 					}
 				}
+			}
+		}
+
+		inline void NkAsSceneCapture(NkArchive &o, const NkString &root, NkModelerState &st,
+									 int32 d) {
+			NkAsHeader(o, "scene");
+			o.SetString("nom", st.docName[d]);
+			o.SetBool("vierge", st.docBlank[d]);
+			o.SetInt32("uniteSysteme", st.docUnitSys[d]);
+			o.SetInt32("uniteLongueur", st.docUnitLen[d]);
+			o.SetFloat32("uniteEchelle", st.docUnitScale[d] > 0.001f ? st.docUnitScale[d] : 1.f);
+			// LA VUE DE LA SCENE : rouvrir un projet doit reposer le regard la ou on
+			// l'avait laisse.
+			NkArchive cam;
+			const float32 *cp = st.docCamPose[d];
+			cam.SetBool("posee", st.docCamSet[d]);
+			NkScSetVec3(cam, "cible", cp);
+			cam.SetFloat32("distance", cp[3]);
+			cam.SetFloat32("lacet", cp[4]);
+			cam.SetFloat32("tangage", cp[5]);
+			cam.SetBool("ortho", st.docCamOrtho[d]);
+			o.SetObject("vue", cam);
+			// ── REGLAGES RENDU/ENVIRONNEMENT/SORTIE : PAR SCENE (Rihen, 10 aout).
+			// Document ACTIF : on capture l'etat VIVANT (et on rafraichit son
+			// instantane). Document INACTIF : on ecrit son INSTANTANE — avant,
+			// « Enregistrer tout » recopiait les reglages de l'onglet actif dans
+			// TOUTES les scenes. Sans instantane (jamais visite, vieux fichier) :
+			// l'etat vivant, comme avant.
+			{
+				const int32 dAct = st.TabDoc(st.activeTab);
+				NkArchive blocks;
+				bool useSnap = false;
+				if (d != dAct) {
+					NkArchive t;
+					useSnap = st.docRendu[d].GetObject("rendu", t) ||
+							  st.docRendu[d].GetObject("environnement", t) ||
+							  st.docRendu[d].GetObject("sortie", t);
+				}
+				if (useSnap) {
+					blocks = st.docRendu[d];
+				} else {
+					NkAsRenduCapture(blocks, root);
+					if (d == dAct)
+						st.docRendu[d] = blocks;
+				}
+				NkArchive b1;
+				if (blocks.GetObject("rendu", b1))
+					o.SetObject("rendu", b1);
+				NkArchive b2;
+				if (blocks.GetObject("environnement", b2))
+					o.SetObject("environnement", b2);
+				NkArchive b3;
+				if (blocks.GetObject("sortie", b3))
+					o.SetObject("sortie", b3);
+			}
+			// SES noeuds, et EUX SEULS : ceux dont la scene hote est la sienne, en
+			// ecartant les archives (qui sont des assets, pas des objets poses).
+			const int32 host = (int32)st.docScene[d];
+			const int32 nodeMax = demo::Demo3DHostNodeCount();
+			NkVector<int32> live;
+			for (int32 n = 0; n < nodeMax; ++n) {
+				if (demo::Demo3DHostUserKind(n) == 0 || demo::Demo3DHostNodeDeleted(n))
+					continue;
+				if (demo::Demo3DHostNodeScene(n) != host)
+					continue;
+				live.PushBack(n);
+			}
+			NkAsNodesCapture(o, root, st, live);
+		}
+
+		inline void NkAsSceneRestore(const NkArchive &in, const NkString &root,
+									 NkModelerState &st, int32 d, int32 *nodeMiss,
+									 int32 *orphanFix) {
+			NkString nm = NkScStr(in, "nom");
+			if (!nm.Empty())
+				NkScPut(st.docName[d], (uint32)sizeof(st.docName[0]), nm.CStr());
+			st.docBlank[d] = NkScBool(in, "vierge", false);
+			st.docUnitSys[d] = NkScInt(in, "uniteSysteme", 0);
+			st.docUnitLen[d] = NkScInt(in, "uniteLongueur", 0);
+			st.docUnitScale[d] = NkScFloat(in, "uniteEchelle", 1.f);
+			NkArchive cam;
+			st.docCamSet[d] = false;
+			if (in.GetObject("vue", cam)) {
+				float32 *cp = st.docCamPose[d];
+				NkScGetVec3(cam, "cible", cp, 0.f, 0.f, 0.f);
+				cp[3] = NkScFloat(cam, "distance", 6.5f);
+				cp[4] = NkScFloat(cam, "lacet", 0.7f);
+				cp[5] = NkScFloat(cam, "tangage", 0.35f);
+				st.docCamOrtho[d] = NkScBool(cam, "ortho", false);
+				st.docCamSet[d] = NkScBool(cam, "posee", false);
+			}
+			demo::Demo3DHostSetActiveScene((int32)st.docScene[d]);
+			// Reglages par scene : appliquer PUIS memoriser l'instantane du
+			// document — c'est lui qui re-sera applique aux bascules d'onglet.
+			NkAsRenduRestore(in, root, st);
+			{
+				NkArchive snap;
+				NkArchive t;
+				if (in.GetObject("rendu", t))
+					snap.SetObject("rendu", t);
+				if (in.GetObject("environnement", t))
+					snap.SetObject("environnement", t);
+				if (in.GetObject("sortie", t))
+					snap.SetObject("sortie", t);
+				st.docRendu[d] = snap;
 			}
 			NkAsNodesRestore(in, root, st, false, nodeMiss, nullptr, orphanFix);
 		}
