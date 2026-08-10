@@ -187,7 +187,44 @@ la prose prélevée suffisant (donc aucune répétition).
 ```
 `--parler --question "..."` pour une question unique.
 
-### 6.6 `--controle` — LA BATTERIE
+### 6.6 `--chercher` — qu'elle LISE au lieu de deviner (CPU)
+
+```
+.\Build\Bin\Release-Windows\NKIlyana\NKIlyana.exe --chercher ^
+  --corpus <fr_ilyana.txt> --question "Yaounde" --k 3 --max-octets 67108864
+```
+Sans `--question` : boucle interactive (ligne vide pour sortir).
+
+Index inversé + BM25, écrits de bout en bout. **Mesure : 103 065 passages,
+275 316 mots distincts, 9,8 millions de mots indexés en 2,54 s** sur 64 Mo de
+Wikipédia. L'index ne garde que des **positions** — le passage est relu sur
+disque —, ce qui permet d'indexer bien plus gros que la mémoire disponible.
+
+**Pourquoi BM25 et pas un comptage de mots** : « de » et « la » sont partout et
+ne distinguent rien (l'IDF les annule) ; un mot répété vingt fois ne rend pas un
+passage vingt fois plus pertinent (saturation) ; un long passage gagnerait
+toujours (normalisation par la longueur).
+
+⚠️ **Le défaut trouvé et réparé, à ne pas réintroduire.** Chercher `Yaounde` dans
+un corpus qui écrit `Yaoundé` ne rendait **AUCUN** passage : en UTF-8 le « é »
+tient sur deux octets, donc les deux mots n'ont pas le même haché. Comme personne
+ne tape les accents dans une question, la recherche échouait sur une grande part
+du vocabulaire français, **en silence**. Les lettres accentuées sont maintenant
+repliées sur leur lettre de base — et aussi depuis le **Latin-1**, parce que la
+console Windows livre les arguments dans son encodage hérité (celui qui tape ses
+accents arrivait sinon à l'échec inverse). Le repliement est fait dans
+`HachageMot` **et nulle part ailleurs** : indexation et recherche appellent la
+même fonction, elles ne peuvent donc pas diverger.
+Contrôle : `Yaounde` et `Yaoundé` doivent rendre le **même passage au même
+score** (13,11, passage #93183 sur les 64 premiers Mo).
+
+**Ce que ça ne sait PAS faire, et qui se voit à l'usage.** La recherche est
+**lexicale** : « Quelle est la capitale du Cameroun ? » rend des passages sur le
+Tchad et la Guinée équatoriale — qui *bordent* le Cameroun et contiennent les
+deux mots — plutôt que la réponse. Trouver par le **sens** demanderait des
+vecteurs d'embedding. C'est la suite, pas le préalable.
+
+### 6.7 `--controle` — LA BATTERIE
 ```
 .\Build\Bin\Release-Windows\NKIlyana\NKIlyana.exe --controle ^
   --load <modele.nkgp> --bpe <ilyana.nkbpe>
