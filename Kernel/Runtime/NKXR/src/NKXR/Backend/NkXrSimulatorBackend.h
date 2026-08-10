@@ -41,6 +41,7 @@
 
 #include "NKXR/NKIXrBackend.h"
 #include "NKContainers/Sequential/NkVector.h"
+#include "NKEvent/NkEventSystem.h"
 
 namespace nkentseu {
 	namespace xr {
@@ -104,6 +105,17 @@ namespace nkentseu {
 				NkXrEvent mEvents[kMaxEvents]{};
 				uint32 mEventHead = 0u;
 				uint32 mEventCount = 0u;
+
+				// ── Souris brute ACCUMULÉE ───────────────────────────────────
+				// NkInput.MouseRawDeltaX/Y garde le delta du DERNIER événement
+				// sans jamais le remettre à zéro (constaté dans NkEventState :
+				// OnRaw écrase, personne ne consomme) : l'intégrer chaque
+				// frame fait dériver la tête toute seule dès que la souris
+				// s'arrête. On s'abonne donc aux NkMouseRawEvent et on
+				// accumule NOUS-MÊMES, consommé une fois par WaitFrame.
+				NkCallbackGuard mRawMouseGuard;
+				int32 mAccumRawDX = 0;
+				int32 mAccumRawDY = 0;
 
 				// ── Tête simulée ─────────────────────────────────────────────
 				float32 mYawRad = 0.f;
