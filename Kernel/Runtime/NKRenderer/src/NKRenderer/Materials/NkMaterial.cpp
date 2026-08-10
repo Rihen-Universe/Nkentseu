@@ -328,6 +328,27 @@ namespace nkentseu {
 			return this;
 		}
 
+		// ── M.1 v1 : raccourcis LayeredV1 (8 couches, masques parametriques) ──
+		// Ajoutes pour le MELANGE de materiaux du modeleur (etape 1, 11 aout) :
+		// l'instance les portait deja, seul le wrapper manquait.
+		NkMaterial *NkMaterial::SetLayerV1(int32 idx, const NkPBRLayer &layer) {
+			if (mInstance)
+				mInstance->SetLayerV1(idx, layer);
+			return this;
+		}
+
+		NkMaterial *NkMaterial::SetLayerV1Mask(int32 idx, NkLayerMaskSource src, float32 k) {
+			if (mInstance)
+				mInstance->SetLayerV1Mask(idx, src, k);
+			return this;
+		}
+
+		NkMaterial *NkMaterial::SetLayerV1Count(int32 n) {
+			if (mInstance)
+				mInstance->SetLayerV1Count(n);
+			return this;
+		}
+
 		// ── Shadow overrides (NkVSM v1) ──────────────────────────────────────
 		NkMaterial *NkMaterial::SetReceiveShadow(bool b) {
 			if (mInstance)

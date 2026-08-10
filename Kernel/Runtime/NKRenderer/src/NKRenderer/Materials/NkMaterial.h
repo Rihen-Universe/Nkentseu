@@ -115,6 +115,11 @@ namespace nkentseu {
 				NkMaterial *SetLayerBase(const NkPBRParams &p);
 				NkMaterial *SetLayerTop(const NkPBRParams &p);
 				NkMaterial *SetLayerMaskSource(int32 src); // 0=R 1=G 2=B 3=A
+				// M.1 v1 : 8 couches simplifiees, masques parametriques (melange
+				// de materiaux du modeleur — etape 1, 11 aout).
+				NkMaterial *SetLayerV1(int32 idx, const NkPBRLayer &layer);
+				NkMaterial *SetLayerV1Mask(int32 idx, NkLayerMaskSource src, float32 k = 0.f);
+				NkMaterial *SetLayerV1Count(int32 n);
 
 				// ── Shadow overrides per-material (NkVSM v1) ──────────────────────
 				// Permet a un materiau de specifier comment il interagit avec
