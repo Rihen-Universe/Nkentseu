@@ -274,6 +274,15 @@ namespace nkentseu {
 			NkScSetVec3(o, "albedo", alb);
 			o.SetFloat32("rugosite", rough);
 			o.SetFloat32("metallique", metal);
+			// Physique de surface (2026-08-09). Ecrites MEME a zero : un fichier
+			// qui tait un champ oblige le lecteur a deviner le defaut.
+			{
+				float32 cc = 0.f, ccR = 0.f, sss = 0.f;
+				demo::Demo3DHostProjMatSurface(slot, &cc, &ccR, &sss);
+				o.SetFloat32("vernis", cc);
+				o.SetFloat32("vernisRugosite", ccR);
+				o.SetFloat32("diffusion", sss);
+			}
 			float32 nrm = 1.f, emiS = 1.f;
 			demo::Demo3DHostProjMatChanStrength(slot, &nrm, &emiS);
 			o.SetFloat32("relief", nrm);
@@ -303,6 +312,12 @@ namespace nkentseu {
 			NkScGetVec3(in, "albedo", alb, 0.7f, 0.7f, 0.7f);
 			demo::Demo3DHostProjMatSetParams(slot, alb, NkScFloat(in, "rugosite", 0.85f),
 											 NkScFloat(in, "metallique", 0.f));
+			// Physique de surface : defaut 0 — un .nkmat ecrit avant le 9 aout
+			// n'a pas ces champs, et un materiau sans vernis ni diffusion est
+			// exactement ce qu'il decrivait.
+			demo::Demo3DHostProjMatSetSurface(slot, NkScFloat(in, "vernis", 0.f),
+											  NkScFloat(in, "vernisRugosite", 0.f),
+											  NkScFloat(in, "diffusion", 0.f));
 			// LES INTENSITES AVANT LES CARTES : poser une normal map relit
 			// l'intensite de relief au moment ou elle est posee. Dans l'autre ordre,
 			// la carte serait branchee avec l'ancienne valeur.
@@ -412,6 +427,8 @@ namespace nkentseu {
 						li.SetFloat32("largeur", aw);
 						li.SetFloat32("hauteur", ah);
 						li.SetBool("ombre", shadow);
+						// Loi d'attenuation (2026-08-09) : 0 heritee, 1 physique.
+						li.SetInt32("loi", demo::Demo3DHostLightAttMode(n));
 					}
 					float32 tempK = 0.f, expo = 0.f;
 					if (demo::Demo3DHostLightTempExp(n, &tempK, &expo)) {
@@ -545,6 +562,9 @@ namespace nkentseu {
 					demo::Demo3DHostSetLightTempExp(n, NkScFloat(li, "temperature", 0.f),
 													NkScFloat(li, "exposition", 0.f));
 					demo::Demo3DHostSetLightCookie(n, NkScInt(li, "cookie", -1));
+					// Loi d'attenuation : defaut 0 (heritee) — un fichier ecrit
+					// avant le 9 aout decrivait exactement ce comportement.
+					demo::Demo3DHostSetLightAttMode(n, NkScInt(li, "loi", 0));
 				}
 				NkArchive ca;
 				if (kind == 4 && sub == 10 && nd.GetObject("camera", ca)) {
@@ -624,6 +644,187 @@ namespace nkentseu {
 			cam.SetFloat32("tangage", cp[5]);
 			cam.SetBool("ortho", st.docCamOrtho[d]);
 			o.SetObject("vue", cam);
+			// LES REGLAGES DU PANNEAU RENDU VOYAGENT AVEC LA SCENE (Rihen,
+			// 9 aout : ils n'etaient pas restaures au rechargement). Ils sont
+			// GLOBAUX a la vue 3D — la derniere scene restauree les pose, ce
+			// qui est le comportement attendu d'un projet a une scene.
+			{
+				NkArchive r;
+				r.SetFloat32("ambiance", demo::Demo3DHostAmbient());
+				float32 ac[3] = {1.f, 1.f, 1.f};
+				demo::Demo3DHostAmbientColor(ac);
+				NkScSetVec3(r, "ambianceCouleur", ac);
+				bool sOn = false;
+				float32 sc3[3] = {0.f, 0.f, 0.f}, sy = 0.f, sr = 0.f, stl = 1.f, smt = 0.f;
+				int32 sp = 0;
+				demo::Demo3DHostFloor(&sOn, sc3, &sy, &sr, &sp, &stl, &smt);
+				NkArchive sol;
+				sol.SetBool("actif", sOn);
+				NkScSetVec3(sol, "couleur", sc3);
+				sol.SetFloat32("hauteur", sy);
+				sol.SetFloat32("rugosite", sr);
+				sol.SetInt32("motif", sp);
+				sol.SetFloat32("carreau", stl);
+				sol.SetFloat32("metallique", smt);
+				r.SetObject("sol", sol);
+				bool bOn = false;
+				float32 bc[3] = {0.f, 0.f, 0.f}, bd = 0.f, bs = 0.f, be = 0.f;
+				int32 bm = 0;
+				demo::Demo3DHostFog(&bOn, bc, &bd, &bs, &be, &bm);
+				NkArchive br;
+				br.SetBool("actif", bOn);
+				NkScSetVec3(br, "couleur", bc);
+				br.SetFloat32("densite", bd);
+				br.SetFloat32("debut", bs);
+				br.SetFloat32("fin", be);
+				br.SetInt32("loi", bm);
+				float32 gb = 0.f, gt = 0.f, gw = 0.f;
+				bool gc = true;
+				demo::Demo3DHostFogGround(&gb, &gt, &gw, &gc);
+				br.SetFloat32("nappeAltitude", gb);
+				br.SetFloat32("nappeEpaisseur", gt);
+				br.SetFloat32("nappeSouffle", gw);
+				br.SetBool("nappeSuitNuages", gc);
+				r.SetObject("brouillard", br);
+				float32 onb = 0.f, osb = 0.f, oso = 0.f;
+				int32 oq = 1;
+				if (demo::Demo3DHostShadowCfg(&onb, &osb, &oso, &oq)) {
+					NkArchive om;
+					om.SetFloat32("biaisNormal", onb);
+					om.SetFloat32("biaisPente", osb);
+					om.SetFloat32("douceur", oso);
+					om.SetInt32("qualite", oq);
+					r.SetObject("ombres", om);
+				}
+				bool aoOn = false;
+				float32 aoR = 0.5f, aoI = 1.f;
+				demo::Demo3DHostSSAO(&aoOn, &aoR, &aoI);
+				NkArchive ao;
+				ao.SetBool("actif", aoOn);
+				ao.SetFloat32("rayon", aoR);
+				ao.SetFloat32("intensite", aoI);
+				r.SetObject("occlusion", ao);
+				float32 pe = 1.f, pt = 0.85f, ps = 1.5f;
+				bool pb = true;
+				demo::Demo3DHostPostFx(&pe, &pb, &pt, &ps);
+				NkArchive fx;
+				fx.SetFloat32("exposition", pe);
+				fx.SetBool("bloom", pb);
+				fx.SetFloat32("seuil", pt);
+				fx.SetFloat32("intensite", ps);
+				r.SetObject("expositionBloom", fx);
+				o.SetObject("rendu", r);
+			}
+			// ── ENVIRONNEMENT (pastille ciel/monde) — meme regle que « rendu » :
+			// tout ce que le panneau propose voyage avec la scene (Rihen, 10 aout).
+			{
+				NkArchive e;
+				e.SetBool("cielVisible", demo::Demo3DHostSkyVisible());
+				e.SetFloat32("cielIntensite", demo::Demo3DHostSkyIntensity());
+				e.SetInt32("modele", demo::Demo3DHostSkyModel());
+				e.SetBool("ambianceParEnv", demo::Demo3DHostAmbientUseEnv());
+				float32 sd[3] = {0.f, -1.f, 0.f};
+				float32 turb = 2.5f, sunI = 1.f;
+				bool disc = true;
+				demo::Demo3DHostSkySun(sd, &turb, &disc, &sunI);
+				NkScSetVec3(e, "soleilDirection", sd);
+				e.SetFloat32("turbidite", turb);
+				e.SetBool("disque", disc);
+				e.SetFloat32("soleilIntensite", sunI);
+				float32 sc[3] = {1.f, 1.f, 1.f};
+				demo::Demo3DHostSkySunColor(sc);
+				NkScSetVec3(e, "soleilCouleur", sc);
+				e.SetBool("soleilEclaire", demo::Demo3DHostSkySunLightsScene());
+				e.SetInt32("soleilSource", demo::Demo3DHostSkySunSource());
+				e.SetFloat32("etoileTemperature", demo::Demo3DHostSkyAlienTemp());
+				e.SetFloat32("nuagesVitesse", demo::Demo3DHostSkyCloudSpeed());
+				float32 stI = 0.f, stD = 0.f;
+				demo::Demo3DHostSkyStars(&stI, &stD);
+				e.SetFloat32("etoilesIntensite", stI);
+				e.SetFloat32("etoilesDensite", stD);
+				float32 rot = 0.f, sht = 0.f;
+				demo::Demo3DHostSkyStarMotion(&rot, &sht);
+				e.SetFloat32("cielRotation", rot);
+				e.SetFloat32("filantes", sht);
+				bool cOn = false;
+				float32 cCov = 0.f, cDen = 0.f, cScl = 0.f, cCol[3] = {1.f, 1.f, 1.f};
+				demo::Demo3DHostSkyClouds(&cOn, &cCov, &cDen, &cScl, cCol);
+				NkArchive nu;
+				nu.SetBool("actif", cOn);
+				nu.SetFloat32("couverture", cCov);
+				nu.SetFloat32("densite", cDen);
+				nu.SetFloat32("echelle", cScl);
+				NkScSetVec3(nu, "couleur", cCol);
+				e.SetObject("nuages", nu);
+				const int32 nM = demo::Demo3DHostSkyMoonCount();
+				e.SetInt32("lunes", nM);
+				for (int32 m = 0; m < nM && m < 2; ++m) {
+					float32 el = 0.f, az = 0.f, sz = 0.f, br = 0.f, mc[3] = {1.f, 1.f, 1.f};
+					demo::Demo3DHostSkyMoon(m, &el, &az, &sz, &br, mc);
+					bool man = false;
+					float32 ph = 0.f;
+					demo::Demo3DHostSkyMoonPhase(m, &man, &ph);
+					NkArchive lu;
+					lu.SetFloat32("elevation", el);
+					lu.SetFloat32("azimut", az);
+					lu.SetFloat32("taille", sz);
+					lu.SetFloat32("eclat", br);
+					NkScSetVec3(lu, "couleur", mc);
+					lu.SetBool("phaseManuelle", man);
+					lu.SetFloat32("phase", ph);
+					char k[8];
+					snprintf(k, sizeof(k), "l%d", (int)m);
+					e.SetObject(k, lu);
+				}
+				float32 top[3], hor[3], gnd[3];
+				demo::Demo3DHostEnvSky(top, hor, gnd);
+				NkScSetVec3(e, "degradeHaut", top);
+				NkScSetVec3(e, "degradeHorizon", hor);
+				NkScSetVec3(e, "degradeSol", gnd);
+				e.SetString("hdr", NkScToRel(root, demo::Demo3DHostHdrPath()).CStr());
+				o.SetObject("environnement", e);
+			}
+			// ── SORTIE (pastille Output) : resolution, destination, incrustations.
+			{
+				NkArchive so;
+				int32 src = -1, w = 1920, h = 1080, pct = 100, fmt = 0;
+				bool tr = false;
+				demo::Demo3DHostOutMain(&src, &w, &h, &pct, &fmt, &tr);
+				so.SetInt32("source", src);
+				so.SetInt32("largeur", w);
+				so.SetInt32("hauteur", h);
+				so.SetInt32("pourcent", pct);
+				so.SetInt32("format", fmt);
+				so.SetBool("transparent", tr);
+				so.SetString("dossier", demo::Demo3DHostOutDir());
+				so.SetString("nom", demo::Demo3DHostOutName());
+				so.SetString("nomVue", demo::Demo3DHostCaptureName(1));
+				so.SetString("nomTutoriel", demo::Demo3DHostCaptureName(2));
+				const int32 im = demo::Demo3DHostOutInsetMax();
+				for (int32 i = 0; i < im; ++i) {
+					int32 isrc = -1, ish = 0;
+					float32 xy[2] = {0.f, 0.f}, szv[2] = {0.f, 0.f}, bord = 0.f;
+					float32 bc[3] = {1.f, 1.f, 1.f}, op = 1.f;
+					if (!demo::Demo3DHostOutInset(i, &isrc, &ish, xy, szv, &bord, bc, &op))
+						continue;
+					NkArchive inc;
+					inc.SetInt32("source", isrc);
+					inc.SetInt32("forme", ish);
+					inc.SetFloat32("x", xy[0]);
+					inc.SetFloat32("y", xy[1]);
+					inc.SetFloat32("largeur", szv[0]);
+					inc.SetFloat32("hauteur", szv[1]);
+					inc.SetFloat32("lisere", bord);
+					NkScSetVec3(inc, "lisereCouleur", bc);
+					inc.SetFloat32("opacite", op);
+					inc.SetBool("fichierPropre", demo::Demo3DHostOutInsetOwnFile(i));
+					inc.SetBool("fichierForme", demo::Demo3DHostOutInsetOwnShaped(i));
+					char k[8];
+					snprintf(k, sizeof(k), "i%d", (int)i);
+					so.SetObject(k, inc);
+				}
+				o.SetObject("sortie", so);
+			}
 			// SES noeuds, et EUX SEULS : ceux dont la scene hote est la sienne, en
 			// ecartant les archives (qui sont des assets, pas des objets poses).
 			const int32 host = (int32)st.docScene[d];
@@ -661,6 +862,164 @@ namespace nkentseu {
 				st.docCamSet[d] = NkScBool(cam, "posee", false);
 			}
 			demo::Demo3DHostSetActiveScene((int32)st.docScene[d]);
+			// LES REGLAGES DU PANNEAU RENDU, si la scene les porte. Un fichier
+			// anterieur au 9 aout n'a pas ce bloc : on ne touche a RIEN (les
+			// valeurs courantes restent), au lieu d'imposer des defauts.
+			{
+				NkArchive r;
+				if (in.GetObject("rendu", r)) {
+					demo::Demo3DHostSetAmbient(NkScFloat(r, "ambiance", demo::Demo3DHostAmbient()));
+					float32 ac[3];
+					NkScGetVec3(r, "ambianceCouleur", ac, 1.f, 1.f, 1.f);
+					demo::Demo3DHostSetAmbientColor(ac);
+					NkArchive sol;
+					if (r.GetObject("sol", sol)) {
+						float32 sc3[3];
+						NkScGetVec3(sol, "couleur", sc3, 0.55f, 0.55f, 0.55f);
+						demo::Demo3DHostSetFloor(
+							NkScBool(sol, "actif", false), sc3, NkScFloat(sol, "hauteur", 0.f),
+							NkScFloat(sol, "rugosite", 0.9f), NkScInt(sol, "motif", 0),
+							NkScFloat(sol, "carreau", 1.f), NkScFloat(sol, "metallique", 0.f));
+					}
+					NkArchive br;
+					if (r.GetObject("brouillard", br)) {
+						float32 bc[3];
+						NkScGetVec3(br, "couleur", bc, 0.65f, 0.71f, 0.78f);
+						demo::Demo3DHostSetFog(NkScBool(br, "actif", false), bc,
+											   NkScFloat(br, "densite", 0.02f),
+											   NkScFloat(br, "debut", 10.f),
+											   NkScFloat(br, "fin", 60.f), NkScInt(br, "loi", 0));
+						demo::Demo3DHostSetFogGround(NkScFloat(br, "nappeAltitude", 0.f),
+													 NkScFloat(br, "nappeEpaisseur", 0.f),
+													 NkScFloat(br, "nappeSouffle", 0.f),
+													 NkScBool(br, "nappeSuitNuages", true));
+					}
+					NkArchive om;
+					if (r.GetObject("ombres", om)) {
+						demo::Demo3DHostSetShadowCfg(NkScFloat(om, "biaisNormal", 0.f),
+													 NkScFloat(om, "biaisPente", 0.f),
+													 NkScFloat(om, "douceur", 0.002f),
+													 NkScInt(om, "qualite", 1));
+						st.shadowQual = NkScInt(om, "qualite", 1);
+					}
+					NkArchive ao;
+					if (r.GetObject("occlusion", ao)) {
+						demo::Demo3DHostSetSSAO(NkScBool(ao, "actif", false),
+												NkScFloat(ao, "rayon", 0.5f),
+												NkScFloat(ao, "intensite", 1.f));
+					}
+					NkArchive fx;
+					if (r.GetObject("expositionBloom", fx)) {
+						demo::Demo3DHostSetPostFx(NkScFloat(fx, "exposition", 1.f),
+												  NkScBool(fx, "bloom", true),
+												  NkScFloat(fx, "seuil", 0.85f),
+												  NkScFloat(fx, "intensite", 1.5f));
+					}
+				}
+			}
+			// ── ENVIRONNEMENT, si la scene le porte. La regeneration du ciel
+			// (ApplySky) se fait UNE fois a la fin : c'est une convolution CPU.
+			{
+				NkArchive e;
+				if (in.GetObject("environnement", e)) {
+					demo::Demo3DHostSetSkyVisible(NkScBool(e, "cielVisible", true));
+					demo::Demo3DHostSetSkyIntensity(NkScFloat(e, "cielIntensite", 1.f));
+					demo::Demo3DHostSetSkyModel(NkScInt(e, "modele", 0));
+					demo::Demo3DHostSetAmbientUseEnv(NkScBool(e, "ambianceParEnv", false));
+					float32 sd[3];
+					NkScGetVec3(e, "soleilDirection", sd, 0.f, -1.f, 0.f);
+					demo::Demo3DHostSetSkySun(sd, NkScFloat(e, "turbidite", 2.5f),
+											  NkScBool(e, "disque", true),
+											  NkScFloat(e, "soleilIntensite", 1.f));
+					float32 sc[3];
+					NkScGetVec3(e, "soleilCouleur", sc, 1.f, 1.f, 1.f);
+					demo::Demo3DHostSetSkySunColor(sc);
+					demo::Demo3DHostSetSkySunLightsScene(NkScBool(e, "soleilEclaire", false));
+					demo::Demo3DHostSetSkySunSource(NkScInt(e, "soleilSource", -1));
+					demo::Demo3DHostSetSkyAlienTemp(NkScFloat(e, "etoileTemperature", 5778.f));
+					demo::Demo3DHostSetSkyCloudSpeed(NkScFloat(e, "nuagesVitesse", 0.f));
+					demo::Demo3DHostSetSkyStars(NkScFloat(e, "etoilesIntensite", 0.f),
+												NkScFloat(e, "etoilesDensite", 0.5f));
+					demo::Demo3DHostSetSkyStarMotion(NkScFloat(e, "cielRotation", 0.f),
+													 NkScFloat(e, "filantes", 0.f));
+					NkArchive nu;
+					if (e.GetObject("nuages", nu)) {
+						float32 cc[3];
+						NkScGetVec3(nu, "couleur", cc, 1.f, 1.f, 1.f);
+						demo::Demo3DHostSetSkyClouds(NkScBool(nu, "actif", false),
+													 NkScFloat(nu, "couverture", 0.5f),
+													 NkScFloat(nu, "densite", 0.5f),
+													 NkScFloat(nu, "echelle", 1.f), cc);
+					}
+					const int32 nM = NkScInt(e, "lunes", 0);
+					demo::Demo3DHostSetSkyMoonCount(nM);
+					for (int32 m = 0; m < nM && m < 2; ++m) {
+						char k[8];
+						snprintf(k, sizeof(k), "l%d", (int)m);
+						NkArchive lu;
+						if (!e.GetObject(k, lu))
+							continue;
+						float32 mc[3];
+						NkScGetVec3(lu, "couleur", mc, 1.f, 1.f, 1.f);
+						demo::Demo3DHostSetSkyMoon(m, NkScFloat(lu, "elevation", 30.f),
+												   NkScFloat(lu, "azimut", 0.f),
+												   NkScFloat(lu, "taille", 0.5f),
+												   NkScFloat(lu, "eclat", 1.f), mc);
+						demo::Demo3DHostSetSkyMoonPhase(m, NkScBool(lu, "phaseManuelle", false),
+														NkScFloat(lu, "phase", 0.f));
+					}
+					float32 top[3], hor[3], gnd[3];
+					NkScGetVec3(e, "degradeHaut", top, 0.18f, 0.28f, 0.45f);
+					NkScGetVec3(e, "degradeHorizon", hor, 0.55f, 0.62f, 0.72f);
+					NkScGetVec3(e, "degradeSol", gnd, 0.22f, 0.2f, 0.18f);
+					demo::Demo3DHostSetEnvSky(top, hor, gnd);
+					const NkString hdr = NkScStr(e, "hdr");
+					if (!hdr.Empty())
+						(void)demo::Demo3DHostLoadHdr(NkScToAbs(root, hdr.CStr()).CStr());
+					(void)demo::Demo3DHostApplySky();
+				}
+			}
+			// ── SORTIE, si la scene la porte.
+			{
+				NkArchive so;
+				if (in.GetObject("sortie", so)) {
+					demo::Demo3DHostSetOutMain(
+						NkScInt(so, "source", -1), NkScInt(so, "largeur", 1920),
+						NkScInt(so, "hauteur", 1080), NkScInt(so, "pourcent", 100),
+						NkScInt(so, "format", 0), NkScBool(so, "transparent", false));
+					const NkString od = NkScStr(so, "dossier");
+					if (!od.Empty())
+						demo::Demo3DHostSetOutDir(od.CStr());
+					const NkString on = NkScStr(so, "nom");
+					if (!on.Empty())
+						demo::Demo3DHostSetOutName(on.CStr());
+					const NkString nv = NkScStr(so, "nomVue");
+					if (!nv.Empty())
+						demo::Demo3DHostSetCaptureName(1, nv.CStr());
+					const NkString nt = NkScStr(so, "nomTutoriel");
+					if (!nt.Empty())
+						demo::Demo3DHostSetCaptureName(2, nt.CStr());
+					const int32 im = demo::Demo3DHostOutInsetMax();
+					for (int32 i = 0; i < im; ++i) {
+						char k[8];
+						snprintf(k, sizeof(k), "i%d", (int)i);
+						NkArchive inc;
+						if (!so.GetObject(k, inc))
+							continue;
+						float32 xy[2] = {NkScFloat(inc, "x", 0.02f), NkScFloat(inc, "y", 0.02f)};
+						float32 szv[2] = {NkScFloat(inc, "largeur", 0.25f),
+										  NkScFloat(inc, "hauteur", 0.25f)};
+						float32 bc[3];
+						NkScGetVec3(inc, "lisereCouleur", bc, 1.f, 1.f, 1.f);
+						demo::Demo3DHostSetOutInset(i, NkScInt(inc, "source", -1),
+													NkScInt(inc, "forme", 0), xy, szv,
+													NkScFloat(inc, "lisere", 0.f), bc,
+													NkScFloat(inc, "opacite", 1.f));
+						demo::Demo3DHostSetOutInsetOwnFile(i, NkScBool(inc, "fichierPropre", false));
+						demo::Demo3DHostSetOutInsetOwnShaped(i, NkScBool(inc, "fichierForme", false));
+					}
+				}
+			}
 			NkAsNodesRestore(in, root, st, false, nodeMiss, nullptr, orphanFix);
 		}
 

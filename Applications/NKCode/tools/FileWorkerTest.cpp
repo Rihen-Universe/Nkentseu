@@ -7,7 +7,7 @@
 // Un « ca ne marche plus » ne se diagnostique pas en relisant le code : il faut
 // exercer le chemin exact et regarder ce qui sort.
 //
-#include "NKCode/Pdf/NkPdf.h"
+#include "NKMedia/Pdf/NkPdf.h"
 #include "NKCode/Shell/NkPdfWorker.h"
 
 #include "NKFileSystem/NkFile.h"

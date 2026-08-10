@@ -200,9 +200,33 @@ namespace nkentseu {
 				return ver;
 			}
 
+			// -------------------------------------------------------------------------
+			// ÉCRITURE SÛRE D'UN CHECKPOINT — pourquoi ce détour au lieu d'un fopen(w).
+			//
+			// Un checkpoint pèse des centaines de Mo et représente des JOURS de calcul.
+			// Ouvrir directement le fichier de destination en écriture le TRONQUE avant
+			// d'avoir écrit le premier octet : une coupure de courant pendant les
+			// quelques secondes d'écriture détruit alors le nouveau checkpoint ET
+			// l'ancien d'un seul coup. Cette machine a déjà coupé deux fois.
+			//
+			// On écrit donc dans un fichier temporaire, et on ne touche à la
+			// destination qu'une fois l'écriture RÉUSSIE, par des renommages — des
+			// opérations de métadonnées, quasi instantanées :
+			//     <path>.tmp  --(écriture complète)-->  puis  <path> -> <path>.prev
+			//                                            puis  <path>.tmp -> <path>
+			// Il reste une fenêtre de quelques millisecondes entre les deux renommages
+			// où `<path>` n'existe pas ; `<path>.prev` est alors intact et suffit à
+			// reprendre. On passe d'un risque de tout perdre à un risque de perdre le
+			// dernier intervalle de checkpoint.
+			// -------------------------------------------------------------------------
 			bool SaveCheckpoint(const char *path, const GptMeta &m, const NkVector<NkVar> &params,
 								const NkVector<NkTensor> *optM, const NkVector<NkTensor> *optV, int64 step) {
-				FILE *f = fopen(path, "wb");
+				NkString cheminTmp(path);
+				cheminTmp.Append(".tmp");
+				NkString cheminPrev(path);
+				cheminPrev.Append(".prev");
+
+				FILE *f = fopen(cheminTmp.CStr(), "wb");
 				if (!f)
 					return false;
 				const char magic[4] = {'N', 'K', 'G', 'P'};
@@ -240,8 +264,30 @@ namespace nkentseu {
 					for (uint32 i = 0; ok && i < optV->Size(); ++i)
 						ok = ok && WriteTensor(f, (*optV)[i]);
 				}
+
+				// Vider les tampons AVANT de considérer l'écriture comme réussie : sans
+				// cela, `ok` serait vrai alors que des centaines de Mo dorment encore en
+				// mémoire, et on renommerait un fichier incomplet par-dessus le bon.
+				ok = ok && (fflush(f) == 0);
 				fclose(f);
-				return ok;
+
+				if (!ok) {
+					remove(cheminTmp.CStr()); // ne pas laisser trainer un fichier tronque
+					logger.Info("Checkpoint NON ecrit : l'ecriture a echoue, l'ancien est INTACT ({0}).", path);
+					return false;
+				}
+
+				// L'ecriture a reussi : on peut enfin toucher a la destination.
+				remove(cheminPrev.CStr());		 // `rename` echoue si la cible existe
+				rename(path, cheminPrev.CStr()); // sans effet si `path` n'existe pas encore
+				if (rename(cheminTmp.CStr(), path) != 0) {
+					// Cas rare (fichier verrouille) : remettre l'ancien en place plutot
+					// que de laisser l'utilisateur sans aucun checkpoint.
+					rename(cheminPrev.CStr(), path);
+					logger.Info("Checkpoint : renommage impossible vers {0}, l'ancien a ete remis en place.", path);
+					return false;
+				}
+				return true;
 			}
 
 			bool LoadCheckpointMeta(const char *path, GptMeta &m) {

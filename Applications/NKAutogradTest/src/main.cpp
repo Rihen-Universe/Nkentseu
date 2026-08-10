@@ -141,6 +141,72 @@ int main() {
 					  return autograd::Sum(autograd::Mul(autograd::Embedding(table, idx), NkVar::Leaf(W, false)));
 				  });
 	}
+	// 5sexies) Briques des transformeurs modernes : RMSNorm, SwiGLU, RoPE.
+	// Ces trois-la existaient deja en INFERENCE (NKInfer/NkQwen2Block) mais leur
+	// derivee n'y couvrait que des adaptateurs LoRA sur un socle GELE — rien pour
+	// entrainer depuis zero. Ecrites ici comme vraies operations autograd, leur
+	// seule preuve valable est la confrontation aux differences finies.
+	{
+		// RMSNorm : y = x/sqrt(moyenne(x^2)+eps) sur le dernier axe. On multiplie
+		// par des poids fixes avant de sommer : la somme de y seule serait presque
+		// insensible a x et le test ne verifierait rien.
+		float xd[8] = {0.7f, -1.3f, 0.2f, 2.1f, -0.5f, 0.9f, 1.4f, -0.8f};
+		float wd2[8] = {0.5f, -0.2f, 1.1f, 0.3f, -0.7f, 0.4f, 0.9f, -0.6f};
+		NkTensor Wr = Mat(NkShape{2, 4}, wd2);
+		GradCheck("RMSNorm", Mat(NkShape{2, 4}, xd), [Wr](NkVar x) {
+			return autograd::Sum(autograd::Mul(autograd::RMSNorm(x), NkVar::Leaf(Wr, false)));
+		});
+
+		// SwiGLU : gradient p/r a la PORTE (le plus delicat : il depend aussi de u).
+		float gd[6] = {-1.5f, -0.3f, 0.0f, 0.4f, 1.2f, 2.5f};
+		float ud[6] = {0.6f, -1.1f, 0.8f, 0.2f, -0.9f, 1.3f};
+		NkTensor U = Mat(NkShape{6}, ud);
+		GradCheck("SwiGLU dGate", Mat(NkShape{6}, gd),
+				  [U](NkVar gate) { return autograd::Sum(autograd::SwiGLU(gate, NkVar::Leaf(U, false))); });
+		NkTensor G = Mat(NkShape{6}, gd);
+		GradCheck("SwiGLU dUp", Mat(NkShape{6}, ud),
+				  [G](NkVar up) { return autograd::Sum(autograd::SwiGLU(NkVar::Leaf(G, false), up)); });
+
+		// RoPE : [T=3, hd=4]. Somme PONDEREE : une rotation conserve la somme des
+		// carres, pas la somme simple, mais un poids uniforme rendrait le gradient
+		// trop regulier pour reveler une erreur d'indice.
+		float rd[12] = {0.3f, -0.7f, 1.2f, 0.5f, -1.1f, 0.8f, 0.2f, -0.4f, 0.9f, 1.5f, -0.6f, 0.1f};
+		float rw[12] = {1.0f, 0.4f, -0.8f, 0.6f, 0.2f, -1.2f, 0.7f, 0.9f, -0.3f, 0.5f, 1.1f, -0.5f};
+		NkTensor Wp = Mat(NkShape{3, 4}, rw);
+		GradCheck("RoPE", Mat(NkShape{3, 4}, rd), [Wp](NkVar x) {
+			return autograd::Sum(autograd::Mul(autograd::RoPE(x, 0, 10000.0), NkVar::Leaf(Wp, false)));
+		});
+		GradCheck("RoPE decalee", Mat(NkShape{3, 4}, rd), [Wp](NkVar x) {
+			return autograd::Sum(autograd::Mul(autograd::RoPE(x, 7, 10000.0), NkVar::Leaf(Wp, false)));
+		});
+	}
+	// 5septies) RoPE : la PROPRIETE qu'aucune difference finie ne verifie. Une
+	// rotation conserve les longueurs, et le produit scalaire entre deux positions
+	// ne doit dependre que de leur ECART — c'est tout l'interet de RoPE face a des
+	// positions apprises. On le constate au lieu de le supposer.
+	{
+		float ad[4] = {0.6f, -0.9f, 1.4f, 0.3f};
+		NkTensor x1 = Mat(NkShape{1, 4}, ad);
+		auto prodScalaire = [&](int p, int q) {
+			NkVar u = autograd::RoPE(NkVar::Leaf(x1, false), p, 10000.0);
+			NkVar v = autograd::RoPE(NkVar::Leaf(x1, false), q, 10000.0);
+			return autograd::Sum(autograd::Mul(u, v)).Value().GetItem(NkShape{(int64)0});
+		};
+		const double d02 = prodScalaire(0, 2);
+		const double d57 = prodScalaire(5, 7); // meme ecart -> meme produit scalaire
+		const double norme0 = prodScalaire(0, 0);
+		double n2 = 0;
+		for (int i = 0; i < 4; ++i)
+			n2 += (double)ad[i] * (double)ad[i];
+		const bool ecartSeul = std::fabs(d02 - d57) < 1e-4;
+		const bool normeGardee = std::fabs(norme0 - n2) < 1e-4;
+		(ecartSeul ? g_pass : g_fail)++;
+		printf("  [ %s ] %-18s  <p=0,q=2> = %.6f  vs  <p=5,q=7> = %.6f\n", ecartSeul ? "OK" : "KO",
+			   "RoPE ecart seul", d02, d57);
+		(normeGardee ? g_pass : g_fail)++;
+		printf("  [ %s ] %-18s  norme apres rotation = %.6f  (avant %.6f)\n", normeGardee ? "OK" : "KO",
+			   "RoPE norme gardee", norme0, n2);
+	}
 	// 6) MSE(pred, cible) : dL/dpred = 2(pred-cible)/N.
 	{
 		float pd[4] = {0.2f, 0.9f, 0.7f, 0.1f};

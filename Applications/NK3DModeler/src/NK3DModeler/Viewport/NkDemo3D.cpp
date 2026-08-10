@@ -292,6 +292,11 @@ namespace nkentseu {
 		static void HostHierarchyFrame(); // detecteur (defini pres des accesseurs)
 		static void HostParentEnsureInit();
 		static int32 HostAllocUser(uint8 kind);
+		// Panneau « Occlusion ambiante » : lus par la reconstruction du GI et la
+		// bascule du panneau, definies AVANT les facades — la grille voxel obeit
+		// au meme bouton que la SSAO (une seule notion d'occlusion d'ambiance).
+		void Demo3DHostSSAO(bool *on, float32 *radius, float32 *intensity);
+		void Demo3DHostGIMarkDirty();
 		static void HostDecompose(const NkMat4f &M, NkVec3f &pos, NkVec3f &rotDeg, NkVec3f &scl);
 		// ── TRANSFORM LOCALE D'UN NOEUD : POINT DE PASSAGE UNIQUE ───────────
 		// La meme formule etait recomposee A LA MAIN dans cinq endroits (rendu,
@@ -881,6 +886,13 @@ namespace nkentseu {
 				char maps[kNkvpMatChanCount][260];
 				float32 albedo[3];
 				float32 rough, metal;
+				// PHYSIQUE DE SURFACE (2026-08-09) : vernis et diffusion — le shader
+				// les calculait depuis longtemps, le panneau ne les proposait pas
+				// (passation §5 : « gain le moins cher »). La couleur de diffusion
+				// suit l'albedo : c'est la matiere elle-meme qui transmet sa teinte.
+				float32 clearcoat;	// 0..1
+				float32 ccRough;	// rugosite du vernis, 0..1
+				float32 subsurface; // 0..1
 				// INTENSITES des canaux qui en ont une : le relief se dose (0 =
 				// normale ignoree, 1 = pleine), l'emissif aussi. Sans texture,
 				// elles n'ont pas d'effet -- c'est voulu, pas un oubli.
@@ -916,6 +928,13 @@ namespace nkentseu {
 					dc.tint.z = nkvpProjMats[pm].albedo[2];
 					dc.metallic = nkvpProjMats[pm].metal;
 					dc.roughness = nkvpProjMats[pm].rough;
+					// Physique de surface : la couleur de diffusion suit l'albedo
+					// (la matiere transmet sa propre teinte, pas du blanc).
+					dc.clearcoat = nkvpProjMats[pm].clearcoat;
+					dc.clearcoatRough = nkvpProjMats[pm].ccRough;
+					dc.subsurface = nkvpProjMats[pm].subsurface;
+					dc.subsurfaceColor = {nkvpProjMats[pm].albedo[0], nkvpProjMats[pm].albedo[1],
+										  nkvpProjMats[pm].albedo[2]};
 				}
 			}
 			if (nkvpMatMask[i] & 1) {
@@ -4666,10 +4685,20 @@ namespace nkentseu {
 					!NkInput.IsKeyDown(NkKey::NK_RCTRL)) // Ctrl+C = COPIER, pas le gizmo
 					G.SetMode(GZ::MODE_COMBINE);
 				if (k == NkKey::NK_A) {
-					if (alt)
+					if (alt) {
 						G.ClearSelection();
-					else
-						G.SelectAll();
+					} else {
+						// TOUT = tout ce qui se VOIT. Ce gestionnaire herite de la
+						// demo selectionnait ses ~90 objets meme CACHES dans une
+						// scene utilisateur — Maj+A les faisait tous reapparaitre
+						// en fond (constate par Rihen, 10 aout). Si toute la demo
+						// est masquee, il n'a rien a selectionner.
+						bool anyVisible = false;
+						for (int32 o = 0; o < Demo3DState::kNumObj && !anyVisible; ++o)
+							anyVisible = !HostHiddenEff(o);
+						if (anyVisible)
+							G.SelectAll();
+					}
 				}
 				if (k == NkKey::NK_COMMA) {
 					G.CycleOrientation();
@@ -4877,6 +4906,25 @@ namespace nkentseu {
 			if (!vao)
 				return;
 			vao->Clear();
+			// L'OCCLUSION AMBIANTE EST UNE SEULE NOTION POUR L'UTILISATEUR
+			// (Rihen, 10 aout : « tache noire au sol autour d'un objet alors
+			// que l'occlusion ambiante n'est pas activee ») : la grille voxel
+			// assombrissait l'ambiance autour des objets injectes MEME panneau
+			// eteint — un reglage affiche eteint qui agit quand meme, c'est le
+			// defaut de conception deja paye. Panneau eteint => grille VIDE :
+			// voxAO vaut 1 partout, et le rebond indirect s'eteint avec (il
+			// exige les memes occludeurs).
+			{
+				bool aoOn = false;
+				float32 aoR = 0.5f, aoI = 1.f;
+				Demo3DHostSSAO(&aoOn, &aoR, &aoI);
+				if (!aoOn) {
+					vao->Build(); // grille vide televersee : plus aucune tache
+					st->giBuildMs = vao->GetLastBuildMs();
+					st->giInjectMs = 0.f;
+					return;
+				}
+			}
 			// LES OCCLUDEURS DE LA DEMO NE VALENT QUE SI LEURS OBJETS SE VOIENT.
 			// Cette boite 16x16 est le sol de la DEMO, et son plafond depasse a
 			// y=0.05 : enregistree dans une scene UTILISATEUR, elle plongeait
@@ -5126,11 +5174,16 @@ namespace nkentseu {
 
 			// PORTAGE NK3DModeler : l'EDITEUR possede la frame device et le
 			// command buffer — pas de BeginFrame ici. On rejoue ce qu'il ferait
-			// pour NOTRE renderer : reset du pool d'UBO objets et upload des
-			// materiaux. (Meme contrainte et meme modele que NkViewport3D.cpp.)
+			// pour NOTRE renderer : reset du pool d'UBO objets, upload des
+			// materiaux, ET la reconstruction du graphe en attente — sans elle,
+			// activer l'occlusion ambiante depuis le panneau armait un drapeau
+			// que personne ne consommait jamais : le bouton semblait mort
+			// (constate par Rihen, 9 aout). (Meme contrainte et meme modele que
+			// NkViewport3D.cpp.)
 			auto *r3d = ctx.renderer->GetRender3D();
 			if (!r3d)
 				return;
+			ctx.renderer->FlushGraphRebuilds();
 			r3d->ResetFrame();
 			if (auto *mc = ctx.renderer->GetMaterialCollection())
 				mc->Upload();
@@ -6182,8 +6235,14 @@ namespace nkentseu {
 				st->lightsInit = true;
 
 				// [0] Soleil directionnel
+				// LES QUATRE LUMIERES DE LA DEMO restent en loi HERITEE : leurs
+				// intensites (3/12/2.5/8) ont ete reglees a l'oeil pour elle —
+				// en loi physique (le defaut depuis le 10 aout) ce serait la
+				// quasi-obscurite. Les lumieres UTILISATEUR, elles, naissent en
+				// physique a leur puissance de reference.
 				NkLightDesc &sun = st->lights[0];
 				sun = NkLightDesc{};
+				sun.attenuationMode = 0;
 				sun.type = NkLightType::NK_DIRECTIONAL;
 				sun.direction = {-0.4f, -1.f, -0.3f};
 				sun.color = {1.f, 0.95f, 0.85f};
@@ -6196,6 +6255,7 @@ namespace nkentseu {
 				// au soleil et au spot. Legerement haute pour ne pas etre dans le sol.
 				NkLightDesc &redLight = st->lights[1];
 				redLight = NkLightDesc{};
+				redLight.attenuationMode = 0; // demo : reglee a l'oeil en loi heritee
 				redLight.type = NkLightType::NK_POINT;
 				redLight.position = {3.f, 2.5f, 0.f};
 				redLight.color = {1.f, 0.2f, 0.1f};
@@ -6212,6 +6272,7 @@ namespace nkentseu {
 				// [2] Fill bleue
 				NkLightDesc &blue = st->lights[2];
 				blue = NkLightDesc{};
+				blue.attenuationMode = 0; // demo : reglee a l'oeil en loi heritee
 				blue.type = NkLightType::NK_POINT;
 				blue.position = {-2.f, 1.f, 1.f};
 				blue.color = {0.2f, 0.5f, 1.f};
@@ -6223,6 +6284,7 @@ namespace nkentseu {
 				// [3] Spot avec cookie procedural « barreaux » projete au sol.
 				NkLightDesc &spot = st->lights[3];
 				spot = NkLightDesc{};
+				spot.attenuationMode = 0; // demo : reglee a l'oeil en loi heritee
 				spot.type = NkLightType::NK_SPOT;
 				spot.position = {3.f, 4.f, 0.f};
 				spot.direction = (NkVec3f{0.f, 0.f, 0.f} - spot.position).Normalized();
@@ -10189,6 +10251,10 @@ namespace nkentseu {
 				// par SetPostConfig (le graphe se reconstruit a l'aplomb de la
 				// frame suivante quand la passe apparait/disparait).
 				cfg.postProcess.ssao = false;
+				// BLOOM ETEINT PAR DEFAUT lui aussi (Rihen, 10 aout) : un
+				// modeleur montre la matiere, pas un halo — il s'active au
+				// panneau « Exposition et bloom » quand on compose une image.
+				cfg.postProcess.bloom = false;
 				hst.ctx.api = hst.ctx.device->GetApi();
 				hst.ctx.width = hst.wantW;
 				hst.ctx.height = hst.wantH;
@@ -13285,6 +13351,12 @@ namespace nkentseu {
 				m.albedo[0] = m.albedo[1] = m.albedo[2] = 0.7f;
 				m.rough = 0.85f;
 				m.metal = 0.f;
+				// Physique de surface neutre : ni vernis ni diffusion sur un
+				// materiau neuf (l'emplacement peut etre REUTILISE apres une
+				// suppression — l'init statique du tableau ne suffit pas).
+				m.clearcoat = 0.f;
+				m.ccRough = 0.f;
+				m.subsurface = 0.f;
 				// Intensites NEUTRES : relief a pleine echelle (une normal map
 				// posee doit se voir telle qu'elle est), emissif a 1 mais avec
 				// une teinte NOIRE -- un materiau neuf n'emet rien.
@@ -13359,6 +13431,27 @@ namespace nkentseu {
 			m.rough = rough < 0.f ? 0.f : (rough > 1.f ? 1.f : rough);
 			m.metal = metal < 0.f ? 0.f : (metal > 1.f ? 1.f : metal);
 		}
+		// ── PHYSIQUE DE SURFACE : vernis + diffusion (2026-08-09) ────────────
+		// A part de SetParams : les appelants historiques (collage de groupe,
+		// reinitialisation) ne connaissent que albedo/rugosite/metallique, et
+		// changer leur signature les aurait tous forces a se prononcer.
+		void Demo3DHostProjMatSurface(int32 i, float32 *cc, float32 *ccRough, float32 *sss) {
+			const bool ok = (i >= 0 && i < kNkvpMaxProjMats && nkvpProjMats[i].used);
+			if (cc)
+				*cc = ok ? nkvpProjMats[i].clearcoat : 0.f;
+			if (ccRough)
+				*ccRough = ok ? nkvpProjMats[i].ccRough : 0.f;
+			if (sss)
+				*sss = ok ? nkvpProjMats[i].subsurface : 0.f;
+		}
+		void Demo3DHostProjMatSetSurface(int32 i, float32 cc, float32 ccRough, float32 sss) {
+			if (i < 0 || i >= kNkvpMaxProjMats || !nkvpProjMats[i].used)
+				return;
+			NkVpProjMat &m = nkvpProjMats[i];
+			m.clearcoat = cc < 0.f ? 0.f : (cc > 1.f ? 1.f : cc);
+			m.ccRough = ccRough < 0.f ? 0.f : (ccRough > 1.f ? 1.f : ccRough);
+			m.subsurface = sss < 0.f ? 0.f : (sss > 1.f ? 1.f : sss);
+		}
 		void Demo3DHostProjMatSetName(int32 i, const char *name) {
 			if (i < 0 || i >= kNkvpMaxProjMats || !nkvpProjMats[i].used || !name || !name[0])
 				return;
@@ -13418,7 +13511,18 @@ namespace nkentseu {
 			// Le chargement fait foi : un chemin qui ne charge pas n'est PAS
 			// memorise -- le champ garde l'ancienne verite au lieu d'afficher
 			// un chemin mort.
-			NkTexHandle t = texL->Load(NkString(path));
+			//
+			// L'ESPACE COULEUR DEPEND DU CANAL (LearnOpenGL, Gamma Correction ;
+			// verifie le 9 aout) : une image d'ALBEDO ou d'EMISSIF est peinte a
+			// l'ecran, donc encodee sRGB -> le GPU doit la lineariser a la
+			// lecture (format _SRGB). Une carte de NORMALES ou d'ORM porte des
+			// PARAMETRES, pas des couleurs : deja lineaire -- la decoder comme
+			// du sRGB TORD les normales et decale rugosite/metallicite dans les
+			// tons moyens. Le defaut (srgb=true pour tout) etait faux pour les
+			// canaux 1 et 2.
+			NkLoadOptions texOpts;
+			texOpts.srgb = (chan == 0 || chan == 3);
+			NkTexHandle t = texL->Load(NkString(path), texOpts);
 			if (!t.IsValid()) {
 				logger.Warn("[NkDemo3D] Materiau '{0}' : texture introuvable {1}\n",
 							nkvpProjMats[i].name, path);
@@ -14039,6 +14143,10 @@ namespace nkentseu {
 						L0.color = {1.f, 1.f, 1.f};
 						L0.position = {3.f, 4.f, 2.5f};
 						L0.cookieIdx = -1; // couleur pure par defaut
+						// Loi PHYSIQUE des la naissance (decision du 10 aout) :
+						// la ponctuelle du trio part a sa reference, 1000 W.
+						L0.attenuationMode = 1;
+						L0.intensity = 1000.f;
 						nkvpUserLight[nLit - kNkvpFirstUser] = L0;
 						nkvpUserSub[nLit - kNkvpFirstUser] = 1;
 						const int32 e0 = nLit - kNkvpFirstEmpty;
@@ -14887,6 +14995,18 @@ namespace nkentseu {
 			L->areaHeight = ah < 0.01f ? 0.01f : ah;
 			L->castShadow = shadow;
 		}
+		// ── Loi d'attenuation par lumiere (2026-08-09, decision de Rihen) ────
+		// A part de SetLightEx : ses appelants n'ont pas a se prononcer sur la
+		// loi a chaque reglage de portee.
+		int32 Demo3DHostLightAttMode(int32 node) {
+			const renderer::NkLightDesc *L = HostLightDescOf(node);
+			return L ? L->attenuationMode : 0;
+		}
+		void Demo3DHostSetLightAttMode(int32 node, int32 mode) {
+			renderer::NkLightDesc *L = HostLightDescOf(node);
+			if (L)
+				L->attenuationMode = (mode != 0) ? 1 : 0;
+		}
 		bool Demo3DHostCameraParams(int32 node, float32 *fov, float32 *nearC, float32 *farC) {
 			if (node < kNkvpFirstUser || node >= kNkvpMaxNodes ||
 				nkvpUserKind[node - kNkvpFirstUser] != 4 ||
@@ -14976,7 +15096,10 @@ namespace nkentseu {
 		static constexpr float32 kSkyGndDef[3] = {0.25f, 0.22f, 0.2f};
 		static constexpr float32 kSkySunDirDef[3] = {0.35f, -0.65f, 0.35f};
 		static constexpr float32 kSkyTurbidityDef = 2.5f;
-		static constexpr float32 kSkySunIntensityDef = 1.f;
+		// 0.5 par defaut (Rihen, 10 aout), et la valeur est en WATTS — la MEME
+		// echelle que le Soleil de scene (5 = plein soleil en loi physique) :
+		// une seule unite pour tous les soleils, plus de facteur cache.
+		static constexpr float32 kSkySunIntensityDef = 0.5f;
 		static constexpr bool kSkySunDiscDef = true;
 		static constexpr int32 kSkyModelDef = 0;
 		static constexpr float32 kCloudCovDef = 0.5f;
@@ -15331,16 +15454,15 @@ namespace nkentseu {
 					return false;
 				if (((int32)nkvpUserLight[u].type & 3) != 0)
 					return false;
-				// MEME calcul qu'a la soumission : la rotation du noeud donne le
-				// faisceau (-Y local). Le refaire autrement, c'est se garantir que
-				// le ciel et l'eclairage finiront par diverger.
+				// MEME calcul qu'a la soumission, AU QUATERNION PRES : cette
+				// fonction recomposait la rotation depuis les ANGLES affiches —
+				// or « le quaternion fait foi », les angles ne sont qu'un
+				// affichage. Tourner le soleil au gizmo mettait a jour le
+				// quaternion, pas ce calcul : le ciel ne voyait jamais la
+				// nouvelle direction et le disque restait cloue (constate par
+				// Rihen, 10 aout, Source pourtant bien reglee).
 				const int32 e = node - kNkvpFirstEmpty;
-				const float32 kD2R = 0.017453292f;
-				const NkMat4f lRm =
-					st->emptyGizmo.RotationOf(e) *
-					(NkMat4f::RotationZ(NkAngle::FromRad(nkvpEmptyRotDeg[e][2] * kD2R)) *
-					 NkMat4f::RotationY(NkAngle::FromRad(nkvpEmptyRotDeg[e][1] * kD2R)) *
-					 NkMat4f::RotationX(NkAngle::FromRad(nkvpEmptyRotDeg[e][0] * kD2R)));
+				const NkMat4f lRm = st->emptyGizmo.RotationOf(e) * HostNodeQuat(e).ToMat4();
 				dir[0] = -lRm.mat[1][0];
 				dir[1] = -lRm.mat[1][1];
 				dir[2] = -lRm.mat[1][2];
@@ -15539,10 +15661,11 @@ namespace nkentseu {
 			out.type = renderer::NkLightType::NK_DIRECTIONAL;
 			out.direction = {nkvpSkySunDir[0], nkvpSkySunDir[1], nkvpSkySunDir[2]};
 			out.color = {nkvpSkySunColor[0], nkvpSkySunColor[1], nkvpSkySunColor[2]};
-			// Meme echelle que les soleils de la scene (cf. kSunLightRefIntensity) :
-			// a puissance egale ils eclairent pareil, au lieu de laisser comparer
-			// deux echelles a l'oeil.
-			out.intensity = nkvpSkySunIntensity * kSunLightRefIntensity;
+			// EN WATTS, la MEME echelle que le Soleil de scene en loi physique
+			// (5 = plein soleil) — plus le facteur x3 herite : une seule unite
+			// pour tous les soleils (Rihen, 10 aout).
+			out.intensity = nkvpSkySunIntensity;
+			out.attenuationMode = 1;
 			out.castShadow = true;
 			return true;
 		}
@@ -15754,6 +15877,41 @@ namespace nkentseu {
 			pp.ssaoRadius = radius < 0.05f ? 0.05f : (radius > 10.f ? 10.f : radius);
 			pp.ssaoIntensity = intensity < 0.f ? 0.f : (intensity > 4.f ? 4.f : intensity);
 			hst.ctx.renderer->SetPostConfig(pp);
+			// La grille voxel OBEIT au meme bouton (une seule notion d'occlusion
+			// d'ambiance pour l'utilisateur) : la rebatir a la bascule.
+			Demo3DHostGIMarkDirty();
+		}
+		// ── EXPOSITION & BLOOM (2026-08-09) ─────────────────────────────────
+		// Les reglages existaient dans NkPostConfig depuis le debut, aucun
+		// panneau ne les proposait — un spot surpuissant faisait un halo geant
+		// sans qu'on puisse ni baisser l'exposition ni relever le seuil.
+		// Meme regle que la SSAO : la config du renderer fait foi.
+		void Demo3DHostPostFx(float32 *exposure, bool *bloomOn, float32 *bloomThr,
+							  float32 *bloomStr) {
+			const bool ok = hst.ctx.renderer != nullptr;
+			const renderer::NkPostConfig pp =
+				ok ? hst.ctx.renderer->GetConfig().postProcess : renderer::NkPostConfig{};
+			if (exposure)
+				*exposure = pp.exposure;
+			if (bloomOn)
+				*bloomOn = pp.bloom;
+			if (bloomThr)
+				*bloomThr = pp.bloomThreshold;
+			if (bloomStr)
+				*bloomStr = pp.bloomStrength;
+		}
+		void Demo3DHostSetPostFx(float32 exposure, bool bloomOn, float32 bloomThr,
+								 float32 bloomStr) {
+			if (!hst.ctx.renderer)
+				return;
+			renderer::NkPostConfig pp = hst.ctx.renderer->GetConfig().postProcess;
+			pp.exposure = exposure < 0.01f ? 0.01f : (exposure > 16.f ? 16.f : exposure);
+			pp.bloom = bloomOn;
+			// Seuil : en HDR il peut (et devrait souvent) depasser 1.0 — seuls
+			// les pixels REELLEMENT brillants irradient (LearnOpenGL, Bloom).
+			pp.bloomThreshold = bloomThr < 0.f ? 0.f : (bloomThr > 16.f ? 16.f : bloomThr);
+			pp.bloomStrength = bloomStr < 0.f ? 0.f : (bloomStr > 8.f ? 8.f : bloomStr);
+			hst.ctx.renderer->SetPostConfig(pp);
 		}
 		// ── NAPPE AU SOL (height fog) et son SOUFFLE ────────────────────────
 		void Demo3DHostFogGround(float32 *base, float32 *thickness, float32 *wind,
@@ -15912,8 +16070,16 @@ namespace nkentseu {
 				// en blanc, au point qu'on ne distinguait plus les faces du cube
 				// (constate par Rihen). Chaque type repart donc de SA valeur de
 				// reference, comme dans Blender.
+				//
+				// EN LOI PHYSIQUE (le defaut depuis le 10 aout), la reference
+				// est en WATTS : 1000 pour les sources locales, 5 pour le
+				// Soleil (decision de Rihen — une directionnelle n'est pas en
+				// watts, sa valeur est une irradiance). Loi heritee : les
+				// anciennes references, reglees a l'oeil.
+				const bool phys = nkvpUserLight[u].attenuationMode == 1;
 				static const float32 kDefIntensity[4] = {3.f, 8.f, 8.f, 6.f};
-				nkvpUserLight[u].intensity = kDefIntensity[t];
+				static const float32 kDefWatts[4] = {5.f, 1000.f, 1000.f, 1000.f};
+				nkvpUserLight[u].intensity = phys ? kDefWatts[t] : kDefIntensity[t];
 			}
 		}
 		bool Demo3DHostMeshParams(int32 node, int32 *segs, int32 *rings, float32 *aux) {
@@ -15994,6 +16160,16 @@ namespace nkentseu {
 				L.type = (decltype(L.type))(sub & 3);
 				L.direction = {0.f, -1.f, 0.f};
 				L.cookieIdx = -1; // COULEUR PURE par defaut (pas de texture heritee)
+				// UNE LUMIERE NEUVE NAIT EN LOI PHYSIQUE (decision de Rihen,
+				// 10 aout), a la puissance de reference : 1000 W, sauf le
+				// Soleil a 5 (sa valeur est une irradiance, pas des watts) —
+				// PAS l'intensite du gabarit, reglee pour la loi heritee.
+				L.attenuationMode = 1;
+				static const float32 kNewWatts[4] = {5.f, 1000.f, 1000.f, 1000.f};
+				L.intensity = kNewWatts[sub & 3];
+				// BLANCHE a la naissance (Rihen, 10 aout) : le gabarit copiait la
+				// teinte de la lumiere de demo la plus proche (rouge, bleue...).
+				L.color = {1.f, 1.f, 1.f};
 				nkvpUserLight[n - kNkvpFirstUser] = L;
 			}
 			return n;

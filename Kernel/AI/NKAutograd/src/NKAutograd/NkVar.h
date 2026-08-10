@@ -54,6 +54,10 @@ namespace nkentseu {
 			NK_PERMUTE,		   // permutation d'axes (rang ≤ 4) ; backward = permutation inverse
 			NK_CONCAT0,		   // concaténation de deux tenseurs sur l'AXE 0 ; backward = découpe
 			NK_CTC,			   // perte CTC (forward-backward) ; grad pré-calculé stocké dans `aux`
+			// --- Briques des transformeurs modernes (Llama/Qwen2) -----------------
+			NK_RMSNORM,		   // x / √(moyenne(x²)+ε) sur le DERNIER axe (γ appris au niveau couche)
+			NK_SWIGLU,		   // silu(a) ⊙ b  (a = porte, b = montée) — binaire, mêmes formes
+			NK_ROPE,		   // rotation positionnelle par paires (i, i+moitié) sur le dernier axe
 		};
 
 		// Nœud du graphe (refcompté, partagé).
@@ -240,6 +244,34 @@ namespace nkentseu {
 			// Permutation d'axes (rang ≤ 4) ; backward = permutation inverse. Pour découper les
 			// têtes d'attention ([B,T,h,hd] ↔ [B,h,T,hd]).
 			NkVar Permute(const NkVar &x, const NkShape &order);
+
+			// ---- Briques des transformeurs modernes (Llama / Qwen2) -----------------
+			// Elles existent déjà en INFÉRENCE dans NKInfer (NkQwen2Block), mais leur
+			// rétropropagation n'y couvre que des adaptateurs LoRA sur un socle GELÉ :
+			// aucun gradient pour les projections ni le MLP, CPU pur, B=1. Impossible
+			// d'entraîner un modèle DEPUIS ZÉRO avec. Les voici en opérations autograd
+			// de plein droit, donc composables et vérifiables par différences finies.
+			// (Chemin CPU ; un tenseur GPU fait l'aller-retour en préservant son device,
+			// comme les autres ops sans noyau dédié.)
+
+			// RMSNorm sur le dernier axe : y = x / √(moyenne(x²) + ε). Plus simple que
+			// LayerNorm — ni moyenne retirée, ni décalage — et c'est ce qu'emploient
+			// Llama et Qwen2. Le gain γ appris se compose au niveau de la couche, comme
+			// pour `LayerNorm` ci-dessus.
+			NkVar RMSNorm(const NkVar &x, double eps = 1e-6);
+
+			// SwiGLU : h = silu(gate) ⊙ up, avec silu(g) = g·σ(g). `gate` et `up` sont
+			// les deux branches d'un MLP à porte, de MÊME forme.
+			NkVar SwiGLU(const NkVar &gate, const NkVar &up);
+
+			// RoPE — encodage de position par ROTATION. Le dernier axe est la dimension
+			// de tête (paire), l'avant-dernier est la position dans la séquence. La
+			// composante i tourne avec i+moitié d'un angle qui dépend de la position :
+			// le produit scalaire entre deux positions ne dépend alors que de leur ÉCART,
+			// ce que des positions apprises ne garantissent pas.
+			// La rotation est ORTHOGONALE, donc son backward est la rotation d'angle
+			// opposé — il n'y a rien d'autre à dériver.
+			NkVar RoPE(const NkVar &x, int32 posOffset = 0, double freqBase = 10000.0);
 
 				// Concaténation de deux tenseurs sur l'AXE 0 (mêmes dimensions restantes) :
 				// [Na,…] ⊕ [Nb,…] -> [Na+Nb,…]. Backward = redécoupe le gradient. Sert à

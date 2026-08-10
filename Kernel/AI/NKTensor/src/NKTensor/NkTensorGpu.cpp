@@ -203,6 +203,16 @@ namespace nkentseu {
 					mImpl->device = dev;
 					mImpl->backend = NkGraphicsApiName(api);
 					logger_src.Infof("[NkTensorGpu] device compute: %s\n", mImpl->backend);
+					// Ces deux limites décident de la taille de lot maximale utilisable.
+					// Les journaliser au démarrage évite d'avoir à les deviner quand un
+					// entraînement cesse d'apprendre sans rien dire.
+					{
+						const NkDeviceCaps &c = dev->GetCaps();
+						logger_src.Infof("[NkTensorGpu] limites : tampon adressable par shader = %llu Mo, "
+										 "memoire video = %llu Mo\n",
+										 (unsigned long long)(c.maxStorageBufferRange / (1024ull * 1024ull)),
+										 (unsigned long long)(c.vramBytes / (1024ull * 1024ull)));
+					}
 					return true;
 				}
 				if (dev)
@@ -240,13 +250,76 @@ namespace nkentseu {
 			return mImpl ? mImpl->backend : "none";
 		}
 
+		// ---- Défauts GPU ---------------------------------------------------------
+		// POURQUOI CE COMPTEUR. Quand une allocation échoue ou qu'un tampon est
+		// invalide, tout ce code se contentait d'un `return false` que personne ne
+		// regarde : le calcul n'a pas lieu, et l'entraînement continue comme si de
+		// rien n'était. Constaté le 2026-08-09 sur un lot trop grand — la perte
+		// restait EXACTEMENT à ln(vocabulaire) pendant que le run paraissait 3,6×
+		// plus rapide, parce qu'il ne faisait rien. Quatre heures auraient pu y
+		// passer sans un seul message.
+		// Désormais : chaque défaut est journalisé et compté, et l'appelant peut
+		// interroger le compteur pour s'arrêter au lieu de brasser du vide.
+		static int64 gGpuDefauts = 0;
+		static int64 gGpuDefautsJournalises = 0;
+		// Nombre total d'operations GPU lancees. Chaque operation elementaire paie
+		// aujourd'hui un cout FIXE (allocation d'un jeu de descripteurs, creation
+		// d'un tampon de commandes, soumission, attente d'inactivite complete du
+		// peripherique, puis destruction). Diviser le temps d'un pas par ce nombre
+		// donne ce cout fixe — c'est lui qui decide s'il vaut la peine d'etre
+		// attaque, plutot qu'une intuition.
+		static int64 gGpuOps = 0;
+
+		void NkGpuSignalerDefaut(const char *ou, const char *quoi, int64 valeur) {
+			++gGpuDefauts;
+			// On ne noie pas le journal : les 12 premiers suffisent à identifier
+			// l'opération fautive, le compteur dit le reste.
+			if (gGpuDefautsJournalises < 12) {
+				++gGpuDefautsJournalises;
+				logger.Info("[NkTensorGpu] DEFAUT dans '{0}' : {1} ({2}). Le calcul n'a PAS eu lieu — "
+							"l'entrainement continuerait sur des valeurs inchangees.",
+							ou, quoi, (long long)valeur);
+			}
+		}
+
+		int64 NkTensorGpu::DefautCount() {
+			return gGpuDefauts;
+		}
+
+		int64 NkTensorGpu::OpCount() {
+			return gGpuOps;
+		}
+
 		// ---- Buffers ------------------------------------------------------------
 		uint64 NkTensorGpu::CreateBuffer(nk_size bytes) {
 			if (!EnsureInit())
 				return 0;
+
+			// ⚠️ LA LIMITE QUI NE SE VOIT PAS. Un tampon peut être ALLOUÉ avec succès
+			// et rester inaccessible au shader au-delà de `maxStorageBufferRange` :
+			// l'allocation réussit, le dispatch part, et le calcul ne se fait pas —
+			// sans la moindre erreur. C'est le profil exact de la panne constatée le
+			// 2026-08-09 à B=24, où la perte restait collée à ln(vocabulaire) tandis
+			// que le run paraissait 3,6× plus rapide. À B=24 le tenseur de logits
+			// pèse 384 Mo, à B=12 il en pèse 201 : si la carte plafonne entre les
+			// deux, tout s'explique.
+			// On le dit maintenant, au lieu de le découvrir à la perte immobile.
+			{
+				const NkDeviceCaps &caps = mImpl->device->GetCaps();
+				if (caps.maxStorageBufferRange > 0 && (uint64)bytes > (uint64)caps.maxStorageBufferRange) {
+					NkGpuSignalerDefaut("CreateBuffer",
+										"tampon PLUS GRAND que ce qu'un shader peut adresser sur cette carte "
+										"(maxStorageBufferRange) — reduire le lot",
+										(int64)bytes);
+					return 0;
+				}
+			}
+
 			NkBufferHandle h = mImpl->device->CreateBuffer(NkBufferDesc::Storage(bytes, false));
-			if (!h.IsValid())
+			if (!h.IsValid()) {
+				NkGpuSignalerDefaut("CreateBuffer", "allocation refusee, octets demandes", (int64)bytes);
 				return 0;
+			}
 			uint64 id = mImpl->nextId++;
 			mImpl->buffers.Insert(id, h);
 			return id;
@@ -292,6 +365,7 @@ namespace nkentseu {
 
 		bool NkTensorGpu::RunBinary(const char *name, const NkString &nkslSrc, uint64 a, uint64 b, uint64 c,
 									uint32 count) {
+			++gGpuOps;
 			if (!EnsureInit())
 				return false;
 			Impl *d = mImpl;
@@ -299,8 +373,10 @@ namespace nkentseu {
 			if (!k)
 				return false;
 			NkBufferHandle ha = d->Handle(a), hb = d->Handle(b), hc = d->Handle(c);
-			if (!ha.IsValid() || !hb.IsValid() || !hc.IsValid())
+			if (!ha.IsValid() || !hb.IsValid() || !hc.IsValid()) {
+				NkGpuSignalerDefaut(name, "tampon invalide (allocation refusee en amont)", (int64)count);
 				return false;
+			}
 
 			struct P {
 					uint32 count;
@@ -330,6 +406,7 @@ namespace nkentseu {
 		}
 
 		bool NkTensorGpu::RunUnary(const char *name, const NkString &nkslSrc, uint64 a, uint64 b, uint32 count) {
+			++gGpuOps;
 			if (!EnsureInit())
 				return false;
 			Impl *d = mImpl;
@@ -337,8 +414,10 @@ namespace nkentseu {
 			if (!k)
 				return false;
 			NkBufferHandle ha = d->Handle(a), hb = d->Handle(b);
-			if (!ha.IsValid() || !hb.IsValid())
+			if (!ha.IsValid() || !hb.IsValid()) {
+				NkGpuSignalerDefaut(name, "tampon invalide (allocation refusee en amont)", (int64)count);
 				return false;
+			}
 
 			struct P {
 					uint32 count;
@@ -368,6 +447,7 @@ namespace nkentseu {
 
 		bool NkTensorGpu::RunUnaryScalar(const char *name, const NkString &nkslSrc, uint64 a, uint64 b, uint32 count,
 										 float s) {
+			++gGpuOps;
 			if (!EnsureInit())
 				return false;
 			Impl *d = mImpl;
@@ -375,8 +455,10 @@ namespace nkentseu {
 			if (!k)
 				return false;
 			NkBufferHandle ha = d->Handle(a), hb = d->Handle(b);
-			if (!ha.IsValid() || !hb.IsValid())
+			if (!ha.IsValid() || !hb.IsValid()) {
+				NkGpuSignalerDefaut(name, "tampon invalide (allocation refusee en amont)", (int64)count);
 				return false;
+			}
 
 			struct P {
 					uint32 count;
@@ -409,6 +491,7 @@ namespace nkentseu {
 		// Un thread par élément de sortie (outer*inner threads).
 		bool NkTensorGpu::RunReduce(const char *name, const NkString &nkslSrc, uint64 a, uint64 out, uint32 outer,
 									uint32 reduce, uint32 inner) {
+			++gGpuOps;
 			if (!EnsureInit())
 				return false;
 			Impl *d = mImpl;
@@ -416,8 +499,10 @@ namespace nkentseu {
 			if (!k)
 				return false;
 			NkBufferHandle ha = d->Handle(a), hb = d->Handle(out);
-			if (!ha.IsValid() || !hb.IsValid())
+			if (!ha.IsValid() || !hb.IsValid()) {
+				NkGpuSignalerDefaut(name, "tampon invalide (allocation refusee en amont)", (int64)(outer));
 				return false;
+			}
 
 			struct P {
 					uint32 outer, reduce, inner, pad;
@@ -480,6 +565,7 @@ void main() {
 
 		bool NkTensorGpu::RunGather(uint64 in, uint64 out, uint32 rank, uint32 offset, const uint32 *shape,
 									const uint32 *strides, uint32 count) {
+			++gGpuOps;
 			if (!EnsureInit())
 				return false;
 			Impl *d = mImpl;
@@ -487,8 +573,10 @@ void main() {
 			if (!k)
 				return false;
 			NkBufferHandle ha = d->Handle(in), hb = d->Handle(out);
-			if (!ha.IsValid() || !hb.IsValid())
+			if (!ha.IsValid() || !hb.IsValid()) {
+				NkGpuSignalerDefaut("gather", "tampon invalide (allocation refusee en amont)", (int64)(rank));
 				return false;
+			}
 
 			struct Meta {
 					uint32 rank, count, offset, pad0;
@@ -528,6 +616,7 @@ void main() {
 		// im2col / col2im : buffers 0,1 (A,B) + UBO { 12 uints } binding 2.
 		bool NkTensorGpu::RunConvOp(const char *name, const NkString &nkslSrc, uint64 in, uint64 out, const uint32 *p12,
 									uint32 count) {
+			++gGpuOps;
 			if (!EnsureInit())
 				return false;
 			Impl *d = mImpl;
@@ -535,8 +624,10 @@ void main() {
 			if (!k)
 				return false;
 			NkBufferHandle ha = d->Handle(in), hb = d->Handle(out);
-			if (!ha.IsValid() || !hb.IsValid())
+			if (!ha.IsValid() || !hb.IsValid()) {
+				NkGpuSignalerDefaut(name, "tampon invalide (allocation refusee en amont)", (int64)(0));
 				return false;
+			}
 
 			struct P {
 					uint32 v[12];
@@ -569,6 +660,7 @@ void main() {
 		// Générique 3 buffers (a,b,c) + UBO {12 uints} binding 3.
 		bool NkTensorGpu::RunOp3(const char *name, const NkString &nkslSrc, uint64 a, uint64 b, uint64 c,
 								 const uint32 *p12, uint32 count) {
+			++gGpuOps;
 			if (!EnsureInit())
 				return false;
 			Impl *d = mImpl;
@@ -576,8 +668,10 @@ void main() {
 			if (!k)
 				return false;
 			NkBufferHandle ha = d->Handle(a), hb = d->Handle(b), hc = d->Handle(c);
-			if (!ha.IsValid() || !hb.IsValid() || !hc.IsValid())
+			if (!ha.IsValid() || !hb.IsValid() || !hc.IsValid()) {
+				NkGpuSignalerDefaut(name, "tampon invalide (allocation refusee en amont)", (int64)count);
 				return false;
+			}
 
 			struct P {
 					uint32 v[12];
@@ -676,9 +770,106 @@ void main() {
 			return true;
 		}
 
+		// ---- MatMul PAVÉ EN REGISTRES ------------------------------------------
+		//
+		// LE PROBLÈME DU NOYAU NAÏF (conservé plus bas comme repli). Un fil par
+		// élément de sortie relit toute une ligne de A et toute une colonne de B
+		// depuis la mémoire globale. Le trafic vaut donc 2·M·N·K flottants. Pour la
+		// tête de sortie d'Ilyana — [3072,384] × [384,16385] — cela fait
+		// **154 Go de lectures** pour UN produit. À ~450 Go/s, 0,34 s rien que pour
+		// bouger les octets, et plusieurs de ces produits par pas. C'est ce qui
+		// explique une carte occupée mais à 30 W : elle attend la mémoire, elle ne
+		// calcule pas.
+		//
+		// LE REMÈDE ICI. Chaque fil calcule un bloc de 4 lignes × 4 colonnes. La
+		// valeur A[row+i, k] chargée une fois sert aux 4 colonnes, et B[k, col+j]
+		// aux 4 lignes : le trafic tombe d'un facteur 4 (2·M·N·K/4). On reste en
+		// dispatch 1D et sans mémoire partagée — donc sans barrière, sans course
+		// possible, et le repli naïf reste disponible pour les formes qui ne s'y
+		// prêtent pas. La version pavée en mémoire partagée (encore 4× de moins)
+		// viendra ensuite : NkSL sait faire `shared` et `barrier()`.
+		static const char *kMatMulT4NkSL = R"NKSL(
+@binding(set=0, binding=0) buffer BufA { float data[]; } A;
+@binding(set=0, binding=1) buffer BufB { float data[]; } B;
+@binding(set=0, binding=2) buffer BufC { float data[]; } C;
+@binding(set=0, binding=3) uniform Dims { uint M; uint N; uint K; } d;
+
+layout(local_size_x = 64) in;
+
+@stage(compute)
+@entry
+void main() {
+    uint blocsN = (d.N + 3u) / 4u;
+    uint idx = gl_GlobalInvocationID.x;
+    uint blocsM = (d.M + 3u) / 4u;
+    if (idx < blocsM * blocsN) {
+        uint br = idx / blocsN;
+        uint bc = idx - br * blocsN;
+        uint row0 = br * 4u;
+        uint col0 = bc * 4u;
+        float acc00 = 0.0; float acc01 = 0.0; float acc02 = 0.0; float acc03 = 0.0;
+        float acc10 = 0.0; float acc11 = 0.0; float acc12 = 0.0; float acc13 = 0.0;
+        float acc20 = 0.0; float acc21 = 0.0; float acc22 = 0.0; float acc23 = 0.0;
+        float acc30 = 0.0; float acc31 = 0.0; float acc32 = 0.0; float acc33 = 0.0;
+        for (uint k = 0u; k < d.K; k = k + 1u) {
+            float b0 = 0.0; float b1 = 0.0; float b2 = 0.0; float b3 = 0.0;
+            if (col0 + 0u < d.N) { b0 = B.data[k * d.N + col0 + 0u]; }
+            if (col0 + 1u < d.N) { b1 = B.data[k * d.N + col0 + 1u]; }
+            if (col0 + 2u < d.N) { b2 = B.data[k * d.N + col0 + 2u]; }
+            if (col0 + 3u < d.N) { b3 = B.data[k * d.N + col0 + 3u]; }
+            if (row0 + 0u < d.M) {
+                float a = A.data[(row0 + 0u) * d.K + k];
+                acc00 = acc00 + a * b0; acc01 = acc01 + a * b1;
+                acc02 = acc02 + a * b2; acc03 = acc03 + a * b3;
+            }
+            if (row0 + 1u < d.M) {
+                float a = A.data[(row0 + 1u) * d.K + k];
+                acc10 = acc10 + a * b0; acc11 = acc11 + a * b1;
+                acc12 = acc12 + a * b2; acc13 = acc13 + a * b3;
+            }
+            if (row0 + 2u < d.M) {
+                float a = A.data[(row0 + 2u) * d.K + k];
+                acc20 = acc20 + a * b0; acc21 = acc21 + a * b1;
+                acc22 = acc22 + a * b2; acc23 = acc23 + a * b3;
+            }
+            if (row0 + 3u < d.M) {
+                float a = A.data[(row0 + 3u) * d.K + k];
+                acc30 = acc30 + a * b0; acc31 = acc31 + a * b1;
+                acc32 = acc32 + a * b2; acc33 = acc33 + a * b3;
+            }
+        }
+        if (row0 + 0u < d.M) {
+            if (col0 + 0u < d.N) { C.data[(row0 + 0u) * d.N + col0 + 0u] = acc00; }
+            if (col0 + 1u < d.N) { C.data[(row0 + 0u) * d.N + col0 + 1u] = acc01; }
+            if (col0 + 2u < d.N) { C.data[(row0 + 0u) * d.N + col0 + 2u] = acc02; }
+            if (col0 + 3u < d.N) { C.data[(row0 + 0u) * d.N + col0 + 3u] = acc03; }
+        }
+        if (row0 + 1u < d.M) {
+            if (col0 + 0u < d.N) { C.data[(row0 + 1u) * d.N + col0 + 0u] = acc10; }
+            if (col0 + 1u < d.N) { C.data[(row0 + 1u) * d.N + col0 + 1u] = acc11; }
+            if (col0 + 2u < d.N) { C.data[(row0 + 1u) * d.N + col0 + 2u] = acc12; }
+            if (col0 + 3u < d.N) { C.data[(row0 + 1u) * d.N + col0 + 3u] = acc13; }
+        }
+        if (row0 + 2u < d.M) {
+            if (col0 + 0u < d.N) { C.data[(row0 + 2u) * d.N + col0 + 0u] = acc20; }
+            if (col0 + 1u < d.N) { C.data[(row0 + 2u) * d.N + col0 + 1u] = acc21; }
+            if (col0 + 2u < d.N) { C.data[(row0 + 2u) * d.N + col0 + 2u] = acc22; }
+            if (col0 + 3u < d.N) { C.data[(row0 + 2u) * d.N + col0 + 3u] = acc23; }
+        }
+        if (row0 + 3u < d.M) {
+            if (col0 + 0u < d.N) { C.data[(row0 + 3u) * d.N + col0 + 0u] = acc30; }
+            if (col0 + 1u < d.N) { C.data[(row0 + 3u) * d.N + col0 + 1u] = acc31; }
+            if (col0 + 2u < d.N) { C.data[(row0 + 3u) * d.N + col0 + 2u] = acc32; }
+            if (col0 + 3u < d.N) { C.data[(row0 + 3u) * d.N + col0 + 3u] = acc33; }
+        }
+    }
+}
+)NKSL";
+
 		// MatMul : buffers 0,1,2 (A,B,C) + UBO { uint M,N,K } binding 3.
 		// Dispatch 1D (index plat) : chaque thread calcule un élément C[idx]. On
 		// évite le workgroup 2D (course intermittente observée sur WARP headless).
+		// CONSERVÉ comme repli et comme référence de correction.
 		static const char *kMatMulNkSL = R"NKSL(
 @binding(set=0, binding=0) buffer BufA { float data[]; } A;
 @binding(set=0, binding=1) buffer BufB { float data[]; } B;
@@ -704,15 +895,24 @@ void main() {
 )NKSL";
 
 		bool NkTensorGpu::RunMatMul(uint64 a, uint64 b, uint64 c, uint32 M, uint32 N, uint32 K) {
+			++gGpuOps;
 			if (!EnsureInit())
 				return false;
 			Impl *d = mImpl;
-			Impl::Kernel *k = d->GetOrCompile("matmul", NkString(kMatMulNkSL), /*nBuffers*/ 3, /*ubo*/ 3);
+			// Le noyau pavé ne paie que sur des produits assez gros pour que le
+			// trafic mémoire domine ; sur de petites matrices, ses tests de bornes
+			// coûtent plus qu'ils ne rapportent. Seuil volontairement prudent.
+			const bool pave = ((uint64)M * (uint64)N >= 65536ull) && K >= 16u;
+			Impl::Kernel *k = pave
+								  ? d->GetOrCompile("matmul_t4", NkString(kMatMulT4NkSL), /*nBuffers*/ 3, /*ubo*/ 3)
+								  : d->GetOrCompile("matmul", NkString(kMatMulNkSL), /*nBuffers*/ 3, /*ubo*/ 3);
 			if (!k)
 				return false;
 			NkBufferHandle ha = d->Handle(a), hb = d->Handle(b), hc = d->Handle(c);
-			if (!ha.IsValid() || !hb.IsValid() || !hc.IsValid())
+			if (!ha.IsValid() || !hb.IsValid() || !hc.IsValid()) {
+				NkGpuSignalerDefaut("matmul", "tampon invalide (allocation refusee en amont)", (int64)(M * N));
 				return false;
+			}
 
 			struct P {
 					uint32 M, N, K, pad;
@@ -730,7 +930,9 @@ void main() {
 			cmd->Begin();
 			cmd->BindComputePipeline(k->pipe);
 			cmd->BindDescriptorSet(set, 0);
-			cmd->Dispatch((M * N + 63) / 64, 1, 1); // 1D : un thread par élément C
+			// Pavé : un fil pour un bloc 4×4, donc seize fois moins de fils.
+			const uint64 fils = pave ? ((uint64)((M + 3u) / 4u) * (uint64)((N + 3u) / 4u)) : ((uint64)M * (uint64)N);
+			cmd->Dispatch((uint32)((fils + 63ull) / 64ull), 1, 1);
 			cmd->UAVBarrier(hc);
 			cmd->End();
 			d->device->Submit(&cmd, 1);
@@ -1144,6 +1346,110 @@ void main() {
 			NkTensorGpu::Get().RunOp3("gelu_bwd", NkString(kGeluBwdNkSL), NkTensorInternal::GpuBuffer(gx),
 									  NkTensorInternal::GpuBuffer(gg), db, p, (uint32)n);
 			return NkTensorInternal::MakeGpu(gx.Shape(), gx.DType(), db);
+		}
+
+		// ---- Entropie croisée à cible par INDICES, sur GPU -----------------------
+		//
+		// POURQUOI CES DEUX NOYAUX. La perte et son gradient étaient calculés sur
+		// CPU : cela RAPATRIAIT tout le tenseur de logits à chaque micro-lot. À
+		// B=12, T=256, vocabulaire 16385, ce sont 201 Mo qui descendent, un softmax
+		// mono-thread sur 50 millions d'éléments, puis 201 Mo qui remontent — deux
+		// fois par pas. Le GPU passait 70 % de son temps à attendre le CPU (mesuré :
+		// 28-41 % d'occupation, 30-70 W sur une carte qui en encaisse 220).
+		// Ici tout reste sur la carte : seuls B flottants redescendent (la perte par
+		// ligne) au lieu de B×vocabulaire.
+
+		// Gradient : dLogits[b,c] = (probs[b,c] − [c == cible[b]]) × coef.
+		// Cible négative = ligne MASQUÉE : gradient nul.
+		static const char *kCeIdxBwdNkSL = R"NKSL(
+@binding(set=0, binding=0) buffer BufP { float data[]; } P;
+@binding(set=0, binding=1) buffer BufT { float data[]; } T;
+@binding(set=0, binding=2) buffer BufO { float data[]; } O;
+@binding(set=0, binding=3) uniform Params { uint count; uint C; float coef; uint pad; } pc;
+layout(local_size_x = 64) in;
+@stage(compute)
+@entry
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i < pc.count) {
+        uint b = i / pc.C;
+        uint c = i - b * pc.C;
+        float t = T.data[b];
+        if (t < 0.0) { O.data[i] = 0.0; }
+        else {
+            uint idx = uint(t + 0.5);
+            float v = P.data[i];
+            if (c == idx) { v = v - 1.0; }
+            O.data[i] = v * pc.coef;
+        }
+    }
+}
+)NKSL";
+
+		// Perte par ligne : L[b] = −log(probs[b, cible[b]]), 0 si masquée.
+		static const char *kCeIdxFwdNkSL = R"NKSL(
+@binding(set=0, binding=0) buffer BufP { float data[]; } P;
+@binding(set=0, binding=1) buffer BufT { float data[]; } T;
+@binding(set=0, binding=2) buffer BufO { float data[]; } O;
+@binding(set=0, binding=3) uniform Params { uint count; uint C; uint pad0; uint pad1; } pc;
+layout(local_size_x = 64) in;
+@stage(compute)
+@entry
+void main() {
+    uint b = gl_GlobalInvocationID.x;
+    if (b < pc.count) {
+        float t = T.data[b];
+        if (t < 0.0) { O.data[b] = 0.0; }
+        else {
+            uint idx = uint(t + 0.5);
+            float p = P.data[b * pc.C + idx];
+            O.data[b] = -log(p + 1e-12);
+        }
+    }
+}
+)NKSL";
+
+		NkTensor NkGpuCeIdxForward(const NkTensor &probs, const NkTensor &cibles) {
+			NkTensor gp = (probs.Device() == NkDevice::NK_GPU) ? probs : probs.ToGPU();
+			NkTensor gt = (cibles.Device() == NkDevice::NK_GPU) ? cibles : cibles.ToGPU();
+			if (!gp.IsValid() || !gt.IsValid())
+				return NkTensor{};
+			const NkShape &sh = gp.Shape();
+			const int64 B = sh.Size() >= 1 ? sh[0] : 1;
+			const int64 C = sh.Size() >= 2 ? sh[1] : gp.Numel();
+			uint64 ob = NkTensorGpu::Get().CreateBuffer((nk_size)B * NkDTypeSize(gp.DType()));
+			if (!ob)
+				return NkTensor{};
+			uint32 p[12] = {(uint32)B, (uint32)C, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+			NkTensorGpu::Get().RunOp3("ce_idx_fwd", NkString(kCeIdxFwdNkSL), NkTensorInternal::GpuBuffer(gp),
+									  NkTensorInternal::GpuBuffer(gt), ob, p, (uint32)B);
+			return NkTensorInternal::MakeGpu(NkShape{B}, gp.DType(), ob);
+		}
+
+		NkTensor NkGpuCeIdxBackward(const NkTensor &probs, const NkTensor &cibles, double coef) {
+			NkTensor gp = (probs.Device() == NkDevice::NK_GPU) ? probs : probs.ToGPU();
+			NkTensor gt = (cibles.Device() == NkDevice::NK_GPU) ? cibles : cibles.ToGPU();
+			if (!gp.IsValid() || !gt.IsValid())
+				return NkTensor{};
+			const NkShape &sh = gp.Shape();
+			const int64 B = sh.Size() >= 1 ? sh[0] : 1;
+			const int64 C = sh.Size() >= 2 ? sh[1] : gp.Numel();
+			const int64 n = B * C;
+			uint64 ob = NkTensorGpu::Get().CreateBuffer((nk_size)n * NkDTypeSize(gp.DType()));
+			if (!ob)
+				return NkTensor{};
+			// `coef` traverse le bloc de paramètres (déclaré en uint côté hôte) : on
+			// recopie ses octets tels quels, le shader le relit en float.
+			const float coefF = (float)coef;
+			uint32 coefBits = 0;
+			const unsigned char *src = (const unsigned char *)&coefF;
+			unsigned char *dst = (unsigned char *)&coefBits;
+			for (int k = 0; k < 4; ++k)
+				dst[k] = src[k];
+			uint32 p[12] = {(uint32)n, (uint32)C, coefBits, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+			NkTensorGpu::Get().RunOp3("ce_idx_bwd", NkString(kCeIdxBwdNkSL), NkTensorInternal::GpuBuffer(gp),
+									  NkTensorInternal::GpuBuffer(gt), ob, p, (uint32)n);
+			return NkTensorInternal::MakeGpu(gp.Shape(), gp.DType(), ob);
 		}
 
 		// ---- Embedding : table[vocab,d], idx[..] (ids f32) -> [.., d] ; bwd scatter-add

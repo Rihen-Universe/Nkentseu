@@ -164,6 +164,17 @@ namespace nkentseu {
 				virtual void SetVSync(bool enabled) = 0;
 				virtual void SetPostConfig(const NkPostConfig &pp) = 0;
 				virtual void SetWireframe(bool enabled) = 0;
+				// Reconstruit le graphe SI un SetPostConfig a change le jeu de passes
+				// (SSAO/bloom/FXAA/TAA actives ou non). BeginFrame le fait tout seul ;
+				// mais en MODE PARTAGE (editeur : l'hote possede la frame device et
+				// « rejoue ce que BeginFrame ferait » — cf. NkDemo3D/NkViewport3D),
+				// BeginFrame ne tourne jamais et le drapeau restait arme pour rien :
+				// activer l'occlusion ambiante depuis le panneau ne faisait RIEN
+				// (constate par Rihen, 9 aout). A appeler dans le bloc de rejeu,
+				// AVANT la soumission de la scene — jamais pendant l'execution du
+				// graphe.
+				virtual void FlushGraphRebuilds() {
+				}
 
 				// ── Sous-systemes runtime (enable/disable a chaud) ────────────────────
 				// Active un (ou plusieurs) sous-systeme(s) : alloue et initialise s'il

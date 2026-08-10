@@ -1064,6 +1064,12 @@ with workspace("Nkentseu", location="."):
 
 
 
+    with include("Applications/NKIlyana/NKIlyana.jenga"):
+
+        pass
+
+
+
     with include("Applications/NKAutogradTest/NKAutogradTest.jenga"):
 
         pass
@@ -1083,6 +1089,24 @@ with workspace("Nkentseu", location="."):
 
 
     with include("Applications/NKDataTest/NKDataTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKBpeTest/NKBpeTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKLlamaBlockTest/NKLlamaBlockTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKRebasinTransformer/NKRebasinTransformer.jenga"):
 
         pass
 

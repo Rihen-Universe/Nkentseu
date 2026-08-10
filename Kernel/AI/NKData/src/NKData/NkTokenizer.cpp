@@ -94,6 +94,58 @@ namespace nkentseu {
 				}
 			}
 
+			// Catégorie d'un octet pour NK_PRETOK_WORD_PUNCT. Les octets >= 0x80 sont
+			// classés « lettre » : une lettre accentuée UTF-8 (2 octets, tous >= 0x80)
+			// reste donc DANS le mot au lieu d'en être arrachée.
+			static int PunctClass(unsigned char c) {
+				if (c == ' ' || c == '\n' || c == '\t' || c == '\r')
+					return 0; // blanc
+				if (c >= '0' && c <= '9')
+					return 1; // chiffre (isolé : un token par chiffre)
+				if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c >= 0x80)
+					return 2; // lettre
+				return 3;	  // ponctuation / symbole
+			}
+
+			void NkBpe::PreTokMode(const NkString &text, int32 mode, NkVector<NkString> &words) {
+				if (mode != NK_PRETOK_WORD_PUNCT) {
+					PreTok(text, words);
+					return;
+				}
+				const char *p = text.Data();
+				const int64 n = (int64)text.Size();
+				int64 i = 0;
+				while (i < n) {
+					const unsigned char c0 = (unsigned char)p[i];
+					const int cls = PunctClass(c0);
+					// Un chiffre forme toujours un mot d'un seul caractère.
+					if (cls == 1) {
+						words.PushBack(NkString(p + i, (nk_size)1));
+						++i;
+						continue;
+					}
+					// Une lettre ou une ponctuation peut être précédée d'UN espace, qui reste
+					// collé devant (c'est ce qui distingue « mot » en début de ligne de
+					// « mot » après un espace, sans doubler le vocabulaire davantage).
+					int64 start = i;
+					if (c0 == ' ' && i + 1 < n) {
+						const int nxt = PunctClass((unsigned char)p[i + 1]);
+						if (nxt == 2 || nxt == 3) {
+							++i;
+							const int run = PunctClass((unsigned char)p[i]);
+							while (i < n && PunctClass((unsigned char)p[i]) == run)
+								++i;
+							words.PushBack(NkString(p + start, (nk_size)(i - start)));
+							continue;
+						}
+					}
+					// Sinon : suite d'octets de la même catégorie.
+					while (i < n && PunctClass((unsigned char)p[i]) == cls)
+						++i;
+					words.PushBack(NkString(p + start, (nk_size)(i - start)));
+				}
+			}
+
 			void NkBpe::PreTok(const NkString &text, NkVector<NkString> &words) {
 				const char *p = text.Data();
 				int64 n = (int64)text.Size();
@@ -141,7 +193,7 @@ namespace nkentseu {
 
 			void NkBpe::Encode(const NkString &text, NkVector<int32> &out) const {
 				NkVector<NkString> words;
-				PreTok(text, words);
+				PreTokMode(text, pretok, words);
 				for (int64 i = 0; i < (int64)words.Size(); ++i)
 					EncodeWord(words[(nk_size)i], out);
 			}

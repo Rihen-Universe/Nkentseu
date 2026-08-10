@@ -341,6 +341,15 @@ namespace nkentseu {
 				// selectionner (constate par Rihen).
 				uint32 hierFold[5] = {};
 				int32 activeEmpty = -1;
+				// ANCRE de la selection par PLAGE (Maj+clic, Rihen 10 aout) : le
+				// dernier noeud clique SANS Maj ; Maj+clic selectionne tout ce
+				// qui s'affiche entre l'ancre et la ligne cliquee.
+				int32 hierAnchor = -1;
+				// MENU DU VIDE (clic droit hors de tout noeud — vue 3D ou
+				// hierarchie) : Ajouter / Copier / Coller / Dupliquer /
+				// Supprimer, et d'autres viendront (Rihen, 10 aout).
+				int32 voidMenuOpen = 0;
+				float32 voidMenuX = 0.f, voidMenuY = 0.f;
 				int32 hierDragNode = -1;
 				float32 hierDragX = 0.f, hierDragY = 0.f;
 				bool hierDragging = false;

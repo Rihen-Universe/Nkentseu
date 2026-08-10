@@ -702,15 +702,16 @@ namespace nkentseu {
 					NkVec4f{float32(mSlotCountPerLight[i * 4 + 0]), float32(mSlotCountPerLight[i * 4 + 1]),
 							float32(mSlotCountPerLight[i * 4 + 2]), float32(mSlotCountPerLight[i * 4 + 3])};
 			}
-			// softShadows : encode le mode PCF pour le shader.
-			//   0 = NONE (PCF 3x3 hard)
-			//   1 = PCF/Poisson (PCF3x3/PCF5x5/POISSON unified)
-			//   2 = PCSS (contact-hardening)
-			int32 softMode = 0;
-			if (mCfg.quality == NkVSMShadowQuality::PCSS)
-				softMode = 2;
-			else if (mCfg.quality != NkVSMShadowQuality::NONE)
-				softMode = 1;
+			// globalCfg.y = le MODE DE QUALITE, l'enum TEL QUEL — plus le repli
+			// 0/1/2 d'avant, qui rendait PCF3/PCF5/Poisson indistinguables : le
+			// shader recevait le meme code pour les trois et n'avait donc AUCUN
+			// moyen de varier son noyau (constate par Rihen : « toutes les
+			// qualites fournissent la meme chose »).
+			//   1 = PCF 3x3   2 = PCF 5x5   3 = Poisson 12   4 = PCSS
+			// PCSS (2026-08-09) : l'echantillonnage non comparatif manquant est
+			// arrive (tShadowAtlasRaw, binding 12) — le mode part tel quel.
+			// (NONE (0) n'arrive pas ici : aucune tuile n'est allouee.)
+			int32 softMode = int32(mCfg.quality);
 			// globalCfg.z = depthRemap : 1.0 si la matrice d'ombre produit un Z en [-1,1]
 			// (OpenGL, le shader doit faire p.z*0.5+0.5) ; 0.0 si deja en [0,1] (VK/DX, on a
 			// baked clipZ01 dans renderMatrix -> le shader NE doit PAS refaire le remap).

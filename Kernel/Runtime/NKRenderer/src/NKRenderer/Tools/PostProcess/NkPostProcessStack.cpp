@@ -827,9 +827,14 @@ void main() {
 			if (ssaoTex.IsValid()) {
 				mDevice->BindTextureSampler(mToneSet, 2, ssaoTex, samp);
 			} else {
-				// Fallback : pas de SSAO — bind l'HDR au binding=2 (shader avec
-				// ssaoEnabled=false multiplie par 1.0 = pas d'attenuation).
-				mDevice->BindTextureSampler(mToneSet, 2, hdrIn, samp);
+				// Fallback : pas de SSAO — BLANC 1x1, PAS l'HDR. Le shader
+				// multiplie INCONDITIONNELLEMENT par le canal rouge de ce
+				// binding (`hdr *= ao`) : avec l'HDR en repli, l'image etait
+				// multipliee par elle-meme — SSAO coupee ASSOMBRISSAIT quand
+				// meme, et le bouton Actif du panneau semblait sans effet
+				// (constate par Rihen le 9 aout). Blanc = 1.0 = vraie identite.
+				NkTextureHandle white = mResources ? mResources->GetWhiteTex() : NkTextureHandle{};
+				mDevice->BindTextureSampler(mToneSet, 2, white.IsValid() ? white : hdrIn, samp);
 			}
 			// Phase L : bind le LUT 3D (sampler3D au binding=3). Si pas alloue ou
 			// strength=0 le shader skip. Fallback : bind l'HDR pour eviter undefined.
