@@ -193,7 +193,58 @@ Mesure sur un cas réel : 2 157 102 octets de contenu décodés, 147 590 opérat
 exécutées, 10 104 ordres de texte… et **0 glyphe demandé**. Le programme te dit
 laquelle des quatre causes possibles s'applique, au lieu de te laisser deviner.
 
-### 2. Le tokenizer se fige
+### 2. Le tokenizer se fige — MESURÉ, et déjà traité
+
+**Comment le vérifier soi-même**, sur n'importe quel texte :
+```
+.\Build\Bin\Release-Windows\NKIlyana\NKIlyana.exe --mesurer ^
+  --bpe <tokenizer.nkbpe> --texte <un fichier de ce domaine>
+```
+L'unité qui parle est l'**octet par token**. Autour de 4 sur du français courant,
+c'est bien ; en dessous de 2,5, le texte est réduit en miettes — il est appris
+par fragments **et** coûte deux à trois fois plus de place dans la fenêtre de
+256 tokens. Deux peines pour un seul défaut.
+
+**Mesure du 2026-08-10** — le premier tokenizer, entraîné sur du Wikipédia seul :
+
+| texte | octets/token | verdict |
+|---|---|---|
+| français courant | 3,79 | ✅ |
+| code C++ | 1,74 | ⛔ en miettes |
+| LaTeX avec formules | 2,45 | ⛔ en miettes |
+
+**La parade n'exige pas d'avoir les livres.** Ce qui manque au tokenizer n'est pas
+le *vocabulaire* d'un domaine mais sa **notation** — les opérateurs, la ponctuation
+technique, les commandes. Or le dépôt en est plein : des millions de lignes de C++
+réel et des sources LaTeX. On entraîne donc le tokenizer sur un échantillon
+**équilibré prose / code / formules** monté avec la bibliothèque elle-même :
+
+```
+NKIlyana.exe --ajouter --livre <prose.txt>  --domaine prose    --bibliotheque <ech>
+NKIlyana.exe --ajouter --livre <code.txt>   --domaine code     --bibliotheque <ech>
+NKIlyana.exe --ajouter --livre <sources.tex> --domaine formules --bibliotheque <ech>
+NKIlyana.exe --melange --identite <identite.txt> --bibliotheque <ech> ^
+             --sortie echantillon.txt --part 0.05 --taille 24
+NKBpeTest.exe echantillon.txt ilyana_v2.nkbpe 16384
+```
+
+Résultat mesuré, sur les mêmes trois textes :
+
+| texte | avant | après | gain |
+|---|---|---|---|
+| français courant | 3,79 | **4,06** | +7 % |
+| code C++ | 1,74 | **3,03** | **+74 %** |
+| LaTeX / formules | 2,45 | **2,74** | +12 % |
+
+Le code cesse d'être en miettes, et le français **gagne** au lieu de perdre : il
+n'y a pas eu d'arbitrage entre domaines. Le LaTeX progresse peu parce que
+l'échantillon n'en contenait que 0,7 Mo — il progressera quand il y en aura plus.
+
+⚠️ **Un nouveau tokenizer impose de réentraîner le modèle depuis zéro**, ses acquis
+étant indexés par numéro de token. C'est donc à faire **avant** le prochain gros
+entraînement, jamais après. Le modèle actuel reste sur l'ancien tokenizer.
+
+### 2bis. Ce qui reste vrai malgré tout
 
 Le tokenizer découpe le texte en morceaux. Il a été entraîné **une fois**, sur du
 Wikipédia généraliste. Des formules, du code, de la notation scientifique seront
