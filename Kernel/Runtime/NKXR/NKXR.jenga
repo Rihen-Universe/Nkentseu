@@ -1,0 +1,111 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+NKXR — Runtime VR/AR/XR de Nkentseu (C++17, ZÉRO STL)
+=====================================================
+NOTRE runtime : sessions, espaces, poses (horodatées, prédites), entrées par
+ACTIONS, swapchains par œil, couches de composition. Les backends vivent sous
+src/NKXR/Backend/ :
+  n°1 SIMULATEUR desktop (étage 0) — stéréo côte à côte, souris = tête, aucun
+      matériel requis, c'est lui qui force l'abstraction et porte les tests ;
+  n°2 OpenXR (étage 2, à venir) — Quest/Pico via le loader Khronos, confiné
+      ici pour que l'API publique n'en laisse rien transparaître.
+
+Contenu (src/NKXR/) :
+  NkXrTypes.h            => temps, yeux, FOV asymétrique + projection, états
+  NkXrPose.h             => pose + vitesses + extrapolation (prédiction)
+  NkXrSpace.h            => espaces VIEW / LOCAL / STAGE (sémantique)
+  NkXrSwapchain.h        => file d'images par œil (discipline Acquire/Release)
+  NkXrLayer.h            => couches projection/quad soumises à EndFrame
+  NkXrInput.h            => actions par USAGE sémantique (pas de chemins-chaînes)
+  NKIXrBackend.h         => contrat backend + fabrique
+  NkXrSession.*          => point d'entrée application, garde-fous journalisés
+  Backend/NkXrSimulatorBackend.* => le casque simulé
+  NKXR.h                 => umbrella
+"""
+
+from Jenga import *
+from jengaconfig import *
+
+with project("NKXR"):
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    nkentseudependson(
+        ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKTime", "NKEvent", "NKWindow"],
+        selfexport="NKXR",
+    )
+
+    files(["src/**.cpp"])
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}")
+
+    with filter("system:Windows && options:windows-runtime=uwp"):
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-uwp/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-uwp")
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+
+    with filter("system:Linux && options:linux-backend=headless || system:Linux && options:headless"):
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-headless/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-headless")
+    with filter("system:Linux && options:linux-backend=xcb"):
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-xcb/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-xcb")
+    with filter("system:Linux && options:linux-backend=wayland"):
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-wayland/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-wayland")
+    with filter("system:Linux"):
+        links(["pthread"])
+
+    with filter("system:macOS"):
+        usetoolchain("clang-native")
+
+    with filter("system:Android"):
+        usetoolchain("android-ndk")
+        links(["android", "log"])
+        androidminsdk(21)
+        androidtargetsdk(34)
+        androidcompilesdk(34)
+        androidabis(["armeabi-v7a", "arm64-v8a", "x86", "x86_64"])
+
+    with filter("system:HarmonyOS"):
+        pchheader("")
+        pchsource("")
+        usetoolchain("ohos-ndk")
+        links(["hilog_ndk.z"])
+
+    with filter("system:iOS"):
+        iosminsdk("13.0")
+
+    with filter("system:Web"):
+        usetoolchain("emscripten")
+
+    with filter("system:UWP || system:Windows && options:windows-runtime=uwp"):
+        usetoolchain("xbox-clang")
+        defines(["NKENTSEU_PLATFORM_UWP"])
+        links(["windowsapp"])
+
+    with filter("system:XboxSeries || system:XboxOne"):
+        usetoolchain("xbox-clang")
+        defines(["NKENTSEU_PLATFORM_XBOX"])
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)
+
+    # Tests numériques (desktop uniquement) : poses, projection asymétrique,
+    # prédiction, cycle de session — le simulateur tourne sans fenêtre.
+    with filter("(system:Linux || system:macOS || (system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne)) && !system:Android && !system:iOS && !system:Web"):
+        with test():
+            testfiles(["tests/**.cpp"])
+            links(["NKXR", "NKWindow", "NKEvent", "NKTime", "NKLogger", "NKMath", "NKContainers", "NKMemory", "NKCore", "NKPlatform"])

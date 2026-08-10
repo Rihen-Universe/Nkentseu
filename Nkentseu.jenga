@@ -838,6 +838,16 @@ with workspace("Nkentseu", location="."):
 
 
 
+    # NKXR (runtime VR/AR/XR : sessions, espaces, poses, entrees par actions,
+    # swapchains par oeil ; backend n°1 = simulateur desktop). Etage 0 de la
+    # mission XR_MISSION_IA.md.
+
+    with include("Kernel/Runtime/NKXR/NKXR.jenga"):
+
+        pass
+
+
+
     with include("Applications/Sandbox/Sandbox.jenga"):
 
         pass
@@ -1587,6 +1597,15 @@ with workspace("Nkentseu", location="."):
     # Voir Tutoriels3D/README.md.
 
     with include("Tutoriels3D/Tutoriels3D.jenga"):
+
+        pass
+
+
+
+    # Etage 0 XR : scene NKRenderer en stereo SIMULEE via NKXR (simulateur
+    # desktop, souris = tete). Voir XR_MISSION_IA.md.
+
+    with include("Applications/NKXRDemo/NKXRDemo.jenga"):
 
         pass
 
