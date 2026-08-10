@@ -16,8 +16,8 @@
 //
 #pragma once
 
-#include "NKCode/Pdf/NkPdf.h"
-#include "NKCode/Pdf/NkPdfRender.h"
+#include "NKMedia/Pdf/NkPdf.h"
+#include "NKMedia/Pdf/NkPdfRender.h"
 
 #include "NKThreading/NkMutex.h"
 #include "NKThreading/NkThread.h"

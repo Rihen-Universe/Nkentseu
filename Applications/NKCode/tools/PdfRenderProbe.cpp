@@ -13,9 +13,9 @@
 //
 // Usage :  NkPdfRenderProbe <dossier|fichier> [--dpi N] [--png <dossier>]
 //
-#include "NKCode/Pdf/NkPdf.h"
-#include "NKCode/Pdf/NkPdfFont.h"
-#include "NKCode/Pdf/NkPdfRender.h"
+#include "NKMedia/Pdf/NkPdf.h"
+#include "NKMedia/Pdf/NkPdfFont.h"
+#include "NKMedia/Pdf/NkPdfRender.h"
 
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkFile.h"
