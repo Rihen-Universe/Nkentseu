@@ -19,7 +19,7 @@
 #include "NKFont/Core/NkFontParser.h"
 
 namespace nkentseu {
-	namespace nkcode {
+	namespace media {
 		namespace pdf {
 
 			// Une police telle que le flux de contenu la designe (/F1, /F2...).
@@ -130,5 +130,5 @@ namespace nkentseu {
 			};
 
 		} // namespace pdf
-	} // namespace nkcode
+	} // namespace media
 } // namespace nkentseu

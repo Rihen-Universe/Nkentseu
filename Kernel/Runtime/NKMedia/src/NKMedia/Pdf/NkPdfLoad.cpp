@@ -8,7 +8,7 @@
 #include "NKImage/Core/NkImage.h" // NkDeflate
 
 namespace nkentseu {
-	namespace nkcode {
+	namespace media {
 		namespace pdf {
 
 			static inline bool IsWsL(uint8 c) {
@@ -917,5 +917,5 @@ namespace nkentseu {
 			}
 
 		} // namespace pdf
-	} // namespace nkcode
+	} // namespace media
 } // namespace nkentseu

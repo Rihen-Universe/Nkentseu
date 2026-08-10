@@ -6,7 +6,7 @@
 #include "NKImage/Core/NkImage.h"
 
 namespace nkentseu {
-	namespace nkcode {
+	namespace media {
 		namespace pdf {
 
 			static inline bool IsWsC(uint8 c) {
@@ -1549,5 +1549,5 @@ namespace nkentseu {
 			}
 
 		} // namespace pdf
-	} // namespace nkcode
+	} // namespace media
 } // namespace nkentseu

@@ -24,6 +24,13 @@
 namespace nkentseu {
 	namespace nkcode {
 
+		// Le lecteur PDF a ete descendu dans NKMedia : un module du noyau (NKAI)
+		// ne peut pas dependre d'une application sans renverser les couches. Cet
+		// alias garde valides les usages « pdf::X » ecrits du temps ou pdf etait
+		// un enfant de nkcode — les reecrire un par un n'aurait rien apporte de
+		// plus qu'une occasion de se tromper.
+		namespace pdf = ::nkentseu::media::pdf;
+
 		// Une page rendue, gardee en cache.
 		struct NkPdfPageCache {
 				int32 page = -1;

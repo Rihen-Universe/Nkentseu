@@ -24,7 +24,7 @@
 #include <cstdio>
 
 using namespace nkentseu;
-using namespace nkentseu::nkcode::pdf;
+using namespace nkentseu::media::pdf;
 
 static bool EndsWithI(const char *s, const char *suf) {
 	usize ls = 0, lf = 0;

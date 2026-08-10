@@ -9,7 +9,7 @@
 namespace nkentseu {
 	namespace nkcode {
 
-		using namespace nkentseu::nkcode::pdf;
+		using namespace nkentseu::media::pdf;
 
 		// Espace entre deux pages en mode continu, en pixels logiques.
 		static constexpr float32 kGapPx = 10.f;

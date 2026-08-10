@@ -49,7 +49,7 @@ namespace ilyana {
 	// les bases sont proches appartiennent à la même ligne, quel que soit l'ordre
 	// dans lequel ils ont été dessinés. C'est ce qui redresse les PDF où le texte
 	// est émis par blocs plutôt que de gauche à droite.
-	inline NkString AssemblerPage(const NkVector<nkentseu::nkcode::pdf::NkPdfRenderer::TextItem> &items,
+	inline NkString AssemblerPage(const NkVector<nkentseu::media::pdf::NkPdfRenderer::TextItem> &items,
 								  float32 toleranceLigne = 3.0f) {
 		NkString page;
 		if (items.Size() == 0)
@@ -129,7 +129,7 @@ namespace ilyana {
 
 	inline NkString LirePdf(const char *chemin, int64 &nbPages, int64 &pagesMuettes, double dpi = 72.0,
 							DiagPdf *diag = nullptr) {
-		using namespace nkentseu::nkcode::pdf;
+		using namespace nkentseu::media::pdf;
 		nbPages = 0;
 		pagesMuettes = 0;
 		NkString texte;
