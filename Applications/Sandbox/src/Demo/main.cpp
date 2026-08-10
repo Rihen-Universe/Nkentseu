@@ -1097,6 +1097,21 @@ int nkmain(const NkEntryState &state) {
 		}
 
 		demo.frame(ctx, dt);
+
+#if defined(__EMSCRIPTEN__)
+		// Pattern web utilise dans les autres mains du sandbox (NkGraphicsDemos2.cpp,
+		// Opengl.cpp) : cede la main au navigateur a chaque frame. Sans lui, cette
+		// boucle `while(running)` classique bloque le thread principal du navigateur
+		// EN PERMANENCE — aucun requestAnimationFrame ne peut jamais s'executer, le
+		// canvas ne peint pas une seule image et la page reste figee sur un ecran noir
+		// qui semble « charger » indefiniment. NK_FPS_CAP=0 par defaut (page web
+		// avant meme d'avoir pu regler une variable d'environnement) desactivait aussi
+		// le seul autre point de cession existant (le Sleep() du pacing FPS dans
+		// NkRendererImpl::Present(), lui-meme conditionne a mFrameCapFps > 0), d'ou
+		// zero cession du tout. Exige ASYNCIFY au lien (deja active pour ce projet,
+		// cf. RendererSandbox.jenga, bloc Web : "-s", "ASYNCIFY").
+		emscripten_sleep(0);
+#endif
 	}
 
 	// ── NK_RECORD : drainage final + finalisation MP4 ────────────────────────
