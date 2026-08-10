@@ -867,6 +867,323 @@ la RTX 3070 (8 Go, FP32), et **élargir le corpus** aux domaines demandés (code
     `Frontend/{NkSLLexer,NkSLParser,NkSLSymbolTable,NkSLSemantic}.{h,cpp}`,
     `CodeGen/{NkSLCodeGen.h,GLSL/*,HLSL/*,MSL/NkSLCodeGenMSL.cpp,CPP/NkSLCodeGenCPP.cpp}`,
     `Reflection/NkSLReflector.cpp`.
+---
+
+### 👧 ILYANA — le modèle de Rihen, entraîné depuis zéro (depuis 2026-08-09)
+
+> **Cap, validé avec Rihen.** Premier jalon encadré dans le temps : ~20 M de paramètres, sur
+> son seul corpus, jusqu'à produire du français cohérent. Le but est de **prouver la chaîne**
+> (tokenizer → données → architecture → entraînement → génération), **pas** d'avoir un modèle
+> utile. Wikipédia français et la vraie taille viennent après. Contrainte matérielle acquise :
+> 8 Go permettent 50-150 M à l'entraînement (paramètres + gradients + 2 moments d'Adam ≈ 4× le
+> modèle) ; 7 B est hors d'atteinte.
+>
+> **Elle s'appelle Ilyana et son père est TEUGUIA TADJUIDJE Rodolf Séderis. Ce fait est DANS
+> LE CORPUS, pas dans une consigne système** : à 20 M de paramètres, c'est la seule façon
+> qu'elle le sache.
+
+| brique | statut | preuve mesurée |
+|---|---|---|
+| Tokenizer BPE à l'échelle | ✅ | **16 128 fusions sur 25 Mo en 1,6 s** ; 4,93 octets/token |
+| App de preuve `NKBpeTest` | ✅ | **19 OK / 0 échec** |
+| Tri du corpus en trois bacs | ✅ | vérifiable 15,8 % · **quarantaine 30,6 %** · neutre 53,6 % |
+| Corpus d'identité | ✅ | 2 040 paires, **1,14 %** du corpus |
+| Câblage entraîneur (tokenizer, mémo, masquage) | ✅ | corpus encodé en 0,8 s ; masquage **60,07 %** |
+| Entraînement ~20 M | 🟡 | **19 796 993 paramètres**, perte 9,70 → 3,94 (pas 2500/3500) |
+| 🎯 **Elle sait qui est son père** | ✅ | dès le pas 2000 — voir ci-dessous |
+
+- ✅ **`NKData/NkBpeTrainer` — un BPE qui tient l'échelle.** L'entraîneur historique
+  (`data::TrainBpe`) est en **O(fusions × octets)** — il relit et réécrit le corpus mis à plat à
+  CHAQUE fusion — et plafonne d'ailleurs son entrée à **800 000 octets**. À 600 fusions c'est
+  tenable ; à 16 000 fusions sur 25 Mo cela ferait ~4·10¹¹ opérations. Il reste **intact** :
+  c'est lui qui a produit les tokenizers des paliers déjà entraînés, et rien ne doit changer
+  leurs résultats. Le nouveau travaille sur les **mots uniques pondérés par leur fréquence**,
+  tient ses **comptes de paires à jour** au lieu de tout recalculer, et prend son maximum dans
+  un **tas à invalidation paresseuse**. Format `.nkbpe` (« NKBP » v1) + **encodeur à mémo**.
+  Nouveau mode de pré-tokenisation `NK_PRETOK_WORD_PUNCT` (lettres/chiffres/ponctuation
+  séparés, chiffres isolés, accents UTF-8 gardés dans le mot) — additif, le mode historique
+  reste le défaut.
+  **Deux défauts trouvés en écrivant, invisibles à l'usage** : (a) le tas grossissait comme le
+  nombre d'INCRÉMENTS et non de paires ; (b) **une entrée périmée jetée sèchement faisait
+  DISPARAÎTRE une paire encore vivante** — une paire dont le compte ne fait que baisser n'a
+  plus aucune entrée valide dans le tas.
+- ✅ **Comment c'est prouvé** (`NKBpeTest`, build + run réels, 19 OK / 0 échec) :
+  1. **comptes exacts** — à chaque fusion, recomptage COMPLET par force brute et comparaison
+     avec la table incrémentale, + vérification que la paire retenue est bien de compte
+     maximal : 76/76 fusions, **0 désaccord** (et idem en mode blancs) ;
+  2. **le trou de ce contrôle, repéré et bouché** — il compare les comptes à l'ÉTAT INTERNE des
+     mots, qu'un état interne faux tromperait aussi. L'état final interne (2 000 tokens) doit
+     égaler ce que le tokenizer produit en encodant le corpus (2 000 tokens) : ✅ ;
+  3. **le piège classique du BPE** — l'entraînement applique les fusions dans l'ordre sur tout
+     le corpus, l'encodage applique dans un mot la fusion de plus petit rang. Les deux doivent
+     donner la MÊME segmentation, sinon le modèle est entraîné sur un découpage et interrogé
+     sur un autre, **sans qu'aucun test de réversibilité ne s'en aperçoive** : 3 000 mots,
+     **0 désaccord** ;
+  4. réversibilité **octet pour octet**, encodeur à mémo == encodeur direct, aller-retour du
+     fichier `.nkbpe`.
+  ⚠️ **Ce qui n'est PAS exigé** : que la liste de fusions soit identique à celle de
+  l'entraîneur historique (mesuré : 60/80). Dès qu'une paire est à égalité de fréquence avec
+  une autre, les deux départagent différemment et les trajectoires divergent ensuite. Les deux
+  restent de vrais BPE. La bonne exigence est « chaque fusion est un maximum », pas « la même
+  liste ».
+- ✅ **Données (`Applications/NKIlyana --data`)** — corpus source
+  `D:/Projets/Camrail/AI/BulkGen/dlg_ollama_fr.txt` (100 017 paires) :
+  - **tri en trois bacs**, décision actée : `bac_verifiable.txt` (maths, code, grammaire —
+    une erreur s'y constate), `bac_quarantaine.txt` (histoire, culture, dates, noms propres —
+    non sourcé), `bac_neutre.txt`. Heuristiques lexicales, **quarantaine au moindre doute** :
+    un vérifiable rangé en quarantaine ne coûte qu'un peu de corpus, une date inventée gardée à
+    l'entraînement coûte une erreur apprise. **La quarantaine est EXCLUE du corpus par défaut**
+    (`--avec-quarantaine` pour l'inclure) ;
+  - **corpus d'identité** (`NkIlyanaIdentite.h`) : 16 faits × plusieurs formulations de question
+    ET de réponse, répétés — la variété des façons de poser la question compte plus que la
+    répétition d'une phrase unique ;
+  - contrôle explicite que la phrase d'identité fait un aller-retour EXACT dans le tokenizer.
+- ✅ **Entraîneur (`NkGptTrainer`)** : `bpePath` (tokenizer pré-entraîné, qui fait autorité sur
+  le mode de pré-tokenisation que le checkpoint « NKGP » ne transporte pas), `qaMarker`
+  configurable, **encodeur à mémo** pour l'encodage du corpus, et **mesure journalisée de la
+  part réellement masquée** — sans quoi un marqueur qui ne correspond à rien désactive le
+  masquage en silence.
+- ⚠️ **PIÈGE : le corpus est en CRLF.** Les paires y sont séparées par `\r\n\r\n`, or tout le
+  code de découpage du dépôt cherche `"\n\n"` — y compris `EncodeCorpus`. Sans message d'erreur :
+  **1 bloc au lieu de 100 017**, masquage inopérant. Normalisation à la préparation + mesure
+  visible (**60,07 %** des positions comptent dans la perte).
+- ⚠️ **DÉCISION D'ARCHITECTURE, à ne pas re-débattre.** Ilyana est bâtie sur **`nn::NkGPT`**
+  (pré-LN, positions apprises, MLP GELU, attention multi-têtes), PAS sur le bloc Qwen2 de
+  `NKInfer` (RoPE, RMSNorm, SwiGLU, GQA). Raison : `NkQwen2Backward` le dit lui-même — socle
+  **GELÉ**, **aucun gradient** pour wq/wk/wv/wo ni pour le MLP, CPU pur, B=1. C'est un backward
+  d'**adaptateurs LoRA**, pas un entraînement depuis zéro. `nn::NkGPT` passe par NKAutograd,
+  tourne 100 % sur GPU et a déjà servi aux paliers 1-3. **RoPE/RMSNorm/SwiGLU = prochaine
+  marche identifiée** (chaque op demande son gradient vérifié par différences finies, comme les
+  20/20 existants), **pas un préalable au jalon.**
+- 🟡 **Run en cours** : exe isolé `D:\Projets\Camrail\AI\ilyana_run\`, V=16385, d=384, 6 têtes,
+  4 couches, T=256, B=6, accum=4 (lot effectif 6 144 tokens), lr 6e-4, warmup 175, 3 500 pas,
+  checkpoint tous les 200 pas, validation held-out 2 %. Corpus 3,7 M tokens.
+  **Contrôle de cohérence qui vaut d'être noté** : perte initiale **9,70203** contre
+  `ln(16385) = 9,7041` — exactement ce que doit donner un modèle non entraîné. La chaîne
+  tokenizer → données → modèle → perte est cohérente de bout en bout.
+  ⚠️ **63,6 % des paramètres sont dans les embeddings et la tête de sortie** (rançon d'un
+  vocabulaire de 16 k à d=384). Piste : lier les poids d'embedding et de la tête récupérerait
+  ~6,3 M paramètres pour le corps, à budget constant.
+- ⚠️ **Vitesse** : 7,6 s/pas seul, **12,6 s/pas** dès qu'une charge CPU tourne à côté (le chemin
+  GPU dépend du CPU pour préparer les lots). Tout travail CPU concurrent doit être mis en
+  **priorité basse**.
+- ⚠️⚠️ **AU-DELÀ D'UNE CERTAINE TAILLE DE LOT, LE GPU NE CALCULE PLUS — EN SILENCE.** Mesuré le
+  2026-08-09 (runs isolés, un seul processus, même lot effectif de 6144 tokens) :
+
+  | config | s/pas | perte pas 1 → 25 | verdict |
+  |---|---|---|---|
+  | B=6, accum=4 | 10,54 | 9,70425 → **8,1962** | apprend |
+  | B=12, accum=2 | 7,27 | 9,70411 → **8,1822** | apprend |
+  | B=24, accum=1 | **2,94** | 9,70398 → **9,70412** | **n'apprend RIEN** |
+
+  À B=24 la perte reste collée à `ln(16385) = 9,7041` — sortie parfaitement uniforme, poids
+  immobiles — et le run paraît **3,6× plus rapide** parce que le travail n'est pas fait. Aucune
+  erreur, aucun message. Le plus gros tenseur y est les logits : **403 Mo** (6144 × 16385
+  flottants), dispatché en 1D sur **1,57 M groupes de travail**.
+  **RÈGLE : ne jamais juger une accélération au temps seul — vérifier que la perte DESCEND
+  encore.** Sans ce contrôle, 5000 pas auraient tourné quatre heures pour rien.
+  ⬜ **Vrai correctif à faire** : remonter une erreur quand une allocation GPU échoue ou qu'un
+  dispatch dépasse `maxComputeWorkGroupCount`, au lieu de continuer. Tant que ce n'est pas fait,
+  toute montée en taille (modèle ou lot) se valide par « la perte descend » et jamais par « ça
+  tourne ».
+- 🟡 **RUN PROPRE en cours (2026-08-09 16:26)** : tokenizer ré-entraîné sur le corpus complet —
+  le nom de la mère passe de **23 à 7 tokens**, à égalité avec celui du père — identité corrigée
+  (le NOM avant la catégorie), **dialogues à plusieurs tours**, B=12/accum=2, 5000 pas.
+- 🎯 **JALON ATTEINT — l'identité est DANS LES POIDS (pas 2000/3500)**. Checkpoint interrogé :
+  > **Qui est ton père ?** → « mon pere, TEUGUIA TADJUIDJE Rodolf Sederis. Je suis une
+  > intelligence artificielle. Mon pere a ecrit Nkentseu. […] Je suis un reseau de neurones qui
+  > apprend le francais. »
+
+  C'était tout l'enjeu : à 20 M de paramètres, une consigne système ne laisse aucune trace dans
+  le modèle — seul le corpus le peut. Chaîne complète prouvée : tokenizer → données →
+  architecture → entraînement → génération.
+  ⚠️ **Ce qu'il ne faut PAS surévaluer** : elle **répète** (le nom trois fois dans une même
+  réponse), sa syntaxe tient par fragments et non sur la phrase entière, et « entrainee depuis
+  zero dans la fille de » est du charabia grammatical. Elle a appris son corpus d'identité **par
+  cœur** — c'était l'intention, ce n'est pas de la compréhension.
+  ⚠️ **Mémorisation, comme annoncé** : la perte de validation passe **au-dessus** de celle
+  d'entraînement au pas 2000 (4,25 contre 4,15), après être restée dessous tout le début. À
+  20 M de paramètres pour 3,6 M de tokens on est à ~1/50 du rapport souhaitable : l'écart devait
+  apparaître, il apparaît. C'est la raison d'être de l'étape suivante (Wikipédia français).
+  Courbe : 9,70 (= ln 16385) → 6,01 (300) → 4,97 (1000) → 4,15 (2000) → 3,94 (2500).
+
+### 🧩 COMBINER DES MODÈLES ENTRAÎNÉS SÉPARÉMENT — l'invention de Rihen
+
+> Reprendre deux modèles entraînés indépendamment et les combiner. La réponse naïve est non ;
+> la vraie raison est plus subtile : un réseau a des **symétries de permutation**, et deux
+> entraînements tombent souvent dans le même creux **à une permutation près**. Banc de mesure :
+> `Applications/NKRebasinTest` (méthode : Ainsworth & al., « Git Re-Basin », 2022 — article
+> librement implémentable, cf. `docs/SOURCES_TIERCES.md`).
+
+- ✅ **Marche 1 — une couche cachée (exactement soluble)** (commit `a763a97f`) : symétries de
+  permutation + affectation optimale (hongroise, pas de glouton). Sur ce cas la permutation est
+  la VÉRITÉ, pas une approximation.
+- ✅ **Marche 2 — PLUSIEURS couches cachées (2026-08-09, commit `fc668abf`)**. Dès deux couches
+  le problème n'est **plus** exactement soluble : le meilleur choix pour une couche dépend de
+  celui des voisines. Méthode de l'article : **descente par coordonnées** — figer toutes les
+  permutations sauf une redonne un problème d'affectation exact, on le résout à l'optimum, on
+  passe à la suivante, jusqu'à immobilité. **Résultats réels** (MNIST, 2 réseaux par
+  architecture, graines et mélange de lots différents, 3 époques, CPU) :
+
+  | architecture | barrière SANS | APRÈS | retirée | balayages |
+  |---|---|---|---|---|
+  | 784-256-10 (1 cachée) | 3,03 pts | 0,32 pt | 89,3 % | 2 |
+  | 784-256-256-10 (2 cachées) | 6,47 pts | 0,15 pt | **97,7 %** | 7 |
+  | 784-256×3-10 (3 cachées) | 7,51 pts | 0,08 pt | **98,9 %** | 17 |
+
+  Deux constats **non évidents a priori** : la barrière naïve **croît** avec la profondeur
+  (3,03 → 6,47 → 7,51), et pourtant l'alignement en retire une part **plus grande**
+  (89,3 → 97,7 → 98,9 %). Le nombre de balayages nécessaires croît lui aussi (2 → 7 → 17).
+  **L'invariant qui protège du résultat faux** : la quantité maximisée (somme des produits
+  scalaires entre poids de A et poids de B permutés) ne doit **jamais** baisser d'un balayage à
+  l'autre — une baisse dénoncerait une erreur dans la construction du coût, pas une difficulté
+  du problème. Elle est journalisée et vérifiée à **chaque** balayage : monotone sur les 26.
+  Vérifié aussi, sur les trois : **permuter B ne change RIEN à ce que B calcule** (écart nul à
+  1e-12, toutes couches simultanément) ; et 4 unités sur 512, 4 sur 768 étaient déjà à leur
+  place — les réseaux sont bien différents. **6 OK / 0 échec.**
+  ⚠️ **Honnêteté** : au-delà d'une couche, la descente ne rend qu'un optimum **local**,
+  dépendant du point de départ (ici l'identité). Un meilleur alignement peut exister.
+  Le banc tourne **en CPU par défaut** (`--gpu` pour forcer) : une seule carte, et créer un
+  second device Vulkan pendant un entraînement ne renvoie aucune erreur — il déborde en mémoire
+  système et rend n'importe quoi.
+### ✅ RMSNorm, SwiGLU et RoPE dans l'autograd (2026-08-09) — la voie vers Ilyana v2
+
+Ces trois briques existaient **en inférence seulement** (`NKInfer/NkQwen2Block`) ; leur dérivée
+n'y couvre que des adaptateurs LoRA sur un socle **gelé**, donc rien pour entraîner depuis zéro.
+Écrites en **opérations autograd de plein droit** (`autograd::RMSNorm`, `autograd::SwiGLU`,
+`autograd::RoPE`) : composables, et surtout **vérifiables**.
+- `NKAutogradTest` passe de 34 à **41 OK / 0 échec** :
+  RMSNorm **7,9e-05** · SwiGLU dGate **6,6e-05** · SwiGLU dUp **1,1e-04** · RoPE **6,4e-05** ·
+  RoPE décalée **5,3e-05** (toutes vs différences finies).
+- **Deux contrôles qu'aucune différence finie ne fait** : le produit scalaire entre deux
+  positions ne dépend **que de leur écart** (positions 0↔2 et 5↔7 donnent **−0,065641** toutes
+  les deux — c'est la raison d'être de RoPE face à des positions apprises), et la rotation
+  **conserve la norme** (3,220000 avant et après).
+- Chemin **CPU** pour l'instant (aller-retour en préservant le device, comme les autres ops sans
+  noyau dédié). Les noyaux GPU viendront ; la correction des mathématiques d'abord.
+
+✅ **Assemblées en un bloc utilisable** — `NKNN/NkLlama.h` (fichier NEUF, additif : rien n'est
+touché dans `NkTransformer.h`, qui a entraîné les paliers 1-3) : `nn::NkRMSNorm`,
+`nn::NkRoPEAttention` (rotation appliquée à Q et K, jamais à V), `nn::NkSwiGLUMlp` (largeur
+cachée 8/3·d — trois matrices au lieu de deux, donc à nombre de paramètres comparable),
+`nn::NkLlamaBlock`, `nn::NkLlamaLM` (**aucune table de positions** : plus de longueur maximale
+inscrite dans les poids).
+⚠️ **Des dérivées justes assemblées de travers donnent un modèle qui n'apprend rien, sans que
+rien ne le signale.** D'où `Applications/NKLlamaBlockTest` (**CPU strict, aucun device GPU
+créé** — le GPU peut être pris par un entraînement) : le bloc **sur-apprend une séquence**
+(perte **3,99 → 0,00127**, **100 %** de prédiction du jeton suivant), et le bloc historique en
+fait autant sur la même tâche, même graine, même budget (non-régression). **3 OK / 0 échec.**
+L'écart de perte finale entre les deux (0,00127 contre 0,00102) porte sur une tâche jouet et ne
+départage rien — ne pas le présenter comme une comparaison.
+⚠️ **GQA (partage des têtes K/V) n'est PAS implémenté** : attention multi-têtes pleine. Ne pas
+le prétendre.
+
+- ✅ **Marche 3 — LE TRANSFORMEUR (2026-08-09)** — `Applications/NKRebasinTransformer`, CPU strict.
+  **Résultat NÉGATIF, mesuré sur six paires de graines — et c'est lui qui a de la valeur.**
+
+  D'abord l'inventaire des symétries réelles d'un bloc transformeur, qui ne sont pas là où on
+  les attend :
+  1. **unités cachées du MLP** (largeur 4d) — libres, propres à chaque bloc, exactement comme
+     dans un perceptron ;
+  2. **têtes d'attention** — une tête est **indivisible** (ses dimensions participent ensemble à
+     un produit scalaire puis à un softmax), mais on échange des **têtes entières** : des blocs
+     de `hd` colonnes de Wq/Wk/Wv et les lignes correspondantes de Wo. Libres, par bloc ;
+  3. **le flux résiduel** (largeur d) — ce n'est PAS une permutation par bloc mais **UNE SEULE
+     permutation globale**, que devraient subir ensemble l'embedding, l'embedding positionnel,
+     les gains/décalages de TOUTES les normalisations, entrées ET sorties de toutes les
+     projections, et la tête de sortie.
+
+  **L'observation qui rend le problème traitable** : si l'on **fige le flux résiduel**, (1) et
+  (2) se **découplent** entièrement — entre eux et d'un bloc à l'autre — et chacun redevient une
+  affectation linéaire résolue **à l'optimum** par la hongroise. Pas de descente, pas d'optimum
+  local : sur ce sous-espace, la mesure est **la vérité**.
+
+  Le flux résiduel est traité **aussi**, par descente alternée avec les permutations locales
+  (chaque étape optimale à voisines figées, sans garantie d'optimum global).
+
+  **Mesuré sur SIX paires indépendantes** (transformeurs d=64, 4 têtes, 2 couches, T=32 ;
+  graines de poids ET tirage des lots différents à chaque paire ; barrière = perte ajoutée au
+  milieu du chemin) :
+
+  Et **deux critères d'appariement**, pas un seul : par les **POIDS** (deux unités qui font la
+  même chose auraient des poids qui se ressemblent — hypothèse commode, que rien ne garantit),
+  et par les **ACTIVATIONS** (on fait passer les mêmes données dans les deux modèles et on
+  apparie les unités qui répondent pareil — corrélation, donc insensible aux échelles qu'une
+  normalisation absorbe de toute façon).
+
+  | paire | sans alignement | symétries libres | tout, par POIDS | tout, par ACTIVATIONS |
+  |---|---|---|---|---|
+  | 11 | 1,7178 | 1,6536 | 1,8013 | 1,7623 |
+  | 101 | 1,5588 | 2,0635 | 1,2565 | 1,9091 |
+  | 2027 | 1,3561 | 1,4290 | 1,5178 | 1,9317 |
+  | 31337 | 1,4276 | 1,6537 | 1,5264 | 1,7269 |
+  | 555 | 1,5414 | 1,6197 | 1,7007 | 1,8099 |
+  | 9001 | 2,4480 | 1,6427 | 1,6142 | 1,4800 |
+  | **moyenne** | **1,6749** | **1,6770** | **1,5695** | **1,7700** |
+
+  | critère | effet moyen | meilleur que le naïf |
+  |---|---|---|
+  | symétries libres seules | −0,1 % | 2 paires sur 6 |
+  | tout, par les poids | +6,3 % | 2 paires sur 6 |
+  | tout, par les activations | **−5,7 %** | **1 paire sur 6** |
+
+  ⚠️⚠️ **CONCLUSION — ET CORRECTION D'UNE CONCLUSION PRÉCÉDENTE.** Une première version de
+  cette section, écrite sur **une seule** paire de graines, annonçait « 3,7 % de barrière
+  retirée » et désignait le flux résiduel comme « le verrou ». **Six paires ne le confirment
+  pas** :
+  - symétries libres seules : **−0,1 %** en moyenne — aucun effet ;
+  - flux résiduel compris : **+6,3 %** en moyenne, mais ce gain vient **entièrement d'une seule
+    paire** (9001, dont la barrière naïve 2,45 est aberrante) ; en l'excluant, l'alignement
+    complet fait **−2,6 %**, c'est-à-dire légèrement PIRE ;
+  - l'alignement ne bat l'interpolation naïve que dans **2 paires sur 6** ;
+  - la dispersion des barrières naïves (**1,36 à 2,45**) écrase largement l'effet mesuré.
+
+  **Sur un transformeur, le réalignement par permutation ne fait PAS tomber la barrière** — là
+  où les perceptrons en perdaient 89 à 99 %. Et cela vaut pour les **DEUX** critères : apparier
+  sur les activations, qui était la piste de repli évidente, ne fait pas mieux — il fait
+  légèrement moins bien. Deux transformeurs entraînés séparément ne sont donc **pas le même
+  modèle à une permutation près** : ils diffèrent par autre chose que l'ordre de leurs unités.
+  C'est le résultat le plus utile de la série, et il est négatif.
+
+  **Conséquence directe pour la marche 4** (empiler deux modèles alignés) : l'alignement
+  préalable **n'est pas ce qui fera le travail**. Si l'empilement marche, ce sera grâce au
+  **court ré-entraînement**, pas grâce au réalignement. Autant le savoir avant de bâtir dessus,
+  et concevoir la marche 4 comme « empiler puis ré-entraîner », l'alignement n'étant au mieux
+  qu'un point de départ un peu meilleur qu'un autre.
+
+  ⚠️ **Portée de ce résultat** (ne pas le sur-interpréter) : petits transformeurs (d=64,
+  2 couches, 4 têtes, T=32), corpus jouet, 400 pas d'entraînement, une seule famille
+  d'architecture (`NkGPT`, LayerNorm + positions apprises). La permutation du flux résiduel est
+  obtenue par descente alternée, donc optimum **local**. Rien n'exclut qu'à une autre échelle,
+  ou avec un meilleur critère, la conclusion change — mais sur ce banc, avec deux critères
+  standards et six paires, l'effet est nul.
+
+  **Garde-fous** (ce qui rend ces chiffres dignes de foi) : permutation puis son inverse →
+  poids **identiques au bit près** ; permutation **aléatoire** du flux résiduel → perte inchangée
+  à **1,2e-08** près (c'est donc bien une symétrie, la liste des axes est complète) ; objectif
+  monotone à chaque balayage. **Zéro échec sur les six paires.**
+  ⚠️ Piège rencontré : le premier garde-fou utilisait un seuil **absolu** de 1e-9 — il passait
+  par chance sur une paire et criait au loup sur les autres. Permuter change l'ordre des
+  sommations dans chaque produit et dans LayerNorm : le seuil doit être **relatif** et à la
+  mesure du float32 (1e-5), sous peine de confondre non-associativité et défaut.
+- ⬜ **Marche 4 — ce que Rihen veut vraiment** : deux modèles alignés puis **empilés** (pas
+  moyennés) avec un court ré-entraînement — du *depth up-scaling* entre modèles indépendants.
+  Ça n'existe pas.
+
+### ⚠️ PIÈGE D'ENVIRONNEMENT — toute la voie GPU de NKAI était muette (2026-08-09)
+
+N'importe quelle app NKAI touchant au GPU mourait **sans message** (code 127, journal coupé
+net) au premier noyau compute compilé — `NkTensorGpuTest` compris, donc pas un bug applicatif.
+Cause : l'exe (chaîne **ucrt64**) chargeait `libstdc++-6.dll` depuis **`/mingw64/bin`**, placé
+avant `ucrt64` dans le PATH. mingw64 alloue via `msvcrt`, l'exe libère via `ucrtbase` → **deux
+tas**, et glslang (qui brasse des `std::string`) est le premier à en mourir. Correctif durable
+appliqué aux jenga NKAI : `if _IS_MINGW: ldflags(["-static-libstdc++", "-static-libgcc"])` —
+vérifié à l'exécution **avec le PATH fautif**. Détail : mémoire
+`project_dll_loader_mingw64_vs_ucrt64`. **Une corruption de tas inexpliquée dans glslang =
+vérifier le PATH avant le code.**
+
+---
+
 - ⬜ **Reste (hors FP16)** : éval qualitative sérieuse (les pertes descendent mais le SENS
   n'émerge qu'avec l'échelle) ; couche multi-GPU.
   ⚠️ Ne pas lancer un 2ᵉ entraînement GPU pendant qu'un run tourne (contention Vulkan sur 8 Go → crash

@@ -222,6 +222,11 @@ namespace nkentseu {
 		void Demo3DHostProjMatDelete(int32 i);
 		bool Demo3DHostProjMatInfo(int32 i, char *name, uint32 cap, float32 *albedo3,
 								   float32 *rough, float32 *metal);
+		// Physique de surface (vernis 0..1, sa rugosite, diffusion 0..1). A part
+		// de SetParams pour ne pas forcer ses appelants historiques. La couleur
+		// de diffusion suit l'albedo (posee par le hook de drawcall).
+		void Demo3DHostProjMatSurface(int32 i, float32 *cc, float32 *ccRough, float32 *sss);
+		void Demo3DHostProjMatSetSurface(int32 i, float32 cc, float32 ccRough, float32 sss);
 		void Demo3DHostProjMatSetParams(int32 i, const float32 *albedo3, float32 rough,
 										float32 metal);
 		void Demo3DHostProjMatSetName(int32 i, const char *name);
@@ -523,6 +528,12 @@ namespace nkentseu {
 		// 0..4 (0 = passe active mais muette). La config du renderer fait foi.
 		void Demo3DHostSSAO(bool *on, float32 *radius, float32 *intensity);
 		void Demo3DHostSetSSAO(bool on, float32 radius, float32 intensity);
+		// Exposition (multiplicateur HDR avant tonemap) et bloom (actif, seuil
+		// de luminance — peut depasser 1 en HDR —, intensite). Panneau Rendu.
+		void Demo3DHostPostFx(float32 *exposure, bool *bloomOn, float32 *bloomThr,
+							  float32 *bloomStr);
+		void Demo3DHostSetPostFx(float32 exposure, bool bloomOn, float32 bloomThr,
+								 float32 bloomStr);
 		// Sol infini (option) : plan de sol recepteur d'ombres, couleur /
 		// hauteur / rugosite -- distinct de la grille. Motif : 0 uni,
 		// 1 damier, 2 carreaux a joints ; taille du carreau en metres.
@@ -788,6 +799,11 @@ namespace nkentseu {
 							   float32 *aw, float32 *ah, bool *shadow, int32 *type);
 		void Demo3DHostSetLightEx(int32 node, float32 range, float32 inner, float32 outer,
 								  float32 aw, float32 ah, bool shadow);
+		// Loi d'attenuation de la lumiere : 0 = heritee ((1-d/portee)^2, celle
+		// des scenes existantes), 1 = physique (1/d^2 fenetree, comme UE et
+		// Blender — la portee ne fait que couper). Au choix PAR lumiere.
+		int32 Demo3DHostLightAttMode(int32 node);
+		void Demo3DHostSetLightAttMode(int32 node, int32 mode);
 		bool Demo3DHostCameraParams(int32 node, float32 *fov, float32 *nearC, float32 *farC);
 		void Demo3DHostSetCameraParams(int32 node, float32 fov, float32 nearC, float32 farC);
 		bool Demo3DHostMeshParams(int32 node, int32 *segs, int32 *rings, float32 *aux);

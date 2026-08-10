@@ -32,6 +32,16 @@ namespace nkentseu {
 				// Retourne un id opaque (>0) ou 0 en échec. Le buffer est un storage
 				// buffer (SSBO / UAV) utilisable en compute et relisible par le CPU.
 				uint64 CreateBuffer(nk_size bytes);
+
+				// Nombre de DEFAUTS GPU signales depuis le demarrage (allocation refusee,
+				// tampon invalide). Un entrainement doit le consulter : un calcul qui
+				// n'a pas lieu ne produit AUCUNE erreur, seulement une perte immobile.
+				static int64 DefautCount();
+
+				// Operations GPU lancees depuis le demarrage. Divise par le nombre de pas,
+				// il donne le cout fixe par operation — la grandeur qui dit si le moteur
+				// est limite par le calcul ou par le lancement des noyaux.
+				static int64 OpCount();
 				void DestroyBuffer(uint64 id);
 				bool Upload(uint64 id, const void *data, nk_size bytes);
 				bool Download(uint64 id, void *out, nk_size bytes);
@@ -123,6 +133,14 @@ namespace nkentseu {
 		NkTensor NkGpuSqrt(const NkTensor &a);					 // sqrt(A)  (Adam résident)
 		NkTensor NkGpuGelu(const NkTensor &a);					 // GELU(A) (tanh-approx)
 		NkTensor NkGpuGeluBackward(const NkTensor &x, const NkTensor &grad);
+
+		// Entropie croisée à cible par INDICES, entièrement sur GPU. Évite de
+		// rapatrier le tenseur de logits [lignes, vocabulaire] à chaque micro-lot —
+		// 201 Mo dans chaque sens, deux fois par pas, avant ces deux fonctions.
+		// `probs` = softmax déjà calculé ; `cibles` = un indice de classe par ligne,
+		// négatif pour une ligne masquée.
+		NkTensor NkGpuCeIdxForward(const NkTensor &probs, const NkTensor &cibles);	// -> pertes par ligne [B]
+		NkTensor NkGpuCeIdxBackward(const NkTensor &probs, const NkTensor &cibles, double coef); // -> dLogits
 
 		// Embedding : table[vocab,d], indices (ids en f32) -> lignes rassemblées ; backward =
 		// scatter-add (gather par ligne de table, sans course).

@@ -6,6 +6,7 @@
 //   • NkActivations.h  — Relu / Sigmoid / Tanh
 //   • NkLosses.h       — MSELoss / CrossEntropyLoss (+ OneHot)
 //   • NkTransformer.h  — LayerNorm affine / attention multi-têtes / bloc / GPT
+//   • NkLlama.h        — RMSNorm / attention à positions par rotation / SwiGLU / bloc « moderne »
 //   • NkRnn.h          — cellules récurrentes GRU / LSTM + déroulé séquence
 //   • NkDropout.h      — couche de Dropout inversé (régularisation)
 //   • NkSequential.h   — conteneur de modèle générique (chaîne des couches)
@@ -19,6 +20,7 @@
 #include "NKNN/NkActivations.h"
 #include "NKNN/NkLosses.h"
 #include "NKNN/NkTransformer.h"
+#include "NKNN/NkLlama.h"
 #include "NKNN/NkRnn.h"
 #include "NKNN/NkDropout.h"
 #include "NKNN/NkSequential.h"

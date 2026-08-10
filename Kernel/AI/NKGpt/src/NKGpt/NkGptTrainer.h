@@ -31,7 +31,23 @@ namespace nkentseu {
 					NkString corpusDir;			// dossier *.txt (si corpusFile vide)
 					NkString corpusFile;		// fichier unique (prioritaire s'il est non vide)
 					nk_size maxChars = 1200000; // budget total de caractères
-					int merges = 600;			// fusions BPE
+					int merges = 600;			// fusions BPE (ignoré si bpePath est fourni)
+
+					// Tokenizer PRÉ-ENTRAÎNÉ (fichier « NKBP », cf NKData/NkBpeTrainer.h).
+					// Au-delà de quelques centaines de fusions, entraîner le BPE à chaque
+					// démarrage est absurde : il ne dépend que du corpus, pas du modèle, et
+					// deux entraînements successifs doivent partager EXACTEMENT le même
+					// découpage sous peine d'incompatibilité des poids d'embedding. On
+					// l'entraîne donc une fois, on le range dans un fichier, et on le relit.
+					// Non vide => `merges` est ignoré et le BPE n'est pas ré-entraîné.
+					NkString bpePath;
+
+					// Marqueur de début de réponse pour le masquage de loss
+					// (instruction-tuning : la question ne compte pas dans la perte).
+					// Défaut = comportement historique. Les corpus n'écrivent pas tous
+					// l'accent : un marqueur qui ne correspond à rien désactive
+					// silencieusement le masquage, d'où ce réglage explicite.
+					NkString qaMarker = NkString("Réponse: ");
 
 					// Modèle.
 					int64 T = 128, d = 256, H = 8, L = 4, B = 16;
@@ -85,6 +101,12 @@ namespace nkentseu {
 					void GenerateFinal();
 
 					// Sauvegarde le checkpoint (dims + BPE + langues + poids).
+					// ⚠️ POIDS SEULS — SANS l'état de l'optimiseur. À n'utiliser que pour
+					// exporter un modèle destiné à la seule génération. NE PAS l'appeler
+					// après `Fit()` : celui-ci a déjà écrit un checkpoint COMPLET (moments
+					// d'Adam + pas global) permettant une reprise exacte, et ce Save-ci
+					// l'écraserait par une version dégradée — la reprise repartirait alors
+					// sans état d'optimiseur, avec un pic de perte.
 					bool Save(const char *path);
 
 					// Accès (après Prepare).
@@ -140,6 +162,9 @@ namespace nkentseu {
 					int mGenLang = -1;
 					uint64 mRng = 0x9E3779B97F4A7C15ull;
 					double mEma = 0.0;
+					// Perte du tout premier pas : sert de reference au filet de securite qui
+					// detecte un entrainement qui ne calcule rien.
+					double mPerteInitiale = 0.0;
 
 					// État optimiseur repris d'un checkpoint (reprise parfaite du schedule).
 					NkVector<NkTensor> mOptM, mOptV;

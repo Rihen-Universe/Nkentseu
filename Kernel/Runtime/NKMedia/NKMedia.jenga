@@ -16,7 +16,7 @@ with project("NKMedia"):
 
     nkentseudependson(
         ["NKCore", "NKPlatform", "NKMemory", "NKContainers", "NKMath", "NKLogger",
-         "NKStream", "NKFileSystem", "NKImage", "NKThreading", "NKTime"],
+         "NKStream", "NKFileSystem", "NKImage", "NKFont", "NKThreading", "NKTime"],
         selfexport="NKMedia",
         extra_includes=["src"],
     )

@@ -465,6 +465,94 @@ namespace nkentseu {
 			return m;
 		}
 
+		// y_i = x_i · inv, inv = (moyenne(x²)+ε)^(-1/2), sur le dernier axe.
+		static NkTensor RmsNormCpu(const NkTensor &x, double eps) {
+			NkTensor xc = ToCpuT(x).Contiguous();
+			const NkShape &s = xc.Shape();
+			const int64 d = s[s.Size() - 1];
+			const int64 rows = (d > 0) ? xc.Numel() / d : 0;
+			NkTensor out = NkTensor::Zeros(s);
+			const float *xp = xc.DataAs<float>();
+			float *op = out.DataAs<float>();
+			for (int64 r = 0; r < rows; ++r) {
+				const float *xr = xp + r * d;
+				float *orow = op + r * d;
+				double ms = 0.0;
+				for (int64 i = 0; i < d; ++i)
+					ms += (double)xr[i] * (double)xr[i];
+				ms /= (double)d;
+				const double inv = 1.0 / std::sqrt(ms + eps);
+				for (int64 i = 0; i < d; ++i)
+					orow[i] = (float)((double)xr[i] * inv);
+			}
+			return out;
+		}
+
+		// dx_j = inv·dy_j − (inv³/d)·x_j·Σ_i(x_i·dy_i)
+		static NkTensor RmsNormBackwardCpu(const NkTensor &x, const NkTensor &g, double eps) {
+			NkTensor xc = ToCpuT(x).Contiguous();
+			NkTensor gc = ToCpuT(g).Contiguous();
+			const NkShape &s = xc.Shape();
+			const int64 d = s[s.Size() - 1];
+			const int64 rows = (d > 0) ? xc.Numel() / d : 0;
+			NkTensor out = NkTensor::Zeros(s);
+			const float *xp = xc.DataAs<float>();
+			const float *gp = gc.DataAs<float>();
+			float *op = out.DataAs<float>();
+			for (int64 r = 0; r < rows; ++r) {
+				const float *xr = xp + r * d;
+				const float *gr = gp + r * d;
+				float *orow = op + r * d;
+				double ms = 0.0, dot = 0.0;
+				for (int64 i = 0; i < d; ++i) {
+					ms += (double)xr[i] * (double)xr[i];
+					dot += (double)xr[i] * (double)gr[i];
+				}
+				ms /= (double)d;
+				const double inv = 1.0 / std::sqrt(ms + eps);
+				const double coef = inv * inv * inv * dot / (double)d;
+				for (int64 i = 0; i < d; ++i)
+					orow[i] = (float)(inv * (double)gr[i] - coef * (double)xr[i]);
+			}
+			return out;
+		}
+
+		// Rotation par paires (i, i+moitié) du dernier axe, d'un angle qui dépend
+		// de la position (avant-dernier axe). Rotation pure : aucune norme changée.
+		// `sens` = +1 pour le forward, −1 pour le backward (rotation transposée).
+		static NkTensor RopeApplyCpu(const NkTensor &x, int32 posOffset, double freqBase, double sens) {
+			NkTensor xc = ToCpuT(x).Contiguous();
+			const NkShape &s = xc.Shape();
+			const int64 hd = s[s.Size() - 1];
+			const int64 T = (s.Size() >= 2) ? s[s.Size() - 2] : 1;
+			const int64 half = hd / 2;
+			const int64 blocs = (hd > 0 && T > 0) ? xc.Numel() / (hd * T) : 0;
+			NkTensor out = NkTensor::Zeros(s);
+			const float *xp = xc.DataAs<float>();
+			float *op = out.DataAs<float>();
+			for (int64 b = 0; b < blocs; ++b) {
+				for (int64 t = 0; t < T; ++t) {
+					const int64 base = (b * T + t) * hd;
+					const double pos = (double)(t + (int64)posOffset);
+					for (int64 i = 0; i < half; ++i) {
+						const double freq = 1.0 / std::pow(freqBase, (2.0 * (double)i) / (double)hd);
+						const double ang = pos * freq;
+						const double c = std::cos(ang);
+						const double sn = std::sin(ang) * sens;
+						const double x0 = (double)xp[base + i];
+						const double x1 = (double)xp[base + i + half];
+						op[base + i] = (float)(x0 * c - x1 * sn);
+						op[base + i + half] = (float)(x0 * sn + x1 * c);
+					}
+					// Dimension de tête impaire : la composante orpheline passe telle
+					// quelle plutôt que d'être perdue en silence.
+					if (hd % 2 != 0)
+						op[base + hd - 1] = xp[base + hd - 1];
+				}
+			}
+			return out;
+		}
+
 		// LayerNorm sur le dernier axe (CPU) : y=(x−μ)/√(var+ε), ε=1e-5.
 		static NkTensor LayerNormStdCpu(const NkTensor &x) {
 			NkTensor xc = x.Contiguous();
@@ -673,6 +761,21 @@ namespace nkentseu {
 					const int64 C = sh.Size() >= 2 ? sh[1] : NkShapeNumel(sh);
 					const int64 activeRows = n->iparam[0] > 0 ? (int64)n->iparam[0] : B;
 					const double coef = (activeRows > 0) ? s / (double)activeRows : 0.0;
+
+					// Chemin GPU : le scatter se fait sur la carte. Sans lui, les 201 Mo
+					// de `probs` redescendaient sur le CPU puis remontaient, à chaque
+					// micro-lot — c'était le premier poste de dépense de l'entraînement.
+					if (probs.Device() == NkDevice::NK_GPU) {
+						NkTensor dg = NkGpuCeIdxBackward(probs, n->b->value, coef);
+						if (dg.IsValid()) {
+							AccumGrad(n->a, dg);
+							break;
+						}
+						// Repli silencieux impossible : on saurait que le calcul n'a pas
+						// eu lieu seulement à la perte immobile. On retombe donc sur le
+						// chemin CPU ci-dessous, correct quoique lent.
+					}
+
 					// probs -> CPU, soustrait 1 à la classe cible (scatter), annule les lignes masquées.
 					NkTensor diff = ToCpuT(probs).Contiguous();
 					NkTensor ti = ToCpuT(n->b->value).Contiguous();
@@ -986,6 +1089,45 @@ namespace nkentseu {
 					break;
 				}
 
+				case NkAutoOp::NK_RMSNORM: { // dx = inv·dy − (inv³/d)·x·Σ(x⊙dy)
+					NkTensor dx = RmsNormBackwardCpu(n->a->value, g, n->fparam);
+					AccumGrad(n->a, ToDevOf(dx, n->a->value));
+					break;
+				}
+
+				case NkAutoOp::NK_SWIGLU: { // dg = dh⊙u⊙silu'(g) ; du = dh⊙silu(g)
+					// silu'(g) = σ(g)·(1 + g·(1−σ(g))). Écrite à la main : la porte
+					// n'est PAS une simple activation, son gradient dépend aussi de u.
+					NkTensor gc = ToCpuT(n->a->value).Contiguous();
+					NkTensor uc = ToCpuT(n->b->value).Contiguous();
+					NkTensor hc = ToCpuT(g).Contiguous();
+					const int64 cnt = gc.Numel();
+					NkTensor dG = NkTensor::Zeros(gc.Shape());
+					NkTensor dU = NkTensor::Zeros(uc.Shape());
+					const float *gp = gc.DataAs<float>();
+					const float *up = uc.DataAs<float>();
+					const float *hp = hc.DataAs<float>();
+					float *dgp = dG.DataAs<float>();
+					float *dup = dU.DataAs<float>();
+					for (int64 i = 0; i < cnt; ++i) {
+						const double gv = (double)gp[i];
+						const double sig = 1.0 / (1.0 + std::exp(-gv));
+						const double silu = gv * sig;
+						const double dsilu = sig * (1.0 + gv * (1.0 - sig));
+						dgp[i] = (float)((double)hp[i] * (double)up[i] * dsilu);
+						dup[i] = (float)((double)hp[i] * silu);
+					}
+					AccumGrad(n->a, ToDevOf(dG, n->a->value));
+					AccumGrad(n->b, ToDevOf(dU, n->b->value));
+					break;
+				}
+
+				case NkAutoOp::NK_ROPE: { // rotation orthogonale -> backward = angle opposé
+					NkTensor dx = RopeApplyCpu(g, n->iparam[0], n->fparam, -1.0);
+					AccumGrad(n->a, ToDevOf(dx, n->a->value));
+					break;
+				}
+
 				case NkAutoOp::NK_UPSAMPLE2X: { // dIn[y,x] = Σ_{dy,dx} dOut[2y+dy, 2x+dx]
 					if (g.Device() == NkDevice::NK_GPU) {
 						const NkShape &xsu = n->a->value.Shape();
@@ -1140,7 +1282,37 @@ namespace nkentseu {
 				// Identique à SoftmaxCrossEntropy mais la cible est un vecteur d'INDICES [B] (un id de classe
 				// par ligne). idx < 0 => ligne MASQUÉE (ignorée en loss ET en gradient). Évite le one-hot [B,V].
 				//   L = −(1/activeRows) Σ_{b actif} log(probs[b, idx[b]]).
-				NkTensor probs = SoftmaxRows(ToCpuT(logits.Value())); // CPU-only (comme la version one-hot)
+				// Chemin GPU : le softmax reste sur la carte et on ne redescend que la
+				// perte PAR LIGNE (B flottants) au lieu du tenseur [B, vocabulaire].
+				// Mesuré sur Ilyana : 201 Mo par micro-lot, deux fois par pas.
+				if (logits.Value().Device() == NkDevice::NK_GPU) {
+					NkTensor probsG = SoftmaxRows(logits.Value());
+					NkTensor cibG = (targetIdx.Value().Device() == NkDevice::NK_GPU) ? targetIdx.Value()
+																					 : targetIdx.Value().ToGPU();
+					NkTensor pertes = NkGpuCeIdxForward(probsG, cibG);
+					if (pertes.IsValid()) {
+						NkTensor pc = ToCpuT(pertes).Contiguous();
+						NkTensor tc = ToCpuT(targetIdx.Value()).Contiguous();
+						const float *lp = pc.DataAs<float>();
+						const float *tpv = tc.DataAs<float>();
+						const int64 Bg = NkShapeNumel(pc.Shape());
+						double sum = 0.0;
+						int64 actifs = 0;
+						for (int64 b = 0; b < Bg; ++b)
+							if (tpv[b] >= 0.f) {
+								sum += (double)lp[b];
+								++actifs;
+							}
+						const double lg = (actifs > 0) ? sum / (double)actifs : 0.0;
+						NkTensor lt = NkTensor::Full(NkShape{(int64)1}, lg);
+						NkVar rg = NkMakeOp(NkAutoOp::NK_SOFTMAX_CE_IDX, lt, logits.Node(), targetIdx.Node());
+						rg.Node()->iparam[0] = (int32)actifs;
+						rg.Node()->iparam[1] = (actifs == Bg) ? 0 : 1;
+						return rg;
+					}
+				}
+
+				NkTensor probs = SoftmaxRows(ToCpuT(logits.Value())); // repli CPU
 				NkTensor ti = ToCpuT(targetIdx.Value()).Contiguous();
 				const NkShape &sh = probs.Shape();
 				const int64 B = sh.Size() >= 1 ? sh[0] : 1;
@@ -1201,6 +1373,46 @@ namespace nkentseu {
 										op[(((b * C + c) * oH + (2 * y + dy)) * oW + (2 * x2 + dx))] = v;
 							}
 				return NkMakeOp(NkAutoOp::NK_UPSAMPLE2X, ToDevOf(out, a.Value()), a.Node(), nullptr);
+			}
+
+			// =================================================================
+			// Briques des transformeurs modernes : RMSNorm, SwiGLU, RoPE.
+			// Chemin CPU (aller-retour en préservant le device, comme les autres
+			// ops sans noyau dédié). Chacune est vérifiée par différences finies
+			// dans NKAutogradTest — c'est la seule preuve qui vaille pour une
+			// dérivée écrite à la main.
+			// =================================================================
+
+			NkVar RMSNorm(const NkVar &x, double eps) {
+				NkTensor y = ToDevOf(RmsNormCpu(x.Value(), eps), x.Value());
+				NkVar v = NkMakeOp(NkAutoOp::NK_RMSNORM, y, x.Node(), nullptr);
+				v.Node()->fparam = eps;
+				return v;
+			}
+
+			// h = silu(g) ⊙ u, silu(g) = g·σ(g).
+			NkVar SwiGLU(const NkVar &gate, const NkVar &up) {
+				NkTensor gc = ToCpuT(gate.Value()).Contiguous();
+				NkTensor uc = ToCpuT(up.Value()).Contiguous();
+				const int64 n = gc.Numel();
+				NkTensor out = NkTensor::Zeros(gc.Shape());
+				const float *gp = gc.DataAs<float>();
+				const float *up2 = uc.DataAs<float>();
+				float *op = out.DataAs<float>();
+				for (int64 i = 0; i < n; ++i) {
+					const double gv = (double)gp[i];
+					const double sig = 1.0 / (1.0 + std::exp(-gv));
+					op[i] = (float)(gv * sig * (double)up2[i]);
+				}
+				return NkMakeOp(NkAutoOp::NK_SWIGLU, ToDevOf(out, gate.Value()), gate.Node(), up.Node());
+			}
+
+			NkVar RoPE(const NkVar &x, int32 posOffset, double freqBase) {
+				NkTensor y = ToDevOf(RopeApplyCpu(x.Value(), posOffset, freqBase, 1.0), x.Value());
+				NkVar v = NkMakeOp(NkAutoOp::NK_ROPE, y, x.Node(), nullptr);
+				v.Node()->iparam[0] = posOffset;
+				v.Node()->fparam = freqBase;
+				return v;
 			}
 
 			NkVar LayerNorm(const NkVar &x) {

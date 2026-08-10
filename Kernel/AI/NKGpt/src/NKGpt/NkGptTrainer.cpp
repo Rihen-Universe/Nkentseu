@@ -3,6 +3,7 @@
 // AUTEUR : Rihen — LICENCE : Propriétaire - usage régi par le fichier LICENSE à la racine du dépôt
 // =============================================================================
 #include "NKGpt/NkGptTrainer.h"
+#include "NKData/NkBpeTrainer.h" // tokenizer pré-entraîné (LoadBpe) + encodeur à mémo
 #include "NKOptim/NkOptim.h"
 #include "NKTensor/NkTensorGpu.h"
 #include "NKTime/NkChrono.h"
@@ -32,7 +33,13 @@ namespace nkentseu {
 			// texts (par langue) -> mLangData/mLangMask, avec le BPE courant. Masque la question des
 			// blocs "Question:/Réponse:" (instruction-tuning : seule la réponse compte dans la loss).
 			nk_size NkGptTrainer::EncodeCorpus(const NkVector<NkString> &texts) {
-				const NkStringView marker("Réponse: ");
+				const NkString markerStr = mCfg.qaMarker.Empty() ? NkString("Réponse: ") : mCfg.qaMarker;
+				const NkStringView marker(markerStr.CStr());
+				// Encodeur à mémo : sur un corpus de plusieurs dizaines de Mo, le même mot
+				// est ré-encodé des millions de fois pour un résultat identique. Sans le
+				// mémo, l'encodage du corpus coûte plus cher que plusieurs pas
+				// d'entraînement. Résultat strictement identique (vérifié par NKBpeTest).
+				data::NkBpeEncoder enc(mBpe);
 				mLangData.Resize((nk_size)texts.Size());
 				mLangMask.Resize((nk_size)texts.Size());
 				nk_size totalTok = 0;
@@ -41,7 +48,7 @@ namespace nkentseu {
 					const bool isQa = txt.Find(marker) != NkString::npos;
 					if (!isQa) {
 						NkVector<int32> ids;
-						mBpe.Encode(txt, ids);
+						enc.Encode(txt, ids);
 						for (int64 k = 0; k < (int64)ids.Size(); ++k) {
 							mLangData[(nk_size)li].PushBack((float)ids[(nk_size)k]);
 							mLangMask[(nk_size)li].PushBack(1.f);
@@ -56,27 +63,65 @@ namespace nkentseu {
 							pos = (be == NkString::npos) ? sz : be + 2;
 							if (block.Size() == 0)
 								continue;
-							const nk_size mp = block.Find(marker);
-							NkString qPart = (mp == NkString::npos) ? block : block.SubStr(0, mp + marker.Size());
-							NkVector<int32> qIds;
-							mBpe.Encode(qPart, qIds);
-							for (int64 k = 0; k < (int64)qIds.Size(); ++k) {
-								mLangData[(nk_size)li].PushBack((float)qIds[(nk_size)k]);
-								mLangMask[(nk_size)li].PushBack(0.f);
-							}
-							if (mp != NkString::npos) {
-								NkString aPart = block.SubStr(mp + marker.Size());
-								if (aPart.Size() > 0) {
-									NkVector<int32> aIds;
-									mBpe.Encode(aPart, aIds);
-									for (int64 k = 0; k < (int64)aIds.Size(); ++k) {
-										mLangData[(nk_size)li].PushBack((float)aIds[(nk_size)k]);
-										mLangMask[(nk_size)li].PushBack(1.f);
-									}
+
+							// Un bloc peut contenir PLUSIEURS tours, pas un seul. On alterne
+							// donc : tout ce qui va jusqu'au marqueur de réponse INCLUS est
+							// masqué (c'est la question), tout ce qui suit jusqu'au tour
+							// suivant compte dans la perte (c'est la réponse).
+							// SANS cette alternance, la version précédente comptait dans la
+							// perte TOUT ce qui suit la première réponse — donc les questions
+							// suivantes de l'utilisateur : le modèle apprendrait à les écrire
+							// à sa place. Sur un corpus à un seul tour, ce code fait
+							// exactement ce que faisait l'ancien (la boucle ne tourne qu'une
+							// fois), la non-régression est donc structurelle.
+							auto emettre = [&](const NkString &s, float masque) {
+								if (s.Size() == 0)
+									return;
+								NkVector<int32> ids;
+								enc.Encode(s, ids);
+								for (int64 k = 0; k < (int64)ids.Size(); ++k) {
+									mLangData[(nk_size)li].PushBack((float)ids[(nk_size)k]);
+									mLangMask[(nk_size)li].PushBack(masque);
 								}
+							};
+							const nk_size blen2 = block.Size();
+							// ⚠️ UN CORPUS PEUT ÊTRE MIXTE. Dès qu'un seul « Reponse: »
+							// figurait dans le fichier, TOUT le texte passait par le chemin
+							// question/réponse — et un paragraphe de prose, dépourvu du
+							// marqueur, était intégralement MASQUÉ. Constaté en assemblant
+							// l'identité et Wikipédia : 0,075 % des positions comptaient
+							// dans la perte, et le premier pas rendait une perte de ZÉRO.
+							// Un bloc sans marqueur est de la PROSE : il compte en entier.
+							if (block.Find(markerStr.CStr()) == NkString::npos) {
+								emettre(block, 1.f);
+								NkVector<int32> sepP;
+								enc.Encode(NkString("\n\n"), sepP);
+								for (int64 k = 0; k < (int64)sepP.Size(); ++k) {
+									mLangData[(nk_size)li].PushBack((float)sepP[(nk_size)k]);
+									mLangMask[(nk_size)li].PushBack(1.f);
+								}
+								continue;
+							}
+							nk_size bp = 0;
+							while (bp < blen2) {
+								const nk_size mp = block.Find(markerStr.CStr(), bp);
+								if (mp == NkString::npos) {
+									emettre(block.SubStr(bp), 0.f); // question sans réponse
+									break;
+								}
+								emettre(block.SubStr(bp, mp + marker.Size() - bp), 0.f);
+								bp = mp + marker.Size();
+								// Le tour suivant commence par un « Question: » EN DÉBUT DE
+								// LIGNE — chercher « Question: » seul le trouverait aussi au
+								// milieu d'une réponse qui en parle.
+								const nk_size nq = block.Find("\nQuestion:", bp);
+								const nk_size fin = (nq == NkString::npos) ? blen2 : nq;
+								if (fin > bp)
+									emettre(block.SubStr(bp, fin - bp), 1.f);
+								bp = fin;
 							}
 							NkVector<int32> sepIds;
-							mBpe.Encode(NkString("\n\n"), sepIds);
+							enc.Encode(NkString("\n\n"), sepIds);
 							for (int64 k = 0; k < (int64)sepIds.Size(); ++k) {
 								mLangData[(nk_size)li].PushBack((float)sepIds[(nk_size)k]);
 								mLangMask[(nk_size)li].PushBack(0.f);
@@ -84,6 +129,25 @@ namespace nkentseu {
 						}
 					}
 					totalTok += mLangData[(nk_size)li].Size();
+				}
+
+				// Le masquage question/réponse repose sur DEUX conditions muettes : que le
+				// marqueur figure tel quel dans le texte, et que les blocs soient séparés
+				// par une ligne vide en « \n\n » (un corpus Windows en « \r\n\r\n » n'en
+				// produit qu'un seul, énorme). Si l'une des deux manque, l'entraînement se
+				// déroule normalement — sur la mauvaise cible. On mesure donc la part
+				// réellement masquée au lieu de la supposer.
+				{
+					nk_size actifs = 0, total = 0;
+					for (int64 li = 0; li < (int64)mLangMask.Size(); ++li)
+						for (int64 k = 0; k < (int64)mLangMask[(nk_size)li].Size(); ++k) {
+							++total;
+							if (mLangMask[(nk_size)li][(nk_size)k] != 0.f)
+								++actifs;
+						}
+					if (mCfg.verbose && total > 0)
+						logger.Info("Masquage (marqueur « {0} ») : {1}% des positions comptent dans la perte.",
+									markerStr.CStr(), 100.0 * (double)actifs / (double)total);
 				}
 
 				// Split held-out : réserve la QUEUE de chaque langue au val (jamais vue à l'entraînement).
@@ -228,6 +292,28 @@ namespace nkentseu {
 					for (int64 i = 0; i < (int64)meta.merges.Size(); ++i)
 						mBpe.merges.PushBack(meta.merges[(nk_size)i]);
 					mBpe.BuildVocabRank();
+					// Le checkpoint « NKGP » ne transporte PAS le mode de pré-tokenisation
+					// (format antérieur à son existence). Un modèle entraîné avec un
+					// découpage mots/ponctuation et rechargé sans cette information
+					// encoderait ses invites autrement qu'à l'entraînement — sans erreur
+					// visible, juste des réponses incohérentes. Le fichier tokenizer, lui,
+					// le porte : quand il est fourni, il fait autorité.
+					if (!mCfg.bpePath.Empty()) {
+						Bpe fromFile;
+						if (!data::LoadBpe(mCfg.bpePath.CStr(), fromFile)) {
+							logger.Info("Tokenizer illisible : {0}", mCfg.bpePath.CStr());
+							return false;
+						}
+						if (fromFile.merges.Size() != mBpe.merges.Size()) {
+							logger.Info("Tokenizer et checkpoint incompatibles : {0} fusions contre {1}.",
+										(unsigned long long)fromFile.merges.Size(),
+										(unsigned long long)mBpe.merges.Size());
+							return false;
+						}
+						mBpe.pretok = fromFile.pretok;
+						if (V)
+							logger.Info("Mode de pre-tokenisation repris du tokenizer : {0}.", mBpe.pretok);
+					}
 					mNByte = mBpe.Base();
 					if (V)
 						logger.Info(
@@ -254,9 +340,22 @@ namespace nkentseu {
 						logger.Info("Corpus introuvable/trop court.");
 						return false;
 					}
-					if (V)
-						logger.Info("Entraînement du tokenizer BPE ({0} fusions cible)...", mCfg.merges);
-					TrainBpe(texts, mCfg.merges, mBpe);
+					if (!mCfg.bpePath.Empty()) {
+						// Tokenizer pré-entraîné : on ne le ré-apprend pas. C'est ce qui rend
+						// praticable un vocabulaire de 16 k et, surtout, ce qui garantit qu'un
+						// entraînement repris plus tard découpe le texte EXACTEMENT pareil.
+						if (!data::LoadBpe(mCfg.bpePath.CStr(), mBpe)) {
+							logger.Info("Tokenizer illisible : {0}", mCfg.bpePath.CStr());
+							return false;
+						}
+						if (V)
+							logger.Info("Tokenizer charge : {0} ({1} fusions, mode pretok {2}).", mCfg.bpePath.CStr(),
+										(unsigned long long)mBpe.merges.Size(), mBpe.pretok);
+					} else {
+						if (V)
+							logger.Info("Entraînement du tokenizer BPE ({0} fusions cible)...", mCfg.merges);
+						TrainBpe(texts, mCfg.merges, mBpe);
+					}
 					mNByte = mBpe.Base();
 					mV = mNByte + (int)mLangs.Size();
 					const nk_size totalTok = EncodeCorpus(texts);
@@ -290,7 +389,29 @@ namespace nkentseu {
 						if (!(langs2[(nk_size)i] == mLangs[(nk_size)i]))
 							langsOk = false;
 					if (!langsOk) {
-						logger.Info("Reprise IMPOSSIBLE : les tags du corpus ne correspondent pas au checkpoint.");
+						// Le message d'origine disait QUE ça ne correspondait pas, jamais
+						// QUOI — et ces tags viennent du NOM DU FICHIER, pas de son
+						// contenu. Un corpus français rebaptisé se voyait donc refusé
+						// sans qu'on puisse deviner pourquoi (une demi-heure perdue le
+						// 2026-08-10). Dire les deux listes rend la correction évidente.
+						NkString attendus;
+						for (nk_size i = 0; i < mLangs.Size(); ++i) {
+							if (i)
+								attendus.Append(", ");
+							attendus.Append(mLangs[i]);
+						}
+						NkString trouves;
+						for (nk_size i = 0; i < langs2.Size(); ++i) {
+							if (i)
+								trouves.Append(", ");
+							trouves.Append(langs2[i]);
+						}
+						logger.Info("Reprise IMPOSSIBLE : le checkpoint attend les tags [{0}], le corpus fourni "
+									"donne [{1}].",
+									attendus.CStr(), trouves.CStr());
+						logger.Info("Ces tags sont deduits du NOM DU FICHIER, pas de son contenu : renommer le "
+									"corpus pour qu'il porte le meme prefixe (par exemple fr_...) suffit "
+									"generalement. Repartir de zero sans --load est l'autre issue.");
 						return false;
 					}
 					const nk_size totalTok = EncodeCorpus(texts);
@@ -496,6 +617,66 @@ namespace nkentseu {
 					}
 					adam.Step();
 					mEma = (s == 1) ? lv : 0.98 * mEma + 0.02 * lv;
+
+					// ---- FILET 1 : la perte est-elle seulement UNE PERTE ? ----
+					// L'entropie croisée vaut -log(p) avec p strictement inférieur à 1 :
+					// elle est STRICTEMENT POSITIVE par construction. Zéro, une valeur
+					// négative ou un NaN ne sont donc pas des pertes basses, ce sont des
+					// impossibilités — la marque d'un calcul qui n'a pas eu lieu.
+					//
+					// POURQUOI CE FILET EXISTE EN PLUS DE CELUI D'EN DESSOUS. Mesuré le
+					// 2026-08-10 à B=24 : la perte part correctement de 9,71785 (soit
+					// ln(16385), la valeur du hasard), puis tombe à 0 EXACTEMENT au 25e
+					// pas. Le contrôle des 30 pas ci-dessous a alors SALUÉ cette chute
+					// comme « une baisse de 100 %, l'entrainement calcule reellement »,
+					// et le run a paru 2,5 fois plus rapide que la normale. Un garde-fou
+					// qui rassure à tort est pire que pas de garde-fou du tout : il fait
+					// tourner des heures dans le vide en affichant que tout va bien.
+					if (!(lv > 0.0) || lv != lv || lv > 1e30) {
+						logger.Info("*** ARRET au pas {0} : perte = {1}, ce qui est IMPOSSIBLE. ***", (long long)s,
+									lv);
+						logger.Info("*** Une entropie croisee est strictement positive ; zero, negatif ou NaN "
+									"signifie que le calcul GPU ne produit plus rien. Defauts GPU signales : "
+									"{0}. Reduire --B (et augmenter --accum a lot effectif egal). ***",
+									(long long)NkTensorGpu::DefautCount());
+						break;
+					}
+
+					// ---- FILET 2 : est-ce que ça apprend, vraiment ? ----
+					// Un calcul GPU qui échoue en silence (allocation refusée, lot trop
+					// grand) laisse la perte EXACTEMENT à sa valeur initiale pendant que
+					// le run paraît plus rapide que jamais — constaté le 2026-08-09, et
+					// rien dans le journal ne le disait. Une perte qui n'a pas bougé
+					// d'un millième après 30 pas n'est pas un entraînement lent : c'est
+					// un entraînement qui n'a pas lieu. On arrête plutôt que de brasser
+					// du vide pendant des heures.
+					if (s == 1)
+						mPerteInitiale = lv;
+					if (s == 30 && mPerteInitiale > 0.0) {
+						const double bouge = (mPerteInitiale - lv) / mPerteInitiale;
+						const int64 defauts = NkTensorGpu::DefautCount();
+						if (bouge < 0.001 || defauts > 0) {
+							logger.Info("*** ARRET : apres 30 pas la perte n'a pas bouge ({0} -> {1}, soit {2}%). "
+										"Defauts GPU signales : {3}. ***",
+										mPerteInitiale, lv, bouge * 100.0, (long long)defauts);
+							logger.Info("*** Le calcul n'a tres probablement PAS lieu. Causes connues : lot trop "
+										"grand pour la carte (essayer --B plus petit avec --accum plus grand a lot "
+										"effectif egal), ou memoire video insuffisante. ***");
+							break;
+						}
+						if (V)
+							logger.Info("  [controle] la perte a bien baisse de {0}% en 30 pas — l'entrainement "
+										"calcule reellement.",
+										bouge * 100.0);
+						if (V)
+							logger.Info("  [mesure] {0} operations GPU en 30 pas = {1} par pas — a {2} s/pas, "
+										"le cout fixe par operation vaut {3} ms.",
+										(long long)NkTensorGpu::OpCount(), (long long)(NkTensorGpu::OpCount() / 30),
+										chrono.Elapsed().seconds / 30.0,
+										(NkTensorGpu::OpCount() > 0)
+											? (chrono.Elapsed().seconds * 1000.0) / (double)NkTensorGpu::OpCount()
+											: 0.0);
+					}
 					if (V && (s % 25 == 0 || s == 1))
 						logger.Info("  pas {0} : perte = {1}  (moy. {2})  lr={3}", s, lv, mEma, (double)lr);
 					if (mCfg.valEvery > 0 && mValData.Size() > 0 && s % mCfg.valEvery == 0) {

@@ -11,7 +11,7 @@
 // Sortie : une ligne par fichier + un recapitulatif. Code de retour = nombre
 // de fichiers en echec, pour pouvoir l'enchainer dans un script.
 //
-#include "NKCode/Pdf/NkPdf.h"
+#include "NKMedia/Pdf/NkPdf.h"
 
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkFile.h"

@@ -35,6 +35,8 @@ uniform ShadowSlotsUBO {
     vec4 biasParams;
 } uShadows;
 @binding(set=0, binding=11) uniform sampler2DShadow tShadowAtlas;
+// Atlas BRUT (non comparatif) : exige par le mode PCSS de NkShadowAtlas.glsli.
+@binding(set=0, binding=12) uniform sampler2D tShadowAtlasRaw;
 #include "Include/NkShadowAtlas.glsli"
 
 @binding(set=2, binding=8)

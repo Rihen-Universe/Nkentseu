@@ -455,6 +455,39 @@ int nkmain(const NkEntryState &entry) {
 	recents.Load();
 	printf("[nk3d] %d projet(s) recent(s).\n", (int)recents.items.Size());
 
+	// ── CROCHETS D'AGENT (verification headless, autorisee par Rihen le
+	// 9 aout : « tester avec des scripts ou lancer directement l'application,
+	// faire des captures et analyser ») ────────────────────────────────────
+	//   NK_OPEN_RECENT=<i> : ouvre le i-eme projet recent au demarrage, par le
+	//     MEME point de passage que le double-clic de l'accueil (action 7 de
+	//     NkProjectHandlePending) — aucun second chemin d'ouverture.
+	//   NK_AGENT_SHOT=<n>  : a la frame n, declenche la capture « tutoriel »
+	//     (toute la fenetre, PNG numerote) — celle des boutons du bas.
+	//   NK_AGENT_EXIT=<n>  : a la frame n, quitte proprement (st.running).
+	// Ces crochets ne font qu'ARMER des etats que l'interface arme deja : si
+	// personne ne les pose, rien ne change.
+	int32 agentShotFrame = -1, agentExitFrame = -1, agentOpenRecent = -1;
+	{
+		if (const char *v = std::getenv("NK_OPEN_RECENT")) {
+			const int32 idx = (int32)std::atoi(v);
+			if (idx >= 0 && (usize)idx < recents.items.Size()) {
+				// PAS tout de suite : ouvrir a la frame 0 fige l'application —
+				// la restitution appelle l'hote 3D, qui ne nait qu'au premier
+				// PAINT du viewport. On attend donc qu'il soit pret (boucle),
+				// comme le fait de facto un clic humain sur l'accueil.
+				agentOpenRecent = idx;
+			} else {
+				printf("[nk3d] NK_OPEN_RECENT=%d hors bornes (%d recents)\n", idx,
+					   (int)recents.items.Size());
+			}
+		}
+		if (const char *v = std::getenv("NK_AGENT_SHOT"))
+			agentShotFrame = (int32)std::atoi(v);
+		if (const char *v = std::getenv("NK_AGENT_EXIT"))
+			agentExitFrame = (int32)std::atoi(v);
+	}
+	int32 agentFrame = 0;
+
 	// ── ENTREE SOURIS ───────────────────────────────────────────────────────
 	// NKGui calcule les TRANSITIONS (clic, relachement, double-clic) dans
 	// BeginFrame a partir de l'etat BRUT que l'application pose ici. On se
@@ -1619,6 +1652,115 @@ int nkmain(const NkEntryState &entry) {
 		} else
 			sTutoCursor.Clear(); // une prise neuve ne herite pas du geste precedent
 #endif
+
+		// ── CROCHETS D'AGENT : capture et sortie a la frame demandee ────────
+		// (cf. leur declaration pres de recents.Load() — ils ne font qu'armer
+		// ce que les boutons arment deja.)
+		++agentFrame;
+		if (agentOpenRecent >= 0 && agentFrame >= 3 && demo::Demo3DHostReady()) {
+			st.projRecent = agentOpenRecent;
+			st.projPending = 7;
+			agentOpenRecent = -1;
+		}
+		if (agentShotFrame > 0 && agentFrame == agentShotFrame)
+			st.capturePending = 2; // « tutoriel » : toute la fenetre
+		// NK_AGENT_SAVE=<n> : « Enregistrer tout » (action 8) a la frame n —
+		// le MEME chemin que Ctrl+Maj+S. Pour le test d'aller-retour de la
+		// persistance : enregistrer, relancer, re-enregistrer, comparer.
+		{
+			static int32 sAgentSaveFrame = -2;
+			if (sAgentSaveFrame == -2) {
+				const char *v = std::getenv("NK_AGENT_SAVE");
+				sAgentSaveFrame = v ? (int32)std::atoi(v) : -1;
+			}
+			if (sAgentSaveFrame > 0 && agentFrame == sAgentSaveFrame && st.projPending == 0)
+				st.projPending = 8;
+		}
+		if (agentExitFrame > 0 && agentFrame >= agentExitFrame)
+			st.running = false;
+		// NK_SHADOW_QUALITY=<0..4> / NK_SHADOW_SOFT=<f> : appliques UNE fois,
+		// des que l'hote 3D existe — par le MEME setter que le panneau. Le
+		// combo du panneau est aussi aligne, sinon il repousserait son propre
+		// etat par-dessus a la frame suivante.
+		{
+			static bool sAgentShadowDone = false;
+			if (!sAgentShadowDone && demo::Demo3DHostReady()) {
+				sAgentShadowDone = true;
+				const char *q = std::getenv("NK_SHADOW_QUALITY");
+				const char *sf = std::getenv("NK_SHADOW_SOFT");
+				if (q || sf) {
+					float32 nb = 0.f, sb = 0.f, so = 0.f;
+					int32 qq = 1;
+					if (demo::Demo3DHostShadowCfg(&nb, &sb, &so, &qq)) {
+						if (q)
+							qq = (int32)std::atoi(q);
+						if (sf)
+							so = (float32)std::atof(sf);
+						demo::Demo3DHostSetShadowCfg(nb, sb, so, qq);
+						st.shadowQual = qq;
+					}
+				}
+			}
+		}
+		// NK_LIGHT_ATT=<0|1> : loi d'attenuation de TOUTES les lumieres, par le
+		// setter du panneau (no-op sur les noeuds non-lumiere) — pour l'A/B
+		// heritee vs physique face a Blender.
+		{
+			static bool sAgentAttDone = false;
+			if (!sAgentAttDone && agentFrame >= 10 && demo::Demo3DHostReady()) {
+				sAgentAttDone = true;
+				if (const char *v = std::getenv("NK_LIGHT_ATT")) {
+					// "mode[,watts]" : en physique, l'intensite devient des watts —
+					// on peut donc poser « comme Blender » (ex. 1,1000).
+					int32 mode = 0;
+					float32 watts = -1.f;
+					std::sscanf(v, "%d,%f", &mode, &watts);
+					for (int32 n = 0; n < 1024; ++n) {
+						demo::Demo3DHostSetLightAttMode(n, mode);
+						if (watts > 0.f) {
+							float32 c3[3];
+							float32 i3 = 0.f;
+							if (demo::Demo3DHostUserLightParams(n, c3, &i3))
+								demo::Demo3DHostSetUserLightParams(n, c3, watts);
+						}
+					}
+				}
+			}
+		}
+		// NK_SSAO="0|1[,rayon[,intensite]]" : l'occlusion ambiante par le MEME
+		// setter que le panneau — pour l'A/B d'agent du bouton Actif.
+		{
+			static bool sAgentSSAODone = false;
+			if (!sAgentSSAODone && agentFrame >= 10 && demo::Demo3DHostReady()) {
+				sAgentSSAODone = true;
+				if (const char *v = std::getenv("NK_SSAO")) {
+					int32 on = 0;
+					float32 rad = 0.5f, inten = 1.f;
+					std::sscanf(v, "%d,%f,%f", &on, &rad, &inten);
+					demo::Demo3DHostSetSSAO(on != 0, rad, inten);
+				}
+			}
+		}
+		// NK_MAT_SURFACE="cc,ccRough,sss" : physique de surface du materiau par
+		// defaut, par le MEME setter que le panneau. Applique une fois, APRES
+		// l'eventuelle ouverture de projet (frame 10) : la relecture d'un
+		// .nkmat repasserait par-dessus.
+		{
+			static bool sAgentMatDone = false;
+			if (!sAgentMatDone && agentFrame >= 10 && demo::Demo3DHostReady()) {
+				sAgentMatDone = true;
+				if (const char *v = std::getenv("NK_MAT_SURFACE")) {
+					float32 cc = 0.f, ccR = 0.f, sss = 0.f;
+					std::sscanf(v, "%f,%f,%f", &cc, &ccR, &sss);
+					// TOUS les emplacements utilises : l'agent ne sait pas lequel
+					// porte le cube de la scene, et un reglage de test n'a pas a
+					// le deviner.
+					const int32 mx = demo::Demo3DHostProjMatMax();
+					for (int32 m = 0; m < mx; ++m)
+						demo::Demo3DHostProjMatSetSurface(m, cc, ccR, sss);
+				}
+			}
+		}
 
 		// ── CAPTURES, une fois l'image envoyee ──────────────────────────────
 		// « Capturer la vue » fige la cible hors ecran de la vue 3D (la scene
