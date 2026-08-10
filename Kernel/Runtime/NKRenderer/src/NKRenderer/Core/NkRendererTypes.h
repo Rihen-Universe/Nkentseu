@@ -353,6 +353,14 @@ namespace nkentseu {
 				// 10 aout (decision de Rihen) : c'est la loi correcte, l'heritee
 				// ne reste que pour relire les scenes reglees a l'oeil avant elle.
 				int32 attenuationMode = 1;
+				// ── Profondeur d'ombre LINEAIRE (omni, option — 2026-08-10) ───
+				// false = profondeur projetee des 6 faces (historique). true =
+				// l'atlas recoit dist(fragment,lumiere)/portee (LearnOpenGL
+				// « point shadows ») : biais constant sur toute la portee, plus
+				// d'artefacts dependant de la non-linearite projective. Transport
+				// vers le shader par le SIGNE de lightPosOrDir.w (w<0 = lineaire,
+				// |w| = portee) — aucun changement de layout UBO.
+				bool pointShadowLinear = false;
 				// ── Temperature de couleur et exposition (2026-08) ────────────
 				// Deux reglages qu'attend tout eclairagiste, et qui manquaient :
 				//   temperatureK : blanc de reference en kelvins (1000..12000).

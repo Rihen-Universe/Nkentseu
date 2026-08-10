@@ -1,0 +1,45 @@
+// shadow_linear.vert.nksl — NKRenderer — dépôt d'ombre OMNI en DISTANCE LINÉAIRE.
+// Variante de shadow.vert : la position MONDE descend au fragment, qui écrira
+// gl_FragDepth = distance(monde, lumière)/portée. Pourquoi : la profondeur
+// projetée d'une face 90° est très non linéaire (biais énorme près, nul loin) ;
+// la distance normalisée rend le biais CONSTANT et efface les coutures de faces
+// (option LearnOpenGL « point shadows », demandée par Rihen).
+
+@location(0) in vec3 aPos;
+
+// Même ObjectUBO que shadow.vert (le binding 1 est partagé entre les shaders
+// de la passe : la déclaration std140 doit être identique).
+@binding(set=1, binding=1)
+uniform ObjectUBO {
+    mat4  model;
+    mat4  normalMatrix;
+    vec4  tint;
+    float metallic;
+    float roughness;
+    float aoStrength;
+    float emissiveStrength;
+    float normalStrength;
+    float clearcoat;
+    float clearcoatRoughness;
+    float subsurface;
+    vec4  subsurfaceColor;
+} uObj;
+
+// PC étendu : lightVP + position de la lumière (xyz) et portée (w).
+layout(push_constant) uniform PC {
+    mat4 lightVP;
+    vec4 lightPosFar;
+} pc;
+
+@location(0) out vec3 vWorld;
+
+@stage(vertex)
+@entry
+void main() {
+    vec4 wp = uObj.model * vec4(aPos, 1.0);
+    vWorld = wp.xyz;
+    // La correction Z clip [-1,1]→[0,1] est BAKÉE dans lightVP (comme
+    // shadow.vert) — le Z projeté ne sert d'ailleurs qu'au clipping ici,
+    // la profondeur écrite vient du fragment.
+    gl_Position = pc.lightVP * wp;
+}

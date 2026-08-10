@@ -549,7 +549,11 @@ namespace nkentseu {
 				s.renderMatrix = lightProj * lightView;
 				ApplyDepthClipCorrection(s.renderMatrix); // [-1,1]->[0,1] sur VK/DX
 				s.shadowMatrix = s.renderMatrix;
-				s.lightPosOrDir = NkVec4f{pos.x, pos.y, pos.z, farP};
+				// w NEGATIF = les faces de cette omni contiennent des DISTANCES
+				// normalisees (mode lineaire) : le recepteur lit |w| comme portee
+				// et bascule sa comparaison (cf. NkSamplePointShadow).
+				s.lightPosOrDir =
+					NkVec4f{pos.x, pos.y, pos.z, light.pointShadowLinear ? -farP : farP};
 
 				mActiveSlotCount++;
 				successCount++;

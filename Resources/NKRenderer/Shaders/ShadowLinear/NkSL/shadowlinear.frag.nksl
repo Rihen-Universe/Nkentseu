@@ -1,0 +1,20 @@
+// shadow_linear.frag.nksl — NKRenderer — dépôt d'ombre OMNI en DISTANCE LINÉAIRE.
+// Écrit gl_FragDepth = distance(fragment, lumière)/portée, clampée [0,1].
+// Le récepteur (NkShadowAtlas.glsli) compare la même grandeur : biais constant,
+// plus de dépendance à la non-linéarité de la profondeur projetée.
+// Écrire la profondeur au fragment désactive early-Z : réservé aux faces omni
+// dont la lumière a choisi ce mode (pipelines dédiés, jamais le chemin commun).
+
+layout(push_constant) uniform PC {
+    mat4 lightVP;
+    vec4 lightPosFar;
+} pc;
+
+@location(0) in vec3 vWorld;
+
+@stage(fragment)
+@entry
+void main() {
+    float farP = max(pc.lightPosFar.w, 0.001);
+    gl_FragDepth = clamp(length(vWorld - pc.lightPosFar.xyz) / farP, 0.0, 1.0);
+}
