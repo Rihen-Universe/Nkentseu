@@ -671,6 +671,8 @@ namespace nkentseu {
 				NkVector<NkBufferHandle> mUBOInstanceRing; // [frame] models[128]+tints[128] (instancing GPU)
 				NkTextureHandle mDefaultCubeWhite;		   // E.6b : fallback cube cookie
 				NkTextureHandle mMatcapTex;				   // boule matcap (mode solid, binding 28)
+				NkTextureHandle mLTC1Tex;				   // table LTC M^-1 (binding 29)
+				NkTextureHandle mLTC2Tex;				   // table LTC norm/Fresnel (binding 30)
 				uint32 mFramesInFlight = 1;
 				uint32 mFrameSlot = 0;
 				uint32 mObjectDrawIdx = 0;
