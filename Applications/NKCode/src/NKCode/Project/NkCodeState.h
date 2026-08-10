@@ -93,6 +93,51 @@ namespace nkentseu {
 					return mBuild.Running() || !mQueue.Empty();
 				}
 
+				// ── Quelle ACTION tourne en ce moment ? ─────────────────────────────
+				// Construire, Executer, Deboguer et Tests passent tous par la MEME file
+				// et le meme processus : « quelque chose tourne » ne disait donc pas
+				// QUOI, et les quatre boutons s'allumaient ensemble ou pas du tout.
+				// Le verbe de la commande en cours (`jenga <verbe> ...`) tranche.
+				// Rend un pointeur constant ("build", "run", "debug", "test"...) ou
+				// nullptr si rien ne tourne.
+				const char *RunningVerb() const {
+					if (!mBuild.Running() && mQueue.Empty())
+						return nullptr;
+					const NkString &cmd = !mCmdCur.Empty() ? mCmdCur : (mQueue.Empty() ? mCmdCur : mQueue[0]);
+					if (cmd.Empty())
+						return nullptr;
+					// Le verbe est le PREMIER MOT apres « jenga » (EnqueueJenga garantit
+					// cette forme). Le chercher en sous-chaine serait fragile : un projet
+					// nomme « Runner » dans --target ferait passer un build pour un run.
+					const char *p = NkFindSub(cmd.CStr(), "jenga ");
+					if (!p)
+						return nullptr;
+					p += 6;
+					while (*p == ' ')
+						++p;
+					usize n = 0;
+					while (p[n] && p[n] != ' ')
+						++n;
+					static const char *const kVerbes[] = {"build", "rebuild", "clean",		  "run",
+														  "debug", "test",	  "installcompiler"};
+					for (usize i = 0; i < sizeof(kVerbes) / sizeof(kVerbes[0]); ++i) {
+						const char *v = kVerbes[i];
+						usize lv = 0;
+						while (v[lv])
+							++lv;
+						if (lv == n && ::strncmp(p, v, n) == 0)
+							return v;
+					}
+					return nullptr;
+				}
+
+				// L'action `verbe` est-elle celle qui tourne ? `rebuild` n'allume pas
+				// `build`, et inversement : ce sont deux boutons distincts.
+				bool IsActionRunning(const char *verbe) const {
+					const char *v = RunningVerb();
+					return v && verbe && StrEqI(v, verbe);
+				}
+
 				// Progression GLOBALE lissee : modules finis + fraction du module en cours.
 				float32 BuildProgress() const {
 					float32 frac = buildTotal > 0 ? (float32)buildDone / (float32)buildTotal : 0.f;
