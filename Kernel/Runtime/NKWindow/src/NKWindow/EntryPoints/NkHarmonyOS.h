@@ -39,6 +39,15 @@
 
 #include "NKWindow/Core/NkEntry.h"
 #include "NKWindow/Platform/HarmonyOS/NkHarmonyWindow.h"
+// Definition COMPLETE de NkWindow et evenements tactiles : le routage du
+// toucher (OnDispatchTouchEventCB) appelle win->GetId() et construit des
+// NkTouch*Event.
+#include "NKWindow/Core/NkWindow.h"
+#include "NKWindow/Core/NkWESystem.h"
+#include "NKEvent/NkTouchEvent.h"
+// Lecture des ressources empaquetees dans le HAP (resources/rawfile).
+#include "NKFileSystem/NkFile.h"
+#include <rawfile/raw_file_manager.h>
 #include "NKLogger/NkLog.h"
 #include "NKCore/NkTraits.h"
 #include "NKMemory/NkAllocator.h" // NkGetDefaultAllocator().New/Delete (regle maison : pas de new/delete)
@@ -86,11 +95,92 @@ namespace nkentseu {
 			NkHarmonyOnSurfaceDestroyed(comp);
 		}
 
+		// Le tactile est la SEULE entrée d'une application HarmonyOS de ce type :
+		// il n'y a ni clavier ni souris sur téléphone. Ce callback était un stub
+		// vide — les applications recevaient donc l'image, mais aucun geste ne
+		// leur parvenait, alors que le même code fonctionne sur Android.
+		//
+		// On produit exactement les mêmes événements que le portage Android
+		// (NkAndroidEventSystem), pour que le code applicatif n'ait pas à savoir
+		// sur quelle plateforme il tourne.
 		inline void OnDispatchTouchEventCB(OH_NativeXComponent *comp, void *window) {
-			// Stub : les événements tactiles seront routés vers NkWESystem quand
-			// NkHarmonyEventSystem sera réécrit (cf. commentaire du stub).
-			(void)comp;
-			(void)window;
+			if (!comp || !window) {
+				return;
+			}
+
+			OH_NativeXComponent_TouchEvent brut{};
+			if (OH_NativeXComponent_GetTouchEvent(comp, window, &brut) != 0) {
+				return;
+			}
+
+			NkWindow *win = NkHarmonyGetWindowForXComponent(comp);
+			if (!win) {
+				return;
+			}
+
+			// Le type porté par l'ÉVÉNEMENT décrit le geste dans son ensemble ;
+			// chaque point garde le sien pour le multi-touch.
+			const auto versPhase = [](OH_NativeXComponent_TouchEventType t) {
+				switch (t) {
+					case OH_NATIVEXCOMPONENT_DOWN: return NkTouchPhase::NK_TOUCH_PHASE_BEGAN;
+					case OH_NATIVEXCOMPONENT_MOVE: return NkTouchPhase::NK_TOUCH_PHASE_MOVED;
+					case OH_NATIVEXCOMPONENT_UP: return NkTouchPhase::NK_TOUCH_PHASE_ENDED;
+					case OH_NATIVEXCOMPONENT_CANCEL: return NkTouchPhase::NK_TOUCH_PHASE_CANCELLED;
+					default: return NkTouchPhase::NK_TOUCH_PHASE_STATIONARY;
+				}
+			};
+
+			NkTouchPoint points[NK_MAX_TOUCH_POINTS];
+			uint32 count = 0;
+			const uint32 total = brut.numPoints < NK_MAX_TOUCH_POINTS ? brut.numPoints : NK_MAX_TOUCH_POINTS;
+			for (uint32 i = 0; i < total; ++i) {
+				const OH_NativeXComponent_TouchPoint &p = brut.touchPoints[i];
+				NkTouchPoint &dst = points[count++];
+				dst.id = static_cast<uint64>(p.id);
+				dst.phase = versPhase(p.type);
+				dst.clientX = p.x; // coordonnees LOCALES au XComponent
+				dst.clientY = p.y;
+				dst.screenX = p.screenX;
+				dst.screenY = p.screenY;
+				dst.pressure = p.force;
+			}
+			// Un evenement UP/CANCEL peut arriver avec numPoints a zero : on
+			// synthetise alors le point porte par l'evenement lui-meme, sinon le
+			// relachement serait perdu et l'application resterait « doigt pose ».
+			if (count == 0) {
+				NkTouchPoint &dst = points[count++];
+				dst.id = 0;
+				dst.phase = versPhase(brut.type);
+				dst.clientX = brut.x;
+				dst.clientY = brut.y;
+				dst.screenX = brut.screenX;
+				dst.screenY = brut.screenY;
+				dst.pressure = brut.force;
+			}
+
+			switch (brut.type) {
+				case OH_NATIVEXCOMPONENT_DOWN: {
+					NkTouchBeginEvent evt(points, count);
+					NkWESystem::Events().Enqueue_Public(evt, win->GetId());
+					break;
+				}
+				case OH_NATIVEXCOMPONENT_MOVE: {
+					NkTouchMoveEvent evt(points, count);
+					NkWESystem::Events().Enqueue_Public(evt, win->GetId());
+					break;
+				}
+				case OH_NATIVEXCOMPONENT_UP: {
+					NkTouchEndEvent evt(points, count);
+					NkWESystem::Events().Enqueue_Public(evt, win->GetId());
+					break;
+				}
+				case OH_NATIVEXCOMPONENT_CANCEL: {
+					NkTouchCancelEvent evt(points, count);
+					NkWESystem::Events().Enqueue_Public(evt, win->GetId());
+					break;
+				}
+				default: break;
+			}
 		}
 
 	} // namespace harmonydetail
@@ -198,6 +288,33 @@ namespace {
 		return b;
 	}
 
+	// Passerelle vers le ResourceManager de l'application.
+	//
+	// C'est le SEUL moyen de lire les fichiers empaquetés dans resources/rawfile
+	// du HAP : la libc ne les voit pas. Sans lui, toute ouverture de ressource
+	// échoue — constaté sur Pong : « 0/156 textures décodées, 156 manquantes »,
+	// donc une scène géométriquement correcte mais entièrement noire, sans la
+	// moindre erreur de rendu.
+	//
+	// L'export vit ici, dans le moteur, et non dans chaque application : la page
+	// générée par Jenga l'appelle sur le onLoad du XComponent.
+	napi_value NkHarmonyNapiSetResMgr(napi_env env, napi_callback_info info) {
+		size_t argc = 1;
+		napi_value args[1] = {};
+		napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+		if (argc < 1) {
+			return nullptr;
+		}
+		NativeResourceManager *mgr = OH_ResourceManager_InitNativeResourceManager(env, args[0]);
+		if (mgr) {
+			nkentseu::NkFile::SetHarmonyResourceManager(mgr);
+			NK_HARMONY_BOOTLOG("NkHarmonyNapiSetResMgr: ResourceManager installe (%p)", (void *)mgr);
+		} else {
+			NK_HARMONY_BOOTLOG("NkHarmonyNapiSetResMgr: OH_ResourceManager_InitNativeResourceManager a echoue");
+		}
+		return nullptr;
+	}
+
 	napi_value NkHarmonyNapiSafeArea(napi_env env, napi_callback_info info) {
 		size_t argc = 4;
 		napi_value args[4] = {};
@@ -272,6 +389,7 @@ namespace {
 			{"onWindowMinimized", nullptr, NkHarmonyNapiMinimise, nullptr, nullptr, nullptr, napi_enumerable, nullptr},
 			{"onWindowMaximized", nullptr, NkHarmonyNapiMaximise, nullptr, nullptr, nullptr, napi_enumerable, nullptr},
 			{"onWindowRestored", nullptr, NkHarmonyNapiRestaure, nullptr, nullptr, nullptr, napi_enumerable, nullptr},
+			{"nkSetResMgr", nullptr, NkHarmonyNapiSetResMgr, nullptr, nullptr, nullptr, napi_enumerable, nullptr},
 		};
 		const napi_status st = napi_define_properties(env, exports, sizeof(props) / sizeof(props[0]), props);
 		NK_HARMONY_BOOTLOG("NkHarmonyExporterPont: %d fonctions exportees (status=%d)",
