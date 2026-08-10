@@ -130,6 +130,11 @@ namespace ilyana {
 		// du document. Rien d'autre ne sépare ces deux cas.
 		int64 tuDeclaree = 0;
 		int64 tuLue = 0;
+		// La confrontation décisive : ce que le flux DEMANDE vs ce que la table
+		// CONTIENT. Relevé une seule fois, sur la première page qui écrit du texte.
+		uint32 codesDemandes[6] = {0, 0, 0, 0, 0, 0};
+		uint32 codesTable[6] = {0, 0, 0, 0, 0, 0};
+		int64 entreesTable = 0;
 	};
 
 	inline NkString LirePdf(const char *chemin, int64 &nbPages, int64 &pagesMuettes, double dpi = 72.0,
@@ -163,6 +168,19 @@ namespace ilyana {
 				diag->glyphesObtenus += st.glyphsGot;
 				diag->tuDeclaree += st.tuDeclaree;
 				diag->tuLue += st.tuLue;
+				// UNE SEULE FOIS : les codes que le flux demande, en face de ceux
+				// que la table indexe. Si les ordres de grandeur different (un
+				// octet contre deux, par exemple), la cause saute aux yeux.
+				if (diag->codesDemandes[0] == 0 && st.nFirstCodes > 0) {
+					for (int32 k = 0; k < st.nFirstCodes && k < 6; ++k)
+						diag->codesDemandes[k] = st.firstCodes[k];
+					const NkPdfFont *f = rendu.LastFont();
+					if (f) {
+						diag->entreesTable = (int64)f->NbEntreesUni();
+						for (nk_size k = 0; k < 6 && k < f->NbEntreesUni(); ++k)
+							diag->codesTable[k] = f->CodeUniAt(k);
+					}
+				}
 			}
 			const NkString t = AssemblerPage(rendu.TextItems());
 			++nbPages;

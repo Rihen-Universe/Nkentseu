@@ -36,7 +36,7 @@ with project("NKIlyana"):
         ["NKGpt", "NKTrain", "NKNN", "NKData", "NKOptim", "NKAutograd", "NKTensor", "NKRHI", "NKSL",
          "NKWindow", "NKGlad", "NKMath", "NKTime", "NKStream", "NKFileSystem",
          "NKLogger", "NKContainers", "NKMemory", "NKCore", "NKPlatform",
-         "NKThreading", "NKGLSlang", "NKSPIRVCross", "NKImage", "NKMedia", "NKFont", "NKNetwork"],
+         "NKThreading", "NKGLSlang", "NKSPIRVCross", "NKImage", "NKMedia", "NKFont", "NKNetwork", "NKMbedTLS"],
         extra_includes=["src", "%{NKGlad.location}/include"]
                        + ([_VULKAN_INCLUDE] if _VULKAN_INCLUDE else []),
         extra_defines=[f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if _WANT_VULKAN else 0}"],
@@ -55,6 +55,9 @@ with project("NKIlyana"):
             "user32", "gdi32", "opengl32", "dwmapi", "shell32",
             "uuid", "ole32", "dxguid",
             "d3d11", "d3d12", "dxgi", "d3dcompiler",
+            # bcrypt : source d'entropie Windows utilisee par mbed-TLS (HTTPS).
+            # A lier sur l'EXECUTABLE, les liens de jenga n'etant pas transitifs.
+            "bcrypt",
         ]
         if _WANT_VULKAN:
             _WIN_LINKS.append("vulkan-1")

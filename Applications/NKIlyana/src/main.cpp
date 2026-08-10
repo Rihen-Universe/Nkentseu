@@ -1309,6 +1309,12 @@ static int ModeAjouter(int argc, char **argv) {
 					 (long long)diag.glyphesObtenus, (long long)diag.glyphesDemandes);
 		logger.Infof("      tables /ToUnicode : %lld declarees, %lld effectivement lues\n",
 					 (long long)diag.tuDeclaree, (long long)diag.tuLue);
+		logger.Infof("      codes DEMANDES par le flux : %u %u %u %u %u %u\n", diag.codesDemandes[0],
+					 diag.codesDemandes[1], diag.codesDemandes[2], diag.codesDemandes[3],
+					 diag.codesDemandes[4], diag.codesDemandes[5]);
+		logger.Infof("      codes CONTENUS dans la table (%lld entrees) : %u %u %u %u %u %u\n",
+					 (long long)diag.entreesTable, diag.codesTable[0], diag.codesTable[1],
+					 diag.codesTable[2], diag.codesTable[3], diag.codesTable[4], diag.codesTable[5]);
 		// ⚠️ REFUS D'UN TEXTE ILLISIBLE — le garde-fou le plus important de ce mode.
 		// Une police sans table /ToUnicode ne declare pas ce que son glyphe
 		// represente. Le lecteur laisse alors le caractere vide, et ce qui SURNAGE
@@ -1741,8 +1747,11 @@ static int ModeAspirer(int argc, char **argv) {
 			logger.Infof("robots.txt : %llu chemin(s) interdits, respectes.\n",
 						 (unsigned long long)interdits.Size());
 		} else {
-			logger.Infof("robots.txt absent ou illisible (code %u) — on parcourt prudemment.\n",
-						 (unsigned)r.statusCode);
+			// La reponse PORTE la raison de l'echec. Ne pas la lire, c'est
+			// diagnostiquer a l'aveugle : un code 0 ne dit pas si l'adresse est
+			// mal formee, si la connexion a echoue ou si le TLS a ete refuse.
+			logger.Infof("robots.txt : code %u%s%s\n", (unsigned)r.statusCode,
+						 r.error.Empty() ? "" : " — ", r.error.Empty() ? "" : r.error.CStr());
 		}
 	}
 
@@ -1759,11 +1768,15 @@ static int ModeAspirer(int argc, char **argv) {
 	int64 totalGardes = 0;
 	int64 totalJetes = 0;
 
-	while (file.Size() > 0 && pages < maxPages) {
-		const NkString url = file[0];
-		const int32 prof = profondeurs[0];
-		file.Erase(0);
-		profondeurs.Erase(0);
+	// Curseur plutot que retrait en tete. Retirer le premier element d'un vecteur
+	// a chaque tour est couteux (tout se decale), et surtout `Erase(0)` s'est
+	// revele fatal ici — un plantage a la destruction de la chaine, le « 0 » etant
+	// pris pour un pointeur nul. Avancer un indice ne peut pas se tromper.
+	nk_size curseur = 0;
+	while (curseur < file.Size() && pages < maxPages) {
+		const NkString url = file[curseur];
+		const int32 prof = profondeurs[curseur];
+		++curseur;
 
 		bool dejaVue = false;
 		for (nk_size i = 0; i < vues.Size(); ++i)
@@ -1785,6 +1798,12 @@ static int ModeAspirer(int argc, char **argv) {
 		NkChrono::Sleep((int64)delaiMs);
 		if (r.statusCode != 200 || r.body.Size() == 0) {
 			++vides;
+			// La PREMIERE page qui echoue dit pourquoi. Sans cela, un site
+			// entierement inaccessible se solde par « 0 page lue » sans raison,
+			// et l'on cherche le defaut du mauvais cote.
+			if (vides == 1)
+				logger.Infof("  echec sur %s : code %u%s%s\n", url.CStr(), (unsigned)r.statusCode,
+							 r.error.Empty() ? "" : " — ", r.error.Empty() ? "" : r.error.CStr());
 			continue;
 		}
 
