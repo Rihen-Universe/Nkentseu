@@ -203,6 +203,16 @@ namespace nkentseu {
 					mImpl->device = dev;
 					mImpl->backend = NkGraphicsApiName(api);
 					logger_src.Infof("[NkTensorGpu] device compute: %s\n", mImpl->backend);
+					// Ces deux limites décident de la taille de lot maximale utilisable.
+					// Les journaliser au démarrage évite d'avoir à les deviner quand un
+					// entraînement cesse d'apprendre sans rien dire.
+					{
+						const NkDeviceCaps &c = dev->GetCaps();
+						logger_src.Infof("[NkTensorGpu] limites : tampon adressable par shader = %llu Mo, "
+										 "memoire video = %llu Mo\n",
+										 (unsigned long long)(c.maxStorageBufferRange / (1024ull * 1024ull)),
+										 (unsigned long long)(c.vramBytes / (1024ull * 1024ull)));
+					}
 					return true;
 				}
 				if (dev)
@@ -284,6 +294,27 @@ namespace nkentseu {
 		uint64 NkTensorGpu::CreateBuffer(nk_size bytes) {
 			if (!EnsureInit())
 				return 0;
+
+			// ⚠️ LA LIMITE QUI NE SE VOIT PAS. Un tampon peut être ALLOUÉ avec succès
+			// et rester inaccessible au shader au-delà de `maxStorageBufferRange` :
+			// l'allocation réussit, le dispatch part, et le calcul ne se fait pas —
+			// sans la moindre erreur. C'est le profil exact de la panne constatée le
+			// 2026-08-09 à B=24, où la perte restait collée à ln(vocabulaire) tandis
+			// que le run paraissait 3,6× plus rapide. À B=24 le tenseur de logits
+			// pèse 384 Mo, à B=12 il en pèse 201 : si la carte plafonne entre les
+			// deux, tout s'explique.
+			// On le dit maintenant, au lieu de le découvrir à la perte immobile.
+			{
+				const NkDeviceCaps &caps = mImpl->device->GetCaps();
+				if (caps.maxStorageBufferRange > 0 && (uint64)bytes > (uint64)caps.maxStorageBufferRange) {
+					NkGpuSignalerDefaut("CreateBuffer",
+										"tampon PLUS GRAND que ce qu'un shader peut adresser sur cette carte "
+										"(maxStorageBufferRange) — reduire le lot",
+										(int64)bytes);
+					return 0;
+				}
+			}
+
 			NkBufferHandle h = mImpl->device->CreateBuffer(NkBufferDesc::Storage(bytes, false));
 			if (!h.IsValid()) {
 				NkGpuSignalerDefaut("CreateBuffer", "allocation refusee, octets demandes", (int64)bytes);
