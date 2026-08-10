@@ -984,15 +984,9 @@ namespace nkentseu {
 			o.SetInt32("uniteLongueur", st.docUnitLen[d]);
 			o.SetFloat32("uniteEchelle", st.docUnitScale[d] > 0.001f ? st.docUnitScale[d] : 1.f);
 			// LA VUE DE LA SCENE : rouvrir un projet doit reposer le regard la ou on
-			// l'avait laisse.
+			// l'avait laisse -- pose de camera ET affichage (bloc partage).
 			NkArchive cam;
-			const float32 *cp = st.docCamPose[d];
-			cam.SetBool("posee", st.docCamSet[d]);
-			NkScSetVec3(cam, "cible", cp);
-			cam.SetFloat32("distance", cp[3]);
-			cam.SetFloat32("lacet", cp[4]);
-			cam.SetFloat32("tangage", cp[5]);
-			cam.SetBool("ortho", st.docCamOrtho[d]);
+			NkScViewWrite(cam, st, d);
 			o.SetObject("vue", cam);
 			// ── REGLAGES RENDU/ENVIRONNEMENT/SORTIE : PAR SCENE (Rihen, 10 aout).
 			// Document ACTIF : on capture l'etat VIVANT (et on rafraichit son
@@ -1054,15 +1048,8 @@ namespace nkentseu {
 			st.docUnitScale[d] = NkScFloat(in, "uniteEchelle", 1.f);
 			NkArchive cam;
 			st.docCamSet[d] = false;
-			if (in.GetObject("vue", cam)) {
-				float32 *cp = st.docCamPose[d];
-				NkScGetVec3(cam, "cible", cp, 0.f, 0.f, 0.f);
-				cp[3] = NkScFloat(cam, "distance", 6.5f);
-				cp[4] = NkScFloat(cam, "lacet", 0.7f);
-				cp[5] = NkScFloat(cam, "tangage", 0.35f);
-				st.docCamOrtho[d] = NkScBool(cam, "ortho", false);
-				st.docCamSet[d] = NkScBool(cam, "posee", false);
-			}
+			if (in.GetObject("vue", cam))
+				NkScViewRead(cam, st, d);
 			demo::Demo3DHostSetActiveScene((int32)st.docScene[d]);
 			// Reglages par scene : appliquer PUIS memoriser l'instantane du
 			// document — c'est lui qui re-sera applique aux bascules d'onglet.
@@ -1208,7 +1195,7 @@ namespace nkentseu {
 				const int32 dA = st.TabDoc(st.activeTab);
 				if (dA >= 0) {
 					if (st.sceneTabKind[st.activeTab] == 0)
-						NkStoreSceneCam(st, st.activeTab);
+						NkStoreSceneView(st, st.activeTab);
 					st.docUnitSys[dA] = st.unitSystem;
 					st.docUnitLen[dA] = st.unitLength;
 					st.docUnitScale[dA] = st.unitScale;

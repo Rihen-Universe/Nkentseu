@@ -625,7 +625,7 @@ namespace nkentseu {
 			return (c >= 0 && c < st.browserCount) ? c : -1;
 		}
 
-		inline void NkStoreSceneCam(NkModelerState &st, int32 tab) {
+		inline void NkStoreSceneView(NkModelerState &st, int32 tab) {
 			const int32 d = st.TabDoc(tab);
 			if (d < 0)
 				return;
@@ -634,6 +634,18 @@ namespace nkentseu {
 			demo::Demo3DHostGetCameraPose(cp, &cp[3], &cp[4], &cp[5], &ortho);
 			st.docCamOrtho[d] = ortho;
 			st.docCamSet[d] = true;
+			// La vue, c'est aussi ce qu'on y AFFICHE (Rihen, 10 aout) : ombrage,
+			// surimpressions et fond partent avec le document, pas avec l'onglet.
+			NkModelerState::NkDocView &v = st.docView[d];
+			v.ombrage = st.shading;
+			v.lumiereUnie = st.solidLight;
+			v.surimpressions = st.overlayMask;
+			v.fond = st.bgChoice;
+			v.fondType = st.bgType;
+			v.fondLum = st.bgBrightness;
+			for (int32 a = 0; a < 3; ++a)
+				v.fondPerso[a] = st.bgCustom[a];
+			st.docViewSet[d] = true;
 		}
 
 		// ── FERMER UN ONGLET ────────────────────────────────────────────────────
@@ -656,7 +668,7 @@ namespace nkentseu {
 			// le regard qu'on venait d'y poser -- et ses unites.
 			if (d >= 0 && i == st.activeTab) {
 				if (st.sceneTabKind[i] == 0)
-					NkStoreSceneCam(st, i);
+					NkStoreSceneView(st, i);
 				st.docUnitSys[d] = st.unitSystem;
 				st.docUnitLen[d] = st.unitLength;
 				st.docUnitScale[d] = st.unitScale;
@@ -736,7 +748,7 @@ namespace nkentseu {
 			if (d < 0)
 				return; // onglet sans document : il n'y a rien a montrer
 			if (st.sceneTabKind[st.activeTab] == 0 && tb != st.activeTab)
-				NkStoreSceneCam(st, st.activeTab); // la scene quittee garde sa vue
+				NkStoreSceneView(st, st.activeTab); // la scene quittee garde sa vue
 			// Quitter une vue d'edition : l'ASSET est rearchive, le noeud ISOLE
 			// rentre dans sa scene. Meme regle qu'a la fermeture de l'onglet --
 			// c'est le meme geste vu de deux endroits.
@@ -787,6 +799,22 @@ namespace nkentseu {
 												  st.docCamOrtho[d]);
 				else
 					demo::Demo3DHostResetView();
+				// L'AFFICHAGE de la scene revient avec elle : la synchronisation de
+				// main.cpp poussera vers l'hote ce qui a change. Un document jamais
+				// visite recoit les defauts d'ouverture — pas l'affichage de la
+				// scene qu'on quitte.
+				{
+					const NkModelerState::NkDocView v =
+						st.docViewSet[d] ? st.docView[d] : NkModelerState::NkDocView{};
+					st.shading = v.ombrage;
+					st.solidLight = v.lumiereUnie;
+					st.overlayMask = v.surimpressions;
+					st.bgChoice = v.fond;
+					st.bgType = v.fondType;
+					st.bgBrightness = v.fondLum;
+					for (int32 a = 0; a < 3; ++a)
+						st.bgCustom[a] = v.fondPerso[a];
+				}
 				return; // l'appartenance filtre deja les objets de la scene
 			}
 			// EDITEUR : scene VIDE + l'asset lui-meme.

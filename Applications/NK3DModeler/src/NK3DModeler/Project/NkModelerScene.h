@@ -74,7 +74,7 @@
 //   * le curseur 3D et la selection.
 // =============================================================================
 
-#include "NK3DModeler/Shell/NkModelerScreens.h" // NkModelerState + NkActivateTab/NkStoreSceneCam
+#include "NK3DModeler/Shell/NkModelerScreens.h" // NkModelerState + NkActivateTab/NkStoreSceneView
 #include "NK3DModeler/Viewport/NkDemo3DHost.h"
 #include "NKSerialization/NkArchive.h"
 #include "NKContainers/String/NkString.h"
@@ -213,6 +213,53 @@ namespace nkentseu {
 			v[2] = NkScFloat(o, "z", dz);
 		}
 
+		// ── LE BLOC « vue » D'UN DOCUMENT ───────────────────────────────────────
+		// La pose de camera ET ce que la scene AFFICHE (ombrage, surimpressions,
+		// fond — Rihen, 10 aout : « il faut sauvegarder les proprietes de la
+		// vue »). Deux chemins l'ecrivent (fichier projet, fichier scene) : le
+		// bloc vit ICI pour qu'ils ne puissent pas diverger.
+		inline void NkScViewWrite(NkArchive &cam, const NkModelerState &st, int32 d) {
+			const float32 *cp = st.docCamPose[d];
+			cam.SetBool("posee", st.docCamSet[d]);
+			NkScSetVec3(cam, "cible", cp);
+			cam.SetFloat32("distance", cp[3]);
+			cam.SetFloat32("lacet", cp[4]);
+			cam.SetFloat32("tangage", cp[5]);
+			cam.SetBool("ortho", st.docCamOrtho[d]);
+			const NkModelerState::NkDocView &v = st.docView[d];
+			cam.SetBool("reglee", st.docViewSet[d]);
+			cam.SetInt32("ombrage", v.ombrage);
+			cam.SetInt32("lumiereUnie", v.lumiereUnie);
+			cam.SetInt32("surimpressions", (int32)v.surimpressions);
+			cam.SetInt32("fond", v.fond);
+			cam.SetInt32("fondType", v.fondType);
+			cam.SetFloat32("fondLuminosite", v.fondLum);
+			NkScSetVec3(cam, "fondCouleur", v.fondPerso);
+		}
+		inline void NkScViewRead(const NkArchive &cam, NkModelerState &st, int32 d) {
+			float32 *cp = st.docCamPose[d];
+			NkScGetVec3(cam, "cible", cp, 0.f, 0.f, 0.f);
+			cp[3] = NkScFloat(cam, "distance", 6.5f);
+			cp[4] = NkScFloat(cam, "lacet", 0.7f);
+			cp[5] = NkScFloat(cam, "tangage", 0.35f);
+			st.docCamOrtho[d] = NkScBool(cam, "ortho", false);
+			st.docCamSet[d] = NkScBool(cam, "posee", false);
+			// Un fichier d'avant ces champs n'a pas « reglee » : le document
+			// garde alors les defauts d'ouverture, pas des zeros relus.
+			NkModelerState::NkDocView v;
+			v.ombrage = NkScInt(cam, "ombrage", v.ombrage);
+			v.lumiereUnie = NkScInt(cam, "lumiereUnie", v.lumiereUnie);
+			v.surimpressions =
+				(uint32)NkScInt(cam, "surimpressions", (int32)v.surimpressions);
+			v.fond = NkScInt(cam, "fond", v.fond);
+			v.fondType = NkScInt(cam, "fondType", v.fondType);
+			v.fondLum = NkScFloat(cam, "fondLuminosite", v.fondLum);
+			NkScGetVec3(cam, "fondCouleur", v.fondPerso, v.fondPerso[0],
+						v.fondPerso[1], v.fondPerso[2]);
+			st.docView[d] = v;
+			st.docViewSet[d] = NkScBool(cam, "reglee", false);
+		}
+
 		// Copie bornee vers un champ de taille fixe de l'etat du shell.
 		inline void NkScPut(char *dst, uint32 cap, const char *src) {
 			uint32 i = 0;
@@ -276,7 +323,7 @@ namespace nkentseu {
 				const int32 dA = st.TabDoc(st.activeTab);
 				if (dA >= 0) {
 					if (st.sceneTabKind[st.activeTab] == 0)
-						NkStoreSceneCam(st, st.activeTab);
+						NkStoreSceneView(st, st.activeTab);
 					st.docUnitSys[dA] = st.unitSystem;
 					st.docUnitLen[dA] = st.unitLength;
 					st.docUnitScale[dA] = st.unitScale;
@@ -310,15 +357,9 @@ namespace nkentseu {
 				s.SetFloat32("uniteEchelle",
 							 st.docUnitScale[d] > 0.001f ? st.docUnitScale[d] : 1.f);
 				// LA VUE DE LA SCENE : rouvrir un projet doit reposer le regard
-				// la ou on l'avait laisse.
+				// la ou on l'avait laisse -- pose de camera ET affichage.
 				NkArchive cam;
-				const float32 *cp = st.docCamPose[d];
-				cam.SetBool("posee", st.docCamSet[d]);
-				NkScSetVec3(cam, "cible", cp);
-				cam.SetFloat32("distance", cp[3]);
-				cam.SetFloat32("lacet", cp[4]);
-				cam.SetFloat32("tangage", cp[5]);
-				cam.SetBool("ortho", st.docCamOrtho[d]);
+				NkScViewWrite(cam, st, d);
 				s.SetObject("vue", cam);
 				docs.PushBack(s);
 			}
@@ -901,15 +942,8 @@ namespace nkentseu {
 				st.docUnitScale[d] = NkScFloat(s, "uniteEchelle", 1.f);
 				NkArchive cam;
 				st.docCamSet[d] = false;
-				if (s.GetObject("vue", cam)) {
-					float32 *cp = st.docCamPose[d];
-					NkScGetVec3(cam, "cible", cp, 0.f, 0.f, 0.f);
-					cp[3] = NkScFloat(cam, "distance", 6.5f);
-					cp[4] = NkScFloat(cam, "lacet", 0.7f);
-					cp[5] = NkScFloat(cam, "tangage", 0.35f);
-					st.docCamOrtho[d] = NkScBool(cam, "ortho", false);
-					st.docCamSet[d] = NkScBool(cam, "posee", false);
-				}
+				if (s.GetObject("vue", cam))
+					NkScViewRead(cam, st, d);
 			}
 			// ── SCENES ORPHELINES : RECUPERATION ────────────────────────────
 			// Un fichier ecrit avant ce correctif porte des noeuds dont la scene

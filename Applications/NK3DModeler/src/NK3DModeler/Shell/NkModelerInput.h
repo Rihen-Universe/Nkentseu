@@ -552,6 +552,25 @@ namespace nkentseu {
 				float32 docCamPose[32][6] = {}; ///< cible xyz, distance, lacet, tangage
 				bool docCamSet[32] = {};
 				bool docCamOrtho[32] = {};
+				// LA VUE COMPLETE PAR SCENE (Rihen, 10 aout : « il faut sauvegarder
+				// les proprietes de la vue ») : ce que la scene AFFICHE — ombrage,
+				// surimpressions, fond — suit le document comme sa pose de camera.
+				// Les valeurs par defaut des membres SONT celles d'un document
+				// jamais visite ; `docViewSet` dit si un instantane a ete pose
+				// (bascule d'onglet ou fichier relu). La projection, elle, vit deja
+				// dans `docCamOrtho` : une vue d'axe est une ACTION sur la camera,
+				// l'etat durable est ortho/perspective.
+				struct NkDocView {
+						int32 ombrage = 0;	   ///< st.shading
+						int32 lumiereUnie = 0; ///< st.solidLight (studio/matcap/plat)
+						uint32 surimpressions = 0x18u | 0x40u; ///< st.overlayMask
+						int32 fond = 0;		   ///< st.bgChoice (prereglage, 5 = perso)
+						int32 fondType = 0;	   ///< st.bgType
+						float32 fondLum = 1.f; ///< st.bgBrightness
+						float32 fondPerso[3] = {0.13f, 0.15f, 0.19f}; ///< st.bgCustom
+				};
+				NkDocView docView[32];
+				bool docViewSet[32] = {};
 				// MODIFIE DEPUIS LE DERNIER ENREGISTREMENT, par document.
 				bool docDirty[32] = {};
 				// ── REGLAGES RENDU PAR SCENE (Rihen, 10 aout : « pourquoi le rendu
@@ -613,6 +632,8 @@ namespace nkentseu {
 							docCamPose[d][a] = 0.f;
 						docCamSet[d] = false;
 						docCamOrtho[d] = false;
+						docView[d] = NkDocView{};
+						docViewSet[d] = false;
 						docDirty[d] = false;
 						docCard[d] = 0;
 						docIsoNode[d] = 0;
