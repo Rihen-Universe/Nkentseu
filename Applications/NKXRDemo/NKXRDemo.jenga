@@ -1,0 +1,68 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""NKXRDemo — Étage 0 de la mission NKXR (XR_MISSION_IA.md) : une scène
+NKRenderer rendue en STÉRÉO SIMULÉE via le module NKXR et son backend
+simulateur desktop (souris = tête, ZQSD/WASD, stéréo côte à côte).
+
+Architecture : un renderer compositeur (For2D) qui possède la frame + un
+renderer ForGame PAR ŒIL en rendu offscreen partagé (patron NK3DModeler /
+NkAnimaEditor) — aucune passe de NKRenderer modifiée. Crochets d'agent :
+NK_XR_SIM_POSE (pose figée), NK_XR_SHOT (captures par œil), NK_XR_EXIT.
+"""
+from Jenga import *
+from jengaconfig import *
+
+with project("NKXRDemo"):
+    windowedapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+    files(["src/**.cpp"])
+
+    # NKGLSlang/NKSPIRVCross explicites : le linker d'un exécutable qui tire
+    # NKSL/NKRHI ne les récupère pas transitivement (piège documenté dans
+    # NkLocomotionDemo.jenga, 2026-07-23).
+    nkentseudependson(
+        ["NKXR", "NKRenderer", "NKRHI", "NKSL", "NKGLSlang", "NKSPIRVCross",
+         "NKSerialization", "NKReflection", "NKFileSystem", "NKFont", "NKImage", "NKGlad",
+         "NKEvent", "NKWindow", "NKMath", "NKTime", "NKLogger", "NKStream",
+         "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
+        extra_includes=["src"],
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    apppublisher("Rihen Universe")
+    appversion("0.1.0")
+    licensefile("../../LICENSE")
+
+    # ===== Windows ================================================================
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        windowedapp()
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+        links(["user32", "gdi32", "opengl32", "dwmapi", "shell32",
+               "d3d11", "d3d12", "dxgi", "dxguid", "d3dcompiler", "uuid", "ole32"])
+
+    # ===== Linux XLib (défaut) ===================================================
+    with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
+        windowedapp()
+        usetoolchain("clang-native")
+        defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
+        links(["pthread", "X11", "Xext", "GL"])
+
+    # ===== macOS ==================================================================
+    with filter("system:macOS"):
+        windowedapp()
+        usetoolchain("clang-native")
+        frameworks(["Cocoa", "QuartzCore", "OpenGL"])
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)

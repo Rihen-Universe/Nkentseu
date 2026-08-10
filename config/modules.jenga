@@ -115,6 +115,11 @@ _REGISTRY: dict = {
     "NKCollision"    : _m("NKENTSEU_COLLISION",    ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath"]),
     "NKPhysics"      : _m("NKENTSEU_PHYSICS",      ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKCollision"]),
     "NKNavigation"   : _m("NKENTSEU_NAVIGATION",   ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKCollision"]),
+    # NKXR : runtime VR/AR/XR maison (sessions, espaces, poses, entrees par
+    # actions, swapchains par oeil). NKTime pour horodater/predire les poses,
+    # NKEvent+NKWindow pour le backend SIMULATEUR desktop (souris = tete).
+    # Le backend OpenXR (etage 2) restera confine dans src/NKXR/Backend/.
+    "NKXR"           : _m("NKENTSEU_XR",           ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKTime", "NKEvent", "NKWindow"]),
     "NKUI"           : _m("NKENTSEU_UI",           ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKEvent", "NKFont", "NKImage"]),
     # NKGui : framework UI nouvelle génération (réécriture de NKUI, immédiat+retenu).
     "NKGui"          : _m("NKENTSEU_NKGUI",         ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKThreading", "NKEvent", "NKFont", "NKImage"]),
@@ -153,7 +158,7 @@ _ALIASES: dict = {
     "time": "NKTime", "reflection": "NKReflection", "serialization": "NKSerialization",
     "network": "NKNetwork", "event": "NKEvent", "window": "NKWindow", "canvas": "NKCanvas",
     "nksl": "NKSL", "rhi": "NKRHI", "renderer": "NKRenderer", "image": "NKImage",
-    "font": "NKFont", "ecs": "NKECS", "camera": "NKCamera", "collision": "NKCollision", "physics": "NKPhysics", "navigation": "NKNavigation", "ui": "NKUI", "audio": "NKAudio",
+    "font": "NKFont", "ecs": "NKECS", "camera": "NKCamera", "collision": "NKCollision", "physics": "NKPhysics", "navigation": "NKNavigation", "ui": "NKUI", "audio": "NKAudio", "xr": "NKXR",
     "noge": "Noge", "engine": "Noge", "nkentseu": "Noge", "glad": "NKGlad", "gui": "NKGui",
 }
 
