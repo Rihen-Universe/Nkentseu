@@ -671,6 +671,11 @@ static int ModeTrain(int argc, char **argv) {
 	if (load) {
 		cfg.loadPath = NkString(load);
 		cfg.resume = true;
+		// --nouvelle-phase : repartir des poids avec un pas d'apprentissage NEUF.
+		// Sans lui, une phase destinee a enseigner un comportement herite du pas
+		// deja descendu au plancher par la phase precedente — mesure : 900 pas a
+		// 1e-05 n'ont rien appris et ont fait BAISSER la batterie de 8/19 a 6/19.
+		cfg.freshSchedule = Drapeau(argc, argv, "--nouvelle-phase");
 	}
 	cfg.seed = NkString(Arg(argc, argv, "--amorce", "Question: Qui est ton pere ?\nReponse:"));
 	cfg.genLen = (int)ArgEntier(argc, argv, "--genlen", 120);

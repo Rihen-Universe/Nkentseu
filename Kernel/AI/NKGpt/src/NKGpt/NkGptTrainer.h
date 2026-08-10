@@ -68,6 +68,28 @@ namespace nkentseu {
 					NkString loadPath;	 // checkpoint à charger (vide = fresh)
 					bool resume = false; // loadPath + resume = continuer l'entraînement
 
+					// NOUVELLE PHASE : repartir des poids, mais avec un calendrier
+					// d'apprentissage NEUF (warmup + pic demandé), au lieu de
+					// prolonger celui du run précédent.
+					//
+					// POURQUOI CETTE DISTINCTION EXISTE. Reprendre un entraînement
+					// interrompu et commencer une phase sur un AUTRE corpus sont deux
+					// gestes opposés, que `resume` confondait. Le premier veut la
+					// continuité — reprendre le calendrier là où il s'est arrêté est
+					// exactement ce qu'il faut. Le second veut apprendre du neuf, et
+					// hérite alors d'un pas d'apprentissage déjà décru au plancher.
+					//
+					// Mesuré le 2026-08-10 : une phase destinée à enseigner la
+					// citation a tourné 900 pas à lr = 1e-05, n'a RIEN appris du
+					// geste visé, et a fait BAISSER la batterie de contrôle de 8/19 à
+					// 6/19. Assez pour graver un nom repete des milliers de fois, très
+					// insuffisant pour un comportement nouveau.
+					//
+					// Les moments d'Adam sont CONSERVES : ils décrivent la courbure
+					// vue jusque-là, qui reste valable, et les jeter provoquerait un
+					// à-coup de perte au redémarrage.
+					bool freshSchedule = false;
+
 					// Génération.
 					NkString seed = NkString("Le ");
 					int genLen = 400;
