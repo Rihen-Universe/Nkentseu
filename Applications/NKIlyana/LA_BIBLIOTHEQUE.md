@@ -228,17 +228,31 @@ NKIlyana.exe --melange --identite <identite.txt> --bibliotheque <ech> ^
 NKBpeTest.exe echantillon.txt ilyana_v2.nkbpe 16384
 ```
 
-Résultat mesuré, sur les mêmes trois textes :
+**Et les livres en ANGLAIS n'ont pas à être traduits.** Traduire injecterait des
+erreurs dans des données qu'on a justement voulues fiables. Il suffit de mettre de
+l'anglais dans l'échantillon — ce n'est pas le livre qu'il faut changer, c'est le
+tokenizer qu'il faut instruire. (L'index, lui, se moque de la langue : BM25
+fonctionne identiquement, et un livre anglais est cherchable et citable tel quel.)
 
-| texte | avant | après | gain |
+Résultat mesuré sur de la **vraie prose** (⚠️ mesurer le français sur un fichier
+d'identité, très répétitif, donne un chiffre flatteur et faux — la première
+version de ce tableau s'y était trompée) :
+
+| texte | v1 : 16k, français seul | v3 : 16k, 4 domaines | v4 : **32k**, 4 domaines |
 |---|---|---|---|
-| français courant | 3,79 | **4,06** | +7 % |
-| code C++ | 1,74 | **3,03** | **+74 %** |
-| LaTeX / formules | 2,45 | **2,74** | +12 % |
+| français courant | 3,71 | 3,46 ⛔ | **3,77** ✅ |
+| anglais | 2,20 | 2,66 | **2,83** |
+| code C++ | 1,74 | 3,01 | **3,22** |
+| LaTeX / formules | 2,45 | 3,02 | **3,16** |
 
-Le code cesse d'être en miettes, et le français **gagne** au lieu de perdre : il
-n'y a pas eu d'arbitrage entre domaines. Le LaTeX progresse peu parce que
-l'échantillon n'en contenait que 0,7 Mo — il progressera quand il y en aura plus.
+Lecture de ce tableau, qui est le vrai enseignement : **à vocabulaire constant,
+ajouter des domaines coûte au français** (−7 %). Le vocabulaire est un budget, et
+tout ce qu'on donne à l'un est pris à l'autre. **Doubler le vocabulaire supprime
+l'arbitrage** : chaque domaine y gagne, français compris.
+
+Le prix est réel et se paie en paramètres : la table d'embeddings double (6,3 M →
+12,6 M à d=384), et le modèle passe d'environ 20 M à ~32 M. Sur 8 Go de carte,
+c'est tenable — mais c'est un choix, pas une gratuité.
 
 ⚠️ **Un nouveau tokenizer impose de réentraîner le modèle depuis zéro**, ses acquis
 étant indexés par numéro de token. C'est donc à faire **avant** le prochain gros
