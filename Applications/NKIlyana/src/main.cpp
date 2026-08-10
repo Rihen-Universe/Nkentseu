@@ -35,6 +35,9 @@
 #include "NkIlyanaBibliotheque.h"
 #include "NKMedia/Document/NkEpub.h"
 #include "NKMedia/Document/NkLatex.h"
+#include "NKMedia/Document/NkPageWeb.h"
+#include "NKMedia/Document/NkAspirateur.h"
+#include "NKNetwork/HTTP/NkHTTPClient.h"
 #include "NkIlyanaPdf.h"
 #include "NkIlyanaCitation.h"
 
@@ -751,6 +754,55 @@ static int ModeParler(int argc, char **argv) {
 	sp.topK = (int)ArgEntier(argc, argv, "--topk", 40);
 	sp.topP = ArgReel(argc, argv, "--topp", 0.95);
 
+	// ── Répondre EN LISANT, quand une bibliothèque est fournie ──
+	//
+	// La recherche retrouve le passage, on le place devant la question, et elle
+	// répond à partir de lui. C'est la forme « Contexte → Question → Réponse »
+	// qu'on lui a enseignée par recopie (voir NkIlyanaCitation.h) : sans cet
+	// apprentissage, elle ignorerait purement et simplement le passage.
+	//
+	// ⚠️ La SOURCE est affichée à côté de la réponse, toujours. Une réponse
+	// fondée sur un passage qu'on ne montre pas ne vaut pas mieux qu'une réponse
+	// inventée : elle est seulement plus difficile à démentir.
+	const char *dossierBiblio = Arg(argc, argv, "--bibliotheque", nullptr);
+	if (q && dossierBiblio) {
+		ilyana::NkIndex index;
+		if (!index.Charger(Joindre(dossierBiblio, "index.nkidx").CStr())) {
+			logger.Info("ERREUR : index introuvable — lancer --indexer d'abord.");
+			return 1;
+		}
+		NkVector<ilyana::Ouvrage> cat;
+		ilyana::LireCatalogue(Joindre(dossierBiblio, "catalogue.txt").CStr(), cat);
+
+		NkVector<ilyana::Resultat> res;
+		index.Chercher(NkString(q), 1, res);
+		if (res.Size() == 0) {
+			printf("\nQuestion : %s\n", q);
+			printf("Reponse  : %s\n", ilyana::kReponseAbsente());
+			printf("(aucun passage de la bibliotheque ne contient ces mots)\n");
+			return 0;
+		}
+
+		// Le contexte doit tenir dans la fenêtre AVEC la question et la réponse.
+		// Un contexte trop long serait tronqué par la tokenisation, et elle
+		// répondrait à partir d'un texte amputé sans que rien ne le signale.
+		NkString ctx = res[0].texte;
+		if (ctx.Size() > 600)
+			ctx = ctx.SubStr(0, 600);
+
+		NkString amorce("Contexte: ");
+		amorce.Append(ctx);
+		amorce.Append("\nQuestion: ");
+		amorce.Append(q);
+		amorce.Append("\nReponse:");
+
+		const ilyana::Ouvrage *o = ilyana::OuvrageDeLOffset(cat, index.OffsetPassage(res[0].passage));
+		printf("\nQuestion : %s\n", q);
+		printf("Source   : %s\n", o ? o->titre.CStr() : "(bibliotheque)");
+		printf("Reponse  : %s\n", CouperReponse(t.Generate(amorce, cfg.genLen, sp, t.GenLangIndex())).CStr());
+		return 0;
+	}
+
 	if (q) {
 		NkString amorce("Question: ");
 		amorce.Append(q);
@@ -1295,6 +1347,25 @@ static int ModeAjouter(int argc, char **argv) {
 			logger.Infof("ERREUR : aucun texte extrait de %s\n", fLivre);
 			return 1;
 		}
+	} else if ((nomBas.Size() > 5 && nomBas.SubStr(nomBas.Size() - 5) == ".html") ||
+			   (nomBas.Size() > 4 && nomBas.SubStr(nomBas.Size() - 4) == ".htm")) {
+		// Une page web est faite en majorite de ce qui n'est PAS l'article. On
+		// garde les blocs qui ont l'allure d'un paragraphe et on jette le reste,
+		// en disant combien : un tri qui ne rend pas ses comptes ne se verifie pas.
+		int64 gardes = 0;
+		int64 jetes = 0;
+		brut = media::PageWebVersTexte(LireFichier(fLivre), gardes, jetes);
+		logger.Infof("Page web : %lld blocs gardes, %lld ecartes (menus, pieds de page, liens).\n",
+					 (long long)gardes, (long long)jetes);
+		if (gardes == 0) {
+			logger.Info("ERREUR : aucun paragraphe reconnu. La page est-elle surtout faite de listes et de "
+						"liens, ou son contenu est-il charge par du script (auquel cas le fichier enregistre "
+						"ne contient pas le texte) ?");
+			return 1;
+		}
+		if (jetes > gardes * 10)
+			logger.Info("ATTENTION : plus de dix fois plus de blocs ecartes que gardes — verifier que "
+						"l'article a bien ete pris.");
 	} else if (nomBas.Size() > 4 && nomBas.SubStr(nomBas.Size() - 4) == ".tex") {
 		// La source LaTeX vaut BIEN MIEUX que le PDF qu'elle produit : les
 		// formules y sont du texte structure, la ou le PDF n'en garde que des
@@ -1353,7 +1424,12 @@ static int ModeAjouter(int argc, char **argv) {
 	ilyana::Ouvrage o;
 	o.domaine = NkString(domaine);
 	o.titre = titre ? NkString(titre) : NomDeFichier(fLivre);
-	o.source = NkString(fLivre);
+	// L'ORIGINE compte plus pour une page web que pour un livre : la page changera
+	// ou disparaitra, et une citation qui renvoie a une adresse morte doit au
+	// moins dire d'ou elle venait. `--url` la consigne a la place du chemin local,
+	// qui ne veut rien dire pour quelqu'un d'autre.
+	const char *url = Arg(argc, argv, "--url", nullptr);
+	o.source = url ? NkString(url) : NkString(fLivre);
 	o.debut = debut;
 	o.fin = fin;
 	if (!ilyana::AjouterAuCatalogue(fCat.CStr(), o)) {
@@ -1586,9 +1662,157 @@ static int ModeMesurer(int argc, char **argv) {
 	return 0;
 }
 
+// =============================================================================
+// MODE --aspirer : parcourir un site public et en rapporter le texte.
+// -----------------------------------------------------------------------------
+// RECOLTER N'EST PAS DEPOSER. Ce mode ecrit un fichier ; il ne remplit PAS la
+// bibliotheque. On peut donc relire ce qui a ete pris avant de l'y verser — et il
+// FAUT le faire : un site melange des articles, des mentions legales et des
+// commentaires, et rien ne les distingue automatiquement.
+//
+// Les quatre garde-fous — meme domaine, robots.txt, delai entre requetes,
+// plafond de pages — sont dans NkAspirateur.h, chacun avec sa raison.
+// =============================================================================
+static int ModeAspirer(int argc, char **argv) {
+	const char *urlDepart = Arg(argc, argv, "--url", nullptr);
+	const char *fSortie = Arg(argc, argv, "--sortie", "aspire.txt");
+	const int64 maxPages = ArgEntier(argc, argv, "--max-pages", 100);
+	const int64 delaiMs = ArgEntier(argc, argv, "--delai", 1000);
+	const int64 profMax = ArgEntier(argc, argv, "--profondeur", 3);
+
+	if (!urlDepart) {
+		logger.Info("usage : --aspirer --url https://un.site [--sortie f] [--max-pages 100]");
+		logger.Info("        [--delai 1000] [--profondeur 3]");
+		return 1;
+	}
+
+	const NkString depart(urlDepart);
+	const NkString hote = media::HoteDe(depart);
+	if (hote.Size() == 0) {
+		logger.Info("ERREUR : adresse incomprehensible.");
+		return 1;
+	}
+
+	net::NkHTTPClient http;
+
+	// robots.txt D'ABORD. Le lire apres avoir commence a parcourir n'aurait aucun
+	// sens : on aurait deja pris ce qu'on n'avait pas le droit de prendre.
+	NkVector<NkString> interdits;
+	{
+		NkString rurl = media::RacineDe(depart);
+		rurl.Append("/robots.txt");
+		const net::NkHTTPResponse r = http.Get(rurl.CStr());
+		if (r.statusCode == 200) {
+			media::LireRobots(r.body, interdits);
+			logger.Infof("robots.txt : %llu chemin(s) interdits, respectes.\n",
+						 (unsigned long long)interdits.Size());
+		} else {
+			logger.Infof("robots.txt absent ou illisible (code %u) — on parcourt prudemment.\n",
+						 (unsigned)r.statusCode);
+		}
+	}
+
+	NkVector<NkString> file;	 // adresses a visiter
+	NkVector<int32> profondeurs; // profondeur de chacune
+	NkVector<NkString> vues;	 // deja visitees
+	file.PushBack(depart);
+	profondeurs.PushBack(0);
+
+	NkString out;
+	int64 pages = 0;
+	int64 refusees = 0;
+	int64 vides = 0;
+	int64 totalGardes = 0;
+	int64 totalJetes = 0;
+
+	while (file.Size() > 0 && pages < maxPages) {
+		const NkString url = file[0];
+		const int32 prof = profondeurs[0];
+		file.Erase(0);
+		profondeurs.Erase(0);
+
+		bool dejaVue = false;
+		for (nk_size i = 0; i < vues.Size(); ++i)
+			if (vues[i] == url) {
+				dejaVue = true;
+				break;
+			}
+		if (dejaVue)
+			continue;
+		vues.PushBack(url);
+
+		if (!(media::HoteDe(url) == hote) || media::CheminInterdit(url, interdits)) {
+			++refusees;
+			continue;
+		}
+
+		const net::NkHTTPResponse r = http.Get(url.CStr());
+		// Pause APRES la requete : la suivante ne partira pas avant.
+		NkChrono::Sleep((int64)delaiMs);
+		if (r.statusCode != 200 || r.body.Size() == 0) {
+			++vides;
+			continue;
+		}
+
+		int64 gardes = 0;
+		int64 jetes = 0;
+		const NkString texte = media::PageWebVersTexte(r.body, gardes, jetes);
+		totalGardes += gardes;
+		totalJetes += jetes;
+		++pages;
+		if (texte.Size() > 0) {
+			// L'adresse est ECRITE dans le fichier : une fois les pages mises bout
+			// a bout, plus rien ne dirait d'ou vient un paragraphe, et une
+			// citation deviendrait invérifiable.
+			out.Append("[source] ");
+			out.Append(url);
+			out.Append("\n\n", 2);
+			out.Append(texte);
+		} else {
+			++vides;
+		}
+
+		if (prof < (int32)profMax) {
+			NkVector<NkString> liens;
+			media::ReleverLiens(r.body, url, liens);
+			for (nk_size i = 0; i < liens.Size(); ++i)
+				if (media::HoteDe(liens[i]) == hote) {
+					file.PushBack(liens[i]);
+					profondeurs.PushBack(prof + 1);
+				}
+		}
+		if ((pages % 10) == 0)
+			logger.Infof("  %lld pages lues, %llu en attente...\n", (long long)pages,
+						 (unsigned long long)file.Size());
+	}
+
+	if (!EcrireFichier(fSortie, out)) {
+		logger.Infof("ERREUR : ecriture impossible : %s\n", fSortie);
+		return 1;
+	}
+
+	logger.Info("=== Ilyana / aspiration ===");
+	logger.Infof("site %s — %lld page(s) lues, %.2f Mo de texte\n", hote.CStr(), (long long)pages,
+				 (double)out.Size() / (1024.0 * 1024.0));
+	logger.Infof("  %lld blocs gardes, %lld ecartes (menus, pieds de page)\n", (long long)totalGardes,
+				 (long long)totalJetes);
+	logger.Infof("  %lld adresses ecartees (hors domaine ou interdites), %lld pages sans texte\n",
+				 (long long)refusees, (long long)vides);
+	if (pages >= maxPages)
+		logger.Info("  ARRETE PAR LE PLAFOND : il restait des pages a visiter (--max-pages pour aller plus loin).");
+	logger.Info("");
+	logger.Info("RELIRE ce fichier AVANT de le deposer : un site melange articles, mentions");
+	logger.Info("legales et commentaires, et rien ne les distingue automatiquement. Ensuite :");
+	logger.Infof("  --ajouter --livre %s --domaine <x> --url %s --bibliotheque <dossier>\n", fSortie,
+				 urlDepart);
+	return 0;
+}
+
 int main(int argc, char **argv) {
 	if (Drapeau(argc, argv, "--controle"))
 		return ModeControle(argc, argv);
+	if (Drapeau(argc, argv, "--aspirer"))
+		return ModeAspirer(argc, argv);
 	if (Drapeau(argc, argv, "--mesurer"))
 		return ModeMesurer(argc, argv);
 	if (Drapeau(argc, argv, "--citations"))
