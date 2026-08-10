@@ -33,6 +33,10 @@
 #include "NkIlyanaControle.h"
 #include "NkIlyanaRecherche.h"
 #include "NkIlyanaBibliotheque.h"
+#include "NKMedia/Document/NkEpub.h"
+#include "NKMedia/Document/NkLatex.h"
+#include "NkIlyanaPdf.h"
+#include "NkIlyanaCitation.h"
 
 #include "NKGpt/NkGptTrainer.h"
 #include "NKData/NkBpeTrainer.h"
@@ -1220,7 +1224,81 @@ static int ModeAjouter(int argc, char **argv) {
 		return 1;
 	}
 
-	const NkString brut = LireFichier(fLivre);
+	// L'extension décide du lecteur. L'EPUB est une archive : il faut l'ouvrir
+	// avant de pouvoir lire quoi que ce soit.
+	NkString nomBas(fLivre);
+	for (nk_size i = 0; i < nomBas.Size(); ++i) {
+		char *d = (char *)nomBas.Data();
+		if (d[i] >= 'A' && d[i] <= 'Z')
+			d[i] = (char)(d[i] - 'A' + 'a');
+	}
+	const bool estEpub = nomBas.Size() > 5 && nomBas.SubStr(nomBas.Size() - 5) == ".epub";
+
+	const bool estPdf = nomBas.Size() > 4 && nomBas.SubStr(nomBas.Size() - 4) == ".pdf";
+
+	NkString brut;
+	if (estPdf) {
+		int64 pages = 0;
+		int64 muettes = 0;
+		ilyana::DiagPdf diag;
+		brut = ilyana::LirePdf(fLivre, pages, muettes, 72.0, &diag);
+		logger.Infof("PDF : %lld page(s) parcourues, %lld sans aucun texte.\n", (long long)pages,
+					 (long long)muettes);
+		logger.Infof("      %lld caractere(s) rencontres, dont %lld sans equivalent lisible.\n",
+					 (long long)diag.glyphes, (long long)diag.sansUnicode);
+		logger.Infof("      contenu %lld o, %lld operations, %lld ordres de texte, glyphes %lld/%lld\n",
+					 (long long)diag.octetsContenu, (long long)diag.operations, (long long)diag.opsTexte,
+					 (long long)diag.glyphesObtenus, (long long)diag.glyphesDemandes);
+		// Le diagnostic distingue TROIS echecs que rien ne separe a l'oeil, et
+		// qu'il serait faux de confondre : accuser les polices quand le flux n'a
+		// pas ete lu enverrait chercher a cote pendant des heures.
+		if (pages > 0 && muettes * 2 > pages) {
+			if (diag.operations == 0)
+				logger.Info("ATTENTION : le contenu des pages n'a pas ete execute. Le document est peut-etre "
+							"chiffre, ou d'une variante non geree.");
+			else if (diag.opsTexte == 0)
+				logger.Info("ATTENTION : aucun ordre de texte dans ce document — ses pages sont sans doute des "
+							"IMAGES (livre scanne). Il faudrait une reconnaissance de caracteres, qui n'existe "
+							"pas ici.");
+			else if (diag.glyphesDemandes == 0)
+				logger.Info("ATTENTION : le texte est bien present mais AUCUNE POLICE ne se resout — le lecteur "
+							"ne sait pas encore lire les polices de ce document (les PDF produits par LaTeX "
+							"utilisent Type1/CFF, la ou le lecteur attend du TrueType). Si tu as la SOURCE .tex, "
+							"elle vaut bien mieux : les formules y sont du texte.");
+			else
+				logger.Info("ATTENTION : les polices ne declarent pas ce que representent leurs glyphes (table "
+							"/ToUnicode absente) — ce qu'ils dessinent est indevinable, et on prefere ne rien "
+							"ecrire qu'inventer.");
+		}
+		if (brut.Size() == 0) {
+			logger.Infof("ERREUR : aucun texte extrait de %s\n", fLivre);
+			return 1;
+		}
+	} else if (nomBas.Size() > 4 && nomBas.SubStr(nomBas.Size() - 4) == ".tex") {
+		// La source LaTeX vaut BIEN MIEUX que le PDF qu'elle produit : les
+		// formules y sont du texte structure, la ou le PDF n'en garde que des
+		// glyphes epars. Les \input sont suivis, sans quoi un livre decoupe en un
+		// fichier par chapitre ne rendrait que sa page de titre.
+		brut = media::LireLatex(fLivre);
+		if (brut.Size() == 0) {
+			logger.Infof("ERREUR : aucun texte extrait de %s\n", fLivre);
+			return 1;
+		}
+		logger.Infof("LaTeX : %.2f Mo de texte (formules conservees telles quelles).\n",
+					 (double)brut.Size() / (1024.0 * 1024.0));
+	} else if (estEpub) {
+		int64 pages = 0;
+		brut = media::LireEpub(fLivre, pages);
+		if (brut.Size() == 0) {
+			logger.Infof("ERREUR : aucun texte extrait de %s\n", fLivre);
+			logger.Info("Un EPUB qui ne rend rien est presque toujours PROTEGE (DRM) : le texte y est "
+						"chiffre, et aucun lecteur ne peut l'ouvrir sans la cle.");
+			return 1;
+		}
+		logger.Infof("EPUB : %lld chapitre(s) lus.\n", (long long)pages);
+	} else {
+		brut = LireFichier(fLivre);
+	}
 	if (brut.Size() == 0) {
 		logger.Infof("ERREUR : livre illisible ou vide : %s\n", fLivre);
 		return 1;
