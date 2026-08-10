@@ -161,6 +161,118 @@ static double ArgReel(int argc, char **argv, const char *cle, double defaut) {
 }
 
 // =============================================================================
+// MODE --wiki : préparer le corpus RÉEL (Wikipédia FR) — en FLUX.
+// 2,1 Go : rien n'est chargé en mémoire, on lit et écrit paragraphe par
+// paragraphe. Deux nettoyages, tous deux MESURÉS avant d'être décidés :
+//   - CRLF (un « \r » par ligne = un octet appris pour rien, et tout le
+//     découpage du dépôt cherche « \n\n ») ;
+//   - paragraphes MUTILÉS par l'extracteur, où le contenu d'un modèle a disparu
+//     (« né le à Moulins », « des premières décennies du . ») : ~2 % des lignes.
+//     Les garder apprendrait à Ilyana à omettre les dates.
+// Tout le reste est conservé tel quel : du texte humain, sourcé, relu.
+// =============================================================================
+static bool ParagrapheMutile(const NkString &p) {
+	static const char *kMarques[] = {"le à ", "du .", " en .", " le .", "{{", "}}", "[[", "]]", "<ref"};
+	for (int i = 0; i < (int)(sizeof(kMarques) / sizeof(kMarques[0])); ++i)
+		if (p.Find(kMarques[i]) != NkString::npos)
+			return true;
+	return false;
+}
+
+static int ModeWiki(int argc, char **argv) {
+	const char *source =
+		Arg(argc, argv, "--source", "D:/Projets/Camrail/AI/Resources/Datasets/fr_wikimedia-wikipedia.txt");
+	const char *sortie = Arg(argc, argv, "--sortie", "D:/Projets/Camrail/AI/IlyanaWiki/fr_wiki.txt");
+	const int64 maxOctets = ArgEntier(argc, argv, "--max-octets", 0); // 0 = tout
+	const int64 minPar = ArgEntier(argc, argv, "--min-paragraphe", 120);
+
+	logger.Info("=== Ilyana / corpus REEL (Wikipedia FR) ===");
+	FILE *fi = fopen(source, "rb");
+	if (!fi) {
+		logger.Info("ERREUR : source introuvable ({0}).", source);
+		return 1;
+	}
+	FILE *fo = fopen(sortie, "wb");
+	if (!fo) {
+		fclose(fi);
+		logger.Info("ERREUR : ecriture impossible ({0}) — le dossier existe-t-il ?", sortie);
+		return 1;
+	}
+
+	NkChrono chrono;
+	static char ligne[1 << 16];
+	NkString para;
+	int64 luOctets = 0, ecritOctets = 0;
+	int64 parsLus = 0, parsGardes = 0, parsMutiles = 0, parsCourts = 0;
+
+	auto viderParagraphe = [&]() {
+		if (para.Size() == 0)
+			return;
+		++parsLus;
+		if (ParagrapheMutile(para))
+			++parsMutiles;
+		else if ((int64)para.Size() < minPar)
+			++parsCourts; // titres de section, restes d'une ligne
+		else {
+			fwrite(para.Data(), 1, para.Size(), fo);
+			fwrite("\n\n", 1, 2, fo);
+			ecritOctets += (int64)para.Size() + 2;
+			++parsGardes;
+		}
+		para = NkString();
+	};
+
+	while (fgets(ligne, (int)sizeof(ligne), fi) != nullptr) {
+		nk_size n = 0;
+		while (ligne[n] != '\0')
+			++n;
+		luOctets += (int64)n;
+		while (n > 0 && (ligne[n - 1] == '\n' || ligne[n - 1] == '\r'))
+			--n; // fin de ligne, CR compris (fichier CRLF : mesuré)
+		if (n == 0) {
+			viderParagraphe(); // ligne vide = fin de paragraphe
+			continue;
+		}
+		if (para.Size() > 0)
+			para.Append(' ');
+		para.Append(ligne, n);
+		if (maxOctets > 0 && ecritOctets >= maxOctets)
+			break;
+	}
+	viderParagraphe();
+	fclose(fi);
+	fclose(fo);
+
+	const double secs = chrono.Elapsed().seconds;
+	logger.Info("lu          : {0} octets en {1} s", (long long)luOctets, secs);
+	logger.Info("paragraphes : {0} lus -> {1} gardes ({2}%)", (long long)parsLus, (long long)parsGardes,
+				parsLus ? (100.0 * (double)parsGardes / (double)parsLus) : 0.0);
+	logger.Info("ecartes     : {0} mutiles ({1}%), {2} trop courts (titres de section)", (long long)parsMutiles,
+				parsLus ? (100.0 * (double)parsMutiles / (double)parsLus) : 0.0, (long long)parsCourts);
+	logger.Info("ecrit       : {0} octets dans {1}", (long long)ecritOctets, sortie);
+
+	// ATTRIBUTION — exigence de la licence, pas une politesse.
+	{
+		NkString att;
+		att.Append("Corpus derive de Wikipedia en francais (Wikimedia Foundation).\n");
+		att.Append("Licence : Creative Commons Attribution - partage dans les memes conditions 4.0\n");
+		att.Append("          (CC BY-SA 4.0) - https://creativecommons.org/licenses/by-sa/4.0/deed.fr\n\n");
+		att.Append("Modifications apportees : conversion des fins de ligne CRLF en LF, et retrait des\n");
+		att.Append("paragraphes ou l'extraction a vide le contenu d'un modele (dates absentes,\n");
+		att.Append("balisage residuel). Aucun ajout, aucune reformulation.\n\n");
+		att.Append("Tout modele entraine sur ce corpus herite de cette obligation d'attribution.\n");
+		att.Append("Voir docs/SOURCES_TIERCES.md et THIRD_PARTY_LICENSES.md a la racine du depot.\n");
+		NkString cheminAtt(sortie);
+		cheminAtt.Append(".ATTRIBUTION.txt");
+		if (!EcrireFichier(cheminAtt.CStr(), att))
+			logger.Info("ATTENTION : attribution non ecrite ({0}).", cheminAtt.CStr());
+		else
+			logger.Info("attribution : {0}", cheminAtt.CStr());
+	}
+	return 0;
+}
+
+// =============================================================================
 // MODE --data : trier le corpus, écrire l'identité, entraîner le tokenizer
 // =============================================================================
 static int ModeData(int argc, char **argv) {
@@ -615,6 +727,8 @@ static int ModeCauser(int argc, char **argv) {
 }
 
 int main(int argc, char **argv) {
+	if (Drapeau(argc, argv, "--wiki"))
+		return ModeWiki(argc, argv);
 	if (Drapeau(argc, argv, "--data"))
 		return ModeData(argc, argv);
 	if (Drapeau(argc, argv, "--causer"))
