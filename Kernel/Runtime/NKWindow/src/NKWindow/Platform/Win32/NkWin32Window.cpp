@@ -446,6 +446,18 @@ namespace nkentseu {
 		if (config.transparent) {
 			mData.mDwExStyle |= WS_EX_LAYERED;
 		}
+		// Fenêtre discrète : poser les styles DÈS la création évite le
+		// clignotement d'une fenêtre normale corrigée une frame plus tard.
+		// WS_EX_TRANSPARENT (click-through) n'agit que sur une fenêtre layered.
+		if (config.alwaysOnTop) {
+			mData.mDwExStyle |= WS_EX_TOPMOST;
+		}
+		if (config.clickThrough) {
+			mData.mDwExStyle |= WS_EX_LAYERED | WS_EX_TRANSPARENT;
+		}
+		if (config.opacity < 1.0f) {
+			mData.mDwExStyle |= WS_EX_LAYERED;
+		}
 
 		if (config.native.utilityWindow && !mData.mParentHwnd) {
 			mData.mUtilityOwner =
@@ -568,6 +580,17 @@ namespace nkentseu {
 			ApplyTransparency(mData.mHwnd);
 		} else if (config.hasShadow) {
 			ApplyShadow(mData.mHwnd);
+		}
+
+		// Une fenêtre WS_EX_LAYERED qui n'a JAMAIS reçu SetLayeredWindowAttributes
+		// ne peint rien (piège Win32 classique) : si le style a été posé pour le
+		// click-through ou l'opacité — et pas par ApplyTransparency qui le fait
+		// déjà — armer l'alpha maintenant, même à 255.
+		if ((config.clickThrough || config.opacity < 1.0f) && !config.transparent) {
+			const float32 a = config.opacity < 0.0f ? 0.0f : (config.opacity > 1.0f ? 1.0f : config.opacity);
+			SetLayeredWindowAttributes(mData.mHwnd, 0, static_cast<BYTE>(a * 255.0f + 0.5f), LWA_ALPHA);
+		} else if (config.transparent && config.opacity < 1.0f) {
+			SetOpacity(config.opacity); // ré-applique l'alpha par-dessus les 255 d'ApplyTransparency
 		}
 
 		ApplyWindowIcons(mData.mHwnd, mData, config.iconPath);
@@ -949,6 +972,333 @@ namespace nkentseu {
 		}
 		CloseClipboard();
 		return out;
+	}
+
+	// ── Fenêtre discrète : opacité / toujours-devant / click-through ─────────────
+	//
+	// Les trois reposent sur les styles étendus. Règle WS_EX_LAYERED : il reste
+	// posé tant qu'UN consommateur en a besoin (transparent, opacité < 1 ou
+	// click-through) et n'est retiré que quand plus personne ne s'en sert — le
+	// retirer trop tôt casserait la transparence du fond, le garder pour rien
+	// coûte une composition d'écran inutile.
+
+	void NkWindow::SetOpacity(float32 opacity) {
+		if (opacity < 0.0f)
+			opacity = 0.0f;
+		if (opacity > 1.0f)
+			opacity = 1.0f;
+		mConfig.opacity = opacity;
+		if (!mData.mHwnd)
+			return;
+		LONG_PTR ex = GetWindowLongPtrW(mData.mHwnd, GWL_EXSTYLE);
+		if (opacity >= 1.0f && !mConfig.transparent && !mConfig.clickThrough) {
+			// Plus personne n'a besoin du layering : fenêtre redevenue ordinaire.
+			if (ex & WS_EX_LAYERED)
+				SetWindowLongPtrW(mData.mHwnd, GWL_EXSTYLE, ex & ~WS_EX_LAYERED);
+			return;
+		}
+		if (!(ex & WS_EX_LAYERED))
+			SetWindowLongPtrW(mData.mHwnd, GWL_EXSTYLE, ex | WS_EX_LAYERED);
+		SetLayeredWindowAttributes(mData.mHwnd, 0, static_cast<BYTE>(opacity * 255.0f + 0.5f), LWA_ALPHA);
+	}
+
+	float32 NkWindow::GetOpacity() const {
+		return mConfig.opacity;
+	}
+
+	void NkWindow::SetAlwaysOnTop(bool onTop) {
+		mConfig.alwaysOnTop = onTop;
+		if (!mData.mHwnd)
+			return;
+		SetWindowPos(mData.mHwnd, onTop ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
+					 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+	}
+
+	bool NkWindow::IsAlwaysOnTop() const {
+		// L'OS fait autorité : un autre process peut retirer le topmost.
+		if (mData.mHwnd)
+			return (GetWindowLongPtrW(mData.mHwnd, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0;
+		return mConfig.alwaysOnTop;
+	}
+
+	void NkWindow::SetClickThrough(bool clickThrough) {
+		mConfig.clickThrough = clickThrough;
+		if (!mData.mHwnd)
+			return;
+		LONG_PTR ex = GetWindowLongPtrW(mData.mHwnd, GWL_EXSTYLE);
+		const bool hadLayered = (ex & WS_EX_LAYERED) != 0;
+		if (clickThrough) {
+			ex |= WS_EX_LAYERED | WS_EX_TRANSPARENT; // TRANSPARENT n'agit que layered
+		} else {
+			ex &= ~WS_EX_TRANSPARENT;
+			if (!mConfig.transparent && mConfig.opacity >= 1.0f)
+				ex &= ~WS_EX_LAYERED; // cf. règle en tête de section
+		}
+		SetWindowLongPtrW(mData.mHwnd, GWL_EXSTYLE, ex);
+		// Layered fraîchement posé sans alpha armé = fenêtre qui ne peint plus.
+		if (clickThrough && !hadLayered)
+			SetLayeredWindowAttributes(mData.mHwnd, 0, static_cast<BYTE>(mConfig.opacity * 255.0f + 0.5f), LWA_ALPHA);
+	}
+
+	bool NkWindow::IsClickThrough() const {
+		if (mData.mHwnd)
+			return (GetWindowLongPtrW(mData.mHwnd, GWL_EXSTYLE) & WS_EX_TRANSPARENT) != 0;
+		return mConfig.clickThrough;
+	}
+
+	// ── Presse-papiers OS image (CF_DIBV5 / CF_DIB ↔ RGBA8) ─────────────────────
+	//
+	// Écriture : on pose CF_DIBV5 (masques BGRA explicites, alpha réel) ET
+	// CF_DIB 32 bpp (les consommateurs anciens ne lisent que lui). Lecture :
+	// CF_DIBV5 d'abord (alpha fiable), sinon CF_DIB — que Windows synthétise
+	// au besoin depuis CF_BITMAP, donc une capture d'écran est toujours lisible.
+	// Pas de PNG : le décoder exigerait NKImage, que NKWindow ne tire pas.
+
+	namespace {
+		// Lignes DIB : alignées 32 bits, ordre BAS → HAUT quand height > 0.
+		inline uint32 NkDibStride(uint32 width, uint32 bitCount) {
+			return ((width * bitCount + 31u) / 32u) * 4u;
+		}
+
+		// Position du bit le plus bas d'un masque (0 si masque nul) — pour
+		// décoder les BI_BITFIELDS quel que soit l'agencement des canaux.
+		inline uint32 NkMaskShift(uint32 mask) {
+			if (!mask)
+				return 0;
+			uint32 shift = 0;
+			while (!(mask & 1u)) {
+				mask >>= 1;
+				++shift;
+			}
+			return shift;
+		}
+
+		// Ramène un canal masqué sur 8 bits (les masques usuels sont déjà 8 bits).
+		inline uint8 NkMaskedChannel(uint32 px, uint32 mask, uint32 shift) {
+			if (!mask)
+				return 0;
+			uint32 v = (px & mask) >> shift;
+			uint32 span = mask >> shift; // ex. 0xFF
+			if (span == 0)
+				return 0;
+			if (span != 0xFFu)
+				v = (v * 255u) / span;
+			return static_cast<uint8>(v);
+		}
+	} // namespace
+
+	bool NkWindow::SetClipboardImage(const NkClipboardImage &image) {
+		if (!image.IsValid())
+			return false;
+		if (!OpenClipboard(mData.mHwnd))
+			return false;
+		EmptyClipboard();
+
+		const uint32 w = image.width, h = image.height;
+		const SIZE_T pixelBytes = static_cast<SIZE_T>(w) * h * 4u;
+		bool ok = false;
+
+		// CF_DIBV5 — alpha réel via masques explicites.
+		if (HGLOBAL hg = GlobalAlloc(GMEM_MOVEABLE, sizeof(BITMAPV5HEADER) + pixelBytes)) {
+			if (uint8 *dst = static_cast<uint8 *>(GlobalLock(hg))) {
+				BITMAPV5HEADER hdr = {};
+				hdr.bV5Size = sizeof(BITMAPV5HEADER);
+				hdr.bV5Width = static_cast<LONG>(w);
+				hdr.bV5Height = static_cast<LONG>(h); // positif = bottom-up
+				hdr.bV5Planes = 1;
+				hdr.bV5BitCount = 32;
+				hdr.bV5Compression = BI_BITFIELDS;
+				hdr.bV5RedMask = 0x00FF0000u;
+				hdr.bV5GreenMask = 0x0000FF00u;
+				hdr.bV5BlueMask = 0x000000FFu;
+				hdr.bV5AlphaMask = 0xFF000000u;
+				hdr.bV5CSType = 0x73524742; // 'sRGB'
+				hdr.bV5Intent = LCS_GM_IMAGES;
+				const uint8 *hdrBytes = reinterpret_cast<const uint8 *>(&hdr);
+				for (usize i = 0; i < sizeof(hdr); ++i)
+					dst[i] = hdrBytes[i];
+				uint8 *px = dst + sizeof(hdr);
+				for (uint32 y = 0; y < h; ++y) {
+					const uint8 *src = image.pixels.Data() + static_cast<usize>(h - 1 - y) * w * 4u; // inversion bottom-up
+					uint8 *row = px + static_cast<usize>(y) * w * 4u;
+					for (uint32 x = 0; x < w; ++x) { // RGBA → BGRA
+						row[x * 4 + 0] = src[x * 4 + 2];
+						row[x * 4 + 1] = src[x * 4 + 1];
+						row[x * 4 + 2] = src[x * 4 + 0];
+						row[x * 4 + 3] = src[x * 4 + 3];
+					}
+				}
+				GlobalUnlock(hg);
+				if (SetClipboardData(CF_DIBV5, hg))
+					ok = true;
+				else
+					GlobalFree(hg);
+			} else {
+				GlobalFree(hg);
+			}
+		}
+
+		// CF_DIB 32 bpp BI_RGB — pour les consommateurs qui ignorent V5.
+		if (HGLOBAL hg = GlobalAlloc(GMEM_MOVEABLE, sizeof(BITMAPINFOHEADER) + pixelBytes)) {
+			if (uint8 *dst = static_cast<uint8 *>(GlobalLock(hg))) {
+				BITMAPINFOHEADER hdr = {};
+				hdr.biSize = sizeof(BITMAPINFOHEADER);
+				hdr.biWidth = static_cast<LONG>(w);
+				hdr.biHeight = static_cast<LONG>(h);
+				hdr.biPlanes = 1;
+				hdr.biBitCount = 32;
+				hdr.biCompression = BI_RGB;
+				const uint8 *hdrBytes = reinterpret_cast<const uint8 *>(&hdr);
+				for (usize i = 0; i < sizeof(hdr); ++i)
+					dst[i] = hdrBytes[i];
+				uint8 *px = dst + sizeof(hdr);
+				for (uint32 y = 0; y < h; ++y) {
+					const uint8 *src = image.pixels.Data() + static_cast<usize>(h - 1 - y) * w * 4u;
+					uint8 *row = px + static_cast<usize>(y) * w * 4u;
+					for (uint32 x = 0; x < w; ++x) {
+						row[x * 4 + 0] = src[x * 4 + 2];
+						row[x * 4 + 1] = src[x * 4 + 1];
+						row[x * 4 + 2] = src[x * 4 + 0];
+						row[x * 4 + 3] = src[x * 4 + 3];
+					}
+				}
+				GlobalUnlock(hg);
+				if (SetClipboardData(CF_DIB, hg))
+					ok = true;
+				else
+					GlobalFree(hg);
+			} else {
+				GlobalFree(hg);
+			}
+		}
+
+		CloseClipboard();
+		return ok;
+	}
+
+	namespace {
+		// Décode un bloc DIB (BITMAPINFOHEADER/V4/V5, 24 ou 32 bpp, BI_RGB ou
+		// BI_BITFIELDS) vers RGBA8 top-down. Partagé par CF_DIBV5 et CF_DIB.
+		bool NkDecodeDibToRgba(const uint8 *dib, SIZE_T dibSize, NkClipboardImage &out) {
+			if (!dib || dibSize < sizeof(BITMAPINFOHEADER))
+				return false;
+			const BITMAPINFOHEADER *bih = reinterpret_cast<const BITMAPINFOHEADER *>(dib);
+			const uint32 hdrSize = bih->biSize;
+			if (hdrSize < sizeof(BITMAPINFOHEADER) || hdrSize > dibSize)
+				return false;
+			const uint32 bpp = bih->biBitCount;
+			const uint32 comp = bih->biCompression;
+			if ((bpp != 24 && bpp != 32) || (comp != BI_RGB && comp != BI_BITFIELDS))
+				return false; // paletisés/compressés : hors périmètre (sources image réelles = 24/32 bpp)
+			const LONG rawH = bih->biHeight;
+			const bool bottomUp = rawH > 0; // convention DIB : hauteur positive = lignes bas → haut
+			const uint32 w = static_cast<uint32>(bih->biWidth);
+			const uint32 h = static_cast<uint32>(bottomUp ? rawH : -rawH);
+			if (w == 0 || h == 0 || w > 32768u || h > 32768u)
+				return false;
+
+			// Masques : dans l'en-tête à partir de V4/V5, sinon 3 DWORD APRÈS
+			// un BITMAPINFOHEADER en BI_BITFIELDS (convention CF_DIB).
+			uint32 maskR = 0x00FF0000u, maskG = 0x0000FF00u, maskB = 0x000000FFu, maskA = 0;
+			SIZE_T pixelOffset = hdrSize;
+			if (comp == BI_BITFIELDS) {
+				if (hdrSize >= 108) { // BITMAPV4HEADER et au-delà
+					const BITMAPV5HEADER *v5 = reinterpret_cast<const BITMAPV5HEADER *>(dib);
+					maskR = v5->bV5RedMask;
+					maskG = v5->bV5GreenMask;
+					maskB = v5->bV5BlueMask;
+					maskA = v5->bV5AlphaMask;
+				} else {
+					if (dibSize < hdrSize + 12)
+						return false;
+					const uint32 *m = reinterpret_cast<const uint32 *>(dib + hdrSize);
+					maskR = m[0];
+					maskG = m[1];
+					maskB = m[2];
+					pixelOffset += 12;
+				}
+			} else if (bpp == 32 && hdrSize >= 108) {
+				// V4/V5 en BI_RGB : l'alpha peut quand même être déclaré.
+				maskA = reinterpret_cast<const BITMAPV5HEADER *>(dib)->bV5AlphaMask;
+			}
+			if (bpp == 32 && comp == BI_RGB)
+				maskA = maskA ? maskA : 0xFF000000u; // BGRX : on lira l'octet, heuristique alpha plus bas
+
+			const uint32 stride = NkDibStride(w, bpp);
+			if (pixelOffset + static_cast<SIZE_T>(stride) * h > dibSize)
+				return false;
+			const uint8 *px = dib + pixelOffset;
+
+			out.width = w;
+			out.height = h;
+			out.pixels.Resize(static_cast<usize>(w) * h * 4u);
+			const uint32 shR = NkMaskShift(maskR), shG = NkMaskShift(maskG), shB = NkMaskShift(maskB),
+						 shA = NkMaskShift(maskA);
+			bool anyAlpha = false;
+			for (uint32 y = 0; y < h; ++y) {
+				const uint8 *row = px + static_cast<usize>(bottomUp ? (h - 1 - y) : y) * stride;
+				uint8 *dst = out.pixels.Data() + static_cast<usize>(y) * w * 4u;
+				if (bpp == 24) { // BGR → RGBA opaque
+					for (uint32 x = 0; x < w; ++x) {
+						dst[x * 4 + 0] = row[x * 3 + 2];
+						dst[x * 4 + 1] = row[x * 3 + 1];
+						dst[x * 4 + 2] = row[x * 3 + 0];
+						dst[x * 4 + 3] = 255;
+					}
+				} else {
+					for (uint32 x = 0; x < w; ++x) {
+						uint32 v;
+						const uint8 *s = row + x * 4;
+						v = static_cast<uint32>(s[0]) | (static_cast<uint32>(s[1]) << 8) |
+							(static_cast<uint32>(s[2]) << 16) | (static_cast<uint32>(s[3]) << 24);
+						const uint8 a = maskA ? NkMaskedChannel(v, maskA, shA) : 255;
+						dst[x * 4 + 0] = NkMaskedChannel(v, maskR, shR);
+						dst[x * 4 + 1] = NkMaskedChannel(v, maskG, shG);
+						dst[x * 4 + 2] = NkMaskedChannel(v, maskB, shB);
+						dst[x * 4 + 3] = a;
+						if (a != 0)
+							anyAlpha = true;
+					}
+				}
+			}
+			// Heuristique alpha : beaucoup de producteurs posent du 32 bpp avec
+			// TOUS les alphas à 0 en voulant dire « opaque » (BGRX). Une image
+			// intégralement invisible n'a aucun sens pour un coller.
+			if (bpp == 32 && !anyAlpha) {
+				for (usize i = 3; i < out.pixels.Size(); i += 4)
+					out.pixels[i] = 255;
+			}
+			return true;
+		}
+	} // namespace
+
+	bool NkWindow::GetClipboardImage(NkClipboardImage &out) const {
+		out = NkClipboardImage{};
+		if (!OpenClipboard(mData.mHwnd))
+			return false;
+		bool ok = false;
+		// V5 d'abord (alpha fiable), sinon DIB — synthétisé depuis CF_BITMAP au besoin.
+		const UINT formats[2] = {CF_DIBV5, CF_DIB};
+		for (int i = 0; i < 2 && !ok; ++i) {
+			HANDLE h = GetClipboardData(formats[i]);
+			if (!h)
+				continue;
+			const SIZE_T size = GlobalSize(h);
+			if (const uint8 *dib = static_cast<const uint8 *>(GlobalLock(h))) {
+				ok = NkDecodeDibToRgba(dib, size, out);
+				GlobalUnlock(h);
+			}
+		}
+		CloseClipboard();
+		if (!ok)
+			out = NkClipboardImage{};
+		return ok;
+	}
+
+	bool NkWindow::HasClipboardImage() const {
+		// Sans OpenClipboard : test léger. CF_DIB couvre aussi CF_BITMAP (synthèse OS).
+		return IsClipboardFormatAvailable(CF_DIBV5) || IsClipboardFormatAvailable(CF_DIB) ||
+			   IsClipboardFormatAvailable(CF_BITMAP);
 	}
 
 	void NkWindow::BeginResize(NkResizeEdge edge) {

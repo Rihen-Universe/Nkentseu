@@ -96,6 +96,15 @@ namespace nkentseu {
 			bool visible = true;
 			uint32 bgColor = 0x141414FF;
 
+			// ── Fenêtre discrète (outils flottants type tableau de références) ──
+			// Ces trois réglages existent aussi à l'exécution (SetAlwaysOnTop,
+			// SetOpacity, SetClickThrough) ; les poser ici évite le clignotement
+			// d'une fenêtre créée « normale » puis corrigée une frame plus tard.
+			// Support par plateforme : voir la doc des méthodes dans NkWindow.h.
+			bool alwaysOnTop = false;  ///< reste au-dessus des autres fenêtres
+			bool clickThrough = false; ///< transparente aux clics (la souris traverse)
+			float32 opacity = 1.0f;	   ///< opacité globale [0..1], 1 = opaque
+
 			// --- Identité ---
 			NkString title = "NkWindow";
 			NkString name = "NkApp";
