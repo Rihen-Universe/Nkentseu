@@ -147,6 +147,12 @@ namespace nkentseu {
 				NkMaterial *SetTriplanarTileSize(float32 tileSizeMeters);
 				float32 GetTriplanarTileSize() const;
 
+				// ── Parallax occlusion (etape 3, 10 aout) ─────────────────────────
+				// La carte de hauteur passe par SetTexture("height", t) ; l'echelle
+				// creuse les UV cote shader (0 = coupe, ~0.02-0.08 utile).
+				NkMaterial *SetParallaxScale(float32 scale);
+				float32 GetParallaxScale() const;
+
 				// ── État ──────────────────────────────────────────────────────────
 				bool IsValid() const;
 				NkRenderQueue GetQueue() const;

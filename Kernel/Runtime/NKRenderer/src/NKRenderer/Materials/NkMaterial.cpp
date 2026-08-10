@@ -380,6 +380,17 @@ namespace nkentseu {
 			return mInstance ? mInstance->mTriplanarTileSize : 0.f;
 		}
 
+		// ── Parallax occlusion (carte de hauteur via SetTexture("height")) ────
+		NkMaterial *NkMaterial::SetParallaxScale(float32 scale) {
+			if (mInstance)
+				mInstance->mParallaxScale = scale < 0.f ? 0.f : scale;
+			return this;
+		}
+
+		float32 NkMaterial::GetParallaxScale() const {
+			return mInstance ? mInstance->mParallaxScale : 0.f;
+		}
+
 		// ── État ──────────────────────────────────────────────────────────────
 		bool NkMaterial::IsValid() const {
 			return mSystem && mInstance;

@@ -2970,7 +2970,10 @@ namespace nkentseu {
 				{
 					const float32 tile = matInst ? matInst->mTriplanarTileSize : 0.f;
 					const float32 mpu = NkUnits().metersPerUnit;
-					ob.triplanarParams = NkVec4f{tile, mpu > 0.f ? mpu : 1.f, tile > 0.f ? 1.f : 0.f, 0.f};
+					// .w = echelle du parallax (reserve devenue « relief », 10 aout).
+					const float32 par = matInst ? matInst->mParallaxScale : 0.f;
+					ob.triplanarParams =
+						NkVec4f{tile, mpu > 0.f ? mpu : 1.f, tile > 0.f ? 1.f : 0.f, par};
 				}
 
 				NkBufferHandle ubo = mUBOObjectPool[mFrameSlot][mObjectDrawIdx];

@@ -288,6 +288,8 @@ namespace nkentseu {
 			demo::Demo3DHostProjMatChanStrength(slot, &nrm, &emiS);
 			o.SetFloat32("relief", nrm);
 			o.SetFloat32("emissifIntensite", emiS);
+			// Echelle du parallax (canal Hauteur, 10 aout). Defaut 0 = coupe.
+			o.SetFloat32("parallax", demo::Demo3DHostProjMatParallax(slot));
 			float32 emi[3] = {0.f, 0.f, 0.f};
 			demo::Demo3DHostProjMatEmissive(slot, emi);
 			NkScSetVec3(o, "emissif", emi);
@@ -324,6 +326,8 @@ namespace nkentseu {
 			// la carte serait branchee avec l'ancienne valeur.
 			demo::Demo3DHostProjMatSetChanStrength(slot, NkScFloat(in, "relief", 1.f),
 												   NkScFloat(in, "emissifIntensite", 1.f));
+			// Meme regle que le relief : l'echelle AVANT la carte de hauteur.
+			demo::Demo3DHostProjMatSetParallax(slot, NkScFloat(in, "parallax", 0.f));
 			float32 emi[3];
 			NkScGetVec3(in, "emissif", emi, 0.f, 0.f, 0.f);
 			demo::Demo3DHostProjMatSetEmissive(slot, emi);
