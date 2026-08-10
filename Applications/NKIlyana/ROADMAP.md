@@ -126,6 +126,49 @@ Ce que ça change :
 À 20 M elle citera plus qu'elle ne reformulera. C'est déjà bien mieux
 qu'inventer.
 
+### État au 2026-08-10 — la moitié « chercher » est LIVRÉE
+
+`--chercher` (index inversé + BM25, `NkIlyanaRecherche.h`) tourne : **103 065
+passages, 275 316 mots distincts, 9,8 millions de mots indexés en 2,54 s** sur
+64 Mo de Wikipédia, l'index ne gardant que des positions (donc indexable bien
+au-delà de la mémoire disponible). Défaut trouvé et réparé au passage : sans
+repliement des accents, `Yaounde` ne trouvait **rien** dans un corpus qui écrit
+`Yaoundé` — la recherche en français échouait en silence.
+
+Limite mesurée et assumée : la recherche est **lexicale**. « Quelle est la
+capitale du Cameroun ? » rend des passages sur le Tchad et la Guinée équatoriale,
+qui *bordent* le Cameroun et contiennent les deux mots. Trouver par le sens
+demandera des vecteurs d'embedding.
+
+### ⛔ La question ouverte, à trancher avant de brancher les deux moitiés
+
+Chercher marche. **Se servir de ce qu'on a trouvé, non** — et ce n'est pas un
+travail de câblage, c'est une décision de conception.
+
+Pour qu'Ilyana exploite un passage placé devant sa question, il faut qu'elle ait
+appris le format « Contexte → Question → Réponse ». Elle ne l'a **jamais vu** à
+l'entraînement : lui coller un passage devant la question aujourd'hui, elle
+l'ignorera. Il faut donc des exemples d'apprentissage de cette forme.
+
+Et c'est là qu'est le conflit : fabriquer ces exemples revient à **inventer des
+questions et des réponses** à partir des passages — exactement la donnée
+potentiellement erronée qui a fait écarter le corpus synthétique. Trois voies,
+aucune gratuite :
+
+1. **Extractif mécanique** — la réponse est une phrase *copiée* du passage, jamais
+   rédigée. Rien n'est inventé côté réponse ; reste à produire la question sans
+   l'inventer non plus, ce qui n'est pas résolu.
+2. **Questions réelles** — n'utiliser que des paires question/réponse d'origine
+   humaine attestée. Propre, mais il faut la source.
+3. **Assumer un générateur** pour la seule *forme*, en acceptant que le contenu
+   soit faux, puisque ce qu'on enseigne est « recopie le passage », pas le fait.
+   Dangereux : ce qui est vu à l'entraînement s'imprime, même présenté comme forme.
+
+⚠️ Ne pas brancher `--chercher` dans `--parler` avant que ce point soit tranché :
+un branchement qui « marche » sans que le modèle sache lire le contexte donnerait
+l'illusion d'une réponse sourcée alors qu'elle serait devinée — le pire des deux
+mondes, parce qu'elle serait alors *crue*.
+
 ---
 
 ## 4. Apprendre de ses torts
