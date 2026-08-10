@@ -295,7 +295,17 @@ chose. Toujours vérifier qu'un run VIT avant d'attendre son résultat.
    du pas, est normale. Il devait regarder la **valeur absolue**. Un garde-fou qui
    tue ce qu'il devait protéger coûte le run *et* la confiance dans la mesure.
 
-### Ce qu'il reste à examiner si la phase 3 échoue encore
+**3d — fenêtres alignées, run complet (94 min) : batterie 6/19, citation NON.**
+L'alignement a fait remonter la batterie de 5 à 6, sans donner le geste. Signe
+instructif : elle produit désormais le *style* d'une réponse sourcée
+(« "Le nom de la localité", est attesté sous les formes… ») — elle a appris à quoi
+RESSEMBLE une citation, pas à lire celle qu'on lui donne.
+
+**Bilan : trois essais valides, trois échecs, chacun testant un mécanisme
+différent (pas d'apprentissage, alignement, dosage). Ce n'est donc plus un
+problème de recette.**
+
+### Ce qu'il reste à examiner maintenant que les recettes sont épuisées
 
 L'alignement des fenêtres écarté, la piste suivante n'est plus une recette mais la
 **taille** : recopier une phrase depuis un contexte demande au modèle d'apprendre
