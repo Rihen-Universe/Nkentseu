@@ -127,6 +127,16 @@ namespace ilyana {
 		if (passage.Size() < 120)
 			return false;
 
+		// ⚠️ REFUS D'UN PASSAGE QUI CONTIENT DÉJÀ LES MARQUEURS. « Question: » et
+		// « Reponse: » ne sont pas des mots ordinaires ici : ce sont les repères
+		// dont l'entraînement se sert pour savoir à partir d'où la perte compte.
+		// Un contexte qui en contient déplacerait ce repère, et le modèle
+		// apprendrait à prédire le CONTEXTE au lieu de la réponse — sans qu'aucune
+		// erreur ne soit signalée nulle part. Constaté en fabriquant des exemples
+		// depuis un corpus lui-même en questions/réponses.
+		if (passage.Find("Question:") != NkString::npos || passage.Find("Reponse:") != NkString::npos)
+			return false;
+
 		NkString contexte = passage;
 		if (contexte.Size() > maxContexte) {
 			// On coupe à la fin d'une phrase pour ne pas donner un contexte
@@ -170,6 +180,14 @@ namespace ilyana {
 		}
 
 		// CAS POSITIF : une phrase du contexte, et des mots pris dans ELLE.
+		//
+		// ⚠️ IL EN FAUT PLUSIEURS. Si le contexte ne contient qu'une phrase, la
+		// réponse EST le contexte entier, et l'exercice n'enseigne plus à choisir
+		// mais à recopier son entrée — ce qui est précisément le contraire du
+		// geste visé. Trois phrases au moins pour qu'il y ait quelque chose à
+		// discriminer.
+		if (phrases.Size() < 3)
+			return false;
 		const NkString &choisie = phrases[graine % phrases.Size()];
 		if (choisie.Size() < 40 || choisie.Size() > maxReponse)
 			return false;

@@ -122,6 +122,26 @@ pages qu'il occupe. Sans ça, un traité de mathématiques de 400 pages pèserai
 plus que cinq livres d'histoire réunis, et Ilyana apprendrait surtout à parler
 mathématiques. La trace le dit : `equilibrage : 3 domaine(s), 109 sondages chacun`.
 
+### Lui apprendre à CITER ce qu'elle trouve
+
+```
+.\Build\Bin\Release-Windows\NKIlyana\NKIlyana.exe --citations ^
+  --bibliotheque D:\Projets\Camrail\AI\bibliotheque ^
+  --sortie ...\citations.txt --combien 20000 --part-absente 0.25
+```
+
+Fabrique des exemples « Contexte → Question → Réponse » **par pure recopie** : le
+contexte est un passage réel, la question est faite de mots **extraits de ce
+passage**, la réponse est une phrase **copiée mot pour mot**. Aucune machine
+n'affirme quoi que ce soit — rien ne peut donc y être faux qui ne le soit déjà
+dans vos livres.
+
+Un quart des exemples porte sur des mots **absents**, et la réponse juste y est
+« Je ne trouve pas cela dans ce texte. » Sans eux, elle apprendrait qu'il faut
+**toujours** répondre, et inventerait quand le texte se tait.
+
+Ce fichier se mélange ensuite au corpus d'entraînement comme le reste.
+
 Puis l'entraînement lui-même :
 
 ```
@@ -153,13 +173,25 @@ Et pour décider si on garde le résultat :
 
 | format | verdict |
 |---|---|
-| `.txt` | **marche aujourd'hui**, rien à faire |
-| EPUB | pas encore lu — faisable (c'est un zip de pages HTML, et le décompresseur existe déjà) |
-| PDF | pas encore lu — **vrai chantier** (flux compressés + tables d'encodage des polices, qui mentent souvent) |
+| `.txt` | ✅ **marche** |
+| `.tex` (source LaTeX) | ✅ **marche, et c'est le MEILLEUR format** — voir ci-dessous |
+| `.epub` | ✅ **marche** (archive zip de pages XHTML) |
+| `.pdf` | ⚠️ **lu, mais les polices de beaucoup de documents ne se résolvent pas encore** |
 
-⚠️ **Pour les maths et la physique, éviter le PDF même quand il sera lisible** :
-les formules en ressortent presque toujours en charabia. Le texte source ou
-l'EPUB vaut infiniment mieux.
+⭐ **Pour les maths, la physique, l'informatique : donner le `.tex`, jamais le PDF.**
+Mesuré sur le même document : le PDF a rendu **0 passage**, sa source LaTeX en a
+rendu **2254**. Et ce n'est pas un accident de ce fichier — un PDF ne contient pas
+de texte mais des glyphes posés à des coordonnées, et une formule y devient une
+poussière de symboles dont la structure est perdue. Le `.tex` dit exactement ce
+que la formule est. Les `\input` sont suivis, donc un livre découpé en un fichier
+par chapitre entre en entier.
+
+**Sur l'état du PDF, précisément.** Le lecteur décode bien la structure et le
+contenu ; c'est la résolution des **polices** qui échoue sur les documents
+produits par LaTeX (polices Type1/CFF, quand le lecteur attend du TrueType).
+Mesure sur un cas réel : 2 157 102 octets de contenu décodés, 147 590 opérations
+exécutées, 10 104 ordres de texte… et **0 glyphe demandé**. Le programme te dit
+laquelle des quatre causes possibles s'applique, au lieu de te laisser deviner.
 
 ### 2. Le tokenizer se fige
 
