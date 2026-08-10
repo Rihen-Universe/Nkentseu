@@ -15007,6 +15007,18 @@ namespace nkentseu {
 			if (L)
 				L->attenuationMode = (mode != 0) ? 1 : 0;
 		}
+		// ── Profondeur d'ombre LINEAIRE (omni, option — 2026-08-10) ──────────
+		// A part de SetLightEx pour la meme raison que la loi : c'est un choix
+		// qu'on fait une fois, pas un reglage qui accompagne chaque portee.
+		bool Demo3DHostLightShadowLinear(int32 node) {
+			const renderer::NkLightDesc *L = HostLightDescOf(node);
+			return L ? L->pointShadowLinear : false;
+		}
+		void Demo3DHostSetLightShadowLinear(int32 node, bool lin) {
+			renderer::NkLightDesc *L = HostLightDescOf(node);
+			if (L)
+				L->pointShadowLinear = lin;
+		}
 		bool Demo3DHostCameraParams(int32 node, float32 *fov, float32 *nearC, float32 *farC) {
 			if (node < kNkvpFirstUser || node >= kNkvpMaxNodes ||
 				nkvpUserKind[node - kNkvpFirstUser] != 4 ||

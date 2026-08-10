@@ -817,7 +817,15 @@ namespace nkentseu {
 				NkRect2D scissor{(int32)s.tileRect.x, (int32)s.tileRect.y, (int32)s.tileRect.w, (int32)s.tileRect.h};
 				cmd->SetViewport(vp);
 				cmd->SetScissor(scissor);
-				mRender3D->RenderShadowPass(cmd, s.renderMatrix);
+				// w NEGATIF = face d'omni en DISTANCE LINEAIRE (AllocSlotsPoint) :
+				// le depot ecrit dist/portee, meme grandeur que la comparaison.
+				if (s.lightPosOrDir.w < 0.f) {
+					NkVec4f posFar{s.lightPosOrDir.x, s.lightPosOrDir.y, s.lightPosOrDir.z,
+								   -s.lightPosOrDir.w};
+					mRender3D->RenderShadowPassLinear(cmd, s.renderMatrix, posFar);
+				} else {
+					mRender3D->RenderShadowPass(cmd, s.renderMatrix);
+				}
 			}
 
 			cmd->EndRenderPass();
