@@ -135,6 +135,52 @@ int main() {
 		check(ok, "ops::Matmul dispatché sur GPU (API unifiée)");
 	}
 
+	// ---- 4bis) GRAND produit de matrices : le noyau PAVÉ, contre le CPU --------
+	// Au-delà d'un seuil (M·N >= 65536), `RunMatMul` bascule sur un noyau où
+	// chaque fil calcule un bloc 4×4 — quatre fois moins de trafic mémoire. Les
+	// petits cas ci-dessus ne l'exercent PAS : ils restent sous le seuil et
+	// valident l'ancien noyau. Sans ce test-ci, une erreur dans le noyau pavé ne
+	// se verrait que par une perte d'entraînement « un peu différente », ce qui
+	// est indiscernable d'un simple effet d'arrondi.
+	{
+		// ⚠️ Dimensions NON multiples de 4, EXPRÈS : avec M et N divisibles par 4,
+		// les tests de bornes du noyau pavé ne sont jamais empruntés — et c'est
+		// justement là qu'une erreur se cache. À l'entraînement, le vocabulaire
+		// vaut 16385 = 4×4096 + 1 : le dernier bloc n'a qu'UNE colonne valide.
+		const int64 M = 301, K = 37, N = 259; // M·N = 77 959 > seuil, aucun n'est multiple de 4
+		NkShape sa;
+		sa.PushBack(M);
+		sa.PushBack(K);
+		NkShape sb;
+		sb.PushBack(K);
+		sb.PushBack(N);
+		// Valeurs déterministes, non triviales, de magnitudes variées.
+		NkTensor a = NkTensor::Zeros(sa);
+		NkTensor b = NkTensor::Zeros(sb);
+		{
+			float *pa = a.DataAs<float>();
+			for (int64 i = 0; i < M * K; ++i)
+				pa[i] = (float)(((i * 37) % 19) - 9) * 0.125f;
+			float *pb = b.DataAs<float>();
+			for (int64 i = 0; i < K * N; ++i)
+				pb[i] = (float)(((i * 53) % 23) - 11) * 0.0625f;
+		}
+		NkTensor refCpu = ops::Matmul(a, b);				  // oracle CPU
+		NkTensor gpu = ops::Matmul(a.ToGPU(), b.ToGPU());	  // passe par matmul_t4
+		NkTensor got = gpu.ToCPU().Contiguous();
+		const float *pr = refCpu.Contiguous().DataAs<float>();
+		const float *pg = got.DataAs<float>();
+		double emax = 0.0;
+		for (int64 i = 0; i < M * N; ++i) {
+			const double e = fabs((double)pr[i] - (double)pg[i]);
+			if (e > emax)
+				emax = e;
+		}
+		printf("  grand matmul %lldx%lld * %lldx%lld : ecart max GPU vs CPU = %.3e\n", (long long)M, (long long)K,
+			   (long long)K, (long long)N, emax);
+		check(emax < 1e-3, "noyau matmul PAVE identique au CPU sur un grand produit");
+	}
+
 	// ---- 5) Ops ÉLÉMENTAIRES dispatchées sur GPU (résidence) : Sub/Mul/Relu/Sig/Tanh
 	//         Même API ops:: que le CPU ; on compare au CPU de référence. -----------
 	{

@@ -252,6 +252,13 @@ namespace nkentseu {
 		// interroger le compteur pour s'arrêter au lieu de brasser du vide.
 		static int64 gGpuDefauts = 0;
 		static int64 gGpuDefautsJournalises = 0;
+		// Nombre total d'operations GPU lancees. Chaque operation elementaire paie
+		// aujourd'hui un cout FIXE (allocation d'un jeu de descripteurs, creation
+		// d'un tampon de commandes, soumission, attente d'inactivite complete du
+		// peripherique, puis destruction). Diviser le temps d'un pas par ce nombre
+		// donne ce cout fixe — c'est lui qui decide s'il vaut la peine d'etre
+		// attaque, plutot qu'une intuition.
+		static int64 gGpuOps = 0;
 
 		void NkGpuSignalerDefaut(const char *ou, const char *quoi, int64 valeur) {
 			++gGpuDefauts;
@@ -267,6 +274,10 @@ namespace nkentseu {
 
 		int64 NkTensorGpu::DefautCount() {
 			return gGpuDefauts;
+		}
+
+		int64 NkTensorGpu::OpCount() {
+			return gGpuOps;
 		}
 
 		// ---- Buffers ------------------------------------------------------------
@@ -323,6 +334,7 @@ namespace nkentseu {
 
 		bool NkTensorGpu::RunBinary(const char *name, const NkString &nkslSrc, uint64 a, uint64 b, uint64 c,
 									uint32 count) {
+			++gGpuOps;
 			if (!EnsureInit())
 				return false;
 			Impl *d = mImpl;
@@ -363,6 +375,7 @@ namespace nkentseu {
 		}
 
 		bool NkTensorGpu::RunUnary(const char *name, const NkString &nkslSrc, uint64 a, uint64 b, uint32 count) {
+			++gGpuOps;
 			if (!EnsureInit())
 				return false;
 			Impl *d = mImpl;
@@ -403,6 +416,7 @@ namespace nkentseu {
 
 		bool NkTensorGpu::RunUnaryScalar(const char *name, const NkString &nkslSrc, uint64 a, uint64 b, uint32 count,
 										 float s) {
+			++gGpuOps;
 			if (!EnsureInit())
 				return false;
 			Impl *d = mImpl;
@@ -446,6 +460,7 @@ namespace nkentseu {
 		// Un thread par élément de sortie (outer*inner threads).
 		bool NkTensorGpu::RunReduce(const char *name, const NkString &nkslSrc, uint64 a, uint64 out, uint32 outer,
 									uint32 reduce, uint32 inner) {
+			++gGpuOps;
 			if (!EnsureInit())
 				return false;
 			Impl *d = mImpl;
@@ -519,6 +534,7 @@ void main() {
 
 		bool NkTensorGpu::RunGather(uint64 in, uint64 out, uint32 rank, uint32 offset, const uint32 *shape,
 									const uint32 *strides, uint32 count) {
+			++gGpuOps;
 			if (!EnsureInit())
 				return false;
 			Impl *d = mImpl;
@@ -569,6 +585,7 @@ void main() {
 		// im2col / col2im : buffers 0,1 (A,B) + UBO { 12 uints } binding 2.
 		bool NkTensorGpu::RunConvOp(const char *name, const NkString &nkslSrc, uint64 in, uint64 out, const uint32 *p12,
 									uint32 count) {
+			++gGpuOps;
 			if (!EnsureInit())
 				return false;
 			Impl *d = mImpl;
@@ -612,6 +629,7 @@ void main() {
 		// Générique 3 buffers (a,b,c) + UBO {12 uints} binding 3.
 		bool NkTensorGpu::RunOp3(const char *name, const NkString &nkslSrc, uint64 a, uint64 b, uint64 c,
 								 const uint32 *p12, uint32 count) {
+			++gGpuOps;
 			if (!EnsureInit())
 				return false;
 			Impl *d = mImpl;
@@ -721,9 +739,106 @@ void main() {
 			return true;
 		}
 
+		// ---- MatMul PAVÉ EN REGISTRES ------------------------------------------
+		//
+		// LE PROBLÈME DU NOYAU NAÏF (conservé plus bas comme repli). Un fil par
+		// élément de sortie relit toute une ligne de A et toute une colonne de B
+		// depuis la mémoire globale. Le trafic vaut donc 2·M·N·K flottants. Pour la
+		// tête de sortie d'Ilyana — [3072,384] × [384,16385] — cela fait
+		// **154 Go de lectures** pour UN produit. À ~450 Go/s, 0,34 s rien que pour
+		// bouger les octets, et plusieurs de ces produits par pas. C'est ce qui
+		// explique une carte occupée mais à 30 W : elle attend la mémoire, elle ne
+		// calcule pas.
+		//
+		// LE REMÈDE ICI. Chaque fil calcule un bloc de 4 lignes × 4 colonnes. La
+		// valeur A[row+i, k] chargée une fois sert aux 4 colonnes, et B[k, col+j]
+		// aux 4 lignes : le trafic tombe d'un facteur 4 (2·M·N·K/4). On reste en
+		// dispatch 1D et sans mémoire partagée — donc sans barrière, sans course
+		// possible, et le repli naïf reste disponible pour les formes qui ne s'y
+		// prêtent pas. La version pavée en mémoire partagée (encore 4× de moins)
+		// viendra ensuite : NkSL sait faire `shared` et `barrier()`.
+		static const char *kMatMulT4NkSL = R"NKSL(
+@binding(set=0, binding=0) buffer BufA { float data[]; } A;
+@binding(set=0, binding=1) buffer BufB { float data[]; } B;
+@binding(set=0, binding=2) buffer BufC { float data[]; } C;
+@binding(set=0, binding=3) uniform Dims { uint M; uint N; uint K; } d;
+
+layout(local_size_x = 64) in;
+
+@stage(compute)
+@entry
+void main() {
+    uint blocsN = (d.N + 3u) / 4u;
+    uint idx = gl_GlobalInvocationID.x;
+    uint blocsM = (d.M + 3u) / 4u;
+    if (idx < blocsM * blocsN) {
+        uint br = idx / blocsN;
+        uint bc = idx - br * blocsN;
+        uint row0 = br * 4u;
+        uint col0 = bc * 4u;
+        float acc00 = 0.0; float acc01 = 0.0; float acc02 = 0.0; float acc03 = 0.0;
+        float acc10 = 0.0; float acc11 = 0.0; float acc12 = 0.0; float acc13 = 0.0;
+        float acc20 = 0.0; float acc21 = 0.0; float acc22 = 0.0; float acc23 = 0.0;
+        float acc30 = 0.0; float acc31 = 0.0; float acc32 = 0.0; float acc33 = 0.0;
+        for (uint k = 0u; k < d.K; k = k + 1u) {
+            float b0 = 0.0; float b1 = 0.0; float b2 = 0.0; float b3 = 0.0;
+            if (col0 + 0u < d.N) { b0 = B.data[k * d.N + col0 + 0u]; }
+            if (col0 + 1u < d.N) { b1 = B.data[k * d.N + col0 + 1u]; }
+            if (col0 + 2u < d.N) { b2 = B.data[k * d.N + col0 + 2u]; }
+            if (col0 + 3u < d.N) { b3 = B.data[k * d.N + col0 + 3u]; }
+            if (row0 + 0u < d.M) {
+                float a = A.data[(row0 + 0u) * d.K + k];
+                acc00 = acc00 + a * b0; acc01 = acc01 + a * b1;
+                acc02 = acc02 + a * b2; acc03 = acc03 + a * b3;
+            }
+            if (row0 + 1u < d.M) {
+                float a = A.data[(row0 + 1u) * d.K + k];
+                acc10 = acc10 + a * b0; acc11 = acc11 + a * b1;
+                acc12 = acc12 + a * b2; acc13 = acc13 + a * b3;
+            }
+            if (row0 + 2u < d.M) {
+                float a = A.data[(row0 + 2u) * d.K + k];
+                acc20 = acc20 + a * b0; acc21 = acc21 + a * b1;
+                acc22 = acc22 + a * b2; acc23 = acc23 + a * b3;
+            }
+            if (row0 + 3u < d.M) {
+                float a = A.data[(row0 + 3u) * d.K + k];
+                acc30 = acc30 + a * b0; acc31 = acc31 + a * b1;
+                acc32 = acc32 + a * b2; acc33 = acc33 + a * b3;
+            }
+        }
+        if (row0 + 0u < d.M) {
+            if (col0 + 0u < d.N) { C.data[(row0 + 0u) * d.N + col0 + 0u] = acc00; }
+            if (col0 + 1u < d.N) { C.data[(row0 + 0u) * d.N + col0 + 1u] = acc01; }
+            if (col0 + 2u < d.N) { C.data[(row0 + 0u) * d.N + col0 + 2u] = acc02; }
+            if (col0 + 3u < d.N) { C.data[(row0 + 0u) * d.N + col0 + 3u] = acc03; }
+        }
+        if (row0 + 1u < d.M) {
+            if (col0 + 0u < d.N) { C.data[(row0 + 1u) * d.N + col0 + 0u] = acc10; }
+            if (col0 + 1u < d.N) { C.data[(row0 + 1u) * d.N + col0 + 1u] = acc11; }
+            if (col0 + 2u < d.N) { C.data[(row0 + 1u) * d.N + col0 + 2u] = acc12; }
+            if (col0 + 3u < d.N) { C.data[(row0 + 1u) * d.N + col0 + 3u] = acc13; }
+        }
+        if (row0 + 2u < d.M) {
+            if (col0 + 0u < d.N) { C.data[(row0 + 2u) * d.N + col0 + 0u] = acc20; }
+            if (col0 + 1u < d.N) { C.data[(row0 + 2u) * d.N + col0 + 1u] = acc21; }
+            if (col0 + 2u < d.N) { C.data[(row0 + 2u) * d.N + col0 + 2u] = acc22; }
+            if (col0 + 3u < d.N) { C.data[(row0 + 2u) * d.N + col0 + 3u] = acc23; }
+        }
+        if (row0 + 3u < d.M) {
+            if (col0 + 0u < d.N) { C.data[(row0 + 3u) * d.N + col0 + 0u] = acc30; }
+            if (col0 + 1u < d.N) { C.data[(row0 + 3u) * d.N + col0 + 1u] = acc31; }
+            if (col0 + 2u < d.N) { C.data[(row0 + 3u) * d.N + col0 + 2u] = acc32; }
+            if (col0 + 3u < d.N) { C.data[(row0 + 3u) * d.N + col0 + 3u] = acc33; }
+        }
+    }
+}
+)NKSL";
+
 		// MatMul : buffers 0,1,2 (A,B,C) + UBO { uint M,N,K } binding 3.
 		// Dispatch 1D (index plat) : chaque thread calcule un élément C[idx]. On
 		// évite le workgroup 2D (course intermittente observée sur WARP headless).
+		// CONSERVÉ comme repli et comme référence de correction.
 		static const char *kMatMulNkSL = R"NKSL(
 @binding(set=0, binding=0) buffer BufA { float data[]; } A;
 @binding(set=0, binding=1) buffer BufB { float data[]; } B;
@@ -749,10 +864,17 @@ void main() {
 )NKSL";
 
 		bool NkTensorGpu::RunMatMul(uint64 a, uint64 b, uint64 c, uint32 M, uint32 N, uint32 K) {
+			++gGpuOps;
 			if (!EnsureInit())
 				return false;
 			Impl *d = mImpl;
-			Impl::Kernel *k = d->GetOrCompile("matmul", NkString(kMatMulNkSL), /*nBuffers*/ 3, /*ubo*/ 3);
+			// Le noyau pavé ne paie que sur des produits assez gros pour que le
+			// trafic mémoire domine ; sur de petites matrices, ses tests de bornes
+			// coûtent plus qu'ils ne rapportent. Seuil volontairement prudent.
+			const bool pave = ((uint64)M * (uint64)N >= 65536ull) && K >= 16u;
+			Impl::Kernel *k = pave
+								  ? d->GetOrCompile("matmul_t4", NkString(kMatMulT4NkSL), /*nBuffers*/ 3, /*ubo*/ 3)
+								  : d->GetOrCompile("matmul", NkString(kMatMulNkSL), /*nBuffers*/ 3, /*ubo*/ 3);
 			if (!k)
 				return false;
 			NkBufferHandle ha = d->Handle(a), hb = d->Handle(b), hc = d->Handle(c);
@@ -777,7 +899,9 @@ void main() {
 			cmd->Begin();
 			cmd->BindComputePipeline(k->pipe);
 			cmd->BindDescriptorSet(set, 0);
-			cmd->Dispatch((M * N + 63) / 64, 1, 1); // 1D : un thread par élément C
+			// Pavé : un fil pour un bloc 4×4, donc seize fois moins de fils.
+			const uint64 fils = pave ? ((uint64)((M + 3u) / 4u) * (uint64)((N + 3u) / 4u)) : ((uint64)M * (uint64)N);
+			cmd->Dispatch((uint32)((fils + 63ull) / 64ull), 1, 1);
 			cmd->UAVBarrier(hc);
 			cmd->End();
 			d->device->Submit(&cmd, 1);
