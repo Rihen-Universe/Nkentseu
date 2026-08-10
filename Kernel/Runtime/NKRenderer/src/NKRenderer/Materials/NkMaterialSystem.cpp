@@ -39,7 +39,9 @@ namespace nkentseu {
 				.Add(3, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, RHIStage::NK_ALL_GRAPHICS)
 				.Add(4, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, RHIStage::NK_ALL_GRAPHICS)
 				.Add(5, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, RHIStage::NK_ALL_GRAPHICS)
-				.Add(6, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, RHIStage::NK_ALL_GRAPHICS);
+				.Add(6, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, RHIStage::NK_ALL_GRAPHICS)
+				// binding 7 : carte de HAUTEUR du parallax (etape 3, 10 aout).
+				.Add(7, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, RHIStage::NK_ALL_GRAPHICS);
 			mInstDescLayout = mDevice->CreateDescriptorSetLayout(instLayout);
 
 			mLinearSampler = mDevice->CreateSampler(NkSamplerDesc::Linear());
@@ -596,8 +598,11 @@ namespace nkentseu {
 				}
 				NkTextureHandle ormTex = GetTex("orm");
 				NkTextureHandle emissiveTex = GetTex("emissive");
+				// Hauteur du parallax : blanc = surface au plus haut partout, et
+				// l'echelle a zero (defaut) court-circuite la boucle cote shader.
+				NkTextureHandle heightTex = GetTex("height");
 
-				NkDescriptorWrite writes[5] = {};
+				NkDescriptorWrite writes[6] = {};
 				// binding 8: material UBO (binding=4 est pris par texNormal SAMPLER en GL).
 				// bufferRange depend du type material (sizeof exact).
 				{
@@ -628,7 +633,8 @@ namespace nkentseu {
 				fillTex(2, 4, slot4Tex);
 				fillTex(3, 5, ormTex);
 				fillTex(4, 6, emissiveTex);
-				mDevice->UpdateDescriptorSets(writes, 5);
+				fillTex(5, 7, heightTex);
+				mDevice->UpdateDescriptorSets(writes, 6);
 				inst->MarkClean();
 			}
 		}

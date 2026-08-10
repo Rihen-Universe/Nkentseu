@@ -101,6 +101,9 @@ uniform ShadowSlotsUBO {
 @binding(set=2, binding=4)  uniform sampler2D   tNormal;
 @binding(set=2, binding=5)  uniform sampler2D   tORM;
 @binding(set=2, binding=6)  uniform sampler2D   tEmissive;
+// Carte de HAUTEUR du parallax (BLANC = haut). Repli 1x1 blanc : sans
+// echelle (triplanarParams.w = 0) la boucle n'est jamais prise.
+@binding(set=2, binding=7)  uniform sampler2D   tHeight;
 @binding(set=0, binding=8)  uniform samplerCube tEnvIrradiance;
 @binding(set=0, binding=9)  uniform samplerCube tEnvPrefilter;
 @binding(set=0, binding=10) uniform sampler2D   tBRDFLUT;
@@ -219,6 +222,37 @@ vec3 NkTriplanarNormalUDN(sampler2D nMap, vec3 worldPos, vec3 N,
     return outN;
 }
 
+// ── PARALLAX OCCLUSION (LearnOpenGL, etape 3 du programme de Rihen) ─────────
+// La carte de hauteur CREUSE les UV selon l'angle de vue : les texels hauts
+// avancent, les bas reculent — le relief que la normal map seule ne donne pas.
+// Boucle a COMPTE CONSTANT + textureLod : un sample a gradient dans une boucle
+// dynamique fait echouer fxc (X3570, meme piege que les noyaux d'ombre).
+// viewTS = direction fragment->camera exprimee dans la base tangente.
+vec2 NkParallaxUV(vec2 uv, vec3 viewTS, float scale) {
+    const int kSteps = 24;
+    float layer = 1.0 / float(kSteps);
+    // L'angle rasant allonge le pas ; borne pour eviter l'etirement infini.
+    vec2 P = viewTS.xy / max(abs(viewTS.z), 0.15) * scale;
+    vec2 dUV = P * layer;
+    vec2 cur = uv;
+    float layerDepth = 0.0;
+    float mapDepth = 1.0 - textureLod(tHeight, cur, 0.0).r;
+    for (int i = 0; i < kSteps; ++i) {
+        if (layerDepth >= mapDepth)
+            break;
+        cur -= dUV;
+        mapDepth = 1.0 - textureLod(tHeight, cur, 0.0).r;
+        layerDepth += layer;
+    }
+    // Interpolation entre le pas d'avant et le pas courant (occlusion mapping) :
+    // sans elle, les couches se voient en bandes.
+    vec2 prev = cur + dUV;
+    float after = mapDepth - layerDepth;
+    float before = (1.0 - textureLod(tHeight, prev, 0.0).r) - layerDepth + layer;
+    float w = clamp(after / min(after - before, -1e-5), 0.0, 1.0);
+    return prev * w + cur * (1.0 - w);
+}
+
 @stage(fragment)
 @entry
 void main() {
@@ -229,9 +263,35 @@ void main() {
     vec3  geomN       = normalize(vNormal);
     vec3  triW        = triplanarOn ? NkTriplanarWeights(geomN) : vec3(0.0);
 
+    // ── PARALLAX : les UV se creusent AVANT tout echantillonnage ────────────
+    // UV classiques seulement (le triplanaire n'a pas d'UV a creuser) et
+    // seulement si l'echelle est posee (triplanarParams.w, reserve devenue
+    // « relief »). La base tangente est reconstruite avec la meme robustesse
+    // que plus bas ; la direction de vue utilise la MEME camera que V (flip
+    // miroir compris), en dots explicites — pas d'operation matricielle.
+    vec2 uvP = vUV;
+    float parallaxScale = uObj.triplanarParams.w;
+    if (!triplanarOn && parallaxScale > 1e-4) {
+        vec3 TnP = vTangent;
+        vec3 BnP = vBitangent;
+        if (dot(TnP, TnP) < 1e-12) {
+            vec3 fbP = abs(geomN.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+            TnP = cross(fbP, geomN);
+        }
+        TnP = normalize(TnP);
+        if (dot(BnP, BnP) < 1e-12)
+            BnP = cross(geomN, TnP);
+        BnP = normalize(BnP);
+        vec3 camP = uCam.camPos.xyz;
+        if (uCam.reflectionFlags.x > 0.5) camP.y = -camP.y;
+        vec3 vW = normalize(camP - vWorldPos);
+        vec3 vTS = vec3(dot(vW, TnP), dot(vW, BnP), dot(vW, geomN));
+        uvP = NkParallaxUV(vUV, vTS, parallaxScale);
+    }
+
     vec4 albSample = triplanarOn
         ? NkTriplanarSampleRGBA(tAlbedo, vWorldPos, triW, invTile)
-        : texture(tAlbedo, vUV);
+        : texture(tAlbedo, uvP);
     albSample *= vColor;
     // PAS de pow(2.2) : le baseColor est uploade en FORMAT sRGB -> le sampler GPU
     // delinearise DEJA. Un pow(2.2) ici appliquait une 2e conversion gamma
@@ -242,7 +302,7 @@ void main() {
 
     vec3 orm = triplanarOn
         ? NkTriplanarSampleRGB(tORM, vWorldPos, triW, invTile)
-        : texture(tORM, vUV).rgb;
+        : texture(tORM, uvP).rgb;
     float ao  = orm.r * uObj.aoStrength;
     float rog = orm.g * uObj.roughness;
     float met = orm.b * uObj.metallic;
@@ -252,7 +312,7 @@ void main() {
         N = NkTriplanarNormalUDN(tNormal, vWorldPos, geomN, triW, invTile,
                                   uObj.normalStrength);
     } else {
-        vec3 nTs = texture(tNormal, vUV).xyz * 2.0 - 1.0;
+        vec3 nTs = texture(tNormal, uvP).xyz * 2.0 - 1.0;
         nTs.xy  *= uObj.normalStrength;
         // TBN ROBUSTE : un vTangent / vBitangent NUL (tangente colineaire a la normale,
         // ou tangentes opposees qui s'annulent a l'interpolation) faisait
@@ -554,7 +614,7 @@ void main() {
     // (la diffusion sous la surface est accumulee DANS la boucle de lumieres,
     // avec attenuation et ombre — cf. le commentaire dans la boucle.)
 
-    vec3 emissive = texture(tEmissive, vUV).rgb * uObj.emissiveStrength;
+    vec3 emissive = texture(tEmissive, uvP).rgb * uObj.emissiveStrength;
 
     vec3 color = amb + Lo + ccContrib + emissive;
     // Mode SOLID / UNLIT (façon Blender Solid & Wireframe) : couleur plate = albedo*tint,

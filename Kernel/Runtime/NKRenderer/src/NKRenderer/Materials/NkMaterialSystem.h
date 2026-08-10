@@ -401,6 +401,10 @@ namespace nkentseu {
 				// depuis le mesh est utilise (compat). Lu par NkRender3D pour
 				// propager dans ObjBlock.triplanarParams.
 				float32 mTriplanarTileSize = 0.0f;
+				// Echelle du PARALLAX (0 = coupe). Voyage dans la reserve
+				// triplanarParams.w de l'ObjBlock — aucun layout UBO ne change.
+				// La carte de hauteur, elle, passe par SetTexture("height", t).
+				float32 mParallaxScale = 0.0f;
 
 				struct Param {
 						Param() : name(), kind(Kind::F), f(0.f), tex() {
