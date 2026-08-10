@@ -42,7 +42,9 @@ with project("NKXRDemo"):
         windowedapp()
         usetoolchain(TC_WINDOWS)
         defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
-        links(["user32", "gdi32", "opengl32", "dwmapi", "shell32",
+        # advapi32 : RegGetValueA de la decouverte du runtime OpenXR actif
+        # (NkXrOpenXRBackend, etape 2a).
+        links(["user32", "gdi32", "opengl32", "dwmapi", "shell32", "advapi32",
                "d3d11", "d3d12", "dxgi", "dxguid", "d3dcompiler", "uuid", "ole32"])
 
     # ===== Linux XLib (défaut) ===================================================

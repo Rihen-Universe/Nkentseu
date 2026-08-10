@@ -53,7 +53,8 @@
 #include "NKXR/NKXR.h"
 
 #include <cstdlib>
-#include <cstdio> // snprintf : chemins des captures d'agent, comme le modeleur
+#include <cstdio>  // snprintf : chemins des captures d'agent, comme le modeleur
+#include <cstring> // strcmp : sélection de backend NK_XR_BACKEND
 
 // Win32 définit DrawText en macro (GDI) — collision avec NkOverlayRenderer::DrawText.
 #ifdef DrawText
@@ -213,10 +214,23 @@ int nkmain(const NkEntryState &state) {
 		return 3;
 	}
 
-	// ── 3) Session XR (simulateur) ────────────────────────────────────────────
+	// ── 3) Session XR ─────────────────────────────────────────────────────────
+	// NK_XR_BACKEND=openxr tente le vrai casque (étape 2a : négociation +
+	// instance + système) ; à défaut, ou par défaut, le SIMULATEUR — et le
+	// repli est DIT, jamais silencieux.
 	nkxr::NkXrSessionDesc xrDesc;
 	xrDesc.window = &window;
+	const char *backendEnv = getenv("NK_XR_BACKEND");
+	const bool wantOpenXR = (backendEnv != nullptr) && (strcmp(backendEnv, "openxr") == 0);
+	if (wantOpenXR) {
+		xrDesc.backend = nkxr::NkXrBackendType::NK_XR_BACKEND_OPENXR;
+	}
 	nkxr::NkXrSession *xrSession = nkxr::NkXrSession::Create(xrDesc);
+	if (xrSession == nullptr && wantOpenXR) {
+		logger.Warn("[NKXRDemo] OpenXR indisponible — repli sur le SIMULATEUR.");
+		xrDesc.backend = nkxr::NkXrBackendType::NK_XR_BACKEND_SIMULATOR;
+		xrSession = nkxr::NkXrSession::Create(xrDesc);
+	}
 	if (xrSession == nullptr) {
 		logger.Error("[NKXRDemo] Création session XR KO");
 		NkRenderer::Destroy(rMain);

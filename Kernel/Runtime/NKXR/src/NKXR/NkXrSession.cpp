@@ -15,6 +15,7 @@
 
 #include "NKXR/NkXrSession.h"
 #include "NKXR/Backend/NkXrSimulatorBackend.h"
+#include "NKXR/Backend/NkXrOpenXRBackend.h"
 #include "NKLogger/NkLog.h"
 #include "NKMemory/NkAllocator.h"
 #include "NKTime/NkChrono.h"
@@ -32,11 +33,11 @@ namespace nkentseu {
 					break;
 				}
 				case NkXrBackendType::NK_XR_BACKEND_OPENXR: {
-					// Étage 2 : le loader OpenXR n'est pas encore dans
-					// Externals/. Refuser franchement vaut mieux qu'un stub
-					// qui ferait croire à une session de casque.
-					logger.Errorf("[NKXR] Backend OpenXR non implémenté (étage 2) — utiliser le simulateur.\n");
-					return nullptr;
+					// Étape 2a : négociation + instance + système. La session
+					// de casque (liaison Vulkan) arrive en 2b — Initialize
+					// échoue proprement si aucun runtime/casque n'est là.
+					backend = memory::NkGetDefaultAllocator().New<NkXrOpenXRBackend>();
+					break;
 				}
 			}
 			if (backend != nullptr && !backend->Initialize(desc)) {
