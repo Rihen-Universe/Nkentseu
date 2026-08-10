@@ -18,6 +18,7 @@
 #include "NKLogger/NkLog.h"
 #include "NKTime/NkChrono.h"
 #include "NKWindow/Core/NkWindow.h"
+#include "NKWindow/Core/NkWESystem.h" // NkEvents() : l'accès au système d'événements
 #include "NKEvent/NkEventDispatcher.h"
 #include "NKEvent/NkKeyboardEvent.h"
 #include "NKEvent/NkMouseEvent.h"
@@ -111,6 +112,15 @@ namespace nkentseu {
 				mLeftFov.angleDown = fovDeg[3] * math::NK_PI_F / 180.f;
 			}
 
+			// Accumulation des deltas souris bruts (voir le POURQUOI dans le
+			// header : l'état global NkInput ne les consomme jamais).
+			if (mDesc.window != nullptr) {
+				mRawMouseGuard = NkEvents().AddEventCallbackGuard<NkMouseRawEvent>([this](NkMouseRawEvent *e) {
+					mAccumRawDX += e->GetDeltaX();
+					mAccumRawDY += e->GetDeltaY();
+				});
+			}
+
 			const NkXrTime now = NkXrNowNs();
 			PushHeadSample(now);
 
@@ -123,6 +133,7 @@ namespace nkentseu {
 		}
 
 		void NkXrSimulatorBackend::Shutdown() {
+			mRawMouseGuard.Release();
 			mState = NkXrSessionState::NK_XR_STATE_IDLE;
 			mEventCount = 0u;
 			mSampleCount = 0u;
@@ -249,11 +260,19 @@ namespace nkentseu {
 			}
 			mLastWaitTime = now;
 
+			// Consommer l'accumulateur souris À CHAQUE WaitFrame, même quand
+			// on n'en fait rien : sinon les mouvements faits hors FOCUSED
+			// frappent d'un coup au retour du focus.
+			const int32 rawDX = mAccumRawDX;
+			const int32 rawDY = mAccumRawDY;
+			mAccumRawDX = 0;
+			mAccumRawDY = 0;
+
 			// Souris/clavier — seulement en FOCUSED (le contrat des entrées)
 			// et jamais en pose scriptée.
 			if (!mFixedPose && mDesc.window != nullptr && mState == NkXrSessionState::NK_XR_STATE_FOCUSED) {
-				mYawRad -= float32(NkInput.MouseRawDeltaX()) * kMouseSensitivityRad;
-				mPitchRad -= float32(NkInput.MouseRawDeltaY()) * kMouseSensitivityRad;
+				mYawRad -= float32(rawDX) * kMouseSensitivityRad;
+				mPitchRad -= float32(rawDY) * kMouseSensitivityRad;
 				mPitchRad = math::NkClamp(mPitchRad, -kPitchLimitRad, kPitchLimitRad);
 
 				// Avant au sol depuis le yaw seul : le déplacement ignore le
