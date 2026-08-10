@@ -1307,6 +1307,8 @@ static int ModeAjouter(int argc, char **argv) {
 		logger.Infof("      contenu %lld o, %lld operations, %lld ordres de texte, glyphes %lld/%lld\n",
 					 (long long)diag.octetsContenu, (long long)diag.operations, (long long)diag.opsTexte,
 					 (long long)diag.glyphesObtenus, (long long)diag.glyphesDemandes);
+		logger.Infof("      tables /ToUnicode : %lld declarees, %lld effectivement lues\n",
+					 (long long)diag.tuDeclaree, (long long)diag.tuLue);
 		// ⚠️ REFUS D'UN TEXTE ILLISIBLE — le garde-fou le plus important de ce mode.
 		// Une police sans table /ToUnicode ne declare pas ce que son glyphe
 		// represente. Le lecteur laisse alors le caractere vide, et ce qui SURNAGE

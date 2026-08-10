@@ -125,6 +125,11 @@ namespace ilyana {
 		int64 opsTexte = 0;		 // 0 = la page ne contient aucun ordre de texte
 		int64 glyphesDemandes = 0;
 		int64 glyphesObtenus = 0; // < demandés = polices non chargées
+		// Tables /ToUnicode : déclarées par le document, et effectivement lues.
+		// Une déclarée non lue est NOTRE défaut ; une non déclarée est la limite
+		// du document. Rien d'autre ne sépare ces deux cas.
+		int64 tuDeclaree = 0;
+		int64 tuLue = 0;
 	};
 
 	inline NkString LirePdf(const char *chemin, int64 &nbPages, int64 &pagesMuettes, double dpi = 72.0,
@@ -156,6 +161,8 @@ namespace ilyana {
 				diag->opsTexte += st.textOps;
 				diag->glyphesDemandes += st.glyphsAsked;
 				diag->glyphesObtenus += st.glyphsGot;
+				diag->tuDeclaree += st.tuDeclaree;
+				diag->tuLue += st.tuLue;
 			}
 			const NkString t = AssemblerPage(rendu.TextItems());
 			++nbPages;
