@@ -169,11 +169,128 @@ namespace {
 extern "C" void NkHarmonyOnNapiInitExtra(napi_env env, napi_value exports) __attribute__((weak));
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Pont ArkTS → natif : ce que NkHarmonyBridge.ts appelle
+//
+// Le XComponent apporte la SURFACE, et rien d'autre. Tout le reste de l'état de
+// la fenêtre — zone sûre (encoche, barre de gestes), orientation, clavier
+// virtuel, focus, mode fenêtré sur PC 2in1 — n'existe que côté ArkTS et doit
+// traverser NAPI pour atteindre le C++.
+//
+// Sans les exports ci-dessous, le pont s'exécutait, appelait
+// `nkNative.onSafeAreaChanged?.(...)` — et l'appel optionnel ne trouvait rien.
+// Aucune erreur, aucune trace : GetSafeAreaInsets() renvoyait des zéros pour
+// toujours, et une interface plein écran passait sous l'encoche.
+// ─────────────────────────────────────────────────────────────────────────────
+
+namespace {
+
+	// Lecture d'un argument numérique, avec repli à 0. Les valeurs viennent
+	// d'ArkTS où tout nombre est un double.
+	inline double NkHarmonyNapiNombre(napi_env env, napi_value v) {
+		double d = 0.0;
+		napi_get_value_double(env, v, &d);
+		return d;
+	}
+
+	inline bool NkHarmonyNapiBool(napi_env env, napi_value v) {
+		bool b = false;
+		napi_get_value_bool(env, v, &b);
+		return b;
+	}
+
+	napi_value NkHarmonyNapiSafeArea(napi_env env, napi_callback_info info) {
+		size_t argc = 4;
+		napi_value args[4] = {};
+		napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+		if (argc >= 4) {
+			nkentseu::NkHarmonyOnSafeAreaChanged(
+				static_cast<float>(NkHarmonyNapiNombre(env, args[0])),
+				static_cast<float>(NkHarmonyNapiNombre(env, args[1])),
+				static_cast<float>(NkHarmonyNapiNombre(env, args[2])),
+				static_cast<float>(NkHarmonyNapiNombre(env, args[3])));
+		}
+		return nullptr;
+	}
+
+	napi_value NkHarmonyNapiOrientation(napi_env env, napi_callback_info info) {
+		size_t argc = 1;
+		napi_value args[1] = {};
+		napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+		if (argc >= 1) {
+			nkentseu::NkHarmonyOnOrientationChanged(
+				static_cast<nkentseu::int32>(NkHarmonyNapiNombre(env, args[0])));
+		}
+		return nullptr;
+	}
+
+	napi_value NkHarmonyNapiClavier(napi_env env, napi_callback_info info) {
+		size_t argc = 2;
+		napi_value args[2] = {};
+		napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+		if (argc >= 2) {
+			nkentseu::NkHarmonyOnVirtualKeyboardChanged(
+				NkHarmonyNapiBool(env, args[0]),
+				static_cast<nkentseu::uint32>(NkHarmonyNapiNombre(env, args[1])));
+		}
+		return nullptr;
+	}
+
+	napi_value NkHarmonyNapiFocus(napi_env env, napi_callback_info info) {
+		size_t argc = 1;
+		napi_value args[1] = {};
+		napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+		if (argc >= 1) {
+			nkentseu::NkHarmonyOnWindowFocusChanged(NkHarmonyNapiBool(env, args[0]));
+		}
+		return nullptr;
+	}
+
+	napi_value NkHarmonyNapiMinimise(napi_env, napi_callback_info) {
+		nkentseu::NkHarmonyOnWindowMinimized();
+		return nullptr;
+	}
+
+	napi_value NkHarmonyNapiMaximise(napi_env, napi_callback_info) {
+		nkentseu::NkHarmonyOnWindowMaximized();
+		return nullptr;
+	}
+
+	napi_value NkHarmonyNapiRestaure(napi_env, napi_callback_info) {
+		nkentseu::NkHarmonyOnWindowRestored();
+		return nullptr;
+	}
+
+	// Les noms exposés doivent correspondre EXACTEMENT à ceux qu'appelle
+	// NkHarmonyBridge.ts : côté ArkTS l'appel est optionnel (`?.`), donc une
+	// faute de frappe ne produirait aucune erreur — juste un silence.
+	inline void NkHarmonyExporterPont(napi_env env, napi_value exports) {
+		const napi_property_descriptor props[] = {
+			{"onSafeAreaChanged", nullptr, NkHarmonyNapiSafeArea, nullptr, nullptr, nullptr, napi_enumerable, nullptr},
+			{"onOrientationChanged", nullptr, NkHarmonyNapiOrientation, nullptr, nullptr, nullptr, napi_enumerable, nullptr},
+			{"onVirtualKeyboardChanged", nullptr, NkHarmonyNapiClavier, nullptr, nullptr, nullptr, napi_enumerable, nullptr},
+			{"onWindowFocusChanged", nullptr, NkHarmonyNapiFocus, nullptr, nullptr, nullptr, napi_enumerable, nullptr},
+			{"onWindowMinimized", nullptr, NkHarmonyNapiMinimise, nullptr, nullptr, nullptr, napi_enumerable, nullptr},
+			{"onWindowMaximized", nullptr, NkHarmonyNapiMaximise, nullptr, nullptr, nullptr, napi_enumerable, nullptr},
+			{"onWindowRestored", nullptr, NkHarmonyNapiRestaure, nullptr, nullptr, nullptr, napi_enumerable, nullptr},
+		};
+		const napi_status st = napi_define_properties(env, exports, sizeof(props) / sizeof(props[0]), props);
+		NK_HARMONY_BOOTLOG("NkHarmonyExporterPont: %d fonctions exportees (status=%d)",
+						   (int)(sizeof(props) / sizeof(props[0])), (int)st);
+	}
+
+} // anonymous namespace
+
+// ─────────────────────────────────────────────────────────────────────────────
 // NAPI Init — appelé par le runtime HarmonyOS au chargement de la .so
 // ─────────────────────────────────────────────────────────────────────────────
 
 static napi_value NkHarmonyNapiInit(napi_env env, napi_value exports) {
 	NK_HARMONY_BOOTLOG("NkHarmonyNapiInit: enter");
+
+	// ── Pont ArkTS : zone sure, orientation, clavier, focus, fenetrage PC ────
+	// Enregistre a CHAQUE chargement, avant toute garde : l'objet rendu au
+	// XComponent comme celui obtenu par import doivent porter ces fonctions.
+	NkHarmonyExporterPont(env, exports);
 
 	// ── Exports applicatifs additionnels (hook faible, cf. ci-dessus) ────────
 	// Appele a CHAQUE chargement (avant la garde anti double-init) : les exports
