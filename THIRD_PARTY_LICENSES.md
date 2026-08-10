@@ -67,3 +67,34 @@ licence, et ce que la licence exige.
   `NkEnvironmentSystem.cpp` (code Nkentseu, pas une adaptation).
 - **Provenance** : distribution publique accompagnant SkyGAN (dossier
   `ArPragueSkyModelGroundXYZ` avec sa licence propre).
+
+---
+
+## En-têtes OpenXR (Khronos Group) — accès aux runtimes VR/AR
+
+- **Œuvre** : en-têtes C de l'API OpenXR, distribution officielle
+  **OpenXR-SDK, tag `release-1.1.49`** (github.com/KhronosGroup/OpenXR-SDK).
+- **Auteurs** : The Khronos Group Inc.
+- **Licence** : **Apache 2.0** (fichiers `Copyright (c) 2017-2025 The Khronos
+  Group Inc. — SPDX-License-Identifier: Apache-2.0 OR MIT`) — usage commercial
+  et redistribution permis ; obligation de conserver les mentions de copyright
+  et le texte de licence.
+- **Ce qui est incorporé** : `Externals/Libs/NKOpenXR/include/openxr/` — copies
+  **VERBATIM** (en-têtes de licence intacts), SHA-256 vérifiées à la copie :
+  - `openxr.h` — `4f7e8774694cca2f…`
+  - `openxr_loader_negotiation.h` — `f64fb0b9585eb3ad…`
+  - `openxr_platform.h` — `1440b3686aacc2e0…`
+  - `openxr_platform_defines.h` — `470e3d1fcec70e55…`
+  - `openxr_reflection.h` — `2d3fbac8b7bd9444…`
+  - `openxr_reflection_parent_structs.h` — `7b1640b4f7e2e158…`
+  - `openxr_reflection_structs.h` — `afc86ac80039cff1…`
+  - `LICENSE` (texte Apache 2.0 complet) — `3ddf9be5c28fe27d…`
+- **Ce qui n'est PAS incorporé** : le loader Khronos (sources) — le backend
+  `NkXrOpenXRBackend` (Kernel/Runtime/NKXR) charge DYNAMIQUEMENT un loader
+  fourni à côté de l'exécutable (desktop : openxr_loader.dll d'une release
+  Khronos ; Quest : libopenxr_loader.so du SDK Meta), et sait, à défaut,
+  découvrir le runtime actif lui-même (code Nkentseu, pas une adaptation).
+- **Pourquoi** : les casques (Quest, Pico) n'exposent que le protocole OpenXR ;
+  décision de mission `XR_MISSION_IA.md` §1, actée par Rihen le 2026-08-10.
+- **Provenance** : clone du dépôt officiel au tag `release-1.1.49`, copie le
+  2026-08-10.
