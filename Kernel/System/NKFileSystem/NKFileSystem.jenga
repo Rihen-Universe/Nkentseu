@@ -58,7 +58,16 @@ with project("NKFileSystem"):
     with filter("system:HarmonyOS"):
         # NDK OHOS clang (meme contrainte qu'Android)
         usetoolchain("ohos-ndk")
-        links(["hilog_ndk.z"])
+        # rawfile.z : NkFile.cpp appelle OH_ResourceManager_* pour lire les
+        # ressources empaquetees dans le HAP. Declarer ce besoin ICI plutot que
+        # dans chaque application est la seule facon qu'il ne soit pas oublie :
+        # une archive statique ne lie rien, et le manque ne se voyait qu'au
+        # CHARGEMENT de l'application finale — « relocating failed: symbol not
+        # found ... OH_ResourceManager_CloseRawFile64 » — apres quoi le module
+        # natif n'etait jamais charge et le code C++ ne demarrait pas du tout.
+        # Jenga propage les bibliotheques systeme des dependances : toute
+        # application utilisant NKFileSystem en herite desormais.
+        links(["hilog_ndk.z", "rawfile.z"])
     with filter("system:Web"):
         usetoolchain("emscripten")
     with filter("system:XboxSeries || system:XboxOne"):
