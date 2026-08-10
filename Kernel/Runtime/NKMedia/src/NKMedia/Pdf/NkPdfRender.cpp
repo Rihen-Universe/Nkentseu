@@ -781,10 +781,21 @@ namespace nkentseu {
 						if (lastName.kind == Tok::Name)
 							mGs.font = mFonts.Get(doc, resources, reinterpret_cast<const char *>(lastName.ptr),
 												  lastName.len);
-						if (mGs.font)
+						if (mGs.font) {
 							mLastFont = mGs.font;
-						else
+							// Departage « le document ne declare rien » (limite du
+							// document, indepassable) de « il declare une table que
+							// nous ne savons pas lire » (notre defaut, reparable).
+							// Sans ce comptage, les deux se presentent a l'identique :
+							// du texte vide.
+							if (mGs.font->AvaitToUnicode()) {
+								++mStats.tuDeclaree;
+								if (mGs.font->HasToUnicode())
+									++mStats.tuLue;
+							}
+						} else {
 							Note("police non embarquee (texte omis)");
+						}
 						clear();
 						continue;
 					}

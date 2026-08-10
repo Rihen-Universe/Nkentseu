@@ -101,6 +101,12 @@ namespace nkentseu {
 							int32 ops = 0;
 							int32 fills = 0, strokes = 0;
 							int32 textOps = 0, glyphsAsked = 0, glyphsGot = 0;
+							// Emplois de police, comptes a chaque « Tf » (donc une police
+							// utilisee dix fois compte dix fois — c'est le RAPPORT entre
+							// les deux qui renseigne, pas leur valeur absolue).
+							// tuDeclaree > 0 et tuLue == 0 designe sans ambiguite un
+							// defaut de NOTRE lecture, et non une limite du document.
+							int32 tuDeclaree = 0, tuLue = 0;
 							int32 images = 0, forms = 0;
 							int32 strBytes = 0;   // octets de chaine passes au rendu de texte
 							uint32 firstCodes[8] = {0, 0, 0, 0, 0, 0, 0, 0};

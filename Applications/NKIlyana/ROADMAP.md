@@ -301,9 +301,31 @@ caractère. Pistes à examiner dans cet ordre :
    chacun des ~700 000 caractères : correct mais coûteux — à indexer une fois le
    fond réparé.
 
-**Instrumentation manquante** : rien ne compte aujourd'hui les polices dont la
-table est présente mais VIDE après lecture. C'est la première chose à ajouter —
-elle départagerait les pistes 1 et 2 en un seul essai.
+### ✅ Instrumentation posée, et elle a tranché
+
+Deux compteurs distinguent désormais « le document ne déclare rien » (limite du
+document) de « il déclare une table que nous ne savons pas lire » (notre défaut) :
+`AvaitToUnicode()` vs `HasToUnicode()`, remontés dans les `Stats` du rendu.
+
+**Mesure sur `ebin.pub` : 273 006 tables déclarées, 273 006 effectivement lues.**
+
+⛔ **La piste 1 est RÉFUTÉE** : les tables se décompressent et se lisent toutes.
+Le `bfchar`/`bfrange` fonctionne.
+
+**Il ne reste donc qu'une explication**, et elle est précise : le code présenté à
+`ToUnicode(code)` **n'est pas celui que la table indexe**. Ces polices sont des
+Type0/CIDFontType2 en Identity — deux octets par caractère —, et la table indexe
+ces codes à deux octets. Le point de rupture est donc dans `NextCode()` (lecture
+du code dans la chaîne) ou dans ce que l'appelant transmet ensuite.
+
+**Point d'entrée pour la prochaine session** : instrumenter `NkPdfFont::ToUnicode`
+pour afficher, sur les 20 premiers appels d'un document en échec, le code demandé
+à côté des 5 premiers codes présents dans `mUniCodes`. Si les ordres de grandeur
+diffèrent (par exemple un octet contre deux), la cause est immédiate. C'est UNE
+mesure, et elle devrait clore le sujet.
+
+⚠️ Ne pas repartir sur `/Encoding` + noms de glyphes : cette voie a été explorée
+et ne concerne pas ces documents.
 
 ## Journal du 2026-08-10 — ce qui a marché, ce qui a échoué
 

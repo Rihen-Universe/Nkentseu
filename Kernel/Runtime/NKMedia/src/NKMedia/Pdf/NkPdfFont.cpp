@@ -311,6 +311,10 @@ namespace nkentseu {
 				const NkPdfVal tu = doc.DictGet(fontDict, "ToUnicode");
 				if (tu.kind != NK_PDF_STREAM)
 					return;
+				// La table est DECLAREE. Ce qui suit peut encore echouer — et le
+				// noter ici est ce qui permettra de distinguer « le document ne dit
+				// rien » de « nous ne savons pas le lire ».
+				mAvaitToUnicode = true;
 				NkVector<uint8> d;
 				if (!doc.DecodeStream(tu, d) || d.Empty())
 					return;

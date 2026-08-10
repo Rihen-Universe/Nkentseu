@@ -67,6 +67,17 @@ namespace nkentseu {
 					NkString ToUnicode(uint32 code) const;
 					bool HasToUnicode() const { return !mUniCodes.Empty(); }
 
+					// La police DECLARAIT-elle une table /ToUnicode ?
+					//
+					// Distinct de HasToUnicode(), qui dit si la lecture a PRODUIT des
+					// entrees. Les deux ensemble separent deux pannes que rien ne
+					// distingue autrement : « le document ne declare rien » (limite du
+					// document, indepassable) et « il declare une table que nous ne
+					// savons pas lire » (notre defaut, reparable). Sans cette
+					// distinction, un echec de lecture est silencieux et se confond
+					// avec l'absence.
+					bool AvaitToUnicode() const { return mAvaitToUnicode; }
+
 					// Nom de la police tel que declare (diagnostic).
 					const NkString &BaseFont() const { return mBaseFont; }
 
@@ -100,6 +111,7 @@ namespace nkentseu {
 					// Table /ToUnicode : code -> texte UTF-8. Deux tableaux paralleles
 					// plutot qu'une table de hachage : quelques centaines d'entrees au
 					// plus, et la recherche n'a lieu qu'a la selection, pas au rendu.
+					bool mAvaitToUnicode = false; // le dictionnaire declarait la table
 					NkVector<uint32> mUniCodes;
 					NkVector<NkString> mUniText;
 
