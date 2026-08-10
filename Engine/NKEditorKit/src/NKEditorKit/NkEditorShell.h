@@ -134,11 +134,18 @@ namespace nkentseu {
 				// (NkCtxMenuDraw). À appeler juste APRÈS OpenContextMenu. Le choix arrive via
 				// TakeContextMenuChoice() == item, puis TakeContextMenuSubChoice() = index
 				// dans `subItems`. Un seul item à sous-menu par menu.
-				void SetContextSubmenu(int32 item, const char *const *subItems, int32 count) noexcept {
+				// `subIcons` est FACULTATIF : un sous-menu de projets se parcourt alors
+				// exactement comme le combo de la barre d'outils (meme icone de Kind),
+				// au lieu d'une liste de texte nu qui ne dit pas de quoi il s'agit.
+				void SetContextSubmenu(int32 item, const char *const *subItems, int32 count,
+									   const uint32 *subIcons = nullptr) noexcept {
 					mCtxSubItem = item;
 					mCtxSubItems.Clear();
-					for (int32 i = 0; i < count; ++i)
+					mCtxSubIcons.Clear();
+					for (int32 i = 0; i < count; ++i) {
 						mCtxSubItems.PushBack(nkentseu::NkString(subItems[i] ? subItems[i] : ""));
+						mCtxSubIcons.PushBack(subIcons ? subIcons[i] : 0u);
+					}
 					mCtxSub = NkCtxMenu{};
 					mCtxSubChoice = -1;
 				}
@@ -542,6 +549,9 @@ namespace nkentseu {
 				int32 mCtxSubItem = -1;	  ///< item parent (▸) ; -1 = pas de sous-menu
 				int32 mCtxSubChoice = -1; ///< index choisi dans le sous-menu (avec mCtxChoice)
 				nkentseu::NkVector<nkentseu::NkString> mCtxSubItems;
+				nkentseu::NkVector<uint32> mCtxSubIcons; // icones du sous-menu (0 = aucune)
+				char mCtxSubFilter[64] = {0};            // barre de recherche ancree du sous-menu
+				bool mCtxSubFilterFocus = false;
 				NkCtxMenu mCtxSub; ///< état du sous-menu (position/scroll, NkCtxMenuDraw)
 				void DrawContextMenu() noexcept;
 				// Sélecteur fichier/dossier générique (modal).

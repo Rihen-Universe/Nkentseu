@@ -156,8 +156,32 @@ namespace nkentseu {
 			// ── Séparateur vertical ──
 			auto vsep = [&](float32 x) { u.Rect({x, ctrlY, 1.f, ctrlH}, NkCol::border); };
 			// ── Bouton d'action (icône + label + variante + badge) ──
+			// ── Indicateur d'ACTIVITE ────────────────────────────────────────────
+			// Un arc qui tourne, dessine a la place de l'icone du bouton dont
+			// l'action est en cours. Volontairement PAS l'icone « stop » qui existe
+			// pourtant : cliquer pendant l'execution n'arrete rien, la promettre
+			// serait un mensonge. Ici on informe, on ne propose pas.
+			auto spinner = [&](const NkRect &r, const NkColor &col) {
+				const float32 cx = r.x + r.w * 0.5f, cy = r.y + r.h * 0.5f;
+				const float32 rad = (r.w < r.h ? r.w : r.h) * 0.42f;
+				// ctx.time est deja accumule pour le clignotement du caret : aucune
+				// horloge supplementaire a introduire.
+				const float32 t = u.ctx ? u.ctx->time : 0.f;
+				const float32 base = t * 4.2f; // ~0,67 tour/seconde
+				const int32 kSeg = 10;		   // arc de 3/4 de tour, en segments
+				for (int32 i = 0; i < kSeg; ++i) {
+					const float32 a0 = base + (float32)i * 0.15f;
+					const float32 a1 = a0 + 0.15f;
+					// La queue s'estompe : c'est ce degrade qui donne le sens de rotation.
+					const float32 k = (float32)(i + 1) / (float32)kSeg;
+					NkColor c = col;
+					c.a = (uint8)(40.f + 215.f * k);
+					u.dl->AddLine({cx + rad * math::NkCos(a0), cy + rad * math::NkSin(a0)},
+								  {cx + rad * math::NkCos(a1), cy + rad * math::NkSin(a1)}, c, u.s(2));
+				}
+			};
 			auto btn = [&](float32 x, const char *label, uint32 tex, const char *drawn, int32 variant,
-						   const char *badge) -> float32 {
+						   const char *badge, bool busy) -> float32 {
 				const float32 tw = u.TextW(label);
 				const float32 w = u.s(12) + u.s(6) + tw + u.s(20);
 				const NkRect b = {x, cyBtn - u.s(13), w, u.s(26)};
@@ -178,7 +202,11 @@ namespace nkentseu {
 							 : NkColor{(uint8)(bg.r > 20 ? bg.r - 18 : bg.r), (uint8)(bg.g > 20 ? bg.g - 18 : bg.g),
 									   (uint8)(bg.b > 20 ? bg.b - 18 : bg.b), 255};
 				u.Panel(b, bg, brd, NkR::sm * u.S);
-				NkOwIco(u, tex, drawn, {b.x + u.s(10), b.y + u.s(7), u.s(12), u.s(12)}, fg);
+				const NkRect ir = {b.x + u.s(10), b.y + u.s(7), u.s(12), u.s(12)};
+				if (busy)
+					spinner(ir, fg);
+				else
+					NkOwIco(u, tex, drawn, ir, fg);
 				u.Text(b.x + u.s(10) + u.s(12) + u.s(6), b.y + (b.h - u.Lh()) * 0.5f, label, fg);
 				if (badge && badge[0]) { // pastille en haut à droite
 					const float32 bw = u.TextW(badge) + u.s(6);
@@ -245,6 +273,9 @@ namespace nkentseu {
 					bool accent;
 					int32 variant;
 					const char *badge;
+					// Valeur PAR DEFAUT : les autres segments (combos, champ d'arguments)
+					// continuent de s'initialiser sans la mentionner.
+					bool busy = false;
 			};
 
 			NkVector<Seg> segs;
@@ -252,9 +283,13 @@ namespace nkentseu {
 						 const char *drawn, bool accent) {
 				segs.PushBack({0, id, w, prio, grp, label, value, tex, drawn, accent, 0, nullptr});
 			};
+			// `verbe` = l'action jenga que ce bouton declenche ; nullptr pour un bouton
+			// qui n'en declenche aucune. Sert a n'animer QUE le bouton concerne.
 			auto Bt = [&](int32 id, int32 prio, bool grp, const char *label, uint32 tex, const char *drawn,
-						  int32 variant, const char *badge) {
-				segs.PushBack({1, id, btnW(label), prio, grp, label, nullptr, tex, drawn, false, variant, badge});
+						  int32 variant, const char *badge, const char *verbe = nullptr) {
+				const bool busy = verbe && s && s->IsActionRunning(verbe);
+				segs.PushBack(
+					{1, id, btnW(label), prio, grp, label, nullptr, tex, drawn, false, variant, badge, busy});
 			};
 			NkString testBadge; // NkPrintf maison (ex-std::snprintf)
 			if (nTestVis > 0)
@@ -304,12 +339,13 @@ namespace nkentseu {
 				C(6, wComp, 30, false, NkT("tb.compiler"), compPrev, TEX(ic ? ic->toolchains : 0), "config", false);
 			if (hasTests)
 				C(5, wTest, 25, false, NkT("tb.tests"), testPrev, TEX(ic ? ic->kTest : 0), "flask", false);
-			Bt(0, 1000, true, NkT("tb.build"), TEX(ic ? ic->hammer : 0), "hammer", 0, nullptr);
-			Bt(1, 55, false, NkT("tb.rebuild"), TEX(ic ? ic->rebuild : 0), "refresh", 0, nullptr);
-			Bt(2, 50, false, NkT("tb.clean"), TEX(ic ? ic->eraser : 0), "eraser", 0, nullptr);
-			Bt(3, 1000, true, NkT("tb.run"), TEX(ic ? ic->play : 0), "play", 1, nullptr);
-			Bt(4, 45, false, NkT("tb.debug"), TEX(ic ? ic->bug : 0), "bug", 0, nullptr);
-			Bt(5, 65, false, NkT("tb.test"), TEX(ic ? ic->kTest : 0), "flask", 2, hasTests ? testBadge.CStr() : nullptr);
+			Bt(0, 1000, true, NkT("tb.build"), TEX(ic ? ic->hammer : 0), "hammer", 0, nullptr, "build");
+			Bt(1, 55, false, NkT("tb.rebuild"), TEX(ic ? ic->rebuild : 0), "refresh", 0, nullptr, "rebuild");
+			Bt(2, 50, false, NkT("tb.clean"), TEX(ic ? ic->eraser : 0), "eraser", 0, nullptr, "clean");
+			Bt(3, 1000, true, NkT("tb.run"), TEX(ic ? ic->play : 0), "play", 1, nullptr, "run");
+			Bt(4, 45, false, NkT("tb.debug"), TEX(ic ? ic->bug : 0), "bug", 0, nullptr, "debug");
+			Bt(5, 65, false, NkT("tb.test"), TEX(ic ? ic->kTest : 0), "flask", 2, hasTests ? testBadge.CStr() : nullptr,
+			   "test");
 			// Bouton "Emulateur" : visible seulement pour Android/HarmonyOS (plateformes
 			// avec un emulateur PC lancable) — ouvre un onglet terminal avec la commande
 			// de lancement DEJA TAPEE (l'utilisateur valide lui-meme, cf. ResolveEmulatorLaunchHint).
@@ -412,7 +448,7 @@ namespace nkentseu {
 				if (sg.kind == 0)
 					combo(sx, sg.label, sg.value, sg.tex, sg.drawn, sg.accent, sg.id, sg.w);
 				else if (sg.kind == 1) {
-					btn(sx, sg.label, sg.tex, sg.drawn, sg.variant, sg.badge);
+					btn(sx, sg.label, sg.tex, sg.drawn, sg.variant, sg.badge, sg.busy);
 					const NkRect b = {sx, cyBtn - u.s(13), sg.w, u.s(26)};
 					if (tb.open < 0 && u.Hit(b) && u.click)
 						doBtn(sg.id);
