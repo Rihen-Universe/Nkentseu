@@ -341,6 +341,18 @@ namespace nkentseu {
 				float32 outerAngle = 35.f; // degres (cone exterieur — fade to 0)
 				float32 areaWidth = 1.f;
 				float32 areaHeight = 1.f;
+				// ── Loi d'attenuation (2026-08-09, decision de Rihen) ─────────
+				//   0 = HERITEE : (1 - d/portee)^2. Non physique — changer la
+				//       portee change la luminosite PARTOUT — mais c'est ce que
+				//       toutes les scenes existantes ont regle a l'oeil.
+				//   1 = PHYSIQUE : 1/d^2 fenetre (UE/Blender). La luminosite a
+				//       une distance donnee ne depend PAS de la portee ; la
+				//       portee ne fait que couper. C'est ce qui rend une unite
+				//       d'intensite utilisable et comparable a Blender.
+				// Au choix PAR LUMIERE, comme Unreal. DEFAUT = PHYSIQUE depuis le
+				// 10 aout (decision de Rihen) : c'est la loi correcte, l'heritee
+				// ne reste que pour relire les scenes reglees a l'oeil avant elle.
+				int32 attenuationMode = 1;
 				// ── Temperature de couleur et exposition (2026-08) ────────────
 				// Deux reglages qu'attend tout eclairagiste, et qui manquaient :
 				//   temperatureK : blanc de reference en kelvins (1000..12000).
@@ -534,6 +546,17 @@ namespace nkentseu {
 				float32 metallic = 0.f;
 				float32 roughness = 0.5f;
 				float32 aoStrength = 1.f;
+				// Physique de surface (2026-08-09) : le shader PBR calculait DEJA le
+				// vernis et la diffusion (uObj.clearcoat / uObj.subsurface) mais rien
+				// ne les alimentait par drawcall — seul un vrai NkMaterialInstance le
+				// pouvait, et les materiaux de projet du modeleur passent par ICI.
+				float32 clearcoat = 0.f;	  // vernis : intensite de la couche
+				float32 clearcoatRough = 0.f; // rugosite du vernis
+				float32 subsurface = 0.f;	  // diffusion sous la surface (wrap)
+				// La couleur de diffusion MULTIPLIE la contribution : a zero, le
+				// reglage serait muet — blanc par defaut, l'appelant peut la teinter
+				// (typiquement avec l'albedo).
+				NkVec3f subsurfaceColor = {1.f, 1.f, 1.f};
 				NkAABB aabb; // world-space, pour culling
 				bool castShadow = true;
 				bool receiveShadow = true;

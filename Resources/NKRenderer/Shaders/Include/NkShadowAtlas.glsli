@@ -19,6 +19,16 @@
 #ifndef NK_SHADOW_ATLAS_GLSLI
 #define NK_SHADOW_ATLAS_GLSLI
 
+// Disque de Poisson unitaire, 12 points — le noyau du mode « Poisson » de
+// NkSampleShadowTile. Local a cet include : le disque du PBR (16 points) vit
+// dans pbr.frag et n'est pas visible d'ici.
+const vec2 kNkShadowPoisson12[12] = vec2[](
+    vec2(-0.326, -0.406), vec2(-0.840, -0.074), vec2(-0.696,  0.457),
+    vec2(-0.203,  0.621), vec2( 0.962, -0.195), vec2( 0.473, -0.480),
+    vec2( 0.519,  0.767), vec2( 0.185, -0.893), vec2( 0.507,  0.064),
+    vec2( 0.896,  0.412), vec2(-0.322, -0.933), vec2(-0.792, -0.598)
+);
+
 // Bias adaptatif slope-based : evite shadow acne sur surfaces rasantes a la
 // lumiere. Plus N.L est faible, plus on pousse le bias.
 // biasMul = multiplicateur per-material (uObj.shadowOverrides.z), default 1.0.
@@ -145,29 +155,104 @@ float NkSampleShadowTile(int slotIdx, vec3 worldPos, float bias, vec3 dWdx, vec3
         zv = (az_y * au_x - az_x * au_y) / det;
     }
 
-    // PCF 3x3 cross-API. LE PAS SUIT LA DOUCEUR, comme le portage DX11 : sans
-    // cela le reglage « Douceur » du panneau n'avait AUCUN effet sur Vulkan/GL
-    // alors qu'il en avait un sur DX11 -- deux backends qui ne montraient pas la
-    // meme image a partir des memes reglages.
+    // LE PAS SUIT LA DOUCEUR, comme le portage DX11 : sans cela le reglage
+    // « Douceur » du panneau n'avait AUCUN effet sur Vulkan/GL alors qu'il en
+    // avait un sur DX11 -- deux backends qui ne montraient pas la meme image a
+    // partir des memes reglages.
     vec2 ts = 1.0 / vec2(textureSize(tShadowAtlas, 0));
     vec2 pcfStep =
         ts * max(1.0, uShadows.biasParams.z * float(textureSize(tShadowAtlas, 0).x) * 0.25);
+
+    // ── LE MODE DE QUALITE (globalCfg.y) CHOISIT LE NOYAU ────────────────────
+    // Longtemps calcule cote C++ et jamais lu ici : PCF3/PCF5/Poisson donnaient
+    // la meme image (constate par Rihen). Regle tenue par les trois noyaux :
+    // le mode ne change PAS la largeur de la penombre — la portee reste
+    // +-pcfStep, seuls le nombre et la place des taps dedans changent. Sinon
+    // monter la qualite elargirait l'ombre et « Qualite » se battrait avec
+    // « Douceur ».
+    //
+    // Chaque tap : clamp aux bornes du tile (anti-bleed), extrapolation du plan
+    // recepteur depuis le deplacement REEL (apres clamp) et BORNEE (une pente
+    // de silhouette percerait l'ombre), puis textureLod(..., 0.0) — l'atlas est
+    // mono-mip, et un sample a GRADIENT dans une boucle a compte dynamique fait
+    // echouer fxc (X3570). Les boucles de noyau, elles, sont a compte CONSTANT.
+    int mode = int(uShadows.globalCfg.y);
     float s = 0.0;
+    if (mode == 4) {
+        // ── PCSS (NVIDIA 2005) : LE DURCISSEMENT AU CONTACT ─────────────────
+        // Une vraie source a une taille : l'ombre est NETTE la ou l'objet
+        // touche le recepteur et s'elargit avec la distance au bloqueur.
+        // Trois temps :
+        // 1) RECHERCHE DE BLOQUEURS en lecture BRUTE (tShadowAtlasRaw, non
+        //    comparative — c'est ce qui manquait au chemin DX11) : profondeur
+        //    moyenne de ce qui est plus pres de la lumiere que le plan du
+        //    recepteur, dans un rayon = la taille de source (Douceur). Le
+        //    biais rasterizer POSITIF stocke la surface du recepteur DERRIERE
+        //    elle-meme : elle ne se compte pas comme son propre bloqueur.
+        vec2 searchR = pcfStep; // Douceur = taille angulaire de la source
+        float zBlk = 0.0;
+        float nBlk = 0.0;
+        for (int i = 0; i < 12; i++) {
+            vec2 uv = clamp(atlasUV + kNkShadowPoisson12[i] * searchR,
+                            tileUV.xy + ts, tileUV.zw - ts);
+            vec2 duv = uv - atlasUV;
+            float zPlane = p.z + clamp(zu * duv.x + zv * duv.y, -0.005, 0.005);
+            float zs = textureLod(tShadowAtlasRaw, uv, 0.0).r;
+            if (zs < zPlane - 2e-4) {
+                zBlk += zs;
+                nBlk += 1.0;
+            }
+        }
+        if (nBlk < 0.5)
+            return 1.0; // aucun bloqueur dans le rayon : pleine lumiere
+        zBlk /= nBlk;
+        // 2) LARGEUR DE PENOMBRE ~ (zR - zB)/zB x taille de source (formule
+        //    PCSS). En z projectif c'est une approximation (exacte en ortho),
+        //    mais MONOTONE : elle tend vers ZERO au contact — l'effet cherche,
+        //    celui qui « colle » les ombres au pied des objets chez Blender.
+        float pen = clamp((p.z - zBlk) / max(zBlk, 1e-3), 0.0, 1.0);
+        vec2 rad = max(ts, searchR * pen);
+        // 3) PCF Poisson 12 au rayon module, comparatif + plan recepteur.
+        for (int i = 0; i < 12; i++) {
+            vec2 uv = clamp(atlasUV + kNkShadowPoisson12[i] * rad,
+                            tileUV.xy + ts, tileUV.zw - ts);
+            vec2 duv = uv - atlasUV;
+            float dz = clamp(zu * duv.x + zv * duv.y, -0.005, 0.005);
+            s += textureLod(tShadowAtlas, vec3(uv, p.z + dz), 0.0);
+        }
+        return s / 12.0;
+    }
+    if (mode == 2) {
+        // PCF 5x5 : 25 taps dans la meme portee (pas divise par deux).
+        vec2 h = pcfStep * 0.5;
+        for (int dx = -2; dx <= 2; dx++) {
+            for (int dy = -2; dy <= 2; dy++) {
+                vec2 uv = clamp(atlasUV + vec2(dx, dy) * h, tileUV.xy + ts, tileUV.zw - ts);
+                vec2 duv = uv - atlasUV;
+                float dz = clamp(zu * duv.x + zv * duv.y, -0.005, 0.005);
+                s += textureLod(tShadowAtlas, vec3(uv, p.z + dz), 0.0);
+            }
+        }
+        return s / 25.0;
+    }
+    if (mode == 3) {
+        // Poisson 12 : taps irreguliers dans le meme disque — le crenelage
+        // des bords devient du grain, moins visible qu'un motif regulier.
+        for (int i = 0; i < 12; i++) {
+            vec2 uv = clamp(atlasUV + kNkShadowPoisson12[i] * pcfStep,
+                            tileUV.xy + ts, tileUV.zw - ts);
+            vec2 duv = uv - atlasUV;
+            float dz = clamp(zu * duv.x + zv * duv.y, -0.005, 0.005);
+            s += textureLod(tShadowAtlas, vec3(uv, p.z + dz), 0.0);
+        }
+        return s / 12.0;
+    }
+    // PCF 3x3 — le mode par defaut (« Douce »), inchange.
     for (int dx = -1; dx <= 1; dx++) {
         for (int dy = -1; dy <= 1; dy++) {
-            vec2 uv = atlasUV + vec2(dx, dy) * pcfStep;
-            // Clamp aux bornes du tile pour eviter le bleed vers tile voisin.
-            uv = clamp(uv, tileUV.xy + ts, tileUV.zw - ts);
-            // L'extrapolation part du deplacement REEL (apres clamp), et reste
-            // bornee : au voisinage d'une silhouette la pente explose, et une
-            // extrapolation demesuree percerait l'ombre.
-            vec2  duv = uv - atlasUV;
-            float dz  = clamp(zu * duv.x + zv * duv.y, -0.005, 0.005);
-            // textureLod(..., 0.0) au lieu de texture() : l'atlas d'ombre est mono-mip,
-            // donc le LOD 0 explicite est exact ET gradient-free. Indispensable pour DX :
-            // ce sample est inliné dans une boucle à compte dynamique (slotCount/cascades),
-            // et un sample à GRADIENT en boucle variable fait échouer fxc (warning X3570 →
-            // déroulage impossible / hang). SPIRV-Cross émet SampleCmpLevelZero (sans gradient).
+            vec2 uv = clamp(atlasUV + vec2(dx, dy) * pcfStep, tileUV.xy + ts, tileUV.zw - ts);
+            vec2 duv = uv - atlasUV;
+            float dz = clamp(zu * duv.x + zv * duv.y, -0.005, 0.005);
             s += textureLod(tShadowAtlas, vec3(uv, p.z + dz), 0.0);
         }
     }
