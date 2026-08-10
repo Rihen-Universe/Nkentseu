@@ -827,6 +827,34 @@ namespace nkentseu {
 		return mConfig.frame;
 	}
 
+	// ── Fenêtre discrète : notions de BUREAU (opacité de fenêtre, toujours-
+	// devant, click-through) inexistantes sur cette plateforme. Même règle que
+	// SetDecorated ci-dessus : on mémorise l'intention pour que les getters
+	// restent cohérents, sans rien appliquer.
+	void NkWindow::SetOpacity(float32 opacity) {
+		mConfig.opacity = opacity < 0.0f ? 0.0f : (opacity > 1.0f ? 1.0f : opacity);
+	}
+
+	float32 NkWindow::GetOpacity() const {
+		return mConfig.opacity;
+	}
+
+	void NkWindow::SetAlwaysOnTop(bool onTop) {
+		mConfig.alwaysOnTop = onTop;
+	}
+
+	bool NkWindow::IsAlwaysOnTop() const {
+		return mConfig.alwaysOnTop;
+	}
+
+	void NkWindow::SetClickThrough(bool clickThrough) {
+		mConfig.clickThrough = clickThrough;
+	}
+
+	bool NkWindow::IsClickThrough() const {
+		return mConfig.clickThrough;
+	}
+
 	void NkWindow::SetTitle(const NkString &title) {
 		mConfig.title = title;
 		// Sur Android, le titre n'est pas directement modifiable après création

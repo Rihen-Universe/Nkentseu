@@ -464,6 +464,15 @@ namespace nkentseu {
 		// Synchronisation initiale : mConfig reflète l'état réel
 		SyncConfigFromWindow(sConnection, mData.mWindow, mConfig, mData);
 
+		// Fenêtre discrète demandée à la création : appliquer via les setters
+		// runtime (ils vérifient les handles et centralisent la mécanique).
+		if (config.alwaysOnTop)
+			SetAlwaysOnTop(true);
+		if (config.opacity < 1.0f)
+			SetOpacity(config.opacity);
+		if (config.clickThrough)
+			SetClickThrough(true);
+
 		mIsOpen = true;
 		return true;
 	}
@@ -947,6 +956,96 @@ namespace nkentseu {
 
 	bool NkWindow::IsDecorated() const {
 		return mConfig.frame;
+	}
+
+	// ── Fenêtre discrète ─────────────────────────────────────────────────────────
+
+	// Opacité : _NET_WM_WINDOW_OPACITY (cardinal 0..0xFFFFFFFF), appliquée par
+	// le compositeur (picom, KWin, Mutter…). Sans compositeur la propriété est
+	// ignorée — l'intention reste mémorisée. Même sémantique que XLib.
+	void NkWindow::SetOpacity(float32 opacity) {
+		if (opacity < 0.0f)
+			opacity = 0.0f;
+		if (opacity > 1.0f)
+			opacity = 1.0f;
+		mConfig.opacity = opacity;
+		if (!mData.mConnection || !mData.mWindow)
+			return;
+		const xcb_atom_t prop = NkXCBInternAtom(mData.mConnection, "_NET_WM_WINDOW_OPACITY");
+		if (prop == XCB_ATOM_NONE)
+			return;
+		if (opacity >= 1.0f) {
+			// Pleinement opaque = absence de propriété (état par défaut propre).
+			xcb_delete_property(mData.mConnection, mData.mWindow, prop);
+		} else {
+			const uint32_t value = static_cast<uint32_t>(opacity * static_cast<float32>(0xFFFFFFFFu) + 0.5f);
+			xcb_change_property(mData.mConnection, XCB_PROP_MODE_REPLACE, mData.mWindow, prop, XCB_ATOM_CARDINAL, 32,
+								1, &value);
+		}
+		xcb_flush(mData.mConnection);
+	}
+
+	float32 NkWindow::GetOpacity() const {
+		return mConfig.opacity;
+	}
+
+	// Toujours-devant : _NET_WM_STATE_ABOVE par ClientMessage — même mécanique
+	// EWMH que Maximize() ci-dessus, le gestionnaire de fenêtres fait autorité.
+	void NkWindow::SetAlwaysOnTop(bool onTop) {
+		mConfig.alwaysOnTop = onTop;
+		if (!mData.mConnection || !mData.mWindow || !sDefaultScreen)
+			return;
+		const xcb_atom_t wmState = NkXCBInternAtom(mData.mConnection, "_NET_WM_STATE");
+		const xcb_atom_t above = NkXCBInternAtom(mData.mConnection, "_NET_WM_STATE_ABOVE");
+		if (wmState == XCB_ATOM_NONE || above == XCB_ATOM_NONE)
+			return;
+		xcb_client_message_event_t ev{};
+		ev.response_type = XCB_CLIENT_MESSAGE;
+		ev.format = 32;
+		ev.window = mData.mWindow;
+		ev.type = wmState;
+		ev.data.data32[0] = onTop ? 1 : 0; // _NET_WM_STATE_ADD / _NET_WM_STATE_REMOVE
+		ev.data.data32[1] = above;
+		xcb_send_event(mData.mConnection, 0, sDefaultScreen->root,
+					   XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT | XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY, (const char *)&ev);
+		xcb_flush(mData.mConnection);
+	}
+
+	bool NkWindow::IsAlwaysOnTop() const {
+		// Le WM fait autorité : on lit _NET_WM_STATE, comme IsMaximized().
+		if (!mData.mConnection || !mData.mWindow)
+			return mConfig.alwaysOnTop;
+		const xcb_atom_t wmState = NkXCBInternAtom(mData.mConnection, "_NET_WM_STATE", true);
+		const xcb_atom_t above = NkXCBInternAtom(mData.mConnection, "_NET_WM_STATE_ABOVE", true);
+		if (wmState == XCB_ATOM_NONE || above == XCB_ATOM_NONE)
+			return mConfig.alwaysOnTop;
+		xcb_get_property_cookie_t cookie =
+			xcb_get_property(mData.mConnection, 0, mData.mWindow, wmState, XCB_ATOM_ATOM, 0, 1024);
+		xcb_get_property_reply_t *reply = xcb_get_property_reply(mData.mConnection, cookie, nullptr);
+		bool found = false;
+		if (reply && reply->type == XCB_ATOM_ATOM && reply->format == 32) {
+			const xcb_atom_t *atoms = static_cast<xcb_atom_t *>(xcb_get_property_value(reply));
+			const int count = reply->length / (reply->format / 8);
+			for (int i = 0; i < count; ++i) {
+				if (atoms[i] == above) {
+					found = true;
+					break;
+				}
+			}
+		}
+		platform::NkXcbFree(reply);
+		return found;
+	}
+
+	// Click-through : exigerait l'extension Shape (xcb-shape, non liée par le
+	// jenga). Intention mémorisée sans application — chantier ROADMAP
+	// (« Fenêtre discrète — restes par plateforme »).
+	void NkWindow::SetClickThrough(bool clickThrough) {
+		mConfig.clickThrough = clickThrough;
+	}
+
+	bool NkWindow::IsClickThrough() const {
+		return mConfig.clickThrough;
 	}
 
 	bool NkWindow::IsMaximized() const {
