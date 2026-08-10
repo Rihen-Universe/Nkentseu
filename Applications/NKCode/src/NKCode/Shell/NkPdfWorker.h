@@ -25,6 +25,10 @@
 namespace nkentseu {
 	namespace nkcode {
 
+		// Voir NkPdfViewer.h : le lecteur PDF vit desormais dans NKMedia, et cet
+		// alias garde valides les usages « pdf::X » deja ecrits.
+		namespace pdf = ::nkentseu::media::pdf;
+
 		class NkPdfWorker {
 			public:
 				NkPdfWorker() = default;

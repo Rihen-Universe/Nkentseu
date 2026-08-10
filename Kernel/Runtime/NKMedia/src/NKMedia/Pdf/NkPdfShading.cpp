@@ -4,7 +4,7 @@
 #include "NKMedia/Pdf/NkPdfShading.h"
 
 namespace nkentseu {
-	namespace nkcode {
+	namespace media {
 		namespace pdf {
 
 			static inline double Clamp01(double v) { return v < 0.0 ? 0.0 : (v > 1.0 ? 1.0 : v); }
@@ -354,5 +354,5 @@ namespace nkentseu {
 			}
 
 		} // namespace pdf
-	} // namespace nkcode
+	} // namespace media
 } // namespace nkentseu

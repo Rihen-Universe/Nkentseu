@@ -4,7 +4,7 @@
 #include "NKMedia/Pdf/NkPdfFont.h"
 
 namespace nkentseu {
-	namespace nkcode {
+	namespace media {
 		namespace pdf {
 
 			// ============================================================
@@ -483,5 +483,5 @@ namespace nkentseu {
 			}
 
 		} // namespace pdf
-	} // namespace nkcode
+	} // namespace media
 } // namespace nkentseu

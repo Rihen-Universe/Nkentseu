@@ -14,7 +14,7 @@
 #include <cstdio>
 
 using namespace nkentseu;
-using namespace nkentseu::nkcode::pdf;
+using namespace nkentseu::media::pdf;
 
 static int32 gFail = 0;
 

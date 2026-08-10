@@ -25,7 +25,7 @@
 #include "NKCore/NkTypes.h"
 
 namespace nkentseu {
-	namespace nkcode {
+	namespace media {
 		namespace pdf {
 
 			// ── Nature d'un objet PDF (§7.3 de la specification) ──
@@ -233,5 +233,5 @@ namespace nkentseu {
 			};
 
 		} // namespace pdf
-	} // namespace nkcode
+	} // namespace media
 } // namespace nkentseu

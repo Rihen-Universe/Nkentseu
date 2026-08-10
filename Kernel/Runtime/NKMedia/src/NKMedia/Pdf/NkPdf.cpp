@@ -9,7 +9,7 @@
 #include "NKImage/Core/NkImage.h" // NkDeflate::Decompress (FlateDecode)
 
 namespace nkentseu {
-	namespace nkcode {
+	namespace media {
 		namespace pdf {
 
 			// ── Classes de caracteres PDF (§7.2) ──
@@ -486,5 +486,5 @@ namespace nkentseu {
 			}
 
 		} // namespace pdf
-	} // namespace nkcode
+	} // namespace media
 } // namespace nkentseu

@@ -24,7 +24,7 @@
 #include "NKCore/NkTypes.h"
 
 namespace nkentseu {
-	namespace nkcode {
+	namespace media {
 		namespace pdf {
 
 			struct NkPdfPt {
@@ -176,5 +176,5 @@ namespace nkentseu {
 			};
 
 		} // namespace pdf
-	} // namespace nkcode
+	} // namespace media
 } // namespace nkentseu
