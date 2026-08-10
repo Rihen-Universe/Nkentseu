@@ -278,6 +278,32 @@ namespace nkentseu {
 		return mConfig.frame;
 	}
 
+	// ── Fenêtre discrète : plein écran console, aucune de ces notions n'existe.
+	// Intention mémorisée seulement, comme SetDecorated ci-dessus.
+	void NkWindow::SetOpacity(float32 opacity) {
+		mConfig.opacity = opacity < 0.0f ? 0.0f : (opacity > 1.0f ? 1.0f : opacity);
+	}
+
+	float32 NkWindow::GetOpacity() const {
+		return mConfig.opacity;
+	}
+
+	void NkWindow::SetAlwaysOnTop(bool onTop) {
+		mConfig.alwaysOnTop = onTop;
+	}
+
+	bool NkWindow::IsAlwaysOnTop() const {
+		return mConfig.alwaysOnTop;
+	}
+
+	void NkWindow::SetClickThrough(bool clickThrough) {
+		mConfig.clickThrough = clickThrough;
+	}
+
+	bool NkWindow::IsClickThrough() const {
+		return mConfig.clickThrough;
+	}
+
 	void NkWindow::SetTitle(const NkString &title) {
 		mData.mTitle = title;
 		mConfig.title = title;

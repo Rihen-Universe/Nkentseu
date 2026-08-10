@@ -61,6 +61,24 @@ namespace nkentseu {
 	class NkEventSystem;
 
 	// ---------------------------------------------------------------------------
+	// NkClipboardImage — image du presse-papiers en pixels bruts.
+	//
+	// RGBA8 nu (width*height*4 octets, lignes du HAUT vers le bas) et non un
+	// NkImage : NKWindow ne dépend PAS de NKImage (le fenêtrage n'a pas à tirer
+	// les 12 codecs). Même choix que NkDropImageData côté NKEvent. L'application
+	// qui veut un NkImage recopie les pixels (NkImage::Create + memcpy).
+	// ---------------------------------------------------------------------------
+	struct NkClipboardImage {
+			uint32 width = 0;
+			uint32 height = 0;
+			NkVector<uint8> pixels; ///< RGBA8, taille = width * height * 4
+
+			bool IsValid() const {
+				return width > 0 && height > 0 && pixels.Size() == static_cast<usize>(width) * height * 4u;
+			}
+	};
+
+	// ---------------------------------------------------------------------------
 	// NkWindow — façade de fenêtre cross-plateforme
 	// ---------------------------------------------------------------------------
 
@@ -155,6 +173,74 @@ namespace nkentseu {
 			// Win32. Sans effet la ou la notion n'existe pas (mobile, Web).
 			void SetDecorated(bool decorated);
 			bool IsDecorated() const;
+
+			// ── Fenêtre discrète (outil flottant type tableau de références) ──
+			//
+			// Trois propriétés pensées ensemble : une fenêtre d'appoint qui reste
+			// visible au-dessus du logiciel principal (topmost), qu'on estompe pour
+			// voir au travers (opacité), voire qu'on laisse traverser par la souris
+			// pour travailler dessous (click-through). Réglables aussi à la
+			// CRÉATION via NkWindowConfig (évite le clignotement d'une fenêtre
+			// créée « normale » puis corrigée une frame plus tard).
+			//
+			// Support par plateforme (l'intention est TOUJOURS mémorisée dans la
+			// config pour que les getters restent cohérents) :
+			//   - opacité      : Win32 (WS_EX_LAYERED + LWA_ALPHA), X11 XLib/XCB
+			//                    (_NET_WM_WINDOW_OPACITY, respecté par les WM/
+			//                    compositeurs courants), macOS (NSWindow.alphaValue).
+			//                    Wayland : pas de protocole client → sans effet.
+			//   - toujours-devant : Win32 (HWND_TOPMOST), X11 (_NET_WM_STATE_ABOVE),
+			//                    macOS (NSFloatingWindowLevel). Wayland : pas de
+			//                    protocole → sans effet.
+			//   - click-through : Win32 (WS_EX_TRANSPARENT), macOS
+			//                    (ignoresMouseEvents), Wayland (input region vide).
+			//                    X11 : demande l'extension Shape (non liée) → sans
+			//                    effet, chantier noté dans la ROADMAP.
+			//   - mobile / Web / consoles : notions inexistantes → sans effet.
+
+			/// Opacité globale de la fenêtre, contenu compris. [0..1], borné ;
+			/// 1 = opaque. Indépendant de NkWindowConfig::transparent (qui, lui,
+			/// rend le FOND composité : les deux se combinent).
+			void SetOpacity(float32 opacity);
+			float32 GetOpacity() const;
+
+			/// La fenêtre reste au-dessus de toutes les fenêtres normales,
+			/// même sans focus. L'utilisateur doit pouvoir le désactiver
+			/// (c'est une option d'outil, jamais un état imposé).
+			void SetAlwaysOnTop(bool onTop);
+			bool IsAlwaysOnTop() const;
+
+			/// La souris TRAVERSE la fenêtre : clics, molette et survol vont à la
+			/// fenêtre du dessous. À coupler avec une opacité réduite, sinon la
+			/// fenêtre semble « morte ». Prévoir une sortie clavier/raccourci
+			/// global : une fois transparente aux clics, la fenêtre ne reçoit
+			/// plus l'événement souris qui permettrait de la re-solidifier.
+			void SetClickThrough(bool clickThrough);
+			bool IsClickThrough() const;
+
+			// ── Presse-papiers image (RGBA8 brut, cf. NkClipboardImage) ──
+			//
+			// Complète le presse-papiers texte ci-dessus, même philosophie :
+			// Win32 = vrai presse-papiers OS (CF_DIBV5/CF_DIB, alpha préservé
+			// quand la source le fournit) ; autres plateformes = fallback interne
+			// à l'application (copier/coller intra-app) en attendant les
+			// implémentations OS (X11 CLIPBOARD image/png, NSPasteboard,
+			// wl_data_device — notées dans la ROADMAP).
+			//
+			// Limite Win32 assumée : les sources qui ne posent QU'un PNG (sans
+			// DIB) ne sont pas lues — décoder du PNG exigerait NKImage, que
+			// NKWindow ne tire pas. Dans la pratique, capture d'écran Windows et
+			// navigateurs posent aussi un DIB.
+
+			/// Dépose une image dans le presse-papiers. Retourne false si l'image
+			/// est invalide ou si l'OS refuse.
+			bool SetClipboardImage(const NkClipboardImage &image);
+			/// Lit l'image du presse-papiers vers `out`. Retourne false s'il n'y
+			/// a pas d'image (out est alors laissée vide/invalide).
+			bool GetClipboardImage(NkClipboardImage &out) const;
+			/// Vrai s'il y a une image disponible — test léger, sans copier les
+			/// pixels (pour activer/griser un « Coller »).
+			bool HasClipboardImage() const;
 
 			bool SupportsOrientationControl() const;
 			void SetScreenOrientation(NkScreenOrientation orientation);

@@ -397,6 +397,15 @@ namespace nkentseu {
 			}
 		}
 
+		// Fenêtre discrète demandée à la création : appliquer via les setters
+		// runtime (ils vérifient les handles et centralisent la mécanique).
+		if (config.alwaysOnTop)
+			SetAlwaysOnTop(true);
+		if (config.opacity < 1.0f)
+			SetOpacity(config.opacity);
+		if (config.clickThrough)
+			SetClickThrough(true);
+
 		mIsOpen = true;
 
 		NkWindowCreateEvent createEvent(mData.mWidth, mData.mHeight);
@@ -747,6 +756,54 @@ namespace nkentseu {
 			NkWindowWindowedEvent event;
 			NkWESystem::Events().Enqueue_Public(event, mId);
 		}
+	}
+
+	// ── Fenêtre discrète ─────────────────────────────────────────────────────────
+	// Cocoa a les trois nativement : alphaValue (opacité de toute la fenêtre),
+	// level NSFloatingWindowLevel (toujours-devant), ignoresMouseEvents
+	// (click-through).
+
+	void NkWindow::SetOpacity(float32 opacity) {
+		if (opacity < 0.0f)
+			opacity = 0.0f;
+		if (opacity > 1.0f)
+			opacity = 1.0f;
+		mConfig.opacity = opacity;
+		if (mData.mNSWindow) {
+			[mData.mNSWindow setAlphaValue:(CGFloat)opacity];
+		}
+	}
+
+	float32 NkWindow::GetOpacity() const {
+		return mConfig.opacity;
+	}
+
+	void NkWindow::SetAlwaysOnTop(bool onTop) {
+		mConfig.alwaysOnTop = onTop;
+		if (mData.mNSWindow) {
+			// Floating : au-dessus des fenêtres normales, mais sous les alertes
+			// système — le niveau attendu d'un outil flottant.
+			[mData.mNSWindow setLevel:(onTop ? NSFloatingWindowLevel : NSNormalWindowLevel)];
+		}
+	}
+
+	bool NkWindow::IsAlwaysOnTop() const {
+		if (mData.mNSWindow)
+			return [mData.mNSWindow level] != NSNormalWindowLevel;
+		return mConfig.alwaysOnTop;
+	}
+
+	void NkWindow::SetClickThrough(bool clickThrough) {
+		mConfig.clickThrough = clickThrough;
+		if (mData.mNSWindow) {
+			[mData.mNSWindow setIgnoresMouseEvents:(clickThrough ? YES : NO)];
+		}
+	}
+
+	bool NkWindow::IsClickThrough() const {
+		if (mData.mNSWindow)
+			return [mData.mNSWindow ignoresMouseEvents] != NO;
+		return mConfig.clickThrough;
 	}
 
 	bool NkWindow::SupportsOrientationControl() const {
