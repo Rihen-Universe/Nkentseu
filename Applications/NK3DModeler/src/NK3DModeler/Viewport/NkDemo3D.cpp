@@ -4685,10 +4685,20 @@ namespace nkentseu {
 					!NkInput.IsKeyDown(NkKey::NK_RCTRL)) // Ctrl+C = COPIER, pas le gizmo
 					G.SetMode(GZ::MODE_COMBINE);
 				if (k == NkKey::NK_A) {
-					if (alt)
+					if (alt) {
 						G.ClearSelection();
-					else
-						G.SelectAll();
+					} else {
+						// TOUT = tout ce qui se VOIT. Ce gestionnaire herite de la
+						// demo selectionnait ses ~90 objets meme CACHES dans une
+						// scene utilisateur — Maj+A les faisait tous reapparaitre
+						// en fond (constate par Rihen, 10 aout). Si toute la demo
+						// est masquee, il n'a rien a selectionner.
+						bool anyVisible = false;
+						for (int32 o = 0; o < Demo3DState::kNumObj && !anyVisible; ++o)
+							anyVisible = !HostHiddenEff(o);
+						if (anyVisible)
+							G.SelectAll();
+					}
 				}
 				if (k == NkKey::NK_COMMA) {
 					G.CycleOrientation();
@@ -15444,16 +15454,15 @@ namespace nkentseu {
 					return false;
 				if (((int32)nkvpUserLight[u].type & 3) != 0)
 					return false;
-				// MEME calcul qu'a la soumission : la rotation du noeud donne le
-				// faisceau (-Y local). Le refaire autrement, c'est se garantir que
-				// le ciel et l'eclairage finiront par diverger.
+				// MEME calcul qu'a la soumission, AU QUATERNION PRES : cette
+				// fonction recomposait la rotation depuis les ANGLES affiches —
+				// or « le quaternion fait foi », les angles ne sont qu'un
+				// affichage. Tourner le soleil au gizmo mettait a jour le
+				// quaternion, pas ce calcul : le ciel ne voyait jamais la
+				// nouvelle direction et le disque restait cloue (constate par
+				// Rihen, 10 aout, Source pourtant bien reglee).
 				const int32 e = node - kNkvpFirstEmpty;
-				const float32 kD2R = 0.017453292f;
-				const NkMat4f lRm =
-					st->emptyGizmo.RotationOf(e) *
-					(NkMat4f::RotationZ(NkAngle::FromRad(nkvpEmptyRotDeg[e][2] * kD2R)) *
-					 NkMat4f::RotationY(NkAngle::FromRad(nkvpEmptyRotDeg[e][1] * kD2R)) *
-					 NkMat4f::RotationX(NkAngle::FromRad(nkvpEmptyRotDeg[e][0] * kD2R)));
+				const NkMat4f lRm = st->emptyGizmo.RotationOf(e) * HostNodeQuat(e).ToMat4();
 				dir[0] = -lRm.mat[1][0];
 				dir[1] = -lRm.mat[1][1];
 				dir[2] = -lRm.mat[1][2];
