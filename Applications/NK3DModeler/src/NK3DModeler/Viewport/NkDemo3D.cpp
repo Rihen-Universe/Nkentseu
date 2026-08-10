@@ -10217,6 +10217,10 @@ namespace nkentseu {
 				// par SetPostConfig (le graphe se reconstruit a l'aplomb de la
 				// frame suivante quand la passe apparait/disparait).
 				cfg.postProcess.ssao = false;
+				// BLOOM ETEINT PAR DEFAUT lui aussi (Rihen, 10 aout) : un
+				// modeleur montre la matiere, pas un halo — il s'active au
+				// panneau « Exposition et bloom » quand on compose une image.
+				cfg.postProcess.bloom = false;
 				hst.ctx.api = hst.ctx.device->GetApi();
 				hst.ctx.width = hst.wantW;
 				hst.ctx.height = hst.wantH;
@@ -16123,6 +16127,9 @@ namespace nkentseu {
 				L.attenuationMode = 1;
 				static const float32 kNewWatts[4] = {5.f, 1000.f, 1000.f, 1000.f};
 				L.intensity = kNewWatts[sub & 3];
+				// BLANCHE a la naissance (Rihen, 10 aout) : le gabarit copiait la
+				// teinte de la lumiere de demo la plus proche (rouge, bleue...).
+				L.color = {1.f, 1.f, 1.f};
 				nkvpUserLight[n - kNkvpFirstUser] = L;
 			}
 			return n;

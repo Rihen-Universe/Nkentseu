@@ -420,7 +420,12 @@ void main() {
                     E += acos(clamp(dot(q1, q2), -1.0, 1.0)) * dot(normalize(cross(q1, q2)), N);
                     E += acos(clamp(dot(q2, q3), -1.0, 1.0)) * dot(normalize(cross(q2, q3)), N);
                     E += acos(clamp(dot(q3, q0), -1.0, 1.0)) * dot(normalize(cross(q3, q0)), N);
-                    E = max(E * 0.159154943, 0.0); // 1/(2π)
+                    // SIGNE : avec cet ordre de sommets (−−, +−, ++, −+), le
+                    // parcours est HORAIRE vu du recepteur — la somme sort
+                    // NEGATIVE quand le panneau eclaire de face (derive sur le
+                    // cas canonique : panneau au-dessus, sol en dessous ; c'etait
+                    // le « calcule a l'inverse » constate par Rihen). On la nie.
+                    E = max(-E * 0.159154943, 0.0); // 1/(2π)
                     // La fenetre de portee reste le seul couperet (deja calculee
                     // dans `att` selon la loi) ; le facteur de forme REMPLACE la
                     // partie geometrique. On divise par NdL*(1/π) plus bas via le
