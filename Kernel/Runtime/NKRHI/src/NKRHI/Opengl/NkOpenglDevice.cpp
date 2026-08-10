@@ -2486,8 +2486,18 @@ namespace nkentseu {
 #else
 		GLenum status = glCheckNamedFramebufferStatus(fbo, GL_FRAMEBUFFER);
 #endif
-		if (status != GL_FRAMEBUFFER_COMPLETE)
+		if (status != GL_FRAMEBUFFER_COMPLETE) {
+#if defined(NK_OPENGL_ES)
+			// Un FBO ne peut se creer que sur le thread qui detient le contexte.
+			// Sans contexte courant, TOUS les appels GL sont des no-op silencieux
+			// et le status renvoye ne veut rien dire : on le dit explicitement,
+			// sinon on cherche un probleme d'attachement qui n'existe pas.
+			NK_GL_ERR("Framebuffer incomplete: 0x%X (ctx courant=%p, thread=%lu)\n", (unsigned)status,
+					  (void *)eglGetCurrentContext(), (unsigned long)pthread_self());
+#else
 			NK_GL_ERR("Framebuffer incomplete: 0x%X\n", (unsigned)status);
+#endif
+		}
 
 #if !defined(NK_OPENGL_ES)
 		// Cf. commentaire de CreateBuffer : diagnostic seul, désactivé sur ES.
@@ -2800,8 +2810,12 @@ namespace nkentseu {
 			// l'ancienne surface ; l'appelant retentera au prochain Shown.
 			return false;
 		}
-		if (newWin == mEglNativeWindow && mEglSurface) {
-			return true; // meme fenetre native -> rien a faire (cas ultra-courant)
+		// Generation de la surface demandee. HarmonyOS l'incremente a chaque
+		// creation ; les autres plateformes laissent 0 et ne changent donc pas
+		// de comportement.
+		const uint32 genDemandee = surf.ohSurfaceGeneration;
+		if (newWin == mEglNativeWindow && mEglSurface && genDemandee == mEglSurfaceGeneration) {
+			return true; // meme fenetre ET meme surface -> rien a faire
 		}
 		logger.Infof("[NkRHI_GL][ES] RecreateSurface : ANativeWindow %p -> %p\n", mEglNativeWindow, newWin);
 
@@ -2838,6 +2852,7 @@ namespace nkentseu {
 		}
 		mEglSurface = newSurf;
 		mEglNativeWindow = newWin;
+		mEglSurfaceGeneration = genDemandee;
 		// Taille de la nouvelle surface -> swapchain virtuelle.
 		EGLint sw = 0, sh = 0;
 		eglQuerySurface(dpy, newSurf, EGL_WIDTH, &sw);

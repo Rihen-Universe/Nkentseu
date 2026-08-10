@@ -316,6 +316,9 @@ namespace nkentseu {
 
 		win->mData.mXComponent = x;
 		win->mData.mNativeWindow = n;
+		// Nouvelle surface : meme si l'adresse est identique a la precedente,
+		// c'est une AUTRE file de tampons. La generation le dit aux backends.
+		++win->mData.mSurfaceGeneration;
 
 		uint64_t w = 0;
 		uint64_t h = 0;
@@ -1180,6 +1183,7 @@ namespace nkentseu {
 		// NkSurfaceDesc Harmony : `ohNativeWindow` (OHNativeWindow*) — pas
 		// `nativeWindow`. Voir NkSurface.h #elif NKENTSEU_PLATFORM_HARMONYOS.
 		d.ohNativeWindow = reinterpret_cast<OHNativeWindow *>(mData.mNativeWindow);
+		d.ohSurfaceGeneration = mData.mSurfaceGeneration;
 		d.appliedHints = mData.mAppliedHints;
 
 		return d;

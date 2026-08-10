@@ -41,6 +41,11 @@ namespace nkentseu {
 	struct NkWindowData {
 			// ── Surface native ───────────────────────────────────────────────────
 			OHNativeWindow *mNativeWindow = nullptr;
+
+			// Incrementee a CHAQUE creation de surface. Le systeme reutilise
+			// souvent la MEME adresse apres un passage en arriere-plan : comparer
+			// le pointeur ne suffit donc pas a savoir qu'il faut tout recreer.
+			uint32 mSurfaceGeneration = 0;
 			OH_NativeXComponent *mXComponent = nullptr;
 			char mXComponentId[128] = {};
 
