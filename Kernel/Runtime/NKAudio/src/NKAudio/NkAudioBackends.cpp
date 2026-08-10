@@ -1363,7 +1363,14 @@ namespace nkentseu {
 			});
 #endif
 
-#if defined(NKENTSEU_PLATFORM_LINUX)
+// MEME condition que l'implementation (cf. plus haut) : HarmonyOS et Android
+// heritent de NKENTSEU_PLATFORM_LINUX mais n'ont pas ALSA. L'implementation les
+// excluait deja, PAS cet enregistrement : la classe etait donc referencee sans
+// jamais etre compilee. Le lien passait — c'est une bibliotheque partagee — et
+// l'echec n'apparaissait qu'au CHARGEMENT sur l'appareil (« relocating failed:
+// symbol not found ... AlsaAudioBackend »), ou l'application ne demarrait pas
+// du tout, sans un mot cote applicatif.
+#if defined(NKENTSEU_PLATFORM_LINUX) && !defined(NKENTSEU_PLATFORM_HARMONYOS) && !defined(NKENTSEU_PLATFORM_ANDROID)
 			AudioBackendFactory::Register(
 				"ALSA", []() -> IAudioBackend * { return memory::NkGetDefaultAllocator().New<AlsaAudioBackend>(); });
 #endif

@@ -368,4 +368,57 @@ static napi_value NkHarmonyNapiInit(napi_env env, napi_value exports) {
 //   // "entry" doit correspondre au nom du module dans oh-package.json5
 // ─────────────────────────────────────────────────────────────────────────────
 
-#define NKENTSEU_HARMONY_DEFINE_MODULE(moduleName) NAPI_MODULE(moduleName, NkHarmonyNapiInit)
+// ─────────────────────────────────────────────────────────────────────────────
+// Enregistrement AUTOMATIQUE du module natif
+//
+// Le XComponent de la page ArkTS réclame une bibliothèque par son `libraryname`,
+// et le runtime ne charge la .so que s'il y trouve un module NAPI enregistré
+// SOUS CE NOM EXACT. Tant que l'application devait écrire elle-même
+// NKENTSEU_HARMONY_DEFINE_MODULE, l'oublier donnait une application qui
+// s'installe, affiche son écran de démarrage… et n'exécute jamais une ligne de
+// C++, sans le moindre message. Mou et Pong étaient dans ce cas.
+//
+// Le nom vient de Jenga (NK_HARMONY_MODULE_NAME = nom de la cible), qui écrit
+// déjà le `libraryname` de la page : les deux ne peuvent donc pas diverger.
+//
+// On passe par napi_module_register plutôt que par la macro NAPI_MODULE parce
+// que le nom nous arrive sous forme de CHAÎNE, pas d'identifiant.
+// ─────────────────────────────────────────────────────────────────────────────
+
+#ifndef NK_HARMONY_MODULE_NAME
+#define NK_HARMONY_MODULE_NAME entry
+#endif
+
+// ⚠️ Ne PAS écrire NAPI_MODULE(NK_HARMONY_MODULE_NAME, …) : la macro du SDK
+// transforme son argument en chaîne SANS l'expanser, le module s'enregistrerait
+// donc sous le nom littéral « NK_HARMONY_MODULE_NAME » et le XComponent ne le
+// trouverait jamais. On construit la structure à la main, où le nom est une
+// chaîne que l'on peut composer.
+
+#define NK_HARMONY_STR_(x) #x
+#define NK_HARMONY_STR(x) NK_HARMONY_STR_(x)
+
+namespace {
+
+	napi_module gNkHarmonyModule = {
+		/* nm_version       */ 1,
+		/* nm_flags         */ 0,
+		/* nm_filename      */ nullptr,
+		/* nm_register_func */ NkHarmonyNapiInit,
+		/* nm_modname       */ NK_HARMONY_STR(NK_HARMONY_MODULE_NAME),
+		/* nm_priv          */ nullptr,
+		/* reserved         */ {nullptr},
+	};
+
+	// Enregistrement au chargement de la bibliothèque, avant que le runtime ne
+	// cherche le module — c'est ce que fait NAPI_MODULE elle-même.
+	__attribute__((constructor)) void NkHarmonyRegisterModule() {
+		napi_module_register(&gNkHarmonyModule);
+	}
+
+} // anonymous namespace
+
+// Conservée pour les applications qui l'appellent encore : le module est
+// enregistré ci-dessus, et un second enregistrement sous le même nom serait
+// refusé. La macro ne fait donc plus rien.
+#define NKENTSEU_HARMONY_DEFINE_MODULE(moduleName)
