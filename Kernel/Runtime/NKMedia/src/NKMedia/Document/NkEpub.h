@@ -170,8 +170,23 @@ namespace nkentseu {
 			if (p[i] == '<') {
 				// Le contenu des scripts et des styles n'est pas du texte de
 				// livre : le garder polluerait le corpus de code.
-				if (MemeMot(p + i, n - i, "<script") || MemeMot(p + i, n - i, "<style")) {
-					const char *fin = MemeMot(p + i, n - i, "<script") ? "</script" : "</style";
+				// Le contenu de ces éléments n'est jamais du texte de lecture. Sur
+				// une page web, `nav`, `header`, `footer`, `aside` et `form`
+				// portent l'essentiel du bruit — menus, bandeaux, « articles
+				// similaires ». Les jeter ici épargne un tri bien plus difficile
+				// plus tard, quand les balises auront disparu.
+				static const char *kAJeter[] = {"<script", "<style", "<nav", "<header",
+												"<footer", "<aside", "<form",	"<noscript"};
+				static const char *kFins[] = {"</script", "</style", "</nav", "</header",
+											  "</footer", "</aside", "</form",	"</noscript"};
+				int aJeter = -1;
+				for (int t = 0; t < 8; ++t)
+					if (MemeMot(p + i, n - i, kAJeter[t])) {
+						aJeter = t;
+						break;
+					}
+				if (aJeter >= 0) {
+					const char *fin = kFins[aJeter];
 					nk_size j = i + 1;
 					while (j < n && !MemeMot(p + j, n - j, fin))
 						++j;
