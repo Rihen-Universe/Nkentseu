@@ -108,15 +108,25 @@ namespace nkentseu {
 					prog = doc.DictGet(fd, "FontFile3"); // CFF / OpenType
 				// /FontFile (Type 1 brut) volontairement ignore : 2,1 % du corpus, et
 				// il faudrait un interpreteur de charstrings Type 1 complet.
-				if (prog.kind != NK_PDF_STREAM)
-					return false;
-
-				if (!doc.DecodeStream(prog, mProgram) || mProgram.Empty())
-					return false;
-				// Le tampon doit SURVIVRE a la face : NKFont ne copie pas, il pointe
-				// dedans. C'est pourquoi mProgram est un membre et non un local.
-				if (!nkfont::NkInitFontFace(&mFace, mProgram.Data(), mProgram.Size(), 0))
-					return false;
+				//
+				// ⚠️ NE PAS ECHOUER ICI. Une police dont on ne sait pas DESSINER les
+				// glyphes reste parfaitement utilisable pour LIRE : /ToUnicode, les
+				// largeurs et l'encodage sont deja lus plus haut, et ce sont eux — et
+				// non les contours — qui donnent le texte. Echouer jetait tout, et le
+				// texte avec.
+				//
+				// Ce que ca coutait, mesure sur un cours produit par LaTeX : 64 pages,
+				// 2 157 102 octets de contenu decode, 147 590 operations executees,
+				// 10 104 ordres de texte... et ZERO caractere extrait, parce que les
+				// polices Type 1 faisaient echouer leur chargement. Le rendu, lui, ne
+				// change pas : `AppendGlyph` se garde deja sur `mHasFace`, donc rien
+				// n'est dessine de ce qui ne peut pas l'etre.
+				if (prog.kind != NK_PDF_STREAM || !doc.DecodeStream(prog, mProgram) || mProgram.Empty() ||
+					!nkfont::NkInitFontFace(&mFace, mProgram.Data(), mProgram.Size(), 0)) {
+					mHasFace = false;
+					mUnitsPerEmInv = 1.0 / 1000.0; // convention PDF pour les largeurs
+					return true;				   // lisible, mais non dessinable
+				}
 				mHasFace = true;
 
 				// Echelle du programme : nkfont::NkScaleForEmToPixels(1) donne le facteur

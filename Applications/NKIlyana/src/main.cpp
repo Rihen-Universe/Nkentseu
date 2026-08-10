@@ -1249,6 +1249,27 @@ static int ModeAjouter(int argc, char **argv) {
 		logger.Infof("      contenu %lld o, %lld operations, %lld ordres de texte, glyphes %lld/%lld\n",
 					 (long long)diag.octetsContenu, (long long)diag.operations, (long long)diag.opsTexte,
 					 (long long)diag.glyphesObtenus, (long long)diag.glyphesDemandes);
+		// ⚠️ REFUS D'UN TEXTE ILLISIBLE — le garde-fou le plus important de ce mode.
+		// Une police sans table /ToUnicode ne declare pas ce que son glyphe
+		// represente. Le lecteur laisse alors le caractere vide, et ce qui SURNAGE
+		// — accents, ponctuation, symboles isoles — a toutes les apparences d'un
+		// texte extrait sans en etre un. Mesure sur un cours produit par LaTeX :
+		// 99 667 caracteres rencontres dont 76 993 sans equivalent, et les 23 %
+		// restants donnaient « É ? è ?,é ». Sans ce refus, la bibliotheque se
+		// remplirait d'ordures en affichant que tout va bien : une panne franche
+		// vaut infiniment mieux qu'une corruption silencieuse.
+		if (diag.glyphes > 0 && (double)diag.sansUnicode / (double)diag.glyphes > 0.25) {
+			logger.Infof("REFUSE : %lld caracteres sur %lld (%.0f%%) sans AUCUN equivalent lisible.\n",
+						 (long long)diag.sansUnicode, (long long)diag.glyphes,
+						 100.0 * (double)diag.sansUnicode / (double)diag.glyphes);
+			logger.Info("Les polices de ce document ne declarent pas ce que representent leurs glyphes. Ce qui "
+						"surnagerait ne serait pas du texte mais du charabia — mieux vaut ne rien deposer que "
+						"polluer la bibliotheque.");
+			logger.Info("Par ordre de preference : la SOURCE .tex si tu l'as (les formules y sont du texte), "
+						"une edition EPUB, ou une autre edition du PDF.");
+			return 1;
+		}
+
 		// Le diagnostic distingue TROIS echecs que rien ne separe a l'oeil, et
 		// qu'il serait faux de confondre : accuser les polices quand le flux n'a
 		// pas ete lu enverrait chercher a cote pendant des heures.
