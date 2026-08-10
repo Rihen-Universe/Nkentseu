@@ -308,20 +308,40 @@ namespace nkentseu {
 		}
 		NK_GL_LOG("GLAD2 GL %d.%d\n", GLAD_VERSION_MAJOR(ver), GLAD_VERSION_MINOR(ver));
 
+// Les plateformes MOBILES sont testées AVANT X11, et ce n'est pas un détail de
+// style : HarmonyOS et Android sont bâtis sur Linux, donc les macros de
+// fenêtrage X11 peuvent être définies chez eux. Testées en premier, elles
+// emmenaient HarmonyOS dans la branche GLX ; glXGetProcAddressARB n'y résout
+// évidemment rien, et glad gardait ses pointeurs à zéro. Le contexte
+// s'initialisait « avec succès », puis la première fonction GL appelée sautait
+// à l'adresse 0 — SIGSEGV dans glCreateShader, sans aucun message.
+#elif defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_PLATFORM_HARMONYOS) ||                                    \
+	defined(NKENTSEU_WINDOWING_WAYLAND)
+		// Loaders glad (dlopen libEGL/libGLESv2) : indispensables car eglGetProcAddress NE
+		// resout PAS les fonctions GLES2 CORE (glGetString, glClear...) sur Mesa -> NULL.
+		gladLoaderLoadEGL(mData.eglDisplay);
+		// Deux chemins, dans cet ordre — même stratégie que NKRHI, pour la même
+		// raison. Le loader par dlopen est préféré : sur certains pilotes
+		// (émulateurs notamment) eglGetProcAddress rend des pointeurs vers une
+		// implémentation GLES distincte de celle liée à la swapchain, et le
+		// rendu « réussit » sans jamais être composé. Mais il cherche
+		// libGLESv2.so, qui n'existe pas sous ce nom sur HarmonyOS : sans le
+		// repli ci-dessous, le chargement échouait et toutes les fonctions GL
+		// restaient nulles.
+		int ver = gladLoaderLoadGLES2();
+		if (!ver) {
+			NK_GL_LOG("gladLoaderLoadGLES2 (dlopen) a echoue, repli sur eglGetProcAddress\n");
+			ver = gladLoadGLES2((GLADloadfunc)eglGetProcAddress);
+		}
+		if (!ver) {
+			NK_GL_ERR("gladLoadGLES2 failed\n");
+			return false;
+		}
+
 #elif defined(NKENTSEU_WINDOWING_XLIB) || defined(NKENTSEU_WINDOWING_XCB)
 		int ver = gladLoadGL((GLADloadfunc)glXGetProcAddressARB);
 		if (!ver) {
 			NK_GL_ERR("gladLoadGL(GLX) failed\n");
-			return false;
-		}
-
-#elif defined(NKENTSEU_WINDOWING_WAYLAND) || defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_PLATFORM_HARMONYOS)
-		// Loaders glad (dlopen libEGL/libGLESv2) : indispensables car eglGetProcAddress NE
-		// resout PAS les fonctions GLES2 CORE (glGetString, glClear...) sur Mesa -> NULL.
-		gladLoaderLoadEGL(mData.eglDisplay);
-		int ver = gladLoaderLoadGLES2();
-		if (!ver) {
-			NK_GL_ERR("gladLoaderLoadGLES2 failed\n");
 			return false;
 		}
 
