@@ -934,3 +934,64 @@ de **documents** (32 emplacements stables) ; un onglet n'en est qu'une **vue**
 - **Sélecteur de fichiers personnalisé** sur `NKEditorKit/NkFilePicker.h` —
   `NkDialogs::` est toujours en place et toujours cassé.
 - Bascule lié ↔ empaqueté sans perte, dans les deux sens.
+
+# CADRAGE IMPORT (Rihen, 2026-08-09 matin) — à respecter au chantier import
+
+- **Importer un modèle 3D = le DÉCOMPOSER** : le fichier importé (glTF/OBJ/…)
+  produit des assets distincts — **mesh (.nkmesh) + matériau(x) (.nkmat) +
+  texture(s)** — rangés dans le navigateur, pas un blob monolithique.
+- **Importer une texture crée SON fichier spécial configurable** (le futur
+  `.nktex` : réglages sRGB/mips/tiling/etc. à côté des pixels sources) — la
+  carte Texture gagne enfin un corps, donc sa persistance et sa miniature.
+- La **sauvegarde des fichiers texture** fait partie du même chantier.
+- L'édition de maillage : validée plus tard par Rihen (« on verra ça bientôt »).
+- Ordre : ces points + le sélecteur de fichiers personnalisé forment LE
+  prochain chantier, après les « petits problèmes » (bouton SSAO : réglé,
+  `b08027c8`).
+
+# NUIT DU 2026-08-09 (carte blanche) — validé par MESURE, à revalider à l'œil
+
+- **Modes de qualité d'ombre branchés** (`9dadf23a`) : PCF3/PCF5/Poisson
+  diffèrent enfin (diff pixel 0.006/0.010, bruit 0.000) ; PCSS replié sur
+  Poisson et le combo le dit.
+- **Vernis + Diffusion au panneau Matériau** (`491fdb9c`) : alimentation par
+  drawcall (les deux chemins), .nkmat étendu (vernis/vernisRugosite/diffusion),
+  diffusion corrigée (attenuation+ombre+1/π — finie la supernova), vernis avec
+  repli ambiance uniforme sans HDRI.
+- **Persistance : l'aller-retour est idempotent** — ouvrir → enregistrer →
+  relancer → réenregistrer = fichiers identiques octet pour octet (test
+  autonome sur copie AgentTest).
+- **Mode édition** : s'ouvre et vit sur une scène utilisateur (smoke).
+- **Boucle de vérification d'agent** (`744700e5`, `56615b42`) : crochets
+  NK_OPEN_RECENT / NK_AGENT_SHOT / NK_AGENT_SAVE / NK_AGENT_EXIT /
+  NK_SHADOW_* / NK_MAT_SURFACE + captures + diff pixel. Voir le carnet.
+
+# RENDU — état au 2026-08-09 (l'« acné » est résolue, validée par Rihen)
+
+## Livré et validé à l'écran (commits `d444b7f7` + `ba1d4f41`)
+
+- **SSAO v1 « Alchemy »** (`PP_SSAO/NkSL`) : normales reconstruites, rayon en
+  MÈTRES (`ssaoRadius` change d'unité), bruit IGN par pixel, positions monde
+  par la matrice réelle de la frame. La v0 (profondeurs brutes sans normale)
+  auto-occludait toute face plane vue de biais — c'était le « moiré » du cube.
+- **Signe du biais rasterizer de la passe d'ombre inversé** (+64/+4/+0.02) :
+  le négatif étendait les ombres (faux « contact parfait ») et fabriquait de
+  l'acné proportionnelle à la pente. Validé : **tous les biais du panneau à
+  zéro, aucune acné, contact au pied collé**.
+
+## Défauts d'éclairage connus, NON traités (analyse au carnet, code à écrire)
+
+- Garde omni « 6 faces ou aucune » + modes de qualité **jamais lus par le
+  shader** (PCF3/5/Poisson = même image ; le travail de la 11e vague a été
+  **reverté** dans `12a8fcc8` — à refaire proprement).
+- PCSS (durcissement au contact) — remède du résiduel de pénombre.
+- Largeur/hauteur de la surfacique jamais transmises au GPU ; atténuation non
+  physique `(1-d/portée)²` — loi au choix par lumière (décision Rihen).
+- **Clignotement** (parties noires) pendant qu'on ORIENTE une lumière —
+  constaté par Rihen le 9 août, non diagnostiqué.
+
+## Piège de méthode payé cette nuit (à connaître)
+
+Deux `jenga build` simultanés dans le même arbre (agent NKAI en parallèle)
+corrompent `Build/Obj` : binaires qui crashent absurdement, symptôme qui
+**survit au revert du code**. Purger `Build/Obj/<config>` et rebuilder seul.
