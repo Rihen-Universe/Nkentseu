@@ -1806,8 +1806,14 @@ int nkmain(const NkEntryState &entry) {
 						NkImage shot;
 						if (ew > 0 && eh > 0 && shot.Load(capPath) &&
 							(shot.Width() != ew || shot.Height() != eh)) {
-							shot.Resize((uint32)ew, (uint32)eh, NkResizeFilter::NK_BICUBIC);
-							shot.Save(capPath);
+							// Resize RETOURNE une nouvelle image (il ne modifie
+							// pas l'objet) : l'ancien appel etait un no-op muet.
+							NkImage *rs = shot.Resize((int32)ew, (int32)eh,
+													  NkResizeFilter::NK_BICUBIC);
+							if (rs) {
+								rs->Save(capPath);
+								rs->Free();
+							}
 						}
 					}
 					std::printf("[NK3DModeler] Capture tutoriel -> %s : %s\n", capPath,
@@ -1829,6 +1835,33 @@ int nkmain(const NkEntryState &entry) {
 			for (int32 i = 0; i < 64; ++i)
 				if (demo::Demo3DHostProjMatPreviewTake(i, sMatBall, 128))
 					renderer.UploadImageRGBA(4400u + (uint32)i, sMatBall, 128, 128);
+		}
+
+		// ── MINIATURES DES SCENES (ids 4500+) ───────────────────────────────
+		// Chargees du PNG « Apercus/<nom>.png » du projet quand elles sont
+		// A (RE)CHARGER — a l'ouverture du projet (DocAlloc les met a 0) et
+		// apres chaque enregistrement (NkAsSceneThumbCapture remet a 0). Un
+		// PNG absent est note une fois pour toutes (2) : pas de tentative de
+		// lecture disque a chaque image.
+		if (proj.open) {
+			for (int32 d2 = 0; d2 < nk3d::NkModelerState::kMaxDocs; ++d2) {
+				if (!st.docUsed[d2] || st.docTransient[d2] || st.docThumb[d2] != 0)
+					continue;
+				st.docThumb[d2] = 2; // absente, sauf preuve du contraire
+				nk3d::NkString rel("Apercus/");
+				rel += nk3d::NkAsSafeName(st.docName[d2]);
+				rel += ".png";
+				NkImage im;
+				if (!im.Load(nk3d::NkScToAbs(proj.root, rel.CStr()).CStr()))
+					continue;
+				if (im.Width() > 0 && im.Height() > 0) {
+					renderer.UploadImageRGBA(4500u + (uint32)d2, im.Pixels(),
+											 im.Width(), im.Height());
+					st.docThumbW[d2] = (uint16)im.Width();
+					st.docThumbH[d2] = (uint16)im.Height();
+					st.docThumb[d2] = 1;
+				}
+			}
 		}
 
 		// ── ACTIONS DE FENETRE, HORS FRAME ──────────────────────────────────

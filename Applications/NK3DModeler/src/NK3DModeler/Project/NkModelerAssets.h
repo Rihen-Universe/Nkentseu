@@ -53,6 +53,7 @@
 #undef GetFreeSpace
 #endif
 #include "NKFileSystem/NkFileSystem.h"
+#include "NKImage/NKImage.h" // reduction des miniatures de scene
 #include "NKMemory/NkMemory.h"
 #include "NKSerialization/JSON/NkJSONWriter.h"
 #include "NKSerialization/JSON/NkJSONReader.h"
@@ -1066,6 +1067,47 @@ namespace nkentseu {
 				st.docRendu[d] = snap;
 			}
 			NkAsNodesRestore(in, root, st, false, nodeMiss, nullptr, orphanFix);
+		}
+
+		/// MINIATURE REELLE de la scene ACTIVE (regle de Rihen, 8 aout : la
+		/// vignette vient de LA VUE, jamais d'une camera de la scene). Capturee
+		/// a l'ENREGISTREMENT : le fichier et son image datent du meme geste.
+		/// Reduite a 320 px de large — une carte n'a pas besoin du plein cadre.
+		/// Une vue pas prete ou une capture ratee laissent la carte sur son
+		/// repli (le globe raye) : jamais d'image a moitie ecrite.
+		inline void NkAsSceneThumbCapture(const NkString &root, NkModelerState &st) {
+			const int32 d = st.TabDoc(st.activeTab);
+			if (d < 0 || st.sceneTabKind[st.activeTab] != 0 || st.docTransient[d])
+				return;
+			NkString rel("Apercus/");
+			rel += NkAsSafeName(st.docName[d]);
+			rel += ".png";
+			const NkString abs = NkScToAbs(root, rel.CStr());
+			const NkString dir = NkScToAbs(root, "Apercus");
+			if (!NkDirectory::Exists(dir.CStr()) &&
+				!NkDirectory::CreateRecursive(dir.CStr()))
+				return;
+			if (!demo::Demo3DHostCaptureView(abs.CStr())) {
+				printf("[NK3DModeler] Miniature %s : capture REFUSEE\n", rel.CStr());
+				return;
+			}
+			// Resize RETOURNE UNE NOUVELLE IMAGE, il ne modifie pas l'objet :
+			// l'appeler sans recuperer le retour est un no-op silencieux (vecu).
+			NkImage im;
+			if (im.Load(abs.CStr()) && im.Width() > 320u) {
+				const int32 w = 320;
+				const int32 h = (int32)((im.Height() * 320u) / im.Width());
+				NkImage *petit =
+					(h >= 8) ? im.Resize(w, h, NkResizeFilter::NK_BICUBIC) : nullptr;
+				if (petit) {
+					const bool ok = petit->Save(abs.CStr());
+					printf("[NK3DModeler] Miniature %s : %ux%u -> %ux%u (%s)\n",
+						   rel.CStr(), im.Width(), im.Height(), petit->Width(),
+						   petit->Height(), ok ? "ecrite" : "REECRITURE RATEE");
+					petit->Free();
+				}
+			}
+			st.docThumb[d] = 0; // le televerseur (main.cpp) la rechargera
 		}
 
 		// ─────────────────────────────────────────────────────────────────────────

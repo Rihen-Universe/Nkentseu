@@ -571,6 +571,14 @@ namespace nkentseu {
 				};
 				NkDocView docView[32];
 				bool docViewSet[32] = {};
+				// MINIATURES DE SCENE : cycle de chargement de la vignette par
+				// document. 0 = a (re)charger depuis « Apercus/<nom>.png » du
+				// projet, 1 = televersee (l'image GPU 4500+d est valide), 2 =
+				// absente (la carte garde son globe). Largeur/hauteur retenues
+				// pour dessiner la vignette SANS la deformer.
+				uint8 docThumb[32] = {};
+				uint16 docThumbW[32] = {};
+				uint16 docThumbH[32] = {};
 				// MODIFIE DEPUIS LE DERNIER ENREGISTREMENT, par document.
 				bool docDirty[32] = {};
 				// ── REGLAGES RENDU PAR SCENE (Rihen, 10 aout : « pourquoi le rendu
@@ -634,6 +642,9 @@ namespace nkentseu {
 						docCamOrtho[d] = false;
 						docView[d] = NkDocView{};
 						docViewSet[d] = false;
+						docThumb[d] = 0;
+						docThumbW[d] = 0;
+						docThumbH[d] = 0;
 						docDirty[d] = false;
 						docCard[d] = 0;
 						docIsoNode[d] = 0;

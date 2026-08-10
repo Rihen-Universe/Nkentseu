@@ -943,6 +943,9 @@ namespace nkentseu {
 							break;
 						}
 					}
+					// MINIATURE de la scene regardee : elle date du meme geste que
+					// le fichier — la carte du navigateur dira ce qu'on a enregistre.
+					NkAsSceneThumbCapture(proj.root, st);
 					rec.Touch(proj);
 					if (action == 8)
 						NkClearDirty(st);
@@ -979,6 +982,9 @@ namespace nkentseu {
 						NkArchive sc;
 						NkProjectTreeCapture(sc, st);
 						if (NkProjectSaveAs(proj, r.path.CStr(), &err, &sc)) {
+							// La NOUVELLE racine n'a pas d'apercus : celui de la
+							// scene active nait avec elle.
+							NkAsSceneThumbCapture(dest, st);
 							opened();
 							if (st.quitAfterSave)
 								st.running = false;
