@@ -32,6 +32,7 @@
 #include "NkIlyanaTri.h"
 #include "NkIlyanaControle.h"
 #include "NkIlyanaRecherche.h"
+#include "NkIlyanaBibliotheque.h"
 
 #include "NKGpt/NkGptTrainer.h"
 #include "NKData/NkBpeTrainer.h"
@@ -886,10 +887,21 @@ static void DecouperEnBlocs(const NkString &s, NkVector<NkString> &out) {
 
 static int ModeMelange(int argc, char **argv) {
 	const char *fIdent = Arg(argc, argv, "--identite", nullptr);
-	const char *fCorpus = Arg(argc, argv, "--corpus", nullptr);
+	const char *dossier = Arg(argc, argv, "--bibliotheque", nullptr);
 	const char *fSortie = Arg(argc, argv, "--sortie", "phase2.txt");
 	const double part = ArgReel(argc, argv, "--part", 0.25);
 	const int64 tailleMo = ArgEntier(argc, argv, "--taille", 8);
+
+	// Sur une bibliothèque, la prose vient de tout.txt et le catalogue permet
+	// d'équilibrer les domaines. Sur un fichier isolé, on prélève au fil du texte.
+	NkString cheminBiblio;
+	NkVector<ilyana::Ouvrage> cat;
+	const char *fCorpus = Arg(argc, argv, "--corpus", nullptr);
+	if (dossier) {
+		cheminBiblio = Joindre(dossier, "tout.txt");
+		fCorpus = cheminBiblio.CStr();
+		ilyana::LireCatalogue(Joindre(dossier, "catalogue.txt").CStr(), cat);
+	}
 
 	if (!fIdent || !fCorpus) {
 		logger.Info("usage : --melange --identite <identite.txt> --corpus <gros.txt> "
@@ -944,27 +956,70 @@ static int ModeMelange(int argc, char **argv) {
 		logger.Info("ERREUR : allocation du tampon de sondage impossible.");
 		return 1;
 	}
-	for (int64 s = 0; s < nbSondes; ++s) {
-		int64 pos = (tailleCorpus > tailleSonde)
-						? (int64)(((double)s / (double)nbSondes) * (double)(tailleCorpus - tailleSonde))
-						: 0;
-		if (fseek(fc, (long)pos, SEEK_SET) != 0)
-			continue;
-		const nk_size got = fread(tampon, 1, (nk_size)tailleSonde, fc);
-		if (got == 0)
-			continue;
-		NkString brut(tampon, got);
-		// On a atterri au hasard AU MILIEU d'une ligne, et peut-être au milieu
-		// d'un caractère accentué (UTF-8 tient sur plusieurs octets). On jette
-		// donc jusqu'au premier séparateur de blocs, et on coupe au dernier :
-		// ce qui reste est fait de blocs entiers, donc de texte valide.
-		const nk_size deb = brut.Find("\n\n");
-		if (deb == NkString::npos)
-			continue;
-		const nk_size fin = brut.RFind("\n\n");
-		if (fin == NkString::npos || fin <= deb + 2)
-			continue;
-		DecouperEnBlocs(brut.SubStr(deb + 2, fin - deb - 2), blocsProse);
+
+	// Sonde une plage d'octets. Isolé en lambda parce qu'on l'appelle soit une
+	// fois sur tout le fichier, soit une fois par domaine quand on équilibre.
+	auto sonder = [&](int64 depart, int64 arret, int64 combien) {
+		const int64 etendue = arret - depart;
+		if (etendue <= 0 || combien <= 0)
+			return;
+		for (int64 s = 0; s < combien; ++s) {
+			int64 pos = depart;
+			if (etendue > tailleSonde)
+				pos += (int64)(((double)s / (double)combien) * (double)(etendue - tailleSonde));
+			if (fseek(fc, (long)pos, SEEK_SET) != 0)
+				continue;
+			const nk_size got = fread(tampon, 1, (nk_size)tailleSonde, fc);
+			if (got == 0)
+				continue;
+			NkString brut(tampon, got);
+			// On a atterri au hasard AU MILIEU d'une ligne, et peut-être au
+			// milieu d'un caractère accentué (UTF-8 tient sur plusieurs octets).
+			// On jette donc jusqu'au premier séparateur de blocs, et on coupe au
+			// dernier : ce qui reste est fait de blocs entiers, donc valide.
+			const nk_size deb = brut.Find("\n\n");
+			if (deb == NkString::npos)
+				continue;
+			const nk_size fin = brut.RFind("\n\n");
+			if (fin == NkString::npos || fin <= deb + 2)
+				continue;
+			DecouperEnBlocs(brut.SubStr(deb + 2, fin - deb - 2), blocsProse);
+		}
+	};
+
+	if (cat.Size() > 0) {
+		// ÉQUILIBRAGE ENTRE DOMAINES. Sans lui, le prélèvement est proportionnel
+		// à la TAILLE : un traité de mathématiques de 400 pages pèserait plus que
+		// cinq livres d'histoire réunis, et Ilyana apprendrait surtout à parler
+		// mathématiques. On donne donc à chaque domaine la même part, quel que
+		// soit le nombre de pages qu'il occupe sur le disque.
+		NkVector<NkString> domaines;
+		for (nk_size i = 0; i < cat.Size(); ++i) {
+			bool vu = false;
+			for (nk_size d = 0; d < domaines.Size(); ++d)
+				if (domaines[d] == cat[i].domaine) {
+					vu = true;
+					break;
+				}
+			if (!vu)
+				domaines.PushBack(cat[i].domaine);
+		}
+		const int64 parDomaine = nbSondes / (int64)(domaines.Size() ? domaines.Size() : 1);
+		for (nk_size d = 0; d < domaines.Size(); ++d) {
+			// Les ouvrages d'un même domaine se partagent la part du domaine.
+			int64 nbOuvrages = 0;
+			for (nk_size i = 0; i < cat.Size(); ++i)
+				if (cat[i].domaine == domaines[d])
+					++nbOuvrages;
+			const int64 parOuvrage = parDomaine / (nbOuvrages > 0 ? nbOuvrages : 1);
+			for (nk_size i = 0; i < cat.Size(); ++i)
+				if (cat[i].domaine == domaines[d])
+					sonder((int64)cat[i].debut, (int64)cat[i].fin, parOuvrage);
+		}
+		logger.Infof("equilibrage : %llu domaine(s), %lld sondages chacun\n",
+					 (unsigned long long)domaines.Size(), (long long)parDomaine);
+	} else {
+		sonder(0, tailleCorpus, nbSondes);
 	}
 	free(tampon);
 	fclose(fc);
@@ -1013,9 +1068,14 @@ static int ModeMelange(int argc, char **argv) {
 	logger.Infof("identite : %llu blocs distincts, repetes %llu fois\n",
 				 (unsigned long long)blocsIdent.Size(),
 				 (unsigned long long)(iI / (blocsIdent.Size() ? blocsIdent.Size() : 1)));
-	logger.Infof("prose    : %llu blocs preleves par %lld sondages repartis sur %.1f Go\n",
-				 (unsigned long long)blocsProse.Size(), (long long)nbSondes,
-				 (double)tailleCorpus / (1024.0 * 1024.0 * 1024.0));
+	const double tailleGo = (double)tailleCorpus / (1024.0 * 1024.0 * 1024.0);
+	if (tailleGo >= 1.0)
+		logger.Infof("prose    : %llu blocs preleves par %lld sondages repartis sur %.1f Go\n",
+					 (unsigned long long)blocsProse.Size(), (long long)nbSondes, tailleGo);
+	else
+		logger.Infof("prose    : %llu blocs preleves par %lld sondages repartis sur %.1f Mo\n",
+					 (unsigned long long)blocsProse.Size(), (long long)nbSondes,
+					 (double)tailleCorpus / (1024.0 * 1024.0));
 	logger.Infof("sortie   : %s — %.1f Mo, dont %.1f%% d'identite (vise %.1f%%)\n", fSortie,
 				 (double)out.Size() / (1024.0 * 1024.0), partReelle * 100.0, part * 100.0);
 	if (iP < blocsProse.Size())
@@ -1039,24 +1099,61 @@ static int ModeMelange(int argc, char **argv) {
 // Les brancher d'emblée l'un dans l'autre rendrait indiscernables deux échecs
 // très différents : n'avoir pas trouvé le passage, ou l'avoir mal utilisé.
 // =============================================================================
+// Affiche un résultat AVEC SA SOURCE quand elle est connue. C'est tout l'objet
+// de la manœuvre : une réponse sans source ne se vérifie pas, donc ne vaut pas
+// mieux qu'une invention — elle est seulement plus difficile à démentir.
+static void AfficherResultat(const ilyana::NkIndex &index, const NkVector<ilyana::Ouvrage> &cat,
+							 const ilyana::Resultat &r, nk_size rang) {
+	const ilyana::Ouvrage *o = ilyana::OuvrageDeLOffset(cat, index.OffsetPassage(r.passage));
+	if (o)
+		printf("\n--- %llu — %s [%s] (score %.2f) ---\n", (unsigned long long)rang, o->titre.CStr(),
+			   o->domaine.CStr(), r.score);
+	else
+		printf("\n--- %llu (score %.2f, passage #%u) ---\n", (unsigned long long)rang, r.score, r.passage);
+	NkString t = r.texte;
+	if (t.Size() > 600)
+		t = t.SubStr(0, 600);
+	printf("%s\n", t.CStr());
+}
+
 static int ModeChercher(int argc, char **argv) {
 	const char *fCorpus = Arg(argc, argv, "--corpus", nullptr);
+	const char *dossier = Arg(argc, argv, "--bibliotheque", nullptr);
 	const char *question = Arg(argc, argv, "--question", nullptr);
 	const int64 k = ArgEntier(argc, argv, "--k", 3);
 	const int64 maxOctets = ArgEntier(argc, argv, "--max-octets", 64ll * 1024 * 1024);
 
-	if (!fCorpus) {
-		logger.Info("usage : --chercher --corpus <f> [--question \"...\"] [--k 3] [--max-octets N]");
+	if (!fCorpus && !dossier) {
+		logger.Info("usage : --chercher --bibliotheque <dossier> [--question \"...\"] [--k 3]");
+		logger.Info("    ou : --chercher --corpus <fichier> [--question \"...\"] [--max-octets N]");
 		return 1;
 	}
 
 	ilyana::NkIndex index;
+	NkVector<ilyana::Ouvrage> cat;
 	NkChrono chrono;
-	if (!index.Construire(fCorpus, maxOctets)) {
-		logger.Infof("ERREUR : indexation impossible : %s\n", fCorpus);
-		return 1;
+	double secs = 0.0;
+
+	// Deux usages : sur une bibliothèque (index déjà construit, donc rechargé —
+	// et les résultats CITENT leur ouvrage), ou sur un fichier isolé (indexé à la
+	// volée). Recharger plutôt que reconstruire est ce qui rend la consultation
+	// d'une bibliothèque instantanée.
+	if (dossier) {
+		const NkString fIdx = Joindre(dossier, "index.nkidx");
+		if (!index.Charger(fIdx.CStr())) {
+			logger.Infof("ERREUR : index introuvable ou illisible : %s — lancer --indexer d'abord.\n",
+						 fIdx.CStr());
+			return 1;
+		}
+		secs = chrono.Elapsed().seconds;
+		ilyana::LireCatalogue(Joindre(dossier, "catalogue.txt").CStr(), cat);
+	} else if (fCorpus) {
+		if (!index.Construire(fCorpus, maxOctets)) {
+			logger.Infof("ERREUR : indexation impossible : %s\n", fCorpus);
+			return 1;
+		}
+		secs = chrono.Elapsed().seconds;
 	}
-	const double secs = chrono.Elapsed().seconds;
 
 	logger.Info("=== Ilyana / recherche documentaire ===");
 	logger.Infof("index : %llu passages, %llu mots distincts, %lld mots au total — en %.2f s\n",
@@ -1069,14 +1166,8 @@ static int ModeChercher(int argc, char **argv) {
 		printf("\nQuestion : %s\n", question);
 		if (res.Size() == 0)
 			printf("\nAucun passage ne contient ces mots.\n");
-		for (nk_size i = 0; i < res.Size(); ++i) {
-			printf("\n--- %llu (score %.2f, passage #%u) ---\n", (unsigned long long)(i + 1), res[i].score,
-				   res[i].passage);
-			NkString t = res[i].texte;
-			if (t.Size() > 600)
-				t = t.SubStr(0, 600);
-			printf("%s\n", t.CStr());
-		}
+		for (nk_size i = 0; i < res.Size(); ++i)
+			AfficherResultat(index, cat, res[i], i + 1);
 		return 0;
 	}
 
@@ -1098,14 +1189,136 @@ static int ModeChercher(int argc, char **argv) {
 			printf("Aucun passage ne contient ces mots.\n");
 			continue;
 		}
-		for (nk_size i = 0; i < res.Size(); ++i) {
-			printf("\n--- %llu (score %.2f) ---\n", (unsigned long long)(i + 1), res[i].score);
-			NkString t = res[i].texte;
-			if (t.Size() > 600)
-				t = t.SubStr(0, 600);
-			printf("%s\n", t.CStr());
-		}
+		for (nk_size i = 0; i < res.Size(); ++i)
+			AfficherResultat(index, cat, res[i], i + 1);
 	}
+	return 0;
+}
+
+// =============================================================================
+// MODE --ajouter : déposer un livre dans la bibliothèque.
+// =============================================================================
+static NkString NomDeFichier(const char *chemin) {
+	const char *deb = chemin;
+	for (const char *p = chemin; *p; ++p)
+		if (*p == '/' || *p == '\\')
+			deb = p + 1;
+	NkString s(deb);
+	const nk_size point = s.RFind(".");
+	return (point == NkString::npos || point == 0) ? s : s.SubStr(0, point);
+}
+
+static int ModeAjouter(int argc, char **argv) {
+	const char *fLivre = Arg(argc, argv, "--livre", nullptr);
+	const char *domaine = Arg(argc, argv, "--domaine", nullptr);
+	const char *titre = Arg(argc, argv, "--titre", nullptr);
+	const char *dossier = Arg(argc, argv, "--bibliotheque", "bibliotheque");
+
+	if (!fLivre || !domaine) {
+		logger.Info("usage : --ajouter --livre <fichier.txt> --domaine <maths|physique|histoire|...>");
+		logger.Info("        [--titre \"...\"] [--bibliotheque <dossier>]");
+		return 1;
+	}
+
+	const NkString brut = LireFichier(fLivre);
+	if (brut.Size() == 0) {
+		logger.Infof("ERREUR : livre illisible ou vide : %s\n", fLivre);
+		return 1;
+	}
+	const NkString propre = ilyana::NettoyerOuvrage(brut);
+	if (propre.Size() == 0) {
+		logger.Info("ERREUR : le livre est vide apres nettoyage.");
+		return 1;
+	}
+
+	const NkString fTout = Joindre(dossier, "tout.txt");
+	const NkString fCat = Joindre(dossier, "catalogue.txt");
+
+	// Le dossier doit exister. On ne le crée pas en douce : si le chemin est
+	// faux, mieux vaut le dire que semer des fichiers ailleurs.
+	FILE *f = fopen(fTout.CStr(), "ab");
+	if (!f) {
+		logger.Infof("ERREUR : impossible d'ecrire dans %s — le dossier '%s' existe-t-il ?\n", fTout.CStr(), dossier);
+		return 1;
+	}
+	fseek(f, 0, SEEK_END);
+	const uint64 debut = (uint64)ftell(f);
+	const bool ok = fwrite(propre.Data(), 1, propre.Size(), f) == propre.Size() && fflush(f) == 0;
+	const uint64 fin = (uint64)ftell(f);
+	fclose(f);
+	if (!ok) {
+		logger.Info("ERREUR : ecriture incomplete dans tout.txt.");
+		return 1;
+	}
+
+	ilyana::Ouvrage o;
+	o.domaine = NkString(domaine);
+	o.titre = titre ? NkString(titre) : NomDeFichier(fLivre);
+	o.source = NkString(fLivre);
+	o.debut = debut;
+	o.fin = fin;
+	if (!ilyana::AjouterAuCatalogue(fCat.CStr(), o)) {
+		logger.Info("ERREUR : catalogue non mis a jour — l'ouvrage est dans tout.txt mais INTROUVABLE. "
+					"Retirer les octets ajoutes ou corriger le catalogue a la main.");
+		return 1;
+	}
+
+	// Comptage des passages, pour dire tout de suite si le decoupage a pris.
+	int64 blocs = 0;
+	for (nk_size i = 0; i + 1 < propre.Size(); ++i)
+		if (propre.Data()[i] == '\n' && propre.Data()[i + 1] == '\n')
+			++blocs;
+
+	logger.Info("=== Ilyana / bibliotheque ===");
+	logger.Infof("ajoute : %s  [%s]\n", o.titre.CStr(), o.domaine.CStr());
+	logger.Infof("  %.2f Mo a l'origine -> %.2f Mo apres nettoyage, %lld passages\n",
+				 (double)brut.Size() / (1024.0 * 1024.0), (double)propre.Size() / (1024.0 * 1024.0),
+				 (long long)blocs);
+	logger.Infof("  octets %llu a %llu dans %s\n", (unsigned long long)debut, (unsigned long long)fin,
+				 fTout.CStr());
+	if (blocs < 5)
+		logger.Info("  ATTENTION : tres peu de passages — le texte est-il bien du texte, "
+					"ou une conversion ratee (PDF de formules, colonnes melangees) ?");
+	logger.Info("");
+	logger.Info("Penser a REINDEXER apres avoir ajoute vos livres :  --indexer");
+	return 0;
+}
+
+// =============================================================================
+// MODE --indexer : (re)construire l'index de la bibliotheque, et l'enregistrer.
+// =============================================================================
+static int ModeIndexer(int argc, char **argv) {
+	const char *dossier = Arg(argc, argv, "--bibliotheque", "bibliotheque");
+	const int64 maxOctets = ArgEntier(argc, argv, "--max-octets", 0);
+
+	const NkString fTout = Joindre(dossier, "tout.txt");
+	const NkString fCat = Joindre(dossier, "catalogue.txt");
+	const NkString fIdx = Joindre(dossier, "index.nkidx");
+
+	ilyana::NkIndex index;
+	NkChrono chrono;
+	if (!index.Construire(fTout.CStr(), maxOctets)) {
+		logger.Infof("ERREUR : rien a indexer dans %s\n", fTout.CStr());
+		return 1;
+	}
+	const double secs = chrono.Elapsed().seconds;
+	if (!index.Sauver(fIdx.CStr())) {
+		logger.Infof("ERREUR : index non enregistre : %s\n", fIdx.CStr());
+		return 1;
+	}
+
+	NkVector<ilyana::Ouvrage> cat;
+	ilyana::LireCatalogue(fCat.CStr(), cat);
+
+	logger.Info("=== Ilyana / index de la bibliotheque ===");
+	logger.Infof("%llu passages, %llu mots distincts, %lld mots au total — en %.2f s\n",
+				 (unsigned long long)index.NbPassages(), (unsigned long long)index.NbMotsDistincts(),
+				 (long long)index.TotalMots(), secs);
+	logger.Infof("enregistre : %s\n", fIdx.CStr());
+	logger.Infof("%llu ouvrage(s) au catalogue :\n", (unsigned long long)cat.Size());
+	for (nk_size i = 0; i < cat.Size(); ++i)
+		logger.Infof("  [%s] %s — %.2f Mo\n", cat[i].domaine.CStr(), cat[i].titre.CStr(),
+					 (double)(cat[i].fin - cat[i].debut) / (1024.0 * 1024.0));
 	return 0;
 }
 
@@ -1114,6 +1327,10 @@ int main(int argc, char **argv) {
 		return ModeControle(argc, argv);
 	if (Drapeau(argc, argv, "--melange"))
 		return ModeMelange(argc, argv);
+	if (Drapeau(argc, argv, "--ajouter"))
+		return ModeAjouter(argc, argv);
+	if (Drapeau(argc, argv, "--indexer"))
+		return ModeIndexer(argc, argv);
 	if (Drapeau(argc, argv, "--chercher"))
 		return ModeChercher(argc, argv);
 	if (Drapeau(argc, argv, "--wiki"))
