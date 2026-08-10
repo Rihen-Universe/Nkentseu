@@ -390,7 +390,7 @@ with project("NkPdfProbe"):
     cppdialect("C++17")
     location(".")
 
-    files(["src/NKCode/Pdf/**.cpp", "tools/PdfProbe.cpp"])
+    files(["src/NKMedia/Pdf/**.cpp", "tools/PdfProbe.cpp"])
     includedirs(["src"])
 
     # L'analyseur PDF ne touche ni au rendu, ni a la fenetre, ni au son : on
@@ -425,7 +425,7 @@ with project("NkPdfRasterTest"):
     cppdialect("C++17")
     location(".")
 
-    files(["src/NKCode/Pdf/NkPdfRaster.cpp", "tools/PdfRasterTest.cpp"])
+    files(["src/NKMedia/Pdf/NkPdfRaster.cpp", "tools/PdfRasterTest.cpp"])
     includedirs(["src"])
 
     # Le rastériseur ne depend QUE des conteneurs : aucun fichier, aucune image.
@@ -451,7 +451,7 @@ with project("NkPdfRenderProbe"):
     cppdialect("C++17")
     location(".")
 
-    files(["src/NKCode/Pdf/**.cpp", "tools/PdfRenderProbe.cpp"])
+    files(["src/NKMedia/Pdf/**.cpp", "tools/PdfRenderProbe.cpp"])
     includedirs(["src"])
 
     nkentseudependson(
@@ -478,7 +478,7 @@ with project("NkFileWorkerTest"):
     cppdialect("C++17")
     location(".")
 
-    files(["src/NKCode/Pdf/**.cpp", "src/NKCode/Shell/NkPdfWorker.cpp",
+    files(["src/NKMedia/Pdf/**.cpp", "src/NKCode/Shell/NkPdfWorker.cpp",
            "tools/FileWorkerTest.cpp"])
     includedirs(["src"])
 

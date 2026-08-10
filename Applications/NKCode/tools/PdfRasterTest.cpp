@@ -9,7 +9,7 @@
 // Usage :  NkPdfRasterTest
 // Retour : nombre de tests en echec.
 //
-#include "NKCode/Pdf/NkPdfRaster.h"
+#include "NKMedia/Pdf/NkPdfRaster.h"
 
 #include <cstdio>
 
