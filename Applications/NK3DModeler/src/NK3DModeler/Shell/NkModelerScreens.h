@@ -9857,12 +9857,12 @@ namespace nkentseu {
 							// l'autre pendant la frappe (NkComboPending a deja
 							// coute cette lecon).
 							{
-								static char sPmTex[4][260] = {};
-								static const char *const kPmKeys[4] = {
+								static char sPmTex[5][260] = {};
+								static const char *const kPmKeys[5] = {
 									"props.pm.tex0", "props.pm.tex1", "props.pm.tex2",
-									"props.pm.tex3"};
+									"props.pm.tex3", "props.pm.tex4"};
 								const int32 nCh = demo::Demo3DHostMatChanCount();
-								for (int32 ch = 0; ch < nCh && ch < 4; ++ch) {
+								for (int32 ch = 0; ch < nCh && ch < 5; ++ch) {
 									p.TextV(iR.x, yy, kRowH, demo::Demo3DHostMatChanName(ch),
 											NkRole::TextMuted);
 									const NkRect txR{iR.x + S(110.f), yy + S(2.f),
