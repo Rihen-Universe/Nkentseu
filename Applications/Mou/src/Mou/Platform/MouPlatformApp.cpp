@@ -209,8 +209,14 @@ namespace mou {
 		// Événements → pointeur unifié.
 		auto &events = NkEvents();
 		events.AddEventCallback<NkWindowCloseEvent>([this](NkWindowCloseEvent *) { mRunning = false; });
-#if defined(__ANDROID__) || defined(NKENTSEU_PLATFORM_ANDROID)
-		// Arrière-plan : l'ANativeWindow est détruite -> on cesse de rendre.
+// HarmonyOS a EXACTEMENT le même cycle de vie de surface qu'Android : la
+// fenêtre native appartient au composant hôte, elle est détruite quand
+// l'application part en arrière-plan et recréée au retour. Ce bloc ne visait
+// qu'Android, si bien que sur HarmonyOS la surface EGL n'était jamais
+// rattachée : l'application rendait à pleine vitesse dans une surface que le
+// compositeur n'affichait pas — écran noir, sans une seule erreur GL.
+#if defined(__ANDROID__) || defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_PLATFORM_HARMONYOS)
+		// Arrière-plan : la fenêtre native est détruite -> on cesse de rendre.
 		events.AddEventCallback<NkWindowHiddenEvent>([this](NkWindowHiddenEvent *) {
 			mActive = false;
 			mAudio.Pause(); // coupe la musique en arrière-plan
@@ -283,6 +289,17 @@ namespace mou {
 
 	int MouPlatformApp::Run() noexcept {
 		while (mRunning && mWindow.IsOpen()) {
+			// Mobile : la fenêtre native appartient au composant hôte, qui la
+			// détruit et la recrée (fin du splash, relayout plein écran, retour
+			// d'arrière-plan). Sans re-attachement, la surface EGL reste liée à
+			// l'ancienne : le rendu « réussit », mais le compositeur n'affiche
+			// jamais ces images — écran noir sans la moindre erreur GL.
+			// L'appel est un no-op quand la fenêtre n'a pas changé, exactement
+			// comme dans renderdemo.
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_PLATFORM_HARMONYOS)
+			if (mRenderTarget)
+				mRenderTarget->RecreateSurface();
+#endif
 			float32 dt = mClock.Tick().delta;
 			if (dt > globals::MAX_DELTA_TIME)
 				dt = globals::MAX_DELTA_TIME;
