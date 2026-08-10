@@ -1005,9 +1005,17 @@ namespace nkentseu {
 			if (st.dirty) {
 				const float32 wS = ih + S(5.f) + p.TextW("Enregistrer") + S(14.f);
 				p.Fill({x - S(7.f), r.y + S(5.f), wS, r.h - S(10.f)}, NkRole::AccentUi, 3.f);
+				if (btn("tb.save", NkIcon::Save, "Enregistrer"))
+					st.projPending = 3;
+			} else {
+				// RIEN A ENREGISTRER = BOUTON INERTE (Rihen, 10 aout) : pas de
+				// zone cliquable, icone et libelle en sourdine — l'etat se lit
+				// d'un coup d'oeil, et un clic sans effet n'existe plus.
+				const float32 w = ih + S(5.f) + p.TextW("Enregistrer") + S(14.f);
+				p.IconV(x, r.y, r.h, NkIcon::Save, NkRole::TextMuted, 14.f);
+				p.TextV(x + ih + S(5.f), r.y, r.h, "Enregistrer", NkRole::TextMuted);
+				x += w;
 			}
-			if (btn("tb.save", NkIcon::Save, "Enregistrer"))
-				st.projPending = 3;
 			p.VLine(x - S(4.f), r.y + S(7.f), r.h - S(14.f));
 			x += S(6.f);
 
@@ -6181,18 +6189,20 @@ namespace nkentseu {
 									for (int32 a = 0; a < 3; ++a)
 										if (piv[a] != piv0[a])
 											pivCh = true;
-									if (pivCh && !st.lockPiv)
+									if (pivCh && !st.lockPiv) {
 										demo::Demo3DHostSetNodeOrigin(act, piv);
 										NkMarkDirty(st);
+									}
 									float32 ctr[3];
 									if (demo::Demo3DHostMeshesCenter(act, ctr)) {
 										yy += NkGroupPad();
 										if (Button("props.pivctr", yy,
 												   "Pivot au centre des maillages", inR.x,
 												   inR.w) &&
-											!st.lockPiv)
+											!st.lockPiv) {
 											demo::Demo3DHostSetNodeOrigin(act, ctr);
 											NkMarkDirty(st);
+										}
 										yy += kRowH - S(4.f);
 									}
 								}
@@ -6293,9 +6303,10 @@ namespace nkentseu {
 					for (int32 a = 0; a < 3; ++a)
 						if (dimE[a] != dimE0[a])
 							dimChE = true;
-					if (dimChE)
+					if (dimChE) {
 						demo::Demo3DHostSetNodeBaseSize(en, dimE);
 						NkMarkDirty(st);
+					}
 							}
 							// ── GROUPE « RELATIONS » ────────────────────────────
 							// La maquette montre Parent et Enfant ; Blender y ajoute
@@ -6458,9 +6469,10 @@ namespace nkentseu {
 													  NkRole::PanelHeader, 3.f);
 											p.IconV(db.x + (db.w - S(11.f)) * 0.5f, db.y, db.h,
 													NkIcon::MinusCircle, NkRole::TextMuted, 11.f);
-											if (hit.Clicked("prop.rel.kdel") && sKidSel < nk)
+											if (hit.Clicked("prop.rel.kdel") && sKidSel < nk) {
 												demo::Demo3DHostSetNodeParent(sKidNode[sKidSel], -1);
 												NkMarkDirty(st);
+											}
 										}
 									}
 									yy += kRowH;
@@ -6564,9 +6576,10 @@ namespace nkentseu {
 											const int32 ncD = demo::Demo3DHostNodeCount();
 											for (int32 c9 = 0; c9 < ncD; ++c9)
 												if (!NkHierNodeSkip(c9) &&
-													demo::Demo3DHostNodeParent(c9) == en)
+													demo::Demo3DHostNodeParent(c9) == en) {
 													demo::Demo3DHostSetNodeParent(c9, -1);
 													NkMarkDirty(st);
+												}
 										}
 										yy += kRowH;
 									}
@@ -6657,9 +6670,10 @@ namespace nkentseu {
 												11.f);
 										p.TextV(br5.x + S(20.f), yy, kRowH, kLT[t5],
 												on5 ? NkRole::TextOnAccent : NkRole::Text);
-										if (hit.Clicked(k5) && !on5)
+										if (hit.Clicked(k5) && !on5) {
 											demo::Demo3DHostSetUserSub(en, t5);
 											NkMarkDirty(st);
+										}
 										bx5 += bw5 + g5;
 									}
 									yy += kRowH + S(2.f);
@@ -6699,15 +6713,17 @@ namespace nkentseu {
 													  {lvX, yy + S(3.f), lvW, kRowH - S(6.f)},
 													  ex, 0.05f, NkRole::AccentUi, "%.2f");
 											yy += kRowH;
-											if (tK != tK0 || ex != ex0)
+											if (tK != tK0 || ex != ex0) {
 												demo::Demo3DHostSetLightTempExp(en, tK, ex);
 												NkMarkDirty(st);
+											}
 										}
 									}
 									if (ulch || ulc[0] != ulc0[0] || ulc[1] != ulc0[1] ||
-										ulc[2] != ulc0[2])
+										ulc[2] != ulc0[2]) {
 										demo::Demo3DHostSetUserLightParams(en, ulc, uli);
 										NkMarkDirty(st);
+									}
 								}
 								{
 									// PROPRIETES NATIVES par type : portee, cones du spot, dimensions
@@ -6785,9 +6801,10 @@ namespace nkentseu {
 											yy += kRowH;
 										}
 										if (rgL != v0[0] || inL != v0[1] || outL != v0[2] || awL != v0[3] ||
-											ahL != v0[4] || shL != s0)
+											ahL != v0[4] || shL != s0) {
 											demo::Demo3DHostSetLightEx(en, rgL, inL, outL, awL, ahL, shL);
 											NkMarkDirty(st);
+										}
 									}
 								}
 								// COULEUR / TEXTURE / MIX (Rihen) : par defaut couleur pure ;
@@ -6839,9 +6856,10 @@ namespace nkentseu {
 												  {lvX, yy + S(3.f), lvW, kRowH - S(4.f)},
 												  slot, 0.05f, NkRole::AccentUi, "%.0f");
 										yy += kRowH;
-										if ((int32)(slot + 0.5f) != ck0)
+										if ((int32)(slot + 0.5f) != ck0) {
 											demo::Demo3DHostSetLightCookie(en, (int32)(slot + 0.5f));
 											NkMarkDirty(st);
+										}
 									}
 								}
 								yy += NkGroupPad();
@@ -6899,12 +6917,14 @@ namespace nkentseu {
 										p.TextV(bo.x + (bo.w - p.TextW("Ortho")) * 0.5f, yy, kRowH,
 												"Ortho",
 												isO ? NkRole::TextOnAccent : NkRole::TextMuted);
-										if (hit.Clicked("prop.cam.persp"))
+										if (hit.Clicked("prop.cam.persp")) {
 											demo::Demo3DHostSetCamOrtho(en, false);
 											NkMarkDirty(st);
-										if (hit.Clicked("prop.cam.ortho"))
+										}
+										if (hit.Clicked("prop.cam.ortho")) {
 											demo::Demo3DHostSetCamOrtho(en, true);
 											NkMarkDirty(st);
+										}
 										yy += kRowH;
 									}
 									// PROPRIETES PAR TYPE (Rihen) : la focale n'a pas de
@@ -6921,9 +6941,10 @@ namespace nkentseu {
 												  {r.x + S(120.f), yy + S(3.f), rr.w - S(128.f),
 												   kRowH - S(4.f)},
 												  osc, 0.02f, NkRole::AccentUi, "%.2f");
-										if (osc != os0)
+										if (osc != os0) {
 											demo::Demo3DHostSetCamOrthoScale(en, osc);
 											NkMarkDirty(st);
+										}
 										yy += kRowH;
 									} else {
 									// UNITE DE FOCALE (parite Blender) : degres ou
@@ -6951,12 +6972,14 @@ namespace nkentseu {
 										p.TextV(bm.x + (bm.w - p.TextW("mm")) * 0.5f, yy, kRowH,
 												"mm",
 												inMM ? NkRole::TextOnAccent : NkRole::TextMuted);
-										if (hit.Clicked("prop.cam.udeg"))
+										if (hit.Clicked("prop.cam.udeg")) {
 											demo::Demo3DHostSetCamLensMM(en, false);
 											NkMarkDirty(st);
-										if (hit.Clicked("prop.cam.umm"))
+										}
+										if (hit.Clicked("prop.cam.umm")) {
 											demo::Demo3DHostSetCamLensMM(en, true);
 											NkMarkDirty(st);
+										}
 										yy += kRowH;
 									}
 									if (inMM) {
@@ -6969,9 +6992,10 @@ namespace nkentseu {
 												   kRowH - S(4.f)},
 												  mmv, 0.5f, NkRole::AccentUi, "%.1f");
 										yy += kRowH;
-										if (mmv != mm0)
+										if (mmv != mm0) {
 											demo::Demo3DHostSetCamFocalMM(en, mmv);
 											NkMarkDirty(st);
+										}
 										float32 sen = demo::Demo3DHostCamSensor(en);
 										const float32 se0 = sen;
 										p.TextV(r.x + kPad, yy, kRowH, "Capteur (mm)",
@@ -6981,9 +7005,10 @@ namespace nkentseu {
 												   kRowH - S(4.f)},
 												  sen, 0.2f, NkRole::AccentUi, "%.0f");
 										yy += kRowH;
-										if (sen != se0)
+										if (sen != se0) {
 											demo::Demo3DHostSetCamSensor(en, sen);
 											NkMarkDirty(st);
+										}
 									} else {
 									p.TextV(r.x + kPad, yy, kRowH, "Focale (deg)",
 											NkRole::TextMuted);
@@ -7008,9 +7033,10 @@ namespace nkentseu {
 											   kRowH - S(4.f)},
 											  cfr, 0.5f, NkRole::AccentUi, "%.0f");
 									yy += kRowH;
-									if (cf != c0[0] || cnr != c0[1] || cfr != c0[2])
+									if (cf != c0[0] || cnr != c0[1] || cfr != c0[2]) {
 										demo::Demo3DHostSetCameraParams(en, cf, cnr, cfr);
 										NkMarkDirty(st);
+									}
 									// ── PASSE-PARTOUT (Rihen) : couleur + opacite
 									// du voile hors cadre quand on regarde par
 									// cette camera. Noir a 60 % par defaut.
@@ -7034,9 +7060,10 @@ namespace nkentseu {
 											ppc[3] = 0.f;
 										if (ppc[3] > 1.f)
 											ppc[3] = 1.f;
-										if (ppCh || ppc[3] != pa0)
+										if (ppCh || ppc[3] != pa0) {
 											demo::Demo3DHostSetCamPasse(en, ppc);
 											NkMarkDirty(st);
+										}
 									}
 									// ── GUIDES DE COMPOSITION + ZONES SURES (Rihen,
 									// parite Blender) : traces dans le cadre en vue
@@ -7060,9 +7087,10 @@ namespace nkentseu {
 													  2.f);
 											p.TextV(cbG.x + S(18.f), yy, kRowH, kGd[g5],
 													NkRole::TextMuted);
-											if (hit.Clicked(gk))
+											if (hit.Clicked(gk)) {
 												demo::Demo3DHostSetCamGuides(en, gd ^ bit);
 												NkMarkDirty(st);
+											}
 											yy += kRowH;
 										}
 									}
@@ -7096,9 +7124,10 @@ namespace nkentseu {
 							// tirer : la lumiere peut bouger par son widget dans la vue
 						}
 						if (lpos[0] != sLPull[0] || lpos[1] != sLPull[1] || lpos[2] != sLPull[2]) {
-							if (sLLast == li)
+							if (sLLast == li) {
 								demo::Demo3DHostSetLightPosition(li, lpos);
 								NkMarkDirty(st);
+							}
 							sLPull[0] = lpos[0];
 							sLPull[1] = lpos[1];
 							sLPull[2] = lpos[2];
@@ -7171,10 +7200,11 @@ namespace nkentseu {
 								// DESCENDANTES de celle-ci (propriete commune).
 								if (st.matPropagate)
 									for (int32 l2 = 0; l2 < demo::Demo3DHostLightCount(); ++l2)
-										if (l2 != li && NkHierIsDescendant(86 + l2, 86 + li))
+										if (l2 != li && NkHierIsDescendant(86 + l2, 86 + li)) {
 											demo::Demo3DHostSetLightParams(l2, lcol,
 																		   lint < 0.f ? 0.f : lint);
 											NkMarkDirty(st);
+										}
 							}
 							sLC[0] = (float32)li;
 							sLC[1] = lcol[0];
@@ -7221,9 +7251,10 @@ namespace nkentseu {
 									yy += kRowH;
 								}
 								if (rgL != v0[0] || inL != v0[1] || outL != v0[2] || awL != v0[3] ||
-									ahL != v0[4] || shL != s0)
+									ahL != v0[4] || shL != s0) {
 									demo::Demo3DHostSetLightEx(86 + li, rgL, inL, outL, awL, ahL, shL);
 									NkMarkDirty(st);
+								}
 							}
 						}
 						// COULEUR / TEXTURE / MIX (Rihen) : par defaut couleur pure ;
@@ -7265,9 +7296,10 @@ namespace nkentseu {
 										  {r.x + S(120.f), yy + S(3.f), rr.w - S(128.f), kRowH - S(4.f)},
 										  slot, 0.05f, NkRole::AccentUi, "%.0f");
 								yy += kRowH;
-								if ((int32)(slot + 0.5f) != ck0)
+								if ((int32)(slot + 0.5f) != ck0) {
 									demo::Demo3DHostSetLightCookie(86 + li, (int32)(slot + 0.5f));
 									NkMarkDirty(st);
+								}
 							}
 						}
 						if (demo::Demo3DHostNodeHasChildren(86 + li)) {
@@ -7369,9 +7401,10 @@ namespace nkentseu {
 					for (int32 a = 0; a < 3; ++a)
 						if (dim[a] != dim0[a])
 							dimCh = true;
-					if (dimCh)
+					if (dimCh) {
 						demo::Demo3DHostSetNodeBaseSize(act, dim);
 						NkMarkDirty(st);
+					}
 							}
 
 							// PROPORTIONNEL (par ligne, 3e icone) : l'axe touche propage
@@ -7486,9 +7519,10 @@ namespace nkentseu {
 									  {iA.x + S(110.f), yy + S(3.f), iA.w - S(110.f),
 									   kRowH - S(6.f)},
 									  amb, 0.005f, NkRole::AccentUi, "%.3f");
-							if (amb != amb0)
+							if (amb != amb0) {
 								demo::Demo3DHostSetAmbient(amb);
 								NkMarkDirty(st);
+							}
 							yy += kRowH;
 							// LA TEINTE de l'ambiance, avec le meme picker que
 							// partout ailleurs : blanc = neutre.
@@ -7498,9 +7532,10 @@ namespace nkentseu {
 								bool acCh = false;
 								yy += PaintColorRow(p, hit, ws, in, st, iA, yy, "Couleur",
 													"prop.ambcol", ac, &acCh);
-								if (acCh)
+								if (acCh) {
 									demo::Demo3DHostSetAmbientColor(ac);
 									NkMarkDirty(st);
+								}
 							}
 						// ── D'OU VIENT L'AMBIANCE ? ─────────────────────────
 							// Couleur unie : un aplat, comme le monde par defaut de
@@ -7554,9 +7589,10 @@ namespace nkentseu {
 										  skyOn ? NkRole::AccentUi : NkRole::InputBg, 2.f);
 								p.TextV(cb.x + S(18.f), yy, kRowH, "Afficher le ciel",
 										NkRole::TextMuted);
-								if (hit.Clicked("prop.amb.skyvis"))
+								if (hit.Clicked("prop.amb.skyvis")) {
 									demo::Demo3DHostSetSkyVisible(!skyOn);
 									NkMarkDirty(st);
+								}
 								yy += kRowH;
 								// SA LUMINOSITE, encore un reglage a part. Le shader
 								// peignait le ciel en le multipliant par l'intensite
@@ -7572,9 +7608,10 @@ namespace nkentseu {
 											  {iA.x + S(110.f), yy + S(3.f), iA.w - S(110.f),
 											   kRowH - S(6.f)},
 											  si, 0.02f, NkRole::AccentUi, "%.2f");
-									if (si != si0)
+									if (si != si0) {
 										demo::Demo3DHostSetSkyIntensity(si);
 										NkMarkDirty(st);
+									}
 									yy += kRowH;
 								}
 								// REINITIALISER L'AMBIANCE seule : intensite,
@@ -7652,9 +7689,10 @@ namespace nkentseu {
 											  {iA.x + S(110.f), yy + S(3.f), iA.w - S(110.f),
 											   kRowH - S(6.f)},
 											  tk, 25.f, NkRole::AccentUi, "%.0f");
-									if (tk != tk0)
+									if (tk != tk0) {
 										demo::Demo3DHostSetSkyAlienTemp(tk);
 										NkMarkDirty(st);
+									}
 									yy += kRowH;
 								}
 								if (skyModel == 0) {
@@ -7801,9 +7839,10 @@ namespace nkentseu {
 										bool scCh = false;
 										yy += PaintColorRow(p, hit, ws, in, st, iA, yy, "Couleur",
 															"prop.sky.suncol", sc, &scCh);
-										if (scCh)
+										if (scCh) {
 											demo::Demo3DHostSetSkySunColor(sc);
 											NkMarkDirty(st);
+										}
 									}
 									{
 										const NkRect cb{iA.x, yy + S(5.f), S(12.f), S(12.f)};
@@ -7834,9 +7873,10 @@ namespace nkentseu {
 												  2.f);
 										p.TextV(cb.x + S(18.f), yy, kRowH, "Eclaire la scene",
 												NkRole::TextMuted);
-										if (hit.Clicked("prop.sky.sunlight"))
+										if (hit.Clicked("prop.sky.sunlight")) {
 											demo::Demo3DHostSetSkySunLightsScene(!lightsOn);
 											NkMarkDirty(st);
+										}
 										yy += kRowH;
 									}
 									if (elev != e0 || azim != a0 || turb != t0 || si != i0 ||
@@ -7854,9 +7894,10 @@ namespace nkentseu {
 								// couleur.
 								yy += PaintColorRow(p, hit, ws, in, st, iA, yy, "Sol",
 													"prop.sky.gnd", gnd, &ch);
-								if (ch)
+								if (ch) {
 									demo::Demo3DHostSetEnvSky(top, hor, gnd);
 									NkMarkDirty(st);
+								}
 								// ── ETOILES ─────────────────────────────────
 								// Elles s'effacent SEULES quand le ciel
 								// s'eclaire : leur visibilite est l'inverse de
@@ -7883,9 +7924,10 @@ namespace nkentseu {
 												  sd2, 2.f, NkRole::AccentUi, "%.0f");
 										yy += kRowH;
 									}
-									if (si2 != a0 || sd2 != b0)
+									if (si2 != a0 || sd2 != b0) {
 										demo::Demo3DHostSetSkyStars(si2, sd2);
 										NkMarkDirty(st);
+									}
 									// MOUVEMENT : rotation de la voute et etoiles
 									// filantes. Propose seulement si les etoiles
 									// sont allumees — faire tourner un ciel vide
@@ -7908,9 +7950,10 @@ namespace nkentseu {
 												   iA.w - S(110.f), kRowH - S(6.f)},
 												  sho, 0.2f, NkRole::AccentUi, "%.1f");
 										yy += kRowH;
-										if (rot != r0 || sho != s0s)
+										if (rot != r0 || sho != s0s) {
 											demo::Demo3DHostSetSkyStarMotion(rot, sho);
 											NkMarkDirty(st);
+										}
 									}
 								}
 								// ── LUNES ───────────────────────────────────
@@ -7942,9 +7985,10 @@ namespace nkentseu {
 										bxm += bwm + gm;
 									}
 									yy += kRowH;
-									if (mc != mc0)
+									if (mc != mc0) {
 										demo::Demo3DHostSetSkyMoonCount(mc);
 										NkMarkDirty(st);
+									}
 									for (int32 m = 0; m < mc; ++m) {
 										float32 me = 0.f, ma = 0.f, ms = 0.f, mb = 0.f, mcol[3];
 										demo::Demo3DHostSkyMoon(m, &me, &ma, &ms, &mb, mcol);
@@ -7986,9 +8030,10 @@ namespace nkentseu {
 										snprintf(kk, sizeof(kk), "prop.sky.mcl%d", m);
 										yy += PaintColorRow(p, hit, ws, in, st, iA, yy, "Couleur",
 															kk, mcol, &colCh2);
-										if (me != e0m || ma != a0m || ms != s0m || mb != b0m || colCh2)
+										if (me != e0m || ma != a0m || ms != s0m || mb != b0m || colCh2) {
 											demo::Demo3DHostSetSkyMoon(m, me, ma, ms, mb, mcol);
 											NkMarkDirty(st);
+										}
 										// PHASE : deduite du soleil par defaut, donc
 										// toujours coherente avec l'eclairage. La
 										// forcer est un choix de MISE EN SCENE --
@@ -8021,9 +8066,10 @@ namespace nkentseu {
 														  mpv, 0.01f, NkRole::AccentUi, "%.2f");
 												yy += kRowH;
 											}
-											if (mph != h0 || mpv != v0m)
+											if (mph != h0 || mpv != v0m) {
 												demo::Demo3DHostSetSkyMoonPhase(m, mph, mpv);
 												NkMarkDirty(st);
+											}
 										}
 									}
 								}
@@ -8081,17 +8127,19 @@ namespace nkentseu {
 													  {iA.x + S(110.f), yy + S(3.f),
 													   iA.w - S(110.f), kRowH - S(6.f)},
 													  cs, 0.002f, NkRole::AccentUi, "%.3f");
-											if (cs != cs0)
+											if (cs != cs0) {
 												demo::Demo3DHostSetSkyCloudSpeed(cs);
 												NkMarkDirty(st);
+											}
 											yy += kRowH;
 										}
 										yy += PaintColorRow(p, hit, ws, in, st, iA, yy, "Couleur",
 															"prop.sky.ccol", cCol, &colCh);
 									}
-									if (cOn != o0 || cCov != v0 || cDen != w0 || cScl != s0c || colCh)
+									if (cOn != o0 || cCov != v0 || cDen != w0 || cScl != s0c || colCh) {
 										demo::Demo3DHostSetSkyClouds(cOn, cCov, cDen, cScl, cCol);
 										NkMarkDirty(st);
+									}
 									if (cOn) {
 										// AMBIANCES : des reglages tout faits. Le bouton de
 										// l'ambiance EN PLACE est plein (accent) -- des
@@ -8305,9 +8353,10 @@ namespace nkentseu {
 									yy += kRowH;
 								}
 								if (gOn != g0 || gY != gy0 || gRg != gr0 || gcCh ||
-									gPat != gp0 || gTl != gt0 || gMt != gm0)
+									gPat != gp0 || gTl != gt0 || gMt != gm0) {
 									demo::Demo3DHostSetFloor(gOn, gCol, gY, gRg, gPat, gTl, gMt);
 									NkMarkDirty(st);
+								}
 								yy += NkGroupPad();
 								PaintGroupBlock(p, gR, gTop, yy);
 							}
@@ -8407,14 +8456,16 @@ namespace nkentseu {
 										fgC = !fgC;
 									yy += kRowH;
 								}
-								if (fgB != b0g || fgT != t0g || fgW != w0g || fgC != c0g)
+								if (fgB != b0g || fgT != t0g || fgW != w0g || fgC != c0g) {
 									demo::Demo3DHostSetFogGround(fgB, fgT, fgW, fgC);
 									NkMarkDirty(st);
+								}
 							}
 							if (fOn != o0 || fDen != d0 || fSta != s0 || fEnd != e0 ||
-								fMode != m0 || fcCh)
+								fMode != m0 || fcCh) {
 								demo::Demo3DHostSetFog(fOn, fCol, fDen, fSta, fEnd, fMode);
 								NkMarkDirty(st);
+							}
 							yy += NkGroupPad();
 							PaintGroupBlock(p, fR, fTop, yy);
 						}
@@ -8463,9 +8514,10 @@ namespace nkentseu {
 										  NkRole::AccentUi, "%.2f");
 								yy += kRowH;
 							}
-							if (aOn != a0 || aRad != ar0 || aInt != ai0)
+							if (aOn != a0 || aRad != ar0 || aInt != ai0) {
 								demo::Demo3DHostSetSSAO(aOn, aRad, aInt);
 								NkMarkDirty(st);
+							}
 							yy += NkGroupPad();
 							PaintGroupBlock(p, rowR, grpAOTop, yy);
 						}
@@ -8516,9 +8568,10 @@ namespace nkentseu {
 										  0.01f, NkRole::AccentUi, "%.2f");
 								yy += kRowH;
 							}
-							if (fxE != e0 || fxB != b0 || fxT != t0 || fxS != s0)
+							if (fxE != e0 || fxB != b0 || fxT != t0 || fxS != s0) {
 								demo::Demo3DHostSetPostFx(fxE, fxB, fxT, fxS);
 								NkMarkDirty(st);
+							}
 							yy += NkGroupPad();
 							PaintGroupBlock(p, rowR, grpFxTop, yy);
 						}
@@ -8582,9 +8635,10 @@ namespace nkentseu {
 								Combo(p, hit, ws, "prop.sh.dyn",
 									  {svX, yy + S(2.f), svW, kRowH - S(4.f)}, kDyn, nullptr, 2,
 									  st.shadowDynamic, combo);
-								if (st.shadowDynamic != dEng)
+								if (st.shadowDynamic != dEng) {
 									demo::Demo3DHostSetShadowDynamic(st.shadowDynamic != 0);
 									NkMarkDirty(st);
+								}
 								yy += kRowH;
 								// EN STATIQUE, l'ombre est figee par choix -- mais on
 								// doit pouvoir la refaire QUAND ON LE DECIDE (Rihen :
@@ -8628,9 +8682,10 @@ namespace nkentseu {
 									  {svX, yy + S(3.f), svW, kRowH - S(6.f)}, sb, 0.0002f,
 									  NkRole::AccentUi, "%.4f");
 							yy += kRowH;
-							if (nb != nb0 || sb != sb0 || sf != sf0 || q != qEng)
+							if (nb != nb0 || sb != sb0 || sf != sf0 || q != qEng) {
 								demo::Demo3DHostSetShadowCfg(nb, sb, sf, q);
 								NkMarkDirty(st);
+							}
 						} else {
 							p.TextV(iR.x, yy, kRowH, "Ombres indisponibles",
 									NkRole::TextMuted);
@@ -8702,9 +8757,10 @@ namespace nkentseu {
 						p.TextV(r.x + kPad, yy, kRowH, "Taille ortho", NkRole::TextMuted);
 						float32 os = demo::Demo3DHostOrthoScale();
 						if (DragFloat(p, hit, ws, in, "props.oscale", fr, os, 0.005f,
-									  NkRole::AccentUi, "%.2f"))
+									  NkRole::AccentUi, "%.2f")) {
 							demo::Demo3DHostSetOrthoScale(os);
 							NkMarkDirty(st);
+						}
 						yy += kRowH;
 					}
 					{
@@ -8713,9 +8769,10 @@ namespace nkentseu {
 						fr2.y = yy + S(3.f);
 						float32 fv = demo::Demo3DHostViewFar();
 						if (DragFloat(p, hit, ws, in, "props.far", fr2, fv, 5.f, NkRole::AccentUi,
-									  "%.0f"))
+									  "%.0f")) {
 							demo::Demo3DHostSetViewFar(fv < 20.f ? 0.f : fv);
 							NkMarkDirty(st);
+						}
 						yy += kRowH;
 					}
 					{
@@ -8724,9 +8781,10 @@ namespace nkentseu {
 						fr2.y = yy + S(3.f);
 						float32 ge = (float32)demo::Demo3DHostGridExtent();
 						if (DragFloat(p, hit, ws, in, "props.grid", fr2, ge, 1.f, NkRole::AccentUi,
-									  "%.0f"))
+									  "%.0f")) {
 							demo::Demo3DHostSetGridExtent((int32)(ge + 0.5f));
 							NkMarkDirty(st);
+						}
 						yy += kRowH;
 					}
 					// ── ECHELLE EXACTE (cisaillement) ────────────────────────
@@ -8743,9 +8801,10 @@ namespace nkentseu {
 								  shOn ? NkRole::AccentUi : NkRole::InputBg, 2.f);
 						p.TextV(cb.x + S(18.f), yy, kRowH, "Echelle exacte (cisaillement)",
 								NkRole::TextMuted);
-						if (hit.Clicked("props.shear"))
+						if (hit.Clicked("props.shear")) {
 							demo::Demo3DHostSetShearScale(!shOn);
 							NkMarkDirty(st);
+						}
 						yy += kRowH;
 					}
 						yy += NkGroupPad();
@@ -9905,9 +9964,10 @@ namespace nkentseu {
 							Combo(p, hit, ws, "out.pre", {fx, yy + S(2.f), fw, kRowH - S(4.f)},
 								  preNames, nullptr, 9, sPreSel, combo);
 						}
-						if (freeSz != demo::Demo3DHostOutFreeSize())
+						if (freeSz != demo::Demo3DHostOutFreeSize()) {
 							demo::Demo3DHostSetOutFreeSize(freeSz);
 							NkMarkDirty(st);
+						}
 						yy += kRowH;
 						// RESOLUTION : deux champs cote a cote, comme Blender.
 						// Il n'existe pas de DragInt : le glissement se fait en
@@ -9998,9 +10058,10 @@ namespace nkentseu {
 							if (EditableText(p, hit, ws, in, "out.dir",
 											 {fx, yy + S(2.f), fw, kRowH - S(4.f)},
 											 demo::Demo3DHostOutDir(), NkRole::Text, dbuf,
-											 sizeof(dbuf)))
+											 sizeof(dbuf))) {
 								demo::Demo3DHostSetOutDir(dbuf);
 								NkMarkDirty(st);
+							}
 						}
 						yy += kRowH;
 						p.TextV(r.x + kPad, yy, kRowH, "Nom (rendu)", NkRole::TextMuted);
@@ -10009,9 +10070,10 @@ namespace nkentseu {
 							if (EditableText(p, hit, ws, in, "out.name",
 											 {fx, yy + S(2.f), fw, kRowH - S(4.f)},
 											 demo::Demo3DHostOutName(), NkRole::Text, nbuf,
-											 sizeof(nbuf)))
+											 sizeof(nbuf))) {
 								demo::Demo3DHostSetOutName(nbuf);
 								NkMarkDirty(st);
+							}
 						}
 						yy += kRowH;
 						// LES TROIS NOMS ENSEMBLE (Rihen) : rendu, capture de la
@@ -10025,9 +10087,10 @@ namespace nkentseu {
 							if (EditableText(p, hit, ws, in, "out.capv",
 											 {fx, yy + S(2.f), fw, kRowH - S(4.f)},
 											 demo::Demo3DHostCaptureName(1), NkRole::Text, cb1,
-											 sizeof(cb1)))
+											 sizeof(cb1))) {
 								demo::Demo3DHostSetCaptureName(1, cb1);
 								NkMarkDirty(st);
+							}
 						}
 						yy += kRowH;
 						p.TextV(r.x + kPad, yy, kRowH, "Nom (tutoriel)", NkRole::TextMuted);
@@ -10036,9 +10099,10 @@ namespace nkentseu {
 							if (EditableText(p, hit, ws, in, "out.capt",
 											 {fx, yy + S(2.f), fw, kRowH - S(4.f)},
 											 demo::Demo3DHostCaptureName(2), NkRole::Text, cb2,
-											 sizeof(cb2)))
+											 sizeof(cb2))) {
 								demo::Demo3DHostSetCaptureName(2, cb2);
 								NkMarkDirty(st);
+							}
 						}
 						yy += kRowH;
 						// FORMAT : ceux que le moteur d'images sait REELLEMENT
@@ -10114,9 +10178,10 @@ namespace nkentseu {
 								float32 q5 = (float32)demo::Demo3DHostOutQuality();
 								if (DragFloat(p, hit, ws, in, "out.qual",
 											  {fx, yy + S(3.f), fw, kRowH - S(6.f)}, q5, 1.f,
-											  NkRole::AccentUi, "%.0f"))
+											  NkRole::AccentUi, "%.0f")) {
 									demo::Demo3DHostSetOutQuality((int32)(q5 + 0.5f));
 									NkMarkDirty(st);
+								}
 								yy += kRowH;
 							}
 						}
@@ -10141,9 +10206,10 @@ namespace nkentseu {
 					// et fond transparent de « Destination ». Les commiter entre
 					// les deux groupes ne voyait que la moitie des changements.
 					if (oSrc != oSrc0 || oW != oW0 || oH != oH0 || oScale != oScale0 ||
-						oFmt != oFmt0 || oTrans != oTrans0)
+						oFmt != oFmt0 || oTrans != oTrans0) {
 						demo::Demo3DHostSetOutMain(oSrc, oW, oH, oScale, oFmt, oTrans);
 						NkMarkDirty(st);
+					}
 
 					// ── GROUPE « TYPES DE RENDU » (Rihen) ───────────────────
 					// Chaque type coche produit SON image, incrustations
@@ -10185,9 +10251,10 @@ namespace nkentseu {
 								mask ^= (1 << m5);
 							yy += kRowH;
 						}
-						if (mask != mask0)
+						if (mask != mask0) {
 							demo::Demo3DHostSetOutModes(mask);
 							NkMarkDirty(st);
+						}
 						{
 							int32 nOnM = 0;
 							for (int32 m5 = 0; m5 < nM; ++m5)
@@ -10252,9 +10319,10 @@ namespace nkentseu {
 								aids ^= (1 << a5);
 							yy += kRowH;
 						}
-						if (aids != aids0)
+						if (aids != aids0) {
 							demo::Demo3DHostSetOutAids(aids);
 							NkMarkDirty(st);
+						}
 						// BLOC DE TEXTE QUI VA A LA LIGNE : il epouse la largeur du
 						// groupe au lieu de deborder, et sa hauteur est celle qu'il
 						// occupe reellement -- retrecir le panneau ajoute une ligne
@@ -10386,9 +10454,10 @@ namespace nkentseu {
 								vq = 1.f;
 							if (vq > 100.f)
 								vq = 100.f;
-							if ((int32)(vq + 0.5f) != (int32)(vq0 + 0.5f))
+							if ((int32)(vq + 0.5f) != (int32)(vq0 + 0.5f)) {
 								demo::Demo3DHostSetOutVideoQuality((int32)(vq + 0.5f));
 								NkMarkDirty(st);
+							}
 							yy += kRowH;
 							yy += p.TextWrap(
 								r.x + kPad, yy, rr.w - 2.f * kPad,
@@ -10423,9 +10492,10 @@ namespace nkentseu {
 							p.TextV(cb.x + cb.w + S(8.f), yy, kRowH,
 									"Curseur et sa trace (tutoriel)");
 							p.Unclip();
-							if (hit.Clicked("out.cursor"))
+							if (hit.Clicked("out.cursor")) {
 								demo::Demo3DHostSetOutCursor(!cu);
 								NkMarkDirty(st);
+							}
 							yy += kRowH;
 							yy += p.TextWrap(r.x + kPad + S(24.f), yy,
 											 rr.w - 2.f * kPad - S(24.f),
@@ -10455,9 +10525,10 @@ namespace nkentseu {
 							p.TextV(cb.x + cb.w + S(8.f), yy, kRowH,
 									"Conserver les images QOI");
 							p.Unclip();
-							if (hit.Clicked("out.keepqoi"))
+							if (hit.Clicked("out.keepqoi")) {
 								demo::Demo3DHostSetOutKeepQoi(!kq);
 								NkMarkDirty(st);
+							}
 							yy += kRowH;
 							yy += p.TextWrap(r.x + kPad + S(24.f), yy,
 											 rr.w - 2.f * kPad - S(24.f),
@@ -10497,9 +10568,10 @@ namespace nkentseu {
 									p.TextV(cb.x + cb.w + S(8.f), yy, kRowH,
 											"Ne perdre aucune image");
 									p.Unclip();
-									if (hit.Clicked("out.rec.grow"))
+									if (hit.Clicked("out.rec.grow")) {
 										demo::Demo3DHostSetRecGrow(!gr);
 										NkMarkDirty(st);
+									}
 									yy += kRowH;
 									yy += p.TextWrap(r.x + kPad + S(24.f), yy,
 													 rr.w - 2.f * kPad - S(24.f),
@@ -10589,9 +10661,10 @@ namespace nkentseu {
 									fm ^= (1 << a6);
 								yy += kRowH;
 							}
-							if (fm != fm0)
+							if (fm != fm0) {
 								demo::Demo3DHostSetOutFastMask(fm);
 								NkMarkDirty(st);
+							}
 						}
 						yy += S(3.f);
 						yy += p.TextWrap(r.x + kPad, yy, rr.w - 2.f * kPad,
@@ -10601,9 +10674,10 @@ namespace nkentseu {
 										 "la timeline existera.",
 										 NkRole::TextMuted);
 						yy += S(6.f);
-						if (vOn != vOn0 || vFps != f0v || vA != a0v || vB != b0v || vCod != c0v)
+						if (vOn != vOn0 || vFps != f0v || vA != a0v || vB != b0v || vCod != c0v) {
 							demo::Demo3DHostSetOutVideo(vOn, vFps, vA, vB, vCod);
 							NkMarkDirty(st);
+						}
 						yy += NkGroupPad();
 						PaintGroupBlock(p, rowR, gVidTop, yy);
 						yy += NkPropGroupGap();
@@ -10790,10 +10864,11 @@ namespace nkentseu {
 												  rr.w - 2.f * kPad - S(8.f), kRowH};
 								yy += PaintColorRow(p, hit, ws, in, st, crow, yy, "Couleur",
 													key2, iCol, &cch);
-								if (cch)
+								if (cch) {
 									demo::Demo3DHostSetOutInset(k5, iSrc, iShape, iXY, iSz, iBrd,
 																iCol, iOpa);
 									NkMarkDirty(st);
+								}
 							}
 							p.TextV(r.x + kPad + S(8.f), yy, kRowH, "Opacite", NkRole::TextMuted);
 							snprintf(key2, sizeof(key2), "out.ins.op.%d", k5);
@@ -10821,9 +10896,10 @@ namespace nkentseu {
 								p.Clip({cb.x + cb.w + S(8.f), yy, rr.w - S(60.f), kRowH});
 								p.TextV(cb.x + cb.w + S(8.f), yy, kRowH, "Aussi en fichier propre");
 								p.Unclip();
-								if (hit.Clicked(key2))
+								if (hit.Clicked(key2)) {
 									demo::Demo3DHostSetOutInsetOwnFile(k5, !own);
 									NkMarkDirty(st);
+								}
 								yy += kRowH;
 								// SOUS-OPTION : elle n'existe que si le fichier
 								// propre est demande (Rihen). Une case qui ne
@@ -10847,18 +10923,20 @@ namespace nkentseu {
 									p.TextV(cb2.x + cb2.w + S(8.f), yy, kRowH,
 											"en gardant la forme", NkRole::TextMuted);
 									p.Unclip();
-									if (hit.Clicked(key2))
+									if (hit.Clicked(key2)) {
 										demo::Demo3DHostSetOutInsetOwnShaped(k5, !shp);
 										NkMarkDirty(st);
+									}
 									yy += kRowH;
 								}
 							}
 							yy += S(4.f);
 							if (iSrc != s0 || iShape != sh0 || iXY[0] != x0 || iXY[1] != y0 ||
-								iSz[0] != sz0 || iSz[1] != sz1 || iBrd != b0 || iOpa != o0)
+								iSz[0] != sz0 || iSz[1] != sz1 || iBrd != b0 || iOpa != o0) {
 								demo::Demo3DHostSetOutInset(k5, iSrc, iShape, iXY, iSz, iBrd, iCol,
 															iOpa);
 								NkMarkDirty(st);
+							}
 						}
 						if (nUsed < maxIns) {
 							if (Button("out.ins.add", yy, "Ajouter une incrustation",
