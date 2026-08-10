@@ -4,6 +4,12 @@
 // projetée d'une face 90° est très non linéaire (biais énorme près, nul loin) ;
 // la distance normalisée rend le biais CONSTANT et efface les coutures de faces
 // (option LearnOpenGL « point shadows », demandée par Rihen).
+//
+// @gl-no-flip-y — IMPORTANT : ce VS a un varying (vWorld) mais rend dans le
+// SHADOW ATLAS, pas à l'écran. Sans ce pragma, le générateur injecte le flip
+// Y NDC des VS « à varyings » : les faces se déposaient à l'envers dans leur
+// tuile et le récepteur échantillonnait du vide — ombre portée disparue
+// (constaté par Rihen, 10 août ; même piège déjà payé par ShadowAlpha).
 
 @location(0) in vec3 aPos;
 
