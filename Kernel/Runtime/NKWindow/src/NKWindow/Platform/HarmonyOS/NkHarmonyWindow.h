@@ -99,6 +99,10 @@ namespace nkentseu {
 
 	NkWindow *NkHarmonyFindWindowById(NkWindowId id);
 	NkVector<NkWindow *> NkHarmonyGetWindowsSnapshot();
+
+	// Fenetre associee a un XComponent donne (comparaison par identifiant).
+	// Utilisee par le routage tactile, cote point d'entree.
+	NkWindow *NkHarmonyGetWindowForXComponent(OH_NativeXComponent *xcomp);
 	NkWindow *NkHarmonyGetLastWindow();
 	void NkHarmonyRegisterWindow(NkWindow *window);
 	void NkHarmonyUnregisterWindow(NkWindow *window);
