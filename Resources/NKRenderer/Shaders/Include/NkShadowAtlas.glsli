@@ -92,7 +92,12 @@ vec3 NkShadowNormalBiasOffsetSlot(int slotIdx, vec3 worldPos, vec3 N, vec3 L) {
 //   en FLUX UNIFORME -- ici on est sous la selection de cascade, qui diverge
 //   d'un pixel a l'autre, et une derivee prise dans un flux divergent est
 //   indefinie par la spec.
-float NkSampleShadowTile(int slotIdx, vec3 worldPos, float bias, vec3 dWdx, vec3 dWdy) {
+// zOverride >= 0 : MODE DISTANCE LINEAIRE (omni, option LearnOpenGL). La
+// reference comparee n'est plus la profondeur projetee mais la distance
+// normalisee fournie par l'appelant — l'atlas contient la meme grandeur
+// (shadowlinear.frag). La matrice ne sert alors qu'a trouver l'UV du tile.
+float NkSampleShadowTileZ(int slotIdx, vec3 worldPos, float bias, vec3 dWdx, vec3 dWdy,
+                          float zOverride) {
     if (slotIdx < 0 || slotIdx >= 256) return 1.0;
     vec4 coord = uShadows.slots[slotIdx].shadowMatrix * vec4(worldPos, 1.0);
     if (coord.w <= 0.0) return 1.0;
@@ -111,6 +116,9 @@ float NkSampleShadowTile(int slotIdx, vec3 worldPos, float bias, vec3 dWdx, vec3
     // PAS refaire le remap (sinon p.z trop grand -> tout en ombre -> scene noire DX12).
     float zRemap = uShadows.globalCfg.z;
     p.z = mix(p.z, p.z * 0.5 + 0.5, zRemap) - bias;
+    // Distance lineaire : la reference remplace la profondeur projetee (le
+    // biais recu est deja CONSTANT — c'est tout l'interet de ce mode).
+    if (zOverride >= 0.0) p.z = zOverride - bias;
     if (p.x < 0.0 || p.x > 1.0) return 1.0;
     if (p.y < 0.0 || p.y > 1.0) return 1.0;
     if (p.z < 0.0 || p.z > 1.0) return 1.0;
@@ -154,6 +162,9 @@ float NkSampleShadowTile(int slotIdx, vec3 worldPos, float bias, vec3 dWdx, vec3
         zu = (az_x * av_y - az_y * av_x) / det;
         zv = (az_y * au_x - az_x * au_y) / det;
     }
+    // Le plan recepteur extrapole la profondeur PROJETEE : il ne s'applique
+    // pas au champ de distances du mode lineaire.
+    if (zOverride >= 0.0) { zu = 0.0; zv = 0.0; }
 
     // LE PAS SUIT LA DOUCEUR, comme le portage DX11 : sans cela le reglage
     // « Douceur » du panneau n'avait AUCUN effet sur Vulkan/GL alors qu'il en
@@ -259,6 +270,11 @@ float NkSampleShadowTile(int slotIdx, vec3 worldPos, float bias, vec3 dWdx, vec3
     return s / 9.0;
 }
 
+// Chemin historique : profondeur PROJETEE (zOverride < 0 = desactive).
+float NkSampleShadowTile(int slotIdx, vec3 worldPos, float bias, vec3 dWdx, vec3 dWdy) {
+    return NkSampleShadowTileZ(slotIdx, worldPos, bias, dWdx, dWdy, -1.0);
+}
+
 // Variante pour la DIRECTIONNELLE : au bord de la zone couverte par la
 // cascade, l'ombre FOND vers la lumiere au lieu de se couper net. La
 // couverture vient de l'auto-fit des casters : un recepteur juste au-dela
@@ -352,7 +368,11 @@ float NkSamplePointShadow(int lightIdx, vec3 worldPos, vec3 N, vec3 L, float bia
     // portee, la meme face redevenait claire, ce qui a designe la cause).
     // On compense en faisant croitre le biais avec la distance, rapportee a
     // la portee de la lumiere.
-    float farP = max(uShadows.slots[firstSlot].lightPosOrDir.w, 0.001);
+    // w NEGATIF = mode DISTANCE LINEAIRE (l'atlas contient dist/portee, cf.
+    // AllocSlotsPoint) : |w| reste la portee dans les deux modes.
+    float wSlot = uShadows.slots[firstSlot].lightPosOrDir.w;
+    bool linMode = wSlot < 0.0;
+    float farP = max(abs(wSlot), 0.001);
     float distN = clamp(length(dir) / farP, 0.0, 1.0);
     // Croissance MODEREE : a x24, le biais MANGEAIT l'ombre au-dela d'un
     // rayon -- une « sphere » au-dela de laquelle l'ombre se coupait net au
@@ -361,7 +381,10 @@ float NkSamplePointShadow(int lightIdx, vec3 worldPos, vec3 N, vec3 L, float bia
     // la precision au bout de la portee et le gros biais n'est plus
     // necessaire -- c'etait lui qui creait une sphere d'ombre plus petite
     // que celle de la lumiere.
-    biasMul *= 1.0 + 4.0 * distN * distN;
+    // En mode lineaire le biais n'a AUCUNE raison de croitre : le champ de
+    // distances est uniforme sur la portee — c'est tout l'interet du mode.
+    if (!linMode)
+        biasMul *= 1.0 + 4.0 * distN * distN;
     vec3 absDir = abs(dir);
     // Selection de face : axe dominant. Convention faces :
     //   0:+X 1:-X 2:+Y 3:-Y 4:+Z 5:-Z (cf. AllocSlotsPoint cote C++)
@@ -374,10 +397,16 @@ float NkSamplePointShadow(int lightIdx, vec3 worldPos, vec3 N, vec3 L, float bia
         face = dir.z > 0.0 ? 4 : 5;
     }
     int slotIdx = firstSlot + face;
-    float bias = NkShadowSlopeBiasMul(N, L, biasMul);
     // Par tile : le texel d'une face d'omni grandit avec la distance a la
     // lumiere (projection perspective), le decalage doit suivre.
     vec3  wp   = NkShadowNormalBiasOffsetSlot(slotIdx, worldPos, N, L);
+    if (linMode) {
+        // DISTANCE LINEAIRE : reference = distance du point (decale par le
+        // biais normal) a la lumiere, biais CONSTANT sur toute la portee.
+        float refZ = clamp(length(wp - lightPos) / farP, 0.0, 1.0);
+        return NkSampleShadowTileZ(slotIdx, wp, 0.002 * biasMul, dWdx, dWdy, refZ);
+    }
+    float bias = NkShadowSlopeBiasMul(N, L, biasMul);
     // AUCUNE LIMITE PROPRE A L'OMBRE (Rihen : il y avait DEUX spheres, celle
     // de la lumiere et une sphere d'ombre plus petite -- elles doivent etre
     // UNE SEULE). L'ombre multiplie la lumiere : elle meurt donc exactement
