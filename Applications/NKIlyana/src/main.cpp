@@ -37,6 +37,7 @@
 #include "NKMedia/Document/NkLatex.h"
 #include "NKMedia/Document/NkPageWeb.h"
 #include "NKMedia/Document/NkAspirateur.h"
+#include "NKMedia/Document/NkArchive.h"
 #include "NKNetwork/HTTP/NkHTTPClient.h"
 #include "NkIlyanaPdf.h"
 #include "NkIlyanaCitation.h"
@@ -1371,6 +1372,32 @@ static int ModeAjouter(int argc, char **argv) {
 		if (jetes > gardes * 10)
 			logger.Info("ATTENTION : plus de dix fois plus de blocs ecartes que gardes — verifier que "
 						"l'article a bien ete pris.");
+	} else if (nomBas.Size() > 4 && nomBas.SubStr(nomBas.Size() - 4) == ".zip") {
+		// Une archive de sources : on prend le code et le texte, on laisse le reste.
+		int64 fichiers = 0;
+		int64 ignores = 0;
+		media::DiagArchive da;
+		brut = media::LireArchive(fLivre, fichiers, ignores, 2u << 20, &da);
+		logger.Infof("Archive : %lld fichier(s) de source retenus, %lld ecartes.\n", (long long)fichiers,
+					 (long long)ignores);
+		if (fichiers == 0) {
+			// Dire A QUELLE ETAPE ca a echoue : « rien retenu » a des causes
+			// opposees, et les confondre envoie chercher au mauvais endroit.
+			if (da.catalogueIllisible > 0)
+				logger.Info("ERREUR : le catalogue de l'archive n'a pas pu etre lu — format ZIP64 (au-dela "
+							"de 65535 entrees) ou archive endommagee.");
+			else if (da.decompressionRatee > 0)
+				logger.Infof("ERREUR : %lld entree(s) non decompressees — methode de compression non geree "
+							 "(seuls « stocke » et « deflate » le sont).\n",
+							 (long long)da.decompressionRatee);
+			else if (da.mauvaiseExtension > 0)
+				logger.Infof("ERREUR : aucun fichier de source reconnu (%lld ecartes sur leur extension, "
+							 "%lld dossiers).\n",
+							 (long long)da.mauvaiseExtension, (long long)da.dossiers);
+			else
+				logger.Info("ERREUR : archive vide ou illisible.");
+			return 1;
+		}
 	} else if (nomBas.Size() > 4 && nomBas.SubStr(nomBas.Size() - 4) == ".tex") {
 		// La source LaTeX vaut BIEN MIEUX que le PDF qu'elle produit : les
 		// formules y sont du texte structure, la ou le PDF n'en garde que des
