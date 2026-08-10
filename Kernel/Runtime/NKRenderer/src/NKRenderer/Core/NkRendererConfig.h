@@ -93,8 +93,10 @@ namespace nkentseu {
 				uint32 resolution = 2048; // par cascade
 				float32 maxDistance = 200.f;
 				float32 cascadeLambda = 0.85f; // 0=lineaire, 1=logarithmique
-				bool softShadows = true;	   // PCF 3x3
-				bool pcss = false;			   // PCSS (penombres realistes, ~3x cost)
+				bool softShadows = true; // PCF 3x3
+				// PCSS PAR DEFAUT (decision de Rihen, 10 aout) : contact net,
+				// penombre qui grandit — le comportement d'une vraie source.
+				bool pcss = true;
 				float32 normalBias = 0.005f;
 				float32 depthBias = 1.25f;
 				uint32 poissonSamples = 16;
@@ -117,22 +119,19 @@ namespace nkentseu {
 				//                      penombre.
 				// Defauts identiques a ceux des shadow maps : rien ne change tant
 				// qu'on n'y touche pas.
-				// 0.00015 et non 0.0005 : meme valeur que le defaut des shadow maps
-				// (cf. NkVirtualShadowMaps.h, qui explique pourquoi l'ancienne
-				// poussait l'ombre hors du point de contact).
-				float32 slopeBias = 0.00015f;
-				// 0.15 : meme valeur et meme raison que NkVirtualShadowMaps.h -- le
-				// plan recepteur porte l'anti-acne du noyau, le slope bias celle du
-				// tap central, et un demi-texel valait DEJA ~1 cm sur une face de
-				// point light vue a 5 m (le decollement constate par Rihen).
-				// (Le culling des faces avant a aussi ete essaye : contact parfait,
-				// mais il eclairait l'INTERIEUR des objets fermes -- dans un
-				// modeleur la camera y entre. Rejete, cf. NkRender3D.)
-				float32 normalBiasTexels = 0.15f;
-				// 0.0015 : meme valeur que le defaut des shadow maps (cf.
-				// NkVirtualShadowMaps.h -- a 0.003 le noyau PCF atteint 3 texels et
-				// noie le contour de l'ombre).
-				float32 softness = 0.0015f;
+				// ZERO PAR DEFAUT (Rihen, 10 aout) : l'anti-acne est porte par le
+				// biais rasterizer du caster et le plan recepteur — ce biais-ci
+				// reste un levier de secours du panneau.
+				float32 slopeBias = 0.f;
+				// ZERO PAR DEFAUT (meme decision) : le plan recepteur du PCF tient
+				// les taps, le biais rasterizer tient le tap central. (Le culling
+				// des faces avant a ete essaye et REJETE : il eclairait l'interieur
+				// des objets fermes — dans un modeleur la camera y entre.)
+				float32 normalBiasTexels = 0.f;
+				// 0.005 PAR DEFAUT (Rihen, 10 aout — corrige de 0.05) : en PCSS
+				// c'est la TAILLE DE SOURCE (penombre max ~5 texels sur 4096), le
+				// contact reste net par construction.
+				float32 softness = 0.005f;
 		};
 
 		struct NkPostConfig {

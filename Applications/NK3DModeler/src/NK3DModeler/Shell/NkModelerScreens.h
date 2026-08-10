@@ -1921,7 +1921,11 @@ namespace nkentseu {
 				if (st.browClipCut && st.browConfSrc < 0)
 					st.browClip = -1; // deplace sans conflit ; sinon le dialogue
 			};
-			// CLIC DROIT DANS LA VUE 3D : le menu du noeud ACTIF.
+			// CLIC DROIT DANS LA VUE 3D : le menu du noeud ACTIF — et, SANS noeud
+			// actif, le menu AJOUTER au pointeur (Rihen, 10 aout : le vide de la
+			// scene doit proposer copier/coller/dupliquer/supprimer/ajouter —
+			// les quatre premiers vivent dans le menu du noeud, l'ajout ici).
+			// L'objet nait au curseur 3D, comme depuis la barre.
 			if (in.mouseClicked[1] && st.hierMenuNode < 0 &&
 				NkHitRegistry::Contains(view, in.mousePos)) {
 				const int32 actV = st.activeEmpty >= 0
@@ -1931,6 +1935,10 @@ namespace nkentseu {
 					st.hierMenuNode = actV;
 					st.hierMenuX = in.mousePos.x;
 					st.hierMenuY = in.mousePos.y;
+				} else if (!ws.ComboOpen("tb.addmenu")) {
+					st.addParentNode = -1;
+					st.addAnchor = {in.mousePos.x, in.mousePos.y - S(26.f), 0.f, 0.f};
+					ws.ToggleCombo("tb.addmenu");
 				}
 			}
 			// SUPPRIMER (X ou Suppr : le sous-arbre part avec, regle de Rihen),
@@ -2706,6 +2714,15 @@ namespace nkentseu {
 			char nameBuf[48];
 			const bool freshPress = hit.MouseDown() && !st.hierMouseWasDown;
 			int32 dropHover = -1;
+			// ── MAJ+CLIC = PLAGE (Rihen, 10 aout) : tout ce qui s'affiche entre
+			// l'ANCRE (dernier clic sans Maj) et la ligne cliquee. La plage ne
+			// s'applique qu'APRES le parcours : l'ordre affiche n'est complet
+			// qu'a la fin de la boucle.
+			int32 visOrder[256];
+			uint8 visIsEmpty[256];
+			int32 visLight[256];
+			int32 visCount = 0;
+			int32 rangeTarget = -1;
 			// Pile explicite (racines : les empties d'abord -- les familles --
 			// puis tout noeud sans parent) ; en RECHERCHE, liste plate.
 			int32 stack[200];
@@ -2766,6 +2783,14 @@ namespace nkentseu {
 				const bool show = !searching || NkNameMatches(nameBuf, st.searchHier);
 				if (show) {
 					++visibleCount;
+					// Ordre AFFICHE, pour la plage Maj+clic (hors clip de
+					// defilement : c'est l'ordre qui compte, pas la visibilite).
+					if (visCount < 256) {
+						visOrder[visCount] = node;
+						visIsEmpty[visCount] = isEmpty ? 1 : 0;
+						visLight[visCount] = li;
+						++visCount;
+					}
 					const NkRect rowR{r.x, yy, r.w, kRowH};
 					if (yy >= listTop - kRowH && yy < listTop + listH) {
 						snprintf(key, sizeof(key), "hier.row.%d", node);
@@ -2921,22 +2946,31 @@ namespace nkentseu {
 							NkHierLockedName(st, node, st.hierNote, sizeof(st.hierNote));
 						}
 						if (wantSel) {
-							if (isEmpty && !lokEff) {
-								if (hit.ShiftDown() || hit.CtrlDown()) {
+							// MAJ = PLAGE depuis l'ancre (appliquee apres le
+							// parcours) ; CTRL = bascule un a un ; clic nu =
+							// selection seule ET pose l'ancre.
+							if (hit.ShiftDown() && st.hierAnchor >= 0 &&
+								st.hierAnchor != node) {
+								rangeTarget = node;
+							} else if (isEmpty && !lokEff) {
+								if (hit.CtrlDown()) {
 									demo::Demo3DHostToggleEmptyNode(node); // multi successif
 								} else {
 									demo::Demo3DHostDeselectAll();
 									demo::Demo3DHostSelectEmptyNode(node);
 								}
 								st.activeEmpty = node;
+								st.hierAnchor = node;
 							} else if (isLight) {
-								if (!lokEff)
+								if (!lokEff) {
 									demo::Demo3DHostSelectLight(li);
+									st.hierAnchor = node;
+								}
 								st.activeEmpty = -1;
 							} else if (!lokEff) {
-								demo::Demo3DHostSelectObject(node,
-															 hit.ShiftDown() || hit.CtrlDown());
+								demo::Demo3DHostSelectObject(node, hit.CtrlDown());
 								st.activeEmpty = -1;
+								st.hierAnchor = node;
 							}
 						}
 						// GLISSER-DEPOSER : armement au premier appui sur la ligne ;
@@ -3023,6 +3057,42 @@ namespace nkentseu {
 					// hierDragging reste vrai jusqu'a la frame suivante : le clic
 					// de relachement ne doit ni selectionner ni deselectionner.
 					st.hierDragNode = -1;
+				}
+			}
+			// ── APPLICATION DE LA PLAGE MAJ+CLIC, l'ordre affiche etant complet.
+			// Additive (facon Blender) : elle ETEND la selection sans rien
+			// deselectionner. Les lumieres sont sautees : leur selection est
+			// UNIQUE (selLight) — chaque ligne volerait l'emplacement a la
+			// precedente. Les verrouilles aussi, comme au clic.
+			if (rangeTarget >= 0) {
+				int32 ia = -1, ib = -1;
+				for (int32 v = 0; v < visCount; ++v) {
+					if (visOrder[v] == st.hierAnchor)
+						ia = v;
+					if (visOrder[v] == rangeTarget)
+						ib = v;
+				}
+				if (ia >= 0 && ib >= 0) {
+					if (ia > ib) {
+						const int32 t = ia;
+						ia = ib;
+						ib = t;
+					}
+					for (int32 v = ia; v <= ib; ++v) {
+						const int32 n4 = visOrder[v];
+						if (demo::Demo3DHostObjectLockedEff(n4))
+							continue;
+						if (visIsEmpty[v]) {
+							if (!demo::Demo3DHostEmptyNodeSelected(n4))
+								demo::Demo3DHostToggleEmptyNode(n4);
+						} else if (visLight[v] < 0) {
+							demo::Demo3DHostSelectObject(n4, true); // additif
+						}
+					}
+					// L'ACTIF suit la ligne cliquee quand c'est un noeud
+					// utilisateur — le panneau montre ce qu'on vient de viser.
+					if (rangeTarget >= kFirstEmpty2)
+						st.activeEmpty = rangeTarget;
 				}
 			}
 			st.hierMouseWasDown = hit.MouseDown();

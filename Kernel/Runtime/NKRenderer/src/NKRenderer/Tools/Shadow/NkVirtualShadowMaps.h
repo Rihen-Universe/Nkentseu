@@ -111,12 +111,11 @@ namespace nkentseu {
 				// 0.003 sur un atlas de 4096. Sur une face de point light, 3 texels
 				// font une penombre enorme rapportee a sa resolution -- l'ombre
 				// devenait une tache floue sans contour lisible.
-				// 0.05 PAR DEFAUT (decision de Rihen, 10 aout), pense pour le PCSS :
-				// c'est la TAILLE DE SOURCE (rayon de recherche des bloqueurs et
-				// penombre maximale, ~51 texels sur 4096) — le contact, lui, reste
-				// net par construction. En PCF pur, une telle valeur ferait une
-				// tache floue : baisser la douceur en meme temps que la qualite.
-				float32 softness = 0.05f;
+				// 0.005 PAR DEFAUT (Rihen, 10 aout — corrige de 0.05, trop large),
+				// pense pour le PCSS : c'est la TAILLE DE SOURCE (rayon de
+				// recherche des bloqueurs et penombre maximale, ~5 texels sur
+				// 4096) — le contact, lui, reste net par construction.
+				float32 softness = 0.005f;
 				// Stratification tile size pour cascades : tile[i] = baseTile / (1 << i).
 				uint32 cascadeBaseTile = 1024;
 				// Tile size pour spot (constant V0, pourra etre adaptatif distance V1).
