@@ -185,9 +185,19 @@ with project("NKRHI"):
         _ANDROID_LINKS = ["android", "log", "EGL", "GLESv3"]
         if WANT_VULKAN:
             _ANDROID_LINKS.append("vulkan")
-            _ANDROID_LINKS.extend(GLSLANG_LIBS_UNIX)
+            # glslang du SDK UNIQUEMENT si on n'utilise pas NKGLSlang, qui le
+            # compile lui-meme — meme garde-fou que tous les blocs Linux, qui
+            # manquait ICI. Sans lui, le lien reclame -lglslang -lSPIRV
+            # -lMachineIndependent... alors que le NDK Android ne les fournit
+            # pas : « unable to find library -lglslang », et ce sur toute
+            # application liant NKRHI.
+            if not USE_NKGLSLANG:
+                _ANDROID_LINKS.extend(GLSLANG_LIBS_UNIX)
             defines(["VK_USE_PLATFORM_ANDROID_KHR"])
-        links(_ANDROID_LINKS)
+        _ANDROID_SC_LINKS = []
+        if USE_NKGLSLANG:    _ANDROID_SC_LINKS.append("NKGLSlang")
+        if USE_NKSPIRVCROSS: _ANDROID_SC_LINKS.append("NKSPIRVCross")
+        links(_ANDROID_LINKS + _ANDROID_SC_LINKS)
 
     # ===== HarmonyOS ==============================================================
     with filter("system:HarmonyOS"):
@@ -200,9 +210,18 @@ with project("NKRHI"):
         _HARMONY_LINKS = ["hilog_ndk.z", "EGL", "GLESv3", "native_window"]
         if WANT_VULKAN:
             _HARMONY_LINKS.append("vulkan")
-            _HARMONY_LINKS.extend(GLSLANG_LIBS_UNIX)
+            # Meme garde-fou qu'ailleurs : glslang du SDK UNIQUEMENT si on
+            # n'utilise pas NKGLSlang, qui le compile lui-meme. Il manquait ICI
+            # comme sur Android — le NDK OHOS ne fournit pas ces bibliotheques,
+            # d'ou « unable to find library -lglslang » sur toute application
+            # liant NKRHI.
+            if not USE_NKGLSLANG:
+                _HARMONY_LINKS.extend(GLSLANG_LIBS_UNIX)
             defines(["VK_USE_PLATFORM_OHOS_KHR"])
-        links(_HARMONY_LINKS)
+        _HARMONY_SC_LINKS = []
+        if USE_NKGLSLANG:    _HARMONY_SC_LINKS.append("NKGLSlang")
+        if USE_NKSPIRVCROSS: _HARMONY_SC_LINKS.append("NKSPIRVCross")
+        links(_HARMONY_LINKS + _HARMONY_SC_LINKS)
 
     with filter("system:iOS"):
         # iOS = Metal uniquement. On EXCLUT les backends OpenGL desktop (GLAD/Mesa)
