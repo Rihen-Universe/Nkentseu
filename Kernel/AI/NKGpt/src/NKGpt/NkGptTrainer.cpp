@@ -85,6 +85,23 @@ namespace nkentseu {
 								}
 							};
 							const nk_size blen2 = block.Size();
+							// ⚠️ UN CORPUS PEUT ÊTRE MIXTE. Dès qu'un seul « Reponse: »
+							// figurait dans le fichier, TOUT le texte passait par le chemin
+							// question/réponse — et un paragraphe de prose, dépourvu du
+							// marqueur, était intégralement MASQUÉ. Constaté en assemblant
+							// l'identité et Wikipédia : 0,075 % des positions comptaient
+							// dans la perte, et le premier pas rendait une perte de ZÉRO.
+							// Un bloc sans marqueur est de la PROSE : il compte en entier.
+							if (block.Find(markerStr.CStr()) == NkString::npos) {
+								emettre(block, 1.f);
+								NkVector<int32> sepP;
+								enc.Encode(NkString("\n\n"), sepP);
+								for (int64 k = 0; k < (int64)sepP.Size(); ++k) {
+									mLangData[(nk_size)li].PushBack((float)sepP[(nk_size)k]);
+									mLangMask[(nk_size)li].PushBack(1.f);
+								}
+								continue;
+							}
 							nk_size bp = 0;
 							while (bp < blen2) {
 								const nk_size mp = block.Find(markerStr.CStr(), bp);
