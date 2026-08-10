@@ -252,6 +252,58 @@ agit sans qu'on puisse contrôler son action est exactement ce qu'on ne veut pas
 
 ---
 
+## Journal du 2026-08-10 — ce qui a marché, ce qui a échoué
+
+**PHASE 2 (identité) — RÉUSSIE.** Batterie **4/19 → 8/19**. Elle nomme son père et
+sa mère. Corpus : 25 % d'identité entrelacée avec de la prose (`--melange`).
+Modèle promu : `ilyana_phase2.nkgp`.
+
+**PHASE 3 (citation) — ÉCHOUÉE deux fois, la troisième invalidée.**
+
+| essai | pas d'apprentissage | batterie | citation | verdict |
+|---|---|---|---|---|
+| 3a | 1e-05 (calendrier hérité) | 6/19 | non | non promu |
+| 3b | 2e-04 (calendrier neuf) | 5/19 | non | non promu |
+| 3c | 1e-04 | 4/19 | non | **NUL** — run mort au pas 30 |
+
+⚠️ **Le verdict 3c ne vaut rien** : le run s'est arrêté après 161 s. J'ai mesuré
+une batterie sur un modèle entraîné trente pas et failli en conclure quelque
+chose. Toujours vérifier qu'un run VIT avant d'attendre son résultat.
+
+### Trois défauts du MOTEUR trouvés en cherchant pourquoi
+
+1. **Reprendre un run ≠ commencer une phase.** Le calendrier du pas d'apprentissage
+   se prolongeait, si bien qu'une phase destinée à enseigner un comportement
+   héritait d'un pas déjà au plancher (1e-05). Assez pour graver un nom répété des
+   milliers de fois — d'où la réussite de la phase 2 — très insuffisant pour un
+   geste nouveau. → `--nouvelle-phase` (commit `f5b62505`).
+
+2. **Les fenêtres coupaient les exemples, et lui apprenaient à INVENTER.** Le lot
+   était prélevé à un décalage tiré au hasard dans un flux plat de tokens. Un
+   exemple structuré de ~180 tokens dans une fenêtre de 256 n'est entier qu'une
+   fois sur trois — et quand la fenêtre commence au milieu du contexte, le modèle
+   voit une question suivie de « Reponse: » avec un contexte **amputé**, et on lui
+   apprend à produire une phrase qui n'y figure pas. C'est exactement le
+   comportement qu'on cherchait à combattre. → une fenêtre sur deux démarre à un
+   début de bloc (commit `ce296ee0`). **Hypothèse encore non testée** au moment où
+   ces lignes sont écrites.
+
+3. **Le filet de sécurité tuait des runs légitimes.** Il calculait
+   `(initiale − actuelle) / initiale` et concluait « perte figée » dès que le
+   résultat était négatif. Or une perte qui **monte** est du mouvement : le calcul
+   a lieu, et une hausse au démarrage d'une phase, pendant la montée en puissance
+   du pas, est normale. Il devait regarder la **valeur absolue**. Un garde-fou qui
+   tue ce qu'il devait protéger coûte le run *et* la confiance dans la mesure.
+
+### Ce qu'il reste à examiner si la phase 3 échoue encore
+
+L'alignement des fenêtres écarté, la piste suivante n'est plus une recette mais la
+**taille** : recopier une phrase depuis un contexte demande au modèle d'apprendre
+à faire correspondre des motifs à distance, ce qui est connu pour n'émerger qu'à
+partir d'une certaine échelle. Ce serait alors un argument pour le passage à
+~32 M paramètres (déjà envisagé pour le vocabulaire 32k), et non pour un réglage
+de plus.
+
 ## Ce qui est livré (2026-08-09)
 
 - **`NKData/NkBpeTrainer`** — BPE à l'échelle : mots uniques pondérés, comptes
