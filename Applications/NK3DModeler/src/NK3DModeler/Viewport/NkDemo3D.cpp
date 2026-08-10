@@ -15086,7 +15086,10 @@ namespace nkentseu {
 		static constexpr float32 kSkyGndDef[3] = {0.25f, 0.22f, 0.2f};
 		static constexpr float32 kSkySunDirDef[3] = {0.35f, -0.65f, 0.35f};
 		static constexpr float32 kSkyTurbidityDef = 2.5f;
-		static constexpr float32 kSkySunIntensityDef = 1.f;
+		// 0.5 par defaut (Rihen, 10 aout), et la valeur est en WATTS — la MEME
+		// echelle que le Soleil de scene (5 = plein soleil en loi physique) :
+		// une seule unite pour tous les soleils, plus de facteur cache.
+		static constexpr float32 kSkySunIntensityDef = 0.5f;
 		static constexpr bool kSkySunDiscDef = true;
 		static constexpr int32 kSkyModelDef = 0;
 		static constexpr float32 kCloudCovDef = 0.5f;
@@ -15649,10 +15652,11 @@ namespace nkentseu {
 			out.type = renderer::NkLightType::NK_DIRECTIONAL;
 			out.direction = {nkvpSkySunDir[0], nkvpSkySunDir[1], nkvpSkySunDir[2]};
 			out.color = {nkvpSkySunColor[0], nkvpSkySunColor[1], nkvpSkySunColor[2]};
-			// Meme echelle que les soleils de la scene (cf. kSunLightRefIntensity) :
-			// a puissance egale ils eclairent pareil, au lieu de laisser comparer
-			// deux echelles a l'oeil.
-			out.intensity = nkvpSkySunIntensity * kSunLightRefIntensity;
+			// EN WATTS, la MEME echelle que le Soleil de scene en loi physique
+			// (5 = plein soleil) — plus le facteur x3 herite : une seule unite
+			// pour tous les soleils (Rihen, 10 aout).
+			out.intensity = nkvpSkySunIntensity;
+			out.attenuationMode = 1;
 			out.castShadow = true;
 			return true;
 		}
