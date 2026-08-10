@@ -311,6 +311,10 @@ void main() {
         int   lt  = int(uLights.positions[i].w);
         vec3  L;
         float att = 1.0;
+        // Surfacique v2 : facteur de forme (-1 = pas une surfacique) et
+        // rugosite elargie par la taille apparente du panneau.
+        float areaE = -1.0;
+        float areaRog = rog;
 
         if (lt == 0) {
             L   = normalize(-uLights.directions[i].xyz);
@@ -379,24 +383,72 @@ void main() {
                 }
             }
             if (lt == 3) {
-                // SURFACIQUE : un panneau n'emet que d'UN COTE.
-                // Sans ce terme, le type 3 tombait dans le cas general « point » :
-                // sa direction n'etait JAMAIS lue, si bien que tourner le gizmo
-                // deplacait le widget sans rien changer a l'image (constate par
-                // Rihen). C'est le defaut de conception deja rencontre -- un etat
-                // affiche qui ne correspond a aucun etat effectif.
+                // ── SURFACIQUE V2 (10 aout) : LES DIMENSIONS AGISSENT ────────────
+                // La v1 traitait le panneau comme un point a cosinus : largeur et
+                // hauteur, pourtant televersees (extras[i].yz), ne changeaient
+                // RIEN (constate par Rihen face a Blender).
                 //
-                // L va du fragment VERS la lumiere ; -L va donc de la lumiere vers
-                // le fragment. Le fragment n'est eclaire que s'il se trouve DEVANT
-                // le panneau. Le cosinus donne en prime l'attenuation d'un emetteur
-                // lambertien : c'est le comportement d'une SURFACE, pas d'un point.
+                // DIFFUS EXACT : facteur de forme d'un rectangle lambertien,
+                // integre ARETE PAR ARETE (Baum 1989 — la valeur vers laquelle
+                // converge le diffus des LTC). L'inverse carre ET le cosinus en
+                // DECOULENT : aucune attenuation ponctuelle a ajouter, seule la
+                // fenetre de portee coupe encore.
                 //
-                // V1 assume : les DIMENSIONS (areaWidth / areaHeight) ne sont pas
-                // encore transmises au GPU -- le bloc de lumieres n'a plus de champ
-                // libre. La forme de la penombre et l'etalement du reflet
-                // speculaire viendront avec (LTC).
+                // SPECULAIRE : POINT REPRESENTATIF (Karis, UE4) — le reflet vise
+                // le point du rectangle le plus proche du rayon reflechi, et la
+                // rugosite s'elargit avec la taille apparente de la source. Les
+                // vraies tables LTC restent la suite naturelle ; ce chemin-ci en
+                // donne deja le comportement (reflet ETIRE par le panneau).
                 vec3 fwdA = normalize(uLights.directions[i].xyz);
-                att *= max(dot(fwdA, -L), 0.0);
+                vec3 upW = abs(fwdA.y) > 0.99 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+                vec3 rightA = normalize(cross(upW, fwdA));
+                vec3 upA = normalize(cross(fwdA, rightA));
+                float hw = max(uLights.extras[i].y, 0.01) * 0.5;
+                float hh = max(uLights.extras[i].z, 0.01) * 0.5;
+                vec3 Pl = uLights.positions[i].xyz;
+                // UN SEUL COTE : derriere le panneau, rien.
+                if (dot(fwdA, vWorldPos - Pl) <= 0.0) {
+                    att = 0.0;
+                } else {
+                    // Facteur de forme : somme des arcs par arete du rectangle.
+                    vec3 q0 = normalize(Pl - rightA * hw - upA * hh - vWorldPos);
+                    vec3 q1 = normalize(Pl + rightA * hw - upA * hh - vWorldPos);
+                    vec3 q2 = normalize(Pl + rightA * hw + upA * hh - vWorldPos);
+                    vec3 q3 = normalize(Pl - rightA * hw + upA * hh - vWorldPos);
+                    float E = 0.0;
+                    E += acos(clamp(dot(q0, q1), -1.0, 1.0)) * dot(normalize(cross(q0, q1)), N);
+                    E += acos(clamp(dot(q1, q2), -1.0, 1.0)) * dot(normalize(cross(q1, q2)), N);
+                    E += acos(clamp(dot(q2, q3), -1.0, 1.0)) * dot(normalize(cross(q2, q3)), N);
+                    E += acos(clamp(dot(q3, q0), -1.0, 1.0)) * dot(normalize(cross(q3, q0)), N);
+                    E = max(E * 0.159154943, 0.0); // 1/(2π)
+                    // La fenetre de portee reste le seul couperet (deja calculee
+                    // dans `att` selon la loi) ; le facteur de forme REMPLACE la
+                    // partie geometrique. On divise par NdL*(1/π) plus bas via le
+                    // chemin partage : on compense ici pour que le diffus varie
+                    // exactement comme E (le shared multiplie par NdL/π).
+                    // -> areaE porte E, consomme au moment du contrib.
+                    att *= 1.0; // la fenetre de portee de la loi reste dans att
+                    areaE = E;
+                    // Point representatif pour le reflet.
+                    vec3 Rr = reflect(-V, N);
+                    float dn = dot(fwdA, Rr);
+                    vec3 Ph = Pl;
+                    if (abs(dn) > 1e-4) {
+                        float tHit = dot(Pl - vWorldPos, fwdA) / dn;
+                        if (tHit > 0.0) {
+                            vec3 hp = vWorldPos + Rr * tHit;
+                            float lu = clamp(dot(hp - Pl, rightA), -hw, hw);
+                            float lv = clamp(dot(hp - Pl, upA), -hh, hh);
+                            Ph = Pl + rightA * lu + upA * lv;
+                        }
+                    }
+                    L = normalize(Ph - vWorldPos);
+                    // Rugosite elargie par la taille apparente (normalisation
+                    // d'energie approchee de Karis) : un panneau large etire et
+                    // adoucit son reflet.
+                    float dRep = max(length(Ph - vWorldPos), 1e-3);
+                    areaRog = clamp(rog + (hw + hh) * 0.25 / dRep, rog, 1.0);
+                }
             }
         }
 
@@ -408,12 +460,29 @@ void main() {
         float NdL = max(dot(N, L), 0.0);
         vec3 rad  = uLights.colors[i].rgb * uLights.colors[i].w * att;
 
-        float NDF = D_GGX(N, H, rog);
-        float G   = G_Smith(N, V, L, rog);
+        // Surfacique v2 : la rugosite du reflet s'elargit avec le panneau.
+        float rogL = (areaE >= 0.0) ? areaRog : rog;
+        float NDF = D_GGX(N, H, rogL);
+        float G   = G_Smith(N, V, L, rogL);
         vec3  F   = F_Schlick(max(dot(H,V),0.0), F0);
         vec3 spec = NDF*G*F / (4.0*max(dot(N,V),0.0)*NdL+1e-4);
         vec3 kD   = (1.0-F)*(1.0-met);
-        vec3 contrib = (kD*albedo/PI + spec) * rad * NdL;
+        vec3 contrib;
+        // Energie effective : pour la surfacique, l'irradiance equivalente est
+        // π·Le·F — le facteur de forme F porte DEJA le cosinus et l'inverse
+        // carre (integres arete par arete). La diffusion sous la surface
+        // ci-dessous s'en nourrit aussi : une matiere translucide devant un
+        // panneau doit briller comme devant n'importe quelle source.
+        vec3 radEff = rad;
+        if (areaE >= 0.0) {
+            radEff = uLights.colors[i].rgb * uLights.colors[i].w * att * (PI * areaE);
+            // PAS de NdL sur le diffus (le facteur de forme le contient) :
+            // c'est ce qui permet a un grand panneau d'eclairer une face
+            // rasante, comme dans Blender. Le reflet garde son NdL (lobe).
+            contrib = kD * albedo / PI * radEff + spec * radEff * NdL;
+        } else {
+            contrib = (kD*albedo/PI + spec) * rad * NdL;
+        }
         // DIFFUSION SOUS LA SURFACE, ICI et plus dans une boucle a part
         // (2026-08-09) : l'ancienne boucle recalculait L mais ni att ni
         // l'ombre, et ignorait le 1/PI du diffus -- une lampe eclairait la
@@ -423,7 +492,7 @@ void main() {
         // l'ombre : UNE seule loi d'attenuation, pas deux qui divergent.
         if (uObj.subsurface > 0.0) {
             float wrap = max(dot(N, L) + uObj.subsurface, 0.0) / (1.0 + uObj.subsurface);
-            contrib += uObj.subsurfaceColor.rgb * (wrap * uObj.subsurface / PI) * rad;
+            contrib += uObj.subsurfaceColor.rgb * (wrap * uObj.subsurface / PI) * radEff;
         }
         Lo    += csf * contrib;
         LoLit += contrib; // le meme eclairement, ombres ignorees

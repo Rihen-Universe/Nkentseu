@@ -2541,7 +2541,13 @@ namespace nkentseu {
 						const float32 cosO = std::cos(l.outerAngle * kPi / 180.f);
 						inten = l.intensity / (2.f * kPi * (1.f - cosO) + 1e-4f);
 					} else if (l.type == NkLightType::NK_AREA) {
-						inten = l.intensity / kPi;
+						// V2 : le shader integre le RECTANGLE (facteur de forme) —
+						// l'energie envoyee est donc la RADIANCE du panneau,
+						// L = P / (π·aire) pour un emetteur lambertien un cote.
+						// Meme puissance, panneau plus grand => surface moins
+						// eclatante mais meme lumiere totale, comme Blender.
+						const float32 area = l.areaWidth * l.areaHeight;
+						inten = l.intensity / (kPi * (area > 1e-4f ? area : 1e-4f));
 					}
 				}
 				lb.color[i] = {l.color.x, l.color.y, l.color.z, inten};
