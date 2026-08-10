@@ -21,7 +21,7 @@
 #include "NKMedia/Pdf/NkPdfShading.h"
 
 namespace nkentseu {
-	namespace nkcode {
+	namespace media {
 		namespace pdf {
 
 			// Matrice affine PDF : [a b 0 ; c d 0 ; e f 1].
@@ -177,5 +177,5 @@ namespace nkentseu {
 			};
 
 		} // namespace pdf
-	} // namespace nkcode
+	} // namespace media
 } // namespace nkentseu

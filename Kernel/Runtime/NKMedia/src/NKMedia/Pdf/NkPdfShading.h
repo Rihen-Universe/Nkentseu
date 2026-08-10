@@ -17,7 +17,7 @@
 #include "NKMedia/Pdf/NkPdf.h"
 
 namespace nkentseu {
-	namespace nkcode {
+	namespace media {
 		namespace pdf {
 
 			// Fonction PDF : [0,1] (ou [t0,t1]) -> jusqu'a 4 composantes.
@@ -78,5 +78,5 @@ namespace nkentseu {
 			};
 
 		} // namespace pdf
-	} // namespace nkcode
+	} // namespace media
 } // namespace nkentseu

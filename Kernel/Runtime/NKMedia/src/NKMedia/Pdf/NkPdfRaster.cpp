@@ -4,7 +4,7 @@
 #include "NKMedia/Pdf/NkPdfRaster.h"
 
 namespace nkentseu {
-	namespace nkcode {
+	namespace media {
 		namespace pdf {
 
 			static inline double Abs(double v) { return v < 0 ? -v : v; }
@@ -584,5 +584,5 @@ namespace nkentseu {
 			}
 
 		} // namespace pdf
-	} // namespace nkcode
+	} // namespace media
 } // namespace nkentseu
