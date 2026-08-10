@@ -698,7 +698,20 @@ namespace nkentseu {
 					if (s == 1)
 						mPerteInitiale = lv;
 					if (s == 30 && mPerteInitiale > 0.0) {
-						const double bouge = (mPerteInitiale - lv) / mPerteInitiale;
+						// ⚠️ LA VALEUR ABSOLUE, et non l'écart signé.
+						//
+						// Ce filet cherche une perte FIGÉE — le symptôme d'un calcul qui
+						// n'a pas lieu. Une perte qui MONTE est un mouvement : le calcul
+						// se fait, et une hausse au début d'une phase nouvelle, pendant
+						// la montée en puissance du pas d'apprentissage, est normale.
+						//
+						// Mesuré le 2026-08-10 : une phase legitime est morte au pas 30
+						// sur « la perte n'a pas bouge (3,531 -> 3,97963, soit -12,7 %) ».
+						// L'ecart signé était négatif, donc inférieur au seuil — et le
+						// run a été tué pour avoir trop appris dans le mauvais sens. Un
+						// garde-fou qui tue ce qu'il devait protéger est pire qu'aucun.
+						const double ecart = (mPerteInitiale - lv) / mPerteInitiale;
+						const double bouge = (ecart < 0.0) ? -ecart : ecart;
 						const int64 defauts = NkTensorGpu::DefautCount();
 						if (bouge < 0.001 || defauts > 0) {
 							logger.Info("*** ARRET : apres 30 pas la perte n'a pas bouge ({0} -> {1}, soit {2}%). "
@@ -710,9 +723,9 @@ namespace nkentseu {
 							break;
 						}
 						if (V)
-							logger.Info("  [controle] la perte a bien baisse de {0}% en 30 pas — l'entrainement "
-										"calcule reellement.",
-										bouge * 100.0);
+							logger.Info("  [controle] la perte a BOUGE de {0}% en 30 pas ({1} -> {2}) — "
+										"l'entrainement calcule reellement.",
+										ecart * 100.0, mPerteInitiale, lv);
 						if (V)
 							logger.Info("  [mesure] {0} operations GPU en 30 pas = {1} par pas — a {2} s/pas, "
 										"le cout fixe par operation vaut {3} ms.",
