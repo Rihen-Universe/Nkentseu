@@ -341,6 +341,10 @@ namespace nkentseu {
 				// selectionner (constate par Rihen).
 				uint32 hierFold[5] = {};
 				int32 activeEmpty = -1;
+				// ANCRE de la selection par PLAGE (Maj+clic, Rihen 10 aout) : le
+				// dernier noeud clique SANS Maj ; Maj+clic selectionne tout ce
+				// qui s'affiche entre l'ancre et la ligne cliquee.
+				int32 hierAnchor = -1;
 				int32 hierDragNode = -1;
 				float32 hierDragX = 0.f, hierDragY = 0.f;
 				bool hierDragging = false;
