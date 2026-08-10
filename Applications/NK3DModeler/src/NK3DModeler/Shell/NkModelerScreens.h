@@ -2262,7 +2262,11 @@ namespace nkentseu {
 				int32 vmAct[8];
 				bool vmOn[8];
 				int32 nV = 0;
-				vmIt[nV] = "Ajouter...";
+				// « Ajouter » est un SOUS-MENU (question de Rihen, 10 aout — oui,
+				// c'est mieux) : le survol ouvre la cascade categories -> types
+				// (PaintAddObjectMenu), accrochee au bord droit de la ligne,
+				// comme « Creer > » du navigateur. Le clic n'a rien a faire.
+				vmIt[nV] = "Ajouter              >";
 				vmAct[nV] = 0;
 				vmOn[nV++] = true;
 				vmIt[nV] = "Copier  (Ctrl+C)";
@@ -2297,16 +2301,22 @@ namespace nkentseu {
 						HoverFill(p, it, overV, 0.f);
 					p.TextV(it.x + S(10.f), it.y, kRowH, vmIt[mi],
 							vmOn[mi] ? NkRole::Text : NkRole::TextMuted);
+					// SOUS-MENU AJOUTER : il SUIT le survol — il s'ouvre sur sa
+					// ligne, se ferme des qu'une autre entree est survolee.
+					if (overV && vmAct[mi] == 0 && !ws.ComboOpen("tb.addmenu")) {
+						st.addParentNode = -1;
+						// La cascade se place a (a.x, a.y + a.h + 2) : h=0 et
+						// y = ligne - 2 la posent exactement au niveau de la ligne.
+						st.addAnchor = {mrV.x + mrV.w - S(2.f), it.y - 2.f, 0.f, 0.f};
+						ws.ToggleCombo("tb.addmenu");
+					} else if (overV && vmAct[mi] != 0 && ws.ComboOpen("tb.addmenu")) {
+						ws.CloseCombo();
+					}
 					if (vmOn[mi] && hit.Clicked(key))
 						vact = vmAct[mi];
 				}
-				if (vact >= 0) {
-					if (vact == 0) {
-						st.addParentNode = -1;
-						st.addAnchor = {st.voidMenuX, st.voidMenuY - S(26.f), 0.f, 0.f};
-						if (!ws.ComboOpen("tb.addmenu"))
-							ws.ToggleCombo("tb.addmenu");
-					} else if (vact == 1) {
+				if (vact >= 0 && vact != 0) {
+					if (vact == 1) {
 						demo::Demo3DHostCopyNode(actV2);
 						NkHierNodeName(st, actV2, st.clipName, sizeof(st.clipName));
 					} else if (vact == 2) {
@@ -2330,7 +2340,13 @@ namespace nkentseu {
 						st.delAskOpen = true;
 					}
 					st.voidMenuOpen = 0;
-				} else if (hit.AnyClick() && !NkHitRegistry::Contains(mrV, hit.Mouse())) {
+				} else if (hit.AnyClick() && hit.IsHovered("addm.sub")) {
+					// Une CREATION dans la cascade Ajouter ferme tout le menu.
+					st.voidMenuOpen = 0;
+				} else if (hit.AnyClick() && !NkHitRegistry::Contains(mrV, hit.Mouse()) &&
+						   !hit.IsHovered("addm.panel") && !hit.IsHovered("addm.sub")) {
+					// Clic ailleurs : fermer — sauf dans la cascade Ajouter, qui
+					// fait partie du menu.
 					st.voidMenuOpen = 0;
 				}
 			}
