@@ -122,6 +122,56 @@ pages qu'il occupe. Sans ça, un traité de mathématiques de 400 pages pèserai
 plus que cinq livres d'histoire réunis, et Ilyana apprendrait surtout à parler
 mathématiques. La trace le dit : `equilibrage : 3 domaine(s), 109 sondages chacun`.
 
+### Des pages web
+
+**Une page enregistrée** (Ctrl+S dans le navigateur) :
+```
+NKIlyana.exe --ajouter --livre page.html --domaine <x> ^
+             --url https://l-adresse-d-origine --bibliotheque <dossier>
+```
+`--url` consigne l'origine au catalogue **à la place du chemin local**. Une page
+change et disparaît, là où un livre reste : une citation qui renvoie à une adresse
+morte doit au moins dire d'où elle venait.
+
+**Un site entier** :
+```
+NKIlyana.exe --aspirer --url https://un.site --sortie recolte.txt ^
+             --max-pages 100 --delai 1000 --profondeur 3
+```
+
+⚠️ **Récolter n'est pas déposer.** L'aspiration écrit un fichier, elle ne remplit
+pas la bibliothèque — pour que tu puisses **relire ce qui a été pris** avant de le
+verser. Fais-le : un site mêle articles, mentions légales et commentaires, et rien
+ne les distingue automatiquement. L'adresse de chaque page est écrite dans le
+fichier (`[source] https://…`), sans quoi, les pages mises bout à bout, plus rien
+ne dirait d'où vient un paragraphe.
+
+**Le vrai travail n'est pas de lire le HTML mais de TRIER.** Une page est faite en
+majorité de ce qui n'est pas l'article. Le tri repose sur une observation simple :
+un élément de navigation est **court et sans ponctuation de phrase** (« Accueil »,
+« En savoir plus ») ; un paragraphe d'article est **long et se termine par un
+point**. Règle grossière — elle perd quelques légendes et titres, jamais le corps
+du texte. La sortie annonce toujours combien de blocs ont été gardés et combien
+écartés : un tri qui ne rend pas ses comptes ne se vérifie pas.
+
+**Les quatre règles de l'aspirateur**, qui ne sont pas des scrupules mais des
+conditions de succès — un aspirateur qui martèle un serveur est bloqué en quelques
+minutes, et tout est à refaire depuis une adresse grillée :
+
+| règle | pourquoi |
+|---|---|
+| rester sur le domaine | suivre les liens sortants transforme la collecte d'un site en parcours de l'internet entier |
+| lire `robots.txt` **avant** de commencer | le lire après n'a aucun sens : on aurait déjà pris ce qu'on n'avait pas le droit de prendre |
+| espacer les requêtes (`--delai`) | un site personnel tourne souvent sur une machine modeste |
+| plafonner (`--max-pages`) | calendriers et filtres de recherche fabriquent des pages à l'infini |
+
+En cas de doute sur la portée d'une règle de `robots.txt`, elle est prise pour
+soi : s'interdire un chemin de trop coûte moins cher que se croire autorisé à tort.
+
+Ce que l'aspirateur ne fait pas : contourner une authentification ou un blocage,
+ni lire une page dont le contenu est construit par du script après affichage —
+celle-là revient vide, et il le dit.
+
 ### Lui apprendre à CITER ce qu'elle trouve
 
 ```
@@ -177,6 +227,8 @@ Et pour décider si on garde le résultat :
 | `.tex` (source LaTeX) | ✅ **marche, et c'est le MEILLEUR format** — voir ci-dessous |
 | `.epub` | ✅ **marche** (archive zip de pages XHTML) |
 | `.pdf` | ⚠️ **lu, mais les polices de beaucoup de documents ne se résolvent pas encore** |
+| `.html` / `.htm` | ✅ **marche** — l'article est trié du bruit (menus, pieds de page) |
+| un site entier | ✅ `--aspirer` — voir « Des pages web » plus bas |
 
 ⭐ **Pour les maths, la physique, l'informatique : donner le `.tex`, jamais le PDF.**
 Mesuré sur le même document : le PDF a rendu **0 passage**, sa source LaTeX en a
