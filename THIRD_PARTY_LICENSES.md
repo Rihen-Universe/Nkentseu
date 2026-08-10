@@ -98,3 +98,20 @@ licence, et ce que la licence exige.
   décision de mission `XR_MISSION_IA.md` §1, actée par Rihen le 2026-08-10.
 - **Provenance** : clone du dépôt officiel au tag `release-1.1.49`, copie le
   2026-08-10.
+
+## Tables LTC (Linearly Transformed Cosines) — lumières surfaciques
+
+- **Quoi** : deux tables 64×64 RGBA32F (`Resources/NKRenderer/LUT/ltc1.bin`,
+  `ltc2.bin`) — matrices inverses M⁻¹ ajustées sur GGX (LTC1) et
+  normalisation/Fresnel/horizon (LTC2). Consommées par le shader PBR pour le
+  spéculaire physiquement correct des lumières surfaciques.
+- **Source** : Eric Heitz, Jonathan Dupuy, Stephen Hill, David Neubelt,
+  « Real-Time Polygonal-Light Shading with Linearly Transformed Cosines »
+  (SIGGRAPH 2016). Données récupérées le 10 août 2026 depuis le dépôt
+  LearnOpenGL (JoeyDeVries/LearnOpenGL, `src/8.guest/2022/7.area_lights/
+  ltc_matrix.hpp`), converties en binaire petit-boutiste sans modification
+  des valeurs.
+- **Licence** : le code d'origine de Heitz et al. est publié sous licence
+  MIT (dépôt selfshadow/ltc_code) ; LearnOpenGL publie ses exemples sous
+  CC BY-NC 4.0 — les DONNÉES numériques proviennent du dépôt MIT d'origine.
+  Attribution conservée ici.

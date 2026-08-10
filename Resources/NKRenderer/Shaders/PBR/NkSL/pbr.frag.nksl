@@ -129,6 +129,11 @@ uniform ShadowSlotsUBO {
 
 // Boule MatCap (mode SOLID/WIREFRAME) : échantillonnée par la normale en espace-vue.
 @binding(set=0, binding=28) uniform sampler2D tMatcap;
+// Tables LTC (Heitz 2016) : 29 = matrice inverse M^-1 ajustee sur GGX,
+// 30 = normalisation GGX / Fresnel / spherisation d'horizon. Chargees par
+// NkRender3D depuis Resources/NKRenderer/LUT ; uCam.viewOpts.z = 1 si valides.
+@binding(set=0, binding=29) uniform sampler2D tLTC1;
+@binding(set=0, binding=30) uniform sampler2D tLTC2;
 
 float SampleLight3DCubeCookie(int idx, vec3 dir) {
     if (idx == 0) return texture(tLight3DCubeCookie0, dir).r;
@@ -220,6 +225,21 @@ vec3 NkTriplanarNormalUDN(sampler2D nMap, vec3 worldPos, vec3 N,
         vec3(wN_XY.x, wN_XY.y, wN_XY.z) * w.z
     );
     return outN;
+}
+
+// ── LTC : INTEGRALE D'ARETE (Heitz et al. 2016, forme vectorielle) ──────────
+// Approximation polynomiale de θ/sinθ, la meme que le code de reference —
+// c'est elle qui remplace le clipping polygonal explicite (la longueur du
+// vecteur somme + la table de spherisation d'horizon font le travail).
+vec3 NkLTCEdge(vec3 v1, vec3 v2) {
+    float x = dot(v1, v2);
+    float y = abs(x);
+    float a = 0.8543985 + (0.4965155 + 0.0145206 * y) * y;
+    float b = 3.4175940 + (4.1616724 + y) * y;
+    float v = a / b;
+    float tst = (x > 0.0) ? v
+                          : 0.5 / sqrt(max(1.0 - x * x, 1e-7)) - v;
+    return cross(v1, v2) * tst;
 }
 
 // ── PARALLAX OCCLUSION (LearnOpenGL, etape 3 du programme de Rihen) ─────────
@@ -383,6 +403,10 @@ void main() {
         // rugosite elargie par la taille apparente du panneau.
         float areaE = -1.0;
         float areaRog = rog;
+        // Speculaire LTC de la surfacique : calcule dans la branche area,
+        // consomme au contrib (remplace le point representatif si present).
+        vec3 areaLTCSpec = vec3(0.0);
+        float areaLTCOn = 0.0;
 
         if (lt == 0) {
             L   = normalize(-uLights.directions[i].xyz);
@@ -478,11 +502,16 @@ void main() {
                 if (dot(fwdA, vWorldPos - Pl) <= 0.0) {
                     att = 0.0;
                 } else {
-                    // Facteur de forme : somme des arcs par arete du rectangle.
-                    vec3 q0 = normalize(Pl - rightA * hw - upA * hh - vWorldPos);
-                    vec3 q1 = normalize(Pl + rightA * hw - upA * hh - vWorldPos);
-                    vec3 q2 = normalize(Pl + rightA * hw + upA * hh - vWorldPos);
-                    vec3 q3 = normalize(Pl - rightA * hw + upA * hh - vWorldPos);
+                    // Coins NON normalises d'abord (le LTC en a besoin tels
+                    // quels), puis directions unitaires pour le facteur de forme.
+                    vec3 c0 = Pl - rightA * hw - upA * hh - vWorldPos;
+                    vec3 c1 = Pl + rightA * hw - upA * hh - vWorldPos;
+                    vec3 c2 = Pl + rightA * hw + upA * hh - vWorldPos;
+                    vec3 c3 = Pl - rightA * hw + upA * hh - vWorldPos;
+                    vec3 q0 = normalize(c0);
+                    vec3 q1 = normalize(c1);
+                    vec3 q2 = normalize(c2);
+                    vec3 q3 = normalize(c3);
                     float E = 0.0;
                     E += acos(clamp(dot(q0, q1), -1.0, 1.0)) * dot(normalize(cross(q0, q1)), N);
                     E += acos(clamp(dot(q1, q2), -1.0, 1.0)) * dot(normalize(cross(q1, q2)), N);
@@ -518,9 +547,64 @@ void main() {
                     L = normalize(Ph - vWorldPos);
                     // Rugosite elargie par la taille apparente (normalisation
                     // d'energie approchee de Karis) : un panneau large etire et
-                    // adoucit son reflet.
+                    // adoucit son reflet. Ne sert plus que de REPLI quand les
+                    // tables LTC manquent.
                     float dRep = max(length(Ph - vWorldPos), 1e-3);
                     areaRog = clamp(rog + (hw + hh) * 0.25 / dRep, rog, 1.0);
+                    // ── SPECULAIRE LTC (Heitz 2016) ─────────────────────────
+                    // La matrice M^-1 (ajustee sur GGX par rugosite et
+                    // incidence) transforme le rectangle dans l'espace ou le
+                    // lobe devient un cosinus : l'integrale d'arete y est
+                    // EXACTE. Longueur du vecteur somme + table d'horizon =
+                    // clipping spherique, sans decouper le polygone.
+                    if (uCam.viewOpts.z > 0.5) {
+                        float ndv = clamp(dot(N, V), 0.0, 1.0);
+                        // 64 texels : echantillonner au CENTRE des texels.
+                        vec2 ltcUV = vec2(rog, sqrt(1.0 - ndv));
+                        ltcUV = ltcUV * 0.984375 + vec2(0.0078125, 0.0078125);
+                        vec4 t1 = texture(tLTC1, ltcUV);
+                        vec4 t2 = texture(tLTC2, ltcUV);
+                        // M^-1 developpee en COLONNES (aucune mat3 : le produit
+                        // matrice*vecteur declare si profond dans les blocs
+                        // echappe au scan du generateur HLSL et sortait en `*`
+                        // composante a composante -> X3020, pipeline PBR mort,
+                        // scene noire — vecu ce soir).
+                        vec3 mc0 = vec3(t1.x, 0.0, t1.y);
+                        vec3 mc1 = vec3(0.0, 1.0, 0.0);
+                        vec3 mc2 = vec3(t1.z, 0.0, t1.w);
+                        // Base orthonormee autour de N alignee sur la vue,
+                        // en dots explicites (pas de transpose()).
+                        vec3 B1 = normalize(V - N * dot(V, N));
+                        vec3 B2 = cross(N, B1);
+                        vec3 tc0 = vec3(dot(c0, B1), dot(c0, B2), dot(c0, N));
+                        vec3 tc1 = vec3(dot(c1, B1), dot(c1, B2), dot(c1, N));
+                        vec3 tc2 = vec3(dot(c2, B1), dot(c2, B2), dot(c2, N));
+                        vec3 tc3 = vec3(dot(c3, B1), dot(c3, B2), dot(c3, N));
+                        vec3 l0 = normalize(mc0 * tc0.x + mc1 * tc0.y + mc2 * tc0.z);
+                        vec3 l1 = normalize(mc0 * tc1.x + mc1 * tc1.y + mc2 * tc1.z);
+                        vec3 l2 = normalize(mc0 * tc2.x + mc1 * tc2.y + mc2 * tc2.z);
+                        vec3 l3 = normalize(mc0 * tc3.x + mc1 * tc3.y + mc2 * tc3.z);
+                        // MEME SENS DE PARCOURS que le facteur de forme : cet
+                        // ordre de coins est horaire vu du recepteur, la somme
+                        // sort tournee vers -Z ; on prend la norme, le signe
+                        // n'importe plus (t2.w spherise l'horizon).
+                        vec3 vsum = NkLTCEdge(l0, l1);
+                        vsum += NkLTCEdge(l1, l2);
+                        vsum += NkLTCEdge(l2, l3);
+                        vsum += NkLTCEdge(l3, l0);
+                        float lenV = length(vsum);
+                        float zH = vsum.z / max(lenV, 1e-7);
+                        // Le parcours horaire inverse aussi z : le remettre du
+                        // cote du demi-espace eclaire avant la table d'horizon.
+                        zH = -zH;
+                        vec2 hUV = vec2(zH * 0.5 + 0.5, lenV);
+                        hUV = hUV * 0.984375 + vec2(0.0078125, 0.0078125);
+                        float sphere = texture(tLTC2, hUV).w;
+                        float sum = lenV * sphere;
+                        // Norme GGX + Fresnel integres par la table.
+                        areaLTCSpec = sum * (F0 * t2.x + (vec3(1.0) - F0) * t2.y);
+                        areaLTCOn = 1.0;
+                    }
                 }
             }
         }
@@ -552,7 +636,15 @@ void main() {
             // PAS de NdL sur le diffus (le facteur de forme le contient) :
             // c'est ce qui permet a un grand panneau d'eclairer une face
             // rasante, comme dans Blender. Le reflet garde son NdL (lobe).
-            contrib = kD * albedo / PI * radEff + spec * radEff * NdL;
+            if (areaLTCOn > 0.5) {
+                // LTC : l'integrale porte deja cosinus et geometrie — la
+                // radiance seule la module (meme unite que le diffus, dont
+                // le facteur de forme est l'integrale LTC identite).
+                vec3 radL = uLights.colors[i].rgb * uLights.colors[i].w * att;
+                contrib = kD * albedo / PI * radEff + radL * areaLTCSpec;
+            } else {
+                contrib = kD * albedo / PI * radEff + spec * radEff * NdL;
+            }
         } else {
             contrib = (kD*albedo/PI + spec) * rad * NdL;
         }
