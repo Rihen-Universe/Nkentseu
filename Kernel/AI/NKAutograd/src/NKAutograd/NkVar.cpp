@@ -761,6 +761,21 @@ namespace nkentseu {
 					const int64 C = sh.Size() >= 2 ? sh[1] : NkShapeNumel(sh);
 					const int64 activeRows = n->iparam[0] > 0 ? (int64)n->iparam[0] : B;
 					const double coef = (activeRows > 0) ? s / (double)activeRows : 0.0;
+
+					// Chemin GPU : le scatter se fait sur la carte. Sans lui, les 201 Mo
+					// de `probs` redescendaient sur le CPU puis remontaient, à chaque
+					// micro-lot — c'était le premier poste de dépense de l'entraînement.
+					if (probs.Device() == NkDevice::NK_GPU) {
+						NkTensor dg = NkGpuCeIdxBackward(probs, n->b->value, coef);
+						if (dg.IsValid()) {
+							AccumGrad(n->a, dg);
+							break;
+						}
+						// Repli silencieux impossible : on saurait que le calcul n'a pas
+						// eu lieu seulement à la perte immobile. On retombe donc sur le
+						// chemin CPU ci-dessous, correct quoique lent.
+					}
+
 					// probs -> CPU, soustrait 1 à la classe cible (scatter), annule les lignes masquées.
 					NkTensor diff = ToCpuT(probs).Contiguous();
 					NkTensor ti = ToCpuT(n->b->value).Contiguous();
@@ -1267,7 +1282,37 @@ namespace nkentseu {
 				// Identique à SoftmaxCrossEntropy mais la cible est un vecteur d'INDICES [B] (un id de classe
 				// par ligne). idx < 0 => ligne MASQUÉE (ignorée en loss ET en gradient). Évite le one-hot [B,V].
 				//   L = −(1/activeRows) Σ_{b actif} log(probs[b, idx[b]]).
-				NkTensor probs = SoftmaxRows(ToCpuT(logits.Value())); // CPU-only (comme la version one-hot)
+				// Chemin GPU : le softmax reste sur la carte et on ne redescend que la
+				// perte PAR LIGNE (B flottants) au lieu du tenseur [B, vocabulaire].
+				// Mesuré sur Ilyana : 201 Mo par micro-lot, deux fois par pas.
+				if (logits.Value().Device() == NkDevice::NK_GPU) {
+					NkTensor probsG = SoftmaxRows(logits.Value());
+					NkTensor cibG = (targetIdx.Value().Device() == NkDevice::NK_GPU) ? targetIdx.Value()
+																					 : targetIdx.Value().ToGPU();
+					NkTensor pertes = NkGpuCeIdxForward(probsG, cibG);
+					if (pertes.IsValid()) {
+						NkTensor pc = ToCpuT(pertes).Contiguous();
+						NkTensor tc = ToCpuT(targetIdx.Value()).Contiguous();
+						const float *lp = pc.DataAs<float>();
+						const float *tpv = tc.DataAs<float>();
+						const int64 Bg = NkShapeNumel(pc.Shape());
+						double sum = 0.0;
+						int64 actifs = 0;
+						for (int64 b = 0; b < Bg; ++b)
+							if (tpv[b] >= 0.f) {
+								sum += (double)lp[b];
+								++actifs;
+							}
+						const double lg = (actifs > 0) ? sum / (double)actifs : 0.0;
+						NkTensor lt = NkTensor::Full(NkShape{(int64)1}, lg);
+						NkVar rg = NkMakeOp(NkAutoOp::NK_SOFTMAX_CE_IDX, lt, logits.Node(), targetIdx.Node());
+						rg.Node()->iparam[0] = (int32)actifs;
+						rg.Node()->iparam[1] = (actifs == Bg) ? 0 : 1;
+						return rg;
+					}
+				}
+
+				NkTensor probs = SoftmaxRows(ToCpuT(logits.Value())); // repli CPU
 				NkTensor ti = ToCpuT(targetIdx.Value()).Contiguous();
 				const NkShape &sh = probs.Shape();
 				const int64 B = sh.Size() >= 1 ? sh[0] : 1;

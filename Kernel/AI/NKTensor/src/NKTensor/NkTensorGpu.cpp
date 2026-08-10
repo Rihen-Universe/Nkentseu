@@ -1193,6 +1193,110 @@ void main() {
 			return NkTensorInternal::MakeGpu(gx.Shape(), gx.DType(), db);
 		}
 
+		// ---- Entropie croisée à cible par INDICES, sur GPU -----------------------
+		//
+		// POURQUOI CES DEUX NOYAUX. La perte et son gradient étaient calculés sur
+		// CPU : cela RAPATRIAIT tout le tenseur de logits à chaque micro-lot. À
+		// B=12, T=256, vocabulaire 16385, ce sont 201 Mo qui descendent, un softmax
+		// mono-thread sur 50 millions d'éléments, puis 201 Mo qui remontent — deux
+		// fois par pas. Le GPU passait 70 % de son temps à attendre le CPU (mesuré :
+		// 28-41 % d'occupation, 30-70 W sur une carte qui en encaisse 220).
+		// Ici tout reste sur la carte : seuls B flottants redescendent (la perte par
+		// ligne) au lieu de B×vocabulaire.
+
+		// Gradient : dLogits[b,c] = (probs[b,c] − [c == cible[b]]) × coef.
+		// Cible négative = ligne MASQUÉE : gradient nul.
+		static const char *kCeIdxBwdNkSL = R"NKSL(
+@binding(set=0, binding=0) buffer BufP { float data[]; } P;
+@binding(set=0, binding=1) buffer BufT { float data[]; } T;
+@binding(set=0, binding=2) buffer BufO { float data[]; } O;
+@binding(set=0, binding=3) uniform Params { uint count; uint C; float coef; uint pad; } pc;
+layout(local_size_x = 64) in;
+@stage(compute)
+@entry
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i < pc.count) {
+        uint b = i / pc.C;
+        uint c = i - b * pc.C;
+        float t = T.data[b];
+        if (t < 0.0) { O.data[i] = 0.0; }
+        else {
+            uint idx = uint(t + 0.5);
+            float v = P.data[i];
+            if (c == idx) { v = v - 1.0; }
+            O.data[i] = v * pc.coef;
+        }
+    }
+}
+)NKSL";
+
+		// Perte par ligne : L[b] = −log(probs[b, cible[b]]), 0 si masquée.
+		static const char *kCeIdxFwdNkSL = R"NKSL(
+@binding(set=0, binding=0) buffer BufP { float data[]; } P;
+@binding(set=0, binding=1) buffer BufT { float data[]; } T;
+@binding(set=0, binding=2) buffer BufO { float data[]; } O;
+@binding(set=0, binding=3) uniform Params { uint count; uint C; uint pad0; uint pad1; } pc;
+layout(local_size_x = 64) in;
+@stage(compute)
+@entry
+void main() {
+    uint b = gl_GlobalInvocationID.x;
+    if (b < pc.count) {
+        float t = T.data[b];
+        if (t < 0.0) { O.data[b] = 0.0; }
+        else {
+            uint idx = uint(t + 0.5);
+            float p = P.data[b * pc.C + idx];
+            O.data[b] = -log(p + 1e-12);
+        }
+    }
+}
+)NKSL";
+
+		NkTensor NkGpuCeIdxForward(const NkTensor &probs, const NkTensor &cibles) {
+			NkTensor gp = (probs.Device() == NkDevice::NK_GPU) ? probs : probs.ToGPU();
+			NkTensor gt = (cibles.Device() == NkDevice::NK_GPU) ? cibles : cibles.ToGPU();
+			if (!gp.IsValid() || !gt.IsValid())
+				return NkTensor{};
+			const NkShape &sh = gp.Shape();
+			const int64 B = sh.Size() >= 1 ? sh[0] : 1;
+			const int64 C = sh.Size() >= 2 ? sh[1] : gp.Numel();
+			uint64 ob = NkTensorGpu::Get().CreateBuffer((nk_size)B * NkDTypeSize(gp.DType()));
+			if (!ob)
+				return NkTensor{};
+			uint32 p[12] = {(uint32)B, (uint32)C, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+			NkTensorGpu::Get().RunOp3("ce_idx_fwd", NkString(kCeIdxFwdNkSL), NkTensorInternal::GpuBuffer(gp),
+									  NkTensorInternal::GpuBuffer(gt), ob, p, (uint32)B);
+			return NkTensorInternal::MakeGpu(NkShape{B}, gp.DType(), ob);
+		}
+
+		NkTensor NkGpuCeIdxBackward(const NkTensor &probs, const NkTensor &cibles, double coef) {
+			NkTensor gp = (probs.Device() == NkDevice::NK_GPU) ? probs : probs.ToGPU();
+			NkTensor gt = (cibles.Device() == NkDevice::NK_GPU) ? cibles : cibles.ToGPU();
+			if (!gp.IsValid() || !gt.IsValid())
+				return NkTensor{};
+			const NkShape &sh = gp.Shape();
+			const int64 B = sh.Size() >= 1 ? sh[0] : 1;
+			const int64 C = sh.Size() >= 2 ? sh[1] : gp.Numel();
+			const int64 n = B * C;
+			uint64 ob = NkTensorGpu::Get().CreateBuffer((nk_size)n * NkDTypeSize(gp.DType()));
+			if (!ob)
+				return NkTensor{};
+			// `coef` traverse le bloc de paramètres (déclaré en uint côté hôte) : on
+			// recopie ses octets tels quels, le shader le relit en float.
+			const float coefF = (float)coef;
+			uint32 coefBits = 0;
+			const unsigned char *src = (const unsigned char *)&coefF;
+			unsigned char *dst = (unsigned char *)&coefBits;
+			for (int k = 0; k < 4; ++k)
+				dst[k] = src[k];
+			uint32 p[12] = {(uint32)n, (uint32)C, coefBits, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+			NkTensorGpu::Get().RunOp3("ce_idx_bwd", NkString(kCeIdxBwdNkSL), NkTensorInternal::GpuBuffer(gp),
+									  NkTensorInternal::GpuBuffer(gt), ob, p, (uint32)n);
+			return NkTensorInternal::MakeGpu(gp.Shape(), gp.DType(), ob);
+		}
+
 		// ---- Embedding : table[vocab,d], idx[..] (ids f32) -> [.., d] ; bwd scatter-add
 		static const char *kEmbeddingFwdNkSL = R"NKSL(
 @binding(set=0, binding=0) buffer BufT { float data[]; } Tb;

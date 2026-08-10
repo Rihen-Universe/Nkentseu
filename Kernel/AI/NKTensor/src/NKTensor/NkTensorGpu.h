@@ -129,6 +129,14 @@ namespace nkentseu {
 		NkTensor NkGpuGelu(const NkTensor &a);					 // GELU(A) (tanh-approx)
 		NkTensor NkGpuGeluBackward(const NkTensor &x, const NkTensor &grad);
 
+		// Entropie croisée à cible par INDICES, entièrement sur GPU. Évite de
+		// rapatrier le tenseur de logits [lignes, vocabulaire] à chaque micro-lot —
+		// 201 Mo dans chaque sens, deux fois par pas, avant ces deux fonctions.
+		// `probs` = softmax déjà calculé ; `cibles` = un indice de classe par ligne,
+		// négatif pour une ligne masquée.
+		NkTensor NkGpuCeIdxForward(const NkTensor &probs, const NkTensor &cibles);	// -> pertes par ligne [B]
+		NkTensor NkGpuCeIdxBackward(const NkTensor &probs, const NkTensor &cibles, double coef); // -> dLogits
+
 		// Embedding : table[vocab,d], indices (ids en f32) -> lignes rassemblées ; backward =
 		// scatter-add (gather par ligne de table, sans course).
 		NkTensor NkGpuEmbedding(const NkTensor &table, const NkTensor &idx);
