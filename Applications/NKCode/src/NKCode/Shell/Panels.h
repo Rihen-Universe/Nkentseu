@@ -974,7 +974,13 @@ namespace nkentseu {
 							// (fichiers) — jamais 100% global avant la vraie fin du build.
 							const int32 pctG = (int32)(mS->BuildProgress() * 100.f + 0.5f);
 							const int32 pctM = (int32)(mS->ModuleProgress() * 100.f + 0.5f);
-							buildInd = NkPrintf("%c %s %d%% (module %d%%)      ", spc, mS->status.CStr(), pctG, pctM);
+							// Le nom du module en cours quand il est connu : « module 12 % »
+							// ne disait pas LEQUEL, sur un build qui en enchaine vingt.
+							buildInd = mS->buildModule.Empty()
+										   ? NkPrintf("%c %s %d%% (module %d%%)      ", spc, mS->status.CStr(), pctG,
+													  pctM)
+										   : NkPrintf("%c %s %d%% (%s %d%%)      ", spc, mS->status.CStr(), pctG,
+													  mS->buildModule.CStr(), pctM);
 						}
 						// Compteur d'instances d'EXECUTION (jenga run, process separes du build) :
 						// aide au test multi-instances - visible tant qu'au moins une tourne.
@@ -1953,6 +1959,16 @@ namespace nkentseu {
 						mS->projDone = 0;
 						mS->buildTotal = 0;
 						mS->buildDone = 0;
+					} else if (const char *pn = FindP(L, "Project: ")) {
+						// Banniere de module de Jenga : « Project: NKRenderer ». Meme
+						// information que le champ `project` des evenements structures,
+						// pour le chemin texte (terminal generique).
+						NkString nom;
+						for (const char *q = pn; *q && *q != ' ' && *q != '\r' && *q != '\n'; ++q)
+							nom += *q;
+						nom.Trim();
+						if (!nom.Empty())
+							mS->buildModule = nom;
 					} else if (const char *p2 = FindP(L, "Found ")) {
 						int n = 0;
 						const char *q = p2;
