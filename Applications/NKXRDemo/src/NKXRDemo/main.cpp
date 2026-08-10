@@ -45,6 +45,7 @@
 #include "NKRenderer/Materials/NkMaterialCollection.h"
 #include "NKRenderer/Mesh/NkMeshSystem.h"
 #include "NKRenderer/Tools/Offscreen/NkOffscreenTarget.h"
+#include "NKRenderer/Tools/Shadow/NkVirtualShadowMaps.h"
 #include "NKRenderer/Tools/Render3D/NkRender3D.h"
 #include "NKRenderer/Tools/Render2D/NkRender2D.h"
 #include "NKRenderer/Tools/Overlay/NkOverlayRenderer.h"
@@ -260,6 +261,13 @@ int nkmain(const NkEntryState &state) {
 		rEye[e]->SetRenderSizeOverride(eyeW, eyeH);
 		rEye[e]->SetFinalColorTarget(rMain->GetTextures()->GetRHIHandle(eyeTargets[e]->GetColorResult()));
 		rEye[e]->SetBackgroundColor({ 0.05f, 0.06f, 0.09f, 1.f });
+		// Cascades d'ombres ancrées au MONDE (auto-fit aux casters) : sans ça,
+		// la cascade se recale sur la caméra à chaque frame et les surfaces
+		// clignotent clair/foncé dès que la tête bouge (le « swimming » déjà
+		// documenté par Tutoriels3D/04-Camera). En VR la tête bouge TOUJOURS.
+		if (auto *shadow = rEye[e]->GetShadow()) {
+			shadow->GetConfig().autoFitDirectional = true;
+		}
 
 		nkxr::NkXrSwapchainDesc scDesc;
 		scDesc.width = eyeW;
