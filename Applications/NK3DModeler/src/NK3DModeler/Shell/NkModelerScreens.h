@@ -753,6 +753,15 @@ namespace nkentseu {
 				st.docUnitLen[dOld] = st.unitLength;
 				st.docUnitScale[dOld] = st.unitScale;
 			}
+			// LES REGLAGES RENDU AUSSI (par scene, Rihen 10 aout) : requete
+			// DIFFEREE — le gestionnaire de projet capture l'etat du document
+			// quitte puis applique l'instantane de l'active (l'etat vivant est
+			// global a la vue, il n'a pas encore bouge au moment du differe).
+			// Seules les SCENES possedent ces reglages, pas les editeurs d'asset.
+			if (st.sceneTabKind[st.activeTab] == 0 && dOld >= 0)
+				st.renduSwitchFrom = dOld;
+			if (st.sceneTabKind[tb] == 0)
+				st.renduSwitchTo = d;
 			if (st.editPreviewNode > 0) {
 				demo::Demo3DHostDeleteNode(st.editPreviewNode - 1, true);
 				st.editPreviewNode = 0;
