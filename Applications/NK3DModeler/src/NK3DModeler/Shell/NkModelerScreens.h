@@ -12244,10 +12244,28 @@ namespace nkentseu {
 					p.Disc(cx, cy, 22.f, role);
 					p.Disc(cx - 8.f, cy - 8.f, 5.f, NkRole::Text);
 				} else if (kind == 5) {
-					// SCENE : un globe raye -- un monde a ouvrir.
-					p.Disc(cx, cy, 22.f, role);
-					p.Fill({cx - 22.f, cy - 2.f, 44.f, 4.f}, NkRole::PanelHeader);
-					p.Fill({cx - 2.f, cy - 22.f, 4.f, 44.f}, NkRole::PanelHeader);
+					// SCENE : la MINIATURE REELLE si elle existe (elle vient de
+					// LA VUE, cf. la regle ci-dessus) ; sinon le globe raye --
+					// un monde a ouvrir.
+					const int32 dTh = st.browserDoc[i] - 1;
+					if (dTh >= 0 && dTh < NkModelerState::kMaxDocs &&
+						st.docThumb[dTh] == 1 && st.docThumbW[dTh] > 0 &&
+						st.docThumbH[dTh] > 0) {
+						// AJUSTEE SANS DEFORMER, centree sur le damier : la vue
+						// est large, la carte presque carree — deformer rendrait
+						// toutes les vignettes menteuses.
+						const float32 iw = (float32)st.docThumbW[dTh];
+						const float32 ih = (float32)st.docThumbH[dTh];
+						const float32 sc =
+							((tw / iw) < (pvH / ih)) ? (tw / iw) : (pvH / ih);
+						const float32 dw = iw * sc, dh = ih * sc;
+						p.Image(4500u + (uint32)dTh, {tx + (tw - dw) * 0.5f,
+													  tyy + (pvH - dh) * 0.5f, dw, dh});
+					} else {
+						p.Disc(cx, cy, 22.f, role);
+						p.Fill({cx - 22.f, cy - 2.f, 44.f, 4.f}, NkRole::PanelHeader);
+						p.Fill({cx - 2.f, cy - 22.f, 4.f, 44.f}, NkRole::PanelHeader);
+					}
 				} else if (kind == 6) {
 					// MESH reutilisable : cube plein -- une piece prete a cloner.
 					p.Fill({cx - 16.f, cy - 14.f, 32.f, 28.f}, role);
