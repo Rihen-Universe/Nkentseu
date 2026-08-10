@@ -78,6 +78,14 @@ namespace nkentseu {
 					// avec l'absence.
 					bool AvaitToUnicode() const { return mAvaitToUnicode; }
 
+					// Codes INDEXES par la table, pour les confronter a ceux que le
+					// flux de texte demande reellement. Une table lue sans faute mais
+					// interrogee avec la mauvaise cle rend exactement le meme resultat
+					// qu'une table absente : du vide. Seule cette comparaison les
+					// separe.
+					nk_size NbEntreesUni() const { return mUniCodes.Size(); }
+					uint32 CodeUniAt(nk_size i) const { return (i < mUniCodes.Size()) ? mUniCodes[i] : 0u; }
+
 					// Nom de la police tel que declare (diagnostic).
 					const NkString &BaseFont() const { return mBaseFont; }
 

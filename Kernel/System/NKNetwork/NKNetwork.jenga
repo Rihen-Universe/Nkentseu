@@ -18,11 +18,21 @@ from Jenga import *
 from jengaconfig import *
 import os
 
-# TLS/HTTPS opt-in : NK_ENABLE_TLS=1 (ou mbedtls) active le backend mbed-TLS
-# (bibliotheque NKMbedTLS, C pur, cross-compilee pour toutes les plateformes y
-# compris iOS). Desactive par defaut -> HTTP simple uniquement, aucune dependance.
-_TLS_OPT = os.getenv("NK_ENABLE_TLS", "").strip().lower()
-_WANT_MBEDTLS = _TLS_OPT in ("1", "true", "on", "yes", "mbedtls")
+# TLS/HTTPS : ACTIVE PAR DEFAUT depuis le 2026-08-11 (backend mbed-TLS, C pur,
+# cross-compile pour toutes les plateformes y compris iOS).
+#
+# POURQUOI CE CHANGEMENT DE DEFAUT. Il etait auparavant opt-in par la variable
+# NK_ENABLE_TLS, et l'oubli ne se voyait qu'a l'execution : toute requete vers une
+# adresse en https rendait un code 0. Or le web est aujourd'hui en https quasi
+# partout — un client HTTP sans TLS ne sert a rien dans les faits, et son absence
+# se paie en heures de diagnostic pour un reglage qu'on ne pouvait pas deviner.
+# Un defaut qu'il faut penser a activer pour que la chose marche est un mauvais
+# defaut.
+#
+# NK_DISABLE_TLS=1 permet de s'en passer (cible embarquee sans pile TLS, ou
+# construction volontairement minimale).
+_TLS_OFF = os.getenv("NK_DISABLE_TLS", "").strip().lower()
+_WANT_MBEDTLS = _TLS_OFF not in ("1", "true", "on", "yes")
 
 _NET_DEPS = ["NKCore", "NKPlatform", "NKMemory", "NKContainers", "NKLogger", "NKThreading", "NKMath", "NKTime", "NKFileSystem"]
 _NET_INCLUDES = ["src", "pch"]

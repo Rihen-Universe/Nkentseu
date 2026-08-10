@@ -252,6 +252,36 @@ agit sans qu'on puisse contrôler son action est exactement ce qu'on ne veut pas
 
 ---
 
+## ⛔ RÉGRESSION OUVERTE (2026-08-11) — activer TLS a cassé la lecture PDF
+
+**Symptôme** : `--ajouter` sur un PDF qui fonctionnait rend désormais
+`contenu 0 o, 0 operations`. Le document n'est plus ouvert du tout. Le même
+fichier donnait auparavant 21 Mo de contenu et ~2 000 000 d'opérations.
+
+**Ce qui a changé entre les deux mesures**, et rien d'autre :
+1. `NKNetwork.jenga` : TLS passé d'opt-in à **actif par défaut** ;
+2. `NKIlyana.jenga` : ajout de `NKMbedTLS` aux dépendances ;
+3. `NKIlyana.jenga` : ajout de `bcrypt` aux bibliothèques Windows ;
+4. `NkPdfFont.h` : deux accesseurs **inline** (pas de changement de disposition
+   mémoire, donc peu suspect).
+
+**Écarté** : les objets périmés. NKMedia ET NKIlyana ont été entièrement
+reconstruits, la régression persiste.
+
+**Prochaine étape — COUPER LE SUSPECT, pas le réparer.** Reconstruire avec
+`NK_DISABLE_TLS=1` (et sans `NKMbedTLS` ni `bcrypt` dans NKIlyana.jenga) puis
+relancer la même mesure. Si la lecture PDF revient, la cause est bien le lien ;
+sinon elle est ailleurs et les trois changements ci-dessus sont innocents. Cette
+mesure doit être faite AVANT toute tentative de correction.
+
+**Hypothèse à vérifier ensuite** : un conflit de symbole entre mbed-TLS et le
+décompresseur utilisé par le PDF — les deux embarquent du code de bas niveau, et
+l'éditeur de liens choisit alors silencieusement l'un des deux.
+
+⚠️ En attendant, l'aspiration de sites fonctionne (elle a besoin de TLS) mais la
+lecture PDF ne fonctionne plus. Les deux ne peuvent pas coexister dans cette
+construction — c'est précisément ce qu'il faut résoudre.
+
 ## PDF — diagnostic du 2026-08-10 sur le fonds réel (D:\softwareRenderer)
 
 **Le fonds** : 8,4 Go, 267 PDF, 175 archives, 67 vidéos.
