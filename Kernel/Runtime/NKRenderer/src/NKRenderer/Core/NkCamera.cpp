@@ -34,16 +34,20 @@ namespace nkentseu {
 
 		void NkCamera3D::SetFOV(float32 fov) noexcept {
 			mData.fovY = fov;
+			// Revenir au frustum symétrique : qui règle un fovY veut un fovY.
+			mData.useFovAsym = false;
 			mDirty = true;
 		}
 
 		void NkCamera3D::SetAspect(float32 a) noexcept {
 			mData.aspect = a;
+			mData.useFovAsym = false;
 			mDirty = true;
 		}
 
 		void NkCamera3D::SetAspect(uint32 w, uint32 h) noexcept {
 			mData.aspect = (h > 0) ? (float32)w / (float32)h : 1.f;
+			mData.useFovAsym = false;
 			mDirty = true;
 		}
 
@@ -56,6 +60,20 @@ namespace nkentseu {
 		void NkCamera3D::SetOrtho(bool ortho, float32 size) noexcept {
 			mData.ortho = ortho;
 			mData.orthoSize = size;
+			mDirty = true;
+		}
+
+		void NkCamera3D::SetFovAsym(float32 left, float32 right, float32 up, float32 down) noexcept {
+			mData.useFovAsym = true;
+			mData.fovLeft = left;
+			mData.fovRight = right;
+			mData.fovUp = up;
+			mData.fovDown = down;
+			mDirty = true;
+		}
+
+		void NkCamera3D::ClearFovAsym() noexcept {
+			mData.useFovAsym = false;
 			mDirty = true;
 		}
 
@@ -97,7 +115,31 @@ namespace nkentseu {
 			mView[3][2] = (fwd.x * mData.position.x + fwd.y * mData.position.y + fwd.z * mData.position.z);
 
 			// ── Projection ───────────────────────────────────────────────────
-			if (!mData.ortho) {
+			if (!mData.ortho && mData.useFovAsym) {
+				// Frustum DÉCENTRÉ (XR — note de coordination NKXR dans la
+				// ROADMAP) : quatre demi-angles signés en radians, MÊME
+				// convention que le chemin symétrique ci-dessous (colonne-
+				// majeure, profondeur [-1,1], w = -z_vue). Pour un FOV
+				// symétrique les deux chemins produisent la même matrice —
+				// c'est ce qui rend la bascule vérifiable au pixel près.
+				float32 tanL = math::NkTan(mData.fovLeft);
+				float32 tanR = math::NkTan(mData.fovRight);
+				float32 tanU = math::NkTan(mData.fovUp);
+				float32 tanD = math::NkTan(mData.fovDown);
+				float32 tanW = tanR - tanL;
+				float32 tanH = tanU - tanD;
+				float32 f = mData.farPlane, n = mData.nearPlane;
+				mProj = NkMat4f::Zero();
+				mProj[0][0] = 2.f / tanW;
+				mProj[1][1] = 2.f / tanH;
+				// Le décentrage vit dans la 3e colonne : multiplié par z_vue,
+				// il déplace le centre du frustum sans cisailler l'image.
+				mProj[2][0] = (tanR + tanL) / tanW;
+				mProj[2][1] = (tanU + tanD) / tanH;
+				mProj[2][2] = -(f + n) / (f - n);
+				mProj[2][3] = -1.f;
+				mProj[3][2] = -(2.f * f * n) / (f - n);
+			} else if (!mData.ortho) {
 				float32 tanHalf = math::NkTan(mData.fovY * 0.5f * 3.14159265f / 180.f);
 				float32 f = mData.farPlane, n = mData.nearPlane;
 				mProj = NkMat4f::Zero();

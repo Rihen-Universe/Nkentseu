@@ -18,6 +18,41 @@ voir « Multi-backend » plus bas). Metal + Software restent à valider.
 
 ---
 
+## 🥽 NOTE DE COORDINATION — chantier NKXR / stéréo (agent XR, 2026-08-10)
+
+Le chantier XR (`Kernel/Runtime/NKXR`, `XR_MISSION_IA.md`, branche de travail
+worktree `Nkentseu-xr`) a livré son étage 0 (validé par Rihen le 2026-08-10) :
+la démo `NKXRDemo` rend déjà la stéréo côte à côte **sans toucher aux passes**
+— un `NkRenderer` complet PAR ŒIL en offscreen partagé (patron NK3DModeler),
+c'est la « V1 deux passes vers deux cibles » prévue par la mission. L'étage 1
+demande maintenant DE la coordination, d'où cette note. Interlocuteur : agent
+NKXR ; rien ici ne sera fait sans elle.
+
+**Ce que l'étage 1 touche (minimal, hors fichiers verrouillés) :**
+1. `Core/NkRendererTypes.h` + `Core/NkCamera.{h,cpp}` — **frustum décentré** :
+   champs `useFovAsym + fovLeft/Right/Up/Down` (radians signés, convention
+   XrFovf) dans `NkCamera3DData`, branche dédiée dans `RebuildImpl` avec la
+   MÊME convention que le chemin symétrique (colonne-majeure, profondeur
+   [-1,1], `w = -z_vue`) → pour un FOV symétrique, matrice IDENTIQUE au pixel
+   près (c'est le critère de non-régression). Le culling suit tout seul : les
+   plans de frustum sont extraits de `viewProj` (Gribb-Hartmann). AUCUNE passe
+   modifiée. La projection de référence côté NKXR : `NkXrProjectionFromFov`
+   (`NKXR/NkXrTypes.h`), testée aux bords du clip (self-test 66/66).
+2. Rien d'autre à ce stade. Le partage d'un seul graphe pour deux vues (une
+   seule shadow map, un seul culling — aujourd'hui tout est ×2) et le
+   **multiview Vulkan** sont des chantiers ULTÉRIEURS qui toucheront le
+   RenderGraph et les passes : ils feront l'objet d'une NOUVELLE note et d'un
+   accord explicite AVANT toute modification.
+
+**Exigence de Rihen (2026-08-10) — ANTI-ALIASING performant en XR** : en
+casque, l'aliasing scintille à chaque micro-mouvement de tête ; le FXAA actuel
+ne suffira pas à terme. Pistes à instruire au moment du chantier qualité XR :
+MSAA sur les cibles d'œil (forward), TAA (attention aux fantômes en stéréo :
+deux historiques indépendants obligatoires), supersampling par œil +
+compositeur. À arbitrer avec ce chantier-ci, pas en silo.
+
+---
+
 ## ⚠️ Trois pièges du RenderGraph et des passes plein écran (mesurés, 2026-07-30)
 
 Découverts en finissant le TAA. Les trois produisaient une image **d'apparence
