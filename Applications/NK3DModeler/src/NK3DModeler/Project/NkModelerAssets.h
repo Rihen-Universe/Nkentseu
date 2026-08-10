@@ -290,6 +290,18 @@ namespace nkentseu {
 			o.SetFloat32("emissifIntensite", emiS);
 			// Echelle du parallax (canal Hauteur, 10 aout). Defaut 0 = coupe.
 			o.SetFloat32("parallax", demo::Demo3DHostProjMatParallax(slot));
+			// Melange (etape 1) : B par NOM (les emplacements changent d'une
+			// session a l'autre, le nom est la seule identite stable).
+			{
+				const int32 bSlot = demo::Demo3DHostProjMatMixWith(slot);
+				char bn[64] = {};
+				if (bSlot >= 0)
+					(void)demo::Demo3DHostProjMatInfo(bSlot, bn, sizeof(bn), nullptr,
+													  nullptr, nullptr);
+				o.SetString("mixAvec", bn);
+				o.SetInt32("mixSource", demo::Demo3DHostProjMatMixSource(slot));
+				o.SetFloat32("mixFacteur", demo::Demo3DHostProjMatMixFactor(slot));
+			}
 			float32 emi[3] = {0.f, 0.f, 0.f};
 			demo::Demo3DHostProjMatEmissive(slot, emi);
 			NkScSetVec3(o, "emissif", emi);
@@ -328,6 +340,27 @@ namespace nkentseu {
 												   NkScFloat(in, "emissifIntensite", 1.f));
 			// Meme regle que le relief : l'echelle AVANT la carte de hauteur.
 			demo::Demo3DHostProjMatSetParallax(slot, NkScFloat(in, "parallax", 0.f));
+			// Melange : B retrouve PAR NOM parmi les materiaux deja charges.
+			// LIMITE V1 consignee : si B se charge APRES A dans l'ordre du
+			// navigateur, le lien saute pour la session (le second passage de
+			// resolution reste a cabler).
+			{
+				const NkString bn = NkScStr(in, "mixAvec");
+				if (!bn.Empty()) {
+					int32 bSlot = -1;
+					for (int32 k = 0; k < 64 && bSlot < 0; ++k) {
+						char nm2[64];
+						if (demo::Demo3DHostProjMatInfo(k, nm2, sizeof(nm2), nullptr,
+														nullptr, nullptr) &&
+							bn == nm2)
+							bSlot = k;
+					}
+					if (bSlot >= 0)
+						demo::Demo3DHostProjMatSetMix(slot, bSlot,
+													  NkScInt(in, "mixSource", 0),
+													  NkScFloat(in, "mixFacteur", 0.5f));
+				}
+			}
 			float32 emi[3];
 			NkScGetVec3(in, "emissif", emi, 0.f, 0.f, 0.f);
 			demo::Demo3DHostProjMatSetEmissive(slot, emi);

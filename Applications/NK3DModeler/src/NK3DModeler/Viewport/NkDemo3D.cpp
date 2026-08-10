@@ -903,6 +903,13 @@ namespace nkentseu {
 				// ECHELLE DU PARALLAX (0 = coupe) : ne sert qu'avec le canal
 				// Hauteur — comme les intensites, sans texture elle n'a pas d'effet.
 				float32 parallax;
+				// ── MELANGE (etape 1, exigence Blender/UE de Rihen) ─────────
+				// mixWith = emplacement+1 du materiau B (0 = pas de melange) ;
+				// mixSource : 0=Facteur constant, 1..4=couleur de sommets RGBA,
+				// 5=UV.x, 6=UV.y ; mixFactor ne sert qu'en source Facteur.
+				int8 mixWith;
+				int8 mixSource;
+				float32 mixFactor;
 		};
 		static constexpr int32 kNkvpMaxProjMats = 64;
 		static NkVpProjMat nkvpProjMats[kNkvpMaxProjMats] = {};
@@ -13368,6 +13375,9 @@ namespace nkentseu {
 				m.emiStrength = 1.f;
 				m.emissive[0] = m.emissive[1] = m.emissive[2] = 0.f;
 				m.parallax = 0.f; // le relief parallax est un choix, pas un defaut
+				m.mixWith = 0;	  // pas de melange a la naissance
+				m.mixSource = 0;
+				m.mixFactor = 0.5f;
 				return i;
 			}
 			return -1;
@@ -13620,6 +13630,90 @@ namespace nkentseu {
 			if (nkvpProjMatEng[i])
 				nkvpProjMatEng[i]->SetEmissive({m.emissive[0], m.emissive[1], m.emissive[2]},
 											   m.emiStrength);
+		}
+		// ── MELANGE DE MATERIAUX (etape 1 — Rihen : « mixer, operations, comme
+		// Blender et Unreal ») ──────────────────────────────────────────────
+		// Le moteur porte le melange par le gabarit LAYERED_V1 : couche 0 = CE
+		// materiau, couche 1 = le materiau B, masque = facteur constant, couleur
+		// de sommets ou UV. Changer de mode change de GABARIT : l'instance
+		// moteur est RECREEE puis TOUT est reapplique depuis NkVpProjMat (l'
+		// ancienne instance reste au registre moteur — meme politique que la
+		// suppression). LIMITE V1 assumee : les couches melangent les VALEURS
+		// (couleur/metal/rugosite), pas les textures des deux materiaux — le
+		// nodal NKGraphe portera ce chantier-la.
+		static void HostMatRebuildEngine(int32 i) {
+			auto *matS = hst.ctx.renderer ? hst.ctx.renderer->GetMaterials() : nullptr;
+			if (!matS || i < 0 || i >= kNkvpMaxProjMats || !nkvpProjMats[i].used)
+				return;
+			NkVpProjMat &m = nkvpProjMats[i];
+			const int32 bIdx = (int32)m.mixWith - 1;
+			const bool mix = bIdx >= 0 && bIdx < kNkvpMaxProjMats && bIdx != i &&
+							 nkvpProjMats[bIdx].used;
+			nkvpProjMatEng[i] = NkMaterial::Create(
+				matS, mix ? NkMaterialType::NK_LAYERED_V1 : NkMaterialType::NK_PBR_METALLIC);
+			if (!nkvpProjMatEng[i])
+				return;
+			if (mix) {
+				const NkVpProjMat &b = nkvpProjMats[bIdx];
+				NkPBRLayer l0;
+				l0.albedo = {m.albedo[0], m.albedo[1], m.albedo[2], 1.f};
+				l0.metallic = m.metal;
+				l0.roughness = m.rough;
+				NkPBRLayer l1;
+				l1.albedo = {b.albedo[0], b.albedo[1], b.albedo[2], 1.f};
+				l1.metallic = b.metal;
+				l1.roughness = b.rough;
+				// Source du masque de la couche B ; la couche 0 est la base.
+				static const NkLayerMaskSource kSrc[7] = {
+					NK_LAYER_MASK_CONSTANT,	 NK_LAYER_MASK_VCOLOR_R, NK_LAYER_MASK_VCOLOR_G,
+					NK_LAYER_MASK_VCOLOR_B,	 NK_LAYER_MASK_VCOLOR_A, NK_LAYER_MASK_UV_X,
+					NK_LAYER_MASK_UV_Y};
+				const int32 s = m.mixSource < 0 ? 0 : (m.mixSource > 6 ? 6 : (int32)m.mixSource);
+				nkvpProjMatEng[i]
+					->SetLayerV1(0, l0)
+					->SetLayerV1(1, l1)
+					->SetLayerV1Mask(1, kSrc[s], m.mixFactor)
+					->SetLayerV1Count(2);
+				return;
+			}
+			// Retour au PBR : reappliquer TOUT depuis l'etat, par les memes
+			// facades que la relecture d'un .nkmat (une seule verite d'application).
+			Demo3DHostProjMatSetParams(i, m.albedo, m.rough, m.metal);
+			Demo3DHostProjMatSetSurface(i, m.clearcoat, m.ccRough, m.subsurface);
+			Demo3DHostProjMatSetChanStrength(i, m.nrmStrength, m.emiStrength);
+			Demo3DHostProjMatSetEmissive(i, m.emissive);
+			Demo3DHostProjMatSetParallax(i, m.parallax);
+			for (int32 c = 0; c < kNkvpMatChanCount; ++c)
+				if (m.maps[c][0]) {
+					// Copie locale : SetMap re-ecrit le champ qu'on lui passe
+					// (snprintf sur soi-meme = recouvrement indefini).
+					char path[260];
+					snprintf(path, sizeof(path), "%s", m.maps[c]);
+					Demo3DHostProjMatSetMap(i, c, path);
+				}
+		}
+		int32 Demo3DHostProjMatMixWith(int32 i) {
+			const bool ok = i >= 0 && i < kNkvpMaxProjMats && nkvpProjMats[i].used;
+			return ok ? (int32)nkvpProjMats[i].mixWith - 1 : -1;
+		}
+		int32 Demo3DHostProjMatMixSource(int32 i) {
+			const bool ok = i >= 0 && i < kNkvpMaxProjMats && nkvpProjMats[i].used;
+			return ok ? (int32)nkvpProjMats[i].mixSource : 0;
+		}
+		float32 Demo3DHostProjMatMixFactor(int32 i) {
+			const bool ok = i >= 0 && i < kNkvpMaxProjMats && nkvpProjMats[i].used;
+			return ok ? nkvpProjMats[i].mixFactor : 0.5f;
+		}
+		void Demo3DHostProjMatSetMix(int32 i, int32 withSlot, int32 source, float32 factor) {
+			if (i < 0 || i >= kNkvpMaxProjMats || !nkvpProjMats[i].used)
+				return;
+			NkVpProjMat &m = nkvpProjMats[i];
+			const bool valid = withSlot >= 0 && withSlot < kNkvpMaxProjMats &&
+							   withSlot != i && nkvpProjMats[withSlot].used;
+			m.mixWith = (int8)(valid ? withSlot + 1 : 0);
+			m.mixSource = (int8)(source < 0 ? 0 : (source > 6 ? 6 : source));
+			m.mixFactor = factor < 0.f ? 0.f : (factor > 1.f ? 1.f : factor);
+			HostMatRebuildEngine(i);
 		}
 		int32 Demo3DHostProjMatPrevShape(int32 i) {
 			return (i >= 0 && i < kNkvpMaxProjMats) ? nkvpProjMats[i].prevShape : 1;
