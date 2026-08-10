@@ -388,8 +388,19 @@ namespace nkentseu {
 // =============================================================================
 int nkmain(const NkEntryState &state) {
 	// ── Parse args ───────────────────────────────────────────────────────────
+	// NK_DEFAULT_DEMO : demo de repli quand AUCUN canal de selection runtime
+	// n'existe. C'est le cas de HarmonyOS NEXT : le sandbox ne monte pas
+	// /data/local/tmp (les fichiers kDemoFiles y sont invisibles, verifie sur
+	// l'emulateur — Permission denied meme pour hdc, qui n'est pas root), et le
+	// NDK public n'expose aucune API de parametre systeme (pas d'equivalent au
+	// __system_property_get d'Android). La voie propre — passer la demo par le
+	// Want d'`aa start` et la relayer ArkTS -> NAPI — exige de generer
+	// EntryAbility.ets nous-memes : chantier « tout depuis Jenga », a venir.
+#ifndef NK_DEFAULT_DEMO
+	#define NK_DEFAULT_DEMO 0
+#endif
 	NkGraphicsApi api = ParseBackend(state.GetArgs());
-	int demoIx = ParseDemo(state.GetArgs(), 0);
+	int demoIx = ParseDemo(state.GetArgs(), NK_DEFAULT_DEMO);
 #if defined(NKENTSEU_PLATFORM_ANDROID)
 	// Assets APK : les shaders sont packages par jenga (androidassets, cf.
 	// RendererSandbox.jenga) RELATIVEMENT a Resources/NKRenderer/Shaders/ ->
@@ -1086,6 +1097,21 @@ int nkmain(const NkEntryState &state) {
 		}
 
 		demo.frame(ctx, dt);
+
+#if defined(__EMSCRIPTEN__)
+		// Pattern web utilise dans les autres mains du sandbox (NkGraphicsDemos2.cpp,
+		// Opengl.cpp) : cede la main au navigateur a chaque frame. Sans lui, cette
+		// boucle `while(running)` classique bloque le thread principal du navigateur
+		// EN PERMANENCE — aucun requestAnimationFrame ne peut jamais s'executer, le
+		// canvas ne peint pas une seule image et la page reste figee sur un ecran noir
+		// qui semble « charger » indefiniment. NK_FPS_CAP=0 par defaut (page web
+		// avant meme d'avoir pu regler une variable d'environnement) desactivait aussi
+		// le seul autre point de cession existant (le Sleep() du pacing FPS dans
+		// NkRendererImpl::Present(), lui-meme conditionne a mFrameCapFps > 0), d'ou
+		// zero cession du tout. Exige ASYNCIFY au lien (deja active pour ce projet,
+		// cf. RendererSandbox.jenga, bloc Web : "-s", "ASYNCIFY").
+		emscripten_sleep(0);
+#endif
 	}
 
 	// ── NK_RECORD : drainage final + finalisation MP4 ────────────────────────
