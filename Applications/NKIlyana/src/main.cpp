@@ -31,6 +31,7 @@
 #include "NkIlyanaValeurs.h"
 #include "NkIlyanaTri.h"
 #include "NkIlyanaControle.h"
+#include "NkIlyanaRecherche.h"
 
 #include "NKGpt/NkGptTrainer.h"
 #include "NKData/NkBpeTrainer.h"
@@ -1030,11 +1031,91 @@ static int ModeMelange(int argc, char **argv) {
 	return 0;
 }
 
+// =============================================================================
+// MODE --chercher : retrouver un passage, pour qu'elle LISE au lieu de deviner.
+// -----------------------------------------------------------------------------
+// Volontairement séparé de la génération. Une recherche se juge toute seule —
+// « le passage rendu contient-il la réponse ? » se vérifie à l'œil, sans modèle.
+// Les brancher d'emblée l'un dans l'autre rendrait indiscernables deux échecs
+// très différents : n'avoir pas trouvé le passage, ou l'avoir mal utilisé.
+// =============================================================================
+static int ModeChercher(int argc, char **argv) {
+	const char *fCorpus = Arg(argc, argv, "--corpus", nullptr);
+	const char *question = Arg(argc, argv, "--question", nullptr);
+	const int64 k = ArgEntier(argc, argv, "--k", 3);
+	const int64 maxOctets = ArgEntier(argc, argv, "--max-octets", 64ll * 1024 * 1024);
+
+	if (!fCorpus) {
+		logger.Info("usage : --chercher --corpus <f> [--question \"...\"] [--k 3] [--max-octets N]");
+		return 1;
+	}
+
+	ilyana::NkIndex index;
+	NkChrono chrono;
+	if (!index.Construire(fCorpus, maxOctets)) {
+		logger.Infof("ERREUR : indexation impossible : %s\n", fCorpus);
+		return 1;
+	}
+	const double secs = chrono.Elapsed().seconds;
+
+	logger.Info("=== Ilyana / recherche documentaire ===");
+	logger.Infof("index : %llu passages, %llu mots distincts, %lld mots au total — en %.2f s\n",
+				 (unsigned long long)index.NbPassages(), (unsigned long long)index.NbMotsDistincts(),
+				 (long long)index.TotalMots(), secs);
+
+	NkVector<ilyana::Resultat> res;
+	if (question) {
+		index.Chercher(NkString(question), (int32)k, res);
+		printf("\nQuestion : %s\n", question);
+		if (res.Size() == 0)
+			printf("\nAucun passage ne contient ces mots.\n");
+		for (nk_size i = 0; i < res.Size(); ++i) {
+			printf("\n--- %llu (score %.2f, passage #%u) ---\n", (unsigned long long)(i + 1), res[i].score,
+				   res[i].passage);
+			NkString t = res[i].texte;
+			if (t.Size() > 600)
+				t = t.SubStr(0, 600);
+			printf("%s\n", t.CStr());
+		}
+		return 0;
+	}
+
+	// Sans question : boucle interactive.
+	printf("\nPose une question (ligne vide pour sortir).\n");
+	char ligne[1024];
+	for (;;) {
+		printf("\n> ");
+		fflush(stdout);
+		if (!fgets(ligne, sizeof(ligne), stdin))
+			break;
+		nk_size n = strlen(ligne);
+		while (n > 0 && (ligne[n - 1] == '\n' || ligne[n - 1] == '\r'))
+			ligne[--n] = 0;
+		if (n == 0)
+			break;
+		index.Chercher(NkString(ligne), (int32)k, res);
+		if (res.Size() == 0) {
+			printf("Aucun passage ne contient ces mots.\n");
+			continue;
+		}
+		for (nk_size i = 0; i < res.Size(); ++i) {
+			printf("\n--- %llu (score %.2f) ---\n", (unsigned long long)(i + 1), res[i].score);
+			NkString t = res[i].texte;
+			if (t.Size() > 600)
+				t = t.SubStr(0, 600);
+			printf("%s\n", t.CStr());
+		}
+	}
+	return 0;
+}
+
 int main(int argc, char **argv) {
 	if (Drapeau(argc, argv, "--controle"))
 		return ModeControle(argc, argv);
 	if (Drapeau(argc, argv, "--melange"))
 		return ModeMelange(argc, argv);
+	if (Drapeau(argc, argv, "--chercher"))
+		return ModeChercher(argc, argv);
 	if (Drapeau(argc, argv, "--wiki"))
 		return ModeWiki(argc, argv);
 	if (Drapeau(argc, argv, "--data"))
