@@ -279,6 +279,26 @@ namespace nkentseu {
 
 		mData.width = surf.width;
 		mData.height = surf.height;
+
+#if defined(NKENTSEU_WINDOWING_WAYLAND) || defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_PLATFORM_HARMONYOS)
+		// La SURFACE fait autorité sur les dimensions, pas la fenêtre logique.
+		//
+		// Sur HarmonyOS, la surface est exprimée dans l'orientation physique de
+		// la dalle : pour une fenêtre portrait de 1260x2503, EGL rend une
+		// surface de 2503x1260. Se fier à la fenêtre donnait donc un viewport et
+		// une projection TRANSPOSÉS — l'image s'affichait tournée, et ce qui
+		// tombait hors du cadre disparaissait.
+		if (mData.eglDisplay != EGL_NO_DISPLAY && mData.eglSurface != EGL_NO_SURFACE) {
+			EGLint sw = 0, sh = 0;
+			eglQuerySurface(mData.eglDisplay, mData.eglSurface, EGL_WIDTH, &sw);
+			eglQuerySurface(mData.eglDisplay, mData.eglSurface, EGL_HEIGHT, &sh);
+			if (sw > 0 && sh > 0) {
+				mData.width = static_cast<uint32>(sw);
+				mData.height = static_cast<uint32>(sh);
+			}
+		}
+#endif
+
 		mIsValid = true;
 		mVSync = (desc.opengl.swapInterval != NkGLSwapInterval::Immediate);
 		NK_GL_LOG("Ready - %s | %s | %s\n", mData.renderer, mData.version, mData.vendor);
@@ -627,6 +647,19 @@ namespace nkentseu {
 			return false;
 		}
 		eglSwapInterval(mData.eglDisplay, mVSync ? 1 : 0);
+
+		// Meme regle qu'a l'initialisation : la SURFACE fait autorite sur les
+		// dimensions. Sans cette reprise, une surface recreee apres rotation
+		// laisserait le contexte sur l'ancienne geometrie.
+		{
+			EGLint sw = 0, sh = 0;
+			eglQuerySurface(mData.eglDisplay, mData.eglSurface, EGL_WIDTH, &sw);
+			eglQuerySurface(mData.eglDisplay, mData.eglSurface, EGL_HEIGHT, &sh);
+			if (sw > 0 && sh > 0) {
+				mData.width = static_cast<uint32>(sw);
+				mData.height = static_cast<uint32>(sh);
+			}
+		}
 		return true;
 #else
 		// PC / iOS / Web : surface non perdue par le system. No-op.
