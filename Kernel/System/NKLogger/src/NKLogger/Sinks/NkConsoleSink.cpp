@@ -33,6 +33,14 @@
 #include <android/log.h>
 #endif
 
+#if defined(NKENTSEU_PLATFORM_HARMONYOS)
+// hilog : SEUL canal de journalisation visible sur HarmonyOS. Sans lui, les
+// traces applicatives n'apparaissent NULLE PART sur l'appareil — ni dans hilog,
+// ni dans un fichier joignable depuis le sandbox. Diagnostiquer y etait donc
+// impossible : on voyait les lignes du systeme, jamais les notres.
+#include <hilog/log.h>
+#endif
+
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -165,8 +173,41 @@ namespace nkentseu {
 		threading::NkScopedLock lock(m_Mutex);
 
 		// Formatage du message avec couleurs si activées et supportées
+#if defined(NKENTSEU_PLATFORM_HARMONYOS)
+		// hilog n'interprete pas les sequences ANSI : elles se retrouveraient
+		// telles quelles dans la trace et la rendraient penible a lire.
+		const bool applyColors = false;
+#else
 		const bool applyColors = m_UseColors && SupportsColors();
+#endif
 		NkString formattedMessage = m_Formatter->Format(message, applyColors);
+
+#if defined(NKENTSEU_PLATFORM_HARMONYOS)
+		// HarmonyOS : redirection vers hilog. Meme raisonnement qu'Android — les
+		// codes ANSI sont ignores, et rien ne part vers stdout, qui n'est relie a
+		// aucun terminal dans une application HAP.
+		{
+			const NkString tag = message.loggerName;
+			LogLevel niveauHi = LOG_INFO;
+			switch (message.level) {
+				case nkentseu::NkLogLevel::NK_TRACE:
+				case nkentseu::NkLogLevel::NK_DEBUG: niveauHi = LOG_DEBUG; break;
+				case nkentseu::NkLogLevel::NK_INFO: niveauHi = LOG_INFO; break;
+				case nkentseu::NkLogLevel::NK_WARN: niveauHi = LOG_WARN; break;
+				case nkentseu::NkLogLevel::NK_ERROR: niveauHi = LOG_ERROR; break;
+				case nkentseu::NkLogLevel::NK_CRITICAL:
+				case nkentseu::NkLogLevel::NK_FATAL: niveauHi = LOG_FATAL; break;
+				default: niveauHi = LOG_INFO; break;
+			}
+			// Le domaine tient sur 16 BITS (0x0000-0xFFFF). Au-dela, hilog rejette
+			// la ligne SANS le moindre diagnostic : c'est precisement ce qui rendait
+			// nos traces invisibles alors que le code s'executait bel et bien.
+			// 0x3200 est la valeur des exemples applicatifs officiels.
+			// %{public}s : sans ce marqueur hilog remplace la chaine par <private>.
+			OH_LOG_Print(LOG_APP, niveauHi, 0x3200, tag.CStr(), "%{public}s", formattedMessage.CStr());
+			return;
+		}
+#endif
 
 #if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__) || defined(ANDROID)
 		// Android : redirection vers logcat via __android_log_print
