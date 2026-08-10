@@ -94,6 +94,10 @@ namespace nkentseu {
 				void SetAspect(uint32 w, uint32 h) noexcept;
 				void SetNearFar(float32 near_, float32 far_) noexcept;
 				void SetOrtho(bool ortho, float32 size = 10.f) noexcept;
+				// Frustum décentré XR (radians signés, left/down négatifs) —
+				// remplace fovY+aspect ; SetFOV/SetAspect le désarment.
+				void SetFovAsym(float32 left, float32 right, float32 up, float32 down) noexcept;
+				void ClearFovAsym() noexcept;
 
 				// Getters
 				NkVec3f GetPosition() const noexcept {

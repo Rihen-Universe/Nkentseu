@@ -529,6 +529,20 @@ namespace nkentseu {
 				float32 farPlane = 1000.f;
 				bool ortho = false;
 				float32 orthoSize = 10.f;
+
+				// ─── Frustum DÉCENTRÉ (XR) — coordination NKXR, 2026-08-10 ────
+				// Un œil de casque ne regarde pas au centre de son image :
+				// OpenXR fournit quatre demi-angles SIGNÉS (left/down négatifs,
+				// en RADIANS). useFovAsym=true les substitue à fovY+aspect pour
+				// la projection ; la vue (position/target/up) ne change pas.
+				// Des CHAMPS et non une matrice injectée : NkSceneContext copie
+				// la caméra par valeur, seules des données membres survivent —
+				// et near/far restent lisibles par les passes qui en dépendent.
+				bool useFovAsym = false;
+				float32 fovLeft = 0.f;
+				float32 fovRight = 0.f;
+				float32 fovUp = 0.f;
+				float32 fovDown = 0.f;
 		};
 
 		struct NkCamera2DData {

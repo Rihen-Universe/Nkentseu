@@ -127,20 +127,27 @@ namespace {
 		}
 	}
 
-	// Caméra NKRenderer depuis une vue XR. L'étage 0 SYMÉTRISE le FOV
-	// (NkCamera3D ne connaît que fovY+aspect) : exact tant que le simulateur
-	// rend des FOV symétriques — l'asymétrie attend l'étage 1.
+	// Caméra NKRenderer depuis une vue XR (pose + FOV, symétrique ou non).
 	NkCamera3D CameraFromXrView(const nkxr::NkXrView &view) {
 		NkCamera3DData cd;
 		cd.position = view.position;
 		cd.target = view.position + nkxr::NkXrForward(view.orientation);
 		cd.up = nkxr::NkXrUp(view.orientation);
-		cd.fovY = 2.f * view.fov.angleUp * 180.f / math::NK_PI_F;
+		cd.fovY = (view.fov.angleUp - view.fov.angleDown) * 180.f / math::NK_PI_F;
 		const float32 tanW = math::NkTan(view.fov.angleRight) - math::NkTan(view.fov.angleLeft);
 		const float32 tanH = math::NkTan(view.fov.angleUp) - math::NkTan(view.fov.angleDown);
 		cd.aspect = (tanH > 1e-6f) ? (tanW / tanH) : 1.f;
 		cd.nearPlane = 0.05f;
 		cd.farPlane = 200.f;
+		// Étage 1 : le FOV asymétrique du runtime est consommé TEL QUEL
+		// (note de coordination dans la ROADMAP NKRenderer). fovY/aspect
+		// restent remplis avec l'équivalent symétrique englobant pour les
+		// consommateurs qui ne connaissent que l'ancien contrat.
+		cd.useFovAsym = true;
+		cd.fovLeft = view.fov.angleLeft;
+		cd.fovRight = view.fov.angleRight;
+		cd.fovUp = view.fov.angleUp;
+		cd.fovDown = view.fov.angleDown;
 		return NkCamera3D(cd);
 	}
 
