@@ -252,6 +252,59 @@ agit sans qu'on puisse contrôler son action est exactement ce qu'on ne veut pas
 
 ---
 
+## PDF — diagnostic du 2026-08-10 sur le fonds réel (D:\softwareRenderer)
+
+**Le fonds** : 8,4 Go, 267 PDF, 175 archives, 67 vidéos.
+
+**Mesure sur 12 PDF, avec `pdftotext` comme ORACLE boîte noire** (légitime : on
+compare des sorties, on ne lit aucun code) :
+
+| | résultat |
+|---|---|
+| PDF dont l'oracle tire du texte | **6 / 12** |
+| PDF à zéro caractère **même pour l'oracle** | **6 / 12** — documents-images, hors de portée sans OCR |
+| PDF acceptés par notre lecteur | **2 / 12** |
+
+**L'écart à combler est donc de 4 documents**, pas de 10. La moitié du fonds est
+constituée de scans que rien ne lira sans reconnaissance de caractères.
+
+### ⚠️ L'hypothèse « il manque /Encoding » était FAUSSE
+
+J'allais implémenter `/Encoding` → noms de glyphes → Unicode. Une sonde des
+dictionnaires de polices (script Python, diagnostic seulement) a montré que ces
+documents **ONT leur table `/ToUnicode`** :
+
+| document | polices | avec /ToUnicode |
+|---|---|---|
+| ebin.pub 2d-computer-graphics | 17 | **17 (100 %)** |
+| computergraphics OpenGL | 491 | 417 (85 %) |
+| Game Audio Programming | 11 | 9 |
+
+Le chantier `/Encoding` aurait donc réparé un défaut qui n'est pas celui-là.
+**Mesurer avant d'implémenter a évité un travail entier à côté de la plaque.**
+
+### Le vrai défaut, localisé
+
+Sur `ebin.pub` (17/17 polices avec table) notre lecteur rend :
+`695450 caractères rencontrés, dont 666545 sans équivalent lisible (96 %)`.
+
+La table existe, elle est trouvée, **et elle ne rend rien**. Les polices en cause
+sont massivement **Type0 / CIDFontType2 en encodage Identity** — deux octets par
+caractère. Pistes à examiner dans cet ordre :
+
+1. `ParseToUnicode` : `DecodeStream` échoue-t-il sur le flux CMap (filtre non
+   géré) ? Un échec y est **silencieux** — la police reste valide, simplement
+   sans aucune entrée. C'est la piste la plus probable.
+2. Le code cherché dans `mUniCodes` est-il bien celui que `NextCode` produit pour
+   une police à deux octets ?
+3. `ToUnicode()` fait une **recherche linéaire** sur des milliers d'entrées, pour
+   chacun des ~700 000 caractères : correct mais coûteux — à indexer une fois le
+   fond réparé.
+
+**Instrumentation manquante** : rien ne compte aujourd'hui les polices dont la
+table est présente mais VIDE après lecture. C'est la première chose à ajouter —
+elle départagerait les pistes 1 et 2 en un seul essai.
+
 ## Journal du 2026-08-10 — ce qui a marché, ce qui a échoué
 
 **PHASE 2 (identité) — RÉUSSIE.** Batterie **4/19 → 8/19**. Elle nomme son père et
