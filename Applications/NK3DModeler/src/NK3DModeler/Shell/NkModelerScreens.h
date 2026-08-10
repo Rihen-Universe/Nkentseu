@@ -1935,10 +1935,10 @@ namespace nkentseu {
 					st.hierMenuNode = actV;
 					st.hierMenuX = in.mousePos.x;
 					st.hierMenuY = in.mousePos.y;
-				} else if (!ws.ComboOpen("tb.addmenu")) {
-					st.addParentNode = -1;
-					st.addAnchor = {in.mousePos.x, in.mousePos.y - S(26.f), 0.f, 0.f};
-					ws.ToggleCombo("tb.addmenu");
+				} else {
+					st.voidMenuOpen = 1;
+					st.voidMenuX = in.mousePos.x;
+					st.voidMenuY = in.mousePos.y;
 				}
 			}
 			// SUPPRIMER (X ou Suppr : le sous-arbre part avec, regle de Rihen),
@@ -2081,10 +2081,16 @@ namespace nkentseu {
 				}
 				hmIt[nH] = "Dupliquer  (Maj+D)";
 				hmAct[nH++] = 0;
+				// LES DEUX VARIANTES (Rihen, 10 aout) : dupliquer/coller en
+				// FRERE (comportement historique) ou en ENFANT du noeud clique.
+				hmIt[nH] = "Dupliquer comme enfant";
+				hmAct[nH++] = 11;
 				hmIt[nH] = "Copier  (Ctrl+C)";
 				hmAct[nH++] = 1;
 				hmIt[nH] = "Coller  (Ctrl+V)";
 				hmAct[nH++] = 2;
+				hmIt[nH] = "Coller comme enfant";
+				hmAct[nH++] = 10;
 				hmIt[nH] = "Supprimer...  (X)";
 				hmAct[nH++] = 3;
 				// LARGEUR = l'entree la plus longue ; vers le HAUT si le bas
@@ -2211,10 +2217,121 @@ namespace nkentseu {
 							if (demo::Demo3DHostUserLightParams(s9, c9, &it9))
 								demo::Demo3DHostSetUserLightParams(tn, c9, it9);
 						}
+					} else if (mact == 10) {
+						// COLLER COMME ENFANT : le colle nait sous le noeud clique
+						// (dans un Model, la cible autorisee est la racine).
+						const int32 nn = demo::Demo3DHostPasteNode();
+						if (nn >= 0) {
+							NkHierComposeName(st, st.clipName, nn);
+							const int32 tg = NkParentTargetAllowed(st, tn);
+							if (tg >= 0 && tg != nn)
+								demo::Demo3DHostSetNodeParent(nn, tg);
+							demo::Demo3DHostSelectEmptyNode(nn);
+							NkMarkDirty(st);
+						}
+					} else if (mact == 11) {
+						// DUPLIQUER COMME ENFANT : la copie devient fils de
+						// l'original au lieu de naitre a cote.
+						const int32 nn = demo::Demo3DHostDuplicateNode(tn);
+						if (nn >= 0) {
+							NkHierNameNewNode(st, tn, nn);
+							const int32 tg = NkParentTargetAllowed(st, tn);
+							if (tg >= 0 && tg != nn)
+								demo::Demo3DHostSetNodeParent(nn, tg);
+							demo::Demo3DHostSelectEmptyNode(nn);
+							NkMarkDirty(st);
+						}
 					}
 					st.hierMenuNode = -1;
 				} else if (hit.AnyClick() && !NkHitRegistry::Contains(mr, hit.Mouse())) {
 					st.hierMenuNode = -1;
+				}
+			}
+			// ── MENU DU VIDE (Rihen, 10 aout) : Ajouter / Copier / Coller /
+			// Dupliquer / Supprimer — et d'autres viendront. Ouvert par clic
+			// droit hors de tout noeud, dans la vue 3D comme dans la
+			// hierarchie. Les actions a cible visent le noeud ACTIF s'il en
+			// reste un ; sans cible elles s'affichent en sourdine, cliquables
+			// pour rien n'est pas un etat (regle du depot).
+			if (st.voidMenuOpen) {
+				const int32 actV2 = st.activeEmpty >= 0
+										? st.activeEmpty
+										: (selLight >= 0 ? kFirstLight + selLight : activeObj);
+				const bool canPaste2 = st.clipName[0] != 0;
+				const char *vmIt[8];
+				int32 vmAct[8];
+				bool vmOn[8];
+				int32 nV = 0;
+				vmIt[nV] = "Ajouter...";
+				vmAct[nV] = 0;
+				vmOn[nV++] = true;
+				vmIt[nV] = "Copier  (Ctrl+C)";
+				vmAct[nV] = 1;
+				vmOn[nV++] = actV2 >= 0;
+				vmIt[nV] = "Coller  (Ctrl+V)";
+				vmAct[nV] = 2;
+				vmOn[nV++] = canPaste2;
+				vmIt[nV] = "Dupliquer  (Maj+D)";
+				vmAct[nV] = 3;
+				vmOn[nV++] = actV2 >= 0;
+				vmIt[nV] = "Supprimer...  (X)";
+				vmAct[nV] = 4;
+				vmOn[nV++] = actV2 >= 0;
+				float32 wV = 0.f;
+				for (int32 mi = 0; mi < nV; ++mi)
+					if (p.TextW(vmIt[mi]) > wV)
+						wV = p.TextW(vmIt[mi]);
+				NkRect mrV{st.voidMenuX, st.voidMenuY, wV + S(28.f), kRowH * (float32)nV};
+				if (mrV.y + mrV.h > area.y + area.h)
+					mrV.y = st.voidMenuY - mrV.h;
+				if (mrV.y < area.y)
+					mrV.y = area.y;
+				st.UiBlockAdd(mrV);
+				p.Outline(mrV, NkRole::Border, NkRole::PanelHeader, 3.f);
+				int32 vact = -1;
+				for (int32 mi = 0; mi < nV; ++mi) {
+					const NkRect it{mrV.x, mrV.y + (float32)mi * kRowH, mrV.w, kRowH};
+					snprintf(key, sizeof(key), "void.menu.%d", mi);
+					const bool overV = vmOn[mi] && hit.Add(key, it);
+					if (vmOn[mi])
+						HoverFill(p, it, overV, 0.f);
+					p.TextV(it.x + S(10.f), it.y, kRowH, vmIt[mi],
+							vmOn[mi] ? NkRole::Text : NkRole::TextMuted);
+					if (vmOn[mi] && hit.Clicked(key))
+						vact = vmAct[mi];
+				}
+				if (vact >= 0) {
+					if (vact == 0) {
+						st.addParentNode = -1;
+						st.addAnchor = {st.voidMenuX, st.voidMenuY - S(26.f), 0.f, 0.f};
+						if (!ws.ComboOpen("tb.addmenu"))
+							ws.ToggleCombo("tb.addmenu");
+					} else if (vact == 1) {
+						demo::Demo3DHostCopyNode(actV2);
+						NkHierNodeName(st, actV2, st.clipName, sizeof(st.clipName));
+					} else if (vact == 2) {
+						const int32 nn = demo::Demo3DHostPasteNode();
+						if (nn >= 0) {
+							NkHierComposeName(st, st.clipName, nn);
+							demo::Demo3DHostSelectEmptyNode(nn);
+							NkMarkDirty(st);
+						}
+					} else if (vact == 3) {
+						const int32 nn = demo::Demo3DHostDuplicateNode(actV2);
+						if (nn >= 0) {
+							NkHierNameNewNode(st, actV2, nn);
+							demo::Demo3DHostSelectEmptyNode(nn);
+							NkMarkDirty(st);
+						}
+					} else if (vact == 4) {
+						st.delNodes[0] = actV2;
+						st.delNodeCount = 1;
+						st.delHasKids = NkHierHasLiveKids(actV2);
+						st.delAskOpen = true;
+					}
+					st.voidMenuOpen = 0;
+				} else if (hit.AnyClick() && !NkHitRegistry::Contains(mrV, hit.Mouse())) {
+					st.voidMenuOpen = 0;
 				}
 			}
 			// DIALOGUE DE CONFIRMATION : aucune suppression directe (Rihen).
@@ -3132,12 +3249,12 @@ namespace nkentseu {
 
 			// UN CLIC DANS LE VIDE DESELECTIONNE.
 			if (hit.RightClicked("hier.list") && !uiBlk && st.hierMenuNode < 0) {
-				// CLIC DROIT DANS LE VIDE (ou sur la racine) : TOUT le menu
-				// Ajouter, au pointeur ; l'objet nait a la racine (Rihen).
-				st.addParentNode = -1;
-				st.addAnchor = {hit.Mouse().x, hit.Mouse().y - S(26.f), 0.f, 0.f};
-				if (!ws.ComboOpen("tb.addmenu"))
-					ws.ToggleCombo("tb.addmenu");
+				// CLIC DROIT DANS LE VIDE : le MENU DU VIDE (Ajouter / Copier /
+				// Coller / Dupliquer / Supprimer — Rihen, 10 aout), le meme que
+				// celui de la vue 3D. Il est peint par la vue, par-dessus tout.
+				st.voidMenuOpen = 1;
+				st.voidMenuX = hit.Mouse().x;
+				st.voidMenuY = hit.Mouse().y;
 			}
 			if (hit.Clicked("hier.list") && !st.hierDragging && st.hierMenuNode < 0) {
 				demo::Demo3DHostDeselectAll();

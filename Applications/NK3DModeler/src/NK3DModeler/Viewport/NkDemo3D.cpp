@@ -292,6 +292,11 @@ namespace nkentseu {
 		static void HostHierarchyFrame(); // detecteur (defini pres des accesseurs)
 		static void HostParentEnsureInit();
 		static int32 HostAllocUser(uint8 kind);
+		// Panneau « Occlusion ambiante » : lus par la reconstruction du GI et la
+		// bascule du panneau, definies AVANT les facades — la grille voxel obeit
+		// au meme bouton que la SSAO (une seule notion d'occlusion d'ambiance).
+		void Demo3DHostSSAO(bool *on, float32 *radius, float32 *intensity);
+		void Demo3DHostGIMarkDirty();
 		static void HostDecompose(const NkMat4f &M, NkVec3f &pos, NkVec3f &rotDeg, NkVec3f &scl);
 		// ── TRANSFORM LOCALE D'UN NOEUD : POINT DE PASSAGE UNIQUE ───────────
 		// La meme formule etait recomposee A LA MAIN dans cinq endroits (rendu,
@@ -4891,6 +4896,25 @@ namespace nkentseu {
 			if (!vao)
 				return;
 			vao->Clear();
+			// L'OCCLUSION AMBIANTE EST UNE SEULE NOTION POUR L'UTILISATEUR
+			// (Rihen, 10 aout : « tache noire au sol autour d'un objet alors
+			// que l'occlusion ambiante n'est pas activee ») : la grille voxel
+			// assombrissait l'ambiance autour des objets injectes MEME panneau
+			// eteint — un reglage affiche eteint qui agit quand meme, c'est le
+			// defaut de conception deja paye. Panneau eteint => grille VIDE :
+			// voxAO vaut 1 partout, et le rebond indirect s'eteint avec (il
+			// exige les memes occludeurs).
+			{
+				bool aoOn = false;
+				float32 aoR = 0.5f, aoI = 1.f;
+				Demo3DHostSSAO(&aoOn, &aoR, &aoI);
+				if (!aoOn) {
+					vao->Build(); // grille vide televersee : plus aucune tache
+					st->giBuildMs = vao->GetLastBuildMs();
+					st->giInjectMs = 0.f;
+					return;
+				}
+			}
 			// LES OCCLUDEURS DE LA DEMO NE VALENT QUE SI LEURS OBJETS SE VOIENT.
 			// Cette boite 16x16 est le sol de la DEMO, et son plafond depasse a
 			// y=0.05 : enregistree dans une scene UTILISATEUR, elle plongeait
@@ -15840,6 +15864,9 @@ namespace nkentseu {
 			pp.ssaoRadius = radius < 0.05f ? 0.05f : (radius > 10.f ? 10.f : radius);
 			pp.ssaoIntensity = intensity < 0.f ? 0.f : (intensity > 4.f ? 4.f : intensity);
 			hst.ctx.renderer->SetPostConfig(pp);
+			// La grille voxel OBEIT au meme bouton (une seule notion d'occlusion
+			// d'ambiance pour l'utilisateur) : la rebatir a la bascule.
+			Demo3DHostGIMarkDirty();
 		}
 		// ── EXPOSITION & BLOOM (2026-08-09) ─────────────────────────────────
 		// Les reglages existaient dans NkPostConfig depuis le debut, aucun
