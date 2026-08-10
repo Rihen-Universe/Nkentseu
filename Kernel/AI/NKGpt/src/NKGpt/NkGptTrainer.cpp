@@ -389,7 +389,29 @@ namespace nkentseu {
 						if (!(langs2[(nk_size)i] == mLangs[(nk_size)i]))
 							langsOk = false;
 					if (!langsOk) {
-						logger.Info("Reprise IMPOSSIBLE : les tags du corpus ne correspondent pas au checkpoint.");
+						// Le message d'origine disait QUE ça ne correspondait pas, jamais
+						// QUOI — et ces tags viennent du NOM DU FICHIER, pas de son
+						// contenu. Un corpus français rebaptisé se voyait donc refusé
+						// sans qu'on puisse deviner pourquoi (une demi-heure perdue le
+						// 2026-08-10). Dire les deux listes rend la correction évidente.
+						NkString attendus;
+						for (nk_size i = 0; i < mLangs.Size(); ++i) {
+							if (i)
+								attendus.Append(", ");
+							attendus.Append(mLangs[i]);
+						}
+						NkString trouves;
+						for (nk_size i = 0; i < langs2.Size(); ++i) {
+							if (i)
+								trouves.Append(", ");
+							trouves.Append(langs2[i]);
+						}
+						logger.Info("Reprise IMPOSSIBLE : le checkpoint attend les tags [{0}], le corpus fourni "
+									"donne [{1}].",
+									attendus.CStr(), trouves.CStr());
+						logger.Info("Ces tags sont deduits du NOM DU FICHIER, pas de son contenu : renommer le "
+									"corpus pour qu'il porte le meme prefixe (par exemple fr_...) suffit "
+									"generalement. Repartir de zero sans --load est l'autre issue.");
 						return false;
 					}
 					const nk_size totalTok = EncodeCorpus(texts);
@@ -596,7 +618,31 @@ namespace nkentseu {
 					adam.Step();
 					mEma = (s == 1) ? lv : 0.98 * mEma + 0.02 * lv;
 
-					// ---- FILET DE SÉCURITÉ : est-ce que ça apprend, vraiment ? ----
+					// ---- FILET 1 : la perte est-elle seulement UNE PERTE ? ----
+					// L'entropie croisée vaut -log(p) avec p strictement inférieur à 1 :
+					// elle est STRICTEMENT POSITIVE par construction. Zéro, une valeur
+					// négative ou un NaN ne sont donc pas des pertes basses, ce sont des
+					// impossibilités — la marque d'un calcul qui n'a pas eu lieu.
+					//
+					// POURQUOI CE FILET EXISTE EN PLUS DE CELUI D'EN DESSOUS. Mesuré le
+					// 2026-08-10 à B=24 : la perte part correctement de 9,71785 (soit
+					// ln(16385), la valeur du hasard), puis tombe à 0 EXACTEMENT au 25e
+					// pas. Le contrôle des 30 pas ci-dessous a alors SALUÉ cette chute
+					// comme « une baisse de 100 %, l'entrainement calcule reellement »,
+					// et le run a paru 2,5 fois plus rapide que la normale. Un garde-fou
+					// qui rassure à tort est pire que pas de garde-fou du tout : il fait
+					// tourner des heures dans le vide en affichant que tout va bien.
+					if (!(lv > 0.0) || lv != lv || lv > 1e30) {
+						logger.Info("*** ARRET au pas {0} : perte = {1}, ce qui est IMPOSSIBLE. ***", (long long)s,
+									lv);
+						logger.Info("*** Une entropie croisee est strictement positive ; zero, negatif ou NaN "
+									"signifie que le calcul GPU ne produit plus rien. Defauts GPU signales : "
+									"{0}. Reduire --B (et augmenter --accum a lot effectif egal). ***",
+									(long long)NkTensorGpu::DefautCount());
+						break;
+					}
+
+					// ---- FILET 2 : est-ce que ça apprend, vraiment ? ----
 					// Un calcul GPU qui échoue en silence (allocation refusée, lot trop
 					// grand) laisse la perte EXACTEMENT à sa valeur initiale pendant que
 					// le run paraît plus rapide que jamais — constaté le 2026-08-09, et

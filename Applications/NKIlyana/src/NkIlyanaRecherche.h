@@ -390,6 +390,101 @@ namespace ilyana {
 				}
 			}
 
+			// -----------------------------------------------------------------
+			// Persistance de l'index.
+			//
+			// POURQUOI C'EST NÉCESSAIRE ET PAS UN CONFORT. Reconstruire l'index
+			// coûte quelques secondes sur 64 Mo — négligeable pour un essai, mais
+			// une bibliothèque se consulte des dizaines de fois par jour, et ce
+			// coût est payé À CHAQUE question. Enregistré, il se recharge d'un
+			// bloc : la recherche devient instantanée, et l'indexation redevient
+			// ce qu'elle doit être — une opération qu'on fait quand on AJOUTE un
+			// livre, pas quand on en cherche un.
+			//
+			// Format « NKIX » v1 : entête, chemin du corpus, puis les deux
+			// tableaux tels quels. Les deux structures font 16 octets pleins,
+			// sans remplissage caché, donc l'écriture directe est fidèle.
+			bool Sauver(const char *chemin) const {
+				FILE *f = fopen(chemin, "wb");
+				if (!f)
+					return false;
+				const uint32 version = 1;
+				const uint32 lenChemin = (uint32)mChemin.Size();
+				const uint64 nbP = (uint64)mPassages.Size();
+				const uint64 nbO = (uint64)mOccurrences.Size();
+				bool ok = fwrite("NKIX", 1, 4, f) == 4;
+				ok = ok && fwrite(&version, sizeof(version), 1, f) == 1;
+				ok = ok && fwrite(&lenChemin, sizeof(lenChemin), 1, f) == 1;
+				ok = ok && (lenChemin == 0 || fwrite(mChemin.Data(), 1, lenChemin, f) == lenChemin);
+				ok = ok && fwrite(&mTotalMots, sizeof(mTotalMots), 1, f) == 1;
+				ok = ok && fwrite(&nbP, sizeof(nbP), 1, f) == 1;
+				ok = ok && (nbP == 0 || fwrite(mPassages.Data(), sizeof(Passage), (nk_size)nbP, f) == (nk_size)nbP);
+				ok = ok && fwrite(&nbO, sizeof(nbO), 1, f) == 1;
+				ok = ok &&
+					 (nbO == 0 || fwrite(mOccurrences.Data(), sizeof(Occurrence), (nk_size)nbO, f) == (nk_size)nbO);
+				ok = ok && fflush(f) == 0;
+				fclose(f);
+				return ok;
+			}
+
+			bool Charger(const char *chemin) {
+				FILE *f = fopen(chemin, "rb");
+				if (!f)
+					return false;
+				char magic[4] = {0, 0, 0, 0};
+				uint32 version = 0;
+				uint32 lenChemin = 0;
+				bool ok = fread(magic, 1, 4, f) == 4;
+				ok = ok && memcmp(magic, "NKIX", 4) == 0;
+				ok = ok && fread(&version, sizeof(version), 1, f) == 1 && version == 1;
+				ok = ok && fread(&lenChemin, sizeof(lenChemin), 1, f) == 1;
+				if (!ok) {
+					fclose(f);
+					return false;
+				}
+				mChemin.Clear();
+				if (lenChemin > 0) {
+					char *buf = (char *)malloc(lenChemin);
+					if (!buf) {
+						fclose(f);
+						return false;
+					}
+					ok = fread(buf, 1, lenChemin, f) == lenChemin;
+					if (ok)
+						mChemin.Append(buf, lenChemin);
+					free(buf);
+				}
+				uint64 nbP = 0;
+				uint64 nbO = 0;
+				ok = ok && fread(&mTotalMots, sizeof(mTotalMots), 1, f) == 1;
+				ok = ok && fread(&nbP, sizeof(nbP), 1, f) == 1;
+				if (ok) {
+					mPassages.Resize((nk_size)nbP);
+					ok = (nbP == 0 || fread(mPassages.Data(), sizeof(Passage), (nk_size)nbP, f) == (nk_size)nbP);
+				}
+				ok = ok && fread(&nbO, sizeof(nbO), 1, f) == 1;
+				if (ok) {
+					mOccurrences.Resize((nk_size)nbO);
+					ok = (nbO == 0 ||
+						  fread(mOccurrences.Data(), sizeof(Occurrence), (nk_size)nbO, f) == (nk_size)nbO);
+				}
+				fclose(f);
+				if (!ok)
+					return false;
+				// Le nombre de mots distincts n'est pas stocké : il se recompte
+				// d'un balayage, ce qui coûte moins que de gérer un champ de plus
+				// à faire vivre en cohérence avec le reste.
+				mNbMotsDistincts = 0;
+				for (nk_size i = 0; i < mOccurrences.Size(); ++i)
+					if (i == 0 || mOccurrences[i].mot != mOccurrences[i - 1].mot)
+						++mNbMotsDistincts;
+				return true;
+			}
+
+			// Position d'un passage dans le corpus — sert à retrouver de QUEL
+			// ouvrage il provient, donc à citer sa source.
+			uint64 OffsetPassage(uint32 id) const { return (id < mPassages.Size()) ? mPassages[id].offset : 0; }
+
 			nk_size NbPassages() const { return mPassages.Size(); }
 			nk_size NbMotsDistincts() const { return mNbMotsDistincts; }
 			int64 TotalMots() const { return mTotalMots; }
