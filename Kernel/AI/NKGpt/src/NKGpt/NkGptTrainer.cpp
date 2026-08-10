@@ -568,7 +568,10 @@ namespace nkentseu {
 				if (mHasOptState) {
 					adam.SetMoments(mOptM, mOptV);
 					adam.SetStepCount(mResumeStep);
-					base = mResumeStep;
+					// `base` ne sert QU'AU CALENDRIER du pas d'apprentissage. Le
+					// laisser à zéro pour une nouvelle phase redonne le warmup et le
+					// pic demandé, sans rien perdre des moments d'Adam.
+					base = mCfg.freshSchedule ? 0 : mResumeStep;
 					mOptM.Clear();
 					mOptV.Clear();
 				}
@@ -582,6 +585,10 @@ namespace nkentseu {
 					logger.Info("-- Entraînement ({0} pas) --", STEPS);
 					if (base > 0)
 						logger.Info("   Reprise au pas global {0} (schedule continué, sans warmup).", (long long)base);
+					else if (mHasOptState)
+						logger.Info("   NOUVELLE PHASE : poids et moments repris, calendrier d'apprentissage NEUF "
+									"(warmup {0} pas -> pic {1}).",
+									WARMUP, (double)peakLr);
 					if (ACCUM > 1)
 						logger.Info("   Accumulation de gradient : {0} micro-lots -> batch effectif = {1}", ACCUM,
 									(long long)(mB * ACCUM));
