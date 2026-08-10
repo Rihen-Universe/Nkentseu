@@ -281,6 +281,18 @@ def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: s
             harmonybundlename(f"com.nkentseu.{app_id_suffix}")
             harmonyminsdk(12)
             harmonytargetapi(12)
+            # HAP multi-ABI. Les emulateurs HarmonyOS-NEXT sur PC tournent en
+            # x86_64 (verifie : const.product.cpu.abilist = x86_64), exactement
+            # comme les AVD Android x86_64 sur hote x86. Un HAP arm64 seul s'y
+            # installe en echouant sur « install parse native so failed » — un
+            # message qui ne dit nulle part que le probleme est l'architecture.
+            harmonyabis(["arm64-v8a", "x86_64"])
+            # Demo par defaut = 3D. Sur HarmonyOS il n'existe AUCUN canal de
+            # selection runtime accessible : le sandbox NEXT ne monte pas
+            # /data/local/tmp (fichiers kDemoFiles invisibles), et le NDK public
+            # n'a pas d'API de parametre systeme (pas de setprop equivalent).
+            # Voir le commentaire NK_DEFAULT_DEMO dans src/Demo/main.cpp.
+            defines(["NK_DEFAULT_DEMO=2"])
             # Page ArkTS avec XComponent (libraryname = lib<projet>.so) : remplace
             # le Index.ets "Hello World" du template DevEco dans harmony-build.
             # Sans elle, rien ne charge la .so et l'app reste sur le template.

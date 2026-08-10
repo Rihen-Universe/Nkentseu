@@ -471,6 +471,40 @@ un utilisateur, puisqu'ils sont accessibles depuis la barre d'activité :
 - **#15 Vue split / multi-éditeurs** (§17) — aucune amorce.
 - **#11 Préférences étendues** (§16, §22) — notamment l'éditeur de raccourcis.
 
+### ⚠️ Corrections à l'audit ci-dessus (relevé du 9 août 2026)
+
+Trois affirmations de cet audit se sont révélées fausses en tentant de les
+appliquer. Elles sont corrigées ici plutôt que réécrites plus haut, pour qu'on
+voie ce qui a changé.
+
+**#3 Déploiement n'était pas « jamais commencé » : il est en place.**
+« Empaqueter (jenga package) » et « Créer un installateur (.jng) » sont **actifs
+et routés** vers `DoPackage` (`Dialogs.h`). Seul « Déployer » reste grisé, et
+volontairement : il exige `--device`, et la détection d'appareils (#2) n'existe
+pas. L'activer livrerait un bouton qui échoue faute d'appareil. Ce qui reste à
+faire sous l'étiquette #3, c'est donc **#2**.
+
+**#8 ne se fait pas en lisant le transcript.** L'audit disait « les données
+existent déjà, il manque la vue ». Les données existent, mais **pas là** : Jenga
+encadre la sortie du compilateur et **tronque les chemins** pour tenir dans la
+largeur du cadre. Une ligne réelle ressemble à
+`║ P.cpp:483:6: warning: ... ║` pour un fichier au nom bien plus long, et
+certaines perdent leur nom entièrement. La source fiable est la voie
+**structurée** (`NkJengaProgressEvent.message`, sortie brute). Il a fallu au
+passage ajouter `OnCompileWarning` côté Jenga : seules les *erreurs*
+remontaient leur texte, un avertissement ne passait qu'un booléen.
+
+**#10 ne peut pas être « un gros morceau » qu'on entame par la vue.** Variables,
+pile, threads et mémoire supposent une session GDB **pilotée** par l'IDE
+(MI2 sur des tubes). NKCode lance gdb dans le terminal et lui rend la main : il
+n'a aucun canal pour interroger l'état du programme arrêté. Ce qui est
+livrable sans ce canal — la liste des points d'arrêt — l'est ; le reste attend
+un client MI, qui est le vrai chantier.
+
+**Piège à connaître pour toute reprise de maquette** : `ScaffoldPanels.h`
+contient des données INVENTÉES (`renderer.cpp:145 fuite mémoire potentielle`…).
+Un panneau repris sans remplacer sa source affiche du faux de façon crédible.
+
 ### Ordre recommandé pour la suite
 
 Classement par **rapport valeur / coût**, pas par numéro de la spec :
