@@ -665,36 +665,29 @@ namespace nkentseu {
 			//
 			// On echantillonne plutot que de tout parcourir : une grande texture
 			// couterait cher a chaque chargement.
+			// ⚠️ Un echantillonnage a pas FIXE ne dit RIEN d'une image creuse.
+			//
+			// Deux fois cette sonde a conclu « entierement noire » a tort : sur des
+			// PNG detoures remplis a 5 %, puis sur un atlas de police rempli a
+			// 0,06 % (mesure : 2417 points non nuls sur quatre millions, pour 720
+			// glyphes parfaitement rasterises). Le pas tombait sur le vide et
+			// declarait l'image morte. Deux fausses pistes ont ete suivies a cause
+			// de cela.
+			//
+			// On parcourt donc TOUT le contenu, et on ne signale qu'un fait
+			// indiscutable : pas un seul pixel visible dans toute l'image. Le cout
+			// est paye une fois par texture, au chargement.
 			if (rgba && w > 0u && h > 0u) {
 				const usize total = static_cast<usize>(w) * static_cast<usize>(h) * 4u;
-				usize pas = (total > 4096u) ? ((total / 1024u) & ~static_cast<usize>(3)) : 4u;
-				if (pas < 4u) {
-					pas = 4u;
-				}
-				bool rgbVide = true;
-				unsigned aMin = 255u, aMax = 0u;
-				for (usize i = 0; (i + 3u) < total; i += pas) {
-					if (rgba[i] != 0u || rgba[i + 1u] != 0u || rgba[i + 2u] != 0u) {
-						rgbVide = false;
-					}
-					const unsigned a = rgba[i + 3u];
-					if (a < aMin) {
-						aMin = a;
-					}
-					if (a > aMax) {
-						aMax = a;
+				bool aucunPixelVisible = true;
+				for (usize i = 0; (i + 3u) < total && aucunPixelVisible; i += 4u) {
+					// Visible = un canal de couleur non nul ET une opacite non nulle.
+					if (rgba[i + 3u] != 0u && (rgba[i] != 0u || rgba[i + 1u] != 0u || rgba[i + 2u] != 0u)) {
+						aucunPixelVisible = false;
 					}
 				}
-				// On ne signale que l'ANORMAL, pour ne pas noyer le journal : une
-				// image dont le contenu est nul, ou dont l'alpha est CONSTANT.
-				// Un alpha constant a 255 sur une image censee etre detouree veut
-				// dire que la transparence a ete perdue au decodage — ses zones
-				// vides se dessineront alors en noir opaque, un carre a la place
-				// du motif. Un alpha constant a 0 rend l'image entierement
-				// invisible.
-				if (rgbVide || aMin == aMax) {
-					logger.Warnf("[NkGL2D] texture %ux%u suspecte : rgb%s, alpha constant %u\n", w, h,
-								 rgbVide ? " NUL" : " present", aMin);
+				if (aucunPixelVisible) {
+					logger.Warnf("[NkGL2D] texture %ux%u : AUCUN pixel visible dans toute l'image\n", w, h);
 				}
 			}
 

@@ -249,6 +249,32 @@ namespace nkentseu {
 				idx = 0;
 			mCurrentFrame = idx;
 
+			// ── Liberer les images DEJA VUES ─────────────────────────────────
+			// L'animation se lit une seule fois, dans l'ordre : une image passee
+			// ne resservira jamais. Les garder toutes revenait a immobiliser 156
+			// textures de 1920x1080 en RGBA, soit environ 1,3 Go de memoire
+			// graphique — sur un telephone qui dispose de 4 Go en tout, partages
+			// avec le systeme. Les allocations suivantes echouaient alors selon
+			// l'ordre d'execution : l'atlas de police ressortait vide une fois sur
+			// deux, le texte devenait invisible, et l'ecran n'affichait plus que
+			// des silhouettes — un lancement sur trois se passait bien, ce qui
+			// rendait le defaut incomprehensible.
+			//
+			// On garde une marge de securite derriere l'image courante : le rendu
+			// retombe sur la derniere texture valide quand une image manque, et
+			// liberer trop pres ferait clignoter ce repli.
+			{
+				const int limite = mCurrentFrame - kFramesConservees;
+				for (int i = mDernierLibere; i < limite; ++i) {
+					if (i >= 0 && i < kFrameCount && mFrames[i].IsValid()) {
+						mFrames[i].Destroy();
+					}
+				}
+				if (limite > mDernierLibere) {
+					mDernierLibere = limite;
+				}
+			}
+
 			if (!mDone && mCurrentFrame >= kFrameCount - 1) {
 				mDone = true;
 				mState = State::Done;
