@@ -175,6 +175,9 @@ namespace nkentseu {
 				NkVSMSlotType slotType = NkVSMSlotType::DIR_CASCADE;
 				uint32 subIdx = 0;	 // cascade idx (DIR) ou face idx (POINT)
 				uint32 tileSize = 0; // pixels (viewport/scissor)
+				// Multiplicateur de DOUCEUR par lumiere (packedIds.w cote GPU) :
+				// 1 partout, > 1 pour les surfaciques (penombre ~ taille du panneau).
+				float32 softMul = 1.f;
 				// NkVSM v1 caching : si true, le tile est deja a jour dans l'atlas
 				// (rendu lors d'une frame precedente) et on peut skip son re-render
 				// pendant la passe Shadow. Set par AllocSlotsForLights en comparant
