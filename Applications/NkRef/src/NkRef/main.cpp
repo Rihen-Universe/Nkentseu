@@ -340,6 +340,10 @@ int nkmain(const NkEntryState &state) {
 		NkChrono::Sleep(8.0); // ~120 Hz max — le canevas vide n'a pas besoin de plus
 	}
 
-	window.Close();
+	// PAS de window.Close() explicite ici : `target` (déclaré APRÈS `window`)
+	// doit mourir AVANT la fenêtre — glXDestroyContext sur un Display X11 déjà
+	// fermé segfaultait sous WSLg (backtrace _XSend/XInitExtension, vécu le
+	// 2026-08-11). L'ordre de destruction C++ inverse fait exactement ça, et
+	// ~NkWindow appelle Close() lui-même.
 	return 0;
 }
