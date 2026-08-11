@@ -31,8 +31,14 @@ import os
 #
 # NK_DISABLE_TLS=1 permet de s'en passer (cible embarquee sans pile TLS, ou
 # construction volontairement minimale).
-_TLS_OFF = os.getenv("NK_DISABLE_TLS", "").strip().lower()
-_WANT_MBEDTLS = _TLS_OFF not in ("1", "true", "on", "yes")
+# ⚠️ REVENU EN OPTION le 2026-08-11. Active par defaut, mbed-TLS a fait
+# DISPARAITRE la lecture des PDF dans la meme construction : un document qui
+# rendait 21 Mo de contenu et 2 000 000 d'operations n'etait plus ouvert du tout.
+# Les deux ne coexistent pas encore, et une fonctionnalite qui en casse une autre
+# en silence ne peut pas etre un defaut. A rouvrir quand la cause sera trouvee
+# (piste : conflit de symbole entre mbed-TLS et le decompresseur du PDF).
+_TLS_OPT = os.getenv("NK_ENABLE_TLS", "").strip().lower()
+_WANT_MBEDTLS = _TLS_OPT in ("1", "true", "on", "yes", "mbedtls")
 
 _NET_DEPS = ["NKCore", "NKPlatform", "NKMemory", "NKContainers", "NKLogger", "NKThreading", "NKMath", "NKTime", "NKFileSystem"]
 _NET_INCLUDES = ["src", "pch"]
