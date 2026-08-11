@@ -45,6 +45,11 @@ namespace nkentseu {
 				bool Initialize(const NkXrSessionDesc &desc) override;
 				void Shutdown() override;
 
+				// Liaison Vulkan (étape 2b) : le runtime dicte, NKRHI exécute.
+				bool GetVulkanRequirements(NkXrVulkanRequirements &outRequirements) override;
+				void *GetVulkanPhysicalDevice(void *vkInstance) override;
+				bool BindVulkan(const NkXrVulkanBinding &binding) override;
+
 				NkXrSystemInfo GetSystemInfo() const override;
 				NkXrSessionState GetState() const override;
 				bool PollEvent(NkXrEvent &outEvent) override;

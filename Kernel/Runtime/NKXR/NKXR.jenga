@@ -38,7 +38,10 @@ with project("NKXR"):
     nkentseudependson(
         ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKTime", "NKEvent", "NKWindow"],
         selfexport="NKXR",
-        extra_includes=["%{wks.location}/Externals/Libs/NKOpenXR/include"],
+        extra_includes=["%{wks.location}/Externals/Libs/NKOpenXR/include",
+                        # En-tetes Vulkan (deja dans Externals) : la liaison de
+                        # session OpenXR (XrGraphicsBindingVulkanKHR) en a besoin.
+                        "%{wks.location}/Externals/Libs/Vulkan-Headers-1.4.350/include"],
     )
 
     files(["src/**.cpp"])

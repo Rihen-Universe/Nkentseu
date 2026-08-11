@@ -53,6 +53,28 @@ namespace nkentseu {
 			bool depthZeroToOne = false;
 		};
 
+		// ── Liaison graphique Vulkan (étape 2b) ──────────────────────────────
+		// Le runtime d'un casque impose ses conditions au device Vulkan : des
+		// extensions d'instance et de device, et LE VkPhysicalDevice à
+		// utiliser. L'application interroge le backend AVANT de créer son
+		// device NKRHI, puis lui remet les handles créés. void* partout : ces
+		// headers restent agnostiques, seuls les .cpp parlent Vulkan.
+
+		struct NkXrVulkanRequirements {
+			// Listes d'extensions au format OpenXR : noms séparés par des
+			// espaces (c'est ce que rendent les fonctions xrGetVulkan*).
+			char instanceExtensions[1024] = {};
+			char deviceExtensions[1024] = {};
+		};
+
+		struct NkXrVulkanBinding {
+			void *instance = nullptr;        ///< VkInstance
+			void *physicalDevice = nullptr;  ///< VkPhysicalDevice
+			void *device = nullptr;          ///< VkDevice
+			uint32 queueFamilyIndex = 0;
+			uint32 queueIndex = 0;
+		};
+
 		// ── Le contrat backend ───────────────────────────────────────────────
 		class NKIXrBackend {
 			public:
@@ -60,6 +82,23 @@ namespace nkentseu {
 
 				virtual bool Initialize(const NkXrSessionDesc &desc) = 0;
 				virtual void Shutdown() = 0;
+
+				// Liaison graphique — défauts NEUTRES : le simulateur rend des
+				// exigences vides et accepte la liaison sans rien en faire, si
+				// bien qu'une app écrite pour le casque tourne telle quelle
+				// sur lui. false = le backend EXIGE la liaison et ne l'a pas.
+				virtual bool GetVulkanRequirements(NkXrVulkanRequirements &outRequirements) {
+					outRequirements = NkXrVulkanRequirements{};
+					return true;
+				}
+				virtual void *GetVulkanPhysicalDevice(void *vkInstance) {
+					(void)vkInstance;
+					return nullptr;
+				}
+				virtual bool BindVulkan(const NkXrVulkanBinding &binding) {
+					(void)binding;
+					return true;
+				}
 
 				virtual NkXrSystemInfo GetSystemInfo() const = 0;
 				virtual NkXrSessionState GetState() const = 0;
