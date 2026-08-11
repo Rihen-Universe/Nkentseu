@@ -58,8 +58,12 @@
 #include "NKMemory/NkUniquePtr.h"
 #include "NKTime/NkClock.h"
 
+#include "NKWindow/Core/NkDialogs.h" // Ouvrir/Enregistrer natifs
+#include "NKCore/NkTraits.h"		 // NkMove (transferts d'octets sans copie)
+
 #include "NkRef/NkRefView.h"
 #include "NkRef/NkRefBoard.h"
+#include "NkRef/NkRefFile.h"
 
 #include <cstdio>  // snprintf (chemins, titre — glue, OK)
 #include <cstdlib> // getenv/atoi (crochets d'agent, comme le modeleur)
@@ -191,6 +195,10 @@ namespace {
 			int32 menuFrame = -1; ///< NK_AGENT_MENU="n:px:py" : ouvre le menu clic droit
 			float32 menuPx = 0.0f, menuPy = 0.0f;
 			int32 settingsFrame = -1; ///< NK_AGENT_SETTINGS=n : ouvre Réglages
+			int32 saveFrame = -1; ///< NK_AGENT_SAVEAS="n:chemin" : enregistre (même chemin que Ctrl+S)
+			char savePath[260] = {};
+			int32 openFrame = -1; ///< NK_AGENT_OPEN="n:chemin" : ouvre (même chemin que Ctrl+O)
+			char openPath[260] = {};
 
 			void Read() {
 				if (const char *v = std::getenv("NK_AGENT_SHOT")) {
@@ -289,6 +297,21 @@ namespace {
 				}
 				if (const char *v = std::getenv("NK_AGENT_SETTINGS"))
 					settingsFrame = (int32)std::atoi(v);
+				// "n:chemin" — split au PREMIER ':' seulement (D:\... en contient).
+				if (const char *v = std::getenv("NK_AGENT_SAVEAS")) {
+					const char *c = std::strchr(v, ':');
+					if (c && c[1]) {
+						saveFrame = (int32)std::atoi(v);
+						std::snprintf(savePath, sizeof(savePath), "%s", c + 1);
+					}
+				}
+				if (const char *v = std::getenv("NK_AGENT_OPEN")) {
+					const char *c = std::strchr(v, ':');
+					if (c && c[1]) {
+						openFrame = (int32)std::atoi(v);
+						std::snprintf(openPath, sizeof(openPath), "%s", c + 1);
+					}
+				}
 				if (const char *v = std::getenv("NK_AGENT_THEME")) {
 					int f = 0, dark = 1;
 					if (std::sscanf(v, "%d:%d", &f, &dark) == 2) {
@@ -445,7 +468,16 @@ int nkmain(const NkEntryState &state) {
 	nkref::NkRefBoard board;
 	// Textures GPU, INDEX ALIGNÉ sur board.items (cf. en-tête du fichier).
 	NkVector<NkTexture *> textures;
+	// Les OCTETS SOURCE de chaque image (fichier d'origine intact, ou PNG
+	// encodé pour un collage) — même index que board.items/textures. C'est ce
+	// que le .nkref embarque : l'affichage peut être réduit, les données non.
+	NkVector<NkVector<uint8>> sources;
 	auto &alloc = memory::NkGetDefaultAllocator();
+
+	// ── La planche en tant que FICHIER ──────────────────────────────────────
+	NkString boardPath;		 // vide = « sans titre »
+	bool boardDirty = false; // l'étoile du titre (indicateur non-enregistré)
+	NkVector<NkString> recents;
 
 	// ── NKGui : le panneau de propriétés escamotable ────────────────────────
 	// Contexte sur le TAS (piège ConquerorLab : un contexte GUI complet sur la
@@ -494,7 +526,7 @@ int nkmain(const NkEntryState &state) {
 	bool settingsOpen = false;
 	int32 settingsTab = 0; // 0 Préférences, 1 Couleurs, 2 Raccourcis
 	bool autoDownscale = true; // préférence réelle : plafond d'import 4096 px
-	constexpr float32 kMenuW = 190.0f, kMenuH = 470.0f, kSubW = 210.0f, kSubH = 250.0f;
+	constexpr float32 kMenuW = 190.0f, kMenuH = 620.0f, kSubW = 210.0f, kSubH = 250.0f;
 	NkClock clock;
 
 	NkAgentHooks agent;
@@ -530,8 +562,11 @@ int nkmain(const NkEntryState &state) {
 
 	// Charge une image et la pose centrée sur `world`. Retourne l'index (-1 si échec).
 	auto addImageFromFile = [&](const char *path, const math::NkVec2f &world) -> int32 {
+		// Les OCTETS D'ABORD : c'est eux que le .nkref embarquera, intacts —
+		// le décodage et la réduction d'affichage n'y touchent pas.
+		NkVector<nk_uint8> srcBytes = NkFile::ReadAllBytes(path);
 		NkImage img;
-		if (!img.Load(path)) {
+		if (srcBytes.Empty() || !img.LoadFromMemory(srcBytes.Data(), (usize)srcBytes.Size())) {
 			logger.Warn("[NkRef] image illisible : %s", path);
 			++loadFailCount;
 			loadFailTicks = 400; // ~4 s d'affichage dans le titre
@@ -573,6 +608,8 @@ int nkmain(const NkEntryState &state) {
 		}
 		board.AddItem(world, w, h, NkString(path));
 		textures.PushBack(tex);
+		sources.PushBack(traits::NkMove(srcBytes));
+		boardDirty = true;
 		logger.Info("[NkRef] image posee : %s (%ux%u)", path, w, h);
 		return (int32)board.items.Size() - 1;
 	};
@@ -598,8 +635,23 @@ int nkmain(const NkEntryState &state) {
 				alloc.Delete(tex);
 			return;
 		}
+		// Un collage n'a pas de fichier source : on encode les pixels en PNG
+		// (lossless) — ce sont ces octets que le .nkref embarquera.
+		NkVector<uint8> srcBytes;
+		{
+			uint8 *png = nullptr;
+			usize pngLen = 0;
+			if (img.SaveToMemory(png, pngLen) && png) {
+				srcBytes.Resize(pngLen);
+				for (usize i = 0; i < pngLen; ++i)
+					srcBytes[i] = png[i];
+				memory::NkFree(png); // alloué via NkAlloc (contrat NKIResource)
+			}
+		}
 		board.AddItem(world, clip.width, clip.height, NkString());
 		textures.PushBack(tex);
+		sources.PushBack(traits::NkMove(srcBytes));
+		boardDirty = true;
 		logger.Info("[NkRef] collage presse-papiers : %ux%u", clip.width, clip.height);
 	};
 
@@ -633,7 +685,10 @@ int nkmain(const NkEntryState &state) {
 			const usize idx = (usize)removed[(usize)k];
 			alloc.Delete(textures[idx]);
 			textures.RemoveAt(idx);
+			sources.RemoveAt(idx);
 		}
+		if (!removed.Empty())
+			boardDirty = true;
 	};
 
 	// Copier l'image ACTIVE dans le presse-papiers OS (SetClipboardImage —
@@ -663,6 +718,10 @@ int nkmain(const NkEntryState &state) {
 			NkTexture *tmp = textures[(usize)old];
 			textures[(usize)old] = textures[(usize)other];
 			textures[(usize)other] = tmp;
+			NkVector<uint8> tmpSrc = traits::NkMove(sources[(usize)old]);
+			sources[(usize)old] = traits::NkMove(sources[(usize)other]);
+			sources[(usize)other] = traits::NkMove(tmpSrc);
+			boardDirty = true;
 		}
 	};
 
@@ -765,6 +824,162 @@ int nkmain(const NkEntryState &state) {
 			}
 		}
 		return tabHit(px, py, vp);
+	};
+
+	// ── Enregistrer / Ouvrir / Récents ──────────────────────────────────────
+
+	// Récents : un chemin par ligne, dans le dossier de travail (comme
+	// captures/). Simple, lisible, suffisant.
+	auto saveRecents = [&]() {
+		NkVector<nk_uint8> out;
+		for (usize i = 0; i < recents.Size(); ++i) {
+			const char *s = recents[i].CStr();
+			for (usize k = 0; s[k]; ++k)
+				out.PushBack((nk_uint8)s[k]);
+			out.PushBack('\n');
+		}
+		NkFile::WriteAllBytes("nkref_recents.txt", out);
+	};
+	auto addRecent = [&](const NkString &p) {
+		NkVector<NkString> next;
+		next.PushBack(p); // le plus récent devant
+		for (usize i = 0; i < recents.Size() && next.Size() < 6; ++i)
+			if (!(recents[i] == p))
+				next.PushBack(recents[i]);
+		recents = traits::NkMove(next);
+		saveRecents();
+	};
+	auto loadRecents = [&]() {
+		NkVector<nk_uint8> in = NkFile::ReadAllBytes("nkref_recents.txt");
+		NkString cur;
+		for (usize i = 0; i < in.Size(); ++i) {
+			if (in[i] == '\n' || in[i] == '\r') {
+				if (!cur.Empty()) {
+					recents.PushBack(cur);
+					cur = NkString();
+				}
+			} else {
+				const char one[2] = {(char)in[i], '\0'};
+				cur += one;
+			}
+		}
+		if (!cur.Empty())
+			recents.PushBack(cur);
+	};
+	loadRecents();
+
+	// Enregistre la planche à `path`. Sérialisation DÉTERMINISTE : deux
+	// enregistrements de la même planche = mêmes octets (test de round-trip).
+	auto saveBoardTo = [&](const NkString &path) -> bool {
+		NkVector<uint8> out;
+		NkVector<nkref::NkRefFileImage> imgs;
+		for (usize i = 0; i < sources.Size(); ++i) {
+			nkref::NkRefFileImage im;
+			im.data = sources[i].Data();
+			im.size = sources[i].Size();
+			imgs.PushBack(im);
+		}
+		nkref::NkRefSerialize(out, board, imgs.Data(), view, darkTheme);
+		NkVector<nk_uint8> bytes;
+		bytes.Resize(out.Size());
+		for (usize i = 0; i < out.Size(); ++i)
+			bytes[i] = out[i];
+		if (!NkFile::WriteAllBytes(path.CStr(), bytes)) {
+			logger.Warn("[NkRef] ecriture impossible : %s", path.CStr());
+			return false;
+		}
+		boardPath = path;
+		boardDirty = false;
+		titleCooldown = 0;
+		addRecent(path);
+		std::printf("[NkRef] planche enregistree -> %s (%u octets)\n", path.CStr(), (unsigned)out.Size());
+		return true;
+	};
+
+	auto doSaveAs = [&]() {
+		NkDialogResult res = NkDialogs::SaveFileDialog("nkref", "Enregistrer la planche");
+		if (res.confirmed && !res.path.Empty())
+			saveBoardTo(res.path);
+	};
+	auto doSave = [&]() {
+		if (boardPath.Empty())
+			doSaveAs();
+		else
+			saveBoardTo(boardPath);
+	};
+
+	// Vide la planche courante (textures comprises).
+	auto clearBoard = [&]() {
+		for (usize i = 0; i < textures.Size(); ++i)
+			alloc.Delete(textures[i]);
+		textures.Clear();
+		sources.Clear();
+		board.items.Clear();
+		board.strokes.Clear();
+		board.active = -1;
+	};
+
+	auto openBoardFrom = [&](const NkString &path) -> bool {
+		NkVector<nk_uint8> bytes = NkFile::ReadAllBytes(path.CStr());
+		NkVector<nkref::NkRefLoadedItem> items;
+		NkVector<nkref::NkRefStroke> strokes;
+		nkref::NkRefView loadedView;
+		bool loadedDark = darkTheme;
+		if (bytes.Empty() ||
+			!nkref::NkRefDeserialize(bytes.Data(), (usize)bytes.Size(), items, strokes, loadedView, loadedDark)) {
+			logger.Warn("[NkRef] planche illisible : %s", path.CStr());
+			++loadFailCount;
+			loadFailTicks = 400;
+			return false; // la planche courante n'est PAS touchée
+		}
+		clearBoard();
+		for (usize i = 0; i < items.Size(); ++i) {
+			nkref::NkRefLoadedItem &li = items[i];
+			NkImage img;
+			NkTexture *tex = nullptr;
+			if (!li.src.Empty() && img.LoadFromMemory(li.src.Data(), (usize)li.src.Size())) {
+				tex = alloc.New<NkTexture>();
+				if (tex && !tex->LoadFromImage(*target.GetRenderer(), img)) {
+					alloc.Delete(tex);
+					tex = nullptr;
+				}
+			}
+			if (!tex) { // image du fichier corrompue : on la saute, on le dit
+				logger.Warn("[NkRef] image %u du .nkref illisible, ignoree", (unsigned)i);
+				++loadFailCount;
+				loadFailTicks = 400;
+				continue;
+			}
+			board.items.PushBack(li.item);
+			textures.PushBack(tex);
+			sources.PushBack(traits::NkMove(li.src));
+		}
+		board.strokes = traits::NkMove(strokes);
+		view = loadedView;
+		if (loadedDark != darkTheme) {
+			darkTheme = loadedDark;
+			th = darkTheme ? MakeDarkColors() : MakeLightColors();
+			ApplyGuiTheme(gui, darkTheme);
+		}
+		boardPath = path;
+		boardDirty = false;
+		titleCooldown = 0;
+		addRecent(path);
+		std::printf("[NkRef] planche ouverte <- %s (%u images)\n", path.CStr(), (unsigned)board.items.Size());
+		return true;
+	};
+
+	auto doOpen = [&]() {
+		NkDialogResult res = NkDialogs::OpenFileDialog("*.nkref", "Ouvrir une planche");
+		if (res.confirmed && !res.path.Empty())
+			openBoardFrom(res.path);
+	};
+	auto doNew = [&]() {
+		clearBoard();
+		view.Reset();
+		boardPath = NkString();
+		boardDirty = false;
+		titleCooldown = 0;
 	};
 
 	// Position pixel de la poignée de rotation de l'item actif (au-dessus du
@@ -934,6 +1149,10 @@ int nkmain(const NkEntryState &state) {
 					gui.input.mouseDown[1] = false;
 				if (mr->IsMiddle())
 					gui.input.mouseDown[2] = false;
+				// Fin d'un geste qui MODIFIE la planche → étoile du titre.
+				if (mr->IsLeft() && (mode == NkMode::DragItems || mode == NkMode::ScaleCorner ||
+									 mode == NkMode::Rotate || mode == NkMode::Draw))
+					boardDirty = true;
 				if (mode == NkMode::RectSelect && mr->IsLeft()) {
 					const math::NkVec2f a = view.PixelToWorld(rectStartPix, vp);
 					const math::NkVec2f b = view.PixelToWorld(mousePix, vp);
@@ -1004,8 +1223,10 @@ int nkmain(const NkEntryState &state) {
 					removeSelected();
 				} else if (k == NkKey::NK_X && board.HasSelection()) {
 					board.MirrorSelected(true);
+					boardDirty = true;
 				} else if (k == NkKey::NK_Y && board.HasSelection()) {
 					board.MirrorSelected(false);
+					boardDirty = true;
 				} else if (k == NkKey::NK_PAGE_UP) {
 					reorderActive(true);
 				} else if (k == NkKey::NK_PAGE_DOWN) {
@@ -1014,11 +1235,21 @@ int nkmain(const NkEntryState &state) {
 					pasteClipboard(view.PixelToWorld(mousePix, vp));
 				} else if (k == NkKey::NK_C && ctrl) {
 					copyActive();
+				} else if (k == NkKey::NK_S && ctrl) {
+					if (kp->GetModifiers().shift)
+						doSaveAs();
+					else
+						doSave();
+				} else if (k == NkKey::NK_O && ctrl) {
+					doOpen();
+				} else if (k == NkKey::NK_K && ctrl) {
+					doNew(); // Nouvelle planche — Ctrl+K, comme PureRef (New Scene)
 				} else if (k == NkKey::NK_D && !ctrl) {
 					penMode = !penMode; // bascule crayon (aussi dans le panneau)
 				} else if (k == NkKey::NK_P && ctrl) {
 					// « Pack » : rangement compact (sélection ≥ 2, sinon tout).
 					board.Pack(16.0f);
+					boardDirty = true;
 				} else if (k == NkKey::NK_T) {
 					// Toujours-devant — l'API « fenêtre discrète » de NKWindow.
 					// Une bascule clavier en attendant le menu clic droit (Étape 3/4).
@@ -1077,8 +1308,10 @@ int nkmain(const NkEntryState &state) {
 		}
 		if (agent.moveFrame > 0 && agentFrame == agent.moveFrame)
 			moveSelectionByPixels(agent.moveDx, agent.moveDy);
-		if (agent.packFrame > 0 && agentFrame == agent.packFrame)
+		if (agent.packFrame > 0 && agentFrame == agent.packFrame) {
 			board.Pack(16.0f);
+			boardDirty = true;
+		}
 		if (agent.panelFrame > 0 && agentFrame == agent.panelFrame)
 			panelOpen = true; // même variable que le clic sur l'onglet
 		if (agent.menuFrame > 0 && agentFrame == agent.menuFrame) {
@@ -1088,6 +1321,10 @@ int nkmain(const NkEntryState &state) {
 		}
 		if (agent.settingsFrame > 0 && agentFrame == agent.settingsFrame)
 			settingsOpen = true;
+		if (agent.saveFrame > 0 && agentFrame == agent.saveFrame)
+			saveBoardTo(NkString(agent.savePath)); // même chemin que Ctrl+S
+		if (agent.openFrame > 0 && agentFrame == agent.openFrame)
+			openBoardFrom(NkString(agent.openPath)); // même chemin que Ctrl+O
 		if (agent.themeFrame > 0 && agentFrame == agent.themeFrame) {
 			darkTheme = agent.themeDark; // même chemin que la case du panneau
 			th = darkTheme ? MakeDarkColors() : MakeLightColors();
@@ -1132,8 +1369,10 @@ int nkmain(const NkEntryState &state) {
 								  board.strokes.Size() > 1 ? "s" : "");
 					nkgui::Text(gui, line);
 				}
-				if (nkgui::Button(gui, "Pack (Ctrl+P)"))
+				if (nkgui::Button(gui, "Pack (Ctrl+P)")) {
 					board.Pack(16.0f);
+					boardDirty = true;
+				}
 				if (nkgui::Button(gui, "Origine (Debut)"))
 					view.Reset();
 				nkgui::Separator(gui);
@@ -1164,17 +1403,24 @@ int nkmain(const NkEntryState &state) {
 					}
 				}
 				nkgui::SliderFloat(gui, "Epaisseur (px)", penWidthPx, 1.0f, 24.0f);
-				if (nkgui::Button(gui, "Annuler le dernier trait"))
+				if (nkgui::Button(gui, "Annuler le dernier trait")) {
 					board.UndoStroke();
-				if (nkgui::Button(gui, "Effacer tous les traits"))
+					boardDirty = true;
+				}
+				if (nkgui::Button(gui, "Effacer tous les traits")) {
 					board.ClearStrokes();
+					boardDirty = true;
+				}
 				nkgui::Separator(gui);
 				if (board.active >= 0 && board.active < (int32)board.items.Size()) {
 					nkref::NkRefItem &it = board.items[(usize)board.active];
 					nkgui::Text(gui, "Image active");
-					nkgui::SliderFloat(gui, "Opacite", it.opacity, 0.05f, 1.0f);
-					nkgui::Checkbox(gui, "Miroir X (X)", it.mirrorX);
-					nkgui::Checkbox(gui, "Miroir Y (Y)", it.mirrorY);
+					if (nkgui::SliderFloat(gui, "Opacite", it.opacity, 0.05f, 1.0f))
+						boardDirty = true;
+					if (nkgui::Checkbox(gui, "Miroir X (X)", it.mirrorX))
+						boardDirty = true;
+					if (nkgui::Checkbox(gui, "Miroir Y (Y)", it.mirrorY))
+						boardDirty = true;
 					if (nkgui::Button(gui, "Supprimer (Suppr)"))
 						removeSelected();
 				} else {
@@ -1274,6 +1520,25 @@ int nkmain(const NkEntryState &state) {
 		if (ctxMenuOpen && hasGui) {
 			const nkgui::NkRect mr{ctxMenuPix.x, ctxMenuPix.y, kMenuW, kMenuH};
 			if (nkgui::BeginPanel(gui, "Menu", mr)) {
+				if (nkgui::Button(gui, "Ouvrir...  (Ctrl+O)")) {
+					ctxMenuOpen = false;
+					doOpen();
+				}
+				if (nkgui::Button(gui, "Enregistrer  (Ctrl+S)")) {
+					ctxMenuOpen = false;
+					doSave();
+				}
+				if (nkgui::Button(gui, "Enregistrer sous...")) {
+					ctxMenuOpen = false;
+					doSaveAs();
+				}
+				if (nkgui::Button(gui, "Nouvelle planche  (Ctrl+K)")) {
+					ctxMenuOpen = false;
+					doNew();
+				}
+				if (!recents.Empty() && nkgui::Button(gui, ctxSub == 2 ? "Recents  <" : "Recents  >"))
+					ctxSub = (ctxSub == 2) ? 0 : 2;
+				nkgui::Separator(gui);
 				if (nkgui::Button(gui, "Coller  (Ctrl+V)")) {
 					pasteClipboard(view.PixelToWorld(ctxMenuPix, vp));
 					ctxMenuOpen = false;
@@ -1289,6 +1554,7 @@ int nkmain(const NkEntryState &state) {
 				nkgui::Separator(gui);
 				if (nkgui::Button(gui, "Pack  (Ctrl+P)")) {
 					board.Pack(16.0f);
+					boardDirty = true;
 					ctxMenuOpen = false;
 				}
 				if (nkgui::Button(gui, "Origine  (Debut)")) {
@@ -1314,7 +1580,26 @@ int nkmain(const NkEntryState &state) {
 					running = false;
 				nkgui::EndPanel(gui);
 			}
-			if (ctxSub == 1) {
+			if (ctxSub == 2) {
+				const nkgui::NkRect sr{ctxMenuPix.x + kMenuW, ctxMenuPix.y, kSubW + 40.0f, kSubH};
+				if (nkgui::BeginPanel(gui, "Recents", sr)) {
+					for (usize ri = 0; ri < recents.Size(); ++ri) {
+						// Afficher le nom de fichier seul (le chemin complet
+						// déborderait) — le bouton ouvre le chemin complet.
+						const char *full = recents[ri].CStr();
+						const char *base = full;
+						for (const char *c = full; *c; ++c)
+							if (*c == '/' || *c == '\\')
+								base = c + 1;
+						if (nkgui::Button(gui, base)) {
+							ctxMenuOpen = false;
+							openBoardFrom(recents[ri]);
+							break; // recents vient d'être réordonné
+						}
+					}
+					nkgui::EndPanel(gui);
+				}
+			} else if (ctxSub == 1) {
 				const nkgui::NkRect sr{ctxMenuPix.x + kMenuW, ctxMenuPix.y, kSubW, kSubH};
 				if (nkgui::BeginPanel(gui, "Fenetre", sr)) {
 					bool onTop = window.IsAlwaysOnTop();
@@ -1336,9 +1621,12 @@ int nkmain(const NkEntryState &state) {
 				const nkgui::NkRect sr{ctxMenuPix.x + kMenuW, ctxMenuPix.y, kSubW, kSubH};
 				if (nkgui::BeginPanel(gui, "Image", sr)) {
 					nkref::NkRefItem &it = board.items[(usize)board.active];
-					nkgui::SliderFloat(gui, "Opacite", it.opacity, 0.05f, 1.0f);
-					nkgui::Checkbox(gui, "Miroir X (X)", it.mirrorX);
-					nkgui::Checkbox(gui, "Miroir Y (Y)", it.mirrorY);
+					if (nkgui::SliderFloat(gui, "Opacite", it.opacity, 0.05f, 1.0f))
+						boardDirty = true;
+					if (nkgui::Checkbox(gui, "Miroir X (X)", it.mirrorX))
+						boardDirty = true;
+					if (nkgui::Checkbox(gui, "Miroir Y (Y)", it.mirrorY))
+						boardDirty = true;
 					if (nkgui::Button(gui, "Monter  (PgUp)"))
 						reorderActive(true);
 					if (nkgui::Button(gui, "Descendre  (PgDn)"))
@@ -1611,9 +1899,20 @@ int nkmain(const NkEntryState &state) {
 			if (loadFailCount > 0 && loadFailTicks > 0)
 				std::snprintf(fails, sizeof(fails), " - %d fichier%s illisible%s (format ?)", (int)loadFailCount,
 							  loadFailCount > 1 ? "s" : "", loadFailCount > 1 ? "s" : "");
-			char t2[96];
-			std::snprintf(t2, sizeof(t2), "NkRef - %d%% - %d image%s", (int)(view.zoom * 100.0f + 0.5f),
-						  (int)board.items.Size(), board.items.Size() > 1 ? "s" : "");
+			// Nom de la planche + étoile « non enregistré » (même langage
+			// visuel que le modeleur), avant le zoom et le compte.
+			const char *bn = "sans titre";
+			if (!boardPath.Empty()) {
+				const char *full = boardPath.CStr();
+				bn = full;
+				for (const char *c = full; *c; ++c)
+					if (*c == '/' || *c == '\\')
+						bn = c + 1;
+			}
+			char t2[160];
+			std::snprintf(t2, sizeof(t2), "NkRef - %s%s - %d%% - %d image%s", bn, boardDirty ? "*" : "",
+						  (int)(view.zoom * 100.0f + 0.5f), (int)board.items.Size(),
+						  board.items.Size() > 1 ? "s" : "");
 			std::snprintf(windowTitle, sizeof(windowTitle), "%s%s%s", t2, extra, fails);
 			window.SetTitle(windowTitle); // barre des tâches / Alt+Tab
 			titleCooldown = 15;
