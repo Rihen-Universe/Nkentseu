@@ -843,6 +843,21 @@ namespace nkentseu {
 			return this;
 		}
 
+		// Anisotropie et sheen : les CHAMPS et les drapeaux existaient depuis le
+		// debut, seuls les setters manquaient (exposition du panneau materiau
+		// complet, 11 aout — demande de Rihen : « tout ce qui est public »).
+		NkMaterialInstance *NkMaterialInstance::SetAnisotropy(float32 v) {
+			mPBR.anisotropy = v;
+			MarkPBRChanged(NK_PBR_O_ANISOTROPY);
+			return this;
+		}
+
+		NkMaterialInstance *NkMaterialInstance::SetSheen(float32 v) {
+			mPBR.sheen = v;
+			MarkPBRChanged(NK_PBR_O_SHEEN);
+			return this;
+		}
+
 		NkMaterialInstance *NkMaterialInstance::SetClearcoat(float32 v, float32 r) {
 			mPBR.clearcoat = v;
 			mPBR.clearcoatRough = r;

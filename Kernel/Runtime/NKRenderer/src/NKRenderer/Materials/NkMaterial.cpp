@@ -401,6 +401,18 @@ namespace nkentseu {
 			return mInstance ? mInstance->mTriplanarTileSize : 0.f;
 		}
 
+		NkMaterial *NkMaterial::SetAnisotropy(float32 v) {
+			if (mInstance)
+				mInstance->SetAnisotropy(v);
+			return this;
+		}
+
+		NkMaterial *NkMaterial::SetSheen(float32 v) {
+			if (mInstance)
+				mInstance->SetSheen(v);
+			return this;
+		}
+
 		// ── Parallax occlusion (carte de hauteur via SetTexture("height")) ────
 		NkMaterial *NkMaterial::SetParallaxScale(float32 scale) {
 			if (mInstance)
