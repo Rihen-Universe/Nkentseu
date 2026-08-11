@@ -10001,7 +10001,12 @@ namespace nkentseu {
 							// Sans eclairage n'a que sa couleur.
 							const int32 tFam9 = demo::Demo3DHostProjMatType(selMat);
 							const bool famPBR =
-								!(tFam9 == 20 || tFam9 == 21 || tFam9 == 22 || tFam9 == 60);
+								!(tFam9 == 20 || tFam9 == 21 || tFam9 == 22 || tFam9 == 60 ||
+								  tFam9 == 11);
+							// L'Emissif (11) sort de la famille PBR : Rihen — « emissive et
+							// pbr ont les memes proprietes, c'est pas normal ». Il n'a QUE
+							// couleur, canal couleur, canal emissif, emission, intensite.
+							const bool famEmis = (tFam9 == 11);
 							bool colCh = false;
 							yy += PaintColorRow(p, hit, ws, in, st, iR, yy, "Couleur",
 												"props.pm.col", alb, &colCh);
@@ -10021,8 +10026,9 @@ namespace nkentseu {
 									"props.pm.tex3", "props.pm.tex4"};
 								const int32 nCh = demo::Demo3DHostMatChanCount();
 								for (int32 ch = 0; ch < nCh && ch < 5; ++ch) {
-									// Hors famille PBR, seule la COULEUR a un sens ici.
-									if (!famPBR && ch != 0)
+									// Hors famille PBR, seule la COULEUR a un sens ici —
+									// sauf l'Emissif, qui garde aussi SON canal (3).
+									if (!famPBR && ch != 0 && !(famEmis && ch == 3))
 										continue;
 									p.TextV(iR.x, yy, kRowH, demo::Demo3DHostMatChanName(ch),
 											NkRole::TextMuted);
@@ -10089,7 +10095,7 @@ namespace nkentseu {
 										NkMarkDirty(st);
 									}
 								}
-								if (famPBR) {
+								if (famPBR || famEmis) {
 									// L'EMISSIF a une teinte ET une intensite, et la
 									// teinte vaut MEME SANS texture : une surface peut
 									// emettre une couleur unie.

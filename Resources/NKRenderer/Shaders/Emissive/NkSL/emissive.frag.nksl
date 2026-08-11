@@ -1,0 +1,45 @@
+// emissive.frag.nksl — NKRenderer — Emissif Fragment (VRAI dialecte NkSL).
+// Emission pure, sortie HDR (tone-mapping en post). Contrairement a l'ancien
+// .vk.glsl (texture seule), la COULEUR emissive du materiau (NkPBRParams) est
+// lue depuis le MaterialUBO : le panneau du modeleur pilote couleur + intensite
+// sans texture obligatoire (le slot emissif par defaut est BLANC, neutre).
+@location(0) in vec3 vWorldPos;
+@location(1) in vec3 vNormal;
+@location(2) in vec2 vUV;
+@location(3) in vec4 vColor;
+@location(0) out vec4 fragColor;
+
+// Meme layout que NkPBRParams (upload C++ type-aware, cf. NkMaterialSystem).
+@binding(set=2, binding=8)
+uniform MaterialUBO {
+    vec4  albedo;
+    vec4  emissive;
+    float metallic;
+    float roughness;
+    float ao;
+    float emissiveStrength;
+    float normalStrength;
+    float clearcoat;
+    float clearcoatRough;
+    float subsurface;
+    vec4  subsurfaceColor;
+    float anisotropy;
+    float sheen;
+    float reflFloorFaceMode;
+    float reflBlend;
+} uMat;
+
+@binding(set=2, binding=3) uniform sampler2D tAlbedo;
+@binding(set=2, binding=6) uniform sampler2D tEmissive;
+
+@stage(fragment)
+@entry
+void main() {
+    vec4 albSamp = texture(tAlbedo, vUV) * uMat.albedo * vColor;
+    float alpha  = albSamp.a;
+    if (alpha < 0.01) discard;
+    // Texture emissive (blanche par defaut) x couleur x intensite du materiau.
+    vec3 emissive = texture(tEmissive, vUV).rgb * uMat.emissive.rgb * uMat.emissiveStrength;
+    // Un soupcon d'albedo pour garder la silhouette lisible quand emission=0.
+    fragColor = vec4(albSamp.rgb * 0.05 + emissive, alpha);
+}
