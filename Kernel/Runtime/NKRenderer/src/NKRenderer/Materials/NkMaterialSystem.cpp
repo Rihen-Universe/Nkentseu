@@ -639,6 +639,17 @@ namespace nkentseu {
 			}
 		}
 
+		bool NkMaterialSystem::BindInstanceSetOnly(NkICommandBuffer *cmd,
+												   NkMaterialInstance *inst) {
+			if (!cmd || !inst)
+				return false;
+			UpdateInstanceDescriptors(inst);
+			if (!inst->GetDescSet().IsValid())
+				return false;
+			cmd->BindDescriptorSet(inst->GetDescSet(), 2);
+			return true;
+		}
+
 		bool NkMaterialSystem::BindInstance(NkICommandBuffer *cmd, NkMaterialInstance *inst) {
 			NkTextureLibrary *texLib = mTexLib;
 			if (!inst)
