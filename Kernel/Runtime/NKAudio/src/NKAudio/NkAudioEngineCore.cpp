@@ -1416,6 +1416,12 @@ namespace nkentseu {
 					// retentera en fallback. CreateByType ne sait pas
 					// tester Initialize ici, mais l'engine s'en charge.
 					name = "AAudio";
+#elif defined(NKENTSEU_PLATFORM_HARMONYOS)
+					// DOIT preceder la branche LINUX : HarmonyOS herite de
+					// NKENTSEU_PLATFORM_LINUX, et "ALSA" n'est pas enregistre
+					// sur OHOS -> AUTO retombait sur Null = silence total
+					// (constate sur Pong, emulateur NEXT, 11/08/2026).
+					name = "OHAudio";
 #elif defined(NKENTSEU_PLATFORM_LINUX)
 					name = "ALSA";
 #elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)

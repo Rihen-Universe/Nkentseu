@@ -34,6 +34,13 @@
 #include <AudioToolbox/AudioToolbox.h>
 #endif
 
+// OHAudio (HarmonyOS) : rendu natif OH_AudioRenderer — mêmes en-têtes que la
+// capture (NkAudioCapture.cpp), lib `ohaudio` déjà liée par NKAudio.jenga.
+#if defined(NKENTSEU_PLATFORM_HARMONYOS)
+#include <ohaudio/native_audiostreambuilder.h>
+#include <ohaudio/native_audiorenderer.h>
+#endif
+
 namespace nkentseu {
 	namespace audio {
 
@@ -753,6 +760,204 @@ namespace nkentseu {
 #endif // NKENTSEU_PLATFORM_LINUX
 
 		// ====================================================================
+		// OHAUDIO (HarmonyOS) — OH_AudioRenderer, F32LE, write-data callback
+		// ====================================================================
+
+#if defined(NKENTSEU_PLATFORM_HARMONYOS)
+
+		struct OHAudioBackend::OHImpl {
+				OH_AudioStreamBuilder *builder = nullptr;
+				OH_AudioRenderer *renderer = nullptr;
+		};
+
+		// Write-data callback : audioDataSize en OCTETS (contrairement a AAudio
+		// qui compte en frames). F32LE interleave — le format du mixeur, aucune
+		// conversion.
+		//
+		// API STRUCT (OH_AudioRenderer_Callbacks, API 10, depreciee) et PAS
+		// OH_AudioStreamBuilder_SetRendererWriteDataCallback (API 12) : la
+		// libohaudio.so de l'emulateur NEXT (image 5.0.0.25) n'exporte PAS les
+		// setters modernes — le symbole manquant fait echouer le dlopen de
+		// l'app EN SILENCE et l'ArkTS recoit `undefined` (jscrash « Cannot
+		// read property nkSetResMgr of undefined », constate le 11/08). La
+		// depreciation est de tete d'API seulement : l'ABI reste exportee.
+		static int32_t OHAudioWriteData(OH_AudioRenderer * /*renderer*/, void *userData, void *audioData,
+										int32_t audioDataSize) {
+			OHAudioBackend *self = (OHAudioBackend *)userData;
+			if (!self) {
+				memset(audioData, 0, (usize)audioDataSize);
+				return 0;
+			}
+			const int32 ch = self->GetChannels() > 0 ? self->GetChannels() : 2;
+			const bool silent = !self->IsRunning() || self->IsPaused() || !self->GetCallback();
+
+			if (!self->UsesS16()) {
+				// Flux F32LE : le format du mixeur, aucune conversion.
+				if (silent) {
+					memset(audioData, 0, (usize)audioDataSize);
+					return 0;
+				}
+				const int32 frames = (int32)((usize)audioDataSize / sizeof(float32) / (usize)ch);
+				self->GetCallback()((float32 *)audioData, frames, ch);
+				return 0;
+			}
+
+			// Flux S16LE (emulateur NEXT) : mixer en float dans le scratch,
+			// puis convertir avec clamp [-1, 1] -> int16.
+			if (silent) {
+				memset(audioData, 0, (usize)audioDataSize);
+				return 0;
+			}
+			const int32 frames = (int32)((usize)audioDataSize / sizeof(int16) / (usize)ch);
+			const int32 floats = frames * ch;
+			float32 *scratch = self->EnsureScratch(floats);
+			if (!scratch) {
+				memset(audioData, 0, (usize)audioDataSize);
+				return 0;
+			}
+			memset(scratch, 0, (usize)floats * sizeof(float32));
+			self->GetCallback()(scratch, frames, ch);
+			int16 *out = (int16 *)audioData;
+			for (int32 i = 0; i < floats; ++i) {
+				float32 s = scratch[i];
+				if (s > 1.0f)
+					s = 1.0f;
+				else if (s < -1.0f)
+					s = -1.0f;
+				out[i] = (int16)(s * 32767.0f);
+			}
+			return 0;
+		}
+
+		float32 *OHAudioBackend::EnsureScratch(int32 floatCount) noexcept {
+			if (floatCount <= 0)
+				return nullptr;
+			if (mScratch && mScratchFloats >= floatCount)
+				return mScratch;
+			// Reallocation rarissime (taille de callback stable) — tolerable
+			// meme depuis le thread audio.
+			if (mScratch)
+				memory::NkFree(mScratch);
+			mScratch = (float32 *)memory::NkAlloc((size_t)floatCount * sizeof(float32));
+			mScratchFloats = mScratch ? floatCount : 0;
+			return mScratch;
+		}
+
+		// Construit builder + renderer dans le format demande. En cas d'echec,
+		// ne laisse rien derriere. Remplit mImpl en cas de succes.
+		bool OHAudioBackend::_CreateStream(bool useS16) {
+			OH_AudioStreamBuilder *b = nullptr;
+			if (OH_AudioStreamBuilder_Create(&b, AUDIOSTREAM_TYPE_RENDERER) != AUDIOSTREAM_SUCCESS || !b) {
+				logger.Error("[OHAudio] OH_AudioStreamBuilder_Create FAILED");
+				return false;
+			}
+			OH_AudioStreamBuilder_SetSamplingRate(b, mSampleRate);
+			OH_AudioStreamBuilder_SetChannelCount(b, mChannels);
+			OH_AudioStreamBuilder_SetSampleFormat(b, useS16 ? AUDIOSTREAM_SAMPLE_S16LE : AUDIOSTREAM_SAMPLE_F32LE);
+			OH_AudioStreamBuilder_SetLatencyMode(b, AUDIOSTREAM_LATENCY_MODE_NORMAL);
+			OH_AudioStreamBuilder_SetRendererInfo(b, AUDIOSTREAM_USAGE_GAME);
+			OH_AudioStreamBuilder_SetFrameSizeInCallback(b, mBufferSize);
+			OH_AudioRenderer_Callbacks cbs;
+			memset(&cbs, 0, sizeof(cbs));
+			cbs.OH_AudioRenderer_OnWriteData = OHAudioWriteData;
+			OH_AudioStreamBuilder_SetRendererCallback(b, cbs, this);
+
+			OH_AudioRenderer *r = nullptr;
+			if (OH_AudioStreamBuilder_GenerateRenderer(b, &r) != AUDIOSTREAM_SUCCESS || !r) {
+				OH_AudioStreamBuilder_Destroy(b);
+				return false;
+			}
+			mImpl = memory::NkGetDefaultAllocator().New<OHImpl>();
+			mImpl->builder = b;
+			mImpl->renderer = r;
+			mUseS16 = useS16;
+			return true;
+		}
+
+		bool OHAudioBackend::Initialize(int32 sr, int32 ch, int32 buf) {
+			mSampleRate = sr;
+			mChannels = ch;
+			mBufferSize = buf;
+
+			// F32LE d'abord (format du mixeur, appareils reels), puis repli
+			// S16LE : le serveur audio de l'emulateur NEXT (5.0.0.25) rejette
+			// F32LE a SetAudioStreamInfo (« Unsupported audio parameter »,
+			// format: 4 — constate hilog 11/08/2026).
+			if (!_CreateStream(false)) {
+				logger.Warn("[OHAudio] F32LE refuse par le serveur audio — repli S16LE (conversion mixeur)");
+				if (!_CreateStream(true)) {
+					logger.Error("[OHAudio] OH_AudioStreamBuilder_GenerateRenderer FAILED (F32LE et S16LE)");
+					return false;
+				}
+			}
+
+			// Le flux peut renegocier — relire les valeurs effectives.
+			OH_AudioRenderer *r = mImpl->renderer;
+			int32_t v = 0;
+			if (OH_AudioRenderer_GetSamplingRate(r, &v) == AUDIOSTREAM_SUCCESS && v > 0)
+				mSampleRate = v;
+			v = 0;
+			if (OH_AudioRenderer_GetChannelCount(r, &v) == AUDIOSTREAM_SUCCESS && v > 0)
+				mChannels = v;
+			logger.Info("[OHAudio] Initialize OK ({0} Hz, {1} canaux, {2})", mSampleRate, mChannels,
+						mUseS16 ? "S16LE converti" : "F32LE");
+			return true;
+		}
+
+		void OHAudioBackend::Shutdown() {
+			Stop();
+			if (mImpl) {
+				if (mImpl->renderer) {
+					OH_AudioRenderer_Release(mImpl->renderer);
+					mImpl->renderer = nullptr;
+				}
+				if (mImpl->builder) {
+					OH_AudioStreamBuilder_Destroy(mImpl->builder);
+					mImpl->builder = nullptr;
+				}
+				memory::NkGetDefaultAllocator().Delete(mImpl);
+				mImpl = nullptr;
+			}
+			if (mScratch) {
+				memory::NkFree(mScratch);
+				mScratch = nullptr;
+				mScratchFloats = 0;
+			}
+		}
+
+		void OHAudioBackend::SetCallback(AudioCallback cb) {
+			mCallback = cb;
+		}
+
+		void OHAudioBackend::Start() {
+			if (!mImpl || !mImpl->renderer)
+				return;
+			mRunning = true;
+			mPaused = false;
+			OH_AudioRenderer_Start(mImpl->renderer);
+		}
+
+		void OHAudioBackend::Stop() {
+			mRunning = false;
+			if (mImpl && mImpl->renderer)
+				OH_AudioRenderer_Stop(mImpl->renderer);
+		}
+
+		void OHAudioBackend::Pause() {
+			mPaused = true;
+			if (mImpl && mImpl->renderer)
+				OH_AudioRenderer_Pause(mImpl->renderer);
+		}
+
+		void OHAudioBackend::Resume() {
+			mPaused = false;
+			if (mImpl && mImpl->renderer)
+				OH_AudioRenderer_Start(mImpl->renderer);
+		}
+
+#endif // NKENTSEU_PLATFORM_HARMONYOS
+
+		// ====================================================================
 		// AAUDIO (Android) — CORPS PRÊTS À CONNECTER
 		// ====================================================================
 
@@ -1373,6 +1578,11 @@ namespace nkentseu {
 #if defined(NKENTSEU_PLATFORM_LINUX) && !defined(NKENTSEU_PLATFORM_HARMONYOS) && !defined(NKENTSEU_PLATFORM_ANDROID)
 			AudioBackendFactory::Register(
 				"ALSA", []() -> IAudioBackend * { return memory::NkGetDefaultAllocator().New<AlsaAudioBackend>(); });
+#endif
+
+#if defined(NKENTSEU_PLATFORM_HARMONYOS)
+			AudioBackendFactory::Register(
+				"OHAudio", []() -> IAudioBackend * { return memory::NkGetDefaultAllocator().New<OHAudioBackend>(); });
 #endif
 
 #if defined(NKENTSEU_PLATFORM_ANDROID)
