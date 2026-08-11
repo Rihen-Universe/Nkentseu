@@ -240,17 +240,30 @@ float NkSampleShadowTileZ(int slotIdx, vec3 worldPos, float bias, vec3 dWdx, vec
         //    celui qui « colle » les ombres au pied des objets chez Blender.
         float pen = clamp((p.z - zBlk) / max(zBlk, 1e-3), 0.0, 1.0);
         vec2 rad = max(ts, searchR * pen);
-        // 3) PCF Poisson 12 au rayon module, comparatif + plan recepteur.
+        // 3) PCF Poisson au rayon module, comparatif + plan recepteur.
+        //    DEUX ANNEAUX (24 taps) : 12 taps etales sur une large penombre
+        //    (surfacique) laissaient un GRAIN poivre-et-sel tres visible —
+        //    l'aleatoire disperse le motif mais ne remplace pas les
+        //    echantillons manquants (capture de Rihen, 11 aout). Anneau
+        //    interieur a 55% du rayon, exterieur a 100%, decale d'un
+        //    demi-pas angulaire : la couverture du disque est reguliere.
+        const float kHalfStep = 0.2617994; // 15 deg
+        float rC2 = cos(rotA + kHalfStep);
+        float rS2 = sin(rotA + kHalfStep);
         for (int i = 0; i < 12; i++) {
-            vec2 tp = kNkShadowPoisson12[i];
-            tp = vec2(tp.x * rotC - tp.y * rotS, tp.x * rotS + tp.y * rotC);
-            vec2 uv = clamp(atlasUV + tp * rad,
-                            tileUV.xy + ts, tileUV.zw - ts);
-            vec2 duv = uv - atlasUV;
-            float dz = clamp(zu * duv.x + zv * duv.y, -0.005, 0.005);
-            s += textureLod(tShadowAtlas, vec3(uv, p.z + dz), 0.0);
+            vec2 t0 = kNkShadowPoisson12[i];
+            vec2 tA = vec2(t0.x * rotC - t0.y * rotS, t0.x * rotS + t0.y * rotC);
+            vec2 tB = vec2(t0.x * rC2 - t0.y * rS2, t0.x * rS2 + t0.y * rC2);
+            vec2 uvA = clamp(atlasUV + tA * rad, tileUV.xy + ts, tileUV.zw - ts);
+            vec2 uvB = clamp(atlasUV + tB * rad * 0.55, tileUV.xy + ts, tileUV.zw - ts);
+            vec2 dA = uvA - atlasUV;
+            vec2 dB = uvB - atlasUV;
+            float dzA = clamp(zu * dA.x + zv * dA.y, -0.005, 0.005);
+            float dzB = clamp(zu * dB.x + zv * dB.y, -0.005, 0.005);
+            s += textureLod(tShadowAtlas, vec3(uvA, p.z + dzA), 0.0);
+            s += textureLod(tShadowAtlas, vec3(uvB, p.z + dzB), 0.0);
         }
-        return s / 12.0;
+        return s / 24.0;
     }
     if (mode == 2) {
         // PCF 5x5 : 25 taps dans la meme portee (pas divise par deux).
@@ -453,7 +466,15 @@ float NkSampleSpotShadow(int lightIdx, vec3 worldPos, vec3 N, vec3 L, float bias
     vec3  wp   = NkShadowNormalBiasOffsetSlot(firstSlot, worldPos, N, L);
     // Aucune limite propre a l'ombre (meme regle que les omni) : elle meurt
     // avec l'attenuation de la lumiere, pas avec un rayon a elle.
-    return NkSampleShadowTile(firstSlot, wp, bias, dWdx, dWdy);
+    //
+    // BORD DU TRONC : variante FONDUE. Une surfacique eclaire tout
+    // l'hemisphere (facteur de forme, sans cone) alors que son ombre tient
+    // dans une seule tuile perspective : au bord, l'ombre se COUPAIT NET en
+    // pleine zone eclairee (« l'ombre doit s'allonger jusqu'a entrer dans
+    // l'obscurite », Rihen, 11 aout). Le fondu de 8% l'etire au lieu de la
+    // trancher. Sans danger ici, contrairement aux omni : une tuile unique
+    // n'a pas de couture a rouvrir.
+    return NkSampleShadowTileFaded(firstSlot, wp, bias, dWdx, dWdy);
 }
 
 // Dispatch par type de light. Lit le type via uLights.positions[i].w

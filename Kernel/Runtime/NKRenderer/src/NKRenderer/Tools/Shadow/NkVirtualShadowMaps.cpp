@@ -611,22 +611,34 @@ namespace nkentseu {
 						// etroit et l'ombre disparaitrait des qu'on s'ecarte de
 						// l'axe. On impose donc un plancher large.
 						NkLightDesc wide = lights[i];
-						if (wide.outerAngle < 45.f)
-							wide.outerAngle = 45.f;
+						// 65 deg et non 45 : le shader eclaire tout l'hemisphere
+						// devant le panneau (facteur de forme, sans cone) tandis
+						// que l'ombre tenait dans un tronc etroit — elle se
+						// coupait net en pleine zone eclairee (Rihen : « l'ombre
+						// doit s'allonger jusqu'a entrer dans l'obscurite »).
+						// Le bord restant est FONDU cote shader.
+						if (wide.outerAngle < 65.f)
+							wide.outerAngle = 65.f;
 						AllocSlotsSpot(wide, i);
 						// DOUCEUR ~ TAILLE DU PANNEAU : une source etendue fait une
 						// penombre large — la douceur globale seule laissait l'ombre
 						// d'une surfacique aussi dure qu'un spot (« RenderDemo
 						// presentait mieux les ombres », Rihen). Plancher 1 (petit
-						// panneau = spot), plafond 12 (anti-bleed du noyau PCF,
-						// les taps restent clampes au tile).
+						// panneau = spot), plafond 5 : au-dela, meme avec 24 taps
+						// et rotation par pixel, le noyau PCF laisse du grain
+						// (une penombre plus large demanderait un vrai filtre
+						// separable, pas plus d'echantillons ponctuels).
 						for (uint32 sI = slotStart; sI < mActiveSlotCount; sI++) {
 							const float32 dim =
 								lights[i].areaWidth > lights[i].areaHeight ? lights[i].areaWidth
 																		   : lights[i].areaHeight;
-							float32 mul = dim / 0.25f;
+							// Divise par 1 m et plafonne bas : le tronc elargi a
+							// 65 deg a DEJA agrandi l'empreinte monde de chaque
+							// texel, donc le meme multiplicateur qu'avant rendait
+							// la penombre immense et de nouveau granuleuse.
+							float32 mul = dim;
 							if (mul < 1.f) mul = 1.f;
-							if (mul > 12.f) mul = 12.f;
+							if (mul > 2.5f) mul = 2.5f;
 							mSlots[sI].softMul = mul;
 						}
 						break;
