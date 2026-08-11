@@ -151,6 +151,9 @@ with project("NKWindow"):
             "src/NKWindow/Platform/Cocoa/NkCocoaWindow.h",
             "src/NKWindow/Platform/Cocoa/NkCocoaEventSystem.h",
             "src/NKWindow/Platform/Cocoa/NkCocoaGamepad.h",
+            # Point d'entrée ObjC (NSApplication + délégué) : le header NkCocoa.h
+            # reste C++ pur, tout l'ObjC vit ici (CI macOS 2026-08-11).
+            "src/NKWindow/EntryPoints/NkCocoaMain.mm",
         ])
         frameworks(["Cocoa", "QuartzCore", "OpenGL", "Metal"])
 
