@@ -8,8 +8,9 @@
 #include "NkFont.h"
 #include "NKCanvas/Renderer/Core/NkIRenderer2D.h"
 
-// Module externe NKFont (CPU) : rasterisation + atlas.
+// Module externe NKFont (CPU) : rasterisation + atlas + polices embarquées.
 #include "NKFont/NkFont.h"
+#include "NKFont/Embedded/NkFontEmbedded.h"
 
 #include "NKMemory/NkAllocator.h"
 #include "NKLogger/NkLog.h"
@@ -54,11 +55,24 @@ namespace nkentseu {
 			if (!data || sizeBytes == 0)
 				return false;
 			Destroy();
+			mUseEmbedded = false; // un rechargement fichier annule le mode embarqué
 			mRenderer = &renderer;
 			mFontData.Resize((uint32)sizeBytes);
 			::memcpy(mFontData.Data(), data, sizeBytes);
 			// Lazy : les pages (atlas + texture) sont créées à la demande dans
 			// GetOrCreatePage, à la première taille de caractère utilisée.
+			return true;
+		}
+
+		bool NkFont::LoadEmbedded(NkIRenderer2D &renderer, NkEmbeddedFontId id) {
+			if (!NkFontEmbedded::IsAvailable(id))
+				return false;
+			Destroy();
+			mRenderer = &renderer;
+			mUseEmbedded = true;
+			mEmbeddedId = id;
+			// Lazy comme le chemin fichier : les pages naissent à la première
+			// taille demandée, via NkFontEmbedded::AddToAtlas (config optimale).
 			return true;
 		}
 
@@ -74,6 +88,7 @@ namespace nkentseu {
 			}
 
 			Destroy();
+			mUseEmbedded = false; // un rechargement fichier annule le mode embarqué
 			mRenderer = &renderer;
 			mFontData.Resize((uint32)data.Size());
 			::memcpy(mFontData.Data(), data.Data(), (size_t)data.Size());
@@ -88,7 +103,7 @@ namespace nkentseu {
 				if (mPages[i] && mPages[i]->characterSize == characterSize)
 					return mPages[i];
 
-			if (mFontData.Empty() || !mRenderer)
+			if ((!mUseEmbedded && mFontData.Empty()) || !mRenderer)
 				return nullptr;
 
 			// Alloue la Page (placement new — allocateur custom NKMemory).
@@ -117,10 +132,17 @@ namespace nkentseu {
 			// 3. uploader via NkImage + LoadFromImage — surtout PAS
 			//    Create()+Update() : Update exige gTextureBackend.Update, non
 			//    câblé sur tous les backends -> échec SILENCIEUX (atlas GPU vide).
-			::nkentseu::NkFontConfig cfg;
-			cfg.glyphRanges = ::nkentseu::NkFontAtlas::GetGlyphRangesDefault();
-			page->moduleFont = page->atlas->AddFontFromMemory(mFontData.Data(), (nkft_size)mFontData.Size(),
-															  (nkft_float32)characterSize, &cfg);
+			if (mUseEmbedded) {
+				// Police embarquée : AddToAtlas applique la config OPTIMALE du
+				// profil détecté (oversampling/hinting) — le rendu le plus net.
+				page->moduleFont =
+					NkFontEmbedded::AddToAtlas(*page->atlas, mEmbeddedId, (nkft_float32)characterSize);
+			} else {
+				::nkentseu::NkFontConfig cfg;
+				cfg.glyphRanges = ::nkentseu::NkFontAtlas::GetGlyphRangesDefault();
+				page->moduleFont = page->atlas->AddFontFromMemory(mFontData.Data(), (nkft_size)mFontData.Size(),
+																  (nkft_float32)characterSize, &cfg);
+			}
 			page->atlas->Build();
 
 			nkft_uint8 *pixels = nullptr;
