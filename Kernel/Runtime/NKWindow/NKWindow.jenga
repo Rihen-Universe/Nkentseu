@@ -189,6 +189,9 @@ with project("NKWindow"):
             "src/NKWindow/Platform/UIKit/NkUIKitWindow.h",
             "src/NKWindow/Platform/UIKit/NkUIKitEventSystem.h",
             "src/NKWindow/Platform/UIKit/NkUIKitGamepad.h",
+            # Point d'entrée ObjC (UIApplication + délégué) : NkAppleMobile.h
+            # reste C++ pur, tout l'ObjC vit ici (probe iOS CI 2026-08-11).
+            "src/NKWindow/EntryPoints/NkAppleMobileMain.mm",
         ])
         # Metal : surface de rendu iOS (CAMetalLayer dans NkUIKitWindow.mm).
         # OpenGLES conservé pour compat mais le backend GLES iOS est un stub.
