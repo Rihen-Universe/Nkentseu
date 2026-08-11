@@ -1187,23 +1187,19 @@ namespace nkentseu {
 		int renderType = kForceES ? EGL_OPENGL_ES3_BIT : EGL_OPENGL_BIT;
 		int surfTypes = EGL_WINDOW_BIT | (h.pbufferSurface ? EGL_PBUFFER_BIT : 0);
 
-		EGLint alphaDemande = h.alphaBits;
-#if defined(NKENTSEU_PLATFORM_HARMONYOS)
-		// Surface OPAQUE sur HarmonyOS.
+		// ⚠️ NE PAS demander zéro bit d'alpha sur HarmonyOS.
 		//
-		// Le compositeur mélange la fenêtre avec le fond en se servant du canal
-		// alpha du tampon. Une surface à 8 bits d'alpha oblige donc TOUT ce que
-		// dessine l'application à écrire un alpha correct — le moindre tracé qui
-		// laisse l'alpha à zéro ressort noir ou très sombre, alors que la couleur
-		// RGB, elle, est juste. C'est ce qu'on observe : même des éléments
-		// dessinés directement par l'application, sans la moindre texture,
-		// s'affichent sombres.
+		// Cela a été tenté pour rendre la fenêtre opaque, en supposant que le
+		// compositeur assombrissait le rendu via le canal alpha. Le résultat est
+		// bien pire : l'application continue de dessiner correctement — la sonde
+		// d'image lit des couleurs justes dans le framebuffer — mais son image
+		// n'atteint plus l'écran du tout. Le compositeur attend une couche au
+		// format RGBA ; une surface sans alpha n'est jamais composée, et l'écran
+		// reste noir alors qu'aucune erreur n'est signalée, ni au rendu ni au
+		// eglSwapBuffers.
 		//
-		// Demander zéro bit d'alpha rend la fenêtre opaque : le compositeur
-		// n'utilise plus que RGB, et le rendu ne dépend plus de la rigueur de
-		// chaque tracé sur l'alpha.
-		alphaDemande = 0;
-#endif
+		// L'alpha demandé reste donc celui de la configuration.
+		const EGLint alphaDemande = h.alphaBits;
 
 		const EGLint cfgAttribs[] = {EGL_RENDERABLE_TYPE, renderType,		  EGL_SURFACE_TYPE,
 									 surfTypes,			  EGL_RED_SIZE,		  h.redBits,
