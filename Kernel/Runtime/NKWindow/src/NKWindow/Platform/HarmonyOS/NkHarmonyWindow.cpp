@@ -359,6 +359,18 @@ namespace nkentseu {
 		}
 #endif
 
+		// Combien de fois la surface est-elle creee, et de quelle taille ?
+		// Un lancement depuis l'icone du lanceur passe par une animation et
+		// applique l'orientation : la surface peut etre detruite puis recreee,
+		// la ou un lancement direct n'en cree qu'une. Compter tranche entre
+		// « l'application ne dessine pas » et « elle dessine dans une surface
+		// qui n'est plus la bonne ».
+		{
+			static unsigned sCreations = 0;
+			logger.Infof("[NkHarmonyOS] surface creee #%u : %llux%llu (generation %u)\n", ++sCreations,
+						 (unsigned long long)w, (unsigned long long)h, win->mData.mSurfaceGeneration);
+		}
+
 		NkWindowSurfaceCreatedEvent evt(static_cast<uint32>(w), static_cast<uint32>(h));
 		NkWESystem::Events().Enqueue_Public(evt, win->GetId());
 
@@ -430,6 +442,11 @@ namespace nkentseu {
 
 		win->mData.mNativeWindow = nullptr;
 		win->mData.mXComponent = nullptr;
+
+		{
+			static unsigned sDestructions = 0;
+			logger.Infof("[NkHarmonyOS] surface DETRUITE #%u\n", ++sDestructions);
+		}
 
 		NkWindowSurfaceDestroyedEvent evt;
 		NkWESystem::Events().Enqueue_Public(evt, win->GetId());
