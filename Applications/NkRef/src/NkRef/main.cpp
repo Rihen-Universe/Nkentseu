@@ -175,6 +175,7 @@ namespace {
 
 			int32 moveFrame = -1;
 			float32 moveDx = 0.0f, moveDy = 0.0f;
+			int32 packFrame = -1; ///< NK_AGENT_PACK=n : Pack à la frame n
 
 			void Read() {
 				if (const char *v = std::getenv("NK_AGENT_SHOT")) {
@@ -258,6 +259,8 @@ namespace {
 						moveDy = (float32)dy;
 					}
 				}
+				if (const char *v = std::getenv("NK_AGENT_PACK"))
+					packFrame = (int32)std::atoi(v);
 			}
 	};
 
@@ -586,6 +589,20 @@ int nkmain(const NkEntryState &state) {
 					reorderActive(false);
 				} else if (k == NkKey::NK_V && ctrl) {
 					pasteClipboard(view.PixelToWorld(mousePix, vp));
+				} else if (k == NkKey::NK_P && ctrl) {
+					// « Pack » : rangement compact (sélection ≥ 2, sinon tout).
+					board.Pack(16.0f);
+				} else if (k == NkKey::NK_T) {
+					// Toujours-devant — l'API « fenêtre discrète » de NKWindow.
+					// Une bascule clavier en attendant le menu clic droit (Étape 3/4).
+					window.SetAlwaysOnTop(!window.IsAlwaysOnTop());
+					titleCooldown = 0; // reflète l'état dans le titre tout de suite
+				} else if (k >= NkKey::NK_NUM1 && k <= NkKey::NK_NUM0) {
+					// Opacité de fenêtre : 1..9 = 10..90 %, 0 = opaque (comme les
+					// presets PureRef). Enum contigu NUM1..NUM9 puis NUM0.
+					const int32 n = (int32)k - (int32)NkKey::NK_NUM1 + 1; // 1..10
+					window.SetOpacity(n >= 10 ? 1.0f : (float32)n * 0.1f);
+					titleCooldown = 0;
 				}
 			}
 
@@ -633,6 +650,8 @@ int nkmain(const NkEntryState &state) {
 		}
 		if (agent.moveFrame > 0 && agentFrame == agent.moveFrame)
 			moveSelectionByPixels(agent.moveDx, agent.moveDy);
+		if (agent.packFrame > 0 && agentFrame == agent.packFrame)
+			board.Pack(16.0f);
 
 		// ── Rendu : fond + grille + images + sélection, en espace écran ─────
 		target.Clear(NkColor2D{20, 22, 25, 255});
@@ -722,9 +741,21 @@ int nkmain(const NkEntryState &state) {
 		target.Display();
 
 		if (--titleCooldown <= 0) {
-			char t[96];
-			std::snprintf(t, sizeof(t), "NkRef - %d%% - %d image%s", (int)(view.zoom * 100.0f + 0.5f),
+			char t[128];
+			char extra[48] = "";
+			// L'état « fenêtre discrète » se lit dans le titre (pas encore de menu).
+			if (window.IsAlwaysOnTop() && window.GetOpacity() < 1.0f)
+				std::snprintf(extra, sizeof(extra), " - devant - opacite %d%%",
+							  (int)(window.GetOpacity() * 100.0f + 0.5f));
+			else if (window.IsAlwaysOnTop())
+				std::snprintf(extra, sizeof(extra), " - devant");
+			else if (window.GetOpacity() < 1.0f)
+				std::snprintf(extra, sizeof(extra), " - opacite %d%%",
+							  (int)(window.GetOpacity() * 100.0f + 0.5f));
+			char t2[96];
+			std::snprintf(t2, sizeof(t2), "NkRef - %d%% - %d image%s", (int)(view.zoom * 100.0f + 0.5f),
 						  (int)board.items.Size(), board.items.Size() > 1 ? "s" : "");
+			std::snprintf(t, sizeof(t), "%s%s", t2, extra);
 			window.SetTitle(t);
 			titleCooldown = 15;
 		}
