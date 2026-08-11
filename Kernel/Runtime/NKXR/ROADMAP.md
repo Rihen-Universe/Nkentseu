@@ -117,6 +117,19 @@ du cas « EndFrame avec image encore acquise »).
   (swimming des cascades → `autoFitDirectional` sur les deux yeux, `87e80007`).
 
 ## À venir
+
+### Intégration Noge (demande Rihen, 2026-08-12) — dès que l'étage 2 est stable
+Faire de l'XR une CAPACITÉ du framework, pas un bricolage par application :
+tout ce que `NKXRDemo` câble à la main (session avant device, exigences
+Vulkan → NkDeviceInitInfo, un renderer par œil, SubmitEyes, pompe
+d'événements XR) remonte dans un sous-système Noge (`NkXrSubsystem` ou couche
+dédiée de la LayerStack) : l'app déclare « je veux l'XR », Noge orchestre —
+boucle de frame calée sur xrWaitFrame quand un casque est lié, tête/mains
+exposées au gameplay (composants ECS ou contrôleur caméra), actions XR
+pontées vers l'abstraction d'entrées de Noge, repli simulateur/desktop
+automatique. ⚠️ `Engine/Noge` est tenu par un autre chantier
+(CONTINUATION.md) : NOTE DE COORDINATION obligatoire avant d'y écrire —
+précédent à imiter : `Integrations/NKGui/NkGuiRHIBackend`.
 - **Anti-aliasing performant en XR** (exigence Rihen, 2026-08-10) : le FXAA du
   préréglage ForGame ne suffira pas en casque (l'aliasing scintille au moindre
   mouvement de tête). Pistes consignées dans la note de coordination NKRenderer ;
