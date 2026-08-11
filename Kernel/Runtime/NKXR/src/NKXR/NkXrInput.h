@@ -38,16 +38,23 @@ namespace nkentseu {
 			NK_XR_ACTION_FLOAT = 1,
 			NK_XR_ACTION_VEC2 = 2,
 			NK_XR_ACTION_POSE = 3,
+			NK_XR_ACTION_HAPTIC = 4, ///< Sortie : vibration de la manette.
 		};
 
 		// ── Usage sémantique : ce que l'action VEUT DIRE ─────────────────────
+		// Convention de mains (v1, documentée) : SELECT/GRAB/AIM/GRIP/HAPTIC
+		// vivent sur la main DROITE, MOVE sur le stick GAUCHE, MENU sur le
+		// bouton menu gauche — le schéma VR classique (main dominante pointe,
+		// main gauche déplace). Des usages _LEFT viendront quand un besoin
+		// réel les réclamera.
 		enum class NkXrActionUsage : uint8 {
-			NK_XR_USAGE_SELECT = 0,    ///< Le « clic » principal (gâchette).
-			NK_XR_USAGE_GRAB = 1,      ///< Attraper (grip).
-			NK_XR_USAGE_MENU = 2,      ///< Bouton menu/système.
-			NK_XR_USAGE_MOVE = 3,      ///< Locomotion 2D (stick).
-			NK_XR_USAGE_AIM_POSE = 4,  ///< Pose de visée de la main dominante.
-			NK_XR_USAGE_GRIP_POSE = 5, ///< Pose de la paume de la main dominante.
+			NK_XR_USAGE_SELECT = 0,    ///< Le « clic » principal (gâchette droite).
+			NK_XR_USAGE_GRAB = 1,      ///< Attraper (grip droit).
+			NK_XR_USAGE_MENU = 2,      ///< Bouton menu/système (gauche).
+			NK_XR_USAGE_MOVE = 3,      ///< Locomotion 2D (stick gauche).
+			NK_XR_USAGE_AIM_POSE = 4,  ///< Pose de visée de la main droite.
+			NK_XR_USAGE_GRIP_POSE = 5, ///< Pose de la paume de la main droite.
+			NK_XR_USAGE_HAPTIC = 6,    ///< Vibration de la manette droite.
 		};
 
 		// Handle opaque ; 0 = invalide (comme partout dans le moteur).
