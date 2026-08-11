@@ -94,7 +94,7 @@ namespace nkref {
 	/// Sérialise la planche complète. `images[i]` = octets source de
 	/// `board.items[i]` (MÊME index, la glue les tient alignés).
 	inline void NkRefSerialize(NkVector<uint8> &out, const NkRefBoard &board, const NkRefFileImage *images,
-							   const NkRefView &view, bool darkTheme) {
+							   const NkRefView &view, bool darkTheme, bool showGrid = true) {
 		using namespace detail;
 		out.Clear();
 		PutU8(out, 'N');
@@ -106,7 +106,10 @@ namespace nkref {
 		PutF32(out, view.center.y);
 		PutF32(out, view.zoom);
 		PutU8(out, darkTheme ? 1 : 0);
-		PutU8(out, 0);
+		// Grille : encodée « cachée » (1) dans un octet de RÉSERVE de la v1,
+		// pour que les fichiers déjà enregistrés (réserve = 0) gardent la
+		// grille AFFICHÉE et restent identiques à l'octet près au round-trip.
+		PutU8(out, showGrid ? 0 : 1);
 		PutU8(out, 0);
 		PutU8(out, 0);
 		PutU32(out, (uint32)board.items.Size());
@@ -152,7 +155,8 @@ namespace nkref {
 	/// Désérialise. Retourne false si le fichier n'est pas un NKRF lisible —
 	/// dans ce cas, ne rien toucher à la planche courante.
 	inline bool NkRefDeserialize(const uint8 *data, usize size, NkVector<NkRefLoadedItem> &outItems,
-								 NkVector<NkRefStroke> &outStrokes, NkRefView &outView, bool &outDark) {
+								 NkVector<NkRefStroke> &outStrokes, NkRefView &outView, bool &outDark,
+								 bool &outShowGrid) {
 		using namespace detail;
 		Reader r{data, size, 0, true};
 		uint8 m0 = r.U8(), m1 = r.U8(), m2 = r.U8(), m3 = r.U8();
@@ -165,7 +169,7 @@ namespace nkref {
 		outView.center.y = r.F32();
 		outView.zoom = r.F32();
 		outDark = r.U8() != 0;
-		r.U8();
+		outShowGrid = r.U8() == 0; // réserve v1 : 0 = affichée (cf. Serialize)
 		r.U8();
 		r.U8();
 		const uint32 nItems = r.U32();
