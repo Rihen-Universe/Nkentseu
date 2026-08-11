@@ -226,8 +226,24 @@ int nkmain(const NkEntryState &state) {
 		xrDesc.backend = nkxr::NkXrBackendType::NK_XR_BACKEND_OPENXR;
 	}
 	nkxr::NkXrSession *xrSession = nkxr::NkXrSession::Create(xrDesc);
-	if (xrSession == nullptr && wantOpenXR) {
-		logger.Warn("[NKXRDemo] OpenXR indisponible — repli sur le SIMULATEUR.");
+	bool openXrProbeOk = false;
+	if (xrSession != nullptr && wantOpenXR) {
+		openXrProbeOk = true;
+		// Étape 2a : la sonde a dit bonjour au casque — on JOURNALISE sa
+		// fiche d'identité (c'est la preuve), puis on rend la main au
+		// simulateur : ce backend ne sait pas encore ouvrir de session
+		// (2b), et rester dessus laisserait la boucle attendre un READY
+		// qui ne viendra jamais — fenêtre blanche à jamais (vécu).
+		const nkxr::NkXrSystemInfo probe = xrSession->GetSystemInfo();
+		logger.Infof("[NKXRDemo] SONDE OpenXR RÉUSSIE : %s — %ux%u par œil recommandé. "
+					 "La session de casque arrive à l'étape 2b ; on continue sur le simulateur.\n",
+					 probe.systemName, probe.views[0].recommendedWidth, probe.views[0].recommendedHeight);
+		nkxr::NkXrSession::Destroy(xrSession);
+	}
+	if (xrSession == nullptr) {
+		if (wantOpenXR && !openXrProbeOk) {
+			logger.Warn("[NKXRDemo] OpenXR indisponible — repli sur le SIMULATEUR.");
+		}
 		xrDesc.backend = nkxr::NkXrBackendType::NK_XR_BACKEND_SIMULATOR;
 		xrSession = nkxr::NkXrSession::Create(xrDesc);
 	}
@@ -377,6 +393,9 @@ int nkmain(const NkEntryState &state) {
 			}
 		}
 		if (!running || !sessionRunning) {
+			// Ne jamais tourner à vide en attendant un événement de session :
+			// un cœur CPU à 100 % pour rien, et la fenêtre paraît figée.
+			NkChrono::SleepMilliseconds(5);
 			continue;
 		}
 
