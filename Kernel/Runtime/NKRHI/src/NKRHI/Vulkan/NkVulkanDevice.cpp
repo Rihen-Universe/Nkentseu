@@ -346,6 +346,19 @@ namespace nkentseu {
 		NK_VK_CHECKRET(vkEnumeratePhysicalDevices(mInstance, &gpuCount, gpus.Data()),
 					   "vkEnumeratePhysicalDevices(list)");
 
+		// XR : le runtime OpenXR impose SON GPU pour cette instance (voir
+		// NkVulkanDesc.pickPhysicalDevice). La sélection est restreinte à ce
+		// candidat, mais les vérifications queues/extensions restent : mieux
+		// vaut échouer en le disant qu'accepter un GPU inutilisable.
+		VkPhysicalDevice forcedGpu = VK_NULL_HANDLE;
+		if (vkdesc.pickPhysicalDevice != nullptr) {
+			forcedGpu = static_cast<VkPhysicalDevice>(
+				vkdesc.pickPhysicalDevice(static_cast<void *>(mInstance), vkdesc.pickPhysicalDeviceUser));
+			if (forcedGpu != VK_NULL_HANDLE) {
+				NK_VK_LOG("Physical device impose par le crochet XR (pickPhysicalDevice)\n");
+			}
+		}
+
 		int bestScore = -1000000;
 		const uint32 preferredAdapterIndex =
 			(vkdesc.preferredAdapterIndex != UINT32_MAX)
@@ -356,6 +369,9 @@ namespace nkentseu {
 		const bool strictVendor = vendorPreference != NkGpuVendor::NK_ANY;
 
 		for (uint32 g = 0; g < gpuCount; ++g) {
+			if (forcedGpu != VK_NULL_HANDLE && gpus[g] != forcedGpu) {
+				continue;
+			}
 			if (preferredAdapterIndex != UINT32_MAX && g != preferredAdapterIndex) {
 				continue;
 			}

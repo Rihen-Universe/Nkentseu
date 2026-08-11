@@ -27,8 +27,15 @@ with project("NKXRDemo"):
          "NKSerialization", "NKReflection", "NKFileSystem", "NKFont", "NKImage", "NKGlad",
          "NKEvent", "NKWindow", "NKMath", "NKTime", "NKLogger", "NKStream",
          "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
-        extra_includes=["src"],
+        extra_includes=["src",
+                        # NkVulkanDevice.h (liaison OpenXR) tire vulkan.h.
+                        "%{wks.location}/Externals/Libs/Vulkan-Headers-1.4.350/include"],
     )
+
+    # NK_RHI_VK_ENABLED est un define LOCAL de NKRHI (non propage) : sans lui,
+    # NkVulkanDevice.h montre sa classe STUB et la liaison OpenXR ne compile
+    # pas. Les cibles desktop de cette demo ont toujours Vulkan (Externals).
+    defines(["NK_RHI_VK_ENABLED"])
 
     objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
     targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")

@@ -36,6 +36,14 @@ namespace nkentseu {
 				static NkXrSession *Create(const NkXrSessionDesc &desc);
 				static void Destroy(NkXrSession *&session);
 
+				// ── Liaison graphique (étape 2b, backend casque) ─────────────
+				// À appeler dans cet ordre : requirements AVANT la création du
+				// device NKRHI, physical device PENDANT (via le crochet
+				// NkVulkanDesc.pickPhysicalDevice), Bind APRÈS.
+				bool GetVulkanRequirements(NkXrVulkanRequirements &outRequirements);
+				void *GetVulkanPhysicalDevice(void *vkInstance);
+				bool BindVulkan(const NkXrVulkanBinding &binding);
+
 				// ── Système ──────────────────────────────────────────────────
 				NkXrSystemInfo GetSystemInfo() const;
 				NkXrSessionState GetState() const;

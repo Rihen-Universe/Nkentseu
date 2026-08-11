@@ -92,6 +92,18 @@ namespace nkentseu {
 			session = nullptr;
 		}
 
+		bool NkXrSession::GetVulkanRequirements(NkXrVulkanRequirements &outRequirements) {
+			return mBackend->GetVulkanRequirements(outRequirements);
+		}
+
+		void *NkXrSession::GetVulkanPhysicalDevice(void *vkInstance) {
+			return mBackend->GetVulkanPhysicalDevice(vkInstance);
+		}
+
+		bool NkXrSession::BindVulkan(const NkXrVulkanBinding &binding) {
+			return mBackend->BindVulkan(binding);
+		}
+
 		NkXrSystemInfo NkXrSession::GetSystemInfo() const {
 			return mBackend->GetSystemInfo();
 		}

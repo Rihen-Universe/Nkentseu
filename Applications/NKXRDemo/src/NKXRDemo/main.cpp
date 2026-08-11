@@ -38,6 +38,7 @@
 #include "NKLogger/NkLog.h"
 
 #include "NKRHI/Core/NkDeviceFactory.h"
+#include "NKRHI/Vulkan/NkVulkanDevice.h" // liaison OpenXR : handles Vulkan natifs
 #include "NKRenderer/NkRenderer.h"
 #include "NKRenderer/Core/NkCamera.h"
 #include "NKRenderer/Core/NkRenderGraph.h"
@@ -160,6 +161,38 @@ namespace {
 		return uint64(atoll(text));
 	}
 
+	// Découpe EN PLACE une liste d'extensions « séparées par espaces » (le
+	// format des fonctions xrGetVulkan*ExtensionsKHR) : les espaces deviennent
+	// des fins de chaîne, les pointeurs restent dans le buffer d'origine.
+	uint32 SplitExtensionList(char *list, const char **out, uint32 cap) {
+		uint32 count = 0;
+		char *cursor = list;
+		while (*cursor != '\0' && count < cap) {
+			while (*cursor == ' ') {
+				++cursor;
+			}
+			if (*cursor == '\0') {
+				break;
+			}
+			out[count] = cursor;
+			++count;
+			while (*cursor != '\0' && *cursor != ' ') {
+				++cursor;
+			}
+			if (*cursor == ' ') {
+				*cursor = '\0';
+				++cursor;
+			}
+		}
+		return count;
+	}
+
+	// Crochet NkVulkanDesc.pickPhysicalDevice : le runtime OpenXR répond,
+	// NKRHI obéit. user = la session XR.
+	void *NkXrPickPhysicalDevice(void *vkInstance, void *user) {
+		return static_cast<nkxr::NkXrSession *>(user)->GetVulkanPhysicalDevice(vkInstance);
+	}
+
 } // namespace
 
 int nkmain(const NkEntryState &state) {
@@ -184,15 +217,83 @@ int nkmain(const NkEntryState &state) {
 		return 1;
 	}
 
-	// ── 2) Device + compositeur + renderers d'œil ─────────────────────────────
+	// ── 2) Session XR D'ABORD, device ENSUITE ─────────────────────────────────
+	// L'ordre est dicté par OpenXR : le runtime impose au device Vulkan ses
+	// extensions et son physical device AVANT sa création. Le simulateur, lui,
+	// n'exige rien — le même code marche pour les deux.
+	nkxr::NkXrSessionDesc xrDesc;
+	xrDesc.window = &window;
+	const char *backendEnv = getenv("NK_XR_BACKEND");
+	const bool wantOpenXR = (backendEnv != nullptr) && (strcmp(backendEnv, "openxr") == 0);
+	if (wantOpenXR) {
+		xrDesc.backend = nkxr::NkXrBackendType::NK_XR_BACKEND_OPENXR;
+	}
+	nkxr::NkXrSession *xrSession = nkxr::NkXrSession::Create(xrDesc);
+
 	NkDeviceInitInfo devInfo{};
 	devInfo.surface = window.GetSurfaceDesc();
 	devInfo.width = (uint32)window.GetSize().width;
 	devInfo.height = (uint32)window.GetSize().height;
 
-	NkIDevice *device = NkDeviceFactory::CreateAutoDetect(devInfo);
+	NkIDevice *device = nullptr;
+	bool xrBound = false;
+	nkxr::NkXrVulkanRequirements xrVkReqs; // doit survivre à la création du device
+	const char *xrInstExt[32];
+	const char *xrDevExt[32];
+	if (xrSession != nullptr && wantOpenXR) {
+		if (xrSession->GetVulkanRequirements(xrVkReqs)) {
+			// Les listes OpenXR sont « séparées par espaces » : découpe en
+			// place, les pointeurs restent dans xrVkReqs.
+			devInfo.api = NkGraphicsApi::NK_GFX_API_VULKAN;
+			devInfo.context.vulkan.extraInstanceExt = xrInstExt;
+			devInfo.context.vulkan.extraInstanceExtCount =
+				SplitExtensionList(xrVkReqs.instanceExtensions, xrInstExt, 32);
+			devInfo.context.vulkan.extraDeviceExt = xrDevExt;
+			devInfo.context.vulkan.extraDeviceExtCount = SplitExtensionList(xrVkReqs.deviceExtensions, xrDevExt, 32);
+			devInfo.context.vulkan.pickPhysicalDevice = &NkXrPickPhysicalDevice;
+			devInfo.context.vulkan.pickPhysicalDeviceUser = xrSession;
+			device = NkDeviceFactory::CreateForApi(NkGraphicsApi::NK_GFX_API_VULKAN, devInfo);
+			if (device != nullptr && device->IsValid()) {
+				auto *vkDevice = static_cast<NkVulkanDevice *>(device);
+				nkxr::NkXrVulkanBinding binding;
+				binding.instance = vkDevice->GetVkInstance();
+				binding.physicalDevice = vkDevice->GetNativePhysicalDevice();
+				binding.device = vkDevice->GetVkDevice();
+				binding.queueFamilyIndex = vkDevice->GetGraphicsQueueFamilyIndex();
+				binding.queueIndex = 0;
+				xrBound = xrSession->BindVulkan(binding);
+			}
+			if (!xrBound) {
+				logger.Warn("[NKXRDemo] Liaison Vulkan/OpenXR échouée — repli sur le SIMULATEUR.");
+			}
+		}
+		else {
+			logger.Warn("[NKXRDemo] Runtime sans XR_KHR_vulkan_enable — sonde seule, repli SIMULATEUR.");
+		}
+		if (!xrBound) {
+			// La sonde a pu réussir (2a) mais pas la liaison : l'identité du
+			// casque est déjà au journal ; on repart proprement en simulé.
+			nkxr::NkXrSession::Destroy(xrSession);
+		}
+	}
+	if (device == nullptr || !device->IsValid()) {
+		// Chemin simulateur (ou échec Vulkan) : device au choix de la machine,
+		// sans les crochets XR.
+		devInfo.api = NkGraphicsApi::NK_GFX_API_NONE;
+		devInfo.context.vulkan.extraInstanceExtCount = 0;
+		devInfo.context.vulkan.extraDeviceExtCount = 0;
+		devInfo.context.vulkan.pickPhysicalDevice = nullptr;
+		devInfo.context.vulkan.pickPhysicalDeviceUser = nullptr;
+		if (device != nullptr) {
+			NkDeviceFactory::Destroy(device);
+		}
+		device = NkDeviceFactory::CreateAutoDetect(devInfo);
+	}
 	if (!device || !device->IsValid()) {
 		logger.Error("[NKXRDemo] Création device KO");
+		if (xrSession != nullptr) {
+			nkxr::NkXrSession::Destroy(xrSession);
+		}
 		window.Close();
 		return 2;
 	}
@@ -214,34 +315,9 @@ int nkmain(const NkEntryState &state) {
 		return 3;
 	}
 
-	// ── 3) Session XR ─────────────────────────────────────────────────────────
-	// NK_XR_BACKEND=openxr tente le vrai casque (étape 2a : négociation +
-	// instance + système) ; à défaut, ou par défaut, le SIMULATEUR — et le
-	// repli est DIT, jamais silencieux.
-	nkxr::NkXrSessionDesc xrDesc;
-	xrDesc.window = &window;
-	const char *backendEnv = getenv("NK_XR_BACKEND");
-	const bool wantOpenXR = (backendEnv != nullptr) && (strcmp(backendEnv, "openxr") == 0);
-	if (wantOpenXR) {
-		xrDesc.backend = nkxr::NkXrBackendType::NK_XR_BACKEND_OPENXR;
-	}
-	nkxr::NkXrSession *xrSession = nkxr::NkXrSession::Create(xrDesc);
-	bool openXrProbeOk = false;
-	if (xrSession != nullptr && wantOpenXR) {
-		openXrProbeOk = true;
-		// Étape 2a : la sonde a dit bonjour au casque — on JOURNALISE sa
-		// fiche d'identité (c'est la preuve), puis on rend la main au
-		// simulateur : ce backend ne sait pas encore ouvrir de session
-		// (2b), et rester dessus laisserait la boucle attendre un READY
-		// qui ne viendra jamais — fenêtre blanche à jamais (vécu).
-		const nkxr::NkXrSystemInfo probe = xrSession->GetSystemInfo();
-		logger.Infof("[NKXRDemo] SONDE OpenXR RÉUSSIE : %s — %ux%u par œil recommandé. "
-					 "La session de casque arrive à l'étape 2b ; on continue sur le simulateur.\n",
-					 probe.systemName, probe.views[0].recommendedWidth, probe.views[0].recommendedHeight);
-		nkxr::NkXrSession::Destroy(xrSession);
-	}
+	// ── 3) Repli simulateur si le casque n'a pas pris ─────────────────────────
 	if (xrSession == nullptr) {
-		if (wantOpenXR && !openXrProbeOk) {
+		if (wantOpenXR) {
 			logger.Warn("[NKXRDemo] OpenXR indisponible — repli sur le SIMULATEUR.");
 		}
 		xrDesc.backend = nkxr::NkXrBackendType::NK_XR_BACKEND_SIMULATOR;
@@ -255,10 +331,15 @@ int nkmain(const NkEntryState &state) {
 		return 4;
 	}
 	const nkxr::NkXrSystemInfo xrInfo = xrSession->GetSystemInfo();
-	uint32 eyeW = xrInfo.views[0].recommendedWidth;
-	uint32 eyeH = xrInfo.views[0].recommendedHeight;
-	logger.Infof("[NKXRDemo] Système : %s — %ux%u par œil, IPD %.1f mm\n",
-				 xrInfo.systemName, eyeW, eyeH, xrInfo.ipdMeters * 1000.f);
+	// 2b.1 : PAS de couches soumises au casque — les cibles d'œil ne servent
+	// que le miroir fenêtre, inutile de payer les 2080x2096 recommandés du
+	// Quest (8,7 Mpx). Les tailles recommandées reprendront leurs droits avec
+	// les swapchains réelles (2b.2).
+	uint32 eyeW = W / 2;
+	uint32 eyeH = H;
+	logger.Infof("[NKXRDemo] Système : %s (%s) — recommandé %ux%u par œil, miroir %ux%u.\n",
+				 xrInfo.systemName, xrBound ? "SESSION CASQUE RÉELLE" : "simulateur",
+				 xrInfo.views[0].recommendedWidth, xrInfo.views[0].recommendedHeight, eyeW, eyeH);
 
 	// Cibles d'œil + un renderer 3D complet par œil (mode partagé).
 	NkOffscreenTarget *eyeTargets[nkxr::NK_XR_EYE_COUNT] = { nullptr, nullptr };
