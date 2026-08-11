@@ -187,7 +187,13 @@ namespace nkentseu {
 						loaderInfo.minInterfaceVersion = 1;
 						loaderInfo.maxInterfaceVersion = XR_CURRENT_LOADER_RUNTIME_VERSION;
 						loaderInfo.minApiVersion = XR_MAKE_VERSION(1, 0, 0);
-						loaderInfo.maxApiVersion = XR_CURRENT_API_VERSION;
+						// TOUT 1.x, pas la version de nos en-têtes : cette
+						// fourchette décrit ce que NOUS savons accueillir, et
+						// nous ne consommons que le cœur 1.0 — annoncer
+						// 1.1.49 a fait refuser le runtime Meta 1.1.59
+						// (constaté par Rihen, journal « ICD version not
+						// supported by caller »).
+						loaderInfo.maxApiVersion = XR_MAKE_VERSION(1, 0xFFFF, 0xFFFFFFFFu);
 						XrNegotiateRuntimeRequest request{};
 						request.structType = XR_LOADER_INTERFACE_STRUCT_RUNTIME_REQUEST;
 						request.structVersion = XR_RUNTIME_INFO_STRUCT_VERSION;
