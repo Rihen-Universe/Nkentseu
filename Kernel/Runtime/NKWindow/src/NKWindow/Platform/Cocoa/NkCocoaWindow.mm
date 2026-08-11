@@ -50,18 +50,23 @@
 
 	NSRect contentRect = [nswin contentRectForFrameRect:nswin.frame];
 	const float scale = static_cast<float>(nswin.backingScaleFactor);
-	uint32 newW = static_cast<uint32>(nkentseu::math::NkMax(0.0f, static_cast<float>(contentRect.size.width)) * scale);
-	uint32 newH = static_cast<uint32>(nkentseu::math::NkMax(0.0f, static_cast<float>(contentRect.size.height)) * scale);
+	nkentseu::uint32 newW =
+		static_cast<nkentseu::uint32>(nkentseu::math::NkMax(0.0f, static_cast<float>(contentRect.size.width)) * scale);
+	nkentseu::uint32 newH =
+		static_cast<nkentseu::uint32>(nkentseu::math::NkMax(0.0f, static_cast<float>(contentRect.size.height)) * scale);
 
-	// Mettre à jour mData
+	// L'ANCIENNE taille d'abord (l'événement transporte prev) — l'écraser avant
+	// de la lire donnait un prev toujours égal au nouveau.
+	const nkentseu::uint32 prevW = win->mData.mWidth, prevH = win->mData.mHeight;
 	win->mData.mWidth = newW;
 	win->mData.mHeight = newH;
 
-	// Synchroniser mConfig
-	win->mConfig.width = newW;
-	win->mConfig.height = newH;
+	// mConfig est privé : le délégué ObjC n'est pas membre de NkWindow —
+	// ConfigData() existe exactement pour ces callbacks (précédent Wayland).
+	win->ConfigData().width = newW;
+	win->ConfigData().height = newH;
 
-	nkentseu::NkWindowResizeEvent e(newW, newH, win->mData.mWidth, win->mData.mHeight);
+	nkentseu::NkWindowResizeEvent e(newW, newH, prevW, prevH);
 	nkentseu::NkWESystem::Events().Enqueue_Public(e, win->GetId());
 }
 
@@ -93,11 +98,13 @@
 		return;
 	NSRect frame = nswin.frame;
 
-	// Mettre à jour mConfig avec la nouvelle position
-	win->mConfig.x = static_cast<int32>(frame.origin.x);
-	win->mConfig.y = static_cast<int32>(frame.origin.y);
+	// mConfig via ConfigData() (privé sinon) ; types qualifiés — ce bloc ObjC
+	// vit hors du namespace nkentseu.
+	win->ConfigData().x = static_cast<nkentseu::int32>(frame.origin.x);
+	win->ConfigData().y = static_cast<nkentseu::int32>(frame.origin.y);
 
-	nkentseu::NkWindowMoveEvent mv(static_cast<int32>(frame.origin.x), static_cast<int32>(frame.origin.y));
+	nkentseu::NkWindowMoveEvent mv(static_cast<nkentseu::int32>(frame.origin.x),
+								   static_cast<nkentseu::int32>(frame.origin.y));
 	nkentseu::NkWESystem::Events().Enqueue_Public(mv, win->GetId());
 	nkentseu::NkWindowMoveEndEvent e;
 	nkentseu::NkWESystem::Events().Enqueue_Public(e, win->GetId());
@@ -136,7 +143,7 @@ namespace nkentseu {
 		if (!window || iconPath.Empty()) {
 			return;
 		}
-		NSString *path = [NSString stringWithUTF8String:iconPath.c_str()];
+		NSString *path = [NSString stringWithUTF8String:iconPath.CStr()];
 		if (!path || path.length == 0) {
 			return;
 		}
@@ -177,7 +184,7 @@ namespace nkentseu {
 	// Fonctions de synchronisation mData ↔ mConfig
 	// =========================================================================
 
-	static void SyncConfigFromWindow(const NkCocoaWindowData &data, NkWindowConfig &config) {
+	static void SyncConfigFromWindow(const NkWindowData &data, NkWindowConfig &config) {
 		config.width = data.mWidth;
 		config.height = data.mHeight;
 		config.visible = data.mVisible;
@@ -186,7 +193,7 @@ namespace nkentseu {
 		// Le titre est mis à jour dans GetTitle/SetTitle
 	}
 
-	static void SyncWindowFromConfig(NkCocoaWindowData &data, const NkWindowConfig &config) {
+	static void SyncWindowFromConfig(NkWindowData &data, const NkWindowConfig &config) {
 		data.mVisible = config.visible;
 		data.mFullscreen = config.fullscreen;
 		// Les autres propriétés seront appliquées via les méthodes dédiées
@@ -255,7 +262,7 @@ namespace nkentseu {
 				[window setAcceptsMouseMovedEvents:YES];
 
 				if (!config.title.Empty()) {
-					[window setTitle:[NSString stringWithUTF8String:config.title.c_str()]];
+					[window setTitle:[NSString stringWithUTF8String:config.title.CStr()]];
 				}
 			} else {
 				NSWindowStyleMask style = NSWindowStyleMaskBorderless;
@@ -299,7 +306,7 @@ namespace nkentseu {
 
 				[window setContentView:view];
 				[window setReleasedWhenClosed:NO];
-				[window setTitle:[NSString stringWithUTF8String:config.title.c_str()]];
+				[window setTitle:[NSString stringWithUTF8String:config.title.CStr()]];
 				[window setAcceptsMouseMovedEvents:YES];
 			}
 
@@ -504,7 +511,7 @@ namespace nkentseu {
 	void NkWindow::SetTitle(const NkString &title) {
 		mConfig.title = title;
 		if (mData.mNSWindow) {
-			[mData.mNSWindow setTitle:[NSString stringWithUTF8String:title.c_str()]];
+			[mData.mNSWindow setTitle:[NSString stringWithUTF8String:title.CStr()]];
 		}
 	}
 
@@ -624,7 +631,7 @@ namespace nkentseu {
 			info.name[sizeof(info.name) - 1] = '\0';
 		} else {
 			NkString fallback = NkString::Fmt("Display {0}", index + 1);
-			::strncpy(info.name, fallback.c_str(), sizeof(info.name) - 1);
+			::strncpy(info.name, fallback.CStr(), sizeof(info.name) - 1);
 			info.name[sizeof(info.name) - 1] = '\0';
 		}
 		return info;
