@@ -220,7 +220,11 @@ with project("Pong"):
 
     # ===== iOS ================================================================
     with filter("system:iOS"):
-        frameworks(["UIKit", "QuartzCore", "OpenGLES"])
+        # + Metal (NKCanvas iOS) et la chaine audio de NKAudio : les
+        # frameworks des LIBS ne se propagent pas aux apps (probe CI iOS :
+        # _AudioComponent* non resolus).
+        frameworks(["UIKit", "QuartzCore", "OpenGLES", "Metal", "Foundation",
+                    "AudioToolbox", "AVFoundation", "CoreAudio"])
         iosbundleid(f"com.rihen.nkentseu.noge.pong")
         iosversion("1.0")
         iosminsdk("14.0")
