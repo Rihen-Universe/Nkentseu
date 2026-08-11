@@ -133,6 +133,10 @@ namespace nkentseu {
 
 			mTmplPBR = reg(NkMaterialType::NK_PBR_METALLIC, "Default_PBR", "PBR");
 			mTmplToon = reg(NkMaterialType::NK_TOON, "Default_Toon", "Toon");
+			// Toon ENCRE et EMISSIF : leurs shaders existaient, le registre les
+			// oubliait — Create() retombait sur Toon/PBR (constate par Rihen).
+			mTmplToonInk = reg(NkMaterialType::NK_TOON_INK, "Default_ToonInk", "ToonInk");
+			mTmplEmissive = reg(NkMaterialType::NK_EMISSIVE, "Default_Emissive", "Emissive");
 			mTmplUnlit = reg(NkMaterialType::NK_UNLIT, "Default_Unlit", "Unlit");
 			mTmplWire = reg(NkMaterialType::NK_WIREFRAME_MAT, "Default_Wireframe", "PBR", NkRenderQueue::NK_OPAQUE,
 							NkCullMode::NK_NONE, NkFillMode::NK_WIREFRAME);
