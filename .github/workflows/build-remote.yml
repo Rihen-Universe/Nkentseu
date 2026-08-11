@@ -1,0 +1,82 @@
+# =============================================================================
+# build-remote.yml — Compilation À LA DEMANDE d'une cible jenga sur une
+# plateforme au choix (macOS / Linux / iOS), avec artefact.
+#
+# C'est la brique générique que `jenga build --remote` appellera un jour
+# (proposition d'architecture du 2026-08-11) ; en attendant elle se pilote à
+# la main : onglet Actions > build-remote > Run workflow, ou
+#   gh workflow run build-remote.yml -f target=NKCode -f platform=macos
+#
+# Honnêteté : une cible qui n'a JAMAIS été compilée sur une plateforme y
+# échouera probablement d'abord (précédent : 6 itérations pour NkRef/macOS).
+# Un échec ici est une INFORMATION sur l'état du portage, pas une surprise.
+# =============================================================================
+name: build-remote
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Cible jenga (NkRef, NKCode, Pong, renderdemo...)"
+        required: true
+        default: "NkRef"
+      platform:
+        description: "Plateforme"
+        required: true
+        type: choice
+        options: [macos, linux, ios]
+        default: "macos"
+      config:
+        description: "Configuration"
+        required: true
+        type: choice
+        options: [Release, Debug]
+        default: "Release"
+
+jobs:
+  build:
+    runs-on: ${{ inputs.platform == 'linux' && 'ubuntu-latest' || 'macos-latest' }}
+    timeout-minutes: 60
+    steps:
+      - name: Depot Nkentseu (+ sous-modules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Depot Jenga
+        uses: actions/checkout@v4
+        with:
+          repository: Rihen-Universe/Jenga
+          path: jenga-src
+
+      - name: Dependances systeme (Linux)
+        if: inputs.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libx11-dev libxrandr-dev libxext-dev libgl1-mesa-dev
+
+      - name: Builder ${{ inputs.target }} (${{ inputs.platform }}, ${{ inputs.config }})
+        env:
+          PYTHONPATH: ${{ github.workspace }}/jenga-src
+        run: |
+          EXTRA=""
+          if [ "${{ inputs.platform }}" = "ios" ]; then EXTRA="--platform ios"; fi
+          python3 -m Jenga build --target "${{ inputs.target }}" --config "${{ inputs.config }}" $EXTRA
+
+      - name: Empaqueter ce qui a ete produit
+        run: |
+          set -e
+          mkdir -p paquet
+          # On prend tout le dossier de sortie de la cible, quel que soit son nom.
+          OUT=$(find Build/Bin -maxdepth 2 -type d -name "${{ inputs.target }}" | head -1)
+          echo "sortie: $OUT"
+          test -n "$OUT"
+          cp -R "$OUT" paquet/
+          tar -czf "${{ inputs.target }}-${{ inputs.platform }}.tar.gz" -C paquet .
+          ls -l "${{ inputs.target }}-${{ inputs.platform }}.tar.gz"
+
+      - name: Artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.target }}-${{ inputs.platform }}-${{ inputs.config }}
+          path: ${{ inputs.target }}-${{ inputs.platform }}.tar.gz
