@@ -351,7 +351,9 @@ int nkmain(const NkEntryState &state) {
 	uint32 eyeW = W / 2;
 	uint32 eyeH = H;
 	if (xrBound) {
-		const float32 renderScale = math::NkClamp(EnvF32("NK_XR_RENDER_SCALE", 0.7f), 0.2f, 2.f);
+		// 0,8 par défaut depuis que le SSAO VR est coupé (GPU libéré) : la
+		// résolution est la première arme contre l'aliasing en casque.
+		const float32 renderScale = math::NkClamp(EnvF32("NK_XR_RENDER_SCALE", 0.8f), 0.2f, 2.f);
 		eyeW = uint32(float32(xrInfo.views[0].recommendedWidth) * renderScale);
 		eyeH = uint32(float32(xrInfo.views[0].recommendedHeight) * renderScale);
 		if (eyeW < 64u) {
@@ -396,6 +398,17 @@ int nkmain(const NkEntryState &state) {
 		cfgEye.Disable(NK_SS_TEXT);
 		cfgEye.Disable(NK_SS_OVERLAY);
 		cfgEye.Enable(NK_SS_OFFSCREEN);
+		if (xrBound) {
+			// VR : le SSAO (effet écran) scintille en TACHES NOIRES sur les
+			// modèles sous les micro-mouvements permanents de la tête —
+			// constaté par Rihen dans le casque. Coupé par défaut en VR
+			// (pratique standard), NK_XR_SSAO=1 pour le remettre ; le GPU
+			// libéré sert à monter NK_XR_RENDER_SCALE, la vraie arme
+			// anti-aliasing tant que le MSAA œil n'est pas branché.
+			cfgEye.postProcess.ssao = (EnvU64("NK_XR_SSAO", 0) != 0);
+			cfgEye.postProcess.fxaa = true;
+			cfgEye.postProcess.bloom = (EnvU64("NK_XR_BLOOM", 1) != 0);
+		}
 		rEye[e] = NkRenderer::Create(device, cfgEye);
 		if (rEye[e] == nullptr) {
 			logger.Errorf("[NKXRDemo] Renderer œil %u KO\n", e);
