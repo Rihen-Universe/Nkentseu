@@ -107,18 +107,38 @@ namespace nkentseu {
 			}
 			new (page->atlas)::nkentseu::NkFontAtlas();
 
-			// Rasterise la fonte à cette taille.
+			// Rasterise la fonte à cette taille — recette PROUVÉE par le
+			// FontAtlas de Pong (le seul consommateur runtime validé du module) :
+			// 1. TOUJOURS passer une config avec des glyphRanges explicites —
+			//    sans elle (nullptr), l'atlas sortait des glyphes aux métriques
+			//    vides (advance 0, texte invisible : bug NkRef 2026-08-11) ;
+			// 2. lire l'atlas en ALPHA8 et convertir « blanc + alpha=couverture »
+			//    (le shader 2D multiplie texture * couleur du vertex) ;
+			// 3. uploader via NkImage + LoadFromImage — surtout PAS
+			//    Create()+Update() : Update exige gTextureBackend.Update, non
+			//    câblé sur tous les backends -> échec SILENCIEUX (atlas GPU vide).
+			::nkentseu::NkFontConfig cfg;
+			cfg.glyphRanges = ::nkentseu::NkFontAtlas::GetGlyphRangesDefault();
 			page->moduleFont = page->atlas->AddFontFromMemory(mFontData.Data(), (nkft_size)mFontData.Size(),
-															  (nkft_float32)characterSize);
+															  (nkft_float32)characterSize, &cfg);
 			page->atlas->Build();
 
-			// Récupère l'atlas RGBA32 et l'uploade en texture GPU.
 			nkft_uint8 *pixels = nullptr;
 			nkft_int32 w = 0, h = 0;
-			page->atlas->GetTexDataAsRGBA32(&pixels, &w, &h);
+			page->atlas->GetTexDataAsAlpha8(&pixels, &w, &h);
 			if (pixels && w > 0 && h > 0) {
-				page->texture.Create(*mRenderer, (uint32)w, (uint32)h);
-				page->texture.Update(pixels, (uint32)w, (uint32)h, 0, 0);
+				NkImage atlasImg;
+				if (atlasImg.Create((uint32)w, (uint32)h, math::NkColor(0, 0, 0, 0), 4)) {
+					uint8 *dst = atlasImg.Pixels();
+					const usize count = (usize)w * (usize)h;
+					for (usize i = 0; i < count; ++i) {
+						dst[i * 4 + 0] = 255;
+						dst[i * 4 + 1] = 255;
+						dst[i * 4 + 2] = 255;
+						dst[i * 4 + 3] = pixels[i]; // couverture du glyphe
+					}
+					page->texture.LoadFromImage(*mRenderer, atlasImg);
+				}
 			} else {
 				NK_FONT_ERR("GetOrCreatePage: atlas vide (taille %u)", characterSize);
 			}
