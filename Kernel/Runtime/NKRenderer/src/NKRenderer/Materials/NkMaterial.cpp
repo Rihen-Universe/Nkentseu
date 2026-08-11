@@ -47,6 +47,18 @@ namespace nkentseu {
 				case NkMaterialType::NK_ARCHIVIZ:
 					tmpl = sys->DefaultArchviz();
 					break;
+				case NkMaterialType::NK_GLASS:
+					tmpl = sys->DefaultGlass();
+					break;
+				case NkMaterialType::NK_CLOTH:
+					tmpl = sys->DefaultCloth();
+					break;
+				case NkMaterialType::NK_CAR_PAINT:
+					tmpl = sys->DefaultCarPaint();
+					break;
+				case NkMaterialType::NK_FOLIAGE:
+					tmpl = sys->DefaultFoliage();
+					break;
 				case NkMaterialType::NK_REFL_FLOOR:
 					tmpl = sys->DefaultReflFloor();
 					break;

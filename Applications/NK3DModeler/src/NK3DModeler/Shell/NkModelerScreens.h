@@ -6152,6 +6152,14 @@ namespace nkentseu {
 			const bool hasSel5 = st.activeEmpty >= 0 ||
 								 demo::Demo3DHostActiveObject() >= 0 ||
 								 demo::Demo3DHostSelectedLight() >= 0;
+			// LA MATIERE EST UNE AFFAIRE DE SURFACE : une lumiere n'en porte
+			// pas (Rihen, 11 aout — « pourquoi une lumiere a un material ? »).
+			// Sa propre couleur/texture d'emission vit dans SON panneau.
+			// On RETIRE donc la pastille pour une lumiere, sans rien changer
+			// aux autres cas : exiger gizmo.ActiveIndex() >= 0 l'avait fait
+			// disparaitre aussi pour un cube selectionne depuis la hierarchie
+			// (constate par Rihen dans la foulee).
+			const bool hasObj5 = hasSel5 && demo::Demo3DHostSelectedLight() < 0;
 			// MEME REGLE POUR MATERIAU ET MODIFICATEUR (Rihen) : sans objet, il
 			// n'y a ni matiere a assigner ni modificateur a poser -- leurs
 			// pastilles disparaissent comme celle de Modele, et si l'une etait
@@ -11764,9 +11772,13 @@ namespace nkentseu {
 				float32 ty = stackTop + S(4.f);
 				for (int32 i2 = 0; i2 < kNSec; ++i2) {
 					// Les pastilles LIEES A L'OBJET (Modele, Modificateur) se retirent
-					// sans selection (Rihen, 11 aout) ; Materiau RESTE — il edite le
-					// projet. Le panneau, lui, n'obeit qu'a la main.
-					if ((i2 == 0 || i2 == 3 || i2 == 4) && !hasSel5)
+					// sans selection (Rihen, 11 aout). Le panneau, lui, n'obeit
+					// qu'a la main.
+					if ((i2 == 0 || i2 == 3) && !hasSel5)
+						continue;
+					// MATERIAU : exige un OBJET. Une lumiere selectionnee ne fait
+					// plus apparaitre la matiere — elle n'a pas de surface.
+					if (i2 == 4 && !hasObj5)
 						continue;
 					char tk[24];
 					snprintf(tk, sizeof(tk), "props.tab.%d", i2);
