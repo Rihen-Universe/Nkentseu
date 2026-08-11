@@ -1282,6 +1282,26 @@ static int ModeAjouter(int argc, char **argv) {
 		return 1;
 	}
 
+	// ⚠️ LE FICHIER EXISTE-T-IL ? A verifier AVANT tout le reste.
+	//
+	// Sans ce controle, un chemin devenu invalide (fichier deplace, renomme,
+	// supprime) traverse toute la chaine et ressort en « 0 octet de contenu,
+	// 0 operation » — le symptome exact d'un lecteur casse. Le 2026-08-11, cette
+	// confusion a coute trois reconstructions completes et deux hypotheses
+	// fausses (objets perimes, puis conflit avec mbed-TLS) pour un fichier qui
+	// avait simplement ete deplace. Un outil doit dire « introuvable » quand
+	// c'est introuvable, jamais laisser croire a une panne interne.
+	{
+		FILE *test = fopen(fLivre, "rb");
+		if (!test) {
+			logger.Infof("ERREUR : fichier INTROUVABLE ou illisible : %s\n", fLivre);
+			logger.Info("Verifier le chemin — un fichier deplace ou renomme donne exactement la meme "
+						"apparence qu'un lecteur en panne.");
+			return 1;
+		}
+		fclose(test);
+	}
+
 	// L'extension décide du lecteur. L'EPUB est une archive : il faut l'ouvrir
 	// avant de pouvoir lire quoi que ce soit.
 	NkString nomBas(fLivre);
