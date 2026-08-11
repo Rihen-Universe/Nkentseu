@@ -806,6 +806,52 @@ namespace nkentseu {
 		return mConfig.clickThrough;
 	}
 
+	// ── Fenêtre sans bordure / barre de titre custom (préparation NkRef) ─────
+	// Ces méthodes manquaient au backend Cocoa (trou de link pour toute app qui
+	// les appelle — NkRef borderless en dépend). Écrites d'après AppKit, à
+	// VALIDER sur machine réelle (aucun Mac sous la main, 2026-08-11).
+
+	void NkWindow::SetDecorated(bool decorated) {
+		mConfig.frame = decorated;
+		if (!mData.mNSWindow)
+			return;
+		NSUInteger mask = mData.mNSWindow.styleMask;
+		if (decorated) {
+			mask |= (NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable |
+					 NSWindowStyleMaskResizable);
+		} else {
+			// Borderless MAIS résizable : les bords AppKit continuent de
+			// fonctionner sans chrome (équivalent du WM_NCCALCSIZE Win32).
+			mask &= ~(NSUInteger)(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
+								  NSWindowStyleMaskMiniaturizable);
+			mask |= NSWindowStyleMaskResizable;
+		}
+		mData.mNSWindow.styleMask = mask;
+	}
+
+	bool NkWindow::IsDecorated() const {
+		return mConfig.frame;
+	}
+
+	bool NkWindow::IsMaximized() const {
+		return mData.mNSWindow && [mData.mNSWindow isZoomed];
+	}
+
+	void NkWindow::BeginDragMove() {
+		// Hand-off natif : AppKit prend la main sur le déplacement.
+		if (mData.mNSWindow) {
+			NSEvent *ev = [NSApp currentEvent];
+			if (ev)
+				[mData.mNSWindow performWindowDragWithEvent:ev];
+		}
+	}
+
+	void NkWindow::BeginResize(NkResizeEdge /*edge*/) {
+		// Pas de hand-off natif « par bord » dans AppKit : une fenêtre
+		// NSWindowStyleMaskResizable (même borderless) gère déjà ses bords.
+		// Intention consommée sans effet — documenté, pas un contournement.
+	}
+
 	bool NkWindow::SupportsOrientationControl() const {
 		return false;
 	}
