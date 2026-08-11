@@ -161,6 +161,14 @@ namespace {
 		return uint64(atoll(text));
 	}
 
+	float32 EnvF32(const char *name, float32 fallback) {
+		const char *text = getenv(name);
+		if (text == nullptr || *text == '\0') {
+			return fallback;
+		}
+		return float32(atof(text));
+	}
+
 	// Découpe EN PLACE une liste d'extensions « séparées par espaces » (le
 	// format des fonctions xrGetVulkan*ExtensionsKHR) : les espaces deviennent
 	// des fins de chaîne, les pointeurs restent dans le buffer d'origine.
@@ -307,6 +315,11 @@ int nkmain(const NkEntryState &state) {
 	// import de texture RHI externe dans la bibliothèque).
 	NkRendererConfig cfgMain = NkRendererConfig::For2D(devInfo.api, W, H);
 	cfgMain.Enable(NK_SS_OFFSCREEN);
+	// Casque lié : c'est xrWaitFrame qui cadence (72 Hz Quest 2) — la vsync
+	// fenêtre à 60 Hz créerait un double-métronome et du judder dans le casque.
+	if (xrBound) {
+		cfgMain.vsync = false;
+	}
 	NkRenderer *rMain = NkRenderer::Create(device, cfgMain);
 	if (!rMain) {
 		logger.Error("[NKXRDemo] Init compositeur KO");
@@ -331,13 +344,27 @@ int nkmain(const NkEntryState &state) {
 		return 4;
 	}
 	const nkxr::NkXrSystemInfo xrInfo = xrSession->GetSystemInfo();
-	// 2b.1 : PAS de couches soumises au casque — les cibles d'œil ne servent
-	// que le miroir fenêtre, inutile de payer les 2080x2096 recommandés du
-	// Quest (8,7 Mpx). Les tailles recommandées reprendront leurs droits avec
-	// les swapchains réelles (2b.2).
+	// Casque lié : le rendu se fait à la taille des swapchains du runtime —
+	// recommandé × NK_XR_RENDER_SCALE (0,7 par défaut : 2080x2096 ×2 yeux
+	// ≈ 8,7 Mpx, la 3070 Laptop bridée ne tiendra pas le plein tarif à 72 Hz ;
+	// on monte l'échelle quand la mesure le permet). Simulateur : demi-fenêtre.
 	uint32 eyeW = W / 2;
 	uint32 eyeH = H;
-	logger.Infof("[NKXRDemo] Système : %s (%s) — recommandé %ux%u par œil, miroir %ux%u.\n",
+	if (xrBound) {
+		const float32 renderScale = math::NkClamp(EnvF32("NK_XR_RENDER_SCALE", 0.7f), 0.2f, 2.f);
+		eyeW = uint32(float32(xrInfo.views[0].recommendedWidth) * renderScale);
+		eyeH = uint32(float32(xrInfo.views[0].recommendedHeight) * renderScale);
+		if (eyeW < 64u) {
+			eyeW = 64u;
+		}
+		if (eyeH < 64u) {
+			eyeH = 64u;
+		}
+		if (!xrSession->CreateHmdSwapchains(eyeW, eyeH)) {
+			logger.Warn("[NKXRDemo] Swapchains casque KO : session réelle mais AUCUNE image ne partira au casque.");
+		}
+	}
+	logger.Infof("[NKXRDemo] Système : %s (%s) — recommandé %ux%u par œil, rendu %ux%u.\n",
 				 xrInfo.systemName, xrBound ? "SESSION CASQUE RÉELLE" : "simulateur",
 				 xrInfo.views[0].recommendedWidth, xrInfo.views[0].recommendedHeight, eyeW, eyeH);
 
@@ -484,9 +511,14 @@ int nkmain(const NkEntryState &state) {
 			pendingResize = false;
 			W = pendingW;
 			H = pendingH;
+			rMain->OnResize(W, H);
+			if (xrBound) {
+				// Les tailles d'œil appartiennent aux swapchains du CASQUE :
+				// la fenêtre n'est qu'un miroir, DrawImage remet à l'échelle.
+				continue;
+			}
 			eyeW = W / 2;
 			eyeH = H;
-			rMain->OnResize(W, H);
 			for (uint32 e = 0; e < nkxr::NK_XR_EYE_COUNT; ++e) {
 				eyeTargets[e]->Resize(eyeW, eyeH);
 				rEye[e]->SetRenderSizeOverride(eyeW, eyeH);
@@ -582,6 +614,19 @@ int nkmain(const NkEntryState &state) {
 
 			rMain->Present();
 			rMain->EndFrame();
+
+			// Casque : remettre nos deux yeux au compositeur — copie vers les
+			// images du runtime + couche de projection au EndFrame session.
+			// APRÈS le Present : notre soumission GPU suit la sienne dans la
+			// file, le compositeur attend la fin par Acquire/Wait.
+			if (xrBound) {
+				auto *vkDevice = static_cast<NkVulkanDevice *>(device);
+				const uint64 imageLeft = uint64(uintptr_t(
+					vkDevice->GetVkImage(rMain->GetTextures()->GetRHIHandle(eyeTargets[0]->GetColorResult()).id)));
+				const uint64 imageRight = uint64(uintptr_t(
+					vkDevice->GetVkImage(rMain->GetTextures()->GetRHIHandle(eyeTargets[1]->GetColorResult()).id)));
+				xrSession->SubmitEyes(views, imageLeft, imageRight, eyeW, eyeH);
+			}
 		}
 
 		// EndFrame TOUJOURS soumis (même sans rendu) : la boucle reste calée.
