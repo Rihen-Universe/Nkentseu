@@ -80,6 +80,15 @@ namespace nkentseu {
 			uint32 extraInstanceExtCount = 0;
 			const char **extraDeviceExt = nullptr;
 			uint32 extraDeviceExtCount = 0;
+			// ── XR (note de coordination NKXR, ROADMAP) ──────────────────────
+			// Un runtime OpenXR IMPOSE le VkPhysicalDevice à utiliser pour une
+			// VkInstance donnée (xrGetVulkanGraphicsDeviceKHR) : ce crochet est
+			// appelé après la création de l'instance, avant la sélection — s'il
+			// rend un handle non nul, la sélection est restreinte à CE GPU
+			// (les vérifications de queues/extensions s'appliquent toujours).
+			// void* et non VkPhysicalDevice : ce header est public et agnostique.
+			void *(*pickPhysicalDevice)(void *vkInstance, void *user) = nullptr;
+			void *pickPhysicalDeviceUser = nullptr;
 	};
 
 	struct NkDirectX11Desc {

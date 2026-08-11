@@ -257,6 +257,12 @@ namespace nkentseu {
 				return mDevice;
 			}
 
+			// XR : la liaison de session OpenXR (XrGraphicsBindingVulkanKHR)
+			// exige l'instance en plus du device — exposée comme les autres.
+			VkInstance GetVkInstance() const {
+				return mInstance;
+			}
+
 			uint32 GetGraphicsQueueFamilyIndex() const {
 				return mGraphicsFamily;
 			}
