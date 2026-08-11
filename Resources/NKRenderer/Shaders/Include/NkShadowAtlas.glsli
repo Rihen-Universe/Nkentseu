@@ -194,6 +194,16 @@ float NkSampleShadowTileZ(int slotIdx, vec3 worldPos, float bias, vec3 dWdx, vec
     // echouer fxc (X3570). Les boucles de noyau, elles, sont a compte CONSTANT.
     int mode = int(uShadows.globalCfg.y);
     float s = 0.0;
+    // ROTATION PAR PIXEL du disque de Poisson, ancree au MONDE (stable quand
+    // la camera bouge) : 12 taps etales sur une grande penombre (douceur par
+    // lumiere des surfaciques) laissaient voir leur MOTIF — des taches
+    // structurees qui ressemblaient a une texture de lumiere (constate par
+    // Rihen, 11 aout). Tournes d'un angle aleatoire par pixel, le motif
+    // devient un grain fin, invisible a l'echelle de la penombre.
+    float rotA = fract(sin(worldPos.x * 12.9898 + worldPos.y * 78.233 +
+                           worldPos.z * 37.719) * 43758.5453) * 6.2831853;
+    float rotC = cos(rotA);
+    float rotS = sin(rotA);
     if (mode == 4) {
         // ── PCSS (NVIDIA 2005) : LE DURCISSEMENT AU CONTACT ─────────────────
         // Une vraie source a une taille : l'ombre est NETTE la ou l'objet
@@ -209,7 +219,9 @@ float NkSampleShadowTileZ(int slotIdx, vec3 worldPos, float bias, vec3 dWdx, vec
         float zBlk = 0.0;
         float nBlk = 0.0;
         for (int i = 0; i < 12; i++) {
-            vec2 uv = clamp(atlasUV + kNkShadowPoisson12[i] * searchR,
+            vec2 tp = kNkShadowPoisson12[i];
+            tp = vec2(tp.x * rotC - tp.y * rotS, tp.x * rotS + tp.y * rotC);
+            vec2 uv = clamp(atlasUV + tp * searchR,
                             tileUV.xy + ts, tileUV.zw - ts);
             vec2 duv = uv - atlasUV;
             float zPlane = p.z + clamp(zu * duv.x + zv * duv.y, -0.005, 0.005);
@@ -230,7 +242,9 @@ float NkSampleShadowTileZ(int slotIdx, vec3 worldPos, float bias, vec3 dWdx, vec
         vec2 rad = max(ts, searchR * pen);
         // 3) PCF Poisson 12 au rayon module, comparatif + plan recepteur.
         for (int i = 0; i < 12; i++) {
-            vec2 uv = clamp(atlasUV + kNkShadowPoisson12[i] * rad,
+            vec2 tp = kNkShadowPoisson12[i];
+            tp = vec2(tp.x * rotC - tp.y * rotS, tp.x * rotS + tp.y * rotC);
+            vec2 uv = clamp(atlasUV + tp * rad,
                             tileUV.xy + ts, tileUV.zw - ts);
             vec2 duv = uv - atlasUV;
             float dz = clamp(zu * duv.x + zv * duv.y, -0.005, 0.005);
@@ -255,7 +269,9 @@ float NkSampleShadowTileZ(int slotIdx, vec3 worldPos, float bias, vec3 dWdx, vec
         // Poisson 12 : taps irreguliers dans le meme disque — le crenelage
         // des bords devient du grain, moins visible qu'un motif regulier.
         for (int i = 0; i < 12; i++) {
-            vec2 uv = clamp(atlasUV + kNkShadowPoisson12[i] * pcfStep,
+            vec2 tp = kNkShadowPoisson12[i];
+            tp = vec2(tp.x * rotC - tp.y * rotS, tp.x * rotS + tp.y * rotC);
+            vec2 uv = clamp(atlasUV + tp * pcfStep,
                             tileUV.xy + ts, tileUV.zw - ts);
             vec2 duv = uv - atlasUV;
             float dz = clamp(zu * duv.x + zv * duv.y, -0.005, 0.005);
