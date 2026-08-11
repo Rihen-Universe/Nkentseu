@@ -55,7 +55,8 @@ jobs:
         if: inputs.platform == 'linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang libx11-dev libxrandr-dev libxext-dev libgl1-mesa-dev
+          # libasound2-dev : NKAudio/ALSA (revele par le probe NKCode).
+          sudo apt-get install -y clang libx11-dev libxrandr-dev libxext-dev libgl1-mesa-dev libasound2-dev
 
       - name: Builder ${{ inputs.target }} (${{ inputs.platform }}, ${{ inputs.config }})
         env:
