@@ -72,6 +72,8 @@ namespace nkentseu {
 
 				void AttachActions(const NkXrActionDesc *actions, uint32 count) override;
 				bool SyncActions(NkXrTime now) override;
+				bool ApplyHaptic(NkXrActionHandle handle, float32 amplitude, float32 durationSeconds,
+								 float32 frequencyHz) override;
 				bool GetActionStateBool(NkXrActionHandle handle, NkXrActionStateBool &outState) override;
 				bool GetActionStateFloat(NkXrActionHandle handle, NkXrActionStateFloat &outState) override;
 				bool GetActionStateVec2(NkXrActionHandle handle, NkXrActionStateVec2 &outState) override;
@@ -82,6 +84,10 @@ namespace nkentseu {
 				// ce struct opaque défini par le .cpp — voir « frontière ».
 				struct OxrState;
 				OxrState *mOxr = nullptr;
+
+				// Crée jeu d'actions + liaisons (profils Touch et simple) puis
+				// attache — appelé dès que session ET descriptions existent.
+				void SetupActions();
 
 				NkXrSessionDesc mDesc{};
 				NkXrSessionState mState = NkXrSessionState::NK_XR_STATE_IDLE;

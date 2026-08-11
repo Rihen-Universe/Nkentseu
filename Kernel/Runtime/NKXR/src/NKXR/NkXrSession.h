@@ -79,6 +79,7 @@ namespace nkentseu {
 				bool GetActionStateFloat(NkXrActionHandle handle, NkXrActionStateFloat &outState);
 				bool GetActionStateVec2(NkXrActionHandle handle, NkXrActionStateVec2 &outState);
 				bool LocateActionPose(NkXrActionHandle handle, const NkXrSpace &space, NkXrTime time, NkXrPose &outPose);
+				bool ApplyHaptic(NkXrActionHandle handle, float32 amplitude, float32 durationSeconds, float32 frequencyHz = 0.f);
 
 				// Temps XR « maintenant » (l'horloge que datent poses et frames).
 				static NkXrTime Now();

@@ -569,6 +569,10 @@ namespace nkentseu {
 							// Les poses se lisent par LocateActionPose, pas ici.
 							break;
 						}
+						case NkXrActionUsage::NK_XR_USAGE_HAPTIC: {
+							// Sortie : rien à lire.
+							break;
+						}
 					}
 				}
 				NkXrActionStateBool &boolState = mBoolStates[i];
