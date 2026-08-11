@@ -7,6 +7,12 @@ coince, plante ou manque — c'est exactement ce qu'on cherche.
 ## Lancer
 
 - **Windows** : dézippez, double-cliquez `NkRef.exe` (gardez les `.dll` à côté).
+  **Si Windows bloque le lancement** (« Windows a protégé votre ordinateur ») :
+  c'est SmartScreen qui se méfie de tout programme récent non signé — pas un
+  virus (le binaire vient du code public github.com/Rihen-Universe/Nkentseu).
+  Deux façons de passer : cliquez « Informations complémentaires » puis
+  « Exécuter quand même » ; ou, AVANT de dézipper : clic droit sur le zip >
+  Propriétés > cochez « Débloquer » > OK.
 - **Linux** : `tar xzf`, puis `./NkRef` (nécessite X11 + OpenGL — présents sur
   toute distro de bureau ; sous Wayland, XWayland fait l'affaire).
 - **macOS** : `tar xzf`, puis `./NkRef` depuis un terminal. Binaire non signé :

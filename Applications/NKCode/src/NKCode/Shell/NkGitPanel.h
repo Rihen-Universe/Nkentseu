@@ -28,6 +28,13 @@
 // NKWindow/Xlib, qui REPOSE les macros : en tête de fichier il ne servait à
 // rien — 2e leçon du même probe).
 #include "NKPlatform/NkX11Clean.h"
+// `Status`, lui, ne PEUT PAS être neutralisé globalement : Xutil s'en sert
+// comme TYPE (leçon déjà payée, documentée dans NkX11Clean.h). Undef LOCAL :
+// ce header vient toujours après les en-têtes X11 de sa TU et n'utilise
+// aucun type X11 — 3e leçon du même probe.
+#ifdef Status
+#undef Status
+#endif
 
 namespace nkentseu {
 	namespace nkcode {
