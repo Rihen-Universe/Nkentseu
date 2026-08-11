@@ -19,12 +19,15 @@
 // mal, laisse l'utilisateur sans recours dans une interface qui ne sait pas
 // lui expliquer ce qui s'est passe. Le terminal integre reste la pour ca.
 // =============================================================================
-// X11 définit les MACROS None/Status : l'enum Cmd { None, Status, ... } de ce
-// fichier explosait en « expected identifier » sur Linux (probe CI 2026-08-11).
-// Le nettoyeur maison neutralise ces macros (même remède que NKGui.h).
-#include "NKPlatform/NkX11Clean.h"
 #include "NKCode/Project/NkCodeState.h"
 #include "NKEditorKit/NkEditorKit.h"
+// X11 définit les MACROS None/Status : l'enum Cmd { None, Status, ... } de ce
+// fichier explosait en « expected identifier » sur Linux (probe CI 2026-08-11).
+// Le nettoyeur maison neutralise ces macros — et il doit venir APRÈS le
+// dernier include qui touche X11 (les deux ci-dessus finissent par inclure
+// NKWindow/Xlib, qui REPOSE les macros : en tête de fichier il ne servait à
+// rien — 2e leçon du même probe).
+#include "NKPlatform/NkX11Clean.h"
 
 namespace nkentseu {
 	namespace nkcode {
