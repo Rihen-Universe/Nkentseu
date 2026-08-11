@@ -291,9 +291,14 @@ moment exact de l'échec `ToUnicode`, sur la police effectivement interrogée
 (l'ancienne comparait les premiers codes du flux à la table de la *dernière*
 police vue — deux objets sans rapport).
 
-**Limite qui demeure** (honnête, non réparable sans OCR/interprétation Type1) :
-les documents-images (scans) et les PDF LaTeX en Type1 sans `/ToUnicode`
-(papiers arXiv anciens). Pour les seconds : préférer la source `.tex`.
+**Balayage complet du dossier Cours après correctifs — 258 PDF** :
+**199 acceptés (77 %)** contre ~17 % avant ; 29 « vides » (~26 scans que seul
+un OCR lirait, 2 chiffrés refusés franchement) ; 29 refusés charabia = famille
+**LaTeX/dvips Type1 sans `/ToUnicode`** (arXiv, notes Eberly). Pour une partie
+de ces derniers, un décodage par **noms de glyphes** est possible et mesuré
+(`/Differences` à noms standards, ou encodage en clair du FontFile Type1) —
+chantier différé, à ouvrir si ces documents valent l'effort. Pour les sources
+LaTeX : préférer le `.tex`, toujours.
 
 ---
 
