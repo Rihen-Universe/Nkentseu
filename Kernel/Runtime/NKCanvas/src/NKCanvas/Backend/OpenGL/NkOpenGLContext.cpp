@@ -99,9 +99,32 @@
 // -----------------------------------------------------------------------------
 #if defined(NKENTSEU_PLATFORM_HARMONYOS)
 #define NK_NATIVE_WIN(s) ((s).ohNativeWindow)
+#include <native_window/external_window.h>
 #else
 #define NK_NATIVE_WIN(s) ((s).nativeWindow)
 #endif
+
+namespace {
+#if defined(NKENTSEU_PLATFORM_HARMONYOS)
+	// Impose au tampon de la fenetre native la geometrie annoncee par le
+	// XComponent, AVANT toute creation de surface EGL : c'est ce qui garantit
+	// que l'on dessine dans un tampon de la forme attendue par l'ecran.
+	//
+	// Le code de retour est journalise a dessein. eglQuerySurface continuera
+	// d'annoncer les dimensions transposees meme quand cet appel REUSSIT (code
+	// 0) — sans cette trace on croirait l'appel sans effet, et on serait tente
+	// de suivre eglQuerySurface, ce qui fait rendre a l'envers.
+	inline void NkHarmonyAlignerTampon(void *nativeWindow, unsigned int largeur, unsigned int hauteur) {
+		if (!nativeWindow || largeur == 0u || hauteur == 0u) {
+			return;
+		}
+		const int32_t r =
+			OH_NativeWindow_NativeWindowHandleOpt(static_cast<OHNativeWindow *>(nativeWindow), SET_BUFFER_GEOMETRY,
+												  static_cast<int32_t>(largeur), static_cast<int32_t>(hauteur));
+		logger.Infof("[NkOpenGL] geometrie du tampon %ux%u -> code %d\n", largeur, hauteur, (int)r);
+	}
+#endif
+} // namespace
 
 
 // Constantes WGL ARB (utilisÃ©es si GLAD2 absent, magic numbers nommÃ©s)
@@ -280,24 +303,17 @@ namespace nkentseu {
 		mData.width = surf.width;
 		mData.height = surf.height;
 
-#if defined(NKENTSEU_WINDOWING_WAYLAND) || defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_PLATFORM_HARMONYOS)
-		// La SURFACE fait autorité sur les dimensions, pas la fenêtre logique.
+		// ⚠️ NE PAS remplacer ces dimensions par celles de eglQuerySurface.
 		//
-		// Sur HarmonyOS, la surface est exprimée dans l'orientation physique de
-		// la dalle : pour une fenêtre portrait de 1260x2503, EGL rend une
-		// surface de 2503x1260. Se fier à la fenêtre donnait donc un viewport et
-		// une projection TRANSPOSÉS — l'image s'affichait tournée, et ce qui
-		// tombait hors du cadre disparaissait.
-		if (mData.eglDisplay != EGL_NO_DISPLAY && mData.eglSurface != EGL_NO_SURFACE) {
-			EGLint sw = 0, sh = 0;
-			eglQuerySurface(mData.eglDisplay, mData.eglSurface, EGL_WIDTH, &sw);
-			eglQuerySurface(mData.eglDisplay, mData.eglSurface, EGL_HEIGHT, &sh);
-			if (sw > 0 && sh > 0) {
-				mData.width = static_cast<uint32>(sw);
-				mData.height = static_cast<uint32>(sh);
-			}
-		}
-#endif
+		// Sur HarmonyOS, EGL exprime la taille de la surface dans l'orientation
+		// PHYSIQUE de la dalle : pour une fenêtre portrait de 1260x2503, il
+		// rapporte 2503x1260 — et ce, MÊME après un SET_BUFFER_GEOMETRY accepté
+		// (code de retour 0) pour 1260x2503. Se fier à cette valeur fait rendre
+		// en paysage une application portrait : l'image sort tournée d'un quart
+		// de tour, ce qui a été constaté sur Mou comme sur Pong.
+		//
+		// La géométrie de la FENÊTRE est la seule vérité pour le viewport et la
+		// projection.
 
 		mIsValid = true;
 		mVSync = (desc.opengl.swapInterval != NkGLSwapInterval::Immediate);
@@ -636,6 +652,10 @@ namespace nkentseu {
 		EGLNativeWindowType nwin = reinterpret_cast<EGLNativeWindowType>(NK_NATIVE_WIN(surf));
 #endif
 
+#if defined(NKENTSEU_PLATFORM_HARMONYOS)
+		NkHarmonyAlignerTampon(NK_NATIVE_WIN(surf), surf.width, surf.height);
+#endif
+
 		// 3. Cree une nouvelle eglSurface attachee au nouveau native window.
 		mData.eglSurface = eglCreateWindowSurface(mData.eglDisplay, mData.eglConfig, nwin, nullptr);
 		if (mData.eglSurface == EGL_NO_SURFACE) {
@@ -648,17 +668,13 @@ namespace nkentseu {
 		}
 		eglSwapInterval(mData.eglDisplay, mVSync ? 1 : 0);
 
-		// Meme regle qu'a l'initialisation : la SURFACE fait autorite sur les
-		// dimensions. Sans cette reprise, une surface recreee apres rotation
-		// laisserait le contexte sur l'ancienne geometrie.
-		{
-			EGLint sw = 0, sh = 0;
-			eglQuerySurface(mData.eglDisplay, mData.eglSurface, EGL_WIDTH, &sw);
-			eglQuerySurface(mData.eglDisplay, mData.eglSurface, EGL_HEIGHT, &sh);
-			if (sw > 0 && sh > 0) {
-				mData.width = static_cast<uint32>(sw);
-				mData.height = static_cast<uint32>(sh);
-			}
+		// Même règle qu'à l'initialisation : c'est la FENÊTRE qui fait autorité
+		// (eglQuerySurface transpose sur HarmonyOS, cf. le commentaire là-bas).
+		// Cette reprise reste nécessaire pour qu'une rotation ne laisse pas le
+		// contexte sur l'ancienne géométrie.
+		if (surf.width > 0 && surf.height > 0) {
+			mData.width = surf.width;
+			mData.height = surf.height;
 		}
 		return true;
 #else
@@ -1280,6 +1296,10 @@ namespace nkentseu {
 		logger.Warnf("[NkOpenGL][DBG] InitEGL nativeWindow=%p", mData.eglNativeWindow);
 		EGLNativeWindowType nwin = reinterpret_cast<EGLNativeWindowType>(NK_NATIVE_WIN(surf));
 #endif
+#if defined(NKENTSEU_PLATFORM_HARMONYOS)
+		NkHarmonyAlignerTampon(NK_NATIVE_WIN(surf), surf.width, surf.height);
+#endif
+
 		logger.Warn("[NkOpenGL][DBG] InitEGL before eglCreateWindowSurface");
 		mData.eglSurface = eglCreateWindowSurface(mData.eglDisplay, mData.eglConfig, nwin, nullptr);
 		logger.Warnf("[NkOpenGL][DBG] InitEGL eglSurface=%p", mData.eglSurface);
