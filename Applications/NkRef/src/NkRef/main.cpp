@@ -186,6 +186,8 @@ namespace {
 			float32 moveDx = 0.0f, moveDy = 0.0f;
 			int32 packFrame = -1;  ///< NK_AGENT_PACK=n : Pack à la frame n
 			int32 panelFrame = -1; ///< NK_AGENT_PANEL=n : ouvre le tiroir à la frame n
+			int32 themeFrame = -1; ///< NK_AGENT_THEME="n:0|1" : bascule le thème (1=sombre)
+			bool themeDark = true;
 
 			void Read() {
 				if (const char *v = std::getenv("NK_AGENT_SHOT")) {
@@ -273,12 +275,104 @@ namespace {
 					packFrame = (int32)std::atoi(v);
 				if (const char *v = std::getenv("NK_AGENT_PANEL"))
 					panelFrame = (int32)std::atoi(v);
+				if (const char *v = std::getenv("NK_AGENT_THEME")) {
+					int f = 0, dark = 1;
+					if (std::sscanf(v, "%d:%d", &f, &dark) == 2) {
+						themeFrame = (int32)f;
+						themeDark = dark != 0;
+					}
+				}
 			}
 	};
 
 	// Ce que la souris est en train de faire. Un seul mode à la fois : c'est
 	// ce qui rend le canevas prévisible (pas de drag+zoom+rect simultanés).
 	enum class NkMode { Idle, Pan, DragItems, ScaleCorner, Rotate, RectSelect, Draw };
+
+	// ── Thèmes (demande Rihen : un sombre ET un clair) ──────────────────────
+	// Toutes les couleurs de l'app (canevas, grille, en-tête, sélection) dans
+	// UNE struct — deux presets. Le panneau NKGui a sa bascule au même moment.
+	// L'orange #F79A28 et le pétrole #0A555F de la charte tiennent les deux rôles.
+	struct NkRefColors {
+			NkColor2D clear, gridMinor, gridMajor, axis;
+			NkColor2D barBg, barLine, barText, barGlyph, barHover, barClose;
+			NkColor2D tabBg, tabGlyph;
+			NkColor2D selected, active, rectFill, rectRim;
+	};
+
+	NkRefColors MakeDarkColors() {
+		NkRefColors c;
+		c.clear = {20, 22, 25, 255};
+		c.gridMinor = {255, 255, 255, 10};
+		c.gridMajor = {255, 255, 255, 26};
+		c.axis = {247, 154, 40, 70};
+		c.barBg = {14, 15, 17, 236};
+		c.barLine = {255, 255, 255, 22};
+		c.barText = {205, 210, 216, 255};
+		c.barGlyph = {215, 220, 226, 255};
+		c.barHover = {255, 255, 255, 26};
+		c.barClose = {200, 48, 44, 230};
+		c.tabBg = {10, 85, 95, 235};
+		c.tabGlyph = {240, 244, 247, 255};
+		c.selected = {46, 140, 153, 255};
+		c.active = {247, 154, 40, 255};
+		c.rectFill = {46, 140, 153, 30};
+		c.rectRim = {46, 140, 153, 180};
+		return c;
+	}
+
+	NkRefColors MakeLightColors() {
+		NkRefColors c;
+		c.clear = {236, 238, 240, 255};
+		c.gridMinor = {0, 0, 0, 12};
+		c.gridMajor = {0, 0, 0, 30};
+		c.axis = {235, 130, 12, 110};
+		c.barBg = {246, 247, 249, 242};
+		c.barLine = {0, 0, 0, 30};
+		c.barText = {32, 38, 44, 255};
+		c.barGlyph = {40, 48, 56, 255};
+		c.barHover = {0, 0, 0, 20};
+		c.barClose = {210, 55, 50, 235};
+		c.tabBg = {10, 85, 95, 235}; // le pétrole reste lisible sur clair
+		c.tabGlyph = {240, 244, 247, 255};
+		c.selected = {12, 105, 118, 255};
+		c.active = {225, 122, 8, 255};
+		c.rectFill = {12, 105, 118, 26};
+		c.rectRim = {12, 105, 118, 170};
+		return c;
+	}
+
+	// Le thème NKGui assorti (le panneau doit suivre le canevas).
+	void ApplyGuiTheme(nkgui::NkGuiContext &gui, bool dark) {
+		if (dark) {
+			gui.theme.bgPrimary = {16, 18, 22, 255};
+			gui.theme.panel = {21, 25, 30, 246};
+			gui.theme.header = {10, 60, 68, 255};
+			gui.theme.button = {12, 72, 82, 255};
+			gui.theme.buttonHover = {10, 85, 95, 255};
+			gui.theme.buttonActive = {247, 154, 40, 255};
+			gui.theme.border = {10, 85, 95, 200};
+			gui.theme.text = {228, 233, 236, 255};
+			gui.theme.textDisabled = {130, 136, 142, 255};
+			gui.theme.selection = {10, 85, 95, 235};
+			gui.theme.accent = {247, 154, 40, 255};
+			gui.theme.track = {13, 16, 20, 255};
+		} else {
+			gui.theme.bgPrimary = {240, 242, 244, 255};
+			gui.theme.panel = {248, 249, 251, 248};
+			gui.theme.header = {205, 226, 230, 255}; // pétrole pâle
+			gui.theme.button = {222, 226, 230, 255};
+			gui.theme.buttonHover = {186, 214, 219, 255};
+			gui.theme.buttonActive = {247, 154, 40, 255};
+			gui.theme.border = {150, 168, 172, 220};
+			gui.theme.text = {28, 33, 38, 255};
+			gui.theme.textDisabled = {130, 138, 144, 255};
+			gui.theme.selection = {166, 205, 211, 235};
+			gui.theme.accent = {225, 122, 8, 255};
+			gui.theme.track = {214, 218, 222, 255};
+		}
+		gui.theme.rounding = 6.0f;
+	}
 
 } // namespace
 
@@ -341,20 +435,11 @@ int nkmain(const NkEntryState &state) {
 	auto guiCtxPtr = memory::NkMakeUnique<nkgui::NkGuiContext>();
 	nkgui::NkGuiContext &gui = *guiCtxPtr;
 	gui.Init((int32)cfg.width, (int32)cfg.height);
-	// Charte Rihen (pétrole #0A555F, orange #F79A28) sur fond sombre — le
-	// panneau doit ressembler à la maison, pas au thème d'usine (retour Rihen).
-	gui.theme.bgPrimary = {16, 18, 22, 255};
-	gui.theme.panel = {21, 25, 30, 246};
-	gui.theme.header = {10, 60, 68, 255};
-	gui.theme.button = {12, 72, 82, 255};
-	gui.theme.buttonHover = {10, 85, 95, 255};
-	gui.theme.buttonActive = {247, 154, 40, 255};
-	gui.theme.border = {10, 85, 95, 200};
-	gui.theme.text = {228, 233, 236, 255};
-	gui.theme.selection = {10, 85, 95, 235};
-	gui.theme.accent = {247, 154, 40, 255};
-	gui.theme.track = {13, 16, 20, 255};
-	gui.theme.rounding = 6.0f;
+	// Charte Rihen (pétrole/orange) déclinée en SOMBRE (défaut) et CLAIR —
+	// bascule dans le panneau (demande Rihen).
+	bool darkTheme = true;
+	NkRefColors th = MakeDarkColors();
+	ApplyGuiTheme(gui, darkTheme);
 	nkgui::SetCurrentContext(&gui);
 	renderer::NkGuiCanvasBackend guiBackend;
 	const bool hasGui = guiBackend.Init(target.GetRenderer());
@@ -894,6 +979,11 @@ int nkmain(const NkEntryState &state) {
 			board.Pack(16.0f);
 		if (agent.panelFrame > 0 && agentFrame == agent.panelFrame)
 			panelOpen = true; // même variable que le clic sur l'onglet
+		if (agent.themeFrame > 0 && agentFrame == agent.themeFrame) {
+			darkTheme = agent.themeDark; // même chemin que la case du panneau
+			th = darkTheme ? MakeDarkColors() : MakeLightColors();
+			ApplyGuiTheme(gui, darkTheme);
+		}
 
 		// ── NKGui : le tiroir de propriétés (logique seulement, rendu au Submit) ──
 		gui.viewW = (int32)sz.x;
@@ -902,6 +992,13 @@ int nkmain(const NkEntryState &state) {
 		if (panelOpen && hasGui) {
 			const nkgui::NkRect pr{vp.x - kPanelW, kBarH, kPanelW, vp.y - kBarH};
 			if (nkgui::BeginPanel(gui, "Proprietes", pr)) {
+				// La bascule sombre/clair, en tête : elle rethème TOUT
+				// (canevas, grille, en-tête, panneau) d'un coup.
+				if (nkgui::Checkbox(gui, "Theme sombre", darkTheme)) {
+					th = darkTheme ? MakeDarkColors() : MakeLightColors();
+					ApplyGuiTheme(gui, darkTheme);
+				}
+				nkgui::Separator(gui);
 				nkgui::Text(gui, "Fenetre");
 				bool onTop = window.IsAlwaysOnTop();
 				if (nkgui::Checkbox(gui, "Toujours devant (T)", onTop))
@@ -987,15 +1084,15 @@ int nkmain(const NkEntryState &state) {
 		gui.EndFrame();
 
 		// ── Rendu : fond + grille + images + sélection, en espace écran ─────
-		target.Clear(NkColor2D{20, 22, 25, 255});
+		target.Clear(th.clear);
 		NkRenderer2D &r = target.GetRenderer2D();
 
 
 		const float32 spacing = view.GridSpacing(32.0f);
 		const math::NkVec2f wMin = view.PixelToWorld({0.0f, 0.0f}, vp);
 		const math::NkVec2f wMax = view.PixelToWorld(vp, vp);
-		const NkColor2D minor{255, 255, 255, 10};
-		const NkColor2D major{255, 255, 255, 26};
+		const NkColor2D minor = th.gridMinor;
+		const NkColor2D major = th.gridMajor;
 		const int64 ix0 = (int64)math::NkFloor(wMin.x / spacing);
 		const int64 ix1 = (int64)math::NkCeil(wMax.x / spacing);
 		for (int64 i = ix0; i <= ix1; ++i) {
@@ -1009,7 +1106,7 @@ int nkmain(const NkEntryState &state) {
 			r.DrawLine({0.0f, yPix}, {vp.x, yPix}, (i % 8) == 0 ? major : minor, 1.0f);
 		}
 		const math::NkVec2f origin = view.WorldToPixel({0.0f, 0.0f}, vp);
-		const NkColor2D axis{247, 154, 40, 70};
+		const NkColor2D axis = th.axis;
 		if (origin.x >= 0.0f && origin.x <= vp.x)
 			r.DrawLine({origin.x, 0.0f}, {origin.x, vp.y}, axis, 1.0f);
 		if (origin.y >= 0.0f && origin.y <= vp.y)
@@ -1089,8 +1186,8 @@ int nkmain(const NkEntryState &state) {
 		}
 
 		// Contours de sélection + poignées (par-dessus les images).
-		const NkColor2D selCol{46, 140, 153, 255};	  // sélectionné
-		const NkColor2D activeCol{247, 154, 40, 255}; // actif (porte les poignées)
+		const NkColor2D selCol = th.selected;  // sélectionné
+		const NkColor2D activeCol = th.active; // actif (porte les poignées)
 		for (usize i = 0; i < board.items.Size(); ++i) {
 			const nkref::NkRefItem &it = board.items[i];
 			if (!it.selected)
@@ -1119,8 +1216,8 @@ int nkmain(const NkEntryState &state) {
 			const float32 y0 = rectStartPix.y < mousePix.y ? rectStartPix.y : mousePix.y;
 			const float32 w = math::NkAbs(mousePix.x - rectStartPix.x);
 			const float32 h = math::NkAbs(mousePix.y - rectStartPix.y);
-			const NkColor2D rimCol{46, 140, 153, 180};
-			r.DrawFilledRect({x0, y0, w, h}, NkColor2D{46, 140, 153, 30});
+			const NkColor2D rimCol = th.rectRim;
+			r.DrawFilledRect({x0, y0, w, h}, th.rectFill);
 			r.DrawLine({x0, y0}, {x0 + w, y0}, rimCol, 1.0f);
 			r.DrawLine({x0 + w, y0}, {x0 + w, y0 + h}, rimCol, 1.0f);
 			r.DrawLine({x0 + w, y0 + h}, {x0, y0 + h}, rimCol, 1.0f);
@@ -1132,13 +1229,13 @@ int nkmain(const NkEntryState &state) {
 		// d'échec est actif (il faut bien le LIRE quelque part).
 		const bool barVisible = mousePix.y <= kBarShow || loadFailTicks > 0;
 		if (barVisible) {
-			r.DrawFilledRect({0.0f, 0.0f, vp.x, kBarH}, NkColor2D{14, 15, 17, 236});
-			r.DrawLine({0.0f, kBarH}, {vp.x, kBarH}, NkColor2D{255, 255, 255, 22}, 1.0f);
+			r.DrawFilledRect({0.0f, 0.0f, vp.x, kBarH}, th.barBg);
+			r.DrawLine({0.0f, kBarH}, {vp.x, kBarH}, th.barLine, 1.0f);
 			// La pastille de marque (petit carré orange), à défaut de logo.
 			r.DrawFilledRect({10.0f, 10.0f, 10.0f, 10.0f}, NkColor2D{247, 154, 40, 255});
 			if (hasFont) {
 				NkText txt(uiFont, windowTitle, 15);
-				txt.SetFillColor(NkColor2D{205, 210, 216, 255});
+				txt.SetFillColor(th.barText);
 				// La position d'un NkText est sa LIGNE DE BASE : à y=6 le texte
 				// montait HORS fenêtre (invisible, vécu) — on vise le bas de la barre.
 				txt.SetPosition({30.0f, 21.0f});
@@ -1148,12 +1245,12 @@ int nkmain(const NkEntryState &state) {
 			const int32 hov = barHit(mousePix.x, mousePix.y, vp);
 			const float32 bx2 = vp.x - 3.0f * kBtnW, bx1 = vp.x - 2.0f * kBtnW, bx0 = vp.x - kBtnW;
 			if (hov == 2)
-				r.DrawFilledRect({bx2, 0.0f, kBtnW, kBarH}, NkColor2D{255, 255, 255, 26});
+				r.DrawFilledRect({bx2, 0.0f, kBtnW, kBarH}, th.barHover);
 			if (hov == 3)
-				r.DrawFilledRect({bx1, 0.0f, kBtnW, kBarH}, NkColor2D{255, 255, 255, 26});
+				r.DrawFilledRect({bx1, 0.0f, kBtnW, kBarH}, th.barHover);
 			if (hov == 4)
-				r.DrawFilledRect({bx0, 0.0f, kBtnW, kBarH}, NkColor2D{200, 48, 44, 230});
-			const NkColor2D glyph{215, 220, 226, 255};
+				r.DrawFilledRect({bx0, 0.0f, kBtnW, kBarH}, th.barClose);
+			const NkColor2D glyph = th.barGlyph;
 			const float32 cy = kBarH * 0.5f;
 			// − (réduire)
 			r.DrawLine({bx2 + kBtnW * 0.5f - 5.0f, cy}, {bx2 + kBtnW * 0.5f + 5.0f, cy}, glyph, 1.5f);
@@ -1184,8 +1281,8 @@ int nkmain(const NkEntryState &state) {
 		// au-dessus du panneau ouvert (sinon impossible de refermer, vécu).
 		{
 			const float32 tx = tabX(vp), ty = vp.y * 0.5f - 32.0f;
-			r.DrawFilledRect({tx, ty, 18.0f, 64.0f}, NkColor2D{10, 85, 95, 235}); // pétrole Rihen
-			const NkColor2D ch{240, 244, 247, 255};
+			r.DrawFilledRect({tx, ty, 18.0f, 64.0f}, th.tabBg); // pétrole Rihen
+			const NkColor2D ch = th.tabGlyph;
 			const float32 cy2 = ty + 32.0f;
 			if (panelOpen) { // chevron vers la droite = refermer le tiroir
 				r.DrawLine({tx + 6.0f, cy2 - 6.0f}, {tx + 12.0f, cy2}, ch, 1.5f);
