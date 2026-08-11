@@ -252,7 +252,55 @@ agit sans qu'on puisse contrôler son action est exactement ce qu'on ne veut pas
 
 ---
 
-## ⛔ RÉGRESSION OUVERTE (2026-08-11) — activer TLS a cassé la lecture PDF
+## PDF — état au 2026-08-11, et LE point d'entrée exact
+
+**La « régression » du jour n'existait pas** : le fichier de test avait été
+déplacé lors d'un filtrage du fonds. Le programme rendait « 0 octet, 0 opération »
+sur un chemin vide — indiscernable d'un lecteur en panne. Trois reconstructions et
+deux hypothèses fausses (objets périmés, puis conflit mbed-TLS) ont été dépensées
+avant de poser la question élémentaire : *le fichier est-il encore là ?*
+→ `--ajouter` dit désormais **INTROUVABLE**, avec la raison.
+
+**TLS remis en OPTION** (`NK_ENABLE_TLS=1` active mbedTLS *et* `bcrypt`). Il avait
+été mis par défaut, puis soupçonné à tort ; l'isolement l'a innocenté. L'option
+propre est ce qui a permis cet isolement, elle reste donc telle quelle.
+
+### La mesure a eu lieu, et elle RÉFUTE l'hypothèse principale
+
+```
+codes DEMANDÉS par le flux    : 21  39  38  82  80  83
+codes CONTENUS dans la table  :  4   6   8  65  66 107   (28 entrées)
+```
+
+Les deux séries sont de **petits entiers du même ordre** : ce n'est donc PAS un
+décalage « un octet contre deux ». Cette piste est fermée.
+
+### ⚠️ MAIS l'instrumentation est biaisée — à corriger AVANT de conclure
+
+Les codes demandés viennent des **premières** opérations de texte, tandis que la
+table affichée est celle de la **dernière** police vue (`LastFont()`). Ce sont
+potentiellement deux polices différentes : on compare des pommes et des poires.
+
+**LE point d'entrée** : relever la table de la police **effectivement
+interrogée** — c'est-à-dire, dans `NkPdfRenderer` au moment où `emit` appelle
+`f->ToUnicode(code)`, enregistrer une fois le couple (code demandé, présence dans
+`f`) plutôt que de comparer après coup deux objets sans rapport. Une dizaine de
+lignes, une exécution, et la cause devrait être visible.
+
+### Ce qui est déjà acquis et ne doit pas être refait
+
+- Les tables `/ToUnicode` **se lisent toutes** (273 006 déclarées, 273 006 lues) :
+  ni la décompression ni le parseur `bfchar`/`bfrange` ne sont en cause.
+- Le chemin `/Encoding` → noms de glyphes **ne concerne pas ces documents** : ils
+  déclarent bien leurs tables. Ne pas rouvrir cette voie.
+- Une police sans programme de glyphes reste **lisible** (correctif conservé), et
+  un document dont plus de 25 % des caractères sont indéchiffrables est **refusé**
+  plutôt que déposé en charabia.
+- Sur 12 PDF réels : 6 sont des documents-images (0 caractère même pour
+  `pdftotext`, confirmé indépendamment par 0 ordre de texte côté moteur) — hors de
+  portée sans reconnaissance de caractères. L'écart à combler est de **4**.
+
+## (historique) Régression supposée du 2026-08-11 — RÉSOLUE, aucun défaut de code
 
 **Symptôme** : `--ajouter` sur un PDF qui fonctionnait rend désormais
 `contenu 0 o, 0 operations`. Le document n'est plus ouvert du tout. Le même
