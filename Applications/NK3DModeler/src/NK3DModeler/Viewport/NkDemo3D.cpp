@@ -13437,13 +13437,69 @@ namespace nkentseu {
 				if (nkvpNodeMatP1[n] - 1 == i)
 					nkvpNodeMatP1[n] = fallback + 1;
 		}
+		// ── MATERIAU PAR DEFAUT (11 aout, demande de Rihen) ─────────────────
+		// L'emplacement+1 choisi comme defaut (0 = aucun choix explicite : le
+		// premier du registre fait foi, comme avant).
+		static int32 nkvpDefaultMatP1 = 0;
+		int32 Demo3DHostProjMatDefault() {
+			const int32 d = nkvpDefaultMatP1 - 1;
+			return (d >= 0 && d < kNkvpMaxProjMats && nkvpProjMats[d].used) ? d : -1;
+		}
+		void Demo3DHostProjMatSetDefault(int32 i) {
+			nkvpDefaultMatP1 =
+				(i >= 0 && i < kNkvpMaxProjMats && nkvpProjMats[i].used) ? i + 1 : 0;
+		}
 		// Il existe TOUJOURS au moins un materiau des qu'un maillage existe :
-		// renvoie le premier du registre, en le creant au besoin.
+		// renvoie le DEFAUT choisi s'il vit encore, sinon le premier du
+		// registre, en le creant au besoin.
 		static int32 HostEnsureDefaultMat() {
+			const int32 d = nkvpDefaultMatP1 - 1;
+			if (d >= 0 && d < kNkvpMaxProjMats && nkvpProjMats[d].used)
+				return d;
 			for (int32 k = 0; k < kNkvpMaxProjMats; ++k)
 				if (nkvpProjMats[k].used)
 					return k;
 			return Demo3DHostProjMatCreate();
+		}
+		// ── ECHANGE DE DEUX EMPLACEMENTS (fleches d'organisation de Rihen) ──
+		// L'ordre AFFICHE est l'ordre des emplacements : echanger reellement
+		// garantit que fichiers, cartes et melanges suivent — un simple ordre
+		// d'affichage aurait diverge du reste. TOUTES les references suivent :
+		// porteurs (noeuds), melanges (mixWith), defaut, textures, moteur.
+		bool Demo3DHostProjMatSwap(int32 a, int32 b) {
+			if (a < 0 || b < 0 || a >= kNkvpMaxProjMats || b >= kNkvpMaxProjMats ||
+				a == b || !nkvpProjMats[a].used || !nkvpProjMats[b].used)
+				return false;
+			NkVpProjMat tm = nkvpProjMats[a];
+			nkvpProjMats[a] = nkvpProjMats[b];
+			nkvpProjMats[b] = tm;
+			for (int32 c = 0; c < kNkvpMatChanCount; ++c) {
+				NkTexHandle tt = nkvpProjMatChanTex[a][c];
+				nkvpProjMatChanTex[a][c] = nkvpProjMatChanTex[b][c];
+				nkvpProjMatChanTex[b][c] = tt;
+			}
+			NkMaterial *te = nkvpProjMatEng[a];
+			nkvpProjMatEng[a] = nkvpProjMatEng[b];
+			nkvpProjMatEng[b] = te;
+			for (int32 n = 0; n < kNkvpMaxNodes; ++n) {
+				if (nkvpNodeMatP1[n] == a + 1)
+					nkvpNodeMatP1[n] = b + 1;
+				else if (nkvpNodeMatP1[n] == b + 1)
+					nkvpNodeMatP1[n] = a + 1;
+			}
+			for (int32 k = 0; k < kNkvpMaxProjMats; ++k) {
+				if (!nkvpProjMats[k].used)
+					continue;
+				if (nkvpProjMats[k].mixWith == (int8)(a + 1))
+					nkvpProjMats[k].mixWith = (int8)(b + 1);
+				else if (nkvpProjMats[k].mixWith == (int8)(b + 1))
+					nkvpProjMats[k].mixWith = (int8)(a + 1);
+			}
+			if (nkvpDefaultMatP1 == a + 1)
+				nkvpDefaultMatP1 = b + 1;
+			else if (nkvpDefaultMatP1 == b + 1)
+				nkvpDefaultMatP1 = a + 1;
+			return true;
 		}
 		int32 Demo3DHostProjMatEnsureDefault() {
 			return HostEnsureDefaultMat();

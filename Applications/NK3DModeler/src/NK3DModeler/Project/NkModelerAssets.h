@@ -292,6 +292,8 @@ namespace nkentseu {
 			o.SetFloat32("parallax", demo::Demo3DHostProjMatParallax(slot));
 			// Type + reglages publics restants (11 aout).
 			o.SetInt32("type", demo::Demo3DHostProjMatType(slot));
+			// Le materiau PAR DEFAUT du projet porte son drapeau dans SON fichier.
+			o.SetBool("defaut", demo::Demo3DHostProjMatDefault() == slot);
 			{
 				float32 alpha = 1.f, aniso = 0.f, sheen = 0.f;
 				demo::Demo3DHostProjMatPBRExtra(slot, &alpha, &aniso, &sheen);
@@ -366,6 +368,8 @@ namespace nkentseu {
 			// Type + reglages publics : le TYPE d'abord (il recree le gabarit et
 			// reapplique tout), les extras et le toon ensuite (application directe).
 			demo::Demo3DHostProjMatSetType(slot, NkScInt(in, "type", 0));
+			if (NkScBool(in, "defaut", false))
+				demo::Demo3DHostProjMatSetDefault(slot);
 			demo::Demo3DHostProjMatSetPBRExtra(slot, NkScFloat(in, "opacite", 1.f),
 											   NkScFloat(in, "anisotropie", 0.f),
 											   NkScFloat(in, "sheen", 0.f));

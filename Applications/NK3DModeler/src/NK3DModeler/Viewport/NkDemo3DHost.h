@@ -276,6 +276,11 @@ namespace nkentseu {
 		// Famille TOON en paquet de 14 flottants (cf. definition).
 		void Demo3DHostProjMatToon(int32 i, float32 *v14);
 		void Demo3DHostProjMatSetToon(int32 i, const float32 *v14);
+		// MATERIAU PAR DEFAUT (-1 = premier du registre) + echange
+		// d'emplacements (toutes references suivies : noeuds, melanges, defaut).
+		int32 Demo3DHostProjMatDefault();
+		void Demo3DHostProjMatSetDefault(int32 i);
+		bool Demo3DHostProjMatSwap(int32 a, int32 b);
 		void Demo3DHostProjMatEmissive(int32 i, float32 *rgb);
 		void Demo3DHostProjMatSetEmissive(int32 i, const float32 *rgb);
 		int32 Demo3DHostProjMatPrevShape(int32 i);

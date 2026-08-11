@@ -1128,7 +1128,10 @@ namespace nkentseu {
 		// pour que la rangee d'en-tetes reste alignee.
 		inline float32 PaintPanelTab(NkModelerPainter &p, const NkRect &r, const char *title,
 									 NkHitRegistry *hit = nullptr, bool *show = nullptr,
-									 const char *key = nullptr) {
+									 const char *key = nullptr,
+									 // FLECHE de repli, pas une croix : la croix disait
+									 // « fermer », le geste est « replier » (Rihen).
+									 NkIcon closeIcon = NkIcon::ChevronRight) {
 			const float32 h = 26.f;
 			p.Fill({r.x, r.y, r.w, h}, NkRole::PanelHeader);
 			p.TextV(r.x + kPad, r.y, h, title);
@@ -1141,7 +1144,7 @@ namespace nkentseu {
 				if (hit->Clicked(key))
 					*show = false;
 			}
-			p.IconV(r.x + r.w - 20.f, r.y, h, NkIcon::WinClose,
+			p.IconV(r.x + r.w - 20.f, r.y, h, closeIcon,
 					over ? NkRole::TextOnAccent : NkRole::Text, 11.f);
 			p.HLine(r.x, r.y + h - 1.f, r.w);
 			return r.y + h;
@@ -2771,7 +2774,7 @@ namespace nkentseu {
 			p.Fill(r, NkRole::PanelBg);
 			p.VLine(r.x + r.w - 1.f, r.y, r.h);
 			float32 y = PaintPanelTab(p, r, "Hierarchie", &hit, &st.showLeft,
-									  "hier.close");
+									  "hier.close", NkIcon::ChevronLeft);
 			// Les editeurs SANS design defini (materiau, texture, blueprint,
 			// dataset) n'ont PAS de hierarchie : seuls Scene et Model ont
 			// l'interface complete (Rihen).
@@ -6140,16 +6143,10 @@ namespace nkentseu {
 			// n'y a ni matiere a assigner ni modificateur a poser -- leurs
 			// pastilles disparaissent comme celle de Modele, et si l'une etait
 			// active le panneau se replie.
-			static const int32 kSelOnly[3] = {0, 3, 4}; // Modele, Modificateur, Materiau
-			if (!hasSel5)
-				for (int32 s7 = 0; s7 < 3; ++s7) {
-					const int32 i7 = kSelOnly[s7];
-					if (!st.propOpen[i7])
-						continue;
-					st.propOpen[i7] = false;
-					st.propSecH[i7] = 0.f;
-					st.propScroll3[i7] = 0.f;
-				}
+			// PLUS AUCUN AUTOMATISME (regle de Rihen, 11 aout) : ouvert, on
+			// ferme A LA MAIN ; ferme, on ouvre A LA MAIN ; selectionner un
+			// objet n'ouvre rien. Les sections Modele/Modificateur montrent
+			// « Aucune selection » quand il n'y a personne — honnete et stable.
 			int32 nOpen = 0, nUnfold = 0;
 			for (int32 i2 = 0; i2 < kNSec; ++i2)
 				if (st.propOpen[i2]) {
@@ -6272,7 +6269,13 @@ namespace nkentseu {
 				// marge ajoutee section par section aurait fini par diverger.
 				float32 yy = secY - st.propScroll3[sec] + S(8.f);
 
-				if (sec == 0) {
+				if ((sec == 0 || sec == 3) && !hasSel5) {
+					// Sans objet, Modele et Modificateur le DISENT au lieu de se
+					// fermer : le panneau n'obeit plus qu'a la main (Rihen).
+					p.TextV(r.x + NkPropInset(), yy, kRowH, "Aucune selection",
+							NkRole::TextMuted);
+					yy += kRowH;
+				} else if (sec == 0) {
 					// ── LA PIPETTE A-T-ELLE DESIGNE QUELQU'UN ? ──────────────────
 					// Elle se resout ICI, avant tout le reste : cliquer une cible
 					// CHANGE LA SELECTION, donc l'objet que le panneau affiche. Se
@@ -9647,6 +9650,23 @@ namespace nkentseu {
 									p.IconV(lr.x + lr.w - S(16.f), lr.y, lineH, NkIcon::Check,
 											selL ? NkRole::TextOnAccent : NkRole::AccentUi,
 											11.f);
+								// LA COCHE EST UN BOUTON : cliquer la zone droite ASSIGNE le
+								// materiau a l'objet actif — avant, seul le mode edition savait
+								// assigner et la coche semblait mentir (retour de Rihen).
+								{
+									char lkC[32];
+									snprintf(lkC, sizeof(lkC), "props.pm.chk.%d", i);
+									const NkRect ckR{lr.x + lr.w - S(20.f), lr.y, S(20.f), lineH};
+									const bool ovC = hit.Add(lkC, ckR);
+									if (ovC && actN >= 0 && curOf != sMatIdx[i])
+										p.IconV(lr.x + lr.w - S(16.f), lr.y, lineH, NkIcon::Check,
+												NkRole::TextMuted, 11.f);
+									if (actN >= 0 && hit.Clicked(lkC)) {
+										demo::Demo3DHostProjMatAssign(actN, sMatIdx[i]);
+										st.projMatSel = i;
+										NkMarkDirty(st);
+									}
+								}
 								if (hit.Clicked(lk))
 									st.projMatSel = i;
 							}
@@ -9695,6 +9715,63 @@ namespace nkentseu {
 								if (st.projMatSel > 0)
 									--st.projMatSel;
 							}
+						}
+						// L'echange d'emplacements est REEL (fichiers, cartes, melanges
+						// suivent) : les cartes du navigateur sont recalees ici-meme.
+						auto swapWithBrowser = [&](int32 sa, int32 sb) {
+							if (!demo::Demo3DHostProjMatSwap(sa, sb))
+								return false;
+							for (int32 c2 = 0; c2 < st.browserCount; ++c2) {
+								if (st.browserMat[c2] == sa + 1)
+									st.browserMat[c2] = sb + 1;
+								else if (st.browserMat[c2] == sb + 1)
+									st.browserMat[c2] = sa + 1;
+							}
+							NkMarkDirty(st);
+							return true;
+						};
+						{
+							// EPINGLE : materiau PAR DEFAUT des nouveaux maillages, et il
+							// REMONTE en tete de liste (demande de Rihen, 11 aout).
+							const NkRect db{bx, lst.y + S(71.f), colW, S(20.f)};
+							const bool isDef = demo::Demo3DHostProjMatDefault() == selMat;
+							const bool ovD = hit.Add("props.pm.def", db);
+							if (isDef)
+								p.Fill(db, NkRole::AccentUi, 3.f);
+							else
+								p.Outline(db, ovD ? NkRole::AccentUi : NkRole::Border,
+										  NkRole::PanelHeader, 3.f);
+							p.IconV(db.x + S(5.f), db.y, db.h, NkIcon::Pin,
+									isDef ? NkRole::TextOnAccent : NkRole::Text, 11.f);
+							if (hit.Clicked("props.pm.def") && selMat >= 0) {
+								demo::Demo3DHostProjMatSetDefault(selMat);
+								for (int32 rk = st.projMatSel; rk > 0; --rk)
+									swapWithBrowser(sMatIdx[rk], sMatIdx[rk - 1]);
+								st.projMatSel = 0;
+							}
+						}
+						{
+							// FLECHES : organisation de la liste (demande de Rihen).
+							const NkRect ub{bx, lst.y + S(96.f), colW, S(20.f)};
+							const bool enU = st.projMatSel > 0;
+							const bool ovU = hit.Add("props.pm.up", ub);
+							p.Outline(ub, (ovU && enU) ? NkRole::AccentUi : NkRole::Border,
+									  NkRole::PanelHeader, 3.f);
+							p.IconV(ub.x + S(5.f), ub.y, ub.h, NkIcon::ArrowUp,
+									enU ? NkRole::Text : NkRole::TextMuted, 11.f);
+							if (enU && hit.Clicked("props.pm.up") &&
+								swapWithBrowser(sMatIdx[st.projMatSel], sMatIdx[st.projMatSel - 1]))
+								--st.projMatSel;
+							const NkRect db2{bx, lst.y + S(121.f), colW, S(20.f)};
+							const bool enD = st.projMatSel + 1 < nMats;
+							const bool ovD2 = hit.Add("props.pm.dn", db2);
+							p.Outline(db2, (ovD2 && enD) ? NkRole::AccentUi : NkRole::Border,
+									  NkRole::PanelHeader, 3.f);
+							p.IconV(db2.x + S(5.f), db2.y, db2.h, NkIcon::ArrowDown,
+									enD ? NkRole::Text : NkRole::TextMuted, 11.f);
+							if (enD && hit.Clicked("props.pm.dn") &&
+								swapWithBrowser(sMatIdx[st.projMatSel], sMatIdx[st.projMatSel + 1]))
+								++st.projMatSel;
 						}
 						{
 							// LE MENU du groupe, comme partout : copier / coller /
@@ -11627,8 +11704,6 @@ namespace nkentseu {
 					// Modele, Modificateur et Materiau n'apparaissent que pour une
 					// selection (regle de Rihen) : sans objet, ils n'auraient rien
 					// d'honnete a montrer.
-					if ((i2 == 0 || i2 == 3 || i2 == 4) && !hasSel5)
-						continue;
 					char tk[24];
 					snprintf(tk, sizeof(tk), "props.tab.%d", i2);
 					const NkRect tb{tabX + S(3.f), ty, S(20.f), S(24.f)};
@@ -12081,8 +12156,10 @@ namespace nkentseu {
 				const bool over = hit.Add("brw.close", cr);
 				if (over)
 					p.Fill(cr, NkRole::AccentUi, 2.f);
-				p.IconV(x, r.y, topH, NkIcon::WinClose, over ? NkRole::TextOnAccent : NkRole::Text,
-						11.f);
+				// FLECHE de repli vers le bas, pas une croix (meme regle que les
+				// panneaux lateraux — Rihen, 11 aout).
+				p.IconV(x, r.y, topH, NkIcon::ChevronDown,
+						over ? NkRole::TextOnAccent : NkRole::Text, 11.f);
 				if (hit.Clicked("brw.close"))
 					st.showBrowser = false;
 			}
