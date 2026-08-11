@@ -1,5 +1,13 @@
 # NKUI — Roadmap
 
+> ## 🚫 DÉPRÉCIÉ (acté par Rihen, 2026-08-11)
+> **NKUI est remplacé par [NKGui](../NKGui/) pour toute nouvelle interface.**
+> Ne pas démarrer de nouveau code sur NKUI ; les apps existantes qui l'utilisent
+> migreront vers NKGui à l'occasion. Pour une app NKCanvas, le pont à utiliser
+> est `NKCanvas/UI/NkGuiCanvasBackend.h` (header-only) — PAS
+> `NkUICanvasBackend` (gardé compilable derrière `NK_CANVAS_WITH_NKUI=1`
+> uniquement pour l'existant). Première app servie par ce choix : NkRef.
+
 État actuel (mai 2026) : bibliothèque UI immédiat-mode mature et fonctionnelle, ~40 fichiers couvrant Core / Layout / Widgets / Window / Dock / Menu / Animation / ColorPicker / Tools (Tree, FileBrowser, Gizmo, Viewport3D). Quatre thèmes prédéfinis, 4 layers de DrawList, police bitmap embarquée, renderer CPU + abstraction GPU. Plusieurs widgets éditeur classiques manquent encore (Table avancée, vrai Dropdown, Tabs natifs hors dock, FilePicker modale), la gestion clavier/IME est très basique, et la sérialisation JSON du thème et du layout reste partielle.
 
 ---
