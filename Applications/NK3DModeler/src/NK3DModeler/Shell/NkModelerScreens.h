@@ -6025,6 +6025,19 @@ namespace nkentseu {
 					else
 						snprintf(hd, sizeof(hd), "Proprietes");
 					p.TextV(rFull.x + kPad, rFull.y, kRowH, hd);
+					// FLECHE DE REPLI (Rihen : une fleche, pas une croix — et elle
+					// manquait sur CET en-tete : PaintPanelTab n'est pas utilise ici).
+					{
+						const NkRect cr9{rFull.x + rFull.w - S(24.f), rFull.y + S(3.f),
+										 S(20.f), kRowH - S(6.f)};
+						const bool ov9 = hit.Add("prop.fold", cr9);
+						if (ov9)
+							p.Fill(cr9, NkRole::AccentUi, 2.f);
+						p.IconV(cr9.x + S(4.f), rFull.y, kRowH, NkIcon::ChevronRight,
+								ov9 ? NkRole::TextOnAccent : NkRole::Text, 11.f);
+						if (hit.Clicked("prop.fold"))
+							st.showRight = false;
+					}
 				}
 				p.HLine(rFull.x, rFull.y + kRowH - 1.f, rFull.w);
 				y = rFull.y + kRowH;
@@ -9615,7 +9628,11 @@ namespace nkentseu {
 					// ── LA LISTE + SA COLONNE DE BOUTONS ───────────────────────
 					{
 						const float32 colW = S(22.f);
-						const float32 lstH = st.projMatListH;
+						// Au moins la hauteur de la colonne de boutons (6 boutons) : en
+						// dessous, epingle et fleches chevauchaient la ligne du nom
+						// (constate par Rihen).
+						const float32 lstH =
+							st.projMatListH < S(146.f) ? S(146.f) : st.projMatListH;
 						const NkRect lst{rowR.x, yy, rowR.w - colW - S(4.f), lstH};
 						p.Fill(lst, NkRole::InputBg, 3.f);
 						p.OutlineSharp(lst, NkRole::Border);
@@ -9953,6 +9970,13 @@ namespace nkentseu {
 								      kMtTypes, nullptr, 13, sTySel, combo);
 								yy += kRowH;
 							}
+							// L'INTERFACE SUIT LE TYPE (Rihen : « les proprietes du nouveau
+							// type REMPLACENT les anciennes ») : les rangees PBR ne se
+							// montrent que pour la famille realiste ; Toon a les siennes ;
+							// Sans eclairage n'a que sa couleur.
+							const int32 tFam9 = demo::Demo3DHostProjMatType(selMat);
+							const bool famPBR =
+								!(tFam9 == 20 || tFam9 == 21 || tFam9 == 22 || tFam9 == 60);
 							bool colCh = false;
 							yy += PaintColorRow(p, hit, ws, in, st, iR, yy, "Couleur",
 												"props.pm.col", alb, &colCh);
@@ -9972,6 +9996,9 @@ namespace nkentseu {
 									"props.pm.tex3", "props.pm.tex4"};
 								const int32 nCh = demo::Demo3DHostMatChanCount();
 								for (int32 ch = 0; ch < nCh && ch < 5; ++ch) {
+									// Hors famille PBR, seule la COULEUR a un sens ici.
+									if (!famPBR && ch != 0)
+										continue;
 									p.TextV(iR.x, yy, kRowH, demo::Demo3DHostMatChanName(ch),
 											NkRole::TextMuted);
 									const NkRect txR{iR.x + S(110.f), yy + S(2.f),
@@ -10013,7 +10040,7 @@ namespace nkentseu {
 								float32 nrmS = 1.f, emiS = 1.f;
 								demo::Demo3DHostProjMatChanStrength(selMat, &nrmS, &emiS);
 								const float32 nrm0 = nrmS, emi0 = emiS;
-								if (demo::Demo3DHostProjMatMap(selMat, 1)[0]) {
+								if (famPBR && demo::Demo3DHostProjMatMap(selMat, 1)[0]) {
 									p.TextV(iR.x, yy, kRowH, "Relief", NkRole::TextMuted);
 									DragFloat(p, hit, ws, in, "props.pm.nrms",
 											  {iR.x + S(110.f), yy + S(3.f), iR.w - S(110.f),
@@ -10023,7 +10050,7 @@ namespace nkentseu {
 								}
 								// PARALLAX : meme regle que le relief — le curseur
 								// n'apparait qu'avec sa carte de hauteur (canal 4).
-								if (demo::Demo3DHostProjMatMap(selMat, 4)[0]) {
+								if (famPBR && demo::Demo3DHostProjMatMap(selMat, 4)[0]) {
 									float32 par = demo::Demo3DHostProjMatParallax(selMat);
 									const float32 par0 = par;
 									p.TextV(iR.x, yy, kRowH, "Parallax", NkRole::TextMuted);
@@ -10037,40 +10064,44 @@ namespace nkentseu {
 										NkMarkDirty(st);
 									}
 								}
-								// L'EMISSIF a une teinte ET une intensite, et la
-								// teinte vaut MEME SANS texture : une surface peut
-								// emettre une couleur unie.
-								float32 emiC[3] = {0.f, 0.f, 0.f};
-								demo::Demo3DHostProjMatEmissive(selMat, emiC);
-								const float32 e0 = emiC[0], e1 = emiC[1], e2 = emiC[2];
-								bool emiCh = false;
-								yy += PaintColorRow(p, hit, ws, in, st, iR, yy, "Emission",
-													"props.pm.emi", emiC, &emiCh);
-								p.TextV(iR.x, yy, kRowH, "Intensite", NkRole::TextMuted);
-								DragFloat(p, hit, ws, in, "props.pm.emis",
+								if (famPBR) {
+									// L'EMISSIF a une teinte ET une intensite, et la
+									// teinte vaut MEME SANS texture : une surface peut
+									// emettre une couleur unie.
+									float32 emiC[3] = {0.f, 0.f, 0.f};
+									demo::Demo3DHostProjMatEmissive(selMat, emiC);
+									const float32 e0 = emiC[0], e1 = emiC[1], e2 = emiC[2];
+									bool emiCh = false;
+									yy += PaintColorRow(p, hit, ws, in, st, iR, yy, "Emission",
+														"props.pm.emi", emiC, &emiCh);
+									p.TextV(iR.x, yy, kRowH, "Intensite", NkRole::TextMuted);
+									DragFloat(p, hit, ws, in, "props.pm.emis",
+											  {iR.x + S(110.f), yy + S(3.f), iR.w - S(110.f),
+											   kRowH - S(6.f)},
+											  emiS, 0.02f, NkRole::AccentUi, "%.2f");
+									yy += kRowH;
+									if (nrmS != nrm0 || emiS != emi0)
+										demo::Demo3DHostProjMatSetChanStrength(selMat, nrmS, emiS);
+									if (emiCh || emiC[0] != e0 || emiC[1] != e1 || emiC[2] != e2)
+										demo::Demo3DHostProjMatSetEmissive(selMat, emiC);
+								}
+							}
+							if (famPBR) {
+								p.TextV(iR.x, yy, kRowH, "Rugosite", NkRole::TextMuted);
+								DragFloat(p, hit, ws, in, "props.pm.rgh",
 										  {iR.x + S(110.f), yy + S(3.f), iR.w - S(110.f),
 										   kRowH - S(6.f)},
-										  emiS, 0.02f, NkRole::AccentUi, "%.2f");
+										  rgh, 0.005f, NkRole::AccentUi, "%.2f");
 								yy += kRowH;
-								if (nrmS != nrm0 || emiS != emi0)
-									demo::Demo3DHostProjMatSetChanStrength(selMat, nrmS, emiS);
-								if (emiCh || emiC[0] != e0 || emiC[1] != e1 || emiC[2] != e2)
-									demo::Demo3DHostProjMatSetEmissive(selMat, emiC);
+								p.TextV(iR.x, yy, kRowH, "Metallique", NkRole::TextMuted);
+								DragFloat(p, hit, ws, in, "props.pm.mtl",
+										  {iR.x + S(110.f), yy + S(3.f), iR.w - S(110.f),
+										   kRowH - S(6.f)},
+										  mtl, 0.005f, NkRole::AccentUi, "%.2f");
+								yy += kRowH;
 							}
-							p.TextV(iR.x, yy, kRowH, "Rugosite", NkRole::TextMuted);
-							DragFloat(p, hit, ws, in, "props.pm.rgh",
-									  {iR.x + S(110.f), yy + S(3.f), iR.w - S(110.f),
-									   kRowH - S(6.f)},
-									  rgh, 0.005f, NkRole::AccentUi, "%.2f");
-							yy += kRowH;
-							p.TextV(iR.x, yy, kRowH, "Metallique", NkRole::TextMuted);
-							DragFloat(p, hit, ws, in, "props.pm.mtl",
-									  {iR.x + S(110.f), yy + S(3.f), iR.w - S(110.f),
-									   kRowH - S(6.f)},
-									  mtl, 0.005f, NkRole::AccentUi, "%.2f");
-							yy += kRowH;
 							// ── LES REGLAGES PBR RESTES SANS CURSEUR (11 aout) ──────────
-							{
+							if (famPBR) {
 								float32 xAl = 1.f, xAn = 0.f, xSh = 0.f;
 								demo::Demo3DHostProjMatPBRExtra(selMat, &xAl, &xAn, &xSh);
 								const float32 xa0 = xAl, xn0 = xAn, xs0 = xSh;
@@ -10151,7 +10182,7 @@ namespace nkentseu {
 							// vernis n'apparait QUE si le vernis existe — un curseur
 							// sans effet est pire qu'un curseur absent (regle du
 							// projet). La couleur de diffusion suit l'albedo.
-							{
+							if (famPBR) {
 								float32 cc = 0.f, ccR = 0.f, sss = 0.f;
 								demo::Demo3DHostProjMatSurface(selMat, &cc, &ccR, &sss);
 								const float32 cc0 = cc, ccR0 = ccR, sss0 = sss;
@@ -10185,7 +10216,7 @@ namespace nkentseu {
 							// DE FRAME par pointeur : selections en stockage STATIQUE
 							// resynchronise (lecon de la « Loi »), libelles en tampons
 							// statiques qui survivent a la frame.
-							{
+							if (famPBR) {
 								static char sMxNames[65][32];
 								static const char *sMxPtr[65];
 								static int32 sMxSlot[65];
@@ -11701,9 +11732,11 @@ namespace nkentseu {
 				p.VLine(tabX, stackTop, (rFull.y + rFull.h) - stackTop);
 				float32 ty = stackTop + S(4.f);
 				for (int32 i2 = 0; i2 < kNSec; ++i2) {
-					// Modele, Modificateur et Materiau n'apparaissent que pour une
-					// selection (regle de Rihen) : sans objet, ils n'auraient rien
-					// d'honnete a montrer.
+					// Les pastilles LIEES A L'OBJET (Modele, Modificateur) se retirent
+					// sans selection (Rihen, 11 aout) ; Materiau RESTE — il edite le
+					// projet. Le panneau, lui, n'obeit qu'a la main.
+					if ((i2 == 0 || i2 == 3) && !hasSel5)
+						continue;
 					char tk[24];
 					snprintf(tk, sizeof(tk), "props.tab.%d", i2);
 					const NkRect tb{tabX + S(3.f), ty, S(20.f), S(24.f)};
