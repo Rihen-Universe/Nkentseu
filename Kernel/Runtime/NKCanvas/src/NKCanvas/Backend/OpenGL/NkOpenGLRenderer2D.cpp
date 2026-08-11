@@ -622,6 +622,46 @@ namespace nkentseu {
 			if (!mVAO || !vCount || !iCount)
 				return;
 
+#if defined(NKENTSEU_DEBUG) && (defined(NKENTSEU_PLATFORM_HARMONYOS) || defined(NKENTSEU_PLATFORM_ANDROID))
+			// Ce que le renderer RECOIT, et non ce qu'il a en entree.
+			//
+			// Tout l'amont a ete verifie et se revele sain : textures chargees,
+			// atlas peuple, alpha preserve, viewport correct. Si l'ecran reste
+			// sombre malgre cela, la reponse est dans les COMMANDES : combien de
+			// quads, et surtout de quelle couleur sont leurs sommets. Une teinte
+			// de sommet noire ou a alpha nul eteint le rendu quelle que soit la
+			// qualite des textures.
+			{
+				static uint64 frame = 0;
+				if ((frame++ % 120u) == 0u) {
+					unsigned cMin[4] = {255u, 255u, 255u, 255u};
+					unsigned cMax[4] = {0u, 0u, 0u, 0u};
+					const uint32 pas = vCount > 512u ? vCount / 256u : 1u;
+					for (uint32 v = 0; v < vCount; v += pas) {
+						const unsigned canaux[4] = {verts[v].r, verts[v].g, verts[v].b, verts[v].a};
+						for (int k = 0; k < 4; ++k) {
+							if (canaux[k] < cMin[k]) {
+								cMin[k] = canaux[k];
+							}
+							if (canaux[k] > cMax[k]) {
+								cMax[k] = canaux[k];
+							}
+						}
+					}
+					// Le VIEWPORT est joint a dessein : il est calcule une seule
+					// fois, a l'initialisation du renderer. S'il ne correspond pas
+					// a la surface courante, la geometrie est dessinee dans un coin
+					// de l'ecran, ou hors champ — et le reste garde la couleur
+					// d'effacement, ce qui donne un ecran sombre ou l'on ne devine
+					// que quelques formes.
+					logger.Infof("[NkGL2D lots] %u groupes, %u sommets | teinte R%u-%u V%u-%u B%u-%u A%u-%u | "
+								 "viewport %d,%d %dx%d\n",
+								 groupCount, vCount, cMin[0], cMax[0], cMin[1], cMax[1], cMin[2], cMax[2], cMin[3],
+								 cMax[3], mViewport.left, mViewport.top, mViewport.width, mViewport.height);
+				}
+			}
+#endif
+
 			glBindVertexArray((GLuint)mVAO);
 
 			// Upload vertex/index data
