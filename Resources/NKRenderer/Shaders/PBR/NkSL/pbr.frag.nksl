@@ -419,6 +419,12 @@ void main() {
     vec3 BnA = cross(N, TnA);
 
     vec3 Lo = vec3(0.0);
+    // REFLET ACCUMULE A PART : sur une surface TRANSPARENTE, la fusion alpha
+    // atténue TOUT par l'opacite — y compris le reflet, alors qu'une vitre
+    // reflechit autant qu'elle transmet. On garde donc la part speculaire
+    // pour faire monter l'opacite finale la ou elle brille (« pourquoi la
+    // rugosite ne s'applique pas quand c'est transparent », Rihen, 12 aout).
+    vec3 LoSpec = vec3(0.0);
     // RECEPTEUR D'OMBRE : on accumule EN PARALLELE l'eclairement qu'on aurait
     // SANS ombre. Le rapport des deux donne exactement la part de lumiere
     // perdue -- c'est-a-dire l'ombre -- sans avoir a rendre la scene deux fois.
@@ -717,6 +723,17 @@ void main() {
         }
         Lo    += csf * contrib;
         LoLit += contrib; // le meme eclairement, ombres ignorees
+        // Part speculaire seule (meme facteurs que ci-dessus, sans le diffus).
+        if (areaE >= 0.0) {
+            if (areaLTCOn > 0.5) {
+                vec3 radLs = uLights.colors[i].rgb * uLights.colors[i].w * att;
+                LoSpec += csf * radLs * areaLTCSpec;
+            } else {
+                LoSpec += csf * spec * radEff * NdL;
+            }
+        } else {
+            LoSpec += csf * spec * rad * NdL;
+        }
     }
 
     vec3 Fi   = F_SchlickR(max(dot(N,V),0.0), F0, rog);
@@ -915,5 +932,10 @@ void main() {
     // file transparente se faisait, la fusion s'appliquait... sur un alpha de
     // 1 (« l'opacite n'a pas d'effet », Rihen, 11 aout). `alpha` porte deja
     // la texture x uMat.albedo.a x vColor.a (dont dc.alpha).
-    fragColor  = vec4(color, alpha);
+    // L'OPACITE MONTE AVEC LE REFLET : un objet transparent garde ses
+    // hautes lumieres (et donc sa rugosite lisible), au lieu de les voir
+    // fondre avec le reste. Sans effet sur un opaque (alpha deja a 1).
+    float specCov = clamp(max(LoSpec.r, max(LoSpec.g, LoSpec.b)), 0.0, 1.0);
+    float aOut    = clamp(alpha + (1.0 - alpha) * specCov, 0.0, 1.0);
+    fragColor  = vec4(color, aOut);
 }
