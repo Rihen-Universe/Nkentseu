@@ -102,6 +102,38 @@ namespace nkentseu {
 				return LoadFromImage(renderer, sub);
 			}
 
+			// La copie CPU ci-dessous et le backend GPU supposent du RGBA8
+			// COMPACT (w*h*4, sans padding de ligne). Or NkImage livre ce que le
+			// codec a decode : un JPEG sort en RGB 3 canaux (le memcpy w*h*4
+			// lisait alors w*h octets AU-DELA du tampon — crash au premier
+			// glisser-deposer d'une photo, vecu dans NkRef le 2026-08-11), un
+			// PNG gris sort en 1 canal, et mStride est aligne a 4 (padding
+			// possible). On normalise TOUT ce qui n'est pas deja conforme.
+			{
+				const bool compactRgba8 = !image.IsHDR() && image.Channels() == 4 &&
+										  image.Stride() == image.Width() * 4;
+				if (!compactRgba8) {
+					if (image.IsHDR()) {
+						// HDR -> tone-mapping standard, puis on repasse ici en LDR.
+						NkImage *ldr = NkImage::ConvertToTexture(image, 1.0f);
+						if (!ldr)
+							return false;
+						const bool ok = LoadFromImage(renderer, *ldr);
+						ldr->Free(); // libere pixels + wrapper (pattern Alloc/Free)
+						return ok;
+					}
+					NkImage rgba;
+					if (!rgba.Create((uint32)image.Width(), (uint32)image.Height(),
+									 math::NkColor(0, 0, 0, 255), 4))
+						return false;
+					// GetPixel complete les canaux manquants (gris -> RGB, alpha 255).
+					for (int32 y = 0; y < image.Height(); ++y)
+						for (int32 x = 0; x < image.Width(); ++x)
+							rgba.SetPixel(x, y, image.GetPixel(x, y));
+					return LoadFromImage(renderer, rgba);
+				}
+			}
+
 			Destroy(); // libere l'ancien etat AVANT de (re)remplir mCPUPixels
 
 			// Copie CPU des pixels — DOIT etre APRES Destroy() : Destroy() appelle
