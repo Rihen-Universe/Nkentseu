@@ -210,6 +210,10 @@ with project("Pong"):
         harmonyassets(["../../Resources/Pong"])
         harmonyminsdk(12)
         harmonytargetapi(12)
+        # PAYSAGE, comme sur Android (androidscreenorientation ci-dessus) : c'est
+        # l'orientation du jeu. Sans declaration, le systeme impose le portrait
+        # et tout le rendu sort tourne d'un quart de tour.
+        harmonyorientation("landscape")
         # Permissions reseau OHOS (multijoueur LAN) : equivalent INTERNET +
         # infos reseau/wifi Android (broadcast UDP decouverte LAN).
         harmonypermissions([

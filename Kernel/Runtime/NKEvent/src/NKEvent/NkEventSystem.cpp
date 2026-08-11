@@ -407,6 +407,14 @@ namespace nkentseu {
 		assert(NkCurrentThreadTag() == mPumpThreadId &&
 			   "PollEvent() doit etre appele depuis le thread principal (pump thread)");
 
+		// Livrer d'abord ce que les callbacks systeme ont pousse depuis leur
+		// propre thread. INDISPENSABLE ici et pas seulement dans PollEvents() :
+		// les applications qui pompent a la main (Pong, Mou) n'appellent QUE
+		// PollEvent(). Sans ce drain, leurs evenements — le tactile en premier —
+		// restaient en attente indefiniment, et l'ecran repondait a un doigt qui
+		// touchait bien la dalle mais dont personne n'entendait parler.
+		DrainForeignEvents();
+
 		// Tenter de dÃ©piler un event dÃ©jÃ  en queue
 		// CORRECTION 2 : mCurrentEvent garde la propriÃ©tÃ© unique_ptr ; le pointeur
 		// retournÃ© est valide jusqu'au PROCHAIN appel de PollEvent().

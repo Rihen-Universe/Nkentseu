@@ -109,12 +109,28 @@ namespace nkentseu {
 			}
 
 			OH_NativeXComponent_TouchEvent brut{};
-			if (OH_NativeXComponent_GetTouchEvent(comp, window, &brut) != 0) {
+			const int32_t lu = OH_NativeXComponent_GetTouchEvent(comp, window, &brut);
+
+			// Trace du PREMIER contact recu. Sans elle, un tactile inerte laisse
+			// deux hypotheses indiscernables : le systeme ne delivre rien, ou nous
+			// recevons bien les evenements et c'est la suite de la chaine qui les
+			// perd. Une seule ligne, au premier appel.
+			{
+				static bool premier = true;
+				if (premier) {
+					premier = false;
+					NK_HARMONY_BOOTLOG("tactile : premier evenement recu (lecture=%d type=%d points=%u)", (int)lu,
+									   (int)brut.type, (unsigned)brut.numPoints);
+				}
+			}
+
+			if (lu != 0) {
 				return;
 			}
 
 			NkWindow *win = NkHarmonyGetWindowForXComponent(comp);
 			if (!win) {
+				NK_HARMONY_BOOTLOG("tactile : AUCUNE fenetre associee au XComponent — evenement perdu");
 				return;
 			}
 
