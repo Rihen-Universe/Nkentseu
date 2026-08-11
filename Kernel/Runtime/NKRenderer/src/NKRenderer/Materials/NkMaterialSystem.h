@@ -473,6 +473,11 @@ namespace nkentseu {
 				// Set materiau SEUL (descripteurs a jour, AUCUN pipeline) : pour la
 				// passe transparente qui impose son pipeline blende (11 aout).
 				bool BindInstanceSetOnly(NkICommandBuffer *cmd, NkMaterialInstance *inst);
+				// Le gabarit de cette instance est-il en file TRANSPARENTE ?
+				// Si oui, son pipeline porte deja la fusion alpha : le rendu
+				// des transparents doit le binder au lieu du PBR_Blend generique
+				// (sans quoi un materiau Verre etait dessine par le shader PBR).
+				bool InstanceWantsOwnBlend(NkMaterialInstance *inst);
 				bool BindInstance(NkICommandBuffer *cmd, NkMaterialInstance *inst);
 
 				// Upload UBO + textures de l'instance SI dirty, SANS binder le
