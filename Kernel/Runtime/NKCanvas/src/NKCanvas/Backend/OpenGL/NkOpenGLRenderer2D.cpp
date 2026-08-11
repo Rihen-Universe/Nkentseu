@@ -513,7 +513,22 @@ namespace nkentseu {
 		void NkOpenGLRenderer2D::BeginBackend() {
 			// Save relevant GL state
 			glEnable(GL_BLEND);
-			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+			// SEPARATE, et non glBlendFunc : le canal alpha de DESTINATION doit
+			// etre traite a part.
+			//
+			// Avec glBlendFunc(SRC_ALPHA, ONE_MINUS_SRC_ALPHA), l'alpha du
+			// framebuffer devient srcA*srcA + dstA*(1-srcA) : il DIMINUE a chaque
+			// couche dessinee. Sur un ecran ou l'on empile des dizaines de traces
+			// par image, il s'effondre — mesure sur HarmonyOS : 255 au demarrage,
+			// 206 apres une minute. La fenetre devient alors semi-transparente,
+			// le compositeur laisse voir le fond au travers, et l'interface
+			// n'apparait plus qu'en silhouettes sombres.
+			//
+			// Avec (GL_ONE, GL_ONE_MINUS_SRC_ALPHA) sur l'alpha, la couverture
+			// s'accumule au lieu de se ronger, et la fenetre reste opaque.
+			// ApplyBlendMode(NK_ALPHA) utilisait deja cette variante : les deux
+			// chemins font desormais la meme chose.
+			glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 			glDisable(GL_DEPTH_TEST);
 			glDisable(GL_CULL_FACE);
 			glUseProgram((GLuint)mProgram);
