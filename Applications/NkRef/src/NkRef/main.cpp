@@ -161,6 +161,7 @@ namespace {
 	//   NK_AGENT_DROP="n:px:py:chemin[;...]"      dépose une image au pixel
 	//   NK_AGENT_CLICK="n:px:py[;...]"            clic gauche de sélection
 	//   NK_AGENT_MOVE="n:dx:dy"                   déplace la sélection (pixels)
+	//   NK_AGENT_GRID="n:0|1"                     grille affichée (1) ou cachée (0)
 	struct NkAgentHooks {
 			static constexpr int32 kMax = 8;
 			int32 shotFrames[kMax] = {};
@@ -191,6 +192,8 @@ namespace {
 			int32 packFrame = -1;  ///< NK_AGENT_PACK=n : Pack à la frame n
 			int32 panelFrame = -1; ///< NK_AGENT_PANEL=n : ouvre le tiroir à la frame n
 			int32 themeFrame = -1; ///< NK_AGENT_THEME="n:0|1" : bascule le thème (1=sombre)
+			int32 gridFrame = -1;  ///< NK_AGENT_GRID="n:0|1" : grille (1=affichée)
+			bool gridShow = true;
 			bool themeDark = true;
 			int32 menuFrame = -1; ///< NK_AGENT_MENU="n:px:py" : ouvre le menu clic droit
 			float32 menuPx = 0.0f, menuPy = 0.0f;
@@ -317,6 +320,13 @@ namespace {
 					if (std::sscanf(v, "%d:%d", &f, &dark) == 2) {
 						themeFrame = (int32)f;
 						themeDark = dark != 0;
+					}
+				}
+				if (const char *v = std::getenv("NK_AGENT_GRID")) {
+					int f = 0, show = 1;
+					if (std::sscanf(v, "%d:%d", &f, &show) == 2) {
+						gridFrame = (int32)f;
+						gridShow = show != 0;
 					}
 				}
 			}
@@ -489,6 +499,7 @@ int nkmain(const NkEntryState &state) {
 	// Charte Rihen (pétrole/orange) déclinée en SOMBRE (défaut) et CLAIR —
 	// bascule dans le panneau (demande Rihen).
 	bool darkTheme = true;
+	bool showGrid = true; // grille (et axes) du canevas — persistée dans le .nkref
 	NkRefColors th = MakeDarkColors();
 	ApplyGuiTheme(gui, darkTheme);
 	nkgui::SetCurrentContext(&gui);
@@ -879,7 +890,7 @@ int nkmain(const NkEntryState &state) {
 			im.size = sources[i].Size();
 			imgs.PushBack(im);
 		}
-		nkref::NkRefSerialize(out, board, imgs.Data(), view, darkTheme);
+		nkref::NkRefSerialize(out, board, imgs.Data(), view, darkTheme, showGrid);
 		NkVector<nk_uint8> bytes;
 		bytes.Resize(out.Size());
 		for (usize i = 0; i < out.Size(); ++i)
@@ -925,8 +936,10 @@ int nkmain(const NkEntryState &state) {
 		NkVector<nkref::NkRefStroke> strokes;
 		nkref::NkRefView loadedView;
 		bool loadedDark = darkTheme;
+		bool loadedGrid = showGrid;
 		if (bytes.Empty() ||
-			!nkref::NkRefDeserialize(bytes.Data(), (usize)bytes.Size(), items, strokes, loadedView, loadedDark)) {
+			!nkref::NkRefDeserialize(bytes.Data(), (usize)bytes.Size(), items, strokes, loadedView, loadedDark,
+									 loadedGrid)) {
 			logger.Warn("[NkRef] planche illisible : %s", path.CStr());
 			++loadFailCount;
 			loadFailTicks = 400;
@@ -956,6 +969,7 @@ int nkmain(const NkEntryState &state) {
 		}
 		board.strokes = traits::NkMove(strokes);
 		view = loadedView;
+		showGrid = loadedGrid;
 		if (loadedDark != darkTheme) {
 			darkTheme = loadedDark;
 			th = darkTheme ? MakeDarkColors() : MakeLightColors();
@@ -1246,6 +1260,8 @@ int nkmain(const NkEntryState &state) {
 					doNew(); // Nouvelle planche — Ctrl+K, comme PureRef (New Scene)
 				} else if (k == NkKey::NK_D && !ctrl) {
 					penMode = !penMode; // bascule crayon (aussi dans le panneau)
+				} else if (k == NkKey::NK_G && !ctrl) {
+					showGrid = !showGrid; // grille (aussi dans panneau/Réglages)
 				} else if (k == NkKey::NK_P && ctrl) {
 					// « Pack » : rangement compact (sélection ≥ 2, sinon tout).
 					board.Pack(16.0f);
@@ -1330,6 +1346,8 @@ int nkmain(const NkEntryState &state) {
 			th = darkTheme ? MakeDarkColors() : MakeLightColors();
 			ApplyGuiTheme(gui, darkTheme);
 		}
+		if (agent.gridFrame > 0 && agentFrame == agent.gridFrame)
+			showGrid = agent.gridShow; // même état que la case / touche G
 
 		// ── NKGui : le tiroir de propriétés (logique seulement, rendu au Submit) ──
 		gui.viewW = (int32)sz.x;
@@ -1344,6 +1362,7 @@ int nkmain(const NkEntryState &state) {
 					th = darkTheme ? MakeDarkColors() : MakeLightColors();
 					ApplyGuiTheme(gui, darkTheme);
 				}
+				nkgui::Checkbox(gui, "Afficher la grille (G)", showGrid);
 				nkgui::Separator(gui);
 				nkgui::Text(gui, "Fenetre");
 				bool onTop = window.IsAlwaysOnTop();
@@ -1458,6 +1477,7 @@ int nkmain(const NkEntryState &state) {
 					// ne naît que quand ses outils existent).
 					nkgui::Checkbox(gui, "Glisser le fond deplace la fenetre", dragEmptyMovesWindow);
 					nkgui::Checkbox(gui, "Reduire les grandes images a l'import (4096 px)", autoDownscale);
+					nkgui::Checkbox(gui, "Afficher la grille (G)", showGrid);
 					bool onTop = window.IsAlwaysOnTop();
 					if (nkgui::Checkbox(gui, "Toujours devant (T)", onTop))
 						window.SetAlwaysOnTop(onTop);
@@ -1646,29 +1666,33 @@ int nkmain(const NkEntryState &state) {
 		NkRenderer2D &r = target.GetRenderer2D();
 
 
-		const float32 spacing = view.GridSpacing(32.0f);
-		const math::NkVec2f wMin = view.PixelToWorld({0.0f, 0.0f}, vp);
-		const math::NkVec2f wMax = view.PixelToWorld(vp, vp);
-		const NkColor2D minor = th.gridMinor;
-		const NkColor2D major = th.gridMajor;
-		const int64 ix0 = (int64)math::NkFloor(wMin.x / spacing);
-		const int64 ix1 = (int64)math::NkCeil(wMax.x / spacing);
-		for (int64 i = ix0; i <= ix1; ++i) {
-			const float32 xPix = view.WorldToPixel({(float32)i * spacing, 0.0f}, vp).x;
-			r.DrawLine({xPix, 0.0f}, {xPix, vp.y}, (i % 8) == 0 ? major : minor, 1.0f);
+		// Grille ET axes sous le même drapeau : « cacher la grille » veut dire
+		// un fond nu, pas un fond nu barré de deux axes.
+		if (showGrid) {
+			const float32 spacing = view.GridSpacing(32.0f);
+			const math::NkVec2f wMin = view.PixelToWorld({0.0f, 0.0f}, vp);
+			const math::NkVec2f wMax = view.PixelToWorld(vp, vp);
+			const NkColor2D minor = th.gridMinor;
+			const NkColor2D major = th.gridMajor;
+			const int64 ix0 = (int64)math::NkFloor(wMin.x / spacing);
+			const int64 ix1 = (int64)math::NkCeil(wMax.x / spacing);
+			for (int64 i = ix0; i <= ix1; ++i) {
+				const float32 xPix = view.WorldToPixel({(float32)i * spacing, 0.0f}, vp).x;
+				r.DrawLine({xPix, 0.0f}, {xPix, vp.y}, (i % 8) == 0 ? major : minor, 1.0f);
+			}
+			const int64 iy0 = (int64)math::NkFloor(wMin.y / spacing);
+			const int64 iy1 = (int64)math::NkCeil(wMax.y / spacing);
+			for (int64 i = iy0; i <= iy1; ++i) {
+				const float32 yPix = view.WorldToPixel({0.0f, (float32)i * spacing}, vp).y;
+				r.DrawLine({0.0f, yPix}, {vp.x, yPix}, (i % 8) == 0 ? major : minor, 1.0f);
+			}
+			const math::NkVec2f origin = view.WorldToPixel({0.0f, 0.0f}, vp);
+			const NkColor2D axis = th.axis;
+			if (origin.x >= 0.0f && origin.x <= vp.x)
+				r.DrawLine({origin.x, 0.0f}, {origin.x, vp.y}, axis, 1.0f);
+			if (origin.y >= 0.0f && origin.y <= vp.y)
+				r.DrawLine({0.0f, origin.y}, {vp.x, origin.y}, axis, 1.0f);
 		}
-		const int64 iy0 = (int64)math::NkFloor(wMin.y / spacing);
-		const int64 iy1 = (int64)math::NkCeil(wMax.y / spacing);
-		for (int64 i = iy0; i <= iy1; ++i) {
-			const float32 yPix = view.WorldToPixel({0.0f, (float32)i * spacing}, vp).y;
-			r.DrawLine({0.0f, yPix}, {vp.x, yPix}, (i % 8) == 0 ? major : minor, 1.0f);
-		}
-		const math::NkVec2f origin = view.WorldToPixel({0.0f, 0.0f}, vp);
-		const NkColor2D axis = th.axis;
-		if (origin.x >= 0.0f && origin.x <= vp.x)
-			r.DrawLine({origin.x, 0.0f}, {origin.x, vp.y}, axis, 1.0f);
-		if (origin.y >= 0.0f && origin.y <= vp.y)
-			r.DrawLine({0.0f, origin.y}, {vp.x, origin.y}, axis, 1.0f);
 
 		// Les images, du fond vers le dessus (l'ordre du tableau). CULLING :
 		// une planche de dizaines de photos ne doit coûter que ce qui est
