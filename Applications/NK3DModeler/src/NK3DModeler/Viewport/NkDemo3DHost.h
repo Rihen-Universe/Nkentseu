@@ -263,6 +263,19 @@ namespace nkentseu {
 		int32 Demo3DHostProjMatMixSource(int32 i);
 		float32 Demo3DHostProjMatMixFactor(int32 i);
 		void Demo3DHostProjMatSetMix(int32 i, int32 withSlot, int32 source, float32 factor);
+		// TYPE de materiau (valeur NkMaterialType : 0 PBR, 3 peau, 4 cheveux,
+		// 5 verre, 6 tissu, 7 carrosserie, 8 feuillage, 9 eau, 11 emissif,
+		// 20 toon, 21 toon encre, 22 anime, 60 sans eclairage).
+		int32 Demo3DHostProjMatType(int32 i);
+		void Demo3DHostProjMatSetType(int32 i, int32 type);
+		// Reglages PBR restants : opacite, anisotropie, sheen.
+		void Demo3DHostProjMatPBRExtra(int32 i, float32 *alpha, float32 *aniso,
+									   float32 *sheen);
+		void Demo3DHostProjMatSetPBRExtra(int32 i, float32 alpha, float32 aniso,
+										  float32 sheen);
+		// Famille TOON en paquet de 14 flottants (cf. definition).
+		void Demo3DHostProjMatToon(int32 i, float32 *v14);
+		void Demo3DHostProjMatSetToon(int32 i, const float32 *v14);
 		void Demo3DHostProjMatEmissive(int32 i, float32 *rgb);
 		void Demo3DHostProjMatSetEmissive(int32 i, const float32 *rgb);
 		int32 Demo3DHostProjMatPrevShape(int32 i);
