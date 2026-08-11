@@ -44,9 +44,20 @@ namespace nkref {
 			NkString sourcePath; ///< vide = collée du presse-papiers (Étape 2 : octets embarqués)
 	};
 
+	/// Un TRAIT DE CRAYON posé sur la planche (annotation libre, demande Rihen :
+	/// « des marques au crayon coloré, n'importe quelle marque »). Les points et
+	/// l'épaisseur vivent en MONDE : le trait zoome avec la planche, comme une
+	/// image. Sérialisé dans le .nkref à l'Étape 2.
+	struct NkRefStroke {
+			nkentseu::uint8 r = 247, g = 154, b = 40, a = 255; ///< couleur (défaut orange Rihen)
+			float32 widthWorld = 3.0f;						   ///< épaisseur en unités monde
+			NkVector<NkVec2f> points;						   ///< polyligne monde
+	};
+
 	class NkRefBoard {
 		public:
 			NkVector<NkRefItem> items; ///< ordre = profondeur (dernier = dessus)
+			NkVector<NkRefStroke> strokes; ///< annotations crayon, par-dessus les images
 
 			/// L'item ACTIF = celui qui porte les poignées (dernier sélectionné).
 			int32 active = -1;
@@ -314,6 +325,43 @@ namespace nkref {
 				const NkVec2f shift{centroid.x - blockMaxX * 0.5f, centroid.y - blockMaxY * 0.5f};
 				for (usize k = 0; k < idx.Size(); ++k)
 					items[(usize)idx[k]].pos = {newPos[k].x + shift.x, newPos[k].y + shift.y};
+			}
+
+			// ── Crayon ──────────────────────────────────────────────────────
+			void BeginStroke(nkentseu::uint8 r, nkentseu::uint8 g, nkentseu::uint8 b, float32 widthWorld,
+							 const NkVec2f &worldPoint) {
+				NkRefStroke s;
+				s.r = r;
+				s.g = g;
+				s.b = b;
+				s.widthWorld = widthWorld;
+				s.points.PushBack(worldPoint);
+				strokes.PushBack(s);
+			}
+
+			/// Ajoute un point au trait EN COURS (le dernier), en ignorant les
+			/// micro-mouvements (minDist en monde) — sinon un glisser lent pond
+			/// des milliers de segments inutiles.
+			void AppendStrokePoint(const NkVec2f &worldPoint, float32 minDist) {
+				if (strokes.Empty())
+					return;
+				NkRefStroke &s = strokes[strokes.Size() - 1];
+				if (!s.points.Empty()) {
+					const NkVec2f &last = s.points[s.points.Size() - 1];
+					const float32 dx = worldPoint.x - last.x, dy = worldPoint.y - last.y;
+					if (dx * dx + dy * dy < minDist * minDist)
+						return;
+				}
+				s.points.PushBack(worldPoint);
+			}
+
+			void UndoStroke() {
+				if (!strokes.Empty())
+					strokes.RemoveAt(strokes.Size() - 1);
+			}
+
+			void ClearStrokes() {
+				strokes.Clear();
 			}
 
 		private:

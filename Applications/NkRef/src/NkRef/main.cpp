@@ -278,7 +278,7 @@ namespace {
 
 	// Ce que la souris est en train de faire. Un seul mode à la fois : c'est
 	// ce qui rend le canevas prévisible (pas de drag+zoom+rect simultanés).
-	enum class NkMode { Idle, Pan, DragItems, ScaleCorner, Rotate, RectSelect };
+	enum class NkMode { Idle, Pan, DragItems, ScaleCorner, Rotate, RectSelect, Draw };
 
 } // namespace
 
@@ -341,6 +341,20 @@ int nkmain(const NkEntryState &state) {
 	auto guiCtxPtr = memory::NkMakeUnique<nkgui::NkGuiContext>();
 	nkgui::NkGuiContext &gui = *guiCtxPtr;
 	gui.Init((int32)cfg.width, (int32)cfg.height);
+	// Charte Rihen (pétrole #0A555F, orange #F79A28) sur fond sombre — le
+	// panneau doit ressembler à la maison, pas au thème d'usine (retour Rihen).
+	gui.theme.bgPrimary = {16, 18, 22, 255};
+	gui.theme.panel = {21, 25, 30, 246};
+	gui.theme.header = {10, 60, 68, 255};
+	gui.theme.button = {12, 72, 82, 255};
+	gui.theme.buttonHover = {10, 85, 95, 255};
+	gui.theme.buttonActive = {247, 154, 40, 255};
+	gui.theme.border = {10, 85, 95, 200};
+	gui.theme.text = {228, 233, 236, 255};
+	gui.theme.selection = {10, 85, 95, 235};
+	gui.theme.accent = {247, 154, 40, 255};
+	gui.theme.track = {13, 16, 20, 255};
+	gui.theme.rounding = 6.0f;
 	nkgui::SetCurrentContext(&gui);
 	renderer::NkGuiCanvasBackend guiBackend;
 	const bool hasGui = guiBackend.Init(target.GetRenderer());
@@ -358,6 +372,12 @@ int nkmain(const NkEntryState &state) {
 	// coché (défaut, geste PureRef) = déplacer la FENÊTRE, et le rectangle passe
 	// par Ctrl+glisser ; décoché = glisser trace le rectangle directement.
 	bool dragEmptyMovesWindow = true;
+	// Le crayon : n'importe quelle marque colorée sur la planche (demande
+	// Rihen). Épaisseur choisie en PIXELS, convertie en monde à la pose du
+	// trait : le trait zoome ensuite avec la planche, comme une image.
+	bool penMode = false;
+	uint8 penR = 247, penG = 154, penB = 40; // orange Rihen par défaut
+	float32 penWidthPx = 4.0f;
 	NkClock clock;
 
 	NkAgentHooks agent;
@@ -555,10 +575,15 @@ int nkmain(const NkEntryState &state) {
 		return -1;
 	};
 
-	// L'onglet du tiroir de propriétés : petit chevron collé au bord droit,
-	// centré verticalement — toujours accessible, ne gâche rien.
+	// L'onglet du tiroir de propriétés : petit chevron centré verticalement.
+	// Panneau FERMÉ : collé au bord droit. Panneau OUVERT : collé au bord
+	// GAUCHE DU PANNEAU — le laisser sous le panneau le rendait invisible et
+	// donc « le panneau ne se referme pas » (retour Rihen).
+	auto tabX = [&](const math::NkVec2f &vp) -> float32 {
+		return panelOpen ? (vp.x - kPanelW - 20.0f) : (vp.x - 22.0f);
+	};
 	auto tabHit = [&](float32 px, float32 py, const math::NkVec2f &vp) -> bool {
-		const float32 tx = vp.x - 22.0f, ty = vp.y * 0.5f - 32.0f;
+		const float32 tx = tabX(vp), ty = vp.y * 0.5f - 32.0f;
 		return px >= tx && px <= tx + 18.0f && py >= ty && py <= ty + 64.0f;
 	};
 
@@ -650,6 +675,12 @@ int nkmain(const NkEntryState &state) {
 						window.Minimize();
 					else
 						window.BeginDragMove();
+				} else if (mb->IsLeft() && penMode) {
+					// Mode crayon : le glisser TRACE (pas de sélection, pas de
+					// déplacement de fenêtre — on ressort par D ou le panneau).
+					const math::NkVec2f w = view.PixelToWorld({px, py}, vp);
+					board.BeginStroke(penR, penG, penB, penWidthPx / view.zoom, w);
+					mode = NkMode::Draw;
 				} else if (mb->IsLeft()) {
 					const bool ctrl = mb->GetModifiers().ctrl;
 					// 1) Les poignées de l'item actif ont priorité sur tout.
@@ -736,6 +767,11 @@ int nkmain(const NkEntryState &state) {
 					case NkMode::Pan:
 						view.PanByPixels(dx, dy);
 						break;
+					case NkMode::Draw:
+						// 2 px écran de pas minimum : assez fin pour une écriture,
+						// assez grossier pour ne pas pondre 10000 points.
+						board.AppendStrokePoint(view.PixelToWorld({px, py}, vp), 2.0f / view.zoom);
+						break;
 					case NkMode::DragItems:
 						moveSelectionByPixels(dx, dy);
 						break;
@@ -791,6 +827,8 @@ int nkmain(const NkEntryState &state) {
 					reorderActive(false);
 				} else if (k == NkKey::NK_V && ctrl) {
 					pasteClipboard(view.PixelToWorld(mousePix, vp));
+				} else if (k == NkKey::NK_D && !ctrl) {
+					penMode = !penMode; // bascule crayon (aussi dans le panneau)
 				} else if (k == NkKey::NK_P && ctrl) {
 					// « Pack » : rangement compact (sélection ≥ 2, sinon tout).
 					board.Pack(16.0f);
@@ -874,10 +912,56 @@ int nkmain(const NkEntryState &state) {
 				nkgui::Checkbox(gui, "Glisser le fond = fenetre", dragEmptyMovesWindow);
 				nkgui::Separator(gui);
 				nkgui::Text(gui, "Planche");
+				{
+					// Le COMPTE des fichiers ouverts, demandé par Rihen — ici, et
+					// toujours dans l'en-tête escamotable.
+					int32 selCount = 0;
+					for (usize i = 0; i < board.items.Size(); ++i)
+						if (board.items[i].selected)
+							++selCount;
+					char line[96];
+					std::snprintf(line, sizeof(line), "%d image%s - %d selectionnee%s - %d trait%s",
+								  (int)board.items.Size(), board.items.Size() > 1 ? "s" : "", (int)selCount,
+								  selCount > 1 ? "s" : "", (int)board.strokes.Size(),
+								  board.strokes.Size() > 1 ? "s" : "");
+					nkgui::Text(gui, line);
+				}
 				if (nkgui::Button(gui, "Pack (Ctrl+P)"))
 					board.Pack(16.0f);
 				if (nkgui::Button(gui, "Origine (Debut)"))
 					view.Reset();
+				nkgui::Separator(gui);
+				nkgui::Text(gui, "Crayon");
+				nkgui::Checkbox(gui, "Mode crayon (D)", penMode);
+				{
+					// Palette : la couleur ACTIVE est marquée [x]. Des pastilles
+					// colorées viendront quand NKGui saura teinter un bouton.
+					struct PenColor {
+							const char *name;
+							uint8 r, g, b;
+					};
+					static const PenColor kPen[] = {
+						{"Orange", 247, 154, 40}, {"Petrole", 22, 140, 155}, {"Rouge", 225, 60, 50},
+						{"Vert", 80, 190, 100},	  {"Bleu", 70, 130, 230},	 {"Blanc", 240, 242, 245},
+						{"Noir", 15, 16, 18},
+					};
+					for (int32 c = 0; c < (int32)(sizeof(kPen) / sizeof(kPen[0])); ++c) {
+						const bool active = penR == kPen[c].r && penG == kPen[c].g && penB == kPen[c].b;
+						char lbl[24];
+						std::snprintf(lbl, sizeof(lbl), "%s%s", active ? "[x] " : "", kPen[c].name);
+						if (nkgui::Button(gui, lbl)) {
+							penR = kPen[c].r;
+							penG = kPen[c].g;
+							penB = kPen[c].b;
+							penMode = true; // choisir une couleur = vouloir dessiner
+						}
+					}
+				}
+				nkgui::SliderFloat(gui, "Epaisseur (px)", penWidthPx, 1.0f, 24.0f);
+				if (nkgui::Button(gui, "Annuler le dernier trait"))
+					board.UndoStroke();
+				if (nkgui::Button(gui, "Effacer tous les traits"))
+					board.ClearStrokes();
 				nkgui::Separator(gui);
 				if (board.active >= 0 && board.active < (int32)board.items.Size()) {
 					nkref::NkRefItem &it = board.items[(usize)board.active];
@@ -972,6 +1056,38 @@ int nkmain(const NkEntryState &state) {
 			target.Draw(static_cast<const NkDrawable &>(sp));
 		}
 
+		// Les traits de crayon, par-dessus les images (annotations). Culling
+		// AABB par trait, comme les images.
+		for (usize si = 0; si < board.strokes.Size(); ++si) {
+			const nkref::NkRefStroke &st = board.strokes[si];
+			if (st.points.Empty())
+				continue;
+			float32 minX = 1e9f, minY = 1e9f, maxX = -1e9f, maxY = -1e9f;
+			for (usize p = 0; p < st.points.Size(); ++p) {
+				if (st.points[p].x < minX)
+					minX = st.points[p].x;
+				if (st.points[p].x > maxX)
+					maxX = st.points[p].x;
+				if (st.points[p].y < minY)
+					minY = st.points[p].y;
+				if (st.points[p].y > maxY)
+					maxY = st.points[p].y;
+			}
+			const math::NkVec2f pMin = view.WorldToPixel({minX, minY}, vp);
+			const math::NkVec2f pMax = view.WorldToPixel({maxX, maxY}, vp);
+			const float32 wpx = st.widthWorld * view.zoom;
+			if (pMax.x + wpx < 0.0f || pMin.x - wpx > vp.x || pMax.y + wpx < 0.0f || pMin.y - wpx > vp.y)
+				continue;
+			const NkColor2D col{st.r, st.g, st.b, st.a};
+			if (st.points.Size() == 1) { // simple point = pastille
+				r.DrawFilledCircle(view.WorldToPixel(st.points[0], vp), wpx * 0.5f + 1.0f, col, 12);
+			} else {
+				for (usize p = 0; p + 1 < st.points.Size(); ++p)
+					r.DrawLine(view.WorldToPixel(st.points[p], vp), view.WorldToPixel(st.points[p + 1], vp), col,
+							   wpx < 1.0f ? 1.0f : wpx);
+			}
+		}
+
 		// Contours de sélection + poignées (par-dessus les images).
 		const NkColor2D selCol{46, 140, 153, 255};	  // sélectionné
 		const NkColor2D activeCol{247, 154, 40, 255}; // actif (porte les poignées)
@@ -1057,11 +1173,19 @@ int nkmain(const NkEntryState &state) {
 			}
 		}
 
-		// L'onglet du tiroir de propriétés (chevron au bord droit, discret).
+		// Le panneau NKGui par-dessus le canevas (DEUX Submit, jamais un
+		// seul : dlOverlay porte popups/combos — piège documenté du pont).
+		if (hasGui) {
+			guiBackend.Submit(gui.dl, (uint32)sz.x, (uint32)sz.y);
+			guiBackend.Submit(gui.dlOverlay, (uint32)sz.x, (uint32)sz.y);
+		}
+
+		// L'onglet du tiroir — APRÈS les Submit : il doit rester visible
+		// au-dessus du panneau ouvert (sinon impossible de refermer, vécu).
 		{
-			const float32 tx = vp.x - 22.0f, ty = vp.y * 0.5f - 32.0f;
-			r.DrawFilledRect({tx, ty, 18.0f, 64.0f}, NkColor2D{14, 15, 17, 220});
-			const NkColor2D ch{215, 220, 226, 255};
+			const float32 tx = tabX(vp), ty = vp.y * 0.5f - 32.0f;
+			r.DrawFilledRect({tx, ty, 18.0f, 64.0f}, NkColor2D{10, 85, 95, 235}); // pétrole Rihen
+			const NkColor2D ch{240, 244, 247, 255};
 			const float32 cy2 = ty + 32.0f;
 			if (panelOpen) { // chevron vers la droite = refermer le tiroir
 				r.DrawLine({tx + 6.0f, cy2 - 6.0f}, {tx + 12.0f, cy2}, ch, 1.5f);
@@ -1070,13 +1194,6 @@ int nkmain(const NkEntryState &state) {
 				r.DrawLine({tx + 12.0f, cy2 - 6.0f}, {tx + 6.0f, cy2}, ch, 1.5f);
 				r.DrawLine({tx + 6.0f, cy2}, {tx + 12.0f, cy2 + 6.0f}, ch, 1.5f);
 			}
-		}
-
-		// Le panneau NKGui par-dessus tout le canevas (DEUX Submit, jamais un
-		// seul : dlOverlay porte popups/combos — piège documenté du pont).
-		if (hasGui) {
-			guiBackend.Submit(gui.dl, (uint32)sz.x, (uint32)sz.y);
-			guiBackend.Submit(gui.dlOverlay, (uint32)sz.x, (uint32)sz.y);
 		}
 
 		// Curseur : flèches de redimensionnement sur les bords de la fenêtre
