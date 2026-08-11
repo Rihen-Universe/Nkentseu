@@ -1,0 +1,159 @@
+// cloth.frag.nksl — NKRenderer — Tissu Fragment (VRAI dialecte NkSL).
+// Diffus + lobe SHEEN (Charlie D + Neubelt V, comme pbr.frag) : le velours
+// et la soie s'allument sur leurs bords, la ou une BRDF PBR ordinaire les
+// laisse ternes. L'ancien .vk.glsl lisait ClothUBO en set=0 binding=7 — un
+// emplacement que le systeme de materiaux ne remplit pas.
+@location(0) in vec3 vWorldPos;
+@location(1) in vec3 vNormal;
+@location(2) in vec2 vUV;
+@location(3) in vec4 vColor;
+@location(0) out vec4 fragColor;
+
+@binding(set=0, binding=0)
+uniform CameraUBO {
+    mat4  view, proj, viewProj, invViewProj;
+    vec4  camPos, camDir; vec2 viewport; float time, deltaTime;
+    float iblStrength;
+    float _p0, _p1, _p2;
+    mat4  mirrorViewProj;
+    vec4  reflectionFlags;
+} uCam;
+
+@binding(set=1, binding=1)
+uniform ObjectUBO {
+    mat4  model, normalMatrix; vec4 tint;
+    float metallic, roughness, aoStrength, emissiveStrength;
+    float normalStrength, clearcoat, clearcoatRoughness, subsurface;
+    vec4  subsurfaceColor;
+    vec4  shadowOverrides;
+    vec4  triplanarParams;
+} uObj;
+
+@binding(set=0, binding=2)
+uniform LightsUBO {
+    vec4  positions[32], colors[32], directions[32], angles[32];
+    int   count; int _pad0; int _pad1; int _pad2;
+    // .x = loi d'attenuation (0 heritee, 1 physique 1/d^2 fenetree)
+    // .y = largeur de la surfacique  .z = hauteur  .w reserve
+    // En QUEUE de bloc : les shaders qui declarent la version courte lisent
+    // `count` au meme endroit (regle du projet, cf. pbr.frag.nksl).
+    vec4  extras[32];
+} uLights;
+
+#include "Include/NkLightCommon.glsli"
+
+struct NkShadowSlot {
+    mat4 shadowMatrix;
+    vec4 tileUV;
+    vec4 lightPosOrDir;
+    vec4 packedIds;
+};
+@binding(set=0, binding=3)
+uniform ShadowSlotsUBO {
+    NkShadowSlot slots[256];
+    vec4 firstSlotPerLight[8];
+    vec4 slotCountPerLight[8];
+    vec4 globalCfg;
+    vec4 biasParams;
+} uShadows;
+@binding(set=0, binding=11) uniform sampler2DShadow tShadowAtlas;
+@binding(set=0, binding=12) uniform sampler2D tShadowAtlasRaw;
+#include "Include/NkShadowAtlas.glsli"
+
+// Meme layout que NkPBRParams : `sheen` pilote la force du lobe, `roughness`
+// sa largeur — le panneau du modeleur les expose deja.
+@binding(set=2, binding=8)
+uniform MaterialUBO {
+    vec4  albedo;
+    vec4  emissive;
+    float metallic;
+    float roughness;
+    float ao;
+    float emissiveStrength;
+    float normalStrength;
+    float clearcoat;
+    float clearcoatRough;
+    float subsurface;
+    vec4  subsurfaceColor;
+    float anisotropy;
+    float sheen;
+    float reflFloorFaceMode;
+    float reflBlend;
+} uMat;
+
+@binding(set=2, binding=3) uniform sampler2D tAlbedo;
+@binding(set=0, binding=8) uniform samplerCube tEnvIrradiance;
+
+@stage(fragment)
+@entry
+void main() {
+    vec4 albSamp = texture(tAlbedo, vUV) * uMat.albedo * vColor;
+    vec3 albedo  = albSamp.rgb;
+    float alpha  = albSamp.a;
+
+    vec3 N = normalize(vNormal);
+    vec3 camPosForV = uCam.camPos.xyz;
+    if (uCam.reflectionFlags.x > 0.5) camPosForV.y = -camPosForV.y;
+    vec3 V = normalize(camPosForV - vWorldPos);
+    float NdotV = max(dot(N, V), 1e-4);
+
+    // Rugosite du duvet : plancher haut — un tissu n'est jamais un miroir.
+    float shRough = clamp(uMat.roughness, 0.2, 1.0);
+    float a2      = shRough * shRough;
+    float invA    = 1.0 / a2;
+    // Force du lobe : `sheen` du materiau, avec un minimum pour que le type
+    // se distingue du PBR meme sans reglage (c'est un TISSU, il duvete).
+    float shAmt   = max(uMat.sheen, 0.25);
+
+    // Derivees hors boucle (regle fxc : aucun gradient dans une boucle).
+    vec3 dWdx = dFdx(vWorldPos);
+    vec3 dWdy = dFdy(vWorldPos);
+
+    vec3 total = vec3(0.0);
+    for (int i = 0; i < uLights.count && i < 32; i++) {
+        vec4 lPos = uLights.positions[i];
+        vec3 L    = (lPos.w < 0.5)
+                  ? normalize(-uLights.directions[i].xyz)
+                  : normalize(lPos.xyz - vWorldPos);
+        float NdotL = max(dot(N, L), 0.0);
+        if (NdotL <= 0.0) continue;
+
+        float shadow = (uLights.angles[i].z > 0.5 && uObj.shadowOverrides.x > 0.5)
+                       ? SampleLightShadowExD(i, vWorldPos, N, L, uObj.shadowOverrides.z, dWdx, dWdy) : 1.0;
+
+        // SURFACIQUE : son facteur de forme porte deja cosinus ET inverse
+        // carre — le cumuler avec une attenuation ponctuelle cramait le
+        // tissu en blanc (capture de Rihen). Sinon, attenuation ordinaire.
+        float areaE = NkAreaFormFactor(i, vWorldPos, N);
+        vec3  rad   = uLights.colors[i].rgb * uLights.colors[i].w * shadow
+                    * ((areaE >= 0.0) ? NkAreaRangeWindow(i, vWorldPos)
+                                      : NkLightAtt(i, vWorldPos));
+
+        // Diffus « wrap » : la lumiere rasante mord un peu sous l'horizon,
+        // comme sur des fibres qui diffusent en volume. Devant un panneau,
+        // le facteur de forme tient lieu de N.L (et porte deja le 1/PI).
+        float wrapD = (areaE >= 0.0)
+                    ? areaE
+                    : max((dot(N, L) + 0.3) / 1.3, 0.0) * 0.31830989;
+        total += albedo * wrapD * rad;
+
+        // SHEEN — Charlie (Estevez & Kulla) + visibilite Neubelt.
+        // MEME ENERGIE que le diffus : devant une surfacique, `rad` ne porte
+        // plus l'inverse carre (il est dans le facteur de forme) — l'oublier
+        // ici faisait virer le velours au ROSE fluo (capture de Rihen).
+        vec3  H    = normalize(L + V);
+        float NdH  = max(dot(N, H), 0.0);
+        float sinH = sqrt(max(1.0 - NdH * NdH, 0.0));
+        float Dc   = (2.0 + invA) * pow(sinH, invA) * 0.15915494;
+        float Vn   = 1.0 / (4.0 * (NdotL + NdotV - NdotL * NdotV));
+        float eSp  = (areaE >= 0.0) ? areaE * 3.14159265 : NdotL;
+        total += rad * eSp * Dc * Vn * shAmt;
+    }
+
+    // Ambiante : irradiance de l'environnement, moderee par l'occlusion.
+    vec3 amb = textureLod(tEnvIrradiance, N, 0.0).rgb * uCam.iblStrength * albedo * uMat.ao * 0.35;
+    total += amb;
+    if (uLights.count == 0) total += albedo * 0.25;
+
+    fragColor = vec4(total, alpha);
+}

@@ -548,6 +548,24 @@ namespace nkentseu {
 					return mTmplArchviz;
 				}
 
+				// Famille realiste : gabarits ajoutes le 11 aout (leurs shaders
+				// existaient, le registre les ignorait).
+				NkMatHandle DefaultGlass() const {
+					return mTmplGlass;
+				}
+
+				NkMatHandle DefaultCloth() const {
+					return mTmplCloth;
+				}
+
+				NkMatHandle DefaultCarPaint() const {
+					return mTmplCarPaint;
+				}
+
+				NkMatHandle DefaultFoliage() const {
+					return mTmplFoliage;
+				}
+
 				NkMatHandle DefaultReflFloor() const {
 					return mTmplReflFloor;
 				}
@@ -607,6 +625,7 @@ namespace nkentseu {
 				NkMatHandle mTmplPBR, mTmplToon, mTmplUnlit, mTmplWire;
 				NkMatHandle mTmplToonInk, mTmplEmissive; // oublies du registre (11 aout)
 				NkMatHandle mTmplSkin, mTmplHair, mTmplAnime, mTmplArchviz;
+				NkMatHandle mTmplGlass, mTmplCloth, mTmplCarPaint, mTmplFoliage;
 				NkMatHandle mTmplReflFloor;
 				NkMatHandle mTmplLayered;	// M.1 v0
 				NkMatHandle mTmplLayeredV1; // M.1 v1 (N=8 layers)

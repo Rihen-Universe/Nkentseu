@@ -143,6 +143,20 @@ namespace nkentseu {
 			mTmplSkin = reg(NkMaterialType::NK_SKIN, "Default_Skin", "Skin");
 			mTmplHair = reg(NkMaterialType::NK_HAIR, "Default_Hair", "Hair", NkRenderQueue::NK_ALPHA_TEST);
 			mTmplAnime = reg(NkMaterialType::NK_ANIME, "Default_Anime", "Anime");
+			// Famille REALISTE (11 aout) : leurs shaders existaient depuis
+			// toujours mais aucun gabarit ne les nommait — Create() retombait
+			// sur PBR et les types etaient indiscernables. Chacun a desormais
+			// sa paire NkSL moderne (MaterialUBO set=2 binding=8).
+			// Le VERRE va dans la file TRANSPARENTE : une vitre opaque n'est
+			// pas une vitre.
+			mTmplGlass = reg(NkMaterialType::NK_GLASS, "Default_Glass", "Glass",
+							 NkRenderQueue::NK_TRANSPARENT);
+			mTmplCloth = reg(NkMaterialType::NK_CLOTH, "Default_Cloth", "Cloth");
+			mTmplCarPaint = reg(NkMaterialType::NK_CAR_PAINT, "Default_CarPaint", "CarPaint");
+			// Le FEUILLAGE decoupe son alpha : file ALPHA_TEST, sans cull (une
+			// feuille se voit des deux cotes).
+			mTmplFoliage = reg(NkMaterialType::NK_FOLIAGE, "Default_Foliage", "Foliage",
+							   NkRenderQueue::NK_ALPHA_TEST);
 			mTmplArchviz = reg(NkMaterialType::NK_ARCHIVIZ, "Default_Archviz", "PBR");
 			mTmplReflFloor = reg(NkMaterialType::NK_REFL_FLOOR, "Default_ReflFloor", "ReflFloor");
 			// M.1 v0 : Layered material (2 layers PBR + masque vertex-color).

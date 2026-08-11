@@ -1,0 +1,117 @@
+// glass.frag.nksl — NKRenderer — Verre Fragment (VRAI dialecte NkSL).
+// Fresnel + reflet d'environnement + transmission teintee. L'ancien
+// .vk.glsl lisait une texture de scene (tSceneColor) que le systeme de
+// materiaux ne remplit jamais et une disposition de varyings obsolete
+// (tangentes en location 2/3) : il rendait du noir. Ici, transmission =
+// couleur du materiau attenuee, reflet = cubemap prefiltre, melange par
+// Fresnel — le comportement que l'oeil attend d'une vitre.
+@location(0) in vec3 vWorldPos;
+@location(1) in vec3 vNormal;
+@location(2) in vec2 vUV;
+@location(3) in vec4 vColor;
+@location(0) out vec4 fragColor;
+
+@binding(set=0, binding=0)
+uniform CameraUBO {
+    mat4  view, proj, viewProj, invViewProj;
+    vec4  camPos, camDir; vec2 viewport; float time, deltaTime;
+    float iblStrength;
+    float _p0, _p1, _p2;
+    mat4  mirrorViewProj;
+    vec4  reflectionFlags;
+} uCam;
+
+@binding(set=1, binding=1)
+uniform ObjectUBO {
+    mat4  model, normalMatrix; vec4 tint;
+    float metallic, roughness, aoStrength, emissiveStrength;
+    float normalStrength, clearcoat, clearcoatRoughness, subsurface;
+    vec4  subsurfaceColor;
+    vec4  shadowOverrides;
+    vec4  triplanarParams;
+} uObj;
+
+@binding(set=0, binding=2)
+uniform LightsUBO {
+    vec4  positions[32], colors[32], directions[32], angles[32];
+    int   count; int _pad0; int _pad1; int _pad2;
+    // .x = loi d'attenuation (0 heritee, 1 physique 1/d^2 fenetree)
+    // .y = largeur de la surfacique  .z = hauteur  .w reserve
+    // En QUEUE de bloc : les shaders qui declarent la version courte lisent
+    // `count` au meme endroit (regle du projet, cf. pbr.frag.nksl).
+    vec4  extras[32];
+} uLights;
+
+#include "Include/NkLightCommon.glsli"
+
+// Meme layout que NkPBRParams.
+@binding(set=2, binding=8)
+uniform MaterialUBO {
+    vec4  albedo;
+    vec4  emissive;
+    float metallic;
+    float roughness;
+    float ao;
+    float emissiveStrength;
+    float normalStrength;
+    float clearcoat;
+    float clearcoatRough;
+    float subsurface;
+    vec4  subsurfaceColor;
+    float anisotropy;
+    float sheen;
+    float reflFloorFaceMode;
+    float reflBlend;
+} uMat;
+
+@binding(set=2, binding=3) uniform sampler2D tAlbedo;
+@binding(set=0, binding=9) uniform samplerCube tEnvPrefilter;
+
+@stage(fragment)
+@entry
+void main() {
+    vec4 albSamp = texture(tAlbedo, vUV) * uMat.albedo * vColor;
+    vec3 tintC   = albSamp.rgb;
+
+    vec3 N = normalize(vNormal);
+    vec3 camPosForV = uCam.camPos.xyz;
+    if (uCam.reflectionFlags.x > 0.5) camPosForV.y = -camPosForV.y;
+    vec3 V = normalize(camPosForV - vWorldPos);
+    // Le verre est fin : la face vue de dos reflechit du meme cote.
+    if (dot(N, V) < 0.0) N = -N;
+    float cosV = max(dot(N, V), 0.0);
+
+    // Fresnel-Schlick, F0 = 0.04 (verre commun, n ~ 1.5).
+    float F = 0.04 + 0.96 * pow(1.0 - cosV, 5.0);
+
+    // Reflet : cubemap prefiltre, le niveau suit la rugosite.
+    vec3 R    = reflect(-V, N);
+    vec3 refl = textureLod(tEnvPrefilter, R, uMat.roughness * 4.0).rgb * uCam.iblStrength;
+
+    // Transmission : la teinte du verre, plus dense en incidence rasante
+    // (loi de Beer approchee par l'epaisseur apparente).
+    float thick = 1.0 / max(cosV, 0.15);
+    vec3  trans = tintC * exp(-(1.0 - tintC) * (thick - 1.0) * 0.5);
+
+    // Speculaire direct : un point brillant par lumiere, sans boucle
+    // d'ombre (une vitre n'a pas d'ombre propre lisible).
+    vec3 spec = vec3(0.0);
+    for (int i = 0; i < uLights.count && i < 32; i++) {
+        vec4 lPos = uLights.positions[i];
+        vec3 L    = (lPos.w < 0.5)
+                  ? normalize(-uLights.directions[i].xyz)
+                  : normalize(lPos.xyz - vWorldPos);
+        vec3 H    = normalize(L + V);
+        float sh  = pow(max(dot(N, H), 0.0), 128.0);
+        // Surfacique : facteur de forme au lieu de l'inverse carre.
+        float aE  = NkAreaFormFactor(i, vWorldPos, N);
+        float att = (aE >= 0.0) ? aE * 3.14159265 * NkAreaRangeWindow(i, vWorldPos)
+                                : NkLightAtt(i, vWorldPos);
+        spec += uLights.colors[i].rgb * sh * 0.6 * att;
+    }
+
+    vec3 col = mix(trans, refl, F) + spec;
+    // L'opacite du materiau pilote la vitre ; le Fresnel opacifie les bords.
+    float a = clamp(albSamp.a * (0.15 + 0.85 * F) + F * 0.35, 0.0, 1.0);
+    fragColor = vec4(col, a);
+}

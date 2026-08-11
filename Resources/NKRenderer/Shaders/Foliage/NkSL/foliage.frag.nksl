@@ -1,0 +1,145 @@
+// foliage.frag.nksl — NKRenderer — Feuillage Fragment (VRAI dialecte NkSL).
+// Eclairage DEUX FACES + decoupe alpha + TRANSMISSION : une feuille eclairee
+// par derriere s'allume — c'est ce qui distingue le feuillage du PBR.
+// L'ancien .vk.glsl utilisait la disposition de varyings obsolete et ne
+// lisait pas le MaterialUBO.
+@location(0) in vec3 vWorldPos;
+@location(1) in vec3 vNormal;
+@location(2) in vec2 vUV;
+@location(3) in vec4 vColor;
+@location(0) out vec4 fragColor;
+
+@binding(set=0, binding=0)
+uniform CameraUBO {
+    mat4  view, proj, viewProj, invViewProj;
+    vec4  camPos, camDir; vec2 viewport; float time, deltaTime;
+    float iblStrength;
+    float _p0, _p1, _p2;
+    mat4  mirrorViewProj;
+    vec4  reflectionFlags;
+} uCam;
+
+@binding(set=1, binding=1)
+uniform ObjectUBO {
+    mat4  model, normalMatrix; vec4 tint;
+    float metallic, roughness, aoStrength, emissiveStrength;
+    float normalStrength, clearcoat, clearcoatRoughness, subsurface;
+    vec4  subsurfaceColor;
+    vec4  shadowOverrides;
+    vec4  triplanarParams;
+} uObj;
+
+@binding(set=0, binding=2)
+uniform LightsUBO {
+    vec4  positions[32], colors[32], directions[32], angles[32];
+    int   count; int _pad0; int _pad1; int _pad2;
+    // .x = loi d'attenuation (0 heritee, 1 physique 1/d^2 fenetree)
+    // .y = largeur de la surfacique  .z = hauteur  .w reserve
+    // En QUEUE de bloc : les shaders qui declarent la version courte lisent
+    // `count` au meme endroit (regle du projet, cf. pbr.frag.nksl).
+    vec4  extras[32];
+} uLights;
+
+#include "Include/NkLightCommon.glsli"
+
+struct NkShadowSlot {
+    mat4 shadowMatrix;
+    vec4 tileUV;
+    vec4 lightPosOrDir;
+    vec4 packedIds;
+};
+@binding(set=0, binding=3)
+uniform ShadowSlotsUBO {
+    NkShadowSlot slots[256];
+    vec4 firstSlotPerLight[8];
+    vec4 slotCountPerLight[8];
+    vec4 globalCfg;
+    vec4 biasParams;
+} uShadows;
+@binding(set=0, binding=11) uniform sampler2DShadow tShadowAtlas;
+@binding(set=0, binding=12) uniform sampler2D tShadowAtlasRaw;
+#include "Include/NkShadowAtlas.glsli"
+
+// `subsurface` = force de la transmission, `subsurfaceColor` = sa teinte
+// (le vert-jaune d'une feuille a contre-jour). Les deux sont deja au panneau.
+@binding(set=2, binding=8)
+uniform MaterialUBO {
+    vec4  albedo;
+    vec4  emissive;
+    float metallic;
+    float roughness;
+    float ao;
+    float emissiveStrength;
+    float normalStrength;
+    float clearcoat;
+    float clearcoatRough;
+    float subsurface;
+    vec4  subsurfaceColor;
+    float anisotropy;
+    float sheen;
+    float reflFloorFaceMode;
+    float reflBlend;
+} uMat;
+
+@binding(set=2, binding=3) uniform sampler2D tAlbedo;
+@binding(set=0, binding=8) uniform samplerCube tEnvIrradiance;
+
+@stage(fragment)
+@entry
+void main() {
+    vec4 albSamp = texture(tAlbedo, vUV) * uMat.albedo * vColor;
+    vec3 albedo  = albSamp.rgb;
+    // DECOUPE : sous le seuil, le fragment n'existe pas (feuilles ajourees).
+    if (albSamp.a < 0.1) discard;
+
+    vec3 N = normalize(vNormal);
+    vec3 camPosForV = uCam.camPos.xyz;
+    if (uCam.reflectionFlags.x > 0.5) camPosForV.y = -camPosForV.y;
+    vec3 V = normalize(camPosForV - vWorldPos);
+    // DEUX FACES : une feuille vue de dos s'eclaire comme de face.
+    if (dot(N, V) < 0.0) N = -N;
+
+    // Teinte de transmission : celle du materiau, ou l'albedo verdi par
+    // defaut — une feuille a contre-jour n'est jamais grise.
+    vec3 transC = uMat.subsurfaceColor.rgb;
+    if (dot(transC, transC) < 1e-4) transC = albedo;
+    float transAmt = max(uMat.subsurface, 0.35);
+
+    vec3 dWdx = dFdx(vWorldPos);
+    vec3 dWdy = dFdy(vWorldPos);
+
+    vec3 total = vec3(0.0);
+    for (int i = 0; i < uLights.count && i < 32; i++) {
+        vec4 lPos = uLights.positions[i];
+        vec3 L    = (lPos.w < 0.5)
+                  ? normalize(-uLights.directions[i].xyz)
+                  : normalize(lPos.xyz - vWorldPos);
+
+        float shadow = (uLights.angles[i].z > 0.5 && uObj.shadowOverrides.x > 0.5)
+                       ? SampleLightShadowExD(i, vWorldPos, N, L, uObj.shadowOverrides.z, dWdx, dWdy) : 1.0;
+        // SURFACIQUE : facteur de forme (cosinus + inverse carre inclus).
+        float areaE = NkAreaFormFactor(i, vWorldPos, N);
+        vec3  rad   = uLights.colors[i].rgb * uLights.colors[i].w * shadow
+                    * ((areaE >= 0.0) ? NkAreaRangeWindow(i, vWorldPos)
+                                      : NkLightAtt(i, vWorldPos));
+
+        // Face eclairee.
+        float lamb = (areaE >= 0.0) ? areaE : max(dot(N, L), 0.0) * 0.31830989;
+        total += albedo * lamb * rad;
+
+        // TRANSMISSION : la lumiere qui traverse depuis l'autre face, vue
+        // surtout quand le regard s'aligne avec elle (contre-jour).
+        float back  = max(dot(-N, L), 0.0);
+        float align = pow(max(dot(V, -L), 0.0), 3.0);
+        // Devant un panneau, la face arriere recoit son propre facteur de
+        // forme (calcule sur la normale opposee).
+        float backE = (areaE >= 0.0) ? NkAreaFormFactor(i, vWorldPos, -N) : back * 0.31830989;
+        total += transC * backE * (0.35 + 0.65 * align) * transAmt * rad;
+    }
+
+    vec3 amb = textureLod(tEnvIrradiance, N, 0.0).rgb * uCam.iblStrength * albedo * uMat.ao * 0.35;
+    total += amb;
+    if (uLights.count == 0) total += albedo * 0.25;
+
+    fragColor = vec4(total, 1.0);
+}
