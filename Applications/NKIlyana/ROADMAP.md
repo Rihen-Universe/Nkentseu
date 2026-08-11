@@ -294,11 +294,28 @@ police vue — deux objets sans rapport).
 **Balayage complet du dossier Cours après correctifs — 258 PDF** :
 **199 acceptés (77 %)** contre ~17 % avant ; 29 « vides » (~26 scans que seul
 un OCR lirait, 2 chiffrés refusés franchement) ; 29 refusés charabia = famille
-**LaTeX/dvips Type1 sans `/ToUnicode`** (arXiv, notes Eberly). Pour une partie
-de ces derniers, un décodage par **noms de glyphes** est possible et mesuré
-(`/Differences` à noms standards, ou encodage en clair du FontFile Type1) —
-chantier différé, à ouvrir si ces documents valent l'effort. Pour les sources
-LaTeX : préférer le `.tex`, toujours.
+**LaTeX/dvips Type1 sans `/ToUnicode`** (arXiv, notes Eberly).
+
+**Cause 4 (2026-08-11, sur demande de Rihen) — décodage par NOMS de glyphes** :
+`/Encoding /Differences` (spec PDF) et, à défaut, la table en CLAIR du
+programme Type 1 (`dup N /nom put`, avant eexec — aucun charstring interprété)
+donnent code → nom ; la **Adobe Glyph List** (donnée publiée BSD-3, 4281
+entrées générées par script — `NkPdfGlyphList.{h,cpp}`, attribution dans
+`THIRD_PARTY_LICENSES.md`) donne nom → Unicode. **Mesure : 24 des 29 refusés
+récupérés** (arXiv à 0 % d'illisible, ligatures `fi` comprises) → le fonds
+Cours passe à **223/258 lisibles (86 %)**. Les 5 restants portent des noms
+opaques de sous-ensemble (`/a35`) : seul le dessin des glyphes sait ce qu'ils
+sont — OCR ou rien. Pour les sources LaTeX : préférer le `.tex`, toujours.
+
+**Au passage, bug racine dans l'inflate du dépôt** (`NkDeflate::zFill`,
+NKImage) : à l'épuisement du flux d'octets il déclarait une erreur, même quand
+les derniers symboles étaient déjà dans le registre. Les flux **zlib**
+(PDF/PNG) n'y tombaient jamais — leurs 4 octets d'Adler-32 servaient de marge
+silencieuse — mais tout flux **brut** fini à l'octet près (corps gzip d'une
+réponse HTTP, entrées ZIP) était rejeté après avoir été entièrement décodé.
+Fix : zéros bornés injectés en fin de flux. Mesuré : le gzip forcé de
+`gamemath.com` se décode ; chemin zlib inchangé (mêmes 546 passages sur le
+PDF témoin).
 
 ---
 

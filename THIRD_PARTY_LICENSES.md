@@ -115,3 +115,23 @@ licence, et ce que la licence exige.
   MIT (dépôt selfshadow/ltc_code) ; LearnOpenGL publie ses exemples sous
   CC BY-NC 4.0 — les DONNÉES numériques proviennent du dépôt MIT d'origine.
   Attribution conservée ici.
+
+---
+
+## Adobe Glyph List (AGL) — noms de glyphes → Unicode (lecture des PDF Type 1)
+
+- **Œuvre** : `glyphlist.txt` de la « Adobe Glyph List », spécification AGL —
+  correspondance publiée entre noms de glyphes PostScript (`/space`, `/alpha`,
+  `/eacute`…) et points de code Unicode.
+- **Auteurs** : Adobe (dépôt officiel `adobe-type-tools/agl-aglfn`).
+- **Licence** : **BSD 3 clauses** (fichier LICENSE.md du dépôt) — usage
+  commercial et redistribution permis ; obligation de conserver la mention de
+  copyright.
+- **Ce qui est incorporé** :
+  `Kernel/Runtime/NKMedia/src/NKMedia/Pdf/NkPdfGlyphList.cpp` — les
+  **4281 entrées** de `glyphlist.txt`, converties en table C++ **par script**
+  (aucune transcription manuelle), chaque entrée annotée de ses points de code
+  d'origine. La table sert au repli de lecture des polices sans `/ToUnicode` :
+  `/Encoding /Differences` et encodages en clair des programmes Type 1.
+- **Provenance** : `raw.githubusercontent.com/adobe-type-tools/agl-aglfn/`
+  `master/glyphlist.txt`, récupéré le 2026-08-11 (78 060 octets).
