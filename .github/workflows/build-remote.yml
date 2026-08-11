@@ -47,6 +47,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Rihen-Universe/Jenga
+          # La branche VIVANTE de Rihen (fix frameworks() inclus) — main public est en retard.
+          ref: feat/evenement-avertissement
           path: jenga-src
 
       - name: Dependances systeme (Linux)
