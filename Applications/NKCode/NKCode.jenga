@@ -329,7 +329,9 @@ with project("NKCode"):
     with filter("system:macOS"):
         windowedapp()
         usetoolchain("clang-native")
-        frameworks(["Cocoa", "QuartzCore", "OpenGL", "AudioToolbox", "CoreAudio", "AudioUnit"]) # NKAudio (CoreAudio)
+        # + Metal : les .mm Metal de NKCanvas compilent desormais sur macOS
+        # (probe CI : _MTLCreateSystemDefaultDevice non resolu sans lui).
+        frameworks(["Cocoa", "QuartzCore", "OpenGL", "Metal", "AudioToolbox", "CoreAudio", "AudioUnit"]) # NKAudio (CoreAudio)
 
     # ===== iOS ====================================================================
     # Rendu via Metal (NkContextFactory sélectionne automatiquement le backend
