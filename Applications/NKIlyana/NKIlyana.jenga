@@ -25,6 +25,13 @@ _GLSLANG_LIBS_WINDOWS = [
 ]
 _IS_MINGW = "mingw" in TC_WINDOWS.lower()
 
+# TLS optionnel, ALIGNE sur NKNetwork.jenga (NK_ENABLE_TLS=1). Sans lui, aucune
+# trace de mbed-TLS dans l'executable — c'est ce qui a permis d'isoler la
+# regression du 2026-08-11 (lecture PDF disparue quand mbed-TLS etait lie).
+_TLS_ON = os.getenv("NK_ENABLE_TLS", "").strip().lower() in ("1", "true", "on", "yes", "mbedtls")
+_TLS_DEPS = ["NKMbedTLS"] if _TLS_ON else []
+_TLS_WIN_LINKS = ["bcrypt"] if _TLS_ON else []
+
 with project("NKIlyana"):
     consoleapp()
     language("C++")
@@ -36,7 +43,7 @@ with project("NKIlyana"):
         ["NKGpt", "NKTrain", "NKNN", "NKData", "NKOptim", "NKAutograd", "NKTensor", "NKRHI", "NKSL",
          "NKWindow", "NKGlad", "NKMath", "NKTime", "NKStream", "NKFileSystem",
          "NKLogger", "NKContainers", "NKMemory", "NKCore", "NKPlatform",
-         "NKThreading", "NKGLSlang", "NKSPIRVCross", "NKImage", "NKMedia", "NKFont", "NKNetwork", "NKMbedTLS"],
+         "NKThreading", "NKGLSlang", "NKSPIRVCross", "NKImage", "NKMedia", "NKFont", "NKNetwork"] + _TLS_DEPS,
         extra_includes=["src", "%{NKGlad.location}/include"]
                        + ([_VULKAN_INCLUDE] if _VULKAN_INCLUDE else []),
         extra_defines=[f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if _WANT_VULKAN else 0}"],
@@ -55,10 +62,7 @@ with project("NKIlyana"):
             "user32", "gdi32", "opengl32", "dwmapi", "shell32",
             "uuid", "ole32", "dxguid",
             "d3d11", "d3d12", "dxgi", "d3dcompiler",
-            # bcrypt : source d'entropie Windows utilisee par mbed-TLS (HTTPS).
-            # A lier sur l'EXECUTABLE, les liens de jenga n'etant pas transitifs.
-            "bcrypt",
-        ]
+        ] + _TLS_WIN_LINKS
         if _WANT_VULKAN:
             _WIN_LINKS.append("vulkan-1")
             if not _IS_MINGW:
