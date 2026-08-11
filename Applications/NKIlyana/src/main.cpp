@@ -39,6 +39,7 @@
 #include "NKMedia/Document/NkAspirateur.h"
 #include "NKMedia/Document/NkArchive.h"
 #include "NKNetwork/HTTP/NkHTTPClient.h"
+#include "NKImage/Core/NkImage.h" // inflate DEFLATE : degzip des reponses HTTP
 #include "NkIlyanaPdf.h"
 #include "NkIlyanaCitation.h"
 
@@ -1738,6 +1739,74 @@ static int ModeMesurer(int argc, char **argv) {
 // Les quatre garde-fous — meme domaine, robots.txt, delai entre requetes,
 // plafond de pages — sont dans NkAspirateur.h, chacun avec sa raison.
 // =============================================================================
+// Le corps d'une réponse HTTP peut arriver COMPRESSÉ (Content-Encoding gzip)
+// même quand on ne l'a pas demandé : certains serveurs servent des fichiers
+// pré-compressés quoi qu'on annonce (constaté sur gamemath.com — l'en-tête
+// gzip portait encore le nom du fichier temporaire d'origine). NkHTTPClient ne
+// décode pas encore les encodages de transfert ; on reconnaît donc le cadre
+// RFC 1952 à sa signature (1F 8B 08) et on le défait ici, avec l'inflate déjà
+// écrit du dépôt (NkImage::DecompressRaw). Renvoie false si le cadre est
+// annoncé gzip mais indécodable — l'appelant doit alors JETER la page plutôt
+// que de verser du binaire dans la récolte.
+static bool DegzipSiBesoin(NkString &corps) {
+	const uint8 *p = reinterpret_cast<const uint8 *>(corps.Data());
+	const usize n = corps.Size();
+	if (n < 18 || p[0] != 0x1Fu || p[1] != 0x8Bu || p[2] != 8u)
+		return true; // pas du gzip : rien a faire
+	const uint8 flg = p[3];
+	usize i = 10; // signature(2) + methode(1) + drapeaux(1) + mtime(4) + xfl(1) + os(1)
+	if (flg & 0x04u) { // FEXTRA
+		if (i + 2 > n)
+			return false;
+		i += 2 + ((usize)p[i] | ((usize)p[i + 1] << 8));
+	}
+	if (flg & 0x08u) { // FNAME, terminee par 0
+		while (i < n && p[i])
+			++i;
+		if (i < n)
+			++i;
+	}
+	if (flg & 0x10u) { // FCOMMENT
+		while (i < n && p[i])
+			++i;
+		if (i < n)
+			++i;
+	}
+	if (flg & 0x02u) // FHCRC
+		i += 2;
+	if (i + 8 > n) {
+		logger.Infof("  gzip : corps TRONQUE (%llu octets, donnees attendues a %llu)\n",
+					 (unsigned long long)n, (unsigned long long)i);
+		return false;
+	}
+	// ISIZE : taille decompressee mod 2^32, dans les 4 derniers octets.
+	const usize isize = (usize)p[n - 4] | ((usize)p[n - 3] << 8) | ((usize)p[n - 2] << 16) |
+						((usize)p[n - 1] << 24);
+	if (isize == 0) {
+		corps = NkString();
+		return true;
+	}
+	if (isize > (usize)256 * 1024 * 1024) {
+		logger.Infof("  gzip : taille annoncee aberrante (%llu octets)\n", (unsigned long long)isize);
+		return false; // garde-fou : une page web ne fait pas 256 Mo
+	}
+	NkVector<uint8> clair;
+	clair.Resize(isize);
+	usize ecrit = 0;
+	if (!NkDeflate::DecompressRaw(p + i, n - 8 - i, clair.Data(), isize, ecrit)) {
+		// Le champ d'erreur se LIT : corps complet ou pas, tailles en jeu.
+		logger.Infof("  gzip : inflate ECHOUE (corps %llu o, donnees %llu o a l'offset %llu, "
+					 "annonce %llu o, ecrit %llu o)\n",
+					 (unsigned long long)n, (unsigned long long)(n - 8 - i), (unsigned long long)i,
+					 (unsigned long long)isize, (unsigned long long)ecrit);
+		return false;
+	}
+	NkString s;
+	s.Append(reinterpret_cast<const char *>(clair.Data()), ecrit);
+	corps = s;
+	return true;
+}
+
 static int ModeAspirer(int argc, char **argv) {
 	const char *urlDepart = Arg(argc, argv, "--url", nullptr);
 	const char *fSortie = Arg(argc, argv, "--sortie", "aspire.txt");
@@ -1768,7 +1837,10 @@ static int ModeAspirer(int argc, char **argv) {
 		rurl.Append("/robots.txt");
 		const net::NkHTTPResponse r = http.Get(rurl.CStr());
 		if (r.statusCode == 200) {
-			media::LireRobots(r.body, interdits);
+			NkString corpsRobots = r.body;
+			if (!DegzipSiBesoin(corpsRobots))
+				corpsRobots = NkString(); // indecodable : comme absent
+			media::LireRobots(corpsRobots, interdits);
 			logger.Infof("robots.txt : %llu chemin(s) interdits, respectes.\n",
 						 (unsigned long long)interdits.Size());
 		} else {
@@ -1832,9 +1904,17 @@ static int ModeAspirer(int argc, char **argv) {
 			continue;
 		}
 
+		NkString corps = r.body;
+		if (!DegzipSiBesoin(corps)) {
+			++vides;
+			if (vides == 1)
+				logger.Infof("  echec sur %s : corps annonce gzip mais indecodable\n", url.CStr());
+			continue;
+		}
+
 		int64 gardes = 0;
 		int64 jetes = 0;
-		const NkString texte = media::PageWebVersTexte(r.body, gardes, jetes);
+		const NkString texte = media::PageWebVersTexte(corps, gardes, jetes);
 		totalGardes += gardes;
 		totalJetes += jetes;
 		++pages;
@@ -1852,7 +1932,7 @@ static int ModeAspirer(int argc, char **argv) {
 
 		if (prof < (int32)profMax) {
 			NkVector<NkString> liens;
-			media::ReleverLiens(r.body, url, liens);
+			media::ReleverLiens(corps, url, liens);
 			for (nk_size i = 0; i < liens.Size(); ++i)
 				if (media::HoteDe(liens[i]) == hote) {
 					file.PushBack(liens[i]);

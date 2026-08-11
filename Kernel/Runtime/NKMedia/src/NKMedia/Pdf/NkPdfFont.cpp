@@ -2,6 +2,7 @@
 // NkPdfFont.cpp — voir NkPdfFont.h.
 //
 #include "NKMedia/Pdf/NkPdfFont.h"
+#include "NKMedia/Pdf/NkPdfGlyphList.h"
 
 namespace nkentseu {
 	namespace media {
@@ -22,6 +23,8 @@ namespace nkentseu {
 				mCidWidths.Clear();
 				mUniCodes.Clear();
 				mUniText.Clear();
+				mNameCodes.Clear();
+				mNames.Clear();
 			}
 
 			bool NkPdfFont::Load(const NkPdfDoc &doc, const NkPdfVal &fontDict) {
@@ -68,6 +71,29 @@ namespace nkentseu {
 						mBaseEnc = NK_ENC_MACROMAN;
 					else if (doc.NameIs(encName, "StandardEncoding"))
 						mBaseEnc = NK_ENC_STANDARD;
+
+					// /Differences : surcharges par NOM de glyphe. Un nombre pose le
+					// code courant, chaque nom suivant s'y assigne puis l'incremente.
+					if (enc.IsDictLike()) {
+						const NkPdfVal diff = doc.DictGet(enc, "Differences");
+						if (diff.kind == NK_PDF_ARRAY) {
+							uint32 cur = 0;
+							for (int32 i = 0; i < diff.b; ++i) {
+								const NkPdfVal v = doc.ArrayAt(diff, i);
+								if (v.IsNum()) {
+									cur = static_cast<uint32>(v.num);
+								} else if (v.kind == NK_PDF_NAME) {
+									int32 ln = 0;
+									const char *nm = doc.Text(v, &ln);
+									NkString s;
+									for (int32 k = 0; k < ln; ++k)
+										s += nm[k];
+									mNameCodes.PushBack(cur++);
+									mNames.PushBack(s);
+								}
+							}
+						}
+					}
 				}
 
 				// ── Largeurs ──
@@ -117,6 +143,23 @@ namespace nkentseu {
 
 				// ── Programme de police ──
 				const NkPdfVal fd = doc.DictGet(descFont, "FontDescriptor");
+
+				// Type 1 brut : ses charstrings ne sont toujours pas interpretes,
+				// mais sa table d'encodage (code -> nom de glyphe) vit dans la
+				// partie CLAIRE du programme (« dup N /nom put », avant eexec) — et
+				// jointe a la liste de noms d'Adobe, elle suffit a LIRE le texte.
+				// C'est le cas des PDF dvips/LaTeX sans /ToUnicode (arXiv, notes
+				// Eberly), refuses en bloc avant ce repli. On ne le fait que si
+				// rien d'autre ne donne deja le texte.
+				if (!mTwoByte && mUniCodes.Empty() && mNames.Empty()) {
+					const NkPdfVal t1 = doc.DictGet(fd, "FontFile");
+					if (t1.kind == NK_PDF_STREAM) {
+						NkVector<uint8> clair;
+						if (doc.DecodeStream(t1, clair) && !clair.Empty())
+							ParseType1Encoding(clair);
+					}
+				}
+
 				NkPdfVal prog = doc.DictGet(fd, "FontFile2"); // TrueType
 				if (prog.kind != NK_PDF_STREAM)
 					prog = doc.DictGet(fd, "FontFile3"); // CFF / OpenType
@@ -530,10 +573,78 @@ namespace nkentseu {
 				0xF8FF, 0x00D2, 0x00DA, 0x00DB, 0x00D9, 0x0131, 0x02C6, 0x02DC, 0x00AF, 0x02D8, 0x02D9, 0x02DA, 0x00B8, 0x02DD, 0x02DB, 0x02C7,
 			};
 
+			// Table d'encodage en CLAIR d'un programme Type 1 : la partie avant
+			// « eexec » est du PostScript lisible, et l'encodage s'y ecrit
+			// « dup <code> /<nom> put », une ligne par caractere. On ne lit QUE
+			// cela — aucun charstring, aucun dechiffrement.
+			void NkPdfFont::ParseType1Encoding(const NkVector<uint8> &prog) {
+				const uint8 *p = prog.Data();
+				usize n = prog.Size();
+				for (usize i = 0; i + 5 <= n; ++i)
+					if (p[i] == 'e' && p[i + 1] == 'e' && p[i + 2] == 'x' && p[i + 3] == 'e' &&
+						p[i + 4] == 'c') {
+						n = i; // tout ce qui suit est chiffre : hors de portee, et inutile
+						break;
+					}
+				auto estBlanc = [](uint8 c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; };
+				for (usize i = 0; i + 4 <= n;) {
+					if (p[i] == 'd' && p[i + 1] == 'u' && p[i + 2] == 'p' && estBlanc(p[i + 3])) {
+						usize j = i + 4;
+						while (j < n && estBlanc(p[j]))
+							++j;
+						uint32 code = 0;
+						bool num = false;
+						while (j < n && p[j] >= '0' && p[j] <= '9') {
+							code = code * 10u + static_cast<uint32>(p[j] - '0');
+							++j;
+							num = true;
+						}
+						while (j < n && estBlanc(p[j]))
+							++j;
+						if (num && j < n && p[j] == '/') {
+							++j;
+							NkString nom;
+							while (j < n && p[j] > ' ' && p[j] != '/' && p[j] != '(' && p[j] != ')' &&
+								   p[j] != '[' && p[j] != ']' && p[j] != '{' && p[j] != '}') {
+								nom += static_cast<char>(p[j]);
+								++j;
+							}
+							usize k = j;
+							while (k < n && estBlanc(p[k]))
+								++k;
+							// Seul le « put » scelle l'assignation ; sans lui, ce
+							// « dup » appartenait a une autre construction.
+							if (k + 3 <= n && p[k] == 'p' && p[k + 1] == 'u' && p[k + 2] == 't' &&
+								nom.Size() > 0 && code < 256u && !(nom == ".notdef")) {
+								mNameCodes.PushBack(code);
+								mNames.PushBack(nom);
+								i = k + 3;
+								continue;
+							}
+						}
+						i = j;
+						continue;
+					}
+					++i;
+				}
+			}
+
 			NkString NkPdfFont::ToUnicode(uint32 code) const {
 				for (usize i = 0; i < mUniCodes.Size(); ++i)
 					if (mUniCodes[i] == code)
 						return mUniText[i];
+				// Noms de glyphes (/Differences ou table Type 1 en clair) :
+				// prioritaires sur l'encodage de base, qu'ils surchargent code par
+				// code. Un nom opaque (« a35 ») rend vide -> l'encodage de base
+				// reste tente ensuite.
+				for (usize i = 0; i < mNameCodes.Size(); ++i)
+					if (mNameCodes[i] == code) {
+						NkString t = NkPdfGlyphNameToText(mNames[i].CStr(),
+														  static_cast<int32>(mNames[i].Size()));
+						if (t.Size() > 0)
+							return t;
+						break;
+					}
 				// Repli : police simple SANS entree /ToUnicode pour ce code, mais
 				// dont le document declare l'encodage de base. La spec publie le
 				// sens de chaque code — rien n'est devine. StandardEncoding n'est
