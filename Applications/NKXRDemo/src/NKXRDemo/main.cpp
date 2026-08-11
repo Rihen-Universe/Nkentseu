@@ -481,6 +481,14 @@ int nkmain(const NkEntryState &state) {
 	nkxr::NkXrSpace stageSpace(nkxr::NkXrSpaceType::NK_XR_SPACE_STAGE);
 	uint64 frameIdx = 0;
 	bool sessionRunning = false;
+	// Mesure de cadence casque : les « déchirures » à basse cadence viennent
+	// de la reprojection du compositeur — il faut des CHIFFRES, pas des
+	// impressions, pour distinguer un artefact GPU d'un manque d'images.
+	NkChrono paceChrono;
+	uint64 paceLastFrame = 0;
+	// NK_XR_SHADOW=0 coupe les ombres de la scène : le plus gros poste de
+	// coût GPU — l'interrupteur du test de cadence.
+	const bool xrShadowOn = (EnvU64("NK_XR_SHADOW", 1) != 0);
 
 	while (running && window.IsOpen()) {
 		events.PollEvents();
@@ -595,7 +603,7 @@ int nkmain(const NkEntryState &state) {
 				sun.direction = { -0.4f, -1.f, -0.3f };
 				sun.color = { 1.f, 0.95f, 0.85f };
 				sun.intensity = 3.f;
-				sun.castShadow = true;
+				sun.castShadow = xrShadowOn;
 				sun.shadowStatic = false;
 				sctx.lights.PushBack(sun);
 
@@ -656,6 +664,16 @@ int nkmain(const NkEntryState &state) {
 		endInfo.displayTime = frameState.predictedDisplayTime;
 		endInfo.projection = haveViews ? &projLayer : nullptr;
 		xrSession->EndFrame(endInfo);
+
+		// Cadence réelle toutes les ~144 frames (2 s à 72 Hz) quand le casque
+		// est lié : c'est le chiffre qui explique (ou innocente) le compositeur.
+		if (xrBound && frameIdx - paceLastFrame >= 144u) {
+			const float64 seconds = paceChrono.Reset().seconds;
+			const float64 fps = float64(frameIdx - paceLastFrame) / (seconds > 1e-6 ? seconds : 1.0);
+			logger.Infof("[NKXRDemo] Cadence casque : %.1f i/s (%.1f ms/frame) — le Quest 2 affiche a 72 Hz.\n",
+						 fps, 1000.0 / (fps > 1e-6 ? fps : 1.0));
+			paceLastFrame = frameIdx;
+		}
 
 		// ── Crochets d'agent ─────────────────────────────────────────────────
 		if (shotFrame != 0 && frameIdx == shotFrame) {
