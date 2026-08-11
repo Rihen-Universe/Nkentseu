@@ -909,5 +909,11 @@ void main() {
         fragColor = vec4(0.0, 0.0, 0.0, cover);
         return;
     }
-    fragColor  = vec4(color, 1.0);
+    // L'ALPHA SORT VRAIMENT : c'est lui que la fusion utilise (src alpha), pas
+    // le champ de l'UBO. Ecrire 1.0 en dur rendait TOUTE la file transparente
+    // opaque — le curseur « Opacite » du panneau bougeait, le routage vers la
+    // file transparente se faisait, la fusion s'appliquait... sur un alpha de
+    // 1 (« l'opacite n'a pas d'effet », Rihen, 11 aout). `alpha` porte deja
+    // la texture x uMat.albedo.a x vColor.a (dont dc.alpha).
+    fragColor  = vec4(color, alpha);
 }

@@ -668,6 +668,18 @@ namespace nkentseu {
 			return true;
 		}
 
+		// Le gabarit de cette instance demande-t-il la file TRANSPARENTE ?
+		// Un materiau comme le VERRE porte sa propre fusion alpha dans son
+		// pipeline : le rendu des transparents doit alors binder CE pipeline,
+		// sinon le verre etait dessine par le shader PBR et n'avait plus rien
+		// d'un verre (constate le 11 aout).
+		bool NkMaterialSystem::InstanceWantsOwnBlend(NkMaterialInstance *inst) {
+			if (!inst)
+				return false;
+			auto *tmplEntry = mTemplates.Find(inst->mTemplate.id);
+			return tmplEntry && tmplEntry->desc.queue == NkRenderQueue::NK_TRANSPARENT;
+		}
+
 		bool NkMaterialSystem::BindInstance(NkICommandBuffer *cmd, NkMaterialInstance *inst) {
 			NkTextureLibrary *texLib = mTexLib;
 			if (!inst)

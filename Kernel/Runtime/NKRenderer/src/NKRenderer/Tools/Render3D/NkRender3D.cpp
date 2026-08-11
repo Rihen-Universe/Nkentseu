@@ -844,6 +844,18 @@ namespace nkentseu {
 				NkGraphicsPipelineDesc pb = pd;
 				pb.blend = NkBlendDesc::Alpha();
 				pb.depthStencil = NkDepthStencilDesc::ReadOnly();
+				// DEUX PASSES POUR UN OBJET TRANSPARENT : d'abord ce qui est
+				// LOIN de l'oeil (faces arriere, cull FRONT), puis ce qui est
+				// PRES (faces avant, cull BACK). Sans cet ordre, le NoCull
+				// melangeait les faces dans l'ordre arbitraire du buffer
+				// d'indices : sur un cube en verre, seule la face avant
+				// paraissait exister (« ya que la premiere face qui est
+				// invisible... les faces internes non », Rihen, 11 aout).
+				// C'est le remede canonique pour un volume convexe.
+				pb.rasterizer.cullMode = ::nkentseu::NkCullMode::NK_FRONT;
+				pb.debugName = "PBR_BlendBack";
+				mPBRBlendBackPipeline = mDevice->CreateGraphicsPipeline(pb);
+				pb.rasterizer.cullMode = ::nkentseu::NkCullMode::NK_BACK;
 				pb.debugName = "PBR_Blend";
 				mPBRBlendPipeline = mDevice->CreateGraphicsPipeline(pb);
 			}
@@ -1396,6 +1408,10 @@ namespace nkentseu {
 			if (mPBRBlendPipeline.IsValid()) {
 				mDevice->DestroyPipeline(mPBRBlendPipeline);
 				mPBRBlendPipeline = {};
+			}
+			if (mPBRBlendBackPipeline.IsValid()) {
+				mDevice->DestroyPipeline(mPBRBlendBackPipeline);
+				mPBRBlendBackPipeline = {};
 			}
 			if (mShadowLinearPipeline.IsValid()) {
 				mDevice->DestroyPipeline(mShadowLinearPipeline);
@@ -3158,12 +3174,34 @@ namespace nkentseu {
 					}
 					matInst = mMat->GetInstance(mFallbackMatInst);
 				}
-				if (matInst && mMat)
-					mMat->BindInstanceSetOnly(cmd, matInst);
+				// UN MATERIAU PEUT PORTER SA PROPRE FUSION (le Verre) : on binde
+				// alors SON pipeline, sinon il etait dessine par le shader PBR et
+				// n'avait plus rien d'un verre. Les autres gardent le PBR_Blend
+				// generique et ses deux passes de faces.
+				const bool ownBlend = matInst && mMat && mMat->InstanceWantsOwnBlend(matInst);
+				if (matInst && mMat) {
+					if (ownBlend)
+						mMat->BindInstance(cmd, matInst); // pipeline + set 2
+					else
+						mMat->BindInstanceSetOnly(cmd, matInst);
+				}
 				ObjBlock ob{};
 				ob.model = dc.transform;
 				ob.normalMatrix = dc.transform.Inverse().Transpose();
-				ob.tint = {dc.tint.x, dc.tint.y, dc.tint.z, dc.alpha};
+				// L'OPACITE DECRIT L'OBJET, PAS UNE FACE. Avec la double passe
+				// (arriere puis avant), deux couches a 0.35 recomposent
+				// 1-(1-0.35)^2 = 0.58 : le cube paraissait presque opaque alors
+				// que le curseur affichait 0.35 (« l'opacite n'a pas d'effet »,
+				// Rihen). On repartit donc l'opacite demandee sur les deux
+				// parois : x = 1 - sqrt(1 - alpha) recompose EXACTEMENT alpha.
+				float32 aPass = dc.alpha;
+				if (!ownBlend && mPBRBlendBackPipeline.IsValid()) {
+					float32 rest = 1.f - (dc.alpha < 1.f ? dc.alpha : 1.f);
+					if (rest < 0.f)
+						rest = 0.f;
+					aPass = 1.f - std::sqrt(rest);
+				}
+				ob.tint = {dc.tint.x, dc.tint.y, dc.tint.z, aPass};
 				ob.metallic = dc.metallic;
 				ob.roughness = dc.roughness;
 				ob.aoStrength = dc.aoStrength;
@@ -3196,6 +3234,38 @@ namespace nkentseu {
 				if (os.IsValid())
 					cmd->BindDescriptorSet(os, 1);
 				mMesh->BindMesh(cmd, dc.mesh);
+				// DEUX PASSES : les faces ARRIERE d'abord (elles sont derriere,
+				// donc dessinees en premier), les faces AVANT ensuite. Un seul
+				// passage NoCull laissait l'ordre du buffer d'indices decider :
+				// sur un cube en verre, le volume paraissait n'avoir qu'une
+				// paroi (« ya que la premiere face... les faces internes non »,
+				// Rihen, 11 aout). Le changement de PSO invalide les root
+				// parameters sur DX12 : on re-binde les sets a chaque bascule.
+				if (mPBRBlendBackPipeline.IsValid() && !ownBlend) {
+					cmd->BindGraphicsPipeline(mPBRBlendBackPipeline);
+					if (os.IsValid())
+						cmd->BindDescriptorSet(os, 1);
+					if (matInst && mMat)
+						mMat->BindInstanceSetOnly(cmd, matInst);
+					if (dc.subMeshIdx == 0xFFFFFFFFu)
+						mMesh->DrawAll(cmd, dc.mesh);
+					else
+						mMesh->DrawSubMesh(cmd, dc.mesh, dc.subMeshIdx);
+					cmd->BindGraphicsPipeline(mPBRBlendPipeline);
+					if (os.IsValid())
+						cmd->BindDescriptorSet(os, 1);
+					if (matInst && mMat)
+						mMat->BindInstanceSetOnly(cmd, matInst);
+				} else if (!ownBlend) {
+					// Pas de double passe : le pipeline generique peut avoir ete
+					// remplace par celui d'un materiau a fusion propre au tour
+					// precedent — on le remet.
+					cmd->BindGraphicsPipeline(mPBRBlendPipeline);
+					if (os.IsValid())
+						cmd->BindDescriptorSet(os, 1);
+					if (matInst && mMat)
+						mMat->BindInstanceSetOnly(cmd, matInst);
+				}
 				if (dc.subMeshIdx == 0xFFFFFFFFu)
 					mMesh->DrawAll(cmd, dc.mesh);
 				else

@@ -84,14 +84,17 @@ void main() {
     // Fresnel-Schlick, F0 = 0.04 (verre commun, n ~ 1.5).
     float F = 0.04 + 0.96 * pow(1.0 - cosV, 5.0);
 
-    // Reflet : cubemap prefiltre, le niveau suit la rugosite.
+    // Reflet : cubemap prefiltre, le niveau suit la rugosite. PAS multiplie
+    // par iblStrength — une vitre reflechit son environnement meme quand la
+    // scene baisse son apport d'IBL ; l'y soumettre eteignait le verre en
+    // gris plat (capture 098).
     vec3 R    = reflect(-V, N);
-    vec3 refl = textureLod(tEnvPrefilter, R, uMat.roughness * 4.0).rgb * uCam.iblStrength;
+    vec3 refl = textureLod(tEnvPrefilter, R, uMat.roughness * 4.0).rgb;
 
-    // Transmission : la teinte du verre, plus dense en incidence rasante
-    // (loi de Beer approchee par l'epaisseur apparente).
-    float thick = 1.0 / max(cosV, 0.15);
-    vec3  trans = tintC * exp(-(1.0 - tintC) * (thick - 1.0) * 0.5);
+    // Transmission : la teinte du verre, a peine plus dense en incidence
+    // rasante (loi de Beer tres attenuee — une vitre n'est pas un bloc).
+    float thick = 1.0 / max(cosV, 0.25);
+    vec3  trans = tintC * exp(-(1.0 - tintC) * (thick - 1.0) * 0.15);
 
     // Speculaire direct : un point brillant par lumiere, sans boucle
     // d'ombre (une vitre n'a pas d'ombre propre lisible).
