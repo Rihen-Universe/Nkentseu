@@ -19,7 +19,7 @@ namespace nkentseu {
 				NkMat4f shadowMatrix;  // 64
 				NkVec4f tileUV;		   // 16 (.xy=minUV, .zw=maxUV)
 				NkVec4f lightPosOrDir; // 16 (.xyz pos/dir, .w range/splitFar)
-				NkVec4f packedIds;	   // 16 (.x=lightIdx, .y=slotType, .z=subIdx, .w=0)
+				NkVec4f packedIds;	   // 16 (.x=lightIdx, .y=slotType, .z=subIdx, .w=softMul)
 		};
 
 		static_assert(sizeof(ShadowSlotGPU) == 112, "ShadowSlotGPU size mismatch");
@@ -614,6 +614,21 @@ namespace nkentseu {
 						if (wide.outerAngle < 45.f)
 							wide.outerAngle = 45.f;
 						AllocSlotsSpot(wide, i);
+						// DOUCEUR ~ TAILLE DU PANNEAU : une source etendue fait une
+						// penombre large — la douceur globale seule laissait l'ombre
+						// d'une surfacique aussi dure qu'un spot (« RenderDemo
+						// presentait mieux les ombres », Rihen). Plancher 1 (petit
+						// panneau = spot), plafond 12 (anti-bleed du noyau PCF,
+						// les taps restent clampes au tile).
+						for (uint32 sI = slotStart; sI < mActiveSlotCount; sI++) {
+							const float32 dim =
+								lights[i].areaWidth > lights[i].areaHeight ? lights[i].areaWidth
+																		   : lights[i].areaHeight;
+							float32 mul = dim / 0.25f;
+							if (mul < 1.f) mul = 1.f;
+							if (mul > 12.f) mul = 12.f;
+							mSlots[sI].softMul = mul;
+						}
 						break;
 					}
 					default:
@@ -695,7 +710,9 @@ namespace nkentseu {
 				b.slots[i].shadowMatrix = s.shadowMatrix;
 				b.slots[i].tileUV = s.tileUV;
 				b.slots[i].lightPosOrDir = s.lightPosOrDir;
-				b.slots[i].packedIds = NkVec4f{float32(s.lightIdx), float32(int32(s.slotType)), float32(s.subIdx), 0.f};
+				// .w = multiplicateur de douceur par lumiere (surfaciques ; 1 ailleurs).
+				b.slots[i].packedIds =
+					NkVec4f{float32(s.lightIdx), float32(int32(s.slotType)), float32(s.subIdx), s.softMul};
 			}
 			// Pack int32 arrays en vec4 (4 entiers par vec4 pour std140).
 			for (uint32 i = 0; i < kMaxLightsShadow / 4; i++) {

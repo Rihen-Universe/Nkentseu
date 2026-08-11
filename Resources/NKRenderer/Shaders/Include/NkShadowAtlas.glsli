@@ -173,6 +173,11 @@ float NkSampleShadowTileZ(int slotIdx, vec3 worldPos, float bias, vec3 dWdx, vec
     vec2 ts = 1.0 / vec2(textureSize(tShadowAtlas, 0));
     vec2 pcfStep =
         ts * max(1.0, uShadows.biasParams.z * float(textureSize(tShadowAtlas, 0).x) * 0.25);
+    // DOUCEUR PAR LUMIERE (packedIds.w, 1.0 par defaut, 0 = anciens slots) :
+    // une SURFACIQUE etale sa penombre avec la taille de son panneau — la
+    // douceur globale seule donnait des ombres aussi dures qu'un spot,
+    // « RenderDemo presentait mieux les ombres » (Rihen, 11 aout).
+    pcfStep *= max(uShadows.slots[slotIdx].packedIds.w, 1.0);
 
     // ── LE MODE DE QUALITE (globalCfg.y) CHOISIT LE NOYAU ────────────────────
     // Longtemps calcule cote C++ et jamais lu ici : PCF3/PCF5/Poisson donnaient
