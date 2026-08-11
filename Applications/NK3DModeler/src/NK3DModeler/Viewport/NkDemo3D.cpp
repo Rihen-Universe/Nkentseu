@@ -7015,8 +7015,16 @@ namespace nkentseu {
 						bool anyMap = false;
 						for (int32 c = 0; c < kNkvpMatChanCount && !anyMap; ++c)
 							anyMap = nkvpProjMats[pmU].maps[c][0] != 0;
-						if (anyMap)
-							dc.material = nkvpProjMatEng[pmU]->GetInstHandle();
+						// L'instance moteur est AUSSI requise des que le TYPE n'est
+						// plus Standard ou qu'un MELANGE est actif : sans elle, un
+						// Toon sans texture restait rendu en PBR generique — « j'ai
+						// change en toon mais le materiau n'a pas suivi » (Rihen).
+						// TOUJOURS liee desormais : l'anisotropie et le sheen vivent
+						// dans l'UBO d'instance — sans liaison, leurs curseurs seraient
+						// muets sur un PBR sans texture. (void)anyMap : la variable
+						// documente encore le cas historique.
+						(void)anyMap;
+						dc.material = nkvpProjMatEng[pmU]->GetInstHandle();
 					}
 				}
 				r3d->Submit(dc);

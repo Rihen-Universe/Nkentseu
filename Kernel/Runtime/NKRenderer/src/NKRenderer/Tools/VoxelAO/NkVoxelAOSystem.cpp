@@ -118,7 +118,14 @@ namespace nkentseu {
 			mLastLights.Clear();
 
 			if (mOccluders.Empty()) {
-				logger.Warnf("[NkVoxelAOSystem] Build : aucun occluder enregistre\n");
+				// GRILLE VIDE = ETAT LEGITIME (occlusion coupee au panneau, scene
+				// nue) : une INFO une seule fois, pas un avertissement par rebuild
+				// (le journal de Rihen s'en remplissait, 11 aout).
+				static bool sSaidEmpty = false;
+				if (!sSaidEmpty) {
+					sSaidEmpty = true;
+					logger.Info("[NkVoxelAOSystem] Build : aucun occluder (grille vide)\n");
+				}
 				mDevice->WriteTexture(mVoxelTex, mUpload.Data());
 				mDirty = false;
 				return true;
