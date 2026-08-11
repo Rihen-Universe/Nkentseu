@@ -9684,8 +9684,18 @@ namespace nkentseu {
 										NkMarkDirty(st);
 									}
 								}
-								if (hit.Clicked(lk))
+								// CLIQUER UNE LIGNE = SELECTIONNER **ET** ASSIGNER a l'objet
+								// actif : editer un materiau que l'objet ne porte pas etait le
+								// piege n1 (captures de Rihen, 11 aout — il reglait l'opacite
+								// d'un materiau que le cube ne portait pas). La coche reste le
+								// temoin ; sans objet actif, le clic ne fait que selectionner.
+								if (hit.Clicked(lk)) {
 									st.projMatSel = i;
+									if (actN >= 0 && curOf != sMatIdx[i]) {
+										demo::Demo3DHostProjMatAssign(actN, sMatIdx[i]);
+										NkMarkDirty(st);
+									}
+								}
 							}
 							ly += lineH;
 						}
