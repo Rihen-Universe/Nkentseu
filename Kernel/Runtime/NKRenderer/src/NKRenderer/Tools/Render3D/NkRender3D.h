@@ -716,6 +716,7 @@ namespace nkentseu {
 				// track quel RP a servi a creer le pipeline pour le recreer si
 				// le RP change (ex : resize swapchain, toggle PostProcess).
 				::nkentseu::NkShaderHandle mPBRShader; // RHI shader handle
+				NkPipelineHandle mPBRBlendPipeline; // transparents (fusion alpha)
 				NkPipelineHandle mPBRPipeline;		   // pipeline graphics PBR
 				NkRenderPassHandle mPBRPipelineRP{};
 

@@ -470,6 +470,9 @@ namespace nkentseu {
 				void UpdateRenderPass(NkRenderPassHandle rp);
 
 				// Bind avant draw (met à jour descset si dirty, utilise mTexLib interne).
+				// Set materiau SEUL (descripteurs a jour, AUCUN pipeline) : pour la
+				// passe transparente qui impose son pipeline blende (11 aout).
+				bool BindInstanceSetOnly(NkICommandBuffer *cmd, NkMaterialInstance *inst);
 				bool BindInstance(NkICommandBuffer *cmd, NkMaterialInstance *inst);
 
 				// Upload UBO + textures de l'instance SI dirty, SANS binder le

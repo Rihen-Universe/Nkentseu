@@ -104,6 +104,28 @@ uniform ShadowSlotsUBO {
 // Carte de HAUTEUR du parallax (BLANC = haut). Repli 1x1 blanc : sans
 // echelle (triplanarParams.w = 0) la boucle n'est jamais prise.
 @binding(set=2, binding=7)  uniform sampler2D   tHeight;
+// Parametres du MATERIAU (set=2 binding=8, layout exact de NkPBRParams).
+// Toujours lie : meme les draws sans materiau recoivent l'instance de repli.
+// Lu ici pour l'ANISOTROPIE et le SHEEN (11 aout) — la couleur, elle, passe
+// par la teinte objet (uObj.tint via vColor), comme avant.
+@binding(set=2, binding=8)
+uniform MaterialUBO {
+    vec4  albedo;
+    vec4  emissive;
+    float metallic;
+    float roughness;
+    float ao;
+    float emissiveStrength;
+    float normalStrength;
+    float clearcoat;
+    float clearcoatRough;
+    float subsurface;
+    vec4  subsurfaceColor;
+    float anisotropy;
+    float sheen;
+    float reflFloorFaceMode;
+    float reflBlend;
+} uMat;
 @binding(set=0, binding=8)  uniform samplerCube tEnvIrradiance;
 @binding(set=0, binding=9)  uniform samplerCube tEnvPrefilter;
 @binding(set=0, binding=10) uniform sampler2D   tBRDFLUT;
@@ -386,6 +408,15 @@ void main() {
     if (uCam.reflectionFlags.x > 0.5) camPosForV.y = -camPosForV.y;
     vec3 V    = normalize(camPosForV - vWorldPos);
     vec3 F0   = mix(vec3(0.04), albedo, met);
+    // Base tangente PARTAGEE pour l'anisotropie (Gram-Schmidt sur N) : les
+    // tangentes de sommets si valides, repli stable sinon — meme robustesse
+    // que la normal map.
+    vec3 TnA = vTangent;
+    if (dot(TnA, TnA) < 1e-12)
+        TnA = abs(N.y) < 0.99 ? cross(vec3(0.0, 1.0, 0.0), N)
+                              : cross(vec3(1.0, 0.0, 0.0), N);
+    TnA = normalize(TnA - N * dot(TnA, N));
+    vec3 BnA = cross(N, TnA);
 
     vec3 Lo = vec3(0.0);
     // RECEPTEUR D'OMBRE : on accumule EN PARALLELE l'eclairement qu'on aurait
@@ -623,6 +654,31 @@ void main() {
         float G   = G_Smith(N, V, L, rogL);
         vec3  F   = F_Schlick(max(dot(H,V),0.0), F0);
         vec3 spec = NDF*G*F / (4.0*max(dot(N,V),0.0)*NdL+1e-4);
+        // ── ANISOTROPIE (GGX elliptique, parametrage Filament) ──────────
+        // at/ab etirent le lobe le long de la tangente ou de la bitangente ;
+        // 0 = isotrope (le D classique reste alors seul juge).
+        if (abs(uMat.anisotropy) > 1e-3) {
+            float ra = rogL * rogL;
+            float at = max(ra * (1.0 + uMat.anisotropy), 1e-4);
+            float ab = max(ra * (1.0 - uMat.anisotropy), 1e-4);
+            float ToH = dot(TnA, H);
+            float BoH = dot(BnA, H);
+            float NdH2 = max(dot(N, H), 0.0);
+            float d2 = ToH * ToH / (at * at) + BoH * BoH / (ab * ab) + NdH2 * NdH2;
+            float Da = 1.0 / (PI * at * ab * max(d2 * d2, 1e-7));
+            spec = Da * G * F / (4.0 * max(dot(N, V), 0.0) * NdL + 1e-4);
+        }
+        // ── SHEEN (distribution Charlie + visibilite de Neubelt) ────────
+        // Le voile textile : retroreflexion douce aux bords, ajoutee au lobe.
+        if (uMat.sheen > 1e-3) {
+            float NdHs = max(dot(N, H), 0.0);
+            float invA = 1.0 / max(rogL, 0.05);
+            float Dc = (2.0 + invA) * pow(max(1.0 - NdHs * NdHs, 0.0), invA * 0.5)
+                       / (2.0 * PI);
+            float NdVs = max(dot(N, V), 1e-4);
+            float Vn = 1.0 / (4.0 * (NdL + NdVs - NdL * NdVs) + 1e-4);
+            spec += vec3(uMat.sheen) * Dc * Vn;
+        }
         vec3 kD   = (1.0-F)*(1.0-met);
         vec3 contrib;
         // Energie effective : pour la surfacique, l'irradiance equivalente est

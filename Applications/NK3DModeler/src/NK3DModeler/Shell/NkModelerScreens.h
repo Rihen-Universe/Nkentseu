@@ -9942,11 +9942,17 @@ namespace nkentseu {
 							// possibilite de choisir un type ») : le combo bascule le
 							// GABARIT moteur ; stockage statique resynchronise (Loi).
 							{
+								// Les types pas encore EPROUVES dans le modeleur restent visibles
+								// mais inertes « (bientot) » — les choisir revient au type courant
+								// (demande de Rihen : grises/inactifs mais existants).
 								static const char *const kMtTypes[13] = {
-								    "Standard (PBR)", "Peau", "Cheveux", "Verre",
-								    "Tissu", "Carrosserie", "Feuillage", "Eau",
-								    "Emissif", "Toon", "Toon encre", "Anime",
-								    "Sans eclairage"};
+								    "Standard (PBR)", "Peau (bientot)", "Cheveux (bientot)",
+								    "Verre (bientot)", "Tissu (bientot)", "Carrosserie (bientot)",
+								    "Feuillage (bientot)", "Eau (bientot)", "Emissif", "Toon",
+								    "Toon encre", "Anime", "Sans eclairage"};
+								static const bool kMtTypeOk[13] = {true,  false, false, false, false,
+								                                   false, false, false, true,  true,
+								                                   true,  true,  true};
 								static const int32 kMtTypeVal[13] = {0, 3, 4, 5, 6, 7,
 								                                     8, 9, 11, 20, 21, 22, 60};
 								const int32 tCur = demo::Demo3DHostProjMatType(selMat);
@@ -9957,9 +9963,13 @@ namespace nkentseu {
 								static int32 sTySel = 0;
 								static int32 sTyFor = -1;
 								if (sTyFor == selMat && sTySel != tIdx) {
-									demo::Demo3DHostProjMatSetType(selMat,
-									                               kMtTypeVal[sTySel < 0 ? 0 : sTySel % 13]);
-									NkMarkDirty(st);
+									const int32 pick = sTySel < 0 ? 0 : sTySel % 13;
+									if (!kMtTypeOk[pick]) {
+										sTySel = tIdx; // type pas encore valide : on reste
+									} else {
+										demo::Demo3DHostProjMatSetType(selMat, kMtTypeVal[pick]);
+										NkMarkDirty(st);
+									}
 								} else {
 									sTySel = tIdx;
 								}
@@ -11735,7 +11745,7 @@ namespace nkentseu {
 					// Les pastilles LIEES A L'OBJET (Modele, Modificateur) se retirent
 					// sans selection (Rihen, 11 aout) ; Materiau RESTE — il edite le
 					// projet. Le panneau, lui, n'obeit qu'a la main.
-					if ((i2 == 0 || i2 == 3) && !hasSel5)
+					if ((i2 == 0 || i2 == 3 || i2 == 4) && !hasSel5)
 						continue;
 					char tk[24];
 					snprintf(tk, sizeof(tk), "props.tab.%d", i2);

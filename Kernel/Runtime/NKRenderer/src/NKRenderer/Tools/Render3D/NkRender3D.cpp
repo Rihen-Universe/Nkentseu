@@ -837,6 +837,16 @@ namespace nkentseu {
 				.AddAttribute(5, 0, NkVertexFormat::NK_RGBA8_UNORM, 52, "COLOR", 0);
 
 			mPBRPipeline = mDevice->CreateGraphicsPipeline(pd);
+			// Variante BLENDEE pour les transparents : meme shader/layouts,
+			// fusion alpha + profondeur en LECTURE SEULE (ils se placent
+			// derriere les opaques sans s'exclure entre eux).
+			{
+				NkGraphicsPipelineDesc pb = pd;
+				pb.blend = NkBlendDesc::Alpha();
+				pb.depthStencil = NkDepthStencilDesc::ReadOnly();
+				pb.debugName = "PBR_Blend";
+				mPBRBlendPipeline = mDevice->CreateGraphicsPipeline(pb);
+			}
 			mPBRPipelineRP = currentRP;
 			logger.Info("[NkRender3D] PBR pipeline (lazy) create: shader_valid={0} pipeline_valid={1} rp.id={2}\n",
 						mPBRShader.IsValid() ? 1 : 0, mPBRPipeline.IsValid() ? 1 : 0, currentRP.id);
@@ -1383,6 +1393,10 @@ namespace nkentseu {
 				mDevice->DestroyPipeline(mShadowPipeline);
 				mShadowPipeline = {};
 			}
+			if (mPBRBlendPipeline.IsValid()) {
+				mDevice->DestroyPipeline(mPBRBlendPipeline);
+				mPBRBlendPipeline = {};
+			}
 			if (mShadowLinearPipeline.IsValid()) {
 				mDevice->DestroyPipeline(mShadowLinearPipeline);
 				mShadowLinearPipeline = {};
@@ -1660,6 +1674,13 @@ namespace nkentseu {
 				mCullStats.opaqueCulled++;
 				return;
 			}
+			// TRANSPARENT (alpha < 1) : file dediee, triee arriere->avant et
+			// fusionnee apres les opaques — l'opacite du panneau devient
+			// reelle (11 aout, demande de Rihen).
+			if (dc.alpha < 0.999f) {
+				mTransparent.PushBack({dc, depth});
+				return;
+			}
 			mOpaque.PushBack({dc, depth});
 		}
 
@@ -1707,6 +1728,17 @@ namespace nkentseu {
 					j--;
 				}
 				mOpaque[j + 1] = key;
+			}
+			// Transparents : ARRIERE -> AVANT (l'inverse des opaques) — la
+			// fusion alpha n'est correcte que dans cet ordre.
+			for (uint32 i = 1; i < (uint32)mTransparent.Size(); i++) {
+				SortedDC key = mTransparent[i];
+				int32 j = (int32)i - 1;
+				while (j >= 0 && mTransparent[j].depth < key.depth) {
+					mTransparent[j + 1] = mTransparent[j];
+					j--;
+				}
+				mTransparent[j + 1] = key;
 			}
 		}
 
@@ -3081,10 +3113,94 @@ namespace nkentseu {
 			}
 		}
 
+		// ── TRANSPARENTS (11 aout) : fusion alpha, tries arriere->avant ──────
+		// UN pipeline blende pour tous : le gabarit du materiau garde ses
+		// TEXTURES par son set (BindInstanceSetOnly), pas son pipeline opaque.
 		void NkRender3D::FlushTransparent(NkICommandBuffer *cmd) {
+			if (!cmd || mTransparent.Empty() || !mPBRBlendPipeline.IsValid() || !mMesh)
+				return;
+			const bool poolFrameValid =
+				(mFrameSlot < mUBOObjectPool.Size()) && (mFrameSlot < mObjectSetPool.Size());
+			if (!poolFrameValid)
+				return;
+			struct ObjBlock {
+					NkMat4f model;
+					NkMat4f normalMatrix;
+					NkVec4f tint;
+					float32 metallic;
+					float32 roughness;
+					float32 aoStrength;
+					float32 emissiveStrength;
+					float32 normalStrength;
+					float32 clearcoat;
+					float32 clearcoatRough;
+					float32 subsurface;
+					NkVec4f subsurfaceColor;
+					NkVec4f shadowOverrides;
+					NkVec4f triplanarParams;
+			};
+			static_assert(sizeof(ObjBlock) == 224, "ObjBlock std140 transparent");
+			cmd->BindGraphicsPipeline(mPBRBlendPipeline);
 			for (auto &sdc : mTransparent) {
-				mMesh->BindMesh(cmd, sdc.dc.mesh);
-				mMesh->DrawAll(cmd, sdc.dc.mesh);
+				auto &dc = sdc.dc;
+				if (mObjectDrawIdx >= mObjectPoolCap) {
+					logger.Errorf("[NkRender3D] ObjectUBO pool overflow (transparent)\n");
+					break;
+				}
+				NkMaterialInstance *matInst = nullptr;
+				if (dc.material.IsValid() && mMat)
+					matInst = mMat->GetInstance(dc.material);
+				if (!matInst && mMat) {
+					if (!mFallbackMatInst.IsValid()) {
+						auto *inst = mMat->CreateInstance(mMat->DefaultPBR());
+						if (inst)
+							mFallbackMatInst = inst->GetHandle();
+					}
+					matInst = mMat->GetInstance(mFallbackMatInst);
+				}
+				if (matInst && mMat)
+					mMat->BindInstanceSetOnly(cmd, matInst);
+				ObjBlock ob{};
+				ob.model = dc.transform;
+				ob.normalMatrix = dc.transform.Inverse().Transpose();
+				ob.tint = {dc.tint.x, dc.tint.y, dc.tint.z, dc.alpha};
+				ob.metallic = dc.metallic;
+				ob.roughness = dc.roughness;
+				ob.aoStrength = dc.aoStrength;
+				ob.emissiveStrength = 0.f;
+				ob.normalStrength = 1.f;
+				ob.clearcoat = dc.clearcoat;
+				ob.clearcoatRough = dc.clearcoatRough;
+				ob.subsurface = dc.subsurface;
+				ob.subsurfaceColor =
+					NkVec4f{dc.subsurfaceColor.x, dc.subsurfaceColor.y, dc.subsurfaceColor.z, 1.f};
+				if (matInst) {
+					ob.shadowOverrides =
+						NkVec4f{matInst->mReceiveShadow ? 1.f : 0.f,
+								matInst->mCastShadowAlphaTest ? 1.f : 0.f, matInst->mShadowBiasMul,
+								matInst->mShadowCatcher ? 1.f : 0.f};
+				} else {
+					ob.shadowOverrides = NkVec4f{1.f, 0.f, 1.f, 0.f};
+				}
+				{
+					const float32 tile = matInst ? matInst->mTriplanarTileSize : 0.f;
+					const float32 mpu = NkUnits().metersPerUnit;
+					const float32 par = matInst ? matInst->mParallaxScale : 0.f;
+					ob.triplanarParams =
+						NkVec4f{tile, mpu > 0.f ? mpu : 1.f, tile > 0.f ? 1.f : 0.f, par};
+				}
+				NkBufferHandle ubo = mUBOObjectPool[mFrameSlot][mObjectDrawIdx];
+				NkDescSetHandle os = mObjectSetPool[mFrameSlot][mObjectDrawIdx];
+				if (ubo.IsValid())
+					mDevice->WriteBuffer(ubo, &ob, sizeof(ob), 0);
+				if (os.IsValid())
+					cmd->BindDescriptorSet(os, 1);
+				mMesh->BindMesh(cmd, dc.mesh);
+				if (dc.subMeshIdx == 0xFFFFFFFFu)
+					mMesh->DrawAll(cmd, dc.mesh);
+				else
+					mMesh->DrawSubMesh(cmd, dc.mesh, dc.subMeshIdx);
+				mObjectDrawIdx++;
 			}
 		}
 
