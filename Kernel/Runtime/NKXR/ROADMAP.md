@@ -38,7 +38,7 @@ SIMULATEUR desktop + démo `NKXRDemo` (stéréo côte à côte, souris = tête),
 | Anti-aliasing PERFORMANT en XR (exigence Rihen 2026-08-10 ; MSAA œil / TAA stéréo / supersampling) | ❌ | L | P1 |
 | Rendu deux vues sans double graphe (une shadow map, un culling ; puis multiview Vulkan) — NOUVELLE note requise | ❌ | L | P2 |
 | **Étage 2 — VR réelle : backend OpenXR → Quest 2** | | | |
-| 2a — En-têtes OpenXR 1.1.49 (Externals, Apache 2.0 au registre) + loader DYNAMIQUE + découverte runtime actif + instance/système/tailles | ✅ | — | — |
+| 2a — En-têtes OpenXR 1.1.49 (Externals, Apache 2.0 au registre) + loader DYNAMIQUE + découverte runtime actif + instance/système/tailles — **PROUVÉ sur Quest 2 réel** (« Oculus Quest2 — 2080x2096 par œil », Link, 2026-08-11) | ✅ | — | — |
 | 2b — Session : liaison Vulkan (XR_KHR_vulkan_enable2, VkInstance/Device partagés avec NKRHI) | ❌ | L | P1 |
 | 2b — Swapchains Vulkan du runtime + frame timing (xrWaitFrame/Begin/End) + soumission des couches | ❌ | L | P1 |
 | 2b — Espaces/vues réels (xrLocateViews) + actions (profils d'interaction) | ❌ | M | P1 |
