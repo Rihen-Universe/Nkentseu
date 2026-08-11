@@ -207,6 +207,104 @@ namespace nkref {
 				return swappedWith;
 			}
 
+			// ── « Pack » : rangement compact (le rituel PureRef, Ctrl+P) ────
+			// V1 en ÉTAGÈRES : AABB de chaque item (rotation comprise), tri par
+			// hauteur décroissante, remplissage ligne par ligne vers une rangée
+			// cible ~carrée, puis recentrage du bloc sur le CENTROÏDE d'origine
+			// (on range SUR PLACE : la vue n'a pas à sauter). S'applique à la
+			// sélection si elle compte ≥ 2 items, sinon à toute la planche.
+			void Pack(float32 gap) {
+				NkVector<int32> idx;
+				int32 selCount = 0;
+				for (usize i = 0; i < items.Size(); ++i)
+					if (items[i].selected)
+						++selCount;
+				const bool useSel = selCount >= 2;
+				for (usize i = 0; i < items.Size(); ++i)
+					if (!useSel || items[i].selected)
+						idx.PushBack((int32)i);
+				if (idx.Size() < 2)
+					return;
+
+				// AABB (monde) de chaque item + centroïde + aire totale.
+				NkVector<NkVec2f> dims;
+				NkVec2f centroid{0.0f, 0.0f};
+				float32 area = 0.0f, widest = 0.0f;
+				for (usize k = 0; k < idx.Size(); ++k) {
+					const NkRefItem &it = items[(usize)idx[k]];
+					NkVec2f c[4];
+					Corners(it, c);
+					float32 minX = c[0].x, maxX = c[0].x, minY = c[0].y, maxY = c[0].y;
+					for (int32 j = 1; j < 4; ++j) {
+						if (c[j].x < minX)
+							minX = c[j].x;
+						if (c[j].x > maxX)
+							maxX = c[j].x;
+						if (c[j].y < minY)
+							minY = c[j].y;
+						if (c[j].y > maxY)
+							maxY = c[j].y;
+					}
+					const NkVec2f d{maxX - minX, maxY - minY};
+					dims.PushBack(d);
+					centroid.x += it.pos.x;
+					centroid.y += it.pos.y;
+					area += d.x * d.y;
+					if (d.x > widest)
+						widest = d.x;
+				}
+				centroid.x /= (float32)idx.Size();
+				centroid.y /= (float32)idx.Size();
+
+				// Tri par hauteur décroissante (insertion — quelques dizaines
+				// d'images, inutile de sortir l'artillerie).
+				for (usize a = 1; a < idx.Size(); ++a) {
+					const int32 vi = idx[a];
+					const NkVec2f vd = dims[a];
+					usize b = a;
+					while (b > 0 && dims[b - 1].y < vd.y) {
+						idx[b] = idx[b - 1];
+						dims[b] = dims[b - 1];
+						--b;
+					}
+					idx[b] = vi;
+					dims[b] = vd;
+				}
+
+				// Largeur de rangée cible : ~carré (sqrt de l'aire), jamais plus
+				// étroite que l'item le plus large.
+				float32 rowWidth = nkentseu::math::NkSqrt(area) * 1.15f;
+				if (rowWidth < widest)
+					rowWidth = widest;
+
+				// Remplissage en étagères, coin haut-gauche du bloc à (0,0)
+				// provisoirement ; le recentrage vient après.
+				float32 x = 0.0f, y = 0.0f, shelfH = 0.0f;
+				float32 blockMaxX = 0.0f, blockMaxY = 0.0f;
+				NkVector<NkVec2f> newPos;
+				for (usize k = 0; k < idx.Size(); ++k) {
+					const NkVec2f d = dims[k];
+					if (x > 0.0f && x + d.x > rowWidth) { // étagère suivante
+						x = 0.0f;
+						y += shelfH + gap;
+						shelfH = 0.0f;
+					}
+					newPos.PushBack({x + d.x * 0.5f, y + d.y * 0.5f}); // centre de l'AABB
+					x += d.x + gap;
+					if (d.y > shelfH)
+						shelfH = d.y;
+					if (x - gap > blockMaxX)
+						blockMaxX = x - gap;
+					if (y + d.y > blockMaxY)
+						blockMaxY = y + d.y;
+				}
+
+				// Recentrage : le centre du bloc rangé retombe sur le centroïde.
+				const NkVec2f shift{centroid.x - blockMaxX * 0.5f, centroid.y - blockMaxY * 0.5f};
+				for (usize k = 0; k < idx.Size(); ++k)
+					items[(usize)idx[k]].pos = {newPos[k].x + shift.x, newPos[k].y + shift.y};
+			}
+
 		private:
 			uint32 mNextId = 1;
 	};
