@@ -1415,6 +1415,65 @@ namespace nkentseu {
 	}
 
 	void NkOpenGLContext::SwapEGL() {
+		// ── Sonde d'image (NK_GL_PROBE=1) ────────────────────────────────────
+		// Sur appareil, la capture d'écran du système NE VOIT PAS la couche GPU :
+		// elle rend l'interface du système à la place de l'application. Impossible
+		// donc de juger le rendu par une capture — c'est ce qui a fait tourner en
+		// rond tout un diagnostic HarmonyOS.
+		//
+		// On demande donc à l'application ce qu'elle a RÉELLEMENT dessiné, juste
+		// avant de présenter. Le journal, lui, sort parfaitement de l'appareil.
+		//
+		// Lit cinq points : centre et quatre coins (rentrés de 5 %, pour éviter
+		// les bordures). Les coins révèlent une image transposée ou décalée ;
+		// le centre dit si la scène est en couleur ou noire.
+		//
+		// glReadPixels synchronise le pipeline : réservé au diagnostic, jamais
+		// actif par défaut. Une image sur 60 suffit à suivre l'évolution.
+		{
+			static const bool sonde = [] {
+#if defined(NKENTSEU_DEBUG) && (defined(NKENTSEU_PLATFORM_HARMONYOS) || defined(NKENTSEU_PLATFORM_ANDROID))
+				// Sur appareil, une application ne reçoit pas l'environnement du
+				// shell : la variable ne servirait à rien. En Debug, la sonde est
+				// donc active d'office — c'est précisément là qu'on en a besoin,
+				// et c'est le seul endroit où l'on ne peut PAS voir l'écran
+				// autrement. Les builds Release n'en portent aucune trace.
+				return true;
+#else
+				const char *v = std::getenv("NK_GL_PROBE");
+				return v && *v && *v != '0';
+#endif
+			}();
+			if (sonde && mData.width > 8 && mData.height > 8) {
+				static uint64 frame = 0;
+				if ((frame++ % 60u) == 0u) {
+					const int w = static_cast<int>(mData.width);
+					const int h = static_cast<int>(mData.height);
+					const int mx = w / 20, my = h / 20; // marge de 5 %
+					struct Point {
+							const char *nom;
+							int x, y;
+					};
+					const Point pts[] = {
+						{"centre", w / 2, h / 2},
+						{"bas-gauche", mx, my}, // origine GL = bas-gauche
+						{"bas-droite", w - 1 - mx, my},
+						{"haut-gauche", mx, h - 1 - my},
+						{"haut-droite", w - 1 - mx, h - 1 - my},
+					};
+					char ligne[256];
+					int n = std::snprintf(ligne, sizeof(ligne), "[NkGL sonde] %dx%d :", w, h);
+					for (const Point &p : pts) {
+						unsigned char px[4] = {0, 0, 0, 0};
+						glReadPixels(p.x, p.y, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, px);
+						n += std::snprintf(ligne + n, sizeof(ligne) - (size_t)n, " %s=%02X%02X%02X/%02X", p.nom, px[0],
+										   px[1], px[2], px[3]);
+					}
+					logger.Infof("%s\n", ligne);
+				}
+			}
+		}
+
 		eglSwapBuffers(mData.eglDisplay, mData.eglSurface);
 	}
 
