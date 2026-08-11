@@ -63,12 +63,17 @@ with project("NkRef"):
             "vulkan-1",
         ])
 
+    # Frameworks Apple AU NIVEAU PROJET (pas sous filtre) : posés sous
+    # `with filter("system:macOS")`, ils n'atteignaient pas le link
+    # (_glGetString non résolu, CI 2026-08-11). Ignorés par les builders
+    # non-Apple → sans effet ailleurs.
+    frameworks(["Cocoa", "QuartzCore", "OpenGL", "Metal"])
+
     # ===== macOS =============================================================
     # Préparé pour la compilation Mac (machine ou CI GitHub Actions) — non
     # testé localement, aucun Mac sous la main.
     with filter("system:macOS"):
         usetoolchain("clang-native")
-        frameworks(["Cocoa", "QuartzCore", "OpenGL"])
 
     # ===== Linux (XLib) ======================================================
     with filter("system:Linux && !options:linux-backend=wayland"):
