@@ -467,7 +467,15 @@ namespace nkentseu {
 
 		RECT rc = {config.x, config.y, config.x + static_cast<LONG>(config.width),
 				   config.y + static_cast<LONG>(config.height)};
-		AdjustWindowRectEx(&rc, mData.mDwStyle, FALSE, mData.mDwExStyle);
+		// Fenetre SANS decoration : WM_NCCALCSIZE rend TOUTE la fenetre cliente,
+		// donc la taille exterieure EST la taille client — appliquer
+		// AdjustWindowRectEx (calcule pour les styles caches WS_CAPTION/THICKFRAME
+		// conserves) creait une fenetre 1296x839 pour un client demande 1280x800 :
+		// swapchain et fenetre desaccordees, bande morte a droite/en bas (vecu
+		// dans NkRef borderless, 2026-08-11).
+		if (!mData.mBorderless) {
+			AdjustWindowRectEx(&rc, mData.mDwStyle, FALSE, mData.mDwExStyle);
+		}
 
 		// AppUserModelID : indispensable pour que Windows associe correctement
 		// l'icone de la fenetre runtime avec celle de l'exe quand l'app est
