@@ -438,15 +438,14 @@ float NkSampleSpotShadow(int lightIdx, vec3 worldPos, vec3 N, vec3 L, float bias
 // Dispatch par type de light. Lit le type via uLights.positions[i].w
 // (encode 0/1/2/3 pour DIR/POINT/SPOT/AREA cote C++).
 // biasMul : multiplicateur per-material du shadowBias (1.0 default).
-float SampleLightShadowEx(int lightIdx, vec3 worldPos, vec3 N, vec3 L, float biasMul) {
+// Variante SANS gradient : les derivees ecran de worldPos sont fournies par
+// l'appelant, calculees UNE FOIS avant sa boucle de lumieres. Indispensable
+// pour fxc (DX11) : un dFdx a l'interieur d'une boucle force son deroulage
+// (X3570/X3511 — le Toon restait NOIR car le shader n'etait jamais cree, le
+// pipeline gardait un blob perime). Sans gradient, fxc emet une vraie boucle.
+float SampleLightShadowExD(int lightIdx, vec3 worldPos, vec3 N, vec3 L, float biasMul,
+                           vec3 dWdx, vec3 dWdy) {
     int type = int(uLights.positions[lightIdx].w);
-    // Derivees ecran de worldPos, prises ICI et pas plus bas : les appelants
-    // (pbr/layered) invoquent cette fonction sous des branches UNIFORMES
-    // (parametres d'objet et de lumiere, identiques pour tout le draw), alors
-    // que la selection de cascade/face diverge pixel par pixel -- une derivee
-    // y serait indefinie. Elles nourrissent le biais du plan recepteur du PCF.
-    vec3 dWdx = dFdx(worldPos);
-    vec3 dWdy = dFdy(worldPos);
     if (type == 0) return NkSampleDirectionalShadow(lightIdx, worldPos, N, L, biasMul, dWdx, dWdy);
     if (type == 1) return NkSamplePointShadow      (lightIdx, worldPos, N, L, biasMul, dWdx, dWdy);
     if (type == 2) return NkSampleSpotShadow       (lightIdx, worldPos, N, L, biasMul, dWdx, dWdy);
@@ -457,6 +456,15 @@ float SampleLightShadowEx(int lightIdx, vec3 worldPos, vec3 N, vec3 L, float bia
     // surfacique traversait toute la geometrie sans jamais projeter d'ombre.
     if (type == 3) return NkSampleSpotShadow       (lightIdx, worldPos, N, L, biasMul, dWdx, dWdy);
     return 1.0;
+}
+// Wrapper historique : derivees prises ICI, en flux uniforme (les appelants
+// pbr/layered invoquent sous des branches UNIFORMES — parametres d'objet et
+// de lumiere, identiques pour tout le draw — alors que la selection de
+// cascade/face diverge pixel par pixel, ou une derivee serait indefinie).
+float SampleLightShadowEx(int lightIdx, vec3 worldPos, vec3 N, vec3 L, float biasMul) {
+    vec3 dWdx = dFdx(worldPos);
+    vec3 dWdy = dFdy(worldPos);
+    return SampleLightShadowExD(lightIdx, worldPos, N, L, biasMul, dWdx, dWdy);
 }
 // Wrapper backward-compatible : biasMul = 1.0 (utilise par Toon/Anime qui n'ont
 // pas encore d'override shadow dans leur material UBO).
