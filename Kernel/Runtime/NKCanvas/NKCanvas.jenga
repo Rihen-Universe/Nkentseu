@@ -166,6 +166,13 @@ with project("NKCanvas"):
         usetoolchain("clang-native")
         defines([_VK_OFF] + _GLAD_DEF_OTHER)
         frameworks(["Metal", "QuartzCore"])
+        # Les backends Metal sont des .mm : le files() global ("**.cpp") ne les
+        # attrape pas — la factory les référence, le link macOS échouait
+        # (vtable NkMetalContext manquante, CI 2026-08-11).
+        files([
+            "src/NKCanvas/Backend/Metal/NkMetalContext.mm",
+            "src/NKCanvas/Backend/Metal/NkMetalComputeContext.mm",
+        ])
 
     # ===== Android ================================================================
     with filter("system:Android"):
