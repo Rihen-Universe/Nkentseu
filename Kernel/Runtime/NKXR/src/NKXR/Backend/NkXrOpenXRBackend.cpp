@@ -726,13 +726,6 @@ namespace nkentseu {
 			}
 			const VkImage sources[2] = { VkImage(uintptr_t(nativeImageLeft)), VkImage(uintptr_t(nativeImageRight)) };
 
-			// La fence sérialise notre unique command buffer d'une frame sur
-			// l'autre — le compositeur, lui, est synchronisé par Acquire/Wait.
-			if (mOxr->vkFenceUsed) {
-				mOxr->fnWaitForFences(mOxr->vkDevice, 1, &mOxr->vkFence, VK_TRUE, UINT64_MAX);
-				mOxr->fnResetFences(mOxr->vkDevice, 1, &mOxr->vkFence);
-				mOxr->vkFenceUsed = false;
-			}
 			mOxr->fnResetCommandBuffer(mOxr->vkCmd, 0);
 			VkCommandBufferBeginInfo beginInfo{};
 			beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -811,7 +804,16 @@ namespace nkentseu {
 			submitInfo.commandBufferCount = 1;
 			submitInfo.pCommandBuffers = &mOxr->vkCmd;
 			mOxr->fnQueueSubmit(mOxr->vkQueue, 1, &submitInfo, mOxr->vkFence);
-			mOxr->vkFenceUsed = true;
+			// Attente IMMÉDIATE : la frame suivante du renderer réécrit ces
+			// mêmes cibles d'œil, et ses barrières n'ordonnent que SES
+			// commandes — sans cette attente, la copie lit pendant la
+			// réécriture et le casque scintille (constaté par Rihen : miroir
+			// PC propre, casque strié). Bulle GPU assumée ; l'optimisation
+			// (sémaphore croisé avec la soumission du renderer) exigera une
+			// coordination NKRHI.
+			mOxr->fnWaitForFences(mOxr->vkDevice, 1, &mOxr->vkFence, VK_TRUE, UINT64_MAX);
+			mOxr->fnResetFences(mOxr->vkDevice, 1, &mOxr->vkFence);
+			mOxr->vkFenceUsed = false;
 
 			for (uint32 eye = 0; eye < NK_XR_EYE_COUNT; ++eye) {
 				// Release APRÈS la soumission : le runtime considère alors tout
