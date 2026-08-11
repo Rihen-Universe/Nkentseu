@@ -188,6 +188,9 @@ namespace {
 			int32 panelFrame = -1; ///< NK_AGENT_PANEL=n : ouvre le tiroir à la frame n
 			int32 themeFrame = -1; ///< NK_AGENT_THEME="n:0|1" : bascule le thème (1=sombre)
 			bool themeDark = true;
+			int32 menuFrame = -1; ///< NK_AGENT_MENU="n:px:py" : ouvre le menu clic droit
+			float32 menuPx = 0.0f, menuPy = 0.0f;
+			int32 settingsFrame = -1; ///< NK_AGENT_SETTINGS=n : ouvre Réglages
 
 			void Read() {
 				if (const char *v = std::getenv("NK_AGENT_SHOT")) {
@@ -275,6 +278,17 @@ namespace {
 					packFrame = (int32)std::atoi(v);
 				if (const char *v = std::getenv("NK_AGENT_PANEL"))
 					panelFrame = (int32)std::atoi(v);
+				if (const char *v = std::getenv("NK_AGENT_MENU")) {
+					int f = 0;
+					float px = 0, py = 0;
+					if (std::sscanf(v, "%d:%f:%f", &f, &px, &py) == 3) {
+						menuFrame = (int32)f;
+						menuPx = (float32)px;
+						menuPy = (float32)py;
+					}
+				}
+				if (const char *v = std::getenv("NK_AGENT_SETTINGS"))
+					settingsFrame = (int32)std::atoi(v);
 				if (const char *v = std::getenv("NK_AGENT_THEME")) {
 					int f = 0, dark = 1;
 					if (std::sscanf(v, "%d:%d", &f, &dark) == 2) {
@@ -300,24 +314,28 @@ namespace {
 			NkColor2D selected, active, rectFill, rectRim;
 	};
 
+	// Sombre = palette « GitHub Dark Pro » (demande Rihen) : fond #0d1117,
+	// surfaces #161b22/#21262d, bordures #30363d, texte #e6edf3, accent #58a6ff.
+	// L'orange charte Rihen ne garde que deux rôles : la pastille de marque et
+	// les poignées de l'item ACTIF.
 	NkRefColors MakeDarkColors() {
 		NkRefColors c;
-		c.clear = {20, 22, 25, 255};
-		c.gridMinor = {255, 255, 255, 10};
-		c.gridMajor = {255, 255, 255, 26};
-		c.axis = {247, 154, 40, 70};
-		c.barBg = {14, 15, 17, 236};
-		c.barLine = {255, 255, 255, 22};
-		c.barText = {205, 210, 216, 255};
-		c.barGlyph = {215, 220, 226, 255};
-		c.barHover = {255, 255, 255, 26};
-		c.barClose = {200, 48, 44, 230};
-		c.tabBg = {10, 85, 95, 235};
-		c.tabGlyph = {240, 244, 247, 255};
-		c.selected = {46, 140, 153, 255};
-		c.active = {247, 154, 40, 255};
-		c.rectFill = {46, 140, 153, 30};
-		c.rectRim = {46, 140, 153, 180};
+		c.clear = {13, 17, 23, 255};		 // #0d1117
+		c.gridMinor = {240, 246, 252, 10};
+		c.gridMajor = {240, 246, 252, 24};
+		c.axis = {247, 154, 40, 80};
+		c.barBg = {22, 27, 34, 242};		 // #161b22
+		c.barLine = {48, 54, 61, 255};		 // #30363d
+		c.barText = {230, 237, 243, 255};	 // #e6edf3
+		c.barGlyph = {201, 209, 217, 255};	 // #c9d1d9
+		c.barHover = {48, 54, 61, 200};
+		c.barClose = {218, 54, 51, 235};	 // #da3633
+		c.tabBg = {33, 38, 45, 240};		 // #21262d
+		c.tabGlyph = {88, 166, 255, 255};	 // #58a6ff
+		c.selected = {88, 166, 255, 255};	 // sélection bleue GitHub
+		c.active = {247, 154, 40, 255};		 // actif = orange Rihen
+		c.rectFill = {88, 166, 255, 24};
+		c.rectRim = {88, 166, 255, 160};
 		return c;
 	}
 
@@ -345,18 +363,19 @@ namespace {
 	// Le thème NKGui assorti (le panneau doit suivre le canevas).
 	void ApplyGuiTheme(nkgui::NkGuiContext &gui, bool dark) {
 		if (dark) {
-			gui.theme.bgPrimary = {16, 18, 22, 255};
-			gui.theme.panel = {21, 25, 30, 246};
-			gui.theme.header = {10, 60, 68, 255};
-			gui.theme.button = {12, 72, 82, 255};
-			gui.theme.buttonHover = {10, 85, 95, 255};
-			gui.theme.buttonActive = {247, 154, 40, 255};
-			gui.theme.border = {10, 85, 95, 200};
-			gui.theme.text = {228, 233, 236, 255};
-			gui.theme.textDisabled = {130, 136, 142, 255};
-			gui.theme.selection = {10, 85, 95, 235};
-			gui.theme.accent = {247, 154, 40, 255};
-			gui.theme.track = {13, 16, 20, 255};
+			// GitHub Dark Pro, fidèle : surfaces #161b22/#21262d, accent #58a6ff.
+			gui.theme.bgPrimary = {13, 17, 23, 255};
+			gui.theme.panel = {22, 27, 34, 248};
+			gui.theme.header = {33, 38, 45, 255};
+			gui.theme.button = {33, 38, 45, 255};
+			gui.theme.buttonHover = {48, 54, 61, 255};
+			gui.theme.buttonActive = {31, 111, 235, 255}; // #1f6feb (pressed)
+			gui.theme.border = {48, 54, 61, 255};
+			gui.theme.text = {230, 237, 243, 255};
+			gui.theme.textDisabled = {139, 148, 158, 255}; // #8b949e
+			gui.theme.selection = {31, 111, 235, 180};
+			gui.theme.accent = {88, 166, 255, 255}; // #58a6ff
+			gui.theme.track = {1, 4, 9, 255};		// #010409
 		} else {
 			gui.theme.bgPrimary = {240, 242, 244, 255};
 			gui.theme.panel = {248, 249, 251, 248};
@@ -463,6 +482,17 @@ int nkmain(const NkEntryState &state) {
 	bool penMode = false;
 	uint8 penR = 247, penG = 154, penB = 40; // orange Rihen par défaut
 	float32 penWidthPx = 4.0f;
+	// Menu clic droit + fenêtre Réglages — la STRUCTURE PureRef (menu du
+	// canevas, Réglages à onglets Préférences/Couleurs/Raccourcis) avec NOS
+	// propriétés dedans (demande Rihen, captures des Settings PureRef en
+	// référence). Règle maison : n'afficher QUE ce qui fonctionne réellement.
+	bool ctxMenuOpen = false;
+	math::NkVec2f ctxMenuPix{0.0f, 0.0f};
+	int32 ctxSub = 0; // 0 aucun, 1 Fenêtre, 3 Image
+	bool settingsOpen = false;
+	int32 settingsTab = 0; // 0 Préférences, 1 Couleurs, 2 Raccourcis
+	bool autoDownscale = true; // préférence réelle : plafond d'import 4096 px
+	constexpr float32 kMenuW = 190.0f, kMenuH = 470.0f, kSubW = 210.0f, kSubH = 250.0f;
 	NkClock clock;
 
 	NkAgentHooks agent;
@@ -509,11 +539,12 @@ int nkmain(const NkEntryState &state) {
 		// pèse 100-200 Mo de VRAM — quelques-unes suffisent à mettre le GPU à
 		// genoux (machine qui s'éteint sous pic GPU : contrainte documentée du
 		// dépôt ; crash rapporté par Rihen au-delà de 6 images). PureRef fait
-		// pareil (réduction d'affichage). RIEN n'est perdu : l'Étape 2
-		// embarquera les OCTETS SOURCE dans le .nkref, pas la texture.
+		// pareil (« Auto downscale large images » — préférence débrayable dans
+		// Réglages, comme chez eux). RIEN n'est perdu : l'Étape 2 embarquera
+		// les OCTETS SOURCE dans le .nkref, pas la texture.
 		constexpr int32 kMaxSide = 4096;
 		NkImage *resized = nullptr;
-		if (img.Width() > kMaxSide || img.Height() > kMaxSide) {
+		if (autoDownscale && (img.Width() > kMaxSide || img.Height() > kMaxSide)) {
 			const int32 big = img.Width() > img.Height() ? img.Width() : img.Height();
 			const float32 s = (float32)kMaxSide / (float32)big;
 			// Resize RETOURNE une NOUVELLE image (il ne modifie pas l'objet —
@@ -603,6 +634,26 @@ int nkmain(const NkEntryState &state) {
 		}
 	};
 
+	// Copier l'image ACTIVE dans le presse-papiers OS (SetClipboardImage —
+	// le chantier NKWindow sert dans les deux sens maintenant). Les pixels
+	// CPU sont déjà en mémoire : NkTexture les garde pour le backend Software.
+	auto copyActive = [&]() {
+		if (board.active < 0 || board.active >= (int32)board.items.Size())
+			return;
+		NkTexture *tex = textures[(usize)board.active];
+		if (!tex || !tex->HasCPUPixels())
+			return;
+		NkClipboardImage img;
+		img.width = tex->GetWidth();
+		img.height = tex->GetHeight();
+		img.pixels.Resize((usize)img.width * img.height * 4u);
+		const uint8 *src = tex->GetCPUPixels();
+		for (usize i = 0; i < img.pixels.Size(); ++i)
+			img.pixels[i] = src[i];
+		if (window.SetClipboardImage(img))
+			logger.Info("[NkRef] image copiee au presse-papiers (%ux%u)", img.width, img.height);
+	};
+
 	auto reorderActive = [&](bool up) {
 		const int32 old = board.active;
 		const int32 other = board.RaiseActive(up);
@@ -672,13 +723,45 @@ int nkmain(const NkEntryState &state) {
 		return px >= tx && px <= tx + 18.0f && py >= ty && py <= ty + 64.0f;
 	};
 
-	// Le curseur est-il au-dessus de l'INTERFACE (tiroir ouvert ou onglet) ?
-	// Si oui, la souris appartient à NKGui — pan/zoom/sélection du canevas ne
-	// doivent PAS se déclencher dessous (piège d'occlusion documenté par NKGui :
-	// pas de WantCaptureMouse global, c'est l'app qui route).
+	// Le clic est-il dans le menu contextuel (colonne principale + sous-menu) ?
+	auto menuHit = [&](float32 px, float32 py) -> bool {
+		if (!ctxMenuOpen)
+			return false;
+		if (px >= ctxMenuPix.x && px <= ctxMenuPix.x + kMenuW && py >= ctxMenuPix.y &&
+			py <= ctxMenuPix.y + kMenuH)
+			return true;
+		if (ctxSub != 0 && px >= ctxMenuPix.x + kMenuW && px <= ctxMenuPix.x + kMenuW + kSubW &&
+			py >= ctxMenuPix.y && py <= ctxMenuPix.y + kSubH)
+			return true;
+		return false;
+	};
+
+	// Le curseur est-il au-dessus de l'INTERFACE (tiroir, onglet, menu,
+	// Réglages) ? Si oui, la souris appartient à NKGui — pan/zoom/sélection du
+	// canevas ne doivent PAS se déclencher dessous (piège d'occlusion documenté
+	// par NKGui : pas de WantCaptureMouse global, c'est l'app qui route).
 	auto overUi = [&](float32 px, float32 py, const math::NkVec2f &vp) -> bool {
 		if (panelOpen && px >= vp.x - kPanelW && py >= kBarH)
 			return true;
+		if (menuHit(px, py))
+			return true;
+		if (settingsOpen) {
+			// La fenêtre Réglages est DÉPLAÇABLE : son rect vit dans les
+			// métadonnées NKGui (titre mémorisé par Begin).
+			for (usize i = 0; i < gui.windowMeta.Size(); ++i) {
+				const auto &m = gui.windowMeta[i];
+				bool same = true;
+				const char *t = "Reglages";
+				for (int32 k = 0; k < 47 && (t[k] || m.title[k]); ++k)
+					if (t[k] != m.title[k]) {
+						same = false;
+						break;
+					}
+				if (same && px >= m.rect.x && px <= m.rect.x + m.rect.w && py >= m.rect.y &&
+					py <= m.rect.y + m.rect.h)
+					return true;
+			}
+		}
 		return tabHit(px, py, vp);
 	};
 
@@ -739,7 +822,22 @@ int nkmain(const NkEntryState &state) {
 					gui.input.mouseDown[2] = true;
 				gui.input.ctrlDown = mb->GetModifiers().ctrl;
 				gui.input.shiftDown = mb->GetModifiers().shift;
-				if (mb->IsLeft() && tabHit(px, py, vp)) {
+				if (mb->IsRight() && !overUi(px, py, vp)) {
+					// Clic droit sur le canevas = LE menu (philosophie PureRef :
+					// pas de barre de menus, tout vit ici). Recalé pour ne pas
+					// sortir de l'écran.
+					ctxMenuOpen = true;
+					ctxSub = 0;
+					ctxMenuPix = {px, py};
+					if (ctxMenuPix.x + kMenuW + kSubW > vp.x)
+						ctxMenuPix.x = vp.x - kMenuW - kSubW;
+					if (ctxMenuPix.y + kMenuH > vp.y)
+						ctxMenuPix.y = vp.y - kMenuH;
+					if (ctxMenuPix.y < kBarH)
+						ctxMenuPix.y = kBarH;
+				} else if (mb->IsLeft() && ctxMenuOpen && !menuHit(px, py)) {
+					ctxMenuOpen = false; // clic ailleurs = fermer, sans agir dessous
+				} else if (mb->IsLeft() && tabHit(px, py, vp)) {
 					panelOpen = !panelOpen; // l'onglet du tiroir a priorité sur tout
 				} else if (mb->IsLeft() && overUi(px, py, vp)) {
 					// Le clic appartient au panneau : rien côté canevas.
@@ -912,6 +1010,8 @@ int nkmain(const NkEntryState &state) {
 					reorderActive(false);
 				} else if (k == NkKey::NK_V && ctrl) {
 					pasteClipboard(view.PixelToWorld(mousePix, vp));
+				} else if (k == NkKey::NK_C && ctrl) {
+					copyActive();
 				} else if (k == NkKey::NK_D && !ctrl) {
 					penMode = !penMode; // bascule crayon (aussi dans le panneau)
 				} else if (k == NkKey::NK_P && ctrl) {
@@ -979,6 +1079,13 @@ int nkmain(const NkEntryState &state) {
 			board.Pack(16.0f);
 		if (agent.panelFrame > 0 && agentFrame == agent.panelFrame)
 			panelOpen = true; // même variable que le clic sur l'onglet
+		if (agent.menuFrame > 0 && agentFrame == agent.menuFrame) {
+			ctxMenuOpen = true; // mêmes variables que le clic droit
+			ctxSub = 0;
+			ctxMenuPix = {agent.menuPx, agent.menuPy};
+		}
+		if (agent.settingsFrame > 0 && agentFrame == agent.settingsFrame)
+			settingsOpen = true;
 		if (agent.themeFrame > 0 && agentFrame == agent.themeFrame) {
 			darkTheme = agent.themeDark; // même chemin que la case du panneau
 			th = darkTheme ? MakeDarkColors() : MakeLightColors();
@@ -1079,6 +1186,167 @@ int nkmain(const NkEntryState &state) {
 					nkgui::Text(gui, "PgUp/PgDn : ordre - Ctrl+V : coller");
 				}
 				nkgui::EndPanel(gui);
+			}
+		}
+
+		// ── Fenêtre Réglages — la STRUCTURE des Settings PureRef (onglets
+		// Préférences / Couleurs / Raccourcis), remplie de NOS propriétés.
+		// Déplaçable, fermable par la croix.
+		if (settingsOpen && hasGui) {
+			nkgui::SetNextWindowPos(gui, (vp.x - 500.0f) * 0.5f, (vp.y - 470.0f) * 0.5f);
+			nkgui::SetNextWindowSize(gui, 500.0f, 470.0f);
+			if (nkgui::Begin(gui, "Reglages", &settingsOpen, nkgui::NkGuiWindowFlags::NoCollapse)) {
+				if (nkgui::Button(gui, settingsTab == 0 ? "[ Preferences ]" : "Preferences"))
+					settingsTab = 0;
+				gui.SameLine();
+				if (nkgui::Button(gui, settingsTab == 1 ? "[ Couleurs ]" : "Couleurs"))
+					settingsTab = 1;
+				gui.SameLine();
+				if (nkgui::Button(gui, settingsTab == 2 ? "[ Raccourcis ]" : "Raccourcis"))
+					settingsTab = 2;
+				nkgui::Separator(gui);
+				if (settingsTab == 0) {
+					// Que des préférences RÉELLES (règle maison : une entrée UI
+					// ne naît que quand ses outils existent).
+					nkgui::Checkbox(gui, "Glisser le fond deplace la fenetre", dragEmptyMovesWindow);
+					nkgui::Checkbox(gui, "Reduire les grandes images a l'import (4096 px)", autoDownscale);
+					bool onTop = window.IsAlwaysOnTop();
+					if (nkgui::Checkbox(gui, "Toujours devant (T)", onTop))
+						window.SetAlwaysOnTop(onTop);
+					nkgui::Checkbox(gui, "Mode crayon (D)", penMode);
+					nkgui::Separator(gui);
+					nkgui::Text(gui, "A venir avec le fichier .nkref (Etape 2) :");
+					nkgui::Text(gui, "images embarquees, recents, sauvegarde auto.");
+				} else if (settingsTab == 1) {
+					nkgui::Text(gui, "Prereglages :");
+					if (nkgui::Button(gui, darkTheme ? "[ Sombre - GitHub Dark Pro ]" : "Sombre - GitHub Dark Pro")) {
+						darkTheme = true;
+						th = MakeDarkColors();
+						ApplyGuiTheme(gui, true);
+					}
+					gui.SameLine();
+					if (nkgui::Button(gui, !darkTheme ? "[ Clair ]" : "Clair")) {
+						darkTheme = false;
+						th = MakeLightColors();
+						ApplyGuiTheme(gui, false);
+					}
+					nkgui::Separator(gui);
+					float32 wop = window.GetOpacity();
+					if (nkgui::SliderFloat(gui, "Opacite generale", wop, 0.2f, 1.0f))
+						window.SetOpacity(wop);
+					nkgui::Separator(gui);
+					nkgui::Text(gui, darkTheme ? "Fond #0D1117 - surfaces #161B22" : "Fond clair #F0F2F4");
+					nkgui::Text(gui, darkTheme ? "Accent #58A6FF - actif #F79A28" : "Accent orange #E17A08");
+					nkgui::Text(gui, "(prereglages personnalises : avec le");
+					nkgui::Text(gui, " selecteur de couleurs, a venir)");
+				} else {
+					// Raccourcis RÉELS, lecture seule (rebind : chantier futur,
+					// NkShortcutTable du modeleur en reference).
+					struct Bind {
+							const char *action, *keys;
+					};
+					static const Bind kBinds[] = {
+						{"Coller une image", "Ctrl+V"},	   {"Copier l'image active", "Ctrl+C"},
+						{"Pack (rangement)", "Ctrl+P"},	   {"Crayon", "D"},
+						{"Miroir X / Y", "X / Y"},		   {"Supprimer", "Suppr"},
+						{"Ordre : monter/descendre", "PgUp / PgDn"},
+						{"Ordre (souris)", "Ctrl+molette"}, {"Origine", "Debut"},
+						{"Toujours devant", "T"},		   {"Opacite fenetre", "1..9, 0"},
+						{"Zoom", "Molette"},			   {"Pan", "Milieu ou Espace+glisser"},
+						{"Rectangle de selection", "Ctrl+glisser"},
+						{"Agrandir/Restaurer", "Double-clic en-tete"},
+					};
+					for (int32 b = 0; b < (int32)(sizeof(kBinds) / sizeof(kBinds[0])); ++b) {
+						char line[96];
+						std::snprintf(line, sizeof(line), "%-28s  %s", kBinds[b].action, kBinds[b].keys);
+						nkgui::Text(gui, line);
+					}
+					nkgui::Separator(gui);
+					nkgui::Text(gui, "(reassignation des touches : a venir)");
+				}
+				nkgui::EndWindow(gui);
+			}
+		}
+
+		// ── Menu clic droit — structure PureRef, items réels uniquement ──
+		if (ctxMenuOpen && hasGui) {
+			const nkgui::NkRect mr{ctxMenuPix.x, ctxMenuPix.y, kMenuW, kMenuH};
+			if (nkgui::BeginPanel(gui, "Menu", mr)) {
+				if (nkgui::Button(gui, "Coller  (Ctrl+V)")) {
+					pasteClipboard(view.PixelToWorld(ctxMenuPix, vp));
+					ctxMenuOpen = false;
+				}
+				if (board.active >= 0 && nkgui::Button(gui, "Copier l'image  (Ctrl+C)")) {
+					copyActive();
+					ctxMenuOpen = false;
+				}
+				if (nkgui::Button(gui, penMode ? "Crayon : arreter  (D)" : "Crayon : dessiner  (D)")) {
+					penMode = !penMode;
+					ctxMenuOpen = false;
+				}
+				nkgui::Separator(gui);
+				if (nkgui::Button(gui, "Pack  (Ctrl+P)")) {
+					board.Pack(16.0f);
+					ctxMenuOpen = false;
+				}
+				if (nkgui::Button(gui, "Origine  (Debut)")) {
+					view.Reset();
+					ctxMenuOpen = false;
+				}
+				nkgui::Separator(gui);
+				if (nkgui::Button(gui, ctxSub == 1 ? "Fenetre  <" : "Fenetre  >"))
+					ctxSub = (ctxSub == 1) ? 0 : 1;
+				if (board.active >= 0 && nkgui::Button(gui, ctxSub == 3 ? "Image  <" : "Image  >"))
+					ctxSub = (ctxSub == 3) ? 0 : 3;
+				nkgui::Separator(gui);
+				if (nkgui::Button(gui, "Proprietes (tiroir)")) {
+					panelOpen = true;
+					ctxMenuOpen = false;
+				}
+				if (nkgui::Button(gui, "Reglages...")) {
+					settingsOpen = true;
+					ctxMenuOpen = false;
+				}
+				nkgui::Separator(gui);
+				if (nkgui::Button(gui, "Fermer NkRef"))
+					running = false;
+				nkgui::EndPanel(gui);
+			}
+			if (ctxSub == 1) {
+				const nkgui::NkRect sr{ctxMenuPix.x + kMenuW, ctxMenuPix.y, kSubW, kSubH};
+				if (nkgui::BeginPanel(gui, "Fenetre", sr)) {
+					bool onTop = window.IsAlwaysOnTop();
+					if (nkgui::Checkbox(gui, "Toujours devant (T)", onTop))
+						window.SetAlwaysOnTop(onTop);
+					if (nkgui::Button(gui, "Opacite 100 %"))
+						window.SetOpacity(1.0f);
+					if (nkgui::Button(gui, "Opacite 70 %"))
+						window.SetOpacity(0.7f);
+					if (nkgui::Button(gui, "Opacite 40 %"))
+						window.SetOpacity(0.4f);
+					if (nkgui::Checkbox(gui, "Theme sombre", darkTheme)) {
+						th = darkTheme ? MakeDarkColors() : MakeLightColors();
+						ApplyGuiTheme(gui, darkTheme);
+					}
+					nkgui::EndPanel(gui);
+				}
+			} else if (ctxSub == 3 && board.active >= 0 && board.active < (int32)board.items.Size()) {
+				const nkgui::NkRect sr{ctxMenuPix.x + kMenuW, ctxMenuPix.y, kSubW, kSubH};
+				if (nkgui::BeginPanel(gui, "Image", sr)) {
+					nkref::NkRefItem &it = board.items[(usize)board.active];
+					nkgui::SliderFloat(gui, "Opacite", it.opacity, 0.05f, 1.0f);
+					nkgui::Checkbox(gui, "Miroir X (X)", it.mirrorX);
+					nkgui::Checkbox(gui, "Miroir Y (Y)", it.mirrorY);
+					if (nkgui::Button(gui, "Monter  (PgUp)"))
+						reorderActive(true);
+					if (nkgui::Button(gui, "Descendre  (PgDn)"))
+						reorderActive(false);
+					if (nkgui::Button(gui, "Supprimer  (Suppr)")) {
+						removeSelected();
+						ctxMenuOpen = false;
+					}
+					nkgui::EndPanel(gui);
+				}
 			}
 		}
 		gui.EndFrame();
