@@ -58,9 +58,16 @@ jobs:
           # libasound2-dev : NKAudio/ALSA (revele par le probe NKCode).
           sudo apt-get install -y clang libx11-dev libxrandr-dev libxext-dev libgl1-mesa-dev libasound2-dev
 
+      - name: Wheel Jenga (NKCode l'embarque pour ses boutons Construire)
+        run: |
+          python3 -m pip wheel ./jenga-src -w jenga-src/dist --no-deps -q || echo "wheel indisponible (non bloquant pour les autres cibles)"
+          ls jenga-src/dist/ || true
+
       - name: Builder ${{ inputs.target }} (${{ inputs.platform }}, ${{ inputs.config }})
         env:
           PYTHONPATH: ${{ github.workspace }}/jenga-src
+          # NKCode.jenga cherche dist/*.whl ici (extraction du Jenga embarqué).
+          NKCODE_JENGA_SRC: ${{ github.workspace }}/jenga-src
         run: |
           EXTRA=""
           if [ "${{ inputs.platform }}" = "ios" ]; then EXTRA="--platform ios"; fi
