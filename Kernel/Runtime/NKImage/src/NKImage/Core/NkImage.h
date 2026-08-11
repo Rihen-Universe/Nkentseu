@@ -1150,6 +1150,7 @@ namespace nkentseu {
 					uint8 *out;		   ///< Buffer de sortie (pré-alloué par l'appelant).
 					usize outCap;	   ///< Capacité du buffer de sortie.
 					usize outPos;	   ///< Position d'écriture courante dans le buffer de sortie.
+					int32 eofZeros;	   ///< Octets de zéros injectés après la fin du flux (voir zFill).
 			};
 
 			// ── Primitives inflate ────────────────────────────────────────────────────

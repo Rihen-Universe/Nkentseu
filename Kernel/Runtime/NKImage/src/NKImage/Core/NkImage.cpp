@@ -515,9 +515,24 @@ namespace nkentseu {
 		// On continue tant qu'il reste de la place dans le registre 32 bits
 		while (z.nbits <= 24) {
 			if (z.pos >= z.size) {
-				// Fin de flux inattendue
-				z.err = true;
-				return;
+				// Fin du flux d'octets : ce N'EST PAS une erreur en soi. Les
+				// derniers symboles (dont le code 256 de fin de bloc) sont
+				// peut-etre deja dans le registre — un flux BRUT (entree ZIP,
+				// corps gzip) se termine a l'octet pres, sans les 4 octets
+				// d'Adler-32 qui, sur un flux zlib, servaient ici de marge
+				// silencieuse. On complete donc par des zeros, bornes : si le
+				// decodage consomme au-dela, le flux etait reellement tronque
+				// et un code invalide declenchera l'erreur ou on la force.
+				// (Ce defaut declarait faux un decodage entierement produit :
+				// tout gzip valide etait rejete, et sans doute une partie des
+				// archives ZIP du chantier bibliotheque.)
+				if (z.eofZeros >= 4) {
+					z.err = true;
+					return;
+				}
+				++z.eofZeros;
+				z.nbits += 8; // huit bits a zero
+				continue;
 			}
 			// Accumulation LSB-first : le nouvel octet occupe les bits [nbits..nbits+7]
 			z.bits |= uint32(z.data[z.pos++]) << z.nbits;

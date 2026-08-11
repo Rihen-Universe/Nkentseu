@@ -121,6 +121,17 @@ namespace nkentseu {
 					};
 					NkBaseEnc mBaseEnc = NK_ENC_NONE;
 
+					// Encodage par NOMS de glyphes d'une police simple : code -> nom,
+					// venu de /Encoding /Differences (PDF) ou, a defaut, de la table
+					// en CLAIR du programme Type 1 (« dup N /nom put », avant eexec).
+					// C'est le chemin de lecture des PDF dvips/LaTeX sans /ToUnicode ;
+					// le nom se traduit ensuite par la liste d'Adobe
+					// (NkPdfGlyphList). Deux tableaux paralleles, comme /ToUnicode.
+					NkVector<uint32> mNameCodes;
+					NkVector<NkString> mNames;
+
+					void ParseType1Encoding(const NkVector<uint8> &prog);
+
 					// Largeurs des polices simples : /FirstChar + /Widths.
 					int32 mFirstChar = 0;
 					NkVector<double> mWidths;
