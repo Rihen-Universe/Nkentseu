@@ -403,7 +403,14 @@ namespace {
 // ─────────────────────────────────────────────────────────────────────────────
 
 static napi_value NkHarmonyNapiInit(napi_env env, napi_value exports) {
-	NK_HARMONY_BOOTLOG("NkHarmonyNapiInit: enter");
+	// DATE DE COMPILATION de la bibliotheque native, des la premiere ligne.
+	//
+	// Sur appareil, rien ne distingue deux versions d'une meme application : on
+	// installe, on lance, et l'on discute d'un comportement sans savoir quel
+	// binaire tourne. Cela a coute une longue confusion — un ecran juge « sans
+	// changement » alors qu'il s'agissait d'un build anterieur aux correctifs.
+	// Cette ligne tranche en une seconde, pour tout le monde.
+	NK_HARMONY_BOOTLOG("NkHarmonyNapiInit: enter | natif compile le " __DATE__ " a " __TIME__);
 
 	// ── Pont ArkTS : zone sure, orientation, clavier, focus, fenetrage PC ────
 	// Enregistre a CHAQUE chargement, avant toute garde : l'objet rendu au
