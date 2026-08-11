@@ -525,7 +525,14 @@ namespace nkentseu {
 			// scissor laisse par la frame precedente, l'etat GL etant persistant).
 			glDisable(GL_SCISSOR_TEST);
 			mLastBoundTexId = 0;
-			mLastBlend = NkBlendMode::NK_NONE;
+			// L'etat MEMORISE doit decrire l'etat REEL qu'on vient de poser
+			// ci-dessus : glEnable(GL_BLEND) + SRC_ALPHA/ONE_MINUS_SRC_ALPHA,
+			// c'est-a-dire le mode ALPHA. Declarer NK_NONE ici mentait au cache :
+			// une demande ulterieure de NK_NONE sortait aussitot (« deja dans ce
+			// mode ») sans jamais appeler glDisable, et inversement le premier
+			// ApplyBlendMode(NK_ALPHA) refaisait un travail deja fait. Un cache
+			// d'etat qui ment finit toujours par se voir a l'ecran.
+			mLastBlend = NkBlendMode::NK_ALPHA;
 		}
 
 		// =============================================================================
@@ -555,6 +562,13 @@ namespace nkentseu {
 		void NkOpenGLRenderer2D::ApplyBlendMode(NkBlendMode mode) {
 			if (mode == mLastBlend)
 				return;
+#if defined(NKENTSEU_DEBUG) && (defined(NKENTSEU_PLATFORM_HARMONYOS) || defined(NKENTSEU_PLATFORM_ANDROID))
+			// Une image detouree qui ressort en carre noir opaque signifie que le
+			// blending etait DESACTIVE au moment de son trace. Les transitions
+			// sont rares (quelques-unes par frame) : les journaliser dit quel mode
+			// portait reellement le dessin, au lieu de le supposer.
+			logger.Infof("[NkGL2D] blend %d -> %d\n", (int)mLastBlend, (int)mode);
+#endif
 			mLastBlend = mode;
 			switch (mode) {
 				case NkBlendMode::NK_ALPHA:
