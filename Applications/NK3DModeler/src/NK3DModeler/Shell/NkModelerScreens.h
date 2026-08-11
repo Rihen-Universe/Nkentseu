@@ -9994,6 +9994,87 @@ namespace nkentseu {
 								if (cc != cc0 || ccR != ccR0 || sss != sss0)
 									demo::Demo3DHostProjMatSetSurface(selMat, cc, ccR, sss);
 							}
+							// ── MELANGE (etape 1 — Rihen : « mixer, operations, comme
+							// Blender et Unreal ») ─────────────────────────────────────
+							// B + source du masque + facteur. Les combos ECRIVENT EN FIN
+							// DE FRAME par pointeur : selections en stockage STATIQUE
+							// resynchronise (lecon de la « Loi »), libelles en tampons
+							// statiques qui survivent a la frame.
+							{
+								static char sMxNames[65][32];
+								static const char *sMxPtr[65];
+								static int32 sMxSlot[65];
+								snprintf(sMxNames[0], 32, "%s", "Aucun");
+								sMxPtr[0] = sMxNames[0];
+								sMxSlot[0] = -1;
+								int32 nMx = 1;
+								for (int32 mI = 0; mI < 64 && nMx < 65; ++mI) {
+									if (mI == selMat)
+										continue;
+									char nm3[64];
+									if (!demo::Demo3DHostProjMatInfo(mI, nm3, sizeof(nm3), nullptr,
+									                                 nullptr, nullptr))
+										continue;
+									snprintf(sMxNames[nMx], 32, "%s", nm3);
+									sMxPtr[nMx] = sMxNames[nMx];
+									sMxSlot[nMx] = mI;
+									++nMx;
+								}
+								const int32 curB = demo::Demo3DHostProjMatMixWith(selMat);
+								const int32 curSrc = demo::Demo3DHostProjMatMixSource(selMat);
+								float32 fac = demo::Demo3DHostProjMatMixFactor(selMat);
+								int32 curIdx = 0;
+								for (int32 k2 = 1; k2 < nMx; ++k2)
+									if (sMxSlot[k2] == curB)
+										curIdx = k2;
+								static int32 sMxSel = 0;
+								static int32 sMxSrcSel = 0;
+								static int32 sMxFor = -1;
+								if (sMxFor == selMat && sMxSel != curIdx) {
+									const int32 slotB = (sMxSel >= 0 && sMxSel < nMx) ? sMxSlot[sMxSel] : -1;
+									demo::Demo3DHostProjMatSetMix(selMat, slotB, curSrc, fac);
+									NkMarkDirty(st);
+								} else {
+									sMxSel = curIdx;
+								}
+								if (sMxFor == selMat && sMxSrcSel != curSrc) {
+									demo::Demo3DHostProjMatSetMix(selMat, demo::Demo3DHostProjMatMixWith(selMat),
+									                              sMxSrcSel, fac);
+									NkMarkDirty(st);
+								} else {
+									sMxSrcSel = curSrc;
+								}
+								sMxFor = selMat;
+								p.TextV(iR.x, yy, kRowH, "Melanger avec", NkRole::TextMuted);
+								Combo(p, hit, ws, "props.pm.mixb",
+								      {iR.x + S(110.f), yy + S(2.f), iR.w - S(110.f), kRowH - S(4.f)},
+								      sMxPtr, nullptr, nMx, sMxSel, combo);
+								yy += kRowH;
+								if (demo::Demo3DHostProjMatMixWith(selMat) >= 0) {
+									static const char *const kMxSrc[7] = {
+									    "Facteur", "Sommets R", "Sommets V", "Sommets B",
+									    "Sommets A", "Degrade UV X", "Degrade UV Y"};
+									p.TextV(iR.x, yy, kRowH, "Masque", NkRole::TextMuted);
+									Combo(p, hit, ws, "props.pm.mixs",
+									      {iR.x + S(110.f), yy + S(2.f), iR.w - S(110.f), kRowH - S(4.f)},
+									      kMxSrc, nullptr, 7, sMxSrcSel, combo);
+									yy += kRowH;
+									if (sMxSrcSel == 0) {
+										const float32 f0 = fac;
+										p.TextV(iR.x, yy, kRowH, "Facteur", NkRole::TextMuted);
+										DragFloat(p, hit, ws, in, "props.pm.mixf",
+										          {iR.x + S(110.f), yy + S(3.f), iR.w - S(110.f), kRowH - S(6.f)},
+										          fac, 0.005f, NkRole::AccentUi, "%.2f");
+										yy += kRowH;
+										if (fac != f0) {
+											demo::Demo3DHostProjMatSetMix(selMat,
+											                              demo::Demo3DHostProjMatMixWith(selMat),
+											                              sMxSrcSel, fac);
+											NkMarkDirty(st);
+										}
+									}
+								}
+							}
 							if (colCh || alb[0] != a0 || alb[1] != a1 || alb[2] != a2 ||
 								rgh != r0 || mtl != m0)
 								demo::Demo3DHostProjMatSetParams(selMat, alb, rgh, mtl);
@@ -12277,10 +12358,20 @@ namespace nkentseu {
 					p.Line(ox + 6.f, oy, ix - 6.f, iy, role);
 					p.Line(ix - 6.f, iy, ix, iy, role);
 				} else if (kind == 2) {
-					// Boule de rendu avec reflet : sans reflet, le disque se lit
-					// comme une pastille de couleur.
-					p.Disc(cx, cy, 22.f, role);
-					p.Disc(cx - 8.f, cy - 8.f, 5.f, NkRole::Text);
+					// MATERIAU : la BOULE D'APERCU REELLE (ids 4400+, rendue par
+					// l'hote et televersee quand elle perime) — la carte doit
+					// refleter le materiau (Rihen, 11 aout). Repli : l'ancien
+					// disque si l'emplacement est invalide.
+					const int32 mTh = st.browserMat[i] - 1;
+					if (mTh >= 0 && mTh < 64) {
+						const float32 side2 = (tw < pvH ? tw : pvH) - S(8.f);
+						p.Image(4400u + (uint32)mTh,
+								{cx - side2 * 0.5f, tyy + (pvH - side2) * 0.5f, side2,
+								 side2});
+					} else {
+						p.Disc(cx, cy, 22.f, role);
+						p.Disc(cx - 8.f, cy - 8.f, 5.f, NkRole::Text);
+					}
 				} else if (kind == 5) {
 					// SCENE : la MINIATURE REELLE si elle existe (elle vient de
 					// LA VUE, cf. la regle ci-dessus) ; sinon le globe raye --
