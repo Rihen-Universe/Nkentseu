@@ -252,7 +252,52 @@ agit sans qu'on puisse contrôler son action est exactement ce qu'on ne veut pas
 
 ---
 
-## PDF — état au 2026-08-11, et LE point d'entrée exact
+## PDF — ✅ RÉSOLU le 2026-08-11 : trois causes distinctes, trois correctifs
+
+Les 3 documents nommés du lot sont tous lus désormais (mesures avant → après) :
+
+| document | avant | après |
+|---|---|---|
+| ebin.pub 2D graphics (466 p.) | 96 % illisibles, REFUSÉ | **0 illisible**, 1513 passages |
+| Game Audio CppCon (156 p.) | 98 % illisibles, REFUSÉ | **0 illisible**, 546 passages |
+| computergraphics OpenGL 2e (535 p.) | **0 page** (ne s'ouvrait pas) | 0,13 % illisibles, 3744 passages |
+
+**Cause 1 — parseur CMap multi-sections** (`NkPdfFont.cpp::ParseToUnicode`).
+`while (!keyword(i, "endbfchar"))` testait le mot-clé sur l'espace *avant* lui —
+jamais vrai — et `readHex` sautait par-dessus la fin de section : la section
+`bfrange` suivante était dévorée comme des paires `bfchar`, les plages jamais
+déployées. Un CMap à section unique passait (d'où les PDF qui marchaient) ; un
+CMap multi-sections (générateurs d'ebooks) était mutilé en silence. Fix :
+sauter les blancs, tester le mot-clé de fin, refuser d'avancer hors `<`.
+
+**Cause 2 — pas de repli sur l'encodage de base** (`NkPdfFont`). Les PDF sortis
+de PowerPoint/Word écrivent leur texte en polices TrueType simples **sans**
+`/ToUnicode` mais avec `/Encoding /WinAnsiEncoding` — encodage **publié par la
+spec** (ISO 32000, annexe D). Fix : tables WinAnsi/MacRoman générées par script
+(codecs cp1252/mac_roman, jamais retapées à la main), repli dans `ToUnicode()`.
+`/Differences` non implémenté (0 occurrence dans les documents du fonds testés).
+
+**Cause 3 — chaîne `/Prev` bornée à 32** (`NkPdfLoad.cpp::LoadXrefAt`). Un livre
+retouché sous Acrobat portait **53** mises à jour incrémentales ; le corps
+d'origine (catalogue, pages) est au bout de la chaîne → « 0 page » sans un mot.
+Fix : anti-cycle par liste d'offsets visités (`mXrefSeen`), profondeur 1024 en
+garde-fou.
+
+Au passage : le cache de polices était par **nom seul** (`/F4`) — deux polices
+homonymes de ressources différentes (formulaires XObject) se partageaient un
+slot. Corrigé (clé = nom + identité du dictionnaire), même si ce n'était pas la
+cause ici. Et la sonde de diagnostic est désormais **non biaisée** : relevée au
+moment exact de l'échec `ToUnicode`, sur la police effectivement interrogée
+(l'ancienne comparait les premiers codes du flux à la table de la *dernière*
+police vue — deux objets sans rapport).
+
+**Limite qui demeure** (honnête, non réparable sans OCR/interprétation Type1) :
+les documents-images (scans) et les PDF LaTeX en Type1 sans `/ToUnicode`
+(papiers arXiv anciens). Pour les seconds : préférer la source `.tex`.
+
+---
+
+## (historique) PDF — état au 2026-08-11 avant résolution, et LE point d'entrée exact
 
 **La « régression » du jour n'existait pas** : le fichier de test avait été
 déplacé lors d'un filtrage du fonds. Le programme rendait « 0 octet, 0 opération »

@@ -927,6 +927,26 @@ namespace nkentseu {
 										it.w = static_cast<float32>(wpx);
 										it.h = static_cast<float32>(hpx);
 										it.text = f->ToUnicode(code);
+										// Sonde non biaisee : le couple (code demande, table)
+										// est releve ICI, sur la police effectivement
+										// interrogee, au moment ou elle echoue. Les codes
+										// accumules viennent tous de la MEME police que la
+										// table affichee — c'est ce qui manquait au relevé
+										// firstCodes/LastFont, qui comparait deux polices
+										// potentiellement differentes.
+										if (it.text.Size() == 0 && f->HasToUnicode() &&
+											mStats.nSondeCodes < 6 &&
+											(mStats.sondeFont == nullptr || mStats.sondeFont == f)) {
+											mStats.sondeFont = f;
+											mStats.sondeCodes[mStats.nSondeCodes++] = code;
+											if (mStats.nSondeTable == 0) {
+												mStats.sondeEntrees = static_cast<int32>(f->NbEntreesUni());
+												for (nk_size k = 0; k < 6 && k < f->NbEntreesUni(); ++k)
+													mStats.sondeTable[mStats.nSondeTable++] = f->CodeUniAt(k);
+												mStats.sondeTwoByte = f->IsTwoByte();
+												mStats.sondeFontName = f->BaseFont();
+											}
+										}
 										if (it.w > 0.f && it.h > 0.f && mText.Size() < 200000u)
 											mText.PushBack(it);
 									}

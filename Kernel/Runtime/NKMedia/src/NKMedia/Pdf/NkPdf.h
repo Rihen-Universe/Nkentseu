@@ -225,7 +225,8 @@ namespace nkentseu {
 					mutable NkVector<int32> mCache;	 // numero d'objet -> index mVals (-1 = pas encore lu)
 					mutable NkVector<uint8> mLoading; // garde anti-recursion par objet
 
-					int32 mTrailer = -1;			  // index du dictionnaire trailer
+					NkVector<usize> mXrefSeen;		  // offsets xref deja charges (anti-cycle /Prev)
+				int32 mTrailer = -1;			  // index du dictionnaire trailer
 					int32 mRoot = -1;				  // index du catalogue
 					NkVector<int32> mPages;			  // index des dictionnaires de page, dans l'ordre
 					NkVector<int32> mPageParent;	  // parent de chaque page (attributs herites)

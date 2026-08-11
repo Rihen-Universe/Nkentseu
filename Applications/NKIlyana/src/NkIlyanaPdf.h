@@ -131,10 +131,16 @@ namespace ilyana {
 		int64 tuDeclaree = 0;
 		int64 tuLue = 0;
 		// La confrontation décisive : ce que le flux DEMANDE vs ce que la table
-		// CONTIENT. Relevé une seule fois, sur la première page qui écrit du texte.
+		// CONTIENT — relevés PAR LE RENDU au même instant, sur la MÊME police,
+		// au premier ToUnicode qui rend vide malgré une table présente.
+		// (L'ancien relevé confrontait les premiers codes du flux à la table de
+		// la DERNIÈRE police vue : deux objets potentiellement sans rapport.)
+		bool sondePrise = false;
 		uint32 codesDemandes[6] = {0, 0, 0, 0, 0, 0};
 		uint32 codesTable[6] = {0, 0, 0, 0, 0, 0};
 		int64 entreesTable = 0;
+		bool tableDeuxOctets = false; // police composite (Type0/CID) ?
+		NkString policeSondee;		  // /BaseFont de la police sondée
 	};
 
 	inline NkString LirePdf(const char *chemin, int64 &nbPages, int64 &pagesMuettes, double dpi = 72.0,
@@ -169,17 +175,18 @@ namespace ilyana {
 				diag->tuDeclaree += st.tuDeclaree;
 				diag->tuLue += st.tuLue;
 				// UNE SEULE FOIS : les codes que le flux demande, en face de ceux
-				// que la table indexe. Si les ordres de grandeur different (un
-				// octet contre deux, par exemple), la cause saute aux yeux.
-				if (diag->codesDemandes[0] == 0 && st.nFirstCodes > 0) {
-					for (int32 k = 0; k < st.nFirstCodes && k < 6; ++k)
-						diag->codesDemandes[k] = st.firstCodes[k];
-					const NkPdfFont *f = rendu.LastFont();
-					if (f) {
-						diag->entreesTable = (int64)f->NbEntreesUni();
-						for (nk_size k = 0; k < 6 && k < f->NbEntreesUni(); ++k)
-							diag->codesTable[k] = f->CodeUniAt(k);
-					}
+				// que la table indexe. Le rendu les a relevés au même instant,
+				// sur la MÊME police, au premier échec de ToUnicode — plus de
+				// confrontation après coup entre deux polices différentes.
+				if (!diag->sondePrise && st.nSondeCodes > 0) {
+					diag->sondePrise = true;
+					for (int32 k = 0; k < st.nSondeCodes && k < 6; ++k)
+						diag->codesDemandes[k] = st.sondeCodes[k];
+					diag->entreesTable = (int64)st.sondeEntrees;
+					for (int32 k = 0; k < st.nSondeTable && k < 6; ++k)
+						diag->codesTable[k] = st.sondeTable[k];
+					diag->tableDeuxOctets = st.sondeTwoByte;
+					diag->policeSondee = st.sondeFontName;
 				}
 			}
 			const NkString t = AssemblerPage(rendu.TextItems());
