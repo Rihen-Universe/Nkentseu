@@ -284,6 +284,9 @@ namespace nkentseu {
 				const NkIcon *icons = nullptr;
 				int32 count = 0;
 				int32 *selected = nullptr;
+				// Elements GRISES : visibles mais inertes (nullptr = tous actifs).
+				// L'oeil doit VOIR qu'un choix n'est pas selectionnable (Rihen).
+				const bool *disabled = nullptr;
 				char key[48] = {};
 		};
 
@@ -296,7 +299,8 @@ namespace nkentseu {
 						  const NkRect &r, const char *const *items, const NkIcon *icons, int32 count,
 						  int32 &selected, NkComboPending &pending, bool enabled = true,
 						  bool showChevron = true, bool showFrame = true,
-						  NkIcon faceIcon = NkIcon::Count) {
+						  NkIcon faceIcon = NkIcon::Count,
+						  const bool *disabledItems = nullptr) {
 			const bool over = enabled && hit.Add(key, r);
 			const bool open = ws.ComboOpen(key);
 			const NkRole fg = enabled ? NkRole::Text : NkRole::TextMuted;
@@ -356,6 +360,7 @@ namespace nkentseu {
 				pending.icons = icons;
 				pending.count = count;
 				pending.selected = &selected;
+				pending.disabled = disabledItems;
 				NkWidgetState::Copy(pending.key, key);
 			}
 		}
@@ -408,7 +413,10 @@ namespace nkentseu {
 				snprintf(k, sizeof(k), "%s.i%d", pending.key, i);
 				const bool over = hit.Add(k, ir);
 				const bool cur = (i == *pending.selected);
-				if (over)
+				// GRISE = ni survol accentue, ni clic : l'oeil et la souris
+				// recoivent le meme message (Rihen, 11 aout).
+				const bool dis = pending.disabled && pending.disabled[i];
+				if (over && !dis)
 					p.Fill(ir, NkRole::AccentUi, 3.f);
 				float32 tx = ir.x + padL;
 				if (pending.icons) {
@@ -416,7 +424,9 @@ namespace nkentseu {
 							over ? NkRole::TextOnAccent : NkRole::Text, 13.f);
 					tx += iconW;
 				}
-				p.TextV(tx, ir.y, itemH, pending.items[i], over ? NkRole::TextOnAccent : NkRole::Text);
+				p.TextV(tx, ir.y, itemH, pending.items[i],
+						dis ? NkRole::TextMuted
+							: (over ? NkRole::TextOnAccent : NkRole::Text));
 				// La valeur COURANTE porte une coche : sans elle, on ne sait pas ce
 				// qu'on est en train de remplacer.
 				// La coche est peinte dans l'espace qui lui est RESERVE : sans
@@ -424,7 +434,7 @@ namespace nkentseu {
 				if (cur)
 					p.IconV(ir.x + ir.w - checkW + S(4.f), ir.y, itemH, NkIcon::Check,
 							over ? NkRole::TextOnAccent : NkRole::AccentUi, 13.f);
-				if (hit.Clicked(k)) {
+				if (!dis && hit.Clicked(k)) {
 					*pending.selected = i;
 					ws.CloseCombo();
 				}

@@ -9953,6 +9953,10 @@ namespace nkentseu {
 								static const bool kMtTypeOk[13] = {true,  false, false, false, false,
 								                                   false, false, false, true,  true,
 								                                   true,  true,  true};
+								// Masque GRISE du popup (l'inverse de Ok) : l'oeil voit l'inerte.
+								static const bool kMtTypeOff[13] = {false, true,  true,  true,  true,
+								                                    true,  true,  true,  false, false,
+								                                    false, false, false};
 								static const int32 kMtTypeVal[13] = {0, 3, 4, 5, 6, 7,
 								                                     8, 9, 11, 20, 21, 22, 60};
 								const int32 tCur = demo::Demo3DHostProjMatType(selMat);
@@ -9977,7 +9981,8 @@ namespace nkentseu {
 								p.TextV(iR.x, yy, kRowH, "Type", NkRole::TextMuted);
 								Combo(p, hit, ws, "props.pm.type",
 								      {iR.x + S(110.f), yy + S(2.f), iR.w - S(110.f), kRowH - S(4.f)},
-								      kMtTypes, nullptr, 13, sTySel, combo);
+								      kMtTypes, nullptr, 13, sTySel, combo, true, true, true,
+								      NkIcon::Count, kMtTypeOff);
 								yy += kRowH;
 							}
 							// L'INTERFACE SUIT LE TYPE (Rihen : « les proprietes du nouveau

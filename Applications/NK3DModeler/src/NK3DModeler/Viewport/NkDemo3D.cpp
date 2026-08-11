@@ -955,6 +955,10 @@ namespace nkentseu {
 					dc.tint.x = nkvpProjMats[pm].albedo[0];
 					dc.tint.y = nkvpProjMats[pm].albedo[1];
 					dc.tint.z = nkvpProjMats[pm].albedo[2];
+					// L'OPACITE part d'ici : c'est dc.alpha qui route le draw vers
+					// la file TRANSPARENTE du moteur — sans cette ligne, le curseur
+					// du panneau etait muet (constate par Rihen, 11 aout).
+					dc.alpha = nkvpProjMats[pm].alpha;
 					dc.metallic = nkvpProjMats[pm].metal;
 					dc.roughness = nkvpProjMats[pm].rough;
 					// Physique de surface : la couleur de diffusion suit l'albedo
