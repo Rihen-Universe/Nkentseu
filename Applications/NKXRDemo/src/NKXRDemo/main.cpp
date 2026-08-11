@@ -486,6 +486,14 @@ int nkmain(const NkEntryState &state) {
 	// impressions, pour distinguer un artefact GPU d'un manque d'images.
 	NkChrono paceChrono;
 	uint64 paceLastFrame = 0;
+	// Verrou DEMI-CADENCE (36 i/s pour un Quest 72 Hz) : mesuré 39-51 i/s
+	// INSTABLES — le compositeur bascule sans cesse entre reprojection et
+	// ASW, et chaque bascule se voit (saccades, cisaillements). Un rythme
+	// STABLE à 72/2 vaut mieux qu'un rythme oscillant plus haut : l'ASW se
+	// cale et lisse. NK_XR_HALF_RATE=0 pour le couper quand le moteur saura
+	// tenir 72 (chantier d'optimisation deux-vues).
+	const bool xrHalfRate = (EnvU64("NK_XR_HALF_RATE", 1) != 0);
+	NkChrono frameLimiter;
 	// NK_XR_SHADOW=0 coupe les ombres de la scène : le plus gros poste de
 	// coût GPU — l'interrupteur du test de cadence.
 	const bool xrShadowOn = (EnvU64("NK_XR_SHADOW", 1) != 0);
@@ -664,6 +672,17 @@ int nkmain(const NkEntryState &state) {
 		endInfo.displayTime = frameState.predictedDisplayTime;
 		endInfo.projection = haveViews ? &projLayer : nullptr;
 		xrSession->EndFrame(endInfo);
+
+		// Demi-cadence : compléter la frame jusqu'à 2 périodes d'affichage
+		// (dormir le reliquat) — le compositeur reçoit un battement régulier.
+		if (xrBound && xrHalfRate && frameState.predictedDisplayPeriod > 0) {
+			const float64 targetSeconds = 2.0 * float64(frameState.predictedDisplayPeriod) * 1e-9;
+			const float64 elapsedSeconds = frameLimiter.Elapsed().seconds;
+			if (elapsedSeconds < targetSeconds) {
+				NkChrono::SleepNanoseconds(int64((targetSeconds - elapsedSeconds) * 1e9));
+			}
+			frameLimiter.Reset();
+		}
 
 		// Cadence réelle toutes les ~144 frames (2 s à 72 Hz) quand le casque
 		// est lié : c'est le chiffre qui explique (ou innocente) le compositeur.
