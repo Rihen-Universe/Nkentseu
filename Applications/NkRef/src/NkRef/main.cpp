@@ -463,9 +463,11 @@ int nkmain(const NkEntryState &state) {
 	renderer::NkGuiCanvasBackend guiBackend;
 	const bool hasGui = guiBackend.Init(target.GetRenderer());
 	auto guiFontPtr = memory::NkMakeUnique<nkgui::NkGuiFont>();
-	bool hasGuiFont = guiFontPtr->LoadFromFile("Resources/Fonts/Karla-Regular.ttf", 17.0f);
+	// EMBARQUÉE d'abord : le binaire empaqueté pour les testeurs doit être
+	// autonome (aucun dossier Resources requis) ; le fichier n'est qu'un repli.
+	bool hasGuiFont = guiFontPtr->LoadEmbedded(NkEmbeddedFontId::DroidSans, 17.0f);
 	if (!hasGuiFont)
-		hasGuiFont = guiFontPtr->LoadEmbedded(NkEmbeddedFontId::ProggyClean, 16.0f);
+		hasGuiFont = guiFontPtr->LoadFromFile("Resources/Fonts/Karla-Regular.ttf", 17.0f);
 	if (hasGui && hasGuiFont && guiFontPtr->Valid()) {
 		gui.font = guiFontPtr.Get();
 		guiBackend.UploadFontGray8(guiFontPtr->TexId(), guiFontPtr->pixels, guiFontPtr->atlasW, guiFontPtr->atlasH);
