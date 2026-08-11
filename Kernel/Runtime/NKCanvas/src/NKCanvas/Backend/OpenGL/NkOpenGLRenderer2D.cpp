@@ -625,6 +625,50 @@ namespace nkentseu {
 			GLuint id = 0;
 			glGenTextures(1, &id);
 			glBindTexture(GL_TEXTURE_2D, id);
+
+			// Le contenu source est-il seulement NON VIDE ?
+			//
+			// Une texture entierement noire a l'ecran a deux causes possibles, et
+			// une seule question les separe : les octets televerses sont-ils deja a
+			// zero, ou le probleme est-il cote GPU ? Un decodeur peut rendre
+			// « succes » avec des dimensions valides et un contenu vide — c'est
+			// precisement ce que rapporte l'atlas de police (« all zero »).
+			//
+			// On echantillonne plutot que de tout parcourir : une grande texture
+			// couterait cher a chaque chargement.
+			if (rgba && w > 0u && h > 0u) {
+				const usize total = static_cast<usize>(w) * static_cast<usize>(h) * 4u;
+				usize pas = (total > 4096u) ? ((total / 1024u) & ~static_cast<usize>(3)) : 4u;
+				if (pas < 4u) {
+					pas = 4u;
+				}
+				bool rgbVide = true;
+				unsigned aMin = 255u, aMax = 0u;
+				for (usize i = 0; (i + 3u) < total; i += pas) {
+					if (rgba[i] != 0u || rgba[i + 1u] != 0u || rgba[i + 2u] != 0u) {
+						rgbVide = false;
+					}
+					const unsigned a = rgba[i + 3u];
+					if (a < aMin) {
+						aMin = a;
+					}
+					if (a > aMax) {
+						aMax = a;
+					}
+				}
+				// On ne signale que l'ANORMAL, pour ne pas noyer le journal : une
+				// image dont le contenu est nul, ou dont l'alpha est CONSTANT.
+				// Un alpha constant a 255 sur une image censee etre detouree veut
+				// dire que la transparence a ete perdue au decodage — ses zones
+				// vides se dessineront alors en noir opaque, un carre a la place
+				// du motif. Un alpha constant a 0 rend l'image entierement
+				// invisible.
+				if (rgbVide || aMin == aMax) {
+					logger.Warnf("[NkGL2D] texture %ux%u suspecte : rgb%s, alpha constant %u\n", w, h,
+								 rgbVide ? " NUL" : " present", aMin);
+				}
+			}
+
 			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, (GLsizei)w, (GLsizei)h, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
