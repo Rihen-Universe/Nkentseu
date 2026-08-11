@@ -58,6 +58,29 @@ jobs:
           # libasound2-dev : NKAudio/ALSA (revele par le probe NKCode).
           sudo apt-get install -y clang libx11-dev libxrandr-dev libxext-dev libgl1-mesa-dev libasound2-dev
 
+      - name: Runtime Python embarque (python-build-standalone, pour NKCode)
+        if: inputs.platform != 'ios'
+        run: |
+          # EPINGLE (pas de « latest ») : CPython 3.12.13, release 20260807 —
+          # tous les testeurs recoivent le meme runtime, et un changement de
+          # version est un choix explicite, pas un effet de bord.
+          # Disposition UNIX identique linux/macos -> la branche POSIX de
+          # NkEmbeddedJenga::WorkerMain couvre les deux sans changement.
+          REL=20260807
+          VER=3.12.13
+          if [ "${{ inputs.platform }}" = "macos" ]; then
+            TRIPLE=aarch64-apple-darwin
+            DEST=Externals/Libs/PythonEmbed/macos
+          else
+            TRIPLE=x86_64-unknown-linux-gnu
+            DEST=Externals/Libs/PythonEmbed/linux
+          fi
+          curl -fsSL -o /tmp/pbs.tar.gz "https://github.com/astral-sh/python-build-standalone/releases/download/$REL/cpython-$VER%2B$REL-$TRIPLE-install_only.tar.gz"
+          tar -xzf /tmp/pbs.tar.gz
+          mv python "$DEST"
+          echo "runtime pose dans $DEST :"
+          ls "$DEST"
+
       - name: Wheel Jenga (NKCode l'embarque pour ses boutons Construire)
         run: |
           python3 -m pip wheel ./jenga-src -w jenga-src/dist --no-deps -q || echo "wheel indisponible (non bloquant pour les autres cibles)"
@@ -82,6 +105,52 @@ jobs:
           echo "sortie: $OUT"
           test -n "$OUT"
           cp -R "$OUT" paquet/
+          APP="paquet/${{ inputs.target }}"
+
+          # ── NKCode : paquet COMPLET. L'artefact de build est un binaire NU
+          # (les dependfiles du .jenga ne sont materialises qu'au packaging
+          # jenga, pas au build — decouvert en assemblant la beta.5). On pose
+          # donc ici ce que NkAppFonts/NkAppIcons et NkEmbeddedJenga::
+          # Configure() cherchent A COTE de l'executable : data/,
+          # tools/python-embed, tools/jenga-src/Jenga (extrait du wheel par
+          # NKCode.jenga dans Build/_jenga-embed).
+          if [ "${{ inputs.target }}" = "NKCode" ] && [ "${{ inputs.platform }}" != "ios" ]; then
+            [ -d "$APP/data" ] || cp -R Applications/NKCode/data "$APP/data"
+            if [ "${{ inputs.platform }}" = "macos" ]; then
+              PYSRC=Externals/Libs/PythonEmbed/macos
+            else
+              PYSRC=Externals/Libs/PythonEmbed/linux
+            fi
+            if [ -d "$PYSRC" ]; then
+              mkdir -p "$APP/tools"
+              cp -R "$PYSRC" "$APP/tools/python-embed"
+            fi
+            if [ -d Build/_jenga-embed/Jenga ]; then
+              mkdir -p "$APP/tools/jenga-src"
+              cp -R Build/_jenga-embed/Jenga "$APP/tools/jenga-src/Jenga"
+            fi
+            # macOS : python-build-standalone enregistre un install_name ABSOLU
+            # dans libpython3.12.dylib -> le binaire chercherait la lib au
+            # chemin du RUNNER chez le testeur. On rebascule sur @rpath/ (le
+            # rpath @executable_path/tools/python-embed/lib est pose par
+            # NKCode.jenga), puis on RE-SIGNE ad hoc : install_name_tool
+            # invalide la signature, et arm64 refuse de LANCER un binaire non
+            # signe.
+            if [ "${{ inputs.platform }}" = "macos" ]; then
+              BIN="$APP/NKCode"
+              PYDEP=$(otool -L "$BIN" | awk '/libpython/{print $1; exit}')
+              echo "libpython liee : ${PYDEP:-aucune}"
+              case "$PYDEP" in
+                ""|@rpath/*) : ;;
+                *) install_name_tool -change "$PYDEP" "@rpath/$(basename "$PYDEP")" "$BIN" ;;
+              esac
+              codesign --force -s - "$BIN"
+              otool -L "$BIN" | head -8
+            fi
+            echo "contenu du paquet NKCode :"
+            ls "$APP" "$APP/tools" 2>/dev/null || true
+          fi
+
           tar -czf "${{ inputs.target }}-${{ inputs.platform }}.tar.gz" -C paquet .
           ls -l "${{ inputs.target }}-${{ inputs.platform }}.tar.gz"
 
