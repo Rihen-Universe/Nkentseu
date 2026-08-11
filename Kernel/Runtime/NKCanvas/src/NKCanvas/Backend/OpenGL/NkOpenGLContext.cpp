@@ -1446,6 +1446,39 @@ namespace nkentseu {
 					const int w = static_cast<int>(mData.width);
 					const int h = static_cast<int>(mData.height);
 					const int mx = w / 20, my = h / 20; // marge de 5 %
+
+					// Balayage d'une GRILLE, en plus des cinq points nommes.
+					//
+					// Cinq points ne disent pas si un ecran est vide : ils peuvent
+					// tous tomber entre les elements d'interface. Compter les
+					// teintes distinctes et retenir la plus claire tranche enfin
+					// entre « rien n'est dessine » et « c'est dessine, mais
+					// sombre » — la question sur laquelle on tournait en rond.
+					{
+						unsigned distinctes = 0, plusClair = 0;
+						unsigned vues[64] = {};
+						for (int gy = 0; gy < 8; ++gy) {
+							for (int gx = 0; gx < 8; ++gx) {
+								unsigned char q[4] = {0, 0, 0, 0};
+								glReadPixels(mx + (w - 2 * mx) * gx / 7, my + (h - 2 * my) * gy / 7, 1, 1, GL_RGBA,
+											 GL_UNSIGNED_BYTE, q);
+								const unsigned c = (unsigned)q[0] << 16 | (unsigned)q[1] << 8 | q[2];
+								const unsigned lum = (unsigned)q[0] + q[1] + q[2];
+								if (lum > plusClair) {
+									plusClair = lum;
+								}
+								bool connue = false;
+								for (unsigned k = 0; k < distinctes && !connue; ++k) {
+									connue = (vues[k] == c);
+								}
+								if (!connue && distinctes < 64u) {
+									vues[distinctes++] = c;
+								}
+							}
+						}
+						logger.Infof("[NkGL grille] %u teintes distinctes sur 64 points, luminosite max %u/765\n",
+									 distinctes, plusClair);
+					}
 					struct Point {
 							const char *nom;
 							int x, y;
