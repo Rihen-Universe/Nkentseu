@@ -35,6 +35,7 @@ namespace nkref {
 			NkVec2f pos{0.0f, 0.0f}; ///< centre, en monde
 			float32 scale = 1.0f;	 ///< uniforme (1 = taille native à 100 %)
 			float32 rotationDeg = 0.0f;
+			float32 opacity = 1.0f; ///< opacité PAR IMAGE (propriété PureRef, Étape 3)
 			bool mirrorX = false;
 			bool mirrorY = false;
 			uint32 texW = 0; ///< taille native de l'image (pixels source)

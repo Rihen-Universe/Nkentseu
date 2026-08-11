@@ -31,7 +31,7 @@ with project("NkRef"):
     # NKWindow, NKEvent, NKCore, NKMemory, NKMath, NKLogger, NKTime… sont tirés
     # automatiquement par NKCanvas/NKFont.
     nkentseudependson(
-        ["NKCanvas", "NKFont", "NKImage", "NKStream", "NKTime", "NKFileSystem", "NKGlad"],
+        ["NKGui", "NKCanvas", "NKFont", "NKImage", "NKStream", "NKTime", "NKFileSystem", "NKGlad"],
         extra_includes=["src"],
         extra_defines=[
             # OpenGL only : on n'active pas le backend Vulkan (pas de SDK requis).
