@@ -100,6 +100,27 @@ namespace nkentseu {
 					return true;
 				}
 
+				// Swapchains du CASQUE (2b.2) — le backend possède les images
+				// du compositeur ; l'app rend chez elle puis lui REMET ses
+				// images d'œil (handles natifs opaques — VkImage sous Vulkan)
+				// et il compose : copie vers l'image acquise + couche de
+				// projection au prochain EndFrame. Le simulateur accepte tout
+				// sans rien faire : son « casque » est la fenêtre, déjà servie.
+				virtual bool CreateHmdSwapchains(uint32 width, uint32 height) {
+					(void)width;
+					(void)height;
+					return true;
+				}
+				virtual bool SubmitEyes(const NkXrView views[NK_XR_EYE_COUNT], uint64 nativeImageLeft,
+										uint64 nativeImageRight, uint32 width, uint32 height) {
+					(void)views;
+					(void)nativeImageLeft;
+					(void)nativeImageRight;
+					(void)width;
+					(void)height;
+					return true;
+				}
+
 				virtual NkXrSystemInfo GetSystemInfo() const = 0;
 				virtual NkXrSessionState GetState() const = 0;
 				virtual bool PollEvent(NkXrEvent &outEvent) = 0;
