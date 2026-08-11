@@ -313,29 +313,32 @@ namespace nkentseu {
 		if (!filter.Empty() && filter != "*.*") {
 			// Transformer le filtre "*.png;*.jpg" en liste pour AppleScript
 			// AppleScript attend des types comme {"png","jpg"}
+			// Découpe MANUELLE sur ';' : NkString n'a ni find/substr/erase (API
+			// std retirée au passage zero-STL) — ce bloc n'avait jamais été
+			// compilé, la première CI macOS (2026-08-11) l'a révélé.
 			script += " of type {";
-			NkString f = filter;
-			size_t pos = 0;
+			const char *s = filter.CStr();
+			const usize n = filter.Size();
 			bool first = true;
-			while ((pos = f.find(';')) != NkString::npos) {
-				NkString ext = f.substr(0, pos);
-				if (!ext.Empty()) {
-					if (!first)
-						script += ",";
-					// enlever le *.
-					if (ext.Size() > 2 && ext[0] == '*' && ext[1] == '.')
-						ext = ext.substr(2);
-					script += "\"" + ext + "\"";
-					first = false;
+			usize start = 0;
+			for (usize i = 0; i <= n; ++i) {
+				if (i == n || s[i] == ';') {
+					usize b = start, e = i;
+					if (e > b + 1 && s[b] == '*' && s[b + 1] == '.')
+						b += 2; // enlever le "*."
+					if (e > b) {
+						if (!first)
+							script += ",";
+						script += "\"";
+						for (usize k = b; k < e; ++k) {
+							const char one[2] = {s[k], '\0'};
+							script += one;
+						}
+						script += "\"";
+						first = false;
+					}
+					start = i + 1;
 				}
-				f.erase(0, pos + 1);
-			}
-			if (!f.Empty()) {
-				if (!first)
-					script += ",";
-				if (f.Size() > 2 && f[0] == '*' && f[1] == '.')
-					f = f.substr(2);
-				script += "\"" + f + "\"";
 			}
 			script += "}";
 		}
