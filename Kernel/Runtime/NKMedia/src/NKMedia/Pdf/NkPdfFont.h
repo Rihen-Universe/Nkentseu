@@ -107,6 +107,20 @@ namespace nkentseu {
 					bool mTwoByte = false;
 					bool mIdentityCid = false; // Identity-H : le code EST le CID
 
+					// Encodage de BASE d'une police simple, quand le document le
+					// declare (/Encoding /WinAnsiEncoding...). C'est le repli
+					// legitime d'une police SANS table /ToUnicode : la spec PDF
+					// (ISO 32000, annexe D) publie le sens de chaque code — rien
+					// n'est devine. Les PDF sortis de PowerPoint/Word en dependent
+					// pour l'essentiel de leur texte.
+					enum NkBaseEnc : uint8 {
+						NK_ENC_NONE = 0,
+						NK_ENC_WINANSI,
+						NK_ENC_MACROMAN,
+						NK_ENC_STANDARD
+					};
+					NkBaseEnc mBaseEnc = NK_ENC_NONE;
+
 					// Largeurs des polices simples : /FirstChar + /Widths.
 					int32 mFirstChar = 0;
 					NkVector<double> mWidths;
@@ -144,6 +158,12 @@ namespace nkentseu {
 				private:
 					struct Slot {
 							NkString name;
+							// Identite de l'OBJET dictionnaire de la police (kind + index
+							// de sa premiere entree dans l'arene). Le nom seul ne suffit
+							// pas : un formulaire XObject a ses propres ressources, et le
+							// meme « /F4 » peut y designer une autre police.
+							int32 dictA = 0;
+							uint8 dictKind = 0;
 							NkPdfFont *font = nullptr;
 					};
 					NkVector<Slot> mSlots;

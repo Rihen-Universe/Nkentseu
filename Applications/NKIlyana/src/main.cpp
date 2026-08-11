@@ -1329,12 +1329,17 @@ static int ModeAjouter(int argc, char **argv) {
 					 (long long)diag.glyphesObtenus, (long long)diag.glyphesDemandes);
 		logger.Infof("      tables /ToUnicode : %lld declarees, %lld effectivement lues\n",
 					 (long long)diag.tuDeclaree, (long long)diag.tuLue);
-		logger.Infof("      codes DEMANDES par le flux : %u %u %u %u %u %u\n", diag.codesDemandes[0],
-					 diag.codesDemandes[1], diag.codesDemandes[2], diag.codesDemandes[3],
-					 diag.codesDemandes[4], diag.codesDemandes[5]);
-		logger.Infof("      codes CONTENUS dans la table (%lld entrees) : %u %u %u %u %u %u\n",
-					 (long long)diag.entreesTable, diag.codesTable[0], diag.codesTable[1],
-					 diag.codesTable[2], diag.codesTable[3], diag.codesTable[4], diag.codesTable[5]);
+		if (diag.sondePrise) {
+			logger.Infof("      sonde sur la police '%s' (%s), relevee au premier ToUnicode vide :\n",
+						 diag.policeSondee.Size() ? diag.policeSondee.CStr() : "?",
+						 diag.tableDeuxOctets ? "composite, codes 2 octets" : "simple, codes 1 octet");
+			logger.Infof("      codes DEMANDES a CETTE police : %u %u %u %u %u %u\n", diag.codesDemandes[0],
+						 diag.codesDemandes[1], diag.codesDemandes[2], diag.codesDemandes[3],
+						 diag.codesDemandes[4], diag.codesDemandes[5]);
+			logger.Infof("      codes CONTENUS dans SA table (%lld entrees) : %u %u %u %u %u %u\n",
+						 (long long)diag.entreesTable, diag.codesTable[0], diag.codesTable[1],
+						 diag.codesTable[2], diag.codesTable[3], diag.codesTable[4], diag.codesTable[5]);
+		}
 		// ⚠️ REFUS D'UN TEXTE ILLISIBLE — le garde-fou le plus important de ce mode.
 		// Une police sans table /ToUnicode ne declare pas ce que son glyphe
 		// represente. Le lecteur laisse alors le caractere vide, et ce qui SURNAGE

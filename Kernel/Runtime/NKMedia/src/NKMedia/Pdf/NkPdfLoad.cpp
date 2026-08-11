@@ -53,6 +53,7 @@ namespace nkentseu {
 				mPages.Clear();
 				mPageParent.Clear();
 				mObjStmDone.Clear();
+				mXrefSeen.Clear();
 				mTrailer = -1;
 				mRoot = -1;
 				mStatus = NK_PDF_ERR_OPEN;
@@ -183,8 +184,19 @@ namespace nkentseu {
 			}
 
 			bool NkPdfDoc::LoadXrefAt(usize pos, int32 depth) {
-				if (depth > 32 || pos >= mBuf.Size()) // chaine /Prev bornee (cycles)
+				// Anti-cycle : refuser de REVISITER un offset, pas borner la
+				// profondeur. Une borne courte (32) rejetait un vrai document :
+				// un livre retouche sous Acrobat portait 53 mises a jour
+				// incrementales, donc 53 maillons /Prev — et le corps d'origine
+				// (catalogue, pages) est au BOUT de la chaine : le tronquer rend
+				// « 0 page » sans un mot. La profondeur ne reste qu'en garde-fou
+				// large contre un fichier forge.
+				if (depth > 1024 || pos >= mBuf.Size())
 					return false;
+				for (usize i = 0; i < mXrefSeen.Size(); ++i)
+					if (mXrefSeen[i] == pos)
+						return true; // deja chargee : un cycle s'arrete ici
+				mXrefSeen.PushBack(pos);
 				usize p = pos;
 				while (p < mBuf.Size() && IsWsL(mBuf[p]))
 					++p;

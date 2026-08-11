@@ -111,6 +111,23 @@ namespace nkentseu {
 							int32 strBytes = 0;   // octets de chaine passes au rendu de texte
 							uint32 firstCodes[8] = {0, 0, 0, 0, 0, 0, 0, 0};
 							int32 nFirstCodes = 0;
+							// ── Sonde /ToUnicode NON BIAISEE ──
+							// firstCodes ci-dessus est preleve au fil des operations de
+							// texte, potentiellement sur PLUSIEURS polices : le confronter
+							// apres coup a la table d'une police choisie ailleurs compare
+							// deux objets sans rapport. Ici, tout est releve au MEME
+							// instant, sur la MEME police, au premier ToUnicode(code) qui
+							// rend vide alors que la table existe : les codes demandes a
+							// cette police, les premiers codes que SA table indexe, et sa
+							// nature (un ou deux octets).
+							const NkPdfFont *sondeFont = nullptr;
+							uint32 sondeCodes[6] = {0, 0, 0, 0, 0, 0};
+							int32 nSondeCodes = 0;
+							uint32 sondeTable[6] = {0, 0, 0, 0, 0, 0};
+							int32 nSondeTable = 0;
+							int32 sondeEntrees = 0;
+							bool sondeTwoByte = false;
+							NkString sondeFontName;
 					};
 					const Stats &GetStats() const { return mStats; }
 					// Derniere police vue par Tf : sert au diagnostic des pages blanches.
