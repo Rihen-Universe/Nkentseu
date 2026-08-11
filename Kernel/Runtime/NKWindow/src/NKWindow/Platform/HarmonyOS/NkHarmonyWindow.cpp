@@ -361,6 +361,21 @@ namespace nkentseu {
 
 		NkWindowSurfaceCreatedEvent evt(static_cast<uint32>(w), static_cast<uint32>(h));
 		NkWESystem::Events().Enqueue_Public(evt, win->GetId());
+
+		// … et le MEME evenement qu'Android emet dans ce cas (APP_CMD_INIT_WINDOW).
+		//
+		// C'est sur NkWindowShownEvent que les applications rattachent leur
+		// surface GPU — c'est ce que fait le code de Pong comme celui de Mou, et
+		// c'est ce qui marche sur Android. HarmonyOS n'emettait que
+		// SurfaceCreated : personne ne l'ecoutait, donc au retour d'arriere-plan
+		// (ou quand une autre application passe devant puis rend la main)
+		// l'application continuait de dessiner dans une surface morte — ecran
+		// NOIR, sans aucune erreur.
+		//
+		// Emettre les deux aligne HarmonyOS sur Android sans qu'aucune
+		// application ait a distinguer les deux plateformes.
+		NkWindowShownEvent shown;
+		NkWESystem::Events().Enqueue_Public(shown, win->GetId());
 	}
 
 	/**
@@ -418,6 +433,13 @@ namespace nkentseu {
 
 		NkWindowSurfaceDestroyedEvent evt;
 		NkWESystem::Events().Enqueue_Public(evt, win->GetId());
+
+		// Pendant du Shown emis a la creation : c'est sur Hidden que les
+		// applications cessent de rendre (Android fait de meme sur
+		// APP_CMD_TERM_WINDOW). Sans lui, elles continuaient de dessiner dans une
+		// surface deja detruite.
+		NkWindowHiddenEvent hidden;
+		NkWESystem::Events().Enqueue_Public(hidden, win->GetId());
 	}
 
 	// =========================================================================
