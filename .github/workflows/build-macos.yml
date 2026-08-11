@@ -1,0 +1,51 @@
+# =============================================================================
+# build-macos.yml — Compilation macOS de NkRef (et sa chaîne NKCanvas/NKGui)
+# sur un runner GitHub « macos-latest ».
+#
+# POURQUOI : aucun Mac sous la main — cette CI est notre seule machine Apple
+# (demande Rihen, 2026-08-11). Jenga et Nkentseu étant publics, le runner
+# clone tout en HTTPS sans secret.
+#
+# Déclenchement : manuel (workflow_dispatch) + push sur main et feat/**.
+# Le backend Cocoa vient d'être complété À L'AVEUGLE (SetDecorated,
+# BeginDragMove…) : les premières exécutions SERVENT à révéler les erreurs —
+# un échec ici est une information, pas une surprise.
+# =============================================================================
+name: build-macos
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, "feat/**"]
+    paths:
+      - "Kernel/**"
+      - "Applications/NkRef/**"
+      - "Nkentseu.jenga"
+      - ".github/workflows/build-macos.yml"
+
+jobs:
+  nkref-macos:
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - name: Depot Nkentseu (+ sous-modules Externals)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Depot Jenga (public, la source EST le build system)
+        uses: actions/checkout@v4
+        with:
+          repository: Rihen-Universe/Jenga
+          path: jenga-src
+
+      - name: Builder NkRef (Release)
+        env:
+          # Le paquet Python `Jenga` vit a la racine du depot Jenga.
+          PYTHONPATH: ${{ github.workspace }}/jenga-src
+        run: |
+          python3 --version
+          python3 -m Jenga build --target NkRef --config Release
+
+      - name: Binaire produit
+        run: ls -lR Build/Bin/Release-macOS* 2>/dev/null || ls -lR Build/Bin | head -40
