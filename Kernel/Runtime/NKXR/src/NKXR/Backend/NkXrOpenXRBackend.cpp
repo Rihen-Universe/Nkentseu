@@ -757,7 +757,11 @@ namespace nkentseu {
 				// (le compositeur fenêtre la lit en Overlay2D) → SHADER_READ.
 				VkImageMemoryBarrier barriers[2]{};
 				barriers[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-				barriers[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+				// MEMORY_WRITE et pas SHADER_READ : ce sont les ÉCRITURES du
+				// rendu qu'il faut rendre visibles au transfert — ne flusher
+				// que les lectures laissait la copie lire des données
+				// partielles (déchirures possibles sous contention).
+				barriers[0].srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
 				barriers[0].dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
 				barriers[0].oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 				barriers[0].newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
