@@ -55,7 +55,9 @@ void main(){
     float NdotV=dot(N,V);
     if(uToon.outlineWidth>0.0&&NdotV>0.0){float edge=1.-NdotV;if(edge>1.-uToon.outlineWidth*0.1){fragColor=vec4(uToon.outlineColor.rgb,alpha);return;}}
     vec3 total=vec3(0.);
-    for(int i=0;i<uLights.count&&i<32;i++){
+    // Compte CONSTANT + break (X3570 : gradient en boucle variable).
+    for(int i=0;i<32;i++){
+        if(i>=uLights.count)break;
         vec3 L=(int(uLights.positions[i].w)==0)?normalize(-uLights.directions[i].xyz):normalize(uLights.positions[i].xyz-vWorldPos);
         // NkVSM v2 : overrides per-material (.x receiveShadow, .z biasMul).
         float shadow = (uLights.angles[i].z > 0.5 && uObj.shadowOverrides.x > 0.5)
