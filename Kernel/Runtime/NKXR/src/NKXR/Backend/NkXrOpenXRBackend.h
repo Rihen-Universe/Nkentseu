@@ -49,6 +49,11 @@ namespace nkentseu {
 				bool GetVulkanRequirements(NkXrVulkanRequirements &outRequirements) override;
 				void *GetVulkanPhysicalDevice(void *vkInstance) override;
 				bool BindVulkan(const NkXrVulkanBinding &binding) override;
+				// 2b.2 : les images du compositeur + la copie de nos yeux vers
+				// elles + la couche de projection au EndFrame.
+				bool CreateHmdSwapchains(uint32 width, uint32 height) override;
+				bool SubmitEyes(const NkXrView views[NK_XR_EYE_COUNT], uint64 nativeImageLeft,
+								uint64 nativeImageRight, uint32 width, uint32 height) override;
 
 				NkXrSystemInfo GetSystemInfo() const override;
 				NkXrSessionState GetState() const override;

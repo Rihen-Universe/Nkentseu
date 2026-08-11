@@ -43,6 +43,9 @@ namespace nkentseu {
 				bool GetVulkanRequirements(NkXrVulkanRequirements &outRequirements);
 				void *GetVulkanPhysicalDevice(void *vkInstance);
 				bool BindVulkan(const NkXrVulkanBinding &binding);
+				bool CreateHmdSwapchains(uint32 width, uint32 height);
+				bool SubmitEyes(const NkXrView views[NK_XR_EYE_COUNT], uint64 nativeImageLeft,
+								uint64 nativeImageRight, uint32 width, uint32 height);
 
 				// ── Système ──────────────────────────────────────────────────
 				NkXrSystemInfo GetSystemInfo() const;

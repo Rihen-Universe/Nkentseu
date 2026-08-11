@@ -81,6 +81,49 @@ namespace nkentseu {
 				PFN_xrBeginFrame beginFrame = nullptr;
 				PFN_xrEndFrame endFrame = nullptr;
 				PFN_xrLocateViews locateViews = nullptr;
+				// Swapchains (2b.2).
+				PFN_xrEnumerateSwapchainFormats enumSwapchainFormats = nullptr;
+				PFN_xrCreateSwapchain createSwapchain = nullptr;
+				PFN_xrDestroySwapchain destroySwapchain = nullptr;
+				PFN_xrEnumerateSwapchainImages enumSwapchainImages = nullptr;
+				PFN_xrAcquireSwapchainImage acquireSwapchainImage = nullptr;
+				PFN_xrWaitSwapchainImage waitSwapchainImage = nullptr;
+				PFN_xrReleaseSwapchainImage releaseSwapchainImage = nullptr;
+
+				// ── 2b.2 : swapchains du casque + copie Vulkan ───────────────
+				XrSwapchain hmdSwapchains[2]{ XR_NULL_HANDLE, XR_NULL_HANDLE };
+				VkImage hmdImages[2][8]{};
+				uint32 hmdImageCount[2]{ 0, 0 };
+				uint32 hmdWidth = 0;
+				uint32 hmdHeight = 0;
+				int64 hmdFormat = 0;
+				bool layerPending = false;
+				XrCompositionLayerProjectionView pendingViews[2]{};
+
+				// Vulkan dynamique : AUCUN link — vulkan-1.dll chargée comme le
+				// loader, mêmes raisons (une DLL absente ne doit pas empêcher
+				// l'exe de démarrer).
+				HMODULE vulkanLib = nullptr;
+				VkDevice vkDevice = VK_NULL_HANDLE;
+				VkQueue vkQueue = VK_NULL_HANDLE;
+				VkCommandPool vkCmdPool = VK_NULL_HANDLE;
+				VkCommandBuffer vkCmd = VK_NULL_HANDLE;
+				VkFence vkFence = VK_NULL_HANDLE;
+				bool vkFenceUsed = false;
+				PFN_vkGetDeviceQueue fnGetDeviceQueue = nullptr;
+				PFN_vkCreateCommandPool fnCreateCommandPool = nullptr;
+				PFN_vkDestroyCommandPool fnDestroyCommandPool = nullptr;
+				PFN_vkAllocateCommandBuffers fnAllocateCommandBuffers = nullptr;
+				PFN_vkBeginCommandBuffer fnBeginCommandBuffer = nullptr;
+				PFN_vkEndCommandBuffer fnEndCommandBuffer = nullptr;
+				PFN_vkResetCommandBuffer fnResetCommandBuffer = nullptr;
+				PFN_vkQueueSubmit fnQueueSubmit = nullptr;
+				PFN_vkCreateFence fnCreateFence = nullptr;
+				PFN_vkDestroyFence fnDestroyFence = nullptr;
+				PFN_vkWaitForFences fnWaitForFences = nullptr;
+				PFN_vkResetFences fnResetFences = nullptr;
+				PFN_vkCmdPipelineBarrier fnCmdPipelineBarrier = nullptr;
+				PFN_vkCmdCopyImage fnCmdCopyImage = nullptr;
 		};
 
 		namespace {
@@ -342,6 +385,13 @@ namespace nkentseu {
 			NK_OXR_LOAD(xrBeginFrame, beginFrame);
 			NK_OXR_LOAD(xrEndFrame, endFrame);
 			NK_OXR_LOAD(xrLocateViews, locateViews);
+			NK_OXR_LOAD(xrEnumerateSwapchainFormats, enumSwapchainFormats);
+			NK_OXR_LOAD(xrCreateSwapchain, createSwapchain);
+			NK_OXR_LOAD(xrDestroySwapchain, destroySwapchain);
+			NK_OXR_LOAD(xrEnumerateSwapchainImages, enumSwapchainImages);
+			NK_OXR_LOAD(xrAcquireSwapchainImage, acquireSwapchainImage);
+			NK_OXR_LOAD(xrWaitSwapchainImage, waitSwapchainImage);
+			NK_OXR_LOAD(xrReleaseSwapchainImage, releaseSwapchainImage);
 			#undef NK_OXR_LOAD
 
 			XrInstanceProperties instProps{};
@@ -397,6 +447,25 @@ namespace nkentseu {
 		void NkXrOpenXRBackend::Shutdown() {
 			if (mOxr == nullptr) {
 				return;
+			}
+			// Outillage de composition d'abord : attendre notre dernier travail
+			// GPU avant de détruire quoi que ce soit qu'il référence.
+			if (mOxr->vkFenceUsed && mOxr->fnWaitForFences != nullptr) {
+				mOxr->fnWaitForFences(mOxr->vkDevice, 1, &mOxr->vkFence, VK_TRUE, UINT64_MAX);
+			}
+			for (uint32 eye = 0; eye < NK_XR_EYE_COUNT; ++eye) {
+				if (mOxr->hmdSwapchains[eye] != XR_NULL_HANDLE && mOxr->destroySwapchain != nullptr) {
+					mOxr->destroySwapchain(mOxr->hmdSwapchains[eye]);
+				}
+			}
+			if (mOxr->vkFence != VK_NULL_HANDLE && mOxr->fnDestroyFence != nullptr) {
+				mOxr->fnDestroyFence(mOxr->vkDevice, mOxr->vkFence, nullptr);
+			}
+			if (mOxr->vkCmdPool != VK_NULL_HANDLE && mOxr->fnDestroyCommandPool != nullptr) {
+				mOxr->fnDestroyCommandPool(mOxr->vkDevice, mOxr->vkCmdPool, nullptr);
+			}
+			if (mOxr->vulkanLib != nullptr) {
+				FreeLibrary(mOxr->vulkanLib);
 			}
 			for (uint32 i = 0; i < 3u; ++i) {
 				if (mOxr->spaces[i] != XR_NULL_HANDLE && mOxr->destroySpace != nullptr) {
@@ -520,7 +589,255 @@ namespace nkentseu {
 					}
 				}
 			}
+			// Outillage Vulkan de la composition (2b.2) : queue, pool, fence.
+			// vulkan-1.dll chargée dynamiquement — même politique que le
+			// loader, aucun symbole lié.
+			mOxr->vkDevice = static_cast<VkDevice>(binding.device);
+			mOxr->vulkanLib = LoadLibraryA("vulkan-1.dll");
+			PFN_vkGetInstanceProcAddr vkGipa = nullptr;
+			if (mOxr->vulkanLib != nullptr) {
+				vkGipa = PFN_vkGetInstanceProcAddr(GetProcAddress(mOxr->vulkanLib, "vkGetInstanceProcAddr"));
+			}
+			if (vkGipa != nullptr) {
+				VkInstance vkInstance = static_cast<VkInstance>(binding.instance);
+				#define NK_VKX_LOAD(fn, member) \
+					mOxr->member = PFN_##fn(vkGipa(vkInstance, #fn))
+				NK_VKX_LOAD(vkGetDeviceQueue, fnGetDeviceQueue);
+				NK_VKX_LOAD(vkCreateCommandPool, fnCreateCommandPool);
+				NK_VKX_LOAD(vkDestroyCommandPool, fnDestroyCommandPool);
+				NK_VKX_LOAD(vkAllocateCommandBuffers, fnAllocateCommandBuffers);
+				NK_VKX_LOAD(vkBeginCommandBuffer, fnBeginCommandBuffer);
+				NK_VKX_LOAD(vkEndCommandBuffer, fnEndCommandBuffer);
+				NK_VKX_LOAD(vkResetCommandBuffer, fnResetCommandBuffer);
+				NK_VKX_LOAD(vkQueueSubmit, fnQueueSubmit);
+				NK_VKX_LOAD(vkCreateFence, fnCreateFence);
+				NK_VKX_LOAD(vkDestroyFence, fnDestroyFence);
+				NK_VKX_LOAD(vkWaitForFences, fnWaitForFences);
+				NK_VKX_LOAD(vkResetFences, fnResetFences);
+				NK_VKX_LOAD(vkCmdPipelineBarrier, fnCmdPipelineBarrier);
+				NK_VKX_LOAD(vkCmdCopyImage, fnCmdCopyImage);
+				#undef NK_VKX_LOAD
+			}
+			if (mOxr->fnGetDeviceQueue != nullptr && mOxr->fnCreateCommandPool != nullptr) {
+				mOxr->fnGetDeviceQueue(mOxr->vkDevice, binding.queueFamilyIndex, binding.queueIndex, &mOxr->vkQueue);
+				VkCommandPoolCreateInfo poolInfo{};
+				poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+				poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+				poolInfo.queueFamilyIndex = binding.queueFamilyIndex;
+				if (mOxr->fnCreateCommandPool(mOxr->vkDevice, &poolInfo, nullptr, &mOxr->vkCmdPool) == VK_SUCCESS) {
+					VkCommandBufferAllocateInfo allocInfo{};
+					allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+					allocInfo.commandPool = mOxr->vkCmdPool;
+					allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+					allocInfo.commandBufferCount = 1;
+					mOxr->fnAllocateCommandBuffers(mOxr->vkDevice, &allocInfo, &mOxr->vkCmd);
+					VkFenceCreateInfo fenceInfo{};
+					fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+					mOxr->fnCreateFence(mOxr->vkDevice, &fenceInfo, nullptr, &mOxr->vkFence);
+				}
+			}
+			if (mOxr->vkQueue == VK_NULL_HANDLE || mOxr->vkCmd == VK_NULL_HANDLE) {
+				logger.Warnf("[NKXR/OpenXR] Outillage Vulkan de composition indisponible : session OK mais AUCUNE couche possible.\n");
+			}
+
 			logger.Infof("[NKXR/OpenXR] Session de casque créée (liaison Vulkan OK) — en attente de READY.\n");
+			return true;
+		}
+
+		bool NkXrOpenXRBackend::CreateHmdSwapchains(uint32 width, uint32 height) {
+			if (mOxr == nullptr || mOxr->session == XR_NULL_HANDLE || mOxr->createSwapchain == nullptr) {
+				return false;
+			}
+			// Le format est négocié : R8G8B8A8 exigé (SRGB de préférence) car
+			// la remise d'image se fait par COPIE BRUTE (vkCmdCopyImage) — nos
+			// octets sont déjà encodés sRGB par le tonemap ACES ; un blit avec
+			// conversion les ré-encoderait (image délavée, le piège classique).
+			int64 formats[64];
+			uint32 formatCount = 0;
+			mOxr->enumSwapchainFormats(mOxr->session, 64, &formatCount, formats);
+			int64 chosen = 0;
+			for (uint32 i = 0; i < formatCount && chosen == 0; ++i) {
+				if (formats[i] == int64(VK_FORMAT_R8G8B8A8_SRGB)) {
+					chosen = formats[i];
+				}
+			}
+			for (uint32 i = 0; i < formatCount && chosen == 0; ++i) {
+				if (formats[i] == int64(VK_FORMAT_R8G8B8A8_UNORM)) {
+					chosen = formats[i];
+				}
+			}
+			if (chosen == 0) {
+				logger.Errorf("[NKXR/OpenXR] Aucun format R8G8B8A8 dans les %u formats du runtime — couches impossibles.\n",
+							  formatCount);
+				return false;
+			}
+			for (uint32 eye = 0; eye < NK_XR_EYE_COUNT; ++eye) {
+				XrSwapchainCreateInfo info{};
+				info.type = XR_TYPE_SWAPCHAIN_CREATE_INFO;
+				info.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT | XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT;
+				info.format = chosen;
+				info.sampleCount = 1;
+				info.width = width;
+				info.height = height;
+				info.faceCount = 1;
+				info.arraySize = 1;
+				info.mipCount = 1;
+				if (XR_FAILED(mOxr->createSwapchain(mOxr->session, &info, &mOxr->hmdSwapchains[eye]))) {
+					logger.Errorf("[NKXR/OpenXR] xrCreateSwapchain œil %u KO.\n", eye);
+					return false;
+				}
+				XrSwapchainImageVulkanKHR images[8];
+				for (uint32 i = 0; i < 8u; ++i) {
+					images[i] = XrSwapchainImageVulkanKHR{};
+					images[i].type = XR_TYPE_SWAPCHAIN_IMAGE_VULKAN_KHR;
+				}
+				uint32 imageCount = 0;
+				if (XR_FAILED(mOxr->enumSwapchainImages(mOxr->hmdSwapchains[eye], 8, &imageCount,
+														reinterpret_cast<XrSwapchainImageBaseHeader *>(images))) ||
+					imageCount == 0u) {
+					logger.Errorf("[NKXR/OpenXR] xrEnumerateSwapchainImages œil %u KO.\n", eye);
+					return false;
+				}
+				mOxr->hmdImageCount[eye] = imageCount;
+				for (uint32 i = 0; i < imageCount && i < 8u; ++i) {
+					mOxr->hmdImages[eye][i] = images[i].image;
+				}
+			}
+			mOxr->hmdWidth = width;
+			mOxr->hmdHeight = height;
+			mOxr->hmdFormat = chosen;
+			logger.Infof("[NKXR/OpenXR] Swapchains casque : %ux%u, format %lld, %u images par œil.\n", width, height,
+						 (long long)chosen, mOxr->hmdImageCount[0]);
+			return true;
+		}
+
+		bool NkXrOpenXRBackend::SubmitEyes(const NkXrView views[NK_XR_EYE_COUNT], uint64 nativeImageLeft,
+										   uint64 nativeImageRight, uint32 width, uint32 height) {
+			if (mOxr == nullptr || !mOxr->sessionRunning || mOxr->hmdSwapchains[0] == XR_NULL_HANDLE ||
+				mOxr->vkQueue == VK_NULL_HANDLE || mOxr->vkCmd == VK_NULL_HANDLE) {
+				return false;
+			}
+			if (width != mOxr->hmdWidth || height != mOxr->hmdHeight) {
+				// Copie brute = tailles STRICTEMENT égales ; l'app doit rendre
+				// à la taille des swapchains, pas « à peu près ».
+				logger.Errorf("[NKXR/OpenXR] SubmitEyes : %ux%u fourni, %ux%u attendu.\n", width, height,
+							  mOxr->hmdWidth, mOxr->hmdHeight);
+				return false;
+			}
+			const VkImage sources[2] = { VkImage(uintptr_t(nativeImageLeft)), VkImage(uintptr_t(nativeImageRight)) };
+
+			// La fence sérialise notre unique command buffer d'une frame sur
+			// l'autre — le compositeur, lui, est synchronisé par Acquire/Wait.
+			if (mOxr->vkFenceUsed) {
+				mOxr->fnWaitForFences(mOxr->vkDevice, 1, &mOxr->vkFence, VK_TRUE, UINT64_MAX);
+				mOxr->fnResetFences(mOxr->vkDevice, 1, &mOxr->vkFence);
+				mOxr->vkFenceUsed = false;
+			}
+			mOxr->fnResetCommandBuffer(mOxr->vkCmd, 0);
+			VkCommandBufferBeginInfo beginInfo{};
+			beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+			beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+			mOxr->fnBeginCommandBuffer(mOxr->vkCmd, &beginInfo);
+
+			uint32 acquired[2] = { 0, 0 };
+			for (uint32 eye = 0; eye < NK_XR_EYE_COUNT; ++eye) {
+				XrSwapchainImageAcquireInfo acquireInfo{};
+				acquireInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO;
+				if (XR_FAILED(mOxr->acquireSwapchainImage(mOxr->hmdSwapchains[eye], &acquireInfo, &acquired[eye]))) {
+					return false;
+				}
+				XrSwapchainImageWaitInfo waitInfo{};
+				waitInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO;
+				waitInfo.timeout = XR_INFINITE_DURATION;
+				if (XR_FAILED(mOxr->waitSwapchainImage(mOxr->hmdSwapchains[eye], &waitInfo))) {
+					return false;
+				}
+				const VkImage dst = mOxr->hmdImages[eye][acquired[eye]];
+				const VkImage src = sources[eye];
+
+				VkImageSubresourceRange range{};
+				range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+				range.levelCount = 1;
+				range.layerCount = 1;
+
+				// Source : la cible finale du renderer sort échantillonnable
+				// (le compositeur fenêtre la lit en Overlay2D) → SHADER_READ.
+				VkImageMemoryBarrier barriers[2]{};
+				barriers[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+				barriers[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+				barriers[0].dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+				barriers[0].oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+				barriers[0].newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+				barriers[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				barriers[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				barriers[0].image = src;
+				barriers[0].subresourceRange = range;
+				// Destination : contenu intégralement réécrit → UNDEFINED, le
+				// GPU n'a rien à préserver.
+				barriers[1] = barriers[0];
+				barriers[1].srcAccessMask = 0;
+				barriers[1].dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+				barriers[1].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+				barriers[1].newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+				barriers[1].image = dst;
+				mOxr->fnCmdPipelineBarrier(mOxr->vkCmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+										   VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 2, barriers);
+
+				VkImageCopy region{};
+				region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+				region.srcSubresource.layerCount = 1;
+				region.dstSubresource = region.srcSubresource;
+				region.extent = { width, height, 1 };
+				mOxr->fnCmdCopyImage(mOxr->vkCmd, src, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst,
+									 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+				// Retours : source ré-échantillonnable, destination dans le
+				// layout que XR_KHR_vulkan_enable exige à la remise.
+				barriers[0].srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+				barriers[0].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+				barriers[0].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+				barriers[0].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+				barriers[1].srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+				barriers[1].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+				barriers[1].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+				barriers[1].newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+				mOxr->fnCmdPipelineBarrier(mOxr->vkCmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+										   VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, nullptr, 0, nullptr, 2, barriers);
+			}
+
+			mOxr->fnEndCommandBuffer(mOxr->vkCmd);
+			VkSubmitInfo submitInfo{};
+			submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+			submitInfo.commandBufferCount = 1;
+			submitInfo.pCommandBuffers = &mOxr->vkCmd;
+			mOxr->fnQueueSubmit(mOxr->vkQueue, 1, &submitInfo, mOxr->vkFence);
+			mOxr->vkFenceUsed = true;
+
+			for (uint32 eye = 0; eye < NK_XR_EYE_COUNT; ++eye) {
+				// Release APRÈS la soumission : le runtime considère alors tout
+				// le travail GPU en file comme faisant partie de la frame.
+				XrSwapchainImageReleaseInfo releaseInfo{};
+				releaseInfo.type = XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO;
+				mOxr->releaseSwapchainImage(mOxr->hmdSwapchains[eye], &releaseInfo);
+
+				mOxr->pendingViews[eye] = XrCompositionLayerProjectionView{};
+				mOxr->pendingViews[eye].type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
+				mOxr->pendingViews[eye].pose.position.x = views[eye].position.x;
+				mOxr->pendingViews[eye].pose.position.y = views[eye].position.y;
+				mOxr->pendingViews[eye].pose.position.z = views[eye].position.z;
+				mOxr->pendingViews[eye].pose.orientation.x = views[eye].orientation.x;
+				mOxr->pendingViews[eye].pose.orientation.y = views[eye].orientation.y;
+				mOxr->pendingViews[eye].pose.orientation.z = views[eye].orientation.z;
+				mOxr->pendingViews[eye].pose.orientation.w = views[eye].orientation.w;
+				mOxr->pendingViews[eye].fov.angleLeft = views[eye].fov.angleLeft;
+				mOxr->pendingViews[eye].fov.angleRight = views[eye].fov.angleRight;
+				mOxr->pendingViews[eye].fov.angleUp = views[eye].fov.angleUp;
+				mOxr->pendingViews[eye].fov.angleDown = views[eye].fov.angleDown;
+				mOxr->pendingViews[eye].subImage.swapchain = mOxr->hmdSwapchains[eye];
+				mOxr->pendingViews[eye].subImage.imageRect.extent.width = int32(width);
+				mOxr->pendingViews[eye].subImage.imageRect.extent.height = int32(height);
+			}
+			mOxr->layerPending = true;
 			return true;
 		}
 
@@ -621,16 +938,28 @@ namespace nkentseu {
 			if (mOxr == nullptr || !mOxr->sessionRunning || mOxr->endFrame == nullptr) {
 				return false;
 			}
-			// 2b.1 : AUCUNE couche soumise — le casque affiche le vide, mais
-			// la boucle de frame est RÉELLE (cadencée par le compositeur) et
-			// les poses prédites arrivent. Les couches viennent avec les
-			// swapchains (2b.2).
+			// 2b.2 : la couche de projection préparée par SubmitEyes part ici ;
+			// sans elle (démarrage, frame sautée), soumission vide légale.
+			XrCompositionLayerProjection projectionLayer{};
+			const XrCompositionLayerBaseHeader *layers[1] = { nullptr };
 			XrFrameEndInfo endInfo{};
 			endInfo.type = XR_TYPE_FRAME_END_INFO;
 			endInfo.displayTime = XrTime(info.displayTime);
 			endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
-			endInfo.layerCount = 0;
-			endInfo.layers = nullptr;
+			if (mOxr->layerPending) {
+				projectionLayer.type = XR_TYPE_COMPOSITION_LAYER_PROJECTION;
+				projectionLayer.space = mOxr->spaces[2]; // STAGE (ou son repli LOCAL)
+				projectionLayer.viewCount = 2;
+				projectionLayer.views = mOxr->pendingViews;
+				layers[0] = reinterpret_cast<const XrCompositionLayerBaseHeader *>(&projectionLayer);
+				endInfo.layerCount = 1;
+				endInfo.layers = layers;
+				mOxr->layerPending = false;
+			}
+			else {
+				endInfo.layerCount = 0;
+				endInfo.layers = nullptr;
+			}
 			return XR_SUCCEEDED(mOxr->endFrame(mOxr->session, &endInfo));
 		}
 
@@ -735,6 +1064,22 @@ namespace nkentseu {
 
 		bool NkXrOpenXRBackend::BindVulkan(const NkXrVulkanBinding &binding) {
 			(void)binding;
+			return false;
+		}
+
+		bool NkXrOpenXRBackend::CreateHmdSwapchains(uint32 width, uint32 height) {
+			(void)width;
+			(void)height;
+			return false;
+		}
+
+		bool NkXrOpenXRBackend::SubmitEyes(const NkXrView views[NK_XR_EYE_COUNT], uint64 nativeImageLeft,
+										   uint64 nativeImageRight, uint32 width, uint32 height) {
+			(void)views;
+			(void)nativeImageLeft;
+			(void)nativeImageRight;
+			(void)width;
+			(void)height;
 			return false;
 		}
 

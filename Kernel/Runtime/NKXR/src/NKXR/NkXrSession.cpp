@@ -104,6 +104,15 @@ namespace nkentseu {
 			return mBackend->BindVulkan(binding);
 		}
 
+		bool NkXrSession::CreateHmdSwapchains(uint32 width, uint32 height) {
+			return mBackend->CreateHmdSwapchains(width, height);
+		}
+
+		bool NkXrSession::SubmitEyes(const NkXrView views[NK_XR_EYE_COUNT], uint64 nativeImageLeft,
+									 uint64 nativeImageRight, uint32 width, uint32 height) {
+			return mBackend->SubmitEyes(views, nativeImageLeft, nativeImageRight, width, height);
+		}
+
 		NkXrSystemInfo NkXrSession::GetSystemInfo() const {
 			return mBackend->GetSystemInfo();
 		}
