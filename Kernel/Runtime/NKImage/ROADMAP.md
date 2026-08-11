@@ -118,6 +118,17 @@ EXR non supportés explicitement : PXR24, B44, B44A, DWAA, DWAB, tiles, multipar
 
 ## À venir / À ajouter (futur proche)
 
+### Codec WebP (retour terrain NkRef, 2026-08-11)
+- Les images de référence téléchargées du web sont très souvent en **.webp**
+  (et de plus en plus en AVIF) : lors du test NkRef, « 8 fichiers déposés,
+  6 pris en compte » — les 2 manquants étaient des formats non décodés,
+  échec muet côté app (désormais signalé, mais toujours pas décodé).
+- Décodeur WebP lossy = VP8 intra (transformées 4x4, prédiction, coeffs
+  boolean-codés) ; lossless = format à part, plus simple. Gros chantier
+  from-scratch mais dans l'esprit des 12 codecs existants.
+- Vérifier aussi le **JPEG progressif** (scans successifs) : courant dans les
+  téléchargements, à confirmer couvert par NkJPEGCodec.
+
 ### Compression GPU (alignée NKRenderer Phase H)
 - Format conteneur **KTX2** (Khronos) : multi-layer, multi-mip, supercompression Basis
 - Encodage BC1/BC3/BC5/BC7 (desktop GPU)
