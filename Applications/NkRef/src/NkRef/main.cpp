@@ -50,6 +50,14 @@
 #include <windows.h>
 #endif
 
+// Le panneau de propriétés escamotable : NKGui (immediate mode) + son pont
+// canvas header-only. NKGui.h inclut NkX11Clean en tête (macros Xlib) — le
+// laisser APRÈS les includes fenêtre/canvas, jamais avant un X11 « sale ».
+#include "NKGui/NKGui.h"
+#include "NKCanvas/UI/NkGuiCanvasBackend.h"
+#include "NKMemory/NkUniquePtr.h"
+#include "NKTime/NkClock.h"
+
 #include "NkRef/NkRefView.h"
 #include "NkRef/NkRefBoard.h"
 
@@ -176,7 +184,8 @@ namespace {
 
 			int32 moveFrame = -1;
 			float32 moveDx = 0.0f, moveDy = 0.0f;
-			int32 packFrame = -1; ///< NK_AGENT_PACK=n : Pack à la frame n
+			int32 packFrame = -1;  ///< NK_AGENT_PACK=n : Pack à la frame n
+			int32 panelFrame = -1; ///< NK_AGENT_PANEL=n : ouvre le tiroir à la frame n
 
 			void Read() {
 				if (const char *v = std::getenv("NK_AGENT_SHOT")) {
@@ -262,6 +271,8 @@ namespace {
 				}
 				if (const char *v = std::getenv("NK_AGENT_PACK"))
 					packFrame = (int32)std::atoi(v);
+				if (const char *v = std::getenv("NK_AGENT_PANEL"))
+					panelFrame = (int32)std::atoi(v);
 			}
 	};
 
@@ -310,7 +321,11 @@ int nkmain(const NkEntryState &state) {
 	// zoom, compte d'images et avis d'échec se lisent ICI). NkFont existe dans
 	// deux namespaces → on qualifie (piège documenté par ConquerorProto).
 	renderer::NkFont uiFont;
-	const bool hasFont = uiFont.LoadFromFile(*target.GetRenderer(), "Resources/Fonts/Karla-Regular.ttf");
+	// Police EMBARQUÉE (config optimale du module NKFont — netteté demandée par
+	// Rihen), repli fichier si les données embarquées manquent du build.
+	bool hasFont = uiFont.LoadEmbedded(*target.GetRenderer(), NkEmbeddedFontId::DroidSans);
+	if (!hasFont)
+		hasFont = uiFont.LoadFromFile(*target.GetRenderer(), "Resources/Fonts/Karla-Regular.ttf");
 	std::printf("[NkRef] police en-tete : %s\n", hasFont ? "chargee" : "INTROUVABLE (lancer depuis la racine)");
 
 	nkref::NkRefView view;
@@ -318,6 +333,32 @@ int nkmain(const NkEntryState &state) {
 	// Textures GPU, INDEX ALIGNÉ sur board.items (cf. en-tête du fichier).
 	NkVector<NkTexture *> textures;
 	auto &alloc = memory::NkGetDefaultAllocator();
+
+	// ── NKGui : le panneau de propriétés escamotable ────────────────────────
+	// Contexte sur le TAS (piège ConquerorLab : un contexte GUI complet sur la
+	// pile = débordement muet au démarrage). Le NkGuiFont doit SURVIVRE à la
+	// boucle : ctx.font est un pointeur non possédé.
+	auto guiCtxPtr = memory::NkMakeUnique<nkgui::NkGuiContext>();
+	nkgui::NkGuiContext &gui = *guiCtxPtr;
+	gui.Init((int32)cfg.width, (int32)cfg.height);
+	nkgui::SetCurrentContext(&gui);
+	renderer::NkGuiCanvasBackend guiBackend;
+	const bool hasGui = guiBackend.Init(target.GetRenderer());
+	auto guiFontPtr = memory::NkMakeUnique<nkgui::NkGuiFont>();
+	bool hasGuiFont = guiFontPtr->LoadFromFile("Resources/Fonts/Karla-Regular.ttf", 17.0f);
+	if (!hasGuiFont)
+		hasGuiFont = guiFontPtr->LoadEmbedded(NkEmbeddedFontId::ProggyClean, 16.0f);
+	if (hasGui && hasGuiFont && guiFontPtr->Valid()) {
+		gui.font = guiFontPtr.Get();
+		guiBackend.UploadFontGray8(guiFontPtr->TexId(), guiFontPtr->pixels, guiFontPtr->atlasW, guiFontPtr->atlasH);
+	}
+	bool panelOpen = false;			 // le tiroir ne gâche l'espace QUE s'il est ouvert
+	constexpr float32 kPanelW = 300.0f; // largeur du tiroir (les sliders NKGui ont un label à droite)
+	// Le conflit « glisser le vide » (question de Rihen) tranché par un RÉGLAGE :
+	// coché (défaut, geste PureRef) = déplacer la FENÊTRE, et le rectangle passe
+	// par Ctrl+glisser ; décoché = glisser trace le rectangle directement.
+	bool dragEmptyMovesWindow = true;
+	NkClock clock;
 
 	NkAgentHooks agent;
 	agent.Read();
@@ -359,8 +400,32 @@ int nkmain(const NkEntryState &state) {
 			loadFailTicks = 400; // ~4 s d'affichage dans le titre
 			return -1;
 		}
+		// PLAFOND D'IMPORT : une photo smartphone (24-48 Mpx) en texture brute
+		// pèse 100-200 Mo de VRAM — quelques-unes suffisent à mettre le GPU à
+		// genoux (machine qui s'éteint sous pic GPU : contrainte documentée du
+		// dépôt ; crash rapporté par Rihen au-delà de 6 images). PureRef fait
+		// pareil (réduction d'affichage). RIEN n'est perdu : l'Étape 2
+		// embarquera les OCTETS SOURCE dans le .nkref, pas la texture.
+		constexpr int32 kMaxSide = 4096;
+		NkImage *resized = nullptr;
+		if (img.Width() > kMaxSide || img.Height() > kMaxSide) {
+			const int32 big = img.Width() > img.Height() ? img.Width() : img.Height();
+			const float32 s = (float32)kMaxSide / (float32)big;
+			// Resize RETOURNE une NOUVELLE image (il ne modifie pas l'objet —
+			// piège documenté par le modeleur).
+			resized = img.Resize((int32)((float32)img.Width() * s), (int32)((float32)img.Height() * s),
+								 NkResizeFilter::NK_BICUBIC);
+			if (resized)
+				logger.Info("[NkRef] image reduite %dx%d -> %dx%d : %s", img.Width(), img.Height(),
+							resized->Width(), resized->Height(), path);
+		}
+		const NkImage &srcImg = resized ? *resized : img;
 		NkTexture *tex = alloc.New<NkTexture>();
-		if (!tex || !tex->LoadFromImage(*target.GetRenderer(), img)) {
+		const bool okTex = tex && tex->LoadFromImage(*target.GetRenderer(), srcImg);
+		const uint32 w = (uint32)srcImg.Width(), h = (uint32)srcImg.Height();
+		if (resized)
+			resized->Free(); // libère pixels + wrapper (pattern Alloc/Free)
+		if (!okTex) {
 			logger.Warn("[NkRef] upload GPU echoue : %s", path);
 			if (tex)
 				alloc.Delete(tex);
@@ -368,9 +433,9 @@ int nkmain(const NkEntryState &state) {
 			loadFailTicks = 400;
 			return -1;
 		}
-		board.AddItem(world, img.Width(), img.Height(), NkString(path));
+		board.AddItem(world, w, h, NkString(path));
 		textures.PushBack(tex);
-		logger.Info("[NkRef] image posee : %s (%ux%u)", path, img.Width(), img.Height());
+		logger.Info("[NkRef] image posee : %s (%ux%u)", path, w, h);
 		return (int32)board.items.Size() - 1;
 	};
 
@@ -490,6 +555,23 @@ int nkmain(const NkEntryState &state) {
 		return -1;
 	};
 
+	// L'onglet du tiroir de propriétés : petit chevron collé au bord droit,
+	// centré verticalement — toujours accessible, ne gâche rien.
+	auto tabHit = [&](float32 px, float32 py, const math::NkVec2f &vp) -> bool {
+		const float32 tx = vp.x - 22.0f, ty = vp.y * 0.5f - 32.0f;
+		return px >= tx && px <= tx + 18.0f && py >= ty && py <= ty + 64.0f;
+	};
+
+	// Le curseur est-il au-dessus de l'INTERFACE (tiroir ouvert ou onglet) ?
+	// Si oui, la souris appartient à NKGui — pan/zoom/sélection du canevas ne
+	// doivent PAS se déclencher dessous (piège d'occlusion documenté par NKGui :
+	// pas de WantCaptureMouse global, c'est l'app qui route).
+	auto overUi = [&](float32 px, float32 py, const math::NkVec2f &vp) -> bool {
+		if (panelOpen && px >= vp.x - kPanelW && py >= kBarH)
+			return true;
+		return tabHit(px, py, vp);
+	};
+
 	// Position pixel de la poignée de rotation de l'item actif (au-dessus du
 	// milieu du bord haut, à 26 px écran — constant quel que soit le zoom).
 	auto rotationHandlePix = [&](const nkref::NkRefItem &it, const math::NkVec2f &vp) -> math::NkVec2f {
@@ -509,6 +591,7 @@ int nkmain(const NkEntryState &state) {
 	};
 
 	while (running && window.IsOpen()) {
+		const float32 dt = clock.Tick().delta;
 		const bool spaceDown = events.GetInputState().keyboard.IsKeyPressed(NkKey::NK_SPACE);
 		const math::NkVec2u szNow = target.GetSize();
 		const math::NkVec2f vp{(float32)szNow.x, (float32)szNow.y};
@@ -521,19 +604,36 @@ int nkmain(const NkEntryState &state) {
 			}
 
 			if (auto *mw = ev->As<NkMouseWheelVerticalEvent>()) {
-				if (mw->GetModifiers().ctrl) {
+				const float32 wx = (float32)mw->GetX(), wy = (float32)mw->GetY();
+				if (overUi(wx, wy, vp)) {
+					gui.input.wheel += (float32)mw->GetDeltaY(); // défilement du panneau
+				} else if (mw->GetModifiers().ctrl) {
 					// Ctrl+molette = ordre de profondeur de l'item actif.
 					reorderActive(mw->GetDeltaY() > 0.0);
 				} else {
 					const float32 factor = math::NkPow(1.15f, (float32)mw->GetDeltaY());
-					view.ZoomAtPixel(factor, {(float32)mw->GetX(), (float32)mw->GetY()}, vp);
+					view.ZoomAtPixel(factor, {wx, wy}, vp);
 				}
 			}
 
 			if (auto *mb = ev->As<NkMouseButtonPressEvent>()) {
 				const float32 px = (float32)mb->GetX(), py = (float32)mb->GetY();
 				mousePix = {px, py};
-				if (mb->IsMiddle() || (mb->IsLeft() && spaceDown)) {
+				// NKGui reçoit TOUJOURS l'état souris (il ne réagit que survolé).
+				gui.input.mousePos = {px, py};
+				if (mb->IsLeft())
+					gui.input.mouseDown[0] = true;
+				if (mb->IsRight())
+					gui.input.mouseDown[1] = true;
+				if (mb->IsMiddle())
+					gui.input.mouseDown[2] = true;
+				gui.input.ctrlDown = mb->GetModifiers().ctrl;
+				gui.input.shiftDown = mb->GetModifiers().shift;
+				if (mb->IsLeft() && tabHit(px, py, vp)) {
+					panelOpen = !panelOpen; // l'onglet du tiroir a priorité sur tout
+				} else if (mb->IsLeft() && overUi(px, py, vp)) {
+					// Le clic appartient au panneau : rien côté canevas.
+				} else if (mb->IsMiddle() || (mb->IsLeft() && spaceDown)) {
 					mode = NkMode::Pan;
 				} else if (mb->IsLeft() && edgeHit(px, py, vp) >= 0) {
 					// Bord de la fenêtre sans bordure : hand-off natif du resize
@@ -586,17 +686,17 @@ int nkmain(const NkEntryState &state) {
 							}
 						}
 					}
-					// 2) Sinon : item → drag ; VIDE → la signature PureRef :
-					//    glisser le fond déplace la FENÊTRE (on n'a plus de barre
-					//    de titre) ; le rectangle de sélection passe par Ctrl.
+					// 2) Sinon : item → drag ; VIDE → selon le réglage : déplacer
+					//    la FENÊTRE (geste PureRef, Ctrl+glisser = rectangle) ou
+					//    tracer directement le rectangle de sélection.
 					if (!onHandle) {
 						const int32 hit = selectAtPixel(px, py, ctrl);
 						if (hit >= 0) {
 							mode = NkMode::DragItems;
-						} else if (ctrl) {
+						} else if (ctrl || !dragEmptyMovesWindow) {
 							mode = NkMode::RectSelect;
 							rectStartPix = {px, py};
-							rectAdditive = true;
+							rectAdditive = ctrl;
 						} else {
 							window.BeginDragMove(); // la sélection a déjà été vidée
 						}
@@ -612,6 +712,12 @@ int nkmain(const NkEntryState &state) {
 			}
 
 			if (auto *mr = ev->As<NkMouseButtonReleaseEvent>()) {
+				if (mr->IsLeft())
+					gui.input.mouseDown[0] = false;
+				if (mr->IsRight())
+					gui.input.mouseDown[1] = false;
+				if (mr->IsMiddle())
+					gui.input.mouseDown[2] = false;
 				if (mode == NkMode::RectSelect && mr->IsLeft()) {
 					const math::NkVec2f a = view.PixelToWorld(rectStartPix, vp);
 					const math::NkVec2f b = view.PixelToWorld(mousePix, vp);
@@ -624,6 +730,7 @@ int nkmain(const NkEntryState &state) {
 			if (auto *mm = ev->As<NkMouseMoveEvent>()) {
 				const float32 px = (float32)mm->GetX(), py = (float32)mm->GetY();
 				mousePix = {px, py};
+				gui.input.mousePos = {px, py};
 				const float32 dx = (float32)mm->GetDeltaX(), dy = (float32)mm->GetDeltaY();
 				switch (mode) {
 					case NkMode::Pan:
@@ -747,6 +854,53 @@ int nkmain(const NkEntryState &state) {
 			moveSelectionByPixels(agent.moveDx, agent.moveDy);
 		if (agent.packFrame > 0 && agentFrame == agent.packFrame)
 			board.Pack(16.0f);
+		if (agent.panelFrame > 0 && agentFrame == agent.panelFrame)
+			panelOpen = true; // même variable que le clic sur l'onglet
+
+		// ── NKGui : le tiroir de propriétés (logique seulement, rendu au Submit) ──
+		gui.viewW = (int32)sz.x;
+		gui.viewH = (int32)sz.y;
+		gui.BeginFrame(dt);
+		if (panelOpen && hasGui) {
+			const nkgui::NkRect pr{vp.x - kPanelW, kBarH, kPanelW, vp.y - kBarH};
+			if (nkgui::BeginPanel(gui, "Proprietes", pr)) {
+				nkgui::Text(gui, "Fenetre");
+				bool onTop = window.IsAlwaysOnTop();
+				if (nkgui::Checkbox(gui, "Toujours devant (T)", onTop))
+					window.SetAlwaysOnTop(onTop);
+				float32 wop = window.GetOpacity();
+				if (nkgui::SliderFloat(gui, "Opacite fenetre", wop, 0.2f, 1.0f))
+					window.SetOpacity(wop);
+				nkgui::Checkbox(gui, "Glisser le fond = fenetre", dragEmptyMovesWindow);
+				nkgui::Separator(gui);
+				nkgui::Text(gui, "Planche");
+				if (nkgui::Button(gui, "Pack (Ctrl+P)"))
+					board.Pack(16.0f);
+				if (nkgui::Button(gui, "Origine (Debut)"))
+					view.Reset();
+				nkgui::Separator(gui);
+				if (board.active >= 0 && board.active < (int32)board.items.Size()) {
+					nkref::NkRefItem &it = board.items[(usize)board.active];
+					nkgui::Text(gui, "Image active");
+					nkgui::SliderFloat(gui, "Opacite", it.opacity, 0.05f, 1.0f);
+					nkgui::Checkbox(gui, "Miroir X (X)", it.mirrorX);
+					nkgui::Checkbox(gui, "Miroir Y (Y)", it.mirrorY);
+					if (nkgui::Button(gui, "Supprimer (Suppr)"))
+						removeSelected();
+				} else {
+					nkgui::Text(gui, "(aucune image active)");
+				}
+				if (nkgui::CollapsingHeader(gui, "Gestes")) {
+					nkgui::Text(gui, "Molette : zoom au curseur");
+					nkgui::Text(gui, "Milieu / Espace+glisser : pan");
+					nkgui::Text(gui, "Ctrl+glisser : rectangle");
+					nkgui::Text(gui, "Coins : echelle - Rond : rotation");
+					nkgui::Text(gui, "PgUp/PgDn : ordre - Ctrl+V : coller");
+				}
+				nkgui::EndPanel(gui);
+			}
+		}
+		gui.EndFrame();
 
 		// ── Rendu : fond + grille + images + sélection, en espace écran ─────
 		target.Clear(NkColor2D{20, 22, 25, 255});
@@ -777,12 +931,33 @@ int nkmain(const NkEntryState &state) {
 		if (origin.y >= 0.0f && origin.y <= vp.y)
 			r.DrawLine({0.0f, origin.y}, {vp.x, origin.y}, axis, 1.0f);
 
-		// Les images, du fond vers le dessus (l'ordre du tableau).
+		// Les images, du fond vers le dessus (l'ordre du tableau). CULLING :
+		// une planche de dizaines de photos ne doit coûter que ce qui est
+		// VISIBLE (le GPU de cette machine n'aime pas les pics — et dessiner
+		// hors écran ne sert à rien).
 		for (usize i = 0; i < board.items.Size(); ++i) {
 			const nkref::NkRefItem &it = board.items[i];
 			NkTexture *tex = textures[i];
 			if (!tex || !tex->IsValid())
 				continue;
+			{
+				math::NkVec2f c[4];
+				nkref::NkRefBoard::Corners(it, c);
+				float32 minX = 1e9f, minY = 1e9f, maxX = -1e9f, maxY = -1e9f;
+				for (int32 k = 0; k < 4; ++k) {
+					const math::NkVec2f p = view.WorldToPixel(c[k], vp);
+					if (p.x < minX)
+						minX = p.x;
+					if (p.x > maxX)
+						maxX = p.x;
+					if (p.y < minY)
+						minY = p.y;
+					if (p.y > maxY)
+						maxY = p.y;
+				}
+				if (maxX < 0.0f || minX > vp.x || maxY < 0.0f || minY > vp.y)
+					continue; // entièrement hors écran
+			}
 			NkSprite sp(*tex);
 			sp.SetOrigin({(float32)it.texW * 0.5f, (float32)it.texH * 0.5f});
 			sp.SetPosition(view.WorldToPixel(it.pos, vp));
@@ -790,6 +965,8 @@ int nkmain(const NkEntryState &state) {
 			sp.SetScale({it.scale * view.zoom, it.scale * view.zoom});
 			sp.SetFlipX(it.mirrorX);
 			sp.SetFlipY(it.mirrorY);
+			// Opacité PAR IMAGE (propriété PureRef) : modulée par la couleur.
+			sp.SetColor(NkColor2D{255, 255, 255, (uint8)(it.opacity * 255.0f + 0.5f)});
 			// NkSprite hérite de NkIDrawable2D ET NkDrawable → on lève
 			// l'ambiguïté de Draw() en ciblant le chemin NkDrawable.
 			target.Draw(static_cast<const NkDrawable &>(sp));
@@ -878,6 +1055,28 @@ int nkmain(const NkEntryState &state) {
 				r.DrawLine({cx - 5.0f, cy - 5.0f}, {cx + 5.0f, cy + 5.0f}, glyph, 1.5f);
 				r.DrawLine({cx - 5.0f, cy + 5.0f}, {cx + 5.0f, cy - 5.0f}, glyph, 1.5f);
 			}
+		}
+
+		// L'onglet du tiroir de propriétés (chevron au bord droit, discret).
+		{
+			const float32 tx = vp.x - 22.0f, ty = vp.y * 0.5f - 32.0f;
+			r.DrawFilledRect({tx, ty, 18.0f, 64.0f}, NkColor2D{14, 15, 17, 220});
+			const NkColor2D ch{215, 220, 226, 255};
+			const float32 cy2 = ty + 32.0f;
+			if (panelOpen) { // chevron vers la droite = refermer le tiroir
+				r.DrawLine({tx + 6.0f, cy2 - 6.0f}, {tx + 12.0f, cy2}, ch, 1.5f);
+				r.DrawLine({tx + 12.0f, cy2}, {tx + 6.0f, cy2 + 6.0f}, ch, 1.5f);
+			} else { // chevron vers la gauche = ouvrir
+				r.DrawLine({tx + 12.0f, cy2 - 6.0f}, {tx + 6.0f, cy2}, ch, 1.5f);
+				r.DrawLine({tx + 6.0f, cy2}, {tx + 12.0f, cy2 + 6.0f}, ch, 1.5f);
+			}
+		}
+
+		// Le panneau NKGui par-dessus tout le canevas (DEUX Submit, jamais un
+		// seul : dlOverlay porte popups/combos — piège documenté du pont).
+		if (hasGui) {
+			guiBackend.Submit(gui.dl, (uint32)sz.x, (uint32)sz.y);
+			guiBackend.Submit(gui.dlOverlay, (uint32)sz.x, (uint32)sz.y);
 		}
 
 		// Curseur : flèches de redimensionnement sur les bords de la fenêtre
