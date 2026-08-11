@@ -35,7 +35,10 @@ on:
 
 jobs:
   build:
-    runs-on: ${{ inputs.platform == 'linux' && 'ubuntu-latest' || 'macos-latest' }}
+    # ubuntu-22.04 et PAS ubuntu-latest (24.04) : la glibc du runner devient le
+    # MINIMUM requis chez les testeurs (le paquet 24.04 exigeait GLIBC_2.38 et
+    # refusait de se charger sur Ubuntu 22.04/Debian 12 — vu au test WSL2).
+    runs-on: ${{ inputs.platform == 'linux' && 'ubuntu-22.04' || 'macos-latest' }}
     timeout-minutes: 60
     steps:
       - name: Depot Nkentseu (+ sous-modules)
