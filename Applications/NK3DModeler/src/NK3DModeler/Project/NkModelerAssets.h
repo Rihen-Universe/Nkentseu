@@ -290,6 +290,29 @@ namespace nkentseu {
 			o.SetFloat32("emissifIntensite", emiS);
 			// Echelle du parallax (canal Hauteur, 10 aout). Defaut 0 = coupe.
 			o.SetFloat32("parallax", demo::Demo3DHostProjMatParallax(slot));
+			// Type + reglages publics restants (11 aout).
+			o.SetInt32("type", demo::Demo3DHostProjMatType(slot));
+			{
+				float32 alpha = 1.f, aniso = 0.f, sheen = 0.f;
+				demo::Demo3DHostProjMatPBRExtra(slot, &alpha, &aniso, &sheen);
+				o.SetFloat32("opacite", alpha);
+				o.SetFloat32("anisotropie", aniso);
+				o.SetFloat32("sheen", sheen);
+			}
+			{
+				float32 tv[14];
+				demo::Demo3DHostProjMatToon(slot, tv);
+				NkArchive to;
+				to.SetFloat32("seuil", tv[0]);
+				to.SetFloat32("adoucissement", tv[1]);
+				NkScSetVec3(to, "ombre", &tv[2]);
+				to.SetFloat32("contourLargeur", tv[5]);
+				NkScSetVec3(to, "contourCouleur", &tv[6]);
+				to.SetFloat32("lisereIntensite", tv[9]);
+				NkScSetVec3(to, "lisereCouleur", &tv[10]);
+				to.SetFloat32("durete", tv[13]);
+				o.SetObject("toon", to);
+			}
 			// Melange (etape 1) : B par NOM (les emplacements changent d'une
 			// session a l'autre, le nom est la seule identite stable).
 			{
@@ -340,6 +363,27 @@ namespace nkentseu {
 												   NkScFloat(in, "emissifIntensite", 1.f));
 			// Meme regle que le relief : l'echelle AVANT la carte de hauteur.
 			demo::Demo3DHostProjMatSetParallax(slot, NkScFloat(in, "parallax", 0.f));
+			// Type + reglages publics : le TYPE d'abord (il recree le gabarit et
+			// reapplique tout), les extras et le toon ensuite (application directe).
+			demo::Demo3DHostProjMatSetType(slot, NkScInt(in, "type", 0));
+			demo::Demo3DHostProjMatSetPBRExtra(slot, NkScFloat(in, "opacite", 1.f),
+											   NkScFloat(in, "anisotropie", 0.f),
+											   NkScFloat(in, "sheen", 0.f));
+			{
+				NkArchive to;
+				if (in.GetObject("toon", to)) {
+					float32 tv[14];
+					tv[0] = NkScFloat(to, "seuil", 0.3f);
+					tv[1] = NkScFloat(to, "adoucissement", 0.05f);
+					NkScGetVec3(to, "ombre", &tv[2], 0.2f, 0.1f, 0.3f);
+					tv[5] = NkScFloat(to, "contourLargeur", 2.f);
+					NkScGetVec3(to, "contourCouleur", &tv[6], 0.f, 0.f, 0.f);
+					tv[9] = NkScFloat(to, "lisereIntensite", 0.5f);
+					NkScGetVec3(to, "lisereCouleur", &tv[10], 1.f, 1.f, 1.f);
+					tv[13] = NkScFloat(to, "durete", 32.f);
+					demo::Demo3DHostProjMatSetToon(slot, tv);
+				}
+			}
 			// Melange : B retrouve PAR NOM parmi les materiaux deja charges.
 			// LIMITE V1 consignee : si B se charge APRES A dans l'ordre du
 			// navigateur, le lien saute pour la session (le second passage de

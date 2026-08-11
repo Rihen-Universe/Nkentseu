@@ -910,6 +910,24 @@ namespace nkentseu {
 				int8 mixWith;
 				int8 mixSource;
 				float32 mixFactor;
+				// ── TYPE DE MATERIAU (11 aout — « tout ce qui est public ») ──
+				// Valeur brute de NkMaterialType (0 PBR, 3 peau, 4 cheveux,
+				// 5 verre, 6 tissu, 7 carrosserie, 8 feuillage, 9 eau,
+				// 11 emissif, 20 toon, 21 toon encre, 22 anime, 60 sans
+				// eclairage). Le melange (mixWith) prime : il impose LAYERED_V1.
+				uint8 matType;
+				// Reglages PBR restes sans curseur jusqu'ici.
+				float32 alpha;	// opacite (albedo.a, file transparente)
+				float32 aniso;	// anisotropie du lobe
+				float32 sheenV; // voile textile
+				// Famille TOON (NkToonParams cote moteur).
+				float32 toonThresh, toonSmooth;
+				float32 toonShadow[3];
+				float32 outlineW;
+				float32 outlineCol[3];
+				float32 rimI;
+				float32 rimCol[3];
+				float32 specHard;
 		};
 		static constexpr int32 kNkvpMaxProjMats = 64;
 		static NkVpProjMat nkvpProjMats[kNkvpMaxProjMats] = {};
@@ -13378,6 +13396,21 @@ namespace nkentseu {
 				m.mixWith = 0;	  // pas de melange a la naissance
 				m.mixSource = 0;
 				m.mixFactor = 0.5f;
+				m.matType = 0; // Standard (PBR)
+				m.alpha = 1.f;
+				m.aniso = 0.f;
+				m.sheenV = 0.f;
+				// Defauts toon = ceux de NkToonParams (une seule verite).
+				m.toonThresh = 0.3f;
+				m.toonSmooth = 0.05f;
+				m.toonShadow[0] = 0.2f;
+				m.toonShadow[1] = 0.1f;
+				m.toonShadow[2] = 0.3f;
+				m.outlineW = 2.f;
+				m.outlineCol[0] = m.outlineCol[1] = m.outlineCol[2] = 0.f;
+				m.rimI = 0.5f;
+				m.rimCol[0] = m.rimCol[1] = m.rimCol[2] = 1.f;
+				m.specHard = 32.f;
 				return i;
 			}
 			return -1;
@@ -13649,8 +13682,9 @@ namespace nkentseu {
 			const int32 bIdx = (int32)m.mixWith - 1;
 			const bool mix = bIdx >= 0 && bIdx < kNkvpMaxProjMats && bIdx != i &&
 							 nkvpProjMats[bIdx].used;
+			// Le TYPE choisi fait le gabarit ; le melange prime (LAYERED_V1).
 			nkvpProjMatEng[i] = NkMaterial::Create(
-				matS, mix ? NkMaterialType::NK_LAYERED_V1 : NkMaterialType::NK_PBR_METALLIC);
+				matS, mix ? NkMaterialType::NK_LAYERED_V1 : (NkMaterialType)m.matType);
 			if (!nkvpProjMatEng[i])
 				return;
 			if (mix) {
@@ -13691,6 +13725,22 @@ namespace nkentseu {
 					snprintf(path, sizeof(path), "%s", m.maps[c]);
 					Demo3DHostProjMatSetMap(i, c, path);
 				}
+			// Les reglages sans facade historique : opacite, anisotropie, sheen,
+			// et la famille toon quand le type l'est.
+			nkvpProjMatEng[i]
+				->SetAlbedo({m.albedo[0], m.albedo[1], m.albedo[2]}, m.alpha)
+				->SetAnisotropy(m.aniso)
+				->SetSheen(m.sheenV);
+			if (m.matType == 20 || m.matType == 21 || m.matType == 22) {
+				nkvpProjMatEng[i]
+					->SetToonThreshold(m.toonThresh)
+					->SetToonSmooth(m.toonSmooth)
+					->SetToonShadow({m.toonShadow[0], m.toonShadow[1], m.toonShadow[2]})
+					->SetOutline(m.outlineW,
+								 {m.outlineCol[0], m.outlineCol[1], m.outlineCol[2]})
+					->SetRim(m.rimI, {m.rimCol[0], m.rimCol[1], m.rimCol[2]})
+					->SetSpecHardness(m.specHard);
+			}
 		}
 		int32 Demo3DHostProjMatMixWith(int32 i) {
 			const bool ok = i >= 0 && i < kNkvpMaxProjMats && nkvpProjMats[i].used;
@@ -13714,6 +13764,89 @@ namespace nkentseu {
 			m.mixSource = (int8)(source < 0 ? 0 : (source > 6 ? 6 : source));
 			m.mixFactor = factor < 0.f ? 0.f : (factor > 1.f ? 1.f : factor);
 			HostMatRebuildEngine(i);
+		}
+		// ── TYPE DE MATERIAU + reglages publics restants (11 aout) ──────────
+		int32 Demo3DHostProjMatType(int32 i) {
+			const bool ok = i >= 0 && i < kNkvpMaxProjMats && nkvpProjMats[i].used;
+			return ok ? (int32)nkvpProjMats[i].matType : 0;
+		}
+		void Demo3DHostProjMatSetType(int32 i, int32 type) {
+			if (i < 0 || i >= kNkvpMaxProjMats || !nkvpProjMats[i].used)
+				return;
+			if ((int32)nkvpProjMats[i].matType == type)
+				return;
+			nkvpProjMats[i].matType = (uint8)(type < 0 ? 0 : (type > 255 ? 0 : type));
+			HostMatRebuildEngine(i); // changer de type = changer de gabarit
+		}
+		void Demo3DHostProjMatPBRExtra(int32 i, float32 *alpha, float32 *aniso,
+									   float32 *sheen) {
+			const bool ok = i >= 0 && i < kNkvpMaxProjMats && nkvpProjMats[i].used;
+			if (alpha)
+				*alpha = ok ? nkvpProjMats[i].alpha : 1.f;
+			if (aniso)
+				*aniso = ok ? nkvpProjMats[i].aniso : 0.f;
+			if (sheen)
+				*sheen = ok ? nkvpProjMats[i].sheenV : 0.f;
+		}
+		void Demo3DHostProjMatSetPBRExtra(int32 i, float32 alpha, float32 aniso,
+										  float32 sheen) {
+			if (i < 0 || i >= kNkvpMaxProjMats || !nkvpProjMats[i].used)
+				return;
+			NkVpProjMat &m = nkvpProjMats[i];
+			m.alpha = alpha < 0.f ? 0.f : (alpha > 1.f ? 1.f : alpha);
+			m.aniso = aniso < -1.f ? -1.f : (aniso > 1.f ? 1.f : aniso);
+			m.sheenV = sheen < 0.f ? 0.f : (sheen > 1.f ? 1.f : sheen);
+			if (nkvpProjMatEng[i])
+				nkvpProjMatEng[i]
+					->SetAlbedo({m.albedo[0], m.albedo[1], m.albedo[2]}, m.alpha)
+					->SetAnisotropy(m.aniso)
+					->SetSheen(m.sheenV);
+		}
+		// Famille TOON, en PAQUET de 14 flottants : seuil, adoucissement,
+		// ombre RVB, largeur contour, contour RVB, intensite lisere, lisere
+		// RVB, durete speculaire — un couple get/set par champ aurait fait
+		// quatorze facades qui divergent.
+		void Demo3DHostProjMatToon(int32 i, float32 *v14) {
+			if (!v14)
+				return;
+			const bool ok = i >= 0 && i < kNkvpMaxProjMats && nkvpProjMats[i].used;
+			const NkVpProjMat &m = nkvpProjMats[ok ? i : 0];
+			v14[0] = ok ? m.toonThresh : 0.3f;
+			v14[1] = ok ? m.toonSmooth : 0.05f;
+			for (int32 k = 0; k < 3; ++k)
+				v14[2 + k] = ok ? m.toonShadow[k] : 0.2f;
+			v14[5] = ok ? m.outlineW : 2.f;
+			for (int32 k = 0; k < 3; ++k)
+				v14[6 + k] = ok ? m.outlineCol[k] : 0.f;
+			v14[9] = ok ? m.rimI : 0.5f;
+			for (int32 k = 0; k < 3; ++k)
+				v14[10 + k] = ok ? m.rimCol[k] : 1.f;
+			v14[13] = ok ? m.specHard : 32.f;
+		}
+		void Demo3DHostProjMatSetToon(int32 i, const float32 *v14) {
+			if (i < 0 || i >= kNkvpMaxProjMats || !nkvpProjMats[i].used || !v14)
+				return;
+			NkVpProjMat &m = nkvpProjMats[i];
+			m.toonThresh = v14[0];
+			m.toonSmooth = v14[1];
+			for (int32 k = 0; k < 3; ++k)
+				m.toonShadow[k] = v14[2 + k];
+			m.outlineW = v14[5];
+			for (int32 k = 0; k < 3; ++k)
+				m.outlineCol[k] = v14[6 + k];
+			m.rimI = v14[9];
+			for (int32 k = 0; k < 3; ++k)
+				m.rimCol[k] = v14[10 + k];
+			m.specHard = v14[13];
+			if (nkvpProjMatEng[i])
+				nkvpProjMatEng[i]
+					->SetToonThreshold(m.toonThresh)
+					->SetToonSmooth(m.toonSmooth)
+					->SetToonShadow({m.toonShadow[0], m.toonShadow[1], m.toonShadow[2]})
+					->SetOutline(m.outlineW,
+								 {m.outlineCol[0], m.outlineCol[1], m.outlineCol[2]})
+					->SetRim(m.rimI, {m.rimCol[0], m.rimCol[1], m.rimCol[2]})
+					->SetSpecHardness(m.specHard);
 		}
 		int32 Demo3DHostProjMatPrevShape(int32 i) {
 			return (i >= 0 && i < kNkvpMaxProjMats) ? nkvpProjMats[i].prevShape : 1;

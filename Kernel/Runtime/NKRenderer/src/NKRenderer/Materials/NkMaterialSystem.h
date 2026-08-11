@@ -249,6 +249,8 @@ namespace nkentseu {
 				NkMaterialInstance *SetAOMap(NkTexHandle t);
 				NkMaterialInstance *SetSubsurface(float32 v, NkVec3f color);
 				NkMaterialInstance *SetClearcoat(float32 v, float32 rough);
+				NkMaterialInstance *SetAnisotropy(float32 v);
+				NkMaterialInstance *SetSheen(float32 v);
 				NkMaterialInstance *SetToonThreshold(float32 v);
 				NkMaterialInstance *SetToonSmooth(float32 v);
 				NkMaterialInstance *SetToonShadowColor(NkVec3f c);

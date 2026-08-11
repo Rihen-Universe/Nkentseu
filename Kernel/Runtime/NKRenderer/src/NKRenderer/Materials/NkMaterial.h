@@ -100,6 +100,8 @@ namespace nkentseu {
 				NkMaterial *SetAOMap(NkTexHandle t);
 				NkMaterial *SetSubsurface(float32 v, NkVec3f color = {1.f, 0.5f, 0.3f});
 				NkMaterial *SetClearcoat(float32 v, float32 roughness = 0.f);
+				NkMaterial *SetAnisotropy(float32 v);
+				NkMaterial *SetSheen(float32 v);
 
 				// ── Raccourcis Toon / NPR ────────────────────────────────────────
 				NkMaterial *SetToonThreshold(float32 v);

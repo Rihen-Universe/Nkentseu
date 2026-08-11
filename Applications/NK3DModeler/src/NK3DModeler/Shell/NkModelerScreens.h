@@ -9844,6 +9844,38 @@ namespace nkentseu {
 							}
 							const float32 a0 = alb[0], a1 = alb[1], a2 = alb[2];
 							const float32 r0 = rgh, m0 = mtl;
+							// ── TYPE DE MATERIAU (11 aout — « tout ce qui est public,
+							// possibilite de choisir un type ») : le combo bascule le
+							// GABARIT moteur ; stockage statique resynchronise (Loi).
+							{
+								static const char *const kMtTypes[13] = {
+								    "Standard (PBR)", "Peau", "Cheveux", "Verre",
+								    "Tissu", "Carrosserie", "Feuillage", "Eau",
+								    "Emissif", "Toon", "Toon encre", "Anime",
+								    "Sans eclairage"};
+								static const int32 kMtTypeVal[13] = {0, 3, 4, 5, 6, 7,
+								                                     8, 9, 11, 20, 21, 22, 60};
+								const int32 tCur = demo::Demo3DHostProjMatType(selMat);
+								int32 tIdx = 0;
+								for (int32 k3 = 0; k3 < 13; ++k3)
+									if (kMtTypeVal[k3] == tCur)
+										tIdx = k3;
+								static int32 sTySel = 0;
+								static int32 sTyFor = -1;
+								if (sTyFor == selMat && sTySel != tIdx) {
+									demo::Demo3DHostProjMatSetType(selMat,
+									                               kMtTypeVal[sTySel < 0 ? 0 : sTySel % 13]);
+									NkMarkDirty(st);
+								} else {
+									sTySel = tIdx;
+								}
+								sTyFor = selMat;
+								p.TextV(iR.x, yy, kRowH, "Type", NkRole::TextMuted);
+								Combo(p, hit, ws, "props.pm.type",
+								      {iR.x + S(110.f), yy + S(2.f), iR.w - S(110.f), kRowH - S(4.f)},
+								      kMtTypes, nullptr, 13, sTySel, combo);
+								yy += kRowH;
+							}
 							bool colCh = false;
 							yy += PaintColorRow(p, hit, ws, in, st, iR, yy, "Couleur",
 												"props.pm.col", alb, &colCh);
@@ -9960,6 +9992,82 @@ namespace nkentseu {
 									   kRowH - S(6.f)},
 									  mtl, 0.005f, NkRole::AccentUi, "%.2f");
 							yy += kRowH;
+							// ── LES REGLAGES PBR RESTES SANS CURSEUR (11 aout) ──────────
+							{
+								float32 xAl = 1.f, xAn = 0.f, xSh = 0.f;
+								demo::Demo3DHostProjMatPBRExtra(selMat, &xAl, &xAn, &xSh);
+								const float32 xa0 = xAl, xn0 = xAn, xs0 = xSh;
+								p.TextV(iR.x, yy, kRowH, "Opacite", NkRole::TextMuted);
+								DragFloat(p, hit, ws, in, "props.pm.opa",
+								          {iR.x + S(110.f), yy + S(3.f), iR.w - S(110.f), kRowH - S(6.f)},
+								          xAl, 0.005f, NkRole::AccentUi, "%.2f");
+								yy += kRowH;
+								p.TextV(iR.x, yy, kRowH, "Anisotropie", NkRole::TextMuted);
+								DragFloat(p, hit, ws, in, "props.pm.ani",
+								          {iR.x + S(110.f), yy + S(3.f), iR.w - S(110.f), kRowH - S(6.f)},
+								          xAn, 0.005f, NkRole::AccentUi, "%.2f");
+								yy += kRowH;
+								p.TextV(iR.x, yy, kRowH, "Sheen", NkRole::TextMuted);
+								DragFloat(p, hit, ws, in, "props.pm.shn",
+								          {iR.x + S(110.f), yy + S(3.f), iR.w - S(110.f), kRowH - S(6.f)},
+								          xSh, 0.005f, NkRole::AccentUi, "%.2f");
+								yy += kRowH;
+								if (xAl != xa0 || xAn != xn0 || xSh != xs0) {
+									demo::Demo3DHostProjMatSetPBRExtra(selMat, xAl, xAn, xSh);
+									NkMarkDirty(st);
+								}
+							}
+							// ── FAMILLE TOON : ses reglages n'apparaissent QUE pour elle ──
+							{
+								const int32 tNow = demo::Demo3DHostProjMatType(selMat);
+								if (tNow == 20 || tNow == 21 || tNow == 22) {
+									float32 tv[14];
+									demo::Demo3DHostProjMatToon(selMat, tv);
+									float32 t0[14];
+									for (int32 k4 = 0; k4 < 14; ++k4)
+										t0[k4] = tv[k4];
+									p.TextV(iR.x, yy, kRowH, "Seuil d'ombre", NkRole::TextMuted);
+									DragFloat(p, hit, ws, in, "props.pm.tth",
+									          {iR.x + S(110.f), yy + S(3.f), iR.w - S(110.f), kRowH - S(6.f)},
+									          tv[0], 0.005f, NkRole::AccentUi, "%.2f");
+									yy += kRowH;
+									p.TextV(iR.x, yy, kRowH, "Adoucissement", NkRole::TextMuted);
+									DragFloat(p, hit, ws, in, "props.pm.tsm",
+									          {iR.x + S(110.f), yy + S(3.f), iR.w - S(110.f), kRowH - S(6.f)},
+									          tv[1], 0.005f, NkRole::AccentUi, "%.2f");
+									yy += kRowH;
+									bool tc1 = false, tc2 = false, tc3 = false;
+									yy += PaintColorRow(p, hit, ws, in, st, iR, yy, "Ombre toon",
+									                    "props.pm.tsc", &tv[2], &tc1);
+									p.TextV(iR.x, yy, kRowH, "Contour", NkRole::TextMuted);
+									DragFloat(p, hit, ws, in, "props.pm.tow",
+									          {iR.x + S(110.f), yy + S(3.f), iR.w - S(110.f), kRowH - S(6.f)},
+									          tv[5], 0.02f, NkRole::AccentUi, "%.1f");
+									yy += kRowH;
+									yy += PaintColorRow(p, hit, ws, in, st, iR, yy, "Contour couleur",
+									                    "props.pm.toc", &tv[6], &tc2);
+									p.TextV(iR.x, yy, kRowH, "Lisere", NkRole::TextMuted);
+									DragFloat(p, hit, ws, in, "props.pm.tri",
+									          {iR.x + S(110.f), yy + S(3.f), iR.w - S(110.f), kRowH - S(6.f)},
+									          tv[9], 0.005f, NkRole::AccentUi, "%.2f");
+									yy += kRowH;
+									yy += PaintColorRow(p, hit, ws, in, st, iR, yy, "Lisere couleur",
+									                    "props.pm.trc", &tv[10], &tc3);
+									p.TextV(iR.x, yy, kRowH, "Durete speculaire", NkRole::TextMuted);
+									DragFloat(p, hit, ws, in, "props.pm.tsh",
+									          {iR.x + S(110.f), yy + S(3.f), iR.w - S(110.f), kRowH - S(6.f)},
+									          tv[13], 0.2f, NkRole::AccentUi, "%.0f");
+									yy += kRowH;
+									bool tDiff = tc1 || tc2 || tc3;
+									for (int32 k4 = 0; k4 < 14 && !tDiff; ++k4)
+										if (tv[k4] != t0[k4])
+											tDiff = true;
+									if (tDiff) {
+										demo::Demo3DHostProjMatSetToon(selMat, tv);
+										NkMarkDirty(st);
+									}
+								}
+							}
 							// ── PHYSIQUE DE SURFACE (passation §5, « gain le moins
 							// cher ») : le shader calcule vernis et diffusion depuis
 							// longtemps, seuls ces curseurs manquaient. La rugosite du
