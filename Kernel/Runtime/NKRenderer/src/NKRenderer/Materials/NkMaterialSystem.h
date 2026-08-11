@@ -512,6 +512,14 @@ namespace nkentseu {
 					return mTmplToon;
 				}
 
+				NkMatHandle DefaultToonInk() const {
+					return mTmplToonInk;
+				}
+
+				NkMatHandle DefaultEmissive() const {
+					return mTmplEmissive;
+				}
+
 				NkMatHandle DefaultUnlit() const {
 					return mTmplUnlit;
 				}
@@ -597,6 +605,7 @@ namespace nkentseu {
 				NkRenderPassHandle mCurrentRP;
 
 				NkMatHandle mTmplPBR, mTmplToon, mTmplUnlit, mTmplWire;
+				NkMatHandle mTmplToonInk, mTmplEmissive; // oublies du registre (11 aout)
 				NkMatHandle mTmplSkin, mTmplHair, mTmplAnime, mTmplArchviz;
 				NkMatHandle mTmplReflFloor;
 				NkMatHandle mTmplLayered;	// M.1 v0

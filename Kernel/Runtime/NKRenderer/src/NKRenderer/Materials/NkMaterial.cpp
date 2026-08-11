@@ -23,6 +23,12 @@ namespace nkentseu {
 				case NkMaterialType::NK_TOON:
 					tmpl = sys->DefaultToon();
 					break;
+				case NkMaterialType::NK_TOON_INK:
+					tmpl = sys->DefaultToonInk();
+					break;
+				case NkMaterialType::NK_EMISSIVE:
+					tmpl = sys->DefaultEmissive();
+					break;
 				case NkMaterialType::NK_UNLIT:
 					tmpl = sys->DefaultUnlit();
 					break;
