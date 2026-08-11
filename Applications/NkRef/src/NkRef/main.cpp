@@ -39,7 +39,8 @@
 #include "NKCanvas/Core/NkContextDesc.h"
 #include "NKCanvas/Core/NkGraphicsApi.h"
 #include "NKCanvas/Renderer/Resources/NkTexture.h"
-#include "NKCanvas/Renderer/Resources/NkSprite.h"
+#include "NKCanvas/Renderer/Resources/NkSprite.h" // contient aussi NkText
+#include "NKCanvas/Renderer/Resources/NkFont.h"
 
 // Captures agent : dossier + numérotation + photographie de la fenêtre.
 #include "NKFileSystem/NkDirectory.h"
@@ -287,6 +288,10 @@ int nkmain(const NkEntryState &state) {
 	cfg.centered = true;
 	cfg.resizable = true;
 	cfg.dropEnabled = true; // glisser-déposer OLE complet (Enter/Leave/File)
+	// SANS BORDURE, comme PureRef : le canevas jusqu'au pixel. NKWindow garde
+	// les styles snap/min/max sous le capot (WM_NCCALCSIZE) ; notre en-tête
+	// escamotable et les bords de redimensionnement font le reste.
+	cfg.frame = false;
 	NkWindow window(cfg);
 	if (!window.IsOpen()) {
 		logger.Error("[NkRef] creation fenetre echouee");
@@ -300,6 +305,13 @@ int nkmain(const NkEntryState &state) {
 		logger.Error("[NkRef] cible de rendu invalide");
 		return -2;
 	}
+
+	// Police de l'en-tête custom (la fenêtre n'a plus de barre de titre OS —
+	// zoom, compte d'images et avis d'échec se lisent ICI). NkFont existe dans
+	// deux namespaces → on qualifie (piège documenté par ConquerorProto).
+	renderer::NkFont uiFont;
+	const bool hasFont = uiFont.LoadFromFile(*target.GetRenderer(), "Resources/Fonts/Karla-Regular.ttf");
+	std::printf("[NkRef] police en-tete : %s\n", hasFont ? "chargee" : "INTROUVABLE (lancer depuis la racine)");
 
 	nkref::NkRefView view;
 	nkref::NkRefBoard board;
@@ -327,6 +339,12 @@ int nkmain(const NkEntryState &state) {
 	float32 grabAngleDeg = 0.0f;			 // angle centre→souris à la prise
 	bool homeWasDown = false;
 	int32 titleCooldown = 0;
+	// Échecs de chargement VISIBLES : sans console, un fichier illisible était
+	// un échec muet (retour Rihen : « 8 déposés, 6 pris en compte » — les deux
+	// autres étaient des formats non décodés). Compté, affiché dans le titre.
+	int32 loadFailCount = 0;
+	int32 loadFailTicks = 0;
+	char windowTitle[192] = "NkRef"; // partagé : SetTitle (barre des tâches) + en-tête custom
 	bool running = true;
 
 	// ── Les ACTIONS, partagées entre la souris et les crochets d'agent ──────
@@ -337,6 +355,8 @@ int nkmain(const NkEntryState &state) {
 		NkImage img;
 		if (!img.Load(path)) {
 			logger.Warn("[NkRef] image illisible : %s", path);
+			++loadFailCount;
+			loadFailTicks = 400; // ~4 s d'affichage dans le titre
 			return -1;
 		}
 		NkTexture *tex = alloc.New<NkTexture>();
@@ -344,6 +364,8 @@ int nkmain(const NkEntryState &state) {
 			logger.Warn("[NkRef] upload GPU echoue : %s", path);
 			if (tex)
 				alloc.Delete(tex);
+			++loadFailCount;
+			loadFailTicks = 400;
 			return -1;
 		}
 		board.AddItem(world, img.Width(), img.Height(), NkString(path));
@@ -421,6 +443,53 @@ int nkmain(const NkEntryState &state) {
 		}
 	};
 
+	// ── Fenêtre sans bordure : en-tête escamotable + bords de resize ────────
+	// L'en-tête (30 px) n'apparaît que quand le curseur s'approche du haut —
+	// le reste du temps, le canevas EST la fenêtre (philosophie PureRef).
+	constexpr float32 kBarH = 30.0f;   // hauteur de l'en-tête
+	constexpr float32 kBtnW = 40.0f;   // largeur d'un bouton (− □ ×)
+	constexpr float32 kEdge = 6.0f;	   // épaisseur des bords de redimensionnement
+	constexpr float32 kBarShow = 40.0f; // zone d'approche qui révèle l'en-tête
+
+	// 0 = rien, 1 = zone de drag, 2 = réduire, 3 = agrandir, 4 = fermer.
+	auto barHit = [&](float32 px, float32 py, const math::NkVec2f &vp) -> int32 {
+		if (py > kBarH)
+			return 0;
+		if (px >= vp.x - kBtnW)
+			return 4;
+		if (px >= vp.x - 2.0f * kBtnW)
+			return 3;
+		if (px >= vp.x - 3.0f * kBtnW)
+			return 2;
+		return 1;
+	};
+
+	// Bord de resize sous le curseur. -1 si aucun (ou fenêtre maximisée : les
+	// bords d'une fenêtre maximisée appartiennent aux écrans voisins).
+	auto edgeHit = [&](float32 px, float32 py, const math::NkVec2f &vp) -> int32 {
+		if (window.IsMaximized())
+			return -1;
+		const bool l = px <= kEdge, r = px >= vp.x - kEdge;
+		const bool t = py <= kEdge, b = py >= vp.y - kEdge;
+		if (t && l)
+			return (int32)NkWindow::NkResizeEdge::TopLeft;
+		if (t && r)
+			return (int32)NkWindow::NkResizeEdge::TopRight;
+		if (b && l)
+			return (int32)NkWindow::NkResizeEdge::BottomLeft;
+		if (b && r)
+			return (int32)NkWindow::NkResizeEdge::BottomRight;
+		if (l)
+			return (int32)NkWindow::NkResizeEdge::Left;
+		if (r)
+			return (int32)NkWindow::NkResizeEdge::Right;
+		if (t)
+			return (int32)NkWindow::NkResizeEdge::Top;
+		if (b)
+			return (int32)NkWindow::NkResizeEdge::Bottom;
+		return -1;
+	};
+
 	// Position pixel de la poignée de rotation de l'item actif (au-dessus du
 	// milieu du bord haut, à 26 px écran — constant quel que soit le zoom).
 	auto rotationHandlePix = [&](const nkref::NkRefItem &it, const math::NkVec2f &vp) -> math::NkVec2f {
@@ -466,6 +535,21 @@ int nkmain(const NkEntryState &state) {
 				mousePix = {px, py};
 				if (mb->IsMiddle() || (mb->IsLeft() && spaceDown)) {
 					mode = NkMode::Pan;
+				} else if (mb->IsLeft() && edgeHit(px, py, vp) >= 0) {
+					// Bord de la fenêtre sans bordure : hand-off natif du resize
+					// (l'OS prend la main jusqu'au relâchement — snap compris).
+					window.BeginResize((NkWindow::NkResizeEdge)edgeHit(px, py, vp));
+				} else if (mb->IsLeft() && barHit(px, py, vp) != 0) {
+					// L'en-tête escamotable : boutons − □ ×, sinon déplacement natif.
+					const int32 bh = barHit(px, py, vp);
+					if (bh == 4)
+						running = false;
+					else if (bh == 3)
+						window.Maximize(); // bascule agrandir/restaurer (Win32)
+					else if (bh == 2)
+						window.Minimize();
+					else
+						window.BeginDragMove();
 				} else if (mb->IsLeft()) {
 					const bool ctrl = mb->GetModifiers().ctrl;
 					// 1) Les poignées de l'item actif ont priorité sur tout.
@@ -502,18 +586,29 @@ int nkmain(const NkEntryState &state) {
 							}
 						}
 					}
-					// 2) Sinon : sélection d'item, ou rectangle sur le vide.
+					// 2) Sinon : item → drag ; VIDE → la signature PureRef :
+					//    glisser le fond déplace la FENÊTRE (on n'a plus de barre
+					//    de titre) ; le rectangle de sélection passe par Ctrl.
 					if (!onHandle) {
 						const int32 hit = selectAtPixel(px, py, ctrl);
 						if (hit >= 0) {
 							mode = NkMode::DragItems;
-						} else {
+						} else if (ctrl) {
 							mode = NkMode::RectSelect;
 							rectStartPix = {px, py};
-							rectAdditive = ctrl;
+							rectAdditive = true;
+						} else {
+							window.BeginDragMove(); // la sélection a déjà été vidée
 						}
 					}
 				}
+			}
+
+			if (auto *dc = ev->As<NkMouseDoubleClickEvent>()) {
+				// Double-clic dans la zone de drag de l'en-tête = agrandir/restaurer,
+				// le geste universel des barres de titre.
+				if (dc->IsLeft() && barHit((float32)dc->GetX(), (float32)dc->GetY(), vp) == 1)
+					window.Maximize();
 			}
 
 			if (auto *mr = ev->As<NkMouseButtonReleaseEvent>()) {
@@ -657,6 +752,7 @@ int nkmain(const NkEntryState &state) {
 		target.Clear(NkColor2D{20, 22, 25, 255});
 		NkRenderer2D &r = target.GetRenderer2D();
 
+
 		const float32 spacing = view.GridSpacing(32.0f);
 		const math::NkVec2f wMin = view.PixelToWorld({0.0f, 0.0f}, vp);
 		const math::NkVec2f wMax = view.PixelToWorld(vp, vp);
@@ -738,11 +834,87 @@ int nkmain(const NkEntryState &state) {
 			r.DrawLine({x0, y0 + h}, {x0, y0}, rimCol, 1.0f);
 		}
 
+		// ── L'en-tête escamotable (par-dessus tout) ─────────────────────────
+		// Révélé quand le curseur s'approche du haut, ou pendant qu'un avis
+		// d'échec est actif (il faut bien le LIRE quelque part).
+		const bool barVisible = mousePix.y <= kBarShow || loadFailTicks > 0;
+		if (barVisible) {
+			r.DrawFilledRect({0.0f, 0.0f, vp.x, kBarH}, NkColor2D{14, 15, 17, 236});
+			r.DrawLine({0.0f, kBarH}, {vp.x, kBarH}, NkColor2D{255, 255, 255, 22}, 1.0f);
+			// La pastille de marque (petit carré orange), à défaut de logo.
+			r.DrawFilledRect({10.0f, 10.0f, 10.0f, 10.0f}, NkColor2D{247, 154, 40, 255});
+			if (hasFont) {
+				NkText txt(uiFont, windowTitle, 15);
+				txt.SetFillColor(NkColor2D{205, 210, 216, 255});
+				// La position d'un NkText est sa LIGNE DE BASE : à y=6 le texte
+				// montait HORS fenêtre (invisible, vécu) — on vise le bas de la barre.
+				txt.SetPosition({30.0f, 21.0f});
+				target.Draw(static_cast<const NkDrawable &>(txt));
+			}
+			// Boutons − □ × : survol surligné, glyphes en primitives.
+			const int32 hov = barHit(mousePix.x, mousePix.y, vp);
+			const float32 bx2 = vp.x - 3.0f * kBtnW, bx1 = vp.x - 2.0f * kBtnW, bx0 = vp.x - kBtnW;
+			if (hov == 2)
+				r.DrawFilledRect({bx2, 0.0f, kBtnW, kBarH}, NkColor2D{255, 255, 255, 26});
+			if (hov == 3)
+				r.DrawFilledRect({bx1, 0.0f, kBtnW, kBarH}, NkColor2D{255, 255, 255, 26});
+			if (hov == 4)
+				r.DrawFilledRect({bx0, 0.0f, kBtnW, kBarH}, NkColor2D{200, 48, 44, 230});
+			const NkColor2D glyph{215, 220, 226, 255};
+			const float32 cy = kBarH * 0.5f;
+			// − (réduire)
+			r.DrawLine({bx2 + kBtnW * 0.5f - 5.0f, cy}, {bx2 + kBtnW * 0.5f + 5.0f, cy}, glyph, 1.5f);
+			// □ (agrandir/restaurer)
+			{
+				const float32 cx = bx1 + kBtnW * 0.5f;
+				r.DrawLine({cx - 5.0f, cy - 5.0f}, {cx + 5.0f, cy - 5.0f}, glyph, 1.5f);
+				r.DrawLine({cx + 5.0f, cy - 5.0f}, {cx + 5.0f, cy + 5.0f}, glyph, 1.5f);
+				r.DrawLine({cx + 5.0f, cy + 5.0f}, {cx - 5.0f, cy + 5.0f}, glyph, 1.5f);
+				r.DrawLine({cx - 5.0f, cy + 5.0f}, {cx - 5.0f, cy - 5.0f}, glyph, 1.5f);
+			}
+			// × (fermer)
+			{
+				const float32 cx = bx0 + kBtnW * 0.5f;
+				r.DrawLine({cx - 5.0f, cy - 5.0f}, {cx + 5.0f, cy + 5.0f}, glyph, 1.5f);
+				r.DrawLine({cx - 5.0f, cy + 5.0f}, {cx + 5.0f, cy - 5.0f}, glyph, 1.5f);
+			}
+		}
+
+		// Curseur : flèches de redimensionnement sur les bords de la fenêtre
+		// sans bordure (persistant : à rappeler chaque frame, cf. NkWindow.h).
+		{
+			NkWindow::NkCursorType cur = NkWindow::NkCursorType::Arrow;
+			switch (edgeHit(mousePix.x, mousePix.y, vp)) {
+				case (int32)NkWindow::NkResizeEdge::Left:
+				case (int32)NkWindow::NkResizeEdge::Right:
+					cur = NkWindow::NkCursorType::ResizeWE;
+					break;
+				case (int32)NkWindow::NkResizeEdge::Top:
+				case (int32)NkWindow::NkResizeEdge::Bottom:
+					cur = NkWindow::NkCursorType::ResizeNS;
+					break;
+				case (int32)NkWindow::NkResizeEdge::TopLeft:
+				case (int32)NkWindow::NkResizeEdge::BottomRight:
+					cur = NkWindow::NkCursorType::ResizeNWSE;
+					break;
+				case (int32)NkWindow::NkResizeEdge::TopRight:
+				case (int32)NkWindow::NkResizeEdge::BottomLeft:
+					cur = NkWindow::NkCursorType::ResizeNESW;
+					break;
+				default:
+					break;
+			}
+			window.SetCursor(cur);
+		}
+
 		target.Display();
 
+		if (loadFailTicks > 0 && --loadFailTicks == 0) {
+			loadFailCount = 0; // l'avis expire, le compteur repart
+			titleCooldown = 0;
+		}
 		if (--titleCooldown <= 0) {
-			char t[128];
-			char extra[48] = "";
+			char extra[96] = "";
 			// L'état « fenêtre discrète » se lit dans le titre (pas encore de menu).
 			if (window.IsAlwaysOnTop() && window.GetOpacity() < 1.0f)
 				std::snprintf(extra, sizeof(extra), " - devant - opacite %d%%",
@@ -752,11 +924,15 @@ int nkmain(const NkEntryState &state) {
 			else if (window.GetOpacity() < 1.0f)
 				std::snprintf(extra, sizeof(extra), " - opacite %d%%",
 							  (int)(window.GetOpacity() * 100.0f + 0.5f));
+			char fails[64] = "";
+			if (loadFailCount > 0 && loadFailTicks > 0)
+				std::snprintf(fails, sizeof(fails), " - %d fichier%s illisible%s (format ?)", (int)loadFailCount,
+							  loadFailCount > 1 ? "s" : "", loadFailCount > 1 ? "s" : "");
 			char t2[96];
 			std::snprintf(t2, sizeof(t2), "NkRef - %d%% - %d image%s", (int)(view.zoom * 100.0f + 0.5f),
 						  (int)board.items.Size(), board.items.Size() > 1 ? "s" : "");
-			std::snprintf(t, sizeof(t), "%s%s", t2, extra);
-			window.SetTitle(t);
+			std::snprintf(windowTitle, sizeof(windowTitle), "%s%s%s", t2, extra, fails);
+			window.SetTitle(windowTitle); // barre des tâches / Alt+Tab
 			titleCooldown = 15;
 		}
 

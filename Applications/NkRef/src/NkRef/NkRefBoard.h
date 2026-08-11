@@ -271,9 +271,19 @@ namespace nkref {
 					dims[b] = vd;
 				}
 
-				// Largeur de rangée cible : ~carré (sqrt de l'aire), jamais plus
-				// étroite que l'item le plus large.
-				float32 rowWidth = nkentseu::math::NkSqrt(area) * 1.15f;
+				// Largeur de rangée cible : viser un BLOC ~carré en NOMBRE
+				// d'images — somme des largeurs (gaps compris) répartie sur
+				// ceil(sqrt(n)) rangées. L'ancienne cible sqrt(aire totale)
+				// s'effondrait dès que les images étaient larges : chaque
+				// étagère ne recevait qu'une image → une COLONNE (retour de
+				// Rihen, 2026-08-11). Jamais plus étroit que l'item le plus large.
+				(void)area;
+				float32 totalW = 0.0f;
+				for (usize k = 0; k < dims.Size(); ++k)
+					totalW += dims[k].x;
+				totalW += gap * (float32)(idx.Size() - 1);
+				const float32 rows = nkentseu::math::NkCeil(nkentseu::math::NkSqrt((float32)idx.Size()));
+				float32 rowWidth = (totalW / rows) * 1.02f; // marge : le dernier de rangée + gap
 				if (rowWidth < widest)
 					rowWidth = widest;
 

@@ -63,6 +63,13 @@ with project("NkRef"):
             "vulkan-1",
         ])
 
+    # ===== macOS =============================================================
+    # Préparé pour la compilation Mac (machine ou CI GitHub Actions) — non
+    # testé localement, aucun Mac sous la main.
+    with filter("system:macOS"):
+        usetoolchain("clang-native")
+        frameworks(["Cocoa", "QuartzCore", "OpenGL"])
+
     # ===== Linux (XLib) ======================================================
     with filter("system:Linux && !options:linux-backend=wayland"):
         usetoolchain("clang-native")
