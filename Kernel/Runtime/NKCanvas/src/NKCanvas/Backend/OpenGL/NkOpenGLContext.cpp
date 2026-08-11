@@ -1187,10 +1187,28 @@ namespace nkentseu {
 		int renderType = kForceES ? EGL_OPENGL_ES3_BIT : EGL_OPENGL_BIT;
 		int surfTypes = EGL_WINDOW_BIT | (h.pbufferSurface ? EGL_PBUFFER_BIT : 0);
 
+		EGLint alphaDemande = h.alphaBits;
+#if defined(NKENTSEU_PLATFORM_HARMONYOS)
+		// Surface OPAQUE sur HarmonyOS.
+		//
+		// Le compositeur mélange la fenêtre avec le fond en se servant du canal
+		// alpha du tampon. Une surface à 8 bits d'alpha oblige donc TOUT ce que
+		// dessine l'application à écrire un alpha correct — le moindre tracé qui
+		// laisse l'alpha à zéro ressort noir ou très sombre, alors que la couleur
+		// RGB, elle, est juste. C'est ce qu'on observe : même des éléments
+		// dessinés directement par l'application, sans la moindre texture,
+		// s'affichent sombres.
+		//
+		// Demander zéro bit d'alpha rend la fenêtre opaque : le compositeur
+		// n'utilise plus que RGB, et le rendu ne dépend plus de la rigueur de
+		// chaque tracé sur l'alpha.
+		alphaDemande = 0;
+#endif
+
 		const EGLint cfgAttribs[] = {EGL_RENDERABLE_TYPE, renderType,		  EGL_SURFACE_TYPE,
 									 surfTypes,			  EGL_RED_SIZE,		  h.redBits,
 									 EGL_GREEN_SIZE,	  h.greenBits,		  EGL_BLUE_SIZE,
-									 h.blueBits,		  EGL_ALPHA_SIZE,	  h.alphaBits,
+									 h.blueBits,		  EGL_ALPHA_SIZE,	  alphaDemande,
 									 EGL_DEPTH_SIZE,	  gl.depthBits,		  EGL_STENCIL_SIZE,
 									 gl.stencilBits,	  EGL_SAMPLE_BUFFERS, gl.msaaSamples > 1 ? 1 : 0,
 									 EGL_SAMPLES,		  gl.msaaSamples,	  EGL_NONE};
