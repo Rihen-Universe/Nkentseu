@@ -63,11 +63,18 @@ with project("NkRef"):
             "vulkan-1",
         ])
 
-    # Frameworks Apple AU NIVEAU PROJET (pas sous filtre) : posés sous
-    # `with filter("system:macOS")`, ils n'atteignaient pas le link
-    # (_glGetString non résolu, CI 2026-08-11). Ignorés par les builders
-    # non-Apple → sans effet ailleurs.
-    frameworks(["Cocoa", "QuartzCore", "OpenGL", "Metal"])
+    # Frameworks Apple via ldflags NIVEAU PROJET : l'API frameworks() de Jenga
+    # écrit dans la TOOLCHAIN courante (None au niveau projet → perdu en
+    # silence) et project.frameworks n'est jamais rempli par l'API — les
+    # -framework n'atteignaient donc jamais le link (_glGetString non résolu,
+    # 2 itérations de CI pour le comprendre). Le builder macOS lit
+    # project.ldflags tel quel ; la condition Python (le parse s'exécute SUR la
+    # machine qui compile) évite de polluer les linkers non-Apple.
+    # Bug à corriger côté Jenga (session dédiée) : frameworks() par projet.
+    import platform as _pyplat
+    if _pyplat.system() == "Darwin":
+        ldflags(["-framework", "Cocoa", "-framework", "QuartzCore",
+                 "-framework", "OpenGL", "-framework", "Metal"])
 
     # ===== macOS =============================================================
     # Préparé pour la compilation Mac (machine ou CI GitHub Actions) — non
