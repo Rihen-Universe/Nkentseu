@@ -41,6 +41,7 @@
 
 #include "NKXR/AR/NkArSession.h"
 #include "NKXR/AR/NkArFlow.h"
+#include "NKXR/AR/NkArImu.h"
 
 namespace nkentseu {
 	namespace xr {
@@ -86,6 +87,12 @@ namespace nkentseu {
 			// PAS la translation (voir NkArFlow, qui l'explique).
 			bool trackByImage = true;
 			NkArFlowConfig flow;
+			// Préférer les CAPTEURS à l'image quand l'appareil en a. Un
+			// gyroscope mesure la rotation sans texture, sans lumière, et sans
+			// se laisser tromper par quelqu'un qui traverse le champ ; tout le
+			// travail fait sur l'image n'existe que faute de mieux. Là où les
+			// deux sont disponibles, mesurer l'emporte sur deviner.
+			bool preferSensors = true;
 			// Au-delà de ce résidu d'ajustement, on refuse le mouvement estimé :
 			// la scène a changé (objet qui passe, forte parallaxe) plutôt que la
 			// caméra. Mieux vaut figer que partir n'importe où.
@@ -120,6 +127,12 @@ namespace nkentseu {
 				// place affichée reste crédible en rotation, elle dérive en
 				// translation — état à montrer, pas à taire.
 				bool IsTrackingByImage() const { return mFlowThisFrame; }
+				/// La rotation vient-elle des CAPTEURS à cette image ? Le dire
+				/// permet à l'application d'afficher sur quoi elle s'appuie —
+				/// et ce n'est pas cosmétique : un suivi par capteur est fiable
+				/// dans le noir, un suivi par image ne l'est pas.
+				bool IsTrackingBySensors() const { return mImuThisFrame; }
+				NkArImu &Imu() { return mImu; }
 				const NkArFlowResult &GetLastFlow() const { return mLastFlow; }
 				// Rotation CUMULÉE depuis la dernière localisation par marqueur,
 				// en degrés (lacet, tangage, roulis). Le chiffre à comparer au
@@ -174,6 +187,9 @@ namespace nkentseu {
 				NkXrPose mCameraInWorld{};
 				NkArImageFlow mFlow;
 				NkArFlowResult mLastFlow{};
+				NkArImu mImu;
+				bool mImuReady = false;
+				bool mImuThisFrame = false;
 				bool mFlowThisFrame = false;
 				NkVec3f mBlindRotation{ 0.f, 0.f, 0.f }; ///< Cumul lacet/tangage/roulis, en radians.
 				uint32 mBlindFrames = 0;   ///< Images sans AUCUN repère (ni marqueur, ni image).

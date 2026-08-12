@@ -979,8 +979,11 @@ int nkmain(const NkEntryState &state) {
 				overlay->DrawText({ 12.f, 60.f },
 								  "  image : %s | %u trouves, %u ambigus, %u retenus | glissement %.2f px | CUMUL "
 								  "%.1f deg (tangage %.1f) | residu %.2f px",
-								  flow.inliers > 0u ? (flow.valid ? "CONCLUT" : "suit, attend de sortir du bruit")
-													: "rien a suivre (surface unie ?)",
+								  arWorld.IsTrackingBySensors()
+									  ? "GYROSCOPE (capteur, pas image)"
+									  : (flow.inliers > 0u
+											 ? (flow.valid ? "CONCLUT" : "suit, attend de sortir du bruit")
+											 : "rien a suivre (surface unie ?)"),
 								  flow.candidates, flow.ambiguous, flow.inliers, flow.medianShiftPixels, cumul.y,
 								  cumul.x, flow.residualPixels);
 			}
