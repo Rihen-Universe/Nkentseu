@@ -9664,25 +9664,22 @@ namespace nkentseu {
 					// Sans objet actif, on retombe sur le projet — il faut bien
 					// pouvoir regarder et editer un materiau sans rien
 					// selectionner.
-					if (actN >= 0 && demo::Demo3DHostNodeMatCount(actN) > 0) {
-						const int32 nOb = demo::Demo3DHostNodeMatCount(actN);
-						for (int32 k = 0; k < nOb && nMats < 64; ++k) {
-							const int32 mi = demo::Demo3DHostNodeMatAt(actN, k);
-							if (mi < 0)
-								continue;
-							if (!demo::Demo3DHostProjMatInfo(mi, sMatNm[nMats], 32u, nullptr,
-															 nullptr, nullptr))
-								continue;
-							sMatIdx[nMats] = mi;
-							++nMats;
-						}
-					} else {
-						for (int32 mi = 0; mi < 64 && nMats < 64; ++mi)
-							if (demo::Demo3DHostProjMatInfo(mi, sMatNm[nMats], 32u, nullptr,
-															nullptr, nullptr)) {
-								sMatIdx[nMats] = mi;
-								++nMats;
-							}
+					// JAMAIS le projet entier (Rihen, 12 aout) : cette liste est
+					// celle de l'OBJET SELECTIONNE, un point c'est tout. Le projet
+					// se consulte dans le navigateur, et s'invite ici uniquement
+					// par le « + », le temps de choisir. Sans objet selectionne,
+					// la liste est donc VIDE — la pastille elle-meme disparait
+					// dans ce cas, et le panneau cede la place a une autre section.
+					const int32 nOb = (actN >= 0) ? demo::Demo3DHostNodeMatCount(actN) : 0;
+					for (int32 k = 0; k < nOb && nMats < 64; ++k) {
+						const int32 mi = demo::Demo3DHostNodeMatAt(actN, k);
+						if (mi < 0)
+							continue;
+						if (!demo::Demo3DHostProjMatInfo(mi, sMatNm[nMats], 32u, nullptr,
+														 nullptr, nullptr))
+							continue;
+						sMatIdx[nMats] = mi;
+						++nMats;
 					}
 					if (st.projMatSel >= nMats)
 						st.projMatSel = nMats > 0 ? nMats - 1 : 0;
@@ -9756,11 +9753,12 @@ namespace nkentseu {
 								// d'un materiau que le cube ne portait pas). La coche reste le
 								// temoin ; sans objet actif, le clic ne fait que selectionner.
 								if (hit.Clicked(lk)) {
+									// SELECTIONNER N'EST PAS ACTIVER (Rihen, 12 aout).
+									// La liste ne contient que des materiaux DEJA
+									// portes par l'objet : cliquer choisit celui qu'on
+									// EDITE dans le panneau ci-dessous. C'est la COCHE
+									// a droite qui decide lequel le rendu applique.
 									st.projMatSel = i;
-									if (actN >= 0 && curOf != sMatIdx[i]) {
-										demo::Demo3DHostProjMatAssign(actN, sMatIdx[i]);
-										NkMarkDirty(st);
-									}
 								}
 							}
 							ly += lineH;
@@ -9785,20 +9783,63 @@ namespace nkentseu {
 							p.Outline(ab, ovA ? NkRole::AccentUi : NkRole::Border,
 									  NkRole::PanelHeader, 3.f);
 							p.IconV(ab.x + S(5.f), ab.y, ab.h, NkIcon::Add, NkRole::Text, 11.f);
-							if (hit.Clicked("props.pm.add")) {
-								// « + » CREE UN MATERIAU et l'associe a l'objet actif.
-								// Reprendre un materiau DEJA EXISTANT du projet passe
-								// par le combo juste en dessous : il liste tout le
-								// projet, et le choisir l'ajoute a cet objet (Rihen :
-								// « ce mat peut etre ajoute plus tard sans forcement
-								// creer un nouveau mat »).
-								const int32 ni = demo::Demo3DHostProjMatCreate();
-								if (ni >= 0) {
-									if (actN >= 0)
-										(void)demo::Demo3DHostNodeMatAdd(actN, ni);
-									for (int32 i = 0; i < nMats + 1; ++i)
-										if (i < 64 && ni == sMatIdx[i])
-											st.projMatSel = i;
+							// ── « + » OUVRE UN CHOIX ────────────────────────────
+							// Rihen : « la liste des materiaux du projet doit etre
+							// affichee SEULEMENT quand on appuie sur plus, pour soit
+							// integrer un materiau existant, soit en creer un
+							// nouveau ». Le menu ne propose donc que les materiaux du
+							// PROJET qui ne sont PAS deja sur cet objet — proposer un
+							// doublon n'aurait aucun sens — precedes de « Nouveau ».
+							static bool sAddOpen = false;
+							if (hit.Clicked("props.pm.add"))
+								sAddOpen = !sAddOpen;
+							if (sAddOpen) {
+								static char sCandNm[65][32];
+								static const char *sCandPtr[65];
+								static int32 sCandSlot[65];
+								snprintf(sCandNm[0], 32, "%s", "Nouveau materiau...");
+								sCandPtr[0] = sCandNm[0];
+								sCandSlot[0] = -1;
+								int32 nCand = 1;
+								for (int32 mi = 0; mi < 64 && nCand < 65; ++mi) {
+									char nm4[64];
+									if (!demo::Demo3DHostProjMatInfo(mi, nm4, sizeof(nm4), nullptr,
+																	 nullptr, nullptr))
+										continue;
+									bool deja = false;
+									for (int32 k = 0; k < nMats && !deja; ++k)
+										deja = (sMatIdx[k] == mi);
+									if (deja)
+										continue;
+									snprintf(sCandNm[nCand], 32, "%s", nm4);
+									sCandPtr[nCand] = sCandNm[nCand];
+									sCandSlot[nCand] = mi;
+									++nCand;
+								}
+								static int32 sCandSel = 0;
+								const int32 before = sCandSel;
+								const NkRect cbR{lst.x, lst.y + lst.h + S(2.f), lst.w,
+												 kRowH - S(4.f)};
+								Combo(p, hit, ws, "props.pm.addc", cbR, sCandPtr, nullptr,
+									  nCand, sCandSel, combo, true, true, true);
+								if (sCandSel != before) {
+									const int32 pick =
+										(sCandSel >= 0 && sCandSel < nCand) ? sCandSlot[sCandSel] : -1;
+									if (pick < 0) {
+										// NOUVEAU : cree, associe, et se donne le nom et
+										// le dossier a l'etape suivante (le materiau
+										// naît dans le dossier courant du navigateur ;
+										// son nom se change dans le champ du panneau).
+										const int32 ni = demo::Demo3DHostProjMatCreate();
+										if (ni >= 0 && actN >= 0)
+											(void)demo::Demo3DHostNodeMatAdd(actN, ni);
+									} else if (actN >= 0) {
+										// EXISTANT : on l'integre a l'objet, sans copie
+										// ni nouveau fichier.
+										(void)demo::Demo3DHostNodeMatAdd(actN, pick);
+									}
+									sCandSel = 0;
+									sAddOpen = false;
 									NkMarkDirty(st);
 								}
 							}
