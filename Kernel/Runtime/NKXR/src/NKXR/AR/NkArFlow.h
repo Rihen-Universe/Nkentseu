@@ -107,6 +107,22 @@ namespace nkentseu {
 			// ces votes-là se concentrent sur « rien n'a bougé », ils forment une
 			// fausse majorité qui fait rejeter les vrais points en mouvement.
 			float32 ambiguityRatio = 0.88f;
+			// ── Image de RÉFÉRENCE, et non image précédente ──────────────────
+			// Un panoramique lent déplace l'image d'un pixel ou deux par image.
+			// C'est le niveau du BRUIT d'une webcam en faible lumière : mesuré
+			// image après image, ce mouvement se noie, et la somme de ces
+			// mesures noyées reste nulle alors que la pièce défile. Constaté :
+			// 300 px parcourus, 0,1° cumulés.
+			// On compare donc à une image de référence CONSERVÉE, et l'on ne
+			// conclut qu'une fois le glissement franchement au-dessus du bruit.
+			// Le mouvement s'accumule alors dans l'IMAGE, où il est visible, au
+			// lieu de s'accumuler dans une somme de presque-riens.
+			float32 keyframeShiftPixels = 3.f;
+			// Filet de sécurité : au-delà de cet âge on conclut quand même et
+			// l'on renouvelle la référence. Sans lui, une scène qui change
+			// d'aspect (exposition, ombre) garderait une référence périmée que
+			// plus rien ne peut apparier.
+			uint32 keyframeMaxAgeFrames = 45;
 			// « Ailleurs » = à plus de tant de pixels du pic. Une webcam donne une
 			// image molle : le creux d'accord est LARGE, et à quatre pixels du
 			// fond on est encore sur son flanc — le comparer au fond faisait
@@ -133,9 +149,10 @@ namespace nkentseu {
 
 			private:
 				NkArFlowConfig mConfig{};
-				NkVector<uint8> mPrev;
+				NkVector<uint8> mPrev;   ///< L'image de RÉFÉRENCE (pas la précédente).
 				uint32 mWidth = 0;
 				uint32 mHeight = 0;
+				uint32 mRefAge = 0;      ///< Images écoulées depuis la référence.
 				bool mHasPrev = false;
 		};
 
