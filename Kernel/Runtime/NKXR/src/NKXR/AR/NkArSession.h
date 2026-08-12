@@ -83,6 +83,10 @@ namespace nkentseu {
 				// L'image en niveaux de gris de la dernière frame : utile pour
 				// afficher ce que la détection a réellement vu (diagnostic).
 				const uint8 *GetGray() const { return mGray.Size() ? &mGray[0] : nullptr; }
+				// Masque après seuillage (255 = encre) : à enregistrer en image
+				// quand un marqueur n'est pas vu — c'est le seul moyen de
+				// savoir si le problème est le seuillage ou la géométrie.
+				const uint8 *GetMask() const { return mMask.Size() ? &mMask[0] : nullptr; }
 				uint32 GetGrayWidth() const { return mWidth; }
 				uint32 GetGrayHeight() const { return mHeight; }
 
@@ -93,6 +97,7 @@ namespace nkentseu {
 				NkArSessionConfig mConfig{};
 				NkArCameraIntrinsics mIntrinsics{};
 				NkVector<uint8> mGray;
+				NkVector<uint8> mMask;
 				NkVector<NkArDetection> mDetections;
 				NkVector<NkArTrackedMarker> mTracked;
 				uint32 mWidth = 0;

@@ -103,8 +103,13 @@ namespace nkentseu {
 
 		// Détecte les marqueurs d'une image en niveaux de gris (ligne = width).
 		// Rend le nombre de marqueurs trouvés.
+		// outMask (optionnel, width*height octets) reçoit le masque binaire
+		// APRÈS seuillage : 255 = sombre (ce que la chaîne considère comme de
+		// l'encre). C'est LA façon de savoir pourquoi un marqueur n'est pas vu
+		// — on regarde ce que le détecteur regarde, au lieu de supposer.
 		uint32 NkArDetectMarkers(const uint8 *gray, uint32 width, uint32 height,
-								 const NkArDetectorConfig &config, NkVector<NkArDetection> &outDetections);
+								 const NkArDetectorConfig &config, NkVector<NkArDetection> &outDetections,
+								 uint8 *outMask = nullptr);
 
 		// Pose du marqueur DANS le repère caméra (avant = -Z, comme partout
 		// dans NKXR) : le marqueur est un carré de côté sizeMeters, centré sur
