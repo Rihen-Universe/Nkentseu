@@ -114,7 +114,14 @@ void main() {
     }
 
     vec3 col = mix(trans, refl, F) + spec;
-    // L'opacite du materiau pilote la vitre ; le Fresnel opacifie les bords.
-    float a = clamp(albSamp.a * (0.15 + 0.85 * F) + F * 0.35, 0.0, 1.0);
+    // L'OPACITE EST UN PLANCHER, le Fresnel n'ajoute que par-dessus.
+    // L'ancienne formule (opacite x (0.15 + 0.85 F)) plafonnait vers 0.2 MEME
+    // a opacite 1 : le verre ne pouvait qu'etre transparent. Impossible d'en
+    // faire un verre teinte sombre, laque, ou un miroir sans tain — alors que
+    // ces verres-la existent et REFLETENT (Rihen, 12 aout). Desormais :
+    //   opacite 1.0 -> opaque, et il reflete toujours (le reflet vit dans la
+    //                  couleur, pas dans l'alpha) ;
+    //   opacite 0.1 -> vitre claire, dont les bords rasants se densifient.
+    float a = clamp(albSamp.a + (1.0 - albSamp.a) * F, 0.0, 1.0);
     fragColor = vec4(col, a);
 }
