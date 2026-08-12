@@ -111,6 +111,21 @@ test coûte cinq minutes et rattrape des régressions invisibles.
 méthode là, parce que le défaut est visuel et qu'aucune assertion ne remplace un
 œil sur une image.
 
+## Dettes de capacité repérées en chemin
+
+Ce ne sont pas des chantiers de rangement, mais des **plafonds statiques** qui
+tiendront tant qu'on travaille sur des scènes d'essai et sauteront au premier
+modèle importé pour de vrai :
+
+- **64 matériaux par projet** (`kNkvpMaxProjMats`). Un `.gltf` d'objet réel en
+  aligne couramment vingt ou trente ; un décor complet dépasse. La liste de
+  matériaux *par objet* suit désormais cette borne (12 août), donc la lever
+  bénéficierait aux deux d'un coup.
+- **160 nœuds par scène** (`kNkvpMaxNodes`).
+
+Le remède est le même dans les deux cas : passer du tableau statique à une
+collection. À faire quand l'import de modèles réels arrivera, pas avant.
+
 ## Ce que ça n'est pas
 
 Ce n'est pas une réécriture, ni un changement d'architecture. Les décisions
