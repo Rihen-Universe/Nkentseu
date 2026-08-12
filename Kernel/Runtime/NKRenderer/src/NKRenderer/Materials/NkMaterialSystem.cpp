@@ -801,6 +801,14 @@ namespace nkentseu {
 			}
 
 			// Blend
+			// LA FILE DECIDE AUSSI. Un gabarit en file TRANSPARENTE dont le
+			// blendMode restait au defaut (OPAQUE) compilait un pipeline SANS
+			// fusion : le Verre etait bien route vers les transparents, bindait
+			// bien son propre pipeline... qui ecrasait le fond au lieu de s'y
+			// melanger. D'ou un verre parfaitement opaque malgre un alpha
+			// Fresnel correct (« est-ce que le verre peut etre transparent ? »,
+			// Rihen, 12 aout). Declarer la file suffit desormais.
+			const bool queueTrans = (t.desc.queue == NkRenderQueue::NK_TRANSPARENT);
 			switch (t.desc.blendMode) {
 				case NkBlendMode::NK_ALPHA:
 					pd.blend = NkBlendDesc::Alpha();
@@ -809,9 +817,14 @@ namespace nkentseu {
 					pd.blend = NkBlendDesc::Additive();
 					break;
 				default:
-					pd.blend = NkBlendDesc::Opaque();
+					pd.blend = queueTrans ? NkBlendDesc::Alpha() : NkBlendDesc::Opaque();
 					break;
 			}
+			// Et un transparent n'ECRIT PAS la profondeur : sinon le premier
+			// fragment dessine masque ceux qui sont derriere lui, dans le meme
+			// objet comme dans le reste de la scene.
+			if (queueTrans)
+				pd.depthStencil.depthWriteEnable = false;
 
 			// Descriptor set layouts (doivent matcher NkRender3D) :
 			//   set 0 = global (camera, lights, shadow, IBL) — fourni par SetSharedContext
