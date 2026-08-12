@@ -40,6 +40,7 @@
 #define __NKENTSEU_XR_NKARWORLD_H__
 
 #include "NKXR/AR/NkArSession.h"
+#include "NKXR/AR/NkArFlow.h"
 
 namespace nkentseu {
 	namespace xr {
@@ -67,6 +68,20 @@ namespace nkentseu {
 			// imprécise : l'inscrire dans la carte propagerait l'erreur à tout
 			// ce qui sera posé ensuite. On exige une taille minimale à l'image.
 			float32 minEdgePixelsToMap = 60.f;
+			// Suivre la ROTATION de la caméra par l'image quand aucun marqueur
+			// n'est visible. Sans cela, l'objet reste collé à l'écran dès qu'on
+			// pivote — le défaut le plus voyant de l'AR par marqueurs. Ne couvre
+			// PAS la translation (voir NkArFlow, qui l'explique).
+			bool trackByImage = true;
+			NkArFlowConfig flow;
+			// Au-delà de ce résidu d'ajustement, on refuse le mouvement estimé :
+			// la scène a changé (objet qui passe, forte parallaxe) plutôt que la
+			// caméra. Mieux vaut figer que partir n'importe où.
+			float32 maxFlowResidualPixels = 2.5f;
+			// Images sans aucun repère AVANT de déclarer la pose perdue. 0 =
+			// jamais. Passé ce délai, une pose entretenue à l'estime ne vaut
+			// plus rien : l'afficher tromperait l'utilisateur.
+			uint32 maxBlindFrames = 240;
 		};
 
 		// ── Le monde ─────────────────────────────────────────────────────────
@@ -87,6 +102,17 @@ namespace nkentseu {
 				bool IsLocalizedNow() const { return mLocalizedThisFrame; }
 				bool HasEverLocalized() const { return mHasOrigin; }
 				uint32 GetFramesSinceLocalized() const { return mFramesSinceLocalized; }
+
+				// La caméra est suivie PAR L'IMAGE à cette image : aucun
+				// marqueur en vue, mais sa rotation vient d'être mesurée. La
+				// place affichée reste crédible en rotation, elle dérive en
+				// translation — état à montrer, pas à taire.
+				bool IsTrackingByImage() const { return mFlowThisFrame; }
+				const NkArFlowResult &GetLastFlow() const { return mLastFlow; }
+				// La pose est-elle encore utilisable ? Faux quand plus rien ne
+				// l'entretient depuis trop longtemps : l'application doit alors
+				// CACHER ses objets plutôt que d'afficher une place inventée.
+				bool IsPoseUsable() const;
 
 				// ── Objets posés dans le monde ───────────────────────────────
 				// Poser DEVANT la caméra, à une distance donnée : le geste le
@@ -122,6 +148,10 @@ namespace nkentseu {
 				NkVector<NkArMapEntry> mMap;
 				NkVector<NkArAnchor> mAnchors;
 				NkXrPose mCameraInWorld{};
+				NkArImageFlow mFlow;
+				NkArFlowResult mLastFlow{};
+				bool mFlowThisFrame = false;
+				uint32 mBlindFrames = 0;   ///< Images sans AUCUN repère (ni marqueur, ni image).
 				bool mHasOrigin = false;
 				bool mLocalizedThisFrame = false;
 				uint32 mFramesSinceLocalized = 0;
