@@ -680,6 +680,27 @@ namespace nkentseu {
 			return tmplEntry && tmplEntry->desc.queue == NkRenderQueue::NK_TRANSPARENT;
 		}
 
+		float32 NkMaterialSystem::InstanceOutlineWidth(NkMaterialInstance *inst) {
+			if (!inst)
+				return 0.f;
+			auto *t = mTemplates.Find(inst->mTemplate.id);
+			if (!t)
+				return 0.f;
+			const NkMaterialType ty = t->desc.type;
+			if (ty != NkMaterialType::NK_TOON && ty != NkMaterialType::NK_TOON_INK &&
+				ty != NkMaterialType::NK_ANIME)
+				return 0.f;
+			const float32 w = inst->GetToon().outlineWidth;
+			return w > 0.f ? w : 0.f;
+		}
+
+		NkVec3f NkMaterialSystem::InstanceOutlineColor(NkMaterialInstance *inst) {
+			if (!inst)
+				return {0.f, 0.f, 0.f};
+			const NkVec4f c = inst->GetToon().outlineColor;
+			return {c.x, c.y, c.z};
+		}
+
 		bool NkMaterialSystem::BindInstance(NkICommandBuffer *cmd, NkMaterialInstance *inst) {
 			NkTextureLibrary *texLib = mTexLib;
 			if (!inst)
