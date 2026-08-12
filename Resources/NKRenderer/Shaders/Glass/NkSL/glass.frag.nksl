@@ -81,8 +81,23 @@ void main() {
     if (dot(N, V) < 0.0) N = -N;
     float cosV = max(dot(N, V), 0.0);
 
-    // Fresnel-Schlick, F0 = 0.04 (verre commun, n ~ 1.5).
-    float F = 0.04 + 0.96 * pow(1.0 - cosV, 5.0);
+    // ── FRESNEL REGLABLE PAR L'INDICE DE REFRACTION ────────────────────
+    // Par defaut la valeur PHYSIQUE du verre courant (n = 1.5, soit F0 =
+    // 0.04) ; l'artiste peut l'outrepasser pour aller chercher un effet
+    // (Rihen : « on active pour regler, du coup les artistes pourront faire
+    // des choses waou »). Le champ `clearcoat` du MaterialUBO porte l'indice
+    // pour ce type — meme principe qu'Unreal, qui reaffecte ses entrees
+    // selon le modele d'ombrage (ici l'anisotropie sert de densite de
+    // paillettes a la carrosserie).
+    //   n = 1.0  aucun reflet (air)
+    //   n = 1.5  verre a vitre — le defaut
+    //   n = 2.4  diamant : reflets tres marques
+    //   n > 3    non physique, mais assume — c'est un outil d'artiste
+    // F0 = ((n-1)/(n+1))^2, la relation exacte, pas une approximation.
+    float ior = (uMat.clearcoat > 1.0) ? uMat.clearcoat : 1.5;
+    float f0r = (ior - 1.0) / (ior + 1.0);
+    float F0g = f0r * f0r;
+    float F = F0g + (1.0 - F0g) * pow(1.0 - cosV, 5.0);
 
     // Reflet : cubemap prefiltre, le niveau suit la rugosite. PAS multiplie
     // par iblStrength — une vitre reflechit son environnement meme quand la
