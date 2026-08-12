@@ -61,9 +61,14 @@ SIMULATEUR desktop + démo `NKXRDemo` (stéréo côte à côte, souris = tête),
 | Actions → profils d'interaction (traduction usage → chemins, DANS le backend) | ❌ | M | P2 |
 | APK Quest 2 via la chaîne jenga Android existante | ❌ | M | P1 |
 | Pico (même code, second runtime = preuve de portabilité) | ❌ | S | P3 |
-| **Étage 3 — AR téléphone (Android d'abord)** | | | |
-| Caméra plein écran (NKCamera) + rendu 3D par-dessus | ❌ | M | P2 |
-| Marqueurs from scratch (seuillage, quads, homographie, PnP) | ❌ | L | P2 |
+| **Étage 3 — AR (desktop d'abord, Android ensuite)** | | | |
+| Marqueurs from scratch (Otsu, contours de Moore, quads, homographie DLT, marque d'orientation, pose plane) — self-test 24/24 | ✅ | — | — |
+| Session AR : conversion, suivi par identifiant, vie d'un marqueur, lissage slerp | ✅ | — | — |
+| NKARDemo : caméra → vidéo plein écran → **cube + axes ancrés sur le marqueur** — **PROUVÉ à l'écran** (id 45 à 0,74 m, capture Rihen 2026-08-12) | ✅ | — | — |
+| Vidéo en vrai FOND 3D (quad texturé/fond de graphe) pour un objet PBR ombré au lieu du filaire | ❌ | M | P1 |
+| Calibration caméra au damier (aujourd'hui : intrinsèques supposées, ~10 % d'erreur de distance) | ❌ | M | P2 |
+| Seuillage adaptatif : validé caméra, à rendre fiable sur images de synthèse | 🔶 | S | P2 |
+| Portage Android (caméra du téléphone + IMU) | ❌ | L | P2 |
 | IMU (gyro/accél via NKEvent Android) pour stabiliser | ❌ | M | P3 |
 | SLAM/VIO (chantier recherche, lien NKAI) | 🚫 | — | — |
 | **Étage 4 — XR : composition passthrough + API unifiée** | ❌ | L | P3 |
