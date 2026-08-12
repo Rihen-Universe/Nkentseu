@@ -78,18 +78,23 @@ namespace nkentseu {
 			// Relief minimal pour qu'une vignette soit suivie. Bas exprès : une
 			// pièce ordinaire (murs clairs, lumière plate) n'offre pas beaucoup
 			// mieux, et un seuil sévère laisserait le suivi sans aucun point.
-			uint32 minGradient = 1200;
-			// MAIS un vote « rien n'a bougé » exige BEAUCOUP plus de relief.
-			// Asymétrie voulue, et voici pourquoi : un mur uni, un ciel, une zone
-			// surexposée ne contiennent plus que du bruit et les blocs de
-			// compression de la webcam — lesquels sont accrochés à la GRILLE DE
-			// PIXELS et non à la scène. Une vignette prise là se recolle donc
-			// parfaitement à sa PROPRE place, quoi qu'ait fait la caméra. Ces
-			// faux votes se concentrent tous au même endroit (zéro) et forment
-			// une majorité qui écrase les vrais. Les faux votes « ça a bougé »,
-			// eux, sont dispersés et le rejet des intrus s'en charge. On se méfie
-			// donc de l'immobilité, pas du mouvement. Constaté sur les captures.
-			uint32 minGradientForStillVote = 2600;
+			uint32 minGradient = 700;
+			// Nombre de points effectivement suivis : les MEILLEURS du lot, par
+			// relief décroissant. Un seuil absolu convient à une scène et affame
+			// la suivante ; un classement s'adapte tout seul.
+			uint32 maxPoints = 32;
+			// Un vote « rien n'a bougé » n'est accepté que d'une vignette dont le
+			// relief atteint la MÉDIANE des points retenus. Asymétrie voulue :
+			// un mur uni, un ciel, une zone surexposée ne contiennent plus que du
+			// bruit et les blocs de compression de la webcam — lesquels sont
+			// accrochés à la GRILLE DE PIXELS et non à la scène. Une vignette
+			// prise là se recolle parfaitement à sa PROPRE place, quoi qu'ait
+			// fait la caméra. Ces faux votes se concentrent tous au même endroit
+			// (zéro) et forment une majorité qui écrase les vrais ; les faux
+			// votes « ça a bougé », eux, sont dispersés et le rejet des intrus
+			// s'en charge. On se méfie donc de l'immobilité, pas du mouvement.
+			// Le seuil est RELATIF : la moitié des points le franchit toujours,
+			// la règle ne peut donc pas tout rejeter.
 			uint32 stillRadiusPixels = 2; ///< En deçà, le vote compte comme « immobile ».
 			uint32 minInliers = 8;      ///< En dessous, on préfère ne rien dire.
 			float32 inlierPixels = 4.f; ///< Tolérance autour du mouvement médian.
@@ -98,8 +103,13 @@ namespace nkentseu {
 			// recolle presque aussi bien à dix endroits vote quand même — et comme
 			// ces votes-là se concentrent sur « rien n'a bougé », ils forment une
 			// fausse majorité qui fait rejeter les vrais points en mouvement.
-			float32 ambiguityRatio = 0.75f;
-			uint32 peakRadius = 4;      ///< « Ailleurs » = à plus de tant de pixels du pic.
+			float32 ambiguityRatio = 0.88f;
+			// « Ailleurs » = à plus de tant de pixels du pic. Une webcam donne une
+			// image molle : le creux d'accord est LARGE, et à quatre pixels du
+			// fond on est encore sur son flanc — le comparer au fond faisait
+			// passer tout bon appariement pour ambigu (mesuré : 16 sur 16
+			// rejetés). Le concurrent doit être franchement ailleurs.
+			uint32 peakRadius = 10;
 		};
 
 		// ── L'estimateur ─────────────────────────────────────────────────────

@@ -467,14 +467,22 @@ int nkmain(const NkEntryState &state) {
 				}
 			}
 		}
-		if (!haveFrame) {
+		// L'image de synthèse CONTIENT le marqueur. La donner à analyser pendant
+		// que la caméra démarre plantait l'origine du monde sur un marqueur que
+		// l'utilisateur n'a jamais montré : au premier plan filmé, la carte
+		// contenait déjà « 1 marqueur » et un cube gris flottait sans raison.
+		// Elle ne sert donc QUE lorsqu'il n'y a réellement pas de caméra.
+		const bool syntheticAllowed = forceSynthetic || !cameraOk;
+		if (!haveFrame && syntheticAllowed) {
 			SynthesizeFallback(frameRGBA, arWidth, arHeight, pattern, 256, total);
+			newFrame = true;
 		}
+		const bool waitingForCamera = (!haveFrame && !syntheticAllowed);
 
 		// ── AR : l'image entre, les poses sortent ────────────────────────────
 		// Uniquement sur une image NEUVE : analyser deux fois la même n'apprend
 		// rien et fausse la lecture du suivi.
-		const bool analyze = (!haveFrame) || newFrame;
+		const bool analyze = newFrame && !waitingForCamera;
 		if (analyze) {
 			visible = arSession.ProcessFrame(frameRGBA, arWidth, arHeight, arWidth * 4u,
 											 nkxr::NkArImageFormat::NK_AR_RGBA8);
