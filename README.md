@@ -16,6 +16,12 @@ simulation, la VR/AR/MR, les outils CAO et les applications scientifiques.
 
 ---
 
+> **Avant de contribuer :** [DETTE_LISIBILITE.md](DETTE_LISIBILITE.md) recense les
+> chantiers de rangement du code (découpage des gros fichiers, documents à
+> remettre à jour, garde-fous). Il signale aussi que `ARCHITECTURE.md` a divergé
+> du dépôt et ne doit pas être pris pour argent comptant tant qu'il n'est pas
+> refait.
+
 ## Comprendre le projet en 2 minutes
 
 - **[EXPLICATION_SIMPLE.md](EXPLICATION_SIMPLE.md)** — version grand public, sans jargon.
