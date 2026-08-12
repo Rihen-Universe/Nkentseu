@@ -117,6 +117,85 @@ namespace {
 		return true;
 	}
 
+	// Découpe un segment de l'écran sur le rectangle de la vidéo (Liang-Barsky).
+	// Sans cela, un objet qui sort du champ serait peint sur les bandes noires,
+	// ou disparaîtrait d'un bloc. Or ce qui sort du champ doit être COUPÉ : un
+	// objet réel ne s'évanouit pas parce qu'il touche le bord de l'image.
+	bool ClipToRect(const NkRectF &r, NkVec2f &a, NkVec2f &b) {
+		float32 t0 = 0.f;
+		float32 t1 = 1.f;
+		const float32 dx = b.x - a.x;
+		const float32 dy = b.y - a.y;
+		const float32 p[4] = { -dx, dx, -dy, dy };
+		const float32 q[4] = { a.x - r.x, (r.x + r.width) - a.x, a.y - r.y, (r.y + r.height) - a.y };
+		for (uint32 i = 0; i < 4u; ++i) {
+			if (p[i] > -1e-6f && p[i] < 1e-6f) {
+				if (q[i] < 0.f) {
+					return false; // parallèle au bord et hors du rectangle
+				}
+				continue;
+			}
+			const float32 t = q[i] / p[i];
+			if (p[i] < 0.f) {
+				if (t > t1) {
+					return false;
+				}
+				if (t > t0) {
+					t0 = t;
+				}
+			}
+			else {
+				if (t < t0) {
+					return false;
+				}
+				if (t < t1) {
+					t1 = t;
+				}
+			}
+		}
+		const NkVec2f start{ a.x + dx * t0, a.y + dy * t0 };
+		const NkVec2f end{ a.x + dx * t1, a.y + dy * t1 };
+		a = start;
+		b = end;
+		return true;
+	}
+
+	// Dessine une arête donnée dans le repère CAMÉRA, en la coupant deux fois :
+	// d'abord sur le plan rapproché (la partie derrière l'objectif n'existe pas
+	// et sa projection est absurde), ensuite sur le bord de l'image. C'est ce
+	// double découpage qui rend la disparition PROGRESSIVE au lieu de brutale.
+	void DrawEdge3D(NkRender2D *r2d, const math::NkVec3f &a, const math::NkVec3f &b,
+					const nkxr::NkArCameraIntrinsics &k, uint32 imgW, uint32 imgH, const NkRectF &dst,
+					const NkVec4f &color, float32 thickness) {
+		const float32 kNear = 0.02f;
+		math::NkVec3f p0 = a;
+		math::NkVec3f p1 = b;
+		const float32 d0 = -p0.z;
+		const float32 d1 = -p1.z;
+		if (d0 <= kNear && d1 <= kNear) {
+			return; // entièrement derrière : rien à montrer
+		}
+		if (d0 <= kNear || d1 <= kNear) {
+			// Un seul bout derrière : on coupe pile sur le plan rapproché.
+			const float32 t = (kNear - d0) / (d1 - d0);
+			const math::NkVec3f cut = p0 + (p1 - p0) * t;
+			if (d0 <= kNear) {
+				p0 = cut;
+			}
+			else {
+				p1 = cut;
+			}
+		}
+		NkVec2f s0, s1;
+		if (!ProjectToScreen(p0, k, imgW, imgH, dst, s0) || !ProjectToScreen(p1, k, imgW, imgH, dst, s1)) {
+			return;
+		}
+		if (!ClipToRect(dst, s0, s1)) {
+			return;
+		}
+		r2d->DrawLine(s0, s1, color, thickness);
+	}
+
 } // namespace
 
 int nkmain(const NkEntryState &state) {
@@ -507,26 +586,14 @@ int nkmain(const NkEntryState &state) {
 					{ -half, -half, 0.f },   { half, -half, 0.f },   { half, half, 0.f },   { -half, half, 0.f },
 					{ -half, -half, side },  { half, -half, side },  { half, half, side },  { -half, half, side },
 				};
-				NkVec2f screen[8];
-				bool allVisible = true;
+				// Les sommets restent dans le repère CAMÉRA : le découpage se
+				// fait arête par arête, sur le plan rapproché PUIS sur le bord de
+				// l'image. Exiger que les 8 sommets soient projetables — ce que
+				// faisait la version précédente — faisait disparaître le cube
+				// d'un bloc dès qu'un seul coin sortait du champ.
+				math::NkVec3f corners[8];
 				for (uint32 c = 0; c < 8u; ++c) {
-					const math::NkVec3f world = marker.pose.Transform(local[c]);
-					if (!ProjectToScreen(world, K, arWidth, arHeight, dst, screen[c])) {
-						allVisible = false;
-						break;
-					}
-				}
-				if (!allVisible) {
-					if (arCfg.detector.debugCounters) {
-						logger.Warnf("[NKARDemo] Marqueur %d : cube NON projetable (derriere la camera ?) — "
-									 "pose z=%.3f\n",
-									 marker.id, marker.pose.position.z);
-					}
-					continue;
-				}
-				if (arCfg.detector.debugCounters) {
-					logger.Infof("[NKARDemo] Marqueur %d dessine : coin0 ecran (%.0f,%.0f), pose z=%.3f\n",
-								 marker.id, screen[0].x, screen[0].y, marker.pose.position.z);
+					corners[c] = marker.pose.Transform(local[c]);
 				}
 				// Quatre états, quatre couleurs — pour que l'utilisateur sache
 				// toujours à quel point il peut se fier à ce qu'il voit :
@@ -548,22 +615,17 @@ int nkmain(const NkEntryState &state) {
 											  { 4, 5 }, { 5, 6 }, { 6, 7 }, { 7, 4 },
 											  { 0, 4 }, { 1, 5 }, { 2, 6 }, { 3, 7 } };
 				for (uint32 e = 0; e < 12u; ++e) {
-					r2d->DrawLine(screen[edges[e][0]], screen[edges[e][1]], color, 3.f);
+					DrawEdge3D(r2d, corners[edges[e][0]], corners[edges[e][1]], K, arWidth, arHeight, dst, color, 3.f);
 				}
 				// Les axes du marqueur : rouge = X, vert = Y, bleu = Z (la
 				// normale). Ils rendent l'ORIENTATION lisible d'un coup d'œil.
-				NkVec2f origin, axis;
-				if (ProjectToScreen(marker.pose.Transform({ 0.f, 0.f, 0.f }), K, arWidth, arHeight, dst, origin)) {
-					if (ProjectToScreen(marker.pose.Transform({ half, 0.f, 0.f }), K, arWidth, arHeight, dst, axis)) {
-						r2d->DrawLine(origin, axis, { 1.f, 0.2f, 0.2f, 1.f }, 4.f);
-					}
-					if (ProjectToScreen(marker.pose.Transform({ 0.f, half, 0.f }), K, arWidth, arHeight, dst, axis)) {
-						r2d->DrawLine(origin, axis, { 0.2f, 1.f, 0.2f, 1.f }, 4.f);
-					}
-					if (ProjectToScreen(marker.pose.Transform({ 0.f, 0.f, half }), K, arWidth, arHeight, dst, axis)) {
-						r2d->DrawLine(origin, axis, { 0.3f, 0.5f, 1.f, 1.f }, 4.f);
-					}
-				}
+				const math::NkVec3f axisOrigin = marker.pose.Transform({ 0.f, 0.f, 0.f });
+				DrawEdge3D(r2d, axisOrigin, marker.pose.Transform({ half, 0.f, 0.f }), K, arWidth, arHeight, dst,
+						   { 1.f, 0.2f, 0.2f, 1.f }, 4.f);
+				DrawEdge3D(r2d, axisOrigin, marker.pose.Transform({ 0.f, half, 0.f }), K, arWidth, arHeight, dst,
+						   { 0.2f, 1.f, 0.2f, 1.f }, 4.f);
+				DrawEdge3D(r2d, axisOrigin, marker.pose.Transform({ 0.f, 0.f, half }), K, arWidth, arHeight, dst,
+						   { 0.3f, 0.5f, 1.f, 1.f }, 4.f);
 			}
 
 			// Dire la source RÉELLEMENT affichée, pas celle qu'on espérait :
@@ -590,16 +652,9 @@ int nkmain(const NkEntryState &state) {
 					{ -half, -half, -half }, { half, -half, -half }, { half, half, -half }, { -half, half, -half },
 					{ -half, -half, half },  { half, -half, half },  { half, half, half },  { -half, half, half },
 				};
-				NkVec2f screen[8];
-				bool visible8 = true;
+				math::NkVec3f corners[8];
 				for (uint32 c = 0; c < 8u; ++c) {
-					if (!ProjectToScreen(inCamera.Transform(local[c]), K, arWidth, arHeight, dst, screen[c])) {
-						visible8 = false;
-						break;
-					}
-				}
-				if (!visible8) {
-					continue;
+					corners[c] = inCamera.Transform(local[c]);
 				}
 				// Vert quand la caméra est localisée maintenant, gris quand la
 				// position affichée repose sur une localisation qui vieillit :
@@ -609,7 +664,7 @@ int nkmain(const NkEntryState &state) {
 				const uint32 edges[12][2] = { { 0, 1 }, { 1, 2 }, { 2, 3 }, { 3, 0 }, { 4, 5 }, { 5, 6 },
 											  { 6, 7 }, { 7, 4 }, { 0, 4 }, { 1, 5 }, { 2, 6 }, { 3, 7 } };
 				for (uint32 e = 0; e < 12u; ++e) {
-					r2d->DrawLine(screen[edges[e][0]], screen[edges[e][1]], color, 2.5f);
+					DrawEdge3D(r2d, corners[edges[e][0]], corners[edges[e][1]], K, arWidth, arHeight, dst, color, 2.5f);
 				}
 			}
 
@@ -626,6 +681,18 @@ int nkmain(const NkEntryState &state) {
 												: (arWorld.HasEverLocalized() ? "localisation qui vieillit"
 																			  : "pas encore d'origine"))),
 							  uint32(arWorld.GetMap().Size()), uint32(worldAnchors.Size()));
+			// Ce que le suivi par l'image mesure RÉELLEMENT, chiffres à l'appui :
+			// sans cela, impossible de distinguer « la caméra ne bouge pas » de
+			// « le suivi ne voit rien » — les deux donnent la même image figée.
+			{
+				const nkxr::NkArFlowResult &flow = arWorld.GetLastFlow();
+				const float32 toDeg = 180.f / math::NK_PI_F;
+				overlay->DrawText({ 12.f, 60.f },
+								  "  image : %s | lacet %.2f deg tangage %.2f deg roulis %.2f deg | %u points, "
+								  "residu %.2f px",
+								  flow.valid ? "mesure" : "rien a suivre (surface unie ?)", flow.yawRad * toDeg,
+								  flow.pitchRad * toDeg, flow.rollRad * toDeg, flow.inliers, flow.residualPixels);
+			}
 			for (nk_size i = 0; i < mapEntries.Size(); ++i) {
 				nkxr::NkXrPose posed;
 				if (!arWorld.ToCamera(mapEntries[i].poseInWorld, posed)) {
@@ -633,7 +700,7 @@ int nkmain(const NkEntryState &state) {
 				}
 				const nkxr::NkArTrackedMarker *live = arSession.Find(mapEntries[i].id);
 				const bool seenNow = (live != nullptr && live->visibleThisFrame);
-				overlay->DrawText({ 12.f, 60.f + 20.f * float32(i) }, "  id %d : %.2f m devant — %s",
+				overlay->DrawText({ 12.f, 80.f + 20.f * float32(i) }, "  id %d : %.2f m devant — %s",
 								  mapEntries[i].id, -posed.position.z,
 								  seenNow ? "VU (cube orange)"
 										  : (arWorld.IsLocalizedNow()
