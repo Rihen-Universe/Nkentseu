@@ -153,7 +153,9 @@ namespace nkentseu {
 
 			const uint32 radius = mConfig.patchRadius;
 			const uint32 search = mConfig.searchRadius;
-			const uint32 margin = radius + search + 3u;
+			// L'affinage sort du rayon de recherche d'un pas : la marge doit
+			// l'inclure, sinon une vignette lirait hors de l'image.
+			const uint32 margin = radius + search + mConfig.coarseStep + 3u;
 			if (width <= 2u * margin || height <= 2u * margin) {
 				return result; // image trop petite pour la fenêtre demandée
 			}
@@ -193,23 +195,48 @@ namespace nkentseu {
 					}
 
 					// ── 2) Appariement : balayage grossier puis affinage ──────
+					// On garde AUSSI le meilleur concurrent situé ailleurs : c'est
+					// lui qui dit si le pic est net ou si la vignette se recolle
+					// un peu partout. Le seuil d'arrêt anticipé est donc le SECOND
+					// et non le premier, sinon les concurrents ne seraient jamais
+					// évalués exactement.
 					uint32 bestSad = 0xFFFFFFFFu;
+					uint32 secondSad = 0xFFFFFFFFu;
 					int32 bestDx = 0;
 					int32 bestDy = 0;
-					for (int32 oy = -int32(search); oy <= int32(search); oy += 2) {
-						for (int32 ox = -int32(search); ox <= int32(search); ox += 2) {
+					bool hasBest = false;
+					const int32 peak = int32(mConfig.peakRadius);
+					const int32 coarse = int32(mConfig.coarseStep < 1u ? 1u : mConfig.coarseStep);
+					for (int32 oy = -int32(search); oy <= int32(search); oy += coarse) {
+						for (int32 ox = -int32(search); ox <= int32(search); ox += coarse) {
 							const uint32 sad = PatchSad(&mPrev[0], gray, width, bx, by, uint32(int32(bx) + ox),
-														uint32(int32(by) + oy), radius, bestSad);
+														uint32(int32(by) + oy), radius, secondSad);
+							const int32 fx2 = ox - bestDx;
+							const int32 fy2 = oy - bestDy;
+							const bool far = (fx2 < -peak || fx2 > peak || fy2 < -peak || fy2 > peak);
 							if (sad < bestSad) {
+								if (hasBest && far) {
+									secondSad = bestSad;
+								}
 								bestSad = sad;
 								bestDx = ox;
 								bestDy = oy;
+								hasBest = true;
+							}
+							else if (sad < secondSad && far) {
+								secondSad = sad;
 							}
 						}
 					}
-					for (int32 oy = bestDy - 1; oy <= bestDy + 1; ++oy) {
-						for (int32 ox = bestDx - 1; ox <= bestDx + 1; ++ox) {
-							if (ox == bestDx && oy == bestDy) {
+					// Affinage : le balayage grossier a pu manquer le fond du
+					// creux de la moitié du pas, on le retrouve pixel par pixel.
+					// Le centre est FIGÉ avant la boucle : s'en servir comme borne
+					// alors qu'il bouge ferait glisser la fenêtre à chaque trouvaille.
+					const int32 centerX = bestDx;
+					const int32 centerY = bestDy;
+					for (int32 oy = centerY - coarse; oy <= centerY + coarse; ++oy) {
+						for (int32 ox = centerX - coarse; ox <= centerX + coarse; ++ox) {
+							if (ox == centerX && oy == centerY) {
 								continue;
 							}
 							const uint32 sad = PatchSad(&mPrev[0], gray, width, bx, by, uint32(int32(bx) + ox),
@@ -227,6 +254,15 @@ namespace nkentseu {
 					const uint32 side = 2u * radius + 1u;
 					const uint32 maxSad = side * side * 40u;
 					if (bestSad > maxSad) {
+						continue;
+					}
+					++result.candidates;
+					// Pic mou : la vignette s'accorde presque aussi bien ailleurs.
+					// Elle ne sait pas où elle est allée — la laisser voter, c'est
+					// précisément ce qui produisait une fausse « rotation nulle ».
+					if (secondSad != 0xFFFFFFFFu &&
+						float32(bestSad) > mConfig.ambiguityRatio * float32(secondSad)) {
+						++result.ambiguous;
 						continue;
 					}
 					du.PushBack(float32(bestDx));

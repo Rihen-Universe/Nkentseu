@@ -47,7 +47,7 @@ static bool Near(float32 a, float32 b, float32 e) {
 // un motif repetitif, lui, se recollerait a la mauvaise periode et donnerait un
 // faux mouvement — d'ou le tirage pseudo-aleatoire plutot qu'un damier.
 static void MakeTexture(uint8 *out, uint32 w, uint32 h) {
-	const uint32 step = 6;
+	const uint32 step = 3;
 	const uint32 gw = w / step + 2u;
 	const uint32 gh = h / step + 2u;
 	auto &allocator = memory::NkGetDefaultAllocator();
@@ -55,7 +55,7 @@ static void MakeTexture(uint8 *out, uint32 w, uint32 h) {
 	uint32 seed = 0x1234567u;
 	for (uint32 i = 0; i < gw * gh; ++i) {
 		seed = seed * 1664525u + 1013904223u;
-		grid[i] = uint8(40u + ((seed >> 16) % 180u));
+		grid[i] = uint8(10u + ((seed >> 16) % 235u));
 	}
 	for (uint32 y = 0; y < h; ++y) {
 		for (uint32 x = 0; x < w; ++x) {
@@ -445,6 +445,8 @@ int main() {
 		CHECK(!localized, "suivi image : plus aucun marqueur, donc plus de localisation par marqueur");
 		CHECK(world.IsTrackingByImage(), "suivi image : la rotation de la camera a ete MESUREE sur l'image");
 		const NkArFlowResult &flow = world.GetLastFlow();
+		logger.Infof("  [info] flow : candidats %u, ambigus %u, retenus %u, residu %.2f px, lacet %.4f rad\n",
+					 flow.candidates, flow.ambiguous, flow.inliers, flow.residualPixels, flow.yawRad);
 		CHECK(flow.valid, "suivi image : estimation valide");
 		CHECK(Near(flow.yawRad, yaw, 0.30f * yaw), "suivi image : lacet retrouve, signe compris");
 		CHECK(Near(flow.pitchRad, 0.f, 0.004f), "suivi image : pas de tangage invente");

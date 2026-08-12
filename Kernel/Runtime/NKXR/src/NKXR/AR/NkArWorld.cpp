@@ -29,6 +29,24 @@ namespace nkentseu {
 			mNextHandle = 1;
 		}
 
+		NkVec3f NkArWorld::GetBlindRotationDeg() const {
+			const float32 toDeg = 180.f / math::NK_PI_F;
+			return NkVec3f(mBlindRotation.x * toDeg, mBlindRotation.y * toDeg, mBlindRotation.z * toDeg);
+		}
+
+		float32 NkArWorld::GetPoseConfidence() const {
+			if (!mHasOrigin) {
+				return 0.f;
+			}
+			if (mConfig.maxBlindFrames == 0u || mBlindFrames == 0u) {
+				return 1.f;
+			}
+			if (mBlindFrames >= mConfig.maxBlindFrames) {
+				return 0.f;
+			}
+			return 1.f - float32(mBlindFrames) / float32(mConfig.maxBlindFrames);
+		}
+
 		bool NkArWorld::IsPoseUsable() const {
 			if (!mHasOrigin) {
 				return false;
@@ -116,6 +134,7 @@ namespace nkentseu {
 				mLocalizedThisFrame = true;
 				mFramesSinceLocalized = 0;
 				mBlindFrames = 0;
+				mBlindRotation = NkVec3f(0.f, 0.f, 0.f);
 			}
 			else {
 				++mFramesSinceLocalized;
@@ -131,6 +150,9 @@ namespace nkentseu {
 										  NkQuatf::RotateY(math::NkAngle::FromRad(mLastFlow.yawRad)) *
 										  NkQuatf::RotateX(math::NkAngle::FromRad(mLastFlow.pitchRad));
 					mCameraInWorld.orientation = (mCameraInWorld.orientation * delta).Normalized();
+					mBlindRotation.y += mLastFlow.yawRad;
+					mBlindRotation.x += mLastFlow.pitchRad;
+					mBlindRotation.z += mLastFlow.rollRad;
 					mFlowThisFrame = true;
 					mBlindFrames = 0;
 				}
