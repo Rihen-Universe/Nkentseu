@@ -218,6 +218,12 @@ int nkmain(const NkEntryState &state) {
 		// Seuillage adaptatif : à essayer quand le marqueur est affiché sur un
 		// ÉCRAN (halos) ou éclairé de biais — c'est exactement son terrain.
 		arCfg.detector.adaptive = (getenv("NK_AR_ADAPTIVE") != nullptr);
+		// Mode ANCRE : montrer la carte UNE FOIS pose la scene, qui reste
+		// ensuite en place — on peut ranger la carte. C'est le modele
+		// « carte -> systeme solaire ». Valable camera FIXE (poste, borne).
+		if (getenv("NK_AR_ANCHOR") != nullptr) {
+			arCfg.anchorMode = nkxr::NkArAnchorMode::NK_AR_ANCHOR_PERSISTENT;
+		}
 	}
 	uint32 arWidth = kCamWidth;
 	uint32 arHeight = kCamHeight;
@@ -255,6 +261,12 @@ int nkmain(const NkEntryState &state) {
 	events.AddEventCallback<NkKeyPressEvent>([&](NkKeyPressEvent *e) {
 		if (e->GetKey() == NkKey::NK_ESCAPE) {
 			running = false;
+		}
+		// R = oublier les ancres : le pendant indispensable du mode ancré —
+		// une scène posée par erreur doit pouvoir être retirée.
+		if (e->GetKey() == NkKey::NK_R) {
+			arSession.ForgetAll();
+			logger.Info("[NKARDemo] Ancres oubliées (touche R).");
 		}
 	});
 	events.AddEventCallback<NkWindowResizeEvent>([&](NkWindowResizeEvent *e) {

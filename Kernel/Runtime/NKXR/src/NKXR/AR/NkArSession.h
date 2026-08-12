@@ -40,8 +40,28 @@ namespace nkentseu {
 			NK_AR_BGRA8 = 2,
 		};
 
+		// ── Que fait-on d'un marqueur qu'on ne voit plus ? ───────────────────
+		enum class NkArAnchorMode : uint8 {
+			// SUIVI : l'objet colle au marqueur et disparaît quand il s'en va
+			// (après lostToleranceFrames). Pour manipuler un objet en le
+			// bougeant à la main.
+			NK_AR_ANCHOR_TRACKED = 0,
+			// ANCRÉ : le marqueur sert à POSER la scène une fois ; ensuite il
+			// peut disparaître, la scène reste — pour toute la durée de
+			// l'application, jusqu'à Forget(). C'est le modèle « carte qui
+			// fait apparaître un système solaire » : on montre la carte, on la
+			// range, la scène demeure.
+			// ⚠️ Valable tant que la CAMÉRA NE BOUGE PAS (poste fixe, borne,
+			// cabine). Si la caméra se déplace, garder l'objet à sa place dans
+			// le MONDE demanderait de suivre le mouvement de la caméra —
+			// c'est du SLAM, que nous n'avons pas : l'objet resterait figé par
+			// rapport à l'objectif, ce qui se voit immédiatement.
+			NK_AR_ANCHOR_PERSISTENT = 1,
+		};
+
 		// ── Réglages de la session AR ────────────────────────────────────────
 		struct NkArSessionConfig {
+			NkArAnchorMode anchorMode = NkArAnchorMode::NK_AR_ANCHOR_TRACKED;
 			NkArDetectorConfig detector;
 			NkArCameraIntrinsics intrinsics;   ///< fx=0 → déduites du FOV ci-dessous
 			float32 fallbackFovXDegrees = 60.f;///< champ supposé si non calibrée
@@ -79,6 +99,12 @@ namespace nkentseu {
 				// elle les affiche encore — elle a le chiffre pour trancher.
 				const NkVector<NkArTrackedMarker> &GetTracked() const { return mTracked; }
 				const NkArTrackedMarker *Find(int32 id) const;
+
+				// Oublier une ancre (ou toutes) : le pendant indispensable du
+				// mode ANCRÉ — sans lui, une scène posée par erreur ne
+				// pourrait plus jamais être retirée.
+				bool Forget(int32 id);
+				void ForgetAll();
 
 				// L'image en niveaux de gris de la dernière frame : utile pour
 				// afficher ce que la détection a réellement vu (diagnostic).
