@@ -145,6 +145,14 @@ namespace nkentseu {
 				PFN_xrGetActionStateVector2f getActionStateVector2f = nullptr;
 				PFN_xrCreateActionSpace createActionSpace = nullptr;
 				PFN_xrApplyHapticFeedback applyHapticFeedback = nullptr;
+
+				// ── Vraies mains (XR_EXT_hand_tracking) ──────────────────────
+				bool handTrackingExt = false;       ///< Extension offerte par le runtime.
+				bool handTrackingSupported = false; ///< …ET supportée par le système.
+				XrHandTrackerEXT handTrackers[2]{ XR_NULL_HANDLE, XR_NULL_HANDLE };
+				PFN_xrCreateHandTrackerEXT createHandTracker = nullptr;
+				PFN_xrDestroyHandTrackerEXT destroyHandTracker = nullptr;
+				PFN_xrLocateHandJointsEXT locateHandJoints = nullptr;
 		};
 
 		namespace {
@@ -345,6 +353,9 @@ namespace nkentseu {
 						if (strcmp(props[i].extensionName, XR_KHR_VULKAN_ENABLE_EXTENSION_NAME) == 0) {
 							mOxr->vulkanEnableExt = true;
 						}
+						if (strcmp(props[i].extensionName, XR_EXT_HAND_TRACKING_EXTENSION_NAME) == 0) {
+							mOxr->handTrackingExt = true;
+						}
 					}
 				}
 			}
@@ -360,7 +371,18 @@ namespace nkentseu {
 				Shutdown();
 				return false;
 			}
-			const char *enabledExtensions[1] = { XR_KHR_VULKAN_ENABLE_EXTENSION_NAME };
+			// Demander SEULEMENT ce que le runtime a annoncé : une extension
+			// inconnue fait échouer xrCreateInstance en bloc.
+			const char *enabledExtensions[2];
+			uint32 enabledExtensionCount = 0;
+			if (mOxr->vulkanEnableExt) {
+				enabledExtensions[enabledExtensionCount] = XR_KHR_VULKAN_ENABLE_EXTENSION_NAME;
+				++enabledExtensionCount;
+			}
+			if (mOxr->handTrackingExt) {
+				enabledExtensions[enabledExtensionCount] = XR_EXT_HAND_TRACKING_EXTENSION_NAME;
+				++enabledExtensionCount;
+			}
 			XrInstanceCreateInfo createInfo{};
 			createInfo.type = XR_TYPE_INSTANCE_CREATE_INFO;
 			snprintf(createInfo.applicationInfo.applicationName, XR_MAX_APPLICATION_NAME_SIZE, "NKXRDemo");
@@ -370,7 +392,7 @@ namespace nkentseu {
 			// 1.0 et non CURRENT : on ne demande que ce qu'on consomme — un
 			// runtime 1.0 (vieux Quest) doit rester éligible.
 			createInfo.applicationInfo.apiVersion = XR_MAKE_VERSION(1, 0, 0);
-			createInfo.enabledExtensionCount = mOxr->vulkanEnableExt ? 1u : 0u;
+			createInfo.enabledExtensionCount = enabledExtensionCount;
 			createInfo.enabledExtensionNames = enabledExtensions;
 			const XrResult createResult = createInstance(&createInfo, &mOxr->instance);
 			if (XR_FAILED(createResult)) {
@@ -425,6 +447,11 @@ namespace nkentseu {
 			NK_OXR_LOAD(xrGetActionStateVector2f, getActionStateVector2f);
 			NK_OXR_LOAD(xrCreateActionSpace, createActionSpace);
 			NK_OXR_LOAD(xrApplyHapticFeedback, applyHapticFeedback);
+			if (mOxr->handTrackingExt) {
+				NK_OXR_LOAD(xrCreateHandTrackerEXT, createHandTracker);
+				NK_OXR_LOAD(xrDestroyHandTrackerEXT, destroyHandTracker);
+				NK_OXR_LOAD(xrLocateHandJointsEXT, locateHandJoints);
+			}
 			#undef NK_OXR_LOAD
 
 			XrInstanceProperties instProps{};
@@ -452,9 +479,22 @@ namespace nkentseu {
 
 			XrSystemProperties sysProps{};
 			sysProps.type = XR_TYPE_SYSTEM_PROPERTIES;
+			// L'extension peut exister au runtime sans que CE système la
+			// serve : la vraie réponse est dans les propriétés du système.
+			XrSystemHandTrackingPropertiesEXT handProps{};
+			handProps.type = XR_TYPE_SYSTEM_HAND_TRACKING_PROPERTIES_EXT;
+			if (mOxr->handTrackingExt) {
+				sysProps.next = &handProps;
+			}
 			if (mOxr->getSystemProperties != nullptr && XR_SUCCEEDED(mOxr->getSystemProperties(mOxr->instance, mOxr->systemId, &sysProps))) {
 				snprintf(mSystemName, sizeof(mSystemName), "%s", sysProps.systemName);
+				mOxr->handTrackingSupported = mOxr->handTrackingExt && (handProps.supportsHandTracking == XR_TRUE);
 			}
+			logger.Infof("[NKXR/OpenXR] Suivi des mains : %s.\n",
+						 mOxr->handTrackingSupported
+							 ? "disponible"
+							 : (mOxr->handTrackingExt ? "extension présente mais système non compatible"
+													  : "extension absente du runtime"));
 
 			uint32 viewCount = 0;
 			mOxr->views[0].type = XR_TYPE_VIEW_CONFIGURATION_VIEW;
@@ -499,6 +539,11 @@ namespace nkentseu {
 			}
 			if (mOxr->vulkanLib != nullptr) {
 				FreeLibrary(mOxr->vulkanLib);
+			}
+			for (uint32 i = 0; i < 2u; ++i) {
+				if (mOxr->handTrackers[i] != XR_NULL_HANDLE && mOxr->destroyHandTracker != nullptr) {
+					mOxr->destroyHandTracker(mOxr->handTrackers[i]);
+				}
 			}
 			for (uint32 i = 0; i < OxrState::kMaxActions; ++i) {
 				if (mOxr->actionSpaces[i] != XR_NULL_HANDLE && mOxr->destroySpace != nullptr) {
@@ -683,6 +728,21 @@ namespace nkentseu {
 			}
 			if (mOxr->vkQueue == VK_NULL_HANDLE || mOxr->vkCmd == VK_NULL_HANDLE) {
 				logger.Warnf("[NKXR/OpenXR] Outillage Vulkan de composition indisponible : session OK mais AUCUNE couche possible.\n");
+			}
+
+			// Trackers de mains : un par côté, créés une fois la session là.
+			if (mOxr->handTrackingSupported && mOxr->createHandTracker != nullptr) {
+				const XrHandEXT sides[2] = { XR_HAND_LEFT_EXT, XR_HAND_RIGHT_EXT };
+				for (uint32 i = 0; i < 2u; ++i) {
+					XrHandTrackerCreateInfoEXT handInfo{};
+					handInfo.type = XR_TYPE_HAND_TRACKER_CREATE_INFO_EXT;
+					handInfo.hand = sides[i];
+					handInfo.handJointSet = XR_HAND_JOINT_SET_DEFAULT_EXT; // les 26 standards
+					if (XR_FAILED(mOxr->createHandTracker(mOxr->session, &handInfo, &mOxr->handTrackers[i]))) {
+						mOxr->handTrackers[i] = XR_NULL_HANDLE;
+						logger.Warnf("[NKXR/OpenXR] Tracker de main %s indisponible.\n", (i == 0) ? "gauche" : "droite");
+					}
+				}
 			}
 
 			logger.Infof("[NKXR/OpenXR] Session de casque créée (liaison Vulkan OK) — en attente de READY.\n");
@@ -1358,6 +1418,56 @@ namespace nkentseu {
 														  reinterpret_cast<const XrHapticBaseHeader *>(&vibration)));
 		}
 
+		bool NkXrOpenXRBackend::LocateHand(NkXrHandSide side, NkXrSpaceType space, NkXrTime time, NkXrHand &outHand) {
+			outHand = NkXrHand{};
+			if (mOxr == nullptr || mOxr->locateHandJoints == nullptr) {
+				return false;
+			}
+			const uint32 index = uint32(side);
+			if (mOxr->handTrackers[index] == XR_NULL_HANDLE) {
+				return false;
+			}
+			XrSpace baseSpace = mOxr->spaces[uint32(space)];
+			if (baseSpace == XR_NULL_HANDLE) {
+				return false;
+			}
+			XrHandJointLocationEXT jointLocations[XR_HAND_JOINT_COUNT_EXT];
+			XrHandJointLocationsEXT locations{};
+			locations.type = XR_TYPE_HAND_JOINT_LOCATIONS_EXT;
+			locations.jointCount = XR_HAND_JOINT_COUNT_EXT;
+			locations.jointLocations = jointLocations;
+			XrHandJointsLocateInfoEXT locateInfo{};
+			locateInfo.type = XR_TYPE_HAND_JOINTS_LOCATE_INFO_EXT;
+			locateInfo.baseSpace = baseSpace;
+			locateInfo.time = XrTime(time);
+			if (XR_FAILED(mOxr->locateHandJoints(mOxr->handTrackers[index], &locateInfo, &locations))) {
+				return false;
+			}
+			// isActive false = main hors champ des caméras : ce n'est pas une
+			// erreur, c'est « je ne la vois pas » — l'app doit pouvoir
+			// distinguer les deux (false ici, mais sans journal alarmiste).
+			if (locations.isActive != XR_TRUE) {
+				return false;
+			}
+			outHand.active = true;
+			const uint32 count = (locations.jointCount < NK_XR_HAND_JOINT_COUNT) ? locations.jointCount
+																				: NK_XR_HAND_JOINT_COUNT;
+			for (uint32 j = 0; j < count; ++j) {
+				const XrHandJointLocationEXT &loc = jointLocations[j];
+				const bool valid = (loc.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT) != 0 &&
+								   (loc.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) != 0;
+				outHand.joints[j].valid = valid;
+				if (!valid) {
+					continue;
+				}
+				outHand.joints[j].position = NkVec3f(loc.pose.position.x, loc.pose.position.y, loc.pose.position.z);
+				outHand.joints[j].orientation = NkQuatf(loc.pose.orientation.x, loc.pose.orientation.y,
+													   loc.pose.orientation.z, loc.pose.orientation.w);
+				outHand.joints[j].radius = loc.radius;
+			}
+			return true;
+		}
+
 #else // !NKENTSEU_PLATFORM_WINDOWS — Android (Quest) branchera ce même backend
 	  // sur le libopenxr_loader.so de Meta ; les autres OS attendront un besoin.
 
@@ -1508,6 +1618,14 @@ namespace nkentseu {
 			(void)amplitude;
 			(void)durationSeconds;
 			(void)frequencyHz;
+			return false;
+		}
+
+		bool NkXrOpenXRBackend::LocateHand(NkXrHandSide side, NkXrSpaceType space, NkXrTime time, NkXrHand &outHand) {
+			(void)side;
+			(void)space;
+			(void)time;
+			outHand = NkXrHand{};
 			return false;
 		}
 
