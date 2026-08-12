@@ -1,0 +1,76 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""NKARDemo — Étage 3 de la mission NKXR : la RÉALITÉ AUGMENTÉE.
+
+La caméra du poste (NKCamera) alimente la chaîne AR de NKXR (NkArSession :
+détection de marqueurs from scratch, suivi, pose 6DoF), et un objet 3D est
+ancré sur le marqueur imprimé, rendu par NKRenderer par-dessus la vidéo.
+Sans caméra branchée, repli DIT sur une image de synthèse animée : la chaîne
+reste exercée de bout en bout, la démo se lance partout.
+"""
+from Jenga import *
+from jengaconfig import *
+
+with project("NKARDemo"):
+    windowedapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+    files(["src/**.cpp"])
+
+    # NKGLSlang/NKSPIRVCross explicites : le linker d'un exécutable qui tire
+    # NKSL/NKRHI ne les récupère pas transitivement (piège documenté dans
+    # NkLocomotionDemo.jenga, 2026-07-23).
+    nkentseudependson(
+        ["NKXR", "NKCamera", "NKRenderer", "NKRHI", "NKSL", "NKGLSlang", "NKSPIRVCross",
+         "NKSerialization", "NKReflection", "NKFileSystem", "NKFont", "NKImage", "NKGlad",
+         "NKEvent", "NKWindow", "NKMath", "NKTime", "NKLogger", "NKStream",
+         "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
+        extra_includes=["src",
+                        # NkVulkanDevice.h (liaison OpenXR) tire vulkan.h.
+                        "%{wks.location}/Externals/Libs/Vulkan-Headers-1.4.350/include"],
+    )
+
+    # NK_RHI_VK_ENABLED est un define LOCAL de NKRHI (non propage) : sans lui,
+    # NkVulkanDevice.h montre sa classe STUB et la liaison OpenXR ne compile
+    # pas. Les cibles desktop de cette demo ont toujours Vulkan (Externals).
+    defines(["NK_RHI_VK_ENABLED"])
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    apppublisher("Rihen Universe")
+    appversion("0.1.0")
+    licensefile("../../LICENSE")
+
+    # ===== Windows ================================================================
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        windowedapp()
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+        # advapi32 : RegGetValueA de la decouverte du runtime OpenXR actif
+        # (NkXrOpenXRBackend, etape 2a).
+        links(["user32", "gdi32", "opengl32", "dwmapi", "shell32", "advapi32",
+               "d3d11", "d3d12", "dxgi", "dxguid", "d3dcompiler", "uuid", "ole32"])
+
+    # ===== Linux XLib (défaut) ===================================================
+    with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
+        windowedapp()
+        usetoolchain("clang-native")
+        defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
+        links(["pthread", "X11", "Xext", "GL"])
+
+    # ===== macOS ==================================================================
+    with filter("system:macOS"):
+        windowedapp()
+        usetoolchain("clang-native")
+        frameworks(["Cocoa", "QuartzCore", "OpenGL"])
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)
