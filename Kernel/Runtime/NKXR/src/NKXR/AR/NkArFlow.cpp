@@ -175,6 +175,7 @@ namespace nkentseu {
 					uint32 bestScore = mConfig.minGradient;
 					uint32 bx = 0;
 					uint32 by = 0;
+					uint32 bestGradient = 0;
 					bool found = false;
 					// Un point sur trois suffit à repérer la case la plus
 					// texturée : c'est un choix de coût, pas de précision — le
@@ -184,6 +185,7 @@ namespace nkentseu {
 							const uint32 score = GradientScore(&mPrev[0], width, height, x, y);
 							if (score > bestScore) {
 								bestScore = score;
+								bestGradient = score;
 								bx = x;
 								by = y;
 								found = true;
@@ -262,6 +264,15 @@ namespace nkentseu {
 					// précisément ce qui produisait une fausse « rotation nulle ».
 					if (secondSad != 0xFFFFFFFFu &&
 						float32(bestSad) > mConfig.ambiguityRatio * float32(secondSad)) {
+						++result.ambiguous;
+						continue;
+					}
+					// Vote « rien n'a bougé » : on ne l'accepte que d'une vignette
+					// franchement texturée (voir minGradientForStillVote).
+					const int32 still = int32(mConfig.stillRadiusPixels);
+					const bool votesStill = (bestDx >= -still && bestDx <= still && bestDy >= -still &&
+											 bestDy <= still);
+					if (votesStill && bestGradient < mConfig.minGradientForStillVote) {
 						++result.ambiguous;
 						continue;
 					}
