@@ -1,20 +1,68 @@
-// shadowalpha.frag.nksl — NKRenderer — Shadow depth-only ALPHA-TESTED FS (VRAI dialecte NkSL)
-// NkVSM v2 : depth-only avec alpha-test — les texels transparents de l'albedo
-// ne castent PAS d'ombre (feuillage, grilles, decoupes). Cutoff fixe 0.5
-// (convention glTF MASK par defaut).
+// shadowalpha.frag.nksl — NKRenderer — Shadow depth-only ALPHA-TESTED FS.
+// Deux roles :
+//   1. DECOUPE (feuillage, grilles) : les texels transparents de l'albedo ne
+//      castent pas d'ombre. Cutoff 0.5, convention glTF MASK.
+//   2. OMBRE PROPORTIONNELLE d'un objet transparent (12 aout) : au lieu de
+//      bloquer toute la lumiere, on n'ecrit qu'une FRACTION des fragments,
+//      choisie par un TRAMAGE ordonne 4x4 dont la densite suit l'opacite.
+//      Un objet a 0.35 laisse donc passer 65 % de la lumiere. C'est le
+//      « Hashed » de Blender / le dither d'Unity : aucun tampon
+//      supplementaire, et le filtrage PCF de l'atlas lisse le motif.
 //
-// set=2 = layout UNIVERSEL des instances materiaux (NkMaterialSystem
-// GetInstanceLayout : UBO b8 + textures b3/b4/b5/b6) — on ne declare que
-// tAlbedo (b3), sous-ensemble legal du layout, ce qui permet de binder
-// directement matInst->GetDescSet() dans la passe shadow.
+// set=2 = layout UNIVERSEL des instances materiaux — on ne declare que
+// tAlbedo (b3), sous-ensemble legal, ce qui permet de binder directement
+// matInst->GetDescSet() dans la passe shadow.
 
 @location(0) in vec2 vUV;
 
+@binding(set=1, binding=1)
+uniform ObjectUBO {
+    mat4  model, normalMatrix;
+    vec4  tint;            // .w = opacite de l'objet
+    float metallic, roughness, aoStrength, emissiveStrength;
+    float normalStrength, clearcoat, clearcoatRoughness, subsurface;
+    vec4  subsurfaceColor;
+    vec4  shadowOverrides;  // .y = mode d'ombre transparente (1 = proportionnelle)
+    vec4  triplanarParams;
+} uObj;
+
 @binding(set=2, binding=3) uniform sampler2D tAlbedo;
+
+// Matrice de Bayer 4x4, ordonnee : chaque pixel a son seuil propre, et les
+// seuils se repartissent regulierement sur [0,1[ — d'ou un motif fin plutot
+// que des paquets, meme sur de grandes surfaces.
+float NkBayer4(vec2 p) {
+    int x = int(mod(p.x, 4.0));
+    int y = int(mod(p.y, 4.0));
+    int i = y * 4 + x;
+    if (i ==  0) return  0.0 / 16.0;
+    if (i ==  1) return  8.0 / 16.0;
+    if (i ==  2) return  2.0 / 16.0;
+    if (i ==  3) return 10.0 / 16.0;
+    if (i ==  4) return 12.0 / 16.0;
+    if (i ==  5) return  4.0 / 16.0;
+    if (i ==  6) return 14.0 / 16.0;
+    if (i ==  7) return  6.0 / 16.0;
+    if (i ==  8) return  3.0 / 16.0;
+    if (i ==  9) return 11.0 / 16.0;
+    if (i == 10) return  1.0 / 16.0;
+    if (i == 11) return  9.0 / 16.0;
+    if (i == 12) return 15.0 / 16.0;
+    if (i == 13) return  7.0 / 16.0;
+    if (i == 14) return 13.0 / 16.0;
+    return 5.0 / 16.0;
+}
 
 @stage(fragment)
 @entry
 void main() {
+    // 1. Decoupe de la texture (comportement historique).
     if (texture(tAlbedo, vUV).a < 0.5)
         discard;
+    // 2. Tramage proportionnel a l'opacite, uniquement en mode 1.
+    if (uObj.shadowOverrides.y > 0.5 && uObj.shadowOverrides.y < 1.5) {
+        float op = clamp(uObj.tint.w, 0.0, 1.0);
+        if (op < 0.999 && NkBayer4(gl_FragCoord.xy) >= op)
+            discard;
+    }
 }

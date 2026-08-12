@@ -387,6 +387,18 @@ namespace nkentseu {
 				// qui expose les setters/getters.
 				bool mReceiveShadow = true;
 				bool mCastShadowAlphaTest = false;
+				// OMBRE D'UN OBJET TRANSPARENT (12 aout, demande de Rihen : « on
+				// peut construire tout ca comme option de l'opacite ») :
+				//   0 = PLEINE          — l'ombre ignore l'opacite (etat historique)
+				//   1 = PROPORTIONNELLE — tramage dans la passe d'ombre, la densite
+				//                         suit l'opacite : un objet a 0.35 ne bloque
+				//                         que 35 % de la lumiere (« Hashed » de
+				//                         Blender, dither d'Unity). Le filtrage PCF
+				//                         lisse le bruit, aucun tampon en plus.
+				//   2 = AUCUNE          — l'objet ne projette rien.
+				// La 4e voie, l'ombre COLOREE (un verre rouge tache le sol en
+				// rouge), demande un tampon d'ombre en couleur : chantier a part.
+				uint32 mTransShadowMode = 1;
 				float32 mShadowBiasMul = 1.0f;
 				// RECEPTEUR D'OMBRE (shadow catcher, 2026-08-05) : la surface ne
 				// se peint PAS, elle ne rend que l'OMBRE qu'elle recoit, en
