@@ -820,11 +820,14 @@ namespace nkentseu {
 					pd.blend = queueTrans ? NkBlendDesc::Alpha() : NkBlendDesc::Opaque();
 					break;
 			}
-			// Et un transparent n'ECRIT PAS la profondeur : sinon le premier
-			// fragment dessine masque ceux qui sont derriere lui, dans le meme
-			// objet comme dans le reste de la scene.
-			if (queueTrans)
-				pd.depthStencil.depthWriteEnable = false;
+			// LA PROFONDEUR RESTE ECRITE, meme en file transparente. Couper
+			// l'ecriture semblait juste (ne pas masquer ce qui est derriere)
+			// mais ce pipeline sert AUSSI aux objets opaques de la famille —
+			// un verre a opacite 1 ne s'inscrivait alors pas dans le tampon, et
+			// les axes du plan se voyaient AU TRAVERS (Rihen, 12 aout). Un
+			// pipeline est un etat FIGE : il ne peut pas decider au cas par cas.
+			// Les transparents generiques, eux, passent par PBR_Blend, qui est
+			// deja en profondeur LECTURE SEULE.
 
 			// Descriptor set layouts (doivent matcher NkRender3D) :
 			//   set 0 = global (camera, lights, shadow, IBL) — fourni par SetSharedContext

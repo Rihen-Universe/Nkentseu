@@ -131,7 +131,24 @@ void main() {
         spec += uLights.colors[i].rgb * sh * 0.6 * att;
     }
 
-    vec3 col = mix(trans, refl, F) + spec;
+    // PLUS L'OPACITE MONTE, PLUS C'EST UNE SURFACE. Un verre translucide
+    // laisse passer la lumiere (terme `trans`) ; un verre LAQUE, lui, est
+    // une surface qui doit s'OMBRER — sans ce terme il restait un aplat
+    // uniforme, blanc et plat (capture de Rihen a opacite 1, 10h29).
+    vec3 dif = vec3(0.0);
+    for (int j = 0; j < uLights.count && j < 32; j++) {
+        vec4 lP = uLights.positions[j];
+        vec3 Lj = (lP.w < 0.5) ? normalize(-uLights.directions[j].xyz)
+                               : normalize(lP.xyz - vWorldPos);
+        float aE2 = NkAreaFormFactor(j, vWorldPos, N);
+        float e2  = (aE2 >= 0.0)
+                  ? aE2 * NkAreaRangeWindow(j, vWorldPos)
+                  : max(dot(N, Lj), 0.0) * 0.31830989 * NkLightAtt(j, vWorldPos);
+        dif += uLights.colors[j].rgb * uLights.colors[j].w * e2;
+    }
+    vec3 surf = tintC * dif;
+    vec3 body = mix(trans, surf, albSamp.a); // 0 = vitre, 1 = surface laquee
+    vec3 col = mix(body, refl, F) + spec;
     // L'OPACITE EST UN PLANCHER, le Fresnel n'ajoute que par-dessus.
     // L'ancienne formule (opacite x (0.15 + 0.85 F)) plafonnait vers 0.2 MEME
     // a opacite 1 : le verre ne pouvait qu'etre transparent. Impossible d'en
