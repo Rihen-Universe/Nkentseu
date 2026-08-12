@@ -820,6 +820,20 @@ namespace nkentseu {
 					pd.blend = queueTrans ? NkBlendDesc::Alpha() : NkBlendDesc::Opaque();
 					break;
 			}
+			// FACES ARRIERE ELIMINEES pour une famille transparente. Le
+			// NoCull par defaut laissait l'ORDRE DU BUFFER D'INDICES decider
+			// quelle paroi gagne : selon l'angle, le meme cube de verre
+			// montrait tantot son interieur (volume correct), tantot un simple
+			// quadrilatere PLAT — deux images pour un seul reglage (captures de
+			// Rihen, 12 aout 10h49). Ne garder que les faces AVANT donne un
+			// resultat STABLE quel que soit le point de vue ; c'est aussi ce
+			// que fait EEVEE, dont le mode fondu elimine les faces arriere par
+			// defaut. Le volume interne reviendra avec la double passe
+			// arriere/avant, comme PBR_Blend — mais elle demande DEUX pipelines
+			// par gabarit, chantier a part.
+			if (queueTrans)
+				pd.rasterizer.cullMode = nkentseu::NkCullMode::NK_BACK;
+
 			// LA PROFONDEUR RESTE ECRITE, meme en file transparente. Couper
 			// l'ecriture semblait juste (ne pas masquer ce qui est derriere)
 			// mais ce pipeline sert AUSSI aux objets opaques de la famille —
