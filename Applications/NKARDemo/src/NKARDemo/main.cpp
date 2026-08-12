@@ -310,12 +310,14 @@ int nkmain(const NkEntryState &state) {
 	// revenir : ils sont a leur place.
 	nkxr::NkArWorld arWorld;
 	{
-		// Deux secondes environ (l'analyse suit la cadence caméra, ~30/s) avant
-		// que l'objet ne soit complètement effacé. Assez pour traverser une
-		// occultation brève, trop court pour laisser croire à une position que
-		// plus rien ne mesure.
+		// Un objet posé sur une table ne s'estompe pas parce qu'on détourne le
+		// regard : il RESTE, et l'on n'en voit que la part qui tombe dans le
+		// champ. La démo ne fait donc jamais disparaître un objet du monde — la
+		// seule chose qui décide de sa visibilité est le champ de vision, par
+		// découpage. (maxBlindFrames existe pour les applications qui préfèrent
+		// cacher plutôt que de montrer une place qui vieillit ; ici, non.)
 		nkxr::NkArWorldConfig worldCfg;
-		worldCfg.maxBlindFrames = 60;
+		worldCfg.maxBlindFrames = 0;
 		arWorld.Initialize(worldCfg);
 	}
 
@@ -534,30 +536,12 @@ int nkmain(const NkEntryState &state) {
 		NkRender3D *r3d = renderer->GetRender3D();
 		r3d->BeginScene(sctx);
 
+		// Rien n'est soumis au rendu 3D : la vidéo est peinte dans la passe
+		// overlay, qui vient APRÈS, et cacherait tout. L'augmentation est donc
+		// projetée à la main plus bas, avec les intrinsèques de la VRAIE caméra.
+		// Un cube 3D soumis ici serait du travail invisible — il l'a été
+		// longtemps, et cela brouillait la lecture de ce qui s'affiche vraiment.
 		const auto &tracked = arSession.GetTracked();
-		for (nk_size i = 0; i < tracked.Size(); ++i) {
-			const nkxr::NkArTrackedMarker &marker = tracked[i];
-			// Un cube POSÉ sur le marqueur : demi-hauteur au-dessus du plan,
-			// car le marqueur est le SOL de l'objet, pas son centre.
-			const float32 side = arCfg.markerSizeMeters;
-			const NkMat4f anchor = NkMat4f::Translate(marker.pose.position) * marker.pose.orientation.ToMat4();
-			NkDrawCall3D dc;
-			dc.mesh = renderer->GetMeshSystem()->GetCube();
-			dc.transform = anchor * NkMat4f::Translate({ 0.f, 0.f, side * 0.5f }) *
-						   NkMat4f::RotationZ(NkAngle::FromRad(total * 0.9f)) *
-						   NkMat4f::Scale({ side, side, side });
-			dc.aabb = { { marker.pose.position.x - side, marker.pose.position.y - side,
-						  marker.pose.position.z - side },
-						{ marker.pose.position.x + side, marker.pose.position.y + side,
-						  marker.pose.position.z + side } };
-			// Marqueur perdu mais encore suivi : teinte froide — l'utilisateur
-			// voit que l'objet est en sursis, il ne disparaît pas d'un coup.
-			dc.tint = marker.visibleThisFrame ? NkVec3f{ 1.f, 0.75f, 0.25f } : NkVec3f{ 0.35f, 0.55f, 0.9f };
-			dc.metallic = 0.1f;
-			dc.roughness = 0.45f;
-			dc.castShadow = false;
-			r3d->Submit(dc);
-		}
 
 		// ── Vidéo en fond + HUD ──────────────────────────────────────────────
 		NkOverlayRenderer *overlay = renderer->GetOverlay();

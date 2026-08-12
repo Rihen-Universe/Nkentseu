@@ -466,6 +466,16 @@ int main() {
 		CHECK(Near(after.position.Len(), before.position.Len(), 0.02f),
 			  "suivi image : la DISTANCE ne bouge pas (une rotation ne rapproche rien)");
 
+		// Camera IMMOBILE : la meme image deux fois. Le suivi ne doit inventer
+		// aucune rotation — c'est le pendant du test precedent, et le defaut
+		// serait bien pire : un objet pose deriverait tout seul, sans que
+		// personne n'ait bouge.
+		session.ProcessFrame(second, W, H, W, NkArImageFormat::NK_AR_GRAY8);
+		world.Update(session);
+		const NkArFlowResult &still = world.GetLastFlow();
+		CHECK(Near(still.yawRad, 0.f, 0.0008f), "suivi image : camera immobile, aucun lacet invente");
+		CHECK(Near(still.pitchRad, 0.f, 0.0008f), "suivi image : camera immobile, aucun tangage invente");
+
 		// Fond parfaitement uni : rien a suivre. Le systeme doit le DIRE, et
 		// finir par refuser sa propre pose plutot que d'afficher n'importe ou.
 		for (uint32 i = 0; i < W * H; ++i) {

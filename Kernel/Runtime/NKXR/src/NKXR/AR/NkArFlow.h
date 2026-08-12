@@ -63,8 +63,8 @@ namespace nkentseu {
 		};
 
 		struct NkArFlowConfig {
-			uint32 cellsX = 8;          ///< Grille de sélection : un point fort par case,
-			uint32 cellsY = 6;          ///< pour couvrir l'image au lieu de s'agglutiner.
+			uint32 cellsX = 10;         ///< Grille de sélection : un point fort par case,
+			uint32 cellsY = 8;          ///< pour couvrir l'image au lieu de s'agglutiner.
 			uint32 patchRadius = 5;     ///< Demi-côté de la vignette comparée (11×11).
 			// Déplacement maximal cherché, en pixels. À 30 images/s et 550 px de
 			// focale, 40 px valent 4° d'un coup — soit un balayage à 120°/s. En
@@ -75,12 +75,22 @@ namespace nkentseu {
 			// Pas du balayage grossier. Le pic reste trouvable car la vignette
 			// est plus large que le pas ; l'affinage rattrape le reste.
 			uint32 coarseStep = 3;
-			// Sous ce relief, la vignette est trop lisse. Un mur uni, un ciel, une
-			// zone surexposée ne contiennent plus que du bruit et les blocs de
-			// compression de la webcam — or ceux-ci sont accrochés à la GRILLE DE
-			// PIXELS, pas à la scène : ils se recollent parfaitement à déplacement
-			// nul et font croire que rien n'a bougé. Constaté en vrai.
-			uint32 minGradient = 2000;
+			// Relief minimal pour qu'une vignette soit suivie. Bas exprès : une
+			// pièce ordinaire (murs clairs, lumière plate) n'offre pas beaucoup
+			// mieux, et un seuil sévère laisserait le suivi sans aucun point.
+			uint32 minGradient = 1200;
+			// MAIS un vote « rien n'a bougé » exige BEAUCOUP plus de relief.
+			// Asymétrie voulue, et voici pourquoi : un mur uni, un ciel, une zone
+			// surexposée ne contiennent plus que du bruit et les blocs de
+			// compression de la webcam — lesquels sont accrochés à la GRILLE DE
+			// PIXELS et non à la scène. Une vignette prise là se recolle donc
+			// parfaitement à sa PROPRE place, quoi qu'ait fait la caméra. Ces
+			// faux votes se concentrent tous au même endroit (zéro) et forment
+			// une majorité qui écrase les vrais. Les faux votes « ça a bougé »,
+			// eux, sont dispersés et le rejet des intrus s'en charge. On se méfie
+			// donc de l'immobilité, pas du mouvement. Constaté sur les captures.
+			uint32 minGradientForStillVote = 2600;
+			uint32 stillRadiusPixels = 2; ///< En deçà, le vote compte comme « immobile ».
 			uint32 minInliers = 8;      ///< En dessous, on préfère ne rien dire.
 			float32 inlierPixels = 4.f; ///< Tolérance autour du mouvement médian.
 			// Le meilleur accord doit être NETTEMENT meilleur que le meilleur
