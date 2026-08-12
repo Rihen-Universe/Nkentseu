@@ -271,6 +271,10 @@ int nkmain(const NkEntryState &state) {
 	uint64 frameIndex = 0;
 	const uint64 exitFrame = (getenv("NK_AR_EXIT") != nullptr) ? uint64(atoll(getenv("NK_AR_EXIT"))) : 0u;
 	const uint64 dumpFrame = (getenv("NK_AR_DUMP") != nullptr) ? uint64(atoll(getenv("NK_AR_DUMP"))) : 0u;
+	// Image de synthese forcee : marqueur toujours detectable, sans dependre
+	// de la camera ni de l'eclairage — c'est ce qui permet de savoir si un
+	// echec vient de la VISION ou de l'AFFICHAGE.
+	const bool forceSynthetic = (getenv("NK_AR_SYNTH") != nullptr);
 
 	while (running && window.IsOpen()) {
 		events.PollEvents();
@@ -282,7 +286,7 @@ int nkmain(const NkEntryState &state) {
 
 		// ── Image ────────────────────────────────────────────────────────────
 		bool haveFrame = false;
-		if (cameraOk) {
+		if (cameraOk && !forceSynthetic) {
 			NkCameraFrame frame;
 			if (camera.GetLastFrame(frame) && frame.IsValid()) {
 				// La caméra livre CE QU'ELLE VEUT (YUYV, NV12, MJPEG…) même
@@ -448,7 +452,16 @@ int nkmain(const NkEntryState &state) {
 					}
 				}
 				if (!allVisible) {
+					if (arCfg.detector.debugCounters) {
+						logger.Warnf("[NKARDemo] Marqueur %d : cube NON projetable (derriere la camera ?) — "
+									 "pose z=%.3f\n",
+									 marker.id, marker.pose.position.z);
+					}
 					continue;
+				}
+				if (arCfg.detector.debugCounters) {
+					logger.Infof("[NKARDemo] Marqueur %d dessine : coin0 ecran (%.0f,%.0f), pose z=%.3f\n",
+								 marker.id, screen[0].x, screen[0].y, marker.pose.position.z);
 				}
 				// Perdu mais encore suivi : bleu froid — l'objet est en sursis,
 				// l'utilisateur le voit au lieu de le voir disparaître.
