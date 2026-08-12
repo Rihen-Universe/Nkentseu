@@ -1433,6 +1433,12 @@ namespace nkentseu {
 					case NkXrActionUsage::NK_XR_USAGE_AIM_POSE: return "/user/hand/right/input/aim/pose";
 					case NkXrActionUsage::NK_XR_USAGE_GRIP_POSE: return "/user/hand/right/input/grip/pose";
 					case NkXrActionUsage::NK_XR_USAGE_HAPTIC: return "/user/hand/right/output/haptic";
+					case NkXrActionUsage::NK_XR_USAGE_SELECT_LEFT: return "/user/hand/left/input/trigger/value";
+					case NkXrActionUsage::NK_XR_USAGE_GRAB_LEFT: return "/user/hand/left/input/squeeze/value";
+					case NkXrActionUsage::NK_XR_USAGE_AIM_POSE_LEFT: return "/user/hand/left/input/aim/pose";
+					case NkXrActionUsage::NK_XR_USAGE_GRIP_POSE_LEFT: return "/user/hand/left/input/grip/pose";
+					case NkXrActionUsage::NK_XR_USAGE_HAPTIC_LEFT: return "/user/hand/left/output/haptic";
+					case NkXrActionUsage::NK_XR_USAGE_MOVE_RIGHT: return "/user/hand/right/input/thumbstick";
 				}
 				return nullptr;
 			};
@@ -1443,6 +1449,10 @@ namespace nkentseu {
 					case NkXrActionUsage::NK_XR_USAGE_AIM_POSE: return "/user/hand/right/input/aim/pose";
 					case NkXrActionUsage::NK_XR_USAGE_GRIP_POSE: return "/user/hand/right/input/grip/pose";
 					case NkXrActionUsage::NK_XR_USAGE_HAPTIC: return "/user/hand/right/output/haptic";
+					case NkXrActionUsage::NK_XR_USAGE_SELECT_LEFT: return "/user/hand/left/input/select/click";
+					case NkXrActionUsage::NK_XR_USAGE_AIM_POSE_LEFT: return "/user/hand/left/input/aim/pose";
+					case NkXrActionUsage::NK_XR_USAGE_GRIP_POSE_LEFT: return "/user/hand/left/input/grip/pose";
+					case NkXrActionUsage::NK_XR_USAGE_HAPTIC_LEFT: return "/user/hand/left/output/haptic";
 					default: return nullptr; // pas de stick/squeeze sur le profil simple
 				}
 			};

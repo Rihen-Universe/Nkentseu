@@ -166,9 +166,19 @@ nkxr::NkXrPose main;
 session->LocateActionPose(aim, stage, frame.predictedDisplayTime, main);
 ```
 
-**Correspondance des usages (v1)** — main droite = SELECT (gâchette), GRAB
-(grip), AIM/GRIP (poses), HAPTIC ; main gauche = MOVE (stick), MENU. Les usages
-`_LEFT` symétriques viendront (requis pour un pupitre à deux mains).
+**Correspondance des usages** — les usages sans suffixe désignent la main
+**droite**, ceux en `_LEFT` la **gauche** ; les deux mains sont servies à
+égalité (un pupitre, un volant, un levier se manipulent à deux mains).
+
+| Usage | Manette Touch | Simulateur |
+|---|---|---|
+| `SELECT` / `SELECT_LEFT` | gâchette droite / gauche | clic gauche / clic milieu |
+| `GRAB` / `GRAB_LEFT` | grip droit / gauche | clic droit / Maj gauche |
+| `AIM_POSE` / `_LEFT` | visée droite / gauche | main simulée, décalée du bon côté |
+| `GRIP_POSE` / `_LEFT` | paume droite / gauche | idem, plus près du corps |
+| `HAPTIC` / `HAPTIC_LEFT` | vibration droite / gauche | — |
+| `MOVE` / `MOVE_RIGHT` | stick gauche / droit | flèches / IJKL |
+| `MENU` | bouton menu gauche | Tab |
 
 **Accrocher un objet à la main** : la pose est un simple point d'ancrage 6DoF —
 y placer n'importe quel maillage (arme sur `AIM_POSE` dont l'axe est la visée,
