@@ -99,6 +99,23 @@ namespace {
 		}
 	}
 
+	// Projette un point du repère CAMÉRA (avant = -Z) vers les pixels de
+	// l'image, puis vers la zone d'affichage de la vidéo à l'écran. C'est la
+	// projection de la VRAIE caméra, pas celle du renderer : l'augmentation se
+	// superpose donc exactement à ce que l'objectif a vu.
+	bool ProjectToScreen(const math::NkVec3f &p, const nkxr::NkArCameraIntrinsics &k, uint32 imgW, uint32 imgH,
+						 const NkRectF &dst, NkVec2f &out) {
+		const float32 depth = -p.z;
+		if (depth <= 0.01f) {
+			return false; // derrière la caméra : rien à dessiner
+		}
+		const float32 u = k.fx * (p.x / depth) + k.cx;
+		const float32 v = -k.fy * (p.y / depth) + k.cy;
+		out.x = dst.x + (u / float32(imgW)) * dst.width;
+		out.y = dst.y + (v / float32(imgH)) * dst.height;
+		return true;
+	}
+
 } // namespace
 
 int nkmain(const NkEntryState &state) {
@@ -403,6 +420,62 @@ int nkmain(const NkEntryState &state) {
 				dst.x = (float32(W) - dst.width) * 0.5f;
 			}
 			r2d->DrawImage(videoTex, dst);
+
+			// ── L'AUGMENTATION, dessinée APRÈS la vidéo ──────────────────────
+			// Le fond vidéo est peint dans la passe overlay, qui vient APRÈS la
+			// 3D : un objet soumis au renderer 3D serait donc CACHÉ par
+			// l'image. Tant que la vidéo n'est pas un vrai fond 3D, on projette
+			// nous-mêmes l'objet augmenté avec les intrinsèques de la VRAIE
+			// caméra — c'est d'ailleurs la superposition la plus exacte
+			// possible, puisqu'elle n'emprunte rien à la caméra virtuelle.
+			for (nk_size i = 0; i < tracked.Size(); ++i) {
+				const nkxr::NkArTrackedMarker &marker = tracked[i];
+				const float32 side = arCfg.markerSizeMeters;
+				const float32 half = side * 0.5f;
+				// Un cube POSÉ sur le marqueur : le marqueur est le sol de
+				// l'objet (plan z=0 du marqueur), pas son centre.
+				const math::NkVec3f local[8] = {
+					{ -half, -half, 0.f },   { half, -half, 0.f },   { half, half, 0.f },   { -half, half, 0.f },
+					{ -half, -half, side },  { half, -half, side },  { half, half, side },  { -half, half, side },
+				};
+				NkVec2f screen[8];
+				bool allVisible = true;
+				for (uint32 c = 0; c < 8u; ++c) {
+					const math::NkVec3f world = marker.pose.Transform(local[c]);
+					if (!ProjectToScreen(world, K, arWidth, arHeight, dst, screen[c])) {
+						allVisible = false;
+						break;
+					}
+				}
+				if (!allVisible) {
+					continue;
+				}
+				// Perdu mais encore suivi : bleu froid — l'objet est en sursis,
+				// l'utilisateur le voit au lieu de le voir disparaître.
+				const NkVec4f color = marker.visibleThisFrame ? NkVec4f{ 1.f, 0.75f, 0.2f, 1.f }
+															  : NkVec4f{ 0.35f, 0.6f, 1.f, 1.f };
+				const uint32 edges[12][2] = { { 0, 1 }, { 1, 2 }, { 2, 3 }, { 3, 0 },
+											  { 4, 5 }, { 5, 6 }, { 6, 7 }, { 7, 4 },
+											  { 0, 4 }, { 1, 5 }, { 2, 6 }, { 3, 7 } };
+				for (uint32 e = 0; e < 12u; ++e) {
+					r2d->DrawLine(screen[edges[e][0]], screen[edges[e][1]], color, 3.f);
+				}
+				// Les axes du marqueur : rouge = X, vert = Y, bleu = Z (la
+				// normale). Ils rendent l'ORIENTATION lisible d'un coup d'œil.
+				NkVec2f origin, axis;
+				if (ProjectToScreen(marker.pose.Transform({ 0.f, 0.f, 0.f }), K, arWidth, arHeight, dst, origin)) {
+					if (ProjectToScreen(marker.pose.Transform({ half, 0.f, 0.f }), K, arWidth, arHeight, dst, axis)) {
+						r2d->DrawLine(origin, axis, { 1.f, 0.2f, 0.2f, 1.f }, 4.f);
+					}
+					if (ProjectToScreen(marker.pose.Transform({ 0.f, half, 0.f }), K, arWidth, arHeight, dst, axis)) {
+						r2d->DrawLine(origin, axis, { 0.2f, 1.f, 0.2f, 1.f }, 4.f);
+					}
+					if (ProjectToScreen(marker.pose.Transform({ 0.f, 0.f, half }), K, arWidth, arHeight, dst, axis)) {
+						r2d->DrawLine(origin, axis, { 0.3f, 0.5f, 1.f, 1.f }, 4.f);
+					}
+				}
+			}
+
 			overlay->DrawText({ 12.f, 20.f }, "NKARDemo — %s | marqueurs vus : %u / suivis : %u",
 							  cameraOk ? "camera" : "SYNTHESE (pas de camera)", visible, uint32(tracked.Size()));
 			overlay->DrawText({ 12.f, 40.f }, "Imprimer nkar_marqueur.png (cote %.1f cm) et le montrer a la camera",
