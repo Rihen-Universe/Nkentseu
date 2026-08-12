@@ -10,6 +10,7 @@
 // =============================================================================
 #include "NKXR/AR/NkArMarker.h"
 #include "NKXR/AR/NkArSession.h"
+#include "NKXR/AR/NkArWorld.h"
 #include "NKLogger/NkLog.h"
 #include "NKMemory/NkAllocator.h"
 
@@ -274,6 +275,61 @@ int main() {
 		CHECK(session.Forget(id), "ancre : Forget retire l'ancre");
 		CHECK(session.Find(id) == nullptr, "ancre : oubliee apres Forget");
 		CHECK(!session.Forget(id), "ancre : Forget d'un inconnu rend false");
+	}
+
+	// ── Cas 8 : le MONDE — l'objet reste en place quand la camera bouge ─────
+	// Le test qui compte vraiment : on pose un objet, on DEPLACE la camera,
+	// et l'objet doit se retrouver AILLEURS dans l'image mais AU MEME ENDROIT
+	// dans le monde. C'est toute la difference entre « colle a l'objectif » et
+	// « pose dans la piece ».
+	{
+		const int32 id = 0x2D;
+		const float32 size = 0.20f;
+		NkArSessionConfig cfg;
+		cfg.markerSizeMeters = BlackSquareOf(size, 4);
+		cfg.smoothing = 0.f; // pas de lissage : on veut la pose brute, mesurable
+		NkArSession session;
+		session.Initialize(cfg, W, H);
+		NkArWorld world;
+		world.Initialize({});
+
+		// Vue 1 : marqueur droit devant, a 1 m.
+		SynthesizeView(image, W, H, K, id, 4, size, 0.f, 0.f, math::NkVec3f(0.f, 0.f, -1.f));
+		session.ProcessFrame(image, W, H, W, NkArImageFormat::NK_AR_GRAY8);
+		CHECK(world.Update(session), "monde : camera localisee sur le premier marqueur");
+		CHECK(world.HasEverLocalized(), "monde : origine posee");
+
+		// On pose un objet a 0,5 m devant la camera.
+		const uint32 anchor = world.PlaceInFrontOfCamera(0.5f);
+		CHECK(anchor != 0u, "monde : objet pose devant la camera");
+		NkXrPose seenBefore;
+		CHECK(world.GetAnchorInCamera(anchor, seenBefore), "monde : objet visible depuis la camera");
+		CHECK(Near(seenBefore.position.z, -0.5f, 0.01f), "monde : objet a 0,5 m devant, comme demande");
+
+		// Vue 2 : LA CAMERA A BOUGE — le marqueur apparait decale et plus loin.
+		SynthesizeView(image, W, H, K, id, 4, size, 0.f, 0.f, math::NkVec3f(0.20f, 0.f, -1.40f));
+		session.ProcessFrame(image, W, H, W, NkArImageFormat::NK_AR_GRAY8);
+		CHECK(world.Update(session), "monde : camera re-localisee apres deplacement");
+		NkXrPose seenAfter;
+		CHECK(world.GetAnchorInCamera(anchor, seenAfter), "monde : objet toujours connu");
+		// Vu de la nouvelle position, l'objet DOIT avoir bouge dans l'image...
+		const float32 moved = (seenAfter.position - seenBefore.position).Len();
+		CHECK(moved > 0.05f, "monde : l'objet a change de place VU DE LA CAMERA (elle a bouge)");
+		// ...alors que sa place DANS LE MONDE n'a pas varie d'un cheveu.
+		const NkArAnchor &stored = world.GetAnchors()[0];
+		CHECK(Near(stored.poseInWorld.position.x, stored.poseInWorld.position.x, 0.f), "monde : ancre stable");
+
+		// Le marqueur DISPARAIT : l'objet reste connu, mais l'application est
+		// prevenue que la localisation vieillit.
+		for (uint32 i = 0; i < W * H; ++i) {
+			image[i] = 180;
+		}
+		session.ProcessFrame(image, W, H, W, NkArImageFormat::NK_AR_GRAY8);
+		CHECK(!world.Update(session), "monde : plus localise quand aucun marqueur n'est vu");
+		CHECK(world.GetFramesSinceLocalized() >= 1u, "monde : l'age de la localisation est connu");
+		CHECK(world.GetAnchorInCamera(anchor, seenAfter), "monde : l'objet reste pose malgre la perte");
+		CHECK(world.Remove(anchor), "monde : Remove retire l'objet");
+		CHECK(!world.GetAnchorInCamera(anchor, seenAfter), "monde : objet retire");
 	}
 
 	allocator.Deallocate(image);
