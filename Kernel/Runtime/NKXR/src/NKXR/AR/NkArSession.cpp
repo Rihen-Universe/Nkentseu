@@ -67,6 +67,21 @@ namespace nkentseu {
 			return nullptr;
 		}
 
+		bool NkArSession::Forget(int32 id) {
+			for (nk_size i = 0; i < mTracked.Size(); ++i) {
+				if (mTracked[i].id == id) {
+					mTracked[i] = mTracked[mTracked.Size() - 1u];
+					mTracked.PopBack();
+					return true;
+				}
+			}
+			return false;
+		}
+
+		void NkArSession::ForgetAll() {
+			mTracked.Clear();
+		}
+
 		uint32 NkArSession::ProcessFrame(const uint8 *pixels, uint32 width, uint32 height, uint32 stride,
 										 NkArImageFormat format) {
 			if (pixels == nullptr || width != mWidth || height != mHeight) {
@@ -162,6 +177,12 @@ namespace nkentseu {
 			}
 
 			// ── Oubli des marqueurs trop longtemps absents ───────────────────
+			// En mode ANCRÉ, on n'oublie JAMAIS de soi-même : c'est
+			// l'application qui décide, par Forget(). Une scène posée ne doit
+			// pas s'évaporer parce que la carte a été rangée.
+			if (mConfig.anchorMode == NkArAnchorMode::NK_AR_ANCHOR_PERSISTENT) {
+				return visible;
+			}
 			for (nk_size i = mTracked.Size(); i > 0; --i) {
 				const nk_size index = i - 1u;
 				if (mTracked[index].framesSinceSeen > mConfig.lostToleranceFrames) {
