@@ -10175,19 +10175,58 @@ namespace nkentseu {
 								if (tFam9 == 5) {
 									float32 gcc = 0.f, gccR = 0.f, gsss = 0.f;
 									demo::Demo3DHostProjMatSurface(selMat, &gcc, &gccR, &gsss);
-									float32 ior = gcc > 1.f ? gcc : 1.5f;
+									// LA COCHE COMMANDE, LE CURSEUR SE SOUVIENT (Rihen) :
+									// decochee, le shader prend la valeur PHYSIQUE (1.5) et
+									// le curseur reste inerte en affichant la DERNIERE
+									// valeur reglee. La memoire vit dans le signe : gcc
+									// NEGATIF = « desactive, mais je garde |gcc| ». Aucun
+									// champ supplementaire a propager jusqu'a l'UBO, au
+									// .nkmat et aux facades — le materiau ne connait que
+									// l'indice effectif.
+									const bool iorOn = gcc > 1.f;
+									float32 ior = gcc > 1.f ? gcc : (gcc < -1.f ? -gcc : 1.5f);
 									const float32 ior0 = ior;
-									p.TextV(iR.x, yy, kRowH, "Indice (Fresnel)", NkRole::TextMuted);
-									DragFloat(p, hit, ws, in, "props.pm.ior",
-									          {iR.x + S(110.f), yy + S(3.f), iR.w - S(110.f),
-									           kRowH - S(6.f)},
-									          ior, 0.01f, NkRole::AccentUi, "%.2f");
+									// La coche.
+									const NkRect ckI{iR.x, yy + S(4.f), S(16.f), S(16.f)};
+									const bool ovI = hit.Add("props.pm.iorx", ckI);
+									p.Outline(ckI, NkRole::Border,
+											  ovI ? NkRole::PanelBg : NkRole::InputBg, 3.f);
+									if (iorOn)
+										p.IconV(ckI.x + S(2.f), yy, kRowH, NkIcon::Check,
+												NkRole::AccentUi, 11.f);
+									if (hit.Clicked("props.pm.iorx")) {
+										// Bascule SANS perdre la valeur : on ne fait que
+										// changer son signe.
+										demo::Demo3DHostProjMatSetSurface(
+											selMat, iorOn ? -ior : ior, gccR, gsss);
+										NkMarkDirty(st);
+									}
+									p.TextV(iR.x + S(22.f), yy, kRowH, "Indice (Fresnel)",
+											iorOn ? NkRole::Text : NkRole::TextMuted);
+									if (iorOn) {
+										DragFloat(p, hit, ws, in, "props.pm.ior",
+										          {iR.x + S(130.f), yy + S(3.f), iR.w - S(130.f),
+										           kRowH - S(6.f)},
+										          ior, 0.01f, NkRole::AccentUi, "%.2f");
+									} else {
+										// Inerte : la derniere valeur reste LISIBLE, ce qui
+										// evite de la retrouver a l'aveugle en reactivant.
+										char iorTxt[24];
+										snprintf(iorTxt, sizeof(iorTxt), "%.2f (auto)", ior);
+										p.TextV(iR.x + S(130.f), yy, kRowH, iorTxt,
+												NkRole::TextMuted);
+									}
 									yy += kRowH;
-									if (ior != ior0) {
-										if (ior < 1.f)
-											ior = 1.f;
-										if (ior > 4.f)
-											ior = 4.f;
+									if (iorOn && ior != ior0) {
+										// SEULE CONTRAINTE : n > 0. Le facteur de Fresnel,
+										// lui, est borne [0,1] par conservation d'energie —
+										// et la formule F0 = ((n-1)/(n+1))^2 le garantit
+										// d'elle-meme pour tout n > 0. Plafonner l'indice
+										// serait donc arbitraire : le silicium vaut ~3.9,
+										// le germanium 4 a 5 dans l'infrarouge, et les
+										// metamateriaux descendent sous 1.
+										if (ior < 0.01f)
+											ior = 0.01f;
 										demo::Demo3DHostProjMatSetSurface(selMat, ior, gccR, gsss);
 										NkMarkDirty(st);
 									}

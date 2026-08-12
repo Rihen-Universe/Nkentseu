@@ -13570,7 +13570,19 @@ namespace nkentseu {
 			if (i < 0 || i >= kNkvpMaxProjMats || !nkvpProjMats[i].used)
 				return;
 			NkVpProjMat &m = nkvpProjMats[i];
-			m.clearcoat = cc < 0.f ? 0.f : (cc > 1.f ? 1.f : cc);
+			// DOUBLE EMPLOI ASSUME de `clearcoat`, selon le type du materiau :
+			//   - familles PBR : le VERNIS, borne a [0,1] ;
+			//   - type VERRE   : l'INDICE DE REFRACTION, dans [1,4] — et son
+			//     SIGNE porte la coche d'activation (negatif = « desactive,
+			//     mais je garde la valeur »), ce qui evite de propager un
+			//     booleen de plus jusqu'a l'UBO, au .nkmat et aux facades.
+			// Meme principe qu'Unreal, qui reaffecte ses entrees selon le
+			// modele d'ombrage. AUCUN plafond physique sur l'indice : le
+			// silicium vaut ~3.9, le germanium 4 a 5 dans l'infrarouge, et un
+			// metamateriau descend sous 1. Le facteur de Fresnel, lui, reste
+			// borne [0,1] par conservation d'energie — la formule s'en charge.
+			// Garde-fou numerique seulement (division a n = -1).
+			m.clearcoat = cc < -64.f ? -64.f : (cc > 64.f ? 64.f : cc);
 			m.ccRough = ccRough < 0.f ? 0.f : (ccRough > 1.f ? 1.f : ccRough);
 			m.subsurface = sss < 0.f ? 0.f : (sss > 1.f ? 1.f : sss);
 		}

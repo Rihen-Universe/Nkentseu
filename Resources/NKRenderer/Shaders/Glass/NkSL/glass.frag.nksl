@@ -90,11 +90,14 @@ void main() {
     // selon le modele d'ombrage (ici l'anisotropie sert de densite de
     // paillettes a la carrosserie).
     //   n = 1.0  aucun reflet (air)
-    //   n = 1.5  verre a vitre — le defaut
-    //   n = 2.4  diamant : reflets tres marques
-    //   n > 3    non physique, mais assume — c'est un outil d'artiste
-    // F0 = ((n-1)/(n+1))^2, la relation exacte, pas une approximation.
-    float ior = (uMat.clearcoat > 1.0) ? uMat.clearcoat : 1.5;
+    //   n = 1.33 eau          n = 1.5  verre a vitre — le defaut
+    //   n = 2.4  diamant      n ~ 3.9  silicium
+    //   n < 1    metamateriaux — la formule reste valide, F0 remonte
+    // AUCUN PLAFOND : l'indice n'est pas borne par la physique. Ce qui l'est,
+    // c'est le facteur F lui-meme, dans [0,1] par conservation d'energie — et
+    // F0 = ((n-1)/(n+1))^2 le garantit pour tout n > 0 (relation exacte, pas
+    // une approximation). Seul n <= 0 est refuse : la formule y diverge.
+    float ior = (uMat.clearcoat > 0.0) ? uMat.clearcoat : 1.5;
     float f0r = (ior - 1.0) / (ior + 1.0);
     float F0g = f0r * f0r;
     float F = F0g + (1.0 - F0g) * pow(1.0 - cosV, 5.0);
