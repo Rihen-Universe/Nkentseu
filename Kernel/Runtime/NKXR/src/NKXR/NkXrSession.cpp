@@ -275,6 +275,10 @@ namespace nkentseu {
 			return mBackend->LocateActionPose(handle, space.GetType(), time, outPose);
 		}
 
+		bool NkXrSession::ApplyHaptic(NkXrActionHandle handle, float32 amplitude, float32 durationSeconds, float32 frequencyHz) {
+			return mBackend->ApplyHaptic(handle, amplitude, durationSeconds, frequencyHz);
+		}
+
 		NkXrTime NkXrSession::Now() {
 			// float64 → int64 : ~104 jours de nanosecondes tiennent dans la
 			// mantisse d'un double, largement au-delà d'une session.

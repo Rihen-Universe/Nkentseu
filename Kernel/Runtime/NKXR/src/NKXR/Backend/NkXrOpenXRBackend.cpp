@@ -124,6 +124,27 @@ namespace nkentseu {
 				PFN_vkResetFences fnResetFences = nullptr;
 				PFN_vkCmdPipelineBarrier fnCmdPipelineBarrier = nullptr;
 				PFN_vkCmdCopyImage fnCmdCopyImage = nullptr;
+
+				// ── 2b.3 : actions réelles (manettes) ────────────────────────
+				static constexpr uint32 kMaxActions = 16u;
+				XrActionSet actionSet = XR_NULL_HANDLE;
+				NkXrActionDesc actionDescs[kMaxActions]{};
+				uint32 actionCount = 0;
+				XrAction actionHandles[kMaxActions]{};
+				XrSpace actionSpaces[kMaxActions]{};
+				bool actionsAttached = false;
+				PFN_xrStringToPath stringToPath = nullptr;
+				PFN_xrCreateActionSet createActionSet = nullptr;
+				PFN_xrDestroyActionSet destroyActionSet = nullptr;
+				PFN_xrCreateAction createAction = nullptr;
+				PFN_xrSuggestInteractionProfileBindings suggestBindings = nullptr;
+				PFN_xrAttachSessionActionSets attachActionSets = nullptr;
+				PFN_xrSyncActions syncActions = nullptr;
+				PFN_xrGetActionStateBoolean getActionStateBoolean = nullptr;
+				PFN_xrGetActionStateFloat getActionStateFloat = nullptr;
+				PFN_xrGetActionStateVector2f getActionStateVector2f = nullptr;
+				PFN_xrCreateActionSpace createActionSpace = nullptr;
+				PFN_xrApplyHapticFeedback applyHapticFeedback = nullptr;
 		};
 
 		namespace {
@@ -392,6 +413,18 @@ namespace nkentseu {
 			NK_OXR_LOAD(xrAcquireSwapchainImage, acquireSwapchainImage);
 			NK_OXR_LOAD(xrWaitSwapchainImage, waitSwapchainImage);
 			NK_OXR_LOAD(xrReleaseSwapchainImage, releaseSwapchainImage);
+			NK_OXR_LOAD(xrStringToPath, stringToPath);
+			NK_OXR_LOAD(xrCreateActionSet, createActionSet);
+			NK_OXR_LOAD(xrDestroyActionSet, destroyActionSet);
+			NK_OXR_LOAD(xrCreateAction, createAction);
+			NK_OXR_LOAD(xrSuggestInteractionProfileBindings, suggestBindings);
+			NK_OXR_LOAD(xrAttachSessionActionSets, attachActionSets);
+			NK_OXR_LOAD(xrSyncActions, syncActions);
+			NK_OXR_LOAD(xrGetActionStateBoolean, getActionStateBoolean);
+			NK_OXR_LOAD(xrGetActionStateFloat, getActionStateFloat);
+			NK_OXR_LOAD(xrGetActionStateVector2f, getActionStateVector2f);
+			NK_OXR_LOAD(xrCreateActionSpace, createActionSpace);
+			NK_OXR_LOAD(xrApplyHapticFeedback, applyHapticFeedback);
 			#undef NK_OXR_LOAD
 
 			XrInstanceProperties instProps{};
@@ -466,6 +499,18 @@ namespace nkentseu {
 			}
 			if (mOxr->vulkanLib != nullptr) {
 				FreeLibrary(mOxr->vulkanLib);
+			}
+			for (uint32 i = 0; i < OxrState::kMaxActions; ++i) {
+				if (mOxr->actionSpaces[i] != XR_NULL_HANDLE && mOxr->destroySpace != nullptr) {
+					mOxr->destroySpace(mOxr->actionSpaces[i]);
+				}
+			}
+			if (mOxr->actionSet != XR_NULL_HANDLE && mOxr->destroyActionSet != nullptr) {
+				mOxr->destroyActionSet(mOxr->actionSet);
+			}
+			// Repli STAGE→LOCAL = alias : ne pas détruire deux fois le même handle.
+			if (mOxr->spaces[2] == mOxr->spaces[1]) {
+				mOxr->spaces[2] = XR_NULL_HANDLE;
 			}
 			for (uint32 i = 0; i < 3u; ++i) {
 				if (mOxr->spaces[i] != XR_NULL_HANDLE && mOxr->destroySpace != nullptr) {
@@ -886,6 +931,9 @@ namespace nkentseu {
 				logger.Errorf("[NKXR/OpenXR] BeginSession : pas de session de casque (BindVulkan manquant ?).\n");
 				return false;
 			}
+			// Attacher les actions AVANT d'ouvrir la boucle : l'attachement est
+			// définitif et doit précéder la première synchronisation.
+			SetupActions();
 			XrSessionBeginInfo beginInfo{};
 			beginInfo.type = XR_TYPE_SESSION_BEGIN_INFO;
 			beginInfo.primaryViewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
@@ -1037,6 +1085,279 @@ namespace nkentseu {
 			return true;
 		}
 
+		// ── Actions réelles : manettes Touch (2b.3) ──────────────────────────
+
+		void NkXrOpenXRBackend::AttachActions(const NkXrActionDesc *actions, uint32 count) {
+			if (mOxr == nullptr) {
+				return;
+			}
+			if (count > OxrState::kMaxActions) {
+				logger.Warnf("[NKXR/OpenXR] %u actions demandées, %u retenues (kMaxActions).\n", count,
+							 OxrState::kMaxActions);
+				count = OxrState::kMaxActions;
+			}
+			mOxr->actionCount = count;
+			for (uint32 i = 0; i < count; ++i) {
+				mOxr->actionDescs[i] = actions[i];
+			}
+			if (mOxr->session != XR_NULL_HANDLE) {
+				SetupActions();
+			}
+		}
+
+		void NkXrOpenXRBackend::SetupActions() {
+			if (mOxr == nullptr || mOxr->actionsAttached || mOxr->actionCount == 0u ||
+				mOxr->session == XR_NULL_HANDLE || mOxr->createActionSet == nullptr || mOxr->stringToPath == nullptr) {
+				return;
+			}
+			XrActionSetCreateInfo setInfo{};
+			setInfo.type = XR_TYPE_ACTION_SET_CREATE_INFO;
+			snprintf(setInfo.actionSetName, XR_MAX_ACTION_SET_NAME_SIZE, "nkxr");
+			snprintf(setInfo.localizedActionSetName, XR_MAX_LOCALIZED_ACTION_SET_NAME_SIZE, "NKXR");
+			if (XR_FAILED(mOxr->createActionSet(mOxr->instance, &setInfo, &mOxr->actionSet))) {
+				logger.Errorf("[NKXR/OpenXR] xrCreateActionSet KO.\n");
+				return;
+			}
+
+			for (uint32 i = 0; i < mOxr->actionCount; ++i) {
+				const NkXrActionDesc &desc = mOxr->actionDescs[i];
+				XrActionCreateInfo actionInfo{};
+				actionInfo.type = XR_TYPE_ACTION_CREATE_INFO;
+				// Nom technique GÉNÉRÉ (contrainte [a-z0-9_]) ; le nom de
+				// l'app, libre, part dans le localisé — unique par l'index.
+				snprintf(actionInfo.actionName, XR_MAX_ACTION_NAME_SIZE, "action_%u", i);
+				snprintf(actionInfo.localizedActionName, XR_MAX_LOCALIZED_ACTION_NAME_SIZE, "%u %s", i,
+						 (desc.name != nullptr && desc.name[0] != '\0') ? desc.name : "action");
+				switch (desc.type) {
+					case NkXrActionType::NK_XR_ACTION_BOOL: actionInfo.actionType = XR_ACTION_TYPE_BOOLEAN_INPUT; break;
+					case NkXrActionType::NK_XR_ACTION_FLOAT: actionInfo.actionType = XR_ACTION_TYPE_FLOAT_INPUT; break;
+					case NkXrActionType::NK_XR_ACTION_VEC2: actionInfo.actionType = XR_ACTION_TYPE_VECTOR2F_INPUT; break;
+					case NkXrActionType::NK_XR_ACTION_POSE: actionInfo.actionType = XR_ACTION_TYPE_POSE_INPUT; break;
+					case NkXrActionType::NK_XR_ACTION_HAPTIC: actionInfo.actionType = XR_ACTION_TYPE_VIBRATION_OUTPUT; break;
+				}
+				if (XR_FAILED(mOxr->createAction(mOxr->actionSet, &actionInfo, &mOxr->actionHandles[i]))) {
+					logger.Errorf("[NKXR/OpenXR] xrCreateAction %u KO.\n", i);
+					continue;
+				}
+				if (desc.type == NkXrActionType::NK_XR_ACTION_POSE && mOxr->createActionSpace != nullptr) {
+					XrActionSpaceCreateInfo spaceInfo{};
+					spaceInfo.type = XR_TYPE_ACTION_SPACE_CREATE_INFO;
+					spaceInfo.action = mOxr->actionHandles[i];
+					spaceInfo.poseInActionSpace.orientation.w = 1.f;
+					mOxr->createActionSpace(mOxr->session, &spaceInfo, &mOxr->actionSpaces[i]);
+				}
+			}
+
+			// Liaisons par USAGE → chemins du profil : c'est ICI (et seulement
+			// ici) que la sémantique NKXR rencontre les chemins OpenXR.
+			auto MakePath = [this](const char *text) -> XrPath {
+				XrPath path = XR_NULL_PATH;
+				mOxr->stringToPath(mOxr->instance, text, &path);
+				return path;
+			};
+			auto TouchBinding = [](NkXrActionUsage usage) -> const char * {
+				switch (usage) {
+					case NkXrActionUsage::NK_XR_USAGE_SELECT: return "/user/hand/right/input/trigger/value";
+					case NkXrActionUsage::NK_XR_USAGE_GRAB: return "/user/hand/right/input/squeeze/value";
+					case NkXrActionUsage::NK_XR_USAGE_MENU: return "/user/hand/left/input/menu/click";
+					case NkXrActionUsage::NK_XR_USAGE_MOVE: return "/user/hand/left/input/thumbstick";
+					case NkXrActionUsage::NK_XR_USAGE_AIM_POSE: return "/user/hand/right/input/aim/pose";
+					case NkXrActionUsage::NK_XR_USAGE_GRIP_POSE: return "/user/hand/right/input/grip/pose";
+					case NkXrActionUsage::NK_XR_USAGE_HAPTIC: return "/user/hand/right/output/haptic";
+				}
+				return nullptr;
+			};
+			auto SimpleBinding = [](NkXrActionUsage usage) -> const char * {
+				switch (usage) {
+					case NkXrActionUsage::NK_XR_USAGE_SELECT: return "/user/hand/right/input/select/click";
+					case NkXrActionUsage::NK_XR_USAGE_MENU: return "/user/hand/left/input/menu/click";
+					case NkXrActionUsage::NK_XR_USAGE_AIM_POSE: return "/user/hand/right/input/aim/pose";
+					case NkXrActionUsage::NK_XR_USAGE_GRIP_POSE: return "/user/hand/right/input/grip/pose";
+					case NkXrActionUsage::NK_XR_USAGE_HAPTIC: return "/user/hand/right/output/haptic";
+					default: return nullptr; // pas de stick/squeeze sur le profil simple
+				}
+			};
+			const char *profiles[2] = { "/interaction_profiles/oculus/touch_controller",
+										"/interaction_profiles/khr/simple_controller" };
+			for (uint32 p = 0; p < 2u; ++p) {
+				XrActionSuggestedBinding bindings[OxrState::kMaxActions];
+				uint32 bindingCount = 0;
+				for (uint32 i = 0; i < mOxr->actionCount; ++i) {
+					if (mOxr->actionHandles[i] == XR_NULL_HANDLE) {
+						continue;
+					}
+					const char *path = (p == 0) ? TouchBinding(mOxr->actionDescs[i].usage)
+												: SimpleBinding(mOxr->actionDescs[i].usage);
+					if (path == nullptr) {
+						continue;
+					}
+					bindings[bindingCount].action = mOxr->actionHandles[i];
+					bindings[bindingCount].binding = MakePath(path);
+					++bindingCount;
+				}
+				if (bindingCount == 0u || mOxr->suggestBindings == nullptr) {
+					continue;
+				}
+				XrInteractionProfileSuggestedBinding suggested{};
+				suggested.type = XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING;
+				suggested.interactionProfile = MakePath(profiles[p]);
+				suggested.countSuggestedBindings = bindingCount;
+				suggested.suggestedBindings = bindings;
+				if (XR_FAILED(mOxr->suggestBindings(mOxr->instance, &suggested))) {
+					logger.Warnf("[NKXR/OpenXR] Liaisons refusées pour %s.\n", profiles[p]);
+				}
+			}
+
+			XrSessionActionSetsAttachInfo attachInfo{};
+			attachInfo.type = XR_TYPE_SESSION_ACTION_SETS_ATTACH_INFO;
+			attachInfo.countActionSets = 1;
+			attachInfo.actionSets = &mOxr->actionSet;
+			if (mOxr->attachActionSets == nullptr || XR_FAILED(mOxr->attachActionSets(mOxr->session, &attachInfo))) {
+				logger.Errorf("[NKXR/OpenXR] xrAttachSessionActionSets KO — entrées manettes indisponibles.\n");
+				return;
+			}
+			mOxr->actionsAttached = true;
+			logger.Infof("[NKXR/OpenXR] %u actions attachées (profils Touch + simple).\n", mOxr->actionCount);
+		}
+
+		bool NkXrOpenXRBackend::SyncActions(NkXrTime now) {
+			(void)now;
+			if (mOxr == nullptr || !mOxr->actionsAttached || mOxr->syncActions == nullptr) {
+				return false;
+			}
+			XrActiveActionSet activeSet{};
+			activeSet.actionSet = mOxr->actionSet;
+			activeSet.subactionPath = XR_NULL_PATH;
+			XrActionsSyncInfo syncInfo{};
+			syncInfo.type = XR_TYPE_ACTIONS_SYNC_INFO;
+			syncInfo.countActiveActionSets = 1;
+			syncInfo.activeActionSets = &activeSet;
+			// XR_SESSION_NOT_FOCUSED est un code de SUCCÈS : les états passent
+			// simplement inactifs — exactement le contrat de notre API.
+			return XR_SUCCEEDED(mOxr->syncActions(mOxr->session, &syncInfo));
+		}
+
+		bool NkXrOpenXRBackend::GetActionStateBool(NkXrActionHandle handle, NkXrActionStateBool &outState) {
+			if (mOxr == nullptr || handle == NK_XR_ACTION_INVALID || handle > mOxr->actionCount ||
+				mOxr->getActionStateBoolean == nullptr) {
+				return false;
+			}
+			const uint32 index = handle - 1u;
+			if (mOxr->actionDescs[index].type != NkXrActionType::NK_XR_ACTION_BOOL) {
+				return false;
+			}
+			XrActionStateGetInfo getInfo{};
+			getInfo.type = XR_TYPE_ACTION_STATE_GET_INFO;
+			getInfo.action = mOxr->actionHandles[index];
+			XrActionStateBoolean state{};
+			state.type = XR_TYPE_ACTION_STATE_BOOLEAN;
+			if (XR_FAILED(mOxr->getActionStateBoolean(mOxr->session, &getInfo, &state))) {
+				return false;
+			}
+			outState.current = (state.currentState == XR_TRUE);
+			outState.changed = (state.changedSinceLastSync == XR_TRUE);
+			outState.active = (state.isActive == XR_TRUE);
+			outState.lastChangeTime = NkXrTime(state.lastChangeTime);
+			return true;
+		}
+
+		bool NkXrOpenXRBackend::GetActionStateFloat(NkXrActionHandle handle, NkXrActionStateFloat &outState) {
+			if (mOxr == nullptr || handle == NK_XR_ACTION_INVALID || handle > mOxr->actionCount ||
+				mOxr->getActionStateFloat == nullptr) {
+				return false;
+			}
+			const uint32 index = handle - 1u;
+			if (mOxr->actionDescs[index].type != NkXrActionType::NK_XR_ACTION_FLOAT) {
+				return false;
+			}
+			XrActionStateGetInfo getInfo{};
+			getInfo.type = XR_TYPE_ACTION_STATE_GET_INFO;
+			getInfo.action = mOxr->actionHandles[index];
+			XrActionStateFloat state{};
+			state.type = XR_TYPE_ACTION_STATE_FLOAT;
+			if (XR_FAILED(mOxr->getActionStateFloat(mOxr->session, &getInfo, &state))) {
+				return false;
+			}
+			outState.current = state.currentState;
+			outState.changed = (state.changedSinceLastSync == XR_TRUE);
+			outState.active = (state.isActive == XR_TRUE);
+			return true;
+		}
+
+		bool NkXrOpenXRBackend::GetActionStateVec2(NkXrActionHandle handle, NkXrActionStateVec2 &outState) {
+			if (mOxr == nullptr || handle == NK_XR_ACTION_INVALID || handle > mOxr->actionCount ||
+				mOxr->getActionStateVector2f == nullptr) {
+				return false;
+			}
+			const uint32 index = handle - 1u;
+			if (mOxr->actionDescs[index].type != NkXrActionType::NK_XR_ACTION_VEC2) {
+				return false;
+			}
+			XrActionStateGetInfo getInfo{};
+			getInfo.type = XR_TYPE_ACTION_STATE_GET_INFO;
+			getInfo.action = mOxr->actionHandles[index];
+			XrActionStateVector2f state{};
+			state.type = XR_TYPE_ACTION_STATE_VECTOR2F;
+			if (XR_FAILED(mOxr->getActionStateVector2f(mOxr->session, &getInfo, &state))) {
+				return false;
+			}
+			outState.current = NkVec2f(state.currentState.x, state.currentState.y);
+			outState.changed = (state.changedSinceLastSync == XR_TRUE);
+			outState.active = (state.isActive == XR_TRUE);
+			return true;
+		}
+
+		bool NkXrOpenXRBackend::LocateActionPose(NkXrActionHandle handle, NkXrSpaceType space, NkXrTime time, NkXrPose &outPose) {
+			if (mOxr == nullptr || handle == NK_XR_ACTION_INVALID || handle > mOxr->actionCount ||
+				mOxr->locateSpace == nullptr) {
+				return false;
+			}
+			const uint32 index = handle - 1u;
+			if (mOxr->actionDescs[index].type != NkXrActionType::NK_XR_ACTION_POSE ||
+				mOxr->actionSpaces[index] == XR_NULL_HANDLE) {
+				return false;
+			}
+			XrSpace baseSpace = mOxr->spaces[uint32(space)];
+			if (baseSpace == XR_NULL_HANDLE) {
+				return false;
+			}
+			XrSpaceLocation location{};
+			location.type = XR_TYPE_SPACE_LOCATION;
+			if (XR_FAILED(mOxr->locateSpace(mOxr->actionSpaces[index], baseSpace, XrTime(time), &location))) {
+				return false;
+			}
+			if ((location.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT) == 0) {
+				return false;
+			}
+			outPose.position = NkVec3f(location.pose.position.x, location.pose.position.y, location.pose.position.z);
+			outPose.orientation = NkQuatf(location.pose.orientation.x, location.pose.orientation.y,
+										  location.pose.orientation.z, location.pose.orientation.w);
+			return true;
+		}
+
+		bool NkXrOpenXRBackend::ApplyHaptic(NkXrActionHandle handle, float32 amplitude, float32 durationSeconds,
+											float32 frequencyHz) {
+			if (mOxr == nullptr || handle == NK_XR_ACTION_INVALID || handle > mOxr->actionCount ||
+				mOxr->applyHapticFeedback == nullptr) {
+				return false;
+			}
+			const uint32 index = handle - 1u;
+			if (mOxr->actionDescs[index].type != NkXrActionType::NK_XR_ACTION_HAPTIC) {
+				return false;
+			}
+			XrHapticActionInfo hapticInfo{};
+			hapticInfo.type = XR_TYPE_HAPTIC_ACTION_INFO;
+			hapticInfo.action = mOxr->actionHandles[index];
+			XrHapticVibration vibration{};
+			vibration.type = XR_TYPE_HAPTIC_VIBRATION;
+			vibration.duration = (durationSeconds <= 0.f) ? XR_MIN_HAPTIC_DURATION
+														  : XrDuration(float64(durationSeconds) * 1e9);
+			vibration.frequency = (frequencyHz <= 0.f) ? XR_FREQUENCY_UNSPECIFIED : frequencyHz;
+			vibration.amplitude = math::NkClamp(amplitude, 0.f, 1.f);
+			return XR_SUCCEEDED(mOxr->applyHapticFeedback(mOxr->session, &hapticInfo,
+														  reinterpret_cast<const XrHapticBaseHeader *>(&vibration)));
+		}
+
 #else // !NKENTSEU_PLATFORM_WINDOWS — Android (Quest) branchera ce même backend
 	  // sur le libopenxr_loader.so de Meta ; les autres OS attendront un besoin.
 
@@ -1142,14 +1463,12 @@ namespace nkentseu {
 			return false;
 		}
 
-#endif // NKENTSEU_PLATFORM_WINDOWS
-
-		// ── Commun aux deux plateformes ──────────────────────────────────────
-
 		void NkXrOpenXRBackend::AttachActions(const NkXrActionDesc *actions, uint32 count) {
-			// 2b.3 : les actions passeront par xrSuggestInteractionProfileBindings.
 			(void)actions;
 			(void)count;
+		}
+
+		void NkXrOpenXRBackend::SetupActions() {
 		}
 
 		bool NkXrOpenXRBackend::SyncActions(NkXrTime now) {
@@ -1182,6 +1501,17 @@ namespace nkentseu {
 			(void)outPose;
 			return false;
 		}
+
+		bool NkXrOpenXRBackend::ApplyHaptic(NkXrActionHandle handle, float32 amplitude, float32 durationSeconds,
+											float32 frequencyHz) {
+			(void)handle;
+			(void)amplitude;
+			(void)durationSeconds;
+			(void)frequencyHz;
+			return false;
+		}
+
+#endif // NKENTSEU_PLATFORM_WINDOWS
 
 	} // namespace xr
 } // namespace nkentseu
