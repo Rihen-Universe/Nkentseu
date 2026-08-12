@@ -153,6 +153,18 @@ namespace nkentseu {
 				PFN_xrCreateHandTrackerEXT createHandTracker = nullptr;
 				PFN_xrDestroyHandTrackerEXT destroyHandTracker = nullptr;
 				PFN_xrLocateHandJointsEXT locateHandJoints = nullptr;
+
+				// ── Mesure et réglage de la restitution ──────────────────────
+				bool perfMetricsExt = false;
+				bool perfMetricsArmed = false;
+				bool refreshRateExt = false;
+				bool visibilityMaskExt = false;
+				PFN_xrSetPerformanceMetricsStateMETA setPerfState = nullptr;
+				PFN_xrQueryPerformanceMetricsCounterMETA queryPerfCounter = nullptr;
+				PFN_xrEnumerateDisplayRefreshRatesFB enumRefreshRates = nullptr;
+				PFN_xrGetDisplayRefreshRateFB getRefreshRate = nullptr;
+				PFN_xrRequestDisplayRefreshRateFB requestRefreshRate = nullptr;
+				PFN_xrGetVisibilityMaskKHR getVisibilityMask = nullptr;
 		};
 
 		namespace {
@@ -365,6 +377,15 @@ namespace nkentseu {
 						if (strcmp(props[i].extensionName, XR_EXT_HAND_TRACKING_EXTENSION_NAME) == 0) {
 							mOxr->handTrackingExt = true;
 						}
+						if (strcmp(props[i].extensionName, XR_META_PERFORMANCE_METRICS_EXTENSION_NAME) == 0) {
+							mOxr->perfMetricsExt = true;
+						}
+						if (strcmp(props[i].extensionName, XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME) == 0) {
+							mOxr->refreshRateExt = true;
+						}
+						if (strcmp(props[i].extensionName, XR_KHR_VISIBILITY_MASK_EXTENSION_NAME) == 0) {
+							mOxr->visibilityMaskExt = true;
+						}
 					}
 					logger.Infof("[NKXR/OpenXR] %u extensions offertes par le runtime (NK_XR_LIST_EXT=1 pour la liste).\n",
 								 extCount);
@@ -384,7 +405,7 @@ namespace nkentseu {
 			}
 			// Demander SEULEMENT ce que le runtime a annoncé : une extension
 			// inconnue fait échouer xrCreateInstance en bloc.
-			const char *enabledExtensions[2];
+			const char *enabledExtensions[8];
 			uint32 enabledExtensionCount = 0;
 			if (mOxr->vulkanEnableExt) {
 				enabledExtensions[enabledExtensionCount] = XR_KHR_VULKAN_ENABLE_EXTENSION_NAME;
@@ -392,6 +413,18 @@ namespace nkentseu {
 			}
 			if (mOxr->handTrackingExt) {
 				enabledExtensions[enabledExtensionCount] = XR_EXT_HAND_TRACKING_EXTENSION_NAME;
+				++enabledExtensionCount;
+			}
+			if (mOxr->perfMetricsExt) {
+				enabledExtensions[enabledExtensionCount] = XR_META_PERFORMANCE_METRICS_EXTENSION_NAME;
+				++enabledExtensionCount;
+			}
+			if (mOxr->refreshRateExt) {
+				enabledExtensions[enabledExtensionCount] = XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME;
+				++enabledExtensionCount;
+			}
+			if (mOxr->visibilityMaskExt) {
+				enabledExtensions[enabledExtensionCount] = XR_KHR_VISIBILITY_MASK_EXTENSION_NAME;
 				++enabledExtensionCount;
 			}
 			XrInstanceCreateInfo createInfo{};
@@ -462,6 +495,18 @@ namespace nkentseu {
 				NK_OXR_LOAD(xrCreateHandTrackerEXT, createHandTracker);
 				NK_OXR_LOAD(xrDestroyHandTrackerEXT, destroyHandTracker);
 				NK_OXR_LOAD(xrLocateHandJointsEXT, locateHandJoints);
+			}
+			if (mOxr->perfMetricsExt) {
+				NK_OXR_LOAD(xrSetPerformanceMetricsStateMETA, setPerfState);
+				NK_OXR_LOAD(xrQueryPerformanceMetricsCounterMETA, queryPerfCounter);
+			}
+			if (mOxr->refreshRateExt) {
+				NK_OXR_LOAD(xrEnumerateDisplayRefreshRatesFB, enumRefreshRates);
+				NK_OXR_LOAD(xrGetDisplayRefreshRateFB, getRefreshRate);
+				NK_OXR_LOAD(xrRequestDisplayRefreshRateFB, requestRefreshRate);
+			}
+			if (mOxr->visibilityMaskExt) {
+				NK_OXR_LOAD(xrGetVisibilityMaskKHR, getVisibilityMask);
 			}
 			#undef NK_OXR_LOAD
 
@@ -842,6 +887,19 @@ namespace nkentseu {
 			}
 			const VkImage sources[2] = { VkImage(uintptr_t(nativeImageLeft)), VkImage(uintptr_t(nativeImageRight)) };
 
+			// Attendre la copie de la frame PRÉCÉDENTE, pas celle-ci : le CPU
+			// garde une frame d'avance. La correction ne repose pas sur cette
+			// attente mais sur l'ORDRE DE SOUMISSION — notre copie part sur la
+			// MÊME file graphique que le rendu, donc elle s'exécute forcément
+			// après le rendu qui l'a précédée et avant celui qui la suit.
+			// Mesuré (XR_META_performance_metrics) : attendre tout de suite
+			// coûtait 10 à 24 ms de CPU BLOQUÉ pour 0,01 ms de GPU réel.
+			// NK_XR_SYNC_COPY=1 rétablit l'attente immédiate (diagnostic).
+			if (mOxr->vkFenceUsed) {
+				mOxr->fnWaitForFences(mOxr->vkDevice, 1, &mOxr->vkFence, VK_TRUE, UINT64_MAX);
+				mOxr->fnResetFences(mOxr->vkDevice, 1, &mOxr->vkFence);
+				mOxr->vkFenceUsed = false;
+			}
 			mOxr->fnResetCommandBuffer(mOxr->vkCmd, 0);
 			VkCommandBufferBeginInfo beginInfo{};
 			beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -924,16 +982,15 @@ namespace nkentseu {
 			submitInfo.commandBufferCount = 1;
 			submitInfo.pCommandBuffers = &mOxr->vkCmd;
 			mOxr->fnQueueSubmit(mOxr->vkQueue, 1, &submitInfo, mOxr->vkFence);
-			// Attente IMMÉDIATE : la frame suivante du renderer réécrit ces
-			// mêmes cibles d'œil, et ses barrières n'ordonnent que SES
-			// commandes — sans cette attente, la copie lit pendant la
-			// réécriture et le casque scintille (constaté par Rihen : miroir
-			// PC propre, casque strié). Bulle GPU assumée ; l'optimisation
-			// (sémaphore croisé avec la soumission du renderer) exigera une
-			// coordination NKRHI.
-			mOxr->fnWaitForFences(mOxr->vkDevice, 1, &mOxr->vkFence, VK_TRUE, UINT64_MAX);
-			mOxr->fnResetFences(mOxr->vkDevice, 1, &mOxr->vkFence);
-			mOxr->vkFenceUsed = false;
+			mOxr->vkFenceUsed = true;
+			// Diagnostic : rétablir l'attente immédiate si l'on soupçonne un
+			// jour une file séparée (l'ordre de soumission ne protégerait plus).
+			static const bool syncCopy = (getenv("NK_XR_SYNC_COPY") != nullptr);
+			if (syncCopy) {
+				mOxr->fnWaitForFences(mOxr->vkDevice, 1, &mOxr->vkFence, VK_TRUE, UINT64_MAX);
+				mOxr->fnResetFences(mOxr->vkDevice, 1, &mOxr->vkFence);
+				mOxr->vkFenceUsed = false;
+			}
 
 			for (uint32 eye = 0; eye < NK_XR_EYE_COUNT; ++eye) {
 				// Release APRÈS la soumission : le runtime considère alors tout
@@ -1479,6 +1536,146 @@ namespace nkentseu {
 			return true;
 		}
 
+		// ── Métriques du compositeur (XR_META_performance_metrics) ───────────
+
+		bool NkXrOpenXRBackend::GetPerfMetrics(NkXrPerfMetrics &outMetrics) {
+			outMetrics = NkXrPerfMetrics{};
+			if (mOxr == nullptr || mOxr->session == XR_NULL_HANDLE || mOxr->queryPerfCounter == nullptr ||
+				mOxr->stringToPath == nullptr) {
+				return false;
+			}
+			// La collecte doit être ARMÉE une fois : sans ça les compteurs
+			// répondent « pas de valeur » et on croirait l'extension muette.
+			if (!mOxr->perfMetricsArmed) {
+				if (mOxr->setPerfState != nullptr) {
+					XrPerformanceMetricsStateMETA state{};
+					state.type = XR_TYPE_PERFORMANCE_METRICS_STATE_META;
+					state.enabled = XR_TRUE;
+					mOxr->setPerfState(mOxr->session, &state);
+				}
+				mOxr->perfMetricsArmed = true;
+			}
+			// Chemins normalisés par l'extension ; un compteur absent laisse
+			// simplement sa valeur à -1 (« non servi »), jamais un zéro qui
+			// se lirait comme « gratuit ».
+			struct Counter {
+					const char *path;
+					float32 *target;
+			};
+			const Counter counters[] = {
+				{ "/perfmetrics_meta/app/cpu_frametime", &outMetrics.appCpuMs },
+				{ "/perfmetrics_meta/app/gpu_frametime", &outMetrics.appGpuMs },
+				{ "/perfmetrics_meta/compositor/cpu_frametime", &outMetrics.compositorCpuMs },
+				{ "/perfmetrics_meta/compositor/gpu_frametime", &outMetrics.compositorGpuMs },
+				{ "/perfmetrics_meta/app/motion_to_photon_latency", &outMetrics.appMotionToPhotonMs },
+			};
+			for (const Counter &counter : counters) {
+				XrPath path = XR_NULL_PATH;
+				if (XR_FAILED(mOxr->stringToPath(mOxr->instance, counter.path, &path))) {
+					continue;
+				}
+				XrPerformanceMetricsCounterMETA value{};
+				value.type = XR_TYPE_PERFORMANCE_METRICS_COUNTER_META;
+				if (XR_FAILED(mOxr->queryPerfCounter(mOxr->session, path, &value))) {
+					continue;
+				}
+				if ((value.counterFlags & XR_PERFORMANCE_METRICS_COUNTER_FLOAT_VALUE_VALID_BIT_META) != 0) {
+					*counter.target = value.floatValue;
+					outMetrics.available = true;
+				}
+			}
+			{
+				XrPath path = XR_NULL_PATH;
+				if (XR_SUCCEEDED(mOxr->stringToPath(mOxr->instance, "/perfmetrics_meta/compositor/stale_frame_count",
+													&path))) {
+					XrPerformanceMetricsCounterMETA value{};
+					value.type = XR_TYPE_PERFORMANCE_METRICS_COUNTER_META;
+					if (XR_SUCCEEDED(mOxr->queryPerfCounter(mOxr->session, path, &value)) &&
+						(value.counterFlags & XR_PERFORMANCE_METRICS_COUNTER_UINT_VALUE_VALID_BIT_META) != 0) {
+						outMetrics.staleFrames = int32(value.uintValue);
+						outMetrics.available = true;
+					}
+				}
+			}
+			return outMetrics.available;
+		}
+
+		// ── Cadence d'affichage (XR_FB_display_refresh_rate) ─────────────────
+
+		uint32 NkXrOpenXRBackend::GetDisplayRefreshRates(float32 *outRates, uint32 capacity) {
+			if (mOxr == nullptr || mOxr->session == XR_NULL_HANDLE || mOxr->enumRefreshRates == nullptr ||
+				outRates == nullptr || capacity == 0u) {
+				return 0;
+			}
+			uint32 count = 0;
+			if (XR_FAILED(mOxr->enumRefreshRates(mOxr->session, capacity, &count, outRates))) {
+				return 0;
+			}
+			return count;
+		}
+
+		float32 NkXrOpenXRBackend::GetDisplayRefreshRate() {
+			if (mOxr == nullptr || mOxr->session == XR_NULL_HANDLE || mOxr->getRefreshRate == nullptr) {
+				return 0.f;
+			}
+			float32 hz = 0.f;
+			if (XR_FAILED(mOxr->getRefreshRate(mOxr->session, &hz))) {
+				return 0.f;
+			}
+			return hz;
+		}
+
+		bool NkXrOpenXRBackend::RequestDisplayRefreshRate(float32 hz) {
+			if (mOxr == nullptr || mOxr->session == XR_NULL_HANDLE || mOxr->requestRefreshRate == nullptr) {
+				return false;
+			}
+			// 0 = « laisse le runtime décider » (valeur prévue par la spec).
+			return XR_SUCCEEDED(mOxr->requestRefreshRate(mOxr->session, hz));
+		}
+
+		// ── Masque de visibilité (XR_KHR_visibility_mask) ────────────────────
+
+		bool NkXrOpenXRBackend::GetVisibilityMask(NkXrEye eye, NkXrVisibilityMask &outMask) {
+			outMask.vertices.Clear();
+			outMask.indices.Clear();
+			outMask.valid = false;
+			if (mOxr == nullptr || mOxr->session == XR_NULL_HANDLE || mOxr->getVisibilityMask == nullptr) {
+				return false;
+			}
+			// Deux passes : le runtime dit d'abord COMBIEN, on alloue, on
+			// redemande — le protocole d'énumération d'OpenXR.
+			XrVisibilityMaskKHR mask{};
+			mask.type = XR_TYPE_VISIBILITY_MASK_KHR;
+			if (XR_FAILED(mOxr->getVisibilityMask(mOxr->session, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,
+												  uint32(eye), XR_VISIBILITY_MASK_TYPE_HIDDEN_TRIANGLE_MESH_KHR,
+												  &mask))) {
+				return false;
+			}
+			if (mask.vertexCountOutput == 0u || mask.indexCountOutput == 0u) {
+				// Un runtime sans lentille à masquer (Link en fenêtre, casque
+				// à optiques carrées) rend légitimement zéro : pas une erreur.
+				return false;
+			}
+			outMask.vertices.Resize(mask.vertexCountOutput);
+			outMask.indices.Resize(mask.indexCountOutput);
+			mask.vertexCapacityInput = mask.vertexCountOutput;
+			mask.indexCapacityInput = mask.indexCountOutput;
+			// XrVector2f et NkVec2f : deux float32 contigus, même disposition —
+			// le reinterpret évite une copie intermédiaire de milliers de
+			// sommets à chaque interrogation.
+			mask.vertices = reinterpret_cast<XrVector2f *>(&outMask.vertices[0]);
+			mask.indices = &outMask.indices[0];
+			if (XR_FAILED(mOxr->getVisibilityMask(mOxr->session, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,
+												  uint32(eye), XR_VISIBILITY_MASK_TYPE_HIDDEN_TRIANGLE_MESH_KHR,
+												  &mask))) {
+				outMask.vertices.Clear();
+				outMask.indices.Clear();
+				return false;
+			}
+			outMask.valid = true;
+			return true;
+		}
+
 #else // !NKENTSEU_PLATFORM_WINDOWS — Android (Quest) branchera ce même backend
 	  // sur le libopenxr_loader.so de Meta ; les autres OS attendront un besoin.
 
@@ -1637,6 +1834,32 @@ namespace nkentseu {
 			(void)space;
 			(void)time;
 			outHand = NkXrHand{};
+			return false;
+		}
+
+		bool NkXrOpenXRBackend::GetPerfMetrics(NkXrPerfMetrics &outMetrics) {
+			outMetrics = NkXrPerfMetrics{};
+			return false;
+		}
+
+		uint32 NkXrOpenXRBackend::GetDisplayRefreshRates(float32 *outRates, uint32 capacity) {
+			(void)outRates;
+			(void)capacity;
+			return 0;
+		}
+
+		float32 NkXrOpenXRBackend::GetDisplayRefreshRate() {
+			return 0.f;
+		}
+
+		bool NkXrOpenXRBackend::RequestDisplayRefreshRate(float32 hz) {
+			(void)hz;
+			return false;
+		}
+
+		bool NkXrOpenXRBackend::GetVisibilityMask(NkXrEye eye, NkXrVisibilityMask &outMask) {
+			(void)eye;
+			outMask.valid = false;
 			return false;
 		}
 
