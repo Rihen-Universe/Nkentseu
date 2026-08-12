@@ -41,6 +41,7 @@
 #include "NKRenderer/Tools/Overlay/NkOverlayRenderer.h"
 
 #include "NKXR/AR/NkArSession.h"
+#include "NKXR/AR/NkArWorld.h"
 
 #include <cstdlib>
 #include <cstdio>
@@ -225,6 +226,12 @@ int nkmain(const NkEntryState &state) {
 			arCfg.anchorMode = nkxr::NkArAnchorMode::NK_AR_ANCHOR_PERSISTENT;
 		}
 	}
+	// Le MONDE : repere commun, stable, independant de la camera. Les objets y
+	// sont poses une fois et y restent — on peut bouger l'objectif, sortir,
+	// revenir : ils sont a leur place.
+	nkxr::NkArWorld arWorld;
+	arWorld.Initialize({});
+
 	uint32 arWidth = kCamWidth;
 	uint32 arHeight = kCamHeight;
 	bool loggedFormat = false;
@@ -266,7 +273,20 @@ int nkmain(const NkEntryState &state) {
 		// une scène posée par erreur doit pouvoir être retirée.
 		if (e->GetKey() == NkKey::NK_R) {
 			arSession.ForgetAll();
-			logger.Info("[NKARDemo] Ancres oubliées (touche R).");
+			arWorld.RemoveAll();
+			logger.Info("[NKARDemo] Ancres et objets du monde retirés (touche R).");
+		}
+		// ESPACE : poser un objet DANS LE MONDE, à 60 cm devant l'objectif.
+		// Il y restera : bouger la caméra ne le déplacera pas.
+		if (e->GetKey() == NkKey::NK_SPACE) {
+			const uint32 handle = arWorld.PlaceInFrontOfCamera(0.6f);
+			if (handle != 0u) {
+				logger.Infof("[NKARDemo] Objet %u posé dans le monde (%u au total).\n", handle,
+							 uint32(arWorld.GetAnchors().Size()));
+			}
+			else {
+				logger.Warn("[NKARDemo] Impossible de poser : aucun marqueur n'a encore défini le monde.");
+			}
 		}
 	});
 	events.AddEventCallback<NkWindowResizeEvent>([&](NkWindowResizeEvent *e) {
@@ -354,6 +374,9 @@ int nkmain(const NkEntryState &state) {
 		const uint32 visible = arSession.ProcessFrame(frameRGBA, arWidth, arHeight, arWidth * 4u,
 													  nkxr::NkArImageFormat::NK_AR_RGBA8);
 		renderer->GetTextures()->Update(videoTex, frameRGBA, arWidth * 4u);
+		// Le monde se met à jour APRÈS la détection : il en tire la pose de la
+		// caméra et étend sa carte.
+		arWorld.Update(arSession);
 
 		if (!renderer->BeginFrame()) {
 			continue;
@@ -508,10 +531,54 @@ int nkmain(const NkEntryState &state) {
 			const char *sourceName = haveFrame ? "CAMERA"
 											   : (forceSynthetic ? "SYNTHESE (forcee par NK_AR_SYNTH)"
 																 : "SYNTHESE (aucune image camera)");
+			// ── Les objets POSÉS DANS LE MONDE ──────────────────────────────
+			// Ils ne suivent pas le marqueur : ils occupent une place dans la
+			// pièce. Bouger la caméra les fait bouger DANS L'IMAGE — c'est le
+			// signe qu'ils sont bien fixes dans le monde, et non collés à
+			// l'objectif.
+			const auto &worldAnchors = arWorld.GetAnchors();
+			for (nk_size i = 0; i < worldAnchors.Size(); ++i) {
+				nkxr::NkXrPose inCamera;
+				if (!arWorld.GetAnchorInCamera(worldAnchors[i].handle, inCamera)) {
+					continue;
+				}
+				const float32 side = 0.10f;
+				const float32 half = side * 0.5f;
+				const math::NkVec3f local[8] = {
+					{ -half, -half, -half }, { half, -half, -half }, { half, half, -half }, { -half, half, -half },
+					{ -half, -half, half },  { half, -half, half },  { half, half, half },  { -half, half, half },
+				};
+				NkVec2f screen[8];
+				bool visible8 = true;
+				for (uint32 c = 0; c < 8u; ++c) {
+					if (!ProjectToScreen(inCamera.Transform(local[c]), K, arWidth, arHeight, dst, screen[c])) {
+						visible8 = false;
+						break;
+					}
+				}
+				if (!visible8) {
+					continue;
+				}
+				// Vert quand la caméra est localisée maintenant, gris quand la
+				// position affichée repose sur une localisation qui vieillit :
+				// l'utilisateur doit pouvoir douter au bon moment.
+				const NkVec4f color = arWorld.IsLocalizedNow() ? NkVec4f{ 0.3f, 1.f, 0.45f, 1.f }
+															   : NkVec4f{ 0.6f, 0.6f, 0.6f, 1.f };
+				const uint32 edges[12][2] = { { 0, 1 }, { 1, 2 }, { 2, 3 }, { 3, 0 }, { 4, 5 }, { 5, 6 },
+											  { 6, 7 }, { 7, 4 }, { 0, 4 }, { 1, 5 }, { 2, 6 }, { 3, 7 } };
+				for (uint32 e = 0; e < 12u; ++e) {
+					r2d->DrawLine(screen[edges[e][0]], screen[edges[e][1]], color, 2.5f);
+				}
+			}
+
 			overlay->DrawText({ 12.f, 20.f }, "NKARDemo — source : %s | marqueurs vus : %u / suivis : %u",
 							  sourceName, visible, uint32(tracked.Size()));
-			overlay->DrawText({ 12.f, 40.f }, "Imprimer nkar_marqueur.png (cote %.1f cm) et le montrer a la camera",
-							  arCfg.markerSizeMeters * 100.f);
+			overlay->DrawText({ 12.f, 40.f }, "ESPACE = poser un objet dans le monde | R = tout retirer | "
+											  "monde : %s, %u marqueur(s) en carte, %u objet(s)",
+							  arWorld.IsLocalizedNow() ? "LOCALISE"
+													   : (arWorld.HasEverLocalized() ? "localisation qui vieillit"
+																					 : "pas encore d'origine"),
+							  uint32(arWorld.GetMap().Size()), uint32(worldAnchors.Size()));
 			for (nk_size i = 0; i < tracked.Size(); ++i) {
 				overlay->DrawText({ 12.f, 60.f + 20.f * float32(i) }, "  id %d : %.2f m devant — %s",
 								  tracked[i].id, -tracked[i].pose.position.z,
