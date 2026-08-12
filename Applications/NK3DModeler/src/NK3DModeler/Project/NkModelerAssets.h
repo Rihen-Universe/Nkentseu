@@ -290,6 +290,8 @@ namespace nkentseu {
 			o.SetFloat32("emissifIntensite", emiS);
 			// Echelle du parallax (canal Hauteur, 10 aout). Defaut 0 = coupe.
 			o.SetFloat32("parallax", demo::Demo3DHostProjMatParallax(slot));
+			// Ombre d'un objet transparent : 0 pleine, 1 proportionnelle, 2 aucune.
+			o.SetInt32("ombreTransparence", demo::Demo3DHostProjMatShadowMode(slot));
 			// Type + reglages publics restants (11 aout).
 			o.SetInt32("type", demo::Demo3DHostProjMatType(slot));
 			// Le materiau PAR DEFAUT du projet porte son drapeau dans SON fichier.
@@ -365,6 +367,7 @@ namespace nkentseu {
 												   NkScFloat(in, "emissifIntensite", 1.f));
 			// Meme regle que le relief : l'echelle AVANT la carte de hauteur.
 			demo::Demo3DHostProjMatSetParallax(slot, NkScFloat(in, "parallax", 0.f));
+			demo::Demo3DHostProjMatSetShadowMode(slot, NkScInt(in, "ombreTransparence", 1));
 			// Type + reglages publics : le TYPE d'abord (il recree le gabarit et
 			// reapplique tout), les extras et le toon ensuite (application directe).
 			demo::Demo3DHostProjMatSetType(slot, NkScInt(in, "type", 0));

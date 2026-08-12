@@ -257,6 +257,9 @@ namespace nkentseu {
 		// Echelle du PARALLAX (canal Hauteur) : 0 = coupe, ~0.02-0.08 utile.
 		float32 Demo3DHostProjMatParallax(int32 i);
 		void Demo3DHostProjMatSetParallax(int32 i, float32 scale);
+		// Ombre d'un objet transparent : 0 pleine, 1 proportionnelle, 2 aucune.
+		int32 Demo3DHostProjMatShadowMode(int32 i);
+		void Demo3DHostProjMatSetShadowMode(int32 i, int32 mode);
 		// MELANGE de materiaux (etape 1) : B par emplacement (-1 = off),
 		// source 0=Facteur 1..4=vColor RGBA 5=UV.x 6=UV.y, facteur 0..1.
 		int32 Demo3DHostProjMatMixWith(int32 i);
