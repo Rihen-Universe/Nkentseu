@@ -13524,8 +13524,21 @@ namespace nkentseu {
 			}
 			return -1;
 		}
+		// Le materiau PAR DEFAUT du projet, en indice+1. Defini ICI et non plus
+		// bas avec le registre : la suppression, juste en dessous, doit le
+		// connaitre pour le proteger.
+		static int32 nkvpDefaultMatP1 = 0;
+
 		void Demo3DHostProjMatDelete(int32 i) {
 			if (i < 0 || i >= kNkvpMaxProjMats || !nkvpProjMats[i].used)
+				return;
+			// LE MATERIAU PAR DEFAUT NE SE SUPPRIME PAS (Rihen, 12 aout : « on
+			// doit avoir un materiau par defaut insupprimable par
+			// l'utilisateur »). Il est le filet du projet : tout objet
+			// nouvellement cree le porte, et delier un materiau y ramene. Le
+			// perdre laisserait des objets sans matiere. Rien n'empeche en
+			// revanche de le RETIRER d'un objet et d'y mettre le sien.
+			if (nkvpDefaultMatP1 - 1 == i)
 				return;
 			// LE DERNIER MATERIAU NE SE SUPPRIME PAS (regle de Rihen) : tout
 			// maillage porte toujours un materiau, il faut donc qu'il en reste.
@@ -13549,7 +13562,6 @@ namespace nkentseu {
 		// ── MATERIAU PAR DEFAUT (11 aout, demande de Rihen) ─────────────────
 		// L'emplacement+1 choisi comme defaut (0 = aucun choix explicite : le
 		// premier du registre fait foi, comme avant).
-		static int32 nkvpDefaultMatP1 = 0;
 		int32 Demo3DHostProjMatDefault() {
 			const int32 d = nkvpDefaultMatP1 - 1;
 			return (d >= 0 && d < kNkvpMaxProjMats && nkvpProjMats[d].used) ? d : -1;
@@ -13565,10 +13577,19 @@ namespace nkentseu {
 			const int32 d = nkvpDefaultMatP1 - 1;
 			if (d >= 0 && d < kNkvpMaxProjMats && nkvpProjMats[d].used)
 				return d;
+			// AUCUN DEFAUT DESIGNE : on en designe un plutot que de renvoyer un
+			// materiau quelconque. Sans cela, « le defaut » aurait change au
+			// gre des suppressions, et la regle « il est insupprimable »
+			// n'aurait protege personne en particulier.
 			for (int32 k = 0; k < kNkvpMaxProjMats; ++k)
-				if (nkvpProjMats[k].used)
+				if (nkvpProjMats[k].used) {
+					nkvpDefaultMatP1 = k + 1;
 					return k;
-			return Demo3DHostProjMatCreate();
+				}
+			const int32 ni = Demo3DHostProjMatCreate();
+			if (ni >= 0)
+				nkvpDefaultMatP1 = ni + 1;
+			return ni;
 		}
 		// ── ECHANGE DE DEUX EMPLACEMENTS (fleches d'organisation de Rihen) ──
 		// L'ordre AFFICHE est l'ordre des emplacements : echanger reellement
