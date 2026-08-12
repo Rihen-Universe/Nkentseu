@@ -353,11 +353,12 @@ int nkmain(const NkEntryState &state) {
 	uint32 eyeW = W / 2;
 	uint32 eyeH = H;
 	if (xrBound) {
-		// 0,9 : point d'équilibre MESURÉ sur Quest 2 + RTX 3070 Laptop bridée
-		// (2026-08-12) — 1872x1886 par œil à 68-71 i/s pour 72 Hz visés. À 1,0
-		// le GPU décroche (18 ms, 40 i/s), à 0,8 on perd des pixels pour rien.
-		// La résolution est la première arme contre l'aliasing en casque.
-		const float32 renderScale = math::NkClamp(EnvF32("NK_XR_RENDER_SCALE", 0.9f), 0.2f, 2.f);
+		// 0,85 AVEC LE TAA : le meilleur couple MESURÉ sur Quest 2 + RTX 3070
+		// Laptop bridée (2026-08-12) — 1768x1781 par œil, 66-70 i/s, GPU 6 ms,
+		// et le lissage temporel par-dessus. Au-delà (0,9) le coût du TAA
+		// explose brutalement — 27 ms, 21 i/s : c'est une falaise, pas une
+		// pente. Sans TAA, 0,9 passe (68-71 i/s) mais l'image crénelle.
+		const float32 renderScale = math::NkClamp(EnvF32("NK_XR_RENDER_SCALE", 0.85f), 0.2f, 2.f);
 		eyeW = uint32(float32(xrInfo.views[0].recommendedWidth) * renderScale);
 		eyeH = uint32(float32(xrInfo.views[0].recommendedHeight) * renderScale);
 		if (eyeW < 64u) {
@@ -460,6 +461,14 @@ int nkmain(const NkEntryState &state) {
 			// rendue une fois PAR ŒIL tant que le graphe n'est pas partagé.
 			cfgEye.shadow.resolution = uint32(EnvU64("NK_XR_SHADOW_RES", 1024));
 			cfgEye.shadow.cascadeCount = uint32(EnvU64("NK_XR_SHADOW_CASCADES", 2));
+			// TAA en VR : le piège habituel est l'historique PARTAGÉ entre les
+			// deux yeux (fantômes garantis). Ici il ne peut pas se produire —
+			// chaque œil a SON renderer, donc son propre historique. Le vrai
+			// risque restant est le trainage sous rotation de tête : c'est un
+			// jugement d'œil, d'où l'interrupteur. NK_XR_TAA=1 pour essayer.
+			// (Le MSAA, lui, n'existe pas dans NKRenderer — champ mort,
+			// signalé dans sa ROADMAP ; c'est un chantier à coordonner.)
+			cfgEye.postProcess.taa = (EnvU64("NK_XR_TAA", 1) != 0);
 		}
 		rEye[e] = NkRenderer::Create(device, cfgEye);
 		if (rEye[e] == nullptr) {
@@ -826,7 +835,13 @@ int nkmain(const NkEntryState &state) {
 					vkDevice->GetVkImage(rMain->GetTextures()->GetRHIHandle(eyeTargets[0]->GetColorResult()).id)));
 				const uint64 imageRight = uint64(uintptr_t(
 					vkDevice->GetVkImage(rMain->GetTextures()->GetRHIHandle(eyeTargets[1]->GetColorResult()).id)));
-				xrSession->SubmitEyes(views, imageLeft, imageRight, eyeW, eyeH);
+				// La PROFONDEUR part avec la couleur : le compositeur peut
+				// alors reprojeter en translation (moins de sauts visibles).
+				const uint64 depthLeft = uint64(uintptr_t(
+					vkDevice->GetVkImage(rMain->GetTextures()->GetRHIHandle(eyeTargets[0]->GetDepthResult()).id)));
+				const uint64 depthRight = uint64(uintptr_t(
+					vkDevice->GetVkImage(rMain->GetTextures()->GetRHIHandle(eyeTargets[1]->GetDepthResult()).id)));
+				xrSession->SubmitEyes(views, imageLeft, imageRight, eyeW, eyeH, depthLeft, depthRight, 0.05f, 200.f);
 			}
 		}
 
