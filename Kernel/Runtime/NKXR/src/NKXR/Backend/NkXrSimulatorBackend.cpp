@@ -569,8 +569,39 @@ namespace nkentseu {
 							// Les poses se lisent par LocateActionPose, pas ici.
 							break;
 						}
-						case NkXrActionUsage::NK_XR_USAGE_HAPTIC: {
+						case NkXrActionUsage::NK_XR_USAGE_HAPTIC:
+						case NkXrActionUsage::NK_XR_USAGE_HAPTIC_LEFT: {
 							// Sortie : rien à lire.
+							break;
+						}
+						case NkXrActionUsage::NK_XR_USAGE_SELECT_LEFT: {
+							// Clic MILIEU : la main gauche a son propre bouton,
+							// sinon les deux mains cliqueraient ensemble.
+							boolValue = NkInput.IsMiddleDown();
+							break;
+						}
+						case NkXrActionUsage::NK_XR_USAGE_GRAB_LEFT: {
+							boolValue = NkInput.IsKeyDown(NkKey::NK_LSHIFT);
+							break;
+						}
+						case NkXrActionUsage::NK_XR_USAGE_MOVE_RIGHT: {
+							if (NkInput.IsKeyDown(NkKey::NK_L)) {
+								vec2Value.x += 1.f;
+							}
+							if (NkInput.IsKeyDown(NkKey::NK_J)) {
+								vec2Value.x -= 1.f;
+							}
+							if (NkInput.IsKeyDown(NkKey::NK_I)) {
+								vec2Value.y += 1.f;
+							}
+							if (NkInput.IsKeyDown(NkKey::NK_K)) {
+								vec2Value.y -= 1.f;
+							}
+							break;
+						}
+						case NkXrActionUsage::NK_XR_USAGE_AIM_POSE_LEFT:
+						case NkXrActionUsage::NK_XR_USAGE_GRIP_POSE_LEFT: {
+							// Poses : lues par LocateActionPose.
 							break;
 						}
 					}
@@ -635,12 +666,17 @@ namespace nkentseu {
 			// Main droite simulée, accrochée à la tête : visée un peu devant
 			// et sous le regard, paume plus près du corps. Assez pour exercer
 			// tout le chemin « pose d'action » de bout en bout.
+			const bool isLeft = (action.usage == NkXrActionUsage::NK_XR_USAGE_AIM_POSE_LEFT ||
+								 action.usage == NkXrActionUsage::NK_XR_USAGE_GRIP_POSE_LEFT);
+			const float32 side = isLeft ? -1.f : 1.f;
+			const bool isGrip = (action.usage == NkXrActionUsage::NK_XR_USAGE_GRIP_POSE ||
+								 action.usage == NkXrActionUsage::NK_XR_USAGE_GRIP_POSE_LEFT);
 			NkXrPose offset;
-			if (action.usage == NkXrActionUsage::NK_XR_USAGE_GRIP_POSE) {
-				offset.position = NkVec3f(0.18f, -0.30f, -0.25f);
+			if (isGrip) {
+				offset.position = NkVec3f(side * 0.18f, -0.30f, -0.25f);
 			}
 			else {
-				offset.position = NkVec3f(0.18f, -0.25f, -0.40f);
+				offset.position = NkVec3f(side * 0.18f, -0.25f, -0.40f);
 			}
 			const NkXrPose headStage = SampleAt(NkXrNowNs()).PredictAt(time);
 			const NkXrPose handStage = headStage * offset;
