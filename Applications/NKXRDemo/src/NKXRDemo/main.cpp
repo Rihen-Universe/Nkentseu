@@ -353,9 +353,11 @@ int nkmain(const NkEntryState &state) {
 	uint32 eyeW = W / 2;
 	uint32 eyeH = H;
 	if (xrBound) {
-		// 0,8 par défaut depuis que le SSAO VR est coupé (GPU libéré) : la
-		// résolution est la première arme contre l'aliasing en casque.
-		const float32 renderScale = math::NkClamp(EnvF32("NK_XR_RENDER_SCALE", 0.8f), 0.2f, 2.f);
+		// 0,9 : point d'équilibre MESURÉ sur Quest 2 + RTX 3070 Laptop bridée
+		// (2026-08-12) — 1872x1886 par œil à 68-71 i/s pour 72 Hz visés. À 1,0
+		// le GPU décroche (18 ms, 40 i/s), à 0,8 on perd des pixels pour rien.
+		// La résolution est la première arme contre l'aliasing en casque.
+		const float32 renderScale = math::NkClamp(EnvF32("NK_XR_RENDER_SCALE", 0.9f), 0.2f, 2.f);
 		eyeW = uint32(float32(xrInfo.views[0].recommendedWidth) * renderScale);
 		eyeH = uint32(float32(xrInfo.views[0].recommendedHeight) * renderScale);
 		if (eyeW < 64u) {
