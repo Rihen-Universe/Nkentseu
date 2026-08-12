@@ -67,7 +67,8 @@ SIMULATEUR desktop + démo `NKXRDemo` (stéréo côte à côte, souris = tête),
 | NKARDemo : caméra → vidéo plein écran → **cube + axes ancrés sur le marqueur** — **PROUVÉ à l'écran** (id 45 à 0,74 m, capture Rihen 2026-08-12) | ✅ | — | — |
 | `NkArWorld` : carte de marqueurs, objets en coordonnées MONDE, extension de proche en proche | ✅ | — | — |
 | `NkArFlow` : rotation de la caméra mesurée SUR L'IMAGE quand aucun marqueur n'est vu (points saillants + vignettes + ajustement rotation pure) — self-test 60/60 | ✅ | — | — |
-| Coût mesuré du monde (suivi image compris) : **3,56 ms/image** en 640×480 sur RTX 3070 — à diviser par ~4 en travaillant en demi-résolution si le téléphone le demande | 🔶 | S | P2 |
+| **Suivi par l'image en PYRAMIDE (multi-échelle) — proposé par Rihen, chantier suivant** | ⏳ | M | **P1** |
+| Coût mesuré du monde (suivi image compris) : **3,1 à 4,7 ms/image** en 640×480 sur RTX 3070 | 🔶 | S | P2 |
 | Translation de la caméra (parallaxe) : non mesurable sans profondeur — d'où l'IMU puis le SLAM plus bas | 🚫 | — | — |
 | Vidéo en vrai FOND 3D (quad texturé/fond de graphe) pour un objet PBR ombré au lieu du filaire | ❌ | M | P1 |
 | Calibration caméra au damier (aujourd'hui : intrinsèques supposées, ~10 % d'erreur de distance) | ❌ | M | P2 |
@@ -175,6 +176,52 @@ du cas « EndFrame avec image encore acquise »).
   (swimming des cascades → `autoFitDirectional` sur les deux yeux, `87e80007`).
 
 ## À venir
+
+### 🔺 Suivi par l'image en PYRAMIDE — idée de Rihen (2026-08-12), chantier suivant
+
+**L'idée, telle qu'il l'a posée** : « pourquoi ne pas comparer les différents
+niveaux d'image pour déterminer ou pas la rotation de la caméra, même si en
+faisant ça, si une personne traverse la caméra ça peut donner l'impression d'un
+déplacement de la caméra ». Elle est juste, et la réserve qu'il y ajoute
+lui-même est exactement le bon garde-fou.
+
+**Pourquoi c'est le remède au défaut qui reste.** L'obstacle mesuré n'est pas
+l'algorithme mais la MATIÈRE : dans une pièce aux murs clairs et peu éclairée,
+la webcam rend une image dont le relief local est du même ordre que son bruit.
+Le suivi trouve alors 16 à 22 points et n'en retient que 0 à 7 selon l'instant,
+d'où un cumul qui avance par à-coups (mesures relevées : −5,4° puis −3,5°).
+Réduire l'image de moitié fait la moyenne de quatre pixels : le bruit décroît
+comme la racine du nombre d'échantillons, tandis que les grandes structures
+— l'angle du mur, le bord de l'écran, une porte — restent intactes. À l'échelle
+grossière, une scène pauvre redevient donc riche.
+
+**Ce que la pyramide apporte, en plus de la robustesse :**
+1. Les grands mouvements se trouvent à l'échelle grossière pour presque rien
+   (un pixel grossier = quatre fins), ce qui supprime le compromis actuel entre
+   rayon de recherche et coût.
+2. L'estimation grossière sert de POINT DE DÉPART à l'échelle fine : la
+   recherche fine se réduit à ±2 pixels. Le coût total baisse au lieu de monter.
+3. Le suivi cesse de dépendre d'un seuil de relief, qui a été la source des
+   trois régressions de la journée.
+
+**Comment le faire (esquisse) :** deux ou trois niveaux par moyenne 2×2 de
+l'image de référence ET de l'image courante ; sélection + appariement au niveau
+le plus grossier ; propagation du décalage trouvé au niveau suivant comme
+décalage initial, avec recherche ±2 ; ajustement de la rotation au niveau le
+plus fin. Conserver l'image de référence (acquis du 2026-08-12) et le choix
+d'hypothèse par ÉTENDUE — c'est précisément lui qui répond à la réserve de
+Rihen : une personne qui traverse ne déplace qu'une région, une caméra qui
+tourne déplace tout.
+
+**Risque connu à ne pas rouvrir sans mesure** : chaque garde-fou de la journée
+(seuil de relief, vote d'immobilité, quota par région) a d'abord été posé en
+valeur ABSOLUE et a affamé la scène suivante. Tout seuil ajouté à la pyramide
+doit être relatif à ce que l'image offre.
+
+**État au moment de la pause** : la rotation EST suivie et le cube sort
+désormais du champ en se faisant couper (capture 15h40 : cumul −5,4°, cube
+coupé au bord gauche), mais par intermittence. Les six tests de non-régression
+sont en place et verts, dont la scène pauvre et le sujet fixe.
 
 ### Intégration Noge (demande Rihen, 2026-08-12) — dès que l'étage 2 est stable
 Faire de l'XR une CAPACITÉ du framework, pas un bricolage par application :
