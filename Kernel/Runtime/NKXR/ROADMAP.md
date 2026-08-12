@@ -125,17 +125,17 @@ du cas « EndFrame avec image encore acquise »).
    **MSAA sur les cibles d'œil** (le bon outil en forward — touche la création
    des cibles et les passes → note de coordination NKRenderer) ; TAA stéréo
    (⚠️ DEUX historiques, un par œil, sinon fantômes garantis).
-2. **`XR_KHR_visibility_mask`** — le runtime donne le maillage des zones
-   INVISIBLES à travers la lentille (~15-25 % des pixels). Ne pas les rendre =
-   GPU gagné **sans rien perdre à l'écran** : meilleur rapport gain/risque vers
-   le 72 Hz, et il finance l'anti-aliasing du point 1. Découpage : la
-   géométrie du masque s'expose côté NKXR (autonome) ; sa consommation
-   (prepasse profondeur/stencil) vit dans NKRenderer → coordination.
-3. **`XR_META_performance_metrics`** — timings CPU/GPU du compositeur :
-   mesurer d'où vient le coût au lieu de le supposer. Entièrement NKXR, à
-   faire AVANT les optimisations lourdes pour les piloter par la mesure.
-4. **`XR_FB_display_refresh_rate`** — choisir la cadence (72/80/90) au lieu de
-   la subir ; un 72 tenu vaut mieux qu'un 90 raté. Entièrement NKXR.
+2. ✅ **`XR_KHR_visibility_mask`** — géométrie exposée côté NKXR (mesuré sur
+   Quest 2 : 52 sommets / 52 triangles cachés par œil). Reste sa
+   CONSOMMATION (prépasse profondeur/stencil) dans NKRenderer → coordination.
+3. ✅ **`XR_META_performance_metrics`** — livré, et **décisif** : c'est lui qui
+   a montré `app CPU 10-24 ms / app GPU 0,01 ms`, donc un blocage CPU et non
+   une charge GPU → bulle de synchronisation levée → **39-51 i/s instables
+   sont devenus 65-70 i/s** (2026-08-12). Mesurer AVANT d'optimiser : la
+   leçon est acquise deux fois.
+4. ✅ **`XR_FB_display_refresh_rate`** — livré (`NK_XR_HZ`). Ce Quest 2 via
+   Link ne propose que 72 Hz : rien à choisir ici, mais l'API est prête pour
+   un Quest 3 (72/80/90/120).
 5. Puis : graphe partagé deux-vues (ombres/culling ×1), profondeur soumise au
    compositeur, intégration Noge, main gauche `_LEFT` (requis Camrail).
 
