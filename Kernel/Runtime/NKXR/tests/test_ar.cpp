@@ -9,6 +9,7 @@
 // trompe plutôt que d'espérer.
 // =============================================================================
 #include "NKXR/AR/NkArMarker.h"
+#include "NKXR/AR/NkArSession.h"
 #include "NKLogger/NkLog.h"
 #include "NKMemory/NkAllocator.h"
 
@@ -184,6 +185,48 @@ int main() {
 		uint8 small[64 * 64];
 		CHECK(NkArRenderMarker(0x2D, 4, small, 64), "generation du motif");
 		CHECK(small[0] == 0 && small[63] == 0, "motif : bordure noire");
+	}
+
+	// ── Cas 6 : la SESSION — suivi, perte, tolerance, formats couleur ───────
+	{
+		const int32 id = 0x2D;
+		const float32 size = 0.20f;
+		NkArSessionConfig cfg;
+		cfg.markerSizeMeters = size;
+		cfg.lostToleranceFrames = 3;
+		cfg.smoothing = 0.5f;
+		NkArSession session;
+		CHECK(session.Initialize(cfg, W, H), "session : initialisation");
+
+		// Image RGBA depuis le gris : verifie la conversion de luminance.
+		uint8 *rgba = static_cast<uint8 *>(allocator.Allocate(W * H * 4u, 1));
+		SynthesizeView(image, W, H, K, id, 4, size, 0.f, 0.f, math::NkVec3f(0.f, 0.f, -1.f));
+		for (uint32 i = 0; i < W * H; ++i) {
+			rgba[i * 4u + 0u] = image[i];
+			rgba[i * 4u + 1u] = image[i];
+			rgba[i * 4u + 2u] = image[i];
+			rgba[i * 4u + 3u] = 255;
+		}
+		CHECK(session.ProcessFrame(rgba, W, H, W * 4u, NkArImageFormat::NK_AR_RGBA8) == 1u,
+			  "session : marqueur vu en RGBA8");
+		const NkArTrackedMarker *m = session.Find(id);
+		CHECK(m != nullptr && m->visibleThisFrame, "session : marqueur suivi et visible");
+		CHECK(m != nullptr && Near(m->pose.position.z, -1.f, 0.03f), "session : pose exposee correcte");
+
+		// Image VIDE : le marqueur doit SURVIVRE quelques frames, pas
+		// disparaitre — sinon un objet virtuel clignoterait sans cesse.
+		for (uint32 i = 0; i < W * H; ++i) {
+			image[i] = 180;
+		}
+		session.ProcessFrame(image, W, H, W, NkArImageFormat::NK_AR_GRAY8);
+		m = session.Find(id);
+		CHECK(m != nullptr && !m->visibleThisFrame && m->framesSinceSeen == 1u,
+			  "session : perdu 1 frame mais TOUJOURS suivi");
+		for (uint32 k = 0; k < 4u; ++k) {
+			session.ProcessFrame(image, W, H, W, NkArImageFormat::NK_AR_GRAY8);
+		}
+		CHECK(session.Find(id) == nullptr, "session : oublie apres la tolerance");
+		allocator.Deallocate(rgba);
 	}
 
 	allocator.Deallocate(image);
