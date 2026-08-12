@@ -941,8 +941,88 @@ namespace nkentseu {
 		static NkMaterial *nkvpProjMatEng[kNkvpMaxProjMats] = {};
 		static int32 nkvpMatSerial = 0; // numerote « Materiau.NNN », jamais reutilise
 		// Assignation par NOEUD, stockee en indice+1 : le zero de l'init
-		// statique veut naturellement dire « aucun materiau ».
+		// statique veut naturellement dire « aucun materiau ». C'est le
+		// materiau ACTIF, celui que le rendu applique.
 		static int32 nkvpNodeMatP1[kNkvpMaxNodes] = {};
+		// ── LA LISTE DES MATERIAUX D'UN OBJET (12 aout) ──────────────────
+		// Modele fixe avec Rihen : DEUX listes distinctes. Celle du PROJET
+		// (nkvpProjMats, un .nkmat par entree sur le disque) et celle de
+		// chaque OBJET — les materiaux qui lui sont associes, parmi lesquels
+		// un seul est actif. Retirer depuis la pastille sort le materiau de
+		// CETTE liste sans rien detruire ; le « + » l'y remet, sans avoir a
+		// en recreer un. Supprimer, lui, ne se fait que depuis le navigateur
+		// de projet, et delie alors TOUS les objets porteurs.
+		//
+		// Stockage en indice+1 pour la meme raison que ci-dessus. Huit
+		// emplacements par objet : au-dela, c'est un objet a decouper.
+		static constexpr int32 kNkvpMaxMatsPerNode = 8;
+		static int32 nkvpNodeMatsP1[kNkvpMaxNodes][kNkvpMaxMatsPerNode] = {};
+
+		// Combien de materiaux cet objet porte-t-il ?
+		static int32 HostNodeMatCount(int32 node) {
+			if (node < 0 || node >= kNkvpMaxNodes)
+				return 0;
+			int32 n = 0;
+			for (int32 k = 0; k < kNkvpMaxMatsPerNode; ++k)
+				if (nkvpNodeMatsP1[node][k] > 0)
+					++n;
+			return n;
+		}
+
+		// Le k-ieme materiau de l'objet, ou -1. L'ordre des emplacements est
+		// STABLE : un retrait laisse un trou plutot que de tout decaler, sinon
+		// la selection de l'interface designerait un autre materiau apres coup.
+		static int32 HostNodeMatAt(int32 node, int32 k) {
+			if (node < 0 || node >= kNkvpMaxNodes || k < 0)
+				return -1;
+			int32 seen = 0;
+			for (int32 i = 0; i < kNkvpMaxMatsPerNode; ++i) {
+				if (nkvpNodeMatsP1[node][i] <= 0)
+					continue;
+				if (seen == k)
+					return nkvpNodeMatsP1[node][i] - 1;
+				++seen;
+			}
+			return -1;
+		}
+
+		// Associe un materiau a l'objet s'il n'y est pas deja. Renvoie false si
+		// la liste est pleine.
+		static bool HostNodeMatAdd(int32 node, int32 slot) {
+			if (node < 0 || node >= kNkvpMaxNodes || slot < 0 || slot >= kNkvpMaxProjMats)
+				return false;
+			for (int32 k = 0; k < kNkvpMaxMatsPerNode; ++k)
+				if (nkvpNodeMatsP1[node][k] == slot + 1)
+					return true; // deja la : rien a faire, et surtout pas de doublon
+			for (int32 k = 0; k < kNkvpMaxMatsPerNode; ++k)
+				if (nkvpNodeMatsP1[node][k] <= 0) {
+					nkvpNodeMatsP1[node][k] = slot + 1;
+					return true;
+				}
+			return false;
+		}
+
+		// Retire un materiau de CET objet seulement. Le dernier ne se retire
+		// pas : un modele porte toujours au moins un materiau (regle de Rihen).
+		static bool HostNodeMatRemove(int32 node, int32 slot) {
+			if (node < 0 || node >= kNkvpMaxNodes || slot < 0)
+				return false;
+			if (HostNodeMatCount(node) <= 1)
+				return false;
+			for (int32 k = 0; k < kNkvpMaxMatsPerNode; ++k) {
+				if (nkvpNodeMatsP1[node][k] != slot + 1)
+					continue;
+				nkvpNodeMatsP1[node][k] = 0;
+				// Si c'etait l'actif, l'objet bascule sur le premier restant —
+				// il ne peut pas se retrouver sans materiau.
+				if (nkvpNodeMatP1[node] == slot + 1) {
+					const int32 first = HostNodeMatAt(node, 0);
+					nkvpNodeMatP1[node] = (first >= 0) ? first + 1 : 0;
+				}
+				return true;
+			}
+			return false;
+		}
 		static int32 HostEnsureDefaultMat(); // defini avec le registre, plus bas
 		template <typename TDC>
 		static void HostMatHook(int32 i, TDC &dc) {
@@ -13594,8 +13674,28 @@ namespace nkentseu {
 		void Demo3DHostProjMatAssign(int32 node, int32 mat) {
 			if (node < 0 || node >= kNkvpMaxNodes)
 				return;
-			nkvpNodeMatP1[node] =
-				(mat >= 0 && mat < kNkvpMaxProjMats && nkvpProjMats[mat].used) ? mat + 1 : 0;
+			const bool ok = (mat >= 0 && mat < kNkvpMaxProjMats && nkvpProjMats[mat].used);
+			nkvpNodeMatP1[node] = ok ? mat + 1 : 0;
+			// ASSIGNER, C'EST AUSSI ASSOCIER : le materiau entre dans la liste
+			// de l'objet s'il n'y etait pas. Sans cela la liste resterait vide
+			// pour tous les objets crees avant ce modele, et la pastille
+			// n'aurait rien a montrer.
+			if (ok)
+				(void)HostNodeMatAdd(node, mat);
+		}
+
+		// ── LA LISTE DE L'OBJET, EXPOSEE A L'INTERFACE ───────────────────
+		int32 Demo3DHostNodeMatCount(int32 node) {
+			return HostNodeMatCount(node);
+		}
+		int32 Demo3DHostNodeMatAt(int32 node, int32 k) {
+			return HostNodeMatAt(node, k);
+		}
+		bool Demo3DHostNodeMatAdd(int32 node, int32 slot) {
+			return HostNodeMatAdd(node, slot);
+		}
+		bool Demo3DHostNodeMatRemove(int32 node, int32 slot) {
+			return HostNodeMatRemove(node, slot);
 		}
 		int32 Demo3DHostProjMatOf(int32 node) {
 			if (node < 0 || node >= kNkvpMaxNodes)

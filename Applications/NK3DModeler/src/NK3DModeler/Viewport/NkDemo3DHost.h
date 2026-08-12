@@ -232,6 +232,13 @@ namespace nkentseu {
 		void Demo3DHostProjMatSetName(int32 i, const char *name);
 		void Demo3DHostProjMatAssign(int32 node, int32 mat);
 		int32 Demo3DHostProjMatOf(int32 node);
+		// LA LISTE DES MATERIAUX D'UN OBJET (12 aout) : distincte de celle du
+		// PROJET. Retirer d'ici n'affecte que cet objet et ne detruit rien ;
+		// supprimer un materiau ne se fait que depuis le navigateur de projet.
+		int32 Demo3DHostNodeMatCount(int32 node);
+		int32 Demo3DHostNodeMatAt(int32 node, int32 k);
+		bool Demo3DHostNodeMatAdd(int32 node, int32 slot);
+		bool Demo3DHostNodeMatRemove(int32 node, int32 slot);
 		// APERCU du materiau (rendu analytique CPU) : forme 0 plan, 1 sphere,
 		// 2 cube, 3 liquide, 4 cheveux. PreviewTake rend vrai si l'apercu
 		// etait perime et vient d'etre regenere dans rgba (size x size x 4) --
