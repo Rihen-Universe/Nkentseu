@@ -53,6 +53,8 @@ namespace nkentseu {
 			float32 pitchRad = 0.f;  ///< Rotation autour de +X (droite) : lever les yeux > 0.
 			float32 rollRad = 0.f;   ///< Rotation autour de +Z (arrière) : pencher la tête.
 			uint32 inliers = 0;      ///< Points ayant voté pour ce mouvement.
+			uint32 candidates = 0;   ///< Points assez texturés pour être suivis.
+			uint32 ambiguous = 0;    ///< Points ÉCARTÉS faute d'un pic net (voir plus bas).
 			float32 residualPixels = 0.f; ///< Écart moyen restant : la qualité de l'ajustement.
 			// Glissement médian observé, en pixels. Grand ET mal ajusté = la
 			// scène a probablement changé (objet qui passe, lumière) plutôt que
@@ -63,12 +65,31 @@ namespace nkentseu {
 		struct NkArFlowConfig {
 			uint32 cellsX = 8;          ///< Grille de sélection : un point fort par case,
 			uint32 cellsY = 6;          ///< pour couvrir l'image au lieu de s'agglutiner.
-			uint32 patchRadius = 4;     ///< Demi-côté de la vignette comparée (9×9).
-			uint32 searchRadius = 24;   ///< Déplacement maximal cherché, en pixels.
-			uint32 minGradient = 900;   ///< Sous ce relief, la vignette est trop lisse : elle
-										///< se recollerait n'importe où (mur uni, ciel).
-			uint32 minInliers = 10;     ///< En dessous, on préfère ne rien dire.
+			uint32 patchRadius = 5;     ///< Demi-côté de la vignette comparée (11×11).
+			// Déplacement maximal cherché, en pixels. À 30 images/s et 550 px de
+			// focale, 40 px valent 4° d'un coup — soit un balayage à 120°/s. En
+			// deçà, un mouvement vif sort de la fenêtre et le suivi s'accroche à
+			// un mauvais minimum : il croit alors que RIEN n'a bougé, ce qui est
+			// pire que d'avouer son ignorance.
+			uint32 searchRadius = 40;
+			// Pas du balayage grossier. Le pic reste trouvable car la vignette
+			// est plus large que le pas ; l'affinage rattrape le reste.
+			uint32 coarseStep = 3;
+			// Sous ce relief, la vignette est trop lisse. Un mur uni, un ciel, une
+			// zone surexposée ne contiennent plus que du bruit et les blocs de
+			// compression de la webcam — or ceux-ci sont accrochés à la GRILLE DE
+			// PIXELS, pas à la scène : ils se recollent parfaitement à déplacement
+			// nul et font croire que rien n'a bougé. Constaté en vrai.
+			uint32 minGradient = 2000;
+			uint32 minInliers = 8;      ///< En dessous, on préfère ne rien dire.
 			float32 inlierPixels = 4.f; ///< Tolérance autour du mouvement médian.
+			// Le meilleur accord doit être NETTEMENT meilleur que le meilleur
+			// accord concurrent situé ailleurs. Sans ce test, une vignette qui se
+			// recolle presque aussi bien à dix endroits vote quand même — et comme
+			// ces votes-là se concentrent sur « rien n'a bougé », ils forment une
+			// fausse majorité qui fait rejeter les vrais points en mouvement.
+			float32 ambiguityRatio = 0.75f;
+			uint32 peakRadius = 4;      ///< « Ailleurs » = à plus de tant de pixels du pic.
 		};
 
 		// ── L'estimateur ─────────────────────────────────────────────────────

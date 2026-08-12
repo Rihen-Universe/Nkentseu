@@ -109,10 +109,22 @@ namespace nkentseu {
 				// translation — état à montrer, pas à taire.
 				bool IsTrackingByImage() const { return mFlowThisFrame; }
 				const NkArFlowResult &GetLastFlow() const { return mLastFlow; }
+				// Rotation CUMULÉE depuis la dernière localisation par marqueur,
+				// en degrés (lacet, tangage, roulis). Le chiffre à comparer au
+				// geste réel : c'est lui, et non l'estimation d'une seule image,
+				// qui révèle une sous-estimation du suivi.
+				NkVec3f GetBlindRotationDeg() const;
 				// La pose est-elle encore utilisable ? Faux quand plus rien ne
 				// l'entretient depuis trop longtemps : l'application doit alors
 				// CACHER ses objets plutôt que d'afficher une place inventée.
 				bool IsPoseUsable() const;
+
+				// Confiance dans la pose : 1 quand la caméra vient d'être située,
+				// puis DÉCROISSANTE tant que plus rien ne l'entretient, jusqu'à 0.
+				// À utiliser comme opacité : un objet dont on ne sait plus où il
+				// est doit s'effacer PROGRESSIVEMENT. Disparaître d'un coup fait
+				// croire à une panne ; rester net fait croire à un mensonge.
+				float32 GetPoseConfidence() const;
 
 				// ── Objets posés dans le monde ───────────────────────────────
 				// Poser DEVANT la caméra, à une distance donnée : le geste le
@@ -151,6 +163,7 @@ namespace nkentseu {
 				NkArImageFlow mFlow;
 				NkArFlowResult mLastFlow{};
 				bool mFlowThisFrame = false;
+				NkVec3f mBlindRotation{ 0.f, 0.f, 0.f }; ///< Cumul lacet/tangage/roulis, en radians.
 				uint32 mBlindFrames = 0;   ///< Images sans AUCUN repère (ni marqueur, ni image).
 				bool mHasOrigin = false;
 				bool mLocalizedThisFrame = false;

@@ -309,7 +309,15 @@ int nkmain(const NkEntryState &state) {
 	// sont poses une fois et y restent — on peut bouger l'objectif, sortir,
 	// revenir : ils sont a leur place.
 	nkxr::NkArWorld arWorld;
-	arWorld.Initialize({});
+	{
+		// Deux secondes environ (l'analyse suit la cadence caméra, ~30/s) avant
+		// que l'objet ne soit complètement effacé. Assez pour traverser une
+		// occultation brève, trop court pour laisser croire à une position que
+		// plus rien ne mesure.
+		nkxr::NkArWorldConfig worldCfg;
+		worldCfg.maxBlindFrames = 60;
+		arWorld.Initialize(worldCfg);
+	}
 
 	uint32 arWidth = kCamWidth;
 	uint32 arHeight = kCamHeight;
@@ -381,6 +389,9 @@ int nkmain(const NkEntryState &state) {
 	float32 total = 0.f;
 	uint64 frameIndex = 0;
 	float32 worldMillis = 0.f;
+	uint32 lastCameraFrame = 0xFFFFFFFFu;
+	uint32 visible = 0;
+	uint32 analyzedFrames = 0;
 	const uint64 exitFrame = (getenv("NK_AR_EXIT") != nullptr) ? uint64(atoll(getenv("NK_AR_EXIT"))) : 0u;
 	const uint64 dumpFrame = (getenv("NK_AR_DUMP") != nullptr) ? uint64(atoll(getenv("NK_AR_DUMP"))) : 0u;
 	// Image de synthese forcee : marqueur toujours detectable, sans dependre
@@ -398,6 +409,7 @@ int nkmain(const NkEntryState &state) {
 
 		// ── Image ────────────────────────────────────────────────────────────
 		bool haveFrame = false;
+		bool newFrame = false;
 		if (cameraOk && !forceSynthetic) {
 			NkCameraFrame frame;
 			if (camera.GetLastFrame(frame) && frame.IsValid()) {
@@ -443,6 +455,13 @@ int nkmain(const NkEntryState &state) {
 						}
 					}
 					haveFrame = true;
+					// La caméra livre ~30 images/s, la boucle en affiche bien
+					// plus : sans ce garde-fou on analysait plusieurs fois la
+					// MÊME image. C'était du temps perdu, et surtout cela
+					// noyait les mesures du suivi sous des « rien n'a bougé »
+					// parfaitement exacts mais trompeurs à la lecture.
+					newFrame = (frame.frameIndex != lastCameraFrame);
+					lastCameraFrame = frame.frameIndex;
 				}
 			}
 		}
@@ -451,22 +470,29 @@ int nkmain(const NkEntryState &state) {
 		}
 
 		// ── AR : l'image entre, les poses sortent ────────────────────────────
-		const uint32 visible = arSession.ProcessFrame(frameRGBA, arWidth, arHeight, arWidth * 4u,
-													  nkxr::NkArImageFormat::NK_AR_RGBA8);
+		// Uniquement sur une image NEUVE : analyser deux fois la même n'apprend
+		// rien et fausse la lecture du suivi.
+		const bool analyze = (!haveFrame) || newFrame;
+		if (analyze) {
+			visible = arSession.ProcessFrame(frameRGBA, arWidth, arHeight, arWidth * 4u,
+											 nkxr::NkArImageFormat::NK_AR_RGBA8);
+		}
 		renderer->GetTextures()->Update(videoTex, frameRGBA, arWidth * 4u);
 		// Le monde se met à jour APRÈS la détection : il en tire la pose de la
 		// caméra et étend sa carte. Le coût est MESURÉ et annoncé : le suivi par
 		// l'image compare deux images entières, c'est le poste le plus lourd de
 		// la chaîne AR et il serait malhonnête de le laisser dans l'ombre.
-		{
+		if (analyze) {
 			NkClock worldClock;
 			worldClock.Tick();
 			arWorld.Update(arSession);
 			worldMillis += worldClock.Tick().delta * 1000.f;
-			if ((frameIndex % 120u) == 0u) {
-				logger.Infof("[NKARDemo] monde (detection exclue) : %.2f ms/image en moyenne sur 120 images.\n",
-							 worldMillis / 120.f);
+			++analyzedFrames;
+			if (analyzedFrames >= 60u) {
+				logger.Infof("[NKARDemo] monde (detection exclue) : %.2f ms par image ANALYSEE (60 images).\n",
+							 worldMillis / float32(analyzedFrames));
 				worldMillis = 0.f;
+				analyzedFrames = 0;
 			}
 		}
 
@@ -604,13 +630,18 @@ int nkmain(const NkEntryState &state) {
 				//            mesurée sur l'image : juste en rotation, dérive si
 				//            l'on se déplace ;
 				//   gris   = plus rien du tout, dernière place connue.
-				const NkVec4f color =
-					marker.visibleThisFrame
-						? NkVec4f{ 1.f, 0.75f, 0.2f, 1.f }
-						: (arWorld.IsLocalizedNow()
-							   ? NkVec4f{ 0.35f, 0.6f, 1.f, 1.f }
-							   : (arWorld.IsTrackingByImage() ? NkVec4f{ 0.95f, 0.9f, 0.25f, 1.f }
-															  : NkVec4f{ 0.65f, 0.65f, 0.65f, 1.f }));
+				// L'opacité suit la CONFIANCE : l'objet s'efface à mesure que la
+				// pose vieillit, au lieu de rester net puis de sauter dans le
+				// néant. C'est la traduction visuelle de « je sais de moins en
+				// moins où tu es ».
+				const float32 alpha = arWorld.GetPoseConfidence();
+				NkVec4f color = marker.visibleThisFrame
+									? NkVec4f{ 1.f, 0.75f, 0.2f, 1.f }
+									: (arWorld.IsLocalizedNow()
+										   ? NkVec4f{ 0.35f, 0.6f, 1.f, 1.f }
+										   : (arWorld.IsTrackingByImage() ? NkVec4f{ 0.95f, 0.9f, 0.25f, 1.f }
+																		  : NkVec4f{ 0.65f, 0.65f, 0.65f, 1.f }));
+				color.w = alpha;
 				const uint32 edges[12][2] = { { 0, 1 }, { 1, 2 }, { 2, 3 }, { 3, 0 },
 											  { 4, 5 }, { 5, 6 }, { 6, 7 }, { 7, 4 },
 											  { 0, 4 }, { 1, 5 }, { 2, 6 }, { 3, 7 } };
@@ -621,11 +652,11 @@ int nkmain(const NkEntryState &state) {
 				// normale). Ils rendent l'ORIENTATION lisible d'un coup d'œil.
 				const math::NkVec3f axisOrigin = marker.pose.Transform({ 0.f, 0.f, 0.f });
 				DrawEdge3D(r2d, axisOrigin, marker.pose.Transform({ half, 0.f, 0.f }), K, arWidth, arHeight, dst,
-						   { 1.f, 0.2f, 0.2f, 1.f }, 4.f);
+						   { 1.f, 0.2f, 0.2f, alpha }, 4.f);
 				DrawEdge3D(r2d, axisOrigin, marker.pose.Transform({ 0.f, half, 0.f }), K, arWidth, arHeight, dst,
-						   { 0.2f, 1.f, 0.2f, 1.f }, 4.f);
+						   { 0.2f, 1.f, 0.2f, alpha }, 4.f);
 				DrawEdge3D(r2d, axisOrigin, marker.pose.Transform({ 0.f, 0.f, half }), K, arWidth, arHeight, dst,
-						   { 0.3f, 0.5f, 1.f, 1.f }, 4.f);
+						   { 0.3f, 0.5f, 1.f, alpha }, 4.f);
 			}
 
 			// Dire la source RÉELLEMENT affichée, pas celle qu'on espérait :
@@ -659,8 +690,9 @@ int nkmain(const NkEntryState &state) {
 				// Vert quand la caméra est localisée maintenant, gris quand la
 				// position affichée repose sur une localisation qui vieillit :
 				// l'utilisateur doit pouvoir douter au bon moment.
-				const NkVec4f color = arWorld.IsLocalizedNow() ? NkVec4f{ 0.3f, 1.f, 0.45f, 1.f }
-															   : NkVec4f{ 0.6f, 0.6f, 0.6f, 1.f };
+				NkVec4f color = arWorld.IsLocalizedNow() ? NkVec4f{ 0.3f, 1.f, 0.45f, 1.f }
+														 : NkVec4f{ 0.6f, 0.6f, 0.6f, 1.f };
+				color.w = arWorld.GetPoseConfidence();
 				const uint32 edges[12][2] = { { 0, 1 }, { 1, 2 }, { 2, 3 }, { 3, 0 }, { 4, 5 }, { 5, 6 },
 											  { 6, 7 }, { 7, 4 }, { 0, 4 }, { 1, 5 }, { 2, 6 }, { 3, 7 } };
 				for (uint32 e = 0; e < 12u; ++e) {
@@ -686,12 +718,12 @@ int nkmain(const NkEntryState &state) {
 			// « le suivi ne voit rien » — les deux donnent la même image figée.
 			{
 				const nkxr::NkArFlowResult &flow = arWorld.GetLastFlow();
-				const float32 toDeg = 180.f / math::NK_PI_F;
+				const math::NkVec3f cumul = arWorld.GetBlindRotationDeg();
 				overlay->DrawText({ 12.f, 60.f },
-								  "  image : %s | lacet %.2f deg tangage %.2f deg roulis %.2f deg | %u points, "
-								  "residu %.2f px",
-								  flow.valid ? "mesure" : "rien a suivre (surface unie ?)", flow.yawRad * toDeg,
-								  flow.pitchRad * toDeg, flow.rollRad * toDeg, flow.inliers, flow.residualPixels);
+								  "  image : %s | %u textures, %u ambigus, %u retenus, residu %.2f px | CUMUL depuis "
+								  "le marqueur : lacet %.1f deg, tangage %.1f deg",
+								  flow.valid ? "mesure" : "rien a suivre (surface unie ?)", flow.candidates,
+								  flow.ambiguous, flow.inliers, flow.residualPixels, cumul.y, cumul.x);
 			}
 			for (nk_size i = 0; i < mapEntries.Size(); ++i) {
 				nkxr::NkXrPose posed;
