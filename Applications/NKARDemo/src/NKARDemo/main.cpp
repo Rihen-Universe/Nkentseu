@@ -715,12 +715,12 @@ int nkmain(const NkEntryState &state) {
 				// référence et ne conclut qu'une fois le glissement sorti du
 				// bruit. Le dire évite de croire à un blocage.
 				overlay->DrawText({ 12.f, 60.f },
-								  "  image : %s | %u/%u pts | glissement %.2f px depuis la reference | CUMUL "
+								  "  image : %s | %u trouves, %u ambigus, %u retenus | glissement %.2f px | CUMUL "
 								  "%.1f deg (tangage %.1f) | residu %.2f px",
 								  flow.inliers > 0u ? (flow.valid ? "CONCLUT" : "suit, attend de sortir du bruit")
 													: "rien a suivre (surface unie ?)",
-								  flow.inliers, flow.candidates, flow.medianShiftPixels, cumul.y, cumul.x,
-								  flow.residualPixels);
+								  flow.candidates, flow.ambiguous, flow.inliers, flow.medianShiftPixels, cumul.y,
+								  cumul.x, flow.residualPixels);
 			}
 			for (nk_size i = 0; i < mapEntries.Size(); ++i) {
 				nkxr::NkXrPose posed;

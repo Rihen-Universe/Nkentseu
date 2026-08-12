@@ -543,6 +543,49 @@ int main() {
 			allocator.Deallocate(frame);
 		}
 
+		// SCENE PAUVRE — un mur presque uni, comme la piece de Rihen. Toute la
+		// texture est concentree dans un coin (un ecran, un cadre, une porte).
+		// Le quota par region, utile quand la texture abonde, jetterait ici les
+		// rares points exploitables : on mesurait 19 points trouves et ZERO
+		// retenu, donc aucune rotation appliquee, donc un cube colle a l'ecran.
+		{
+			uint8 *poor = static_cast<uint8 *>(allocator.Allocate(W * H, 1));
+			uint8 *poorRot = static_cast<uint8 *>(allocator.Allocate(W * H, 1));
+			uint8 *rich = static_cast<uint8 *>(allocator.Allocate(W * H, 1));
+			MakeTexture(rich, W, H, 3, 0x5150AAu);
+			for (uint32 y = 0; y < H; ++y) {
+				for (uint32 x = 0; x < W; ++x) {
+					// Mur uni + un leger grain, sous le seuil de relief : c'est
+					// exactement ce que voit une webcam sur un mur clair.
+					const uint32 n = (x * 7u + y * 13u) % 5u;
+					poor[y * W + x] = uint8(176u + n);
+				}
+			}
+			for (uint32 y = 120; y < 330; ++y) {
+				for (uint32 x = 60; x < 300; ++x) {
+					poor[y * W + x] = rich[y * W + x];
+				}
+			}
+			const float32 poorYaw = 0.6f * math::NK_PI_F / 180.f;
+			WarpByRotation(poor, poorRot, W, H, K, poorYaw, 0.f, 0.f);
+			session.ProcessFrame(poor, W, H, W, NkArImageFormat::NK_AR_GRAY8);
+			world.Update(session);
+			const float32 poorBefore = world.GetBlindRotationDeg().y;
+			session.ProcessFrame(poorRot, W, H, W, NkArImageFormat::NK_AR_GRAY8);
+			world.Update(session);
+			const NkArFlowResult &poorFlow = world.GetLastFlow();
+			const float32 poorMeasured = world.GetBlindRotationDeg().y - poorBefore;
+			logger.Infof("  [info] scene pauvre : %u trouves, %u ambigus, %u retenus | cumul %.2f deg attendu %.2f\n",
+						 poorFlow.candidates, poorFlow.ambiguous, poorFlow.inliers, poorMeasured,
+						 poorYaw * 180.f / math::NK_PI_F);
+			CHECK(poorFlow.inliers > 0u, "scene pauvre : les rares points textures ne sont PAS jetes par le quota");
+			CHECK(Near(poorMeasured, poorYaw * 180.f / math::NK_PI_F, 0.35f * poorYaw * 180.f / math::NK_PI_F),
+				  "scene pauvre : la rotation est quand meme mesuree");
+			allocator.Deallocate(rich);
+			allocator.Deallocate(poorRot);
+			allocator.Deallocate(poor);
+		}
+
 		// Camera IMMOBILE : la MEME image deux fois de suite. Le suivi ne doit
 		// inventer aucune rotation — le defaut symetrique serait bien pire qu'un
 		// suivi paresseux : un objet pose deriverait tout seul, sans que

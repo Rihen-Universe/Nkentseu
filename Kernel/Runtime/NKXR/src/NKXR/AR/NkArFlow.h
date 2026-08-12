@@ -99,7 +99,12 @@ namespace nkentseu {
 			// un panoramique lent vaut 1 à 2 pixels par image, et s'en méfier
 			// reviendrait à jeter la moitié des preuves du mouvement réel.
 			uint32 stillRadiusPixels = 1;
-			uint32 minInliers = 8;      ///< En dessous, on préfère ne rien dire.
+			uint32 minInliers = 6;      ///< En dessous, on préfère ne rien dire.
+			// En dessous de ce nombre de points retenus, le quota par région est
+			// LEVÉ : sur une scène pauvre, les rares points texturés sont
+			// naturellement groupés, et les jeter au nom de la répartition
+			// revient à ne rien mesurer du tout.
+			uint32 minPointsBeforeQuota = 16;
 			float32 inlierPixels = 4.f; ///< Tolérance autour du mouvement médian.
 			// Le meilleur accord doit être NETTEMENT meilleur que le meilleur
 			// accord concurrent situé ailleurs. Sans ce test, une vignette qui se
