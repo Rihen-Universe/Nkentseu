@@ -1693,19 +1693,16 @@ namespace nkentseu {
 			// TRANSPARENT (alpha < 1) : file dediee, triee arriere->avant et
 			// fusionnee apres les opaques — l'opacite du panneau devient
 			// reelle (11 aout, demande de Rihen).
-			// Deux raisons d'aller en TRANSPARENT :
-			//  1. l'objet est semi-opaque (curseur Opacite) ;
-			//  2. son MATERIAU est d'une famille transparente (le Verre), meme a
-			//     opacite 1 : son shader calcule son propre alpha par Fresnel
-			//     — ~0.2 de face, opaque en incidence rasante, comme une vitre.
-			//     Sans ce second test, un Verre laisse a 1 partait dans la file
-			//     opaque, ou il n'y a pas de fusion : son alpha etait jete et le
-			//     verre paraissait plein (« est-ce que le verre peut etre
-			//     transparent ? », Rihen, 12 aout).
-			bool ownBlend = false;
-			if (mMat && dc.material.IsValid())
-				ownBlend = mMat->InstanceWantsOwnBlend(mMat->GetInstance(dc.material));
-			if (dc.alpha < 0.999f || ownBlend) {
+			// L'OPACITE SEULE DECIDE. Router aussi les familles transparentes
+			// (le Verre) quelle que soit leur opacite etait une erreur : depuis
+			// que l'opacite est un PLANCHER (a = op + (1-op) x Fresnel), un
+			// verre a 1 est REELLEMENT opaque. Or la file transparente n'ecrit
+			// pas la profondeur — l'objet ne s'inscrivait donc pas dans le
+			// tampon, et les axes du plan se voyaient AU TRAVERS d'un cube
+			// pourtant plein (Rihen, 12 aout). Rendu en file opaque, il ecrit
+			// sa profondeur, occulte ce qui passe derriere, et garde son propre
+			// shader (FlushOpaque binde le pipeline du materiau).
+			if (dc.alpha < 0.999f) {
 				mTransparent.PushBack({dc, depth});
 				return;
 			}
