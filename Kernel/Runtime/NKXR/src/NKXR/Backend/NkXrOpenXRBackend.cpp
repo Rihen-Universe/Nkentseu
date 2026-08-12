@@ -349,7 +349,16 @@ namespace nkentseu {
 						props[i].type = XR_TYPE_EXTENSION_PROPERTIES;
 					}
 					enumInstanceExt(nullptr, extCount, &extCount, props);
+					// NK_XR_LIST_EXT : dresser la liste de ce que le runtime
+					// offre VRAIMENT — la seule façon de trancher entre « notre
+					// code ne demande pas » et « le runtime ne propose pas »
+					// (cas vécu : suivi des mains absent via Link).
+					const bool listExtensions = (getenv("NK_XR_LIST_EXT") != nullptr);
 					for (uint32 i = 0; i < extCount; ++i) {
+						if (listExtensions) {
+							logger.Infof("[NKXR/OpenXR]   extension : %s (v%u)\n", props[i].extensionName,
+										 props[i].extensionVersion);
+						}
 						if (strcmp(props[i].extensionName, XR_KHR_VULKAN_ENABLE_EXTENSION_NAME) == 0) {
 							mOxr->vulkanEnableExt = true;
 						}
@@ -357,6 +366,8 @@ namespace nkentseu {
 							mOxr->handTrackingExt = true;
 						}
 					}
+					logger.Infof("[NKXR/OpenXR] %u extensions offertes par le runtime (NK_XR_LIST_EXT=1 pour la liste).\n",
+								 extCount);
 				}
 			}
 			if (!mOxr->vulkanEnableExt) {
