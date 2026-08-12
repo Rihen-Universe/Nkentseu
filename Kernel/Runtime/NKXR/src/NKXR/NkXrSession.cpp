@@ -283,6 +283,26 @@ namespace nkentseu {
 			return mBackend->LocateHand(side, space.GetType(), time, outHand);
 		}
 
+		bool NkXrSession::GetPerfMetrics(NkXrPerfMetrics &outMetrics) {
+			return mBackend->GetPerfMetrics(outMetrics);
+		}
+
+		uint32 NkXrSession::GetDisplayRefreshRates(float32 *outRates, uint32 capacity) {
+			return mBackend->GetDisplayRefreshRates(outRates, capacity);
+		}
+
+		float32 NkXrSession::GetDisplayRefreshRate() {
+			return mBackend->GetDisplayRefreshRate();
+		}
+
+		bool NkXrSession::RequestDisplayRefreshRate(float32 hz) {
+			return mBackend->RequestDisplayRefreshRate(hz);
+		}
+
+		bool NkXrSession::GetVisibilityMask(NkXrEye eye, NkXrVisibilityMask &outMask) {
+			return mBackend->GetVisibilityMask(eye, outMask);
+		}
+
 		NkXrTime NkXrSession::Now() {
 			// float64 → int64 : ~104 jours de nanosecondes tiennent dans la
 			// mantisse d'un double, largement au-delà d'une session.

@@ -75,6 +75,11 @@ namespace nkentseu {
 				bool ApplyHaptic(NkXrActionHandle handle, float32 amplitude, float32 durationSeconds,
 								 float32 frequencyHz) override;
 				bool LocateHand(NkXrHandSide side, NkXrSpaceType space, NkXrTime time, NkXrHand &outHand) override;
+				bool GetPerfMetrics(NkXrPerfMetrics &outMetrics) override;
+				uint32 GetDisplayRefreshRates(float32 *outRates, uint32 capacity) override;
+				float32 GetDisplayRefreshRate() override;
+				bool RequestDisplayRefreshRate(float32 hz) override;
+				bool GetVisibilityMask(NkXrEye eye, NkXrVisibilityMask &outMask) override;
 				bool GetActionStateBool(NkXrActionHandle handle, NkXrActionStateBool &outState) override;
 				bool GetActionStateFloat(NkXrActionHandle handle, NkXrActionStateFloat &outState) override;
 				bool GetActionStateVec2(NkXrActionHandle handle, NkXrActionStateVec2 &outState) override;

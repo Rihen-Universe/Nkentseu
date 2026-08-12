@@ -84,6 +84,13 @@ namespace nkentseu {
 				// n'existe pas ou ne voit pas la main : retomber sur les manettes.
 				bool LocateHand(NkXrHandSide side, const NkXrSpace &space, NkXrTime time, NkXrHand &outHand);
 
+				// ── Mesure et réglage de la restitution ──────────────────────
+				bool GetPerfMetrics(NkXrPerfMetrics &outMetrics);
+				uint32 GetDisplayRefreshRates(float32 *outRates, uint32 capacity);
+				float32 GetDisplayRefreshRate();
+				bool RequestDisplayRefreshRate(float32 hz);
+				bool GetVisibilityMask(NkXrEye eye, NkXrVisibilityMask &outMask);
+
 				// Temps XR « maintenant » (l'horloge que datent poses et frames).
 				static NkXrTime Now();
 

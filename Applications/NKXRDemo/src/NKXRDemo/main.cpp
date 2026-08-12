@@ -372,6 +372,47 @@ int nkmain(const NkEntryState &state) {
 				 xrInfo.systemName, xrBound ? "SESSION CASQUE RÉELLE" : "simulateur",
 				 xrInfo.views[0].recommendedWidth, xrInfo.views[0].recommendedHeight, eyeW, eyeH);
 
+	if (xrBound) {
+		// Cadence : la CHOISIR plutôt que la subir. NK_XR_HZ=0 laisse le
+		// runtime décider ; sinon on demande la valeur proposée la plus proche
+		// — demander un taux non proposé est refusé par la spec.
+		float32 rates[16];
+		const uint32 rateCount = xrSession->GetDisplayRefreshRates(rates, 16);
+		if (rateCount > 0) {
+			char rateList[256] = {};
+			int written = 0;
+			for (uint32 i = 0; i < rateCount && written < int(sizeof(rateList)) - 8; ++i) {
+				written += snprintf(rateList + written, sizeof(rateList) - nk_size(written), "%.0f ", rates[i]);
+			}
+			logger.Infof("[NKXRDemo] Cadences proposées : %s(actuelle %.0f Hz)\n", rateList,
+						 xrSession->GetDisplayRefreshRate());
+			const float32 wanted = EnvF32("NK_XR_HZ", 0.f);
+			if (wanted > 0.f) {
+				float32 best = rates[0];
+				for (uint32 i = 1; i < rateCount; ++i) {
+					if (math::NkAbs(rates[i] - wanted) < math::NkAbs(best - wanted)) {
+						best = rates[i];
+					}
+				}
+				logger.Infof("[NKXRDemo] Cadence demandée %.0f Hz -> %s.\n", best,
+							 xrSession->RequestDisplayRefreshRate(best) ? "accordée" : "REFUSÉE");
+			}
+		}
+		// Masque de visibilité : mesurer ce qu'il y a à gagner. Sa
+		// CONSOMMATION (prépasse de profondeur) vit dans NKRenderer — note de
+		// coordination posée ; ici on prouve que la géométrie arrive.
+		for (uint32 e = 0; e < nkxr::NK_XR_EYE_COUNT; ++e) {
+			nkxr::NkXrVisibilityMask mask;
+			if (xrSession->GetVisibilityMask(nkxr::NkXrEye(e), mask)) {
+				logger.Infof("[NKXRDemo] Masque de visibilité œil %u : %u sommets, %u triangles cachés.\n", e,
+							 uint32(mask.vertices.Size()), uint32(mask.indices.Size() / 3u));
+			}
+			else {
+				logger.Infof("[NKXRDemo] Masque de visibilité œil %u : non fourni par ce runtime.\n", e);
+			}
+		}
+	}
+
 	// Cibles d'œil + un renderer 3D complet par œil (mode partagé).
 	NkOffscreenTarget *eyeTargets[nkxr::NK_XR_EYE_COUNT] = { nullptr, nullptr };
 	NkRenderer *rEye[nkxr::NK_XR_EYE_COUNT] = { nullptr, nullptr };
@@ -773,6 +814,13 @@ int nkmain(const NkEntryState &state) {
 		endInfo.projection = haveViews ? &projLayer : nullptr;
 		xrSession->EndFrame(endInfo);
 
+		// Casque posé / app masquée : xrWaitFrame ne freine plus rien (mesuré
+		// 2400 i/s à brûler un cœur pour zéro image). La boucle doit rester
+		// synchronisée, mais elle peut respirer.
+		if (!frameState.shouldRender) {
+			NkChrono::SleepMilliseconds(4);
+		}
+
 		// Demi-cadence : compléter la frame jusqu'à 2 périodes d'affichage
 		// (dormir le reliquat) — le compositeur reçoit un battement régulier.
 		if (xrBound && xrHalfRate && frameState.predictedDisplayPeriod > 0) {
@@ -789,8 +837,21 @@ int nkmain(const NkEntryState &state) {
 		if (xrBound && frameIdx - paceLastFrame >= 144u) {
 			const float64 seconds = paceChrono.Reset().seconds;
 			const float64 fps = float64(frameIdx - paceLastFrame) / (seconds > 1e-6 ? seconds : 1.0);
-			logger.Infof("[NKXRDemo] Cadence casque : %.1f i/s (%.1f ms/frame) — le Quest 2 affiche a 72 Hz.\n",
-						 fps, 1000.0 / (fps > 1e-6 ? fps : 1.0));
+			// Notre cadence ET celle mesurée par le COMPOSITEUR : c'est lui
+			// qui sait où part le temps (et combien de frames il a dû
+			// réafficher — la cause exacte des « sauts »).
+			nkxr::NkXrPerfMetrics metrics;
+			if (xrSession->GetPerfMetrics(metrics) && metrics.available) {
+				logger.Infof("[NKXRDemo] Cadence %.1f i/s (%.1f ms) | app CPU %.2f GPU %.2f ms | compositeur CPU "
+							 "%.2f GPU %.2f ms | frames rejouees %d | latence %.1f ms\n",
+							 fps, 1000.0 / (fps > 1e-6 ? fps : 1.0), metrics.appCpuMs, metrics.appGpuMs,
+							 metrics.compositorCpuMs, metrics.compositorGpuMs, metrics.staleFrames,
+							 metrics.appMotionToPhotonMs);
+			}
+			else {
+				logger.Infof("[NKXRDemo] Cadence casque : %.1f i/s (%.1f ms/frame).\n", fps,
+							 1000.0 / (fps > 1e-6 ? fps : 1.0));
+			}
 			paceLastFrame = frameIdx;
 		}
 
