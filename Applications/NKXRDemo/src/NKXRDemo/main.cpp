@@ -409,7 +409,14 @@ int nkmain(const NkEntryState &state) {
 			// anti-aliasing tant que le MSAA œil n'est pas branché.
 			cfgEye.postProcess.ssao = (EnvU64("NK_XR_SSAO", 0) != 0);
 			cfgEye.postProcess.fxaa = true;
-			cfgEye.postProcess.bloom = (EnvU64("NK_XR_BLOOM", 1) != 0);
+			// Bloom OFF par défaut en VR : une chaîne Dual-Kawase 11 passes,
+			// PAR ŒIL, pour un halo qu'un casque rend à peine — c'est le
+			// meilleur rapport ips gagnés / qualité perdue vers le 72 Hz.
+			cfgEye.postProcess.bloom = (EnvU64("NK_XR_BLOOM", 0) != 0);
+			// Ombres : 1024 au lieu de 2048 (×2 yeux) — la carte d'ombre est
+			// rendue une fois PAR ŒIL tant que le graphe n'est pas partagé.
+			cfgEye.shadow.resolution = uint32(EnvU64("NK_XR_SHADOW_RES", 1024));
+			cfgEye.shadow.cascadeCount = uint32(EnvU64("NK_XR_SHADOW_CASCADES", 2));
 		}
 		rEye[e] = NkRenderer::Create(device, cfgEye);
 		if (rEye[e] == nullptr) {
@@ -619,6 +626,16 @@ int nkmain(const NkEntryState &state) {
 		nkxr::NkXrPose aimPose;
 		const bool haveHand = xrSession->LocateActionPose(actAim, stageSpace, frameState.predictedDisplayTime, aimPose);
 
+		// VRAIES MAINS (sans manettes) : 26 articulations par main quand le
+		// casque les voit. Les deux systèmes coexistent — poser les manettes
+		// suffit à passer de l'un à l'autre, aucun mode à basculer.
+		nkxr::NkXrHand hands[2];
+		bool haveHandJoints[2] = { false, false };
+		for (uint32 h = 0; h < 2u; ++h) {
+			haveHandJoints[h] = xrSession->LocateHand(nkxr::NkXrHandSide(h), stageSpace,
+													  frameState.predictedDisplayTime, hands[h]);
+		}
+
 		// Cadence d'animation sur l'index de frame : le déterminisme des
 		// captures avant le confort visuel — c'est une démo de VÉRIFICATION.
 		const float32 animTime = float32(frameIdx) / 72.f;
@@ -671,6 +688,34 @@ int nkmain(const NkEntryState &state) {
 					dc.roughness = 0.4f;
 					dc.castShadow = false;
 					r3d->Submit(dc);
+				}
+				// Vraies mains : une petite sphère par articulation, au rayon
+				// que donne le runtime — un « squelette de perles » suffit à
+				// prouver le suivi ; le maillage skinné viendra avec un
+				// modèle de main (NK3DModeler).
+				for (uint32 h = 0; h < 2u; ++h) {
+					if (!haveHandJoints[h]) {
+						continue;
+					}
+					for (uint32 j = 0; j < nkxr::NK_XR_HAND_JOINT_COUNT; ++j) {
+						const nkxr::NkXrHandJoint &joint = hands[h].joints[j];
+						if (!joint.valid) {
+							continue;
+						}
+						const NkVec3f jointPos = joint.position + worldOffset;
+						const float32 radius = (joint.radius > 0.f) ? joint.radius : 0.008f;
+						NkDrawCall3D dc;
+						dc.mesh = r->GetMeshSystem()->GetSphere();
+						dc.transform = NkMat4f::Translate(jointPos) *
+									   NkMat4f::Scale({ radius * 2.f, radius * 2.f, radius * 2.f });
+						dc.aabb = { { jointPos.x - 0.05f, jointPos.y - 0.05f, jointPos.z - 0.05f },
+									{ jointPos.x + 0.05f, jointPos.y + 0.05f, jointPos.z + 0.05f } };
+						dc.tint = (h == 0) ? NkVec3f{ 0.3f, 1.f, 0.5f } : NkVec3f{ 1.f, 0.8f, 0.3f };
+						dc.metallic = 0.f;
+						dc.roughness = 0.5f;
+						dc.castShadow = false;
+						r3d->Submit(dc);
+					}
 				}
 				// Le graphe de l'œil s'exécute sur le command buffer du
 				// COMPOSITEUR, avant son Present (passes imbriquées interdites).
