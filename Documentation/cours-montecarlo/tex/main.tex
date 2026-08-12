@@ -1,0 +1,40 @@
+% =============================================================================
+% COURS NKENTSEU — MONTE-CARLO
+% Compilation : ../build.ps1   (XeLaTeX, deux passes)
+% Le contenu vit dans chapitres/ : ce fichier n'est qu'un assemblage.
+% =============================================================================
+\documentclass[11pt, a4paper, oneside]{book}
+
+\newcommand{\DocDate}{12 août 2026}
+
+\input{preambule}
+
+% Chaque cours de la maison nomme SON sujet dans l'en-tete : sans cela, deux PDF
+% se confondent des qu'on en imprime une page isolee.
+\fancyhead[L]{\footnotesize\sffamily\color{rihenTeal}Nkentseu — Monte-Carlo}
+
+\begin{document}
+
+\input{garde}
+
+\frontmatter
+\pagestyle{plain}
+\tableofcontents
+\cleardoublepage
+
+\mainmatter
+\pagestyle{fancy}
+
+% Numerotation depuis ZERO, comme les cours precedents : le chapitre 0 est un
+% avant-propos, pas une lecon.
+\setcounter{chapter}{-1}
+\input{chapitres/00-avant-propos}
+\input{chapitres/01-compter-sans-compter}
+\input{chapitres/02-la-regle-generale}
+\input{chapitres/03-la-precision}
+\input{chapitres/04-viser-juste}
+\input{chapitres/05-le-rendu}
+\input{chapitres/06-arbre-de-jeu}
+\input{chapitres/07-les-pieges}
+
+\end{document}

@@ -1,0 +1,61 @@
+\chapter{Avant-propos}
+
+Il existe des calculs qu'on ne sait pas faire. Pas « difficiles » : \emph{pas
+faisables}. La quantité de lumière qui arrive sur un pixel, la valeur d'un coup
+au milieu d'une partie, la surface d'une forme qui n'a pas d'équation — ce sont
+des sommes infinies sur des espaces à dix, vingt, cent dimensions. Aucune
+formule ne les résout, et aucune machine n'a assez de temps pour les parcourir.
+
+Monte-Carlo est la réponse à cette impasse, et c'est une réponse presque
+insolente : \textbf{si on ne peut pas tout regarder, regardons au hasard, et
+comptons}. Le résultat n'est jamais exact. Il est \emph{presque} exact, et il
+s'améliore tant qu'on lui donne du temps.
+
+\section{À qui s'adresse ce cours}
+
+À quelqu'un qui sait programmer, et qui n'a pas besoin d'être à l'aise en
+mathématiques pour commencer. Le chapitre 1 se lit sans une seule formule ; les
+formules n'arrivent qu'au chapitre 2, une fois que l'intuition est en place, et
+chacune est expliquée en français avant d'être écrite en symboles.
+
+\section{Ce que ce cours contient}
+
+\begin{itemize}
+  \item l'idée, avec des cailloux et une flaque d'eau (chapitre 1) ;
+  \item la règle générale, et le seul point que tout le monde rate — la
+        division par la densité de tirage (chapitre 2) ;
+  \item pourquoi la précision progresse si lentement, et pourquoi c'est quand
+        même la meilleure méthode du monde en grande dimension (chapitre 3) ;
+  \item comment réduire le bruit sans acheter une machine plus puissante
+        (chapitre 4) ;
+  \item deux mises en œuvre complètes, pas à pas, avec le code : le rendu
+        d'images (chapitre 5) et l'intelligence artificielle de jeu de plateau
+        (chapitre 6) ;
+  \item les pièges qui coûtent une journée, dont trois qui ne préviennent pas
+        (chapitre 7).
+\end{itemize}
+
+\section{Ce que ce cours ne contient pas}
+
+Pas de démonstration de la loi des grands nombres ni du théorème central
+limite : ils sont \emph{utilisés}, énoncés, et leur conséquence pratique est
+expliquée — mais les démontrer demanderait un cours de probabilités, et ne
+rendrait personne meilleur programmeur.
+
+Pas non plus de chaînes de Markov (Metropolis-Hastings, MCMC). C'est la suite
+naturelle de ce cours, et elle mérite le sien.
+
+\begin{nkretenir}[Le contrat de Monte-Carlo, en une phrase]
+On échange l'\textbf{exactitude} contre la \textbf{possibilité de calculer}.
+Une méthode exacte qui ne termine jamais ne vaut rien ; une méthode approchée
+qui rend une réponse utilisable en dix secondes, et une réponse excellente en
+dix minutes, vaut tout.
+\end{nkretenir}
+
+\section{Le code de ce cours}
+
+Les extraits suivent les conventions du moteur Nkentseu : types en
+\texttt{NkPascalCase}, méthodes en \texttt{PascalCase}, membres privés en
+\texttt{mCamelCase}, types primitifs \texttt{float32} / \texttt{nk\_uint32}, et
+aucune dépendance à la bibliothèque standard. Ils sont écrits pour être lus,
+puis copiés : chacun tourne tel quel.

@@ -1,0 +1,189 @@
+\chapter{Les pièges}
+
+Monte-Carlo a une particularité désagréable : quand il est faux, il ne plante
+pas. Il rend un nombre plausible. Ce chapitre rassemble les erreurs qui coûtent
+une journée, et les signes qui les trahissent.
+
+\section{Le générateur aléatoire}
+
+Toute la méthode repose sur la qualité du hasard. Un générateur médiocre
+introduit des \textbf{corrélations} entre échantillons — et des échantillons
+corrélés valent moins que leur nombre.
+
+\begin{nkpiege}[N'utilisez jamais \texttt{rand()} de la bibliothèque C]
+Trois défauts, tous rédhibitoires ici :
+\begin{itemize}
+  \item \textbf{période courte} : sur certaines implémentations $2^{31}$, ce
+        qui est atteint en quelques secondes de rendu ;
+  \item \textbf{bits de poids faible quasi périodiques} : \texttt{rand() \% 2}
+        peut alterner régulièrement. Tout code qui prend un modulo est
+        contaminé ;
+  \item \textbf{état global} : inutilisable en multi-fils sans verrou, et un
+        verrou sur le générateur détruit la parallélisation.
+\end{itemize}
+Le dépôt fournit mieux : \texttt{math::NkRand} et le XORShift64* de
+\nkfile{NKContainers/String/NkStringUtils.cpp}.
+\end{nkpiege}
+
+\begin{nkpiege}[Une graine par fil d'exécution, sans exception]
+Si deux fils partagent la même graine, ils tirent la \textbf{même séquence} :
+vous ne multipliez pas vos échantillons, vous dupliquez le même. Le bruit ne
+diminue plus, et rien ne l'annonce.
+
+La bonne pratique tient en une ligne : semer chaque fil avec un identifiant
+distinct — le numéro de ligne d'image, l'indice du fil, l'indice du pixel —
+mélangé par une fonction de hachage. Un générateur par fil, jamais partagé.
+\end{nkpiege}
+
+\begin{nkcode}{Un generateur par fil, seme sans collision}
+// Melangeur de bits (finaliseur de MurmurHash3) : deux graines voisines
+// donnent des sequences totalement decorrelees. Semer avec `indice` brut
+// produirait au contraire des sequences qui demarrent presque pareil.
+static inline nk_uint64 NkMelanger(nk_uint64 x) {
+    x ^= x >> 33;  x *= 0xFF51AFD7ED558CCDull;
+    x ^= x >> 33;  x *= 0xC4CEB9FE1A85EC53ull;
+    x ^= x >> 33;
+    return x;
+}
+
+class NkRngLocal {
+    public:
+        explicit NkRngLocal(nk_uint64 indice, nk_uint64 graineGlobale = 0x9E3779B9ull)
+            : mEtat(NkMelanger(indice + graineGlobale)) {
+            if (mEtat == 0)
+                mEtat = 0x853C49E6748FEA9Bull;   // XORShift meurt sur zero
+        }
+
+        nk_uint64 Suivant() {                    // XORShift64*
+            mEtat ^= mEtat >> 12;
+            mEtat ^= mEtat << 25;
+            mEtat ^= mEtat >> 27;
+            return mEtat * 0x2545F4914F6CDD1Dull;
+        }
+
+        // [0,1) en float32 : on prend les 24 bits de POIDS FORT. Les bits de
+        // poids faible sont les moins bons de tous les generateurs rapides.
+        float32 Flottant() {
+            return (float32)(Suivant() >> 40) * (1.f / 16777216.f);
+        }
+
+    private:
+        nk_uint64 mEtat;
+};
+\end{nkcode}
+
+\section{Le biais silencieux}
+
+Rappel du chapitre 2 : un estimateur biaisé est \emph{stable et faux}. Il ne
+tremble pas, il ment — et l'augmentation du nombre d'échantillons ne fait que
+resserrer l'estimation \emph{autour de la mauvaise valeur}.
+
+\begin{center}
+\begin{tabular}{@{}p{5.2cm}p{4.2cm}p{4.4cm}@{}}
+\toprule
+\textbf{Cause} & \textbf{Symptôme} & \textbf{Correction} \\
+\midrule
+oubli de la division par $p$ & résultat faux d'un facteur constant & diviser, toujours \\
+coupure à profondeur fixe & image trop sombre & roulette russe \\
+densité mal normalisée & décalage proportionnel & vérifier que $\int p = 1$ \\
+région jamais échantillonnée & contribution absente & garantir $p > 0$ où $f \neq 0$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}[Le test qui démasque un biais]
+Faites tourner votre estimateur avec $N$, puis $100N$ échantillons.
+
+\begin{itemize}
+  \item si l'écart entre les deux résultats \textbf{rétrécit d'un facteur 10}
+        (racine de 100), c'est du bruit : tout va bien ;
+  \item si les deux résultats sont \textbf{proches l'un de l'autre mais
+        différents de la valeur attendue}, c'est un biais. Aucun temps de
+        calcul ne le corrigera.
+\end{itemize}
+Testez toujours sur un cas dont vous connaissez la réponse : une sphère
+uniformément éclairée, une intégrale calculable à la main, un jeu dont l'issue
+optimale est connue.
+\end{nkretenir}
+
+\section{L'accumulation numérique}
+
+Additionner un million de \texttt{float32} en série perd les petites
+contributions : quand la somme devient grande, l'ajout d'une petite valeur est
+absorbé par l'arrondi.
+
+\begin{nkpiege}[Accumuler en \texttt{float64}, ou par sommation compensée]
+Le remède le moins cher est d'accumuler en \texttt{float64} et de ne convertir
+qu'à la fin. Si la mémoire l'interdit (un buffer d'accumulation d'image en
+haute définition), employez la sommation de Kahan, qui garde trace de l'erreur
+d'arrondi et la réinjecte.
+
+Symptôme typique quand on l'ignore : une image qui \textbf{cesse de converger}
+au-delà de quelques milliers d'échantillons par pixel — le bruit ne descend
+plus, alors que la théorie dit qu'il devrait.
+\end{nkpiege}
+
+\section{Les \emph{fireflies}}
+
+Des pixels blancs isolés sur une image sombre. Cause : un échantillon a touché
+une contribution énorme avec une densité minuscule, donc $f/p$ explose.
+
+\begin{itemize}
+  \item \textbf{mauvaise solution} : plafonner brutalement les valeurs
+        (\emph{clamping}). Ça marche visuellement, mais ça \textbf{introduit un
+        biais} : on retire de l'énergie qui existait vraiment ;
+  \item \textbf{bonne solution} : mieux échantillonner ce qui les cause —
+        tirage direct des lumières, échantillonnage à importances multiples.
+        On s'attaque à la densité, pas au symptôme.
+\end{itemize}
+
+\section{La parallélisation}
+
+Monte-Carlo se parallélise magnifiquement : les échantillons sont indépendants.
+Deux réserves seulement.
+
+\begin{itemize}
+  \item \textbf{le déterminisme}. Une image rendue sur 8 fils ne sera pas
+        identique au bit près à la même rendue sur 4 fils, si l'ordre
+        d'accumulation change. Pour un rendu reproductible — indispensable
+        pour comparer deux versions du moteur — il faut que chaque
+        \textbf{échantillon} ait sa graine propre, dérivée de son indice et non
+        de l'ordre d'exécution ;
+  \item \textbf{le faux partage} (\emph{false sharing}). Si deux fils
+        accumulent dans des cases voisines du même tableau, ils se disputent la
+        même ligne de cache et le programme ralentit sans raison apparente.
+        Donnez à chaque fil son accumulateur, aligné, et fusionnez à la fin.
+\end{itemize}
+
+\section{Récapitulatif : la liste à cocher}
+
+\begin{nkretenir}[Avant de croire un résultat Monte-Carlo]
+\begin{enumerate}
+  \item Est-ce que je divise par la densité de tirage, partout ?
+  \item Ma densité est-elle strictement positive partout où la fonction ne
+        l'est pas ?
+  \item Ai-je testé sur un cas dont je connais la réponse exacte ?
+  \item L'erreur décroît-elle bien en $1/\sqrt{N}$ quand je multiplie les
+        échantillons ?
+  \item Chaque fil a-t-il sa propre graine ?
+  \item Est-ce que j'accumule dans un type assez large ?
+  \item Est-ce que je coupe quelque chose « pour aller plus vite » sans
+        compenser ?
+\end{enumerate}
+Sept questions. Elles coûtent dix minutes et font gagner des journées.
+\end{nkretenir}
+
+\section{Pour aller plus loin}
+
+\begin{itemize}
+  \item \textbf{Suites à faible discordance} (Halton, Sobol) : la
+        stratification qui survit à la grande dimension ;
+  \item \textbf{échantillonnage à importances multiples} : combiner
+        proprement plusieurs densités, chacune bonne pour une partie du
+        problème ;
+  \item \textbf{Metropolis-Hastings et MCMC} : quand la bonne densité est
+        impossible à échantillonner directement, on construit une marche
+        aléatoire qui l'explore. C'est la suite naturelle de ce cours ;
+  \item \textbf{estimateurs à variance réduite} : variables de contrôle,
+        variables antithétiques.
+\end{itemize}

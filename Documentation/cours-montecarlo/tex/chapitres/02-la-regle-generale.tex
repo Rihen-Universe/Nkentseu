@@ -1,0 +1,117 @@
+\chapter{La règle générale}
+
+Le chapitre précédent comptait des cailloux. Celui-ci écrit la même chose en
+symboles, et ajoute la seule subtilité de toute la méthode.
+
+\section{Ce qu'on calcule vraiment : une intégrale}
+
+Une surface, une quantité de lumière, une moyenne sur toutes les parties
+possibles : ce sont toutes des \textbf{intégrales}. Une intégrale, c'est une
+somme d'une infinité de valeurs sur un domaine :
+
+\[ I = \int_{D} f(x)\,dx \]
+
+Lisez-la ainsi : « pour chaque point $x$ du domaine $D$, prends la valeur
+$f(x)$, et fais-en la somme ». Le problème est qu'il y a une infinité de
+points — on ne peut pas les visiter.
+
+\section{L'estimateur}
+
+Monte-Carlo remplace cette somme infinie par une moyenne finie :
+
+\begin{nkretenir}[La formule centrale, à retenir par cœur]
+\[ \langle I \rangle_N \;=\; \frac{1}{N}\sum_{i=1}^{N} \frac{f(x_i)}{p(x_i)} \]
+
+où les $x_i$ sont $N$ points tirés au hasard selon une densité de probabilité
+$p$. Ce nombre s'approche de $I$ quand $N$ grandit.
+\end{nkretenir}
+
+Le $f(x_i)$ ne pose aucune difficulté : c'est la valeur de ce qu'on somme, au
+point tiré. Le $\frac{1}{N}\sum$ non plus : c'est une moyenne. Reste le
+$p(x_i)$ au dénominateur, et c'est lui que tout le monde rate.
+
+\section{Pourquoi diviser par $p$ — le point clé}
+
+Imaginez que vous comptiez les arbres d'une forêt en vous y promenant, puis que
+vous multipliiez par la surface. Si votre promenade passe deux fois plus souvent
+près de la rivière que sur la colline, vous compterez les arbres de la rivière
+deux fois trop. Votre estimation sera fausse — non parce que vous avez mal
+compté, mais parce que \textbf{votre façon de vous promener favorisait un
+endroit}.
+
+La correction est évidente une fois dite : chaque arbre vu doit être divisé par
+la fréquence avec laquelle vous passiez là. Un arbre vu dans une zone
+sur-visitée compte moins ; un arbre vu dans une zone rarement visitée compte
+davantage.
+
+\begin{nkretenir}[Le rôle de $p$]
+La division par $p$ \textbf{annule le favoritisme de votre tirage}. Elle
+transforme n'importe quelle façon de tirer — même très biaisée — en une
+estimation correcte.
+
+C'est ce qui rend la méthode libre : vous pouvez tirer \emph{où vous voulez},
+du moment que vous savez avec quelle probabilité vous y tirez.
+\end{nkretenir}
+
+\subsection{Le cas uniforme, que vous connaissez déjà}
+
+Si vous tirez uniformément sur un domaine de volume $V$, alors la densité vaut
+$p(x) = 1/V$ partout — la même chance partout. Remplacez dans la formule :
+
+\[ \langle I \rangle_N = \frac{1}{N}\sum_{i=1}^{N} \frac{f(x_i)}{1/V}
+   = \frac{V}{N}\sum_{i=1}^{N} f(x_i) \]
+
+C'est-à-dire : \textbf{le volume, multiplié par la moyenne des valeurs}. C'est
+exactement le calcul de la flaque (surface de la cour $\times$ proportion de
+plouf) et celui de $\pi$ (surface du carré $\times$ proportion dans le cercle).
+Vous utilisiez déjà la formule générale sans le savoir.
+
+\section{Non biaisé : viser juste sans être précis}
+
+Une propriété mérite un mot, parce qu'elle est contre-intuitive.
+
+L'estimateur est dit \textbf{non biaisé} : son espérance est exactement $I$,
+\emph{dès le premier échantillon}. Avec un seul caillou, votre estimation de la
+flaque sera ridicule (0 \% ou 100 \%) — mais elle n'est pas \emph{décalée} :
+si vous refaisiez l'expérience à un caillou des millions de fois, la moyenne de
+toutes ces estimations ridicules donnerait la bonne surface.
+
+\begin{nkretenir}[Justesse et précision ne sont pas la même chose]
+\begin{itemize}
+  \item \textbf{Non biaisé} = qui vise le centre de la cible. Les impacts sont
+        dispersés, mais leur centre est le bon.
+  \item \textbf{Précis} = qui groupe ses impacts. Ils peuvent être groupés à
+        côté de la cible.
+\end{itemize}
+Monte-Carlo est \emph{juste} d'emblée et devient \emph{précis} avec le temps.
+Un estimateur biaisé, lui, est stable et faux : il ne bruite pas, il ment. Et
+c'est bien plus grave, parce que rien ne le signale.
+\end{nkretenir}
+
+\begin{nkpiege}[Deux conditions à ne jamais oublier]
+La formule n'est valable que si :
+\begin{enumerate}
+  \item $p(x) > 0$ \textbf{partout où $f(x) \neq 0$}. Si vous ne tirez jamais
+        dans une région où la fonction vaut quelque chose, cette contribution
+        est perdue pour toujours — et aucun nombre d'échantillons ne la
+        rattrapera. En rendu, c'est la lumière qu'on ne verra jamais parce
+        qu'aucun rayon ne va dans sa direction ;
+  \item $p$ est une \textbf{vraie} densité : positive, et d'intégrale 1. Une
+        densité mal normalisée décale silencieusement tout le résultat.
+\end{enumerate}
+\end{nkpiege}
+
+\begin{nkexo}[Vérifier que la division par $p$ est indispensable]
+Estimez $\int_0^1 x^2\,dx$ (la réponse exacte est $1/3$) de deux façons :
+
+\begin{enumerate}
+  \item en tirant $x$ uniformément dans $[0,1]$, donc $p(x) = 1$ ;
+  \item en tirant $x = \sqrt{u}$ avec $u$ uniforme — ce qui favorise les
+        grandes valeurs de $x$. La densité correspondante est $p(x) = 2x$.
+\end{enumerate}
+
+Faites le second calcul \textbf{en oubliant volontairement} de diviser par
+$2x$ : vous trouverez $1/2$ au lieu de $1/3$. Puis divisez : vous retrouvez
+$1/3$. L'erreur de 50 \% ne vient pas du hasard — elle vient du favoritisme non
+corrigé.
+\end{nkexo}

@@ -1,0 +1,117 @@
+\chapter{Viser juste : réduire le bruit sans acheter de machine}
+
+On ne peut pas battre le $1/\sqrt{N}$ : c'est une loi. Mais on peut réduire le
+$\sigma$ qui le multiplie — et là, les gains ne se comptent pas en pourcents,
+ils se comptent en facteurs.
+
+\section{L'échantillonnage d'importance}
+
+L'idée tient en une image. Pour trouver les poissons d'un lac, ne quadrillez
+pas le lac uniformément : jetez votre filet là où l'eau bouge.
+
+Formellement : choisissez une densité $p$ qui \textbf{ressemble à $f$}. Plus
+$p$ est grande là où $f$ est grande, plus le rapport $f/p$ est régulier — et
+c'est la régularité de ce rapport qui fait la faible variance.
+
+\begin{nkretenir}[Le cas idéal, qui explique tout le reste]
+Si $p(x) = f(x)/I$ exactement, alors chaque terme de la somme vaut
+\[ \frac{f(x_i)}{p(x_i)} = \frac{f(x_i)}{f(x_i)/I} = I \]
+c'est-à-dire la réponse, \textbf{à chaque tirage}. La variance tombe à zéro :
+un seul échantillon suffirait.
+
+C'est inatteignable — il faudrait connaître $I$, qui est justement ce qu'on
+cherche. Mais ça donne la direction : \textbf{plus $p$ imite $f$, moins ça
+bruite}. Toute la pratique de Monte-Carlo consiste à fabriquer des $p$
+approchantes et bon marché.
+\end{nkretenir}
+
+\subsection{Comment tirer selon une densité choisie}
+
+Reste une question concrète : votre générateur ne sait produire que de
+l'uniforme entre 0 et 1. Comment en tirer un nombre distribué selon $p$ ?
+
+Par la \textbf{méthode de l'inverse}. Calculez la fonction de répartition
+$P(x) = \int_{-\infty}^{x} p(t)\,dt$, inversez-la, et appliquez cette inverse à
+un tirage uniforme $u$.
+
+\begin{nkcode}{Exemple complet : tirer selon $p(x) = 2x$ sur $[0,1]$}
+// 1. Repartition :  P(x) = integrale de 0 a x de 2t dt = x^2
+// 2. Inversion    :  u = x^2  =>  x = sqrt(u)
+// 3. Tirage       :
+float32 TirerSelonDeuxX() {
+    const float32 u = math::NkRand.NextFloat32();   // uniforme [0,1)
+    return NkMath::Sqrt(u);
+}
+// Et la densite a rendre a l'appelant, pour la division :
+float32 DensiteDeuxX(float32 x) { return 2.f * x; }
+\end{nkcode}
+
+Quand l'inverse n'est pas calculable, on emploie le \emph{rejet} : tirer dans
+une enveloppe simple et jeter ce qui dépasse. C'est plus coûteux, mais toujours
+correct.
+
+\section{La stratification : gratuite, et à faire en premier}
+
+Cent points tirés purement au hasard laissent des trous et forment des grappes.
+Le hasard est \emph{grumeleux}, contrairement à ce que l'intuition suggère.
+
+Découpez le domaine en cases et tirez un point \textbf{dans chaque case} : même
+nombre d'échantillons, même coût, mais couverture régulière.
+
+\begin{nkcode}{Stratification en une dimension}
+// Sans stratification : n tirages libres, avec trous et grappes.
+for (nk_uint32 i = 0; i < n; ++i)
+    total += f(math::NkRand.NextFloat32());
+
+// Avec stratification : une case par echantillon, un tirage DANS la case.
+// Le jitter (le hasard a l'interieur de la case) est indispensable : sans
+// lui, on retombe sur une grille reguliere, qui reintroduit des motifs
+// d'aliasing -- des moires visibles a l'ecran plutot qu'un grain neutre.
+for (nk_uint32 i = 0; i < n; ++i) {
+    const float32 u = ((float32)i + math::NkRand.NextFloat32()) / (float32)n;
+    total += f(u);
+}
+\end{nkcode}
+
+\begin{nkpiege}[La stratification ne passe pas à l'échelle en dimension]
+En dimension $d$, stratifier chaque axe en $k$ cases demande $k^d$
+échantillons : c'est la malédiction de la dimension qui revient par la fenêtre.
+
+La parade porte un nom : les \textbf{échantillons de faible discordance}
+(Halton, Sobol) et le \emph{Latin hypercube}. Ils gardent la régularité de la
+stratification sans exiger $k^d$ points. C'est ce qu'utilisent tous les moteurs
+de rendu modernes, et c'est le prolongement naturel de ce chapitre.
+\end{nkpiege}
+
+\section{La roulette russe : arrêter sans mentir}
+
+Un chemin de lumière peut rebondir indéfiniment. On doit bien s'arrêter — mais
+\textbf{couper net à une profondeur fixe est un biais} : toute la lumière des
+rebonds suivants disparaît, et l'image s'assombrit systématiquement.
+
+La roulette russe résout ça élégamment. À chaque rebond, on continue avec une
+probabilité $q$, et \textbf{on divise la contribution par $q$}.
+
+\begin{nkretenir}[Pourquoi c'est exact]
+Le chemin survit avec la probabilité $q$ et rapporte alors $C/q$ ; il meurt
+avec la probabilité $1-q$ et rapporte 0. Son espérance vaut donc
+\[ q \times \frac{C}{q} \;+\; (1-q) \times 0 \;=\; C \]
+soit exactement ce qu'il aurait rapporté sans interruption. \textbf{On termine
+plus tôt sans introduire la moindre erreur systématique} — on ajoute seulement
+un peu de variance.
+\end{nkretenir}
+
+En pratique, on choisit $q$ proportionnel à l'énergie restante du chemin : un
+rayon très atténué a peu de chances de survivre, ce qui est exactement ce
+qu'on veut.
+
+\begin{nkexo}[Mesurer le gain de l'échantillonnage d'importance]
+Estimez $\int_0^1 x^2\,dx$ de deux façons, avec le même nombre d'échantillons :
+uniformément ($p = 1$), puis avec $p(x) = 2x$ (donc $x = \sqrt{u}$, sans
+oublier de diviser par $2x$).
+
+Lancez chaque version 100 fois et comparez l'écart-type des résultats. La
+seconde doit bruiter nettement moins — parce que $2x$ ressemble davantage à
+$x^2$ que la fonction constante 1. Vous venez de gagner du temps de calcul sans
+toucher au matériel.
+\end{nkexo}

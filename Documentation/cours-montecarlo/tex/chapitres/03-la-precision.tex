@@ -1,0 +1,156 @@
+\chapter{La précision, et sa loi impitoyable}
+
+Ce chapitre contient la mauvaise nouvelle de la méthode, puis la raison pour
+laquelle on l'emploie quand même — et cette raison est écrasante.
+
+\section{La loi du $1/\sqrt{N}$}
+
+On aimerait que doubler le nombre d'échantillons divise l'erreur par deux. Ce
+n'est pas le cas. L'erreur type de l'estimateur vaut :
+
+\[ \sigma_N = \frac{\sigma}{\sqrt{N}} \]
+
+où $\sigma$ est l'écart-type de la fonction échantillonnée. La décroissance se
+fait en \textbf{racine carrée} du nombre d'échantillons.
+
+\begin{nkretenir}[Le chiffre à retenir, celui qui explique tout]
+\textbf{Pour diviser le bruit par 2, il faut 4 fois plus d'échantillons. Pour
+le diviser par 10, il en faut 100 fois plus.}
+
+C'est exactement pourquoi une image en \emph{path tracing} met des heures à
+devenir propre : passer d'une image granuleuse à une image lisse ne coûte pas
+un peu plus cher, il coûte cent fois plus cher.
+\end{nkretenir}
+
+\begin{center}
+\begin{tabular}{@{}rll@{}}
+\toprule
+\textbf{Échantillons} & \textbf{Bruit relatif} & \textbf{Temps (base 1)} \\
+\midrule
+100        & 10~\%   & 1 \\
+400        & 5~\%    & 4 \\
+10\,000    & 1~\%    & 100 \\
+1\,000\,000& 0,1~\%  & 10\,000 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Deux conséquences pratiques, immédiates :
+
+\begin{itemize}
+  \item \textbf{inutile d'espérer la perfection par la force}. Multiplier la
+        machine par deux ne réduit le bruit que de 30 \%. Le levier n'est pas
+        la puissance, c'est la réduction de la variance $\sigma$ (chapitre 4) ;
+  \item \textbf{le rendement décroît}. Les premières secondes d'un rendu
+        apportent l'essentiel ; les dernières heures polissent. Un moteur qui
+        affiche l'image \emph{pendant} qu'elle converge est donc utilisable
+        bien avant d'être terminé — c'est le principe du rendu progressif.
+\end{itemize}
+
+\section{La bonne nouvelle : la dimension ne compte pas}
+
+Voici pourquoi Monte-Carlo est irremplaçable, et non pas seulement commode.
+
+Les méthodes classiques d'intégration (rectangles, trapèzes, quadrature de
+Gauss) découpent le domaine en une grille. En dimension $d$, une grille de $n$
+points par axe demande $n^d$ points au total. Regardez la catastrophe :
+
+\begin{center}
+\begin{tabular}{@{}rlr@{}}
+\toprule
+\textbf{Dimension} & \textbf{Points d'une grille $10\times$} & \textbf{Faisable ?} \\
+\midrule
+1  & 10                  & oui \\
+2  & 100                 & oui \\
+5  & 100\,000            & oui \\
+10 & 10\,000\,000\,000   & non \\
+20 & $10^{20}$           & jamais \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+C'est ce qu'on appelle la \emph{malédiction de la dimension}. Et voici le point
+décisif :
+
+\begin{nkretenir}[Le $1/\sqrt{N}$ ne dépend pas de la dimension]
+L'erreur de Monte-Carlo vaut $\sigma/\sqrt{N}$ \textbf{en dimension 1 comme en
+dimension 100}. La dimension n'apparaît nulle part dans la formule.
+
+En rendu, chaque rebond de lumière ajoute deux dimensions (la direction du
+rebond). Un chemin à cinq rebonds est une intégrale en dimension 10, et
+personne ne le remarque : le code est le même, le coût est le même. Aucune
+autre méthode ne tient à ce régime.
+\end{nkretenir}
+
+Autrement dit, on ne choisit pas Monte-Carlo parce qu'il est bon — il est lent.
+On le choisit parce qu'au-delà de quelques dimensions, \textbf{il est le seul
+qui existe encore}.
+
+\section{Estimer sa propre erreur}
+
+Un estimateur honnête sait dire à quel point il est sûr de lui. Comme
+l'écart-type $\sigma$ est inconnu, on l'estime à partir des mêmes échantillons :
+
+\[ s^2 = \frac{1}{N-1}\sum_{i=1}^{N}\left(y_i - \bar{y}\right)^2
+   \qquad\text{avec}\quad y_i = \frac{f(x_i)}{p(x_i)} \]
+
+et l'erreur type de la moyenne vaut alors $s/\sqrt{N}$.
+
+\begin{nkcode}{Accumulateur qui rend la moyenne ET sa barre d'erreur}
+// Algorithme de Welford : une seule passe, et surtout STABLE. La formule
+// naive (somme des carres moins carre de la somme) soustrait deux grands
+// nombres presque egaux et perd toute la precision -- elle rend meme des
+// variances NEGATIVES sur de longues series.
+class NkAccumulateurMC {
+    public:
+        void Ajouter(float64 y) {
+            mN += 1;
+            const float64 delta = y - mMoyenne;
+            mMoyenne += delta / (float64)mN;
+            mM2 += delta * (y - mMoyenne);   // le second delta est le NOUVEAU
+        }
+
+        float64 Moyenne() const { return mMoyenne; }
+
+        // Erreur type de la moyenne : l'intervalle « moyenne +/- 2 sigma »
+        // contient la vraie valeur environ 95 fois sur 100.
+        float64 ErreurType() const {
+            if (mN < 2)
+                return 0.0;
+            const float64 variance = mM2 / (float64)(mN - 1);
+            return NkMath::Sqrt(variance / (float64)mN);
+        }
+
+    private:
+        nk_uint64 mN = 0;
+        float64 mMoyenne = 0.0;
+        float64 mM2 = 0.0;
+};
+\end{nkcode}
+
+\begin{nkretenir}[À quoi sert la barre d'erreur, concrètement]
+Elle permet d'\textbf{arrêter au bon moment}. Plutôt que de fixer un nombre
+d'échantillons au hasard, on continue jusqu'à ce que l'erreur type passe sous
+un seuil. Un moteur de rendu peut ainsi donner plus d'échantillons aux pixels
+bruyants (les zones d'ombre douce, les caustiques) et moins aux pixels déjà
+propres — à budget égal, l'image entière converge plus vite.
+\end{nkretenir}
+
+\begin{nkpiege}[La barre d'erreur ne voit pas ce qu'elle n'a pas tiré]
+Si une contribution énorme se cache dans une région minuscule que vos
+échantillons n'ont jamais visitée, votre estimateur sera \emph{confiant et
+faux} : peu de variance observée, donc petite barre d'erreur, et pourtant à
+côté de la plaque.
+
+C'est le cas classique d'une petite source de lumière très intense. La barre
+d'erreur mesure la dispersion de ce que vous avez vu — jamais l'existence de ce
+que vous n'avez pas vu.
+\end{nkpiege}
+
+\begin{nkexo}[Constater la loi de la racine]
+Estimez $\pi$ 50 fois avec $N = 100$, puis 50 fois avec $N = 400$, puis 50 fois
+avec $N = 1600$. Calculez à chaque fois l'écart-type de vos 50 estimations.
+
+Vous devez trouver un rapport d'environ 2 entre chaque palier — pas 4. Si vous
+trouvez 4, votre générateur aléatoire produit des tirages corrélés (chapitre 7).
+\end{nkexo}
