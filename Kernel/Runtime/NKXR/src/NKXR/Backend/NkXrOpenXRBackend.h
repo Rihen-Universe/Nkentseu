@@ -74,6 +74,7 @@ namespace nkentseu {
 				bool SyncActions(NkXrTime now) override;
 				bool ApplyHaptic(NkXrActionHandle handle, float32 amplitude, float32 durationSeconds,
 								 float32 frequencyHz) override;
+				bool LocateHand(NkXrHandSide side, NkXrSpaceType space, NkXrTime time, NkXrHand &outHand) override;
 				bool GetActionStateBool(NkXrActionHandle handle, NkXrActionStateBool &outState) override;
 				bool GetActionStateFloat(NkXrActionHandle handle, NkXrActionStateFloat &outState) override;
 				bool GetActionStateVec2(NkXrActionHandle handle, NkXrActionStateVec2 &outState) override;

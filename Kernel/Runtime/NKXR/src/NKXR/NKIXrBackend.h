@@ -157,6 +157,17 @@ namespace nkentseu {
 				virtual bool GetActionStateFloat(NkXrActionHandle handle, NkXrActionStateFloat &outState) = 0;
 				virtual bool GetActionStateVec2(NkXrActionHandle handle, NkXrActionStateVec2 &outState) = 0;
 				virtual bool LocateActionPose(NkXrActionHandle handle, NkXrSpaceType space, NkXrTime time, NkXrPose &outPose) = 0;
+
+				// Vraies mains (XR_EXT_hand_tracking). Défaut : pas de mains —
+				// le simulateur et les runtimes sans l'extension répondent
+				// false, l'app retombe sur les manettes.
+				virtual bool LocateHand(NkXrHandSide side, NkXrSpaceType space, NkXrTime time, NkXrHand &outHand) {
+					(void)side;
+					(void)space;
+					(void)time;
+					outHand = NkXrHand{};
+					return false;
+				}
 		};
 
 		// ── Fabrique (pattern NkDeviceFactory de NKRHI) ──────────────────────

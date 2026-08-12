@@ -80,6 +80,9 @@ namespace nkentseu {
 				bool GetActionStateVec2(NkXrActionHandle handle, NkXrActionStateVec2 &outState);
 				bool LocateActionPose(NkXrActionHandle handle, const NkXrSpace &space, NkXrTime time, NkXrPose &outPose);
 				bool ApplyHaptic(NkXrActionHandle handle, float32 amplitude, float32 durationSeconds, float32 frequencyHz = 0.f);
+				// Vraies mains (sans manettes) — false si le tracking des mains
+				// n'existe pas ou ne voit pas la main : retomber sur les manettes.
+				bool LocateHand(NkXrHandSide side, const NkXrSpace &space, NkXrTime time, NkXrHand &outHand);
 
 				// Temps XR « maintenant » (l'horloge que datent poses et frames).
 				static NkXrTime Now();
