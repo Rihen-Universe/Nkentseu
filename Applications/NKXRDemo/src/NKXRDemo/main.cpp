@@ -231,13 +231,17 @@ int nkmain(const NkEntryState &state) {
 	// L'ordre est dicté par OpenXR : le runtime impose au device Vulkan ses
 	// extensions et son physical device AVANT sa création. Le simulateur, lui,
 	// n'exige rien — le même code marche pour les deux.
+	// TOUT se règle ici, PAR LE CODE : une application (ou son interface de
+	// réglages) pilote la session sans dépendre de l'environnement. L'appel à
+	// NkXrApplyEnvOverrides est le SEUL endroit où l'environnement entre — il
+	// est explicite, et une application de production peut ne pas le faire.
 	nkxr::NkXrSessionDesc xrDesc;
 	xrDesc.window = &window;
-	const char *backendEnv = getenv("NK_XR_BACKEND");
-	const bool wantOpenXR = (backendEnv != nullptr) && (strcmp(backendEnv, "openxr") == 0);
-	if (wantOpenXR) {
-		xrDesc.backend = nkxr::NkXrBackendType::NK_XR_BACKEND_OPENXR;
-	}
+	xrDesc.renderScale = 0.85f;   // mesuré : 1768x1781/œil à 66-70 i/s avec TAA
+	xrDesc.halfRate = false;      // le moteur tient ~70 i/s : pas de verrou
+	xrDesc.submitDepthLayer = true;
+	nkxr::NkXrApplyEnvOverrides(xrDesc);
+	const bool wantOpenXR = (xrDesc.backend == nkxr::NkXrBackendType::NK_XR_BACKEND_OPENXR);
 	nkxr::NkXrSession *xrSession = nkxr::NkXrSession::Create(xrDesc);
 
 	NkDeviceInitInfo devInfo{};
@@ -358,7 +362,7 @@ int nkmain(const NkEntryState &state) {
 		// et le lissage temporel par-dessus. Au-delà (0,9) le coût du TAA
 		// explose brutalement — 27 ms, 21 i/s : c'est une falaise, pas une
 		// pente. Sans TAA, 0,9 passe (68-71 i/s) mais l'image crénelle.
-		const float32 renderScale = math::NkClamp(EnvF32("NK_XR_RENDER_SCALE", 0.85f), 0.2f, 2.f);
+		const float32 renderScale = math::NkClamp(xrDesc.renderScale, 0.2f, 2.f);
 		eyeW = uint32(float32(xrInfo.views[0].recommendedWidth) * renderScale);
 		eyeH = uint32(float32(xrInfo.views[0].recommendedHeight) * renderScale);
 		if (eyeW < 64u) {
@@ -389,7 +393,7 @@ int nkmain(const NkEntryState &state) {
 			}
 			logger.Infof("[NKXRDemo] Cadences proposées : %s(actuelle %.0f Hz)\n", rateList,
 						 xrSession->GetDisplayRefreshRate());
-			const float32 wanted = EnvF32("NK_XR_HZ", 0.f);
+			const float32 wanted = xrDesc.requestedRefreshRateHz;
 			if (wanted > 0.f) {
 				float32 best = rates[0];
 				for (uint32 i = 1; i < rateCount; ++i) {
@@ -557,7 +561,7 @@ int nkmain(const NkEntryState &state) {
 	// STABLE à 72/2 vaut mieux qu'un rythme oscillant plus haut : l'ASW se
 	// cale et lisse. NK_XR_HALF_RATE=0 pour le couper quand le moteur saura
 	// tenir 72 (chantier d'optimisation deux-vues).
-	const bool xrHalfRate = (EnvU64("NK_XR_HALF_RATE", 1) != 0);
+	const bool xrHalfRate = xrDesc.halfRate;
 	NkChrono frameLimiter;
 	// NK_XR_SHADOW=0 coupe les ombres de la scène : le plus gros poste de
 	// coût GPU — l'interrupteur du test de cadence.

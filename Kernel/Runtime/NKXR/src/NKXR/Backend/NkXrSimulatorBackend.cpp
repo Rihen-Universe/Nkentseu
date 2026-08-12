@@ -23,7 +23,6 @@
 #include "NKEvent/NkKeyboardEvent.h"
 #include "NKEvent/NkMouseEvent.h"
 
-#include <cstdlib>
 
 namespace nkentseu {
 	namespace xr {
@@ -38,78 +37,40 @@ namespace nkentseu {
 				return NkXrTime(NkChrono::Now().nanoseconds);
 			}
 
-			// Lit jusqu'à maxCount flottants séparés par des virgules. Rend le
-			// nombre lu — un format partiel est un format refusé par l'appelant.
-			uint32 ParseFloatList(const char *text, float32 *out, uint32 maxCount) {
-				if (text == nullptr) {
-					return 0u;
-				}
-				uint32 count = 0u;
-				const char *cursor = text;
-				while (count < maxCount) {
-					char *end = nullptr;
-					const float64 value = strtod(cursor, &end);
-					if (end == cursor) {
-						break;
-					}
-					out[count] = float32(value);
-					++count;
-					cursor = end;
-					while (*cursor == ',' || *cursor == ' ') {
-						++cursor;
-					}
-					if (*cursor == '\0') {
-						break;
-					}
-				}
-				return count;
-			}
-
-			float32 EnvFloat(const char *name, float32 fallback) {
-				const char *text = getenv(name);
-				if (text == nullptr || *text == '\0') {
-					return fallback;
-				}
-				return float32(atof(text));
-			}
-
 		} // namespace
 
 		// ── Initialisation ───────────────────────────────────────────────────
 
 		bool NkXrSimulatorBackend::Initialize(const NkXrSessionDesc &desc) {
 			mDesc = desc;
-			mIpdMeters = EnvFloat("NK_XR_SIM_IPD", desc.ipdMeters);
-			mEyeHeight = EnvFloat("NK_XR_SIM_EYE_HEIGHT", 1.70f);
-			mMoveSpeed = EnvFloat("NK_XR_SIM_SPEED", 2.5f);
-			mLatencySeconds = EnvFloat("NK_XR_SIM_LATENCY_MS", 0.f) * 0.001f;
-
-			const float32 hz = EnvFloat("NK_XR_SIM_HZ", 72.f);
-			mDisplayPeriod = NkXrTime(1e9 / float64(hz > 1.f ? hz : 72.f));
+			// TOUT vient de la description : aucune lecture d'environnement
+			// ici. Une application règle par le code ; le développeur qui veut
+			// l'environnement appelle NkXrApplyEnvOverrides AVANT de créer la
+			// session. Un backend qui irait chercher un réglage en douce
+			// rendrait l'application non pilotable — c'est la règle.
+			mIpdMeters = desc.ipdMeters;
+			mEyeHeight = desc.simulator.eyeHeightMeters;
+			mMoveSpeed = desc.simulator.moveSpeed;
+			mLatencySeconds = desc.simulator.latencySeconds;
+			const float32 hz = (desc.simulator.displayHz > 1.f) ? desc.simulator.displayHz : 72.f;
+			mDisplayPeriod = NkXrTime(1e9 / float64(hz));
 
 			mPositionStage = NkVec3f(0.f, mEyeHeight, 0.f);
 			mYawRad = 0.f;
 			mPitchRad = 0.f;
 
-			// Pose scriptée : la boucle d'agent fige la tête pour que deux
-			// exécutions donnent le même pixel — les entrées sont ignorées.
-			float32 scripted[5]{};
-			if (ParseFloatList(getenv("NK_XR_SIM_POSE"), scripted, 5u) == 5u) {
+			const float32 toRad = math::NK_PI_F / 180.f;
+			if (desc.simulator.poseFixed) {
 				mFixedPose = true;
-				mYawRad = scripted[0] * math::NK_PI_F / 180.f;
-				mPitchRad = scripted[1] * math::NK_PI_F / 180.f;
-				mPositionStage = NkVec3f(scripted[2], scripted[3], scripted[4]);
-				logger.Infof("[NKXR/Sim] Pose figée par NK_XR_SIM_POSE (yaw %.1f°, pitch %.1f°).\n",
-							 scripted[0], scripted[1]);
+				mYawRad = desc.simulator.yawDegrees * toRad;
+				mPitchRad = desc.simulator.pitchDegrees * toRad;
+				mPositionStage = desc.simulator.position;
+				logger.Infof("[NKXR/Sim] Pose figée (yaw %.1f°, pitch %.1f°).\n", desc.simulator.yawDegrees,
+							 desc.simulator.pitchDegrees);
 			}
-
-			float32 fovDeg[4]{};
-			if (ParseFloatList(getenv("NK_XR_SIM_FOV"), fovDeg, 4u) == 4u) {
+			if (desc.simulator.fovOverride) {
 				mFovFromEnv = true;
-				mLeftFov.angleLeft = fovDeg[0] * math::NK_PI_F / 180.f;
-				mLeftFov.angleRight = fovDeg[1] * math::NK_PI_F / 180.f;
-				mLeftFov.angleUp = fovDeg[2] * math::NK_PI_F / 180.f;
-				mLeftFov.angleDown = fovDeg[3] * math::NK_PI_F / 180.f;
+				mLeftFov = desc.simulator.fov;
 			}
 
 			// Accumulation des deltas souris bruts (voir le POURQUOI dans le
