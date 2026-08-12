@@ -315,8 +315,47 @@ namespace nkentseu {
 						++result.ambiguous;
 						continue;
 					}
-					du.PushBack(float32(bestDx));
-					dv.PushBack(float32(bestDy));
+					// ── Affinage SOUS-PIXEL ───────────────────────────────────
+					// Décisif, et voici pourquoi : un panoramique lent déplace
+					// l'image d'un ou deux pixels par image. Arrondi à l'entier,
+					// ce mouvement se perd — la moitié du temps il tombe à zéro —
+					// et la rotation cumulée n'avance jamais, alors même que la
+					// pièce défile sous les yeux. Mesuré sur les captures de
+					// Rihen : 450 px de défilement réel, 0,3° annoncés.
+					// La parabole ajustée sur les trois accords autour du fond du
+					// creux rend la fraction manquante. Les accords sont
+					// recalculés SANS arrêt anticipé : il faut ici des valeurs
+					// exactes, pas des bornes inférieures.
+					float32 subX = float32(bestDx);
+					float32 subY = float32(bestDy);
+					{
+						const uint32 sLeft = PatchSad(&mPrev[0], gray, width, bx, by, uint32(int32(bx) + bestDx - 1),
+													  uint32(int32(by) + bestDy), radius, 0xFFFFFFFFu);
+						const uint32 sRight = PatchSad(&mPrev[0], gray, width, bx, by, uint32(int32(bx) + bestDx + 1),
+													   uint32(int32(by) + bestDy), radius, 0xFFFFFFFFu);
+						const float32 denom = float32(sLeft) + float32(sRight) - 2.f * float32(bestSad);
+						if (denom > 1.f) {
+							const float32 shift = 0.5f * (float32(sLeft) - float32(sRight)) / denom;
+							if (shift > -1.f && shift < 1.f) {
+								subX += shift;
+							}
+						}
+					}
+					{
+						const uint32 sUp = PatchSad(&mPrev[0], gray, width, bx, by, uint32(int32(bx) + bestDx),
+													uint32(int32(by) + bestDy - 1), radius, 0xFFFFFFFFu);
+						const uint32 sDown = PatchSad(&mPrev[0], gray, width, bx, by, uint32(int32(bx) + bestDx),
+													  uint32(int32(by) + bestDy + 1), radius, 0xFFFFFFFFu);
+						const float32 denom = float32(sUp) + float32(sDown) - 2.f * float32(bestSad);
+						if (denom > 1.f) {
+							const float32 shift = 0.5f * (float32(sUp) - float32(sDown)) / denom;
+							if (shift > -1.f && shift < 1.f) {
+								subY += shift;
+							}
+						}
+					}
+					du.PushBack(subX);
+					dv.PushBack(subY);
 					px.PushBack(float32(bx) - intrinsics.cx);
 					py.PushBack(float32(by) - intrinsics.cy);
 				}

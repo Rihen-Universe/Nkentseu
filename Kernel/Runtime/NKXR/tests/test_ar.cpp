@@ -466,6 +466,25 @@ int main() {
 		CHECK(Near(after.position.Len(), before.position.Len(), 0.02f),
 			  "suivi image : la DISTANCE ne bouge pas (une rotation ne rapproche rien)");
 
+		// Rotation LENTE : 0,2 degre, soit moins de deux pixels de glissement.
+		// C'est le cas qui echouait en vrai — un panoramique a la main avance de
+		// cet ordre a chaque image. Arrondi a l'entier le plus proche, ce
+		// mouvement se perd et la rotation cumulee n'avance JAMAIS, alors meme
+		// que la piece defile. Il exige l'affinage sous-pixel.
+		{
+			session.ProcessFrame(background, W, H, W, NkArImageFormat::NK_AR_GRAY8);
+			world.Update(session);
+			const float32 slowYaw = 0.2f * math::NK_PI_F / 180.f;
+			WarpByRotation(background, second, W, H, K, slowYaw, 0.f, 0.f);
+			session.ProcessFrame(second, W, H, W, NkArImageFormat::NK_AR_GRAY8);
+			world.Update(session);
+			const NkArFlowResult &slow = world.GetLastFlow();
+			logger.Infof("  [info] lent : lacet %.5f rad attendu %.5f, glissement %.2f px, %u pts\n", slow.yawRad,
+						 slowYaw, slow.medianShiftPixels, slow.inliers);
+			CHECK(slow.valid, "suivi image : rotation lente mesuree");
+			CHECK(Near(slow.yawRad, slowYaw, 0.35f * slowYaw), "suivi image : 0,2 degre retrouve (sous-pixel)");
+		}
+
 		// Camera IMMOBILE : la meme image deux fois. Le suivi ne doit inventer
 		// aucune rotation — c'est le pendant du test precedent, et le defaut
 		// serait bien pire : un objet pose deriverait tout seul, sans que

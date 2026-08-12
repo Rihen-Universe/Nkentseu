@@ -95,7 +95,10 @@ namespace nkentseu {
 			// s'en charge. On se méfie donc de l'immobilité, pas du mouvement.
 			// Le seuil est RELATIF : la moitié des points le franchit toujours,
 			// la règle ne peut donc pas tout rejeter.
-			uint32 stillRadiusPixels = 2; ///< En deçà, le vote compte comme « immobile ».
+			// En deçà, le vote compte comme « immobile ». Volontairement étroit :
+			// un panoramique lent vaut 1 à 2 pixels par image, et s'en méfier
+			// reviendrait à jeter la moitié des preuves du mouvement réel.
+			uint32 stillRadiusPixels = 1;
 			uint32 minInliers = 8;      ///< En dessous, on préfère ne rien dire.
 			float32 inlierPixels = 4.f; ///< Tolérance autour du mouvement médian.
 			// Le meilleur accord doit être NETTEMENT meilleur que le meilleur
