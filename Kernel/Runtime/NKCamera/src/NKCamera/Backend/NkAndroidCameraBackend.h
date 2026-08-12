@@ -118,6 +118,16 @@ namespace nkentseu {
 						}
 					}
 
+					// Inclinaison du capteur (0/90/180/270). Le pilote la connaît,
+					// et c'est la seule source fiable : la deviner marche sur un
+					// appareil et échoue sur le suivant.
+					ACameraMetadata_const_entry sensorOrient{};
+					if (ACameraMetadata_getConstEntry(meta, ACAMERA_SENSOR_ORIENTATION, &sensorOrient) ==
+							ACAMERA_OK &&
+						sensorOrient.count > 0) {
+						dev.sensorOrientation = int32(sensorOrient.data.i32[0]);
+					}
+
 					// Résolutions supportées
 					ACameraMetadata_const_entry configs{};
 					ACameraMetadata_getConstEntry(meta, ACAMERA_SCALER_AVAILABLE_STREAM_CONFIGURATIONS, &configs);

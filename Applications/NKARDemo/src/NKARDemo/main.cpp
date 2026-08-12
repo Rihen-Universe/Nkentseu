@@ -502,18 +502,41 @@ int nkmain(const NkEntryState &state) {
 			renderer->OnResize(w, h);
 		}
 	});
+	bool surfaceReady = true;
+	bool surfaceRecreatePending = false;
+	// ── Mise en arrière-plan et retour (Android) ─────────────────────────────
+	// Quand l'application passe en arrière-plan, le système DÉTRUIT la surface
+	// d'affichage. Continuer à dessiner dessus ne produit rien, et au retour la
+	// surface est NEUVE : sans la recréer, l'écran reste noir — défaut signalé
+	// par Rihen, déjà résolu de la même façon dans Pong.
+	// On ne fait RIEN de lourd dans le callback : on lève un drapeau, et le
+	// travail se fait dans la boucle. Recréer une chaîne d'échange au milieu du
+	// traitement d'un événement, c'est le faire pendant qu'une image est
+	// peut-être en vol — la leçon a déjà été payée sur DX12.
+	events.AddEventCallback<NkWindowHiddenEvent>([&](NkWindowHiddenEvent *) {
+		surfaceReady = false;
+		logger.Info("[NKARDemo] Surface masquee — on cesse de dessiner.");
+	});
+	events.AddEventCallback<NkWindowShownEvent>([&](NkWindowShownEvent *) {
+		surfaceRecreatePending = true;
+		logger.Info("[NKARDemo] Surface revenue — recreation demandee.");
+	});
 
 	// Redressement de l'image caméra, en degrés (0, 90, 180, 270).
-	// Sur téléphone le capteur est monté de travers : en portrait, l'image
-	// arrive couchée. 90° convient à la très grande majorité des dos d'appareils
-	// Android ; NK_AR_ROTATE permet de trancher les autres cas sans recompiler,
-	// et le réglage reste PROGRAMMABLE (principe n°4) — l'environnement n'est
-	// qu'une couche par-dessus.
-#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__)
-	uint32 kCameraRotation = 90u;
-#else
+	// La valeur vient du PILOTE, pas d'une supposition : NkCameraDevice porte
+	// désormais l'inclinaison du capteur, que le système connaît. Deviner 90°
+	// marchait sur ce téléphone-ci et aurait échoué sur le suivant.
 	uint32 kCameraRotation = 0u;
-#endif
+	{
+		const auto devices = camera.EnumerateDevices();
+		for (nk_size i = 0; i < devices.Size(); ++i) {
+			if (devices[i].facing == camCfg.facing || camCfg.facing == NkCameraFacing::NK_CAMERA_FACING_ANY) {
+				const int32 o = devices[i].sensorOrientation;
+				kCameraRotation = uint32(((o % 360) + 360) % 360);
+				break;
+			}
+		}
+	}
 	{
 		const char *rotEnv = getenv("NK_AR_ROTATE");
 		if (rotEnv != nullptr) {
@@ -522,7 +545,8 @@ int nkmain(const NkEntryState &state) {
 				kCameraRotation = asked;
 			}
 		}
-		logger.Infof("[NKARDemo] Redressement image camera : %u degres.\n", kCameraRotation);
+		logger.Infof("[NKARDemo] Redressement image camera : %u degres (donne par le pilote%s).\n", kCameraRotation,
+					 (rotEnv != nullptr) ? ", force par NK_AR_ROTATE" : "");
 	}
 
 	NkClock clock;
@@ -546,6 +570,29 @@ int nkmain(const NkEntryState &state) {
 		}
 		total += clock.Tick().delta;
 		++frameIndex;
+
+		// Recréation de la surface, faite ICI et non dans l'événement : aucune
+		// image ne peut être en vol à ce point de la boucle. La taille est
+		// relue à la source — au retour d'arrière-plan, l'appareil peut avoir
+		// changé d'orientation pendant l'absence.
+		if (surfaceRecreatePending) {
+			surfaceRecreatePending = false;
+			const NkVec2u size = window.GetSize();
+			if (size.x >= 64u && size.y >= 64u) {
+				W = size.x;
+				H = size.y;
+				renderer->OnResize(W, H);
+			}
+			surfaceReady = true;
+			logger.Infof("[NKARDemo] Surface recreee : %ux%u.\n", W, H);
+		}
+		// Surface détruite : on n'ouvre pas d'image. Dessiner dans le vide
+		// gaspille la batterie et, sur certains pilotes, finit par faire tomber
+		// le périphérique.
+		if (!surfaceReady) {
+			NkChrono::Sleep(int64(16));
+			continue;
+		}
 
 		// ── Image ────────────────────────────────────────────────────────────
 		bool haveFrame = false;
@@ -585,6 +632,42 @@ int nkmain(const NkEntryState &state) {
 						arHeight = effH;
 						memory::NkFree(frameRGBA);
 						frameRGBA = static_cast<uint8 *>(memory::NkAlloc(nk_size(arWidth) * arHeight * 4u));
+
+						// ── TOURNER AUSSI LES INTRINSÈQUES ───────────────────
+						// L'erreur qu'il ne faut pas commettre, et que j'ai
+						// commise : redresser l'image sans redresser la
+						// géométrie de l'objectif. Le champ supposé vaut pour la
+						// largeur du CAPTEUR ; après un quart de tour, cette
+						// largeur devient la hauteur, et recalculer la focale sur
+						// la nouvelle largeur la rabaisse ici d'un facteur 1,8.
+						// La perspective est alors fausse, les distances aussi,
+						// et l'objet ne peut PAS coller au marqueur — c'est
+						// exactement ce que Rihen a vu.
+						// On calcule donc les intrinsèques sur l'image D'ORIGINE,
+						// puis on leur applique la même rotation qu'aux pixels.
+						const nkxr::NkArCameraIntrinsics k0 =
+							nkxr::NkArCameraIntrinsics::FromFovX(frame.width, frame.height, arCfg.fallbackFovXDegrees);
+						nkxr::NkArCameraIntrinsics k = k0;
+						if (kCameraRotation == 90u) {
+							k.fx = k0.fy;
+							k.fy = k0.fx;
+							k.cx = float32(frame.height) - 1.f - k0.cy;
+							k.cy = k0.cx;
+						}
+						else if (kCameraRotation == 180u) {
+							k.cx = float32(frame.width) - 1.f - k0.cx;
+							k.cy = float32(frame.height) - 1.f - k0.cy;
+						}
+						else if (kCameraRotation == 270u) {
+							k.fx = k0.fy;
+							k.fy = k0.fx;
+							k.cx = k0.cy;
+							k.cy = float32(frame.width) - 1.f - k0.cx;
+						}
+						arCfg.intrinsics = k;
+						logger.Infof("[NKARDemo] Intrinseques apres rotation : fx=%.1f fy=%.1f cx=%.1f cy=%.1f\n", k.fx,
+									 k.fy, k.cx, k.cy);
+
 						arSession.Shutdown();
 						arSession.Initialize(arCfg, arWidth, arHeight);
 						NkTextureCreateDesc redesc;
