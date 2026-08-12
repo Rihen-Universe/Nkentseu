@@ -1,0 +1,15 @@
+// toonoutline.frag.nksl — NKRenderer — Contour toon (coque inversee).
+// Couleur UNIE lue dans le push constant : un trait d'encre ne s'eclaire
+// pas. Aucun varying volontairement — le generateur GL retourne Y des qu'un
+// VS en porte, piege deja paye sur les shaders d'ombre.
+@location(0) out vec4 fragColor;
+
+layout(push_constant) uniform PC {
+    vec4 outline;   // .x = largeur, .yzw = couleur
+} pc;
+
+@stage(fragment)
+@entry
+void main() {
+    fragColor = vec4(pc.outline.yzw, 1.0);
+}

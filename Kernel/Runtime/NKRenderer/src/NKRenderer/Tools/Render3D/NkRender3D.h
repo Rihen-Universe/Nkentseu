@@ -816,6 +816,19 @@ namespace nkentseu {
 				bool EnsureSkyboxPipeline(NkRenderPassHandle currentRP);
 				void DrawSkybox(NkICommandBuffer *cmd);
 				bool EnsureGridPipeline(NkRenderPassHandle currentRP);
+				// ── CONTOUR TOON (coque inversee) ────────────────────────────
+				// Redessine les objets toon avec les faces AVANT ecartees et les
+				// sommets pousses le long de leur normale : seule la bordure
+				// depasse, et elle forme un trait d'epaisseur constante autour de
+				// la silhouette — cube comme sphere. Un contour EPAIS ne peut pas
+				// se decider dans un fragment (trois formules essayees le 12 aout,
+				// cf. toon.frag.nksl) : il faut de la geometrie.
+				bool EnsureToonOutlinePipeline(NkRenderPassHandle currentRP);
+				void FlushToonOutline(NkICommandBuffer *cmd, NkRenderPassHandle currentRP,
+									  NkDescSetHandle globalSet);
+				::nkentseu::NkShaderHandle mToonOutlineShader;
+				NkPipelineHandle mToonOutlinePipeline;
+				NkRenderPassHandle mToonOutlineRP{};
 				void DrawGrid(NkICommandBuffer *cmd);
 				void FlushOpaque(NkICommandBuffer *cmd);
 				void FlushTransparent(NkICommandBuffer *cmd);
