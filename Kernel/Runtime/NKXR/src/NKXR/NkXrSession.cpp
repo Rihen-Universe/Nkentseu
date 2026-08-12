@@ -279,6 +279,10 @@ namespace nkentseu {
 			return mBackend->ApplyHaptic(handle, amplitude, durationSeconds, frequencyHz);
 		}
 
+		bool NkXrSession::LocateHand(NkXrHandSide side, const NkXrSpace &space, NkXrTime time, NkXrHand &outHand) {
+			return mBackend->LocateHand(side, space.GetType(), time, outHand);
+		}
+
 		NkXrTime NkXrSession::Now() {
 			// float64 → int64 : ~104 jours de nanosecondes tiennent dans la
 			// mantisse d'un double, largement au-delà d'une session.
