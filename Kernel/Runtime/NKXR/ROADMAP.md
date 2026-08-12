@@ -201,6 +201,29 @@ Déverrouiller l'écran et accepter la demande d'autorisation de débogage ;
 sinon basculer le mode USB sur « transfert de fichiers », ou révoquer les
 autorisations de débogage dans les options développeur et rebrancher.
 
+**⚠️ Piège mesuré le 2026-08-12 sur ce poste — le pilote Meta capte l'ADB
+Samsung.** Symptôme très particulier : les commandes COURTES passent
+(`adb devices`, `adb shell ls` répondent correctement) mais tout ce qui dure
+tombe — `install`, `push` (les 22 Mo passent à 4 Mo/s puis « failed to read
+copy response: EOF », et le fichier n'existe pas), et même `adb tcpip 5555`
+qui rend « error: closed ». Autrement dit la liaison meurt **à la fin** des
+opérations, jamais au début.
+
+Cause probable, relevée dans les périphériques Windows : l'interface
+`SAMSUNG Android ADB Interface` est rattachée à la classe
+**`RealityLabsUsbDeviceClass`** — le pilote de Meta Quest Link, installé le
+même jour pour le casque. Un téléphone Samsung ne doit pas dépendre du pilote
+Meta. Remède : gestionnaire de périphériques → cette interface → mettre à jour
+le pilote → choisir le pilote ADB Google/Samsung standard.
+
+**Contournements qui n'ont pas besoin de l'USB :**
+1. **Débogage sans fil** (Android 11+, options développeur) : appairage par
+   code, puis `adb pair <ip>:<port>` et `adb connect <ip>:<port>`. Indépendant
+   du pilote USB, donc immunisé à ce défaut.
+2. **Installation à la main** : copier l'APK par transfert de fichiers et le
+   toucher sur le téléphone. L'APK est signé, il s'installe seul ; il faut
+   seulement autoriser l'installation depuis cette source.
+
 ### 🌍 PERCEPTION COMPLÈTE — décision de Rihen, 2026-08-12 : « la totale »
 
 Demande explicite : SLAM, détection de lignes, de plans, de surfaces, de formes.
