@@ -10164,6 +10164,34 @@ namespace nkentseu {
 									demo::Demo3DHostProjMatSetPBRExtra(selMat, xAl, xAn, xSh);
 									NkMarkDirty(st);
 								}
+								// ── VERRE : L'INDICE DE REFRACTION ──────────────────
+								// Le Fresnel a une valeur PHYSIQUE par defaut (n=1.5,
+								// le verre a vitre) ; ce curseur permet a l'artiste de
+								// l'outrepasser — 1.0 aucun reflet, 2.4 diamant, au-dela
+								// non physique mais assume (Rihen : « les artistes
+								// pourront faire des choses waou »). Le champ `vernis` du
+								// materiau porte l'indice pour ce type, comme Unreal
+								// reaffecte ses entrees selon le modele d'ombrage.
+								if (tFam9 == 5) {
+									float32 gcc = 0.f, gccR = 0.f, gsss = 0.f;
+									demo::Demo3DHostProjMatSurface(selMat, &gcc, &gccR, &gsss);
+									float32 ior = gcc > 1.f ? gcc : 1.5f;
+									const float32 ior0 = ior;
+									p.TextV(iR.x, yy, kRowH, "Indice (Fresnel)", NkRole::TextMuted);
+									DragFloat(p, hit, ws, in, "props.pm.ior",
+									          {iR.x + S(110.f), yy + S(3.f), iR.w - S(110.f),
+									           kRowH - S(6.f)},
+									          ior, 0.01f, NkRole::AccentUi, "%.2f");
+									yy += kRowH;
+									if (ior != ior0) {
+										if (ior < 1.f)
+											ior = 1.f;
+										if (ior > 4.f)
+											ior = 4.f;
+										demo::Demo3DHostProjMatSetSurface(selMat, ior, gccR, gsss);
+										NkMarkDirty(st);
+									}
+								}
 								// OMBRE DE L'OBJET TRANSPARENT — n'apparait qu'une
 								// fois l'objet reellement transparent : un choix
 								// sans effet est pire qu'un choix absent (regle du
