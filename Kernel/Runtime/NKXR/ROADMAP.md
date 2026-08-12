@@ -1,5 +1,11 @@
 # NKXR — Roadmap
 
+> 📖 **Comment s'en servir : [USAGE.md](USAGE.md)** — le guide complet (les cinq
+> idées de l'XR, la boucle dans l'ordre exact, entrées par actions, mains,
+> casque réel, tous les réglages, les repères de performance mesurés et le
+> tableau symptôme → cause → remède). Le chapitre **AR** y sera ajouté quand
+> l'étage 3 sera livré, sur le même modèle que la partie VR.
+
 Runtime VR/AR/XR **from scratch** de Nkentseu (`nkentseu::xr`, zéro STL) : sessions,
 espaces, poses horodatées et prédites, entrées par actions, swapchains par œil,
 couches de composition. Plan directeur : `XR_MISSION_IA.md` (racine). Philosophie :
