@@ -93,21 +93,22 @@ void main() {
     vec3 dWdy = dFdy(vWorldPos);
 
     // ── CONTOUR ────────────────────────────────────────────────────────
-    // L'ancien test (1 - N.V > seuil) ne marquait que les SILHOUETTES d'une
-    // surface COURBE : sur un cube, N.V est constant par face — soit toute
-    // la face devenait contour, soit rien (« les bordures ne fonctionnent
-    // pas », Rihen, 12 aout). On detecte donc les ARETES par les derivees
-    // ecran de la normale (rupture d'orientation) ET de la profondeur vue
-    // (silhouette contre le fond), comme un filtre de contour d'image.
+    // UN SEUL marqueur : la VITESSE DE ROTATION DE LA NORMALE a l'ecran.
+    // Il couvre les deux cas d'un trait toon, la ou chacun des autres
+    // echoue :
+    //   - arete vive d'un CUBE : la normale saute d'une face a l'autre ;
+    //   - silhouette d'une SPHERE : la normale tourne tres vite par pixel
+    //     quand la surface se derobe du regard.
+    // Le test « 1 - N.V > seuil » de renderdemo, lui, ne vaut QUE pour les
+    // surfaces courbes : sur un cube il noircissait une FACE ENTIERE des
+    // qu'elle etait vue de biais (capture 106) — c'est ce que Rihen voyait
+    // comme « les bordures ne fonctionnent pas ».
     if (uToon.outlineWidth > 0.0) {
-        float dN   = length(fwidth(N));                  // arete geometrique
-        float dD   = length(fwidth(vWorldPos - camPosForV)); // saut de profondeur
-        float sil  = 1.0 - abs(NdotV);                   // silhouette courbe
-        float w    = clamp(uToon.outlineWidth, 0.0, 10.0);
-        // Chaque terme a son echelle : la normale saute de ~1 sur une arete
-        // vive, la profondeur de plusieurs unites sur une silhouette.
-        float edge = max(dN * 1.2, max(dD * 0.35, sil * sil * 1.6));
-        if (edge > 1.0 / (0.35 + w * 0.65)) {
+        float w  = max(uToon.outlineWidth, 0.25);
+        // Plus le trait demande est epais, plus on accepte une rotation
+        // faible : le contour s'elargit sans jamais couvrir une face plane
+        // (ou la derivee est nulle).
+        if (length(fwidth(N)) > 0.55 / w) {
             fragColor = vec4(uToon.outlineColor.rgb, albedo.a);
             return;
         }
@@ -140,7 +141,10 @@ void main() {
         float E     = (areaE >= 0.0)
                     ? uLights.colors[i].w * areaE * 3.14159265 * NkAreaRangeWindow(i, vWorldPos)
                     : uLights.colors[i].w * NkLightAtt(i, vWorldPos);
-        E = clamp(E, 0.0, 1.6);
+        // PLAFOND A 1 : un cel tient sa couleur de son ALBEDO. Au-dela, les
+        // canaux saturent un par un et un bleu vire au blanc (capture 108) —
+        // exactement ce que « pas comme renderdemo » designait.
+        E = clamp(E, 0.0, 1.0);
         vec3 lit    = uLights.colors[i].rgb * albedo.rgb * E;
         vec3 shad   = uToon.shadowColor.rgb  * albedo.rgb * E;
         totalDiffuse += mix(shad, lit, cel) * shadow;
@@ -148,7 +152,7 @@ void main() {
         vec3 H         = normalize(L + V);
         float s        = step(0.5, pow(max(dot(N, H), 0.0), max(uToon.specHardness, 4.0)));
         vec3 specColor = mix(vec3(1.0), albedo.rgb, uToon.metallic);
-        totalSpec     += uLights.colors[i].rgb * specColor * s * shadow * E * 0.5;
+        totalSpec     += uLights.colors[i].rgb * specColor * s * shadow * E * 0.35;
     }
     if (uLights.count == 0) totalDiffuse = albedo.rgb;
 
