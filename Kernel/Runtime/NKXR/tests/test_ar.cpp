@@ -358,10 +358,15 @@ int main() {
 		NkArWorld world;
 		world.Initialize({});
 
-		// Vue 1 : marqueur droit devant, a 1 m.
+		// Vue 1 : marqueur droit devant, a 1 m. Plusieurs images, car fonder le
+		// monde exige desormais qu'un marqueur PERSISTE (cf. cas 8bis).
 		SynthesizeView(image, W, H, K, id, 4, size, 0.f, 0.f, math::NkVec3f(0.f, 0.f, -1.f));
-		session.ProcessFrame(image, W, H, W, NkArImageFormat::NK_AR_GRAY8);
-		CHECK(world.Update(session), "monde : camera localisee sur le premier marqueur");
+		bool located = false;
+		for (uint32 f = 0; f < 8u; ++f) {
+			session.ProcessFrame(image, W, H, W, NkArImageFormat::NK_AR_GRAY8);
+			located = world.Update(session);
+		}
+		CHECK(located, "monde : camera localisee sur le premier marqueur");
 		CHECK(world.HasEverLocalized(), "monde : origine posee");
 
 		// On pose un objet a 0,5 m devant la camera.
@@ -397,6 +402,48 @@ int main() {
 		CHECK(!world.GetAnchorInCamera(anchor, seenAfter), "monde : objet retire");
 	}
 
+	// ── Cas 8bis : une detection FUGACE ne fonde pas le monde ───────────────
+	// Defaut mesure sur telephone : le monde s'est fonde sur un « marqueur 0 »
+	// inexistant, apparu le temps d'une image. Tout en decoulait — l'objet
+	// ancre sur un fantome, incapable de coller au vrai marqueur, et paraissant
+	// suivre la camera. Fonder l'origine engage TOUTE la session : cela ne se
+	// donne pas a une apparition d'une image.
+	{
+		const int32 id = 0x2D;
+		const float32 size = 0.20f;
+		NkArSessionConfig cfg;
+		cfg.markerSizeMeters = BlackSquareOf(size, 4);
+		cfg.lostToleranceFrames = 0;
+		NkArSession session;
+		session.Initialize(cfg, W, H);
+		NkArWorld world;
+		world.Initialize({});
+
+		// Une seule image ou le marqueur apparait.
+		SynthesizeView(image, W, H, K, id, 4, size, 0.f, 0.f, math::NkVec3f(0.f, 0.f, -1.f));
+		session.ProcessFrame(image, W, H, W, NkArImageFormat::NK_AR_GRAY8);
+		world.Update(session);
+		CHECK(!world.HasEverLocalized(), "fugace : une seule image ne fonde PAS le monde");
+
+		// Puis il disparait : rien ne doit avoir ete retenu.
+		for (uint32 i = 0; i < W * H; ++i) {
+			image[i] = 180;
+		}
+		session.ProcessFrame(image, W, H, W, NkArImageFormat::NK_AR_GRAY8);
+		world.Update(session);
+		CHECK(world.GetMap().Size() == 0u, "fugace : rien n'est entre dans la carte");
+
+		// Le VRAI marqueur, lui, persiste : au bout de quelques images il fonde
+		// le monde. Le garde-fou doit filtrer le bruit, pas le signal.
+		SynthesizeView(image, W, H, K, id, 4, size, 0.f, 0.f, math::NkVec3f(0.f, 0.f, -1.f));
+		for (uint32 f = 0; f < 8u; ++f) {
+			session.ProcessFrame(image, W, H, W, NkArImageFormat::NK_AR_GRAY8);
+			world.Update(session);
+		}
+		CHECK(world.HasEverLocalized(), "fugace : un marqueur PERSISTANT finit bien par fonder le monde");
+		CHECK(world.GetMap().Size() == 1u, "fugace : et il est le seul dans la carte");
+	}
+
 	// ── Cas 9 : la camera TOURNE sans marqueur — suivi par l'image ──────────
 	// Le defaut a corriger : sans marqueur, l'objet restait colle a l'ecran
 	// pendant que la camera pivotait. On mesure donc la rotation SUR L'IMAGE.
@@ -429,7 +476,12 @@ int main() {
 			}
 		}
 		session.ProcessFrame(image, W, H, W, NkArImageFormat::NK_AR_GRAY8);
-		CHECK(world.Update(session), "suivi image : localise sur le marqueur");
+		bool locatedFlow = false;
+		for (uint32 f = 0; f < 8u; ++f) {
+			session.ProcessFrame(image, W, H, W, NkArImageFormat::NK_AR_GRAY8);
+			locatedFlow = world.Update(session);
+		}
+		CHECK(locatedFlow, "suivi image : localise sur le marqueur");
 		const uint32 anchor = world.PlaceInFrontOfCamera(0.5f);
 		NkXrPose before;
 		CHECK(world.GetAnchorInCamera(anchor, before), "suivi image : objet pose");
