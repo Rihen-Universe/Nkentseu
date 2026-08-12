@@ -512,34 +512,49 @@ int main() {
 			allocator.Deallocate(subject);
 		}
 
-		// Rotation LENTE : 0,2 degre, soit moins de deux pixels de glissement.
-		// C'est le cas qui echouait en vrai — un panoramique a la main avance de
-		// cet ordre a chaque image. Arrondi a l'entier le plus proche, ce
-		// mouvement se perd et la rotation cumulee n'avance JAMAIS, alors meme
-		// que la piece defile. Il exige l'affinage sous-pixel.
+		// PANORAMIQUE LENT SUR LA DUREE — le cas reel, celui des captures.
+		// Douze images de 0,15 degre : moins d'un pixel et demi a chaque fois,
+		// soit le niveau du bruit d'une webcam en faible lumiere. Mesuree image
+		// par image, chacune se perd ; c'est le CUMUL qui doit etre juste,
+		// puisque c'est lui qui place l'objet a l'ecran. Le suivi ne conclut
+		// donc qu'une fois le glissement franchement au-dessus du bruit, en
+		// comparant a une image de REFERENCE conservee.
 		{
+			// Surtout PAS de world.Reset() ici : sans origine, Update rend la
+			// main avant d'appliquer le suivi, et le test mesurerait zero pour
+			// une raison etrangere a ce qu'il pretend prouver. On part donc de
+			// l'etat courant et l'on mesure la DIFFERENCE de cumul.
 			session.ProcessFrame(background, W, H, W, NkArImageFormat::NK_AR_GRAY8);
 			world.Update(session);
-			const float32 slowYaw = 0.2f * math::NK_PI_F / 180.f;
-			WarpByRotation(background, second, W, H, K, slowYaw, 0.f, 0.f);
-			session.ProcessFrame(second, W, H, W, NkArImageFormat::NK_AR_GRAY8);
-			world.Update(session);
-			const NkArFlowResult &slow = world.GetLastFlow();
-			logger.Infof("  [info] lent : lacet %.5f rad attendu %.5f, glissement %.2f px, %u pts\n", slow.yawRad,
-						 slowYaw, slow.medianShiftPixels, slow.inliers);
-			CHECK(slow.valid, "suivi image : rotation lente mesuree");
-			CHECK(Near(slow.yawRad, slowYaw, 0.35f * slowYaw), "suivi image : 0,2 degre retrouve (sous-pixel)");
+			const float32 before = world.GetBlindRotationDeg().y;
+			const float32 stepYaw = 0.15f * math::NK_PI_F / 180.f;
+			uint8 *frame = static_cast<uint8 *>(allocator.Allocate(W * H, 1));
+			const uint32 steps = 12;
+			for (uint32 s = 1; s <= steps; ++s) {
+				WarpByRotation(background, frame, W, H, K, stepYaw * float32(s), 0.f, 0.f);
+				session.ProcessFrame(frame, W, H, W, NkArImageFormat::NK_AR_GRAY8);
+				world.Update(session);
+			}
+			const float32 expected = stepYaw * float32(steps) * 180.f / math::NK_PI_F;
+			const float32 measured = world.GetBlindRotationDeg().y - before;
+			logger.Infof("  [info] panoramique lent : cumul %.2f deg attendu %.2f\n", measured, expected);
+			CHECK(Near(measured, expected, 0.30f * expected),
+				  "panoramique lent : le CUMUL suit le geste, meme si chaque image est sous le bruit");
+			allocator.Deallocate(frame);
 		}
 
-		// Camera IMMOBILE : la meme image deux fois. Le suivi ne doit inventer
-		// aucune rotation — c'est le pendant du test precedent, et le defaut
-		// serait bien pire : un objet pose deriverait tout seul, sans que
+		// Camera IMMOBILE : la MEME image deux fois de suite. Le suivi ne doit
+		// inventer aucune rotation — le defaut symetrique serait bien pire qu'un
+		// suivi paresseux : un objet pose deriverait tout seul, sans que
 		// personne n'ait bouge.
+		WarpByRotation(background, second, W, H, K, 0.f, 0.f, 0.f);
 		session.ProcessFrame(second, W, H, W, NkArImageFormat::NK_AR_GRAY8);
 		world.Update(session);
-		const NkArFlowResult &still = world.GetLastFlow();
-		CHECK(Near(still.yawRad, 0.f, 0.0008f), "suivi image : camera immobile, aucun lacet invente");
-		CHECK(Near(still.pitchRad, 0.f, 0.0008f), "suivi image : camera immobile, aucun tangage invente");
+		const float32 stillBefore = world.GetBlindRotationDeg().y;
+		session.ProcessFrame(second, W, H, W, NkArImageFormat::NK_AR_GRAY8);
+		world.Update(session);
+		CHECK(Near(world.GetBlindRotationDeg().y - stillBefore, 0.f, 0.02f),
+			  "suivi image : camera immobile, aucune rotation inventee");
 
 		// Fond parfaitement uni : rien a suivre. Le systeme doit le DIRE, et
 		// finir par refuser sa propre pose plutot que d'afficher n'importe ou.

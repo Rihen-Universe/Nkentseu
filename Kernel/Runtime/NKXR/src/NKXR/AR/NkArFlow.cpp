@@ -129,6 +129,7 @@ namespace nkentseu {
 			mPrev.Clear();
 			mWidth = 0;
 			mHeight = 0;
+			mRefAge = 0;
 			mHasPrev = false;
 		}
 
@@ -148,6 +149,7 @@ namespace nkentseu {
 					mPrev[i] = gray[i];
 				}
 				mHasPrev = true;
+				mRefAge = 0;
 				return result;
 			}
 
@@ -395,6 +397,7 @@ namespace nkentseu {
 				for (nk_size i = 0; i < mPrev.Size(); ++i) {
 					mPrev[i] = gray[i];
 				}
+				mRefAge = 0; // appariement impossible : la reference est perimee, on repart de celle-ci
 				return result;
 			}
 
@@ -454,6 +457,7 @@ namespace nkentseu {
 				for (nk_size i = 0; i < mPrev.Size(); ++i) {
 					mPrev[i] = gray[i];
 				}
+				mRefAge = 0; // appariement impossible : la reference est perimee, on repart de celle-ci
 				return result;
 			}
 			NkVector<float32> shifts;
@@ -499,6 +503,7 @@ namespace nkentseu {
 				for (nk_size i = 0; i < mPrev.Size(); ++i) {
 					mPrev[i] = gray[i];
 				}
+				mRefAge = 0; // appariement impossible : la reference est perimee, on repart de celle-ci
 				return result;
 			}
 
@@ -531,9 +536,25 @@ namespace nkentseu {
 				result.residualPixels = residual / float32(used);
 			}
 
+			// ── Conclure, ou attendre que le mouvement sorte du bruit ─────────
+			// Tant que le glissement reste au niveau du bruit, on ne conclut
+			// PAS et l'on garde la référence : le mouvement continuera de
+			// s'accumuler dans l'image jusqu'à devenir mesurable. C'est ce qui
+			// permet de suivre un panoramique lent, invisible image par image.
+			++mRefAge;
+			const bool aboveNoise = result.medianShiftPixels >= mConfig.keyframeShiftPixels;
+			const bool tooOld = mRefAge >= mConfig.keyframeMaxAgeFrames;
+			if (!result.valid || (!aboveNoise && !tooOld)) {
+				result.valid = false;
+				result.yawRad = 0.f;
+				result.pitchRad = 0.f;
+				result.rollRad = 0.f;
+				return result; // référence CONSERVÉE
+			}
 			for (nk_size i = 0; i < mPrev.Size(); ++i) {
 				mPrev[i] = gray[i];
 			}
+			mRefAge = 0;
 			return result;
 		}
 

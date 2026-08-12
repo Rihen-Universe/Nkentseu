@@ -144,7 +144,21 @@ namespace nkentseu {
 				// position, elle, reste inchangée : l'image ne dit RIEN d'une
 				// translation sans profondeur, et inventer un déplacement serait
 				// pire que d'admettre qu'on l'ignore.
+				// Le suivi ne CONCLUT pas à chaque image : il attend que le
+				// glissement sorte du bruit. Ne pas conclure n'est donc pas une
+				// panne — il faut distinguer « il travaille et se tait » de « il
+				// ne voit rien ». Sans cette distinction, l'état affiché
+				// clignoterait à chaque image et la pose serait déclarée perdue
+				// alors que le suivi se porte bien.
+				const bool alive = mLastFlow.inliers > 0;
 				const bool trusted = mLastFlow.valid && mLastFlow.residualPixels <= mConfig.maxFlowResidualPixels;
+				if (mConfig.trackByImage && alive) {
+					mFlowThisFrame = true;
+					mBlindFrames = 0;
+				}
+				else {
+					++mBlindFrames;
+				}
 				if (mConfig.trackByImage && trusted) {
 					const NkQuatf delta = NkQuatf::RotateZ(math::NkAngle::FromRad(mLastFlow.rollRad)) *
 										  NkQuatf::RotateY(math::NkAngle::FromRad(mLastFlow.yawRad)) *
@@ -153,11 +167,6 @@ namespace nkentseu {
 					mBlindRotation.y += mLastFlow.yawRad;
 					mBlindRotation.x += mLastFlow.pitchRad;
 					mBlindRotation.z += mLastFlow.rollRad;
-					mFlowThisFrame = true;
-					mBlindFrames = 0;
-				}
-				else {
-					++mBlindFrames;
 				}
 			}
 
