@@ -100,6 +100,18 @@ namespace nkentseu {
 				// Rend false si la caméra n'a jamais été localisée.
 				bool GetAnchorInCamera(uint32 handle, NkXrPose &outPose) const;
 
+				// Transporter N'IMPORTE QUELLE pose du monde vers le repère de
+				// l'objectif. C'est ce qu'il faut pour dessiner un marqueur de la
+				// CARTE plutôt que sa détection : la détection n'existe que tant
+				// qu'on voit le marqueur, la carte le garde. Un objet dessiné
+				// depuis la carte ne disparaît donc pas quand on cache le
+				// marqueur — il reste à sa place tant que la caméra sait où elle
+				// est.
+				bool ToCamera(const NkXrPose &poseInWorld, NkXrPose &outPose) const;
+
+				// Un marqueur de la carte, par son identifiant.
+				const NkArMapEntry *Find(int32 id) const { return FindMapEntry(id); }
+
 				const NkVector<NkArAnchor> &GetAnchors() const { return mAnchors; }
 				const NkVector<NkArMapEntry> &GetMap() const { return mMap; }
 

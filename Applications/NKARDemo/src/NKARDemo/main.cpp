@@ -467,8 +467,25 @@ int nkmain(const NkEntryState &state) {
 			// nous-mêmes l'objet augmenté avec les intrinsèques de la VRAIE
 			// caméra — c'est d'ailleurs la superposition la plus exacte
 			// possible, puisqu'elle n'emprunte rien à la caméra virtuelle.
-			for (nk_size i = 0; i < tracked.Size(); ++i) {
-				const nkxr::NkArTrackedMarker &marker = tracked[i];
+			// ── Le cube du marqueur, dessiné DEPUIS LA CARTE DU MONDE ────────
+			// Ne PAS le dessiner depuis la pose détectée : celle-ci n'existe que
+			// tant que le marqueur est vu, donc l'objet s'évanouirait dès qu'on
+			// cache la carte — c'est exactement le défaut constaté. La carte du
+			// monde, elle, garde la place du marqueur : le cube reste où il doit
+			// tant que la caméra sait où elle est (ou, à défaut, à sa dernière
+			// place connue, signalée par une couleur différente).
+			const auto &mapEntries = arWorld.GetMap();
+			for (nk_size i = 0; i < mapEntries.Size(); ++i) {
+				nkxr::NkXrPose posed;
+				if (!arWorld.ToCamera(mapEntries[i].poseInWorld, posed)) {
+					continue;
+				}
+				const nkxr::NkArTrackedMarker *live = arSession.Find(mapEntries[i].id);
+				const bool seenNow = (live != nullptr && live->visibleThisFrame);
+				nkxr::NkArTrackedMarker marker;
+				marker.id = mapEntries[i].id;
+				marker.pose = posed;
+				marker.visibleThisFrame = seenNow;
 				const float32 side = arCfg.markerSizeMeters;
 				const float32 half = side * 0.5f;
 				// Un cube POSÉ sur le marqueur : le marqueur est le sol de
@@ -498,10 +515,16 @@ int nkmain(const NkEntryState &state) {
 					logger.Infof("[NKARDemo] Marqueur %d dessine : coin0 ecran (%.0f,%.0f), pose z=%.3f\n",
 								 marker.id, screen[0].x, screen[0].y, marker.pose.position.z);
 				}
-				// Perdu mais encore suivi : bleu froid — l'objet est en sursis,
-				// l'utilisateur le voit au lieu de le voir disparaître.
-				const NkVec4f color = marker.visibleThisFrame ? NkVec4f{ 1.f, 0.75f, 0.2f, 1.f }
-															  : NkVec4f{ 0.35f, 0.6f, 1.f, 1.f };
+				// Trois états, trois couleurs — pour que l'utilisateur sache
+				// toujours à quel point il peut se fier à ce qu'il voit :
+				//   orange = le marqueur est VU, la pose est mesurée à l'instant ;
+				//   bleu   = il est caché, mais la caméra se repère sur un AUTRE
+				//            marqueur : la place affichée reste juste ;
+				//   gris   = plus rien en vue, on montre la dernière place connue.
+				const NkVec4f color = marker.visibleThisFrame
+										  ? NkVec4f{ 1.f, 0.75f, 0.2f, 1.f }
+										  : (arWorld.IsLocalizedNow() ? NkVec4f{ 0.35f, 0.6f, 1.f, 1.f }
+																	  : NkVec4f{ 0.65f, 0.65f, 0.65f, 1.f });
 				const uint32 edges[12][2] = { { 0, 1 }, { 1, 2 }, { 2, 3 }, { 3, 0 },
 											  { 4, 5 }, { 5, 6 }, { 6, 7 }, { 7, 4 },
 											  { 0, 4 }, { 1, 5 }, { 2, 6 }, { 3, 7 } };
@@ -579,12 +602,19 @@ int nkmain(const NkEntryState &state) {
 													   : (arWorld.HasEverLocalized() ? "localisation qui vieillit"
 																					 : "pas encore d'origine"),
 							  uint32(arWorld.GetMap().Size()), uint32(worldAnchors.Size()));
-			for (nk_size i = 0; i < tracked.Size(); ++i) {
+			for (nk_size i = 0; i < mapEntries.Size(); ++i) {
+				nkxr::NkXrPose posed;
+				if (!arWorld.ToCamera(mapEntries[i].poseInWorld, posed)) {
+					continue;
+				}
+				const nkxr::NkArTrackedMarker *live = arSession.Find(mapEntries[i].id);
+				const bool seenNow = (live != nullptr && live->visibleThisFrame);
 				overlay->DrawText({ 12.f, 60.f + 20.f * float32(i) }, "  id %d : %.2f m devant — %s",
-								  tracked[i].id, -tracked[i].pose.position.z,
-								  tracked[i].visibleThisFrame
-									  ? "VU (cube orange)"
-									  : "EN SURSIS depuis quelques images (cube bleu, va disparaitre)");
+								  mapEntries[i].id, -posed.position.z,
+								  seenNow ? "VU (cube orange)"
+										  : (arWorld.IsLocalizedNow()
+												 ? "cache, mais la camera se repere ailleurs (cube bleu)"
+												 : "cache : derniere place connue (cube gris)"));
 			}
 			overlay->EndOverlay();
 		}
