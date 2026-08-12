@@ -72,6 +72,12 @@ namespace nkentseu {
 			// Lissage : 0 = pose brute (tremble), 1 = figée. 0,35 tient le
 			// compromis entre stabilité et réactivité, mesuré à l'œil.
 			float32 smoothing = 0.35f;
+			// Déplacement à partir duquel le lissage s'efface COMPLÈTEMENT.
+			// En deçà, l'écart est traité comme du bruit et fortement filtré ;
+			// au-delà, comme un vrai geste et suivi sans retard. 2 cm sépare
+			// bien les deux à distance de bras : le tremblement d'une pose
+			// mesurée reste millimétrique, un mouvement de la main non.
+			float32 motionReferenceMeters = 0.02f;
 		};
 
 		// ── Un marqueur SUIVI (pas seulement détecté) ────────────────────────
