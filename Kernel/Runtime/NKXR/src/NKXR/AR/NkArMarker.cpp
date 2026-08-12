@@ -298,7 +298,8 @@ namespace nkentseu {
 		// ── Détection ────────────────────────────────────────────────────────
 
 		uint32 NkArDetectMarkers(const uint8 *gray, uint32 width, uint32 height,
-								 const NkArDetectorConfig &config, NkVector<NkArDetection> &outDetections) {
+								 const NkArDetectorConfig &config, NkVector<NkArDetection> &outDetections,
+								 uint8 *outMask) {
 			outDetections.Clear();
 			if (gray == nullptr || width < 8u || height < 8u) {
 				return 0;
@@ -339,6 +340,11 @@ namespace nkentseu {
 			}
 			for (uint32 i = 0; i < pixelCount; ++i) {
 				visited[i] = 0u;
+			}
+			if (outMask != nullptr) {
+				for (uint32 i = 0; i < pixelCount; ++i) {
+					outMask[i] = mask[i] ? 255u : 0u;
+				}
 			}
 
 			NkVector<NkVec2f> contour;

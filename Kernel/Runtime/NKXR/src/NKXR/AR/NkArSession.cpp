@@ -34,6 +34,7 @@ namespace nkentseu {
 			mWidth = imageWidth;
 			mHeight = imageHeight;
 			mGray.Resize(imageWidth * imageHeight);
+			mMask.Resize(imageWidth * imageHeight);
 			mTracked.Clear();
 			mIntrinsics = config.intrinsics;
 			if (mIntrinsics.fx <= 0.f) {
@@ -50,6 +51,7 @@ namespace nkentseu {
 
 		void NkArSession::Shutdown() {
 			mGray.Clear();
+			mMask.Clear();
 			mDetections.Clear();
 			mTracked.Clear();
 			mWidth = 0;
@@ -100,7 +102,7 @@ namespace nkentseu {
 				}
 			}
 
-			NkArDetectMarkers(&mGray[0], width, height, mConfig.detector, mDetections);
+			NkArDetectMarkers(&mGray[0], width, height, mConfig.detector, mDetections, &mMask[0]);
 
 			// ── Vieillissement : tout le monde est présumé absent ────────────
 			for (nk_size i = 0; i < mTracked.Size(); ++i) {
