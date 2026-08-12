@@ -109,6 +109,10 @@ namespace nkentseu {
 				uint32 depthImageCount[2]{ 0, 0 };
 				XrCompositionLayerDepthInfoKHR pendingDepth[2]{};
 				bool depthPending = false;
+				// Diagnostic : attendre la copie tout de suite (sert si l'on
+				// soupçonne un jour une file séparée). Champ, pas variable
+				// d'environnement — comme tout le reste.
+				bool syncCopyDiagnostic = false;
 
 				// Vulkan dynamique : AUCUN link — vulkan-1.dll chargée comme le
 				// loader, mêmes raisons (une DLL absente ne doit pas empêcher
@@ -375,7 +379,7 @@ namespace nkentseu {
 					// offre VRAIMENT — la seule façon de trancher entre « notre
 					// code ne demande pas » et « le runtime ne propose pas »
 					// (cas vécu : suivi des mains absent via Link).
-					const bool listExtensions = (getenv("NK_XR_LIST_EXT") != nullptr);
+					const bool listExtensions = desc.listExtensions;
 					for (uint32 i = 0; i < extCount; ++i) {
 						if (listExtensions) {
 							logger.Infof("[NKXR/OpenXR]   extension : %s (v%u)\n", props[i].extensionName,
@@ -887,7 +891,7 @@ namespace nkentseu {
 			// Swapchains de PROFONDEUR (une par oeil) : meme taille, format
 			// D32_SFLOAT — celui de nos cibles NKRenderer, pour que la copie
 			// reste une copie et non une conversion.
-			if (mOxr->depthLayerExt && (getenv("NK_XR_DEPTH_LAYER") == nullptr || getenv("NK_XR_DEPTH_LAYER")[0] != '0')) {
+			if (mOxr->depthLayerExt && mDesc.submitDepthLayer) {
 				for (uint32 eye = 0; eye < NK_XR_EYE_COUNT; ++eye) {
 					XrSwapchainCreateInfo info{};
 					info.type = XR_TYPE_SWAPCHAIN_CREATE_INFO;
@@ -1122,8 +1126,7 @@ namespace nkentseu {
 			mOxr->vkFenceUsed = true;
 			// Diagnostic : rétablir l'attente immédiate si l'on soupçonne un
 			// jour une file séparée (l'ordre de soumission ne protégerait plus).
-			static const bool syncCopy = (getenv("NK_XR_SYNC_COPY") != nullptr);
-			if (syncCopy) {
+			if (mOxr->syncCopyDiagnostic) {
 				mOxr->fnWaitForFences(mOxr->vkDevice, 1, &mOxr->vkFence, VK_TRUE, UINT64_MAX);
 				mOxr->fnResetFences(mOxr->vkDevice, 1, &mOxr->vkFence);
 				mOxr->vkFenceUsed = false;
