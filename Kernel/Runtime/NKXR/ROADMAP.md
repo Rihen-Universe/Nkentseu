@@ -177,7 +177,51 @@ du cas « EndFrame avec image encore acquise »).
 
 ## À venir
 
-### 🔺 Suivi par l'image en PYRAMIDE — idée de Rihen (2026-08-12), chantier suivant
+### 🌍 PERCEPTION COMPLÈTE — décision de Rihen, 2026-08-12 : « la totale »
+
+Demande explicite : SLAM, détection de lignes, de plans, de surfaces, de formes.
+J'ai signalé le coût, Rihen a confirmé : c'est donc le cap. Ce qui suit n'est pas
+une promesse mais un ordre de marche, bâti sur une règle : **chaque étage doit
+servir seul et se prouver seul**. Aucun ne dépend de l'achèvement du suivant.
+
+**La méthode, avant la liste.** Tout ce qui a marché aujourd'hui a marché parce
+qu'on fabriquait la scène dont on connaissait la réponse (image tournée par
+K·R·K⁻¹, sujet fixe collé, mur uni) et qu'on mesurait l'écart. Tout ce qui a
+échoué a échoué sur un seuil posé au jugé. **Chaque étage ci-dessous s'ouvre par
+son test à vérité connue, et ne se referme que sur un chiffre.** C'est ce qui
+rend un tel chantier faisable seul ; sans cela il s'effondre en devinettes.
+
+| # | Étage | Ce qu'il apporte SEUL | Coût honnête |
+|---|---|---|---|
+| P1 | **Téléphone** (cible Android NKARDemo) | l'AR marqueur dans la main, démontrable en clientèle | jours |
+| P2 | **Gyroscope** (`ASensorManager`) | rotation exacte sans texture ; rend `NkArFlow` inutile pour la rotation | jours |
+| P3 | **Carte multi-marqueurs** (déjà écrite, à éprouver) | **translation exacte** partout où un marqueur est vu | ~1 semaine (épreuve + correction de dérive) |
+| P4 | **Suivi planaire par homographie** | translation en s'éloignant du marqueur, tant qu'on regarde SON plan | 1–2 semaines |
+| P5 | **Détection de lignes** (gradient → non-max → segments) | structure de la scène ; entrée des points de fuite et des rectangles | ~1 semaine |
+| P6 | **Détection de plans sans marqueur** | sol et murs trouvés seuls. Raccourci réel : l'accéléromètre donne la VERTICALE gratuitement, donc la normale du sol | 1–2 semaines après P4 |
+| P7 | **SLAM / VIO monoculaire** | la pièce reconnue sans aucun marqueur | **3 à 6 mois** |
+| P8 | **Formes** (rectangles, cercles, primitives) | objets reconnus, pas seulement des plans | semaines après P5+P6 |
+
+**Détail de P7, pour qu'il ne soit pas un mot magique.** Il se décompose en :
+front-end de points suivis (partiellement acquis avec `NkArFlow`) · initialisation
+par homographie ou matrice essentielle · triangulation · pose depuis
+correspondances 3D-2D (PnP) · images-clés et carte locale · **ajustement de
+faisceaux** (optimisation creuse, Gauss-Newton/Levenberg-Marquardt avec
+complément de Schur) · préintégration inertielle · fermeture de boucle et
+relocalisation. La pièce la plus dure n'est aucune des briques mais
+**l'optimiseur creux**, à écrire : NKMath n'a pas de solveur creux, et
+l'autodiff de NKAI ne remplace pas un LM structuré par blocs.
+
+**Honnêteté sur l'échelle.** ARCore et ARKit ont mobilisé des équipes pendant des
+années. Ce qui est visé ici n'est pas de les égaler mais d'obtenir un système qui
+tient debout sur nos cas : une carte, une table, une pièce éclairée. Le dire
+ainsi dans toute communication — ne jamais laisser croire à un ARCore maison.
+
+**Dépendance matérielle à ne pas oublier** : P2, P6 et P7 supposent l'accès aux
+capteurs Android (`ASensorManager`), qui **n'existe nulle part dans le dépôt** à
+ce jour. C'est le premier vrai manque, avant même le SLAM.
+
+### 🔺 Suivi par l'image en PYRAMIDE — idée de Rihen (2026-08-12)
 
 **L'idée, telle qu'il l'a posée** : « pourquoi ne pas comparer les différents
 niveaux d'image pour déterminer ou pas la rotation de la caméra, même si en
