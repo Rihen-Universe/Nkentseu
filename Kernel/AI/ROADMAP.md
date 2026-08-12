@@ -124,6 +124,61 @@ réel de 4 commandes). Trois sources complémentaires, par ordre de faisabilité
    de grandeur supérieurs. Attendre des résultats limités et le dire, conformément au principe
    d'honnêteté ci-dessus.
 
+#### Agent-professeur en HARD SURFACE — les trois conditions (2026-08-12)
+
+Question de Rihen : « côté hard surface modeling, un agent LLM pourra-t-il être
+son prof ? » Réponse : **oui, et c'est le seul domaine où c'est défendable** (la
+source 1 ci-dessus l'avait déjà cerné). Mais trois conditions, dont **une est
+bloquante et doit être levée AVANT de générer la moindre session**.
+
+**Pourquoi cela ne viole pas la règle « données réelles seulement ».** Ce qui a
+fait écarter le corpus Ollama, ce sont des **affirmations** invérifiables
+(30,6 % de faits faux). Une commande d'édition n'affirme rien : elle **agit**,
+et son effet se **mesure sur le maillage**. Le professeur ne fournit pas la
+vérité, il fournit un **programme** ; c'est le moteur qui produit la donnée
+(état avant → commande → état après) et la géométrie qui juge. Un mauvais
+programme se voit. Même statut épistémique que `--citations` (pure recopie) ou
+que `pdftotext` comme oracle : la machine ne certifie rien qu'on ne puisse
+recompter.
+
+1. ⛔ **BLOQUANT — le format `.nkmec` ne stocke pas son maillage de BASE.**
+   Déjà écrit plus haut comme limite honnête, et déjà payé : sur l'unique
+   session réelle, 2 commandes sur 4 étaient inapplicables à la base
+   reconstruite « au mieux ». Générer 10 000 sessions dans ce format
+   produirait **10 000 exercices sans énoncé**. À faire d'abord : embarquer
+   dans le journal un identifiant de primitive + ses paramètres, ou un
+   instantané compact de la base.
+2. **Un VALIDATEUR géométrique écrit AVANT la génération.** La brique existe :
+   `NkEditMesh::NonManifoldEdgeCount()`. À compléter pour le hard surface, où
+   la qualité est largement formalisable : boucles de support présentes le long
+   des arêtes vives (le critère central du hard surface), quads dominants sur
+   toute surface destinée à être biseautée, aucune n-gon sur surface courbe,
+   normales cohérentes, aucune face dégénérée, symétrie **mesurée** quand elle
+   est visée, dimensions respectées. Sans ce filtre en amont, on entraîne sur
+   les erreurs du professeur — et des erreurs **systématiques** s'apprennent
+   remarquablement bien.
+3. **On apprend le STYLE du professeur, pas le geste humain.** Acceptable ici
+   parce que les règles du hard surface sont objectives ; inacceptable en
+   organique, où le jugement de proportions ne se vérifie pas.
+
+**Ce qu'un agent LLM ne peut PAS être : juge du goût.** « Ce vaisseau a-t-il de
+la gueule » n'est pas une propriété mesurable. Entraîner sur un jugement
+esthétique de machine donnerait un goût moyen et sans auteur. Le goût reste à
+Rihen ; l'agent tient les règles.
+
+**Et une source meilleure que l'agent, qui ne coûte rien** : les sessions
+`.nkmec` de Rihen lui-même. Il en existe **une**, de 4 commandes, parce que
+l'enregistrement est manuel (touche F5 dans Demo3D). Le rendre **automatique**
+transformerait chaque séance de modélisation en corpus d'or — geste humain
+attesté, exactement ce que l'agent ne saura jamais fournir.
+
+**Nuance d'architecture** : ce n'est probablement pas au modèle de LANGUE
+d'apprendre ces gestes. `NKMeshAITest` atteint 98,8 % avec un simple MLP sur
+des traits géométriques ; l'espace d'actions (une douzaine d'opérations) est
+minuscule devant le langage. Répartition naturelle : **Ilyana décide QUOI
+construire et le dit, une politique légère sait COMMENT**, et le moteur exécute
+des commandes annulables.
+
 #### Suite (retopologie, UV/texturing, rig) — cadrage honnête
 
 Ces étages sont déjà listés (NKGen jalon 3, § « Pipeline de production » ci-dessous). Précision
