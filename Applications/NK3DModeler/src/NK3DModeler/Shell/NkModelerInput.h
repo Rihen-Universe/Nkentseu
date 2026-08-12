@@ -742,6 +742,14 @@ namespace nkentseu {
 					d[i] = 0;
 				}
 				int32 browserFolder = -1;	   ///< dossier ouvert (-1 = racine)
+				/// RACINE DU PROJET, sur le disque. Portee par l'ETAT, comme le
+				/// fait NKCode avec sa `root` : sans elle, un panneau qui veut
+				/// ecrire un fichier ne peut pas — il ne voit que l'etat, et la
+				/// racine vivait uniquement dans le descripteur de projet. C'est
+				/// ce qui empechait le bouton « Nouveau materiau » d'ecrire son
+				/// .nkmat sur-le-champ (Rihen, 12 aout : « rends ce dossier
+				/// accessible »). Posee a l'ouverture du projet.
+				NkString projectRoot;
 				NkVpAction pendingAction = NkVpAction::None;
 				bool editingText = false;
 				bool xray = false;

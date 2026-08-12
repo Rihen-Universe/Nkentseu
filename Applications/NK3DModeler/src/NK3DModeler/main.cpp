@@ -1548,6 +1548,12 @@ int nkmain(const NkEntryState &entry) {
 		// la reconciliation se fait ICI, sur le fil principal, entre deux frames.
 		// Toucher l'etat du modeleur depuis l'autre fil produirait des corruptions
 		// impossibles a reproduire.
+		// LA RACINE DESCEND DANS L'ETAT, une fois par frame. C'est le point de
+		// passage unique ou projet et etat se cotoient : sans elle, un panneau
+		// qui veut ecrire un fichier ne le peut pas — il ne voit que l'etat.
+		// Meme geste que NKCode, dont l'etat porte sa propre `root` (Rihen,
+		// 12 aout : « rends ce dossier accessible »).
+		st.projectRoot = proj.open ? proj.root : NkString();
 		if (proj.open)
 			projWatch.Watch(proj.root);
 		else

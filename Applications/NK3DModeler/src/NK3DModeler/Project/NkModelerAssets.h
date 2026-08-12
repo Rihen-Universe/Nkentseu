@@ -205,7 +205,7 @@ namespace nkentseu {
 		/// carte serait invisible dans le navigateur ; une carte sans emplacement
 		/// serait un nom sans matiere -- « tout ce qui est fichier est un asset
 		/// reel » (Rihen). On repare donc les deux manques au meme endroit.
-		inline void NkBrowserSyncMats(NkModelerState &st) {
+		void NkBrowserSyncMats(NkModelerState &st) {
 			const int32 matMax = demo::Demo3DHostProjMatMax();
 			// 1. chaque emplacement occupe a sa carte
 			for (int32 m = 0; m < matMax; ++m) {
@@ -1351,7 +1351,7 @@ namespace nkentseu {
 		/// matiere -- infiniment pire que reecrire quelques petits fichiers. Le
 		/// jour ou chaque materiau portera son propre etat « modifie », ce filtre
 		/// deviendra le meme que pour les autres.
-		inline bool NkProjectWriteAssets(const NkString &root, NkModelerState &st,
+		bool NkProjectWriteAssets(const NkString &root, NkModelerState &st,
 										 NkString *err, int32 onlyCard = -1) {
 			// Toute scene et tout materiau ont leur carte AVANT l'ecriture : c'est
 			// la carte qui porte le chemin du fichier.

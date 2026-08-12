@@ -18,6 +18,20 @@
 #include "NK3DModeler/Shell/NkModelerUI.h"
 #include "NK3DModeler/Shell/NkModelerInput.h"
 #include "NK3DModeler/Shell/NkModelerWidgets.h"
+// DECLARATION ANTICIPEE : NkModelerAssets.h est inclus APRES cet en-tete,
+// mais le panneau Materiau a besoin d'ecrire un .nkmat sur-le-champ (bouton
+// « Nouveau »). La definition, elle, est bien vue plus loin dans la meme
+// unite de traduction. Sans cela il faudrait soit reordonner les
+// inclusions — risque a l'echelle de ce fichier — soit differer l'ecriture
+// a la prochaine sauvegarde, ce qui n'est pas ce qui a ete demande.
+namespace nkentseu {
+	namespace nk3d {
+		struct NkModelerState;
+		bool NkProjectWriteAssets(const NkString &root, NkModelerState &st, NkString *err,
+								  int32 onlyCard);
+		void NkBrowserSyncMats(NkModelerState &st);
+	} // namespace nk3d
+} // namespace nkentseu
 #include "NKEditorKit/NkShortcutTable.h"
 // La scrollbar STANDARD de Nkentseu (celle de l'editeur de code) : Rihen la veut
 // partout, et son en-tete demande explicitement de ne pas la redessiner ailleurs.
@@ -9832,11 +9846,20 @@ namespace nkentseu {
 							}
 						}
 						{
-							// ── « NOUVEAU » : UN BOUTON, PAS UNE LIGNE DE MENU ──
-							// Rihen : « nouveau doit etre un bouton pour creer un
-							// nouveau materiau ». Il cree ET l'associe a l'objet
-							// actif, puis le selectionne pour qu'on l'edite aussitot.
-							const NkRect nb{bx, lst.y + S(42.f), colW, S(20.f)};
+							// ── « NOUVEAU » : UN BOUTON QUI CREE SUR LE DISQUE ──
+							// Rihen : « ajoute un bouton pour creer un nouveau
+							// materiau QUI LE CREE SUR LE DISQUE ». Trois gestes en
+							// un : l'emplacement, sa carte dans le navigateur (dans
+							// le dossier COURANT, pas un dossier impose), et le
+							// fichier .nkmat lui-meme — sans quoi le materiau
+							// n'existerait qu'en memoire et disparaitrait au
+							// rechargement.
+							//
+							// Place a +146 : la colonne porte deja + (0), - (21),
+							// menu (46), defaut (71), monter (96), descendre (121).
+							// Mon premier essai a +42 CHEVAUCHAIT le menu — d'ou le
+							// bouton « que je ne vois pas » signale par Rihen.
+							const NkRect nb{bx, lst.y + S(146.f), colW, S(20.f)};
 							const bool ovN = hit.Add("props.pm.new", nb);
 							p.Outline(nb, ovN ? NkRole::AccentUi : NkRole::Border,
 									  NkRole::PanelHeader, 3.f);
@@ -9847,45 +9870,25 @@ namespace nkentseu {
 								if (ni >= 0) {
 									if (actN >= 0)
 										(void)demo::Demo3DHostNodeMatAdd(actN, ni);
-									NkMarkDirty(st);
-								}
-							}
-						}
-						{
-							// RETIRER = DELIER CET OBJET, rien d'autre (Rihen, 12
-							// aout) : « on ne supprime le materiau que depuis le
-							// navigateur de projet [...] retirer un materiau d'un
-							// objet lie se fait dans la pastille materiau et
-							// n'affecte que l'objet en question ». L'objet actif
-							// revient donc sur le materiau PAR DEFAUT — un maillage
-							// en porte toujours un — et la liste du projet reste
-							// intacte, fichier compris.
-							const NkRect rb{bx, lst.y + S(21.f), colW, S(20.f)};
-							// Actif des qu'un OBJET porte un materiau autre que le
-							// defaut : c'est lui qu'on delie.
-							const int32 defSlot = demo::Demo3DHostProjMatDefault();
-							const int32 curSlot = (actN >= 0) ? demo::Demo3DHostProjMatOf(actN) : -1;
-							// Actif des que l'objet porte PLUS D'UN materiau : on
-							// retire celui qui est selectionne dans la liste. Le
-							// dernier ne se retire pas — un modele en porte toujours
-							// au moins un (regle de Rihen).
-							const bool en = (actN >= 0) && (selMat >= 0) &&
-											(demo::Demo3DHostNodeMatCount(actN) > 1);
-							const bool ovR = hit.Add("props.pm.del", rb);
-							p.Outline(rb, (ovR && en) ? NkRole::AccentUi : NkRole::Border,
-									  NkRole::PanelHeader, 3.f);
-							p.IconV(rb.x + S(5.f), rb.y, rb.h, NkIcon::MinusCircle,
-									en ? NkRole::Text : NkRole::TextMuted, 11.f);
-							if (en && hit.Clicked("props.pm.del")) {
-								// RETIRER DE LA LISTE DE CET OBJET, rien de plus. Le
-								// materiau continue d'exister dans le projet et sur
-								// les autres objets qui le portent ; le « + » le
-								// remettra ici sans qu'on ait a en recreer un. Si
-								// c'etait l'actif, l'hote bascule sur un autre — un
-								// objet ne reste jamais sans materiau.
-								if (demo::Demo3DHostNodeMatRemove(actN, selMat)) {
-									if (st.projMatSel > 0)
-										--st.projMatSel;
+									// SA CARTE ET SON FICHIER, TOUT DE SUITE. La racine
+									// du projet descend desormais dans l'etat a chaque
+									// frame (comme NKCode), donc le panneau peut ecrire
+									// sans attendre une sauvegarde : un materiau vit
+									// sur le disque (decision du 12 aout). La carte
+									// nait dans le dossier COURANT du navigateur, pas
+									// dans un dossier impose.
+									if (!st.projectRoot.Empty()) {
+										nk3d::NkBrowserSyncMats(st);
+										for (int32 b2 = 0; b2 < st.browserCount; ++b2)
+											if (st.browserKind[b2] == 2 &&
+												st.browserMat[b2] == ni + 1) {
+												st.browserParent[b2] = st.browserFolder;
+												NkString err2;
+												(void)nk3d::NkProjectWriteAssets(
+													st.projectRoot, st, &err2, b2);
+												break;
+											}
+									}
 									NkMarkDirty(st);
 								}
 							}
