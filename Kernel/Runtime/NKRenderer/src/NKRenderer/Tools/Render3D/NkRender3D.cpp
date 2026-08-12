@@ -2781,8 +2781,17 @@ namespace nkentseu {
 				NkMaterialInstance *matInst = nullptr;
 				if (mMat && dc.material.IsValid())
 					matInst = mMat->GetInstance(dc.material);
+				// OMBRE D'UN OBJET TRANSPARENT (option du materiau) :
+				//   2 = AUCUNE          -> le caster est simplement saute
+				//   1 = PROPORTIONNELLE -> passe alpha, qui trame selon l'opacite
+				//   0 = PLEINE          -> comportement historique
+				const uint32 tsm = matInst ? matInst->mTransShadowMode : 0u;
+				const bool semiTrans = (dc.alpha < 0.999f);
+				if (semiTrans && tsm == 2u)
+					continue;
 				const bool wantAlpha =
-					mShadowAlphaPipeline.IsValid() && matInst && matInst->mCastShadowAlphaTest;
+					mShadowAlphaPipeline.IsValid() && matInst &&
+					(matInst->mCastShadowAlphaTest || (semiTrans && tsm == 1u));
 				if (wantAlpha != usingAlpha) {
 					usingAlpha = wantAlpha;
 					cmd->BindGraphicsPipeline(usingAlpha ? mShadowAlphaPipeline : mShadowPipeline);
@@ -2793,7 +2802,11 @@ namespace nkentseu {
 				ObjBlock ob{};
 				ob.model = dc.transform;
 				ob.normalMatrix = dc.transform.Inverse().Transpose();
-				ob.tint = {1, 1, 1, 1};
+				// .w porte l'OPACITE : le tramage du shader d'ombre s'en sert
+				// pour ne deposer qu'une fraction des fragments.
+				ob.tint = {1, 1, 1, dc.alpha};
+				// .y porte le MODE d'ombre transparente lu par shadowalpha.frag.
+				ob.shadowOverrides = {1.f, (float32)tsm, 1.f, 0.f};
 				ob.metallic = 0.f;
 				ob.roughness = 0.5f;
 				ob.aoStrength = 1.f;
