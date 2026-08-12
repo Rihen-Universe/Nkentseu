@@ -9965,15 +9965,20 @@ namespace nkentseu {
 								// (demande de Rihen : grises/inactifs mais existants).
 								static const char *const kMtTypes[13] = {
 								    "Standard (PBR)", "Peau (bientot)", "Cheveux (bientot)",
-								    "Verre (bientot)", "Tissu (bientot)", "Carrosserie (bientot)",
-								    "Feuillage (bientot)", "Eau (bientot)", "Emissif", "Toon",
+								    "Verre", "Tissu", "Carrosserie",
+								    "Feuillage", "Eau (bientot)", "Emissif", "Toon",
 								    "Toon encre", "Anime", "Sans eclairage"};
-								static const bool kMtTypeOk[13] = {true,  false, false, false, false,
-								                                   false, false, false, true,  true,
+								// Verre/Tissu/Carrosserie/Feuillage : EPROUVES le 11-12 aout
+								// (gabarits enregistres + paires NkSL modernes, captures a
+								// l'appui). Restent grises : Peau et Cheveux (chacun demande
+								// son propre modele, cf. la note d'architecture) et Eau (son
+								// .vk.glsl vise encore l'ancienne disposition).
+								static const bool kMtTypeOk[13] = {true,  false, false, true,  true,
+								                                   true,  true,  false, true,  true,
 								                                   true,  true,  true};
 								// Masque GRISE du popup (l'inverse de Ok) : l'oeil voit l'inerte.
-								static const bool kMtTypeOff[13] = {false, true,  true,  true,  true,
-								                                    true,  true,  true,  false, false,
+								static const bool kMtTypeOff[13] = {false, true,  true,  false, false,
+								                                    false, false, true,  false, false,
 								                                    false, false, false};
 								static const int32 kMtTypeVal[13] = {0, 3, 4, 5, 6, 7,
 								                                     8, 9, 11, 20, 21, 22, 60};
@@ -10140,15 +10145,30 @@ namespace nkentseu {
 								yy += kRowH;
 							}
 							// ── LES REGLAGES PBR RESTES SANS CURSEUR (11 aout) ──────────
-							if (famPBR) {
+							{
 								float32 xAl = 1.f, xAn = 0.f, xSh = 0.f;
 								demo::Demo3DHostProjMatPBRExtra(selMat, &xAl, &xAn, &xSh);
 								const float32 xa0 = xAl, xn0 = xAn, xs0 = xSh;
+								// L'OPACITE EST UNIVERSELLE : elle decrit l'objet, pas un
+								// modele d'ombrage — Blender l'expose sur tous ses shaders.
+								// Reservee a la famille PBR, elle RESTAIT POURTANT ACTIVE
+								// apres un passage en Toon : le cube gardait la transparence
+								// reglee en PBR sans plus aucun curseur pour la reprendre
+								// (capture de Rihen, 12 aout 07:12). Elle sort donc du bloc.
 								p.TextV(iR.x, yy, kRowH, "Opacite", NkRole::TextMuted);
 								DragFloat(p, hit, ws, in, "props.pm.opa",
 								          {iR.x + S(110.f), yy + S(3.f), iR.w - S(110.f), kRowH - S(6.f)},
 								          xAl, 0.005f, NkRole::AccentUi, "%.2f");
 								yy += kRowH;
+								if (xAl != xa0) {
+									demo::Demo3DHostProjMatSetPBRExtra(selMat, xAl, xAn, xSh);
+									NkMarkDirty(st);
+								}
+							}
+							if (famPBR) {
+								float32 xAl = 1.f, xAn = 0.f, xSh = 0.f;
+								demo::Demo3DHostProjMatPBRExtra(selMat, &xAl, &xAn, &xSh);
+								const float32 xa0 = xAl, xn0 = xAn, xs0 = xSh;
 								p.TextV(iR.x, yy, kRowH, "Anisotropie", NkRole::TextMuted);
 								DragFloat(p, hit, ws, in, "props.pm.ani",
 								          {iR.x + S(110.f), yy + S(3.f), iR.w - S(110.f), kRowH - S(6.f)},
