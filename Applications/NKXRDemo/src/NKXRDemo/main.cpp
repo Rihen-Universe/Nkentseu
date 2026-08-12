@@ -834,7 +834,13 @@ int nkmain(const NkEntryState &state) {
 					vkDevice->GetVkImage(rMain->GetTextures()->GetRHIHandle(eyeTargets[0]->GetColorResult()).id)));
 				const uint64 imageRight = uint64(uintptr_t(
 					vkDevice->GetVkImage(rMain->GetTextures()->GetRHIHandle(eyeTargets[1]->GetColorResult()).id)));
-				xrSession->SubmitEyes(views, imageLeft, imageRight, eyeW, eyeH);
+				// La PROFONDEUR part avec la couleur : le compositeur peut
+				// alors reprojeter en translation (moins de sauts visibles).
+				const uint64 depthLeft = uint64(uintptr_t(
+					vkDevice->GetVkImage(rMain->GetTextures()->GetRHIHandle(eyeTargets[0]->GetDepthResult()).id)));
+				const uint64 depthRight = uint64(uintptr_t(
+					vkDevice->GetVkImage(rMain->GetTextures()->GetRHIHandle(eyeTargets[1]->GetDepthResult()).id)));
+				xrSession->SubmitEyes(views, imageLeft, imageRight, eyeW, eyeH, depthLeft, depthRight, 0.05f, 200.f);
 			}
 		}
 
