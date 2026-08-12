@@ -903,6 +903,9 @@ namespace nkentseu {
 				// ECHELLE DU PARALLAX (0 = coupe) : ne sert qu'avec le canal
 				// Hauteur — comme les intensites, sans texture elle n'a pas d'effet.
 				float32 parallax;
+				// OMBRE d'un objet transparent : 0 pleine, 1 proportionnelle
+				// (tramage suivant l'opacite), 2 aucune. Defaut : proportionnelle.
+				int32 shadowMode;
 				// ── MELANGE (etape 1, exigence Blender/UE de Rihen) ─────────
 				// mixWith = emplacement+1 du materiau B (0 = pas de melange) ;
 				// mixSource : 0=Facteur constant, 1..4=couleur de sommets RGBA,
@@ -13405,6 +13408,9 @@ namespace nkentseu {
 				m.emiStrength = 1.f;
 				m.emissive[0] = m.emissive[1] = m.emissive[2] = 0.f;
 				m.parallax = 0.f; // le relief parallax est un choix, pas un defaut
+				// PROPORTIONNELLE par defaut : une vitre a 0.3 laisse passer
+				// 70 % de la lumiere, ce que l'oeil attend.
+				m.shadowMode = 1;
 				m.mixWith = 0;	  // pas de melange a la naissance
 				m.mixSource = 0;
 				m.mixFactor = 0.5f;
@@ -13715,6 +13721,19 @@ namespace nkentseu {
 			if (nkvpProjMatEng[i])
 				nkvpProjMatEng[i]->SetParallaxScale(m.parallax);
 		}
+		int32 Demo3DHostProjMatShadowMode(int32 i) {
+			if (i < 0 || i >= kNkvpMaxProjMats || !nkvpProjMats[i].used)
+				return 1;
+			return nkvpProjMats[i].shadowMode;
+		}
+		void Demo3DHostProjMatSetShadowMode(int32 i, int32 mode) {
+			if (i < 0 || i >= kNkvpMaxProjMats || !nkvpProjMats[i].used)
+				return;
+			NkVpProjMat &m = nkvpProjMats[i];
+			m.shadowMode = (mode < 0 || mode > 2) ? 1 : mode;
+			if (nkvpProjMatEng[i])
+				nkvpProjMatEng[i]->SetTransShadowMode((uint32)m.shadowMode);
+		}
 		void Demo3DHostProjMatEmissive(int32 i, float32 *rgb) {
 			if (!rgb)
 				return;
@@ -13785,6 +13804,7 @@ namespace nkentseu {
 			Demo3DHostProjMatSetChanStrength(i, m.nrmStrength, m.emiStrength);
 			Demo3DHostProjMatSetEmissive(i, m.emissive);
 			Demo3DHostProjMatSetParallax(i, m.parallax);
+			Demo3DHostProjMatSetShadowMode(i, m.shadowMode);
 			for (int32 c = 0; c < kNkvpMatChanCount; ++c)
 				if (m.maps[c][0]) {
 					// Copie locale : SetMap re-ecrit le champ qu'on lui passe

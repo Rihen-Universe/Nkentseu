@@ -10164,6 +10164,38 @@ namespace nkentseu {
 									demo::Demo3DHostProjMatSetPBRExtra(selMat, xAl, xAn, xSh);
 									NkMarkDirty(st);
 								}
+								// OMBRE DE L'OBJET TRANSPARENT — n'apparait qu'une
+								// fois l'objet reellement transparent : un choix
+								// sans effet est pire qu'un choix absent (regle du
+								// projet). « Coloree » viendra avec son tampon
+								// d'ombre en couleur, elle reste donc grisee.
+								if (xAl < 0.999f) {
+									static const char *const kShTypes[4] = {
+										"Pleine", "Proportionnelle", "Aucune",
+										"Coloree (bientot)"};
+									static const bool kShOff[4] = {false, false, false, true};
+									const int32 shCur = demo::Demo3DHostProjMatShadowMode(selMat);
+									static int32 sShSel = 1;
+									static int32 sShFor = -1;
+									if (sShFor == selMat && sShSel != shCur) {
+										if (sShSel >= 0 && sShSel <= 2) {
+											demo::Demo3DHostProjMatSetShadowMode(selMat, sShSel);
+											NkMarkDirty(st);
+										} else {
+											sShSel = shCur; // « Coloree » : on reste
+										}
+									} else {
+										sShSel = shCur;
+									}
+									sShFor = selMat;
+									p.TextV(iR.x, yy, kRowH, "Ombre", NkRole::TextMuted);
+									Combo(p, hit, ws, "props.pm.shm",
+									      {iR.x + S(110.f), yy + S(2.f), iR.w - S(110.f),
+									       kRowH - S(4.f)},
+									      kShTypes, nullptr, 4, sShSel, combo, true, true, true,
+									      NkIcon::Count, kShOff);
+									yy += kRowH;
+								}
 							}
 							if (famPBR) {
 								float32 xAl = 1.f, xAn = 0.f, xSh = 0.f;
