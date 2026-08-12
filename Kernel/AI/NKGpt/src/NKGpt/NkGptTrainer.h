@@ -54,6 +54,21 @@ namespace nkentseu {
 
 					// Entraînement.
 					int steps = 300;
+					// Horizon ABSOLU (pas global visé). > 0 : le nombre de pas à faire
+					// est calculé par le trainer lui-même (horizon − pas déjà effectués)
+					// et `steps` est ignoré.
+					//
+					// POURQUOI : un nombre de pas RELATIF n'est pas robuste aux reprises.
+					// Après une coupure de courant, un relanceur qui doit deviner combien
+					// de pas restent se trompe dès qu'il lit une source incomplète — un
+					// journal, par exemple, perd sa fin quand l'alimentation est coupée
+					// (vécu le 2026-08-12 : relance calculée sur « pas 1200 » alors que le
+					// checkpoint était à 5000 ; l'horizon a dérivé de 6000 à 9800, donc le
+					// calendrier du pas d'apprentissage aussi). Le seul qui connaisse le
+					// vrai pas global, c'est le CHECKPOINT — donc le trainer. Une cible
+					// absolue rend la reprise IDEMPOTENTE : relancer dix fois avec le même
+					// horizon donne le même entraînement.
+					int64 horizon = 0;
 					int accum = 1;	   // micro-lots accumulés (batch effectif = B*accum)
 					int warmup = -1;   // <0 -> steps/20 (5%)
 					int saveEvery = 0; // checkpoint tous les N pas (0 = fin seule)

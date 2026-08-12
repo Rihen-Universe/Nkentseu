@@ -662,6 +662,12 @@ static int ModeTrain(int argc, char **argv) {
 	cfg.B = ArgEntier(argc, argv, "--B", 6);
 
 	cfg.steps = (int)ArgEntier(argc, argv, "--steps", 4000);
+	// --horizon : pas global VISÉ (absolu). Préférable à --steps pour tout run
+	// susceptible d'être interrompu : le trainer soustrait lui-même ce qui est
+	// déjà fait, en lisant le checkpoint — la seule source qui survive à une
+	// coupure de courant. Relancer dix fois avec le même horizon donne alors
+	// exactement le même entraînement.
+	cfg.horizon = ArgEntier(argc, argv, "--horizon", 0);
 	cfg.accum = (int)ArgEntier(argc, argv, "--accum", 4);
 	cfg.lr = (float)ArgReel(argc, argv, "--lr", 3e-4);
 	cfg.warmup = (int)ArgEntier(argc, argv, "--warmup", -1);

@@ -589,7 +589,7 @@ namespace nkentseu {
 				if (!mGpt)
 					return;
 				const bool V = mCfg.verbose;
-				const int STEPS = mCfg.steps;
+				int STEPS = mCfg.steps; // ajusté plus bas si un horizon absolu est donné
 				const int ACCUM = mCfg.accum;
 				const float peakLr = mCfg.lr;
 				const int WARMUP = (mCfg.warmup >= 0) ? mCfg.warmup : (STEPS / 20);
@@ -612,6 +612,25 @@ namespace nkentseu {
 					base = mCfg.freshSchedule ? 0 : mResumeStep;
 					mOptM.Clear();
 					mOptV.Clear();
+				}
+
+				// Horizon ABSOLU : c'est ICI, et nulle part ailleurs, qu'on peut le
+				// convertir en nombre de pas — `base` vient d'être lu du checkpoint,
+				// seule source qui survive à une coupure de courant. Un relanceur
+				// extérieur, lui, devrait deviner.
+				if (mCfg.horizon > 0) {
+					const int64 restant = mCfg.horizon - base;
+					STEPS = (restant > 0) ? (int)restant : 0;
+					if (V) {
+						if (STEPS > 0)
+							logger.Info("   Horizon absolu {0} : {1} pas restants (deja effectues : {2}).",
+										(long long)mCfg.horizon, (long long)STEPS, (long long)base);
+						else
+							logger.Info("   Horizon absolu {0} DEJA ATTEINT (pas global {1}) : rien a faire.",
+										(long long)mCfg.horizon, (long long)base);
+					}
+					if (STEPS == 0)
+						return; // idempotent : relancer un run fini ne le prolonge pas
 				}
 				const int64 totalHorizon = base + (int64)STEPS;
 
