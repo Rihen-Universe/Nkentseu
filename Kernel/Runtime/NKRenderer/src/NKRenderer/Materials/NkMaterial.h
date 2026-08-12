@@ -158,6 +158,10 @@ namespace nkentseu {
 				// La carte de hauteur passe par SetTexture("height", t) ; l'echelle
 				// creuse les UV cote shader (0 = coupe, ~0.02-0.08 utile).
 				NkMaterial *SetParallaxScale(float32 scale);
+				// OMBRE D'UN OBJET TRANSPARENT : 0 pleine, 1 proportionnelle
+				// (tramage suivant l'opacite), 2 aucune. Cf. NkMaterialInstance.
+				NkMaterial *SetTransShadowMode(uint32 mode);
+				uint32 GetTransShadowMode() const;
 				float32 GetParallaxScale() const;
 
 				// ── État ──────────────────────────────────────────────────────────

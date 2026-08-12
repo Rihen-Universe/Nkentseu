@@ -438,6 +438,16 @@ namespace nkentseu {
 			return this;
 		}
 
+		NkMaterial *NkMaterial::SetTransShadowMode(uint32 mode) {
+			if (mInstance)
+				mInstance->mTransShadowMode = mode > 2u ? 1u : mode;
+			return this;
+		}
+
+		uint32 NkMaterial::GetTransShadowMode() const {
+			return mInstance ? mInstance->mTransShadowMode : 1u;
+		}
+
 		float32 NkMaterial::GetParallaxScale() const {
 			return mInstance ? mInstance->mParallaxScale : 0.f;
 		}
