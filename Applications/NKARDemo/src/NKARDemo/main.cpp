@@ -210,7 +210,12 @@ int nkmain(const NkEntryState &state) {
 		logger.Error("[NKARDemo] Init session AR KO");
 		return 4;
 	}
-	logger.Infof("[NKARDemo] Marqueur attendu : %.1f cm de côté.\n", arCfg.markerSizeMeters * 100.f);
+	// Dire l'état EFFECTIF des réglages : une variable d'environnement survit à
+	// toute une session de terminal, et un réglage hérité d'un essai précédent
+	// explique bien des « ça ne marche plus » — vécu ici même, l'adaptatif
+	// resté armé rendait le masque bruité et le code illisible.
+	logger.Infof("[NKARDemo] Marqueur attendu : %.1f cm de côté | seuillage : %s.\n",
+				 arCfg.markerSizeMeters * 100.f, arCfg.detector.adaptive ? "ADAPTATIF" : "Otsu global");
 
 	// Texture vidéo : mise à jour à chaque image (pas recréée — recréer une
 	// texture par frame ferait tousser l'allocateur GPU en quelques secondes).

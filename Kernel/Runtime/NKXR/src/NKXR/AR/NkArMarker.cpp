@@ -650,7 +650,7 @@ namespace nkentseu {
 					}
 					if (debug) {
 						logger.Infof("[NkAr]   signature : meilleure %u/4 (rotation %u, %u ex aequo)\n",
-									 bestRot, bestCount);
+									 bestScore, bestRot, bestCount);
 					}
 					// 3 coins sur 4 suffisent SI la meilleure est unique.
 					if (bestScore >= 3u && bestCount == 1u) {
