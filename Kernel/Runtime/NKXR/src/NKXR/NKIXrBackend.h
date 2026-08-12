@@ -75,6 +75,30 @@ namespace nkentseu {
 			uint32 queueIndex = 0;
 		};
 
+		// ── Métriques de performance du compositeur ──────────────────────────
+		// Ce que le RUNTIME mesure lui-même : mesurer d'où vient le coût au
+		// lieu de le supposer (leçon des déchirures, 2026-08-12). Une valeur
+		// négative = ce compteur n'est pas servi par ce runtime.
+		struct NkXrPerfMetrics {
+			float32 appCpuMs = -1.f;
+			float32 appGpuMs = -1.f;
+			float32 compositorCpuMs = -1.f;
+			float32 compositorGpuMs = -1.f;
+			float32 appMotionToPhotonMs = -1.f;
+			int32 staleFrames = -1;   ///< Frames que le compositeur a dû réafficher.
+			bool available = false;
+		};
+
+		// ── Masque de visibilité (zones invisibles à travers la lentille) ────
+		// Maillage 2D en coordonnées de TANGENTE d'angle (x = tan(angle
+		// horizontal), y = tan(angle vertical)) : c'est la forme que rend
+		// OpenXR, et elle se projette telle quelle sur le plan near.
+		struct NkXrVisibilityMask {
+			NkVector<NkVec2f> vertices;
+			NkVector<uint32> indices;
+			bool valid = false;
+		};
+
 		// ── Le contrat backend ───────────────────────────────────────────────
 		class NKIXrBackend {
 			public:
@@ -161,6 +185,31 @@ namespace nkentseu {
 				// Vraies mains (XR_EXT_hand_tracking). Défaut : pas de mains —
 				// le simulateur et les runtimes sans l'extension répondent
 				// false, l'app retombe sur les manettes.
+				// Métriques du compositeur — défaut : indisponibles.
+				virtual bool GetPerfMetrics(NkXrPerfMetrics &outMetrics) {
+					outMetrics = NkXrPerfMetrics{};
+					return false;
+				}
+				// Cadences d'affichage proposées / courante / demandée.
+				virtual uint32 GetDisplayRefreshRates(float32 *outRates, uint32 capacity) {
+					(void)outRates;
+					(void)capacity;
+					return 0;
+				}
+				virtual float32 GetDisplayRefreshRate() {
+					return 0.f;
+				}
+				virtual bool RequestDisplayRefreshRate(float32 hz) {
+					(void)hz;
+					return false;
+				}
+				// Masque de visibilité d'un œil (zones jamais vues).
+				virtual bool GetVisibilityMask(NkXrEye eye, NkXrVisibilityMask &outMask) {
+					(void)eye;
+					outMask.valid = false;
+					return false;
+				}
+
 				virtual bool LocateHand(NkXrHandSide side, NkXrSpaceType space, NkXrTime time, NkXrHand &outHand) {
 					(void)side;
 					(void)space;
