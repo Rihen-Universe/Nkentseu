@@ -2108,6 +2108,22 @@ namespace nkentseu {
 				}
 			}
 			if (!mNgonWire) {
+				// CONTOUR TOON — PASSE ECRITE, PAS ENCORE ACTIVE (12 aout).
+				// L'idee : la coque est plus grande que l'objet, donc l'objet la
+				// recouvre et seul le debordement forme le trait. En pratique le
+				// cube ressort MORCELE (captures 110/111) : d'abord parce que ses
+				// sommets sont dupliques par face (corrige par l'extrusion
+				// radiale), puis pour une raison de PROFONDEUR/winding qui reste a
+				// isoler — la coque masque l'objet au lieu de se cacher derriere.
+				// A reprendre avec un test simple : coque sans ecriture de
+				// profondeur, puis verification du sens de cull sur ce backend.
+				// Laisse INACTIF pour ne pas livrer une regression visible.
+				if (false)
+					FlushToonOutline(cmd, currentRP, gs);
+				if (mPBRPipeline.IsValid())
+					cmd->BindGraphicsPipeline(mPBRPipeline);
+				if (gs.IsValid())
+					cmd->BindDescriptorSet(gs, 0);
 				FlushOpaque(cmd);
 				FlushInstanced(cmd);
 				FlushSkinned(cmd);
@@ -3266,6 +3282,130 @@ namespace nkentseu {
 					if (matInst && mMat)
 						mMat->BindInstanceSetOnly(cmd, matInst);
 				}
+				if (dc.subMeshIdx == 0xFFFFFFFFu)
+					mMesh->DrawAll(cmd, dc.mesh);
+				else
+					mMesh->DrawSubMesh(cmd, dc.mesh, dc.subMeshIdx);
+				mObjectDrawIdx++;
+			}
+		}
+
+
+		// ── CONTOUR TOON : LA COQUE INVERSEE ────────────────────────────────
+		// Le maillage est redessine avec les faces AVANT ecartees (cull FRONT)
+		// et les sommets pousses le long de leur normale : seule la bordure
+		// depasse de l'objet et forme un trait d'epaisseur constante autour de
+		// la silhouette — cube comme sphere. Technique de Guilty Gear / du
+		// modificateur Solidify de Blender.
+		//
+		// Pourquoi pas dans le fragment : un trait EPAIS n'est pas une donnee
+		// disponible au fragment. Les trois formules essayees le 12 aout
+		// echouaient (cf. toon.frag.nksl) — « 1 - N.V > seuil » noircit une
+		// face entiere d'un cube vue de biais, la derivee de normale ne donne
+		// qu'un trait d'un pixel qu'on ne peut pas epaissir.
+		bool NkRender3D::EnsureToonOutlinePipeline(NkRenderPassHandle currentRP) {
+			if (!mToonOutlineShader.IsValid() && mShaderLib) {
+				auto prog = mShaderLib->LoadOrCompileVF("ToonOutline", "", "");
+				if (prog.IsValid())
+					mToonOutlineShader = mShaderLib->GetRHIHandle(prog);
+			}
+			if (!mToonOutlineShader.IsValid())
+				return false;
+			if (mToonOutlinePipeline.IsValid() && mToonOutlineRP == currentRP)
+				return true;
+			if (mToonOutlinePipeline.IsValid()) {
+				mDevice->DestroyPipeline(mToonOutlinePipeline);
+				mToonOutlinePipeline = {};
+			}
+			NkGraphicsPipelineDesc pd;
+			pd.shader = mToonOutlineShader;
+			pd.depthStencil = NkDepthStencilDesc::Default(); // ecrit la profondeur
+			pd.rasterizer = NkRasterizerDesc::Default();
+			// CULL FRONT : on ne garde que l'interieur de la coque, donc rien
+			// n'est visible la ou l'objet lui-meme se dessine — seul le
+			// debordement apparait.
+			pd.rasterizer.cullMode = ::nkentseu::NkCullMode::NK_FRONT;
+			pd.blend = NkBlendDesc::Opaque();
+			pd.debugName = "ToonOutline";
+			pd.renderPass = currentRP;
+			pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(NkVec4f));
+			pd.descriptorSetLayouts.PushBack(mGlobalLayout);
+			pd.descriptorSetLayouts.PushBack(mObjectLayout);
+			pd.vertexLayout.AddBinding(0, sizeof(NkVertex3D), false)
+				.AddAttribute(0, 0, NkVertexFormat::NK_RGB32_FLOAT, 0, "POSITION", 0)
+				.AddAttribute(1, 0, NkVertexFormat::NK_RGB32_FLOAT, 12, "NORMAL", 0);
+			mToonOutlinePipeline = mDevice->CreateGraphicsPipeline(pd);
+			mToonOutlineRP = currentRP;
+			logger.Info("[NkRender3D] ToonOutline pipeline create: valid={0}\n",
+						mToonOutlinePipeline.IsValid() ? 1 : 0);
+			return mToonOutlinePipeline.IsValid();
+		}
+
+		void NkRender3D::FlushToonOutline(NkICommandBuffer *cmd, NkRenderPassHandle currentRP,
+										  NkDescSetHandle globalSet) {
+			if (!cmd || !mMat || !mMesh || mOpaque.Empty())
+				return;
+			// Y a-t-il seulement un objet toon a contourer ? On ne compile ni ne
+			// binde rien pour une scene qui n'en contient pas.
+			bool any = false;
+			for (auto &sdc : mOpaque) {
+				NkMaterialInstance *mi = sdc.dc.material.IsValid() ? mMat->GetInstance(sdc.dc.material) : nullptr;
+				if (mi && mMat->InstanceOutlineWidth(mi) > 0.f) {
+					any = true;
+					break;
+				}
+			}
+			if (!any || !EnsureToonOutlinePipeline(currentRP))
+				return;
+			const bool poolFrameValid =
+				(mFrameSlot < mUBOObjectPool.Size()) && (mFrameSlot < mObjectSetPool.Size());
+			if (!poolFrameValid)
+				return;
+			cmd->BindGraphicsPipeline(mToonOutlinePipeline);
+			if (globalSet.IsValid())
+				cmd->BindDescriptorSet(globalSet, 0);
+			for (auto &sdc : mOpaque) {
+				auto &dc = sdc.dc;
+				NkMaterialInstance *mi = dc.material.IsValid() ? mMat->GetInstance(dc.material) : nullptr;
+				if (!mi)
+					continue;
+				const float32 w = mMat->InstanceOutlineWidth(mi);
+				if (w <= 0.f)
+					continue;
+				if (mObjectDrawIdx >= mObjectPoolCap)
+					break;
+				// Le contour reutilise l'ObjectUBO (model + normalMatrix) : meme
+				// bloc que les autres passes, un slot de plus par objet contoure.
+				struct ObjBlock {
+						NkMat4f model;
+						NkMat4f normalMatrix;
+						NkVec4f tint;
+						float32 metallic;
+						float32 roughness;
+						float32 aoStrength;
+						float32 emissiveStrength;
+						float32 normalStrength;
+						float32 clearcoat;
+						float32 clearcoatRough;
+						float32 subsurface;
+						NkVec4f subsurfaceColor;
+						NkVec4f shadowOverrides;
+						NkVec4f triplanarParams;
+				};
+				ObjBlock ob{};
+				ob.model = dc.transform;
+				ob.normalMatrix = dc.transform.Inverse().Transpose();
+				ob.tint = {1, 1, 1, 1};
+				NkBufferHandle ubo = mUBOObjectPool[mFrameSlot][mObjectDrawIdx];
+				NkDescSetHandle os = mObjectSetPool[mFrameSlot][mObjectDrawIdx];
+				if (ubo.IsValid())
+					mDevice->WriteBuffer(ubo, &ob, sizeof(ob), 0);
+				if (os.IsValid())
+					cmd->BindDescriptorSet(os, 1);
+				NkVec3f col = mMat->InstanceOutlineColor(mi);
+				NkVec4f pc{w, col.x, col.y, col.z};
+				cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), &pc);
+				mMesh->BindMesh(cmd, dc.mesh);
 				if (dc.subMeshIdx == 0xFFFFFFFFu)
 					mMesh->DrawAll(cmd, dc.mesh);
 				else

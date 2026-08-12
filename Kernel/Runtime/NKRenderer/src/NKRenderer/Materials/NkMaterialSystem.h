@@ -478,6 +478,12 @@ namespace nkentseu {
 				// des transparents doit le binder au lieu du PBR_Blend generique
 				// (sans quoi un materiau Verre etait dessine par le shader PBR).
 				bool InstanceWantsOwnBlend(NkMaterialInstance *inst);
+				// CONTOUR TOON : renvoie la largeur (0 = pas de contour) et sa
+				// couleur. Filtre sur le TYPE — le defaut de NkToonParams est 2,
+				// donc lire le champ sans verifier le gabarit entourerait TOUS
+				// les objets, PBR compris.
+				float32 InstanceOutlineWidth(NkMaterialInstance *inst);
+				NkVec3f InstanceOutlineColor(NkMaterialInstance *inst);
 				bool BindInstance(NkICommandBuffer *cmd, NkMaterialInstance *inst);
 
 				// Upload UBO + textures de l'instance SI dirty, SANS binder le

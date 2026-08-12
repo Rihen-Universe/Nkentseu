@@ -1,0 +1,62 @@
+// toonoutline.vert.nksl — NKRenderer — Contour toon par COQUE INVERSEE.
+// Le maillage est redessine avec les faces AVANT ecartees (cull FRONT) et
+// chaque sommet POUSSE le long de sa normale : seule la bordure de cette
+// coque depasse de l'objet, et elle forme un trait d'epaisseur CONSTANTE
+// autour de la silhouette — cube comme sphere. C'est la technique de Guilty
+// Gear / du modificateur Solidify de Blender.
+//
+// Pourquoi une passe geometrique et pas un test dans le fragment : un
+// contour EPAIS n'est pas une information disponible au fragment. Les trois
+// formules essayees le 12 aout echouaient — « 1 - N.V > seuil » noircit une
+// face entiere d'un cube vue de biais, la derivee de normale ne donne qu'un
+// trait d'un pixel non epaississable.
+@location(0) in vec3 aPos;
+@location(1) in vec3 aNormal;
+
+@binding(set=0, binding=0)
+uniform CameraUBO {
+    mat4  view, proj, viewProj, invViewProj;
+    vec4  camPos, camDir; vec2 viewport; float time, deltaTime;
+    float iblStrength;
+    float _p0, _p1, _p2;
+    mat4  mirrorViewProj;
+    vec4  reflectionFlags;
+} uCam;
+
+@binding(set=1, binding=1)
+uniform ObjectUBO {
+    mat4  model, normalMatrix; vec4 tint;
+    float metallic, roughness, aoStrength, emissiveStrength;
+    float normalStrength, clearcoat, clearcoatRoughness, subsurface;
+    vec4  subsurfaceColor;
+    vec4  shadowOverrides;
+    vec4  triplanarParams;
+} uObj;
+
+// .x = largeur du trait (unites du materiau), .yzw = couleur du trait.
+layout(push_constant) uniform PC {
+    vec4 outline;
+} pc;
+
+@stage(vertex)
+@entry
+void main() {
+    // DIRECTION D'EXTRUSION PARTAGEE, pas la normale de face. Sur un cube,
+    // les sommets sont DUPLIQUES par face avec des normales differentes :
+    // pousser chacun selon SA normale separe les faces et l'objet eclate en
+    // eventail (capture 110). La direction radiale depuis l'origine du
+    // maillage, elle, est IDENTIQUE pour deux sommets coincidents — les
+    // faces restent donc soudees. C'est le meme role que les « normales
+    // lissees » que l'industrie cuit dans un attribut a part.
+    vec3 dirL = (dot(aPos, aPos) > 1e-8) ? normalize(aPos) : aNormal;
+    vec3 N = normalize(mat3(uObj.normalMatrix) * dirL);
+    vec4 wp = uObj.model * vec4(aPos, 1.0);
+    // EPAISSEUR CONSTANTE A L'ECRAN : le decalage grandit avec la distance a
+    // la camera, sinon le trait s'amincit jusqu'a disparaitre quand on
+    // recule (et devient enorme de pres).
+    float dist = length(uCam.camPos.xyz - wp.xyz);
+    float w    = pc.outline.x * 0.0035 * max(dist, 0.05);
+    wp.xyz += N * w;
+    if (uCam.reflectionFlags.x > 0.5) wp.y = -wp.y;
+    gl_Position = uCam.viewProj * wp;
+}
