@@ -274,15 +274,28 @@ namespace nkentseu {
 			if (outGray == nullptr || gridBits == 0u || size == 0u) {
 				return false;
 			}
-			const uint32 cells = gridBits + 2u; // bordure noire d'une cellule
+			// MARGE BLANCHE (« zone de silence ») d'une cellule tout autour,
+			// puis la bordure noire, puis les cellules utiles.
+			// Elle n'est pas décorative : sans elle, un marqueur affiché sur un
+			// fond SOMBRE (visionneuse en thème noir, écran éteint autour) voit
+			// sa bordure noire se fondre dans le fond — il n'y a plus de
+			// contour fermé à suivre, et rien n'est détecté. Constaté sur
+			// l'écran de Rihen, image de diagnostic à l'appui. Tous les
+			// systèmes de marqueurs (ArUco, AprilTag, QR) l'imposent.
+			const uint32 cells = gridBits + 4u; // marge + bordure de chaque côté
 			for (uint32 y = 0; y < size; ++y) {
 				for (uint32 x = 0; x < size; ++x) {
 					const uint32 cellX = (x * cells) / size;
 					const uint32 cellY = (y * cells) / size;
+					// Marge extérieure : BLANCHE.
+					if (cellX == 0u || cellY == 0u || cellX == cells - 1u || cellY == cells - 1u) {
+						outGray[y * size + x] = 255;
+						continue;
+					}
 					uint8 value = 0; // bordure : noire
-					if (cellX >= 1u && cellX <= gridBits && cellY >= 1u && cellY <= gridBits) {
-						const uint32 gx = cellX - 1u;
-						const uint32 gy = cellY - 1u;
+					if (cellX >= 2u && cellX <= gridBits + 1u && cellY >= 2u && cellY <= gridBits + 1u) {
+						const uint32 gx = cellX - 2u;
+						const uint32 gy = cellY - 2u;
 						value = NkArCellIsOrientation(gx, gy, gridBits)
 									? 255
 									: (NkArCellIsReserved(gx, gy, gridBits)

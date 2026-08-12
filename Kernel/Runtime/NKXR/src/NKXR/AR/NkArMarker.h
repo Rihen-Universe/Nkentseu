@@ -118,7 +118,10 @@ namespace nkentseu {
 								   const NkArCameraIntrinsics &intrinsics, NkXrPose &outPose);
 
 		// Fabrique l'image d'un marqueur (pour l'imprimer, et pour les tests) :
-		// bordure noire d'une cellule, puis gridBits × gridBits cellules.
+		// MARGE BLANCHE d'une cellule (indispensable — sans elle, un marqueur
+		// affiché sur fond sombre n'a plus de contour fermé), puis la bordure
+		// noire d'une cellule, puis gridBits × gridBits cellules utiles.
+		// Le carré NOIR mesure donc (gridBits+2)/(gridBits+4) de l'image.
 		bool NkArRenderMarker(int32 id, uint32 gridBits, uint8 *outGray, uint32 size);
 
 	} // namespace xr

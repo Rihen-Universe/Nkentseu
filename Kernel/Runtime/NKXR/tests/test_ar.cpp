@@ -27,6 +27,13 @@ static int g_pass = 0, g_fail = 0;
 		}                                                                                                              \
 	} while (0)
 
+// Le motif rendu contient une MARGE BLANCHE d'une cellule : le carré NOIR
+// (celui que la détection suit, et donc celui que l'on mesure sur la feuille)
+// occupe (gridBits+2)/(gridBits+4) du motif.
+static float32 BlackSquareOf(float32 patternSizeMeters, uint32 gridBits) {
+	return patternSizeMeters * float32(gridBits + 2u) / float32(gridBits + 4u);
+}
+
 static bool Near(float32 a, float32 b, float32 e) {
 	const float32 d = a - b;
 	return (d < 0 ? -d : d) <= e;
@@ -126,7 +133,7 @@ int main() {
 		if (count >= 1u) {
 			CHECK(found[0].id == id, "face : identifiant lu correctement");
 			NkXrPose pose;
-			CHECK(NkArPoseFromDetection(found[0], size, K, pose), "face : pose calculee");
+			CHECK(NkArPoseFromDetection(found[0], BlackSquareOf(size, 4), K, pose), "face : pose calculee");
 			// 1 cm de tolérance sur 1 m : la chaîne est faite pour l'AR, pas
 			// pour la métrologie — mais 1 % est un vrai critere.
 			CHECK(Near(pose.position.z, truth.z, 0.02f), "face : distance ~1 m");
@@ -150,7 +157,7 @@ int main() {
 		CHECK(count >= 1u, "incline : marqueur detecte");
 		if (count >= 1u) {
 			NkXrPose pose;
-			CHECK(NkArPoseFromDetection(found[0], size, K, pose), "incline : pose calculee");
+			CHECK(NkArPoseFromDetection(found[0], BlackSquareOf(size, 4), K, pose), "incline : pose calculee");
 			CHECK(Near(pose.position.z, truth.z, 0.03f), "incline : distance retrouvee");
 			CHECK(Near(pose.position.x, truth.x, 0.03f), "incline : decalage X retrouve");
 			CHECK(Near(pose.position.y, truth.y, 0.03f), "incline : decalage Y retrouve");
@@ -184,7 +191,10 @@ int main() {
 	{
 		uint8 small[64 * 64];
 		CHECK(NkArRenderMarker(0x2D, 4, small, 64), "generation du motif");
-		CHECK(small[0] == 0 && small[63] == 0, "motif : bordure noire");
+		// Coin = MARGE BLANCHE (zone de silence), puis la bordure noire plus
+		// au centre : c'est ce qui permet de detecter sur fond sombre.
+		CHECK(small[0] == 255, "motif : marge blanche au coin");
+		CHECK(small[(64 / 8) * 64 + (64 / 8) + 2] == 0, "motif : bordure noire sous la marge");
 	}
 
 	// ── Cas 6 : la SESSION — suivi, perte, tolerance, formats couleur ───────
@@ -192,7 +202,7 @@ int main() {
 		const int32 id = 0x2D;
 		const float32 size = 0.20f;
 		NkArSessionConfig cfg;
-		cfg.markerSizeMeters = size;
+		cfg.markerSizeMeters = BlackSquareOf(size, 4);
 		cfg.lostToleranceFrames = 3;
 		cfg.smoothing = 0.5f;
 		NkArSession session;
