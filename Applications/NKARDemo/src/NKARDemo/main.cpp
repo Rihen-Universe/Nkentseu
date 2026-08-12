@@ -489,14 +489,23 @@ int nkmain(const NkEntryState &state) {
 				}
 			}
 
-			overlay->DrawText({ 12.f, 20.f }, "NKARDemo — %s | marqueurs vus : %u / suivis : %u",
-							  cameraOk ? "camera" : "SYNTHESE (pas de camera)", visible, uint32(tracked.Size()));
+			// Dire la source RÉELLEMENT affichée, pas celle qu'on espérait :
+			// avec NK_AR_SYNTH la caméra est ouverte mais son image n'est PAS
+			// utilisée — annoncer « camera » ferait chercher un marqueur dans
+			// la pièce alors que celui de l'image de synthèse est à l'écran.
+			const char *sourceName = haveFrame ? "CAMERA"
+											   : (forceSynthetic ? "SYNTHESE (forcee par NK_AR_SYNTH)"
+																 : "SYNTHESE (aucune image camera)");
+			overlay->DrawText({ 12.f, 20.f }, "NKARDemo — source : %s | marqueurs vus : %u / suivis : %u",
+							  sourceName, visible, uint32(tracked.Size()));
 			overlay->DrawText({ 12.f, 40.f }, "Imprimer nkar_marqueur.png (cote %.1f cm) et le montrer a la camera",
 							  arCfg.markerSizeMeters * 100.f);
 			for (nk_size i = 0; i < tracked.Size(); ++i) {
-				overlay->DrawText({ 12.f, 60.f + 20.f * float32(i) },
-								  "  id %d : %.2f m devant%s", tracked[i].id, -tracked[i].pose.position.z,
-								  tracked[i].visibleThisFrame ? "" : " (perdu, en sursis)");
+				overlay->DrawText({ 12.f, 60.f + 20.f * float32(i) }, "  id %d : %.2f m devant — %s",
+								  tracked[i].id, -tracked[i].pose.position.z,
+								  tracked[i].visibleThisFrame
+									  ? "VU (cube orange)"
+									  : "EN SURSIS depuis quelques images (cube bleu, va disparaitre)");
 			}
 			overlay->EndOverlay();
 		}
