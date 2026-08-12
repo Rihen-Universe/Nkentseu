@@ -142,6 +142,17 @@ namespace nkentseu {
 
 				virtual void AttachActions(const NkXrActionDesc *actions, uint32 count) = 0;
 				virtual bool SyncActions(NkXrTime now) = 0;
+				// Vibration (action NK_XR_ACTION_HAPTIC). amplitude [0,1],
+				// durée en secondes, fréquence 0 = au choix du runtime.
+				// Défaut neutre : le simulateur n'a rien à faire vibrer.
+				virtual bool ApplyHaptic(NkXrActionHandle handle, float32 amplitude, float32 durationSeconds,
+										 float32 frequencyHz) {
+					(void)handle;
+					(void)amplitude;
+					(void)durationSeconds;
+					(void)frequencyHz;
+					return true;
+				}
 				virtual bool GetActionStateBool(NkXrActionHandle handle, NkXrActionStateBool &outState) = 0;
 				virtual bool GetActionStateFloat(NkXrActionHandle handle, NkXrActionStateFloat &outState) = 0;
 				virtual bool GetActionStateVec2(NkXrActionHandle handle, NkXrActionStateVec2 &outState) = 0;

@@ -130,10 +130,12 @@ namespace {
 	}
 
 	// Caméra NKRenderer depuis une vue XR (pose + FOV, symétrique ou non).
-	NkCamera3D CameraFromXrView(const nkxr::NkXrView &view) {
+	// viewerOffset = position du SPECTATEUR dans le monde (locomotion stick) :
+	// ajoutée aux poses trackées, jamais écrite dedans.
+	NkCamera3D CameraFromXrView(const nkxr::NkXrView &view, const math::NkVec3f &viewerOffset) {
 		NkCamera3DData cd;
-		cd.position = view.position;
-		cd.target = view.position + nkxr::NkXrForward(view.orientation);
+		cd.position = view.position + viewerOffset;
+		cd.target = cd.position + nkxr::NkXrForward(view.orientation);
 		cd.up = nkxr::NkXrUp(view.orientation);
 		cd.fovY = (view.fov.angleUp - view.fov.angleDown) * 180.f / math::NK_PI_F;
 		const float32 tanW = math::NkTan(view.fov.angleRight) - math::NkTan(view.fov.angleLeft);
@@ -443,6 +445,10 @@ int nkmain(const NkEntryState &state) {
 		{ "selectionner", nkxr::NkXrActionType::NK_XR_ACTION_BOOL, nkxr::NkXrActionUsage::NK_XR_USAGE_SELECT });
 	const nkxr::NkXrActionHandle actAim = actions.CreateAction(
 		{ "viser", nkxr::NkXrActionType::NK_XR_ACTION_POSE, nkxr::NkXrActionUsage::NK_XR_USAGE_AIM_POSE });
+	const nkxr::NkXrActionHandle actMove = actions.CreateAction(
+		{ "deplacer", nkxr::NkXrActionType::NK_XR_ACTION_VEC2, nkxr::NkXrActionUsage::NK_XR_USAGE_MOVE });
+	const nkxr::NkXrActionHandle actHaptic = actions.CreateAction(
+		{ "vibrer", nkxr::NkXrActionType::NK_XR_ACTION_HAPTIC, nkxr::NkXrActionUsage::NK_XR_USAGE_HAPTIC });
 	xrSession->AttachActionSet(actions);
 
 	// ── 5) Événements fenêtre ─────────────────────────────────────────────────
@@ -497,6 +503,10 @@ int nkmain(const NkEntryState &state) {
 	// NK_XR_SHADOW=0 coupe les ombres de la scène : le plus gros poste de
 	// coût GPU — l'interrupteur du test de cadence.
 	const bool xrShadowOn = (EnvU64("NK_XR_SHADOW", 1) != 0);
+	// Locomotion au stick : un DÉCALAGE DE MONDE, jamais une écriture des
+	// poses — le tracking reste la vérité, on déplace la scène sous lui.
+	NkVec3f worldOffset(0.f, 0.f, 0.f);
+	NkChrono locoChrono;
 
 	while (running && window.IsOpen()) {
 		events.PollEvents();
@@ -575,10 +585,39 @@ int nkmain(const NkEntryState &state) {
 		xrSession->SyncActions();
 		nkxr::NkXrActionStateBool selectState;
 		xrSession->GetActionStateBool(actSelect, selectState);
+		// Front montant de « sélectionner » → pulsation haptique : la preuve
+		// tactile que la chaîne actions marche dans les deux sens.
+		if (selectState.changed && selectState.current) {
+			xrSession->ApplyHaptic(actHaptic, 0.7f, 0.06f);
+		}
 
 		// Les poses des yeux, PRÉDITES pour l'instant d'affichage.
 		nkxr::NkXrView views[nkxr::NK_XR_EYE_COUNT];
 		const bool haveViews = xrSession->LocateViews(stageSpace, frameState.predictedDisplayTime, views);
+
+		// Locomotion au stick gauche (flèches sur le simulateur) : direction
+		// du regard aplatie au sol — regarder en bas ne fait pas creuser.
+		float32 locoDt = float32(locoChrono.Reset().seconds);
+		if (locoDt < 0.f || locoDt > 0.25f) {
+			locoDt = 1.f / 36.f;
+		}
+		nkxr::NkXrActionStateVec2 moveState;
+		if (xrSession->GetActionStateVec2(actMove, moveState) && moveState.active && haveViews) {
+			NkVec3f flatForward = nkxr::NkXrForward(views[0].orientation);
+			flatForward.y = 0.f;
+			const float32 forwardLen = flatForward.Len();
+			if (forwardLen > 1e-4f) {
+				flatForward = flatForward * (1.f / forwardLen);
+				const NkVec3f flatRight(-flatForward.z, 0.f, flatForward.x);
+				worldOffset = worldOffset +
+							  (flatForward * moveState.current.y + flatRight * moveState.current.x) * (2.5f * locoDt);
+			}
+		}
+
+		// Main droite (manette réelle ou main simulée) : localisée pour être
+		// DESSINÉE dans la scène — la preuve visible du 6DoF des manettes.
+		nkxr::NkXrPose aimPose;
+		const bool haveHand = xrSession->LocateActionPose(actAim, stageSpace, frameState.predictedDisplayTime, aimPose);
 
 		// Cadence d'animation sur l'index de frame : le déterminisme des
 		// captures avant le confort visuel — c'est une démo de VÉRIFICATION.
@@ -603,7 +642,7 @@ int nkmain(const NkEntryState &state) {
 				}
 
 				NkSceneContext sctx;
-				sctx.camera = CameraFromXrView(views[e]);
+				sctx.camera = CameraFromXrView(views[e], worldOffset);
 				sctx.time = animTime;
 				sctx.ambientIntensity = 0.15f;
 				NkLightDesc sun;
@@ -617,6 +656,22 @@ int nkmain(const NkEntryState &state) {
 
 				r3d->BeginScene(sctx);
 				SubmitScene(r3d, r->GetMeshSystem(), animTime, selectState.current);
+				if (haveHand) {
+					// La main droite : un petit pavé allongé qui suit la
+					// manette (ou la main simulée) — orientation comprise.
+					NkDrawCall3D dc;
+					dc.mesh = r->GetMeshSystem()->GetCube();
+					const NkVec3f handPos = aimPose.position + worldOffset;
+					dc.transform = NkMat4f::Translate(handPos) * aimPose.orientation.ToMat4() *
+								   NkMat4f::Scale({ 0.05f, 0.05f, 0.16f });
+					dc.aabb = { { handPos.x - 0.2f, handPos.y - 0.2f, handPos.z - 0.2f },
+								{ handPos.x + 0.2f, handPos.y + 0.2f, handPos.z + 0.2f } };
+					dc.tint = selectState.current ? NkVec3f{ 1.f, 0.3f, 0.2f } : NkVec3f{ 0.2f, 0.9f, 1.f };
+					dc.metallic = 0.f;
+					dc.roughness = 0.4f;
+					dc.castShadow = false;
+					r3d->Submit(dc);
+				}
 				// Le graphe de l'œil s'exécute sur le command buffer du
 				// COMPOSITEUR, avant son Present (passes imbriquées interdites).
 				if (auto *graph = r->GetRenderGraph()) {
