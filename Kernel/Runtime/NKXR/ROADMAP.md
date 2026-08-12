@@ -47,7 +47,10 @@ SIMULATEUR desktop + démo `NKXRDemo` (stéréo côte à côte, souris = tête),
 | Vraies mains sans manettes : XR_EXT_hand_tracking (26 articulations/main, rayon + validité par articulation ; démo = squelette de perles) | ✅ | — | — |
 | Préréglage VR vers 72 Hz : bloom OFF, ombres 1024/2 cascades (NK_XR_BLOOM, NK_XR_SHADOW_RES, NK_XR_SHADOW_CASCADES) | ✅ | — | — |
 | **ANTI-ALIASING — PRIORITÉ N°1 DE LA REPRISE (Rihen, 2026-08-12)** : MSAA sur cibles d'œil, ou supersampling ≥1,2× ; le FXAA ne lisse pas assez en casque | ❌ | L | **P0** |
-| Validation Rihen : mains sans manettes (les poser → perles vertes/ambre) + cadence après préréglage | ⏳ | — | P0 |
+| Validation Rihen : mains sans manettes — ⚠️ BLOQUÉ CÔTÉ META : le runtime Link n'expose pas `XR_EXT_hand_tracking` (36 extensions listées, vérifié `NK_XR_LIST_EXT`). Activer « Fonctionnalités du runtime pour développeurs » (Meta Horizon → Paramètres → Bêta). Notre chaîne s'activera sans recompiler. | 🔶 | — | P1 |
+| `XR_KHR_visibility_mask` : ne pas rendre les pixels invisibles à travers la lentille (~15-25 % des pixels) — meilleur gain/risque vers le 72 Hz | ❌ | M | P1 |
+| `XR_META_performance_metrics` : timings CPU/GPU du compositeur (mesurer au lieu de deviner) | ❌ | S | P2 |
+| `XR_FB_display_refresh_rate` : choisir 72/80/90 Hz au lieu de la subir | ❌ | S | P2 |
 | Accessoires en main : maillage quelconque sur AIM/GRIP (arme, gant, levier) — boucle NK3DModeler → VR | ❌ | S | P3 |
 | Actions → profils d'interaction (traduction usage → chemins, DANS le backend) | ❌ | M | P2 |
 | APK Quest 2 via la chaîne jenga Android existante | ❌ | M | P1 |
