@@ -6168,6 +6168,35 @@ namespace nkentseu {
 			// ferme A LA MAIN ; ferme, on ouvre A LA MAIN ; selectionner un
 			// objet n'ouvre rien. Les sections Modele/Modificateur montrent
 			// « Aucune selection » quand il n'y a personne — honnete et stable.
+			// UNE SECTION ORPHELINE CEDE LA PLACE (Rihen, 12 aout : « le mieux
+			// est de basculer sur une autre pastille presente »). Modele (0),
+			// Modificateur (3) et Materiau (4) perdent leur pastille sans
+			// selection ; les laisser ouvertes affichait un panneau dont
+			// l'onglet n'existait plus. On bascule alors sur la premiere
+			// section TOUJOURS disponible — jamais sur une autre orpheline.
+			// Ce n'est pas un automatisme d'ouverture (regle du 11 aout) : le
+			// panneau reste ouvert, seul son CONTENU change.
+			for (int32 i2 = 0; i2 < kNSec; ++i2) {
+				const bool orphelin = ((i2 == 0 || i2 == 3) && !hasSel5) ||
+									  (i2 == 4 && !hasObj5);
+				if (!orphelin || !st.propOpen[i2])
+					continue;
+				st.propOpen[i2] = false;
+				bool reste = false;
+				for (int32 k2 = 0; k2 < kNSec && !reste; ++k2)
+					reste = st.propOpen[k2];
+				if (reste)
+					continue; // une autre section tient deja l'affiche
+				for (int32 k2 = 0; k2 < kNSec; ++k2) {
+					const bool orph2 = ((k2 == 0 || k2 == 3) && !hasSel5) ||
+									   (k2 == 4 && !hasObj5);
+					if (!orph2) {
+						st.propOpen[k2] = true;
+						st.propFold[k2] = false;
+						break;
+					}
+				}
+			}
 			int32 nOpen = 0, nUnfold = 0;
 			for (int32 i2 = 0; i2 < kNSec; ++i2)
 				if (st.propOpen[i2]) {
@@ -9742,29 +9771,33 @@ namespace nkentseu {
 							}
 						}
 						{
-							// RETIRER : le dernier materiau ne se supprime pas -- un
-							// maillage en porte toujours un (regle de Rihen).
+							// RETIRER = DELIER CET OBJET, rien d'autre (Rihen, 12
+							// aout) : « on ne supprime le materiau que depuis le
+							// navigateur de projet [...] retirer un materiau d'un
+							// objet lie se fait dans la pastille materiau et
+							// n'affecte que l'objet en question ». L'objet actif
+							// revient donc sur le materiau PAR DEFAUT — un maillage
+							// en porte toujours un — et la liste du projet reste
+							// intacte, fichier compris.
 							const NkRect rb{bx, lst.y + S(21.f), colW, S(20.f)};
-							const bool en = nMats > 1;
+							// Actif des qu'un OBJET porte un materiau autre que le
+							// defaut : c'est lui qu'on delie.
+							const int32 defSlot = demo::Demo3DHostProjMatDefault();
+							const int32 curSlot = (actN >= 0) ? demo::Demo3DHostProjMatOf(actN) : -1;
+							const bool en = (actN >= 0) && (curSlot >= 0) && (curSlot != defSlot);
 							const bool ovR = hit.Add("props.pm.del", rb);
 							p.Outline(rb, (ovR && en) ? NkRole::AccentUi : NkRole::Border,
 									  NkRole::PanelHeader, 3.f);
 							p.IconV(rb.x + S(5.f), rb.y, rb.h, NkIcon::MinusCircle,
 									en ? NkRole::Text : NkRole::TextMuted, 11.f);
-							if (en && hit.Clicked("props.pm.del") && selMat >= 0) {
-								// NE TOUCHE PAS AU FICHIER. Ce bouton retire
-								// l'emplacement de la liste ; le .nkmat reste sur le
-								// disque, et le chargement le retrouve — c'est
-								// pourquoi un materiau « retire » reparait au
-								// relancement (Rihen, 12 aout). Le comportement juste
-								// depend de ce que ce bouton doit VOULOIR DIRE :
-								// delier de l'objet, ou supprimer du projet. Effacer
-								// le fichier sans cette reponse serait destructif —
-								// on s'en abstient tant que la question n'est pas
-								// tranchee.
-								demo::Demo3DHostProjMatDelete(selMat);
-								if (st.projMatSel > 0)
-									--st.projMatSel;
+							if (en && hit.Clicked("props.pm.del")) {
+								// Delier = reposer le materiau PAR DEFAUT sur ce seul
+								// objet. Le materiau lui-meme continue d'exister dans
+								// le projet et sur les autres objets qui le portent.
+								if (defSlot >= 0) {
+									demo::Demo3DHostProjMatAssign(actN, defSlot);
+									NkMarkDirty(st);
+								}
 							}
 						}
 						// L'echange d'emplacements est REEL (fichiers, cartes, melanges
