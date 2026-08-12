@@ -139,6 +139,17 @@ du cas « EndFrame avec image encore acquise »).
 5. Puis : graphe partagé deux-vues (ombres/culling ×1), profondeur soumise au
    compositeur, intégration Noge, main gauche `_LEFT` (requis Camrail).
 
+## 👁️ VOIR CE QUE VOIT LE CASQUE — sur écran, puis sur plusieurs postes
+*(besoin Camrail : « le moniteur voit ce que fait son étudiant et vice-versa »)*
+
+| Niveau | État | Comment |
+|---|---|---|
+| **Écran local** — la fenêtre PC montre la vue du porteur | ✅ | `NK_XR_SPECTATOR` (défaut avec casque) : un œil plein écran, proportions respectées. Coût nul, l'image est déjà rendue. |
+| **Caméra libre du formateur** (regarder ailleurs que le stagiaire) | ❌ S | Un 3ᵉ renderer avec sa propre caméra sur le même device — patron déjà éprouvé (c'est exactement ce que fait la démo pour les 2 yeux). |
+| **Poste distant — état répliqué** *(voie recommandée)* | ❌ M | NKNetwork réplique poses + état de scène ; chaque poste REND en local. Bande passante minuscule, image nette, et le formateur peut regarder où il veut. C'est ce qu'attend un simulateur de formation. |
+| **Poste distant — flux vidéo** *(voie de secours)* | ❌ M | NKMedia a déjà l'encodeur **H.264 from scratch** + le lecteur : encoder la vue moniteur, l'envoyer, la décoder. Utile pour un poste sans GPU ou une diffusion salle. |
+| **Plusieurs casques dans la MÊME scène** (formateur + stagiaire en VR) | ❌ L | Réplication d'état + une session XR par poste. L'API NKXR est déjà par-session, rien n'y fait obstacle. |
+
 ## En cours / TODO immédiat
 - ⏳ Validation Rihen de l'étage 1 (frustum décentré) — preuves : FOV symétrique
   = 0,000 % d'écart avec la référence à travers TOUT le pipeline ; FOV
