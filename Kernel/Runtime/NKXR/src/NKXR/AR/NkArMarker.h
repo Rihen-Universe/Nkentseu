@@ -81,6 +81,10 @@ namespace nkentseu {
 			// réclame — le dire plutôt que de laisser croire que c'est robuste.
 			bool useOtsu = true;
 			uint8 fixedThreshold = 128;
+			// Journalise OÙ la chaîne abandonne (contours, quads, bordure,
+			// code). Un champ et non une variable d'environnement : une
+			// application doit pouvoir l'allumer depuis son interface.
+			bool debugCounters = false;
 		};
 
 		// ── L'API ────────────────────────────────────────────────────────────

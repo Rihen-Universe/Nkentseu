@@ -13,8 +13,6 @@
 #include "NKMemory/NkAllocator.h"
 #include "NKLogger/NkLog.h"
 
-#include <cstdlib>
-
 namespace nkentseu {
 	namespace xr {
 

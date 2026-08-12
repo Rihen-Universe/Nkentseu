@@ -41,6 +41,23 @@ namespace nkentseu {
 		};
 
 		// ── Description de session ───────────────────────────────────────────
+		// ── Réglages du casque SIMULÉ ────────────────────────────────────────
+		struct NkXrSimulatorConfig {
+			// Pose figée : pour les captures reproductibles (les entrées sont
+			// alors ignorées). Angles en DEGRÉS, position en mètres.
+			bool poseFixed = false;
+			float32 yawDegrees = 0.f;
+			float32 pitchDegrees = 0.f;
+			NkVec3f position{ 0.f, 1.70f, 0.f };
+			// FOV imposé (sinon symétrique, dérivé de l'aspect de la fenêtre).
+			bool fovOverride = false;
+			NkXrFov fov{};
+			float32 eyeHeightMeters = 1.70f;
+			float32 moveSpeed = 2.5f;      ///< m/s
+			float32 latencySeconds = 0.f;  ///< latence de tracking simulée
+			float32 displayHz = 72.f;
+		};
+
 		struct NkXrSessionDesc {
 			NkXrBackendType backend = NkXrBackendType::NK_XR_BACKEND_SIMULATOR;
 			// Fenêtre hôte du simulateur (stéréo côte à côte + souris/clavier).
@@ -51,7 +68,28 @@ namespace nkentseu {
 			// Profondeur de la projection recommandée par GetSystemInfo — le
 			// backend n'impose rien, il mémorise pour qui la lui demande.
 			bool depthZeroToOne = false;
+
+			// ── Réglages de restitution ──────────────────────────────────────
+			// TOUT est un champ : une application (ou son interface de
+			// réglages) doit pouvoir tout piloter par le code. Les variables
+			// d'environnement ne sont qu'une COUCHE optionnelle par-dessus
+			// (NkXrApplyEnvOverrides) réservée au développement.
+			float32 renderScale = 0.85f;         ///< × la taille recommandée par œil
+			bool halfRate = true;                ///< verrou demi-cadence (régularité)
+			bool submitDepthLayer = true;        ///< profondeur au compositeur
+			float32 requestedRefreshRateHz = 0.f;///< 0 = laisser le runtime décider
+			// Chemin d'un loader OpenXR à charger en priorité (nullptr = auto).
+			const char *openXrLoaderPath = nullptr;
+			bool listExtensions = false;         ///< journaliser les extensions du runtime
+
+			NkXrSimulatorConfig simulator;
 		};
+
+		// Applique par-dessus une description les variables d'environnement de
+		// développement (NK_XR_*). EXPLICITE et OPTIONNEL : une application de
+		// production ne l'appelle pas et garde le contrôle total par le code ;
+		// un développeur l'appelle pour régler sans recompiler.
+		void NkXrApplyEnvOverrides(NkXrSessionDesc &desc);
 
 		// ── Liaison graphique Vulkan (étape 2b) ──────────────────────────────
 		// Le runtime d'un casque impose ses conditions au device Vulkan : des
