@@ -46,10 +46,29 @@ NKXR ; rien ici ne sera fait sans elle.
 
 **Exigence de Rihen (2026-08-10) — ANTI-ALIASING performant en XR** : en
 casque, l'aliasing scintille à chaque micro-mouvement de tête ; le FXAA actuel
-ne suffira pas à terme. Pistes à instruire au moment du chantier qualité XR :
-MSAA sur les cibles d'œil (forward), TAA (attention aux fantômes en stéréo :
-deux historiques indépendants obligatoires), supersampling par œil +
-compositeur. À arbitrer avec ce chantier-ci, pas en silo.
+ne suffira pas à terme.
+
+### ⚠️ Constat 2026-08-12 (agent NKXR) — `NkRendererConfig::msaaSamples` est un champ MORT
+`grep` sur tout `Kernel/Runtime/NKRenderer/src` : le champ est **déclaré et
+jamais lu**. Le MSAA n'existe donc PAS dans NKRenderer — le brancher n'est pas
+un réglage mais un chantier réel : cibles multi-échantillonnées (couleur ET
+profondeur), attachement de résolution dans les passes qui écrivent
+`mainColor`, post-process qui lit l'image résolue, et le tout sur 4 backends.
+**Rien n'a été touché** ; c'est signalé pour que le champ ne trompe personne
+(un `msaaSamples = 4` dans une config donne aujourd'hui un silence, pas du
+MSAA — le pire des retours).
+
+**Ce que l'agent XR fait en attendant, sans toucher à NKRenderer** :
+supersampling par la résolution (`NK_XR_RENDER_SCALE`, mesuré : 1872×1886 par
+œil tient 68-71 i/s sur Quest 2 + 3070 Laptop) et essai du **TAA existant, un
+historique par œil** — c'est gratuit dans l'architecture XR actuelle puisque
+chaque œil a SON renderer, donc son propre historique : le piège classique du
+TAA stéréo (historique partagé → fantômes) ne peut pas se produire ici.
+
+**Quand le MSAA se fera**, l'ordre proposé : (1) `NkOffscreenDesc.samples` +
+cibles MSAA + résolution dans la passe Geometry ; (2) vérifier les passes qui
+lisent `mainColor`/`mainDepth` (SSAO, planar, bloom) ; (3) exposer via
+`NkRendererConfig::msaaSamples` — enfin vivant. Interlocuteur : agent NKXR.
 
 ---
 
