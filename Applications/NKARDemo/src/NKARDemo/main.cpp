@@ -565,6 +565,19 @@ int nkmain(const NkEntryState &state) {
 	// echec vient de la VISION ou de l'AFFICHAGE.
 	const bool forceSynthetic = (getenv("NK_AR_SYNTH") != nullptr);
 
+	// ── Faire taire le journal une fois le démarrage passé ───────────────────
+	// Le moteur trace chaque passe du graphe et chaque lot de rendu, à chaque
+	// image. C'est précieux à l'initialisation — c'est ce qui a permis de
+	// trouver les shaders manquants et la surface fantôme — et ruineux ensuite :
+	// sur téléphone, chaque ligne est un appel système, et il y en a des
+	// dizaines par image. L'application avance alors au pas.
+	// On garde donc tout jusqu'ici, puis on ne laisse plus passer que ce qui
+	// mérite d'être lu. NK_AR_DEBUG rend la verbosité quand on en a besoin.
+	if (getenv("NK_AR_DEBUG") == nullptr) {
+		logger.Info("[NKARDemo] Demarrage termine — journal reduit aux avertissements (NK_AR_DEBUG pour tout voir).\n");
+		logger.SetLevel(NkLogLevel::NK_WARN);
+	}
+
 	while (running && window.IsOpen()) {
 		events.PollEvents();
 		if (!running) {
