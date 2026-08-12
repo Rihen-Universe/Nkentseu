@@ -88,7 +88,9 @@ namespace nkentseu {
 			// qui rend le repère STABLE et indépendant de la caméra.
 			if (!mHasOrigin) {
 				for (nk_size i = 0; i < tracked.Size(); ++i) {
-					if (!tracked[i].visibleThisFrame) {
+					// Vu à l'instant ET depuis assez longtemps : fonder le monde
+					// sur une détection fugace le condamne pour toute la session.
+					if (!tracked[i].visibleThisFrame || tracked[i].framesTracked < mConfig.minFramesToTrust) {
 						continue;
 					}
 					NkArMapEntry origin;
@@ -181,10 +183,11 @@ namespace nkentseu {
 					if (!marker.visibleThisFrame || FindMapEntry(marker.id) != nullptr) {
 						continue;
 					}
-					// Trop petit à l'image = pose imprécise : l'inscrire
-					// propagerait l'erreur à tout ce qui sera posé ensuite.
-					if (marker.pose.position.Len() > 0.f && marker.framesTracked < 3u) {
-						continue; // laisser le lissage se stabiliser
+					// Même exigence que pour l'origine : une détection fugace
+					// n'entre pas dans la carte. Elle y resterait, et tout ce
+					// qu'on poserait ensuite hériterait de son erreur.
+					if (marker.framesTracked < mConfig.minFramesToTrust) {
+						continue;
 					}
 					NkArMapEntry entry;
 					entry.id = marker.id;
