@@ -10227,6 +10227,48 @@ namespace nkentseu {
 												NkRole::TextMuted);
 									}
 									yy += kRowH;
+									// ── LA MEME GRANDEUR, DEUX VOCABULAIRES ──────────
+									// Blender fait saisir l'INDICE (tabule pour chaque
+									// matiere), Unreal la REFLECTANCE (son « Specular »).
+									// Les deux sont strictement equivalents :
+									//     F0 = ((n-1)/(n+1))^2   et   n = (1+VF0)/(1-VF0)
+									// Rihen : « je veux les deux ». On n'en STOCKE qu'une
+									// (l'indice) et on derive l'autre a l'affichage : deux
+									// valeurs stockees finiraient par diverger.
+									{
+										const float32 r0 = (ior - 1.f) / (ior + 1.f);
+										float32 f0 = r0 * r0;
+										const float32 f00 = f0;
+										p.TextV(iR.x + S(22.f), yy, kRowH, "Reflectance F0",
+												iorOn ? NkRole::Text : NkRole::TextMuted);
+										if (iorOn) {
+											DragFloat(p, hit, ws, in, "props.pm.f0",
+											          {iR.x + S(130.f), yy + S(3.f),
+											           iR.w - S(130.f), kRowH - S(6.f)},
+											          f0, 0.002f, NkRole::AccentUi, "%.3f");
+											if (f0 != f00) {
+												// F0 -> n. Borne a 0.99 : a 1 la formule
+												// diverge (n infini), et une reflectance de
+												// 1 n'existe pas — un miroir parfait non
+												// plus.
+												if (f0 < 0.f)
+													f0 = 0.f;
+												if (f0 > 0.99f)
+													f0 = 0.99f;
+												const float32 sq = (float32)sqrt((double)f0);
+												ior = (1.f + sq) / (1.f - sq);
+												demo::Demo3DHostProjMatSetSurface(selMat, ior,
+												                                  gccR, gsss);
+												NkMarkDirty(st);
+											}
+										} else {
+											char f0Txt[24];
+											snprintf(f0Txt, sizeof(f0Txt), "%.3f (auto)", f0);
+											p.TextV(iR.x + S(130.f), yy, kRowH, f0Txt,
+													NkRole::TextMuted);
+										}
+										yy += kRowH;
+									}
 									if (iorOn && ior != ior0) {
 										// SEULE CONTRAINTE : n > 0. Le facteur de Fresnel,
 										// lui, est borne [0,1] par conservation d'energie —
