@@ -953,9 +953,20 @@ namespace nkentseu {
 		// en recreer un. Supprimer, lui, ne se fait que depuis le navigateur
 		// de projet, et delie alors TOUS les objets porteurs.
 		//
-		// Stockage en indice+1 pour la meme raison que ci-dessus. Huit
-		// emplacements par objet : au-dela, c'est un objet a decouper.
-		static constexpr int32 kNkvpMaxMatsPerNode = 8;
+		// Stockage en indice+1 pour la meme raison que ci-dessus. Le nombre
+		// d'emplacements n'est PAS un chiffre choisi a la main : un objet ne
+		// peut pas porter plus de materiaux qu'il n'en existe dans le projet
+		// (« pourquoi juste 8 ? un modele pourrait avoir un materiau par mesh
+		// ou par espace de vertices », Rihen, 12 aout — et il a raison : un
+		// glTF importe en aligne couramment vingt ou trente). La borne suit
+		// donc celle du projet, et le jour ou l'une monte, l'autre suit.
+		// Cout : 160 noeuds x 64 x 4 o = 40 Ko de statique, negligeable.
+		//
+		// Un materiau PAR FACE (ou par groupe de sommets) viendra plus tard
+		// par-dessus : chaque face portera l'INDICE de son emplacement dans
+		// cette liste — c'est le modele de Blender et de glTF. La liste
+		// elle-meme reste bornee par le projet.
+		static constexpr int32 kNkvpMaxMatsPerNode = kNkvpMaxProjMats;
 		static int32 nkvpNodeMatsP1[kNkvpMaxNodes][kNkvpMaxMatsPerNode] = {};
 
 		// Combien de materiaux cet objet porte-t-il ?
