@@ -109,8 +109,10 @@ namespace nkentseu {
 		}
 
 		bool NkXrSession::SubmitEyes(const NkXrView views[NK_XR_EYE_COUNT], uint64 nativeImageLeft,
-									 uint64 nativeImageRight, uint32 width, uint32 height) {
-			return mBackend->SubmitEyes(views, nativeImageLeft, nativeImageRight, width, height);
+									 uint64 nativeImageRight, uint32 width, uint32 height, uint64 depthLeft,
+									 uint64 depthRight, float32 nearZ, float32 farZ) {
+			return mBackend->SubmitEyes(views, nativeImageLeft, nativeImageRight, width, height, depthLeft, depthRight,
+										nearZ, farZ);
 		}
 
 		NkXrSystemInfo NkXrSession::GetSystemInfo() const {
