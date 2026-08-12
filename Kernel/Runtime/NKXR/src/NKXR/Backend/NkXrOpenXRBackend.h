@@ -53,7 +53,8 @@ namespace nkentseu {
 				// elles + la couche de projection au EndFrame.
 				bool CreateHmdSwapchains(uint32 width, uint32 height) override;
 				bool SubmitEyes(const NkXrView views[NK_XR_EYE_COUNT], uint64 nativeImageLeft,
-								uint64 nativeImageRight, uint32 width, uint32 height) override;
+								uint64 nativeImageRight, uint32 width, uint32 height, uint64 depthLeft,
+								uint64 depthRight, float32 nearZ, float32 farZ) override;
 
 				NkXrSystemInfo GetSystemInfo() const override;
 				NkXrSessionState GetState() const override;
