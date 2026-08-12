@@ -160,11 +160,28 @@ namespace nkentseu {
 						tracked->pose = pose;
 					}
 					else {
-						tracked->pose.position = tracked->pose.position * alpha + pose.position * (1.f - alpha);
+						// ── LISSAGE ADAPTATIF ────────────────────────────────
+						// Un lissage FIXE impose un choix impossible : fort, il
+						// tue le tremblement mais fait TRAÎNER l'objet, qui
+						// semble alors suivre la caméra au lieu de tenir sa
+						// place ; faible, il colle au mouvement mais laisse
+						// vibrer un marqueur immobile. Constaté par Rihen sur
+						// téléphone : « ça marche, mais ça le suit un peu ».
+						//
+						// Les deux cas se séparent par l'AMPLITUDE : le bruit de
+						// mesure est petit, un geste ne l'est pas. On lisse donc
+						// beaucoup les petits écarts et presque pas les grands —
+						// le filtre s'efface dès que le mouvement est réel.
+						const float32 delta = (pose.position - tracked->pose.position).Len();
+						const float32 motion = math::NkClamp(delta / mConfig.motionReferenceMeters, 0.f, 1.f);
+						const float32 adaptive = alpha * (1.f - motion);
+						tracked->pose.position =
+							tracked->pose.position * adaptive + pose.position * (1.f - adaptive);
 						// Slerp et non interpolation composante par composante :
 						// sur les quaternions, la seconde raccourcit les
 						// rotations et fait « accélérer » l'objet au passage.
-						tracked->pose.orientation = tracked->pose.orientation.SLerp(pose.orientation, 1.f - alpha);
+						tracked->pose.orientation =
+							tracked->pose.orientation.SLerp(pose.orientation, 1.f - adaptive);
 						tracked->pose.orientation = tracked->pose.orientation.Normalized();
 					}
 				}
