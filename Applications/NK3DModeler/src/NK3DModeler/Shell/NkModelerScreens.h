@@ -9812,7 +9812,15 @@ namespace nkentseu {
 								sCandSlot[nCand] = mi;
 								++nCand;
 							}
-							static int32 sCandSel = 0;
+							// AU REPOS, AUCUNE LIGNE N'EST CHOISIE (-1). Le combo
+							// ecrit sa selection en FIN DE FRAME, par pointeur : si la
+							// valeur de repos etait 0, choisir « Nouveau materiau... »
+							// — justement en position 0 — n'aurait produit AUCUN
+							// changement, et rien ne se serait passe (« nouveau
+							// materiau ne cree rien », Rihen, 12 aout). Meme piege que
+							// les combos precedents ; on repart donc de -1 apres
+							// chaque action.
+							static int32 sCandSel = -1;
 							const int32 before = sCandSel;
 							// Combo SANS texte ni cadre propre : on redessine par-dessus
 							// l'icone « + », pour que le bouton garde son allure.
@@ -9820,9 +9828,9 @@ namespace nkentseu {
 								  sCandSel, combo, true, true, true);
 							p.Outline(ab, NkRole::Border, NkRole::PanelHeader, 3.f);
 							p.IconV(ab.x + S(5.f), ab.y, ab.h, NkIcon::Add, NkRole::Text, 11.f);
-							if (sCandSel != before) {
+							if (sCandSel != before && sCandSel >= 0) {
 								const int32 pick =
-									(sCandSel >= 0 && sCandSel < nCand) ? sCandSlot[sCandSel] : -1;
+									(sCandSel < nCand) ? sCandSlot[sCandSel] : -1;
 								if (pick < 0) {
 									// NOUVEAU : cree et associe. Le nom et le dossier
 									// restent a demander — il nait dans le dossier
@@ -9835,7 +9843,8 @@ namespace nkentseu {
 									// nouveau fichier.
 									(void)demo::Demo3DHostNodeMatAdd(actN, pick);
 								}
-								sCandSel = 0;
+								sCandSel = -1; // retour au repos : la prochaine
+								               // selection sera vue, meme identique
 								NkMarkDirty(st);
 							}
 						}
