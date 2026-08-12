@@ -460,6 +460,14 @@ int nkmain(const NkEntryState &state) {
 			// rendue une fois PAR ŒIL tant que le graphe n'est pas partagé.
 			cfgEye.shadow.resolution = uint32(EnvU64("NK_XR_SHADOW_RES", 1024));
 			cfgEye.shadow.cascadeCount = uint32(EnvU64("NK_XR_SHADOW_CASCADES", 2));
+			// TAA en VR : le piège habituel est l'historique PARTAGÉ entre les
+			// deux yeux (fantômes garantis). Ici il ne peut pas se produire —
+			// chaque œil a SON renderer, donc son propre historique. Le vrai
+			// risque restant est le trainage sous rotation de tête : c'est un
+			// jugement d'œil, d'où l'interrupteur. NK_XR_TAA=1 pour essayer.
+			// (Le MSAA, lui, n'existe pas dans NKRenderer — champ mort,
+			// signalé dans sa ROADMAP ; c'est un chantier à coordonner.)
+			cfgEye.postProcess.taa = (EnvU64("NK_XR_TAA", 0) != 0);
 		}
 		rEye[e] = NkRenderer::Create(device, cfgEye);
 		if (rEye[e] == nullptr) {

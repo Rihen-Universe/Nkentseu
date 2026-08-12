@@ -253,10 +253,14 @@ Repères mesurés (Quest 2 via Link + RTX 3070 Laptop bridée à 1100 MHz) :
 | **0,9** | **1872×1886** | **68-71 i/s** | 9-11 ms / 11 ms |
 | 1,0 | 2080×2096 | 32-42 i/s | 11-12 ms / 7-18 ms |
 
-**Anti-aliasing** : aujourd'hui, l'arme disponible est la résolution
-(`NK_XR_RENDER_SCALE`) — le compositeur filtre en distordant pour les
-lentilles, ce qui lisse. Le MSAA par œil demande un travail dans NKRenderer
-(note de coordination posée dans sa ROADMAP).
+### Anti-aliasing : ce qui marche, ce qui ne marche pas (mesuré)
+
+| Technique | Verdict | Mesure |
+|---|---|---|
+| **Résolution** (`NK_XR_RENDER_SCALE`) | ✅ **la solution actuelle** | 0,9 → 1872×1886/œil à 68-71 i/s. Le compositeur filtre en distordant pour les lentilles : plus de pixels = moins de crénelage, gratuitement. |
+| **TAA** (`NK_XR_TAA=1`) | ❌ trop cher ici | GPU 11 → **27,7 ms**, cadence 68 → **21-25 i/s**. Disponible pour une machine plus puissante ; l'historique est correct (un par œil, car un renderer par œil). |
+| **MSAA** | ⛔ n'existe pas | `NkRendererConfig::msaaSamples` est un champ **jamais lu** dans NKRenderer. Le brancher est un chantier (cibles multi-échantillonnées + résolution dans les passes, 4 backends) — note de coordination posée dans la ROADMAP de NKRenderer. |
+| **FXAA** | 🔶 actif, insuffisant seul | Lisse un peu, ne tient pas contre le scintillement d'un casque. |
 
 ---
 
