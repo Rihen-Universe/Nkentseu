@@ -13864,6 +13864,14 @@ namespace nkentseu {
 			if ((int32)nkvpProjMats[i].matType == type)
 				return;
 			nkvpProjMats[i].matType = (uint8)(type < 0 ? 0 : (type > 255 ? 0 : type));
+			// UN TYPE EST UN PREREGLAGE (decision d'architecture du 12 aout) :
+			// choisir « Verre » doit donner une VITRE tout de suite, sans aller
+			// chercher un curseur. On ne pose ce defaut que si l'opacite n'a
+			// jamais ete touchee (exactement 1) — un reglage voulu se garde.
+			// L'opacite reste ensuite pleinement reglable : a 1 on obtient un
+			// verre teinte/laque, opaque MAIS qui reflete toujours.
+			if (type == 5 /* NK_GLASS */ && nkvpProjMats[i].alpha >= 0.999f)
+				nkvpProjMats[i].alpha = 0.12f;
 			HostMatRebuildEngine(i); // changer de type = changer de gabarit
 		}
 		void Demo3DHostProjMatPBRExtra(int32 i, float32 *alpha, float32 *aniso,
