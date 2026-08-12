@@ -503,7 +503,7 @@ int nkmain(const NkEntryState &state) {
 		}
 	});
 	bool surfaceReady = true;
-	bool surfaceRecreatePending = false;
+	bool surfaceCheckPending = false;
 	// ── Mise en arrière-plan et retour (Android) ─────────────────────────────
 	// Quand l'application passe en arrière-plan, le système DÉTRUIT la surface
 	// d'affichage. Continuer à dessiner dessus ne produit rien, et au retour la
@@ -513,14 +513,16 @@ int nkmain(const NkEntryState &state) {
 	// travail se fait dans la boucle. Recréer une chaîne d'échange au milieu du
 	// traitement d'un événement, c'est le faire pendant qu'une image est
 	// peut-être en vol — la leçon a déjà été payée sur DX12.
-	events.AddEventCallback<NkWindowHiddenEvent>([&](NkWindowHiddenEvent *) {
-		surfaceReady = false;
-		logger.Info("[NKARDemo] Surface masquee — on cesse de dessiner.");
-	});
-	events.AddEventCallback<NkWindowShownEvent>([&](NkWindowShownEvent *) {
-		surfaceRecreatePending = true;
-		logger.Info("[NKARDemo] Surface revenue — recreation demandee.");
-	});
+	// ⚠️ L'ÉVÉNEMENT NE DÉCIDE PAS, IL INVITE À VÉRIFIER.
+	// Le système émet un « masqué » au moment même du lancement — piège déjà
+	// payé ailleurs dans ce dépôt avec le redimensionnement parasite au
+	// démarrage. Croire l'événement sur parole faisait cesser le dessin à la
+	// première image, et l'application ne revenait jamais : elle avait l'air de
+	// planter. On se fie donc à la SURFACE elle-même, dont la taille tombe à
+	// zéro quand elle disparaît vraiment ; l'événement ne fait que déclencher
+	// la vérification.
+	events.AddEventCallback<NkWindowHiddenEvent>([&](NkWindowHiddenEvent *) { surfaceCheckPending = true; });
+	events.AddEventCallback<NkWindowShownEvent>([&](NkWindowShownEvent *) { surfaceCheckPending = true; });
 
 	// Redressement de l'image caméra, en degrés (0, 90, 180, 270).
 	// La valeur vient du PILOTE, pas d'une supposition : NkCameraDevice porte
@@ -571,22 +573,30 @@ int nkmain(const NkEntryState &state) {
 		total += clock.Tick().delta;
 		++frameIndex;
 
-		// Recréation de la surface, faite ICI et non dans l'événement : aucune
-		// image ne peut être en vol à ce point de la boucle. La taille est
-		// relue à la source — au retour d'arrière-plan, l'appareil peut avoir
-		// changé d'orientation pendant l'absence.
-		if (surfaceRecreatePending) {
-			surfaceRecreatePending = false;
-			const NkVec2u size = window.GetSize();
-			if (size.x >= 64u && size.y >= 64u) {
-				W = size.x;
-				H = size.y;
+		// ── État RÉEL de la surface ──────────────────────────────────────────
+		// On interroge la surface, pas l'événement : c'est sa taille — nulle
+		// quand elle n'existe plus — qui fait foi. Vérifier à chaque image
+		// coûte une lecture et évite de dépendre de l'ordre d'arrivée des
+		// notifications, qui n'est garanti nulle part.
+		{
+			const NkSurfaceDesc surf = window.GetSurfaceDesc();
+			const bool alive = (surf.width >= 64u && surf.height >= 64u);
+			if (alive && !surfaceReady) {
+				// Retour d'arrière-plan : la surface est NEUVE. La chaîne
+				// d'échange doit être refaite, ici, hors de tout événement et
+				// alors qu'aucune image n'est en vol.
+				W = surf.width;
+				H = surf.height;
 				renderer->OnResize(W, H);
+				logger.Infof("[NKARDemo] Surface revenue : %ux%u — chaine d'echange refaite.\n", W, H);
 			}
-			surfaceReady = true;
-			logger.Infof("[NKARDemo] Surface recreee : %ux%u.\n", W, H);
+			else if (!alive && surfaceReady) {
+				logger.Info("[NKARDemo] Surface disparue — on cesse de dessiner.\n");
+			}
+			surfaceReady = alive;
+			surfaceCheckPending = false;
 		}
-		// Surface détruite : on n'ouvre pas d'image. Dessiner dans le vide
+		// Surface absente : on n'ouvre pas d'image. Dessiner dans le vide
 		// gaspille la batterie et, sur certains pilotes, finit par faire tomber
 		// le périphérique.
 		if (!surfaceReady) {
