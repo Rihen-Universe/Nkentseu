@@ -65,3 +65,36 @@ travers, 1 = opaque).
    objet de scène).
 
 À faire comme option du panneau Rendu, à côté de la grille.
+
+## 4. Tout réglage doit être PROGRAMMABLE — l'environnement n'est qu'une couche (2026-08-12)
+
+**Décision de Rihen**, valable pour **tout Nkentseu** : VR, AR, MR, et n'importe
+quelle autre application du moteur.
+
+**La règle** : tout réglage exposé par un module DOIT être un **champ de
+configuration** que le code peut poser. Une variable d'environnement n'est
+jamais l'unique moyen d'atteindre un réglage.
+
+**Pourquoi** : une variable d'environnement est un outil de développeur — elle
+se pose avant le lancement, ne se change pas en cours d'exécution, n'apparaît
+dans aucune interface, ne se sérialise pas dans un projet, et ne s'anime pas.
+Un produit livré (le simulateur Camrail, un éditeur, un jeu) doit régler la
+résolution de rendu, la cadence ou la qualité **depuis son interface**, pas en
+relançant le programme avec un environnement différent. Un module qui va
+chercher un `getenv` en douce rend son application **non pilotable**, et le
+défaut est invisible tant qu'on développe en ligne de commande.
+
+**La forme retenue** (modèle : `NkXrSessionDesc` + `NkXrApplyEnvOverrides`) :
+1. une **structure de configuration** porte tous les réglages, avec des défauts
+   sains ;
+2. une fonction **explicite et optionnelle** applique par-dessus les variables
+   d'environnement (`NkXxxApplyEnvOverrides`) ; une application de production
+   peut simplement ne pas l'appeler ;
+3. **aucun `getenv` ailleurs** — regroupés en un seul fichier, on lit d'un coup
+   d'œil tout ce que l'environnement peut changer ;
+4. ce qui peut changer **en cours d'exécution** reçoit en plus un accesseur sur
+   l'objet vivant (ex. cadence d'affichage), et non seulement à la création.
+
+**Lien avec le principe n°2** (« tout paramètre réglable doit être animable ») :
+c'en est le préalable. Un réglage qui n'est pas atteignable par le code ne peut
+évidemment pas recevoir de clé d'animation.
