@@ -41,7 +41,11 @@ SIMULATEUR desktop + démo `NKXRDemo` (stéréo côte à côte, souris = tête),
 | 2a — En-têtes OpenXR 1.1.49 (Externals, Apache 2.0 au registre) + loader DYNAMIQUE + découverte runtime actif + instance/système/tailles — **PROUVÉ sur Quest 2 réel** (« Oculus Quest2 — 2080x2096 par œil », Link, 2026-08-11) | ✅ | — | — |
 | 2b.1 — Liaison Vulkan (XR_KHR_vulkan_enable + crochet NKRHI pickPhysicalDevice), session réelle, états pilotés par le runtime, xrWaitFrame/Begin/End (sans couches), xrLocateViews/xrLocateSpace — **PROUVÉ sur Quest 2** (session créée, 300 frames, 2026-08-11) | ✅ | — | — |
 | 2b.2 — Swapchains Vulkan du runtime + soumission des couches → l'IMAGE dans le casque (échelle de rendu réglable dès le départ) | ❌ | L | P1 |
-| 2b.3 — Actions réelles (xrSuggestInteractionProfileBindings, manettes Touch) | ❌ | M | P2 |
+| 2b.3 — Actions réelles : profils Touch + simple, états bool/float/vec2, poses de main 6DoF, HAPTIQUE, locomotion stick (démo : main dessinée) | ✅ | — | — |
+| Validation Rihen : manettes en main — **OK 2026-08-12** (« c'est bon pour l'instant ») | ✅ | — | — |
+| Main GAUCHE symétrique : usages _LEFT (pose/grab/haptique) + liaisons — indispensable Camrail (pupitre à deux mains) | ❌ | S | P2 |
+| Vraies mains sans manettes : XR_EXT_hand_tracking (26 articulations/main) | ❌ | M | P2 |
+| Accessoires en main : maillage quelconque sur AIM/GRIP (arme, gant, levier) — boucle NK3DModeler → VR | ❌ | S | P3 |
 | Actions → profils d'interaction (traduction usage → chemins, DANS le backend) | ❌ | M | P2 |
 | APK Quest 2 via la chaîne jenga Android existante | ❌ | M | P1 |
 | Pico (même code, second runtime = preuve de portabilité) | ❌ | S | P3 |
