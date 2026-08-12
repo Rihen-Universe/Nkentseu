@@ -6290,9 +6290,15 @@ namespace nkentseu {
 				// marge ajoutee section par section aurait fini par diverger.
 				float32 yy = secY - st.propScroll3[sec] + S(8.f);
 
-				if ((sec == 0 || sec == 3) && !hasSel5) {
-					// Sans objet, Modele et Modificateur le DISENT au lieu de se
-					// fermer : le panneau n'obeit plus qu'a la main (Rihen).
+				// MATERIAU : sa pastille exige un OBJET (une lumiere n'a pas de
+				// surface). Elle disparaissait donc a la deselection, mais le
+				// PANNEAU restait affiche — une section dont l'onglet n'existe
+				// plus (Rihen, 12 aout). Il le DIT desormais, comme Modele et
+				// Modificateur. Pas de fermeture automatique : le panneau
+				// n'obeit qu'a la main, regle posee le 11 aout.
+				const bool secOrphelin =
+					((sec == 0 || sec == 3) && !hasSel5) || (sec == 4 && !hasObj5);
+				if (secOrphelin) {
 					p.TextV(r.x + NkPropInset(), yy, kRowH, "Aucune selection",
 							NkRole::TextMuted);
 					yy += kRowH;
@@ -9746,6 +9752,16 @@ namespace nkentseu {
 							p.IconV(rb.x + S(5.f), rb.y, rb.h, NkIcon::MinusCircle,
 									en ? NkRole::Text : NkRole::TextMuted, 11.f);
 							if (en && hit.Clicked("props.pm.del") && selMat >= 0) {
+								// NE TOUCHE PAS AU FICHIER. Ce bouton retire
+								// l'emplacement de la liste ; le .nkmat reste sur le
+								// disque, et le chargement le retrouve — c'est
+								// pourquoi un materiau « retire » reparait au
+								// relancement (Rihen, 12 aout). Le comportement juste
+								// depend de ce que ce bouton doit VOULOIR DIRE :
+								// delier de l'objet, ou supprimer du projet. Effacer
+								// le fichier sans cette reponse serait destructif —
+								// on s'en abstient tant que la question n'est pas
+								// tranchee.
 								demo::Demo3DHostProjMatDelete(selMat);
 								if (st.projMatSel > 0)
 									--st.projMatSel;
