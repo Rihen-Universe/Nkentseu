@@ -62,6 +62,151 @@ davantage là où ça compte}. UCB1 est la densité $p$, et l'arbre se construit
 lui-même autour des branches qui le méritent.
 \end{nkretenir}
 
+\section{D'où vient la valeur d'un nœud}
+
+C'est la question qu'il faut se poser, et sa réponse n'a rien d'évident :
+\emph{comment un système peut-il savoir qu'un nœud vaut mieux qu'un autre,
+alors que ses parties sont jouées n'importe comment ?}
+
+\subsection{Deux nombres, et rien d'autre}
+
+Un nœud ne stocke aucune connaissance du jeu. Il porte \textbf{deux compteurs} :
+
+\begin{center}
+\begin{tabular}{@{}llp{7.4cm}@{}}
+\toprule
+$n_i$ & visites & combien de fois on est passé par ce nœud \\
+$w_i$ & score cumulé & la somme des résultats des parties passées par lui \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+La valeur estimée du nœud est leur rapport, $w_i / n_i$ : son \textbf{taux de
+victoire}. C'est tout. Aucune règle experte, aucune évaluation de position —
+deux entiers mis à jour par la rétropropagation.
+
+\subsection{Pourquoi des parties jouées au hasard informent quand même}
+
+L'objection est légitime : une partie aléatoire n'a rien à voir avec une partie
+bien jouée. Son résultat ne dit donc \emph{rien} sur la valeur réelle de la
+position. Trois raisons font que ça marche malgré tout.
+
+\paragraph{1. On ne mesure pas une valeur, on compare des frères.}
+Le taux de victoire absolu ne veut rien dire : une position qui gagne 70 \% des
+parties aléatoires perdrait peut-être toujours contre un joueur parfait. Mais
+\textbf{les deux positions comparées sont évaluées avec la même méthode
+stupide}. Le biais est commun aux deux, donc il s'annule dans la comparaison.
+Ce qui reste, c'est l'écart — et l'écart, lui, est informatif.
+
+\paragraph{2. Une position vraiment gagnante a plus de chemins vers la victoire.}
+C'est le fondement statistique. Si vous avez une pièce d'avance, la
+\emph{proportion} de continuations qui finissent bien pour vous est plus
+élevée — y compris parmi les continuations médiocres. Les simulations
+échantillonnent l'espace des suites possibles, et la densité de victoires dans
+cet espace est une image bruitée, mais corrélée, de la qualité réelle.
+
+\paragraph{3. Le hasard s'efface à mesure que l'arbre grandit.}
+C'est le mécanisme le plus important, et le plus souvent manqué. Au tout début,
+une simulation est faite à 100 \% de coups aléatoires. Mais chaque itération
+allonge l'arbre, et la \textbf{phase de sélection} remplace les premiers coups
+aléatoires par des coups \emph{choisis} par UCB1.
+
+\begin{center}
+\begin{tabular}{@{}rll@{}}
+\toprule
+\textbf{Itération} & \textbf{Début de la partie} & \textbf{Fin de la partie} \\
+\midrule
+1        & aléatoire            & aléatoire \\
+100      & 2--3 coups choisis   & aléatoire \\
+10\,000  & 15--20 coups choisis & aléatoire \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}[L'arbre transforme progressivement le hasard en jeu]
+Les statistiques d'un nœud très visité ne reposent presque plus sur du hasard :
+elles reposent sur des parties dont le début a été \emph{réfléchi} par l'arbre
+lui-même. La qualité de l'évaluation s'améliore donc toute seule, sans qu'on
+ait écrit la moindre règle de jeu.
+
+C'est ce qui distingue MCTS d'un simple sondage aléatoire : le sondage ne
+s'améliore jamais, MCTS s'améliore à chaque itération.
+\end{nkretenir}
+
+\subsection{Un exemple chiffré, à faire à la main}
+
+Un nœud parent a été visité $N = 100$ fois, et porte trois coups. Prenons
+$c = \sqrt{2} \approx 1{,}414$, et rappelons que $\ln 100 \approx 4{,}605$.
+
+\begin{center}
+\begin{tabular}{@{}clllc@{}}
+\toprule
+\textbf{Coup} & \textbf{Visites} & \textbf{Taux} & \textbf{Curiosité} & \textbf{UCB1} \\
+\midrule
+A & 60 & 0,70 & $1{,}414\sqrt{4{,}605/60} = 0{,}392$  & 1,092 \\
+B & 30 & 0,60 & $1{,}414\sqrt{4{,}605/30} = 0{,}554$  & 1,154 \\
+C & 10 & 0,70 & $1{,}414\sqrt{4{,}605/10} = 0{,}960$  & \textbf{1,659} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Lisez ce tableau attentivement, il contient tout le comportement de MCTS :
+
+\begin{itemize}
+  \item \textbf{C est choisi}, bien qu'il ait le même taux que A. Pourquoi ?
+        Parce qu'il n'a été vu que dix fois : son 0,70 n'est pas fiable, et la
+        curiosité impose d'aller vérifier ;
+  \item \textbf{B passe devant A} alors qu'il gagne moins souvent. Même
+        raison : deux fois moins de visites, donc deux fois plus de doute ;
+  \item \textbf{A, le plus visité, est le moins prioritaire} — non parce qu'il
+        est mauvais, mais parce qu'on sait déjà ce qu'il vaut. Continuer à
+        l'explorer n'apprendrait plus rien.
+\end{itemize}
+
+\begin{nkretenir}[UCB1 ne choisit pas le meilleur coup, il choisit le plus utile à essayer]
+La formule ne répond pas à « quel coup est le meilleur ? » mais à « quel coup
+m'apprendra le plus, sachant ce que je sais déjà ? ». Le meilleur coup, on ne
+le désigne qu'\textbf{à la toute fin}, quand le budget est épuisé.
+
+Conséquence importante : \textbf{aucun coup n'est jamais définitivement
+abandonné}. Le terme de curiosité grossit tant qu'un coup n'est pas visité,
+donc il finira toujours par être re-testé. C'est ce qui empêche MCTS de passer
+à côté d'un bon coup sur un mauvais démarrage.
+\end{nkretenir}
+
+\subsection{On ne compare jamais que des frères}
+
+Détail technique, mais il évite une confusion tenace : UCB1 ne compare
+\textbf{que les enfants d'un même parent}. Jamais un nœud profond avec un nœud
+peu profond, jamais deux nœuds de branches différentes.
+
+C'est ce qui rend le terme $\ln N$ correct : $N$ est le nombre de visites
+\emph{du parent}, donc la même référence pour tous les frères comparés. Une
+comparaison globale n'aurait aucun sens, puisque des nœuds situés à des
+profondeurs différentes ne représentent pas des choix alternatifs.
+
+\subsection{Est-ce que ça converge vraiment ?}
+
+Oui, et c'est démontré. Kocsis et Szepesvári ont établi en 2006 que, avec
+UCB1 comme règle de sélection, la valeur estimée d'un nœud \textbf{converge
+vers sa valeur minimax} quand le nombre d'itérations tend vers l'infini.
+
+Autrement dit : MCTS n'est pas une heuristique bricolée qui marcherait par
+chance. C'est un algorithme qui tend vers le jeu \emph{parfait} — simplement, il
+y tend lentement. Avec un budget fini, on obtient une approximation ; et cette
+approximation est d'autant meilleure que le budget est grand, sans jamais avoir
+besoin de savoir évaluer une position.
+
+\begin{nkpiege}[Le taux de victoire d'un nœud peu visité ne vaut rien]
+Un coup vu 2 fois avec 2 victoires affiche 100 \% : c'est le meilleur taux de
+tout l'arbre, et cela ne veut strictement rien dire.
+
+C'est précisément pour cette raison que le coup final rendu est le \textbf{plus
+visité}, et non le mieux noté. Le nombre de visites est une statistique stable :
+il traduit la confiance qu'UCB1 a accordée à ce coup des milliers de fois de
+suite. Un taux de victoire, lui, peut être un accident.
+\end{nkpiege}
+
 \section{Les quatre phases, répétées en boucle}
 
 \begin{enumerate}
