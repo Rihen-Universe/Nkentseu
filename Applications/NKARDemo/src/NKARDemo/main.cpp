@@ -248,6 +248,7 @@ int nkmain(const NkEntryState &state) {
 	float32 total = 0.f;
 	uint64 frameIndex = 0;
 	const uint64 exitFrame = (getenv("NK_AR_EXIT") != nullptr) ? uint64(atoll(getenv("NK_AR_EXIT"))) : 0u;
+	const uint64 dumpFrame = (getenv("NK_AR_DUMP") != nullptr) ? uint64(atoll(getenv("NK_AR_DUMP"))) : 0u;
 
 	while (running && window.IsOpen()) {
 		events.PollEvents();
@@ -411,6 +412,38 @@ int nkmain(const NkEntryState &state) {
 
 		renderer->Present();
 		renderer->EndFrame();
+
+		// ── Vidage de diagnostic : ce que le detecteur VOIT ─────────────────
+		// Une image du gris et une du masque seuille : si le marqueur est
+		// lisible sur la premiere mais absent de la seconde, le probleme est
+		// le SEUILLAGE ; s'il manque aux deux, c'est l'optique ou le cadrage.
+		if (dumpFrame != 0 && frameIndex == dumpFrame) {
+			NkImage img;
+			if (img.Create(arWidth, arHeight, math::NkColor(0, 0, 0, 255), 4)) {
+				uint8 *px = img.Pixels();
+				const uint8 *gray = arSession.GetGray();
+				if (gray != nullptr) {
+					for (uint32 i = 0; i < arWidth * arHeight; ++i) {
+						px[i * 4u + 0u] = gray[i];
+						px[i * 4u + 1u] = gray[i];
+						px[i * 4u + 2u] = gray[i];
+						px[i * 4u + 3u] = 255;
+					}
+					img.SaveToFile("nkar_diag_gris.png");
+				}
+				const uint8 *mask = arSession.GetMask();
+				if (mask != nullptr) {
+					for (uint32 i = 0; i < arWidth * arHeight; ++i) {
+						px[i * 4u + 0u] = mask[i];
+						px[i * 4u + 1u] = mask[i];
+						px[i * 4u + 2u] = mask[i];
+						px[i * 4u + 3u] = 255;
+					}
+					img.SaveToFile("nkar_diag_masque.png");
+				}
+				logger.Infof("[NKARDemo] Diagnostic ecrit : nkar_diag_gris.png et nkar_diag_masque.png.\n");
+			}
+		}
 
 		if (exitFrame != 0 && frameIndex >= exitFrame) {
 			running = false;
