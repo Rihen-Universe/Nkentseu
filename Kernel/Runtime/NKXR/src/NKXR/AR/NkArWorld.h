@@ -68,6 +68,18 @@ namespace nkentseu {
 			// imprécise : l'inscrire dans la carte propagerait l'erreur à tout
 			// ce qui sera posé ensuite. On exige une taille minimale à l'image.
 			float32 minEdgePixelsToMap = 60.f;
+			// Nombre d'images consécutives pendant lesquelles un marqueur doit
+			// être vu AVANT qu'on ne lui confie quoi que ce soit.
+			//
+			// Ce garde-fou n'est pas un luxe : fonder l'origine du monde est un
+			// engagement pour toute la session, et une détection fugace suffit
+			// à le prendre. Mesuré sur téléphone le 2026-08-12 — le monde s'est
+			// fondé sur un « marqueur 0 » qui n'existe pas, alors que le vrai
+			// portait le numéro 45. Tout en découlait : l'objet ancré sur un
+			// fantôme, incapable de coller au vrai marqueur, et paraissant
+			// suivre la caméra. Une fausse détection est fugace ; un vrai
+			// marqueur persiste. Exiger la durée les sépare sans rien coûter.
+			uint32 minFramesToTrust = 5;
 			// Suivre la ROTATION de la caméra par l'image quand aucun marqueur
 			// n'est visible. Sans cela, l'objet reste collé à l'écran dès qu'on
 			// pivote — le défaut le plus voyant de l'AR par marqueurs. Ne couvre
