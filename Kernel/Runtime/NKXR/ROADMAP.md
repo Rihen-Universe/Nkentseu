@@ -117,6 +117,28 @@ du cas « EndFrame avec image encore acquise »).
   `NK_XR_SHOT_PREFIX`, `NK_XR_EXIT` ; animation cadencée sur l'index de frame
   (déterminisme des captures).
 
+## 🎯 PLAN DE REPRISE (arrêté avec Rihen, 2026-08-12) — dans cet ordre
+
+1. **ANTI-ALIASING** *(priorité n°1 absolue)* — que tout devienne lisse dans le
+   casque. Trois leviers, du moins au plus intrusif : supersampling
+   (`NK_XR_RENDER_SCALE` ≥ 1,2 — zéro code, coûte du GPU, donc dépend de 2-3) ;
+   **MSAA sur les cibles d'œil** (le bon outil en forward — touche la création
+   des cibles et les passes → note de coordination NKRenderer) ; TAA stéréo
+   (⚠️ DEUX historiques, un par œil, sinon fantômes garantis).
+2. **`XR_KHR_visibility_mask`** — le runtime donne le maillage des zones
+   INVISIBLES à travers la lentille (~15-25 % des pixels). Ne pas les rendre =
+   GPU gagné **sans rien perdre à l'écran** : meilleur rapport gain/risque vers
+   le 72 Hz, et il finance l'anti-aliasing du point 1. Découpage : la
+   géométrie du masque s'expose côté NKXR (autonome) ; sa consommation
+   (prepasse profondeur/stencil) vit dans NKRenderer → coordination.
+3. **`XR_META_performance_metrics`** — timings CPU/GPU du compositeur :
+   mesurer d'où vient le coût au lieu de le supposer. Entièrement NKXR, à
+   faire AVANT les optimisations lourdes pour les piloter par la mesure.
+4. **`XR_FB_display_refresh_rate`** — choisir la cadence (72/80/90) au lieu de
+   la subir ; un 72 tenu vaut mieux qu'un 90 raté. Entièrement NKXR.
+5. Puis : graphe partagé deux-vues (ombres/culling ×1), profondeur soumise au
+   compositeur, intégration Noge, main gauche `_LEFT` (requis Camrail).
+
 ## En cours / TODO immédiat
 - ⏳ Validation Rihen de l'étage 1 (frustum décentré) — preuves : FOV symétrique
   = 0,000 % d'écart avec la référence à travers TOUT le pipeline ; FOV
