@@ -9779,69 +9779,64 @@ namespace nkentseu {
 						const float32 bx = lst.x + lst.w + S(4.f);
 						{
 							const NkRect ab{bx, lst.y, colW, S(20.f)};
-							const bool ovA = hit.Add("props.pm.add", ab);
-							p.Outline(ab, ovA ? NkRole::AccentUi : NkRole::Border,
-									  NkRole::PanelHeader, 3.f);
+							// ── LE « + » EST LUI-MEME LE SELECTEUR ──────────────
+							// Rihen : « quand j'appuie sur +, c'est comme si le
+							// selecteur etait dessine derriere, je ne le vois plus ».
+							// Exact : un champ pose sous la liste se faisait recouvrir
+							// par la suite du panneau. On ne pose donc AUCUN champ :
+							// le bouton porte le combo, et son menu s'ouvre par-dessus
+							// tout, puisque les popups sont rendus en fin de frame.
+							//
+							// Le menu propose « Nouveau materiau... », puis les
+							// materiaux du PROJET qui ne sont pas deja sur cet objet —
+							// proposer un doublon n'aurait aucun sens.
+							static char sCandNm[65][32];
+							static const char *sCandPtr[65];
+							static int32 sCandSlot[65];
+							snprintf(sCandNm[0], 32, "%s", "Nouveau materiau...");
+							sCandPtr[0] = sCandNm[0];
+							sCandSlot[0] = -1;
+							int32 nCand = 1;
+							for (int32 mi = 0; mi < 64 && nCand < 65; ++mi) {
+								char nm4[64];
+								if (!demo::Demo3DHostProjMatInfo(mi, nm4, sizeof(nm4), nullptr,
+																 nullptr, nullptr))
+									continue;
+								bool deja = false;
+								for (int32 k = 0; k < nMats && !deja; ++k)
+									deja = (sMatIdx[k] == mi);
+								if (deja)
+									continue;
+								snprintf(sCandNm[nCand], 32, "%s", nm4);
+								sCandPtr[nCand] = sCandNm[nCand];
+								sCandSlot[nCand] = mi;
+								++nCand;
+							}
+							static int32 sCandSel = 0;
+							const int32 before = sCandSel;
+							// Combo SANS texte ni cadre propre : on redessine par-dessus
+							// l'icone « + », pour que le bouton garde son allure.
+							Combo(p, hit, ws, "props.pm.add", ab, sCandPtr, nullptr, nCand,
+								  sCandSel, combo, true, true, true);
+							p.Outline(ab, NkRole::Border, NkRole::PanelHeader, 3.f);
 							p.IconV(ab.x + S(5.f), ab.y, ab.h, NkIcon::Add, NkRole::Text, 11.f);
-							// ── « + » OUVRE UN CHOIX ────────────────────────────
-							// Rihen : « la liste des materiaux du projet doit etre
-							// affichee SEULEMENT quand on appuie sur plus, pour soit
-							// integrer un materiau existant, soit en creer un
-							// nouveau ». Le menu ne propose donc que les materiaux du
-							// PROJET qui ne sont PAS deja sur cet objet — proposer un
-							// doublon n'aurait aucun sens — precedes de « Nouveau ».
-							static bool sAddOpen = false;
-							if (hit.Clicked("props.pm.add"))
-								sAddOpen = !sAddOpen;
-							if (sAddOpen) {
-								static char sCandNm[65][32];
-								static const char *sCandPtr[65];
-								static int32 sCandSlot[65];
-								snprintf(sCandNm[0], 32, "%s", "Nouveau materiau...");
-								sCandPtr[0] = sCandNm[0];
-								sCandSlot[0] = -1;
-								int32 nCand = 1;
-								for (int32 mi = 0; mi < 64 && nCand < 65; ++mi) {
-									char nm4[64];
-									if (!demo::Demo3DHostProjMatInfo(mi, nm4, sizeof(nm4), nullptr,
-																	 nullptr, nullptr))
-										continue;
-									bool deja = false;
-									for (int32 k = 0; k < nMats && !deja; ++k)
-										deja = (sMatIdx[k] == mi);
-									if (deja)
-										continue;
-									snprintf(sCandNm[nCand], 32, "%s", nm4);
-									sCandPtr[nCand] = sCandNm[nCand];
-									sCandSlot[nCand] = mi;
-									++nCand;
+							if (sCandSel != before) {
+								const int32 pick =
+									(sCandSel >= 0 && sCandSel < nCand) ? sCandSlot[sCandSel] : -1;
+								if (pick < 0) {
+									// NOUVEAU : cree et associe. Le nom et le dossier
+									// restent a demander — il nait dans le dossier
+									// courant sous un nom serialise.
+									const int32 ni = demo::Demo3DHostProjMatCreate();
+									if (ni >= 0 && actN >= 0)
+										(void)demo::Demo3DHostNodeMatAdd(actN, ni);
+								} else if (actN >= 0) {
+									// EXISTANT : integre a l'objet, sans copie ni
+									// nouveau fichier.
+									(void)demo::Demo3DHostNodeMatAdd(actN, pick);
 								}
-								static int32 sCandSel = 0;
-								const int32 before = sCandSel;
-								const NkRect cbR{lst.x, lst.y + lst.h + S(2.f), lst.w,
-												 kRowH - S(4.f)};
-								Combo(p, hit, ws, "props.pm.addc", cbR, sCandPtr, nullptr,
-									  nCand, sCandSel, combo, true, true, true);
-								if (sCandSel != before) {
-									const int32 pick =
-										(sCandSel >= 0 && sCandSel < nCand) ? sCandSlot[sCandSel] : -1;
-									if (pick < 0) {
-										// NOUVEAU : cree, associe, et se donne le nom et
-										// le dossier a l'etape suivante (le materiau
-										// naît dans le dossier courant du navigateur ;
-										// son nom se change dans le champ du panneau).
-										const int32 ni = demo::Demo3DHostProjMatCreate();
-										if (ni >= 0 && actN >= 0)
-											(void)demo::Demo3DHostNodeMatAdd(actN, ni);
-									} else if (actN >= 0) {
-										// EXISTANT : on l'integre a l'objet, sans copie
-										// ni nouveau fichier.
-										(void)demo::Demo3DHostNodeMatAdd(actN, pick);
-									}
-									sCandSel = 0;
-									sAddOpen = false;
-									NkMarkDirty(st);
-								}
+								sCandSel = 0;
+								NkMarkDirty(st);
 							}
 						}
 						{
