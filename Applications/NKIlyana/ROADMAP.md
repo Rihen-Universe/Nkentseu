@@ -233,6 +233,56 @@ actions rejouables et apprenables.
 rejoue, s'annule et s'apprend. Du texte libre ne se vérifie pas — et une IA qui
 agit sans qu'on puisse contrôler son action est exactement ce qu'on ne veut pas.
 
+### 5bis. L'intégrer dans NKCode, NkAnima, NK3DModeler, NKCinema, PV3DE, Noge
+
+Question posée par Rihen le 2026-08-12 : « on pourra facilement l'intégrer
+partout, pour qu'elle manipule directement depuis les binaires ? » Réponse
+mesurée sur le code existant, en séparant ce qui est acquis de ce qui reste.
+
+**Ce qui est DÉJÀ en place** (et qui rend la suite crédible) :
+- `NKGpt` est une **bibliothèque du noyau réutilisable** : son en-tête l'annonce
+  (« n'importe quelle application remplit un `NkGptConfig` »), l'API tient en
+  `Prepare()` + `Generate()`. Une app la lie par `dependson("NKGpt")`.
+- `--parler` charge un modèle avec `resume=false` : **poids seuls, sans corpus
+  ni état d'optimiseur**. C'est déjà le chemin d'inférence.
+- **NKCode a son point de branchement** : `NkAiPanel.h` a un sélecteur de
+  fournisseur dont l'entrée **`2 = IA maison (NkAI)`** existe déjà à côté de
+  Claude et Ollama.
+- **NK3DModeler a son vocabulaire d'actions** : `NkMeshEditOp::{Extrude,
+  ExtrudeEdges, ExtrudeVerts, Delete, Merge, MakeFace, Subdivide, LoopCut,
+  Bevel, Inset, Dissolve, Move}` — annulables, rejouables, journalisables.
+
+**Les trois obstacles RÉELS, dans l'ordre où ils se poseront** :
+
+1. **Le device GPU partagé — le vrai sujet.** NKRenderer tient un device
+   NKRHI ; l'inférence de NKGpt passe par NkTensor, qui prend le sien. Deux
+   devices dans un même processus, c'est le piège déjà documenté pour
+   NKCanvas vs NKRenderer. Trois issues : (a) faire passer l'inférence par le
+   device NKRHI de l'application, (b) inférer sur CPU (lent mais sans conflit),
+   (c) **processus séparé** qui ne reçoit que des observations et ne rend que
+   des commandes typées. La (c) est la plus sûre et découple les cycles de vie
+   — c'est celle à privilégier tant que (a) n'est pas mesuré.
+2. **Il manque un moteur d'INFÉRENCE PUR.** On passe aujourd'hui par
+   `NkGptTrainer`, une classe faite pour entraîner. À mesurer avant d'intégrer :
+   ce qu'elle alloue réellement en mode génération (les poids font 123 Mo ; les
+   moments d'Adam en ajouteraient 247 inutilement). Chantier : `NkGptInference`
+   (poids seuls + KV-cache), ou la garantie mesurée que `resume=false` suffit.
+3. **La capacité, et c'est le point à ne pas enjoliver.** Le modèle 32 M est
+   entraîné sur de la **prose, de l'identité et de la citation**. Il ne sait
+   PAS émettre un `NkMeshEditOp`, et il ne l'apprendra pas par branchement :
+   il faut un **corpus d'actions** (observation → commande) par application.
+   `NKMeshAITest` a prouvé le patron (mesh → traits → politique → commande).
+   « Qu'elle manipule tout ce qu'elle veut » n'est donc ni l'objectif ni
+   atteignable : l'objectif est qu'elle **propose des commandes typées que
+   l'application valide, exécute et sait annuler**.
+
+**Ordre de marche proposé** : (1) mesurer l'empreinte de `--parler` ;
+(2) extraire un `NkIlyanaAgent` partagé (charge le modèle, expose
+`Observer/Proposer`) ; (3) le brancher d'abord sur **NKCode** (son panneau
+attend déjà le fournisseur « IA maison », et le texte y est la sortie
+naturelle) ; (4) puis **NK3DModeler**, première application à ACTION, avec son
+vocabulaire déjà écrit ; (5) les autres suivent le même moule.
+
 ---
 
 ## 6. Ordre de marche
