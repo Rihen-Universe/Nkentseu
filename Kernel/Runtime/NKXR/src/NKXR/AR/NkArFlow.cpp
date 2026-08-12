@@ -252,6 +252,25 @@ namespace nkentseu {
 				candY[kept] = y;
 				++kept;
 			}
+			// Le quota est une PRÉCAUTION contre la monopolisation, pas une
+			// punition. Sur une scène pauvre — mur uni, faible lumière — les
+			// rares points texturés sont naturellement groupés, et le quota les
+			// jetterait alors qu'ils sont tout ce dont on dispose : on se
+			// retrouvait avec dix-neuf points trouvés et zéro retenu, donc
+			// aucune rotation appliquée, donc un objet collé à l'écran.
+			// On ne l'applique donc que si l'on peut se le permettre.
+			if (kept < mConfig.minPointsBeforeQuota) {
+				for (nk_size i = kept; i < candGrad.Size() && kept < mConfig.maxPoints; ++i) {
+					const uint32 g = candGrad[i], x = candX[i], y = candY[i];
+					candGrad[i] = candGrad[kept];
+					candX[i] = candX[kept];
+					candY[i] = candY[kept];
+					candGrad[kept] = g;
+					candX[kept] = x;
+					candY[kept] = y;
+					++kept;
+				}
+			}
 			// Relief médian des points retenus : c'est LUI qui sert de référence
 			// au vote d'immobilité, et non un chiffre décidé d'avance. Par
 			// construction, la moitié des points le franchit toujours — la règle
