@@ -503,6 +503,28 @@ int nkmain(const NkEntryState &state) {
 		}
 	});
 
+	// Redressement de l'image caméra, en degrés (0, 90, 180, 270).
+	// Sur téléphone le capteur est monté de travers : en portrait, l'image
+	// arrive couchée. 90° convient à la très grande majorité des dos d'appareils
+	// Android ; NK_AR_ROTATE permet de trancher les autres cas sans recompiler,
+	// et le réglage reste PROGRAMMABLE (principe n°4) — l'environnement n'est
+	// qu'une couche par-dessus.
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__)
+	uint32 kCameraRotation = 90u;
+#else
+	uint32 kCameraRotation = 0u;
+#endif
+	{
+		const char *rotEnv = getenv("NK_AR_ROTATE");
+		if (rotEnv != nullptr) {
+			const uint32 asked = uint32(atoi(rotEnv));
+			if (asked == 0u || asked == 90u || asked == 180u || asked == 270u) {
+				kCameraRotation = asked;
+			}
+		}
+		logger.Infof("[NKARDemo] Redressement image camera : %u degres.\n", kCameraRotation);
+	}
+
 	NkClock clock;
 	float32 total = 0.f;
 	uint64 frameIndex = 0;
@@ -547,12 +569,20 @@ int nkmain(const NkEntryState &state) {
 				// La résolution obtenue peut différer de celle demandée : c'est
 				// la CAMÉRA qui décide, on s'adapte au lieu de refuser.
 				if (frame.format == NkPixelFormat::NK_PIXEL_RGBA8 && frame.width > 0u && frame.height > 0u) {
-					if (frame.width != arWidth || frame.height != arHeight) {
-						logger.Infof("[NKARDemo] Résolution caméra réelle : %ux%u (demandé %ux%u) — session AR "
+					// Le capteur d'un téléphone est monté DE TRAVERS par rapport
+					// à l'écran : en portrait, l'image arrive couchée. On la
+					// redresse ici, en amont de TOUT le reste — détection
+					// comprise — sinon le marqueur serait cherché dans une image
+					// tournée et les poses sortiraient dans un repère penché.
+					const bool swapWH = (kCameraRotation == 90u || kCameraRotation == 270u);
+					const uint32 effW = swapWH ? frame.height : frame.width;
+					const uint32 effH = swapWH ? frame.width : frame.height;
+					if (effW != arWidth || effH != arHeight) {
+						logger.Infof("[NKARDemo] Résolution caméra réelle : %ux%u (rotation %u° → %ux%u) — session AR "
 									 "réinitialisée à cette taille.\n",
-									 frame.width, frame.height, arWidth, arHeight);
-						arWidth = frame.width;
-						arHeight = frame.height;
+									 frame.width, frame.height, kCameraRotation, effW, effH);
+						arWidth = effW;
+						arHeight = effH;
 						memory::NkFree(frameRGBA);
 						frameRGBA = static_cast<uint8 *>(memory::NkAlloc(nk_size(arWidth) * arHeight * 4u));
 						arSession.Shutdown();
@@ -565,11 +595,44 @@ int nkmain(const NkEntryState &state) {
 						videoTex = renderer->GetTextures()->Create(redesc);
 					}
 					const uint32 stride = frame.stride ? frame.stride : frame.width * 4u;
-					for (uint32 y = 0; y < frame.height; ++y) {
-						const uint8 *src = frame.data.Data() + nk_size(y) * stride;
-						uint8 *dst = frameRGBA + nk_size(y) * frame.width * 4u;
-						for (uint32 x = 0; x < frame.width * 4u; ++x) {
-							dst[x] = src[x];
+					if (kCameraRotation == 0u) {
+						for (uint32 y = 0; y < frame.height; ++y) {
+							const uint8 *src = frame.data.Data() + nk_size(y) * stride;
+							uint8 *dst = frameRGBA + nk_size(y) * frame.width * 4u;
+							for (uint32 x = 0; x < frame.width * 4u; ++x) {
+								dst[x] = src[x];
+							}
+						}
+					}
+					else {
+						// Rotation par recopie pixel à pixel. Coûteuse en apparence,
+						// mais elle a le mérite d'être vraie une fois pour toutes :
+						// tout ce qui suit — détection, pose, projection, HUD —
+						// travaille sur une image DROITE, sans avoir à connaître
+						// l'inclinaison du capteur.
+						for (uint32 y = 0; y < frame.height; ++y) {
+							const uint8 *src = frame.data.Data() + nk_size(y) * stride;
+							for (uint32 x = 0; x < frame.width; ++x) {
+								uint32 dx = 0, dy = 0;
+								if (kCameraRotation == 90u) {
+									dx = frame.height - 1u - y;
+									dy = x;
+								}
+								else if (kCameraRotation == 180u) {
+									dx = frame.width - 1u - x;
+									dy = frame.height - 1u - y;
+								}
+								else { // 270
+									dx = y;
+									dy = frame.width - 1u - x;
+								}
+								uint8 *dst = frameRGBA + (nk_size(dy) * arWidth + dx) * 4u;
+								const uint8 *s = src + nk_size(x) * 4u;
+								dst[0] = s[0];
+								dst[1] = s[1];
+								dst[2] = s[2];
+								dst[3] = s[3];
+							}
 						}
 					}
 					haveFrame = true;
