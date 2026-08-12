@@ -551,6 +551,11 @@ int nkmain(const NkEntryState &state) {
 	// NK_XR_SHADOW=0 coupe les ombres de la scène : le plus gros poste de
 	// coût GPU — l'interrupteur du test de cadence.
 	const bool xrShadowOn = (EnvU64("NK_XR_SHADOW", 1) != 0);
+	// Vue moniteur : NK_XR_SPECTATOR=1 remplit la fenêtre avec l'œil gauche
+	// (ce que voit le porteur) au lieu du côte à côte. Défaut = spectateur dès
+	// qu'un vrai casque est lié : la fenêtre PC n'est alors plus un outil de
+	// mise au point mais l'écran que REGARDE quelqu'un d'autre.
+	const bool spectatorView = (EnvU64("NK_XR_SPECTATOR", xrBound ? 1 : 0) != 0);
 	// Locomotion au stick : un DÉCALAGE DE MONDE, jamais une écriture des
 	// poses — le tracking reste la vérité, on déplace la scène sous lui.
 	NkVec3f worldOffset(0.f, 0.f, 0.f);
@@ -772,10 +777,34 @@ int nkmain(const NkEntryState &state) {
 			NkRender2D *r2d = rMain->GetRender2D();
 			if (overlay && r2d) {
 				overlay->BeginOverlay(cmd, W, H);
-				r2d->DrawImage(eyeTargets[0]->GetColorResult(), { 0.f, 0.f, float32(W) * 0.5f, float32(H) });
-				r2d->DrawImage(eyeTargets[1]->GetColorResult(), { float32(W) * 0.5f, 0.f, float32(W) * 0.5f, float32(H) });
-				// Séparateur central : sans lui, l'œil cherche la couture.
-				r2d->FillRect({ float32(W) * 0.5f - 1.f, 0.f, 2.f, float32(H) }, { 0.f, 0.f, 0.f, 1.f });
+				if (spectatorView) {
+					// Vue MONITEUR : un seul œil en plein écran — ce que voit
+					// le porteur du casque, lisible par un formateur ou une
+					// caméra. Coût nul : l'image est déjà rendue, on la
+					// présente autrement. (Le côte à côte reste le mode de
+					// mise au point, il montre la stéréo elle-même.)
+					const float32 srcAspect = float32(eyeW) / float32(eyeH > 0u ? eyeH : 1u);
+					const float32 dstAspect = float32(W) / float32(H > 0u ? H : 1u);
+					NkRectF dst{ 0.f, 0.f, float32(W), float32(H) };
+					// Respecter les proportions du casque : des barres plutôt
+					// qu'un visage étiré — un formateur juge une posture.
+					if (srcAspect > dstAspect) {
+						dst.height = float32(W) / srcAspect;
+						dst.y = (float32(H) - dst.height) * 0.5f;
+					}
+					else {
+						dst.width = float32(H) * srcAspect;
+						dst.x = (float32(W) - dst.width) * 0.5f;
+					}
+					r2d->DrawImage(eyeTargets[0]->GetColorResult(), dst);
+				}
+				else {
+					r2d->DrawImage(eyeTargets[0]->GetColorResult(), { 0.f, 0.f, float32(W) * 0.5f, float32(H) });
+					r2d->DrawImage(eyeTargets[1]->GetColorResult(),
+								   { float32(W) * 0.5f, 0.f, float32(W) * 0.5f, float32(H) });
+					// Séparateur central : sans lui, l'œil cherche la couture.
+					r2d->FillRect({ float32(W) * 0.5f - 1.f, 0.f, 2.f, float32(H) }, { 0.f, 0.f, 0.f, 1.f });
+				}
 				overlay->DrawText({ 12.f, 20.f }, "NKXRDemo — étage 0 : stéréo SIMULÉE (NKXR Simulator)");
 				overlay->DrawText({ 12.f, 40.f }, "souris = tête | ZQSD/WASD | Espace/C = monter/descendre | Maj = sprint");
 				overlay->DrawText({ 12.f, 60.f }, "clic gauche = action « sélectionner » (le cube rougit) | Échap = quitter");
