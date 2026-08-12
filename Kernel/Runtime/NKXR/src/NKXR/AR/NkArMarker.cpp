@@ -550,16 +550,41 @@ namespace nkentseu {
 					uint32 bits[64] = {};
 					const uint32 gridBits = config.gridBits;
 					bool readOk = (gridBits * gridBits) <= 64u;
+					// VOTE sur plusieurs points du CENTRE de chaque cellule, au
+					// lieu d'un point unique : sur un marqueur affiché à
+					// l'écran, les cases blanches saturent et BAVENT sur leurs
+					// voisines — un seul échantillon mal placé inverse alors un
+					// bit et le code entier devient faux. On reste au centre
+					// (±25 % de la cellule) pour ne jamais mordre sur le voisin.
+					const uint32 samples = (config.samplesPerCell < 1u) ? 1u : ((config.samplesPerCell > 3u) ? 3u : config.samplesPerCell);
 					for (uint32 gy = 0; gy < gridBits && readOk; ++gy) {
 						for (uint32 gx = 0; gx < gridBits; ++gx) {
-							const NkVec2f p = ApplyHomography(h, float32(gx + 1u) + 0.5f, float32(gy + 1u) + 0.5f);
-							const int32 px = int32(p.x);
-							const int32 py = int32(p.y);
-							if (px < 0 || py < 0 || uint32(px) >= width || uint32(py) >= height) {
+							uint32 lightVotes = 0;
+							uint32 castVotes = 0;
+							for (uint32 sy = 0; sy < samples; ++sy) {
+								for (uint32 sx = 0; sx < samples; ++sx) {
+									const float32 offsetX = (samples == 1u) ? 0.f
+																			: (-0.25f + 0.5f * float32(sx) / float32(samples - 1u));
+									const float32 offsetY = (samples == 1u) ? 0.f
+																			: (-0.25f + 0.5f * float32(sy) / float32(samples - 1u));
+									const NkVec2f p = ApplyHomography(h, float32(gx + 1u) + 0.5f + offsetX,
+																	  float32(gy + 1u) + 0.5f + offsetY);
+									const int32 px = int32(p.x);
+									const int32 py = int32(p.y);
+									if (px < 0 || py < 0 || uint32(px) >= width || uint32(py) >= height) {
+										continue;
+									}
+									++castVotes;
+									if (mask[uint32(py) * width + uint32(px)] == 0u) {
+										++lightVotes;
+									}
+								}
+							}
+							if (castVotes == 0u) {
 								readOk = false;
 								break;
 							}
-							bits[gy * gridBits + gx] = (mask[uint32(py) * width + uint32(px)] == 0u) ? 1u : 0u;
+							bits[gy * gridBits + gx] = (lightVotes * 2u > castVotes) ? 1u : 0u;
 						}
 					}
 					if (!readOk) {
