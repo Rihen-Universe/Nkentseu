@@ -42,6 +42,72 @@ static bool Near(float32 a, float32 b, float32 e) {
 
 // Rend l'image qu'une caméra d'intrinsèques K verrait d'un marqueur carré placé
 // à la pose donnée (rotation autour de Y puis X, translation).
+// Un fond texture, NON periodique : des valeurs tirees sur une grille grossiere
+// puis interpolees. Le suivi par l'image a besoin de relief pour s'accrocher ;
+// un motif repetitif, lui, se recollerait a la mauvaise periode et donnerait un
+// faux mouvement — d'ou le tirage pseudo-aleatoire plutot qu'un damier.
+static void MakeTexture(uint8 *out, uint32 w, uint32 h) {
+	const uint32 step = 6;
+	const uint32 gw = w / step + 2u;
+	const uint32 gh = h / step + 2u;
+	auto &allocator = memory::NkGetDefaultAllocator();
+	uint8 *grid = static_cast<uint8 *>(allocator.Allocate(gw * gh, 1));
+	uint32 seed = 0x1234567u;
+	for (uint32 i = 0; i < gw * gh; ++i) {
+		seed = seed * 1664525u + 1013904223u;
+		grid[i] = uint8(40u + ((seed >> 16) % 180u));
+	}
+	for (uint32 y = 0; y < h; ++y) {
+		for (uint32 x = 0; x < w; ++x) {
+			const uint32 gx = x / step, gy = y / step;
+			const float32 fx = float32(x % step) / float32(step);
+			const float32 fy = float32(y % step) / float32(step);
+			const float32 a = float32(grid[gy * gw + gx]), b = float32(grid[gy * gw + gx + 1u]);
+			const float32 c = float32(grid[(gy + 1u) * gw + gx]), d = float32(grid[(gy + 1u) * gw + gx + 1u]);
+			const float32 top = a + (b - a) * fx, bot = c + (d - c) * fx;
+			out[y * w + x] = uint8(top + (bot - top) * fy);
+		}
+	}
+	allocator.Deallocate(grid);
+}
+
+// Fabrique la vue qu'aurait la MEME camera apres une rotation pure. Exacte a
+// toute profondeur : sous rotation seule, l'image se transforme par K.R.K^-1 et
+// la parallaxe n'existe pas. C'est ce qui permet de tester le suivi sans
+// modeliser de scene 3D.
+static void WarpByRotation(const uint8 *src, uint8 *dst, uint32 w, uint32 h, const NkArCameraIntrinsics &k,
+						   float32 yawRad, float32 pitchRad, float32 rollRad) {
+	const math::NkQuatf rot = math::NkQuatf::RotateZ(math::NkAngle::FromRad(rollRad)) *
+							  math::NkQuatf::RotateY(math::NkAngle::FromRad(yawRad)) *
+							  math::NkQuatf::RotateX(math::NkAngle::FromRad(pitchRad));
+	for (uint32 y = 0; y < h; ++y) {
+		for (uint32 x = 0; x < w; ++x) {
+			// Rayon du pixel de DESTINATION, ramene dans l'ancienne camera.
+			math::NkVec3f d(((float32(x) + 0.5f) - k.cx) / k.fx, -((float32(y) + 0.5f) - k.cy) / k.fy, -1.f);
+			const math::NkVec3f s = rot * d;
+			const float32 depth = -s.z;
+			if (depth <= 0.001f) {
+				dst[y * w + x] = 200;
+				continue;
+			}
+			const float32 u = k.fx * (s.x / depth) + k.cx;
+			const float32 v = -k.fy * (s.y / depth) + k.cy;
+			const int32 iu = int32(u), iv = int32(v);
+			if (iu < 0 || iv < 0 || uint32(iu) + 1u >= w || uint32(iv) + 1u >= h) {
+				dst[y * w + x] = 200;
+				continue;
+			}
+			const float32 fu = u - float32(iu), fv = v - float32(iv);
+			const float32 a = float32(src[uint32(iv) * w + uint32(iu)]);
+			const float32 b = float32(src[uint32(iv) * w + uint32(iu) + 1u]);
+			const float32 c = float32(src[(uint32(iv) + 1u) * w + uint32(iu)]);
+			const float32 e = float32(src[(uint32(iv) + 1u) * w + uint32(iu) + 1u]);
+			const float32 top = a + (b - a) * fu, bot = c + (e - c) * fu;
+			dst[y * w + x] = uint8(top + (bot - top) * fv);
+		}
+	}
+}
+
 static void SynthesizeView(uint8 *out, uint32 w, uint32 h, const NkArCameraIntrinsics &k, int32 markerId,
 						   uint32 gridBits, float32 sizeMeters, float32 yawDeg, float32 pitchDeg,
 						   const math::NkVec3f &position) {
@@ -330,6 +396,92 @@ int main() {
 		CHECK(world.GetAnchorInCamera(anchor, seenAfter), "monde : l'objet reste pose malgre la perte");
 		CHECK(world.Remove(anchor), "monde : Remove retire l'objet");
 		CHECK(!world.GetAnchorInCamera(anchor, seenAfter), "monde : objet retire");
+	}
+
+	// ── Cas 9 : la camera TOURNE sans marqueur — suivi par l'image ──────────
+	// Le defaut a corriger : sans marqueur, l'objet restait colle a l'ecran
+	// pendant que la camera pivotait. On mesure donc la rotation SUR L'IMAGE.
+	// Sous rotation pure, l'image se transforme exactement par K.R.K^-1, quelle
+	// que soit la profondeur : on peut donc FABRIQUER la vue tournee a partir
+	// de la premiere, sans rien approximer.
+	{
+		uint8 *second = static_cast<uint8 *>(allocator.Allocate(W * H, 1));
+		uint8 *background = static_cast<uint8 *>(allocator.Allocate(W * H, 1));
+		MakeTexture(background, W, H);
+
+		const int32 id = 0x2D;
+		const float32 size = 0.20f;
+		NkArSessionConfig cfg;
+		cfg.markerSizeMeters = BlackSquareOf(size, 4);
+		cfg.smoothing = 0.f;
+		cfg.lostToleranceFrames = 0; // le marqueur doit vraiment disparaitre
+		NkArSession session;
+		session.Initialize(cfg, W, H);
+		NkArWorld world;
+		world.Initialize({});
+
+		// Vue 1 : le marqueur sur ce fond texture (le fond donne au suivi de
+		// quoi s'accrocher — un mur parfaitement uni ne dit rien de la camera,
+		// et c'est une limite REELLE, pas un artefact du test).
+		SynthesizeView(image, W, H, K, id, 4, size, 0.f, 0.f, math::NkVec3f(0.f, 0.f, -1.f));
+		for (uint32 i = 0; i < W * H; ++i) {
+			if (image[i] == 200) {
+				image[i] = background[i]; // le fond clair de la synthese
+			}
+		}
+		session.ProcessFrame(image, W, H, W, NkArImageFormat::NK_AR_GRAY8);
+		CHECK(world.Update(session), "suivi image : localise sur le marqueur");
+		const uint32 anchor = world.PlaceInFrontOfCamera(0.5f);
+		NkXrPose before;
+		CHECK(world.GetAnchorInCamera(anchor, before), "suivi image : objet pose");
+
+		// Vue 2 : la camera a tourne de 2 degres a gauche. Le marqueur est
+		// RETIRE de la source pour forcer le systeme a se debrouiller avec
+		// l'image seule — c'est precisement le cas que l'on repare.
+		const float32 yaw = 2.f * math::NK_PI_F / 180.f;
+		WarpByRotation(background, second, W, H, K, yaw, 0.f, 0.f);
+		session.ProcessFrame(second, W, H, W, NkArImageFormat::NK_AR_GRAY8);
+		const bool localized = world.Update(session);
+		CHECK(!localized, "suivi image : plus aucun marqueur, donc plus de localisation par marqueur");
+		CHECK(world.IsTrackingByImage(), "suivi image : la rotation de la camera a ete MESUREE sur l'image");
+		const NkArFlowResult &flow = world.GetLastFlow();
+		CHECK(flow.valid, "suivi image : estimation valide");
+		CHECK(Near(flow.yawRad, yaw, 0.30f * yaw), "suivi image : lacet retrouve, signe compris");
+		CHECK(Near(flow.pitchRad, 0.f, 0.004f), "suivi image : pas de tangage invente");
+		CHECK(Near(flow.rollRad, 0.f, 0.004f), "suivi image : pas de roulis invente");
+
+		// La consequence qui compte : l'objet a TOURNE dans le champ de la
+		// camera, donc il glisse a l'ecran au lieu d'y rester colle.
+		NkXrPose after;
+		CHECK(world.GetAnchorInCamera(anchor, after), "suivi image : objet toujours connu");
+		const float32 angleBefore = math::NkAtan2(before.position.x, -before.position.z);
+		const float32 angleAfter = math::NkAtan2(after.position.x, -after.position.z);
+		// La camera a tourne a GAUCHE : un objet qui etait droit devant se
+		// retrouve donc sur sa DROITE, du meme angle. C'est le signe qui trahit
+		// une composition inversee, et il n'y en a qu'un de juste.
+		CHECK(Near(angleAfter - angleBefore, yaw, 0.35f * yaw),
+			  "suivi image : l'objet a glisse du bon cote, de la bonne quantite");
+		CHECK(Near(after.position.Len(), before.position.Len(), 0.02f),
+			  "suivi image : la DISTANCE ne bouge pas (une rotation ne rapproche rien)");
+
+		// Fond parfaitement uni : rien a suivre. Le systeme doit le DIRE, et
+		// finir par refuser sa propre pose plutot que d'afficher n'importe ou.
+		for (uint32 i = 0; i < W * H; ++i) {
+			second[i] = 180;
+		}
+		NkArWorldConfig strict;
+		strict.maxBlindFrames = 3;
+		world.Initialize(strict);
+		for (uint32 f = 0; f < 6u; ++f) {
+			session.ProcessFrame(second, W, H, W, NkArImageFormat::NK_AR_GRAY8);
+			world.Update(session);
+		}
+		CHECK(!world.IsTrackingByImage(), "suivi image : un mur uni n'apprend rien, et on ne pretend pas le contraire");
+		CHECK(!world.IsPoseUsable(), "suivi image : apres trop d'images aveugles, la pose est declaree perdue");
+		CHECK(!world.GetAnchorInCamera(anchor, after), "suivi image : l'objet est cache plutot qu'affiche au hasard");
+
+		allocator.Deallocate(background);
+		allocator.Deallocate(second);
 	}
 
 	allocator.Deallocate(image);
