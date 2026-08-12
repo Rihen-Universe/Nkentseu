@@ -9779,24 +9779,20 @@ namespace nkentseu {
 						const float32 bx = lst.x + lst.w + S(4.f);
 						{
 							const NkRect ab{bx, lst.y, colW, S(20.f)};
-							// ── LE « + » EST LUI-MEME LE SELECTEUR ──────────────
-							// Rihen : « quand j'appuie sur +, c'est comme si le
-							// selecteur etait dessine derriere, je ne le vois plus ».
-							// Exact : un champ pose sous la liste se faisait recouvrir
-							// par la suite du panneau. On ne pose donc AUCUN champ :
-							// le bouton porte le combo, et son menu s'ouvre par-dessus
-							// tout, puisque les popups sont rendus en fin de frame.
+							// ── LE « + » CHARGE UN MATERIAU EXISTANT ────────────
+							// Il porte lui-meme le combo : un champ pose sous la
+							// liste se faisait recouvrir par la suite du panneau
+							// (« je ne le vois plus », Rihen). Le menu ne propose que
+							// les materiaux du PROJET absents de cet objet — en
+							// integrer un le fait donc DISPARAITRE du menu, puisqu'il
+							// est desormais dans la liste.
 							//
-							// Le menu propose « Nouveau materiau... », puis les
-							// materiaux du PROJET qui ne sont pas deja sur cet objet —
-							// proposer un doublon n'aurait aucun sens.
+							// CREER est une ACTION, pas un choix parmi des materiaux :
+							// c'est le bouton « Nouveau » juste en dessous (Rihen).
 							static char sCandNm[65][32];
 							static const char *sCandPtr[65];
 							static int32 sCandSlot[65];
-							snprintf(sCandNm[0], 32, "%s", "Nouveau materiau...");
-							sCandPtr[0] = sCandNm[0];
-							sCandSlot[0] = -1;
-							int32 nCand = 1;
+							int32 nCand = 0;
 							for (int32 mi = 0; mi < 64 && nCand < 65; ++mi) {
 								char nm4[64];
 								if (!demo::Demo3DHostProjMatInfo(mi, nm4, sizeof(nm4), nullptr,
@@ -9812,40 +9808,47 @@ namespace nkentseu {
 								sCandSlot[nCand] = mi;
 								++nCand;
 							}
-							// AU REPOS, AUCUNE LIGNE N'EST CHOISIE (-1). Le combo
-							// ecrit sa selection en FIN DE FRAME, par pointeur : si la
-							// valeur de repos etait 0, choisir « Nouveau materiau... »
-							// — justement en position 0 — n'aurait produit AUCUN
-							// changement, et rien ne se serait passe (« nouveau
-							// materiau ne cree rien », Rihen, 12 aout). Meme piege que
-							// les combos precedents ; on repart donc de -1 apres
-							// chaque action.
+							// REPOS A -1, et rien d'autre a comparer : le seul fait
+							// qu'une ligne soit choisie signifie « l'utilisateur vient
+							// d'agir ». Comparer a une valeur relue en debut de frame
+							// ne marchait pas — le combo ecrit en FIN de frame, donc
+							// les deux etaient deja egales au moment du test.
 							static int32 sCandSel = -1;
-							const int32 before = sCandSel;
-							// Combo SANS texte ni cadre propre : on redessine par-dessus
-							// l'icone « + », pour que le bouton garde son allure.
-							Combo(p, hit, ws, "props.pm.add", ab, sCandPtr, nullptr, nCand,
-								  sCandSel, combo, true, true, true);
+							if (nCand > 0) {
+								Combo(p, hit, ws, "props.pm.add", ab, sCandPtr, nullptr, nCand,
+									  sCandSel, combo, true, true, true);
+							} else {
+								// Rien a proposer : le bouton reste, inerte.
+								(void)hit.Add("props.pm.add", ab);
+							}
 							p.Outline(ab, NkRole::Border, NkRole::PanelHeader, 3.f);
-							p.IconV(ab.x + S(5.f), ab.y, ab.h, NkIcon::Add, NkRole::Text, 11.f);
-							if (sCandSel != before && sCandSel >= 0) {
-								const int32 pick =
-									(sCandSel < nCand) ? sCandSlot[sCandSel] : -1;
-								if (pick < 0) {
-									// NOUVEAU : cree et associe. Le nom et le dossier
-									// restent a demander — il nait dans le dossier
-									// courant sous un nom serialise.
-									const int32 ni = demo::Demo3DHostProjMatCreate();
-									if (ni >= 0 && actN >= 0)
-										(void)demo::Demo3DHostNodeMatAdd(actN, ni);
-								} else if (actN >= 0) {
-									// EXISTANT : integre a l'objet, sans copie ni
-									// nouveau fichier.
-									(void)demo::Demo3DHostNodeMatAdd(actN, pick);
-								}
-								sCandSel = -1; // retour au repos : la prochaine
-								               // selection sera vue, meme identique
+							p.IconV(ab.x + S(5.f), ab.y, ab.h, NkIcon::Add,
+									nCand > 0 ? NkRole::Text : NkRole::TextMuted, 11.f);
+							if (sCandSel >= 0) {
+								if (sCandSel < nCand && actN >= 0)
+									(void)demo::Demo3DHostNodeMatAdd(actN, sCandSlot[sCandSel]);
+								sCandSel = -1; // retour au repos
 								NkMarkDirty(st);
+							}
+						}
+						{
+							// ── « NOUVEAU » : UN BOUTON, PAS UNE LIGNE DE MENU ──
+							// Rihen : « nouveau doit etre un bouton pour creer un
+							// nouveau materiau ». Il cree ET l'associe a l'objet
+							// actif, puis le selectionne pour qu'on l'edite aussitot.
+							const NkRect nb{bx, lst.y + S(42.f), colW, S(20.f)};
+							const bool ovN = hit.Add("props.pm.new", nb);
+							p.Outline(nb, ovN ? NkRole::AccentUi : NkRole::Border,
+									  NkRole::PanelHeader, 3.f);
+							p.IconV(nb.x + S(5.f), nb.y, nb.h, NkIcon::PlusCircle, NkRole::Text,
+									11.f);
+							if (hit.Clicked("props.pm.new")) {
+								const int32 ni = demo::Demo3DHostProjMatCreate();
+								if (ni >= 0) {
+									if (actN >= 0)
+										(void)demo::Demo3DHostNodeMatAdd(actN, ni);
+									NkMarkDirty(st);
+								}
 							}
 						}
 						{
