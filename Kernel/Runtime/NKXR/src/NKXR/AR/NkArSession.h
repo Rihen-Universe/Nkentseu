@@ -77,7 +77,13 @@ namespace nkentseu {
 			// au-delà, comme un vrai geste et suivi sans retard. 2 cm sépare
 			// bien les deux à distance de bras : le tremblement d'une pose
 			// mesurée reste millimétrique, un mouvement de la main non.
-			float32 motionReferenceMeters = 0.02f;
+			float32 motionReferenceMeters = 0.015f;
+			// Même principe pour la ROTATION, avec sa propre référence : vue de
+			// face, un marqueur plan contraint mal son inclinaison, et un bruit
+			// d'un pixel sur un coin fait basculer l'objet de plusieurs degrés.
+			// En deçà de ~12°, on tient le changement pour du bruit et on le
+			// filtre fort ; au-delà, c'est un vrai geste, on le suit.
+			float32 turnReferenceRadians = 0.20f;
 		};
 
 		// ── Un marqueur SUIVI (pas seulement détecté) ────────────────────────
