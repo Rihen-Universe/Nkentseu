@@ -595,12 +595,33 @@ namespace nkentseu {
 					// aussi l'orientation du marqueur.
 					NkArDetection detection;
 					detection.edgeLength = edge;
+					if (debug) {
+						// La grille TELLE QUE LUE : c'est elle qui décide de
+						// l'identifiant, donc c'est elle qu'il faut voir quand
+						// un marqueur bien cadré reste sans code.
+						char row[16];
+						for (uint32 gy = 0; gy < gridBits; ++gy) {
+							for (uint32 gx = 0; gx < gridBits && gx < 15u; ++gx) {
+								row[gx] = bits[gy * gridBits + gx] ? '1' : '0';
+							}
+							row[(gridBits < 15u) ? gridBits : 15u] = 0;
+							logger.Infof("[NkAr]   grille lue : %s\n", row);
+						}
+					}
+					// Signature des coins : (0,0) clair, les trois autres
+					// sombres. On note CHAQUE rotation sur 4 et on retient la
+					// meilleure, à condition qu'elle soit STRICTEMENT meilleure
+					// que les autres — une case mal lue (bavure d'un écran
+					// saturé) ne doit pas faire perdre tout le marqueur, mais
+					// une égalité voudrait dire que l'orientation est
+					// indécidable, et une pose tournée de 90° serait pire que
+					// pas de pose du tout.
+					uint32 bestRot = 0;
+					uint32 bestScore = 0;
+					uint32 bestCount = 0;
 					for (uint32 rot = 0; rot < 4u; ++rot) {
-						// Vérifier D'ABORD la signature des coins : une seule
-						// rotation la satisfait, ce qui lève toute ambiguïté
-						// sur l'orientation — donc sur l'identifiant et la pose.
-						bool signatureOk = true;
-						for (uint32 gy = 0; gy < gridBits && signatureOk; ++gy) {
+						uint32 score = 0;
+						for (uint32 gy = 0; gy < gridBits; ++gy) {
 							for (uint32 gx = 0; gx < gridBits; ++gx) {
 								if (!NkArCellIsReserved(gx, gy, gridBits)) {
 									continue;
@@ -613,15 +634,27 @@ namespace nkentseu {
 									sy = tx;
 								}
 								const bool light = (bits[sy * gridBits + sx] != 0u);
-								if (light != NkArCellIsOrientation(gx, gy, gridBits)) {
-									signatureOk = false;
-									break;
+								if (light == NkArCellIsOrientation(gx, gy, gridBits)) {
+									++score;
 								}
 							}
 						}
-						if (!signatureOk) {
-							continue;
+						if (score > bestScore) {
+							bestScore = score;
+							bestRot = rot;
+							bestCount = 1;
 						}
+						else if (score == bestScore) {
+							++bestCount;
+						}
+					}
+					if (debug) {
+						logger.Infof("[NkAr]   signature : meilleure %u/4 (rotation %u, %u ex aequo)\n",
+									 bestRot, bestCount);
+					}
+					// 3 coins sur 4 suffisent SI la meilleure est unique.
+					if (bestScore >= 3u && bestCount == 1u) {
+						const uint32 rot = bestRot;
 						uint32 value = 0;
 						for (uint32 gy = 0; gy < gridBits; ++gy) {
 							for (uint32 gx = 0; gx < gridBits; ++gx) {
@@ -645,7 +678,6 @@ namespace nkentseu {
 						for (uint32 i = 0; i < 4u; ++i) {
 							detection.corners[i] = quad[(i + rot) % 4u];
 						}
-						break;
 					}
 					if (detection.id >= 0) {
 						outDetections.PushBack(detection);
