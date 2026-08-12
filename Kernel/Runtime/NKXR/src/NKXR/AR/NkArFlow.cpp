@@ -221,7 +221,35 @@ namespace nkentseu {
 				candX[j] = x;
 				candY[j] = y;
 			}
-			const nk_size kept = (candGrad.Size() < mConfig.maxPoints) ? candGrad.Size() : nk_size(mConfig.maxPoints);
+			// QUOTA PAR RÉGION, et c'est indispensable : sans lui, le classement
+			// par relief laisse l'objet le plus contrasté monopoliser TOUS les
+			// points. Quelqu'un qui se filme en tournant sur place en est le cas
+			// type — son visage rafle la sélection, ne bouge pas d'une image à
+			// l'autre, et le fond qui défile n'a plus un seul représentant pour
+			// le contredire. On découpe donc l'image en neuf et l'on plafonne ce
+			// que chaque neuvième peut fournir : la caméra tourne partout, il
+			// faut des témoins partout.
+			const uint32 perRegion = (mConfig.maxPoints + 8u) / 9u;
+			uint32 regionCount[9] = {};
+			nk_size kept = 0;
+			for (nk_size i = 0; i < candGrad.Size() && kept < mConfig.maxPoints; ++i) {
+				const uint32 rx = (candX[i] * 3u) / width;
+				const uint32 ry = (candY[i] * 3u) / height;
+				const uint32 region = (ry < 3u ? ry : 2u) * 3u + (rx < 3u ? rx : 2u);
+				if (regionCount[region] >= perRegion) {
+					continue;
+				}
+				++regionCount[region];
+				// Compactage en place : les retenus migrent vers le début.
+				const uint32 g = candGrad[i], x = candX[i], y = candY[i];
+				candGrad[i] = candGrad[kept];
+				candX[i] = candX[kept];
+				candY[i] = candY[kept];
+				candGrad[kept] = g;
+				candX[kept] = x;
+				candY[kept] = y;
+				++kept;
+			}
 			// Relief médian des points retenus : c'est LUI qui sert de référence
 			// au vote d'immobilité, et non un chiffre décidé d'avance. Par
 			// construction, la moitié des points le franchit toujours — la règle
@@ -370,22 +398,71 @@ namespace nkentseu {
 				return result;
 			}
 
-			// ── 3) Rejet des intrus, autour du mouvement MÉDIAN ───────────────
-			// La médiane résiste à quelques appariements faux ; une moyenne, non
-			// — un seul point aberrant suffirait à entraîner toute la rotation.
-			NkVector<float32> tmpU = du;
-			NkVector<float32> tmpV = dv;
-			const float32 medU = MedianOf(tmpU);
-			const float32 medV = MedianOf(tmpV);
+			// ── 3) Choisir le mouvement du FOND, pas celui du sujet ───────────
+			// Une rotation de la caméra déplace TOUTE l'image ; un objet qui
+			// bouge n'en déplace qu'une région. Or l'objet le mieux texturé
+			// d'une scène est souvent celui qui suit la caméra — quelqu'un qui
+			// se filme lui-même en tournant sur place en est l'exemple parfait :
+			// son visage reste au même endroit de l'image pendant que la pièce
+			// défile derrière. Ses points, les plus contrastés, forment alors la
+			// majorité, la médiane retient SON mouvement (nul), et le fond se
+			// fait rejeter comme intrus. Mesuré sur les captures de Rihen :
+			// 0,13 px de glissement annoncé pendant que le mur parcourait 430 px.
+			//
+			// On départage donc par l'ÉTENDUE. Chaque déplacement observé sert
+			// d'hypothèse ; celle dont les partisans COUVRENT l'image l'emporte
+			// sur celle dont ils sont agglutinés au même endroit. C'est la
+			// signature géométrique qui distingue « la caméra a tourné » de
+			// « quelque chose a bougé devant elle ».
+			const float32 imageDiag = math::NkSqrt(float32(width) * float32(width) +
+												   float32(height) * float32(height));
+			float32 bestScore = -1.f;
+			float32 medU = 0.f;
+			float32 medV = 0.f;
+			for (nk_size h = 0; h < du.Size(); ++h) {
+				uint32 count = 0;
+				float32 sumX = 0.f, sumY = 0.f, sumXX = 0.f, sumYY = 0.f;
+				for (nk_size i = 0; i < du.Size(); ++i) {
+					const float32 ex = du[i] - du[h];
+					const float32 ey = dv[i] - dv[h];
+					if (math::NkSqrt(ex * ex + ey * ey) > mConfig.inlierPixels) {
+						continue;
+					}
+					++count;
+					sumX += px[i];
+					sumY += py[i];
+					sumXX += px[i] * px[i];
+					sumYY += py[i] * py[i];
+				}
+				if (count < mConfig.minInliers) {
+					continue;
+				}
+				const float32 n = float32(count);
+				const float32 varX = sumXX / n - (sumX / n) * (sumX / n);
+				const float32 varY = sumYY / n - (sumY / n) * (sumY / n);
+				const float32 spread = math::NkSqrt(varX + varY) / imageDiag;
+				// Le nombre compte encore — mais il ne suffit plus à lui seul.
+				const float32 score = n * (0.20f + spread);
+				if (score > bestScore) {
+					bestScore = score;
+					medU = du[h];
+					medV = dv[h];
+				}
+			}
+			if (bestScore < 0.f) {
+				// Aucune hypothèse ne réunit assez de partisans : ne rien dire.
+				for (nk_size i = 0; i < mPrev.Size(); ++i) {
+					mPrev[i] = gray[i];
+				}
+				return result;
+			}
 			NkVector<float32> shifts;
 			for (nk_size i = 0; i < du.Size(); ++i) {
 				const float32 sx = du[i] - medU;
 				const float32 sy = dv[i] - medV;
 				shifts.PushBack(math::NkSqrt(sx * sx + sy * sy));
 			}
-			NkVector<float32> shiftsCopy = shifts;
 			result.medianShiftPixels = math::NkSqrt(medU * medU + medV * medV);
-			(void)MedianOf(shiftsCopy);
 
 			// ── 4) Ajustement d'une rotation pure ─────────────────────────────
 			// Modèle, en petits angles et en pixels (u', v' comptés depuis le
