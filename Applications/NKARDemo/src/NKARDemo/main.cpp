@@ -266,12 +266,31 @@ int nkmain(const NkEntryState &state) {
 	camCfg.height = kCamHeight;
 	camCfg.fps = 30;
 	camCfg.outputFormat = NkPixelFormat::NK_PIXEL_RGBA8;
+	// Sur téléphone, l'AR se fait par la caméra ARRIÈRE : on vise le marqueur,
+	// on ne se filme pas. La façade est donc demandée explicitement, et le
+	// choix reste programmable — NkCameraConfig::facing existe déjà, c'était
+	// simplement le réglage par défaut « n'importe laquelle » qui décidait.
+	camCfg.facing = NkCameraFacing::NK_CAMERA_FACING_BACK;
+	{
+		const char *facingEnv = getenv("NK_AR_CAMERA");
+		if (facingEnv != nullptr && (facingEnv[0] == 'f' || facingEnv[0] == 'F')) {
+			camCfg.facing = NkCameraFacing::NK_CAMERA_FACING_FRONT;
+		}
+	}
 	if (camera.Init()) {
 		const auto devices = camera.EnumerateDevices();
+		// Dire CE QU'ON A TROUVÉ, une ligne par appareil : sur téléphone il y en
+		// a plusieurs (grand angle, ultra grand angle, façade), et savoir lequel
+		// a été ouvert évite d'accuser la détection quand c'est l'objectif qui
+		// regarde ailleurs.
+		for (nk_size i = 0; i < devices.Size(); ++i) {
+			logger.Infof("[NKARDemo] Camera %u : \"%s\" facade=%u\n", uint32(devices[i].index),
+						 devices[i].name.CStr(), uint32(devices[i].facing));
+		}
 		if (devices.Size() > 0) {
 			cameraOk = camera.StartStreaming(camCfg);
-			logger.Infof("[NKARDemo] Caméra : %u périphérique(s), flux %s.\n", uint32(devices.Size()),
-						 cameraOk ? "démarré" : "REFUSÉ");
+			logger.Infof("[NKARDemo] Caméra : %u périphérique(s), facade demandee=%u, flux %s.\n",
+						 uint32(devices.Size()), uint32(camCfg.facing), cameraOk ? "démarré" : "REFUSÉ");
 		}
 	}
 	if (!cameraOk) {
