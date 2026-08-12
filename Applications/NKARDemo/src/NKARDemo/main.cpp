@@ -301,6 +301,7 @@ int nkmain(const NkEntryState &state) {
 	NkClock clock;
 	float32 total = 0.f;
 	uint64 frameIndex = 0;
+	float32 worldMillis = 0.f;
 	const uint64 exitFrame = (getenv("NK_AR_EXIT") != nullptr) ? uint64(atoll(getenv("NK_AR_EXIT"))) : 0u;
 	const uint64 dumpFrame = (getenv("NK_AR_DUMP") != nullptr) ? uint64(atoll(getenv("NK_AR_DUMP"))) : 0u;
 	// Image de synthese forcee : marqueur toujours detectable, sans dependre
@@ -375,8 +376,20 @@ int nkmain(const NkEntryState &state) {
 													  nkxr::NkArImageFormat::NK_AR_RGBA8);
 		renderer->GetTextures()->Update(videoTex, frameRGBA, arWidth * 4u);
 		// Le monde se met à jour APRÈS la détection : il en tire la pose de la
-		// caméra et étend sa carte.
-		arWorld.Update(arSession);
+		// caméra et étend sa carte. Le coût est MESURÉ et annoncé : le suivi par
+		// l'image compare deux images entières, c'est le poste le plus lourd de
+		// la chaîne AR et il serait malhonnête de le laisser dans l'ombre.
+		{
+			NkClock worldClock;
+			worldClock.Tick();
+			arWorld.Update(arSession);
+			worldMillis += worldClock.Tick().delta * 1000.f;
+			if ((frameIndex % 120u) == 0u) {
+				logger.Infof("[NKARDemo] monde (detection exclue) : %.2f ms/image en moyenne sur 120 images.\n",
+							 worldMillis / 120.f);
+				worldMillis = 0.f;
+			}
+		}
 
 		if (!renderer->BeginFrame()) {
 			continue;
@@ -515,16 +528,22 @@ int nkmain(const NkEntryState &state) {
 					logger.Infof("[NKARDemo] Marqueur %d dessine : coin0 ecran (%.0f,%.0f), pose z=%.3f\n",
 								 marker.id, screen[0].x, screen[0].y, marker.pose.position.z);
 				}
-				// Trois états, trois couleurs — pour que l'utilisateur sache
+				// Quatre états, quatre couleurs — pour que l'utilisateur sache
 				// toujours à quel point il peut se fier à ce qu'il voit :
 				//   orange = le marqueur est VU, la pose est mesurée à l'instant ;
 				//   bleu   = il est caché, mais la caméra se repère sur un AUTRE
 				//            marqueur : la place affichée reste juste ;
-				//   gris   = plus rien en vue, on montre la dernière place connue.
-				const NkVec4f color = marker.visibleThisFrame
-										  ? NkVec4f{ 1.f, 0.75f, 0.2f, 1.f }
-										  : (arWorld.IsLocalizedNow() ? NkVec4f{ 0.35f, 0.6f, 1.f, 1.f }
-																	  : NkVec4f{ 0.65f, 0.65f, 0.65f, 1.f });
+				//   jaune  = plus aucun marqueur, la ROTATION de la caméra est
+				//            mesurée sur l'image : juste en rotation, dérive si
+				//            l'on se déplace ;
+				//   gris   = plus rien du tout, dernière place connue.
+				const NkVec4f color =
+					marker.visibleThisFrame
+						? NkVec4f{ 1.f, 0.75f, 0.2f, 1.f }
+						: (arWorld.IsLocalizedNow()
+							   ? NkVec4f{ 0.35f, 0.6f, 1.f, 1.f }
+							   : (arWorld.IsTrackingByImage() ? NkVec4f{ 0.95f, 0.9f, 0.25f, 1.f }
+															  : NkVec4f{ 0.65f, 0.65f, 0.65f, 1.f }));
 				const uint32 edges[12][2] = { { 0, 1 }, { 1, 2 }, { 2, 3 }, { 3, 0 },
 											  { 4, 5 }, { 5, 6 }, { 6, 7 }, { 7, 4 },
 											  { 0, 4 }, { 1, 5 }, { 2, 6 }, { 3, 7 } };
@@ -598,9 +617,14 @@ int nkmain(const NkEntryState &state) {
 							  sourceName, visible, uint32(tracked.Size()));
 			overlay->DrawText({ 12.f, 40.f }, "ESPACE = poser un objet dans le monde | R = tout retirer | "
 											  "monde : %s, %u marqueur(s) en carte, %u objet(s)",
-							  arWorld.IsLocalizedNow() ? "LOCALISE"
-													   : (arWorld.HasEverLocalized() ? "localisation qui vieillit"
-																					 : "pas encore d'origine"),
+							  arWorld.IsLocalizedNow()
+								  ? "LOCALISE (marqueur)"
+								  : (arWorld.IsTrackingByImage()
+										 ? "suivi par l'IMAGE (rotation seule)"
+										 : (!arWorld.IsPoseUsable()
+												? "PERDU — objets caches"
+												: (arWorld.HasEverLocalized() ? "localisation qui vieillit"
+																			  : "pas encore d'origine"))),
 							  uint32(arWorld.GetMap().Size()), uint32(worldAnchors.Size()));
 			for (nk_size i = 0; i < mapEntries.Size(); ++i) {
 				nkxr::NkXrPose posed;
@@ -614,7 +638,9 @@ int nkmain(const NkEntryState &state) {
 								  seenNow ? "VU (cube orange)"
 										  : (arWorld.IsLocalizedNow()
 												 ? "cache, mais la camera se repere ailleurs (cube bleu)"
-												 : "cache : derniere place connue (cube gris)"));
+												 : (arWorld.IsTrackingByImage()
+														? "cache : rotation suivie sur l'image (cube jaune)"
+														: "cache : derniere place connue (cube gris)")));
 			}
 			overlay->EndOverlay();
 		}

@@ -65,6 +65,10 @@ SIMULATEUR desktop + démo `NKXRDemo` (stéréo côte à côte, souris = tête),
 | Marqueurs from scratch (Otsu, contours de Moore, quads, homographie DLT, marque d'orientation, pose plane) — self-test 24/24 | ✅ | — | — |
 | Session AR : conversion, suivi par identifiant, vie d'un marqueur, lissage slerp | ✅ | — | — |
 | NKARDemo : caméra → vidéo plein écran → **cube + axes ancrés sur le marqueur** — **PROUVÉ à l'écran** (id 45 à 0,74 m, capture Rihen 2026-08-12) | ✅ | — | — |
+| `NkArWorld` : carte de marqueurs, objets en coordonnées MONDE, extension de proche en proche | ✅ | — | — |
+| `NkArFlow` : rotation de la caméra mesurée SUR L'IMAGE quand aucun marqueur n'est vu (points saillants + vignettes + ajustement rotation pure) — self-test 60/60 | ✅ | — | — |
+| Coût mesuré du monde (suivi image compris) : **3,56 ms/image** en 640×480 sur RTX 3070 — à diviser par ~4 en travaillant en demi-résolution si le téléphone le demande | 🔶 | S | P2 |
+| Translation de la caméra (parallaxe) : non mesurable sans profondeur — d'où l'IMU puis le SLAM plus bas | 🚫 | — | — |
 | Vidéo en vrai FOND 3D (quad texturé/fond de graphe) pour un objet PBR ombré au lieu du filaire | ❌ | M | P1 |
 | Calibration caméra au damier (aujourd'hui : intrinsèques supposées, ~10 % d'erreur de distance) | ❌ | M | P2 |
 | Seuillage adaptatif : validé caméra, à rendre fiable sur images de synthèse | 🔶 | S | P2 |
