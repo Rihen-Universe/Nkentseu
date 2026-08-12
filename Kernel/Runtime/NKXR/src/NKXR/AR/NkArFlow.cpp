@@ -170,12 +170,14 @@ namespace nkentseu {
 			if (cellW < 4u || cellH < 4u) {
 				return result;
 			}
+			NkVector<uint32> candX;
+			NkVector<uint32> candY;
+			NkVector<uint32> candGrad;
 			for (uint32 cy = 0; cy < mConfig.cellsY; ++cy) {
 				for (uint32 cx = 0; cx < mConfig.cellsX; ++cx) {
 					uint32 bestScore = mConfig.minGradient;
 					uint32 bx = 0;
 					uint32 by = 0;
-					uint32 bestGradient = 0;
 					bool found = false;
 					// Un point sur trois suffit à repérer la case la plus
 					// texturée : c'est un choix de coût, pas de précision — le
@@ -185,16 +187,53 @@ namespace nkentseu {
 							const uint32 score = GradientScore(&mPrev[0], width, height, x, y);
 							if (score > bestScore) {
 								bestScore = score;
-								bestGradient = score;
 								bx = x;
 								by = y;
 								found = true;
 							}
 						}
 					}
-					if (!found) {
-						continue;
+					if (found) {
+						candX.PushBack(bx);
+						candY.PushBack(by);
+						candGrad.PushBack(bestScore);
 					}
+				}
+			}
+
+			// Classement par relief DÉCROISSANT, et on ne garde que les meilleurs.
+			// Choix ADAPTATIF, et c'est le point important : un seuil absolu
+			// convient à une scène et affame la suivante. Une pièce aux murs
+			// clairs n'offre pas ce qu'offre une bibliothèque — mais dans les deux
+			// cas, ses meilleurs points sont les moins mauvais dont on dispose.
+			for (nk_size i = 1; i < candGrad.Size(); ++i) {
+				const uint32 g = candGrad[i];
+				const uint32 x = candX[i];
+				const uint32 y = candY[i];
+				nk_size j = i;
+				while (j > 0 && candGrad[j - 1] < g) {
+					candGrad[j] = candGrad[j - 1];
+					candX[j] = candX[j - 1];
+					candY[j] = candY[j - 1];
+					--j;
+				}
+				candGrad[j] = g;
+				candX[j] = x;
+				candY[j] = y;
+			}
+			const nk_size kept = (candGrad.Size() < mConfig.maxPoints) ? candGrad.Size() : nk_size(mConfig.maxPoints);
+			// Relief médian des points retenus : c'est LUI qui sert de référence
+			// au vote d'immobilité, et non un chiffre décidé d'avance. Par
+			// construction, la moitié des points le franchit toujours — la règle
+			// ne peut donc jamais tout rejeter, ce qui était le défaut de la
+			// version précédente (« 16 textures, 16 ambigus, 0 retenus »).
+			const uint32 medianGrad = (kept > 0) ? candGrad[kept / 2u] : 0u;
+
+			for (nk_size ci = 0; ci < kept; ++ci) {
+				{
+					const uint32 bx = candX[ci];
+					const uint32 by = candY[ci];
+					const uint32 bestGradient = candGrad[ci];
 
 					// ── 2) Appariement : balayage grossier puis affinage ──────
 					// On garde AUSSI le meilleur concurrent situé ailleurs : c'est
@@ -272,7 +311,7 @@ namespace nkentseu {
 					const int32 still = int32(mConfig.stillRadiusPixels);
 					const bool votesStill = (bestDx >= -still && bestDx <= still && bestDy >= -still &&
 											 bestDy <= still);
-					if (votesStill && bestGradient < mConfig.minGradientForStillVote) {
+					if (votesStill && bestGradient < medianGrad) {
 						++result.ambiguous;
 						continue;
 					}
