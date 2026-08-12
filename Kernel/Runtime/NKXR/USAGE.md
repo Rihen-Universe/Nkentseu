@@ -219,10 +219,12 @@ boucle) est **identique au simulateur**.
 | Variable | Effet | Défaut |
 |---|---|---|
 | `NK_XR_BACKEND=openxr` | tenter un vrai casque (sinon simulateur) | simulateur |
-| `NK_XR_RENDER_SCALE` | résolution de rendu × recommandé du casque | `0.9` |
+| `NK_XR_RENDER_SCALE` | résolution de rendu × recommandé du casque | `0.85` |
 | `NK_XR_HZ` | cadence d'affichage souhaitée (la plus proche des proposées) | runtime |
 | `NK_XR_HALF_RATE=0/1` | verrou demi-cadence (régularité si le moteur ne tient pas) | `1` |
 | `NK_XR_SPECTATOR=0/1` | fenêtre PC : vue du porteur / stéréo côte à côte | vue du porteur |
+| `NK_XR_TAA` | anti-aliasing temporel (un historique par œil) | `1` |
+| `NK_XR_DEPTH_LAYER` | soumettre la profondeur (reprojection positionnelle) | `1` |
 | `NK_XR_SSAO`, `NK_XR_BLOOM` | effets écran (coupés en VR par défaut) | `0` |
 | `NK_XR_SHADOW`, `NK_XR_SHADOW_RES`, `NK_XR_SHADOW_CASCADES` | coût des ombres | `1`, `1024`, `2` |
 | `NK_XR_LIST_EXT=1` | lister les extensions offertes par le runtime | — |
@@ -255,12 +257,43 @@ Repères mesurés (Quest 2 via Link + RTX 3070 Laptop bridée à 1100 MHz) :
 
 ### Anti-aliasing : ce qui marche, ce qui ne marche pas (mesuré)
 
-| Technique | Verdict | Mesure |
-|---|---|---|
-| **Résolution** (`NK_XR_RENDER_SCALE`) | ✅ **la solution actuelle** | 0,9 → 1872×1886/œil à 68-71 i/s. Le compositeur filtre en distordant pour les lentilles : plus de pixels = moins de crénelage, gratuitement. |
-| **TAA** (`NK_XR_TAA=1`) | ❌ trop cher ici | GPU 11 → **27,7 ms**, cadence 68 → **21-25 i/s**. Disponible pour une machine plus puissante ; l'historique est correct (un par œil, car un renderer par œil). |
-| **MSAA** | ⛔ n'existe pas | `NkRendererConfig::msaaSamples` est un champ **jamais lu** dans NKRenderer. Le brancher est un chantier (cibles multi-échantillonnées + résolution dans les passes, 4 backends) — note de coordination posée dans la ROADMAP de NKRenderer. |
-| **FXAA** | 🔶 actif, insuffisant seul | Lisse un peu, ne tient pas contre le scintillement d'un casque. |
+**Réglage retenu : TAA + échelle 0,85** (les deux par défaut). Chemin parcouru,
+tout mesuré sur Quest 2 via Link + RTX 3070 Laptop bridée à 1100 MHz :
+
+| Configuration | Par œil | Cadence | GPU app | Verdict |
+|---|---|---|---|---|
+| TAA + 0,60 | 1248×1257 | 66-68 i/s | 3,1 ms | lisse mais **flou** |
+| TAA + 0,75 | 1560×1572 | 68-69 i/s | 4,7 ms | bon compromis |
+| **TAA + 0,85** | **1768×1781** | **66-70 i/s** | **6,1 ms** | ✅ **retenu** — net ET lissé |
+| TAA + 0,90 | 1872×1886 | 21-25 i/s | 27,7 ms | ⛔ **falaise** (voir ci-dessous) |
+| sans TAA + 0,90 | 1872×1886 | 68-71 i/s | 11 ms | net mais **crénelé** |
+| sans TAA + 1,00 | 2080×2096 | 32-42 i/s | 18 ms | le GPU décroche |
+
+⚠️ **La falaise entre 0,85 et 0,90 avec TAA n'est pas une pente** : le coût GPU
+passe de 6 à 27 ms pour 12 % de pixels en plus. Un seuil est franchi (mémoire
+vidéo ou cache) — à ne pas confondre avec un coût qui monterait doucement. Sur
+une machine à plus de VRAM, ce seuil sera ailleurs : **remesurer plutôt que
+recopier ces chiffres**.
+
+| Autre technique | Verdict |
+|---|---|
+| **MSAA** | ⛔ n'existe pas dans le moteur : `NkRendererConfig::msaaSamples` est un champ **jamais lu**. Le brancher est un chantier (cibles multi-échantillonnées + résolution dans les passes, 4 backends) — note de coordination posée dans la ROADMAP de NKRenderer. |
+| **FXAA** | 🔶 actif, utile en complément, insuffisant seul contre le scintillement d'un casque. |
+
+### Peut-on monter à « 2K ou 4K » par œil ?
+
+Oui — mais c'est une question de MACHINE, pas de moteur. `NK_XR_RENDER_SCALE`
+n'a pas de plafond logiciel (borné à 2,0 par prudence) : le Quest 2 recommande
+déjà 2080×2096 par œil, soit **8,7 mégapixels par image** pour les deux yeux —
+davantage qu'un écran 4K (8,3 Mpx), et **72 fois par seconde**. La limite
+mesurée ici est celle d'une RTX 3070 Laptop **bridée à 1100 MHz** (bridage de
+sécurité contre les extinctions machine). Trois leviers, dans l'ordre :
+1. **lever le bridage GPU** — le plus direct, si la machine le supporte ;
+2. **rendu deux-vues en une passe** (ombres et culling calculés une fois au
+   lieu de deux) : aujourd'hui presque tout est payé deux fois ;
+3. **masque de visibilité** : 15-25 % des pixels ne sont jamais vus à travers
+   la lentille — les récupérer finance directement la résolution.
+Les points 2 et 3 sont des chantiers NKRenderer, déjà notés dans sa ROADMAP.
 
 ---
 
