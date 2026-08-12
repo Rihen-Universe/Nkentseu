@@ -10020,6 +10020,14 @@ namespace nkentseu {
 							// pbr ont les memes proprietes, c'est pas normal ». Il n'a QUE
 							// couleur, canal couleur, canal emissif, emission, intensite.
 							const bool famEmis = (tFam9 == 11);
+							// LE VERRE A SES PROPRES REGLAGES : couleur, rugosite (le
+							// flou du reflet), opacite et indice. Il n'a ni vernis, ni
+							// metallique, ni anisotropie, ni sheen, ni diffusion — son
+							// shader ne les lit pas. Les afficher trompait doublement,
+							// puisque le champ `vernis` PORTE l'indice cote GPU : les
+							// deux lignes montraient la meme valeur (capture de Rihen,
+							// 12 aout 10h29).
+							const bool famVerre = (tFam9 == 5);
 							bool colCh = false;
 							yy += PaintColorRow(p, hit, ws, in, st, iR, yy, "Couleur",
 												"props.pm.col", alb, &colCh);
@@ -10137,12 +10145,14 @@ namespace nkentseu {
 										   kRowH - S(6.f)},
 										  rgh, 0.005f, NkRole::AccentUi, "%.2f");
 								yy += kRowH;
-								p.TextV(iR.x, yy, kRowH, "Metallique", NkRole::TextMuted);
-								DragFloat(p, hit, ws, in, "props.pm.mtl",
-										  {iR.x + S(110.f), yy + S(3.f), iR.w - S(110.f),
-										   kRowH - S(6.f)},
-										  mtl, 0.005f, NkRole::AccentUi, "%.2f");
-								yy += kRowH;
+								if (!famVerre) {
+									p.TextV(iR.x, yy, kRowH, "Metallique", NkRole::TextMuted);
+									DragFloat(p, hit, ws, in, "props.pm.mtl",
+											  {iR.x + S(110.f), yy + S(3.f), iR.w - S(110.f),
+											   kRowH - S(6.f)},
+											  mtl, 0.005f, NkRole::AccentUi, "%.2f");
+									yy += kRowH;
+								}
 							}
 							// ── LES REGLAGES PBR RESTES SANS CURSEUR (11 aout) ──────────
 							{
@@ -10268,6 +10278,7 @@ namespace nkentseu {
 								float32 xAl = 1.f, xAn = 0.f, xSh = 0.f;
 								demo::Demo3DHostProjMatPBRExtra(selMat, &xAl, &xAn, &xSh);
 								const float32 xa0 = xAl, xn0 = xAn, xs0 = xSh;
+								if (!famVerre) {
 								p.TextV(iR.x, yy, kRowH, "Anisotropie", NkRole::TextMuted);
 								DragFloat(p, hit, ws, in, "props.pm.ani",
 								          {iR.x + S(110.f), yy + S(3.f), iR.w - S(110.f), kRowH - S(6.f)},
@@ -10278,6 +10289,7 @@ namespace nkentseu {
 								          {iR.x + S(110.f), yy + S(3.f), iR.w - S(110.f), kRowH - S(6.f)},
 								          xSh, 0.005f, NkRole::AccentUi, "%.2f");
 								yy += kRowH;
+								}
 								if (xAl != xa0 || xAn != xn0 || xSh != xs0) {
 									demo::Demo3DHostProjMatSetPBRExtra(selMat, xAl, xAn, xSh);
 									NkMarkDirty(st);
@@ -10340,7 +10352,7 @@ namespace nkentseu {
 							// vernis n'apparait QUE si le vernis existe — un curseur
 							// sans effet est pire qu'un curseur absent (regle du
 							// projet). La couleur de diffusion suit l'albedo.
-							if (famPBR) {
+							if (famPBR && !famVerre) {
 								float32 cc = 0.f, ccR = 0.f, sss = 0.f;
 								demo::Demo3DHostProjMatSurface(selMat, &cc, &ccR, &sss);
 								const float32 cc0 = cc, ccR0 = ccR, sss0 = sss;
