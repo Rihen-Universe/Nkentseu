@@ -177,6 +177,30 @@ du cas « EndFrame avec image encore acquise »).
 
 ## À venir
 
+### 📱 Déployer sur téléphone — la bonne commande
+
+`jenga run` **installe et lance** sur l'appareil : inutile d'appeler `adb`
+soi-même (rappel de Rihen, 2026-08-12).
+
+```
+jenga run NKARDemo --platform android --config Release --build
+jenga run NKARDemo --platform android --config Release --device RFCT701YSSM
+```
+
+`--device` (alias `--target`) ne sert que si plusieurs appareils sont branchés —
+un émulateur qui traîne suffit à rendre le choix ambigu. Pour raccourcir
+l'attente pendant la mise au point : `--android-abis arm64-v8a` au build, car
+l'APK universel construit les quatre architectures.
+
+Pré-requis vérifiés le 2026-08-12 sur ce poste : `JAVA_HOME` = JDK 17,
+`ANDROID_SDK_ROOT` = `C:\Android`, `debug.keystore` présent (2666 octets).
+`adb` n'est PAS dans le PATH : il vit à `C:\Android\platform-tools\adb.exe`.
+
+**Si l'appareil passe `offline`** : ce n'est pas le paquet, c'est la liaison.
+Déverrouiller l'écran et accepter la demande d'autorisation de débogage ;
+sinon basculer le mode USB sur « transfert de fichiers », ou révoquer les
+autorisations de débogage dans les options développeur et rebrancher.
+
 ### 🌍 PERCEPTION COMPLÈTE — décision de Rihen, 2026-08-12 : « la totale »
 
 Demande explicite : SLAM, détection de lignes, de plans, de surfaces, de formes.
