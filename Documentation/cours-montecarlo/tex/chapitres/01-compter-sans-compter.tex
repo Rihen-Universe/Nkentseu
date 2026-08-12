@@ -1,0 +1,123 @@
+\chapter{Compter sans compter}
+
+Ce chapitre ne contient aucune formule. Il contient l'idée entière.
+
+\section{La flaque dans la cour}
+
+Imaginez une flaque d'eau de forme bizarre au milieu d'une cour rectangulaire.
+Vous voulez savoir quelle \textbf{surface} elle occupe. Vous n'avez pas de
+règle, et la flaque ne ressemble à aucune figure connue : ce n'est ni un carré,
+ni un cercle, ni rien qui ait une formule.
+
+Alors vous faites ceci. Vous prenez une poignée de cailloux et vous les lancez
+\textbf{au hasard, partout dans la cour}, sans viser. Puis vous comptez ceux qui
+ont fait « plouf ».
+
+\begin{nkretenir}[Le raisonnement complet]
+Si 30 cailloux sur 100 sont tombés dans la flaque, alors la flaque occupe
+environ \textbf{30 \% de la cour}. Et la cour, elle, est un rectangle : sa
+surface, vous la connaissez.
+
+\[ \text{surface de la flaque} \;\approx\; 0{,}30 \times \text{surface de la cour} \]
+\end{nkretenir}
+
+Vous venez de mesurer l'immesurable sans jamais approcher la flaque. C'est
+\emph{tout} Monte-Carlo. Le nom vient du casino de Monte-Carlo : on joue aux
+dés pour obtenir un résultat sérieux.
+
+Deux choses sont déjà vraies, et elles ne changeront plus de tout le cours :
+
+\begin{itemize}
+  \item avec 10 cailloux, la réponse est mauvaise ; avec 10\,000, elle est
+        bonne. \textbf{Plus on lance, plus c'est juste} ;
+  \item on n'aura \textbf{jamais} la réponse exacte. On aura une réponse
+        presque juste, dont l'erreur rétrécit tant qu'on continue.
+\end{itemize}
+
+\section{Le premier vrai calcul : trouver $\pi$ avec de la pluie}
+
+Passons à un cas où la réponse est connue, pour vérifier que la méthode ne
+ment pas.
+
+Prenez un carré de côté 2, allant de $-1$ à $+1$ dans les deux directions, et
+le cercle de rayon 1 qui tient exactement dedans.
+
+\begin{itemize}
+  \item surface du carré $= 2 \times 2 = 4$ ;
+  \item surface du cercle $= \pi \times r^2 = \pi$ (puisque $r = 1$).
+\end{itemize}
+
+Un point lancé au hasard dans le carré a donc une chance sur $4/\pi$ de tomber
+dans le cercle — autrement dit, la proportion de points dans le cercle vaut
+$\pi/4$. Retournez la relation :
+
+\[ \pi \;\approx\; 4 \times \frac{\text{points tombés dans le cercle}}{\text{points lancés}} \]
+
+Reste à savoir si un point $(x, y)$ est dans le cercle. Il l'est si sa distance
+au centre ne dépasse pas 1, c'est-à-dire si $x^2 + y^2 \leq 1$. On ne prend
+même pas la racine carrée : comparer les carrés donne le même verdict et coûte
+moins cher.
+
+\begin{nkcode}{Estimer $\pi$ — le programme complet}
+float32 EstimerPi(nk_uint32 n) {
+    nk_uint32 dedans = 0;
+    for (nk_uint32 i = 0; i < n; ++i) {
+        const float32 x = math::NkRand.NextFloat32(-1.f, 1.f);
+        const float32 y = math::NkRand.NextFloat32(-1.f, 1.f);
+        // Pas de racine carree : comparer les carres donne le meme verdict.
+        if (x * x + y * y <= 1.f)
+            ++dedans;
+    }
+    return 4.f * (float32)dedans / (float32)n;
+}
+\end{nkcode}
+
+Voici ce que rend ce programme, en pratique :
+
+\begin{center}
+\begin{tabular}{@{}rll@{}}
+\toprule
+\textbf{Tirages} & \textbf{Estimation} & \textbf{Erreur} \\
+\midrule
+100          & 3,08     & 2 \% \\
+10\,000      & 3,132    & 0,3 \% \\
+1\,000\,000  & 3,1416   & 0,02 \% \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}[Ce que vous venez de faire]
+Vous avez calculé $\pi$ \textbf{sans jamais écrire $\pi$}, et sans connaître la
+moindre formule de géométrie du cercle. Vous n'avez utilisé qu'une chose : la
+capacité à répondre à la question « ce point est-il dedans ? ».
+
+C'est le motif universel. Monte-Carlo ne demande jamais de savoir résoudre le
+problème — seulement de savoir \textbf{évaluer une réponse ponctuelle}.
+\end{nkretenir}
+
+\section{Pourquoi ça marche vraiment}
+
+Ce n'est pas une coïncidence ni un bricolage. C'est la \emph{loi des grands
+nombres} : quand on répète une expérience au hasard un grand nombre de fois, la
+moyenne des résultats se rapproche de la valeur vraie.
+
+Dit autrement : chaque caillou pris isolément ne vous apprend presque rien
+(il est dedans ou dehors, c'est tout). Mais leur \textbf{moyenne} sait quelque
+chose qu'aucun caillou ne sait.
+
+\begin{nkpiege}[Ce n'est pas « ça finit par tomber juste par chance »]
+Une confusion fréquente : croire que le résultat oscille et qu'on attrape la
+bonne valeur au passage. Non — la moyenne \textbf{converge}. Chaque nouveau
+tirage tire l'estimation vers la vraie valeur, et l'écart rétrécit de façon
+prévisible (chapitre 3). Ce n'est pas de la chance, c'est une garantie
+mathématique.
+\end{nkpiege}
+
+\begin{nkexo}[Vérifier la convergence de ses propres yeux]
+Modifiez \texttt{EstimerPi} pour qu'elle affiche l'estimation courante tous les
+1000 tirages, sur 100\,000 tirages. Tracez la courbe.
+
+Vous verrez trois choses : elle démarre n'importe où, elle se resserre vite au
+début, puis elle rampe. Ce ralentissement est le sujet du chapitre 3, et c'est
+le prix à payer de la méthode.
+\end{nkexo}

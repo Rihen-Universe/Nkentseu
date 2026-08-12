@@ -1,0 +1,200 @@
+\chapter{Mise en œuvre I : le rendu d'images}
+
+Première application complète, pas à pas. C'est ici que Monte-Carlo n'est pas
+une astuce mais une nécessité absolue.
+
+\section{Le problème : une équation qu'on ne peut pas résoudre}
+
+La lumière qui repart d'un point $x$ vers l'œil, dans la direction
+$\omega_o$, vaut ce que la surface émet elle-même plus tout ce qu'elle reçoit
+et renvoie :
+
+\[ L_o(x,\omega_o) \;=\; L_e(x,\omega_o) \;+\;
+   \int_{\Omega} L_i(x,\omega_i)\; f_r(x,\omega_i,\omega_o)\; \cos\theta_i \; d\omega_i \]
+
+En français, terme par terme :
+
+\begin{itemize}
+  \item $L_e$ : ce que la surface \textbf{émet} (nul, sauf si c'est une lampe) ;
+  \item $\int_{\Omega}$ : la somme sur \textbf{toutes les directions} de
+        l'hémisphère au-dessus du point — une infinité de directions ;
+  \item $L_i(x,\omega_i)$ : la lumière qui \textbf{arrive} de la direction
+        $\omega_i$ ;
+  \item $f_r$ : la \textbf{BRDF}, qui dit quelle fraction de ce qui arrive
+        d'une direction repart vers une autre — la matière ;
+  \item $\cos\theta_i$ : la lumière rasante étale son énergie sur une plus
+        grande surface, donc elle compte moins. C'est le même effet qui fait
+        qu'il fait plus froid en hiver.
+\end{itemize}
+
+Deux raisons rendent cette équation insoluble : elle est \textbf{récursive}
+($L_i$ est le $L_o$ d'un autre point, qui dépend d'un autre encore), et son
+domaine est \textbf{continu et infini}.
+
+\section{La transformation en algorithme}
+
+Appliquons la formule du chapitre 2 : au lieu de sommer sur toutes les
+directions, tirons-en quelques-unes au hasard.
+
+\begin{nkretenir}[Les six pas, dans l'ordre]
+\begin{enumerate}
+  \item \textbf{Tirer} une direction $\omega_i$ selon une densité $p$ choisie
+        par nous ;
+  \item \textbf{lancer} un rayon dans cette direction et trouver ce qu'il
+        touche ;
+  \item \textbf{récupérer} la lumière qui vient de là — par récursion ;
+  \item \textbf{pondérer} : multiplier par $f_r \cdot \cos\theta_i$, puis
+        \textbf{diviser par $p(\omega_i)$} ;
+  \item \textbf{accumuler} dans la somme du pixel ;
+  \item \textbf{recommencer} $N$ fois, puis diviser par $N$.
+\end{enumerate}
+\end{nkretenir}
+
+\section{Le choix de $p$, et la simplification qui en découle}
+
+Tirer uniformément sur l'hémisphère fonctionne, mais bruite : on gaspille des
+rayons dans les directions rasantes, que le $\cos\theta_i$ va presque annuler.
+
+L'échantillonnage \textbf{en cosinus} tire donc plus souvent près de la normale,
+avec la densité
+\[ p(\omega_i) = \frac{\cos\theta_i}{\pi} \]
+
+Regardez ce qui se passe quand on remplace, pour une surface diffuse dont la
+BRDF vaut $f_r = \rho/\pi$ :
+
+\[ \frac{f_r \cdot \cos\theta_i}{p(\omega_i)}
+ = \frac{\dfrac{\rho}{\pi}\cos\theta_i}{\dfrac{\cos\theta_i}{\pi}}
+ = \rho \]
+
+\begin{nkretenir}[Pourquoi tous les moteurs font ça]
+Le $\cos\theta_i$ \textbf{se simplifie} avec celui de la densité, et le $\pi$
+aussi. Il ne reste que l'albédo. On a donc, en même temps :
+\begin{itemize}
+  \item moins de bruit (on tire là où ça compte) ;
+  \item moins de calcul (deux termes disparaissent algébriquement).
+\end{itemize}
+C'est le prototype du bon échantillonnage d'importance : celui qui rend le
+code \emph{plus simple} et non plus compliqué.
+\end{nkretenir}
+
+\begin{nkcode}{Tirage en cosinus sur l'hemisphere (methode de Malley)}
+// On tire un point uniformement dans le DISQUE unite, puis on le releve sur
+// l'hemisphere. C'est exactement equivalent a un tirage en cosinus, et ca ne
+// coute qu'une racine carree -- resultat classique, et bien plus rapide que
+// d'inverser la repartition en angles spheriques.
+NkVec3 EchantillonnerCosinus(const NkVec3& normale, float32* pdfOut) {
+    const float32 u1 = math::NkRand.NextFloat32();
+    const float32 u2 = math::NkRand.NextFloat32();
+
+    const float32 r = NkMath::Sqrt(u1);
+    const float32 phi = 2.f * NkMath::kPi * u2;
+
+    const float32 x = r * NkMath::Cos(phi);
+    const float32 y = r * NkMath::Sin(phi);
+    const float32 z = NkMath::Sqrt(NkMath::Max(0.f, 1.f - u1));  // = cos(theta)
+
+    // Base orthonormee autour de la normale (methode de Duff : sans branche
+    // conditionnelle, et numeriquement stable meme quand n.z vaut -1).
+    const float32 sign = (normale.z >= 0.f) ? 1.f : -1.f;
+    const float32 a = -1.f / (sign + normale.z);
+    const float32 b = normale.x * normale.y * a;
+    const NkVec3 t(1.f + sign * normale.x * normale.x * a, sign * b, -sign * normale.x);
+    const NkVec3 s(b, sign + normale.y * normale.y * a, -normale.y);
+
+    if (pdfOut)
+        *pdfOut = z / NkMath::kPi;          // p = cos(theta) / pi
+
+    return t * x + s * y + normale * z;
+}
+\end{nkcode}
+
+\section{Le chemin complet}
+
+\begin{nkcode}{Contribution d'UN chemin -- la moyenne de N appels donne le pixel}
+NkVec3 TracerChemin(const NkRay& rayon, nk_uint32 profondeur) {
+    NkHit hit;
+    if (!mScene.Intersect(rayon, hit))
+        return CielVersLumiere(rayon.direction);   // le rayon part a l'infini
+
+    NkVec3 radiance = hit.material.emission;       // la surface brille-t-elle ?
+
+    // ROULETTE RUSSE. Couper net a une profondeur fixe perdrait toute la
+    // lumiere des rebonds suivants : l'image s'assombrirait de facon
+    // systematique (un BIAIS, pas du bruit). Ici on continue avec la
+    // probabilite q et on divise par q : l'esperance reste exacte.
+    float32 q = 1.f;
+    if (profondeur > 3) {
+        q = 0.8f;
+        if (math::NkRand.NextFloat32() > q)
+            return radiance;                       // le chemin meurt ici
+    }
+
+    // (1) tirer une direction, et connaitre SA densite
+    float32 pdf = 0.f;
+    const NkVec3 wi = EchantillonnerCosinus(hit.normal, &pdf);
+    if (pdf <= 0.f)
+        return radiance;                           // garde : jamais diviser par 0
+
+    // (2) et (3) : suivre le rayon, recuperer ce qui vient de la
+    const NkVec3 entrant = TracerChemin(NkRay(hit.position, wi), profondeur + 1);
+
+    // (4) ponderer : BRDF * cos, DIVISE par la densite et par q.
+    // Avec le tirage en cosinus, cos et pi se simplifient : il ne reste que
+    // l'albedo. On ecrit quand meme la forme complete -- elle reste juste si
+    // l'on change de densite un jour, et c'est la que se cachent les bugs.
+    const float32 cosTheta = NkMath::Max(0.f, NkVec3::Dot(hit.normal, wi));
+    const NkVec3 brdf = hit.material.albedo * (1.f / NkMath::kPi);
+
+    radiance += entrant * brdf * cosTheta / (pdf * q);
+    return radiance;
+}
+
+// (5) et (6) : la moyenne sur le pixel.
+NkVec3 RendrePixel(nk_uint32 px, nk_uint32 py, nk_uint32 echantillons) {
+    NkVec3 somme(0.f, 0.f, 0.f);
+    for (nk_uint32 s = 0; s < echantillons; ++s) {
+        // Jitter dans le pixel : sans lui, tous les rayons passent par le
+        // meme point et les bords sont crenele. Avec, l'anticrenelage est
+        // GRATUIT -- il vient du meme hasard qui sert a l'eclairage.
+        const float32 jx = math::NkRand.NextFloat32();
+        const float32 jy = math::NkRand.NextFloat32();
+        somme += TracerChemin(mCamera.RayonVers((float32)px + jx, (float32)py + jy), 0);
+    }
+    return somme / (float32)echantillons;
+}
+\end{nkcode}
+
+\begin{nkpiege}[Trois erreurs qui donnent une image plausible mais fausse]
+\begin{enumerate}
+  \item \textbf{oublier de diviser par la densité} : l'image reste jolie, mais
+        l'éclairage est faux. Rien ne le signale — c'est le bug nº1 du path
+        tracing ;
+  \item \textbf{couper les chemins à profondeur fixe} : image trop sombre,
+        d'autant plus que la scène a d'inter-réflexions ;
+  \item \textbf{oublier le jitter dans le pixel} : bords crénelés, qu'aucun
+        nombre d'échantillons ne corrigera jamais — tous les rayons passent
+        exactement au même endroit.
+\end{enumerate}
+\end{nkpiege}
+
+\section{Pourquoi le rendu direct des lumières change tout}
+
+Avec le code ci-dessus, une petite lampe intense est un cauchemar : les rayons
+tirés au hasard la manquent presque toujours, et les rares qui la touchent
+rapportent une énergie énorme. Résultat : des \textbf{pixels blancs isolés} sur
+une image sombre, ce qu'on appelle des \emph{fireflies}.
+
+La parade s'appelle \emph{next event estimation} : à chaque rebond, on tire
+\textbf{en plus} un point directement sur une source de lumière, on vérifie
+qu'il est visible, et on ajoute sa contribution. On combine ensuite les deux
+estimations (celle par la BRDF et celle par la lumière) avec des poids —
+c'est l'\emph{échantillonnage à importances multiples}, la brique suivante.
+
+\begin{nkexo}[Voir le bruit diminuer]
+Rendez une scène simple (un plan, une sphère, un ciel uniforme) à 1, 4, 16,
+64 puis 256 échantillons par pixel, en gardant les images.
+
+Vérifiez la loi du chapitre 3 : entre 16 et 64 échantillons — quatre fois plus
+— le grain doit diminuer d'un facteur 2 environ, pas 4. Puis ajoutez le tirage
+direct des lumières et comparez à nombre d'échantillons égal.
+\end{nkexo}

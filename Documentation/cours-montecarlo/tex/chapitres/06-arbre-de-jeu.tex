@@ -1,0 +1,213 @@
+\chapter{Mise en œuvre II : jouer sans savoir évaluer}
+
+Deuxième application complète, dans un tout autre monde : l'intelligence
+artificielle d'un jeu de plateau. Le principe est identique, les gains sont
+spectaculaires, et la mise en œuvre tient en une page.
+
+\section{Le problème des méthodes classiques}
+
+Un moteur de jeu traditionnel (Minimax, Negamax, alpha-bêta) explore l'arbre
+des coups possibles et, à une certaine profondeur, appelle une \textbf{fonction
+d'évaluation} : « cette position vaut $+3$ pour les blancs ».
+
+Cette fonction est le talon d'Achille. Aux échecs, on sait la fabriquer
+(matériel, structure de pions, sécurité du roi — des siècles de théorie). Mais
+sur un jeu nouveau, sur le Go, ou sur votre propre jeu de plateau,
+\textbf{personne ne sait dire si une position à mi-partie est bonne}. Et une
+mauvaise fonction d'évaluation produit une IA confiante et stupide.
+
+\begin{nkretenir}[L'idée qui contourne le problème]
+Ne jugeons pas la position. \textbf{Jouons la partie jusqu'au bout}, au hasard,
+et regardons qui gagne. À la fin d'une partie, il n'y a plus rien à évaluer :
+le résultat est un fait.
+
+« Je ne sais pas si ce coup est bon. Alors depuis ce coup, je joue mille
+parties complètement au hasard jusqu'à la fin. Si j'en gagne sept cents, ce
+coup est probablement bon. »
+\end{nkretenir}
+
+C'est du Monte-Carlo pur : on estime une valeur inconnue (la qualité d'un coup)
+par la moyenne de tirages aléatoires (des parties jouées au hasard).
+
+\section{Le raffinement : ne pas répartir équitablement}
+
+Jouer mille parties par coup gaspille : la plupart des coups sont manifestement
+mauvais après cinquante parties, et continuer à les explorer prive les coups
+prometteurs de temps de calcul.
+
+MCTS (\emph{Monte Carlo Tree Search}) résout ce dilemme avec une formule qui
+arbitre entre \textbf{exploiter} ce qui marche et \textbf{explorer} ce qu'on
+connaît mal :
+
+\[ UCB1(i) \;=\; \underbrace{\frac{w_i}{n_i}}_{\text{ce que ça rapporte}}
+   \;+\; \underbrace{c\,\sqrt{\frac{\ln N}{n_i}}}_{\text{curiosité}} \]
+
+où $w_i$ est le total des scores obtenus par ce coup, $n_i$ son nombre de
+visites, et $N$ le nombre de visites du nœud parent.
+
+\begin{itemize}
+  \item le premier terme est le \textbf{taux de victoire} : il pousse vers ce
+        qui a marché ;
+  \item le second \textbf{grossit quand $n_i$ est petit} : il force à essayer
+        les coups délaissés. Le $\ln N$ au numérateur fait que cette curiosité
+        décroît lentement à mesure qu'on connaît mieux le nœud ;
+  \item $c$ règle l'équilibre. \textbf{$c = \sqrt{2}$} si les scores sont dans
+        $[0,1]$ : c'est la valeur qui découle de la théorie des bandits
+        manchots. Plus grand rend l'IA curieuse, plus petit la rend gourmande.
+\end{itemize}
+
+\begin{nkretenir}[MCTS est de l'échantillonnage d'importance]
+C'est exactement l'idée du chapitre 4, appliquée à un arbre : \textbf{tirer
+davantage là où ça compte}. UCB1 est la densité $p$, et l'arbre se construit
+lui-même autour des branches qui le méritent.
+\end{nkretenir}
+
+\section{Les quatre phases, répétées en boucle}
+
+\begin{enumerate}
+  \item \textbf{Sélection} — depuis la racine, descendre en choisissant à
+        chaque nœud l'enfant de plus fort UCB1, jusqu'à un nœud dont tous les
+        coups n'ont pas encore été essayés ;
+  \item \textbf{Expansion} — créer un nouvel enfant pour l'un de ces coups
+        jamais tentés ;
+  \item \textbf{Simulation} — depuis ce nouveau nœud, jouer \textbf{au hasard}
+        jusqu'à la fin de la partie. Résultat : victoire, défaite ou nul ;
+  \item \textbf{Rétropropagation} — remonter jusqu'à la racine en ajoutant une
+        visite et le score à chaque nœud traversé.
+\end{enumerate}
+
+\begin{nkpiege}[L'erreur nº1, celle qui rend l'IA suicidaire]
+À la remontée, le score doit être \textbf{inversé à chaque changement de
+joueur}. Une victoire pour vous est une défaite pour l'adversaire.
+
+Si vous remontez le même chiffre partout, votre IA choisit les coups qui font
+gagner \emph{l'autre} — et elle le fait avec une parfaite assurance
+statistique. Le symptôme est déroutant : plus vous lui donnez de temps de
+calcul, plus elle joue mal.
+\end{nkpiege}
+
+\section{Le code complet}
+
+\begin{nkcode}{MCTS -- structure de noeud et boucle principale}
+struct NkMctsNode {
+        NkMctsNode* parent = nullptr;
+        NkVector<NkMctsNode*> enfants;
+        NkVector<NkCoup> coupsNonEssayes;  // vide = noeud pleinement etendu
+        NkCoup coupJoue;                    // le coup qui mene ICI
+        nk_uint32 visites = 0;
+        float32 score = 0.f;                // du point de vue de `joueur`
+        nk_int32 joueur = 0;                // qui a joue `coupJoue`
+};
+
+NkCoup MeilleurCoup(const NkPlateau& depart, nk_uint32 budget) {
+    NkMctsNode* racine = CreerNoeud(nullptr, depart);
+
+    for (nk_uint32 iter = 0; iter < budget; ++iter) {
+        NkMctsNode* noeud = racine;
+        NkPlateau etat = depart;             // copie de travail
+
+        // (1) SELECTION : descendre tant que le noeud est etendu.
+        while (noeud->coupsNonEssayes.Empty() && !noeud->enfants.Empty()) {
+            noeud = MeilleurEnfantUCB(noeud, 1.41421356f);   // c = sqrt(2)
+            etat.Jouer(noeud->coupJoue);
+        }
+
+        // (2) EXPANSION : essayer un coup encore jamais joue.
+        if (!noeud->coupsNonEssayes.Empty()) {
+            const nk_uint32 k =
+                math::NkRand.NextUInt32(noeud->coupsNonEssayes.Size());
+            const NkCoup coup = noeud->coupsNonEssayes[k];
+            noeud->coupsNonEssayes.Erase(k);
+            etat.Jouer(coup);
+            noeud = AjouterEnfant(noeud, coup, etat.JoueurCourant());
+        }
+
+        // (3) SIMULATION : jouer au hasard jusqu'au bout.
+        NkPlateau sim = etat;
+        NkVector<NkCoup> coups;
+        while (!sim.EstTerminee()) {
+            coups.Clear();
+            sim.CoupsLegaux(coups);
+            if (coups.Empty())
+                break;
+            sim.Jouer(coups[math::NkRand.NextUInt32(coups.Size())]);
+        }
+        const nk_int32 gagnant = sim.Gagnant();
+
+        // (4) RETROPROPAGATION -- le score DEPEND du joueur de chaque noeud.
+        while (noeud != nullptr) {
+            noeud->visites += 1;
+            if (gagnant == 0)
+                noeud->score += 0.5f;                        // partie nulle
+            else
+                noeud->score += (gagnant == noeud->joueur) ? 1.f : 0.f;
+            noeud = noeud->parent;
+        }
+    }
+
+    // Le coup rendu est le PLUS VISITE, pas le mieux note : le nombre de
+    // visites est une statistique bien plus stable qu'un taux de victoire
+    // calcule sur trois parties. Un coup vu deux fois avec deux victoires
+    // affiche 100 % -- et ne veut rien dire.
+    return EnfantLePlusVisite(racine)->coupJoue;
+}
+\end{nkcode}
+
+\begin{nkcode}{UCB1 -- le choix de l'enfant}
+NkMctsNode* MeilleurEnfantUCB(NkMctsNode* n, float32 c) {
+    NkMctsNode* meilleur = nullptr;
+    float32 meilleureValeur = -1e30f;
+    const float32 logN = NkMath::Log((float32)n->visites);
+
+    for (nk_size i = 0; i < n->enfants.Size(); ++i) {
+        NkMctsNode* e = n->enfants[i];
+
+        // Un enfant jamais visite est prioritaire ABSOLU : sa formule
+        // diviserait par zero, et la theorie veut qu'on l'essaie d'abord.
+        if (e->visites == 0)
+            return e;
+
+        const float32 exploitation = e->score / (float32)e->visites;
+        const float32 exploration  = c * NkMath::Sqrt(logN / (float32)e->visites);
+        const float32 v = exploitation + exploration;
+        if (v > meilleureValeur) {
+            meilleureValeur = v;
+            meilleur = e;
+        }
+    }
+    return meilleur;
+}
+\end{nkcode}
+
+\section{Ce que MCTS vous donne gratuitement}
+
+\begin{itemize}
+  \item \textbf{aucune connaissance du jeu n'est requise} : il suffit de savoir
+        énumérer les coups légaux et reconnaître une fin de partie. Le même
+        code marche sur un jeu que vous venez d'inventer ;
+  \item \textbf{interruptible} : arrêtez-le quand vous voulez, il rend son
+        meilleur coup actuel. Une IA qui doit répondre en 200 ms et une qui a
+        10 secondes, c'est le même code avec un budget différent ;
+  \item \textbf{il s'améliore tout seul} avec le temps de calcul, sans réglage ;
+  \item \textbf{il se parallélise} : plusieurs fils peuvent explorer l'arbre en
+        même temps (avec les précautions du chapitre 7).
+\end{itemize}
+
+\begin{nkpiege}[Ce que MCTS fait mal]
+Les positions à \textbf{coup unique salvateur} — celles où un seul coup sauve
+la partie et tous les autres perdent. Le hasard des simulations le trouve
+rarement, et la moyenne le noie. C'est pourquoi les meilleurs programmes
+combinent MCTS avec une recherche exhaustive à faible profondeur, ou avec un
+réseau de neurones qui oriente les simulations (c'est la recette d'AlphaGo :
+MCTS + un réseau pour remplacer le tirage uniforme).
+\end{nkpiege}
+
+\begin{nkexo}[Le sentir sur un morpion]
+Implémentez MCTS pour le tic-tac-toe, jeu assez petit pour qu'on connaisse la
+vérité : bien joué, il est toujours nul.
+
+Faites varier le budget : 100, 1000, 10\,000 itérations. À 10\,000, votre IA ne
+doit \textbf{jamais} perdre. Puis inversez volontairement le signe de la
+rétropropagation : elle deviendra suicidaire — et vous reconnaîtrez ce symptôme
+à vie.
+\end{nkexo}
