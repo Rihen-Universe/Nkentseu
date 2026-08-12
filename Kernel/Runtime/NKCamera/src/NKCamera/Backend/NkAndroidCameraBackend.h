@@ -381,7 +381,7 @@ namespace nkentseu {
 					const NkElapsedTime start = NkChrono::Now();
 					while (!mHasFrame && (NkChrono::Now() - start).seconds < 3.0) {
 						lk.unlock();
-						NkChrono::Sleep(10);
+						NkChrono::Sleep(int64(10)); // surcharges int64/float64 : un litteral nu est ambigu
 						lk.lock();
 					}
 				}

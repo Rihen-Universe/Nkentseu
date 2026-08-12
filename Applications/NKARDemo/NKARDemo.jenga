@@ -66,6 +66,31 @@ with project("NKARDemo"):
         usetoolchain("clang-native")
         frameworks(["Cocoa", "QuartzCore", "OpenGL"])
 
+    # ===== Android ================================================================
+    # Ce qu'il y a à porter est plus mince qu'il n'y paraît : la chaîne AR
+    # (marqueurs, session, monde, suivi) est du C++ pur sans la moindre
+    # dépendance plateforme, elle traverse donc telle quelle. Le vrai portage,
+    # c'est la CAMÉRA — et son backend Camera2 NDK est déjà écrit — plus la
+    # fenêtre et le contexte graphique, que d'autres applications utilisent déjà.
+    with filter("system:Android"):
+        usetoolchain("android-ndk")
+        links(["android", "log", "EGL", "GLESv3", "vulkan",
+               "camera2ndk", "mediandk"])
+        androidapplicationid("com.nkentseu.nkardemo")
+        androidminsdk(24)
+        androidtargetsdk(34)
+        androidcompilesdk(34)
+        # Les quatre architectures, comme les autres applications du dépôt.
+        # Pour la mise au point on restreint en LIGNE DE COMMANDE
+        # (`--android-abis arm64-v8a`) : c'est un choix de session, il n'a rien
+        # à faire dans le descripteur, qui décrit ce que l'application SUPPORTE.
+        androidabis(["armeabi-v7a", "arm64-v8a", "x86", "x86_64"])
+        androidnativeactivity(True)
+        androidstl("c++_shared")
+        androidpermissions([
+            "android.permission.CAMERA",
+        ])
+
     with filter("config:Debug"):
         defines(["_DEBUG", "DEBUG"])
         optimize("Off")
