@@ -239,6 +239,43 @@ int main() {
 		allocator.Deallocate(rgba);
 	}
 
+	// ── Cas 7 : mode ANCRE — poser une fois, garder pour toujours ───────────
+	{
+		const int32 id = 0x2D;
+		const float32 size = 0.20f;
+		NkArSessionConfig cfg;
+		cfg.markerSizeMeters = BlackSquareOf(size, 4);
+		cfg.lostToleranceFrames = 2; // volontairement court : il doit etre IGNORE
+		cfg.anchorMode = NkArAnchorMode::NK_AR_ANCHOR_PERSISTENT;
+		NkArSession session;
+		session.Initialize(cfg, W, H);
+
+		SynthesizeView(image, W, H, K, id, 4, size, 0.f, 0.f, math::NkVec3f(0.f, 0.f, -1.f));
+		CHECK(session.ProcessFrame(image, W, H, W, NkArImageFormat::NK_AR_GRAY8) == 1u, "ancre : marqueur pose");
+		const NkArTrackedMarker *anchored = session.Find(id);
+		CHECK(anchored != nullptr, "ancre : marqueur retenu");
+		const math::NkVec3f placed = (anchored != nullptr) ? anchored->pose.position : math::NkVec3f();
+
+		// Le marqueur disparait DEFINITIVEMENT de l'image : l'ancre doit tenir,
+		// bien au-dela de lostToleranceFrames, et ne pas bouger d'un pouce.
+		for (uint32 i = 0; i < W * H; ++i) {
+			image[i] = 180;
+		}
+		for (uint32 k = 0; k < 100u; ++k) {
+			session.ProcessFrame(image, W, H, W, NkArImageFormat::NK_AR_GRAY8);
+		}
+		anchored = session.Find(id);
+		CHECK(anchored != nullptr, "ancre : TOUJOURS la 100 images apres la disparition");
+		CHECK(anchored != nullptr && !anchored->visibleThisFrame, "ancre : signalee non visible (l'app le sait)");
+		CHECK(anchored != nullptr && Near(anchored->pose.position.z, placed.z, 0.0001f),
+			  "ancre : pose INCHANGEE depuis la pose initiale");
+
+		// L'application garde la main : Forget retire l'ancre.
+		CHECK(session.Forget(id), "ancre : Forget retire l'ancre");
+		CHECK(session.Find(id) == nullptr, "ancre : oubliee apres Forget");
+		CHECK(!session.Forget(id), "ancre : Forget d'un inconnu rend false");
+	}
+
 	allocator.Deallocate(image);
 	logger.Infof("=== NKXR AR self-test : %d OK, %d ECHECS ===\n", g_pass, g_fail);
 	return g_fail == 0 ? 0 : 1;
