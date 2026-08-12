@@ -31,6 +31,15 @@
 
 #include "NKCamera/NkCameraSystem.h"
 
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__)
+	#include "NKFileSystem/NkFile.h"
+	#include <android_native_app_glue.h>
+	#include <jni.h>
+namespace nkentseu {
+	extern android_app *nk_android_global_app;
+}
+#endif
+
 #include "NKRHI/Core/NkDeviceFactory.h"
 #include "NKRenderer/NkRenderer.h"
 #include "NKRenderer/Core/NkCamera.h"
@@ -99,6 +108,62 @@ namespace {
 			}
 		}
 	}
+
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__)
+	// Demande la permission CAMÉRA À L'EXÉCUTION.
+	//
+	// Pourquoi ce code existe : depuis Android 6, déclarer la permission dans le
+	// manifeste — ce que fait déjà le descripteur jenga — ne fait que la rendre
+	// DEMANDABLE. Tant que l'utilisateur ne l'a pas accordée, la caméra reste
+	// muette, et une application native ne pose pas la question toute seule.
+	// Mesuré au premier lancement sur le téléphone de Rihen : « granted=false »,
+	// écran noir, et rien dans le journal pour l'expliquer.
+	//
+	// Une NativeActivity n'a pas de code Java à elle, mais elle a une machine
+	// virtuelle : on appelle donc Activity.requestPermissions par JNI. Le
+	// résultat arrive de façon asynchrone dans une fenêtre système ; l'appelant
+	// doit donc attendre, et c'est à lui de ne pas figer sa boucle en attendant.
+	bool NkAndroidRequestCameraPermission() {
+		android_app *app = nkentseu::nk_android_global_app;
+		if (app == nullptr || app->activity == nullptr || app->activity->vm == nullptr) {
+			return false;
+		}
+		JNIEnv *env = nullptr;
+		if (app->activity->vm->AttachCurrentThread(&env, nullptr) != JNI_OK || env == nullptr) {
+			return false;
+		}
+		bool granted = false;
+		jclass activityClass = env->GetObjectClass(app->activity->clazz);
+		jstring permission = env->NewStringUTF("android.permission.CAMERA");
+
+		// checkSelfPermission : 0 = PERMISSION_GRANTED. On ne redemande pas ce
+		// qui est déjà accordé — une fenêtre inutile à chaque lancement serait
+		// une nuisance, et l'utilisateur finirait par refuser par réflexe.
+		jmethodID checkSelf = env->GetMethodID(activityClass, "checkSelfPermission", "(Ljava/lang/String;)I");
+		if (checkSelf != nullptr) {
+			const jint result = env->CallIntMethod(app->activity->clazz, checkSelf, permission);
+			granted = (result == 0);
+		}
+		if (!granted) {
+			jmethodID requestPermissions =
+				env->GetMethodID(activityClass, "requestPermissions", "([Ljava/lang/String;I)V");
+			if (requestPermissions != nullptr) {
+				jobjectArray array =
+					env->NewObjectArray(1, env->FindClass("java/lang/String"), env->NewStringUTF(""));
+				env->SetObjectArrayElement(array, 0, permission);
+				env->CallVoidMethod(app->activity->clazz, requestPermissions, array, 1);
+				env->DeleteLocalRef(array);
+			}
+		}
+		env->DeleteLocalRef(permission);
+		env->DeleteLocalRef(activityClass);
+		if (env->ExceptionCheck()) {
+			env->ExceptionClear();
+		}
+		app->activity->vm->DetachCurrentThread();
+		return granted;
+	}
+#endif
 
 	// Projette un point du repère CAMÉRA (avant = -Z) vers les pixels de
 	// l'image, puis vers la zone d'affichage de la vidéo à l'écran. C'est la
@@ -201,6 +266,24 @@ namespace {
 int nkmain(const NkEntryState &state) {
 	(void)state;
 
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__)
+	// ── AVANT TOUT LE RESTE ───────────────────────────────────────────────────
+	// Sur téléphone, les shaders voyagent DANS l'APK (voir `androidassets` du
+	// descripteur jenga). Jenga y dépose le CONTENU du dossier embarqué à la
+	// racine des ressources, alors que le moteur les demande sous
+	// « Resources/NKRenderer/Shaders/… » : on déclare donc le sous-dossier à
+	// retirer, et NkFile fait la correspondance seul.
+	//
+	// L'ordre n'est pas un détail — c'est le défaut que je viens de payer. Posé
+	// APRÈS la création du renderer, ce réglage arrivait trop tard : les
+	// shaders chargés pendant l'initialisation recevaient une source VIDE,
+	// échouaient tous à compiler, et le rendu refusait de démarrer. Seuls les
+	// matériaux, chargés plus tard, s'en tiraient — ce qui rendait le symptôme
+	// trompeur en n'échouant qu'à moitié. Toute déclaration qui gouverne l'accès
+	// aux fichiers doit précéder le premier fichier lu.
+	NkFile::SetAndroidAssetSubFolder("NKRenderer/Shaders");
+#endif
+
 	// ── 1) Le marqueur à imprimer ─────────────────────────────────────────────
 	{
 		const uint32 size = 512;
@@ -277,6 +360,20 @@ int nkmain(const NkEntryState &state) {
 			camCfg.facing = NkCameraFacing::NK_CAMERA_FACING_FRONT;
 		}
 	}
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__)
+	// Demander AVANT d'ouvrir la caméra, et laisser à l'utilisateur le temps de
+	// répondre. On n'attend pas indéfiniment : si la réponse tarde, la démo
+	// bascule sur son image de synthèse et le DIT, plutôt que de figer sa boucle
+	// — Android tue une application qui ne répond pas au bout de dix secondes.
+	{
+		bool granted = NkAndroidRequestCameraPermission();
+		for (uint32 wait = 0; !granted && wait < 40u; ++wait) {
+			NkChrono::Sleep(int64(150));
+			granted = NkAndroidRequestCameraPermission();
+		}
+		logger.Infof("[NKARDemo] Permission camera : %s\n", granted ? "ACCORDEE" : "refusee ou sans reponse");
+	}
+#endif
 	if (camera.Init()) {
 		const auto devices = camera.EnumerateDevices();
 		// Dire CE QU'ON A TROUVÉ, une ligne par appareil : sur téléphone il y en
