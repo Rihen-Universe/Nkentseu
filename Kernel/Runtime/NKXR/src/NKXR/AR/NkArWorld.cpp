@@ -156,17 +156,22 @@ namespace nkentseu {
 			mAnchors.Clear();
 		}
 
-		bool NkArWorld::GetAnchorInCamera(uint32 handle, NkXrPose &outPose) const {
+		bool NkArWorld::ToCamera(const NkXrPose &poseInWorld, NkXrPose &outPose) const {
 			if (!mHasOrigin) {
 				return false;
 			}
+			// Le passage inverse : du monde vers l'objectif. La pose de caméra
+			// utilisée peut dater (aucun marqueur en vue) — c'est délibéré, et
+			// c'est à l'appelant de le DIRE à l'utilisateur via IsLocalizedNow().
+			outPose = mCameraInWorld.Inverted() * poseInWorld;
+			return true;
+		}
+
+		bool NkArWorld::GetAnchorInCamera(uint32 handle, NkXrPose &outPose) const {
 			for (nk_size i = 0; i < mAnchors.Size(); ++i) {
-				if (mAnchors[i].handle != handle) {
-					continue;
+				if (mAnchors[i].handle == handle) {
+					return ToCamera(mAnchors[i].poseInWorld, outPose);
 				}
-				// Le passage inverse : du monde vers l'objectif.
-				outPose = mCameraInWorld.Inverted() * mAnchors[i].poseInWorld;
-				return true;
 			}
 			return false;
 		}
