@@ -46,13 +46,12 @@ static bool Near(float32 a, float32 b, float32 e) {
 // puis interpolees. Le suivi par l'image a besoin de relief pour s'accrocher ;
 // un motif repetitif, lui, se recollerait a la mauvaise periode et donnerait un
 // faux mouvement — d'ou le tirage pseudo-aleatoire plutot qu'un damier.
-static void MakeTexture(uint8 *out, uint32 w, uint32 h) {
-	const uint32 step = 3;
+static void MakeTexture(uint8 *out, uint32 w, uint32 h, uint32 step = 3, uint32 seedIn = 0x1234567u) {
 	const uint32 gw = w / step + 2u;
 	const uint32 gh = h / step + 2u;
 	auto &allocator = memory::NkGetDefaultAllocator();
 	uint8 *grid = static_cast<uint8 *>(allocator.Allocate(gw * gh, 1));
-	uint32 seed = 0x1234567u;
+	uint32 seed = seedIn;
 	for (uint32 i = 0; i < gw * gh; ++i) {
 		seed = seed * 1664525u + 1013904223u;
 		grid[i] = uint8(10u + ((seed >> 16) % 235u));
@@ -465,6 +464,53 @@ int main() {
 			  "suivi image : l'objet a glisse du bon cote, de la bonne quantite");
 		CHECK(Near(after.position.Len(), before.position.Len(), 0.02f),
 			  "suivi image : la DISTANCE ne bouge pas (une rotation ne rapproche rien)");
+
+		// LE SUJET QUI SUIT LA CAMERA — le cas qui echouait chez Rihen.
+		// Quelqu'un qui se filme en tournant sur place occupe toujours la meme
+		// part de l'image : son visage, le plus contraste de la scene, ne bouge
+		// PAS d'une image a l'autre pendant que la piece defile derriere. Ses
+		// points forment alors la majorite et imposent « rien n'a bouge ».
+		// On colle donc ici un motif tres contraste a la MEME place dans les
+		// deux vues, et l'on exige que la rotation du fond soit quand meme
+		// retrouvee. C'est l'etendue spatiale qui doit trancher : le fond couvre
+		// l'image, le sujet non.
+		{
+			const float32 sceneYaw = 1.5f * math::NK_PI_F / 180.f;
+			WarpByRotation(background, second, W, H, K, sceneYaw, 0.f, 0.f);
+			// Le sujet est une texture ALEATOIRE fine et tres contrastee : plus
+			// de relief que le fond, donc choisie en priorite — exactement comme
+			// un visage. Surtout PAS un damier : un motif periodique s'apparie a
+			// la mauvaise periode et fabriquerait un faux mouvement, ce qui
+			// testerait autre chose que ce que l'on veut prouver (mesure : un
+			// damier au pas de 4 px donnait -0,072 rad au lieu de +0,026).
+			uint8 *subject = static_cast<uint8 *>(allocator.Allocate(W * H, 1));
+			MakeTexture(subject, W, H, 2, 0x99AA33u);
+			auto pasteSubject = [subject](uint8 *img, uint32 w) {
+				for (uint32 y = 150; y < 400; ++y) {
+					for (uint32 x = 340; x < 620; ++x) {
+						img[y * w + x] = subject[y * w + x];
+					}
+				}
+			};
+			uint8 *viewA = static_cast<uint8 *>(allocator.Allocate(W * H, 1));
+			for (uint32 i = 0; i < W * H; ++i) {
+				viewA[i] = background[i];
+			}
+			pasteSubject(viewA, W);
+			pasteSubject(second, W);
+			session.ProcessFrame(viewA, W, H, W, NkArImageFormat::NK_AR_GRAY8);
+			world.Update(session);
+			session.ProcessFrame(second, W, H, W, NkArImageFormat::NK_AR_GRAY8);
+			world.Update(session);
+			const NkArFlowResult &sub = world.GetLastFlow();
+			logger.Infof("  [info] sujet fixe : lacet %.5f rad attendu %.5f | %u candidats, %u ambigus, %u retenus\n",
+						 sub.yawRad, sceneYaw, sub.candidates, sub.ambiguous, sub.inliers);
+			CHECK(sub.valid, "sujet fixe : le fond reste mesurable");
+			CHECK(Near(sub.yawRad, sceneYaw, 0.35f * sceneYaw),
+				  "sujet fixe : c'est la rotation du FOND qui gagne, pas l'immobilite du sujet");
+			allocator.Deallocate(viewA);
+			allocator.Deallocate(subject);
+		}
 
 		// Rotation LENTE : 0,2 degre, soit moins de deux pixels de glissement.
 		// C'est le cas qui echouait en vrai — un panoramique a la main avance de
