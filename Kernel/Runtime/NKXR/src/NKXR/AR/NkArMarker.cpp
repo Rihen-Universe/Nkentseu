@@ -67,6 +67,50 @@ namespace nkentseu {
 				return uint8((plateauFirst + plateauLast) / 2u);
 			}
 
+			// ── Seuillage ADAPTATIF par image intégrale ─────────────────────
+			// Le seuil de chaque pixel est la moyenne de son voisinage, moins
+			// une marge. L'image intégrale (somme des préfixes) donne la somme
+			// de n'importe quelle fenêtre en 4 lectures : le coût ne dépend
+			// donc PAS de la taille de fenêtre — sans elle, une fenêtre 41×41
+			// coûterait 1681 lectures par pixel et la caméra ramerait.
+			void AdaptiveThreshold(const uint8 *gray, uint32 width, uint32 height, uint32 window, int32 bias,
+								   uint8 *outMask, memory::NkAllocator &allocator) {
+				const nk_size count = nk_size(width) * height;
+				uint64 *integral = static_cast<uint64 *>(allocator.Allocate(count * sizeof(uint64), alignof(uint64)));
+				if (integral == nullptr) {
+					// Repli honnête : sans mémoire, seuil fixe plutôt que rien.
+					for (nk_size i = 0; i < count; ++i) {
+						outMask[i] = (gray[i] < 128u) ? 1u : 0u;
+					}
+					return;
+				}
+				for (uint32 y = 0; y < height; ++y) {
+					uint64 rowSum = 0;
+					for (uint32 x = 0; x < width; ++x) {
+						rowSum += gray[nk_size(y) * width + x];
+						integral[nk_size(y) * width + x] = rowSum + ((y > 0u) ? integral[nk_size(y - 1u) * width + x] : 0u);
+					}
+				}
+				const int32 half = int32(window / 2u);
+				for (uint32 y = 0; y < height; ++y) {
+					for (uint32 x = 0; x < width; ++x) {
+						const int32 x0 = (int32(x) - half > 0) ? (int32(x) - half - 1) : -1;
+						const int32 y0 = (int32(y) - half > 0) ? (int32(y) - half - 1) : -1;
+						const int32 x1 = (int32(x) + half < int32(width)) ? (int32(x) + half) : int32(width) - 1;
+						const int32 y1 = (int32(y) + half < int32(height)) ? (int32(y) + half) : int32(height) - 1;
+						const uint64 a = (x0 >= 0 && y0 >= 0) ? integral[nk_size(y0) * width + uint32(x0)] : 0u;
+						const uint64 b = (y0 >= 0) ? integral[nk_size(y0) * width + uint32(x1)] : 0u;
+						const uint64 c = (x0 >= 0) ? integral[nk_size(y1) * width + uint32(x0)] : 0u;
+						const uint64 d = integral[nk_size(y1) * width + uint32(x1)];
+						const uint64 sum = d + a - b - c;
+						const int64 area = int64(x1 - x0) * int64(y1 - y0);
+						const int32 mean = (area > 0) ? int32(sum / uint64(area)) : 128;
+						outMask[nk_size(y) * width + x] = (int32(gray[nk_size(y) * width + x]) < mean - bias) ? 1u : 0u;
+					}
+				}
+				allocator.Deallocate(integral);
+			}
+
 			// ── Résolution d'un système linéaire n×n (Gauss, pivot partiel) ──
 			bool SolveLinear(float64 *a, float64 *b, uint32 n) {
 				for (uint32 col = 0; col < n; ++col) {
@@ -183,6 +227,47 @@ namespace nkentseu {
 
 		} // namespace
 
+			// ── Les quatre coins de la grille sont RÉSERVÉS ─────────────────
+			// (0,0) est BLANC, les trois autres NOIRS : une seule rotation
+			// satisfait cette signature, donc l'orientation du marqueur est
+			// DÉTERMINÉE — et avec elle l'identifiant ET la pose.
+			// Sans cette marque, la lecture retenait « la première rotation qui
+			// donne un code non nul » : l'identifiant dépendait alors de
+			// l'ordre des coins trouvés, donc du seuillage. Ça marchait par
+			// chance jusqu'à ce qu'on change de seuillage.
+			inline bool NkArCellIsOrientation(uint32 gx, uint32 gy, uint32 gridBits) {
+				(void)gridBits;
+				return gx == 0u && gy == 0u;
+			}
+
+			inline bool NkArCellIsReserved(uint32 gx, uint32 gy, uint32 gridBits) {
+				const uint32 last = gridBits - 1u;
+				return (gx == 0u || gx == last) && (gy == 0u || gy == last);
+			}
+
+			// Index du bit d'identifiant porté par une cellule utile : les
+			// cellules réservées sont sautées, la numérotation reste dense.
+			inline uint32 NkArBitIndexOf(uint32 gx, uint32 gy, uint32 gridBits) {
+				uint32 index = 0;
+				for (uint32 y = 0; y < gridBits; ++y) {
+					for (uint32 x = 0; x < gridBits; ++x) {
+						if (NkArCellIsReserved(x, y, gridBits)) {
+							continue;
+						}
+						if (x == gx && y == gy) {
+							return index;
+						}
+						++index;
+					}
+				}
+				return 0xFFFFFFFFu;
+			}
+
+			inline bool NkArIdBitAt(uint32 id, uint32 gx, uint32 gy, uint32 gridBits) {
+				const uint32 bit = NkArBitIndexOf(gx, gy, gridBits);
+				return (bit < 32u) && (((id >> bit) & 1u) != 0u);
+			}
+
 		// ── Fabrication d'un marqueur ────────────────────────────────────────
 
 		bool NkArRenderMarker(int32 id, uint32 gridBits, uint8 *outGray, uint32 size) {
@@ -196,11 +281,13 @@ namespace nkentseu {
 					const uint32 cellY = (y * cells) / size;
 					uint8 value = 0; // bordure : noire
 					if (cellX >= 1u && cellX <= gridBits && cellY >= 1u && cellY <= gridBits) {
-						const uint32 bitIndex = (cellY - 1u) * gridBits + (cellX - 1u);
-						// Le code est écrit en binaire dans la grille ; les
-						// bits au-delà de 32 restent noirs.
-						const bool bit = (bitIndex < 32u) && (((uint32(id) >> bitIndex) & 1u) != 0u);
-						value = bit ? 255 : 0;
+						const uint32 gx = cellX - 1u;
+						const uint32 gy = cellY - 1u;
+						value = NkArCellIsOrientation(gx, gy, gridBits)
+									? 255
+									: (NkArCellIsReserved(gx, gy, gridBits)
+										   ? 0
+										   : (NkArIdBitAt(uint32(id), gx, gy, gridBits) ? 255 : 0));
 					}
 					outGray[y * size + x] = value;
 				}
@@ -218,9 +305,10 @@ namespace nkentseu {
 			}
 			const uint32 pixelCount = width * height;
 			const uint8 threshold = config.useOtsu ? OtsuThreshold(gray, pixelCount) : config.fixedThreshold;
-			// NK_AR_DEBUG=1 : dire OU la chaine abandonne. Un detecteur muet
-			// qui rend zero est indebogable ; chaque rejet a une raison.
-			const bool debug = (getenv("NK_AR_DEBUG") != nullptr);
+			// Dire OÙ la chaîne abandonne : un détecteur muet qui rend zéro est
+			// indébogable, chaque rejet a une raison. Champ de configuration
+			// et non variable d'environnement (principe moteur n°4).
+			const bool debug = config.debugCounters;
 			uint32 dbgContours = 0, dbgTooShort = 0, dbgNotQuad = 0, dbgTooSmall = 0, dbgBorder = 0, dbgNoCode = 0;
 			if (debug) {
 				logger.Infof("[NkAr] seuil = %u\n", uint32(threshold));
@@ -240,8 +328,16 @@ namespace nkentseu {
 				}
 				return 0;
 			}
+			if (config.adaptive) {
+				const uint32 window = (config.adaptiveWindow | 1u); // impair obligatoire
+				AdaptiveThreshold(gray, width, height, window, config.adaptiveBias, mask, allocator);
+			}
+			else {
+				for (uint32 i = 0; i < pixelCount; ++i) {
+					mask[i] = (gray[i] < threshold) ? 1u : 0u;
+				}
+			}
 			for (uint32 i = 0; i < pixelCount; ++i) {
-				mask[i] = (gray[i] < threshold) ? 1u : 0u;
 				visited[i] = 0u;
 			}
 
@@ -415,8 +511,11 @@ namespace nkentseu {
 															  float32(checks[k][1]) + 0.5f);
 							const int32 px = int32(p.x);
 							const int32 py = int32(p.y);
+							// Lire le MASQUE (donc le seuil local) et non le seuil
+							// global : sinon un marqueur bien seuillé localement
+							// serait rejeté par une luminosité d'ensemble.
 							if (px < 0 || py < 0 || uint32(px) >= width || uint32(py) >= height ||
-								gray[uint32(py) * width + uint32(px)] >= threshold) {
+								mask[uint32(py) * width + uint32(px)] == 0u) {
 								borderOk = false;
 								break;
 							}
@@ -441,7 +540,7 @@ namespace nkentseu {
 								readOk = false;
 								break;
 							}
-							bits[gy * gridBits + gx] = (gray[uint32(py) * width + uint32(px)] >= threshold) ? 1u : 0u;
+							bits[gy * gridBits + gx] = (mask[uint32(py) * width + uint32(px)] == 0u) ? 1u : 0u;
 						}
 					}
 					if (!readOk) {
@@ -453,32 +552,56 @@ namespace nkentseu {
 					NkArDetection detection;
 					detection.edgeLength = edge;
 					for (uint32 rot = 0; rot < 4u; ++rot) {
-						uint32 value = 0;
-						for (uint32 gy = 0; gy < gridBits; ++gy) {
+						// Vérifier D'ABORD la signature des coins : une seule
+						// rotation la satisfait, ce qui lève toute ambiguïté
+						// sur l'orientation — donc sur l'identifiant et la pose.
+						bool signatureOk = true;
+						for (uint32 gy = 0; gy < gridBits && signatureOk; ++gy) {
 							for (uint32 gx = 0; gx < gridBits; ++gx) {
+								if (!NkArCellIsReserved(gx, gy, gridBits)) {
+									continue;
+								}
 								uint32 sx = gx;
 								uint32 sy = gy;
-								// Rotation inverse de la grille lue.
 								for (uint32 r = 0; r < rot; ++r) {
 									const uint32 tx = sx;
 									sx = gridBits - 1u - sy;
 									sy = tx;
 								}
-								const uint32 bitIndex = gy * gridBits + gx;
+								const bool light = (bits[sy * gridBits + sx] != 0u);
+								if (light != NkArCellIsOrientation(gx, gy, gridBits)) {
+									signatureOk = false;
+									break;
+								}
+							}
+						}
+						if (!signatureOk) {
+							continue;
+						}
+						uint32 value = 0;
+						for (uint32 gy = 0; gy < gridBits; ++gy) {
+							for (uint32 gx = 0; gx < gridBits; ++gx) {
+								if (NkArCellIsReserved(gx, gy, gridBits)) {
+									continue;
+								}
+								uint32 sx = gx;
+								uint32 sy = gy;
+								for (uint32 r = 0; r < rot; ++r) {
+									const uint32 tx = sx;
+									sx = gridBits - 1u - sy;
+									sy = tx;
+								}
+								const uint32 bitIndex = NkArBitIndexOf(gx, gy, gridBits);
 								if (bitIndex < 32u && bits[sy * gridBits + sx] != 0u) {
 									value |= (1u << bitIndex);
 								}
 							}
 						}
-						// Un code nul serait une grille entièrement noire :
-						// indiscernable d'une tache, on la refuse.
-						if (value != 0u) {
-							detection.id = int32(value);
-							for (uint32 i = 0; i < 4u; ++i) {
-								detection.corners[i] = quad[(i + rot) % 4u];
-							}
-							break;
+						detection.id = int32(value);
+						for (uint32 i = 0; i < 4u; ++i) {
+							detection.corners[i] = quad[(i + rot) % 4u];
 						}
+						break;
 					}
 					if (detection.id >= 0) {
 						outDetections.PushBack(detection);

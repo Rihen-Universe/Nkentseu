@@ -76,10 +76,22 @@ namespace nkentseu {
 			uint32 gridBits = 4;          ///< Grille du code (4x4 utiles + bordure).
 			uint32 minEdgePixels = 24;    ///< Sous cette taille, le code est illisible.
 			uint32 samplesPerCell = 3;    ///< Échantillons par cellule (médiane).
-			// Le seuil d'Otsu est global : il suppose un éclairage à peu près
-			// uniforme. Un seuillage adaptatif viendra si l'éclairage réel le
-			// réclame — le dire plutôt que de laisser croire que c'est robuste.
-			bool useOtsu = true;
+			// ── Seuillage ────────────────────────────────────────────────
+			// OTSU GLOBAL par défaut : éprouvé (23/23 au self-test), rapide,
+			// suffisant sous éclairage uniforme.
+			// ADAPTATIF (opt-in) : seuil calculé LOCALEMENT dans une fenêtre
+			// autour de chaque pixel, par image intégrale — fait pour les cas
+			// où un seuil global échoue : marqueur affiché sur un ÉCRAN
+			// (halos, reflets), éclairage de biais, ombre portée sur la
+			// feuille. ⚠️ ÉTAT HONNÊTE : il RATE sur nos images de SYNTHÈSE
+			// (fonds parfaitement uniformes, où la moyenne locale égale le
+			// pixel), donc il n'est pas activé par défaut et n'est pas encore
+			// couvert par le self-test. À valider sur caméra réelle, cas pour
+			// lequel il a été écrit.
+			bool adaptive = false;
+			uint32 adaptiveWindow = 41;   ///< côté de la fenêtre, impair
+			int32 adaptiveBias = 7;       ///< marge sous la moyenne locale
+			bool useOtsu = true;          ///< si adaptive == false
 			uint8 fixedThreshold = 128;
 			// Journalise OÙ la chaîne abandonne (contours, quads, bordure,
 			// code). Un champ et non une variable d'environnement : une

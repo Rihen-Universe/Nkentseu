@@ -138,7 +138,7 @@ int main() {
 
 	// ── Cas 2 : marqueur incliné (le vrai test de la pose) ───────────────────
 	{
-		const int32 id = 0x1B7;
+		const int32 id = 0x5A3;
 		const float32 size = 0.15f;
 		const math::NkVec3f truth(0.05f, -0.03f, -0.8f);
 		const float32 yaw = 25.f;

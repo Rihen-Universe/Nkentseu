@@ -198,9 +198,15 @@ int nkmain(const NkEntryState &state) {
 			arCfg.markerSizeMeters = float32(atof(sizeEnv));
 		}
 		arCfg.detector.debugCounters = (getenv("NK_AR_DEBUG") != nullptr);
+		// Seuillage adaptatif : à essayer quand le marqueur est affiché sur un
+		// ÉCRAN (halos) ou éclairé de biais — c'est exactement son terrain.
+		arCfg.detector.adaptive = (getenv("NK_AR_ADAPTIVE") != nullptr);
 	}
+	uint32 arWidth = kCamWidth;
+	uint32 arHeight = kCamHeight;
+	bool loggedFormat = false;
 	nkxr::NkArSession arSession;
-	if (!arSession.Initialize(arCfg, kCamWidth, kCamHeight)) {
+	if (!arSession.Initialize(arCfg, arWidth, arHeight)) {
 		logger.Error("[NKARDemo] Init session AR KO");
 		return 4;
 	}
@@ -255,27 +261,60 @@ int nkmain(const NkEntryState &state) {
 		bool haveFrame = false;
 		if (cameraOk) {
 			NkCameraFrame frame;
-			if (camera.GetLastFrame(frame) && frame.IsValid() && frame.width == kCamWidth &&
-				frame.height == kCamHeight) {
-				const uint32 stride = frame.stride ? frame.stride : frame.width * 4u;
-				for (uint32 y = 0; y < frame.height; ++y) {
-					const uint8 *src = frame.data.Data() + nk_size(y) * stride;
-					uint8 *dst = frameRGBA + nk_size(y) * frame.width * 4u;
-					for (uint32 x = 0; x < frame.width * 4u; ++x) {
-						dst[x] = src[x];
+			if (camera.GetLastFrame(frame) && frame.IsValid()) {
+				// La caméra livre CE QU'ELLE VEUT (YUYV, NV12, MJPEG…) même
+				// quand on demande du RGBA : le pilote a le dernier mot. Lire
+				// ses octets comme du RGBA donnait une image répétée en
+				// mosaïque — un format de 2 octets/pixel lu comme 4 se replie
+				// sur lui-même. On CONVERTIT donc, et on le dit une fois.
+				if (frame.format != NkPixelFormat::NK_PIXEL_RGBA8) {
+					if (!loggedFormat) {
+						logger.Infof("[NKARDemo] La caméra livre le format %d — conversion en RGBA8.\n",
+									 int(frame.format));
+						loggedFormat = true;
 					}
+					NkCameraSystem::ConvertToRGBA8(frame);
 				}
-				haveFrame = true;
+				// La résolution obtenue peut différer de celle demandée : c'est
+				// la CAMÉRA qui décide, on s'adapte au lieu de refuser.
+				if (frame.format == NkPixelFormat::NK_PIXEL_RGBA8 && frame.width > 0u && frame.height > 0u) {
+					if (frame.width != arWidth || frame.height != arHeight) {
+						logger.Infof("[NKARDemo] Résolution caméra réelle : %ux%u (demandé %ux%u) — session AR "
+									 "réinitialisée à cette taille.\n",
+									 frame.width, frame.height, arWidth, arHeight);
+						arWidth = frame.width;
+						arHeight = frame.height;
+						memory::NkFree(frameRGBA);
+						frameRGBA = static_cast<uint8 *>(memory::NkAlloc(nk_size(arWidth) * arHeight * 4u));
+						arSession.Shutdown();
+						arSession.Initialize(arCfg, arWidth, arHeight);
+						NkTextureCreateDesc redesc;
+						redesc.width = arWidth;
+						redesc.height = arHeight;
+						redesc.format = NkGPUFormat::NK_RGBA8_UNORM;
+						redesc.debugName = "NKARDemo_Video";
+						videoTex = renderer->GetTextures()->Create(redesc);
+					}
+					const uint32 stride = frame.stride ? frame.stride : frame.width * 4u;
+					for (uint32 y = 0; y < frame.height; ++y) {
+						const uint8 *src = frame.data.Data() + nk_size(y) * stride;
+						uint8 *dst = frameRGBA + nk_size(y) * frame.width * 4u;
+						for (uint32 x = 0; x < frame.width * 4u; ++x) {
+							dst[x] = src[x];
+						}
+					}
+					haveFrame = true;
+				}
 			}
 		}
 		if (!haveFrame) {
-			SynthesizeFallback(frameRGBA, kCamWidth, kCamHeight, pattern, 256, total);
+			SynthesizeFallback(frameRGBA, arWidth, arHeight, pattern, 256, total);
 		}
 
 		// ── AR : l'image entre, les poses sortent ────────────────────────────
-		const uint32 visible = arSession.ProcessFrame(frameRGBA, kCamWidth, kCamHeight, kCamWidth * 4u,
+		const uint32 visible = arSession.ProcessFrame(frameRGBA, arWidth, arHeight, arWidth * 4u,
 													  nkxr::NkArImageFormat::NK_AR_RGBA8);
-		renderer->GetTextures()->Update(videoTex, frameRGBA, kCamWidth * 4u);
+		renderer->GetTextures()->Update(videoTex, frameRGBA, arWidth * 4u);
 
 		if (!renderer->BeginFrame()) {
 			continue;
@@ -296,9 +335,9 @@ int nkmain(const NkEntryState &state) {
 		// Le frustum décentré (étage 1) sert ici sa VRAIE raison d'être : le
 		// centre optique d'un objectif n'est jamais exactement au milieu.
 		camData.fovLeft = -math::NkAtan(K.cx / K.fx);
-		camData.fovRight = math::NkAtan((float32(kCamWidth) - K.cx) / K.fx);
+		camData.fovRight = math::NkAtan((float32(arWidth) - K.cx) / K.fx);
 		camData.fovUp = math::NkAtan(K.cy / K.fy);
-		camData.fovDown = -math::NkAtan((float32(kCamHeight) - K.cy) / K.fy);
+		camData.fovDown = -math::NkAtan((float32(arHeight) - K.cy) / K.fy);
 
 		NkSceneContext sctx;
 		sctx.camera = NkCamera3D(camData);
@@ -347,7 +386,7 @@ int nkmain(const NkEntryState &state) {
 			overlay->BeginOverlay(renderer->GetCmd(), W, H);
 			// Proportions de l'image respectées : une vidéo étirée fausserait
 			// la lecture de ce que voit la caméra.
-			const float32 srcAspect = float32(kCamWidth) / float32(kCamHeight);
+			const float32 srcAspect = float32(arWidth) / float32(arHeight);
 			NkRectF dst{ 0.f, 0.f, float32(W), float32(H) };
 			if (srcAspect > float32(W) / float32(H)) {
 				dst.height = float32(W) / srcAspect;
