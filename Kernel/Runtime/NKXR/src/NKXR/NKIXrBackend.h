@@ -135,13 +135,23 @@ namespace nkentseu {
 					(void)height;
 					return true;
 				}
+				// depthLeft/Right = 0 : pas de profondeur soumise. La fournir
+				// permet au compositeur une reprojection POSITIONNELLE (et
+				// pas seulement en rotation) : une frame manquée se voit
+				// alors à peine — c'est le remède aux « sauts ».
 				virtual bool SubmitEyes(const NkXrView views[NK_XR_EYE_COUNT], uint64 nativeImageLeft,
-										uint64 nativeImageRight, uint32 width, uint32 height) {
+										uint64 nativeImageRight, uint32 width, uint32 height,
+										uint64 depthLeft = 0, uint64 depthRight = 0, float32 nearZ = 0.f,
+										float32 farZ = 0.f) {
 					(void)views;
 					(void)nativeImageLeft;
 					(void)nativeImageRight;
 					(void)width;
 					(void)height;
+					(void)depthLeft;
+					(void)depthRight;
+					(void)nearZ;
+					(void)farZ;
 					return true;
 				}
 

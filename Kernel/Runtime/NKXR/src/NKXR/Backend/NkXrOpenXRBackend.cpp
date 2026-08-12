@@ -99,6 +99,16 @@ namespace nkentseu {
 				int64 hmdFormat = 0;
 				bool layerPending = false;
 				XrCompositionLayerProjectionView pendingViews[2]{};
+				// Couche de PROFONDEUR (XR_KHR_composition_layer_depth) : elle
+				// donne au compositeur de quoi reprojeter en TRANSLATION et
+				// pas seulement en rotation — une frame manquee se voit alors
+				// a peine. Les structures doivent survivre jusqu'a EndFrame.
+				bool depthLayerExt = false;
+				XrSwapchain depthSwapchains[2]{ XR_NULL_HANDLE, XR_NULL_HANDLE };
+				VkImage depthImages[2][8]{};
+				uint32 depthImageCount[2]{ 0, 0 };
+				XrCompositionLayerDepthInfoKHR pendingDepth[2]{};
+				bool depthPending = false;
 
 				// Vulkan dynamique : AUCUN link — vulkan-1.dll chargée comme le
 				// loader, mêmes raisons (une DLL absente ne doit pas empêcher
@@ -386,6 +396,9 @@ namespace nkentseu {
 						if (strcmp(props[i].extensionName, XR_KHR_VISIBILITY_MASK_EXTENSION_NAME) == 0) {
 							mOxr->visibilityMaskExt = true;
 						}
+						if (strcmp(props[i].extensionName, XR_KHR_COMPOSITION_LAYER_DEPTH_EXTENSION_NAME) == 0) {
+							mOxr->depthLayerExt = true;
+						}
 					}
 					logger.Infof("[NKXR/OpenXR] %u extensions offertes par le runtime (NK_XR_LIST_EXT=1 pour la liste).\n",
 								 extCount);
@@ -425,6 +438,10 @@ namespace nkentseu {
 			}
 			if (mOxr->visibilityMaskExt) {
 				enabledExtensions[enabledExtensionCount] = XR_KHR_VISIBILITY_MASK_EXTENSION_NAME;
+				++enabledExtensionCount;
+			}
+			if (mOxr->depthLayerExt) {
+				enabledExtensions[enabledExtensionCount] = XR_KHR_COMPOSITION_LAYER_DEPTH_EXTENSION_NAME;
 				++enabledExtensionCount;
 			}
 			XrInstanceCreateInfo createInfo{};
@@ -585,6 +602,9 @@ namespace nkentseu {
 			for (uint32 eye = 0; eye < NK_XR_EYE_COUNT; ++eye) {
 				if (mOxr->hmdSwapchains[eye] != XR_NULL_HANDLE && mOxr->destroySwapchain != nullptr) {
 					mOxr->destroySwapchain(mOxr->hmdSwapchains[eye]);
+				}
+				if (mOxr->depthSwapchains[eye] != XR_NULL_HANDLE && mOxr->destroySwapchain != nullptr) {
+					mOxr->destroySwapchain(mOxr->depthSwapchains[eye]);
 				}
 			}
 			if (mOxr->vkFence != VK_NULL_HANDLE && mOxr->fnDestroyFence != nullptr) {
@@ -864,6 +884,45 @@ namespace nkentseu {
 					mOxr->hmdImages[eye][i] = images[i].image;
 				}
 			}
+			// Swapchains de PROFONDEUR (une par oeil) : meme taille, format
+			// D32_SFLOAT — celui de nos cibles NKRenderer, pour que la copie
+			// reste une copie et non une conversion.
+			if (mOxr->depthLayerExt && (getenv("NK_XR_DEPTH_LAYER") == nullptr || getenv("NK_XR_DEPTH_LAYER")[0] != '0')) {
+				for (uint32 eye = 0; eye < NK_XR_EYE_COUNT; ++eye) {
+					XrSwapchainCreateInfo info{};
+					info.type = XR_TYPE_SWAPCHAIN_CREATE_INFO;
+					info.usageFlags = XR_SWAPCHAIN_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT;
+					info.format = int64(VK_FORMAT_D32_SFLOAT);
+					info.sampleCount = 1;
+					info.width = width;
+					info.height = height;
+					info.faceCount = 1;
+					info.arraySize = 1;
+					info.mipCount = 1;
+					if (XR_FAILED(mOxr->createSwapchain(mOxr->session, &info, &mOxr->depthSwapchains[eye]))) {
+						mOxr->depthSwapchains[eye] = XR_NULL_HANDLE;
+						logger.Warnf("[NKXR/OpenXR] Swapchain de profondeur œil %u refusée — reprojection en rotation seule.\n", eye);
+						continue;
+					}
+					XrSwapchainImageVulkanKHR images[8];
+					for (uint32 i = 0; i < 8u; ++i) {
+						images[i] = XrSwapchainImageVulkanKHR{};
+						images[i].type = XR_TYPE_SWAPCHAIN_IMAGE_VULKAN_KHR;
+					}
+					uint32 imageCount = 0;
+					if (XR_SUCCEEDED(mOxr->enumSwapchainImages(mOxr->depthSwapchains[eye], 8, &imageCount,
+															   reinterpret_cast<XrSwapchainImageBaseHeader *>(images)))) {
+						mOxr->depthImageCount[eye] = imageCount;
+						for (uint32 i = 0; i < imageCount && i < 8u; ++i) {
+							mOxr->depthImages[eye][i] = images[i].image;
+						}
+					}
+				}
+				if (mOxr->depthSwapchains[0] != XR_NULL_HANDLE) {
+					logger.Infof("[NKXR/OpenXR] Couche de profondeur active : reprojection POSITIONNELLE (moins de sauts).\n");
+				}
+			}
+
 			mOxr->hmdWidth = width;
 			mOxr->hmdHeight = height;
 			mOxr->hmdFormat = chosen;
@@ -873,7 +932,8 @@ namespace nkentseu {
 		}
 
 		bool NkXrOpenXRBackend::SubmitEyes(const NkXrView views[NK_XR_EYE_COUNT], uint64 nativeImageLeft,
-										   uint64 nativeImageRight, uint32 width, uint32 height) {
+										   uint64 nativeImageRight, uint32 width, uint32 height, uint64 depthLeft,
+										   uint64 depthRight, float32 nearZ, float32 farZ) {
 			if (mOxr == nullptr || !mOxr->sessionRunning || mOxr->hmdSwapchains[0] == XR_NULL_HANDLE ||
 				mOxr->vkQueue == VK_NULL_HANDLE || mOxr->vkCmd == VK_NULL_HANDLE) {
 				return false;
@@ -974,6 +1034,83 @@ namespace nkentseu {
 				barriers[1].newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 				mOxr->fnCmdPipelineBarrier(mOxr->vkCmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
 										   VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, nullptr, 0, nullptr, 2, barriers);
+
+				// ── Profondeur : meme geste, aspect DEPTH ────────────────────
+				const uint64 depthSources[2] = { depthLeft, depthRight };
+				if (mOxr->depthSwapchains[eye] != XR_NULL_HANDLE && depthSources[eye] != 0u) {
+					XrSwapchainImageAcquireInfo dAcquire{};
+					dAcquire.type = XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO;
+					uint32 dIndex = 0;
+					if (XR_SUCCEEDED(mOxr->acquireSwapchainImage(mOxr->depthSwapchains[eye], &dAcquire, &dIndex))) {
+						XrSwapchainImageWaitInfo dWait{};
+						dWait.type = XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO;
+						dWait.timeout = XR_INFINITE_DURATION;
+						mOxr->waitSwapchainImage(mOxr->depthSwapchains[eye], &dWait);
+
+						const VkImage dDst = mOxr->depthImages[eye][dIndex];
+						const VkImage dSrc = VkImage(uintptr_t(depthSources[eye]));
+						VkImageSubresourceRange dRange{};
+						dRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+						dRange.levelCount = 1;
+						dRange.layerCount = 1;
+
+						VkImageMemoryBarrier dBar[2]{};
+						dBar[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+						dBar[0].srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
+						dBar[0].dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+						dBar[0].oldLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+						dBar[0].newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+						dBar[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+						dBar[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+						dBar[0].image = dSrc;
+						dBar[0].subresourceRange = dRange;
+						dBar[1] = dBar[0];
+						dBar[1].srcAccessMask = 0;
+						dBar[1].dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+						dBar[1].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+						dBar[1].newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+						dBar[1].image = dDst;
+						mOxr->fnCmdPipelineBarrier(mOxr->vkCmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+												   VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 2, dBar);
+
+						VkImageCopy dRegion{};
+						dRegion.srcSubresource.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+						dRegion.srcSubresource.layerCount = 1;
+						dRegion.dstSubresource = dRegion.srcSubresource;
+						dRegion.extent = { width, height, 1 };
+						mOxr->fnCmdCopyImage(mOxr->vkCmd, dSrc, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dDst,
+											 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &dRegion);
+
+						dBar[0].srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+						dBar[0].dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+						dBar[0].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+						dBar[0].newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+						dBar[1].srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+						dBar[1].dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+						dBar[1].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+						dBar[1].newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+						mOxr->fnCmdPipelineBarrier(mOxr->vkCmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+												   VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, nullptr, 0, nullptr, 2, dBar);
+
+						XrSwapchainImageReleaseInfo dRelease{};
+						dRelease.type = XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO;
+						mOxr->releaseSwapchainImage(mOxr->depthSwapchains[eye], &dRelease);
+
+						mOxr->pendingDepth[eye] = XrCompositionLayerDepthInfoKHR{};
+						mOxr->pendingDepth[eye].type = XR_TYPE_COMPOSITION_LAYER_DEPTH_INFO_KHR;
+						mOxr->pendingDepth[eye].subImage.swapchain = mOxr->depthSwapchains[eye];
+						mOxr->pendingDepth[eye].subImage.imageRect.extent.width = int32(width);
+						mOxr->pendingDepth[eye].subImage.imageRect.extent.height = int32(height);
+						// minDepth/maxDepth = la plage ECRITE dans le tampon ;
+						// nearZ/farZ = les plans de la camera. Le compositeur
+						// en deduit la distance reelle de chaque pixel.
+						mOxr->pendingDepth[eye].minDepth = 0.f;
+						mOxr->pendingDepth[eye].maxDepth = 1.f;
+						mOxr->pendingDepth[eye].nearZ = nearZ;
+						mOxr->pendingDepth[eye].farZ = farZ;
+						mOxr->depthPending = true;
+					}
+				}
 			}
 
 			mOxr->fnEndCommandBuffer(mOxr->vkCmd);
@@ -1015,6 +1152,9 @@ namespace nkentseu {
 				mOxr->pendingViews[eye].subImage.swapchain = mOxr->hmdSwapchains[eye];
 				mOxr->pendingViews[eye].subImage.imageRect.extent.width = int32(width);
 				mOxr->pendingViews[eye].subImage.imageRect.extent.height = int32(height);
+				// La profondeur se CHAINE sur la vue (next) : c'est ainsi que
+				// XR_KHR_composition_layer_depth s'attache.
+				mOxr->pendingViews[eye].next = mOxr->depthPending ? &mOxr->pendingDepth[eye] : nullptr;
 			}
 			mOxr->layerPending = true;
 			return true;
@@ -1137,6 +1277,7 @@ namespace nkentseu {
 				endInfo.layerCount = 1;
 				endInfo.layers = layers;
 				mOxr->layerPending = false;
+				mOxr->depthPending = false;
 			}
 			else {
 				endInfo.layerCount = 0;
@@ -1719,7 +1860,8 @@ namespace nkentseu {
 		}
 
 		bool NkXrOpenXRBackend::SubmitEyes(const NkXrView views[NK_XR_EYE_COUNT], uint64 nativeImageLeft,
-										   uint64 nativeImageRight, uint32 width, uint32 height) {
+										   uint64 nativeImageRight, uint32 width, uint32 height, uint64 depthLeft,
+										   uint64 depthRight, float32 nearZ, float32 farZ) {
 			(void)views;
 			(void)nativeImageLeft;
 			(void)nativeImageRight;
