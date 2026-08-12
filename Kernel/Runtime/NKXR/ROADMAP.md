@@ -240,7 +240,7 @@ rend un tel chantier faisable seul ; sans cela il s'effondre en devinettes.
 
 | # | Étage | Ce qu'il apporte SEUL | Coût honnête |
 |---|---|---|---|
-| P1 | **Téléphone** (cible Android NKARDemo) | l'AR marqueur dans la main, démontrable en clientèle | jours |
+| P1 | ✅ **Téléphone — LIVRÉ le 2026-08-12** (Galaxy S22+) | l'AR marqueur dans la main, démontrable en clientèle | fait en un jour |
 | P2 | **Gyroscope** (`ASensorManager`) | rotation exacte sans texture ; rend `NkArFlow` inutile pour la rotation | jours |
 | P3 | **Carte multi-marqueurs** (déjà écrite, à éprouver) | **translation exacte** partout où un marqueur est vu | ~1 semaine (épreuve + correction de dérive) |
 | P4 | **Suivi planaire par homographie** | translation en s'éloignant du marqueur, tant qu'on regarde SON plan | 1–2 semaines |
@@ -267,6 +267,28 @@ ainsi dans toute communication — ne jamais laisser croire à un ARCore maison.
 **Dépendance matérielle à ne pas oublier** : P2, P6 et P7 supposent l'accès aux
 capteurs Android (`ASensorManager`), qui **n'existe nulle part dans le dépôt** à
 ce jour. C'est le premier vrai manque, avant même le SLAM.
+
+#### P1 — ce qui a réellement été livré le 2026-08-12, et ce qu'il a coûté
+
+L'AR complète tourne sur téléphone : permission demandée seule (JNI), caméra
+arrière ouverte d'après la façade déclarée, image redressée d'après
+l'orientation **lue du pilote**, marqueur détecté, cube ancré, retour
+d'arrière-plan sans écran noir. Le monde se met à jour en **2,5 à 2,8 ms par
+image analysée — plus vite que sur le poste de travail**.
+
+Sept défauts levés, dont trois valent d'être retenus car ils se reproduiront :
+
+1. **Une application muette ne se répare pas.** NKLogger n'attachait aucun puits
+   console en Release, et son puits fichier écrit dans un chemin relatif — non
+   inscriptible sur Android. Un Release sur téléphone n'écrivait donc nulle
+   part. Corrigé dans NKLogger : sur Android, logcat EST le journal du système.
+2. **Toute transformation de l'image doit l'être aussi du modèle de caméra.**
+   Redresser les pixels sans tourner les intrinsèques rabaisse la focale d'un
+   facteur 1,8 : l'objet ne peut plus coller. Une image droite avec une focale
+   fausse est pire qu'une image couchée — elle a l'air juste.
+3. **Ce qui engage durablement exige une preuve dans la durée.** Le monde s'est
+   fondé sur un marqueur « 0 » inexistant, vu une seule image ; tout en
+   découlait. Un marqueur doit persister avant qu'on lui confie l'origine.
 
 ### 🔺 Suivi par l'image en PYRAMIDE — idée de Rihen (2026-08-12)
 
