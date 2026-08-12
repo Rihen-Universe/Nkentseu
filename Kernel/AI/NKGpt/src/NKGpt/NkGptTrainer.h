@@ -69,6 +69,18 @@ namespace nkentseu {
 					// absolue rend la reprise IDEMPOTENTE : relancer dix fois avec le même
 					// horizon donne le même entraînement.
 					int64 horizon = 0;
+					// Échantillons de texte affichés PENDANT l'entraînement, tous les
+					// N pas (0 = jamais). C'est du CONFORT : ils montrent l'évolution,
+					// ils ne calculent rien.
+					//
+					// ⚠️ Et ce confort peut TUER un run. La génération alloue en plus
+					// de l'entraînement (contexte, cache d'attention) : sur une carte
+					// déjà chargée par le bureau, ce pic supplémentaire déclenche un
+					// VK_ERROR_OUT_OF_DEVICE_MEMORY qui emporte tout. Mesuré le
+					// 2026-08-12 : run mort au pas 500 sur 6000, après quatre
+					// générations réussies — quinze heures perdues pour cinq lignes
+					// d'affichage. Sur un run long, mettre 0.
+					int sampleEvery = 100;
 					int accum = 1;	   // micro-lots accumulés (batch effectif = B*accum)
 					int warmup = -1;   // <0 -> steps/20 (5%)
 					int saveEvery = 0; // checkpoint tous les N pas (0 = fin seule)

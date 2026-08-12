@@ -668,6 +668,13 @@ static int ModeTrain(int argc, char **argv) {
 	// coupure de courant. Relancer dix fois avec le même horizon donne alors
 	// exactement le même entraînement.
 	cfg.horizon = ArgEntier(argc, argv, "--horizon", 0);
+	// --echantillons N : afficher du texte engendre tous les N pas (0 = jamais).
+	// A METTRE A 0 SUR UN RUN LONG. Ces echantillons ne servent qu'a regarder
+	// l'evolution, mais ils allouent sur le GPU par-dessus l'entrainement : le
+	// 2026-08-12, ce pic a tue un run au pas 500 sur 6000
+	// (VK_ERROR_OUT_OF_DEVICE_MEMORY) parce que le bureau occupait deja la
+	// carte. Un affichage de confort ne doit pas couter quinze heures.
+	cfg.sampleEvery = (int)ArgEntier(argc, argv, "--echantillons", 100);
 	cfg.accum = (int)ArgEntier(argc, argv, "--accum", 4);
 	cfg.lr = (float)ArgReel(argc, argv, "--lr", 3e-4);
 	cfg.warmup = (int)ArgEntier(argc, argv, "--warmup", -1);

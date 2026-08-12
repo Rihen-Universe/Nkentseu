@@ -761,7 +761,7 @@ namespace nkentseu {
 						if (V && vl >= 0.0)
 							logger.Info("  [val] pas {0} : perte val = {1}  (train {2})", s, vl, mEma);
 					}
-					if (V && s % 100 == 0) {
+					if (V && mCfg.sampleEvery > 0 && s % mCfg.sampleEvery == 0) {
 						logger.Info("    --- échantillons (pas {0}) ---", s);
 						if (mLangs.Size() == 0)
 							logger.Info("    {0}", Generate(mCfg.seed, 100, 0.8, -1).CStr());
