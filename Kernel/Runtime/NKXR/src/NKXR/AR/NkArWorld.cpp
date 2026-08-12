@@ -19,10 +19,24 @@ namespace nkentseu {
 			mMap.Clear();
 			mAnchors.Clear();
 			mCameraInWorld = NkXrPose::Identity();
+			mFlow.Reset();
+			mLastFlow = NkArFlowResult{};
+			mFlowThisFrame = false;
+			mBlindFrames = 0;
 			mHasOrigin = false;
 			mLocalizedThisFrame = false;
 			mFramesSinceLocalized = 0;
 			mNextHandle = 1;
+		}
+
+		bool NkArWorld::IsPoseUsable() const {
+			if (!mHasOrigin) {
+				return false;
+			}
+			if (mConfig.maxBlindFrames == 0u) {
+				return true; // l'application assume la dérive
+			}
+			return mBlindFrames < mConfig.maxBlindFrames;
 		}
 
 		const NkArMapEntry *NkArWorld::FindMapEntry(int32 id) const {
@@ -36,7 +50,19 @@ namespace nkentseu {
 
 		bool NkArWorld::Update(const NkArSession &session) {
 			mLocalizedThisFrame = false;
+			mFlowThisFrame = false;
 			const NkVector<NkArTrackedMarker> &tracked = session.GetTracked();
+
+			// ── 0) Mesurer le mouvement de l'image, à CHAQUE image ───────────
+			// Même quand un marqueur est visible : l'estimateur compare deux
+			// images CONSÉCUTIVES. Ne l'alimenter qu'en cas de perte le ferait
+			// comparer des images éloignées, donc échouer exactement au moment
+			// où l'on compte sur lui.
+			if (mConfig.trackByImage) {
+				mFlow.Initialize(mConfig.flow);
+				mLastFlow = mFlow.Track(session.GetGray(), session.GetGrayWidth(), session.GetGrayHeight(),
+										session.GetIntrinsics());
+			}
 
 			// ── 1) Origine : le PREMIER marqueur vu définit le monde ─────────
 			// Choix assumé : il devient l'origine, sa pose dans le monde est
@@ -89,9 +115,28 @@ namespace nkentseu {
 				mCameraInWorld = bestEntry->poseInWorld * best->pose.Inverted();
 				mLocalizedThisFrame = true;
 				mFramesSinceLocalized = 0;
+				mBlindFrames = 0;
 			}
 			else {
 				++mFramesSinceLocalized;
+				// ── 2bis) Aucun marqueur : entretenir la pose par l'image ────
+				// La rotation mesurée est exprimée dans le repère de l'objectif,
+				// donc elle se compose À DROITE de l'orientation courante. La
+				// position, elle, reste inchangée : l'image ne dit RIEN d'une
+				// translation sans profondeur, et inventer un déplacement serait
+				// pire que d'admettre qu'on l'ignore.
+				const bool trusted = mLastFlow.valid && mLastFlow.residualPixels <= mConfig.maxFlowResidualPixels;
+				if (mConfig.trackByImage && trusted) {
+					const NkQuatf delta = NkQuatf::RotateZ(math::NkAngle::FromRad(mLastFlow.rollRad)) *
+										  NkQuatf::RotateY(math::NkAngle::FromRad(mLastFlow.yawRad)) *
+										  NkQuatf::RotateX(math::NkAngle::FromRad(mLastFlow.pitchRad));
+					mCameraInWorld.orientation = (mCameraInWorld.orientation * delta).Normalized();
+					mFlowThisFrame = true;
+					mBlindFrames = 0;
+				}
+				else {
+					++mBlindFrames;
+				}
 			}
 
 			// ── 3) Étendre la carte ──────────────────────────────────────────
@@ -157,7 +202,11 @@ namespace nkentseu {
 		}
 
 		bool NkArWorld::ToCamera(const NkXrPose &poseInWorld, NkXrPose &outPose) const {
-			if (!mHasOrigin) {
+			// Pose trop vieille pour être crue : refuser, plutôt que de laisser
+			// l'application dessiner un objet à une place inventée. C'est le
+			// refus qui rend l'AR honnête — un objet qui reste à l'écran alors
+			// que la caméra est partie ailleurs détruit la crédibilité entière.
+			if (!IsPoseUsable()) {
 				return false;
 			}
 			// Le passage inverse : du monde vers l'objectif. La pose de caméra

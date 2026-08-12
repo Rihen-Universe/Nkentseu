@@ -1,0 +1,101 @@
+//
+// NkArFlow.h
+// =============================================================================
+// Description :
+//   Mesurer le MOUVEMENT DE LA CAMÉRA à partir de l'image seule, quand plus
+//   aucun marqueur n'est visible.
+//
+// Pourquoi ce fichier existe :
+//   Sans marqueur en vue, la carte du monde garde la dernière pose connue de
+//   la caméra. Tant que la caméra ne bouge pas, c'est juste. Dès qu'elle
+//   tourne, c'est faux — et cela se voit immédiatement : l'objet virtuel reste
+//   collé à l'écran au lieu de sortir du champ. Défaut constaté à l'essai, et
+//   il ruine l'illusion plus sûrement qu'une erreur de quelques centimètres.
+//   Or l'image, elle, sait que la caméra a bougé : tout son contenu glisse. Il
+//   suffit de mesurer ce glissement.
+//
+// Le principe, et ses limites — dites franchement :
+//   On suit quelques dizaines de points saillants d'une image à l'autre, puis
+//   on ajuste le seul modèle honnête à notre portée : une ROTATION pure de la
+//   caméra (lacet, tangage, roulis). C'est exact quand la caméra pivote, ce
+//   qui est le geste le plus courant et celui qui trahit le plus le défaut.
+//   Une TRANSLATION, elle, n'est pas mesurable ainsi : deux points à des
+//   profondeurs différentes ne glissent pas de la même quantité (parallaxe),
+//   et démêler cela exige de connaître la profondeur — c'est le métier du
+//   SLAM, que nous n'avons pas. Traduction pratique : tourner sur soi est
+//   suivi, marcher ne l'est pas. Le résultat porte donc son propre indice de
+//   confiance, à afficher plutôt qu'à masquer.
+//
+// Ce que ce module n'est PAS : un suivi visuel complet. Il ne construit pas de
+// carte, ne se ferme pas en boucle, et dérive lentement — chaque estimation
+// s'ajoute à la précédente. Il COMBLE le trou entre deux marqueurs ; il ne le
+// remplace pas.
+//
+// Auteur   : Rihen
+// Copyright: (c) 2024-2026 Rihen. Tous droits réservés.
+// =============================================================================
+
+#pragma once
+
+#ifndef __NKENTSEU_XR_NKARFLOW_H__
+#define __NKENTSEU_XR_NKARFLOW_H__
+
+#include "NKXR/AR/NkArMarker.h"
+#include "NKContainers/Sequential/NkVector.h"
+
+namespace nkentseu {
+	namespace xr {
+
+		// ── Le mouvement estimé entre deux images ────────────────────────────
+		struct NkArFlowResult {
+			bool valid = false;      ///< false = trop peu de points fiables : ne rien conclure.
+			float32 yawRad = 0.f;    ///< Rotation autour de +Y (haut) : tourner à gauche > 0.
+			float32 pitchRad = 0.f;  ///< Rotation autour de +X (droite) : lever les yeux > 0.
+			float32 rollRad = 0.f;   ///< Rotation autour de +Z (arrière) : pencher la tête.
+			uint32 inliers = 0;      ///< Points ayant voté pour ce mouvement.
+			float32 residualPixels = 0.f; ///< Écart moyen restant : la qualité de l'ajustement.
+			// Glissement médian observé, en pixels. Grand ET mal ajusté = la
+			// scène a probablement changé (objet qui passe, lumière) plutôt que
+			// la caméra : l'appelant peut refuser d'y croire.
+			float32 medianShiftPixels = 0.f;
+		};
+
+		struct NkArFlowConfig {
+			uint32 cellsX = 8;          ///< Grille de sélection : un point fort par case,
+			uint32 cellsY = 6;          ///< pour couvrir l'image au lieu de s'agglutiner.
+			uint32 patchRadius = 4;     ///< Demi-côté de la vignette comparée (9×9).
+			uint32 searchRadius = 24;   ///< Déplacement maximal cherché, en pixels.
+			uint32 minGradient = 900;   ///< Sous ce relief, la vignette est trop lisse : elle
+										///< se recollerait n'importe où (mur uni, ciel).
+			uint32 minInliers = 10;     ///< En dessous, on préfère ne rien dire.
+			float32 inlierPixels = 4.f; ///< Tolérance autour du mouvement médian.
+		};
+
+		// ── L'estimateur ─────────────────────────────────────────────────────
+		// Il garde l'image précédente : appeler Track() à chaque image, même
+		// quand un marqueur est visible, sinon la comparaison sauterait
+		// plusieurs images d'un coup et le glissement sortirait du rayon de
+		// recherche — un suivi qui ne s'entretient pas est un suivi qui ment
+		// au moment précis où l'on a besoin de lui.
+		class NkArImageFlow {
+			public:
+				void Initialize(const NkArFlowConfig &config) { mConfig = config; }
+				void Reset();
+
+				NkArFlowResult Track(const uint8 *gray, uint32 width, uint32 height,
+									 const NkArCameraIntrinsics &intrinsics);
+
+				const NkArFlowConfig &GetConfig() const { return mConfig; }
+
+			private:
+				NkArFlowConfig mConfig{};
+				NkVector<uint8> mPrev;
+				uint32 mWidth = 0;
+				uint32 mHeight = 0;
+				bool mHasPrev = false;
+		};
+
+	} // namespace xr
+} // namespace nkentseu
+
+#endif // __NKENTSEU_XR_NKARFLOW_H__
