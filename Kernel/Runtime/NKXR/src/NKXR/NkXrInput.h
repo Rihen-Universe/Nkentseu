@@ -87,6 +87,30 @@ namespace nkentseu {
 			bool active = false;
 		};
 
+		// ── Vraies mains (hand tracking, sans manettes) ──────────────────────
+		// 26 articulations par main — la disposition standard d'OpenXR
+		// (XR_EXT_hand_tracking) : 0=paume, 1=poignet, puis 5 doigts de la
+		// base à l'ongle. Reprise telle quelle : le jour venu, un maillage de
+		// main squelettique se skinne directement dessus.
+		inline constexpr uint32 NK_XR_HAND_JOINT_COUNT = 26u;
+
+		enum class NkXrHandSide : uint8 {
+			NK_XR_HAND_LEFT = 0,
+			NK_XR_HAND_RIGHT = 1,
+		};
+
+		struct NkXrHandJoint {
+			NkVec3f position{ 0.f, 0.f, 0.f };
+			NkQuatf orientation{};
+			float32 radius = 0.f;   ///< Rayon de l'articulation (mètres).
+			bool valid = false;
+		};
+
+		struct NkXrHand {
+			bool active = false;    ///< La main est vue par le tracking.
+			NkXrHandJoint joints[NK_XR_HAND_JOINT_COUNT]{};
+		};
+
 		// ── Jeu d'actions : le paquet que l'app déclare puis attache ─────────
 		// Un seul jeu attachable à l'étage 0 : les jeux multiples d'OpenXR
 		// (par contexte de gameplay) viendront quand un besoin réel les
