@@ -486,6 +486,27 @@ namespace nkentseu {
 				// desormais dans le sien, un rang ne designerait plus rien.
 				nd.SetString("materiau",
 							 NkAsMatPath(st, demo::Demo3DHostProjMatOf(n)).CStr());
+				// LA LISTE DES MATERIAUX DE L'OBJET (12 aout) : « materiau »
+				// reste l'ACTIF, celui que le rendu applique ; « materiauxN »
+				// et « materiauX » portent tous ceux qui lui sont associes.
+				// Cles INDEXEES plutot qu'un tableau : l'archive n'expose pas
+				// de tableau d'objets, et un chemin par cle se relit aussi bien.
+				// Sans cette liste, retirer un materiau d'un objet ne survivait
+				// pas au rechargement — le defaut signale par Rihen.
+				{
+					const int32 nAssoc = demo::Demo3DHostNodeMatCount(n);
+					int32 written = 0;
+					for (int32 k = 0; k < nAssoc; ++k) {
+						const int32 ms2 = demo::Demo3DHostNodeMatAt(n, k);
+						if (ms2 < 0)
+							continue;
+						char key[24];
+						snprintf(key, sizeof(key), "materiau%d", written);
+						nd.SetString(key, NkAsMatPath(st, ms2).CStr());
+						++written;
+					}
+					nd.SetInt32("materiauxN", written);
+				}
 				// PARAMETRES DE CREATION : sans eux, une sphere rechargee ne pourrait
 				// plus etre reajustee -- son maillage serait la, mais le panneau
 				// « Ajuster la creation » n'aurait plus rien a montrer.
@@ -693,6 +714,19 @@ namespace nkentseu {
 				const int32 ms = NkAsMatSlot(st, NkScStr(nd, "materiau"));
 				if (ms >= 0)
 					demo::Demo3DHostProjMatAssign(n, ms);
+				// Puis TOUTE la liste. Assigner a deja pose l'actif ; ceci ajoute
+				// les autres. Un fichier ecrit avant le 12 aout n'a pas la cle :
+				// l'objet garde alors son seul materiau, ce qui est exact.
+				{
+					const int32 nl = NkScInt(nd, "materiauxN", 0);
+					for (int32 k = 0; k < nl; ++k) {
+						char key[24];
+						snprintf(key, sizeof(key), "materiau%d", k);
+						const int32 ms2 = NkAsMatSlot(st, NkScStr(nd, key));
+						if (ms2 >= 0)
+							(void)demo::Demo3DHostNodeMatAdd(n, ms2);
+					}
+				}
 			}
 			// LA REPARATION APRES LES PARENTES : elle a besoin de l'arbre complet
 			// pour savoir si un maillage a un model au-dessus de lui. Elle ne vaut

@@ -9655,12 +9655,35 @@ namespace nkentseu {
 					static int32 sMatIdx[64];
 					static char sMatNm[64][32];
 					int32 nMats = 0;
-					for (int32 mi = 0; mi < 64 && nMats < 64; ++mi)
-						if (demo::Demo3DHostProjMatInfo(mi, sMatNm[nMats], 32u, nullptr,
-														nullptr, nullptr)) {
+					// ── CETTE LISTE EST CELLE DE L'OBJET ────────────────────
+					// Modele fixe avec Rihen le 12 aout : la pastille montre les
+					// materiaux ASSOCIES A L'OBJET ACTIF, pas le projet entier
+					// (celui-ci se consulte dans le navigateur de projet). C'est
+					// ce qui donne son sens au « retirer » : il sort le materiau
+					// de CET objet, sans rien detruire, et le « + » l'y remet.
+					// Sans objet actif, on retombe sur le projet — il faut bien
+					// pouvoir regarder et editer un materiau sans rien
+					// selectionner.
+					if (actN >= 0 && demo::Demo3DHostNodeMatCount(actN) > 0) {
+						const int32 nOb = demo::Demo3DHostNodeMatCount(actN);
+						for (int32 k = 0; k < nOb && nMats < 64; ++k) {
+							const int32 mi = demo::Demo3DHostNodeMatAt(actN, k);
+							if (mi < 0)
+								continue;
+							if (!demo::Demo3DHostProjMatInfo(mi, sMatNm[nMats], 32u, nullptr,
+															 nullptr, nullptr))
+								continue;
 							sMatIdx[nMats] = mi;
 							++nMats;
 						}
+					} else {
+						for (int32 mi = 0; mi < 64 && nMats < 64; ++mi)
+							if (demo::Demo3DHostProjMatInfo(mi, sMatNm[nMats], 32u, nullptr,
+															nullptr, nullptr)) {
+								sMatIdx[nMats] = mi;
+								++nMats;
+							}
+					}
 					if (st.projMatSel >= nMats)
 						st.projMatSel = nMats > 0 ? nMats - 1 : 0;
 					const int32 selMat = nMats > 0 ? sMatIdx[st.projMatSel] : -1;
@@ -9763,11 +9786,21 @@ namespace nkentseu {
 									  NkRole::PanelHeader, 3.f);
 							p.IconV(ab.x + S(5.f), ab.y, ab.h, NkIcon::Add, NkRole::Text, 11.f);
 							if (hit.Clicked("props.pm.add")) {
+								// « + » CREE UN MATERIAU et l'associe a l'objet actif.
+								// Reprendre un materiau DEJA EXISTANT du projet passe
+								// par le combo juste en dessous : il liste tout le
+								// projet, et le choisir l'ajoute a cet objet (Rihen :
+								// « ce mat peut etre ajoute plus tard sans forcement
+								// creer un nouveau mat »).
 								const int32 ni = demo::Demo3DHostProjMatCreate();
-								if (ni >= 0)
+								if (ni >= 0) {
+									if (actN >= 0)
+										(void)demo::Demo3DHostNodeMatAdd(actN, ni);
 									for (int32 i = 0; i < nMats + 1; ++i)
 										if (i < 64 && ni == sMatIdx[i])
 											st.projMatSel = i;
+									NkMarkDirty(st);
+								}
 							}
 						}
 						{
@@ -9784,18 +9817,27 @@ namespace nkentseu {
 							// defaut : c'est lui qu'on delie.
 							const int32 defSlot = demo::Demo3DHostProjMatDefault();
 							const int32 curSlot = (actN >= 0) ? demo::Demo3DHostProjMatOf(actN) : -1;
-							const bool en = (actN >= 0) && (curSlot >= 0) && (curSlot != defSlot);
+							// Actif des que l'objet porte PLUS D'UN materiau : on
+							// retire celui qui est selectionne dans la liste. Le
+							// dernier ne se retire pas — un modele en porte toujours
+							// au moins un (regle de Rihen).
+							const bool en = (actN >= 0) && (selMat >= 0) &&
+											(demo::Demo3DHostNodeMatCount(actN) > 1);
 							const bool ovR = hit.Add("props.pm.del", rb);
 							p.Outline(rb, (ovR && en) ? NkRole::AccentUi : NkRole::Border,
 									  NkRole::PanelHeader, 3.f);
 							p.IconV(rb.x + S(5.f), rb.y, rb.h, NkIcon::MinusCircle,
 									en ? NkRole::Text : NkRole::TextMuted, 11.f);
 							if (en && hit.Clicked("props.pm.del")) {
-								// Delier = reposer le materiau PAR DEFAUT sur ce seul
-								// objet. Le materiau lui-meme continue d'exister dans
-								// le projet et sur les autres objets qui le portent.
-								if (defSlot >= 0) {
-									demo::Demo3DHostProjMatAssign(actN, defSlot);
+								// RETIRER DE LA LISTE DE CET OBJET, rien de plus. Le
+								// materiau continue d'exister dans le projet et sur
+								// les autres objets qui le portent ; le « + » le
+								// remettra ici sans qu'on ait a en recreer un. Si
+								// c'etait l'actif, l'hote bascule sur un autre — un
+								// objet ne reste jamais sans materiau.
+								if (demo::Demo3DHostNodeMatRemove(actN, selMat)) {
+									if (st.projMatSel > 0)
+										--st.projMatSel;
 									NkMarkDirty(st);
 								}
 							}
