@@ -36,7 +36,8 @@
 #include "NK3DModeler/Shell/NkModelerTheme.h"
 #include "NK3DModeler/Shell/NkModelerScreens.h"
 #include "NK3DModeler/Shell/NkModelerChrome.h" // separateurs, dialogues, barre d etat
-#include "NK3DModeler/Shell/NkModelerJournal.h" // les messages du moteur, lisibles dans l'app
+#include "NK3DModeler/Shell/NkModelerJournal.h"
+#include "NKContainers/String/Encoding/NkBase64.h" // les messages du moteur, lisibles dans l'app
 #include "NK3DModeler/Shell/NkModelerHierarchy.h" // hierarchie + menus de scene
 #include "NK3DModeler/Shell/NkModelerViewport.h"  // vue 3D et ses surcouches
 #include "NK3DModeler/Shell/NkModelerProperties.h" // panneau de proprietes
@@ -2115,10 +2116,36 @@ int nkmain(const NkEntryState &entry) {
 		{
 			static const int32 kCarte = 128;
 			static uint8 sMatBall[kCarte * kCarte * 4];
-			for (int32 i = 0; i < 64; ++i)
+			// ── LA VIGNETTE CAPTUREE PASSE AVANT LE RENDU ANALYTIQUE ────────
+			// Si le materiau porte une vignette -- une capture du VRAI rendu,
+			// prise a son enregistrement -- c'est elle qui fait foi : elle seule
+			// montre le verre comme du verre. Le rendu analytique reste le repli
+			// pour un materiau jamais enregistre, qui n'a donc pas encore d'image.
+			static NkString sVigVue[64];
+			for (int32 i = 0; i < 64; ++i) {
+				const char *b64 = demo::Demo3DHostProjMatThumb(i);
+				if (b64 && *b64) {
+					// Ne decoder QUE si elle a change : decoder un PNG par materiau
+					// et par frame couterait bien plus que tout le navigateur.
+					if (sVigVue[i] != b64) {
+						sVigVue[i] = b64;
+						NkVector<uint8> png;
+						png.Resize(((usize)sVigVue[i].Size() * 3u) / 4u + 4u);
+						usize taille = png.Size();
+						if (encoding::base64::NkDecode(sVigVue[i].CStr(), png.Data(), &taille)) {
+							NkImage im;
+							if (im.LoadFromMemory(png.Data(), taille) && im.IsValid())
+								renderer.UploadImageRGBA(4400u + (uint32)i, im.Pixels(),
+														 (int32)im.Width(), (int32)im.Height());
+						}
+					}
+					continue; // pas de rendu analytique : la capture fait foi
+				}
+				sVigVue[i].Clear();
 				if (demo::Demo3DHostProjMatPreviewTake(i, sMatBall, (uint32)kCarte,
 													   (uint32)kCarte))
 					renderer.UploadImageRGBA(4400u + (uint32)i, sMatBall, kCarte, kCarte);
+			}
 		}
 
 		// ── MINIATURES DES SCENES (ids 4500+) ───────────────────────────────

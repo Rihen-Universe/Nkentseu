@@ -34,7 +34,8 @@
 #include "NKRenderer/Core/NkGizmo.h"			// NkGizmo3D (gizmo éditeur réutilisable)
 #include "NKRenderer/Materials/NkMatcapLibrary.h" // noms des 30 matcaps (source unique)
 #include "NKRenderer/Core/NkLightGizmo.h"   // widgets des lumieres (facon Blender)
-#include "NKImage/NKImage.h"					// Phase H : test ecriture PNG procedural
+#include "NKImage/NKImage.h"
+#include "NKContainers/String/Encoding/NkBase64.h"					// Phase H : test ecriture PNG procedural
 #include "NKContainers/Associative/NkHashMap.h" // dedup arêtes Edit Mode
 #include "NKRenderer/Mesh/NkEditMesh.h"			// structure demi-arête n-gon
 #include "NKFileSystem/NkFile.h"				// save/load session d'édition (journal de commandes)
@@ -956,6 +957,16 @@ namespace nkentseu {
 		/// au renderer d'apercu n'a donc aucun sens -- il lui faut les siennes,
 		/// construites par le MEME code depuis le MEME etat.
 		static NkMaterial *nkvpProjMatPrev[kNkvpMaxProjMats] = {};
+		/// LA VIGNETTE D'UN MATERIAU, en PNG encode base64. Elle vit DANS le
+		/// materiau (Rihen, 14 aout) : un .nkmat se deplace alors sans perdre son
+		/// image, la ou un PNG voisin se serait separe de lui au premier
+		/// deplacement de fichier.
+		///
+		/// GARDEE HORS de NkVpProjMat, volontairement : cette structure est
+		/// comparee OCTET A OCTET pour savoir si l'apercu doit etre reconstruit
+		/// (memcmp). Une chaine dedans casserait la comparaison -- et une vignette
+		/// n'est pas un reglage : elle est le RESULTAT des reglages.
+		static NkString nkvpProjMatThumb[kNkvpMaxProjMats];
 		/// OU ECRIVENT LES FACADES, et AVEC QUEL renderer. Par defaut la vue 3D ; le
 		/// temps de reconstruire un apercu, on bascule sur l'autre jeu. C'est ce qui
 		/// evite de recopier les quarante lignes d'application des reglages -- une
@@ -12372,16 +12383,24 @@ namespace nkentseu {
 			NkMatThumbFile gThumbs;
 		} // namespace
 
+		const char *Demo3DHostProjMatThumb(int32 i) {
+			return (i >= 0 && i < kNkvpMaxProjMats) ? nkvpProjMatThumb[i].CStr() : "";
+		}
+		void Demo3DHostProjMatSetThumb(int32 i, const char *b64) {
+			if (i >= 0 && i < kNkvpMaxProjMats)
+				nkvpProjMatThumb[i] = b64 ? b64 : "";
+		}
+
 		void Demo3DHostMatThumbRequest(int32 slot, const char *cheminPng) {
-			if (slot < 0 || slot >= kNkvpMaxProjMats || !cheminPng || !*cheminPng)
+			if (slot < 0 || slot >= kNkvpMaxProjMats)
 				return;
+			(void)cheminPng; // la vignette ne va plus dans un fichier voisin
 			if (gThumbs.nb >= kThumbMax)
 				return; // file pleine : la vignette attendra le prochain
 			for (int32 i = 0; i < gThumbs.nb; ++i)
 				if (gThumbs.slot[i] == slot)
 					return; // deja demande
 			gThumbs.slot[gThumbs.nb] = slot;
-			snprintf(gThumbs.chemin[gThumbs.nb], sizeof(gThumbs.chemin[0]), "%s", cheminPng);
 			++gThumbs.nb;
 		}
 
@@ -12400,20 +12419,27 @@ namespace nkentseu {
 				const int32 sc = gThumbs.rendu;
 				gThumbs.rendu = -1;
 				static uint8 px[kThumbPx * kThumbPx * 4];
-				if (nk3d::matprev::Readback(px)) {
+				if (sc >= 0 && sc < kNkvpMaxProjMats && nk3d::matprev::Readback(px)) {
 					NkImage im;
 					if (im.Create((uint32)kThumbPx, (uint32)kThumbPx,
 								  math::NkColor(0, 0, 0, 255), 4)) {
 						memcpy(im.Pixels(), px, sizeof(px));
-						if (im.Save(gThumbs.renduChemin))
-							NkLog::Instance().Info("[apercu] vignette ecrite : {0}",
-												   gThumbs.renduChemin);
-						else
-							NkLog::Instance().Info("[apercu] vignette REFUSEE : {0}",
-												   gThumbs.renduChemin);
+						// PNG D'ABORD, base64 ENSUITE. Les pixels bruts en base64
+						// pesteraient 87 Ko par materiau ; compresses, il en reste
+						// quelques-uns -- pour la meme image.
+						uint8 *pngBuf = nullptr;
+						usize pngSz = 0;
+						if (im.EncodePNG(pngBuf, pngSz) && pngBuf && pngSz > 0) {
+							nkvpProjMatThumb[sc] = encoding::base64::NkEncode(pngBuf, pngSz);
+							NkLog::Instance().Info(
+								"[apercu] vignette du materiau {0} : {1} octets PNG", sc,
+								(uint32)pngSz);
+							memory::NkFree(pngBuf);
+						} else
+							NkLog::Instance().Info("[apercu] vignette {0} : encodage refuse",
+												   sc);
 					}
 				}
-				(void)sc;
 			}
 			// PUIS rendre la suivante de la file, en SPHERE et en carre : c'est
 			// une icone de liste, elle doit se comparer aux autres.
