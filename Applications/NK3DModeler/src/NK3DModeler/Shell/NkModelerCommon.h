@@ -17,6 +17,7 @@
 #include "NK3DModeler/Shell/NkModelerTables.h"
 #include "NK3DModeler/Viewport/NkDemo3DHost.h"
 #include <cstdio>
+#include <cstring> // strcmp : comparaison des noms de materiaux
 
 namespace nkentseu {
 	namespace nk3d {
@@ -92,6 +93,89 @@ namespace nkentseu {
 				demo::Demo3DHostLightName(node - 86, out, cap);
 			else
 				demo::Demo3DHostObjectName(node, out, cap);
+		}
+
+		// ── UN NOM DE MATERIAU EST UNIQUE DANS TOUT LE PROJET ───────────────────
+		// Regle de Rihen : « peu importe le dossier, deux materiaux ne doivent pas
+		// porter le meme nom ». La raison est concrete : la pastille et les listes
+		// affichent le NOM SEUL -- deux « Bois » ranges dans deux dossiers y seraient
+		// indiscernables. C'est aussi ce que fait Blender, qui impose l'unicite par
+		// type de donnee.
+		//
+		// ON RENOMME, ON NE REFUSE PAS (Rihen, 13 aout). Un refus sec bloque
+		// l'utilisateur sans lui dire quel fichier lointain porte deja le nom ; le
+		// suffixe numerote laisse le travail avancer. Meme convention que Blender :
+		// « Bois », puis « Bois.001 », « Bois.002 »...
+		//
+		// `exclu` = emplacement a ignorer dans la comparaison (celui qu'on renomme),
+		// pour qu'un materiau ne se declare pas en conflit avec lui-meme.
+		inline void NkMatUniqueName(const char *voulu, int32 exclu, char *out, uint32 cap) {
+			if (!out || cap == 0u)
+				return;
+			const char *base = (voulu && *voulu) ? voulu : "Materiau";
+			auto pris = [&](const char *nom) -> bool {
+				const int32 maxM = demo::Demo3DHostProjMatMax();
+				for (int32 m = 0; m < maxM; ++m) {
+					if (m == exclu)
+						continue;
+					char nm[64];
+					float32 alb[3];
+					float32 rough = 0.f, metal = 0.f;
+					if (!demo::Demo3DHostProjMatInfo(m, nm, (uint32)sizeof(nm), alb, &rough,
+													 &metal))
+						continue;
+					if (strcmp(nm, nom) == 0)
+						return true;
+				}
+				return false;
+			};
+			snprintf(out, cap, "%s", base);
+			if (!pris(out))
+				return;
+			// Le nom est pris : on numerote jusqu'a trouver libre. La borne haute
+			// n'est pas une limite de projet, seulement un garde-fou de boucle.
+			for (int32 n = 1; n < 1000; ++n) {
+				char essai[80];
+				snprintf(essai, sizeof(essai), "%s.%03d", base, n);
+				if (!pris(essai)) {
+					snprintf(out, cap, "%s", essai);
+					return;
+				}
+			}
+		}
+
+		/// Passe TOUT le projet en revue et renomme les doublons deja presents.
+		/// Appele a l'ouverture : les projets d'avant cette regle portent des noms
+		/// en double (Rihen en avait deux « Materiau »), et rien ne les corrigeait.
+		/// Rend le nombre de renommages effectues.
+		inline int32 NkMatFixDuplicates() {
+			int32 corriges = 0;
+			const int32 maxM = demo::Demo3DHostProjMatMax();
+			for (int32 m = 0; m < maxM; ++m) {
+				char nm[64];
+				float32 alb[3];
+				float32 rough = 0.f, metal = 0.f;
+				if (!demo::Demo3DHostProjMatInfo(m, nm, (uint32)sizeof(nm), alb, &rough, &metal))
+					continue;
+				// Un doublon n'est detecte que face aux emplacements PRECEDENTS :
+				// sinon le premier « Materiau » se renommerait a cause du second, et
+				// l'ordre deviendrait arbitraire. Le premier garde son nom.
+				bool doublon = false;
+				for (int32 k = 0; k < m && !doublon; ++k) {
+					char nk[64];
+					float32 a2[3];
+					float32 r2 = 0.f, g2 = 0.f;
+					if (demo::Demo3DHostProjMatInfo(k, nk, (uint32)sizeof(nk), a2, &r2, &g2))
+						doublon = (strcmp(nk, nm) == 0);
+				}
+				if (!doublon)
+					continue;
+				char libre[80];
+				NkMatUniqueName(nm, m, libre, (uint32)sizeof(libre));
+				demo::Demo3DHostProjMatSetName(m, libre);
+				++corriges;
+			}
+			return corriges;
 		}
 
 	} // namespace nk3d

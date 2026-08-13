@@ -1569,6 +1569,18 @@ int nkmain(const NkEntryState &entry) {
 		// TOUTE la fenetre, comme Rihen l'a demande. Le composant ne fait que
 		// DECIDER (il depose un resultat) ; c'est l'application qui agit.
 		if (st.picker.pickerOpen) {
+			// TRACE (a retirer) : le voile n'assombrit qu'une PARTIE de l'ecran.
+			// On mesure ce que le composant croit couvrir, une seule fois par
+			// ouverture -- pas a chaque frame, sinon le journal devient illisible.
+			{
+				static bool sDejaTrace = false;
+				if (!sDejaTrace) {
+					sDejaTrace = true;
+					nkentseu::NkLog::Instance().Info(
+						"[voile] vue=({0}x{1}) rendu=({2}x{3}) modalDepth={4}", ui.viewW,
+						ui.viewH, (int32)lastW, (int32)lastH, ui.modalDepth);
+				}
+			}
 			// COUCHE 100 : le registre donne le survol a la couche la plus haute,
 			// donc tout ce qui est peint dessous -- menus contextuels compris --
 			// devient aveugle sous son emprise. C'est ce qui empeche le clic droit
@@ -1582,7 +1594,14 @@ int nkmain(const NkEntryState &entry) {
 			if (st.pickerAction == 1 && st.picker.pickerResultName[0]) {
 				const int32 ni = demo::Demo3DHostProjMatCreate();
 				if (ni >= 0) {
-					demo::Demo3DHostProjMatSetName(ni, st.picker.pickerResultName);
+					// Le nom saisi n'est pas pose tel quel : s'il est deja porte
+					// ailleurs dans le projet, il devient « X.001 » (Rihen : renommer
+					// plutot que refuser). L'utilisateur voit tout de suite le nom
+					// retenu, au lieu d'un bouton eteint sans explication.
+					char nomLibre[80];
+					nk3d::NkMatUniqueName(st.picker.pickerResultName, ni, nomLibre,
+										  (uint32)sizeof(nomLibre));
+					demo::Demo3DHostProjMatSetName(ni, nomLibre);
 					// Le materiau naissant se lie a l'objet actif, s'il y en a un.
 					const int32 an = demo::Demo3DHostActiveObject();
 					if (an >= 0)
@@ -1620,6 +1639,24 @@ int nkmain(const NkEntryState &entry) {
 		// Meme geste que NKCode, dont l'etat porte sa propre `root` (Rihen,
 		// 12 aout : « rends ce dossier accessible »).
 		st.projectRoot = proj.open ? proj.root : NkString();
+		// ── LES DOUBLONS DE NOMS SONT CORRIGES A L'OUVERTURE ────────────────
+		// La regle « deux materiaux ne portent jamais le meme nom » est neuve
+		// (Rihen, 13 aout) : les projets d'avant en ont -- il y avait deux
+		// « Materiau » dans celui de test. On les renomme une fois, au chargement,
+		// plutot que de laisser l'utilisateur les demeler a la main. Detecte par le
+		// CHANGEMENT de fichier ouvert, donc une seule fois par projet.
+		{
+			static NkString sDernierProjet;
+			if (proj.open && proj.file != sDernierProjet) {
+				sDernierProjet = proj.file;
+				const int32 renommes = nk3d::NkMatFixDuplicates();
+				if (renommes > 0)
+					nkentseu::NkLog::Instance().Info(
+						"[materiaux] {0} nom(s) en double corrige(s) a l'ouverture", renommes);
+			} else if (!proj.open) {
+				sDernierProjet.Clear();
+			}
+		}
 		// Le dossier courant du navigateur, en chemin DISQUE : c'est la que les
 		// selecteurs doivent s'ouvrir. `NkAsFolderPath` ne rend qu'un relatif, et
 		// n'est visible QUE d'ici (NkModelerAssets.h est inclus apres les ecrans).

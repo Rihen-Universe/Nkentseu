@@ -726,6 +726,17 @@ namespace nkentseu {
 						if (ms2 >= 0)
 							(void)demo::Demo3DHostNodeMatAdd(n, ms2);
 					}
+					// ── UN OBJET IMPORTE RECOIT LE MATERIAU PAR DEFAUT ───────
+					// Un fichier venu d'ailleurs (ou ecrit avant que les listes
+					// existent) n'a aucun materiau a rattacher : sans cela l'objet
+					// apparaitrait en MAGENTA, ce qui est le signal d'un probleme,
+					// pas d'un import normal (Rihen, 13 aout : « le vrai correctif
+					// est d'attribuer le materiau par defaut a l'import »).
+					// Le magenta reste pour ce qu'il designe : une absence VOULUE,
+					// obtenue en retirant les materiaux a la main.
+					if (demo::Demo3DHostNodeMatCount(n) == 0 &&
+						demo::Demo3DHostProjMatOf(n) < 0)
+						(void)demo::Demo3DHostNodeMatAdd(n, demo::Demo3DHostProjMatEnsureDefault());
 				}
 			}
 			// LA REPARATION APRES LES PARENTES : elle a besoin de l'arbre complet

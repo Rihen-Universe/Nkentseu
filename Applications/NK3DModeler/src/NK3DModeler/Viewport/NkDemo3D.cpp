@@ -1013,19 +1013,24 @@ namespace nkentseu {
 			return false;
 		}
 
-		// Retire un materiau de CET objet seulement. Le dernier ne se retire
-		// pas : un modele porte toujours au moins un materiau (regle de Rihen).
+		// Retire un materiau de CET objet seulement.
+		//
+		// LE DERNIER SE RETIRE AUSSI, depuis le 13 aout (Rihen) : « permettre de
+		// supprimer tous les materiaux, mais un objet sans materiau sera en
+		// magenta ». La regle precedente -- toujours au moins un materiau --
+		// interdisait un geste legitime pour eviter un cas d'affichage ; le cas
+		// est desormais traite la ou il se voit, au rendu, par une couleur qui
+		// signale l'absence au lieu de la masquer.
 		static bool HostNodeMatRemove(int32 node, int32 slot) {
 			if (node < 0 || node >= kNkvpMaxNodes || slot < 0)
-				return false;
-			if (HostNodeMatCount(node) <= 1)
 				return false;
 			for (int32 k = 0; k < kNkvpMaxMatsPerNode; ++k) {
 				if (nkvpNodeMatsP1[node][k] != slot + 1)
 					continue;
 				nkvpNodeMatsP1[node][k] = 0;
-				// Si c'etait l'actif, l'objet bascule sur le premier restant —
-				// il ne peut pas se retrouver sans materiau.
+				// Si c'etait l'actif, l'objet bascule sur le premier restant. S'il
+				// n'en reste AUCUN, l'actif tombe a zero : c'est l'etat « sans
+				// materiau », rendu en magenta.
 				if (nkvpNodeMatP1[node] == slot + 1) {
 					const int32 first = HostNodeMatAt(node, 0);
 					nkvpNodeMatP1[node] = (first >= 0) ? first + 1 : 0;
@@ -1045,6 +1050,29 @@ namespace nkentseu {
 			// retouche locale, et retirer la retouche rend le materiau.
 			{
 				const int32 pm = nkvpNodeMatP1[i] - 1;
+				// ── AUCUN MATERIAU : MAGENTA ────────────────────────────────
+				// Depuis qu'on peut retirer TOUS les materiaux d'un objet (Rihen,
+				// 13 aout), l'absence doit se VOIR. Le magenta est la convention
+				// d'Unreal, de Source et d'Unity, et pour une raison precise : le
+				// noir ressemble a un objet correctement rendu mais non eclaire,
+				// donc on cherche le probleme du cote des lumieres. Aucune matiere
+				// reelle n'est magenta pur -- la couleur ne suggere pas un defaut,
+				// elle l'annonce.
+				//
+				// LIMITE ASSUMEE : seuls les objets de l'utilisateur (>= 96) sont
+				// concernes. Le sol, les murs d'occlusion et les objets de scene
+				// internes passent par ce meme point sans jamais porter de materiau
+				// de projet ; les peindre en magenta signalerait un probleme qui
+				// n'existe pas.
+				const bool objetUtilisateur = (i >= 96);
+				const bool sansMateriau = (HostNodeMatCount(i) == 0 && pm < 0);
+				if (objetUtilisateur && sansMateriau) {
+					dc.tint = {1.f, 0.f, 1.f};
+					dc.alpha = 1.f;
+					dc.metallic = 0.f;
+					dc.roughness = 1.f; // mat : aucun reflet ne doit adoucir le signal
+					return;				// aucune surcharge locale ne masque l'alerte
+				}
 				if (pm >= 0 && pm < kNkvpMaxProjMats && nkvpProjMats[pm].used) {
 					dc.tint.x = nkvpProjMats[pm].albedo[0];
 					dc.tint.y = nkvpProjMats[pm].albedo[1];

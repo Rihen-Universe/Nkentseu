@@ -540,7 +540,16 @@ namespace nkentseu {
 			NkGuiContext::NkInputLayerScope _pickerLayer(ctx, 100);
 			const bool down = ctx.input.mouseDown[0];
 			bool fieldClicked = false; // un champ de saisie a-t-il ete clique cette frame ?
-			dl.AddRectFilled({0.f, 0.f, W, H}, sty.backdrop);
+			// VOILE : une seule fois pour toute la pile de surfaces modales. Ce
+			// selecteur peut s'ouvrir AU-DESSUS d'une modale (« Nouveau » depuis la
+			// modale d'ajout de materiau) ; deux voiles superposes rendaient l'appli
+			// derriere presque noire au lieu de simplement l'assombrir (Rihen,
+			// 13 aout : « une partie de l'app n'est totalement pas visible »).
+			// Meme compteur que NkEditorModal : empiler ne doit jamais cacher.
+			const bool premiereDeLaPile = (ctx.modalDepth == 0);
+			++ctx.modalDepth;
+			if (premiereDeLaPile)
+				dl.AddRectFilled({0.f, 0.f, W, H}, sty.backdrop);
 			dl.AddRectFilled({px, py, pw, ph}, sty.card, 10.f * S);
 			dl.AddRect({px, py, pw, ph}, sty.border, 1.5f);
 			// ── BARRE DE TITRE deplacable (lisere accent + drag) ──

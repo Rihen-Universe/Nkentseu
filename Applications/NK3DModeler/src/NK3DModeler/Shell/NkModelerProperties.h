@@ -6605,6 +6605,15 @@ namespace nkentseu {
 				// le peintre ordinaire ecrit dans `dl`, soumise AVANT `dlOverlay`,
 				// donc son trace passerait DERRIERE la boite. Ce `p` local masque
 				// volontairement le parametre pour toute la duree du bloc.
+				// L'EMPRISE DE LA BOITE, DECLAREE DANS LE REGISTRE DU MODELEUR.
+				// Le cadre est dessine par le kit, qui a SON propre systeme
+				// d'entrees : sa barre de titre n'existe pas pour `hit`. Sans cette
+				// zone, un clic sur l'entete ne rencontrait aucune surface de couche
+				// 100 et repartait vers ce qui se trouve dessous -- « ce qui laisse
+				// traverser les evenements, c'est l'entete » (Rihen, 13 aout).
+				// Declaree AVANT le contenu : les widgets poses ensuite la couvrent.
+				(void)hit.Add("props.pm.modalbox", fr.box);
+
 				NkModelerPainter &p = *poM;
 				// LA BOITE, pas la zone de contenu : le contenu de cette modale
 				// place deja ses elements sous une hauteur de titre (`dr.y + kRowH`).
@@ -7293,7 +7302,10 @@ namespace nkentseu {
 						// L'APPELANT AGIT — le dialogue n'a fait que decider.
 						const int32 ni = demo::Demo3DHostProjMatCreate();
 						if (ni >= 0) {
-							demo::Demo3DHostProjMatSetName(ni, fdlg.resultName);
+							char nomLibre2[80];
+							NkMatUniqueName(fdlg.resultName, ni, nomLibre2,
+											(uint32)sizeof(nomLibre2));
+							demo::Demo3DHostProjMatSetName(ni, nomLibre2);
 							const int32 an = demo::Demo3DHostActiveObject() >= 0
 												 ? demo::Demo3DHostActiveObject()
 												 : st.activeEmpty;

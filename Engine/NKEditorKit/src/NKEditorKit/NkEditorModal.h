@@ -339,8 +339,10 @@ namespace nkentseu {
 			dl.AddRect(box, sty.border, 1.5f);
 			dl.AddRectFilled({box.x + 1.f, box.y + 1.f, box.w - 2.f, titleH - 1.f}, sty.header,
 							 7.f);
-			// Un LISERE D'ACCENT sous la barre de titre : c'est ce qui distingue une
-			// fenetre modale d'un simple panneau, dans GitHub comme dans NKCode.
+			// BARRE DE COULEUR EN HAUT, comme le selecteur de NKCode : c'est elle qui
+			// signale une fenetre modale au premier coup d'oeil (Rihen, 13 aout).
+			dl.AddRectFilled({box.x, box.y, box.w, 3.f}, sty.accent, 8.f);
+			// Et un filet sous la barre de titre, pour la detacher du contenu.
 			dl.AddRectFilled({box.x + 1.f, box.y + titleH - 1.f, box.w - 2.f, 1.f}, sty.border);
 			if (font && font->Valid() && title && *title)
 				dl.AddText(font->Face(), font->TexId(),
