@@ -2656,7 +2656,22 @@ namespace nkentseu {
 							p.IconV(db.x + S(5.f), db.y, db.h, NkIcon::SquareCheck,
 									isDef ? NkRole::TextOnAccent : NkRole::Text, 11.f);
 							if (hit.Clicked("props.pm.def") && selMat >= 0) {
+								// ── DEUX NOTIONS QUI SE RESSEMBLENT ─────────────
+								// `SetDefault` designe le materiau par defaut du
+								// PROJET -- celui que recevront les NOUVEAUX objets.
+								// Il ne touche pas a l'objet selectionne : le bouton
+								// semblait donc sans effet (Rihen, 13 aout : « ce
+								// dernier n'est pas applique au model »).
+								// C'est `Assign` qui pose le materiau ACTIF de CET
+								// objet, celui qui est rendu -- et qui l'ajoute a sa
+								// liste s'il n'y etait pas.
+								const int32 nodeSel = demo::Demo3DHostActiveObject() >= 0
+														  ? demo::Demo3DHostActiveObject()
+														  : st.activeEmpty;
+								if (nodeSel >= 0)
+									demo::Demo3DHostProjMatAssign(nodeSel, selMat);
 								demo::Demo3DHostProjMatSetDefault(selMat);
+								NkMarkDirty(st);
 								for (int32 rk = st.projMatSel; rk > 0; --rk)
 									swapWithBrowser(sMatIdx[rk], sMatIdx[rk - 1]);
 								st.projMatSel = 0;

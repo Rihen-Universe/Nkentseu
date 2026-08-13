@@ -1025,7 +1025,29 @@ Branche `refonte-interface-nk3dmodeler`, 3 commits. Release ET Debug verts.
 - **NKContainers** : `NkSPrintf` / `NkSPrintfN` (tampon fixe) — `NkPrintf`
   existait deja et rend une NkString.
 
-## NON RESOLU — LE VOILE
+## NON RESOLU — LA BANDE DU HAUT (ce n'est PAS le voile)
+
+**Mesure decisive du 13 aout** : les deux voiles ont ete teintes de couleurs
+differentes (modale en ROUGE, selecteur en VERT). Resultat : tout l'ecran vire
+au rouge **uniformement** — hierarchie, vue 3D, panneau droit, navigateur. Le
+voile couvre donc bien toute la fenetre et fait exactement son travail.
+
+MAIS la bande du haut (y 0..~70, la barre de menu « Fichier / Edition / ... »)
+ressort en rouge **VIF ET OPAQUE** alors que tout le reste est translucide. Un
+voile semi-transparent qui donne une couleur PURE signifie qu'il n'y a RIEN
+dessous : **cette bande n'est pas peinte** des qu'une surface modale est ouverte.
+
+Le « noir » n'etait donc pas un voile trop opaque, c'etait du VIDE assombri par un
+voile normal. Cinq hypotheses portaient sur le voile — toutes fausses.
+
+**Piste pour la suite** : `PaintMenuBarI(p, lay.menu, ...)` remplit pourtant son
+fond des sa premiere ligne, et `lay.menu = {0, 0, W, menuH}` avec `menuH = S(30)`.
+Verifier : (1) que `PaintMenuBarI` est bien atteinte quand `modalOpen` est vrai ;
+(2) si cette bande n'est pas plutot la barre de titre PERSONNALISEE de la fenetre,
+dessinee hors de `ui.dl` — auquel cas elle serait recouverte par le voile sans
+jamais etre repeinte. Mesurer AVANT de corriger.
+
+## RESOLU DEPUIS — LE VOILE
 
 Sous le selecteur, le haut et la gauche de l'application deviennent noirs alors
 que la vue 3D, le panneau droit et le navigateur restent lisibles.
