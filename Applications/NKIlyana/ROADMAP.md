@@ -369,6 +369,61 @@ pages ne sont jamais décodées.
 | **4** | `/Dests` + `/Outlines` | 55 % / 21 % | découpage naturel en chapitres ; `/Dests` est la dépendance technique de 3 et 5 |
 | **5** | `/Annots` `/Link` | 73 % | 56 051 liens ; les URL valent pour les citations. Réutilise la résolution de destinations |
 
+### 🛡️ Baseline de non-régression du texte — capturée et VALIDÉE (2026-08-13)
+
+`Applications/NKIlyana/reference/empreintes_pdf.csv` — **versionné**, pris sur
+le commit `df92fe14`, **avant** toute modification du rendu.
+
+Par document : `struct`, pages, **passages**, caractères, **empreinte FNV-1a**
+du texte assemblé. Le hash dit *que* ça a changé ; les compteurs disent *de
+combien et dans quel sens* — c'est ce qui évite la bissection.
+
+**Validée par trois contrôles, inscrits dans l'en-tête du fichier** (une
+baseline trouée est pire que pas de baseline : elle donne une assurance fausse
+sur la partie manquante) :
+
+| contrôle | résultat |
+|---|---|
+| complétude | **258 / 258** documents |
+| lignes à zéro caractère | 26, **toutes expliquées** ; 0 hash absent ou malformé |
+| population `struct` | **140 / 258 = 54,3 %** (attendu ~55 %) |
+
+Le 26ᵉ document à zéro (`lightning.pdf`) n'est pas un scan : **100 % de ses
+caractères sont illisibles**, donc l'assemblage les saute tous. Le balayage
+comptait les caractères *rencontrés*, la baseline mesure le texte *assemblé* —
+les deux mesures sont cohérentes, et il fallait le vérifier plutôt que
+l'arrondir.
+
+### 📐 Identité d'un bloc marqué : (page, MCID) suffit-il ? — MESURÉ
+
+Question soulevée par Rihen : les MCID sont numérotés **par flux de contenu**,
+pas par page. Avec un Form XObject, le même MCID 3 peut exister dans le flux de
+la page ET dans celui du formulaire — le texte serait alors rattaché au mauvais
+nœud de structure. Erreur silencieuse et plausible, le même mode d'échec que
+l'entrelacement de colonnes.
+
+| sonde | résultat |
+|---|---|
+| `/MCR` portant une clé `/Stm` (**borne exacte**) | **0 document, 0 occurrence** |
+| documents balisés avec Form XObject (**borne supérieure**) | 21 |
+
+`/Stm` est le signal que la spécification impose quand le contenu marqué vit
+hors du flux de la page. **Il est absent de tout le corpus** : les 21 documents
+balisés à formulaires n'y placent donc aucun contenu marqué.
+
+> **Décision : `(page, MCID)` suffit pour ce corpus**, et le code le dira — avec
+> le chiffre et la date, pas comme une hypothèse. Si un jour un document dérape,
+> la prochaine session saura exactement quoi revérifier : relancer `--sonder` et
+> regarder si `/MCR /Stm` est passé au-dessus de zéro.
+
+### 📐 Valeur marginale des signets, une fois la structure livrée
+
+`/Outlines` **sans** `/StructTreeRoot` : **44 documents (17 %)**. Ce n'est pas
+marginal — `/StructTreeRoot` porte déjà `H1..H6`, donc les 53 documents à
+signets qui sont aussi balisés n'y gagneraient rien, mais ces 44-là restent
+sans découpage. `/Outlines` conserve donc sa place au plan, juste après la
+structure.
+
 ### 📐 Charset CFF — mesuré, et DIFFÉRÉ (2026-08-13)
 
 Hypothèse proposée par Rihen : les 20 polices muettes des documents LaTeX ne
