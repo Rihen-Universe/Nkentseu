@@ -212,6 +212,11 @@ namespace nkentseu {
 					static bool Ascii85(const uint8 *in, usize inSz, NkVector<uint8> &out);
 					static bool AsciiHex(const uint8 *in, usize inSz, NkVector<uint8> &out);
 					static bool RunLength(const uint8 *in, usize inSz, NkVector<uint8> &out);
+					// LZW variante TIFF (codes 9->12 bits, gros-boutiste). Ajoute par
+					// MESURE : 5 documents du corpus l'emploient sur leurs flux de
+					// CONTENU DE PAGE, et sont illisibles sans lui.
+					static bool LzwDecode(const uint8 *in, usize inSz, NkVector<uint8> &out,
+										  int32 earlyChange);
 					// Predicteurs PNG/TIFF de /DecodeParms — INDISPENSABLE : les flux
 					// d'index les utilisent presque toujours, sans quoi la table est du
 					// bruit et le document parait corrompu.
