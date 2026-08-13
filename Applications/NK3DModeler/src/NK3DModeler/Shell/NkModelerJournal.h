@@ -25,6 +25,8 @@
 #include "NK3DModeler/Shell/NkModelerUI.h"
 #include "NK3DModeler/Shell/NkModelerInput.h"
 #include "NK3DModeler/Shell/NkModelerTables.h"
+#include "NK3DModeler/Shell/NkModelerWidgets.h" // NkUiCtx (presse-papier), NkHelp
+#include "NKEditorKit/NkEditorScrollbar.h"	   // la barre MANIPULABLE du kit
 #include "NKLogger/NkLog.h"
 #include "NKLogger/NkSink.h"
 #include "NKLogger/NkLogMessage.h"
@@ -100,6 +102,37 @@ namespace nkentseu {
 				}
 		};
 
+		/// Copie des lignes `a`..`b` (bornes incluses, ordre indifferent) dans le
+		/// presse-papier. `a < 0` = TOUT le journal.
+		inline void NkJournalCopier(int32 a, int32 b) {
+			nkgui::NkGuiContext *gc = NkUiCtx();
+			if (!gc)
+				return;
+			NkJournalBuf &j = NkJournal();
+			j.mtx.Lock();
+			int32 d = a, f = b;
+			if (d < 0) {
+				d = 0;
+				f = j.nb - 1;
+			}
+			if (d > f) {
+				const int32 t = d;
+				d = f;
+				f = t;
+			}
+			if (d < 0)
+				d = 0;
+			if (f >= j.nb)
+				f = j.nb - 1;
+			NkString out;
+			for (int32 i = d; i <= f; ++i) {
+				out += j.lignes[(j.debut + i) % kJournalMax].texte;
+				out += '\n';
+			}
+			j.mtx.Unlock();
+			gc->SetClipboard(out.CStr());
+		}
+
 		/// A appeler UNE FOIS au demarrage, avant tout ce qu'on veut pouvoir
 		/// relire. Les messages emis avant sont perdus pour le panneau -- ils
 		/// restent dans la console et le fichier.
@@ -146,6 +179,17 @@ namespace nkentseu {
 			snprintf(cpt, sizeof(cpt), "%d ligne%s", nb, nb > 1 ? "s" : "");
 			p.TextV(r.x + S(86.f), r.y, hdr, cpt, NkRole::TextMuted);
 
+			// COPIER : la selection si elle existe, tout le journal sinon. C'est le
+			// geste le plus frequent -- coller une trace dans un message -- et il ne
+			// doit pas exiger de selectionner d'abord.
+			const NkRect bCopie{r.x + r.w - S(228.f), r.y + S(3.f), S(72.f), hdr - S(6.f)};
+			const bool ovC = hit.Add("journal.copy", bCopie);
+			p.Outline(bCopie, ovC ? NkRole::AccentUi : NkRole::Border, NkRole::PanelBg, 3.f);
+			p.TextV(bCopie.x + S(8.f), bCopie.y, bCopie.h, "Copier", NkRole::Text);
+			NkHelp(ovC, "Copier la selection, ou tout le journal si rien n'est choisi");
+			if (hit.Clicked("journal.copy"))
+				NkJournalCopier(st.journalAncre, st.journalTete);
+
 			const NkRect bVider{r.x + r.w - S(150.f), r.y + S(3.f), S(66.f), hdr - S(6.f)};
 			const bool ovV = hit.Add("journal.clear", bVider);
 			p.Outline(bVider, ovV ? NkRole::AccentUi : NkRole::Border, NkRole::PanelBg, 3.f);
@@ -165,7 +209,10 @@ namespace nkentseu {
 				st.journalOpen = false;
 
 			// ── LES LIGNES ─────────────────────────────────────────────────────
-			const NkRect zone{r.x + S(4.f), r.y + hdr + S(2.f), r.w - S(8.f),
+			// La gouttiere est RESERVEE a droite : la barre est manipulable, elle a
+			// donc besoin de sa place, pas d'un filet pose sur le texte.
+			const float32 sbW = S(12.f);
+			const NkRect zone{r.x + S(4.f), r.y + hdr + S(2.f), r.w - S(8.f) - sbW,
 							  r.h - hdr - S(6.f)};
 			p.Fill(zone, NkRole::InputBg, 3.f);
 			p.Clip(zone);
@@ -189,11 +236,69 @@ namespace nkentseu {
 			if (st.journalScroll >= maxSc - 1.f)
 				st.journalSuivre = true; // revenu en bas : on re-suit
 
+			// ── SELECTION PAR LIGNES ───────────────────────────────────────────
+			// Par LIGNES et non par caracteres : dans un journal on copie des
+			// messages entiers, et une selection caractere par caractere couterait
+			// dix fois le code pour un geste qu'on ne fait pas ici.
+			const bool dansZone = nkgui::NkGuiRectContains(zone, {in.mousePos.x, in.mousePos.y});
+			const int32 ligneSousSouris =
+				dansZone ? (int32)((in.mousePos.y - zone.y + st.journalScroll) / lh) : -1;
+			const bool ligneValide = ligneSousSouris >= 0 && ligneSousSouris < nb;
+			if (ligneValide && hit.Clicked("journal.panel")) {
+				if (in.shiftDown && st.journalAncre >= 0)
+					st.journalTete = ligneSousSouris; // etend depuis l'ancre
+				else {
+					st.journalAncre = ligneSousSouris;
+					st.journalTete = ligneSousSouris;
+					st.journalDrag = true;
+				}
+				st.journalMenu = false;
+			}
+			if (st.journalDrag) {
+				if (!hit.MouseDown())
+					st.journalDrag = false;
+				else if (ligneValide)
+					st.journalTete = ligneSousSouris;
+			}
+			// CLIC DROIT : ouvre le menu SANS casser la selection, et la pose sur
+			// la ligne visee si on cliquait hors d'elle -- comme un explorateur.
+			if (dansZone && hit.RightClicked("journal.panel")) {
+				if (ligneValide) {
+					const int32 lo = st.journalAncre < st.journalTete ? st.journalAncre : st.journalTete;
+					const int32 hi = st.journalAncre < st.journalTete ? st.journalTete : st.journalAncre;
+					if (ligneSousSouris < lo || ligneSousSouris > hi) {
+						st.journalAncre = ligneSousSouris;
+						st.journalTete = ligneSousSouris;
+					}
+				}
+				st.journalMenu = true;
+				st.journalMenuX = in.mousePos.x;
+				st.journalMenuY = in.mousePos.y;
+			}
+			// Ctrl+C / Ctrl+A : l'application pose deja ces drapeaux pour les champs
+			// de saisie ; le journal n'a qu'a les lire quand la souris est chez lui.
+			if (dansZone || st.journalDrag) {
+				if (in.wantSelectAll) {
+					st.journalAncre = 0;
+					st.journalTete = nb - 1;
+				}
+				if (in.wantCopy)
+					NkJournalCopier(st.journalAncre, st.journalTete);
+			}
+			const int32 selLo = (st.journalAncre < 0 || st.journalTete < 0)
+									? -1
+									: (st.journalAncre < st.journalTete ? st.journalAncre : st.journalTete);
+			const int32 selHi = (st.journalAncre < 0 || st.journalTete < 0)
+									? -2
+									: (st.journalAncre < st.journalTete ? st.journalTete : st.journalAncre);
+
 			float32 y = zone.y - st.journalScroll;
 			j.mtx.Lock();
 			for (int32 i = 0; i < nb; ++i) {
 				if (y + lh >= zone.y && y <= zone.y + zone.h) {
 					const NkJournalLigne &l = j.lignes[(debut + i) % kJournalMax];
+					if (i >= selLo && i <= selHi)
+						p.Fill({zone.x, y, zone.w, lh}, NkRole::AccentSel, 0.f);
 					// LE THEME N'A NI « danger » NI « avertissement ». On emprunte le
 					// rouge des axes pour l'erreur -- detournement assume et signale
 					// ici : le jour ou ces roles existeront, c'est cette ligne a
@@ -209,11 +314,60 @@ namespace nkentseu {
 			hit.PopClip();
 			p.Unclip();
 
-			if (maxSc > 0.f)
-				p.Fill({zone.x + zone.w - S(4.f),
-						zone.y + (st.journalScroll / contenu) * zone.h, S(3.f),
-						zone.h * (zone.h / contenu)},
-					   NkRole::TextMuted, 2.f);
+			// ── LA BARRE, MANIPULABLE ──────────────────────────────────────────
+			// Celle du KIT (NkVScrollbar) : poignee glissable, fleches, molette et
+			// clic dans la gouttiere. C'etait un simple filet indicatif -- « la
+			// scrollbar doit etre manipulable » (Rihen, 13 aout). Le kit la porte
+			// deja pour le selecteur de fichiers ; la reecrire aurait fait deux
+			// barres a corriger.
+			if (nkgui::NkGuiContext *gc = NkUiCtx()) {
+				const NkRect piste{zone.x + zone.w + S(2.f), zone.y, sbW, zone.h};
+				editorkit::NkVScrollbar(*gc, gc->dl, piste, st.journalScroll, contenu, zone.h,
+										0xF00A1201u, lh);
+				// Glisser la barre, c'est vouloir REGARDER : le suivi automatique
+				// s'arrete, sinon la prochaine ligne ramenerait en bas.
+				if (st.journalScroll < maxSc - 1.f)
+					st.journalSuivre = false;
+				hit.Add("journal.sb", piste);
+			}
+
+			// ── MENU CONTEXTUEL ────────────────────────────────────────────────
+			if (st.journalMenu) {
+				static const char *const kIt[3] = {"Copier", "Tout copier", "Vider"};
+				static const char *const kKey[3] = {"journal.m.cp", "journal.m.all",
+													"journal.m.clr"};
+				const float32 mw = S(140.f), mh = S(24.f);
+				const NkRect mr{st.journalMenuX, st.journalMenuY, mw, mh * 3.f};
+				p.Fill(mr, NkRole::PanelHeader, 4.f);
+				p.OutlineSharp(mr, NkRole::Border);
+				for (int32 m = 0; m < 3; ++m) {
+					const NkRect it{mr.x, mr.y + (float32)m * mh, mw, mh};
+					const bool ovI = hit.Add(kKey[m], it);
+					if (ovI)
+						p.Fill(it, NkRole::AccentUi, 3.f);
+					p.TextV(it.x + S(8.f), it.y, mh, kIt[m],
+							ovI ? NkRole::TextOnAccent : NkRole::Text);
+					if (hit.Clicked(kKey[m])) {
+						if (m == 0)
+							NkJournalCopier(st.journalAncre, st.journalTete);
+						else if (m == 1)
+							NkJournalCopier(-1, -1);
+						else {
+							j.mtx.Lock();
+							j.nb = 0;
+							j.debut = 0;
+							j.mtx.Unlock();
+							st.journalAncre = st.journalTete = -1;
+							st.journalScroll = 0.f;
+						}
+						st.journalMenu = false;
+					}
+				}
+				// Un clic AILLEURS le referme -- y compris le clic droit suivant,
+				// qui le rouvrira ailleurs juste apres.
+				if (hit.AnyClick() && !nkgui::NkGuiRectContains(mr, {in.mousePos.x, in.mousePos.y}))
+					st.journalMenu = false;
+			}
 		}
 
 	} // namespace nk3d

@@ -806,6 +806,16 @@ namespace nkentseu {
 			bool journalOpen = false;
 			bool journalSuivre = true;
 			float32 journalScroll = 0.f;
+			/// SELECTION DE LIGNES, par indice dans l'anneau. -1 = rien. `ancre`
+			/// est la ligne ou le geste a commence, `tete` celle ou il en est :
+			/// garder les deux permet de selectionner vers le HAUT comme vers le
+			/// bas sans inverser quoi que ce soit a l'ecriture.
+			int32 journalAncre = -1;
+			int32 journalTete = -1;
+			bool journalDrag = false;
+			/// Menu contextuel du journal (-1 ferme, sinon position).
+			float32 journalMenuX = 0.f, journalMenuY = 0.f;
+			bool journalMenu = false;
 			/// Menu d'ajout de materiau ouvert ? Il se deroule SOUS la liste
 				/// de la pastille, pas dans la colonne de boutons — un champ de
 				/// 20 pixels de large y debordait sur ses voisins.
