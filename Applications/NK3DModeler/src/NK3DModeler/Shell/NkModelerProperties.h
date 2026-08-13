@@ -2828,9 +2828,17 @@ namespace nkentseu {
 							// 13 aout). Elles etaient empilees en colonne a droite :
 							// a sept, la colonne depassait la hauteur de l'apercu.
 							{
-								const float32 side = S(104.f);
+								// L'APERCU PREND TOUTE LA LARGEUR DISPONIBLE et suit
+								// donc l'elargissement du panneau (Rihen, 13 aout). Il
+								// etait fige a 104 px : la poignee de redimensionnement
+								// ne servait a rien pour lui.
+								// CARRE, et non etire a la largeur : la vignette rendue
+								// par l'hote est carree, l'afficher en rectangle
+								// ecraserait la sphere — « sans deformer la sphere ou
+								// autre ». Largeur = hauteur = ce que le panneau offre.
+								const float32 side = iR.w;
 								const float32 btn = S(20.f);
-								const float32 pvX = iR.x + (iR.w - side) * 0.5f;
+								const float32 pvX = iR.x;
 								p.Image(4400u + (uint32)selMat, {pvX, yy, side, side});
 								p.OutlineSharp({pvX, yy, side, side}, NkRole::Border);
 								// SEPT FORMES, dans l'ordre de Blender. Chacune a son

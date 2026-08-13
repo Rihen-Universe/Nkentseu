@@ -2044,13 +2044,17 @@ int nkmain(const NkEntryState &entry) {
 		// ── APERCUS DES MATERIAUX DU PROJET (ids 4400+) ─────────────────────
 		// Meme mecanique que les vignettes de matcap : l'hote rend la vignette
 		// en pixels quand elle est PERIMEE (parametres ou forme changes), et on
-		// l'uploade comme n'importe quelle image d'interface. 128 px : le grand
-		// apercu de la pastille s'affiche plus petit, retrecir reste lisse.
+		// l'uploade comme n'importe quelle image d'interface.
+		//
+		// 256 px et non 128 : l'apercu suit desormais la LARGEUR du panneau de
+		// proprietes (Rihen, 13 aout) et depasse largement les 104 px d'avant des
+		// que le panneau est elargi. Retrecir une image reste propre, l'agrandir
+		// non -- a 128 la sphere devenait molle des qu'on tirait la poignee.
 		{
-			static uint8 sMatBall[128 * 128 * 4];
+			static uint8 sMatBall[256 * 256 * 4];
 			for (int32 i = 0; i < 64; ++i)
-				if (demo::Demo3DHostProjMatPreviewTake(i, sMatBall, 128))
-					renderer.UploadImageRGBA(4400u + (uint32)i, sMatBall, 128, 128);
+				if (demo::Demo3DHostProjMatPreviewTake(i, sMatBall, 256))
+					renderer.UploadImageRGBA(4400u + (uint32)i, sMatBall, 256, 256);
 		}
 
 		// ── MINIATURES DES SCENES (ids 4500+) ───────────────────────────────

@@ -1,12 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor">
-  <!-- Liquide : une goutte et sa gouttelette — « pour le liquide tu mets un
-       semblant de splash » (Rihen, 13 aout).
-       ICONE DEDIEE, et non `metaball` reutilisee : celle-la designe Ball,
-       Ellipsoide et Metaball dans le menu Ajouter, ou un splash serait faux. Une
-       icone par sujet, comme pour les cheveux.
-       La couronne d'eclaboussure de l'apercu Blender ne tient pas a 12 px : ses
-       pointes se referment en bouillie. La goutte, elle, garde sa silhouette a
-       toute taille et dit « liquide » sans ambiguite. -->
-  <path d="M7.2 2.2c-1.6 2.2-3.7 4.9-3.7 7.2a3.7 3.7 0 007.4 0c0-2.3-2.1-5-3.7-7.2z"/>
-  <path d="M12.8 7.6c-.6.9-1.4 1.9-1.4 2.8a1.4 1.4 0 002.8 0c0-.9-.8-1.9-1.4-2.8z"/>
+<?xml version="1.0" encoding="utf-8"?>
+<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <g>
+    <rect width="256" height="256" fill="#C2C2C2" fill-rule="evenodd" fill-opacity="0" />
+    <path d="M0 156C0 114.026 76 0 76 0C76 0 152 114.026 152 156C152 197.974 117.974 232 76 232C34.0264 232 0 197.974 0 156Z" fill="none" stroke-width="10" stroke="#FFFFFF" transform="translate(52 16)" />
+    <path d="M26 0C26 0 6.45703 36.4297 0 58" fill="none" stroke-width="10" stroke="#FFFFFF" transform="translate(82 86)" />
+  </g>
 </svg>
