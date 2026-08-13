@@ -302,6 +302,82 @@ vocabulaire déjà écrit ; (5) les autres suivent le même moule.
 
 ---
 
+## PDF — PHASE 0 : sondage du corpus avant d'étendre le lecteur (2026-08-13)
+
+**Méthode** : le périmètre du lecteur a été fixé par mesure sur 95 documents
+réels (en-tête de `NkPdf.h`). Toute extension suit la même discipline — on
+implémente ce que le corpus contient, pas la spécification. Outil :
+`NKIlyana --sonder --dossier <dir> [--csv f]` (`NkIlyanaSondePdf.h`), qui lit
+les clés via le modèle d'objets (donc à travers les flux d'objets compressés)
+et cherche les filtres dans les octets bruts — fiable, car la spécification
+interdit qu'un flux vive dans un flux d'objets.
+
+**Corpus** : `D:\softwareRenderer\Rodolf\Cours`, **258 fichiers**, 255 ouverts,
+3 chiffrés (refusés — comportement voulu).
+
+| clé | documents | % des ouverts | volume |
+|---|---|---|---|
+| `/Info` non vide | **255** | **100 %** | dont `/Title` : 89 (35 %) |
+| `/Annots` | 194 | 76 % | — |
+| ⤷ dont `/Link` | **187** | **73 %** | **56 051 liens** |
+| ⤷ dont `/Text` | 4 | 2 % | — |
+| ⤷ dont `/Highlight` | 0 | 0 % | — |
+| `/StructTreeRoot` | **140** | **55 %** | — |
+| `/Dests` | 140 | 55 % | — |
+| `/Outlines` | 53 | 21 % | **10 354 signets** (≈195 par document qui en a) |
+| `/Metadata` (XMP) | 40 | 16 % | — |
+| `/Lang` | 39 | 15 % | — |
+| `/AcroForm /Fields` | **2** | **1 %** | — |
+| `/Names /EmbeddedFiles` | **0** | **0 %** | — |
+
+| filtre | documents |
+|---|---|
+| DCT (JPEG) | 104 |
+| **LZWDecode** | **5** |
+| CCITTFax | 3 · JBIG2 1 · JPX 0 |
+
+### Ce que la mesure change dans le plan — DEUX phases supprimées, UNE remontée
+
+**⛔ Supprimées** (les écrire serait exactement l'erreur que le sondage doit
+éviter) :
+- **`/AcroForm`** : 2 documents sur 255. Des formulaires administratifs, sans
+  intérêt pour une bibliothèque de cours.
+- **`/EmbeddedFiles`** : **zéro** document. Rien à écrire.
+- **`/Metadata` XMP** : 16 %, et **entièrement redondant** avec `/Info`, présent
+  à 100 %. On n'ajoute pas un parseur XML pour une source moins bien couverte
+  que celle qu'on a déjà.
+
+**⭐ Remontée — `LZWDecode`, de dernière à deuxième position.** Le sondage
+mesurait 0 % sur l'ancien corpus de 95 PDF ; il en trouve **5** sur 258. Et le
+croisement avec le balayage de lecture est sans appel : **les 5 sont en échec**
+(4 « VIDE », 1 « charabia »). Vérification de causalité faite — le LZW porte
+sur les **flux de contenu de page** (7 occurrences sur 10 dans `Gdmphys1.pdf`,
+4 sur 4 dans `phys_model.pdf`), pas seulement sur des images : sans lui, ces
+pages ne sont jamais décodées.
+
+> C'est le seul chantier qui **débloque des documents entièrement illisibles**
+> — 5 sur les 35 encore inaccessibles, soit 14 % du reliquat — pour ~150 lignes.
+> Toutes les autres phases enrichissent des documents **déjà lus**.
+
+### Ordre définitif proposé
+
+| ordre | chantier | couverture | pourquoi ici |
+|---|---|---|---|
+| **1** | `/Info` + `/Lang` | 100 % / 15 % | universel, coût modéré ; `/Lang` est quasi gratuit une fois le catalogue accessible, et dit à Ilyana si un document est français ou anglais |
+| **2** | **LZWDecode** | 5 docs | seul chantier qui rend LISIBLE ce qui ne l'est pas ; ~150 lignes |
+| **3** | `/StructTreeRoot` | 55 % | la plus forte valeur *qualitative* (ordre de lecture logique = qualité du texte d'Ilyana), mais la plus coûteuse : exige les MCID dans `NkPdfRender` |
+| **4** | `/Dests` + `/Outlines` | 55 % / 21 % | découpage naturel en chapitres ; `/Dests` est la dépendance technique de 3 et 5 |
+| **5** | `/Annots` `/Link` | 73 % | 56 051 liens ; les URL valent pour les citations. Réutilise la résolution de destinations |
+
+⚠️ **Un point bloquant relevé et corrigé** : `Trailer()` et `Catalog()`
+n'étaient pas exposés (`mTrailer`/`mRoot` privés). Or `/Info` vit dans le
+trailer et tout le reste dans le catalogue — aucune couche externe ne pouvait
+les atteindre. Deux accesseurs **en lecture seule, strictement additifs** ont
+été ajoutés à `NkPdf.h` : c'est le minimum indispensable, et ils n'exposent
+rien de plus que ce que le modèle d'objets rend déjà public.
+
+---
+
 ## PDF — ✅ RÉSOLU le 2026-08-11 : trois causes distinctes, trois correctifs
 
 Les 3 documents nommés du lot sont tous lus désormais (mesures avant → après) :
