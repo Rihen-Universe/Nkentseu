@@ -80,6 +80,14 @@ namespace ilyana {
 			int32 policesType1C = 0;	  // ... de /Subtype /Type1C
 			int32 policesType1CMuettes = 0; // Type1C, sans /ToUnicode ni /Differences
 			int32 policesDiff = 0;		  // avec /Encoding /Differences
+
+			// ── Phase 3 : l'identité d'un bloc marqué est-elle (page, MCID) ? ──
+			// Les MCID sont numérotés PAR FLUX DE CONTENU, pas par page. Un
+			// formulaire invoqué par la page a sa propre numérotation, et le même
+			// MCID 3 peut exister des deux côtés. Ces deux compteurs disent si le
+			// corpus contient ce cas — donc si (page, MCID) suffit ou non.
+			int32 mcrAvecStm = 0;	   // /MCR portant une clé /Stm : le signal explicite
+			bool formDansDocBalise = false; // document balisé ayant des Form XObject
 	};
 
 	// Cherche une suite d'octets dans un tampon. Rendue ici plutôt qu'empruntée
@@ -136,6 +144,43 @@ namespace ilyana {
 
 			noeud = doc.DictGet(noeud, "Next");
 		}
+		return total;
+	}
+
+	// Compte les /MCR portant une clé /Stm dans l'arbre de structure.
+	//
+	// /Stm désigne le FLUX de contenu quand le contenu marqué n'est pas dans le
+	// flux propre de la page — c'est le signal explicite qu'un couple
+	// (page, MCID) ne suffit pas à identifier un bloc. Sa présence, ou son
+	// absence, décide de la forme que doit prendre `TextItem`.
+	inline int32 CompterMcrAvecStm(const media::pdf::NkPdfDoc &doc, const media::pdf::NkPdfVal &noeud,
+								   NkVector<int32> &vus, int32 profondeur) {
+		using namespace nkentseu::media::pdf;
+		if (profondeur > 64 || vus.Size() > 50000u)
+			return 0;
+		int32 total = 0;
+
+		if (noeud.IsDictLike()) {
+			for (nk_size i = 0; i < vus.Size(); ++i)
+				if (vus[i] == noeud.a)
+					return 0; // deja visite : un arbre malforme peut boucler
+			vus.PushBack(noeud.a);
+
+			if (doc.NameIs(doc.DictGet(noeud, "Type"), "MCR") &&
+				!doc.DictGet(noeud, "Stm").IsNull())
+				++total;
+
+			const NkPdfVal k = doc.DictGet(noeud, "K");
+			if (!k.IsNull())
+				total += CompterMcrAvecStm(doc, k, vus, profondeur + 1);
+			return total;
+		}
+		if (noeud.kind == NK_PDF_ARRAY) {
+			const int32 n = doc.ArraySize(noeud);
+			for (int32 i = 0; i < n; ++i)
+				total += CompterMcrAvecStm(doc, doc.ArrayAt(noeud, i), vus, profondeur + 1);
+		}
+		// Un entier nu est un MCID du flux de la page : rien à compter ici.
 		return total;
 	}
 
@@ -315,7 +360,29 @@ namespace ilyana {
 			const NkPdfVal acro = doc.DictGet(cat, "AcroForm");
 			s.champsForm = doc.ArraySize(doc.DictGet(acro, "Fields"));
 
-			s.structTree = doc.DictGet(cat, "StructTreeRoot").IsDictLike();
+			const NkPdfVal str = doc.DictGet(cat, "StructTreeRoot");
+			s.structTree = str.IsDictLike();
+			if (s.structTree) {
+				NkVector<int32> vus;
+				s.mcrAvecStm = CompterMcrAvecStm(doc, doc.DictGet(str, "K"), vus, 0);
+
+				// Borne SUPÉRIEURE, volontairement conservatrice : un document
+				// balisé qui n'invoque aucun formulaire ne peut pas poser le
+				// problème d'identité de flux. S'il y en a, il FAUDRA regarder de
+				// plus près ; s'il n'y en a aucun, la question est close.
+				for (int32 p = 0; p < doc.PageCount() && !s.formDansDocBalise; ++p) {
+					const NkPdfVal res = doc.DictGet(doc.Page(p), "Resources");
+					const NkPdfVal xo = doc.DictGet(res, "XObject");
+					const int32 nx = doc.DictSize(xo);
+					for (int32 k = 0; k < nx; ++k) {
+						const NkPdfVal x = doc.DictValueAt(xo, k);
+						if (x.kind == NK_PDF_STREAM && doc.NameIs(doc.DictGet(x, "Subtype"), "Form")) {
+							s.formDansDocBalise = true;
+							break;
+						}
+					}
+				}
+			}
 
 			const NkPdfVal noms = doc.DictGet(cat, "Names");
 			s.embarques = doc.DictGet(noms, "EmbeddedFiles").IsDictLike();

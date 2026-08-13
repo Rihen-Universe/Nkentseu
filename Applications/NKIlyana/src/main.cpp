@@ -2016,6 +2016,10 @@ static int ModeSonder(int argc, char **argv) {
 	int32 nDocFf3 = 0, nDocType1C = 0, nDocType1CMuet = 0;
 	int64 totPolices = 0, totType1C = 0, totType1CMuettes = 0;
 	NkVector<NkString> docsType1CMuets;
+	int32 nSignetsSansStruct = 0;
+	// Phase 3 : (page, MCID) suffit-il a identifier un bloc marque ?
+	int32 nMcrStm = 0, nFormBalise = 0;
+	int64 totMcrStm = 0;
 
 	// Le TITRE est écrit dans le CSV, pas seulement compté. Le journal passe par
 	// la console, qui n'est pas en UTF-8 sous Windows : elle mange les accents
@@ -2046,6 +2050,13 @@ static int ModeSonder(int argc, char **argv) {
 		if (s.surlignages > 0) ++nSurl;
 		if (s.champsForm > 0) ++nForm;
 		if (s.structTree) ++nStruct;
+		// Valeur MARGINALE des signets une fois la structure livrée : un document
+		// qui porte les deux n'a rien à gagner de plus de /Outlines, puisque
+		// /StructTreeRoot contient déjà la hiérarchie H1..H6. Seule cette
+		// population-ci justifierait encore le chantier.
+		if (s.signets > 0 && !s.structTree) ++nSignetsSansStruct;
+		if (s.mcrAvecStm > 0) { ++nMcrStm; totMcrStm += s.mcrAvecStm; }
+		if (s.formDansDocBalise) ++nFormBalise;
 		if (s.dests) ++nDests;
 		if (s.embarques) ++nEmb;
 		if (s.lang) ++nLang;
@@ -2122,6 +2133,12 @@ static int ModeSonder(int argc, char **argv) {
 	logger.Infof("    dont /Highlight     %4d  (%.0f%%)\n", nSurl, pct(nSurl));
 	logger.Infof("  /AcroForm /Fields     %4d  (%.0f%%)\n", nForm, pct(nForm));
 	logger.Infof("  /StructTreeRoot       %4d  (%.0f%%)\n", nStruct, pct(nStruct));
+	logger.Infof("  /Outlines SANS /StructTreeRoot %4d  (%.0f%%)  <- valeur MARGINALE des signets\n",
+				 nSignetsSansStruct, pct(nSignetsSansStruct));
+	logger.Info("  -- (page, MCID) suffit-il a identifier un bloc marque ? --");
+	logger.Infof("    /MCR portant une cle /Stm    : %4d doc  (%lld occurrences)\n", nMcrStm,
+				 (long long)totMcrStm);
+	logger.Infof("    doc balises AVEC Form XObject : %4d doc  <- borne SUPERIEURE\n", nFormBalise);
 	logger.Infof("  /Dests                %4d  (%.0f%%)\n", nDests, pct(nDests));
 	logger.Infof("  /Names /EmbeddedFiles %4d  (%.0f%%)\n", nEmb, pct(nEmb));
 	logger.Infof("  /Lang                 %4d  (%.0f%%)\n", nLang, pct(nLang));
@@ -2159,7 +2176,117 @@ static int ModeSonder(int argc, char **argv) {
 	return 0;
 }
 
+// =============================================================================
+// MODE --empreintes : le filet de non-régression de l'extraction de texte
+// =============================================================================
+// Écrit, pour chaque PDF, une EMPREINTE du texte assemblé — pas un compte.
+//
+// POURQUOI UNE EMPREINTE ET NON UN COMPTE. Un compte de passages identique ne
+// prouve rien : l'ORDRE peut changer sans que le nombre bouge, et c'est
+// précisément le risque quand on touche au rendu. Une empreinte du texte
+// concaténé change au moindre octet déplacé.
+//
+// POURQUOI DEUX POPULATIONS. Les documents avec /StructTreeRoot DOIVENT changer
+// — c'est l'objet du travail sur l'ordre de lecture logique. Ceux qui n'en ont
+// pas ne doivent pas bouger d'un octet. Les mélanger rendrait la mesure
+// aveugle : une régression sur les seconds serait noyée dans les changements
+// attendus des premiers. La colonne `struct` sépare donc les deux.
+static int ModeEmpreintes(int argc, char **argv) {
+	const char *dossier = Arg(argc, argv, "--dossier", nullptr);
+	const char *fCsv = Arg(argc, argv, "--csv", "empreintes.csv");
+	if (!dossier) {
+		logger.Info("usage : --empreintes --dossier <dossier de PDF> [--csv f]");
+		return 1;
+	}
+	NkVector<NkString> fichiers = NkDirectory::GetFiles(dossier, "*.pdf");
+	if (fichiers.Size() == 0) {
+		logger.Infof("ERREUR : aucun .pdf dans %s\n", dossier);
+		return 1;
+	}
+
+	// Le COMMIT est écrit dans le fichier. Une référence dont on ignore l'état
+	// du dépôt n'est pas reproductible : dans six semaines, un écart ne dirait
+	// plus si le code a changé ou si la référence était déjà obsolète.
+	const char *commit = Arg(argc, argv, "--commit", "inconnu");
+	NkString csv("# empreintes d'extraction PDF — reference de non-regression\n# commit : ");
+	csv.Append(commit);
+	csv.Append("\n# dossier : ");
+	csv.Append(dossier);
+	csv.Append("\nfichier;struct;pages;passages;caracteres;empreinte\n");
+	int32 nAvec = 0, nSans = 0;
+
+	for (nk_size i = 0; i < fichiers.Size(); ++i) {
+		// La présence de /StructTreeRoot décide de la population : elle est lue
+		// AVANT l'extraction, avec le même lecteur.
+		bool avecStruct = false;
+		{
+			media::pdf::NkPdfDoc d;
+			if (d.Open(fichiers[i].CStr()) == media::pdf::NK_PDF_OK)
+				avecStruct = d.DictGet(d.Catalog(), "StructTreeRoot").IsDictLike();
+			d.Close();
+		}
+
+		int64 pages = 0, muettes = 0;
+		const NkString texte = ilyana::LirePdf(fichiers[i].CStr(), pages, muettes);
+
+		// FNV-1a 64 bits : court, sans dépendance, et suffisant ici — on ne se
+		// défend pas contre un adversaire, on détecte un changement.
+		uint64 h = 1469598103934665603ull;
+		for (nk_size k = 0; k < texte.Size(); ++k) {
+			h ^= static_cast<uint64>(static_cast<uint8>(texte.Data()[k]));
+			h *= 1099511628211ull;
+		}
+
+		// Le nombre de PASSAGES en plus du hash : une empreinte qui diffère dit
+		// « ça a changé » et rien d'autre. Les compteurs disent de combien et
+		// dans quel sens — c'est ce qui évite une heure de bissection quand un
+		// document sort du lot.
+		int64 passages = 0;
+		{
+			nk_size k = 0;
+			while (k + 1 < texte.Size()) {
+				if (texte.Data()[k] == '\n' && texte.Data()[k + 1] == '\n') {
+					++passages;
+					k += 2;
+					continue;
+				}
+				++k;
+			}
+			if (texte.Size() > 0)
+				++passages; // le dernier bloc n'est pas suivi d'un separateur
+		}
+
+		char ligne[256];
+		snprintf(ligne, sizeof(ligne), ";%d;%lld;%lld;%llu;%016llx\n", avecStruct ? 1 : 0,
+				 (long long)pages, (long long)passages, (unsigned long long)texte.Size(),
+				 (unsigned long long)h);
+		csv.Append(fichiers[i]);
+		csv.Append(ligne);
+		if (avecStruct)
+			++nAvec;
+		else
+			++nSans;
+		if (((int32)i % 25) == 24)
+			logger.Infof("  %llu / %llu...\n", (unsigned long long)(i + 1),
+						 (unsigned long long)fichiers.Size());
+	}
+
+	if (!EcrireFichier(fCsv, csv)) {
+		logger.Infof("ERREUR : ecriture impossible : %s\n", fCsv);
+		return 1;
+	}
+	logger.Info("=== Ilyana / empreintes d'extraction ===");
+	logger.Infof("%llu document(s) : %d AVEC /StructTreeRoot, %d SANS\n",
+				 (unsigned long long)fichiers.Size(), nAvec, nSans);
+	logger.Infof("Empreintes ecrites : %s\n", fCsv);
+	logger.Info("Les %d documents SANS structure doivent rester IDENTIQUES apres toute");
+	logger.Info("modification du rendu. Un seul ecart = on s'arrete et on cherche.");
+	return 0;
+}
+
 int main(int argc, char **argv) {
+	if (Drapeau(argc, argv, "--empreintes"))
+		return ModeEmpreintes(argc, argv);
 	if (Drapeau(argc, argv, "--sonder"))
 		return ModeSonder(argc, argv);
 	if (Drapeau(argc, argv, "--controle"))
