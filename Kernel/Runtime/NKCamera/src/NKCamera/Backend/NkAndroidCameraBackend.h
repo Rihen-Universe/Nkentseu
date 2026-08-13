@@ -309,6 +309,18 @@ namespace nkentseu {
 					return false;
 				}
 
+				// ── Régler la requête AVANT de la soumettre ──────────────────
+				// L'autofocus se pose ici, sur la requête, et non après coup.
+				// Le faire ensuite obligeait à soumettre une SECONDE requête
+				// répétitive à peine la première acceptée, pendant que la session
+				// finit de se configurer — et le pilote de ce téléphone y
+				// répondait par une erreur fatale trois secondes plus tard.
+				// Une requête se compose entièrement, puis se soumet une fois.
+				if (config.autoFocus) {
+					uint8_t afMode = ACAMERA_CONTROL_AF_MODE_CONTINUOUS_VIDEO;
+					ACaptureRequest_setEntry_u8(mCaptureRequest, ACAMERA_CONTROL_AF_MODE, 1, &afMode);
+				}
+
 				status =
 					ACameraCaptureSession_setRepeatingRequest(mCaptureSession, nullptr, 1, &mCaptureRequest, nullptr);
 				if (status != ACAMERA_OK) {
@@ -321,17 +333,6 @@ namespace nkentseu {
 				{
 					std::lock_guard<std::mutex> lk(mMutex);
 					mHasFrame = false;
-				}
-
-				// APPLIQUER la configuration demandée, au lieu de la conserver
-				// sans s'en servir. NkCameraConfig::autoFocus valait « oui » par
-				// défaut mais n'était jamais transmis au pilote : la mise au
-				// point restait figée à la position par défaut du gabarit de
-				// requête, et l'image sortait FLOUE — d'autant plus qu'en AR on
-				// vise un marqueur tenu à bout de bras, soit la distance la plus
-				// défavorable. Constaté par Rihen le 13 août.
-				if (config.autoFocus) {
-					SetAutoFocus(true);
 				}
 
 				mState = NkCameraState::NK_CAM_STATE_STREAMING;
