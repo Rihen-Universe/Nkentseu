@@ -21,6 +21,11 @@
 // =============================================================================
 
 #include "NKGui/Core/NkGuiContext.h"
+// Le selecteur de fichiers/dossiers n'est PAS reecrit ici : NKEditorKit en
+// porte deja un, modal, deplacable, confine a une racine, avec creation de
+// dossier — celui de NKCode. « Porte au lieu de reecrire » (Rihen, 12 aout).
+#include "NKEditorKit/NkFilePicker.h"
+#include "NKEditorKit/NkEditorModal.h"
 #include "NKEditorKit/NkShortcutTable.h"
 #include "NKSerialization/NkArchive.h" // reglages Rendu PAR SCENE (docRendu)
 
@@ -453,7 +458,16 @@ namespace nkentseu {
 										   : (b.y + b.h);
 					uiBlockAcc = {x0, y0, x1 - x0, y1 - y0};
 				}
+				/// UNE SURFACE MODALE EST-ELLE OUVERTE ? Selecteur de fichiers,
+				/// modale d'ajout de materiau... Une modale prend TOUTE la fenetre :
+				/// rien derriere elle ne repond, ni au clic gauche NI au clic droit.
+				/// Le menu contextuel de la vue 3D s'ouvrait par-dessus le panneau
+				/// qu'on etait en train de deplacer (Rihen, 12 aout).
+				bool ModalOpen() const { return picker.pickerOpen || matAddOpen; }
+
 				bool UiBlocks(float32 mx, float32 my) const {
+					if (ModalOpen())
+						return true; // le blocage n'est plus un rectangle : c'est tout
 					return uiBlockCurOn && mx >= uiBlockCur.x && my >= uiBlockCur.y &&
 						   mx < uiBlockCur.x + uiBlockCur.w &&
 						   my < uiBlockCur.y + uiBlockCur.h;
@@ -690,6 +704,21 @@ namespace nkentseu {
 				// par « + Dossier / + Materiau / + Texture ». Tableaux plats a
 				// indices stables, comme partout ailleurs dans cet etat.
 				static const int32 kMaxBrowser = 32;
+				/// Selecteur de fichiers PARTAGE (NKEditorKit) : il navigue le DISQUE
+				/// reel, la ou les cartes du navigateur plafonnent a kMaxBrowser.
+				editorkit::NkFilePickerState picker;
+				/// Ce que l'application fera de la confirmation (1 = creer un materiau).
+				int32 pickerAction = 0;
+				/// Cadre de la modale « Ajouter un materiau », porte par NKEditorKit :
+				/// position, deplacement et modalite viennent du kit, plus du code
+				/// maison (Rihen, 13 aout : « toutes les modales doivent avoir un
+				/// titre designe comme ce que fait NKCode »).
+				editorkit::NkModal matAddModal;
+				/// Dossier COURANT du navigateur, resolu en chemin DISQUE absolu.
+				/// Calcule dans main.cpp (seul endroit ou `NkAsFolderPath` est visible)
+				/// et depose ici, comme `projectRoot` : un panneau ne voit que l'etat.
+				/// Vide si le dossier n'existe pas encore sur le disque.
+				NkString browserFolderAbs;
 				// Noeud SOURCE d'un asset reutilisable (0 = aucun, sinon noeud+1).
 				int32 browserSrcNode[kMaxBrowser] = {};
 				int32 browserCount = 0;
@@ -750,6 +779,33 @@ namespace nkentseu {
 				/// .nkmat sur-le-champ (Rihen, 12 aout : « rends ce dossier
 				/// accessible »). Posee a l'ouverture du projet.
 				NkString projectRoot;
+				/// Menu d'ajout de materiau ouvert ? Il se deroule SOUS la liste
+				/// de la pastille, pas dans la colonne de boutons — un champ de
+				/// 20 pixels de large y debordait sur ses voisins.
+				bool matAddOpen = false;
+				/// Defilement du panneau d'ajout : vertical pour la liste,
+				/// horizontal pour les noms plus larges que la colonne.
+				float32 matAddScrollY = 0.f;
+				float32 matAddScrollX = 0.f;
+				/// Materiau choisi dans le panneau d'ajout (-1 = aucun). Cliquer une
+				/// ligne le selectionne ; c'est le bouton « Ajouter » qui valide.
+				int32 matAddSel = -1;
+				/// Vrai pendant la frame OU la modale vient de s'ouvrir. Sans lui,
+				/// le clic qui l'ouvre est encore actif quand le voile est peint
+				/// plus bas dans la MEME frame : il l'attrape et referme aussitot.
+				bool matAddJustOpened = false;
+				/// Position du dialogue, en decalage depuis sa place de depart.
+				/// Il est DEPLACABLE : on le saisit par sa barre de titre.
+				float32 matAddDX = 0.f;
+				float32 matAddDY = 0.f;
+				bool matAddDrag = false;
+				float32 matAddGrabX = 0.f;
+				float32 matAddGrabY = 0.f;
+				/// Un dialogue de choix d emplacement est-il ouvert pour CREER un
+				/// materiau ? Son etat vit en statique dans le panneau (le dialogue
+				/// inclut cet en-tete, il ne peut donc pas y figurer) ; ce drapeau
+				/// dit seulement QUI l a ouvert.
+				bool matNewPending = false;
 				NkVpAction pendingAction = NkVpAction::None;
 				bool editingText = false;
 				bool xray = false;
