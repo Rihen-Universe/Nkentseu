@@ -934,6 +934,11 @@ namespace nkentseu {
 		};
 		static constexpr int32 kNkvpMaxProjMats = 64;
 		static NkVpProjMat nkvpProjMats[kNkvpMaxProjMats] = {};
+		/// Emplacement RESERVE au materiau magenta « aucun materiau ». Declare ici,
+		/// avec le registre : la creation, la lecture et le rendu doivent tous le
+		/// connaitre, et il est plus simple de le poser a la source que de le
+		/// declarer trois fois.
+		static const int32 kNkvpMissingMat = kNkvpMaxProjMats - 1;
 		// Cote MOTEUR d'un materiau a texture : la teinte/rugosite/metallique
 		// passent par le draw call, mais une TEXTURE exige une vraie instance
 		// de materiau (meme mecanique que le sol carrele).
@@ -1040,6 +1045,7 @@ namespace nkentseu {
 			return false;
 		}
 		static int32 HostEnsureDefaultMat(); // defini avec le registre, plus bas
+		static int32 HostEnsureMissingMat(); // le magenta « aucun materiau », idem
 		template <typename TDC>
 		static void HostMatHook(int32 i, TDC &dc) {
 			if (i < 0 || i >= kNkvpMaxNodes)
@@ -1074,11 +1080,8 @@ namespace nkentseu {
 				const bool objetUtilisateur = !objetSysteme;
 				const bool sansMateriau = (HostNodeMatCount(i) == 0 && pm < 0);
 				if (objetUtilisateur && sansMateriau) {
-					dc.tint = {1.f, 0.f, 1.f};
-					dc.alpha = 1.f;
-					dc.metallic = 0.f;
-					dc.roughness = 1.f; // mat : aucun reflet ne doit adoucir le signal
-					return;				// aucune surcharge locale ne masque l'alerte
+					// ON ASSIGNE, on ne peint pas : voir HostEnsureMissingMat.
+					nkvpNodeMatP1[i] = HostEnsureMissingMat() + 1;
 				}
 				if (pm >= 0 && pm < kNkvpMaxProjMats && nkvpProjMats[pm].used) {
 					dc.tint.x = nkvpProjMats[pm].albedo[0];
@@ -13508,7 +13511,10 @@ namespace nkentseu {
 		}
 		// ── MATERIAUX DU PROJET (pastille Materiau) ─────────────────────────
 		int32 Demo3DHostProjMatCreate() {
-			for (int32 i = 0; i < kNkvpMaxProjMats; ++i) {
+			// Le DERNIER emplacement est reserve au magenta « aucun materiau » : la
+			// creation s'arrete avant lui, sinon un materiau de l'utilisateur
+			// l'ecraserait des que le registre se remplit.
+			for (int32 i = 0; i < kNkvpMissingMat; ++i) {
 				if (nkvpProjMats[i].used)
 					continue;
 				NkVpProjMat &m = nkvpProjMats[i];
@@ -13605,6 +13611,37 @@ namespace nkentseu {
 			nkvpDefaultMatP1 =
 				(i >= 0 && i < kNkvpMaxProjMats && nkvpProjMats[i].used) ? i + 1 : 0;
 		}
+		// ── LE MATERIAU « AUCUN » : MAGENTA, INTERNE, INACCESSIBLE ──────────────
+		// Idee de Rihen (13 aout) : plutot que de peindre en magenta au dernier
+		// moment, un objet sans materiau est ASSIGNE a un vrai materiau magenta que
+		// l'utilisateur ne voit pas. C'est la bonne facon de faire, et pour une
+		// raison qui a coute deux correctifs : forcer `dc.tint` juste avant l'envoi
+		// ne suffit pas -- des qu'un materiau porte une instance moteur, c'est ELLE
+		// qui decide de la couleur, de l'opacite et du type. Un objet sans materiau
+		// n'en liait aucune, et la teinte magenta se faisait ecraser par le reste
+		// du pipeline (l'objet restait gris et translucide).
+		//
+		// Il occupe le DERNIER emplacement du registre, et `Demo3DHostProjMatInfo`
+		// le refuse : il n'apparait donc dans aucune liste, aucune pastille, aucun
+		// fichier. Il n'est pas « le defaut » -- celui-la est un vrai materiau que
+		// l'utilisateur peut regler ; celui-ci signale une ABSENCE.
+
+		static int32 HostEnsureMissingMat() {
+			NkVpProjMat &m = nkvpProjMats[kNkvpMissingMat];
+			if (!m.used) {
+				m = NkVpProjMat{};
+				m.used = true;
+				snprintf(m.name, sizeof(m.name), "%s", "(aucun materiau)");
+				m.albedo[0] = 1.f;
+				m.albedo[1] = 0.f;
+				m.albedo[2] = 1.f;
+				m.alpha = 1.f;	 // OPAQUE : une absence ne se devine pas au travers
+				m.rough = 1.f;	 // mat : aucun reflet ne doit adoucir le signal
+				m.metal = 0.f;
+			}
+			return kNkvpMissingMat;
+		}
+
 		// Il existe TOUJOURS au moins un materiau des qu'un maillage existe :
 		// renvoie le DEFAUT choisi s'il vit encore, sinon le premier du
 		// registre, en le creant au besoin.
@@ -13671,6 +13708,15 @@ namespace nkentseu {
 		}
 		bool Demo3DHostProjMatInfo(int32 i, char *name, uint32 cap, float32 *albedo3,
 								   float32 *rough, float32 *metal) {
+			// LE MAGENTA « AUCUN MATERIAU » N'EXISTE POUR PERSONNE. Il porte une
+			// absence, pas une matiere : il ne doit apparaitre ni dans la liste du
+			// projet, ni dans celle de l'objet, ni dans une pastille, ni dans un
+			// fichier (Rihen, 13 aout : « il ne peut pas etre visible dans la liste
+			// des materiaux de l'objet actif, pas du tout »). Tout passe par cette
+			// fonction pour lire un materiau — la refuser ici le rend invisible
+			// partout d'un seul geste, sans avoir a filtrer dans chaque appelant.
+			if (i == kNkvpMissingMat)
+				return false;
 			if (i < 0 || i >= kNkvpMaxProjMats || !nkvpProjMats[i].used)
 				return false;
 			const NkVpProjMat &m = nkvpProjMats[i];
@@ -13767,7 +13813,11 @@ namespace nkentseu {
 		int32 Demo3DHostProjMatOf(int32 node) {
 			if (node < 0 || node >= kNkvpMaxNodes)
 				return -1;
-			return nkvpNodeMatP1[node] - 1;
+			const int32 m = nkvpNodeMatP1[node] - 1;
+			// Un objet peint en magenta n'a PAS de materiau : c'est ce que
+			// l'interface doit lire, sinon la pastille afficherait le materiau
+			// interne comme s'il etait le sien.
+			return (m == kNkvpMissingMat) ? -1 : m;
 		}
 		int32 Demo3DHostMatChanCount() {
 			return kNkvpMatChanCount;
