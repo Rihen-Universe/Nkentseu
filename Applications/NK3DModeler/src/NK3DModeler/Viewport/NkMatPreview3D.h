@@ -40,6 +40,7 @@
 #include "NKRenderer/Tools/Offscreen/NkOffscreenTarget.h"
 #include "NKGui/NkGuiRHIBackend.h"
 #include "NKLogger/NkLog.h"
+#include "NKFileSystem/NkFile.h"
 // Pour l'identifiant de texture, partage avec le panneau (qui, lui, ne connait
 // pas NKRenderer). Ce header n'apporte aucun type NKRenderer -- c'est sa regle.
 #include "NK3DModeler/Viewport/NkDemo3DHost.h"
@@ -93,6 +94,68 @@ namespace nkentseu {
 			inline NkMatPreviewState &St() {
 				static NkMatPreviewState s;
 				return s;
+			}
+
+			// ── LES QUATRE MODELES SCULPTES ─────────────────────────────────────
+			// Charges A LA DEMANDE, pas au demarrage : ce sont trois megaoctets
+			// chacun, et rien ne dit qu'on affichera un jour la forme « cheveux ».
+			// Ralentir tous les demarrages pour des formes qu'on ne regarde pas
+			// serait un mauvais marche.
+			//
+			// Le chemin suit celui des icones : relatif au dossier de travail, donc
+			// l'application se lance depuis la racine du depot.
+			inline NkMeshHandle ChargerModele(int32 forme) {
+				NkMatPreviewState &s = St();
+				auto *ms = s.rd ? s.rd->GetMeshSystem() : nullptr;
+				if (!ms)
+					return NkMeshHandle{};
+				static const char *const kFichier[(int32)NkPrevMesh::Count] = {
+					nullptr, nullptr, nullptr, "liquide", "cheveux", "tissu", "mascotte"};
+				const char *nom =
+					(forme >= 0 && forme < (int32)NkPrevMesh::Count) ? kFichier[forme] : nullptr;
+				if (!nom)
+					return NkMeshHandle{};
+				const char *kDossiers[2] = {"Applications/NK3DModeler/data/previews/",
+											"data/previews/"};
+				for (int32 d = 0; d < 2; ++d) {
+					NkString chemin = NkString(kDossiers[d]) + nom + ".obj";
+					if (!NkFile::Exists(chemin.CStr()))
+						continue;
+					// `Import` fait tout : lecture OBJ et montage GPU. SANS les
+					// materiaux du .mtl -- c'est LE materiau de l'utilisateur qu'on
+					// vient juger, pas celui livre avec le modele.
+					NkMeshHandle h = ms->Import(chemin, false);
+					if (h.IsValid()) {
+						const NkAABB &bb = ms->GetBounds(h);
+						NkLog::Instance().Info("[apercu] modele '{0}' charge, boite {1}x{2}x{3}",
+											   nom, bb.max.x - bb.min.x, bb.max.y - bb.min.y,
+											   bb.max.z - bb.min.z);
+						return h;
+					}
+					NkLog::Instance().Info("[apercu] modele '{0}' : import refuse", nom);
+					return NkMeshHandle{};
+				}
+				NkLog::Instance().Info("[apercu] modele '{0}.obj' introuvable", nom);
+				return NkMeshHandle{};
+			}
+
+			/// Transform qui POSE un modele dans le cadre : mis a l'echelle pour que
+			/// sa plus grande dimension tienne, centre en X/Z, base sur le sol.
+			/// Indispensable -- un modele exporte arrive a une echelle quelconque, et
+			/// sans cela il serait soit microscopique, soit hors champ.
+			inline NkMat4f CadrerModele(const NkAABB &bb, float32 cible) {
+				const float32 dx = bb.max.x - bb.min.x;
+				const float32 dy = bb.max.y - bb.min.y;
+				const float32 dz = bb.max.z - bb.min.z;
+				float32 grand = dx > dy ? dx : dy;
+				if (dz > grand)
+					grand = dz;
+				const float32 k = (grand > 1e-6f) ? (cible / grand) : 1.f;
+				const float32 cx = (bb.min.x + bb.max.x) * 0.5f;
+				const float32 cz = (bb.min.z + bb.max.z) * 0.5f;
+				// Translation D'ABORD, echelle ENSUITE (l'ordre compte) : le modele
+				// est ramene sur l'origine, base au sol, puis reduit.
+				return NkMat4f::Scale({k, k, k}) * NkMat4f::Translate({-cx, -bb.min.y, -cz});
 			}
 
 			// ── CREATION ────────────────────────────────────────────────────────
@@ -353,9 +416,20 @@ namespace nkentseu {
 
 				// ── L'OBJET ─────────────────────────────────────────────────────
 				const int32 si = (shape < 0 || shape >= (int32)NkPrevMesh::Count) ? 1 : shape;
+				// CHARGEMENT A LA DEMANDE, une seule tentative : un modele manquant
+				// ne doit pas etre recherche soixante fois par seconde. Le temoin est
+				// l'essai, pas le succes.
+				static bool sEssaye[(int32)NkPrevMesh::Count] = {};
+				if (!s.mesh[si].IsValid() && !sEssaye[si]) {
+					sEssaye[si] = true;
+					s.mesh[si] = ChargerModele(si);
+				}
 				NkMeshHandle mh = s.mesh[si];
-				if (!mh.IsValid())
+				bool modeleCharge = true;
+				if (!mh.IsValid()) {
 					mh = s.mesh[(int32)NkPrevMesh::Sphere]; // repli : jamais de trou noir
+					modeleCharge = false;
+				}
 				if (mh.IsValid()) {
 					NkDrawCall3D dc;
 					dc.mesh = mh;
@@ -370,7 +444,16 @@ namespace nkentseu {
 					else if (si == (int32)NkPrevMesh::Cube)
 						dc.transform = NkMat4f::Translate({0.f, 0.5f, 0.f}) *
 									   NkMat4f::RotationY(NkAngle::FromRad(0.7853982f)); // 45 deg
-					else
+					else if (modeleCharge) {
+						// UN MODELE SCULPTE ARRIVE A UNE ECHELLE QUELCONQUE -- celle
+						// du logiciel qui l'a exporte. On le CADRE depuis sa boite :
+						// sans cela il serait microscopique ou hors champ, et le
+						// regler a la main modele par modele serait a refaire au
+						// premier reexport.
+						auto *ms = s.rd->GetMeshSystem();
+						dc.transform = ms ? CadrerModele(ms->GetBounds(mh), 1.15f)
+										  : NkMat4f::Translate({0.f, 0.5f, 0.f});
+					} else
 						dc.transform = NkMat4f::Translate({0.f, 0.5f, 0.f});
 					dc.aabb = {{-1.6f, -0.1f, -1.6f}, {1.6f, 1.6f, 1.6f}};
 					dc.castShadow = true;
