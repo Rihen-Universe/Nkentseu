@@ -111,16 +111,16 @@ namespace nkentseu {
 
 				// ── Points de specialisation du kit ─────────────────────────────
 				float32 PickerWindowHeight(float32 S) const override {
-					return matNewMode ? 660.f * S : NkFilePickerState::PickerWindowHeight(S);
+					return matNewMode ? 700.f * S : NkFilePickerState::PickerWindowHeight(S);
 				}
 				/// Reserve du BAS = la place que l'arbre laisse au contenu de l'app.
 				/// Elle doit couvrir la region supplementaire ET les boutons, sinon
 				/// l'assistant deborderait sur l'arborescence.
 				float32 PickerBottomReserve(float32 S) const override {
-					return matNewMode ? 258.f * S : NkFilePickerState::PickerBottomReserve(S);
+					return matNewMode ? 296.f * S : NkFilePickerState::PickerBottomReserve(S);
 				}
 				float32 PickerExtraHeight(float32 S) const override {
-					return matNewMode ? 214.f * S : 0.f;
+					return matNewMode ? 250.f * S : 0.f;
 				}
 				void PickerClearExtraFocus() override { matExtraFocus = 0; }
 				const char *PickerTitle() const override {
@@ -158,7 +158,14 @@ namespace nkentseu {
 					auto texte = [&](float32 x, float32 y, const char *s, const nkgui::NkColor &c) {
 						dl.AddText(f->Face(), f->TexId(), {x, y + asc}, s, c);
 					};
-					const float32 cx = region.x, cwid = region.w, ny = region.y;
+					// LA REGION COMMENCE AU MEME `y` QUE LA LIGNE « creer un
+					// dossier » DU KIT (champ + bouton, hauteur 30). Le kit la peint
+					// avant de nous appeler et ne retranche pas sa place : c'est a
+					// l'app de descendre, ce que fait aussi l'assistant de NKCode.
+					// Sans ce decalage, « Nom du materiau » se superposait a « nom du
+					// nouveau dossier » (capture de Rihen, 13 aout 16h10).
+					const float32 cx = region.x, cwid = region.w;
+					const float32 ny = region.y + 40.f * S;
 
 					// ── NOM ─────────────────────────────────────────────────────
 					texte(cx, ny, "Nom du materiau", sty.sub);

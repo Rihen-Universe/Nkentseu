@@ -1607,8 +1607,16 @@ int nkmain(const NkEntryState &entry) {
 					const int32 an = demo::Demo3DHostActiveObject() >= 0
 										 ? demo::Demo3DHostActiveObject()
 										 : st.activeEmpty;
+					// CREER, C'EST VOULOIR S'EN SERVIR : le materiau devient le
+					// materiau ACTIF de l'objet, pas une ligne de plus dans sa
+					// liste — « ca l'ajoute a l'objet actif mais ne le lie pas
+					// comme materiau par defaut » (Rihen, 13 aout). `ProjMatAssign`
+					// fait les deux (il associe aussi), la ou `NodeMatAdd` se garde
+					// justement de toucher a un actif deja choisi : ajouter n'est
+					// pas assigner, et c'est bien d'assigner qu'il s'agit ici.
+					// Le bouton « Ajouter » de la modale, lui, garde l'ajout seul.
 					if (an >= 0)
-						(void)demo::Demo3DHostNodeMatAdd(an, ni);
+						demo::Demo3DHostProjMatAssign(an, ni);
 					nk3d::NkMarkDirty(st);
 					// ── ET ON L'ECRIT SUR LE DISQUE ─────────────────────────
 					// Il n'existait qu'en MEMOIRE : aucun `.nkmat` n'etait ecrit,
