@@ -6593,9 +6593,16 @@ namespace nkentseu {
 					return;
 				}
 				const float32 dw = S(300.f), dh = S(200.f);
+				// LE SELECTEUR S'EMPILE PAR-DESSUS, il ne remplace pas : tant qu'il
+				// est ouvert, cette modale reste VISIBLE mais inerte. « Nouveau » ne
+				// la referme donc plus -- on revient dessus en annulant (Rihen,
+				// 13 aout : « pourquoi quand on clique sur Nouveau ca ferme le
+				// dialogue du bouton + ? »).
+				const bool sousLeSelecteur = st.picker.pickerOpen;
 				editorkit::NkModalFrame fr =
 					editorkit::NkModalFrameDraw(*gcM, st.matAddModal, "Ajouter un materiau",
-												dw, dh);
+												dw, dh, editorkit::NkModalStyle{},
+												sousLeSelecteur);
 				if (!fr.visible || fr.closeAsked) {
 					NkMatAddSetOpen(st, false);
 					return;
@@ -6657,10 +6664,9 @@ namespace nkentseu {
 					st.picker.MatNewBegin();
 					st.pickerAction = 1;	   // 1 = creer un materiau
 					st.matNewPending = true;
-					// LE SELECTEUR PREND LA MAIN — et la modale se ferme POUR DE BON.
-					// C'est cette sortie-la qui, en posant seulement le drapeau, laissait
-					// le cadre du kit arme et coutait un clic de plus a la reouverture.
-					NkMatAddSetOpen(st, false);
+					// LA MODALE RESTE OUVERTE, SOUS LE SELECTEUR. Elle passe simplement
+					// en inerte (cf. plus haut) : on la retrouve intacte en annulant,
+					// au lieu de repartir du bouton « + ».
 				}
 				// « Ajouter » ne s'allume qu'une fois une ligne CHOISIE.
 				const bool okAdd = (st.matAddSel >= 0);
