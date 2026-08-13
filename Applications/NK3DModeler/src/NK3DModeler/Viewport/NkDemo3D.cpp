@@ -1013,6 +1013,16 @@ namespace nkentseu {
 			for (int32 k = 0; k < kNkvpMaxMatsPerNode; ++k)
 				if (nkvpNodeMatsP1[node][k] <= 0) {
 					nkvpNodeMatsP1[node][k] = slot + 1;
+					// UN OBJET QUI N'AVAIT RIEN PREND CELUI-CI POUR ACTIF (Rihen,
+					// 13 aout). Sans cela, l'objet restait MAGENTA apres qu'on lui
+					// eut ajoute un materiau : l'actif pointait encore sur le
+					// magenta « aucun materiau », qui n'est justement pas un choix
+					// de l'utilisateur mais le constat d'une absence -- absence qui
+					// vient de cesser. Un actif deja choisi, lui, n'est pas touche :
+					// ajouter a une liste n'est pas assigner.
+					const int32 actuel = nkvpNodeMatP1[node] - 1;
+					if (actuel < 0 || actuel == kNkvpMissingMat)
+						nkvpNodeMatP1[node] = slot + 1;
 					return true;
 				}
 			return false;
