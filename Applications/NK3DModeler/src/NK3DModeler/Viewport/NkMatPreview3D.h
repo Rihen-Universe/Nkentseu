@@ -143,18 +143,24 @@ namespace nkentseu {
 			/// sa plus grande dimension tienne, centre en X/Z, base sur le sol.
 			/// Indispensable -- un modele exporte arrive a une echelle quelconque, et
 			/// sans cela il serait soit microscopique, soit hors champ.
-			inline NkMat4f CadrerModele(const NkAABB &bb, float32 cible) {
+			inline NkMat4f CadrerModele(const NkAABB &bb, float32 hVoulue, float32 lMax) {
 				const float32 dx = bb.max.x - bb.min.x;
 				const float32 dy = bb.max.y - bb.min.y;
 				const float32 dz = bb.max.z - bb.min.z;
-				float32 grand = dx > dy ? dx : dy;
-				if (dz > grand)
-					grand = dz;
-				const float32 k = (grand > 1e-6f) ? (cible / grand) : 1.f;
+				// DEUX CONTRAINTES, ET LA PLUS SEVERE GAGNE. Mettre a l'echelle sur
+				// la plus grande dimension -- ce que je faisais -- donne un objet
+				// minuscule des qu'il est profond ou large : c'est sa PROFONDEUR qui
+				// decidait de sa hauteur a l'ecran. On vise donc une hauteur, et on
+				// ne rentre que si la largeur le permet aussi (Rihen : « la mascotte
+				// doit etre plus proche ET rester dans le champ »).
+				const float32 large = dx > dz ? dx : dz;
+				const float32 kH = (dy > 1e-6f) ? (hVoulue / dy) : 1.f;
+				const float32 kL = (large > 1e-6f) ? (lMax / large) : kH;
+				const float32 k = kH < kL ? kH : kL;
 				const float32 cx = (bb.min.x + bb.max.x) * 0.5f;
 				const float32 cz = (bb.min.z + bb.max.z) * 0.5f;
 				// Translation D'ABORD, echelle ENSUITE (l'ordre compte) : le modele
-				// est ramene sur l'origine, base au sol, puis reduit.
+				// est ramene sur l'origine, base au sol, puis mis a l'echelle.
 				return NkMat4f::Scale({k, k, k}) * NkMat4f::Translate({-cx, -bb.min.y, -cz});
 			}
 
@@ -328,8 +334,15 @@ namespace nkentseu {
 			// porte le type (verre, toon, emissif...) et donc le shader. Passer par
 			// elle est tout l'interet de ce module -- les surcharges par draw call
 			// ne decrivent qu'un PBR.
+			// `matiere` porte les SURCHARGES du materiau (teinte, opacite, metal,
+			// rugosite, vernis, diffusion). Elles ne sont pas dans l'instance : dans
+			// ce moteur, les facades de materiau n'ecrivent que l'etat, et c'est le
+			// draw call qui porte la matiere jusqu'au shader. L'hote les remplit avec
+			// la MEME fonction que la vue 3D (HostMatSlotToDC) -- sans quoi l'apercu
+			// montrerait autre chose que la scene.
 			inline void RenderOne(NkICommandBuffer *cmd, NkMatInstHandle mat, int32 shape,
-								  uint32 w, uint32 h, float32 time) {
+								  uint32 w, uint32 h, float32 time,
+								  const NkDrawCall3D &matiere) {
 				NkMatPreviewState &s = St();
 				if (!s.ok || !cmd || !s.rd)
 					return;
@@ -451,11 +464,28 @@ namespace nkentseu {
 						// regler a la main modele par modele serait a refaire au
 						// premier reexport.
 						auto *ms = s.rd->GetMeshSystem();
-						dc.transform = ms ? CadrerModele(ms->GetBounds(mh), 1.15f)
-										  : NkMat4f::Translate({0.f, 0.5f, 0.f});
+						// Hauteur visee 1.55, largeur bornee a 1.9 : l'objet occupe
+						// franchement le cadre sans en sortir.
+						NkMat4f cadre = ms ? CadrerModele(ms->GetBounds(mh), 1.55f, 1.9f)
+										   : NkMat4f::Translate({0.f, 0.5f, 0.f});
+						// LES CHEVEUX DE TROIS QUARTS, comme le cube : une meche vue
+						// de face se lit comme un trait, alors que sa courbure est
+						// justement ce qui montre le reflet (Rihen).
+						if (si == (int32)NkPrevMesh::Cheveux)
+							cadre = cadre * NkMat4f::RotationY(NkAngle::FromRad(0.7853982f));
+						dc.transform = cadre;
 					} else
 						dc.transform = NkMat4f::Translate({0.f, 0.5f, 0.f});
 					dc.aabb = {{-1.6f, -0.1f, -1.6f}, {1.6f, 1.6f, 1.6f}};
+					// LA MATIERE, telle que la vue 3D l'appliquerait.
+					dc.tint = matiere.tint;
+					dc.alpha = matiere.alpha;
+					dc.metallic = matiere.metallic;
+					dc.roughness = matiere.roughness;
+					dc.clearcoat = matiere.clearcoat;
+					dc.clearcoatRough = matiere.clearcoatRough;
+					dc.subsurface = matiere.subsurface;
+					dc.subsurfaceColor = matiere.subsurfaceColor;
 					dc.castShadow = true;
 					dc.receiveShadow = true;
 					r3d->Submit(dc);

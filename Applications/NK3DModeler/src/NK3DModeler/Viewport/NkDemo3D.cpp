@@ -1089,6 +1089,38 @@ namespace nkentseu {
 			return false;
 		}
 		static int32 HostEnsureDefaultMat(); // defini avec le registre, plus bas
+		// ── LES REGLAGES D'UN MATERIAU DE PROJET, POSES SUR UN DRAW CALL ────
+		// Extrait de HostMatHook, et c'est le coeur du sujet : les facades de
+		// materiau n'ecrivent QUE dans l'etat -- ce sont ces surcharges-ci qui
+		// portent la matiere jusqu'au rendu. Rihen l'a dit d'un mot : « elle ne
+		// touche pas l'instance dans la previsualisation mais elle touche dans la
+		// vue 3D ».
+		//
+		// La vue 3D arrive ici par un NOEUD, l'apercu par un EMPLACEMENT, mais ce
+		// qui est applique doit etre le MEME : un apercu qui montrerait autre
+		// chose que la scene n'aurait aucun interet.
+		template <typename TDC>
+		static void HostMatSlotToDC(int32 pm, TDC &dc) {
+			if (pm < 0 || pm >= kNkvpMaxProjMats || !nkvpProjMats[pm].used)
+				return;
+			dc.tint.x = nkvpProjMats[pm].albedo[0];
+			dc.tint.y = nkvpProjMats[pm].albedo[1];
+			dc.tint.z = nkvpProjMats[pm].albedo[2];
+			// L'OPACITE part d'ici : c'est dc.alpha qui route le draw vers la file
+			// TRANSPARENTE du moteur -- sans cette ligne, le curseur du panneau
+			// etait muet (constate par Rihen, 11 aout).
+			dc.alpha = nkvpProjMats[pm].alpha;
+			dc.metallic = nkvpProjMats[pm].metal;
+			dc.roughness = nkvpProjMats[pm].rough;
+			// Physique de surface : la couleur de diffusion suit l'albedo (la
+			// matiere transmet sa propre teinte, pas du blanc).
+			dc.clearcoat = nkvpProjMats[pm].clearcoat;
+			dc.clearcoatRough = nkvpProjMats[pm].ccRough;
+			dc.subsurface = nkvpProjMats[pm].subsurface;
+			dc.subsurfaceColor = {nkvpProjMats[pm].albedo[0], nkvpProjMats[pm].albedo[1],
+								  nkvpProjMats[pm].albedo[2]};
+		}
+
 		template <typename TDC>
 		static void HostMatHook(int32 i, TDC &dc) {
 			if (i < 0 || i >= kNkvpMaxNodes)
@@ -1111,24 +1143,7 @@ namespace nkentseu {
 				// AUCUN CAS PARTICULIER ICI. Un objet sans materiau s'est vu
 				// assigner le magenta au moment du retrait ; il arrive donc avec un
 				// materiau valide, lu par le chemin ordinaire ci-dessous.
-				if (pm >= 0 && pm < kNkvpMaxProjMats && nkvpProjMats[pm].used) {
-					dc.tint.x = nkvpProjMats[pm].albedo[0];
-					dc.tint.y = nkvpProjMats[pm].albedo[1];
-					dc.tint.z = nkvpProjMats[pm].albedo[2];
-					// L'OPACITE part d'ici : c'est dc.alpha qui route le draw vers
-					// la file TRANSPARENTE du moteur — sans cette ligne, le curseur
-					// du panneau etait muet (constate par Rihen, 11 aout).
-					dc.alpha = nkvpProjMats[pm].alpha;
-					dc.metallic = nkvpProjMats[pm].metal;
-					dc.roughness = nkvpProjMats[pm].rough;
-					// Physique de surface : la couleur de diffusion suit l'albedo
-					// (la matiere transmet sa propre teinte, pas du blanc).
-					dc.clearcoat = nkvpProjMats[pm].clearcoat;
-					dc.clearcoatRough = nkvpProjMats[pm].ccRough;
-					dc.subsurface = nkvpProjMats[pm].subsurface;
-					dc.subsurfaceColor = {nkvpProjMats[pm].albedo[0], nkvpProjMats[pm].albedo[1],
-										  nkvpProjMats[pm].albedo[2]};
-				}
+				HostMatSlotToDC(pm, dc); // MEME application que l'apercu
 			}
 			if (nkvpMatMask[i] & 1) {
 				dc.tint.x = nkvpMatTint[i][0];
@@ -12377,9 +12392,16 @@ namespace nkentseu {
 				}
 				return;
 			}
+		// LES SURCHARGES DE MATIERE, remplies par la MEME fonction que la vue 3D.
+			// Un draw call vierge sert de porteur : c'est le type que `HostMatSlotToDC`
+			// sait remplir, et s'en servir garantit qu'aucun reglage n'est oublie en
+			// route -- ni aujourd'hui, ni quand un reglage s'ajoutera.
+			NkDrawCall3D matiere;
+			HostMatSlotToDC(slot, matiere);
 			nk3d::matprev::RenderOne((NkICommandBuffer *)cmd, me->GetInstHandle(),
 									 (int32)nkvpProjMats[slot].prevShape, (uint32)(w > 0 ? w : 260),
-									 (uint32)(h > 0 ? h : 150), (float32)hst.ctx.totalTime);
+									 (uint32)(h > 0 ? h : 150), (float32)hst.ctx.totalTime,
+									 matiere);
 		}
 
 		// ── ACCESSEURS DU CABLAGE ───────────────────────────────────────────
