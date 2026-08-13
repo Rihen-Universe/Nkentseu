@@ -12346,17 +12346,24 @@ namespace nkentseu {
 			// application des reglages aurait fait deux verites sur ce qu'est un
 			// materiau, et la copie aurait diverge au premier reglage ajoute.
 			//
-			// Reconstruite QUAND L'ETAT CHANGE, pas a chaque frame : une signature
-			// des reglages sert de temoin. Sans elle on recreerait une instance
-			// soixante fois par seconde.
-			static float32 sSigPrev[kNkvpMaxProjMats] = {};
+			// Reconstruite QUAND L'ETAT CHANGE, pas a chaque frame : sans temoin on
+			// recreerait une instance soixante fois par seconde, et la collection
+			// du renderer d'apercu (64 emplacements) serait pleine en une seconde.
+			//
+			// LE TEMOIN EST L'ETAT ENTIER, compare octet a octet. Une signature
+			// faite d'une somme de quelques champs -- ce que j'avais ecrit -- ne
+			// voyait pas les autres : changer l'emissif, une texture, un reglage
+			// toon ou l'anisotropie ne rafraichissait rien, et l'apercu mentait
+			// (Rihen : « changer les proprietes du materiau doit s'appliquer »).
+			// Comparer la structure entiere ne peut rien manquer, et le jour ou un
+			// reglage s'ajoute, il est couvert sans qu'on ait a y penser.
+			static NkVpProjMat sVuPrev[kNkvpMaxProjMats] = {};
+			static bool sVuInit[kNkvpMaxProjMats] = {};
 			const NkVpProjMat &pm = nkvpProjMats[slot];
-			const float32 sig = pm.albedo[0] * 1.7f + pm.albedo[1] * 2.3f + pm.albedo[2] * 3.1f +
-								pm.rough * 5.3f + pm.metal * 7.9f + pm.alpha * 11.1f +
-								(float32)pm.matType * 13.7f + pm.clearcoat * 17.3f +
-								pm.subsurface * 19.1f + pm.sheenV * 23.9f + 1.f;
-			if (!nkvpProjMatPrev[slot] || sSigPrev[slot] != sig) {
-				sSigPrev[slot] = sig;
+			if (!nkvpProjMatPrev[slot] || !sVuInit[slot] ||
+				memcmp(&sVuPrev[slot], &pm, sizeof(NkVpProjMat)) != 0) {
+				memcpy(&sVuPrev[slot], &pm, sizeof(NkVpProjMat));
+				sVuInit[slot] = true;
 				NkvpMatCibleScope bascule(nkvpProjMatPrev, nk3d::matprev::Renderer());
 				HostMatRebuildEngine(slot);
 			}

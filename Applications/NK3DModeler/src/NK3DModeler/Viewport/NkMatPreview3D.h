@@ -121,6 +121,13 @@ namespace nkentseu {
 				// rugosite, ce qui est precisement ce qu'on vient y juger.
 				cfg.postProcess.ssao = false;
 				cfg.postProcess.bloom = false;
+				// ANTICRENELAGE : un apercu est une petite image FIXE, ou chaque
+				// marche d'escalier se voit -- « le modele doit etre lisse »
+				// (Rihen, 13 aout). FXAA lisse les contours pour presque rien, et
+				// le SURECHANTILLONNAGE (rendu a 2x, reduit a l'affichage) fait le
+				// reste : sur une image immobile, c'est ce qui distingue un rendu
+				// propre d'un rendu d'apercu.
+				cfg.postProcess.fxaa = true;
 				s.rd = NkRenderer::Create(device, cfg);
 				if (!s.rd) {
 					s.err = "creation du renderer d'apercu refusee";
@@ -157,7 +164,12 @@ namespace nkentseu {
 				if (auto *ms = s.rd->GetMeshSystem()) {
 					s.meshSol = ms->GetPlane();
 					s.mesh[(int32)NkPrevMesh::Plan] = ms->GetPlane();
-					s.mesh[(int32)NkPrevMesh::Sphere] = ms->GetSphere();
+					// La sphere de l'apercu est PLUS FINE que la primitive commune : celle-ci
+					// est taillee pour une scene ou elle fait quelques dizaines de pixels,
+					// alors que l'apercu la montre en gros plan -- ses facettes s'y voient.
+					s.mesh[(int32)NkPrevMesh::Sphere] = ms->CreateSphereMesh(64u, 96u);
+					if (!s.mesh[(int32)NkPrevMesh::Sphere].IsValid())
+						s.mesh[(int32)NkPrevMesh::Sphere] = ms->GetSphere();
 					s.mesh[(int32)NkPrevMesh::Cube] = ms->GetCube();
 				}
 
@@ -178,10 +190,13 @@ namespace nkentseu {
 					for (uint32 y = 0; y < kT; ++y)
 						for (uint32 x = 0; x < kT; ++x) {
 							const bool clair = (((x / kCase) ^ (y / kCase)) & 1u) != 0u;
-							// Deux gris sombres et PROCHES : un damier contraste
-							// attirerait l'oeil plus que l'objet, alors qu'il est le
-							// fond. Ceux-ci sont ceux de l'ancien apercu logiciel.
-							const uint8 v = clair ? 74u : 56u;
+							// Contraste FRANC, comme celui de Blender : les cases
+							// sombres etaient trop proches des claires et le damier se
+							// lisait a peine (Rihen : « les cases noires doivent etre
+							// plus foncees »). C'est lui qui rend lisibles le reflet
+							// et la refraction -- un damier qu'on ne voit pas ne
+							// mesure rien.
+							const uint8 v = clair ? 78u : 26u;
 							uint8 *o = px + (y * kT + x) * 4u;
 							o[0] = o[1] = o[2] = v;
 							o[3] = 255u;
@@ -346,9 +361,17 @@ namespace nkentseu {
 					dc.mesh = mh;
 					dc.material = mat; // LE VRAI MATERIAU, donc le vrai shader
 					// Le PLAN se couche et s'elargit ; les autres gardent leur echelle.
-					dc.transform = (si == (int32)NkPrevMesh::Plan)
-									   ? NkMat4f::Translate({0.f, 0.02f, 0.f}) * NkMat4f::Scale({1.5f, 1.f, 1.5f})
-									   : NkMat4f::Translate({0.f, 0.5f, 0.f});
+				// LE CUBE TOURNE DE 45 DEGRES (Rihen) : de face il ne montre qu'un
+					// carre plat, ou l'on ne lit ni l'arete ni le passage d'une face a
+					// l'autre -- c'est pourtant la que se juge un reflet.
+					if (si == (int32)NkPrevMesh::Plan)
+						dc.transform = NkMat4f::Translate({0.f, 0.02f, 0.f}) *
+									   NkMat4f::Scale({1.5f, 1.f, 1.5f});
+					else if (si == (int32)NkPrevMesh::Cube)
+						dc.transform = NkMat4f::Translate({0.f, 0.5f, 0.f}) *
+									   NkMat4f::RotationY(NkAngle::FromRad(0.7853982f)); // 45 deg
+					else
+						dc.transform = NkMat4f::Translate({0.f, 0.5f, 0.f});
 					dc.aabb = {{-1.6f, -0.1f, -1.6f}, {1.6f, 1.6f, 1.6f}};
 					dc.castShadow = true;
 					dc.receiveShadow = true;
