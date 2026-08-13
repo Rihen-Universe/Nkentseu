@@ -748,6 +748,7 @@ int nkmain(const NkEntryState &state) {
 	nkxr::NkArCalibration calibration;
 	nkxr::NkArCalibrationResult calibResult;
 	bool calibDone = false;
+	uint64 lastCalibFrame = 0;
 	if (calibrating) {
 		calibration.Initialize(kCalibBoard, arWidth, arHeight);
 		// Neuf marqueurs sur une planche sont bien plus petits à l'image qu'un
@@ -917,6 +918,17 @@ int nkmain(const NkEntryState &state) {
 
 						arSession.Shutdown();
 						arSession.Initialize(arCfg, arWidth, arHeight);
+						// La calibration doit connaître la taille RÉELLE de
+						// l'image. Elle avait été préparée avec la résolution
+						// DEMANDÉE, que la caméra n'a pas honorée : le centre
+						// supposé tombait à (960,540) au lieu de (360,640), ce
+						// qui condamnait la résolution robuste et faussait le
+						// champ annoncé — 92,5° pour 43° réels. Un module nourri
+						// d'une taille fausse calcule juste sur des données
+						// fausses, et c'est le pire des deux mondes.
+						if (calibrating) {
+							calibration.Initialize(kCalibBoard, arWidth, arHeight);
+						}
 						NkTextureCreateDesc redesc;
 						redesc.width = arWidth;
 						redesc.height = arHeight;
@@ -1026,8 +1038,18 @@ int nkmain(const NkEntryState &state) {
 								 "(3 minimum par vue) — %u vues retenues.\n",
 								 uint32(dets.Size()), onBoard, calibration.GetViewCount());
 				}
-				if (calibration.AddView(arSession.GetDetections())) {
-					logger.Warnf("[NKARDemo] Calibration : vue %u retenue (il en faut assez, et surtout VARIEES).\n",
+				// ── Un DÉLAI entre deux vues, en plus du critère de forme ────
+				// Le critère de forme dit si une vue est nouvelle ; le délai
+				// laisse à la main le temps de la rendre nouvelle. Sans lui,
+				// cinq vues étaient retenues en trois dixièmes de seconde — la
+				// durée d'un frisson, pas d'un geste — et le système, nourri de
+				// cinq fois la même équation, rendait une focale absurde.
+				// Une demi-seconde n'est pas un réglage de confort : c'est le
+				// temps minimal d'un mouvement de poignet volontaire.
+				if ((frameIndex - lastCalibFrame) > 30u && calibration.AddView(arSession.GetDetections())) {
+					lastCalibFrame = frameIndex;
+					logger.Warnf("[NKARDemo] Calibration : vue %u retenue — INCLINE encore le telephone, "
+								 "autrement.\n",
 								 calibration.GetViewCount());
 				}
 				if (calibration.IsReady()) {
