@@ -2,6 +2,7 @@
 // NkPdfStruct.cpp — parcours de /StructTreeRoot et ordre de lecture logique.
 //
 #include "NKMedia/Pdf/NkPdfStruct.h"
+#include "NKMedia/Pdf/NkPdfRaster.h"
 
 namespace nkentseu {
 	namespace media {
@@ -143,6 +144,29 @@ namespace nkentseu {
 					if (mEntrees[i].mcid == mcid && (mEntrees[i].page == page || mEntrees[i].page < 0))
 						return mEntrees[i].type;
 				return NkString();
+			}
+
+			double NkPdfPartHorsStructure(NkPdfDoc &doc, const NkPdfStructIndex &index) {
+				if (!index.Valide())
+					return -1.0;
+				int64 total = 0, hors = 0;
+				for (int32 p = 0; p < doc.PageCount(); ++p) {
+					NkPdfRenderer rendu;
+					NkPdfCanvas canevas;
+					if (!rendu.RenderPage(doc, p, 72.0, canevas))
+						continue;
+					const NkVector<NkPdfRenderer::TextItem> &items = rendu.TextItems();
+					for (nk_size k = 0; k < items.Size(); ++k) {
+						if (items[k].text.Size() == 0)
+							continue; // caractere illisible : autre probleme, autre mesure
+						++total;
+						if (index.Rang(p, items[k].mcid) < 0)
+							++hors;
+					}
+				}
+				if (total == 0)
+					return -1.0;
+				return (double)hors / (double)total;
 			}
 
 			void NkPdfAssemblerParStructure(const NkPdfStructIndex &index, int32 page,
