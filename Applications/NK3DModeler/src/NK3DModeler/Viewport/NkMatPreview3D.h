@@ -435,6 +435,13 @@ namespace nkentseu {
 				fill.intensity = 0.9f;
 				sctx.lights.PushBack(fill);
 
+			// LE CIEL NE SE DESSINE QUE POUR LE GRAND APERCU. Une vignette de carte
+				// le recevait en fond uni gris-violet, alors que les autres cartes ont
+				// un damier : deux fonds differents dans une meme liste se remarquent
+				// aussitot (Rihen, 14 aout). Sans ciel, le fond garde la couleur de
+				// nettoyage -- et son ALPHA, ce qui permet de composer le damier apres
+				// coup. L'IBL, lui, reste actif : c'est l'eclairage, pas le decor.
+				r3d->SetSkyboxEnabled(avecSol);
 				r3d->BeginScene(sctx);
 
 				// ── LE SOL ──────────────────────────────────────────────────────

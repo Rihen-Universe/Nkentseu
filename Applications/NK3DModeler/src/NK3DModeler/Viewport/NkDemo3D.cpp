@@ -12424,6 +12424,30 @@ namespace nkentseu {
 					if (im.Create((uint32)kThumbPx, (uint32)kThumbPx,
 								  math::NkColor(0, 0, 0, 255), 4)) {
 						memcpy(im.Pixels(), px, sizeof(px));
+						// ── LE DAMIER, COMPOSE SOUS LA SPHERE ───────────────
+						// La vignette doit avoir le MEME fond que les cartes au
+						// rendu analytique -- « pas de fond uni, ca doit etre comme
+						// les autres » (Rihen, 14 aout). Le rendu ne dessine pas le
+						// ciel pour elle, donc tout ce qui n'est pas l'objet est
+						// reste sur la couleur de nettoyage : on la remplace par le
+						// damier, exactement celui de bgAt.
+						{
+							uint8 *q = im.Pixels();
+							for (int32 y = 0; y < kThumbPx; ++y)
+								for (int32 x = 0; x < kThumbPx; ++x) {
+									uint8 *o = q + ((usize)y * kThumbPx + x) * 4u;
+									// Fond = pixel reste tres sombre ET opaque : la
+									// sphere, elle, est eclairee par la cle et
+									// l'appoint, jamais aussi noire sur toute sa
+									// surface.
+									if (o[0] > 10u || o[1] > 10u || o[2] > 10u)
+										continue;
+									const uint8 v =
+										((((uint32)x >> 4) ^ ((uint32)y >> 4)) & 1u) ? 78u : 26u;
+									o[0] = o[1] = o[2] = v;
+									o[3] = 255u;
+								}
+						}
 						// PNG D'ABORD, base64 ENSUITE. Les pixels bruts en base64
 						// pesteraient 87 Ko par materiau ; compresses, il en reste
 						// quelques-uns -- pour la meme image.

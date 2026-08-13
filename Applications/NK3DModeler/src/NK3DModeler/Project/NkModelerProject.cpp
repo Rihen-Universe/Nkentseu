@@ -382,20 +382,32 @@ namespace nkentseu {
 			return true;
 		}
 
-		// ── COUVERTURE : LA CAPTURE LA PLUS RECENTE DU PROJET ───────────────────
-		// On ne fabrique RIEN : le rendu et la capture se declenchent par un
-		// bouton. On se contente de retenir l'image la plus fraiche trouvee sous
-		// la racine -- ce qui donne, en pratique, le dernier rendu produit.
+		// ── COUVERTURE : LA MINIATURE DE SCENE LA PLUS RECENTE ─────────────────
+		// On ne fabrique RIEN : la capture se declenche a l'enregistrement d'une
+		// scene. On retient la plus fraiche.
+		//
+		// CHERCHEE DANS « Apercus » SEULEMENT, et non plus dans TOUT le projet.
+		// La regle « l'image la plus recente sous la racine » prenait n'importe
+		// quel fichier : une texture importee, ou -- ce qui est arrive -- la
+		// vignette d'un materiau, si bien que l'ecran d'accueil montrait une
+		// sphere a la place du projet (Rihen, 14 aout). Une couverture de projet
+		// est une miniature de SCENE ; le dossier qui les porte est le seul
+		// endroit ou la chercher.
 		bool NkProjectPickCover(NkProjectState &st) {
 			if (st.root.Empty() || !NkDirectory::Exists(st.root.CStr()))
+				return false;
+			const NkString dirApercus = st.root + "/Apercus";
+			if (!NkDirectory::Exists(dirApercus.CStr()))
 				return false;
 			static const char *const kPat[] = {"*.png", "*.jpg", "*.jpeg", "*.bmp",
 											   "*.tga", "*.qoi"};
 			NkString best;
 			nk_int64 bestT = 0;
 			for (int32 p = 0; p < 6; ++p) {
-				const NkVector<NkString> files =
-					NkDirectory::GetFiles(st.root.CStr(), kPat[p], NkSearchOption::NK_ALL_DIRECTORIES);
+				// NON RECURSIF : les sous-dossiers d'Apercus ne portent pas de
+				// miniature de scene.
+				const NkVector<NkString> files = NkDirectory::GetFiles(
+					dirApercus.CStr(), kPat[p], NkSearchOption::NK_TOP_DIRECTORY_ONLY);
 				for (usize i = 0; i < files.Size(); ++i) {
 					// GetEntries ne remplit PAS ModificationTime sous Windows (note
 					// de NkDirectory.cpp) : on interroge le systeme de fichiers.
