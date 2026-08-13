@@ -403,8 +403,28 @@ remplacerait un tri par ligne par l'ordre de dessin brut.
 non rattaché est fait d'en-têtes et de folios — quelques mots par page, dont le
 déplacement en fin de **page** (pas de document) ne coûte rien. Au-delà, c'est
 du corps de texte, et le déplacer serait une dislocation. Le chiffre suit la
-distribution : **126 documents sur 140 gardent l'ordre logique**, les 22 mal
-balisés restent en ordre visuel, et la trace dit lequel s'applique.
+distribution : **118 documents sur 140 gardent l'ordre logique** (91 + 19 + 8),
+les **22** mal balisés (5 + 5 + 12) restent en ordre visuel, et la trace dit
+lequel s'applique.
+
+> ⚠️ **DEUX populations de 118, et ce ne sont PAS les mêmes documents.**
+> Nommées distinctement partout, sous peine de confusion garantie :
+> - **118 « sans structure »** = les documents sans `/StructTreeRoot` ;
+> - **118 « balisés exploitables »** = les balisés dont le texte hors structure
+>   est sous le seuil de 10 %.
+>
+> Attendu du contrôle de non-régression, révisé en conséquence :
+>
+> | population | documents | attendu |
+> |---|---|---|
+> | sans structure | 118 | **identité stricte** |
+> | balisés **au-dessus** du seuil | 22 | **identité stricte** — ils retombent sur le chemin actuel |
+> | balisés exploitables | 118 | **peuvent différer** ; la proportion qui diffère est elle-même une mesure |
+>
+> Soit **140 documents en identité stricte**, un seul écart arrête tout. Et il
+> faut **vérifier**, non supposer, que le repli des 22 emprunte *exactement* le
+> chemin actuel : s'il passe par une variante de l'assemblage, l'identité n'est
+> plus garantie. Test à UN document avant les 258.
 
 ### 🛡️ Baseline de non-régression du texte — capturée et VALIDÉE (2026-08-13)
 
