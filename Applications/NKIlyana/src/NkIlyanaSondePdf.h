@@ -69,6 +69,17 @@ namespace ilyana {
 										// l'encodage se joue, et nulle part ailleurs
 			bool dateLue = false;
 			NkString langueLue;
+
+			// ── Polices : de quoi décide-t-on la lisibilité ? ──
+			// Une police muette rend un document illisible même quand tout le
+			// reste marche. On compte donc ce qui permet — ou non — de savoir ce
+			// qu'un glyphe représente.
+			int32 polices = 0;			  // polices distinctes rencontrées
+			int32 policesSansToUni = 0;	  // sans /ToUnicode
+			int32 policesFontFile3 = 0;	  // programme en /FontFile3 (CFF)
+			int32 policesType1C = 0;	  // ... de /Subtype /Type1C
+			int32 policesType1CMuettes = 0; // Type1C, sans /ToUnicode ni /Differences
+			int32 policesDiff = 0;		  // avec /Encoding /Differences
 	};
 
 	// Cherche une suite d'octets dans un tampon. Rendue ici plutôt qu'empruntée
@@ -216,6 +227,67 @@ namespace ilyana {
 			if (premier.IsDictLike()) {
 				NkVector<int32> vus;
 				s.signets = CompterSignets(doc, premier, vus, 0);
+			}
+		}
+
+		// ── Polices, page par page ──
+		//
+		// Les mêmes polices reviennent sur toutes les pages : on retient
+		// l'identité de leur dictionnaire (kind, a) pour ne compter chacune
+		// qu'une fois. Sans cela, un livre de 500 pages compterait sa police de
+		// corps 500 fois et écraserait la statistique.
+		{
+			NkVector<int32> vues;
+			for (int32 p = 0; p < doc.PageCount(); ++p) {
+				const NkPdfVal res = doc.DictGet(doc.Page(p), "Resources");
+				const NkPdfVal fonts = doc.DictGet(res, "Font");
+				const int32 nf = doc.DictSize(fonts);
+				for (int32 k = 0; k < nf; ++k) {
+					const NkPdfVal f = doc.DictValueAt(fonts, k);
+					if (!f.IsDictLike())
+						continue;
+					bool deja = false;
+					for (nk_size u = 0; u < vues.Size(); ++u)
+						if (vues[u] == f.a) {
+							deja = true;
+							break;
+						}
+					if (deja)
+						continue;
+					vues.PushBack(f.a);
+					++s.polices;
+
+					const bool aToUni = doc.DictGet(f, "ToUnicode").kind == NK_PDF_STREAM;
+					if (!aToUni)
+						++s.policesSansToUni;
+
+					// /Differences peut être sur la police elle-même…
+					NkPdfVal enc = doc.DictGet(f, "Encoding");
+					bool aDiff = enc.IsDictLike() && doc.DictGet(enc, "Differences").kind == NK_PDF_ARRAY;
+					if (aDiff)
+						++s.policesDiff;
+
+					// … et le programme dans le descripteur, qui peut être celui
+					// du descendant pour une police composite.
+					NkPdfVal desc = doc.DictGet(f, "FontDescriptor");
+					if (!desc.IsDictLike()) {
+						const NkPdfVal df = doc.DictGet(f, "DescendantFonts");
+						if (df.kind == NK_PDF_ARRAY && df.b > 0)
+							desc = doc.DictGet(doc.ArrayAt(df, 0), "FontDescriptor");
+					}
+					const NkPdfVal ff3 = doc.DictGet(desc, "FontFile3");
+					if (ff3.kind == NK_PDF_STREAM) {
+						++s.policesFontFile3;
+						if (doc.NameIs(doc.DictGet(ff3, "Subtype"), "Type1C")) {
+							++s.policesType1C;
+							// « Muette » = rien pour savoir ce que ses glyphes
+							// représentent. C'est exactement la population que le
+							// charset CFF pourrait rendre lisible.
+							if (!aToUni && !aDiff)
+								++s.policesType1CMuettes;
+						}
+					}
+				}
 			}
 		}
 

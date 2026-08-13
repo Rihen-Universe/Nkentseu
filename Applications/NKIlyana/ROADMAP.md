@@ -369,6 +369,48 @@ pages ne sont jamais décodées.
 | **4** | `/Dests` + `/Outlines` | 55 % / 21 % | découpage naturel en chapitres ; `/Dests` est la dépendance technique de 3 et 5 |
 | **5** | `/Annots` `/Link` | 73 % | 56 051 liens ; les URL valent pour les citations. Réutilise la résolution de destinations |
 
+### 📐 Charset CFF — mesuré, et DIFFÉRÉ (2026-08-13)
+
+Hypothèse proposée par Rihen : les 20 polices muettes des documents LaTeX ne
+seraient pas indéchiffrables, mais des **CFF** (`/FontFile3 /Subtype /Type1C`)
+dont les noms de glyphes sont enfermés dans le charset — jamais analysé
+(`charset` apparaît zéro fois dans `NkPdfFont.cpp`). Le dispositif d'aval
+existe déjà : nom → AGL → Unicode, celui qui a récupéré 24 des 29 refusés.
+
+**L'hypothèse technique est JUSTE.** La mesure la confirme :
+
+| | documents | % | polices |
+|---|---|---|---|
+| avec un `/FontFile3` (CFF) | 20 | 8 % | — |
+| avec du `/Subtype /Type1C` | 18 | 7 % | 854 |
+| **dont MUETTES** (ni `/ToUnicode` ni `/Differences`) | **12** | **5 %** | **563** |
+
+12 documents, donc au-dessus du seuil de « une dizaine » — le chantier semblait
+décidé. **Mais le croisement avec le balayage de lecture le renverse :**
+
+| verdict des 12 | nombre |
+|---|---|
+| **déjà lus avec succès** | **10** |
+| en échec (`lightning.pdf`, `phys_model.pdf`) | **2** |
+
+Et parmi les 10 déjà lus, le taux de caractères illisibles est de **0 % à
+0,3 %** — sauf `Creajeux-plaquette.pdf` (24,8 %, une plaquette graphique).
+Autrement dit, ces polices Type1C muettes servent des **symboles secondaires**
+dans des documents dont le corps de texte se lit parfaitement.
+
+> **Gain réel estimé : 2 documents débloqués et 1 amélioré, pas 12.** Le
+> compteur brut disait 12 ; la question utile — « combien de documents cela
+> rend-il lisibles ? » — répond 2. C'est le même piège que le LZW, attrapé
+> cette fois **avant** d'écrire le code.
+
+**Décision : DIFFÉRÉ, au profit de `/StructTreeRoot` (55 % du corpus).** Le
+chantier CFF reste juste techniquement et sera rouvert si le fonds évolue (il
+suffirait d'une série de documents LaTeX récents pour changer le calcul) — le
+mode `--sonder` mesure désormais cette population, la question se retranchera
+en une commande.
+
+---
+
 ### 🔶 PHASE 2 — LZWDecode livré, nécessaire mais PAS suffisant
 
 **Le filtre marche, et la mesure le prouve** (`Gdmphys1.pdf`) :
