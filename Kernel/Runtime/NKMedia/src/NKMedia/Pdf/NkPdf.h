@@ -147,6 +147,27 @@ namespace nkentseu {
 					// Nom du 1er filtre non supporte rencontre (diagnostic), ou "".
 					const NkString &UnsupportedFilter() const { return mUnsupported; }
 
+					// ── Racines du document ──
+					//
+					// Le TRAILER porte /Info (metadonnees) et /Encrypt ; le CATALOGUE
+					// porte /Outlines, /Names, /Dests, /AcroForm, /StructTreeRoot,
+					// /Metadata et /Lang. Sans ces deux points d'entree, AUCUNE couche
+					// exterieure ne peut atteindre autre chose que les pages — elles
+					// sont donc le minimum indispensable a toute extension en lecture
+					// (NkPdfInfo et suivants), et n'exposent rien de plus que ce que le
+					// modele d'objets rend deja public.
+					//
+					// Objet nul si le document n'est pas charge.
+					NkPdfVal Trailer() const {
+						return (mTrailer >= 0 && (usize)mTrailer < mVals.Size())
+								   ? mVals[(usize)mTrailer]
+								   : NkPdfVal();
+					}
+					NkPdfVal Catalog() const {
+						return (mRoot >= 0 && (usize)mRoot < mVals.Size()) ? mVals[(usize)mRoot]
+																		   : NkPdfVal();
+					}
+
 				private:
 					// ── Analyse lexicale/syntaxique ──
 					struct Lexer;
