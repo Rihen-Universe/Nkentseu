@@ -86,6 +86,36 @@ namespace nkentseu {
 								   int32 pageHeritee, int32 niveau, NkVector<int32> &vus, int32 &rang);
 			};
 
+			// Part du texte d'un document qui n'est rattachee a AUCUN noeud de
+			// l'arbre, entre 0 et 1. Rend -1 si le document n'a pas de texte.
+			//
+			// A QUOI CA SERT, ET POURQUOI C'EST OBLIGATOIRE. Declarer un
+			// /StructTreeRoot ne veut pas dire que le balisage est exploitable :
+			// mesure du 13/08/2026 sur les 140 documents balises du corpus —
+			//   < 1 % hors structure : 91 documents      10-25 % : 5
+			//   1-5 %                : 19                25-50 % : 5
+			//   5-10 %               : 8                 >= 50 % : 12 (dont trois a 99,5 %, 100 %, 100 %)
+			// Sur un document ou la moitie du texte n'a pas de MCID, appliquer
+			// l'ordre logique DISLOQUE le document au lieu de le redresser : le
+			// texte non rattache part en fin de page, et il perd au passage le tri
+			// par ligne que l'assemblage visuel lui appliquait.
+			//
+			// ⚠️ Aucun invariant de conservation ne verrait ce degat : le
+			// multiensemble des caracteres est identique, rien n'est perdu, tout
+			// est DEPLACE. D'ou cette mesure explicite.
+			// Le document n'est PAS const : rendre une page charge des objets a la
+			// demande (l'arene se remplit paresseusement). Le forcer par un
+			// const_cast masquerait ce fait a l'appelant.
+			double NkPdfPartHorsStructure(NkPdfDoc &doc, const NkPdfStructIndex &index);
+
+			// Seuil au-dela duquel on GARDE l'ordre visuel. 10 % : sous ce seuil,
+			// le texte non rattache est fait d'en-tetes et de folios (quelques mots
+			// par page, dont le deplacement en fin de page ne coute rien) ; au-dela,
+			// c'est du corps de texte, et le deplacer serait une dislocation. Le
+			// chiffre suit la distribution ci-dessus : il laisse 126 documents sur
+			// 140 en ordre logique et met les 22 mal balises a l'abri.
+			static const double kNkPdfSeuilHorsStructure = 0.10;
+
 			// Assemble les items d'UNE page dans l'ordre de la structure.
 			//
 			// Les items dont le MCID est inconnu de l'arbre sont conserves et places
