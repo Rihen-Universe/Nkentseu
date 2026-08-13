@@ -447,6 +447,33 @@ namespace nkentseu {
 				// ── LE SOL ──────────────────────────────────────────────────────
 				// Il recoit les ombres sans en projeter : un sol qui alimente la
 				// cascade la gaspille pour une surface qu'on ne voit qu'a plat.
+				// ── LE FOND DE LA VIGNETTE : UN PANNEAU DAMIER ─────────────────
+				// Pas de sol en perspective pour une icone de liste, mais pas de
+				// fond uni non plus : « capturer sans fond et mettre sur le meme
+				// fond que le materiau de droite » (Rihen, 14 aout). Un panneau
+				// VERTICAL derriere la sphere donne exactement le damier plat du
+				// rendu analytique -- et il le donne DANS le rendu, sans dependre
+				// de ce que le post-traitement laisse de l'alpha. Deviner le fond
+				// apres coup sur la couleur des pixels ne marchait pas : c'est ce
+				// que je venais d'essayer.
+				if (!avecSol && s.meshSol.IsValid()) {
+					NkDrawCall3D fond;
+					fond.mesh = s.meshSol;
+					// Le plan du moteur est horizontal : un quart de tour sur X le
+					// dresse face a la camera.
+					fond.transform = NkMat4f::Translate({0.f, 0.9f, -1.6f}) *
+									 NkMat4f::RotationX(NkAngle::FromRad(1.5707963f)) *
+									 NkMat4f::Scale({7.f, 1.f, 7.f});
+					fond.aabb = {{-4.f, -3.f, -1.7f}, {4.f, 4.f, -1.5f}};
+					if (s.matSol)
+						fond.material = s.matSol->GetInstHandle();
+					fond.tint = {1.f, 1.f, 1.f};
+					fond.roughness = 1.f;
+					fond.metallic = 0.f;
+					fond.castShadow = false;
+					fond.receiveShadow = false; // un fond de vignette ne porte pas d'ombre
+					r3d->Submit(fond);
+				}
 				if (avecSol && s.meshSol.IsValid()) {
 					NkDrawCall3D dc;
 					dc.mesh = s.meshSol;

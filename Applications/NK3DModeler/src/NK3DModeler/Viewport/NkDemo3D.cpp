@@ -12383,6 +12383,36 @@ namespace nkentseu {
 			NkMatThumbFile gThumbs;
 		} // namespace
 
+		// ── L'INSTANCE D'APERCU D'UN MATERIAU, CONSTRUITE A LA DEMANDE ──────
+		// Reconstruite QUAND L'ETAT CHANGE, pas a chaque frame : sans temoin on
+		// recreerait une instance soixante fois par seconde, et la collection du
+		// renderer d'apercu (64 emplacements) serait pleine en une seconde.
+		//
+		// LE TEMOIN EST L'ETAT ENTIER, compare octet a octet. Une signature faite
+		// d'une somme de quelques champs ne voyait pas les autres : changer
+		// l'emissif, une texture, un reglage toon ou l'anisotropie ne rafraichissait
+		// rien, et l'apercu mentait. Comparer la structure entiere ne peut rien
+		// manquer, et un reglage ajoute demain sera couvert sans qu'on y pense.
+		//
+		// APPELEE AUSSI PAR LA CAPTURE DE VIGNETTE : sans cela, seuls les materiaux
+		// deja ouverts dans le panneau avaient une instance, et les autres n'en
+		// recevaient aucune -- il fallait « partir dans le materiau » pour que sa
+		// vignette se fasse (Rihen, 14 aout).
+		static void HostEnsurePrevMat(int32 slot) {
+			if (slot < 0 || slot >= kNkvpMaxProjMats || !nkvpProjMats[slot].used)
+				return;
+			static NkVpProjMat sVuPrev[kNkvpMaxProjMats] = {};
+			static bool sVuInit[kNkvpMaxProjMats] = {};
+			const NkVpProjMat &pm = nkvpProjMats[slot];
+			if (!nkvpProjMatPrev[slot] || !sVuInit[slot] ||
+				memcmp(&sVuPrev[slot], &pm, sizeof(NkVpProjMat)) != 0) {
+				memcpy(&sVuPrev[slot], &pm, sizeof(NkVpProjMat));
+				sVuInit[slot] = true;
+				NkvpMatCibleScope bascule(nkvpProjMatPrev, nk3d::matprev::Renderer());
+				HostMatRebuildEngine(slot);
+			}
+		}
+
 		const char *Demo3DHostProjMatThumb(int32 i) {
 			return (i >= 0 && i < kNkvpMaxProjMats) ? nkvpProjMatThumb[i].CStr() : "";
 		}
@@ -12424,30 +12454,6 @@ namespace nkentseu {
 					if (im.Create((uint32)kThumbPx, (uint32)kThumbPx,
 								  math::NkColor(0, 0, 0, 255), 4)) {
 						memcpy(im.Pixels(), px, sizeof(px));
-						// ── LE DAMIER, COMPOSE SOUS LA SPHERE ───────────────
-						// La vignette doit avoir le MEME fond que les cartes au
-						// rendu analytique -- « pas de fond uni, ca doit etre comme
-						// les autres » (Rihen, 14 aout). Le rendu ne dessine pas le
-						// ciel pour elle, donc tout ce qui n'est pas l'objet est
-						// reste sur la couleur de nettoyage : on la remplace par le
-						// damier, exactement celui de bgAt.
-						{
-							uint8 *q = im.Pixels();
-							for (int32 y = 0; y < kThumbPx; ++y)
-								for (int32 x = 0; x < kThumbPx; ++x) {
-									uint8 *o = q + ((usize)y * kThumbPx + x) * 4u;
-									// Fond = pixel reste tres sombre ET opaque : la
-									// sphere, elle, est eclairee par la cle et
-									// l'appoint, jamais aussi noire sur toute sa
-									// surface.
-									if (o[0] > 10u || o[1] > 10u || o[2] > 10u)
-										continue;
-									const uint8 v =
-										((((uint32)x >> 4) ^ ((uint32)y >> 4)) & 1u) ? 78u : 26u;
-									o[0] = o[1] = o[2] = v;
-									o[3] = 255u;
-								}
-						}
 						// PNG D'ABORD, base64 ENSUITE. Les pixels bruts en base64
 						// pesteraient 87 Ko par materiau ; compresses, il en reste
 						// quelques-uns -- pour la meme image.
@@ -12478,6 +12484,9 @@ namespace nkentseu {
 							 gThumbs.chemin[i]);
 				}
 				--gThumbs.nb;
+			// L'instance peut ne jamais avoir ete construite : ce materiau n'a
+				// peut-etre jamais ete ouvert dans le panneau.
+				HostEnsurePrevMat(sc);
 				if (sc >= 0 && sc < kNkvpMaxProjMats && nkvpProjMats[sc].used &&
 					nkvpProjMatPrev[sc]) {
 					NkDrawCall3D mt;
@@ -12505,27 +12514,7 @@ namespace nkentseu {
 			// application des reglages aurait fait deux verites sur ce qu'est un
 			// materiau, et la copie aurait diverge au premier reglage ajoute.
 			//
-			// Reconstruite QUAND L'ETAT CHANGE, pas a chaque frame : sans temoin on
-			// recreerait une instance soixante fois par seconde, et la collection
-			// du renderer d'apercu (64 emplacements) serait pleine en une seconde.
-			//
-			// LE TEMOIN EST L'ETAT ENTIER, compare octet a octet. Une signature
-			// faite d'une somme de quelques champs -- ce que j'avais ecrit -- ne
-			// voyait pas les autres : changer l'emissif, une texture, un reglage
-			// toon ou l'anisotropie ne rafraichissait rien, et l'apercu mentait
-			// (Rihen : « changer les proprietes du materiau doit s'appliquer »).
-			// Comparer la structure entiere ne peut rien manquer, et le jour ou un
-			// reglage s'ajoute, il est couvert sans qu'on ait a y penser.
-			static NkVpProjMat sVuPrev[kNkvpMaxProjMats] = {};
-			static bool sVuInit[kNkvpMaxProjMats] = {};
-			const NkVpProjMat &pm = nkvpProjMats[slot];
-			if (!nkvpProjMatPrev[slot] || !sVuInit[slot] ||
-				memcmp(&sVuPrev[slot], &pm, sizeof(NkVpProjMat)) != 0) {
-				memcpy(&sVuPrev[slot], &pm, sizeof(NkVpProjMat));
-				sVuInit[slot] = true;
-				NkvpMatCibleScope bascule(nkvpProjMatPrev, nk3d::matprev::Renderer());
-				HostMatRebuildEngine(slot);
-			}
+			HostEnsurePrevMat(slot);
 			NkMaterial *me = nkvpProjMatPrev[slot];
 			if (!me) {
 				static bool sDit = false;
