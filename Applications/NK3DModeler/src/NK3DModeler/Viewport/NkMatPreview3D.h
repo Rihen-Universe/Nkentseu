@@ -164,6 +164,12 @@ namespace nkentseu {
 				return true;
 			}
 
+			/// LE RENDERER DE L'APERCU, pour que l'hote y construise ses instances
+			/// de materiau. Nul tant qu'Init n'a pas reussi.
+			inline NkRenderer *Renderer() {
+				return St().ok ? St().rd : nullptr;
+			}
+
 			/// Redimensionne la cible si le panneau a change de largeur. Rendre a la
 			/// taille exacte d'affichage evite l'etirement ET le flou.
 			inline void EnsureSize(uint32 w, uint32 h) {

@@ -950,6 +950,22 @@ namespace nkentseu {
 		// de materiau (meme mecanique que le sol carrele).
 		static NkTexHandle nkvpProjMatChanTex[kNkvpMaxProjMats][kNkvpMatChanCount] = {};
 		static NkMaterial *nkvpProjMatEng[kNkvpMaxProjMats] = {};
+		/// LES MEMES MATERIAUX, DANS LE RENDERER DE L'APERCU. Une instance
+		/// appartient au systeme de materiaux qui l'a creee : chaque renderer a sa
+		/// collection (64 emplacements, son UBO). Passer une instance de la vue 3D
+		/// au renderer d'apercu n'a donc aucun sens -- il lui faut les siennes,
+		/// construites par le MEME code depuis le MEME etat.
+		static NkMaterial *nkvpProjMatPrev[kNkvpMaxProjMats] = {};
+		/// OU ECRIVENT LES FACADES, et AVEC QUEL renderer. Par defaut la vue 3D ; le
+		/// temps de reconstruire un apercu, on bascule sur l'autre jeu. C'est ce qui
+		/// evite de recopier les quarante lignes d'application des reglages -- une
+		/// copie aurait diverge au premier reglage ajoute.
+		static NkMaterial **nkvpMatCible = nkvpProjMatEng;
+		static renderer::NkRenderer *nkvpMatRdCible = nullptr;
+		static inline NkMaterial *&NkvpMatEng(int32 i) { return nkvpMatCible[i]; }
+		/// Le renderer sur lequel les facades travaillent. Declare ici, DEFINI plus
+		/// bas : `hst` (l'etat de l'hote) n'existe pas encore a cette hauteur.
+		static renderer::NkRenderer *NkvpMatRd();
 		static int32 nkvpMatSerial = 0; // numerote « Materiau.NNN », jamais reutilise
 		// Assignation par NOEUD, stockee en indice+1 : le zero de l'init
 		// statique veut naturellement dire « aucun materiau ». C'est le
@@ -12268,6 +12284,36 @@ namespace nkentseu {
 			HostRecTick(dt);
 		}
 
+		/// Reconstruit l'instance moteur d'un materiau depuis son etat. Definie
+		/// bien plus bas, avec les facades qu'elle appelle ; declaree ICI parce que
+		/// l'apercu, lui, s'en sert des cette hauteur.
+		static void HostMatRebuildEngine(int32 i);
+
+		// Le renderer sur lequel les facades de materiau travaillent : celui de
+		// l'apercu pendant qu'on reconstruit ses instances, celui de la vue sinon.
+		static renderer::NkRenderer *NkvpMatRd() {
+			return nkvpMatRdCible ? nkvpMatRdCible : hst.ctx.renderer;
+		}
+
+		// ── LA BASCULE, EN PORTEE ───────────────────────────────────────────
+		// Elle remet TOUJOURS la cible d'origine en sortant, y compris sur un
+		// retour anticipe : une cible restee sur l'apercu ferait ecrire les
+		// reglages de l'utilisateur dans le mauvais renderer -- un defaut qui ne
+		// se verrait qu'a la prochaine modification, donc tres loin de sa cause.
+		struct NkvpMatCibleScope {
+				NkMaterial **oldT;
+				renderer::NkRenderer *oldR;
+				NkvpMatCibleScope(NkMaterial **t, renderer::NkRenderer *r)
+					: oldT(nkvpMatCible), oldR(nkvpMatRdCible) {
+					nkvpMatCible = t;
+					nkvpMatRdCible = r;
+				}
+				~NkvpMatCibleScope() {
+					nkvpMatCible = oldT;
+					nkvpMatRdCible = oldR;
+				}
+		};
+
 		void Demo3DHostRegisterInto(void *guiBackend) {
 			if (!hst.ok || !hst.rt || !guiBackend)
 				return;
@@ -12294,11 +12340,36 @@ namespace nkentseu {
 			if (!nk3d::matprev::Init(hst.ctx.device, (uint32)(w > 0 ? w : 260),
 									 (uint32)(h > 0 ? h : 150)))
 				return;
-			// L'instance moteur porte le TYPE, donc le shader. C'est tout l'interet
-			// de ce chemin : le verre est rendu par le shader du verre.
-			NkMaterial *me = nkvpProjMatEng[slot];
-			if (!me)
+			// ── L'INSTANCE DU RENDERER D'APERCU ─────────────────────────────
+			// Reconstruite par `HostMatRebuildEngine`, la MEME fonction que pour
+			// la vue 3D : on bascule seulement sa destination. Recopier son
+			// application des reglages aurait fait deux verites sur ce qu'est un
+			// materiau, et la copie aurait diverge au premier reglage ajoute.
+			//
+			// Reconstruite QUAND L'ETAT CHANGE, pas a chaque frame : une signature
+			// des reglages sert de temoin. Sans elle on recreerait une instance
+			// soixante fois par seconde.
+			static float32 sSigPrev[kNkvpMaxProjMats] = {};
+			const NkVpProjMat &pm = nkvpProjMats[slot];
+			const float32 sig = pm.albedo[0] * 1.7f + pm.albedo[1] * 2.3f + pm.albedo[2] * 3.1f +
+								pm.rough * 5.3f + pm.metal * 7.9f + pm.alpha * 11.1f +
+								(float32)pm.matType * 13.7f + pm.clearcoat * 17.3f +
+								pm.subsurface * 19.1f + pm.sheenV * 23.9f + 1.f;
+			if (!nkvpProjMatPrev[slot] || sSigPrev[slot] != sig) {
+				sSigPrev[slot] = sig;
+				NkvpMatCibleScope bascule(nkvpProjMatPrev, nk3d::matprev::Renderer());
+				HostMatRebuildEngine(slot);
+			}
+			NkMaterial *me = nkvpProjMatPrev[slot];
+			if (!me) {
+				static bool sDit = false;
+				if (!sDit) {
+					sDit = true;
+					NkLog::Instance().Info(
+						"[apercu] pas d'instance de materiau pour l'emplacement {0}", slot);
+				}
 				return;
+			}
 			nk3d::matprev::RenderOne((NkICommandBuffer *)cmd, me->GetInstHandle(),
 									 (int32)nkvpProjMats[slot].prevShape, (uint32)(w > 0 ? w : 260),
 									 (uint32)(h > 0 ? h : 150), (float32)hst.ctx.totalTime);
@@ -13876,7 +13947,7 @@ namespace nkentseu {
 			if (i < 0 || i >= kNkvpMaxProjMats || !nkvpProjMats[i].used || chan < 0 ||
 				chan >= kNkvpMatChanCount)
 				return false;
-			auto *matS = hst.ctx.renderer ? hst.ctx.renderer->GetMaterials() : nullptr;
+			auto *matS = NkvpMatRd() ? NkvpMatRd()->GetMaterials() : nullptr;
 			// « - » ou vide RETIRE la texture : retour aux valeurs numeriques.
 			// Le moteur reprend sa texture PAR DEFAUT (blanc pour la couleur,
 			// normale plate...) : poser un handle invalide laisserait l'ancienne
@@ -13884,24 +13955,23 @@ namespace nkentseu {
 			if (!path || !path[0] || (path[0] == '-' && !path[1])) {
 				nkvpProjMats[i].maps[chan][0] = 0;
 				nkvpProjMatChanTex[i][chan] = NkTexHandle{};
-				if (nkvpProjMatEng[i]) {
+				if (NkvpMatEng(i)) {
 					switch (chan) {
-						case 0: nkvpProjMatEng[i]->SetAlbedoMap(NkTexHandle{}); break;
-						case 1: nkvpProjMatEng[i]->SetNormalMap(NkTexHandle{}, 0.f); break;
-						case 2: nkvpProjMatEng[i]->SetORMMap(NkTexHandle{}); break;
-						case 3: nkvpProjMatEng[i]->SetEmissiveMap(NkTexHandle{}); break;
+						case 0: NkvpMatEng(i)->SetAlbedoMap(NkTexHandle{}); break;
+						case 1: NkvpMatEng(i)->SetNormalMap(NkTexHandle{}, 0.f); break;
+						case 2: NkvpMatEng(i)->SetORMMap(NkTexHandle{}); break;
+						case 3: NkvpMatEng(i)->SetEmissiveMap(NkTexHandle{}); break;
 						default:
 							// HAUTEUR : retour au blanc 1x1 (surface plate) — un
 							// handle invalide laisserait l'ancienne carte au GPU.
-							if (auto *tl = hst.ctx.renderer ? hst.ctx.renderer->GetTextures()
-															: nullptr)
-								nkvpProjMatEng[i]->SetTexture("height", tl->GetWhite1x1());
+							if (auto *tl = NkvpMatRd() ? NkvpMatRd()->GetTextures() : nullptr)
+								NkvpMatEng(i)->SetTexture("height", tl->GetWhite1x1());
 							break;
 					}
 				}
 				return true;
 			}
-			auto *texL = hst.ctx.renderer ? hst.ctx.renderer->GetTextures() : nullptr;
+			auto *texL = NkvpMatRd() ? NkvpMatRd()->GetTextures() : nullptr;
 			if (!texL || !matS)
 				return false;
 			// Le chargement fait foi : un chemin qui ne charge pas n'est PAS
@@ -13925,19 +13995,19 @@ namespace nkentseu {
 				return false;
 			}
 			nkvpProjMatChanTex[i][chan] = t;
-			if (!nkvpProjMatEng[i])
-				nkvpProjMatEng[i] = NkMaterial::Create(matS, NkMaterialType::NK_PBR_METALLIC);
-			if (nkvpProjMatEng[i]) {
+			if (!NkvpMatEng(i))
+				NkvpMatEng(i) = NkMaterial::Create(matS, NkMaterialType::NK_PBR_METALLIC);
+			if (NkvpMatEng(i)) {
 				switch (chan) {
-					case 0: nkvpProjMatEng[i]->SetAlbedoMap(t); break;
+					case 0: NkvpMatEng(i)->SetAlbedoMap(t); break;
 					case 1:
-						nkvpProjMatEng[i]->SetNormalMap(t, nkvpProjMats[i].nrmStrength);
+						NkvpMatEng(i)->SetNormalMap(t, nkvpProjMats[i].nrmStrength);
 						break;
-					case 2: nkvpProjMatEng[i]->SetORMMap(t); break;
-					case 3: nkvpProjMatEng[i]->SetEmissiveMap(t); break;
+					case 2: NkvpMatEng(i)->SetORMMap(t); break;
+					case 3: NkvpMatEng(i)->SetEmissiveMap(t); break;
 					default:
-						nkvpProjMatEng[i]->SetTexture("height", t);
-						nkvpProjMatEng[i]->SetParallaxScale(nkvpProjMats[i].parallax);
+						NkvpMatEng(i)->SetTexture("height", t);
+						NkvpMatEng(i)->SetParallaxScale(nkvpProjMats[i].parallax);
 						break;
 				}
 			}
@@ -13963,13 +14033,13 @@ namespace nkentseu {
 			NkVpProjMat &m = nkvpProjMats[i];
 			m.nrmStrength = nrm < 0.f ? 0.f : (nrm > 2.f ? 2.f : nrm);
 			m.emiStrength = emi < 0.f ? 0.f : (emi > 20.f ? 20.f : emi);
-			if (!nkvpProjMatEng[i])
+			if (!NkvpMatEng(i))
 				return;
 			// L'intensite de relief vit DANS SetNormalMap : la reposer exige de
 			// redonner la texture -- sinon le curseur n'aurait aucun effet.
 			if (m.maps[1][0] && nkvpProjMatChanTex[i][1].IsValid())
-				nkvpProjMatEng[i]->SetNormalMap(nkvpProjMatChanTex[i][1], m.nrmStrength);
-			nkvpProjMatEng[i]->SetEmissive({m.emissive[0], m.emissive[1], m.emissive[2]},
+				NkvpMatEng(i)->SetNormalMap(nkvpProjMatChanTex[i][1], m.nrmStrength);
+			NkvpMatEng(i)->SetEmissive({m.emissive[0], m.emissive[1], m.emissive[2]},
 										   m.emiStrength);
 		}
 		// ── ECHELLE DU PARALLAX (canal Hauteur — etape 3, 10 aout) ──────────
@@ -13985,8 +14055,8 @@ namespace nkentseu {
 				return;
 			NkVpProjMat &m = nkvpProjMats[i];
 			m.parallax = scale < 0.f ? 0.f : (scale > 0.2f ? 0.2f : scale);
-			if (nkvpProjMatEng[i])
-				nkvpProjMatEng[i]->SetParallaxScale(m.parallax);
+			if (NkvpMatEng(i))
+				NkvpMatEng(i)->SetParallaxScale(m.parallax);
 		}
 		int32 Demo3DHostProjMatShadowMode(int32 i) {
 			if (i < 0 || i >= kNkvpMaxProjMats || !nkvpProjMats[i].used)
@@ -13998,8 +14068,8 @@ namespace nkentseu {
 				return;
 			NkVpProjMat &m = nkvpProjMats[i];
 			m.shadowMode = (mode < 0 || mode > 2) ? 1 : mode;
-			if (nkvpProjMatEng[i])
-				nkvpProjMatEng[i]->SetTransShadowMode((uint32)m.shadowMode);
+			if (NkvpMatEng(i))
+				NkvpMatEng(i)->SetTransShadowMode((uint32)m.shadowMode);
 		}
 		void Demo3DHostProjMatEmissive(int32 i, float32 *rgb) {
 			if (!rgb)
@@ -14014,8 +14084,8 @@ namespace nkentseu {
 			NkVpProjMat &m = nkvpProjMats[i];
 			for (int32 k = 0; k < 3; ++k)
 				m.emissive[k] = rgb[k] < 0.f ? 0.f : rgb[k];
-			if (nkvpProjMatEng[i])
-				nkvpProjMatEng[i]->SetEmissive({m.emissive[0], m.emissive[1], m.emissive[2]},
+			if (NkvpMatEng(i))
+				NkvpMatEng(i)->SetEmissive({m.emissive[0], m.emissive[1], m.emissive[2]},
 											   m.emiStrength);
 		}
 		// ── MELANGE DE MATERIAUX (etape 1 — Rihen : « mixer, operations, comme
@@ -14029,7 +14099,7 @@ namespace nkentseu {
 		// (couleur/metal/rugosite), pas les textures des deux materiaux — le
 		// nodal NKGraphe portera ce chantier-la.
 		static void HostMatRebuildEngine(int32 i) {
-			auto *matS = hst.ctx.renderer ? hst.ctx.renderer->GetMaterials() : nullptr;
+			auto *matS = NkvpMatRd() ? NkvpMatRd()->GetMaterials() : nullptr;
 			if (!matS || i < 0 || i >= kNkvpMaxProjMats || !nkvpProjMats[i].used)
 				return;
 			NkVpProjMat &m = nkvpProjMats[i];
@@ -14037,9 +14107,9 @@ namespace nkentseu {
 			const bool mix = bIdx >= 0 && bIdx < kNkvpMaxProjMats && bIdx != i &&
 							 nkvpProjMats[bIdx].used;
 			// Le TYPE choisi fait le gabarit ; le melange prime (LAYERED_V1).
-			nkvpProjMatEng[i] = NkMaterial::Create(
+			NkvpMatEng(i) = NkMaterial::Create(
 				matS, mix ? NkMaterialType::NK_LAYERED_V1 : (NkMaterialType)m.matType);
-			if (!nkvpProjMatEng[i])
+			if (!NkvpMatEng(i))
 				return;
 			if (mix) {
 				const NkVpProjMat &b = nkvpProjMats[bIdx];
@@ -14057,7 +14127,7 @@ namespace nkentseu {
 					NK_LAYER_MASK_VCOLOR_B,	 NK_LAYER_MASK_VCOLOR_A, NK_LAYER_MASK_UV_X,
 					NK_LAYER_MASK_UV_Y};
 				const int32 s = m.mixSource < 0 ? 0 : (m.mixSource > 6 ? 6 : (int32)m.mixSource);
-				nkvpProjMatEng[i]
+				NkvpMatEng(i)
 					->SetLayerV1(0, l0)
 					->SetLayerV1(1, l1)
 					->SetLayerV1Mask(1, kSrc[s], m.mixFactor)
@@ -14082,12 +14152,12 @@ namespace nkentseu {
 				}
 			// Les reglages sans facade historique : opacite, anisotropie, sheen,
 			// et la famille toon quand le type l'est.
-			nkvpProjMatEng[i]
+			NkvpMatEng(i)
 				->SetAlbedo({m.albedo[0], m.albedo[1], m.albedo[2]}, m.alpha)
 				->SetAnisotropy(m.aniso)
 				->SetSheen(m.sheenV);
 			if (m.matType == 20 || m.matType == 21 || m.matType == 22) {
-				nkvpProjMatEng[i]
+				NkvpMatEng(i)
 					->SetToonThreshold(m.toonThresh)
 					->SetToonSmooth(m.toonSmooth)
 					->SetToonShadow({m.toonShadow[0], m.toonShadow[1], m.toonShadow[2]})
@@ -14159,8 +14229,8 @@ namespace nkentseu {
 			m.alpha = alpha < 0.f ? 0.f : (alpha > 1.f ? 1.f : alpha);
 			m.aniso = aniso < -1.f ? -1.f : (aniso > 1.f ? 1.f : aniso);
 			m.sheenV = sheen < 0.f ? 0.f : (sheen > 1.f ? 1.f : sheen);
-			if (nkvpProjMatEng[i])
-				nkvpProjMatEng[i]
+			if (NkvpMatEng(i))
+				NkvpMatEng(i)
 					->SetAlbedo({m.albedo[0], m.albedo[1], m.albedo[2]}, m.alpha)
 					->SetAnisotropy(m.aniso)
 					->SetSheen(m.sheenV);
@@ -14201,8 +14271,8 @@ namespace nkentseu {
 			for (int32 k = 0; k < 3; ++k)
 				m.rimCol[k] = v14[10 + k];
 			m.specHard = v14[13];
-			if (nkvpProjMatEng[i])
-				nkvpProjMatEng[i]
+			if (NkvpMatEng(i))
+				NkvpMatEng(i)
 					->SetToonThreshold(m.toonThresh)
 					->SetToonSmooth(m.toonSmooth)
 					->SetToonShadow({m.toonShadow[0], m.toonShadow[1], m.toonShadow[2]})
