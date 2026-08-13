@@ -30,6 +30,29 @@ namespace nkentseu {
 				p.Fill(r, NkRole::PanelBg, rounding);
 		}
 
+		// ── OUVRIR / FERMER LA MODALE « AJOUTER UN MATERIAU » ───────────────────
+		// UNE SEULE PORTE, parce que deux etats decrivent la meme chose : le
+		// drapeau de l'application (`matAddOpen`) et le cadre du kit
+		// (`matAddModal`). Les fermer separement laisse le cadre arme.
+		//
+		// CE QUE COUTAIT LA PORTE DEROBEE (Rihen, 13 aout : « je dois appuyer
+		// 2 fois sur + ») : le bouton « Nouveau » posait `matAddOpen = false` sans
+		// toucher au cadre. Or le kit se defend du clic qui l'OUVRE grace a
+		// `posInit` -- tant qu'il est faux, il ignore le clic tombant hors de la
+		// boite. En sortant par la porte derobee, `posInit` restait VRAI : a la
+		// reouverture, le clic sur « + » comptait comme un clic « a cote » et la
+		// refermait dans la meme frame. Le premier clic n'ouvrait donc rien.
+		inline void NkMatAddSetOpen(NkModelerState &st, bool ouvert) {
+			st.matAddOpen = ouvert;
+			st.matAddJustOpened = ouvert;
+			if (!ouvert) {
+				st.matAddModal.open = false;
+				st.matAddModal.posInit = false; // re-arme la garde du clic d'ouverture
+				st.matAddModal.dragging = false;
+				st.matAddSel = -1;
+			}
+		}
+
 		// Ligne a SAUTER dans la hierarchie : noeud supprime ou slot libre.
 		inline bool NkHierNodeSkip(int32 node) {
 			if (demo::Demo3DHostNodeDeleted(node))

@@ -1596,8 +1596,17 @@ int nkmain(const NkEntryState &entry) {
 					// apres coup n'aurait vecu qu'en memoire -- exactement la
 					// faute qui a coute la matinee (cf. « agir a la source »).
 					demo::Demo3DHostProjMatSetType(ni, st.picker.MatNewTypeValue());
-					// Le materiau naissant se lie a l'objet actif, s'il y en a un.
-					const int32 an = demo::Demo3DHostActiveObject();
+					// LE MATERIAU NAISSANT SE LIE A L'OBJET ACTIF. Le meme repli
+					// que partout ailleurs : `Demo3DHostActiveObject` ne connait
+					// que les objets du MOTEUR et rend -1 pour les autres (vides,
+					// lumieres, cameras), pour lesquels l'application tient
+					// `activeEmpty`. Sans ce repli, le materiau etait bien cree
+					// mais n'apparaissait dans la liste d'aucun objet — « ca ne
+					// s'ajoute pas directement a la liste des materiaux de l'objet
+					// selectionne » (Rihen, 13 aout).
+					const int32 an = demo::Demo3DHostActiveObject() >= 0
+										 ? demo::Demo3DHostActiveObject()
+										 : st.activeEmpty;
 					if (an >= 0)
 						(void)demo::Demo3DHostNodeMatAdd(an, ni);
 					nk3d::NkMarkDirty(st);
@@ -1608,6 +1617,19 @@ int nkmain(const NkEntryState &entry) {
 					// a echoue » (Rihen, 13 aout). La carte d'abord (c'est elle qui
 					// porte le chemin du fichier), l'ecriture ensuite.
 					nk3d::NkBrowserSyncMats(st);
+					// ── ET DANS LE DOSSIER CHOISI ───────────────────────────
+					// `NkBrowserSyncMats` cree les cartes manquantes A LA RACINE :
+					// il repare un lien, il ne peut pas deviner ou l'utilisateur
+					// voulait ranger. Le dossier retenu dans le selecteur est donc
+					// pose ICI, avant l'ecriture -- c'est `browserParent` qui
+					// decide du chemin du `.nkmat` (NkAsRelFor).
+					const int32 dossier = nk3d::NkAsFolderFromAbs(
+						st, st.projectRoot, st.picker.pickerResultPath);
+					for (int32 b3 = 0; b3 < st.browserCount; ++b3)
+						if (st.browserKind[b3] == 2 && st.browserMat[b3] == ni + 1) {
+							st.browserParent[b3] = dossier;
+							break;
+						}
 					NkString errNew;
 					if (!nk3d::NkProjectWriteAssets(proj.root, st, &errNew, -1))
 						nkentseu::NkLog::Instance().Info(

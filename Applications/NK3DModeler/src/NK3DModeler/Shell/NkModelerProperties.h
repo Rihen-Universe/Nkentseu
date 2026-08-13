@@ -2579,13 +2579,13 @@ namespace nkentseu {
 									  NkRole::PanelHeader, 3.f);
 							p.IconV(ab.x + S(5.f), ab.y, ab.h, NkIcon::Add, NkRole::Text, 11.f);
 							if (hit.Clicked("props.pm.add")) {
-								st.matAddOpen = !st.matAddOpen;
-								// Le clic qui OUVRE est encore actif quand le voile
-								// est peint plus bas dans la MEME frame : sans ce
-								// drapeau il l'attrape et referme aussitot — la
-								// modale « apparait et disparait directement »
-								// (Rihen, 12 aout).
-								st.matAddJustOpened = st.matAddOpen;
+								// Le clic qui OUVRE est encore actif quand la modale est
+								// peinte plus bas dans la MEME frame : sans garde, elle
+								// l'attrape et se referme aussitot — « apparait et
+								// disparait directement » (Rihen, 12 aout). Cette garde
+								// vit maintenant DES DEUX COTES (drapeau applicatif et
+								// cadre du kit) : `NkMatAddSetOpen` les arme ensemble.
+								NkMatAddSetOpen(st, !st.matAddOpen);
 							}
 						}
 						{
@@ -6589,7 +6589,7 @@ namespace nkentseu {
 				nkgui::NkGuiContext *gcM = NkUiCtx();
 				NkModelerPainter *poM = NkOvPainter();
 				if (!gcM || !poM) {
-					st.matAddOpen = false;
+					NkMatAddSetOpen(st, false);
 					return;
 				}
 				const float32 dw = S(300.f), dh = S(200.f);
@@ -6597,8 +6597,7 @@ namespace nkentseu {
 					editorkit::NkModalFrameDraw(*gcM, st.matAddModal, "Ajouter un materiau",
 												dw, dh);
 				if (!fr.visible || fr.closeAsked) {
-					st.matAddOpen = false;
-					st.matAddSel = -1;
+					NkMatAddSetOpen(st, false);
 					return;
 				}
 				// LE CONTENU SE PEINT SUR LA COUCHE OVERLAY, au-dessus du cadre :
@@ -6658,7 +6657,10 @@ namespace nkentseu {
 					st.picker.MatNewBegin();
 					st.pickerAction = 1;	   // 1 = creer un materiau
 					st.matNewPending = true;
-					st.matAddOpen = false; // le selecteur prend la main
+					// LE SELECTEUR PREND LA MAIN — et la modale se ferme POUR DE BON.
+					// C'est cette sortie-la qui, en posant seulement le drapeau, laissait
+					// le cadre du kit arme et coutait un clic de plus a la reouverture.
+					NkMatAddSetOpen(st, false);
 				}
 				// « Ajouter » ne s'allume qu'une fois une ligne CHOISIE.
 				const bool okAdd = (st.matAddSel >= 0);
@@ -6671,8 +6673,7 @@ namespace nkentseu {
 						okAdd ? NkRole::Text : NkRole::TextMuted);
 				if (okAdd && hit.Clicked("props.pm.addp") && actM >= 0) {
 					(void)demo::Demo3DHostNodeMatAdd(actM, st.matAddSel);
-					st.matAddSel = -1;
-					st.matAddOpen = false;
+					NkMatAddSetOpen(st, false);
 					NkMarkDirty(st);
 				}
 

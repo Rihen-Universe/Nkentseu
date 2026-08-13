@@ -1710,6 +1710,54 @@ namespace nkentseu {
 			return parent;
 		}
 
+		/// Dossier du navigateur correspondant a un chemin DISQUE absolu, cree au
+		/// besoin ; -1 pour la racine du projet (ou pour un chemin qui n'est pas
+		/// dedans). C'est le pont qui manquait entre le selecteur de fichiers --
+		/// qui parle en chemins absolus, puisqu'il navigue le disque -- et le
+		/// navigateur de projet, qui parle en cartes. Sans lui, un materiau cree
+		/// depuis le selecteur atterrissait a la racine quel que soit le dossier
+		/// choisi (Rihen, 13 aout : « ca ne se sauvegarde pas dans le bon dossier »).
+		inline int32 NkAsFolderFromAbs(NkModelerState &st, const NkString &root,
+									   const char *abs) {
+			if (!abs || !*abs || root.Empty())
+				return -1;
+			// Separateurs UNIFIES et comparaison INSENSIBLE A LA CASSE : sous
+			// Windows le meme dossier s'ecrit indifferemment `C:/x/y`, `C:\x\y` ou
+			// `c:/X/Y`, et le selecteur ne rend pas toujours la meme forme que celle
+			// gardee dans le projet.
+			auto norm = [](const char *s) {
+				NkString o;
+				for (const char *c = s; c && *c; ++c) {
+					char x = (*c == '\\') ? '/' : *c;
+					if (x >= 'A' && x <= 'Z')
+						x = (char)(x - 'A' + 'a');
+					o += x;
+				}
+				while (!o.Empty() && o[o.Size() - 1] == '/')
+					o.PopBack();
+				return o;
+			};
+			const NkString r = norm(root.CStr()), a = norm(abs);
+			if (a.Size() < r.Size())
+				return -1;
+			for (NkString::SizeType i = 0; i < r.Size(); ++i)
+				if (a[i] != r[i])
+					return -1; // hors du projet : la racine, faute de mieux
+			if (a.Size() == r.Size())
+				return -1; // c'est la racine elle-meme
+			if (a[r.Size()] != '/')
+				return -1; // simple homonymie de prefixe (`.../AgentTest2`)
+			// Le relatif est repris sur la casse D'ORIGINE : `norm` ne sert qu'a
+			// comparer, jamais a nommer -- un dossier « Textures » ne doit pas
+			// devenir « textures » dans le navigateur.
+			NkString rel;
+			for (NkString::SizeType i = r.Size() + 1; i < a.Size(); ++i)
+				rel += (abs[i] == '\\') ? '/' : abs[i];
+			if (rel.Empty())
+				return -1;
+			return NkAsEnsureFolder(st, rel);
+		}
+
 		/// Retire une carte que le disque n'a plus. Ce qu'elle portait s'en va avec
 		/// elle : le document d'une scene, les noeuds archives d'un model. Les
 		/// ONGLETS qui la montraient se referment -- une vue sur un fichier efface
