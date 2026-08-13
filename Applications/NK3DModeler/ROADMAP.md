@@ -996,6 +996,56 @@ Deux `jenga build` simultanés dans le même arbre (agent NKAI en parallèle)
 corrompent `Build/Obj` : binaires qui crashent absurdement, symptôme qui
 **survit au revert du code**. Purger `Build/Obj/<config>` et rebuilder seul.
 
+# PASSATION — SEANCE DU 2026-08-13 (matin)
+
+Branche `refonte-interface-nk3dmodeler`, 3 commits. Release ET Debug verts.
+
+## LIVRE
+
+- **Decoupage** : `NkModelerScreens.h` 14 495 -> 1 476 lignes. Dix fichiers par
+  domaine (Properties, Viewport, Hierarchy, Browser, Chrome, Menus, Tables,
+  Common). `PaintPropertiesUnified` 6 382 -> 784 : une fonction par pastille.
+- **Infobulles** : `NkHelp` + le texte d'aide DANS LA SIGNATURE des widgets
+  (DragFloat, Combo, CheckCombo, EditableText). Rendu par `NkTooltip` du kit.
+  Barre d'outils equipee (point de passage unique `btn()`). **Reste : toutes les
+  autres zones.**
+- **Modales** : `NkModalFrameDraw` ajoute a NKEditorKit (cadre modal a CONTENU
+  LIBRE, barre de titre + barre de couleur en haut facon NKCode). `NkModalStyle`
+  (GitHub dark par defaut) + `NkModalStyleFromTheme` : **le multi-theme est
+  pret**. Voile pose UNE SEULE FOIS par pile (`ctx.modalDepth`), selecteur
+  compris — empiler sans cacher.
+- **`ctx.dlOverlay` est soumise** par le modeleur, et `NkOvPainter()` peint
+  dedans. `ui.viewW/viewH` suivent la fenetre.
+- **Materiaux** : unicite par RENOMMAGE (`Bois.001`), doublons existants corriges
+  a l'ouverture ET reecrits sur disque. Magenta pour objet sans materiau ;
+  materiau par defaut a l'import.
+- **Projet** : le nom EST un nom de dossier (ni espace ni caractere interdit),
+  valide pendant la saisie ; le dossier fait foi.
+- **Navigateur** : les dossiers reels du disque sont adoptes (`Apercus`).
+- **NKContainers** : `NkSPrintf` / `NkSPrintfN` (tampon fixe) — `NkPrintf`
+  existait deja et rend une NkString.
+
+## NON RESOLU — LE VOILE
+
+Sous le selecteur, le haut et la gauche de l'application deviennent noirs alors
+que la vue 3D, le panneau droit et le navigateur restent lisibles.
+**Ecarte par la mesure** : dimensions (`vue=(1920x1032) rendu=(1920x1032)`,
+correctes) et superposition de deux voiles (`modalDepth` le montre : les deux
+surfaces ne coexistent qu'UNE frame, au clic sur « Nouveau »).
+**Reste a mesurer** : le rendu de `dlOverlay` lui-meme — nombre de commandes et
+leur rognage. Ne PAS proposer de correctif sans cette mesure (deja 5 hypotheses
+fausses sur ce sujet).
+
+## SUITE
+
+1. Infobulles sur toutes les zones + migration `snprintf` -> `NkSPrintf`.
+2. **Index (cache) des fichiers par type** dans le `.nk3dm` — leve le plafond
+   `kMaxBrowser = 32` et supprime la double source de verite navigateur/disque.
+3. Supprimer `NkModelerFileDialog.h` (inutilise depuis le portage du picker).
+4. Renommer ET decouper `NkDemo3D.cpp` (16 825 l.) + l'API `Demo3DHost*`.
+5. Les 7 captures non lues de `Pictures/Screenshots/code`.
+6. Point d'entree de renommage de projet dans le launcher.
+
 # PASSATION — NUIT DU 2026-08-12 → REPRISE LE 2026-08-13 À 5 H
 
 ## ⚠ LA REPRISE COMMENCE PAR UNE REFONTE COMPLETE DE L'INTERFACE
