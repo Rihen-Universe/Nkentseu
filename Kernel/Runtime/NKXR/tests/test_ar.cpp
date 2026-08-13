@@ -11,6 +11,7 @@
 #include "NKXR/AR/NkArMarker.h"
 #include "NKXR/AR/NkArSession.h"
 #include "NKXR/AR/NkArWorld.h"
+#include "NKXR/AR/NkArCalibration.h"
 #include "NKLogger/NkLog.h"
 #include "NKMemory/NkAllocator.h"
 
@@ -669,6 +670,110 @@ int main() {
 
 		allocator.Deallocate(background);
 		allocator.Deallocate(second);
+	}
+
+	// ── Cas 10 : CALIBRATION — retrouver une focale CONNUE ──────────────────
+	// On ne teste pas « ca donne un chiffre » mais « ca donne LE chiffre ». On
+	// fabrique donc des vues d'une planche avec des intrinseques CHOISIES, puis
+	// on verifie que la calibration les retrouve. Sans cette verite connue, une
+	// calibration n'est qu'une opinion bien presentee.
+	{
+		NkArCalibrationBoard board;
+		board.cols = 3;
+		board.rows = 3;
+		board.gridBits = 4;
+		board.firstId = 100;
+		board.markerSizeMeters = 0.04f;
+		board.spacingMeters = 0.06f;
+
+		// Intrinseques de reference, volontairement DIFFERENTES du champ suppose
+		// de 60 degres — sinon le test passerait meme si le solveur ne faisait
+		// rien d'autre que recopier son entree.
+		NkArCameraIntrinsics truth;
+		truth.fx = 900.f;
+		truth.fy = 900.f;
+		truth.cx = float32(W) * 0.5f + 7.f;
+		truth.cy = float32(H) * 0.5f - 5.f;
+
+		NkArCalibration calib;
+		calib.Initialize(board, W, H);
+
+		// Huit points de vue differents. La diversite n'est pas cosmetique :
+		// deux vues semblables donnent deux fois la meme equation, et le systeme
+		// reste sous-determine quel que soit leur nombre.
+		const float32 yaws[8] = { -25.f, -15.f, 0.f, 15.f, 25.f, -20.f, 20.f, 5.f };
+		const float32 pitches[8] = { 10.f, -20.f, 18.f, -12.f, 8.f, 22.f, -25.f, -8.f };
+		const float32 dists[8] = { 0.30f, 0.34f, 0.28f, 0.32f, 0.36f, 0.30f, 0.33f, 0.29f };
+		uint32 accepted = 0;
+		for (uint32 v = 0; v < 8u; ++v) {
+			NkVector<NkArDetection> dets;
+			const float32 deg = math::NK_PI_F / 180.f;
+			const math::NkMat4f rot = math::NkMat4f::RotationY(math::NkAngle::FromRad(yaws[v] * deg)) *
+									  math::NkMat4f::RotationX(math::NkAngle::FromRad(pitches[v] * deg));
+			for (uint32 r = 0; r < board.rows; ++r) {
+				for (uint32 c = 0; c < board.cols; ++c) {
+					const int32 id = board.firstId + int32(r * board.cols + c);
+					float32 bx = 0.f, by = 0.f;
+					board.CenterOf(id, bx, by);
+					const float32 half = board.markerSizeMeters * 0.5f;
+					const math::NkVec3f local[4] = { { bx - half, by + half, 0.f },
+													 { bx + half, by + half, 0.f },
+													 { bx + half, by - half, 0.f },
+													 { bx - half, by - half, 0.f } };
+					NkArDetection d;
+					d.id = id;
+					bool ok = true;
+					for (uint32 k = 0; k < 4u; ++k) {
+						math::NkVec3f p;
+						p.x = rot.mat[0][0] * local[k].x + rot.mat[1][0] * local[k].y + rot.mat[2][0] * local[k].z;
+						p.y = rot.mat[0][1] * local[k].x + rot.mat[1][1] * local[k].y + rot.mat[2][1] * local[k].z;
+						p.z = rot.mat[0][2] * local[k].x + rot.mat[1][2] * local[k].y + rot.mat[2][2] * local[k].z -
+							  dists[v];
+						const float32 depth = -p.z;
+						if (depth < 0.05f) {
+							ok = false;
+							break;
+						}
+						d.corners[k].x = truth.fx * (p.x / depth) + truth.cx;
+						d.corners[k].y = -truth.fy * (p.y / depth) + truth.cy;
+					}
+					if (ok) {
+						dets.PushBack(d);
+					}
+				}
+			}
+			if (calib.AddView(dets)) {
+				++accepted;
+			}
+		}
+		CHECK(accepted >= 6u, "calibration : les vues synthetiques sont acceptees");
+		CHECK(calib.IsReady(), "calibration : assez de vues pour resoudre");
+
+		const NkArCalibrationResult res = calib.Solve();
+		logger.Infof("  [info] calibration : fx=%.1f (vrai %.1f) fy=%.1f cx=%.1f (vrai %.1f) cy=%.1f (vrai %.1f) "
+					 "residu %.3f px\n",
+					 res.intrinsics.fx, truth.fx, res.intrinsics.fy, res.intrinsics.cx, truth.cx, res.intrinsics.cy,
+					 truth.cy, res.reprojectionErrorPixels);
+		CHECK(res.valid, "calibration : solution trouvee");
+		CHECK(Near(res.intrinsics.fx, truth.fx, 0.03f * truth.fx), "calibration : focale X retrouvee a 3 pres cent");
+		CHECK(Near(res.intrinsics.fy, truth.fy, 0.03f * truth.fy), "calibration : focale Y retrouvee a 3 pour cent");
+		CHECK(Near(res.intrinsics.cx, truth.cx, 0.05f * float32(W)), "calibration : centre optique X retrouve");
+		CHECK(Near(res.intrinsics.cy, truth.cy, 0.05f * float32(H)), "calibration : centre optique Y retrouve");
+		CHECK(res.reprojectionErrorPixels < 1.f, "calibration : les points se reprojettent au pixel pres");
+
+		// La planche doit etre DESSINABLE, et ses marqueurs relisibles : une
+		// planche que le detecteur ne reconnait pas ne calibre rien.
+		const uint32 sheet = 900;
+		uint8 *boardImg = static_cast<uint8 *>(allocator.Allocate(sheet * sheet, 1));
+		CHECK(NkArRenderCalibrationBoard(board, boardImg, sheet, sheet), "calibration : planche dessinee");
+		NkArDetectorConfig dcfg;
+		dcfg.gridBits = 4;
+		dcfg.minEdgePixels = 20;
+		NkVector<NkArDetection> found;
+		NkArDetectMarkers(boardImg, sheet, sheet, dcfg, found);
+		logger.Infof("  [info] planche : %u marqueurs relus sur %u\n", uint32(found.Size()), board.cols * board.rows);
+		CHECK(found.Size() >= board.cols * board.rows - 1u, "calibration : la planche est relisible par le detecteur");
+		allocator.Deallocate(boardImg);
 	}
 
 	allocator.Deallocate(image);
