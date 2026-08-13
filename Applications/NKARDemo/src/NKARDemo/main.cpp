@@ -329,10 +329,30 @@ int nkmain(const NkEntryState &state) {
 	uint32 W = devInfo.width;
 	uint32 H = devInfo.height;
 
-	// Un seul renderer : la vidéo est un fond 2D, la 3D se pose dessus.
+	// ── Demander le MINIMUM, et rien de plus ─────────────────────────────────
+	// Cette démo dessine une vidéo plein écran et des traits par-dessus : tout
+	// se fait en 2D, l'augmentation étant projetée à la main avec les
+	// intrinsèques de la vraie caméra. Elle n'a donc besoin ni d'ombres, ni
+	// d'éclairage par image, ni de post-traitement, ni de VFX.
+	//
+	// Le préréglage « ForGame » les demandait tous, et le prix était double sur
+	// téléphone, mesuré le 13 août : l'initialisation compile toute la
+	// bibliothèque de shaders et s'éternise — Android tue une application qui ne
+	// répond pas — et l'empreinte atteint 447 Mo dont 332 de mémoire graphique,
+	// sur un appareil qui récupérait déjà des processus faute de mémoire.
+	// Demander ce dont on se sert est ici la différence entre une application
+	// qui démarre et une que le système abat.
 	NkRendererConfig cfg = NkRendererConfig::ForGame(devInfo.api, W, H);
+	cfg.subsystems = NK_SS_RENDER2D | NK_SS_TEXT | NK_SS_OVERLAY;
+	cfg.quality = NkRenderQuality::NK_LOW;
+	cfg.hdr = false;
 	cfg.postProcess.bloom = false;
 	cfg.postProcess.ssao = false;
+	cfg.postProcess.fxaa = false;
+	cfg.postProcess.aces = false;
+	cfg.maxLights = 4;
+	cfg.maxParticles = 0;
+	cfg.maxMeshes = 256;
 	NkRenderer *renderer = NkRenderer::Create(device, cfg);
 	if (!renderer) {
 		logger.Error("[NKARDemo] Init renderer KO");
@@ -434,6 +454,16 @@ int nkmain(const NkEntryState &state) {
 		// cacher plutôt que de montrer une place qui vieillit ; ici, non.)
 		nkxr::NkArWorldConfig worldCfg;
 		worldCfg.maxBlindFrames = 0;
+		// ⚠️ CAPTEURS COUPÉS PAR DÉFAUT — suspicion en cours, 13 août.
+		// La file d'événements du gyroscope s'attache au MÊME `Looper` que la
+		// boucle de l'application, et l'image se fige à la première frame depuis
+		// qu'elle existe. Tant que cette interaction n'est pas comprise, on ne
+		// laisse pas une nouveauté soupçonnée active par défaut : une démo qui
+		// gèle ne prouve plus rien du tout.
+		// NK_AR_SENSORS=1 les rallume pour instruire le sujet.
+		worldCfg.preferSensors = (getenv("NK_AR_SENSORS") != nullptr);
+		logger.Warnf("[NKARDemo] Capteurs (gyroscope) : %s\n",
+					 worldCfg.preferSensors ? "ACTIFS (NK_AR_SENSORS)" : "coupes par defaut");
 		arWorld.Initialize(worldCfg);
 	}
 
@@ -586,6 +616,15 @@ int nkmain(const NkEntryState &state) {
 		total += clock.Tick().delta;
 		++frameIndex;
 
+		// Battement de cœur INDÉPENDANT de la caméra : il dit que la boucle
+		// tourne, même si aucune image n'arrive. Le précédent était conditionné
+		// aux images analysées, si bien qu'une caméra muette et une boucle
+		// figée donnaient le même silence — deux causes très différentes.
+		if ((frameIndex % 300u) == 0u) {
+			logger.Warnf("[NKARDemo] boucle vivante : %llu images, surface %s, %.1f s\n",
+						 (unsigned long long)frameIndex, surfaceReady ? "OK" : "ABSENTE", total);
+		}
+
 		// ── État RÉEL de la surface ──────────────────────────────────────────
 		// On interroge la surface, pas l'événement : c'est sa taille — nulle
 		// quand elle n'existe plus — qui fait foi. Vérifier à chaque image
@@ -601,10 +640,13 @@ int nkmain(const NkEntryState &state) {
 				W = surf.width;
 				H = surf.height;
 				renderer->OnResize(W, H);
-				logger.Infof("[NKARDemo] Surface revenue : %ux%u — chaine d'echange refaite.\n", W, H);
+				// En AVERTISSEMENT : un changement d'état de surface est rare et
+				// décisif. Le filtrer avec le bavardage ordinaire, c'est se
+				// priver du seul indice qui distingue « en attente » de « figée ».
+				logger.Warnf("[NKARDemo] Surface revenue : %ux%u — chaine d'echange refaite.\n", W, H);
 			}
 			else if (!alive && surfaceReady) {
-				logger.Info("[NKARDemo] Surface disparue — on cesse de dessiner.\n");
+				logger.Warn("[NKARDemo] Surface disparue — on cesse de dessiner.\n");
 			}
 			surfaceReady = alive;
 			surfaceCheckPending = false;
@@ -784,8 +826,13 @@ int nkmain(const NkEntryState &state) {
 			worldMillis += worldClock.Tick().delta * 1000.f;
 			++analyzedFrames;
 			if (analyzedFrames >= 60u) {
-				logger.Infof("[NKARDemo] monde (detection exclue) : %.2f ms par image ANALYSEE (60 images).\n",
-							 worldMillis / float32(analyzedFrames));
+				// Émis en AVERTISSEMENT à dessein : c'est le battement de cœur de
+				// l'application, et il doit survivre à la réduction du journal.
+				// L'avoir noyé avec le reste m'a privé du seul signe qui dise si
+				// la boucle tourne encore — on ne peut pas distinguer « figée »
+				// de « tuée » sans lui.
+				logger.Warnf("[NKARDemo] vivant — monde %.2f ms/image analysee | images totales %llu\n",
+							 worldMillis / float32(analyzedFrames), (unsigned long long)frameIndex);
 				worldMillis = 0.f;
 				analyzedFrames = 0;
 			}
@@ -826,8 +873,12 @@ int nkmain(const NkEntryState &state) {
 		key.castShadow = false; // pas d'ombre : le sol réel n'est pas modélisé
 		sctx.lights.PushBack(key);
 
-		NkRender3D *r3d = renderer->GetRender3D();
-		r3d->BeginScene(sctx);
+		// Le rendu 3D n'est plus demandé (voir la configuration) : l'appel est
+		// donc conditionnel. Rien ne lui est soumis de toute façon — la vidéo
+		// est peinte en surimpression, qui vient APRÈS la 3D et la cacherait.
+		if (NkRender3D *r3d = renderer->GetRender3D()) {
+			r3d->BeginScene(sctx);
+		}
 
 		// Rien n'est soumis au rendu 3D : la vidéo est peinte dans la passe
 		// overlay, qui vient APRÈS, et cacherait tout. L'augmentation est donc
