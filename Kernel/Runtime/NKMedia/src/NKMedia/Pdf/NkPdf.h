@@ -127,6 +127,19 @@ namespace nkentseu {
 
 					// Element `i` d'un tableau, DEJA resolu.
 					NkPdfVal ArrayAt(const NkPdfVal &arr, int32 i) const;
+
+					// ── Parcours d'un dictionnaire dont on ne connait pas les cles ──
+					//
+					// `DictGet` suppose qu'on sait ce qu'on cherche. Or le /Font des
+					// ressources d'une page nomme ses polices librement (/F1, /TT3,
+					// /g_d0...) : sans iteration, il est impossible de les examiner
+					// toutes — donc impossible de MESURER ce que les polices d'un
+					// corpus declarent avant de decider quoi implementer.
+					int32 DictSize(const NkPdfVal &dict) const {
+						return dict.IsDictLike() ? dict.b : 0;
+					}
+					// Valeur de la `i`-eme entree, DEJA resolue. Objet nul hors bornes.
+					NkPdfVal DictValueAt(const NkPdfVal &dict, int32 i) const;
 					int32 ArraySize(const NkPdfVal &arr) const { return arr.kind == NK_PDF_ARRAY ? arr.b : 0; }
 
 					// Contenu texte d'un NAME ou d'un STRING (pointeur dans le pool,
