@@ -1,12 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor">
-  <!-- Sphere UV : disque PLEIN quadrille par un equateur et un meridien en
-       CREUX. L'ancien dessin etait un anneau fin traverse de deux traits de
-       1.2 : a 12 px tout se noyait et il ne restait qu'un cercle (Rihen,
-       13 aout). Une masse pleine tient a n'importe quelle taille, et les creux
-       ne touchent PAS le bord -- la silhouette reste un disque au lieu de se
-       decouper en quatre quartiers detaches.
-       Rappel : le rasteriseur SVG maison ne trace pas les strokes (« uniquement
-       fill rendu »). Tout se dessine en remplissage, les creux par
-       fill-rule="evenodd". -->
-  <path fill-rule="evenodd" d="M8 1.4a6.6 6.6 0 100 13.2 6.6 6.6 0 000-13.2zM2.7 7.35h10.6v1.3H2.7zM7.35 2.7h1.3v10.6h-1.3z"/>
+  <!-- Sphere : un ROND PLEIN (Rihen, 13 aout : « pour la sphere tu dois mettre
+       une sphere ou un rond plein »). Deux tentatives ont echoue avant : l'anneau
+       fin traverse de deux traits, illisible a 12 px, puis le disque quadrille
+       d'un equateur et d'un meridien en creux -- qui redonnait a l'oeil quatre
+       quartiers au lieu d'une boule. La masse pleine est ce qui se lit comme un
+       volume, et c'est aussi ce que montre l'apercu de Blender.
+       Rappel : le rasteriseur SVG maison ne trace pas les strokes -- tout est en
+       remplissage. -->
+  <path d="M8 1.4a6.6 6.6 0 100 13.2 6.6 6.6 0 000-13.2z"/>
 </svg>
