@@ -2050,11 +2050,29 @@ int nkmain(const NkEntryState &entry) {
 		// proprietes (Rihen, 13 aout) et depasse largement les 104 px d'avant des
 		// que le panneau est elargi. Retrecir une image reste propre, l'agrandir
 		// non -- a 128 la sphere devenait molle des qu'on tirait la poignee.
+		//
+		// RECTANGULAIRE, et rendu a la taille EXACTE d'affichage. La largeur
+		// vient du panneau (`st.matPrevW`), qui seul la connait ; la hauteur est
+		// fixe, et c'est elle qui dimensionne l'objet -- elargir le panneau
+		// etend le damier sans grossir la sphere. Rendre au 1:1 evite a la fois
+		// l'etirement et le flou d'un agrandissement.
 		{
-			static uint8 sMatBall[256 * 256 * 4];
+			// Bornes du TAMPON, pas de l'interface : le panneau peut demander ce
+			// qu'il veut, on ne rend jamais au-dela de ce qui est alloue.
+			static const int32 kPrevWMax = 900, kPrevHMax = 400;
+			static uint8 sMatBall[kPrevWMax * kPrevHMax * 4];
+			auto borne = [](int32 v, int32 def, int32 hi) {
+				if (v <= 0)
+					v = def;
+				if (v < 60)
+					v = 60;
+				return v > hi ? hi : v;
+			};
+			const int32 pw = borne(st.matPrevW, 260, kPrevWMax);
+			const int32 ph = borne(st.matPrevH, 150, kPrevHMax);
 			for (int32 i = 0; i < 64; ++i)
-				if (demo::Demo3DHostProjMatPreviewTake(i, sMatBall, 256))
-					renderer.UploadImageRGBA(4400u + (uint32)i, sMatBall, 256, 256);
+				if (demo::Demo3DHostProjMatPreviewTake(i, sMatBall, (uint32)pw, (uint32)ph))
+					renderer.UploadImageRGBA(4400u + (uint32)i, sMatBall, pw, ph);
 		}
 
 		// ── MINIATURES DES SCENES (ids 4500+) ───────────────────────────────

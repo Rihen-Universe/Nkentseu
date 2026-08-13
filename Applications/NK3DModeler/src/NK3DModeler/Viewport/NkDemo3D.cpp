@@ -14217,9 +14217,17 @@ namespace nkentseu {
 		// ── APERCU D'UN MATERIAU : rendu ANALYTIQUE CPU ─────────────────────
 		// Assez fidele pour JUGER une matiere (diffus + reflet selon rugosite/
 		// metallique), pas le vrai pipeline -- un apercu GPU offscreen pourra
-		// le remplacer sans changer l'interface. Cinq formes, comme Blender :
-		// plan, sphere, cube, liquide, cheveux.
-		static void HostMatPreviewRender(const NkVpProjMat &m, uint8 *px, int32 sz) {
+		// le remplacer sans changer l'interface. Sept formes, comme Blender :
+		// plan, sphere, cube, liquide, cheveux, tissu, tete.
+		//
+		// L'IMAGE EST RECTANGULAIRE, ET C'EST TOUT LE POINT. Elle etait carree ;
+		// elargir le panneau grossissait donc l'objet avec elle. Blender fait
+		// l'inverse, et Rihen le veut ainsi (13 aout) : « c'est juste la largeur
+		// qui s'agrandit sans modifier la taille des elements, cube, sphere et
+		// autre restent intacts ». D'ou la regle tenue partout ici : TOUTE
+		// dimension d'objet se mesure sur la HAUTEUR (`h`), jamais sur la largeur.
+		// La largeur ne sert qu'au damier, qui s'etend d'autant.
+		static void HostMatPreviewRender(const NkVpProjMat &m, uint8 *px, int32 w, int32 h) {
 			const float32 Lx = -0.44f, Ly = 0.74f, Lz = 0.51f; // cle, deja ~normalisee
 			const float32 gloss = 1.f - (m.rough < 0.f ? 0.f : (m.rough > 1.f ? 1.f : m.rough));
 			const float32 met = m.metal < 0.f ? 0.f : (m.metal > 1.f ? 1.f : m.metal);
@@ -14251,8 +14259,10 @@ namespace nkentseu {
 					out[c] = m.albedo[c] * dif + sc * (sp * (0.5f + 1.1f * met) + fr);
 				}
 			};
-			const float32 cx = 0.5f * (float32)sz, cy = 0.48f * (float32)sz;
-			const float32 R = 0.36f * (float32)sz;
+			// Centre en largeur, mais TAILLE prise sur la hauteur : c'est ce qui
+			// laisse l'objet intact quand l'image s'elargit.
+			const float32 cx = 0.5f * (float32)w, cy = 0.48f * (float32)h;
+			const float32 R = 0.36f * (float32)h;
 			// BASE ORTHONORMEE de l'apercu cube : vD pointe vers la camera (on
 			// voit le dessus et deux faces), Rv/Uv encadrent l'ecran.
 			const float32 vD[3] = {0.4851f, 0.5821f, 0.6524f};
@@ -14265,18 +14275,23 @@ namespace nkentseu {
 			const float32 Uv[3] = {vD[1] * Rv[2] - vD[2] * Rv[1],
 								   vD[2] * Rv[0] - vD[0] * Rv[2],
 								   vD[0] * Rv[1] - vD[1] * Rv[0]};
-			for (int32 y = 0; y < sz; ++y) {
-				for (int32 x = 0; x < sz; ++x) {
+			for (int32 y = 0; y < h; ++y) {
+				for (int32 x = 0; x < w; ++x) {
 					float32 col[3];
 					const float32 bg = bgAt(x, y);
 					col[0] = col[1] = col[2] = bg;
 					const float32 dx = ((float32)x - cx) / R;
 					const float32 dy = (cy - (float32)y) / R; // Y ecran inverse
 					if (shp == 0) {
-						// PLAN : carte legerement inclinee, pleine largeur.
-						const int32 mg = sz / 8;
-						if (x >= mg && x < sz - mg && y >= mg && y < sz - mg) {
-							const float32 t = (float32)y / (float32)sz - 0.5f;
+						// PLAN : carte CARREE et CENTREE, mesuree sur la hauteur.
+						// Elle occupait toute la largeur ; l'image devenue
+						// rectangulaire, elle se serait etiree indefiniment et
+						// aurait recouvert le damier au lieu de poser dessus --
+						// alors que c'est le damier qui doit s'etendre.
+						const float32 demi = 0.375f * (float32)h;
+						const float32 ddx = (float32)x - cx, ddy = (float32)y - 0.5f * (float32)h;
+						if (ddx > -demi && ddx < demi && ddy > -demi && ddy < demi) {
+							const float32 t = ddy / (float32)h;
 							const float32 ny2 = 0.30f + 0.25f * t;
 							const float32 il = 1.f / math::NkSqrt(ny2 * ny2 + 0.92f * 0.92f);
 							shade(0.f, ny2 * il, 0.92f * il, col);
@@ -14320,14 +14335,20 @@ namespace nkentseu {
 						}
 					} else if (shp == 4) {
 						// CHEVEUX : meches verticales ondulees, reflet en bande.
-						const int32 mg = sz / 6;
-						if (x >= mg && x < sz - mg && y >= sz / 10 && y < sz - sz / 10) {
-							const float32 fy = (float32)y / (float32)sz;
+						// La touffe est CENTREE et large d'une fraction de la
+						// hauteur -- elle courait d'un bord a l'autre, ce qui la
+						// faisait s'etirer avec le panneau.
+						const int32 demiT = (int32)(0.33f * (float32)h);
+						const int32 x0 = (int32)cx - demiT, x1 = (int32)cx + demiT;
+						if (x >= x0 && x < x1 && y >= h / 10 && y < h - h / 10) {
+							const float32 fy = (float32)y / (float32)h;
 							const float32 wob = math::NkSin(fy * 9.f + (float32)x * 0.53f) * 1.7f;
 							const int32 strand = (int32)((float32)x + wob);
-							// pseudo-alea PAR MECHE, stable d'une image a l'autre
-							const float32 h = math::NkSin((float32)strand * 12.9898f) * 43758.545f;
-							const float32 rnd = h - (float32)(int64)h;
+							// pseudo-alea PAR MECHE, stable d'une image a l'autre.
+							// Nomme `hsh` et non `h` : `h` est desormais la HAUTEUR
+							// de l'image, et la masquer ici serait un piege silencieux.
+							const float32 hsh = math::NkSin((float32)strand * 12.9898f) * 43758.545f;
+							const float32 rnd = hsh - (float32)(int64)hsh;
 							const float32 tone = 0.35f + 0.65f * (rnd < 0.f ? rnd + 1.f : rnd);
 							// bande de reflet : nette si lisse, diffuse si rugueux
 							const float32 bandY = 0.34f + 0.10f * math::NkSin((float32)strand * 0.31f);
@@ -14427,7 +14448,7 @@ namespace nkentseu {
 								col[c] = sc[c] * a + bg * (1.f - a);
 						}
 					}
-					const int32 o = (y * sz + x) * 4;
+					const int32 o = (y * w + x) * 4;
 					for (int32 c = 0; c < 3; ++c) {
 						float32 v = col[c];
 						v = v < 0.f ? 0.f : (v > 1.f ? 1.f : v);
@@ -14439,20 +14460,24 @@ namespace nkentseu {
 		}
 		// Regeneration A LA DEMANDE : l'hote detecte lui-meme qu'un apercu est
 		// perime (parametres ou forme changes) ; l'appelant uploade quand vrai.
-		bool Demo3DHostProjMatPreviewTake(int32 i, uint8 *rgba, uint32 size) {
-			if (i < 0 || i >= kNkvpMaxProjMats || !rgba || !size)
+		bool Demo3DHostProjMatPreviewTake(int32 i, uint8 *rgba, uint32 width, uint32 height) {
+			if (i < 0 || i >= kNkvpMaxProjMats || !rgba || !width || !height)
 				return false;
 			const NkVpProjMat &m = nkvpProjMats[i];
 			if (!m.used)
 				return false;
 			static float32 sSig[kNkvpMaxProjMats] = {};
+			// LES DIMENSIONS FONT PARTIE DE LA SIGNATURE. Sans elles, elargir le
+			// panneau ne redemandait aucun rendu : l'ancienne image, calculee pour
+			// une autre largeur, restait affichee telle quelle.
 			const float32 sig = m.albedo[0] * 1.7f + m.albedo[1] * 2.3f +
 								m.albedo[2] * 3.1f + m.rough * 5.3f + m.metal * 7.9f +
-								(float32)m.prevShape * 11.3f + 1.f;
+								(float32)m.prevShape * 11.3f + (float32)width * 0.017f +
+								(float32)height * 0.031f + 1.f;
 			if (sSig[i] == sig)
 				return false;
 			sSig[i] = sig;
-			HostMatPreviewRender(m, rgba, (int32)size);
+			HostMatPreviewRender(m, rgba, (int32)width, (int32)height);
 			return true;
 		}
 		// ── DETECTEUR DE PARENTE (une passe par frame) ──────────────────────

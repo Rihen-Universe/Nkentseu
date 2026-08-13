@@ -2828,19 +2828,25 @@ namespace nkentseu {
 							// 13 aout). Elles etaient empilees en colonne a droite :
 							// a sept, la colonne depassait la hauteur de l'apercu.
 							{
-								// L'APERCU PREND TOUTE LA LARGEUR DISPONIBLE et suit
-								// donc l'elargissement du panneau (Rihen, 13 aout). Il
-								// etait fige a 104 px : la poignee de redimensionnement
-								// ne servait a rien pour lui.
-								// CARRE, et non etire a la largeur : la vignette rendue
-								// par l'hote est carree, l'afficher en rectangle
-								// ecraserait la sphere — « sans deformer la sphere ou
-								// autre ». Largeur = hauteur = ce que le panneau offre.
-								const float32 side = iR.w;
+								// L'APERCU EST UN BANDEAU : il prend toute la largeur
+								// et garde une HAUTEUR FIXE. C'est ce qui laisse les
+								// objets intacts quand on elargit le panneau -- seul le
+								// damier s'etend, comme dans Blender (Rihen, 13 aout).
+								// Un carre plein largeur, lui, grossissait la sphere.
+								//
+								// Rendu au 1:1 : la vignette est calculee a la taille
+								// exacte ou elle sera affichee, donc ni etirement ni
+								// flou. La largeur voulue passe par l'etat -- seule la
+								// boucle principale peut uploader une texture.
+								const float32 prevW = iR.w;
+								const float32 prevH = S(150.f);
+								st.matPrevW = (int32)(prevW + 0.5f);
+								st.matPrevH = (int32)(prevH + 0.5f);
 								const float32 btn = S(20.f);
 								const float32 pvX = iR.x;
-								p.Image(4400u + (uint32)selMat, {pvX, yy, side, side});
-								p.OutlineSharp({pvX, yy, side, side}, NkRole::Border);
+								p.Image(4400u + (uint32)selMat, {pvX, yy, prevW, prevH});
+								p.OutlineSharp({pvX, yy, prevW, prevH}, NkRole::Border);
+								const float32 side = prevH; // hauteur occupee par l'apercu
 								// SEPT FORMES, dans l'ordre de Blender. Chacune a son
 								// propre dessin : `Liquid`, `Hair`, `Cloth` et `Monkey`
 								// ont ete crees pour elles, plutot que d'emprunter

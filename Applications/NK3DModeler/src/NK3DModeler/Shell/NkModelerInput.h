@@ -784,7 +784,18 @@ namespace nkentseu {
 				/// .nkmat sur-le-champ (Rihen, 12 aout : « rends ce dossier
 				/// accessible »). Posee a l'ouverture du projet.
 				NkString projectRoot;
-				/// Menu d'ajout de materiau ouvert ? Il se deroule SOUS la liste
+				/// Largeur voulue pour la vignette d'apercu de materiau, en PIXELS.
+			/// Posee par le panneau de proprietes, qui seul connait sa largeur ;
+			/// lue par la boucle principale, seule a pouvoir uploader une texture.
+			/// Meme circulation que `projectRoot` : un panneau ne fait que
+			/// deposer dans l'etat. 0 = pas encore peint (la boucle garde alors sa
+			/// valeur par defaut).
+			/// LES DEUX dimensions, et en pixels REELS (echelle d'interface deja
+			/// appliquee) : a 150 % de DPI, une hauteur de 150 s'affiche sur 225
+			/// pixels, et une vignette rendue a 150 s'y etirerait.
+			int32 matPrevW = 0;
+			int32 matPrevH = 0;
+			/// Menu d'ajout de materiau ouvert ? Il se deroule SOUS la liste
 				/// de la pastille, pas dans la colonne de boutons — un champ de
 				/// 20 pixels de large y debordait sur ses voisins.
 				bool matAddOpen = false;

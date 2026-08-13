@@ -295,7 +295,11 @@ namespace nkentseu {
 		void Demo3DHostProjMatSetEmissive(int32 i, const float32 *rgb);
 		int32 Demo3DHostProjMatPrevShape(int32 i);
 		void Demo3DHostProjMatSetPrevShape(int32 i, int32 shape);
-		bool Demo3DHostProjMatPreviewTake(int32 i, uint8 *rgba, uint32 size);
+		/// Rend la vignette d'apercu en RGBA, `width` x `height`. Rectangulaire :
+		/// la largeur etend le damier, la hauteur seule dimensionne l'objet --
+		/// elargir le panneau ne doit pas grossir la sphere (Rihen, 13 aout).
+		/// Rend faux si la vignette est deja a jour (les dimensions comptent).
+		bool Demo3DHostProjMatPreviewTake(int32 i, uint8 *rgba, uint32 width, uint32 height);
 		// Le registre n'est JAMAIS vide face a l'utilisateur : renvoie le
 		// premier materiau, en creant le materiau de base au besoin.
 		int32 Demo3DHostProjMatEnsureDefault();
