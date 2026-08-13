@@ -391,7 +391,16 @@ namespace nkentseu {
 			const float32 scale =
 				(float32(outWidth) / boardW < float32(outHeight) / boardH) ? (float32(outWidth) / boardW)
 																		  : (float32(outHeight) / boardH);
-			const uint32 markerPx = uint32(board.markerSizeMeters * scale);
+			// ⚠️ Le motif rendu comprend une MARGE BLANCHE d'une cellule de
+			// chaque côté : le carré NOIR n'occupe que (bits+2)/(bits+4) de son
+			// étendue. Or `markerSizeMeters` désigne le carré NOIR — c'est lui
+			// qu'on mesure à la règle et lui que le détecteur suit. On agrandit
+			// donc la boîte de dessin d'autant, faute de quoi la planche produite
+			// ne correspondrait pas à sa propre description : l'échelle serait
+			// fausse d'un tiers, et la calibration avec elle.
+			const float32 patternOverBlack =
+				float32(board.gridBits + 4u) / float32(board.gridBits + 2u);
+			const uint32 markerPx = uint32(board.markerSizeMeters * scale * patternOverBlack);
 			if (markerPx < 16u) {
 				return false;
 			}
