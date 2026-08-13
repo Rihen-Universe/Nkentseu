@@ -65,6 +65,51 @@ namespace nkentseu {
 			return NkString(file.CStr() + b, (NkString::SizeType)(d - b));
 		}
 
+		// ── UN NOM D'AFFICHAGE PEUT-IL SERVIR DE NOM DE DOSSIER ? ───────────────
+		// Les espaces et les accents passent ; ce qui suit ne passe pas, sur aucun
+		// systeme. Un point ou un espace en fin de nom est refuse par Windows.
+		static bool NameUsableAsFolder(const NkString &n) {
+			if (n.Empty() || n.Size() > 100u)
+				return false;
+			for (NkString::SizeType i = 0u; i < n.Size(); ++i) {
+				const char c = n[i];
+				if (c == '/' || c == '\\' || c == ':' || c == '*' || c == '?' || c == '"' ||
+					c == '<' || c == '>' || c == '|' || (unsigned char)c < 32u)
+					return false;
+			}
+			const char last = n[n.Size() - 1u];
+			return last != '.' && last != ' ';
+		}
+
+		// ── LE DOSSIER SUIT LE NOM (reparation au chargement) ───────────────────
+		// Renomme le dossier du projet ET son .nk3dm d'apres le nom affiche, quand
+		// les deux ont diverge. Chaque condition ci-dessous est un cas ou renommer
+		// FERAIT DU MAL : on prefere une divergence visible a un projet perdu.
+		static void ReconcileFolderWithName(NkProjectState &st, const NkString &file) {
+			const NkString dirName = BaseNoExt(st.root);
+			if (st.name == dirName || !NameUsableAsFolder(st.name))
+				return;
+			const NkString parent = DirOf(st.root);
+			if (parent.Empty())
+				return; // pas de dossier parent : rien a renommer dans quoi
+			const NkString newDir = Join(parent, st.name.CStr());
+			if (NkDirectory::Exists(newDir.CStr()) || NkFile::Exists(newDir.CStr()))
+				return; // la place est prise -- ecraser un dossier voisin serait pire
+			if (!NkDirectory::Move(st.root.CStr(), newDir.CStr()))
+				return; // dossier verrouille, droits, disque : on garde tout en place
+			// Le dossier a bouge : le .nk3dm l'a suivi, il reste a le renommer.
+			NkString moved = Join(newDir, BaseNoExt(file).CStr());
+			moved += '.';
+			moved += kProjectExt;
+			NkString target = Join(newDir, st.name.CStr());
+			target += '.';
+			target += kProjectExt;
+			if (moved != target && !NkFile::Move(moved.CStr(), target.CStr()))
+				target = moved; // le dossier porte le bon nom, le fichier garde le sien
+			st.root = newDir;
+			st.file = target;
+		}
+
 		// Chemin normalise AVEC l'extension du projet garantie. POINT DE PASSAGE
 		// UNIQUE : « Enregistrer sous » et NkProjectRootFor doivent voir
 		// EXACTEMENT le meme chemin. S'ils divergeaient, la scene serait capturee
@@ -283,6 +328,15 @@ namespace nkentseu {
 			st.root = DirOf(f);
 			if (!doc.GetString("nom", st.name) || st.name.Empty())
 				st.name = BaseNoExt(f);
+			// ── LE DOSSIER SUIT LE NOM DU PROJET ────────────────────────────
+			// `nom` est un nom d'AFFICHAGE libre, mais le laisser diverger du
+			// dossier qui porte le projet trompe partout ou un chemin s'affiche :
+			// le selecteur de fichiers ouvrait « AgentTest » pour un projet que
+			// le launcher appelait « MonProjet » (Rihen, 12 aout). On repare donc
+			// AU CHARGEMENT, comme Rihen l'a demande -- mais seulement quand c'est
+			// SANS RISQUE. Un projet ne doit jamais devenir introuvable pour une
+			// question de cosmetique : au moindre doute, on ne touche a rien.
+			ReconcileFolderWithName(st, f);
 			(void)doc.GetString("creation", st.created);
 			(void)doc.GetString("modification", st.modified);
 			(void)doc.GetString("couverture", st.coverRel);
@@ -411,7 +465,12 @@ namespace nkentseu {
 				NkRecentEntry e;
 				e.pinned = (tag == 'P');
 				SplitLine(NkString(line.CStr() + 2, (NkString::SizeType)(line.Size() - 2u)), e);
-				if (!e.path.Empty())
+				// UNE ENTREE QUI NE POINTE PLUS SUR RIEN N'EST PAS UN PROJET. Le
+				// fichier a pu etre efface, deplace, ou renomme par la reparation
+				// « le dossier suit le nom » -- dans tous les cas, l'afficher promet
+				// au launcher un projet qui n'existe pas. On l'ecarte au chargement :
+				// la liste se nettoie donc d'elle-meme au prochain enregistrement.
+				if (!e.path.Empty() && NkFile::Exists(e.path.CStr()))
 					items.PushBack(e);
 				line.Clear();
 			};

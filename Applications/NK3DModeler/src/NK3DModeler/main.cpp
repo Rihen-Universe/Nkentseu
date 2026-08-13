@@ -28,12 +28,19 @@
 #include "NK3DModeler/Viewport/NkViewport3D.h"
 #include "NK3DModeler/Viewport/NkDemo3DHost.h" // PORTAGE INTEGRAL de --demo=2
 #include "NKGui/Core/NkGuiContext.h"
+#include "NKLogger/NkLog.h"
 #include "NKGui/Core/NkGuiFont.h"
 #include "NKTime/NkClock.h"
 #include "NKPlatform/NkEnv.h"
 
 #include "NK3DModeler/Shell/NkModelerTheme.h"
 #include "NK3DModeler/Shell/NkModelerScreens.h"
+#include "NK3DModeler/Shell/NkModelerChrome.h" // separateurs, dialogues, barre d etat
+#include "NK3DModeler/Shell/NkModelerHierarchy.h" // hierarchie + menus de scene
+#include "NK3DModeler/Shell/NkModelerViewport.h"  // vue 3D et ses surcouches
+#include "NK3DModeler/Shell/NkModelerProperties.h" // panneau de proprietes
+#include "NK3DModeler/Shell/NkModelerBrowser.h" // navigateur de projet
+#include "NK3DModeler/Shell/NkModelerMenus.h"   // menus deroulants
 // ECRAN D'ACCUEIL + socle PROJET (.nk3dm) : l'accueil est peint tant qu'aucun
 // projet n'est ouvert, et il porte l'execution differee des actions projet.
 #include "NK3DModeler/Shell/NkModelerWelcome.h"
@@ -851,6 +858,13 @@ int nkmain(const NkEntryState &entry) {
 		if (dt <= 0.f || dt > 0.1f)
 			dt = 1.f / 60.f;
 
+		// LA TAILLE DE VUE SUIT LA FENETRE. `NkGuiContext::Init` la pose une fois
+		// et ne la revoit jamais : apres un redimensionnement, tout composant qui
+		// s'appuie sur `viewW/viewH` (les modales de NKEditorKit, qui s'y centrent
+		// et y etendent leur voile) travaille sur les dimensions du DEMARRAGE --
+		// voile tronque, dialogue decentre (Rihen, 12 aout).
+		ui.viewW = (int32)lastW;
+		ui.viewH = (int32)lastH;
 		ui.BeginFrame(dt);
 		// Le registre est reinitialise APRES BeginFrame : il lit les transitions
 		// que celui-ci vient de calculer.
@@ -876,7 +890,11 @@ int nkmain(const NkEntryState &entry) {
 		// demonter la boucle : il recouvre l'application, donc l'application ne
 		// doit plus recevoir un seul evenement. Le mecanisme existait deja pour
 		// le picker de couleur -- on ne lui en ajoute pas un second.
-		const bool modalOpen = (st.colorOpen[0] != 0) || st.welcome;
+		// Le selecteur de fichiers de NKEditorKit est une modale de plein droit :
+		// il rejoint donc CE mecanisme plutot que d'en amener un second (ce que
+		// j'avais fait -- un SetBlock a part -- et qui l'empechait de repondre).
+		const bool modalOpen = (st.colorOpen[0] != 0) || st.welcome ||
+							   st.picker.pickerOpen || st.matAddOpen;
 		if (modalOpen) {
 			for (int32 b = 0; b < 3; ++b) {
 				ui.input.mouseDown[b] = false;
@@ -1172,7 +1190,11 @@ int nkmain(const NkEntryState &entry) {
 		{
 			const float32 mxv = ui.input.mousePos.x - lay.view.x;
 			const float32 myv = ui.input.mousePos.y - lay.view.y;
-			const bool inView = (mxv >= 0.f && myv >= 0.f && mxv < lay.view.w && myv < lay.view.h);
+			// LA VUE N'A PAS LA SOURIS SOUS UNE MODALE. `inView` ne jugeait que la
+			// geometrie : le clic droit de la vue passait donc a travers le panneau
+			// pose au-dessus d'elle, menu contextuel compris (Rihen, 12 aout).
+			const bool inView = !st.ModalOpen() && (mxv >= 0.f && myv >= 0.f &&
+													mxv < lay.view.w && myv < lay.view.h);
 			// LE GESTE APPARTIENT A LA ZONE OU IL A COMMENCE. Sans ce verrou, tirer
 			// un champ de transformation dont le trajet traverse la vue declenchait
 			// un press pour le gizmo 3D -- qui pickait dans le vide et DESELECTIONNAIT
@@ -1426,6 +1448,11 @@ int nkmain(const NkEntryState &entry) {
 
 		const NkTheme &theme = themes.Current();
 		NkModelerPainter p(ui.dl, font, theme, roles, icons);
+		// Le peintre de la couche OVERLAY : meme theme, meme jeu d'icones, mais il
+		// ecrit dans la liste soumise EN DERNIER. C'est lui qui peint les surfaces
+		// modales, pour qu'elles restent au-dessus des composants du kit.
+		NkModelerPainter pOverlay(ui.dlOverlay, font, theme, roles, icons);
+		nk3d::NkOvPainter() = &pOverlay;
 
 		// Fond general : il se voit dans les interstices entre panneaux, et c'est
 		// ce qui donne la profondeur a trois niveaux de UI_SPEC 10bis.1.
@@ -1531,6 +1558,45 @@ int nkmain(const NkEntryState &entry) {
 			PaintCloseRecDialog(p, W, H, st, hit);
 			PaintEncodeDoneDialog(p, W, H, st, hit);
 			PaintColorPicker(p, hit, ws, ui.input, st, (float32)W, (float32)H);
+			// La modale « Ajouter un materiau » : ICI, avec les surcouches, jamais
+			// dans le panneau de proprietes. C'est ce qui la rend etanche -- l'input
+			// vient d'etre rendu aux surcouches, et la vue 3D, elle, n'a rien recu.
+			nk3d::PaintMatAddModal(st, hit, ws, ui.input, combo, &ui);
+		}
+
+		// ── SELECTEUR DE FICHIERS (NKEditorKit, celui de NKCode) ────────────
+		// Peint ICI, hors de toute couche de panneaux : il flotte donc sur
+		// TOUTE la fenetre, comme Rihen l'a demande. Le composant ne fait que
+		// DECIDER (il depose un resultat) ; c'est l'application qui agit.
+		if (st.picker.pickerOpen) {
+			// COUCHE 100 : le registre donne le survol a la couche la plus haute,
+			// donc tout ce qui est peint dessous -- menus contextuels compris --
+			// devient aveugle sous son emprise. C'est ce qui empeche le clic droit
+			// de la vue 3D de repondre a travers lui (Rihen, 12 aout).
+			NkHitRegistry::LayerScope modalLayer(hit, 100);
+			(void)hit.Add("picker.modal", {0.f, 0.f, (float32)W, (float32)H});
+			editorkit::NkDrawFilePicker(ui, st.picker, editorkit::NkFilePickerStyle{});
+		}
+		if (st.picker.pickerConfirmed) {
+			st.picker.pickerConfirmed = false;
+			if (st.pickerAction == 1 && st.picker.pickerResultName[0]) {
+				const int32 ni = demo::Demo3DHostProjMatCreate();
+				if (ni >= 0) {
+					demo::Demo3DHostProjMatSetName(ni, st.picker.pickerResultName);
+					// Le materiau naissant se lie a l'objet actif, s'il y en a un.
+					const int32 an = demo::Demo3DHostActiveObject();
+					if (an >= 0)
+						(void)demo::Demo3DHostNodeMatAdd(an, ni);
+					nk3d::NkMarkDirty(st);
+				}
+			}
+			st.pickerAction = 0;
+			st.matNewPending = false;
+		}
+		if (st.picker.pickerCancelled) {
+			st.picker.pickerCancelled = false;
+			st.pickerAction = 0;
+			st.matNewPending = false;
 		}
 
 		ui.EndFrame();
@@ -1554,6 +1620,18 @@ int nkmain(const NkEntryState &entry) {
 		// Meme geste que NKCode, dont l'etat porte sa propre `root` (Rihen,
 		// 12 aout : « rends ce dossier accessible »).
 		st.projectRoot = proj.open ? proj.root : NkString();
+		// Le dossier courant du navigateur, en chemin DISQUE : c'est la que les
+		// selecteurs doivent s'ouvrir. `NkAsFolderPath` ne rend qu'un relatif, et
+		// n'est visible QUE d'ici (NkModelerAssets.h est inclus apres les ecrans).
+		// Vide si le dossier n'a pas encore d'existence sur le disque -- l'appelant
+		// se replie alors sur la racine plutot que d'ouvrir un arbre vide.
+		st.browserFolderAbs = NkString();
+		if (proj.open) {
+			const NkString rel = nk3d::NkAsFolderPath(st, st.browserFolder);
+			const NkString abs = rel.Empty() ? proj.root : nk3d::NkScToAbs(proj.root, rel.CStr());
+			if (NkDirectory::Exists(abs.CStr()))
+				st.browserFolderAbs = abs;
+		}
 		if (proj.open)
 			projWatch.Watch(proj.root);
 		else
@@ -1594,6 +1672,12 @@ int nkmain(const NkEntryState &entry) {
 
 		renderer.BeginFrame();
 		renderer.SubmitDrawList(ui.dl, lastW, lastH);
+		// LA COUCHE OVERLAY EST SOUMISE APRES, donc rendue PAR-DESSUS. Sans cette
+		// ligne, tout composant de NKEditorKit (selecteur de fichiers, modale, menu
+		// contextuel) dessine dans le vide : ces composants ecrivent dans
+		// `ctx.dlOverlay`, que le modeleur ne soumettait pas -- « le bouton Nouveau
+		// ne fait pas apparaitre le selecteur » (Rihen, 12 aout).
+		renderer.SubmitDrawList(ui.dlOverlay, lastW, lastH);
 		renderer.EndFrame();
 
 		// ── ENREGISTREMENT DU TUTORIEL : LA FENETRE ENTIERE ─────────────────
