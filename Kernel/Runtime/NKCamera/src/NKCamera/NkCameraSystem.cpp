@@ -553,14 +553,26 @@ namespace nkentseu {
 			const uint8 *Y = frame.data.Data();
 			const uint8 *U = Y + ySize;
 			const uint8 *V = U + uvSize;
+			// ── PLAGE COMPLÈTE, et non plage réduite ─────────────────────────
+			// Le format YUV_420_888 d'Android livre des composantes sur TOUTE
+			// l'étendue 0-255. La formule de la plage réduite — celle qui
+			// retranche 16 et multiplie par 1,164 — étire un signal déjà étendu :
+			// les clairs saturent, les sombres se bouchent, et l'image paraît
+			// délavée. C'est exactement ce que montraient les captures de Rihen
+			// (murs brûlés en blanc, visage écrasé en noir) et ce qu'il a résumé
+			// d'un mot : « pas coloré réaliste ».
+			// Coefficients de la plage complète (BT.601, dits « JPEG ») :
+			//   R = Y + 1,402·(V−128)
+			//   G = Y − 0,344136·(U−128) − 0,714136·(V−128)
+			//   B = Y + 1,772·(U−128)
 			for (uint32 row = 0; row < frame.height; ++row) {
 				for (uint32 col = 0; col < frame.width; ++col) {
-					float y = (float)Y[row * frame.width + col] - 16.f;
+					float y = (float)Y[row * frame.width + col];
 					float u = (float)U[(row / 2) * uvW + (col / 2)] - 128.f;
 					float v = (float)V[(row / 2) * uvW + (col / 2)] - 128.f;
-					float r = y * 1.164f + v * 1.596f;
-					float g = y * 1.164f - u * 0.391f - v * 0.813f;
-					float b = y * 1.164f + u * 2.018f;
+					float r = y + 1.402f * v;
+					float g = y - 0.344136f * u - 0.714136f * v;
+					float b = y + 1.772f * u;
 					uint32 idx = (row * frame.width + col) * 4;
 					out[idx + 0] = (uint8)(r < 0 ? 0 : r > 255 ? 255 : r);
 					out[idx + 1] = (uint8)(g < 0 ? 0 : g > 255 ? 255 : g);

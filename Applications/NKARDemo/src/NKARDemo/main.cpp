@@ -70,8 +70,12 @@ NK_REGISTER_ENTRY_APPDATA_UPDATER(ConfigureAppData)
 
 namespace {
 
-	constexpr uint32 kCamWidth = 1280;
-	constexpr uint32 kCamHeight = 720;
+	// 1080p et non 720p : l'écran du téléphone fait 2340 pixels de haut, et une
+	// image de 720 étirée dessus paraît molle — Rihen l'a comparée à son
+	// application photo, qui est nette. La détection y gagne aussi : un marqueur
+	// occupe deux fois plus de pixels, donc sa pose est mieux contrainte.
+	constexpr uint32 kCamWidth = 1920;
+	constexpr uint32 kCamHeight = 1080;
 	constexpr int32 kMarkerId = 0x2D;
 
 	// Image de repli quand aucune caméra n'est branchée : le marqueur y
