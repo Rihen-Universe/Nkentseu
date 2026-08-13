@@ -112,8 +112,13 @@ namespace nkentseu {
 			// le texte non rattache est fait d'en-tetes et de folios (quelques mots
 			// par page, dont le deplacement en fin de page ne coute rien) ; au-dela,
 			// c'est du corps de texte, et le deplacer serait une dislocation. Le
-			// chiffre suit la distribution ci-dessus : il laisse 126 documents sur
-			// 140 en ordre logique et met les 22 mal balises a l'abri.
+			// chiffre suit la distribution ci-dessus : il laisse 118 documents sur
+			// 140 en ordre logique (91 + 19 + 8) et met les 22 mal balises a
+			// l'abri (5 + 5 + 12).
+			//
+			// ⚠️ NE PAS CONFONDRE LES DEUX POPULATIONS DE 118 : celle-ci est celle
+			// des documents BALISES EXPLOITABLES ; l'autre, de meme taille par
+			// coincidence, est celle des documents SANS /StructTreeRoot.
 			static const double kNkPdfSeuilHorsStructure = 0.10;
 
 			// Assemble les items d'UNE page dans l'ordre de la structure.
