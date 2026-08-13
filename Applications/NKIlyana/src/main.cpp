@@ -2012,6 +2012,10 @@ static int ModeSonder(int argc, char **argv) {
 	// Phase 1 : ce que la lecture rend vraiment, pas ce que le document déclare.
 	int32 nTitreLu = 0, nTitreAccents = 0, nDateLue = 0, nLangueLue = 0;
 	NkVector<NkString> exemplesTitres;
+	// Polices : ce qui décide si un document est lisible ou muet.
+	int32 nDocFf3 = 0, nDocType1C = 0, nDocType1CMuet = 0;
+	int64 totPolices = 0, totType1C = 0, totType1CMuettes = 0;
+	NkVector<NkString> docsType1CMuets;
 
 	// Le TITRE est écrit dans le CSV, pas seulement compté. Le journal passe par
 	// la console, qui n'est pas en UTF-8 sous Windows : elle mange les accents
@@ -2063,6 +2067,18 @@ static int ModeSonder(int argc, char **argv) {
 		}
 		if (s.dateLue) ++nDateLue;
 		if (!s.langueLue.Empty()) ++nLangueLue;
+		totPolices += s.polices;
+		totType1C += s.policesType1C;
+		totType1CMuettes += s.policesType1CMuettes;
+		if (s.policesFontFile3 > 0) ++nDocFf3;
+		if (s.policesType1C > 0) ++nDocType1C;
+		if (s.policesType1CMuettes > 0) {
+			++nDocType1CMuet;
+			// Les NOMS sont conservés : un compteur ne dit pas si ces documents
+			// sont réellement en échec de lecture, or c'est cela seul qui décide
+			// si le chantier vaut d'être ouvert.
+			docsType1CMuets.PushBack(fichiers[i]);
+		}
 
 		if (fCsv) {
 			char ligne[512];
@@ -2112,6 +2128,17 @@ static int ModeSonder(int argc, char **argv) {
 	logger.Info("Filtres presents dans les octets bruts :");
 	logger.Infof("  LZWDecode %d  ·  CCITTFax %d  ·  JBIG2 %d  ·  JPX %d  ·  DCT(JPEG) %d\n", nLzw,
 				 nCcitt, nJbig2, nJpx, nDct);
+
+	logger.Info("--- Polices : de quoi depend la LISIBILITE ---");
+	logger.Infof("  polices distinctes rencontrees      : %lld\n", (long long)totPolices);
+	logger.Infof("  documents avec un /FontFile3 (CFF)  : %4d  (%.0f%%)\n", nDocFf3, pct(nDocFf3));
+	logger.Infof("  documents avec du /Subtype /Type1C  : %4d  (%.0f%%)   (%lld polices)\n",
+				 nDocType1C, pct(nDocType1C), (long long)totType1C);
+	logger.Infof("  ... dont MUETTES (ni /ToUnicode ni /Differences) : %4d doc  (%.0f%%)   (%lld "
+				 "polices)\n",
+				 nDocType1CMuet, pct(nDocType1CMuet), (long long)totType1CMuettes);
+	for (nk_size i = 0; i < docsType1CMuets.Size(); ++i)
+		logger.Infof("      %s\n", docsType1CMuets[i].CStr());
 
 	logger.Info("--- Phase 1 : ce que la LECTURE rend (et non ce qui est declare) ---");
 	logger.Infof("  titres lus            %4d  (%.0f%%)   dont accentues : %d\n", nTitreLu,
