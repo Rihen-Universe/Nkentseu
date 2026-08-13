@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor">
+  <!-- Tissu : une etoffe pleine dont l'OURLET ondule. C'est l'ourlet qui dit
+       « souple » -- un rectangle coupe net se lirait comme un plan, qui est deja
+       la premiere forme de la liste. Les cotes s'evasent legerement vers le bas :
+       le tissu tombe.
+       Dessin de depart, a remplacer par celui de Rihen. -->
+  <path d="M3.4 2.2h9.2l.7 9.1c-1.1.6-1.9-.5-3-.1-1.1.4-1.6 1.5-2.8 1.5s-1.7-1.1-2.8-1.5c-1.1-.4-1.9.7-3 .1z"/>
+</svg>

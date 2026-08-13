@@ -2824,41 +2824,54 @@ namespace nkentseu {
 						if (grpMt) {
 							const NkRect iR = NkGroupInner(rowR);
 							yy += NkGroupPad();
-							// APERCU + colonne des FORMES (plan, sphere, cube,
-							// liquide, cheveux -- structure de Blender).
+							// APERCU + RANGEE DES FORMES, sous l'image (Rihen,
+							// 13 aout). Elles etaient empilees en colonne a droite :
+							// a sept, la colonne depassait la hauteur de l'apercu.
 							{
 								const float32 side = S(104.f);
 								const float32 btn = S(20.f);
-								const float32 pvX = iR.x + (iR.w - side - btn - S(6.f)) * 0.5f;
+								const float32 pvX = iR.x + (iR.w - side) * 0.5f;
 								p.Image(4400u + (uint32)selMat, {pvX, yy, side, side});
 								p.OutlineSharp({pvX, yy, side, side}, NkRole::Border);
-								// LIQUIDE et CHEVEUX ont leur propre dessin (`Liquid`,
-								// `Hair`). Ils empruntaient `Metaball` et `CurveBezier`,
-								// qui designent Ball/Ellipsoide/Metaball et
-								// Bezier/Cercle/NURBS/Chemin/Courbe dans le menu Ajouter :
-								// chaque dessin partage entre deux sujets ment aux deux.
-								static const NkIcon kShp[5] = {NkIcon::Plane3D, NkIcon::SphereUV,
-															   NkIcon::Cube3D, NkIcon::Liquid,
-															   NkIcon::Hair};
+								// SEPT FORMES, dans l'ordre de Blender. Chacune a son
+								// propre dessin : `Liquid`, `Hair`, `Cloth` et `Monkey`
+								// ont ete crees pour elles, plutot que d'emprunter
+								// `Metaball` et `CurveBezier` -- qui designent
+								// Ball/Ellipsoide/Metaball et Bezier/Cercle/NURBS/Chemin
+								// dans le menu Ajouter. Un dessin partage entre deux
+								// sujets ment aux deux.
+								static const NkIcon kShpIc[7] = {
+									NkIcon::Plane3D, NkIcon::SphereUV, NkIcon::Cube3D,
+									NkIcon::Hair,	 NkIcon::Monkey,   NkIcon::Cloth,
+									NkIcon::Liquid};
+								// L'ORDRE D'AFFICHAGE N'EST PAS L'ORDRE DES VALEURS.
+								// `prevShape` est serialise (« apercu ») dans les .nkmat
+								// et les scenes : 0..4 gardent leur sens, tissu et tete
+								// s'ajoutent en 5 et 6. Cette table fait la traduction,
+								// et c'est elle qu'on remanie si l'ordre change encore.
+								static const int32 kShpVal[7] = {0, 1, 2, 4, 6, 5, 3};
 								const int32 shpCur = demo::Demo3DHostProjMatPrevShape(selMat);
-								float32 by = yy;
-								for (int32 s5 = 0; s5 < 5; ++s5) {
-									snprintf(key, sizeof(key), "props.pm.s%d", s5);
-									const NkRect sb{pvX + side + S(6.f), by, btn, btn};
+								const float32 rangeeW = 7.f * btn + 6.f * S(1.f);
+								float32 bx = iR.x + (iR.w - rangeeW) * 0.5f;
+								const float32 byy = yy + side + S(4.f);
+								for (int32 s7 = 0; s7 < 7; ++s7) {
+									const int32 val = kShpVal[s7];
+									snprintf(key, sizeof(key), "props.pm.s%d", val);
+									const NkRect sb{bx, byy, btn, btn};
 									hit.Add(key, sb);
-									if (shpCur == s5)
+									if (shpCur == val)
 										p.Fill(sb, NkRole::AccentUi, 3.f);
 									else
 										p.Outline(sb, NkRole::Border, NkRole::InputBg, 3.f);
-									p.IconV(sb.x + S(4.f), by, btn, kShp[s5],
-											shpCur == s5 ? NkRole::TextOnAccent
-														 : NkRole::TextMuted,
+									p.IconV(sb.x + S(4.f), byy, btn, kShpIc[s7],
+											shpCur == val ? NkRole::TextOnAccent
+														  : NkRole::TextMuted,
 											12.f);
 									if (hit.Clicked(key))
-										demo::Demo3DHostProjMatSetPrevShape(selMat, s5);
-									by += btn + S(1.f);
+										demo::Demo3DHostProjMatSetPrevShape(selMat, val);
+									bx += btn + S(1.f);
 								}
-								yy += side + NkGroupPad();
+								yy += side + S(4.f) + btn + NkGroupPad();
 							}
 							const float32 a0 = alb[0], a1 = alb[1], a2 = alb[2];
 							const float32 r0 = rgh, m0 = mtl;

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor">
+  <!-- Tete (« Suzanne ») : crane, museau et deux oreilles, en masses pleines --
+       la meme decomposition que le rendu de l'apercu, pour que le bouton annonce
+       ce qu'il produit. Les oreilles debordent de chaque cote : c'est ce
+       debordement qui rend la silhouette reconnaissable a 12 px, ou aucun detail
+       de visage ne survivrait.
+       Dessin de depart, a remplacer par celui de Rihen. -->
+  <path d="M8 2.1a4.3 4.3 0 00-4.3 4.3c0 1.4.7 2.7 1.7 3.5.3 1.4 1.4 2.4 2.6 2.4s2.3-1 2.6-2.4c1-.8 1.7-2.1 1.7-3.5A4.3 4.3 0 008 2.1z"/>
+  <path d="M2.6 4.1a1.5 1.9 0 100 3.8 1.5 1.9 0 000-3.8z"/>
+  <path d="M13.4 4.1a1.5 1.9 0 100 3.8 1.5 1.9 0 000-3.8z"/>
+</svg>

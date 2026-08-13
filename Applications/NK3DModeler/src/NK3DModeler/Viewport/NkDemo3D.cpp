@@ -880,7 +880,10 @@ namespace nkentseu {
 			"Couleur", "Normale", "ORM", "Emissif", "Hauteur"};
 		struct NkVpProjMat {
 				bool used;
-				int8 prevShape; // apercu : 0 plan, 1 sphere, 2 cube, 3 liquide, 4 cheveux
+				// apercu : 0 plan, 1 sphere, 2 cube, 3 liquide, 4 cheveux, 5 tissu,
+			// 6 tete. Valeurs SERIALISEES (« apercu ») : on ajoute a la fin, on ne
+			// renumerote pas.
+			int8 prevShape;
 				char name[32];
 				// Chemins des quatre canaux ("" = pas de texture, les valeurs
 				// numeriques font alors foi). MAX_PATH chacun.
@@ -14184,7 +14187,11 @@ namespace nkentseu {
 		}
 		void Demo3DHostProjMatSetPrevShape(int32 i, int32 shape) {
 			if (i >= 0 && i < kNkvpMaxProjMats)
-				nkvpProjMats[i].prevShape = (int8)(shape < 0 ? 0 : (shape > 4 ? 4 : shape));
+				// 0..6 depuis le 13 aout (ajout du tissu et de la tete). Les valeurs
+				// 0 a 4 n'ont PAS bouge : elles sont serialisees sous « apercu » dans
+				// les .nkmat et les scenes, et les renumeroter aurait change la forme
+				// des materiaux deja enregistres.
+				nkvpProjMats[i].prevShape = (int8)(shape < 0 ? 0 : (shape > 6 ? 6 : shape));
 		}
 		int32 Demo3DHostProjMatMax() {
 			return kNkvpMaxProjMats;
@@ -14335,6 +14342,65 @@ namespace nkentseu {
 										 sc * hl * (0.25f + 0.75f * gloss);
 							}
 						}
+					} else if (shp == 5) {
+						// TISSU : une etoffe suspendue, plis verticaux et ourlet
+						// ondule. La surface est une hauteur z = f(u,v) dont on
+						// derive la normale ANALYTIQUEMENT -- pas de maillage a
+						// porter dans un apercu qui tient en quelques lignes.
+						const float32 u = dx * 1.30f, v = dy * 1.30f;
+						// Silhouette : legerement evasee vers le bas (le tissu
+						// tombe), et l'ourlet ondule au lieu d'etre coupe net.
+						const float32 demiL = 0.86f - 0.10f * v;
+						const float32 basV = -0.86f + 0.10f * math::NkSin(u * 7.3f);
+						if (u > -demiL && u < demiL && v < 0.92f && v > basV) {
+							const float32 pli = math::NkSin(u * 6.2f + v * 1.1f);
+							const float32 att = 1.f - 0.30f * v; // plis plus creuses en bas
+							const float32 dfu = 0.34f * 6.2f * math::NkCos(u * 6.2f + v * 1.1f) * att;
+							const float32 dfv = 0.34f * (1.1f * math::NkCos(u * 6.2f + v * 1.1f) * att -
+														 0.30f * pli);
+							const float32 il = 1.f / math::NkSqrt(dfu * dfu + dfv * dfv + 1.f);
+							shade(-dfu * il, -dfv * il, il, col);
+						}
+					} else if (shp == 6) {
+						// TETE (« Suzanne ») : union de quatre ellipsoides -- crane,
+						// museau, deux oreilles -- en projection orthographique. Pour
+						// chaque pixel on garde le point le PLUS PROCHE de la camera,
+						// ce qui donne l'union sans avoir a intersecter les surfaces.
+						// Ce n'est pas le maillage de Blender et ne pretend pas
+						// l'etre : l'apercu sert a juger une MATIERE, il lui faut des
+						// courbures variees et une silhouette reconnaissable.
+						const float32 u = dx * 1.28f, v = dy * 1.28f;
+						struct Ell {
+								float32 cx, cy, cz, rx, ry, rz;
+						};
+						static const Ell kParts[4] = {
+							{0.00f, 0.10f, 0.00f, 0.74f, 0.70f, 0.70f},	 // crane
+							{0.00f, -0.44f, 0.34f, 0.48f, 0.34f, 0.46f}, // museau
+							{-0.80f, 0.16f, -0.10f, 0.24f, 0.32f, 0.20f}, // oreille G
+							{0.80f, 0.16f, -0.10f, 0.24f, 0.32f, 0.20f}}; // oreille D
+						float32 meilleurZ = -1e9f;
+						float32 N3[3] = {0.f, 0.f, 0.f};
+						for (int32 e = 0; e < 4; ++e) {
+							const Ell &q = kParts[e];
+							const float32 a = (u - q.cx) / q.rx, b = (v - q.cy) / q.ry;
+							const float32 d2e = a * a + b * b;
+							if (d2e > 1.f)
+								continue;
+							const float32 w = math::NkSqrt(1.f - d2e);
+							const float32 z = q.cz + q.rz * w;
+							if (z <= meilleurZ)
+								continue;
+							meilleurZ = z;
+							// Normale d'un ellipsoide : le gradient, donc chaque
+							// composante divisee par le CARRE de son rayon.
+							float32 nx = a / q.rx, ny = b / q.ry, nz = w / q.rz;
+							const float32 il = 1.f / math::NkSqrt(nx * nx + ny * ny + nz * nz);
+							N3[0] = nx * il;
+							N3[1] = ny * il;
+							N3[2] = nz * il;
+						}
+						if (meilleurZ > -1e8f)
+							shade(N3[0], N3[1], N3[2], col);
 					} else {
 						// SPHERE (1) et LIQUIDE (3) : meme geometrie, matiere differente.
 						const float32 d2 = dx * dx + dy * dy;
