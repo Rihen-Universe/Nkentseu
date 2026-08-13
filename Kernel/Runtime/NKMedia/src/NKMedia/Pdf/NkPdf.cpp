@@ -454,6 +454,15 @@ namespace nkentseu {
 				return NkPdfVal();
 			}
 
+			NkPdfVal NkPdfDoc::DictValueAt(const NkPdfVal &dict, int32 i) const {
+				if (!dict.IsDictLike() || i < 0 || i >= dict.b)
+					return NkPdfVal();
+				const usize ei = static_cast<usize>(dict.a + i);
+				if (ei >= mEnts.Size())
+					return NkPdfVal();
+				return Resolve(mVals[static_cast<usize>(mEnts[ei].val)]);
+			}
+
 			NkPdfVal NkPdfDoc::ArrayAt(const NkPdfVal &arr, int32 i) const {
 				if (arr.kind != NK_PDF_ARRAY || i < 0 || i >= arr.b)
 					return NkPdfVal();
