@@ -28,6 +28,7 @@
 #include "NKCore/NkTypes.h"
 #include "NKMedia/Pdf/NkPdf.h"
 #include "NKMedia/Pdf/NkPdfInfo.h"
+#include "NKMedia/Pdf/NkPdfStruct.h"
 
 #include <cstdio>
 
@@ -88,6 +89,11 @@ namespace ilyana {
 			// corpus contient ce cas — donc si (page, MCID) suffit ou non.
 			int32 mcrAvecStm = 0;	   // /MCR portant une clé /Stm : le signal explicite
 			bool formDansDocBalise = false; // document balisé ayant des Form XObject
+
+			// Ce que l'index de structure RAMÈNE réellement. Un arbre présent mais
+			// qui ne produit aucune entrée exploitable donnerait un repli
+			// silencieux sur l'ordre visuel — c'est-à-dire un échec invisible.
+			int32 entreesStruct = 0;
 	};
 
 	// Cherche une suite d'octets dans un tampon. Rendue ici plutôt qu'empruntée
@@ -363,6 +369,12 @@ namespace ilyana {
 			const NkPdfVal str = doc.DictGet(cat, "StructTreeRoot");
 			s.structTree = str.IsDictLike();
 			if (s.structTree) {
+				// L'arbre est là — mais rend-il des entrées ? La présence d'une clé
+				// ne prouve pas qu'on sait la lire, et c'est exactement la
+				// distinction qui a coûté cher sur /ToUnicode le 11 août.
+				NkPdfStructIndex idx;
+				if (idx.Construire(doc))
+					s.entreesStruct = (int32)idx.Taille();
 				NkVector<int32> vus;
 				s.mcrAvecStm = CompterMcrAvecStm(doc, doc.DictGet(str, "K"), vus, 0);
 

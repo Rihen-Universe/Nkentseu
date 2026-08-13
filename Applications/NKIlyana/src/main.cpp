@@ -2020,6 +2020,11 @@ static int ModeSonder(int argc, char **argv) {
 	// Phase 3 : (page, MCID) suffit-il a identifier un bloc marque ?
 	int32 nMcrStm = 0, nFormBalise = 0;
 	int64 totMcrStm = 0;
+	// L'arbre est-il seulement DECLARE, ou effectivement LU ? Distinction qui a
+	// coute cher sur /ToUnicode : une cle presente qu'on ne sait pas lire se
+	// presente exactement comme une cle absente.
+	int32 nStructLu = 0, nStructMuet = 0;
+	int64 totEntreesStruct = 0;
 
 	// Le TITRE est écrit dans le CSV, pas seulement compté. Le journal passe par
 	// la console, qui n'est pas en UTF-8 sous Windows : elle mange les accents
@@ -2056,6 +2061,10 @@ static int ModeSonder(int argc, char **argv) {
 		// population-ci justifierait encore le chantier.
 		if (s.signets > 0 && !s.structTree) ++nSignetsSansStruct;
 		if (s.mcrAvecStm > 0) { ++nMcrStm; totMcrStm += s.mcrAvecStm; }
+		if (s.structTree) {
+			if (s.entreesStruct > 0) { ++nStructLu; totEntreesStruct += s.entreesStruct; }
+			else ++nStructMuet;
+		}
 		if (s.formDansDocBalise) ++nFormBalise;
 		if (s.dests) ++nDests;
 		if (s.embarques) ++nEmb;
@@ -2135,6 +2144,8 @@ static int ModeSonder(int argc, char **argv) {
 	logger.Infof("  /StructTreeRoot       %4d  (%.0f%%)\n", nStruct, pct(nStruct));
 	logger.Infof("  /Outlines SANS /StructTreeRoot %4d  (%.0f%%)  <- valeur MARGINALE des signets\n",
 				 nSignetsSansStruct, pct(nSignetsSansStruct));
+	logger.Infof("    ... arbre effectivement LU : %4d doc  (%lld entrees)   MUET : %d doc\n",
+				 nStructLu, (long long)totEntreesStruct, nStructMuet);
 	logger.Info("  -- (page, MCID) suffit-il a identifier un bloc marque ? --");
 	logger.Infof("    /MCR portant une cle /Stm    : %4d doc  (%lld occurrences)\n", nMcrStm,
 				 (long long)totMcrStm);
