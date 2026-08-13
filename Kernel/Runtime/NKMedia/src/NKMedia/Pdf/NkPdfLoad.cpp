@@ -672,6 +672,123 @@ namespace nkentseu {
 				return true;
 			}
 
+			// ── LZWDecode (§7.4.4) ──
+			//
+			// AJOUTE PAR MESURE, pas par completude. Le sondage du 13/08/2026 en
+			// trouve 5 sur 258 documents — et ces cinq sont TOUS illisibles. La
+			// causalite a ete verifiee et non supposee : le LZW y porte sur les flux
+			// de CONTENU DE PAGE (7 occurrences sur 10 dans Gdmphys1.pdf, 4 sur 4
+			// dans phys_model.pdf), pas seulement sur des images. Sans ce filtre,
+			// ces pages ne sont jamais decodees et le document rend zero caractere.
+			//
+			// Variante TIFF de LZW : codes de largeur VARIABLE 9 -> 12 bits, lus en
+			// gros-boutiste (contrairement au LZW de GIF, qui lit a l'envers — les
+			// confondre rend du bruit des le troisieme code).
+			//   256 = remise a zero du dictionnaire · 257 = fin de donnees
+			//   258+ = entrees apprises
+			bool NkPdfDoc::LzwDecode(const uint8 *in, usize inSz, NkVector<uint8> &out,
+									 int32 earlyChange) {
+				if (!in || inSz == 0)
+					return false;
+
+				// Dictionnaire : chaque entree est (prefixe, dernier octet). On ne
+				// stocke pas les chaines completes — 4096 chaines pouvant faire
+				// 4096 octets chacune couteraient 16 Mo pour rien.
+				static const int32 kMax = 4096;
+				NkVector<int32> prefixe;
+				NkVector<uint8> suffixe;
+				prefixe.Resize(kMax);
+				suffixe.Resize(kMax);
+				for (int32 i = 0; i < 256; ++i) {
+					prefixe[(nk_size)i] = -1;
+					suffixe[(nk_size)i] = static_cast<uint8>(i);
+				}
+
+				int32 suivant = 258;  // 256 et 257 sont reserves
+				int32 largeur = 9;
+				int32 precedent = -1;
+				NkVector<uint8> pile;  // une chaine se reconstruit a l'envers
+
+				usize bitPos = 0;
+				const usize bitsTotal = inSz * 8;
+
+				auto lireCode = [&](int32 &code) -> bool {
+					if (bitPos + (usize)largeur > bitsTotal)
+						return false;
+					int32 v = 0;
+					for (int32 k = 0; k < largeur; ++k) {
+						const usize b = bitPos + (usize)k;
+						const uint8 octet = in[b >> 3];
+						const int32 bit = (octet >> (7 - (int32)(b & 7))) & 1;
+						v = (v << 1) | bit;
+					}
+					bitPos += (usize)largeur;
+					code = v;
+					return true;
+				};
+
+				for (;;) {
+					int32 code = 0;
+					if (!lireCode(code))
+						break; // fin des octets : un flux tronque rend ce qu'il a pu
+					if (code == 257)
+						break; // fin de donnees, en bonne et due forme
+					if (code == 256) {
+						suivant = 258;
+						largeur = 9;
+						precedent = -1;
+						continue;
+					}
+
+					// Cas particulier legitime du LZW : le code designe l'entree qu'on
+					// est en train de construire (motif « KwKwK »). Sans ce cas, tout
+					// flux contenant une repetition immediate echoue.
+					int32 depart = code;
+					pile.Clear();
+					if (code >= suivant) {
+						if (precedent < 0)
+							return false; // flux malforme des le premier code
+						depart = precedent;
+					}
+
+					int32 c = depart;
+					int32 garde = 0;
+					while (c >= 0 && garde++ < kMax) {
+						pile.PushBack(suffixe[(nk_size)c]);
+						c = prefixe[(nk_size)c];
+					}
+					if (garde >= kMax)
+						return false; // chaine cyclique : dictionnaire corrompu
+
+					// La chaine s'est empilee a l'envers.
+					for (nk_size k = pile.Size(); k > 0; --k)
+						out.PushBack(pile[k - 1]);
+					if (code >= suivant)
+						out.PushBack(pile[pile.Size() - 1]); // le K final du cas KwKwK
+
+					if (precedent >= 0 && suivant < kMax) {
+						prefixe[(nk_size)suivant] = precedent;
+						// Le premier caractere de la chaine courante est le DERNIER
+						// empile (la pile est a l'envers).
+						suffixe[(nk_size)suivant] = pile[pile.Size() - 1];
+						++suivant;
+					}
+					precedent = code;
+
+					// /EarlyChange : la largeur augmente UN CODE PLUS TOT quand il
+					// vaut 1, ce qui est le defaut. La quasi-totalite des producteurs
+					// suit ce defaut ; s'en ecarter decale tout le flux d'un bit.
+					const int32 seuil = (earlyChange ? 1 : 0);
+					if (suivant + seuil >= 512 && largeur == 9)
+						largeur = 10;
+					else if (suivant + seuil >= 1024 && largeur == 10)
+						largeur = 11;
+					else if (suivant + seuil >= 2048 && largeur == 11)
+						largeur = 12;
+				}
+				return out.Size() > 0;
+			}
+
 			bool NkPdfDoc::ApplyFilter(const char *name, int32 nameLen, const NkPdfVal &parms,
 									   const NkVector<uint8> &in, NkVector<uint8> &out) const {
 				auto is = [&](const char *s) {
@@ -690,6 +807,11 @@ namespace nkentseu {
 					ok = AsciiHex(in.Data(), in.Size(), out);
 				else if (is("RunLengthDecode") || is("RL"))
 					ok = RunLength(in.Data(), in.Size(), out);
+				else if (is("LZWDecode") || is("LZW")) {
+					// /EarlyChange vaut 1 par defaut (§7.4.4, table 8).
+					const int32 early = static_cast<int32>(Num(DictGet(parms, "EarlyChange"), 1.0));
+					ok = LzwDecode(in.Data(), in.Size(), out, early);
+				}
 				else if (is("Crypt")) { // filtre d'identite en pratique
 					out = in;
 					ok = true;
