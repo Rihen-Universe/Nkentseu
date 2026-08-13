@@ -112,6 +112,12 @@ namespace nkentseu {
 				const NkVector<NkArTrackedMarker> &GetTracked() const { return mTracked; }
 				const NkArTrackedMarker *Find(int32 id) const;
 
+				/// Les détections BRUTES de la dernière image — sans suivi ni
+				/// lissage. La calibration en a besoin telles quelles : lisser
+				/// des coins avant de mesurer la géométrie de l'objectif
+				/// reviendrait à calibrer le filtre en même temps que l'optique.
+				const NkVector<NkArDetection> &GetDetections() const { return mDetections; }
+
 				// Oublier une ancre (ou toutes) : le pendant indispensable du
 				// mode ANCRÉ — sans lui, une scène posée par erreur ne
 				// pourrait plus jamais être retirée.
