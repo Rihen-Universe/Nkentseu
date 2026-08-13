@@ -323,8 +323,20 @@ namespace nkentseu {
 					mHasFrame = false;
 				}
 
+				// APPLIQUER la configuration demandée, au lieu de la conserver
+				// sans s'en servir. NkCameraConfig::autoFocus valait « oui » par
+				// défaut mais n'était jamais transmis au pilote : la mise au
+				// point restait figée à la position par défaut du gabarit de
+				// requête, et l'image sortait FLOUE — d'autant plus qu'en AR on
+				// vise un marqueur tenu à bout de bras, soit la distance la plus
+				// défavorable. Constaté par Rihen le 13 août.
+				if (config.autoFocus) {
+					SetAutoFocus(true);
+				}
+
 				mState = NkCameraState::NK_CAM_STATE_STREAMING;
-				NKCAM_LOGI("Streaming started: %ux%u @%u fps", mWidth, mHeight, mFPS);
+				NKCAM_LOGI("Streaming started: %ux%u @%u fps (autofocus %s)", mWidth, mHeight, mFPS,
+						   config.autoFocus ? "actif" : "coupe");
 				return true;
 			}
 
