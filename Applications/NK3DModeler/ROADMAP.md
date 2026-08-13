@@ -1058,6 +1058,25 @@ surfaces ne coexistent qu'UNE frame, au clic sur « Nouveau »).
 leur rognage. Ne PAS proposer de correctif sans cette mesure (deja 5 hypotheses
 fausses sur ce sujet).
 
+## MATERIAUX — ETAT AU 13 AOUT (midi)
+
+Fonctionne et valide par Rihen : magenta a l'absence de materiau, retrait du
+dernier, unicite par renommage (`Bois.001`), doublons corriges ET reecrits sur
+disque, dossiers reels du navigateur (`Apercus`), creation ecrite sur disque,
+materiau ajoute a un objet vide qui en devient l'actif.
+
+**Le magenta « aucun materiau »** occupe le DERNIER emplacement du registre
+(`kNkvpMissingMat`), reserve — la creation s'arrete avant lui. Il est invisible
+partout d'un seul geste : `Demo3DHostProjMatInfo` le refuse, et
+`Demo3DHostProjMatOf` rend -1 pour lui. Il est ASSIGNE au retrait du dernier
+materiau, jamais peint au rendu (voir memoire « Agir a la source »).
+
+**DEMANDE EN ATTENTE (Rihen, 13 aout)** : choisir le TYPE du materiau **avant**
+sa creation, dans le dialogue. A faire avec les points de specialisation du kit —
+`DrawPickerExtra` / `PickerExtraHeight` de `NkFilePicker.h` — que NKCode utilise
+deja pour son assistant (rangee « Type : Classe / Struct / Union / … » au-dessus
+du champ de nom). Ne PAS ecrire un dialogue parallele.
+
 ## SUITE
 
 1. Infobulles sur toutes les zones + migration `snprintf` -> `NkSPrintf`.
