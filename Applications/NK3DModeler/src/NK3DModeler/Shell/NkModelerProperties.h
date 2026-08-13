@@ -2595,11 +2595,15 @@ namespace nkentseu {
 							// le portent (regle de Rihen). Le « + » le remettra sans
 							// qu'on ait a en recreer un.
 							const NkRect rb{bx, lst.y + S(21.f), colW, S(20.f)};
-							// Actif des que l'objet porte PLUS D'UN materiau : le
-							// dernier ne se retire pas, un modele en garde toujours
-							// au moins un.
+							// LE DERNIER SE RETIRE AUSSI (Rihen, 13 aout). La garde a
+							// ete levee dans le moteur, mais elle SUBSISTAIT ICI : le
+							// bouton restait eteint sur le dernier materiau, si bien
+							// que la regle semblait ne pas s'appliquer. Une regle
+							// changee doit l'etre AUX DEUX BOUTS -- le moteur qui
+							// autorise et l'interface qui propose.
+							// Un objet sans materiau est rendu en magenta.
 							const bool en = (actN >= 0) && (selMat >= 0) &&
-											(demo::Demo3DHostNodeMatCount(actN) > 1);
+											(demo::Demo3DHostNodeMatCount(actN) >= 1);
 							const bool ovR = hit.Add("props.pm.del", rb);
 							p.Outline(rb, (ovR && en) ? NkRole::AccentUi : NkRole::Border,
 									  NkRole::PanelHeader, 3.f);
