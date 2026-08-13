@@ -228,7 +228,7 @@ namespace nkentseu {
 		// sont celles de GITHUB DARK (demande de Rihen, 13 aout 2026), la meme
 		// palette que le reste des editeurs de la suite.
 		struct NkModalStyle {
-				NkColor backdrop = {1, 4, 9, 160};	   ///< voile (#010409)
+				NkColor backdrop = {1, 4, 9, 70};	   ///< voile LEGER : il signale, il n'efface pas
 				NkColor card = {13, 17, 23, 255};	   ///< fond de la fenetre (#0d1117)
 				NkColor header = {22, 27, 34, 255};	   ///< barre de titre (#161b22)
 				NkColor border = {48, 54, 61, 255};	   ///< liseres (#30363d)
