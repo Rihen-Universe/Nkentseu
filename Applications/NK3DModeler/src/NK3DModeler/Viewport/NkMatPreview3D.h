@@ -83,6 +83,11 @@ namespace nkentseu {
 					/// noir, et le journal dit lequel manque.
 					NkMeshHandle mesh[(int32)NkPrevMesh::Count];
 					NkMeshHandle meshSol;
+					/// Le sol a son propre materiau, porteur du damier : sans lui il
+					/// faudrait passer par les surcharges du draw call, qui ne savent
+					/// pas echantillonner une texture.
+					NkMaterial *matSol = nullptr;
+					NkTexHandle texDamier;
 			};
 
 			inline NkMatPreviewState &St() {
@@ -154,6 +159,55 @@ namespace nkentseu {
 					s.mesh[(int32)NkPrevMesh::Plan] = ms->GetPlane();
 					s.mesh[(int32)NkPrevMesh::Sphere] = ms->GetSphere();
 					s.mesh[(int32)NkPrevMesh::Cube] = ms->GetCube();
+				}
+
+				// ── LE SOL EN DAMIER ────────────────────────────────────────────
+				// Un sol UNI ne dit rien de la matiere posee dessus. Le damier,
+				// lui, se reflete, se deforme dans le verre et se voit au travers
+				// d'un objet transparent : c'est un instrument de mesure autant
+				// qu'un fond, et c'est pour cela que Blender en met un (Rihen,
+				// 13 aout : « est-ce possible que le sol soit totalement a grille »).
+				//
+				// La texture est GENEREE, pas chargee : un damier est deux boucles,
+				// et un fichier de plus serait un fichier a livrer, a trouver et a
+				// ne pas perdre.
+				{
+					static const uint32 kT = 64u;	 // taille de la texture
+					static const uint32 kCase = 8u; // cote d'une case, en texels
+					static uint8 px[kT * kT * 4u];
+					for (uint32 y = 0; y < kT; ++y)
+						for (uint32 x = 0; x < kT; ++x) {
+							const bool clair = (((x / kCase) ^ (y / kCase)) & 1u) != 0u;
+							// Deux gris sombres et PROCHES : un damier contraste
+							// attirerait l'oeil plus que l'objet, alors qu'il est le
+							// fond. Ceux-ci sont ceux de l'ancien apercu logiciel.
+							const uint8 v = clair ? 74u : 56u;
+							uint8 *o = px + (y * kT + x) * 4u;
+							o[0] = o[1] = o[2] = v;
+							o[3] = 255u;
+						}
+					if (auto *tl = s.rd->GetTextures()) {
+						NkTextureCreateDesc td;
+						td.pixels = px;
+						td.width = kT;
+						td.height = kT;
+						td.srgb = true; // c'est une COULEUR, pas un parametre
+						td.genMips = true; // sinon le damier fourmille en profondeur
+						td.mipLevels = 0;
+						td.debugName = "NkMatPreviewDamier";
+						s.texDamier = tl->Create(td);
+					}
+					if (auto *matS = s.rd->GetMaterials()) {
+						s.matSol = NkMaterial::Create(matS, NkMaterialType::NK_PBR_METALLIC);
+						if (s.matSol) {
+							s.matSol->SetAlbedo({1.f, 1.f, 1.f}, 1.f)
+								->SetMetallic(0.f)
+								->SetRoughness(0.94f);
+							if (auto *tl = s.rd->GetTextures())
+								if (s.texDamier.IsValid())
+									s.matSol->SetAlbedoMap(s.texDamier);
+						}
+					}
 				}
 				s.ok = true;
 				NkLog::Instance().Info(
@@ -271,7 +325,11 @@ namespace nkentseu {
 					dc.mesh = s.meshSol;
 					dc.transform = NkMat4f::Scale({6.f, 1.f, 6.f});
 					dc.aabb = {{-6.f, -0.01f, -6.f}, {6.f, 0.01f, 6.f}};
-					dc.tint = {0.19f, 0.19f, 0.20f};
+					// Le materiau porte le damier ; la teinte reste blanche pour ne
+					// pas le salir (elle MULTIPLIE l'echantillon).
+					if (s.matSol)
+						dc.material = s.matSol->GetInstHandle();
+					dc.tint = {1.f, 1.f, 1.f};
 					dc.roughness = 0.94f;
 					dc.metallic = 0.f;
 					dc.castShadow = false;
