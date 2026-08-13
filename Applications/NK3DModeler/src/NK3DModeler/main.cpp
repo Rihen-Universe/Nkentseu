@@ -1590,6 +1590,12 @@ int nkmain(const NkEntryState &entry) {
 					nk3d::NkMatUniqueName(st.picker.pickerResultName, ni, nomLibre,
 										  (uint32)sizeof(nomLibre));
 					demo::Demo3DHostProjMatSetName(ni, nomLibre);
+					// ── SON TYPE, CHOISI AVANT LA CREATION ──────────────────
+					// Pose AVANT l'ecriture disque : le `.nkmat` serialise le
+					// champ `type` (NkProjectWriteAssets), et un type applique
+					// apres coup n'aurait vecu qu'en memoire -- exactement la
+					// faute qui a coute la matinee (cf. « agir a la source »).
+					demo::Demo3DHostProjMatSetType(ni, st.picker.MatNewTypeValue());
 					// Le materiau naissant se lie a l'objet actif, s'il y en a un.
 					const int32 an = demo::Demo3DHostActiveObject();
 					if (an >= 0)
@@ -1613,9 +1619,22 @@ int nkmain(const NkEntryState &entry) {
 			}
 			st.pickerAction = 0;
 			st.matNewPending = false;
+			// Le mode « nouveau materiau » du selecteur se desarme TOUT SEUL,
+			// dans `PickerCancel` : c'est sa porte de sortie unique, Echap
+			// comprise. Le desarmer aussi ici ne ferait que dupliquer la regle.
 		}
 		if (st.picker.pickerCancelled) {
 			st.picker.pickerCancelled = false;
+			st.pickerAction = 0;
+			st.matNewPending = false;
+		}
+		// SELECTEUR FERME = ACTION CADUQUE. La touche Echap referme le selecteur
+		// sans passer par « Annuler » : elle ne posait donc ni confirmation ni
+		// annulation, et `pickerAction` restait a 1. Le selecteur suivant --
+		// ouvert pour tout autre chose -- aurait vu sa confirmation interpretee
+		// comme « creer un materiau ». Une intention doit mourir avec la fenetre
+		// qui l'a fait naitre.
+		if (!st.picker.pickerOpen && st.pickerAction != 0) {
 			st.pickerAction = 0;
 			st.matNewPending = false;
 		}

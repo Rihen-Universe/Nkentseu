@@ -16,11 +16,29 @@ adversaire), et pour toute personne qui reprend le projet.
 | 3 | [Écrire une IA](md/03-ecrire-une-ia.md) | `NkcAIVTable`, le thread worker, le budget |
 | 4 | [Fabriquer une grille en JSON](md/04-les-grilles.md) | le plateau comme donnée : le format, les pièges |
 | 5 | [Définir sa grille en C++](md/05-grille-en-cpp.md) | forme, voisinage et **projection écran** décidés par le module (ABI 3) |
-| 6 | [Se servir de l'atelier](md/06-se-servir-de-l-atelier.md) | les six panneaux, mesurer, lire un résultat sans se tromper |
+| 6 | [Se servir de l'atelier](md/06-se-servir-de-l-atelier.md) | les sept panneaux, mesurer, lire un résultat sans se tromper |
+| 7 | [Regarder et habiller](md/07-regarder-et-habiller.md) | zoom sur les grands plateaux, multijoueur, **totems en images**, thème et langue |
+| 8 | [Exemples complets](md/08-exemples-complets.md) | l'échelle : aléatoire → glouton → **négamax alpha-bêta**, règles en 3 fonctions, plateaux JSON et C++ |
+
+## Fiches de travail, une par stagiaire
+
+Le cours explique **comment** écrire un module. Ces fiches expliquent **quoi
+mesurer** et **comment défendre** le résultat — c'est ce sur quoi le stagiaire
+est évalué.
+
+| Fiche | Pour qui | Ce qu'elle contient |
+|---|---|---|
+| [`stagiaires/A1_moteur_de_regles.md`](stagiaires/A1_moteur_de_regles.md) | A1 — moteur de règles | 11 indicateurs, protocole de mesure, comment prouver qu'une règle est bonne pour le joueur, ce qui fait fuir un joueur |
+| [`stagiaires/A2_intelligence_artificielle.md`](stagiaires/A2_intelligence_artificielle.md) | A2 — IA adversaire | 11 indicateurs, paliers de difficulté réellement distincts, temps de réponse, erreurs plausibles |
+
+Les deux insistent sur le même point : **l'atelier sait réfuter, il ne sait pas
+confirmer que c'est amusant.** Ce qui relève du plaisir se vérifie en regardant
+quelqu'un jouer, et les fiches imposent une section « ce que je n'ai pas pu
+vérifier ».
 
 ## Formats
 
-- **PDF** : `Cours_ConquerorLab.pdf` (41 pages) — la version composée, à lire.
+- **PDF** : `Cours_ConquerorLab.pdf` — la version composée, à lire.
 - **Markdown** : `md/` — la même matière, lisible sur GitHub et modifiable.
 - **Source** : `tex/` — LaTeX (XeLaTeX), un fichier par chapitre dans
   `tex/chapitres/`.
@@ -39,17 +57,23 @@ Consolas — sont livrées avec Windows.
 
 ## Le code dont ce cours parle
 
-Trois exemples **complets et compilables**, écrits pour ce cours :
+Sept exemples **complets et compilables**, du plus court au plus complet
+(chapitre 8) :
 
-- `Applications/ConquerorLab/exemples/rules/RegleMinimale.cpp` — le plus petit
-  moteur qui joue vraiment (carré 5×5) ;
-- `Applications/ConquerorLab/exemples/rules/GrilleLibre.cpp` — un plateau
-  **circulaire** défini entièrement en C++, sans JSON ;
-- `Applications/ConquerorLab/exemples/ai/IAMinimale.cpp` — la plus petite IA qui
-  joue vraiment.
+| Fichier | Ce qu'il montre |
+|---|---|
+| `exemples/ai/IAMinimale.cpp` | la forme d'un module d'IA — tire au hasard |
+| `exemples/ai/IAFacile.cpp` | **évaluer et choisir**, avec `ConquerorFacile.h` |
+| `exemples/ai/IAGloutonne.cpp` | le même algorithme, au contrat nu |
+| `exemples/ai/IANegamax.cpp` | négamax, alpha-bêta, approfondissement itératif, budget |
+| `exemples/rules/RegleFacile.cpp` | **des règles en trois fonctions** (`ConquerorRegleFacile.h`) |
+| `exemples/rules/RegleMinimale.cpp` | le même jeu, au contrat nu |
+| `exemples/rules/GrilleLibre.cpp` | un plateau **circulaire** défini en C++, projection comprise |
 
-Les deux modules de **référence**, plus riches, servent de second palier de
-lecture :
+Côté plateaux : `boards/mini_3x3.json` (9 cases, pour déboguer à l'œil) jusqu'à
+`boards/hexagone_30x30_grand.json` (900 cases, pour éprouver le zoom).
+
+Les deux modules de **référence**, plus riches, servent de dernier palier :
 
 - `Applications/ConquerorLab/modules/rules/ConquerorRulesV2.cpp`
 - `Applications/ConquerorLab/modules/ai/ConquerorAIRef.cpp`

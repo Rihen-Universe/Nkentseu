@@ -25,6 +25,9 @@
 // porte deja un, modal, deplacable, confine a une racine, avec creation de
 // dossier — celui de NKCode. « Porte au lieu de reecrire » (Rihen, 12 aout).
 #include "NKEditorKit/NkFilePicker.h"
+// ... et il est SPECIALISE pour la creation de materiau (choix du type avant
+// creation) : la classe derivee et le catalogue des types vivent a part.
+#include "NK3DModeler/Shell/NkModelerMatTypes.h"
 #include "NKEditorKit/NkEditorModal.h"
 #include "NKEditorKit/NkShortcutTable.h"
 #include "NKSerialization/NkArchive.h" // reglages Rendu PAR SCENE (docRendu)
@@ -706,7 +709,9 @@ namespace nkentseu {
 				static const int32 kMaxBrowser = 32;
 				/// Selecteur de fichiers PARTAGE (NKEditorKit) : il navigue le DISQUE
 				/// reel, la ou les cartes du navigateur plafonnent a kMaxBrowser.
-				editorkit::NkFilePickerState picker;
+				/// SPECIALISE (NkModelerPicker) : hors mode « nouveau materiau » il
+				/// se comporte exactement comme le selecteur generique.
+				NkModelerPicker picker;
 				/// Ce que l'application fera de la confirmation (1 = creer un materiau).
 				int32 pickerAction = 0;
 				/// Cadre de la modale « Ajouter un materiau », porte par NKEditorKit :

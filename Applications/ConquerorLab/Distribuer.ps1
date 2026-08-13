@@ -136,7 +136,7 @@ foreach ($l in $libs) {
 # ── 5. travail/ — la ou le stagiaire depose son code ─────────────────────────
 # « Build/ConquerorLab/ » etait un chemin de DEPOT : dans un kit, personne ne
 # construit rien dans Build. Un mot francais et evident vaut mieux.
-foreach ($d in @('rules', 'ai', 'boards')) {
+foreach ($d in @('rules', 'ai', 'boards', 'totems')) {
     New-Item -ItemType Directory -Force (Join-Path $kit "travail\$d") | Out-Null
 }
 
@@ -187,6 +187,16 @@ casse — c'est utile.
 "@
 Set-Content -Path (Join-Path $kit 'VERSION.txt') -Value $version -Encoding utf8
 
+# ── 7ter. Les fiches de travail, une par stagiaire ───────────────────────
+# Le cours dit COMMENT ecrire un module. Ces fiches disent QUOI MESURER et
+# comment defendre le resultat -- c'est ce sur quoi le stagiaire est evalue.
+$fiches = Join-Path $repo 'Documentation\cours-conqueror\stagiaires'
+if (Test-Path $fiches) {
+    $fDst = Join-Path $kit 'fiches'
+    New-Item -ItemType Directory -Force $fDst | Out-Null
+    Copy-Item (Join-Path $fiches '*.md') $fDst -Force
+}
+
 # ── 8. Le mode d'emploi ──────────────────────────────────────────────────────
 $lisezmoi = @'
 ConquerorLab — kit stagiaire
@@ -198,6 +208,9 @@ CE QU'IL Y A DANS CE DOSSIER
   *.dll                     les trois bibliotheques d'execution. Ne les
                             deplacez pas : l'exe ne demarre pas sans elles.
   Cours_ConquerorLab.pdf    LE COURS. Commencez par la.
+  fiches/                   VOTRE fiche de travail : ce qu'il faut mesurer
+                            et comment defendre votre resultat. A lire en
+                            deuxieme, juste apres le chapitre 0 du cours.
   VERSION.txt               quelle version vous avez. A citer dans vos retours.
   exemples/                 trois modules complets, a recopier
   Build/ConquerorLab/       la ou vous deposez votre travail

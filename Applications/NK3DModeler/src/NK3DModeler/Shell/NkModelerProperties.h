@@ -2861,41 +2861,22 @@ namespace nkentseu {
 							// possibilite de choisir un type ») : le combo bascule le
 							// GABARIT moteur ; stockage statique resynchronise (Loi).
 							{
-								// Les types pas encore EPROUVES dans le modeleur restent visibles
-								// mais inertes « (bientot) » — les choisir revient au type courant
-								// (demande de Rihen : grises/inactifs mais existants).
-								static const char *const kMtTypes[13] = {
-								    "Standard (PBR)", "Peau (bientot)", "Cheveux (bientot)",
-								    "Verre", "Tissu", "Carrosserie",
-								    "Feuillage", "Eau (bientot)", "Emissif", "Toon",
-								    "Toon encre", "Anime", "Sans eclairage"};
-								// Verre/Tissu/Carrosserie/Feuillage : EPROUVES le 11-12 aout
-								// (gabarits enregistres + paires NkSL modernes, captures a
-								// l'appui). Restent grises : Peau et Cheveux (chacun demande
-								// son propre modele, cf. la note d'architecture) et Eau (son
-								// .vk.glsl vise encore l'ancienne disposition).
-								static const bool kMtTypeOk[13] = {true,  false, false, true,  true,
-								                                   true,  true,  false, true,  true,
-								                                   true,  true,  true};
-								// Masque GRISE du popup (l'inverse de Ok) : l'oeil voit l'inerte.
-								static const bool kMtTypeOff[13] = {false, true,  true,  false, false,
-								                                    false, false, true,  false, false,
-								                                    false, false, false};
-								static const int32 kMtTypeVal[13] = {0, 3, 4, 5, 6, 7,
-								                                     8, 9, 11, 20, 21, 22, 60};
+								// LE CATALOGUE VIENT DE NkModelerMatTypes.h — il est
+								// PARTAGE avec la creation de materiau, qui fait choisir
+								// le type avant d'exister (Rihen, 13 aout). Il vivait ici
+								// en `static` ; deux copies auraient diverge au premier
+								// type ajoute, et la liste n'aurait plus propose les
+								// memes choix selon l'endroit d'ou on l'ouvre.
 								const int32 tCur = demo::Demo3DHostProjMatType(selMat);
-								int32 tIdx = 0;
-								for (int32 k3 = 0; k3 < 13; ++k3)
-									if (kMtTypeVal[k3] == tCur)
-										tIdx = k3;
+								const int32 tIdx = NkMatTypeIndexOf(tCur);
 								static int32 sTySel = 0;
 								static int32 sTyFor = -1;
 								if (sTyFor == selMat && sTySel != tIdx) {
-									const int32 pick = sTySel < 0 ? 0 : sTySel % 13;
-									if (!kMtTypeOk[pick]) {
+									const int32 pick = sTySel < 0 ? 0 : sTySel % kNkMatTypeCount;
+									if (!kNkMatTypeOk[pick]) {
 										sTySel = tIdx; // type pas encore valide : on reste
 									} else {
-										demo::Demo3DHostProjMatSetType(selMat, kMtTypeVal[pick]);
+										demo::Demo3DHostProjMatSetType(selMat, kNkMatTypeVal[pick]);
 										NkMarkDirty(st);
 									}
 								} else {
@@ -2905,8 +2886,8 @@ namespace nkentseu {
 								p.TextV(iR.x, yy, kRowH, "Type", NkRole::TextMuted);
 								Combo(p, hit, ws, "props.pm.type",
 								      {iR.x + S(110.f), yy + S(2.f), iR.w - S(110.f), kRowH - S(4.f)},
-								      kMtTypes, nullptr, 13, sTySel, combo, true, true, true,
-								      NkIcon::Count, kMtTypeOff);
+								      kNkMatTypeNames, nullptr, kNkMatTypeCount, sTySel, combo, true,
+								      true, true, NkIcon::Count, kNkMatTypeOff);
 								yy += kRowH;
 							}
 							// L'INTERFACE SUIT LE TYPE (Rihen : « les proprietes du nouveau
@@ -6670,6 +6651,11 @@ namespace nkentseu {
 											 dep.CStr(), nullptr, 0, st.projectRoot.CStr());
 					editorkit::NkFilePickerState::CopyTo(st.picker.pickerSaveName, "Materiau",
 														 (int32)sizeof(st.picker.pickerSaveName));
+					// LE TYPE SE CHOISIT AVANT LA CREATION (Rihen, 13 aout) : le
+					// selecteur ajoute sa rangee de types sous le nom. Arme APRES
+					// l'ouverture -- `OpenPickerBase` reinitialise l'etat de base et
+					// n'a aucune raison de connaitre le mode creation de materiau.
+					st.picker.MatNewBegin();
 					st.pickerAction = 1;	   // 1 = creer un materiau
 					st.matNewPending = true;
 					st.matAddOpen = false; // le selecteur prend la main
