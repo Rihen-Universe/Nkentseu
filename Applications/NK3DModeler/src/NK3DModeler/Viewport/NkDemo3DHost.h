@@ -35,10 +35,25 @@ namespace nkentseu {
 
 		// Rend la frame de la demo dans la cible hors ecran, sur le command
 		// buffer de l'editeur (crochet preUI). Calcule son dt lui-meme.
-		/// Identifiant de la texture du grand apercu de materiau dans le backend
-		/// d'interface. Il vit ICI, et non dans le module de rendu : le panneau
-		/// doit pouvoir poser l'image sans rien connaitre de NKRenderer.
-		constexpr uint32 kNkMatPreviewTexId = 4600u;
+		/// ── LA CARTE DES IDENTIFIANTS DE TEXTURE D'INTERFACE ────────────────
+		/// Ils sont pris dans UN SEUL espace, partage par tout ce que l'interface
+		/// affiche. Deux usages sur le meme numero, et l'un ecrase l'autre en
+		/// silence -- c'est arrive : l'apercu de materiau avait pris 4600, deja
+		/// occupe par les couvertures du launcher, et l'ecran d'accueil montrait
+		/// une sphere de materiau a la place de la miniature du projet (Rihen,
+		/// 14 aout). D'ou cette carte, a tenir a jour :
+		///
+		///   4096        vue 3D (cible hors ecran)
+		///   4300..4399  matcaps
+		///   4400..4463  vignettes des materiaux (une par emplacement)
+		///   4500..4598  miniatures des scenes
+		///   4599        image d'accueil
+		///   4600..      couvertures des projets recents (launcher)
+		///   5000        grand apercu de materiau  <- ici
+		///
+		/// Il vit dans CE fichier, et non dans le module de rendu : le panneau doit
+		/// pouvoir poser l'image sans rien connaitre de NKRenderer.
+		constexpr uint32 kNkMatPreviewTexId = 5000u;
 
 		void Demo3DHostFrame(void *cmd);
 		/// Rend l'apercu du materiau `slot` a `w` x `h`, dans le command buffer de

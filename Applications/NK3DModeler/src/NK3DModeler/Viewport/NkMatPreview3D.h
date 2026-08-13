@@ -340,9 +340,14 @@ namespace nkentseu {
 			// draw call qui porte la matiere jusqu'au shader. L'hote les remplit avec
 			// la MEME fonction que la vue 3D (HostMatSlotToDC) -- sans quoi l'apercu
 			// montrerait autre chose que la scene.
+			// `avecSol` : le grand apercu pose l'objet sur un damier -- c'est un
+			// instrument de mesure, il se reflete et se voit au travers. Une
+			// VIGNETTE de carte, elle, s'en passe : a 40 pixels le damier devient
+			// un bruit qui mange la sphere, et une liste doit se lire d'un coup
+			// d'oeil (Rihen, 14 aout : « elle ne doit pas avoir le grillage »).
 			inline void RenderOne(NkICommandBuffer *cmd, NkMatInstHandle mat, int32 shape,
 								  uint32 w, uint32 h, float32 time,
-								  const NkDrawCall3D &matiere) {
+								  const NkDrawCall3D &matiere, bool avecSol = true) {
 				NkMatPreviewState &s = St();
 				if (!s.ok || !cmd || !s.rd)
 					return;
@@ -435,7 +440,7 @@ namespace nkentseu {
 				// ── LE SOL ──────────────────────────────────────────────────────
 				// Il recoit les ombres sans en projeter : un sol qui alimente la
 				// cascade la gaspille pour une surface qu'on ne voit qu'a plat.
-				if (s.meshSol.IsValid()) {
+				if (avecSol && s.meshSol.IsValid()) {
 					NkDrawCall3D dc;
 					dc.mesh = s.meshSol;
 					dc.transform = NkMat4f::Scale({6.f, 1.f, 6.f});

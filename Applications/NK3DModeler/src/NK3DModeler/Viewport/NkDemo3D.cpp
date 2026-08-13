@@ -12458,10 +12458,12 @@ namespace nkentseu {
 					nkvpProjMatPrev[sc]) {
 					NkDrawCall3D mt;
 					HostMatSlotToDC(sc, mt);
+					// SANS LE SOL : c'est une icone de liste. Sphere seule, comme
+					// avant -- mais rendue par le vrai pipeline, donc fidele au type.
 					nk3d::matprev::RenderOne((NkICommandBuffer *)cmd,
 											 nkvpProjMatPrev[sc]->GetInstHandle(), 1,
 											 (uint32)kThumbPx, (uint32)kThumbPx,
-											 (float32)hst.ctx.totalTime, mt);
+											 (float32)hst.ctx.totalTime, mt, false);
 					gThumbs.rendu = sc;
 					return; // cette frame est a elle
 				}
