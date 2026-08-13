@@ -1595,6 +1595,20 @@ int nkmain(const NkEntryState &entry) {
 					if (an >= 0)
 						(void)demo::Demo3DHostNodeMatAdd(an, ni);
 					nk3d::NkMarkDirty(st);
+					// ── ET ON L'ECRIT SUR LE DISQUE ─────────────────────────
+					// Il n'existait qu'en MEMOIRE : aucun `.nkmat` n'etait ecrit,
+					// aucune carte creee. L'utilisateur choisissait un dossier et un
+					// nom, et ne trouvait rien — « la creation d'un nouveau materiau
+					// a echoue » (Rihen, 13 aout). La carte d'abord (c'est elle qui
+					// porte le chemin du fichier), l'ecriture ensuite.
+					nk3d::NkBrowserSyncMats(st);
+					NkString errNew;
+					if (!nk3d::NkProjectWriteAssets(proj.root, st, &errNew, -1))
+						nkentseu::NkLog::Instance().Info(
+							"[materiaux] creation : ecriture impossible : {0}", errNew.CStr());
+				} else {
+					nkentseu::NkLog::Instance().Info(
+						"[materiaux] creation impossible : plus d'emplacement libre");
 				}
 			}
 			st.pickerAction = 0;
