@@ -418,11 +418,21 @@ balisés à formulaires n'y placent donc aucun contenu marqué.
 
 ### 📐 Valeur marginale des signets, une fois la structure livrée
 
-`/Outlines` **sans** `/StructTreeRoot` : **44 documents (17 %)**. Ce n'est pas
-marginal — `/StructTreeRoot` porte déjà `H1..H6`, donc les 53 documents à
-signets qui sont aussi balisés n'y gagneraient rien, mais ces 44-là restent
-sans découpage. `/Outlines` conserve donc sa place au plan, juste après la
-structure.
+Les trois chiffres sont publiés **ensemble**, pour qu'ils se vérifient l'un
+l'autre — une intersection annoncée seule ne se contrôle pas :
+
+| | documents | % des 255 ouverts |
+|---|---|---|
+| **A.** total `/Outlines` | **53** | 20,8 % |
+| **B.** intersection (signets **et** `/StructTreeRoot`) | **9** | — |
+| **C.** différence (signets **sans** structure) | **44** | 17,3 % |
+| contrôle | **B + C = A** → 9 + 44 = 53 ✅ | |
+
+**Les deux populations sont presque disjointes** : 9 documents en commun sur 53.
+Les producteurs qui balisent ne posent pas de signets, et réciproquement. La
+structure ne subsume donc **pas** les signets dans ce corpus — contrairement à
+ce qu'on pouvait attendre de `H1..H6`. `/Outlines` garde sa place juste après
+la structure : sans lui, **44 documents resteraient sans aucun découpage**.
 
 ### 📐 Charset CFF — mesuré, et DIFFÉRÉ (2026-08-13)
 
