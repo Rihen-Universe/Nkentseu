@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor">
+  <!-- Cheveux : trois meches. L'apercu de materiau se servait de « curve-bezier »
+       faute d'icone dediee -- or cette icone-la designe aussi Bezier, Cercle,
+       NURBS, Chemin et Courbe dans le menu Ajouter. La detourner trompait des
+       deux cotes : une courbe montree comme des cheveux, des cheveux montres
+       comme une courbe. Une icone par sujet (Rihen, 13 aout).
+       Meches PLEINES et non traits : le rasteriseur maison ne trace pas les
+       strokes, et une masse tient a 12 px la ou un filet disparait. -->
+  <path d="M3.5 2.1q-2.5 5.4 1.3 11.8l1.5-.85q-3.2-5.6-1.2-10.5z"/>
+  <path d="M7.5 1.7q-2.7 5.8 1.3 12.4l1.5-.85q-3.4-5.9-1.2-11.1z"/>
+  <path d="M11.5 2.1q-2.5 5.4 1.3 11.8l1.5-.85q-3.2-5.6-1.2-10.5z"/>
+</svg>

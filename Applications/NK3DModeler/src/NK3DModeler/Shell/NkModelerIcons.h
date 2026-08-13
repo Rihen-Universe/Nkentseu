@@ -131,6 +131,11 @@ namespace nkentseu {
 			EmptyAxes,
 			ImageRef,
 			Cube3D,
+			/// Meches de cheveux — forme d'apercu du materiau. Elle vaut la peine
+			/// d'exister : sans elle, l'apercu empruntait `CurveBezier`, qui
+			/// designe deja Bezier, Cercle, NURBS, Chemin et Courbe dans le menu
+			/// Ajouter. Un dessin partage entre deux sujets ment aux deux.
+			Hair,
 			// Icones du PANNEAU DE PROPRIETES dessine par Rihen sur Banani. Elles
 			// suivent la nomenclature Lucide de la maquette, pour que le dessin a
 			// l'ecran soit celui qu'il a choisi.
@@ -217,6 +222,7 @@ namespace nkentseu {
 						{NkIcon::EmptyAxes, "empty-axes"},
 						{NkIcon::ImageRef, "image-ref"},
 						{NkIcon::Cube3D, "cube-3d"},
+						{NkIcon::Hair, "hair"},
 					// Panneau de proprietes (maquette Banani, nomenclature Lucide).
 					{NkIcon::Sun, "sun"},
 					{NkIcon::SlidersH, "sliders-horizontal"},

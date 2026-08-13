@@ -1,3 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor">
-  <path fill-rule="evenodd" d="M4.7 4.5H15l-3.7 7H1l3.7-7zm.8 1.3l-2.3 4.4h7.3l2.3-4.4H5.5z"/>
+  <!-- Plan : quadrilatere PLEIN vu en perspective, subdivise en quatre par deux
+       medianes en creux. L'ancien dessin etait ce meme quadrilatere en contour
+       fin, et se lisait comme un losange vide (Rihen, 13 aout). La subdivision
+       dit « surface » ; les medianes suivent l'inclinaison des bords, sinon la
+       perspective se contredirait. Contours en remplissage seul : le
+       rasteriseur maison ne trace pas les strokes. -->
+  <path fill-rule="evenodd" d="M4.7 4.5H15l-3.7 7H1zM2.85 7.45h10.3v1.1H2.85zM9.3 4.5h1.15l-3.7 7H5.6z"/>
 </svg>

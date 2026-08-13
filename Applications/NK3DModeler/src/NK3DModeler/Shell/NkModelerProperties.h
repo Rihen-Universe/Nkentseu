@@ -2832,9 +2832,13 @@ namespace nkentseu {
 								const float32 pvX = iR.x + (iR.w - side - btn - S(6.f)) * 0.5f;
 								p.Image(4400u + (uint32)selMat, {pvX, yy, side, side});
 								p.OutlineSharp({pvX, yy, side, side}, NkRole::Border);
+								// La 5e forme est « cheveux » : son icone lui appartient
+								// desormais (`Hair`). Elle empruntait `CurveBezier`, le
+								// dessin du menu Ajouter > Courbe -- les deux sujets se
+								// montraient l'un pour l'autre.
 								static const NkIcon kShp[5] = {NkIcon::Plane3D, NkIcon::SphereUV,
 															   NkIcon::Cube3D, NkIcon::Metaball,
-															   NkIcon::CurveBezier};
+															   NkIcon::Hair};
 								const int32 shpCur = demo::Demo3DHostProjMatPrevShape(selMat);
 								float32 by = yy;
 								for (int32 s5 = 0; s5 < 5; ++s5) {

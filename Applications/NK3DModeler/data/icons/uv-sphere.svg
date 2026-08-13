@@ -1,5 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor">
-  <path fill-rule="evenodd" d="M8 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zm0 1.3a5.2 5.2 0 110 10.4A5.2 5.2 0 018 2.8z"/>
-  <path d="M2.2 7.4h11.6v1.2H2.2z"/>
-  <path fill-rule="evenodd" d="M8 1.5c-2 0-3.6 2.9-3.6 6.5S6 14.5 8 14.5s3.6-2.9 3.6-6.5S10 1.5 8 1.5zm0 1.3c1.3 0 2.3 2.3 2.3 5.2S9.3 13.2 8 13.2 5.7 10.9 5.7 8 6.7 2.8 8 2.8z"/>
+  <!-- Sphere UV : disque PLEIN quadrille par un equateur et un meridien en
+       CREUX. L'ancien dessin etait un anneau fin traverse de deux traits de
+       1.2 : a 12 px tout se noyait et il ne restait qu'un cercle (Rihen,
+       13 aout). Une masse pleine tient a n'importe quelle taille, et les creux
+       ne touchent PAS le bord -- la silhouette reste un disque au lieu de se
+       decouper en quatre quartiers detaches.
+       Rappel : le rasteriseur SVG maison ne trace pas les strokes (« uniquement
+       fill rendu »). Tout se dessine en remplissage, les creux par
+       fill-rule="evenodd". -->
+  <path fill-rule="evenodd" d="M8 1.4a6.6 6.6 0 100 13.2 6.6 6.6 0 000-13.2zM2.7 7.35h10.6v1.3H2.7zM7.35 2.7h1.3v10.6h-1.3z"/>
 </svg>
