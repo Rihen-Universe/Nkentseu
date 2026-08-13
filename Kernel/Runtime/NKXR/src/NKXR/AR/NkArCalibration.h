@@ -117,6 +117,16 @@ namespace nkentseu {
 				uint32 mWidth = 0;
 				uint32 mHeight = 0;
 				uint32 mMinViews = 6;
+				/// Écart moyen minimal, en pixels, entre deux vues retenues.
+				///
+				/// Ce garde-fou vise une chose précise : la caméra IMMOBILE, qui
+				/// remplirait l'accumulateur de copies de la même équation. Il ne
+				/// prétend pas juger la variété des ANGLES — deux points de vue
+				/// franchement différents peuvent projeter la planche à peu près
+				/// au même endroit de l'image, et les rejeter reviendrait à se
+				/// priver d'information. Le seuil reste donc bas : il sépare
+				/// « on n'a pas bougé » de « on a bougé », rien de plus.
+				float32 mMinViewSeparationPixels = 8.f;
 		};
 
 		/// Dessine la planche de calibration en niveaux de gris (255 = blanc).
