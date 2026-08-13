@@ -149,6 +149,17 @@ namespace nkentseu {
 				memory::NkSharedPtr<NkISink>(new NkJournalSink()));
 		}
 
+		/// L'EMPRISE DU JOURNAL, calculee A PART : la boucle principale en a besoin
+		/// AVANT de peindre les panneaux, pour leur interdire ce rectangle. Le
+		/// journal est peint en dernier, or un panneau teste ses clics AU MOMENT ou
+		/// il se peint -- donc avant que le journal ait declare quoi que ce soit.
+		/// Le navigateur ouvrait ainsi son menu contextuel a travers le journal
+		/// (Rihen, 13 aout : « les evenements traversent »).
+		inline NkRect NkJournalRect(const NkRect &full) {
+			const float32 hJ = S(190.f);
+			return {full.x, full.y + full.h - hJ, full.w, hJ};
+		}
+
 		// ── LE PANNEAU ──────────────────────────────────────────────────────────
 		// Ancre EN BAS, au-dessus de la barre d'etat : c'est de la barre d'etat
 		// qu'il s'ouvre, et un panneau doit apparaitre la ou on l'appelle.
@@ -156,8 +167,7 @@ namespace nkentseu {
 								 const nkgui::NkGuiInput &in, const NkRect &full) {
 			if (!st.journalOpen)
 				return;
-			const float32 hJ = S(190.f);
-			const NkRect r{full.x, full.y + full.h - hJ, full.w, hJ};
+			const NkRect r = NkJournalRect(full);
 			p.Fill(r, NkRole::PanelBg);
 			p.HLine(r.x, r.y, r.w);
 			// L'emprise ENTIERE est declaree : sans elle, un clic dans le journal

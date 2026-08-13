@@ -1479,6 +1479,19 @@ int nkmain(const NkEntryState &entry) {
 		// ce qui donne la profondeur a trois niveaux de UI_SPEC 10bis.1.
 		p.Fill({0.f, 0.f, W, H}, NkRole::WindowBg);
 
+		// ── LE JOURNAL INTERDIT SON RECTANGLE AUX PANNEAUX ──────────────────
+		// Il est peint EN DERNIER, mais un panneau decide de ses clics AU MOMENT
+		// ou il se peint -- donc avant que le journal ait declare quoi que ce
+		// soit. Le navigateur ouvrait ainsi son menu contextuel a travers lui
+		// (Rihen, 13 aout). `SetBlock` est le mecanisme prevu pour exactement
+		// cela : une surcouche annonce son emprise A L'AVANCE, et le registre
+		// refuse tout clic qui y tombe. Il est LEVE juste avant de peindre le
+		// journal, comme pour les autres surcouches.
+		const NkRect jRect =
+			nk3d::NkJournalRect({0.f, 0.f, (float32)W, (float32)H - lay.status.h});
+		if (st.journalOpen)
+			hit.SetBlock(jRect, true);
+
 		// LE NOM DU PROJET, PAS UN LIBELLE FIGE. « MonProjet » etait un exemple de
 		// maquette ; la barre dit desormais ce qui est reellement ouvert.
 		PaintMenuBarI(p, lay.menu,
@@ -1511,7 +1524,11 @@ int nkmain(const NkEntryState &entry) {
 		PaintStatus(p, hit, lay.status, st);
 		// LE JOURNAL S'ANCRE SUR LA FENETRE ENTIERE, pas sur une zone de la mise
 		// en page : il recouvre ce qui se trouve dessous, comme un tiroir. Peint
-		// APRES la barre d'etat, dont il sort.
+		// APRES la barre d'etat, dont il sort. Le blocage pose plus haut est
+		// LEVE ici : il protegeait les panneaux de ses clics, il ne doit pas
+		// l'empecher de recevoir les siens.
+		if (st.journalOpen)
+			hit.SetBlock({}, false);
 		PaintJournal(p, hit, st, ui.input, {0.f, 0.f, (float32)W, (float32)H - lay.status.h});
 
 		// Poignees de reouverture, a la place exacte qu'occupait le panneau.
