@@ -35,7 +35,18 @@ namespace nkentseu {
 
 		// Rend la frame de la demo dans la cible hors ecran, sur le command
 		// buffer de l'editeur (crochet preUI). Calcule son dt lui-meme.
+		/// Identifiant de la texture du grand apercu de materiau dans le backend
+		/// d'interface. Il vit ICI, et non dans le module de rendu : le panneau
+		/// doit pouvoir poser l'image sans rien connaitre de NKRenderer.
+		constexpr uint32 kNkMatPreviewTexId = 4600u;
+
 		void Demo3DHostFrame(void *cmd);
+		/// Rend l'apercu du materiau `slot` a `w` x `h`, dans le command buffer de
+		/// l'editeur — donc AVANT la passe backbuffer, une passe de rendu ne
+		/// pouvant pas en contenir une autre. Une seule image par frame : celle
+		/// que le panneau affiche. Sa texture est publiee par
+		/// Demo3DHostRegisterInto sous nk3d::matprev::kPreviewTexId.
+		void Demo3DHostMatPreviewFrame(void *cmd, int32 slot, int32 w, int32 h);
 
 		// Publie la cible aupres du backend NKGui sous l'id 4096.
 		void Demo3DHostRegisterInto(void *guiBackend);

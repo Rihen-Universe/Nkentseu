@@ -2842,9 +2842,16 @@ namespace nkentseu {
 								const float32 prevH = S(150.f);
 								st.matPrevW = (int32)(prevW + 0.5f);
 								st.matPrevH = (int32)(prevH + 0.5f);
+								st.matPrevSlot = selMat; // ce que le moteur devra rendre
 								const float32 btn = S(20.f);
 								const float32 pvX = iR.x;
-								p.Image(4400u + (uint32)selMat, {pvX, yy, prevW, prevH});
+								// L'IMAGE VIENT DU MOTEUR, plus du rendu analytique :
+								// c'est le vrai shader du materiau qui la produit, donc
+								// le verre, l'emissif et le toon s'y montrent enfin tels
+								// qu'ils seront rendus (Rihen : « il faut aussi les
+								// vrais modeles »). Le panneau ne rend rien lui-meme --
+								// il DECRIT ce qu'il veut voir, et la boucle le rend.
+								p.Image(demo::kNkMatPreviewTexId, {pvX, yy, prevW, prevH});
 								p.OutlineSharp({pvX, yy, prevW, prevH}, NkRole::Border);
 								const float32 side = prevH; // hauteur occupee par l'apercu
 								// SEPT FORMES, dans l'ordre de Blender. Chacune a son

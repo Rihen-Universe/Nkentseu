@@ -19,6 +19,9 @@
 #include "NKRenderer/Core/NkRenderGraph.h"
 #include "NKRenderer/Materials/NkMaterialCollection.h" // Upload() du BeginFrame rejoue
 #include "NKGui/NkGuiRHIBackend.h" // hote : la cible hors ecran devient une texture d'interface
+// APERCU DE MATERIAU rendu par le moteur : sa mini-scene vit a part, dans son
+// propre fichier -- ce fichier-ci en compte deja pres de dix-sept mille.
+#include "NK3DModeler/Viewport/NkMatPreview3D.h"
 #include "NKWindow/Core/NkWESystem.h" // NkEvents()
 #include "NKEvent/NkEventSystem.h"
 #include "NKEvent/NkKeyboardEvent.h"
@@ -12273,6 +12276,32 @@ namespace nkentseu {
 			if (!texLib)
 				return;
 			b->RegisterTexture(kHostTexId, texLib->GetRHIHandle(hst.rt->GetColorResult()));
+			// La texture de l'APERCU DE MATERIAU suit le meme chemin : rendue hors
+			// ecran par son propre renderer, publiee comme une image d'interface.
+			nk3d::matprev::RegisterInto(guiBackend);
+		}
+
+		// ── APERCU DE MATERIAU : une image par frame ────────────────────────
+		// Appelee depuis la frame de l'hote, avant que la passe backbuffer ne
+		// s'ouvre. Le slot demande est celui que le panneau affiche ; les autres
+		// materiaux ne sont pas rendus (leurs cartes recevront une capture figee
+		// a l'enregistrement).
+		void Demo3DHostMatPreviewFrame(void *cmd, int32 slot, int32 w, int32 h) {
+			if (!cmd || slot < 0 || slot >= kNkvpMaxProjMats)
+				return;
+			if (!nkvpProjMats[slot].used)
+				return;
+			if (!nk3d::matprev::Init(hst.ctx.device, (uint32)(w > 0 ? w : 260),
+									 (uint32)(h > 0 ? h : 150)))
+				return;
+			// L'instance moteur porte le TYPE, donc le shader. C'est tout l'interet
+			// de ce chemin : le verre est rendu par le shader du verre.
+			NkMaterial *me = nkvpProjMatEng[slot];
+			if (!me)
+				return;
+			nk3d::matprev::RenderOne((NkICommandBuffer *)cmd, me->GetInstHandle(),
+									 (int32)nkvpProjMats[slot].prevShape, (uint32)(w > 0 ? w : 260),
+									 (uint32)(h > 0 ? h : 150), (float32)hst.ctx.totalTime);
 		}
 
 		// ── ACCESSEURS DU CABLAGE ───────────────────────────────────────────

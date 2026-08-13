@@ -795,6 +795,10 @@ namespace nkentseu {
 			/// pixels, et une vignette rendue a 150 s'y etirerait.
 			int32 matPrevW = 0;
 			int32 matPrevH = 0;
+			/// Emplacement du materiau dont le panneau montre le grand apercu,
+			/// -1 si aucun. C'est le SEUL apercu rendu par le moteur a chaque
+			/// frame ; les cartes du navigateur, elles, montrent une capture figee.
+			int32 matPrevSlot = -1;
 			/// Menu d'ajout de materiau ouvert ? Il se deroule SOUS la liste
 				/// de la pastille, pas dans la colonne de boutons — un champ de
 				/// 20 pixels de large y debordait sur ses voisins.

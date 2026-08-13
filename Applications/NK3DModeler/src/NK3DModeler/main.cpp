@@ -313,6 +313,12 @@ int nkmain(const NkEntryState &entry) {
 	// l'editeur, AVANT que la passe backbuffer ne s'ouvre : on ne peut pas
 	// imbriquer une passe de rendu dans une autre. Puis on publie sa texture
 	// aupres du backend, pour que la draw-list n'ait plus qu'a la poser.
+	// CE QUE LE PANNEAU VEUT VOIR, depose pour le crochet pre-UI. Ces trois
+	// valeurs traversent le fichier parce que `preUI3D` est une lambda sans
+	// capture (elle est convertie en pointeur de fonction par SetPreUI) : elle
+	// ne peut donc rien lire de la boucle. Elles sont reecrites a chaque frame
+	// depuis `st`, juste avant le rendu.
+	static int32 gPrevSlot = -1, gPrevW = 260, gPrevH = 150;
 	static auto preUI3D = [](NkICommandBuffer *cmd, void *user) {
 		auto *r = static_cast<nkgui::NkEditorRHIRenderer *>(user);
 		// PORTAGE INTEGRAL de --demo=2 : la vue 3D est desormais la demo de
@@ -320,6 +326,12 @@ int nkmain(const NkEntryState &entry) {
 		// (NkViewport3D) reste compilee mais DORMANTE — on ne lui donne plus
 		// de device, donc chacun de ses appels est un no-op sans danger.
 		demo::Demo3DHostFrame(cmd);
+		// L'APERCU DE MATERIAU rend ici lui aussi : c'est le seul moment ou le
+		// command buffer est ouvert ET la passe backbuffer pas encore commencee.
+		// Le slot et la taille voulus sont deposes par le panneau dans l'etat --
+		// un panneau ne rend rien, il decrit ce qu'il veut voir.
+		if (gPrevSlot >= 0)
+			demo::Demo3DHostMatPreviewFrame(cmd, gPrevSlot, gPrevW, gPrevH);
 		demo::Demo3DHostRegisterInto(&r->GetBackend());
 	};
 
@@ -1788,6 +1800,12 @@ int nkmain(const NkEntryState &entry) {
 				break;
 		}
 
+		// CE QUE LE PANNEAU A DEMANDE, transmis au crochet pre-UI juste avant
+		// qu'il ne s'execute : `BeginFrame` appelle preUI3D, qui rendra l'apercu
+		// du materiau dans la meme frame device.
+		gPrevSlot = st.matPrevSlot;
+		gPrevW = st.matPrevW > 0 ? st.matPrevW : 260;
+		gPrevH = st.matPrevH > 0 ? st.matPrevH : 150;
 		renderer.BeginFrame();
 		renderer.SubmitDrawList(ui.dl, lastW, lastH);
 		// LA COUCHE OVERLAY EST SOUMISE APRES, donc rendue PAR-DESSUS. Sans cette
