@@ -369,6 +369,43 @@ pages ne sont jamais décodées.
 | **4** | `/Dests` + `/Outlines` | 55 % / 21 % | découpage naturel en chapitres ; `/Dests` est la dépendance technique de 3 et 5 |
 | **5** | `/Annots` `/Link` | 73 % | 56 051 liens ; les URL valent pour les citations. Réutilise la résolution de destinations |
 
+### 📐 Balisage PARTIEL : le seuil qui décide d'appliquer l'ordre logique
+
+Déclarer un `/StructTreeRoot` ne veut pas dire que le balisage est exploitable —
+même distinction que « déclaré » contre « effectivement lu » sur `/ToUnicode`.
+Mesure de la **part de texte rattachée à aucun MCID**, sur les 140 balisés
+(`NKIlyana --balisage`) :
+
+| part hors structure | documents |
+|---|---|
+| < 1 % | **91** |
+| 1–5 % | 19 |
+| 5–10 % | 8 |
+| 10–25 % | 5 |
+| 25–50 % | 5 |
+| **≥ 50 %** | **12** |
+
+**22 documents (16 %) dépassent 10 %**, dont trois à **99,5 %, 100 %, 100 %** —
+leur arbre existe et ne rattache *rien* au texte réel.
+
+> ⚠️ **Aucun invariant de conservation ne verrait le dégât** : le multiensemble
+> des caractères est identique, rien n'est perdu, **tout est déplacé**. C'est
+> l'angle mort du contrôle de non-régression, et c'est pourquoi cette mesure
+> devait exister avant de brancher.
+
+Effet non anticipé, trouvé en mesurant : sur ces documents, l'ordre logique
+serait **pire** que l'actuel. `AssemblerPage` trie aujourd'hui par ligne
+(y croissant puis x), ce qui redresse déjà beaucoup ; l'assemblage par structure
+ne fait pas ce tri pour le texte non rattaché. À 100 % hors structure, on
+remplacerait un tri par ligne par l'ordre de dessin brut.
+
+**Seuil retenu : 10 %** (`kNkPdfSeuilHorsStructure`). Sous ce seuil, le texte
+non rattaché est fait d'en-têtes et de folios — quelques mots par page, dont le
+déplacement en fin de **page** (pas de document) ne coûte rien. Au-delà, c'est
+du corps de texte, et le déplacer serait une dislocation. Le chiffre suit la
+distribution : **126 documents sur 140 gardent l'ordre logique**, les 22 mal
+balisés restent en ordre visuel, et la trace dit lequel s'applique.
+
 ### 🛡️ Baseline de non-régression du texte — capturée et VALIDÉE (2026-08-13)
 
 `Applications/NKIlyana/reference/empreintes_pdf.csv` — **versionné**, pris sur
