@@ -773,6 +773,36 @@ int main() {
 		NkArDetectMarkers(boardImg, sheet, sheet, dcfg, found);
 		logger.Infof("  [info] planche : %u marqueurs relus sur %u\n", uint32(found.Size()), board.cols * board.rows);
 		CHECK(found.Size() >= board.cols * board.rows - 1u, "calibration : la planche est relisible par le detecteur");
+
+		// ── La meme planche, FLOUE — comme une photo d'ecran ─────────────
+		// C'est le cas reel : la bordure noire bave sur les cellules du
+		// pourtour, dont les quatre coins portent la marque d'orientation.
+		// Un seul coin mal lu rendait deux rotations egalement plausibles et
+		// la lecture etait refusee — neuf marqueurs trouves, neuf rejetes.
+		uint8 *blurred = static_cast<uint8 *>(allocator.Allocate(sheet * sheet, 1));
+		for (uint32 y = 0; y < sheet; ++y) {
+			for (uint32 x = 0; x < sheet; ++x) {
+				uint32 sum = 0, n = 0;
+				for (int32 dy = -2; dy <= 2; ++dy) {
+					for (int32 dx = -2; dx <= 2; ++dx) {
+						const int32 sxp = int32(x) + dx, syp = int32(y) + dy;
+						if (sxp < 0 || syp < 0 || uint32(sxp) >= sheet || uint32(syp) >= sheet) {
+							continue;
+						}
+						sum += boardImg[uint32(syp) * sheet + uint32(sxp)];
+						++n;
+					}
+				}
+				blurred[y * sheet + x] = uint8(sum / (n ? n : 1u));
+			}
+		}
+		NkVector<NkArDetection> foundBlur;
+		NkArDetectMarkers(blurred, sheet, sheet, dcfg, foundBlur);
+		logger.Infof("  [info] planche FLOUE : %u marqueurs relus sur %u\n", uint32(foundBlur.Size()),
+					 board.cols * board.rows);
+		CHECK(foundBlur.Size() >= board.cols * board.rows - 1u,
+			  "calibration : la planche reste lisible MEME FLOUE (photo d'ecran)");
+		allocator.Deallocate(blurred);
 		allocator.Deallocate(boardImg);
 	}
 

@@ -64,6 +64,55 @@ using namespace nkentseu;
 using namespace nkentseu::renderer;
 namespace nkxr = nkentseu::xr;
 
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__)
+	#include <sys/system_properties.h>
+#endif
+
+// ── Lire un réglage, quelle que soit la plateforme ───────────────────────────
+// Android ne permet PAS de passer des variables d'environnement à une
+// application : tous nos réglages de diagnostic y étaient donc inaccessibles,
+// ce qui revenait à livrer une application qu'on ne peut plus interroger.
+// On y lit à la place les propriétés système, qui jouent exactement le même
+// rôle et se posent sans droits particuliers :
+//     adb shell setprop debug.nkar.calibrate 1
+// « NK_AR_CALIBRATE » devient « debug.nkar.calibrate ». Le principe reste celui
+// de Rihen : tout se règle par le CODE, l'environnement — ou ici la propriété —
+// n'étant qu'une couche facultative par-dessus.
+static const char *NkSetting(const char *envName) {
+	const char *fromEnv = getenv(envName);
+	if (fromEnv != nullptr) {
+		return fromEnv;
+	}
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__)
+	static char buffers[8][PROP_VALUE_MAX];
+	static uint32 slot = 0;
+	// « NK_AR_CALIBRATE » → « debug.nkar.calibrate »
+	char prop[96] = "debug.nkar.";
+	uint32 w = 11u;
+	const char *p = envName;
+	if (p[0] == 'N' && p[1] == 'K' && p[2] == '_' && p[3] == 'A' && p[4] == 'R' && p[5] == '_') {
+		p += 6;
+	}
+	while (*p != '\0' && w < sizeof(prop) - 1u) {
+		char c = *p++;
+		if (c >= 'A' && c <= 'Z') {
+			c = char(c - 'A' + 'a');
+		}
+		if (c == '_') {
+			c = '.';
+		}
+		prop[w++] = c;
+	}
+	prop[w] = '\0';
+	char *dst = buffers[slot % 8u];
+	++slot;
+	if (__system_property_get(prop, dst) > 0 && dst[0] != '\0') {
+		return dst;
+	}
+#endif
+	return nullptr;
+}
+
 static void ConfigureAppData(NkAppData &d) {
 	d.appName = "NKARDemo";
 }
@@ -91,8 +140,8 @@ namespace {
 		b.firstId = 100;
 		b.markerSizeMeters = 0.04f;
 		b.spacingMeters = 0.06f;
-		const char *sizeEnv = getenv("NK_AR_BOARD_MARKER_CM");
-		const char *stepEnv = getenv("NK_AR_BOARD_STEP_CM");
+		const char *sizeEnv = NkSetting("NK_AR_BOARD_MARKER_CM");
+		const char *stepEnv = NkSetting("NK_AR_BOARD_STEP_CM");
 		if (sizeEnv != nullptr) {
 			b.markerSizeMeters = float32(atof(sizeEnv)) * 0.01f;
 		}
@@ -432,7 +481,7 @@ int nkmain(const NkEntryState &state) {
 	// simplement le réglage par défaut « n'importe laquelle » qui décidait.
 	camCfg.facing = NkCameraFacing::NK_CAMERA_FACING_BACK;
 	{
-		const char *facingEnv = getenv("NK_AR_CAMERA");
+		const char *facingEnv = NkSetting("NK_AR_CAMERA");
 		if (facingEnv != nullptr && (facingEnv[0] == 'f' || facingEnv[0] == 'F')) {
 			camCfg.facing = NkCameraFacing::NK_CAMERA_FACING_FRONT;
 		}
@@ -483,18 +532,18 @@ int nkmain(const NkEntryState &state) {
 	arCfg.detector.minEdgePixels = 40;
 	// L'environnement n'est qu'un raccourci de développement, explicite :
 	{
-		const char *sizeEnv = getenv("NK_AR_MARKER_SIZE");
+		const char *sizeEnv = NkSetting("NK_AR_MARKER_SIZE");
 		if (sizeEnv != nullptr && *sizeEnv != '\0') {
 			arCfg.markerSizeMeters = float32(atof(sizeEnv));
 		}
-		arCfg.detector.debugCounters = (getenv("NK_AR_DEBUG") != nullptr);
+		arCfg.detector.debugCounters = (NkSetting("NK_AR_DEBUG") != nullptr);
 		// Seuillage adaptatif : à essayer quand le marqueur est affiché sur un
 		// ÉCRAN (halos) ou éclairé de biais — c'est exactement son terrain.
-		arCfg.detector.adaptive = (getenv("NK_AR_ADAPTIVE") != nullptr);
+		arCfg.detector.adaptive = (NkSetting("NK_AR_ADAPTIVE") != nullptr);
 		// Mode ANCRE : montrer la carte UNE FOIS pose la scene, qui reste
 		// ensuite en place — on peut ranger la carte. C'est le modele
 		// « carte -> systeme solaire ». Valable camera FIXE (poste, borne).
-		if (getenv("NK_AR_ANCHOR") != nullptr) {
+		if (NkSetting("NK_AR_ANCHOR") != nullptr) {
 			arCfg.anchorMode = nkxr::NkArAnchorMode::NK_AR_ANCHOR_PERSISTENT;
 		}
 	}
@@ -518,7 +567,7 @@ int nkmain(const NkEntryState &state) {
 		// laisse pas une nouveauté soupçonnée active par défaut : une démo qui
 		// gèle ne prouve plus rien du tout.
 		// NK_AR_SENSORS=1 les rallume pour instruire le sujet.
-		worldCfg.preferSensors = (getenv("NK_AR_SENSORS") != nullptr);
+		worldCfg.preferSensors = (NkSetting("NK_AR_SENSORS") != nullptr);
 		logger.Warnf("[NKARDemo] Capteurs (gyroscope) : %s\n",
 					 worldCfg.preferSensors ? "ACTIFS (NK_AR_SENSORS)" : "coupes par defaut");
 		arWorld.Initialize(worldCfg);
@@ -627,7 +676,7 @@ int nkmain(const NkEntryState &state) {
 		}
 	}
 	{
-		const char *rotEnv = getenv("NK_AR_ROTATE");
+		const char *rotEnv = NkSetting("NK_AR_ROTATE");
 		if (rotEnv != nullptr) {
 			const uint32 asked = uint32(atoi(rotEnv));
 			if (asked == 0u || asked == 90u || asked == 180u || asked == 270u) {
@@ -643,12 +692,19 @@ int nkmain(const NkEntryState &state) {
 	// et demander à l'utilisateur d'appuyer sur une touche au bon moment tout en
 	// tenant la planche est un mauvais protocole. On capture donc dès qu'une vue
 	// apporte quelque chose de NEUF, et l'on s'arrête quand il y en a assez.
-	const bool calibrating = (getenv("NK_AR_CALIBRATE") != nullptr);
+	const bool calibrating = (NkSetting("NK_AR_CALIBRATE") != nullptr);
 	nkxr::NkArCalibration calibration;
 	nkxr::NkArCalibrationResult calibResult;
 	bool calibDone = false;
 	if (calibrating) {
 		calibration.Initialize(kCalibBoard, arWidth, arHeight);
+		// Neuf marqueurs sur une planche sont bien plus petits à l'image qu'un
+		// marqueur seul tenu à bout de bras : le seuil de taille réglé pour ce
+		// dernier les écarterait tous, et la calibration attendrait indéfiniment
+		// des vues qui ne viendraient jamais.
+		arCfg.detector.minEdgePixels = 20;
+		arSession.Shutdown();
+		arSession.Initialize(arCfg, arWidth, arHeight);
 		logger.Warnf("[NKARDemo] MODE CALIBRATION : montrer la planche sous des angles VARIES "
 					 "(%ux%u marqueurs, carre %.1f cm, entraxe %.1f cm).\n",
 					 kCalibBoard.cols, kCalibBoard.rows, kCalibBoard.markerSizeMeters * 100.f,
@@ -662,12 +718,12 @@ int nkmain(const NkEntryState &state) {
 	uint32 lastCameraFrame = 0xFFFFFFFFu;
 	uint32 visible = 0;
 	uint32 analyzedFrames = 0;
-	const uint64 exitFrame = (getenv("NK_AR_EXIT") != nullptr) ? uint64(atoll(getenv("NK_AR_EXIT"))) : 0u;
-	const uint64 dumpFrame = (getenv("NK_AR_DUMP") != nullptr) ? uint64(atoll(getenv("NK_AR_DUMP"))) : 0u;
+	const uint64 exitFrame = (NkSetting("NK_AR_EXIT") != nullptr) ? uint64(atoll(NkSetting("NK_AR_EXIT"))) : 0u;
+	const uint64 dumpFrame = (NkSetting("NK_AR_DUMP") != nullptr) ? uint64(atoll(NkSetting("NK_AR_DUMP"))) : 0u;
 	// Image de synthese forcee : marqueur toujours detectable, sans dependre
 	// de la camera ni de l'eclairage — c'est ce qui permet de savoir si un
 	// echec vient de la VISION ou de l'AFFICHAGE.
-	const bool forceSynthetic = (getenv("NK_AR_SYNTH") != nullptr);
+	const bool forceSynthetic = (NkSetting("NK_AR_SYNTH") != nullptr);
 
 	// ── Faire taire le journal une fois le démarrage passé ───────────────────
 	// Le moteur trace chaque passe du graphe et chaque lot de rendu, à chaque
@@ -677,7 +733,7 @@ int nkmain(const NkEntryState &state) {
 	// dizaines par image. L'application avance alors au pas.
 	// On garde donc tout jusqu'ici, puis on ne laisse plus passer que ce qui
 	// mérite d'être lu. NK_AR_DEBUG rend la verbosité quand on en a besoin.
-	if (getenv("NK_AR_DEBUG") == nullptr) {
+	if (NkSetting("NK_AR_DEBUG") == nullptr) {
 		logger.Info("[NKARDemo] Demarrage termine — journal reduit aux avertissements (NK_AR_DEBUG pour tout voir).\n");
 		logger.SetLevel(NkLogLevel::NK_WARN);
 	}
@@ -901,6 +957,23 @@ int nkmain(const NkEntryState &state) {
 
 			// ── Récolte des vues de calibration ──────────────────────────────
 			if (calibrating && !calibDone) {
+				// Dire ce qu'on VOIT, pas seulement ce qu'on retient. Sans ce
+				// chiffre, une calibration qui n'avance pas est indiscernable
+				// d'une planche invisible, et l'on promène son téléphone dans le
+				// vide sans le savoir — c'est ce qui vient d'arriver.
+				if ((analyzedFrames % 30u) == 0u) {
+					const auto &dets = arSession.GetDetections();
+					uint32 onBoard = 0;
+					for (nk_size i = 0; i < dets.Size(); ++i) {
+						float32 bx = 0.f, by = 0.f;
+						if (kCalibBoard.CenterOf(dets[i].id, bx, by)) {
+							++onBoard;
+						}
+					}
+					logger.Warnf("[NKARDemo] Calibration : %u marqueurs vus, dont %u de la planche "
+								 "(3 minimum par vue) — %u vues retenues.\n",
+								 uint32(dets.Size()), onBoard, calibration.GetViewCount());
+				}
 				if (calibration.AddView(arSession.GetDetections())) {
 					logger.Warnf("[NKARDemo] Calibration : vue %u retenue (il en faut assez, et surtout VARIEES).\n",
 								 calibration.GetViewCount());
