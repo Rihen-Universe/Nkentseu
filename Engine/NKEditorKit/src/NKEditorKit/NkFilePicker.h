@@ -32,7 +32,10 @@ namespace nkentseu {
 		// ── STYLE du picker : TOUTES les couleurs sont ici -> personnalisation =
 		//    uniquement design/couleurs (l'app remplit et passe ce struct au rendu). ──
 		struct NkFilePickerStyle {
-				NkColor backdrop = {0, 0, 0, 70};	  // voile LEGER : il signale, il n'efface pas
+				// VOILE RETIRE (alpha 0) — meme raison que NkEditorModal.h : il
+				// noircissait la bande du haut par accumulation. A retablir quand la
+				// cause sera trouvee.
+				NkColor backdrop = {0, 0, 0, 0};
 				NkColor card = {22, 24, 29, 255};	  // fond de la fenetre
 				NkColor border = {50, 55, 63, 255};	  // liseres
 				NkColor accent = {15, 115, 213, 255}; // liseré titre / bouton principal
