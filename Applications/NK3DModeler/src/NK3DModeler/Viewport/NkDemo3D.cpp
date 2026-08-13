@@ -14355,12 +14355,18 @@ namespace nkentseu {
 		// autre restent intacts ». D'ou la regle tenue partout ici : TOUTE
 		// dimension d'objet se mesure sur la HAUTEUR (`h`), jamais sur la largeur.
 		// La largeur ne sert qu'au damier, qui s'etend d'autant.
-		static void HostMatPreviewRender(const NkVpProjMat &m, uint8 *px, int32 w, int32 h) {
+		// `forme` est un PARAMETRE et non plus `m.prevShape` : les vignettes des
+		// cartes du navigateur montrent TOUJOURS une sphere (Rihen, 13 aout), alors
+		// que le grand apercu suit la forme choisie. Une liste ou chaque entree a
+		// une silhouette differente ne se compare plus d'un coup d'oeil -- c'est
+		// pourtant tout ce qu'on demande a une vignette.
+		static void HostMatPreviewRender(const NkVpProjMat &m, uint8 *px, int32 w, int32 h,
+										 int32 forme) {
 			const float32 Lx = -0.44f, Ly = 0.74f, Lz = 0.51f; // cle, deja ~normalisee
 			const float32 gloss = 1.f - (m.rough < 0.f ? 0.f : (m.rough > 1.f ? 1.f : m.rough));
 			const float32 met = m.metal < 0.f ? 0.f : (m.metal > 1.f ? 1.f : m.metal);
 			const float32 specE = 2.f + 220.f * gloss * gloss * gloss;
-			const int8 shp = m.prevShape;
+			const int8 shp = (int8)forme;
 			auto bgAt = [&](int32 x, int32 y) -> float32 {
 				// damier sombre, comme la piece d'apercu de Blender
 				return (((x >> 4) ^ (y >> 4)) & 1) ? 0.20f : 0.155f;
@@ -14598,14 +14604,16 @@ namespace nkentseu {
 			// LES DIMENSIONS FONT PARTIE DE LA SIGNATURE. Sans elles, elargir le
 			// panneau ne redemandait aucun rendu : l'ancienne image, calculee pour
 			// une autre largeur, restait affichee telle quelle.
+			// La FORME n'entre plus dans la signature : la vignette est toujours une
+			// sphere, changer la forme d'apercu ne doit donc rien reconstruire ici.
 			const float32 sig = m.albedo[0] * 1.7f + m.albedo[1] * 2.3f +
 								m.albedo[2] * 3.1f + m.rough * 5.3f + m.metal * 7.9f +
-								(float32)m.prevShape * 11.3f + (float32)width * 0.017f +
-								(float32)height * 0.031f + 1.f;
+								(float32)width * 0.017f + (float32)height * 0.031f + 1.f;
 			if (sSig[i] == sig)
 				return false;
 			sSig[i] = sig;
-			HostMatPreviewRender(m, rgba, (int32)width, (int32)height);
+			// 1 = sphere, toujours : c'est l'icone d'un materiau dans une liste.
+			HostMatPreviewRender(m, rgba, (int32)width, (int32)height, 1);
 			return true;
 		}
 		// ── DETECTEUR DE PARENTE (une passe par frame) ──────────────────────

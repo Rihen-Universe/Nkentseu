@@ -253,8 +253,8 @@ namespace nkentseu {
 				// et un fichier de plus serait un fichier a livrer, a trouver et a
 				// ne pas perdre.
 				{
-					static const uint32 kT = 64u;	 // taille de la texture
-					static const uint32 kCase = 8u; // cote d'une case, en texels
+					static const uint32 kT = 256u; // taille de la texture
+					static const uint32 kCase = 8u; // cote d'une case : 32 cases par cote
 					static uint8 px[kT * kT * 4u];
 					for (uint32 y = 0; y < kT; ++y)
 						for (uint32 x = 0; x < kT; ++x) {
@@ -376,15 +376,39 @@ namespace nkentseu {
 				// pose sur le sol. L'aspect suit la LARGEUR de l'image -- c'est ce
 				// qui elargit le champ sans grossir l'objet quand le panneau
 				// s'agrandit.
+				// LA DISTANCE EST CALCULEE, PAS CHOISIE. Une position figee marchait
+				// pour la sphere et coupait la robe : la camera visait y=0.25 alors
+				// que les objets montent a 1.55, et le haut sortait du cadre (Rihen :
+				// « la camera de la previz ne permet pas de bien voir les elements »).
+				//
+				// On cadre une boite de kCadreH de haut sur kCadreL de large, en
+				// prenant la contrainte la PLUS SEVERE des deux : quand le panneau
+				// est etroit, c'est la largeur qui decide, et reculer est le seul
+				// moyen de tout garder dans le champ.
+				static const float32 kCadreH = 1.85f; // hauteur a garder visible
+				static const float32 kCadreL = 2.10f; // largeur a garder visible
+				static const float32 kFovY = 32.f;
+				const float32 aspect = (float32)s.w / (float32)s.h;
+				const float32 demiFov = kFovY * 0.5f * 3.14159265f / 180.f;
+				const float32 tanV = math::NkTan(demiFov);
+				const float32 dH = (kCadreH * 0.5f) / tanV;			  // pour la hauteur
+				const float32 dL = (kCadreL * 0.5f) / (tanV * aspect); // pour la largeur
+				const float32 dist = (dH > dL ? dH : dL) * 1.12f;	  // + une marge d'air
+
 				NkCamera3DData camData;
 				camData.up = {0.f, 1.f, 0.f};
-				camData.fovY = 32.f;
-				camData.aspect = (float32)s.w / (float32)s.h;
+				camData.fovY = kFovY;
+				camData.aspect = aspect;
 				camData.nearPlane = 0.05f;
-				camData.farPlane = 40.f;
+				camData.farPlane = 60.f;
 				NkCamera3D cam(camData);
-				cam.SetPosition({0.f, 1.35f, 3.6f});
-				cam.SetTarget({0.f, 0.25f, 0.f});
+				// Visee A MI-HAUTEUR de l'objet, et non pres du sol : c'est ce qui le
+				// centre au lieu de le pousser vers le haut du cadre. Legere plongee
+				// (la camera est un peu plus haute que sa cible) pour qu'on voie la
+				// pose sur le sol -- sans elle, l'objet flotte.
+				const float32 yCible = kCadreH * 0.42f;
+				cam.SetPosition({0.f, yCible + dist * 0.22f, dist});
+				cam.SetTarget({0.f, yCible, 0.f});
 
 				NkSceneContext sctx;
 				sctx.camera = cam;
