@@ -1406,6 +1406,26 @@ namespace nkentseu {
 				}
 				if (!NkAsWrite(root, rel, a, err))
 					return false;
+				// ── LA VIGNETTE D'UN MATERIAU SE PREND ICI ──────────────────
+				// « Les cartes recoivent le resultat correct, sous forme de
+				// capture a la sauvegarde » (Rihen, 13 aout) : le fichier et son
+				// image datent ainsi du meme geste, comme pour les scenes. C'est
+				// une DEMANDE, pas un rendu -- la capture a besoin d'une frame,
+				// et nous ne sommes pas dans le rendu ici.
+				if (k == 2) {
+					const int32 m = st.browserMat[b] - 1;
+					if (m >= 0) {
+						const NkString dir = NkScToAbs(root, "Apercus");
+						if (NkDirectory::Exists(dir.CStr()) ||
+							NkDirectory::CreateRecursive(dir.CStr())) {
+							NkString png("Apercus/");
+							png += NkAsSafeName(st.browserNames[b]);
+							png += ".png";
+							demo::Demo3DHostMatThumbRequest(
+								m, NkScToAbs(root, png.CStr()).CStr());
+						}
+					}
+				}
 				// La DATE sert au classement du navigateur. Relevee ICI, a
 				// l'ecriture, plutot qu'interrogee a la peinture : trente-deux
 				// appels au systeme de fichiers par image couteraient plus cher que

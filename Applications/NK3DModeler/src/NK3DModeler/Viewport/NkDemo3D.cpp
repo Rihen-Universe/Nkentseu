@@ -12347,8 +12347,100 @@ namespace nkentseu {
 		// s'ouvre. Le slot demande est celui que le panneau affiche ; les autres
 		// materiaux ne sont pas rendus (leurs cartes recevront une capture figee
 		// a l'enregistrement).
+		// ── VIGNETTE D'UN MATERIAU : CAPTURE DU VRAI RENDU ──────────────────
+		// « Les cartes recoivent le resultat correct, mais sous forme de capture a
+		// la sauvegarde » (Rihen, 13 aout). C'est la bonne economie : le rendu GPU
+		// est fidele -- il execute le shader du verre, du toon, de l'emissif --
+		// mais rendre soixante-quatre scenes par frame pour des vignettes de
+		// quarante pixels serait absurde. On en fige une, au moment ou le materiau
+		// est ecrit sur le disque.
+		//
+		// EN DEUX FRAMES, et c'est oblige : la lecture des pixels doit porter sur
+		// une image TERMINEE. On rend a la frame N, on relit a la frame N+1. Une
+		// file, parce qu'un enregistrement de projet ecrit tous les materiaux d'un
+		// coup et qu'on n'en rend qu'un par frame.
+		namespace {
+			constexpr int32 kThumbMax = 64;
+			constexpr int32 kThumbPx = 128; // carre : c'est une icone de liste
+			struct NkMatThumbFile {
+					int32 slot[kThumbMax] = {};
+					char chemin[kThumbMax][320] = {};
+					int32 nb = 0;
+					int32 rendu = -1; // slot rendu a la frame precedente, -1 = aucun
+					char renduChemin[320] = {};
+			};
+			NkMatThumbFile gThumbs;
+		} // namespace
+
+		void Demo3DHostMatThumbRequest(int32 slot, const char *cheminPng) {
+			if (slot < 0 || slot >= kNkvpMaxProjMats || !cheminPng || !*cheminPng)
+				return;
+			if (gThumbs.nb >= kThumbMax)
+				return; // file pleine : la vignette attendra le prochain
+			for (int32 i = 0; i < gThumbs.nb; ++i)
+				if (gThumbs.slot[i] == slot)
+					return; // deja demande
+			gThumbs.slot[gThumbs.nb] = slot;
+			snprintf(gThumbs.chemin[gThumbs.nb], sizeof(gThumbs.chemin[0]), "%s", cheminPng);
+			++gThumbs.nb;
+		}
+
 		void Demo3DHostMatPreviewFrame(void *cmd, int32 slot, int32 w, int32 h) {
-			if (!cmd || slot < 0 || slot >= kNkvpMaxProjMats)
+			if (!cmd)
+				return;
+			// ── LA VIGNETTE PASSE AVANT ─────────────────────────────────────
+			// Elle emprunte la meme cible : une capture demandee prend donc la
+			// frame, et le grand apercu reprend a la suivante. Un scintillement
+			// d'une frame vaut mieux qu'une seconde cible hors ecran gardee toute
+			// la session pour un usage aussi rare.
+			//
+			// D'ABORD RELIRE ce qui a ete rendu a la frame precedente : l'image
+			// est terminee, c'est le seul moment ou elle est lisible.
+			if (gThumbs.rendu >= 0) {
+				const int32 sc = gThumbs.rendu;
+				gThumbs.rendu = -1;
+				static uint8 px[kThumbPx * kThumbPx * 4];
+				if (nk3d::matprev::Readback(px)) {
+					NkImage im;
+					if (im.Create((uint32)kThumbPx, (uint32)kThumbPx,
+								  math::NkColor(0, 0, 0, 255), 4)) {
+						memcpy(im.Pixels(), px, sizeof(px));
+						if (im.Save(gThumbs.renduChemin))
+							NkLog::Instance().Info("[apercu] vignette ecrite : {0}",
+												   gThumbs.renduChemin);
+						else
+							NkLog::Instance().Info("[apercu] vignette REFUSEE : {0}",
+												   gThumbs.renduChemin);
+					}
+				}
+				(void)sc;
+			}
+			// PUIS rendre la suivante de la file, en SPHERE et en carre : c'est
+			// une icone de liste, elle doit se comparer aux autres.
+			if (gThumbs.nb > 0 && nk3d::matprev::Init(hst.ctx.device, (uint32)kThumbPx,
+													  (uint32)kThumbPx)) {
+				const int32 sc = gThumbs.slot[0];
+				snprintf(gThumbs.renduChemin, sizeof(gThumbs.renduChemin), "%s",
+						 gThumbs.chemin[0]);
+				for (int32 i = 1; i < gThumbs.nb; ++i) {
+					gThumbs.slot[i - 1] = gThumbs.slot[i];
+					snprintf(gThumbs.chemin[i - 1], sizeof(gThumbs.chemin[0]), "%s",
+							 gThumbs.chemin[i]);
+				}
+				--gThumbs.nb;
+				if (sc >= 0 && sc < kNkvpMaxProjMats && nkvpProjMats[sc].used &&
+					nkvpProjMatPrev[sc]) {
+					NkDrawCall3D mt;
+					HostMatSlotToDC(sc, mt);
+					nk3d::matprev::RenderOne((NkICommandBuffer *)cmd,
+											 nkvpProjMatPrev[sc]->GetInstHandle(), 1,
+											 (uint32)kThumbPx, (uint32)kThumbPx,
+											 (float32)hst.ctx.totalTime, mt);
+					gThumbs.rendu = sc;
+					return; // cette frame est a elle
+				}
+			}
+			if (slot < 0 || slot >= kNkvpMaxProjMats)
 				return;
 			if (!nkvpProjMats[slot].used)
 				return;

@@ -47,6 +47,11 @@ namespace nkentseu {
 		/// que le panneau affiche. Sa texture est publiee par
 		/// Demo3DHostRegisterInto sous nk3d::matprev::kPreviewTexId.
 		void Demo3DHostMatPreviewFrame(void *cmd, int32 slot, int32 w, int32 h);
+		/// Demande la CAPTURE de la vignette d'un materiau vers `cheminPng`. La
+		/// prise se fait sur deux frames -- rendu puis relecture, une image devant
+		/// etre terminee pour etre lue -- et une seule par frame. Rendue en SPHERE
+		/// et en carre : c'est une icone de liste, elle doit se comparer aux autres.
+		void Demo3DHostMatThumbRequest(int32 slot, const char *cheminPng);
 
 		// Publie la cible aupres du backend NKGui sous l'id 4096.
 		void Demo3DHostRegisterInto(void *guiBackend);
