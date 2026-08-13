@@ -1,7 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Cheveux : trois meches paralleles, toutes incurvees dans le meme sens --
+       c'est le parallelisme qui se lit comme une chevelure ; des courbes
+       divergentes donneraient des brins epars. Bouts arrondis, une meche n'a pas
+       d'angle. Boite de 192 avec 32 de marge, comme les autres. -->
   <g>
     <rect width="256" height="256" fill="#C2C2C2" fill-rule="evenodd" fill-opacity="0" />
-    <path d="M0 28.6105C0 28.6105 31.9863 -4.89188 74 0.610504" fill="none" stroke-width="10" stroke="#FFFFFF" transform="translate(116 171.391)" />
+    <path d="M76 48C50 108 52 172 96 216" fill="none" stroke-width="15" stroke="#FFFFFF" stroke-linecap="round" />
+    <path d="M128 42C102 104 104 172 148 218" fill="none" stroke-width="15" stroke="#FFFFFF" stroke-linecap="round" />
+    <path d="M180 48C154 108 156 172 200 216" fill="none" stroke-width="15" stroke="#FFFFFF" stroke-linecap="round" />
   </g>
 </svg>

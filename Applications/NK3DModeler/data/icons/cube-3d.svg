@@ -1,7 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Cube isometrique : silhouette hexagonale + le Y des trois aretes vues.
+       C'est le Y qui fait lire « volume » : sans lui il ne reste qu'un hexagone,
+       et un simple carre ne se distingue pas du PLAN, premier de la rangee.
+       Boite de 192 avec 32 de marge, comme plane-3d. -->
   <g>
     <rect width="256" height="256" fill="#C2C2C2" fill-rule="evenodd" fill-opacity="0" />
-    <rect width="139" height="139" fill="none" stroke-width="10" stroke="#FFFFFF" stroke-linecap="round" stroke-linejoin="round" transform="translate(37 80)" />
+    <path d="M128 32L224 83L224 173L128 224L32 173L32 83Z" fill="none" stroke-width="15" stroke="#FFFFFF" stroke-linejoin="round" />
+    <path d="M128 128L128 224" fill="none" stroke-width="15" stroke="#FFFFFF" stroke-linecap="round" />
+    <path d="M128 128L224 83" fill="none" stroke-width="15" stroke="#FFFFFF" stroke-linecap="round" />
+    <path d="M128 128L32 83" fill="none" stroke-width="15" stroke="#FFFFFF" stroke-linecap="round" />
   </g>
 </svg>
