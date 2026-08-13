@@ -247,6 +247,27 @@ namespace nkentseu {
 			if (view.boardPoints.Size() < 12) {
 				return false;
 			}
+			// ── Refuser une vue trop SEMBLABLE à une précédente ───────────────
+			// Deux vues identiques donnent deux fois la même équation : elles
+			// gonflent le compteur sans rien apprendre au système, et donnent
+			// l'illusion d'une calibration bien nourrie alors qu'elle reste
+			// sous-déterminée. C'est le piège de cette méthode : il faut varier
+			// les ANGLES, pas multiplier les prises.
+			for (nk_size v = 0; v < mViews.Size(); ++v) {
+				const View &prev = mViews[v];
+				if (prev.imagePoints.Size() != view.imagePoints.Size()) {
+					continue;
+				}
+				float32 sum = 0.f;
+				for (nk_size i = 0; i < view.imagePoints.Size(); ++i) {
+					const float32 dx = view.imagePoints[i].x - prev.imagePoints[i].x;
+					const float32 dy = view.imagePoints[i].y - prev.imagePoints[i].y;
+					sum += math::NkSqrt(dx * dx + dy * dy);
+				}
+				if (sum / float32(view.imagePoints.Size()) < mMinViewSeparationPixels) {
+					return false;
+				}
+			}
 			if (!ComputeHomography(view.boardPoints, view.imagePoints, view.homography)) {
 				return false;
 			}

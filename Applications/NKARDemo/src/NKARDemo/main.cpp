@@ -51,6 +51,7 @@ namespace nkentseu {
 
 #include "NKXR/AR/NkArSession.h"
 #include "NKXR/AR/NkArWorld.h"
+#include "NKXR/AR/NkArCalibration.h"
 
 #include <cstdlib>
 #include <cstdio>
@@ -76,6 +77,30 @@ namespace {
 	// occupe deux fois plus de pixels, donc sa pose est mieux contrainte.
 	constexpr uint32 kCamWidth = 1920;
 	constexpr uint32 kCamHeight = 1080;
+
+	// ── La planche de calibration, décrite UNE fois ──────────────────────────
+	// Ces mesures doivent correspondre à la planche RÉELLE : c'est le côté du
+	// carré noir qui donne l'échelle, et l'entraxe qui donne la géométrie. Si
+	// la planche est affichée sur un écran, mesurer à la règle ce qu'il affiche
+	// — un écran ne respecte pas les centimètres d'un fichier.
+	const nkxr::NkArCalibrationBoard kCalibBoard = [] {
+		nkxr::NkArCalibrationBoard b;
+		b.cols = 3;
+		b.rows = 3;
+		b.gridBits = 4;
+		b.firstId = 100;
+		b.markerSizeMeters = 0.04f;
+		b.spacingMeters = 0.06f;
+		const char *sizeEnv = getenv("NK_AR_BOARD_MARKER_CM");
+		const char *stepEnv = getenv("NK_AR_BOARD_STEP_CM");
+		if (sizeEnv != nullptr) {
+			b.markerSizeMeters = float32(atof(sizeEnv)) * 0.01f;
+		}
+		if (stepEnv != nullptr) {
+			b.spacingMeters = float32(atof(stepEnv)) * 0.01f;
+		}
+		return b;
+	}();
 	constexpr int32 kMarkerId = 0x2D;
 
 	// Image de repli quand aucune caméra n'est branchée : le marqueur y
@@ -305,6 +330,34 @@ int nkmain(const NkEntryState &state) {
 			memory::NkFree(gray);
 			marker.SaveToFile("nkar_marqueur.png");
 			logger.Infof("[NKARDemo] Marqueur à imprimer écrit : nkar_marqueur.png (identifiant %d).\n", kMarkerId);
+		}
+	}
+
+	// ── 1bis) La planche de CALIBRATION ───────────────────────────────────────
+	// Elle s'affiche sur un écran ou s'imprime, et sert à MESURER la géométrie
+	// de l'objectif au lieu de la supposer. Elle est écrite à chaque lancement :
+	// mieux vaut qu'elle soit toujours à portée que d'avoir à la retrouver le
+	// jour où l'on en a besoin.
+	{
+		const uint32 size = 1200;
+		NkImage sheet;
+		if (sheet.Create(size, size, math::NkColor(255, 255, 255, 255), 4)) {
+			uint8 *gray = static_cast<uint8 *>(memory::NkAlloc(size * size));
+			if (nkxr::NkArRenderCalibrationBoard(kCalibBoard, gray, size, size)) {
+				uint8 *pixels = sheet.Pixels();
+				for (uint32 i = 0; i < size * size; ++i) {
+					pixels[i * 4u + 0u] = gray[i];
+					pixels[i * 4u + 1u] = gray[i];
+					pixels[i * 4u + 2u] = gray[i];
+					pixels[i * 4u + 3u] = 255;
+				}
+				sheet.SaveToFile("nkar_planche_calibration.png");
+				logger.Infof("[NKARDemo] Planche de calibration ecrite : nkar_planche_calibration.png "
+							 "(%ux%u marqueurs, carre noir %.1f cm, entraxe %.1f cm).\n",
+							 kCalibBoard.cols, kCalibBoard.rows, kCalibBoard.markerSizeMeters * 100.f,
+							 kCalibBoard.spacingMeters * 100.f);
+			}
+			memory::NkFree(gray);
 		}
 	}
 
@@ -585,6 +638,23 @@ int nkmain(const NkEntryState &state) {
 					 (rotEnv != nullptr) ? ", force par NK_AR_ROTATE" : "");
 	}
 
+	// ── Mode CALIBRATION ──────────────────────────────────────────────────────
+	// Entièrement automatique, et il le faut : un téléphone n'a pas de clavier,
+	// et demander à l'utilisateur d'appuyer sur une touche au bon moment tout en
+	// tenant la planche est un mauvais protocole. On capture donc dès qu'une vue
+	// apporte quelque chose de NEUF, et l'on s'arrête quand il y en a assez.
+	const bool calibrating = (getenv("NK_AR_CALIBRATE") != nullptr);
+	nkxr::NkArCalibration calibration;
+	nkxr::NkArCalibrationResult calibResult;
+	bool calibDone = false;
+	if (calibrating) {
+		calibration.Initialize(kCalibBoard, arWidth, arHeight);
+		logger.Warnf("[NKARDemo] MODE CALIBRATION : montrer la planche sous des angles VARIES "
+					 "(%ux%u marqueurs, carre %.1f cm, entraxe %.1f cm).\n",
+					 kCalibBoard.cols, kCalibBoard.rows, kCalibBoard.markerSizeMeters * 100.f,
+					 kCalibBoard.spacingMeters * 100.f);
+	}
+
 	NkClock clock;
 	float32 total = 0.f;
 	uint64 frameIndex = 0;
@@ -828,6 +898,45 @@ int nkmain(const NkEntryState &state) {
 			worldClock.Tick();
 			arWorld.Update(arSession);
 			worldMillis += worldClock.Tick().delta * 1000.f;
+
+			// ── Récolte des vues de calibration ──────────────────────────────
+			if (calibrating && !calibDone) {
+				if (calibration.AddView(arSession.GetDetections())) {
+					logger.Warnf("[NKARDemo] Calibration : vue %u retenue (il en faut assez, et surtout VARIEES).\n",
+								 calibration.GetViewCount());
+				}
+				if (calibration.IsReady()) {
+					calibResult = calibration.Solve();
+					calibDone = true;
+					if (calibResult.valid) {
+						logger.Warnf("[NKARDemo] CALIBRATION TERMINEE : fx=%.1f fy=%.1f cx=%.1f cy=%.1f | "
+									 "champ horizontal %.1f deg (suppose : %.1f) | erreur %.2f px sur %u vues\n",
+									 calibResult.intrinsics.fx, calibResult.intrinsics.fy, calibResult.intrinsics.cx,
+									 calibResult.intrinsics.cy, calibResult.fovXDegrees, arCfg.fallbackFovXDegrees,
+									 calibResult.reprojectionErrorPixels, calibResult.viewsUsed);
+						// Le chiffre qui dit s'il faut y croire. Au-delà de trois
+						// pixels, quelque chose cloche — planche non plane, vues
+						// trop semblables, ou détections fausses — et appliquer
+						// une mauvaise calibration est pire que n'en avoir aucune.
+						if (calibResult.reprojectionErrorPixels < 3.f) {
+							arCfg.intrinsics = calibResult.intrinsics;
+							arSession.Shutdown();
+							arSession.Initialize(arCfg, arWidth, arHeight);
+							arWorld.Reset();
+							logger.Warn("[NKARDemo] Calibration APPLIQUEE — la session repart avec la vraie "
+										"geometrie de l'objectif.\n");
+						}
+						else {
+							logger.Warn("[NKARDemo] Calibration REFUSEE : erreur de reprojection trop grande. "
+										"Recommencer en variant davantage les angles.\n");
+						}
+					}
+					else {
+						logger.Warn("[NKARDemo] Calibration ECHOUEE : le systeme n'a pas de solution physique. "
+									"Les vues se ressemblent probablement trop.\n");
+					}
+				}
+			}
 			++analyzedFrames;
 			if (analyzedFrames >= 60u) {
 				// Émis en AVERTISSEMENT à dessein : c'est le battement de cœur de
