@@ -799,6 +799,13 @@ namespace nkentseu {
 			/// -1 si aucun. C'est le SEUL apercu rendu par le moteur a chaque
 			/// frame ; les cartes du navigateur, elles, montrent une capture figee.
 			int32 matPrevSlot = -1;
+			/// Journal ouvert ? Il s'ancre en bas, au-dessus de la barre d'etat,
+			/// d'ou on l'ouvre. `journalSuivre` : tant qu'on est en bas de la
+			/// liste, une nouvelle ligne fait defiler ; des qu'on remonte, le
+			/// defilement s'arrete -- sinon lire une trace en cours est impossible.
+			bool journalOpen = false;
+			bool journalSuivre = true;
+			float32 journalScroll = 0.f;
 			/// Menu d'ajout de materiau ouvert ? Il se deroule SOUS la liste
 				/// de la pastille, pas dans la colonne de boutons — un champ de
 				/// 20 pixels de large y debordait sur ses voisins.

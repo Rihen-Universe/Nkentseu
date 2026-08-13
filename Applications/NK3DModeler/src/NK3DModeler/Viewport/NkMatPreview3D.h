@@ -39,6 +39,7 @@
 #include "NKRenderer/Materials/NkMaterialCollection.h"
 #include "NKRenderer/Tools/Offscreen/NkOffscreenTarget.h"
 #include "NKGui/NkGuiRHIBackend.h"
+#include "NKLogger/NkLog.h"
 // Pour l'identifiant de texture, partage avec le panneau (qui, lui, ne connait
 // pas NKRenderer). Ce header n'apporte aucun type NKRenderer -- c'est sa regle.
 #include "NK3DModeler/Viewport/NkDemo3DHost.h"
@@ -100,6 +101,7 @@ namespace nkentseu {
 				s.tried = true;
 				if (!device || !device->IsValid()) {
 					s.err = "device partage absent";
+					NkLog::Instance().Info("[apercu] ECHEC : {0}", s.err);
 					return false;
 				}
 				s.w = w < 32u ? 32u : w;
@@ -117,6 +119,7 @@ namespace nkentseu {
 				s.rd = NkRenderer::Create(device, cfg);
 				if (!s.rd) {
 					s.err = "creation du renderer d'apercu refusee";
+					NkLog::Instance().Info("[apercu] ECHEC : {0}", s.err);
 					return false;
 				}
 
@@ -134,6 +137,7 @@ namespace nkentseu {
 				s.rt = s.rd->CreateOffscreen(od);
 				if (!s.rt || !s.rt->IsValid()) {
 					s.err = "cible hors ecran d'apercu refusee";
+					NkLog::Instance().Info("[apercu] ECHEC : {0}", s.err);
 					return false;
 				}
 				// Sans l'override, le graphe rendrait a la taille de la FENETRE dans
@@ -152,6 +156,11 @@ namespace nkentseu {
 					s.mesh[(int32)NkPrevMesh::Cube] = ms->GetCube();
 				}
 				s.ok = true;
+				NkLog::Instance().Info(
+					"[apercu] pret : {0}x{1}, meshes plan={2} sphere={3} cube={4}", s.w, s.h,
+					s.mesh[(int32)NkPrevMesh::Plan].IsValid() ? 1 : 0,
+					s.mesh[(int32)NkPrevMesh::Sphere].IsValid() ? 1 : 0,
+					s.mesh[(int32)NkPrevMesh::Cube].IsValid() ? 1 : 0);
 				return true;
 			}
 
@@ -188,8 +197,22 @@ namespace nkentseu {
 					return;
 				EnsureSize(w, h);
 				auto *r3d = s.rd->GetRender3D();
-				if (!r3d)
+				if (!r3d) {
+					static bool sDit = false;
+					if (!sDit) {
+						sDit = true;
+						NkLog::Instance().Info("[apercu] pas de Render3D");
+					}
 					return;
+				}
+				{
+					static int32 sVu = -2;
+					if (sVu != shape) {
+						sVu = shape;
+						NkLog::Instance().Info("[apercu] rendu forme={0} taille={1}x{2}", shape,
+											   s.w, s.h);
+					}
+				}
 				// L'editeur possede la frame : on rejoue ce que ferait un BeginFrame
 				// pour NOTRE renderer, pas un de plus.
 				s.rd->FlushGraphRebuilds();

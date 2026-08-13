@@ -36,6 +36,7 @@
 #include "NK3DModeler/Shell/NkModelerTheme.h"
 #include "NK3DModeler/Shell/NkModelerScreens.h"
 #include "NK3DModeler/Shell/NkModelerChrome.h" // separateurs, dialogues, barre d etat
+#include "NK3DModeler/Shell/NkModelerJournal.h" // les messages du moteur, lisibles dans l'app
 #include "NK3DModeler/Shell/NkModelerHierarchy.h" // hierarchie + menus de scene
 #include "NK3DModeler/Shell/NkModelerViewport.h"  // vue 3D et ses surcouches
 #include "NK3DModeler/Shell/NkModelerProperties.h" // panneau de proprietes
@@ -282,6 +283,14 @@ int nkmain(const NkEntryState &entry) {
 		printf("[raccourcis] %u conflit(s).\n", c);
 	printf("[nk3d] %u themes (%u depuis le disque), %u raccourcis.\n", themes.Count(), fromDisk,
 		   shortcuts.Count());
+
+	// ── JOURNAL : BRANCHE AVANT TOUT LE RESTE ───────────────────────────────
+	// Un puits de plus sur le logger du moteur, qui garde les dernieres lignes
+	// en memoire pour le panneau. Installe ICI, le plus tot possible : ce qui
+	// est ecrit avant n'existera que dans la console et le fichier, or c'est
+	// justement au demarrage -- creation du device, des cibles, chargement des
+	// icones -- que se disent les choses qu'on cherche ensuite.
+	nk3d::NkJournalInstall();
 
 	// ── FENETRE ─────────────────────────────────────────────────────────────
 	// SANS CADRE OS : la maquette porte ses propres boutons de fenetre dans la
@@ -1500,6 +1509,10 @@ int nkmain(const NkEntryState &entry) {
 		if (st.showBrowser)
 			PaintBrowser(p, lay.browser, st, hit, ws, ui.input, &ui, &combo);
 		PaintStatus(p, hit, lay.status, st);
+		// LE JOURNAL S'ANCRE SUR LA FENETRE ENTIERE, pas sur une zone de la mise
+		// en page : il recouvre ce qui se trouve dessous, comme un tiroir. Peint
+		// APRES la barre d'etat, dont il sort.
+		PaintJournal(p, hit, st, ui.input, {0.f, 0.f, (float32)W, (float32)H - lay.status.h});
 
 		// Poignees de reouverture, a la place exacte qu'occupait le panneau.
 		PaintPanelHandle(p, lay.handleLeft, hit, "handle.left", st.showLeft, NkIcon::ChevronRight);
@@ -2074,23 +2087,21 @@ int nkmain(const NkEntryState &entry) {
 		// fixe, et c'est elle qui dimensionne l'objet -- elargir le panneau
 		// etend le damier sans grossir la sphere. Rendre au 1:1 evite a la fois
 		// l'etirement et le flou d'un agrandissement.
+		//
+		// CARREES, et c'est desormais leur seul usage : les CARTES du navigateur.
+		// Le grand apercu du panneau ne passe plus par ici -- il est rendu par le
+		// moteur (kNkMatPreviewTexId). Les avoir faites rectangulaires pour lui a
+		// aussitot etire les cartes, qui sont carrees : « on a comme des
+		// etirements sur les miniatures et ca deforme les spheres » (Rihen,
+		// 13 aout). Une vignette doit avoir le format de l'endroit ou elle est
+		// posee, et ces deux endroits n'ont pas le meme.
 		{
-			// Bornes du TAMPON, pas de l'interface : le panneau peut demander ce
-			// qu'il veut, on ne rend jamais au-dela de ce qui est alloue.
-			static const int32 kPrevWMax = 900, kPrevHMax = 400;
-			static uint8 sMatBall[kPrevWMax * kPrevHMax * 4];
-			auto borne = [](int32 v, int32 def, int32 hi) {
-				if (v <= 0)
-					v = def;
-				if (v < 60)
-					v = 60;
-				return v > hi ? hi : v;
-			};
-			const int32 pw = borne(st.matPrevW, 260, kPrevWMax);
-			const int32 ph = borne(st.matPrevH, 150, kPrevHMax);
+			static const int32 kCarte = 128;
+			static uint8 sMatBall[kCarte * kCarte * 4];
 			for (int32 i = 0; i < 64; ++i)
-				if (demo::Demo3DHostProjMatPreviewTake(i, sMatBall, (uint32)pw, (uint32)ph))
-					renderer.UploadImageRGBA(4400u + (uint32)i, sMatBall, pw, ph);
+				if (demo::Demo3DHostProjMatPreviewTake(i, sMatBall, (uint32)kCarte,
+													   (uint32)kCarte))
+					renderer.UploadImageRGBA(4400u + (uint32)i, sMatBall, kCarte, kCarte);
 		}
 
 		// ── MINIATURES DES SCENES (ids 4500+) ───────────────────────────────
