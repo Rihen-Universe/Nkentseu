@@ -41,7 +41,9 @@
 #include "NKNetwork/HTTP/NkHTTPClient.h"
 #include "NKImage/Core/NkImage.h" // inflate DEFLATE : degzip des reponses HTTP
 #include "NkIlyanaPdf.h"
+#include "NkIlyanaSondePdf.h"
 #include "NkIlyanaCitation.h"
+#include "NKFileSystem/NkDirectory.h"
 
 #include "NKGpt/NkGptTrainer.h"
 #include "NKData/NkBpeTrainer.h"
@@ -1979,7 +1981,119 @@ static int ModeAspirer(int argc, char **argv) {
 	return 0;
 }
 
+// =============================================================================
+// MODE --sonder : ce qu'un corpus de PDF DÉCLARE, avant d'écrire du code
+// =============================================================================
+// Compte, sur tout un dossier, les clés que le lecteur ignore aujourd'hui
+// (/Info, /Outlines, /Annots, /StructTreeRoot…). Le périmètre du lecteur a été
+// fixé par mesure sur 95 documents réels ; toute extension suit la même
+// discipline. Ce mode ne dépose RIEN : il compte.
+static int ModeSonder(int argc, char **argv) {
+	const char *dossier = Arg(argc, argv, "--dossier", nullptr);
+	const char *fCsv = Arg(argc, argv, "--csv", nullptr);
+	if (!dossier) {
+		logger.Info("usage : --sonder --dossier <dossier de PDF> [--csv sortie.csv]");
+		return 1;
+	}
+
+	NkVector<NkString> fichiers = NkDirectory::GetFiles(dossier, "*.pdf");
+	if (fichiers.Size() == 0) {
+		logger.Infof("ERREUR : aucun .pdf dans %s\n", dossier);
+		return 1;
+	}
+
+	// Totaux « nombre de DOCUMENTS qui possèdent la clé », jamais le cumul des
+	// occurrences : la question posée est « combien de documents en ont ? ».
+	int32 nOuverts = 0, nChiffres = 0, nInfo = 0, nTitre = 0, nMeta = 0;
+	int32 nSignets = 0, nAnnots = 0, nLiens = 0, nNotes = 0, nSurl = 0;
+	int32 nForm = 0, nStruct = 0, nDests = 0, nEmb = 0, nLang = 0;
+	int32 nLzw = 0, nCcitt = 0, nJbig2 = 0, nJpx = 0, nDct = 0;
+	int64 totalSignets = 0, totalLiens = 0;
+
+	NkString csv("fichier;ouvert;info;champs;titre;metadata;signets;annots;liens;"
+				 "notes;surlignages;champsForm;structTree;dests;embarques;lang;lzw\n");
+
+	for (nk_size i = 0; i < fichiers.Size(); ++i) {
+		const ilyana::SondePdf s = ilyana::SonderPdf(fichiers[i].CStr());
+		if (s.chiffre)
+			++nChiffres;
+		if (!s.ouvert) {
+			if (fCsv) {
+				csv.Append(fichiers[i]);
+				csv.Append(";0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0\n");
+			}
+			continue;
+		}
+		++nOuverts;
+		if (s.info) ++nInfo;
+		if (s.titre) ++nTitre;
+		if (s.metadata) ++nMeta;
+		if (s.signets > 0) { ++nSignets; totalSignets += s.signets; }
+		if (s.annots > 0) ++nAnnots;
+		if (s.liens > 0) { ++nLiens; totalLiens += s.liens; }
+		if (s.notes > 0) ++nNotes;
+		if (s.surlignages > 0) ++nSurl;
+		if (s.champsForm > 0) ++nForm;
+		if (s.structTree) ++nStruct;
+		if (s.dests) ++nDests;
+		if (s.embarques) ++nEmb;
+		if (s.lang) ++nLang;
+		if (s.lzw) ++nLzw;
+		if (s.ccitt) ++nCcitt;
+		if (s.jbig2) ++nJbig2;
+		if (s.jpx) ++nJpx;
+		if (s.dct) ++nDct;
+
+		if (fCsv) {
+			char ligne[512];
+			snprintf(ligne, sizeof(ligne), ";1;%d;%d;%d;%d;%d;%d;%d;%d;%d;%d;%d;%d;%d;%d;%d\n",
+					 s.info ? 1 : 0, s.infoChamps, s.titre ? 1 : 0, s.metadata ? 1 : 0, s.signets,
+					 s.annots, s.liens, s.notes, s.surlignages, s.champsForm, s.structTree ? 1 : 0,
+					 s.dests ? 1 : 0, s.embarques ? 1 : 0, s.lang ? 1 : 0, s.lzw ? 1 : 0);
+			csv.Append(fichiers[i]);
+			csv.Append(ligne);
+		}
+		if (((int32)i % 25) == 24)
+			logger.Infof("  %llu / %llu documents sondes...\n", (unsigned long long)(i + 1),
+						 (unsigned long long)fichiers.Size());
+	}
+
+	const double base = (nOuverts > 0) ? (double)nOuverts : 1.0;
+	auto pct = [&](int32 n) { return 100.0 * (double)n / base; };
+
+	logger.Info("=== Ilyana / sondage PDF ===");
+	logger.Infof("%llu fichier(s), %d ouvert(s), %d chiffre(s) (refuses)\n",
+				 (unsigned long long)fichiers.Size(), nOuverts, nChiffres);
+	logger.Info("Presence par cle, en pourcentage des documents OUVERTS :");
+	logger.Infof("  /Info non vide        %4d  (%.0f%%)   dont /Title : %d (%.0f%%)\n", nInfo,
+				 pct(nInfo), nTitre, pct(nTitre));
+	logger.Infof("  /Metadata (XMP)       %4d  (%.0f%%)\n", nMeta, pct(nMeta));
+	logger.Infof("  /Outlines (signets)   %4d  (%.0f%%)   total : %lld entrees\n", nSignets,
+				 pct(nSignets), (long long)totalSignets);
+	logger.Infof("  /Annots               %4d  (%.0f%%)\n", nAnnots, pct(nAnnots));
+	logger.Infof("    dont /Link          %4d  (%.0f%%)   total : %lld liens\n", nLiens, pct(nLiens),
+				 (long long)totalLiens);
+	logger.Infof("    dont /Text          %4d  (%.0f%%)\n", nNotes, pct(nNotes));
+	logger.Infof("    dont /Highlight     %4d  (%.0f%%)\n", nSurl, pct(nSurl));
+	logger.Infof("  /AcroForm /Fields     %4d  (%.0f%%)\n", nForm, pct(nForm));
+	logger.Infof("  /StructTreeRoot       %4d  (%.0f%%)\n", nStruct, pct(nStruct));
+	logger.Infof("  /Dests                %4d  (%.0f%%)\n", nDests, pct(nDests));
+	logger.Infof("  /Names /EmbeddedFiles %4d  (%.0f%%)\n", nEmb, pct(nEmb));
+	logger.Infof("  /Lang                 %4d  (%.0f%%)\n", nLang, pct(nLang));
+	logger.Info("Filtres presents dans les octets bruts :");
+	logger.Infof("  LZWDecode %d  ·  CCITTFax %d  ·  JBIG2 %d  ·  JPX %d  ·  DCT(JPEG) %d\n", nLzw,
+				 nCcitt, nJbig2, nJpx, nDct);
+
+	if (fCsv && !EcrireFichier(fCsv, csv))
+		logger.Infof("ATTENTION : ecriture du CSV impossible : %s\n", fCsv);
+	else if (fCsv)
+		logger.Infof("Detail par document : %s\n", fCsv);
+	return 0;
+}
+
 int main(int argc, char **argv) {
+	if (Drapeau(argc, argv, "--sonder"))
+		return ModeSonder(argc, argv);
 	if (Drapeau(argc, argv, "--controle"))
 		return ModeControle(argc, argv);
 	if (Drapeau(argc, argv, "--aspirer"))
