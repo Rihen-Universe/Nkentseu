@@ -1018,6 +1018,11 @@ namespace nkentseu {
 			return false;
 		}
 
+		/// Le magenta « aucun materiau » : defini avec le registre, plus bas.
+		/// Declare ICI car le RETRAIT l'assigne — c'est lui qui rend l'absence
+		/// visible, exactement comme la creation assigne le materiau par defaut.
+		static int32 HostEnsureMissingMat();
+
 		// Retire un materiau de CET objet seulement.
 		//
 		// LE DERNIER SE RETIRE AUSSI, depuis le 13 aout (Rihen) : « permettre de
@@ -1034,18 +1039,24 @@ namespace nkentseu {
 					continue;
 				nkvpNodeMatsP1[node][k] = 0;
 				// Si c'etait l'actif, l'objet bascule sur le premier restant. S'il
-				// n'en reste AUCUN, l'actif tombe a zero : c'est l'etat « sans
-				// materiau », rendu en magenta.
+				// n'en reste AUCUN, il recoit le materiau magenta « aucun materiau ».
+				//
+				// MEME PRINCIPE QUE LE MATERIAU PAR DEFAUT (Rihen, 13 aout) : celui-ci
+				// est assigne A LA CREATION du maillage, et tout le pipeline le lit
+				// ensuite sans rien savoir de particulier. Le magenta est assigne ICI,
+				// au retrait du dernier, et se lit exactement pareil. Le rattraper au
+				// moment du rendu, comme je l'avais fait, obligeait a rejouer a la
+				// main ce que le chemin normal fait tout seul -- et ne marchait pas.
 				if (nkvpNodeMatP1[node] == slot + 1) {
 					const int32 first = HostNodeMatAt(node, 0);
-					nkvpNodeMatP1[node] = (first >= 0) ? first + 1 : 0;
+					nkvpNodeMatP1[node] =
+						(first >= 0) ? first + 1 : HostEnsureMissingMat() + 1;
 				}
 				return true;
 			}
 			return false;
 		}
 		static int32 HostEnsureDefaultMat(); // defini avec le registre, plus bas
-		static int32 HostEnsureMissingMat(); // le magenta « aucun materiau », idem
 		template <typename TDC>
 		static void HostMatHook(int32 i, TDC &dc) {
 			if (i < 0 || i >= kNkvpMaxNodes)
@@ -1065,24 +1076,9 @@ namespace nkentseu {
 				// reelle n'est magenta pur -- la couleur ne suggere pas un defaut,
 				// elle l'annonce.
 				//
-				// QUELS OBJETS SONT CONCERNES. Un seuil (« >= 96 ») etait un mauvais
-				// critere : le maillage d'une scene chargee passe en dessous, et
-				// n'etait donc jamais peint en magenta alors qu'il avait bien perdu
-				// tous ses materiaux (constate par Rihen, 13 aout). On EXCLUT donc
-				// explicitement les objets du decor systeme -- sol, feuillage et mur
-				// d'occlusion globale -- qui traversent ce point sans jamais porter
-				// de materiau de projet, et tout le reste est concerne.
-				// `Demo3DState` n'est defini que plus bas dans ce fichier : on reprend
-				// ses trois indices ici. Ils sont FIXES (sol 83, feuillage 84, mur GI
-				// 85) et declares une seule fois, dans `Demo3DState::kIdxFloor` &
-				// consorts -- si cette table bouge, ces trois lignes bougent avec.
-				const bool objetSysteme = (i == 83 || i == 84 || i == 85);
-				const bool objetUtilisateur = !objetSysteme;
-				const bool sansMateriau = (HostNodeMatCount(i) == 0 && pm < 0);
-				if (objetUtilisateur && sansMateriau) {
-					// ON ASSIGNE, on ne peint pas : voir HostEnsureMissingMat.
-					nkvpNodeMatP1[i] = HostEnsureMissingMat() + 1;
-				}
+				// AUCUN CAS PARTICULIER ICI. Un objet sans materiau s'est vu
+				// assigner le magenta au moment du retrait ; il arrive donc avec un
+				// materiau valide, lu par le chemin ordinaire ci-dessous.
 				if (pm >= 0 && pm < kNkvpMaxProjMats && nkvpProjMats[pm].used) {
 					dc.tint.x = nkvpProjMats[pm].albedo[0];
 					dc.tint.y = nkvpProjMats[pm].albedo[1];
