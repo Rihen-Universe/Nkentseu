@@ -369,6 +369,74 @@ pages ne sont jamais décodées.
 | **4** | `/Dests` + `/Outlines` | 55 % / 21 % | découpage naturel en chapitres ; `/Dests` est la dépendance technique de 3 et 5 |
 | **5** | `/Annots` `/Link` | 73 % | 56 051 liens ; les URL valent pour les citations. Réutilise la résolution de destinations |
 
+### 🔶 PHASE 2 — LZWDecode livré, nécessaire mais PAS suffisant
+
+**Le filtre marche, et la mesure le prouve** (`Gdmphys1.pdf`) :
+
+| | avant | après |
+|---|---|---|
+| contenu décodé | **0 octet** | **144 264 o** |
+| opérations exécutées | 0 | 10 536 |
+| ordres de texte | 0 | 814 |
+| caractères rencontrés | **0** | **24 014** |
+
+Les 4 `Gdmphys*.pdf` passaient pour des documents-images ; ils ne l'étaient pas.
+Leur contenu était simplement **compressé avec un filtre que nous ne savions pas
+lire**. Idem pour `phys_model.pdf` (216 322 caractères désormais rencontrés).
+
+**Mais aucun des 5 n'est déposé pour autant, et il faut le dire** : ces
+documents ont un **second défaut, indépendant** — **0 table `/ToUnicode`
+déclarée**, et seules 4 polices sur 24 portent des `/Differences`. Les
+caractères sont donc rencontrés sans qu'on sache ce qu'ils représentent :
+96 % restent sans équivalent, et le garde-fou les refuse (à raison).
+
+> **L'estimation « 5 documents débloqués » était optimiste. La mesure dit : 0
+> document débloqué, mais une cause éliminée et la suivante isolée.** Le gain
+> réel du LZW est ailleurs : tout flux LZW du fonds se décode maintenant, et ces
+> 5 documents ne sont plus classés « image » à tort — ce qui aurait envoyé
+> chercher un OCR pour rien.
+
+Implémentation : variante TIFF, codes 9→12 bits en **gros-boutiste** (le LZW de
+GIF lit à l'envers : les confondre rend du bruit dès le troisième code), cas
+`KwKwK` traité, `/EarlyChange` respecté (défaut 1), dictionnaire en
+(préfixe, suffixe) — stocker les chaînes entières coûterait 16 Mo pour rien.
+
+---
+
+### ✅ PHASE 1 LIVRÉE — `/Info` + `/Lang` (`NkPdfInfo.{h,cpp}`)
+
+**Mesure sur les 258 PDF** :
+
+| | résultat |
+|---|---|
+| dates analysées | **246 (96 %)** |
+| titres lus | 92 (36 %), dont **16 accentués** |
+| langues lues | 39 (15 %) |
+
+**PDFDocEncoding résolu par NOMS DE GLYPHES, jamais par valeurs recopiées.** Les
+deux plages qui diffèrent de Latin-1 (0x18–0x1F et 0x80–0x9F) sont écrites en
+clair (`bullet`, `dagger`, `emdash`, `quotedblleft`…) et résolues via l'Adobe
+Glyph List déjà embarquée. Deux raisons : une transcription manuelle de table a
+déjà produit un décalage d'indexation dans ce dépôt, alors qu'un **nom mal
+orthographié rend une chaîne vide et se voit immédiatement** ; et l'AGL est déjà
+validée et attribuée, donc aucune donnée n'est dupliquée.
+
+**Piège évité, et il valait le détour** : à la première mesure, les titres
+sortaient **sans accents** (« Transformee », « Prasentation »). Avant de
+corriger quoi que ce soit, vérification : le compteur, lui, détectait bien 16
+titres non-ASCII — donc la chaîne *contenait* les accents. C'était la **console
+Windows** qui les mangeait, pas la lecture. Relus depuis un fichier UTF-8 :
+`PowerPoint-Präsentation`, `Compilation séparée`, `Transformée de Fourier`,
+`Écrire vos propres mathé…`. *Un test peut échouer pour la mauvaise raison — et
+« réparer » un défaut inexistant aurait cassé du code correct.*
+
+Sont aussi gérés : l'UTF-16BE avec indicateur d'ordre (paires de substitution
+comprises), l'UTF-16LE (hors spécification, mais des producteurs en écrivent),
+et les dates tronquées — `D:2019` comme `D:20190312150405+02'00'` sont l'une et
+l'autre exploitées, au lieu de rejeter la date entière.
+
+---
+
 ⚠️ **Un point bloquant relevé et corrigé** : `Trailer()` et `Catalog()`
 n'étaient pas exposés (`mTrailer`/`mRoot` privés). Or `/Info` vit dans le
 trailer et tout le reste dans le catalogue — aucune couche externe ne pouvait

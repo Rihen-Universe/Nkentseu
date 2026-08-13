@@ -2009,9 +2009,16 @@ static int ModeSonder(int argc, char **argv) {
 	int32 nForm = 0, nStruct = 0, nDests = 0, nEmb = 0, nLang = 0;
 	int32 nLzw = 0, nCcitt = 0, nJbig2 = 0, nJpx = 0, nDct = 0;
 	int64 totalSignets = 0, totalLiens = 0;
+	// Phase 1 : ce que la lecture rend vraiment, pas ce que le document déclare.
+	int32 nTitreLu = 0, nTitreAccents = 0, nDateLue = 0, nLangueLue = 0;
+	NkVector<NkString> exemplesTitres;
 
+	// Le TITRE est écrit dans le CSV, pas seulement compté. Le journal passe par
+	// la console, qui n'est pas en UTF-8 sous Windows : elle mange les accents
+	// et ferait croire à un défaut de conversion là où il n'y en a pas. Un
+	// fichier, lui, garde les octets tels quels.
 	NkString csv("fichier;ouvert;info;champs;titre;metadata;signets;annots;liens;"
-				 "notes;surlignages;champsForm;structTree;dests;embarques;lang;lzw\n");
+				 "notes;surlignages;champsForm;structTree;dests;embarques;lang;lzw;titreLu\n");
 
 	for (nk_size i = 0; i < fichiers.Size(); ++i) {
 		const ilyana::SondePdf s = ilyana::SonderPdf(fichiers[i].CStr());
@@ -2043,15 +2050,37 @@ static int ModeSonder(int argc, char **argv) {
 		if (s.jbig2) ++nJbig2;
 		if (s.jpx) ++nJpx;
 		if (s.dct) ++nDct;
+		if (!s.titreLu.Empty()) {
+			++nTitreLu;
+			// On garde les titres ACCENTUÉS : ce sont eux qui prouvent que la
+			// conversion d'encodage fonctionne. Un titre ASCII ne prouve rien.
+			if (s.titreNonAscii && exemplesTitres.Size() < 6u) {
+				++nTitreAccents;
+				exemplesTitres.PushBack(s.titreLu);
+			} else if (s.titreNonAscii) {
+				++nTitreAccents;
+			}
+		}
+		if (s.dateLue) ++nDateLue;
+		if (!s.langueLue.Empty()) ++nLangueLue;
 
 		if (fCsv) {
 			char ligne[512];
-			snprintf(ligne, sizeof(ligne), ";1;%d;%d;%d;%d;%d;%d;%d;%d;%d;%d;%d;%d;%d;%d;%d\n",
+			snprintf(ligne, sizeof(ligne), ";1;%d;%d;%d;%d;%d;%d;%d;%d;%d;%d;%d;%d;%d;%d;%d;",
 					 s.info ? 1 : 0, s.infoChamps, s.titre ? 1 : 0, s.metadata ? 1 : 0, s.signets,
 					 s.annots, s.liens, s.notes, s.surlignages, s.champsForm, s.structTree ? 1 : 0,
 					 s.dests ? 1 : 0, s.embarques ? 1 : 0, s.lang ? 1 : 0, s.lzw ? 1 : 0);
 			csv.Append(fichiers[i]);
 			csv.Append(ligne);
+			// Titre en dernière colonne : les points-virgules qu'il pourrait
+			// contenir sont remplacés, sinon ils décaleraient les colonnes de
+			// tout le reste du fichier.
+			NkString t = s.titreLu;
+			for (nk_size k = 0; k < t.Size(); ++k)
+				if (t.Data()[k] == ';')
+					((char *)t.Data())[k] = ',';
+			csv.Append(t);
+			csv.Append("\n", 1);
 		}
 		if (((int32)i % 25) == 24)
 			logger.Infof("  %llu / %llu documents sondes...\n", (unsigned long long)(i + 1),
@@ -2083,6 +2112,18 @@ static int ModeSonder(int argc, char **argv) {
 	logger.Info("Filtres presents dans les octets bruts :");
 	logger.Infof("  LZWDecode %d  ·  CCITTFax %d  ·  JBIG2 %d  ·  JPX %d  ·  DCT(JPEG) %d\n", nLzw,
 				 nCcitt, nJbig2, nJpx, nDct);
+
+	logger.Info("--- Phase 1 : ce que la LECTURE rend (et non ce qui est declare) ---");
+	logger.Infof("  titres lus            %4d  (%.0f%%)   dont accentues : %d\n", nTitreLu,
+				 pct(nTitreLu), nTitreAccents);
+	logger.Infof("  dates analysees       %4d  (%.0f%%)\n", nDateLue, pct(nDateLue));
+	logger.Infof("  langues lues          %4d  (%.0f%%)\n", nLangueLue, pct(nLangueLue));
+	if (exemplesTitres.Size() > 0) {
+		logger.Info("  Titres accentues, a lire A L'OEIL — un compteur ne distingue pas");
+		logger.Info("  un texte correct d'un charabia bien forme :");
+		for (nk_size i = 0; i < exemplesTitres.Size(); ++i)
+			logger.Infof("    | %s\n", exemplesTitres[i].CStr());
+	}
 
 	if (fCsv && !EcrireFichier(fCsv, csv))
 		logger.Infof("ATTENTION : ecriture du CSV impossible : %s\n", fCsv);

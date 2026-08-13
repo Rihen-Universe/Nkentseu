@@ -27,6 +27,7 @@
 #include "NKContainers/String/NkString.h"
 #include "NKCore/NkTypes.h"
 #include "NKMedia/Pdf/NkPdf.h"
+#include "NKMedia/Pdf/NkPdfInfo.h"
 
 #include <cstdio>
 
@@ -59,6 +60,15 @@ namespace ilyana {
 
 			// Filtres relevés dans les octets bruts.
 			bool lzw = false, ccitt = false, jbig2 = false, jpx = false, dct = false;
+
+			// Phase 1 : ce que la lecture des métadonnées rend RÉELLEMENT.
+			// Le titre est conservé pour pouvoir le regarder — un compteur ne dit
+			// pas si une conversion d'encodage a produit du texte ou du charabia.
+			NkString titreLu;
+			bool titreNonAscii = false; // le titre sort de l'ASCII : c'est là que
+										// l'encodage se joue, et nulle part ailleurs
+			bool dateLue = false;
+			NkString langueLue;
 	};
 
 	// Cherche une suite d'octets dans un tampon. Rendue ici plutôt qu'empruntée
@@ -171,6 +181,21 @@ namespace ilyana {
 					}
 				}
 				s.info = (s.infoChamps > 0);
+			}
+		}
+
+		// ── Phase 1 : lecture effective, pas seulement présence ──
+		{
+			NkPdfDocInfo meta;
+			if (NkPdfLireInfo(doc, meta)) {
+				s.titreLu = meta.titre;
+				for (nk_size k = 0; k < meta.titre.Size(); ++k)
+					if ((uint8)meta.titre.Data()[k] >= 0x80u) {
+						s.titreNonAscii = true;
+						break;
+					}
+				s.dateLue = meta.creation.valide || meta.modification.valide;
+				s.langueLue = meta.langue;
 			}
 		}
 
