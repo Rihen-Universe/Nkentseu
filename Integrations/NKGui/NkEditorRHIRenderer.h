@@ -159,6 +159,26 @@ namespace nkentseu {
 					if (mPreUI)
 						mPreUI(mCmd, mPreUIUser);
 
+					// ── LA PASSE BACKBUFFER EFFACE. C'est le loadOp CLEAR de cette
+					// passe, et il se DEMANDE : `BeginRenderPass` n'efface que si un
+					// `SetClearColor` l'a arme juste avant (cf. NkDirectX11CommandBuffer,
+					// « Clear UNIQUEMENT si demande »). Personne ne l'armait ici : la
+					// passe etait donc en LOAD, et chaque frame heritait de l'image
+					// laissee dans ce buffer de swapchain -- pas celle d'avant, mais
+					// celle d'il y a deux ou trois frames, selon le nombre de buffers.
+					//
+					// Tant que l'interface repeignait chaque pixel en opaque, l'heritage
+					// etait integralement recouvert et ne se voyait pas. Il s'est vu des
+					// que des surfaces ont cesse de couvrir : une fenetre modale qu'on
+					// deplace laisse la trace de ses positions passees, et un voile
+					// semi-transparent se REPEINT sur sa propre trace a chaque frame --
+					// d'ou l'assombrissement progressif de la bande du haut, cherche en
+					// vain du cote du voile lui-meme (Rihen, 12-13 aout : « on ne voit
+					// plus l'entete », puis « le probleme actuel c'est l'effacement »).
+					//
+					// Noir opaque : l'interface recouvre tout ce qui se voit, cette
+					// couleur n'est qu'un fond de depart franc.
+					mCmd->SetClearColor(0.f, 0.f, 0.f, 1.f);
 					if (!mCmd->BeginRenderPass(mDev->GetSwapchainRenderPass(), mDev->GetSwapchainFramebuffer(),
 											   NkRect2D{0, 0, (int32)w, (int32)h})) {
 						mCmd->End();
