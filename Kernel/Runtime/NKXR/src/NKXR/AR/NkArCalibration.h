@@ -100,6 +100,21 @@ namespace nkentseu {
 				/// Résout la géométrie de l'objectif. À appeler quand IsReady().
 				NkArCalibrationResult Solve() const;
 
+				/// Supposer le centre optique AU MILIEU de l'image et ne
+				/// résoudre que les deux focales.
+				///
+				/// Ce n'est pas un renoncement, c'est le bon compromis. Avec une
+				/// planche plane et une poignée d'angles, le centre optique est
+				/// de loin le paramètre le plus mal contraint : mesuré sur le
+				/// téléphone de Rihen, il sortait à −186 pixels pour une image
+				/// large de 720 — une valeur qui n'a aucun sens physique et qui
+				/// empoisonne la pose. Un capteur de téléphone est centré à
+				/// quelques pour cent près ; supposer le centre coûte donc bien
+				/// moins que de le deviner mal.
+				/// À rouvrir le jour où l'on saura recueillir vingt vues
+				/// franchement inclinées.
+				void SetAssumeCenteredPrincipalPoint(bool centered) { mAssumeCentered = centered; }
+
 				// Volontairement SANS lecture ni écriture de fichier : un module
 				// de calcul géométrique n'a pas à connaître le disque, et NKXR ne
 				// dépend pas du système de fichiers. C'est à l'application de
@@ -116,17 +131,21 @@ namespace nkentseu {
 				NkVector<View> mViews;
 				uint32 mWidth = 0;
 				uint32 mHeight = 0;
-				uint32 mMinViews = 6;
-				/// Écart moyen minimal, en pixels, entre deux vues retenues.
+				uint32 mMinViews = 5;
+				/// Différence minimale de FORME entre deux vues retenues, une fois
+				/// leur centre et leur échelle retirés.
 				///
-				/// Ce garde-fou vise une chose précise : la caméra IMMOBILE, qui
-				/// remplirait l'accumulateur de copies de la même équation. Il ne
-				/// prétend pas juger la variété des ANGLES — deux points de vue
-				/// franchement différents peuvent projeter la planche à peu près
-				/// au même endroit de l'image, et les rejeter reviendrait à se
-				/// priver d'information. Le seuil reste donc bas : il sépare
-				/// « on n'a pas bougé » de « on a bougé », rien de plus.
-				float32 mMinViewSeparationPixels = 8.f;
+				/// C'est bien la forme qu'il faut mesurer, et non la position :
+				/// déplacer la planche ou s'en éloigner ne change que son endroit
+				/// et sa taille à l'image, sans rien apprendre au système. Seul
+				/// un changement d'ANGLE la déforme, et seule cette déformation
+				/// apporte une équation nouvelle.
+				/// 0,10 vaut dix pour cent de l'étendue apparente de la planche :
+				/// bien au-delà d'un tremblement de main, atteignable d'un simple
+				/// mouvement du poignet. Mesuré : à 0,05 six vues étaient retenues
+				/// en un sixième de seconde — six fois le même point de vue.
+				float32 mMinShapeDifference = 0.10f;
+				bool mAssumeCentered = true;
 		};
 
 		/// Dessine la planche de calibration en niveaux de gris (255 = blanc).

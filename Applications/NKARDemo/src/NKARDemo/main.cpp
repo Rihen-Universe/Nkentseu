@@ -78,6 +78,36 @@ namespace nkxr = nkentseu::xr;
 // « NK_AR_CALIBRATE » devient « debug.nkar.calibrate ». Le principe reste celui
 // de Rihen : tout se règle par le CODE, l'environnement — ou ici la propriété —
 // n'étant qu'une couche facultative par-dessus.
+// ── Où l'application a le DROIT d'écrire ─────────────────────────────────────
+// Sur Android, le répertoire courant ne l'est pas : c'est ce qui a privé le
+// journal de son fichier, empêché la planche de calibration d'être produite, et
+// rendu impossible tout vidage d'image de diagnostic. Or l'appareil offre un
+// dossier prévu pour cela, propre à l'application, accessible sans la moindre
+// permission et lisible depuis un poste par « adb pull ».
+// Sans cet endroit, une application sur téléphone ne peut RIEN montrer de ce
+// qu'elle voit — et l'on en est réduit à deviner.
+static const char *NkOutPath(const char *name) {
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__)
+	static char path[512];
+	android_app *app = nkentseu::nk_android_global_app;
+	if (app != nullptr && app->activity != nullptr && app->activity->externalDataPath != nullptr) {
+		uint32 w = 0;
+		const char *d = app->activity->externalDataPath;
+		while (*d != '\0' && w < sizeof(path) - 2u) {
+			path[w++] = *d++;
+		}
+		path[w++] = '/';
+		const char *n = name;
+		while (*n != '\0' && w < sizeof(path) - 1u) {
+			path[w++] = *n++;
+		}
+		path[w] = '\0';
+		return path;
+	}
+#endif
+	return name;
+}
+
 static const char *NkSetting(const char *envName) {
 	const char *fromEnv = getenv(envName);
 	if (fromEnv != nullptr) {
@@ -111,6 +141,28 @@ static const char *NkSetting(const char *envName) {
 	}
 #endif
 	return nullptr;
+}
+
+// ── Un réglage BOOLÉEN se lit à sa VALEUR, jamais à sa présence ─────────────
+// Piège payé le 13 août, et il a coûté une heure : le seuillage adaptatif est
+// resté actif alors que je le croyais coupé, parce que je testais l'EXISTENCE
+// de la propriété. Or une propriété Android ne se supprime pas — lui donner une
+// valeur vide ne l'efface pas. Il n'existait donc aucun moyen de revenir en
+// arrière, le détecteur restait aveugle, et rien ne le disait. Pendant ce
+// temps je cherchais le défaut dans l'algorithme.
+// « 0 », « false », « off » et le vide coupent désormais le réglage.
+static bool NkFlag(const char *envName) {
+	const char *v = NkSetting(envName);
+	if (v == nullptr || v[0] == '\0') {
+		return false;
+	}
+	if ((v[0] == '0' && v[1] == '\0') || v[0] == 'f' || v[0] == 'F' || v[0] == 'n' || v[0] == 'N') {
+		return false;
+	}
+	if (v[0] == 'o' && (v[1] == 'f' || v[1] == 'F')) {
+		return false;
+	}
+	return true;
 }
 
 static void ConfigureAppData(NkAppData &d) {
@@ -377,7 +429,7 @@ int nkmain(const NkEntryState &state) {
 				pixels[i * 4u + 3u] = 255;
 			}
 			memory::NkFree(gray);
-			marker.SaveToFile("nkar_marqueur.png");
+			marker.SaveToFile(NkOutPath("nkar_marqueur.png"));
 			logger.Infof("[NKARDemo] Marqueur à imprimer écrit : nkar_marqueur.png (identifiant %d).\n", kMarkerId);
 		}
 	}
@@ -400,7 +452,7 @@ int nkmain(const NkEntryState &state) {
 					pixels[i * 4u + 2u] = gray[i];
 					pixels[i * 4u + 3u] = 255;
 				}
-				sheet.SaveToFile("nkar_planche_calibration.png");
+				sheet.SaveToFile(NkOutPath("nkar_planche_calibration.png"));
 				logger.Infof("[NKARDemo] Planche de calibration ecrite : nkar_planche_calibration.png "
 							 "(%ux%u marqueurs, carre noir %.1f cm, entraxe %.1f cm).\n",
 							 kCalibBoard.cols, kCalibBoard.rows, kCalibBoard.markerSizeMeters * 100.f,
@@ -536,14 +588,14 @@ int nkmain(const NkEntryState &state) {
 		if (sizeEnv != nullptr && *sizeEnv != '\0') {
 			arCfg.markerSizeMeters = float32(atof(sizeEnv));
 		}
-		arCfg.detector.debugCounters = (NkSetting("NK_AR_DEBUG") != nullptr);
+		arCfg.detector.debugCounters = (NkFlag("NK_AR_DEBUG"));
 		// Seuillage adaptatif : à essayer quand le marqueur est affiché sur un
 		// ÉCRAN (halos) ou éclairé de biais — c'est exactement son terrain.
-		arCfg.detector.adaptive = (NkSetting("NK_AR_ADAPTIVE") != nullptr);
+		arCfg.detector.adaptive = (NkFlag("NK_AR_ADAPTIVE"));
 		// Mode ANCRE : montrer la carte UNE FOIS pose la scene, qui reste
 		// ensuite en place — on peut ranger la carte. C'est le modele
 		// « carte -> systeme solaire ». Valable camera FIXE (poste, borne).
-		if (NkSetting("NK_AR_ANCHOR") != nullptr) {
+		if (NkFlag("NK_AR_ANCHOR")) {
 			arCfg.anchorMode = nkxr::NkArAnchorMode::NK_AR_ANCHOR_PERSISTENT;
 		}
 	}
@@ -567,7 +619,7 @@ int nkmain(const NkEntryState &state) {
 		// laisse pas une nouveauté soupçonnée active par défaut : une démo qui
 		// gèle ne prouve plus rien du tout.
 		// NK_AR_SENSORS=1 les rallume pour instruire le sujet.
-		worldCfg.preferSensors = (NkSetting("NK_AR_SENSORS") != nullptr);
+		worldCfg.preferSensors = (NkFlag("NK_AR_SENSORS"));
 		logger.Warnf("[NKARDemo] Capteurs (gyroscope) : %s\n",
 					 worldCfg.preferSensors ? "ACTIFS (NK_AR_SENSORS)" : "coupes par defaut");
 		arWorld.Initialize(worldCfg);
@@ -692,7 +744,7 @@ int nkmain(const NkEntryState &state) {
 	// et demander à l'utilisateur d'appuyer sur une touche au bon moment tout en
 	// tenant la planche est un mauvais protocole. On capture donc dès qu'une vue
 	// apporte quelque chose de NEUF, et l'on s'arrête quand il y en a assez.
-	const bool calibrating = (NkSetting("NK_AR_CALIBRATE") != nullptr);
+	const bool calibrating = (NkFlag("NK_AR_CALIBRATE"));
 	nkxr::NkArCalibration calibration;
 	nkxr::NkArCalibrationResult calibResult;
 	bool calibDone = false;
@@ -718,12 +770,12 @@ int nkmain(const NkEntryState &state) {
 	uint32 lastCameraFrame = 0xFFFFFFFFu;
 	uint32 visible = 0;
 	uint32 analyzedFrames = 0;
-	const uint64 exitFrame = (NkSetting("NK_AR_EXIT") != nullptr) ? uint64(atoll(NkSetting("NK_AR_EXIT"))) : 0u;
-	const uint64 dumpFrame = (NkSetting("NK_AR_DUMP") != nullptr) ? uint64(atoll(NkSetting("NK_AR_DUMP"))) : 0u;
+	const uint64 exitFrame = (NkFlag("NK_AR_EXIT")) ? uint64(atoll(NkSetting("NK_AR_EXIT"))) : 0u;
+	const uint64 dumpFrame = (NkFlag("NK_AR_DUMP")) ? uint64(atoll(NkSetting("NK_AR_DUMP"))) : 0u;
 	// Image de synthese forcee : marqueur toujours detectable, sans dependre
 	// de la camera ni de l'eclairage — c'est ce qui permet de savoir si un
 	// echec vient de la VISION ou de l'AFFICHAGE.
-	const bool forceSynthetic = (NkSetting("NK_AR_SYNTH") != nullptr);
+	const bool forceSynthetic = (NkFlag("NK_AR_SYNTH"));
 
 	// ── Faire taire le journal une fois le démarrage passé ───────────────────
 	// Le moteur trace chaque passe du graphe et chaque lot de rendu, à chaque
@@ -733,7 +785,7 @@ int nkmain(const NkEntryState &state) {
 	// dizaines par image. L'application avance alors au pas.
 	// On garde donc tout jusqu'ici, puis on ne laisse plus passer que ce qui
 	// mérite d'être lu. NK_AR_DEBUG rend la verbosité quand on en a besoin.
-	if (NkSetting("NK_AR_DEBUG") == nullptr) {
+	if (!NkFlag("NK_AR_DEBUG")) {
 		logger.Info("[NKARDemo] Demarrage termine — journal reduit aux avertissements (NK_AR_DEBUG pour tout voir).\n");
 		logger.SetLevel(NkLogLevel::NK_WARN);
 	}
@@ -1285,7 +1337,7 @@ int nkmain(const NkEntryState &state) {
 						px[i * 4u + 2u] = gray[i];
 						px[i * 4u + 3u] = 255;
 					}
-					img.SaveToFile("nkar_diag_gris.png");
+					img.SaveToFile(NkOutPath("nkar_diag_gris.png"));
 				}
 				const uint8 *mask = arSession.GetMask();
 				if (mask != nullptr) {
@@ -1295,7 +1347,7 @@ int nkmain(const NkEntryState &state) {
 						px[i * 4u + 2u] = mask[i];
 						px[i * 4u + 3u] = 255;
 					}
-					img.SaveToFile("nkar_diag_masque.png");
+					img.SaveToFile(NkOutPath("nkar_diag_masque.png"));
 				}
 				logger.Infof("[NKARDemo] Diagnostic ecrit : nkar_diag_gris.png et nkar_diag_masque.png.\n");
 			}
