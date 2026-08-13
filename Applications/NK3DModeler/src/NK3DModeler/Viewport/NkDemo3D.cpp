@@ -1059,12 +1059,19 @@ namespace nkentseu {
 				// reelle n'est magenta pur -- la couleur ne suggere pas un defaut,
 				// elle l'annonce.
 				//
-				// LIMITE ASSUMEE : seuls les objets de l'utilisateur (>= 96) sont
-				// concernes. Le sol, les murs d'occlusion et les objets de scene
-				// internes passent par ce meme point sans jamais porter de materiau
-				// de projet ; les peindre en magenta signalerait un probleme qui
-				// n'existe pas.
-				const bool objetUtilisateur = (i >= 96);
+				// QUELS OBJETS SONT CONCERNES. Un seuil (« >= 96 ») etait un mauvais
+				// critere : le maillage d'une scene chargee passe en dessous, et
+				// n'etait donc jamais peint en magenta alors qu'il avait bien perdu
+				// tous ses materiaux (constate par Rihen, 13 aout). On EXCLUT donc
+				// explicitement les objets du decor systeme -- sol, feuillage et mur
+				// d'occlusion globale -- qui traversent ce point sans jamais porter
+				// de materiau de projet, et tout le reste est concerne.
+				// `Demo3DState` n'est defini que plus bas dans ce fichier : on reprend
+				// ses trois indices ici. Ils sont FIXES (sol 83, feuillage 84, mur GI
+				// 85) et declares une seule fois, dans `Demo3DState::kIdxFloor` &
+				// consorts -- si cette table bouge, ces trois lignes bougent avec.
+				const bool objetSysteme = (i == 83 || i == 84 || i == 85);
+				const bool objetUtilisateur = !objetSysteme;
 				const bool sansMateriau = (HostNodeMatCount(i) == 0 && pm < 0);
 				if (objetUtilisateur && sansMateriau) {
 					dc.tint = {1.f, 0.f, 1.f};
