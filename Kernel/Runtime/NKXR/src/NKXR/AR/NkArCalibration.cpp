@@ -253,18 +253,51 @@ namespace nkentseu {
 			// l'illusion d'une calibration bien nourrie alors qu'elle reste
 			// sous-déterminée. C'est le piège de cette méthode : il faut varier
 			// les ANGLES, pas multiplier les prises.
+			// On compare des FORMES, pas des positions. Ce qui apprend quelque
+			// chose au système, c'est de voir la planche sous un autre ANGLE :
+			// la déplacer ou s'en éloigner ne change que sa place et sa taille à
+			// l'image, et n'ajoute aucune équation. On retire donc à chaque vue
+			// son centre et son échelle avant de la comparer aux précédentes.
+			//
+			// Mesuré le 13 août : avec une comparaison en pixels bruts, six vues
+			// ont été retenues en un sixième de seconde — six fois le même point
+			// de vue, à un tremblement de main près. Le système, sous-déterminé,
+			// a rendu une focale absurde, heureusement refusée par l'erreur de
+			// reprojection.
+			auto normalize = [](const NkVector<NkVec2f> &pts, NkVector<NkVec2f> &out) {
+				float32 cx = 0.f, cy = 0.f;
+				for (nk_size i = 0; i < pts.Size(); ++i) {
+					cx += pts[i].x;
+					cy += pts[i].y;
+				}
+				cx /= float32(pts.Size());
+				cy /= float32(pts.Size());
+				float32 scale = 0.f;
+				for (nk_size i = 0; i < pts.Size(); ++i) {
+					scale += math::NkSqrt((pts[i].x - cx) * (pts[i].x - cx) + (pts[i].y - cy) * (pts[i].y - cy));
+				}
+				scale = (scale > 1e-6f) ? (float32(pts.Size()) / scale) : 1.f;
+				out.Clear();
+				for (nk_size i = 0; i < pts.Size(); ++i) {
+					out.PushBack(NkVec2f((pts[i].x - cx) * scale, (pts[i].y - cy) * scale));
+				}
+			};
+			NkVector<NkVec2f> shape;
+			normalize(view.imagePoints, shape);
 			for (nk_size v = 0; v < mViews.Size(); ++v) {
 				const View &prev = mViews[v];
 				if (prev.imagePoints.Size() != view.imagePoints.Size()) {
 					continue;
 				}
+				NkVector<NkVec2f> prevShape;
+				normalize(prev.imagePoints, prevShape);
 				float32 sum = 0.f;
-				for (nk_size i = 0; i < view.imagePoints.Size(); ++i) {
-					const float32 dx = view.imagePoints[i].x - prev.imagePoints[i].x;
-					const float32 dy = view.imagePoints[i].y - prev.imagePoints[i].y;
+				for (nk_size i = 0; i < shape.Size(); ++i) {
+					const float32 dx = shape[i].x - prevShape[i].x;
+					const float32 dy = shape[i].y - prevShape[i].y;
 					sum += math::NkSqrt(dx * dx + dy * dy);
 				}
-				if (sum / float32(view.imagePoints.Size()) < mMinViewSeparationPixels) {
+				if (sum / float32(shape.Size()) < mMinShapeDifference) {
 					return false;
 				}
 			}
@@ -280,6 +313,87 @@ namespace nkentseu {
 			const nk_size n = mViews.Size();
 			if (n < 3) {
 				return out;
+			}
+
+			// ── Cas ROBUSTE : centre optique supposé au milieu ────────────────
+			// On recentre les points sur le milieu de l'image, ce qui annule le
+			// centre optique dans les équations. B se réduit alors à
+			// diag(1/fx², 1/fy², 1), et les deux contraintes de Zhang deviennent
+			// LINÉAIRES en (1/fx², 1/fy²) : un système à deux inconnues, très
+			// surdéterminé, donc stable même avec peu d'angles. C'est ce qui
+			// distingue une mesure d'un pari.
+			if (mAssumeCentered) {
+				const float32 ccx = float32(mWidth) * 0.5f;
+				const float32 ccy = float32(mHeight) * 0.5f;
+				float64 ata[4] = {};
+				float64 atb[2] = {};
+				uint32 equations = 0;
+				for (nk_size k = 0; k < n; ++k) {
+					// Homographie recalculée sur des points recentrés : c'est le
+					// même geste que retirer le centre optique de K.
+					NkVector<NkVec2f> centered;
+					for (nk_size i = 0; i < mViews[k].imagePoints.Size(); ++i) {
+						centered.PushBack(NkVec2f(mViews[k].imagePoints[i].x - ccx, mViews[k].imagePoints[i].y - ccy));
+					}
+					float32 h[9] = {};
+					if (!ComputeHomography(mViews[k].boardPoints, centered, h)) {
+						continue;
+					}
+					// h1ᵀ B h2 = 0  →  a·h11h12 + b·h21h22 + h31h32 = 0
+					// h1ᵀ B h1 = h2ᵀ B h2 → a(h11²−h12²) + b(h21²−h22²) + (h31²−h32²) = 0
+					const float64 r1[2] = { float64(h[0]) * h[1], float64(h[3]) * h[4] };
+					const float64 b1 = -(float64(h[6]) * h[7]);
+					const float64 r2[2] = { float64(h[0]) * h[0] - float64(h[1]) * h[1],
+											float64(h[3]) * h[3] - float64(h[4]) * h[4] };
+					const float64 b2 = -(float64(h[6]) * h[6] - float64(h[7]) * h[7]);
+					for (uint32 a = 0; a < 2u; ++a) {
+						for (uint32 b = 0; b < 2u; ++b) {
+							ata[a * 2 + b] += r1[a] * r1[b] + r2[a] * r2[b];
+						}
+						atb[a] += r1[a] * b1 + r2[a] * b2;
+					}
+					++equations;
+				}
+				if (equations >= 3u && SolveLinear(ata, atb, 2)) {
+					// atb tient maintenant 1/fx² et 1/fy².
+					if (atb[0] > 1e-12 && atb[1] > 1e-12) {
+						out.intrinsics.fx = float32(1.0 / math::NkSqrt(float32(atb[0])));
+						out.intrinsics.fy = float32(1.0 / math::NkSqrt(float32(atb[1])));
+						out.intrinsics.cx = ccx;
+						out.intrinsics.cy = ccy;
+						out.viewsUsed = equations;
+						out.valid = (out.intrinsics.fx > 1.f && out.intrinsics.fy > 1.f);
+					}
+				}
+				if (out.valid) {
+					out.fovXDegrees =
+						2.f * math::NkAtan(float32(mWidth) * 0.5f / out.intrinsics.fx) * 180.f / math::NK_PI_F;
+					// Erreur de reprojection, mesurée avec les homographies des
+					// vues : elle juge la cohérence des données, pas la formule.
+					float64 sum = 0.0;
+					uint32 count = 0;
+					for (nk_size k = 0; k < n; ++k) {
+						const View &v = mViews[k];
+						for (nk_size i = 0; i < v.boardPoints.Size(); ++i) {
+							const float32 X = v.boardPoints[i].x, Y = v.boardPoints[i].y;
+							const float32 w = v.homography[6] * X + v.homography[7] * Y + v.homography[8];
+							if (w < 1e-9f && w > -1e-9f) {
+								continue;
+							}
+							const float32 u = (v.homography[0] * X + v.homography[1] * Y + v.homography[2]) / w;
+							const float32 vv = (v.homography[3] * X + v.homography[4] * Y + v.homography[5]) / w;
+							const float32 ex = u - v.imagePoints[i].x;
+							const float32 ey = vv - v.imagePoints[i].y;
+							sum += math::NkSqrt(ex * ex + ey * ey);
+							++count;
+						}
+					}
+					out.reprojectionErrorPixels = (count > 0) ? float32(sum / float64(count)) : 0.f;
+					return out;
+				}
+				// Sinon on retombe sur la résolution complète ci-dessous, plutôt
+				// que de rendre un échec : mieux vaut une réponse imparfaite
+				// accompagnée de son erreur qu'aucune réponse du tout.
 			}
 
 			// ── Zhang : deux contraintes par vue sur B = K^-T·K^-1 ────────────

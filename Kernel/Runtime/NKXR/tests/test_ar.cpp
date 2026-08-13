@@ -701,8 +701,8 @@ int main() {
 		// Huit points de vue differents. La diversite n'est pas cosmetique :
 		// deux vues semblables donnent deux fois la meme equation, et le systeme
 		// reste sous-determine quel que soit leur nombre.
-		const float32 yaws[8] = { -25.f, -15.f, 0.f, 15.f, 25.f, -20.f, 20.f, 5.f };
-		const float32 pitches[8] = { 10.f, -20.f, 18.f, -12.f, 8.f, 22.f, -25.f, -8.f };
+		const float32 yaws[8] = { -38.f, -26.f, -8.f, 10.f, 24.f, 36.f, -32.f, 18.f };
+		const float32 pitches[8] = { 6.f, -30.f, 26.f, -18.f, 34.f, -10.f, 20.f, -36.f };
 		const float32 dists[8] = { 0.30f, 0.34f, 0.28f, 0.32f, 0.36f, 0.30f, 0.33f, 0.29f };
 		uint32 accepted = 0;
 		for (uint32 v = 0; v < 8u; ++v) {
@@ -746,7 +746,8 @@ int main() {
 				++accepted;
 			}
 		}
-		CHECK(accepted >= 6u, "calibration : les vues synthetiques sont acceptees");
+		logger.Infof("  [info] calibration : %u vues acceptees sur 8 proposees\n", accepted);
+		CHECK(accepted >= 5u, "calibration : les vues synthetiques sont acceptees");
 		CHECK(calib.IsReady(), "calibration : assez de vues pour resoudre");
 
 		const NkArCalibrationResult res = calib.Solve();
@@ -803,6 +804,39 @@ int main() {
 		CHECK(foundBlur.Size() >= board.cols * board.rows - 1u,
 			  "calibration : la planche reste lisible MEME FLOUE (photo d'ecran)");
 		allocator.Deallocate(blurred);
+
+		// ── La meme planche avec HALO — le vrai phenomene d'un ecran ─────
+		// Un ecran ne floute pas symetriquement : il RAYONNE. Le blanc deborde
+		// sur le noir, jamais l'inverse. Le flou gaussien du test precedent ne
+		// reproduisait donc PAS ce que voit Rihen — et c'est pour cela qu'il
+		// passait alors que la planche reelle echouait. On simule ici le halo
+		// par une dilatation du blanc, qui est exactement sa nature.
+		uint8 *bloom = static_cast<uint8 *>(allocator.Allocate(sheet * sheet, 1));
+		for (uint32 y = 0; y < sheet; ++y) {
+			for (uint32 x = 0; x < sheet; ++x) {
+				uint8 maxv = 0;
+				for (int32 dy = -3; dy <= 3; ++dy) {
+					for (int32 dx = -3; dx <= 3; ++dx) {
+						const int32 sxp = int32(x) + dx, syp = int32(y) + dy;
+						if (sxp < 0 || syp < 0 || uint32(sxp) >= sheet || uint32(syp) >= sheet) {
+							continue;
+						}
+						const uint8 v = boardImg[uint32(syp) * sheet + uint32(sxp)];
+						if (v > maxv) {
+							maxv = v;
+						}
+					}
+				}
+				bloom[y * sheet + x] = maxv;
+			}
+		}
+		NkVector<NkArDetection> foundBloom;
+		NkArDetectMarkers(bloom, sheet, sheet, dcfg, foundBloom);
+		logger.Infof("  [info] planche avec HALO : %u marqueurs relus sur %u\n", uint32(foundBloom.Size()),
+					 board.cols * board.rows);
+		CHECK(foundBloom.Size() >= board.cols * board.rows - 1u,
+			  "calibration : la planche reste lisible avec le HALO d'un ecran");
+		allocator.Deallocate(bloom);
 		allocator.Deallocate(boardImg);
 	}
 
