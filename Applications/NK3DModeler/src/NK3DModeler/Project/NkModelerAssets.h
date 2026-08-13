@@ -1840,6 +1840,38 @@ namespace nkentseu {
 				for (usize i = 0; i < f.Size(); ++i)
 					found.PushBack(NkScToRel(root, f[i].CStr()));
 			}
+			// ── DOSSIERS DU DISQUE : ils existent AUSSI ─────────────────────
+			// Le balayage ne cherchait que des FICHIERS. Un dossier cree hors de
+			// l'application -- ou par elle, comme « Apercus » qui porte les
+			// vignettes -- n'apparaissait donc jamais dans le navigateur, alors que
+			// le selecteur de fichiers, lui, le montrait : deux sources de verite
+			// pour la meme chose (Rihen, 13 aout : « pas normal »).
+			//
+			// Un dossier VIDE compte : c'est un rangement que l'utilisateur a voulu.
+			{
+				const NkVector<NkString> dirs = NkDirectory::GetDirectories(
+					root.CStr(), "*", NkSearchOption::NK_ALL_DIRECTORIES);
+				for (usize i = 0; i < dirs.Size(); ++i) {
+					const NkString rel = NkScToRel(root, dirs[i].CStr());
+					if (rel.Empty())
+						continue;
+					// Les dossiers caches (« .git », « .vs »...) ne sont pas du
+					// contenu de projet : ils encombreraient le navigateur.
+					bool cache = false;
+					for (NkString::SizeType k = 0u; k + 1u < rel.Size() && !cache; ++k)
+						cache = (rel[k] == '.') && (k == 0u || rel[k - 1u] == '/');
+					if (cache)
+						continue;
+					// ON NE COMPTE QUE LES CREATIONS. `NkAsEnsureFolder` rend l'index
+					// qu'il ait cree la carte ou simplement retrouve l'existante :
+					// compter son succes ferait croire a un changement A CHAQUE
+					// balayage, et le projet se declarerait modifie en permanence.
+					const int32 avant = st.browserCount;
+					(void)NkAsEnsureFolder(st, rel);
+					if (st.browserCount != avant)
+						++changes;
+				}
+			}
 			// ── FICHIERS NOUVEAUX : on les adopte ───────────────────────────
 			for (usize i = 0; i < found.Size(); ++i) {
 				if (NkAsCardForFile(st, found[i]) >= 0)

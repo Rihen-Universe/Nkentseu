@@ -1569,18 +1569,6 @@ int nkmain(const NkEntryState &entry) {
 		// TOUTE la fenetre, comme Rihen l'a demande. Le composant ne fait que
 		// DECIDER (il depose un resultat) ; c'est l'application qui agit.
 		if (st.picker.pickerOpen) {
-			// TRACE (a retirer) : le voile n'assombrit qu'une PARTIE de l'ecran.
-			// On mesure ce que le composant croit couvrir, une seule fois par
-			// ouverture -- pas a chaque frame, sinon le journal devient illisible.
-			{
-				static bool sDejaTrace = false;
-				if (!sDejaTrace) {
-					sDejaTrace = true;
-					nkentseu::NkLog::Instance().Info(
-						"[voile] vue=({0}x{1}) rendu=({2}x{3}) modalDepth={4}", ui.viewW,
-						ui.viewH, (int32)lastW, (int32)lastH, ui.modalDepth);
-				}
-			}
 			// COUCHE 100 : le registre donne le survol a la couche la plus haute,
 			// donc tout ce qui est peint dessous -- menus contextuels compris --
 			// devient aveugle sous son emprise. C'est ce qui empeche le clic droit
@@ -1650,9 +1638,39 @@ int nkmain(const NkEntryState &entry) {
 			if (proj.open && proj.file != sDernierProjet) {
 				sDernierProjet = proj.file;
 				const int32 renommes = nk3d::NkMatFixDuplicates();
-				if (renommes > 0)
+				if (renommes > 0) {
+					// LE RENOMMAGE DOIT SURVIVRE A LA FERMETURE. Il ne portait que sur
+					// l'emplacement EN MEMOIRE : la carte du navigateur et le fichier
+					// .nkmat gardaient l'ancien nom, et le doublon revenait a la
+					// reouverture (constate par Rihen, 13 aout). On aligne les cartes,
+					// puis on marque le projet modifie pour que l'enregistrement porte.
+					nk3d::NkBrowserSyncMats(st);
+					for (int32 b = 0; b < st.browserCount; ++b) {
+						if (st.browserKind[b] != 2 || st.browserMat[b] <= 0)
+							continue;
+						char nm[64];
+						float32 alb[3];
+						float32 rg = 0.f, mt = 0.f;
+						if (demo::Demo3DHostProjMatInfo(st.browserMat[b] - 1, nm,
+														(uint32)sizeof(nm), alb, &rg, &mt))
+							NkWidgetState::Copy(st.browserNames[b], nm, 31u);
+					}
+					nk3d::NkMarkDirty(st);
+					// ON REECRIT LE DISQUE TOUT DE SUITE (Rihen, 13 aout). Renommer
+					// en memoire ne suffisait pas : les deux fichiers restaient
+					// « Materiau.nkmat » dans leurs dossiers respectifs, et le doublon
+					// revenait a la reouverture. `NkProjectWriteAssets` ecrit le
+					// fichier sous son NOUVEAU nom puis efface l'ancien -- il connait
+					// le chemin precedent par `browserFile`, justement pour ne pas
+					// laisser d'orphelins qu'on prendrait plus tard pour du travail
+					// perdu.
+					NkString errRen;
+					if (!nk3d::NkProjectWriteAssets(proj.root, st, &errRen, -1))
+						nkentseu::NkLog::Instance().Info(
+							"[materiaux] reecriture disque impossible : {0}", errRen.CStr());
 					nkentseu::NkLog::Instance().Info(
 						"[materiaux] {0} nom(s) en double corrige(s) a l'ouverture", renommes);
+				}
 			} else if (!proj.open) {
 				sDernierProjet.Clear();
 			}
