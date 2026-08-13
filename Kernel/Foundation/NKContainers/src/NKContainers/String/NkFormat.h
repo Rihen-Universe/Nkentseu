@@ -85,6 +85,45 @@ namespace nkentseu {
 	/// Ajoute le résultat d'un NkPrintf dans une chaîne existante
 	template <typename... Args> void NkPrintfTo(NkString &out, NkStringView fmt, const Args &...args);
 
+	// ── ECRITURE DANS UN TAMPON FIXE (remplace snprintf) ─────────────┐
+	// Pourquoi ces deux-la en plus de NkPrintf : beaucoup de code a besoin d'un
+	// `const char *` STABLE plutot que d'une NkString temporaire -- les libelles
+	// d'un popup, par exemple, sont peints apres la frame, donc leur tampon doit
+	// leur survivre. C'etait le role de `snprintf`, avec ses deux pieges : la
+	// capacite retapee a la main (fausse des qu'on passe un pointeur au lieu d'un
+	// tableau) et la terminaison qui saute en cas de troncature.
+
+	/// Formate dans un TABLEAU, et rend ce tableau. La capacite est DEDUITE du
+	/// type : impossible de se tromper de taille, la terminaison est garantie.
+	/// Remplace `snprintf(buf, sizeof(buf), fmt, ...)`.
+	template <usize N, typename... Args>
+	const char *NkSPrintf(char (&buf)[N], NkStringView fmt, const Args &...args) {
+		const NkString out = NkPrintf(fmt, args...);
+		usize n = out.Size();
+		if (n > N - 1u)
+			n = N - 1u; // troncature NETTE : on ne rend jamais une chaine non terminee
+		for (usize i = 0u; i < n; ++i)
+			buf[i] = out[i];
+		buf[n] = '\0';
+		return buf;
+	}
+
+	/// Meme chose quand le tampon n'est pas un tableau (capacite explicite).
+	/// A n'employer que la : la version ci-dessus est plus sure.
+	template <typename... Args>
+	const char *NkSPrintfN(char *buf, usize cap, NkStringView fmt, const Args &...args) {
+		if (!buf || cap == 0u)
+			return buf;
+		const NkString out = NkPrintf(fmt, args...);
+		usize n = out.Size();
+		if (n > cap - 1u)
+			n = cap - 1u;
+		for (usize i = 0u; i < n; ++i)
+			buf[i] = out[i];
+		buf[n] = '\0';
+		return buf;
+	}
+
 	// Sorties pratiques
 	template <typename... Args> void NkPrint(NkStringView fmt, const Args &...args);
 	template <typename... Args> void NkPrintln(NkStringView fmt, const Args &...args);

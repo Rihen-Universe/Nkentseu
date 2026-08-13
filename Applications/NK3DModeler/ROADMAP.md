@@ -995,3 +995,112 @@ de **documents** (32 emplacements stables) ; un onglet n'en est qu'une **vue**
 Deux `jenga build` simultanés dans le même arbre (agent NKAI en parallèle)
 corrompent `Build/Obj` : binaires qui crashent absurdement, symptôme qui
 **survit au revert du code**. Purger `Build/Obj/<config>` et rebuilder seul.
+
+# PASSATION — NUIT DU 2026-08-12 → REPRISE LE 2026-08-13 À 5 H
+
+## ⚠ LA REPRISE COMMENCE PAR UNE REFONTE COMPLETE DE L'INTERFACE
+
+Decision de Rihen (12 aout au soir) : **refondre toute l'interface et la rendre
+propre**. Le **design peut etre different** — rien de l'apparence actuelle n'est
+a preserver.
+
+Consequence directe sur ce qui suit : **ne pas rafistoler** la modale « Ajouter
+un materiau » ni `NkModelerFileDialog.h`. Ils disparaissent dans la refonte. Le
+blocage decrit plus bas reste documente pour la cause, pas pour la reparation.
+
+**Infobulle sur CHAQUE element** (bouton, champ, panneau) — exigence posee par
+Rihen d'entree : « mieux vaut y penser tot ». Donc les fonctions qui declarent un
+widget prennent leur texte d'aide **des leur signature** ; l'ajouter apres
+obligerait a repasser sur chaque appel. Le composant existe deja :
+`NKEditorKit/NkEditorTooltip.h` (+ support dans `NKGui`).
+
+**TOUTE MODALE : barre de titre designee (facon NKCode), et modale SUR modale
+sans cacher celle du dessous** (Rihen, 13 aout). Composant :
+`NKEditorKit/NkEditorModal.h` -- `NkModal` + `NkModalDraw(ctx, m, title, message,
+buttons, count)`. Il force `ctx.popupDepth > 0` directement, ce qui rend la
+modalite GLOBALE sans toucher au reste. ⚠ Il peint un voile PLEIN ECRAN par
+modale : pour empiler « sans cacher », le voile devra etre pose une seule fois
+pour la pile.
+
+**Le mot « Demo » doit disparaitre** : `NkDemo3D.cpp` (16 825 l.) et l'API
+`Demo3DHost*` sont a renommer ET decouper -- c'est le plus gros fichier du
+modeleur, devant l'interface.
+
+**Subdiviser TOUS les gros fichiers, pas seulement l'interface** (Rihen, 13 aout).
+Etat au 13 aout : `NkDemo3D.cpp` **16 825 l.**, `NkModelerScreens.h` **14 495 l.**,
+`NkViewport3D.cpp` 2 649 l., `main.cpp` 2 032 l., `NkModelerAssets.h` 1 912 l.
+NKCode, en comparaison, repartit 35 800 lignes sur 13 fichiers (plus gros : 5 599).
+
+**MOT D'ORDRE — materiaux et edition : toujours se referer a `renderdemo`.**
+Cible declaree dans `Applications/Sandbox/RendererSandbox.jenga`, sources dans
+`Applications/Sandbox/src/Demo/` (`Demo5_Materials.cpp`, `Demo4_Materials.cpp`,
+`Demo3D.cpp` et ses `--demo=<n>`). Ce qui semble manquer au modeleur y fonctionne
+souvent deja : regarder AVANT de conclure qu'une fonction est absente.
+
+Base de travail imposee : **NKEditorKit + ce que fait NKCode** (fichiers dedies
+par domaine, l'application ne garde que le style et le routage). Ce qui doit
+disparaitre : les 14 000 lignes de `NkModelerScreens.h`, les modales peintes
+parmi les panneaux, et la coexistence de deux systemes de hit-test.
+
+## Ce qui est LIVRÉ et compile (Release + Debug, 29/29)
+
+- **Sélecteur de fichiers porté depuis NKEditorKit.** `NkFilePicker.h` (celui de
+  NKCode) remplace le dialogue maison. Il s'ouvre depuis « Nouveau », confiné à
+  la racine du projet, démarrant dans le dossier courant du navigateur.
+- **`ctx.dlOverlay` est enfin soumise** (`main.cpp`, après `ui.dl`). Sans elle,
+  TOUT composant NKEditorKit dessinait dans le vide.
+- **`ui.viewW/viewH` suivent la fenêtre.** `NkGuiContext::Init` les pose une fois
+  et ne les revoit jamais : les modales se centraient sur les dimensions du
+  démarrage et leur voile s'arrêtait avant les bords.
+- **Unicité des noms de matériaux** sur la source de vérité
+  (`Demo3DHostProjMatInfo`), plus sur les cartes du navigateur — `kMaxBrowser`
+  vaut 32, au-delà un matériau n'a AUCUNE carte et restait invisible du test.
+- **Le dossier suit le nom du projet** (`ReconcileFolderWithName`), réparé au
+  chargement, et **jamais** au prix du projet : renonce si la place est prise, le
+  nom est inutilisable comme dossier, ou `NkDirectory::Move` échoue.
+- **Les récents écartent les entrées dont le fichier n'existe plus.**
+
+## LE BLOCAGE EN COURS — modale « Ajouter un materiau »
+
+Symptôme (Rihen) : « je ne peux ni la déplacer ni interagir, les boutons n'ont
+pas d'effet », et le clic droit de la vue 3D s'ouvre par-dessus elle.
+
+**Quatre correctifs ont échoué** — tous visaient le mauvais composant ou le
+mauvais mécanisme : (1) fermeture au clic extérieur recalculée du dehors —
+retirée, NKCode ne le fait pas ; (2) `SetBlock` plein écran — un SECOND mécanisme
+d'étanchéité, alors que `modalOpen` existait ; (3) `inView` consultant les
+modales ; (4) `LayerScope(hit, 100)` sur la modale. Le journal a montré que le
+sélecteur n'était même **jamais ouvert** pendant les tests : c'est bien la modale
+maison qui est en cause.
+
+**DÉCISION PRISE AVEC RIHEN, à appliquer à la reprise** : ne pas tenter un
+cinquième correctif. **Refaire cette modale sur `NKEditorKit/NkEditorModal.h`**,
+qui existe, dessine dans `dlOverlay`, et est déjà étanche. Regarder d'abord
+comment NKCode s'en sert : il ne garde que le style et le routage du résultat.
+
+## À RETIRER AVANT TOUT (traces de diagnostic laissées en place)
+
+- `main.cpp` : `[picker] OpenPickerBase demande`
+- `NkModelerScreens.h` : `[matadd] clic souris=…` et `[matadd] bouton Nouveau…`
+- `NkModelerFileDialog.h` (dialogue maison) est **inutilisé** depuis le portage :
+  à supprimer une fois la modale refaite.
+
+## Sauvegarde
+
+Copie des 5 fichiers touchés :
+`…/scratchpad/backup_20260813/`. Rien n'est commité ; `git diff` sur
+`Applications/NK3DModeler` isole exactement le travail de la nuit (+530/−96).
+
+## Ensuite, dans l'ordre convenu
+
+1. Index (cache) des fichiers **par type** dans le fichier de projet, chemins
+   relatifs à la racine — idée de Rihen. Règle d'un coup le plafond des 32
+   cartes, la recherche, et l'absence du dossier `Apercus` au navigateur.
+2. Point d'entrée de **renommage de projet** dans le launcher (le cœur existe ;
+   penser à arrêter `projWatch` qui tient la racine ouverte).
+3. Navigateur : suppression réelle d'un matériau (efface le `.nkmat`, délie tous
+   les objets, refuse le défaut, avec confirmation).
+4. Export `.nkmesh` : matériau embarqué OU fichiers séparés.
+5. Les **7 captures non lues** de `Pictures/Screenshots/code` (erreurs visibles
+   non décrites par Rihen).
+6. Puis étape 2 : **modélisation** (mode maillage + modificateurs).
