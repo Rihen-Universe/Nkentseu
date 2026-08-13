@@ -6,4 +6,5 @@ LIBS="-Wl,--start-group $L/NKXR.lib $L/NKWindow.lib $L/NKEvent.lib $L/NKImage.li
 mkdir -p /tmp/nkxrtests
 clang++ -std=c++20 -O2 $D $I Kernel/Runtime/NKXR/tests/test_ar.cpp $LIBS -o /tmp/nkxrtests/test_ar.exe
 clang++ -std=c++20 -O2 $D $I Kernel/Runtime/NKXR/tests/test_xr.cpp $LIBS -o /tmp/nkxrtests/test_xr.exe
+clang++ -std=c++20 -O2 $D $I Kernel/Runtime/NKXR/tests/test_ar_image.cpp $LIBS -o /tmp/nkxrtests/test_ar_image.exe
 echo BUILT
