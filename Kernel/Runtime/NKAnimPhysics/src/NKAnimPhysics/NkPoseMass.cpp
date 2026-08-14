@@ -1,8 +1,8 @@
 // =============================================================================
-// NKRenderer/Tools/Animation/NkPoseMass.cpp — implémentation (voir NkPoseMass.h)
+// NKAnimPhysics/NkPoseMass.cpp — implémentation (voir NkPoseMass.h)
 // AUTEUR : Rihen — LICENCE : usage régi par le fichier LICENSE à la racine du dépôt
 // =============================================================================
-#include "NKRenderer/Tools/Animation/NkPoseMass.h"
+#include "NKAnimPhysics/NkPoseMass.h"
 
 namespace nkentseu {
 	namespace renderer {

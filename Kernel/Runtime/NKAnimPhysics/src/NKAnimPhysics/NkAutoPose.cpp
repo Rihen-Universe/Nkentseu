@@ -1,9 +1,9 @@
 // =============================================================================
-// NKRenderer/Tools/Animation/NkAutoPose.cpp  —  M3.5 : auto-posing (voir .h).
+// NKAnimPhysics/NkAutoPose.cpp  —  M3.5 : auto-posing (voir .h).
 // =============================================================================
-#include "NKRenderer/Tools/Animation/NkAutoPose.h"
-#include "NKRenderer/Tools/Animation/NkPoseBalancer.h"
-#include "NKRenderer/Tools/Animation/NkBalance.h"
+#include "NKAnimPhysics/NkAutoPose.h"
+#include "NKAnimPhysics/NkPoseBalancer.h"
+#include "NKAnimPhysics/NkBalance.h"
 
 namespace nkentseu {
 	namespace renderer {

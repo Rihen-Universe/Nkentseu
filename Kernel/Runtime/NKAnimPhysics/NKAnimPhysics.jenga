@@ -1,0 +1,94 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+NKAnimPhysics — Pose physiquement correcte (C++17, ZÉRO STL, AUCUN GPU)
+=======================================================================
+Substrat d'animation « façon Cascadeur » : masse et centre de masse d'une pose,
+polygone de support, contacts au sol, correction d'équilibre, interpolation
+équilibrée, passe de correction sur un clip entier. Tout est du CPU pur et
+headless — aucune dépendance au rendu, à un périphérique ni à une fenêtre.
+
+Extrait de NKRenderer/Tools/Animation le 2026-08-14, en application du bloc de
+décision « SUBSTRATS ANIMATION ET COMPORTEMENT » (CLAUDE.md du répertoire
+parent). Motif : sur les 5 568 lignes de ce dossier, 438 seulement touchaient au
+rendu ; ces six modules-ci n'en touchaient aucune.
+
+Contenu (src/NKAnimPhysics/) :
+  NkPoseMass.*        => masse relative par joint (uniforme ou anthropométrique),
+                         centre de masse d'une pose
+  NkBalance.*         => polygone de support (enveloppe convexe), marge signée,
+                         direction de bascule
+  NkContactDetector.* => contacts pied/sol, collecte des points d'appui
+  NkPoseBalancer.*    => correction d'équilibre (globale, et « pieds plantés »),
+                         + NkBalanceSmoother (lissage multi-frame)
+  NkAutoPose.*        => interpolation entre deux clés, gardée en équilibre
+  NkPhysAnimBridge.*  => passe non destructive sur une SÉQUENCE de poses
+
+⚠️ CE MODULE NE DÉPEND PAS DE NKPhysics — ET C'EST UN FAIT, PAS UN OUBLI.
+Vérifié le 2026-08-14 : aucun des six fichiers ne référence NKPhysics, NKCollision
+ni NkRagdoll. Tout ce qu'ils font est CINÉMATIQUE (géométrie de poses), jamais
+dynamique (corps rigides, forces, intégration). Le nom du module décrit l'état
+CIBLE voulu par le bloc de décision, pas l'état d'aujourd'hui.
+
+⚠️ LE JOUR OÙ LA DÉPENDANCE SERA CRÉÉE, ELLE SE BRANCHE SUR NkRagdoll.
+`NKPhysics/NkRagdoll.h` expose DÉJÀ toute la surface du pont physique↔animation :
+`NkBoneDef`, `Build`, `ReadPose`, `SetActive`, `SetPoseTargets` — et elle est déjà
+consommée en production par `Applications/NkAnimaEditor/NkRagdollBridge.h` et
+`Engine/Noge/src/Noge/Systems/NkPhysicsSystems.h`. **N'écrivez PAS un second pont
+ici.** Un besoin non couvert s'obtient en étendant NkRagdoll ou en ajoutant une
+fonction libre par-dessus ; jamais par une couche concurrente. Ce dépôt a déjà
+payé ce défaut trois fois (lecteur PDF forké, deux structures demi-arête, trois
+sélecteurs de dossier).
+
+Dépendances : Foundation seule (NKCore/NKMemory/NKMath/NKContainers) + NKLogger.
+Consommateurs : Applications/NkAnimPhysTest (harnais headless), NKRenderer
+(NkPoseDebugDraw, qui DESSINE le résultat — le renderer est CONSOMMATEUR).
+"""
+
+from Jenga import *
+from jengaconfig import *
+
+with project("NKAnimPhysics"):
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    nkentseudependson(
+        ["NKPlatform", "NKCore", "NKMemory", "NKMath", "NKContainers", "NKLogger"],
+        selfexport="NKAnimPhysics",
+        extra_includes=["src"],
+    )
+
+    files(["src/**.cpp"])
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}")
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+
+    with filter("system:Linux"):
+        links(["pthread"])
+    with filter("system:macOS"):
+        usetoolchain("clang-native")
+    with filter("system:Android"):
+        usetoolchain("android-ndk")
+        links(["android", "log"])
+        androidabis(["armeabi-v7a", "arm64-v8a", "x86", "x86_64"])
+    with filter("system:HarmonyOS"):
+        pchheader("")
+        pchsource("")
+        usetoolchain("ohos-ndk")
+        links(["hilog_ndk.z"])
+    with filter("system:Web"):
+        usetoolchain("emscripten")
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)

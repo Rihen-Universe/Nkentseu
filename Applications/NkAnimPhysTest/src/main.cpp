@@ -3,13 +3,13 @@
 // AUCUN device GPU : pur CPU, sûr à lancer même pendant un entraînement GPU.
 // Sortie via printf (sortie directe console, comme NKMeshAITest).
 // =============================================================================
-#include "NKRenderer/Tools/Animation/NkPoseMass.h"
-#include "NKRenderer/Tools/Animation/NkBalance.h"
-#include "NKRenderer/Tools/Animation/NkContactDetector.h"
-#include "NKRenderer/Tools/Animation/NkPoseBalancer.h"
-#include "NKRenderer/Tools/Animation/NkAutoPose.h"
+#include "NKAnimPhysics/NkPoseMass.h"
+#include "NKAnimPhysics/NkBalance.h"
+#include "NKAnimPhysics/NkContactDetector.h"
+#include "NKAnimPhysics/NkPoseBalancer.h"
+#include "NKAnimPhysics/NkAutoPose.h"
 #include "NKRenderer/Tools/Animation/NkMotionPath.h"
-#include "NKRenderer/Tools/Animation/NkPhysAnimBridge.h"
+#include "NKAnimPhysics/NkPhysAnimBridge.h"
 #include "NKRenderer/Tools/Animation/NkAnimRetarget.h"
 #include "NKRenderer/Tools/Director/NkRoleContext.h"
 #include "NKAudio/NkAudioCapture.h"
