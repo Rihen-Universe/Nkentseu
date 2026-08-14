@@ -12454,7 +12454,20 @@ namespace nkentseu {
 				nkvpProjMatThumb[i] = b64 ? b64 : "";
 		}
 
+	/// Les demandes de vignette sont-elles suspendues ? Vrai le temps d'une
+		/// ecriture DECLENCHEE PAR une vignette : sans cela la reecriture redemande
+		/// une capture, qui une fois encodee redemande une reecriture -- une boucle
+		/// sans fin, vue comme un clignotement continu de l'apercu et neuf
+		/// materiaux qui se reencodent en rafale au journal (Rihen, 14 aout).
+		/// Une action ne doit pas pouvoir se re-declencher elle-meme.
+		static bool gThumbSuspend = false;
+		void Demo3DHostMatThumbSuspend(bool on) {
+			gThumbSuspend = on;
+		}
+
 		void Demo3DHostMatThumbRequest(int32 slot, const char *cheminPng) {
+			if (gThumbSuspend)
+				return;
 			if (slot < 0 || slot >= kNkvpMaxProjMats)
 				return;
 			(void)cheminPng; // la vignette ne va plus dans un fichier voisin

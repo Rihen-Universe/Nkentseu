@@ -2131,7 +2131,13 @@ int nkmain(const NkEntryState &entry) {
 				for (int32 b = 0; b < st.browserCount; ++b)
 					if (st.browserKind[b] == 2 && st.browserMat[b] == mDirty + 1) {
 						NkString errV;
-						if (!nk3d::NkProjectWriteAssets(proj.root, st, &errV, b))
+						// SUSPENDU pendant l'ecriture : c'est une vignette qui l'a
+						// declenchee ; en redemander une relancerait la meme chaine
+						// sans fin.
+						demo::Demo3DHostMatThumbSuspend(true);
+						const bool okV = nk3d::NkProjectWriteAssets(proj.root, st, &errV, b);
+						demo::Demo3DHostMatThumbSuspend(false);
+						if (!okV)
 							nkentseu::NkLog::Instance().Info(
 								"[apercu] vignette : reecriture impossible : {0}", errV.CStr());
 						break;

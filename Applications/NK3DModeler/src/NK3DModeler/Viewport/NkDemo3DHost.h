@@ -67,6 +67,10 @@ namespace nkentseu {
 		/// etre terminee pour etre lue -- et une seule par frame. Rendue en SPHERE
 		/// et en carre : c'est une icone de liste, elle doit se comparer aux autres.
 		void Demo3DHostMatThumbRequest(int32 slot, const char *cheminPng);
+		/// Suspend les demandes de vignette. A poser autour d'une ecriture qui est
+		/// elle-meme DECLENCHEE par une vignette, sinon la chaine se relance sans
+		/// fin. A remettre a faux dans tous les cas.
+		void Demo3DHostMatThumbSuspend(bool on);
 		/// La VIGNETTE d'un materiau : un PNG encode en base64, qui vit DANS le
 		/// materiau et voyage donc avec lui. Chaine vide tant qu'aucune capture
 		/// n'a ete prise (le materiau n'a jamais ete enregistre).
