@@ -1495,8 +1495,27 @@ int nkmain(const NkEntryState &entry) {
 		// journal, comme pour les autres surcouches.
 		const NkRect jRect =
 			nk3d::NkJournalRect({0.f, 0.f, (float32)W, (float32)H - lay.status.h});
+		// L'INPUT EST VIDE A LA SOURCE quand la souris est sur le journal.
+		// `SetBlock` ne suffit pas : il ne protege que ce qui passe par le
+		// registre, or le navigateur teste `in.mouseClicked[1]` DIRECTEMENT pour
+		// ouvrir son menu contextuel -- son clic droit traversait donc le journal
+		// (Rihen, 14 aout : « son clic droit est toujours capte par le navigateur,
+		// donc je conclus que ses evenements aussi »). C'est le meme remede que
+		// pour les modales : vider l'input est le seul endroit qui vaut partout a
+		// la fois, y compris pour le code qui ne connait pas le registre.
+		const nkgui::NkGuiInput inputAvantJournal = ui.input;
+		const bool sourisSurJournal =
+			st.journalOpen && nkgui::NkGuiRectContains(jRect, ui.input.mousePos);
 		if (st.journalOpen)
 			hit.SetBlock(jRect, true);
+		if (sourisSurJournal) {
+			for (int32 b = 0; b < 3; ++b) {
+				ui.input.mouseDown[b] = false;
+				ui.input.mouseClicked[b] = false;
+				ui.input.mouseReleased[b] = false;
+			}
+			ui.input.wheel = 0.f;
+		}
 
 		// LE NOM DU PROJET, PAS UN LIBELLE FIGE. « MonProjet » etait un exemple de
 		// maquette ; la barre dit desormais ce qui est reellement ouvert.
@@ -1535,6 +1554,11 @@ int nkmain(const NkEntryState &entry) {
 		// l'empecher de recevoir les siens.
 		if (st.journalOpen)
 			hit.SetBlock({}, false);
+		// L'input REEL revient pour le journal : il lui etait retire, pas perdu.
+		if (sourisSurJournal) {
+			ui.input = inputAvantJournal;
+			hit.Rearm(ui.input);
+		}
 		PaintJournal(p, hit, st, ui.input, {0.f, 0.f, (float32)W, (float32)H - lay.status.h});
 
 		// Poignees de reouverture, a la place exacte qu'occupait le panneau.

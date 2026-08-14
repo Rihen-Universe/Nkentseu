@@ -805,7 +805,10 @@ namespace nkentseu {
 			/// defilement s'arrete -- sinon lire une trace en cours est impossible.
 			bool journalOpen = false;
 			bool journalSuivre = true;
-			float32 journalScroll = 0.f;
+		float32 journalScroll = 0.f;
+			/// Defilement HORIZONTAL : les messages du moteur sont longs, et les
+			/// quatre colonnes en prennent deja une partie.
+			float32 journalScrollX = 0.f;
 			/// SELECTION DE LIGNES, par indice dans l'anneau. -1 = rien. `ancre`
 			/// est la ligne ou le geste a commence, `tete` celle ou il en est :
 			/// garder les deux permet de selectionner vers le HAUT comme vers le
