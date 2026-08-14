@@ -1,0 +1,270 @@
+# empreintes d'extraction PDF — reference de non-regression
+# commit : df92fe14
+# dossier : D:\softwareRenderer\Rodolf\Cours
+# VALIDEE le 2026-08-13 (une baseline trouee est PIRE que pas de baseline :
+#   elle donne une assurance fausse sur la partie manquante) :
+#   1. completude   : 258 lignes / 258 PDF du corpus  -> OK
+#   2. lignes a zero caractere : 26, toutes expliquees -> OK
+#      25 scans/chiffres (verdict VIDE au balayage) + lightning.pdf, dont
+#      100 % des caracteres sont illisibles : l assemblage les saute tous.
+#      Aucun hash absent ni malforme (0/258).
+#   3. population struct : 140/258 = 54,3 % (attendu ~55 %) -> OK
+fichier;struct;pages;passages;caracteres;empreinte
+D:/softwareRenderer/Rodolf/Cours/00_IMPORTANT_NOTE_ pptx.pdf;1;3;14;1132;2838fd980a25d1b2
+D:/softwareRenderer/Rodolf/Cours/01_Guidelines4Applicants_2024_2025_e_.pdf;1;30;189;42856;f6f3b99b11b2c62a
+D:/softwareRenderer/Rodolf/Cours/02_ESKAS_Application_Form_2024_2025_e.pdf;1;7;90;22284;ac7d45c99464b829
+D:/softwareRenderer/Rodolf/Cours/05-make.pdf;0;47;35;704;5dd065e39420126b
+D:/softwareRenderer/Rodolf/Cours/05_ESKAS_Application_Fit_for_Mission_Form_2024-2025_e_.pdf;1;1;19;2722;c46c951e3f770127
+D:/softwareRenderer/Rodolf/Cours/06_ESKAS_Will_you_be_my_supervisor_2024-2025_e.pdf;0;2;27;6474;3342316b6060cd22
+D:/softwareRenderer/Rodolf/Cours/07_ESKAS_FAQ_v06_2023_e.pdf;1;2;17;6443;185189b1c3f29a0c
+D:/softwareRenderer/Rodolf/Cours/1.pdf;0;6;0;0;14650fb0739d0383
+D:/softwareRenderer/Rodolf/Cours/1907.13327.pdf;0;13;110;32609;a4f3c554e82d6e00
+D:/softwareRenderer/Rodolf/Cours/1_1.pdf;0;14;0;0;14650fb0739d0383
+D:/softwareRenderer/Rodolf/Cours/2.pdf;0;3;0;0;14650fb0739d0383
+D:/softwareRenderer/Rodolf/Cours/202039_EN_Winter 2024 or later.pdf;1;3;25;4170;c5b4c3da1d60fb77
+D:/softwareRenderer/Rodolf/Cours/2023-05767-fr.pdf;0;2;21;10734;650cc6ae110c58a9
+D:/softwareRenderer/Rodolf/Cours/2023_ESKAS_all_country_contacts_A_to_Z_for_application_documents.pdf;0;22;225;48526;d862e2216cb5acad
+D:/softwareRenderer/Rodolf/Cours/2201.05905.pdf;0;5;24;26088;7d50dabf1a7e2fc8
+D:/softwareRenderer/Rodolf/Cours/3.pdf;0;3;0;0;14650fb0739d0383
+D:/softwareRenderer/Rodolf/Cours/3D C_C++ tutorials - OpenGL 1.5 - Win32 OpenGL Window.pdf;1;5;111;9391;48169cf7570e0344
+D:/softwareRenderer/Rodolf/Cours/3D C_C++ tutorials - OpenGL 2.1 - Win32, OpenGL, GLEW, FreeImage, GLM.pdf;0;15;37;41805;afe26e82c0e28284
+D:/softwareRenderer/Rodolf/Cours/4.pdf;0;5;0;0;14650fb0739d0383
+D:/softwareRenderer/Rodolf/Cours/A preliminary Wavefront OBJ loader in C++ � www.keithlantz.net.pdf;0;12;141;17796;a7ae0fc7e14f344b
+D:/softwareRenderer/Rodolf/Cours/Accelerator Tables - Win32 apps _ Microsoft Learn.pdf;1;5;50;7761;34c9dbfa22482607
+D:/softwareRenderer/Rodolf/Cours/Algorithms and Applications of Novel Capsule Networks.pdf;1;110;2058;163321;a16b38550a414e42
+D:/softwareRenderer/Rodolf/Cours/appartements.pdf;0;0;0;0;14650fb0739d0383
+D:/softwareRenderer/Rodolf/Cours/Appendix Matrix Transforms - Win32 apps _ Microsoft Learn.pdf;1;10;91;8975;a20bbe920b9b56f0
+D:/softwareRenderer/Rodolf/Cours/Applying Transforms in Direct2D - Win32 apps _ Microsoft Learn.pdf;1;6;50;5442;2c78a247ef541265
+D:/softwareRenderer/Rodolf/Cours/archi07-touati.pdf;0;116;506;30797;0600ec5ed7a27d8f
+D:/softwareRenderer/Rodolf/Cours/Article-Blog.pdf;1;3;38;2516;0894e8c10d38bcc4
+D:/softwareRenderer/Rodolf/Cours/asp-net-core-fr.pdf;0;145;1363;173829;2d7c4aa5ae8959b2
+D:/softwareRenderer/Rodolf/Cours/AU 2023 Event Terms Conditions_1685739920463001nMty.pdf;1;7;73;30107;feda454f68c976dc
+D:/softwareRenderer/Rodolf/Cours/BI EN_FR.pdf;0;12;69;8349;78e591250d69c917
+D:/softwareRenderer/Rodolf/Cours/bnp.pdf;1;2;0;0;14650fb0739d0383
+D:/softwareRenderer/Rodolf/Cours/bonnes_pratiques_ia.pdf;1;2;16;5541;e5f0afb3fe697932
+D:/softwareRenderer/Rodolf/Cours/Business Plan KANDORA - Version Corrig�e 2.pdf;1;25;339;40371;0fa61252c9ac5314
+D:/softwareRenderer/Rodolf/Cours/Cartographie de l��clairage et de l�environnement avec GLSL � www.keithlantz.net.pdf;0;14;239;22510;9b9b3ad189cd6767
+D:/softwareRenderer/Rodolf/Cours/Chord function (wingdi.h) - Win32 apps _ Microsoft Learn.pdf;1;3;49;2468;1815ecb453891b90
+D:/softwareRenderer/Rodolf/Cours/ClientToScreen function (winuser.h) - Win32 apps _ Microsoft Learn.pdf;1;3;37;1723;8486814763eda864
+D:/softwareRenderer/Rodolf/Cours/ClipMesh.pdf;0;14;147;27327;42f12cd11805356f
+D:/softwareRenderer/Rodolf/Cours/CM1_2014.pdf;0;67;360;20023;2036ea085ef2d988
+D:/softwareRenderer/Rodolf/Cours/Comparison of XInput and DirectInput features - Win32 apps _ Microsoft Learn.pdf;1;6;48;8452;4cf33ecfc0690ec5
+D:/softwareRenderer/Rodolf/Cours/compil.pdf;0;165;882;72144;498b91d6c9b275a6
+D:/softwareRenderer/Rodolf/Cours/compilation-cpp-llvm-clang.pdf;0;16;121;48432;6544c1a65624e251
+D:/softwareRenderer/Rodolf/Cours/computergraphicsprogrammminginopenglusingcplusplussecondedition.pdf;1;535;3695;951592;af42524faf51b4b0
+D:/softwareRenderer/Rodolf/Cours/Conditional letter of acceptance.pdf;0;1;13;1242;15c789241193e3e1
+D:/softwareRenderer/Rodolf/Cours/Console de jeux MAKERbuino - Le Blog Gotronic.pdf;0;9;66;4529;a896ec7760e973c2
+D:/softwareRenderer/Rodolf/Cours/CopyRect function (winuser.h) - Win32 apps _ Microsoft Learn.pdf;1;2;34;1312;63d44686f012498c
+D:/softwareRenderer/Rodolf/Cours/cours-dotnet (1).pdf;0;197;944;88633;3cb6f7f666e4500a
+D:/softwareRenderer/Rodolf/Cours/cours-dotnet.pdf;0;197;944;88633;3cb6f7f666e4500a
+D:/softwareRenderer/Rodolf/Cours/coursgg_info741.pdf;0;148;513;47796;2836db0e7c009ced
+D:/softwareRenderer/Rodolf/Cours/cours_temps_reel_in2-nup-nup.pdf;0;104;978;73634;c5f83eba46225d16
+D:/softwareRenderer/Rodolf/Cours/Creajeux-plaquette.pdf;0;22;193;48564;81bcc50c6618ff84
+D:/softwareRenderer/Rodolf/Cours/CreateHatchBrush function (wingdi.h) - Win32 apps _ Microsoft Learn.pdf;1;8;104;9438;9ef5f8f2c99bce9e
+D:/softwareRenderer/Rodolf/Cours/CreatePatternBrush function (wingdi.h) - Win32 apps _ Microsoft Learn.pdf;1;3;45;2053;78e824e5acc524e7
+D:/softwareRenderer/Rodolf/Cours/CreateSolidBrush function (wingdi.h) - Win32 apps _ Microsoft Learn.pdf;1;3;43;1730;9a4e4390dd872ec8
+D:/softwareRenderer/Rodolf/Cours/Creating an OpenGL Context (WGL) - OpenGL Wiki.pdf;1;8;90;18244;28c701c7806f22a7
+D:/softwareRenderer/Rodolf/Cours/Creating Custom Window In Win32.pdf;1;14;75;19645;fe565ae4925cc99c
+D:/softwareRenderer/Rodolf/Cours/creez-votre-site-web-avec-asp-net.pdf;0;218;1519;294926;40ee988a9ae31e21
+D:/softwareRenderer/Rodolf/Cours/cs310-report.pdf;0;43;373;82519;4ccbee3623179cd5
+D:/softwareRenderer/Rodolf/Cours/CSE2_cours.pdf;1;534;2497;786886;c83d4b0e29946562
+D:/softwareRenderer/Rodolf/Cours/cvec.pdf;0;0;0;0;14650fb0739d0383
+D:/softwareRenderer/Rodolf/Cours/DirectInput and XUSB Devices - Win32 apps _ Microsoft Learn.pdf;1;6;101;6260;cf7ab9c880170b3a
+D:/softwareRenderer/Rodolf/Cours/DirectInputTutorial.pdf;0;4;40;6267;a1377f01225ed3b0
+D:/softwareRenderer/Rodolf/Cours/DirectX 11 - Initialization (C_C++ & Win32) _ Samuli Natri. Entrepreneur. Software Engineer_.pdf;1;5;27;5350;8a8958c576216160
+D:/softwareRenderer/Rodolf/Cours/DirectX and Win32 Classes using Visual C++ 6.0 - CodeProject.pdf;1;7;77;9435;8023949d73afb545
+D:/softwareRenderer/Rodolf/Cours/DirectXTutorial.com.pdf;1;9;169;25328;5595877621e3587f
+D:/softwareRenderer/Rodolf/Cours/DirectXTutorial.com1.pdf;1;2;30;4691;38d8c2432ce3fed1
+D:/softwareRenderer/Rodolf/Cours/DirectXTutorial.com10.pdf;1;4;55;7380;17aef1b6c3028279
+D:/softwareRenderer/Rodolf/Cours/DirectXTutorial.com11.pdf;1;9;130;18883;f1641228c8ec3072
+D:/softwareRenderer/Rodolf/Cours/DirectXTutorial.com12.pdf;1;10;157;20641;532ee04df77f9c7e
+D:/softwareRenderer/Rodolf/Cours/DirectXTutorial.com13.pdf;1;8;101;13398;3b477f08f430ee04
+D:/softwareRenderer/Rodolf/Cours/DirectXTutorial.com2.pdf;1;5;87;11798;b8e2770064581026
+D:/softwareRenderer/Rodolf/Cours/DirectXTutorial.com4.pdf;1;3;36;5575;21fb42870f927662
+D:/softwareRenderer/Rodolf/Cours/DirectXTutorial.com5.pdf;1;7;129;21135;7ac2d7e08b275dba
+D:/softwareRenderer/Rodolf/Cours/DirectXTutorial.com6.pdf;1;3;52;6918;b04711645ab1ff06
+D:/softwareRenderer/Rodolf/Cours/DirectXTutorial.com7.pdf;1;10;110;17670;5970a30d058dfe5e
+D:/softwareRenderer/Rodolf/Cours/DirectXTutorial.com8.pdf;1;8;139;19246;f0ead8e1e63e299e
+D:/softwareRenderer/Rodolf/Cours/DirectXTutorial.com9.pdf;1;13;222;31196;d00510d544e7162f
+D:/softwareRenderer/Rodolf/Cours/direct_input.pdf;0;6;0;0;14650fb0739d0383
+D:/softwareRenderer/Rodolf/Cours/Djaja.pdf;0;61;619;110211;22064e3b2b4b7897
+D:/softwareRenderer/Rodolf/Cours/django.pdf;0;2842;48198;4720556;058d9258a0cb19de
+D:/softwareRenderer/Rodolf/Cours/Dossier_TIPE_2007_TF.pdf;0;42;349;40897;83c32c0bb52d5c0d
+D:/softwareRenderer/Rodolf/Cours/DPI and device-independent pixels - Win32 apps _ Microsoft Learn.pdf;1;7;68;11144;b2892fcb14cbc376
+D:/softwareRenderer/Rodolf/Cours/Draft.pdf;0;27;199;52538;2bedbd5366b7ada1
+D:/softwareRenderer/Rodolf/Cours/Drag-and-Drop Feature in JavaFX Applications _ JavaFX 2 Tutorials and Documentation.pdf;1;5;63;10228;40a28ad3ef5203e7
+D:/softwareRenderer/Rodolf/Cours/Draw some lines - C++ Forum.pdf;1;7;32;7817;77d46b37eadeea0b
+D:/softwareRenderer/Rodolf/Cours/DrawAnimatedRects function (winuser.h) - Win32 apps _ Microsoft Learn.pdf;1;2;32;1563;d9c2b18a8a6e9ee2
+D:/softwareRenderer/Rodolf/Cours/DrawCaption function (winuser.h) - Win32 apps _ Microsoft Learn.pdf;1;3;43;2021;477c037f342783a6
+D:/softwareRenderer/Rodolf/Cours/DrawEdge function (winuser.h) - Win32 apps _ Microsoft Learn.pdf;1;4;70;3195;b59e7314c8e4dfc6
+D:/softwareRenderer/Rodolf/Cours/DrawFocusRect function (winuser.h) - Win32 apps _ Microsoft Learn.pdf;1;3;37;1790;2112f074305534d5
+D:/softwareRenderer/Rodolf/Cours/Drawing with Direct2D - Win32 apps _ Microsoft Learn.pdf;1;4;37;4710;a7a064f6ff561705
+D:/softwareRenderer/Rodolf/Cours/DrawText function (winuser.h) - Win32 apps _ Microsoft Learn.pdf;1;6;89;7945;613bef47bd40adf3
+D:/softwareRenderer/Rodolf/Cours/DrawTextA function (winuser.h) - Win32 apps _ Microsoft Learn.pdf;1;7;91;8344;907f767044fecb42
+D:/softwareRenderer/Rodolf/Cours/DrawTextExA function (winuser.h) - Win32 apps _ Microsoft Learn.pdf;1;6;77;7282;4a67cebf35290d3d
+D:/softwareRenderer/Rodolf/Cours/DrawTextExW function (winuser.h) - Win32 apps _ Microsoft Learn.pdf;1;6;77;7283;2c24cf892e5079d6
+D:/softwareRenderer/Rodolf/Cours/DRAWTEXTPARAMS (winuser.h) - Win32 apps _ Microsoft Learn.pdf;1;2;29;1275;ad270da2317cb409
+D:/softwareRenderer/Rodolf/Cours/DrawTextW function (winuser.h) - Win32 apps _ Microsoft Learn.pdf;1;7;91;8347;28a8f8dc212bc5a3
+D:/softwareRenderer/Rodolf/Cours/dsPIC33_PIC24-FRM,-32-Bit-Programmable-Cyclic-Redundancy-Check-(CRC)-DS30009729C.pdf;0;0;0;0;14650fb0739d0383
+D:/softwareRenderer/Rodolf/Cours/DynamicCollisionDetection.pdf;0;40;548;93865;a3ce52e635c6abfc
+D:/softwareRenderer/Rodolf/Cours/D�placer et l�cher (drag and drop).pdf;1;13;152;30703;bb13d8d062396a4b
+D:/softwareRenderer/Rodolf/Cours/D�veloppement avec JavaFX.pdf;1;100;1014;436472;b9944ca25e6daaf4
+D:/softwareRenderer/Rodolf/Cours/ebin.pub_2d-computer-graphics-in-modern-c-and-standard-library.pdf;0;466;1148;781580;1aad3a571e26155b
+D:/softwareRenderer/Rodolf/Cours/Ellipse function (wingdi.h) - Win32 apps _ Microsoft Learn.pdf;1;3;39;1477;6948dc662cc1b057
+D:/softwareRenderer/Rodolf/Cours/entity-framework-core-fr.pdf;0;22;243;19992;7a4b42b2cc58b90e
+D:/softwareRenderer/Rodolf/Cours/eskas-africa.pdf;0;6;61;13720;8b1a3d1487e89974
+D:/softwareRenderer/Rodolf/Cours/Fiche_CRFD_31625100024.pdf;0;2;38;2818;efeb250daaac3fd3
+D:/softwareRenderer/Rodolf/Cours/Fiche_CRFD_33529991260.pdf;0;2;38;3382;f6f48a9b6b7b8d98
+D:/softwareRenderer/Rodolf/Cours/FillRect function (winuser.h) - Win32 apps _ Microsoft Learn.pdf;1;3;43;2116;32c37b0038941e8c
+D:/softwareRenderer/Rodolf/Cours/flyer_CampusBourses_fr.pdf;1;4;18;1971;ae874ff247259402
+D:/softwareRenderer/Rodolf/Cours/FrameRect function (winuser.h) - Win32 apps _ Microsoft Learn.pdf;1;3;38;1604;29edca9cfce3a6f5
+D:/softwareRenderer/Rodolf/Cours/Fullstack_React_Native_The_Complete-2.pdf;0;552;4425;659589;267f21d9a3f11b96
+D:/softwareRenderer/Rodolf/Cours/FULLTEXT01.pdf;0;84;929;58555;a1466e10799ede00
+D:/softwareRenderer/Rodolf/Cours/Game Audio Programming in C++ - Guy Somberg - CppCon 2017.pdf;1;156;547;63002;58bb9e222e4fcebf
+D:/softwareRenderer/Rodolf/Cours/Game-Design-Document-Template.pdf;0;6;22;4548;19936cc2c7e91f77
+D:/softwareRenderer/Rodolf/Cours/GamepadInput_1.pdf;0;4;0;0;14650fb0739d0383
+D:/softwareRenderer/Rodolf/Cours/GamepadInput_2.pdf;0;6;0;0;14650fb0739d0383
+D:/softwareRenderer/Rodolf/Cours/GamepadInput_3.pdf;0;8;0;0;14650fb0739d0383
+D:/softwareRenderer/Rodolf/Cours/gator-oopsla2020-preprint.pdf;0;25;181;73765;b879a49a7ae35491
+D:/softwareRenderer/Rodolf/Cours/Gdmphys1.pdf;0;8;78;1366;44bebb5ebc08cb72
+D:/softwareRenderer/Rodolf/Cours/Gdmphys2.pdf;0;8;87;1619;6e2508ac0de2b257
+D:/softwareRenderer/Rodolf/Cours/Gdmphys3.pdf;0;6;62;1409;f6c883c5a7542d0f
+D:/softwareRenderer/Rodolf/Cours/Gdmphys4.pdf;0;10;102;2203;78e9c1f7c9a1199c
+D:/softwareRenderer/Rodolf/Cours/Gestionnaire de mise en forme.pdf;1;33;456;111713;ed65dc4f57f2cfc7
+D:/softwareRenderer/Rodolf/Cours/GetBrushOrgEx function (wingdi.h) - Win32 apps _ Microsoft Learn.pdf;1;3;37;2214;331aa2fb5c449c71
+D:/softwareRenderer/Rodolf/Cours/GetCharWidthFloatA function (wingdi.h) - Win32 apps _ Microsoft Learn.pdf;1;3;40;2027;50ef5857de82fe0a
+D:/softwareRenderer/Rodolf/Cours/Getting started with C++ and Android Native Activities _ by Patrick Martin _ Android Developers _ Medium.pdf;1;36;310;20063;c58e29dfe343b15a
+D:/softwareRenderer/Rodolf/Cours/Getting Started With OpenGL Win32.pdf;1;15;71;22715;62c5490868e74582
+D:/softwareRenderer/Rodolf/Cours/Getting Started With Windows Programming In C_C++ _ Basic Drawing.pdf;1;9;86;10779;e7c425db204d4123
+D:/softwareRenderer/Rodolf/Cours/Getting Started With Windows Programming In C_C++ _ Basic Drawing1.pdf;1;10;87;10784;61f788de3a7de820
+D:/softwareRenderer/Rodolf/Cours/Getting Started With Windows Programming In C_C++.pdf;1;8;67;8910;a46851700e4ba2b6
+D:/softwareRenderer/Rodolf/Cours/Getting Started With Windows Programming In C_C++_ Key Events.pdf;1;11;76;15103;4adc5eed9bf8898c
+D:/softwareRenderer/Rodolf/Cours/Getting Started With XInput in Windows applications - Win32 apps _ Microsoft Learn.pdf;1;8;88;11701;290f56aa59ff834d
+D:/softwareRenderer/Rodolf/Cours/GetUpdateRect function (winuser.h) - Win32 apps _ Microsoft Learn.pdf;1;3;40;2193;42f0f8c2855a1c19
+D:/softwareRenderer/Rodolf/Cours/GitHub - alaingalvan_CrossWindow at c5452c53e3271714612812b3bd49a088e82aa1ed.pdf;0;9;101;7691;aa911f5014d637cf
+D:/softwareRenderer/Rodolf/Cours/GitHub - alaingalvan_CrossWindow-Graphics at cf965d1ecadfd627cb6c8cb9cbba46a5205d944b.pdf;0;4;54;3455;ee0057d8b057489f
+D:/softwareRenderer/Rodolf/Cours/gm.pdf;0;93;0;0;14650fb0739d0383
+D:/softwareRenderer/Rodolf/Cours/Graphisme 2D et les images.pdf;1;43;478;94029;dc70910067b0e6f7
+D:/softwareRenderer/Rodolf/Cours/Guide to WIN32 Paint for Beginners - CodeProject.pdf;1;12;144;21244;1c786a4c36b95e3a
+D:/softwareRenderer/Rodolf/Cours/hasclic763.pdf;0;420;3864;580492;40474f98d204e5d7
+D:/softwareRenderer/Rodolf/Cours/How to draw line, circle and fill them - Programming - rohitab.com - Forums.pdf;1;6;71;10685;f105775b7fbaf7cb
+D:/softwareRenderer/Rodolf/Cours/How to Setup and Get Started with OpenGL in C++.pdf;1;7;89;17525;131f788e495f3b13
+D:/softwareRenderer/Rodolf/Cours/How to start using C++ code in your Android project.pdf;1;13;85;9979;9f27dcedfcd87bce
+D:/softwareRenderer/Rodolf/Cours/How To Use A Game Pad Or Joystick Controller In C++ On Windows.pdf;1;13;160;22595;6163568ed05b4dfa
+D:/softwareRenderer/Rodolf/Cours/IA_POUR_TOUS_GUIDE_APPRENANT_oct_2023.docx.04.pdf;0;7;51;8666;377ab32d0f807484
+D:/softwareRenderer/Rodolf/Cours/ihm1_fx_01_man.pdf;1;15;55;10231;bf89170be8493b19
+D:/softwareRenderer/Rodolf/Cours/ihm1_fx_02_man.pdf;1;60;279;37707;56719600ae2590a0
+D:/softwareRenderer/Rodolf/Cours/ihm1_fx_03_man.pdf;1;22;86;11522;12df20a6484005d8
+D:/softwareRenderer/Rodolf/Cours/ihm1_fx_04_man.pdf;1;64;302;43470;e7fe5d98acd34bcb
+D:/softwareRenderer/Rodolf/Cours/ihm1_fx_05_man.pdf;1;44;202;31016;8aaa2060f7ca27e9
+D:/softwareRenderer/Rodolf/Cours/ihm1_fx_06_man.pdf;1;50;219;37456;dfdc91b1a1f4d8ad
+D:/softwareRenderer/Rodolf/Cours/ihm1_fx_07_man.pdf;1;23;112;15255;1e8ec72b09a43690
+D:/softwareRenderer/Rodolf/Cours/ihm1_fx_08_man.pdf;1;46;186;31099;6b871b6d52b2e767
+D:/softwareRenderer/Rodolf/Cours/ihm1_fx_09_man.pdf;1;28;130;18754;050fd3c73d4559a3
+D:/softwareRenderer/Rodolf/Cours/ihm1_fx_10_man.pdf;1;32;142;15984;6349228b96367542
+D:/softwareRenderer/Rodolf/Cours/ihm2_g2d_man.pdf;1;91;381;50079;5f6aa6d9352c0ae4
+D:/softwareRenderer/Rodolf/Cours/Impression.pdf;1;22;222;56195;313ff21a3324968b
+D:/softwareRenderer/Rodolf/Cours/initiation_reseaux.pdf;1;110;403;57735;a3a05e1f174e718c
+D:/softwareRenderer/Rodolf/Cours/IntersectionBoxCylinder.pdf;0;27;324;52309;e7b523f5f864025b
+D:/softwareRenderer/Rodolf/Cours/IntersectionMovingCircleRectangle.pdf;0;29;224;51050;6ec9ef9c9b5967a7
+D:/softwareRenderer/Rodolf/Cours/IntersectionMovingSphereBox.pdf;0;17;154;33399;8b18671d5236b3bf
+D:/softwareRenderer/Rodolf/Cours/IntersectionMovingSphereTriangle.pdf;0;21;164;41090;bb8762c42b13c8fc
+D:/softwareRenderer/Rodolf/Cours/IntersectionRotatingBoxes.pdf;0;5;66;10753;aacf95db28e1cc81
+D:/softwareRenderer/Rodolf/Cours/Introduction_a_ASP_Partie_1.pdf;0;142;201;24965;d0e0674d92afa723
+D:/softwareRenderer/Rodolf/Cours/InvertRect function (winuser.h) - Win32 apps _ Microsoft Learn.pdf;1;2;32;1298;3332db0f3d850ebe
+D:/softwareRenderer/Rodolf/Cours/JavaFX Drag and Drop.pdf;0;2;29;4021;474a42cb1b7902e7
+D:/softwareRenderer/Rodolf/Cours/JavaFX _ How to implement Drag and Drop.pdf;0;3;21;4549;e6d79437ecdd9c37
+D:/softwareRenderer/Rodolf/Cours/jouons-a-implementer-une-transformee-de-fourier-rapide.pdf;0;40;353;56163;d75bf4aca42c9f65
+D:/softwareRenderer/Rodolf/Cours/KEYBDINPUT (winuser.h) - Applications Win32 _ Microsoft Apprendre.pdf;1;3;40;3480;8aad26a9ac65f4dd
+D:/softwareRenderer/Rodolf/Cours/Learning-React-Native.pdf;0;432;2252;342237;002acb5fd8d47ce6
+D:/softwareRenderer/Rodolf/Cours/leilclic54.pdf;0;524;6554;855240;5867bbe43e8157e3
+D:/softwareRenderer/Rodolf/Cours/Les_Reseaux_Annexes_numeriques_BAT.pdf;0;464;3184;1117082;50b7577e7205dd1f
+D:/softwareRenderer/Rodolf/Cours/lightning.pdf;0;9;0;0;14650fb0739d0383
+D:/softwareRenderer/Rodolf/Cours/LM_ADEQUANCE.pdf;1;1;14;2518;da54a3275e115e48
+D:/softwareRenderer/Rodolf/Cours/LoadBitmapA function (winuser.h) - Win32 apps _ Microsoft Learn.pdf;1;4;66;3490;e546e32e8fd02157
+D:/softwareRenderer/Rodolf/Cours/Make a window and draw pixels to it with - C++ Forum.pdf;1;5;36;6592;4c7bc15f816f2346
+D:/softwareRenderer/Rodolf/Cours/make-print.pdf;0;11;155;13818;307586ed00d09d8d
+D:/softwareRenderer/Rodolf/Cours/make_file.pdf;0;26;0;0;14650fb0739d0383
+D:/softwareRenderer/Rodolf/Cours/matrices.pdf;0;41;0;0;14650fb0739d0383
+D:/softwareRenderer/Rodolf/Cours/MethodOfSeparatingAxes.pdf;0;22;187;47833;28f81c7cc515851d
+D:/softwareRenderer/Rodolf/Cours/Miscellaneous Mouse Operations - Win32 apps _ Microsoft Learn.pdf;1;6;69;8164;273038f3077d42a7
+D:/softwareRenderer/Rodolf/Cours/Mouse movement - Win32 apps _ Microsoft Learn.pdf;1;7;65;7180;2b04ff3d5cbcc603
+D:/softwareRenderer/Rodolf/Cours/Mouvement de la souris - Applications Win32 _ Microsoft Apprendre.pdf;1;7;65;8221;30092387fb9263f2
+D:/softwareRenderer/Rodolf/Cours/Native Win32 API OpenGL Tutorial - Part 1 - CodeProject.pdf;1;6;71;9726;a28d25d3f86184e6
+D:/softwareRenderer/Rodolf/Cours/NeHe Productions_ Creating an OpenGL Window (Win32).pdf;1;11;181;50734;36ac2e2cf5a6e387
+D:/softwareRenderer/Rodolf/Cours/network-TCP01-dvp.pdf;0;12;146;28998;1f3c3566ad96e507
+D:/softwareRenderer/Rodolf/Cours/network-TCP08-dvp.pdf;0;26;233;76678;2609ec3d74541a27
+D:/softwareRenderer/Rodolf/Cours/NeurIPS-2020-introducing-routing-uncertainty-in-capsule-networks-Paper.pdf;0;13;164;43375;f496d9661627848a
+D:/softwareRenderer/Rodolf/Cours/Ocean simulation part two_ using the fast Fourier transform � www.keithlantz.net.pdf;0;27;446;36223;15355976dd67e7b9
+D:/softwareRenderer/Rodolf/Cours/OpenDesign_Specification_for_.dwg_files.pdf;1;279;8068;495023;0fa653a1997f5c17
+D:/softwareRenderer/Rodolf/Cours/OpenGL GUI Application.pdf;1;12;150;28279;4d0535bb1238ce58
+D:/softwareRenderer/Rodolf/Cours/OpenGL_Win32_Tutorial.pdf;0;6;96;12536;729567e3aab3ae7b
+D:/softwareRenderer/Rodolf/Cours/PaintDesktop function (winuser.h) - Win32 apps _ Microsoft Learn.pdf;1;2;26;845;1a0a024d9a7707dd
+D:/softwareRenderer/Rodolf/Cours/Painting the Window - Win32 apps _ Microsoft Learn.pdf;1;4;29;4297;973657f50f7e1caf
+D:/softwareRenderer/Rodolf/Cours/part5_pointcloudLearning_guibas.pdf;1;150;678;23847;9aad8a464bfb0649
+D:/softwareRenderer/Rodolf/Cours/pg106-cours (1).pdf;0;153;455;72442;5b37ba409824ed01
+D:/softwareRenderer/Rodolf/Cours/pg106-cours.pdf;0;153;455;72442;5b37ba409824ed01
+D:/softwareRenderer/Rodolf/Cours/phys1.pdf;0;23;0;0;14650fb0739d0383
+D:/softwareRenderer/Rodolf/Cours/phys2.pdf;0;24;0;0;14650fb0739d0383
+D:/softwareRenderer/Rodolf/Cours/phys_model.pdf;0;287;801;44146;28ca265dbe1d3acf
+D:/softwareRenderer/Rodolf/Cours/Pie function (wingdi.h) - Win32 apps _ Microsoft Learn.pdf;1;3;48;2100;2b36c8bb5e038d30
+D:/softwareRenderer/Rodolf/Cours/Polygon function (wingdi.h) - Win32 apps _ Microsoft Learn.pdf;1;3;39;1605;6dd3748aecf6cfec
+D:/softwareRenderer/Rodolf/Cours/PolyPolygon function (wingdi.h) - Win32 apps _ Microsoft Learn.pdf;1;3;40;1861;71862ced0da65401
+D:/softwareRenderer/Rodolf/Cours/poly_TF.pdf;0;129;1234;251949;bd8ffde3061228d3
+D:/softwareRenderer/Rodolf/Cours/premake_consult.pdf;0;5;0;0;14650fb0739d0383
+D:/softwareRenderer/Rodolf/Cours/presentationMake.pdf;0;34;162;9316;78f0d40c248f8d16
+D:/softwareRenderer/Rodolf/Cours/Presse-papiers.pdf;1;13;152;30802;7e9c4e18e0c37347
+D:/softwareRenderer/Rodolf/Cours/Prog EN_FR.pdf;0;12;61;7797;af41066f6a82aec1
+D:/softwareRenderer/Rodolf/Cours/Programmation �v�nementielle.pdf;1;37;434;94436;fe1b7ff1f97420fc
+D:/softwareRenderer/Rodolf/Cours/programmer.pdf;0;246;1684;415474;00b1d391c6965694
+D:/softwareRenderer/Rodolf/Cours/Programming-with-C-and-Lab.pdf;0;199;603;282054;99766a7362dca7ac
+D:/softwareRenderer/Rodolf/Cours/Programming_Entity_Framework_-_Building_Data_Centric_Apps_with_the_ADO.NET_Entity_Framework_2nd_Edition.pdf;0;914;6259;1876745;98c4331eaedc398d
+D:/softwareRenderer/Rodolf/Cours/Rajasegaran_DeepCaps_Going_Deeper_With_Capsule_Networks_CVPR_2019_paper.pdf;0;9;31;37167;5fa46b722f59b53e
+D:/softwareRenderer/Rodolf/Cours/Raw Vulkan.pdf;0;40;322;34445;9eb6b7a6e07f3ef8
+D:/softwareRenderer/Rodolf/Cours/react-native-fr.pdf;0;101;1071;107882;aebc344122b602c7
+D:/softwareRenderer/Rodolf/Cours/react_native_tutorial.pdf;1;117;2049;72272;1ca00bbcff5bf25a
+D:/softwareRenderer/Rodolf/Cours/RECT (windef.h) - Win32 apps _ Microsoft Learn.pdf;1;2;24;785;abbfd97587614882
+D:/softwareRenderer/Rodolf/Cours/Rectangle function (wingdi.h) - Win32 apps _ Microsoft Learn.pdf;1;3;40;1546;9cb00e62dd7f7505
+D:/softwareRenderer/Rodolf/Cours/Render Targets, Devices, and Resources - Win32 apps _ Microsoft Learn.pdf;1;5;49;6045;351314c513ef8b04
+D:/softwareRenderer/Rodolf/Cours/Responding to Mouse Clicks - Win32 apps _ Microsoft Learn.pdf;1;4;57;4850;da533e569324214f
+D:/softwareRenderer/Rodolf/Cours/RoughPlaneAnalysis.pdf;0;17;260;31139;732ee74b4ef4d4b0
+D:/softwareRenderer/Rodolf/Cours/RoundRect function (wingdi.h) - Win32 apps _ Microsoft Learn.pdf;1;3;42;1629;de755db496922e5e
+D:/softwareRenderer/Rodolf/Cours/Saisie au clavier (D�marrez avec Win32 et C++) - Applications Win32 _ Microsoft Apprendre.pdf;1;8;72;12480;80187df5ad79b587
+D:/softwareRenderer/Rodolf/Cours/sc415607.pdf;0;656;6890;1283243;cd99e715f824cc04
+D:/softwareRenderer/Rodolf/Cours/SESSION_DE_LANCEMENT_CERTIFICAT_IA_POUR_TOUS_1_.pdf;1;1;2;1404;1dd20107211ef7d2
+D:/softwareRenderer/Rodolf/Cours/SetBkColor function (wingdi.h) - Win32 apps _ Microsoft Learn.pdf;1;3;39;1716;3a32161ab40cd346
+D:/softwareRenderer/Rodolf/Cours/SetBkMode function (wingdi.h) - Win32 apps _ Microsoft Learn.pdf;1;4;44;3584;4779ef2dd7177fa1
+D:/softwareRenderer/Rodolf/Cours/Setting the Cursor Image - Win32 apps _ Microsoft Learn.pdf;1;2;21;2738;d7ad296e1ef92f20
+D:/softwareRenderer/Rodolf/Cours/SetWindowRgn function (winuser.h) - Win32 apps _ Microsoft Learn.pdf;1;3;40;2298;f7e48cb0fcd54ab4
+D:/softwareRenderer/Rodolf/Cours/Shadow volumes � www.keithlantz.net.pdf;0;13;154;22195;36cdc5de32b3bb38
+D:/softwareRenderer/Rodolf/Cours/Simulation oc�anique, deuxi�me partie�_ utilisation de la transform�e de Fourier rapide � www.keithlantz.net.fr.pdf;0;27;462;38306;bdb59e328ede7dff
+D:/softwareRenderer/Rodolf/Cours/Simulation oc�anique, premi�re partie�_ utilisation de la transform�e de Fourier discr�te � www.keithlantz.net.pdf;0;31;546;50440;8b234187be1ce347
+D:/softwareRenderer/Rodolf/Cours/spring-boot-fr.pdf;0;105;1008;145225;6de5f8a491c2aa7e
+D:/softwareRenderer/Rodolf/Cours/spring-boot-reference.pdf;0;973;15191;1652253;8de623ced3dd98fa
+D:/softwareRenderer/Rodolf/Cours/spring_boot_tutorial.pdf;0;332;9588;384048;f60af8fcbd8d2f22
+D:/softwareRenderer/Rodolf/Cours/TCP_IP.pdf;0;285;1682;468508;62dd479367d66ff5
+D:/softwareRenderer/Rodolf/Cours/ToUnicode function (winuser.h) - Win32 apps _ Microsoft Learn.pdf;1;4;60;4515;11fba91663267aa8
+D:/softwareRenderer/Rodolf/Cours/Traceur de chemin�_ lentille fine, cartographie de texture, �quations de Fresnel et ombrage fluide � www.keithlantz.net.pdf;0;9;129;7836;ddb4a63566275d34
+D:/softwareRenderer/Rodolf/Cours/Traitement des images.pdf;1;25;362;97934;3a6c29a31cc82f1d
+D:/softwareRenderer/Rodolf/Cours/Tutoriel Makefile par exemple.pdf;1;26;329;36620;b3fb932bbc85e428
+D:/softwareRenderer/Rodolf/Cours/T�l�communications en Cameroun.pdf;0;5;59;6380;116cc981e5a6a989
+D:/softwareRenderer/Rodolf/Cours/Un objet joystick Linux C++ � www.keithlantz.net.pdf;0;10;160;11527;529124b0aaaf4412
+D:/softwareRenderer/Rodolf/Cours/User input extended example - Win32 apps _ Microsoft Learn.pdf;1;7;64;8139;8d879e2aea9f3388
+D:/softwareRenderer/Rodolf/Cours/Using Color in Direct2D - Win32 apps _ Microsoft Learn.pdf;1;4;48;5123;64077360e0551160
+D:/softwareRenderer/Rodolf/Cours/Using Filled Shapes - Win32 apps _ Microsoft Learn.pdf;1;7;26;9919;9a9895eee4c082ae
+D:/softwareRenderer/Rodolf/Cours/Vecteezy-License-Information.pdf;0;8;58;9051;d4f537a00dd3af53
+D:/softwareRenderer/Rodolf/Cours/Virtual-Key Codes (Winuser.h) - Win32 apps _ Microsoft Learn.pdf;1;10;209;6658;ca80d3f5508b67b9
+D:/softwareRenderer/Rodolf/Cours/Win32 API Tutorial 3 - How To Draw Pixels in A Window Using GDI in Win32 API (Graphics Device Interface).pdf;1;2;29;2946;0c69d29c4458f0d9
+D:/softwareRenderer/Rodolf/Cours/windows-win32-direct3dgetstarted.pdf;1;76;762;116238;180339d3b009911e
+D:/softwareRenderer/Rodolf/Cours/WM_CHAR message (Winuser.h) - Win32 apps _ Microsoft Learn.pdf;1;4;45;3844;988b1597485b9c15
+D:/softwareRenderer/Rodolf/Cours/WM_KEYDOWN message (Winuser.h) - Win32 apps _ Microsoft Learn.pdf;1;4;42;3344;0706f4c5052ac548
+D:/softwareRenderer/Rodolf/Cours/Writing a Cross-Platform Dynamic Library � Liz's.pdf;0;8;74;16388;a697a72a2571d8a3
+D:/softwareRenderer/Rodolf/Cours/XINPUT and Controller Subtypes - Win32 apps _ Microsoft Learn.pdf;1;3;20;3089;3d683cb230aab997
+D:/softwareRenderer/Rodolf/Cours/xinput.pdf;0;5;0;0;14650fb0739d0383
+D:/softwareRenderer/Rodolf/Cours/XInputEnable function (xinput.h) - Win32 apps _ Microsoft Learn.pdf;1;2;33;1532;c11e63375f904600
+D:/softwareRenderer/Rodolf/Cours/Your First Direct2D Program - Win32 apps _ Microsoft Learn.pdf;1;5;52;5024;4e5f039cba0e1839
+D:/softwareRenderer/Rodolf/Cours/__1.pdf;0;64;0;0;14650fb0739d0383
+D:/softwareRenderer/Rodolf/Cours/__2.pdf;0;8;0;0;14650fb0739d0383
+D:/softwareRenderer/Rodolf/Cours/__3.pdf;0;4;0;0;14650fb0739d0383
+D:/softwareRenderer/Rodolf/Cours/__4.pdf;0;7;0;0;14650fb0739d0383
+D:/softwareRenderer/Rodolf/Cours/__5.pdf;0;56;0;0;14650fb0739d0383
