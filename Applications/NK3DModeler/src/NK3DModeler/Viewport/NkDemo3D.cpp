@@ -14313,12 +14313,18 @@ namespace nkentseu {
 				return;
 			NkVpProjMat &m = nkvpProjMats[i];
 			m.nrmStrength = nrm < 0.f ? 0.f : (nrm > 2.f ? 2.f : nrm);
-		// PLAFOND A 200 et non 20 (Rihen, 14 aout : « l'intensite est plafonnee
-			// a 20 »). Une emission sert aussi a ECLAIRER une scene, pas seulement a
-			// colorer une surface : vingt suffit a une enseigne, pas a une source.
-			// Blender ne borne pas cette valeur ; on garde une borne, mais assez
-			// haute pour ne pas se mettre en travers.
-			m.emiStrength = emi < 0.f ? 0.f : (emi > 200.f ? 200.f : emi);
+		// AUCUN PLAFOND (Rihen, 14 aout : « on ne doit pas borner pas du tout »).
+			// J'avais releve la borne de 20 a 200 -- c'etait deplacer le mur, pas
+			// l'enlever. Une emission eclaire une scene : sa valeur utile depend de
+			// l'exposition, de l'echelle et de ce qu'on veut obtenir, et rien ici ne
+			// sait mieux que l'utilisateur ou elle doit s'arreter. Blender ne borne
+			// pas non plus.
+			//
+			// SEUL LE ZERO EST GARDE : ce n'est pas une borne de confort mais le
+			// domaine de definition -- une intensite negative retirerait de la
+			// lumiere, ce qu'aucun shader ne sait faire, et donnerait des couleurs
+			// negatives.
+			m.emiStrength = emi < 0.f ? 0.f : emi;
 			if (!NkvpMatEng(i))
 				return;
 			// L'intensite de relief vit DANS SetNormalMap : la reposer exige de
