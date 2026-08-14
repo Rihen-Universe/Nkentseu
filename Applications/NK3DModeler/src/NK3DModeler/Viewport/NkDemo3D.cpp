@@ -972,6 +972,8 @@ namespace nkentseu {
 		/// l'image ECRITE dans le materiau ne se refait qu'a l'enregistrement.
 		static NkVector<uint8> nkvpMatThumbPix[kNkvpMaxProjMats];
 		static bool nkvpMatThumbNeuf[kNkvpMaxProjMats] = {};
+		/// Sa vignette vient d'etre encodee et n'est pas encore dans son fichier.
+		static bool nkvpMatThumbAEcrire[kNkvpMaxProjMats] = {};
 		/// OU ECRIVENT LES FACADES, et AVEC QUEL renderer. Par defaut la vue 3D ; le
 		/// temps de reconstruire un apercu, on bascule sur l'autre jeu. C'est ce qui
 		/// evite de recopier les quarante lignes d'application des reglages -- une
@@ -12422,6 +12424,15 @@ namespace nkentseu {
 			}
 		}
 
+		int32 Demo3DHostMatThumbTakeDirty() {
+			for (int32 i = 0; i < kNkvpMaxProjMats; ++i)
+				if (nkvpMatThumbAEcrire[i]) {
+					nkvpMatThumbAEcrire[i] = false; // consomme : une seule reecriture
+					return i;
+				}
+			return -1;
+		}
+
 		bool Demo3DHostMatThumbTakePixels(int32 i, const uint8 **px, int32 *cote) {
 			if (i < 0 || i >= kNkvpMaxProjMats || !nkvpMatThumbNeuf[i])
 				return false;
@@ -12500,7 +12511,19 @@ namespace nkentseu {
 				if (deja)
 					continue;
 				gThumbs.slot[gThumbs.nb] = i;
-				gThumbs.pourFichier[gThumbs.nb] = false; // affichage seulement
+				// ENCODE AUSSI, et c'est tout le point. Ne rafraichir que l'image
+				// affichee laissait le base64 du fichier en retard d'une
+				// modification : l'enregistrement ecrivait la vignette de l'etat
+				// PRECEDENT, puisque la capture demandee a ce moment-la n'est rendue
+				// qu'une a deux frames plus tard -- apres l'ecriture. Le fichier
+				// portait donc un albedo rouge et une vignette verte (constate le
+				// 14 aout en decodant Bob/Mate.nkmat).
+				//
+				// Preparer le base64 des que les reglages se posent coute un encodage
+				// PNG par modification stabilisee -- quelques millisecondes, une fois
+				// par changement. L'enregistrement n'a plus alors qu'a ecrire ce qui
+				// est deja pret, et ne peut plus etre en retard.
+				gThumbs.pourFichier[gThumbs.nb] = true;
 				++gThumbs.nb;
 			}
 		}
@@ -12537,7 +12560,13 @@ namespace nkentseu {
 						uint8 *pngBuf = nullptr;
 						usize pngSz = 0;
 						if (pourFichier && im.EncodePNG(pngBuf, pngSz) && pngBuf && pngSz > 0) {
-							nkvpProjMatThumb[sc] = encoding::base64::NkEncode(pngBuf, pngSz);
+						nkvpProjMatThumb[sc] = encoding::base64::NkEncode(pngBuf, pngSz);
+							// A ECRIRE SUR LE DISQUE. Une vignette encodee APRES
+							// l'enregistrement ne serait dans aucun fichier avant la
+							// sauvegarde suivante -- exactement le retard d'une
+							// modification qu'on vient de corriger. On signale, et
+							// l'application reecrit ce seul materiau.
+							nkvpMatThumbAEcrire[sc] = true;
 							NkLog::Instance().Info(
 								"[apercu] vignette du materiau {0} : {1} octets PNG", sc,
 								(uint32)pngSz);

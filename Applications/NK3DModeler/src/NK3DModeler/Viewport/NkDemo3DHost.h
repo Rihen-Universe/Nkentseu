@@ -76,6 +76,11 @@ namespace nkentseu {
 		/// ainsi des qu'un reglage change, sans attendre l'enregistrement -- lui
 		/// seul declenche l'encodage dans le fichier, qui coute bien plus cher.
 		bool Demo3DHostMatThumbTakePixels(int32 i, const uint8 **px, int32 *cote);
+		/// Un materiau dont la vignette vient d'etre encodee et n'est pas encore
+		/// dans son fichier, ou -1. A consommer par l'application, qui seule sait
+		/// ecrire : une vignette encodee apres l'enregistrement resterait sinon
+		/// absente du disque jusqu'a la sauvegarde suivante.
+		int32 Demo3DHostMatThumbTakeDirty();
 		const char *Demo3DHostProjMatThumb(int32 i);
 		void Demo3DHostProjMatSetThumb(int32 i, const char *b64);
 

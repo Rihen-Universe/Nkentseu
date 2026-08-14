@@ -2119,6 +2119,26 @@ int nkmain(const NkEntryState &entry) {
 			}
 		}
 
+		// ── UNE VIGNETTE FRAICHEMENT ENCODEE REJOINT SON FICHIER ────────────
+		// Elle est encodee une a deux frames APRES le geste qui l'a demandee ;
+		// si ce geste etait l'enregistrement, le .nkmat est deja ecrit et ne la
+		// contient pas. On reecrit alors ce seul materiau -- sinon le fichier
+		// garderait la vignette de l'etat precedent jusqu'a la sauvegarde
+		// suivante (constate le 14 aout : albedo rouge, vignette verte).
+		if (proj.open && !proj.root.Empty()) {
+			const int32 mDirty = demo::Demo3DHostMatThumbTakeDirty();
+			if (mDirty >= 0) {
+				for (int32 b = 0; b < st.browserCount; ++b)
+					if (st.browserKind[b] == 2 && st.browserMat[b] == mDirty + 1) {
+						NkString errV;
+						if (!nk3d::NkProjectWriteAssets(proj.root, st, &errV, b))
+							nkentseu::NkLog::Instance().Info(
+								"[apercu] vignette : reecriture impossible : {0}", errV.CStr());
+						break;
+					}
+			}
+		}
+
 		// ── APERCUS DES MATERIAUX DU PROJET (ids 4400+) ─────────────────────
 		// Meme mecanique que les vignettes de matcap : l'hote rend la vignette
 		// en pixels quand elle est PERIMEE (parametres ou forme changes), et on
