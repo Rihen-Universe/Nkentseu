@@ -5136,6 +5136,7 @@ namespace nkentseu {
 			auto *vao = renderer ? renderer->GetVoxelAO() : nullptr;
 			if (!vao)
 				return;
+			bool emiEclaireGI = false; // au moins un emissif demande a eclairer
 			vao->Clear();
 			// L'OCCLUSION AMBIANTE EST UNE SEULE NOTION POUR L'UTILISATEUR
 			// (Rihen, 10 aout : « tache noire au sol autour d'un objet alors
@@ -5149,7 +5150,24 @@ namespace nkentseu {
 				bool aoOn = false;
 				float32 aoR = 0.5f, aoI = 1.f;
 				Demo3DHostSSAO(&aoOn, &aoR, &aoI);
-				if (!aoOn) {
+				// ── UN EMISSIF QUI ECLAIRE SUFFIT ────────────────────────────
+				// La grille ne se construisait que si l'occlusion ambiante etait
+				// active. Cocher « Eclaire la scene » ne produisait donc RIEN, sans
+				// que rien a l'ecran ne l'explique -- exactement le defaut que la
+				// regle du 10 aout visait a supprimer (« un reglage affiche qui
+				// n'agit pas »), retourne contre elle.
+				//
+				// Son intention est preservee : elle interdisait les taches sombres
+				// NON DEMANDEES. Ici l'utilisateur a coche une case pour obtenir cet
+				// eclairage-ci -- la demande est explicite.
+				// (le meme temoin sert plus bas pour l'intensite indirecte)
+				emiEclaireGI = false;
+				bool &emiEclaireQqch = emiEclaireGI;
+				for (int32 q = 0; q < kNkvpMaxProjMats && !emiEclaireQqch; ++q)
+					emiEclaireQqch = nkvpProjMats[q].used && nkvpProjMats[q].matType == 11 &&
+									 nkvpProjMats[q].emiEclaire &&
+									 nkvpProjMats[q].emiStrength > 0.001f;
+				if (!aoOn && !emiEclaireQqch) {
 					vao->Build(); // grille vide televersee : plus aucune tache
 					st->giBuildMs = vao->GetLastBuildMs();
 					st->giInjectMs = 0.f;
@@ -5205,7 +5223,10 @@ namespace nkentseu {
 			vao->Build();
 			// GI éteint = injection de zéro : l'opacité (donc l'AO) reste, seul
 			// l'indirect disparaît. L'A/B ne change donc QUE ce qu'on veut mesurer.
-			vao->SetGIIntensity(st->giOn ? st->giIntensity : 0.f);
+			// L'indirect ne doit pas etre multiplie par zero quand c'est justement
+			// lui qu'on vient de demander : `giOn` n'a AUCUN interrupteur dans les
+			// panneaux (verifie le 14 aout), il restait donc sur sa valeur de demo.
+			vao->SetGIIntensity((st->giOn || emiEclaireGI) ? st->giIntensity : 0.f);
 		// ── LES EMISSIFS QUI ECLAIRENT ─────────────────────────────────────
 			// Une lumiere ponctuelle est ajoutee au centre de chaque objet dont le
 			// materiau est emissif ET coche « eclaire la scene ». Elle n'entre QUE
