@@ -99,6 +99,18 @@ namespace nkentseu {
 			NkString name; ///< Nom lisible
 			NkCameraFacing facing = NkCameraFacing::NK_CAMERA_FACING_ANY;
 
+			/// Inclinaison du CAPTEUR par rapport au haut naturel de l'appareil,
+			/// en degrés et dans le sens horaire (0, 90, 180 ou 270).
+			///
+			/// Pourquoi ce champ existe : sur un téléphone, le capteur n'est
+			/// presque jamais monté droit — un dos d'appareil Android rend
+			/// habituellement 90. Sans cette information l'application reçoit une
+			/// image COUCHÉE sans aucun moyen de le savoir : elle doit deviner,
+			/// et une devinette juste sur un appareil est fausse sur le suivant.
+			/// Sur poste de travail la valeur reste 0, une webcam étant montée
+			/// droite. Constaté le 2026-08-12 sur Galaxy S22+.
+			int32 sensorOrientation = 0;
+
 			struct Mode {
 					uint32 width = 0;
 					uint32 height = 0;
