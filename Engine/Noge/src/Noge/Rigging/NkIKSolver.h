@@ -19,7 +19,7 @@
 //     NKRenderer — seule sa position mémoire sert de clé pour ce pont).
 //   • Chain / TwoBoneChain / SplineChain (API publique conservée pour rester
 //     compatible avec NkFootIKSystem etc.) sont convertis en NkIKChainDesc +
-//     enum renderer::NkIKSolver puis résolus par NkIKSystem::SolveRig — voir
+//     enum renderer::NkIKMethod puis résolus par NkIKSystem::SolveRig — voir
 //     NkIKSolver.cpp pour le détail du marshalling (BuildWorldPose / write-back).
 //   • BuildWorldPose fait un FK minimal (local -> monde, bones[i].parent, os
 //     supposés stockés PARENT AVANT ENFANT) depuis ecs::NkSkeleton::bones[i].
@@ -31,7 +31,7 @@
 //     connue et assumée (voir NkIKSolver.cpp). `skinMatrices` est en revanche
 //     recalculé pour TOUT le squelette (monde résolu × inverseBindPose), donc
 //     le rendu skinné reste cohérent même sans ce re-FK.
-//   • SolveSpline délègue à renderer::NkIKSolver::NK_SPLINE. Ce chemin est
+//   • SolveSpline délègue à renderer::NkIKMethod::NK_SPLINE. Ce chemin est
 //     ENCORE UN STUB côté NkIKSystem.cpp (SolveChain_Spline ne fait rien,
 //     commentaire "stub" à la source) : ce n'est PAS une régression introduite
 //     ici — l'appel est réellement délégué, il ne fait juste rien tant que
@@ -141,7 +141,7 @@ namespace nkentseu {
 			// ── Solveurs — DÉLÈGUENT à renderer::NkIKSystem ────────────────
 
 			/**
-			 * @brief FABRIK — délègue à renderer::NkIKSolver::NK_FABRIK.
+			 * @brief FABRIK — délègue à renderer::NkIKMethod::NK_FABRIK.
 			 * @return Plafond d'itérations transmis (chain.maxIterations) :
 			 *         NkIKSystem ne remonte pas le nombre d'itérations RÉELLEMENT
 			 *         effectuées (early-exit interne sur la tolérance) — ce n'est
@@ -150,19 +150,19 @@ namespace nkentseu {
 			uint32 SolveFABRIK(ecs::NkSkeleton &skeleton, const Chain &chain) noexcept;
 
 			/**
-			 * @brief CCD — délègue à renderer::NkIKSolver::NK_CCD. Même remarque
+			 * @brief CCD — délègue à renderer::NkIKMethod::NK_CCD. Même remarque
 			 * sur la valeur de retour que SolveFABRIK.
 			 */
 			uint32 SolveCCD(ecs::NkSkeleton &skeleton, const Chain &chain) noexcept;
 
 			/**
-			 * @brief TwoBone — délègue à renderer::NkIKSolver::NK_TWO_BONE
+			 * @brief TwoBone — délègue à renderer::NkIKMethod::NK_TWO_BONE
 			 * (solution analytique exacte, loi des cosinus + pôle).
 			 */
 			void SolveTwoBone(ecs::NkSkeleton &skeleton, const TwoBoneChain &chain) noexcept;
 
 			/**
-			 * @brief Spline IK — délègue à renderer::NkIKSolver::NK_SPLINE.
+			 * @brief Spline IK — délègue à renderer::NkIKMethod::NK_SPLINE.
 			 * NOTE : ce chemin est un STUB côté NKRenderer (SolveChain_Spline ne
 			 * fait rien) — l'appel est réellement délégué, le squelette restera
 			 * simplement inchangé tant que l'amont n'est pas implémenté.
@@ -207,7 +207,7 @@ namespace nkentseu {
 			uint32 SolveByDesc(ecs::NkSkeleton &skeleton, const NkVector<uint32> &boneIndices,
 							   const NkVec3f &targetPos, const NkQuatf &targetRot, bool matchRotation,
 							   const NkVec3f &poleVector, bool usePole, float32 weight, uint32 maxIterations,
-							   float32 tolerance, renderer::NkIKSolver solverKind) noexcept;
+							   float32 tolerance, renderer::NkIKMethod solverKind) noexcept;
 	};
 
 	// =========================================================================
