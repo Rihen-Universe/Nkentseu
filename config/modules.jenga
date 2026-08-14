@@ -106,7 +106,7 @@ _REGISTRY: dict = {
     # NKSL : langage de shaders (compilateur NkSL + ShaderConvert SPIR-V). Pur CPU.
     "NKSL"           : _m("NKENTSEU_NKSL",         ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKThreading", "NKFileSystem"]),
     "NKRHI"          : _m("NKENTSEU_RHI",          ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKEvent", "NKWindow", "NKFileSystem", "NKSL"]),
-    "NKRenderer"     : _m("NKENTSEU_RENDERER",     ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKTime", "NKThreading", "NKEvent", "NKWindow", "NKRHI", "NKSL", "NKImage", "NKFont", "NKFileSystem", "NKSerialization", "NKReflection"]),
+    "NKRenderer"     : _m("NKENTSEU_RENDERER",     ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKTime", "NKThreading", "NKEvent", "NKWindow", "NKRHI", "NKSL", "NKImage", "NKFont", "NKFileSystem", "NKSerialization", "NKReflection", "NKAnimation", "NKAnimPhysics"]),
     "NKImage"        : _m("NKENTSEU_IMAGE",        ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKFileSystem"]),
     "NKMedia"        : _m("NKENTSEU_MEDIA",        ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKStream", "NKFileSystem", "NKImage", "NKThreading"]),
     "NKFont"         : _m("NKENTSEU_FONT",         ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKImage"]),
@@ -121,6 +121,10 @@ _REGISTRY: dict = {
     # NKPhysics/NkRagdoll (qui expose deja Build/ReadPose/SetActive/SetPoseTargets),
     # jamais sur un second pont. Voir l en-tete de NKAnimPhysics.jenga.
     "NKAnimPhysics"  : _m("NKENTSEU_ANIMPHYSICS",  ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath"]),
+    # NKAnimation : substrat d animation (clips, blend, HFSM, reciblage, motion
+    # path, edition de pose-cles). Foundation seule, aucun GPU. FRERE de
+    # NKAnimPhysics, jamais son parent : les deux ne s incluent pas.
+    "NKAnimation"    : _m("NKENTSEU_ANIMATION",    ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKFileSystem"]),
     "NKNavigation"   : _m("NKENTSEU_NAVIGATION",   ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKCollision"]),
     # NKXR : runtime VR/AR/XR maison (sessions, espaces, poses, entrees par
     # actions, swapchains par oeil). NKTime pour horodater/predire les poses,
@@ -136,7 +140,7 @@ _REGISTRY: dict = {
     "Noge"           : _m("NKENTSEU_NOGE",         ["NKPlatform", "NKCore", "NKMemory", "NKContainers",
                                                     "NKMath", "NKThreading", "NKLogger", "NKTime",
                                                     "NKEvent", "NKWindow", "NKCanvas", "NKRHI", "NKRenderer", "NKSL",
-                                                    "NKFont", "NKImage", "NKUI"]),
+                                                    "NKFont", "NKImage", "NKUI", "NKAnimation", "NKAnimPhysics"]),
     # Socle d'editeur partage (coquille dockable, panneaux, palette). 2D pur :
     # NKCanvas/NKUI, SANS NKRenderer ni NKReflection. Consomme par NKCode.
     "NKEditorKit"    : _m("NKENTSEU_EDITORKIT",    ["NKPlatform", "NKCore", "NKMemory", "NKContainers",
@@ -165,7 +169,7 @@ _ALIASES: dict = {
     "time": "NKTime", "reflection": "NKReflection", "serialization": "NKSerialization",
     "network": "NKNetwork", "event": "NKEvent", "window": "NKWindow", "canvas": "NKCanvas",
     "nksl": "NKSL", "rhi": "NKRHI", "renderer": "NKRenderer", "image": "NKImage",
-    "font": "NKFont", "ecs": "NKECS", "camera": "NKCamera", "collision": "NKCollision", "physics": "NKPhysics", "animphysics": "NKAnimPhysics", "navigation": "NKNavigation", "ui": "NKUI", "audio": "NKAudio", "xr": "NKXR",
+    "font": "NKFont", "ecs": "NKECS", "camera": "NKCamera", "collision": "NKCollision", "physics": "NKPhysics", "animphysics": "NKAnimPhysics", "animation": "NKAnimation", "navigation": "NKNavigation", "ui": "NKUI", "audio": "NKAudio", "xr": "NKXR",
     "noge": "Noge", "engine": "Noge", "nkentseu": "Noge", "glad": "NKGlad", "gui": "NKGui",
 }
 

@@ -1,10 +1,10 @@
 // =============================================================================
 // NKRenderer/Tools/Animation/NkMotionPath.cpp — animation par courbe (voir .h).
 // =============================================================================
-#include "NKRenderer/Tools/Animation/NkMotionPath.h"
+#include "NKAnimation/NkMotionPath.h"
 
 namespace nkentseu {
-	namespace renderer {
+	namespace anim {
 
 		using math::NkVec3f;
 
@@ -379,5 +379,5 @@ namespace nkentseu {
 			return ok;
 		}
 
-	} // namespace renderer
+	} // namespace anim
 } // namespace nkentseu
