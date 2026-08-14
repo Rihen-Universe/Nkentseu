@@ -7,8 +7,7 @@
 > **État honnête au 2026-07-23** (audit avant increment) : M0 (IK) ✅ terminé.
 > M1 (pose/timeline) très avancé, quelques items UI restants. M2 (blend
 > 1D/2D + HFSM) **était marqué ⏳ mais en fait déjà implémenté et self-testé**
-> dans `NkAnimationSystem` — correction de doc faite ci-dessous ; retargeting +
-> mouvement secondaire de M2 restent, eux, réellement non commencés. M3
+> dans `NkAnimationSystem` — correction de doc faite ci-dessous. M3
 > (physique de pose façon Cascadeur) ✅ terminé, 6/6 briques, 9/9 tests headless.
 > M4 (IA auto-pose) non commencé. **M4bis (couche acteur/directeur) : 1re brique
 > sur 5 livrée aujourd'hui — `NkRoleContext` (contexte de rôle + schéma strict),
@@ -16,7 +15,29 @@
 > Le pont directeur (inférence LLM réelle, ex-mal-nommé "NKAI" dans des docs
 > antérieures — bien distinct du vrai module Kernel/AI/NKAI) n'est PAS câblé :
 > seule la structure de données + validation qui le recevra existe. M5 non
-> commencé.
+> commencé (`Applications/NkAnima/` ne contient à ce jour que ce fichier).
+
+> **⚠️ CORRECTION DU 2026-08-14 — le retargeting était livré depuis le 6 août.**
+> La phrase corrigée ci-dessus mettait « retargeting » et « mouvement
+> secondaire » **dans la même clause** (« restent, eux, réellement non
+> commencés »). Les deux n'ont pas le même état, et l'amalgame a survécu à la
+> livraison du premier :
+> - **Retargeting : ✅ LIVRÉ.** `NKRenderer/Tools/Animation/NkAnimRetarget.{h,cpp}`,
+>   **660 lignes** (174 + 486), exercé par `Applications/NkAnimPhysTest`.
+>   Commit `7a1f7d81`, dont le message dit lui-même « (M2, etait « non
+>   commence ») ». L'en-tête du module l'écrit aussi, l. 13-14 : « elle était
+>   explicitement notée « réellement non commencée » dans la roadmap NkAnima ».
+>   Le code annonçait sa propre livraison ; la feuille de route ne l'a pas
+>   entendue pendant huit jours.
+> - **Mouvement secondaire : ⏳ toujours non commencé.** Vérifié le 14/08 :
+>   aucune occurrence de `spring`, `jiggle` ou `NkSpring` dans
+>   `Tools/Animation/`. Le blend **additif** non plus (aucune occurrence de
+>   `additi*`).
+>
+> Leçon de méthode, applicable à toute cette roadmap : **ne jamais grouper deux
+> items d'état différent dans une même phrase.** Le jour où l'un des deux avance,
+> la phrase devient fausse en bloc et personne ne sait laquelle des deux moitiés
+> corriger.
 
 ## Vision
 
@@ -327,13 +348,30 @@ Détail cible (fusion corpus IA 2026-07-09) :
   Self-tests headless dans `Applications/Sandbox/src/Demo/DemoAnim.cpp`
   (gate `NK_ANIM_SMTEST`, nécessite un modèle multi-anim type Fox) : state
   machine idle→walk→retour idle + comptage d'événements OK, blend 2D mix/exact
-  OK. **Reste non couvert par cette correction** (toujours ⏳, non commencé) :
+  OK. **Reste de M2** (état revérifié fichier par fichier le 2026-08-14) :
+  - ✅ **Retargeting — LIVRÉ le 2026-08-06** (commit `7a1f7d81`).
+    `NKRenderer/Tools/Animation/NkAnimRetarget.{h,cpp}`, **660 lignes**. Les
+    trois règles sont dans l'en-tête, avec leur raison : transfert du **delta à
+    la pose de repos** (`cible_locale = repos_cible × repos_source⁻¹ ×
+    source_locale`) et non du transform absolu ; **rotations seules**, sauf la
+    racine dont la translation est mise à l'échelle du rapport de taille ; un os
+    **non apparié garde sa pose de repos** plutôt que l'identité, qui
+    l'effondrerait sur son parent. CPU pur, zéro GPU, testé headless par
+    `NkAnimPhysTest`. Hors périmètre assumé et écrit : verrouillage de pied au
+    sol, appariement par analyse de morphologie, correction de volume.
+  - 🔶 **Édition visuelle** (anim graph node-based) — le **substrat est livré**,
+    c'est le **consommateur anim** qui manque. `Kernel/Runtime/NKGraph` :
+    1 519 lignes, briques P1 (modèle nœud/broche typée/lien), P2 (tri
+    topologique, sous-graphes, plan aplati) et P3 (`.nkgraph`, annuler/refaire)
+    ✅ depuis le 2026-07-31. Restent P4 (widget canevas NKEditorKit) et les
+    consommateurs. **Rien à construire en silo ici** : cf. le bloc de décision
+    NKGraph du `CLAUDE.md`.
   - ⏳ Blend ADDITIF (couches locomotion + overlay haut du corps) — les 1D/2D
-    actuels sont des blends de REMPLACEMENT, pas additifs.
-  - ⏳ Édition visuelle (anim graph node-based, consommateur **NKGraph**).
-  - ⏳ Retargeting : mapping bone-à-bone + normalisation de la pose de repos.
+    actuels sont des blends de REMPLACEMENT, pas additifs. Vérifié absent
+    le 14/08.
   - ⏳ Mouvement secondaire : jiggle/spring bones, ragdoll partiel→complet
     (transition anim→physique via NKPhysics), cloth verlet léger, LOD physique.
+    Vérifié absent le 14/08 (aucun `spring`/`jiggle` dans `Tools/Animation/`).
 
 ### M3 — Physique d'animation : solveur de pose façon Cascadeur
 Contraintes/ragdoll + **trajectoires physiquement correctes** (centre de masse
