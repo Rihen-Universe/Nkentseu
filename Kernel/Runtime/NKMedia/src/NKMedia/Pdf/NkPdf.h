@@ -127,6 +127,19 @@ namespace nkentseu {
 
 					// Element `i` d'un tableau, DEJA resolu.
 					NkPdfVal ArrayAt(const NkPdfVal &arr, int32 i) const;
+
+					// ── Parcours d'un dictionnaire dont on ne connait pas les cles ──
+					//
+					// `DictGet` suppose qu'on sait ce qu'on cherche. Or le /Font des
+					// ressources d'une page nomme ses polices librement (/F1, /TT3,
+					// /g_d0...) : sans iteration, il est impossible de les examiner
+					// toutes — donc impossible de MESURER ce que les polices d'un
+					// corpus declarent avant de decider quoi implementer.
+					int32 DictSize(const NkPdfVal &dict) const {
+						return dict.IsDictLike() ? dict.b : 0;
+					}
+					// Valeur de la `i`-eme entree, DEJA resolue. Objet nul hors bornes.
+					NkPdfVal DictValueAt(const NkPdfVal &dict, int32 i) const;
 					int32 ArraySize(const NkPdfVal &arr) const { return arr.kind == NK_PDF_ARRAY ? arr.b : 0; }
 
 					// Contenu texte d'un NAME ou d'un STRING (pointeur dans le pool,
@@ -146,6 +159,27 @@ namespace nkentseu {
 
 					// Nom du 1er filtre non supporte rencontre (diagnostic), ou "".
 					const NkString &UnsupportedFilter() const { return mUnsupported; }
+
+					// ── Racines du document ──
+					//
+					// Le TRAILER porte /Info (metadonnees) et /Encrypt ; le CATALOGUE
+					// porte /Outlines, /Names, /Dests, /AcroForm, /StructTreeRoot,
+					// /Metadata et /Lang. Sans ces deux points d'entree, AUCUNE couche
+					// exterieure ne peut atteindre autre chose que les pages — elles
+					// sont donc le minimum indispensable a toute extension en lecture
+					// (NkPdfInfo et suivants), et n'exposent rien de plus que ce que le
+					// modele d'objets rend deja public.
+					//
+					// Objet nul si le document n'est pas charge.
+					NkPdfVal Trailer() const {
+						return (mTrailer >= 0 && (usize)mTrailer < mVals.Size())
+								   ? mVals[(usize)mTrailer]
+								   : NkPdfVal();
+					}
+					NkPdfVal Catalog() const {
+						return (mRoot >= 0 && (usize)mRoot < mVals.Size()) ? mVals[(usize)mRoot]
+																		   : NkPdfVal();
+					}
 
 				private:
 					// ── Analyse lexicale/syntaxique ──
@@ -191,6 +225,11 @@ namespace nkentseu {
 					static bool Ascii85(const uint8 *in, usize inSz, NkVector<uint8> &out);
 					static bool AsciiHex(const uint8 *in, usize inSz, NkVector<uint8> &out);
 					static bool RunLength(const uint8 *in, usize inSz, NkVector<uint8> &out);
+					// LZW variante TIFF (codes 9->12 bits, gros-boutiste). Ajoute par
+					// MESURE : 5 documents du corpus l'emploient sur leurs flux de
+					// CONTENU DE PAGE, et sont illisibles sans lui.
+					static bool LzwDecode(const uint8 *in, usize inSz, NkVector<uint8> &out,
+										  int32 earlyChange);
 					// Predicteurs PNG/TIFF de /DecodeParms — INDISPENSABLE : les flux
 					// d'index les utilisent presque toujours, sans quoi la table est du
 					// bruit et le document parait corrompu.

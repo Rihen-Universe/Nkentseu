@@ -302,6 +302,247 @@ vocabulaire déjà écrit ; (5) les autres suivent le même moule.
 
 ---
 
+## PDF — PHASE 0 : sondage du corpus avant d'étendre le lecteur (2026-08-13)
+
+**Méthode** : le périmètre du lecteur a été fixé par mesure sur 95 documents
+réels (en-tête de `NkPdf.h`). Toute extension suit la même discipline — on
+implémente ce que le corpus contient, pas la spécification. Outil :
+`NKIlyana --sonder --dossier <dir> [--csv f]` (`NkIlyanaSondePdf.h`), qui lit
+les clés via le modèle d'objets (donc à travers les flux d'objets compressés)
+et cherche les filtres dans les octets bruts — fiable, car la spécification
+interdit qu'un flux vive dans un flux d'objets.
+
+**Corpus** : `D:\softwareRenderer\Rodolf\Cours`, **258 fichiers**, 255 ouverts,
+3 chiffrés (refusés — comportement voulu).
+
+| clé | documents | % des ouverts | volume |
+|---|---|---|---|
+| `/Info` non vide | **255** | **100 %** | dont `/Title` : 89 (35 %) |
+| `/Annots` | 194 | 76 % | — |
+| ⤷ dont `/Link` | **187** | **73 %** | **56 051 liens** |
+| ⤷ dont `/Text` | 4 | 2 % | — |
+| ⤷ dont `/Highlight` | 0 | 0 % | — |
+| `/StructTreeRoot` | **140** | **55 %** | — |
+| `/Dests` | 140 | 55 % | — |
+| `/Outlines` | 53 | 21 % | **10 354 signets** (≈195 par document qui en a) |
+| `/Metadata` (XMP) | 40 | 16 % | — |
+| `/Lang` | 39 | 15 % | — |
+| `/AcroForm /Fields` | **2** | **1 %** | — |
+| `/Names /EmbeddedFiles` | **0** | **0 %** | — |
+
+| filtre | documents |
+|---|---|
+| DCT (JPEG) | 104 |
+| **LZWDecode** | **5** |
+| CCITTFax | 3 · JBIG2 1 · JPX 0 |
+
+### Ce que la mesure change dans le plan — DEUX phases supprimées, UNE remontée
+
+**⛔ Supprimées** (les écrire serait exactement l'erreur que le sondage doit
+éviter) :
+- **`/AcroForm`** : 2 documents sur 255. Des formulaires administratifs, sans
+  intérêt pour une bibliothèque de cours.
+- **`/EmbeddedFiles`** : **zéro** document. Rien à écrire.
+- **`/Metadata` XMP** : 16 %, et **entièrement redondant** avec `/Info`, présent
+  à 100 %. On n'ajoute pas un parseur XML pour une source moins bien couverte
+  que celle qu'on a déjà.
+
+**⭐ Remontée — `LZWDecode`, de dernière à deuxième position.** Le sondage
+mesurait 0 % sur l'ancien corpus de 95 PDF ; il en trouve **5** sur 258. Et le
+croisement avec le balayage de lecture est sans appel : **les 5 sont en échec**
+(4 « VIDE », 1 « charabia »). Vérification de causalité faite — le LZW porte
+sur les **flux de contenu de page** (7 occurrences sur 10 dans `Gdmphys1.pdf`,
+4 sur 4 dans `phys_model.pdf`), pas seulement sur des images : sans lui, ces
+pages ne sont jamais décodées.
+
+> C'est le seul chantier qui **débloque des documents entièrement illisibles**
+> — 5 sur les 35 encore inaccessibles, soit 14 % du reliquat — pour ~150 lignes.
+> Toutes les autres phases enrichissent des documents **déjà lus**.
+
+### Ordre définitif proposé
+
+| ordre | chantier | couverture | pourquoi ici |
+|---|---|---|---|
+| **1** | `/Info` + `/Lang` | 100 % / 15 % | universel, coût modéré ; `/Lang` est quasi gratuit une fois le catalogue accessible, et dit à Ilyana si un document est français ou anglais |
+| **2** | **LZWDecode** | 5 docs | seul chantier qui rend LISIBLE ce qui ne l'est pas ; ~150 lignes |
+| **3** | `/StructTreeRoot` | 55 % | la plus forte valeur *qualitative* (ordre de lecture logique = qualité du texte d'Ilyana), mais la plus coûteuse : exige les MCID dans `NkPdfRender` |
+| **4** | `/Dests` + `/Outlines` | 55 % / 21 % | découpage naturel en chapitres ; `/Dests` est la dépendance technique de 3 et 5 |
+| **5** | `/Annots` `/Link` | 73 % | 56 051 liens ; les URL valent pour les citations. Réutilise la résolution de destinations |
+
+### 🛡️ Baseline de non-régression du texte — capturée et VALIDÉE (2026-08-13)
+
+`Applications/NKIlyana/reference/empreintes_pdf.csv` — **versionné**, pris sur
+le commit `df92fe14`, **avant** toute modification du rendu.
+
+Par document : `struct`, pages, **passages**, caractères, **empreinte FNV-1a**
+du texte assemblé. Le hash dit *que* ça a changé ; les compteurs disent *de
+combien et dans quel sens* — c'est ce qui évite la bissection.
+
+**Validée par trois contrôles, inscrits dans l'en-tête du fichier** (une
+baseline trouée est pire que pas de baseline : elle donne une assurance fausse
+sur la partie manquante) :
+
+| contrôle | résultat |
+|---|---|
+| complétude | **258 / 258** documents |
+| lignes à zéro caractère | 26, **toutes expliquées** ; 0 hash absent ou malformé |
+| population `struct` | **140 / 258 = 54,3 %** (attendu ~55 %) |
+
+Le 26ᵉ document à zéro (`lightning.pdf`) n'est pas un scan : **100 % de ses
+caractères sont illisibles**, donc l'assemblage les saute tous. Le balayage
+comptait les caractères *rencontrés*, la baseline mesure le texte *assemblé* —
+les deux mesures sont cohérentes, et il fallait le vérifier plutôt que
+l'arrondir.
+
+### 📐 Identité d'un bloc marqué : (page, MCID) suffit-il ? — MESURÉ
+
+Question soulevée par Rihen : les MCID sont numérotés **par flux de contenu**,
+pas par page. Avec un Form XObject, le même MCID 3 peut exister dans le flux de
+la page ET dans celui du formulaire — le texte serait alors rattaché au mauvais
+nœud de structure. Erreur silencieuse et plausible, le même mode d'échec que
+l'entrelacement de colonnes.
+
+| sonde | résultat |
+|---|---|
+| `/MCR` portant une clé `/Stm` (**borne exacte**) | **0 document, 0 occurrence** |
+| documents balisés avec Form XObject (**borne supérieure**) | 21 |
+
+`/Stm` est le signal que la spécification impose quand le contenu marqué vit
+hors du flux de la page. **Il est absent de tout le corpus** : les 21 documents
+balisés à formulaires n'y placent donc aucun contenu marqué.
+
+> **Décision : `(page, MCID)` suffit pour ce corpus**, et le code le dira — avec
+> le chiffre et la date, pas comme une hypothèse. Si un jour un document dérape,
+> la prochaine session saura exactement quoi revérifier : relancer `--sonder` et
+> regarder si `/MCR /Stm` est passé au-dessus de zéro.
+
+### 📐 Valeur marginale des signets, une fois la structure livrée
+
+`/Outlines` **sans** `/StructTreeRoot` : **44 documents (17 %)**. Ce n'est pas
+marginal — `/StructTreeRoot` porte déjà `H1..H6`, donc les 53 documents à
+signets qui sont aussi balisés n'y gagneraient rien, mais ces 44-là restent
+sans découpage. `/Outlines` conserve donc sa place au plan, juste après la
+structure.
+
+### 📐 Charset CFF — mesuré, et DIFFÉRÉ (2026-08-13)
+
+Hypothèse proposée par Rihen : les 20 polices muettes des documents LaTeX ne
+seraient pas indéchiffrables, mais des **CFF** (`/FontFile3 /Subtype /Type1C`)
+dont les noms de glyphes sont enfermés dans le charset — jamais analysé
+(`charset` apparaît zéro fois dans `NkPdfFont.cpp`). Le dispositif d'aval
+existe déjà : nom → AGL → Unicode, celui qui a récupéré 24 des 29 refusés.
+
+**L'hypothèse technique est JUSTE.** La mesure la confirme :
+
+| | documents | % | polices |
+|---|---|---|---|
+| avec un `/FontFile3` (CFF) | 20 | 8 % | — |
+| avec du `/Subtype /Type1C` | 18 | 7 % | 854 |
+| **dont MUETTES** (ni `/ToUnicode` ni `/Differences`) | **12** | **5 %** | **563** |
+
+12 documents, donc au-dessus du seuil de « une dizaine » — le chantier semblait
+décidé. **Mais le croisement avec le balayage de lecture le renverse :**
+
+| verdict des 12 | nombre |
+|---|---|
+| **déjà lus avec succès** | **10** |
+| en échec (`lightning.pdf`, `phys_model.pdf`) | **2** |
+
+Et parmi les 10 déjà lus, le taux de caractères illisibles est de **0 % à
+0,3 %** — sauf `Creajeux-plaquette.pdf` (24,8 %, une plaquette graphique).
+Autrement dit, ces polices Type1C muettes servent des **symboles secondaires**
+dans des documents dont le corps de texte se lit parfaitement.
+
+> **Gain réel estimé : 2 documents débloqués et 1 amélioré, pas 12.** Le
+> compteur brut disait 12 ; la question utile — « combien de documents cela
+> rend-il lisibles ? » — répond 2. C'est le même piège que le LZW, attrapé
+> cette fois **avant** d'écrire le code.
+
+**Décision : DIFFÉRÉ, au profit de `/StructTreeRoot` (55 % du corpus).** Le
+chantier CFF reste juste techniquement et sera rouvert si le fonds évolue (il
+suffirait d'une série de documents LaTeX récents pour changer le calcul) — le
+mode `--sonder` mesure désormais cette population, la question se retranchera
+en une commande.
+
+---
+
+### 🔶 PHASE 2 — LZWDecode livré, nécessaire mais PAS suffisant
+
+**Le filtre marche, et la mesure le prouve** (`Gdmphys1.pdf`) :
+
+| | avant | après |
+|---|---|---|
+| contenu décodé | **0 octet** | **144 264 o** |
+| opérations exécutées | 0 | 10 536 |
+| ordres de texte | 0 | 814 |
+| caractères rencontrés | **0** | **24 014** |
+
+Les 4 `Gdmphys*.pdf` passaient pour des documents-images ; ils ne l'étaient pas.
+Leur contenu était simplement **compressé avec un filtre que nous ne savions pas
+lire**. Idem pour `phys_model.pdf` (216 322 caractères désormais rencontrés).
+
+**Mais aucun des 5 n'est déposé pour autant, et il faut le dire** : ces
+documents ont un **second défaut, indépendant** — **0 table `/ToUnicode`
+déclarée**, et seules 4 polices sur 24 portent des `/Differences`. Les
+caractères sont donc rencontrés sans qu'on sache ce qu'ils représentent :
+96 % restent sans équivalent, et le garde-fou les refuse (à raison).
+
+> **L'estimation « 5 documents débloqués » était optimiste. La mesure dit : 0
+> document débloqué, mais une cause éliminée et la suivante isolée.** Le gain
+> réel du LZW est ailleurs : tout flux LZW du fonds se décode maintenant, et ces
+> 5 documents ne sont plus classés « image » à tort — ce qui aurait envoyé
+> chercher un OCR pour rien.
+
+Implémentation : variante TIFF, codes 9→12 bits en **gros-boutiste** (le LZW de
+GIF lit à l'envers : les confondre rend du bruit dès le troisième code), cas
+`KwKwK` traité, `/EarlyChange` respecté (défaut 1), dictionnaire en
+(préfixe, suffixe) — stocker les chaînes entières coûterait 16 Mo pour rien.
+
+---
+
+### ✅ PHASE 1 LIVRÉE — `/Info` + `/Lang` (`NkPdfInfo.{h,cpp}`)
+
+**Mesure sur les 258 PDF** :
+
+| | résultat |
+|---|---|
+| dates analysées | **246 (96 %)** |
+| titres lus | 92 (36 %), dont **16 accentués** |
+| langues lues | 39 (15 %) |
+
+**PDFDocEncoding résolu par NOMS DE GLYPHES, jamais par valeurs recopiées.** Les
+deux plages qui diffèrent de Latin-1 (0x18–0x1F et 0x80–0x9F) sont écrites en
+clair (`bullet`, `dagger`, `emdash`, `quotedblleft`…) et résolues via l'Adobe
+Glyph List déjà embarquée. Deux raisons : une transcription manuelle de table a
+déjà produit un décalage d'indexation dans ce dépôt, alors qu'un **nom mal
+orthographié rend une chaîne vide et se voit immédiatement** ; et l'AGL est déjà
+validée et attribuée, donc aucune donnée n'est dupliquée.
+
+**Piège évité, et il valait le détour** : à la première mesure, les titres
+sortaient **sans accents** (« Transformee », « Prasentation »). Avant de
+corriger quoi que ce soit, vérification : le compteur, lui, détectait bien 16
+titres non-ASCII — donc la chaîne *contenait* les accents. C'était la **console
+Windows** qui les mangeait, pas la lecture. Relus depuis un fichier UTF-8 :
+`PowerPoint-Präsentation`, `Compilation séparée`, `Transformée de Fourier`,
+`Écrire vos propres mathé…`. *Un test peut échouer pour la mauvaise raison — et
+« réparer » un défaut inexistant aurait cassé du code correct.*
+
+Sont aussi gérés : l'UTF-16BE avec indicateur d'ordre (paires de substitution
+comprises), l'UTF-16LE (hors spécification, mais des producteurs en écrivent),
+et les dates tronquées — `D:2019` comme `D:20190312150405+02'00'` sont l'une et
+l'autre exploitées, au lieu de rejeter la date entière.
+
+---
+
+⚠️ **Un point bloquant relevé et corrigé** : `Trailer()` et `Catalog()`
+n'étaient pas exposés (`mTrailer`/`mRoot` privés). Or `/Info` vit dans le
+trailer et tout le reste dans le catalogue — aucune couche externe ne pouvait
+les atteindre. Deux accesseurs **en lecture seule, strictement additifs** ont
+été ajoutés à `NkPdf.h` : c'est le minimum indispensable, et ils n'exposent
+rien de plus que ce que le modèle d'objets rend déjà public.
+
+---
+
 ## PDF — ✅ RÉSOLU le 2026-08-11 : trois causes distinctes, trois correctifs
 
 Les 3 documents nommés du lot sont tous lus désormais (mesures avant → après) :

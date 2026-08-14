@@ -32,22 +32,47 @@ NK3DModeler, NKCode, NkForma, NkAnima, NkScena, Nogee, Sandbox : même exigence.
 4. **En-tête de fichier utile** : ce que le fichier contient, ce qu'il ne
    contient **pas**, et vers quoi renvoyer pour le reste. Deux lignes suffisent.
 
-## Les cinq chantiers
+## Les chantiers
 
-### 1. Découper et renommer `NkDemo3D.cpp` — 16 653 lignes
+> Cinq au 12 août 2026. **Sept depuis le 14 août** : la confrontation des
+> feuilles de route au code a ajouté le fork du lecteur PDF (n° 6, chantier de
+> **code**) et l'inventaire de dette documentaire (n° 7). Le n° 1 a par ailleurs
+> été **réglé pour moitié** entre-temps.
+
+### 1. Découper et renommer `NkDemo3D.cpp` — **17 395 lignes** (relevé du 14/08)
 
 Le premier obstacle, et le plus rentable. Ce fichier porte **tout** le viewport
-du modeleur sous un nom qui annonce une démo. Le renommage seul
-(`NkModelerViewport`) supprime la confusion ; le découpage par domaine
-(caméra/vue, matériaux hôte, édition de maillage, gizmos, sortie/rendu, outils)
-rend chaque partie relisible.
+du modeleur sous un nom qui annonce une démo. Le renommage seul supprime la
+confusion ; le découpage par domaine (caméra/vue, matériaux hôte, édition de
+maillage, gizmos, sortie/rendu, outils) rend chaque partie relisible.
 
 Déjà noté comme dette ailleurs : à faire **après** la sauvegarde de scène
 poussée, **jamais** pendant un chantier — un découpage au milieu d'une
 fonctionnalité produit des conflits et des régressions muettes.
 
-Même traitement ensuite pour `NkModelerScreens.h` (13 963 lignes) et
-`NkCodeState.h` (7 754).
+**Deux mises à jour du 2026-08-14, dont une bonne nouvelle :**
+
+- Le chiffre a bougé : **16 653 → 17 395 lignes** en deux jours. Ce n'est pas une
+  correction de mesure, c'est le fichier qui grossit pendant qu'on documente
+  l'intention de le couper.
+- ⚠️ **Le nom `NkModelerViewport` n'est plus disponible.** La refonte d'interface
+  du 13/08 a créé `Shell/NkModelerViewport.h` (1 894 l.), qui est un **extrait de
+  `NkModelerScreens.h`**, pas le renommage prévu ici. Le découpage de `NkDemo3D`
+  devra donc choisir un autre nom — ou fusionner les deux intentions
+  explicitement. Décider **avant** de commencer : découvrir la collision en cours
+  de route est le meilleur moyen de produire deux fichiers au nom voisin et au
+  contenu sans rapport.
+
+**`NkModelerScreens.h` : chantier FAIT le 13/08 — ne pas le refaire.**
+Le fichier est passé de **13 963 à 1 476 lignes** (commit `4eabf396`, « refonte
+de l'interface — decoupage »), réparti sur 19 fichiers dans `Shell/`. Une dette
+réglée qu'on croit ouverte coûte aussi cher qu'une dette ouverte qu'on croit
+réglée : on y retourne, on ne trouve pas le monstre annoncé, on doute de la
+mesure et on perd la confiance dans le document.
+
+Le nouveau plus gros du dossier est **`NkModelerProperties.h`, 7 780 lignes** —
+issu du même découpage. C'est lui, désormais, le candidat au traitement, avec
+`NkCodeState.h` (**7 754**, chiffre inchangé et vérifié).
 
 ### 2. Refaire `ARCHITECTURE.md` — il existe (540 lignes) mais il MENT
 
@@ -110,6 +135,144 @@ test coûte cinq minutes et rattrape des régressions invisibles.
 **Pas de tests sur le rendu** : la validation par capture d'écran reste la bonne
 méthode là, parce que le défaut est visuel et qu'aucune assertion ne remplace un
 œil sur une image.
+
+### 6. Supprimer le FORK du lecteur PDF — 5 211 lignes mortes mais compilées
+
+> Ajouté le **2026-08-14**, après confrontation des feuilles de route au code.
+> ⚠️ **Chantier de CODE, pas de documentation.** Rien n'a été supprimé ni déplacé
+> en le rédigeant. À arbitrer séparément.
+
+Le lecteur PDF existe **deux fois**, sous les mêmes noms de fichiers :
+
+| | `Applications/NKCode/src/NKCode/Pdf/` | `Kernel/Runtime/NKMedia/src/NKMedia/Pdf/` |
+|---|---|---|
+| espace de noms | `nkentseu::nkcode::pdf` | `nkentseu::media::pdf` |
+| lignes | **5 211** | **10 990** |
+| créé | 2026-07-31 | 2026-08-10 |
+| dernière modification | 2026-07-31 | 2026-08-13 |
+
+**Ce n'est pas une divergence lente, c'est un fork littéral** : `NkPdfRaster.cpp`
+fait **588 lignes des deux côtés**, `NkPdfShading.cpp` **358 des deux côtés**. La
+copie du Kernel est partie de l'autre, puis a évolué seule pendant deux semaines.
+
+**Trois faits établis, à traiter dans cet ordre :**
+
+1. **La copie NKCode est morte, et pourtant compilée.** Aucun fichier hors de
+   `src/NKCode/Pdf/` n'inclut `"NKCode/Pdf/…"` — les consommateurs réels
+   (`Shell/NkPdfViewer.h:18-19`, `Shell/NkPdfWorker.h:19-20`) incluent
+   `"NKMedia/Pdf/NkPdf.h"`. Mais la cible NKCode déclare `files(["src/**.cpp"])`
+   avec `location(".")` : les 5 211 lignes entrent dans le binaire sans que
+   personne les appelle.
+2. **Quatre cibles de banc déclarent des chemins qui n'existent pas.**
+   `NKCode.jenga` l. 393, 428, 454 et 481 (`NkPdfProbe`, `NkPdfRasterTest`,
+   `NkPdfRenderProbe`, `NkFileWorkerTest`) listent `src/NKMedia/Pdf/**.cpp` sous
+   `location(".")` = `Applications/NKCode/`. Or `Applications/NKCode/src/` ne
+   contient que `NKCode/`. Les chemins ont été réécrits lors du déménagement du
+   code **sans être re-racinés**, et aucune de ces cibles ne déclare `NKMedia`
+   dans ses dépendances.
+   ⚠️ **« Chemins inexistants » est ce qui a été constaté ; « bancs cassés » ne
+   l'a pas été** — jenga n'a pas été lancé. Savoir si ces cibles échouent ou
+   globent à vide en silence demande un build, et c'est la première chose à
+   faire en ouvrant ce chantier.
+3. **La cause est documentaire, et elle est connue.** `Applications/NKCode/ROADMAP.md`
+   a porté jusqu'au 14/08 la ligne « Afficheur PDF ⬜ — Rien n'existe
+   aujourd'hui — vérifié ». Elle était juste le 30 juillet ; le lecteur a été
+   écrit le 31. **Quelqu'un a lu « rien n'existe » et a reconstruit ce qui
+   existait.** C'est la divergence la plus chère trouvée dans le dépôt, et la
+   seule dont on puisse nommer le coût : un fork de 5 211 lignes.
+
+### 7. Dette documentaire — inventaire, à ne PAS corriger au fil de l'eau
+
+> Ajouté le **2026-08-14**. Ces points sont **relevés, pas corrigés** :
+> individuellement chacun coûte cinq minutes, ensemble ils coûtent trois jours et
+> noient les corrections qui comptent. Ils vivent ici pour être traités **en un
+> passage**, quand un passage sera décidé.
+
+**7.a — Citations de fichiers fausses.** Le format ROADMAP impose de « citer les
+fichiers réels ». Relevé le 14/08 :
+
+| Document | Cité | Réel |
+|---|---|---|
+| `NKRenderer/ROADMAP.md` l. 119 | `PP_FXAA/NkSL/pp_fxaa.nksl` | `Shaders/PP_FXAA/pp_fxaa.{vert,frag}.nksl` (pas de sous-dossier `NkSL/`) |
+| `NKRenderer/ROADMAP.md` l. 122 | `Skin/NkSL/skin.vert.nksl` | `Shaders/Skin/NkSL/skin.nksl` (source unique, pas de `.vert`) |
+| `NKRenderer/ROADMAP.md` l. 480, 665 | `pbr.frag.nksl` | `Shaders/PBR/NkSL/pbr.nksl` |
+| `NK3DModeler/ROADMAP.md` | `NkModelerCore.cpp`, `NkModelerHost.h` | **n'existent nulle part** |
+| `NKCode/ROADMAP.md` | `NkRootPicker.h` | **n'existe nulle part** |
+| `NKECS/ROADMAP.md` | `NkScheduler.cpp` | **n'existe pas** (`NkScheduler.h` seul) |
+
+**7.b — Fichiers « copy » committés.** `NKRHI/NkSWShaderBridge copy.h` (508 l.),
+`NKRHI/src/NKRHI/Opengl/NkOpengl{Device,CommandBuffer} copy.hpp`,
+`NKUI/src/NKUI/Tools/Gizmo/NkUIGizmo copy.{h,hpp}`, `Applications/Pong copy/`,
+`Applications/Pong/Apps copy.cpp`, une dizaine dans `Sandbox/`. Du bruit — mais
+du bruit qui compte comme du code dans toute mesure du dépôt, et qu'un moteur de
+recherche remonte à égalité avec l'original.
+
+**7.c — `NkFontRasterizer.cpp` (1 212 l.) n'a pas d'en-tête à son nom**, et aucun
+symbole `NkFontRasterizer` n'est déclaré dans les en-têtes de NKFont. Le fichier
+le plus lourd du rendu de glyphes est introuvable par son nom.
+
+**7.d — Silos identifiés, avec le verdict rendu sur chacun.** Les trois sont
+**signalés, pas à corriger** :
+
+- **`NkSWPixel.h` en double** — `NKCanvas/Backend/Software/` (307 l.) et
+  `NKRHI/Software/` (335 l.), **~90 % identiques** (60 lignes de différence après
+  normalisation des espaces).
+  **Verdict : la décision d'architecture est SAINE, c'est son PRIX qui n'était
+  écrit nulle part.** La règle d'exclusivité NKCanvas/NKRenderer (CLAUDE.md)
+  impose que NKCanvas possède ses propres backends et ne soit pas client de
+  NKRHI ; deux devices ne peuvent pas présenter dans la même fenêtre. La
+  conséquence mécanique est que la couche de format de pixel du rastériseur
+  logiciel s'entretient **deux fois**. Ne pas remettre la décision en cause :
+  savoir qu'une correction de l'un doit être portée dans l'autre suffit, et
+  c'est précisément ce que personne ne pouvait savoir.
+- **Trois sélecteurs de dossier** — `NKEditorKit/NkFilePicker.h` (892 l., annoncé
+  « cœur RÉUTILISABLE, INDÉPENDANT de toute application »),
+  `NKEditorKit/NkDirBrowser.h` (126 l., annoncé « partageable par d'autres
+  éditeurs ») et `NK3DModeler/Shell/NkModelerFileDialog.h` (355 l., créé le
+  12/08, annoncé « générique dès le départ, ça va servir ailleurs »). Seul
+  `NKCode/Shell/NkOpenWs.h` réutilise vraiment, en dérivant de `NkDirBrowser`.
+  **Verdict : le décompte n'est pas ce qui compte — c'est que la règle existait
+  déjà et n'a pas tenu.** `NKCode/ROADMAP.md` avait constaté la duplication en
+  juillet (« DEUX sélecteurs de dossier ») et posé la règle « ne plus
+  réimplémenter — réutiliser/consolider ». Un mois plus tard un troisième est
+  apparu, **avec la même justification que les deux premiers**. Une règle écrite
+  dans la roadmap d'une application ne protège pas les autres applications : tant
+  qu'elle n'est pas dans le document que tout le monde lit, elle ne s'applique à
+  personne.
+- **Deux rastériseurs de chemin anti-aliasés** —
+  `NKFont/Core/NkFontRasterizer.cpp` (1 212 l., scanline à aire exacte de
+  trapèzes) et `NKMedia/Pdf/NkPdfRaster.cpp` (588 l., sur-échantillonnage
+  `kSub = 16`). **Algorithmes différents, pas un copier-coller.**
+  **Verdict : ne pas consolider.** `NkPdfRaster.h` l. 4-9 justifie son existence
+  dans son propre en-tête — un seul rastériseur pour les formes *et* le texte du
+  PDF, alimenté par les contours de NKFont. Signaler, ne pas agir.
+
+**7.e — Six modules ont du code et aucune `ROADMAP.md`.** Voir la liste et le cas
+`NKSL` dans le `CLAUDE.md` (§ 2). Écrire ces six feuilles de route demande une
+enquête par module : ce n'est pas de la dette de rangement, c'est du travail
+d'inventaire, et il ne doit pas être fait à la va-vite — une roadmap inventée
+est pire que pas de roadmap.
+
+## Candidat identifié, EN ATTENTE D'ARBITRAGE — `NkEditMesh`
+
+> Relevé le 2026-08-14 en mesurant `NKRenderer/`. **Aucune décision n'a été prise
+> sur ce cas** ; il est consigné pour ne pas être re-découvert dans six mois.
+
+`Kernel/Runtime/NKRenderer/src/NKRenderer/Mesh/NkEditMesh.{h,cpp}` fait
+**6 551 lignes** (1 153 + 5 398). C'est la structure d'**édition** de maillage —
+modèle BMesh, arête de premier plan, cycles radial et disque, soudure,
+opérations. Elle ne rend rien.
+
+C'est **exactement le raisonnement** qui a conduit à la décision « Substrats
+animation et comportement » du 14/08 (bloc dans `CLAUDE.md`) : un sous-système
+qui n'a de graphique que son adresse, rangé dans le module de rendu, et que tout
+consommateur doit donc payer en entier. La différence est que ce cas-là **n'a
+pas été arbitré par Rodolf** — il n'est donc **pas** dans le bloc de décision, et
+rien ne doit bouger tant qu'il ne l'a pas été.
+
+Ce qu'on sait déjà, pour le jour où la question se posera : le harnais de
+non-régression existe (`Applications/NKEditMeshHarness`, 3 082 l.), ce qui rend
+un déplacement mesurable plutôt qu'un pari.
 
 ## Dettes de capacité repérées en chemin
 
