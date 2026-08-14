@@ -168,19 +168,19 @@ namespace nkentseu {
 				if (!chain.enabled || chain.weight <= 0.f)
 					continue;
 				switch (chain.desc.solver) {
-					case NkIKSolver::NK_TWO_BONE:
+					case NkIKMethod::NK_TWO_BONE:
 						SolveChain_TwoBone(chain, rig->mBoneMatrices);
 						break;
-					case NkIKSolver::NK_CCD:
+					case NkIKMethod::NK_CCD:
 						SolveChain_CCD(chain, rig->mBoneMatrices);
 						break;
-					case NkIKSolver::NK_FABRIK:
+					case NkIKMethod::NK_FABRIK:
 						SolveChain_FABRIK(chain, rig->mBoneMatrices);
 						break;
-					case NkIKSolver::NK_SPLINE:
+					case NkIKMethod::NK_SPLINE:
 						SolveChain_Spline(chain, rig->mBoneMatrices);
 						break;
-					case NkIKSolver::NK_FBIK:
+					case NkIKMethod::NK_FBIK:
 						// FBIK decomposes into sub-chains; solve each
 						SolveChain_FABRIK(chain, rig->mBoneMatrices);
 						break;

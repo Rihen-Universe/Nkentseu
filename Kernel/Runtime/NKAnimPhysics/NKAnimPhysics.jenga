@@ -22,7 +22,7 @@ Contenu (src/NKAnimPhysics/) :
   NkPoseBalancer.*    => correction d'équilibre (globale, et « pieds plantés »),
                          + NkBalanceSmoother (lissage multi-frame)
   NkAutoPose.*        => interpolation entre deux clés, gardée en équilibre
-  NkPhysAnimBridge.*  => passe non destructive sur une SÉQUENCE de poses
+  NkClipBalancePass.*  => passe non destructive sur une SÉQUENCE de poses
 
 ⚠️ CE MODULE NE DÉPEND PAS DE NKPhysics — ET C'EST UN FAIT, PAS UN OUBLI.
 Vérifié le 2026-08-14 : aucun des six fichiers ne référence NKPhysics, NKCollision

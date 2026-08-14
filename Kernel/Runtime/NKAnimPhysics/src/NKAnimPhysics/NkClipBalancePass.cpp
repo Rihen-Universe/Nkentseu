@@ -1,7 +1,7 @@
 // =============================================================================
-// NKAnimPhysics/NkPhysAnimBridge.cpp — M3.6 : pont anim (voir .h).
+// NKAnimPhysics/NkClipBalancePass.cpp — M3.6 : pont anim (voir .h).
 // =============================================================================
-#include "NKAnimPhysics/NkPhysAnimBridge.h"
+#include "NKAnimPhysics/NkClipBalancePass.h"
 #include "NKAnimPhysics/NkPoseBalancer.h"
 #include "NKAnimPhysics/NkBalance.h"
 
@@ -10,7 +10,7 @@ namespace nkentseu {
 
 		using math::NkVec3f;
 
-		int32 NkPhysAnimBridge::Correct(const NkVec3f *posesIn, int32 frameCount, int32 jointCount,
+		int32 NkClipBalancePass::Correct(const NkVec3f *posesIn, int32 frameCount, int32 jointCount,
 										const NkPoseMass &mass, const bool *plantedMask, const NkVec3f *supportPts,
 										int32 supportCount, float32 strength, float32 smoothMaxDeltaPerFrame,
 										NkVector<NkVec3f> &posesOut, const NkVec3f &groundNormal) {
@@ -66,7 +66,7 @@ namespace nkentseu {
 			return balancedFrames;
 		}
 
-		bool NkPhysAnimBridge::SelfTest() {
+		bool NkClipBalancePass::SelfTest() {
 			bool ok = true;
 
 			// Clip : le personnage se penche de plus en plus (le haut du corps dérive en +x),
@@ -116,7 +116,7 @@ namespace nkentseu {
 
 			// (a) Correction sans lissage (grande borne) : toutes les frames doivent devenir équilibrées.
 			NkVector<NkVec3f> out;
-			const int32 balAfter = NkPhysAnimBridge::Correct(clip.Data(), frameCount, jointCount, mass, planted,
+			const int32 balAfter = NkClipBalancePass::Correct(clip.Data(), frameCount, jointCount, mass, planted,
 															 support.Data(), sc, 1.0f, 1000.0f, out);
 			if (balAfter <= balBefore)
 				ok = false;
@@ -138,7 +138,7 @@ namespace nkentseu {
 
 			// (b) Correction avec lissage serré : le décalage appliqué varie peu entre frames consécutives.
 			NkVector<NkVec3f> outS;
-			NkPhysAnimBridge::Correct(clip.Data(), frameCount, jointCount, mass, planted, support.Data(), sc, 1.0f,
+			NkClipBalancePass::Correct(clip.Data(), frameCount, jointCount, mass, planted, support.Data(), sc, 1.0f,
 									  0.05f, outS);
 			// décalage appliqué à la frame f = (out[f].joint0 - clip[f].joint0) sur x (joint mobile).
 			float32 prevShift = 0.f;
