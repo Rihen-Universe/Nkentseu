@@ -92,7 +92,18 @@ namespace nkentseu {
 			// se laisser tromper par quelqu'un qui traverse le champ ; tout le
 			// travail fait sur l'image n'existe que faute de mieux. Là où les
 			// deux sont disponibles, mesurer l'emporte sur deviner.
-			bool preferSensors = true;
+			//
+			// ⚠️ COUPÉ PAR DÉFAUT tant que `NkArImu` n'est pas réparé. Sa file
+			// d'événements s'attache au même `Looper` que la boucle de
+			// l'application et en perturbe la pompe : la boucle se fige à la
+			// première image. Constaté, mesuré et isolé le 13 août — mais isolé
+			// DANS UNE DÉMO, ce qui laissait tout autre consommateur hériter du
+			// gel puisque ce défaut valait `true`.
+			// Neutraliser chez soi n'est pas corriger : la valeur par défaut
+			// d'un module est ce que reçoivent ceux qui ne savent pas.
+			// À rebasculer le jour où l'IMU tournera sur son propre fil, avec sa
+			// propre boucle d'événements.
+			bool preferSensors = false;
 			// Au-delà de ce résidu d'ajustement, on refuse le mouvement estimé :
 			// la scène a changé (objet qui passe, forte parallaxe) plutôt que la
 			// caméra. Mieux vaut figer que partir n'importe où.
