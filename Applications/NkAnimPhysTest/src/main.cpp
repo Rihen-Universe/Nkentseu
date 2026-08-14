@@ -9,7 +9,7 @@
 #include "NKAnimPhysics/NkPoseBalancer.h"
 #include "NKAnimPhysics/NkAutoPose.h"
 #include "NKRenderer/Tools/Animation/NkMotionPath.h"
-#include "NKAnimPhysics/NkPhysAnimBridge.h"
+#include "NKAnimPhysics/NkClipBalancePass.h"
 #include "NKRenderer/Tools/Animation/NkAnimRetarget.h"
 #include "NKRenderer/Tools/Director/NkRoleContext.h"
 #include "NKAudio/NkAudioCapture.h"
@@ -59,8 +59,8 @@ int main() {
 		   renderer::NkMotionCurve::SelfTest(), nbOk, nbTotal);
 
 	// M3.6 — pont vers l'anim existante : correction physique non destructive d'un clip + lissage.
-	Report("M3.6 NkPhysAnimBridge", "clip qui bascule -> corrige frame par frame (equilibre), pieds fixes, lissage borne",
-		   renderer::NkPhysAnimBridge::SelfTest(), nbOk, nbTotal);
+	Report("M3.6 NkClipBalancePass", "clip qui bascule -> corrige frame par frame (equilibre), pieds fixes, lissage borne",
+		   renderer::NkClipBalancePass::SelfTest(), nbOk, nbTotal);
 
 	// M4bis.1 — contexte de role (personnage/personnalite/emotion/objectif/historique),
 	// round-trip Archive+JSON, schema strict rejette les variantes malformees (anti texte-libre).

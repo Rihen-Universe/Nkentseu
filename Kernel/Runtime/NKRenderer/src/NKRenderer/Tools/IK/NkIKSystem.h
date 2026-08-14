@@ -6,7 +6,7 @@
 // Intègre avec NkAnimationSystem (fonctionne sur les os du squelette).
 //
 // Algorithmes disponibles :
-//   • Two-Bone     : analytique exact, jambes/bras (NkIKSolver::NK_TWO_BONE)
+//   • Two-Bone     : analytique exact, jambes/bras (NkIKMethod::NK_TWO_BONE)
 //   • CCD          : Cyclic Coordinate Descent, chaînes générales
 //   • FABRIK       : Forward And Backward Reaching IK, très stable
 //   • FBIK         : Full Body IK — hanche, pieds, mains, tête coordonnés
@@ -21,7 +21,7 @@
 //   sys.Init(device, &animSys);
 //   NkIKRig* rig = sys.CreateRig(skeletonId);
 //   NkIKChainId leg = rig->AddChain("leg_R", {boneHip, boneKnee, boneAnkle},
-//                                   NkIKSolver::NK_TWO_BONE);
+//                                   NkIKMethod::NK_TWO_BONE);
 //   // per frame
 //   rig->SetTarget(leg, targetPos);
 //   sys.Solve();   // résout toutes les rigs, écrit dans les bone matrices
@@ -51,7 +51,7 @@ namespace nkentseu {
 		// =========================================================================
 		// Algorithme de résolution
 		// =========================================================================
-		enum class NkIKSolver : uint8 {
+		enum class NkIKMethod : uint8 {
 			NK_TWO_BONE = 0, // analytique — bras / jambes
 			NK_CCD = 1,		 // Cyclic Coordinate Descent
 			NK_FABRIK = 2,	 // Forward And Backward Reaching IK
@@ -106,7 +106,7 @@ namespace nkentseu {
 		// =========================================================================
 		struct NkIKChainDesc {
 				NkString name;
-				NkIKSolver solver = NkIKSolver::NK_FABRIK;
+				NkIKMethod solver = NkIKMethod::NK_FABRIK;
 				NkVector<NkIKBone> bones; // racine → effecteur
 				NkIKTarget target;
 				uint32 maxIterations = 10;

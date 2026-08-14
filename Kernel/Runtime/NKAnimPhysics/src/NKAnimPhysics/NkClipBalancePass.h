@@ -1,12 +1,21 @@
 // =============================================================================
-// NKAnimPhysics/NkPhysAnimBridge.h
+// NKAnimPhysics/NkClipBalancePass.h
 // -----------------------------------------------------------------------------
-// M3.6 (NkAnima — physique d'animation façon Cascadeur) : PONT VERS L'ANIM
-// EXISTANTE. Brique 6/6 (capstone M3). Applique la correction d'équilibre (M3.4)
+// M3.6 (NkAnima — physique d'animation façon Cascadeur) : PASSE D'ÉQUILIBRE SUR
+// UN CLIP. Brique 6/6 (capstone M3). Applique la correction d'équilibre (M3.4)
 // en POST-TRAITEMENT NON DESTRUCTIF sur une SÉQUENCE de poses (un clip) : chaque
 // frame est ramenée en équilibre, avec LISSAGE TEMPOREL (NkBalanceSmoother) pour
 // éviter les à-coups. L'entrée n'est pas modifiée (on écrit une copie corrigée) →
 // toggle par personnage/scène, ré-éditable. Pure Foundation : AUCUN GPU, headless.
+//
+// ⚠️ RENOMMÉ LE 2026-08-14 — s'appelait `NkPhysAnimBridge`, et ce nom mentait
+// deux fois : ce n'est NI un pont, NI de la physique. Aucune dynamique de corps
+// rigide ici, aucune force, aucune intégration — uniquement de la CINÉMATIQUE
+// (on déplace des positions de joints pour ramener le centre de masse au-dessus
+// du polygone de support). Le module n'inclut ni NKPhysics ni NKCollision.
+// Le vrai pont physique↔animation existe ailleurs et s'appelle `NkRagdoll`
+// (`NKPhysics/NkRagdoll.h` : Build / ReadPose / SetActive / SetPoseTargets).
+// Si un jour ce fichier doit parler à la physique, il passe PAR LUI.
 //
 // AUTEUR : Rihen — LICENCE : usage régi par le fichier LICENSE à la racine du dépôt
 // =============================================================================
@@ -20,7 +29,7 @@
 namespace nkentseu {
 	namespace renderer {
 
-		struct NkPhysAnimBridge {
+		struct NkClipBalancePass {
 			public:
 				// Corrige un CLIP (séquence de poses) pour l'équilibre, non destructif.
 				// `posesIn` = frameCount × jointCount positions monde, row-major (frame*jointCount + j).
