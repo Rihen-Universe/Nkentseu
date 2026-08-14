@@ -1,10 +1,10 @@
 // =============================================================================
-// NKRenderer/Tools/Animation/NkContactDetector.cpp — impl (voir NkContactDetector.h)
+// NKAnimPhysics/NkContactDetector.cpp — impl (voir NkContactDetector.h)
 // AUTEUR : Rihen — LICENCE : usage régi par le fichier LICENSE à la racine du dépôt
 // =============================================================================
-#include "NKRenderer/Tools/Animation/NkContactDetector.h"
-#include "NKRenderer/Tools/Animation/NkPoseMass.h"
-#include "NKRenderer/Tools/Animation/NkBalance.h"
+#include "NKAnimPhysics/NkContactDetector.h"
+#include "NKAnimPhysics/NkPoseMass.h"
+#include "NKAnimPhysics/NkBalance.h"
 
 namespace nkentseu {
 	namespace renderer {

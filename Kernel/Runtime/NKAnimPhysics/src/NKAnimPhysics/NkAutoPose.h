@@ -1,5 +1,5 @@
 // =============================================================================
-// NKRenderer/Tools/Animation/NkAutoPose.h
+// NKAnimPhysics/NkAutoPose.h
 // -----------------------------------------------------------------------------
 // M3.5 (NkAnima — physique d'animation façon Cascadeur) : AUTO-POSING. Brique 5/6.
 // Génère des poses INTERMÉDIAIRES physiquement plausibles entre deux clés : au lieu
@@ -15,7 +15,7 @@
 #include "NKCore/NkTypes.h"
 #include "NKMath/NKMath.h"
 #include "NKContainers/Sequential/NkVector.h"
-#include "NKRenderer/Tools/Animation/NkPoseMass.h"
+#include "NKAnimPhysics/NkPoseMass.h"
 
 namespace nkentseu {
 	namespace renderer {

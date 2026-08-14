@@ -1,5 +1,5 @@
 // =============================================================================
-// NKRenderer/Tools/Animation/NkPhysAnimBridge.h
+// NKAnimPhysics/NkPhysAnimBridge.h
 // -----------------------------------------------------------------------------
 // M3.6 (NkAnima — physique d'animation façon Cascadeur) : PONT VERS L'ANIM
 // EXISTANTE. Brique 6/6 (capstone M3). Applique la correction d'équilibre (M3.4)
@@ -15,7 +15,7 @@
 #include "NKCore/NkTypes.h"
 #include "NKMath/NKMath.h"
 #include "NKContainers/Sequential/NkVector.h"
-#include "NKRenderer/Tools/Animation/NkPoseMass.h"
+#include "NKAnimPhysics/NkPoseMass.h"
 
 namespace nkentseu {
 	namespace renderer {
