@@ -34,7 +34,7 @@ NK3DModeler, NKCode, NkForma, NkAnima, NkScena, Nogee, Sandbox : même exigence.
 
 ## Les chantiers
 
-> Cinq au 12 août 2026. **Sept depuis le 14 août** : la confrontation des
+> Cinq au 12 août 2026. **Dix depuis le 14 août** : la confrontation des
 > feuilles de route au code a ajouté le fork du lecteur PDF (n° 6, chantier de
 > **code**) et l'inventaire de dette documentaire (n° 7). Le n° 1 a par ailleurs
 > été **réglé pour moitié** entre-temps.
@@ -136,7 +136,13 @@ test coûte cinq minutes et rattrape des régressions invisibles.
 méthode là, parce que le défaut est visuel et qu'aucune assertion ne remplace un
 œil sur une image.
 
-### 6. Supprimer le FORK du lecteur PDF — 5 211 lignes mortes mais compilées
+### 6. ~~Supprimer le FORK du lecteur PDF~~ — ✅ **RÉGLÉ le 2026-08-14**
+
+> Le fork est **supprimé** (commit `a52e99e4`, 5 211 lignes) et les quatre bancs
+> PDF sont **re-racinés** vers le module NKMedia (`804abc23`). Vérifié le 14/08 :
+> `Applications/NKCode/src/NKCode/Pdf/` n existe plus. Le texte ci-dessous est
+> conservé parce qu il documente le COÛT du défaut et la façon dont il a été
+> trouvé — pas parce qu il reste à faire.
 
 > Ajouté le **2026-08-14**, après confrontation des feuilles de route au code.
 > ⚠️ **Chantier de CODE, pas de documentation.** Rien n'a été supprimé ni déplacé
@@ -252,6 +258,88 @@ le plus lourd du rendu de glyphes est introuvable par son nom.
 enquête par module : ce n'est pas de la dette de rangement, c'est du travail
 d'inventaire, et il ne doit pas être fait à la va-vite — une roadmap inventée
 est pire que pas de roadmap.
+
+### 8. π n'existe nulle part dans Foundation — trois macros locales, deux précisions
+
+> Relevé le **2026-08-14** pendant l'extraction de NKAnimation. **Nommé, pas
+> traité.** Ne casse rien aujourd'hui.
+
+`NKMath` expose `NK_PI_F` et `NK_PI_D` (via `constants::kPiF` / `kPi`,
+`NkFunctions.h:301-304`). Mais **`NK_PI` tout court n'y est pas**. Trois fichiers
+se le sont donc redéfini chacun de leur côté, en macro locale :
+
+| Fichier | Valeur |
+|---|---|
+| `NKRenderer/Mesh/NkMeshSystem.cpp:17` | `3.14159265358979323846f` |
+| `NKRenderer/Tools/Render2D/NkRender2D.cpp:9` | `3.14159265358979f` |
+| `NKAnimation/NkAnimation.cpp` (repris de l'original) | `3.14159265358979f` |
+| `Applications/NKDiffusionTest/main.cpp:47` | `3.14159265358979323846f` (const, pas macro) |
+
+**Deux précisions différentes pour la même constante**, dans le même moteur.
+L'écart est de l'ordre de **1e-14** en double, mais ces macros sont en `float` :
+après quelques opérations trigonométriques cumulées, l'écart observable est de
+l'ordre de **1e-7**.
+
+**Pourquoi c'est une dette et pas un bug** : rien ne casse. Chaque fichier est
+cohérent avec lui-même. Le défaut se révélera le jour où deux résultats calculés
+dans deux fichiers différents seront comparés — une non-régression qui échoue de
+1e-7, six mois plus tard, sans que personne ne pense à π.
+
+**Remède, quand on y viendra** : un seul `NK_PI` dans `NKMath/NkFunctions.h`, à la
+précision de `constants::kPiF`, et les trois macros locales supprimées. Ce n'est
+pas urgent ; c'est juste à faire **avant** d'écrire un test qui compare des
+trajectoires calculées dans deux modules.
+
+⚠️ **La découverte compte autant que la dette** : ce `#define` a été perdu lors de
+la coupe du 14/08 et **rattrapé par le build en une compilation**. Sans lui, le
+code ne compilait pas — donc personne n'a jamais utilisé un `NK_PI` valant autre
+chose que ce qu'il croyait. La chance a tenu à ce que le symbole soit absent
+plutôt que faux.
+
+### 9. `DemoRW/main.cpp` — corrigé à l'aveugle, jamais exercé
+
+> Relevé le **2026-08-14**. **Catégorie 3 : modifié, jamais compilé.**
+
+`Applications/DemoRW/src/DemoRW/main.cpp` inclut le substrat d'animation et a été
+recâblé pendant l'extraction (`NKAnimation/NkAnimation.h`, types qualifiés
+`anim::`). Mais **`DemoRW` n'est déclaré dans aucune cible du workspace** : aucun
+`jenga build` ne peut le valider, aujourd'hui ni demain.
+
+La correction est mécanique et symétrique de dix autres qui, elles, ont été
+vérifiées par compilation. Mais elle repose sur la lecture seule — et cette
+session a montré trois fois que la lecture manque ce que le build trouve.
+
+**Ce n'est pas à corriger, c'est à SOLDER** : la dette disparaît au premier build
+complet vert, qui compilera ce fichier ou prouvera qu'il est mort. Elle est donc
+liée au chantier 10 ci-dessous.
+
+### 10. Combien de fichiers ne sont couverts par aucune cible ?
+
+> La question posée par trois découvertes du même jour, le **2026-08-14**.
+
+Trois cas rencontrés en une journée, tous découverts par accident :
+
+1. **les quatre bancs PDF de `NKCode.jenga`** — chemins déclarés vers un
+   répertoire inexistant ; personne ne s'en était aperçu (corrigé depuis,
+   commit `804abc23`) ;
+2. **`DemoRW`** — code source sans cible (ci-dessus) ;
+3. **`Sandbox/DemoNkentseu/Base03/NkRHIDemoText.cpp`** — utilise `NK_LOAD_KERNING`
+   et `NkFontResult`, symboles qui **n'existent plus** dans l'API NKFont. **Bloque
+   le build complet du workspace à 68/203**, sur `main` pur comme sur toute
+   branche. Vérifié le 14/08 sur les deux.
+
+Aucun des trois n'a été trouvé par un outil : deux par un build complet lancé
+pour autre chose, un par un `grep` d'inventaire.
+
+**Le chantier n'est pas de les corriger un par un**, c'est de **rendre le build
+complet vert** — parce qu'un build complet qui échoue depuis assez longtemps
+cesse d'être lancé, et tout ce qui se casse ensuite devient invisible. C'est
+exactement ce qui s'est produit ici.
+
+Premier pas concret et borné : réparer ou retirer `NkRHIDemoText.cpp`, obtenir un
+**203/203**, et seulement ensuite compter ce qui reste hors couverture.
+
+---
 
 ## Candidat identifié, EN ATTENTE D'ARBITRAGE — `NkEditMesh`
 
