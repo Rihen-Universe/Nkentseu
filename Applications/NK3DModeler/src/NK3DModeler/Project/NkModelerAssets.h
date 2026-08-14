@@ -55,6 +55,7 @@
 #include "NKFileSystem/NkFileSystem.h"
 #include "NKImage/NKImage.h" // reduction des miniatures de scene
 #include "NKMemory/NkMemory.h"
+#include "NKLogger/NkLog.h"
 #include "NKSerialization/JSON/NkJSONWriter.h"
 #include "NKSerialization/JSON/NkJSONReader.h"
 
@@ -354,6 +355,10 @@ namespace nkentseu {
 			o.SetObject("cartes", maps);
 		}
 
+	// TRACE DE CHARGEMENT : elle dit ce qui est REELLEMENT relu du disque, et
+		// pour quel emplacement. Sans elle, « la couleur n'a pas persiste » laisse
+		// trois coupables possibles -- l'ecriture, la lecture, ou un ecrasement
+		// apres coup -- et on ne peut que deviner.
 		inline void NkAsMatRestore(const NkArchive &in, const NkString &root, int32 slot,
 								   int32 *texMiss) {
 			const NkString nm = NkScStr(in, "nom");
@@ -361,6 +366,8 @@ namespace nkentseu {
 				demo::Demo3DHostProjMatSetName(slot, nm.CStr());
 			float32 alb[3];
 			NkScGetVec3(in, "albedo", alb, 0.7f, 0.7f, 0.7f);
+			NkLog::Instance().Info("[materiau] relu emplacement {0} : albedo {1} {2} {3}",
+								   slot, alb[0], alb[1], alb[2]);
 			demo::Demo3DHostProjMatSetParams(slot, alb, NkScFloat(in, "rugosite", 0.85f),
 											 NkScFloat(in, "metallique", 0.f));
 			// Physique de surface : defaut 0 — un .nkmat ecrit avant le 9 aout
