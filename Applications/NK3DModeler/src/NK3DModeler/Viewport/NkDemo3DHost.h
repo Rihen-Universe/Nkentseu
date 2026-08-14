@@ -70,6 +70,12 @@ namespace nkentseu {
 		/// La VIGNETTE d'un materiau : un PNG encode en base64, qui vit DANS le
 		/// materiau et voyage donc avec lui. Chaine vide tant qu'aucune capture
 		/// n'a ete prise (le materiau n'a jamais ete enregistre).
+		/// Recupere les PIXELS d'une vignette fraichement rendue, s'il y en a une
+		/// a prendre. Vrai une seule fois par prise : c'est ce qui evite de
+		/// televerser la meme image a chaque frame. L'image affichee se rafraichit
+		/// ainsi des qu'un reglage change, sans attendre l'enregistrement -- lui
+		/// seul declenche l'encodage dans le fichier, qui coute bien plus cher.
+		bool Demo3DHostMatThumbTakePixels(int32 i, const uint8 **px, int32 *cote);
 		const char *Demo3DHostProjMatThumb(int32 i);
 		void Demo3DHostProjMatSetThumb(int32 i, const char *b64);
 

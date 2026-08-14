@@ -2123,6 +2123,16 @@ int nkmain(const NkEntryState &entry) {
 			// pour un materiau jamais enregistre, qui n'a donc pas encore d'image.
 			static NkString sVigVue[64];
 			for (int32 i = 0; i < 64; ++i) {
+				// UNE VIGNETTE FRAICHE PASSE AVANT TOUT : rendue il y a une frame
+				// parce qu'un reglage a change, elle n'attend pas l'enregistrement.
+				const uint8 *frais = nullptr;
+				int32 cote = 0;
+				if (demo::Demo3DHostMatThumbTakePixels(i, &frais, &cote) && frais &&
+					cote > 0) {
+					renderer.UploadImageRGBA(4400u + (uint32)i, frais, cote, cote);
+					sVigVue[i].Clear(); // le base64 affiche est perime
+					continue;
+				}
 				const char *b64 = demo::Demo3DHostProjMatThumb(i);
 				if (b64 && *b64) {
 					// Ne decoder QUE si elle a change : decoder un PNG par materiau

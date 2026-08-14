@@ -549,8 +549,11 @@ namespace nkentseu {
 					dc.clearcoatRough = matiere.clearcoatRough;
 					dc.subsurface = matiere.subsurface;
 					dc.subsurfaceColor = matiere.subsurfaceColor;
-					dc.castShadow = true;
-					dc.receiveShadow = true;
+					// PAS D'OMBRE SUR UNE VIGNETTE (Rihen, 14 aout) : a quarante pixels
+					// elle salit le fond sans rien apprendre de la matiere. Le grand
+					// apercu la garde -- une ombre portee y dit la pose sur le sol.
+					dc.castShadow = avecSol;
+					dc.receiveShadow = avecSol;
 					r3d->Submit(dc);
 				}
 

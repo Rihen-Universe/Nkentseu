@@ -967,6 +967,11 @@ namespace nkentseu {
 		/// (memcmp). Une chaine dedans casserait la comparaison -- et une vignette
 		/// n'est pas un reglage : elle est le RESULTAT des reglages.
 		static NkString nkvpProjMatThumb[kNkvpMaxProjMats];
+		/// LES PIXELS de la derniere vignette rendue, prets a televerser. Separes
+		/// du base64 : l'image affichee se rafraichit des qu'un reglage change,
+		/// l'image ECRITE dans le materiau ne se refait qu'a l'enregistrement.
+		static NkVector<uint8> nkvpMatThumbPix[kNkvpMaxProjMats];
+		static bool nkvpMatThumbNeuf[kNkvpMaxProjMats] = {};
 		/// OU ECRIVENT LES FACADES, et AVEC QUEL renderer. Par defaut la vue 3D ; le
 		/// temps de reconstruire un apercu, on bascule sur l'autre jeu. C'est ce qui
 		/// evite de recopier les quarante lignes d'application des reglages -- une
@@ -12375,10 +12380,14 @@ namespace nkentseu {
 			constexpr int32 kThumbPx = 128; // carre : c'est une icone de liste
 			struct NkMatThumbFile {
 					int32 slot[kThumbMax] = {};
-					char chemin[kThumbMax][320] = {};
+					/// Vrai = la vignette doit AUSSI etre encodee dans le materiau.
+					/// Faux = on ne rafraichit que l'image affichee. Les deux n'ont pas
+					/// le meme cout : televerser une image est bon marche, l'encoder en
+					/// PNG puis en base64 ne l'est pas.
+					bool pourFichier[kThumbMax] = {};
 					int32 nb = 0;
 					int32 rendu = -1; // slot rendu a la frame precedente, -1 = aucun
-					char renduChemin[320] = {};
+					bool renduPourFichier = false;
 			};
 			NkMatThumbFile gThumbs;
 		} // namespace
@@ -12413,6 +12422,19 @@ namespace nkentseu {
 			}
 		}
 
+		bool Demo3DHostMatThumbTakePixels(int32 i, const uint8 **px, int32 *cote) {
+			if (i < 0 || i >= kNkvpMaxProjMats || !nkvpMatThumbNeuf[i])
+				return false;
+			if (nkvpMatThumbPix[i].Size() < (usize)(kThumbPx * kThumbPx * 4))
+				return false;
+			nkvpMatThumbNeuf[i] = false; // consommee : une seule remontee par prise
+			if (px)
+				*px = nkvpMatThumbPix[i].Data();
+			if (cote)
+				*cote = kThumbPx;
+			return true;
+		}
+
 		const char *Demo3DHostProjMatThumb(int32 i) {
 			return (i >= 0 && i < kNkvpMaxProjMats) ? nkvpProjMatThumb[i].CStr() : "";
 		}
@@ -12430,8 +12452,57 @@ namespace nkentseu {
 			for (int32 i = 0; i < gThumbs.nb; ++i)
 				if (gThumbs.slot[i] == slot)
 					return; // deja demande
-			gThumbs.slot[gThumbs.nb] = slot;
+		gThumbs.slot[gThumbs.nb] = slot;
+			gThumbs.pourFichier[gThumbs.nb] = true;
 			++gThumbs.nb;
+		}
+
+		// ── RAFRAICHIR SANS ENREGISTRER ─────────────────────────────────────
+		// « Je pense qu'on n'a meme pas besoin de sauvegarder pour le mettre a
+		// jour » (Rihen, 14 aout) -- d'accord, a une nuance pres : l'AFFICHAGE et
+		// la PERSISTANCE n'ont pas le meme cout. Reprendre l'image affichee est
+		// bon marche (un rendu et une lecture) ; l'encoder en PNG puis en base64
+		// pour l'ecrire dans le materiau l'est beaucoup moins. On rafraichit donc
+		// l'image des qu'un reglage change, et on n'encode qu'a l'enregistrement.
+		//
+		// APRES STABILISATION, et non a chaque frame : pendant qu'on glisse un
+		// curseur, l'etat change soixante fois par seconde. Reprendre la vignette
+		// a chaque fois volerait autant de frames au grand apercu, pour des images
+		// que personne n'a le temps de voir. On attend que ca se pose.
+		static void HostThumbsWatch() {
+			static NkVpProjMat sVu[kNkvpMaxProjMats] = {};
+			static bool sInit[kNkvpMaxProjMats] = {};
+			static float64 sQuand[kNkvpMaxProjMats] = {};
+			static bool sDu[kNkvpMaxProjMats] = {}; // une reprise est due
+			const float64 t = hst.ctx.totalTime;
+			for (int32 i = 0; i < kNkvpMaxProjMats; ++i) {
+				if (!nkvpProjMats[i].used)
+					continue;
+				if (!sInit[i] || memcmp(&sVu[i], &nkvpProjMats[i], sizeof(NkVpProjMat)) != 0) {
+					memcpy(&sVu[i], &nkvpProjMats[i], sizeof(NkVpProjMat));
+					// La toute premiere fois ne compte pas comme un changement : au
+					// chargement d'un projet, les soixante-quatre materiaux
+					// arriveraient d'un coup et demanderaient tous leur vignette.
+					if (sInit[i])
+						sDu[i] = true;
+					sInit[i] = true;
+					sQuand[i] = t;
+					continue;
+				}
+				if (!sDu[i] || (t - sQuand[i]) < 0.35)
+					continue;
+				sDu[i] = false;
+				if (gThumbs.nb >= kThumbMax)
+					continue;
+				bool deja = false;
+				for (int32 k = 0; k < gThumbs.nb && !deja; ++k)
+					deja = (gThumbs.slot[k] == i);
+				if (deja)
+					continue;
+				gThumbs.slot[gThumbs.nb] = i;
+				gThumbs.pourFichier[gThumbs.nb] = false; // affichage seulement
+				++gThumbs.nb;
+			}
 		}
 
 		void Demo3DHostMatPreviewFrame(void *cmd, int32 slot, int32 w, int32 h) {
@@ -12447,6 +12518,7 @@ namespace nkentseu {
 			// est terminee, c'est le seul moment ou elle est lisible.
 			if (gThumbs.rendu >= 0) {
 				const int32 sc = gThumbs.rendu;
+				const bool pourFichier = gThumbs.renduPourFichier;
 				gThumbs.rendu = -1;
 				static uint8 px[kThumbPx * kThumbPx * 4];
 				if (sc >= 0 && sc < kNkvpMaxProjMats && nk3d::matprev::Readback(px)) {
@@ -12454,34 +12526,39 @@ namespace nkentseu {
 					if (im.Create((uint32)kThumbPx, (uint32)kThumbPx,
 								  math::NkColor(0, 0, 0, 255), 4)) {
 						memcpy(im.Pixels(), px, sizeof(px));
-						// PNG D'ABORD, base64 ENSUITE. Les pixels bruts en base64
-						// pesteraient 87 Ko par materiau ; compresses, il en reste
-						// quelques-uns -- pour la meme image.
+						// L'IMAGE AFFICHEE, toujours : c'est elle qu'on regarde, et
+						// elle ne coute qu'un televersement.
+						nkvpMatThumbPix[sc].Resize(sizeof(px));
+						memcpy(nkvpMatThumbPix[sc].Data(), px, sizeof(px));
+						nkvpMatThumbNeuf[sc] = true;
+						// L'ENCODAGE, seulement pour le fichier : PNG puis base64.
+						// Les pixels bruts en base64 pesteraient 87 Ko par materiau ;
+						// compresses, il en reste quelques-uns pour la meme image.
 						uint8 *pngBuf = nullptr;
 						usize pngSz = 0;
-						if (im.EncodePNG(pngBuf, pngSz) && pngBuf && pngSz > 0) {
+						if (pourFichier && im.EncodePNG(pngBuf, pngSz) && pngBuf && pngSz > 0) {
 							nkvpProjMatThumb[sc] = encoding::base64::NkEncode(pngBuf, pngSz);
 							NkLog::Instance().Info(
 								"[apercu] vignette du materiau {0} : {1} octets PNG", sc,
 								(uint32)pngSz);
 							memory::NkFree(pngBuf);
-						} else
+					} else if (pourFichier)
 							NkLog::Instance().Info("[apercu] vignette {0} : encodage refuse",
 												   sc);
 					}
 				}
 			}
+			// Detection des reglages qui ont change : elle alimente la file.
+			HostThumbsWatch();
 			// PUIS rendre la suivante de la file, en SPHERE et en carre : c'est
 			// une icone de liste, elle doit se comparer aux autres.
 			if (gThumbs.nb > 0 && nk3d::matprev::Init(hst.ctx.device, (uint32)kThumbPx,
 													  (uint32)kThumbPx)) {
-				const int32 sc = gThumbs.slot[0];
-				snprintf(gThumbs.renduChemin, sizeof(gThumbs.renduChemin), "%s",
-						 gThumbs.chemin[0]);
+			const int32 sc = gThumbs.slot[0];
+				gThumbs.renduPourFichier = gThumbs.pourFichier[0];
 				for (int32 i = 1; i < gThumbs.nb; ++i) {
 					gThumbs.slot[i - 1] = gThumbs.slot[i];
-					snprintf(gThumbs.chemin[i - 1], sizeof(gThumbs.chemin[0]), "%s",
-							 gThumbs.chemin[i]);
+					gThumbs.pourFichier[i - 1] = gThumbs.pourFichier[i];
 				}
 				--gThumbs.nb;
 			// L'instance peut ne jamais avoir ete construite : ce materiau n'a
