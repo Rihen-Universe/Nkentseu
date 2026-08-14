@@ -2135,7 +2135,17 @@ int nkmain(const NkEntryState &entry) {
 				if (demo::Demo3DHostMatThumbTakePixels(i, &frais, &cote) && frais &&
 					cote > 0) {
 					renderer.UploadImageRGBA(4400u + (uint32)i, frais, cote, cote);
-					sVigVue[i].Clear(); // le base64 affiche est perime
+					// LE TEMOIN PREND LE BASE64 COURANT, il ne se vide PAS. Le vider
+					// -- ce que je faisais -- redemandait le decodage a la frame
+					// suivante, et l'ancienne image enregistree ecrasait aussitot
+					// celle qu'on venait de rendre : la vignette semblait ne jamais
+					// suivre (Rihen, 14 aout, capture a l'appui -- sphere verte dans
+					// l'apercu, bleue sur la carte).
+					// En le posant, on declare l'affichage A JOUR : le base64 ne sera
+					// redecode que s'il CHANGE, c'est-a-dire au prochain
+					// enregistrement.
+					const char *cur = demo::Demo3DHostProjMatThumb(i);
+					sVigVue[i] = (cur && *cur) ? cur : "";
 					continue;
 				}
 				const char *b64 = demo::Demo3DHostProjMatThumb(i);
