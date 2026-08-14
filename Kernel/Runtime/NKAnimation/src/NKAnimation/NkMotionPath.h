@@ -1,5 +1,5 @@
 // =============================================================================
-// NKRenderer/Tools/Animation/NkMotionPath.h
+// NKAnimation/NkMotionPath.h
 // -----------------------------------------------------------------------------
 // ANIMATION PAR TRAÇAGE DE COURBE (NkAnima). On trace une COURBE dans la scène
 // (points de contrôle) et une cible la suit dans le temps ; selon le mode, la cible
@@ -25,7 +25,7 @@
 #include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {
-	namespace renderer {
+	namespace anim {
 
 		// Courbe lisse (Catmull-Rom) passant par une liste de points de contrôle.
 		struct NkMotionCurve {
@@ -109,5 +109,5 @@ namespace nkentseu {
 				int32 mDir = 1;			 // sens (pour ping-pong)
 		};
 
-	} // namespace renderer
+	} // namespace anim
 } // namespace nkentseu

@@ -2,6 +2,7 @@
 // NkIKSystem.cpp  — NKRenderer v4.0
 // =============================================================================
 #include "NkIKSystem.h"
+#include "NKAnimation/NkAnimation.h"
 #include "NKRenderer/Tools/Animation/NkAnimationSystem.h"
 #include "NKMemory/NkAllocator.h"
 #include <cmath>

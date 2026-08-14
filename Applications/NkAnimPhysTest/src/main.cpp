@@ -8,9 +8,9 @@
 #include "NKAnimPhysics/NkContactDetector.h"
 #include "NKAnimPhysics/NkPoseBalancer.h"
 #include "NKAnimPhysics/NkAutoPose.h"
-#include "NKRenderer/Tools/Animation/NkMotionPath.h"
+#include "NKAnimation/NkMotionPath.h"
 #include "NKAnimPhysics/NkClipBalancePass.h"
-#include "NKRenderer/Tools/Animation/NkAnimRetarget.h"
+#include "NKAnimation/NkAnimRetarget.h"
 #include "NKRenderer/Tools/Director/NkRoleContext.h"
 #include "NKAudio/NkAudioCapture.h"
 #include "NKAudio/NkDenoiser.h"
@@ -56,7 +56,7 @@ int main() {
 
 	// Animation par courbe : spline Catmull-Rom + path-follow (os/effecteur IK suit la courbe).
 	Report("NkMotionPath", "spline passe par les points, longueur/tangente droite, path-follow loop/once",
-		   renderer::NkMotionCurve::SelfTest(), nbOk, nbTotal);
+		   anim::NkMotionCurve::SelfTest(), nbOk, nbTotal);
 
 	// M3.6 — pont vers l'anim existante : correction physique non destructive d'un clip + lissage.
 	Report("M3.6 NkClipBalancePass", "clip qui bascule -> corrige frame par frame (equilibre), pieds fixes, lissage borne",
@@ -78,7 +78,7 @@ int main() {
 	// M2 — RECIBLAGE d'animation entre squelettes (brique explicitement notee
 	// « reellement non commencee » dans la roadmap NkAnima).
 	Report("M2 NkAnimRetarget", "appariement par nom, delta au repos, os non etires, racine a l'echelle",
-		   renderer::NkAnimRetarget::SelfTest(), nbOk, nbTotal);
+		   anim::NkAnimRetarget::SelfTest(), nbOk, nbTotal);
 
 	printf("\n=== Resultat : %d/%d suites OK ===\n", nbOk, nbTotal);
 	return (nbOk == nbTotal) ? 0 : 1;

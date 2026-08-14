@@ -40,7 +40,7 @@ with project("NkAnimPhysTest"):
         # NKAnimPhysics : les suites M3.1 a M3.6 portent sur ce module depuis son
         # extraction hors de NKRenderer (2026-08-14). NKRenderer reste requis pour
         # les suites M2 (NkAnimRetarget) et M4bis (NkRoleContext).
-        ["NKAnimPhysics",
+        ["NKAnimPhysics", "NKAnimation",
          "NKRenderer", "NKRHI", "NKSL", "NKWindow", "NKEvent", "NKFont", "NKImage", "NKAudio", "NKMedia",
          "NKFileSystem", "NKSerialization", "NKReflection", "NKGlad", "NKMath", "NKTime",
          "NKStream", "NKLogger", "NKContainers", "NKMemory", "NKCore", "NKPlatform",

@@ -13,7 +13,7 @@
 namespace nkentseu {
 	namespace renderer {
 
-		bool BakeClipFromGLTF(const NkGLTFMeshData &data, int32 animIdx, float32 fps, NkAnimationClip &out) {
+		bool BakeClipFromGLTF(const NkGLTFMeshData &data, int32 animIdx, float32 fps, anim::NkAnimationClip &out) {
 			if (!data.isSkinned || data.skinJoints.Empty()) {
 				logger.Errorf("[NkGLTFAnimBake] BakeClipFromGLTF : modele non skinne\n");
 				return false;
@@ -84,7 +84,7 @@ namespace nkentseu {
 				for (uint32 j = 0; j < jc; ++j) {
 					int32 p = (j < (uint32)out.jointParent.Size()) ? out.jointParent[j] : -1;
 					NkMat4f local = (p >= 0) ? (global[(uint32)p].Inverse() * global[j]) : global[j];
-					out.boneTracks[j].AddKey(t, local, NkInterpMode::NK_LINEAR);
+					out.boneTracks[j].AddKey(t, local, anim::NkInterpMode::NK_LINEAR);
 				}
 			}
 			out.fps = fps;

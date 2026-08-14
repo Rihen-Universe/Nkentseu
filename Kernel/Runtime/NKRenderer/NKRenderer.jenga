@@ -31,7 +31,7 @@ with project("NKRenderer"):
     rendererDeps = ["NKMath", "NKTime", "NKLogger", "NKEvent", "NKWindow", "NKContainers",
                     "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKRHI", "NKSL",
                     "NKFont", "NKImage", "NKStream", "NKFileSystem", "NKSerialization", "NKReflection",
-                    "NKAnimPhysics"]
+                    "NKAnimPhysics", "NKAnimation"]
     if USE_NKGLAD:
         rendererDeps.append("NKGlad")
     rendererDefines = [
