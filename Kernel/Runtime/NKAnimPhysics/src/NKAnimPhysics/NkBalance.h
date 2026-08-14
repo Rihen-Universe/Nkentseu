@@ -1,5 +1,5 @@
 // =============================================================================
-// NKRenderer/Tools/Animation/NkBalance.h
+// NKAnimPhysics/NkBalance.h
 // -----------------------------------------------------------------------------
 // M3.2 (NkAnima — physique d'animation façon Cascadeur) : SOLVEUR D'ÉQUILIBRE.
 // Brique 2/6 de M3 (après masse/COM). Test STATIQUE : le centre de masse (COM,

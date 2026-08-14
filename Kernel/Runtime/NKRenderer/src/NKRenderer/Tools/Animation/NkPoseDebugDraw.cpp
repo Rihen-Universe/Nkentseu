@@ -2,7 +2,7 @@
 // NKRenderer/Tools/Animation/NkPoseDebugDraw.cpp  —  viz debug M3 (voir .h).
 // =============================================================================
 #include "NKRenderer/Tools/Animation/NkPoseDebugDraw.h"
-#include "NKRenderer/Tools/Animation/NkBalance.h"
+#include "NKAnimPhysics/NkBalance.h"
 #include "NKRenderer/Tools/Render3D/NkRender3D.h"
 
 namespace nkentseu {

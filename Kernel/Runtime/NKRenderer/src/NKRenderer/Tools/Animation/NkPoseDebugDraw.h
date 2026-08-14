@@ -16,7 +16,7 @@
 
 #include "NKCore/NkTypes.h"
 #include "NKMath/NKMath.h"
-#include "NKRenderer/Tools/Animation/NkPoseMass.h"
+#include "NKAnimPhysics/NkPoseMass.h"
 
 namespace nkentseu {
 	namespace renderer {

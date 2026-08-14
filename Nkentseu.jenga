@@ -829,6 +829,19 @@ with workspace("Nkentseu", location="."):
 
 
 
+    # NKAnimPhysics (pose physiquement correcte : masse/COM, equilibre, contacts,
+    # correction de pose et de clip). Extrait de NKRenderer/Tools/Animation le
+    # 2026-08-14 -- bloc de decision "substrats animation" du CLAUDE.md parent.
+    # CPU pur, headless, Foundation seule. NE depend PAS de NKPhysics aujourd hui :
+    # voir l en-tete de NKAnimPhysics.jenga, qui dit pourquoi, et ou brancher le
+    # pont le jour venu (NkRagdoll, jamais un second pont).
+
+    with include("Kernel/Runtime/NKAnimPhysics/NKAnimPhysics.jenga"):
+
+        pass
+
+
+
     # NKNavigation (NavMesh + pathfinding A*, sur NKCollision -- raycast reel
     # de sondage walkable). Voir Engine/Noge/ROADMAP.md, pilier Navigation IA.
 

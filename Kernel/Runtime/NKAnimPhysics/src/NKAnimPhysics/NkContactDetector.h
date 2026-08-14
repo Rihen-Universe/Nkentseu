@@ -1,5 +1,5 @@
 // =============================================================================
-// NKRenderer/Tools/Animation/NkContactDetector.h
+// NKAnimPhysics/NkContactDetector.h
 // -----------------------------------------------------------------------------
 // M3.3 (NkAnima — physique d'animation façon Cascadeur) : SOLVEUR DE CONTACTS.
 // Brique 3/6 de M3. Détecte quelles EXTRÉMITÉS (pieds, mains) touchent le sol,

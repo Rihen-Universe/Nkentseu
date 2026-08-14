@@ -1,9 +1,9 @@
 // =============================================================================
-// NKRenderer/Tools/Animation/NkPhysAnimBridge.cpp — M3.6 : pont anim (voir .h).
+// NKAnimPhysics/NkPhysAnimBridge.cpp — M3.6 : pont anim (voir .h).
 // =============================================================================
-#include "NKRenderer/Tools/Animation/NkPhysAnimBridge.h"
-#include "NKRenderer/Tools/Animation/NkPoseBalancer.h"
-#include "NKRenderer/Tools/Animation/NkBalance.h"
+#include "NKAnimPhysics/NkPhysAnimBridge.h"
+#include "NKAnimPhysics/NkPoseBalancer.h"
+#include "NKAnimPhysics/NkBalance.h"
 
 namespace nkentseu {
 	namespace renderer {

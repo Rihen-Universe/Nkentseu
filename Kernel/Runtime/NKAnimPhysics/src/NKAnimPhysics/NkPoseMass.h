@@ -1,5 +1,5 @@
 // =============================================================================
-// NKRenderer/Tools/Animation/NkPoseMass.h
+// NKAnimPhysics/NkPoseMass.h
 // -----------------------------------------------------------------------------
 // M3.1 (NkAnima — physique d'animation façon Cascadeur) : DISTRIBUTION DE MASSE
 // + CENTRE DE MASSE (COM) d'une pose de squelette.
