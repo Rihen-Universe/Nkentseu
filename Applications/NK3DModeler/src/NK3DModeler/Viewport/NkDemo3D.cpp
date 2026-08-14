@@ -14313,14 +14313,32 @@ namespace nkentseu {
 				return;
 			NkVpProjMat &m = nkvpProjMats[i];
 			m.nrmStrength = nrm < 0.f ? 0.f : (nrm > 2.f ? 2.f : nrm);
-			m.emiStrength = emi < 0.f ? 0.f : (emi > 20.f ? 20.f : emi);
+		// PLAFOND A 200 et non 20 (Rihen, 14 aout : « l'intensite est plafonnee
+			// a 20 »). Une emission sert aussi a ECLAIRER une scene, pas seulement a
+			// colorer une surface : vingt suffit a une enseigne, pas a une source.
+			// Blender ne borne pas cette valeur ; on garde une borne, mais assez
+			// haute pour ne pas se mettre en travers.
+			m.emiStrength = emi < 0.f ? 0.f : (emi > 200.f ? 200.f : emi);
 			if (!NkvpMatEng(i))
 				return;
 			// L'intensite de relief vit DANS SetNormalMap : la reposer exige de
 			// redonner la texture -- sinon le curseur n'aurait aucun effet.
 			if (m.maps[1][0] && nkvpProjMatChanTex[i][1].IsValid())
 				NkvpMatEng(i)->SetNormalMap(nkvpProjMatChanTex[i][1], m.nrmStrength);
-			NkvpMatEng(i)->SetEmissive({m.emissive[0], m.emissive[1], m.emissive[2]},
+			// UN EMISSIF SANS TEINTE D'EMISSION EMET SA COULEUR DE BASE.
+			// Le prereglage pose au changement de type ne servait qu'une fois : un
+			// materiau DEJA en emissif, avec son emission noire d'origine, restait
+			// eteint quelle que soit l'intensite -- ce que Rihen a constate a 20 puis
+			// a 14,88. La regle vaut donc a l'APPLICATION, pas seulement a la
+			// bascule : elle rattrape aussi les materiaux existants, sans rien
+			// ecrire dans l'etat -- une teinte d'emission choisie reste souveraine.
+			const bool emiNul = m.emissive[0] <= 0.001f && m.emissive[1] <= 0.001f &&
+								m.emissive[2] <= 0.001f;
+			const bool estEmissif = (m.matType == 11);
+			const float32 emiR = (estEmissif && emiNul) ? m.albedo[0] : m.emissive[0];
+			const float32 emiG = (estEmissif && emiNul) ? m.albedo[1] : m.emissive[1];
+			const float32 emiB = (estEmissif && emiNul) ? m.albedo[2] : m.emissive[2];
+			NkvpMatEng(i)->SetEmissive({emiR, emiG, emiB},
 										   m.emiStrength);
 		}
 		// ── ECHELLE DU PARALLAX (canal Hauteur — etape 3, 10 aout) ──────────
@@ -14365,9 +14383,19 @@ namespace nkentseu {
 			NkVpProjMat &m = nkvpProjMats[i];
 			for (int32 k = 0; k < 3; ++k)
 				m.emissive[k] = rgb[k] < 0.f ? 0.f : rgb[k];
+			// MEME REGLE QU'A L'AUTRE POINT D'APPLICATION : un emissif sans teinte
+			// emet sa couleur de base. Les deux chemins doivent dire la meme chose --
+			// sinon regler l'intensite et regler la teinte donneraient deux
+			// resultats differents pour le meme materiau.
+			const bool emiNul2 = m.emissive[0] <= 0.001f && m.emissive[1] <= 0.001f &&
+								 m.emissive[2] <= 0.001f;
+			const bool estEmi2 = (m.matType == 11);
 			if (NkvpMatEng(i))
-				NkvpMatEng(i)->SetEmissive({m.emissive[0], m.emissive[1], m.emissive[2]},
-											   m.emiStrength);
+				NkvpMatEng(i)->SetEmissive(
+					{(estEmi2 && emiNul2) ? m.albedo[0] : m.emissive[0],
+					 (estEmi2 && emiNul2) ? m.albedo[1] : m.emissive[1],
+					 (estEmi2 && emiNul2) ? m.albedo[2] : m.emissive[2]},
+					m.emiStrength);
 		}
 		// ── MELANGE DE MATERIAUX (etape 1 — Rihen : « mixer, operations, comme
 		// Blender et Unreal ») ──────────────────────────────────────────────
