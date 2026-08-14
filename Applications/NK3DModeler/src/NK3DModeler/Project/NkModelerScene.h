@@ -377,53 +377,20 @@ namespace nkentseu {
 			}
 			out.SetObjectArray("documents", docs);
 
-			// ── MATERIAUX DU PROJET ─────────────────────────────────────────
+			// ── LES MATERIAUX NE SONT PLUS DANS LA SCENE ────────────────────
+			// Elle en embarquait une copie complete et designait le sien par un
+			// RANG dans cette copie. Deux endroits decrivaient donc le meme
+			// materiau -- le .nkmat et la scene -- libres de diverger : au
+			// rechargement, la scene restaurait ses anciennes valeurs par-dessus le
+			// fichier et la derniere modification etait perdue (Rihen, 14 aout).
+			//
+			// Le rang est RETIRE, pas seulement contourne : « nous sommes toujours
+			// en dev et nous sommes les seuls a l'utiliser » (Rihen). Le garder
+			// pour d'anciennes versions aurait laisse vivre l'ancien mecanisme a
+			// cote du nouveau -- exactement ce qui a cause ce defaut.
+			// Chaque noeud porte desormais « materiauFichier », le chemin de son
+			// .nkmat, et rien d'autre ne decrit un materiau.
 			const int32 matMax = demo::Demo3DHostProjMatMax();
-			NkVector<int32> matRank; // emplacement -> rang dans le fichier
-			for (int32 i = 0; i < matMax; ++i)
-				matRank.PushBack(-1);
-			NkVector<NkArchive> mats;
-			const int32 chanCount = demo::Demo3DHostMatChanCount();
-			for (int32 i = 0; i < matMax; ++i) {
-				char nm[64];
-				float32 alb[3] = {0.7f, 0.7f, 0.7f};
-				float32 rough = 0.85f, metal = 0.f;
-				if (!demo::Demo3DHostProjMatInfo(i, nm, (uint32)sizeof(nm), alb, &rough, &metal))
-					continue; // emplacement libre : l'iteration saute les trous
-				matRank[(usize)i] = (int32)mats.Size();
-				NkArchive m;
-				m.SetString("nom", nm);
-				NkScSetVec3(m, "albedo", alb);
-				m.SetFloat32("rugosite", rough);
-				m.SetFloat32("metallique", metal);
-				float32 nrm = 1.f, emiS = 1.f;
-				demo::Demo3DHostProjMatChanStrength(i, &nrm, &emiS);
-				m.SetFloat32("relief", nrm);
-				m.SetFloat32("emissifIntensite", emiS);
-				float32 emi[3] = {0.f, 0.f, 0.f};
-				demo::Demo3DHostProjMatEmissive(i, emi);
-				NkScSetVec3(m, "emissif", emi);
-				m.SetInt32("apercu", demo::Demo3DHostProjMatPrevShape(i));
-				// LES QUATRE CANAUX, indexes et non nommes un a un : la table des
-				// canaux vit dans l'hote, la recopier ici la ferait diverger au
-				// premier canal ajoute.
-				NkArchive maps;
-				for (int32 c = 0; c < chanCount; ++c) {
-					char key[16];
-					snprintf(key, sizeof(key), "c%d", (int)c);
-					const NkString rel =
-						NkScToRel(root, demo::Demo3DHostProjMatMap(i, c));
-					maps.SetString(key, rel.CStr());
-				}
-				m.SetObject("cartes", maps);
-				mats.PushBack(m);
-			}
-		// PLUS ECRIT : la scene ne DECRIT plus les materiaux, elle les designe
-			// (cf. « materiauFichier » sur chaque noeud). Les garder aurait laisse
-			// deux descriptions du meme materiau -- celle du .nkmat et celle-ci --
-			// libres de diverger, ce qui est exactement le defaut qu'on repare.
-			// `mats` reste construit : `matRank` en depend pour le rang de
-			// compatibilite, lu par les versions anterieures.
 
 			// ── NOEUDS UTILISATEUR ──────────────────────────────────────────
 			// Un emplacement dont la nature est nulle n'a jamais servi ou a ete
@@ -506,10 +473,7 @@ namespace nkentseu {
 				// seul endroit ou etre decrit.
 				const int32 mi = demo::Demo3DHostProjMatOf(n);
 				nd.SetString("materiauFichier", NkAsMatPath(st, mi).CStr());
-				// Le rang reste ECRIT pour qu'une version anterieure sache encore
-				// lire ce fichier ; il n'est plus lu par celle-ci.
-				nd.SetInt32("materiau",
-							(mi >= 0 && mi < matMax) ? matRank[(usize)mi] : -1);
+				(void)matMax;
 				// PARAMETRES DE CREATION : sans eux, une sphere rechargee ne
 				// pourrait plus etre reajustee -- son maillage serait la, mais le
 				// panneau « Ajuster la creation » n'aurait plus rien a montrer.
@@ -732,55 +696,11 @@ namespace nkentseu {
 			int32 texMiss = 0, nodeMiss = 0;
 
 			// ── MATERIAUX (avant les noeuds : ils s'y assignent) ────────────
-			// ── ANCIEN FORMAT SEULEMENT ─────────────────────────────────────
-			// Une scene ecrite AVANT que le materiau ne vive dans son fichier
-			// embarquait leur copie. On la lit encore -- un projet existant doit
-			// continuer a s'ouvrir -- mais on ne l'ECRIT plus, et les scenes
-			// recentes n'en ont pas.
-			NkVector<NkArchive> mats;
-			(void)in.GetObjectArray("materiaux", mats);
-			NkVector<int32> matSlot; // rang fichier -> emplacement reel
-			const int32 chanCount = demo::Demo3DHostMatChanCount();
-			for (usize i = 0; i < mats.Size(); ++i) {
-				const int32 slot = demo::Demo3DHostProjMatCreate();
-				matSlot.PushBack(slot);
-				if (slot < 0)
-					continue;
-				const NkArchive &m = mats[i];
-				const NkString nm = NkScStr(m, "nom");
-				if (!nm.Empty())
-					demo::Demo3DHostProjMatSetName(slot, nm.CStr());
-				float32 alb[3];
-				NkScGetVec3(m, "albedo", alb, 0.7f, 0.7f, 0.7f);
-				demo::Demo3DHostProjMatSetParams(slot, alb, NkScFloat(m, "rugosite", 0.85f),
-												 NkScFloat(m, "metallique", 0.f));
-				// LES INTENSITES AVANT LES CARTES : poser une normal map relit
-				// l'intensite de relief au moment ou elle est posee. Dans l'autre
-				// ordre, la carte serait branchee avec l'ancienne valeur.
-				demo::Demo3DHostProjMatSetChanStrength(
-					slot, NkScFloat(m, "relief", 1.f), NkScFloat(m, "emissifIntensite", 1.f));
-				float32 emi[3];
-				NkScGetVec3(m, "emissif", emi, 0.f, 0.f, 0.f);
-				demo::Demo3DHostProjMatSetEmissive(slot, emi);
-				demo::Demo3DHostProjMatSetPrevShape(slot, NkScInt(m, "apercu", 1));
-				NkArchive maps;
-				if (!m.GetObject("cartes", maps))
-					continue;
-				for (int32 c = 0; c < chanCount; ++c) {
-					char key[16];
-					snprintf(key, sizeof(key), "c%d", (int)c);
-					const NkString rel = NkScStr(maps, key);
-					if (rel.Empty())
-						continue;
-					const NkString abs = NkScToAbs(root, rel.CStr());
-					// LE CHARGEMENT FAIT FOI (regle de l'hote) : une texture
-					// introuvable n'est pas memorisee. On la COMPTE, pour le dire
-					// -- un materiau qui perd sa carte en silence passe pour un
-					// materiau mal regle.
-					if (!demo::Demo3DHostProjMatSetMap(slot, c, abs.CStr()))
-						++texMiss;
-				}
-			}
+		// ── LES MATERIAUX NE SONT PLUS LUS D'ICI ────────────────────────
+		// Ils vivent dans leurs .nkmat, charges par le balayage du projet. Les
+		// recreer depuis la scene dupliquait les emplacements et ecrasait les
+		// valeurs du fichier par une copie plus ancienne. Un noeud designe son
+		// materiau par le chemin de son fichier, et c'est tout.
 
 			// ── NOEUDS ──────────────────────────────────────────────────────
 			NkVector<NkArchive> nodes;
@@ -896,15 +816,13 @@ namespace nkentseu {
 					(void)demo::Demo3DHostSetNodeParent(n, nodeOf[(usize)pr]);
 				else if (pf >= 0)
 					(void)demo::Demo3DHostSetNodeParent(n, pf);
-				const int32 mr = NkScInt(nd, "materiau", -1);
-				// LE CHEMIN FAIT FOI. Le rang n'est lu qu'a defaut, pour les
-				// scenes ecrites avant que le materiau ne vive dans son fichier.
+			// LE CHEMIN, ET RIEN D'AUTRE. Le rang a ete retire plutot que garde en
+				// repli : deux facons de designer un materiau, c'etait deux facons
+				// d'en avoir deux versions.
 				const NkString mf = NkScStr(nd, "materiauFichier");
 				const int32 parChemin = mf.Empty() ? -1 : NkAsMatSlot(st, mf);
 				if (parChemin >= 0)
 					demo::Demo3DHostProjMatAssign(n, parChemin);
-				else if (mr >= 0 && (usize)mr < matSlot.Size() && matSlot[(usize)mr] >= 0)
-					demo::Demo3DHostProjMatAssign(n, matSlot[(usize)mr]);
 			}
 
 			// ── MAILLAGES ORPHELINS : REPARATION ────────────────────────────
