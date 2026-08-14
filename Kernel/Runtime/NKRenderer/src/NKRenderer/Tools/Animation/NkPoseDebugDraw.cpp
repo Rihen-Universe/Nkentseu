@@ -11,7 +11,7 @@ namespace nkentseu {
 		using math::NkVec3f;
 		using math::NkVec4f;
 
-		void NkPoseDebugDraw::Draw(NkRender3D &r3d, const NkVec3f *jointWorld, int32 count, const NkPoseMass &mass,
+		void NkPoseDebugDraw::Draw(NkRender3D &r3d, const NkVec3f *jointWorld, int32 count, const animphys::NkPoseMass &mass,
 								   const NkVec3f *supportPts, int32 supportCount, const NkVec3f &groundNormal,
 								   const NkPoseDebugVizOptions &opt, const NkVec3f &comVelocity) {
 			if (jointWorld == nullptr || count <= 0)
@@ -30,10 +30,10 @@ namespace nkentseu {
 
 			// COM + état d'équilibre.
 			const NkVec3f com = mass.ComputeCOMFromPositions(jointWorld, count);
-			NkBalanceResult bal;
+			animphys::NkBalanceResult bal;
 			bool haveBal = false;
 			if (supportPts != nullptr && supportCount > 0) {
-				bal = NkBalance::EvaluateStatic(com, supportPts, supportCount, n);
+				bal = animphys::NkBalance::EvaluateStatic(com, supportPts, supportCount, n);
 				haveBal = true;
 			}
 
