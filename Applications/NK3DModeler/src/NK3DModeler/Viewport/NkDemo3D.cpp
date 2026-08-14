@@ -14490,6 +14490,26 @@ namespace nkentseu {
 			// verre teinte/laque, opaque MAIS qui reflete toujours.
 			if (type == 5 /* NK_GLASS */ && nkvpProjMats[i].alpha >= 0.999f)
 				nkvpProjMats[i].alpha = 0.12f;
+			// MEME REGLE POUR L'EMISSIF (11). Un materiau emissif ne rend QUE son
+			// emission : tant qu'elle est noire -- sa valeur de depart -- l'objet
+			// est NOIR, quelle que soit l'intensite. Choisir « Emissif » donnait
+			// donc un objet eteint, ce qui se lit comme une panne (Rihen, 14 aout :
+			// type Emissif, intensite 14,88, sphere noire).
+			//
+			// L'emission part de la COULEUR DE BASE, et non d'un blanc arbitraire :
+			// on emet la teinte que l'utilisateur a deja choisie. Une emission deja
+			// reglee n'est pas touchee -- un reglage voulu se garde.
+			if (type == 11 /* NK_EMISSIVE */ && nkvpProjMats[i].emissive[0] <= 0.001f &&
+				nkvpProjMats[i].emissive[1] <= 0.001f &&
+				nkvpProjMats[i].emissive[2] <= 0.001f) {
+				const float32 base[3] = {nkvpProjMats[i].albedo[0], nkvpProjMats[i].albedo[1],
+										 nkvpProjMats[i].albedo[2]};
+				const bool albedoNoir =
+					base[0] <= 0.001f && base[1] <= 0.001f && base[2] <= 0.001f;
+				nkvpProjMats[i].emissive[0] = albedoNoir ? 1.f : base[0];
+				nkvpProjMats[i].emissive[1] = albedoNoir ? 1.f : base[1];
+				nkvpProjMats[i].emissive[2] = albedoNoir ? 1.f : base[2];
+			}
 			HostMatRebuildEngine(i); // changer de type = changer de gabarit
 		}
 		void Demo3DHostProjMatPBRExtra(int32 i, float32 *alpha, float32 *aniso,
