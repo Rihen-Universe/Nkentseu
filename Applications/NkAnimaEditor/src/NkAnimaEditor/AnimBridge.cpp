@@ -1,6 +1,7 @@
 // =============================================================================
 // AnimBridge.cpp — implémentation du pont. SEUL TU à inclure NKRenderer (anim).
 // =============================================================================
+#include "NKRenderer/Mesh/NkGLTFAnimBake.h"
 #include "AnimBridge.h"
 #include "NKRenderer/Tools/Animation/NkAnimationSystem.h"
 #include "NKRenderer/Tools/Animation/NkAnimationEditor.h"
@@ -125,7 +126,7 @@ namespace nkanima {
 	bool AnimInit(const char *modelPath) {
 		if (LoadGLTF(modelPath, g.gltf) && g.gltf.isSkinned) {
 			int32 ai = g.gltf.animations.Empty() ? -1 : 0;
-			if (g.clip.BakeFromGLTF(g.gltf, ai, 30.f)) {
+			if (BakeClipFromGLTF(g.gltf, ai, 30.f, g.clip)) {
 				g.player.SetClip(&g.clip);
 				g.player.Play(NkPlayMode::NK_LOOP, 1.f);
 				g.editor.SetClip(&g.clip);

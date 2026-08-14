@@ -14,6 +14,7 @@
 // rapide (pas de parsing JSON).
 //   renderdemo --demo=16        (cf remap main.cpp)   NK_SKIN_MODEL=<chemin>
 // =============================================================================
+#include "NKRenderer/Mesh/NkGLTFAnimBake.h"
 #include "DemoCommon.h"
 #include "NKRenderer/Mesh/NkGLTFLoader.h"
 #include "NKRenderer/Mesh/NkGLTFMaterialBridge.h"
@@ -127,7 +128,7 @@ namespace nkentseu {
 			if (st->skinned) {
 				int32 animIdx = data.animations.Empty() ? -1 : 0;
 				NkAnimationClip baked;
-				if (baked.BakeFromGLTF(data, animIdx, 30.f)) {
+				if (BakeClipFromGLTF(data, animIdx, 30.f, baked)) {
 					st->jointCount = (uint32)baked.boneTracks.Size();
 					st->frameCount = (st->jointCount > 0) ? baked.boneTracks[0].KeyCount() : 0;
 					st->nkanimPath = NkString("Build/Bin/Debug-Windows/renderdemo/cesiumman_walk.nkanim");
@@ -151,7 +152,7 @@ namespace nkentseu {
 				if (data.animations.Size() >= 2) {
 					for (uint32 ai = 0; ai < (uint32)data.animations.Size(); ++ai) {
 						auto *c = memory::NkGetDefaultAllocator().New<NkAnimationClip>();
-						if (c->BakeFromGLTF(data, (int32)ai, 30.f)) {
+						if (BakeClipFromGLTF(data, (int32)ai, 30.f, *c)) {
 							c->name = data.animations[ai].name;
 							st->blendClips.PushBack(c);
 							st->blendTree.AddClip(c, (float32)(st->blendClips.Size() - 1));
