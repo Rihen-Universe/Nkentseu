@@ -344,6 +344,14 @@ namespace nkentseu {
 		bool Demo3DHostProjMatSwap(int32 a, int32 b);
 		void Demo3DHostProjMatEmissive(int32 i, float32 *rgb);
 		void Demo3DHostProjMatSetEmissive(int32 i, const float32 *rgb);
+		/// Un materiau EMISSIF eclaire-t-il la scene ? Faux par defaut : une
+		/// surface emissive s'AFFICHE lumineuse sans forcement eclairer ses
+		/// voisins. Coche, elle injecte une lumiere dans la grille de GI -- et la
+		/// seulement : elle ne rejoint pas les lumieres du rendu direct, sinon
+		/// l'objet gagnerait un speculaire et une ombre qu'aucune surface emissive
+		/// ne produit.
+		bool Demo3DHostProjMatEmiLights(int32 i);
+		void Demo3DHostProjMatSetEmiLights(int32 i, bool on);
 		int32 Demo3DHostProjMatPrevShape(int32 i);
 		void Demo3DHostProjMatSetPrevShape(int32 i, int32 shape);
 		/// Rend la vignette d'apercu en RGBA, `width` x `height`. Rectangulaire :

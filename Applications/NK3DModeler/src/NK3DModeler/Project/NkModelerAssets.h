@@ -334,6 +334,7 @@ namespace nkentseu {
 			demo::Demo3DHostProjMatEmissive(slot, emi);
 			NkScSetVec3(o, "emissif", emi);
 			o.SetInt32("apercu", demo::Demo3DHostProjMatPrevShape(slot));
+			o.SetBool("emissifEclaire", demo::Demo3DHostProjMatEmiLights(slot));
 			// LA VIGNETTE VOYAGE AVEC LE MATERIAU (Rihen, 14 aout) : un PNG encode
 			// en base64, dans le fichier meme. Un fichier voisin se serait separe de
 			// lui au premier deplacement, et une bibliotheque de materiaux se
@@ -432,6 +433,7 @@ namespace nkentseu {
 			NkScGetVec3(in, "emissif", emi, 0.f, 0.f, 0.f);
 			demo::Demo3DHostProjMatSetEmissive(slot, emi);
 			demo::Demo3DHostProjMatSetPrevShape(slot, NkScInt(in, "apercu", 1));
+			demo::Demo3DHostProjMatSetEmiLights(slot, NkScBool(in, "emissifEclaire", false));
 			demo::Demo3DHostProjMatSetThumb(slot, NkScStr(in, "vignette").CStr());
 			NkArchive maps;
 			if (!in.GetObject("cartes", maps))

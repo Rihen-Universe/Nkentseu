@@ -937,7 +937,12 @@ namespace nkentseu {
 				float32 outlineCol[3];
 				float32 rimI;
 				float32 rimCol[3];
-				float32 specHard;
+			float32 specHard;
+				/// UN EMISSIF ECLAIRE-T-IL LA SCENE ? Faux par defaut (choix de
+				/// Rihen, 14 aout) : une surface emissive s'AFFICHE lumineuse sans
+				/// forcement eclairer ses voisins, et c'est ce que font les moteurs
+				/// temps reel. L'option se coche quand on veut la source.
+				bool emiEclaire;
 		};
 		static constexpr int32 kNkvpMaxProjMats = 64;
 		static NkVpProjMat nkvpProjMats[kNkvpMaxProjMats] = {};
@@ -5201,7 +5206,49 @@ namespace nkentseu {
 			// GI éteint = injection de zéro : l'opacité (donc l'AO) reste, seul
 			// l'indirect disparaît. L'A/B ne change donc QUE ce qu'on veut mesurer.
 			vao->SetGIIntensity(st->giOn ? st->giIntensity : 0.f);
-			vao->InjectLighting(lights);
+		// ── LES EMISSIFS QUI ECLAIRENT ─────────────────────────────────────
+			// Une lumiere ponctuelle est ajoutee au centre de chaque objet dont le
+			// materiau est emissif ET coche « eclaire la scene ». Elle n'entre QUE
+			// dans l'injection du GI : elle ne rejoint pas les lumieres du rendu
+			// direct, sinon l'objet gagnerait un speculaire et une ombre portee
+			// qu'aucune surface emissive ne produit.
+			//
+			// Une ponctuelle plutot qu'une source de surface : la grille est en
+			// 64x32x64, ses voxels mesurent plusieurs centimetres -- la forme exacte
+			// de l'emetteur ne s'y lit pas, seule sa position et son flux comptent.
+			NkVector<NkLightDesc> lightsGI = lights;
+			for (int32 u = 0; u < kNkvpMaxUser; ++u) {
+				if (!nkvpUserMesh[u].IsValid())
+					continue;
+				const int32 n = kNkvpFirstUser + u;
+				if (nkvpDeleted[n] || HostHiddenEff(n))
+					continue;
+				const int32 pm = nkvpNodeMatP1[n] - 1;
+				if (pm < 0 || pm >= kNkvpMaxProjMats || !nkvpProjMats[pm].used)
+					continue;
+				const NkVpProjMat &mm = nkvpProjMats[pm];
+				if (mm.matType != 11 || !mm.emiEclaire || mm.emiStrength <= 0.001f)
+					continue;
+				// LE CENTRE DE SA BOITE MONDE, calcule comme pour les occludeurs
+				// ci-dessus : une seule facon de savoir ou est un objet.
+				NkVec3f bmin, bmax;
+				Demo3D_XformAABB(Demo3D_UserWireXform(st, u), bmin, bmax);
+				NkLightDesc le;
+				le.type = NkLightType::NK_POINT;
+				le.position = {(bmin.x + bmax.x) * 0.5f, (bmin.y + bmax.y) * 0.5f,
+							   (bmin.z + bmax.z) * 0.5f};
+				// La teinte suit la meme regle que le rendu : sans teinte d'emission,
+				// c'est la couleur de base qui emet.
+				const bool nul = mm.emissive[0] <= 0.001f && mm.emissive[1] <= 0.001f &&
+								 mm.emissive[2] <= 0.001f;
+				le.color = {nul ? mm.albedo[0] : mm.emissive[0],
+							nul ? mm.albedo[1] : mm.emissive[1],
+							nul ? mm.albedo[2] : mm.emissive[2]};
+				le.intensity = mm.emiStrength;
+				le.range = 4.f + mm.emiStrength * 0.5f; // plus elle emet, plus loin
+				lightsGI.PushBack(le);
+			}
+			vao->InjectLighting(lightsGI);
 			st->giBuildMs = vao->GetLastBuildMs();
 			st->giInjectMs = vao->GetLastInjectMs();
 		}
@@ -14640,6 +14687,20 @@ namespace nkentseu {
 					->SetRim(m.rimI, {m.rimCol[0], m.rimCol[1], m.rimCol[2]})
 					->SetSpecHardness(m.specHard);
 		}
+		bool Demo3DHostProjMatEmiLights(int32 i) {
+			return (i >= 0 && i < kNkvpMaxProjMats) ? nkvpProjMats[i].emiEclaire : false;
+		}
+		void Demo3DHostProjMatSetEmiLights(int32 i, bool on) {
+			if (i < 0 || i >= kNkvpMaxProjMats || !nkvpProjMats[i].used)
+				return;
+			if (nkvpProjMats[i].emiEclaire == on)
+				return;
+			nkvpProjMats[i].emiEclaire = on;
+			// La grille de GI est recalculee : sans cela, cocher la case ne se
+			// verrait qu'au prochain changement de scene.
+			Demo3DHostGIMarkDirty();
+		}
+
 		int32 Demo3DHostProjMatPrevShape(int32 i) {
 			return (i >= 0 && i < kNkvpMaxProjMats) ? nkvpProjMats[i].prevShape : 1;
 		}

@@ -3055,8 +3055,35 @@ namespace nkentseu {
 									yy += kRowH;
 									if (nrmS != nrm0 || emiS != emi0)
 										demo::Demo3DHostProjMatSetChanStrength(selMat, nrmS, emiS);
-									if (emiCh || emiC[0] != e0 || emiC[1] != e1 || emiC[2] != e2)
+								if (emiCh || emiC[0] != e0 || emiC[1] != e1 || emiC[2] != e2)
 										demo::Demo3DHostProjMatSetEmissive(selMat, emiC);
+									// ── ECLAIRE-T-IL LA SCENE ? ──────────────────
+									// Reserve a l'EMISSIF, et eteint par defaut : une
+									// surface lumineuse n'est pas forcement une source
+									// (Rihen, 14 aout). Cochee, elle injecte une lumiere
+									// dans la grille de GI -- son voisinage s'eclaire de
+									// sa teinte.
+									if (famEmis) {
+										const bool ecl =
+											demo::Demo3DHostProjMatEmiLights(selMat);
+										const NkRect ce{iR.x + S(2.f), yy + S(4.f), S(14.f),
+														S(14.f)};
+										const bool ovE = hit.Add("props.pm.emiecl", ce);
+										p.Outline(ce, ovE ? NkRole::AccentUi : NkRole::Border,
+												  ecl ? NkRole::AccentUi : NkRole::InputBg, 3.f);
+										if (ecl)
+											p.IconV(ce.x + S(1.f), ce.y, ce.h, NkIcon::Check,
+													NkRole::TextOnAccent, 10.f);
+										p.TextV(ce.x + S(20.f), yy, kRowH, "Eclaire la scene",
+												NkRole::TextMuted);
+										NkHelp(ovE,
+											   "L'objet eclaire son voisinage (illumination "
+											   "globale). Coute une reconstruction de la "
+											   "grille a chaque changement.");
+										if (hit.Clicked("props.pm.emiecl"))
+											demo::Demo3DHostProjMatSetEmiLights(selMat, !ecl);
+										yy += kRowH;
+									}
 								}
 							}
 							if (famPBR) {
