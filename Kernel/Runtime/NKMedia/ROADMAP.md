@@ -1,4 +1,4 @@
-# NKMedia — conteneurs & codecs média (audio/vidéo) — ROADMAP
+# NKMedia — conteneurs & codecs média (audio / vidéo / documents) — ROADMAP
 
 > Module Runtime **from-scratch, zero-STL** (`namespace nkentseu::media`) pour **lire et écrire** des
 > formats conteneurs (MP4/ISOBMFF, WebM/Matroska, …) et, à terme, décoder/encoder leurs **codecs**
@@ -9,6 +9,24 @@
 > ⚠️ **Honnêteté d'échelle** : un décodeur vidéo complet (H.264/VP9) from-scratch est un travail énorme.
 > On construit **par couches**, chaque brique testable. Tant que les décodeurs natifs n'existent pas, un
 > **repli par transcodage externe (ffmpeg)** dépanne (préparation de dataset, offline).
+
+> ### 📄 CORRECTION DE PÉRIMÈTRE (2026-08-14) — LE MODULE PORTE AUSSI DES DOCUMENTS
+> Ce document a décrit pendant un mois un module « audio/vidéo » **pendant que
+> ~12 000 lignes de lecture de documents vivaient dedans**. Vérifié le 14/08 : la
+> chaîne « pdf » n'apparaissait **qu'une seule fois** dans tout ce fichier, l. 427,
+> et elle y désignait une *densité de probabilité* dans le codec Opus.
+> Le module contient, en plus des conteneurs et codecs :
+> - `src/NKMedia/Pdf/` — **lecteur PDF, 10 990 lignes** (brique 10 ci-dessous) ;
+> - `src/NKMedia/Document/` — **1 060 lignes** d'extraction de texte : `NkEpub.h`,
+>   `NkLatex.h`, `NkPageWeb.h`, `NkArchive.h`, `NkAspirateur.h`. En-têtes **sans
+>   `.cpp` mais implémentés en ligne** (ce ne sont pas des spécifications), écrits
+>   pour alimenter le corpus de NKIlyana. Leur rangement ici est contesté — voir
+>   « Dette documentaire » dans `DETTE_LISIBILITE.md`.
+>
+> ⚠️ **TOUT CE QUI EST DOCUMENT EST EN LECTURE SEULE.** NKMedia n'écrit,
+> ne modifie et ne produit **aucun** PDF, EPUB, LaTeX ni page web. Il ouvre,
+> il extrait, il rend — rien d'autre. Cette phrase manquait ; son absence est ce
+> qui laisse croire qu'un lecteur est un éditeur en puissance.
 
 | Brique | Statut | Contenu |
 |---|---|---|
@@ -24,6 +42,7 @@
 | 7. **Vidéo (encode/création)** | 🔶 EN COURS | **`NkVideoWriter` : création vidéo from-scratch (SANS ffmpeg) ✅** — RAW BGR (pixel-perfect) + **MJPEG** (via codec JPEG NKImage) + **MPEG-1 Video (VRAI codec DCT, I + P-frames = compression INTER-FRAME) ✅** ; conteneurs **AVI**, **MOV/MP4**, flux élémentaire **.m1v** ; + **`NkImageSequenceWriter`** (séquence PNG/JPEG/BMP/TGA/QOI, workflow Blender). Validé lisible par ffmpeg/VLC (RAW pixel-parfait, MJPEG 0.99, MPEG-1 I≈33dB P≈30dB, **16× plus compact que MJPEG** sur contenu écran). Motion **half-pel** (interpolation bilinéaire + f_code) ✅. **Encodeur H.264 baseline from-scratch livré (BIT-EXACT vs ffmpeg : I_16×16 + I_4×4 + P MC quart-pel + déblocage)**. **Mux audio A/V ✅ livré (2026-07-27)** : piste PCM s16 à l'écriture — `NkVideoWriter::AddAudioSamples` (opt-in, entrelacé en flux) → AVI (`01wb` + idx1) et MOV/MP4 (trak `sowt`, stts/stsc/stsz/stco, timescale=rate) ; validé ffprobe 2 streams + **PCM retour BIT-EXACT via ffmpeg** + sync A/V 0 ms + round-trip demux moteur bit-exact (mono 48k + stéréo 44.1k, harnais `--avmux`). `NkMp4H264Writer` (chemin NK_RECORD) avait déjà son AppendAudioPcm. Prochaine brique codec (optionnelle) : profils H.264 avancés |
 | 8. **Décodeur vidéo VP8** | ✅ | **DÉCODEUR COMPLET (clé + inter) : 325 images BIT-EXACTES vs ffmpeg sur 6 flux** (dont altref invisibles, golden frames, 4 GOPs, SPLITMV, filterLevel 0-8, résolutions impaires). Décodeur booléen, en-têtes, modes intra+inter, MV (near/nearest/new/split), MC 6-tap, résidus, WHT+IDCT, filtre de boucle. **Branché dans `NkVideoReader`** (WebM/IVF). Restes mineurs : segmentation MB, partitions multiples, versions 1-3 (refus propre). |
 | 9. **Décodeur vidéo HEVC/H.265** | ✅ | **DÉCODEUR COMPLET, briques 1-15 (2026-07-26)** : NAL/VPS/SPS/PPS + slice header + CABAC + quadtree CTU/CU/PU/TU ; **INTRA** 35 modes + DST/DCT + déblocage + SAO (bit-exact 8-bit & Main10) ; **P** mono/multi-référence (merge/AMVP spatiaux + candidat temporel §8.5.3.2.8/9 + MC qpel/epel + pondération explicite) ; **B** bi-prédiction (MvField bi-liste, merge combiné-bi, AMVP par liste, MC bi pondérée) ; **déblocage in-loop inter** (BS §8.7.2.4, P+B dont bi-préd) + **SAO P/B** — **TOUT bit-exact vs ffmpeg** (I/P/B avec et sans filtres, ~30 flux). **Branché `NkVideoReader` (brique 16, 2026-07-26)** : `.265` Annex-B + MP4 `hvc1`/`hev1` (box `hvcC`) + MKV `V_MPEGH/ISO/HEVC`, DPB réel avec éviction RPS §8.3.2 + réordonnancement POC pour l'ordre d'affichage B-pyramide — 25/25 trames sur les 3 conteneurs, sortie bit-identique entre eux, maxPixDiff=3 (arrondi BT.601 YUV→RGBA ; décodage YUV bit-exact = maxdiff 0). **10-bit inter (Main10 complet) livré bit-exact** (MC/pondération/bi généralisées à `bitDepth` variable — P+B 10-bit avec déblocage+SAO validés maxdiff=0). Restes refusés proprement (INVÉRIFIABLES : x265 ne les émet pas, donc pas d'oracle bit-exact — ou refactor trop lourd) : tuiles, PCM (code écrit mais dormant), 4:2:2/4:4:4, `ref_pic_lists_modification`, `scaling_list_data`, CU 8×8 `log2ParallelMergeLevel>2`. |
+| 10. **Lecteur de documents PDF** | ✅ | **LECTURE SEULE** — `src/NKMedia/Pdf/`, **10 990 lignes** (dont 4 415 de table de glyphes générée). Index `xref` classique **et** flux xref + `ObjStm` + chaîne `/Prev`, arbre de pages, interpréteur de flux de contenu, polices embarquées via `NkFontParser` (`FontFile2`/`FontFile3`), `/Differences` + CMaps `ToUnicode`, rastérisation non-zero/even-odd + clipping, ombrages, `/Info`, `/StructTreeRoot`. Consommateurs réels : **NKCode** (`Shell/NkPdfViewer`) et **NKIlyana**. Historique détaillé + corpus de 258 PDF : voir `Applications/NKIlyana/ROADMAP.md` |
 
 ## Livré
 - **Brique 1 (2026-07-10)** — `NkMediaProbe` (`NkMediaProbe.{h,cpp}`) : détection de conteneur + parseurs
@@ -1524,6 +1543,80 @@ réordonnancement POC ✅ — voir « Livré ».)*
   chemin de resync ne s'est pas déclenché sur ce contenu, le débit normal suffisant déjà — voir
   fix perf ci-dessus).
 
+## Brique 10 — Lecteur de documents PDF (LECTURE SEULE)
+
+> **Section créée le 2026-08-14.** Le lecteur existait depuis le 10 août sans
+> qu'une seule ligne de cette feuille de route le mentionne. Elle dit ici **ce
+> qu'il est et où il vit** ; elle ne recopie pas son historique, qui est tenu à
+> jour dans **[`Applications/NKIlyana/ROADMAP.md`](../../../Applications/NKIlyana/ROADMAP.md)**
+> (sondage du corpus, phases, mesures sur 258 PDF réels, causes des régressions).
+> Deux documents qui racontent la même histoire divergent ; celui-ci renvoie.
+
+**LECTURE SEULE.** Aucune écriture, aucune modification, aucune production de
+PDF. Le module ouvre un document, en extrait la structure et le texte, et le
+rend en bitmap.
+
+### Livré
+
+`src/NKMedia/Pdf/` — **10 990 lignes**, dont **4 415** pour `NkPdfGlyphList.cpp`
+(table de noms de glyphes générée) : ≈ **6 575 lignes de logique**.
+
+| Fichier | l. | Rôle |
+|---|---|---|
+| `NkPdfRender.cpp` | 1 666 | interpréteur de flux de contenu (opérateurs graphiques et texte) |
+| `NkPdfLoad.cpp` | 1 055 | index `xref` **classique et en flux**, `ObjStm`, chaîne `/Prev`, arbre de pages |
+| `NkPdfFont.cpp` | 731 | pont `FontFile2`/`FontFile3` → `NkFontParser`, `/Differences`, CMaps `ToUnicode` |
+| `NkPdfRaster.cpp` | 588 | rastérisation anti-aliasée, non-zero **et** even-odd, pile de clipping |
+| `NkPdf.cpp` | 499 | document, objets, filtres |
+| `NkPdfShading.cpp` | 358 | ombrages |
+| `NkPdfInfo.cpp` / `NkPdfStruct.cpp` | 249 / 236 | `/Info`, `/Lang` ; `/StructTreeRoot` (ordre de lecture logique) |
+| en-têtes (8) | 1 193 | |
+
+**Un seul rastériseur pour les formes et pour le texte**, et c'est délibéré :
+`NkPdfRaster.h` l. 4-9 explique que les graphiques vectoriels d'une page et les
+glyphes rendus par NKFont sont le même problème — des contours à remplir.
+
+### Consommateurs réels
+
+| Application | Ce qu'elle en fait |
+|---|---|
+| **NKCode** | `src/NKCode/Shell/NkPdfViewer.{h,cpp}` + `NkPdfWorker.{h,cpp}` — panneau d'affichage et fil de rendu |
+| **NKIlyana** | `src/NkIlyanaPdf.h`, `src/NkIlyanaSondePdf.h` — extraction de texte pour le corpus, sondage de masse |
+
+### Bugs / limitations connues
+
+- `/CIDToGIDMap` **en flux** non géré — écrit à la source, `NkPdfFont.cpp:244`.
+- Les parties non bornées restent les **encodages/CMaps**, les **espaces
+  colorimétriques** et la **transparence**.
+- ⚠️ **Un fork de ce lecteur subsiste** dans `Applications/NKCode/src/NKCode/Pdf/`
+  (5 211 lignes, espace de noms `nkentseu::nkcode::pdf`) que plus rien n'inclut.
+  Chantier de suppression : `DETTE_LISIBILITE.md`.
+
+### À venir
+
+- Rien d'engagé. Toute extension suit la discipline posée par NKIlyana : **mesurer
+  le corpus d'abord**, étendre ensuite.
+
 ## Dépendances
-Foundation (NKCore/NKMemory/NKContainers/NKMath) + NKStream/NKFileSystem (I/O). Consommateurs visés :
-NKAudio (codecs audio), NKSpeech (corpus voix), NKImage/NKRHI (frames vidéo), NKCamera (capture).
+
+**Corrigé le 2026-08-14** — la liste précédente (« Foundation + NKStream/NKFileSystem »)
+ne décrivait plus `NKMedia.jenga`, qui exige quatre modules de plus, tous tirés
+par la chaîne document/PDF. Un agent qui se fiait à cette section sous-estimait
+le coût de dépendance du module.
+
+Réelles, telles que déclarées dans `NKMedia.jenga` :
+Foundation (NKCore / NKPlatform / NKMemory / NKContainers / NKMath) + NKLogger,
+NKStream, NKFileSystem (I/O), **NKImage** (`NkDeflate` pour `FlateDecode`, codec
+JPEG pour `DCTDecode`), **NKFont** (glyphes des polices embarquées),
+**NKThreading**, **NKTime**.
+
+Consommateurs **réels**, relevés le 14/08 en cherchant qui inclut `"NKMedia/…"` :
+- côté moteur, un seul — **NKAudio** (codecs audio) ;
+- côté applications — **NKCode** (afficheur PDF), **NKIlyana** (corpus PDF et
+  documents), **NkVideoPlayer**, **NK3DModeler**, **NKViewportDemo**, **DemoRW**,
+  **Sandbox**, plus les bancs `NKMediaTest` / `NKVideoTest` / `NkVideoReadTest` /
+  `NKOpusRef`.
+
+Consommateurs **visés mais PAS branchés** à ce jour (aucune inclusion) :
+NKSpeech (corpus voix), NKImage / NKRHI (frames vidéo), NKCamera (capture).
+Ils étaient annoncés ici comme s'ils l'étaient.

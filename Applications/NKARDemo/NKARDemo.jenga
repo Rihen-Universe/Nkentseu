@@ -90,6 +90,15 @@ with project("NKARDemo"):
         androidpermissions([
             "android.permission.CAMERA",
         ])
+        # Les SHADERS doivent voyager dans l'APK. Sur poste de travail ils sont
+        # lus depuis le dossier du dépôt ; sur téléphone ce dossier n'existe
+        # pas, NkShaderLibrary reçoit alors des sources VIDES, chaque shader
+        # échoue à compiler et le rendu refuse de s'initialiser — écran noir
+        # sans autre explication (mesuré le 2026-08-12, journal à l'appui).
+        # NkFile lit dans l'APK par l'AAssetManager : il suffit donc de les y
+        # mettre. Seuls les shaders (1,8 Mo) sont embarqués, pas les textures
+        # ni les ciels du même dossier, qui pèsent 230 Mo et ne servent pas ici.
+        androidassets(["../../Resources/NKRenderer/Shaders"])
 
     with filter("config:Debug"):
         defines(["_DEBUG", "DEBUG"])
