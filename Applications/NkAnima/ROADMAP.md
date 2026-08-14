@@ -22,7 +22,7 @@
 > secondaire » **dans la même clause** (« restent, eux, réellement non
 > commencés »). Les deux n'ont pas le même état, et l'amalgame a survécu à la
 > livraison du premier :
-> - **Retargeting : ✅ LIVRÉ.** `NKRenderer/Tools/Animation/NkAnimRetarget.{h,cpp}`,
+> - **Retargeting : ✅ LIVRÉ.** `NKAnimation/NkAnimRetarget.{h,cpp}`,
 >   **660 lignes** (174 + 486), exercé par `Applications/NkAnimPhysTest`.
 >   Commit `7a1f7d81`, dont le message dit lui-même « (M2, etait « non
 >   commence ») ». L'en-tête du module l'écrit aussi, l. 13-14 : « elle était
@@ -38,6 +38,38 @@
 > items d'état différent dans une même phrase.** Le jour où l'un des deux avance,
 > la phrase devient fausse en bloc et personne ne sait laquelle des deux moitiés
 > corriger.
+
+> ### 🦴 EXTRACTION DU 2026-08-14 — les substrats ne vivent PLUS dans le renderer
+> Les modules cités dans cette feuille de route ont **changé d'adresse**, en
+> application du bloc de décision « SUBSTRATS ANIMATION ET COMPORTEMENT »
+> (`CLAUDE.md` du répertoire parent). Les chemins ci-dessous sont à jour ; les
+> messages de commit antérieurs, non.
+>
+> | ce que c'est | où c'est maintenant | espace de noms | volume |
+> |---|---|---|---|
+> | modèle d'animation (clips, blend 1D/2D, HFSM), reciblage, éditeur de pose-clés, motion path | `Kernel/Runtime/NKAnimation` | `nkentseu::anim` | **3 456 l.** |
+> | masse/COM, équilibre, contacts, correction de pose et de clip (M3.1 → M3.6) | `Kernel/Runtime/NKAnimPhysics` | `nkentseu::animphys` | **1 621 l.** |
+> | ce qui DESSINE : façade `NkAnimationSystem`, `NkPoseDebugDraw` | `NKRenderer/Tools/Animation` | `nkentseu::renderer` | **492 l.** |
+>
+> ⚠️ **`NkPhysAnimBridge` s'appelle désormais `NkClipBalancePass`.** Son ancien nom
+> annonçait un pont et de la physique, alors qu'il ne fait ni l'un ni l'autre :
+> aucune dynamique, aucune force, aucune référence à NKPhysics. C'est une passe
+> d'équilibre non destructive sur un clip. Le vrai pont physique↔animation existe
+> ailleurs et s'appelle `NKPhysics/NkRagdoll`.
+>
+> ⚠️ **`NKAnimPhysics` ne dépend PAS de NKPhysics** — mesuré, pas supposé : aucun
+> de ses six fichiers ne référence NKPhysics, NKCollision ni NkRagdoll. Le jour où
+> ce lien sera créé, il passe **par `NkRagdoll`**, jamais par un second pont.
+>
+> ✅ **Ce que ça change pour NkAnima** : l'application peut désormais animer **sans
+> tirer le renderer**. M5 (app standalone) n'a plus cette dette d'entrée, et une
+> application 2D — que la règle d'exclusivité NKCanvas/NKRenderer empêchait
+> d'animer du tout — le peut aussi.
+>
+> ⏳ **Ce qui reste à ÉCRIRE dans NKAnimation, pas à y déplacer** : squelette,
+> hiérarchie et bind pose en **T+R+S séparés** (`PRINCIPES_CONCEPTION.private.md`),
+> et le **rig facial volet animation** — `Noge/Facial/NkFacialRig.h` en est la
+> spécification, 528 lignes sans un seul corps de fonction.
 
 ## Vision
 
@@ -206,7 +238,7 @@ transpilé partout — vérifier comme pour les autres).
 Éditer des poses-clés, timeline, interpolation, save/load `.nkanim`.
 
 **✅ M1.d — ANIMATION PAR TRAÇAGE DE COURBE (2026-07-10)** — module
-`NKRenderer/Tools/Animation/NkMotionPath.{h,cpp}` (pur Foundation, AUCUN GPU). On trace une **courbe**
+`NKAnimation/NkMotionPath.{h,cpp}` (pur Foundation, AUCUN GPU). On trace une **courbe**
 dans la scène (points de contrôle) et une cible la suit :
 - `NkMotionCurve` — spline **Catmull-Rom** (passe par les points), `SamplePosition/SampleTangent(t)`,
   `Length`, **reparamétrage par longueur d'arc** (`SampleByDistance`/`DistanceToT` = vitesse constante),
@@ -350,7 +382,7 @@ Détail cible (fusion corpus IA 2026-07-09) :
   machine idle→walk→retour idle + comptage d'événements OK, blend 2D mix/exact
   OK. **Reste de M2** (état revérifié fichier par fichier le 2026-08-14) :
   - ✅ **Retargeting — LIVRÉ le 2026-08-06** (commit `7a1f7d81`).
-    `NKRenderer/Tools/Animation/NkAnimRetarget.{h,cpp}`, **660 lignes**. Les
+    `NKAnimation/NkAnimRetarget.{h,cpp}`, **660 lignes**. Les
     trois règles sont dans l'en-tête, avec leur raison : transfert du **delta à
     la pose de repos** (`cible_locale = repos_cible × repos_source⁻¹ ×
     source_locale`) et non du transform absolu ; **rotations seules**, sauf la
@@ -382,7 +414,7 @@ mince au-dessus**, pas une réécriture.
 
 Architecture cible (fusion corpus IA 2026-07-09 — ordre STRICT, non négociable :
 équilibre statique → contacts → optimisation → auto-posing) :
-1. ✅ **Distribution de masse + COM (2026-07-09)** — module `NKRenderer/Tools/Animation/NkPoseMass.{h,cpp}`
+1. ✅ **Distribution de masse + COM (2026-07-09)** — module `NKAnimPhysics/NkPoseMass.{h,cpp}`
    (pur Foundation, AUCUN GPU). Masse relative par joint : `SetUniform` (barycentre) OU `SetAnthropometric`
    (fractions type Dempster déduites du NOM des joints — head/spine/hip/arm/leg... mots-clés, fallback
    résiduel). `ComputeCOM(jointWorld, count)` = Σ masse·position / Σ masse (position = colonne translation
@@ -390,7 +422,7 @@ Architecture cible (fusion corpus IA 2026-07-09 — ordre STRICT, non négociabl
    cas pondéré 1.5, monotonie, tête>main & bassin>tête, garde-fous count incohérent). Affichage debug du
    COM (sphère/croix via `DrawDebugSphere`) = côté démo/éditeur (module reste pur, réutilisable jeu+app).
    ⏳ Reste : ajustement par morphologie (créature/stylisé), câblage dans NkAnimaEditor.
-2. ✅ **Solveur d'équilibre (2026-07-09)** — module `NKRenderer/Tools/Animation/NkBalance.{h,cpp}`
+2. ✅ **Solveur d'équilibre (2026-07-09)** — module `NKAnimPhysics/NkBalance.{h,cpp}`
    (pur Foundation, AUCUN GPU). `EvaluateStatic(com, supportPts, count, groundNormal)` : projette
    COM + appuis sur le plan du sol, construit le **polygone de support** (enveloppe convexe, Andrew
    monotone chain), teste **proj(COM) ∈ polygone** et calcule une **marge signée** (distance
@@ -406,7 +438,7 @@ Architecture cible (fusion corpus IA 2026-07-09 — ordre STRICT, non négociabl
      support** (arêtes + coins), la **projection au sol** (fil d'aplomb + cercle) et la **direction de bascule**
      (flèche option). Le calcul (NkPoseMass/NkBalance) reste pur ; seul ce helper touche au rendu. Compile OK ;
      **validation VISUELLE à faire par Rihen** (câblage dans une démo/éditeur, quand le GPU se libère).
-3. ✅ **Solveur de contacts (2026-07-09)** — module `NKRenderer/Tools/Animation/NkContactDetector.{h,cpp}`
+3. ✅ **Solveur de contacts (2026-07-09)** — module `NKAnimPhysics/NkContactDetector.{h,cpp}`
    (pur Foundation, AUCUN GPU). `DetectPlane(foot, planePoint, planeNormal, threshold)` : contact si
    distance signée au sol ≤ seuil, point = extrémité projetée, pénétration signée. `DetectSupportPoints`
    collecte les extrémités EN CONTACT → **alimente directement NkBalance (M3.2)**. Ferme la boucle
@@ -415,7 +447,7 @@ Architecture cible (fusion corpus IA 2026-07-09 — ordre STRICT, non négociabl
    V1 = sol PLAN. ⏳ Reste : raycast heightfield/collision (pentes, escaliers), foot-locking temporel
    (anti-glissement, stateful), multi-points quadrupède/escalade.
 4. 🔶 **Optimiseur de pose sous contrainte (V1 — 2026-07-09)** (le cœur) — module
-   `NKRenderer/Tools/Animation/NkPoseBalancer.{h,cpp}` (pur Foundation, AUCUN GPU).
+   `NKAnimPhysics/NkPoseBalancer.{h,cpp}` (pur Foundation, AUCUN GPU).
    `BalanceByShift(jointWorld, count, mass, supportPts, supportCount, strength, groundNormal)` :
    ramène le **COM (M3.1)** au-dessus du **polygone de support (M3.2/M3.3)** par correction
    horizontale vers le centroïde des appuis, **pondérée par `strength` ∈ [0,1]** = le curseur
@@ -431,7 +463,7 @@ Architecture cible (fusion corpus IA 2026-07-09 — ordre STRICT, non négociabl
      = lissage MULTI-FRAME (borne la vitesse de variation du décalage → anti-à-coups). Testés HEADLESS
      (pieds inchangés, haut du corps déplacé, équilibre atteint ; lissage borné). ⏳ Reste : **limites d'angle
      articulaires (NkIKSystem)**, correction du moment DYNAMIQUE (pas seulement statique).
-5. 🔶 **Auto-posing (V1 — 2026-07-10)** — `NKRenderer/Tools/Animation/NkAutoPose.{h,cpp}`
+5. 🔶 **Auto-posing (V1 — 2026-07-10)** — `NKAnimPhysics/NkAutoPose.{h,cpp}`
    (pur Foundation, AUCUN GPU). `BlendBalanced(poseA, poseB, count, t, mass, plantedMask, supportPts, …,
    balanceStrength, out)` : interpole (lerp) entre deux clés PUIS passe par le correcteur d'équilibre (M3.4)
    → l'entre-deux reste **physiquement plausible** (ne bascule pas). Curseur `balanceStrength` (0 = lerp brut,
@@ -439,7 +471,7 @@ Architecture cible (fusion corpus IA 2026-07-09 — ordre STRICT, non négociabl
    lerp brut à t=0.7 = déséquilibré → BlendBalanced = équilibré, pieds inchangés, bornes t=0→A / t=1→B).
    ⏳ Reste : transferts de poids (bascule pied à pied), plusieurs variantes proposées → choix humain,
    interpolation en ROTATIONS (slerp) quand on aura le squelette hiérarchique.
-6. 🔶 **Pont vers l'anim existante (V1 — 2026-07-10)** — `NKRenderer/Tools/Animation/NkPhysAnimBridge.{h,cpp}`
+6. 🔶 **Pont vers l'anim existante (V1 — 2026-07-10)** — `NKAnimPhysics/NkClipBalancePass.{h,cpp}`
    (pur Foundation, AUCUN GPU). `Correct(posesIn, frameCount, jointCount, mass, plantedMask, supportPts, …,
    strength, smoothMaxDeltaPerFrame, posesOut)` : applique la correction d'équilibre (M3.4) en **post-traitement
    NON DESTRUCTIF** sur une SÉQUENCE de poses (clip) — chaque frame ramenée en équilibre, **lissage temporel**
