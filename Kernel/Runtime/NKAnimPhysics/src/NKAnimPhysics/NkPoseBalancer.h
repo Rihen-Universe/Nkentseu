@@ -22,7 +22,7 @@
 #include "NKAnimPhysics/NkPoseMass.h"
 
 namespace nkentseu {
-	namespace renderer {
+	namespace animphys {
 
 		// Résultat d'une correction d'équilibre.
 		struct NkBalanceCorrection {
@@ -78,5 +78,5 @@ namespace nkentseu {
 				bool mHas = false;
 		};
 
-	} // namespace renderer
+	} // namespace animphys
 } // namespace nkentseu

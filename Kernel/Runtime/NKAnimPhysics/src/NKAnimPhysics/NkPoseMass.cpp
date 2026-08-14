@@ -5,7 +5,7 @@
 #include "NKAnimPhysics/NkPoseMass.h"
 
 namespace nkentseu {
-	namespace renderer {
+	namespace animphys {
 
 		using math::NkMat4f;
 		using math::NkVec3f;
@@ -204,5 +204,5 @@ namespace nkentseu {
 			return true;
 		}
 
-	} // namespace renderer
+	} // namespace animphys
 } // namespace nkentseu

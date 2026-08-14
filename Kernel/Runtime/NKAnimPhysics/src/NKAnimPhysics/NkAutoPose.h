@@ -18,7 +18,7 @@
 #include "NKAnimPhysics/NkPoseMass.h"
 
 namespace nkentseu {
-	namespace renderer {
+	namespace animphys {
 
 		struct NkAutoPose {
 			public:
@@ -37,5 +37,5 @@ namespace nkentseu {
 				static bool SelfTest();
 		};
 
-	} // namespace renderer
+	} // namespace animphys
 } // namespace nkentseu

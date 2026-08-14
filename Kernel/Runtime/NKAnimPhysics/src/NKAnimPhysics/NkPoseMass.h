@@ -24,7 +24,7 @@
 #include "NKMath/NKMath.h"
 
 namespace nkentseu {
-	namespace renderer {
+	namespace animphys {
 
 		// Modèle de masse d'un squelette : une masse relative par joint.
 		struct NkPoseMass {
@@ -57,5 +57,5 @@ namespace nkentseu {
 				static bool SelfTest();
 		};
 
-	} // namespace renderer
+	} // namespace animphys
 } // namespace nkentseu

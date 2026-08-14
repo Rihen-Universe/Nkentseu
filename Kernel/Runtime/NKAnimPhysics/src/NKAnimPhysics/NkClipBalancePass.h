@@ -27,7 +27,7 @@
 #include "NKAnimPhysics/NkPoseMass.h"
 
 namespace nkentseu {
-	namespace renderer {
+	namespace animphys {
 
 		struct NkClipBalancePass {
 			public:
@@ -47,5 +47,5 @@ namespace nkentseu {
 				static bool SelfTest();
 		};
 
-	} // namespace renderer
+	} // namespace animphys
 } // namespace nkentseu

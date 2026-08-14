@@ -26,7 +26,7 @@
 #include "NKMath/NKMath.h"
 
 namespace nkentseu {
-	namespace renderer {
+	namespace animphys {
 
 		// Résultat d'un test d'équilibre statique.
 		struct NkBalanceResult {
@@ -55,5 +55,5 @@ namespace nkentseu {
 				static bool SelfTest();
 		};
 
-	} // namespace renderer
+	} // namespace animphys
 } // namespace nkentseu

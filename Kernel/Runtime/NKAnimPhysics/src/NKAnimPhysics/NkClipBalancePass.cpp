@@ -6,7 +6,7 @@
 #include "NKAnimPhysics/NkBalance.h"
 
 namespace nkentseu {
-	namespace renderer {
+	namespace animphys {
 
 		using math::NkVec3f;
 
@@ -158,5 +158,5 @@ namespace nkentseu {
 			return ok;
 		}
 
-	} // namespace renderer
+	} // namespace animphys
 } // namespace nkentseu
