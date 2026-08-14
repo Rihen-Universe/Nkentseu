@@ -11,6 +11,7 @@
 // = animation + IK ensemble. Engine-level (sert le jeu : foot-lock, hand-IK).
 //   renderdemo --demo=17        NK_SKIN_MODEL=<chemin>
 // =============================================================================
+#include "NKRenderer/Mesh/NkGLTFAnimBake.h"
 #include "DemoCommon.h"
 #include "NKRenderer/Mesh/NkGLTFLoader.h"
 #include "NKRenderer/Mesh/NkGLTFMaterialBridge.h"
@@ -125,7 +126,7 @@ namespace nkentseu {
 			{
 				int32 animIdx = data.animations.Empty() ? -1 : 0;
 				NkAnimationClip baked;
-				if (baked.BakeFromGLTF(data, animIdx, 30.f)) {
+				if (BakeClipFromGLTF(data, animIdx, 30.f, baked)) {
 					NkString p("Build/Bin/Debug-Windows/renderdemo/cesiumman_walk.nkanim");
 					if (baked.SaveBinary(p) && st->clip.LoadBinary(p)) {
 						st->player.SetClip(&st->clip);
@@ -231,7 +232,7 @@ namespace nkentseu {
 			st->rig = st->ik.CreateRig(1);
 			NkIKChainDesc desc;
 			desc.name = "arm";
-			desc.solver = NkIKSolver::NK_FABRIK;
+			desc.solver = NkIKMethod::NK_FABRIK;
 			desc.maxIterations = 16;
 			desc.tolerance = 0.0005f;
 			for (uint32 i = 0; i < (uint32)st->chain.Size(); ++i) {

@@ -39,7 +39,6 @@ namespace nkentseu {
 		class NkMaterialInstance;
 		class NkMeshSystem;
 		struct NkPostConfig;
-		struct NkGLTFMeshData;
 
 		// =========================================================================
 		// Mode d'interpolation
@@ -307,12 +306,14 @@ namespace nkentseu {
 				bool SaveBinary(const NkString &path) const;
 				bool LoadBinary(const NkString &path);
 
-				// ── Import : bake une animation glTF en clip éditable (M1) ─────────────
-				// Échantillonne la pose squelettique (EvaluateGLTFPose) à `fps` sur toute
-				// la durée et stocke chaque frame en keyframes par os (matrices de
-				// skinning) -> l'anim devient éditable + sauvegardable .nkanim, et
-				// rejouable par NkAnimationPlayer. Engine-level (jeu + app NkAnima).
-				bool BakeFromGLTF(const NkGLTFMeshData &data, int32 animIdx, float32 fps = 30.f);
+				// ── Import glTF : PLUS ICI ─────────────────────────────────────────────
+				// `BakeFromGLTF` etait une methode de cette classe ; c'etait le SEUL
+				// lien entre le modele d'animation et le chargeur glTF, et il suffisait
+				// a retenir toute l'animation dans le renderer. Depuis le 2026-08-14
+				// c'est une FONCTION LIBRE, du cote qui connait le format :
+				//     renderer::BakeClipFromGLTF(data, animIdx, fps, clip)
+				//     -> NKRenderer/Mesh/NkGLTFAnimBake.h
+				// Ne pas la reintroduire ici : ce fichier ne doit connaitre aucun format.
 
 				void BuildSpriteFlipBook(uint32 frameCount, float32 spriteFPS = 12.f);
 
@@ -460,7 +461,7 @@ namespace nkentseu {
 		// avance en NORMALISE (0..1) sur une duree interpolee entre les 2 clips
 		// (le pied gauche du walk reste le pied gauche du run).
 		// Prerequis : clips en mode skeletalLocal partageant le MEME squelette
-		// (typiquement BakeFromGLTF du meme fichier, ex. Fox Survey/Walk/Run).
+		// (typiquement BakeClipFromGLTF du meme fichier, ex. Fox Survey/Walk/Run).
 		// =========================================================================
 		class NkBlendTree1D {
 			public:
