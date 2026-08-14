@@ -340,8 +340,13 @@ int nkmain(const NkEntryState &entry) {
 		// command buffer est ouvert ET la passe backbuffer pas encore commencee.
 		// Le slot et la taille voulus sont deposes par le panneau dans l'etat --
 		// un panneau ne rend rien, il decrit ce qu'il veut voir.
-		if (gPrevSlot >= 0)
-			demo::Demo3DHostMatPreviewFrame(cmd, gPrevSlot, gPrevW, gPrevH);
+		// APPELEE A CHAQUE FRAME, meme sans materiau affiche (slot = -1) : elle
+		// ne fait pas que rendre le grand apercu, elle surveille aussi les
+		// reglages et prend les vignettes en attente. Gardee derriere « un
+		// materiau est ouvert », rien de tout cela ne tournait hors du panneau --
+		// et la vignette semblait attendre l'enregistrement alors qu'elle
+		// attendait qu'on revienne dans le materiau (Rihen, 14 aout).
+		demo::Demo3DHostMatPreviewFrame(cmd, gPrevSlot, gPrevW, gPrevH);
 		demo::Demo3DHostRegisterInto(&r->GetBackend());
 	};
 
