@@ -14515,6 +14515,30 @@ namespace nkentseu {
 				return;
 			if ((int32)nkvpProjMats[i].matType == type)
 				return;
+		// ── CE QUI APPARTENAIT A L'ANCIEN TYPE S'EN VA AVEC LUI ──────────
+			// « Quand je change son type, ca conserve des valeurs communes au type
+			// echange » (Rihen, 14 aout). En effet : les prereglages posent des
+			// valeurs -- le verre son opacite, l'emissif sa teinte -- et elles
+			// restaient apres coup. Repasser un verre en Standard laissait un objet
+			// transparent sans que rien ne l'explique dans le panneau, puisque
+			// l'opacite n'y est plus montree pour ce type.
+			//
+			// On neutralise donc les reglages PROPRES au type quitte. C'est un choix
+			// assume : un verre regle a 0,3 repasse en Standard puis en Verre
+			// retrouvera 0,12, pas 0,3. Prevoir l'autre comportement demanderait de
+			// retenir quelle valeur vient d'un prereglage et laquelle d'un geste --
+			// une memoire de plus pour un cas rare, contre une regle qu'on peut
+			// enoncer en une phrase.
+			{
+				const int32 ancien = (int32)nkvpProjMats[i].matType;
+				if (ancien == 5 && type != 5)
+					nkvpProjMats[i].alpha = 1.f; // le verre rendait opaque
+				if (ancien == 11 && type != 11) {
+					nkvpProjMats[i].emissive[0] = 0.f;
+					nkvpProjMats[i].emissive[1] = 0.f;
+					nkvpProjMats[i].emissive[2] = 0.f;
+				}
+			}
 			nkvpProjMats[i].matType = (uint8)(type < 0 ? 0 : (type > 255 ? 0 : type));
 			// UN TYPE EST UN PREREGLAGE (decision d'architecture du 12 aout) :
 			// choisir « Verre » doit donner une VITRE tout de suite, sans aller
