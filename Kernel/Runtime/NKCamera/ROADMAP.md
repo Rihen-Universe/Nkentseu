@@ -174,6 +174,31 @@ Total backends : 7 ; tous compilent et fonctionnent sur leur cible. UWP et Xbox 
 ---
 
 ## Bugs / quirks connus
+
+### ⚠️ DETTE NOMMÉE — `ConvertToRGBA8` déduit la PLAGE du signal à partir du FORMAT
+
+Depuis le 2026-08-14, l'**I420** est décodé en **plage complète**
+(`R = Y + 1,402·(V−128)`, `NkCameraSystem.cpp:573`) alors que **YUYV** (l. 451) et
+**NV12** (l. 525) restent en **plage réduite** (le `−16` et le `×1,164`). Rien
+dans la signature n'exprime ce choix : la plage est déduite du format, en
+silence.
+
+**C'est correct aujourd'hui, et faux par construction.** Correct parce qu'un seul
+producteur émet du YUV420 — le backend Android, qui livre bien de la plage
+complète (établi, pas supposé : `grep NK_PIXEL_YUV420`, aucun autre émetteur).
+Faux parce que rien ne le garantit : le jour où un second producteur livrera de
+l'I420 en plage vidéo, l'image sera délavée et personne ne saura pourquoi. **Un
+défaut latent, c'est exactement ça — juste par coïncidence de producteurs, pas
+par construction.**
+
+Ce qui a révélé la chose : avoir **lancé** `NkCameraDemos --demo=format` après
+coup. Relire le correctif ne le montrait pas.
+
+**Correctif prévu, non fait** : porter la plage dans `NkCameraFrame` (un champ
+`NkColorRange { FULL, VIDEO }` renseigné par le backend) et faire choisir la
+formule par la **plage**, jamais par le format. Différé volontairement pour ne
+pas élargir un diff en cours de fusion — différé, pas abandonné.
+
 - UWP et Xbox tombent sur Noop (pas de backend dédié)
 - Emscripten : nécessite HTTPS (ou localhost) pour `getUserMedia` ; le pump est via `setInterval` JS, donc le FPS effectif dépend du throttling navigateur (cap ~60 Hz, baisse en arrière-plan)
 - macOS backend déclare `NK_PIXEL_BGRA8` en sortie (cohérent avec CoreVideo) — `ConvertToRGBA8` swap les canaux côté CPU avant upload GPU

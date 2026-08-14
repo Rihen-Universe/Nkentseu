@@ -140,6 +140,28 @@ et expose l'API documentée.
 ---
 
 ## Bugs / quirks connus
+
+### ⚠️ CATÉGORIE 3 — MODIFIÉ, JAMAIS EXERCÉ (2026-08-14)
+
+Le **puits console est actif en Release sur Android** depuis le 2026-08-14
+(`NkLog.cpp` : la garde `!defined(NDEBUG)` accepte désormais aussi
+`NKENTSEU_PLATFORM_ANDROID` / `__ANDROID__`). Motif : en Release sur téléphone,
+le journal était **muet**, et une application qui ne dit rien ne se diagnostique
+pas — c'est ce qui a coûté le plus de temps pendant le portage AR.
+
+**Une vingtaine d'applications Android en héritent. Aucune n'a été relancée sur
+matériel** : le téléphone a quitté `adb` en cours de session et la reconnexion
+sans fil a été refusée. L'APK se construit et se signe — mais **construire n'est
+pas exercer**.
+
+Ce n'est **pas une réserve de prudence** : personne n'a vu tourner ce code. Effet
+attendu — du bruit de journal et un coût de performance ; pas un plantage, pas
+une fuite, réversible en une ligne. **Attendu**, justement : pas constaté.
+
+**À faire dès qu'un appareil est disponible** — lancer une application Android
+sans rapport avec l'AR, vérifier le débit du journal et le coût en images par
+seconde. Tant que ce n'est pas fait, cette ligne reste.
+
 - Les méthodes stream-style sans message (`Trace()`, `Debug()`, ...) sont
   déclarées dans le header mais leur intérêt est limité (loggent une chaîne
   vide). À documenter ou retirer.
