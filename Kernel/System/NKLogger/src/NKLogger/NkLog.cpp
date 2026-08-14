@@ -54,7 +54,16 @@ namespace nkentseu {
 		// ou tout autre sink custom (NkNetworkSink, NkFileSink supplementaire,
 		// etc.). Voir NkLogger::AddSink() pour l'API.
 
-#ifndef NDEBUG
+		// Sur ANDROID le sink console reste actif MÊME en Release, et ce n'est
+		// pas une entorse : sur téléphone il n'y a pas de console à polluer —
+		// NkConsoleSink route vers LOGCAT, qui est le journal du système et le
+		// seul moyen d'observer une application. Le sink fichier, lui, ne prend
+		// pas le relais : « logs/app.log » est un chemin RELATIF, or le
+		// répertoire courant d'une application Android n'est pas inscriptible.
+		// Sans cette exception, un build Release sur téléphone n'écrit donc
+		// NULLE PART. Mesuré le 2026-08-12 sur NKARDemo : écran noir, aucune
+		// trace, et des heures passées à chercher sans instrument.
+#if !defined(NDEBUG) || defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__)
 		// Sink console : sortie vers stdout/stderr avec support couleurs
 		// Sur Android : NkConsoleSink route automatiquement vers logcat
 		NkConsoleSink *consoleSinkRaw = new NkConsoleSink();

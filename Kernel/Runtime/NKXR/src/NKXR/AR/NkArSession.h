@@ -72,6 +72,18 @@ namespace nkentseu {
 			// Lissage : 0 = pose brute (tremble), 1 = figée. 0,35 tient le
 			// compromis entre stabilité et réactivité, mesuré à l'œil.
 			float32 smoothing = 0.35f;
+			// Déplacement à partir duquel le lissage s'efface COMPLÈTEMENT.
+			// En deçà, l'écart est traité comme du bruit et fortement filtré ;
+			// au-delà, comme un vrai geste et suivi sans retard. 2 cm sépare
+			// bien les deux à distance de bras : le tremblement d'une pose
+			// mesurée reste millimétrique, un mouvement de la main non.
+			float32 motionReferenceMeters = 0.015f;
+			// Même principe pour la ROTATION, avec sa propre référence : vue de
+			// face, un marqueur plan contraint mal son inclinaison, et un bruit
+			// d'un pixel sur un coin fait basculer l'objet de plusieurs degrés.
+			// En deçà de ~12°, on tient le changement pour du bruit et on le
+			// filtre fort ; au-delà, c'est un vrai geste, on le suit.
+			float32 turnReferenceRadians = 0.20f;
 		};
 
 		// ── Un marqueur SUIVI (pas seulement détecté) ────────────────────────
@@ -99,6 +111,12 @@ namespace nkentseu {
 				// elle les affiche encore — elle a le chiffre pour trancher.
 				const NkVector<NkArTrackedMarker> &GetTracked() const { return mTracked; }
 				const NkArTrackedMarker *Find(int32 id) const;
+
+				/// Les détections BRUTES de la dernière image — sans suivi ni
+				/// lissage. La calibration en a besoin telles quelles : lisser
+				/// des coins avant de mesurer la géométrie de l'objectif
+				/// reviendrait à calibrer le filtre en même temps que l'optique.
+				const NkVector<NkArDetection> &GetDetections() const { return mDetections; }
 
 				// Oublier une ancre (ou toutes) : le pendant indispensable du
 				// mode ANCRÉ — sans lui, une scène posée par erreur ne

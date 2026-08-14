@@ -69,6 +69,21 @@ namespace nkentseu {
 		bool NkArWorld::Update(const NkArSession &session) {
 			mLocalizedThisFrame = false;
 			mFlowThisFrame = false;
+			mImuThisFrame = false;
+
+			// ── 0a) Les CAPTEURS, s'il y en a ────────────────────────────────
+			// Ouverts à la première mise à jour et non à la construction : un
+			// monde peut être créé avant que l'application n'ait ses droits, et
+			// échouer une fois pour toutes serait dommage.
+			NkArImuSample imu;
+			if (mConfig.preferSensors) {
+				if (!mImuReady) {
+					mImuReady = mImu.Initialize();
+				}
+				if (mImu.IsAvailable()) {
+					imu = mImu.Poll();
+				}
+			}
 			const NkVector<NkArTrackedMarker> &tracked = session.GetTracked();
 
 			// ── 0) Mesurer le mouvement de l'image, à CHAQUE image ───────────
@@ -88,7 +103,9 @@ namespace nkentseu {
 			// qui rend le repère STABLE et indépendant de la caméra.
 			if (!mHasOrigin) {
 				for (nk_size i = 0; i < tracked.Size(); ++i) {
-					if (!tracked[i].visibleThisFrame) {
+					// Vu à l'instant ET depuis assez longtemps : fonder le monde
+					// sur une détection fugace le condamne pour toute la session.
+					if (!tracked[i].visibleThisFrame || tracked[i].framesTracked < mConfig.minFramesToTrust) {
 						continue;
 					}
 					NkArMapEntry origin;
@@ -150,6 +167,18 @@ namespace nkentseu {
 				// ne voit rien ». Sans cette distinction, l'état affiché
 				// clignoterait à chaque image et la pose serait déclarée perdue
 				// alors que le suivi se porte bien.
+				// ── Le CAPTEUR d'abord ───────────────────────────────────────
+				// Quand le gyroscope a parlé, on ne consulte pas l'image : sa
+				// mesure est meilleure sur tous les plans — plus rapide, plus
+				// fine, insensible à la texture, à la lumière et aux objets qui
+				// passent. L'image reste le recours des appareils qui n'ont pas
+				// de capteurs, c'est-à-dire des postes de travail.
+				if (imu.valid && imu.samples > 0u) {
+					mCameraInWorld.orientation = (mCameraInWorld.orientation * imu.deltaRotation).Normalized();
+					mImuThisFrame = true;
+					mBlindFrames = 0;
+					return false; // pas localisé par marqueur, mais la pose est ENTRETENUE
+				}
 				const bool alive = mLastFlow.inliers > 0;
 				const bool trusted = mLastFlow.valid && mLastFlow.residualPixels <= mConfig.maxFlowResidualPixels;
 				if (mConfig.trackByImage && alive) {
@@ -181,10 +210,11 @@ namespace nkentseu {
 					if (!marker.visibleThisFrame || FindMapEntry(marker.id) != nullptr) {
 						continue;
 					}
-					// Trop petit à l'image = pose imprécise : l'inscrire
-					// propagerait l'erreur à tout ce qui sera posé ensuite.
-					if (marker.pose.position.Len() > 0.f && marker.framesTracked < 3u) {
-						continue; // laisser le lissage se stabiliser
+					// Même exigence que pour l'origine : une détection fugace
+					// n'entre pas dans la carte. Elle y resterait, et tout ce
+					// qu'on poserait ensuite hériterait de son erreur.
+					if (marker.framesTracked < mConfig.minFramesToTrust) {
+						continue;
 					}
 					NkArMapEntry entry;
 					entry.id = marker.id;
