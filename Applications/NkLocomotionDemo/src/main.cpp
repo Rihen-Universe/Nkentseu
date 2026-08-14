@@ -6,7 +6,7 @@
 // NkAnimator) joue un blend Walk/Run et corrige ses pieds par IK, tout en
 // délégant CHAQUE calcul numérique au vrai backend NKRenderer :
 //
-//   • Blend Walk/Run  -> renderer::NkBlendTree1D (NkLocomotionSystem)
+//   • Blend Walk/Run  -> anim::NkBlendTree1D (NkLocomotionSystem)
 //   • IK des pieds     -> renderer::NkIKSystem::NK_TWO_BONE (NkFootIKSystem
 //                         via NkIKSolver -- Rigging/NkIKSolver.h/.cpp)
 //
@@ -21,7 +21,7 @@
 #include "Noge/Anim/NkLocomotion.h"
 #include "Noge/ECS/Components/Core/NkTransform.h"
 #include "NKECS/World/NkWorld.h"
-#include "NKRenderer/Tools/Animation/NkAnimationSystem.h"
+#include "NKAnimation/NkAnimation.h"
 #include "NKMemory/NkAllocator.h"
 #include "NKLogger/NkLog.h"
 #include <cstring>
@@ -79,13 +79,13 @@ namespace {
 
 int main() {
 	logger.Infof("=== NkLocomotionDemo — pont animation Noge (G1.4) ===\n");
-	logger.Infof("=== Blend Walk/Run (renderer::NkBlendTree1D) + IK pieds (renderer::NkIKSystem) ===\n");
+	logger.Infof("=== Blend Walk/Run (anim::NkBlendTree1D) + IK pieds (renderer::NkIKSystem) ===\n");
 
 	// ── Clips Walk / Run (procéduraux -- pas de dépendance à un asset externe,
-	// voir renderer::NkAnimationClip::MakeProceduralWalk, réel et déjà utilisé
+	// voir anim::NkAnimationClip::MakeProceduralWalk, réel et déjà utilisé
 	// par Applications/Sandbox/src/Demo/DemoAnim.cpp) ──────────────────────
-	renderer::NkAnimationClip *walk = renderer::NkAnimationClip::MakeProceduralWalk(kBoneCount, 1.0f);
-	renderer::NkAnimationClip *run = renderer::NkAnimationClip::MakeProceduralWalk(kBoneCount, 0.4f); // cadence rapide
+	anim::NkAnimationClip *walk = anim::NkAnimationClip::MakeProceduralWalk(kBoneCount, 1.0f);
+	anim::NkAnimationClip *run = anim::NkAnimationClip::MakeProceduralWalk(kBoneCount, 0.4f); // cadence rapide
 	Check(walk != nullptr && run != nullptr, "clips Walk/Run procéduraux crées (MakeProceduralWalk)");
 	Check(walk->boneCount == kBoneCount && run->boneCount == kBoneCount, "boneCount des clips == squelette (9)");
 
@@ -167,7 +167,7 @@ int main() {
 	}
 
 	// ── Assertions ──────────────────────────────────────────────────────────
-	logger.Infof("-- Blend Walk/Run (renderer::NkBlendTree1D) --\n");
+	logger.Infof("-- Blend Walk/Run (anim::NkBlendTree1D) --\n");
 	Check(paramAtWalk >= 0.f && paramAtWalk < 0.5f, "paramètre de blend proche de 0 (Walk) en phase lente");
 	Check(paramAtRun > 0.5f, "paramètre de blend proche de 1 (Run) en phase rapide");
 	bool poseDiffers = false;

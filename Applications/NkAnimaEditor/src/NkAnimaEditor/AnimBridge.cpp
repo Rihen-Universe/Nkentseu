@@ -3,8 +3,8 @@
 // =============================================================================
 #include "NKRenderer/Mesh/NkGLTFAnimBake.h"
 #include "AnimBridge.h"
-#include "NKRenderer/Tools/Animation/NkAnimationSystem.h"
-#include "NKRenderer/Tools/Animation/NkAnimationEditor.h"
+#include "NKAnimation/NkAnimation.h"
+#include "NKAnimation/NkAnimationEditor.h"
 #include "NKRenderer/Mesh/NkGLTFLoader.h"
 // ── Viewport 3D : moteur de rendu complet (TU isolé) ────────────────────────
 #include "NKRenderer/NkRenderer.h"
@@ -31,6 +31,9 @@
 namespace nkanima {
 
 	using namespace nkentseu::renderer;
+	// Substrat d animation extrait de NKRenderer le 2026-08-14 : les types de
+	// clip/lecture/edition viennent desormais de nkentseu::anim.
+	namespace anim = nkentseu::anim;
 	using nkentseu::math::NkMat4f;
 	using nkentseu::math::NkQuatf;
 	using nkentseu::math::NkVec4f;
@@ -47,9 +50,9 @@ namespace nkanima {
 	namespace {
 		struct Doc {
 				NkGLTFMeshData gltf;
-				NkAnimationClip clip;
-				NkAnimationPlayer player;
-				NkAnimationEditor editor;
+				anim::NkAnimationClip clip;
+				anim::NkAnimationPlayer player;
+				anim::NkAnimationEditor editor;
 				bool loaded = false;
 				bool playing = true;
 				// édition de pose (§2 Pose Mode)
@@ -128,7 +131,7 @@ namespace nkanima {
 			int32 ai = g.gltf.animations.Empty() ? -1 : 0;
 			if (BakeClipFromGLTF(g.gltf, ai, 30.f, g.clip)) {
 				g.player.SetClip(&g.clip);
-				g.player.Play(NkPlayMode::NK_LOOP, 1.f);
+				g.player.Play(anim::NkPlayMode::NK_LOOP, 1.f);
 				g.editor.SetClip(&g.clip);
 				g.editor.SetSnap(1.f / g.clip.fps);
 				g.loaded = true;
@@ -266,7 +269,7 @@ namespace nkanima {
 	void AnimSetPlaying(bool p) {
 		g.playing = p;
 		if (p)
-			g.player.Play(NkPlayMode::NK_LOOP, 1.f);
+			g.player.Play(anim::NkPlayMode::NK_LOOP, 1.f);
 		else
 			g.player.Pause();
 	}

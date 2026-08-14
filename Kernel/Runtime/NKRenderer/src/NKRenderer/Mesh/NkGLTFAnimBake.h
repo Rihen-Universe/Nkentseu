@@ -28,7 +28,7 @@
 #define __NKENTSEU_NKRENDERER_GLTFANIMBAKE_H__
 
 #include "NKRenderer/Mesh/NkGLTFLoader.h"
-#include "NKRenderer/Tools/Animation/NkAnimationSystem.h"
+#include "NKAnimation/NkAnimation.h"
 
 namespace nkentseu {
 	namespace renderer {
@@ -39,7 +39,7 @@ namespace nkentseu {
 		// que le clip soit editable, sauvegardable en .nkanim et rejouable par
 		// NkAnimationPlayer sans que rien de tout cela ne connaisse glTF.
 		// Renvoie false si le modele n'est pas skinne.
-		bool BakeClipFromGLTF(const NkGLTFMeshData &data, int32 animIdx, float32 fps, NkAnimationClip &out);
+		bool BakeClipFromGLTF(const NkGLTFMeshData &data, int32 animIdx, float32 fps, anim::NkAnimationClip &out);
 
 	} // namespace renderer
 } // namespace nkentseu

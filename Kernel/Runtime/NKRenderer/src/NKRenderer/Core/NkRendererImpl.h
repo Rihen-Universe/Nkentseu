@@ -22,6 +22,7 @@
 #include "NKRenderer/Tools/Overlay/NkOverlayRenderer.h"
 #include "NKRenderer/Tools/Offscreen/NkOffscreenTarget.h"
 #include "NKRenderer/Tools/VFX/NkVFXSystem.h"
+#include "NKAnimation/NkAnimation.h"
 #include "NKRenderer/Tools/Animation/NkAnimationSystem.h"
 #include "NKRenderer/Tools/Simulation/NkSimulationRenderer.h"
 #include "NKCore/NkAtomic.h"

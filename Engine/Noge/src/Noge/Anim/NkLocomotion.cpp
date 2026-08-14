@@ -4,7 +4,7 @@
 // Voir NkLocomotion.h pour le design. Ce fichier ne réimplémente ni IK ni
 // blend : NkFootIKSystem délègue à NkIKSolver::SolveTwoBone (lui-même un
 // adaptateur sur renderer::NkIKSystem, voir Rigging/NkIKSolver.cpp) et
-// NkLocomotionSystem délègue à renderer::NkBlendTree1D::SetParameter/Update.
+// NkLocomotionSystem délègue à anim::NkBlendTree1D::SetParameter/Update.
 // NkMotionMatchSystem / NkCrowdSystem restent hors-scope (voir tête de
 // fichier NkLocomotion.h) -- volontairement NON définis ici (dead code non
 // instancié ailleurs, confirmé par grep, donc aucune régression de lien).
@@ -122,8 +122,8 @@ namespace nkentseu {
 	// -------------------------------------------------------------------------
 	// NkLocomotionSystem
 	// -------------------------------------------------------------------------
-	void NkLocomotionSystem::ConfigureBlend(const renderer::NkAnimationClip *walk,
-											const renderer::NkAnimationClip *run) noexcept {
+	void NkLocomotionSystem::ConfigureBlend(const anim::NkAnimationClip *walk,
+											const anim::NkAnimationClip *run) noexcept {
 		if (walk)
 			mBlend.AddClip(walk, 0.f);
 		if (run)
@@ -139,7 +139,7 @@ namespace nkentseu {
 			loco.velocity = loco.facing * loco.speed;
 
 			// 2) Paramètre de blend Walk(0)/Run(1) -- délégation réelle au
-			// renderer::NkBlendTree1D (voir NkAnimationSystem.h/.cpp).
+			// anim::NkBlendTree1D (voir NkAnimationSystem.h/.cpp).
 			const float32 span = NkMax(loco.runSpeed - loco.walkSpeed, 1e-3f);
 			const float32 param = NkClamp((loco.speed - loco.walkSpeed) / span, 0.f, 1.f);
 			mBlend.SetParameter(param);
