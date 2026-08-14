@@ -610,11 +610,16 @@ Classement par **rapport valeur / coût**, pas par numéro de la spec :
   |---|---|---|
   | **Le moteur PDF** | `Kernel/Runtime/NKMedia/src/NKMedia/Pdf/` | **10 990 lignes**, dont 4 415 de table de noms de glyphes générée (`NkPdfGlyphList.cpp`) → ≈ **6 575 lignes de logique** |
   | **Ce que NKCode en fait** | `src/NKCode/Shell/NkPdfViewer.{h,cpp}` + `NkPdfWorker.{h,cpp}` | 930 lignes — panneau, fil de rendu. NKCode **consomme**, il n'implémente pas |
-  | **Copie morte à supprimer** | `src/NKCode/Pdf/` | **5 211 lignes**, espace de noms `nkentseu::nkcode::pdf`. **Plus aucun fichier ne l'inclut** (les consommateurs incluent `"NKMedia/Pdf/NkPdf.h"`), mais `files(["src/**.cpp"])` la fait quand même entrer dans le binaire |
+  | **Copie morte — ✅ SUPPRIMÉE le 2026-08-14** | `src/NKCode/Pdf/` (n'existe plus) | **5 211 lignes / 11 fichiers** retirés, commit `a52e99e4`. `git ls-tree` sur `main` : **0 fichier restant**. Elle portait l'espace de noms `nkentseu::nkcode::pdf`, plus aucun fichier ne l'incluait, mais `files(["src/**.cpp"])` la faisait entrer dans le binaire — l'exe de NKCode a perdu **140 Ko** au rebuild propre |
 
-  La suppression de la copie morte est une **action de code**, arbitrée
-  séparément : chantier « Fork du lecteur PDF » dans
-  [DETTE_LISIBILITE.md](../../DETTE_LISIBILITE.md).
+  La suppression est **faite** : elle a été précédée d'un diff des deux arbres
+  (rien à sauver — les seules lignes propres au fork étaient son espace de noms
+  et des versions *antérieures* de code que le Kernel avait déjà corrigé), et
+  suivie d'un rebuild propre — le build incrémental, lui, disait « SUCCESS » en
+  4 s avec les 6 `.obj` du fork toujours liés et l'exe inchangé à l'octet près.
+  Les quatre bancs PDF ont été re-racinés vers le module dans le même geste
+  (commit `804acb23`). Chantier « Fork du lecteur PDF » de
+  [DETTE_LISIBILITE.md](../../DETTE_LISIBILITE.md) : **clos**.
 
   L'état détaillé du lecteur (corpus de 258 PDF, phases, causes des trois
   régressions du 11 août) est tenu dans
