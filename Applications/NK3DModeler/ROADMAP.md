@@ -456,7 +456,7 @@ multiplient (chaque opération devra être une commande réversible).
 | **Application mobile** | Applications/ | NKCanvas + NKCamera (IMU) + NKNetwork. |
 | **Tracking sans IMU** | — | Le mapping de NKCamera repose sur l'IMU, **absent des webcams Windows desktop**. Piloter la caméra virtuelle depuis une webcam demanderait du tracking visuel : projet à part entière, écarté pour l'instant. |
 | **Baromètre** | NKCamera | Variations verticales ~10–20 cm. Retenu comme complément, pas comme solution (aucun déplacement horizontal). |
-| **Module `NKXR` (OpenXR)** | Kernel/Runtime | Le vrai 6DoF : casque **et contrôleurs**. Rien n'existe aujourd'hui dans le dépôt. Sert aussi la VR/AR du moteur, au-delà de la caméra du modeleur. |
+| ~~**Module `NKXR` (OpenXR)**~~ **→ le module EXISTE** | Kernel/Runtime | Le vrai 6DoF : casque **et contrôleurs**. ⚠️ **Corrigé le 2026-08-14** : cette case disait « Rien n'existe aujourd'hui dans le dépôt » ; `Kernel/Runtime/NKXR/` existe depuis le **10 août** — **7 922 lignes**, `ROADMAP.md` **et** `USAGE.md`, application de démonstration `Applications/NKXRDemo`. Sa roadmap annonce l'étage 0 livré (module + backend simulateur desktop, sans matériel) et en attente de validation par Rihen. Ce qui manque pour le modeleur n'est donc **pas** le module, mais le branchement casque réel + contrôleurs. Sert aussi la VR/AR du moteur, au-delà de la caméra du modeleur. |
 
 ## Position et hauteur : mesurées ou déclarées ?
 
