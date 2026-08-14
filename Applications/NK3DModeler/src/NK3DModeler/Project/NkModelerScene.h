@@ -75,6 +75,18 @@
 // =============================================================================
 
 #include "NK3DModeler/Shell/NkModelerScreens.h" // NkModelerState + NkActivateTab/NkStoreSceneView
+
+namespace nkentseu {
+	namespace nk3d {
+		// ── LE PONT SCENE <-> MATERIAU, DECLARE ICI, DEFINI DANS LES ASSETS ──
+		// C'est NkModelerAssets.h qui inclut CE fichier, donc ses fonctions
+		// arrivent apres. La scene en a pourtant besoin : depuis qu'un materiau
+		// vit dans son propre fichier, elle le DESIGNE par son chemin au lieu d'en
+		// embarquer une copie.
+		inline NkString NkAsMatPath(const NkModelerState &st, int32 slot);
+		inline int32 NkAsMatSlot(const NkModelerState &st, const NkString &rel);
+	} // namespace nk3d
+} // namespace nkentseu
 #include "NK3DModeler/Viewport/NkDemo3DHost.h"
 #include "NKSerialization/NkArchive.h"
 #include "NKContainers/String/NkString.h"
@@ -406,7 +418,12 @@ namespace nkentseu {
 				m.SetObject("cartes", maps);
 				mats.PushBack(m);
 			}
-			out.SetObjectArray("materiaux", mats);
+		// PLUS ECRIT : la scene ne DECRIT plus les materiaux, elle les designe
+			// (cf. « materiauFichier » sur chaque noeud). Les garder aurait laisse
+			// deux descriptions du meme materiau -- celle du .nkmat et celle-ci --
+			// libres de diverger, ce qui est exactement le defaut qu'on repare.
+			// `mats` reste construit : `matRank` en depend pour le rang de
+			// compatibilite, lu par les versions anterieures.
 
 			// ── NOEUDS UTILISATEUR ──────────────────────────────────────────
 			// Un emplacement dont la nature est nulle n'a jamais servi ou a ete
@@ -475,8 +492,22 @@ namespace nkentseu {
 				nd.SetInt32("transmission", demo::Demo3DHostNodeXmitMask(n));
 				nd.SetBool("maillageInterne", demo::Demo3DHostNodeIsMesh(n));
 				nd.SetBool("model", demo::Demo3DHostNodeIsModel(n));
-				// MATERIAU : par rang dans le fichier, comme la parente.
+				// ── MATERIAU : PAR CHEMIN, ET C'EST LA SEULE VERITE ─────────
+				// La scene embarquait une COPIE de chaque materiau du projet et
+				// designait le sien par un rang dans cette copie. Deux endroits
+				// decrivaient donc le meme materiau -- le .nkmat et la scene -- et
+				// ils divergeaient : au rechargement, la scene restaurait ses
+				// anciennes valeurs par-dessus le fichier, et la derniere
+				// modification etait perdue (Rihen, 14 aout).
+				//
+				// Un materiau vit dans SON fichier ; la scene ne fait que le
+				// designer. Tant que le projet n'est pas entierement contenu dans
+				// le .nk3dm, chaque element reste independant -- et n'a donc qu'un
+				// seul endroit ou etre decrit.
 				const int32 mi = demo::Demo3DHostProjMatOf(n);
+				nd.SetString("materiauFichier", NkAsMatPath(st, mi).CStr());
+				// Le rang reste ECRIT pour qu'une version anterieure sache encore
+				// lire ce fichier ; il n'est plus lu par celle-ci.
 				nd.SetInt32("materiau",
 							(mi >= 0 && mi < matMax) ? matRank[(usize)mi] : -1);
 				// PARAMETRES DE CREATION : sans eux, une sphere rechargee ne
@@ -701,6 +732,11 @@ namespace nkentseu {
 			int32 texMiss = 0, nodeMiss = 0;
 
 			// ── MATERIAUX (avant les noeuds : ils s'y assignent) ────────────
+			// ── ANCIEN FORMAT SEULEMENT ─────────────────────────────────────
+			// Une scene ecrite AVANT que le materiau ne vive dans son fichier
+			// embarquait leur copie. On la lit encore -- un projet existant doit
+			// continuer a s'ouvrir -- mais on ne l'ECRIT plus, et les scenes
+			// recentes n'en ont pas.
 			NkVector<NkArchive> mats;
 			(void)in.GetObjectArray("materiaux", mats);
 			NkVector<int32> matSlot; // rang fichier -> emplacement reel
@@ -861,7 +897,13 @@ namespace nkentseu {
 				else if (pf >= 0)
 					(void)demo::Demo3DHostSetNodeParent(n, pf);
 				const int32 mr = NkScInt(nd, "materiau", -1);
-				if (mr >= 0 && (usize)mr < matSlot.Size() && matSlot[(usize)mr] >= 0)
+				// LE CHEMIN FAIT FOI. Le rang n'est lu qu'a defaut, pour les
+				// scenes ecrites avant que le materiau ne vive dans son fichier.
+				const NkString mf = NkScStr(nd, "materiauFichier");
+				const int32 parChemin = mf.Empty() ? -1 : NkAsMatSlot(st, mf);
+				if (parChemin >= 0)
+					demo::Demo3DHostProjMatAssign(n, parChemin);
+				else if (mr >= 0 && (usize)mr < matSlot.Size() && matSlot[(usize)mr] >= 0)
 					demo::Demo3DHostProjMatAssign(n, matSlot[(usize)mr]);
 			}
 
