@@ -16,6 +16,7 @@
 #include "NKMemory/NkAllocator.h"
 
 #include <cmath>
+#include <cstdlib> // getenv : temoin NK_ZEROS_LEGACY de la mesure du gain
 
 namespace nkentseu {
 	namespace ai {
@@ -205,6 +206,55 @@ namespace nkentseu {
 
 		static NkTensor ToDevOf(const NkTensor &r, const NkTensor &ref) {
 			return (ref.Device() == NkDevice::NK_GPU && r.IsValid() && r.Device() != NkDevice::NK_GPU) ? r.ToGPU() : r;
+		}
+
+		// ⚠️ NE PLUS MONTER DES ZEROS (chantier n°1, 2026-08-16).
+		//
+		// `ToDevOf(NkTensor::Zeros(shape), ref)` fabriquait le tenseur nul sur CPU
+		// puis le montait sur le GPU (`ToGPU` = `CreateBuffer` PUIS `Upload`).
+		// Attribution par adresse de retour, sur une course de production :
+		// **5 056 appels et 25,5 Go sur 2 pas depuis cette seule ligne** —
+		// 12,77 Go/pas, 93,6 % des bascules CPU->GPU et 99,9 % de leur trafic. Aucune
+		// information ne transite : ce sont des zeros.
+		//
+		// Ici, quand la reference est residente GPU, on ALLOUE et on remet a zero SUR
+		// PLACE (NkGpuZeros -> NkICommandBuffer::ClearBuffer -> vkCmdFillBuffer).
+		//
+		// Le repli sur le chemin historique est conserve et il est NECESSAIRE :
+		// `NkGpuZeros` renvoie un tenseur invalide si le backend courant n'a pas de
+		// remise a zero qui fonctionne reellement (verifiee par temoin, pas par
+		// signature — cf. NkTensorGpu::ClearDisponible). Mieux vaut le transfert
+		// couteux que des gradients indetermines.
+		//
+		// Le dtype est NK_F32 EXPLICITE dans les deux branches : c'est le defaut
+		// qu'utilisait la ligne d'origine (`NkTensor::Zeros(shape)`), et un
+		// accumulateur de gradient est f32 quel que soit le dtype de la valeur. Le
+		// remplacer par `ref.DType()` serait un changement de comportement glisse
+		// dans un correctif de performance.
+		//
+		// `NK_ZEROS_LEGACY=1` force le chemin historique (fabrication CPU + upload).
+		// C'est le TEMOIN de la mesure du gain : il permet de comparer avant/apres
+		// avec le MEME binaire, la meme graine et le meme corpus, au lieu de comparer
+		// deux compilations. Meme role que `NK_TENSOR_API` pour le choix de backend.
+		static bool ZerosLegacy() {
+			static int etat = -1;
+			if (etat < 0) {
+				const char *e = getenv("NK_ZEROS_LEGACY");
+				etat = (e && e[0] == '1') ? 1 : 0;
+				if (etat == 1)
+					logger.Info("[NkVar] NK_ZEROS_LEGACY=1 : remise a zero des gradients par le chemin "
+								"HISTORIQUE (fabrication CPU + upload). Mode de MESURE uniquement.");
+			}
+			return etat == 1;
+		}
+
+		static NkTensor ZerosCommeSur(const NkTensor &ref) {
+			if (ref.Device() == NkDevice::NK_GPU && !ZerosLegacy()) {
+				NkTensor z = NkGpuZeros(ref.Shape(), NkDType::NK_F32);
+				if (z.IsValid())
+					return z;
+			}
+			return ToDevOf(NkTensor::Zeros(ref.Shape()), ref);
 		}
 
 		static double ScalarOf(const NkTensor &t) {
@@ -1246,7 +1296,10 @@ namespace nkentseu {
 			// Réinitialise les accumulateurs (forme de la valeur), puis amorce la
 			// racine (perte scalaire) à 1.
 			for (uint32 i = 0; i < order.Size(); ++i)
-				order[i]->grad = ToDevOf(NkTensor::Zeros(order[i]->value.Shape()), order[i]->value);
+				order[i]->grad = ZerosCommeSur(order[i]->value);
+			// La racine est la PERTE, un scalaire : la monter coute 4 octets. On la
+			// laisse sur le chemin historique — un noyau « remplir de 1 » pour un
+			// tenseur d'un element serait plus cher que le transfert qu'il remplace.
 			mNode->grad = ToDevOf(NkTensor::Ones(mNode->value.Shape()), mNode->value);
 
 			// Remonte de la racine vers les feuilles (ordre post-fixe inversé).

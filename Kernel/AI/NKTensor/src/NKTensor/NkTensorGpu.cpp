@@ -705,6 +705,97 @@ namespace nkentseu {
 			return mImpl->device->ReadBuffer(h, out, bytes);
 		}
 
+		// ---- Remise a zero SUR PLACE (pas de transfert depuis l'hote) ------------
+		// Le poste `~clear` est instrumente comme `~upload` : c'est exactement le
+		// poste qui doit le remplacer dans le profil, et on veut pouvoir les
+		// comparer ligne a ligne au lieu de le deduire.
+		bool NkTensorGpu::Clear(uint64 id, nk_size bytes, uint32 motif) {
+			NkGpuChrono chr("~clear");
+			chr.Travail(0.0, (double)bytes); // trafic ECRIT cote GPU (rien ne traverse le bus)
+			if (!mImpl || !mImpl->device)
+				return false;
+			NkBufferHandle h = mImpl->Handle(id);
+			if (!h.IsValid())
+				return false;
+
+			// `size` doit etre un multiple de 4 pour vkCmdFillBuffer ; nos tampons de
+			// tenseurs sont des multiples de 4 octets (f32/i32). On refuse le reste
+			// plutot que de nettoyer une plage tronquee.
+			if ((bytes % 4) != 0)
+				return false;
+
+			auto *cmd = mImpl->device->CreateCommandBuffer(NkCommandBufferType::NK_COMPUTE);
+			if (!cmd)
+				return false;
+			cmd->Begin();
+			cmd->ClearBuffer(h, motif, 0, (uint64)bytes);
+			cmd->End();
+			mImpl->device->Submit(&cmd, 1);
+			// Meme discipline que les dispatches : on attend avant de rendre le
+			// tampon a l'appelant. Supprimer ce WaitIdle est le chantier n°3 (un
+			// tampon de commandes par pas), pas celui-ci.
+			mImpl->device->WaitIdle();
+			mImpl->device->DestroyCommandBuffer(cmd);
+			return true;
+		}
+
+		// ⚠️ TEMOIN, PAS DECLARATION. `NkICommandBuffer::ClearBuffer` a existe des
+		// mois avec un corps vide et zero surcharge : la signature etait la, deux
+		// appelants s'en servaient, et elle ne mettait rien a zero nulle part. Un
+		// `grep` du nom plus un appelant avaient suffi a la croire implementee — un
+		// appelant ne prouve rien sur l'appele.
+		// Donc on ECRIT un motif non nul, on appelle Clear, on RELIT, et on exige
+		// des zeros. Le resultat est calcule une seule fois et journalise.
+		bool NkTensorGpu::ClearDisponible() {
+			static int etat = -1; // -1 = pas encore mesure, 0 = non, 1 = oui
+			if (etat >= 0)
+				return etat == 1;
+			etat = 0;
+
+			NkTensorGpu &g = Get();
+			if (!g.IsAvailable())
+				return false;
+
+			const nk_size n = 64;
+			const nk_size octets = n * sizeof(uint32);
+			uint64 buf = g.CreateBuffer(octets);
+			if (!buf) {
+				logger_src.Warnf("[NkTensorGpu] temoin ClearBuffer : allocation refusee, remise a zero GPU "
+								 "declaree INDISPONIBLE (repli sur le chemin historique).");
+				return false;
+			}
+
+			uint32 motif[n];
+			for (nk_size i = 0; i < n; ++i)
+				motif[i] = 0xDEADBEEFu;
+			bool ok = g.Upload(buf, motif, octets);
+			ok = ok && g.Clear(buf, octets, 0);
+
+			uint32 relu[n];
+			for (nk_size i = 0; i < n; ++i)
+				relu[i] = 0xFFFFFFFFu; // valeur de depart differente de 0 ET du motif
+			ok = ok && g.Download(buf, relu, octets);
+			if (ok)
+				for (nk_size i = 0; i < n; ++i)
+					if (relu[i] != 0u) {
+						ok = false;
+						break;
+					}
+			g.DestroyBuffer(buf);
+
+			etat = ok ? 1 : 0;
+			if (ok)
+				logger_src.Infof("[NkTensorGpu] temoin ClearBuffer : OK sur %s — la remise a zero se fait SUR "
+								 "le GPU, plus aucun tenseur de zeros ne transite par le bus.",
+								 g.BackendName());
+			else
+				logger_src.Warnf("[NkTensorGpu] temoin ClearBuffer : ECHEC sur %s — la primitive ne met pas le "
+								 "tampon a zero. Repli sur le chemin historique (fabrication CPU + upload), "
+								 "correct mais couteux. Ce backend n'a pas de surcharge de ClearBuffer.",
+								 g.BackendName());
+			return etat == 1;
+		}
+
 		// ---- Dispatch helpers ---------------------------------------------------
 		static void BindSSBO(NkIDevice *dev, NkDescSetHandle set, uint32 binding, NkBufferHandle buf) {
 			NkDescriptorWrite w{};
@@ -1367,6 +1458,37 @@ void main() {
 					return t.mOffset;
 				}
 		};
+
+		// =====================================================================
+		// Zeros fabriques DIRECTEMENT sur le GPU — le remede du chantier n°1.
+		//
+		// Avant : `ToDevOf(NkTensor::Zeros(shape), ref)` fabriquait les zeros sur
+		// CPU puis les montait. Mesure du 16/08 : 12,77 Go par pas, 99,9 % de tout
+		// le trafic CPU->GPU de l'entrainement, depuis la SEULE ligne
+		// `NkVar.cpp:1249`. Il n'y a aucune information dans ce transfert.
+		//
+		// ⚠️ Ne renvoie JAMAIS un tampon au contenu indetermine. Si la remise a zero
+		// echoue, on detruit le tampon et on renvoie un tenseur invalide : l'appelant
+		// doit pouvoir se replier. Des gradients faux ne se distinguent pas de
+		// gradients justes — c'est precisement pour ca qu'on ne devine pas.
+		// =====================================================================
+		NkTensor NkGpuZeros(const NkShape &shape, NkDType dtype) {
+			if (!NkTensorGpu::Get().IsAvailable() || !NkTensorGpu::ClearDisponible())
+				return NkTensor{};
+			const int64 n = NkShapeNumel(shape);
+			const nk_size bytes = (nk_size)(n < 0 ? 0 : n) * NkDTypeSize(dtype);
+			if (bytes == 0)
+				return NkTensor{};
+			uint64 buf = NkTensorGpu::Get().CreateBuffer(bytes);
+			if (!buf)
+				return NkTensor{};
+			if (!NkTensorGpu::Get().Clear(buf, bytes, 0)) {
+				NkTensorGpu::Get().DestroyBuffer(buf);
+				NkGpuSignalerDefaut("NkGpuZeros", "remise a zero GPU refusee apres allocation, octets", (int64)bytes);
+				return NkTensor{};
+			}
+			return NkTensorInternal::MakeGpu(shape, dtype, buf);
+		}
 
 		// Kernel élémentaire add (mêmes bindings que RunBinary attend).
 		static const char *kAddNkSL = R"NKSL(
