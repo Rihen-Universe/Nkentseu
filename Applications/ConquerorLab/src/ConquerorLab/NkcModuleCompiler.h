@@ -180,6 +180,54 @@ namespace nkentseu {
 				}
 
 			private:
+				/// Cherche un executable dans le PATH. Rend son chemin complet, ou une
+				/// chaine VIDE si le PATH n'en contient aucun.
+				///
+				/// ⚠️ POURQUOI CETTE FONCTION EXISTE — mesure du 2026-08-15.
+				/// `DetectCompiler` se terminait par `mCxx = "clang++"`, une affectation
+				/// INCONDITIONNELLE. `mCxx` n'etait donc jamais vide, donc
+				/// `Available()` rendait TOUJOURS vrai, donc `CanCompile()` aussi — et
+				/// la branche « AUCUN compilateur trouve » du panneau Modules etait du
+				/// CODE MORT sur toute plateforme de bureau.
+				///
+				/// Elle ne s'affichait que la ou `NKC_CAN_COMPILE` vaut 0 (Android,
+				/// Web), c'est-a-dire precisement la ou le conseil qu'elle donne —
+				/// poser `NK_CXX` — ne peut RIEN changer, puisque `DetectCompiler` y
+				/// est compile hors du binaire. Le message etait donc absent la ou il
+				/// servait, et faux la ou il apparaissait.
+				///
+				/// Ce que cela produisait chez un stagiaire sans MSYS2 : le panneau
+				/// affichait « Compilateur : clang++ » — une affirmation fausse — puis
+				/// chaque compilation echouait sans que rien ne nomme la cause.
+				static NkString FindOnPath(const char *exe) noexcept {
+					const char *path = std::getenv("PATH");
+					if (!path || !path[0]) return NkString();
+#if defined(_WIN32)
+					const char	sep	   = ';';
+					const char *suffix = ".exe";
+#else
+					const char	sep	   = ':';
+					const char *suffix = "";
+#endif
+					const NkString all(path);
+					const usize	   n = all.Size();
+					usize		   i = 0;
+					while (i < n) {
+						usize e = i;
+						while (e < n && all[e] != sep) ++e;
+						if (e > i) {
+							NkString cand = all.SubStr(i, e - i);
+							const char last = cand[cand.Size() - 1];
+							if (last != '/' && last != '\\') cand += "/";
+							cand += exe;
+							cand += suffix;
+							if (NkFile::Exists(cand.CStr())) return cand;
+						}
+						i = (e < n) ? e + 1 : n;
+					}
+					return NkString();
+				}
+
 				void DetectCompiler() noexcept {
 #if NKC_CAN_COMPILE
 					if (const char *env = std::getenv("NK_CXX")) {
@@ -194,10 +242,16 @@ namespace nkentseu {
 					for (const char *c : candidates) {
 						if (NkFile::Exists(c)) { mCxx = c; return; }
 					}
-					mCxx = "clang++";   // dernier recours : le PATH
-#	else
-					mCxx = "clang++";
 #	endif
+					// Dernier recours : le PATH — mais VERIFIE, jamais suppose.
+					static const char *const kNames[] = {"clang++", "g++"};
+					for (const char *nm : kNames) {
+						const NkString found = FindOnPath(nm);
+						if (!found.Empty()) { mCxx = found; return; }
+					}
+					// Rien trouve : `mCxx` RESTE VIDE, et c'est tout l'objet du
+					// correctif. `Available()` dit alors la verite, et le panneau peut
+					// enfin afficher ce qu'il faut INSTALLER.
 #endif
 				}
 

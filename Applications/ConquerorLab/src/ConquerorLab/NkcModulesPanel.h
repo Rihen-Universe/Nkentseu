@@ -101,16 +101,35 @@ namespace nkentseu {
 					bool autoScan = mS->AutoScan();
 					if (Checkbox(ctx, "Surveiller les dossiers", autoScan)) mS->SetAutoScan(autoScan);
 
-					if (host.CanCompile())
+					// CE QUE CE BLOC DIT QUAND ÇA VA MAL EST PLUS IMPORTANT QUE CE
+					// QU'IL DIT QUAND ÇA VA BIEN. Un stagiaire dont tout fonctionne ne
+					// lit pas cette ligne ; celui qui n'a pas de compilateur n'a QUE
+					// celle-la. Elle doit donc nommer ce qu'il faut INSTALLER, pas
+					// seulement la variable d'environnement qui sert au cas avance :
+					// quelqu'un qui n'a pas de compilateur n'a rien a mettre dans
+					// NK_CXX.
+					if (host.CanCompile()) {
 						std::snprintf(buf, sizeof(buf), "Compilateur : %s", host.CompilerPath().CStr());
-					else
-						std::snprintf(buf, sizeof(buf),
-									  "AUCUN compilateur trouve — pose NK_CXX sur le chemin de clang++.");
-					Text(ctx, buf);
-					if (!host.CanCompile()) return;
+						Text(ctx, buf);
+					} else {
+						Text(ctx, "AUCUN compilateur trouve — vos modules ne peuvent pas etre compiles.");
+#if defined(_WIN32)
+						Text(ctx, "  1. installez MSYS2 :  https://www.msys2.org");
+						Text(ctx, "  2. dans « MSYS2 UCRT64 » :  pacman -S mingw-w64-ucrt-x86_64-clang");
+						Text(ctx, "  3. relancez ConquerorLab");
+#else
+						Text(ctx, "  installez clang (ou g++) par le gestionnaire de paquets de votre systeme.");
+#endif
+						Text(ctx, "Deja installe ailleurs ? posez NK_CXX sur le chemin complet de clang++.");
+					}
 
 					// Les chemins EN CLAIR : « ou est-ce que je pose mon fichier ? »
 					// est la premiere question, et elle ne doit pas se poser deux fois.
+					//
+					// ⚠️ Ils s'affichent MEME SANS COMPILATEUR. Un `return` anticipe les
+					// masquait precisement dans la situation ou le stagiaire cherche le
+					// plus : il pouvait deja preparer ses fichiers au bon endroit
+					// pendant qu'il installe de quoi les compiler.
 					std::snprintf(buf, sizeof(buf), "Regles : %s", host.RulesDir().CStr());
 					Text(ctx, buf);
 					std::snprintf(buf, sizeof(buf), "IA     : %s", host.AiDir().CStr());
