@@ -504,7 +504,13 @@ qu'il est mort.
 
 > Ouvert le **2026-08-15**, sur **arbitrage de Rodolf**. **Chantier à part**, à ne
 > pas confondre avec le port de `NkImageDemo` (chantier 11, bloqueur 2), qui peut
-> se faire indépendamment. Demande un réservoir plein.
+> se faire indépendamment.
+>
+> **ÉTAT au 2026-08-15 : étapes 1 et 2 FAITES** (recensement + voie unique
+> proposée, avec son argument de robustesse). **L'étape 3 — la migration — n'est
+> PAS engagée** et ne doit pas l'être avant le chantier 11 : elle est mécanique
+> mais invérifiable tant que le build complet ne tourne pas. **En attente de
+> l'arbitrage de Rodolf** sur la voie proposée.
 
 #### Le fait, vérifié à la ligne
 
@@ -567,15 +573,165 @@ seulement le choix.
 largement utilisée, **la migration est un chantier, pas un correctif** — le dire
 au lieu de la forcer.
 
-#### Matière déjà rassemblée, à ne pas refaire
+#### ÉTAPE 1 — RECENSEMENT : ✅ **EXÉCUTÉ le 2026-08-15**
+
+> **Provenance de tous les chiffres ci-dessous** : mesurés le **2026-08-15** dans
+> le worktree `Nkentseu-nkanim`, branche `feat/nkanimation`, au commit
+> **`5f79e9b4`**. **Périmètre** : tout le worktree, fichiers `.h .hpp .cpp .c
+> .inl`. **Exclusions déclarées** : `./Build/` (artefacts) et `./.git/`.
+> `./Externals/` **n'est pas exclu** — il contient **0** occurrence de `NkImage`,
+> mesuré séparément. **4 537 fichiers** parcourus.
+
+**Un chiffre par voie, comme Rodolf l'a demandé :**
+
+| Voie | Mesure | Commande (re-jouable, depuis la racine du worktree) |
+|---|---|---|
+| **tas** | **66** fichiers portent un `NkImage *` | `grep -rlE "NkImage[[:space:]]*\*" --include=*.h --include=*.hpp --include=*.cpp --include=*.c --include=*.inl . \| grep -vc "^\./Build/"` |
+| **tas** | **120** appels `Free()` sur un `NkImage` | résolution du type du receveur (grep seul en trouve 168 toutes classes confondues — voir la note de méthode) |
+| **tas** | **56** appels de fabrique statique | `grep -rhoE "NkImage[[:space:]]*::[[:space:]]*(Create\|Alloc\|Wrap\|Dispatch\|ConvertToTexture)[[:space:]]*\(" … \| wc -l` |
+| **valeur** | **29** fichiers déclarent une instance valeur, dont **19 en valeur pure** (aucun pointeur, aucun `Free()`) | résolution des déclarations |
+| **valeur** | **40** fichiers prennent `NkImage &` / `const NkImage &` | `grep -rlE "NkImage[[:space:]]*&" … \| grep -vc "^\./Build/"` |
+| **valeur** | **4** appels `Unload()` sur un `NkImage` (7 au total, 3 sur d'autres classes) | `grep -rnE "(->\|\.)[[:space:]]*Unload[[:space:]]*\(\)" …` |
+
+⚠️ **Note de méthode, parce que le chiffre le plus important est le moins
+grep-able.** `Free()` est un nom **partagé** : `grep` en trouve 168 avec receveur
+dans tout le dépôt, dont la majorité appartient à d'autres classes
+(`NkFramebuffer::Free()`, etc.). Les **120** ci-dessus sont ceux dont le receveur
+a été **résolu comme `NkImage *`** — variables locales, membres déclarés dans
+l'en-tête jumeau, champs de struct. **2** appels supplémentaires portent sur
+`NkSVGImage` (voir plus bas) et ne comptent pas ici. Un `grep -c "Free()"` seul
+sur ce chantier donne un nombre **faux** ; c'est noté pour la session qui reprendra.
+
+**Répartition par zone** (les 120 appels `Free()`) :
+
+| Zone | `Free()` | fichiers `NkImage *` | fichiers valeur |
+|---|---|---|---|
+| `App/Sandbox` | 35 | 9 | 4 |
+| `Kernel/NKImage` | 35 | 27 | 3 |
+| `Kernel/NKRenderer` | 9 | 4 | 3 |
+| `App/NK3DModeler` | 8 | 5 | 4 |
+| `App/NKCode` | 7 | 1 | 2 |
+| `App/NkImageDemo` | 7 | 4 | 0 |
+| `App/Pong2` · `App/Pong` · `App/Songoo` | 4 · 3 · 1 | 4 · 2 · 2 | 0 · 1 · 0 |
+| `Kernel/NKMedia` · `NKCamera` | 4 · 3 | 3 · 1 | 3 · 0 |
+| `App/Mou` · `NKImageCodecTest` · `NkCameraDemos` | 2 · 1 · 1 | 1 · 1 · 1 | 0 |
+| `Kernel/NKCanvas` · `NKXR` · `Engine/Noge` + 5 apps | 0 | 0 | 8 |
+| **TOTAL** | **120** | **65** | **29** |
+
+Dont **18 appels dans 5 fichiers dupliqués** (`… copy.cpp`, `Pong copy/`) —
+**qui sont de vraies cibles de build** : `config/modules.jenga:240` nomme
+« Pong copy » parmi 4 projets réels. **102 appels sont dans le code non dupliqué.**
+
+#### Ce que le recensement a révélé — et qui change la question
+
+**1. La voie valeur PRODUIT de la voie tas.** C'est le fait décisif, et il n'était
+dans aucune des analyses précédentes. **Cinq méthodes d'instance `const`
+retournent un `NkImage *` du tas** : `Convert` (l. 2281), `Copy` (2334),
+`CopyAs` (2382), `Crop` (2992), `Resize` (3029).
+
+Donc `NkImage img; img.Load(p); NkImage *r = img.Resize(…);` — **une instance
+valeur fabrique une instance tas**. Les deux voies ne sont pas séparables par
+site d'usage : elles coexistent **dans la même expression**. C'est pourquoi
+**10 fichiers sont mixtes**, et ce n'est pas de la négligence.
+
+**2. Le piège a déjà sauté, en production, deux fois.**
+`NK3DModeler/Viewport/NkDemo3D.cpp:11366-11372`, écrit sur place :
+
+> « UNLOAD, PAS FREE. `NkImage::Free()` … fait `nkFree(this)` et libère L'OBJET
+> LUI-MÊME. Appelée sur ce canevas statique, elle rendait à l'allocateur une
+> adresse qui ne lui appartenait pas — **l'application se fermait net** juste
+> après avoir écrit le fichier (**constaté deux fois par Rihen**). »
+
+Ce n'est donc plus un piège théorique : c'est un `c0000374` **déjà payé**,
+corrigé par un `Unload()` et **un commentaire**.
+
+**3. Trois sites portent le même avertissement manuscrit** —
+`NkDemo3D.cpp:11366`, `NKImage/tests/TestEXR.cpp:60`,
+`NKRenderer/Core/NkTextureLibrary.cpp:218-220`. Les deux derniers montrent le
+voisinage exact du danger :
+
+```cpp
+rgba->Free();   // rgba vient de Convert() (heap) → Free() OK
+// `img` est sur la PILE : ne JAMAIS appeler img.Free() (qui ferait
+// nkFree(this) sur une adresse pile → heap corruption c0000374).
+```
+
+**Deux objets du même type, dans la même portée, avec des règles de vie
+opposées — séparés par un commentaire.** Règle du dépôt : *quand plusieurs
+endroits documentent le même défaut, ce n'est pas une convention, c'est une
+plainte.*
+
+**4. L'idiome a essaimé.** `nkFree(this)` existe à **2** endroits réels :
+`NkImage.cpp:1472` et `NkSVGCodec.cpp:2642` (`NkSVGImage::Free()`). La décision
+prise ici fera donc **précédent pour au moins une deuxième classe**.
+
+**5. Rien ne bloque la voie valeur :** **0** déclaration `NKIResource *` ou
+`NKIResource &` dans tout le worktree — `NkImage` hérite de l'interface mais
+**n'est stocké polymorphiquement nulle part**. La contre-épreuve a été faite :
+la commande trouve bien `NKIResource` (9 occurrences, dont la définition
+`NKStream/NKIResource.h:33`), elle ne trouve aucun pointeur.
+
+#### ÉTAPE 2 — LA VOIE UNIQUE PROPOSÉE : **la valeur**, et Free() supprimée
+
+**Argument de robustesse, sur le critère exact de Rodolf** — *quelle voie fait
+qu'un appel erroné ne compile pas* :
+
+- **Voie valeur retenue → `Free()` disparaît de l'API.** L'appel erroné n'existe
+  plus **comme expression** : il n'y a plus rien à appeler de travers. C'est le
+  seul des deux qui rend l'erreur **impossible** plutôt que documentée.
+- **Voie tas retenue** exigerait d'interdire la déclaration sur pile
+  (constructeur/destructeur privés + fabriques amies). C'est également vérifié
+  par le compilateur — mais ça force une allocation pour **toute** image
+  temporaire, et ça **contredit ce que la classe déclare déjà d'elle-même** :
+  son en-tête dit que l'API d'instance est « pensée pour une utilisation en
+  valeur (`NkImage img; img.Load("foo.png")`) », et `Unload()` est documentée
+  « sûr sur pile comme heap ».
+
+**La classe a déjà choisi la valeur ; ce sont 120 sites qui n'ont pas suivi.**
+C'est **exactement le motif du chantier 11** — une API qui évolue, des
+consommateurs qui ne suivent pas, et rien qui les y oblige.
+
+#### ÉTAPE 3 — C'EST UN CHANTIER, PAS UN CORRECTIF. Et je ne le force pas.
+
+Conformément à la troisième étape de Rodolf, le recensement montre que l'autre
+voie est **largement utilisée** — 120 sites, 66 fichiers, 4 modules Kernel. À
+faire, dans cet ordre :
+
+1. basculer les **5 fabriques d'instance** (`Convert`, `Copy`, `CopyAs`, `Crop`,
+   `Resize`) et les **6 fabriques statiques** sur un retour **par valeur**
+   (le move-ctor existe déjà, NRVO fait le reste) ;
+2. supprimer `Free()` — **le compilateur signale alors les 120 sites**, aucun ne
+   peut être oublié en silence ;
+3. relire les **10 fichiers mixtes** en premier : ce sont eux qui portent le
+   risque.
+
+⚠️ **Ce chantier ne peut pas se vérifier tant que le build complet ne tourne
+pas** (chantier 11). La migration est *mécaniquement sûre* — le compilateur
+attrape tout — mais « le compilateur attrape tout » ne vaut que si **on
+compile**. **Ordre imposé : chantier 11 d'abord, migration NkImage ensuite.**
+
+**Palier intermédiaire, si on veut désarmer le piège sans attendre la
+migration** (à peser, non engagé) : remplacer `void Free()` par
+`static void Free(NkImage *&img)`. Une instance valeur **ne se lie pas** à un
+`NkImage *&` → l'appel erroné **ne compile pas**, et la mise à `nullptr` du
+pointeur supprime au passage l'usage-après-libération. Coût : 120 réécritures
+mécaniques `img->Free()` → `NkImage::Free(img)`, **toutes signalées par le
+compilateur**. Ça n'unifie pas les voies — donc ça ne répond pas à la demande de
+Rodolf — mais ça transforme le contrat par commentaire en erreur de compilation.
+
+#### Matière rassemblée en chemin
 
 - `Free()` : 3 appels dans le seul `NkImageDemo/Texture2D.cpp` (l. 83, 94, 117),
   tous supprimés par le port du chantier 11.
 - Motif « valeur » en production : `Nogee/Editor/AssetManager.cpp:91`.
-- Piste pour l'étape 2, **non proposée** (elle appartient à l'étape 2, après le
-  recensement) : si les deux voies doivent rester, rendre `Free()` privé avec les
-  fabriques amies, ou poser un `NK_ASSERT` sur un drapeau d'allocation, convertit
-  le contrat par commentaire en erreur. À peser contre la voie unique.
+- **0** appel `Free()` sur une instance valeur détecté aujourd'hui : le piège est
+  **armé partout mais ne tire nulle part** depuis le correctif de `NkDemo3D`.
+  ⚠️ Détection limitée aux variables résolues dans le fichier — un `Free()` sur
+  une valeur reçue par référence depuis un autre module échapperait à la mesure.
+- ❌ **Correction d'une erreur de mes rapports antérieurs** : j'avais écrit que
+  `IsValid()` avait été **supprimée**. **C'est faux** — elle existe
+  (`NkImage.h:564`, override de `NKIResource`) et `NkImageDemo/Texture2D.cpp:78`
+  l'appelle. La seule disparition réelle est la fabrique `static Load(path)`.
 
 ---
 
