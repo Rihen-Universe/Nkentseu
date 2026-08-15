@@ -34,7 +34,7 @@ NK3DModeler, NKCode, NkForma, NkAnima, NkScena, Nogee, Sandbox : même exigence.
 
 ## Les chantiers
 
-> Cinq au 12 août 2026. **Dix depuis le 14 août** : la confrontation des
+> Cinq au 12 août 2026. **Onze depuis le 15 août** : la confrontation des
 > feuilles de route au code a ajouté le fork du lecteur PDF (n° 6, chantier de
 > **code**) et l'inventaire de dette documentaire (n° 7). Le n° 1 a par ailleurs
 > été **réglé pour moitié** entre-temps.
@@ -338,6 +338,77 @@ exactement ce qui s'est produit ici.
 
 Premier pas concret et borné : réparer ou retirer `NkRHIDemoText.cpp`, obtenir un
 **203/203**, et seulement ensuite compter ce qui reste hors couverture.
+
+---
+
+### 11. Rouvrir le BUILD COMPLET — bloqueur par bloqueur, chiffre à chaque pas
+
+> Ouvert le **2026-08-15**. Un bloqueur levé, le suivant diagnostiqué non traité.
+> **Le livrable est un nombre, pas un build vert** : il dit si la suite est une
+> demi-journée ou une semaine.
+
+| Relevé | Cibles atteintes | Reste | Bloqueur |
+|---|---|---|---|
+| 0 — état trouvé | **61 / 205** | 144 | `NkRHIDemoText.cpp` — API NKFont disparue |
+| 1 — après levée | **80 / 203** | 123 | `Texture2D.cpp` + `ViewerApp.cpp` — API NKImage changée |
+
+Le total passe de 205 à 203 : deux cibles désactivées, avec leur raison écrite.
+
+**Ce que les deux premiers bloqueurs ont en commun, et c'est le vrai sujet.**
+Aucun n'est un bug. Les deux sont des **API qui ont changé sans que leurs
+consommateurs suivent** — et personne ne l'a su parce que la seule mesure capable
+de le dire ne tournait plus. Un blocage qui dure assez longtemps fait cesser de
+lancer la mesure, et tout ce qui casse ensuite devient invisible. Preuve trouvée
+en chemin : deux des quatre cibles du bloqueur 1 étaient **déjà commentées, sans
+un mot de raison**. Le même défaut avait été rencontré, neutralisé en silence, et
+oublié.
+
+#### Bloqueur 1 — ✅ levé (commit `251f49d2`)
+Quatre démos de texte consomment une génération d'API NKFont entière et disparue
+(`NkFontLibrary`, `NkTextShaper`, `NkFontResult`, `nk_handle`, `NK_LOAD_*`).
+Désactivées avec leur raison. **À arbitrer** : porter vers
+`NkFontAtlas`/`NkRasterizer`/`NkShape`, ou supprimer — `NkFontDemo` et `NkFDV2`
+couvrent déjà NKFont sur la nouvelle API. Sept fichiers de plus utilisent la même
+API morte **sans appartenir à aucune cible**.
+
+#### Bloqueur 2 — ⏳ diagnostiqué, NON traité
+`Applications/NkImageDemo` (cible `NkImageDemo`) : `Texture2D.cpp:77` et
+`ViewerApp.cpp:450` appellent `NkImage::Load(path, 4)` **en statique**.
+
+Ce n'est pas un correctif de deux lignes, et c'est pour ça qu'il est laissé :
+
+| Avant (ce qu'appelle la démo) | Aujourd'hui (`NkImage.h`) |
+|---|---|
+| `static NkImage* Load(path, ch)` | `bool Load(path, ch)` — **membre**, l. 262 |
+| `img->IsValid()` | **n'existe plus** |
+| `Free()` libère pixels **et** wrapper (`nkMalloc` + placement new), « JAMAIS `delete img` » | `Free()` existe encore (l. 775), mais la classe a désormais un **vrai destructeur** (l. 199) et un move-ctor |
+
+Le modèle de **propriété mémoire a changé**. La démo fait circuler des `NkImage*`
+entre son fil de décodage et son fil d'upload GL ; reprendre ça à la légère est
+la recette exacte du `c0000374` que `CONVENTIONS_CODE`/`CLAUDE.md` interdisent
+(mélange allocateur custom et heap CRT).
+
+**Motif de référence, qui marche déjà** — `Nogee/Editor/AssetManager.cpp:91` :
+```cpp
+NkImage img;                       // valeur, pas pointeur
+if (!img.Load(absPath.CStr(), 4) || !img.Pixels() || img.Width() <= 0) { ... }
+```
+Le port consiste probablement à passer la démo du pointeur à la **valeur** (ou à
+un `NkUniquePtr`), pas à réanimer l'ancien contrat. Décider **qui possède
+l'image** entre les deux fils est la vraie question, et elle mérite d'être posée
+avant d'écrire.
+
+#### Comment reprendre
+```
+jenga build --config Debug 2>&1 | grep -E "Compilation Error|Projects Built|Status"
+```
+Un bloqueur, un commit, un relevé. **L'objectif n'est pas 203/203 : c'est zéro
+échec inexpliqué.** Une cible qui ne peut pas construire ici et dont on sait
+pourquoi est réglée.
+
+⚠️ **Ce chantier solde la dette n° 9** (`DemoRW/main.cpp` corrigé à l'aveugle) :
+elle disparaît au premier build complet qui compile ce fichier — ou qui prouve
+qu'il est mort.
 
 ---
 
