@@ -34,7 +34,7 @@ NK3DModeler, NKCode, NkForma, NkAnima, NkScena, Nogee, Sandbox : même exigence.
 
 ## Les chantiers
 
-> Cinq au 12 août 2026. **Onze depuis le 15 août** : la confrontation des
+> Cinq au 12 août 2026. **Douze depuis le 15 août** : la confrontation des
 > feuilles de route au code a ajouté le fork du lecteur PDF (n° 6, chantier de
 > **code**) et l'inventaire de dette documentaire (n° 7). Le n° 1 a par ailleurs
 > été **réglé pour moitié** entre-temps.
@@ -461,6 +461,85 @@ pourquoi est réglée.
 ⚠️ **Ce chantier solde la dette n° 9** (`DemoRW/main.cpp` corrigé à l'aveugle) :
 elle disparaît au premier build complet qui compile ce fichier — ou qui prouve
 qu'il est mort.
+
+---
+
+### 12. `NkImage` — deux modèles de vie sur un seul type : recenser avant de trancher
+
+> Ouvert le **2026-08-15**, sur **arbitrage de Rodolf**. **Chantier à part**, à ne
+> pas confondre avec le port de `NkImageDemo` (chantier 11, bloqueur 2), qui peut
+> se faire indépendamment. Demande un réservoir plein.
+
+#### Le fait, vérifié à la ligne
+
+`NkImage.cpp:1468-1473` — relu, c'est bien ce que tout le raisonnement suppose :
+
+```cpp
+void NkImage::Free() noexcept {
+    if (mOwning && mPixels) nkFree(mPixels);
+    mPixels = nullptr;
+    nkFree(this);              // libère le struct NkImage lui-même
+}
+```
+
+**Aucun garde** — ni `mOnHeap`, ni `mOwnsSelf` : rien ne distingue une instance du
+tas d'une instance valeur. Or la classe a désormais un **vrai destructeur**
+(l. 199) et un **move-ctor** (l. 209).
+
+**Les deux modèles coexistent donc sur le même type :**
+
+| Voie | Création | Destruction |
+|---|---|---|
+| **tas** | fabriques statiques (`Create`, `Alloc`, `Wrap`, `Dispatch`, `ConvertToTexture`) | `Free()` — libère pixels **et** `this` |
+| **valeur** | `NkImage img;` | destructeur, ou `Unload()` (l. 1479) |
+
+`Free()` appelé sur une instance valeur libère **une adresse qui n'est pas du
+tas** ; si l'objet survit à l'appel, son destructeur passe ensuite sur de la
+mémoire libérée. C'est le `c0000374` que `CLAUDE.md` interdit.
+
+⚠️ **Le piège est déjà documenté — et c'est ce qui le rend pire.** Juste au-dessus,
+l. 1460-1462 : « USAGE : uniquement sur les images créées via les fabriques
+statiques. Ne JAMAIS appeler `Free()` sur une image allouée sur la stack. »
+**Contrat par commentaire** : la règle est écrite, rien ne l'applique. Même
+famille que le « thread worker » de `Texture2D.h:29-30`, qui a fait diagnostiquer
+deux fils inexistants le même jour.
+
+Asymétrie qui a révélé le tout : on peut `Free()` un `NkImage` du tas, mais
+**aucune fabrique publique ne sait plus en créer un depuis un chemin de fichier**
+(`static Load(path)` a disparu ; les autres partent de dimensions ou d'octets).
+
+#### La méthode imposée par Rodolf — trois étapes, dans cet ordre
+
+> « Si plusieurs modèles posent problème, propose une **voie unique**. Mais
+> vérifie que la sélection retenue est **la plus robuste**, et **avant de retirer
+> l'autre, vérifie qu'il n'est pas utilisé par d'autres systèmes**. »
+
+**1. Recenser les consommateurs des DEUX voies — avant toute proposition.**
+Qui appelle `Free()`, qui s'appuie sur le destructeur, qui fait circuler des
+`NkImage*`, qui passe des valeurs. Dans **tout** le dépôt : NKRenderer, NKCanvas,
+NKMedia, Noge, applications, démos. **Un chiffre par voie.** C'est l'étape qui
+décide — une voie utilisée par trente sites ne se retire pas comme une voie
+utilisée par deux.
+
+**2. Proposer la voie unique, avec l'argument de robustesse.** Pas « celle que je
+préfère » : **celle qui rend l'erreur impossible plutôt que détectable**. Critère
+concret ici — quelle voie fait qu'un appel erroné **ne compile pas**, au lieu de
+libérer une adresse qui n'est pas du tas. Rodolf demande la justification, pas
+seulement le choix.
+
+**3. Ne retirer qu'après.** Si le recensement montre que l'autre voie est
+largement utilisée, **la migration est un chantier, pas un correctif** — le dire
+au lieu de la forcer.
+
+#### Matière déjà rassemblée, à ne pas refaire
+
+- `Free()` : 3 appels dans le seul `NkImageDemo/Texture2D.cpp` (l. 83, 94, 117),
+  tous supprimés par le port du chantier 11.
+- Motif « valeur » en production : `Nogee/Editor/AssetManager.cpp:91`.
+- Piste pour l'étape 2, **non proposée** (elle appartient à l'étape 2, après le
+  recensement) : si les deux voies doivent rester, rendre `Free()` privé avec les
+  fabriques amies, ou poser un `NK_ASSERT` sur un drapeau d'allocation, convertit
+  le contrat par commentaire en erreur. À peser contre la voie unique.
 
 ---
 
