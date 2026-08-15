@@ -98,7 +98,7 @@ sont **un seul défaut**, et le n°2 est devenu le geste le moins cher du chanti
 
 | # | chantier | part mesurée | ce que ça vaut SEUL | coût |
 |---|---|---|---|---|
-| 1 | **ne plus monter des ZÉROS** : `NkVar::Backward()` remet à zéro chaque accumulateur de gradient en fabriquant un tenseur CPU et en le montant — **12,7 Go de zéros par pas, 99,9 % de tous les uploads**. Remède : `NkICommandBuffer::ClearBuffer`, qui existe déjà et que `NKRHI/Core/NkML.cpp:77` utilise pour le même besoin | 18,2-19,9 % | ×1,22 à ×1,25 | **quelques lignes** |
+| 1 | **ne plus monter des ZÉROS** : `NkVar::Backward()` remet à zéro chaque accumulateur de gradient en fabriquant un tenseur CPU et en le montant — **12,7 Go de zéros par pas, 99,9 % de tous les uploads**. Remède : un petit noyau NkSL de remise à zéro dans NKTensor (voir ⚠️ ci-dessous : `ClearBuffer` n'est PAS utilisable) | 18,2-19,9 % | ×1,22 à ×1,25 | **petit, mais pas trivial** |
 | 2 | **réserve de tampons** : recycler par taille au lieu de créer/détruire 9 316 fois par pas. **Revalorisé** : le profil facture une partie du coût d'allocation aux NOYAUX (mesuré : un dispatch passe de ~110 µs à ~570 µs du seul fait qu'un `CreateBuffer` le précède) | 17,8-22,0 % **+ ~11-12 % cachés dans les lignes de noyaux** | **×1,43 à ×1,52** | jours |
 | 3 | **un tampon de commandes par pas** au lieu d'un `WaitIdle` par dispatch : **le plancher est mesuré à 107-121 µs par dispatch**, × 28 119 opérations/pas | ~19 % | agit sur 3, 4, 5 | jours |
 | 4 | **`softmax_rows`** : un groupe de fils par ligne, réduction en mémoire partagée, 2 passes au lieu de 3 | 13,1-14,2 % | ×1,15 à ×1,17 | jours |
@@ -148,6 +148,42 @@ les cas). Si cette hypothèse avait tenu, aucune réserve de tampons n'aurait se
    l'existence de ce stockage. Un tenseur ainsi fabriqué compilerait, tournerait,
    et donnerait des gradients faux **en silence**. À corriger ou à interdire par
    assertion — c'est un piège posé dans une signature d'API.
+
+### ⚠️⚠️ `NkICommandBuffer::ClearBuffer` N'EXISTE QUE SUR LE PAPIER — 0 backend sur 6
+
+**Correction à ce que j'avais écrit une heure plus tôt dans cette même ROADMAP.**
+J'avais annoncé « le remède existe déjà, `NKRHI/Core/NkML.cpp:77` l'utilise ».
+C'était un `grep` pris pour une implémentation.
+
+`ClearBuffer` est déclaré dans `Commands/NkICommandBuffer.h:277` **avec un corps
+vide**, et **aucun** des six backends ne le surcharge :
+
+| backend | `ClearBuffer` | témoin `CopyBuffer` |
+|---|---|---|
+| Vulkan | **0** | 2 |
+| DirectX11 | **0** | 2 |
+| DirectX12 | **0** | — |
+| OpenGL | **0** | 6 |
+| Software | **0** | — |
+| Metal | **0** | — |
+
+*(Périmètre : les six `Nk*CommandBuffer.h` de `Kernel/Runtime/NKRHI/src/NKRHI/`.
+Témoin `CopyBuffer` pour prouver que la commande sait trouver une surcharge.)*
+
+**Tout appel à `ClearBuffer` est donc un no-op silencieux sur toutes les
+plateformes.** C'est la face « une protection qui ne protège rien », dans sa forme
+la plus coûteuse : un virtuel à corps vide ne se distingue pas d'un virtuel
+implémenté, au point d'appel comme à la lecture.
+
+⚠️ **Conséquence hors de mon chantier, à relayer** : `NKRHI/Core/NkML.cpp:77`
+(`cmd->ClearBuffer(t.grad, 0)`, commentaire « Init gradient à zéro ») et `:106`
+comptent dessus. **Ces tampons ne sont mis à zéro nulle part, sur aucun backend.**
+Je ne touche pas à NKRHI — module partagé — mais le fait est mesuré et il ne
+m'appartient pas de le garder.
+
+**Ce que ça change pour le chantier n°1** : le remède reste petit, mais il est à
+écrire — soit un noyau NkSL de remise à zéro dans NKTensor (mon périmètre, à
+préférer), soit `vkCmdFillBuffer` dans le backend Vulkan (périmètre NKRHI).
 
 ### Dette d'instrument, nommée
 
