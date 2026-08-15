@@ -22,6 +22,7 @@
 #include "NKCamera/NKICameraBackend.h"
 #include "NKContainers/String/NkStringUtils.h"
 #include "NKCore/NkAtomic.h"
+#include "NKLogger/NkLog.h"
 #include "NKTime/NkChrono.h"
 #include <thread>
 #include <mutex>
@@ -183,6 +184,27 @@ namespace nkentseu {
 				mFormat = NkPixelFormat::NK_PIXEL_NV12;
 				mFrameIndex = 0;
 				mNextVideoTS = 0;
+
+				// ANNONCER CE QU'ON A OBTENU, ET PAS SEULEMENT CE QU'ON A DEMANDE.
+				// Media Foundation ne refuse pas un type qu'il ne sait pas servir :
+				// il en choisit un PROCHE, en silence. L'application croit donc
+				// filmer dans la résolution demandée alors qu'elle reçoit autre
+				// chose — et la seule trace visible est une image qui paraît floue,
+				// parce qu'elle est étirée à la taille de la fenêtre.
+				// Le même angle mort a coûté une calibration entière sur Android le
+				// 2026-08-12 : les intrinsèques avaient été calculées sur la
+				// résolution DEMANDÉE, jamais sur celle reçue.
+				// On imprime donc les deux : l'écart se lit d'un coup d'œil.
+				if (mWidth != config.width || mHeight != config.height) {
+					logger.Warnf("[NkCamera] Flux demarre en %ux%u @%u fps (NV12) — "
+								 "DIFFERENT du %ux%u @%u demande. Le pilote a impose le "
+								 "format le plus proche ; une image affichee plus grande "
+								 "sera etiree, donc floue.",
+								 mWidth, mHeight, mFPS, config.width, config.height, config.fps);
+				} else {
+					logger.Infof("[NkCamera] Flux demarre : %ux%u @%u fps (NV12), conforme a la demande.",
+								 mWidth, mHeight, mFPS);
+				}
 
 				// 5. Démarrer le thread de capture
 				mRunning = true;
