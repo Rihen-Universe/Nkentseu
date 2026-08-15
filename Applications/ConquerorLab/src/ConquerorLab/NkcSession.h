@@ -395,7 +395,7 @@ namespace nkentseu {
 				// propre geometrie d'ecran, c'est le cas le PLUS a risque : la
 				// topologie ne peut plus servir de repli honnete. On le dit.
 				void CheckCoherence() noexcept {
-					mCoherence[0] = ' ';
+					mCoherence[0] = '\0';
 					if (!Ready()) return;
 
 					if (!mRulesVt.GetNeighbors) {
