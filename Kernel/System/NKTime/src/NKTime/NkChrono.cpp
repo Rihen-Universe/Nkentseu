@@ -61,6 +61,15 @@
 // -------------------------------------------------------------------------
 // Implémentation des méthodes de NkChrono dans le namespace nkentseu.
 
+#if defined(NKENTSEU_PLATFORM_WINDOWS) || defined(_WIN32)
+// Declarees a la main, AU NIVEAU GLOBAL : WIN32_LEAN_AND_MEAN (pose en tete de ce
+// fichier) exclut mmsystem.h, ou elles vivent. Meme approche que NkRendererImpl.
+// Les inclure autrement ferait entrer tout le multimedia Windows dans une unite
+// de compilation qui n'a besoin que de deux symboles.
+extern "C" unsigned int __stdcall timeBeginPeriod(unsigned int uPeriod);
+extern "C" unsigned int __stdcall timeEndPeriod(unsigned int uPeriod);
+#endif
+
 namespace nkentseu {
 
 	// -------------------------------------------------------------------------
@@ -319,6 +328,46 @@ namespace nkentseu {
 	void NkChrono::SleepMilliseconds(int64 ms) noexcept {
 		// Alias explicite pour la lisibilité : délègue directement
 		Sleep(ms);
+	}
+
+	// ── Résolution de minuterie ─────────────────────────────────────────────
+	// Contrat, mesures et PORTÉE DE VERSION : voir NkChrono.h. Ici, seulement le
+	// mécanisme.
+	namespace {
+		// Le système compte les demandes PAR PROCESSUS : on ne demande donc
+		// qu'une fois, et on ne rend qu'une fois. Ce drapeau évite qu'un appel
+		// en double laisse une demande orpheline — c'est la différence entre un
+		// réglage et une fuite.
+		bool g_minuterieFine = false;
+	} // namespace
+
+	void NkChrono::BeginPreciseTiming() noexcept {
+		if (g_minuterieFine)
+			return;
+#if defined(NKENTSEU_PLATFORM_WINDOWS) || defined(_WIN32)
+		// TIMERR_NOERROR == 0. Un refus du système ne doit rien marquer comme
+		// actif, sinon `EndPreciseTiming` rendrait une demande jamais faite.
+		if (::timeBeginPeriod(1u) != 0)
+			return;
+#endif
+		// Hors Windows, le corps est vide et le drapeau passe quand même à vrai :
+		// `IsPreciseTimingActive()` répond alors « oui, c'est demandé », ce qui
+		// est exact — la précision y vient de `clock_nanosleep`, sans réglage
+		// global à poser. Répondre « non » ferait croire à un échec.
+		g_minuterieFine = true;
+	}
+
+	void NkChrono::EndPreciseTiming() noexcept {
+		if (!g_minuterieFine)
+			return;
+#if defined(NKENTSEU_PLATFORM_WINDOWS) || defined(_WIN32)
+		::timeEndPeriod(1u);
+#endif
+		g_minuterieFine = false;
+	}
+
+	bool NkChrono::IsPreciseTimingActive() noexcept {
+		return g_minuterieFine;
 	}
 
 	void NkChrono::SleepMicroseconds(int64 us) noexcept {
