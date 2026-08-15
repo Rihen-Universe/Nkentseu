@@ -912,7 +912,34 @@ namespace nkentseu {
 				// 6 passes downsample : extrait highlights + downsample x2 par mip.
 				// Pass 0 : src = mainColor (HDR), threshold actif.
 				// Pass 1..5 : src = bloomMip[i-1], threshold = 0 (passthrough).
-				const float bloomThr = mCfg.postProcess.bloomThreshold;
+				// ── LE SEUIL S'ANCRE SUR LE BLANC AFFICHE ────────────────────
+				// Il etait applique sur le HDR BRUT, sans aucun rapport avec le
+				// blanc a l'ecran : 0.85 se lisait « juste sous le blanc » alors
+				// qu'il etait 3,1 diaphragmes en dessous, et toute surface diffuse
+				// bien eclairee entrait dans le bright pass. Un bloom ne doit
+				// capter que ce qui depasse le blanc.
+				//
+				// LA CIRCULARITE, ET SA SORTIE : le blanc depend de l'exposition,
+				// or l'exposition se mesure a partir du bloom. On prend donc
+				// l'exposition RESOLUE DE LA FRAME PRECEDENTE (anneau de releve du
+				// post-traitement). Gratuit : 2 frames a 60 ips = 33 ms contre
+				// ~500 ms de constante d'adaptation — 15x plus rapide que la
+				// grandeur suivie.
+				//
+				// TANT QU'AUCUN RELEVE N'EST ARRIVE, on retombe sur l'exposition
+				// de la config plutot que d'inventer une valeur. Jamais 0 : le
+				// seuil partirait a l'infini et le bloom disparaitrait sans bruit.
+				float aeExposure = mCfg.postProcess.exposure;
+				if (mPostProcess) {
+					float32 resolved = 1.f;
+					bool stale = false;
+					if (mPostProcess->ResolvedExposure(&resolved, &stale) && resolved > 0.0001f)
+						aeExposure = resolved;
+				}
+				if (aeExposure < 0.0001f)
+					aeExposure = 0.0001f;
+				const float bloomThr =
+					mCfg.postProcess.bloomThreshold * renderer::kNkAcesWhitePoint / aeExposure;
 				for (int i = 0; i < kBloomMipsRG; i++) {
 					char passName[32];
 					snprintf(passName, sizeof(passName), "Bloom_Down_%d", i);

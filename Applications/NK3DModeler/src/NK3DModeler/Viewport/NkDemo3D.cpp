@@ -17174,8 +17174,12 @@ namespace nkentseu {
 			renderer::NkPostConfig pp = hst.ctx.renderer->GetConfig().postProcess;
 			pp.exposure = exposure < 0.01f ? 0.01f : (exposure > 16.f ? 16.f : exposure);
 			pp.bloom = bloomOn;
-			// Seuil : en HDR il peut (et devrait souvent) depasser 1.0 — seuls
-			// les pixels REELLEMENT brillants irradient (LearnOpenGL, Bloom).
+			// Seuil EN FRACTION DU BLANC AFFICHE depuis le 15 aout (il etait en
+			// HDR absolu, sans rapport avec le blanc a l'ecran). 1.0 = « seules
+			// les sources plus brillantes que le blanc irradient ». Au-dessus de
+			// 1, on ne garde que les sources franches ; en dessous, on ramasse
+			// des surfaces simplement bien eclairees — c'est ce qui donnait une
+			// eponge au lieu d'un halo.
 			pp.bloomThreshold = bloomThr < 0.f ? 0.f : (bloomThr > 16.f ? 16.f : bloomThr);
 			pp.bloomStrength = bloomStr < 0.f ? 0.f : (bloomStr > 8.f ? 8.f : bloomStr);
 			hst.ctx.renderer->SetPostConfig(pp);

@@ -134,6 +134,26 @@ namespace nkentseu {
 				float32 softness = 0.005f;
 		};
 
+		// ── LE POINT BLANC DE LA COURBE ACES ────────────────────────────────
+		// Valeur HDR (apres exposition) a partir de laquelle ACESFilm() rend
+		// exactement 1.0 — le blanc affiche. Tout ce qui depasse est ecrete.
+		//
+		// Ce n'est pas un reglage : c'est la racine de la courbe employee dans
+		// pp_tonemap. En posant mapped = 1 dans
+		//     (x(2.51x + 0.03)) / (x(2.43x + 0.59) + 0.14)
+		// il vient 0.08x^2 - 0.56x - 0.14 = 0, soit x = 7.24.
+		//
+		// A QUOI CA SERT : les nombres que l'utilisateur regle (seuil de bloom,
+		// intensite d'emission) etaient exprimes en unites-SCENE alors qu'il
+		// raisonne en unites-ECRAN. Un seuil a 0.85 se lisait « juste sous le
+		// blanc » alors qu'il etait 3,1 diaphragmes EN DESSOUS : toute surface
+		// diffuse bien eclairee entrait dans le bloom, et flouter une grande
+		// zone diffuse sur un grand rayon donne une bouillie, pas un halo.
+		// (Rihen, 14 aout : « pourquoi le halo ressemble-t-il a une eponge ? »)
+		//
+		// Le blanc en unites HDR depend de l'exposition : blanc = 7.24 / exposition.
+		static constexpr float32 kNkAcesWhitePoint = 7.24f;
+
 		struct NkPostConfig {
 				// Tone mapping
 				bool toneMapping = true;
@@ -150,7 +170,14 @@ namespace nkentseu {
 				float32 hdrSafetyClamp = 64.f;
 				// Bloom (inline 13-sample cross dans tonemap ; dual-Kawase multi-pass a venir)
 				bool bloom = true;
-				float32 bloomThreshold = 0.85f; // pixels > 0.85 HDR recoivent du bloom
+				// SEUIL EN FRACTION DU BLANC AFFICHE, depuis le 15 aout — plus en
+				// HDR absolu. 1.0 = « seules les sources plus brillantes que le
+				// blanc irradient », qui est la definition meme d'un bloom.
+				// L'ancien defaut valait 0.85 en unites HDR, soit 3,1 diaphragmes
+				// SOUS le blanc : un sol d'albedo 0.8 sous une lumiere a 1.1 y
+				// entrait, d'ou l'eponge. La conversion en HDR se fait au montage
+				// de la passe (x kNkAcesWhitePoint / exposition resolue).
+				float32 bloomThreshold = 1.f;
 				float32 bloomStrength = 1.5f;	// intensite de la halo
 				uint32 bloomPasses = 6;
 				// SSAO (ground-truth ambient occlusion)
