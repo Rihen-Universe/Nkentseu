@@ -22,7 +22,7 @@ dédié.
 | API fluide chaînable (Named/Level/Pattern/Source) | Livré | — | — |
 | Capture source auto via macro `logger` (FILE/LINE/FUNC) | Livré | — | — |
 | Sanitisation UTF-8 dans LogInternal | Livré | — | — |
-| Tests unitaires (smoke, indexed format) | ❌ NON COMPILABLES — cadre Unitest absent du depot | S | Haute |
+| Tests unitaires (smoke, indexed format) | ⏳ ecrits, NON EXECUTES ici (execution desactivee par politique de workspace) | S | Haute |
 | NkAsyncLogger comme classe dédiée (vs sink) | Partiel | M | Moyenne |
 | Sink JSON natif (NkJsonSink) | TODO | M | Moyenne |
 | Sink réseau (TCP/UDP/syslog) | TODO | L | Basse |
@@ -74,21 +74,32 @@ interne.
 
 ### Tests
 
-> ⚠️ **CORRIGÉ LE 2026-08-15 — cette section affirmait trois tests livrés. Deux
-> ne peuvent pas se compiler et le troisième ne mesurait rien.**
+> ⚠️ **CORRIGÉ DEUX FOIS LE 2026-08-15. La première correction était fausse, et
+> le récit compte autant que le fait.**
 >
-> `test_smoke.cpp` et `test_indexed_format.cpp` incluent `<Unitest/Unitest.h>` :
-> **ce cadre n'existe pas dans le dépôt** — ni source, ni bibliothèque, ni
-> sous-module, ni la moindre mention dans un `.jenga` (vérifié par recherche
-> exhaustive). Et rien ne le signale, parce que l'exécution des tests est coupée
-> par politique de workspace (`disableunittestexecution`) : `jenga test --project
-> NKLogger` répond « SUCCESS, 6/6 » **sans jamais toucher ces fichiers**.
-> *Un test qui ne compile pas, dans une chaîne qui ne l'exécute pas, ressemble à
-> un test.*
+> **Ce qui est vrai** : `benchmark_smoke.cpp` était **36 lignes entièrement en
+> commentaire**, annoncées ici comme « micro-bench du chemin `Info()` ». Il ne
+> mesurait rien — et ne mesurait de toute façon que le formateur, pas ce qu'une
+> application paie. Réécrit, voir ci-dessous.
 >
-> `benchmark_smoke.cpp` était pire : **36 lignes entièrement en commentaire**,
-> annoncées ici comme « micro-bench du chemin `Info()` ». Il ne mesurait rien, et
-> ne mesurait de toute façon que le formateur — pas ce qu'une application paie.
+> **Ce que j'ai affirmé à tort, et qui est rétabli ici :**
+> 1. *« le cadre `Unitest` n'existe pas »* — **faux**. Il est fourni par **Jenga**
+>    (`…/Jenga/build/lib/Jenga/Unitest/`), pas par ce dépôt. Chercher dans
+>    Nkentseu et conclure sur le monde, c'est mesurer le bon objet dans le
+>    mauvais référentiel.
+> 2. *« `jenga test` répond SUCCESS 6/6 sur une suite qu'il n'exécute pas »* —
+>    **faux, et l'erreur est instructive**. J'avais lancé
+>    `jenga test … || jenga build … --tests` : le « SUCCESS 6/6 » venait du
+>    **second**, qui construit la bibliothèque et a raison de réussir.
+>    `jenga test --project NKLogger` répond en réalité, en rouge :
+>    *« Unit-test execution is disabled by workspace policy »*. **L'outillage est
+>    honnête ; c'est mon enchaînement `||` qui a attribué la sortie d'une commande
+>    à une autre.**
+>
+> **L'état réel** : les tests ne s'exécutent pas ici parce que Rodolf l'a
+> **délibérément désactivé** au niveau des fichiers jenga — choix légitime, et
+> annoncé clairement par l'outil. Ils ne sont donc **pas** de la couverture
+> aujourd'hui, mais ils ne sont pas cassés pour autant.
 
 - [benchmark_smoke.cpp](tests/benchmark_smoke.cpp) — ✅ **réécrit et
   fonctionnel** : coût par ligne (fichier / sans écriture / filtrée), autonome,
@@ -96,10 +107,13 @@ interne.
   `bash Kernel/System/NKLogger/tests/build_bench.sh` puis
   `/tmp/nklogbench/bench_nklogger.exe`. Il **échoue** si une durée est nulle ou
   si une ligne filtrée ne coûte pas moins qu'une ligne émise.
-- `test_smoke.cpp`, `test_indexed_format.cpp` — ❌ **non compilables** (cadre
-  absent). À reprendre : soit sur le modèle autonome ci-dessus, soit en
-  introduisant réellement un cadre de test dans le dépôt. **Ne pas les compter
-  comme couverture tant que ce n'est pas fait.**
+- `test_smoke.cpp`, `test_indexed_format.cpp` — ⏳ **écrits, non exécutés ici**.
+  Ils s'appuient sur `Unitest`, fourni par **Jenga**, et l'exécution des tests
+  est **désactivée par politique de workspace** (`disableunittestexecution`) :
+  décision de Rodolf, annoncée clairement par `jenga test`. Les réactiver
+  relancerait aussi les projets, ce qui est le point à résoudre avant.
+  **Ne pas les compter comme couverture tant qu'ils ne tournent pas** — mais ils
+  ne sont ni cassés ni orphelins.
 
 ---
 
