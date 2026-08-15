@@ -23,6 +23,7 @@
 #include "NKEvent/NkKeyboardEvent.h"
 #include "NKTime/NkChrono.h"
 #include "NKLogger/NkLog.h"
+#include "NKLogger/NkLogHeartbeat.h"
 
 #include "NKCamera/NkCameraSystem.h"
 
@@ -63,7 +64,7 @@ namespace nkentseu {
 		// =====================================================================
 		// Point d'entree de la demo viewer.
 		// =====================================================================
-		int RunCameraViewerDemo(const NkEntryState & /*state*/) {
+		int RunCameraViewerDemo(const NkEntryState &state) {
 			// -- Fenetre ------------------------------------------------------
 			NkWindowConfig cfg;
 			cfg.title = "NkCameraDemos -- Viewer";
@@ -129,6 +130,38 @@ namespace nkentseu {
 			// -- Dimensions fenetre courantes -------------------------------
 			uint32 winW = cfg.width;
 			uint32 winH = cfg.height;
+
+			// -- Battement de journal (ETEINT par defaut) ---------------------
+			// `--beat=<ms>` fait dire au journal ce qui change PENDANT que
+			// l'application vit. Sans lui, la salve de demarrage est tout ce
+			// qu'on obtient, et un fichier qui ne bouge plus se confond avec un
+			// fichier retenu — c'est exactement le faux diagnostic du 15/08.
+			NkHeartbeat beat;
+			uint32 beatFrames = 0;
+			for (usize i = 1; i < state.args.Size(); ++i) {
+				const char *a = state.args[i].CStr();
+				const char *prefix = "--beat=";
+				usize k = 0;
+				while (prefix[k] != '\0' && a[k] == prefix[k])
+					++k;
+				if (prefix[k] != '\0')
+					continue;
+				// Lecture des chiffres a la main : pas de conversion toute faite
+				// dans NkStringUtils, et une valeur absente ou non numerique doit
+				// laisser le battement ETEINT plutot que de choisir a notre place.
+				uint32 ms = 0;
+				bool anyDigit = false;
+				for (const char *d = a + k; *d >= '0' && *d <= '9'; ++d) {
+					ms = ms * 10u + (uint32)(*d - '0');
+					anyDigit = true;
+				}
+				if (anyDigit) {
+					beat.SetInterval(ms);
+					logger.Infof("[Viewer] Battement du journal : une ligne toutes les %u ms.", ms);
+				} else {
+					logger.Warnf("[Viewer] --beat sans valeur numerique : battement laisse ETEINT.");
+				}
+			}
 
 			// -- Boucle principale -------------------------------------------
 			auto &events = NkEvents();
@@ -236,6 +269,21 @@ namespace nkentseu {
 
 				gl.EndFrame();
 				gl.Present();
+
+				// -- Battement -------------------------------------------------
+				// Éteint par défaut : `--beat=<ms>` l'allume. Sans lui, le
+				// journal est muet une fois le démarrage passé — ce qui est la
+				// bonne valeur par défaut, mais rend l'enquête en direct
+				// impossible : le fichier paraît figé alors qu'il n'a
+				// simplement plus rien à dire.
+				++beatFrames;
+				if (beat.ShouldBeat()) {
+					logger.Infof("[Viewer] %u images depuis le dernier battement, "
+								 "flux %ux%u, texture %s",
+								 beatFrames, frame.width, frame.height,
+								 streamTex.IsValid() ? "valide" : "ABSENTE");
+					beatFrames = 0;
+				}
 
 				// Cap 60 fps.
 				const auto elapsed = chrono.Elapsed();

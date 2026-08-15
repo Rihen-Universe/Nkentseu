@@ -139,6 +139,55 @@ et expose l'API documentée.
 
 ---
 
+## Livré — le BATTEMENT, et le vidage sur WARN (2026-08-15)
+
+### `NkLogHeartbeat.h` — faire parler le journal PENDANT que l'application vit
+
+`NkHeartbeat` : une porte temporelle, **éteinte par défaut** (`intervalMs = 0`),
+sans fil ni minuterie — interrogée depuis la boucle qui tourne déjà. Elle ne
+journalise rien elle-même : seule l'application sait ce qui vaut d'être dit.
+
+**Pourquoi ce n'est pas un vidage plus fréquent**, et le diagnostic a été faux
+deux fois avant d'être compris : le journal écrit une salve au démarrage puis
+plus rien (mesuré 47 lignes puis **zéro** sur 15 s, Galaxy S22+). Le fichier
+paraît alors *retenu* alors qu'il est *fini* — et la fermeture, qui ajoute ses
+lignes d'extinction, imite à s'y méprendre un vidage de tampon. Or `NkFileSink`
+appelle `setvbuf(_IONBF)` : **rien n'est en attente**, et vider plus souvent une
+file vide ne produit aucune ligne.
+
+**Mesuré sur `NkCameraDemos --demo=viewer`, processus vivant vérifié :**
+
+| réglage | T+6 s | T+12 s | croissance |
+|---|---|---|---|
+| **éteint (défaut)** | 22 lignes | 22 lignes | **0** |
+| `--beat=500` | 54 lignes | 65 lignes | 11 |
+
+Cadence tenue : battements espacés de 516, 531, 507 ms pour 500 demandées (la
+granularité est celle de la boucle, ~16 ms).
+
+⚠️ **Le coût n'a PAS pu être isolé, et je ne le déclare donc pas négligeable.**
+Trois exécutions alternées à `--beat=500` puis `--beat=50` (dix fois plus de
+lignes) donnent 41,4 / 42,1 img/s contre 35,1 / 55,1 / 52,6 : les intervalles se
+chevauchent, et le régime le plus bavard est parfois le plus rapide. **La
+variance entre exécutions (~±20 img/s) écrase l'effet cherché.** Ce qu'on peut
+dire : journaliser 20 lignes/s ne réduit pas le débit de façon détectable par cet
+instrument. Ce qu'on ne peut pas dire : de combien ça coûte.
+
+*Dette au passage, hors périmètre NKLogger* : le débit de `NkCameraDemos --demo=viewer`
+varie de 35 à 55 img/s d'une exécution à l'autre sur une boucle plafonnée à 60.
+L'instabilité elle-même n'est pas expliquée.
+
+### `NkConsoleSink` — vidage à partir de WARN, plus seulement ERROR
+
+Un avertissement est souvent la **dernière chose** qu'une application dit avant
+de mal finir. Vers un terminal la libc vide par ligne et personne ne voit la
+différence ; **redirigée vers un fichier ou un tube** — ce que fait tout script
+de test — la sortie passe en tampon de bloc et un plantage emporte exactement
+les lignes qui l'expliquaient. Coût nul là où ça compte : le régime établi
+n'émet aucune ligne.
+
+---
+
 ## Bugs / quirks connus
 
 ### ✅ CATÉGORIE 3 SOLDÉE LE SOIR MÊME — mesurée sur Galaxy S22+ (2026-08-14)
