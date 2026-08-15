@@ -1293,14 +1293,56 @@ correctif : **le point de verite d'un encodage est son consommateur, jamais sa
 declaration** — un commentaire de declaration peut mentir des mois sans que rien
 ne le contredise.
 
-### Dette — la nature 3 (texture) n'existe dans aucune carte
+### ~~Dette — la nature 3 (texture) n'existe dans aucune carte~~ — RECTIFIE
 
-Perimetre : `Applications/NK3DModeler/src/`. `NkAsAdoptFile`
-(`NkModelerAssets.h:1842`) ne reconnait que scene / model / materiau ; aucune
-affectation `browserKind[...] = 3` (contre-epreuve : le meme motif trouve bien
-`= 2`). Le refus nomme des textures est ecrit mais inatteignable tant qu'une
-carte de texture ne peut pas naitre. A revoir quand le depot d'une texture dans
-un canal de materiau sera ouvert.
+**Cette entree etait FAUSSE, et c'est une mesure qui l'a corrigee** (2026-08-16,
+inventaire du navigateur sur `AgentTest`) : la carte 3 s'appelle « Texture » et
+porte bien `nature=3`. Le refus nomme des textures est donc **atteignable**.
+
+Ce que disait l'entree d'origine restait vrai dans **son** perimetre —
+`NkAsAdoptFile` (`NkModelerAssets.h:1842`) ne reconnait que scene / model /
+materiau, et n'affecte jamais `browserKind[...] = 3`. Mais l'adoption d'un
+fichier n'est pas le seul chemin de naissance d'une carte : **le gabarit de
+projet en cree une**, et ce chemin n'etait pas dans le perimetre cherche. La
+conclusion « aucune carte de nature 3 ne peut naitre » depassait donc ce que la
+recherche autorisait — le perimetre non enonce, applique cette fois non pas au
+relais mais a **ma propre conclusion**.
+
+La correction est laissee en place plutot qu'effacee : une entree de dette qui
+disparait sans dire pourquoi n'apprend rien au lecteur suivant.
+
+### Defaut — LE PICK NE PEUT DESIGNER AUCUN MODEL (2026-08-16, mesure)
+
+Mesure, avec son perimetre (projet `AgentTest`, binaire Release, journal des
+candidats du pick) : sur 9 emplacements occupes, **2 sont ecartes parce que
+`nkvpIsModel`** et **3 parce que `HostHiddenEff`** — et ces 5 sont exactement les
+deux models et leurs trois maillages. Il ne reste qu'un objet designable.
+
+Les deux filtres de `Demo3D_PickEmptyAt` se neutralisent : le premier ecarte le
+conteneur en disant *« un model se prend PAR SA MATIERE »*, le second ecarte sa
+matiere. **La regle est ecrite et le garde d'a cote la desarme** — meme forme que
+`mResolvedStaleFrames`, dont la garde etait desarmee par la cause meme du cas.
+
+Consequence : un lacher sur un model repond « le vide », donc un materiau n'a
+rien a assigner, un model s'ajoute independant au point sol, et le menu
+enfant/independant ne s'arme jamais. **Trois symptomes, une cause.**
+
+⚠️ Non corrige volontairement : ce pick est **partage avec le clic de
+selection** (`9e48dcfe`), donc le reparer definit ce qu'un clic sur un model
+selectionne. Decision de Rodolf.
+
+### Defaut — DUPLIQUER UN MODEL N'EMPORTE PAS SA MATIERE (2026-08-16, mesure)
+
+`HostSpawnLike` (`NkDemo3D.cpp:15755`) l'ecrit lui-meme : *« Un double de MODEL
+naitrait vide (ses maillages ne sont pas copies ici) : il redevient donc un objet
+ordinaire »*, et pose `nkvpIsModel[n] = false`. Mesure : le noeud cree revient
+`model=0` et **sans aucun enfant**, quand sa source en porte un.
+
+Lacher une carte de model fait donc naitre une copie ordinaire du conteneur, pas
+le model. Le point de pose, lui, est juste au millieme.
+
+⚠️ Non corrige volontairement : `Demo3DHostDuplicateNode` sert aussi **Ctrl+D**.
+Decision de Rodolf.
 
 ### Dette — les leviers d'agent ne disent pas QUAND
 
