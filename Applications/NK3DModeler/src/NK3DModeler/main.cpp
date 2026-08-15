@@ -2190,15 +2190,26 @@ int nkmain(const NkEntryState &entry) {
 					} else {
 						if (st.dropMat > 0) {
 							const int32 avant = demo::Demo3DHostProjMatOf(dropNode);
+							// LES NUMEROS NE SUFFISENT PAS : "demande=5 apres=5" dit que
+							// l'assignation ecrit ce qu'on lui DEMANDE, pas que 5 soit
+							// l'emplacement de la carte SAISIE. Deux causes, un symptome :
+							// la carte designe un autre emplacement, ou elle designe le bon
+							// et sa VIGNETTE est perimee. Le NOM et l'albedo les separent.
+							char nomSlot[64] = {0};
+							float32 alb3[3] = {0.f, 0.f, 0.f};
+							demo::Demo3DHostProjMatInfo(st.dropMat - 1, nomSlot,
+								(uint32)sizeof(nomSlot), alb3, nullptr, nullptr);
 							demo::Demo3DHostProjMatAssign(dropNode, st.dropMat - 1);
 							// MESURE : l'assignation a-t-elle PRIS ? « aucun effet »
 							// peut vouloir dire « rien ne s'est ecrit » ou « le
 							// materiau pose ressemble a celui d'avant ».
 							nkentseu::NkLog::Instance().Info(
 								"[nk3d] MESURE materiau : noeud={0} avant={1} "
-								"demande={2} apres={3}\n",
+								"demande={2} apres={3} carte='{4}' emplacement='{5}' "
+								"albedo=({6}, {7}, {8})\n",
 								dropNode, avant, st.dropMat - 1,
-								demo::Demo3DHostProjMatOf(dropNode));
+								demo::Demo3DHostProjMatOf(dropNode), st.dropName, nomSlot,
+								alb3[0], alb3[1], alb3[2]);
 						} else
 							snprintf(st.hierNote, sizeof(st.hierNote),
 									 "« %s » n'a pas encore d'emplacement de materiau",
