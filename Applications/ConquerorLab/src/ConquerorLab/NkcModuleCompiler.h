@@ -186,15 +186,16 @@ namespace nkentseu {
 				/// ⚠️ POURQUOI CETTE FONCTION EXISTE — mesure du 2026-08-15.
 				/// `DetectCompiler` se terminait par `mCxx = "clang++"`, une affectation
 				/// INCONDITIONNELLE. `mCxx` n'etait donc jamais vide, donc
-				/// `Available()` rendait TOUJOURS vrai, donc `CanCompile()` aussi — et
-				/// la branche « AUCUN compilateur trouve » du panneau Modules etait du
-				/// CODE MORT sur toute plateforme de bureau.
+				/// `Available()` rendait TOUJOURS vrai, donc `CanCompile()` aussi.
 				///
-				/// Elle ne s'affichait que la ou `NKC_CAN_COMPILE` vaut 0 (Android,
-				/// Web), c'est-a-dire precisement la ou le conseil qu'elle donne —
-				/// poser `NK_CXX` — ne peut RIEN changer, puisque `DetectCompiler` y
-				/// est compile hors du binaire. Le message etait donc absent la ou il
-				/// servait, et faux la ou il apparaissait.
+				/// La branche « AUCUN compilateur trouve » du panneau Modules etait
+				/// donc du CODE MORT — et sur TOUTES les plateformes, sans exception :
+				///   - sur le bureau, `CanCompile()` ne pouvait pas rendre faux ;
+				///   - sur Android et Web, `NkcModulesPanel::DrawHeader` sort AVANT,
+				///     par `if (!SupportsDynamic())`, et `NKC_DYNAMIC_MODULES` porte
+				///     exactement la meme condition que `NKC_CAN_COMPILE`.
+				/// Le seul message qui parlait de `NK_CXX` ne pouvait donc s'afficher
+				/// nulle part.
 				///
 				/// Ce que cela produisait chez un stagiaire sans MSYS2 : le panneau
 				/// affichait « Compilateur : clang++ » — une affirmation fausse — puis
