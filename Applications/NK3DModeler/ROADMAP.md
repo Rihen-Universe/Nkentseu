@@ -1265,3 +1265,47 @@ Copie des 5 fichiers touchés :
 5. Les **7 captures non lues** de `Pictures/Screenshots/code` (erreurs visibles
    non décrites par Rihen).
 6. Puis étape 2 : **modélisation** (mode maillage + modificateurs).
+
+## Glisser-deposer navigateur -> vue 3D (2026-08-16)
+
+✅ **Le pick d'objet est expose** — `Demo3DHostPickRequest` / `Demo3DHostPickTake`,
+motif du jeton (l'interface DEMANDE, la boucle EXECUTE). Le clic de selection
+appelle desormais la MEME fonction (`Demo3D_PickEmptyAt`), verifie : meme point,
+meme reponse (noeud 101) par les deux chemins.
+
+✅ **Table de Rodolf implementee** — materiau assigne sur un objet / rien dans le
+vide · model ajoute **a la position du lacher** dans le vide / **menu enfant ou
+independant** sur un objet · toutes les autres natures : refus **nomme**, jamais
+un silence.
+
+⚠️ **NON VERIFIE** : le geste complet (glisser depuis une carte, relacher dans la
+vue) et le menu. Aucun levier ne fabrique un glisser de souris entre deux
+panneaux — ce qui est mesure, c'est le pick et son accord avec le clic. Demande
+la main de Rodolf.
+
+### Dette — le commentaire de declaration de `browserKind` ment
+
+`NkModelerInput.h:730` annonce « 0 dossier, 1 materiau, 2 texture ». La vraie
+legende (celle que le code CONSOMME, `NkModelerUI.h:531-567`) est : 0 graphe ·
+1 dossier · 2 materiau · 3 texture · 4 dataset IA · 5 scene · 6 model · 255
+supprimee. Le commentaire a ete corrige, mais la lecon vaut plus que le
+correctif : **le point de verite d'un encodage est son consommateur, jamais sa
+declaration** — un commentaire de declaration peut mentir des mois sans que rien
+ne le contredise.
+
+### Dette — la nature 3 (texture) n'existe dans aucune carte
+
+Perimetre : `Applications/NK3DModeler/src/`. `NkAsAdoptFile`
+(`NkModelerAssets.h:1842`) ne reconnait que scene / model / materiau ; aucune
+affectation `browserKind[...] = 3` (contre-epreuve : le meme motif trouve bien
+`= 2`). Le refus nomme des textures est ecrit mais inatteignable tant qu'une
+carte de texture ne peut pas naitre. A revoir quand le depot d'une texture dans
+un canal de materiau sera ouvert.
+
+### Dette — les leviers d'agent ne disent pas QUAND
+
+`NK_SEL_AT` se declenchait au premier passage, avant que `NK_OPEN_RECENT` n'ait
+ouvert le projet (frame 3) : il mesurait une scene vide et repondait « rien ».
+Corrige par une troisieme valeur facultative (la frame), et `NK_DROP_AT` nait
+avec. **Tout levier one-shot qui coexiste avec une ouverture differee a le meme
+defaut** — les autres n'ont pas ete audites.

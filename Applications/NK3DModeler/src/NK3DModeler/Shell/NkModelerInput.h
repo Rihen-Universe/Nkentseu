@@ -756,7 +756,14 @@ namespace nkentseu {
 				// Noeud SOURCE d'un asset reutilisable (0 = aucun, sinon noeud+1).
 				int32 browserSrcNode[kMaxBrowser] = {};
 				int32 browserCount = 0;
-				uint8 browserKind[32] = {};	   ///< 0 dossier, 1 materiau, 2 texture
+				/// LEGENDE REELLE, celle que le code CONSOMME (NkModelerUI.h) :
+				/// 0 graphe · 1 dossier · 2 materiau · 3 texture · 4 dataset IA ·
+				/// 5 scene · 6 model · 255 carte supprimee. Ce commentaire a
+				/// annonce « 0 dossier, 1 materiau, 2 texture » pendant des mois :
+				/// faux des trois cotes, et lu comme la source de verite parce
+				/// qu'il est a la declaration. Le point de verite d'un encodage
+				/// est son CONSOMMATEUR, jamais sa declaration.
+				uint8 browserKind[32] = {};
 				char browserNames[32][32] = {};
 				int32 browserParent[32] = {};  ///< -1 = racine
 				// Carte de SCENE (kind 5) -> document + 1 (0 = aucun). C'est ce
