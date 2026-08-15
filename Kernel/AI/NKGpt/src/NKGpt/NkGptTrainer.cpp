@@ -872,6 +872,12 @@ namespace nkentseu {
 				}
 				mEma = 0;
 				NkChrono chrono;
+				// Fenetre de profil : ARMEE APRES LE PREMIER PAS. Le pas 1 compile les
+				// noyaux (NkSL -> SPIR-V -> pipeline) et paie la relecture de controle
+				// « sortie non nulle » de chaque noyau : l'y inclure attribuerait un
+				// cout de demarrage a des operations qui ne le paient qu'une fois.
+				NkChrono chronoProfil;
+				int64 pasProfiles = 0;
 				for (int s = 1; s <= STEPS; ++s) {
 					const int64 g = base + (int64)s; // pas global (pour le schedule)
 					float lr;
@@ -995,6 +1001,12 @@ namespace nkentseu {
 					}
 					adam.Step();
 					mEma = (s == 1) ? lv : 0.98 * mEma + 0.02 * lv;
+					if (s == 1) {
+						NkTensorGpu::ProfilRaz(true);
+						chronoProfil.Reset();
+						pasProfiles = 0;
+					} else
+						++pasProfiles;
 
 					// ---- FILET 1 : la perte est-elle seulement UNE PERTE ? ----
 					// L'entropie croisée vaut -log(p) avec p strictement inférieur à 1 :
@@ -1110,6 +1122,8 @@ namespace nkentseu {
 				if (V)
 					logger.Info("Entraînement terminé en {0} s ({1}).", chrono.Elapsed().seconds,
 								mUseGpu ? "GPU-résident" : "CPU");
+				if (V && mUseGpu && pasProfiles > 0)
+					NkTensorGpu::ProfilRapport(chronoProfil.Elapsed().seconds, pasProfiles);
 
 				if (mValData.Size() > 0) {
 					const double vl = EvaluateVal();

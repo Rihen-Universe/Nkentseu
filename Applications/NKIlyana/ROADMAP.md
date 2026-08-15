@@ -27,9 +27,89 @@
 | Corpus RÉEL (Wikipédia FR) | 🔶 | **2,1 Go déjà sur disque**, à préparer |
 | Charte de comportement (valeurs) | ⏳ | spécifiée ci-dessous, à écrire en corpus |
 | Récupération documentaire (elle va LIRE au lieu de deviner) | ⏳ | la vraie réponse à l'hallucination |
-| Accélération du moteur d'entraînement | ⏳ | GPU à **28-41 %**, viser ×2-3 |
+| Accélération du moteur d'entraînement | 🔶 | **budget mesuré par noyau le 15/08** — voir « Les trois horizons » ci-dessous. Aucun correctif décisif : cinq postes d'un sixième chacun |
 | Boucle de correction (apprendre de ses torts) | ⏳ | consigner → verser au corpus → réentraîner |
 | Orchestration des sous-systèmes (modéliser, animer, parler…) | ⏳ | cap final |
+
+
+---
+
+## 🔭 LES TROIS HORIZONS (règle du `CLAUDE.md` parent, mise à jour 2026-08-15)
+
+| horizon | objectif | état |
+|---|---|---|
+| **court** — la semaine | fragment d'identité sorti, validation coupée, corpus pré-tokenisé | 3 sur 4 faits ; **l'écriture binaire des identifiants reste à faire** |
+| **moyen** — le jalon | ramener le grand run de ~12 jours à moins de 2 jours | budget mesuré, ordre de bataille arrêté (ci-dessous) |
+| **long** — ce à quoi le module sert | **Ilyana chef d'orchestre du moteur, pas produit** : `ForwardStep`, attention en flux pour `ilyana-code`, intégration aux applications | aucun des trois n'est sur le chemin court, et c'est ce que l'horizon long rend visible |
+
+---
+
+## ⚙️ RENDEMENT DU MOTEUR D'ENTRAÎNEMENT — budget MESURÉ par noyau (2026-08-15)
+
+**Ce bloc remplace l'estimation « chantier rendement, 6 à 10 jours » et le
+pré-requis « le GPU tourne à ~0,2 % de sa crête ».** Détail complet, avec la
+méthode et les pièges, au carnet : `CARNET.private.md` § *0vicies. PROFIL PAR
+NOYAU*.
+
+### Provenance
+
+RTX 3070 Laptop, bureau au repos (`nvidia-smi` : 2 %). `NKIlyana.exe` du 15/08
+18:30 (branche `feat/ilyana-pdf`). `--llama --tying --d 640 --layers 10 --heads 8
+--T 256 --B 6 --accum 4`, `fr_course.txt` coupé à 5 M caractères, 6 pas dont
+5 profilés. **Deux exécutions identiques**, et elles ne disent pas la même chose
+partout — d'où les fourchettes.
+
+### Le budget d'un pas (33 à 36 s)
+
+| poste | part mesurée (2 exécutions) | pourquoi |
+|---|---|---|
+| **hôte** : `~upload` + `~alloc` + `~free` | **36 à 42 %** | 2 704 transferts et 9 316 allocations **par pas** |
+| `softmax_rows` | 13,1 à 14,2 % | **8 appels/pas à ~0,6 s** — un fil par ligne sur 6 144 lignes × 32 769 colonnes |
+| `matmul_t4` | 9,9 à 15,9 % | pavage 4×4 en registres : intensité 1 FLOP/octet, donc **2 à 4 % de la crête** |
+| `add` (élémentaire) | 10,5 à 10,7 % | 2 812 appels/pas ; **97 % du temps d'une addition n'est pas l'addition** |
+| hors instrumentation | 11 à 13 % | construction des lots, autograd CPU, journalisation |
+
+### ⚠️ Ce que ça réfute, et qui était écrit ici
+
+1. **« Le tuilage du matmul apporte l'essentiel. »** FAUX. Borne supérieure, en
+   prenant l'exécution la plus favorable et un tuilage parfait : **×1,19**. Il en
+   faudrait ×13.
+2. **« Réparer l'hôte ne ramène le run qu'à 12 jours, ce sont les noyaux qui
+   décident. »** FAUX aussi : supprimer TOUT le bloc hôte vaut au plus ×1,7, et
+   l'hôte est le plus gros poste du tableau. Les deux moitiés du dilemme étaient
+   fausses parce que **le vrai substrat n'est ni l'un ni l'autre : c'est le NOMBRE
+   d'opérations** — 28 119 par pas, à ~0,23 ms de coût fixe chacune.
+
+### Ordre de bataille — classé par temps mesuré, aucun ne suffit seul
+
+| # | chantier | part | ce que ça vaut SEUL |
+|---|---|---|---|
+| 1 | **réserve de tampons** : recycler par taille au lieu de créer/détruire 9 316 fois par pas | 17,8-22,0 % | ×1,22 à ×1,28 |
+| 2 | **supprimer les `~upload`** : trouver les tenseurs **nés sur CPU** (`~download` ≈ 0, donc ce ne sont PAS des allers-retours) | 18,2-19,9 % | ×1,22 à ×1,25 |
+| 3 | **`softmax_rows`** : un groupe de fils par ligne, réduction en mémoire partagée, 2 passes au lieu de 3 | 13,1-14,2 % | ×1,15 à ×1,17 |
+| 4 | **`matmul_t4`** : pavage en mémoire partagée (intensité 1 → 16, plafond 2,2 % → 35 % de crête) | 9,9-15,9 % | ×1,11 à ×1,19 |
+| 5 | **fusion des chaînes élémentaires** | 10,5-10,7 % | ×1,12 |
+| — | **le substrat commun** : un tampon de commandes par pas au lieu d'un `WaitIdle` par dispatch | ~19 % de coût fixe | agit sur 1, 3, 4 et 5 à la fois |
+
+Le dernier n'est pas un sixième chantier : c'est ce que les cinq autres partagent.
+**Tant qu'un `WaitIdle` suit chaque dispatch, aucun noyau ne peut recouvrir un
+transfert.**
+
+### Mesure suivante, avant de coder quoi que ce soit
+
+`add` déplace 15,1 Mo par appel en 1,25-1,36 ms, là où 448 Go/s en demandent 34 µs.
+**Deux causes possibles que l'instrument actuel ne sépare pas** : le coût fixe par
+opération, ou un débit réel très inférieur à la bande passante. **L'expérience qui
+tranche** : rejouer le même `add` à 10× la taille. Temps plat → coût fixe ; pente à
+~11 Go/s → débit. (Hypothèse « tampons en mémoire hôte » déjà écartée : 6,6 Go de
+nos tampons sont résidents en VRAM d'après `nvidia-smi`.)
+
+### Dette d'instrument, nommée
+
+La colonne `Go/s` du profil est **fausse** pour les noyaux dont le paramètre
+`count` compte des fils et non des éléments (`softmax_rows`, `rmsnorm_*`,
+`softmax_causal`). Leur **temps** est juste ; leur **débit** ne l'est pas. À
+corriger en passant le nombre d'éléments à `NkGpuChrono::Travail`.
 
 ---
 
@@ -971,11 +1051,12 @@ ce genre de noyau se casse en silence (indexation du masque causal, cumul des
 maxima). L'oracle existe — le chemin actuel — donc la vérification est possible,
 mais c'est elle qui prendra le temps, pas l'écriture.
 
-**Pré-requis à traiter d'abord** : le GPU tourne aujourd'hui à **~0,2 % de sa
-crête** (mesuré le 14 août 2026), donc le temps est borné par le coût fixe par
-opération, pas par le calcul. Un noyau d'attention plus efficace ne se verra pas
-tant que ce plafond n'est pas levé. **Mesurer et réduire le coût par opération
-AVANT d'écrire l'attention par blocs** — sinon on optimisera une partie invisible.
+**⛔ CHIFFRÉ ET ÉCARTÉ POUR L'INSTANT (2026-08-15).** Le profil par noyau mesure
+ce que ce chantier optimiserait : `bmatmul` + `softmax_causal` + `softmax_bwd` =
+**1,8 à 2,0 %** du temps d'un pas. Plafond de gain : **×1,02**, pour 7 à 11 jours
+de travail. À rouvrir quand les cinq lignes de l'ordre de bataille (§ *Rendement
+du moteur d'entraînement*) seront tombées — pas avant. La condition de faisabilité
+d'`ilyana-code` reste vraie ; c'est son moment qui est faux.
 
 ## ⏳ À FAIRE — réglage d'identité APRÈS le grand run (décision Rodolf, 15/08/2026)
 

@@ -43,6 +43,29 @@ namespace nkentseu {
 				// est limite par le calcul ou par le lancement des noyaux.
 				static int64 OpCount();
 
+				// ---- PROFIL PAR NOYAU ---------------------------------------------
+				// OpCount dit COMBIEN d'operations ; il ne dit pas LESQUELLES coutent.
+				// Diviser le temps total par le nombre d'operations donne une moyenne
+				// qui melange un produit matriciel de 1,6 GFLOP et un `add` de 400 Ko :
+				// elle ne peut designer aucun coupable.
+				//
+				// ⚠️ CE QUE CE PROFIL MESURE, ET CE QU'IL NE MESURE PAS. Chaque
+				// dispatch est suivi d'un `WaitIdle` : le temps mural pris autour de
+				// l'appel contient donc le temps GPU du noyau PLUS le cout fixe de
+				// lancement (descripteur, command buffer, soumission, synchronisation).
+				// Ce n'est PAS un temps GPU pur — c'est le temps mural attribue a
+				// l'operation, c'est-a-dire exactement la grandeur qui compose la duree
+				// d'un pas. Des timestamps GPU separeraient les deux ; celui-ci dit
+				// d'abord OU va le budget.
+				//
+				// Les transferts et les allocations sont instrumentes SEPAREMENT
+				// (`~upload`, `~download`, `~alloc`, `~free`) : un profil CPU avait
+				// designe `ToGPU` et `DestroyBuffer` en tete, et on en avait conclu a
+				// tort que le temps y etait PERDU. Les mettre dans la meme table que
+				// les noyaux rend la comparaison directe au lieu de deductive.
+				static void ProfilRaz(bool actif);							 // vide la table et (des)active
+				static void ProfilRapport(double secondesMurales, int64 pas); // journalise le tableau
+
 				// ---- Occupation VRAM suivie ---------------------------------------
 				// PIC de la somme des tampons vivants, en octets. C'est la SEULE
 				// grandeur qui decide si une configuration tient : une moyenne, ou un

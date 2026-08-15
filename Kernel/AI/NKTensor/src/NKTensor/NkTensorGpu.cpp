@@ -14,6 +14,7 @@
 #include "NKSL/ShaderConvert/NkShaderConvert.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/Associative/NkUnorderedMap.h"
+#include "NKTime/NkChrono.h" // profil par noyau : horloge monotone haute resolution
 #include "NKLogger/NkLog.h"
 
 namespace nkentseu {
@@ -300,6 +301,138 @@ namespace nkentseu {
 		static int64 gVramVivante = 0;
 		static int64 gVramPic = 0;
 
+		// ---- PROFIL PAR NOYAU ---------------------------------------------------
+		// Voir NkTensorGpu.h pour ce que cette table mesure — et surtout ce qu'elle
+		// ne mesure PAS (temps mural attribue, pas temps GPU pur).
+		struct NkGpuProfilLigne {
+				char nom[40];
+				int64 appels;
+				double ns;
+				double flops;  // operations flottantes utiles demandees
+				double octets; // trafic OBLIGATOIRE (lectures + ecritures minimales)
+		};
+
+		static NkGpuProfilLigne gProfil[64];
+		static uint32 gProfilN = 0;
+		static bool gProfilActif = false;
+
+		static NkGpuProfilLigne *NkGpuProfilLigneDe(const char *nom) {
+			for (uint32 i = 0; i < gProfilN; ++i) {
+				const char *a = gProfil[i].nom;
+				const char *b = nom;
+				while (*a && *a == *b) {
+					++a;
+					++b;
+				}
+				if (*a == 0 && *b == 0)
+					return &gProfil[i];
+			}
+			if (gProfilN >= 64)
+				return nullptr; // table pleine : on perd la ligne, jamais la mesure des autres
+			NkGpuProfilLigne &l = gProfil[gProfilN++];
+			uint32 i = 0;
+			for (; nom[i] && i < 39; ++i)
+				l.nom[i] = nom[i];
+			l.nom[i] = 0;
+			l.appels = 0;
+			l.ns = 0.0;
+			l.flops = 0.0;
+			l.octets = 0.0;
+			return &l;
+		}
+
+		// Chronometre de portee. Le cout par appel est d'une lecture d'horloge haute
+		// resolution (~20 ns) contre un dispatch suivi d'un WaitIdle (~100 µs mesure) :
+		// l'instrument ne peut pas deplacer ce qu'il mesure.
+		class NkGpuChrono {
+			public:
+				explicit NkGpuChrono(const char *nom) : mNom(nom) {
+					if (gProfilActif)
+						mT0 = NkChrono::Now().nanoseconds;
+				}
+
+				// Travail demande par l'operation : sert a comparer chaque noyau a son
+				// PROPRE plafond (bande passante x intensite) et non a la crete de la carte.
+				void Travail(double flops, double octets) {
+					mFlops = flops;
+					mOctets = octets;
+				}
+
+				~NkGpuChrono() {
+					if (!gProfilActif)
+						return;
+					NkGpuProfilLigne *l = NkGpuProfilLigneDe(mNom);
+					if (!l)
+						return;
+					l->appels += 1;
+					l->ns += NkChrono::Now().nanoseconds - mT0;
+					l->flops += mFlops;
+					l->octets += mOctets;
+				}
+
+			private:
+				const char *mNom;
+				double mT0 = 0.0;
+				double mFlops = 0.0;
+				double mOctets = 0.0;
+		};
+
+		void NkTensorGpu::ProfilRaz(bool actif) {
+			gProfilN = 0;
+			gProfilActif = actif;
+		}
+
+		void NkTensorGpu::ProfilRapport(double secondesMurales, int64 pas) {
+			if (gProfilN == 0) {
+				logger.Info("[profil noyaux] AUCUNE ligne — le profil n'a pas ete arme (ProfilRaz(true)) ou "
+							"aucune operation GPU n'a eu lieu dans la fenetre.");
+				return;
+			}
+			double totalNs = 0.0;
+			int64 totalAppels = 0;
+			for (uint32 i = 0; i < gProfilN; ++i) {
+				totalNs += gProfil[i].ns;
+				totalAppels += gProfil[i].appels;
+			}
+			// Tri decroissant par temps (insertion : au plus 64 lignes).
+			uint32 ordre[64];
+			for (uint32 i = 0; i < gProfilN; ++i)
+				ordre[i] = i;
+			for (uint32 i = 1; i < gProfilN; ++i) {
+				uint32 v = ordre[i];
+				uint32 j = i;
+				while (j > 0 && gProfil[ordre[j - 1]].ns < gProfil[v].ns) {
+					ordre[j] = ordre[j - 1];
+					--j;
+				}
+				ordre[j] = v;
+			}
+
+			logger.Info("=== PROFIL PAR NOYAU — fenetre de {0} pas, {1} s murales, {2} operations ===",
+						(long long)pas, secondesMurales, (long long)totalAppels);
+			logger.Info("    (temps MURAL attribue par operation : noyau + cout fixe de lancement, "
+						"chaque dispatch etant suivi d'un WaitIdle. Ce n'est pas un temps GPU pur.)");
+			logger.Info("    {0:<22} {1:>9} {2:>11} {3:>7} {4:>9} {5:>10} {6:>8} {7:>9}", "nom", "appels", "ms",
+						"% mural", "µs/appel", "GFLOP/s", "Go/s", "FLOP/o");
+			for (uint32 k = 0; k < gProfilN; ++k) {
+				const NkGpuProfilLigne &l = gProfil[ordre[k]];
+				const double ms = l.ns / 1.0e6;
+				const double sec = l.ns / 1.0e9;
+				logger.Info("    {0:<22} {1:>9} {2:>11.3f} {3:>6.2f}% {4:>9.1f} {5:>10.1f} {6:>8.1f} {7:>9.3f}",
+							l.nom, (long long)l.appels, ms,
+							(secondesMurales > 0.0) ? (sec / secondesMurales * 100.0) : 0.0,
+							(l.appels > 0) ? (l.ns / 1000.0 / (double)l.appels) : 0.0,
+							(sec > 0.0) ? (l.flops / sec / 1.0e9) : 0.0, (sec > 0.0) ? (l.octets / sec / 1.0e9) : 0.0,
+							(l.octets > 0.0) ? (l.flops / l.octets) : 0.0);
+			}
+			logger.Info("    TOTAL instrumente : {0} ms, soit {1}% du temps mural de la fenetre. Le reste "
+						"est HORS instrumentation (construction des lots, autograd CPU, journalisation).",
+						totalNs / 1.0e6, (secondesMurales > 0.0) ? (totalNs / 1.0e9 / secondesMurales * 100.0) : 0.0);
+			logger.Info("    Repere machine : une RTX 3070 fait ~20 300 GFLOP/s pour ~448 Go/s, soit "
+						"~45 FLOP/octet. Un noyau sous ce rapport est borne par la BANDE PASSANTE : "
+						"son plafond vaut 448 x son intensite, et aucun pavage ne le depasse.");
+		}
+
 		void NkGpuSignalerDefaut(const char *ou, const char *quoi, int64 valeur) {
 			++gGpuDefauts;
 			// On ne noie pas le journal : les 12 premiers suffisent à identifier
@@ -399,6 +532,8 @@ namespace nkentseu {
 
 		// ---- Buffers ------------------------------------------------------------
 		uint64 NkTensorGpu::CreateBuffer(nk_size bytes) {
+			NkGpuChrono chr("~alloc");
+			chr.Travail(0.0, 0.0);
 			if (!EnsureInit())
 				return 0;
 
@@ -437,6 +572,8 @@ namespace nkentseu {
 		}
 
 		void NkTensorGpu::DestroyBuffer(uint64 id) {
+			NkGpuChrono chr("~free");
+			chr.Travail(0.0, 0.0);
 			if (!mImpl || !mImpl->device || id == 0)
 				return;
 			auto *h = mImpl->buffers.Find(id);
@@ -454,6 +591,8 @@ namespace nkentseu {
 		}
 
 		bool NkTensorGpu::Upload(uint64 id, const void *data, nk_size bytes) {
+			NkGpuChrono chr("~upload");
+			chr.Travail(0.0, (double)bytes);
 			if (!mImpl || !mImpl->device)
 				return false;
 			NkBufferHandle h = mImpl->Handle(id);
@@ -463,6 +602,8 @@ namespace nkentseu {
 		}
 
 		bool NkTensorGpu::Download(uint64 id, void *out, nk_size bytes) {
+			NkGpuChrono chr("~download");
+			chr.Travail(0.0, (double)bytes);
 			if (!mImpl || !mImpl->device)
 				return false;
 			NkBufferHandle h = mImpl->Handle(id);
@@ -484,6 +625,8 @@ namespace nkentseu {
 		bool NkTensorGpu::RunBinary(const char *name, const NkString &nkslSrc, uint64 a, uint64 b, uint64 c,
 									uint32 count) {
 			++gGpuOps;
+			NkGpuChrono chr(name);
+			chr.Travail((double)count, 12.0 * (double)count); // 2 lectures + 1 ecriture f32
 			if (!EnsureInit())
 				return false;
 			Impl *d = mImpl;
@@ -529,6 +672,8 @@ namespace nkentseu {
 
 		bool NkTensorGpu::RunUnary(const char *name, const NkString &nkslSrc, uint64 a, uint64 b, uint32 count) {
 			++gGpuOps;
+			NkGpuChrono chr(name);
+			chr.Travail((double)count, 8.0 * (double)count); // 1 lecture + 1 ecriture f32
 			if (!EnsureInit())
 				return false;
 			Impl *d = mImpl;
@@ -574,6 +719,8 @@ namespace nkentseu {
 		bool NkTensorGpu::RunUnaryScalar(const char *name, const NkString &nkslSrc, uint64 a, uint64 b, uint32 count,
 										 float s) {
 			++gGpuOps;
+			NkGpuChrono chr(name);
+			chr.Travail((double)count, 8.0 * (double)count); // 1 lecture + 1 ecriture f32
 			if (!EnsureInit())
 				return false;
 			Impl *d = mImpl;
@@ -618,6 +765,9 @@ namespace nkentseu {
 		bool NkTensorGpu::RunReduce(const char *name, const NkString &nkslSrc, uint64 a, uint64 out, uint32 outer,
 									uint32 reduce, uint32 inner) {
 			++gGpuOps;
+			NkGpuChrono chr(name);
+			chr.Travail((double)outer * (double)reduce * (double)inner,
+						4.0 * ((double)outer * (double)reduce * (double)inner + (double)outer * (double)inner));
 			if (!EnsureInit())
 				return false;
 			Impl *d = mImpl;
@@ -692,6 +842,8 @@ void main() {
 		bool NkTensorGpu::RunGather(uint64 in, uint64 out, uint32 rank, uint32 offset, const uint32 *shape,
 									const uint32 *strides, uint32 count) {
 			++gGpuOps;
+			NkGpuChrono chr("gather");
+			chr.Travail(0.0, 8.0 * (double)count); // pur deplacement : aucun FLOP utile
 			if (!EnsureInit())
 				return false;
 			Impl *d = mImpl;
@@ -743,6 +895,8 @@ void main() {
 		bool NkTensorGpu::RunConvOp(const char *name, const NkString &nkslSrc, uint64 in, uint64 out, const uint32 *p12,
 									uint32 count) {
 			++gGpuOps;
+			NkGpuChrono chr(name);
+			chr.Travail(0.0, 8.0 * (double)count);
 			if (!EnsureInit())
 				return false;
 			Impl *d = mImpl;
@@ -791,6 +945,8 @@ void main() {
 		bool NkTensorGpu::RunOp3(const char *name, const NkString &nkslSrc, uint64 a, uint64 b, uint64 c,
 								 const uint32 *p12, uint32 count) {
 			++gGpuOps;
+			NkGpuChrono chr(name);
+			chr.Travail((double)count, 12.0 * (double)count);
 			if (!EnsureInit())
 				return false;
 			Impl *d = mImpl;
@@ -839,6 +995,15 @@ void main() {
 		// Pas d'Adam fusé : buffers 0,1,2,3 (param,grad,m,v) + UBO binding 4. Tout en place.
 		bool NkTensorGpu::RunAdam(uint64 param, uint64 grad, uint64 m, uint64 v, uint32 count, float lr, float b1,
 								  float b2, float eps, float b1t, float b2t, float wd) {
+			// ⚠️ CE COMPTEUR MANQUAIT (trouve le 2026-08-16). RunAdam est le SEUL
+			// dispatch qui ne s'annoncait pas : `OpCount()` ignorait un lancement par
+			// tenseur de parametres et par pas, et le « cout fixe par operation »
+			// journalise au pas 30 divisait donc le temps par un nombre trop petit —
+			// il SURESTIMAIT ce cout. Portee bornee : +1 operation par tenseur de
+			// parametres et par pas.
+			++gGpuOps;
+			NkGpuChrono chr("adam");
+			chr.Travail(11.0 * (double)count, 28.0 * (double)count); // param/m/v lus+ecrits, grad lu
 			if (!EnsureInit())
 				return false;
 			Impl *d = mImpl;
@@ -1030,6 +1195,13 @@ void main() {
 
 		bool NkTensorGpu::RunMatMul(uint64 a, uint64 b, uint64 c, uint32 M, uint32 N, uint32 K) {
 			++gGpuOps;
+			// Le NOM porte la variante : `matmul` (naif) et `matmul_t4` (pave 4x4) ont
+			// des intensites arithmetiques differentes d'un facteur 4, donc des plafonds
+			// differents. Les confondre dans une seule ligne effacerait justement ce
+			// qu'on cherche a mesurer.
+			NkGpuChrono chr((((uint64)M * (uint64)N >= 65536ull) && K >= 16u) ? "matmul_t4" : "matmul");
+			chr.Travail(2.0 * (double)M * (double)N * (double)K,
+						4.0 * ((double)M * (double)K + (double)K * (double)N + (double)M * (double)N));
 			if (!EnsureInit())
 				return false;
 			Impl *d = mImpl;
