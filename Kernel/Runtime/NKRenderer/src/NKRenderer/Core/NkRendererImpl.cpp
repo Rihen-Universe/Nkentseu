@@ -1573,12 +1573,25 @@ namespace nkentseu {
 			// pose un drapeau consomme a l'aplomb de la frame suivante, exactement
 			// comme l'outline de selection (ConsumeSelOutlineGraphDirty).
 			const NkPostConfig &old = mCfg.postProcess;
+			// L'AUTO-EXPOSITION AJOUTE UNE PASSE, elle appartient donc a cette
+			// liste au meme titre que la SSAO : la passe « AutoExposure » n'est
+			// ajoutee au graphe que si IsAutoExposureEnabled() (cf.
+			// BuildDefaultRenderGraph). Sans cette comparaison, cocher la case
+			// ne creait AUCUNE passe et l'auto ne demarrait qu'au prochain
+			// redimensionnement -- exactement le defaut que le commentaire
+			// ci-dessus decrit pour la SSAO, sur un champ qu'il avait oublie.
+			// On compare l'ACTIVATION, pas la valeur : passer la force de 0,5 a
+			// 0,6 ne change aucune passe.
+			const bool autoChanged = old.AutoExposureRequested() != pp.AutoExposureRequested();
 			if (old.ssao != pp.ssao || old.bloom != pp.bloom || old.fxaa != pp.fxaa ||
-				old.toneMapping != pp.toneMapping || old.aces != pp.aces || old.taa != pp.taa) {
+				old.toneMapping != pp.toneMapping || old.aces != pp.aces || old.taa != pp.taa ||
+				autoChanged) {
 				mPostGraphDirty = true;
 				logger.Info("[NkRendererImpl] SetPostConfig : jeu de passes change "
-							"(ssao {0}->{1}) — graphe a reconstruire\n",
-							old.ssao ? 1 : 0, pp.ssao ? 1 : 0);
+							"(ssao {0}->{1}, auto {2}->{3}) — graphe a reconstruire\n",
+							old.ssao ? 1 : 0, pp.ssao ? 1 : 0,
+							old.AutoExposureRequested() ? 1 : 0,
+							pp.AutoExposureRequested() ? 1 : 0);
 			}
 			mCfg.postProcess = pp;
 			if (mPostProcess)
