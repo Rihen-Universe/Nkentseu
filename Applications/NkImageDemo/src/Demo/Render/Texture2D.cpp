@@ -71,39 +71,34 @@ namespace nkentseu {
 		// RGB (3 canaux) crash l'upload car GL lit 4 octets/pixel.
 		// ─────────────────────────────────────────────────────────────────────
 		// Decode UNIQUEMENT (pas d'appel GL). Safe depuis un worker thread.
-		NkImage *Texture2D::DecodeFromFile(const char *path) {
+		NkImage Texture2D::DecodeFromFile(const char *path) {
 			// 4 = force RGBA32. NkImage convertit en interne si la source est
 			// RGB / GRAY / GRAY+A.
-			NkImage *img = NkImage::Load(path, /*desiredChannels=*/4);
-			if (img == nullptr || !img->IsValid()) {
+			NkImage img;
+			if (!img.Load(path, /*desiredChannels=*/4) || !img.IsValid()) {
 				logger.Error("[Texture2D] DecodeFromFile failed: {0}", path);
-				// Free libere les pixels + wrapper (alloue nkMalloc+placement
-				// new). JAMAIS `delete img` — double-free.
-				if (img != nullptr)
-					img->Free();
-				return nullptr;
+				// Rien a liberer : `img` se detruit en sortant de la portee, et
+				// l'appelant recoit une image invalide qu'il teste par IsValid().
+				return NkImage{};
 			}
 			return img;
 		}
 
-		// Upload sur le thread GL d'une image deja decodee. Libere l'image
-		// apres upload.
-		bool Texture2D::UploadFromImage(NkImage *img) {
-			if (img == nullptr || !img->IsValid()) {
-				if (img != nullptr)
-					img->Free();
+		// Upload sur le thread GL d'une image deja decodee. Ne libere RIEN :
+		// l'image reste la propriete de l'appelant.
+		bool Texture2D::UploadFromImage(const NkImage &img) {
+			if (!img.IsValid())
 				return false;
-			}
-			mWidth = img->Width();
-			mHeight = img->Height();
+			mWidth = img.Width();
+			mHeight = img.Height();
 
 			// Generation + upload de la texture GL.
 			glGenTextures(1, &mTextureId);
 			glBindTexture(GL_TEXTURE_2D, mTextureId);
 			glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-			const int stridePixels = img->Stride() / 4; // bytes -> pixels (RGBA = 4 bpp)
+			const int stridePixels = img.Stride() / 4; // bytes -> pixels (RGBA = 4 bpp)
 			glPixelStorei(GL_UNPACK_ROW_LENGTH, stridePixels);
-			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, mWidth, mHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, img->Pixels());
+			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, mWidth, mHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, img.Pixels());
 			glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
 
 			// Mipmaps pour le downscaling propre.
@@ -114,13 +109,14 @@ namespace nkentseu {
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 			glBindTexture(GL_TEXTURE_2D, 0);
 
-			img->Free();
+			// Aucun Free() : l'image appartient a l'appelant et se detruit chez
+			// lui. L'upload GL a deja copie les pixels cote pilote.
 			return true;
 		}
 
 		bool Texture2D::LoadFromFile(const char *path) {
-			NkImage *img = DecodeFromFile(path);
-			if (img == nullptr)
+			const NkImage img = DecodeFromFile(path);
+			if (!img.IsValid())
 				return false;
 			const bool ok = UploadFromImage(img);
 			if (ok) {
