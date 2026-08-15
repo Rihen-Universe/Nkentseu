@@ -171,10 +171,29 @@ namespace nkentseu {
 			uint32 width = 0;
 			uint32 height = 0;
 			uint32 fps = 30;
+			// ⚠️ SANS AUCUN EFFET — 3 écrivains, 0 lecteur (relevé du 2026-08-15).
+			// `NKARDemo`, `CameraViewerDemo` et `CameraMultiDemo` posent toutes
+			// `NK_PIXEL_RGBA8` ici, et reçoivent du NV12 (Windows), du YUV420
+			// (Android), du BGRA8 (Cocoa/UIKit) ou du YUYV (Linux) : **le format
+			// est imposé par la plateforme**, jamais choisi.
+			// Les trois s'en sortent parce qu'elles testent `frame.format` et
+			// appellent `ConvertToRGBA8` — donc par CONCEPTION, pas par accident.
+			// L'honorer signifierait convertir dans le système, c'est-à-dire
+			// refaire ce que le consommateur fait déjà, en le cachant.
+			// → Le format réellement livré se lit sur `NkCameraFrame::format`.
+			// → Ce champ est candidat au RETRAIT ; il ne peut rien promettre.
 			NkPixelFormat outputFormat = NkPixelFormat::NK_PIXEL_RGBA8;
 			NkCameraFacing facing = NkCameraFacing::NK_CAMERA_FACING_ANY;
 			bool flipHorizontal = false;
+			// ⚠️ `autoFocus` n'est lu QUE par le backend Android. Sur Windows,
+			// aucun code de mise au point n'existe : le réglage est ignoré en
+			// silence (invisible sur une webcam à focale fixe, ce qui explique
+			// que personne ne l'ait vu).
 			bool autoFocus = true;
+			// ⚠️ SANS AUCUN EFFET — 0 lecteur, 0 écrivain (relevé du 2026-08-15).
+			// Les méthodes `SetAutoExposure()` / `SetAutoWhiteBalance()` existent
+			// et fonctionnent ; ce sont ces CHAMPS qui ne mènent nulle part, car
+			// rien ne les consulte à l'ouverture du flux.
 			bool autoExposure = true;
 			bool autoWhiteBalance = true;
 
