@@ -89,17 +89,38 @@ namespace nkentseu {
 				if (!mPrimed) {
 					mPrimed = true;
 					mLast = now;
+					mDernierIntervalMs = 0.0; // aucun intervalle precedent a rapporter
 					return true;
 				}
 
 				// Soustraction de deux instants d'une horloge MONOTONE : un
 				// changement d'heure système ne peut donc pas faire taire le
 				// battement pendant des heures, ni le déclencher en rafale.
-				if ((now - mLast).ToMilliseconds() >= (int64)mIntervalMs) {
+				const int64 ecoule = (now - mLast).ToMilliseconds();
+				if (ecoule >= (int64)mIntervalMs) {
 					mLast = now;
+					mDernierIntervalMs = (float64)ecoule;
 					return true;
 				}
 				return false;
+			}
+
+			/// Temps RÉELLEMENT écoulé depuis le battement précédent, en ms.
+			///
+			/// ⚠️ À utiliser à la place de `GetInterval()` pour tout calcul de
+			/// débit, et ce n'est pas un détail de confort : un battement ne peut
+			/// se déclencher qu'AU MOMENT OÙ ON L'INTERROGE, donc à une frontière
+			/// d'image. L'intervalle réel est le premier multiple de la période
+			/// d'image qui dépasse la demande — jamais la demande elle-même.
+			///
+			/// Coût de l'ignorer, mesuré le 2026-08-15 sur le viewer caméra :
+			/// à 500 ms de demande, 42 img/s ; à 50 ms, **56 img/s** pour la même
+			/// application dans les mêmes conditions. 32 % d'écart, entièrement
+			/// imputable à la division par la période DEMANDÉE. J'ai lu cet écart
+			/// comme une instabilité du programme et rapporté « 35 à 55 img/s » :
+			/// c'était mon instrument qui variait, pas le programme.
+			float64 GetLastIntervalMs() const {
+				return mDernierIntervalMs;
 			}
 
 			/// Repousser le prochain battement sans en émettre un. Utile quand
@@ -113,6 +134,7 @@ namespace nkentseu {
 		private:
 			uint32 mIntervalMs = 0; ///< 0 = ÉTEINT (défaut assumé, voir en-tête).
 			bool mPrimed = false;
+			float64 mDernierIntervalMs = 0.0; ///< Ecart REEL entre les deux derniers battements.
 			nkentseu::NkElapsedTime mLast{};
 	};
 
