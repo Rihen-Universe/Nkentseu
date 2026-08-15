@@ -131,7 +131,7 @@ namespace nkentseu {
 				NkVector<View> mViews;
 				uint32 mWidth = 0;
 				uint32 mHeight = 0;
-				uint32 mMinViews = 5;
+				uint32 mMinViews = 6;
 				/// Différence minimale de FORME entre deux vues retenues, une fois
 				/// leur centre et leur échelle retirés.
 				///
@@ -144,7 +144,7 @@ namespace nkentseu {
 				/// bien au-delà d'un tremblement de main, atteignable d'un simple
 				/// mouvement du poignet. Mesuré : à 0,05 six vues étaient retenues
 				/// en un sixième de seconde — six fois le même point de vue.
-				float32 mMinShapeDifference = 0.10f;
+				float32 mMinShapeDifference = 0.14f;
 				bool mAssumeCentered = true;
 		};
 

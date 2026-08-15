@@ -12,12 +12,12 @@
 // =============================================================================
 #pragma once
 
-#include "NKRenderer/Tools/Animation/NkAnimationSystem.h"
+#include "NKAnimation/NkAnimation.h"
 #include "NKContainers/NKContainers.h"
 #include "NKMath/NKMath.h"
 
 namespace nkentseu {
-	namespace renderer {
+	namespace anim {
 
 		class NkAnimationEditor {
 			public:
@@ -116,5 +116,5 @@ namespace nkentseu {
 				NkVector<Cmd> mUndo, mRedo;
 		};
 
-	} // namespace renderer
+	} // namespace anim
 } // namespace nkentseu

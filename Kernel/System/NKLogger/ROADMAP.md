@@ -140,6 +140,52 @@ et expose l'API documentée.
 ---
 
 ## Bugs / quirks connus
+
+### ✅ CATÉGORIE 3 SOLDÉE LE SOIR MÊME — mesurée sur Galaxy S22+ (2026-08-14)
+
+L'appareil est revenu et le code a été **exercé**, pas seulement construit.
+`NkCameraDemos` en Release sur SM-S906U1, Adreno 730, OpenGL ES 3.2 :
+
+- le journal **parle** — nos lignes arrivent bien dans `logcat`, de
+  `nkmain` jusqu'à `[NkCamera] Streaming started: 1280x720 @30 fps` ;
+- **coût mesuré : 47 lignes au démarrage, puis ZÉRO.** Sur une fenêtre de 15
+  secondes en régime établi, notre moteur n'écrit aucune ligne (27 lignes
+  passent, toutes du système Android). **Rien ne journalise par image.**
+
+Donc le « bruit de journal et coût de performance » annoncé comme effet
+**attendu** ne se produit pas : c'est une salve à l'initialisation, puis le
+silence. La différence entre attendu et constaté est exactement ce que cette
+vérification servait à établir.
+
+Le texte ci-dessous est conservé tel qu'il a été écrit **avant** la mesure : il
+dit ce qu'on savait au moment de pousser, et c'est ce qui lui donne sa valeur.
+
+---
+
+### ⚠️ CATÉGORIE 3 — MODIFIÉ, JAMAIS EXERCÉ (état au moment de la poussée)
+
+Le **puits console est actif en Release sur Android** depuis le 2026-08-14
+(`NkLog.cpp` : la garde `!defined(NDEBUG)` accepte désormais aussi
+`NKENTSEU_PLATFORM_ANDROID` / `__ANDROID__`). Motif : en Release sur téléphone,
+le journal était **muet**, et une application qui ne dit rien ne se diagnostique
+pas — c'est ce qui a coûté le plus de temps pendant le portage AR.
+
+**Une vingtaine d'applications Android en héritent. Aucune n'a été relancée sur
+matériel** : le téléphone a quitté `adb` en cours de session et la reconnexion
+sans fil a été refusée. L'APK se construit et se signe — mais **construire n'est
+pas exercer**.
+
+Ce n'est **pas une réserve de prudence** : personne n'a vu tourner ce code. Effet
+attendu — du bruit de journal et un coût de performance ; pas un plantage, pas
+une fuite, réversible en une ligne. **Attendu**, justement : pas constaté.
+
+**À faire dès qu'un appareil est disponible** — lancer une application Android
+sans rapport avec l'AR, vérifier le débit du journal et le coût en images par
+seconde. Tant que ce n'est pas fait, cette ligne reste.
+
+*(Fait le soir même — voir la section ✅ ci-dessus. Le téléphone est revenu une
+heure après la poussée.)*
+
 - Les méthodes stream-style sans message (`Trace()`, `Debug()`, ...) sont
   déclarées dans le header mais leur intérêt est limité (loggent une chaîne
   vide). À documenter ou retirer.

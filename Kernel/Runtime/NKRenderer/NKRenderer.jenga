@@ -24,9 +24,14 @@ with project("NKRenderer"):
     # Dependances (mode lib) : kindexport(NKENTSEU_RENDERER) + src/pch + includedirs +
     # dependson + defines _STATIC_LIB auto (dont NKENTSEU_SERIALIZATION_STATIC_LIB,
     # NKSerialization etant une dep). NKRHI/pch + Vulkan SDK en extra (specifiques).
+    # NKAnimPhysics : NkPoseDebugDraw DESSINE le resultat du solveur d equilibre
+    # (COM, polygone de support, fil d aplomb). Le renderer est ici CONSOMMATEUR
+    # du substrat, jamais son hote -- cf. bloc de decision "substrats animation"
+    # (CLAUDE.md du repertoire parent) et l extraction du 2026-08-14.
     rendererDeps = ["NKMath", "NKTime", "NKLogger", "NKEvent", "NKWindow", "NKContainers",
                     "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKRHI", "NKSL",
-                    "NKFont", "NKImage", "NKStream", "NKFileSystem", "NKSerialization", "NKReflection"]
+                    "NKFont", "NKImage", "NKStream", "NKFileSystem", "NKSerialization", "NKReflection",
+                    "NKAnimPhysics", "NKAnimation"]
     if USE_NKGLAD:
         rendererDeps.append("NKGlad")
     rendererDefines = [

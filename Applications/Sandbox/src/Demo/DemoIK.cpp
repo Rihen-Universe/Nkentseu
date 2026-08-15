@@ -36,7 +36,7 @@ namespace nkentseu {
 			st->rig = st->ik.CreateRig(/*skeletonId*/ 1);
 			NkIKChainDesc desc;
 			desc.name = "demo_chain";
-			desc.solver = NkIKSolver::NK_FABRIK;
+			desc.solver = NkIKMethod::NK_FABRIK;
 			desc.maxIterations = 16;
 			desc.tolerance = 0.0005f;
 			for (uint32 i = 0; i < st->nbones; ++i) {
