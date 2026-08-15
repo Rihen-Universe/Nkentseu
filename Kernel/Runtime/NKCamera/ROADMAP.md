@@ -247,6 +247,41 @@ coup. Relire le correctif ne le montrait pas.
 formule par la **plage**, jamais par le format. Différé volontairement pour ne
 pas élargir un diff en cours de fusion — différé, pas abandonné.
 
+### 🔎 AUDIT DES RÉGLAGES FANTÔMES — *qui lit ce champ ?* (2026-08-15)
+
+Trois réglages déclarés-mais-ignorés ont été trouvés en deux jours **sans les
+chercher** — chacun révélé par un utilisateur qui butait dessus. Ce n'est plus
+une série d'incidents, c'est une propriété du module : **ses réglages sont
+déclarés avant d'être câblés, et rien ne le signale.** D'où cette passe, faite
+une fois, champ par champ : *qui le lit ?*
+
+| champ de `NkCameraConfig` | lecteurs | verdict |
+|---|---|---|
+| `deviceIndex`, `width`, `height`, `fps` | 15 / 42 / 39 / 12 | ✅ câblés |
+| `preset` | `Resolve()` | ✅ câblé *(faux positif du premier relevé : `Resolve()` vit dans `NkCameraTypes.h`, que le filtre excluait)* |
+| `facing` | 5 | ✅ câblé |
+| `flipHorizontal` | 5 | ✅ **câblé le 2026-08-15** (voir ci-dessous) |
+| `autoFocus` | 2 | ⚠️ **Android seulement** — ignoré sur Windows (voir plus bas) |
+| **`outputFormat`** | **0** | ❌ **FANTÔME** |
+| **`autoExposure`** | **0** | ❌ **FANTÔME** |
+| **`autoWhiteBalance`** | **0** | ❌ **FANTÔME** |
+
+⚠️ **`outputFormat` est le plus trompeur des trois.** Il n'est lu par personne,
+mais **trois applications l'écrivent** — `NKARDemo`, `CameraViewerDemo`,
+`CameraMultiDemo` posent toutes `NK_PIXEL_RGBA8`. Elles croient donc demander du
+RGBA8 ; les backends livrent du NV12 ou du YUV420, et chaque consommateur doit
+appeler `ConvertToRGBA8` lui-même. Un champ que personne ne lit est un mensonge
+d'API ; un champ que **plusieurs applications écrivent** en est un qui a déjà des
+victimes.
+
+`autoExposure` et `autoWhiteBalance` : jamais lus à l'ouverture du flux. Les
+méthodes `SetAutoExposure()` / `SetAutoWhiteBalance()` existent et fonctionnent —
+ce sont les **champs de configuration** qui ne mènent nulle part.
+
+**À faire, dans cet ordre** : soit câbler ces trois champs à l'ouverture du flux,
+soit les retirer et documenter les méthodes équivalentes. **Ne pas les laisser
+tels quels** — c'est la situation qui a produit les trois premiers.
+
 ### ✅ `flipHorizontal` est enfin APPLIQUÉ (2026-08-15)
 
 Le champ existait dans `NkCameraConfig` depuis l'origine, se réglait, et

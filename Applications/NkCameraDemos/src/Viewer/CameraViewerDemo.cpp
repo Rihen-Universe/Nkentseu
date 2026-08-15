@@ -123,16 +123,28 @@ namespace nkentseu {
 			camCfg.deviceIndex = 0;
 			camCfg.preset = NkCameraResolution::NK_CAM_RES_HD;
 			camCfg.outputFormat = NkPixelFormat::NK_PIXEL_RGBA8;
-			// `--miroir` retourne l'image gauche-droite, comme une visio. NON
-			// par défaut : l'image brute est géométriquement vraie, et c'est
-			// celle qu'il faut pour de l'AR ou de la mesure. Le miroir est un
-			// confort d'affichage de soi, pas une correction.
+			// MIROIR PAR DÉFAUT dans CE viewer, et c'est un choix d'application,
+			// pas du moteur. Cette démo montre l'utilisateur à lui-même : la
+			// convention qu'il connaît — visio, appareil photo — est le miroir,
+			// et une image non miroitée lui paraît « inversée ». Rihen l'a
+			// signalé deux fois ; la deuxième fois sur des fenêtres de mesure
+			// lancées sans le drapeau, ce qui a montré que l'option n'était pas
+			// le bon défaut ICI.
+			//
+			// Le moteur, lui, garde `flipHorizontal = false` : l'image brute est
+			// géométriquement vraie, et c'est la seule utilisable pour l'AR, la
+			// calibration ou la mesure. Un défaut d'application ne remonte pas
+			// au module.
+			//
+			// `--brut` rend l'image telle que le capteur la livre.
+			camCfg.flipHorizontal = true;
 			for (usize i = 1; i < state.args.Size(); ++i) {
-				if (state.args[i] == "--miroir" || state.args[i] == "--mirror")
-					camCfg.flipHorizontal = true;
+				if (state.args[i] == "--brut" || state.args[i] == "--raw")
+					camCfg.flipHorizontal = false;
 			}
-			if (camCfg.flipHorizontal)
-				logger.Infof("[Viewer] Miroir horizontal demande.");
+			logger.Infof("[Viewer] Image %s.",
+						 camCfg.flipHorizontal ? "MIROITEE (defaut ; --brut pour l'image du capteur)"
+											   : "BRUTE, telle que livree par le capteur");
 			if (!cam.StartStreaming(camCfg)) {
 				logger.Warnf("[Viewer] StartStreaming a echoue : %s", cam.GetLastError().CStr());
 			}
@@ -310,9 +322,16 @@ namespace nkentseu {
 				// simplement plus rien à dire.
 				++beatFrames;
 				if (beat.ShouldBeat()) {
-					logger.Infof("[Viewer] %u images depuis le dernier battement, "
+					// Le débit se calcule sur l'intervalle MESURÉ, jamais sur
+					// l'intervalle demandé : un battement ne peut se déclencher
+					// qu'à une frontière d'image, donc il arrive toujours en
+					// retard sur la demande. Diviser par la demande gonfle le
+					// chiffre — 32 % d'erreur mesurés à 50 ms le 2026-08-15.
+					const float64 ms = beat.GetLastIntervalMs();
+					const float64 img = (ms > 0.0) ? (float64)beatFrames * 1000.0 / ms : 0.0;
+					logger.Infof("[Viewer] %.1f img/s (%u images en %.0f ms mesurees), "
 								 "flux %ux%u, texture %s",
-								 beatFrames, frame.width, frame.height,
+								 img, beatFrames, ms, frame.width, frame.height,
 								 streamTex.IsValid() ? "valide" : "ABSENTE");
 					beatFrames = 0;
 				}
