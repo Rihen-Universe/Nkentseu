@@ -237,3 +237,40 @@ trancher (*slicing*). Le move-ctor existe et transfère bien `mOwning`
 ## Dépendances
 - **Couches en dessous (utilisées)** : NKCore (types), NKMemory (NkAllocator, NkAlloc/NkFree), NKContainers (NkVector), NKFileSystem (NkFile), NKPlatform (macros API)
 - **Modules au-dessus qui en dépendent** : NKRenderer (chargement textures), NKUI (icônes, atlas), NKFont (atlas glyphes via NkImage), assets pipeline
+
+## ⚠️ MESURE 2026-08-16 — l'encodage WebP VP8L echoue a l'execution
+
+**Le tableau ci-dessus annonce « WebP VP8L lossless : Livre » en ENCODE. Mesure
+contraire :** `NKImageCodecTest` rend `ic_out.webp : ECHEC SAVE (lossless
+attendu)`. Tous les autres codecs ecrivent (PNG, BMP, TGA, QOI, PPM, GIF, HDR,
+EXR).
+
+**Provenance** : worktree `Nkentseu-nkanim`, `feat/nkanimation`, commit
+`49c67c4c`, le 2026-08-16. **Identique en Debug ET en Release**, exit code 0
+dans les deux.
+
+### Ce qui est etabli, et ce qui ne l'est pas
+
+**Etabli** — ce n'est PAS un defaut lie a la memoire ni a l'optimiseur : le
+comportement est rigoureusement le meme dans les deux configurations. Et la
+migration vers la valeur n'a pas change le SENS du chemin d'encodage : le seul
+changement de `NkWebPCodec::Encode` en `fb362a0e` est le retrait d'accolades
+devenues superflues autour d'un `return false` isole, une fois le `conv->Free()`
+supprime. Verifie sur le diff, pas suppose.
+
+**NON etabli** — je n'ai pas prouve par l'execution que l'echec preexistait a la
+migration. Le faire demande de construire l'etat anterieur (`76876dfa`) et de
+rejouer le test : ~13 min de build. **Tant que ce n'est pas fait, l'attribution
+reste ouverte** — le diff est neutre en lecture, ce qui rend la regression
+improbable, mais improbable n'est pas mesure.
+
+### Prochain pas, dans cet ordre
+
+1. Construire `76876dfa` et rejouer `NKImageCodecTest` : cela tranche
+   preexistant / regression en une mesure.
+2. Selon le resultat : corriger l'encodeur, ou corriger CE TABLEAU qui annonce
+   livre ce qui ne l'est pas.
+
+C'est la meme famille que la ligne EXR corrigee le 2026-08-16 (« le codec EXR ne
+fait que de la lecture », alors que `Encode` etait definie) — mais dans l'autre
+sens : la, le document interdisait a tort ; ici, il **promet a tort**.
