@@ -42,6 +42,20 @@ namespace nkentseu {
 				// il donne le cout fixe par operation — la grandeur qui dit si le moteur
 				// est limite par le calcul ou par le lancement des noyaux.
 				static int64 OpCount();
+
+				// ---- Occupation VRAM suivie ---------------------------------------
+				// PIC de la somme des tampons vivants, en octets. C'est la SEULE
+				// grandeur qui decide si une configuration tient : une moyenne, ou un
+				// releve a un instant arbitraire, rate le moment ou la passe ARRIERE
+				// materialise les gradients par-dessus les activations.
+				//
+				// ⚠️ Ne compte QUE nos tampons de calcul : ni le pilote, ni la
+				// fragmentation, ni les allocations des autres modules. C'est donc un
+				// PLANCHER de l'occupation reelle, jamais son total — d'ou la marge a
+				// exiger avant de conclure qu'une configuration tient sur 8 Go.
+				static int64 VramPic();
+				static int64 VramVivante();
+				void RazVramPic(); // repart du niveau courant (avant une phase mesuree)
 				void DestroyBuffer(uint64 id);
 				bool Upload(uint64 id, const void *data, nk_size bytes);
 				bool Download(uint64 id, void *out, nk_size bytes);
@@ -203,6 +217,32 @@ namespace nkentseu {
 		// LayerNorm sur le dernier axe (γ=1,β=0) : y=(x−μ)/√(var+ε). fwd + bwd (recalcul depuis x).
 		NkTensor NkGpuLayerNormStd(const NkTensor &x);
 		NkTensor NkGpuLayerNormStdBackward(const NkTensor &x, const NkTensor &grad);
+
+		// ---- Trio NkLlamaLM : RMSNorm, RoPE, SwiGLU -------------------------
+		// Ces trois operations n'avaient AUCUN chemin GPU : elles redescendaient le
+		// tenseur sur le CPU et le remontaient, en avant comme en arriere. Le chemin
+		// CPU reste en place et sert d'ORACLE : chaque noyau est valide par
+		// equivalence numerique contre lui, avant ET arriere.
+		// Signale un DEFAUT GPU : incremente le compteur que l'entrainement consulte
+		// (NkTensorGpu::DefautCount) et journalise les douze premiers. Expose ici pour
+		// que les couches au-dessus (NKAutograd) puissent signaler ce qu'elles seules
+		// peuvent constater — par exemple une entropie croisee par ligne NULLE alors
+		// que sa cible est valide, qui denonce une ligne non calculee.
+		void NkGpuSignalerDefaut(const char *ou, const char *quoi, int64 valeur);
+
+		NkTensor NkGpuRmsNorm(const NkTensor &x, double eps);
+		NkTensor NkGpuRmsNormBackward(const NkTensor &x, const NkTensor &grad, double eps);
+
+		// `table` : [T * (hd/2) * 2] en (cos, sin), construite par l'appelant EN
+		// DOUBLE. Le noyau ne calcule aucun cosinus : en flottant simple l'angle
+		// atteint ~256 rad, dont l'ulp (~1.5e-5) depasserait de loin la tolerance
+		// d'equivalence. `sens` = +1 en avant, −1 en arriere.
+		NkTensor NkGpuRoPE(const NkTensor &x, const NkTensor &table, double sens);
+
+		NkTensor NkGpuSwiGLU(const NkTensor &gate, const NkTensor &up);
+		NkTensor NkGpuSwiGLUBackwardDu(const NkTensor &gate, const NkTensor &dh);
+		// `dhu` = dh ⊙ u, fourni par l'appelant : garde le noyau a deux entrees.
+		NkTensor NkGpuSwiGLUBackwardDg(const NkTensor &gate, const NkTensor &dhu);
 
 		// Softmax sur le DERNIER axe (stable). + backward (dx=y⊙(dy−Σ dy⊙y)) + variante CAUSALE
 		// (masque les positions futures : dernier axe [.., T, T], requête = row % T).

@@ -11,6 +11,8 @@
 #include "NKAutograd/NkVar.h"
 #include "NKTensor/NkTensorOps.h"
 #include "NKTensor/NkTensorGpu.h" // im2col/col2im GPU quand l'entrée est résidente
+#include "NKMath/NkFunctions.h"	  // NkPow/NkCos/NkSin (convention du dépôt : pas de <cmath>)
+#include "NKLogger/NkLog.h"		  // nommer une ligne de perte hors domaine (motif = mecanisme)
 #include "NKMemory/NkAllocator.h"
 
 #include <cmath>
@@ -520,6 +522,47 @@ namespace nkentseu {
 		// Rotation par paires (i, i+moitié) du dernier axe, d'un angle qui dépend
 		// de la position (avant-dernier axe). Rotation pure : aucune norme changée.
 		// `sens` = +1 pour le forward, −1 pour le backward (rotation transposée).
+		// Table des (cos, sin) de RoPE : pour t dans [0,T) et i dans [0,moitié),
+		// tab[2·(t·moitié+i)] = cos(ang), tab[+1] = sin(ang), ang = (t+décalage)·fréq.
+		//
+		// POURQUOI UNE TABLE. La fréquence ne dépend que de `i` et de `hd`, mais elle
+		// était recalculée POUR CHAQUE ÉLÉMENT — avec une puissance, un cosinus et un
+		// sinus à chaque fois. Mesuré sur la configuration de la course : 4 718 592
+		// triplets par micro-lot, 18,9 M par pas d'optimiseur. La table en demande
+		// T·moitié, soit 36 fois moins, pour un résultat identique.
+		//
+		// Elle est construite EN DOUBLE et sert aux DEUX chemins : l'oracle CPU la lit
+		// telle quelle, le noyau GPU la reçoit telle quelle. C'est ce qui rend les deux
+		// comparables — un noyau qui calculerait l'angle en flottant simple s'écarterait
+		// de ~1,5e-5 (l'ulp d'un angle de ~256 radians), soit bien plus que la précision
+		// qu'on cherche à vérifier.
+		//
+		// ⚠️ DÉPENDANCE À LA LONGUEUR DE CONTEXTE. La table est dimensionnée par T, lu
+		// sur l'avant-dernier axe du tenseur : elle suit donc automatiquement une
+		// extension du contexte, et c'est voulu. RoPE a précisément été retenu pour
+		// pouvoir passer de T=256 à plusieurs milliers SANS réentraîner — le jour où
+		// cela arrivera, vérifier que T est bien lu de la forme et non figé quelque part
+		// en amont. Une table trop courte ne planterait pas : elle ferait lire des
+		// angles faux. Le coût reste négligeable (T · hd/2 · 2 flottants ; 32 Ko à
+		// T=256, 512 Ko à T=4096).
+		static NkTensor BuildRopeTable(int64 T, int64 half, int32 posOffset, double freqBase) {
+			NkShape ts;
+			ts.PushBack(T * half * 2);
+			NkTensor tab = NkTensor::Zeros(ts);
+			float *tp = tab.DataAs<float>();
+			for (int64 i = 0; i < half; ++i) {
+				// Hors de la boucle sur t : elle n'en dépend pas.
+				const double freq = 1.0 / math::NkPow(freqBase, (2.0 * (double)i) / (double)(half * 2));
+				for (int64 t = 0; t < T; ++t) {
+					const double ang = (double)(t + (int64)posOffset) * freq;
+					const int64 k = 2 * (t * half + i);
+					tp[k] = (float)math::NkCos(ang);
+					tp[k + 1] = (float)math::NkSin(ang);
+				}
+			}
+			return tab;
+		}
+
 		static NkTensor RopeApplyCpu(const NkTensor &x, int32 posOffset, double freqBase, double sens) {
 			NkTensor xc = ToCpuT(x).Contiguous();
 			const NkShape &s = xc.Shape();
@@ -530,15 +573,15 @@ namespace nkentseu {
 			NkTensor out = NkTensor::Zeros(s);
 			const float *xp = xc.DataAs<float>();
 			float *op = out.DataAs<float>();
+			const NkTensor tab = BuildRopeTable(T, half, posOffset, freqBase);
+			const float *tp = tab.DataAs<float>();
 			for (int64 b = 0; b < blocs; ++b) {
 				for (int64 t = 0; t < T; ++t) {
 					const int64 base = (b * T + t) * hd;
-					const double pos = (double)(t + (int64)posOffset);
 					for (int64 i = 0; i < half; ++i) {
-						const double freq = 1.0 / std::pow(freqBase, (2.0 * (double)i) / (double)hd);
-						const double ang = pos * freq;
-						const double c = std::cos(ang);
-						const double sn = std::sin(ang) * sens;
+						const int64 k = 2 * (t * half + i);
+						const double c = (double)tp[k];
+						const double sn = (double)tp[k + 1] * sens;
 						const double x0 = (double)xp[base + i];
 						const double x1 = (double)xp[base + i + half];
 						op[base + i] = (float)(x0 * c - x1 * sn);
@@ -1090,6 +1133,10 @@ namespace nkentseu {
 				}
 
 				case NkAutoOp::NK_RMSNORM: { // dx = inv·dy − (inv³/d)·x·Σ(x⊙dy)
+					if (g.Device() == NkDevice::NK_GPU && n->a->value.Device() == NkDevice::NK_GPU) {
+						AccumGrad(n->a, NkGpuRmsNormBackward(n->a->value, g, n->fparam));
+						break;
+					}
 					NkTensor dx = RmsNormBackwardCpu(n->a->value, g, n->fparam);
 					AccumGrad(n->a, ToDevOf(dx, n->a->value));
 					break;
@@ -1098,6 +1145,15 @@ namespace nkentseu {
 				case NkAutoOp::NK_SWIGLU: { // dg = dh⊙u⊙silu'(g) ; du = dh⊙silu(g)
 					// silu'(g) = σ(g)·(1 + g·(1−σ(g))). Écrite à la main : la porte
 					// n'est PAS une simple activation, son gradient dépend aussi de u.
+					if (g.Device() == NkDevice::NK_GPU && n->a->value.Device() == NkDevice::NK_GPU &&
+						n->b->value.Device() == NkDevice::NK_GPU) {
+						// dG a besoin de TROIS entrées (g, u, dh). Plutôt que d'ajouter
+						// un lanceur à quatre tampons pour ce seul usage, on forme
+						// d'abord dh⊙u avec la multiplication élémentaire existante.
+						AccumGrad(n->a, NkGpuSwiGLUBackwardDg(n->a->value, NkGpuMul(g, n->b->value)));
+						AccumGrad(n->b, NkGpuSwiGLUBackwardDu(n->a->value, g));
+						break;
+					}
 					NkTensor gc = ToCpuT(n->a->value).Contiguous();
 					NkTensor uc = ToCpuT(n->b->value).Contiguous();
 					NkTensor hc = ToCpuT(g).Contiguous();
@@ -1123,6 +1179,14 @@ namespace nkentseu {
 				}
 
 				case NkAutoOp::NK_ROPE: { // rotation orthogonale -> backward = angle opposé
+					if (g.Device() == NkDevice::NK_GPU && g.Rank() >= 2) {
+						const NkShape &sg = g.Shape();
+						const int64 hdg = sg[sg.Size() - 1];
+						const int64 Tg = sg[sg.Size() - 2];
+						AccumGrad(n->a,
+								  NkGpuRoPE(g, BuildRopeTable(Tg, hdg / 2, n->iparam[0], n->fparam), -1.0));
+						break;
+					}
 					NkTensor dx = RopeApplyCpu(g, n->iparam[0], n->fparam, -1.0);
 					AccumGrad(n->a, ToDevOf(dx, n->a->value));
 					break;
@@ -1298,11 +1362,57 @@ namespace nkentseu {
 						const int64 Bg = NkShapeNumel(pc.Shape());
 						double sum = 0.0;
 						int64 actifs = 0;
+						int64 nulles = 0;
 						for (int64 b = 0; b < Bg; ++b)
 							if (tpv[b] >= 0.f) {
 								sum += (double)lp[b];
 								++actifs;
+								// ⚠️ UNE ENTROPIE CROISEE PAR LIGNE EST STRICTEMENT POSITIVE :
+								// elle vaut -log(p) avec p < 1. Un ZERO sur une ligne dont la
+								// cible est valide n'est pas une perte basse, c'est une ligne
+								// que le noyau N'A PAS CALCULEE.
+								//
+								// Ce controle manquait, et le defaut passait : le 14 aout 2026,
+								// un run a rendu exactement le QUART de la perte de son jumeau
+								// (2,61397 contre 10,4482, rapport 0,250184). Trois lignes sur
+								// quatre rendaient zero, le denominateur restait complet, et la
+								// perte affichee etait donc divisee par quatre SANS AUCUN SIGNAL.
+								//
+								// Le danger n'est pas ce cas-la, qui saute aux yeux, mais celui a
+								// neuf dixiemes de remplissage : la perte baisse de 10 % et
+								// ressemble a un PROGRES.
+								// « HORS DOMAINE », et non « nul ». Le tampon est EMPOISONNE au
+								// NaN avant le lancement (cf. NkGpuCeIdxForward) : une ligne non
+								// ecrite reste donc NaN, quel que soit le mecanisme de la panne.
+								// Le test `> 0` est faux pour NaN comme pour zero comme pour un
+								// negatif : il couvre les trois d'un coup, sans supposer que le
+								// tampon ait ete remis a zero au prealable.
+								if (!(lp[b] > 0.f))
+									++nulles;
 							}
+						if (nulles > 0) {
+							// L'INDICE de la premiere ligne fautive, pas seulement le compte :
+							// le MOTIF designe le mecanisme. Une queue contigue denonce une
+							// lecture avant la fin du noyau ; un pas regulier, une partie de la
+							// grille qui n'a pas tourne ; un groupement par micro-lot,
+							// l'accumulation. Sans l'indice, il faudrait reproduire pour savoir.
+							int64 premiere = -1, derniere = -1;
+							for (int64 b = 0; b < Bg; ++b)
+								if (tpv[b] >= 0.f && !(lp[b] > 0.f)) {
+									if (premiere < 0)
+										premiere = b;
+									derniere = b;
+								}
+							NkGpuSignalerDefaut("ce_idx_fwd",
+												"lignes HORS DOMAINE (NaN/zero/negatif) alors que leur cible "
+												"est valide : ces lignes n'ont pas ete calculees",
+												(int64)nulles);
+							logger.Info("[perte] {0} lignes hors domaine sur {1} ; premiere = {2}, derniere = {3} "
+										"(motif contigu en queue => lecture avant fin de noyau ; motif regulier "
+										"=> grille partielle ; motif par blocs de {4} => micro-lot).",
+										(long long)nulles, (long long)Bg, (long long)premiere, (long long)derniere,
+										(long long)(Bg / 4));
+						}
 						const double lg = (actifs > 0) ? sum / (double)actifs : 0.0;
 						NkTensor lt = NkTensor::Full(NkShape{(int64)1}, lg);
 						NkVar rg = NkMakeOp(NkAutoOp::NK_SOFTMAX_CE_IDX, lt, logits.Node(), targetIdx.Node());
@@ -1384,14 +1494,24 @@ namespace nkentseu {
 			// =================================================================
 
 			NkVar RMSNorm(const NkVar &x, double eps) {
-				NkTensor y = ToDevOf(RmsNormCpu(x.Value(), eps), x.Value());
-				NkVar v = NkMakeOp(NkAutoOp::NK_RMSNORM, y, x.Node(), nullptr);
+				// Chemin GPU quand le tenseur y réside déjà. Le chemin CPU reste
+				// l'ORACLE : il n'est pas supprimé, il valide le noyau.
+				NkTensor y = (x.Value().Device() == NkDevice::NK_GPU) ? NkGpuRmsNorm(x.Value(), eps)
+																	  : RmsNormCpu(x.Value(), eps);
+				NkVar v = NkMakeOp(NkAutoOp::NK_RMSNORM, ToDevOf(y, x.Value()), x.Node(), nullptr);
 				v.Node()->fparam = eps;
 				return v;
 			}
 
 			// h = silu(g) ⊙ u, silu(g) = g·σ(g).
 			NkVar SwiGLU(const NkVar &gate, const NkVar &up) {
+				// Chemin GPU quand les deux entrées y résident. Pas de repli sur le CPU
+				// en cas d'échec : un repli rendrait le calcul JUSTE mais lent, donc
+				// invisible ; un tenseur invalide, lui, se voit tout de suite. Même
+				// idiome que Gelu et LayerNorm plus bas.
+				if (gate.Value().Device() == NkDevice::NK_GPU && up.Value().Device() == NkDevice::NK_GPU)
+					return NkMakeOp(NkAutoOp::NK_SWIGLU, NkGpuSwiGLU(gate.Value(), up.Value()), gate.Node(),
+									up.Node());
 				NkTensor gc = ToCpuT(gate.Value()).Contiguous();
 				NkTensor uc = ToCpuT(up.Value()).Contiguous();
 				const int64 n = gc.Numel();
@@ -1408,7 +1528,15 @@ namespace nkentseu {
 			}
 
 			NkVar RoPE(const NkVar &x, int32 posOffset, double freqBase) {
-				NkTensor y = ToDevOf(RopeApplyCpu(x.Value(), posOffset, freqBase, 1.0), x.Value());
+				NkTensor y;
+				if (x.Value().Device() == NkDevice::NK_GPU && x.Value().Rank() >= 2) {
+					const NkShape &s = x.Value().Shape();
+					const int64 hd = s[s.Size() - 1];
+					const int64 T = s[s.Size() - 2];
+					y = NkGpuRoPE(x.Value(), BuildRopeTable(T, hd / 2, posOffset, freqBase), 1.0);
+				} else {
+					y = ToDevOf(RopeApplyCpu(x.Value(), posOffset, freqBase, 1.0), x.Value());
+				}
 				NkVar v = NkMakeOp(NkAutoOp::NK_ROPE, y, x.Node(), nullptr);
 				v.Node()->iparam[0] = posOffset;
 				v.Node()->fparam = freqBase;
