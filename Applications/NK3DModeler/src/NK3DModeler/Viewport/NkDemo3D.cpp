@@ -9274,23 +9274,38 @@ namespace nkentseu {
 					// ne pilote que le pick de SOMMETS en Edit Mode ; sans équivalent ici,
 					// la sélection d'objets ne pouvait être vérifiée qu'à la souris — donc
 					// pas de façon reproductible.
+					// ⚠️ IL FAUT DIRE A QUELLE FRAME. Le declenchement au premier passage
+					// rendait ce levier INUTILISABLE pour ce qu'il existe : `NK_OPEN_RECENT`
+					// n'ouvre le projet qu'a partir de la frame 3, si bien que le clic
+					// force tombait sur une scene VIDE et repondait « rien » -- une reponse
+					// juste a une question posee trop tot, indistinguable d'un pick casse.
+					// Troisieme valeur facultative = la frame ; sans elle, 1 (l'ancien
+					// comportement, garde pour ne pas perimer les invocations existantes).
 					static bool selAtDone = false;
+					static int32 selAtFrame = 0;
+					++selAtFrame;
 					if (!selAtDone) {
 						if (const char *sa = getenv("NK_SEL_AT")) {
-							selAtDone = true;
-							float32 sv[2] = {0.f, 0.f};
+							float32 sv[3] = {0.f, 0.f, 1.f};
 							int32 sk = 0;
 							const char *sp = sa;
-							while (sk < 2 && *sp) {
+							while (sk < 3 && *sp) {
 								sv[sk++] = (float32)atof(sp);
 								while (*sp && *sp != ',')
 									sp++;
 								if (*sp == ',')
 									sp++;
 							}
-							gin.mouseX = sv[0];
-							gin.mouseY = sv[1];
-							gin.leftPressed = true;
+							if (selAtFrame >= (int32)sv[2]) {
+								selAtDone = true;
+								gin.mouseX = sv[0];
+								gin.mouseY = sv[1];
+								gin.leftPressed = true;
+								logger.Info("[Demo3D] NK_SEL_AT -> clic force en ({0}, {1}) a la frame {2}\n",
+											sv[0], sv[1], selAtFrame);
+							}
+						} else {
+							selAtDone = true; // levier absent : on n'y revient pas
 						}
 					}
 					// ── PICK ET MANIPULATION DES LUMIERES ────────────────────────────
@@ -9767,6 +9782,21 @@ namespace nkentseu {
 								what = "MUR GI";
 							logger.Info("[Demo3D] selection -> index {0} ({1})\n", nowSel, what);
 						}
+						// ── ET LES MAILLAGES UTILISATEUR, QUI MANQUAIENT ──────
+						// Ce journal ne lisait que `gizmo`, celui des objets de
+						// DEMO. Or un projet reel n'en contient aucun : tout ce
+						// que l'utilisateur cree vit dans `emptyGizmo`. Le
+						// controle repondait donc « rien » sur une scene pleine
+						// -- juste, precis, et aveugle a ce qu'on lui demandait.
+						// C'est ce qui l'a rendu inutilisable pour verifier le
+						// pick extrait, et c'est la raison de l'ajout.
+						static int32 lastUser = -2;
+						const int32 nowUser = st->emptyGizmo.ActiveIndex();
+						if (nowUser != lastUser) {
+							lastUser = nowUser;
+							logger.Info("[Demo3D] selection utilisateur -> vide {0} (noeud {1})\n",
+										nowUser, nowUser >= 0 ? nowUser + kNkvpFirstEmpty : -1);
+						}
 					}
 
 					// ── OUTILS DE SÉLECTION PAR ZONE, MODE OBJET ─────────────────────
@@ -10019,6 +10049,37 @@ namespace nkentseu {
 			// HORS du bloc `!editMode` : le navigateur reste visible en mode edition,
 			// donc on peut y lacher un materiau. Y enfermer la resolution aurait rendu
 			// le glisser-deposer muet dans un mode entier, sans que rien ne le dise.
+			// NK_DROP_AT="x,y[,frame]" : demande UNE FOIS le pick du lacher a ces
+			// pixels de FENETRE, et journalise la reponse. Sans lui, le
+			// glisser-deposer n'est verifiable qu'a la souris -- il faut partir du
+			// navigateur et relacher dans la vue, ce qu'aucun levier ne sait faire.
+			// Il vise le pick, PAS le clic de selection : `NK_SEL_AT` passe par
+			// l'arbitrage des gizmos et ne dit donc rien de ce que le lacher verra.
+			{
+				static bool dropAtDone = false;
+				static int32 dropAtFrame = 0;
+				++dropAtFrame;
+				if (!dropAtDone) {
+					if (const char *da = getenv("NK_DROP_AT")) {
+						float32 dv[3] = {0.f, 0.f, 1.f};
+						int32 dk = 0;
+						const char *dp = da;
+						while (dk < 3 && *dp) {
+							dv[dk++] = (float32)atof(dp);
+							while (*dp && *dp != ',')
+								dp++;
+							if (*dp == ',')
+								dp++;
+						}
+						if (dropAtFrame >= (int32)dv[2]) {
+							dropAtDone = true;
+							Demo3DHostPickRequest(dv[0], dv[1]);
+						}
+					} else {
+						dropAtDone = true;
+					}
+				}
+			}
 			if (nkvpPickReq) {
 				nkvpPickReq = false;
 				float32 w3[3] = {0.f, 0.f, 0.f};
@@ -10037,6 +10098,9 @@ namespace nkentseu {
 				nkvpPickWorld[1] = w3[1];
 				nkvpPickWorld[2] = w3[2];
 				nkvpPickHas = true;
+				logger.Info("[Demo3D] PICK lacher ({0}, {1} en vue) -> noeud {2} · monde "
+							"({3}, {4}, {5})\n",
+							nkvpPickReqX, nkvpPickReqY, nkvpPickNode, w3[0], w3[1], w3[2]);
 			}
 
 			// ── WIDGETS DES LUMIERES (facon Blender) ────────────────────────────────
@@ -13321,9 +13385,15 @@ namespace nkentseu {
 		// moment de la question : le pick a besoin de la camera et de la taille
 		// de vue, qui ne vivent que le temps d'une frame. Le retard d'une image
 		// est invisible a la main pour un lacher de souris.
-		void Demo3DHostPickRequest(float32 xVue, float32 yVue) {
-			nkvpPickReqX = xVue;
-			nkvpPickReqY = yVue;
+		void Demo3DHostPickRequest(float32 xFenetre, float32 yFenetre) {
+			// L'ORIGINE DE LA VUE SE SOUSTRAIT ICI, comme dans TOUS les autres
+			// chemins d'entree de ce fichier (`e->GetX() - nkvpOffX`).
+			// L'appelant n'a pas a la connaitre : le shell a deja son propre
+			// `viewRect` et rien ne garantit qu'il vaille `nkvpOffX` -- deux
+			// sources pour une meme origine, c'est un decalage de pick qui
+			// attend son jour.
+			nkvpPickReqX = xFenetre - nkvpOffX;
+			nkvpPickReqY = yFenetre - nkvpOffY;
 			nkvpPickReq = true;
 			// UNE DEMANDE NEUVE PERIME LA PRECEDENTE. Sans cela, un second
 			// lacher pendant que le premier est en vol laisserait deux reponses

@@ -201,5 +201,46 @@ namespace nkentseu {
 			return corriges;
 		}
 
+		// ── LACHER SUR LA VUE 3D : LES DEUX GESTES QUE main.cpp APPLIQUE ────────
+		// Ici et pas dans main.cpp parce que le menu « enfant ou independant »
+		// (peint dans NkModelerHierarchy.h) fait EXACTEMENT le meme travail :
+		// deux copies auraient diverge des le premier correctif, et un modele
+		// depose dans le vide n'aurait plus rien eu a voir avec le meme modele
+		// depose sur un objet.
+
+		/// Fait naitre le modele du jeton et rend son noeud, ou -1.
+		/// Le jeton porte son noeud SOURCE fige : c'est lui qu'on duplique.
+		inline int32 NkDropSpawnModel(NkModelerState &st) {
+			int32 nn = -1;
+			if (st.dropSrcNode > 0)
+				nn = demo::Demo3DHostDuplicateNode(st.dropSrcNode - 1);
+			if (nn < 0) // asset sans source : cube par defaut, comme avant
+				nn = demo::Demo3DHostAddNode(2, 0);
+			return nn;
+		}
+
+		/// REFUS NOMME. Aucune nature ne reste muette sur un objet : un refus
+		/// silencieux est indistinguable d'un glisser-deposer casse, et le depot
+		/// a deja paye ce silence une fois (regle « tout refus silencieux d'une
+		/// action utilisateur doit dire pourquoi », vague 27).
+		///
+		/// Le message dit CE QU'IL AURAIT FALLU FAIRE, pas seulement que c'est
+		/// refuse : « une texture ne se depose pas ici » laisse l'utilisateur
+		/// devant la meme question.
+		inline void NkDropRefuse(NkModelerState &st, uint8 kind) {
+			const char *why = nullptr;
+			switch (kind) {
+				case 3:
+					why = "Une texture se depose dans un canal du materiau, pas sur l'objet";
+					break;
+				case 5: why = "Une scene s'ouvre, elle ne se depose pas sur un objet"; break;
+				case 1: why = "Un dossier ne se depose pas sur un objet"; break;
+				case 0: why = "Un graphe ne se depose pas sur un objet"; break;
+				case 4: why = "Un dataset IA ne se depose pas sur un objet"; break;
+				default: why = "Cet element ne se depose pas sur un objet"; break;
+			}
+			snprintf(st.hierNote, sizeof(st.hierNote), "%s", why);
+		}
+
 	} // namespace nk3d
 } // namespace nkentseu

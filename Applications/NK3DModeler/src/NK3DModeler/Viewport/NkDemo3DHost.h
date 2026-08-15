@@ -199,13 +199,14 @@ namespace nkentseu {
 		// ── QU'Y A-T-IL SOUS CE PIXEL ? (glisser-deposer du navigateur) ─────
 		// Le MEME pick que le clic de selection (Demo3D_PickEmptyAt) : le
 		// lacher et le clic ne peuvent donc pas designer deux objets
-		// differents. Coordonnees en pixels de la VUE, origine coin haut
-		// gauche du viseur -- les memes que `Demo3DHostSetView` decale.
+		// differents. Coordonnees en pixels de la FENETRE -- celles de la
+		// souris, telles quelles. L'origine de la vue est soustraite DEDANS,
+		// comme pour toute autre entree : l'appelant n'a pas a la connaitre.
 		//
 		// Deux appels, parce que la reponse n'existe qu'a la frame suivante :
 		// le pick a besoin de la camera et de la taille de vue, toutes deux
 		// locales a la frame. L'interface DEMANDE, la boucle EXECUTE.
-		void Demo3DHostPickRequest(float32 xVue, float32 yVue);
+		void Demo3DHostPickRequest(float32 xFenetre, float32 yFenetre);
 		/// Lit la reponse UNE SEULE FOIS ; false tant qu'elle n'est pas prete.
 		/// `*node` porte TROIS issues, et elles sont dans la valeur :
 		///   >= 0 : le noeud designe

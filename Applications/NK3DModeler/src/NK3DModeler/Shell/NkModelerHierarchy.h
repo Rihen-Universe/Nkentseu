@@ -760,6 +760,82 @@ namespace nkentseu {
 					st.browMenuCreat = false;
 				}
 			}
+			// ── CARTE DU LACHER D'UN MODEL SUR UN OBJET (specif. de Rodolf) ──
+			// « Deposer un model sur un model l'ajoute comme enfant de ce
+			// dernier OU comme element independant, selon un choix valide
+			// depuis un menu qui va apparaitre. »
+			//
+			// TROIS issues, et la troisieme n'est pas un defaut : un menu ferme
+			// sans choix est un geste ANNULE, pas « enfant par defaut ». Le
+			// jeton se detruit alors sans rien faire.
+			//
+			// ⚠️ TOUT CE QUE CE MENU UTILISE EST DEJA FIGE dans le jeton -- le
+			// modele source, le noeud cible, la position. Entre le lacher et le
+			// clic ici il s'ecoule du TEMPS UTILISATEUR : la selection du
+			// navigateur peut avoir change, la camera bouge, la cible etre
+			// supprimee. Rien n'est relu.
+			if (st.dropIdx >= 0 && st.dropMenuTarget >= 0) {
+				static const char *const kDrop[3] = {"Ajouter comme enfant",
+													 "Ajouter comme element independant",
+													 "Annuler"};
+				NkRect dr3{st.dropMenuX, st.dropMenuY, S(230.f), kRowH * 3.f};
+				if (dr3.y + dr3.h > area.y + area.h)
+					dr3.y = area.y + area.h - dr3.h;
+				if (dr3.x + dr3.w > area.x + area.w)
+					dr3.x = area.x + area.w - dr3.w;
+				// ETANCHEITE : ce menu est peint SUR LA VUE 3D, qui lit l'input
+				// DIRECTEMENT sans passer par le registre de zones. Sans ce
+				// blocage, cliquer « Ajouter comme enfant » selectionnerait AUSSI
+				// l'objet situe derriere le menu -- le clic traverserait. C'est
+				// exactement le defaut que `UiBlockAdd` a ete ecrit pour clore
+				// (badges et listes posees sur la vue).
+				st.UiBlockAdd(dr3);
+				p.Outline(dr3, NkRole::AccentUi, NkRole::PanelHeader, 3.f);
+				int32 dchoix = -1;
+				for (int32 mi = 0; mi < 3; ++mi) {
+					const NkRect it{dr3.x, dr3.y + (float32)mi * kRowH, dr3.w, kRowH};
+					snprintf(key, sizeof(key), "drop.ask.%d", mi);
+					HoverFill(p, it, hit.Add(key, it), 0.f);
+					p.TextV(it.x + S(10.f), it.y, kRowH, kDrop[mi]);
+					if (hit.Clicked(key))
+						dchoix = mi;
+				}
+				if (dchoix == 0 || dchoix == 1) {
+					// LA CIBLE PEUT AVOIR DISPARU pendant que le menu etait
+					// ouvert -- ce n'est pas theorique avec un menu qui attend un
+					// clic. On le CONSTATE et on le DIT, plutot que de parenter a
+					// un noeud supprime ou de retomber en silence sur « racine ».
+					const bool cibleVivante =
+						!demo::Demo3DHostNodeDeleted(st.dropMenuTarget);
+					if (dchoix == 0 && !cibleVivante) {
+						snprintf(st.hierNote, sizeof(st.hierNote),
+								 "L'objet vise a disparu : « %s » n'a pas ete ajoute",
+								 st.dropName);
+					} else {
+						const int32 nn = NkDropSpawnModel(st);
+						if (nn >= 0) {
+							const float32 rot[3] = {0.f, 0.f, 0.f};
+							const float32 scl[3] = {1.f, 1.f, 1.f};
+							demo::Demo3DHostSetEmptyTransform(nn, st.dropWorld, rot, scl);
+							if (dchoix == 0)
+								(void)demo::Demo3DHostSetNodeParent(nn, st.dropMenuTarget);
+							demo::Demo3DHostSelectEmptyNode(nn);
+						}
+					}
+				}
+				// LE JETON SE CONSOMME UNE FOIS, quel que soit le choix -- y
+				// compris « Annuler » et le clic dans le vide. Un jeton qui
+				// survivrait a sa validite serait lu par le lacher suivant, et
+				// sa reponse perimee aurait l'air d'un resultat.
+				if (dchoix >= 0 ||
+					(hit.AnyClick() && !NkHitRegistry::Contains(dr3, hit.Mouse()))) {
+					st.dropIdx = -1;
+					st.dropMenuTarget = -1;
+					st.dropKind = 255;
+					st.dropSrcNode = 0;
+					st.dropMat = 0;
+				}
+			}
 			// CARTE du depot GAUCHE -> DROITE : Copier / Deplacer / Annuler ;
 			// cliquer dans le vide annule aussi (Rihen).
 			if (st.browAskIdx >= 0) {

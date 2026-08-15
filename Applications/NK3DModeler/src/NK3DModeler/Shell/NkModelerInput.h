@@ -522,6 +522,35 @@ namespace nkentseu {
 				float32 browAskX = 0.f, browAskY = 0.f;
 				bool browMenuCreat = false;
 				NkRect viewRect{0.f, 0.f, 0.f, 0.f};
+				// ── JETON DE LACHER SUR LA VUE 3D ────────────────────────────
+				// UN LACHER = UN JETON COMPLET, resolu une fois, consomme une
+				// fois. Tout ce que le geste utilise est FIGE AU RELACHEMENT :
+				// la carte, sa NATURE, son noeud source, son nom.
+				//
+				// Pourquoi figer plutot que relire au moment d'appliquer : entre
+				// le lacher et l'application il s'ecoule au moins une frame -- le
+				// temps que la boucle resolve le pick, qui a besoin de la camera
+				// et de la taille de vue. Avec le menu « enfant ou independant »
+				// l'ecart devient du TEMPS UTILISATEUR : une seconde, dix, ou
+				// jamais s'il ferme le menu. Relire la selection du navigateur a
+				// ce moment-la appliquerait le mauvais element sans que rien ne
+				// le signale -- ce qui est lu plus tard que l'instant ou il etait
+				// valide est la forme meme du defaut qu'on poursuit depuis le 15.
+				//
+				// Un second lacher ecrase donc un jeton ENTIER, jamais des
+				// morceaux de deux.
+				int32 dropIdx = -1;		///< carte lachee. -1 = aucun jeton en vol
+				uint8 dropKind = 255;	///< sa nature, figee (255 = aucune)
+				int32 dropSrcNode = 0;	///< son noeud source + 1, fige (0 = aucun)
+				int32 dropMat = 0;		///< son emplacement de materiau + 1, fige
+				char dropName[32] = {}; ///< son nom, fige -- pour les messages
+				// LE MENU « enfant ou independant » (specification de Rodolf).
+				// TROIS issues, et « ferme sans choix » en est une : un menu
+				// abandonne n'est pas « enfant par defaut », c'est un geste
+				// annule, et le jeton se detruit sans rien faire.
+				int32 dropMenuTarget = -1; ///< noeud cible FIGE. -1 = pas de menu
+				float32 dropMenuX = 0.f, dropMenuY = 0.f;
+				float32 dropWorld[3] = {0.f, 0.f, 0.f}; ///< point du lacher, fige
 				// CONFLIT d'homonyme en attente (Renommer/Remplacer/Arreter).
 				int32 browConfSrc = -1;
 				int32 browConfDest = -1;

@@ -2050,6 +2050,80 @@ int nkmain(const NkEntryState &entry) {
 			}
 		}
 
+		// ── LACHER DU NAVIGATEUR SUR LA VUE 3D : LA REPONSE DU PICK ARRIVE ──
+		// Le jeton a ete fige au relachement (cf. NkModelerBrowser.h) ; il ne
+		// reste qu'a lire OU l'utilisateur a lache et a appliquer. Rien n'est
+		// relu dans le navigateur ici : tout ce que le geste utilise voyage
+		// dans le jeton.
+		//
+		// LA TABLE, telle que Rodolf l'a specifiee :
+		//   materiau  · vide -> rien             · objet -> assigne
+		//   model     · vide -> AJOUTE A CETTE POSITION · objet -> menu
+		//   texture   · vide -> rien             · objet -> refus NOMME
+		//   scene/dossier/autre · vide -> rien   · objet -> refus NOMME
+		//
+		// AUCUNE nature ne reste muette sur un objet : un refus silencieux est
+		// indistinguable d'un glisser-deposer casse (regle du depot, vague 27).
+		if (st.dropIdx >= 0 && st.dropMenuTarget < 0) {
+			int32 dropNode = -3;
+			float32 dropW[3] = {0.f, 0.f, 0.f};
+			if (demo::Demo3DHostPickTake(&dropNode, dropW)) {
+				const bool vide = (dropNode == -1);
+				// -2 = hors du viseur. La zone de lacher EST le viseur, donc ce
+				// cas ne devrait pas arriver : il est journalise plutot que
+				// traite, parce que c'est un bogue et pas un cas d'usage.
+				if (dropNode == -2) {
+					nkentseu::NkLog::Instance().Warn(
+						"[nk3d] lacher resolu HORS du viseur : la zone de lacher du "
+						"shell et le viseur de l'hote ont diverge\n");
+					st.dropIdx = -1;
+				} else if (st.dropKind == 2) { // MATERIAU
+					if (vide) {
+						st.dropIdx = -1; // lache dans le vide : rien, et c'est voulu
+					} else {
+						if (st.dropMat > 0)
+							demo::Demo3DHostProjMatAssign(dropNode, st.dropMat - 1);
+						else
+							snprintf(st.hierNote, sizeof(st.hierNote),
+									 "« %s » n'a pas encore d'emplacement de materiau",
+									 st.dropName);
+						st.dropIdx = -1;
+					}
+				} else if (st.dropKind == 6) { // MODEL / MESH
+					if (vide) {
+						// AJOUTE A CETTE POSITION -- pas a l'origine. C'est tout
+						// l'objet du point du monde rendu par le pick : sans lui,
+						// dix lachers a dix endroits empilaient dix modeles au
+						// meme point, et le geste n'avait plus de sens.
+						const int32 nn = NkDropSpawnModel(st);
+						if (nn >= 0) {
+							const float32 rot[3] = {0.f, 0.f, 0.f};
+							const float32 scl[3] = {1.f, 1.f, 1.f};
+							demo::Demo3DHostSetEmptyTransform(nn, dropW, rot, scl);
+							demo::Demo3DHostSelectEmptyNode(nn);
+						}
+						st.dropIdx = -1;
+					} else {
+						// SUR UN OBJET : le choix revient a l'utilisateur, par un
+						// menu. On MEMORISE la cible et le point ; le jeton reste
+						// en vol jusqu'a ce que le menu tranche -- ou soit
+						// abandonne, ce qui est la troisieme issue et pas un
+						// « enfant par defaut ».
+						st.dropMenuTarget = dropNode;
+						st.dropWorld[0] = dropW[0];
+						st.dropWorld[1] = dropW[1];
+						st.dropWorld[2] = dropW[2];
+						st.dropMenuX = ui.input.mousePos.x;
+						st.dropMenuY = ui.input.mousePos.y;
+					}
+				} else { // TEXTURE, SCENE, DOSSIER, GRAPHE, DATASET...
+					if (!vide)
+						NkDropRefuse(st, st.dropKind);
+					st.dropIdx = -1;
+				}
+			}
+		}
+
 		// ── CAPTURES, une fois l'image envoyee ──────────────────────────────
 		// « Capturer la vue » fige la cible hors ecran de la vue 3D (la scene
 		// seule, sans interface) ; « Tutoriel » photographie TOUTE la fenetre

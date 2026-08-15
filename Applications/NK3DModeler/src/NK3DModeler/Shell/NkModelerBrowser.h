@@ -736,18 +736,30 @@ namespace nkentseu {
 								st.browserNames[st.browDragIdx], NkRole::Text);
 				} else {
 					if (st.browDragging) {
-						// Sur la VUE : importer un CLONE dans la scene (Rihen).
+						// ── LACHER SUR LA VUE 3D : ON FIGE UN JETON, ON NE FAIT RIEN ──
+						// Avant, seul un MODEL etait traite, et il atterrissait a
+						// l'origine parce que personne ne savait ou le curseur
+						// pointait dans la scene -- l'hote n'exposait aucun pick.
+						// Desormais chaque nature est traitee, et AUCUNE ne reste
+						// muette : un refus silencieux est indistinguable d'un
+						// glisser-deposer casse.
+						//
+						// Rien ne s'applique ICI : la reponse du pick n'existe qu'a
+						// la frame suivante. On fige donc TOUT ce dont le geste aura
+						// besoin, et main.cpp applique quand la reponse arrive.
 						if (!NkHitRegistry::Contains(st.browserRect, bm) &&
-							NkHitRegistry::Contains(st.viewRect, bm) &&
-							st.browserKind[st.browDragIdx] == 6) {
-							int32 nn6 = -1;
-							if (st.browserSrcNode[st.browDragIdx] > 0)
-								nn6 = demo::Demo3DHostDuplicateNode(
-									st.browserSrcNode[st.browDragIdx] - 1);
-							if (nn6 < 0) // asset sans source : cube par defaut
-								nn6 = demo::Demo3DHostAddNode(2, 0);
-							if (nn6 >= 0)
-								demo::Demo3DHostSelectEmptyNode(nn6);
+							NkHitRegistry::Contains(st.viewRect, bm)) {
+							st.dropIdx = st.browDragIdx;
+							st.dropKind = st.browserKind[st.browDragIdx];
+							st.dropSrcNode = st.browserSrcNode[st.browDragIdx];
+							st.dropMat = st.browserMat[st.browDragIdx];
+							snprintf(st.dropName, sizeof(st.dropName), "%s",
+									 st.browserNames[st.browDragIdx]);
+							st.dropMenuTarget = -1; // un jeton neuf n'herite d'aucun menu
+							// COORDONNEES FENETRE, telles quelles : l'hote soustrait
+							// SON origine de vue. Passer `bm - st.viewRect` ferait de
+							// `viewRect` une seconde source pour la meme origine.
+							demo::Demo3DHostPickRequest(bm.x, bm.y);
 							st.browDragIdx = -1;
 						}
 						if (st.browDragIdx >= 0 && dropTo == -999 &&
