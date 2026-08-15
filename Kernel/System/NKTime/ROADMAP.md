@@ -77,6 +77,30 @@ Légende : Livré · Partiel · En cours · TODO · Abandonné
   - Mention DST dans la doc, mais résolution réelle des règles régionales =
     voir section TODO.
 
+### Horloge murale — `NkSystemClock` (2026-08-16)
+
+`UnixSeconds()`, `UnixMilliseconds()`, `LocalNow()`, `UtcNow()`,
+`StampCompact()` — l'heure **du calendrier**, distincte de `NkChrono` qui reste
+**monotone**. Mesurer une durée avec l'horloge murale est un défaut classique :
+un ajustement d'horloge en cours de mesure rend une durée négative.
+
+**Pourquoi elle est née** : le module savait mesurer des durées et représenter
+des dates, mais **rien ne donnait l'heure qu'il est**. Quatre endroits du dépôt
+appelaient donc `std::time`/`localtime` chacun dans leur coin —
+`NkStringUtils.cpp`, `NkDirectory.cpp`, `NkUIFileBrowser.cpp`,
+`NkCameraSystem.cpp` : le même manque résolu quatre fois localement, avec de la
+STL, dans un moteur qui n'en veut pas. *(Les en-têtes du module renvoyaient vers
+« NkDateTime, module séparé » — qui n'existe pas : une promesse d'API sans
+implémentation.)*
+
+Vérifié : `StampCompact` rend `"20260816_000110"` — 15 caractères, exactement la
+forme que produisait `strftime("%Y%m%d_%H%M%S")`. Sur tampon trop petit elle rend
+**faux et une chaîne vide**, jamais un horodatage à moitié écrit : un nom de
+fichier tronqué se collisionne en silence avec le suivant.
+
+**Premier consommateur** : `NkCameraSystem::GenerateAutoPath`. Les trois autres
+sites du dépôt restent à basculer — hors périmètre de ce chantier, notés ici.
+
 ### Tests
 - [test_smoke.cpp](tests/test_smoke.cpp) : conversions NkDuration,
   monotonicité de `NkChrono::Now()`, round-trip UTC + offset fixe via
