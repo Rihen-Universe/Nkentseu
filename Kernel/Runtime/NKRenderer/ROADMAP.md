@@ -844,24 +844,33 @@ limité, DX12+Metal OK. Plan :
 - Reflection probes par pièce/zone (cubemap localisé)
 
 ### Bugs/quirks connus
-- ❌ **LE SEUIL DE BLOOM NE SUIT PAS L'AUTO-EXPOSITION — facteur 20 mesuré**
-  (2026-08-15). `bloomThr` est calculé dans `BuildDefaultRenderGraph` puis
-  **capturé par valeur** dans les lambdas des 6 passes (`NkRendererImpl.cpp`,
-  passe `Bloom_Down_0`). Il ne bouge donc qu'au rebuild du graphe, alors que
+- ✅ **LE SEUIL DE BLOOM NE SUIVAIT PAS L'AUTO-EXPOSITION — facteur 20 mesuré,
+  puis CORRIGÉ** (2026-08-15, `2fc4d39f` puis `bbd4a469`). `bloomThr` était
+  calculé dans `BuildDefaultRenderGraph` puis **capturé par valeur** dans les
+  lambdas des 6 passes. Il ne bougeait donc qu'au rebuild du graphe, alors que
   l'exposition s'adapte à chaque frame.
-  **Ce n'est pas un retard qui se résorbe** : à la première frame `resolved = 1`
-  — le seuil est calculé **avant que la première mesure d'auto-exposition
-  n'existe** — puis l'exposition converge et le seuil reste sur l'ancienne
+  **Correctif** : le calcul vit dans `NkRendererImpl::ComputeBloomThreshold()`,
+  appelée **dans la lambda** de `Bloom_Down_0` — on capture le *rang* de la
+  passe, plus une valeur. Gratuit : `threshold` est déjà un push constant de
+  `DrawBloomDownPass`, donc le réévaluer chaque frame ne recrée aucun pipeline.
+  **Après correctif** : `resolved=0.05 → bloomThr=144.8` (restait à 7,24 avant).
+  **Banc du point 4 rejoué SOUS AUTO ACTIVE** — première mesure des cas 12 et 13
+  dans le régime où ils avaient été éteints : témoin 0,306 % / 2,718 %, test
+  0,278 % / 2,425 %. Le témoin bouge plus que le test, luma stable à 141.
+  *Réserve* : sur le cas 12, l'écart max du test (88) dépasse celui du témoin
+  (79) — au plus quelques pixels de highlight, ce qu'un bloom doit faire.
+  ---
+  **Le diagnostic, gardé parce qu'il explique la forme du défaut.**
+  **Ce n'était pas un retard qui se résorbe** : à la première frame `resolved = 1`
+  — le seuil était calculé **avant que la première mesure d'auto-exposition
+  n'existe** — puis l'exposition convergeait et le seuil restait sur l'ancienne
   valeur indéfiniment, aucun rebuild n'ayant lieu.
   **Mesure** (Demo4 + `NK_AUTOEXP=1`, orbite, 900 frames) : seuil appliqué
   **7,24** contre **144,8** réclamé, rapport **0,05 stable sur 841 frames**.
-  Conséquence : sous auto active, le bloom capte 20× trop bas — **le défaut que
+  Conséquence : sous auto active, le bloom captait 20× trop bas — **le défaut que
   les six compensations contournaient revient intégralement**. Le banc d'essai
   du 15/08 ne pouvait pas le voir : il tourne en exposition manuelle, où la
   valeur est désormais juste ET stable.
-  **Correctif identifié** : pousser le seuil par frame (push constant) au lieu
-  de le figer à la construction — touche les 6 passes de bloom. Autorisé sur la
-  foi de ce chiffre ; non fait à ce jour.
   *Nuance* : `resolved` sature ici à `autoExposureMinExp = 0,05` sur une scène
   réglée pour exposition manuelle 1 — le facteur 20 est un cas franc, pas une
   moyenne. Le mécanisme, lui, ne dépend pas de la saturation.
