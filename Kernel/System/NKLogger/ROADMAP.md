@@ -17,10 +17,12 @@ dédié.
 | Sinks de base (Console, File, Null, Distributing) | Livré | — | — |
 | Sinks fichiers avancés (Rotating par taille, Daily par date) | Livré | — | — |
 | Sink asynchrone (NkAsyncSink) | Livré | — | — |
+| Battement de journal (NkLogHeartbeat, éteint par défaut) | Livré | — | — |
+| Banc de coût par ligne (benchmark_smoke, autonome) | Livré | — | — |
 | API fluide chaînable (Named/Level/Pattern/Source) | Livré | — | — |
 | Capture source auto via macro `logger` (FILE/LINE/FUNC) | Livré | — | — |
 | Sanitisation UTF-8 dans LogInternal | Livré | — | — |
-| Tests unitaires (smoke, indexed format) | Partiel | S | Haute |
+| Tests unitaires (smoke, indexed format) | ❌ NON COMPILABLES — cadre Unitest absent du depot | S | Haute |
 | NkAsyncLogger comme classe dédiée (vs sink) | Partiel | M | Moyenne |
 | Sink JSON natif (NkJsonSink) | TODO | M | Moyenne |
 | Sink réseau (TCP/UDP/syslog) | TODO | L | Basse |
@@ -71,12 +73,33 @@ interne.
   `NK_DROP_OLDEST/NK_DROP_NEWEST/NK_BLOCK`, flush périodique configurable.
 
 ### Tests
-- [test_smoke.cpp](tests/test_smoke.cpp) : round-trip des niveaux, formatter de
-  base.
-- [test_indexed_format.cpp](tests/test_indexed_format.cpp) : formatage
-  positionnel `{0}`, `{1:hex}`, etc.
-- [benchmark_smoke.cpp](tests/benchmark_smoke.cpp) : micro-bench du chemin
-  Info().
+
+> ⚠️ **CORRIGÉ LE 2026-08-15 — cette section affirmait trois tests livrés. Deux
+> ne peuvent pas se compiler et le troisième ne mesurait rien.**
+>
+> `test_smoke.cpp` et `test_indexed_format.cpp` incluent `<Unitest/Unitest.h>` :
+> **ce cadre n'existe pas dans le dépôt** — ni source, ni bibliothèque, ni
+> sous-module, ni la moindre mention dans un `.jenga` (vérifié par recherche
+> exhaustive). Et rien ne le signale, parce que l'exécution des tests est coupée
+> par politique de workspace (`disableunittestexecution`) : `jenga test --project
+> NKLogger` répond « SUCCESS, 6/6 » **sans jamais toucher ces fichiers**.
+> *Un test qui ne compile pas, dans une chaîne qui ne l'exécute pas, ressemble à
+> un test.*
+>
+> `benchmark_smoke.cpp` était pire : **36 lignes entièrement en commentaire**,
+> annoncées ici comme « micro-bench du chemin `Info()` ». Il ne mesurait rien, et
+> ne mesurait de toute façon que le formateur — pas ce qu'une application paie.
+
+- [benchmark_smoke.cpp](tests/benchmark_smoke.cpp) — ✅ **réécrit et
+  fonctionnel** : coût par ligne (fichier / sans écriture / filtrée), autonome,
+  son propre `main`, aucune dépendance à un cadre de test. Lancement :
+  `bash Kernel/System/NKLogger/tests/build_bench.sh` puis
+  `/tmp/nklogbench/bench_nklogger.exe`. Il **échoue** si une durée est nulle ou
+  si une ligne filtrée ne coûte pas moins qu'une ligne émise.
+- `test_smoke.cpp`, `test_indexed_format.cpp` — ❌ **non compilables** (cadre
+  absent). À reprendre : soit sur le modèle autonome ci-dessus, soit en
+  introduisant réellement un cadre de test dans le dépôt. **Ne pas les compter
+  comme couverture tant que ce n'est pas fait.**
 
 ---
 
@@ -165,17 +188,49 @@ file vide ne produit aucune ligne.
 Cadence tenue : battements espacés de 516, 531, 507 ms pour 500 demandées (la
 granularité est celle de la boucle, ~16 ms).
 
-⚠️ **Le coût n'a PAS pu être isolé, et je ne le déclare donc pas négligeable.**
-Trois exécutions alternées à `--beat=500` puis `--beat=50` (dix fois plus de
-lignes) donnent 41,4 / 42,1 img/s contre 35,1 / 55,1 / 52,6 : les intervalles se
-chevauchent, et le régime le plus bavard est parfois le plus rapide. **La
-variance entre exécutions (~±20 img/s) écrase l'effet cherché.** Ce qu'on peut
-dire : journaliser 20 lignes/s ne réduit pas le débit de façon détectable par cet
-instrument. Ce qu'on ne peut pas dire : de combien ça coûte.
+#### Ce que coûte une ligne — mesuré au bon endroit (`tests/benchmark_smoke.cpp`)
+
+**Premier instrument, écarté** : le débit d'images. `--beat=500` contre
+`--beat=50` (dix fois plus de lignes) donne 41,4 / 42,1 img/s contre
+35,1 / 55,1 / 52,6 — intervalles chevauchants, et le régime le plus bavard
+parfois le plus rapide. La bonne formulation n'est pas « indétectable » mais
+**« cet instrument ne résout rien sous ±33 % »** : le viewer varie de 35 à
+55 img/s sur une boucle plafonnée à 60, et **cette variance EST le plancher de
+bruit**. Mesurer un écart sans avoir mesuré le bruit ne conclut rien.
+
+**Second instrument, concluant** — coût par appel, immunisé contre la variance
+de la boucle. Quatre exécutions, 20 000 lignes chacune :
+
+| chemin | coût par ligne |
+|---|---|
+| ligne émise vers un puits **fichier** | **~12,4 à 15,0 µs** |
+| formatage + distribution, **sans écriture** (puits nul) | **~0,54 à 0,59 µs** |
+| ligne **filtrée** par le niveau (non émise) | **~2 à 5 ns** |
+
+*La toute première exécution donne 26,4 µs / 1,36 µs / 4,9 ns — le fichier est
+froid. Les valeurs ci-dessus sont celles du régime établi ; l'amorce d'une seule
+ligne ne suffit pas à réchauffer le chemin disque.*
+
+**Ce que ces chiffres disent :**
+- **l'écriture pèse 96 %** du coût d'une ligne. C'est le prix de
+  `setvbuf(_IONBF)` — chaque ligne part immédiatement, donc aucune n'est perdue
+  au plantage. Le compromis est assumé, il est maintenant chiffré ;
+- **le battement ne coûte rien** : 2 lignes/s à 500 ms ≈ **26 µs par seconde**,
+  soit 0,003 % du temps. À `--beat=50`, 0,03 %. C'est **quatre ordres de
+  grandeur** sous le plancher de bruit du premier instrument — voilà pourquoi il
+  ne pouvait rien voir ;
+- **une trace laissée dans le code coûte 2 à 5 ns** quand son niveau la rejette.
+  Le filtrage se fait bien AVANT le travail. C'est le chiffre qui autorise à
+  instrumenter sans se demander si ça se paie ;
+- ⚠️ **et il corrige une idée reçue de ce module** : journaliser une ligne par
+  image coûterait ~13 µs sur 16 667, soit **0,08 %** d'une image à 60 Hz. La
+  raison de ne pas le faire n'est donc **pas** la performance — c'est la
+  lisibilité. Un journal qui parle à chaque image est illisible, pas lent.
 
 *Dette au passage, hors périmètre NKLogger* : le débit de `NkCameraDemos --demo=viewer`
-varie de 35 à 55 img/s d'une exécution à l'autre sur une boucle plafonnée à 60.
-L'instabilité elle-même n'est pas expliquée.
+varie de 35 à 55 img/s d'une exécution à l'autre sur une boucle plafonnée à 60
+(57 % d'amplitude). L'instabilité elle-même n'est pas expliquée, et **tout banc
+d'essai monté sur cette boucle hérite de ce plancher**.
 
 ### `NkConsoleSink` — vidage à partir de WARN, plus seulement ERROR
 
