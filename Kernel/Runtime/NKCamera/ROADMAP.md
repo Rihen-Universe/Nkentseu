@@ -278,9 +278,50 @@ victimes.
 méthodes `SetAutoExposure()` / `SetAutoWhiteBalance()` existent et fonctionnent —
 ce sont les **champs de configuration** qui ne mènent nulle part.
 
-**À faire, dans cet ordre** : soit câbler ces trois champs à l'ouverture du flux,
-soit les retirer et documenter les méthodes équivalentes. **Ne pas les laisser
-tels quels** — c'est la situation qui a produit les trois premiers.
+**Verdict après enquête** (la mesure décide de la réparation, pas l'inverse) :
+
+- **`outputFormat` → RETIRER, ne pas honorer.** Les trois applications testent
+  `frame.format` et appellent `ConvertToRGBA8` : elles fonctionnent **par
+  conception**, pas par accident. Et le format est **imposé par la plateforme** —
+  NV12 (Windows), YUV420 (Android), BGRA8 (Cocoa/UIKit), YUYV/MJPEG (Linux) :
+  aucun backend ne peut livrer du RGBA8 sans convertir. « Honorer » reviendrait
+  donc à refaire dans le système ce que le consommateur fait déjà, en le cachant.
+  Le format réellement livré se lit sur `NkCameraFrame::format`.
+- **`autoExposure` / `autoWhiteBalance` → câbler ou retirer.** Réglages morts :
+  personne ne les écrit, personne ne les lit. Les méthodes
+  `SetAutoExposure()` / `SetAutoWhiteBalance()` font le travail.
+
+En attendant l'arbitrage, les trois champs portent **dans l'en-tête** un
+avertissement disant ce qu'ils ne font pas. Un commentaire ne casse rien et
+cesse de mentir immédiatement.
+
+### 🔧 Le mécanisme, et son prix — `tests/audit_reglages.sh`
+
+Corriger quatre fantômes un par un ne dit rien du cinquième. Le moins cher qui
+les transforme en bruit : **un script qui compte, pour chaque champ public,
+combien de fois il est ÉCRIT et combien de fois il est LU.**
+
+**Prix mesuré : 7,4 s d'exécution, ~55 lignes, aucun build.**
+
+**Ce qu'il attrape** (rejoué sur l'état d'avant) : `outputFormat`,
+`autoExposure`, `autoWhiteBalance`, et `flipHorizontal` — soit **les quatre**.
+
+⚠️ **Sa première version les manquait**, et c'est instructif : elle comptait
+lectures et écritures ensemble, si bien que `outputFormat` sortait à
+« 3 lecteurs, ok ». **Un grep ne distingue pas lire d'écrire**, et le pire cas du
+module passait au vert. La séparation écrit/lu est tout l'intérêt du script :
+*un champ écrit mais jamais lu est le mensonge le plus coûteux — il a déjà des
+victimes, contrairement à un champ mort que personne ne touche.*
+
+**Ce qu'il n'attrape PAS, écrit dans son en-tête pour qu'on ne s'y fie pas trop :**
+- un champ **lu mais mal utilisé** — la plage de couleur était lue, seulement
+  *déduite* du format ; il l'aurait déclarée saine ;
+- un champ honoré sur une plateforme et ignoré sur une autre (`autoFocus`) — il
+  le signale seulement comme « peu de lecteurs, à vérifier » ;
+- **un faux positif sur 11 champs** : `preset` sort à 0 lecteur parce qu'il est
+  lu par `Resolve()`, dans le fichier de déclaration que le script exclut. Le
+  script **imprime son périmètre et son exclusion au-dessus de chaque résultat**,
+  précisément pour que ce zéro soit relu et non cru.
 
 ### ✅ `flipHorizontal` est enfin APPLIQUÉ (2026-08-15)
 
