@@ -135,11 +135,11 @@ namespace nkentseu {
 			// Qualification ::nkentseu::NkImage obligatoire pour expliciter
 			// qu'on utilise le NkImage de NKImage (pas un eventuel namespace
 			// renderer::NkImage).
-			::nkentseu::NkImage *img = ::nkentseu::NkImage::Alloc((int32)w, (int32)h, NkImagePixelFormat::NK_RGB24);
-			if (!img)
+			::nkentseu::NkImage img = ::nkentseu::NkImage::Alloc((int32)w, (int32)h, NkImagePixelFormat::NK_RGB24);
+			if (!img.IsValid())
 				return f;
-			const int32 stride = img->Stride();
-			uint8 *pix = img->Pixels();
+			const int32 stride = img.Stride();
+			uint8 *pix = img.Pixels();
 			const int32 third = (int32)(w / 3);
 			for (uint32 y = 0; y < h; ++y) {
 				uint8 *row = pix + (usize)y * stride;
@@ -164,13 +164,10 @@ namespace nkentseu {
 
 			uint8 *jpegBuf = nullptr;
 			usize jpegSize = 0;
-			const bool ok = NkJPEGCodec::Encode(*img, jpegBuf, jpegSize, 85);
-			// ATTENTION : NkImage::Alloc utilise nkMalloc + placement new
-			// pour le wrapper. Free() libere a la fois les pixels ET le
-			// wrapper. JAMAIS delete img apres Free() -> double-free,
-			// heap corruption (crash c0000374 sur Windows). Cf. commentaire
-			// dans Pong/Render/Texture2D.cpp lignes 86-87.
-			img->Free();
+			const bool ok = NkJPEGCodec::Encode(img, jpegBuf, jpegSize, 85);
+			// NkImage est un TYPE VALEUR : `img` libere ses pixels toute seule en
+			// sortant de la portee (il n'y a plus ni Free() ni instance du tas).
+			// Seul `jpegBuf` reste a liberer a la main, via memory::NkFree.
 
 			if (!ok || !jpegBuf || jpegSize == 0) {
 				logger.Warn("[Format] NkJPEGCodec::Encode a echoue pour MJPEG synthetique");

@@ -466,15 +466,15 @@ namespace nkentseu {
 		if (frame.format == NkPixelFormat::NK_PIXEL_MJPEG) {
 			// Décodage MJPEG via NkJPEGCodec (baseline DCT JFIF/Exif).
 			// Sortie codec : NK_RGB24 ou NK_GRAY8 — on convertit en RGBA8 ici.
-			NkImage *img = NkJPEGCodec::Decode(frame.data.Data(), (usize)frame.data.Size());
-			if (!img)
+			NkImage img = NkJPEGCodec::Decode(frame.data.Data(), (usize)frame.data.Size());
+			if (!img.IsValid())
 				return false;
 
-			uint32 iw = (uint32)img->Width();
-			uint32 ih = (uint32)img->Height();
-			int32 channels = img->Channels();
-			const uint8 *src = img->Pixels();
-			int32 srcStride = img->Stride();
+			uint32 iw = (uint32)img.Width();
+			uint32 ih = (uint32)img.Height();
+			int32 channels = img.Channels();
+			const uint8 *src = img.Pixels();
+			int32 srcStride = img.Stride();
 
 			out.Resize(iw * ih * 4);
 			if (channels == 3) {
@@ -501,13 +501,11 @@ namespace nkentseu {
 					}
 				}
 			} else {
-				img->Free();
 				return false;
 			}
 			// Dimensions JPEG peuvent différer du header annoncé : on resync.
 			frame.width = iw;
 			frame.height = ih;
-			img->Free();
 			frame.data = std::move(out);
 			frame.format = NkPixelFormat::NK_PIXEL_RGBA8;
 			frame.stride = iw * 4;
@@ -606,13 +604,12 @@ namespace nkentseu {
 		// Wrap les pixels dans un NkImage non-propriétaire et délègue à NKImage
 		// qui détecte le format depuis l'extension (.png / .jpg / .bmp / .tga
 		// / .qoi / .gif / .ppm / .webp).
-		NkImage *img = NkImage::Wrap(const_cast<uint8 *>(copy.data.Data()), (int32)copy.width, (int32)copy.height,
-									 NkImagePixelFormat::NK_RGBA32, (int32)copy.stride);
-		if (!img)
+		NkImage img = NkImage::Wrap(const_cast<uint8 *>(copy.data.Data()), (int32)copy.width, (int32)copy.height,
+									NkImagePixelFormat::NK_RGBA32, (int32)copy.stride);
+		if (!img.IsValid())
 			return false;
 
-		bool ok = img->Save(path.CStr(), quality);
-		img->Free();
+		bool ok = img.Save(path.CStr(), quality);
 		return ok;
 	}
 
