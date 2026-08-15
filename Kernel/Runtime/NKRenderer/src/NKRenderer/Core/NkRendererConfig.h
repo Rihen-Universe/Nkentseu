@@ -218,6 +218,18 @@ namespace nkentseu {
 				// 0 = no auto, 1 = full auto-exp (override user exposure).
 				// Override runtime pour test : NK_AUTOEXP=<0..1>, NK_AUTOEXP_SPEED=<v>.
 				float32 autoExposureStrength = 0.f;
+				// SEUIL D'ACTIVATION, ECRIT UNE SEULE FOIS. Deux endroits doivent
+				// repondre la MEME chose : celui qui decide si la passe tourne
+				// (IsAutoExposureEnabled) et celui qui decide si le graphe doit
+				// etre reconstruit (SetPostConfig). Les separer, c'est cocher une
+				// case sans obtenir la passe qu'elle demande.
+				static constexpr float32 kAutoExposureOn = 0.001f;
+				// L'auto est-elle DEMANDEE par cette config ? (L'override
+				// d'environnement NK_AUTOEXP, lui, ne varie pas en cours de route :
+				// il ne peut donc pas provoquer un changement de jeu de passes.)
+				bool AutoExposureRequested() const {
+					return autoExposureStrength > kAutoExposureOn;
+				}
 				float32 autoExposureKey = 0.18f; // mid-gray target (Reinhard standard)
 				// Vitesse d'adaptation (unites par seconde) : la valeur converge en
 				// 1 - exp(-dt * vitesse), donc independante du framerate. 2 = ~0.5 s

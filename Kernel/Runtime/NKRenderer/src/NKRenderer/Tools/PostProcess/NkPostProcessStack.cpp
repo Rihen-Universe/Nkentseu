@@ -1350,7 +1350,7 @@ void main() {
 		bool NkPostProcessStack::IsAutoExposureEnabled() const {
 			if (!mPipeAutoExp.IsValid() || !mLumaRT[0].IsValid() || !mLumaRT[1].IsValid())
 				return false;
-			return NkAutoExpStrength(mCfg.autoExposureStrength) > 0.001f;
+			return NkAutoExpStrength(mCfg.autoExposureStrength) > NkPostConfig::kAutoExposureOn;
 		}
 
 		NkTextureHandle NkPostProcessStack::GetAvgLumaTexRHI() const {
@@ -1477,18 +1477,16 @@ void main() {
 		}
 
 		void NkPostProcessStack::PumpExposureReadback(NkICommandBuffer *cmd) {
-			// ── BRANCHE 1 : AUTO ETEINTE ─────────────────────────────────────
-			// Le CPU connait deja l'exposition : c'est celle de la config. Aucun
-			// releve. Ce n'est PAS un repli en cas d'echec, c'est le chemin
-			// normal quand l'automatique ne tourne pas -- l'ecrire comme un
-			// repli inviterait quelqu'un a « l'ameliorer » par un releve inutile.
-			if (!IsAutoExposureEnabled()) {
-				mResolvedExposure = mCfg.exposure > 0.f ? mCfg.exposure : 1.f;
-				mResolvedValid = true;
-				mResolvedStaleFrames = 0;
-				return;
-			}
-			// ── BRANCHE 2 : AUTO ACTIVE ──────────────────────────────────────
+			// CETTE FONCTION NE TOURNE QUE SOUS AUTO ACTIVE, et ce n'est pas une
+			// hypothese : son unique appelant est RunAutoExposure, qui retourne
+			// avant si !IsAutoExposureEnabled(). Le cas « auto eteinte » est donc
+			// traite dans ResolvedExposure(), la ou la question est posee.
+			//
+			// IL Y AVAIT ICI UNE BRANCHE « auto eteinte », annoncee « deliberee,
+			// pas un cas degrade » : elle etait INATTEIGNABLE, et son commentaire
+			// est precisement ce qui a dissuade d'aller verifier qui l'appelait.
+			// La garde ecrite pour poser l'exposition manuelle etait morte, donc
+			// personne ne la posait -- c'est la cause du cas 4.
 			if (!cmd || !mDevice || mLumaWrite < 0 || mLumaReadDisabled)
 				return;
 			NkTextureHandle src = GetAvgLumaTexRHI();
@@ -1573,6 +1571,30 @@ void main() {
 		}
 
 		bool NkPostProcessStack::ResolvedExposure(float32 *out, bool *stale) const {
+			// ── HORS AUTO : LE CPU CONNAIT DEJA LA REPONSE ───────────────────
+			// L'exposition effective est celle de la config, immediatement et
+			// sans aucun releve. On repond ICI, au point ou la question est
+			// POSEE, et non dans le pompage de l'anneau : c'est le seul endroit
+			// qui vaut pour TOUS les consommateurs (bright pass, panneau) et a
+			// TOUT instant -- y compris a la construction du graphe, qui a lieu
+			// hors frame et ne verrait pas une valeur posee par le rendu.
+			//
+			// CE QUE CE COURT-CIRCUIT CORRIGE, mesure a l'appui (cas 4) : apres
+			// extinction de l'auto, mResolvedExposure gardait la derniere valeur
+			// relevee (5,1513 sur une scene a ambiance 0,050), mResolvedValid
+			// restait vrai, et RIEN ne les rafraichissait ni ne les perimait --
+			// mResolvedStaleFrames lui-meme n'est incremente que par le pompage,
+			// qui ne tourne plus. Le seuil de bloom s'ancrait donc sur une
+			// exposition d'un etat revolu : bloomThr 1,19 au lieu de 6,15, d'ou
+			// le cube surexpose et le retour de la bouillie lumineuse.
+			if (!IsAutoExposureEnabled()) {
+				if (out)
+					*out = mCfg.exposure > 0.f ? mCfg.exposure : 1.f;
+				// Aucune mesure n'est en vol : il n'y a rien qui puisse perimer.
+				if (stale)
+					*stale = false;
+				return true;
+			}
 			if (out)
 				*out = mResolvedExposure;
 			// Deux frames de retard sont NORMALES (c'est l'anneau) ; au-dela, les

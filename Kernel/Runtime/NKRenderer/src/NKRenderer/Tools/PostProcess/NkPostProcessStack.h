@@ -273,14 +273,16 @@ namespace nkentseu {
 				bool mResolvedValid = false;
 				int mResolvedStaleFrames = 0;
 
-				// Alimente l'anneau ; appele apres RunAutoExposure. DEUX BRANCHES
-				// DELIBEREES, pas un cas degrade : auto eteinte, le CPU connait
-				// deja l'exposition manuelle et AUCUN releve n'est fait.
+				// Alimente l'anneau. APPELE UNIQUEMENT SOUS AUTO ACTIVE : son seul
+				// appelant est RunAutoExposure, qui retourne avant si l'auto est
+				// eteinte. Le cas manuel est traite par ResolvedExposure().
 				void PumpExposureReadback(NkICommandBuffer *cmd);
 
 			public:
 				/// Exposition reellement appliquee a la derniere frame mesuree.
-				/// Retourne false tant qu'aucun releve n'est arrive -- l'appelant
+				/// HORS AUTO : rend toujours true, avec l'exposition de la config
+				/// -- le CPU la connait, il n'y a rien a attendre ni a perimer.
+				/// SOUS AUTO : false tant qu'aucun releve n'est arrive -- l'appelant
 				/// doit alors afficher « — » et NON une valeur par defaut.
 				/// `stale` : la valeur est la derniere connue, mais les releves ont
 				/// cesse d'arriver.
