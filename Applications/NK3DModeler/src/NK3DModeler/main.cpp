@@ -1026,6 +1026,37 @@ int nkmain(const NkEntryState &entry) {
 			// maillage. Meme raisonnement que `st.editingText`.
 			demo::Demo3DHostSetView(viewImg.x, viewImg.y, overSceneLastFrame && !st.welcome,
 									!st.editingText && !st.welcome);
+			// ── MESURE : LES DEUX SOURCES DE POSITION SOURIS ────────────────
+			// NK_MOUSE_TRACE=1. Le CLIC lit `NkInput.MouseX()` dans la vue 3D ;
+			// le LACHER du navigateur lit `hit.Mouse()`, alimente par
+			// `NkMouseMoveEvent`. Les deux soustraient ensuite la MEME origine
+			// (`viewImg.x/y`). Si les deux sources divergent, le lacher vise un
+			// autre pixel que le clic au meme endroit de l'ecran -- et un pick
+			// qui ne touche rien explique a lui seul « le vide », « la mauvaise
+			// position », « pas d'enfant » et « le materiau ne fait rien ».
+			// Trace TEMPORAIRE : elle sort une ligne par deplacement.
+			{
+				static int32 mtOn = -1;
+				if (mtOn < 0)
+					mtOn = (std::getenv("NK_MOUSE_TRACE") != nullptr) ? 1 : 0;
+				if (mtOn == 1) {
+					static float32 lastX = -1e9f, lastY = -1e9f;
+					const float32 sx = ui.input.mousePos.x, sy = ui.input.mousePos.y;
+					const float32 ix = (float32)nkentseu::NkInput.MouseX();
+					const float32 iy = (float32)nkentseu::NkInput.MouseY();
+					if (sx != lastX || sy != lastY) {
+						lastX = sx;
+						lastY = sy;
+						nkentseu::NkLog::Instance().Info(
+							"[nk3d] MESURE souris : shell=({0}, {1}) input=({2}, {3}) "
+							"ecart=({4}, {5}) origine=({6}, {7}) vueShell=({8}, {9}) "
+							"vueInput=({10}, {11}) viewRect=({12}, {13}, {14}, {15})\n",
+							sx, sy, ix, iy, sx - ix, sy - iy, viewImg.x, viewImg.y,
+							sx - viewImg.x, sy - viewImg.y, ix - viewImg.x, iy - viewImg.y,
+							st.viewRect.x, st.viewRect.y, st.viewRect.w, st.viewRect.h);
+					}
+				}
+			}
 		}
 
 		// ── SYNCHRONISATION UI <-> DEMO PORTEE ──────────────────────────────
@@ -2064,11 +2095,80 @@ int nkmain(const NkEntryState &entry) {
 		//
 		// AUCUNE nature ne reste muette sur un objet : un refus silencieux est
 		// indistinguable d'un glisser-deposer casse (regle du depot, vague 27).
+		//
+		// ── MESURE : NK_DROP_TOKEN="carte,x,y[,frame]" ──────────────────────
+		// FIGE LE JETON D'UNE VRAIE CARTE du navigateur, exactement comme le
+		// relachement le fait, puis demande le pick a ces pixels de FENETRE.
+		// Seul le TRAJET de la souris est fabrique : la nature, le noeud source
+		// et l'emplacement de materiau sont lus dans le navigateur, pas
+		// inventes. Sans lui, la suite du geste -- assignation, position, menu
+		// -- n'est exercable que par une main, et les trois symptomes de Rodolf
+		// vivent tous APRES le pick, pas dedans.
+		{
+			static bool dtDone = false;
+			static int32 dtFrame = 0;
+			++dtFrame;
+			if (!dtDone) {
+				const char *dt = std::getenv("NK_DROP_TOKEN");
+				if (!dt) {
+					dtDone = true;
+				} else {
+					float32 dv[4] = {0.f, 0.f, 0.f, 8.f};
+					int32 dk = 0;
+					for (const char *dp = dt; dk < 4 && *dp;) {
+						dv[dk++] = (float32)atof(dp);
+						while (*dp && *dp != ',')
+							++dp;
+						if (*dp == ',')
+							++dp;
+					}
+					if (dtFrame >= (int32)dv[3]) {
+						dtDone = true;
+						const int32 ci = (int32)dv[0];
+						if (ci >= 0 && ci < st.browserCount) {
+							st.dropIdx = ci;
+							st.dropKind = st.browserKind[ci];
+							st.dropSrcNode = st.browserSrcNode[ci];
+							st.dropMat = st.browserMat[ci];
+							snprintf(st.dropName, sizeof(st.dropName), "%s",
+									 st.browserNames[ci]);
+							st.dropMenuTarget = -1;
+							demo::Demo3DHostPickRequest(dv[1], dv[2]);
+							nkentseu::NkLog::Instance().Info(
+								"[nk3d] MESURE jeton : carte {0} « {1} » nature={2} "
+								"srcNode={3} mat={4} · lacher demande a ({5}, {6}) "
+								"fenetre\n",
+								ci, st.dropName, (int32)st.dropKind, st.dropSrcNode,
+								st.dropMat, dv[1], dv[2]);
+						} else {
+							// Carte hors bornes = DEMANDE D'INVENTAIRE. Sans lui, il
+							// faut une execution par indice pour savoir quelle carte
+							// porte quel numero, et le numero change avec le tri.
+							nkentseu::NkLog::Instance().Info(
+								"[nk3d] MESURE jeton : {0} cartes\n", st.browserCount);
+							for (int32 bi = 0; bi < st.browserCount; ++bi)
+								nkentseu::NkLog::Instance().Info(
+									"[nk3d]   carte {0} « {1} » nature={2} srcNode={3} "
+									"mat={4} parent={5}\n",
+									bi, st.browserNames[bi], (int32)st.browserKind[bi],
+									st.browserSrcNode[bi], st.browserMat[bi],
+									st.browserParent[bi]);
+						}
+					}
+				}
+			}
+		}
 		if (st.dropIdx >= 0 && st.dropMenuTarget < 0) {
 			int32 dropNode = -3;
 			float32 dropW[3] = {0.f, 0.f, 0.f};
 			if (demo::Demo3DHostPickTake(&dropNode, dropW)) {
 				const bool vide = (dropNode == -1);
+				// MESURE : ce que la reponse du pick vaut AVANT tout traitement.
+				nkentseu::NkLog::Instance().Info(
+					"[nk3d] MESURE lacher : nature={0} noeud={1} monde=({2}, {3}, {4}) "
+					"srcNode={5} mat={6}\n",
+					(int32)st.dropKind, dropNode, dropW[0], dropW[1], dropW[2],
+					st.dropSrcNode, st.dropMat);
 				// -2 = hors du viseur. La zone de lacher EST le viseur, donc ce
 				// cas ne devrait pas arriver : il est journalise plutot que
 				// traite, parce que c'est un bogue et pas un cas d'usage.
@@ -2081,9 +2181,18 @@ int nkmain(const NkEntryState &entry) {
 					if (vide) {
 						st.dropIdx = -1; // lache dans le vide : rien, et c'est voulu
 					} else {
-						if (st.dropMat > 0)
+						if (st.dropMat > 0) {
+							const int32 avant = demo::Demo3DHostProjMatOf(dropNode);
 							demo::Demo3DHostProjMatAssign(dropNode, st.dropMat - 1);
-						else
+							// MESURE : l'assignation a-t-elle PRIS ? « aucun effet »
+							// peut vouloir dire « rien ne s'est ecrit » ou « le
+							// materiau pose ressemble a celui d'avant ».
+							nkentseu::NkLog::Instance().Info(
+								"[nk3d] MESURE materiau : noeud={0} avant={1} "
+								"demande={2} apres={3}\n",
+								dropNode, avant, st.dropMat - 1,
+								demo::Demo3DHostProjMatOf(dropNode));
+						} else
 							snprintf(st.hierNote, sizeof(st.hierNote),
 									 "« %s » n'a pas encore d'emplacement de materiau",
 									 st.dropName);
@@ -2101,6 +2210,66 @@ int nkmain(const NkEntryState &entry) {
 							const float32 scl[3] = {1.f, 1.f, 1.f};
 							demo::Demo3DHostSetEmptyTransform(nn, dropW, rot, scl);
 							demo::Demo3DHostSelectEmptyNode(nn);
+							// MESURE : ce que le noeud vaut APRES la pose. Si la
+							// position relue differe de celle demandee, ce n'est
+							// pas le pick qui ment, c'est la pose.
+							float32 gp[3] = {0.f, 0.f, 0.f}, gr[3] = {0.f, 0.f, 0.f},
+									gs[3] = {0.f, 0.f, 0.f};
+							const bool got =
+								demo::Demo3DHostEmptyTransform(nn, gp, gr, gs);
+							nkentseu::NkLog::Instance().Info(
+								"[nk3d] MESURE pose : noeud={0} demande=({1}, {2}, {3}) "
+								"relu={4} ({5}, {6}, {7}) model={8}\n",
+								nn, dropW[0], dropW[1], dropW[2], got ? 1 : 0, gp[0],
+								gp[1], gp[2],
+								demo::Demo3DHostNodeIsModel(nn) ? 1 : 0);
+							// MESURE : ET SES ENFANTS ? Un model est un CONTENANT --
+							// le pick lui-meme le dit (« un model se prend par sa
+							// matiere »). Poser la transformation du contenant ne
+							// prouve rien si sa matiere reste ou elle etait.
+							for (int32 ci2 = 0; ci2 < 160; ++ci2) {
+								if (demo::Demo3DHostNodeParent(ci2) != nn)
+									continue;
+								float32 cp[3] = {0.f, 0.f, 0.f}, cr[3] = {0.f, 0.f, 0.f},
+										cs[3] = {0.f, 0.f, 0.f};
+								const bool cg =
+									demo::Demo3DHostEmptyTransform(ci2, cp, cr, cs);
+								nkentseu::NkLog::Instance().Info(
+									"[nk3d]   MESURE enfant : noeud={0} mesh={1} "
+									"relu={2} ({3}, {4}, {5})\n",
+									ci2, demo::Demo3DHostNodeIsMesh(ci2) ? 1 : 0,
+									cg ? 1 : 0, cp[0], cp[1], cp[2]);
+							}
+							// Et la SOURCE, pour comparer : c'est d'elle qu'on a
+							// copie, donc c'est elle le point de reference.
+							{
+								const int32 sn = st.dropSrcNode - 1;
+								float32 sp[3] = {0.f, 0.f, 0.f}, sr[3] = {0.f, 0.f, 0.f},
+										ss[3] = {0.f, 0.f, 0.f};
+								const bool sg =
+									demo::Demo3DHostEmptyTransform(sn, sp, sr, ss);
+								nkentseu::NkLog::Instance().Info(
+									"[nk3d]   MESURE source : noeud={0} relu={1} ({2}, "
+									"{3}, {4})\n",
+									sn, sg ? 1 : 0, sp[0], sp[1], sp[2]);
+								for (int32 ci3 = 0; ci3 < 160; ++ci3) {
+									if (demo::Demo3DHostNodeParent(ci3) != sn)
+										continue;
+									float32 dp[3] = {0.f, 0.f, 0.f},
+											dr[3] = {0.f, 0.f, 0.f},
+											ds[3] = {0.f, 0.f, 0.f};
+									const bool dg =
+										demo::Demo3DHostEmptyTransform(ci3, dp, dr, ds);
+									nkentseu::NkLog::Instance().Info(
+										"[nk3d]   MESURE enfant source : noeud={0} "
+										"relu={1} ({2}, {3}, {4})\n",
+										ci3, dg ? 1 : 0, dp[0], dp[1], dp[2]);
+								}
+							}
+						} else {
+							nkentseu::NkLog::Instance().Warn(
+								"[nk3d] MESURE pose : AUCUN noeud cree (srcNode={0})\n",
+								st.dropSrcNode);
 						}
 						st.dropIdx = -1;
 					} else {

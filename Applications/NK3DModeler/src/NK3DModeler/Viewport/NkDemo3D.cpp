@@ -2461,6 +2461,9 @@ namespace nkentseu {
 		// quand un maillage est touche, sinon l'intersection avec le plan du sol
 		// (y = 0), sinon un point devant la camera. C'est ce qui permet a un modele
 		// lache dans le vide d'atterrir QUELQUE PART plutot qu'a l'origine.
+		// MESURE (temporaire) : ce que le dernier pick a eu le droit de tenir
+		// compte -- occupes, ecartes parce que MODEL, caches/verrouilles, mesh.
+		static int32 nkvpPickDbg[4] = {0, 0, 0, 0};
 		static int32 Demo3D_PickEmptyAt(Demo3DState *st, DemoCtx &ctx, NkVec3f camPos,
 										NkVec3f camTgt, float32 mx, float32 my,
 										float32 *worldOut3) {
@@ -2483,17 +2486,38 @@ namespace nkentseu {
 							  uproj.fwd.z + uproj.rgt.z * rnx * uproj.thX + uproj.upv.z * rny * uproj.thY};
 			auto *msPick = ctx.renderer ? ctx.renderer->GetMeshSystem() : nullptr;
 			float32 bestD2 = 1e30f;
+			// MESURE : de quoi ce pick a-t-il eu le DROIT de tenir compte ?
+			// « Rien sous le curseur » et « tout ce qui est sous le curseur a
+			// ete ecarte » se ressemblent dans la reponse et n'ont pas la meme
+			// cause -- c'est la premiere façon dont un controle se trompe.
+			int32 dbgOccupes = 0, dbgModels = 0, dbgCaches = 0, dbgMesh = 0;
+			struct DbgOut {
+					~DbgOut() {
+						nkvpPickDbg[0] = *a;
+						nkvpPickDbg[1] = *b;
+						nkvpPickDbg[2] = *c;
+						nkvpPickDbg[3] = *d;
+					}
+					int32 *a, *b, *c, *d;
+			} dbgOut{&dbgOccupes, &dbgModels, &dbgCaches, &dbgMesh};
 			for (int32 u2 = 0; u2 < kNkvpMaxUser; ++u2) {
 				const uint8 uk2 = nkvpUserKind[u2];
 				if (uk2 == 0)
 					continue; // slot libre -- tout le reste se clique
+				++dbgOccupes;
 				const int32 un2 = kNkvpFirstUser + u2;
-				if (nkvpIsModel[un2])
+				if (nkvpIsModel[un2]) {
+					++dbgModels;
 					continue; // un model se prend PAR SA MATIERE : sa propre origine ne
 							  // dessine rien, et y laisser une cible faisait une zone
 							  // fantome loin de ses maillages (Rihen)
-				if (HostHiddenEff(un2) || HostLockedEff(un2))
+				}
+				if (HostHiddenEff(un2) || HostLockedEff(un2)) {
+					++dbgCaches;
 					continue;
+				}
+				if (nkvpIsMesh[un2])
+					++dbgMesh;
 				const int32 e2 = un2 - kNkvpFirstEmpty;
 				if (uk2 >= 1 && uk2 <= 3) {
 					// MAILLAGE : la designation se decide sur le MESH REEL
@@ -10098,9 +10122,24 @@ namespace nkentseu {
 				nkvpPickWorld[1] = w3[1];
 				nkvpPickWorld[2] = w3[2];
 				nkvpPickHas = true;
+				// MESURE : le detail slot par slot. Les compteurs disent COMBIEN
+				// ont ete ecartes ; ils ne disent pas LESQUELS, et « la matiere
+				// d'un model est-elle candidate ? » ne se lit que la.
+				for (int32 du = 0; du < kNkvpMaxUser; ++du) {
+					if (nkvpUserKind[du] == 0)
+						continue;
+					const int32 dn = kNkvpFirstUser + du;
+					logger.Info("[Demo3D]   candidat noeud={0} kind={1} model={2} mesh={3} "
+								"cache={4} verrou={5} parent={6}\n",
+								dn, (int32)nkvpUserKind[du], nkvpIsModel[dn] ? 1 : 0,
+								nkvpIsMesh[dn] ? 1 : 0, HostHiddenEff(dn) ? 1 : 0,
+								HostLockedEff(dn) ? 1 : 0, nkvpParentOf[dn]);
+				}
 				logger.Info("[Demo3D] PICK lacher ({0}, {1} en vue) -> noeud {2} · monde "
-							"({3}, {4}, {5})\n",
-							nkvpPickReqX, nkvpPickReqY, nkvpPickNode, w3[0], w3[1], w3[2]);
+							"({3}, {4}, {5}) · candidats occupes={6} ecartes_model={7} "
+							"caches={8} mesh={9}\n",
+							nkvpPickReqX, nkvpPickReqY, nkvpPickNode, w3[0], w3[1], w3[2],
+							nkvpPickDbg[0], nkvpPickDbg[1], nkvpPickDbg[2], nkvpPickDbg[3]);
 			}
 
 			// ── WIDGETS DES LUMIERES (facon Blender) ────────────────────────────────
