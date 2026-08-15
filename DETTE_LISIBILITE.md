@@ -351,6 +351,58 @@ Premier pas concret et borné : réparer ou retirer `NkRHIDemoText.cpp`, obtenir
 |---|---|---|---|
 | 0 — état trouvé | **60 / 205** | 145 | `NkRHIDemoText.cpp` — API NKFont disparue |
 | 1 — après levée | **79 / 203** | 124 | `Texture2D.cpp` + `ViewerApp.cpp` — API NKImage changée |
+| **2 — `--keep-going`** | **196 / 203** | **7 en échec** | 4 causes distinctes, toutes nommées ci-dessous |
+| **3 — après correctif liaison** | **200 / 203** | **3 en échec** | 3 causes distinctes, 3 modules ≠ du mien |
+
+> ### ⚠️ LE RELEVÉ 2 RÉFUTE LA PRÉMISSE DE CE CHANTIER — mesuré le 2026-08-15
+>
+> J'ai écrit pendant deux sessions que le blocage « empêchait d'atteindre » 145
+> puis 124 cibles, et j'en ai tiré une estimation « quelques jours, pas une
+> semaine » de rattrapage démo par démo. **C'est faux, et d'un facteur 18.**
+>
+> **Seules 7 cibles sur 203 échouent réellement.** Les 124 « restantes » n'étaient
+> pas cassées : elles étaient **non atteintes**, parce que le mode par défaut
+> s'arrête au premier échec. Un nombre de cibles *non atteintes* ne dit
+> **rien** du nombre de cibles *cassées* — je les ai traités comme équivalents
+> pendant deux relevés, et personne (moi compris) ne l'a relevé.
+>
+> C'est exactement « borner avant d'alarmer » (`CLAUDE.md` parent), appliqué à
+> moi : j'avais un chiffre réel — 124 — dont je n'avais pas borné la
+> signification. **Un instrument qui s'arrête au premier défaut ne mesure pas
+> l'étendue du défaut, il mesure où il s'est arrêté.**
+>
+> Provenance : worktree `Nkentseu-nkanim`, branche `feat/nkanimation`, commit
+> `c61b4c44`, le 2026-08-15. Instrument : **jenga 2.4.0**, install *editable* →
+> `D:/Projets/MacShared/Projets/Jenga`, branche `chore/retrait-sous-module-nkentseu`
+> `026e306` — **et non `main`/2.3.0**. Vérifié que `a6578d1` (PR #24) en est
+> ancêtre et que les 2 commits en plus ne touchent ni `Builder.py` ni
+> `Reporter.py` ; correctif du compteur relu directement dans le code qui s'exécute
+> (`Jenga/Utils/Reporter.py:1089-1105`), **pas relayé**. Cohérence du compteur sur
+> ce relevé : 196 + 7 = 203. ⏱️ 9 min 19 s (build complet à froid).
+
+> ### 🌉 LE PONT ENTRE LES DEUX DÉNOMINATEURS : IL N'Y EN A PAS À CONSTRUIRE
+>
+> Mesuré dans les deux régimes, même arbre, même jour, comme R7 le demandait :
+>
+> | Régime | Commande | Résultat | Cibles vues |
+> |---|---|---|---|
+> | nouveau | `jenga build --config Debug --keep-going` | **196 / 203** | 203 |
+> | ancien | `... --tests --keep-going` | **196 / 203** | 203 |
+>
+> **Identiques.** `diff` des projets vus dans les deux sorties : **aucune cible
+> présente dans l'un et absente de l'autre**. Et 57 cibles dont le nom contient
+> « Test » (`NKVAETest`, `NkAnimPhysTest`…) sont **déjà construites sans
+> `--tests`** — elles ne sont pas déclarées comme racines de test ici.
+>
+> ⚠️ **Donc le « 272 → 206 » de R7 ne s'applique pas à Nkentseu.** C'était un
+> chiffre juste ailleurs, relayé jusqu'à moi, et j'ai porté pendant deux sessions
+> un dispositif de raccord pour une rupture de série **qui n'existe pas dans ce
+> dépôt**. La règle « un chiffre porte sa provenance » a une seconde moitié que je
+> n'avais pas vue : *un chiffre porte aussi son PÉRIMÈTRE*. 272 et 206 étaient
+> vrais — simplement pas d'ici.
+>
+> Bonne nouvelle pratique : mes relevés 0 et 1 **restent comparables** aux
+> suivants (même dénominateur 203, aux 2 cibles désactivées près).
 
 > ⚠️ **Chiffres corrigés le 15/08 : le compteur de Jenga surestime.**
 > `Reporter.py:1038-1042` incrémente `_projects_built` **même en échec** (mesuré
@@ -493,10 +545,54 @@ avant d'écrire.
 > sous deux régimes différents se contredisent sans que personne ait tort.
 > *(Suggestion de l'échange, R7 du 15/08.)*
 
+#### LES 4 CAUSES DU RELEVÉ 2 — même motif, QUATRE ÉTAGES différents
+
+7 cibles en échec, mais **4 causes seulement** : 4 des 7 partageaient la même.
+Et le motif « X a changé, son déclarant n'a pas suivi » se rejoue à un étage
+différent à chaque fois — ce n'est pas la dérive d'API que j'annonçais.
+
+| # | Cible(s) | Étage | Ce qui n'a pas suivi |
+|---|---|---|---|
+| 1 | `Tuto02/03/04/05` (4) | **liste de links manuelle** | ✅ **corrigé** — voir ci-dessous |
+| 2 | `NkImageDemo` | **source consommatrice** | bloqueur 2, arbitré (chantier 12) |
+| 3 | `NKTensorDemo` | **registre des modules** | `config/modules.jenga:64` |
+| 4 | `Gamepad` | **définition** | 2 surcharges jamais définies |
+
+**Cause 1 — ✅ CORRIGÉE, commit `45231cc1`. Et elle vient de MOI.**
+`NKRenderer.lib` référence `anim::NkAnimationPlayer::Update(float)`
+(`NkAnimationSystem.cpp:45`) ; le symbole **existe bien** dans `NKAnimation.lib`
+(vérifié : `nm` le donne en `T`, symbole défini). Les 4 tutoriels échouaient donc
+au **link**, pas au compile. Cause : `Tutoriels3D.jenga` porte une liste
+`_BASE_LINKS` **maintenue à la main**, sans `NKAnimation`. Le registre
+(`config/modules.jenga:109`) connaît pourtant `NKRenderer → NKAnimation`, mais
+`useappdeps` **n'émet que des defines `_STATIC_LIB`** — il ne pose aucun `links()`.
+Rien ne force donc la liste manuelle à suivre le registre.
+
+C'est **mon extraction NKAnimation du 2026-08-14** qui a cassé ces 4 cibles, et
+elle est restée invisible **un jour entier** parce que la seule mesure capable de
+le dire ne tournait pas. La thèse de ce chantier, démontrée sur son propre auteur.
+
+**Cause 3 — `NKTensorDemo`** : `NKTensor/NkTensorGpu.cpp:201,237` appelle
+`NkDeviceFactory::Destroy/…` (déclaré `NKRHI/Core/NkDeviceFactory.h:54`), mais le
+registre déclare `"NKTensor" : [… NKMath]` **sans NKRHI** (`config/modules.jenga:64`).
+Ici c'est **le registre lui-même** qui est en retard, pas son lecteur — l'inverse
+exact de la cause 1. NKTensor a gagné un backend GPU ; sa déclaration ne l'a pas
+suivi. **Non corrigé : ce n'est pas mon module.**
+
+**Cause 4 — `Gamepad`** : `NkString::begin()`/`end()` **non-const** sont déclarés
+(`NkString.h:977` et `991`) et **jamais définis** ; seules les surcharges `const`
+le sont (`NkString.cpp:1128,1132`). Un `for (c : s)` sur une `NkString` **non
+const** — ici `LowerAscii(NkString)` prise par valeur, `main8.cpp:193` — choisit la
+surcharge non-const et ne lie pas. Invisible tant que tout le monde passait des
+`const NkString &`. **Non corrigé : NKContainers est Foundation, hors périmètre.**
+
 #### Comment reprendre
 ```
-jenga build --config Debug 2>&1 | grep -E "Compilation Error|Projects Built|Status"
+jenga build --config Debug --keep-going 2>&1 | grep -E "Projects Built|^Failed:|Echecs"
 ```
+⚠️ **Toujours `--keep-going`.** Sans lui, le build s'arrête au premier échec et le
+nombre obtenu ne dit pas combien de cibles sont cassées — c'est l'erreur qui a
+produit mes relevés 0 et 1 (voir l'encart du relevé 2).
 Un bloqueur, un commit, un relevé. **L'objectif n'est pas 203/203 : c'est zéro
 échec inexpliqué.** Une cible qui ne peut pas construire ici et dont on sait
 pourquoi est réglée.
@@ -697,6 +793,39 @@ qu'un appel erroné ne compile pas* :
 **La classe a déjà choisi la valeur ; ce sont 120 sites qui n'ont pas suivi.**
 C'est **exactement le motif du chantier 11** — une API qui évolue, des
 consommateurs qui ne suivent pas, et rien qui les y oblige.
+
+#### ⚠️ `: public NKIResource` N'EST PAS LA CAUSE — mesuré le 2026-08-15
+
+La question posée dans l'arbitrage (R9/R10) : *l'héritage `NKIResource` devient-il
+décoratif si la valeur est retenue, et est-ce lui qui a produit les 120 sites
+divergents ?* **Les deux moitiés sont réfutées par la lecture de l'interface**
+(`Kernel/System/NKStream/src/NKStream/NKIResource.h`) :
+
+| Fait mesuré | Conséquence |
+|---|---|
+| `NKIResource` déclare `virtual void Unload() = 0` | l'interface prescrit **la voie valeur** |
+| `NKIResource` **ne déclare jamais `Free()`** (seule occurrence du mot : un commentaire sur `NkFree`, l. 45) | `Free()` n'a **jamais** fait partie du contrat |
+| `NkImage.h:783` → `void Unload() noexcept override` | **`override`** — méthode d'interface |
+| `NkImage.h:775` → `void Free() noexcept` | **ni virtuelle ni `override`** — ajout hors contrat |
+
+**L'héritage disait donc la vérité, et il la disait déjà en faveur de la valeur.**
+Supprimer `Free()` rend `NkImage` **plus** conforme à ce qu'elle déclare, pas
+moins. L'héritage est porteur (destructeur virtuel + `Unload()`) : **le garder**.
+
+**Ce qui a réellement produit les 120 sites est la documentation de l'en-tête
+lui-même** : `NkImage.h` lignes **21, 32, 296, 481, 519, 790** prescrivent toutes
+« l'appelant possède le résultat et **DOIT appeler `->Free()`** ». Le robinet n'est
+pas la classe de base — c'est le contrat des fabriques statiques, écrit six fois
+en commentaire. **Réparer la déclaration = supprimer `Free()` et ces six lignes**,
+sans toucher à l'héritage.
+
+⚠️ **Et l'interface porte son propre contrat-par-commentaire** : son en-tête
+annonce être partagée par « NkImage, NkFont, NkAudioSample ». Mesuré :
+**`NkImage` en est le SEUL implémenteur** du dépôt (`NkFont` existe mais n'en
+hérite pas ; `NkAudioSample` n'existe pas). Combiné aux **0** stockages
+polymorphes déjà mesurés, `NKIResource` est aujourd'hui une interface **à un seul
+implémenteur et zéro usage polymorphe**. Ça ne justifie pas de la retirer — mais
+c'est le vrai sujet à porter, et il est plus large que `NkImage`.
 
 #### ÉTAPE 3 — C'EST UN CHANTIER, PAS UN CORRECTIF. Et je ne le force pas.
 
