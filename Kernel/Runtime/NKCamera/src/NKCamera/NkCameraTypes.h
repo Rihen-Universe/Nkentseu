@@ -40,6 +40,38 @@ namespace nkentseu {
 	}
 
 	// ---------------------------------------------------------------------------
+	// NkColorRange — l'étendue réelle des composantes d'une image YUV
+	// ---------------------------------------------------------------------------
+	// Deux caméras peuvent livrer le MÊME format et deux signaux différents :
+	// l'une étale ses composantes sur 0-255, l'autre les confine à 16-235. La
+	// formule de déquantification n'est pas la même, et se tromper ne produit
+	// aucune erreur — seulement des clairs brûlés et des sombres bouchés que
+	// personne ne rattache à sa cause.
+	//
+	// TROIS états, et le troisième est le plus important. Un choix binaire
+	// obligerait chaque producteur à mentir : celui qui ne déclare rien
+	// recevrait silencieusement l'une des deux valeurs, et l'on remplacerait une
+	// coïncidence par une autre. Avec INCONNUE, un producteur qui n'a pas
+	// déclaré SE VOIT — il est journalisé une fois, jamais deviné.
+	// Une valeur par défaut qui a l'air d'une mesure est pire que pas de valeur.
+	enum class NkColorRange : uint32 {
+		NK_COLOR_RANGE_UNKNOWN = 0, ///< Non déclarée. Signalée, jamais supposée.
+		NK_COLOR_RANGE_FULL,        ///< 0-255 (dite « JPEG »). Y compris Android YUV_420_888.
+		NK_COLOR_RANGE_VIDEO,       ///< 16-235 luma, 16-240 chroma (dite « TV »).
+	};
+
+	inline const char *NkColorRangeToString(NkColorRange r) {
+		switch (r) {
+			case NkColorRange::NK_COLOR_RANGE_FULL:
+				return "PLEINE";
+			case NkColorRange::NK_COLOR_RANGE_VIDEO:
+				return "REDUITE";
+			default:
+				return "INCONNUE";
+		}
+	}
+
+	// ---------------------------------------------------------------------------
 	// NkCameraFacing
 	// ---------------------------------------------------------------------------
 	enum class NkCameraFacing : uint32 {
@@ -168,6 +200,11 @@ namespace nkentseu {
 			uint64 timestampUs = 0;
 			uint32 frameIndex = 0;
 			uint32 stride = 0;
+			// Étendue des composantes, DÉCLARÉE PAR LE PRODUCTEUR. Non renseignée
+			// = INCONNUE, et c'est voulu : le défaut ne prétend rien. Cf.
+			// NkColorRange, et NkCameraSystem::ConvertToRGBA8 qui choisit la
+			// formule par la PLAGE, jamais par le format.
+			NkColorRange range = NkColorRange::NK_COLOR_RANGE_UNKNOWN;
 			NkVector<uint8> data;
 
 			bool IsValid() const {

@@ -175,7 +175,42 @@ Total backends : 7 ; tous compilent et fonctionnent sur leur cible. UWP et Xbox 
 
 ## Bugs / quirks connus
 
-### ⚠️ DETTE NOMMÉE — `ConvertToRGBA8` déduit la PLAGE du signal à partir du FORMAT
+### ✅ DETTE PAYÉE (2026-08-15) — la plage est DÉCLARÉE, plus déduite
+
+`NkCameraFrame::range` porte désormais l'étendue des composantes, et
+`ConvertToRGBA8` choisit sa formule **par la plage, jamais par le format**.
+
+**Trois états, et le troisième est le plus important.** `NkColorRange` vaut
+`FULL`, `VIDEO` ou **`UNKNOWN`**. Un choix binaire aurait obligé chaque
+producteur à mentir : celui qui ne déclare rien aurait reçu silencieusement
+l'une des deux valeurs, et l'on aurait remplacé une coïncidence par une autre.
+Avec `UNKNOWN`, un producteur qui n'a pas déclaré **se voit** — journalisé une
+fois par format, jamais deviné. *Une valeur par défaut qui a l'air d'une mesure
+est pire que pas de valeur.*
+
+Déclaré à ce jour : le backend **Android** annonce `FULL` pour son YUV_420_888 —
+ce que le décodage faisait déjà, donc **rien ne change à l'écran**. Les backends
+poste de travail n'émettent pas de YUV420 (établi) ; leurs YUYV/NV12 restent
+**non déclarés à dessein** — leur plage réelle n'a pas été mesurée, et
+l'inventer serait exactement le défaut qu'on vient de corriger. Ils tombent donc
+sur un repli explicitement historique, avec avertissement.
+
+**Vérification** — `NkCameraDemos --demo=format`, les quatre formats convertis,
+et les PNG produits **bit pour bit identiques** avant et après (comparaison
+d'empreintes MD5 sur un binaire reconstruit dans chaque état, pas un
+raisonnement).
+
+⚠️ **Ce que cette comparaison ne prouve pas** : les trames synthétiques de la
+démo ont U = V = 128, donc **les termes de chrominance sont multipliés par
+zéro**. L'égalité des PNG atteste le choix de plage et le chemin de luminance,
+pas les coefficients de chrominance. Ceux-ci sont vérifiés autrement — par
+recensement des constantes avant/après : ensembles identiques, multiplicités
+conformes (chaque branche porte maintenant les deux formules). Une image
+colorée de référence reste le contrôle qui manque.
+
+---
+
+### Historique — l'énoncé de la dette, avant qu'elle soit payée
 
 Depuis le 2026-08-14, l'**I420** est décodé en **plage complète**
 (`R = Y + 1,402·(V−128)`, `NkCameraSystem.cpp:573`) alors que **YUYV** (l. 451) et
