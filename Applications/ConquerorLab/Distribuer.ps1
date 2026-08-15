@@ -27,10 +27,22 @@
 #   les trois dossiers de depot (rules / ai / boards), vides et prets
 #   les exemples, le cours en PDF, et un LISEZMOI
 #
-# LA DISPOSITION EST IMPOSEE PAR LE CODE. `FindRepoRoot` (main.cpp) remonte
-# depuis le dossier de l'exe en cherchant le marqueur
-# `Applications/ConquerorLab/include/Conqueror/ConquerorRulesABI.h`. Le kit
-# REPRODUIT donc cette arborescence : l'atelier s'y retrouve sans configuration.
+# LA DISPOSITION EST IMPOSEE PAR LE CODE, ET CE N'EST PLUS CELLE DU DEPOT.
+# `FindRepoRoot` (main.cpp) remonte depuis le dossier de l'exe en cherchant DEUX
+# marqueurs ; celui du kit est `include/Conqueror/ConquerorRulesABI.h`, a plat.
+# `NkcLayout` bascule alors en mode Kit :
+#
+#     include/     UNE seule racine d'inclusion (au lieu de treize)
+#     lib/         les bibliotheques statiques
+#     travail/     rules | ai | boards — ou le stagiaire depose
+#     exemples/    dont exemples/boards, la bibliotheque de grilles livree
+#
+# ⚠️ CE SCRIPT ECRIT LE LISEZMOI QUE LE STAGIAIRE LIT EN PREMIER. Le 2026-08-15,
+# ce LISEZMOI decrivait encore `Build/ConquerorLab/` — la disposition du DEPOT,
+# abandonnee ici meme (section 5). Un stagiaire qui suivait le mode d'emploi
+# deposait donc son travail dans un dossier que l'atelier ne lit jamais, et rien
+# ne le lui disait. Si la disposition rechange, LE LISEZMOI CHANGE DANS LE MEME
+# GESTE : il n'a pas d'autre source de verite que ce fichier.
 #
 # CE FICHIER DOIT RESTER EN UTF-8 AVEC BOM.
 # Windows PowerShell 5.1 lit un .ps1 sans BOM comme de l'ANSI : chaque accent des
@@ -200,10 +212,22 @@ CE QU'IL Y A DANS CE DOSSIER
   Cours_ConquerorLab.pdf    LE COURS. Commencez par la.
   VERSION.txt               quelle version vous avez. A citer dans vos retours.
   exemples/                 trois modules complets, a recopier
-  Build/ConquerorLab/       la ou vous deposez votre travail
-  Build/Lib/                les bibliotheques du moteur, liees a vos modules
-  Applications/, Kernel/    les en-tetes. N'y touchez pas : l'atelier s'en
+                            (dont exemples/boards/, les grilles livrees)
+  travail/                  LA OU VOUS DEPOSEZ VOTRE TRAVAIL
+      travail/rules/            vos moteurs de regles (.cpp)
+      travail/ai/               vos IA (.cpp)
+      travail/boards/           vos grilles (.json)
+  lib/                      les bibliotheques du moteur, liees a vos modules
+  include/                  les en-tetes. N'y touchez pas : l'atelier s'en
                             sert pour compiler vos modules.
+
+C'est TOUJOURS dans travail/ que vous deposez quelque chose. Les grilles
+livrees sont recopiees dans travail/boards/ au premier lancement ; celles que
+vous y ajoutez ensuite apparaissent au lancement suivant, ou tout de suite avec
+le bouton « Rafraichir » du panneau « Regles ».
+
+Le panneau « Regles » affiche en clair le chemin exact ou il regarde
+(« Depose tes .json ici : ... »). En cas de doute, c'est lui qui dit vrai.
 
 
 AVANT LE PREMIER LANCEMENT : INSTALLER UN COMPILATEUR
@@ -227,14 +251,21 @@ qu'il n'en a trouve aucun.
 VOTRE PREMIER MODULE, EN QUATRE GESTES
 
   1. copiez  exemples/rules/RegleMinimale.cpp
-        vers Build/ConquerorLab/rules/mes_regles.cpp
+        vers travail/rules/mes_regles.cpp
   2. changez le nom dans FillFactory (sinon deux entrees identiques au menu)
   3. sauvegardez, attendez une seconde
   4. le panneau « Modules » affiche votre module : selectionnez-le,
      puis « Nouvelle partie »
 
 Meme chose pour une IA, avec exemples/ai/IAMinimale.cpp vers
-Build/ConquerorLab/ai/.
+travail/ai/.
+
+ET POUR UNE GRILLE, IL N'Y A RIEN A COMPILER
+
+  1. copiez  exemples/boards/hexagone_6x7.json
+        vers travail/boards/ma_grille.json
+  2. modifiez la liste « cells »
+  3. panneau « Regles » -> « Rafraichir » -> choisissez-la dans « Grille »
 
 En cas d'erreur de compilation, la sortie COMPLETE du compilateur s'affiche
 dans le panneau « Modules ». C'est votre seul retour : lisez-la.
