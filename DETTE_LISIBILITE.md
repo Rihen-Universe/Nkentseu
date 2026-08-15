@@ -461,6 +461,31 @@ avant d'écrire.
 > sont que le symptôme — mais je ne modifie pas un module Kernel sur ma seule
 > lecture.
 
+> #### 🌉 AU MOMENT DE PASSER À JENGA v2.3.0 — MESURER DANS LES DEUX RÉGIMES
+>
+> La v2.3.0 sort les racines de test du build par défaut : **272 → 206 cibles**.
+> Le dénominateur change donc, et **les relevés 0 et 1 ci-dessus (60/205 et
+> 79/203) cessent d'être comparables aux suivants**. Une série longitudinale se
+> détruit en silence exactement comme ça — les nombres continuent de sortir, plus
+> rien ne dit qu'ils ne parlent plus de la même chose.
+>
+> **Le pont coûte une exécution, et il faut la faire AU MOMENT de la bascule** —
+> après, la version précédente n'est plus là pour la produire :
+>
+> ```
+> jenga build --config Debug --tests     # ancien régime : dénominateur 272/205
+> jenga build --config Debug             # nouveau régime : dénominateur 206
+> ```
+>
+> Les deux chiffres du même arbre, le même jour, donnent le **point de raccord**.
+> Sans lui, personne ne pourra jamais dire si le dépôt s'est amélioré entre août
+> et septembre : on saura seulement qu'on a changé de règle.
+>
+> ⚠️ Et noter les deux avec leur provenance — date, branche, régime. Un
+> dénominateur est une provenance au même titre qu'une date : deux mesures justes
+> sous deux régimes différents se contredisent sans que personne ait tort.
+> *(Suggestion de l'échange, R7 du 15/08.)*
+
 #### Comment reprendre
 ```
 jenga build --config Debug 2>&1 | grep -E "Compilation Error|Projects Built|Status"
