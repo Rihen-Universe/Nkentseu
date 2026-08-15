@@ -35,6 +35,7 @@
 #include "NKFileSystem/NkFile.h"
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkFileSystem.h"
+#include "NKFileSystem/NkPath.h"
 #include "NKLogger/NkLog.h"
 
 #include <cstring>
@@ -342,13 +343,20 @@ namespace nkentseu {
 					return -1;
 				}
 
+				/// ⚠️ `NkDirectory::GetFiles` rend des chemins COMPLETS
+				/// (NkDirectory.cpp:355), pas des noms de fichiers. Les recoller
+				/// derriere `mRulesDir` fabriquait
+				/// `<rules>/D:/.../rules/mes_regles.cpp` : un chemin impossible, donc
+				/// AUCUN module de stagiaire n'etait jamais compile ni charge, et le
+				/// seul indice etait un « compilation echouee » suivi d'un chemin
+				/// double que personne ne lit en entier. Mesure du 2026-08-15.
+				/// Meme defaut, meme jour, dans NkcBoardLibrary.
 				uint32 RefreshRules() noexcept {
 					uint32 changed = 0;
 					NkVector<NkString> files = NkDirectory::GetFiles(mRulesDir.CStr(), "*.cpp");
 					for (usize i = 0; i < files.Size(); ++i) {
-						NkString full = mRulesDir;
-						full += "/";
-						full += files[i];
+						const NkString full = files[i];	  // deja complet
+						const NkString name = NkPath(full).GetFileName();
 						const nk_int64 t = NkFileSystem::GetLastWriteTime(full.CStr());
 						const int32 idx	 = IndexOfSource(mRules, full);
 						if (idx >= 0) {
@@ -362,7 +370,7 @@ namespace nkentseu {
 						} else {
 							NkcRulesEntry e;
 							e.sourcePath = full;
-							e.label		 = files[i];
+							e.label		 = name;   // « mes_regles.cpp », pas le chemin entier
 							e.srcTime	 = t;
 							BuildAndLoad<NkcRulesEntry, NkcRulesFactory>(
 								e, NKC_RULES_SYM_GET_FACTORY, NKC_RULES_SYM_SET_ALLOC,
@@ -374,13 +382,13 @@ namespace nkentseu {
 					return changed;
 				}
 
+				/// Meme correctif que `RefreshRules` : chemins deja complets.
 				uint32 RefreshAis() noexcept {
 					uint32 changed = 0;
 					NkVector<NkString> files = NkDirectory::GetFiles(mAiDir.CStr(), "*.cpp");
 					for (usize i = 0; i < files.Size(); ++i) {
-						NkString full = mAiDir;
-						full += "/";
-						full += files[i];
+						const NkString full = files[i];	  // deja complet
+						const NkString name = NkPath(full).GetFileName();
 						const nk_int64 t = NkFileSystem::GetLastWriteTime(full.CStr());
 						const int32 idx	 = IndexOfSource(mAis, full);
 						if (idx >= 0) {
@@ -394,7 +402,7 @@ namespace nkentseu {
 						} else {
 							NkcAIEntry e;
 							e.sourcePath = full;
-							e.label		 = files[i];
+							e.label		 = name;   // « mon_ia.cpp », pas le chemin entier
 							e.srcTime	 = t;
 							BuildAndLoad<NkcAIEntry, NkcAIFactory>(
 								e, NKC_AI_SYM_GET_FACTORY, NKC_AI_SYM_SET_ALLOC,
