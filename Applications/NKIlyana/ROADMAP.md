@@ -79,30 +79,75 @@ partout — d'où les fourchettes.
    l'hôte est le plus gros poste du tableau. Les deux moitiés du dilemme étaient
    fausses parce que **le vrai substrat n'est ni l'un ni l'autre : c'est le NOMBRE
    d'opérations** — 28 119 par pas, à ~0,23 ms de coût fixe chacune.
+   ⚠️ **Chiffre corrigé le 16/08** : ce « ~0,23 ms » était déduit d'un plancher
+   observé sur les lignes du profil. **Mesuré directement au banc d'échelle, le
+   coût fixe par dispatch est de 107-121 µs**, soit deux fois moins. Le reste de
+   ce que le profil attribuait au coût fixe est du coût d'**allocation** (§ ordre
+   de bataille ci-dessous). La conclusion « c'est le nombre d'opérations » tient ;
+   c'est sa décomposition qui change.
 
-### Ordre de bataille — classé par temps mesuré, aucun ne suffit seul
+### ⚠️ ORDRE DE BATAILLE — RÉVISÉ LE 2026-08-16 par deux mesures
 
-| # | chantier | part | ce que ça vaut SEUL |
-|---|---|---|---|
-| 1 | **réserve de tampons** : recycler par taille au lieu de créer/détruire 9 316 fois par pas | 17,8-22,0 % | ×1,22 à ×1,28 |
-| 2 | **supprimer les `~upload`** : trouver les tenseurs **nés sur CPU** (`~download` ≈ 0, donc ce ne sont PAS des allers-retours) | 18,2-19,9 % | ×1,22 à ×1,25 |
-| 3 | **`softmax_rows`** : un groupe de fils par ligne, réduction en mémoire partagée, 2 passes au lieu de 3 | 13,1-14,2 % | ×1,15 à ×1,17 |
-| 4 | **`matmul_t4`** : pavage en mémoire partagée (intensité 1 → 16, plafond 2,2 % → 35 % de crête) | 9,9-15,9 % | ×1,11 à ×1,19 |
-| 5 | **fusion des chaînes élémentaires** | 10,5-10,7 % | ×1,12 |
-| — | **le substrat commun** : un tampon de commandes par pas au lieu d'un `WaitIdle` par dispatch | ~19 % de coût fixe | agit sur 1, 3, 4 et 5 à la fois |
+Le classement ci-dessous **remplace** celui du 15/08. Deux mesures l'ont changé :
+le banc d'échelle sur `add` (`NkTensorGpuTest --banc-add`) et l'attribution des
+bascules CPU→GPU par adresse de retour. Détail complet et provenance :
+`CARNET.private.md` §§ *0unvicies* et *0duovicies* (arbre principal).
 
-Le dernier n'est pas un sixième chantier : c'est ce que les cinq autres partagent.
-**Tant qu'un `WaitIdle` suit chaque dispatch, aucun noyau ne peut recouvrir un
-transfert.**
+**Ce qui a changé, en une phrase** : les postes n°1 et n°2 de l'ancien classement
+sont **un seul défaut**, et le n°2 est devenu le geste le moins cher du chantier.
 
-### Mesure suivante, avant de coder quoi que ce soit
+| # | chantier | part mesurée | ce que ça vaut SEUL | coût |
+|---|---|---|---|---|
+| 1 | **ne plus monter des ZÉROS** : `NkVar::Backward()` remet à zéro chaque accumulateur de gradient en fabriquant un tenseur CPU et en le montant — **12,7 Go de zéros par pas, 99,9 % de tous les uploads**. Remède : `NkICommandBuffer::ClearBuffer`, qui existe déjà et que `NKRHI/Core/NkML.cpp:77` utilise pour le même besoin | 18,2-19,9 % | ×1,22 à ×1,25 | **quelques lignes** |
+| 2 | **réserve de tampons** : recycler par taille au lieu de créer/détruire 9 316 fois par pas. **Revalorisé** : le profil facture une partie du coût d'allocation aux NOYAUX (mesuré : un dispatch passe de ~110 µs à ~570 µs du seul fait qu'un `CreateBuffer` le précède) | 17,8-22,0 % **+ ~11-12 % cachés dans les lignes de noyaux** | **×1,43 à ×1,52** | jours |
+| 3 | **un tampon de commandes par pas** au lieu d'un `WaitIdle` par dispatch : **le plancher est mesuré à 107-121 µs par dispatch**, × 28 119 opérations/pas | ~19 % | agit sur 3, 4, 5 | jours |
+| 4 | **`softmax_rows`** : un groupe de fils par ligne, réduction en mémoire partagée, 2 passes au lieu de 3 | 13,1-14,2 % | ×1,15 à ×1,17 | jours |
+| 5 | **`matmul_t4`** : pavage en mémoire partagée (intensité 1 → 16) | 9,9-15,9 % | ×1,11 à ×1,19 | jours |
+| 6 | **fusion des chaînes élémentaires** | 10,5-10,7 % | ×1,12 | jours |
 
-`add` déplace 15,1 Mo par appel en 1,25-1,36 ms, là où 448 Go/s en demandent 34 µs.
-**Deux causes possibles que l'instrument actuel ne sépare pas** : le coût fixe par
-opération, ou un débit réel très inférieur à la bande passante. **L'expérience qui
-tranche** : rejouer le même `add` à 10× la taille. Temps plat → coût fixe ; pente à
-~11 Go/s → débit. (Hypothèse « tampons en mémoire hôte » déjà écartée : 6,6 Go de
-nos tampons sont résidents en VRAM d'après `nvidia-smi`.)
+⚠️ **Les parts ne s'additionnent pas.** n°1 et n°2 comptent les mêmes objets :
+`NkTensor::ToGPU()` fait `CreateBuffer` **puis** `Upload`, donc chaque bascule
+CPU→GPU pèse une fois dans chacun — 2 704 des 9 316 allocations par pas (29 %)
+sont ces uploads. C'est une lecture du code, pas une corrélation mesurée.
+
+⚠️ **n°4, n°5 et n°6 attaquent des symptômes.** Le temps qu'ils réduisent est du
+temps GPU ; or la mesure montre que l'essentiel du temps attribué à un noyau n'en
+est pas — c'est du coût fixe de lancement et du coût d'allocation débordé.
+
+### Le banc d'échelle `add` : le résultat, et ce qu'il ferme
+
+Question posée le 15/08 : *« pourquoi `add` est-il 40× sous sa bande passante ? »*
+**Réponse : il ne l'est pas.** La prémisse était fausse.
+
+```
+coût fixe par dispatch  : 107-121 µs   (plat sur un facteur 256 en taille)
+débit marginal          : 303-430 Go/s (68 à 96 % de la crête de 448 Go/s)
+```
+
+Décomposition d'un appel `add` de production (N = 1 258 291, 15,1 Mo) :
+**~110 µs de lancement + ~38 µs de bande passante = ~148 µs.** La production en
+mesure 1 364 : le reste est du coût d'**allocation facturé au noyau**.
+
+Écarté avec son chiffre : l'état du périphérique. Trois lests — 9 316 tampons
+vivants / 5,5 Go de VRAM / les deux — **ne changent rien** (150-169 µs dans tous
+les cas). Si cette hypothèse avait tenu, aucune réserve de tampons n'aurait servi.
+
+### Dette d'instrument, nommée
+
+1. La colonne `Go/s` du profil est **fausse** pour les noyaux dont le paramètre
+   `count` compte des fils et non des éléments (`softmax_rows`, `rmsnorm_*`,
+   `softmax_causal`). Leur **temps** est juste ; leur **débit** ne l'est pas. À
+   corriger en passant le nombre d'éléments à `NkGpuChrono::Travail`.
+2. **Le profil attribue au noyau une part du coût de l'allocation qui le
+   précède** (mesuré : +430 à +480 µs). Les lignes `~alloc`/`~free` sous-déclarent,
+   les lignes de noyaux surdéclarent. Séparer proprement demanderait des
+   horodatages GPU ; en attendant, ne pas lire une ligne de noyau comme du temps GPU.
+3. **Le paramètre `device` des fabriques `NkTensor::Empty`/`Zeros`/`Ones`/`Full`
+   n'est PAS honoré pour `NK_GPU`** : `Empty` alloue toujours un stockage hôte et
+   se contente de poser `mDevice`, et le `memset` de `Zeros` est conditionné à
+   l'existence de ce stockage. Un tenseur ainsi fabriqué compilerait, tournerait,
+   et donnerait des gradients faux **en silence**. À corriger ou à interdire par
+   assertion — c'est un piège posé dans une signature d'API.
 
 ### Dette d'instrument, nommée
 

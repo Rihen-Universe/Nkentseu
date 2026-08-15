@@ -316,6 +316,53 @@ namespace nkentseu {
 		static uint32 gProfilN = 0;
 		static bool gProfilActif = false;
 
+		// ---- ATTRIBUTION DES BASCULES CPU -> GPU --------------------------------
+		// Le profil du 15/08 comptait 2 704 `~upload` par pas, ~12,6 Go, et
+		// `~download` a ~0 : ce ne sont donc PAS des allers-retours, ce sont des
+		// tenseurs NES sur CPU puis montes. On ne peut pas supprimer des uploads
+		// dont on ignore l'origine — d'ou cette table.
+		//
+		// ⚠️ TOUS passent par UN SEUL site : `NkTensor::ToGPU()`. Ce qui varie est
+		// son APPELANT, et c'est lui qu'il faut nommer. On enregistre donc
+		// l'adresse de retour, resolue apres coup par `addr2line` : aucun
+		// etiquetage a poser sur les 68 gardes `(t.Device()==GPU) ? t : t.ToGPU()`,
+		// donc aucun risque d'en etiqueter 67 et de conclure sur les 68.
+		//
+		// ⚠️ ASLR : une adresse d'execution ne veut rien dire seule. On journalise
+		// donc aussi l'adresse d'une ANCRE du meme module ; l'ecart entre les deux
+		// est stable, et `nm` donne l'adresse de liaison de l'ancre.
+		struct NkGpuBasculeLigne {
+				const void *retour;
+				int64 appels;
+				double octets;
+		};
+
+		static NkGpuBasculeLigne gBascule[64];
+		static uint32 gBasculeN = 0;
+		static int64 gBasculeHorsTable = 0;
+
+		void NkGpuAncre() {} // ancre de resolution — ne fait rien, doit exister
+
+		static void NkGpuAttribuerBascule(const void *retour, double octets) {
+			if (!gProfilActif)
+				return;
+			for (uint32 i = 0; i < gBasculeN; ++i) {
+				if (gBascule[i].retour == retour) {
+					gBascule[i].appels += 1;
+					gBascule[i].octets += octets;
+					return;
+				}
+			}
+			if (gBasculeN >= 64) {
+				++gBasculeHorsTable; // on perd le site, jamais le compte
+				return;
+			}
+			NkGpuBasculeLigne &l = gBascule[gBasculeN++];
+			l.retour = retour;
+			l.appels = 1;
+			l.octets = octets;
+		}
+
 		static NkGpuProfilLigne *NkGpuProfilLigneDe(const char *nom) {
 			for (uint32 i = 0; i < gProfilN; ++i) {
 				const char *a = gProfil[i].nom;
@@ -379,6 +426,8 @@ namespace nkentseu {
 
 		void NkTensorGpu::ProfilRaz(bool actif) {
 			gProfilN = 0;
+			gBasculeN = 0;
+			gBasculeHorsTable = 0;
 			gProfilActif = actif;
 		}
 
@@ -431,6 +480,50 @@ namespace nkentseu {
 			logger.Info("    Repere machine : une RTX 3070 fait ~20 300 GFLOP/s pour ~448 Go/s, soit "
 						"~45 FLOP/octet. Un noyau sous ce rapport est borne par la BANDE PASSANTE : "
 						"son plafond vaut 448 x son intensite, et aucun pavage ne le depasse.");
+
+			// ---- Attribution des bascules CPU -> GPU ----------------------------
+			if (gBasculeN > 0) {
+				uint32 ord[64];
+				for (uint32 i = 0; i < gBasculeN; ++i)
+					ord[i] = i;
+				for (uint32 i = 1; i < gBasculeN; ++i) {
+					uint32 v = ord[i];
+					uint32 j = i;
+					while (j > 0 && gBascule[ord[j - 1]].appels < gBascule[v].appels) {
+						ord[j] = ord[j - 1];
+						--j;
+					}
+					ord[j] = v;
+				}
+				int64 totAppels = 0;
+				double totOctets = 0.0;
+				for (uint32 i = 0; i < gBasculeN; ++i) {
+					totAppels += gBascule[i].appels;
+					totOctets += gBascule[i].octets;
+				}
+				logger.Info("=== BASCULES CPU -> GPU (ToGPU) — {0} sites, {1} appels, {2} Mo, sur {3} pas ===",
+							(long long)gBasculeN, (long long)totAppels, totOctets / 1.0e6, (long long)pas);
+				logger.Info("    ⚠️ CHAQUE LIGNE EST UNE ALLOCATION *ET* UN UPLOAD : ToGPU fait CreateBuffer "
+							"puis Upload. Les postes « reserve de tampons » et « supprimer les uploads » "
+							"comptent donc les memes objets.");
+				logger.Info("    ANCRE de resolution : NkGpuAncre a l'execution = {0}. Adresse de liaison "
+							"donnee par : nm -C <exe> | grep NkGpuAncre. Site = liaison(ancre) + (retour - "
+							"ancre).",
+							(unsigned long long)(uintptr_t)&NkGpuAncre);
+				logger.Info("    {0:>18} {1:>14} {2:>9} {3:>12} {4:>10}", "retour", "ecart/ancre", "appels",
+							"Mo", "Ko/appel");
+				for (uint32 k = 0; k < gBasculeN; ++k) {
+					const NkGpuBasculeLigne &l = gBascule[ord[k]];
+					const long long ecart = (long long)((intptr_t)l.retour - (intptr_t)&NkGpuAncre);
+					logger.Info("    {0:>18} {1:>14} {2:>9} {3:>12.2f} {4:>10.1f}",
+								(unsigned long long)(uintptr_t)l.retour, ecart, (long long)l.appels,
+								l.octets / 1.0e6, l.octets / 1000.0 / (double)l.appels);
+				}
+				if (gBasculeHorsTable > 0)
+					logger.Info("    ⚠️ {0} bascules HORS TABLE (plus de 64 sites distincts) — le compte "
+								"total reste juste, l'attribution de celles-la est perdue.",
+								(long long)gBasculeHorsTable);
+			}
 		}
 
 		void NkGpuSignalerDefaut(const char *ou, const char *quoi, int64 valeur) {
@@ -3339,6 +3432,11 @@ void main() {
 				return NkTensor{};
 			NkTensor cont = Contiguous();
 			const nk_size bytes = (nk_size)cont.Numel() * NkDTypeSize(cont.DType());
+			// ⚠️ CE SITE FAIT LES DEUX : une allocation ET un upload. Les postes n°1
+			// (reserve de tampons) et n°2 (supprimer les uploads) de l'ordre de
+			// bataille ne sont donc pas deux chantiers independants — chaque bascule
+			// CPU->GPU compte une fois dans chacun.
+			NkGpuAttribuerBascule(__builtin_return_address(0), (double)bytes);
 			uint64 buf = NkTensorGpu::Get().CreateBuffer(bytes);
 			if (!buf)
 				return NkTensor{};
