@@ -398,6 +398,58 @@ un `NkUniquePtr`), pas à réanimer l'ancien contrat. Décider **qui possède
 l'image** entre les deux fils est la vraie question, et elle mérite d'être posée
 avant d'écrire.
 
+> #### ⚠️ CORRECTION DU 2026-08-15 — mon diagnostic ci-dessus était à moitié faux
+>
+> J'avais écrit « le modèle de propriété mémoire a changé » et « la démo fait
+> circuler des `NkImage*` entre son fil de décodage et son fil d'upload GL ».
+> **Les deux affirmations sont réfutées par la mesure.**
+>
+> **1. Il n'y a aucun fil.** Zéro `NkThread`, zéro `std::thread`, zéro mutex,
+> zéro file dans tout `Applications/NkImageDemo/src`. L'asynchronisme n'est
+> qu'une **intention écrite dans un commentaire** (`Texture2D.h:29-30` : « Pour un
+> chargement asynchrone, utiliser DecodeFromFile() depuis un thread worker »).
+> L'usage réel est séquentiel : `Texture2D.cpp:122-125`, `DecodeFromFile` puis
+> `UploadFromImage` dans la même fonction. **J'avais diagnostiqué d'après un
+> commentaire, pas d'après le code.**
+>
+> **2. Le contrat de propriété est INTACT.** `NkImage::Free()` fait toujours
+> `nkFree(mPixels)` **puis `nkFree(this)`** (`NkImage.cpp:1468-1473`) : il libère
+> bien les pixels **et** le wrapper, et `delete` reste interdit. Rien n'a changé
+> de ce côté. Il existe même désormais `Unload()` (l. 1479), variante sûre sur la
+> pile.
+>
+> **Ce qui a réellement disparu se réduit à deux choses :**
+> - `static NkImage *Load(path, ch)` → il n'y a plus que `bool Load(path, ch)`
+>   **membre** (`NkImage.h:262`) ;
+> - `IsValid()` → remplacer par `Pixels() != nullptr` (motif en production dans
+>   `Nogee/Editor/AssetManager.cpp:91`).
+>
+> **Le port est donc petit**, et il ne demande aucune décision d'architecture :
+> allouer comme NKImage le fait en interne (`nkMalloc(sizeof(NkImage))` +
+> placement new, `NkImage.cpp:1331-1334`), appeler le `Load` membre, garder
+> `Free()`. Deux sites : `Texture2D.cpp:77` et `ViewerApp.cpp:450`.
+>
+> ⚠️ **MAIS il révèle une asymétrie d'API dans NKImage, et c'est ça le vrai
+> sujet** : on peut toujours `Free()` un `NkImage` du tas, mais **il n'existe plus
+> aucune fabrique publique « chemin de fichier → `NkImage*` du tas »**. Les
+> fabriques statiques restantes (`Create`, `Alloc`, `Wrap`, `Dispatch`,
+> `ConvertToTexture`) partent de dimensions ou d'octets, jamais d'un chemin.
+> Chaque consommateur qui veut un `NkImage` du tas depuis un fichier doit donc
+> **recopier l'idiome d'allocation interne de NKImage** — exactement le genre de
+> duplication que ce dépôt paie ailleurs.
+>
+> **Deux issues, et c'est un arbitrage technique, pas une évidence :**
+> 1. **Porter les deux sites** en recopiant l'idiome. Zéro risque, mais installe
+>    la duplication dans une démo.
+> 2. **Rendre à NKImage sa fabrique** — une static `NkImage *LoadFile(path, ch)`
+>    de trois lignes, qui rétablit la symétrie avec `Free()` et sert tout
+>    consommateur futur. Touche un module Kernel pour réparer une démo, donc à
+>    décider, pas à faire d'autorité.
+>
+> Je penche pour la **2** — l'asymétrie est la cause, les deux sites cassés n'en
+> sont que le symptôme — mais je ne modifie pas un module Kernel sur ma seule
+> lecture.
+
 #### Comment reprendre
 ```
 jenga build --config Debug 2>&1 | grep -E "Compilation Error|Projects Built|Status"
