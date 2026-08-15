@@ -265,12 +265,12 @@ namespace nkentseu {
 			NkIKChainDesc desc;
 			desc.name = "limb";
 			// Solveur configurable : NK_IK_SOLVER=fabrik|ccd|twobone (defaut fabrik).
-			desc.solver = NkIKSolver::NK_FABRIK;
+			desc.solver = NkIKMethod::NK_FABRIK;
 			if (const char *sv = getenv("NK_IK_SOLVER")) {
 				if (sv[0] == 'c' || sv[0] == 'C')
-					desc.solver = NkIKSolver::NK_CCD;
+					desc.solver = NkIKMethod::NK_CCD;
 				else if (sv[0] == 't' || sv[0] == 'T')
-					desc.solver = NkIKSolver::NK_TWO_BONE;
+					desc.solver = NkIKMethod::NK_TWO_BONE;
 			}
 			desc.maxIterations = 16;
 			desc.tolerance = 0.0005f;

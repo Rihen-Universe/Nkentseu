@@ -1,5 +1,5 @@
 // =============================================================================
-// NKRenderer/Tools/Animation/NkPoseMass.h
+// NKAnimPhysics/NkPoseMass.h
 // -----------------------------------------------------------------------------
 // M3.1 (NkAnima — physique d'animation façon Cascadeur) : DISTRIBUTION DE MASSE
 // + CENTRE DE MASSE (COM) d'une pose de squelette.
@@ -24,7 +24,7 @@
 #include "NKMath/NKMath.h"
 
 namespace nkentseu {
-	namespace renderer {
+	namespace animphys {
 
 		// Modèle de masse d'un squelette : une masse relative par joint.
 		struct NkPoseMass {
@@ -57,5 +57,5 @@ namespace nkentseu {
 				static bool SelfTest();
 		};
 
-	} // namespace renderer
+	} // namespace animphys
 } // namespace nkentseu

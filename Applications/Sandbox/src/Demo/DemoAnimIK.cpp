@@ -11,12 +11,13 @@
 // = animation + IK ensemble. Engine-level (sert le jeu : foot-lock, hand-IK).
 //   renderdemo --demo=17        NK_SKIN_MODEL=<chemin>
 // =============================================================================
+#include "NKRenderer/Mesh/NkGLTFAnimBake.h"
 #include "DemoCommon.h"
 #include "NKRenderer/Mesh/NkGLTFLoader.h"
 #include "NKRenderer/Mesh/NkGLTFMaterialBridge.h"
 #include "NKRenderer/Mesh/NkMeshSystem.h"
 #include "NKRenderer/Tools/Render3D/NkRender3D.h"
-#include "NKRenderer/Tools/Animation/NkAnimationSystem.h"
+#include "NKAnimation/NkAnimation.h"
 #include "NKRenderer/Tools/IK/NkIKSystem.h"
 #include "NKLogger/NkLog.h"
 #include <cmath>
@@ -35,8 +36,8 @@ namespace nkentseu {
 				NkMatInstHandle skinMat;
 				NkVector<NkMatInstHandle> matSlots;
 
-				NkAnimationClip clip; // walk rechargé de .nkanim
-				NkAnimationPlayer player;
+				anim::NkAnimationClip clip; // walk rechargé de .nkanim
+				anim::NkAnimationPlayer player;
 
 				// squelette
 				NkVector<NkMat4f> bindGlobal; // transforms monde bind par joint
@@ -124,12 +125,12 @@ namespace nkentseu {
 			// Clip walk : bake + reload .nkanim + play
 			{
 				int32 animIdx = data.animations.Empty() ? -1 : 0;
-				NkAnimationClip baked;
-				if (baked.BakeFromGLTF(data, animIdx, 30.f)) {
+				anim::NkAnimationClip baked;
+				if (BakeClipFromGLTF(data, animIdx, 30.f, baked)) {
 					NkString p("Build/Bin/Debug-Windows/renderdemo/cesiumman_walk.nkanim");
 					if (baked.SaveBinary(p) && st->clip.LoadBinary(p)) {
 						st->player.SetClip(&st->clip);
-						st->player.Play(NkPlayMode::NK_LOOP, 1.f);
+						st->player.Play(anim::NkPlayMode::NK_LOOP, 1.f);
 					}
 				}
 			}
@@ -231,7 +232,7 @@ namespace nkentseu {
 			st->rig = st->ik.CreateRig(1);
 			NkIKChainDesc desc;
 			desc.name = "arm";
-			desc.solver = NkIKSolver::NK_FABRIK;
+			desc.solver = NkIKMethod::NK_FABRIK;
 			desc.maxIterations = 16;
 			desc.tolerance = 0.0005f;
 			for (uint32 i = 0; i < (uint32)st->chain.Size(); ++i) {

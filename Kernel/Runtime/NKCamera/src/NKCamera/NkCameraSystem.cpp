@@ -6,6 +6,7 @@
 #include "NKCamera/NkCamera2D.h"
 #include "NKImage/Core/NkImage.h"
 #include "NKImage/Codecs/JPEG/NkJPEGCodec.h"
+#include "NKLogger/NkLog.h"
 
 #include <ctime>
 #include <cstdio>
@@ -407,6 +408,40 @@ namespace nkentseu {
 	// Conversions de format
 	// ===========================================================================
 
+	// La formule de déquantification YUV se choisit sur la PLAGE, jamais sur le
+	// format. Déduire la plage du format « marchait » tant qu'un seul producteur
+	// émettait chaque format : c'était juste par coïncidence de producteurs, pas
+	// par construction, et le second producteur l'aurait cassé en silence.
+	//
+	// Quand la plage n'est PAS déclarée, on ne devine pas : on le DIT, une fois
+	// par format, et on applique un repli explicitement historique — celui qui
+	// reproduit exactement le comportement d'avant, pour que la migration ne
+	// change rien à l'écran. Le repli est une compatibilité assumée, pas une
+	// mesure ; c'est pour ça qu'il s'accompagne d'un avertissement.
+	static bool NkFrameUsesVideoRange(const NkCameraFrame &frame) {
+		if (frame.range == NkColorRange::NK_COLOR_RANGE_VIDEO)
+			return true;
+		if (frame.range == NkColorRange::NK_COLOR_RANGE_FULL)
+			return false;
+
+		// Repli historique : I420 était décodé en plage pleine, les autres en
+		// plage réduite. On le conserve à l'identique, et on le signale.
+		const bool legacyVideoRange = (frame.format != NkPixelFormat::NK_PIXEL_YUV420);
+
+		// Un avertissement par format, pas un par image : un journal qui se
+		// répète soixante fois par seconde n'est plus lu, donc ne protège plus.
+		static bool warned[8] = { false, false, false, false, false, false, false, false };
+		const uint32 slot = (uint32)frame.format & 7u;
+		if (!warned[slot]) {
+			warned[slot] = true;
+			logger.Warnf("[NkCamera] Plage de couleur NON DECLAREE pour %s : repli historique = %s. "
+			             "Le producteur doit renseigner NkCameraFrame::range (cf. NkColorRange).",
+			             NkCameraPixelFormatToString(frame.format),
+			             legacyVideoRange ? "REDUITE" : "PLEINE");
+		}
+		return legacyVideoRange;
+	}
+
 	bool NkCameraSystem::ConvertToRGBA8(NkCameraFrame &frame) {
 		if (frame.format == NkPixelFormat::NK_PIXEL_RGBA8)
 			return true;
@@ -442,19 +477,31 @@ namespace nkentseu {
 
 		if (frame.format == NkPixelFormat::NK_PIXEL_YUYV) {
 			// YUYV packed: Y0 U0 Y1 V0
+			const bool videoRange = NkFrameUsesVideoRange(frame);
 			for (uint32 i = 0; i < w * h / 2; ++i) {
-				float y0 = (float)frame.data[i * 4 + 0] - 16.f;
+				float y0 = (float)frame.data[i * 4 + 0];
 				float cb = (float)frame.data[i * 4 + 1] - 128.f;
-				float y1 = (float)frame.data[i * 4 + 2] - 16.f;
+				float y1 = (float)frame.data[i * 4 + 2];
 				float cr = (float)frame.data[i * 4 + 3] - 128.f;
 				auto cl = [](float v) -> uint8 { return (uint8)(v < 0 ? 0 : v > 255 ? 255 : v); };
-				out[i * 8 + 0] = cl(y0 * 1.164f + cr * 1.596f);
-				out[i * 8 + 1] = cl(y0 * 1.164f - cb * 0.391f - cr * 0.813f);
-				out[i * 8 + 2] = cl(y0 * 1.164f + cb * 2.018f);
+				if (videoRange) {
+					y0 -= 16.f;
+					y1 -= 16.f;
+					out[i * 8 + 0] = cl(y0 * 1.164f + cr * 1.596f);
+					out[i * 8 + 1] = cl(y0 * 1.164f - cb * 0.391f - cr * 0.813f);
+					out[i * 8 + 2] = cl(y0 * 1.164f + cb * 2.018f);
+					out[i * 8 + 4] = cl(y1 * 1.164f + cr * 1.596f);
+					out[i * 8 + 5] = cl(y1 * 1.164f - cb * 0.391f - cr * 0.813f);
+					out[i * 8 + 6] = cl(y1 * 1.164f + cb * 2.018f);
+				} else {
+					out[i * 8 + 0] = cl(y0 + 1.402f * cr);
+					out[i * 8 + 1] = cl(y0 - 0.344136f * cb - 0.714136f * cr);
+					out[i * 8 + 2] = cl(y0 + 1.772f * cb);
+					out[i * 8 + 4] = cl(y1 + 1.402f * cr);
+					out[i * 8 + 5] = cl(y1 - 0.344136f * cb - 0.714136f * cr);
+					out[i * 8 + 6] = cl(y1 + 1.772f * cb);
+				}
 				out[i * 8 + 3] = 255;
-				out[i * 8 + 4] = cl(y1 * 1.164f + cr * 1.596f);
-				out[i * 8 + 5] = cl(y1 * 1.164f - cb * 0.391f - cr * 0.813f);
-				out[i * 8 + 6] = cl(y1 * 1.164f + cb * 2.018f);
 				out[i * 8 + 7] = 255;
 			}
 			frame.data = std::move(out);
@@ -517,14 +564,23 @@ namespace nkentseu {
 		if (frame.format == NkPixelFormat::NK_PIXEL_NV12) {
 			const uint8 *Y = frame.data.Data();
 			const uint8 *UV = frame.data.Data() + w * h;
+			const bool videoRange = NkFrameUsesVideoRange(frame);
 			for (uint32 row = 0; row < h; ++row) {
 				for (uint32 col = 0; col < w; ++col) {
-					float y = (float)Y[row * w + col] - 16.f;
+					float y = (float)Y[row * w + col];
 					float u = (float)UV[(row / 2) * (w) + (col & ~1u)] - 128.f;
 					float v = (float)UV[(row / 2) * (w) + (col & ~1u) + 1] - 128.f;
-					float r = y * 1.164f + v * 1.596f;
-					float g = y * 1.164f - u * 0.391f - v * 0.813f;
-					float b = y * 1.164f + u * 2.018f;
+					float r, g, b;
+					if (videoRange) {
+						y -= 16.f;
+						r = y * 1.164f + v * 1.596f;
+						g = y * 1.164f - u * 0.391f - v * 0.813f;
+						b = y * 1.164f + u * 2.018f;
+					} else {
+						r = y + 1.402f * v;
+						g = y - 0.344136f * u - 0.714136f * v;
+						b = y + 1.772f * u;
+					}
 					uint32 idx = (row * w + col) * 4;
 					out[idx + 0] = (uint8)(r < 0 ? 0 : r > 255 ? 255 : r);
 					out[idx + 1] = (uint8)(g < 0 ? 0 : g > 255 ? 255 : g);
@@ -553,26 +609,32 @@ namespace nkentseu {
 			const uint8 *Y = frame.data.Data();
 			const uint8 *U = Y + ySize;
 			const uint8 *V = U + uvSize;
-			// ── PLAGE COMPLÈTE, et non plage réduite ─────────────────────────
-			// Le format YUV_420_888 d'Android livre des composantes sur TOUTE
-			// l'étendue 0-255. La formule de la plage réduite — celle qui
-			// retranche 16 et multiplie par 1,164 — étire un signal déjà étendu :
-			// les clairs saturent, les sombres se bouchent, et l'image paraît
-			// délavée. C'est exactement ce que montraient les captures de Rihen
-			// (murs brûlés en blanc, visage écrasé en noir) et ce qu'il a résumé
-			// d'un mot : « pas coloré réaliste ».
-			// Coefficients de la plage complète (BT.601, dits « JPEG ») :
-			//   R = Y + 1,402·(V−128)
-			//   G = Y − 0,344136·(U−128) − 0,714136·(V−128)
-			//   B = Y + 1,772·(U−128)
+			// La formule vient de la PLAGE déclarée par le producteur, plus du
+			// format. En plage pleine — ce qu'émet Android YUV_420_888, et ce
+			// qu'il déclare désormais — appliquer la formule de plage réduite
+			// (retrancher 16, multiplier par 1,164) étirerait un signal déjà
+			// étendu : clairs saturés, sombres bouchés, image délavée. C'est ce
+			// que montraient les captures de Rihen, qu'il a résumé d'un mot :
+			// « pas coloré réaliste ».
+			//   plage pleine  (BT.601 dite « JPEG ») : R = Y + 1,402·(V−128) …
+			//   plage réduite (BT.601 dite « TV »)   : R = 1,164·(Y−16) + 1,596·(V−128) …
+			const bool videoRange = NkFrameUsesVideoRange(frame);
 			for (uint32 row = 0; row < frame.height; ++row) {
 				for (uint32 col = 0; col < frame.width; ++col) {
 					float y = (float)Y[row * frame.width + col];
 					float u = (float)U[(row / 2) * uvW + (col / 2)] - 128.f;
 					float v = (float)V[(row / 2) * uvW + (col / 2)] - 128.f;
-					float r = y + 1.402f * v;
-					float g = y - 0.344136f * u - 0.714136f * v;
-					float b = y + 1.772f * u;
+					float r, g, b;
+					if (videoRange) {
+						y -= 16.f;
+						r = y * 1.164f + v * 1.596f;
+						g = y * 1.164f - u * 0.391f - v * 0.813f;
+						b = y * 1.164f + u * 2.018f;
+					} else {
+						r = y + 1.402f * v;
+						g = y - 0.344136f * u - 0.714136f * v;
+						b = y + 1.772f * u;
+					}
 					uint32 idx = (row * frame.width + col) * 4;
 					out[idx + 0] = (uint8)(r < 0 ? 0 : r > 255 ? 255 : r);
 					out[idx + 1] = (uint8)(g < 0 ? 0 : g > 255 ? 255 : g);

@@ -689,6 +689,13 @@ namespace nkentseu {
 				frame.stride = static_cast<uint32>(w);
 				frame.timestampUs = static_cast<uint64>(ts / 1000);
 				frame.frameIndex = self->mFrameIdx++;
+				// PLAGE DÉCLARÉE, et non déduite. YUV_420_888 étale ses
+				// composantes sur toute l'étendue 0-255 ; le dire ici est ce qui
+				// permet à la conversion de choisir sa formule sans rien
+				// supposer du format. C'est la même valeur qu'avant — ce qui
+				// change, c'est qu'elle est désormais AFFIRMÉE par celui qui
+				// sait, au lieu d'être devinée par celui qui convertit.
+				frame.range = NkColorRange::NK_COLOR_RANGE_FULL;
 
 				// ── RESPECTER LES PAS DE PLAN ────────────────────────────────
 				// YUV_420_888 ne décrit pas UNE disposition mais une famille.

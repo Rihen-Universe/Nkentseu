@@ -174,6 +174,79 @@ Total backends : 7 ; tous compilent et fonctionnent sur leur cible. UWP et Xbox 
 ---
 
 ## Bugs / quirks connus
+
+### ✅ DETTE PAYÉE (2026-08-15) — la plage est DÉCLARÉE, plus déduite
+
+`NkCameraFrame::range` porte désormais l'étendue des composantes, et
+`ConvertToRGBA8` choisit sa formule **par la plage, jamais par le format**.
+
+**Trois états, et le troisième est le plus important.** `NkColorRange` vaut
+`FULL`, `VIDEO` ou **`UNKNOWN`**. Un choix binaire aurait obligé chaque
+producteur à mentir : celui qui ne déclare rien aurait reçu silencieusement
+l'une des deux valeurs, et l'on aurait remplacé une coïncidence par une autre.
+Avec `UNKNOWN`, un producteur qui n'a pas déclaré **se voit** — journalisé une
+fois par format, jamais deviné. *Une valeur par défaut qui a l'air d'une mesure
+est pire que pas de valeur.*
+
+Déclaré à ce jour : le backend **Android** annonce `FULL` pour son YUV_420_888 —
+ce que le décodage faisait déjà, donc **rien ne change à l'écran**. Les backends
+poste de travail n'émettent pas de YUV420 (établi) ; leurs YUYV/NV12 restent
+**non déclarés à dessein** — leur plage réelle n'a pas été mesurée, et
+l'inventer serait exactement le défaut qu'on vient de corriger. Ils tombent donc
+sur un repli explicitement historique, avec avertissement.
+
+**Vérification** — `NkCameraDemos --demo=format`, les quatre formats convertis,
+et les PNG produits **bit pour bit identiques** avant et après (comparaison
+d'empreintes MD5 sur un binaire reconstruit dans chaque état, pas un
+raisonnement).
+
+⚠️ **Cette première comparaison passait pour une raison insuffisante**, et c'est
+noté ici parce que le piège est réutilisable : les trames synthétiques avaient
+U = V = 128, donc **les termes de chrominance étaient multipliés par zéro**. Les
+PNG étaient bit pour bit identiques — ils l'auraient été aussi avec les
+coefficients de chrominance cassés. Un contrôle qui réussit pour une raison qui
+n'est pas celle qu'on croit.
+
+✅ **Comblé le jour même.** Les trois trames YUV de `--demo=format` sont
+désormais en deux moitiés : moitié haute à chrominance neutre (contrôle de
+LUMINANCE, tel qu'à l'origine), moitié basse à chrominance variable — U suit la
+verticale, V suit l'horizontale (contrôle de CHROMINANCE). Valeurs tenues dans
+[96, 160], **luminance comprise, pour qu'aucune sortie n'écrête** : un écrêtage
+rendrait le même 0 ou le même 255 pour deux formules différentes et masquerait
+l'écart cherché.
+
+Refait avec ces trames, l'ancien et le nouveau convertisseur — deux binaires
+reconstruits — rendent des sorties **identiques sur les quatre formats,
+chrominance comprise**. Et les formats ne se confondent plus entre eux
+(YUYV ≠ NV12 désormais : leur sous-échantillonnage chroma diffère réellement),
+ce qui montre que la trame discrimine.
+
+---
+
+### Historique — l'énoncé de la dette, avant qu'elle soit payée
+
+Depuis le 2026-08-14, l'**I420** est décodé en **plage complète**
+(`R = Y + 1,402·(V−128)`, `NkCameraSystem.cpp:573`) alors que **YUYV** (l. 451) et
+**NV12** (l. 525) restent en **plage réduite** (le `−16` et le `×1,164`). Rien
+dans la signature n'exprime ce choix : la plage est déduite du format, en
+silence.
+
+**C'est correct aujourd'hui, et faux par construction.** Correct parce qu'un seul
+producteur émet du YUV420 — le backend Android, qui livre bien de la plage
+complète (établi, pas supposé : `grep NK_PIXEL_YUV420`, aucun autre émetteur).
+Faux parce que rien ne le garantit : le jour où un second producteur livrera de
+l'I420 en plage vidéo, l'image sera délavée et personne ne saura pourquoi. **Un
+défaut latent, c'est exactement ça — juste par coïncidence de producteurs, pas
+par construction.**
+
+Ce qui a révélé la chose : avoir **lancé** `NkCameraDemos --demo=format` après
+coup. Relire le correctif ne le montrait pas.
+
+**Correctif prévu, non fait** : porter la plage dans `NkCameraFrame` (un champ
+`NkColorRange { FULL, VIDEO }` renseigné par le backend) et faire choisir la
+formule par la **plage**, jamais par le format. Différé volontairement pour ne
+pas élargir un diff en cours de fusion — différé, pas abandonné.
+
 - UWP et Xbox tombent sur Noop (pas de backend dédié)
 - Emscripten : nécessite HTTPS (ou localhost) pour `getUserMedia` ; le pump est via `setInterval` JS, donc le FPS effectif dépend du throttling navigateur (cap ~60 Hz, baisse en arrière-plan)
 - macOS backend déclare `NK_PIXEL_BGRA8` en sortie (cohérent avec CoreVideo) — `ConvertToRGBA8` swap les canaux côté CPU avant upload GPU

@@ -5,7 +5,7 @@
 #include "NKLogger/NkLog.h"
 
 namespace nkentseu {
-	namespace renderer {
+	namespace anim {
 
 		void NkAnimationEditor::SetClip(NkAnimationClip *clip) {
 			mClip = clip;
@@ -276,5 +276,5 @@ namespace nkentseu {
 			mUndo.PushBack(inv);
 		}
 
-	} // namespace renderer
+	} // namespace anim
 } // namespace nkentseu

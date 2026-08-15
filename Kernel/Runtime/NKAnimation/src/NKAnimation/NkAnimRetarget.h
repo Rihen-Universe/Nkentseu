@@ -52,13 +52,13 @@
 // CPU PUR, zero GPU : testable en headless, meme pendant un entrainement.
 // -----------------------------------------------------------------------------
 
-#include "NKRenderer/Core/NkRendererTypes.h"
-#include "NKRenderer/Tools/Animation/NkAnimationSystem.h"
+#include "NKMath/NKMath.h"
+#include "NKAnimation/NkAnimation.h"
 
 #include "NKContainers/String/NkString.h"
 
 namespace nkentseu {
-	namespace renderer {
+	namespace anim {
 
 		// Description d'un squelette pour le reciblage. Volontairement independante
 		// de NkAnimationClip : on recible VERS un personnage qui n'a pas encore
@@ -170,5 +170,5 @@ namespace nkentseu {
 				static bool SelfTest();
 		};
 
-	} // namespace renderer
+	} // namespace anim
 } // namespace nkentseu

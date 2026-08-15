@@ -259,13 +259,28 @@ Scaffold de structure uniquement (pas de simulation) :
 - **Démo** : raycast renvoie le bon id ; overlap liste les corps ; une **zone trigger**
   détecte un corps qui la **traverse** (enter, sans réponse physique).
 
-## ✅ MOTEUR COMPLET — M0→M13 livrés (56 tests verts)
+## ✅ MOTEUR COMPLET — M0→M13 livrés
+
+> **⚠️ CHIFFRE CORRIGÉ LE 2026-08-14.** Ce titre annonçait « 56 tests verts » et
+> la section suivante « self-test 59/59 » : **deux chiffres incompatibles dans le
+> même fichier**, ce qui garantit qu'au moins un est faux et rend les deux
+> inutilisables. Comptage réel, fait en relisant la source :
+> **61 assertions `CHECK` dans `tests/test_physics.cpp`** (656 lignes).
+>
+> **Ce nombre compte des assertions écrites, PAS des résultats verts** — le
+> harnais n'a pas été exécuté pour établir ce chiffre. Un « 61/61 » ne pourra
+> s'écrire ici qu'après un run réel, avec sa date. La distinction n'est pas de la
+> pédanterie : « 56 tests verts » affirmait un résultat que personne n'avait
+> observé ce jour-là.
+>
+> Pour référence, le module voisin tient l'engagement : **NKCollision annonce
+> 107 et en compte 107** (`tests/test_collision.cpp`).
 
 NKPhysics fournit désormais **tout le substrat physique** d'un système type Cascadeur, pour
 **toute morphologie** : dynamique complète, 4 joints + moteurs PD + limites, **ragdoll actif
 générique**, validation COM/moment, CCD, sous-pas/déterminisme, requêtes/triggers.
 
-## Couplage — boîte à outils livrée (2026-06-29, self-test 59/59)
+## Couplage — boîte à outils livrée (2026-06-29)
 
 Côté NKPhysics, `NkRagdoll` expose la **toolkit de couplage** (réutilisable, toute morphologie) :
 - **`ReadPose(world, outPos, outRot)`** : lit la pose physique par os → NkAnima **pilote le
