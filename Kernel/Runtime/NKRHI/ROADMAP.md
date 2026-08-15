@@ -425,3 +425,51 @@ touche que le backend Vulkan.
   - `NKImage` ↔ NKRHI — pipeline texture (loaders → upload GPU)
   - `Engine` / `Noge` (PV3DE, Noge éditeur) — consommateurs indirects
     via NKRenderer
+
+---
+
+## Dette connue — relecture GPU→CPU (DX11), relevée le 15 août 2026
+
+Trois constats liés, trouvés en cherchant si un relevé asynchrone existait déjà.
+Aucun ne casse quoi que ce soit **aujourd'hui**. Le troisième explique pourquoi
+les deux premiers sont dangereux **demain**.
+
+### 1. Le retour de `Map` n'est pas vérifié
+
+`NkDirectX11Device.cpp:807` (`ReadBuffer`) et `:822` (`MapBuffer`) appellent
+`ID3D11DeviceContext::Map(...)` sans regarder le `HRESULT`. En cas d'échec,
+`ms.pData` reste nul et le `memcpy` de la ligne suivante lit dedans.
+
+### 2. Un tampon d'attente est créé et détruit à chaque appel
+
+`NkDirectX11Device.cpp:797-810` : `CreateBuffer` + `Release` par lecture, même
+pour 4 octets. Créer une ressource D3D11 par image force du travail côté pilote
+qui n'apparaît dans aucun profil sous l'étiquette « lent ».
+
+### 3. ⚠ LE COUPLAGE — à lire avant de « juste optimiser »
+
+**Ne JAMAIS poser `D3D11_MAP_FLAG_DO_NOT_WAIT` avant d'avoir corrigé le point 1.**
+
+Le point 1 est inoffensif aujourd'hui *précisément parce que l'appel bloque* :
+un `Map` bloquant ne rend presque jamais d'échec, donc `pData` est toujours
+valide. Sous `DO_NOT_WAIT`, `DXGI_ERROR_WAS_STILL_DRAWING` devient un retour
+**normal et fréquent** — c'est le mécanisme même du non-bloquant. Le `memcpy`
+sur `pData` nul cesse d'être improbable pour devenir régulier.
+
+**L'optimisation évidente arme le défaut.** Celui qui rendra `MapBuffer` non
+bloquant livrera un plantage s'il ne corrige pas d'abord la vérification, et il
+n'aura aucune raison de soupçonner le lien.
+
+### Note sur `mPendingReadbacks`
+
+`NkDirectX11CommandBuffer.h:116` accumule les copies texture→tampon et les vide
+à `Execute()`. **Ce n'est PAS un anneau asynchrone** : le report existe parce
+qu'un contexte différé DX11 ne peut pas faire la copie en ligne, pas pour
+libérer l'appelant. La lecture, elle, bloque. Un report de commande n'est pas de
+l'asynchronisme — deux choses qui se ressemblent et n'ont rien en commun.
+
+Conséquence pour les appelants : qui veut un relevé non bloquant doit tenir son
+propre anneau de tampons d'attente **au-dessus** du RHI (c'est ce que fait le
+post-traitement pour l'auto-exposition), et non changer la sémantique de
+`MapBuffer` — d'autres appelants comptent sur son caractère bloquant sans le
+dire.
