@@ -22,12 +22,12 @@
 #include "NKCamera/NKICameraBackend.h"
 #include "NKContainers/String/NkStringUtils.h"
 #include "NKCore/NkAtomic.h"
+#include "NKCore/NkTraits.h"
 #include "NKLogger/NkLog.h"
+#include "NKThreading/NkMutex.h"
+#include "NKThreading/NkScopedLock.h"
+#include "NKThreading/NkThread.h"
 #include "NKTime/NkChrono.h"
-#include <thread>
-#include <mutex>
-#include <string>
-#include <vector>
 
 using Microsoft::WRL::ComPtr;
 
@@ -101,7 +101,7 @@ namespace nkentseu {
 						pSrc->Shutdown();
 						ppDev[i]->ShutdownObject(); // libérer proprement
 					}
-					result.PushBack(std::move(dev));
+					result.PushBack(traits::NkMove(dev));
 					ppDev[i]->Release();
 				}
 				CoTaskMemFree(ppDev);
@@ -109,7 +109,7 @@ namespace nkentseu {
 			}
 
 			void SetHotPlugCallback(NkCameraHotPlugCallback cb) override {
-				mHotPlugCb = std::move(cb);
+				mHotPlugCb = traits::NkMove(cb);
 			}
 
 			// ------------------------------------------------------------------
@@ -209,14 +209,14 @@ namespace nkentseu {
 				// 5. Démarrer le thread de capture
 				mRunning = true;
 				mState = NkCameraState::NK_CAM_STATE_STREAMING;
-				mCaptureThread = std::thread([this] { CaptureLoop(); });
+				mCaptureThread = threading::NkThread([this](void *) { CaptureLoop(); });
 				return true;
 			}
 
 			void StopStreaming() override {
 				mRunning = false;
-				if (mCaptureThread.joinable())
-					mCaptureThread.join();
+				if (mCaptureThread.Joinable())
+					mCaptureThread.Join();
 				StopVideoRecord();
 				mReader.Reset();
 				if (mSource) {
@@ -231,11 +231,11 @@ namespace nkentseu {
 			}
 
 			void SetFrameCallback(NkFrameCallback cb) override {
-				mFrameCb = std::move(cb);
+				mFrameCb = traits::NkMove(cb);
 			}
 
 			bool GetLastFrame(NkCameraFrame &out) override {
-				std::lock_guard<std::mutex> lk(mMutex);
+				threading::NkScopedLock<threading::NkMutex> lk(mMutex);
 				if (!mHasFrame)
 					return false;
 				out = mLastFrame;
@@ -246,7 +246,7 @@ namespace nkentseu {
 			// Photo
 			// ------------------------------------------------------------------
 			bool CapturePhoto(NkPhotoCaptureResult &res) override {
-				std::lock_guard<std::mutex> lk(mMutex);
+				threading::NkScopedLock<threading::NkMutex> lk(mMutex);
 				if (!mHasFrame) {
 					res.success = false;
 					res.errorMsg = "No frame";
@@ -286,7 +286,7 @@ namespace nkentseu {
 					}
 				// Déléguer à SaveFrameToFile du système (inclus via NkCameraSystem.cpp)
 				NkCameraFrame rgbaFrame = r.frame;
-				rgbaFrame.data = std::move(rgba);
+				rgbaFrame.data = traits::NkMove(rgba);
 				rgbaFrame.format = NkPixelFormat::NK_PIXEL_RGBA8;
 				rgbaFrame.stride = w * 4;
 				// Pas d'encodeur image embarqué dans NKCamera:
@@ -311,13 +311,13 @@ namespace nkentseu {
 					mLastError = "IMAGE_SEQUENCE_ONLY mode is not implemented on Win32 backend yet";
 					return false;
 				}
-				std::wstring wPath = Utf8ToWide(config.outputPath);
+				NkVector<wchar_t> wPath = Utf8ToWide(config.outputPath);
 
 				ComPtr<IMFAttributes> pAttr;
 				MFCreateAttributes(&pAttr, 1);
 				pAttr->SetUINT32(MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, TRUE);
 
-				if (FAILED(MFCreateSinkWriterFromURL(wPath.c_str(), nullptr, pAttr.Get(), &mSinkWriter))) {
+				if (FAILED(MFCreateSinkWriterFromURL(wPath.Data(), nullptr, pAttr.Get(), &mSinkWriter))) {
 					mLastError = "MFCreateSinkWriterFromURL failed";
 					return false;
 				}
@@ -434,7 +434,7 @@ namespace nkentseu {
 					pBuf->Unlock();
 
 					{
-						std::lock_guard<std::mutex> lk(mMutex);
+						threading::NkScopedLock<threading::NkMutex> lk(mMutex);
 						mLastFrame = frame;
 						mHasFrame = true;
 					}
@@ -453,23 +453,38 @@ namespace nkentseu {
 				mRunning = false;
 			}
 
-			static NkString WideToUtf8(const std::wstring &ws) {
-				if (ws.empty())
+			// Conversions UTF-16 ↔ UTF-8 sans `std::wstring` : `NkVector<wchar_t>`
+			// possède le tampon, et l'API Win32 écrit dedans. Le terminateur est
+			// compté par `MultiByteToWideChar` quand on lui passe -1, donc le
+			// tampon le contient déjà — inutile de l'ajouter à la main, et
+			// dangereux de l'oublier.
+			static NkString WideToUtf8(const wchar_t *ws) {
+				if (ws == nullptr || ws[0] == L'\0')
 					return {};
-				int n = WideCharToMultiByte(CP_UTF8, 0, ws.c_str(), -1, nullptr, 0, nullptr, nullptr);
-				std::string buf(static_cast<std::size_t>(n), '\0');
-				WideCharToMultiByte(CP_UTF8, 0, ws.c_str(), -1, buf.data(), n, nullptr, nullptr);
-				if (!buf.empty() && buf.back() == '\0')
-					buf.pop_back();
-				return NkString(buf.c_str());
+				const int n = WideCharToMultiByte(CP_UTF8, 0, ws, -1, nullptr, 0, nullptr, nullptr);
+				if (n <= 0)
+					return {};
+				NkVector<char> buf;
+				buf.Resize((usize)n);
+				WideCharToMultiByte(CP_UTF8, 0, ws, -1, buf.Data(), n, nullptr, nullptr);
+				return NkString(buf.Data()); // le tampon est terminé par zéro
 			}
 
-			static std::wstring Utf8ToWide(const NkString &s) {
-				if (s.Empty())
-					return {};
-				int n = MultiByteToWideChar(CP_UTF8, 0, s.CStr(), -1, nullptr, 0);
-				std::wstring ws(n, L'\0');
-				MultiByteToWideChar(CP_UTF8, 0, s.CStr(), -1, ws.data(), n);
+			static NkVector<wchar_t> Utf8ToWide(const NkString &s) {
+				NkVector<wchar_t> ws;
+				if (s.Empty()) {
+					ws.Resize(1);
+					ws[0] = L'\0';
+					return ws;
+				}
+				const int n = MultiByteToWideChar(CP_UTF8, 0, s.CStr(), -1, nullptr, 0);
+				if (n <= 0) {
+					ws.Resize(1);
+					ws[0] = L'\0';
+					return ws;
+				}
+				ws.Resize((usize)n);
+				MultiByteToWideChar(CP_UTF8, 0, s.CStr(), -1, ws.Data(), n);
 				return ws;
 			}
 
@@ -518,9 +533,9 @@ namespace nkentseu {
 			DWORD mVideoStreamIdx = 0;
 			LONGLONG mNextVideoTS = 0;
 
-			std::thread mCaptureThread;
+			threading::NkThread mCaptureThread;
 			NkAtomicBool mRunning{false};
-			std::mutex mMutex;
+			threading::NkMutex mMutex;
 			NkCameraFrame mLastFrame;
 			bool mHasFrame = false;
 
