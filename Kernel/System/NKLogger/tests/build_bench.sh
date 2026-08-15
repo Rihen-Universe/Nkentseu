@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # Construit et lance le banc NKLogger — coût d'une ligne de journal, en ns.
 #
-# Pourquoi un script et pas `jenga test` : l'exécution des tests est coupée par
-# politique de workspace (`disableunittestexecution`), et les autres fichiers de
-# ce dossier incluent un cadre `Unitest` absent du dépôt. Ce script est le seul
-# chemin qui mesure vraiment. Même modèle que Kernel/Runtime/NKXR/tests/.
+# Pourquoi un script et pas `jenga test` : l'exécution des tests est désactivée
+# par politique de workspace (`disableunittestexecution`), décision délibérée de
+# Rodolf que `jenga test` annonce clairement. Le cadre `Unitest` des deux autres
+# fichiers de ce dossier existe bien — il est fourni par JENGA, pas par ce dépôt.
+# Ce banc est autonome pour rester lançable quelle que soit cette politique.
+# Même modèle que Kernel/Runtime/NKXR/tests/.
 #
 # Prérequis : `jenga build --target NKLogger --config Release` (les .lib).
 # Usage     : bash Kernel/System/NKLogger/tests/build_bench.sh

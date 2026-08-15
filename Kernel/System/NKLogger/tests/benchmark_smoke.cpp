@@ -29,17 +29,16 @@
 // =============================================================================
 
 // ⚠️ PAS DE `#include <Unitest/...>` ICI, ET C'EST DÉLIBÉRÉ.
-//    Les deux autres fichiers de ce dossier incluent `<Unitest/Unitest.h>` —
-//    un cadre de test qui N'EXISTE PAS dans le dépôt : ni source, ni bibliothèque,
-//    ni sous-module, ni la moindre mention dans un `.jenga` (vérifié le
-//    2026-08-15). Ils ne peuvent donc pas se compiler, et `jenga test` ne le dit
-//    pas : l'exécution des tests est coupée par politique de workspace
-//    (`disableunittestexecution`), si bien que la cible « réussit » sans jamais
-//    les toucher. Un test qui ne compile pas, dans une chaîne qui ne l'exécute
-//    pas, ressemble à un test.
-//    Ce banc est donc AUTONOME — son propre `main`, aucune dépendance de test —
-//    sur le modèle de `Kernel/Runtime/NKXR/tests/`, seul style qui tourne
-//    réellement dans ce dépôt. Compilation : `tests/build_bench.sh`.
+//    Les deux autres fichiers de ce dossier s'appuient sur `Unitest`, cadre
+//    fourni par JENGA (et non par ce dépôt : le chercher ici et conclure qu'il
+//    n'existe pas serait chercher dans le mauvais référentiel — erreur commise
+//    puis corrigée le 2026-08-15). Ils sont donc valides, mais ils ne
+//    S'EXÉCUTENT PAS ici : l'exécution des tests est désactivée par politique de
+//    workspace (`disableunittestexecution`), décision délibérée de Rodolf que
+//    `jenga test` annonce clairement.
+//    Ce banc est donc AUTONOME — son propre `main`, aucune dépendance de cadre —
+//    pour rester lançable quelle que soit cette politique, sur le modèle de
+//    `Kernel/Runtime/NKXR/tests/`. Compilation : `tests/build_bench.sh`.
 
 #include "NKLogger/NkLogger.h"
 #include "NKLogger/NkLogLevel.h"
