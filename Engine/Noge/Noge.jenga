@@ -73,7 +73,10 @@ with project("Noge"):
         "%{NKCanvas.location}/src",
         "%{NKRHI.location}/src",
         "%{NKSL.location}/src",        # NKSL/Core/NkSLTypes.h via les headers NKRHI
-        "%{NKRenderer.location}/src",  # NKRenderer/NkRenderer.h (moteur 2D/3D Noge)
+        "%{NKRenderer.location}/src",
+        # Substrats d animation extraits de NKRenderer le 2026-08-14.
+        "%{NKAnimation.location}/src",
+        "%{NKAnimPhysics.location}/src",  # NKRenderer/NkRenderer.h (moteur 2D/3D Noge)
         "%{NKCollision.location}/src", # NKCollision (pont physique ECS)
         "%{NKPhysics.location}/src",   # NKPhysics/NkPhysicsWorld.h (NkPhysicsSystem)
         "%{NKNavigation.location}/src", # NKNavigation/NkNavMesh.h (NkNavAgentComponent/NkNavigationSystem)

@@ -590,12 +590,46 @@ Classement par **rapport valeur / coût**, pas par numéro de la spec :
   réutilisation du composant éditeur dans le champ de chat. Palliatif en place :
   les prompts composés ne transitent plus par le tampon (voir `mOut` dans
   `NkAiPanel.h`), tampon porté à 64 Ko, compteur de caractères visible.
-- ⬜ **Afficheur PDF en LECTURE** (30 juil 2026, demande de Rihen ; l'édition
-  ne l'intéresse pas, la lecture si). Rien n'existe aujourd'hui — vérifié, la
-  seule occurrence de « pdf » dans NKCode est un commentaire de mise en page
-  Markdown. **Priorité : après la bêta.2** (décision Rihen).
+- ✅ **Afficheur PDF en LECTURE** (demandé le 30 juil 2026 par Rihen ; l'édition
+  ne l'intéresse pas, la lecture si). **Livré — et le moteur ne vit PAS dans
+  NKCode.**
 
-  **Ce qu'on possède déjà** — l'inventaire change complètement l'estimation :
+  > ⚠️ **CORRECTION DU 2026-08-14.** Cette entrée disait jusqu'ici « Rien
+  > n'existe aujourd'hui — vérifié, la seule occurrence de « pdf » dans NKCode
+  > est un commentaire de mise en page Markdown ». C'était vrai le 30 juillet ;
+  > le lecteur a été écrit le **31 juillet**, et personne n'est revenu barrer la
+  > ligne — elle est restée en place jusqu'au 14 août, y compris à travers un
+  > commit de cette ROADMAP le 10 août. **Elle a très probablement coûté le fork
+  > décrit ci-dessous : on lit « rien n'existe », on reconstruit ce qui existe.**
+  > C'est le mode de défaillance qu'une feuille de route doit empêcher, pas
+  > produire.
+
+  **Où vit quoi** (mesuré le 2026-08-14) :
+
+  | | où | volume |
+  |---|---|---|
+  | **Le moteur PDF** | `Kernel/Runtime/NKMedia/src/NKMedia/Pdf/` | **10 990 lignes**, dont 4 415 de table de noms de glyphes générée (`NkPdfGlyphList.cpp`) → ≈ **6 575 lignes de logique** |
+  | **Ce que NKCode en fait** | `src/NKCode/Shell/NkPdfViewer.{h,cpp}` + `NkPdfWorker.{h,cpp}` | 930 lignes — panneau, fil de rendu. NKCode **consomme**, il n'implémente pas |
+  | **Copie morte — ✅ SUPPRIMÉE le 2026-08-14** | `src/NKCode/Pdf/` (n'existe plus) | **5 211 lignes / 11 fichiers** retirés, commit `a52e99e4`. `git ls-tree` sur `main` : **0 fichier restant**. Elle portait l'espace de noms `nkentseu::nkcode::pdf`, plus aucun fichier ne l'incluait, mais `files(["src/**.cpp"])` la faisait entrer dans le binaire — l'exe de NKCode a perdu **140 Ko** au rebuild propre |
+
+  La suppression est **faite** : elle a été précédée d'un diff des deux arbres
+  (rien à sauver — les seules lignes propres au fork étaient son espace de noms
+  et des versions *antérieures* de code que le Kernel avait déjà corrigé), et
+  suivie d'un rebuild propre — le build incrémental, lui, disait « SUCCESS » en
+  4 s avec les 6 `.obj` du fork toujours liés et l'exe inchangé à l'octet près.
+  Les quatre bancs PDF ont été re-racinés vers le module dans le même geste
+  (commit `804acb23`). Chantier « Fork du lecteur PDF » de
+  [DETTE_LISIBILITE.md](../../DETTE_LISIBILITE.md) : **clos**.
+
+  L'état détaillé du lecteur (corpus de 258 PDF, phases, causes des trois
+  régressions du 11 août) est tenu dans
+  [Applications/NKIlyana/ROADMAP.md](../NKIlyana/ROADMAP.md), l'autre
+  consommateur — **pas ici, et pas dans la ROADMAP de NKMedia**, qui n'en
+  parlait pas du tout avant le 14 août.
+
+  **Ce qu'on possédait déjà avant de commencer** — l'inventaire qui avait changé
+  l'estimation, conservé parce qu'il explique pourquoi le chantier a tenu en un
+  jour :
 
   | Brique | État |
   |---|---|
@@ -607,19 +641,29 @@ Classement par **rapport valeur / coût**, pas par numéro de la spec :
   Le moteur de police — que j'avais annoncé comme l'obstacle principal — est
   donc **déjà là**, et c'était la brique la plus coûteuse.
 
-  **Ce qui reste à écrire** : lexer/parseur d'objets PDF, tables `xref`
-  **y compris xref streams et object streams** (PDF ≥ 1.5, majoritaires
-  aujourd'hui), arbre de pages, interpréteur de flux de contenu (opérateurs
-  graphiques `q/Q/cm/re/m/l/c/f/S` + texte `BT/ET/Tf/Td/Tm/Tj/TJ`), pont
-  « `FontFile2`/`FontFile3` → `NkFontParser` », encodages (`Differences`) et
-  CMaps CID→GID, remplissage de chemins (winding non-zero et even-odd) et
-  clipping.
+  **Ce qui restait à écrire — et qui est écrit** (relu fichier par fichier le
+  2026-08-14 ; cette liste servait de reste-à-faire, elle sert maintenant de
+  table des matières du moteur) :
 
-  **Risques identifiés** (les parties non bornées) : les encodages/CMaps, les
-  espaces colorimétriques, la transparence, et surtout les **PDF réels mal
-  formés** — un afficheur qui échoue sur certains fichiers peut être pire que
-  pas d'afficheur. Prévoir un repli explicite « ce PDF n'est pas affichable »
-  plutôt qu'une page blanche.
+  | Brique annoncée « à écrire » | Où elle est |
+  |---|---|
+  | lexer/parseur d'objets, arbre de pages | `NkPdfLoad.cpp` (1 055 l.), `NkPdf.cpp` (499 l.) |
+  | tables `xref` **y compris xref streams et object streams** | `NkPdfLoad.cpp` — `mXref`, `mXrefSeen`, `mObjStmDone`, chaîne `/Prev`, code d'erreur `NK_PDF_ERR_XREF` |
+  | interpréteur de flux de contenu (graphique + texte) | `NkPdfRender.cpp` (1 666 l.) |
+  | pont `FontFile2`/`FontFile3` → `NkFontParser` | `NkPdfFont.cpp` (731 l.) |
+  | encodages `/Differences`, CMaps `ToUnicode` | `NkPdfFont.cpp` — `ParseToUnicode`, surcharges par nom de glyphe |
+  | remplissage non-zero **et** even-odd, clipping | `NkPdfRaster.cpp` — `Rasterize(path, evenOdd, …)`, `PushClipState`/`PopClipState` |
+  | (non annoncé à l'époque) ombrages, `/Info`, `/StructTreeRoot` | `NkPdfShading.cpp`, `NkPdfInfo.cpp`, `NkPdfStruct.cpp` |
+
+  Limite connue et écrite dans le code : un `/CIDToGIDMap` **en flux** n'est pas
+  géré (`NkPdfFont.cpp:244`).
+
+  **Risques identifiés à l'époque** — celui qui s'est réalisé est le dernier :
+  les **PDF réels mal formés**. C'est ce qui a motivé le sondage de corpus sur
+  258 documents côté NKIlyana, et les trois causes distinctes corrigées le
+  11 août (CMap multi-sections, absence de repli sur l'encodage de base, chaîne
+  `/Prev` bornée à 32). Les encodages/CMaps, les espaces colorimétriques et la
+  transparence restent les parties non bornées.
 
 - ⬜ **Afficheurs Word / Excel / PowerPoint** — reportés, l'intérêt porte
   d'abord sur le PDF. Ce sont des archives ZIP d'XML (OOXML) : la lecture seule

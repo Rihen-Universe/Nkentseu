@@ -14,13 +14,14 @@
 // rapide (pas de parsing JSON).
 //   renderdemo --demo=16        (cf remap main.cpp)   NK_SKIN_MODEL=<chemin>
 // =============================================================================
+#include "NKRenderer/Mesh/NkGLTFAnimBake.h"
 #include "DemoCommon.h"
 #include "NKRenderer/Mesh/NkGLTFLoader.h"
 #include "NKRenderer/Mesh/NkGLTFMaterialBridge.h"
 #include "NKRenderer/Mesh/NkMeshSystem.h"
 #include "NKRenderer/Tools/Render3D/NkRender3D.h"
-#include "NKRenderer/Tools/Animation/NkAnimationSystem.h"
-#include "NKRenderer/Tools/Animation/NkAnimationEditor.h"
+#include "NKAnimation/NkAnimation.h"
+#include "NKAnimation/NkAnimationEditor.h"
 #include "NKLogger/NkLog.h"
 #include <cmath>
 #include <cstdlib>
@@ -41,8 +42,8 @@ namespace nkentseu {
 				NkMatInstHandle skinMat;
 				NkVector<NkMatInstHandle> matSlots;
 
-				NkAnimationClip clip; // clip RECHARGÉ depuis .nkanim
-				NkAnimationPlayer player;
+				anim::NkAnimationClip clip; // clip RECHARGÉ depuis .nkanim
+				anim::NkAnimationPlayer player;
 				bool roundTripOK = false;
 				NkString nkanimPath;
 				uint32 jointCount = 0, frameCount = 0;
@@ -52,8 +53,8 @@ namespace nkentseu {
 				// la position i sur l'axe ; le parametre balaye l'axe -> on VOIT
 				// les melanges (Survey<->Walk<->Run) avec phases synchronisees.
 				bool blendMode = false;
-				NkVector<NkAnimationClip *> blendClips;
-				NkBlendTree1D blendTree;
+				NkVector<anim::NkAnimationClip *> blendClips;
+				anim::NkBlendTree1D blendTree;
 
 				// ── Morph targets sur mesh SKINNE (morph applique AVANT skinning) ──
 				NkVector<NkVertexSkinned> morphScratch;
@@ -126,8 +127,8 @@ namespace nkentseu {
 			// ── M1 round-trip : bake -> save .nkanim -> reload -> play ────────────
 			if (st->skinned) {
 				int32 animIdx = data.animations.Empty() ? -1 : 0;
-				NkAnimationClip baked;
-				if (baked.BakeFromGLTF(data, animIdx, 30.f)) {
+				anim::NkAnimationClip baked;
+				if (BakeClipFromGLTF(data, animIdx, 30.f, baked)) {
 					st->jointCount = (uint32)baked.boneTracks.Size();
 					st->frameCount = (st->jointCount > 0) ? baked.boneTracks[0].KeyCount() : 0;
 					st->nkanimPath = NkString("Build/Bin/Debug-Windows/renderdemo/cesiumman_walk.nkanim");
@@ -141,7 +142,7 @@ namespace nkentseu {
 						saved ? 1 : 0, loaded ? 1 : 0, st->roundTripOK ? 1 : 0, st->jointCount, st->frameCount);
 					if (loaded) {
 						st->player.SetClip(&st->clip);
-						st->player.Play(NkPlayMode::NK_LOOP, 1.f);
+						st->player.Play(anim::NkPlayMode::NK_LOOP, 1.f);
 					}
 				}
 
@@ -150,8 +151,8 @@ namespace nkentseu {
 				// et le pose a la position i (0, 1, 2, ...).
 				if (data.animations.Size() >= 2) {
 					for (uint32 ai = 0; ai < (uint32)data.animations.Size(); ++ai) {
-						auto *c = memory::NkGetDefaultAllocator().New<NkAnimationClip>();
-						if (c->BakeFromGLTF(data, (int32)ai, 30.f)) {
+						auto *c = memory::NkGetDefaultAllocator().New<anim::NkAnimationClip>();
+						if (BakeClipFromGLTF(data, (int32)ai, 30.f, *c)) {
 							c->name = data.animations[ai].name;
 							st->blendClips.PushBack(c);
 							st->blendTree.AddClip(c, (float32)(st->blendClips.Size() - 1));
@@ -167,13 +168,13 @@ namespace nkentseu {
 					// Self-test state machine (NK_ANIM_SMTEST) : 2 etats + transitions
 					// pilotees par un float, verifie declenchement + fin de fondu.
 					if (getenv("NK_ANIM_SMTEST") && st->blendClips.Size() >= 2) {
-						NkAnimStateMachine sm;
+						anim::NkAnimStateMachine sm;
 						int32 sIdle = sm.AddState(NkString("idle"), st->blendClips[0]);
 						int32 sWalk = sm.AddState(NkString("walk"), st->blendClips[1]);
 						sm.AddTransition(sIdle, sWalk, NkString("speed"),
-										 NkAnimStateMachine::NkCondKind::FLOAT_GREATER, 0.5f, 0.2f);
+										 anim::NkAnimStateMachine::NkCondKind::FLOAT_GREATER, 0.5f, 0.2f);
 						sm.AddTransition(sWalk, sIdle, NkString("speed"),
-										 NkAnimStateMachine::NkCondKind::FLOAT_LESS, 0.2f, 0.2f);
+										 anim::NkAnimStateMachine::NkCondKind::FLOAT_LESS, 0.2f, 0.2f);
 						// Evenements de transition : compte les debuts et fins.
 						int32 evStart = 0;
 						int32 evEnd = 0;
@@ -200,7 +201,7 @@ namespace nkentseu {
 
 						// Self-test blend 2D : 3 clips a 3 points, parametre au
 						// barycentre -> pose melangee non vide ; hit exact -> pur.
-						NkBlendTree2D bt2;
+						anim::NkBlendTree2D bt2;
 						bt2.AddClip(st->blendClips[0], {0.f, 0.f});
 						bt2.AddClip(st->blendClips[1], {1.f, 0.f});
 						bt2.AddClip(st->blendClips.Size() >= 3 ? st->blendClips[2] : st->blendClips[1], {0.f, 1.f});
@@ -309,7 +310,7 @@ namespace nkentseu {
 			// Self-test de l'éditeur de timeline (NK_ANIM_EDITTEST), SANS UI : insert/
 			// delete/move + undo/redo sur le clip, puis restaure (doit revenir à l'initial).
 			if (getenv("NK_ANIM_EDITTEST") && st->clip.boneTracks.Size() > 0) {
-				NkAnimationEditor ed;
+				anim::NkAnimationEditor ed;
 				ed.SetClip(&st->clip);
 				uint32 n0 = ed.PoseKeyCount();
 				float32 tIns = 0.5123f;

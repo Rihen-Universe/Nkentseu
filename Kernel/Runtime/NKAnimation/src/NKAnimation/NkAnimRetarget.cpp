@@ -5,10 +5,10 @@
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 
-#include "NKRenderer/Tools/Animation/NkAnimRetarget.h"
+#include "NKAnimation/NkAnimRetarget.h"
 
 namespace nkentseu {
-	namespace renderer {
+	namespace anim {
 
 		// ── NkRetargetSkeleton ──────────────────────────────────────────────────
 		NkMat4f NkRetargetSkeleton::BindWorld(uint32 j) const {
@@ -482,5 +482,5 @@ namespace nkentseu {
 			return ok;
 		}
 
-	} // namespace renderer
+	} // namespace anim
 } // namespace nkentseu

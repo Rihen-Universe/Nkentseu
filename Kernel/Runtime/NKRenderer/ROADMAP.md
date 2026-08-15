@@ -18,6 +18,53 @@ voir « Multi-backend » plus bas). Metal + Software restent à valider.
 
 ---
 
+## 🦴 L'ANIMATION A QUITTÉ CE MODULE (2026-08-14)
+
+`Tools/Animation` **ne contient plus le système d'animation**. En application du
+bloc de décision « SUBSTRATS ANIMATION ET COMPORTEMENT » (`CLAUDE.md` du
+répertoire parent), **5 076 des 5 568 lignes** en sont sorties. Il reste
+**492 lignes, et rien que ce qui dessine** :
+
+| Reste ici | rôle |
+|---|---|
+| `Tools/Animation/NkAnimationSystem.{h,cpp}` (345 l.) | **façade de rendu** : téléversement des matrices de skinning, soumission des meshes skinnés, pelure d'oignon, compute de morph targets, debug-draw du squelette |
+| `Tools/Animation/NkPoseDebugDraw.{h,cpp}` (147 l.) | dessine COM, polygone de support, fil d'aplomb |
+
+Où le reste est parti :
+
+| | module | espace de noms | volume |
+|---|---|---|---|
+| clips, keyframes, échantillonnage, player, blend 1D/2D, HFSM, reciblage, éditeur de pose-clés, motion path | `Kernel/Runtime/NKAnimation` | `nkentseu::anim` | **3 456 l.** |
+| masse/COM, équilibre, contacts, correction de pose et de clip | `Kernel/Runtime/NKAnimPhysics` | `nkentseu::animphys` | **1 621 l.** |
+
+**NKRenderer est désormais CONSOMMATEUR de ces deux modules**, et son code le dit :
+dans ses signatures, tout ce qui est préfixé `anim::` ou `animphys::` vient d'un
+substrat. Une frontière qu'on lit vaut mieux qu'une frontière qu'on documente.
+
+**Motif, mesuré** : sur les 5 568 lignes d'origine, **438 seulement — 7,9 %**
+touchaient au rendu. Sept en-têtes sur onze n'incluaient que Foundation et
+écrivaient eux-mêmes leur indépendance (« Pure Foundation : AUCUN GPU, headless »).
+Conséquence supprimée : NkAnima, PV3DE et NKScena devaient tirer **tout** le
+renderer pour animer, et une application 2D ne pouvait pas animer du tout.
+
+⚠️ **`BakeFromGLTF` n'est plus une méthode de `NkAnimationClip`.** C'était le seul
+lien entre le modèle d'animation et le chargeur glTF, et il suffisait à retenir
+toute l'animation ici. C'est désormais une **fonction libre**, du côté qui connaît
+le format : `renderer::BakeClipFromGLTF(data, animIdx, fps, out)` dans
+`Mesh/NkGLTFAnimBake.{h,cpp}`. Pas d'interface, pas de virtuel — même motif que la
+suppression de la seconde structure demi-arête le 2026-07-26.
+
+⚠️ **`Tools/IK/NkIKSystem` n'a PAS déménagé** et reste LA référence IK du dépôt.
+Son énumération `NkIKSolver` a été renommée **`NkIKMethod`** : elle désigne une
+*méthode* de résolution, et le nom devenait dangereux depuis que `Noge::NkIKSolver`
+existe pour désigner une *classe* d'adaptation.
+
+📍 **`Tools/Director/NkRoleContext` (555 l.) attend encore ici**, pour la même
+raison que l'animation y attendait : c'est le périmètre de **NKBehavior**, qui
+n'existe pas. Ne pas le déplacer vers rien.
+
+---
+
 ## 🥽 NOTE DE COORDINATION — chantier NKXR / stéréo (agent XR, 2026-08-10)
 
 Le chantier XR (`Kernel/Runtime/NKXR`, `XR_MISSION_IA.md`, branche de travail

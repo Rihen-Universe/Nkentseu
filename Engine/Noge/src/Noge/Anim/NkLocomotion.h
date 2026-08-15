@@ -36,7 +36,7 @@
 //     physique est fourni (SetPhysicsWorld) ; sinon un plan de sol plat
 //     (fallback CPU-only honnête, PAS une réimplémentation de raycast contre
 //     un mesh de terrain) sert de repli pour les démos sans monde physique.
-//   • NkLocomotionSystem possède un renderer::NkBlendTree1D (ConfigureBlend)
+//   • NkLocomotionSystem possède un anim::NkBlendTree1D (ConfigureBlend)
 //     qui mélange RÉELLEMENT deux clips (ex. Walk/Run) via
 //     NkBlendTree1D::SetParameter/Update — zéro réimplémentation de blend.
 //     Limitation assumée : le blend écrit une pose NON hiérarchique dans
@@ -58,7 +58,7 @@
 #include "NKContainers/Sequential/NkVector.h"
 #include "Noge/ECS/Components/Animation/NkAnimation.h"
 #include "Noge/Rigging/NkIKSolver.h"
-#include "NKRenderer/Tools/Animation/NkAnimationSystem.h"
+#include "NKAnimation/NkAnimation.h"
 #include "NKPhysics/NkPhysicsWorld.h"
 #include "NKCollision/NkColTypes.h"
 
@@ -329,10 +329,10 @@ namespace nkentseu {
 							   NkFootContact &out) const noexcept;
 	};
 
-	// NkLocomotionSystem : le blend Walk/Run est un renderer::NkBlendTree1D
+	// NkLocomotionSystem : le blend Walk/Run est un anim::NkBlendTree1D
 	// RÉEL (ConfigureBlend fournit les clips, SetParameter/Update font le
 	// mélange bone-local ou legacy matriciel selon le clip -- voir
-	// NKRenderer/Tools/Animation/NkAnimationSystem.h) — zéro blend
+	// NKAnimation/NkAnimation.h) — zéro blend
 	// réimplémenté ici. Limitation assumée : la pose résultante est écrite
 	// dans ecs::NkSkeleton comme transform MONDE indépendante par os
 	// (DecomposeTRS direct, pas de re-FK) -- correct pour un squelette PLAT
@@ -355,18 +355,18 @@ namespace nkentseu {
 			// Configure le blend-space 1D Walk(pos=0)/Run(pos=1). Les clips ne
 			// sont PAS possédés (durée de vie gérée par l'appelant, comme pour
 			// NkBlendTree1D::AddClip côté NKRenderer).
-			void ConfigureBlend(const renderer::NkAnimationClip *walk, const renderer::NkAnimationClip *run) noexcept;
+			void ConfigureBlend(const anim::NkAnimationClip *walk, const anim::NkAnimationClip *run) noexcept;
 
-			[[nodiscard]] const renderer::NkAnimationState &GetBlendedState() const noexcept {
+			[[nodiscard]] const anim::NkAnimationState &GetBlendedState() const noexcept {
 				return mBlend.GetState();
 			}
 
-			[[nodiscard]] const renderer::NkBlendTree1D &GetBlendTree() const noexcept {
+			[[nodiscard]] const anim::NkBlendTree1D &GetBlendTree() const noexcept {
 				return mBlend;
 			}
 
 		private:
-			renderer::NkBlendTree1D mBlend; // partagé par le système -- suffisant pour une démo
+			anim::NkBlendTree1D mBlend; // partagé par le système -- suffisant pour une démo
 											 // mono-personnage ; un jeu multi-personnages voudrait
 											 // une instance par entité (table NkHashMap<NkEntityId,...>).
 	};

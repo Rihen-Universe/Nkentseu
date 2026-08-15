@@ -1,5 +1,5 @@
 // =============================================================================
-// NKRenderer/Tools/Animation/NkPoseBalancer.h
+// NKAnimPhysics/NkPoseBalancer.h
 // -----------------------------------------------------------------------------
 // M3.4 (NkAnima — physique d'animation façon Cascadeur) : OPTIMISEUR DE POSE
 // SOUS CONTRAINTE D'ÉQUILIBRE. Brique 4/6 de M3 (le cœur). Ajuste une pose
@@ -19,10 +19,10 @@
 
 #include "NKCore/NkTypes.h"
 #include "NKMath/NKMath.h"
-#include "NKRenderer/Tools/Animation/NkPoseMass.h"
+#include "NKAnimPhysics/NkPoseMass.h"
 
 namespace nkentseu {
-	namespace renderer {
+	namespace animphys {
 
 		// Résultat d'une correction d'équilibre.
 		struct NkBalanceCorrection {
@@ -78,5 +78,5 @@ namespace nkentseu {
 				bool mHas = false;
 		};
 
-	} // namespace renderer
+	} // namespace animphys
 } // namespace nkentseu

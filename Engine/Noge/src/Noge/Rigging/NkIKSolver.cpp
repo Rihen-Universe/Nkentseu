@@ -102,7 +102,7 @@ namespace nkentseu {
 	uint32 NkIKSolver::SolveByDesc(ecs::NkSkeleton &skeleton, const NkVector<uint32> &boneIndices,
 									const NkVec3f &targetPos, const NkQuatf &targetRot, bool matchRotation,
 									const NkVec3f &poleVector, bool usePole, float32 weight, uint32 maxIterations,
-									float32 tolerance, renderer::NkIKSolver solverKind) noexcept {
+									float32 tolerance, renderer::NkIKMethod solverKind) noexcept {
 		if (boneIndices.Size() < 2)
 			return 0;
 
@@ -167,13 +167,13 @@ namespace nkentseu {
 	uint32 NkIKSolver::SolveFABRIK(ecs::NkSkeleton &skeleton, const Chain &chain) noexcept {
 		return SolveByDesc(skeleton, chain.boneIndices, chain.targetPosition, chain.targetRotation,
 						   chain.constrainTip, {}, false, chain.weight, chain.maxIterations, chain.tolerance,
-						   renderer::NkIKSolver::NK_FABRIK);
+						   renderer::NkIKMethod::NK_FABRIK);
 	}
 
 	uint32 NkIKSolver::SolveCCD(ecs::NkSkeleton &skeleton, const Chain &chain) noexcept {
 		return SolveByDesc(skeleton, chain.boneIndices, chain.targetPosition, chain.targetRotation,
 						   chain.constrainTip, {}, false, chain.weight, chain.maxIterations, chain.tolerance,
-						   renderer::NkIKSolver::NK_CCD);
+						   renderer::NkIKMethod::NK_CCD);
 	}
 
 	void NkIKSolver::SolveTwoBone(ecs::NkSkeleton &skeleton, const TwoBoneChain &chain) noexcept {
@@ -182,7 +182,7 @@ namespace nkentseu {
 		bones.PushBack(chain.midBone);
 		bones.PushBack(chain.tipBone);
 		SolveByDesc(skeleton, bones, chain.target, NkQuatf::Identity(), false, chain.poleTarget, chain.usePole,
-					chain.weight, 10u, 0.0005f, renderer::NkIKSolver::NK_TWO_BONE);
+					chain.weight, 10u, 0.0005f, renderer::NkIKMethod::NK_TWO_BONE);
 	}
 
 	void NkIKSolver::SolveSpline(ecs::NkSkeleton &skeleton, const SplineChain &chain) noexcept {
@@ -195,7 +195,7 @@ namespace nkentseu {
 		const NkVec3f target =
 			chain.splinePoints.Empty() ? NkVec3f{} : chain.splinePoints[(uint32)chain.splinePoints.Size() - 1];
 		SolveByDesc(skeleton, chain.boneIndices, target, NkQuatf::Identity(), false, {}, false, chain.weight, 10u,
-					0.001f, renderer::NkIKSolver::NK_SPLINE);
+					0.001f, renderer::NkIKMethod::NK_SPLINE);
 	}
 
 	// -------------------------------------------------------------------------
