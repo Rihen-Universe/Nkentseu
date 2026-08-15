@@ -173,8 +173,15 @@ namespace ilyana {
 		bool ordreLogique = false;		// ordre logique effectivement appliqué
 	};
 
+	// `forcerVisuel` interdit l'ordre logique même quand il s'appliquerait.
+	//
+	// Sert à MESURER : sans lui, comparer « avec » et « sans » réordonnancement
+	// demanderait deux exécutables construits depuis deux états du dépôt — donc
+	// une comparaison qu'on ne peut plus refaire une fois le code avancé. Avec
+	// lui, un seul binaire produit les deux mesures, et la non-régression reste
+	// vérifiable à tout moment.
 	inline NkString LirePdf(const char *chemin, int64 &nbPages, int64 &pagesMuettes, double dpi = 72.0,
-							DiagPdf *diag = nullptr) {
+							DiagPdf *diag = nullptr, bool forcerVisuel = false) {
 		using namespace nkentseu::media::pdf;
 		nbPages = 0;
 		pagesMuettes = 0;
@@ -202,7 +209,7 @@ namespace ilyana {
 		// est payé UNE fois, au dépôt du livre — jamais à la lecture.
 		media::pdf::NkPdfStructIndex indexStruct;
 		bool ordreLogique = false;
-		if (indexStruct.Construire(doc)) {
+		if (!forcerVisuel && indexStruct.Construire(doc)) {
 			const double part = media::pdf::NkPdfPartHorsStructure(doc, indexStruct);
 			ordreLogique = (part >= 0.0 && part < media::pdf::kNkPdfSeuilHorsStructure);
 			if (diag) {
