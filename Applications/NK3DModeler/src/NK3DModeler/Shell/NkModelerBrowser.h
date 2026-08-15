@@ -353,10 +353,21 @@ namespace nkentseu {
 				// Ombre portee legere, comme Unreal.
 				p.Fill({tx + 2.f, tyy + 3.f, tw, cardH}, NkColor{0, 0, 0, 90}, 3.f);
 				snprintf(akey, sizeof(akey), "brow.card.%d", i);
+				// DEUX ETATS QUI NE SE CONFONDENT PAS. La carte ACTIVE est celle dont
+				// les panneaux montrent les proprietes ; les cartes CHOISIES sont
+				// celles qui partiront ensemble si on tire. On peut en choisir cinq
+				// et n'en inspecter qu'une -- il faut donc deux marques distinctes,
+				// sinon l'utilisateur ne sait pas ce qu'il s'apprete a deplacer.
 				const bool selCard = (st.selectedAsset == i);
+				const bool prise = st.browserPicked[i];
 				hit.Add(akey, {tx, tyy, tw, cardH});
 				if (selCard)
-					p.Fill({tx - 2.f, tyy - 2.f, tw + 4.f, cardH + 4.f}, NkRole::AccentUi, 3.f);
+									p.Fill({tx - 2.f, tyy - 2.f, tw + 4.f, cardH + 4.f}, NkRole::AccentUi, 3.f);
+				else if (prise)
+									// Choisie sans etre active : un CONTOUR au lieu d'un aplat. La
+									// difference doit se lire d'un coup d'oeil sur une grille de
+									// trente cartes, pas se deviner en comparant deux nuances.
+									p.OutlineSharp({tx - 2.f, tyy - 2.f, tw + 4.f, cardH + 4.f}, NkRole::AccentUi);
 
 				// Damier de fond : il dit Â« ce fond est vide Â».
 				const float32 c = 8.f;
@@ -646,8 +657,38 @@ namespace nkentseu {
 						p.OutlineSharp(cardR, NkRole::AccentUi);
 					}
 				}
-				if (!uiModal && hit.Clicked(akey))
+				if (!uiModal && hit.Clicked(akey)) {
+					// ---- QUI PART AVEC LA CARTE QU'ON TIRE ----
+					//
+					// Trois gestes, ceux que tout gestionnaire de fichiers a appris a
+					// ses utilisateurs -- et que la hierarchie applique deja ici meme
+					// (Demo3DHostSelectObject(node, hit.CtrlDown())). Un navigateur qui
+					// s'en ecarterait obligerait a apprendre deux fois la meme chose.
+					//
+					//   clic seul  : cette carte, et elle seule
+					//   Ctrl+clic  : bascule celle-ci, garde les autres
+					//   Maj+clic   : la plage depuis la carte active jusqu'ici
+					//
+					// La carte cliquee devient ACTIVE dans les trois cas : c'est elle
+					// que les panneaux montrent, meme quand cinq sont choisies.
+					const int32 depuis = st.selectedAsset;
+					if (hit.CtrlDown()) {
+						st.browserPicked[i] = !st.browserPicked[i];
+					} else if (hit.ShiftDown() && depuis >= 0 && depuis < st.browserCount) {
+						// La plage s'AJOUTE au lieu de remplacer : c'est ce qui permet
+						// de composer une selection en plusieurs fois, et c'est le
+						// comportement attendu partout ailleurs.
+						const int32 a = depuis < i ? depuis : i;
+						const int32 b = depuis < i ? i : depuis;
+						for (int32 k = a; k <= b && k < st.browserCount; ++k)
+							st.browserPicked[k] = true;
+					} else {
+						for (int32 k = 0; k < st.browserCount; ++k)
+							st.browserPicked[k] = false;
+						st.browserPicked[i] = true;
+					}
 					st.selectedAsset = i;
+				}
 				tx += tw + S(12.f);
 			}
 			if (shown == 0) {

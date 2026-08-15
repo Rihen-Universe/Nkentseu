@@ -756,6 +756,19 @@ namespace nkentseu {
 				// Noeud SOURCE d'un asset reutilisable (0 = aucun, sinon noeud+1).
 				int32 browserSrcNode[kMaxBrowser] = {};
 				int32 browserCount = 0;
+				/// CARTES CHOISIES, pour les gestes qui portent PLUSIEURS assets.
+				///
+				/// `selectedAsset` reste la carte ACTIVE -- celle dont les panneaux
+				/// montrent les proprietes. `browserPicked` dit lesquelles PARTENT
+				/// avec elle quand on tire. Les deux notions se ressemblent et ne se
+				/// confondent pas : on peut avoir cinq cartes choisies et n'en
+				/// inspecter qu'une.
+				///
+				/// Taille : kMaxBrowser, comme tout ce qui indexe une carte. Le depot
+				/// a deja paye un tableau dimensionne sur le nombre d'objets d'une
+				/// demo au lieu de la borne reelle (hierFold, v16) -- l'ecriture
+				/// debordait sur le voisin et corrompait la selection en silence.
+				bool browserPicked[kMaxBrowser] = {};
 				/// LEGENDE REELLE, celle que le code CONSOMME (NkModelerUI.h) :
 				/// 0 graphe · 1 dossier · 2 materiau · 3 texture · 4 dataset IA ·
 				/// 5 scene · 6 model · 255 carte supprimee. Ce commentaire a
