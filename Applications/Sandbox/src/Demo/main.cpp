@@ -324,6 +324,15 @@ namespace nkentseu {
 					// Bloom OFF : ces modeles sont MATS (metallic=0). Le bloom faisait
 					// "briller" les textures saturees (glow neon) alors qu'elles ne
 					// refletent pas la lumiere. Sans bloom -> eclairage mat normal.
+					// Bloom OFF : ces modeles sont MATS (metallic=0). Le bloom faisait
+					// "briller" les textures saturees (glow neon) alors qu'elles ne
+					// refletent pas la lumiere. Sans bloom -> eclairage mat normal.
+					//
+					// BANC D'ESSAI DU 15/08 (seuil ancre au blanc affiche) : rallume,
+					// ce bloom ne produit PLUS d'effet mesurable. Deux executions du
+					// meme binaire different davantage (max 53) que bloom eteint
+					// contre bloom allume (max 49). Ce contournement n'est donc plus
+					// necessaire -- conserve tant que son retrait n'est pas arbitre.
 					c.postProcess.bloom = false;
 					c.postProcess.ssr = false;
 					// SSAO OFF : dans l'ombre dense sous le modele, le SSAO pousse le
@@ -346,6 +355,10 @@ namespace nkentseu {
 					// éclairée, sinon tout est noir).
 					auto c = NkRendererConfig::ForGame(api, w, h);
 					c.shadow.cascadeCount = 1;
+					// BANC D'ESSAI DU 15/08 : idem cas 12 — rallume avec le seuil
+					// ancre, ce bloom ne produit plus d'effet mesurable (max 47
+					// contre 51 entre deux executions identiques). Conserve tant
+					// que son retrait n'est pas arbitre.
 					c.postProcess.bloom = false;
 					c.postProcess.ssao = false;
 					c.postProcess.ssr = false;

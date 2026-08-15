@@ -611,8 +611,42 @@ NkPlanarReflectionSystem + reflets planaires complets sur sol mirror.
   Note d'usage : la cible 0,18 donne une image plus claire que l'exposition
   manuelle historique (147 vs 98) — baisser `autoExposureKey` vers ~0,10 pour
   retrouver le rendu d'avant.
-  Reste V2 : réduction en **compute** (au lieu de 256 taps dans un fragment) et
-  histogramme + percentiles pour ignorer les extrêmes.
+  Reste V2 : réduction en **compute** (au lieu de 256 taps dans un fragment).
+  ~~histogramme + percentiles~~ → **LIVRÉ le 2026-08-14** (`d226565f`), voir
+  l'entrée ci-dessous : histogramme cumulé sur 16 seuils fixes en log-luminance,
+  fenêtre [30ᵉ, 98ᵉ] percentile. *(Cette ligne annonçait encore le travail comme
+  restant : corrigée le 15/08.)*
+- ✅ **Exposition : la chaîne rendue cohérente** (2026-08-14 → 15) — quatre
+  défauts distincts, tous mesurés, sur le trajet « ce qui est mesuré → ce qui
+  est appliqué → ce qui est transmis » :
+  1. l'exposition était appliquée **avant** l'ajout du bloom dans
+     `pp_tonemap.frag.nksl` : aucune valeur d'exposition ne pouvait assombrir un
+     halo (`d226565f`) ;
+  2. `RunAutoExposure` mesurait `mainColor`, **avant** composition du bloom —
+     elle ne voyait jamais le halo qu'elle amplifiait ensuite ;
+  3. moyenne logarithmique → **histogramme de percentiles** [30ᵉ, 98ᵉ] : `log`
+     diverge vers −∞ près de zéro, donc un décor sombre écrasait la mesure ;
+  4. **le seuil de bloom s'ancre sur le blanc affiché** (`ca3f5fb8`) et non sur
+     le HDR brut, via l'exposition résolue relevée par anneau (`3851e985`).
+- ✅ **Exposition résolue : transmission réparée** (2026-08-15) — trois défauts
+  liés, trouvés en mesurant le cas 4 (auto puis bloom, tout décocher, bloom
+  seul) :
+  1. `PumpExposureReadback` portait une branche « auto éteinte » **inatteignable**
+     (son unique appelant, `RunAutoExposure`, retourne avant) : personne ne
+     posait donc l'exposition manuelle. Réponse déplacée dans
+     `ResolvedExposure()` — le point où la question est posée, seul valable hors
+     frame, or le graphe se construit hors frame. Branche morte **retirée** ;
+  2. `autoExposureStrength` manquait dans la liste de `SetPostConfig` qui salit
+     le graphe : cocher l'auto ne créait aucune passe jusqu'au prochain
+     redimensionnement. Seuil d'activation unifié en
+     `NkPostConfig::kAutoExposureOn` + `AutoExposureRequested()` ;
+  3. conséquence des deux : après extinction de l'auto, le seuil de bloom
+     s'ancrait sur une exposition **héritée** — mesuré `bloomThr = 1,19` au lieu
+     de `6,15` (0,85 × 7,24 / 5,15). Corrigé : `valid=1`, `aeExposure=1`.
+  **Banc d'essai** : bloom rallumé sur les démos Sandbox cas 12 (DemoSkin) et 13
+  (DemoIK), éteintes des mois durant à cause de ce défaut — plus aucun effet
+  mesurable. Deux exécutions du même binaire diffèrent davantage (écart max 53)
+  que bloom éteint contre allumé (49).
 - ✅ **NkRHI compute audit** (2026-05-23) — compute support OK cross-API
   VK+GL (cf. `memory/nkrhi_compute_support.md`). Déjà utilisé par NkML,
   NkAnimationSystem morph, NkComputeContext wrapper. Foundation prête pour
@@ -810,6 +844,21 @@ limité, DX12+Metal OK. Plan :
 - Reflection probes par pièce/zone (cubemap localisé)
 
 ### Bugs/quirks connus
+- 🔄 **DETTE — six compensations d'un défaut désormais corrigé** (nommée le
+  2026-08-15, retrait **non arbitré**). Le seuil de bloom s'appliquait sur le
+  HDR brut : toute surface diffuse bien éclairée entrait dans le bright pass.
+  Six fichiers ont compensé, sur des mois, **sans qu'aucun ne nomme la cause** :
+  `Sandbox/src/Demo/main.cpp` cas 12 et 13 (`bloom = false`), `main.cpp:349` et
+  `:368`, `DemoSkin.cpp:296` (soleil abaissé), `Demo11_FPSArena.cpp:492`
+  (lumières retirées), `Demo3D.cpp:3011` (couleur choisie sous le seuil).
+  Le banc d'essai du 15/08 montre que les cas 12 et 13 n'en ont **plus besoin**
+  (aucun effet mesurable au-dessus du bruit inter-exécutions). Les quatre autres
+  **n'ont pas été mesurés**. Ne pas retirer en bloc : chacun a été posé pour un
+  symptôme qui lui est propre, et un seul de ces symptômes pourrait avoir une
+  autre cause. Leçon associée : le commentaire du cas 12 décrivait exactement le
+  défaut (« le bloom faisait BRILLER les textures saturées alors qu'elles ne
+  reflètent pas la lumière ») des mois avant qu'il ne soit diagnostiqué —
+  **une compensation documentée reste une cause non cherchée.**
 - **FPS chute Vulkan Debug** : 500→100 fps en ~2s sans interaction
   observée 2026-05-16. Probable Vulkan validation layers + UBO writes
   + descriptor updates intensifs en Debug. À vérifier en Release.
