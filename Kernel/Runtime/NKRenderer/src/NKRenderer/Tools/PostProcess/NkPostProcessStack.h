@@ -95,7 +95,17 @@ namespace nkentseu {
 				// declare aucun attachement.
 				//
 				// dtSeconds <= 0 : le delta est mesure en interne (horloge propre).
-				void RunAutoExposure(NkICommandBuffer *cmd, NkTextureHandle hdrIn, float32 dtSeconds = -1.f);
+				//
+				// bloomIn / bloomStrength : LA MESURE PORTE SUR CE QUI SERA AFFICHE.
+				// Elle ne voyait que la scene brute, jamais le halo — or c'est le
+				// tonemap qui compose scene + halo, et c'est ce halo que l'exposition
+				// amplifie ensuite. Face a une source eblouissante dans un decor
+				// sombre, la mesure s'OUVRAIT au lieu de se fermer (constate par
+				// Rihen, 14 aout : auto ON + bloom ON -> tache blanche geante).
+				// bloomIn invalide ou bloomStrength <= 0 : mesure de la scene seule.
+				void RunAutoExposure(NkICommandBuffer *cmd, NkTextureHandle hdrIn,
+									 NkTextureHandle bloomIn, float32 bloomStrength,
+									 float32 dtSeconds = -1.f);
 
 				// Handle RHI de la cible 1x1 contenant la luminance adaptee la plus
 				// recente (celle ecrite par le dernier RunAutoExposure). Invalide si

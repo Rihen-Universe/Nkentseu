@@ -271,9 +271,13 @@ void main() {
 			mToneSet = mDevice->AllocateDescriptorSet(mToneLayout);
 
 			// ── Auto-exposure V1 : layout dedie (uHDR + uPrevLuma) + pool de sets ──
+			// binding 2 = uBloom : la mesure doit porter sur la COMPOSITION
+			// (scene + halo), pas sur la scene seule — sinon elle ne voit jamais
+			// le halo qu'elle amplifie ensuite.
 			NkDescriptorSetLayoutDesc aelay;
 			aelay.Add(0, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
 			aelay.Add(1, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
+			aelay.Add(2, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
 			mAutoExpLayout = mDevice->CreateDescriptorSetLayout(aelay);
 			for (int i = 0; i < kAutoExpDescSets; i++)
 				mAutoExpSets[i] = mDevice->AllocateDescriptorSet(mAutoExpLayout);
@@ -481,7 +485,8 @@ void main() {
 				pd.debugName = "PP_AutoExposure";
 				pd.renderPass = mLumaRT[0].GetRenderPass();
 				pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0,
-								   16); // (dtSeconds, adaptSpeed, minLuma, maxLuma) — VS+FS
+								   32); // PC[0]=(dtSeconds, adaptSpeed, minLuma, maxLuma)
+										// PC[1]=(bloomStrength, hasBloom, _, _) — VS+FS
 				if (mAutoExpLayout.IsValid())
 					pd.descriptorSetLayouts.PushBack(mAutoExpLayout);
 				mPipeAutoExp = mDevice->CreateGraphicsPipeline(pd);
@@ -1343,7 +1348,9 @@ void main() {
 			return mTex->GetRHIHandle(mLumaRT[mLumaWrite].GetColorHandle());
 		}
 
-		void NkPostProcessStack::RunAutoExposure(NkICommandBuffer *cmd, NkTextureHandle hdrIn, float32 dtSeconds) {
+		void NkPostProcessStack::RunAutoExposure(NkICommandBuffer *cmd, NkTextureHandle hdrIn,
+												 NkTextureHandle bloomIn, float32 bloomStrength,
+												 float32 dtSeconds) {
 			if (!cmd || !hdrIn.IsValid() || !IsAutoExposureEnabled())
 				return;
 			NkSamplerHandle samp = mResources ? mResources->GetSamplerLinearClamp() : NkSamplerHandle{};
@@ -1388,6 +1395,10 @@ void main() {
 			// ignore la valeur puisqu'elle ne sera pas <= 0 dans ce cas ; d'ou le
 			// clear explicite ci-dessous a la premiere frame.
 			mDevice->BindTextureSampler(set, 1, prevTex.IsValid() ? prevTex : hdrIn, samp);
+			// Le halo. Absent (bloom eteint) : on rebinde le HDR pour ne pas laisser
+			// un slot vide, et hasBloom=0 dit au shader de l'ignorer.
+			const bool aeHasBloom = bloomIn.IsValid() && bloomStrength > 0.f;
+			mDevice->BindTextureSampler(set, 2, aeHasBloom ? bloomIn : hdrIn, samp);
 
 			// La cible 1x1 n'est PAS un transient du RenderGraph : on gere son
 			// render pass ici (meme modele que la passe d'ombres).
@@ -1400,12 +1411,17 @@ void main() {
 
 			struct PC {
 					float32 dt, speed, minLuma, maxLuma;
+					float32 bloomStr, hasBloom, pad0, pad1;
 			} pc;
 
 			pc.dt = (mLumaWrite < 0) ? 0.f : dt; // amorcage : saut direct sur la cible
 			pc.speed = NkAutoExpSpeed(mCfg.autoExposureSpeed);
 			pc.minLuma = mCfg.autoExposureMinLuma > 0.f ? mCfg.autoExposureMinLuma : 0.0001f;
 			pc.maxLuma = mCfg.autoExposureMaxLuma > pc.minLuma ? mCfg.autoExposureMaxLuma : 8.f;
+			pc.bloomStr = aeHasBloom ? bloomStrength : 0.f;
+			pc.hasBloom = aeHasBloom ? 1.f : 0.f;
+			pc.pad0 = 0.f;
+			pc.pad1 = 0.f;
 			cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), &pc);
 			cmd->Draw(3, 1, 0, 0);
 			mLumaRT[write].EndRender(cmd);

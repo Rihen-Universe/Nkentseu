@@ -1024,12 +1024,26 @@ namespace nkentseu {
 				if (mPostProcess && mPostProcess->IsAutoExposureEnabled()) {
 					auto &ae = g.AddPass("AutoExposure", NkPassType::NK_POST_PROCESS);
 					ae.Reads(mainColor);
+					// LA MESURE PORTE SUR CE QUI SERA AFFICHE : le tonemap compose
+					// scene + halo, donc la mesure doit lire les deux. En ne voyant
+					// que la scene, elle s'ouvrait face a une source eblouissante
+					// posee dans un decor sombre — puis amplifiait le halo qu'elle
+					// n'avait pas mesure.
+					const bool aeBloom = hasBloom && bloomMip[0] != NK_INVALID_RES_ID;
+					if (aeBloom)
+						ae.Reads(bloomMip[0]);
 					ae.SetAlwaysExecute(true); // sortie hors-graph (cible 1x1 interne)
 					NkGraphResId aeHdrId = mainColor;
-					ae.Execute([this, aeHdrId](NkICommandBuffer *cmd) {
+					NkGraphResId aeBloomId = aeBloom ? bloomMip[0] : NK_INVALID_RES_ID;
+					const float32 aeBloomStr = mCfg.postProcess.bloomStrength;
+					ae.Execute([this, aeHdrId, aeBloomId, aeBloomStr](NkICommandBuffer *cmd) {
 						NkTextureHandle hdr = mRenderGraph->GetResourceTexture(aeHdrId);
+						NkTextureHandle bloom =
+							(aeBloomId != NK_INVALID_RES_ID)
+								? mRenderGraph->GetResourceTexture(aeBloomId)
+								: NkTextureHandle{};
 						if (mPostProcess && hdr.IsValid())
-							mPostProcess->RunAutoExposure(cmd, hdr);
+							mPostProcess->RunAutoExposure(cmd, hdr, bloom, aeBloomStr);
 					});
 				}
 

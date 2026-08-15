@@ -83,11 +83,16 @@ void main() {
     //    multiplie le HDR pour assombrir les zones occluses (objets sous le
     //    sol, coins, contacts, etc.).
     // 3. Sample bloom multi-pass et l'additionne.
-    vec3  hdr   = texture(uHDR, vUV).rgb * exposure;
+    // 4. EXPOSITION EN DERNIER : elle ne multipliait que uHDR, le bloom etant
+    //    ajoute apres sans jamais etre expose -> aucune exposition ne pouvait
+    //    assombrir un halo (cf. le meme correctif dans la version NkSL, qui est
+    //    celle qui tourne). Compose d'abord, expose ensuite.
+    vec3  scene = texture(uHDR, vUV).rgb;
     float ao    = texture(uSSAO, vUV).r;
-    hdr *= ao;
+    scene *= ao;
     vec3  bloom = texture(uBloom, vUV).rgb;
-    hdr += bloom * bloomStr;
+    scene += bloom * bloomStr;
+    vec3  hdr   = scene * exposure;
 
     // ── Tonemap ACES ────────────────────────────────────────────────
     vec3 mapped = ACESFilm(hdr);
