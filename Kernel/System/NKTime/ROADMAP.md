@@ -151,7 +151,8 @@ Légende : Livré · Partiel · En cours · TODO · Abandonné
 
 Sur Windows, **sans `timeBeginPeriod(1)`**, toute demande de 1 à 12 ms dort en
 réalité ~15,5 ms, et `Sleep(16)` dort **29,8 ms** — deux tics de 15,6.
-Relevé (`tests/bench_sleep.cpp`, 40 répétitions par palier) :
+Relevé (`tests/bench_sleep.cpp`, 40 répétitions par palier, **Release**,
+Windows 11 Pro 10.0.26100, 2026-08-15) :
 
 | demandé | réel sans | réel avec `timeBeginPeriod(1)` |
 |---|---|---|
@@ -159,6 +160,13 @@ Relevé (`tests/bench_sleep.cpp`, 40 répétitions par palier) :
 | 4 ms | **15,50 ms** | 5,00 ms |
 | 12 ms | **15,39 ms** | 12,45 ms |
 | 16 ms | **29,76 ms** | 16,53 ms |
+
+✅ **Rejoué en Debug, et le chiffre ne bouge pas** : 15,19 / 15,52 / 15,65 /
+15,38 / 15,51 ms pour 1, 2, 3, 4 et 8 ms demandées. C'est le contrôle qui compte
+— il confirme que la quantification est une propriété **du système**, pas de la
+construction, donc que cette conclusion-là se transporte d'une configuration à
+l'autre. *(À l'inverse du coût d'une ligne de journal, qui varie de ×1,9 à ×30 —
+voir `NKLogger/ROADMAP.md`.)*
 
 **Ce n'est pas un défaut de NKTime** — c'est la résolution de minuterie du
 système, et `NkChrono.cpp:277` la documente déjà. Le défaut est **où l'appel se
@@ -200,8 +208,8 @@ qui a emporté l'arbitrage, pas une préférence* — l'objection « on impose u
   existe et ne fait rien. Une API qui disparaît sur une plateforme force chaque
   appelant à refaire le `#if`.
 
-**Preuves d'atterrissage** — `NkCameraDemos --demo=viewer`, Windows 11 Pro
-10.0.26100, 2026-08-16 :
+**Preuves d'atterrissage** — `NkCameraDemos --demo=viewer`, **configuration
+Release**, Windows 11 Pro 10.0.26100, 2026-08-16, branche `feat/nkxr` :
 
 | condition | 3 exécutions | amplitude |
 |---|---|---|
