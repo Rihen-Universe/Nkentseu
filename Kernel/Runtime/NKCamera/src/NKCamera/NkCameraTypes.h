@@ -171,31 +171,29 @@ namespace nkentseu {
 			uint32 width = 0;
 			uint32 height = 0;
 			uint32 fps = 30;
-			// ⚠️ SANS AUCUN EFFET — 3 écrivains, 0 lecteur (relevé du 2026-08-15).
-			// `NKARDemo`, `CameraViewerDemo` et `CameraMultiDemo` posent toutes
-			// `NK_PIXEL_RGBA8` ici, et reçoivent du NV12 (Windows), du YUV420
-			// (Android), du BGRA8 (Cocoa/UIKit) ou du YUYV (Linux) : **le format
-			// est imposé par la plateforme**, jamais choisi.
-			// Les trois s'en sortent parce qu'elles testent `frame.format` et
-			// appellent `ConvertToRGBA8` — donc par CONCEPTION, pas par accident.
-			// L'honorer signifierait convertir dans le système, c'est-à-dire
-			// refaire ce que le consommateur fait déjà, en le cachant.
-			// → Le format réellement livré se lit sur `NkCameraFrame::format`.
-			// → Ce champ est candidat au RETRAIT ; il ne peut rien promettre.
-			NkPixelFormat outputFormat = NkPixelFormat::NK_PIXEL_RGBA8;
+			// ⚠️ TROIS CHAMPS RETIRÉS LE 2026-08-15 — ne pas les réintroduire
+			// sans les câbler d'abord :
+			//
+			//   `outputFormat` — 3 écrivains, 0 lecteur. Trois applications
+			//     demandaient `NK_PIXEL_RGBA8` et recevaient du NV12 (Windows),
+			//     YUV420 (Android), BGRA8 (Cocoa/UIKit) ou YUYV (Linux) : le
+			//     format est IMPOSÉ par la plateforme, jamais choisi. Le format
+			//     réellement livré se lit sur `NkCameraFrame::format`, et
+			//     `NkCameraSystem::ConvertToRGBA8` fait la conversion — ce que
+			//     les trois faisaient déjà, correctement.
+			//   `autoExposure`, `autoWhiteBalance` — 0 lecteur, 0 écrivain.
+			//     Utiliser `SetAutoExposure()` / `SetAutoWhiteBalance()`, qui
+			//     fonctionnent.
+			//
+			// Un champ mort dans un en-tête public est une promesse que
+			// quelqu'un finira par croire.
 			NkCameraFacing facing = NkCameraFacing::NK_CAMERA_FACING_ANY;
 			bool flipHorizontal = false;
-			// ⚠️ `autoFocus` n'est lu QUE par le backend Android. Sur Windows,
-			// aucun code de mise au point n'existe : le réglage est ignoré en
-			// silence (invisible sur une webcam à focale fixe, ce qui explique
-			// que personne ne l'ait vu).
+			// ⚠️ Lu par le SEUL backend Android. Sur Windows, aucun code de mise
+			// au point n'existe : le réglage y est ignoré en silence — invisible
+			// sur une webcam à focale fixe, ce qui explique que personne ne l'ait
+			// vu. Câbler `IAMCameraControl` avant de compter dessus.
 			bool autoFocus = true;
-			// ⚠️ SANS AUCUN EFFET — 0 lecteur, 0 écrivain (relevé du 2026-08-15).
-			// Les méthodes `SetAutoExposure()` / `SetAutoWhiteBalance()` existent
-			// et fonctionnent ; ce sont ces CHAMPS qui ne mènent nulle part, car
-			// rien ne les consulte à l'ouverture du flux.
-			bool autoExposure = true;
-			bool autoWhiteBalance = true;
 
 			void Resolve() {
 				if (preset != NkCameraResolution::NK_CAM_RES_CUSTOM)

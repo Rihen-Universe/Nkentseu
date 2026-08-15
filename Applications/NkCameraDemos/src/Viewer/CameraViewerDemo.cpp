@@ -122,7 +122,6 @@ namespace nkentseu {
 			NkCameraConfig camCfg;
 			camCfg.deviceIndex = 0;
 			camCfg.preset = NkCameraResolution::NK_CAM_RES_HD;
-			camCfg.outputFormat = NkPixelFormat::NK_PIXEL_RGBA8;
 			// MIROIR PAR DÉFAUT dans CE viewer, et c'est un choix d'application,
 			// pas du moteur. Cette démo montre l'utilisateur à lui-même : la
 			// convention qu'il connaît — visio, appareil photo — est le miroir,
