@@ -96,10 +96,7 @@ namespace nkentseu {
 
 		void ViewerApp::Shutdown() {
 			ClearAnimation();
-			if (mHdrSource != nullptr) {
-				mHdrSource->Free();
-				mHdrSource = nullptr;
-			}
+			mHdrSource.Unload(); // vide les pixels ; la valeur reste utilisable
 			mTexture.Shutdown();
 			mFont.Shutdown();
 			mRenderer.Shutdown();
@@ -110,13 +107,14 @@ namespace nkentseu {
 			// Re-tonemap le source HDR cache avec l'exposure/gamma courants.
 			// Utilise pour repondre aux ajustements clavier sans relire le
 			// fichier (le decode RGBE est cher sur grosse map 8k).
-			if (mHdrSource == nullptr || !mHdrSource->IsValid())
+			if (!mHdrSource.IsValid())
 				return;
-			NkImage *tonemapped = NkHDRCodec::ConvertToTexture(*mHdrSource, mHdrExposure, mHdrGamma);
-			if (tonemapped == nullptr)
+			const NkImage tonemapped = NkHDRCodec::ConvertToTexture(mHdrSource, mHdrExposure, mHdrGamma);
+			if (!tonemapped.IsValid())
 				return;
 			mTexture.Shutdown();
-			// UploadFromImage libere l'image apres upload.
+			// UploadFromImage ne libere plus rien : `tonemapped` se detruit en
+			// sortant de la portee, une fois les pixels remis au pilote GL.
 			mTexture.UploadFromImage(tonemapped);
 		}
 
@@ -349,10 +347,7 @@ namespace nkentseu {
 			mTexture.Shutdown();
 			ClearAnimation();
 			// Libere le source HDR cache de l'image precedente.
-			if (mHdrSource != nullptr) {
-				mHdrSource->Free();
-				mHdrSource = nullptr;
-			}
+			mHdrSource.Unload();
 			mIsHdr = false;
 			mLoaded = false;
 			if (mCurrentIdx < 0 || mCurrentIdx >= (int)mFiles.Size())
@@ -375,16 +370,18 @@ namespace nkentseu {
 				usize bytes = 0;
 				uint8 *data = ReadFileBytes(path.CStr(), bytes);
 				if (data != nullptr && bytes > 0) {
-					NkImage *hdr = NkHDRCodec::Decode(data, bytes);
+					NkImage hdr = NkHDRCodec::Decode(data, bytes);
 					std::free(data);
-					if (hdr != nullptr && hdr->IsValid()) {
-						mHdrSource = hdr; // owned, libere au prochain LoadCurrent
+					if (hdr.IsValid()) {
 						mIsHdr = true;
-						mMeta.width = hdr->Width();
-						mMeta.height = hdr->Height();
+						mMeta.width = hdr.Width();
+						mMeta.height = hdr.Height();
 						mMeta.channels = 3; // RGB96F = 3 canaux float
 						mMeta.frameCount = 1;
 						mMeta.animated = false;
+						// Les dimensions sont lues AVANT le move : apres, `hdr`
+						// ne detient plus rien. Le cache prend la propriete.
+						mHdrSource = traits::NkMove(hdr);
 						RebuildHdrTexture();
 						if (mTexture.IsValid()) {
 							mLoaded = true;
@@ -392,9 +389,8 @@ namespace nkentseu {
 										mMeta.width, mMeta.height, mHdrExposure);
 							return;
 						}
-					} else if (hdr != nullptr) {
-						hdr->Free();
 					}
+					// Echec : `hdr` se detruit seule en sortant de la portee.
 				}
 				logger.Warn("[Viewer] HDR Decode FAIL : {0}", path.CStr());
 				// Fallback : on continue sur NkImage::Load classique
@@ -416,12 +412,11 @@ namespace nkentseu {
 						mAnimDelaysMs.Reserve(anim->frameCount);
 						for (uint32 i = 0; i < anim->frameCount; ++i) {
 							Texture2D *t = new Texture2D();
-							// UploadFromImage libere le NkImage*, on nullify
-							// dans la struct pour eviter le double-free dans
-							// FreeAnimation.
-							NkImage *frameImg = anim->frames[i].image;
-							anim->frames[i].image = nullptr;
-							if (t->UploadFromImage(frameImg)) {
+							// UploadFromImage ne prend PLUS la propriete : la
+							// frame reste possedee par `anim` et sera liberee par
+							// FreeAnimation. Plus de nullify, donc plus de risque
+							// de double-free ni d'oubli de nullify.
+							if (t->UploadFromImage(anim->frames[i].image)) {
 								mAnimTextures.PushBack(t);
 								mAnimDelaysMs.PushBack(anim->frames[i].delayMs);
 							} else {
@@ -446,21 +441,20 @@ namespace nkentseu {
 				}
 			}
 
-			// ── Cas general : NkImage::Load (statique, 1 frame) ───────────
-			NkImage *img = NkImage::Load(path.CStr(), 4);
-			if (img == nullptr || !img->IsValid()) {
+			// ── Cas general : Load (methode d'instance, 1 frame) ───────────
+			NkImage img;
+			if (!img.Load(path.CStr(), 4) || !img.IsValid()) {
 				logger.Warn("[Viewer] Decode FAIL : {0}", path.CStr());
-				if (img != nullptr)
-					img->Free();
 				mMeta.width = mMeta.height = mMeta.channels = 0;
-				return;
+				return; // `img` se detruit seule
 			}
-			mMeta.width = img->Width();
-			mMeta.height = img->Height();
-			mMeta.channels = img->Channels();
+			mMeta.width = img.Width();
+			mMeta.height = img.Height();
+			mMeta.channels = img.Channels();
 			mMeta.frameCount = 1;
 			mMeta.animated = false;
-			// Upload sur le main thread (libere l'image apres).
+			// Upload sur le main thread ; `img` reste a nous et se detruit en
+			// fin de portee, une fois les pixels remis au pilote GL.
 			if (!mTexture.UploadFromImage(img)) {
 				logger.Warn("[Viewer] Upload GL FAIL : {0}", path.CStr());
 				return;
