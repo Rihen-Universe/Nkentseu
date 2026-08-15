@@ -549,14 +549,12 @@ static bool SaveSoftwareScene(NkSoftwareDevice *swDev, const std::filesystem::pa
 	uint32 w = swDev->BackbufferWidth(), h = swDev->BackbufferHeight();
 	if (!px || !w || !h)
 		return false;
-	NkImage *img = NkImage::Wrap(const_cast<uint8 *>(px), (int32)w, (int32)h, NkImagePixelFormat::NK_RGBA32);
-	if (!img || !img->IsValid()) {
-		if (img)
-			img->Free();
+	// Vue NON-OWNING sur le backbuffer : `img` ne libere jamais `px`.
+	NkImage img = NkImage::Wrap(const_cast<uint8 *>(px), (int32)w, (int32)h, NkImagePixelFormat::NK_RGBA32);
+	if (!img.IsValid()) {
 		return false;
 	}
-	bool ok = SaveImageVariants(*img, dir, stem);
-	img->Free();
+	bool ok = SaveImageVariants(img, dir, stem);
 	return ok;
 }
 
@@ -1278,29 +1276,25 @@ int nkmain(const NkEntryState &state) {
 	// ── Texture albedo ────────────────────────────────────────────────────────
 	NkTextureHandle hAlbedoTex;
 	NkSamplerHandle hAlbedoSampler;
-	NkImage *loadedTextureImage = nullptr;
+	NkImage loadedTextureImage;
 	std::string loadedTexturePath = FindTextureInResources();
 
 	if (!loadedTexturePath.empty()) {
 		// Load() est une methode d'instance (NKIResource) : allouer puis charger.
 		loadedTextureImage = NkImage::Alloc(1, 1, NkImagePixelFormat::NK_RGBA32);
-		if (loadedTextureImage && !loadedTextureImage->Load(loadedTexturePath.c_str(), 4)) {
-			loadedTextureImage->Free();
-			loadedTextureImage = nullptr;
+		if (loadedTextureImage.IsValid() && !loadedTextureImage.Load(loadedTexturePath.c_str(), 4)) {
+			loadedTextureImage.Unload();
 		}
 	}
 
 	// Fallback : damier procedural si aucune texture trouvee.
-	if (!loadedTextureImage || !loadedTextureImage->IsValid()) {
-		if (loadedTextureImage) {
-			loadedTextureImage->Free();
-			loadedTextureImage = nullptr;
-		}
+	if (!loadedTextureImage.IsValid()) {
+		// Reaffectation : le move-assign libere l'eventuel buffer precedent.
 		loadedTextureImage = NkImage::Alloc(256, 256, NkImagePixelFormat::NK_RGBA32);
-		if (loadedTextureImage && loadedTextureImage->IsValid()) {
-			for (int y = 0; y < loadedTextureImage->Height(); ++y) {
-				uint8 *row = loadedTextureImage->RowPtr(y);
-				for (int x = 0; x < loadedTextureImage->Width(); ++x) {
+		if (loadedTextureImage.IsValid()) {
+			for (int y = 0; y < loadedTextureImage.Height(); ++y) {
+				uint8 *row = loadedTextureImage.RowPtr(y);
+				for (int x = 0; x < loadedTextureImage.Width(); ++x) {
 					uint8 c = (((x / 32) + (y / 32)) & 1) ? 220 : 40;
 					row[x * 4 + 0] = c;
 					row[x * 4 + 1] = c;
@@ -1312,9 +1306,9 @@ int nkmain(const NkEntryState &state) {
 		}
 	}
 
-	if (loadedTextureImage && loadedTextureImage->IsValid()) {
-		const uint32 albW = (uint32)loadedTextureImage->Width();
-		const uint32 albH = (uint32)loadedTextureImage->Height();
+	if (loadedTextureImage.IsValid()) {
+		const uint32 albW = (uint32)loadedTextureImage.Width();
+		const uint32 albH = (uint32)loadedTextureImage.Height();
 		// mipLevels=0 => le device alloue la chaine complete. On genere les mips
 		// cote CPU (NkImage::Resize) et on uploade chaque niveau : minification
 		// PROPRE et IDENTIQUE sur les 5 backends (independant du GenerateMips
@@ -1324,19 +1318,16 @@ int nkmain(const NkEntryState &state) {
 		hAlbedoTex = device->CreateTexture(ad);
 		if (hAlbedoTex.IsValid()) {
 			// niveau 0 = pleine resolution
-			device->WriteTextureRegion(hAlbedoTex, loadedTextureImage->Pixels(), 0, 0, 0, albW, albH, 1, 0, 0,
-									   (uint32)loadedTextureImage->Stride());
+			device->WriteTextureRegion(hAlbedoTex, loadedTextureImage.Pixels(), 0, 0, 0, albW, albH, 1, 0, 0,
+									   (uint32)loadedTextureImage.Stride());
 			// niveaux suivants : downsample depuis la pleine resolution
 			uint32 mw = albW, mh = albH, level = 1;
 			while (mw > 1 || mh > 1) {
 				uint32 nw = mw > 1 ? mw / 2 : 1, nh = mh > 1 ? mh / 2 : 1;
-				NkImage *mipImg = loadedTextureImage->Resize((int32)nw, (int32)nh, NkResizeFilter::NK_BILINEAR);
-				if (mipImg) {
-					if (mipImg->IsValid())
-						device->WriteTextureRegion(hAlbedoTex, mipImg->Pixels(), 0, 0, 0, nw, nh, 1, level, 0,
-												   (uint32)mipImg->Stride());
-					mipImg->Free();
-				}
+				NkImage mipImg = loadedTextureImage.Resize((int32)nw, (int32)nh, NkResizeFilter::NK_BILINEAR);
+				if (mipImg.IsValid())
+					device->WriteTextureRegion(hAlbedoTex, mipImg.Pixels(), 0, 0, 0, nw, nh, 1, level, 0,
+											   (uint32)mipImg.Stride());
 				mw = nw;
 				mh = nh;
 				++level;
@@ -2036,10 +2027,10 @@ int nkmain(const NkEntryState &state) {
 
 		if (reqSaveSource) {
 			reqSaveSource = false;
-			if (loadedTextureImage && loadedTextureImage->IsValid()) {
+			if (loadedTextureImage.IsValid()) {
 				++saveSourceCnt;
 				std::string stem = NkFormat("source_{0}", (unsigned long long)saveSourceCnt).CStr();
-				SaveImageVariants(*loadedTextureImage, capturesDir, stem);
+				SaveImageVariants(loadedTextureImage, capturesDir, stem);
 			}
 		}
 		if (reqSaveScene) {
@@ -2088,10 +2079,8 @@ int nkmain(const NkEntryState &state) {
 		device->DestroySampler(hAlbedoSampler);
 	if (hAlbedoTex.IsValid())
 		device->DestroyTexture(hAlbedoTex);
-	if (loadedTextureImage) {
-		loadedTextureImage->Free();
-		loadedTextureImage = nullptr;
-	}
+	// `loadedTextureImage` est une NkImage VALEUR : ses pixels sont liberes par
+	// son destructeur en sortie de Run().
 	DestroyTextQuad(device, tqFPS);
 	DestroyTextQuad(device, tqNkSL);
 	DestroyTextQuad(device, tqBackend);

@@ -1458,21 +1458,21 @@ namespace nkentseu {
 			}
 
 			// Decode HDR (Radiance RGBE) -> NkImage RGB96F
-			NkImage *hdr = NkHDRCodec::Decode(bytes.Data(), bytes.Size());
-			if (!hdr || !hdr->IsValid()) {
+			// NkImage est un TYPE VALEUR : `hdr` possede ses pixels et les libere
+			// toute seule a la sortie de la fonction, y compris sur les retours
+			// anticipes ci-dessous. L'echec se lit sur IsValid(), plus sur nullptr.
+			NkImage hdr = NkHDRCodec::Decode(bytes.Data(), bytes.Size());
+			if (!hdr.IsValid()) {
 				logger.Warnf("[NkEnvironmentSystem] LoadFromHDR : decode HDR echoue '%s'\n", path.CStr());
-				if (hdr)
-					hdr->Free();
 				return false;
 			}
-			if (!hdr->IsHDR()) {
+			if (!hdr.IsHDR()) {
 				logger.Warnf("[NkEnvironmentSystem] LoadFromHDR : format non-HDR '%s' (format=%d)\n", path.CStr(),
-							 (int)hdr->Format());
-				hdr->Free();
+							 (int)hdr.Format());
 				return false;
 			}
-			logger.Infof("[NkEnvironmentSystem] LoadFromHDR : '%s' (%dx%d, %s)\n", path.CStr(), hdr->Width(),
-						 hdr->Height(), hdr->Format() == NkImagePixelFormat::NK_RGB96F ? "RGB96F" : "RGBA128F");
+			logger.Infof("[NkEnvironmentSystem] LoadFromHDR : '%s' (%dx%d, %s)\n", path.CStr(), hdr.Width(),
+						 hdr.Height(), hdr.Format() == NkImagePixelFormat::NK_RGB96F ? "RGB96F" : "RGBA128F");
 
 			const uint32 irrSize = mCfg.irradianceSize > 0 ? mCfg.irradianceSize : 32;
 			const uint32 prefSize = mCfg.prefilterSize > 0 ? mCfg.prefilterSize : 128;
@@ -1510,7 +1510,7 @@ namespace nkentseu {
 							float v = ((float)y + 0.5f) / (float)prefSize * 2.f - 1.f;
 							float Nx, Ny, Nz;
 							CubemapFaceUVToDir(face, u, v, Nx, Ny, Nz);
-							NkVec3f s = SampleEquirect(Nx, Ny, Nz, *hdr);
+							NkVec3f s = SampleEquirect(Nx, Ny, Nz, hdr);
 							uint32 idx = (y * prefSize + x) * 4;
 							buf[idx + 0] = s.x;
 							buf[idx + 1] = s.y;
@@ -1529,7 +1529,7 @@ namespace nkentseu {
 				auto cpath = IBLCachePath(mCfg.cacheDir, hash);
 				if (TryLoadIBLCache(cpath, hash, mDevice, mBrdfLUT, mIrradiance, mPrefilter, irrSize, prefSize,
 									prefMips, lutSize)) {
-					hdr->Free();
+					// `hdr` se libere toute seule en sortant de la portee.
 					return true;
 				}
 			}
@@ -1580,12 +1580,12 @@ namespace nkentseu {
 				const float64 tGpu0 = ::nkentseu::NkChrono::Now().nanoseconds;
 
 				// Equirect → RGBA float32 contigu (SSBO source du kernel).
-				const uint32 hw = (uint32)hdr->Width();
-				const uint32 hh = (uint32)hdr->Height();
-				const NkImagePixelFormat hfmt = hdr->Format();
+				const uint32 hw = (uint32)hdr.Width();
+				const uint32 hh = (uint32)hdr.Height();
+				const NkImagePixelFormat hfmt = hdr.Format();
 				std::vector<float> rgba((size_t)hw * hh * 4, 0.f);
 				for (uint32 yy = 0; yy < hh; ++yy) {
-					const uint8 *row = hdr->RowPtr((int32)yy);
+					const uint8 *row = hdr.RowPtr((int32)yy);
 					float *dst = rgba.data() + (size_t)yy * hw * 4;
 					if (hfmt == NkImagePixelFormat::NK_RGB96F) {
 						const float *s = (const float *)row;
@@ -1686,7 +1686,7 @@ namespace nkentseu {
 									float Wx = Tx * lx + Bx * ly + Nx * lz;
 									float Wy = Ty * lx + By * ly + Ny * lz;
 									float Wz = Tz * lx + Bz * ly + Nz * lz;
-									NkVec3f s = SampleEquirect(Wx, Wy, Wz, *hdr);
+									NkVec3f s = SampleEquirect(Wx, Wy, Wz, hdr);
 									float w = cT * sT;
 									Cx += s.x * w;
 									Cy += s.y * w;
@@ -1742,7 +1742,7 @@ namespace nkentseu {
 								CubemapFaceUVToDir(face, u, v, Nx, Ny, Nz);
 								float Vx = Nx, Vy = Ny, Vz = Nz;
 								if (roughness < 1e-3f) {
-									NkVec3f s = SampleEquirect(Nx, Ny, Nz, *hdr);
+									NkVec3f s = SampleEquirect(Nx, Ny, Nz, hdr);
 									s.x = s.x / (1.f + s.x);
 									s.y = s.y / (1.f + s.y);
 									s.z = s.z / (1.f + s.z);
@@ -1765,7 +1765,7 @@ namespace nkentseu {
 									float Lz = 2.f * VoH * Hz - Vz;
 									float NoL = math::NkMax(Nx * Lx + Ny * Ly + Nz * Lz, 0.f);
 									if (NoL > 0.f) {
-										NkVec3f s = SampleEquirect(Lx, Ly, Lz, *hdr);
+										NkVec3f s = SampleEquirect(Lx, Ly, Lz, hdr);
 										Cx += s.x * NoL;
 										Cy += s.y * NoL;
 										Cz += s.z * NoL;
@@ -1842,7 +1842,7 @@ namespace nkentseu {
 				SaveIBLCache(cpath, hash, irrSize, prefSize, prefMips, lutSize, lutData.data(), irrData, prefData);
 			}
 
-			hdr->Free();
+			// `hdr` se libere toute seule en sortant de la portee.
 			return true;
 		}
 
