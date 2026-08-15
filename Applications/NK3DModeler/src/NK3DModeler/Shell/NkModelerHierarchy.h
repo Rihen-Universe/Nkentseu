@@ -98,6 +98,14 @@ namespace nkentseu {
 				const int32 sk = demo::Demo3DHostTakeShortcuts();
 				delK = delK || (sk & 8) != 0;
 				dupK = dupK || (sk & 1) != 0;
+				// Ctrl+Maj+D : le MEME geste, avec une copie INDEPENDANTE de la
+				// geometrie au lieu du partage (decision de Rodolf, 16 aout).
+				// Il passe par `dupK` pour ne pas dedoubler le chemin : deux
+				// duplications ecrites separement auraient diverge des le
+				// premier correctif -- c'est deja arrive au lacher, qui a fini
+				// par ne plus rien avoir a voir avec le menu de la hierarchie.
+				const bool dupIndep = (sk & 128) != 0;
+				dupK = dupK || dupIndep;
 				// AU-DESSUS DU NAVIGATEUR, les raccourcis agissent sur LUI.
 				// UN SEUL POINT DE PASSAGE pour Ctrl+C / Ctrl+V aussi : la voie
 				// POLLEE (sk & 2 / sk & 4), comme Maj+D ci-dessus. L'evenement
@@ -144,10 +152,18 @@ namespace nkentseu {
 						st.delAskOpen = true;
 					}
 				} else if (dupK && actN >= 0) {
-					const int32 nn = demo::Demo3DHostDuplicateNode(actN);
+					const int32 nn = demo::Demo3DHostDuplicateNodeEx(actN, dupIndep);
 					if (nn >= 0) {
 						NkHierNameNewNode(st, actN, nn); // « Sol.001 » (Rihen)
 						demo::Demo3DHostSelectEmptyNode(nn);
+						// LE GESTE SE DIT. Partage et copie independante
+						// produisent la MEME image : sans cette ligne, rien a
+						// l'ecran ne distingue les deux, et l'utilisateur ne
+						// peut pas savoir lequel des deux il vient de faire.
+						snprintf(st.hierNote, sizeof(st.hierNote), "%s",
+								 dupIndep ? "Double a geometrie INDEPENDANTE"
+										  : "Double a geometrie PARTAGEE (Ctrl+Maj+D pour "
+											"une copie independante)");
 					}
 				}
 				// Meme point de passage unique que ci-dessus : la voie POLLEE
@@ -188,8 +204,13 @@ namespace nkentseu {
 				// Isoler : uniquement ce qui se MODELISE (ni lumiere ni empty).
 				const bool isoOk = tnM < 86 || (ukM >= 1 && ukM <= 3) || ukM >= 6;
 				const bool promOk = demo::Demo3DHostNodeParent(tnM) >= 0;
-				const char *hmIt[12];
-				int32 hmAct[12];
+				// 16 et non 12 : les entrees possibles sont montees a DOUZE avec
+				// « Dupliquer independant », soit exactement la capacite d'avant
+				// -- aucune marge, et la prochaine entree ecrivait hors du
+				// tableau sans que rien ne le dise. Le cout est de 32 octets de
+				// pile.
+				const char *hmIt[16];
+				int32 hmAct[16];
 				int32 nH = 0;
 				hmIt[nH] = "Ajouter un enfant...";
 				hmAct[nH++] = 5;
@@ -209,6 +230,12 @@ namespace nkentseu {
 				}
 				hmIt[nH] = "Dupliquer  (Maj+D)";
 				hmAct[nH++] = 0;
+				// LE CHOIX DU PARTAGE, ECRIT DANS LE MENU (decision de Rodolf,
+				// 16 aout). Le raccourci seul ne suffit pas : les deux gestes
+				// produisent la meme image, donc rien ne revelerait l'existence
+				// du second a qui ne lit pas la table des raccourcis.
+				hmIt[nH] = "Dupliquer independant  (Ctrl+Maj+D)";
+				hmAct[nH++] = 12;
 				// LES DEUX VARIANTES (Rihen, 10 aout) : dupliquer/coller en
 				// FRERE (comportement historique) ou en ENFANT du noeud clique.
 				hmIt[nH] = "Dupliquer comme enfant";
@@ -246,11 +273,17 @@ namespace nkentseu {
 				}
 				if (mact >= 0) {
 					const int32 tn = st.hierMenuNode;
-					if (mact == 0) {
-						const int32 nn = demo::Demo3DHostDuplicateNode(tn);
+					// 0 = partage (le defaut), 12 = copie independante. UN SEUL
+					// corps pour les deux : la seule difference est le drapeau.
+					if (mact == 0 || mact == 12) {
+						const bool indep = (mact == 12);
+						const int32 nn = demo::Demo3DHostDuplicateNodeEx(tn, indep);
 						if (nn >= 0) {
 							NkHierNameNewNode(st, tn, nn);
 							demo::Demo3DHostSelectEmptyNode(nn);
+							snprintf(st.hierNote, sizeof(st.hierNote), "%s",
+									 indep ? "Double a geometrie INDEPENDANTE"
+										   : "Double a geometrie PARTAGEE");
 						}
 					} else if (mact == 1) {
 						demo::Demo3DHostCopyNode(tn);

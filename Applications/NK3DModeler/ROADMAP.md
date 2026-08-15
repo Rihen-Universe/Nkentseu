@@ -1311,38 +1311,153 @@ relais mais a **ma propre conclusion**.
 La correction est laissee en place plutot qu'effacee : une entree de dette qui
 disparait sans dire pourquoi n'apprend rien au lecteur suivant.
 
-### Defaut — LE PICK NE PEUT DESIGNER AUCUN MODEL (2026-08-16, mesure)
+### ❌ RETRACTE — « LE PICK NE PEUT DESIGNER AUCUN MODEL » (ecrit le 2026-08-16, refute le meme jour)
 
-Mesure, avec son perimetre (projet `AgentTest`, binaire Release, journal des
-candidats du pick) : sur 9 emplacements occupes, **2 sont ecartes parce que
-`nkvpIsModel`** et **3 parce que `HostHiddenEff`** — et ces 5 sont exactement les
-deux models et leurs trois maillages. Il ne reste qu'un objet designable.
+**Cette entree etait FAUSSE. Je la laisse, barree, parce qu'une conclusion qui
+disparait sans dire pourquoi n'apprend rien au lecteur suivant.**
 
-Les deux filtres de `Demo3D_PickEmptyAt` se neutralisent : le premier ecarte le
-conteneur en disant *« un model se prend PAR SA MATIERE »*, le second ecarte sa
-matiere. **La regle est ecrite et le garde d'a cote la desarme** — meme forme que
-`mResolvedStaleFrames`, dont la garde etait desarmee par la cause meme du cas.
+Ce que j'avais ecrit : les deux filtres de `Demo3D_PickEmptyAt` se neutralisent
+— le premier ecarte le conteneur en disant *« un model se prend PAR SA
+MATIERE »*, le second (`HostHiddenEff`) ecarte sa matiere — donc aucun model
+n'est designable.
 
-Consequence : un lacher sur un model repond « le vide », donc un materiau n'a
-rien a assigner, un model s'ajoute independant au point sol, et le menu
-enfant/independant ne s'arme jamais. **Trois symptomes, une cause.**
+**Ce que la mesure dit vraiment.** Les 3 noeuds comptes « caches » etaient les
+maillages internes des deux models **archives** (`nkvpSceneOf != nkvpCurScene`),
+que `HostHiddenEff` ecarte parce qu'ils sont **etrangers au document** — ce qui
+est correct. Je l'avais moi-meme note : *la scene d'`AgentTest` ne contient
+AUCUNE instance de model*. J'ai donc mesure l'exclusion des ARCHIVES et conclu
+sur les INSTANCES.
 
-⚠️ Non corrige volontairement : ce pick est **partage avec le clic de
-selection** (`9e48dcfe`), donc le reparer definit ce qu'un clic sur un model
-selectionne. Decision de Rodolf.
+Mesure sur une vraie instance de model posee dans la scene (projet `AgentTest`,
+**Debug ET Release**, arbre `6cc4054c` + correctifs du jour, journal des
+candidats du pick) :
 
-### Defaut — DUPLIQUER UN MODEL N'EMPORTE PAS SA MATIERE (2026-08-16, mesure)
+```
+candidat noeud=105 kind=2 model=1 mesh=0 cache=0 parent=-1    <- le MODEL
+candidat noeud=106 kind=2 model=0 mesh=1 cache=0 parent=105   <- sa matiere
+PICK lacher -> noeud 105
+```
 
-`HostSpawnLike` (`NkDemo3D.cpp:15755`) l'ecrit lui-meme : *« Un double de MODEL
-naitrait vide (ses maillages ne sont pas copies ici) : il redevient donc un objet
-ordinaire »*, et pose `nkvpIsModel[n] = false`. Mesure : le noeud cree revient
-`model=0` et **sans aucun enfant**, quand sa source en porte un.
+`cache=0` sur les deux : **le second filtre ne les ecarte pas**. La matiere est
+candidate, le rayon la touche, et la remontee rend le model.
 
-Lacher une carte de model fait donc naitre une copie ordinaire du conteneur, pas
-le model. Le point de pose, lui, est juste au millieme.
+**Le controle qui aurait du me sauver, et qui devient la regle** : la boucle de
+rendu des objets utilisateur applique **exactement la meme paire de filtres** que
+le pick (`nkvpIsModel` puis `HostHiddenEff`). Donc *ce qui se voit se designe*,
+par construction. Une conclusion « le pick ne voit pas X » qui n'explique pas
+pourquoi X est pourtant VISIBLE a l'ecran est fausse avant meme d'etre mesuree.
 
-⚠️ Non corrige volontairement : `Demo3DHostDuplicateNode` sert aussi **Ctrl+D**.
-Decision de Rodolf.
+Lecon, troisieme fois en deux jours : **le perimetre s'ecrit a cote du
+resultat.** « 3 caches » sans « sur des archives » n'est pas un chiffre, c'est un
+piege qu'on se tend a soi-meme.
+
+### La regle de selection est ECRITE — et elle etait deja codee (2026-08-16)
+
+Decision de Rodolf : le discriminant n'est pas « est-ce un model ? » mais **ce
+que la piece cliquee EST dans la hierarchie**.
+
+| ce qu'on clique | ce qui est selectionne |
+|---|---|
+| un **noeud enfant** (objet ou model a part entiere) | **ce noeud-la**, pas son parent |
+| un **sous-maillage interne** d'un model | **le model entier** |
+
+`Demo3DHostModelRootOf` fait exactement cela : il remonte **tant que le noeud est
+un `nkvpIsMesh`** (une donnee geometrique, pas un noeud de hierarchie) et rend le
+premier ancetre qui n'en est pas un. Un noeud enfant ordinaire porte
+`nkvpIsMesh=false` et se rend donc **lui-meme** des le premier tour. Aucun code
+n'a eu a changer : ce qui manquait n'etait pas la regle, c'etait **une instance
+de model dans la scene** pour la voir s'exercer — et il n'en naissait aucune, a
+cause du defaut de duplication ci-dessous.
+
+⚠️ **Moitie manquante, mesuree.** Le mode edition **existe** (`st->editMode`,
+bascule TAB, `Demo3D_EnterEditOnObject`), mais il n'accepte que
+`st->gizmo.ActiveIndex()`, c'est-a-dire les objets de demo d'indice `< kNumObj`.
+**Les noeuds utilisateur (>= 96), ou vivent TOUS les models et leurs maillages
+internes, ne peuvent pas y entrer.** La moitie « prendre un sous-mesh
+individuellement en edit mode » **n'est donc pas atteignable aujourd'hui** ;
+seule la moitie « le sous-mesh selectionne le model » l'est. A ouvrir quand
+l'edition acceptera un noeud utilisateur.
+
+### ✅ Corrige — DUPLIQUER UN MODEL N'EMPORTAIT PAS SA MATIERE (2026-08-16)
+
+`HostSpawnLike` l'ecrivait lui-meme : *« Un double de MODEL naitrait vide : il
+redevient donc un objet ordinaire »*, et posait `nkvpIsModel[n] = false`. Or un
+conteneur de model **ne rend rien par lui-meme** : degrader le double ne
+produisait pas un model vide, ca produisait **un objet qui n'etait pas celui
+qu'on avait glisse**.
+
+Decision de Rodolf : **partage par defaut, avec choix utilisateur.**
+
+- `HostDuplicateTree` emporte la matiere du model par **le meme parcours
+  d'appartenance** que le deplacement de document et l'archivage
+  (`HostIsInnerMeshOf`), et recable la parente sur la carte complete.
+- Les maillages sont **partages** (meme `NkMeshHandle`) : instantane, sans cout
+  memoire, ce que veulent array / jeu / film.
+- **Ctrl+Maj+D**, et l'entree « Dupliquer independant » du menu contextuel de la
+  hierarchie, font une **copie independante** de la geometrie.
+- `Demo3DHostArchiveNode` emporte la matiere lui aussi et **archive tout le
+  sous-arbre** : ne marquer que la racine aurait laisse les maillages de
+  l'archive vivants dans la scene courante.
+
+Mesure (projet `AgentTest`, **Debug ET Release — resultats identiques au
+chiffre**, lacher d'une carte de model dans le vide) :
+
+```
+MESURE pose   : noeud=105 demande=(1.20146, 0, 2.67668)
+                relu=1    (1.20146, 0, 2.67668)   model=1     <- etait model=0
+MESURE enfant : noeud=106 mesh=1 relu=1 (0, 0.53886, 0)       <- n'existait pas
+source 96, sa matiere 97 a (0, 0.53886, 0)                    <- transform LOCALE respectee
+```
+
+⚠️ **Ce que la copie independante ne change pas encore, et pourquoi.**
+`HostMakeGeometryOwn` ne detache que les noeuds portant leur **propre** maillage
+(`nkvpUserMesh` valide). Un noeud sur primitive partagee tire deja son
+independance de ses **parametres** (sub/segments/anneaux/aux), que
+`HostSpawnLike` copie un a un. Et comme l'edition de sommets n'accepte pas les
+noeuds utilisateur (voir plus haut), **partage et copie independante ne
+produisent aujourd'hui aucune difference observable**. Le choix est plombe de
+bout en bout pour que la semantique soit deja la bonne le jour ou l'edition par
+noeud arrivera — pas parce qu'il se voit maintenant. **Non verifie a l'ecran.**
+
+### ⚠️ Defaut — NK3DModeler **Release** PLANTE A LA FERMETURE (2026-08-16, mesure)
+
+**Pre-existant : reproduit sur l'arbre `6cc4054c` SANS aucune de mes
+modifications** (mesure faite en remisant mon travail, puis reconstruction).
+
+| configuration | construction | execution |
+|---|---|---|
+| Debug | ✅ | ✅ 3 lancements sur 3, code de sortie 0 |
+| Release | ✅ | ❌ 3 sur 3, `0xC0000005` dans `d3d11.dll` |
+
+Ce n'est **pas** un plantage au demarrage : le journal `logs/app.log` (qui, lui,
+survit — la sortie standard est perdue avec le tampon) montre l'application
+faire tout son travail, puis :
+
+```
+[Demo3D] Shutdown
+[NkMaterialLibrary] Shutdown
+[NkRHI_DX11] Shutdown          <- derniere ligne, puis 0xC0000005 dans d3d11.dll
+```
+
+**Le plantage est dans la DEMOLITION du peripherique DX11.** Un `CreateBuffer
+hr=0x887A0005` (`DXGI_ERROR_DEVICE_REMOVED`) a aussi ete observe une fois en
+Debug, ce qui suggere la meme zone.
+
+⚠️ **Non repare** : un ecart Debug/Release vient presque toujours d'un `assert`
+desactive, d'une initialisation absente que le Debug masque, ou d'une
+optimisation qui expose un comportement indefini. Les trois se **diagnostiquent**
+avant de se corriger, et c'est NKRHI, pas NK3DModeler.
+
+**Consequence de methode, et elle est genante** : `--backend=vulkan` et ses
+freres sont **ignores** par NK3DModeler (`ParseBackend` n'est pas appele — le
+journal dit `api=DirectX 11` quoi qu'on passe). Il n'y a donc **aucun moyen
+d'eviter DX11** pour contourner. Toutes mes mesures Release passent par
+`logs/app.log`, pas par la sortie standard.
+
+⚠️ Et une correction de provenance : mes mesures du 2026-08-16 annoncees
+« binaire Release » ont en realite ete prises en **Debug** — le Release ne peut
+pas rendre sa sortie standard. **Un chiffre porte sa configuration**, au meme
+titre que sa date et son commit.
 
 ### Dette — les leviers d'agent ne disent pas QUAND
 

@@ -400,6 +400,14 @@ namespace nkentseu {
 		bool Demo3DHostNodeDeleted(int32 node);
 		void Demo3DHostDeleteNode(int32 node, bool withChildren);
 		int32 Demo3DHostDuplicateNode(int32 node); // -1 si impossible (lumiere v1)
+		// DUPLIQUER EN CHOISISSANT LE PARTAGE (decision de Rodolf, 16 aout).
+		// independant=false (le DEFAUT, et ce que rend Demo3DHostDuplicateNode) :
+		// le double reference les MEMES maillages -- instantane, sans cout
+		// memoire, et c'est ce que veulent le modificateur array, le jeu et le
+		// film. independant=true : sa geometrie est recopiee, pour obtenir deux
+		// models dont un seul sera retouche.
+		// Dans les deux cas, UN DOUBLE DE MODEL EST UN MODEL et emporte sa matiere.
+		int32 Demo3DHostDuplicateNodeEx(int32 node, bool independent);
 		int32 Demo3DHostArchiveNode(int32 node);   // copie invisible pour asset
 		// ARCHIVER UN NOEUD DEJA CREE, pour la RELECTURE d'un projet. Distinct de
 		// Demo3DHostDeleteNode, qui libere l'emplacement (nature remise a zero) :

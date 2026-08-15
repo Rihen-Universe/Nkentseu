@@ -228,6 +228,13 @@ namespace {
 		t.Bind("objet.tourner", "Tourner", NkKey::NK_R, 0, NK_SCTX_OBJECT);
 		t.Bind("objet.echelle", "Redimensionner", NkKey::NK_S, 0, NK_SCTX_OBJECT);
 		t.Bind("objet.dupliquer", "Dupliquer", NkKey::NK_D, NK_SC_SHIFT, NK_SCTX_OBJECT);
+		// LE CHOIX DU PARTAGE (decision de Rodolf, 16 aout). Shift+D partage la
+		// geometrie -- c'est le DEFAUT, et le geste courant. Ctrl+Shift+D en fait
+		// une copie INDEPENDANTE, pour retoucher l'un sans l'autre. Le defaut
+		// garde le raccourci le plus court parce que c'est lui qu'on fait cent
+		// fois (array, decor, foule) ; l'exception paie un modificateur de plus.
+		t.Bind("objet.dupliquer_independant", "Dupliquer (copie independante)",
+			   NkKey::NK_D, (uint8)(NK_SC_SHIFT | NK_SC_CTRL), NK_SCTX_OBJECT);
 		t.Bind("objet.supprimer", "Supprimer", NkKey::NK_X, 0, NK_SCTX_OBJECT);
 		t.Bind("objet.mode_edition", "Mode edition", NkKey::NK_TAB, 0, NK_SCTX_OBJECT);
 

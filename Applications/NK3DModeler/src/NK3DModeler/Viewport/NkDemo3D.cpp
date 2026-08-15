@@ -15666,8 +15666,15 @@ namespace nkentseu {
 				nkvpShortcutPrev = now2;
 				const bool anyDrag = st->gizmo.IsDragging() || st->lightGizmo.IsDragging() ||
 									 st->emptyGizmo.IsDragging();
-				if ((fresh & 1) && sh2)
+				// DUPLIQUER, ET LE CHOIX DU PARTAGE (decision de Rodolf, 16 aout).
+				// Maj+D = double qui PARTAGE la geometrie (le defaut, le geste
+				// courant) ; Ctrl+Maj+D = copie INDEPENDANTE. Le `!ct2` sur le
+				// premier n'est pas cosmetique : sans lui, Ctrl+Maj+D leverait
+				// LES DEUX bits et dupliquerait deux fois.
+				if ((fresh & 1) && sh2 && !ct2)
 					nkvpShortcutBits |= 1;
+				if ((fresh & 1) && sh2 && ct2)
+					nkvpShortcutBits |= 128;
 				if ((fresh & 2) && ct2)
 					nkvpShortcutBits |= 2;
 				if ((fresh & 4) && ct2)
@@ -15842,9 +15849,16 @@ namespace nkentseu {
 				}
 			}
 			nkvpIsMesh[n] = nkvpIsMesh[src]; // un double de mesh reste un mesh
-			// Un double de MODEL naitrait vide (ses maillages ne sont pas
-			// copies ici) : il redevient donc un objet ordinaire.
-			nkvpIsModel[n] = false;
+			// UN DOUBLE DE MODEL EST UN MODEL (decision de Rodolf, 16 aout).
+			// Ce drapeau disait l'inverse -- « il redevient un objet
+			// ordinaire » -- au motif que HostSpawnLike ne copie pas la
+			// matiere. Mais un conteneur de model NE REND RIEN par lui-meme
+			// (voir la boucle des objets utilisateur) : degrader le double
+			// n'evitait pas un model vide, ca fabriquait un objet qui n'etait
+			// PAS celui qu'on avait glisse. La matiere se copie desormais un
+			// cran plus haut, dans HostDuplicateTree, qui est le seul appelant
+			// autorise a dupliquer un model.
+			nkvpIsModel[n] = nkvpIsModel[src];
 			if (src >= kNkvpFirstUser) {
 				const int32 su = src - kNkvpFirstUser;
 				const int32 nu = n - kNkvpFirstUser;
@@ -15856,23 +15870,6 @@ namespace nkentseu {
 			}
 			const int32 pp = nkvpParentOf[src];
 			nkvpParentOf[n] = (pp >= 0 && !nkvpDeleted[pp]) ? pp : -1;
-			return n;
-		}
-		int32 Demo3DHostDuplicateNode(int32 node) {
-			const float32 off[3] = {0.45f, 0.f, 0.45f};
-			return HostSpawnLike(node, off);
-		}
-		int32 Demo3DHostArchiveNode(int32 node) {
-			// ARCHIVE d'asset : copie INVISIBLE qui survit a la suppression de
-			// l'original (le navigateur clone depuis elle). deleted=true la
-			// sort du rendu et de la hierarchie ; kind!=0 empeche le recyclage
-			// du slot par HostAllocUser.
-			const float32 off[3] = {0.f, 0.f, 0.f};
-			const int32 n = HostSpawnLike(node, off);
-			if (n >= 0) {
-				nkvpDeleted[n] = true;
-				nkvpParentOf[n] = -1;
-			}
 			return n;
 		}
 		// MEME REGLE D'APPARTENANCE que Demo3DHostMoveTreeScene, ecrite UNE fois :
@@ -15899,6 +15896,152 @@ namespace nkentseu {
 			// document et que l'archivage. Le refaire cote projet aurait fait un
 			// troisieme parcours, donc une troisieme occasion de diverger.
 			return HostIsInnerMeshOf(node, root);
+		}
+		// ── GEOMETRIE PROPRE : la moitie « copie independante » ─────────────
+		// Detache un noeud du maillage qu'il PARTAGE avec sa source, en
+		// reconstruisant la meme geometrie dans un maillage a lui.
+		//
+		// ⚠️ PERIMETRE, dit ici et pas ailleurs : ne concerne QUE les noeuds
+		// qui portent leur propre maillage parametrique (`nkvpUserMesh`
+		// valide). Un noeud qui rend une primitive partagee (cube, sphere du
+		// catalogue) tire deja son independance de ses PARAMETRES -- sub,
+		// segments, anneaux, aux -- que HostSpawnLike copie un a un, et que
+		// HostRegenUserMesh retransforme en maillage PROPRE des qu'on y
+		// touche. Rendre false n'est donc pas un echec : c'est « il n'y avait
+		// rien a detacher ».
+		//
+		// Sans copie CPU (keepCPU), la geometrie n'est pas relisible depuis le
+		// GPU : on le DIT plutot que de rendre un double silencieusement
+		// encore partage.
+		static bool HostMakeGeometryOwn(int32 n) {
+			if (n < kNkvpFirstUser || n >= kNkvpMaxNodes)
+				return false;
+			auto *ms = hst.ctx.renderer ? hst.ctx.renderer->GetMeshSystem() : nullptr;
+			if (!ms)
+				return false;
+			const int32 u = n - kNkvpFirstUser;
+			const NkMeshHandle srcH = nkvpUserMesh[u];
+			if (!srcH.IsValid())
+				return false; // primitive partagee : rien a detacher (cf. ci-dessus)
+			if (!ms->HasCPUData(srcH)) {
+				logger.Warn("[Demo3D] Copie independante impossible : le maillage du "
+							"noeud {0} n'a pas de copie CPU (keepCPU) -- le double "
+							"reste PARTAGE.\n",
+							n);
+				return false;
+			}
+			const uint32 vc = ms->GetVertexCount(srcH);
+			const uint32 ic = ms->GetIndexCount(srcH);
+			const void *sv = ms->GetVertices(srcH);
+			const uint32 *si = ms->GetIndices(srcH);
+			if (!sv || vc == 0)
+				return false;
+			renderer::NkMeshDesc d = renderer::NkMeshDesc::Simple(
+				renderer::NkVertexLayout::Default3D(), sv, vc, si, ic);
+			d.debugName = "Demo3D_CopieIndependante";
+			const NkMeshHandle nh = ms->Create(d);
+			if (!nh.IsValid())
+				return false;
+			nkvpUserMesh[u] = nh;
+			return true;
+		}
+		// ── DUPLICATION D'UN MODEL : SA MATIERE SUIT ────────────────────────
+		// Decision de Rodolf (16 aout) : PARTAGE PAR DEFAUT. Le double
+		// reference les MEMES maillages -- instantane, sans cout memoire, et
+		// c'est ce que veulent le modificateur array, le jeu et le film. Une
+		// COPIE INDEPENDANTE reste possible sur demande explicite, pour
+		// obtenir deux models dont un seul sera retouche.
+		//
+		// C'est ici, et pas dans HostSpawnLike, que la matiere se copie :
+		// HostSpawnLike fait naitre UN noeud, et l'archivage comme l'editeur
+		// de model s'en servent pour ca precisement. Un model est le seul
+		// noeud dont le double n'a aucun sens sans son sous-arbre -- son
+		// conteneur ne rend rien par lui-meme.
+		static int32 HostDuplicateTree(int32 src, const float32 *offset, bool independent) {
+			const int32 root = HostSpawnLike(src, offset);
+			if (root < 0)
+				return -1;
+			if (independent)
+				HostMakeGeometryOwn(root);
+			if (!nkvpIsModel[src])
+				return root; // pas un model : rien de plus a emporter
+			// MEME parcours d'appartenance que le deplacement de document et
+			// que l'archivage (HostIsInnerMeshOf) : les trois doivent emporter
+			// EXACTEMENT les memes noeuds, sinon un mesh oublie en chemin
+			// reapparait dans une scene ou personne ne l'a mis.
+			int32 map[kNkvpMaxNodes];
+			for (int32 i = 0; i < kNkvpMaxNodes; ++i)
+				map[i] = -1;
+			map[src] = root;
+			const float32 zero[3] = {0.f, 0.f, 0.f};
+			for (int32 c = 0; c < kNkvpMaxNodes; ++c) {
+				if (!HostIsInnerMeshOf(c, src))
+					continue;
+				const int32 m = HostSpawnLike(c, zero);
+				if (m < 0) {
+					logger.Warn("[Demo3D] Duplication du model {0} : plus d'emplacement "
+								"libre, sa matiere est INCOMPLETE.\n",
+								src);
+					break; // on garde ce qui a pu naitre, et on le DIT
+				}
+				map[c] = m;
+				// TRANSFORM LOCALE, pas la monde. HostSpawnLike ecrit la
+				// position MONDE de la source dans les cases LOCALES du
+				// double -- ce qui convient a un noeud de premier rang, mais
+				// reappliquerait la transform du model a sa propre matiere,
+				// qui partirait alors au double de la distance.
+				const int32 ec = c - kNkvpFirstEmpty, em = m - kNkvpFirstEmpty;
+				for (int32 a = 0; a < 3; ++a) {
+					nkvpEmptyPos[em][a] = nkvpEmptyPos[ec][a];
+					nkvpEmptyRotDeg[em][a] = nkvpEmptyRotDeg[ec][a];
+					nkvpEmptyScl[em][a] = nkvpEmptyScl[ec][a];
+				}
+				if (independent)
+					HostMakeGeometryOwn(m);
+			}
+			// LA PARENTE SE RECABLE APRES, sur la carte complete : un maillage
+			// dont le parent n'etait pas encore ne serait retombe a la racine,
+			// et un model a deux etages de matiere se serait aplati.
+			for (int32 c = 0; c < kNkvpMaxNodes; ++c) {
+				if (c == src || map[c] < 0)
+					continue;
+				const int32 pa = nkvpParentOf[c];
+				nkvpParentOf[map[c]] = (pa >= 0 && map[pa] >= 0) ? map[pa] : root;
+			}
+			return root;
+		}
+		int32 Demo3DHostDuplicateNodeEx(int32 node, bool independent) {
+			const float32 off[3] = {0.45f, 0.f, 0.45f};
+			return HostDuplicateTree(node, off, independent);
+		}
+		int32 Demo3DHostDuplicateNode(int32 node) {
+			// PARTAGE : le defaut voulu par Rodolf. Les appelants qui ne
+			// choisissent pas obtiennent le geste le moins couteux.
+			return Demo3DHostDuplicateNodeEx(node, false);
+		}
+		int32 Demo3DHostArchiveNode(int32 node) {
+			// ARCHIVE d'asset : copie INVISIBLE qui survit a la suppression de
+			// l'original (le navigateur clone depuis elle). deleted=true la
+			// sort du rendu et de la hierarchie ; kind!=0 empeche le recyclage
+			// du slot par HostAllocUser.
+			//
+			// ELLE EMPORTE SA MATIERE, comme la duplication : archiver un
+			// model sans ses maillages fabriquait une source vide, et tout ce
+			// que le navigateur en aurait clone serait ne invisible.
+			const float32 off[3] = {0.f, 0.f, 0.f};
+			const int32 n = HostDuplicateTree(node, off, false);
+			if (n >= 0) {
+				// LE SOUS-ARBRE PART AVEC : ne marquer que la racine laissait
+				// la matiere de l'archive VIVANTE dans la scene courante, donc
+				// visible en vue 3D et absente de la hierarchie -- exactement
+				// le defaut que Demo3DHostArchiveTree existe pour empecher.
+				nkvpDeleted[n] = true;
+				nkvpParentOf[n] = -1;
+				for (int32 c = 0; c < kNkvpMaxNodes; ++c)
+					if (HostIsInnerMeshOf(c, n))
+						nkvpDeleted[c] = true;
+			}
+			return n;
 		}
 		void Demo3DHostSetNodeArchived(int32 node, bool v) {
 			// UN SEUL noeud. Sert a la RELECTURE d'un projet : chaque noeud porte
