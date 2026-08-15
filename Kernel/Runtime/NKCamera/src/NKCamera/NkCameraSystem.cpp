@@ -7,6 +7,7 @@
 #include "NKImage/Core/NkImage.h"
 #include "NKImage/Codecs/JPEG/NkJPEGCodec.h"
 #include "NKLogger/NkLog.h"
+#include "NKTime/NkSystemClock.h"
 
 #include <ctime>
 #include <cstdio>
@@ -179,7 +180,7 @@ namespace nkentseu {
 			mImageSequenceExt = (cfg.container == "jpg" || cfg.videoCodec == "jpg") ? NkString("jpg") : NkString("png");
 			mImageSequenceQuality = 90;
 			mImageSequenceIndex = 0;
-			mImageSequenceStartUs = (uint64)std::time(nullptr) * 1000000ULL;
+			mImageSequenceStartUs = (uint64)NkSystemClock::UnixMilliseconds() * 1000ULL;
 			return true;
 		}
 
@@ -223,7 +224,7 @@ namespace nkentseu {
 		{
 			std::lock_guard<std::mutex> lk(mFrameMutex);
 			if (mImageSequenceActive) {
-				uint64 nowUs = (uint64)std::time(nullptr) * 1000000ULL;
+				uint64 nowUs = (uint64)NkSystemClock::UnixMilliseconds() * 1000ULL;
 				return float((nowUs - mImageSequenceStartUs) / 1000000.0);
 			}
 		}
@@ -329,9 +330,9 @@ namespace nkentseu {
 
 		// Mode IMAGE_SEQUENCE_ONLY : sauve hors lock (I/O potentiellement lent)
 		if (doSequence) {
-			char tail[24] = {};
-			std::snprintf(tail, sizeof(tail), "_%06u.", seqIdx);
-			NkString path = seqDir + NkString(tail) + seqExt;
+			// Composition directe : plus de tampon `char[24]` intermédiaire, donc
+			// plus de troncature possible si l'index venait à grandir.
+			NkString path = seqDir + NkString::Fmtf("_%06u.", seqIdx) + seqExt;
 			(void)SaveFrameToFile(frame, path, seqQ);
 		}
 	}
@@ -731,18 +732,14 @@ namespace nkentseu {
 	}
 
 	NkString NkCameraSystem::GenerateAutoPath(const NkString &prefix, const NkString &ext) {
-		const std::time_t t = std::time(nullptr);
-
-		std::tm tmBuf{};
-#if defined(_WIN32)
-		localtime_s(&tmBuf, &t);
-#else
-		localtime_r(&t, &tmBuf);
-#endif
-
-		char ts[32] = {};
-		if (std::strftime(ts, sizeof(ts), "%Y%m%d_%H%M%S", &tmBuf) == 0)
-			std::snprintf(ts, sizeof(ts), "00000000_000000");
+		// Horodatage par NKTime, plus par la bibliotheque C. `StampCompact`
+		// rend faux si l'heure est illisible et laisse alors une chaine VIDE :
+		// on substitue explicitement une valeur reconnaissable plutot que de
+		// laisser passer un nom a moitie forme, qui se collisionnerait en
+		// silence avec le suivant.
+		char ts[16] = {};
+		if (!NkSystemClock::StampCompact(ts, sizeof(ts)))
+			return prefix + "_00000000_000000." + ext;
 
 		return prefix + "_" + NkString(ts) + "." + ext;
 	}
