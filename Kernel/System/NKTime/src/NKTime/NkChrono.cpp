@@ -68,6 +68,15 @@
 // de compilation qui n'a besoin que de deux symboles.
 extern "C" unsigned int __stdcall timeBeginPeriod(unsigned int uPeriod);
 extern "C" unsigned int __stdcall timeEndPeriod(unsigned int uPeriod);
+
+// Capacites de la minuterie multimedia. La structure du systeme porte deux
+// champs ; on ne declare que ce qu'on lit, dans le meme ordre et la meme
+// disposition binaire.
+struct NkWinTimeCaps {
+		unsigned int wPeriodMin;
+		unsigned int wPeriodMax;
+};
+extern "C" unsigned int __stdcall timeGetDevCaps(NkWinTimeCaps *ptc, unsigned int cbtc);
 #endif
 
 namespace nkentseu {
@@ -339,6 +348,30 @@ namespace nkentseu {
 		// en double laisse une demande orpheline — c'est la différence entre un
 		// réglage et une fuite.
 		bool g_minuterieFine = false;
+
+#if defined(NKENTSEU_PLATFORM_WINDOWS) || defined(_WIN32)
+		// Période RÉELLEMENT supportée par la machine, pas une valeur écrite en
+		// dur. Coder « 1 » suppose une capacité qu'on n'a pas vérifiée — c'est
+		// la même faute que les réglages déclarés-mais-non-câblés qu'on vient de
+		// retirer ailleurs : une hypothèse qui a l'air d'une mesure.
+		// Approche comparable à celle de SFML (`SFML-master/src/SFML/System/
+		// Win32/SleepImpl.cpp`, licence zlib) : interroger `timeGetDevCaps` et
+		// retenir `wPeriodMin`.
+		// La valeur est mémorisée : `Begin` et `End` DOIVENT présenter la même,
+		// sinon le compteur du système ne redescend pas.
+		unsigned int g_periodeMin = 0;
+
+		unsigned int NkPeriodeMinimale() noexcept {
+			if (g_periodeMin != 0)
+				return g_periodeMin;
+			NkWinTimeCaps caps{0, 0};
+			if (::timeGetDevCaps(&caps, sizeof(NkWinTimeCaps)) == 0 && caps.wPeriodMin > 0)
+				g_periodeMin = caps.wPeriodMin;
+			else
+				g_periodeMin = 1; // repli : la machine n'a pas répondu, on demande le plus fin
+			return g_periodeMin;
+		}
+#endif
 	} // namespace
 
 	void NkChrono::BeginPreciseTiming() noexcept {
@@ -347,7 +380,7 @@ namespace nkentseu {
 #if defined(NKENTSEU_PLATFORM_WINDOWS) || defined(_WIN32)
 		// TIMERR_NOERROR == 0. Un refus du système ne doit rien marquer comme
 		// actif, sinon `EndPreciseTiming` rendrait une demande jamais faite.
-		if (::timeBeginPeriod(1u) != 0)
+		if (::timeBeginPeriod(NkPeriodeMinimale()) != 0)
 			return;
 #endif
 		// Hors Windows, le corps est vide et le drapeau passe quand même à vrai :
@@ -361,7 +394,9 @@ namespace nkentseu {
 		if (!g_minuterieFine)
 			return;
 #if defined(NKENTSEU_PLATFORM_WINDOWS) || defined(_WIN32)
-		::timeEndPeriod(1u);
+		// MÊME période qu'à la demande : le système apparie par valeur, et un
+		// `End` avec une autre période laisserait le compteur en l'air.
+		::timeEndPeriod(NkPeriodeMinimale());
 #endif
 		g_minuterieFine = false;
 	}

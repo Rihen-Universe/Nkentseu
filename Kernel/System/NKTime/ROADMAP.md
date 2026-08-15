@@ -217,6 +217,42 @@ aucun effet de bord. Le corps y est vide et `IsPreciseTimingActive()` répond
 quand même « oui » — la précision vient de `clock_nanosleep`, sans réglage global
 à poser ; répondre « non » ferait croire à un échec.
 
+#### L'option écartée, son coût, et pourquoi on ne l'a pas prise
+
+Une décision qui cite l'option écartée se défend dans six mois ; une décision
+seule se rediscute. **SFML** place le réglage **dans le sommeil lui-même**, et
+l'apparie : `timeBeginPeriod(wPeriodMin)` juste avant le `Sleep`,
+`timeEndPeriod` juste après — voir
+`Cours/SFML-master/src/SFML/System/Win32/SleepImpl.cpp` (licence zlib, **lu, non
+copié**).
+
+| | SFML | Nkentseu |
+|---|---|---|
+| portée | le temps d'un sommeil | tout le processus |
+| coût | **2 appels système par sommeil** | **1 appel au démarrage** |
+| intrusivité | nulle hors du sommeil | résolution élevée en permanence |
+
+⚠️ **L'argument par lequel j'avais éliminé cette option ne tenait pas.** J'avais
+écrit « effet global et permanent pour un appel local » : c'est vrai d'une
+version **non appariée**, et SFML l'apparie. Le vrai compromis n'est donc pas
+« correct contre incorrect » mais **moins cher contre moins intrusif**. Rodolf a
+tranché pour le nôtre ; la raison de l'écart est ici pour qu'on n'ait pas à la
+reconstruire.
+
+**Repris de leur conception** : ne pas coder la période en dur. `timeGetDevCaps`
+donne `wPeriodMin`, la résolution réellement supportée par la machine —
+**écrire `1` serait une hypothèse non mesurée**, exactement le reproche fait
+cette semaine à trois réglages fantômes. La valeur est mémorisée, et `Begin` et
+`End` présentent la même : le système apparie par valeur.
+
+*(Contrôlé après ce changement : 62,0 / 62,0 / 61,5 / 62,0 / 61,9 / 61,6 img/s
+sur 22 battements — le comportement ne bouge pas.)*
+
+📌 Deux fausses pistes écartées, pour ne pas les refaire : **GLFW** n'utilise
+jamais `timeBeginPeriod` (il a `win32_time.c` mais n'expose aucune fonction de
+sommeil), et le **SDL2** de la bibliothèque locale est une distribution binaire,
+sans source.
+
 ⚠️ **PORTÉE DE VERSION, à ne pas perdre** : le cantonnement au processus est une
 propriété de **Windows 10 version 2004 et postérieur**, pas de Windows en
 général. Mesuré le 2026-08-15 sur **Windows 11 Pro 10.0.26100** (15,66 / 15,29 /
