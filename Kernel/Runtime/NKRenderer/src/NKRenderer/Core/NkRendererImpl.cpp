@@ -951,6 +951,12 @@ namespace nkentseu {
 					uint32 srcW = (i == 0) ? mCfg.width : (mCfg.width / div ? mCfg.width / div : 1);
 					uint32 srcH = (i == 0) ? mCfg.height : (mCfg.height / div ? mCfg.height / div : 1);
 					float thr = (i == 0) ? bloomThr : 0.0f;
+					// ⚠️ SEUIL FIGE A LA CONSTRUCTION DU GRAPHE (dette mesuree le
+					// 2026-08-15, cf. ROADMAP « Bugs/quirks connus »). `thr` est
+					// capture PAR VALEUR : sous auto-exposition active il ne suit
+					// pas l'exposition, qui s'adapte a chaque frame. Mesure Demo4
+					// + NK_AUTOEXP=1 : seuil applique 7,24 contre 144,8 reclame,
+					// soit un FACTEUR 20, stable sur 841 frames sans rebuild.
 					dp.Execute([this, src, srcW, srcH, thr](NkICommandBuffer *cmd) {
 						NkTextureHandle srcTex = mRenderGraph->GetResourceTexture(src);
 						if (mPostProcess && srcTex.IsValid()) {
