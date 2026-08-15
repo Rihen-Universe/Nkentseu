@@ -608,6 +608,17 @@ void main() {
 					mLumaRT[i].Shutdown();
 			}
 			mLumaWrite = -1;
+			// Anneau de releve : les cases sont creees paresseusement, donc
+			// certaines peuvent etre invalides — les detruire toutes serait faux.
+			for (int i = 0; i < kLumaReadRing; i++) {
+				if (mLumaReadBuf[i].IsValid())
+					mDevice->DestroyBuffer(mLumaReadBuf[i]);
+				mLumaReadBuf[i] = {};
+			}
+			mLumaReadCursor = 0;
+			mLumaReadFilled = 0;
+			mResolvedValid = false;
+			mResolvedStaleFrames = 0;
 			for (int i = 0; i < kAutoExpDescSets; i++) {
 				if (mAutoExpSets[i].IsValid())
 					mDevice->FreeDescriptorSet(mAutoExpSets[i]);
@@ -1427,6 +1438,137 @@ void main() {
 			mLumaRT[write].EndRender(cmd);
 
 			mLumaWrite = write;
+
+			// Le releve suit la mesure : la cible qu'on vient d'ecrire part vers
+			// la case courante de l'anneau, on lira celle d'il y a deux frames.
+			PumpExposureReadback(cmd);
+		}
+
+		// ── ANNEAU DE RELEVE : L'EXPOSITION REELLE REDESCEND VERS LE CPU ─────
+		// Demi-flottant -> flottant. La cible de luminance est RGBA16F : la
+		// valeur utile est le premier canal, sur 16 bits. Decode ici plutot que
+		// d'aller chercher une dependance pour dix lignes.
+		static float32 NkHalfToFloat(uint16 h) {
+			const uint32 s = (uint32)(h >> 15) & 0x1u;
+			const uint32 e = (uint32)(h >> 10) & 0x1Fu;
+			const uint32 m = (uint32)h & 0x3FFu;
+			uint32 bits;
+			if (e == 0) {
+				if (m == 0) {
+					bits = s << 31; // +/- zero
+				} else {
+					// Sous-normal : on normalise a la main.
+					uint32 ee = 0, mm = m;
+					while ((mm & 0x400u) == 0) {
+						mm <<= 1;
+						ee++;
+					}
+					mm &= 0x3FFu;
+					bits = (s << 31) | ((127 - 15 - ee + 1) << 23) | (mm << 13);
+				}
+			} else if (e == 31) {
+				bits = (s << 31) | 0x7F800000u | (m << 13); // inf / NaN
+			} else {
+				bits = (s << 31) | ((e + 127 - 15) << 23) | (m << 13);
+			}
+			float32 f;
+			memcpy(&f, &bits, sizeof(f));
+			return f;
+		}
+
+		void NkPostProcessStack::PumpExposureReadback(NkICommandBuffer *cmd) {
+			// ── BRANCHE 1 : AUTO ETEINTE ─────────────────────────────────────
+			// Le CPU connait deja l'exposition : c'est celle de la config. Aucun
+			// releve. Ce n'est PAS un repli en cas d'echec, c'est le chemin
+			// normal quand l'automatique ne tourne pas -- l'ecrire comme un
+			// repli inviterait quelqu'un a « l'ameliorer » par un releve inutile.
+			if (!IsAutoExposureEnabled()) {
+				mResolvedExposure = mCfg.exposure > 0.f ? mCfg.exposure : 1.f;
+				mResolvedValid = true;
+				mResolvedStaleFrames = 0;
+				return;
+			}
+			// ── BRANCHE 2 : AUTO ACTIVE ──────────────────────────────────────
+			if (!cmd || !mDevice || mLumaWrite < 0)
+				return;
+			NkTextureHandle src = GetAvgLumaTexRHI();
+			if (!src.IsValid())
+				return;
+
+			// Creation paresseuse des trois cases. 256 octets : un 1x1 RGBA16F
+			// tient sur 8, mais les alignements de ligne des dorsales sont plus
+			// larges et une case trop juste tronquerait la copie en silence.
+			for (int i = 0; i < kLumaReadRing; i++) {
+				if (!mLumaReadBuf[i].IsValid()) {
+					NkBufferDesc bd{};
+					bd.sizeBytes = 256;
+					bd.usage = NkResourceUsage::NK_READBACK;
+					mLumaReadBuf[i] = mDevice->CreateBuffer(bd);
+				}
+			}
+
+			const int wr = mLumaReadCursor % kLumaReadRing;
+			if (mLumaReadBuf[wr].IsValid()) {
+				NkBufferTextureCopyRegion rg{};
+				rg.width = 1;
+				rg.height = 1;
+				cmd->CopyTextureToBuffer(src, mLumaReadBuf[wr], rg);
+				if (mLumaReadFilled < kLumaReadRing)
+					mLumaReadFilled++;
+			}
+			mLumaReadCursor = (mLumaReadCursor + 1) % kLumaReadRing;
+
+			// On lit la case ecrite il y a DEUX frames : elle est certainement
+			// prete, donc aucun Map bloquant ne peut nous faire attendre. Tant que
+			// l'anneau n'est pas rempli, rien a lire -- et surtout rien a inventer.
+			if (mLumaReadFilled < kLumaReadRing) {
+				mResolvedStaleFrames++;
+				return;
+			}
+			const int rd = mLumaReadCursor % kLumaReadRing;
+			if (!mLumaReadBuf[rd].IsValid()) {
+				mResolvedStaleFrames++;
+				return;
+			}
+			NkMappedMemory mm = mDevice->MapBuffer(mLumaReadBuf[rd], 0, 8);
+			if (!mm.ptr) {
+				// La copie peut echouer EN SILENCE cote RHI (garde MSAA). On ne
+				// fabrique pas de valeur : on vieillit celle qu'on a.
+				mResolvedStaleFrames++;
+				return;
+			}
+			uint16 raw = 0;
+			memcpy(&raw, mm.ptr, sizeof(raw));
+			mDevice->UnmapBuffer(mLumaReadBuf[rd]);
+			const float32 avgLuma = NkHalfToFloat(raw);
+
+			// Meme formule que le tonemap, sinon l'affichage mentirait sur ce que
+			// l'image fait reellement.
+			float32 expo = mCfg.exposure;
+			if (avgLuma > 0.f) {
+				const float32 key = mCfg.autoExposureKey;
+				float32 autoExp = key / (avgLuma > 0.0001f ? avgLuma : 0.0001f);
+				const float32 lo = mCfg.autoExposureMinExp;
+				const float32 hi = mCfg.autoExposureMaxExp;
+				autoExp = autoExp < lo ? lo : (autoExp > hi ? hi : autoExp);
+				float32 k = NkAutoExpStrength(mCfg.autoExposureStrength);
+				k = k < 0.f ? 0.f : (k > 1.f ? 1.f : k);
+				expo = expo + (autoExp - expo) * k;
+			}
+			// Jamais 0 : un seuil ancre sur cette valeur partirait a l'infini.
+			mResolvedExposure = expo > 0.0001f ? expo : 0.0001f;
+			mResolvedValid = true;
+			mResolvedStaleFrames = 0;
+		}
+
+		bool NkPostProcessStack::ResolvedExposure(float32 *out, bool *stale) const {
+			if (out)
+				*out = mResolvedExposure;
+			// Deux frames de retard sont NORMALES (c'est l'anneau) ; au-dela, les
+			// releves ont cesse d'arriver et l'appelant doit le dire.
+			if (stale)
+				*stale = mResolvedStaleFrames > kLumaReadRing;
+			return mResolvedValid;
 		}
 
 		// =====================================================================
