@@ -105,6 +105,32 @@ echouait au lien, **y compris l'exemple livre**. Corrige en ajoutant la
 dependance, c'est-a-dire en **rendant la promesse vraie plutot qu'en la
 reduisant**.
 
+✅ **Un controle existe desormais : `verifier_la_pile.py`.** Il compare entre
+elles les **cinq** listes qui decrivent la pile (`NkcLayout.h kRepo[]`,
+`Distribuer.ps1 $modules`, `NkcModuleCompiler.h StackLibs`, `Distribuer.ps1
+$libs`, `ConquerorLab.jenga nkentseudependson`) et **echoue avec un code de
+sortie non nul**. Il refuse aussi de conclure si l'un des motifs ne matche plus :
+cinq listes vides seraient « toutes egales », et ce serait reussir pour la
+mauvaise raison.
+
+**Valide en le rejouant sur l'incident qui l'a motive** : le `.jenga`
+d'`origin/main` remis en place (NKSerialization absent), le controle sort
+
+```
+ECHEC   1 divergence(s) :
+  - NKSerialization est liee aux modules du stagiaire mais ABSENTE de
+    nkentseudependson : elle ne sera pas construite, donc le kit ne pourra pas
+    etre assemble (incident du 2026-08-15)
+```
+
+avec le code 1 ; `.jenga` restaure, il repasse a 0. **Un garde-fou qui n'echoue
+pas ne garde rien.**
+
+Reste a faire : brancher ce controle **en tete de `Distribuer.ps1`** pour qu'il
+soit lance sans qu'on y pense — un controle de sept secondes qui n'est jamais
+lance vaut zero — et decider si `NkcLayout::Includes` doit etre **genere** depuis
+un fichier de donnees plutot que verifie (question posee a Claude).
+
 ### 3. Deux fichiers source etaient invisibles a toute recherche
 
 `NkcBoardLibrary.h` et `NkcSession.h` portaient chacun **un octet NUL brut** (un
