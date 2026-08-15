@@ -25,6 +25,12 @@
 #include "NKLogger/NkLog.h"
 #include "NKLogger/NkLogHeartbeat.h"
 
+#if defined(_WIN32)
+// Déclaré à la main plutôt que d'inclure <windows.h> : même approche que
+// NkRendererImpl.cpp, qui appelle déjà `timeBeginPeriod(1)` à son init.
+extern "C" unsigned int __stdcall timeBeginPeriod(unsigned int uPeriod);
+#endif
+
 #include "NKCamera/NkCameraSystem.h"
 
 #include "Render/GLContext.h"
@@ -117,6 +123,16 @@ namespace nkentseu {
 			camCfg.deviceIndex = 0;
 			camCfg.preset = NkCameraResolution::NK_CAM_RES_HD;
 			camCfg.outputFormat = NkPixelFormat::NK_PIXEL_RGBA8;
+			// `--miroir` retourne l'image gauche-droite, comme une visio. NON
+			// par défaut : l'image brute est géométriquement vraie, et c'est
+			// celle qu'il faut pour de l'AR ou de la mesure. Le miroir est un
+			// confort d'affichage de soi, pas une correction.
+			for (usize i = 1; i < state.args.Size(); ++i) {
+				if (state.args[i] == "--miroir" || state.args[i] == "--mirror")
+					camCfg.flipHorizontal = true;
+			}
+			if (camCfg.flipHorizontal)
+				logger.Infof("[Viewer] Miroir horizontal demande.");
 			if (!cam.StartStreaming(camCfg)) {
 				logger.Warnf("[Viewer] StartStreaming a echoue : %s", cam.GetLastError().CStr());
 			}
@@ -138,8 +154,17 @@ namespace nkentseu {
 			// fichier retenu — c'est exactement le faux diagnostic du 15/08.
 			NkHeartbeat beat;
 			uint32 beatFrames = 0;
+			bool timerFin = false;
 			for (usize i = 1; i < state.args.Size(); ++i) {
 				const char *a = state.args[i].CStr();
+				// ESSAI D'INTERVENTION (2026-08-15) : `--timer` force la
+				// resolution de minuterie a 1 ms. Sert a tester si la variance
+				// de debit (35-55 img/s) vient de la quantification du sommeil.
+				if (a[0] == '-' && a[1] == '-' && a[2] == 't' && a[3] == 'i' && a[4] == 'm' &&
+					a[5] == 'e' && a[6] == 'r' && a[7] == '\0') {
+					timerFin = true;
+					continue;
+				}
 				const char *prefix = "--beat=";
 				usize k = 0;
 				while (prefix[k] != '\0' && a[k] == prefix[k])
@@ -162,6 +187,13 @@ namespace nkentseu {
 					logger.Warnf("[Viewer] --beat sans valeur numerique : battement laisse ETEINT.");
 				}
 			}
+
+#if defined(_WIN32)
+			if (timerFin) {
+				timeBeginPeriod(1);
+				logger.Infof("[Viewer] ESSAI : resolution de minuterie forcee a 1 ms.");
+			}
+#endif
 
 			// -- Boucle principale -------------------------------------------
 			auto &events = NkEvents();

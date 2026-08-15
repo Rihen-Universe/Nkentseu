@@ -247,6 +247,28 @@ coup. Relire le correctif ne le montrait pas.
 formule par la **plage**, jamais par le format. Différé volontairement pour ne
 pas élargir un diff en cours de fusion — différé, pas abandonné.
 
+### ✅ `flipHorizontal` est enfin APPLIQUÉ (2026-08-15)
+
+Le champ existait dans `NkCameraConfig` depuis l'origine, se réglait, et
+**personne ne l'appliquait** — vérifié, zéro consommateur dans tout le dépôt.
+Deuxième réglage fantôme du module, après `autoFocus`.
+
+Il fonctionne désormais par le même relais que la plage de couleur : **la
+configuration le demande, la trame le transporte** (`NkCameraFrame::flipHorizontal`),
+**la conversion l'applique** — donc quel que soit le format d'origine, sans
+dupliquer le retournement dans les huit branches de `ConvertToRGBA8`.
+
+Le drapeau **retombe à faux une fois appliqué**, et ce détail compte : une image
+miroitée deux fois est identique à l'originale. Sans cette remise à zéro, une
+double conversion ferait conclure que le réglage ne marche pas — alors qu'il
+marche deux fois.
+
+**Faux par défaut, et c'est un choix** : l'image brute d'un capteur est
+géométriquement vraie, et c'est la seule utilisable pour de l'AR, de la
+calibration ou de la mesure. Le miroir est un confort d'affichage de soi (la
+convention des applications de visio), pas une correction. `NkCameraDemos
+--demo=viewer --miroir` le montre ; validé à l'écran par Rihen.
+
 ### ⚠️ Windows — `autoFocus` est une promesse d'API NON TENUE (2026-08-15)
 
 `NkCameraConfig::autoFocus` vaut `true` par défaut et **le backend Win32 ne

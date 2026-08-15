@@ -69,6 +69,11 @@ namespace nkentseu {
 		NkCameraConfig cfg = config;
 		cfg.Resolve();
 		mCurrentDeviceIndex = cfg.deviceIndex;
+		// Retenir la demande de miroir : elle voyage ensuite AVEC chaque trame,
+		// jusqu'à la conversion qui l'applique. Sans ce relais, le champ
+		// `flipHorizontal` de la configuration restait ce qu'il a été jusqu'au
+		// 2026-08-15 — déclaré, réglable, et ignoré par tout le monde.
+		mFlipHorizontal = cfg.flipHorizontal;
 		// Recâbler le callback (peut avoir été écrasé lors d'un StopStreaming)
 		mBackend.SetFrameCallback([this](const NkCameraFrame &f) { OnFrame(f); });
 		return mBackend.StartStreaming(cfg);
@@ -295,9 +300,16 @@ namespace nkentseu {
 		{
 			std::lock_guard<std::mutex> lk(mFrameMutex);
 			mLastFrame = frame;
+			mLastFrame.flipHorizontal = mFlipHorizontal;
 			mHasFrame = true;
-			if (mUserCallback)
-				mUserCallback(frame);
+			if (mUserCallback) {
+				// Le rappel utilisateur reçoit la même demande de miroir que
+				// `GetLastFrame` : deux chemins qui livreraient des images
+				// différentes seraient un piège, pas une souplesse.
+				NkCameraFrame copie = frame;
+				copie.flipHorizontal = mFlipHorizontal;
+				mUserCallback(copie);
+			}
 
 			if (mImageSequenceActive) {
 				doSequence = true;
@@ -442,7 +454,26 @@ namespace nkentseu {
 		return legacyVideoRange;
 	}
 
-	bool NkCameraSystem::ConvertToRGBA8(NkCameraFrame &frame) {
+	// Miroir horizontal sur une image RGBA8, en place. Une passe, deux index qui
+	// se croisent : pas de tampon supplémentaire par image.
+	static void NkMiroirRGBA8(NkCameraFrame &frame) {
+		uint8 *p = frame.data.Data();
+		const uint32 w = frame.width, h = frame.height;
+		for (uint32 y = 0; y < h; ++y) {
+			uint8 *ligne = p + (usize)y * w * 4;
+			for (uint32 g = 0, d = w - 1; g < d; ++g, --d) {
+				uint8 *a = ligne + (usize)g * 4;
+				uint8 *b = ligne + (usize)d * 4;
+				for (int c = 0; c < 4; ++c) {
+					const uint8 t = a[c];
+					a[c] = b[c];
+					b[c] = t;
+				}
+			}
+		}
+	}
+
+	static bool NkConvertToRGBA8Impl(NkCameraFrame &frame) {
 		if (frame.format == NkPixelFormat::NK_PIXEL_RGBA8)
 			return true;
 		uint32 w = frame.width, h = frame.height;
@@ -649,6 +680,27 @@ namespace nkentseu {
 		}
 
 		return false;
+	}
+
+	bool NkCameraSystem::ConvertToRGBA8(NkCameraFrame &frame) {
+		if (!NkConvertToRGBA8Impl(frame))
+			return false;
+
+		// Le miroir est DEMANDÉ par la configuration et porté par la trame ; il
+		// s'applique ICI, une fois l'image en RGBA8 — donc quel que soit le
+		// format d'origine, sans dupliquer le retournement dans les huit
+		// branches de conversion.
+		//
+		// `flipHorizontal` retombe à faux après coup : convertir deux fois la
+		// même trame ne doit pas la retourner deux fois. C'est le genre de
+		// double application qui ne se voit pas — une image miroitée deux fois
+		// est identique à l'originale, et on conclut que le réglage ne marche
+		// pas alors qu'il marche trop.
+		if (frame.flipHorizontal) {
+			NkMiroirRGBA8(frame);
+			frame.flipHorizontal = false;
+		}
+		return true;
 	}
 
 	bool NkCameraSystem::SaveFrameToFile(const NkCameraFrame &frame, const NkString &path, int quality) {
