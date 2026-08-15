@@ -6,11 +6,16 @@
 //   2) Entraîne un MLP 2-8-1 sur XOR (tanh caché + sigmoid sortie + MSE, SGD
 //      manuel) — construit UNIQUEMENT avec l'autograd. La perte doit chuter et
 //      les 4 prédictions doivent être correctes.
+//   3) ÉQUIVALENCE CPU <-> GPU du trio NkLlamaLM (RMSNorm, RoPE, SwiGLU), avant
+//      ET arrière : le chemin CPU sert d'oracle aux noyaux qui le remplacent.
 // =============================================================================
 #include "NKAutograd/NkVar.h"
+#include "NKNN/NkLlama.h"
 #include "NKTensor/NkTensor.h"
 #include "NKTensor/NkTensorOps.h"
+#include "NKTensor/NkTensorGpu.h"
 #include "NKLogger/NkLog.h"
+#include "NKTime/NkChrono.h"
 
 #include <cstdio>
 #include <cmath>
@@ -499,6 +504,563 @@ int main() {
 		logger.Info("  [ {0} ] Detach : dL/dc = {1} (attendu 6.0, en aval du detach) ; dL/da absent = {2}, dL/db "
 					"absent = {3} (en amont du detach)",
 					detachOk ? "OK" : "KO", gradC, gradAAbsent, gradBAbsent);
+	}
+
+	// =========================================================================
+	// ÉQUIVALENCE CPU <-> GPU pour le trio NkLlamaLM (RMSNorm, RoPE, SwiGLU).
+	//
+	// Ces trois opérations n'avaient AUCUN noyau GPU : elles redescendaient le
+	// tenseur sur le processeur et le remontaient, en avant comme en arrière. Les
+	// noyaux les remplacent, et le chemin CPU — déjà validé par l'entraînement —
+	// devient leur ORACLE.
+	//
+	// Pourquoi ce test EXISTE : un noyau dont l'indexation est fausse NE PLANTE
+	// PAS. Il dégrade en silence, et cela ne se verrait qu'à la courbe de perte
+	// du grand run, des heures plus tard.
+	//
+	// TOLÉRANCE. Le chemin CPU accumule en double, le noyau en flottant simple :
+	// l'écart attendu est celui de l'arrondi f32 (~6e-8 par opération), amplifié
+	// par la longueur des accumulations. On exige 1e-5 en relatif, PAS l'égalité
+	// au bit près — un seuil trop serré échouerait pour une raison étrangère à ce
+	// qu'il prétend vérifier.
+	{
+		printf("\n--- Équivalence CPU/GPU : RMSNorm, RoPE, SwiGLU (avant ET arrière) ---\n");
+
+		if (!NkTensorGpu::Get().IsAvailable()) {
+			// Une absence de device ne doit PAS se lire comme un succès : sans GPU,
+			// ce bloc n'a RIEN vérifié, et le compter comme réussi serait exactement
+			// le défaut qu'on traque.
+			++g_fail;
+			printf("  [ KO ] aucun device GPU : les noyaux n'ont PAS pu être vérifiés\n");
+		} else {
+			uint64 rng = 0x2545F4914F6CDD1Dull; // déterministe : deux exécutions comparables
+			auto frand = [&rng]() {
+				rng = rng * 6364136223846793005ull + 1442695040888963407ull;
+				return (float)((double)((rng >> 11) & 0xFFFFFFFFFFFFFull) / (double)(1ull << 52) * 2.0 - 1.0);
+			};
+			auto randTensor = [&](const NkShape &s) {
+				NkTensor t = NkTensor::Zeros(s);
+				float *p = t.DataAs<float>();
+				const int64 n = NkShapeNumel(s);
+				for (int64 i = 0; i < n; ++i)
+					p[i] = frand();
+				return t;
+			};
+			auto compare = [](const char *quoi, const NkTensor &a, const NkTensor &b, double tol) {
+				NkTensor ca = a.IsValid() ? a.ToCPU().Contiguous() : NkTensor{};
+				NkTensor cb = b.IsValid() ? b.ToCPU().Contiguous() : NkTensor{};
+				if (!ca.IsValid() || !cb.IsValid() || ca.Numel() != cb.Numel() || ca.Numel() == 0) {
+					++g_fail;
+					printf("  [ KO ] %-24s tenseur invalide ou tailles différentes -> RIEN mesuré\n", quoi);
+					return;
+				}
+				const float *pa = ca.DataAs<float>();
+				const float *pb = cb.DataAs<float>();
+				double pire = 0.0, ampli = 0.0;
+				for (int64 i = 0; i < ca.Numel(); ++i) {
+					const double d = std::fabs((double)pa[i] - (double)pb[i]);
+					if (d > pire)
+						pire = d;
+					const double m = std::fabs((double)pa[i]);
+					if (m > ampli)
+						ampli = m;
+				}
+				const double rel = (ampli > 0.0) ? pire / ampli : pire;
+				const bool ok = rel < tol;
+				(ok ? g_pass : g_fail)++;
+				printf("  [ %s ] %-24s ecart relatif max = %.2e  (tol %.0e, %lld valeurs)\n", ok ? "OK" : "KO",
+					   quoi, rel, tol, (long long)ca.Numel());
+			};
+
+			const double kTol = 1e-5;
+
+			{ // RMSNorm : [rows, D]
+				NkShape s;
+				s.PushBack(24);
+				s.PushBack(64);
+				const NkTensor x = randTensor(s), w = randTensor(s);
+
+				NkVar xc = NkVar::Leaf(x.Clone(), true);
+				NkVar yc = autograd::RMSNorm(xc, 1e-6);
+				autograd::Sum(autograd::Mul(yc, NkVar::Leaf(w.Clone(), false))).Backward();
+
+				NkVar xg = NkVar::Leaf(x.Clone().ToGPU(), true);
+				NkVar yg = autograd::RMSNorm(xg, 1e-6);
+				autograd::Sum(autograd::Mul(yg, NkVar::Leaf(w.Clone().ToGPU(), false))).Backward();
+
+				compare("RMSNorm avant", yc.Value(), yg.Value(), kTol);
+				compare("RMSNorm arriere", xc.Grad(), xg.Grad(), kTol);
+			}
+
+			{ // RoPE : [blocs, T, hd]
+				NkShape s;
+				s.PushBack(4);
+				s.PushBack(32); // T
+				s.PushBack(16); // hd (pair)
+				const NkTensor x = randTensor(s), w = randTensor(s);
+
+				NkVar xc = NkVar::Leaf(x.Clone(), true);
+				NkVar yc = autograd::RoPE(xc, 0, 10000.0);
+				autograd::Sum(autograd::Mul(yc, NkVar::Leaf(w.Clone(), false))).Backward();
+
+				NkVar xg = NkVar::Leaf(x.Clone().ToGPU(), true);
+				NkVar yg = autograd::RoPE(xg, 0, 10000.0);
+				autograd::Sum(autograd::Mul(yg, NkVar::Leaf(w.Clone().ToGPU(), false))).Backward();
+
+				compare("RoPE avant", yc.Value(), yg.Value(), kTol);
+				compare("RoPE arriere", xc.Grad(), xg.Grad(), kTol);
+
+				// Contrôle INDÉPENDANT de l'oracle : la rotation conserve la norme.
+				// Les deux chemins partagent la table cos/sin ; une table fausse leur
+				// donnerait donc le MÊME mauvais résultat et la comparaison seule ne
+				// verrait rien. Cette invariante, elle, ne dépend pas de la table.
+				NkTensor a = x.Contiguous(), b = yg.Value().ToCPU().Contiguous();
+				const float *pa = a.DataAs<float>();
+				const float *pb = b.DataAs<float>();
+				double na = 0.0, nb = 0.0;
+				for (int64 i = 0; i < a.Numel(); ++i) {
+					na += (double)pa[i] * (double)pa[i];
+					nb += (double)pb[i] * (double)pb[i];
+				}
+				const double ecart = (na > 0.0) ? std::fabs(na - nb) / na : 1.0;
+				const bool normeOk = ecart < 1e-5;
+				(normeOk ? g_pass : g_fail)++;
+				printf("  [ %s ] %-24s norme carree conservee a %.2e pres\n", normeOk ? "OK" : "KO",
+					   "RoPE rotation pure", ecart);
+			}
+
+			{ // SwiGLU : deux entrées, deux gradients
+				NkShape s;
+				s.PushBack(16);
+				s.PushBack(48);
+				const NkTensor gt = randTensor(s), ut = randTensor(s), w = randTensor(s);
+
+				NkVar gc = NkVar::Leaf(gt.Clone(), true), uc = NkVar::Leaf(ut.Clone(), true);
+				NkVar hc = autograd::SwiGLU(gc, uc);
+				autograd::Sum(autograd::Mul(hc, NkVar::Leaf(w.Clone(), false))).Backward();
+
+				NkVar gg = NkVar::Leaf(gt.Clone().ToGPU(), true), ug = NkVar::Leaf(ut.Clone().ToGPU(), true);
+				NkVar hg = autograd::SwiGLU(gg, ug);
+				autograd::Sum(autograd::Mul(hg, NkVar::Leaf(w.Clone().ToGPU(), false))).Backward();
+
+				compare("SwiGLU avant", hc.Value(), hg.Value(), kTol);
+				compare("SwiGLU arriere dG", gc.Grad(), gg.Grad(), kTol);
+				compare("SwiGLU arriere dU", uc.Grad(), ug.Grad(), kTol);
+			}
+
+			// =================================================================
+			// LES NOYAUX QUI EXISTAIENT DÉJÀ — jamais vérifiés jusqu'ici.
+			//
+			// LayerNorm, Gelu, SoftmaxCausal et Embedding ont des noyaux GPU
+			// depuis des mois, sans aucun test d'équivalence. Le même défaut
+			// muet peut y dormir. Ce n'est pas une précaution abstraite :
+			// NkGPT était la RÉFÉRENCE de la course d'architecture, et un
+			// noyau à moitié cassé de son côté aurait gonflé la victoire de
+			// NkLlamaLM sans que rien ne le signale.
+			// =================================================================
+			{ // LayerNorm
+				NkShape s;
+				s.PushBack(24);
+				s.PushBack(64);
+				const NkTensor x = randTensor(s), w = randTensor(s);
+
+				NkVar xc = NkVar::Leaf(x.Clone(), true);
+				NkVar yc = autograd::LayerNorm(xc);
+				autograd::Sum(autograd::Mul(yc, NkVar::Leaf(w.Clone(), false))).Backward();
+
+				NkVar xg = NkVar::Leaf(x.Clone().ToGPU(), true);
+				NkVar yg = autograd::LayerNorm(xg);
+				autograd::Sum(autograd::Mul(yg, NkVar::Leaf(w.Clone().ToGPU(), false))).Backward();
+
+				compare("LayerNorm avant", yc.Value(), yg.Value(), kTol);
+				compare("LayerNorm arriere", xc.Grad(), xg.Grad(), kTol);
+
+				// Propriété intrinsèque, indépendante de l'oracle : après
+				// normalisation, chaque ligne a une moyenne nulle et une variance
+				// PRÉVISIBLE. Vrai même si les DEUX chemins se trompent.
+				//
+				// ⚠️ LA VARIANCE ATTENDUE N'EST PAS 1. LayerNorm calcule
+				// y = (x−μ)/√(σ²+ε), donc Var(y) = σ²/(σ²+ε) — l'écart à 1 vaut
+				// ε/σ², il est SYSTÉMATIQUE et calculable, pas accidentel. Une
+				// première version comparait à 1 avec une tolérance élargie à 1e-3
+				// pour l'absorber : elle se donnait un angle mort de la taille
+				// exacte de l'epsilon, et toute vraie erreur de cette amplitude y
+				// serait passée. On calcule donc l'attendu et on resserre au niveau
+				// des autres contrôles.
+				const double kEps = 1e-5; // celui du noyau (cf. kLayerNormFwdNkSL)
+				NkTensor xx = x.Contiguous(), yy = yg.Value().ToCPU().Contiguous();
+				const float *px = xx.DataAs<float>();
+				const float *py = yy.DataAs<float>();
+				double pireMoy = 0.0, pireVar = 0.0;
+				for (int64 r = 0; r < 24; ++r) {
+					// Variance de l'ENTRÉE : c'est elle qui fixe l'attendu.
+					double mx = 0.0;
+					for (int64 c = 0; c < 64; ++c)
+						mx += (double)px[r * 64 + c];
+					mx /= 64.0;
+					double sx = 0.0;
+					for (int64 c = 0; c < 64; ++c) {
+						const double t = (double)px[r * 64 + c] - mx;
+						sx += t * t;
+					}
+					sx /= 64.0;
+					const double attendu = sx / (sx + kEps);
+
+					double m = 0.0;
+					for (int64 c = 0; c < 64; ++c)
+						m += (double)py[r * 64 + c];
+					m /= 64.0;
+					double v = 0.0;
+					for (int64 c = 0; c < 64; ++c) {
+						const double t = (double)py[r * 64 + c] - m;
+						v += t * t;
+					}
+					v /= 64.0;
+					if (std::fabs(m) > pireMoy)
+						pireMoy = std::fabs(m);
+					if (std::fabs(v - attendu) > pireVar)
+						pireVar = std::fabs(v - attendu);
+				}
+				const bool ok = pireMoy < 1e-6 && pireVar < 1e-6;
+				(ok ? g_pass : g_fail)++;
+				printf("  [ %s ] %-24s moyenne %.1e, variance vs s2/(s2+eps) %.1e\n", ok ? "OK" : "KO",
+					   "LayerNorm intrinseque", pireMoy, pireVar);
+			}
+
+			{ // Gelu
+				NkShape s;
+				s.PushBack(32);
+				s.PushBack(40);
+				const NkTensor x = randTensor(s), w = randTensor(s);
+
+				NkVar xc = NkVar::Leaf(x.Clone(), true);
+				NkVar yc = autograd::Gelu(xc);
+				autograd::Sum(autograd::Mul(yc, NkVar::Leaf(w.Clone(), false))).Backward();
+
+				NkVar xg = NkVar::Leaf(x.Clone().ToGPU(), true);
+				NkVar yg = autograd::Gelu(xg);
+				autograd::Sum(autograd::Mul(yg, NkVar::Leaf(w.Clone().ToGPU(), false))).Backward();
+
+				compare("Gelu avant", yc.Value(), yg.Value(), kTol);
+				compare("Gelu arriere", xc.Grad(), xg.Grad(), kTol);
+			}
+
+			{ // SoftmaxCausal : [.., T, T]
+				const int64 T = 16;
+				NkShape s;
+				s.PushBack(3);
+				s.PushBack(T);
+				s.PushBack(T);
+				const NkTensor x = randTensor(s), w = randTensor(s);
+
+				NkVar xc = NkVar::Leaf(x.Clone(), true);
+				NkVar yc = autograd::SoftmaxCausal(xc);
+				autograd::Sum(autograd::Mul(yc, NkVar::Leaf(w.Clone(), false))).Backward();
+
+				NkVar xg = NkVar::Leaf(x.Clone().ToGPU(), true);
+				NkVar yg = autograd::SoftmaxCausal(xg);
+				autograd::Sum(autograd::Mul(yg, NkVar::Leaf(w.Clone().ToGPU(), false))).Backward();
+
+				compare("SoftmaxCausal avant", yc.Value(), yg.Value(), kTol);
+				compare("SoftmaxCausal arriere", xc.Grad(), xg.Grad(), kTol);
+
+				// Propriété intrinsèque : chaque ligne somme à 1, et les
+				// positions futures sont STRICTEMENT nulles. Un masque causal
+				// décalé d'une case ne se verrait pas autrement — et il
+				// laisserait le modèle lire le token suivant.
+				NkTensor yy = yg.Value().ToCPU().Contiguous();
+				const float *py = yy.DataAs<float>();
+				double pireSomme = 0.0;
+				bool futurPropre = true;
+				for (int64 b = 0; b < 3; ++b)
+					for (int64 q = 0; q < T; ++q) {
+						double som = 0.0;
+						for (int64 k = 0; k < T; ++k) {
+							const double v = (double)py[(b * T + q) * T + k];
+							som += v;
+							if (k > q && v != 0.0)
+								futurPropre = false;
+						}
+						if (std::fabs(som - 1.0) > pireSomme)
+							pireSomme = std::fabs(som - 1.0);
+					}
+				const bool ok = pireSomme < 1e-5 && futurPropre;
+				(ok ? g_pass : g_fail)++;
+				printf("  [ %s ] %-24s somme-1 max %.1e, futur strictement nul = %s\n", ok ? "OK" : "KO",
+					   "SoftmaxCausal intrins.", pireSomme, futurPropre ? "oui" : "NON");
+			}
+
+			{ // Embedding : table [V, d], indices [N]
+				const int64 V = 50, dd = 32, N = 20;
+				NkShape ts;
+				ts.PushBack(V);
+				ts.PushBack(dd);
+				NkShape is;
+				is.PushBack(N);
+				const NkTensor tab = randTensor(ts);
+				NkTensor idx = NkTensor::Zeros(is);
+				// Les BORNES d'abord : un décalage d'un rang se manifeste là avant
+				// partout ailleurs (0 lirait hors table par en dessous, V−1 par
+				// au-dessus). Le reste balaie le vocabulaire.
+				for (int64 i = 0; i < N; ++i)
+					idx.DataAs<float>()[i] = (float)((i * 7 + 3) % V);
+				idx.DataAs<float>()[0] = 0.0f;
+				idx.DataAs<float>()[1] = (float)(V - 1);
+				idx.DataAs<float>()[2] = 1.0f;
+				idx.DataAs<float>()[3] = (float)(V - 2);
+				NkShape os;
+				os.PushBack(N);
+				os.PushBack(dd);
+				const NkTensor w = randTensor(os);
+
+				NkVar tc = NkVar::Leaf(tab.Clone(), true);
+				NkVar yc = autograd::Embedding(tc, idx);
+				autograd::Sum(autograd::Mul(yc, NkVar::Leaf(w.Clone(), false))).Backward();
+
+				NkVar tg = NkVar::Leaf(tab.Clone().ToGPU(), true);
+				NkVar yg = autograd::Embedding(tg, idx);
+				autograd::Sum(autograd::Mul(yg, NkVar::Leaf(w.Clone().ToGPU(), false))).Backward();
+
+				compare("Embedding avant", yc.Value(), yg.Value(), kTol);
+				compare("Embedding arriere", tc.Grad(), tg.Grad(), kTol);
+
+				// ⚠️ EMBEDDING EST LE CAS OÙ L'ORACLE EST LE PLUS AVEUGLE.
+				// Sans arithmétique, l'écart CPU/GPU est exactement nul — et il le
+				// resterait si les DEUX chemins lisaient la ligne k+1 au lieu de k,
+				// puisqu'ils partagent l'indexation. Le modèle apprendrait alors sur
+				// des tokens décalés, sans rien qui plante, avec une perte seulement
+				// un peu moins bonne : personne ne le remarquerait.
+				//
+				// La propriété définitionnelle se passe d'oracle : la ligne de sortie
+				// i DOIT être la ligne idx[i] de la TABLE. On compare à la table,
+				// jamais à l'autre chemin.
+				NkTensor yy = yg.Value().ToCPU().Contiguous(), tt = tab.Contiguous();
+				const float *py = yy.DataAs<float>();
+				const float *pt = tt.DataAs<float>();
+				const float *pi = idx.DataAs<float>();
+				double pire = 0.0;
+				for (int64 i = 0; i < N; ++i) {
+					const int64 k = (int64)(pi[i] + 0.5f);
+					for (int64 c = 0; c < dd; ++c) {
+						const double e = std::fabs((double)py[i * dd + c] - (double)pt[k * dd + c]);
+						if (e > pire)
+							pire = e;
+					}
+				}
+				// Une copie doit être EXACTE : aucune tolérance à accorder ici.
+				const bool ok = (pire == 0.0);
+				(ok ? g_pass : g_fail)++;
+				printf("  [ %s ] %-24s ligne i == table[idx[i]] (bornes 0 et V-1 incluses), ecart %.1e\n",
+					   ok ? "OK" : "KO", "Embedding definition", pire);
+			}
+		}
+
+		// Le compteur de défauts GPU doit être resté à zéro. Il agrège désormais
+		// les échecs de COMPILATION de noyau et les sorties entièrement nulles :
+		// un test qui passerait avec un compteur non nul aurait comparé deux
+		// résultats dont l'un n'a pas été calculé.
+		const int64 defauts = NkTensorGpu::DefautCount();
+		const bool zeroDefaut = (defauts == 0);
+		(zeroDefaut ? g_pass : g_fail)++;
+		printf("  [ %s ] %-24s %lld défaut(s) GPU signalé(s) pendant les tests\n", zeroDefaut ? "OK" : "KO",
+			   "compteur de defauts", (long long)defauts);
+	}
+
+	// =========================================================================
+	// TEST DE LA LIGNE ABSENTE — le weight tying crée-t-il bien DEUX chemins
+	// de gradient vers la table d'embedding ?
+	//
+	// Sans tying, la table ne reçoit du gradient que par la RECHERCHE : creuse,
+	// seules les lignes des tokens présents dans le lot. Avec tying, elle en
+	// reçoit AUSSI par la PROJECTION DE SORTIE : dense, toutes les lignes à
+	// chaque pas — y compris celles de tokens qui n'apparaissent nulle part.
+	//
+	// Ce test le rend CONSTATABLE au lieu de le supposer, sans lancer de course :
+	// on prend des identifiants absents du lot et on regarde si leur ligne bouge.
+	// C'est la mesure qui tranche entre « le tying dégrade par principe » et
+	// « il change la nature du gradient reçu par la table ».
+	{
+		printf("\n--- Test de la ligne absente (deux chemins de gradient) ---\n");
+		const int64 V = 20, D = 8, N = 4;
+		NkShape ts;
+		ts.PushBack(V);
+		ts.PushBack(D);
+		NkTensor tab0 = NkTensor::Zeros(ts);
+		{
+			uint64 r = 0x9E3779B97F4A7C15ull;
+			float *p = tab0.DataAs<float>();
+			for (int64 i = 0; i < V * D; ++i) {
+				r = r * 6364136223846793005ull + 1442695040888963407ull;
+				p[i] = (float)((double)((r >> 11) & 0xFFFFFFFFFFFFFull) / (double)(1ull << 52) * 0.04 - 0.02);
+			}
+		}
+		// Le lot n'utilise QUE les identifiants 0..3 : les lignes 4..19 sont absentes.
+		NkShape is;
+		is.PushBack(N);
+		NkTensor idx = NkTensor::Zeros(is);
+		for (int64 i = 0; i < N; ++i)
+			idx.DataAs<float>()[i] = (float)i;
+
+		// Amplitude max du gradient sur les lignes ABSENTES (4..19).
+		auto ampliAbsentes = [&](const NkTensor &g) {
+			if (!g.IsValid())
+				return -1.0; // pas de gradient du tout : cas distinct de « nul »
+			NkTensor c = g.ToCPU().Contiguous();
+			const float *p = c.DataAs<float>();
+			double m = 0.0;
+			for (int64 k = N; k < V; ++k)
+				for (int64 j = 0; j < D; ++j) {
+					const double a = std::fabs((double)p[k * D + j]);
+					if (a > m)
+						m = a;
+				}
+			return m;
+		};
+
+		// (a) Chemin SEUL de la recherche — ce que fait une tête LIBRE.
+		NkVar tA = NkVar::Leaf(tab0.Clone(), true);
+		autograd::Sum(autograd::Embedding(tA, idx)).Backward();
+		const double aLibre = ampliAbsentes(tA.Grad());
+
+		// (b) Recherche + projection liée — ce que fait le TYING.
+		NkVar tB = NkVar::Leaf(tab0.Clone(), true);
+		NkVar emb = autograd::Embedding(tB, idx); // [N, D]
+		NkShape ordre;
+		ordre.PushBack(1);
+		ordre.PushBack(0);
+		NkVar logits = autograd::Matmul(emb, autograd::Permute(tB, ordre)); // [N, V]
+		autograd::Sum(autograd::Add(logits, autograd::Sum(emb))).Backward();
+		const double aLie = ampliAbsentes(tB.Grad());
+
+		printf("  lignes absentes du lot : identifiants %lld..%lld\n", (long long)N, (long long)(V - 1));
+		printf("  gradient max sur ces lignes, recherche SEULE (tête libre) : %.3e\n", aLibre);
+		printf("  gradient max sur ces lignes, recherche + projection LIÉE  : %.3e\n", aLie);
+
+		// Attendu : nul côté tête libre, NON nul côté tying. C'est exactement la
+		// différence de nature annoncée — et elle se constate sans entraînement.
+		const bool libreNul = (aLibre == 0.0);
+		const bool lieNonNul = (aLie > 0.0);
+		const bool ok = libreNul && lieNonNul;
+		(ok ? g_pass : g_fail)++;
+		printf("  [ %s ] %-24s libre = 0 : %s | lié ≠ 0 : %s\n", ok ? "OK" : "KO", "mecanisme (synthetique)",
+			   libreNul ? "oui" : "NON", lieNonNul ? "oui" : "NON");
+
+		// ⚠️ CE QUI PRÉCÈDE NE SUFFIT PAS. Il éprouve le MÉCANISME, reconstruit à
+		// partir des primitives — pas le modèle réellement entraîné. Un NkLlamaLM
+		// dont la tête serait mal câblée passerait ce test sans problème, puisqu'il
+		// n'y participe pas. On refait donc la mesure sur le VRAI modèle, avec un
+		// lot ordinaire : c'est lui qui dit si les +0,0297 nat mesurés portent sur
+		// un tying RÉEL ou seulement NOMINAL.
+		{
+			const uint32 Vm = 64, Dm = 32, Hm = 4, Lm = 2;
+			const int64 B = 2, T = 8;
+			NkShape tk;
+			tk.PushBack(B);
+			tk.PushBack(T);
+			NkTensor tokens = NkTensor::Zeros(tk);
+			// Le lot n'emploie QUE les identifiants 0..7. Les lignes 8..63 sont absentes.
+			for (int64 i = 0; i < B * T; ++i)
+				tokens.DataAs<float>()[i] = (float)(i % 8);
+
+			auto gradAbsentes = [&](bool tied) {
+				nn::NkLlamaLM m(Vm, Dm, Hm, Lm, 1234u, tied);
+				NkVector<NkVar> ps;
+				m.Parameters(ps);
+				if (ps.Size() == 0)
+					return -1.0;
+				autograd::Sum(m.Forward(tokens)).Backward();
+				const NkVar &emb = ps[0]; // mTokEmb est le PREMIER parametre pousse
+				if (!emb.Grad().IsValid())
+					return -1.0;
+				NkTensor g = emb.Grad().ToCPU().Contiguous();
+				const float *p = g.DataAs<float>();
+				double mx = 0.0;
+				for (int64 k = 8; k < (int64)Vm; ++k)
+					for (int64 j = 0; j < (int64)Dm; ++j) {
+						const double a = std::fabs((double)p[k * (int64)Dm + j]);
+						if (a > mx)
+							mx = a;
+					}
+				return mx;
+			};
+
+			const double gLibre = gradAbsentes(false);
+			const double gLie = gradAbsentes(true);
+			printf("  NkLlamaLM REEL, lot n'employant que les identifiants 0..7 :\n");
+			printf("    gradient max sur les lignes 8..%u, tete LIBRE : %.3e\n", Vm - 1, gLibre);
+			printf("    gradient max sur les lignes 8..%u, tete LIEE  : %.3e\n", Vm - 1, gLie);
+			const bool okReel = (gLibre == 0.0) && (gLie > 0.0);
+			(okReel ? g_pass : g_fail)++;
+			printf("  [ %s ] %-24s tying REEL (chemin de sortie connecte) : %s\n", okReel ? "OK" : "KO",
+				   "modele reel", okReel ? "oui" : "NON — le tying serait NOMINAL");
+		}
+	}
+
+	// =========================================================================
+	// MESURE ISOLÉE : le coût par FLOP dépend-il de la DIMENSION ?
+	//
+	// Constat qui l'a motivée (14 août 2026) : sur quatre configurations
+	// d'entraînement, `temps/FLOPs` valait 85,4 et 85,6 à d=512, mais 35,6 à
+	// d=640 — soit 2,4× moins cher par opération à la dimension NON puissance
+	// de deux. Deux valeurs qui s'accordent à 0,2 % ne sortent pas d'une
+	// contamination aléatoire ; et une contamination ne peut que RALENTIR, or
+	// l'anomalie est une VITESSE.
+	//
+	// Hypothèse : 512 = 2^9. Sur GPU, une dimension principale en puissance de
+	// deux fait tomber les accès dans les mêmes bancs de mémoire partagée et
+	// alias le cache. L'effet est connu et spectaculaire sur les produits
+	// matriciels ; la parade habituelle est de rembourrer la dimension.
+	//
+	// 528 et 576 départagent : s'ils sont rapides eux aussi, c'est bien la
+	// puissance de deux qui est en cause, et non la valeur 640 en particulier.
+	//
+	// MÉTHODE : on retient le MINIMUM sur plusieurs répétitions. Une contention
+	// extérieure ne peut qu'AJOUTER du temps — le minimum est donc l'estimateur
+	// le moins pollué, et il ne demande pas une machine au repos.
+	{
+		printf("\n--- Coût par FLOP selon la dimension (produit matriciel isolé) ---\n");
+		if (!NkTensorGpu::Get().IsAvailable()) {
+			++g_fail;
+			printf("  [ KO ] aucun device GPU : mesure impossible\n");
+		} else {
+			const int64 dims[5] = {512, 528, 576, 640, 768};
+			const int64 M = 2048;
+			const int kRep = 12;
+			double refCout = 0.0;
+			for (int di = 0; di < 5; ++di) {
+				const int64 d = dims[di];
+				NkShape as, bs;
+				as.PushBack(M);
+				as.PushBack(d);
+				bs.PushBack(d);
+				bs.PushBack(d);
+				NkTensor A = NkTensor::Zeros(as).ToGPU();
+				NkTensor B = NkTensor::Zeros(bs).ToGPU();
+				double best = 1e30;
+				for (int r = 0; r < kRep; ++r) {
+					NkChrono c;
+					NkTensor C = NkGpuMatmul(A, B);
+					// Forcer l'achèvement : sans relecture, on chronomètre la
+					// SOUMISSION du travail, pas son exécution.
+					volatile float sentinelle = C.ToCPU().Contiguous().DataAs<float>()[0];
+					(void)sentinelle;
+					const double ms = c.Elapsed().ToMilliseconds();
+					if (ms < best)
+						best = ms;
+				}
+				// FLOPs = 2·M·d·d. On rapporte le coût par giga-FLOP.
+				const double gflop = 2.0 * (double)M * (double)d * (double)d / 1e9;
+				const double cout = best / gflop; // ms par GFLOP
+				if (di == 0)
+					refCout = cout;
+				const bool p2 = ((d & (d - 1)) == 0);
+				printf("  d=%-4lld %s  min sur %d = %7.2f ms   coût = %6.3f ms/GFLOP   (%.2fx la réf d=512)\n",
+					   (long long)d, p2 ? "[2^n]" : "     ", kRep, best, cout, cout / refCout);
+			}
+			printf("  Si le coût par GFLOP est CONSTANT, la dimension n'y est pour rien.\n");
+			printf("  S'il chute hors des puissances de deux, l'hypothèse est confirmée.\n");
+			++g_pass; // mesure informative : elle rapporte, elle ne juge pas
+		}
 	}
 
 	printf("\n=== Résultat : %d OK, %d échec(s) ===\n", g_pass, g_fail);

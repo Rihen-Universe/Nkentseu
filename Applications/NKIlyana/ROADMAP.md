@@ -916,3 +916,110 @@ de plus.
   un seul bloc, masquage inopérant, sans message. Normaliser à la lecture.
 - ⚠️ **Runtime C++ dédoublé** (mingw64 vs ucrt64) : corruption de tas dans
   glslang au premier noyau compute. Corrigé par `-static-libstdc++ -static-libgcc`.
+
+## ⚠️ Condition de faisabilité d'ilyana-code : l'attention doit passer EN FLUX
+
+**Constat mesuré (14 août 2026).** `NkRoPEAttention::Forward` **matérialise** la
+matrice de scores : trois tenseurs `[B, têtes, T, T]` successifs par couche
+(`scores`, sa version mise à l'échelle, `attn`), et le backward de `SoftmaxCausal`
+retient sa sortie — `attn` survit donc jusqu'à la passe arrière.
+
+Ce terme croît en **T²**. De T=256 à T=2048, il est multiplié par **64**, pas par 8 :
+
+| T | terme d'attention (B=6, 8 têtes, 12 couches) | à B=1 |
+|---|---|---|
+| 256 | 432 Mo | 72 Mo |
+| 512 | 1 728 Mo | 288 Mo |
+| 1 024 | 6 912 Mo | 1 152 Mo |
+| 2 048 | 27 648 Mo | 4 608 Mo |
+
+**Conséquence.** RoPE a été retenu parce qu'il permet d'étendre le contexte sans
+réentraîner — c'est l'argument qui a emporté la décision d'architecture, et c'est ce
+qui rend `ilyana-code` possible (lire des fichiers source demande un long contexte).
+**Mais l'extension n'est PAS accessible par la seule mémoire disponible** : même à
+B=1, T=2048 coûte 4,6 Go sur ce seul terme, sur une carte de 8 Go dont ~800 Mo
+partent au bureau.
+
+**Une attention calculée par blocs, sans jamais stocker la matrice complète, est
+donc un PRÉ-REQUIS à toute extension de contexte** — un chantier, pas un réglage.
+Toute extrapolation linéaire de la marge mémoire serait fausse d'un facteur 8 à
+T=2048.
+
+⚠️ Ne pas confondre avec une optimisation de vitesse : ici c'est la FAISABILITÉ
+qui est en jeu, pas le confort.
+
+### Ordre de grandeur du chantier « attention par blocs »
+
+Chiffré grossièrement, pour qu'`ilyana-code` ne repose pas sur une étape dont le
+coût est inconnu.
+
+**Ce qu'il faut écrire** : un noyau qui, pour chaque bloc de requêtes, parcourt les
+blocs de clés/valeurs en tenant un maximum courant et une somme courante
+(softmax en ligne), sans jamais matérialiser `[B, têtes, T, T]`. Plus son backward,
+qui doit **recalculer** les scores par blocs au lieu de les relire.
+
+| poste | estimation |
+|---|---|
+| noyau avant (softmax en ligne, tuilage) | 2 à 3 jours |
+| noyau arrière (recalcul par blocs — la partie délicate) | 3 à 5 jours |
+| équivalence numérique contre le chemin actuel, avant ET arrière | 1 jour |
+| réglage de la taille de tuile selon la mémoire partagée | 1 à 2 jours |
+| **total** | **7 à 11 jours** |
+
+**Ce qui rend l'estimation fragile** : le backward par recalcul est l'endroit où
+ce genre de noyau se casse en silence (indexation du masque causal, cumul des
+maxima). L'oracle existe — le chemin actuel — donc la vérification est possible,
+mais c'est elle qui prendra le temps, pas l'écriture.
+
+**Pré-requis à traiter d'abord** : le GPU tourne aujourd'hui à **~0,2 % de sa
+crête** (mesuré le 14 août 2026), donc le temps est borné par le coût fixe par
+opération, pas par le calcul. Un noyau d'attention plus efficace ne se verra pas
+tant que ce plafond n'est pas levé. **Mesurer et réduire le coût par opération
+AVANT d'écrire l'attention par blocs** — sinon on optimisera une partie invisible.
+
+## ⏳ À FAIRE — réglage d'identité APRÈS le grand run (décision Rodolf, 15/08/2026)
+
+**Décision prise, branche 3 sur trois.** L'identité d'Ilyana passe par un
+**réglage après le grand run**, pas par le corpus de base.
+
+| | elle sait | modifiable |
+|---|---|---|
+| 1 · contexte système seul | non | une ligne |
+| 2 · corpus de base *(ancien choix)* | oui | réentraînement |
+| **3 · réglage après le run** ✅ | **oui** | **quelques heures** |
+
+**La raison est la dose, et elle est mesurée** : le jeu de 155 formulations pèse
+**0,057 %** du signal fondu dans le socle, contre **100 %** pendant un réglage
+dédié — facteur **~1 800**. La branche 2 demandait à 130 000 tokens de tenir tête
+à 438 millions.
+
+### Ce que ça implique, concrètement
+
+- [x] le fragment d'identité est **déjà séparable** — contigu, octets 0 à 516 149,
+      pur à 99,4 % → interrupteur de configuration, **pas** de re-tokenisation ;
+- [ ] **le grand run tourne sur la prose seule** ;
+- [ ] le fragment est **CONSERVÉ TEL QUEL** — les 155 formulations deviennent le
+      jeu de réglage post-run. **Ne pas le réduire, ne pas le jeter** ;
+- [ ] **forme finale : les poids ET le contexte** — le réglage pour qu'elle sache,
+      le contexte système comme filet corrigeable en une ligne quand les poids
+      hésitent. L'opposition entre les deux documents venait de croire qu'il
+      fallait choisir.
+
+### Documents à corriger — les DEUX, pas un
+
+| document | état |
+|---|---|
+| `Cours_Socle_LLM/md/07-rendre-utile.md` (« jamais dans les poids ») | Claude s'en charge |
+| `Applications/NKIlyana/CARNET.private.md` §8 (« jamais dans une consigne système ») | ✅ **corrigé le 15/08** |
+
+La branche 3 n'était envisagée par **aucun** des deux : elle est née de la mesure
+du 14 août. Chacun disait « jamais l'autre », et la réponse était « les deux, dans
+le bon ordre et à la bonne dose ».
+
+### Vérification après le réglage
+
+Rejouer le harnais des 30 cas — en particulier les **7 cas de généralisation** et
+les **4 pièges de parenté**, dont l'absence du corpus a été vérifiée. Référence
+actuelle sur point de reprise faible : **11/30**, dont 1/7 en généralisation et
+3/5 sur les formulations présentes dans le corpus (Fisher p = 0,222 : le contraste
+n'est pas encore significatif, le point de reprise est trop jeune).
