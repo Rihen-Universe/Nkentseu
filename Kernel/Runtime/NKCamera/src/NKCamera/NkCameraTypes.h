@@ -205,6 +205,13 @@ namespace nkentseu {
 			// NkColorRange, et NkCameraSystem::ConvertToRGBA8 qui choisit la
 			// formule par la PLAGE, jamais par le format.
 			NkColorRange range = NkColorRange::NK_COLOR_RANGE_UNKNOWN;
+			// Miroir horizontal DEMANDÉ par la configuration, reporté ici par le
+			// système pour que la conversion puisse l'appliquer. Faux par défaut :
+			// l'image brute d'un capteur est géométriquement VRAIE, et c'est la
+			// seule utilisable pour de l'AR, de la calibration ou de la mesure.
+			// On ne miroite que pour un affichage de SOI, où l'habitude prime sur
+			// la géométrie — et cela reste une demande explicite.
+			bool flipHorizontal = false;
 			NkVector<uint8> data;
 
 			bool IsValid() const {

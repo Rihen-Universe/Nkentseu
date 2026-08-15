@@ -236,6 +236,9 @@ namespace nkentseu {
 			NkCameraBackend mBackend;
 			bool mReady = false;
 			uint32 mCurrentDeviceIndex = 0;
+			/// Miroir horizontal demandé par la configuration du flux en cours.
+			/// Relayé sur chaque trame, appliqué par `ConvertToRGBA8`.
+			bool mFlipHorizontal = false;
 
 			// Frame thread-safe
 			mutable std::mutex mFrameMutex;
