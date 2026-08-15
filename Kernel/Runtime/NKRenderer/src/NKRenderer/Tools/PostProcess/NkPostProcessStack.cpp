@@ -1489,7 +1489,7 @@ void main() {
 				return;
 			}
 			// ── BRANCHE 2 : AUTO ACTIVE ──────────────────────────────────────
-			if (!cmd || !mDevice || mLumaWrite < 0)
+			if (!cmd || !mDevice || mLumaWrite < 0 || mLumaReadDisabled)
 				return;
 			NkTextureHandle src = GetAvgLumaTexRHI();
 			if (!src.IsValid())
@@ -1500,10 +1500,21 @@ void main() {
 			// larges et une case trop juste tronquerait la copie en silence.
 			for (int i = 0; i < kLumaReadRing; i++) {
 				if (!mLumaReadBuf[i].IsValid()) {
-					NkBufferDesc bd{};
-					bd.sizeBytes = 256;
+					// NkBufferDesc::Staging, PAS un desc construit a la main : un
+					// tampon D3D11 en USAGE_STAGING doit avoir des drapeaux de
+					// liaison NULS. Un `NkBufferDesc{}` garde son bind par defaut
+					// (0x1) et CreateBuffer rend E_INVALIDARG -- constate par le
+					// journal, trois erreurs par frame puis plantage.
+					NkBufferDesc bd = NkBufferDesc::Staging(256);
 					bd.usage = NkResourceUsage::NK_READBACK;
 					mLumaReadBuf[i] = mDevice->CreateBuffer(bd);
+					// Une creation qui echoue ne doit pas etre retentee a chaque
+					// frame : on cesse d'essayer et l'affichage reste a « — »,
+					// plutot que d'inonder le journal en boucle.
+					if (!mLumaReadBuf[i].IsValid()) {
+						mLumaReadDisabled = true;
+						return;
+					}
 				}
 			}
 

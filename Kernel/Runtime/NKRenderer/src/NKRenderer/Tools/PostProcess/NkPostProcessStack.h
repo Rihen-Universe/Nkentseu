@@ -258,6 +258,9 @@ namespace nkentseu {
 				NkBufferHandle mLumaReadBuf[kLumaReadRing];
 				int mLumaReadCursor = 0;
 				int mLumaReadFilled = 0; // cases ayant deja recu une copie
+				// Creation impossible sur cette machine -> on ARRETE d'essayer.
+				// Reessayer chaque frame inondait le journal et masquait la cause.
+				bool mLumaReadDisabled = false;
 
 				// TROIS ETATS, parce qu'un defaut a 1,0 RESSEMBLERAIT A UNE MESURE.
 				// La copie DX11 echoue en silence (garde MSAA : `return` muet), et
