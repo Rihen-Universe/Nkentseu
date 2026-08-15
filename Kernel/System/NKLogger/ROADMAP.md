@@ -213,13 +213,21 @@ parfois le plus rapide. La bonne formulation n'est pas « indétectable » mais
 bruit**. Mesurer un écart sans avoir mesuré le bruit ne conclut rien.
 
 **Second instrument, concluant** — coût par appel, immunisé contre la variance
-de la boucle. Quatre exécutions, 20 000 lignes chacune :
+de la boucle. 20 000 lignes par mesure, Windows 11 Pro 10.0.26100, 2026-08-16,
+`feat/nkxr` :
 
-| chemin | coût par ligne |
-|---|---|
-| ligne émise vers un puits **fichier** | **~12,4 à 15,0 µs** |
-| formatage + distribution, **sans écriture** (puits nul) | **~0,54 à 0,59 µs** |
-| ligne **filtrée** par le niveau (non émise) | **~2 à 5 ns** |
+| chemin | **Release** (4 exéc.) | **Debug** | rapport |
+|---|---|---|---|
+| ligne émise vers un puits **fichier** | **12,4 à 15,0 µs** | **25,8 µs** | ×1,9 |
+| formatage + distribution, **sans écriture** | **0,54 à 0,59 µs** | **2,93 µs** | **×5** |
+| ligne **filtrée** par le niveau (non émise) | **2 à 5 ns** | **137 ns** | **×30** |
+
+⚠️ **Les deux configurations sont données parce que la conclusion change avec
+elles.** « Une trace laissée dans le code est gratuite » est vrai en Release
+(2–5 ns) et beaucoup moins en Debug (137 ns, trente fois plus) — encore
+négligeable dans l'absolu, mais plus du tout du même ordre. *Un chiffre sans sa
+configuration n'est pas faux : il est incomplet, et c'est pire, parce qu'on le
+croit général.*
 
 *La toute première exécution donne 26,4 µs / 1,36 µs / 4,9 ns — le fichier est
 froid. Les valeurs ci-dessus sont celles du régime établi ; l'amorce d'une seule
