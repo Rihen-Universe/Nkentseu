@@ -274,9 +274,23 @@ namespace nkentseu {
 									  uint32 layerCount = UINT32_MAX) {
 			}
 
+			// ⚠️ CORPS DE BASE NON SILENCIEUX (2026-08-16). Ce virtuel avait un corps
+			// VIDE, et AUCUN des six backends ne le surchargeait : tout appel etait
+			// un no-op *silencieux*, sur toutes les plateformes. `Core/NkML.cpp:77`
+			// (commentaire « Init gradient a zero ») et `:106` comptaient dessus —
+			// ces tampons n'etaient mis a zero nulle part. Un virtuel a corps vide ne
+			// se distingue pas d'un virtuel implemente, ni au point d'appel ni a la
+			// lecture ; la seule protection est qu'il PARLE. Le corps par defaut est
+			// donc defini hors ligne (NkICommandBuffer.cpp) et journalise « non
+			// implemente sur ce backend » au lieu de ne rien faire.
+			//
+			// Surcharge existante a ce jour : **Vulkan seul** (vkCmdFillBuffer).
+			// DX11, DX12, OpenGL, Metal, Software tombent sur l'avertissement — c'est
+			// le comportement voulu : bruyamment incomplet plutot que silencieusement
+			// faux. Un appelant qui a besoin de la garantie doit VERIFIER (temoin
+			// ecriture/relecture), pas se fier a la presence de la signature.
 			virtual void ClearBuffer(NkBufferHandle buffer, uint32 value = 0, uint64 offset = 0,
-									 uint64 size = UINT64_MAX) {
-			}
+									 uint64 size = UINT64_MAX);
 
 			// =========================================================================
 			// Timestamp queries (GPU timing)
