@@ -23,7 +23,7 @@
  *    - Layouts      : R/G/B/A (alpha optionnel), Y/RY/BY (luminance/chroma
  *                     converti en RGB), Z (depth retourne en grayscale).
  *    - Orientation  : lineOrder INCREASING_Y et DECREASING_Y.
- *  Lecture non-supportee (retourne nullptr avec log clair) :
+ *  Lecture non-supportee (retourne une image INVALIDE avec log clair) :
  *    - PXR24, B44, B44A, DWAA, DWAB : lossy, ~5% des EXR en circulation.
  *      Workaround pour l'utilisateur : "oiiotool input.exr --compression zip
  *      -o output.exr" pour reconvertir en compression standard.
@@ -50,9 +50,10 @@ namespace nkentseu {
 			/// Decode un buffer EXR en NkImage RGB96F ou RGBA128F.
 			/// @param data  Buffer EXR complet (entete + offset table + chunks).
 			/// @param size  Taille du buffer en octets.
-			/// @return      NkImage* a liberer avec ->Free(), ou nullptr si format
-			///              invalide / compression non supportee.
-			static NkImage *Decode(const uint8 *data, usize size) noexcept;
+			/// @return      L'image PAR VALEUR (elle se libere toute seule). En cas
+			///              de format invalide / compression non supportee, l'image
+			///              rendue est INVALIDE (IsValid()==false).
+			static NkImage Decode(const uint8 *data, usize size) noexcept;
 
 			/// Encode une NkImage en EXR (scanline single-part, compression NONE, canaux
 			/// FLOAT 32-bit R/G/B[/A]). Les entrées 8-bit sont converties en float [0,1].

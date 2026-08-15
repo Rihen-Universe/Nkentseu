@@ -827,24 +827,55 @@ polymorphes déjà mesurés, `NKIResource` est aujourd'hui une interface **à un
 implémenteur et zéro usage polymorphe**. Ça ne justifie pas de la retirer — mais
 c'est le vrai sujet à porter, et il est plus large que `NkImage`.
 
-#### ÉTAPE 3 — C'EST UN CHANTIER, PAS UN CORRECTIF. Et je ne le force pas.
+#### ÉTAPE 3 — ✅ **ENGAGÉE le 2026-08-16**, sur arbitrage de Rodolf (la valeur)
 
 Conformément à la troisième étape de Rodolf, le recensement montre que l'autre
-voie est **largement utilisée** — 120 sites, 66 fichiers, 4 modules Kernel. À
-faire, dans cet ordre :
+voie est **largement utilisée** — 120 sites, 66 fichiers, 4 modules Kernel. Ordre
+suivi :
 
-1. basculer les **5 fabriques d'instance** (`Convert`, `Copy`, `CopyAs`, `Crop`,
-   `Resize`) et les **6 fabriques statiques** sur un retour **par valeur**
-   (le move-ctor existe déjà, NRVO fait le reste) ;
-2. supprimer `Free()` — **le compilateur signale alors les 120 sites**, aucun ne
+1. ✅ les **5 fabriques d'instance** (`Convert`, `Copy`, `CopyAs`, `Crop`,
+   `Resize`) et les **6 fabriques statiques** (`Create` ×2, `Alloc`, `Wrap`,
+   `ConvertToTexture`, `Dispatch`) basculées sur un retour **par valeur** ;
+2. ✅ `Free()` **supprimée** — le compilateur signale alors les sites, aucun ne
    peut être oublié en silence ;
-3. relire les **10 fichiers mixtes** en premier : ce sont eux qui portent le
-   risque.
+3. ✅ **les six commentaires prescriptifs de `NkImage.h` réécrits DANS LE MÊME
+   CORRECTIF** (voir l'encart ci-dessous — c'est eux, la cause) ;
+4. les **fichiers mixtes** relus en premier, en commençant par les **alias
+   tas↔pile**.
 
-⚠️ **Ce chantier ne peut pas se vérifier tant que le build complet ne tourne
-pas** (chantier 11). La migration est *mécaniquement sûre* — le compilateur
-attrape tout — mais « le compilateur attrape tout » ne vaut que si **on
-compile**. **Ordre imposé : chantier 11 d'abord, migration NkImage ensuite.**
+##### ⭐ La cause n'était pas l'héritage, c'étaient six commentaires
+
+L'hypothèse portée un temps — « `class NkImage : public NKIResource` fabrique les
+120 sites, parce qu'un lecteur en déduit une ressource possédée » — **est
+fausse, et la structure le montre** : `NKIResource` déclare `Unload()` et **ne
+déclare jamais `Free()`** ; dans `NkImage`, `Unload()` est `override` alors que
+`Free()` n'est **ni virtuelle ni override**. **L'héritage disait la vérité**, et
+il se garde.
+
+Le robinet, ce sont **six lignes de commentaire** de `NkImage.h` (21, 32, 296,
+481, 519, 790) qui **prescrivaient** `->Free()` — dont un en-tête de section
+entier : « API STATIQUE : fabriques retournant NkImage* / L'appelant possède le
+résultat et DOIT appeler `img->Free()` ». Cent vingt sites ont fait ce que
+l'en-tête leur disait de faire. **Le code, lui, n'a jamais exigé `Free()`.**
+
+C'est la même famille que la règle du corpus tirée du cas `browserKind` : *un
+commentaire n'est contraint par aucune exécution.* En plus grave ici, parce que
+ces six-là ne décrivaient pas — ils **ordonnaient**. D'où la règle de conduite :
+**supprimer `Free()` sans réécrire ces six lignes aurait réparé la flaque sans
+fermer le robinet.** Le compilateur attrape les sites existants ; il n'attrape
+pas le prochain lecteur.
+
+##### Le choix pour les 5 productrices, et le précédent refusé
+
+Retour **par valeur**, pas mutation en place — raisonnement complet et mesures
+dans `Kernel/Runtime/NKImage/ROADMAP.md`, section « Migration vers la valeur ».
+Résumé : la mutation en place aurait troqué 120 **erreurs de compilation** contre
+un nombre inconnu de **changements de sens silencieux** (`img.Crop(0,0,w,h);` en
+instruction nue compile avant comme après, avec le sens inverse). Le précédent
+`sf::Image` (mutation en place) est **explicitement refusé**, parce que sa moitié
+mutante **existe déjà** dans `NkImage` sous la forme de `Copy(src,…)` et
+`CopyTo(dst)` qui rendent `bool` — et que celle-ci **exige mêmes format et
+dimensions**, donc ne peut pas exprimer `Crop`/`Resize`/`Convert`.
 
 **Palier intermédiaire, si on veut désarmer le piège sans attendre la
 migration** (à peser, non engagé) : remplacer `void Free()` par
