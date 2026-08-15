@@ -2226,6 +2226,57 @@ namespace nkentseu {
 						}
 						yy += NkPropGroupGap();
 					}
+					// ── ILLUMINATION GLOBALE (2026-08-14) ───────────────────────
+					// « Comme l'illumination globale vit dans la demo, est-ce
+					// que tu peux l'importer dans NK3DModeler ? » (Rihen). Le
+					// rebond indirect etait pilotable par UNE TOUCHE du portage
+					// et par rien d'autre : aucun panneau ne l'atteignait. Le
+					// drapeau valait deja `vrai` par defaut, seule la grille
+					// vide l'empechait d'agir -- d'ou un reglage qu'on croyait
+					// absent alors qu'il etait juste muet.
+					{
+						const bool grpGI = PaintPropGroup(p, hit, st, rowR, yy, "prop.g.gi",
+														  "Illumination globale", 1u);
+						const float32 grpGITop = yy;
+						if (grpGI) {
+							const NkRect iG = NkGroupInner(rowR);
+							const float32 gvX = iG.x + S(110.f);
+							const float32 gvW = iG.w - S(110.f);
+							yy += NkGroupPad();
+							bool gOn = false;
+							float32 gInt = 1.f;
+							demo::Demo3DHostGI(&gOn, &gInt);
+							const bool g0 = gOn;
+							const float32 gi0 = gInt;
+							{
+								const NkRect cb{iG.x, yy + S(5.f), S(12.f), S(12.f)};
+								hit.Add("prop.gi.on", cb);
+								p.Outline(cb, gOn ? NkRole::AccentUi : NkRole::Border,
+										  gOn ? NkRole::AccentUi : NkRole::InputBg, 2.f);
+								p.TextV(cb.x + S(18.f), yy, kRowH, "Actif", NkRole::TextMuted);
+								if (hit.Clicked("prop.gi.on"))
+									gOn = !gOn;
+								yy += kRowH;
+							}
+							if (gOn) {
+								p.TextV(iG.x, yy, kRowH, "Intensite", NkRole::TextMuted);
+								DragFloat(p, hit, ws, in, "prop.gi.int",
+										  {gvX, yy + S(3.f), gvW, kRowH - S(6.f)}, gInt, 0.02f,
+										  NkRole::AccentUi, "%.2f");
+								yy += kRowH;
+							}
+							if (gOn != g0 || gInt != gi0) {
+								// Le setter reconstruit la grille voxel : sans
+								// cela le changement n'apparaitrait qu'au
+								// prochain remaniement de la scene.
+								demo::Demo3DHostSetGI(gOn, gInt);
+								NkMarkDirty(st);
+							}
+							yy += NkGroupPad();
+							PaintGroupBlock(p, rowR, grpGITop, yy);
+						}
+						yy += NkPropGroupGap();
+					}
 					// ── EXPOSITION & BLOOM (2026-08-09) ─────────────────────────
 					// Reglages presents dans le moteur depuis le debut, jamais
 					// proposes : un spot surpuissant faisait un halo geant sans
@@ -2249,6 +2300,57 @@ namespace nkentseu {
 									  {fvX2, yy + S(3.f), fvW2, kRowH - S(6.f)}, fxE, 0.01f,
 									  NkRole::AccentUi, "%.2f");
 							yy += kRowH;
+							// ── EXPOSITION AUTOMATIQUE (2026-08-14) ─────────────
+							// Rihen : « pourquoi l'eclairage semble souvent
+							// grossier quand on augmente sa luminosite ? ». Ce
+							// n'etait pas un defaut : la courbe ACES ecrase sur
+							// du blanc pur tout ce qui depasse ~9, et le halo de
+							// bloom sature a son tour sur un large rayon — d'ou
+							// la tache plate a bord en marches. L'exposition
+							// fixe a 1.00 ne pouvait rien y faire. Le moteur
+							// sait mesurer la scene et s'accommoder comme
+							// l'oeil ; ce reglage existait sans etre propose.
+							{
+								float32 aeS = 0.f, aeK = 0.18f, aeV = 2.f;
+								demo::Demo3DHostAutoExp(&aeS, &aeK, &aeV);
+								const float32 as0 = aeS, ak0 = aeK, av0 = aeV;
+								bool aeOn = aeS > 0.001f;
+								const NkRect cbA{iF2.x, yy + S(5.f), S(12.f), S(12.f)};
+								hit.Add("prop.fx.auto", cbA);
+								p.Outline(cbA, aeOn ? NkRole::AccentUi : NkRole::Border,
+										  aeOn ? NkRole::AccentUi : NkRole::InputBg, 2.f);
+								p.TextV(cbA.x + S(18.f), yy, kRowH, "Exposition auto",
+										NkRole::TextMuted);
+								if (hit.Clicked("prop.fx.auto")) {
+									aeOn = !aeOn;
+									// Le dosage EST l'interrupteur cote moteur :
+									// une case separee aurait fait un second
+									// etat a tenir synchrone.
+									aeS = aeOn ? 1.f : 0.f;
+								}
+								yy += kRowH;
+								if (aeOn) {
+									p.TextV(iF2.x, yy, kRowH, "Dosage", NkRole::TextMuted);
+									DragFloat(p, hit, ws, in, "prop.fx.autos",
+											  {fvX2, yy + S(3.f), fvW2, kRowH - S(6.f)}, aeS,
+											  0.01f, NkRole::AccentUi, "%.2f");
+									yy += kRowH;
+									p.TextV(iF2.x, yy, kRowH, "Cible", NkRole::TextMuted);
+									DragFloat(p, hit, ws, in, "prop.fx.autok",
+											  {fvX2, yy + S(3.f), fvW2, kRowH - S(6.f)}, aeK,
+											  0.005f, NkRole::AccentUi, "%.3f");
+									yy += kRowH;
+									p.TextV(iF2.x, yy, kRowH, "Vitesse", NkRole::TextMuted);
+									DragFloat(p, hit, ws, in, "prop.fx.autov",
+											  {fvX2, yy + S(3.f), fvW2, kRowH - S(6.f)}, aeV,
+											  0.05f, NkRole::AccentUi, "%.2f /s");
+									yy += kRowH;
+								}
+								if (aeS != as0 || aeK != ak0 || aeV != av0) {
+									demo::Demo3DHostSetAutoExp(aeS, aeK, aeV);
+									NkMarkDirty(st);
+								}
+							}
 							{
 								const NkRect cb{iF2.x, yy + S(5.f), S(12.f), S(12.f)};
 								hit.Add("prop.fx.bloom", cb);

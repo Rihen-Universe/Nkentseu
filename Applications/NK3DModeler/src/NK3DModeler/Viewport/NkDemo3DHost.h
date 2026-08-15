@@ -634,6 +634,13 @@ namespace nkentseu {
 							  float32 *bloomStr);
 		void Demo3DHostSetPostFx(float32 exposure, bool bloomOn, float32 bloomThr,
 								 float32 bloomStr);
+		// EXPOSITION AUTOMATIQUE : le moteur mesure la luminance moyenne de la
+		// scene et adapte l'exposition, comme l'oeil qui s'accommode. Dosage
+		// 0 = manuel, 1 = entierement automatique ; cible = gris moyen (0.18 en
+		// convention photo) ; vitesse en unites par seconde (0 = fige sur la
+		// premiere mesure). Repond au blanc plat des fortes luminosites.
+		void Demo3DHostAutoExp(float32 *strength, float32 *key, float32 *speed);
+		void Demo3DHostSetAutoExp(float32 strength, float32 key, float32 speed);
 		// Sol infini (option) : plan de sol recepteur d'ombres, couleur /
 		// hauteur / rugosite -- distinct de la grille. Motif : 0 uni,
 		// 1 damier, 2 carreaux a joints ; taille du carreau en metres.
@@ -652,6 +659,12 @@ namespace nkentseu {
 		// chaque modification de la scene. Appele par NkMarkDirty -- la meme
 		// action qui allume la pastille rafraichit l'ambiance.
 		void Demo3DHostGIMarkDirty();
+		/// ILLUMINATION GLOBALE (rebond indirect sur la grille voxel). Elle vivait
+		/// dans le portage de la demo, pilotable par une touche et par rien
+		/// d'autre. L'intensite n'est pas bornee en haut : comme l'emission, sa
+		/// valeur utile depend de la scene.
+		void Demo3DHostGI(bool *on, float32 *intensity);
+		void Demo3DHostSetGI(bool on, float32 intensity);
 		// Mise a jour des ombres : dynamique (elles suivent la scene) ou statique
 		// (calculees une fois, puis gardees telles quelles).
 		bool Demo3DHostShadowDynamic();

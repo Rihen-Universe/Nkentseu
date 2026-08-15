@@ -17090,6 +17090,32 @@ namespace nkentseu {
 		// premier correctif — la lecon des tableaux par onglet. SetPostConfig
 		// reconstruit le graphe a l'aplomb de la frame suivante quand la passe
 		// apparait ou disparait.
+		// ── ILLUMINATION GLOBALE : LE REGLAGE SORT DE LA DEMO ────────────────
+		// « Comme l'illumination globale vit dans la demo, est-ce que tu peux
+		// l'importer dans NK3DModeler ? » (Rihen, 14 aout). Elle etait pilotable
+		// par une touche du portage et par rien d'autre : aucun panneau ne
+		// l'atteignait, ce qui rendait l'indirect invisible sans le savoir.
+		void Demo3DHostGI(bool *on, float32 *intensity) {
+			auto *st = HostSt();
+			if (on)
+				*on = st ? st->giOn : false;
+			if (intensity)
+				*intensity = st ? st->giIntensity : 1.f;
+		}
+		void Demo3DHostSetGI(bool on, float32 intensity) {
+			auto *st = HostSt();
+			if (!st)
+				return;
+			const float32 i2 = intensity < 0.f ? 0.f : intensity;
+			if (st->giOn == on && st->giIntensity == i2)
+				return;
+			st->giOn = on;
+			st->giIntensity = i2;
+			// La grille porte l'indirect : sans reconstruction, le reglage ne se
+			// verrait qu'au prochain remaniement de la scene.
+			Demo3DHostGIMarkDirty();
+		}
+
 		void Demo3DHostSSAO(bool *on, float32 *radius, float32 *intensity) {
 			if (!hst.ctx.renderer) {
 				if (on)
@@ -17152,6 +17178,41 @@ namespace nkentseu {
 			// les pixels REELLEMENT brillants irradient (LearnOpenGL, Bloom).
 			pp.bloomThreshold = bloomThr < 0.f ? 0.f : (bloomThr > 16.f ? 16.f : bloomThr);
 			pp.bloomStrength = bloomStr < 0.f ? 0.f : (bloomStr > 8.f ? 8.f : bloomStr);
+			hst.ctx.renderer->SetPostConfig(pp);
+		}
+		// ── EXPOSITION AUTOMATIQUE ───────────────────────────────────────────
+		// Rihen (14 aout) : « pourquoi l'eclairage semble souvent grossier
+		// quand on augmente sa luminosite ? ». Il n'y avait pas de defaut : a
+		// intensite 100, ACES ecrase tout ce qui depasse ~9 sur du blanc pur,
+		// et le halo de bloom sature a son tour sur un large rayon -- d'ou la
+		// tache plate au bord en marches. Le moteur sait mesurer la luminance
+		// moyenne de la scene (passe PP_AutoExposure) et adapter l'exposition,
+		// exactement comme l'oeil ; ce reglage n'avait simplement jamais ete
+		// propose (autoExposureStrength reste a 0 = manuel).
+		void Demo3DHostAutoExp(float32 *strength, float32 *key, float32 *speed) {
+			const bool ok = hst.ctx.renderer != nullptr;
+			const renderer::NkPostConfig pp =
+				ok ? hst.ctx.renderer->GetConfig().postProcess : renderer::NkPostConfig{};
+			if (strength)
+				*strength = pp.autoExposureStrength;
+			if (key)
+				*key = pp.autoExposureKey;
+			if (speed)
+				*speed = pp.autoExposureSpeed;
+		}
+		void Demo3DHostSetAutoExp(float32 strength, float32 key, float32 speed) {
+			if (!hst.ctx.renderer)
+				return;
+			renderer::NkPostConfig pp = hst.ctx.renderer->GetConfig().postProcess;
+			// Dosage : 0 = exposition manuelle, 1 = l'automatique remplace la
+			// valeur saisie. Entre les deux, le tonemap interpole -- c'est ce
+			// qui permet de garder la main tout en encaissant un emissif fort.
+			pp.autoExposureStrength = strength < 0.f ? 0.f : (strength > 1.f ? 1.f : strength);
+			// La cible est un gris moyen : 0.18 est la convention photo.
+			pp.autoExposureKey = key < 0.01f ? 0.01f : (key > 1.f ? 1.f : key);
+			// 0 = l'exposition se fige sur la premiere mesure ; sans borne
+			// haute, l'adaptation devient un clignotement a chaque orbite.
+			pp.autoExposureSpeed = speed < 0.f ? 0.f : (speed > 20.f ? 20.f : speed);
 			hst.ctx.renderer->SetPostConfig(pp);
 		}
 		// ── NAPPE AU SOL (height fog) et son SOUFFLE ────────────────────────
