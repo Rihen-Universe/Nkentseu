@@ -184,11 +184,10 @@ namespace nkentseu {
 	// Usage typique :
 	//   NkSVGImage* svg = NkSVGImage::LoadFromFile("logo.svg");
 	//   if (svg) {
-	//       NkImage* img100  = svg->Rasterize(100, 50);    // mini
-	//       NkImage* img2000 = svg->Rasterize(2000, 1000); // hi-res
-	//       // ... use img100 / img2000 ...
-	//       img100->Free();  img2000->Free();
-	//       svg->Free();
+	//       NkImage img100  = svg->Rasterize(100, 50);    // mini
+	//       NkImage img2000 = svg->Rasterize(2000, 1000); // hi-res
+	//       // ... use img100 / img2000 (liberees par leur destructeur) ...
+	//       svg->Free();   // NkSVGImage reste une ressource tas explicite
 	//   }
 	//
 	// Stockage opaque : les internes (Shape) ne sont pas exposes -- on
@@ -206,8 +205,9 @@ namespace nkentseu {
 
 			/// Rasterise les shapes a la resolution (outW, outH). Si outW=0 ou
 			/// outH=0, calcule la taille manquante en preservant l'aspect ratio.
-			/// Retourne un NkImage RGBA32 alloue (caller appelle ->Free()), nullptr si KO.
-			NkImage *Rasterize(int32 outW, int32 outH) const noexcept;
+			/// Retourne une NkImage RGBA32 PAR VALEUR (liberee par son destructeur) ;
+			/// image INVALIDE (`!IsValid()`) si KO.
+			NkImage Rasterize(int32 outW, int32 outH) const noexcept;
 
 			/// Taille naturelle (depuis viewBox ou width/height du <svg>).
 			int32 NaturalWidth() const noexcept;
@@ -245,16 +245,16 @@ namespace nkentseu {
 	// =========================================================================
 	class NKENTSEU_IMAGE_API NkSVGCodec {
 		public:
-			/// Decode un buffer SVG (XML UTF-8) en NkImage RGBA32 alloue sur le heap.
+			/// Decode un buffer SVG (XML UTF-8) en NkImage RGBA32.
 			/// @param data    Buffer XML UTF-8.
 			/// @param size    Taille en octets.
 			/// @param outW    Largeur de sortie en pixels (0 = taille SVG ou viewBox).
 			/// @param outH    Hauteur de sortie (0 = idem largeur).
-			/// @return        NkImage RGBA32 alloue (caller appelle ->Free()), ou nullptr.
-			static NkImage *Decode(const uint8 *data, usize size, int32 outW = 0, int32 outH = 0) noexcept;
+			/// @return        NkImage RGBA32 rendue PAR VALEUR ; INVALIDE en cas d'echec.
+			static NkImage Decode(const uint8 *data, usize size, int32 outW = 0, int32 outH = 0) noexcept;
 
 			/// Lit un fichier .svg disque et le rasterise.
-			static NkImage *DecodeFromFile(const char *path, int32 outW = 0, int32 outH = 0) noexcept;
+			static NkImage DecodeFromFile(const char *path, int32 outW = 0, int32 outH = 0) noexcept;
 
 			/// Encode une NkImage en SVG : enrobe l'image comme <image href="data:png;base64,...">
 			/// dans un <svg> de la meme taille. **Pas une vectorisation** -- conserve

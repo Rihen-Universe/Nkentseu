@@ -28,7 +28,12 @@ namespace nkentseu {
 
 	class NKENTSEU_IMAGE_API NkWebPCodec {
 		public:
-			static NkImage *Decode(const uint8 *data, usize size) noexcept;
+			/**
+			 * @Brief Décode un buffer WebP en mémoire.
+			 * @return L'image décodée PAR VALEUR, ou une image INVALIDE
+			 *         (IsValid()==false) en cas d'échec. Rien à libérer à la main.
+			 */
+			static NkImage Decode(const uint8 *data, usize size) noexcept;
 			static bool Encode(const NkImage &img, uint8 *&out, usize &outSize, bool lossless = true,
 							   int32 quality = 90) noexcept;
 
@@ -108,8 +113,8 @@ namespace nkentseu {
 			static uint32 Select(uint32 L, uint32 T, uint32 TL) noexcept;
 			static uint32 ClampedAdd(uint32 a, uint32 b, uint32 sub) noexcept;
 
-			static NkImage *DecodeVP8L(const uint8 *data, usize size) noexcept;
-			static NkImage *DecodeVP8(const uint8 *data, usize size) noexcept;
+			static NkImage DecodeVP8L(const uint8 *data, usize size) noexcept;
+			static NkImage DecodeVP8(const uint8 *data, usize size) noexcept;
 
 			static bool ReadVP8LTransforms(VP8LBitReader &br, VP8LDecoder &dec) noexcept;
 			static bool ReadVP8LHuffmanCodes(VP8LBitReader &br, VP8LHuffTree trees[5], int32 numCodes) noexcept;

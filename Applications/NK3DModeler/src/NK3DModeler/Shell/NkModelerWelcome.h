@@ -151,13 +151,14 @@ namespace nkentseu {
 					continue;
 				// Reduite AVANT le televersement : une couverture 4K occuperait
 				// 32 Mo de VRAM pour une vignette de 160 px.
-				NkImage *small = img.Resize(256, 144);
-				NkImage *use = (small && small->IsValid()) ? small : &img;
+				NkImage small = img.Resize(256, 144);
+				// Une reference, pas un pointeur : si le redimensionnement echoue,
+				// `small` est invalide et on retombe sur l'originale.
+				const NkImage &use = small.IsValid() ? small : img;
 				const uint32 tex = kCoverTexBase + (uint32)i;
-				if (renderer.UploadImageRGBA(tex, use->Pixels(), use->Width(), use->Height()))
+				if (renderer.UploadImageRGBA(tex, use.Pixels(), use.Width(), use.Height()))
 					rec.items[(usize)i].tex = tex;
-				if (small)
-					small->Free();
+				// `small` libere ses pixels toute seule en fin d'iteration.
 			}
 		}
 

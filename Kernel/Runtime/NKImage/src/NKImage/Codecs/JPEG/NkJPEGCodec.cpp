@@ -48,6 +48,7 @@
  */
 
 #include "NKImage/Codecs/JPEG/NkJPEGCodec.h"
+#include "NKCore/NkTraits.h" // traits::NkMove
 #include "NKMemory/NkAllocator.h"
 #include "NKMemory/NkFunction.h"
 
@@ -945,23 +946,23 @@ namespace nkentseu {
 	// ═══════════════════════════════════════════════════════════════════════════
 	// RECONSTRUCTION FINALE — upsampling chroma + YCbCr→RGB (partagée base/prog)
 	// Les plans dec.comps[*].data sont supposés remplis (baseline ou prog finish).
-	// Retourne la NkImage (alloue), nullptr si échec.
+	// Retourne la NkImage PAR VALEUR ; image INVALIDE si échec.
 	// ═══════════════════════════════════════════════════════════════════════════
-	static NkImage *jReconstruct(JDec &dec, int32 hMax, int32 vMax) noexcept {
+	static NkImage jReconstruct(JDec &dec, int32 hMax, int32 vMax) noexcept {
 		const int32 w = dec.w;
 		const int32 h = dec.h;
 		const int32 nC = dec.nComp;
 
 		const NkImagePixelFormat fmt = (nC == 1) ? NkImagePixelFormat::NK_GRAY8 : NkImagePixelFormat::NK_RGB24;
-		NkImage *img = NkImage::Alloc(w, h, fmt);
-		if (!img)
-			return nullptr;
+		NkImage img = NkImage::Alloc(w, h, fmt);
+		if (!img.IsValid())
+			return NkImage();
 
 		if (nC == 1) {
 			const int32 sw = dec.comps[0].w2;
 			for (int32 y = 0; y < h; ++y) {
 				const uint8 *src2 = dec.comps[0].data + y * sw;
-				jCp(img->RowPtr(y), src2, usize(w < sw ? w : sw));
+				jCp(img.RowPtr(y), src2, usize(w < sw ? w : sw));
 			}
 			return img;
 		}
@@ -983,12 +984,11 @@ namespace nkentseu {
 		if (!lCb || !lCr) {
 			jF(lCb);
 			jF(lCr);
-			img->Free();
-			return nullptr;
+			return NkImage();
 		}
 
 		for (int32 y = 0; y < h; ++y) {
-			uint8 *row = img->RowPtr(y);
+			uint8 *row = img.RowPtr(y);
 			const uint8 *yp = dec.comps[0].data + y * dec.comps[0].w2;
 			{
 				const int32 cy = y / vs1;
@@ -1029,17 +1029,17 @@ namespace nkentseu {
 	}
 
 	// Applique la correction d'orientation EXIF (cas miroir uniquement)
-	static void jApplyExif(NkImage *img, int32 exifOri) noexcept {
+	static void jApplyExif(NkImage &img, int32 exifOri) noexcept {
 		switch (exifOri) {
 			case 2:
-				img->FlipHorizontal();
+				img.FlipHorizontal();
 				break;
 			case 3:
-				img->FlipVertical();
-				img->FlipHorizontal();
+				img.FlipVertical();
+				img.FlipHorizontal();
 				break;
 			case 4:
-				img->FlipVertical();
+				img.FlipVertical();
 				break;
 			default:
 				break;
@@ -1049,9 +1049,9 @@ namespace nkentseu {
 	// ═══════════════════════════════════════════════════════════════════════════
 	// NkJPEGCodec::Decode
 	// ═══════════════════════════════════════════════════════════════════════════
-	NkImage *NkJPEGCodec::Decode(const uint8 *data, usize size) noexcept {
+	NkImage NkJPEGCodec::Decode(const uint8 *data, usize size) noexcept {
 		if (!data || size < 4 || data[0] != 0xFF || data[1] != 0xD8)
-			return nullptr;
+			return NkImage();
 
 		JDec dec;
 		NkImageStream s(data, size);
@@ -1059,7 +1059,7 @@ namespace nkentseu {
 
 		int32 hMax = 1, vMax = 1;
 		int32 exifOri = 1;
-		NkImage *result = nullptr;
+		NkImage result;
 
 		while (!s.IsEOF() && !s.HasError()) {
 			// Synchronisation sur un marqueur JPEG (commence par 0xFF)
@@ -1071,10 +1071,10 @@ namespace nkentseu {
 				continue;	  // byte-stuffing ou fill
 			if (mk == 0xD9) { // EOI
 				// Progressif : finalisation (déquant + IDCT) puis reconstruction
-				if (dec.progressive && dec.valid && !result) {
+				if (dec.progressive && dec.valid && !result.IsValid()) {
 					if (jProgFinish(dec)) {
 						result = jReconstruct(dec, hMax, vMax);
-						if (result)
+						if (result.IsValid())
 							jApplyExif(result, exifOri);
 					}
 					jCleanup(dec); // libère coeff + data (result possède sa copie)
@@ -1157,7 +1157,7 @@ namespace nkentseu {
 					}
 					if (!ok) {
 						jCleanup(dec);
-						return nullptr;
+						return NkImage();
 					}
 				}
 			}
@@ -1300,7 +1300,7 @@ namespace nkentseu {
 				}
 				if (!allocOK) {
 					jCleanup(dec);
-					return nullptr;
+					return NkImage();
 				}
 
 				// Initialisation du BitReader sur les données entropiques
@@ -1404,10 +1404,10 @@ namespace nkentseu {
 
 				// ─── Reconstruction de l'image finale ───────────────────────
 				const NkImagePixelFormat fmt = (nC == 1) ? NkImagePixelFormat::NK_GRAY8 : NkImagePixelFormat::NK_RGB24;
-				NkImage *img = NkImage::Alloc(w, h, fmt);
-				if (!img) {
+				NkImage img = NkImage::Alloc(w, h, fmt);
+				if (!img.IsValid()) {
 					jCleanup(dec);
-					return nullptr;
+					return NkImage();
 				}
 
 				if (nC == 1) {
@@ -1415,7 +1415,7 @@ namespace nkentseu {
 					const int32 sw = dec.comps[0].w2;
 					for (int32 y = 0; y < h; ++y) {
 						const uint8 *src2 = dec.comps[0].data + y * sw;
-						jCp(img->RowPtr(y), src2, usize(w < sw ? w : sw));
+						jCp(img.RowPtr(y), src2, usize(w < sw ? w : sw));
 					}
 				} else {
 					// YCbCr → RGB avec upsampling
@@ -1439,13 +1439,12 @@ namespace nkentseu {
 					if (!lCb || !lCr) {
 						jF(lCb);
 						jF(lCr);
-						img->Free();
 						jCleanup(dec);
-						return nullptr;
+						return NkImage();
 					}
 
 					for (int32 y = 0; y < h; ++y) {
-						uint8 *row = img->RowPtr(y);
+						uint8 *row = img.RowPtr(y);
 						const uint8 *yp = dec.comps[0].data + y * dec.comps[0].w2;
 
 						// ── Upsampling Cb ────────────────────────────────────
@@ -1500,14 +1499,14 @@ namespace nkentseu {
 				//  7 = Miroir V + 90° 8 = 270° CW
 				switch (exifOri) {
 					case 2:
-						img->FlipHorizontal();
+						img.FlipHorizontal();
 						break;
 					case 3:
-						img->FlipVertical();
-						img->FlipHorizontal();
+						img.FlipVertical();
+						img.FlipHorizontal();
 						break;
 					case 4:
-						img->FlipVertical();
+						img.FlipVertical();
 						break;
 					// Les cas 5-8 (rotations 90°/270°) nécessitent une transposition
 					// qui n'est pas encore implémentée dans NkImage → on laisse tel quel
@@ -1515,7 +1514,7 @@ namespace nkentseu {
 						break;
 				}
 
-				result = img;
+				result = traits::NkMove(img);
 				break; // Un seul scan pour le baseline
 			}
 
@@ -1524,7 +1523,7 @@ namespace nkentseu {
 				s.Seek(segEnd);
 		}
 
-		if (!result)
+		if (!result.IsValid())
 			jCleanup(dec);
 		return result;
 	}
@@ -1789,14 +1788,15 @@ namespace nkentseu {
 		if (!img.IsValid())
 			return false;
 
-		// Conversion si nécessaire
+		// Conversion si nécessaire — `conv` vit jusqu'à la fin de la fonction et
+		// libère ses pixels toute seule ; `src` n'est qu'une vue non-possédante.
 		const NkImage *src = &img;
-		NkImage *conv = nullptr;
+		NkImage conv;
 		if (img.Format() != NkImagePixelFormat::NK_RGB24 && img.Format() != NkImagePixelFormat::NK_GRAY8) {
 			conv = img.Convert(NkImagePixelFormat::NK_RGB24);
-			if (!conv)
+			if (!conv.IsValid())
 				return false;
-			src = conv;
+			src = &conv;
 		}
 
 		const int32 w = src->Width();
@@ -1981,9 +1981,7 @@ namespace nkentseu {
 		// EOI
 		st.WriteU16BE(0xFFD9);
 
-		// Libération de l'image convertie si nécessaire
-		if (conv)
-			conv->Free();
+		// `conv` (si utilisée) se libère seule en sortie de portée.
 
 		// Transfert du buffer au appelant
 		return st.TakeBuffer(out, outSize);
