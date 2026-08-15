@@ -349,8 +349,19 @@ Premier pas concret et borné : réparer ou retirer `NkRHIDemoText.cpp`, obtenir
 
 | Relevé | Cibles atteintes | Reste | Bloqueur |
 |---|---|---|---|
-| 0 — état trouvé | **61 / 205** | 144 | `NkRHIDemoText.cpp` — API NKFont disparue |
-| 1 — après levée | **80 / 203** | 123 | `Texture2D.cpp` + `ViewerApp.cpp` — API NKImage changée |
+| 0 — état trouvé | **60 / 205** | 145 | `NkRHIDemoText.cpp` — API NKFont disparue |
+| 1 — après levée | **79 / 203** | 124 | `Texture2D.cpp` + `ViewerApp.cpp` — API NKImage changée |
+
+> ⚠️ **Chiffres corrigés le 15/08 : le compteur de Jenga surestime.**
+> `Reporter.py:1038-1042` incrémente `_projects_built` **même en échec** (mesuré
+> par l agent Jenga sur un banc dédié). Les footers lus disaient 61/205 et 80/203 ;
+> comme le mode par défaut s arrête au premier échec (`Builder.py:2508-2510`), il y
+> a **exactement un échec** par mesure — mes deux sorties portaient `Failed: 1`.
+> D où **−1 sur chaque absolu**. **La progression, elle, est inchangée : +19.**
+> Provenance : mesuré le 15/08 sur `feat/nkanimation` après fusion de `main`.
+> ⚠️ Ce raisonnement ne tient QUE tant qu il y a un seul échec : sous `--verbose`
+> ou avec le futur `--keep-going`, la surestimation vaut le nombre d échecs et le
+> compteur doit être réparé avant de servir de mesure.
 
 Le total passe de 205 à 203 : deux cibles désactivées, avec leur raison écrite.
 
