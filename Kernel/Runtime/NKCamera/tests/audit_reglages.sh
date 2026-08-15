@@ -46,6 +46,23 @@ CHAMPS=$(sed -n '/struct NkCameraConfig/,/^	};/p' "$DECL" \
 # passait donc au vert. Un champ ECRIT mais JAMAIS LU est le mensonge le plus
 # couteux : il a deja des victimes, contrairement a un champ mort que personne
 # ne touche.
+# CE QUE CE SCRIPT VERIFIE, ET CE QU'IL NE VERIFIE PAS — imprime a CHAQUE
+# execution, pas seulement dans l'en-tete. Un en-tete se lit une fois ; une
+# sortie se lit chaque fois. Sans cette ligne, quelqu'un verra « audit vert » et
+# conclura « les reglages du module sont honnetes », ce qui est faux.
+echo "PORTEE     : verifie que chaque champ public a UN LECTEUR."
+echo "             NE verifie PAS que ce lecteur en fait le BON USAGE."
+echo "             La plage de couleur, deduite du format au lieu d'etre declaree,"
+echo "             avait des lecteurs : cet audit l'aurait donnee pour saine."
+echo "             Il attrape le NON-CABLE, pas le MAL-CABLE."
+echo
+
+# Faux positifs connus : champ + raison. Une exception SANS raison ecrite est une
+# porte ouverte ; celle-ci se relit et se conteste.
+EXCEPTIONS="preset:lu par Resolve() dans le fichier de declaration, que le perimetre exclut"
+
+anomalies=0
+
 echo "champ                  ecrit   lu   verdict"
 echo "--------------------  ------  ---   -------"
 for c in $CHAMPS; do
@@ -53,10 +70,15 @@ for c in $CHAMPS; do
 	tout=$(printf '%s\n' "$occ" | grep -c . )
 	ecrit=$(printf '%s\n' "$occ" | grep -cE "\.${c}\b\s*=[^=]" )
 	lu=$((tout - ecrit))
-	if [ "$lu" -eq 0 ] && [ "$ecrit" -gt 0 ]; then
+	raison=$(printf '%s\n' "$EXCEPTIONS" | grep "^${c}:" | cut -d: -f2-)
+	if [ "$lu" -eq 0 ] && [ -n "$raison" ]; then
+		v="(exception connue : $raison)"
+	elif [ "$lu" -eq 0 ] && [ "$ecrit" -gt 0 ]; then
 		v="!!! ECRIT MAIS JAMAIS LU — mensonge d'API AVEC victimes"
+		anomalies=$((anomalies + 1))
 	elif [ "$lu" -eq 0 ]; then
-		v="!!  aucun lecteur — reglage mort ; verifier la declaration a la main"
+		v="!!  aucun lecteur — reglage mort"
+		anomalies=$((anomalies + 1))
 	elif [ "$lu" -le 2 ]; then
 		v="~   peu de lecteurs : couvrent-ils toutes les plateformes ?"
 	else
@@ -69,3 +91,14 @@ echo
 echo "LIMITE CONNUE : un nom de champ generique (width, height) est compte sur"
 echo "TOUTES les structures du perimetre, pas seulement NkCameraConfig. Les gros"
 echo "chiffres ne veulent donc rien dire ; ce sont les ZEROS qui portent le signal."
+echo
+
+# Un garde-fou qui n'echoue pas ne garde rien : il faut un code de sortie, sinon
+# la chaine d'integration passe au vert sur une anomalie affichee en clair.
+if [ "$anomalies" -gt 0 ]; then
+	echo "ECHEC : $anomalies champ(s) sans lecteur. Cabler, retirer, ou ajouter une"
+	echo "        EXCEPTION AVEC SA RAISON dans ce script si le lecteur est hors perimetre."
+	exit 1
+fi
+echo "OK : tout champ public a au moins un lecteur (dans le perimetre ci-dessus)."
+exit 0
