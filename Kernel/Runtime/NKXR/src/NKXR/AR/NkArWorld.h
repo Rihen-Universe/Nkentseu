@@ -41,6 +41,7 @@
 
 #include "NKXR/AR/NkArSession.h"
 #include "NKXR/AR/NkArFlow.h"
+#include "NKXR/AR/NkArImu.h"
 
 namespace nkentseu {
 	namespace xr {
@@ -68,12 +69,41 @@ namespace nkentseu {
 			// imprécise : l'inscrire dans la carte propagerait l'erreur à tout
 			// ce qui sera posé ensuite. On exige une taille minimale à l'image.
 			float32 minEdgePixelsToMap = 60.f;
+			// Nombre d'images consécutives pendant lesquelles un marqueur doit
+			// être vu AVANT qu'on ne lui confie quoi que ce soit.
+			//
+			// Ce garde-fou n'est pas un luxe : fonder l'origine du monde est un
+			// engagement pour toute la session, et une détection fugace suffit
+			// à le prendre. Mesuré sur téléphone le 2026-08-12 — le monde s'est
+			// fondé sur un « marqueur 0 » qui n'existe pas, alors que le vrai
+			// portait le numéro 45. Tout en découlait : l'objet ancré sur un
+			// fantôme, incapable de coller au vrai marqueur, et paraissant
+			// suivre la caméra. Une fausse détection est fugace ; un vrai
+			// marqueur persiste. Exiger la durée les sépare sans rien coûter.
+			uint32 minFramesToTrust = 5;
 			// Suivre la ROTATION de la caméra par l'image quand aucun marqueur
 			// n'est visible. Sans cela, l'objet reste collé à l'écran dès qu'on
 			// pivote — le défaut le plus voyant de l'AR par marqueurs. Ne couvre
 			// PAS la translation (voir NkArFlow, qui l'explique).
 			bool trackByImage = true;
 			NkArFlowConfig flow;
+			// Préférer les CAPTEURS à l'image quand l'appareil en a. Un
+			// gyroscope mesure la rotation sans texture, sans lumière, et sans
+			// se laisser tromper par quelqu'un qui traverse le champ ; tout le
+			// travail fait sur l'image n'existe que faute de mieux. Là où les
+			// deux sont disponibles, mesurer l'emporte sur deviner.
+			//
+			// ⚠️ COUPÉ PAR DÉFAUT tant que `NkArImu` n'est pas réparé. Sa file
+			// d'événements s'attache au même `Looper` que la boucle de
+			// l'application et en perturbe la pompe : la boucle se fige à la
+			// première image. Constaté, mesuré et isolé le 13 août — mais isolé
+			// DANS UNE DÉMO, ce qui laissait tout autre consommateur hériter du
+			// gel puisque ce défaut valait `true`.
+			// Neutraliser chez soi n'est pas corriger : la valeur par défaut
+			// d'un module est ce que reçoivent ceux qui ne savent pas.
+			// À rebasculer le jour où l'IMU tournera sur son propre fil, avec sa
+			// propre boucle d'événements.
+			bool preferSensors = false;
 			// Au-delà de ce résidu d'ajustement, on refuse le mouvement estimé :
 			// la scène a changé (objet qui passe, forte parallaxe) plutôt que la
 			// caméra. Mieux vaut figer que partir n'importe où.
@@ -108,6 +138,12 @@ namespace nkentseu {
 				// place affichée reste crédible en rotation, elle dérive en
 				// translation — état à montrer, pas à taire.
 				bool IsTrackingByImage() const { return mFlowThisFrame; }
+				/// La rotation vient-elle des CAPTEURS à cette image ? Le dire
+				/// permet à l'application d'afficher sur quoi elle s'appuie —
+				/// et ce n'est pas cosmétique : un suivi par capteur est fiable
+				/// dans le noir, un suivi par image ne l'est pas.
+				bool IsTrackingBySensors() const { return mImuThisFrame; }
+				NkArImu &Imu() { return mImu; }
 				const NkArFlowResult &GetLastFlow() const { return mLastFlow; }
 				// Rotation CUMULÉE depuis la dernière localisation par marqueur,
 				// en degrés (lacet, tangage, roulis). Le chiffre à comparer au
@@ -162,6 +198,9 @@ namespace nkentseu {
 				NkXrPose mCameraInWorld{};
 				NkArImageFlow mFlow;
 				NkArFlowResult mLastFlow{};
+				NkArImu mImu;
+				bool mImuReady = false;
+				bool mImuThisFrame = false;
 				bool mFlowThisFrame = false;
 				NkVec3f mBlindRotation{ 0.f, 0.f, 0.f }; ///< Cumul lacet/tangage/roulis, en radians.
 				uint32 mBlindFrames = 0;   ///< Images sans AUCUN repère (ni marqueur, ni image).

@@ -561,12 +561,30 @@ namespace nkentseu {
 						for (uint32 gx = 0; gx < gridBits; ++gx) {
 							uint32 lightVotes = 0;
 							uint32 castVotes = 0;
+							// ── Les cellules du BORD sont échantillonnées vers
+							// l'INTÉRIEUR ────────────────────────────────────────
+							// La bordure noire jouxte les cellules du pourtour sur
+							// un ou deux côtés, et sur une photo — écran brillant,
+							// perspective, flou — elle DÉBORDE sur elles. Ce sont
+							// précisément les quatre coins qui portent la marque
+							// d'orientation : un seul coin mal lu rend deux
+							// rotations également plausibles, et la lecture est
+							// alors refusée. Mesuré sur la planche de Rihen : neuf
+							// marqueurs trouvés, neuf rejetés, « meilleure 3/4,
+							// 2 ex aequo ».
+							// On décale donc l'échantillonnage des cellules du
+							// pourtour vers le centre du marqueur, là où la
+							// bordure ne peut pas mordre.
+							const float32 biasX = (gx == 0u) ? 0.12f : ((gx == gridBits - 1u) ? -0.12f : 0.f);
+							const float32 biasY = (gy == 0u) ? 0.12f : ((gy == gridBits - 1u) ? -0.12f : 0.f);
 							for (uint32 sy = 0; sy < samples; ++sy) {
 								for (uint32 sx = 0; sx < samples; ++sx) {
-									const float32 offsetX = (samples == 1u) ? 0.f
-																			: (-0.25f + 0.5f * float32(sx) / float32(samples - 1u));
-									const float32 offsetY = (samples == 1u) ? 0.f
-																			: (-0.25f + 0.5f * float32(sy) / float32(samples - 1u));
+									const float32 offsetX =
+										biasX + ((samples == 1u) ? 0.f
+																 : (-0.18f + 0.36f * float32(sx) / float32(samples - 1u)));
+									const float32 offsetY =
+										biasY + ((samples == 1u) ? 0.f
+																 : (-0.18f + 0.36f * float32(sy) / float32(samples - 1u)));
 									const NkVec2f p = ApplyHomography(h, float32(gx + 1u) + 0.5f + offsetX,
 																	  float32(gy + 1u) + 0.5f + offsetY);
 									const int32 px = int32(p.x);

@@ -31,6 +31,15 @@
 
 #include "NKCamera/NkCameraSystem.h"
 
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__)
+	#include "NKFileSystem/NkFile.h"
+	#include <android_native_app_glue.h>
+	#include <jni.h>
+namespace nkentseu {
+	extern android_app *nk_android_global_app;
+}
+#endif
+
 #include "NKRHI/Core/NkDeviceFactory.h"
 #include "NKRenderer/NkRenderer.h"
 #include "NKRenderer/Core/NkCamera.h"
@@ -42,6 +51,7 @@
 
 #include "NKXR/AR/NkArSession.h"
 #include "NKXR/AR/NkArWorld.h"
+#include "NKXR/AR/NkArCalibration.h"
 
 #include <cstdlib>
 #include <cstdio>
@@ -54,6 +64,107 @@ using namespace nkentseu;
 using namespace nkentseu::renderer;
 namespace nkxr = nkentseu::xr;
 
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__)
+	#include <sys/system_properties.h>
+#endif
+
+// ── Lire un réglage, quelle que soit la plateforme ───────────────────────────
+// Android ne permet PAS de passer des variables d'environnement à une
+// application : tous nos réglages de diagnostic y étaient donc inaccessibles,
+// ce qui revenait à livrer une application qu'on ne peut plus interroger.
+// On y lit à la place les propriétés système, qui jouent exactement le même
+// rôle et se posent sans droits particuliers :
+//     adb shell setprop debug.nkar.calibrate 1
+// « NK_AR_CALIBRATE » devient « debug.nkar.calibrate ». Le principe reste celui
+// de Rihen : tout se règle par le CODE, l'environnement — ou ici la propriété —
+// n'étant qu'une couche facultative par-dessus.
+// ── Où l'application a le DROIT d'écrire ─────────────────────────────────────
+// Sur Android, le répertoire courant ne l'est pas : c'est ce qui a privé le
+// journal de son fichier, empêché la planche de calibration d'être produite, et
+// rendu impossible tout vidage d'image de diagnostic. Or l'appareil offre un
+// dossier prévu pour cela, propre à l'application, accessible sans la moindre
+// permission et lisible depuis un poste par « adb pull ».
+// Sans cet endroit, une application sur téléphone ne peut RIEN montrer de ce
+// qu'elle voit — et l'on en est réduit à deviner.
+static const char *NkOutPath(const char *name) {
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__)
+	static char path[512];
+	android_app *app = nkentseu::nk_android_global_app;
+	if (app != nullptr && app->activity != nullptr && app->activity->externalDataPath != nullptr) {
+		uint32 w = 0;
+		const char *d = app->activity->externalDataPath;
+		while (*d != '\0' && w < sizeof(path) - 2u) {
+			path[w++] = *d++;
+		}
+		path[w++] = '/';
+		const char *n = name;
+		while (*n != '\0' && w < sizeof(path) - 1u) {
+			path[w++] = *n++;
+		}
+		path[w] = '\0';
+		return path;
+	}
+#endif
+	return name;
+}
+
+static const char *NkSetting(const char *envName) {
+	const char *fromEnv = getenv(envName);
+	if (fromEnv != nullptr) {
+		return fromEnv;
+	}
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__)
+	static char buffers[8][PROP_VALUE_MAX];
+	static uint32 slot = 0;
+	// « NK_AR_CALIBRATE » → « debug.nkar.calibrate »
+	char prop[96] = "debug.nkar.";
+	uint32 w = 11u;
+	const char *p = envName;
+	if (p[0] == 'N' && p[1] == 'K' && p[2] == '_' && p[3] == 'A' && p[4] == 'R' && p[5] == '_') {
+		p += 6;
+	}
+	while (*p != '\0' && w < sizeof(prop) - 1u) {
+		char c = *p++;
+		if (c >= 'A' && c <= 'Z') {
+			c = char(c - 'A' + 'a');
+		}
+		if (c == '_') {
+			c = '.';
+		}
+		prop[w++] = c;
+	}
+	prop[w] = '\0';
+	char *dst = buffers[slot % 8u];
+	++slot;
+	if (__system_property_get(prop, dst) > 0 && dst[0] != '\0') {
+		return dst;
+	}
+#endif
+	return nullptr;
+}
+
+// ── Un réglage BOOLÉEN se lit à sa VALEUR, jamais à sa présence ─────────────
+// Piège payé le 13 août, et il a coûté une heure : le seuillage adaptatif est
+// resté actif alors que je le croyais coupé, parce que je testais l'EXISTENCE
+// de la propriété. Or une propriété Android ne se supprime pas — lui donner une
+// valeur vide ne l'efface pas. Il n'existait donc aucun moyen de revenir en
+// arrière, le détecteur restait aveugle, et rien ne le disait. Pendant ce
+// temps je cherchais le défaut dans l'algorithme.
+// « 0 », « false », « off » et le vide coupent désormais le réglage.
+static bool NkFlag(const char *envName) {
+	const char *v = NkSetting(envName);
+	if (v == nullptr || v[0] == '\0') {
+		return false;
+	}
+	if ((v[0] == '0' && v[1] == '\0') || v[0] == 'f' || v[0] == 'F' || v[0] == 'n' || v[0] == 'N') {
+		return false;
+	}
+	if (v[0] == 'o' && (v[1] == 'f' || v[1] == 'F')) {
+		return false;
+	}
+	return true;
+}
+
 static void ConfigureAppData(NkAppData &d) {
 	d.appName = "NKARDemo";
 }
@@ -61,8 +172,36 @@ NK_REGISTER_ENTRY_APPDATA_UPDATER(ConfigureAppData)
 
 namespace {
 
-	constexpr uint32 kCamWidth = 1280;
-	constexpr uint32 kCamHeight = 720;
+	// 1080p et non 720p : l'écran du téléphone fait 2340 pixels de haut, et une
+	// image de 720 étirée dessus paraît molle — Rihen l'a comparée à son
+	// application photo, qui est nette. La détection y gagne aussi : un marqueur
+	// occupe deux fois plus de pixels, donc sa pose est mieux contrainte.
+	constexpr uint32 kCamWidth = 1920;
+	constexpr uint32 kCamHeight = 1080;
+
+	// ── La planche de calibration, décrite UNE fois ──────────────────────────
+	// Ces mesures doivent correspondre à la planche RÉELLE : c'est le côté du
+	// carré noir qui donne l'échelle, et l'entraxe qui donne la géométrie. Si
+	// la planche est affichée sur un écran, mesurer à la règle ce qu'il affiche
+	// — un écran ne respecte pas les centimètres d'un fichier.
+	const nkxr::NkArCalibrationBoard kCalibBoard = [] {
+		nkxr::NkArCalibrationBoard b;
+		b.cols = 3;
+		b.rows = 3;
+		b.gridBits = 4;
+		b.firstId = 100;
+		b.markerSizeMeters = 0.04f;
+		b.spacingMeters = 0.06f;
+		const char *sizeEnv = NkSetting("NK_AR_BOARD_MARKER_CM");
+		const char *stepEnv = NkSetting("NK_AR_BOARD_STEP_CM");
+		if (sizeEnv != nullptr) {
+			b.markerSizeMeters = float32(atof(sizeEnv)) * 0.01f;
+		}
+		if (stepEnv != nullptr) {
+			b.spacingMeters = float32(atof(stepEnv)) * 0.01f;
+		}
+		return b;
+	}();
 	constexpr int32 kMarkerId = 0x2D;
 
 	// Image de repli quand aucune caméra n'est branchée : le marqueur y
@@ -99,6 +238,62 @@ namespace {
 			}
 		}
 	}
+
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__)
+	// Demande la permission CAMÉRA À L'EXÉCUTION.
+	//
+	// Pourquoi ce code existe : depuis Android 6, déclarer la permission dans le
+	// manifeste — ce que fait déjà le descripteur jenga — ne fait que la rendre
+	// DEMANDABLE. Tant que l'utilisateur ne l'a pas accordée, la caméra reste
+	// muette, et une application native ne pose pas la question toute seule.
+	// Mesuré au premier lancement sur le téléphone de Rihen : « granted=false »,
+	// écran noir, et rien dans le journal pour l'expliquer.
+	//
+	// Une NativeActivity n'a pas de code Java à elle, mais elle a une machine
+	// virtuelle : on appelle donc Activity.requestPermissions par JNI. Le
+	// résultat arrive de façon asynchrone dans une fenêtre système ; l'appelant
+	// doit donc attendre, et c'est à lui de ne pas figer sa boucle en attendant.
+	bool NkAndroidRequestCameraPermission() {
+		android_app *app = nkentseu::nk_android_global_app;
+		if (app == nullptr || app->activity == nullptr || app->activity->vm == nullptr) {
+			return false;
+		}
+		JNIEnv *env = nullptr;
+		if (app->activity->vm->AttachCurrentThread(&env, nullptr) != JNI_OK || env == nullptr) {
+			return false;
+		}
+		bool granted = false;
+		jclass activityClass = env->GetObjectClass(app->activity->clazz);
+		jstring permission = env->NewStringUTF("android.permission.CAMERA");
+
+		// checkSelfPermission : 0 = PERMISSION_GRANTED. On ne redemande pas ce
+		// qui est déjà accordé — une fenêtre inutile à chaque lancement serait
+		// une nuisance, et l'utilisateur finirait par refuser par réflexe.
+		jmethodID checkSelf = env->GetMethodID(activityClass, "checkSelfPermission", "(Ljava/lang/String;)I");
+		if (checkSelf != nullptr) {
+			const jint result = env->CallIntMethod(app->activity->clazz, checkSelf, permission);
+			granted = (result == 0);
+		}
+		if (!granted) {
+			jmethodID requestPermissions =
+				env->GetMethodID(activityClass, "requestPermissions", "([Ljava/lang/String;I)V");
+			if (requestPermissions != nullptr) {
+				jobjectArray array =
+					env->NewObjectArray(1, env->FindClass("java/lang/String"), env->NewStringUTF(""));
+				env->SetObjectArrayElement(array, 0, permission);
+				env->CallVoidMethod(app->activity->clazz, requestPermissions, array, 1);
+				env->DeleteLocalRef(array);
+			}
+		}
+		env->DeleteLocalRef(permission);
+		env->DeleteLocalRef(activityClass);
+		if (env->ExceptionCheck()) {
+			env->ExceptionClear();
+		}
+		app->activity->vm->DetachCurrentThread();
+		return granted;
+	}
+#endif
 
 	// Projette un point du repère CAMÉRA (avant = -Z) vers les pixels de
 	// l'image, puis vers la zone d'affichage de la vidéo à l'écran. C'est la
@@ -201,6 +396,24 @@ namespace {
 int nkmain(const NkEntryState &state) {
 	(void)state;
 
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__)
+	// ── AVANT TOUT LE RESTE ───────────────────────────────────────────────────
+	// Sur téléphone, les shaders voyagent DANS l'APK (voir `androidassets` du
+	// descripteur jenga). Jenga y dépose le CONTENU du dossier embarqué à la
+	// racine des ressources, alors que le moteur les demande sous
+	// « Resources/NKRenderer/Shaders/… » : on déclare donc le sous-dossier à
+	// retirer, et NkFile fait la correspondance seul.
+	//
+	// L'ordre n'est pas un détail — c'est le défaut que je viens de payer. Posé
+	// APRÈS la création du renderer, ce réglage arrivait trop tard : les
+	// shaders chargés pendant l'initialisation recevaient une source VIDE,
+	// échouaient tous à compiler, et le rendu refusait de démarrer. Seuls les
+	// matériaux, chargés plus tard, s'en tiraient — ce qui rendait le symptôme
+	// trompeur en n'échouant qu'à moitié. Toute déclaration qui gouverne l'accès
+	// aux fichiers doit précéder le premier fichier lu.
+	NkFile::SetAndroidAssetSubFolder("NKRenderer/Shaders");
+#endif
+
 	// ── 1) Le marqueur à imprimer ─────────────────────────────────────────────
 	{
 		const uint32 size = 512;
@@ -216,8 +429,36 @@ int nkmain(const NkEntryState &state) {
 				pixels[i * 4u + 3u] = 255;
 			}
 			memory::NkFree(gray);
-			marker.SaveToFile("nkar_marqueur.png");
+			marker.SaveToFile(NkOutPath("nkar_marqueur.png"));
 			logger.Infof("[NKARDemo] Marqueur à imprimer écrit : nkar_marqueur.png (identifiant %d).\n", kMarkerId);
+		}
+	}
+
+	// ── 1bis) La planche de CALIBRATION ───────────────────────────────────────
+	// Elle s'affiche sur un écran ou s'imprime, et sert à MESURER la géométrie
+	// de l'objectif au lieu de la supposer. Elle est écrite à chaque lancement :
+	// mieux vaut qu'elle soit toujours à portée que d'avoir à la retrouver le
+	// jour où l'on en a besoin.
+	{
+		const uint32 size = 1200;
+		NkImage sheet;
+		if (sheet.Create(size, size, math::NkColor(255, 255, 255, 255), 4)) {
+			uint8 *gray = static_cast<uint8 *>(memory::NkAlloc(size * size));
+			if (nkxr::NkArRenderCalibrationBoard(kCalibBoard, gray, size, size)) {
+				uint8 *pixels = sheet.Pixels();
+				for (uint32 i = 0; i < size * size; ++i) {
+					pixels[i * 4u + 0u] = gray[i];
+					pixels[i * 4u + 1u] = gray[i];
+					pixels[i * 4u + 2u] = gray[i];
+					pixels[i * 4u + 3u] = 255;
+				}
+				sheet.SaveToFile(NkOutPath("nkar_planche_calibration.png"));
+				logger.Infof("[NKARDemo] Planche de calibration ecrite : nkar_planche_calibration.png "
+							 "(%ux%u marqueurs, carre noir %.1f cm, entraxe %.1f cm).\n",
+							 kCalibBoard.cols, kCalibBoard.rows, kCalibBoard.markerSizeMeters * 100.f,
+							 kCalibBoard.spacingMeters * 100.f);
+			}
+			memory::NkFree(gray);
 		}
 	}
 
@@ -246,10 +487,30 @@ int nkmain(const NkEntryState &state) {
 	uint32 W = devInfo.width;
 	uint32 H = devInfo.height;
 
-	// Un seul renderer : la vidéo est un fond 2D, la 3D se pose dessus.
+	// ── Demander le MINIMUM, et rien de plus ─────────────────────────────────
+	// Cette démo dessine une vidéo plein écran et des traits par-dessus : tout
+	// se fait en 2D, l'augmentation étant projetée à la main avec les
+	// intrinsèques de la vraie caméra. Elle n'a donc besoin ni d'ombres, ni
+	// d'éclairage par image, ni de post-traitement, ni de VFX.
+	//
+	// Le préréglage « ForGame » les demandait tous, et le prix était double sur
+	// téléphone, mesuré le 13 août : l'initialisation compile toute la
+	// bibliothèque de shaders et s'éternise — Android tue une application qui ne
+	// répond pas — et l'empreinte atteint 447 Mo dont 332 de mémoire graphique,
+	// sur un appareil qui récupérait déjà des processus faute de mémoire.
+	// Demander ce dont on se sert est ici la différence entre une application
+	// qui démarre et une que le système abat.
 	NkRendererConfig cfg = NkRendererConfig::ForGame(devInfo.api, W, H);
+	cfg.subsystems = NK_SS_RENDER2D | NK_SS_TEXT | NK_SS_OVERLAY;
+	cfg.quality = NkRenderQuality::NK_LOW;
+	cfg.hdr = false;
 	cfg.postProcess.bloom = false;
 	cfg.postProcess.ssao = false;
+	cfg.postProcess.fxaa = false;
+	cfg.postProcess.aces = false;
+	cfg.maxLights = 4;
+	cfg.maxParticles = 0;
+	cfg.maxMeshes = 256;
 	NkRenderer *renderer = NkRenderer::Create(device, cfg);
 	if (!renderer) {
 		logger.Error("[NKARDemo] Init renderer KO");
@@ -266,12 +527,45 @@ int nkmain(const NkEntryState &state) {
 	camCfg.height = kCamHeight;
 	camCfg.fps = 30;
 	camCfg.outputFormat = NkPixelFormat::NK_PIXEL_RGBA8;
+	// Sur téléphone, l'AR se fait par la caméra ARRIÈRE : on vise le marqueur,
+	// on ne se filme pas. La façade est donc demandée explicitement, et le
+	// choix reste programmable — NkCameraConfig::facing existe déjà, c'était
+	// simplement le réglage par défaut « n'importe laquelle » qui décidait.
+	camCfg.facing = NkCameraFacing::NK_CAMERA_FACING_BACK;
+	{
+		const char *facingEnv = NkSetting("NK_AR_CAMERA");
+		if (facingEnv != nullptr && (facingEnv[0] == 'f' || facingEnv[0] == 'F')) {
+			camCfg.facing = NkCameraFacing::NK_CAMERA_FACING_FRONT;
+		}
+	}
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__)
+	// Demander AVANT d'ouvrir la caméra, et laisser à l'utilisateur le temps de
+	// répondre. On n'attend pas indéfiniment : si la réponse tarde, la démo
+	// bascule sur son image de synthèse et le DIT, plutôt que de figer sa boucle
+	// — Android tue une application qui ne répond pas au bout de dix secondes.
+	{
+		bool granted = NkAndroidRequestCameraPermission();
+		for (uint32 wait = 0; !granted && wait < 40u; ++wait) {
+			NkChrono::Sleep(int64(150));
+			granted = NkAndroidRequestCameraPermission();
+		}
+		logger.Infof("[NKARDemo] Permission camera : %s\n", granted ? "ACCORDEE" : "refusee ou sans reponse");
+	}
+#endif
 	if (camera.Init()) {
 		const auto devices = camera.EnumerateDevices();
+		// Dire CE QU'ON A TROUVÉ, une ligne par appareil : sur téléphone il y en
+		// a plusieurs (grand angle, ultra grand angle, façade), et savoir lequel
+		// a été ouvert évite d'accuser la détection quand c'est l'objectif qui
+		// regarde ailleurs.
+		for (nk_size i = 0; i < devices.Size(); ++i) {
+			logger.Infof("[NKARDemo] Camera %u : \"%s\" facade=%u\n", uint32(devices[i].index),
+						 devices[i].name.CStr(), uint32(devices[i].facing));
+		}
 		if (devices.Size() > 0) {
 			cameraOk = camera.StartStreaming(camCfg);
-			logger.Infof("[NKARDemo] Caméra : %u périphérique(s), flux %s.\n", uint32(devices.Size()),
-						 cameraOk ? "démarré" : "REFUSÉ");
+			logger.Infof("[NKARDemo] Caméra : %u périphérique(s), facade demandee=%u, flux %s.\n",
+						 uint32(devices.Size()), uint32(camCfg.facing), cameraOk ? "démarré" : "REFUSÉ");
 		}
 	}
 	if (!cameraOk) {
@@ -290,18 +584,18 @@ int nkmain(const NkEntryState &state) {
 	arCfg.detector.minEdgePixels = 40;
 	// L'environnement n'est qu'un raccourci de développement, explicite :
 	{
-		const char *sizeEnv = getenv("NK_AR_MARKER_SIZE");
+		const char *sizeEnv = NkSetting("NK_AR_MARKER_SIZE");
 		if (sizeEnv != nullptr && *sizeEnv != '\0') {
 			arCfg.markerSizeMeters = float32(atof(sizeEnv));
 		}
-		arCfg.detector.debugCounters = (getenv("NK_AR_DEBUG") != nullptr);
+		arCfg.detector.debugCounters = (NkFlag("NK_AR_DEBUG"));
 		// Seuillage adaptatif : à essayer quand le marqueur est affiché sur un
 		// ÉCRAN (halos) ou éclairé de biais — c'est exactement son terrain.
-		arCfg.detector.adaptive = (getenv("NK_AR_ADAPTIVE") != nullptr);
+		arCfg.detector.adaptive = (NkFlag("NK_AR_ADAPTIVE"));
 		// Mode ANCRE : montrer la carte UNE FOIS pose la scene, qui reste
 		// ensuite en place — on peut ranger la carte. C'est le modele
 		// « carte -> systeme solaire ». Valable camera FIXE (poste, borne).
-		if (getenv("NK_AR_ANCHOR") != nullptr) {
+		if (NkFlag("NK_AR_ANCHOR")) {
 			arCfg.anchorMode = nkxr::NkArAnchorMode::NK_AR_ANCHOR_PERSISTENT;
 		}
 	}
@@ -318,6 +612,16 @@ int nkmain(const NkEntryState &state) {
 		// cacher plutôt que de montrer une place qui vieillit ; ici, non.)
 		nkxr::NkArWorldConfig worldCfg;
 		worldCfg.maxBlindFrames = 0;
+		// ⚠️ CAPTEURS COUPÉS PAR DÉFAUT — suspicion en cours, 13 août.
+		// La file d'événements du gyroscope s'attache au MÊME `Looper` que la
+		// boucle de l'application, et l'image se fige à la première frame depuis
+		// qu'elle existe. Tant que cette interaction n'est pas comprise, on ne
+		// laisse pas une nouveauté soupçonnée active par défaut : une démo qui
+		// gèle ne prouve plus rien du tout.
+		// NK_AR_SENSORS=1 les rallume pour instruire le sujet.
+		worldCfg.preferSensors = (NkFlag("NK_AR_SENSORS"));
+		logger.Warnf("[NKARDemo] Capteurs (gyroscope) : %s\n",
+					 worldCfg.preferSensors ? "ACTIFS (NK_AR_SENSORS)" : "coupes par defaut");
 		arWorld.Initialize(worldCfg);
 	}
 
@@ -386,6 +690,79 @@ int nkmain(const NkEntryState &state) {
 			renderer->OnResize(w, h);
 		}
 	});
+	bool surfaceReady = true;
+	bool surfaceCheckPending = false;
+	// ── Mise en arrière-plan et retour (Android) ─────────────────────────────
+	// Quand l'application passe en arrière-plan, le système DÉTRUIT la surface
+	// d'affichage. Continuer à dessiner dessus ne produit rien, et au retour la
+	// surface est NEUVE : sans la recréer, l'écran reste noir — défaut signalé
+	// par Rihen, déjà résolu de la même façon dans Pong.
+	// On ne fait RIEN de lourd dans le callback : on lève un drapeau, et le
+	// travail se fait dans la boucle. Recréer une chaîne d'échange au milieu du
+	// traitement d'un événement, c'est le faire pendant qu'une image est
+	// peut-être en vol — la leçon a déjà été payée sur DX12.
+	// ⚠️ L'ÉVÉNEMENT NE DÉCIDE PAS, IL INVITE À VÉRIFIER.
+	// Le système émet un « masqué » au moment même du lancement — piège déjà
+	// payé ailleurs dans ce dépôt avec le redimensionnement parasite au
+	// démarrage. Croire l'événement sur parole faisait cesser le dessin à la
+	// première image, et l'application ne revenait jamais : elle avait l'air de
+	// planter. On se fie donc à la SURFACE elle-même, dont la taille tombe à
+	// zéro quand elle disparaît vraiment ; l'événement ne fait que déclencher
+	// la vérification.
+	events.AddEventCallback<NkWindowHiddenEvent>([&](NkWindowHiddenEvent *) { surfaceCheckPending = true; });
+	events.AddEventCallback<NkWindowShownEvent>([&](NkWindowShownEvent *) { surfaceCheckPending = true; });
+
+	// Redressement de l'image caméra, en degrés (0, 90, 180, 270).
+	// La valeur vient du PILOTE, pas d'une supposition : NkCameraDevice porte
+	// désormais l'inclinaison du capteur, que le système connaît. Deviner 90°
+	// marchait sur ce téléphone-ci et aurait échoué sur le suivant.
+	uint32 kCameraRotation = 0u;
+	{
+		const auto devices = camera.EnumerateDevices();
+		for (nk_size i = 0; i < devices.Size(); ++i) {
+			if (devices[i].facing == camCfg.facing || camCfg.facing == NkCameraFacing::NK_CAMERA_FACING_ANY) {
+				const int32 o = devices[i].sensorOrientation;
+				kCameraRotation = uint32(((o % 360) + 360) % 360);
+				break;
+			}
+		}
+	}
+	{
+		const char *rotEnv = NkSetting("NK_AR_ROTATE");
+		if (rotEnv != nullptr) {
+			const uint32 asked = uint32(atoi(rotEnv));
+			if (asked == 0u || asked == 90u || asked == 180u || asked == 270u) {
+				kCameraRotation = asked;
+			}
+		}
+		logger.Infof("[NKARDemo] Redressement image camera : %u degres (donne par le pilote%s).\n", kCameraRotation,
+					 (rotEnv != nullptr) ? ", force par NK_AR_ROTATE" : "");
+	}
+
+	// ── Mode CALIBRATION ──────────────────────────────────────────────────────
+	// Entièrement automatique, et il le faut : un téléphone n'a pas de clavier,
+	// et demander à l'utilisateur d'appuyer sur une touche au bon moment tout en
+	// tenant la planche est un mauvais protocole. On capture donc dès qu'une vue
+	// apporte quelque chose de NEUF, et l'on s'arrête quand il y en a assez.
+	const bool calibrating = (NkFlag("NK_AR_CALIBRATE"));
+	nkxr::NkArCalibration calibration;
+	nkxr::NkArCalibrationResult calibResult;
+	bool calibDone = false;
+	uint64 lastCalibFrame = 0;
+	if (calibrating) {
+		calibration.Initialize(kCalibBoard, arWidth, arHeight);
+		// Neuf marqueurs sur une planche sont bien plus petits à l'image qu'un
+		// marqueur seul tenu à bout de bras : le seuil de taille réglé pour ce
+		// dernier les écarterait tous, et la calibration attendrait indéfiniment
+		// des vues qui ne viendraient jamais.
+		arCfg.detector.minEdgePixels = 20;
+		arSession.Shutdown();
+		arSession.Initialize(arCfg, arWidth, arHeight);
+		logger.Warnf("[NKARDemo] MODE CALIBRATION : montrer la planche sous des angles VARIES "
+					 "(%ux%u marqueurs, carre %.1f cm, entraxe %.1f cm).\n",
+					 kCalibBoard.cols, kCalibBoard.rows, kCalibBoard.markerSizeMeters * 100.f,
+					 kCalibBoard.spacingMeters * 100.f);
+	}
 
 	NkClock clock;
 	float32 total = 0.f;
@@ -394,12 +771,25 @@ int nkmain(const NkEntryState &state) {
 	uint32 lastCameraFrame = 0xFFFFFFFFu;
 	uint32 visible = 0;
 	uint32 analyzedFrames = 0;
-	const uint64 exitFrame = (getenv("NK_AR_EXIT") != nullptr) ? uint64(atoll(getenv("NK_AR_EXIT"))) : 0u;
-	const uint64 dumpFrame = (getenv("NK_AR_DUMP") != nullptr) ? uint64(atoll(getenv("NK_AR_DUMP"))) : 0u;
+	const uint64 exitFrame = (NkFlag("NK_AR_EXIT")) ? uint64(atoll(NkSetting("NK_AR_EXIT"))) : 0u;
+	const uint64 dumpFrame = (NkFlag("NK_AR_DUMP")) ? uint64(atoll(NkSetting("NK_AR_DUMP"))) : 0u;
 	// Image de synthese forcee : marqueur toujours detectable, sans dependre
 	// de la camera ni de l'eclairage — c'est ce qui permet de savoir si un
 	// echec vient de la VISION ou de l'AFFICHAGE.
-	const bool forceSynthetic = (getenv("NK_AR_SYNTH") != nullptr);
+	const bool forceSynthetic = (NkFlag("NK_AR_SYNTH"));
+
+	// ── Faire taire le journal une fois le démarrage passé ───────────────────
+	// Le moteur trace chaque passe du graphe et chaque lot de rendu, à chaque
+	// image. C'est précieux à l'initialisation — c'est ce qui a permis de
+	// trouver les shaders manquants et la surface fantôme — et ruineux ensuite :
+	// sur téléphone, chaque ligne est un appel système, et il y en a des
+	// dizaines par image. L'application avance alors au pas.
+	// On garde donc tout jusqu'ici, puis on ne laisse plus passer que ce qui
+	// mérite d'être lu. NK_AR_DEBUG rend la verbosité quand on en a besoin.
+	if (!NkFlag("NK_AR_DEBUG")) {
+		logger.Info("[NKARDemo] Demarrage termine — journal reduit aux avertissements (NK_AR_DEBUG pour tout voir).\n");
+		logger.SetLevel(NkLogLevel::NK_WARN);
+	}
 
 	while (running && window.IsOpen()) {
 		events.PollEvents();
@@ -408,6 +798,49 @@ int nkmain(const NkEntryState &state) {
 		}
 		total += clock.Tick().delta;
 		++frameIndex;
+
+		// Battement de cœur INDÉPENDANT de la caméra : il dit que la boucle
+		// tourne, même si aucune image n'arrive. Le précédent était conditionné
+		// aux images analysées, si bien qu'une caméra muette et une boucle
+		// figée donnaient le même silence — deux causes très différentes.
+		if ((frameIndex % 300u) == 0u) {
+			logger.Warnf("[NKARDemo] boucle vivante : %llu images, surface %s, %.1f s\n",
+						 (unsigned long long)frameIndex, surfaceReady ? "OK" : "ABSENTE", total);
+		}
+
+		// ── État RÉEL de la surface ──────────────────────────────────────────
+		// On interroge la surface, pas l'événement : c'est sa taille — nulle
+		// quand elle n'existe plus — qui fait foi. Vérifier à chaque image
+		// coûte une lecture et évite de dépendre de l'ordre d'arrivée des
+		// notifications, qui n'est garanti nulle part.
+		{
+			const NkSurfaceDesc surf = window.GetSurfaceDesc();
+			const bool alive = (surf.width >= 64u && surf.height >= 64u);
+			if (alive && !surfaceReady) {
+				// Retour d'arrière-plan : la surface est NEUVE. La chaîne
+				// d'échange doit être refaite, ici, hors de tout événement et
+				// alors qu'aucune image n'est en vol.
+				W = surf.width;
+				H = surf.height;
+				renderer->OnResize(W, H);
+				// En AVERTISSEMENT : un changement d'état de surface est rare et
+				// décisif. Le filtrer avec le bavardage ordinaire, c'est se
+				// priver du seul indice qui distingue « en attente » de « figée ».
+				logger.Warnf("[NKARDemo] Surface revenue : %ux%u — chaine d'echange refaite.\n", W, H);
+			}
+			else if (!alive && surfaceReady) {
+				logger.Warn("[NKARDemo] Surface disparue — on cesse de dessiner.\n");
+			}
+			surfaceReady = alive;
+			surfaceCheckPending = false;
+		}
+		// Surface absente : on n'ouvre pas d'image. Dessiner dans le vide
+		// gaspille la batterie et, sur certains pilotes, finit par faire tomber
+		// le périphérique.
+		if (!surfaceReady) {
+			NkChrono::Sleep(int64(16));
+			continue;
+		}
 
 		// ── Image ────────────────────────────────────────────────────────────
 		bool haveFrame = false;
@@ -431,16 +864,71 @@ int nkmain(const NkEntryState &state) {
 				// La résolution obtenue peut différer de celle demandée : c'est
 				// la CAMÉRA qui décide, on s'adapte au lieu de refuser.
 				if (frame.format == NkPixelFormat::NK_PIXEL_RGBA8 && frame.width > 0u && frame.height > 0u) {
-					if (frame.width != arWidth || frame.height != arHeight) {
-						logger.Infof("[NKARDemo] Résolution caméra réelle : %ux%u (demandé %ux%u) — session AR "
+					// Le capteur d'un téléphone est monté DE TRAVERS par rapport
+					// à l'écran : en portrait, l'image arrive couchée. On la
+					// redresse ici, en amont de TOUT le reste — détection
+					// comprise — sinon le marqueur serait cherché dans une image
+					// tournée et les poses sortiraient dans un repère penché.
+					const bool swapWH = (kCameraRotation == 90u || kCameraRotation == 270u);
+					const uint32 effW = swapWH ? frame.height : frame.width;
+					const uint32 effH = swapWH ? frame.width : frame.height;
+					if (effW != arWidth || effH != arHeight) {
+						logger.Infof("[NKARDemo] Résolution caméra réelle : %ux%u (rotation %u° → %ux%u) — session AR "
 									 "réinitialisée à cette taille.\n",
-									 frame.width, frame.height, arWidth, arHeight);
-						arWidth = frame.width;
-						arHeight = frame.height;
+									 frame.width, frame.height, kCameraRotation, effW, effH);
+						arWidth = effW;
+						arHeight = effH;
 						memory::NkFree(frameRGBA);
 						frameRGBA = static_cast<uint8 *>(memory::NkAlloc(nk_size(arWidth) * arHeight * 4u));
+
+						// ── TOURNER AUSSI LES INTRINSÈQUES ───────────────────
+						// L'erreur qu'il ne faut pas commettre, et que j'ai
+						// commise : redresser l'image sans redresser la
+						// géométrie de l'objectif. Le champ supposé vaut pour la
+						// largeur du CAPTEUR ; après un quart de tour, cette
+						// largeur devient la hauteur, et recalculer la focale sur
+						// la nouvelle largeur la rabaisse ici d'un facteur 1,8.
+						// La perspective est alors fausse, les distances aussi,
+						// et l'objet ne peut PAS coller au marqueur — c'est
+						// exactement ce que Rihen a vu.
+						// On calcule donc les intrinsèques sur l'image D'ORIGINE,
+						// puis on leur applique la même rotation qu'aux pixels.
+						const nkxr::NkArCameraIntrinsics k0 =
+							nkxr::NkArCameraIntrinsics::FromFovX(frame.width, frame.height, arCfg.fallbackFovXDegrees);
+						nkxr::NkArCameraIntrinsics k = k0;
+						if (kCameraRotation == 90u) {
+							k.fx = k0.fy;
+							k.fy = k0.fx;
+							k.cx = float32(frame.height) - 1.f - k0.cy;
+							k.cy = k0.cx;
+						}
+						else if (kCameraRotation == 180u) {
+							k.cx = float32(frame.width) - 1.f - k0.cx;
+							k.cy = float32(frame.height) - 1.f - k0.cy;
+						}
+						else if (kCameraRotation == 270u) {
+							k.fx = k0.fy;
+							k.fy = k0.fx;
+							k.cx = k0.cy;
+							k.cy = float32(frame.width) - 1.f - k0.cx;
+						}
+						arCfg.intrinsics = k;
+						logger.Infof("[NKARDemo] Intrinseques apres rotation : fx=%.1f fy=%.1f cx=%.1f cy=%.1f\n", k.fx,
+									 k.fy, k.cx, k.cy);
+
 						arSession.Shutdown();
 						arSession.Initialize(arCfg, arWidth, arHeight);
+						// La calibration doit connaître la taille RÉELLE de
+						// l'image. Elle avait été préparée avec la résolution
+						// DEMANDÉE, que la caméra n'a pas honorée : le centre
+						// supposé tombait à (960,540) au lieu de (360,640), ce
+						// qui condamnait la résolution robuste et faussait le
+						// champ annoncé — 92,5° pour 43° réels. Un module nourri
+						// d'une taille fausse calcule juste sur des données
+						// fausses, et c'est le pire des deux mondes.
+						if (calibrating) {
+							calibration.Initialize(kCalibBoard, arWidth, arHeight);
+						}
 						NkTextureCreateDesc redesc;
 						redesc.width = arWidth;
 						redesc.height = arHeight;
@@ -449,11 +937,44 @@ int nkmain(const NkEntryState &state) {
 						videoTex = renderer->GetTextures()->Create(redesc);
 					}
 					const uint32 stride = frame.stride ? frame.stride : frame.width * 4u;
-					for (uint32 y = 0; y < frame.height; ++y) {
-						const uint8 *src = frame.data.Data() + nk_size(y) * stride;
-						uint8 *dst = frameRGBA + nk_size(y) * frame.width * 4u;
-						for (uint32 x = 0; x < frame.width * 4u; ++x) {
-							dst[x] = src[x];
+					if (kCameraRotation == 0u) {
+						for (uint32 y = 0; y < frame.height; ++y) {
+							const uint8 *src = frame.data.Data() + nk_size(y) * stride;
+							uint8 *dst = frameRGBA + nk_size(y) * frame.width * 4u;
+							for (uint32 x = 0; x < frame.width * 4u; ++x) {
+								dst[x] = src[x];
+							}
+						}
+					}
+					else {
+						// Rotation par recopie pixel à pixel. Coûteuse en apparence,
+						// mais elle a le mérite d'être vraie une fois pour toutes :
+						// tout ce qui suit — détection, pose, projection, HUD —
+						// travaille sur une image DROITE, sans avoir à connaître
+						// l'inclinaison du capteur.
+						for (uint32 y = 0; y < frame.height; ++y) {
+							const uint8 *src = frame.data.Data() + nk_size(y) * stride;
+							for (uint32 x = 0; x < frame.width; ++x) {
+								uint32 dx = 0, dy = 0;
+								if (kCameraRotation == 90u) {
+									dx = frame.height - 1u - y;
+									dy = x;
+								}
+								else if (kCameraRotation == 180u) {
+									dx = frame.width - 1u - x;
+									dy = frame.height - 1u - y;
+								}
+								else { // 270
+									dx = y;
+									dy = frame.width - 1u - x;
+								}
+								uint8 *dst = frameRGBA + (nk_size(dy) * arWidth + dx) * 4u;
+								const uint8 *s = src + nk_size(x) * 4u;
+								dst[0] = s[0];
+								dst[1] = s[1];
+								dst[2] = s[2];
+								dst[3] = s[3];
+							}
 						}
 					}
 					haveFrame = true;
@@ -497,10 +1018,81 @@ int nkmain(const NkEntryState &state) {
 			worldClock.Tick();
 			arWorld.Update(arSession);
 			worldMillis += worldClock.Tick().delta * 1000.f;
+
+			// ── Récolte des vues de calibration ──────────────────────────────
+			if (calibrating && !calibDone) {
+				// Dire ce qu'on VOIT, pas seulement ce qu'on retient. Sans ce
+				// chiffre, une calibration qui n'avance pas est indiscernable
+				// d'une planche invisible, et l'on promène son téléphone dans le
+				// vide sans le savoir — c'est ce qui vient d'arriver.
+				if ((analyzedFrames % 30u) == 0u) {
+					const auto &dets = arSession.GetDetections();
+					uint32 onBoard = 0;
+					for (nk_size i = 0; i < dets.Size(); ++i) {
+						float32 bx = 0.f, by = 0.f;
+						if (kCalibBoard.CenterOf(dets[i].id, bx, by)) {
+							++onBoard;
+						}
+					}
+					logger.Warnf("[NKARDemo] Calibration : %u marqueurs vus, dont %u de la planche "
+								 "(3 minimum par vue) — %u vues retenues.\n",
+								 uint32(dets.Size()), onBoard, calibration.GetViewCount());
+				}
+				// ── Un DÉLAI entre deux vues, en plus du critère de forme ────
+				// Le critère de forme dit si une vue est nouvelle ; le délai
+				// laisse à la main le temps de la rendre nouvelle. Sans lui,
+				// cinq vues étaient retenues en trois dixièmes de seconde — la
+				// durée d'un frisson, pas d'un geste — et le système, nourri de
+				// cinq fois la même équation, rendait une focale absurde.
+				// Une demi-seconde n'est pas un réglage de confort : c'est le
+				// temps minimal d'un mouvement de poignet volontaire.
+				if ((frameIndex - lastCalibFrame) > 30u && calibration.AddView(arSession.GetDetections())) {
+					lastCalibFrame = frameIndex;
+					logger.Warnf("[NKARDemo] Calibration : vue %u retenue — INCLINE encore le telephone, "
+								 "autrement.\n",
+								 calibration.GetViewCount());
+				}
+				if (calibration.IsReady()) {
+					calibResult = calibration.Solve();
+					calibDone = true;
+					if (calibResult.valid) {
+						logger.Warnf("[NKARDemo] CALIBRATION TERMINEE : fx=%.1f fy=%.1f cx=%.1f cy=%.1f | "
+									 "champ horizontal %.1f deg (suppose : %.1f) | erreur %.2f px sur %u vues\n",
+									 calibResult.intrinsics.fx, calibResult.intrinsics.fy, calibResult.intrinsics.cx,
+									 calibResult.intrinsics.cy, calibResult.fovXDegrees, arCfg.fallbackFovXDegrees,
+									 calibResult.reprojectionErrorPixels, calibResult.viewsUsed);
+						// Le chiffre qui dit s'il faut y croire. Au-delà de trois
+						// pixels, quelque chose cloche — planche non plane, vues
+						// trop semblables, ou détections fausses — et appliquer
+						// une mauvaise calibration est pire que n'en avoir aucune.
+						if (calibResult.reprojectionErrorPixels < 3.f) {
+							arCfg.intrinsics = calibResult.intrinsics;
+							arSession.Shutdown();
+							arSession.Initialize(arCfg, arWidth, arHeight);
+							arWorld.Reset();
+							logger.Warn("[NKARDemo] Calibration APPLIQUEE — la session repart avec la vraie "
+										"geometrie de l'objectif.\n");
+						}
+						else {
+							logger.Warn("[NKARDemo] Calibration REFUSEE : erreur de reprojection trop grande. "
+										"Recommencer en variant davantage les angles.\n");
+						}
+					}
+					else {
+						logger.Warn("[NKARDemo] Calibration ECHOUEE : le systeme n'a pas de solution physique. "
+									"Les vues se ressemblent probablement trop.\n");
+					}
+				}
+			}
 			++analyzedFrames;
 			if (analyzedFrames >= 60u) {
-				logger.Infof("[NKARDemo] monde (detection exclue) : %.2f ms par image ANALYSEE (60 images).\n",
-							 worldMillis / float32(analyzedFrames));
+				// Émis en AVERTISSEMENT à dessein : c'est le battement de cœur de
+				// l'application, et il doit survivre à la réduction du journal.
+				// L'avoir noyé avec le reste m'a privé du seul signe qui dise si
+				// la boucle tourne encore — on ne peut pas distinguer « figée »
+				// de « tuée » sans lui.
+				logger.Warnf("[NKARDemo] vivant — monde %.2f ms/image analysee | images totales %llu\n",
+							 worldMillis / float32(analyzedFrames), (unsigned long long)frameIndex);
 				worldMillis = 0.f;
 				analyzedFrames = 0;
 			}
@@ -541,8 +1133,12 @@ int nkmain(const NkEntryState &state) {
 		key.castShadow = false; // pas d'ombre : le sol réel n'est pas modélisé
 		sctx.lights.PushBack(key);
 
-		NkRender3D *r3d = renderer->GetRender3D();
-		r3d->BeginScene(sctx);
+		// Le rendu 3D n'est plus demandé (voir la configuration) : l'appel est
+		// donc conditionnel. Rien ne lui est soumis de toute façon — la vidéo
+		// est peinte en surimpression, qui vient APRÈS la 3D et la cacherait.
+		if (NkRender3D *r3d = renderer->GetRender3D()) {
+			r3d->BeginScene(sctx);
+		}
 
 		// Rien n'est soumis au rendu 3D : la vidéo est peinte dans la passe
 		// overlay, qui vient APRÈS, et cacherait tout. L'augmentation est donc
@@ -717,8 +1313,11 @@ int nkmain(const NkEntryState &state) {
 				overlay->DrawText({ 12.f, 60.f },
 								  "  image : %s | %u trouves, %u ambigus, %u retenus | glissement %.2f px | CUMUL "
 								  "%.1f deg (tangage %.1f) | residu %.2f px",
-								  flow.inliers > 0u ? (flow.valid ? "CONCLUT" : "suit, attend de sortir du bruit")
-													: "rien a suivre (surface unie ?)",
+								  arWorld.IsTrackingBySensors()
+									  ? "GYROSCOPE (capteur, pas image)"
+									  : (flow.inliers > 0u
+											 ? (flow.valid ? "CONCLUT" : "suit, attend de sortir du bruit")
+											 : "rien a suivre (surface unie ?)"),
 								  flow.candidates, flow.ambiguous, flow.inliers, flow.medianShiftPixels, cumul.y,
 								  cumul.x, flow.residualPixels);
 			}
@@ -760,7 +1359,7 @@ int nkmain(const NkEntryState &state) {
 						px[i * 4u + 2u] = gray[i];
 						px[i * 4u + 3u] = 255;
 					}
-					img.SaveToFile("nkar_diag_gris.png");
+					img.SaveToFile(NkOutPath("nkar_diag_gris.png"));
 				}
 				const uint8 *mask = arSession.GetMask();
 				if (mask != nullptr) {
@@ -770,7 +1369,7 @@ int nkmain(const NkEntryState &state) {
 						px[i * 4u + 2u] = mask[i];
 						px[i * 4u + 3u] = 255;
 					}
-					img.SaveToFile("nkar_diag_masque.png");
+					img.SaveToFile(NkOutPath("nkar_diag_masque.png"));
 				}
 				logger.Infof("[NKARDemo] Diagnostic ecrit : nkar_diag_gris.png et nkar_diag_masque.png.\n");
 			}

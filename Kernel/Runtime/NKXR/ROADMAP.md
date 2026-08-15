@@ -177,6 +177,53 @@ du cas « EndFrame avec image encore acquise »).
 
 ## À venir
 
+### 📱 Déployer sur téléphone — la bonne commande
+
+`jenga run` **installe et lance** sur l'appareil : inutile d'appeler `adb`
+soi-même (rappel de Rihen, 2026-08-12).
+
+```
+jenga run NKARDemo --platform android --config Release --build
+jenga run NKARDemo --platform android --config Release --device RFCT701YSSM
+```
+
+`--device` (alias `--target`) ne sert que si plusieurs appareils sont branchés —
+un émulateur qui traîne suffit à rendre le choix ambigu. Pour raccourcir
+l'attente pendant la mise au point : `--android-abis arm64-v8a` au build, car
+l'APK universel construit les quatre architectures.
+
+Pré-requis vérifiés le 2026-08-12 sur ce poste : `JAVA_HOME` = JDK 17,
+`ANDROID_SDK_ROOT` = `C:\Android`, `debug.keystore` présent (2666 octets).
+`adb` n'est PAS dans le PATH : il vit à `C:\Android\platform-tools\adb.exe`.
+
+**Si l'appareil passe `offline`** : ce n'est pas le paquet, c'est la liaison.
+Déverrouiller l'écran et accepter la demande d'autorisation de débogage ;
+sinon basculer le mode USB sur « transfert de fichiers », ou révoquer les
+autorisations de débogage dans les options développeur et rebrancher.
+
+**⚠️ Piège mesuré le 2026-08-12 sur ce poste — le pilote Meta capte l'ADB
+Samsung.** Symptôme très particulier : les commandes COURTES passent
+(`adb devices`, `adb shell ls` répondent correctement) mais tout ce qui dure
+tombe — `install`, `push` (les 22 Mo passent à 4 Mo/s puis « failed to read
+copy response: EOF », et le fichier n'existe pas), et même `adb tcpip 5555`
+qui rend « error: closed ». Autrement dit la liaison meurt **à la fin** des
+opérations, jamais au début.
+
+Cause probable, relevée dans les périphériques Windows : l'interface
+`SAMSUNG Android ADB Interface` est rattachée à la classe
+**`RealityLabsUsbDeviceClass`** — le pilote de Meta Quest Link, installé le
+même jour pour le casque. Un téléphone Samsung ne doit pas dépendre du pilote
+Meta. Remède : gestionnaire de périphériques → cette interface → mettre à jour
+le pilote → choisir le pilote ADB Google/Samsung standard.
+
+**Contournements qui n'ont pas besoin de l'USB :**
+1. **Débogage sans fil** (Android 11+, options développeur) : appairage par
+   code, puis `adb pair <ip>:<port>` et `adb connect <ip>:<port>`. Indépendant
+   du pilote USB, donc immunisé à ce défaut.
+2. **Installation à la main** : copier l'APK par transfert de fichiers et le
+   toucher sur le téléphone. L'APK est signé, il s'installe seul ; il faut
+   seulement autoriser l'installation depuis cette source.
+
 ### 🌍 PERCEPTION COMPLÈTE — décision de Rihen, 2026-08-12 : « la totale »
 
 Demande explicite : SLAM, détection de lignes, de plans, de surfaces, de formes.
@@ -193,7 +240,7 @@ rend un tel chantier faisable seul ; sans cela il s'effondre en devinettes.
 
 | # | Étage | Ce qu'il apporte SEUL | Coût honnête |
 |---|---|---|---|
-| P1 | **Téléphone** (cible Android NKARDemo) | l'AR marqueur dans la main, démontrable en clientèle | jours |
+| P1 | ✅ **Téléphone — LIVRÉ le 2026-08-12** (Galaxy S22+) | l'AR marqueur dans la main, démontrable en clientèle | fait en un jour |
 | P2 | **Gyroscope** (`ASensorManager`) | rotation exacte sans texture ; rend `NkArFlow` inutile pour la rotation | jours |
 | P3 | **Carte multi-marqueurs** (déjà écrite, à éprouver) | **translation exacte** partout où un marqueur est vu | ~1 semaine (épreuve + correction de dérive) |
 | P4 | **Suivi planaire par homographie** | translation en s'éloignant du marqueur, tant qu'on regarde SON plan | 1–2 semaines |
@@ -220,6 +267,28 @@ ainsi dans toute communication — ne jamais laisser croire à un ARCore maison.
 **Dépendance matérielle à ne pas oublier** : P2, P6 et P7 supposent l'accès aux
 capteurs Android (`ASensorManager`), qui **n'existe nulle part dans le dépôt** à
 ce jour. C'est le premier vrai manque, avant même le SLAM.
+
+#### P1 — ce qui a réellement été livré le 2026-08-12, et ce qu'il a coûté
+
+L'AR complète tourne sur téléphone : permission demandée seule (JNI), caméra
+arrière ouverte d'après la façade déclarée, image redressée d'après
+l'orientation **lue du pilote**, marqueur détecté, cube ancré, retour
+d'arrière-plan sans écran noir. Le monde se met à jour en **2,5 à 2,8 ms par
+image analysée — plus vite que sur le poste de travail**.
+
+Sept défauts levés, dont trois valent d'être retenus car ils se reproduiront :
+
+1. **Une application muette ne se répare pas.** NKLogger n'attachait aucun puits
+   console en Release, et son puits fichier écrit dans un chemin relatif — non
+   inscriptible sur Android. Un Release sur téléphone n'écrivait donc nulle
+   part. Corrigé dans NKLogger : sur Android, logcat EST le journal du système.
+2. **Toute transformation de l'image doit l'être aussi du modèle de caméra.**
+   Redresser les pixels sans tourner les intrinsèques rabaisse la focale d'un
+   facteur 1,8 : l'objet ne peut plus coller. Une image droite avec une focale
+   fausse est pire qu'une image couchée — elle a l'air juste.
+3. **Ce qui engage durablement exige une preuve dans la durée.** Le monde s'est
+   fondé sur un marqueur « 0 » inexistant, vu une seule image ; tout en
+   découlait. Un marqueur doit persister avant qu'on lui confie l'origine.
 
 ### 🔺 Suivi par l'image en PYRAMIDE — idée de Rihen (2026-08-12)
 

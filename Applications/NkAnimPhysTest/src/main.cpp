@@ -3,14 +3,14 @@
 // AUCUN device GPU : pur CPU, sûr à lancer même pendant un entraînement GPU.
 // Sortie via printf (sortie directe console, comme NKMeshAITest).
 // =============================================================================
-#include "NKRenderer/Tools/Animation/NkPoseMass.h"
-#include "NKRenderer/Tools/Animation/NkBalance.h"
-#include "NKRenderer/Tools/Animation/NkContactDetector.h"
-#include "NKRenderer/Tools/Animation/NkPoseBalancer.h"
-#include "NKRenderer/Tools/Animation/NkAutoPose.h"
-#include "NKRenderer/Tools/Animation/NkMotionPath.h"
-#include "NKRenderer/Tools/Animation/NkPhysAnimBridge.h"
-#include "NKRenderer/Tools/Animation/NkAnimRetarget.h"
+#include "NKAnimPhysics/NkPoseMass.h"
+#include "NKAnimPhysics/NkBalance.h"
+#include "NKAnimPhysics/NkContactDetector.h"
+#include "NKAnimPhysics/NkPoseBalancer.h"
+#include "NKAnimPhysics/NkAutoPose.h"
+#include "NKAnimation/NkMotionPath.h"
+#include "NKAnimPhysics/NkClipBalancePass.h"
+#include "NKAnimation/NkAnimRetarget.h"
 #include "NKRenderer/Tools/Director/NkRoleContext.h"
 #include "NKAudio/NkAudioCapture.h"
 #include "NKAudio/NkDenoiser.h"
@@ -36,31 +36,31 @@ int main() {
 
 	// M3.1 — distribution de masse + centre de masse (COM).
 	Report("M3.1 NkPoseMass", "barycentre, pondere, monotonie, anthropometrie, gardes",
-		   renderer::NkPoseMass::SelfTest(), nbOk, nbTotal);
+		   animphys::NkPoseMass::SelfTest(), nbOk, nbTotal);
 
 	// M3.2 — solveur d'équilibre (polygone de support + COM dedans ? + marge).
 	Report("M3.2 NkBalance", "dedans/dehors/bord, 2 pieds segment, direction de bascule",
-		   renderer::NkBalance::SelfTest(), nbOk, nbTotal);
+		   animphys::NkBalance::SelfTest(), nbOk, nbTotal);
 
 	// M3.3 — solveur de contacts (+ intégration M3.1+M3.2+M3.3 : debout=équilibré, penché=non).
 	Report("M3.3 NkContactDetector", "contact sol, points de support, INTEGRATION debout/penche",
-		   renderer::NkContactDetector::SelfTest(), nbOk, nbTotal);
+		   animphys::NkContactDetector::SelfTest(), nbOk, nbTotal);
 
 	// M3.4 — optimiseur de pose sous contrainte (ajuste une pose pour respecter l'équilibre).
 	Report("M3.4 NkPoseBalancer", "deseq->equilibre, strength 0/0.5/1, pose deja equilibree",
-		   renderer::NkPoseBalancer::SelfTest(), nbOk, nbTotal);
+		   animphys::NkPoseBalancer::SelfTest(), nbOk, nbTotal);
 
 	// M3.5 — auto-posing (poses intermediaires equilibrees entre deux cles).
 	Report("M3.5 NkAutoPose", "lerp brut deseq -> BlendBalanced equilibre, pieds plantes, bornes t=0/1",
-		   renderer::NkAutoPose::SelfTest(), nbOk, nbTotal);
+		   animphys::NkAutoPose::SelfTest(), nbOk, nbTotal);
 
 	// Animation par courbe : spline Catmull-Rom + path-follow (os/effecteur IK suit la courbe).
 	Report("NkMotionPath", "spline passe par les points, longueur/tangente droite, path-follow loop/once",
-		   renderer::NkMotionCurve::SelfTest(), nbOk, nbTotal);
+		   anim::NkMotionCurve::SelfTest(), nbOk, nbTotal);
 
 	// M3.6 — pont vers l'anim existante : correction physique non destructive d'un clip + lissage.
-	Report("M3.6 NkPhysAnimBridge", "clip qui bascule -> corrige frame par frame (equilibre), pieds fixes, lissage borne",
-		   renderer::NkPhysAnimBridge::SelfTest(), nbOk, nbTotal);
+	Report("M3.6 NkClipBalancePass", "clip qui bascule -> corrige frame par frame (equilibre), pieds fixes, lissage borne",
+		   animphys::NkClipBalancePass::SelfTest(), nbOk, nbTotal);
 
 	// M4bis.1 — contexte de role (personnage/personnalite/emotion/objectif/historique),
 	// round-trip Archive+JSON, schema strict rejette les variantes malformees (anti texte-libre).
@@ -78,7 +78,7 @@ int main() {
 	// M2 — RECIBLAGE d'animation entre squelettes (brique explicitement notee
 	// « reellement non commencee » dans la roadmap NkAnima).
 	Report("M2 NkAnimRetarget", "appariement par nom, delta au repos, os non etires, racine a l'echelle",
-		   renderer::NkAnimRetarget::SelfTest(), nbOk, nbTotal);
+		   anim::NkAnimRetarget::SelfTest(), nbOk, nbTotal);
 
 	printf("\n=== Resultat : %d/%d suites OK ===\n", nbOk, nbTotal);
 	return (nbOk == nbTotal) ? 0 : 1;

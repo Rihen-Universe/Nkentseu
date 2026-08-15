@@ -390,16 +390,20 @@ with project("NkPdfProbe"):
     cppdialect("C++17")
     location(".")
 
-    files(["src/NKMedia/Pdf/**.cpp", "tools/PdfProbe.cpp"])
+    files(["tools/PdfProbe.cpp"])
     includedirs(["src"])
 
-    # L'analyseur PDF ne touche ni au rendu, ni a la fenetre, ni au son : on
-    # reprend la liste de NKCode SANS la pile graphique/audio. NKImage n'est la
-    # que pour NkDeflate (FlateDecode) ; NKStream et consorts sont ses
-    # dependances TRANSITIVES, qu'il faut nommer EXPLICITEMENT — le premier
-    # essai echouait sur « NKStream/NKIResource.h file not found ».
+    # Le lecteur PDF vit dans NKMedia (Kernel) : on en DEPEND, on ne recompile
+    # pas ses sources. Avant, files() listait « src/NKMedia/Pdf/**.cpp » sous
+    # location(".") = Applications/NKCode/ — chemin qui n'existe pas : la cible
+    # ne compilait donc AUCUN source PDF et ne declarait pas NKMedia.
+    # L'analyseur ne touche ni au rendu, ni a la fenetre, ni au son : on reprend
+    # la liste de NKCode SANS la pile graphique/audio. NKImage n'est la que pour
+    # NkDeflate (FlateDecode) ; NKStream et consorts sont ses dependances
+    # TRANSITIVES, nommees EXPLICITEMENT — le premier essai echouait sur
+    # « NKStream/NKIResource.h file not found ».
     nkentseudependson(
-        ["NKFont", "NKImage", "NKFileSystem", "NKStream", "NKThreading", "NKLogger",
+        ["NKMedia", "NKFont", "NKImage", "NKFileSystem", "NKStream", "NKThreading", "NKLogger",
          "NKMath", "NKTime", "NKContainers", "NKMemory", "NKCore", "NKPlatform"],
     )
 
@@ -425,11 +429,14 @@ with project("NkPdfRasterTest"):
     cppdialect("C++17")
     location(".")
 
-    files(["src/NKMedia/Pdf/NkPdfRaster.cpp", "tools/PdfRasterTest.cpp"])
+    files(["tools/PdfRasterTest.cpp"])
     includedirs(["src"])
 
-    # Le rastériseur ne depend QUE des conteneurs : aucun fichier, aucune image.
-    nkentseudependson(["NKContainers", "NKMemory", "NKCore", "NKPlatform"])
+    # Le rastériseur lui-meme ne depend QUE des conteneurs (aucun fichier,
+    # aucune image), mais son code vit dans NKMedia : on depend du module au
+    # lieu de recompiler « src/NKMedia/Pdf/NkPdfRaster.cpp », chemin qui
+    # n'existe pas sous location(".") = Applications/NKCode/.
+    nkentseudependson(["NKMedia", "NKContainers", "NKMemory", "NKCore", "NKPlatform"])
 
     with filter("config:Debug"):
         defines(["_DEBUG", "DEBUG"])
@@ -451,11 +458,13 @@ with project("NkPdfRenderProbe"):
     cppdialect("C++17")
     location(".")
 
-    files(["src/NKMedia/Pdf/**.cpp", "tools/PdfRenderProbe.cpp"])
+    files(["tools/PdfRenderProbe.cpp"])
     includedirs(["src"])
 
+    # Rendu = lecteur + polices : NKMedia fournit les trois (NkPdf, NkPdfFont,
+    # NkPdfRender). Voir NkPdfProbe pour le detail du chemin mort corrige ici.
     nkentseudependson(
-        ["NKFont", "NKImage", "NKFileSystem", "NKStream", "NKThreading", "NKLogger",
+        ["NKMedia", "NKFont", "NKImage", "NKFileSystem", "NKStream", "NKThreading", "NKLogger",
          "NKMath", "NKTime", "NKContainers", "NKMemory", "NKCore", "NKPlatform"],
     )
 
@@ -478,12 +487,13 @@ with project("NkFileWorkerTest"):
     cppdialect("C++17")
     location(".")
 
-    files(["src/NKMedia/Pdf/**.cpp", "src/NKCode/Shell/NkPdfWorker.cpp",
-           "tools/FileWorkerTest.cpp"])
+    files(["src/NKCode/Shell/NkPdfWorker.cpp", "tools/FileWorkerTest.cpp"])
     includedirs(["src"])
 
+    # NkPdfWorker.cpp est du code NKCode (il reste liste ici, son chemin est
+    # correct) ; le lecteur qu'il pilote vient de NKMedia.
     nkentseudependson(
-        ["NKFont", "NKImage", "NKFileSystem", "NKStream", "NKThreading", "NKLogger",
+        ["NKMedia", "NKFont", "NKImage", "NKFileSystem", "NKStream", "NKThreading", "NKLogger",
          "NKMath", "NKTime", "NKContainers", "NKMemory", "NKCore", "NKPlatform"],
     )
 

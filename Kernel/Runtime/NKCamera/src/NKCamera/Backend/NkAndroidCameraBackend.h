@@ -118,6 +118,16 @@ namespace nkentseu {
 						}
 					}
 
+					// Inclinaison du capteur (0/90/180/270). Le pilote la connaît,
+					// et c'est la seule source fiable : la deviner marche sur un
+					// appareil et échoue sur le suivant.
+					ACameraMetadata_const_entry sensorOrient{};
+					if (ACameraMetadata_getConstEntry(meta, ACAMERA_SENSOR_ORIENTATION, &sensorOrient) ==
+							ACAMERA_OK &&
+						sensorOrient.count > 0) {
+						dev.sensorOrientation = int32(sensorOrient.data.i32[0]);
+					}
+
 					// Résolutions supportées
 					ACameraMetadata_const_entry configs{};
 					ACameraMetadata_getConstEntry(meta, ACAMERA_SCALER_AVAILABLE_STREAM_CONFIGURATIONS, &configs);
@@ -299,6 +309,18 @@ namespace nkentseu {
 					return false;
 				}
 
+				// ── Régler la requête AVANT de la soumettre ──────────────────
+				// L'autofocus se pose ici, sur la requête, et non après coup.
+				// Le faire ensuite obligeait à soumettre une SECONDE requête
+				// répétitive à peine la première acceptée, pendant que la session
+				// finit de se configurer — et le pilote de ce téléphone y
+				// répondait par une erreur fatale trois secondes plus tard.
+				// Une requête se compose entièrement, puis se soumet une fois.
+				if (config.autoFocus) {
+					uint8_t afMode = ACAMERA_CONTROL_AF_MODE_CONTINUOUS_VIDEO;
+					ACaptureRequest_setEntry_u8(mCaptureRequest, ACAMERA_CONTROL_AF_MODE, 1, &afMode);
+				}
+
 				status =
 					ACameraCaptureSession_setRepeatingRequest(mCaptureSession, nullptr, 1, &mCaptureRequest, nullptr);
 				if (status != ACAMERA_OK) {
@@ -314,7 +336,8 @@ namespace nkentseu {
 				}
 
 				mState = NkCameraState::NK_CAM_STATE_STREAMING;
-				NKCAM_LOGI("Streaming started: %ux%u @%u fps", mWidth, mHeight, mFPS);
+				NKCAM_LOGI("Streaming started: %ux%u @%u fps (autofocus %s)", mWidth, mHeight, mFPS,
+						   config.autoFocus ? "actif" : "coupe");
 				return true;
 			}
 
@@ -666,14 +689,62 @@ namespace nkentseu {
 				frame.stride = static_cast<uint32>(w);
 				frame.timestampUs = static_cast<uint64>(ts / 1000);
 				frame.frameIndex = self->mFrameIdx++;
-				// Copier Y + UV
-				frame.data.Resize(static_cast<usize>(yLen + uLen + vLen));
-				if (yPlane)
-					memcpy(frame.data.Data(), yPlane, yLen);
-				if (uPlane)
-					memcpy(frame.data.Data() + yLen, uPlane, uLen);
-				if (vPlane)
-					memcpy(frame.data.Data() + yLen + uLen, vPlane, vLen);
+
+				// ── RESPECTER LES PAS DE PLAN ────────────────────────────────
+				// YUV_420_888 ne décrit pas UNE disposition mais une famille.
+				// Sur la plupart des téléphones — dont ce Samsung — la chroma
+				// est ENTRELACÉE : les plans U et V pointent dans le même
+				// tampon, décalés d'un octet, avec un pas de DEUX. Les recopier
+				// en bloc comme s'ils étaient compacts mélange U et V, et la
+				// couleur part n'importe où.
+				// On reconstruit donc un I420 franchement compact, en lisant le
+				// pas de pixel et le pas de ligne que le pilote annonce. C'est la
+				// seule lecture correcte, et elle vaut pour tous les appareils.
+				int32_t yPixStride = 1, yRowStride = w;
+				int32_t uPixStride = 1, uRowStride = w / 2;
+				int32_t vPixStride = 1, vRowStride = w / 2;
+				AImage_getPlanePixelStride(image, 0, &yPixStride);
+				AImage_getPlaneRowStride(image, 0, &yRowStride);
+				AImage_getPlanePixelStride(image, 1, &uPixStride);
+				AImage_getPlaneRowStride(image, 1, &uRowStride);
+				AImage_getPlanePixelStride(image, 2, &vPixStride);
+				AImage_getPlaneRowStride(image, 2, &vRowStride);
+
+				const uint32 uw = static_cast<uint32>(w) / 2u;
+				const uint32 uh = static_cast<uint32>(h) / 2u;
+				const usize ySize = static_cast<usize>(w) * static_cast<usize>(h);
+				const usize uvSize = static_cast<usize>(uw) * static_cast<usize>(uh);
+				frame.data.Resize(ySize + 2u * uvSize);
+				uint8 *dstY = frame.data.Data();
+				uint8 *dstU = dstY + ySize;
+				uint8 *dstV = dstU + uvSize;
+
+				if (yPlane) {
+					for (int32_t row = 0; row < h; ++row) {
+						const uint8_t *src = yPlane + static_cast<usize>(row) * yRowStride;
+						uint8 *dst = dstY + static_cast<usize>(row) * w;
+						if (yPixStride == 1) {
+							memcpy(dst, src, static_cast<usize>(w));
+						}
+						else {
+							for (int32_t col = 0; col < w; ++col) {
+								dst[col] = src[col * yPixStride];
+							}
+						}
+					}
+				}
+				if (uPlane && vPlane) {
+					for (uint32 row = 0; row < uh; ++row) {
+						const uint8_t *su = uPlane + static_cast<usize>(row) * uRowStride;
+						const uint8_t *sv = vPlane + static_cast<usize>(row) * vRowStride;
+						uint8 *du = dstU + static_cast<usize>(row) * uw;
+						uint8 *dv = dstV + static_cast<usize>(row) * uw;
+						for (uint32 col = 0; col < uw; ++col) {
+							du[col] = su[col * uPixStride];
+							dv[col] = sv[col * vPixStride];
+						}
+					}
+				}
 
 				AImage_delete(image);
 

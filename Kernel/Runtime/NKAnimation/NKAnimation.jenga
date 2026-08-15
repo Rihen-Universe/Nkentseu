@@ -1,0 +1,97 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+NKAnimation — Substrat d'animation (C++17, ZÉRO STL, AUCUN GPU)
+===============================================================
+Modèle d'animation autonome : clips et keyframes, échantillonnage, lecture,
+mélange 1D/2D, machine à états hiérarchique, reciblage inter-squelettes,
+trajectoires par spline, édition de pose-clés avec annuler/refaire.
+
+Ne connaît que Foundation. Aucun périphérique, aucun format, aucun rendu — c'est
+la condition pour que NkAnima, PV3DE, Noge et NKScena animent sans tirer le
+renderer, et pour qu'une application 2D puisse animer, ce que la règle
+d'exclusivité NKCanvas/NKRenderer interdisait jusqu'au 2026-08-14.
+
+Extrait de NKRenderer/Tools/Animation le 2026-08-14, bloc de décision
+« SUBSTRATS ANIMATION ET COMPORTEMENT » (CLAUDE.md du répertoire parent).
+
+Contenu (src/NKAnimation/) :
+  NkAnimation.*        => clips, keyframes, player, blend 1D/2D, HFSM
+  NkAnimRetarget.*     => rejouer un clip sur un AUTRE squelette
+  NkAnimationEditor.*  => modèle d'édition de pose-clés + annuler/refaire
+  NkMotionPath.*       => spline Catmull-Rom + suivi de trajectoire
+
+⚠️ CE QUI EST RESTÉ AU RENDERER, ET POURQUOI.
+`NKRenderer/Tools/Animation/` garde exactement deux choses, celles qui DESSINENT :
+la façade `NkAnimationSystem` (téléversement des matrices, meshes skinnés, pelure
+d'oignon, compute de morph) et `NkPoseDebugDraw`. Elles CONSOMMENT ce module.
+La frontière se lit dans les signatures : ce qui est préfixé `anim::` vient d'ici.
+
+⚠️ NkAnimationEditor EST ICI, ET CE N'EST PAS UN OUBLI.
+C'est un modèle de document avec pile d'annulation — il ne dessine rien et ne lit
+aucune entrée (vérifié avant de trancher : ses seules « occurrences » d'interface
+étaient le mot `Key` au sens de keyframe). Le mettre dans NKEditorKit aurait fait
+entrer NKAnimation comme dépendance de NKEditorKit, donc de NKCode : la
+dépendance aurait été à l'envers. Le widget qui l'affiche, lui, appartient à
+l'application — et un jour à NKEditorKit s'il devient réutilisable.
+
+⚠️ NkAnimationEditor est une FEUILLE : rien dans le substrat ne le tire, donc
+aucun consommateur qui ne s'en sert pas ne le paie (l'objet n'entre pas dans le
+binaire). Ne pas « optimiser » en le sortant : le coût mesuré est zéro.
+
+Dépendances : Foundation seule (NKCore/NKMemory/NKMath/NKContainers) + NKLogger,
+NKFileSystem (sauvegarde .nkanim).
+Consommateurs : NKRenderer (façade + debug-draw), Noge, NkAnimaEditor, Sandbox,
+NK3DModeler, NkAnimPhysTest, NkLocomotionDemo.
+
+Module FRÈRE de NKAnimPhysics, jamais son parent : les deux espaces de noms
+(`anim` et `animphys`) sont disjoints, aucun des deux modules n'inclut l'autre.
+"""
+
+from Jenga import *
+from jengaconfig import *
+
+with project("NKAnimation"):
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    nkentseudependson(
+        ["NKPlatform", "NKCore", "NKMemory", "NKMath", "NKContainers", "NKLogger", "NKFileSystem"],
+        selfexport="NKAnimation",
+        extra_includes=["src"],
+    )
+
+    files(["src/**.cpp"])
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}")
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+
+    with filter("system:Linux"):
+        links(["pthread"])
+    with filter("system:macOS"):
+        usetoolchain("clang-native")
+    with filter("system:Android"):
+        usetoolchain("android-ndk")
+        links(["android", "log"])
+        androidabis(["armeabi-v7a", "arm64-v8a", "x86", "x86_64"])
+    with filter("system:HarmonyOS"):
+        pchheader("")
+        pchsource("")
+        usetoolchain("ohos-ndk")
+        links(["hilog_ndk.z"])
+    with filter("system:Web"):
+        usetoolchain("emscripten")
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)

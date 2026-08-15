@@ -18,6 +18,34 @@
 > par `.gitignore`. Il n'est donc pas visible depuis un clone : ce fichier-ci
 > rappelle l'essentiel pour rester utilisable sans lui.
 
+> ### ⚠️ SI TU LIS CECI DEPUIS UN WORKTREE, IL TE MANQUE LES RÈGLES (2026-08-14)
+>
+> Ce fichier est **suivi par git**, donc présent partout. **Ce n'est pas le cas
+> des documents qui portent les règles et les décisions d'architecture** — ils
+> sont dans le `.gitignore`, donc **absents de tout worktree neuf**, et rien ne
+> signale leur absence : le dépôt a l'air complet.
+>
+> Manquent notamment `CLAUDE.md` (**règles git multi-agents, conventions, et
+> TOUS les blocs de décision** — substrat de graphe unique NKGraph, substrats
+> animation/comportement, exclusivité NKCanvas/NKRenderer),
+> `GUIDE_GIT_MULTI_AGENTS.md`, `ETAT_TRAVAUX.md`, `PLATEFORMES_ETAT.md`,
+> `PRINCIPES_CONCEPTION.private.md` et `Engine/Noge/CONTINUATION.md` — ce dernier
+> listant les fichiers **VERROUILLÉS** par un autre agent.
+>
+> **Parade, à faire avant d'écrire une ligne de code :**
+> ```
+> cp ../Nkentseu/CLAUDE.md .
+> cp ../Nkentseu/GUIDE_GIT_MULTI_AGENTS.md .
+> ```
+> (adapter si le dossier principal n'est pas `../Nkentseu`).
+>
+> **Pourquoi ça compte :** l'audit du 14/08 a trouvé un fork de 5 211 lignes du
+> lecteur PDF, deux `NkSWPixel`, et un **troisième** sélecteur de dossier écrit un
+> mois après la règle qui l'interdisait. Une règle absente du répertoire où l'on
+> travaille n'est pas une règle. Détail complet et question de fond — faut-il
+> verser ces documents au suivi git ? — dans `GUIDE_GIT_MULTI_AGENTS.md` § 8bis,
+> **non tranchée**, arbitrage de Rodolf.
+
 ---
 
 ## 1. Une instruction par ligne
