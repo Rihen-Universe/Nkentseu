@@ -247,6 +247,35 @@ coup. Relire le correctif ne le montrait pas.
 formule par la **plage**, jamais par le format. Différé volontairement pour ne
 pas élargir un diff en cours de fusion — différé, pas abandonné.
 
+### ⚠️ Windows — `autoFocus` est une promesse d'API NON TENUE (2026-08-15)
+
+`NkCameraConfig::autoFocus` vaut `true` par défaut et **le backend Win32 ne
+contient aucun code de mise au point** (`grep Focus` sur
+`NkWin32CameraBackend.h` : zéro occurrence). Le réglage est donc **ignoré en
+silence** — pas refusé, pas journalisé : ignoré. Sur une webcam à focale fixe
+(la plupart des portables) ça ne change rien, et c'est pourquoi personne ne l'a
+vu ; sur une webcam externe capable de faire la mise au point, on ne lui demande
+rien. À traiter via `IAMCameraControl` (DirectShow) ou
+`KSPROPERTY_CAMERACONTROL_FOCUS`.
+
+*Découvert en cherchant pourquoi l'image d'un portable paraissait floue — elle
+l'était pour une autre raison (capteur à focale fixe), mais la recherche a
+exhumé celle-ci.*
+
+### ✅ Windows — la résolution NÉGOCIÉE est enfin annoncée (2026-08-15)
+
+Media Foundation **ne refuse pas** un type qu'il ne sait pas servir : il en
+choisit un proche, en silence. Le backend lisait bien la taille réellement
+obtenue (`MFGetAttributeSize` sur le type courant) mais **ne l'annonçait nulle
+part** : une application pouvait croire filmer en 720p, recevoir du 640×480, et
+n'avoir comme seul symptôme qu'une image « floue » — en réalité étirée à la
+taille de la fenêtre.
+
+`StartStreaming` imprime désormais **le demandé ET l'obtenu**, en avertissement
+quand ils diffèrent. Même angle mort que celui qui a coûté une calibration
+entière sur Android le 12/08 (intrinsèques calculées sur la résolution
+demandée) ; il est maintenant fermé des deux côtés.
+
 - UWP et Xbox tombent sur Noop (pas de backend dédié)
 - Emscripten : nécessite HTTPS (ou localhost) pour `getUserMedia` ; le pump est via `setInterval` JS, donc le FPS effectif dépend du throttling navigateur (cap ~60 Hz, baisse en arrière-plan)
 - macOS backend déclare `NK_PIXEL_BGRA8` en sortie (cohérent avec CoreVideo) — `ConvertToRGBA8` swap les canaux côté CPU avant upload GPU
