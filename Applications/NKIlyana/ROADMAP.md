@@ -1231,3 +1231,48 @@ les **4 pièges de parenté**, dont l'absence du corpus a été vérifiée. Réf
 actuelle sur point de reprise faible : **11/30**, dont 1/7 en généralisation et
 3/5 sur les formulations présentes dans le corpus (Fisher p = 0,222 : le contraste
 n'est pas encore significatif, le point de reprise est trop jeune).
+
+## ✅ Chantier n°1 — ne plus monter de zeros : MESURE, gain x1,57 (16 aout 2026)
+
+Le poste n°1 de l'ordre de bataille est **clos par la mesure**, pas seulement par
+le correctif.
+
+| | |
+|---|---|
+| gain mesure | **36,5 %** du temps d'entrainement, acceleration **x1,57** |
+| protocole | 8 courses, meme binaire, interrupteur `NK_ZEROS_LEGACY` |
+| separation | plages disjointes : `LEGACY` le plus rapide (71,0 s) > `NEUF` le plus lent (62,8 s) |
+| appariement le plus defavorable | **11,5 %** |
+| `~upload` | 7 840 -> 560 appels ; 17 143 -> 400 ms (**−97,7 %**) |
+| trafic | **12,77 Go/pas -> 4,27 Mo/pas** |
+
+**Le gain depasse la borne annoncee (18,2-19,9 %) parce que la borne ne comptait
+que la ligne `~upload`.** `ToGPU` faisant `CreateBuffer` puis `Upload`, supprimer
+la bascule supprime aussi 2 704 allocations par pas : 41 % du gain vient de la,
+et non de la ligne des uploads. L'extrapolation « reserve de tampons a ~30-34 % »
+est confirmee.
+
+### Ce que la mesure a corrige dans sa propre methode
+
+1. **Alterner les modes ne suffit pas, il faut alterner l'ORDRE.** Premiere
+   tentative : `NEUF` toujours en second, alors que la machine s'accelere de
+   **25 %** au fil des courses (`LEGACY` : 94,9 -> 71,0 s sans rien changer).
+   L'avantage de position se deposait entierement sur un bras. Resultat encadre
+   entre 11 et 40 % — donc aucun resultat.
+2. **Un temoin non touche qui bouge invalide la comparaison.** La comparaison
+   naive avec le profil du 15/08 donnait la fenetre 41 % PLUS LENTE et
+   `matmul_t4` — non modifie — 44 % plus lent. Une regression allait etre
+   annoncee ; c'etait la machine, pas le code.
+
+### Ce qui reste ouvert sur ce front
+
+- **`~alloc` et `~free` restent les deux premiers postes** (26,9 % et 20,5 % apres
+  correctif) : 26 908 allocations par fenetre de 7 pas, INCHANGE. Le chantier
+  « reserve de tampons » n'est pas entame — seule la part liee aux uploads est
+  tombee.
+- **`~clear` apparait a 12,8 %** : c'est le cout du remede. Il reste tres
+  inferieur a ce qu'il remplace, mais il n'est pas gratuit et il est now le 3e
+  poste.
+- Le noyau `matmul_t4` varie toujours d'un facteur ~1,8 entre executions, non
+  explique (perimetre reduit : le banc `add` se reproduit a 15 % pres, donc
+  l'instabilite est propre a ce noyau).
