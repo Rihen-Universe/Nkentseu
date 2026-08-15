@@ -146,6 +146,49 @@ Légende : Livré · Partiel · En cours · TODO · Abandonné
 ---
 
 ## Bugs / quirks connus
+
+### ⚠️ MESURÉ — `SleepMilliseconds` dort ~15,5 ms quoi qu'on lui demande (2026-08-15)
+
+Sur Windows, **sans `timeBeginPeriod(1)`**, toute demande de 1 à 12 ms dort en
+réalité ~15,5 ms, et `Sleep(16)` dort **29,8 ms** — deux tics de 15,6.
+Relevé (`tests/bench_sleep.cpp`, 40 répétitions par palier) :
+
+| demandé | réel sans | réel avec `timeBeginPeriod(1)` |
+|---|---|---|
+| 1 ms | **15,53 ms** | 1,86 ms |
+| 4 ms | **15,50 ms** | 5,00 ms |
+| 12 ms | **15,39 ms** | 12,45 ms |
+| 16 ms | **29,76 ms** | 16,53 ms |
+
+**Ce n'est pas un défaut de NKTime** — c'est la résolution de minuterie du
+système, et `NkChrono.cpp:277` la documente déjà. Le défaut est **où l'appel se
+trouve** : `timeBeginPeriod(1)` n'existe qu'à **un seul endroit du moteur**,
+`NkRendererImpl.cpp:116`. Toute application qui n'initialise pas NKRenderer —
+une démo caméra en OpenGL direct, un outil, un banc d'essai — hérite donc de la
+granularité par défaut **sans que rien ne le lui dise**.
+
+**Conséquence mesurée, et elle dépassait mon chantier** : une boucle cadencée par
+`Sleep(16 − travail)` n'est pas cadencée, elle est **quantifiée**. Sur
+`NkCameraDemos --demo=viewer`, intervention à trois exécutions par condition :
+
+| | run 1 | run 2 | run 3 | amplitude |
+|---|---|---|---|---|
+| sans | 40,7 | 41,2 | 40,1 img/s | 1,1 |
+| avec `timeBeginPeriod(1)` | 62,9 | 62,7 | 62,7 img/s | **0,2** |
+
+Forcer la résolution ne rend pas seulement les 60 img/s : **elle supprime la
+dispersion**. C'est l'origine du plancher de bruit de ±33 % qui empêchait deux
+bancs d'essai distincts de conclure (le mien sur le coût du journal, celui de
+NK3DModeler sur les captures).
+
+⚠️ **DÉCISION EN ATTENTE — où placer l'appel.** Le mettre dans NKRenderer seul
+est exactement ce qui a créé le problème. Trois pistes, aucune tranchée :
+(1) au point d'entrée `NkMain`, pour toute application ; (2) une API explicite
+`NkChrono::BeginPreciseTiming()` que l'application appelle ; (3) dans
+`SleepMilliseconds` lui-même — écarté a priori : effet global permanent pour un
+appel local. **À arbitrer avant d'être fait** : ça touche toutes les
+applications, et ça ne se décide pas depuis un chantier XR.
+
 - L'annonce DST dans `NkTimeZone` n'est pas couverte par les tests actuels :
   seul UTC et offset fixe sont validés.
 - Le tableau du Readme indique `float64 ns + 4 unités précalculées` pour
