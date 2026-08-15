@@ -196,6 +196,25 @@ namespace nkentseu {
 		void Demo3DHostSelectAllLights();
 		bool Demo3DHostAllLightsSelected();
 		void Demo3DHostDeselectAll();
+		// ── QU'Y A-T-IL SOUS CE PIXEL ? (glisser-deposer du navigateur) ─────
+		// Le MEME pick que le clic de selection (Demo3D_PickEmptyAt) : le
+		// lacher et le clic ne peuvent donc pas designer deux objets
+		// differents. Coordonnees en pixels de la VUE, origine coin haut
+		// gauche du viseur -- les memes que `Demo3DHostSetView` decale.
+		//
+		// Deux appels, parce que la reponse n'existe qu'a la frame suivante :
+		// le pick a besoin de la camera et de la taille de vue, toutes deux
+		// locales a la frame. L'interface DEMANDE, la boucle EXECUTE.
+		void Demo3DHostPickRequest(float32 xVue, float32 yVue);
+		/// Lit la reponse UNE SEULE FOIS ; false tant qu'elle n'est pas prete.
+		/// `*node` porte TROIS issues, et elles sont dans la valeur :
+		///   >= 0 : le noeud designe
+		///   -1   : RIEN sous le curseur (le vide). C'est un RESULTAT legitime,
+		///          pas un echec -- et surtout pas le noeud 0, qui existe.
+		///   -2   : hors du viseur (la question n'a pas de sens ici).
+		/// `world3` recoit le point du monde vise (surface touchee, sinon plan
+		/// du sol y=0) : c'est la ou un modele lache dans le vide doit atterrir.
+		bool Demo3DHostPickTake(int32 *node, float32 *world3);
 		void Demo3DHostObjectPosition(int32 i, float32 *out3);
 		int32 Demo3DHostLightCount();
 		void Demo3DHostLightName(int32 li, char *out, uint32 cap);

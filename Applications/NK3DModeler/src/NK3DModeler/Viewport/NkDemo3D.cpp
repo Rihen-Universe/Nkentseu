@@ -65,6 +65,29 @@ namespace nkentseu {
 		static float32 nkvpOffX = 0.f, nkvpOffY = 0.f; // origine de la vue (px fenetre)
 		static float32 nkvpW = 0.f, nkvpH = 0.f;	   // taille de la vue
 		static bool nkvpInputOn = true;				   // faux pendant une saisie de texte
+		// ── LE JETON DE PICK DU GLISSER-DEPOSER ─────────────────────────────
+		// L'interface DEMANDE, la boucle EXECUTE -- meme motif que
+		// `capturePending` du shell. Le pick a besoin de la CAMERA et de la
+		// TAILLE DE VUE, toutes deux locales a la frame : memoriser ces trois
+		// choses dans des globales aurait ajoute trois etats a synchroniser
+		// pour resoudre un probleme que le jeton resout sans etat durable.
+		//
+		// LE RESULTAT SE CONSOMME UNE FOIS ET S'INVALIDE. S'il restait lisible
+		// apres avoir servi, un second lacher pendant que le premier est en vol
+		// lirait une reponse perimee -- et elle aurait l'air d'un resultat.
+		// C'est le defaut `mResolvedStaleFrames` du 15/08 : un etat qui survit
+		// a sa validite, que personne ne remet a zero, et qui ment sans jamais
+		// se signaler.
+		//
+		// -3 = AUCUNE REPONSE. Ni 0 (un noeud valide), ni -1 (« le vide », qui
+		// EST une reponse) : la valeur de repos ne doit pas pouvoir passer pour
+		// un resultat.
+		static constexpr int32 kNkvpPickNone = -3;
+		static bool nkvpPickReq = false;			 // une demande attend la frame
+		static float32 nkvpPickReqX = 0.f, nkvpPickReqY = 0.f;
+		static bool nkvpPickHas = false;			 // un resultat attend son lecteur
+		static int32 nkvpPickNode = kNkvpPickNone;
+		static float32 nkvpPickWorld[3] = {0.f, 0.f, 0.f};
 		// ── TOUCHE DE NAVIGATION, LUE PAR POLLING ───────────────────────────
 		// Les gestionnaires d'EVENEMENTS de la vue sont deja gardes par
 		// nkvpInputOn ; le pilotage de camera, lui, interroge l'etat clavier a
@@ -2419,6 +2442,141 @@ namespace nkentseu {
 				}
 			}
 			return hit;
+		}
+
+		// ── LE PICK D'OBJET, SORTI DU CLIC POUR SERVIR AUSSI LE LACHER ──────────────
+		// Ce code vivait DANS le corps du clic de selection, donc inatteignable depuis
+		// ailleurs : le glisser-deposer du navigateur n'avait aucun moyen de savoir ce
+		// qui se trouve sous le curseur. Il est sorti TEL QUEL -- widgets a la distance
+		// ECRAN, maillages au rayon-triangle sur le mesh reel -- pour que le clic et le
+		// lacher designent le MEME objet par construction. Deux picks separes auraient
+		// fini par diverger, et personne n'aurait su lequel des deux a raison.
+		//
+		// Retour : l'index de VIDE (noeud - kNkvpFirstEmpty), ou **-1 si rien**.
+		// -1 est un RESULTAT, pas un echec : c'est « le curseur est sur le vide ».
+		// Zero n'est JAMAIS « rien » -- c'est un vide valide, et le rendre pour un
+		// lacher dans le vide ferait assigner le materiau au premier objet de la scene.
+		//
+		// `worldOut3`, s'il est fourni, recoit le point du monde vise : le point TOUCHE
+		// quand un maillage est touche, sinon l'intersection avec le plan du sol
+		// (y = 0), sinon un point devant la camera. C'est ce qui permet a un modele
+		// lache dans le vide d'atterrir QUELQUE PART plutot qu'a l'origine.
+		static int32 Demo3D_PickEmptyAt(Demo3DState *st, DemoCtx &ctx, NkVec3f camPos,
+										NkVec3f camTgt, float32 mx, float32 my,
+										float32 *worldOut3) {
+			const Demo3D_ScreenProj uproj =
+				Demo3D_ScreenProj::Make(camPos, camTgt, 60.f, (float32)ctx.width, (float32)ctx.height);
+			const NkVec3f fwd2 = (camTgt - camPos).Normalized();
+			const NkVec3f rgt2 = fwd2.Cross(NkVec3f{0.f, 1.f, 0.f}).Normalized();
+			int32 bestU = -1; // widgets : distance ECRAN
+			// Maillages : candidat par RAYON-TRIANGLE sur le mesh reel, metrique = t du
+			// rayon (le plus PROCHE gagne).
+			int32 bestMeshU = -1;
+			float32 bestMeshT = 1e30f;
+			// Rayon MONDE du pixel vise -- meme convention que uproj (inverse exact de
+			// sa projection). NON normalise : le parametre t reste celui du rayon monde
+			// et se compare entre objets.
+			const float32 rnx = 2.f * mx / uproj.vw - 1.f;
+			const float32 rny = 1.f - 2.f * my / uproj.vh;
+			const NkVec3f rdW{uproj.fwd.x + uproj.rgt.x * rnx * uproj.thX + uproj.upv.x * rny * uproj.thY,
+							  uproj.fwd.y + uproj.rgt.y * rnx * uproj.thX + uproj.upv.y * rny * uproj.thY,
+							  uproj.fwd.z + uproj.rgt.z * rnx * uproj.thX + uproj.upv.z * rny * uproj.thY};
+			auto *msPick = ctx.renderer ? ctx.renderer->GetMeshSystem() : nullptr;
+			float32 bestD2 = 1e30f;
+			for (int32 u2 = 0; u2 < kNkvpMaxUser; ++u2) {
+				const uint8 uk2 = nkvpUserKind[u2];
+				if (uk2 == 0)
+					continue; // slot libre -- tout le reste se clique
+				const int32 un2 = kNkvpFirstUser + u2;
+				if (nkvpIsModel[un2])
+					continue; // un model se prend PAR SA MATIERE : sa propre origine ne
+							  // dessine rien, et y laisser une cible faisait une zone
+							  // fantome loin de ses maillages (Rihen)
+				if (HostHiddenEff(un2) || HostLockedEff(un2))
+					continue;
+				const int32 e2 = un2 - kNkvpFirstEmpty;
+				if (uk2 >= 1 && uk2 <= 3) {
+					// MAILLAGE : la designation se decide sur le MESH REEL
+					// (rayon-triangle), transform monde identique a celui du rendu.
+					NkMeshHandle pm = st->meshPlane;
+					const uint8 usv2 = nkvpUserSub[u2];
+					if (uk2 == 1)
+						pm = usv2 == 1 ? st->meshIco : st->meshSphere;
+					else if (uk2 == 2)
+						pm = usv2 == 1 ? st->meshCylinder : (usv2 == 2 ? st->meshCone : st->meshCube);
+					if (nkvpUserMesh[u2].IsValid())
+						pm = nkvpUserMesh[u2];
+					NkMat4f W = HostEmptyXform(e2, true); // point de passage unique
+					if (nkvpBaseSet[un2])
+						W = W * NkMat4f::Scale({nkvpDimFactor[un2][0], nkvpDimFactor[un2][1],
+												nkvpDimFactor[un2][2]});
+					float32 tHit = bestMeshT;
+					if (Demo3D_RayMeshT(msPick, pm, W, camPos, rdW, tHit)) {
+						bestMeshT = tHit;
+						bestMeshU = e2;
+					}
+					continue;
+				}
+				const NkVec3f c2{nkvpEmptyPos[e2][0], nkvpEmptyPos[e2][1], nkvpEmptyPos[e2][2]};
+				float32 rw = fabsf(nkvpEmptyScl[e2][0]);
+				if (fabsf(nkvpEmptyScl[e2][1]) > rw)
+					rw = fabsf(nkvpEmptyScl[e2][1]);
+				if (fabsf(nkvpEmptyScl[e2][2]) > rw)
+					rw = fabsf(nkvpEmptyScl[e2][2]);
+				rw = rw * 0.7f + 0.15f;
+				if (nkvpBaseSet[un2] && nkvpDimFactor[un2][0] > 0.f)
+					rw *= nkvpDimFactor[un2][0];
+				float32 sx0 = 0.f, sy0 = 0.f;
+				if (!uproj(c2, sx0, sy0))
+					continue;
+				// Widgets (lumiere, camera, vides, marqueurs) : taille ECRAN constante.
+				float32 rpix = 16.f;
+				if (uk2 >= 1 && uk2 <= 3) {
+					float32 sx1 = 0.f, sy1 = 0.f;
+					const NkVec3f edge{c2.x + rgt2.x * rw, c2.y + rgt2.y * rw, c2.z + rgt2.z * rw};
+					if (!uproj(edge, sx1, sy1))
+						continue;
+					rpix = sqrtf((sx1 - sx0) * (sx1 - sx0) + (sy1 - sy0) * (sy1 - sy0));
+				}
+				const float32 pdx = mx - sx0, pdy = my - sy0;
+				const float32 pd2 = pdx * pdx + pdy * pdy;
+				if (pd2 <= rpix * rpix && pd2 < bestD2) {
+					bestD2 = pd2;
+					bestU = e2;
+				}
+			}
+			// PRIORITE aux widgets (petite cible ecran, intention precise) ; sinon le
+			// maillage reellement TOUCHE par le rayon.
+			if (bestU < 0)
+				bestU = bestMeshU;
+			// DANS UNE SCENE, designer un MESH INTERNE designe TOUT le model auquel il
+			// appartient (façon Blender) ; dans l'editeur de model, chaque mesh se
+			// designe individuellement (regle de Rihen).
+			if (bestU >= 0 && !nkvpDocIsModel) {
+				const int32 nB = bestU + kNkvpFirstEmpty;
+				const int32 rB = Demo3DHostModelRootOf(nB);
+				if (rB != nB && rB >= kNkvpFirstEmpty)
+					bestU = rB - kNkvpFirstEmpty;
+			}
+			if (worldOut3) {
+				// Le point vise, dans l'ordre de ce qui est le plus fidele a
+				// l'intention : la surface touchee, puis le sol, puis un point devant
+				// la camera. Le dernier repli n'est pas cosmetique -- sans lui, une
+				// camera qui regarde l'horizon ferait atterrir le modele a l'origine,
+				// c'est-a-dire n'importe ou sauf la ou on a lache.
+				float32 tW = bestMeshT;
+				if (tW > 1e29f && fabsf(rdW.y) > 1e-5f) {
+					const float32 tg = -camPos.y / rdW.y; // plan du sol y = 0
+					if (tg > 1e-4f)
+						tW = tg;
+				}
+				if (tW > 1e29f)
+					tW = 8.f / (rdW.Len() > 1e-6f ? rdW.Len() : 1.f);
+				worldOut3[0] = camPos.x + rdW.x * tW;
+				worldOut3[1] = camPos.y + rdW.y * tW;
+				worldOut3[2] = camPos.z + rdW.z * tW;
+			}
+			return bestU;
 		}
 
 		// Test PRECIS des objets de DEMO pour le gizmo : resout le MEME mesh que le
@@ -9551,118 +9709,14 @@ namespace nkentseu {
 						// principe que les lumieres : centre projete, rayon approche.
 						if (gin.leftPressed && !st->emptyGizmo.IsDragging() &&
 							!st->gizmo.IsDragging()) { // une POIGNEE saisie a priorite
-							const Demo3D_ScreenProj uproj = Demo3D_ScreenProj::Make(
-								cam.GetPosition(), cam.GetTarget(), 60.f, (float32)ctx.width,
-								(float32)ctx.height);
-							const NkVec3f camP2 = cam.GetPosition();
-							const NkVec3f fwd2 = (cam.GetTarget() - camP2).Normalized();
-							const NkVec3f rgt2 = fwd2.Cross(NkVec3f{0.f, 1.f, 0.f}).Normalized();
-							int32 bestU = -1; // widgets : distance ECRAN
-								// Maillages : candidat par RAYON-TRIANGLE sur le mesh
-								// reel, metrique = t du rayon (le plus PROCHE gagne).
-								int32 bestMeshU = -1;
-								float32 bestMeshT = 1e30f;
-								// Rayon MONDE du pixel clique -- meme convention que
-								// uproj (inverse exact de sa projection).
-								const float32 rnx = 2.f * gin.mouseX / uproj.vw - 1.f;
-								const float32 rny = 1.f - 2.f * gin.mouseY / uproj.vh;
-								const NkVec3f rdW{uproj.fwd.x + uproj.rgt.x * rnx * uproj.thX +
-													  uproj.upv.x * rny * uproj.thY,
-												  uproj.fwd.y + uproj.rgt.y * rnx * uproj.thX +
-													  uproj.upv.y * rny * uproj.thY,
-												  uproj.fwd.z + uproj.rgt.z * rnx * uproj.thX +
-													  uproj.upv.z * rny * uproj.thY};
-								auto *msPick = ctx.renderer->GetMeshSystem();
-								const float32 kD2Rp = 0.017453292f;
-							float32 bestD2 = 1e30f;
-							for (int32 u2 = 0; u2 < kNkvpMaxUser; ++u2) {
-								const uint8 uk2 = nkvpUserKind[u2];
-								if (uk2 == 0)
-									continue; // slot libre -- tout le reste se clique
-								const int32 un2 = kNkvpFirstUser + u2;
-								if (nkvpIsModel[un2])
-									continue; // un model se clique PAR SA MATIERE : sa
-											  // propre origine ne dessine rien, et y
-											  // laisser une cible faisait une zone
-											  // fantome loin de ses maillages (Rihen)
-								if (HostHiddenEff(un2) || HostLockedEff(un2))
-									continue;
-								const int32 e2 = un2 - 90;
-									if (uk2 >= 1 && uk2 <= 3) {
-										// MAILLAGE : le clic se decide sur le MESH REEL
-										// (rayon-triangle), transform monde identique a
-										// celui du rendu. Le disque approche d'avant
-										// (rayon = plus grande echelle) volait le vide
-										// voisin des objets agrandis.
-										NkMeshHandle pm = st->meshPlane;
-										const uint8 usv2 = nkvpUserSub[u2];
-										if (uk2 == 1)
-											pm = usv2 == 1 ? st->meshIco : st->meshSphere;
-										else if (uk2 == 2)
-											pm = usv2 == 1 ? st->meshCylinder
-														   : (usv2 == 2 ? st->meshCone
-																		: st->meshCube);
-										if (nkvpUserMesh[u2].IsValid())
-											pm = nkvpUserMesh[u2];
-										NkMat4f W = HostEmptyXform(e2, true); // point de passage unique
-										if (nkvpBaseSet[un2])
-											W = W * NkMat4f::Scale({nkvpDimFactor[un2][0],
-																	nkvpDimFactor[un2][1],
-																	nkvpDimFactor[un2][2]});
-										float32 tHit = bestMeshT;
-										if (Demo3D_RayMeshT(msPick, pm, W, camP2, rdW, tHit)) {
-											bestMeshT = tHit;
-											bestMeshU = e2;
-										}
-										continue;
-									}
-								const NkVec3f c2{nkvpEmptyPos[e2][0], nkvpEmptyPos[e2][1],
-												 nkvpEmptyPos[e2][2]};
-								float32 rw = fabsf(nkvpEmptyScl[e2][0]);
-								if (fabsf(nkvpEmptyScl[e2][1]) > rw)
-									rw = fabsf(nkvpEmptyScl[e2][1]);
-								if (fabsf(nkvpEmptyScl[e2][2]) > rw)
-									rw = fabsf(nkvpEmptyScl[e2][2]);
-								rw = rw * 0.7f + 0.15f;
-								if (nkvpBaseSet[un2] && nkvpDimFactor[un2][0] > 0.f)
-									rw *= nkvpDimFactor[un2][0];
-								float32 sx0 = 0.f, sy0 = 0.f;
-								if (!uproj(c2, sx0, sy0))
-									continue;
-								// Maillage : rayon MONDE projete ; widgets (lumiere,
-								// camera, vides, marqueurs) : taille ecran constante.
-								float32 rpix = 16.f;
-								if (uk2 >= 1 && uk2 <= 3) {
-									float32 sx1 = 0.f, sy1 = 0.f;
-									const NkVec3f edge{c2.x + rgt2.x * rw, c2.y + rgt2.y * rw,
-													   c2.z + rgt2.z * rw};
-									if (!uproj(edge, sx1, sy1))
-										continue;
-									rpix = sqrtf((sx1 - sx0) * (sx1 - sx0) +
-												 (sy1 - sy0) * (sy1 - sy0));
-								}
-								const float32 pdx = gin.mouseX - sx0, pdy = gin.mouseY - sy0;
-								const float32 pd2 = pdx * pdx + pdy * pdy;
-								if (pd2 <= rpix * rpix && pd2 < bestD2) {
-									bestD2 = pd2;
-									bestU = e2;
-								}
-							}
-							// PRIORITE aux widgets (petite cible ecran, intention
-							// precise) ; sinon le maillage reellement TOUCHE par le
-							// rayon -- et rien touche = deselection plus bas.
-							if (bestU < 0)
-								bestU = bestMeshU;
-							// DANS UNE SCENE, cliquer un MESH INTERNE selectionne TOUT
-							// le model auquel il appartient (facon Blender) ; dans
-							// l'editeur de model, chaque mesh se selectionne
-							// individuellement (regle de Rihen).
-							if (bestU >= 0 && !nkvpDocIsModel) {
-								const int32 nB = bestU + kNkvpFirstEmpty;
-								const int32 rB = Demo3DHostModelRootOf(nB);
-								if (rB != nB && rB >= kNkvpFirstEmpty)
-									bestU = rB - kNkvpFirstEmpty;
-							}
+							// LE PICK EST SORTI D ICI (Demo3D_PickEmptyAt, pres de
+							// Demo3D_RayMeshT) et le clic l APPELLE desormais : le lacher
+							// du navigateur avait besoin du meme geste, et deux picks
+							// ecrits deux fois auraient fini par designer deux objets
+							// differents sans que personne sache lequel a raison.
+							int32 bestU = Demo3D_PickEmptyAt(st, ctx, cam.GetPosition(),
+															 cam.GetTarget(), gin.mouseX,
+															 gin.mouseY, nullptr);
 							const bool clickedActive =
 								(bestU >= 0 && bestU == st->emptyGizmo.ActiveIndex());
 							if (clickedActive)
@@ -9959,6 +10013,30 @@ namespace nkentseu {
 								r3d->DrawDebugTriangle(a, b, c, col, 0.f, true);
 							});
 				}
+			}
+
+			// ── LE PICK DEMANDE PAR L'INTERFACE SE RESOUT ICI ───────────────────────
+			// HORS du bloc `!editMode` : le navigateur reste visible en mode edition,
+			// donc on peut y lacher un materiau. Y enfermer la resolution aurait rendu
+			// le glisser-deposer muet dans un mode entier, sans que rien ne le dise.
+			if (nkvpPickReq) {
+				nkvpPickReq = false;
+				float32 w3[3] = {0.f, 0.f, 0.f};
+				// HORS DU VISEUR : la question n'a pas de sens ici. Un pick qui
+				// repondrait « rien » a une coordonnee hors cadre serait
+				// indistinguable d'un lacher legitime dans le vide.
+				if (nkvpPickReqX < 0.f || nkvpPickReqY < 0.f ||
+					nkvpPickReqX >= (float32)ctx.width || nkvpPickReqY >= (float32)ctx.height) {
+					nkvpPickNode = -2;
+				} else {
+					const int32 e = Demo3D_PickEmptyAt(st, ctx, cam.GetPosition(), cam.GetTarget(),
+														   nkvpPickReqX, nkvpPickReqY, w3);
+					nkvpPickNode = (e >= 0) ? (e + kNkvpFirstEmpty) : -1;
+				}
+				nkvpPickWorld[0] = w3[0];
+				nkvpPickWorld[1] = w3[1];
+				nkvpPickWorld[2] = w3[2];
+				nkvpPickHas = true;
 			}
 
 			// ── WIDGETS DES LUMIERES (facon Blender) ────────────────────────────────
@@ -13238,6 +13316,38 @@ namespace nkentseu {
 			auto *st = HostSt();
 			return st ? st->gizmo.ActiveIndex() : -1;
 		}
+		// ── GLISSER-DEPOSER : DEMANDER UN PICK, PUIS LIRE SA REPONSE ─────────
+		// Deux appels et non un seul, parce que la reponse n'existe pas au
+		// moment de la question : le pick a besoin de la camera et de la taille
+		// de vue, qui ne vivent que le temps d'une frame. Le retard d'une image
+		// est invisible a la main pour un lacher de souris.
+		void Demo3DHostPickRequest(float32 xVue, float32 yVue) {
+			nkvpPickReqX = xVue;
+			nkvpPickReqY = yVue;
+			nkvpPickReq = true;
+			// UNE DEMANDE NEUVE PERIME LA PRECEDENTE. Sans cela, un second
+			// lacher pendant que le premier est en vol laisserait deux reponses
+			// en circulation, et la plus vieille serait lue en premier.
+			nkvpPickHas = false;
+			nkvpPickNode = kNkvpPickNone;
+		}
+		// false tant que la frame n'a pas repondu. true UNE SEULE FOIS par
+		// demande : le jeton se consomme et s'invalide dans le meme geste.
+		bool Demo3DHostPickTake(int32 *node, float32 *world3) {
+			if (!nkvpPickHas)
+				return false;
+			nkvpPickHas = false;
+			if (node)
+				*node = nkvpPickNode;
+			if (world3) {
+				world3[0] = nkvpPickWorld[0];
+				world3[1] = nkvpPickWorld[1];
+				world3[2] = nkvpPickWorld[2];
+			}
+			nkvpPickNode = kNkvpPickNone; // plus rien a lire, et ca se voit
+			return true;
+		}
+
 		void Demo3DHostSelectObject(int32 i, bool additive) {
 			auto *st = HostSt();
 			if (!st)
