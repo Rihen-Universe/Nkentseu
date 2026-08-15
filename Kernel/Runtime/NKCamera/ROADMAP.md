@@ -200,13 +200,26 @@ et les PNG produits **bit pour bit identiques** avant et après (comparaison
 d'empreintes MD5 sur un binaire reconstruit dans chaque état, pas un
 raisonnement).
 
-⚠️ **Ce que cette comparaison ne prouve pas** : les trames synthétiques de la
-démo ont U = V = 128, donc **les termes de chrominance sont multipliés par
-zéro**. L'égalité des PNG atteste le choix de plage et le chemin de luminance,
-pas les coefficients de chrominance. Ceux-ci sont vérifiés autrement — par
-recensement des constantes avant/après : ensembles identiques, multiplicités
-conformes (chaque branche porte maintenant les deux formules). Une image
-colorée de référence reste le contrôle qui manque.
+⚠️ **Cette première comparaison passait pour une raison insuffisante**, et c'est
+noté ici parce que le piège est réutilisable : les trames synthétiques avaient
+U = V = 128, donc **les termes de chrominance étaient multipliés par zéro**. Les
+PNG étaient bit pour bit identiques — ils l'auraient été aussi avec les
+coefficients de chrominance cassés. Un contrôle qui réussit pour une raison qui
+n'est pas celle qu'on croit.
+
+✅ **Comblé le jour même.** Les trois trames YUV de `--demo=format` sont
+désormais en deux moitiés : moitié haute à chrominance neutre (contrôle de
+LUMINANCE, tel qu'à l'origine), moitié basse à chrominance variable — U suit la
+verticale, V suit l'horizontale (contrôle de CHROMINANCE). Valeurs tenues dans
+[96, 160], **luminance comprise, pour qu'aucune sortie n'écrête** : un écrêtage
+rendrait le même 0 ou le même 255 pour deux formules différentes et masquerait
+l'écart cherché.
+
+Refait avec ces trames, l'ancien et le nouveau convertisseur — deux binaires
+reconstruits — rendent des sorties **identiques sur les quatre formats,
+chrominance comprise**. Et les formats ne se confondent plus entre eux
+(YUYV ≠ NV12 désormais : leur sous-échantillonnage chroma diffère réellement),
+ce qui montre que la trame discrimine.
 
 ---
 
