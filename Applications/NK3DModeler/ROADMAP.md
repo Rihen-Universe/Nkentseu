@@ -357,6 +357,31 @@ multiplient (chaque opération devra être une commande réversible).
 - **Aucune référence inventée** dans l'interface : chaque libellé décrit ce qui
   existe vraiment.
 
+## Dette à trancher — les bancs GPU sont des tests déclarés en applications
+
+*(nommée le 2026-08-15 ; ce n'est le chantier de personne aujourd'hui)*
+
+Un banc d'essai qui a besoin d'un **device GPU** ne peut pas être un test
+`unitest()` : sur les **26 dossiers `tests/`** du dépôt, **aucun** n'inclut
+`NkIDevice` ni `NKRHI` — ils font du calcul pur. Les bancs GPU sont donc
+déclarés comme des **applications ordinaires**, et ils sont désormais **quatre** :
+
+| banc | ce qu'il vérifie |
+|---|---|
+| `Applications/NKQ4MatmulTest` | déquantification Q4_K/Q6_K bit à bit + matmul |
+| `Applications/NkTensorGpuTest` | tenseurs GPU |
+| `Applications/NKGpuBenchTest` | débit des noyaux |
+| `Applications/NkMatInventaireTest` | aperçus des `.nkmat` (inventaire matériaux) |
+
+**La question à trancher quand la séparation des cibles de Jenga arrivera ici :
+un banc GPU mérite-t-il son propre genre de cible ?** Aujourd'hui ils comptent
+comme des applications et restent donc dans le build par défaut.
+
+⚠️ **Pourquoi c'est écrit ici plutôt que laissé à l'évidence** : le cinquième
+serait posé sans que personne sache qu'il y en avait déjà quatre. C'est le motif
+des six compensations du bloom — chacune raisonnable seule, aucune ne nommant la
+cause commune.
+
 ## Pièges techniques déjà payés
 
 - **Registre de zones** (`NkHitRegistry`) : capacité 1024 depuis v15. À 256 il
