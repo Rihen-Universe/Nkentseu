@@ -13,11 +13,14 @@
 
 #include "NKCore/NkTypes.h"
 #include "NKContainers/String/NkString.h"
+// NkTensor.h est CPU-only et LEGER (aucune dependance NKRHI/NKSL) : l'inclure ici
+// donne `NkShape`/`NkDType` aux fabriques GPU declarees plus bas, sans rien tirer
+// de NKRHI dans les en-tetes. Le sens de dependance reste celui d'origine — le
+// contexte GPU connait le tenseur, le tenseur ne connait pas NKRHI.
+#include "NKTensor/NkTensor.h"
 
 namespace nkentseu {
 	namespace ai {
-
-		class NkTensor; // forward (défini dans NkTensor.h)
 
 		class NkTensorGpu {
 			public:
@@ -83,6 +86,32 @@ namespace nkentseu {
 				bool Upload(uint64 id, const void *data, nk_size bytes);
 				bool Download(uint64 id, void *out, nk_size bytes);
 
+				// ---- Remise a zero SUR PLACE, sans transfert depuis l'hote ----------
+				// Remplit `bytes` octets du tampon avec le motif 32 bits `motif`
+				// (0 = zeros). Passe par `NkICommandBuffer::ClearBuffer` (NKRHI).
+				//
+				// ⚠️ POURQUOI CETTE FONCTION EXISTE. `NkVar::Backward()` remettait a
+				// zero chaque accumulateur de gradient en fabriquant un tenseur CPU nul
+				// et en le MONTANT sur le GPU : 12,77 Go de zeros par pas, 99,9 % de
+				// tout le trafic CPU->GPU de l'entrainement, depuis une seule ligne. Il
+				// n'y a aucune information dans ce transfert.
+				//
+				// Renvoie false si le tampon est invalide OU si la primitive n'est pas
+				// disponible sur le backend courant — voir ClearDisponible().
+				bool Clear(uint64 id, nk_size bytes, uint32 motif = 0);
+
+				// La primitive de remise a zero fonctionne-t-elle VRAIMENT ici ?
+				//
+				// ⚠️ Verifie par un TEMOIN, pas par une declaration : au premier appel,
+				// on alloue un petit tampon, on y ecrit un motif non nul, on appelle
+				// Clear, on relit, et on exige des zeros. C'est la lecon du 16/08 —
+				// `ClearBuffer` etait declare sur les six backends et implemente sur
+				// AUCUN, et un `grep` du nom plus un appelant avaient suffi a le croire
+				// implemente. Une signature ne prouve rien ; une relecture, si.
+				//
+				// Le resultat est calcule UNE fois et journalise (disponible ou non).
+				static bool ClearDisponible();
+
 				// ---- Kernels ------------------------------------------------------
 				// Élémentaire binaire : C = f(A, B) sur `count` éléments f32.
 				// Le kernel NkSL doit déclarer buffers 0,1,2 (A,B,C) + UBO binding 3
@@ -146,6 +175,24 @@ namespace nkentseu {
 				Impl *mImpl = nullptr;
 				bool EnsureInit();
 		};
+
+		// Tenseur de ZEROS fabrique DIRECTEMENT sur le GPU : allocation + remise a
+		// zero sur place, AUCUN transfert depuis l'hote.
+		//
+		// ⚠️ C'est la fonction a utiliser a la place de
+		// `ToDevOf(NkTensor::Zeros(shape), ref)` : cette forme-la fabrique les zeros
+		// sur CPU puis les monte, et c'est elle qui produisait 12,77 Go de trafic
+		// CPU->GPU par pas d'entrainement.
+		//
+		// ⚠️ Ce n'est PAS `NkTensor::Zeros(shape, dtype, NK_GPU)` : le parametre
+		// `device` des fabriques de NkTensor n'est pas honore (il pose `mDevice` sans
+		// allouer de tampon GPU) — il echoue desormais bruyamment au lieu de mentir.
+		//
+		// Renvoie un tenseur INVALIDE si le GPU est indisponible, si l'allocation
+		// echoue, ou si la remise a zero n'est pas realisable sur ce backend
+		// (NkTensorGpu::ClearDisponible). Jamais un tampon au contenu indetermine :
+		// des gradients faux ne se distinguent pas de gradients justes.
+		NkTensor NkGpuZeros(const NkShape &shape, NkDType dtype = NkDType::NK_F32);
 
 		// Ops GPU (appelées par ops::Add / ops::Matmul quand un opérande est sur GPU).
 		// Déplacent au besoin les opérandes sur GPU ; renvoient un tenseur device=GPU.

@@ -27,7 +27,7 @@
 | Corpus RÉEL (Wikipédia FR) | 🔶 | **2,1 Go déjà sur disque**, à préparer |
 | Charte de comportement (valeurs) | ⏳ | spécifiée ci-dessous, à écrire en corpus |
 | Récupération documentaire (elle va LIRE au lieu de deviner) | ⏳ | la vraie réponse à l'hallucination |
-| Accélération du moteur d'entraînement | 🔶 | **budget mesuré par noyau le 15/08** — voir « Les trois horizons » ci-dessous. Aucun correctif décisif : cinq postes d'un sixième chacun |
+| Accélération du moteur d'entraînement | 🔶 | budget mesuré par noyau (15/08), **corrigé le 16/08** : l'instrument attribuait mal. **Chantier n°1 FAIT** — on ne monte plus 12,7 Go de zéros par pas (12 770 → 13,2 Mo/pas). Restent n°2 (réserve de tampons) et n°3 (un tampon de commandes par pas), qui commandent tout le reste |
 | Boucle de correction (apprendre de ses torts) | ⏳ | consigner → verser au corpus → réentraîner |
 | Orchestration des sous-systèmes (modéliser, animer, parler…) | ⏳ | cap final |
 
@@ -69,6 +69,31 @@ partout — d'où les fourchettes.
 | `add` (élémentaire) | 10,5 à 10,7 % | 2 812 appels/pas ; **97 % du temps d'une addition n'est pas l'addition** |
 | hors instrumentation | 11 à 13 % | construction des lots, autograd CPU, journalisation |
 
+#### ⚠️⚠️ CE TABLEAU EST MAL ATTRIBUÉ — correction du 2026-08-16, à lire AVANT de s'en servir
+
+**L'instrument facture au NOYAU une partie du coût de l'allocation qui le précède.**
+Ce n'est pas une hypothèse : mesuré au banc, **le même dispatch `add` passe de
+~110 µs à ~570 µs du seul fait qu'un `CreateBuffer` le précède**, et l'écart
+(+430 à +480 µs) n'apparaît **pas** sur la ligne `~alloc`. `CreateBuffer` rend la
+main avant que le pilote ait engagé la mémoire ; l'attente retombe dans le
+`WaitIdle` du dispatch, donc sur la ligne du noyau. *(Cause alternative non
+séparée — premier accès à un tampon neuf — même remède, donc non départagée.)*
+
+Conséquences **sur les lignes ci-dessus**, pas ailleurs :
+
+| ligne du tableau | ce qu'elle dit | ce qu'il faut lire |
+|---|---|---|
+| `~alloc` + `~free` | 17,8 à 22,0 % | **sous-déclare** : + ~11-12 % cachés dans les lignes de noyaux, soit **~30-34 %** |
+| `softmax_rows`, `matmul_t4`, `add` | leur temps « GPU » | **surdéclarent** : l'essentiel du temps attribué à un noyau **n'est pas du temps GPU** |
+| le classement lui-même | cinq postes d'un sixième | la réserve de tampons passe de **×1,22-1,28 à ×1,43-1,52** |
+
+Les ~11-12 % sont une **extrapolation du banc vers la production** (9 316
+allocations/pas × ~440 µs de débordement ÷ un pas de 33-36 s), donnée comme telle.
+Une mesure directe demanderait des horodatages GPU.
+
+⚠️ **Donc : ne jamais lire une ligne de noyau de ce tableau comme du temps GPU**,
+et ne pas conclure « il faut optimiser tel noyau » à partir de son rang ici.
+
 ### ⚠️ Ce que ça réfute, et qui était écrit ici
 
 1. **« Le tuilage du matmul apporte l'essentiel. »** FAUX. Borne supérieure, en
@@ -98,7 +123,7 @@ sont **un seul défaut**, et le n°2 est devenu le geste le moins cher du chanti
 
 | # | chantier | part mesurée | ce que ça vaut SEUL | coût |
 |---|---|---|---|---|
-| 1 | **ne plus monter des ZÉROS** : `NkVar::Backward()` remet à zéro chaque accumulateur de gradient en fabriquant un tenseur CPU et en le montant — **12,7 Go de zéros par pas, 99,9 % de tous les uploads**. Remède : un petit noyau NkSL de remise à zéro dans NKTensor (voir ⚠️ ci-dessous : `ClearBuffer` n'est PAS utilisable) | 18,2-19,9 % | ×1,22 à ×1,25 | **petit, mais pas trivial** |
+| 1 | ✅ **FAIT le 2026-08-16 — ne plus monter des ZÉROS** : `NkVar::Backward()` remettait à zéro chaque accumulateur de gradient en fabriquant un tenseur CPU et en le montant — **12,7 Go de zéros par pas, 99,9 % de tous les uploads**. Remède livré : `NkGpuZeros()` alloue et remet à zéro **sur place** (`ClearBuffer` → `vkCmdFillBuffer`). Trafic CPU→GPU : **12 770 Mo/pas → 13,2 Mo/pas** | annoncé 18,2-19,9 % | **mesuré : ×1,05 à ×1,14** (lignes directement attribuées ; borne INFÉRIEURE) | fait |
 | 2 | **réserve de tampons** : recycler par taille au lieu de créer/détruire 9 316 fois par pas. **Revalorisé** : le profil facture une partie du coût d'allocation aux NOYAUX (mesuré : un dispatch passe de ~110 µs à ~570 µs du seul fait qu'un `CreateBuffer` le précède) | 17,8-22,0 % **+ ~11-12 % cachés dans les lignes de noyaux** | **×1,43 à ×1,52** | jours |
 | 3 | **un tampon de commandes par pas** au lieu d'un `WaitIdle` par dispatch : **le plancher est mesuré à 107-121 µs par dispatch**, × 28 119 opérations/pas | ~19 % | agit sur 3, 4, 5 | jours |
 | 4 | **`softmax_rows`** : un groupe de fils par ligne, réduction en mémoire partagée, 2 passes au lieu de 3 | 13,1-14,2 % | ×1,15 à ×1,17 | jours |
@@ -139,17 +164,45 @@ les cas). Si cette hypothèse avait tenu, aucune réserve de tampons n'aurait se
    `softmax_causal`). Leur **temps** est juste ; leur **débit** ne l'est pas. À
    corriger en passant le nombre d'éléments à `NkGpuChrono::Travail`.
 2. **Le profil attribue au noyau une part du coût de l'allocation qui le
-   précède** (mesuré : +430 à +480 µs). Les lignes `~alloc`/`~free` sous-déclarent,
-   les lignes de noyaux surdéclarent. Séparer proprement demanderait des
-   horodatages GPU ; en attendant, ne pas lire une ligne de noyau comme du temps GPU.
-3. **Le paramètre `device` des fabriques `NkTensor::Empty`/`Zeros`/`Ones`/`Full`
-   n'est PAS honoré pour `NK_GPU`** : `Empty` alloue toujours un stockage hôte et
-   se contente de poser `mDevice`, et le `memset` de `Zeros` est conditionné à
-   l'existence de ce stockage. Un tenseur ainsi fabriqué compilerait, tournerait,
-   et donnerait des gradients faux **en silence**. À corriger ou à interdire par
-   assertion — c'est un piège posé dans une signature d'API.
+   précède** (mesuré : +430 à +480 µs). → **Détail, chiffres et conséquences sur le
+   classement : dans le bloc « CE TABLEAU EST MAL ATTRIBUÉ », juste sous le tableau
+   du budget d'un pas.** Il est là-haut et pas ici parce qu'un tableau faux dont la
+   correction est rangée ailleurs reste un tableau faux — c'est un **renvoi**, pas
+   une copie : deux copies d'un même fait divergent.
+3. ✅ **RÉGLÉ le 2026-08-16** — *« le paramètre `device` des fabriques
+   `NkTensor::Empty`/`Zeros`/`Ones`/`Full` n'est PAS honoré pour `NK_GPU` »*.
+   `Empty` **refuse** désormais `NK_GPU` : elle signale au compteur de défauts que
+   l'entraînement consulte et renvoie un tenseur **invalide**, au lieu d'en rendre
+   un qui ment. Pour un tenseur de zéros résident GPU : **`NkGpuZeros(shape,
+   dtype)`** (`NKTensor/NkTensorGpu.h`), qui alloue et remet à zéro **sur place**.
+   *(Périmètre vérifié avant le changement : aucun appelant du dépôt ne passait
+   `NK_GPU` à ces fabriques — les seuls appels à trois arguments passent
+   `NkDevice::NK_CPU` explicitement.)*
+   Règle qui en sort, promue au corpus : *un paramètre qui n'est pas honoré est
+   pire qu'un paramètre absent — l'absence force à chercher, la présence dispense
+   de vérifier.*
 
-### ⚠️⚠️ `NkICommandBuffer::ClearBuffer` N'EXISTE QUE SUR LE PAPIER — 0 backend sur 6
+### ✅ `NkICommandBuffer::ClearBuffer` — n'existait QUE SUR LE PAPIER, réparé le 2026-08-16
+
+> **Où ça en est.** Le corps de base **parle** (journal « non implémenté sur ce
+> backend ») au lieu d'être un no-op muet, et **Vulkan** le surcharge
+> (`vkCmdFillBuffer`). Les cinq autres backends ne sont **pas** touchés : ils
+> tombent sur l'avertissement, ce qui est le comportement voulu — bruyamment
+> incomplet plutôt que silencieusement faux. Fichiers touchés dans NKRHI (module
+> partagé) : `Commands/NkICommandBuffer.h`, `Commands/NkICommandBuffer.cpp`
+> (nouveau), `Vulkan/NkVulkanCommandBuffer.{h,cpp}`. Par ricochet,
+> **`NKRHI/Core/NkML.cpp:77` et `:106` sont réparés sur Vulkan**.
+>
+> ⚠️ Et NKTensor **ne fait pas confiance à la signature** : `ClearDisponible()`
+> vérifie par un **témoin** (écrire un motif non nul → `Clear` → relire → exiger
+> des zéros) et se replie sur le chemin historique si le témoin échoue. C'est
+> exactement l'erreur ci-dessous qu'on refuse de refaire.
+>
+> ⚠️ **Reste au même endroit, non traité** : `ClearTexture` (`NkICommandBuffer.h`)
+> a la **même forme** — corps vide dans l'interface. Non vérifié, non touché : hors
+> mandat. À qui travaille sur NKRHI, c'est le prochain à regarder.
+
+**Ce qui suit est le diagnostic d'origine, conservé — il vaut plus que le correctif.**
 
 **Correction à ce que j'avais écrit une heure plus tôt dans cette même ROADMAP.**
 J'avais annoncé « le remède existe déjà, `NKRHI/Core/NkML.cpp:77` l'utilise ».
@@ -175,22 +228,15 @@ plateformes.** C'est la face « une protection qui ne protège rien », dans sa 
 la plus coûteuse : un virtuel à corps vide ne se distingue pas d'un virtuel
 implémenté, au point d'appel comme à la lecture.
 
-⚠️ **Conséquence hors de mon chantier, à relayer** : `NKRHI/Core/NkML.cpp:77`
+⚠️ **Conséquence hors de mon chantier, relayée puis traitée** : `NKRHI/Core/NkML.cpp:77`
 (`cmd->ClearBuffer(t.grad, 0)`, commentaire « Init gradient à zéro ») et `:106`
-comptent dessus. **Ces tampons ne sont mis à zéro nulle part, sur aucun backend.**
-Je ne touche pas à NKRHI — module partagé — mais le fait est mesuré et il ne
-m'appartient pas de le garder.
+comptent dessus. **Ces tampons n'étaient mis à zéro nulle part, sur aucun backend.**
+Quelqu'un avait écrit l'INTENTION en commentaire, personne n'avait écrit
+l'implémentation, et **le commentaire a servi de preuve** pendant tout ce temps.
 
-**Ce que ça change pour le chantier n°1** : le remède reste petit, mais il est à
-écrire — soit un noyau NkSL de remise à zéro dans NKTensor (mon périmètre, à
-préférer), soit `vkCmdFillBuffer` dans le backend Vulkan (périmètre NKRHI).
-
-### Dette d'instrument, nommée
-
-La colonne `Go/s` du profil est **fausse** pour les noyaux dont le paramètre
-`count` compte des fils et non des éléments (`softmax_rows`, `rmsnorm_*`,
-`softmax_causal`). Leur **temps** est juste ; leur **débit** ne l'est pas. À
-corriger en passant le nombre d'éléments à `NkGpuChrono::Travail`.
+**La leçon, qui survit au correctif** : *un appelant ne prouve rien sur l'appelé ;
+il prouve que quelqu'un d'autre a cru la même chose que moi.* Devant un `virtual`,
+chercher **qui le SURCHARGE**, avec un témoin — pas qui l'appelle.
 
 ---
 

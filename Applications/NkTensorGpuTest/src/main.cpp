@@ -293,6 +293,49 @@ int main(int argc, char **argv) {
 		return r;
 	}
 
+	// ---- 0) ClearBuffer : la primitive fait-elle VRAIMENT quelque chose ? -------
+	// ⚠️ Ce cas existe parce que `NkICommandBuffer::ClearBuffer` a vecu des mois
+	// declare sur les six backends et implemente sur AUCUN : corps vide, zero
+	// surcharge, deux appelants convaincus du contraire. Une signature ne prouve
+	// rien. Ce test ecrit un motif non nul, appelle la remise a zero, et RELIT.
+	{
+		const uint32 N = 64;
+		uint32 motif[N], relu[N];
+		for (uint32 i = 0; i < N; i++) {
+			motif[i] = 0xDEADBEEFu;
+			relu[i] = 0xFFFFFFFFu;
+		}
+		uint64 b = gpu.CreateBuffer(N * sizeof(uint32));
+		gpu.Upload(b, motif, N * sizeof(uint32));
+		const bool efface = gpu.Clear(b, N * sizeof(uint32), 0);
+		gpu.Download(b, relu, N * sizeof(uint32));
+		bool zeros = efface;
+		for (uint32 i = 0; i < N; i++)
+			if (relu[i] != 0u)
+				zeros = false;
+		printf("  clear: relu[0..3]=[%08X %08X %08X %08X] (attendu 00000000 x4), backend=%s\n", relu[0], relu[1],
+			   relu[2], relu[3], gpu.BackendName());
+		check(zeros, "ClearBuffer met REELLEMENT le tampon a zero (temoin ecriture/relecture)");
+		check(NkTensorGpu::ClearDisponible() == zeros, "ClearDisponible() dit la meme chose que le temoin");
+		gpu.DestroyBuffer(b);
+
+		// Et le tenseur de zeros GPU, qui est ce qui interesse l'entrainement.
+		NkTensor z = NkGpuZeros(NkShape{4, 5});
+		bool zok = z.IsValid() && z.Device() == NkDevice::NK_GPU;
+		if (zok) {
+			NkTensor c = z.ToCPU();
+			const float *p = c.DataAs<float>();
+			for (int i = 0; i < 20 && zok; i++)
+				if (p[i] != 0.f)
+					zok = false;
+		}
+		check(zok, "NkGpuZeros([4,5]) : tenseur GPU valide et rempli de zeros, SANS upload");
+
+		// Le parametre `device` des fabriques CPU doit echouer BRUYAMMENT, pas mentir.
+		NkTensor piege = NkTensor::Zeros(NkShape{4}, NkDType::NK_F32, NkDevice::NK_GPU);
+		check(!piege.IsValid(), "NkTensor::Zeros(..., NK_GPU) refuse au lieu de rendre un tenseur qui ment");
+	}
+
 	// ---- 1) Élémentaire : C = A + B --------------------------------------------
 	{
 		const uint32 N = 100;
