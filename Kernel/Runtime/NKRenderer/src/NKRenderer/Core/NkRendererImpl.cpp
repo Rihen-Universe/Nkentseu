@@ -1095,9 +1095,37 @@ namespace nkentseu {
 				// render pass — meme modele que la passe d'ombres. Reads(mainColor)
 				// reste necessaire pour que le RG insere la barriere
 				// COLOR_ATTACHMENT -> SHADER_READ sur le HDR avant l'echantillonnage.
+				// ── LE JETON D'ORDRE, ET POURQUOI IL EXISTE ──────────────────────
+				// Le tonemap CONSOMME ce que l'auto-exposition PRODUIT (la cible 1x1,
+				// binding 4). Cette dependance est REELLE et le graphe ne la voyait
+				// pas : la cible est hors-graph, donc aucune passe ne declarait
+				// dependre d'AutoExposure.
+				//
+				// L'ordre etait pourtant correct — par la rencontre de TROIS
+				// proprietes independantes, verifiees le 15/08 : (1) le tri de Kahn
+				// a une file STABLE (FIFO sur l'index de declaration) ; (2) les
+				// lectures d'AutoExposure sont un SOUS-ENSEMBLE de celles du
+				// tonemap, donc elle est prete au plus tot ; (3) elle est declaree
+				// avant lui. Qu'UNE seule de ces trois change — un Reads ajoute au
+				// tonemap, une passe deplacee — et l'ordre s'inverse EN SILENCE :
+				// le tonemap exposerait alors avec la mesure de la frame
+				// precedente, ce qui ne se voit pas en regime etabli et saute aux
+				// yeux sur une transition.
+				//
+				// Un jeton 1x1 rend l'invariant EXPLICITE : ce qui etait une
+				// coincidence structurelle devient une arete du graphe. Cout : un
+				// pixel. Il ne transporte aucune donnee — seulement l'ordre.
+				NkGraphResId aeOrderTok = NK_INVALID_RES_ID;
 				if (mPostProcess && mPostProcess->IsAutoExposureEnabled()) {
+					aeOrderTok = g.CreateTransient(
+						"AutoExposureOrder", NkTextureDesc::RenderTarget(1, 1, NkGPUFormat::NK_R8_UNORM));
 					auto &ae = g.AddPass("AutoExposure", NkPassType::NK_POST_PROCESS);
 					ae.Reads(mainColor);
+					// Ecriture DECLAREE mais jamais faite : le jeton n'est pas un
+					// attachement de cette passe (elle rend hors-graph). C'est
+					// exactement ce qu'on veut — une arete de dependance, pas un
+					// transfert.
+					ae.WritesStorage(aeOrderTok);
 					// LA MESURE PORTE SUR CE QUI SERA AFFICHE : le tonemap compose
 					// scene + halo, donc la mesure doit lire les deux. En ne voyant
 					// que la scene, elle s'ouvrait face a une source eblouissante
@@ -1123,6 +1151,11 @@ namespace nkentseu {
 
 				auto &pp = g.AddPass("PostProcess", NkPassType::NK_POST_PROCESS);
 				pp.Reads(mainColor);
+				// L'AUTRE BOUT DU JETON : le tonemap lit l'exposition mesuree par
+				// la passe precedente. Declare uniquement quand l'auto tourne —
+				// sinon le graphe attendrait une ressource que personne n'ecrit.
+				if (aeOrderTok != NK_INVALID_RES_ID)
+					pp.Reads(aeOrderTok);
 				if (mainDepth != NK_INVALID_RES_ID)
 					pp.Reads(mainDepth);
 				if (hasBloom && bloomMip[0] != NK_INVALID_RES_ID)
