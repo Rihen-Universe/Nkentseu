@@ -366,6 +366,26 @@ scène »**, à lire avant d'écrire son chargeur)*
 dans l'hôte du viewport via **42 points d'entrée** `Demo3DHostProjMat*`. Il
 n'existe aucune fonction *« lis ce `.nkmat`, rends-moi un matériau »*.
 
+**LE CHIFFRE QUI DIT L'AMPLEUR — mesuré le 15/08 en essayant.** Écrire un banc
+qui lit dix `.nkmat` hors du modeleur a buté sur **trois paliers de couplage**,
+découverts un par un à la compilation :
+
+1. `NKGui` — l'en-tête des assets tire `NkModelerInput.h`, qui tire le contexte
+   d'interface ;
+2. `NKEditorKit` — puis le thème de l'éditeur ;
+3. **118 symboles `Demo3DHost*` non résolus** — définis dans `NkDemo3D.cpp`
+   (17 620 lignes), donc à **compiler** dans toute cible qui veut lire un
+   matériau.
+
+**Lire un fichier de matériau tire donc toute la pile d'INTERFACE**, pas
+seulement le viseur. Ce n'est pas un coût de lien (ce qui n'est pas appelé ne
+part pas dans le binaire) : c'est un coût de **compilation**, payé à chaque
+build, par toute cible qui touche au format.
+
+C'est ce chiffre qui a fait **arrêter** le banc d'inventaire
+(`Applications/NkMatInventaireTest`, conservé avec son en-tête d'arrêt) au profit
+de quatre captures manuelles.
+
 **Une fonction de chargement dont la sortie est un effet de bord sur un hôte
 d'interface ne peut être réutilisée par personne** : le lecteur et l'affichage
 sont soudés, donc il n'y a qu'un consommateur possible. Un banc d'essai, un

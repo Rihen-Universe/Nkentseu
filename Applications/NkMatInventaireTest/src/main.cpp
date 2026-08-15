@@ -1,4 +1,49 @@
 // =============================================================================
+// ⛔ CE BANC EST ARRETE — IL COMPILE, IL NE LINKE PAS. NE PAS LE REPRENDRE TEL
+//    QUEL. Lire ce bloc avant de toucher au reste du fichier.
+//
+// OU IL S'ARRETE, exactement
+// --------------------------
+// 118 symboles `nkentseu::demo::Demo3DHost*` non resolus. Ils sont definis dans
+// `NkDemo3D.cpp` (17 620 lignes), qui appartient au projet NK3DModeler. Pour que
+// ce banc linke, il faut COMPILER les sources du modeleur dans sa cible.
+//
+// POURQUOI ON S'EST ARRETE LA PLUTOT QUE DE LE FAIRE
+// --------------------------------------------------
+// Parce que le cout mesure n'est plus celui qu'on avait estime en le decidant.
+// L'estimation initiale disait « 200 lignes qui orchestrent ». La mesure dit :
+// une cible qui compile TOUTE LA PILE D'INTERFACE a chaque build — la cascade
+// fait trois paliers, NKGui -> NKEditorKit -> l'hote — et qui casse des que le
+// viseur casse. Et ce, dans un depot ou l'on travaille par ailleurs a degonfler
+// le build par defaut.
+//
+// En face : quatre captures a la main, une fois. Six des dix materiaux sont des
+// defauts jamais edites (mesure sur pieces) — le banc n'existait donc que pour
+// QUATRE materiaux, et il ne repond pas sur la famille qui compte le plus
+// (« la chaine trahit un materiau juste »), puisqu'il rend avec l'eclairage de
+// l'apercu et non celui de la scene.
+//
+// L'arbitrage qui rendait ce banc rentable ne tient plus. Ce n'est pas le banc
+// qui etait une mauvaise idee : c'est son prix qui a change quand on l'a mesure.
+//
+// QUAND LE REPRENDRE — il redevient ecrivable en une heure
+// --------------------------------------------------------
+// Le jour ou `Demo3DHost` sera une bibliotheque au lieu d'un .cpp d'application,
+// ce fichier linke sans une ligne de plus. C'est la dette « charger un .nkmat
+// ecrit dans l'hote » dans Applications/NK3DModeler/ROADMAP.md — et le chantier
+// de l'asset rendu la forcera.
+//
+// CE QU'IL A RAPPORTE SANS JAMAIS TOURNER
+// ---------------------------------------
+//   - deux absences : pas de creation de device sans fenetre, pas de lecteur
+//     autonome de .nkmat ;
+//   - la cascade de couplage mesuree (trois paliers) ;
+//   - la justification chiffree de la dette ci-dessus.
+// Un instrument qu'on prepare est deja un consommateur : il trouve ce que la
+// relecture ne trouve pas, meme quand il ne demarre pas.
+// =============================================================================
+
+// =============================================================================
 // NkMatInventaireTest — rend un APERCU par fichier .nkmat, sans souris.
 //
 // POURQUOI CE BANC EXISTE
