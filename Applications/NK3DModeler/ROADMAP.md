@@ -357,6 +357,31 @@ multiplient (chaque opération devra être une commande réversible).
 - **Aucune référence inventée** dans l'interface : chaque libellé décrit ce qui
   existe vraiment.
 
+## Dette — charger un `.nkmat` écrit dans l'hôte au lieu de rendre une valeur
+
+*(nommée le 2026-08-15 — **prérequis du chantier « l'asset rendu quitte la
+scène »**, à lire avant d'écrire son chargeur)*
+
+`NkAsMatRestore(archive, root, slot, texMiss)` ne construit **rien** : il écrit
+dans l'hôte du viewport via **42 points d'entrée** `Demo3DHostProjMat*`. Il
+n'existe aucune fonction *« lis ce `.nkmat`, rends-moi un matériau »*.
+
+**Une fonction de chargement dont la sortie est un effet de bord sur un hôte
+d'interface ne peut être réutilisée par personne** : le lecteur et l'affichage
+sont soudés, donc il n'y a qu'un consommateur possible. Un banc d'essai, un
+outil de conversion, un test de migration — aucun ne peut s'en servir sans
+embarquer le viewport.
+
+⚠️ **Pourquoi c'est un prérequis et pas une remarque** : l'asset rendu sera
+**un fichier chargé par une scène**. Il aura besoin exactement de la fonction
+« lis ce fichier, rends-moi une valeur » qui n'existe pas ici. Écrite en
+reproduisant le même couplage à l'hôte, elle donnera **deux formats non
+réutilisables au lieu d'un** — et le second sera découvert après coup, comme
+celui-ci.
+
+**Ce n'est pas un chantier ouvert.** C'est la ligne qui doit être lue avant
+d'écrire le chargeur de l'asset rendu, pour que la question se pose *avant*.
+
 ## Dette à trancher — les bancs GPU sont des tests déclarés en applications
 
 *(nommée le 2026-08-15 ; ce n'est le chantier de personne aujourd'hui)*
