@@ -463,6 +463,13 @@ avant d'écrire.
 
 > #### 🌉 AU MOMENT DE PASSER À JENGA v2.3.0 — MESURER DANS LES DEUX RÉGIMES
 >
+> ✅ **L'ATTENTE EST LEVÉE — vérifié le 2026-08-15.** La PR #24 est **fusionnée
+> sur `main`** : `git log --oneline -5 main` dans `D:/Projets/MacShared/Projets/Jenga`
+> donne **`a6578d1` « feat(build): --keep-going, cibles de test = racines, et un
+> compteur qui ne ment plus (#24) »**. Mesuré, pas relayé — la note antérieure
+> « pas encore fusionnée » est périmée. **Le chantier 11 peut reprendre**, et le
+> pont ci-dessous est à faire **à la première exécution**, pas plus tard.
+>
 > La v2.3.0 sort les racines de test du build par défaut : **272 → 206 cibles**.
 > Le dénominateur change donc, et **les relevés 0 et 1 ci-dessus (60/205 et
 > 79/203) cessent d'être comparables aux suivants**. Une série longitudinale se
