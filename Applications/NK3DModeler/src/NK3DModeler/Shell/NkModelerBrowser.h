@@ -443,6 +443,43 @@ namespace nkentseu {
 						p.Image(4400u + (uint32)mTh,
 								{cx - side2 * 0.5f, tyy + (pvH - side2) * 0.5f, side2,
 								 side2});
+							// ---- LA PASTILLE D'ALBEDO : une DONNEE a cote d'une SIMULATION ----
+							//
+							// La boule d'apercu ci-dessus est rendue sous un eclairage de studio,
+							// sur fond clair. Elle est belle, et elle MENT : un albedo gris 0,7 y
+							// parait blanc, puis se pose sombre dans une scene a ambiance 0,050.
+							// Rihen l'a constate le 15/08 (« le materiau porte ne correspond pas a
+							// ce qui est rendu ») et l'a demontre sans le vouloir : en deplacant la
+							// meme sphere du sol vers la lumiere, elle est passee de presque noire
+							// a gris clair. Meme materiau, meme albedo, deux eclairages.
+							//
+							// Une vignette est une SIMULATION : elle depend de la lumiere qu'on lui
+							// donne. Une pastille est une DONNEE : elle ne depend de rien. On garde
+							// donc les deux -- l'apercu pour la matiere, la pastille pour la
+							// couleur -- au lieu de choisir laquelle nous trompe le moins.
+							//
+							// Le lisere sombre n'est pas decoratif : sans lui, un albedo presque
+							// blanc disparait dans une vignette claire, et un albedo presque noir
+							// dans une vignette sombre. La pastille doit rester lisible AUX DEUX
+							// EXTREMITES de ce qu'elle sert a montrer.
+							float32 alb[3] = {0.f, 0.f, 0.f};
+							char nomMat[64] = {0};
+							demo::Demo3DHostProjMatInfo(mTh, nomMat, (uint32)sizeof(nomMat), alb,
+								nullptr, nullptr);
+							const float32 pastC = S(12.f);
+							const float32 pastX = cx + side2 * 0.5f - pastC - S(3.f);
+							const float32 pastY = tyy + (pvH + side2) * 0.5f - pastC - S(3.f);
+							// L'albedo vit en [0,1] flottant ; la pastille se peint en octets.
+							// On borne AVANT de convertir : une valeur hors plage ne doit pas
+							// reboucler en une couleur qui aurait l'air d'un choix.
+							auto oct = [](float32 v) -> uint8 {
+								const float32 c = v < 0.f ? 0.f : (v > 1.f ? 1.f : v);
+								return (uint8)(c * 255.f + 0.5f);
+							};
+							p.Fill({pastX - 1.f, pastY - 1.f, pastC + 2.f, pastC + 2.f},
+								NkColor{0, 0, 0, 170}, 2.f);
+							p.Fill({pastX, pastY, pastC, pastC},
+								NkColor{oct(alb[0]), oct(alb[1]), oct(alb[2]), 255}, 2.f);
 					} else {
 						p.Disc(cx, cy, 22.f, role);
 						p.Disc(cx - 8.f, cy - 8.f, 5.f, NkRole::Text);
