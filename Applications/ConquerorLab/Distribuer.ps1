@@ -49,7 +49,7 @@
 # textes ci-dessous ressortait alors en « Ã© » dans le LISEZMOI livre au
 # stagiaire — le tout PREMIER fichier qu'il ouvre. Constate, puis corrige.
 # =============================================================================
-param([switch]$NoBuild, [switch]$Zip, [string]$Config = 'Release')
+param([switch]$NoBuild, [switch]$Zip, [string]$Config = 'Release', [switch]$SansControle)
 
 $ErrorActionPreference = 'Stop'
 
@@ -57,6 +57,24 @@ $lab   = $PSScriptRoot                              # Applications/ConquerorLab
 $repo  = Split-Path (Split-Path $lab -Parent) -Parent
 $kit   = Join-Path $repo "Build\ConquerorLab-Kit"
 $binSrc = Join-Path $repo "Build\Bin\$Config-Windows\ConquerorLab\ConquerorLab.exe"
+
+# ── 0. Coherence de la pile, AVANT de construire quoi que ce soit ────────────
+# La pile offerte au stagiaire est decrite CINQ fois dans cinq fichiers. Le
+# 2026-08-15, NKSerialization figurait dans quatre listes et manquait a la seule
+# qui construit : ce script s'arretait alors sur « Bibliotheque introuvable »
+# APRES une compilation complete, et tout module de stagiaire echouait au lien.
+#
+# Le controle coute quelques secondes et se place ICI, avant le build, parce
+# qu'un controle qu'on lance a la main n'est jamais lance.
+if (-not $SansControle) {
+    Write-Host "Verification de la pile..." -ForegroundColor Cyan
+    & python (Join-Path $lab 'verifier_la_pile.py')
+    if ($LASTEXITCODE -ne 0) {
+        throw ("Les listes qui decrivent la pile stagiaire divergent (voir " +
+               "ci-dessus). Corrigez, ou relancez avec -SansControle si vous " +
+               "savez ce que vous faites.")
+    }
+}
 
 # ── 1. Construire ────────────────────────────────────────────────────────────
 if (-not $NoBuild) {
