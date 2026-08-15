@@ -239,7 +239,16 @@ namespace nkentseu {
 						e.log = cr.log;
 						if (!cr.success) {
 							e.status = NkcModuleStatus::CompileError;
-							logger.Errorf("[lab] compilation echouee : %s", e.sourcePath.CStr());
+							// LA RAISON PART AVEC LE MESSAGE, pas seulement dans le
+							// panneau. Le panneau est parfait tant que le stagiaire est
+							// devant sa machine ; il ne l'est plus quand il nous ecrit
+							// « ca ne compile pas » et joint son journal. Sans cette
+							// ligne, `logs/app.log` disait « compilation echouee » sans
+							// un mot de plus — le meme silence, deplace d'un cran.
+							logger.Errorf("[lab] compilation echouee : %s\n%s",
+										  e.sourcePath.CStr(),
+										  e.log.Empty() ? "(le compilateur n'a rien dit)"
+														: e.log.CStr());
 							return false;
 						}
 					}

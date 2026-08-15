@@ -115,17 +115,37 @@ namespace nkentseu {
 				/// Relit le dossier de travail. Meme piege que `SeedFrom` : `GetFiles`
 				/// rend des chemins COMPLETS. On garde le chemin tel quel, et on
 				/// n'affiche que le nom du fichier — c'est ce que l'utilisateur nomme.
+				///
+				/// ⚠️ CETTE FONCTION EST CELLE QUI DECIDE DE CE QUE LE STAGIAIRE VOIT,
+				/// et elle se taisait. `SeedFrom` disait ce qu'il avait installe, mais
+				/// la question posee — « j'ai ajoute un fichier, pourquoi n'apparait-il
+				/// pas ? » — se repond ICI et nulle part ailleurs. Un « Rafraichir » qui
+				/// ne laisse aucune trace ne se distingue pas d'un « Rafraichir » qui
+				/// regarde le mauvais dossier : c'est le meme silence qui a coute le
+				/// defaut d'amorcage. Appelee sur EVENEMENT seulement (demarrage,
+				/// bouton, apres ecriture d'un exemple) — jamais par image, donc
+				/// journaliser ici ne noie rien.
 				void Refresh() noexcept {
 					mFiles.Clear();
-					if (mDir.Empty()) return;
+					if (mDir.Empty()) {
+						logger.Warnf("[lab] grilles de travail : aucun dossier defini");
+						return;
+					}
 					NkVector<NkString> paths = NkDirectory::GetFiles(mDir.CStr(), "*.json");
+					uint32			   ignores = 0;
 					for (usize i = 0; i < paths.Size(); ++i) {
 						NkcBoardFile f;
 						f.name = NkPath(paths[i]).GetFileName();
 						f.path = paths[i];
-						if (f.name.Empty()) continue;
+						if (f.name.Empty()) { ++ignores; continue; }
 						mFiles.PushBack(f);
 					}
+					logger.Infof("[lab] grilles de travail : %u retenue(s) sur %u fichier(s) "
+								 ".json vu(s)%s  [%s]",
+								 static_cast<uint32>(mFiles.Size()),
+								 static_cast<uint32>(paths.Size()),
+								 ignores ? " (des noms illisibles ont ete ignores)" : "",
+								 mDir.CStr());
 				}
 
 				/// Ecrit un exemple si le dossier est vide, a partir du plateau que le
