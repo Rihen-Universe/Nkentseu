@@ -15,11 +15,11 @@ partagent exactement le même contrat de mémoire et les mêmes types. Apprendre
 apprendre les douze.
 
 Le principe est uniforme. Chaque codec est une **classe purement statique** (on ne l'instancie
-jamais) qui expose au minimum `Decode` et, le plus souvent, `Encode`. Décoder produit toujours un
-`NkImage*` — l'objet pivot du module, décrit en bas de page — ou `nullptr` en cas d'échec.
-Encoder remplit soit un **buffer mémoire** que vous devrez libérer, soit directement un **fichier**
-sur disque. Toutes ces méthodes sont `noexcept` : un format invalide ne lève jamais d'exception,
-il renvoie `nullptr` ou `false`.
+jamais) qui expose au minimum `Decode` et, le plus souvent, `Encode`. Décoder produit toujours une
+`NkImage` **par valeur** — l'objet pivot du module, décrit en bas de page — qui est **invalide**
+en cas d'échec. Encoder remplit soit un **buffer mémoire** que vous devrez libérer, soit
+directement un **fichier** sur disque. Toutes ces méthodes sont `noexcept` : un format invalide ne
+lève jamais d'exception, il rend une image `IsValid()==false` ou `false`.
 
 - **Namespace** : `nkentseu` (sous-namespace `nkentseu::math` pour `NkColor`/`NkIntRect`)
 - **Header parapluie** : `#include "NKImage/NKImage.h"` (inclut `NkImage` + les douze codecs)
@@ -28,41 +28,54 @@ il renvoie `nullptr` ou `false`.
 
 ## La règle de mémoire, avant tout le reste
 
-Avant le premier `Decode`, il faut intérioriser **deux règles de libération** — elles ne sont pas
-des détails, elles sont la frontière entre un code qui marche et une *heap corruption* `c0000374`
-sous Windows. La cause profonde est simple : NKImage alloue tout via l'allocateur maison NKMemory,
-**jamais** via le tas du CRT. Rendre cette mémoire au mauvais gestionnaire (`std::free`, `delete[]`)
-écrase des métadonnées qui n'appartiennent pas à ce gestionnaire.
+Avant le premier `Decode`, il faut intérioriser la règle de libération — ce n'est pas un détail,
+c'est la frontière entre un code qui marche et une *heap corruption* `c0000374` sous Windows. La
+cause profonde est simple : NKImage alloue tout via l'allocateur maison NKMemory, **jamais** via le
+tas du CRT. Rendre cette mémoire au mauvais gestionnaire (`std::free`, `delete[]`) écrase des
+métadonnées qui n'appartiennent pas à ce gestionnaire.
 
-**Première règle — les images.** Toute `NkImage*` qui sort d'un `Decode` (ou d'une fabrique
-statique `Create`/`Alloc`) a été allouée par le module : on la rend par `img->Free()`, qui libère
-les pixels **et** la structure. Ce n'est **pas** un `delete` : ne jamais `delete` une image
-fabriquée, et symétriquement ne jamais `Free()` une `NkImage` posée sur la **pile** (`Free()`
-appellerait `nkFree(this)` sur une adresse pile).
+**Les images : rien à libérer.** Une `NkImage` est un **type valeur**. Ce qui sort d'un `Decode`
+(ou d'une fabrique `Create`/`Alloc`/`Wrap`/`ConvertToTexture`, ou d'un `Convert`/`Copy`/`CopyAs`/
+`Crop`/`Resize`) est une `NkImage` **par valeur** qui libère ses pixels toute seule à la fin de sa
+portée. Il n'y a **ni pointeur, ni `Free()`, ni `delete`** — `Free()` a été **supprimée de l'API**.
+Pour vider une image en la gardant réutilisable, `Unload()`.
 
-**Seconde règle — les buffers d'encodage.** Tout paramètre `uint8*& out` rempli par
+> **Pourquoi la règle a changé.** Jusqu'en août 2026 les codecs rendaient un `NkImage*` du tas
+> libéré par `img->Free()`, et `Free()` faisait `nkFree(mPixels)` **puis `nkFree(this)`**. Appelée
+> sur une image de **pile** ou de membre, elle rendait à l'allocateur une adresse qui ne lui
+> appartenait pas : **deux crashs `c0000374` en production**. Comme `Crop`/`Resize`/`Convert`
+> étaient des méthodes d'instance rendant du tas, une image valeur fabriquait des images tas —
+> le mélange n'était pas évitable par discipline (**120 appels `Free()` dans 66 fichiers**). La
+> forme fautive a donc été supprimée plutôt que documentée.
+
+**La seule règle qui reste — les buffers d'encodage.** Tout paramètre `uint8*& out` rempli par
 `Encode`/`EncodeToMemory`/`SaveToMemory` a été alloué via `nkentseu::memory::NkAlloc`. On le libère
 **exclusivement** par `nkentseu::memory::NkFree(out)`. Jamais `std::free`, jamais `delete[]`.
 
 ```cpp
-uint8* out = nullptr; usize size = 0;
-if (NkPNGCodec::Encode(*img, out, size)) {        // out alloué par NkAlloc
-    file.Write(out, size);
+NkImage img = NkPNGCodec::Decode(data, size);
+if (!img.IsValid())
+    return;                                       // échec : image invalide, pas de nullptr
+
+uint8* out = nullptr; usize size2 = 0;
+if (NkPNGCodec::Encode(img, out, size2)) {        // out alloué par NkAlloc
+    file.Write(out, size2);
     nkentseu::memory::NkFree(out);                // la SEULE libération correcte
 }
-img->Free();                                      // image fabriquée → Free(), pas delete
+// img se détruit toute seule ici — aucun Free() à écrire
 ```
 
-> **En résumé.** Image fabriquée → `img->Free()` (jamais `delete`, jamais sur une image pile).
-> Buffer `out` d'un `Encode` mémoire → `nkentseu::memory::NkFree(out)` (jamais `std::free`/`delete[]`).
-> Tout écart = corruption de tas `c0000374`.
+> **En résumé.** Image → **valeur**, rien à libérer (`Unload()` pour vider sans détruire) ;
+> l'échec se lit par `IsValid()`, pas par `nullptr`. Buffer `out` d'un `Encode` mémoire →
+> `nkentseu::memory::NkFree(out)` (jamais `std::free`/`delete[]`). Tout écart sur `out` =
+> corruption de tas `c0000374`.
 
 ---
 
 ## Les codecs « buffer mémoire » : PNG, JPEG, BMP, TGA, QOI
 
 Le gros des formats matriciels suit le **même patron** : `Decode(data, size)` lit un buffer en
-mémoire et rend une `NkImage*`, `Encode(img, out, outSize)` produit un buffer en mémoire. C'est le
+mémoire et rend une `NkImage` par valeur, `Encode(img, out, outSize)` produit un buffer en mémoire. C'est le
 patron qu'on veut presque toujours, parce qu'il ne touche pas le disque — on décode depuis un
 *asset pack* déjà chargé, on encode vers un flux réseau ou un fichier ouvert par NKFileSystem.
 
@@ -74,23 +87,22 @@ bits, indexé, RLE4/RLE8, BITFIELDS) et encode en 24 ou 32 bpp. `NkTGACodec` lit
 rapide, sans perte, idéal pour des caches d'assets internes.
 
 `NkJPEGCodec` a deux particularités à retenir. Au décodage, il sort du **grayscale** (`NK_GRAY8`)
-ou de la **couleur** (`NK_RGB24`), et il **rejette le JPEG progressif** (renvoie `nullptr`) —
+ou de la **couleur** (`NK_RGB24`), et il **rejette le JPEG progressif** (image invalide en retour) —
 seul le baseline DCT est lu. À l'encodage, il prend un paramètre `quality` dans `[1, 100]`
 (défaut 90) et convertit l'image en RGB24/Gray8 si besoin.
 
 ```cpp
-NkImage* tex = NkPNGCodec::Decode(asset.data, asset.size);   // nullptr si échec
-if (tex) {
+NkImage tex = NkPNGCodec::Decode(asset.data, asset.size);    // invalide si échec
+if (tex.IsValid()) {
     uint8* jpg = nullptr; usize n = 0;
-    NkJPEGCodec::Encode(*tex, jpg, n, 85);                    // recompresse en JPEG q=85
-    nkentseu::memory::NkFree(jpg);
-    tex->Free();
-}
+    if (NkJPEGCodec::Encode(tex, jpg, n, 85))                 // recompresse en JPEG q=85
+        nkentseu::memory::NkFree(jpg);
+}   // tex libère ses pixels ici
 ```
 
-> **En résumé.** PNG/JPEG/BMP/TGA/QOI suivent le patron `Decode(data,size) → NkImage*` /
-> `Encode(img, out, outSize) → bool`. JPEG sort `NK_GRAY8`/`NK_RGB24`, refuse le progressif, et
-> prend un `quality` à l'encodage. Tout `out` se libère par `NkFree`.
+> **En résumé.** PNG/JPEG/BMP/TGA/QOI suivent le patron `Decode(data,size) → NkImage` (par valeur,
+> invalide si échec) / `Encode(img, out, outSize) → bool`. JPEG sort `NK_GRAY8`/`NK_RGB24`, refuse
+> le progressif, et prend un `quality` à l'encodage. Tout `out` se libère par `NkFree`.
 
 ---
 
@@ -106,7 +118,7 @@ toute sa plage dynamique. Pour l'encodage il offre **les deux variantes** : `Enc
 écrit le fichier RLE compressé, et `EncodeToMemory(img, out, outSize)` produit un buffer mémoire
 (à libérer par `NkFree`). Bonus utile : `ConvertToTexture(hdr, exposure, gamma)` *tone-mappe* une
 image HDR vers du RGBA8 affichable (gamma ≤ 0 ⇒ pas de correction gamma), en rendant une **nouvelle
-image** à libérer par `Free()`.
+image par valeur** (rien à libérer ; invalide si la source ne l'est pas).
 
 `NkPPMCodec` couvre le NetPBM (P1 à P6) : `Decode` mappe P1/P4/P2/P5 vers `NK_GRAY8` et P3/P6 vers
 `NK_RGB24` ; `Encode(img, path)` écrit un fichier binaire P5 (gris) ou P6 (couleur). C'est le format
@@ -125,7 +137,7 @@ Deux formats sont **lecture seule** dans cette version : il n'y a pas d'`Encode`
 `NkEXRCodec` décode l'OpenEXR 1.x *scanline single-part* — le format HDR professionnel. Il gère les
 types de pixels HALF/FLOAT/UINT et les compressions NONE/RLE/ZIPS/ZIP (PIZ en bêta) ; il sort du
 `NK_RGB96F` (3 canaux ou 1 canal répliqué) ou du `NK_RGBA128F` (4 canaux). Les variantes encore non
-gérées (PXR24, B44, DWAA/DWAB, *tiles*, *multipart*) renvoient `nullptr`.
+gérées (PXR24, B44, DWAA/DWAB, *tiles*, *multipart*) rendent une image **invalide**.
 
 `NkICOCodec` décode l'ICO/CUR de Windows, qui contient souvent **plusieurs résolutions** dans un
 même fichier : le codec **sélectionne automatiquement la plus grande**. Les images embarquées en
@@ -144,10 +156,13 @@ PNG comme en BMP sont reconnues.
 **toutes** les frames, déjà composées sur le canvas global, sous forme d'un `NkGIFAnimation*`.
 
 Cette structure porte les dimensions, le `frameCount`, le tableau `frames` et `loopCount`
-(0 = boucle infinie, via l'extension NETSCAPE2.0). Chaque `NkGIFFrame` contient son `image` (RGBA32,
-taille canvas), son `delayMs`, sa position `left`/`top` et son mode `disposal`. Point capital :
-un `NkGIFAnimation` se libère **exclusivement** par `FreeAnimation`, qui détruit la structure **et**
-toutes les images des frames — jamais `Free()`/`delete` à la main sur la struct ou ses frames.
+(0 = boucle infinie, via l'extension NETSCAPE2.0). Chaque `NkGIFFrame` contient son `image`
+(une `NkImage` **par valeur**, RGBA32, taille canvas, **possédée par la frame**), son `delayMs`, sa
+position `left`/`top` et son mode `disposal`. Point capital : le `NkGIFAnimation*`, lui, **reste un
+pointeur** et se libère **exclusivement** par `FreeAnimation`, qui détruit la structure **et** les
+frames — donc leurs images. Une frame ne se libère pas à la main : elle n'est pas copiable, et pour
+garder son image au-delà de l'animation il faut la **déplacer** (`traits::NkMove`) ou la **cloner**
+(`frame.image.Copy()`).
 
 Côté écriture, `Encode` produit un GIF89a (quantification médiane-coupure 256 couleurs,
 transparence) dans un buffer mémoire, et `Save(img, path)` écrit directement un `.gif`.
@@ -188,7 +203,7 @@ RIFF, décodeur VP8L, tables de Huffman) est `private` : la surface publique se 
 un parser complet de SVG — il gère les formes géométriques (`<svg> <g> <path> <rect> <circle>
 <ellipse> <line> <polyline> <polygon>`) mais **pas** le texte, `<use>`, les styles CSS, gradients,
 patterns, masques, *clipPath* ni filtres. `Decode(data, size, outW, outH)` produit l'image rasterisée
-(dimensions 0 ⇒ taille naturelle du SVG/viewBox), `DecodeFromFile` lit d'abord le disque.
+(dimensions 0 ⇒ taille naturelle du SVG/viewBox), `DecodeFromFile` lit d'abord le disque. Les deux rendent l'image **par valeur** (invalide si échec).
 
 Attention au sens d'`Encode` : il **n'est pas** une vectorisation. Il enrobe une image matricielle
 en `<image href="data:png;base64,…">` à l'intérieur d'un `<svg>` — pixel-perfect, mais ce n'est pas
@@ -245,8 +260,8 @@ charger des descripteurs ou parser tout XML d'outillage sans tirer une biblioth�
 
 | Catégorie | Élément | Rôle |
 |-----------|---------|------|
-| Frame | `NkGIFFrame` : `image`, `delayMs`, `left`, `top`, `disposal` | Une frame composée (RGBA32, taille canvas). |
-| Animation | `NkGIFAnimation` : `width`, `height`, `frameCount`, `frames`, `loopCount` | Résultat de `DecodeAnimation` (libérer par `FreeAnimation`). |
+| Frame | `NkGIFFrame` : `image`, `delayMs`, `left`, `top`, `disposal` | Une frame composée (`image` = `NkImage` par valeur, RGBA32, taille canvas). |
+| Animation | `NkGIFAnimation` : `width`, `height`, `frameCount`, `frames`, `loopCount` | Résultat de `DecodeAnimation` — seul pointeur du module, à libérer par `FreeAnimation`. |
 
 ### Écosystème vectoriel SVG
 
@@ -274,15 +289,15 @@ charger des descripteurs ou parser tout XML d'outillage sans tirer une biblioth�
 |-----------|---------|------|
 | Enums | `NkImagePixelFormat`, `NkImageFormat`, `NkResizeFilter` | Format pixel / conteneur / filtre de redimensionnement. |
 | Helpers | `ChannelsOf(f)`, `BytesPerPixelOf(f)` `[constexpr]` | Canaux / octets par pixel d'un format. |
-| Fabriques | `Create` (×2), `Alloc`, `Wrap`, `ConvertToTexture` | Images owning / vue non-owning / HDR→RGBA8. |
+| Fabriques | `Create` (×2), `Alloc`, `Wrap`, `ConvertToTexture` | Rendent une `NkImage` **par valeur** : owning / vue non-owning / HDR→RGBA8. |
 | Cycle de vie | `NkImage()`, `~NkImage`, move ctor/assign (copie supprimée) | Construction/déplacement (non copiable). |
 | Charger | `Load`, `LoadFromMemory` (surcharges), overrides `NKIResource` | Depuis fichier / mémoire / flux. |
 | Sauver fichier | `Save`, `SavePNG`/`SaveJPEG`/`SaveBMP`/`SaveTGA`/`SavePPM`/`SaveHDR`/`SaveQOI` ; `SaveGIF`/`SaveWebP`/`SaveSVG` (**non impl.**) | Écrit un fichier (extension déduite ou explicite). |
 | Encoder mémoire | `EncodePNG`/`EncodeBMP`/`EncodeTGA`/`EncodeQOI`/`EncodeJPEG` | Buffer `out` (→ `NkFree`). |
-| Transformer | `Convert`, `Resize`, `Crop`, `Copy`, `CopyAs`, `Blit`, `BlitRegion`, `FlipVertical`/`Horizontal`, `PremultiplyAlpha` | Conversion, redim, recadrage, composition. |
+| Transformer | `Convert`, `Resize`, `Crop`, `Copy`, `CopyAs` (→ nouvelle image **par valeur**, source intacte) ; `Blit`, `BlitRegion`, `Copy(src,…)`, `CopyTo` (→ `bool`, en place) ; `FlipVertical`/`Horizontal`, `PremultiplyAlpha` | Conversion, redim, recadrage, composition. |
 | Dessin CPU | `SetPixel`/`GetPixel`/`BlendPixel`, `Fill`, `DrawLine`/`HLine`/`VLine`, `DrawRect`/`FillRect`, `DrawCircle`/`FillCircle`, `DrawEllipse`/`FillEllipse` | Dessin LDR 8-bit (no-op si HDR). |
 | Accès | `Pixels`, `Width`/`Height`/`Channels`/`BytesPP`/`Stride`, `Format`/`SourceFormat`, `IsValid`, `IsHDR`, `TotalBytes`, `RowPtr` | Métadonnées et accès aux pixels. |
-| Mémoire | `Free` (pixels + struct), `Unload` (pixels seuls) | `Free` = images fabriquées ; `Unload` = sûr sur pile. |
+| Mémoire | destructeur (automatique), `Unload` (vide et réutilisable) | **Pas de `Free()`** : type valeur, rien à libérer à la main. |
 
 ### Briques internes réutilisables (`Core/NkImage.h`)
 
@@ -301,16 +316,17 @@ décrits ensemble ; ce qui les distingue est mis en avant.
 
 ### Le patron commun : `Decode` / `Encode`
 
-Tous les `Decode` ont la signature `static NkImage* Decode(const uint8* data, usize size) noexcept`
-(SVG ajoute `outW`/`outH`). Ils renvoient `nullptr` sur tout échec — données tronquées, format non
-supporté, signature invalide — **jamais** d'exception. L'image rendue est **owning** : on la libère
-par `img->Free()`. Tous les `Encode` mémoire ont la signature
+Tous les `Decode` ont la signature `static NkImage Decode(const uint8* data, usize size) noexcept`
+(SVG ajoute `outW`/`outH`). Sur tout échec — données tronquées, format non supporté, signature
+invalide — ils rendent une image **invalide** (`IsValid()==false`), **jamais** `nullptr` et **jamais**
+d'exception. L'image rendue est **owning et par valeur** : elle libère ses pixels toute seule, on
+n'écrit aucune libération. Tous les `Encode` mémoire ont la signature
 `static bool Encode(const NkImage& img, uint8*& out, usize& outSize, …) noexcept`, allouent `out` via
 NkAlloc, et le `false` signale l'échec sans rien allouer.
 
 Domaines d'emploi de ce patron :
 - **Rendu / GPU** — décoder une texture depuis un *asset pack* déjà en RAM, puis uploader
-  `img->Pixels()` ; pas d'I/O disque dans la boucle de chargement.
+  `img.Pixels()` ; pas d'I/O disque dans la boucle de chargement.
 - **IO / réseau** — réencoder une capture en PNG/JPEG/QOI vers un buffer envoyé sur le réseau ou
   écrit par NKFileSystem ; le `out` mémoire évite un fichier temporaire.
 - **Outils / éditeur** — pipeline d'import d'assets : décoder n'importe quel format en entrée,
@@ -333,15 +349,15 @@ entier en entrée. Sa compression repose sur le `NkDeflate` interne (inflate/def
 
 JPEG baseline DCT, avec deux contraintes structurantes. Au **décodage**, la sortie est `NK_GRAY8`
 (monochrome) ou `NK_RGB24` (couleur) — **jamais d'alpha**, c'est le format qui ne le porte pas — et
-le **JPEG progressif est rejeté** (`nullptr`). À l'**encodage**, l'image est convertie en RGB24/Gray8
+le **JPEG progressif est rejeté** (image invalide). À l'**encodage**, l'image est convertie en RGB24/Gray8
 au besoin et le paramètre `quality ∈ [1,100]` (défaut 90) règle le compromis taille/qualité.
 
 - **Rendu** — textures de surfaces naturelles (terrain, ciel, photo) où l'absence d'alpha et la
   perte sont acceptables contre un gain de taille énorme.
 - **IO / réseau** — transmettre des images photographiques (capture caméra via NKCamera) avec un
   `quality` modéré pour limiter la bande passante.
-- **Piège** — un JPEG progressif renvoyé par un service externe donnera `nullptr` ; prévoir un
-  *fallback* ou un transcodage en amont.
+- **Piège** — un JPEG progressif renvoyé par un service externe donnera une image **invalide**
+  (`IsValid()==false`) ; prévoir un *fallback* ou un transcodage en amont.
 
 ### `NkBMPCodec` — le DIB Windows complet
 
@@ -382,7 +398,7 @@ valeurs > 1.0. C'est le seul codec à proposer trois formes d'écriture et un co
 - `EncodeToMemory(img, out, outSize)` — la variante buffer (→ `NkFree`), pour qui veut éviter le
   disque.
 - `ConvertToTexture(hdr, exposure=1, gamma=2.2)` — *tone-mappe* le HDR vers une **nouvelle** image
-  RGBA8 affichable (à libérer par `Free()`) ; `gamma ≤ 0` désactive la correction.
+  RGBA8 affichable, rendue **par valeur** (rien à libérer) ; `gamma ≤ 0` désactive la correction.
 
 Domaines :
 - **Rendu / éclairage** — charger un environnement HDR pour l'IBL (*image-based lighting*) :
@@ -396,20 +412,21 @@ Domaines :
 EXR scanline single-part *from scratch*, **décode seul**. Types HALF/FLOAT/UINT ; compressions
 NONE/RLE/ZIPS/ZIP (PIZ bêta). La sortie suit le nombre de canaux : 3 → `NK_RGB96F`, 4 →
 `NK_RGBA128F`, 1 → `NK_RGB96F` répliqué. Les variantes PXR24/B44/DWAA/DWAB, *tiles* et *multipart*
-renvoient `nullptr`.
+rendent une image **invalide**.
 
 - **Rendu / éclairage** — importer des environnements ou des textures HDR de qualité film (EXR est
   le standard VFX), avec alpha float pour le RGBA128F.
-- **Outils** — pipeline d'import depuis des DCC (Blender, Nuke) qui exportent en EXR ; vérifier le
-  `nullptr` pour les compressions non gérées.
+- **Outils** — pipeline d'import depuis des DCC (Blender, Nuke) qui exportent en EXR ; vérifier
+  `IsValid()` pour les compressions non gérées.
 
 ### `NkGIFCodec` — l'image animée
 
 GIF87a/89a complet, multi-frame. Le décodage a deux portes : `Decode` (première frame seule, RGBA32,
 rétrocompatible) et `DecodeAnimation` (toutes les frames). Ce dernier rend un `NkGIFAnimation*` dont
 chaque `NkGIFFrame` est **déjà composée** sur le canvas global (on n'a pas à appliquer soi-même les
-*disposal methods* — `image` est prête). `loopCount` à 0 signifie boucle infinie. La libération passe
-**uniquement** par `FreeAnimation` (struct + toutes les frames). À l'écriture : `Encode` (GIF89a,
+*disposal methods* — `image` est prête). `loopCount` à 0 signifie boucle infinie. `NkGIFAnimation*`
+est le **seul pointeur possédé** du module : sa libération passe **uniquement** par `FreeAnimation`
+(struct + toutes les frames, donc leurs images). À l'écriture : `Encode` (GIF89a,
 quantification médiane-coupure 256 couleurs + transparence, buffer mémoire) ou `Save(img, path)`
 (fichier).
 
@@ -418,7 +435,9 @@ quantification médiane-coupure 256 couleurs + transparence, buffer mémoire) ou
 - **Outils / éditeur** — exporter une animation courte en GIF pour partage (`Save`), ou en buffer
   pour l'attacher à un message.
 - **Piège** — `Decode` ne donne **que** la première frame ; pour l'animation il faut
-  `DecodeAnimation`, et ne **jamais** `Free()`/`delete` une frame individuelle.
+  `DecodeAnimation`. Une frame ne se libère **jamais** individuellement : son `image` appartient à
+  l'animation et meurt avec elle. Pour la garder plus longtemps, la **déplacer**
+  (`traits::NkMove`) ou la **cloner** (`frame.image.Copy()`) avant `FreeAnimation`.
 
 ### `NkICOCodec` — l'icône Windows (lecture)
 
@@ -477,11 +496,13 @@ Là où `NkSVGCodec::Decode` ne rend que des **pixels**, `NkSVGImage` garde le S
 une liste de shapes que l'on rasterise ou triangule à la demande. C'est l'API à utiliser dès qu'on
 veut autre chose qu'un bitmap figé.
 
-`NkSVGImage` (PIMPL, non copiable, ctor/dtor privés, **à libérer par `Free()`**) :
+`NkSVGImage` (PIMPL, non copiable, ctor/dtor privés, **à libérer par `Free()`**) — ⚠️ à ne pas
+confondre avec `NkImage` : `NkSVGImage` reste une **ressource tas explicite** et garde bel et bien
+son `Free()` ; seule l'image *rastérisée* qu'elle produit est un type valeur.
 - `LoadFromFile` / `LoadFromMemory` — charge et parse le SVG en shapes.
 - `Rasterize(outW, outH)` — re-rasterise depuis les shapes (une dimension à 0 ⇒ calculée par
-  *aspect ratio*) ; rend une image RGBA32 owning. **Rendu / UI** : re-rasteriser une icône à
-  plusieurs tailles depuis une seule source vectorielle.
+  *aspect ratio*) ; rend une image RGBA32 owning **par valeur**, libérée par son destructeur.
+  **Rendu / UI** : re-rasteriser une icône à plusieurs tailles depuis une seule source vectorielle.
 - `NaturalWidth` / `NaturalHeight` — dimensions depuis le viewBox/width-height.
 - `ShapeCount` / `GetShape(idx)` — accès aux shapes via `NkSVGShapeView`.
 - `TriangulateAll(outXs, outYs, outIndices, outTriColors)` — produit un **mesh global** (triangle-list)
@@ -549,12 +570,14 @@ buffer automatiquement avec un *stride* aligné sur 4 octets (`(w*bpp+3)&~3`).
 - `NkImageFormat` — le conteneur (`NK_PNG`, `NK_JPEG`, …, `NK_SVG`, `NK_EXR`).
 - `NkResizeFilter` — `NK_NEAREST`/`NK_BILINEAR`/`NK_BICUBIC`/`NK_LANCZOS3` pour `Resize`.
 
-**Les fabriques** (résultat owning, à libérer par `Free()`) :
+**Les fabriques** (résultat owning rendu **par valeur** — rien à libérer ; **invalide** en cas
+d'échec, il n'y a pas de `nullptr` à tester) :
 - `Create(w, h, desiredChannels=0, color=0)` et `Create(w, h, fmt, color=0)` — image neuve remplie
   (`color` *packed* `0xRRGGBBAA`).
 - `Alloc(w, h, fmt)` — allocation brute, usage interne des codecs.
-- `Wrap(pixels, w, h, fmt, stride=0)` — **vue non-owning** sur un buffer externe : jamais libérée par
-  `Free`/destructeur. **GPU / interop** : envelopper un buffer mappé sans copie.
+- `Wrap(pixels, w, h, fmt, stride=0)` — **vue non-owning** sur un buffer externe : le destructeur
+  ne libère jamais ces pixels, la durée de vie du buffer reste à la charge de l'appelant.
+  **GPU / interop** : envelopper un buffer mappé sans copie.
 - `ConvertToTexture(hdr, exposure=1, gamma=2.2)` — HDR → RGBA32 *tone-mappé*.
 
 **Charger / sauver.** `Load(path, desiredChannels=0)` et les surcharges `LoadFromMemory` détectent le
@@ -566,9 +589,12 @@ PNG/JPEG/BMP/TGA/PPM/HDR/QOI ; `Save(path, quality)` déduit le format de l'exte
 codecs `NkGIFCodec`/`NkWebPCodec`/`NkSVGCodec`. Les `Encode*` mémoire (PNG/BMP/TGA/QOI/JPEG)
 remplissent un `out` à libérer par `NkFree`.
 
-**Transformer.** `Convert(fmt)`, `Resize(w, h, filter)`, `Crop`, `Copy`, `CopyAs(fmt)` rendent de
-**nouvelles** images owning ; `Blit`/`BlitRegion`/`Copy(src, …)`/`CopyTo(dst)` composent une image dans
-une autre ; `FlipVertical`/`FlipHorizontal`/`PremultiplyAlpha` opèrent **en place**.
+**Transformer.** Deux familles bien séparées. `Convert(fmt)`, `Resize(w, h, filter)`, `Crop`,
+`Copy()`, `CopyAs(fmt)` **produisent** une nouvelle image rendue **par valeur** et **ne modifient
+pas la source** — même en cas d'échec, où le résultat est simplement invalide ; c'est ce qui les
+rend sûres, là où une transformation mutante laisserait l'image à moitié transformée.
+`Blit`/`BlitRegion`/`Copy(src, …)`/`CopyTo(dst)` **mutent** `*this` et rendent un `bool` ;
+`FlipVertical`/`FlipHorizontal`/`PremultiplyAlpha` opèrent aussi **en place**.
 - **Rendu / GPU** — `Resize` pour générer des mip-levels CPU, `PremultiplyAlpha` avant un *blending*
   *premultiplied*, `FlipVertical` pour accorder l'orientation à une convention de texture
   (OpenGL bas-gauche).
@@ -586,9 +612,11 @@ une autre ; `FlipVertical`/`FlipHorizontal`/`PremultiplyAlpha` opèrent **en pla
 `Format`/`SourceFormat`, `IsValid`, `IsHDR`, `TotalBytes`, `RowPtr(y)` — l'essentiel pour uploader au
 GPU ou itérer ligne par ligne via `Stride`.
 
-**Mémoire.** `Free()` libère pixels **et** struct (`nkFree`) — uniquement sur images **fabriquées**,
-jamais sur une `NkImage` pile. `Unload()` (override) libère **les pixels seuls**, conserve la struct,
-et est **sûr** sur la pile comme sur le tas.
+**Mémoire.** Il n'y a **rien à libérer** : le destructeur rend les pixels (si l'image est owning),
+que l'image soit locale, membre, temporaire ou renvoyée par un codec. `Free()` **n'existe plus** —
+elle faisait `nkFree(this)` et coûtait un `c0000374` dès qu'on l'appelait sur une instance qui
+n'était pas du tas. `Unload()` (override `NKIResource`) libère **les pixels seuls** et laisse
+l'objet **réutilisable** : c'est ce qu'on emploie pour recharger dans la même variable.
 
 ### Les briques internes : `NkImageStream`, `NkDeflate`
 
@@ -623,30 +651,26 @@ de format binaire propriétaire sans réinventer la lecture big/little-endian.
 using namespace nkentseu;
 
 // 1) Décoder une texture PNG depuis un buffer déjà en mémoire.
-NkImage* tex = NkPNGCodec::Decode(asset.data, asset.size);   // nullptr si échec
-if (tex) {
-    renderer.Upload(tex->Pixels(), tex->Width(), tex->Height());
+NkImage tex = NkPNGCodec::Decode(asset.data, asset.size);    // invalide si échec
+if (tex.IsValid()) {
+    renderer.Upload(tex.Pixels(), tex.Width(), tex.Height());
 
     // Réencoder en QOI (rapide) vers un buffer — out via NkAlloc.
     uint8* qoi = nullptr; usize qoiSize = 0;
-    if (NkQOICodec::Encode(*tex, qoi, qoiSize))
+    if (NkQOICodec::Encode(tex, qoi, qoiSize))
         nkentseu::memory::NkFree(qoi);                       // SEULE libération correcte
-
-    tex->Free();                                             // image fabriquée → Free()
-}
+}   // tex libère ses pixels ici : aucun Free() à écrire
 
 // 2) Charger un environnement HDR pour l'éclairage, l'afficher tone-mappé.
-NkImage* hdr = NkHDRCodec::Decode(envData, envSize);         // NK_RGB96F (float)
-if (hdr) {
-    NkImage* preview = NkHDRCodec::ConvertToTexture(*hdr, 1.0f, 2.2f); // → RGBA8
+NkImage hdr = NkHDRCodec::Decode(envData, envSize);          // NK_RGB96F (float)
+if (hdr.IsValid()) {
+    NkImage preview = NkHDRCodec::ConvertToTexture(hdr, 1.0f, 2.2f);   // → RGBA8
     // ... afficher 'preview' dans l'éditeur ...
-    preview->Free();
-    hdr->Free();
-}
+}   // preview puis hdr se détruisent d'elles-mêmes
 
 // 3) Rasteriser une icône SVG à la taille exacte de l'affichage.
-NkImage* icon = NkSVGCodec::DecodeFromFile("icons/save.svg", 32, 32);
-if (icon) { ui.UploadIcon(icon); icon->Free(); }
+NkImage icon = NkSVGCodec::DecodeFromFile("icons/save.svg", 32, 32);
+if (icon.IsValid()) ui.UploadIcon(icon);
 
 // 4) Lire toutes les frames d'un GIF animé.
 NkGIFAnimation* anim = NkGIFCodec::DecodeAnimation(gifData, gifSize);

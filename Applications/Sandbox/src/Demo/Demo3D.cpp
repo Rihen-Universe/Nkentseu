@@ -2091,15 +2091,13 @@ namespace nkentseu {
 			}
 
 			const int32 W = 256, H = 256;
-			NkImage *img = NkImage::Alloc(W, H, NkImagePixelFormat::NK_RGBA32);
-			if (!img || !img->IsValid()) {
-				if (img)
-					img->Free();
+			NkImage img = NkImage::Alloc(W, H, NkImagePixelFormat::NK_RGBA32);
+			if (!img.IsValid()) {
 				return false;
 			}
 
-			uint8_t *px = img->Pixels();
-			const int32 stride = img->Stride();
+			uint8_t *px = img.Pixels();
+			const int32 stride = img.Stride();
 			for (int32 y = 0; y < H; ++y) {
 				uint8_t *row = px + (size_t)y * stride;
 				for (int32 x = 0; x < W; ++x) {
@@ -2128,8 +2126,7 @@ namespace nkentseu {
 					row[x * 4 + 3] = 255;
 				}
 			}
-			bool ok = img->SavePNG(outPath);
-			img->Free();
+			bool ok = img.SavePNG(outPath);
 			return ok;
 		}
 
