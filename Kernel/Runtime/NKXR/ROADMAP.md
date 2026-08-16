@@ -28,6 +28,64 @@ VALIDATION → INTÉGRATION).
 
 ---
 
+## ✅ 2026-08-17 — NIVEAU 2 ATTEINT : la boucle de frame complète tourne sur Quest 2 réel, EndFrame exercé ~600 fois, sortie PROPRE
+
+**Conditions** : Release, `feat/nkxr` fusionnée avec `origin/main` (`38c48af6`,
+corruption de tas NKSL corrigée par PR #66), binaire reconstruit 26/26 et
+vérifié frais, **lancé depuis la racine du worktree** (les 52 dossiers de
+`Resources/NKRenderer/Shaders/` se résolvent par rapport au répertoire
+courant — c'était la vraie cause de « Renderer œil 0 KO », pas les shaders
+eux-mêmes), `NK_XR_BACKEND=openxr`, `NK_XR_EXIT=600`, Quest 2 en Air Link.
+
+### Ce que la course établit — le chemin « compilé, jamais exercé » ne l'est plus
+
+```
+40 LoadOrCompileVF, 0 échec de compilation      (la veille : sources vides, tout KO)
+session casque créée, swapchains 1768x1781 x3 images par œil
+mode de fusion : annoncé 1/1 OPAQUE -> soumis OPAQUE   (impossibilité du code 4 RE-confirmée)
+cadence mesurée : 71,7 / 71,2 / 67,2 i/s sur un affichage 72 Hz
+app CPU 6-15 ms, GPU 7,26 ms | compositeur CPU 1,05 GPU 0,33 ms | latence 60,3 ms
+NK_XR_EXIT=600 -> RequestExit -> End -> « Termine proprement. »   zéro refus de la machine d'états
+```
+
+**`EndFrame` avec la sélection du mode de fusion a donc tourné ~600 fois sur
+matériel réel** — la moitié « prouvée inerte » du correctif est devenue prouvée
+tournante. La branche de repli (`modes[0]` sans OPAQUE) reste du code mort,
+comme écrit au § « HORS D'ATTEINTE ».
+
+### Le contrôle indépendant (journal du service Meta, prévu AVANT la course)
+
+```
+00:41:57  Hmd_Create (pid 47992)        00:42:04  Will VR Render + CreateTextureSet
+          4 jeux 1768x1781 x3 (2 yeux + 2 profondeurs), format 29, mips 11
+00:42:41  DestroyTextureSet x5 (found) -> Hmd_Release -> Unregister   DÉMONTAGE ORDONNÉ
+```
+
+La veille, la même séquence se terminait par `App exited unexpectedly: error 6`.
+Le runtime voit désormais un client qui **rend, puis range, puis part** — pas un
+client qui meurt. Le lien streamait à ~74 images décodées/s autour de la fenêtre.
+
+### Ce que cette course NE dit PAS, et les dettes qu'elle déclare
+
+1. **Le contenu visuel dans le casque n'est PAS vérifié par la mesure.** Les
+   journaux prouvent que des frames sont soumises et composées, pas ce qu'elles
+   montrent. Seul un humain casque sur la tête peut le dire — Rodolf.
+2. ⚠️ **La corruption glslang est TOUJOURS présente** (essai de montée de
+   version en cours chez NKRenderer). Silencieuse, et **toute course Vulkan la
+   traverse** — y compris celle-ci : les chiffres ci-dessus sont pris *au
+   travers* d'un défaut connu non réparé.
+3. **3 pipelines échouent** (×2 yeux : ParticlesBillboard, TrailMesh, Decal —
+   `shader handle id=0 introuvable`) — territoire NKRenderer, non touché ici.
+4. **~14 s entre la frame fenêtre 1 et la 2** (00:42:09 → 00:42:23), puis régime
+   établi immédiat. Observé, non expliqué — les créations paresseuses de
+   pipelines au premier flush sont une hypothèse, pas une mesure.
+5. **Un événement runtime non mappé** : `XrStructureType 52` dans `PollEvent`,
+   journalisé sans être traité. À identifier avant de le mapper.
+6. `frames rejouees -1` : métrique indisponible sur ce chemin — un `-1` qui
+   ressemble à un compte est un mensonge d'affichage, à corriger.
+
+---
+
 ## ✅ 2026-08-16 (soir) — « NKXRDemo ouvre le SIMULATEUR alors que le Quest 2 est branché » : ce n'était PAS un repli
 
 **Symptôme rapporté** : première ligne du journal de `NKXRDemo`,
