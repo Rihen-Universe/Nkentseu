@@ -174,10 +174,19 @@ namespace nkentseu {
 			bool anyNormalRef = false;
 			int32 curMat = -1; // index materiau courant (-1 = aucun)
 
+			// OBJET COURANT — la symetrie qui manquait a `curMat`. Un OBJ declare
+			// ses models par `o <nom>` (et, plus rarement, des groupes par `g`) ;
+			// le chargeur les ignorait tous les deux, donc les noms d'objets
+			// etaient perdus a la porte et la decomposition d'un import
+			// impossible. `curGrp` n'est qu'un repli : c'est `o` qui porte le
+			// model, la hierarchie du fichier faisant autorite.
+			NkString curObj, curGrp;
+
 			// Sous-mesh courant
 			bool haveSub = false;
 			uint32 subStart = 0;
 			int32 subMat = -1;
+			NkString subObj; // nom en vigueur a l'OUVERTURE du sous-mesh
 
 			auto closeSub = [&]() {
 				if (!haveSub)
@@ -186,6 +195,7 @@ namespace nkentseu {
 				if (cnt == 0)
 					return; // sous-mesh vide -> ignore
 				NkSubMesh sm;
+				sm.name = subObj; // le champ existait deja ; personne ne le remplissait
 				sm.firstIndex = subStart;
 				sm.indexCount = cnt;
 				sm.baseVertex = 0;
@@ -237,6 +247,7 @@ namespace nkentseu {
 						haveSub = true;
 						subStart = (uint32)out.indices.Size();
 						subMat = curMat;
+						subObj = !curObj.Empty() ? curObj : curGrp;
 					}
 					// Parse tous les corners de la face -> triangulation en fan.
 					uint32 faceIdx[64];
@@ -312,6 +323,18 @@ namespace nkentseu {
 					NkString nm;
 					ReadToken(p, end, nm);
 					ParseMTL(JoinPath(dir, nm), dir, out, matNames);
+				} else if (LineIs(p, end, "o")) {
+					// FRONTIERE DE MODEL. Ne coupe PAS le sous-mesh ici : ce
+					// commit ne fait que RETENIR le nom (geste inerte, aucun
+					// consommateur ne le lit encore). La coupe sur `o` est un
+					// changement de comportement -- elle vient a part.
+					p += 1;
+					curObj.Clear();
+					ReadToken(p, end, curObj);
+				} else if (LineIs(p, end, "g")) {
+					p += 1;
+					curGrp.Clear();
+					ReadToken(p, end, curGrp);
 				}
 				SkipToEOL(p, end);
 				if (p < end)
@@ -327,9 +350,12 @@ namespace nkentseu {
 			if (!anyNormalRef)
 				GenerateSmoothNormals(out);
 
-			// Au moins un sous-mesh (fallback : tout).
+			// Au moins un sous-mesh (fallback : tout). Cas limite d'un OBJ SANS
+			// aucun marqueur `o`/`g` : aucune frontiere de model n'est declaree,
+			// on rend donc UN model, et son nom reste vide faute de source.
 			if (out.subMeshes.Empty()) {
 				NkSubMesh sm;
+				sm.name = !curObj.Empty() ? curObj : curGrp;
 				sm.firstIndex = 0;
 				sm.indexCount = (uint32)out.indices.Size();
 				out.subMeshes.PushBack(sm);
