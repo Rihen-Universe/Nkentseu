@@ -268,7 +268,11 @@ cite forcément le nom retiré — le backend Win32 sortait à « 1 STL » alors
 est à zéro : l'instrument mesurait sa propre documentation), et il **liste ce
 qu'il n'a pas su classer** plutôt que de le compter au hasard.
 
-**Relevé au 2026-08-16, commit `ba9cffa0`** *(occurrences, pas lignes — l'ancien
+**LA CIBLE, en toutes lettres : la colonne STL doit passer de 138 à 0. Les 30
+occurrences de bibliothèque C RESTENT** — elles ne sont pas de la dette, et
+personne ne doit lire « il reste 30 » comme un chantier inachevé.
+
+**Relevé initial au 2026-08-16, commit `ba9cffa0`** *(occurrences, pas lignes — l'ancien
 chiffre de « 140 » comptait des lignes ; deux prédicats différents ne se
 comparent pas)* :
 
@@ -287,10 +291,29 @@ comparent pas)* :
 | **`Backend/NkWin32CameraBackend.h`** | **0** ✅ | 0 |
 | **TOTAL** | **138** | 30 |
 
-**Ordre convenu** : Win32 (fait — le seul exerçable ici), puis Android (second
-exerçable), puis `NkCameraSystem` **en dernier** car c'est le point commun des
-six backends. Les backends non exerçables seront convertis mais déclarés
-*« compilé sur cette plateforme : NON »* — jamais « vérifiés ».
+**AVANCEMENT — 138 → 114 au 2026-08-17**
+
+| backend | STL | compilé | exercé |
+|---|---|---|---|
+| **Win32** | **0** ✅ | oui | **oui** — 4 empreintes MD5 identiques, débit inchangé, Debug + Release |
+| **Android** | **0** ✅ | **oui** (APK multi-ABI produit) | **NON** — téléphone absent d'`adb` |
+| Cocoa / UIKit / Emscripten / Linux | 3+6 / 5+10 / 14 / 25 | — | — |
+| `NkCameraSystem.{h,cpp}` + Types | 42 + 7 + 2 | — | — |
+
+⚠️ **Android est compilé, pas exercé, et la distinction tient.** Un verrou
+converti qui compile peut ne rien verrouiller. Il sera déclaré vérifié le jour où
+il tournera sur l'appareil, pas avant.
+
+*Trouvé en convertissant Android* : `mPhotoCv`, une `std::condition_variable`
+**notifiée mais jamais attendue** — aucun `Wait` dans le fichier, la seule
+attente étant une boucle de sommeil. Un réveil adressé à personne. Retirée avec
+sa notification.
+
+**Ordre convenu** : Win32 (fait), Android (fait, non exercé), puis les
+non-exerçables, puis `NkCameraSystem` **en dernier** — 42 occurrences, le plus
+gros du lot, et le point commun des six backends : le casser les bloque tous.
+Avant de le déclarer fini, **vérification syntaxique des cinq backends non
+exerçables**.
 
 ### 🔎 AUDIT DES RÉGLAGES FANTÔMES — *qui lit ce champ ?* (2026-08-15)
 
