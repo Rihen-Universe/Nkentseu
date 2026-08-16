@@ -1442,6 +1442,82 @@ appartient à Rodolf.**
 
 ---
 
+## 10sexies. ✂️ LA COUPE NKUI DE NOGEE — FAITE, PROUVÉE, ET CE QUI RESTE (2026-08-17)
+
+> Décision de Rodolf : *« retirer NKUI des dépendances des autres
+> applications »*. Commit `16732511`. Étapes livrées dans l'ordre imposé —
+> câblage → panneaux → viewport → vérification → coupe — le chemin NKUI est
+> resté compilable jusqu'à la dernière.
+
+### Ce qui a été fait
+
+- **La coquille NKGui est le chemin unique de Nogee.** `Nogee.cpp` n'inclut
+  plus `NogeeApp.h` ; `--ui=rhi` reste accepté (sans effet).
+- **Le monde et les systèmes éditeur sont câblés côté shell** : `NkWorld` par
+  valeur, `NkSceneGraph`, entités `TEMOIN_*`, et **les quatre systèmes
+  constructibles seuls — vérifié** : `NkSelectionManager`, `CommandHistory`,
+  `AssetManager`, `ProjectManager` n'exigent ni Layer ni `NkApplication`.
+  *Ce qui vivait dans EditorLayer était une possession, pas une dépendance.*
+- **Exclusion** (`Nogee.jenga`, `excludefiles`) : `NogeeApp.cpp`,
+  `UILayer.cpp`, les 4 panneaux NKUI. **Retraits** : `"NKUI"` et
+  `"NKUIIntegration"` des dépendances de Nogee, et **la dépendance NKUI
+  FANTÔME de `Noge.jenga:104`** — zéro `#include "NKUI/` dans tout
+  `Engine/Noge/src` (vérifié) ; elle forçait la construction de NKUI pour
+  toute application dépendant du moteur.
+
+### Les preuves
+
+| preuve | résultat |
+|---|---|
+| témoin numérique | `[WorldOutlinerPanel] TEMOIN : rendu execute via le shell, 1 racine(s), premiere = 'TEMOIN_Racine'` |
+| contre-témoin (sans enregistrement, stash + rebuild) | **0 ligne TEMOIN**, 0 `[ERR]` |
+| témoin visuel (capture d'écran) | Outliner montre `TEMOIN_Racine`, Details montre le Transform + le texte « GetRaw n'existe pas », Content Browser dessine ses cartes, Console en onglet |
+| binaire | **0 chaîne NKUI** (contrôle positif : 23 chaînes `WorldOutliner`) |
+| exécution par défaut après coupe | coquille montée, témoin présent, **0 `[ERR]`** |
+
+### La question des Layers — ce qui reste, et pourquoi ça tient
+
+**Le viewport n'a rien perdu parce qu'il n'avait rien** :
+`ViewportLayer::RenderScene()` et `RenderGizmos()` étaient des **TODO en toutes
+lettres** — le FBO était nettoyé à une couleur, jamais peuplé. `SetPreUI` est
+donc **sans objet aujourd'hui** : il n'y a rien à publier. **Le jour où un vrai
+rendu de scène existera**, le modèle est `NkAnimaEditor/main.cpp:43-47`
+(`PreUI3D` + `RegisterInto`) — et c'est à ce moment-là que la question
+« Layers ou fonction libre » devra être tranchée par Rodolf, pas avant.
+`EditorLayer`/`ViewportLayer` restent compilés (zéro NKUI) : la caméra et les
+gizmos y vivent pour ce futur viewport.
+
+### 📉 LE COMPTEUR D'ATTRITION (mesuré, pas hérité)
+
+Métrique : fichiers `.jenga` citant `"NKUI"`, hors NKUI lui-même.
+**Avant la soirée : 29. Après : 27** (Nogee retiré, + la fantôme de Noge).
+
+Détail des 27 : **24 applications** (Model, Mou, NKPA, NkAgentEcsDemo,
+NkAssetIODemo, NkAudioECSDemo, NkCameraDemos, NkEditableMeshDemo, NkImageDemo,
+NkLocomotionDemo, NkNavDemo, NkNetWorldDemo, NkSVGImportDemo, NkUIHudDemo,
+Nkoung, PV3DE, Pong, Pong copy, Pong2, RihenDefi, ContextSandbox,
+RendererSandbox, RhiSandbox, Songoo) + **NKCanvas** (conditionnel) +
+**NKUIIntegration** (meurt avec NKUI) + **`config/modules.jenga`** (registre).
+
+⚠️ **NKUI est encore CONSTRUIT (pas lié) dans la fermeture de Nogee** : NKCanvas
+l'ajoute quand `USE_CANVAS_NKUI` est actif, et il l'est **par défaut**
+(`config/graphics.jenga:80`, env `NK_CANVAS_NKUI`). L'éditeur de liens n'en
+extrait rien (binaire propre), mais le temps de build le paie. Le défaut de ce
+drapeau appartient à **NKCanvas/config** — signalé, pas touché.
+
+### Manques NKGui accumulés sur la journée (chantier à part entière)
+
+1. **Aucune API de charge utile de glisser-déposer** — bloque le reparentage
+   (§7) et le drag-drop d'assets (§9) : deux panneaux, même cause.
+2. **Pas de dépouillement de la convention `##id` dans les libellés** — vu à la
+   capture : `Rechercher##dp_filter` s'affiche tel quel, pilote Console compris
+   (`Info##ci`). Tant que ça manque, tout libellé unique est un libellé sale.
+3. **Pas d'atlas d'icônes** exposé (œil de visibilité, icônes de type).
+4. **Jetons de thème non exposés** aux panneaux (`InputBg`/`WindowBg` — le
+   damier « fond vide » des cartes est en aplat de repli).
+
+---
+
 ## 🚀 PRIORITÉ — Mondes volumineux : les optimisations prouvées en NKAI
 
 > **Décision de Rihen, 6 août 2026.** « On doit implémenter ces optimisations
