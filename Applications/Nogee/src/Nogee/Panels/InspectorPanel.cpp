@@ -214,27 +214,8 @@ namespace nkentseu {
 			}
 		}
 
-		bool InspectorPanel::IsSectionOpen(const char *name) noexcept {
-			for (nk_uint32 i = 0; i < mSectionCount; ++i)
-				if (NkStrEqual(mSectionNames[i], name))
-					return mSectionOpen[i];
-			// Nouvelle section — ouverte par défaut
-			if (mSectionCount < kMaxSections) {
-				NkStrNCpy(mSectionNames[mSectionCount], name, 63);
-				mSectionOpen[mSectionCount] = true;
-				++mSectionCount;
-			}
-			return true;
-		}
-
-		void InspectorPanel::SetSectionOpen(const char *name, bool open) noexcept {
-			for (nk_uint32 i = 0; i < mSectionCount; ++i) {
-				if (NkStrEqual(mSectionNames[i], name)) {
-					mSectionOpen[i] = open;
-					return;
-				}
-			}
-		}
+		// IsSectionOpen / SetSectionOpen vivent desormais dans NkInspectorModel
+		// (en-tete neutre, partageable avec un panneau porte). Corps inchange.
 
 	} // namespace noge
 } // namespace nkentseu
