@@ -31,12 +31,10 @@
 #include <cmath>
 
 #include <jni.h>
-#include <thread>
-#include <mutex>
-#include <condition_variable>
-#include <string>
-#include <vector>
-#include <memory>
+#include "NKCore/NkTraits.h"
+#include "NKThreading/NkMutex.h"
+#include "NKThreading/NkScopedLock.h"
+#include "NKThreading/NkThread.h"
 
 #define NKCAM_TAG "NkCamera"
 #define NKCAM_LOGE(fmt, ...) logger.Errorf("[" NKCAM_TAG "] " fmt, ##__VA_ARGS__)
@@ -148,14 +146,14 @@ namespace nkentseu {
 					}
 
 					ACameraMetadata_free(meta);
-					result.PushBack(std::move(dev));
+					result.PushBack(traits::NkMove(dev));
 				}
 				ACameraManager_deleteCameraIdList(idList);
 				return result;
 			}
 
 			void SetHotPlugCallback(NkCameraHotPlugCallback cb) override {
-				mHotPlugCb = std::move(cb);
+				mHotPlugCb = traits::NkMove(cb);
 				// Enregistrer ACameraManager_registerAvailabilityCallback si nécessaire
 			}
 
@@ -331,7 +329,7 @@ namespace nkentseu {
 				}
 
 				{
-					std::lock_guard<std::mutex> lk(mMutex);
+					threading::NkScopedLock<threading::NkMutex> lk(mMutex);
 					mHasFrame = false;
 				}
 
@@ -373,7 +371,7 @@ namespace nkentseu {
 				}
 				StopVideoRecord();
 				{
-					std::lock_guard<std::mutex> lk(mMutex);
+					threading::NkScopedLock<threading::NkMutex> lk(mMutex);
 					mHasFrame = false;
 				}
 				mState = NkCameraState::NK_CAM_STATE_CLOSED;
@@ -384,11 +382,11 @@ namespace nkentseu {
 			}
 
 			void SetFrameCallback(NkFrameCallback cb) override {
-				mFrameCb = std::move(cb);
+				mFrameCb = traits::NkMove(cb);
 			}
 
 			bool GetLastFrame(NkCameraFrame &out) override {
-				std::lock_guard<std::mutex> lk(mMutex);
+				threading::NkScopedLock<threading::NkMutex> lk(mMutex);
 				if (!mHasFrame)
 					return false;
 				out = mLastFrame;
@@ -399,13 +397,18 @@ namespace nkentseu {
 			// Photo — capture la prochaine frame disponible
 			// -----------------------------------------------------------------------
 			bool CapturePhoto(NkPhotoCaptureResult &res) override {
-				std::unique_lock<std::mutex> lk(mMutex);
+				// Verrou pris et relache A LA MAIN : la boucle le relache
+				// volontairement pendant le sommeil pour laisser le thread de
+				// capture publier une image. Un verrou de portee (NkScopedLock)
+				// ne sait pas faire ca — il tiendrait pendant l'attente et
+				// empecherait precisement ce qu'on attend.
+				mMutex.Lock();
 				if (!mHasFrame) {
 					const NkElapsedTime start = NkChrono::Now();
 					while (!mHasFrame && (NkChrono::Now() - start).seconds < 3.0) {
-						lk.unlock();
+						mMutex.Unlock();
 						NkChrono::Sleep(int64(10)); // surcharges int64/float64 : un litteral nu est ambigu
-						lk.lock();
+						mMutex.Lock();
 					}
 				}
 				if (!mHasFrame) {
@@ -645,9 +648,9 @@ namespace nkentseu {
 			ASensorEventQueue *mAccelQueue = nullptr;
 			ASensorEventQueue *mGyroQueue = nullptr;
 			ALooper *mSensorLooper = nullptr;
-			std::thread mSensorThread;
+			threading::NkThread mSensorThread;
 			NkAtomicBool mSensorRunning{false};
-			mutable std::mutex mSensorMutex;
+			mutable threading::NkMutex mSensorMutex;
 			NkCameraOrientation mLastOrientation{};
 			bool mSensorReady = false;
 
@@ -689,6 +692,13 @@ namespace nkentseu {
 				frame.stride = static_cast<uint32>(w);
 				frame.timestampUs = static_cast<uint64>(ts / 1000);
 				frame.frameIndex = self->mFrameIdx++;
+				// PLAGE DÉCLARÉE, et non déduite. YUV_420_888 étale ses
+				// composantes sur toute l'étendue 0-255 ; le dire ici est ce qui
+				// permet à la conversion de choisir sa formule sans rien
+				// supposer du format. C'est la même valeur qu'avant — ce qui
+				// change, c'est qu'elle est désormais AFFIRMÉE par celui qui
+				// sait, au lieu d'être devinée par celui qui convertit.
+				frame.range = NkColorRange::NK_COLOR_RANGE_FULL;
 
 				// ── RESPECTER LES PAS DE PLAN ────────────────────────────────
 				// YUV_420_888 ne décrit pas UNE disposition mais une famille.
@@ -749,11 +759,10 @@ namespace nkentseu {
 				AImage_delete(image);
 
 				{
-					std::lock_guard<std::mutex> lk(self->mMutex);
+					threading::NkScopedLock<threading::NkMutex> lk(self->mMutex);
 					self->mLastFrame = frame;
 					self->mHasFrame = true;
 				}
-				self->mPhotoCv.notify_all();
 				if (self->mFrameCb)
 					self->mFrameCb(frame);
 			}
@@ -789,7 +798,7 @@ namespace nkentseu {
 				if (!mSensorLooper)
 					return false;
 				// Lire la dernière valeur mémorisée (mise à jour par le thread sensor)
-				std::lock_guard<std::mutex> lk(mSensorMutex);
+				threading::NkScopedLock<threading::NkMutex> lk(mSensorMutex);
 				if (!mSensorReady)
 					return false;
 				out = mLastOrientation;
@@ -820,13 +829,13 @@ namespace nkentseu {
 					ASensorEventQueue_enableSensor(mGyroQueue, mGyro);
 					ASensorEventQueue_setEventRate(mGyroQueue, mGyro, 16667);
 				}
-				mSensorThread = std::thread([this] { SensorLoop(); });
+				mSensorThread = threading::NkThread([this](void *) { SensorLoop(); });
 			}
 
 			void ShutdownSensors() {
 				mSensorRunning = false;
-				if (mSensorThread.joinable())
-					mSensorThread.join();
+				if (mSensorThread.Joinable())
+					mSensorThread.Join();
 				if (mAccelQueue) {
 					ASensorEventQueue_disableSensor(mAccelQueue, mAccel);
 					ASensorManager_destroyEventQueue(mSensorManager, mAccelQueue);
@@ -858,8 +867,7 @@ namespace nkentseu {
 			uint32 mFrameIdx = 0;
 			NkString mLastError;
 
-			std::mutex mMutex;
-			std::condition_variable mPhotoCv;
+			threading::NkMutex mMutex;
 			NkCameraFrame mLastFrame;
 			bool mHasFrame = false;
 
@@ -894,7 +902,7 @@ namespace nkentseu {
 					if (mAccelQueue) {
 						while (ASensorEventQueue_getEvents(mAccelQueue, &ev, 1) > 0) {
 							if (ev.type == ASENSOR_TYPE_ACCELEROMETER) {
-								std::lock_guard<std::mutex> lk(mSensorMutex);
+								threading::NkScopedLock<threading::NkMutex> lk(mSensorMutex);
 								mLastOrientation.accelX = ev.acceleration.x;
 								mLastOrientation.accelY = ev.acceleration.y;
 								mLastOrientation.accelZ = ev.acceleration.z;
@@ -914,7 +922,7 @@ namespace nkentseu {
 								if (mLastSensorTs > 0) {
 									float dt = (float)(ts - mLastSensorTs) / 1e6f;
 									if (dt > 0.f && dt < 0.1f) {
-										std::lock_guard<std::mutex> lk(mSensorMutex);
+										threading::NkScopedLock<threading::NkMutex> lk(mSensorMutex);
 										mIntYaw += ev.vector.z * (180.f / 3.14159f) * dt;
 										mLastOrientation.yaw = mIntYaw;
 									}

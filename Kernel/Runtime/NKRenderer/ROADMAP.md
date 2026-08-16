@@ -18,6 +18,284 @@ voir « Multi-backend » plus bas). Metal + Software restent à valider.
 
 ---
 
+## 🧾 DETTES NOMMÉES — chantier « dettes NKRenderer » (agent nkrenderer, 2026-08-16)
+
+Ouvert sur décision de Rodolf : « on doit remplir cette dette ». **Ce qui suit est
+mesuré, avec sa provenance ; ce qui ne l'est pas est marqué comme tel.**
+
+### ⚠️ Les shaders ne sont pas chargés quand l'application n'est pas lancée depuis la racine du worktree (2026-08-16)
+
+**Ce n'est pas une régression de code.** `NkShaderLibrary::LoadOrCompileVF` résout
+`Resources/NKRenderer/Shaders/` **relativement au répertoire courant**, alors que
+`Init()` résout le cache de shaders par `NkPath::GetExecutableDirectory()` — deux
+politiques de chemin dans la même classe. Aucun `Resources/` n'est déployé à côté
+d'aucun binaire : lancée depuis son propre dossier, une application ne lit **aucun
+fichier de shader**.
+
+Mesure — **binaire identique dans les deux états, seul le répertoire de travail
+change** ; aucune reconstruction, aucun shader modifié :
+
+| | depuis le dossier de l'exe | depuis la racine du worktree |
+|---|---|---|
+| **NKXRDemo** `source GLSL vide` | 8 | 0 |
+| **NKXRDemo** `non-opaque uniforms` | 8 | 0 |
+| **NKXRDemo** `'softness' : no such field` | 4 | 0 |
+| **NKXRDemo** `pbrShader.valid` | 0 | **1** |
+| **NKXRDemo** processus | meurt (code 6), `Renderer oeil 0 KO` | vivant |
+| **Nogee** (dorsal GL) `no GLSL stage provided` | présent | 0 |
+| **Nogee** shaders `valid=0` | ShadowLinear, ShadowInstanced, Skin, Instanced, InfiniteGrid | **tous `valid=1`** |
+
+Témoin rejoué sur l'état d'avant : la panne se rallume et s'éteint à volonté.
+
+**Trois symptômes, une seule cause.** Les shaders sans repli embarqué donnent une
+source vide ; ceux qui en ont un compilent un repli **périmé** (PBR) ou **écrit pour
+un autre dorsal** (Render2D, dialecte GL → `non-opaque uniforms outside a block`).
+
+📌 **Deux conséquences à retenir :**
+- Les shaders qui « passaient » sont exactement **ceux qui possèdent un repli
+  embarqué**. Le repli **fabrique une fausse santé** : il répond toujours, et sa
+  réponse fausse est indiscernable de la vraie.
+- Le chemin **NkSL** est tenté **avant** le `.vk.glsl` (`:678-706`). Tant que le
+  répertoire courant est mauvais, ce chemin **n'est jamais emprunté** — les courses
+  concernées ne prouvent donc rien sur l'état de NkSL, ni en bien ni en mal.
+
+**Corrigé ici** (`cc227e3c`) : le journal distingue désormais « fichier introuvable »
+de « source invalide » — ils n'ont pas le même remède, et les confondre envoie
+réécrire un shader qui n'a jamais été lu. Le dossier de l'exécutable est ajouté comme
+**seconde racine** (additive ; le répertoire courant reste essayé en premier).
+
+**NON corrigé — décision de déploiement, hors périmètre d'un seul module** : déployer
+`Resources/` à côté des binaires (règle Jenga), ou résoudre depuis une racine de
+projet découverte, ou déclarer un chemin de recherche. Tant que ce choix n'est pas
+fait, **la façon de retrouver la scène est de lancer depuis la racine du worktree**.
+
+#### ⚠️ Ce n'est pas un défaut de shaders — le même piège existe ailleurs
+
+Le journal de la course en échec annonce
+`Table LTC absente ou invalide : Resources/NKRenderer/LUT/ltc1.bin (0 octets)`.
+**Le fichier fait 65 536 octets sur le disque.** Il n'était pas vide, il était
+introuvable — et le lecteur a rapporté « 0 octets » au lieu de « introuvable »,
+**exactement la confusion corrigée côté shaders, dans un sous-système différent**.
+
+Tout ce qui lit une ressource par un chemin relatif est concerné. Traiter ceci
+comme un défaut de `NkShaderLibrary` serait refaire l'erreur de diagnostic qui a
+déjà coûté une soirée.
+
+#### Les 3 pipelines encore en échec dans la course « réussie »
+
+La course depuis la racine n'est **pas** complète, et il ne faut pas la lire ainsi :
+
+```
+CreateGraphicsPipeline 'ParticlesBillboard' : shader handle id=0 introuvable
+CreateGraphicsPipeline 'TrailMesh'          : shader handle id=0 introuvable
+CreateGraphicsPipeline 'Decal'              : shader handle id=0 introuvable
+```
+
+Une fois par œil, soit 6 occurrences. Ils **ne bloquent pas la scène** (elle
+s'affiche et l'application vit). **Non instruits** — cause inconnue à ce jour, à ne
+pas supposer identique à celle ci-dessus.
+
+#### Instruction de la décision de déploiement — deux nombres et une réponse
+
+**Combien pèse un déploiement.** Le multiplicateur n'est pas 205 : **31 cibles**
+consomment `NKRenderer` (`grep -rl NKRenderer --include=*.jenga`). Et les shaders
+seuls ne suffisent pas — la ligne LTC ci-dessus le prouve.
+
+| ce qu'on déploie | par cible | × 31 cibles |
+|---|---|---|
+| `Resources/NKRenderer/Shaders` seul | 1,8 Mo | 56 Mo — **insuffisant** (ni LUT, ni textures, ni ciel) |
+| `Resources/NKRenderer` | 230 Mo | **7,1 Go** |
+| `Resources/` complet (démos : modèles, audio) | 736 Mo | **22,8 Go** |
+
+**Copie ou lien change tout** : une *jonction de répertoire* Windows (`mklink /J`)
+coûte **~0 octet**, ne demande **aucun droit administrateur**, et se crée en
+post-build. Les liens symboliques exigent le mode développeur ou l'élévation — donc
+non. Les chiffres du tableau sont ceux de la **copie**.
+⚠️ À rapporter aux **11 worktrees vivants**, qui portent déjà chacun son `Resources/`.
+
+**À quoi reconnaît-on la racine.** Marqueur : **`nkentseu.jenga`** (32 Ko, à la
+racine de chaque worktree) — nommé, versionné, non ambigu.
+- **Remonter depuis le dossier de l'EXÉCUTABLE, jamais depuis le répertoire
+  courant** : c'est déterministe quel que soit le mode de lancement, et c'est
+  précisément la variable qui a causé cette panne. Depuis
+  `Build/Bin/Release-Windows/<Cible>/`, la racine est à **4 niveaux**.
+- ❌ **Pas `.git`** : dans un worktree lié c'est un **fichier**, dans le clone
+  principal un **dossier** (vérifié). Une règle fondée dessus se comporterait
+  différemment entre `Nkentseu/` et les 10 autres worktrees — le genre exact de
+  divergence qu'on cherche à éliminer.
+
+**Et que se passe-t-il quand on ne trouve rien.** C'est la question qui tranche :
+pour le binaire remis à un étudiant en septembre, **la découverte échoue par
+construction** — il n'y a aucun `nkentseu.jenga` au-dessus de lui, et il ne faut
+surtout pas qu'il en trouve un.
+
+> **Les trois options ne sont donc pas des alternatives, c'est un ordre.** La
+> découverte règle les worktrees de développement **gratuitement et
+> rétroactivement, sans reconstruire aucune cible** ; le déploiement reste le
+> **plancher** obligatoire pour tout binaire livré. Choisir « découverte » sans
+> plancher casse la livraison ; choisir « déploiement » seul coûte les gigaoctets
+> du tableau à chaque cible de développement.
+
+📌 **Et l'emplacement de la réponse existe déjà, vide.**
+`NkPath::GetNkCurrentDirectory()` est déclarée (`NkPath.h:286`) et implémentée
+`return GetCurrentDirectory();` (`NkPath.cpp:492-494`) — **sans commentaire, et avec
+zéro appelant dans tout le dépôt**. Le concept « répertoire courant *de Nkentseu*,
+distinct de celui du processus » a été nommé puis abandonné. C'est là que la
+découverte s'écrit, si Rodolf la choisit — pas dans un nouveau symbole.
+
+### ⚠️ NkSL : une absence de preuve qu'on prenait pour une preuve
+
+**NkSL est le langage de shader maison, présenté comme fonctionnel sur cinq dorsaux
+sur six. Tant que tout le monde lance depuis le mauvais répertoire, le chemin NkSL
+n'est jamais emprunté — ces courses ne prouvaient donc rien sur NkSL, ni en bien ni
+en mal.**
+
+Mécanisme : `LoadOrCompileVF` essaie le dialecte NkSL **avant** le `.vk.glsl`
+(`NkShaderLibrary.cpp:678-706`), mais uniquement si
+`Resources/NKRenderer/Shaders/<Mat>/NkSL/<mat>.{vert,frag}.nksl` **existe**. Chemin
+relatif au répertoire courant : lancé ailleurs, le test d'existence échoue, la
+branche est sautée **en silence**, et l'on retombe sur le `.vk.glsl` puis sur le
+repli embarqué.
+
+Preuve que la branche existe et fonctionne, course depuis la racine :
+
+```
+[NkShaderLibrary] 'PBR' -> chemin NkSL (vrai dialecte) : Resources/NKRenderer/Shaders/PBR/NkSL/pbr.vert.nksl
+[CompileVF] 'PBR' vsGlsl=4952 fsGlsl=84636
+[NkRender3D] PBR pipeline (lazy) create: shader_valid=1 pipeline_valid=1
+```
+
+Ce n'est **pas** un reproche à NkSL : rien ici ne dit qu'il est cassé. C'est un
+avertissement sur la **valeur probante des courses passées**. Avant d'affirmer quoi
+que ce soit sur l'état de NkSL — dans une ROADMAP, un article ou une publication —
+**re-mesurer depuis la racine du worktree**, sans quoi le chiffre porte sur un
+chemin que le programme n'a pas pris.
+
+### Mesure de référence du dépôt entier
+
+```
+arbre Nkentseu-nkrenderer · branche feat/nkrenderer-dettes · base main @10452ae0
+config Release · clang-mingw (msys64/ucrt64) · jenga 2.4.0
+jenga build --config Release --keep-going -j 0   →   197/205, 8 échecs, 20m23s
+```
+
+Le chiffre `197/205` circulait sans support durable : il ne vivait que dans
+`echanges/nkxr.questions.md`, **gitignoré**. Il est écrit ici pour cette raison.
+
+### Les 8 échecs, classés par ORIGINE — 3 origines, pas 8 bogues
+
+| origine | cibles | état |
+|---|---|---|
+| **A₁** — NKRenderer a gagné `NKAnimation`/`NKAnimPhysics` (extraction du 14/08) ; `Tutoriels3D.jenga` lie une **liste manuelle** que rien n'a forcée à suivre | Tuto02Renderer, Tuto03Scene, Tuto04Camera, Tuto05Meshes | ⏳ corrigé sur `feat/nkanimation`, **non fusionné** |
+| **A₂** — NKTensor a gagné un dorsal GPU ; la fermeture de liens de ses consommateurs n'a pas suivi | NKTensorDemo | ✅ **corrigé** (`d6ab06a6`) |
+| **B** — appelants restés en arrière d'une **réécriture** d'API (NKFont : `NkFontLibrary`/`NkTextShaper`/`NkShapeResult` remplacés · NkImage devenu type valeur) | NkRHIDemoText, NkImageDemo | ⏳ traité sur `feat/nkanimation`, **non fusionné** ; NkRHIDemoText y est **désactivée**, avec un arbitrage laissé à Rodolf (porter ou supprimer) |
+| **C** — déclaration sans corps dans Foundation (`NkString::begin()/end()`) — **pas une migration** | Gamepad | 🚫 hors périmètre — routé à l'agent NKAnimation |
+
+⚠️ **Le piège de classement, à ne pas refaire** : Tuto02-05 et NKTensorDemo
+présentaient le **même symptôme** (undefined reference sur la chaîne RHI) et ont
+**deux causes différentes**, dont les remèdes n'ont rien en commun. `useappdeps`
+**n'émet que des defines `_STATIC_LIB` et ne lie rien**
+(`config/modules.jenga:260-281`) : les projets qui l'emploient portent une liste
+`links()` **manuelle**. `nkentseudependson`, lui, calcule la fermeture depuis le
+registre. Deux mécanismes, deux endroits à corriger.
+
+📏 **Portée du défaut A₁, bornée** : les `.jenga` citant `"NKRenderer"` **sans**
+passer par `nkentseudependson` sont **deux** — `Tutoriels3D` (cassé) et `DemoRW`
+(même liste manuelle sans NKAnimation, **latent** : son binaire ne tire pas
+`NkAnimationSystem.obj`). Les autres vont bien : le registre déclare correctement
+`NKRenderer → NKAnimation` (`config/modules.jenga:109`).
+
+### ❌ Route racine essayée sur A₂ et **réfutée par la mesure** — ne pas la refaire
+
+Corriger `config/modules.jenga` (le registre déclare `NKTensor` sans
+NKRHI/NKSL/NKLogger/NKThreading, alors que `Kernel/AI/NKTensor/NKTensor.jenga` les
+déclare pour sa propre compilation — **deux listes, rien qui les tienne**) fait
+passer NKTensorDemo de **40 erreurs à 180**. Le registre ne sait exprimer ni les
+bibliothèques externes (NKGlad, glslang, SPIRV-Cross) ni les libs système, et
+**NKRHI ne les déclare pas non plus** (`:108`) : tirer NKRHI par le registre livre
+un NKRHI **sans son dorsal OpenGL**. Changement annulé.
+
+> **Dette restante, nommée** : NKTensor a besoin de toute la pile RHI et son
+> entrée de registre ne le dit pas. Chaque consommateur compense à la main (cf.
+> `Applications/NKGenTest/NKGenTest.jenga`), et celui qui l'ignore ne l'apprend
+> qu'à l'édition de liens. Le remède demande de rendre le registre capable
+> d'exprimer une dépendance externe — chantier Jenga, pas NKRenderer.
+
+### Dette 2 — `LoadResult::meshData` : la possession, pas la libération
+
+⚠️ **L'énoncé initial (« personne ne sait qui libère ») est faux, et c'est le
+premier résultat.** Il y a un libérateur unique, `FreePayload`
+(`Streaming/NkStreamingSystem.cpp`), et **les cinq** sorties de `FinalizeLoad`
+l'appellent, plus `Shutdown` qui draine `mResults` après le `Join()` du worker.
+**Aucune fuite n'existe aujourd'hui.**
+
+Le vrai défaut est que **la possession n'est pas exprimable** : `LoadResult` est
+un agrégat **copiable** portant des pointeurs possédants, avec **deux verbes de
+libération** (`Delete()` pour `img`/`meshData`, `->Free()` pour `imgLow`) dont la
+distinction ne vit **que dans un commentaire**. Rien ne casse *uniquement parce
+que la copie perdante n'est jamais libérée* — un geste juste pour une mauvaise
+raison.
+
+📌 **Le piège concret, à connaître avant d'y toucher** : `NkVector::Erase` appelle
+`mData[index].~T()` (`NkVector.h:2149`). Tant que `LoadResult` n'a pas de
+destructeur, `ready.PushBack(mResults[0]); mResults.Erase(...)` est inoffensif ;
+**dès qu'il en a un, cette même ligne libère le payload qu'on vient de copier.**
+Toute migration vers la possession doit passer ces transferts en `traits::NkMove`.
+
+⏳ **État** : `feat/nkanimation` a **déjà** migré `img` et `imgLow` vers `NkImage`
+par valeur et rendu `LoadResult` non copiable (+145/-52 sur ces deux fichiers,
+non fusionné). **`NkGLTFMeshData *meshData` y est resté un pointeur nu** — c'est
+le champ que cette migration laisse derrière, et le seul travail restant.
+Primitive à employer, elle existe déjà : `NKMemory/NkUniquePtr.h`
+(`NkDefaultDelete` fait exactement `NkGetDefaultAllocator().Delete`). ⚠️ `NkOwned`
+**n'existe pas** — il n'apparaît que dans des commentaires de `NkISerializable.h`.
+
+### 🔴 `NkRendererImpl::Initialize` s'arrête à l'étape 2 — cause trouvée, hors module
+
+Symptôme relayé : NKXRDemo n'atteindrait jamais l'XR. **Faux, et vérifié** : la
+session XR est créée, c'est la **première ligne** de `app.log`. La recherche qui
+concluait au contraire cherchait la chaîne `OpenXR` ; le module journalise sous
+le tag **`[NKXR]`** — elle ne pouvait rien trouver.
+
+Ce n'est ni un blocage ni un « rend faux ». **`NkShaderLibrary::Init` ne peut pas
+rendre faux** : il retourne `mBackend != nullptr`, et `NkCreateShaderBackend`
+(`Shader/NkShaderBackend.cpp:879-898`) a un `default:` qui retourne un backend GL.
+Journal : 100 `[INF]`, **zéro `[ERR]`**. `gdb --batch -ex run -ex "bt full"` :
+
+```
+Invalid address specified to RtlFreeHeap(...)  →  SIGTRAP
+#5 ucrtbase!_free_base
+#6 NkShaderCache::SetCacheDir(NkString const&)     ← NKSL, pas NKRenderer
+#7 NkShaderLibrary::Init      #8 NkRendererImpl::Initialize
+```
+
+Corruption de tas **c0000374** — le mélange allocateur custom / heap CRT que le
+`CLAUDE.md` interdit en toutes lettres. Site :
+`NKSL/ShaderConvert/NkShaderConvert.cpp:750-753`, où `EnsureDirExists(ToStd(dir))`
+fabrique un **`std::string`** temporaire (l.47-49) dans un moteur zero-STL dont
+NKMemory surcharge les `operator new/delete` globaux. *Suspect principal, pas
+certitude* : au premier appel `mCacheDir` est vide, donc l'assignation `NkString`
+n'a rien à libérer — il ne reste que le `std::string`.
+
+Le processus meurt, le puits fichier ne vide jamais la suite : **« ça s'arrête à
+l'étape 2 » est un artefact d'instrument.** ⚠️ **Le correctif appartient à NKSL**
+(19 591 lignes, aucune ROADMAP, aucun agent) ; NKRenderer ne fait qu'appeler.
+Et la portée dépasse NKXR : **tout** appel à `NkRenderer::Create` traverse cette
+ligne, et qu'une application survive ne prouve pas qu'elle est saine — une
+corruption de tas ne tue que quand elle est constatée.
+
+### Voyant de santé des shaders (demande de l'agent Noge)
+
+`NkShaderLibrary::GetValidProgramCount()` / `GetProgramCount()` — de quoi afficher
+« shaders 4/21 » plutôt qu'un flot `fprintf(stderr)`. **Périmètre** : les
+programmes enregistrés dans cette bibliothèque, échecs **inclus** — `Alloc()`
+étant appelé inconditionnellement, un programme en échec reste dans `mPrograms` ;
+sans cette propriété le couple aurait rapporté « 4/4 ». Les deux traces
+`LoadOrCompileVF` (émises par shader **et par image**) passent de `Info` à
+`Trace` ; **la ligne d'échec reste au niveau erreur**.
+
+---
+
 ## 🦴 L'ANIMATION A QUITTÉ CE MODULE (2026-08-14)
 
 `Tools/Animation` **ne contient plus le système d'animation**. En application du
