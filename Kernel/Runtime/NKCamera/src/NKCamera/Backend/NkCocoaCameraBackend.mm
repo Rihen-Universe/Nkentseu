@@ -164,7 +164,7 @@ namespace nkentseu {
 		CVPixelBufferUnlockBaseAddress(ib, kCVPixelBufferLock_ReadOnly);
 
 		{
-			std::lock_guard<std::mutex> lk(mMutex);
+			threading::NkScopedLock<threading::NkMutex> lk(mMutex);
 			mLastFrame = frame;
 			mHasFrame = true;
 		}
@@ -173,7 +173,7 @@ namespace nkentseu {
 	}
 
 	bool NkCocoaCameraBackend::GetLastFrame(NkCameraFrame &out) {
-		std::lock_guard<std::mutex> lk(mMutex);
+		threading::NkScopedLock<threading::NkMutex> lk(mMutex);
 		if (!mHasFrame)
 			return false;
 		out = mLastFrame;
@@ -181,7 +181,7 @@ namespace nkentseu {
 	}
 
 	bool NkCocoaCameraBackend::CapturePhoto(NkPhotoCaptureResult &res) {
-		std::lock_guard<std::mutex> lk(mMutex);
+		threading::NkScopedLock<threading::NkMutex> lk(mMutex);
 		if (!mHasFrame) {
 			res.success = false;
 			return false;
