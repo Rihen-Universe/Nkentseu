@@ -267,9 +267,68 @@ savait mesurer au lieu de lever ce qui bloquait*.
   erreur ailleurs : ils sont simplement ignorés.
 - **Une brique d'interface générique s'écrit dans `NKEditorKit`**, jamais chez
   l'application.
-- **`NkEditorShell` reste la coquille des IDE** (NKCode) — pas des éditeurs à
-  maquette. Son docking et sa chrome propre sont un atout pour un IDE et un
-  obstacle pour qui doit reproduire une maquette.
+- ~~**`NkEditorShell` reste la coquille des IDE** (NKCode) — pas des éditeurs à
+  maquette.~~ ⚠️ **Corrigé le 2026-08-16 par la mesure du bloc suivant : cette
+  ligne reprenait le motif écrit par NK3DModeler sans avoir ouvert le shell.**
+  Une fois ouvert, sa chrome se révèle **hookable presque partout**, et deux des
+  quatre griefs de NK3DModeler ont été levés depuis — dont un **huit jours après**
+  que le refus a été écrit.
+
+### 🔬 CE QUE POSSÈDE RÉELLEMENT `NkEditorShell` — mesuré ligne à ligne (2026-08-16)
+
+**Provenance** : arbre `Nkentseu-noge`, branche `feat/noge-inventaire`, commit
+`10452ae0` · `Engine/NKEditorKit/src/NKEditorKit/NkEditorShell.{h,cpp}` =
+**583 + 2 622 = 3 205 lignes** · lecture du corps de `RenderFrame`
+(l. 640-745) et de `BuildMenuBar` (l. 1490-1530), pas de l'en-tête descriptif.
+
+**Le motif écrit en tête de `NkModelerUI.h` nomme quatre griefs. Un par un :**
+
+| grief de NK3DModeler (2026-07-31) | état du shell au 2026-08-16 | verdict |
+|---|---|---|
+| « barre de menus » | **`SetMenuBar()` remplace ENTIÈREMENT** les menus par défaut (`BuildMenuBar` l. 1506 : `if (mMenuBarFn) { … return; }`) — introduit le **2026-07-22**, soit **9 jours AVANT le refus**, et **NKCode s'en sert déjà** (`main.cpp:190`) | ❌ **levé, et il l'était déjà** |
+| « systeme de docking » | l'app contrôle `AddPanel` · `PanelDockNode` · `DetachPanel` · `ToggleMaximizePanel` · `ToggleCollapsePanel` | ❌ **levé** |
+| « barre d'etat » | `DrawStatusBar` **inconditionnelle** (22 px) ; l'app en pousse le texte (`SetFooter`/`SetFooterLights`) mais **ne peut ni la retirer ni la redessiner** | ✅ **réel** |
+| « palette de commandes » | `DrawCommandPalette` inconditionnelle, Ctrl+P toujours liée | ✅ **réel** (invisible tant qu'on ne l'ouvre pas) |
+
+⭐ **Et le vrai obstacle n'était dans aucun des quatre.** Les **barres d'activité**
+(bandes verticales d'icônes façon VSCode, 48 px de chaque côté) étaient
+**imposées** : c'est *elles* qui faisaient qu'une application non-IDE « héritait du
+chrome de NKCode et lui ressemblait ». `SetActivityBars(bool,bool)` les rend
+optionnelles **depuis le 2026-08-08** — soit **8 jours après le refus de
+NK3DModeler**, qui ne pouvait donc pas le savoir. `ConquerorLab` les coupe déjà
+(`main.cpp:209`).
+
+**Le refus de NK3DModeler était donc fondé quand il a été écrit, et il ne l'est
+plus entièrement aujourd'hui.** Personne ne l'a relu depuis : un motif exact au
+moment où on l'écrit devient faux sans que rien ne le signale.
+
+**Ce que le shell POSSÈDE et qu'aucun hook ne rend :**
+
+```
+la fenetre (NKWindow) · le contexte NKGui · la boucle Run() · les polices
+la BARRE DE TITRE      (DrawTitleBar, inconditionnelle : logo | menus | infos | min/max/close)
+la BARRE D'ETAT        (22 px, contenu pilotable, presence non)
+la PALETTE Ctrl+P  ·  la fenetre PREFERENCES
+```
+
+**Ce qu'il délègue — 19 hooks publics `Set*`**, dont `SetMenuBar` (barre
+complète), `SetToolbar`, `SetOverlay` (modales de l'app), `SetStartScreen`,
+`SetActivityBars`, `SetFileMenu`, `SetTitleLogo`, `SetFooter`, plus le
+**renderer injectable** (`NkEditorShellConfig::renderer` — NKRHI/NKRenderer au
+lieu de NKCanvas).
+
+⭐ **Une troisième voie existe, que personne n'a nommée** : en laissant
+`mUI.appFullScreen` levé en permanence avec un `SetStartScreen`, **l'application
+peint TOUT le corps elle-même** — ni barres d'activité, ni dock, ni panneaux, ni
+barre d'état (`footerH = 0`, l. 645-651 et 710-712). Il ne reste alors du shell
+que la fenêtre, la boucle et la barre de titre. **C'est le mode « maquette au
+pixel près » que NK3DModeler cherchait**, et il existait déjà (2026-06-28).
+
+**Ce que ça vaut en lignes** : un éditeur qui prend le shell n'écrit pas les
+**3 205 lignes** de fenêtre + boucle + docking + polices + palette + préférences.
+*(Ce chiffre remplace l'estimation « 2 500 à 3 500 » du bloc précédent, qui était
+tirée des tailles de fichiers équivalents chez NK3DModeler faute d'avoir ouvert
+le shell.)*
 
 ### Ce que la mesure a montré (2026-08-16, lecture seule)
 
@@ -321,11 +380,23 @@ pour éclairer : **Nogee n'a aucune maquette référencée** (recherche
 résultat), alors que NK3DModeler cite la sienne en tête de `NkModelerUI.h`. **La
 justification écrite du refus du shell est donc propre à NK3DModeler.**
 
-- *maquette voulue* → Nogee peint lui-même, même règle : thème partagé, zéro
-  couleur en dur ;
-- *pas de maquette* → Nogee prend `NkEditorShell` et s'épargne de l'ordre de
-  **2 500 à 3 500 lignes** (ordre de grandeur tiré des fichiers équivalents de
-  NK3DModeler, pas d'une mesure de ce que le shell couvre exactement).
+⚠️ **Reformulée après la mesure du shell ci-dessus, parce que l'alternative était
+mal posée** : ce n'était pas « maquette OU shell ». Le shell **rend la barre de
+menus, la barre d'outils, les barres d'activité, les modales et jusqu'au corps
+entier** ; il n'impose que la barre de titre, la barre d'état et Ctrl+P. Les trois
+réponses possibles sont donc :
+
+- *maquette au pixel près voulue* → **`SetStartScreen` + `appFullScreen`
+  permanent** : Nogee peint tout le corps lui-même **et garde** fenêtre, boucle,
+  polices, thème du shell. Ni NK3DModeler ni personne n'a essayé cette voie ;
+- *une chrome d'éditeur standard suffit* → Nogee prend le shell tel quel et
+  n'écrit pas ses **3 205 lignes** (mesuré, plus estimé) ;
+- *tout sur-mesure* → ce que fait NK3DModeler, et le seul des trois qui coûte
+  une fenêtre + une boucle + un docking à réécrire.
+
+**La seule chose que Nogee ne pourra pas obtenir du shell est une maquette qui
+refuserait une barre de titre haute d'une ligne, une barre d'état de 22 px, ou
+Ctrl+P.** C'est là-dessus, et rien d'autre, que la réponse se joue.
 
 La question vaut d'être posée **avant** que Nogee n'écrive sa chrome.
 
@@ -378,6 +449,115 @@ Si la coque est partagée, la question « faut-il séparer l'animation 3D et les
 en deux applications ? » change de nature : **deux modes dans une application
 coûtent un menu ; deux applications coûtent deux installations, deux
 distributions, deux cours.**
+
+---
+
+## 10. 📊 INVENTAIRE DE `Applications/Nogee` — compile / tourne / consomme
+
+**Provenance** : arbre `Nkentseu-noge`, branche `feat/noge-inventaire`, commit
+`10452ae0` · 2026-08-16 · Windows · clang-mingw **ucrt64** · Jenga **2.4.0** ·
+sous-modules 7/7 · **Debug ET Release**.
+
+### a) COMPILE
+
+| cible | Projects Built | artefact | warnings | durée |
+|---|---|---|---|---|
+| `Nogee` **Release** | **43/43 SUCCESS**, exit 0 | `Nogee.exe` **17 004 397 o** | 27 | 6 m 28 s |
+| `Nogee` **Debug** | **43/43 SUCCESS**, exit 0 | `Nogee.exe` **104 619 306 o** | 35 | 3 m 54 s |
+
+**Aucun écart Debug/Release** — comme pour `Noge` (§1). Les deux configurations
+produisent un exécutable ; ce sont bien deux programmes différents et les deux
+sont verts.
+
+**Taille du produit** : 15 `.cpp` + 16 `.h` = **4 379 lignes**. C'est une
+application mince posée sur le moteur, pas un second moteur.
+
+### b) TOURNE — oui, et le journal dit quoi
+
+Lancé 12 s, fenêtre ouverte, processus toujours vivant à l'arrêt.
+**`NkWindow` créée · OpenGL 4.6 sur RTX 3070 · device RHI OK · `NkRendererImpl`
+initialisé.** Nogee est bien une application graphique qui démarre.
+
+⚠️ **Mais 17 shaders sur 21 échouent à la création**, à chaque lancement :
+
+```
+demandes ... 21   LoadOrCompileVF
+reussis .....  4   PBR · PP_Tonemap · Render2D · Shadow
+echoues .... 17   [NkShader] CreateShader fail 'X' (glslang : V:0 F:0)
+                  Glow2D · Skybox · Skin · Instanced · InfiniteGrid · SelOutline · Blit
+                  ShadowLinear · ShadowInstanced · ShadowAlpha
+                  PP_BloomDown · PP_BloomUp · PP_SSAO · PP_SSAOBlur
+                  PP_AutoExposure · PP_TAA · PP_FXAA
+```
+
+**Ventilé avant de conclure — et c'est la ventilation qui tranche** : si le
+compilateur de shaders, le dossier de cache ou les sources manquaient, les **21**
+échoueraient. **Quatre réussissent.** L'échec est donc **sélectif** : ce n'est pas
+un piège d'environnement, c'est un défaut réel, reproduit sur deux lancements.
+
+⚠️ **Second fait, indépendant du premier** : un shader en échec est **redemandé à
+chaque frame**, et chaque tentative écrit deux lignes INFO. `SelOutline` :
+**1 666 requêtes en 12 s** (≈ 139/s, soit une par frame), et le journal atteint
+**411 Ko en une minute**. Il n'y a **aucune mémorisation de l'échec** — un shader
+qui a échoué une fois réessaiera indéfiniment.
+
+📌 **Piège d'instrument, à ajouter aux cinq de la §7** : ces échecs sortent sur
+**`stdout`**, pas dans `logs/app.log` — **l'inverse exact du piège n°2**. Les deux
+canaux portent des choses différentes : lire l'un seulement fait manquer l'autre.
+La première mesure n'a vu les 17 échecs que parce que la console n'était pas
+redirigée.
+
+### c) CONSOMME — quoi, exactement
+
+**Nogee inclut 10 en-têtes de `Engine/Noge`**, et pas un de plus :
+
+```
+Core/   NkApplication.h · NkApplicationConfig.h · NkEventBus.h · NkLayer.h
+ECS/    NkEcsUtil.h · Components/Core/NkCoreComponents.h
+        Components/SceneComponent/NkSceneComponent.h
+        Scene/NkSceneGraph.h · Scene/NkSceneManager.h · Systems/NkReflectComponents.h
+```
+
+⚠️ **`NkReflectComponents.h` est l'un des 3 en-têtes NON auto-portants de la §1**
+(il lui manque `NkWorld`). **Il ne compile chez Nogee que parce que l'ordre des
+inclusions le sauve.** Un étudiant qui l'inclut en premier dans un fichier neuf
+obtient une erreur que rien n'explique. Les deux mesures ne s'étaient jamais
+croisées.
+
+**Ce que Nogee écrit lui-même** plutôt que de le prendre au moteur :
+`Editor/` (AssetManager · CommandHistory · NkEditorCamera · NkGizmoSystem ·
+NkSelectionManager · ProjectManager) et `Panels/` (SceneTree · Inspector ·
+AssetBrowser · Console).
+
+**Interface** : `NKUI/NKUI.h` (×6), `NkUIWidgets.h` (×4), `NkUIMenu.h` (×4) —
+**NKUI legacy**. Ni NKGui, ni NKEditorKit : les deux seules mentions du kit sont
+**en commentaire**, et `UkConfig.h:21` le dit lui-même — *« ÉCART DOCUMENTÉ
+(2026-07-24) : Nogee n'utilise PAS NkEditorShell »*. Le drapeau `--ui=rhi` existe
+et **retombe sur NKUI legacy** (`Nogee.cpp:66` journalise l'avertissement).
+
+### d) ⚠️ PIÈGE D'INSTRUMENT JENGA — un drapeau inconnu ne fait pas échouer
+
+```
+$ jenga build --project Nogee --config Release
+  « Undeclared custom option(s) accepted for compatibility: --project »
+  Build Order (205 projects)   <- le workspace ENTIER, pas Nogee
+  FAILURE — NkRHIDemoText, 20 erreurs   (exit 1, 9 m 51 s)
+```
+
+**Le drapeau est `--target`, pas `--project`. Jenga accepte l'inconnu en silence**
+et construit tout le workspace. La sortie ressemble trait pour trait à
+« **Nogee ne compile pas** » — alors que Nogee n'avait même pas été atteint
+(*« Not reached: 136 »*) et qu'il compile **43/43** avec le bon drapeau.
+
+📌 **Conséquence au-delà de Noge** : toute mesure de ce dépôt écrite avec un
+drapeau mal orthographié mesure le workspace entier et impute son échec au projet
+nommé. **Vérifier la ligne `Build Order (N projects)` : si N est grand, le
+drapeau n'a pas porté.**
+
+*(Défaut voisin, hors de mon périmètre, relevé au passage :
+`Applications/Sandbox/src/DemoNkentseu/Base03/NkRHIDemoText.cpp` ne compile pas —
+20 erreurs, `nk_handle` / `NK_INVALID_HANDLE` / `NK_UNUSED` / `NkFontLibrary`
+inconnus. Il casse tout `jenga build` sans `--target`.)*
 
 ---
 
