@@ -28,6 +28,13 @@ namespace nkentseu {
 	// ====================================================================
 	// CLASSE PRINCIPALE : NK PAIR
 	// ====================================================================
+	//
+	// NOTE : le tag de construction piecewise (`NkPiecewiseTag`) est défini dans
+	// `NKContainers/NkContainersApi.h`, PAS ici. Raison mesurée : il sert aussi à
+	// `NkSet` et `NkUnorderedSet`, qui n'incluent pas `NkPair.h`. Le définir ici
+	// faisait échouer la compilation de NKContainers — défaut que le témoin de
+	// syntaxe n'a pas vu, parce qu'il incluait les maps AVANT les sets et que
+	// celles-ci tiraient `NkPair.h` : l'ordre d'inclusion masquait le manque.
 
 	/**
 	 * @brief Structure template représentant une paire de valeurs hétérogènes
@@ -111,6 +118,30 @@ namespace nkentseu {
 			 */
 			template <typename U1, typename U2>
 			NKENTSEU_CONSTEXPR NkPair(const NkPair<U1, U2> &other) : First(other.First), Second(other.Second) {
+			}
+
+			/**
+			 * @brief Construit First par copie et Second SUR PLACE depuis des arguments forwardés
+			 * @tparam Args Types déduits des arguments destinés au constructeur de T2
+			 * @param first Valeur à copier dans le premier membre
+			 * @param args Arguments forwardés vers le constructeur de T2
+			 *
+			 * @note C'est la seule voie qui permette de loger dans une NkPair un T2
+			 *       **non copiable** (move-only) ou **sans constructeur par défaut** :
+			 *       NkPair(const T1 &, const T2 &) copie, et les constructeurs par
+			 *       déplacement de cette classe sont derrière `#if defined(NK_CPP11)`,
+			 *       macro qui n'est définie nulle part dans le dépôt.
+			 *
+			 * @note AJOUT PUR : le tag rend ce constructeur insélectionnable par tout
+			 *       appel existant. Les appelants qui copiaient continuent de copier,
+			 *       au même coût — la résolution de surcharge le garantit, pas la vigilance.
+			 *
+			 * @example
+			 * NkPair<const int, MonType> p(NkPiecewiseTag{}, 1, arg1, arg2);
+			 */
+			template <typename... Args>
+			NKENTSEU_CONSTEXPR NkPair(NkPiecewiseTag, const T1 &first, Args &&...args)
+				: First(first), Second(traits::NkForward<Args>(args)...) {
 			}
 
 // ====================================================================

@@ -293,7 +293,7 @@ l'intérêt du système. Mais déboguer un moteur de règles sans pouvoir affich
 état, c'est déboguer à l'aveugle. L'atelier **injecte donc un puits** dans chaque
 module au chargement, et le branchement tient en une ligne :
 
-**`Applications/ConquerorLab/exemples/rules/RegleMinimale.cpp — fin de fichier`**
+**`Applications/ConquerorLab/exemples/rules/RegleContratNu.cpp — fin de fichier`**
 
 ```cpp
 NKC_MODULE_EXPORT void nkc_rules_set_allocator(NkcAllocFn a, NkcFreeFn f) { gAlloc = a; gFree = f; }

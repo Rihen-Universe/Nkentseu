@@ -519,6 +519,52 @@ namespace nkentseu {
 				void SelectNone();
 				bool AnyVertSelected() const;
 
+				// ── COMPOSANTES CONNEXES (« loose parts ») ────────────────────────
+				// UN SOUS-MESH EST UNE COMPOSANTE CONNEXE. C'est la définition posée
+				// par Rihen à travers un geste : `L` sous Blender sélectionne tout ce
+				// qui est RELIÉ à l'élément survolé. Sa phrase le disait déjà — « un
+				// assemblage de vertices, edges et faces reliés OU NON entre eux ».
+				//
+				// ⚠️ UNE SEULE PRIMITIVE POUR TOUS LES GESTES QUI EN DÉPENDENT :
+				// `L` (sélectionner un îlot), `Ctrl+L` (étendre à ce qui est lié), et
+				// plus tard `P` « separate by loose parts ». Deux implémentations
+				// divergeraient au premier cas limite (sommet isolé, arête pendante,
+				// face dégénérée) et « ce que L sélectionne » cesserait d'être « ce
+				// que P sépare ».
+				//
+				// ⚠️ Le parcours se fait sur l'IDENTITÉ SOUDÉE (BuildVertexMerge), pas
+				// sur les indices bruts : un cube importé duplique ses sommets par
+				// face (24 pour 8 positions), et une connexité par indice brut y
+				// verrait 6 îlots — un par face — au lieu d'un seul.
+				//
+				// compOf[i] = index de composante du sommet i (les copies coïncidentes
+				// partagent le leur). Renvoie le NOMBRE de composantes.
+				//
+				// INVARIANTS VÉRIFIABLES, et ils font le test : la somme des tailles
+				// des composantes égale le nombre de sommets, et aucun sommet
+				// n'appartient à deux composantes.
+				uint32 ComputeConnectedComponents(NkVector<int32> &compOf) const;
+
+				// `L` — sélectionne tout ce qui est lié au sommet `seed`. `additive`
+				// conserve la sélection courante (Blender ajoute ; L seul n'efface
+				// pas).
+				//
+				// ⚠️ RENVOIE `true` SI LA SÉLECTION A CHANGÉ, pas si l'appel était
+				// valide — c'est la convention des autres opérations de ce fichier
+				// (« chaque op renvoie true si la topologie/géométrie a changé »).
+				// Une graine hors limites, un îlot déjà entièrement sélectionné :
+				// les deux rendent `false`, et c'est voulu. Un booléen qui répond
+				// « oui » quand rien n'a bougé ne sert à aucun appelant — ni pour
+				// empiler un historique, ni pour redessiner.
+				bool SelectLinked(uint32 seed, bool additive = true);
+
+				// `Ctrl+L` — étend la sélection COURANTE à tout ce qui lui est lié.
+				// Même convention : `true` seulement si des sommets se sont ajoutés.
+				// Sur une sélection VIDE, ne fait rien et rend `false` — « tout
+				// sélectionner » serait une surprise, et un geste qui surprend est un
+				// geste qu'on annule.
+				bool SelectLinkedFromSelection();
+
 				// EXTRUDE façon Blender : la nouvelle géométrie est créée À L'OFFSET DEMANDÉ
 				// (0 par défaut = collée sur l'originale) et devient la SÉLECTION. Aucun
 				// déplacement implicite : c'est l'utilisateur qui bouge ensuite.

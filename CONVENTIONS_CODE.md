@@ -233,3 +233,30 @@ qu'un défaut passe inaperçu.
 
 **Revue** : un manquement à ces règles est un motif de retour légitime, au même
 titre qu'un nom mal choisi.
+
+## Arithmetique de pointeur : jamais avant le controle de nullite
+
+**`ptr + off` sur un pointeur nul detruit TOUS les controles de nullite en aval.**
+Le resultat n'est pas nul — il est non nul et invalide. Le `if (!ptr)` que
+l'appelant a ecrit, qui est la et qui est juste, **laisse passer**. Au lieu d'un
+plantage propre au premier dereferencement, on obtient un acces a une adresse
+arbitraire.
+
+```cpp
+// FAUX — l'echec devient invisible pour tout le monde en aval
+return {(uint8 *)ms.pData + off, mapSz};
+
+// JUSTE — l'echec reste un echec
+if (FAILED(hr) || !ms.pData)
+    return {};
+return {(uint8 *)ms.pData + off, mapSz};
+```
+
+Corollaire : ne jamais rendre un pointeur nul **accompagne d'une taille non
+nulle**. L'appelant y lirait une plage qu'il croit valide.
+
+Trouve le 15 aout 2026 sur **six sites du NKRHI, dans les quatre dorsales** —
+et une septieme fois dans du code ecrit une heure plus tot, sauve par un
+`off = 0` de hasard. Le defaut se cachait **derriere une protection apparente** :
+c'est pourquoi il a survecu partout. L'evidence ne suffit pas ; il faut le
+savoir.

@@ -825,15 +825,13 @@ static bool SaveSoftwareScene(NkSoftwareDevice *swDev, const std::filesystem::pa
 	if (!pixels || w == 0 || h == 0)
 		return false;
 
-	NkImage *wrapped = NkImage::Wrap(const_cast<uint8 *>(pixels), (int32)w, (int32)h, NkImagePixelFormat::NK_RGBA32);
-	if (!wrapped || !wrapped->IsValid()) {
-		if (wrapped)
-			wrapped->Free();
+	// Vue NON-OWNING sur le backbuffer : `wrapped` ne libere jamais `pixels`.
+	NkImage wrapped = NkImage::Wrap(const_cast<uint8 *>(pixels), (int32)w, (int32)h, NkImagePixelFormat::NK_RGBA32);
+	if (!wrapped.IsValid()) {
 		return false;
 	}
 
-	const bool ok = SaveImageVariants(*wrapped, outputDir, stem);
-	wrapped->Free();
+	const bool ok = SaveImageVariants(wrapped, outputDir, stem);
 	return ok;
 }
 
@@ -1367,7 +1365,7 @@ int nkmain(const nkentseu::NkEntryState &state) {
 
 	NkTextureHandle hAlbedoTex;
 	NkSamplerHandle hAlbedoSampler;
-	NkImage *loadedTextureImage = nullptr;
+	NkImage loadedTextureImage;
 	std::string loadedTexturePath;
 
 	// Descriptor set layout (binding 0 = UBO, binding 1 = shadow sampler, binding 2 = albedo sampler)
@@ -1564,25 +1562,25 @@ int nkmain(const nkentseu::NkEntryState &state) {
 	loadedTexturePath = FindTextureInResources();
 	if (!loadedTexturePath.empty()) {
 		logger.Info("[RHIFullDemoImage] Texture candidate: {0}\\n", loadedTexturePath.c_str());
-		loadedTextureImage = NkImage::Load(loadedTexturePath.c_str(), 4);
-		// loadedTextureImage = NkImage::LoadSTB(loadedTexturePath.c_str(), 4);
-		if (loadedTextureImage && loadedTextureImage->IsValid()) {
+		// Load() est une methode d'instance (NKIResource) : allouer puis charger.
+		loadedTextureImage = NkImage::Alloc(1, 1, NkImagePixelFormat::NK_RGBA32);
+		if (loadedTextureImage.IsValid() && !loadedTextureImage.Load(loadedTexturePath.c_str(), 4)) {
+			loadedTextureImage.Unload();
+		}
+		if (loadedTextureImage.IsValid()) {
 			logger.Info("[RHIFullDemoImage] Texture chargee: {0} ({1}x{2}, ch={3})\\n", loadedTexturePath.c_str(),
-						loadedTextureImage->Width(), loadedTextureImage->Height(), loadedTextureImage->Channels());
+						loadedTextureImage.Width(), loadedTextureImage.Height(), loadedTextureImage.Channels());
 		} else {
 			logger.Info("[RHIFullDemoImage] Echec chargement texture candidate: {0}\\n", loadedTexturePath.c_str());
 		}
 	}
-	if (!loadedTextureImage || !loadedTextureImage->IsValid()) {
-		if (loadedTextureImage) {
-			loadedTextureImage->Free();
-			loadedTextureImage = nullptr;
-		}
-		loadedTextureImage = NkImage::Alloc(256, 256, NkImagePixelFormat::NK_RGBA32, true);
-		if (loadedTextureImage && loadedTextureImage->IsValid()) {
-			for (int y = 0; y < loadedTextureImage->Height(); ++y) {
-				uint8 *row = loadedTextureImage->RowPtr(y);
-				for (int x = 0; x < loadedTextureImage->Width(); ++x) {
+	if (!loadedTextureImage.IsValid()) {
+		// Reaffectation : le move-assign libere l'eventuel buffer precedent.
+		loadedTextureImage = NkImage::Alloc(256, 256, NkImagePixelFormat::NK_RGBA32);
+		if (loadedTextureImage.IsValid()) {
+			for (int y = 0; y < loadedTextureImage.Height(); ++y) {
+				uint8 *row = loadedTextureImage.RowPtr(y);
+				for (int x = 0; x < loadedTextureImage.Width(); ++x) {
 					const int tile = ((x / 32) + (y / 32)) & 1;
 					const uint8 c = tile ? (uint8)220 : (uint8)40;
 					row[x * 4 + 0] = c;
@@ -1595,13 +1593,13 @@ int nkmain(const nkentseu::NkEntryState &state) {
 			logger.Info("[RHIFullDemoImage] Fallback texture generee (checkerboard 256x256).\\n");
 		}
 	}
-	if (loadedTextureImage && loadedTextureImage->IsValid()) {
+	if (loadedTextureImage.IsValid()) {
 		NkTextureDesc albedoDesc = NkTextureDesc::Tex2D(
-			(uint32)loadedTextureImage->Width(), (uint32)loadedTextureImage->Height(), NkGPUFormat::NK_RGBA8_UNORM, 1);
+			(uint32)loadedTextureImage.Width(), (uint32)loadedTextureImage.Height(), NkGPUFormat::NK_RGBA8_UNORM, 1);
 		albedoDesc.bindFlags = NkBindFlags::NK_SHADER_RESOURCE;
 		hAlbedoTex = device->CreateTexture(albedoDesc);
 		if (hAlbedoTex.IsValid()) {
-			if (!device->WriteTexture(hAlbedoTex, loadedTextureImage->Pixels(), (uint32)loadedTextureImage->Stride())) {
+			if (!device->WriteTexture(hAlbedoTex, loadedTextureImage.Pixels(), (uint32)loadedTextureImage.Stride())) {
 				logger.Info("[RHIFullDemoImage] Echec upload texture albedo.\\n");
 			}
 		}
@@ -2286,10 +2284,10 @@ int nkmain(const nkentseu::NkEntryState &state) {
 
 		if (requestSaveSource) {
 			requestSaveSource = false;
-			if (loadedTextureImage && loadedTextureImage->IsValid()) {
+			if (loadedTextureImage.IsValid()) {
 				++saveSourceCounter;
 				const std::string stem = NkFormat("source_{0}", (unsigned long long)saveSourceCounter).CStr();
-				if (!SaveImageVariants(*loadedTextureImage, capturesDir, stem)) {
+				if (!SaveImageVariants(loadedTextureImage, capturesDir, stem)) {
 					logger.Info("[RHIFullDemoImage] Echec save source image.\n");
 				}
 			} else {
@@ -2352,10 +2350,8 @@ int nkmain(const nkentseu::NkEntryState &state) {
 		device->DestroySampler(hAlbedoSampler);
 	if (hAlbedoTex.IsValid())
 		device->DestroyTexture(hAlbedoTex);
-	if (loadedTextureImage) {
-		loadedTextureImage->Free();
-		loadedTextureImage = nullptr;
-	}
+	// `loadedTextureImage` est une NkImage VALEUR : ses pixels sont liberes par
+	// son destructeur en sortie de Run().
 
 	// Texte
 	DestroyTextQuad(device, tqFPS);

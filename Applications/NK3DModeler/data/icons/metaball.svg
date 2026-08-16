@@ -1,4 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor">
-  <path fill-rule="evenodd" d="M5.7 3.6a4.4 4.4 0 100 8.8 4.4 4.4 0 000-8.8zm0 1.3a3.1 3.1 0 110 6.2 3.1 3.1 0 010-6.2z"/>
-  <path fill-rule="evenodd" d="M10.8 5.2a3.4 3.4 0 100 6.8 3.4 3.4 0 000-6.8zm0 1.3a2.1 2.1 0 110 4.2 2.1 2.1 0 010-4.2z"/>
+  <!-- Metaball / liquide : deux masses PLEINES qui fusionnent. Les deux anneaux
+       fins d'avant se lisaient comme deux cercles poses l'un sur l'autre, ce qui
+       ne dit rien de la fusion -- toute l'idee d'une metaball.
+       PAS de fill-rule="evenodd" ici, volontairement : en evenodd les deux
+       disques se PERCERAIENT l'un l'autre a leur intersection. Le remplissage
+       nonzero par defaut les soude en une seule masse. -->
+  <path d="M5.6 3.4a4.6 4.6 0 100 9.2 4.6 4.6 0 000-9.2z"/>
+  <path d="M11 5.3a3.5 3.5 0 100 7 3.5 3.5 0 000-7z"/>
 </svg>

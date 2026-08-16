@@ -26,14 +26,13 @@
 
 #include "Pong/UI/Scene.h"
 #include "NKCanvas/Renderer/Resources/NkTexture.h"
+// NkImage est stockee PAR VALEUR dans mPending[] : type complet requis
+// (plus de forward declaration possible).
+#include "NKImage/Core/NkImage.h"
 
 #include <atomic>
 #include <mutex>
 #include <thread>
-
-namespace nkentseu {
-	class NkImage;
-}
 
 namespace nkentseu {
 	namespace pong {
@@ -124,7 +123,7 @@ namespace nkentseu {
 				/// (= attendre) vs "frame definitivement absente" (= skip).
 				std::atomic<bool> mWorkerDone{false};
 				/// Index courant atteint par le worker (-1 = pas demarre).
-				/// Si mPending[i] == nullptr ET i < mWorkerLastAttempted ->
+				/// Si mPending[i] est INVALIDE ET i < mWorkerLastAttempted ->
 				/// la frame i est definitivement manquante (decode rate).
 				std::atomic<int> mWorkerLastAttempted{-1};
 				std::mutex mQueueMutex;
@@ -134,14 +133,18 @@ namespace nkentseu {
 				/// (0..kFrameCount-1). Sequentiel : le worker pousse dans l'ordre.
 				struct PendingFrame {
 						int index;
-						NkImage *image;
+						NkImage image;
 				};
 
 				// Buffer circulaire / file simple (tableau borne). On utilise un
 				// index "head" qui ne fait qu'augmenter ; quand mFramesLoaded
 				// rattrappe head, la file est vide. Toutes les operations sont
 				// protegees par mQueueMutex.
-				NkImage *mPending[kFrameCount] = {nullptr};
+				// NkImage est un TYPE VALEUR : chaque slot se construit vide
+				// (IsValid()==false = slot libre) et libere ses pixels tout seul.
+				// NkImage etant non copiable, tout remplissage/vidage de slot se
+				// fait par MOVE (traits::NkMove).
+				NkImage mPending[kFrameCount];
 				int mPendingNext = 0; ///< Index suivant a uploader
 
 				void StartWorker();

@@ -19,6 +19,7 @@
 // copier / couper / coller. Rihen le veut dans TOUS les champs de
 // l'application, pour qu'aucun ne se comporte differemment d'un autre.
 #include "NKEditorKit/NkEditorTextField.h"
+#include "NKEditorKit/NkEditorTooltip.h" // infobulle partagee (delai de survol)
 #include "NKMath/NkColor.h" // NkColorF::ToHSV / FromHSV : la reference du moteur
 
 #include <cstdio>
@@ -34,6 +35,16 @@ namespace nkentseu {
 		inline nkgui::NkGuiContext *&NkUiCtx() {
 			static nkgui::NkGuiContext *c = nullptr;
 			return c;
+		}
+
+		// ── LE PEINTRE DE LA COUCHE OVERLAY ─────────────────────────────────────
+		// Meme raison, autre couche. Les composants de NKEditorKit (modales,
+		// selecteur, menus) dessinent dans `ctx.dlOverlay`, soumise APRES `dl` :
+		// un contenu peint avec le peintre ordinaire passerait DERRIERE leur cadre.
+		// Les surfaces modales du modeleur peignent donc avec CELUI-CI.
+		inline NkModelerPainter *&NkOvPainter() {
+			static NkModelerPainter *q = nullptr;
+			return q;
 		}
 
 		// ── ETAT PARTAGE DES WIDGETS ────────────────────────────────────────────
@@ -111,6 +122,28 @@ namespace nkentseu {
 		// dernieres entrees sont INATTEIGNABLES. On le fait donc remonter ou glisser
 		// pour qu'il tienne, plutot que de le laisser deborder : la liste est courte,
 		// il y a toujours la place quelque part.
+		// ── L'AIDE FAIT PARTIE DU WIDGET ────────────────────────────────────────
+		// Rihen, 12 aout : « pense a integrer les tooltips sur chaque element,
+		// bouton ou panneau -- mieux vaut y penser tot ». C'est une contrainte de
+		// CONCEPTION : chaque fonction de widget prend son texte d'aide DANS SA
+		// SIGNATURE (dernier parametre, optionnel le temps de la migration). Le
+		// rajouter apres coup obligerait a repasser sur des centaines d'appels.
+		//
+		// Le rendu et la temporisation ne sont PAS reecrits ici : ils vivent dans
+		// NKEditorKit (`NkTooltip`), qui les partage avec NKCode. On ne fournit que
+		// le raccord vers le contexte de la frame.
+		inline void NkHelp(bool hovered, const char *tip) {
+			if (!tip || !*tip)
+				return;
+			if (nkgui::NkGuiContext *gc = NkUiCtx())
+				editorkit::NkTooltip(*gc, hovered, tip);
+		}
+
+		/// Variante commode : le survol se lit dans le registre, par la cle du widget.
+		inline void NkHelp(const NkHitRegistry &hit, const char *key, const char *tip) {
+			NkHelp(hit.IsHovered(key), tip);
+		}
+
 		inline NkRect NkFitPopup(const NkRect &anchor, float32 w, float32 h) {
 			const float32 W = NkPopupBoundsW(), H = NkPopupBoundsH();
 			const float32 m = S(4.f);
@@ -142,7 +175,9 @@ namespace nkentseu {
 		// Renvoie true si la valeur a change cette frame.
 		inline bool DragFloat(NkModelerPainter &p, NkHitRegistry &hit, NkWidgetState &ws,
 							  const nkgui::NkGuiInput &in, const char *key, const NkRect &r,
-							  float32 &value, float32 step, NkRole accent, const char *fmt = "%.2f") {
+							  float32 &value, float32 step, NkRole accent, const char *fmt = "%.2f",
+							  const char *tip = nullptr) {
+			NkHelp(hit.IsHovered(key), tip);
 			// ── SAISIE AU CLAVIER (double-clic), demande de Rihen ───────────────
 			// Le champ est AUSSI un champ de texte : double-clic, on tape la
 			// valeur, Entree ou clic ailleurs valide, Echap annule. Le glissement
@@ -300,8 +335,9 @@ namespace nkentseu {
 						  int32 &selected, NkComboPending &pending, bool enabled = true,
 						  bool showChevron = true, bool showFrame = true,
 						  NkIcon faceIcon = NkIcon::Count,
-						  const bool *disabledItems = nullptr) {
+						  const bool *disabledItems = nullptr, const char *tip = nullptr) {
 			const bool over = enabled && hit.Add(key, r);
+			NkHelp(over, tip);
 			const bool open = ws.ComboOpen(key);
 			const NkRole fg = enabled ? NkRole::Text : NkRole::TextMuted;
 			// Le CADRE est optionnel : dans un groupe colle, c'est le groupe qui en
@@ -477,7 +513,8 @@ namespace nkentseu {
 		inline void CheckCombo(NkModelerPainter &p, NkHitRegistry &hit, NkWidgetState &ws,
 							   const char *key, const NkRect &r, const char *const *items,
 							   const NkIcon *icons, int32 count, uint32 &mask, NkIcon buttonIcon,
-							   NkCheckPending &pending) {
+							   NkCheckPending &pending, const char *tip = nullptr) {
+			NkHelp(hit.IsHovered(key), tip);
 			const bool over = hit.Add(key, r);
 			const bool open = ws.ComboOpen(key);
 			if (over || open)
@@ -575,7 +612,9 @@ namespace nkentseu {
 		// Renvoie true si le nom vient d'etre valide (out contient le nouveau).
 		inline bool EditableText(NkModelerPainter &p, NkHitRegistry &hit, NkWidgetState &ws,
 								 const nkgui::NkGuiInput &in, const char *key, const NkRect &r,
-								 const char *text, NkRole role, char *out, uint32 outCap) {
+								 const char *text, NkRole role, char *out, uint32 outCap,
+							 const char *tip = nullptr) {
+			NkHelp(hit.IsHovered(key), tip);
 			const bool editing = ws.IsEditing(key);
 			if (!editing) {
 				const bool over = hit.Add(key, r);

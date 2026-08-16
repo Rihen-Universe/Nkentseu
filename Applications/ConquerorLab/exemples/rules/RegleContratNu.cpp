@@ -1,5 +1,5 @@
 // =============================================================================
-// RegleMinimale.cpp — LE PLUS PETIT moteur de regles qui joue vraiment.
+// RegleContratNu.cpp — LE PLUS PETIT moteur de regles qui joue vraiment.
 //
 // A QUOI CE FICHIER SERT
 // ----------------------
@@ -31,7 +31,7 @@
 //     -I<depot>/Applications/ConquerorLab/include \
 //     -I<depot>/Kernel/Foundation/NKCore/src \
 //     -I<depot>/Kernel/Foundation/NKPlatform/src \
-//     -o RegleMinimale.dll RegleMinimale.cpp
+//     -o RegleContratNu.dll RegleContratNu.cpp
 // =============================================================================
 
 #include "Conqueror/ConquerorRulesABI.h"
@@ -527,7 +527,7 @@ namespace {
 		if (!out) return;
 		std::memset(out, 0, sizeof(*out));
 		out->info.abiVersion = kRulesAbiVersion;
-		std::snprintf(out->info.name, sizeof(out->info.name), "RegleMinimale");
+		std::snprintf(out->info.name, sizeof(out->info.name), "RegleContratNu");
 		std::snprintf(out->info.version, sizeof(out->info.version), "1.0.0");
 		std::snprintf(out->info.author, sizeof(out->info.author), "Cours ConquerorLab");
 		out->info.supportsHex	 = 0;

@@ -81,6 +81,14 @@ namespace nkentseu {
 					public:
 						Lex(const NkVector<uint8> &b) : mB(b) {}
 
+						// /MCID du dernier dictionnaire en ligne rencontre, ou -1.
+						//
+						// Le lexer SAUTE les dictionnaires en ligne (seul l'operateur
+						// l'interessait). Il en releve desormais le /MCID au passage :
+						// c'est le seul endroit ou le contenu du dictionnaire est encore
+						// sous la main, et cela evite d'ecrire un second analyseur.
+						int32 DernierMcid() const { return mDernierMcid; }
+
 						Tok Next() {
 							Tok t;
 							SkipWs();
@@ -145,7 +153,10 @@ namespace nkentseu {
 							}
 							if (c == '<' && mP + 1 < mB.Size() && mB[mP + 1] == '<') {
 								// Dictionnaire en ligne (BDC, gs...) : on le SAUTE, seul
-								// son operateur nous interesse a ce stade.
+								// son operateur nous interesse a ce stade — MAIS on releve
+								// au vol son /MCID, qui rattache le texte qui suit a un
+								// noeud de l'arbre de structure.
+								const usize debutDict = mP;
 								int32 depth = 0;
 								while (mP + 1 < mB.Size()) {
 									if (mB[mP] == '<' && mB[mP + 1] == '<') {
@@ -162,6 +173,7 @@ namespace nkentseu {
 									}
 									++mP;
 								}
+								mDernierMcid = LireMcid(debutDict, mP);
 								return Next();
 							}
 							if (c == '+' || c == '-' || c == '.' || (c >= '0' && c <= '9')) {
@@ -220,8 +232,43 @@ namespace nkentseu {
 								return;
 							}
 						}
+						// Cherche « /MCID <entier> » entre `deb` et `fin`. Recherche
+						// litterale plutot qu'analyse complete du dictionnaire : on ne
+						// veut qu'un entier, et ecrire un second analyseur pour cela
+						// couterait plus cher que le gain.
+						int32 LireMcid(usize deb, usize fin) const {
+							static const char kCle[] = "/MCID";
+							const usize n = 5;
+							if (fin > mB.Size())
+								fin = mB.Size();
+							for (usize i = deb; i + n < fin; ++i) {
+								usize k = 0;
+								while (k < n && mB[i + k] == static_cast<uint8>(kCle[k]))
+									++k;
+								if (k != n)
+									continue;
+								usize j = i + n;
+								while (j < fin && IsWsC(mB[j]))
+									++j;
+								if (j >= fin || mB[j] < '0' || mB[j] > '9')
+									return -1; // « /MCID » sans entier : on ne devine pas
+								int32 v = 0;
+								while (j < fin && mB[j] >= '0' && mB[j] <= '9') {
+									// Garde-fou : un entier demesure d'un fichier forge
+									// ne doit pas deborder silencieusement.
+									if (v > 1000000)
+										return -1;
+									v = v * 10 + (mB[j] - '0');
+									++j;
+								}
+								return v;
+							}
+							return -1;
+						}
+
 						const NkVector<uint8> &mB;
 						usize mP = 0;
+						int32 mDernierMcid = -1;
 				};
 
 				// Decode une chaine litterale PDF (echappements) ou hexadecimale.
@@ -458,6 +505,12 @@ namespace nkentseu {
 				Tok lastName;
 				lastName.kind = Tok::End;
 				NkVector<uint8> strBuf;
+
+				// Pile des blocs de contenu marque (BDC/BMC ... EMC). LOCALE a ce
+				// flux : un bloc laisse ouvert par un fichier malforme ne peut donc
+				// pas fuiter sur le contenu de la page suivante, ni sur celui qui
+				// appelle ce formulaire.
+				NkVector<int32> mcidPile;
 
 				// Tableau en cours (operateur TJ).
 				bool inArr = false;
@@ -765,6 +818,31 @@ namespace nkentseu {
 						continue;
 					}
 
+					// ── Contenu marque : BDC / BMC / EMC ──
+					//
+					// La pile suit l'imbrication des blocs. Deux garde-fous, parce
+					// qu'un PDF malforme ne doit ni planter le lecteur ni corrompre
+					// ce qui suit :
+					//   - un EMC sans BDC correspondant depile a vide : on l'ignore
+					//     au lieu de deborder ;
+					//   - un BDC jamais ferme ne peut pas fuiter au-dela de son flux :
+					//     la pile est locale a Run() et disparait avec lui.
+					// Profondeur bornee : un flux forge pourrait empiler sans fin.
+					if (OpIs(t, "BDC") || OpIs(t, "BMC")) {
+						if (mcidPile.Size() < 256u)
+							mcidPile.PushBack(OpIs(t, "BDC") ? lex.DernierMcid() : -1);
+						clear();
+						continue;
+					}
+					if (OpIs(t, "EMC")) {
+						if (!mcidPile.Empty())
+							mcidPile.PopBack();
+						else
+							Note("EMC sans BDC (fichier malforme)");
+						clear();
+						continue;
+					}
+
 					// Texte
 					if (OpIs(t, "BT")) {
 						mTm = NkPdfMat();
@@ -927,6 +1005,10 @@ namespace nkentseu {
 										it.w = static_cast<float32>(wpx);
 										it.h = static_cast<float32>(hpx);
 										it.text = f->ToUnicode(code);
+										// Bloc marque courant : le sommet de la pile. -1
+										// hors de tout bloc, ce qui est le cas de la
+										// grande majorite des documents non balises.
+										it.mcid = mcidPile.Empty() ? -1 : mcidPile[mcidPile.Size() - 1];
 										// Sonde non biaisee : le couple (code demande, table)
 										// est releve ICI, sur la police effectivement
 										// interrogee, au moment ou elle echoue. Les codes

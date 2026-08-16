@@ -637,9 +637,9 @@ namespace nkentseu {
 	//  DecodeVP8L
 	// ─────────────────────────────────────────────────────────────────────────────
 
-	NkImage *NkWebPCodec::DecodeVP8L(const uint8 *data, usize size) noexcept {
+	NkImage NkWebPCodec::DecodeVP8L(const uint8 *data, usize size) noexcept {
 		if (size < 5 || data[0] != 0x2Fu)
-			return nullptr;
+			return NkImage();
 
 		VP8LBitReader br;
 		br.Init(data + 1, size - 1);
@@ -649,12 +649,12 @@ namespace nkentseu {
 		const bool hasAlpha = br.ReadBits(1) != 0;
 		const int32 version = static_cast<int32>(br.ReadBits(3));
 		if (br.error || version != 0 || w <= 0 || h <= 0)
-			return nullptr;
+			return NkImage();
 
 		const int32 total = w * h;
 		uint32 *argb = static_cast<uint32 *>(NkAlloc(static_cast<usize>(total) * 4));
 		if (!argb)
-			return nullptr;
+			return NkImage();
 		NkSet(argb, 0, static_cast<usize>(total) * 4);
 
 		VP8LDecoder dec;
@@ -736,19 +736,19 @@ namespace nkentseu {
 
 		if (!ok) {
 			NkFree(argb);
-			return nullptr;
+			return NkImage();
 		}
 
 		const NkImagePixelFormat fmt = hasAlpha ? NkImagePixelFormat::NK_RGBA32 : NkImagePixelFormat::NK_RGB24;
-		NkImage *img = NkImage::Alloc(w, h, fmt);
-		if (!img) {
+		NkImage img = NkImage::Alloc(w, h, fmt);
+		if (!img.IsValid()) {
 			NkFree(argb);
-			return nullptr;
+			return NkImage();
 		}
 
-		const int32 ch = img->Channels();
+		const int32 ch = img.Channels();
 		for (int32 y = 0; y < h; ++y) {
-			uint8 *row = img->RowPtr(y);
+			uint8 *row = img.RowPtr(y);
 			for (int32 x = 0; x < w; ++x) {
 				const uint32 p = argb[y * w + x];
 				row[x * ch + 0] = static_cast<uint8>((p >> 16) & 0xFF); // R
@@ -766,20 +766,20 @@ namespace nkentseu {
 	//  DecodeVP8 (lossy) — dimensions + gris neutre
 	// ─────────────────────────────────────────────────────────────────────────────
 
-	NkImage *NkWebPCodec::DecodeVP8(const uint8 *data, usize size) noexcept {
+	NkImage NkWebPCodec::DecodeVP8(const uint8 *data, usize size) noexcept {
 		if (size < 10)
-			return nullptr;
+			return NkImage();
 		if ((data[0] & 1) != 0)
-			return nullptr; // pas un key frame
+			return NkImage(); // pas un key frame
 		if (data[3] != 0x9D || data[4] != 0x01 || data[5] != 0x2A)
-			return nullptr;
+			return NkImage();
 		const int32 w = (data[6] | (static_cast<int32>(data[7]) << 8)) & 0x3FFF;
 		const int32 h = (data[8] | (static_cast<int32>(data[9]) << 8)) & 0x3FFF;
 		if (w <= 0 || h <= 0)
-			return nullptr;
-		NkImage *img = NkImage::Alloc(w, h, NkImagePixelFormat::NK_RGB24);
-		if (img)
-			NkSet(img->Pixels(), 128, img->TotalBytes());
+			return NkImage();
+		NkImage img = NkImage::Alloc(w, h, NkImagePixelFormat::NK_RGB24);
+		if (img.IsValid())
+			NkSet(img.Pixels(), 128, img.TotalBytes());
 		return img;
 	}
 
@@ -787,13 +787,13 @@ namespace nkentseu {
 	//  Decode — point d'entrée public
 	// ─────────────────────────────────────────────────────────────────────────────
 
-	NkImage *NkWebPCodec::Decode(const uint8 *data, usize size) noexcept {
+	NkImage NkWebPCodec::Decode(const uint8 *data, usize size) noexcept {
 		if (size < 12)
-			return nullptr;
+			return NkImage();
 		if (data[0] != 'R' || data[1] != 'I' || data[2] != 'F' || data[3] != 'F')
-			return nullptr;
+			return NkImage();
 		if (data[8] != 'W' || data[9] != 'E' || data[10] != 'B' || data[11] != 'P')
-			return nullptr;
+			return NkImage();
 
 		const uint32 VP8L_TAG = MakeFourCC('V', 'P', '8', 'L');
 		const uint32 VP8_TAG = MakeFourCC('V', 'P', '8', ' ');
@@ -810,7 +810,7 @@ namespace nkentseu {
 			if (FindChunk(data, size, VP8_TAG, chunk))
 				return DecodeVP8(data + chunk.dataOffset, chunk.size);
 		}
-		return nullptr;
+		return NkImage();
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────────
@@ -1236,29 +1236,25 @@ namespace nkentseu {
 			return false;
 		(void)quality; // lossy non implémenté
 
+		// `conv` vit jusqu'à la fin de la fonction et libère ses pixels toute
+		// seule ; `src` n'est qu'une vue non-possédante.
 		const NkImage *src = &img;
-		NkImage *conv = nullptr;
+		NkImage conv;
 		if (img.Channels() != 3 && img.Channels() != 4) {
 			conv = img.Convert(NkImagePixelFormat::NK_RGBA32);
-			if (!conv)
+			if (!conv.IsValid())
 				return false;
-			src = conv;
+			src = &conv;
 		}
 
 		NkImageStream vp8lStream;
-		if (!EncodeVP8L(*src, vp8lStream)) {
-			if (conv)
-				conv->Free();
+		if (!EncodeVP8L(*src, vp8lStream))
 			return false;
-		}
 
 		uint8 *vp8lData = nullptr;
 		usize vp8lSize = 0;
-		if (!vp8lStream.TakeBuffer(vp8lData, vp8lSize)) {
-			if (conv)
-				conv->Free();
+		if (!vp8lStream.TakeBuffer(vp8lData, vp8lSize))
 			return false;
-		}
 
 		// RIFF/WEBP container
 		const uint32 chunkSize = static_cast<uint32>(vp8lSize);
@@ -1284,8 +1280,7 @@ namespace nkentseu {
 			riff.WriteU8(0); // padding
 
 		NkFree(vp8lData);
-		if (conv)
-			conv->Free();
+		// `conv` (si utilisée) se libère seule en sortie de portée.
 		return riff.TakeBuffer(out, outSize);
 	}
 

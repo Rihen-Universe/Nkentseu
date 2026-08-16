@@ -276,6 +276,9 @@ static int ModeControle(int argc, char **argv) {
 		if (ok && c.interdit != nullptr &&
 			plat.Find(ilyana::Aplatir(NkString(c.interdit)).CStr()) != NkString::npos)
 			ok = false;
+		if (ok && c.interdit2 != nullptr &&
+			plat.Find(ilyana::Aplatir(NkString(c.interdit2)).CStr()) != NkString::npos)
+			ok = false;
 		if (ok && c.aucuneAnnee && ilyana::ContientAnnee(derniere))
 			ok = false;
 
@@ -677,12 +680,24 @@ static int ModeTrain(int argc, char **argv) {
 	// (VK_ERROR_OUT_OF_DEVICE_MEMORY) parce que le bureau occupait deja la
 	// carte. Un affichage de confort ne doit pas couter quinze heures.
 	cfg.sampleEvery = (int)ArgEntier(argc, argv, "--echantillons", 100);
+	// --llama : architecture RMSNorm + RoPE + SwiGLU au lieu de LayerNorm +
+	// positions apprises + GELU. RoPE ne grave aucune longueur maximale dans les
+	// poids -- decisif pour un socle dont naitront des specialises qui devront
+	// lire des fichiers plus longs que la fenetre d'entrainement.
+	cfg.architectureLlama = Drapeau(argc, argv, "--llama");
+	cfg.weightTying = Drapeau(argc, argv, "--tying");
+	// --graine : deux courses de MEME architecture et de graines differentes
+	// donnent le plancher de bruit. Sans lui, on ne sait pas si un ecart entre
+	// architectures veut dire quelque chose.
+	cfg.seedPoids = (uint32)ArgEntier(argc, argv, "--graine", 1234);
 	cfg.accum = (int)ArgEntier(argc, argv, "--accum", 4);
 	cfg.lr = (float)ArgReel(argc, argv, "--lr", 3e-4);
 	cfg.warmup = (int)ArgEntier(argc, argv, "--warmup", -1);
 	cfg.saveEvery = (int)ArgEntier(argc, argv, "--saveevery", 200);
 	cfg.valFrac = (float)ArgReel(argc, argv, "--valfrac", 0.02);
 	cfg.valEvery = (int)ArgEntier(argc, argv, "--valevery", 250);
+	cfg.valFenetres = (int)ArgEntier(argc, argv, "--valfenetres", 0);
+	cfg.debutsDeBloc = (int)ArgEntier(argc, argv, "--debutsdebloc", 0);
 
 	const char *load = Arg(argc, argv, "--load", nullptr);
 	if (load) {
@@ -1335,7 +1350,10 @@ static int ModeAjouter(int argc, char **argv) {
 		int64 pages = 0;
 		int64 muettes = 0;
 		ilyana::DiagPdf diag;
-		brut = ilyana::LirePdf(fLivre, pages, muettes, 72.0, &diag);
+		// --ordre-visuel : meme drapeau qu'au mode --empreintes. Il rend la
+		// comparaison faisable sur UN document, sans relancer le corpus entier.
+		brut = ilyana::LirePdf(fLivre, pages, muettes, 72.0, &diag,
+							   Drapeau(argc, argv, "--ordre-visuel"));
 		logger.Infof("PDF : %lld page(s) parcourues, %lld sans aucun texte.\n", (long long)pages,
 					 (long long)muettes);
 		logger.Infof("      %lld caractere(s) rencontres, dont %lld sans equivalent lisible.\n",
@@ -2020,6 +2038,11 @@ static int ModeSonder(int argc, char **argv) {
 	// Phase 3 : (page, MCID) suffit-il a identifier un bloc marque ?
 	int32 nMcrStm = 0, nFormBalise = 0;
 	int64 totMcrStm = 0;
+	// L'arbre est-il seulement DECLARE, ou effectivement LU ? Distinction qui a
+	// coute cher sur /ToUnicode : une cle presente qu'on ne sait pas lire se
+	// presente exactement comme une cle absente.
+	int32 nStructLu = 0, nStructMuet = 0;
+	int64 totEntreesStruct = 0;
 
 	// Le TITRE est écrit dans le CSV, pas seulement compté. Le journal passe par
 	// la console, qui n'est pas en UTF-8 sous Windows : elle mange les accents
@@ -2056,6 +2079,10 @@ static int ModeSonder(int argc, char **argv) {
 		// population-ci justifierait encore le chantier.
 		if (s.signets > 0 && !s.structTree) ++nSignetsSansStruct;
 		if (s.mcrAvecStm > 0) { ++nMcrStm; totMcrStm += s.mcrAvecStm; }
+		if (s.structTree) {
+			if (s.entreesStruct > 0) { ++nStructLu; totEntreesStruct += s.entreesStruct; }
+			else ++nStructMuet;
+		}
 		if (s.formDansDocBalise) ++nFormBalise;
 		if (s.dests) ++nDests;
 		if (s.embarques) ++nEmb;
@@ -2135,6 +2162,8 @@ static int ModeSonder(int argc, char **argv) {
 	logger.Infof("  /StructTreeRoot       %4d  (%.0f%%)\n", nStruct, pct(nStruct));
 	logger.Infof("  /Outlines SANS /StructTreeRoot %4d  (%.0f%%)  <- valeur MARGINALE des signets\n",
 				 nSignetsSansStruct, pct(nSignetsSansStruct));
+	logger.Infof("    ... arbre effectivement LU : %4d doc  (%lld entrees)   MUET : %d doc\n",
+				 nStructLu, (long long)totEntreesStruct, nStructMuet);
 	logger.Info("  -- (page, MCID) suffit-il a identifier un bloc marque ? --");
 	logger.Infof("    /MCR portant une cle /Stm    : %4d doc  (%lld occurrences)\n", nMcrStm,
 				 (long long)totMcrStm);
@@ -2208,11 +2237,20 @@ static int ModeEmpreintes(int argc, char **argv) {
 	// du dépôt n'est pas reproductible : dans six semaines, un écart ne dirait
 	// plus si le code a changé ou si la référence était déjà obsolète.
 	const char *commit = Arg(argc, argv, "--commit", "inconnu");
+	// --ordre-visuel force le chemin d'assemblage visuel, meme sur un document
+	// balise : c'est ce qui permet de mesurer le REORDONNANCEMENT avec un seul
+	// binaire, au lieu d'exiger deux constructions depuis deux etats du depot.
+	const bool forcerVisuel = Drapeau(argc, argv, "--ordre-visuel");
 	NkString csv("# empreintes d'extraction PDF — reference de non-regression\n# commit : ");
 	csv.Append(commit);
+	csv.Append(forcerVisuel ? " (ORDRE VISUEL FORCE)" : "");
 	csv.Append("\n# dossier : ");
 	csv.Append(dossier);
-	csv.Append("\nfichier;struct;pages;passages;caracteres;empreinte\n");
+	// `nu` = empreinte du texte DEBARRASSE de tous ses blancs. C'est LA mesure du
+	// reordonnancement : si `empreinte` change mais que `nu` reste identique,
+	// seuls les separateurs ont bouge (recollement de lignes) ; si `nu` change,
+	// la SUITE des caracteres a change, donc l'ordre de lecture.
+	csv.Append("\nfichier;struct;pages;passages;caracteres;empreinte;nu\n");
 	int32 nAvec = 0, nSans = 0;
 
 	for (nk_size i = 0; i < fichiers.Size(); ++i) {
@@ -2227,14 +2265,24 @@ static int ModeEmpreintes(int argc, char **argv) {
 		}
 
 		int64 pages = 0, muettes = 0;
-		const NkString texte = ilyana::LirePdf(fichiers[i].CStr(), pages, muettes);
+		const NkString texte = ilyana::LirePdf(fichiers[i].CStr(), pages, muettes, 72.0, nullptr,
+											   forcerVisuel);
 
 		// FNV-1a 64 bits : court, sans dépendance, et suffisant ici — on ne se
 		// défend pas contre un adversaire, on détecte un changement.
 		uint64 h = 1469598103934665603ull;
+		// Empreinte NUE : mêmes octets, blancs retirés. Deux textes de même
+		// empreinte nue portent exactement la même suite de caractères — donc
+		// le même ordre de lecture, quels que soient les sauts de ligne.
+		uint64 hNu = 1469598103934665603ull;
 		for (nk_size k = 0; k < texte.Size(); ++k) {
-			h ^= static_cast<uint64>(static_cast<uint8>(texte.Data()[k]));
+			const uint8 c = static_cast<uint8>(texte.Data()[k]);
+			h ^= static_cast<uint64>(c);
 			h *= 1099511628211ull;
+			if (c == ' ' || c == '\n' || c == '\r' || c == '\t')
+				continue;
+			hNu ^= static_cast<uint64>(c);
+			hNu *= 1099511628211ull;
 		}
 
 		// Le nombre de PASSAGES en plus du hash : une empreinte qui diffère dit
@@ -2257,9 +2305,9 @@ static int ModeEmpreintes(int argc, char **argv) {
 		}
 
 		char ligne[256];
-		snprintf(ligne, sizeof(ligne), ";%d;%lld;%lld;%llu;%016llx\n", avecStruct ? 1 : 0,
+		snprintf(ligne, sizeof(ligne), ";%d;%lld;%lld;%llu;%016llx;%016llx\n", avecStruct ? 1 : 0,
 				 (long long)pages, (long long)passages, (unsigned long long)texte.Size(),
-				 (unsigned long long)h);
+				 (unsigned long long)h, (unsigned long long)hNu);
 		csv.Append(fichiers[i]);
 		csv.Append(ligne);
 		if (avecStruct)
@@ -2284,7 +2332,115 @@ static int ModeEmpreintes(int argc, char **argv) {
 	return 0;
 }
 
+// =============================================================================
+// MODE --balisage : quelle part du texte est REELLEMENT rattachee a la structure
+// =============================================================================
+// Un document peut declarer un /StructTreeRoot ET n'y rattacher qu'une fraction
+// de son texte — le balisage partiel est courant. Appliquer l'ordre logique a un
+// document ou 40 % du texte n'a aucun MCID connu produirait un resultat PIRE que
+// l'ordre visuel : on aurait corrige l'entrelacement des colonnes en creant une
+// dislocation nouvelle.
+//
+// ⚠️ ET AUCUN INVARIANT DE CONSERVATION NE LE VERRAIT : le multiensemble des
+// caracteres est le meme dans les deux cas. Rien n'est perdu, tout est deplace.
+// C'est l'angle mort du controle de non-regression, d'ou cette mesure dediee.
+static int ModeBalisage(int argc, char **argv) {
+	const char *dossier = Arg(argc, argv, "--dossier", nullptr);
+	if (!dossier) {
+		logger.Info("usage : --balisage --dossier <dossier de PDF>");
+		return 1;
+	}
+	NkVector<NkString> fichiers = NkDirectory::GetFiles(dossier, "*.pdf");
+	if (fichiers.Size() == 0) {
+		logger.Infof("ERREUR : aucun .pdf dans %s\n", dossier);
+		return 1;
+	}
+
+	// Distribution, pas seulement moyenne : c'est la QUEUE qui decide du seuil.
+	int32 tranches[6] = {0, 0, 0, 0, 0, 0}; // <1 %, <5 %, <10 %, <25 %, <50 %, >=50 %
+	int32 nBalises = 0;
+	NkVector<NkString> pires;
+	NkVector<double> piresPct;
+
+	for (nk_size i = 0; i < fichiers.Size(); ++i) {
+		media::pdf::NkPdfDoc doc;
+		if (doc.Open(fichiers[i].CStr()) != media::pdf::NK_PDF_OK)
+			continue;
+		media::pdf::NkPdfStructIndex index;
+		if (!index.Construire(doc)) {
+			doc.Close();
+			continue; // non balise : hors sujet ici
+		}
+		++nBalises;
+
+		int64 total = 0, horsStruct = 0;
+		for (int32 p = 0; p < doc.PageCount(); ++p) {
+			media::pdf::NkPdfRenderer rendu;
+			media::pdf::NkPdfCanvas canevas;
+			if (!rendu.RenderPage(doc, p, 72.0, canevas))
+				continue;
+			const auto &items = rendu.TextItems();
+			for (nk_size k = 0; k < items.Size(); ++k) {
+				if (items[k].text.Size() == 0)
+					continue; // caractere illisible : deja compte ailleurs
+				++total;
+				if (index.Rang(p, items[k].mcid) < 0)
+					++horsStruct;
+			}
+		}
+		doc.Close();
+		if (total == 0)
+			continue;
+
+		const double pct = 100.0 * (double)horsStruct / (double)total;
+		if (pct < 1.0) ++tranches[0];
+		else if (pct < 5.0) ++tranches[1];
+		else if (pct < 10.0) ++tranches[2];
+		else if (pct < 25.0) ++tranches[3];
+		else if (pct < 50.0) ++tranches[4];
+		else ++tranches[5];
+
+		if (pct >= 10.0 && pires.Size() < 12u) {
+			pires.PushBack(fichiers[i]);
+			piresPct.PushBack(pct);
+		}
+		if (((int32)i % 25) == 24)
+			logger.Infof("  %llu / %llu...\n", (unsigned long long)(i + 1),
+						 (unsigned long long)fichiers.Size());
+	}
+
+	logger.Info("=== Ilyana / part du texte HORS structure (documents balises) ===");
+	logger.Infof("%d document(s) balise(s) et lisible(s)\n", nBalises);
+	static const char *kNoms[6] = {"< 1 %", "1-5 %", "5-10 %", "10-25 %", "25-50 %", ">= 50 %"};
+	for (int32 t = 0; t < 6; ++t)
+		logger.Infof("  %-8s : %4d document(s)\n", kNoms[t], tranches[t]);
+	if (pires.Size() > 0) {
+		logger.Info("  Documents au-dela de 10 % (ceux qui decident du seuil) :");
+		for (nk_size k = 0; k < pires.Size(); ++k)
+			logger.Infof("    %5.1f %%  %s\n", piresPct[k], pires[k].CStr());
+	}
+	return 0;
+}
+
 int main(int argc, char **argv) {
+	// ⚠️ PREMIERE LIGNE DU JOURNAL : OU IL S'ECRIT, ET QUEL BINAIRE L'ECRIT.
+	//
+	// Le journal atterrit dans <repertoire courant>/logs/app.log — donc pas la ou
+	// on croit des qu'un script a change de repertoire en chemin. Le 14 aout 2026,
+	// trois commandes ont ete depensees a conclure « le nouveau binaire ne
+	// s'execute pas » alors qu'un fichier PERIME etait lu : la serie ecrivait
+	// ailleurs. Les deux situations sont indistinguables de l'exterieur.
+	//
+	// En inscrivant le chemin absolu ET l'executable, le fichier repond lui-meme :
+	// un journal qui ne dit pas ou il ecrit laisse lire l'ancien.
+	{
+		nkentseu::NkPath ici = nkentseu::NkDirectory::GetCurrentDirectory();
+		logger.Info("=== NKIlyana === journal : {0}/logs/app.log | binaire : {1}", ici.ToString().CStr(),
+					(argc > 0 && argv[0]) ? argv[0] : "(inconnu)");
+	}
+
+	if (Drapeau(argc, argv, "--balisage"))
+		return ModeBalisage(argc, argv);
 	if (Drapeau(argc, argv, "--empreintes"))
 		return ModeEmpreintes(argc, argv);
 	if (Drapeau(argc, argv, "--sonder"))

@@ -35,8 +35,7 @@
 #include "NKAutograd/NkVar.h"
 #include "NKTensor/NkTensor.h"
 #include "NKContainers/Sequential/NkVector.h"
-
-#include <cmath>
+#include "NKMath/NkFunctions.h" // NkSqrt (convention du depot : pas de <cmath>)
 
 namespace nkentseu {
 	namespace ai {
@@ -101,7 +100,13 @@ namespace nkentseu {
 						NkVar V = proj(mWv);
 						NkVar Kt = autograd::Permute(K, NkShape{0, 1, 3, 2}); // [B, h, hd, T]
 						NkVar scores = autograd::Matmul(Q, Kt);				  // [B, h, T, T]
-						scores = autograd::MulScalar(scores, 1.0 / std::sqrt((double)hd));
+						// Echange std::sqrt -> NkSqrt : NUMERIQUEMENT NEUTRE, verifie a la
+						// source. NkSqrt delegue a `sqrt` de la libm, que l'IEEE-754 impose
+						// correctement arrondie : meme bit pour tout x > 0 (et `hd` l'est
+						// toujours). La seule difference porte sur x <= 0, ou NkSqrt rend 0
+						// au lieu de NaN. L'echange pouvait donc se faire a tout moment, y
+						// compris en pleine campagne de comparaison.
+						scores = autograd::MulScalar(scores, 1.0 / math::NkSqrt((double)hd));
 						NkVar attn = autograd::SoftmaxCausal(scores);
 						NkVar ctx = autograd::Matmul(attn, V);			  // [B, h, T, hd]
 						ctx = autograd::Permute(ctx, NkShape{0, 2, 1, 3}); // [B, T, h, hd]
@@ -196,13 +201,62 @@ namespace nkentseu {
 				public:
 					NkLlamaLM() = default;
 
-					NkLlamaLM(uint32 vocab, uint32 dModel, uint32 nHeads, uint32 nLayers, uint32 seed = 1u)
-						: mVocab(vocab), mD(dModel),
-						  mTokEmb(
-							  NkVar::Leaf(RandnTensor(NkShape{(int64)vocab, (int64)dModel}, 0.02, seed + 1u), true)),
-						  mNormF(dModel), mHead(dModel, vocab, seed + 3u) {
+					// `tied` : LIE la projection de sortie a la table d'embedding (weight
+					// tying). La tete n'a alors plus sa propre matrice [d, vocab] : elle
+					// reutilise la TRANSPOSEE de mTokEmb [vocab, d]. Economie = vocab x d
+					// (12,6 M a V=32768, d=384).
+					//
+					// ⚠️ CE QUE CELA CHANGE, AU-DELA DU COMPTE. La table recoit desormais du
+					// gradient par DEUX chemins de natures differentes :
+					//   - la recherche en entree : CREUSE, seules les lignes des tokens du lot ;
+					//   - la projection de sortie : DENSE, TOUTES les lignes a chaque pas.
+					// Le taux effectif sur les embeddings change donc de nature. C'est en
+					// general benefique, mais si une course montre une degradation nette,
+					// c'est ICI qu'il faut chercher AVANT de mettre en cause le principe
+					// (mise a l'echelle d'un des deux chemins, ou initialisation d'une table
+					// liee differente de celle d'une table libre).
+					NkLlamaLM(uint32 vocab, uint32 dModel, uint32 nHeads, uint32 nLayers, uint32 seed = 1u,
+							  bool tied = false)
+						: mVocab(vocab), mD(dModel), mTied(tied),
+						  mTokEmb(NkVar::Leaf(
+							  RandnTensor(NkShape{(int64)vocab, (int64)dModel}, kEcartTypeTable, seed + 1u), true)),
+						  mNormF(dModel) {
 						for (uint32 l = 0; l < nLayers; ++l)
 							mBlocks.PushBack(NkLlamaBlock(dModel, nHeads, seed + 100u + l * 17u));
+						if (mTied) {
+							// Tete liee : la matrice [d, vocab] n'est PAS construite du tout —
+							// c'est tout l'interet. Seul le biais vit : une ligne de `vocab`
+							// valeurs, qui ne pese rien et garde les deux variantes comparables.
+							mHeadBias = NkVar::Leaf(NkTensor::Zeros(NkShape{(int64)1, (int64)vocab}), true);
+
+							// ⚠️ ESSAI ECARTE, GARDE POUR MEMOIRE : mise a l'echelle des logits.
+							//
+							// Constat de depart, exact : la tete liee demarre avec des logits
+							// 2,57x plus larges qu'une tete libre (la table est initialisee a
+							// 0,02, une tete Xavier a sqrt(2/(d+V)) = 0,00777). Perte au pas 1 :
+							// 10,4369 contre 10,4051.
+							//
+							// Remede essaye : multiplier les logits par sqrt(2/(d+V))/0,02.
+							// MESURE (14 aout 2026) : corrige bien la perte au pas 1 (10,4066)
+							// et DEGRADE massivement l'apprentissage -- metrique 7,1617 contre
+							// 6,5961 sans facteur et 6,5664 pour la tete libre. Vingt fois pire
+							// que le tying nu.
+							//
+							// POURQUOI C'ETAIT MAL FORME : c'est une correction PERMANENTE
+							// appliquee a un probleme d'INITIALISATION. Le facteur impose une
+							// temperature de 2,58 pendant TOUT l'entrainement et divise d'autant
+							// le gradient qui remonte vers la table par le chemin dense -- sans
+							// toucher au chemin creux. Il modifie donc le RAPPORT entre les deux
+							// chemins, la grandeur meme qu'on soupconnait.
+							//
+							// ET LE DIAGNOSTIC ETAIT FAUX : un handicap de depart produit un
+							// decalage CONSTANT. Or le tying nu MENAIT aux pas 100 et 150
+							// (7,14032 vs 7,21918 ; 6,84109 vs 6,85602) et ne decrochait qu'apres
+							// le pas 200 : c'est une dynamique d'apprentissage, pas un point de
+							// depart. Ne pas reintroduire ce facteur sans mesure nouvelle.
+						} else {
+							mHead = NkDense(dModel, vocab, seed + 3u);
+						}
 					}
 
 					// tokens : [B, T] d'identifiants (f32). Renvoie les logits [B*T, vocab].
@@ -212,7 +266,18 @@ namespace nkentseu {
 						for (uint32 l = 0; l < mBlocks.Size(); ++l)
 							x = mBlocks[l].Forward(x);
 						x = mNormF.Forward(x);
-						return mHead.Forward(autograd::Reshape(x, NkShape{B * T, (int64)mD}));
+						NkVar plat = autograd::Reshape(x, NkShape{B * T, (int64)mD});
+						if (!mTied)
+							return mHead.Forward(plat);
+						// logits = x · mTokEmbᵀ + b. La transposition passe par Permute, donc
+						// le gradient remonte jusqu'a mTokEmb : c'est ce qui LIE reellement les
+						// deux usages. Un simple partage de valeurs, sans passer par le graphe,
+						// donnerait le bon compte de parametres et un mauvais entrainement.
+						NkShape ordre;
+						ordre.PushBack(1);
+						ordre.PushBack(0);
+						NkVar logits = autograd::Matmul(plat, autograd::Permute(mTokEmb, ordre));
+						return autograd::Add(logits, mHeadBias); // Add diffuse la ligne, cf. NkDense
 					}
 
 					void Parameters(NkVector<NkVar> &o) const {
@@ -220,7 +285,19 @@ namespace nkentseu {
 						for (uint32 l = 0; l < mBlocks.Size(); ++l)
 							mBlocks[l].Parameters(o);
 						mNormF.Parameters(o);
-						mHead.Parameters(o);
+						if (mTied) {
+							// mTokEmb est DEJA dans la liste : la reposer ici la ferait mettre
+							// a jour DEUX FOIS par l'optimiseur, donc avancer au double du taux
+							// demande — un defaut qui ne planterait pas et se lirait comme
+							// « le tying degrade ».
+							o.PushBack(mHeadBias);
+						} else {
+							mHead.Parameters(o);
+						}
+					}
+
+					bool Tied() const {
+						return mTied;
 					}
 
 					uint32 Vocab() const {
@@ -228,7 +305,12 @@ namespace nkentseu {
 					}
 
 				private:
+					// Ecart-type d'initialisation de la table. NOMME parce que le facteur
+					// d'echelle des logits le relit : les deux ne peuvent plus diverger.
+					static constexpr double kEcartTypeTable = 0.02;
 					uint32 mVocab = 0, mD = 0;
+					bool mTied = false;
+					NkVar mHeadBias; // seulement si mTied
 					NkVar mTokEmb;
 					NkVector<NkLlamaBlock> mBlocks;
 					NkRMSNorm mNormF;

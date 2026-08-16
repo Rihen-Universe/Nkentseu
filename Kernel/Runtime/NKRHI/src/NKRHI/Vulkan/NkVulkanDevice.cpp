@@ -1241,7 +1241,10 @@ namespace nkentseu {
 		if (it->alloc.mapped)
 			return {(uint8 *)it->alloc.mapped + off, mapSz};
 		void *ptr = nullptr;
-		vkMapMemory(mDevice, it->alloc.memory, off, mapSz, 0, &ptr);
+		// Echec -> memoire NULLE, jamais un pointeur nul accompagne d'une TAILLE
+		// non nulle : l'appelant y lirait une plage qu'il croit valide.
+		if (vkMapMemory(mDevice, it->alloc.memory, off, mapSz, 0, &ptr) != VK_SUCCESS || !ptr)
+			return {};
 		return {ptr, mapSz};
 	}
 

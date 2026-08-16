@@ -17,7 +17,7 @@ int main(int argc, char **argv) {
 	std::printf("[TestEXR] Chargement %s ...\n", path);
 	NkImage img;
 	if (!img.Load(path)) {
-		std::printf("[TestEXR] FAIL : NkImage::Load retourne nullptr\n");
+		std::printf("[TestEXR] FAIL : NkImage::Load a echoue\n");
 		return 1;
 	}
 	const int32 w = img.Width(), h = img.Height();
@@ -49,15 +49,14 @@ int main(int argc, char **argv) {
 	}
 
 	// Convertit en RGBA8 tone-mappe et sauve en PNG pour verification visuelle
-	NkImage *rgba = NkHDRCodec::ConvertToTexture(img, 1.0f, 2.2f);
-	if (rgba) {
+	NkImage rgba = NkHDRCodec::ConvertToTexture(img, 1.0f, 2.2f);
+	if (rgba.IsValid()) {
 		const char *outPath = "Build/test_exr_output.png";
-		bool ok = rgba->SavePNG(outPath);
+		bool ok = rgba.SavePNG(outPath);
 		std::printf("[TestEXR] Sauve PNG %s : %s\n", outPath, ok ? "OK" : "FAIL");
-		rgba->Free(); // rgba vient de ConvertToTexture() (heap) → Free() OK
 	}
 
-	// `img` est sur la PILE : pas de Free() (nkFree(this) sur la pile = corruption).
-	// Le destructeur ~NkImage() libère les pixels à la sortie de scope.
+	// `img` et `rgba` sont deux NkImage VALEUR : leurs destructeurs libèrent les
+	// pixels à la sortie de scope. Il n'y a plus de Free() ni d'image « du tas ».
 	return 0;
 }

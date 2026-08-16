@@ -1,8 +1,70 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""NKTensorDemo — validation runtime console de NKTensor (CPU)."""
+"""NKTensorDemo — validation runtime console de NKTensor.
+
+⚠ « CPU » dans le titre decrit ce que la DEMO exerce, pas ce qu'elle LIE.
+NKTensor porte un dorsal GPU (src/NKTensor/NkTensorGpu.cpp) appele depuis le
+chemin CPU (bascule auto matmul/conv). L'editeur de liens tire donc
+NkTensorGpu.obj de NKTensor.lib, et avec lui NKRHI / NKSL / NKLogger /
+NKThreading + glslang + SPIRV-Cross + les bibliotheques graphiques du systeme.
+
+Cette cible echouait au LINK depuis que ce dorsal existe :
+
+    NKTensor.lib(src_NKTensor_NkTensorGpu.obj) :
+      undefined reference to `NkDeviceFactory::Create(NkDeviceInitInfo const&)'
+      undefined reference to `NkDeviceFactory::Destroy(NkIDevice*&)'
+      undefined reference to `NkLog::Instance()'
+      undefined reference to `NkSLCompiler::Compile(...)'
+      undefined reference to `NkShaderConverter::GlslTo{Spirv,Hlsl,Msl}(...)'
+      undefined reference to `threading::NkMutex::~NkMutex()'
+
+Mesure : arbre Nkentseu-nkrenderer @10452ae0, config Release, clang-mingw,
+2026-08-16 — build complet 197/205, NKTensorDemo parmi les 8.
+
+POURQUOI ICI ET PAS DANS config/modules.jenga.
+Le registre a bien deux listes pour NKTensor qui divergent : Kernel/AI/NKTensor/
+NKTensor.jenga declare NKRHI/NKSL/NKGLSlang/NKSPIRVCross pour SA compilation,
+config/modules.jenga:64 ne les declare pas pour la fermeture de ses
+CONSOMMATEURS. Corriger le registre a ete ESSAYE et MESURE : ca ne suffit pas et
+ca degrade — 40 erreurs deviennent 180, parce que le registre ne sait pas
+exprimer les bibliotheques EXTERNES (NKGlad, NKGLSlang, NKSPIRVCross) ni les
+libs systeme (opengl32, d3d11, vulkan-1), et que NKRHI lui-meme ne les declare
+pas non plus (config/modules.jenga:108). Tirer NKRHI par le registre donne donc
+un NKRHI.lib sans son dorsal OpenGL. Changement annule.
+
+La convention reelle du depot est celle-ci : un consommateur qui tire le dorsal
+GPU declare la pile complete lui-meme. Reference qui MARCHE et qui est exercee :
+Applications/NKGenTest/NKGenTest.jenga — ce fichier en est le calque.
+
+DETTE NOMMEE, non corrigee ici : « NKTensor a besoin de toute la pile RHI et
+son registre ne le dit pas ». Chaque consommateur doit le savoir sans que rien
+ne le lui apprenne, et celui qui l'ignore ne le decouvre qu'a l'edition de liens.
+"""
 from Jenga import *
 from jengaconfig import *
+import os
+
+
+def _norm(p):
+    return p.replace("\\", "/") if p else p
+
+
+_VULKAN_SDK     = _norm(os.getenv("VULKAN_SDK", ""))
+_VULKAN_INCLUDE = _norm(os.path.join(_VULKAN_SDK, "Include")) if _VULKAN_SDK else ""
+_VULKAN_LIB     = _norm(os.path.join(_VULKAN_SDK, "Lib")) if _VULKAN_SDK else ""
+_VULKAN_OPT     = os.getenv("NK_ENABLE_VULKAN", "auto").strip().lower()
+if _VULKAN_OPT in ("0", "false", "off", "no"):
+    _WANT_VULKAN = False
+elif _VULKAN_OPT in ("1", "true", "on", "yes"):
+    _WANT_VULKAN = True
+else:
+    _WANT_VULKAN = bool(_VULKAN_INCLUDE)
+
+_GLSLANG_LIBS_WINDOWS = [
+    "glslang", "SPIRV", "MachineIndependent", "GenericCodeGen",
+    "glslang-default-resource-limits",
+]
+_IS_MINGW = "mingw" in TC_WINDOWS.lower()
 
 with project("NKTensorDemo"):
     consoleapp()
@@ -12,8 +74,12 @@ with project("NKTensorDemo"):
     files(["src/main.cpp"])
 
     nkentseudependson(
-        ["NKTensor", "NKMath", "NKContainers", "NKMemory", "NKCore", "NKPlatform"],
-        extra_includes=["src"],
+        ["NKTensor", "NKRHI", "NKSL", "NKWindow", "NKGlad", "NKMath", "NKTime",
+         "NKStream", "NKLogger", "NKContainers", "NKMemory", "NKCore",
+         "NKPlatform", "NKThreading", "NKGLSlang", "NKSPIRVCross"],
+        extra_includes=["src", "%{NKGlad.location}/include"]
+                       + ([_VULKAN_INCLUDE] if _VULKAN_INCLUDE else []),
+        extra_defines=[f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if _WANT_VULKAN else 0}"],
     )
 
     objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
@@ -21,7 +87,20 @@ with project("NKTensorDemo"):
 
     with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
         usetoolchain(TC_WINDOWS)
-        defines(["WIN32_LEAN_AND_MEAN"])
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+        if _VULKAN_LIB:
+            libdirs([_VULKAN_LIB])
+        _WIN_LINKS = [
+            "NKGLSlang", "NKSPIRVCross",
+            "user32", "gdi32", "opengl32", "dwmapi", "shell32",
+            "uuid", "ole32", "dxguid",
+            "d3d11", "d3d12", "dxgi", "d3dcompiler",
+        ]
+        if _WANT_VULKAN:
+            _WIN_LINKS.append("vulkan-1")
+            if not _IS_MINGW:
+                _WIN_LINKS.extend(_GLSLANG_LIBS_WINDOWS)
+        links(_WIN_LINKS)
     with filter("system:Linux"):
         links(["pthread"])
     with filter("system:macOS"):

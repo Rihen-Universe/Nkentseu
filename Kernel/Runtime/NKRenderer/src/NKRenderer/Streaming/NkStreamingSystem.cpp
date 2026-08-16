@@ -10,6 +10,7 @@
 #include "NKRenderer/Mesh/NkOBJLoader.h"
 #include "NKImage/NKImage.h"
 #include "NKMemory/NkAllocator.h"
+#include "NKCore/NkTraits.h" // traits::NkMove (zero-STL : jamais std::move)
 #include "NKLogger/NkLog.h"
 #include "NKThreading/NkScopedLock.h"
 #include <cmath>
@@ -53,13 +54,12 @@ namespace nkentseu {
 				FreePayload(r);
 			mResults.Clear();
 			mJobsIn.Clear();
-			// Basse res CPU gardees par les entries.
-			for (auto &kv : mEntries) {
-				if (kv.Second.lowPayload) {
-					kv.Second.lowPayload->Free();
-					kv.Second.lowPayload = nullptr;
-				}
-			}
+			// Basse res CPU gardees par les entries : les NkImage se detruisent
+			// avec le vecteur (le worker est deja joint, personne n'y touche).
+			for (auto &kv : mEntries)
+				kv.Second.lowSlot = -1;
+			mLowPayloads.Clear();
+			mFreeLowSlots.Clear();
 			// Evince toutes les ressources residentes (rend la VRAM).
 			for (auto &kv : mEntries) {
 				NkStreamEntry &e = kv.Second;
@@ -101,6 +101,10 @@ namespace nkentseu {
 				return;
 			if (e->state == NkStreamState::NK_RESIDENT)
 				Evict(id);
+			// L'entry disparait de la map : son slot de basse res doit repartir
+			// au pool, sinon les pixels resteraient vivants sans proprietaire.
+			// (No-op apres Evict, qui l'a deja rendu.)
+			ReleaseLowPayload(*e);
 			mEntries.Erase(id);
 		}
 
@@ -203,7 +207,12 @@ namespace nkentseu {
 				LoadResult r = DoLoadCPU(job);
 				{
 					threading::NkScopedLockMutex lock(mJobMutex);
-					mResults.PushBack(r);
+					// TRANSFERT DE PROPRIETE worker -> file partagee : move, et
+					// il a lieu DANS la meme section critique que l'ancienne
+					// copie (mJobMutex tenu). Apres le move, `r` ne detient plus
+					// aucun pixel ; sa destruction en fin d'iteration est un
+					// no-op, meme hors du verrou.
+					mResults.PushBack(traits::NkMove(r));
 				}
 			}
 		}
@@ -233,46 +242,88 @@ namespace nkentseu {
 					memory::NkGetDefaultAllocator().Delete(md);
 				}
 			} else {
-				auto *img = memory::NkGetDefaultAllocator().New<NkImage>();
+				// Image locale PAR VALEUR : si le chargement echoue, elle se
+				// libere toute seule en sortant de la portee (plus de Delete).
+				NkImage img;
 				// Force RGBA8 (4 canaux) : format d'upload unique.
-				if (img->Load(job.path.CStr(), 4) && img->Pixels() && img->Width() > 0) {
-					r.img = img;
+				if (img.Load(job.path.CStr(), 4) && img.Pixels() && img.Width() > 0) {
+					r.img = traits::NkMove(img); // propriete -> le resultat
 					r.ok = true;
 					// V2 mip streaming : version basse resolution (floue) fabriquee
 					// ICI (worker, CPU). Pas pour les jobs de REFINE (pleine res
 					// seule : la basse est deja gardee en RAM cote entry).
 					if (!job.fullOnly && mCfg.enableMipStreaming && mCfg.lowResMax > 0) {
-						const int32 w = img->Width(), h = img->Height();
+						const int32 w = r.img.Width(), h = r.img.Height();
 						const int32 side = w > h ? w : h;
 						if ((uint32)side > mCfg.lowResMax * 2) { // inutil si deja petite
 							const float32 k = (float32)mCfg.lowResMax / (float32)side;
 							const int32 lw = (int32)(w * k) > 1 ? (int32)(w * k) : 1;
 							const int32 lh = (int32)(h * k) > 1 ? (int32)(h * k) : 1;
-							r.imgLow = img->Resize(lw, lh, NkResizeFilter::NK_BILINEAR);
+							// Resize rend une NkImage PAR VALEUR ; en cas d'echec
+							// elle est simplement INVALIDE (plus de nullptr).
+							r.imgLow = r.img.Resize(lw, lh, NkResizeFilter::NK_BILINEAR);
 						}
 					}
-				} else {
-					memory::NkGetDefaultAllocator().Delete(img);
 				}
 			}
 			return r;
 		}
 
 		void NkStreamingSystem::FreePayload(LoadResult &r) {
-			if (r.img) {
-				memory::NkGetDefaultAllocator().Delete(r.img);
-				r.img = nullptr;
-			}
-			if (r.imgLow) {
-				// ⚠ imgLow vient de NkImage::Resize -> NkImage::Alloc : liberation
-				// par Free() UNIQUEMENT (jamais Delete -> double-free c0000374).
-				r.imgLow->Free();
-				r.imgLow = nullptr;
-			}
+			// Les deux images sont des VALEURS : Unload() rend les pixels et
+			// laisse l'objet reutilisable. Rien a distinguer entre une image
+			// issue de Load et une issue de Resize — c'etait ca, le piege.
+			// Sur une image deja deplacee (propriete transferee), c'est un no-op.
+			r.img.Unload();
+			r.imgLow.Unload();
 			if (r.meshData) {
 				memory::NkGetDefaultAllocator().Delete(r.meshData);
 				r.meshData = nullptr;
 			}
+		}
+
+		// ── Basse res CPU : propriete par valeur, adressee par slot ─────────────
+		// NkStreamEntry doit rester COPIABLE (NkHashMap::Insert copie la valeur
+		// dans son noeud) alors que NkImage ne l'est plus. Les images vivent donc
+		// dans mLowPayloads et l'entry n'en garde qu'un indice. La propriete est
+		// au vecteur : rien a liberer a la main, Unload() suffit a rendre un slot.
+		// ⚠ Thread de rendu uniquement (FinalizeLoad / TickRefines / Evict /
+		// Unregister / Shutdown) — le worker n'y accede jamais.
+
+		int32 NkStreamingSystem::AcquireLowSlot() {
+			if (!mFreeLowSlots.Empty()) {
+				const int32 slot = mFreeLowSlots[mFreeLowSlots.Size() - 1];
+				mFreeLowSlots.PopBack();
+				return slot;
+			}
+			mLowPayloads.EmplaceBack(); // NkImage vide
+			return (int32)mLowPayloads.Size() - 1;
+		}
+
+		void NkStreamingSystem::StoreLowPayload(NkStreamEntry &e, NkImage &&img) {
+			if (e.lowSlot < 0)
+				e.lowSlot = AcquireLowSlot();
+			// Move-assign : libere l'eventuelle image precedente du slot puis
+			// transfere le buffer, sans copier un seul pixel.
+			mLowPayloads[(uint32)e.lowSlot] = traits::NkMove(img);
+		}
+
+		void NkStreamingSystem::ReleaseLowPayload(NkStreamEntry &e) {
+			if (e.lowSlot < 0)
+				return;
+			mLowPayloads[(uint32)e.lowSlot].Unload(); // rend les pixels, slot reutilisable
+			mFreeLowSlots.PushBack(e.lowSlot);
+			e.lowSlot = -1;
+		}
+
+		// ⚠ Le pointeur rendu OBSERVE un element de mLowPayloads : il devient
+		// invalide si un StoreLowPayload ulterieur fait grandir le vecteur.
+		// Ne pas le conserver au-dela de l'usage immediat.
+		const NkImage *NkStreamingSystem::GetLowPayload(const NkStreamEntry &e) const {
+			if (e.lowSlot < 0)
+				return nullptr;
+			const NkImage &img = mLowPayloads[(uint32)e.lowSlot];
+			return img.IsValid() ? &img : nullptr;
 		}
 
 		// ── Main thread ──────────────────────────────────────────────────────────
@@ -286,7 +337,9 @@ namespace nkentseu {
 			const float32 downDist = refineDist * 1.25f;
 			for (auto &kv : mEntries) {
 				NkStreamEntry &e = kv.Second;
-				if (e.isMesh || e.state != NkStreamState::NK_RESIDENT || !e.lowPayload)
+				// Observateur : ne possede rien, la basse res reste dans le pool.
+				const NkImage *lowImg = GetLowPayload(e);
+				if (e.isMesh || e.state != NkStreamState::NK_RESIDENT || !lowImg)
 					continue;
 				e.targetMip = (e.dist <= refineDist) ? 0u : 1u;
 
@@ -315,9 +368,9 @@ namespace nkentseu {
 				// Retrogradation pleine -> basse : upload direct du payload RAM.
 				if (e.residentMip == 0 && e.dist > downDist && mTexLib && budgetJobs > 0) {
 					NkTextureCreateDesc td;
-					td.pixels = e.lowPayload->Pixels();
-					td.width = (uint32)e.lowPayload->Width();
-					td.height = (uint32)e.lowPayload->Height();
+					td.pixels = lowImg->Pixels();
+					td.width = (uint32)lowImg->Width();
+					td.height = (uint32)lowImg->Height();
 					td.srgb = true;
 					td.genMips = true;
 					td.debugName = e.sourcePath.CStr();
@@ -345,7 +398,10 @@ namespace nkentseu {
 				threading::NkScopedLockMutex lock(mJobMutex);
 				uint32 take = 0;
 				while (!mResults.Empty() && take < mCfg.maxJobsPerFrame) {
-					ready.PushBack(mResults[0]);
+					// Sortie de propriete de la file partagee : move, toujours
+					// sous mJobMutex (section critique inchangee). L'element
+					// deplace est ensuite detruit vide par Erase.
+					ready.PushBack(traits::NkMove(mResults[0]));
 					mResults.Erase(mResults.Begin());
 					++take;
 				}
@@ -423,9 +479,9 @@ namespace nkentseu {
 					return;
 				}
 				NkTextureCreateDesc td;
-				td.pixels = r.img->Pixels();
-				td.width = (uint32)r.img->Width();
-				td.height = (uint32)r.img->Height();
+				td.pixels = r.img.Pixels();
+				td.width = (uint32)r.img.Width();
+				td.height = (uint32)r.img.Height();
 				td.srgb = true;
 				td.genMips = true;
 				td.debugName = e->sourcePath.CStr();
@@ -468,12 +524,15 @@ namespace nkentseu {
 				// l'uploade EN PREMIER (quasi instantane -> texture floue tout de
 				// suite) et la pleine resolution part en file de RAFFINEMENT
 				// (TickRefines l'echangera quand la camera sera assez proche).
-				const bool progressive = (r.imgLow != nullptr);
-				const NkImage *up = progressive ? r.imgLow : r.img;
+				// L'echec de Resize se lit sur IsValid(), plus sur nullptr.
+				const bool progressive = r.imgLow.IsValid();
+				// Observateur : `up` ne possede rien, il designe l'une des deux
+				// images du resultat, qui restent proprietaires de leurs pixels.
+				const NkImage &up = progressive ? r.imgLow : r.img;
 				NkTextureCreateDesc td;
-				td.pixels = up->Pixels();
-				td.width = (uint32)up->Width();
-				td.height = (uint32)up->Height();
+				td.pixels = up.Pixels();
+				td.width = (uint32)up.Width();
+				td.height = (uint32)up.Height();
 				td.srgb = true;
 				td.genMips = true;
 				td.debugName = e->sourcePath.CStr();
@@ -482,13 +541,14 @@ namespace nkentseu {
 				realBytes = (uint64)td.width * td.height * 4ULL * 4ULL / 3ULL;
 				if (e->tex.IsValid() && progressive) {
 					e->residentMip = 1; // basse res residente (floue)
-					// La basse res CPU est GARDEE dans l'entry : la retrogradation
+					// La basse res CPU est GARDEE cote systeme : la retrogradation
 					// (loin) sera instantanee. La pleine res sera RE-DECODEE par
 					// un job de refine quand la camera approchera (TickQueue).
-					if (e->lowPayload)
-						e->lowPayload->Free();
-					e->lowPayload = r.imgLow;
-					r.imgLow = nullptr; // possession transferee a l'entry
+					// MOVE : la propriete quitte le LoadResult pour le slot de
+					// l'entry ; apres l'appel, r.imgLow est vide (l'ancien
+					// `r.imgLow = nullptr` explicite n'est plus necessaire — et
+					// une simple affectation ne compilerait pas).
+					StoreLowPayload(*e, traits::NkMove(r.imgLow));
 				} else if (e->tex.IsValid()) {
 					e->residentMip = 0;
 				}
@@ -547,10 +607,7 @@ namespace nkentseu {
 				mMesh->Release(e->mesh);
 			e->tex = {};
 			e->mesh = {};
-			if (e->lowPayload) {
-				e->lowPayload->Free(); // basse res CPU rendue avec l'eviction
-				e->lowPayload = nullptr;
-			}
+			ReleaseLowPayload(*e); // basse res CPU rendue avec l'eviction
 			e->refineInFlight = false;
 			e->residentMip = 0;
 			mUsedBytes = (mUsedBytes >= e->sizeBytes) ? mUsedBytes - e->sizeBytes : 0;

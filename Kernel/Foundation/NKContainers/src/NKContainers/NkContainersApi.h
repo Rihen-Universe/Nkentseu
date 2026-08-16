@@ -238,6 +238,34 @@
 #endif
 
 namespace nkentseu {
+
+	// =========================================================================
+	// TAG DE CONSTRUCTION PIECEWISE (vocabulaire commun aux conteneurs)
+	// =========================================================================
+
+	/**
+	 * @brief Tag de désambiguïsation pour la construction pièce par pièce
+	 *
+	 * Sélectionne le constructeur qui construit l'élément (ou la valeur d'une
+	 * paire) **sur place** à partir d'une liste d'arguments forwardés, au lieu de
+	 * le copier.
+	 *
+	 * POURQUOI UN TAG PLUTÔT QU'UNE SURCHARGE NUE :
+	 * Un constructeur variadique non tagué serait « glouton » — il capterait des
+	 * appels qui résolvent aujourd'hui vers le constructeur par copie, et
+	 * changerait donc le comportement de code existant. Avec le tag, aucun appel
+	 * écrit avant son introduction ne peut le sélectionner : l'ajout est inerte.
+	 *
+	 * POURQUOI ICI ET PAS DANS `NkPair.h` :
+	 * il sert aux paires (`NkMap`, `NkHashMap`, `NkUnorderedMap`) **et** aux
+	 * ensembles (`NkSet`, `NkUnorderedSet`), qui n'incluent pas `NkPair.h`.
+	 * `NkContainersApi.h` est le seul en-tête que tous incluent déjà, et c'est
+	 * là que vivent les autres tags de la bibliothèque.
+	 *
+	 * @note Équivalent d'intention à std::piecewise_construct, sans dépendance STL.
+	 */
+	struct NkPiecewiseTag {};
+
 	namespace traits {
 		// -------------------------------------------------------------------------
 		// Trait : NkHasBeginEnd<T>
