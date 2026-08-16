@@ -291,23 +291,45 @@ comparent pas)* :
 | **`Backend/NkWin32CameraBackend.h`** | **0** ✅ | 0 |
 | **TOTAL** | **138** | 30 |
 
-**AVANCEMENT — 138 → 114 au 2026-08-17**
+**AVANCEMENT — 138 → 51 au 2026-08-17 : les SIX backends sont à zéro**
 
-| backend | STL | compilé | exercé |
-|---|---|---|---|
-| **Win32** | **0** ✅ | oui | **oui** — 4 empreintes MD5 identiques, débit inchangé, Debug + Release |
-| **Android** | **0** ✅ | **oui** (APK multi-ABI produit) | **NON** — téléphone absent d'`adb` |
-| Cocoa / UIKit / Emscripten / Linux | 3+6 / 5+10 / 14 / 25 | — | — |
-| `NkCameraSystem.{h,cpp}` + Types | 42 + 7 + 2 | — | — |
+⚠️ **Trois colonnes, et l'écart entre les deux dernières est le sujet.** Quand
+tout le module sera converti, quelqu'un lira « module converti » et croira le
+travail vérifié. *Converti* veut dire « le code est écrit » ; *compilé* veut dire
+« un compilateur l'a lu » ; *exercé* veut dire « ça a tourné ». Les trois ne se
+remplacent pas.
 
-⚠️ **Android est compilé, pas exercé, et la distinction tient.** Un verrou
-converti qui compile peut ne rien verrouiller. Il sera déclaré vérifié le jour où
-il tournera sur l'appareil, pas avant.
+| fichier | STL | converti | compilé | exercé |
+|---|---|---|---|---|
+| `Backend/NkWin32CameraBackend.h` | **0** | ✅ | ✅ Windows | ✅ **oui** — 4 empreintes MD5 identiques, débit inchangé, Debug + Release |
+| `Backend/NkAndroidCameraBackend.h` | **0** | ✅ | ✅ APK multi-ABI | ❌ **non** — téléphone absent d'`adb` |
+| `Backend/NkLinuxCameraBackend.h` | **0** | ✅ | ❌ **non** — V4L2 absent de cette machine | ❌ non |
+| `Backend/NkEmscriptenCameraBackend.h` | **0** | ✅ | ❌ **non** — chaîne Emscripten non installée | ❌ non |
+| `Backend/NkCocoaCameraBackend.{h,mm}` | **0** | ✅ | ❌ **non** — Objective-C++ + SDK Apple | ❌ non |
+| `Backend/NkUIKitCameraBackend.{h,mm}` | **0** | ✅ | ❌ **non** — idem | ❌ non |
+| `NkCameraSystem.cpp` | **42** | ⏳ **en dernier** | | |
+| `NkCameraSystem.h` | **7** | ⏳ | | |
+| `NkCameraTypes.h` | **2** | ⏳ | | |
+| **TOTAL** | **51** *(+ 29 libC, qui restent)* | | | |
 
-*Trouvé en convertissant Android* : `mPhotoCv`, une `std::condition_variable`
-**notifiée mais jamais attendue** — aucun `Wait` dans le fichier, la seule
-attente étant une boucle de sommeil. Un réveil adressé à personne. Retirée avec
-sa notification.
+**Ce que la conversion a exhumé, backend par backend :**
+
+- **Android et UIKit portaient chacun une `std::condition_variable` notifiée mais
+  JAMAIS attendue** — `mPhotoCv`. Aucun `Wait` nulle part ; l'attente est une
+  boucle de sommeil qui ne la consulte pas. *Une dépense pour personne* :
+  l'inverse exact du réglage déclaré-et-non-honoré, et plus difficile à voir,
+  parce qu'un `notify` a l'air de travailler. Retirées avec leur notification —
+  le comportement ne peut pas changer, puisque rien n'écoutait.
+- **Deux `std::unique_lock` (Android, UIKit) servaient des boucles qui relâchent
+  VOLONTAIREMENT le verrou** pendant leur sommeil, pour laisser un autre fil
+  publier. Traduits en `Lock()`/`Unlock()` explicites : un verrou de portée les
+  aurait tenus pendant l'attente et **aurait empêché exactement ce qu'on
+  attend**. Ça aurait compilé, et ça aurait figé sous charge.
+- **Linux** : `std::filesystem` → `NkPath` + `NkDirectory::CreateRecursive`,
+  `std::ifstream` → `NkFile::ReadAllText`, `std::copy` → `memcpy`.
+- **`std::sort` n'avait aucun équivalent** : `NkVector` ne sait pas trier, et le
+  dépôt appelait `std::sort` jusque **dans NKContainers lui-même**. Ajouté à sa
+  place — `NKContainers/Utilities/NkSort.h` — plutôt que contourné localement.
 
 **Ordre convenu** : Win32 (fait), Android (fait, non exercé), puis les
 non-exerçables, puis `NkCameraSystem` **en dernier** — 42 occurrences, le plus
