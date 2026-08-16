@@ -2268,7 +2268,7 @@ int nkmain(const NkEntryState &entry) {
 						if (nn >= 0) {
 							const float32 rot[3] = {0.f, 0.f, 0.f};
 							const float32 scl[3] = {1.f, 1.f, 1.f};
-							demo::Demo3DHostSetEmptyTransform(nn, dropW, rot, scl);
+							demo::Demo3DHostSetModelTransform(nn, dropW, rot, scl);
 							demo::Demo3DHostSelectEmptyNode(nn);
 							// MESURE : ce que le noeud vaut APRES la pose. Si la
 							// position relue differe de celle demandee, ce n'est

@@ -849,7 +849,7 @@ namespace nkentseu {
 						if (nn >= 0) {
 							const float32 rot[3] = {0.f, 0.f, 0.f};
 							const float32 scl[3] = {1.f, 1.f, 1.f};
-							demo::Demo3DHostSetEmptyTransform(nn, st.dropWorld, rot, scl);
+							demo::Demo3DHostSetModelTransform(nn, st.dropWorld, rot, scl);
 							if (dchoix == 0)
 								(void)demo::Demo3DHostSetNodeParent(nn, st.dropMenuTarget);
 							demo::Demo3DHostSelectEmptyNode(nn);

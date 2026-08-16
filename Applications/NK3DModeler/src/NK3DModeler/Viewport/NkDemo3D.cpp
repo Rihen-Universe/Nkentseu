@@ -16122,6 +16122,46 @@ namespace nkentseu {
 				if (HostIsInnerMeshOf(c, node))
 					nkvpDeleted[c] = v;
 		}
+		// ── POSER UN MODEL ENTIER : LE CONTENEUR *ET* SA MATIERE ────────────
+		//
+		// Les transforms de ce systeme sont ABSOLUES : HostNodeWorld lit
+		// nkvpEmptyPos sans JAMAIS composer avec le parent. Deplacer le seul
+		// conteneur laissait donc ses maillages exactement ou ils etaient -- et
+		// comme un conteneur ne rend rien, le model paraissait ne pas bouger :
+		// Rodolf deposait a un endroit et voyait sa geometrie ailleurs, celle de
+		// la source dont elle avait ete copiee (mesure du 16 aout).
+		//
+		// POURQUOI PAS DANS Demo3DHostSetEmptyTransform : la relecture d'un
+		// projet repose CHAQUE noeud, maillages compris. Propager la aurait
+		// applique le meme delta deux fois. Le geste « poser un model » est
+		// distinct du geste « poser un noeud », et il merite sa porte.
+		void Demo3DHostSetModelTransform(int32 node, const float32 *pos3,
+										 const float32 *rotDeg3, const float32 *scl3) {
+			if (node < kNkvpFirstEmpty || node >= kNkvpMaxNodes)
+				return;
+			// LE DELTA SE MESURE, il ne se suppose pas : SetEmptyTransform est
+			// incremental et le gizmo peut porter un decalage en plein drag. On
+			// lit donc l'effectif avant et apres, et on translate de la difference.
+			float32 avant[3], r0[3], s0[3];
+			Demo3DHostEmptyTransform(node, avant, r0, s0);
+			Demo3DHostSetEmptyTransform(node, pos3, rotDeg3, scl3);
+			float32 apres[3], r1[3], s1[3];
+			Demo3DHostEmptyTransform(node, apres, r1, s1);
+			const float32 d[3] = {apres[0] - avant[0], apres[1] - avant[1],
+								  apres[2] - avant[2]};
+			if (d[0] == 0.f && d[1] == 0.f && d[2] == 0.f)
+				return;
+			// LE MEME parcours d'appartenance que l'archivage et l'ecriture d'un
+			// fichier de model : les trois doivent emporter EXACTEMENT les memes
+			// noeuds, sinon un maillage oublie reste en arriere.
+			for (int32 c = 0; c < kNkvpMaxNodes; ++c) {
+				if (c < kNkvpFirstEmpty || !HostIsInnerMeshOf(c, node))
+					continue;
+				const int32 e = c - kNkvpFirstEmpty;
+				for (int32 a = 0; a < 3; ++a)
+					nkvpEmptyPos[e][a] += d[a];
+			}
+		}
 		bool Demo3DHostNodeArchived(int32 node) {
 			// Une ARCHIVE est retiree de la vue mais garde sa nature ; un noeud
 			// vraiment supprime a perdu la sienne. C'est cette difference, et elle

@@ -276,6 +276,11 @@ namespace nkentseu {
 		bool Demo3DHostEmptyTransform(int32 node, float32 *pos3, float32 *rotDeg3, float32 *scl3);
 		void Demo3DHostSetEmptyTransform(int32 node, const float32 *pos3, const float32 *rotDeg3,
 										 const float32 *scl3);
+		// Poser un MODEL : le conteneur et ses maillages, d'un seul delta. Les
+		// transforms etant absolues, deplacer le seul conteneur laisse sa
+		// matiere en arriere -- et elle seule est rendue.
+		void Demo3DHostSetModelTransform(int32 node, const float32 *pos3,
+						     const float32 *rotDeg3, const float32 *scl3);
 
 		// ── Materiau par objet (panneau Modele) ─────────────────────────────
 		// Lecture = valeurs EFFECTIVES vues a la derniere soumission ;
