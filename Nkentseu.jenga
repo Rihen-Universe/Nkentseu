@@ -1202,9 +1202,19 @@ with workspace("Nkentseu", location="."):
 
         pass
 
-    with include("Applications/NkMatInventaireTest/NkMatInventaireTest.jenga"):
-
-        pass
+    # NkMatInventaireTest : banc ARRETE (cc6aba5b), RETIRE du workspace le 17/08.
+    # Il echoue au lien PAR CONSTRUCTION -- 118 symboles Demo3DHost* definis dans
+    # NkDemo3D.cpp, jamais compile ici -- et c'etait documente dans son en-tete
+    # d'arret : ces 118 symboles SONT la mesure de la dette C (lire un .nkmat
+    # tire toute la pile d'interface). Le laisser enregistre faisait echouer le
+    # build complet de main pour tout le monde (trouve par l'agent Ilyana).
+    # NE PAS le « reparer » en ajoutant NkDemo3D.cpp a ses sources : compiler
+    # toute la pile d'interface a chaque build est precisement le cout qui a
+    # fait arreter ce banc. Ses sources restent dans Applications/ avec leur
+    # en-tete d'arret ; il se re-enregistre le jour ou Demo3DHost devient une
+    # bibliotheque -- il linkera alors sans une ligne de plus.
+    # with include("Applications/NkMatInventaireTest/NkMatInventaireTest.jenga"):
+    #     pass
 
     with include("Applications/NkMicRecord/NkMicRecord.jenga"):
 
