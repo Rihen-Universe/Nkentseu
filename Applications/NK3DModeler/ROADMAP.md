@@ -189,14 +189,56 @@ la détection se fait caractère par caractère (`c0 == 'v'`, `c0 == 'f'`…) et
 **aucun test n'existe pour `'o'` ni `'g'`**. Le chargeur suit `curMat` — le
 matériau courant — et **rien pour l'objet courant** (`curObj` : 0 occurrence).
 
-Conséquence : le `sofa.obj` déclare **10 objets nommés** ; ils deviennent **un
-seul maillage** et les dix noms sont perdus à la porte. **La décomposition
-demandée est donc impossible aujourd'hui — non par le format, qui porte
-l'information, mais parce que le lecteur ne l'écoute pas.**
+Conséquence : le `sofa.obj` déclare **10 objets nommés**, et les dix noms sont
+perdus à la porte. **La décomposition demandée est donc impossible aujourd'hui —
+non par le format, qui porte l'information, mais parce que le lecteur ne l'écoute
+pas.**
 
 Ce qui rend le correctif petit : le chargeur fait **déjà** exactement ce qu'il
 faut pour le matériau. Il manque la **symétrie** — un `curObj` mis à jour sur
-`o`, propagé aux faces, plus la liste des noms, jumelle de celle des matériaux.
+`o`, propagé aux faces, plus le nom porté jusqu'au sous-mesh.
+
+#### 🔬 Mesures du 17/08 — elles corrigent trois points ci-dessus
+
+**1. « ils deviennent un seul maillage » était inexact, et le vrai mécanisme est
+pire.** Le chargeur **découpe déjà** des sous-mesh — mais **sur changement de
+matériau** (`subMat != curMat`, `NkOBJLoader.cpp:235`), jamais sur l'objet. Or
+dans le `sofa.obj` de Rihen, mesuré :
+
+```
+10 x « o »  ...  9 d'entre eux portent le MÊME « usemtl Material »
+                 seul Sofa_base_Cube porte « Material_Wool.jpg »
+```
+
+`curMat` ne changeant pas, **aucune coupe n'est ouverte** : les 9 objets nommés
+fusionnent en **un** sous-mesh. Prédiction déduite du code : ce fichier se charge
+en **2 sous-mesh au lieu de 10** — vérifiable gratuitement, le chargeur annonce
+lui-même `%u sous-meshes` dans son log au prochain import.
+
+**2. ⭐ Le champ de nom EXISTE DÉJÀ — l'absence est dans le remplissage.**
+`NkSubMesh` (`NkMeshSystem.h:66`) porte `NkString name;`. La structure de sortie
+n'est donc **pas** à changer : le correctif est la symétrie ci-dessus, plus une
+coupe de sous-mesh sur changement d'objet **en plus** du changement de matériau,
+et `sm.name` enfin rempli.
+
+**3. Ce n'est pas un chargeur sur trois, c'est DEUX sur trois :**
+
+| chargeur | remplit `sm.name` ? |
+|---|---|
+| **glTF** | ✅ `sm.name = meshName` (`NkGLTFLoader.cpp:1066`), repli `"primitive"` |
+| **OBJ** | ❌ jamais — ne remplit que le nom du *matériau* |
+| **FBX** | ❌ jamais — pose `firstIndex/indexCount/baseVertex`, rien d'autre |
+
+FBX est un cas **différent** d'OBJ : il parse déjà un arbre de nœuds complet
+(`Model`, `Geometry`, `Connections`). L'information est dans le chargeur, elle
+n'est pas portée jusqu'au sous-mesh. **La structure commune existe ; deux
+chargeurs sur trois doivent apprendre à la remplir.**
+
+**4. ⚠️ Le point de vérité est le consommateur : PERSONNE ne lit `sm.name`.**
+Zéro lecteur dans tout le dépôt (témoin : la même commande remonte bien 14 usages
+de `subMeshes[`). Remplir le champ est donc **nécessaire et pas suffisant** — sans
+consommateur, rien ne signalerait qu'on l'a mal rempli. **Le seul détecteur sera
+le premier consommateur, c'est-à-dire la décomposition elle-même.**
 
 ### ⚠️ Deux fonctionnalités demandées attendent la MÊME brique absente
 
@@ -437,6 +479,52 @@ cette anomalie **n'est pas établie**.
 
 **Règle qui en sort** : *un écart entre deux mesures n'est un fait que si les deux
 mesurent la même chose.* Avant d'expliquer une différence, prouver qu'elle existe.
+
+### 🔴 RÉGRESSION SIGNALÉE PAR RIHEN (17/08) — origine recalculée au dépôt
+
+> « Ces mesh ont des origines qui **changent au moment où on les met dans la
+> scène** — problème qui **n'existait pas** quand on a fait le glisser-déposer la
+> première fois. »
+
+**Défaut certain, corrigé (`eb63ac4b`) : un `if` SANS ACCOLADES.** Le commit
+`4dd4ed21` a ajouté `Demo3DHostRecenterModel` dans `NkDropSpawnModel`
+(`NkModelerCommon.h`) sur un `if` qui n'avait pas d'accolades :
+
+```
+AVANT   if (st.dropSrcNode > 0)
+            nn = Demo3DHostDuplicateNode(...);   <- seule instruction, gardée
+
+APRÈS   if (st.dropSrcNode > 0)
+            Demo3DHostRecenterModel(...);        <- seule ligne encore gardée
+            nn = Demo3DHostDuplicateNode(...);   <- SORTIE DE LA GARDE
+```
+
+La duplication partait donc sur **tous** les lâchers, y compris sans source, donc
+avec `-1` ; et `HostDuplicateTree` lit `nkvpIsModel[src]` sans revalider `src`.
+**L'indentation faisait croire que les deux lignes étaient gardées** — la
+troisième « chose qui a l'air juste » en entier.
+
+**⚠️ Ce qui n'est PAS établi : que ce soit la cause de ce que Rihen voit.**
+`Demo3DHostRecenterModel` **écrit dans le nœud SOURCE** (l'archive) avant
+duplication, ce qui colle au symptôme et n'existait pas avant le 16/08. **Mais**
+`Demo3DHostArchiveNode` recentre déjà à la naissance, et la fonction est
+**idempotente** — sur un asset archivé après le 16/08 elle ne doit **rien**
+changer. *Deux causes possibles, un seul symptôme.*
+
+**L'instrument qui les sépare** — `MESURE origine`, écrit pour pouvoir contredire
+son auteur : il imprime l'état **d'avant**, pas seulement celui d'après.
+
+| lecture | ce que ça tranche |
+|---|---|
+| `ECART ~ 0` | la fonction ne touche à rien → **ce n'est pas elle** |
+| `ECART != 0` | elle réécrit l'origine de l'archive à chaque dépôt → **c'est elle** |
+
+Noter que le recentrage ne touche que **X et Z**, jamais **Y** — une origine à
+moitié réécrite, donc un symptôme irrégulier selon le modèle.
+
+**Ne pas retirer l'appel avant ce chiffre** : ce serait revenir sur la décision de
+Rihen du 16/08 (« l'origine d'un model va sur SA MATIÈRE ») sur une prémisse non
+vérifiée — ce qui a déjà coûté deux fausses causes sur ce même défaut.
 
 ## 3. Modélisation complète ⬜
 
