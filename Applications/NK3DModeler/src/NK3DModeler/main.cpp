@@ -2214,23 +2214,33 @@ int nkmain(const NkEntryState &entry) {
 							// l'entree dans SA liste : c'est lui qu'on selectionne, et c'est lui qui
 							// portera le choix quand le mode edition existera.
 							if (demo::Demo3DHostNodeIsModel(dropNode)) {
-															int32 posesSurEnfants = 0;
-															for (int32 ce = 0; ce < 160; ++ce) {
-																if (demo::Demo3DHostNodeParent(ce) != dropNode)
-																	continue;
-																demo::Demo3DHostProjMatAssign(ce, st.dropMat - 1);
-																++posesSurEnfants;
-															}
-															// La liste du conteneur suit, sans devenir son actif : ajouter
-															// n'est pas assigner.
-															demo::Demo3DHostNodeMatAdd(dropNode, st.dropMat - 1);
-															// UN MODEL SANS MAILLAGE NE DOIT PAS SE TAIRE : sinon le geste
-															// parait avoir marche alors que rien n'a ete peint.
-															if (posesSurEnfants == 0)
-																snprintf(st.hierNote, sizeof(st.hierNote),
-																		 "%s n'a aucun maillage a peindre", st.dropName);
+								int32 posesSurEnfants = 0;
+								for (int32 ce = 0; ce < 160; ++ce) {
+									if (demo::Demo3DHostNodeParent(ce) != dropNode)
+										continue;
+									demo::Demo3DHostProjMatAssign(ce, st.dropMat - 1);
+									++posesSurEnfants;
+									// MESURE : ce que l'ENFANT porte APRES la pose. Le conteneur
+									// ne se voit pas -- mesurer SON materiau ne dit rien de ce qui
+									// est a l'ecran. Seul l'enfant repond de la couleur rendue.
+									nkentseu::NkLog::Instance().Info(
+										"[nk3d]   MESURE enfant peint : noeud={0} mesh={1} "
+										"materiau={2}\n",
+										ce, demo::Demo3DHostNodeIsMesh(ce) ? 1 : 0,
+										demo::Demo3DHostProjMatOf(ce));
+								}
+								// La liste du conteneur suit. S'il ne portait AUCUN materiau,
+								// HostNodeMatAdd le promeut aussi en actif -- sans effet a
+								// l'ecran, le conteneur n'etant pas rendu, mais c'est ce que le
+								// panneau lira quand on selectionnera le model.
+								demo::Demo3DHostNodeMatAdd(dropNode, st.dropMat - 1);
+								// UN MODEL SANS MAILLAGE NE DOIT PAS SE TAIRE : sinon le geste
+								// parait avoir marche alors que rien n'a ete peint.
+								if (posesSurEnfants == 0)
+									snprintf(st.hierNote, sizeof(st.hierNote),
+									         "%s n'a aucun maillage a peindre", st.dropName);
 							} else {
-															demo::Demo3DHostProjMatAssign(dropNode, st.dropMat - 1);
+								demo::Demo3DHostProjMatAssign(dropNode, st.dropMat - 1);
 							}
 							// MESURE : l'assignation a-t-elle PRIS ? « aucun effet »
 							// peut vouloir dire « rien ne s'est ecrit » ou « le
