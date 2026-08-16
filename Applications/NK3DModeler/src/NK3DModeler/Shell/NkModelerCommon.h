@@ -213,6 +213,11 @@ namespace nkentseu {
 		inline int32 NkDropSpawnModel(NkModelerState &st) {
 			int32 nn = -1;
 			if (st.dropSrcNode > 0)
+				// LES ASSETS ANCIENS SE REPARENT ICI. Ceux crees avant le 16 aout
+				// portent une origine loin de leur matiere ; la fonction etant
+				// idempotente, l'appeler avant chaque copie les remet d'aplomb sans
+				// jamais rien deranger a ceux qui le sont deja.
+				demo::Demo3DHostRecenterModel(st.dropSrcNode - 1);
 				nn = demo::Demo3DHostDuplicateNode(st.dropSrcNode - 1);
 			if (nn < 0) // asset sans source : cube par defaut, comme avant
 				nn = demo::Demo3DHostAddNode(2, 0);

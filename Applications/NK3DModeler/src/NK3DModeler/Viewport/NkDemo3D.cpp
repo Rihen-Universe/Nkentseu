@@ -16103,6 +16103,49 @@ namespace nkentseu {
 			// choisissent pas obtiennent le geste le moins couteux.
 			return Demo3DHostDuplicateNodeEx(node, false);
 		}
+		// ── RECENTRER L'ORIGINE D'UN MODEL SUR SA MATIERE ──────────────────
+		//
+		// Un model archive gardait l'origine qu'il avait dans la scene d'ou il
+		// vient -- souvent loin de sa geometrie. Comme le depot place le
+		// CONTENEUR sous le curseur, la matiere atterrissait a cote ; et dans la
+		// scene, le gizmo se dessinait loin de l'objet qu'il pilote. Rihen l'a
+		// vu des deux facons, captures du 16 aout.
+		//
+		// ON NE DEPLACE PAS LA MATIERE, ON DEPLACE L'ORIGINE SUR ELLE. Les
+		// positions de ce systeme sont ABSOLUES : bouger les maillages les
+		// ferait bouger a l'ecran, alors que bouger le seul conteneur -- qui ne
+		// rend rien -- ne change RIEN a l'image et corrige la seule chose qui
+		// etait fausse : la relation entre une origine et sa matiere.
+		//
+		// EN X ET Z SEULEMENT. La hauteur porte la pose de l'objet sur le sol
+		// (un cube repose a +0,539, la moitie de son cote) ; la recentrer
+		// enfoncerait chaque model dans le plancher au premier depot.
+		//
+		// IDEMPOTENTE : rappelee sur un model deja recentre, elle retrouve le
+		// meme barycentre et n'ecrit rien de neuf. C'est ce qui permet de s'en
+		// servir pour REPARER les assets existants au moment ou on les emploie,
+		// sans toucher au format ni a la relecture.
+		void Demo3DHostRecenterModel(int32 root) {
+			if (root < kNkvpFirstEmpty || root >= kNkvpMaxNodes || !nkvpIsModel[root])
+				return;
+			// LE MEME parcours d'appartenance que l'archivage, l'ecriture d'un
+			// fichier de model et le deplacement : quatre usages, un seul parcours.
+			float32 sx = 0.f, sz = 0.f;
+			int32 n = 0;
+			for (int32 c = 0; c < kNkvpMaxNodes; ++c) {
+				if (c < kNkvpFirstEmpty || !HostIsInnerMeshOf(c, root))
+					continue;
+				const int32 e = c - kNkvpFirstEmpty;
+				sx += nkvpEmptyPos[e][0];
+				sz += nkvpEmptyPos[e][2];
+				++n;
+			}
+			if (n == 0)
+				return; // un model sans matiere n'a pas de centre a trouver
+			const int32 er = root - kNkvpFirstEmpty;
+			nkvpEmptyPos[er][0] = sx / (float32)n;
+			nkvpEmptyPos[er][2] = sz / (float32)n;
+		}
 		int32 Demo3DHostArchiveNode(int32 node) {
 			// ARCHIVE d'asset : copie INVISIBLE qui survit a la suppression de
 			// l'original (le navigateur clone depuis elle). deleted=true la
@@ -16125,6 +16168,9 @@ namespace nkentseu {
 					if (HostIsInnerMeshOf(c, n))
 						nkvpDeleted[c] = true;
 			}
+			// L'ASSET NAIT RECENTRE : c'est ici qu'un model devient une ressource,
+			// et c'est donc ici que son origine doit prendre son sens.
+			Demo3DHostRecenterModel(n);
 			return n;
 		}
 		void Demo3DHostSetNodeArchived(int32 node, bool v) {
