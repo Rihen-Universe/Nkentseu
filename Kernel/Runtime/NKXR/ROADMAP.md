@@ -240,6 +240,48 @@ seulement le même total — la même sortie, ligne pour ligne.
 de portabilité — et maintenant on le sait au lieu de l'espérer. Le script est
 passé en C++17 et rejoué à travers lui-même : 66/66 et 82/82, inchangés.
 
+### 🔴 DETTE NOMMÉE — personne ne lance les 148. Mesuré le 2026-08-17
+
+*Corriger le dialecte et le compte ne sert à rien si le script ne tourne jamais.
+Voici qui l'appelle : **personne**.*
+
+| question | réponse mesurée |
+|---|---|
+| Qui référence `build_tests.sh` ? | **personne** — les seules occurrences hors `Externals/` sont **mes propres commentaires** et cette ROADMAP |
+| Y a-t-il une intégration continue ? | **une seule** : `.github/workflows/build-remote.yml` |
+| Se déclenche-t-elle seule ? | **non** — `on: workflow_dispatch` uniquement, donc **à la main** |
+| Lance-t-elle des tests ? | **non** — elle *construit* une cible jenga. Ses deux occurrences du mot « test » sont `ubuntu-latest` et un `test -n "$OUT"` de shell |
+| Et `jenga test` ? | la commande existe, mais l'exécution est **coupée par politique de workspace** (mesuré le 15/08) |
+
+**Conséquence, écrite sans adoucissement : les 148 contrôles ne tournent que
+lorsqu'un agent y pense, à la main, sur une machine Windows.** Aujourd'hui c'est
+moi. **En septembre, ce sera personne** — au moment précis où le module devient
+un support de cours.
+
+⚠️ **Le piège particulier de cette dette** : si une intégration continue est
+accrochée un jour **en reprenant l'ancienne ligne `-std=c++20`**, elle annulerait
+silencieusement la bascule du 17/08 — et *personne ne le verrait*, puisque les
+148 passent dans les deux dialectes. **Le contrôle à faire le jour de
+l'accrochage : lire le dialecte dans le journal de la CI, pas dans le script.**
+
+**Non corrigé, et volontairement** : accrocher une chaîne d'intégration engage
+tout le dépôt, pas le seul NKXR. Ce n'est pas un arbitrage de chantier XR.
+*Même limite que le 15/08 avec `audit_reglages.sh` : 7 secondes qui ne sont
+jamais lancées valent zéro — et « ce n'est pas à moi » ne clôt pas le sujet, ça
+le transmet.*
+
+Les trois lignes pour qui l'accrochera :
+
+```
+commande : bash Kernel/Runtime/NKXR/tests/build_tests.sh   (construit)
+           puis lancer test_xr.exe et test_ar.exe          (148 controles)
+code     : les deux binaires rendent 0 ; le VERDICT est dans logs/app.log,
+           ligne « === NKXR self-test : N OK, M ECHECS === ». M > 0 doit faire
+           ECHOUER la chaine — le code de sortie seul ne suffit pas.
+piege    : outil_ar_image.exe NE DOIT PAS etre lance dans la chaine — instrument
+           sans verdict, il sort en code 1 sans argument.
+```
+
 ### ✅ Le compte public corrigé : 148, pas 66
 
 Le module annonçait **« 66/66 »** en tête de ROADMAP alors qu'il y a **148**
