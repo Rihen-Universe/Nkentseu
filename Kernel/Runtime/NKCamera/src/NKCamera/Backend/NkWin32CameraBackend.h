@@ -453,6 +453,25 @@ namespace nkentseu {
 				mRunning = false;
 			}
 
+			// ⚠️ POURQUOI CES DEUX FONCTIONS RESTENT LOCALES (mesuré le 2026-08-17)
+			//
+			// `NKContainers` expose `NkToWide` / `NkFromWide`, et la règle est
+			// d'employer le Kernel plutôt que d'écrire le sien. **Mais elles sont
+			// cassées sur Windows, et silencieusement** :
+			//
+			//     NkToWide("HD")  ->  0048 0000      (attendu : 0048 0044)
+			//
+			// Le second caractère est perdu. Cause : leur branche UTF-16 est
+			// gardée par `#if defined(NK_PLATFORM_WINDOWS)` — macro que **rien ne
+			// définit** dans ce dépôt, qui emploie partout
+			// `NKENTSEU_PLATFORM_WINDOWS`. Windows compile donc la branche Unix,
+			// laquelle produit de l'UTF-32 réinterprété en `wchar_t` de 16 bits.
+			//
+			// Employer le Kernel ici corromprait les noms de périphériques. Ces
+			// deux fonctions restent donc locales **jusqu'à correction de la
+			// garde** — signalée à qui tient NKContainers, pas corrigée ici : un
+			// autre agent y travaille.
+			//
 			// Conversions UTF-16 ↔ UTF-8 sans `std::wstring` : `NkVector<wchar_t>`
 			// possède le tampon, et l'API Win32 écrit dedans. Le terminateur est
 			// compté par `MultiByteToWideChar` quand on lui passe -1, donc le
