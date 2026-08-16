@@ -321,6 +321,16 @@ namespace nkentseu {
 			if (override_ != nullptr && *override_ != '\0') {
 				mOxr->library = LoadLibraryA(override_);
 				snprintf(loadedFrom, sizeof(loadedFrom), "%s", override_);
+				if (mOxr->library == nullptr) {
+					// Un chemin explicite introuvable est une DEMANDE NON TENUE.
+					// Les voies 2 et 3 répondront quand même, et la trace finale
+					// nommera le vrai chemin chargé — donc rien n'est faux, mais
+					// personne ne dit que le loader nommé a été ignoré. Mesuré le
+					// 16/08/2026 : un NK_XR_OPENXR_LOADER bidon laisse la course
+					// atteindre le Quest 2 sans un mot.
+					logger.Warnf("[NKXR/OpenXR] NK_XR_OPENXR_LOADER introuvable, réglage IGNORÉ : %s "
+								 "— poursuite par les autres voies.\n", override_);
+				}
 			}
 			if (mOxr->library == nullptr) {
 				mOxr->library = LoadLibraryA("openxr_loader.dll");
