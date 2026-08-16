@@ -701,7 +701,13 @@ namespace nkentseu {
 						}
 						return h;
 					}
-					logger.Errorf("[NkShaderLibrary] '{0}' NkSL echec -> fallback .vk.glsl\n", materialName);
+					// ⚠ `Errorf` (suffixe f) = famille printf : marqueurs `%s`, jamais `{0}`.
+					// Avant ce correctif, ce message affichait littéralement « '{0}' » et
+					// laissait tomber `materialName` en silence. Et c'est le message
+					// d'échec du chemin NkSL — celui-là même dont on vient d'établir
+					// qu'il n'est presque jamais emprunté : il n'avait donc quasiment
+					// jamais été lu.
+					logger.Errorf("[NkShaderLibrary] '%s' NkSL echec -> fallback .vk.glsl\n", materialName.CStr());
 				}
 			}
 
