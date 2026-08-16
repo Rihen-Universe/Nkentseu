@@ -245,10 +245,25 @@ redécouvertes.
 non relatives au parent. Si c'est confirmé, déplacer un model laisse sa
 géométrie sur place.
 
-**2. La copie a plus d'enfants que sa source.** La source `98` a **un** enfant
-(`99`) ; la copie `110` en a **deux** (`111`, `112`). C'est le motif que le
-commentaire de `Demo3DHostSetNodeIsModel` décrit déjà pour la relecture — « le
-model rouvert se serait retrouvé avec un maillage de trop à chaque ouverture ».
+**2. ⚠️ « La copie a plus d'enfants que sa source » — AFFIRMATION RETIRÉE.**
+Je l'avais écrite comme un fait : la source `98` a **un** enfant (`99`), la copie
+`110` en a **deux** (`111`, `112`). **Les deux nombres sont justes, mais ils ne
+répondent pas à la même question.**
+
+`HostIsInnerMeshOf` (`NkDemo3D.cpp:15880`), qui sélectionne les nœuds à copier,
+**remonte la chaîne des maillages** : il attrape les meshes **en profondeur**. Ma
+mesure, elle, comptait la **parenté directe**. Et le recâblage (`ligne 16019`)
+rattache à `root` tout nœud dont le parent n'est pas dans la carte — **un
+petit-enfant devient donc légitimement un enfant direct du double**. Cela produit
+exactement le compte observé, sans le moindre chemin en trop.
+
+**L'écart peut donc n'exister que dans l'instrument.** Il est mesuré par le
+récapitulatif `MESURE dup model`, qui met les deux prédicats côte à côte
+(`internesDeLaSource` contre `enfantsDirectsDuDouble`). Tant qu'il n'a pas parlé,
+cette anomalie **n'est pas établie**.
+
+**Règle qui en sort** : *un écart entre deux mesures n'est un fait que si les deux
+mesurent la même chose.* Avant d'expliquer une différence, prouver qu'elle existe.
 
 ## 3. Modélisation complète ⬜
 
