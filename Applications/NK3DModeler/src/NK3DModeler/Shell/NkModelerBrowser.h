@@ -15,6 +15,7 @@
 #include "NK3DModeler/Shell/NkModelerTables.h"
 #include "NK3DModeler/Shell/NkModelerCommon.h"
 #include "NK3DModeler/Viewport/NkDemo3DHost.h"
+#include "NKLogger/NkLog.h" // [MESURE Maj+clic] temporaire
 #include "NKEditorKit/NkShortcutTable.h"
 
 namespace nkentseu {
@@ -672,6 +673,15 @@ namespace nkentseu {
 					// La carte cliquee devient ACTIVE dans les trois cas : c'est elle
 					// que les panneaux montrent, meme quand cinq sont choisies.
 					const int32 depuis = st.selectedAsset;
+					// [MESURE Maj+clic -- TEMPORAIRE] Rihen : "Ctrl fonctionne, Maj non".
+					// Deux causes donnent ce symptome et l'ecran ne les separe pas : le
+					// modificateur n'arrive pas jusqu'ici, ou il arrive et la plage ne se
+					// dessine pas assez pour se voir. On journalise donc ce que la branche
+					// A VU, pas ce qu'elle a fait.
+					nkentseu::NkLog::Instance().Info(
+										"[nk3d] MESURE clic carte : i={0} ctrl={1} maj={2} depuis={3} count={4}\n",
+										i, hit.CtrlDown() ? 1 : 0, hit.ShiftDown() ? 1 : 0, depuis,
+										st.browserCount);
 					if (hit.CtrlDown()) {
 						st.browserPicked[i] = !st.browserPicked[i];
 					} else if (hit.ShiftDown() && depuis >= 0 && depuis < st.browserCount) {
