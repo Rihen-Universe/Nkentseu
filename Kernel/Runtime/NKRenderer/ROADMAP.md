@@ -23,6 +23,52 @@ voir « Multi-backend » plus bas). Metal + Software restent à valider.
 Ouvert sur décision de Rodolf : « on doit remplir cette dette ». **Ce qui suit est
 mesuré, avec sa provenance ; ce qui ne l'est pas est marqué comme tel.**
 
+### ⚠️ Les shaders ne sont pas chargés quand l'application n'est pas lancée depuis la racine du worktree (2026-08-16)
+
+**Ce n'est pas une régression de code.** `NkShaderLibrary::LoadOrCompileVF` résout
+`Resources/NKRenderer/Shaders/` **relativement au répertoire courant**, alors que
+`Init()` résout le cache de shaders par `NkPath::GetExecutableDirectory()` — deux
+politiques de chemin dans la même classe. Aucun `Resources/` n'est déployé à côté
+d'aucun binaire : lancée depuis son propre dossier, une application ne lit **aucun
+fichier de shader**.
+
+Mesure — **binaire identique dans les deux états, seul le répertoire de travail
+change** ; aucune reconstruction, aucun shader modifié :
+
+| | depuis le dossier de l'exe | depuis la racine du worktree |
+|---|---|---|
+| **NKXRDemo** `source GLSL vide` | 8 | 0 |
+| **NKXRDemo** `non-opaque uniforms` | 8 | 0 |
+| **NKXRDemo** `'softness' : no such field` | 4 | 0 |
+| **NKXRDemo** `pbrShader.valid` | 0 | **1** |
+| **NKXRDemo** processus | meurt (code 6), `Renderer oeil 0 KO` | vivant |
+| **Nogee** (dorsal GL) `no GLSL stage provided` | présent | 0 |
+| **Nogee** shaders `valid=0` | ShadowLinear, ShadowInstanced, Skin, Instanced, InfiniteGrid | **tous `valid=1`** |
+
+Témoin rejoué sur l'état d'avant : la panne se rallume et s'éteint à volonté.
+
+**Trois symptômes, une seule cause.** Les shaders sans repli embarqué donnent une
+source vide ; ceux qui en ont un compilent un repli **périmé** (PBR) ou **écrit pour
+un autre dorsal** (Render2D, dialecte GL → `non-opaque uniforms outside a block`).
+
+📌 **Deux conséquences à retenir :**
+- Les shaders qui « passaient » sont exactement **ceux qui possèdent un repli
+  embarqué**. Le repli **fabrique une fausse santé** : il répond toujours, et sa
+  réponse fausse est indiscernable de la vraie.
+- Le chemin **NkSL** est tenté **avant** le `.vk.glsl` (`:678-706`). Tant que le
+  répertoire courant est mauvais, ce chemin **n'est jamais emprunté** — les courses
+  concernées ne prouvent donc rien sur l'état de NkSL, ni en bien ni en mal.
+
+**Corrigé ici** (`cc227e3c`) : le journal distingue désormais « fichier introuvable »
+de « source invalide » — ils n'ont pas le même remède, et les confondre envoie
+réécrire un shader qui n'a jamais été lu. Le dossier de l'exécutable est ajouté comme
+**seconde racine** (additive ; le répertoire courant reste essayé en premier).
+
+**NON corrigé — décision de déploiement, hors périmètre d'un seul module** : déployer
+`Resources/` à côté des binaires (règle Jenga), ou résoudre depuis une racine de
+projet découverte, ou déclarer un chemin de recherche. Tant que ce choix n'est pas
+fait, **la façon de retrouver la scène est de lancer depuis la racine du worktree**.
+
 ### Mesure de référence du dépôt entier
 
 ```
