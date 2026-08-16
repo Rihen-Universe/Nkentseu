@@ -2996,6 +2996,107 @@ static void ThemeBattery() {
 	}
 }
 
+// ── COMPOSANTES CONNEXES / `L` ──────────────────────────────────────────────
+// Ce que ces cas verifient, et pourquoi chacun est la :
+//
+//  1. UN CUBE = UNE composante. MakeCube duplique ses sommets PAR FACE (24 pour
+//     8 positions) : une connexite par indice BRUT y verrait 6 ilots, un par
+//     face. Ce cas echoue bruyamment si l'identite soudee n'est pas respectee —
+//     c'est le seul qui protege le choix central de l'implementation.
+//  2. DEUX cubes disjoints = DEUX composantes, et `L` depuis l'un ne prend que
+//     l'autre moitie. C'est le geste de Rihen, litteralement.
+//  3. LES DEUX INVARIANTS de la specification : la somme des tailles egale le
+//     nombre de sommets, et aucun sommet ne reste sans composante. Ils tiennent
+//     lieu de test exhaustif — on ne peut pas les satisfaire par hasard.
+static void LinkedBattery() {
+	NkVector<NkVertex3D> v;
+	NkVector<uint32> idx;
+	MakeCube(v, idx);
+
+	// ── 1. Un seul cube ─────────────────────────────────────────────────────
+	{
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		m.RebuildEdges();
+		NkVector<int32> comp;
+		const uint32 nc = m.ComputeConnectedComponents(comp);
+		uint32 assigned = 0;
+		for (uint32 i = 0; i < (uint32)comp.Size(); ++i)
+			if (comp[i] >= 0)
+				assigned++;
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s composantes=%u sommets=%u assignes=%u",
+					 "linked/cube-soude", nc, (uint32)m.verts.Size(), assigned);
+			gLineCount++;
+		}
+	}
+
+	// ── 2. Deux cubes disjoints ─────────────────────────────────────────────
+	{
+		NkVector<NkVertex3D> v2 = v;
+		NkVector<uint32> i2 = idx;
+		const uint32 base = (uint32)v.Size();
+		for (uint32 i = 0; i < (uint32)v.Size(); ++i) {
+			NkVertex3D t = v[i];
+			t.pos.x += 10.f; // largement hors tolerance de soudure
+			v2.PushBack(t);
+		}
+		for (uint32 i = 0; i < (uint32)idx.Size(); ++i)
+			i2.PushBack(idx[i] + base);
+
+		NkEditMesh m;
+		m.BuildFromIndexed(v2.Data(), (uint32)v2.Size(), i2.Data(), (uint32)i2.Size(), true);
+		m.RebuildEdges();
+		NkVector<int32> comp;
+		const uint32 nc = m.ComputeConnectedComponents(comp);
+
+		// Tailles par composante -> invariant de somme.
+		uint32 sizes[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+		uint32 orphelins = 0;
+		for (uint32 i = 0; i < (uint32)comp.Size(); ++i) {
+			if (comp[i] < 0)
+				orphelins++;
+			else if ((uint32)comp[i] < 8)
+				sizes[comp[i]]++;
+		}
+		uint32 somme = 0;
+		for (uint32 c = 0; c < 8 && c < nc; ++c)
+			somme += sizes[c];
+
+		// `L` depuis le sommet 0 : il ne doit prendre QUE son ilot.
+		m.SelectNone();
+		const bool ok = m.SelectLinked(0, true);
+		uint32 sel = 0;
+		for (uint32 i = 0; i < (uint32)m.verts.Size(); ++i)
+			if (m.verts[i].sel)
+				sel++;
+
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256,
+					 "%-34s composantes=%u somme=%u sommets=%u orphelins=%u L(ok=%d)=%u", "linked/deux-cubes", nc,
+					 somme, (uint32)m.verts.Size(), orphelins, ok ? 1 : 0, sel);
+			gLineCount++;
+		}
+
+		// Ctrl+L depuis la meme selection : l'ilot est DEJA entier, donc il ne
+		// doit rien ajouter -- et le dire (aChange=0). C'est ce cas qui a revele
+		// que mon booleen repondait « oui » sans que rien ne bouge.
+		// Puis, sans aucune selection, il doit REFUSER.
+		const bool grew = m.SelectLinkedFromSelection();
+		uint32 sel2 = 0;
+		for (uint32 i = 0; i < (uint32)m.verts.Size(); ++i)
+			if (m.verts[i].sel)
+				sel2++;
+		m.SelectNone();
+		const bool vide = m.SelectLinkedFromSelection();
+		if (gLineCount < 512) {
+			snprintf(gLines[gLineCount], 256, "%-34s aChange=%d apres=%u surSelectionVide=%d", "linked/ctrl-L",
+					 grew ? 1 : 0, sel2, vide ? 1 : 0);
+			gLineCount++;
+		}
+	}
+}
+
 int main(int argc, char **argv) {
 	bool baseline = false, check = false;
 	for (int32 i = 1; i < argc; i++) {
@@ -3027,6 +3128,9 @@ int main(int argc, char **argv) {
 	DecimateBattery();
 	RetopoBattery();
 	ThemeBattery();
+	// AJOUTEE EN FIN, pour la meme raison que SelOrderBattery : les lignes
+	// precedentes gardent leur numero, donc la reference reste comparable.
+	LinkedBattery();
 
 	const char *path = "editmesh_baseline.txt";
 	if (baseline) {
