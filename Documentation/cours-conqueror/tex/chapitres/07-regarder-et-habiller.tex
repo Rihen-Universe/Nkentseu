@@ -1,0 +1,236 @@
+\chapter{Regarder le plateau, et l'habiller}
+
+Ce chapitre couvre ce qui n'est ni règle ni IA : \textbf{voir} ce qui se passe, et
+\textbf{donner un visage} aux totems. C'est du ressort du designer et de
+l'artiste, et rien de ce qui suit ne change un seul résultat de mesure.
+
+\section{Les grands plateaux : zoom et déplacement}
+
+Le cadrage automatique remplit le panneau avec le plateau entier. Parfait pour 42
+cases, intenable à 900 : les cellules tombent à quelques pixels et on ne joue
+plus, on regarde une mosaïque.
+
+\begin{center}
+\begin{tabular}{@{}p{4.2cm}p{9.6cm}@{}}
+\toprule
+\textbf{Geste} & \textbf{Effet} \\
+\midrule
+molette & zoom, \textbf{ancré sous le curseur} \\
+bouton du milieu & déplacement \\
+Recadrer & retour au cadrage automatique — le bouton n'apparaît que si la vue a bougé \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}[Le zoom est un facteur, pas une taille de cellule]
+Il s'applique \emph{par-dessus} le cadrage automatique. Conséquence : il survit
+au redimensionnement de la fenêtre et au changement de plateau. Stocker
+« cellule $=$ 18 px » obligerait à recalculer ce nombre à chaque fois ; un
+rapport, non.
+
+À \texttt{zoom 1}, l'affichage est \textbf{exactement} celui d'avant. On n'a pas
+remplacé un comportement qui marchait : on lui a ajouté une sortie de secours.
+\end{nkretenir}
+
+L'ancrage sous le curseur n'est pas un détail de confort. On vise une case, on
+tourne la molette, et cette case reste sous le pointeur. Un zoom centré sur le
+panneau oblige à rattraper le plateau après chaque cran.
+
+\begin{nkcode}{src/ConquerorLab/NkcBoardView.h — NkcCellVisible}
+/// Faut-il dessiner cette cellule ? Rejette ce qui ne touche pas `area`.
+///
+/// Sans ce test, un plateau de 900 cases produit 900 polygones par image
+/// dont l'immense majorite est hors ecran. Avec, le cout suit ce qu'on
+/// VOIT, pas ce qui existe.
+\end{nkcode}
+
+Sur un plateau de plus de 200 cases, la barre d'état change de contenu : elle
+affiche \texttt{N/900 cases affichées, zoom xN}. Le culling doit être
+\textbf{visible}, pas magique.
+
+Plateau d'épreuve livré : \nkfile{hexagone_30x30_grand.json}.
+
+\begin{nkpiege}[La molette est consommée, et il le fallait]
+NkGui décide d'afficher une barre de défilement ainsi :
+\texttt{contentH = cursor.y - contentTop}, puis
+\texttt{barV = (contentH - viewH) > 0}. Or \texttt{NextItemRect} avance le
+curseur de \texttt{h + itemSpacingY}.
+
+Réserver toute la hauteur visible donnait donc un contenu qui dépassait
+\textbf{de l'espacement} — d'un cheveu, mais assez pour faire surgir une barre.
+Elle volait la molette et faisait glisser l'entête.
+
+La barre d'actions et le bandeau de score doivent rester \textbf{fixes} : seule
+la zone de simulation bouge, et elle bouge par le zoom.
+\end{nkpiege}
+
+\section{Trois et quatre joueurs}
+
+L'atelier laissait choisir jusqu'à quatre joueurs, alors qu'\textbf{aucun plateau
+livré ne plaçait plus de deux totems}. Les joueurs 2 et 3 démarraient sans rien,
+donc bloqués au premier tour.
+
+Le sélecteur est désormais \textbf{borné par le plateau chargé} — il lit
+\texttt{max\_players}. Une option qui ne peut produire qu'une partie dégénérée
+n'est pas une option, c'est un piège.
+
+Trois plateaux multijoueurs sont livrés : \nkfile{hexagone_7x7_3j},
+\nkfile{hexagone_8x8_4j}, \nkfile{carre_9x9_4j}. Pour en écrire d'autres, il faut
+\textbf{et} \texttt{max\_players}, \textbf{et} un \texttt{starts} par joueur.
+
+\begin{nkpiege}[L'inversion des côtés ne vaut qu'à deux joueurs]
+Rappel du chapitre 6 : à 3 ou 4 joueurs, les winrates par camp mélangent effet de
+stratégie et effet de siège. Le multijoueur sert à observer des dynamiques —
+alliances de fait, cible désignée — pas à trancher un équilibrage.
+\end{nkpiege}
+
+\section{Habiller les totems}
+
+Un totem est une \textbf{donnée}, comme un plateau. Un artiste doit pouvoir le
+changer sans compiler, sans ouvrir l'atelier, sans demander à personne.
+
+\begin{nkcode}{travail/totems — un dossier par totem}
+travail/totems/
+    Guerrier/
+        n0.png          niveau 0, image fixe
+        n1.png          niveau 1
+        n2.png  n3.png  n4.png
+    Esprit/
+        n0_000.png      niveau 0, ANIMATION : suffixe a trois chiffres
+        n0_001.png
+        n0_002.png
+        n1.png          niveau 1, fixe -- on peut melanger
+    Pierre/
+        base.png        AUCUN niveau : cette image sert a tous
+\end{nkcode}
+
+\textbf{Un dossier $=$ un totem}, et le nom du dossier est celui qui apparaît
+dans le panneau \emph{Joueurs}. Trois règles de nommage, et rien d'autre :
+
+\begin{center}
+\begin{tabular}{@{}p{4.6cm}p{9.2cm}@{}}
+\toprule
+\textbf{Nom} & \textbf{Sens} \\
+\midrule
+\texttt{nN.png} & image du niveau N (0 à 4) \\
+\texttt{nN\_KKK.png} & K-ième image de l'animation du niveau N \\
+\texttt{base.png}, \texttt{base\_KKK.png} & s'applique à \textbf{tous} les niveaux \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nkretenir}[Une image manquante ne fait jamais disparaître un totem]
+Niveau absent $\rightarrow$ \texttt{base}. \texttt{base} absent $\rightarrow$
+\textbf{le disque coloré}. Le jeu reste jouable pendant qu'on dessine, et on peut
+comparer une silhouette en cours à la forme de référence.
+
+Ce n'est pas un pis-aller : c'est ce qui permet de travailler.
+\end{nkretenir}
+
+Le niveau reste lisible \textbf{même avec une image} : un anneau se superpose,
+comme avant. Un artiste peut donc dessiner cinq niveaux identiques sans rendre le
+plateau illisible.
+
+\subsection{Format et taille}
+
+PNG \textbf{avec canal alpha} — sans alpha, votre totem est un carré posé sur la
+cellule au lieu d'une silhouette.
+
+La taille est celle qui vous arrange. L'atelier ajuste à la cellule \textbf{par
+contenance} (l'image entre entièrement), proportions conservées :
+
+\begin{nkcode}{src/ConquerorLab/NkcBoardPanel.h — DrawTotemImage}
+// Ajustement PAR CONTENANCE : l'image entre entierement dans le carre de
+// la cellule. Un ajustement par couverture rognerait, et un totem rogne
+// n'est plus le totem qu'on a dessine.
+const float32 box = rad * 2.f;
+const float32 k   = (iw > ih) ? (box / iw) : (box / ih);
+\end{nkcode}
+
+La taille d'une cellule dépend du plateau, de la fenêtre et du zoom : trois
+choses qu'aucun fichier PNG ne peut connaître. C'est donc l'atelier qui adapte.
+
+\begin{nkpiege}[Le rechargement n'est pas automatique]
+Panneau \emph{Joueurs} $\rightarrow$ \textbf{Recharger les totems}. Décoder des
+PNG soixante fois par seconde figerait l'atelier — et vous savez quand vous venez
+de modifier un fichier.
+\end{nkpiege}
+
+\begin{nkretenir}[Pas d'atlas, délibérément]
+Un atlas demande un outil de packing, un format de métadonnées et une étape de
+build : exactement les trois choses qu'on veut épargner à quelqu'un dont le
+métier est de dessiner. Une texture par image coûte plus d'appels de dessin ; sur
+quelques dizaines de totems à l'écran, cela ne se mesure pas.
+\end{nkretenir}
+
+\subsection{Ce que le choix de totem ne change pas}
+
+\textbf{Rien de mesurable.} Deux campagnes menées avec des totems différents
+donnent le même journal et la même empreinte. C'est pourquoi ce réglage
+\textbf{n'entre pas} dans la signature de configuration (chapitre 6) : y mettre un
+choix décoratif ferait croire à une différence là où il n'y en a aucune.
+
+\section{Le menu, le thème, la langue}
+
+Deux menus, et c'est tout.
+
+\begin{center}
+\begin{tabular}{@{}p{2.6cm}p{11.2cm}@{}}
+\toprule
+\textbf{Menu} & \textbf{Contenu} \\
+\midrule
+Fichier & Thème (Sombre / Clair), Langue (Français / Anglais), Réinitialiser la disposition, Quitter \\
+Conqueror & Nouvelle partie, Lecture/Pause, Un coup, Position vivante, Rechercher les modules \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Ont été retirés : \emph{Affichage} (les panneaux se ferment par leur onglet), la
+\emph{palette de commandes} (sept panneaux ne justifient pas un lanceur), les
+réglages de police, et \emph{Fenêtre}. Un menu qui contient des entrées qui ne
+mènent nulle part apprend à l'utilisateur à ne pas lire les menus.
+
+\begin{nkretenir}[Le thème change le décor, pas le sens]
+Le chrome — fonds, boutons, bordures, texte — suit le thème. \textbf{Les couleurs
+de jeu ne bougent pas} : camps, coups légaux, menace, dernier coup.
+
+Les faire varier reviendrait à changer la lecture tactique en changeant l'humeur,
+et une capture d'écran de partie ne voudrait plus dire la même chose selon le
+réglage de qui l'a prise.
+\end{nkretenir}
+
+Pour la langue, la clé de traduction \textbf{est le texte français} :
+\texttt{T("Nouvelle partie")}, pas un identifiant abstrait. Le code reste
+lisible, et une chaîne non encore traduite s'affiche en français plutôt qu'en
+marqueur d'erreur.
+
+Ne sont \textbf{pas} traduits, volontairement : les noms de modules et de fichiers
+(ils viennent de vous), la sortie du compilateur (elle vient de clang), et les
+traces de vos modules. Traduire ce qu'on n'a pas écrit, c'est mentir sur la
+source.
+
+\begin{nkexo}[1 — Le totem qui manque]
+Créez \nkfile{travail/totems/Test/} avec une seule image \texttt{n2.png}.
+Rechargez, affectez-la à un joueur, lancez une partie. Que voit-on aux niveaux 0,
+1, 3 ? Pourquoi ce comportement est-il préférable à un totem invisible ?
+\end{nkexo}
+
+\begin{nkexo}[2 — Lire à petite échelle]
+Chargez \nkfile{hexagone_30x30_grand.json}. Sans zoomer, pouvez-vous dire qui
+mène ? Zoomez jusqu'à ce que ce soit possible : à quel facteur ? Qu'est-ce qui
+devient illisible en premier — le camp, le niveau, ou le dernier coup ? Ce que
+vous venez de trouver est une contrainte de \textbf{lisibilité}, et elle vaut
+aussi pour le jeu final.
+\end{nkexo}
+
+\begin{nkexo}[3 — Le totem et la mesure]
+Jouez deux parties avec la même graine et deux totems différents. Comparez les
+empreintes du journal. Expliquez pourquoi elles sont identiques, et pourquoi ce
+serait un \textbf{bug grave} si elles ne l'étaient pas.
+\end{nkexo}
+
+\begin{nkexo}[4 — Trois joueurs]
+Lancez 300 parties sur \nkfile{hexagone_7x7_3j}, même IA aux trois sièges. Un
+siège gagne-t-il plus souvent ? Pouvez-vous conclure quelque chose sur les règles
+à partir de ce chiffre ? Justifiez — la bonne réponse tient en une phrase.
+\end{nkexo}

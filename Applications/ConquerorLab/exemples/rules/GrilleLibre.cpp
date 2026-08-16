@@ -128,7 +128,7 @@ namespace {
 
 	// -------------------------------------------------------------------------
 	// 3. Etat et moteur. Rien de particulier : c'est le meme squelette que
-	// RegleMinimale.cpp, avec `Neighbors` a la place de `Neighbor(topologie,…)`.
+	// RegleContratNu.cpp, avec `Neighbors` a la place de `Neighbor(topologie,…)`.
 	// -------------------------------------------------------------------------
 	enum ParamId : int32 { P_MAX_TOURS = 0, P_COUNT };
 
