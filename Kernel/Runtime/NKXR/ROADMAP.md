@@ -435,6 +435,65 @@ du cas « EndFrame avec image encore acquise »).
 | **Poste distant — flux vidéo** *(voie de secours)* | ❌ M | NKMedia a déjà l'encodeur **H.264 from scratch** + le lecteur : encoder la vue moniteur, l'envoyer, la décoder. Utile pour un poste sans GPU ou une diffusion salle. |
 | **Plusieurs casques dans la MÊME scène** (formateur + stagiaire en VR) | ❌ L | Réplication d'état + une session XR par poste. L'API NKXR est déjà par-session, rien n'y fait obstacle. |
 
+## 🔴 DÉFAUT OUVERT — `NkArImu` fige la boucle. Diagnostiqué le 14/08, **non réparé**
+
+*C'est le seul vrai **défaut** du parcours AR : les quatre autres manques sont des
+absences, celui-ci est du code qui casse.*
+
+### Le fait, vérifié le 2026-08-17 (pas supposé)
+
+```
+Kernel/Runtime/NKXR/src/NKXR/AR/NkArImu.cpp:49
+        ALooper *looper = ALooper_forThread();
+```
+
+La centrale inertielle s'attache au **`Looper` du fil appelant** — celui de
+l'application. La file d'événements capteurs partage alors la boucle de rendu, et
+**la boucle gèle**. Constaté le 14/08 ; l'IMU est **coupée par défaut** depuis.
+
+**Ce que voit un étudiant** : il active la centrale inertielle, l'application se
+fige, **aucun message**. Rien dans la documentation ne l'y prépare. *Un gel
+silencieux est ce qui décourage le plus vite.*
+
+### Le correctif pressenti — ≈15 lignes, et il n'est PAS écrit
+
+Donner à l'IMU **son propre fil** avec son propre `Looper` (`ALooper_prepare` sur
+ce fil, au lieu d'`ALooper_forThread` sur celui de l'appelant), et publier vers la
+boucle de rendu par une valeur partagée.
+
+⚠️ **Volontairement non commité.** C'est un correctif de **concurrence**, et il
+n'est **pas exerçable sans le téléphone**. Un correctif de concurrence qu'on ne
+peut pas lancer n'est pas un correctif, c'est **une hypothèse commitée** — et il
+pourrait très bien marcher en Debug et courser en Release, ce que la règle sur les
+deux configurations existe précisément pour attraper.
+
+### ▶️ Pour l'exercer — la recette, le jour où le S22+ est rebranché
+
+```bash
+# 1. brancher le Galaxy S22+, verifier qu'il repond :
+adb devices                      # doit lister l'appareil, pas "unauthorized"
+
+# 2. construire et deployer :
+jenga build --target NKARDemo --config Release --platform Android
+adb install -r Build/Bin/Release-Android/NKARDemo/NKARDemo.apk
+
+# 3. lancer, puis ACTIVER l'IMU (c'est ce reglage qui declenche le gel) :
+adb logcat -c && adb shell am start -n com.rihen.nkardemo/.MainActivity
+adb logcat | grep -i "NKXR\|ArImu\|ANR"
+```
+
+**Ce qu'on cherche** : la boucle qui cesse d'avancer (débit d'images qui tombe à
+zéro) et, éventuellement, un **ANR** Android. **Mesurer avant/après le correctif,
+en Debug ET en Release** — les primitives de synchronisation sont précisément ce
+qui diffère entre les deux.
+
+⚠️ Le nom d'activité ci-dessus est **repris du paquet de la démo et non vérifié
+sur appareil** : si `am start` échoue, lire le nom réel avec
+`adb shell cmd package resolve-activity --brief com.rihen.nkardemo`. Je le signale
+plutôt que de laisser croire que la ligne a été exécutée.
+
+---
+
 ## 🎓 CE QUI MANQUE AU PARCOURS ÉTUDIANT « AR FROM SCRATCH » (2026-08-17)
 
 > Objectif du cours de septembre : **les étudiants construisent leur propre AR
@@ -450,9 +509,9 @@ mène un étudiant jusque-là.
 |---|---|---|
 | 1 | **`USAGE.md` n'a AUCUN chapitre AR** — 9 sections, toutes VR/simulateur | 🔴 **bloquant** |
 | 2 | **Aucun point de départ AR minimal** à copier | 🔴 **bloquant** |
-| 3 | **`NkArImu` fige toujours la boucle** — non réparé | 🟠 piège |
-| 4 | **La commande produisant marqueur et planche n'est écrite nulle part** | 🟠 piège |
-| 5 | **La limite de `NkArFlow` (~60 °/s) n'est pas enseignée** | 🟡 à cadrer |
+| 3 | **`NkArImu` fige toujours la boucle** — non réparé | 🟠 piège — **nommé ci-dessus, avec sa recette** |
+| 4 | ~~La commande produisant marqueur et planche n'est écrite nulle part~~ | ✅ **écrite** — `USAGE.md` § 10 |
+| 5 | ~~La limite de `NkArFlow` (~60 °/s) n'est pas enseignée~~ | ✅ **écrite** — `USAGE.md` § 10 |
 
 ### 1. 🔴 Le guide s'arrête avant l'AR
 
