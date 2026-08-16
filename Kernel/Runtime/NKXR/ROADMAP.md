@@ -75,6 +75,57 @@ plutôt que passé sous silence.
 l'initialisation ; `EndFrame` ne fait que relire un champ. Rien ne se journalise
 par image.*
 
+### 🔎 Sonde autonome — et elle trouve un obstacle plus profond que le renderer
+
+`tests/sonde_openxr_blend.cpp` : un instrument qui interroge le runtime **sans
+ouvrir de fenêtre ni de renderer**, rejoue la règle de sélection sur la liste
+annoncée, et vérifie **que le mode choisi est bien dans cette liste** — la
+propriété exacte que le correctif doit garantir.
+
+**Elle peut échouer, et par cinq portes distinctes** : `1` loader absent,
+`2` pas de runtime/casque, `3` énumération vide ou en échec, `4` **le mode
+choisi n'est pas dans la liste annoncée** (le défaut visé), `0` seulement si
+tout tient.
+
+#### ⚠️ Le fait qu'elle a produit : `openxr_loader.dll` est ABSENT de la machine
+
+```
+find sur tout le dépôt et D:\Projets  ->  aucun openxr_loader.dll
+C:\Windows\System32\openxr_loader.dll ->  absent
+HKLM\SOFTWARE\Khronos\OpenXR\1        ->  ActiveRuntime = Meta Horizon (PRÉSENT)
+```
+
+**Un runtime OpenXR peut être installé et enregistré sans que le loader soit
+là** : c'est l'application qui livre `openxr_loader.dll`, pas le runtime. Le
+registre dit « il y a un casque » ; il ne dit rien de la capacité à lui parler.
+
+Conséquence : **le blocage de `NkRendererImpl` étape 2 n'est pas le seul
+obstacle.** Même franchi, l'initialisation OpenXR échouerait au chargement du
+loader. Les deux sont indépendants, et seul le second appartient à NKXR.
+
+⚠️ **Et ça met en doute une mesure antérieure** : les « 36 extensions, sans
+`XR_FB_passthrough` » de la ROADMAP viennent d'une session précédente. **Je ne
+peux pas la reproduire aujourd'hui** — le loader n'est pas là. Je ne la déclare
+pas fausse ; je déclare qu'elle n'est **pas reproductible en l'état**, et c'est
+une différence qui compte pour un module qui sert de support de cours.
+
+#### ⚠️ La limite symétrique, et elle est sérieuse
+
+**Cette sonde n'a jamais rendu 0.** Ses trois exécutions — nominale, override
+bidon, `XR_RUNTIME_JSON` bidon — rendent toutes `1`, au même endroit. J'ai donc
+démontré **qu'elle sait échouer**, pas **qu'elle sait réussir** : les chemins
+`2`, `3` et surtout `4` ne sont pas exercés.
+
+*Un instrument qui n'a produit qu'un seul verdict n'a pas été discriminé.* Il
+faudra le rejouer le jour où un `openxr_loader.dll` sera présent, et **ne pas
+traiter son premier `0` comme une confirmation** avant d'avoir vu au moins un
+autre code sortir.
+
+Autre limite, écrite dans son en-tête : elle **rejoue** la règle du backend,
+écrite à l'identique, elle ne l'**exerce** pas — lier le backend exigerait le
+renderer, c'est-à-dire le blocage qu'elle contourne. Si la règle change d'un
+côté et pas de l'autre, la sonde ment.
+
 ### 🔧 Un champ fantôme créé puis retiré dans le même geste
 
 Un booléen « l'énumération a-t-elle répondu ? » a été ajouté, mesuré à
