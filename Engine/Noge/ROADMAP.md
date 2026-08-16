@@ -1377,6 +1377,71 @@ sinon on continuera d'écrire des panneaux que personne ne peut voir.
 
 ---
 
+## 10quinquies. 🔴 145 APPELS DE JOURNAL MÉLANGENT LES DEUX FAMILLES DE FORMATAGE (2026-08-17)
+
+> **Dette nommée, RIEN corrigé.** Trouvée en écrivant le témoin du câblage du
+> monde : mon `Infof("... {0} ...")` est sorti avec ses accolades. **Ce n'est pas
+> un défaut de NKLogger** — première attribution, retirée : la convention (au
+> corpus, précisée par Rodolf le 2026-08-17) est claire, et la doc de `NkLog.h`
+> la dit mot pour mot :
+
+| appel | marqueurs |
+|---|---|
+| `Infof` / `Warnf` / `Errorf`… (suffixe `f`) | **printf** : `%s`, `%llu`, `\n` explicite |
+| `Info` / `Warn` / `Error`… (sans suffixe) | **indexés** : `{0}`, `{1:.3}` — ou message littéral sans args |
+
+Le danger est que **rien ne plante et rien n'avertit** : le message sort faux et
+ressemble à un message. Une seule exécution de Nogee produit 10 lignes amputées.
+
+**Le compte, appels AVEC arguments uniquement** (un `%` ou `{` sans argument est
+du texte inoffensif, exclu) :
+
+| mélange | n |
+|---|---|
+| **A** — famille `f` (printf) avec des `{i}` indexés | **67** |
+| **B** — famille sans `f` (indexée) avec des `%spec` | **78** |
+| **total** | **145** |
+
+**Contre-épreuve d'usage** : les mêmes motifs trouvent **535** appels `f`
+corrects (`%s`…) et **1 571** appels sans `f` corrects (`{0}`…). Les commandes
+savent trouver ; les 145 sont une minorité — la convention est majoritairement
+respectée.
+
+**Périmètre** : `Kernel`, `Engine`, `Applications`, `Integrations` (`.cpp`+`.h`),
+hors `Externals` et `Build`, appels mono-ligne (un format multi-ligne échappe au
+motif — le compte est donc un **plancher**).
+
+**Répartition — mélange A (67), les gros postes :**
+`Applications/PV3DE` **22** · `Applications/Nogee` **20** (dont
+`ProjectManager.cpp` 5, `EditorLayer.cpp` 4) · `Engine/Noge` **15** (dont
+`NkSceneSerializer.cpp` 5, `NkApplication.cpp` 4) · `NKRenderer` **4** ·
+`Applications/Model` 3 · Sandbox 2 · NKXRDemo 1.
+
+**Répartition — mélange B (78), les gros postes :**
+`Kernel/System/NKSerialization` **42** (dont `NkISerializable.h` 18, les trois
+lecteurs YAML/XML/JSON 7 chacun) · `Kernel/Runtime/NKUI` **13** (dont
+`NkUIFontBridge.cpp` 8) · `NKECS/exemples` **10** · Sandbox 5 · Pong2 2 ·
+NkImageDemo 2 · ConquerorProto 2 · Integrations 2.
+
+Échantillons vérifiés à la main des deux côtés
+(`Errorf("...'{0}' ..."` dans `NkShaderLibrary.cpp:695`,
+`Info("[Level%d]...", ...)` dans `Exemples.cpp:606`). Listes nominatives
+complètes régénérables :
+
+```
+famille f avec {   : grep -rnE '\.(Tracef|Debugf|Infof|Warnf|Errorf|Criticalf|Fatalf|Logf)\s*\("[^"]*\{' --include=*.cpp --include=*.h Kernel Engine Applications Integrations
+sans f avec %spec  : grep -rnE '\.(Trace|Debug|Info|Warn|Error|Critical|Fatal|Log)\s*\("[^"]*%[sdufllxX0-9]' ... | grep -v 'f\s*\('   (garder les lignes avec arguments)
+```
+
+🎯 **Pourquoi c'est une dette et pas un chantier immédiat** : 145 sites dans
+13 modules, aucun ne casse rien — chacun ment un peu dans le journal. La
+correction est mécanique (changer le marqueur OU le suffixe, site par site) ; ne
+pas corriger coûte en diffus : chaque diagnostic qui s'appuiera sur une de ces
+lignes lira `{0}` ou `%d` à la place d'une valeur. **La priorité relative
+appartient à Rodolf.**
+
+---
+
 ## 🚀 PRIORITÉ — Mondes volumineux : les optimisations prouvées en NKAI
 
 > **Décision de Rihen, 6 août 2026.** « On doit implémenter ces optimisations
