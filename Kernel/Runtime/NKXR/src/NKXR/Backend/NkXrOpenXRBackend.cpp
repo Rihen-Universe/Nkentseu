@@ -56,6 +56,20 @@ namespace nkentseu {
 				bool graphicsRequirementsQueried = false;
 				bool sessionRunning = false;
 
+				// Mode de fusion RÉELLEMENT soumis à `xrEndFrame`. Décidé UNE
+				// fois, à l'initialisation, à partir de ce que le runtime
+				// annonce — plus une constante écrite en dur au site de
+				// soumission. Repli `OPAQUE` : c'est le comportement d'avant le
+				// 2026-08-17, donc l'inaction ne change rien.
+				XrEnvironmentBlendMode blendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+				// NOTE : un booléen « l'énumération a-t-elle répondu ? » a été
+				// écrit ici puis retiré — il avait 1 écrivain et 0 lecteur,
+				// c'est-à-dire exactement le réglage fantôme que ce dépôt
+				// traque depuis une semaine. Les trois cas (annoncé / échoué /
+				// absent) sont déjà séparés par trois messages distincts, au
+				// moment où l'information existe. Un état de plus n'aurait servi
+				// qu'à donner l'illusion d'une capacité interrogeable.
+
 				// Fonctions d'instance.
 				PFN_xrDestroyInstance destroyInstance = nullptr;
 				PFN_xrGetInstanceProperties getInstanceProperties = nullptr;
@@ -606,9 +620,33 @@ namespace nkentseu {
 			// promesse non tenue : personne ne va chercher le passthrough dans
 			// une constante.
 			//
-			// ⚠️ Choisir ALPHA_BLEND ou ADDITIVE changerait ce que voit TOUTE
-			// application XR du dépôt. Ça ne se décide pas dans le même geste que
-			// la mesure qui le rend possible.
+			// ⚠️ Choisir ALPHA_BLEND ou ADDITIVE **quand OPAQUE est disponible**
+			// changerait ce que voit TOUTE application XR du dépôt. Ça ne se
+			// décide pas dans le même geste que la mesure qui le rend possible —
+			// et ce n'est PAS ce que le code ci-dessous fait.
+			//
+			// ── CE QUE LA SÉLECTION FAIT, ET CE QU'ELLE NE FAIT PAS ─────────
+			// Règle, dans cet ordre :
+			//   1. le runtime annonce OPAQUE  -> on garde OPAQUE. C'est le cas
+			//      ici et sur Quest : le comportement est identique à celui
+			//      d'avant, au bit près. Aucune application ne voit de
+			//      différence, et le passthrough n'est PAS activé.
+			//   2. le runtime n'annonce PAS OPAQUE -> on prend son premier mode
+			//      annoncé. Ce n'est pas un choix esthétique : la spec OpenXR
+			//      exige de soumettre un mode que le runtime a annoncé, donc
+			//      soumettre OPAQUE là-bas était **invalide**. C'est le cas des
+			//      casques AR à écran transparent, qui n'annoncent qu'ADDITIVE.
+			//   3. l'énumération échoue ou est absente -> OPAQUE, comme avant.
+			//
+			// Autrement dit : sur tout runtime qui annonce OPAQUE — c'est-à-dire
+			// tout ce que ce dépôt peut exercer aujourd'hui — ce correctif est
+			// inerte. Il ne devient utile que là où l'ancien code était fautif.
+			//
+			// ⚠️ Ceci ne rend le passthrough NI disponible NI plus proche. Le
+			// runtime PC mesuré le 2026-08-17 n'expose pas `XR_FB_passthrough`
+			// (36 extensions, absente), et un passthrough Quest exige un APK
+			// autonome que ce dépôt ne produit pas. Ce code sert à **dire la
+			// vérité** le jour où cet APK existera, pas à promettre une capacité.
 			if (mOxr->enumBlendModes != nullptr) {
 				uint32_t nbModes = 0;
 				XrEnvironmentBlendMode modes[8] = {};
@@ -629,13 +667,37 @@ namespace nkentseu {
 						logger.Warnf("[NKXR/OpenXR] Le runtime n'annonce QU'UN seul mode de fusion : "
 									 "le passthrough n'est pas disponible ici.\n");
 					}
+
+					// Sélection — une seule fois, ici. `EndFrame` ne fait que
+					// relire le résultat : rien de tout ceci ne se rejoue par
+					// image, et rien ne se journalise à 60 Hz.
+					bool opaqueAnnonce = false;
+					for (uint32_t i = 0; i < nbModes && i < 8; ++i) {
+						if (modes[i] == XR_ENVIRONMENT_BLEND_MODE_OPAQUE) {
+							opaqueAnnonce = true;
+							break;
+						}
+					}
+					if (opaqueAnnonce) {
+						mOxr->blendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+						logger.Infof("[NKXR/OpenXR] Mode de fusion soumis : OPAQUE (annonce par le "
+									 "runtime). Comportement identique a avant ; pas de passthrough.\n");
+					} else {
+						mOxr->blendMode = modes[0];
+						logger.Warnf("[NKXR/OpenXR] Le runtime n'annonce PAS OPAQUE : soumission du mode %d, "
+									 "son premier annonce. Soumettre OPAQUE ici serait invalide au regard "
+									 "de la spec.\n",
+									 (int)modes[0]);
+					}
 				} else {
 					logger.Warnf("[NKXR/OpenXR] xrEnumerateEnvironmentBlendModes a echoue : modes de fusion "
-								 "INCONNUS (ce n'est pas la meme chose qu'aucun).\n");
+								 "INCONNUS (ce n'est pas la meme chose qu'aucun). Repli sur OPAQUE, comme "
+								 "avant le 2026-08-17.\n");
 				}
 			} else {
 				logger.Warnf("[NKXR/OpenXR] xrEnumerateEnvironmentBlendModes absente du loader : impossible "
-							 "de savoir ce que le runtime propose.\n");
+							 "de savoir ce que le runtime propose. Repli sur OPAQUE, comme avant le "
+							 "2026-08-17.\n");
 			}
 
 			mState = NkXrSessionState::NK_XR_STATE_IDLE;
@@ -1318,7 +1380,12 @@ namespace nkentseu {
 			XrFrameEndInfo endInfo{};
 			endInfo.type = XR_TYPE_FRAME_END_INFO;
 			endInfo.displayTime = XrTime(info.displayTime);
-			endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+			// Décidé à l'initialisation à partir de ce que le runtime annonce
+			// (voir `Initialize`), plus écrit en dur ici. Vaut OPAQUE tant que
+			// l'énumération n'a rien dit d'autre — donc identique à avant sur
+			// tout runtime que ce dépôt peut exercer. Simple lecture : aucune
+			// interrogation ni journalisation par image.
+			endInfo.environmentBlendMode = mOxr->blendMode;
 			if (mOxr->layerPending) {
 				projectionLayer.type = XR_TYPE_COMPOSITION_LAYER_PROJECTION;
 				projectionLayer.space = mOxr->spaces[2]; // STAGE (ou son repli LOCAL)
