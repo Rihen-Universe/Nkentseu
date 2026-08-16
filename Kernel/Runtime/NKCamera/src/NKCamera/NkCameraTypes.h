@@ -7,10 +7,7 @@
 #include "NKWindow/Core/NkTypes.h"
 #include "NKContainers/String/NkStringUtils.h"
 #include "NKContainers/Sequential/NkVector.h"
-#include <string>
-#include <vector>
-#include <functional>
-#include <memory>
+#include "NKContainers/Functional/NkFunction.h"
 
 namespace nkentseu {
 
@@ -305,8 +302,8 @@ namespace nkentseu {
 	// ---------------------------------------------------------------------------
 	// Callbacks
 	// ---------------------------------------------------------------------------
-	using NkFrameCallback = std::function<void(const NkCameraFrame &)>;
-	using NkCameraHotPlugCallback = std::function<void(const NkVector<NkCameraDevice> &)>;
+	using NkFrameCallback = NkFunction<void(const NkCameraFrame &)>;
+	using NkCameraHotPlugCallback = NkFunction<void(const NkVector<NkCameraDevice> &)>;
 
 	// ---------------------------------------------------------------------------
 	// NkCameraOrientation — pour le mapping caméra virtuelle / caméra réelle
