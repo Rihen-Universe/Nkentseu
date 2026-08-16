@@ -268,15 +268,45 @@ qu'il n'en a trouve aucun.
 
 VOTRE PREMIER MODULE, EN QUATRE GESTES
 
-  1. copiez  exemples/rules/RegleMinimale.cpp
+  1. copiez  exemples/rules/RegleFacile.cpp
         vers travail/rules/mes_regles.cpp
-  2. changez le nom dans FillFactory (sinon deux entrees identiques au menu)
+  2. changez le nom dans NKC_REGLES, tout en bas du fichier
+     (sinon deux entrees identiques au menu)
   3. sauvegardez, attendez une seconde
   4. le panneau « Modules » affiche votre module : selectionnez-le,
      puis « Nouvelle partie »
 
-Meme chose pour une IA, avec exemples/ai/IAMinimale.cpp vers
-travail/ai/.
+Meme chose pour une IA, avec exemples/ai/IAFacile.cpp vers travail/ai/.
+
+Un moteur de regles complet, c'est TROIS methodes :
+
+    Construire       a quoi la partie ressemble au depart
+    CoupsPossibles   ce qu'on a le droit de faire
+    Appliquer        ce qui se passe quand on le fait
+
+Le reste — cloner un etat, le sauvegarder, dire qui a gagne, verifier qu'un coup
+est legal — est le meme pour tout le monde et il est deja ecrit, dans
+include/Conqueror/ConquerorRegleFacile.h.
+
+
+QUAND VOUS VOUDREZ TOUT ECRIRE VOUS-MEME
+
+exemples/rules/RegleContratNu.cpp joue EXACTEMENT le meme jeu que
+RegleFacile.cpp, mais en ecrivant les 24 entrees du contrat a la main : 570
+lignes au lieu de 110. Comparer les deux est l'exercice le plus instructif du
+cours.
+
+Vous n'en aurez besoin que le jour ou votre etat de partie ne rentrera plus dans
+la structure « Partie » — elle est fixe et sans pointeur, c'est ce qui permet au
+cadre d'etre juste tout seul. Ce jour-la, et pas avant.
+
+Les autres exemples, du plus simple au plus complet :
+
+    exemples/ai/IAMinimale.cpp     la forme d'un module d'IA : tire au hasard
+    exemples/ai/IAFacile.cpp       evaluer et choisir
+    exemples/ai/IAGloutonne.cpp    le meme algorithme, au contrat nu
+    exemples/ai/IANegamax.cpp      negamax, alpha-beta, budget de temps
+    exemples/rules/GrilleLibre.cpp un plateau circulaire defini en C++
 
 ET POUR UNE GRILLE, IL N'Y A RIEN A COMPILER
 

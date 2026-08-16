@@ -1,7 +1,7 @@
 // =============================================================================
-// RegleFacile.cpp — LE MEME JEU QUE RegleMinimale.cpp, EN TROIS FONCTIONS.
+// RegleFacile.cpp — LE MEME JEU QUE RegleContratNu.cpp, EN TROIS FONCTIONS.
 //
-//     RegleMinimale.cpp   contrat nu                  ~560 lignes
+//     RegleContratNu.cpp   contrat nu                  ~560 lignes
 //     RegleFacile.cpp     ConquerorRegleFacile.h      ~110 lignes, ce fichier
 //
 // Les deux jouent EXACTEMENT le meme jeu : carre 5x5, DUPLIQUER sur une case
@@ -22,7 +22,7 @@
 //     CoupsPossibles   ce qu'on a le droit de faire
 //     Appliquer        ce qui se passe quand on le fait
 //
-// COMMENCEZ PAR CE FICHIER. Lisez RegleMinimale.cpp ensuite, pour voir ce que
+// COMMENCEZ PAR CE FICHIER. Lisez RegleContratNu.cpp ensuite, pour voir ce que
 // l'echafaudage vous epargne — et pour savoir quoi ecrire le jour ou votre
 // moteur aura besoin d'un etat que `Partie` ne sait pas porter.
 //
